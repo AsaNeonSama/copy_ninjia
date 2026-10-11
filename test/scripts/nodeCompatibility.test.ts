@@ -136,10 +136,13 @@ describe("Node 兼容约定", () => {
   test("测试文件复用脚本通用能力与测试夹具接口，整模块替身、同步内容 I/O 和 Buffer 按文件豁免", () => {
     const testPath: string = "/project/test/example.test.ts";
     const fixtureImports: string =
-      'import { cpSync, mkdtempSync, rmSync, statSync } from "node:fs";\n' +
+      'import { cpSync, lstatSync, mkdtempSync, rmSync } from "node:fs";\n' +
       'import { mkdtemp, lstat } from "node:fs/promises";\n' +
       'import { tmpdir } from "node:os";\nimport { generateKeyPairSync } from "node:crypto";';
     expect(collectNodeCompatibilityProblems(projectRoot, testPath, source(testPath, fixtureImports))).toEqual([]);
+    // 测试里的异步 stat 走 BunFile.stat()，statSync 不在测试共享登记里。
+    expect(collectNodeCompatibilityProblems(projectRoot, testPath, source(testPath, 'import { statSync } from "node:fs";')))
+      .toEqual([expect.stringContaining("unreviewed node:fs export statSync")]);
     expect(collectNodeCompatibilityProblems(projectRoot, packagePath, source(packagePath, fixtureImports))).toHaveLength(4);
     expect(collectNodeCompatibilityProblems(
       projectRoot,

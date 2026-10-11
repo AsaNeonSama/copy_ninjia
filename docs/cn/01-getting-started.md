@@ -37,17 +37,17 @@
 全新服务器环境推荐使用 [`install.sh`](../../install.sh) 自动化安装脚本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash
 ```
 
 安装模式可通过参数或环境变量 `COPY_NINJIA_INSTALL_MODE`（`source` 或 `binary`）指定；若未指定，安装程序会在终端通过交互菜单询问（默认为源码模式）。`COPY_NINJIA_DIR` 用于指定安装目录名（默认为 `copy_ninjia`）。
 
 ```bash
 # 二进制发行版安装（推荐快速部署，不依赖本地 git 或系统 Bun）
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --binary
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --binary
 
 # 源码安装（适合后续二次开发与贡献代码）
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --source
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --source
 ```
 
 #### 安装方式对比与行为
@@ -99,7 +99,7 @@ curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/instal
 
 ```bash
 # 1. 克隆代码仓库
-git clone https://github.com/Asashishi/copy_ninjia.git
+git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 
 # 2. 按锁文件安装依赖
@@ -217,25 +217,12 @@ config/
 ```bash
 mkdir -p database
 bun -e '
-  import { createStorageDatabase } from "./packages/database/interact/migration";
-  import {
-    closeStorageDatabase,
-    enableStorageDatabaseWal,
-    openStorageDatabase,
-  } from "./packages/database/interact/connection";
-  import { initializeStorageDatabase } from "./packages/database/interact/initialization";
+  import { bootstrapStorageDatabase } from "./packages/database/interact/initialization";
   import { loadBotConfig } from "./packages/config/botInput";
   import { IDENTITY_DATABASE_PATH } from "./packages/consts/paths";
 
   const { timeZone } = await loadBotConfig();
-  createStorageDatabase(IDENTITY_DATABASE_PATH);
-  const database = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
-  try {
-    initializeStorageDatabase(database, timeZone);
-  } finally {
-    closeStorageDatabase(database);
-  }
-  enableStorageDatabaseWal(IDENTITY_DATABASE_PATH);
+  bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, timeZone);
 '
 chmod 2770 database
 chmod 660 database/storage.sqlite

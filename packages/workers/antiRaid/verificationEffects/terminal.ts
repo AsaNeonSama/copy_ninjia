@@ -12,19 +12,20 @@ import {
 } from "../../../infra/telegram";
 import { verificationKey } from "../../../libs/verificationKey";
 import { isMessageDeletionSettled } from "../../../libs/messageDeletion";
-import type { VerificationDispatcher } from "../../../types/antiRaid/internal";
+import type { VerificationDispatcher, VerificationEntry } from "../../../types/antiRaid/internal";
 import type {
+  CheckingInviterState,
   ExpelSnapshot,
+  ExpellingState,
   VerificationEffect,
   VerificationState,
-  VerificationTerminalState,
 } from "../../../types/states/verification";
 import type { KickChatMemberOutcome } from "../../../infra/telegram";
 import type { DeleteMessageOutcome } from "../../../types/telegram";
 import { isChatAdmin } from "../adminCache";
 import { botCanDeleteIn, botCanRestrictIn } from "../botPermissions";
 import { resolveChatIsSupergroup } from "../chatKind";
-import { scheduleTerminalRetry } from "./retry";
+import { retryTerminalAttempt } from "./retry";
 import { expelNoticeText } from "./expelNotice";
 import type { ExpelRemovalOutcome, VerificationCleanupResult } from "../../../types/antiRaid/verification";
 
@@ -57,34 +58,6 @@ export async function runRecheckInviterEffect({
   });
 }
 
-/** retryTerminalLater 的入参。 */
-interface RetryTerminalLaterParams {
-  readonly chatId: number;
-  readonly userId: number;
-  readonly state: VerificationTerminalState;
-  readonly dispatchVerification: VerificationDispatcher;
-}
-
-/**
- * 终态动作这一轮没有结算：重新允许权威豁免替换 token，再按条目的退避序列排一次
- * terminalPersisted 重试（见 retry.ts 的 scheduleTerminalRetry）。
- */
-function retryTerminalLater({
-  chatId,
-  userId,
-  state,
-  dispatchVerification,
-}: RetryTerminalLaterParams): void {
-  state.executionStarted = false;
-  scheduleTerminalRetry({
-    chatId,
-    userId,
-    state,
-    event: { type: "terminalPersisted" },
-    dispatchVerification,
-  });
-}
-
 interface RunExpelEffectParams {
   chatId: number;
   userId: number;
@@ -100,11 +73,12 @@ export async function runExpelEffect({
   dispatchVerification,
 }: RunExpelEffectParams): Promise<void> {
   const key: string = verificationKey(chatId, userId);
-  const expectedState: VerificationState | undefined =
-    verificationEntries.get(key)?.state;
+  const entry: VerificationEntry | undefined = verificationEntries.get(key);
+  const expectedState: VerificationState | undefined = entry?.state;
   const reason: "timeout" | "flood" =
     effect.kind === "expelFlood" ? "flood" : "timeout";
   if (
+    entry === undefined ||
     expectedState?.kind !== "expelling" ||
     expectedState.reason !== reason ||
     expectedState.snapshot !== effect.snapshot
@@ -119,14 +93,14 @@ export async function runExpelEffect({
   // 已自行离群时直接结算，removalConfirmed 记着「上一轮已踢掉、战报未发出」时交给 expelMember
   // 补发战报。提示自己没发出去时不置位（见 expelMember 收尾），下一轮重来。
   //
-  // 清理还欠着账（cleanupSettled 为假）时不短路：照常走 expelMember，踢人被 canRestrict
+  // 清理还欠着账（条目的 cleanupSettled 为假）时不短路：照常走 expelMember，踢人被 canRestrict
   // 短路、播报被 failureNoticeSent 短路、确证没有删除权限时删除被 botCanDeleteIn 短路，
   // 只有仍能删且需要重试的清理才会发出请求。
   const permissionBlocked: boolean = botCanRestrictIn(chatId) === false;
   if (
     permissionBlocked &&
     expectedState.failureNoticeSent === true &&
-    expectedState.cleanupSettled === true
+    entry.cleanupSettled === true
   ) {
     const removal: ExpelRemovalOutcome = await probeBlockedMember(
       chatId,
@@ -135,7 +109,7 @@ export async function runExpelEffect({
     );
     if (removal === "stale") return;
     if (removal !== "absent") {
-      retryTerminalLater({ chatId, userId, state: expectedState, dispatchVerification });
+      retryTerminalAttempt({ chatId, userId, state: expectedState, dispatchVerification });
       return;
     }
     if (expectedState.removalConfirmed !== true) {
@@ -169,14 +143,14 @@ export async function runExpelEffect({
   ) return;
 
   // 成功播报已发送时等待落盘回执；只有未结算处置才进入本地指数退避。
-  retryTerminalLater({ chatId, userId, state: expectedState, dispatchVerification });
+  retryTerminalAttempt({ chatId, userId, state: expectedState, dispatchVerification });
 }
 
 interface RecheckInviterThenSettleParams {
   chatId: number;
   userId: number;
   inviterId: number;
-  expectedState: VerificationTerminalState & { kind: "checkingInviter" };
+  expectedState: CheckingInviterState;
   dispatchVerification: VerificationDispatcher;
 }
 
@@ -191,7 +165,7 @@ async function recheckInviterThenSettle({
   const inviterIsAdmin: boolean | undefined = await isChatAdmin(chatId, inviterId, "verification inviter");
   if (verificationEntries.get(verificationKey(chatId, userId))?.state !== expectedState) return;
   if (inviterIsAdmin === undefined) {
-    retryTerminalLater({ chatId, userId, state: expectedState, dispatchVerification });
+    retryTerminalAttempt({ chatId, userId, state: expectedState, dispatchVerification });
     return;
   }
   dispatchVerification(chatId, userId, { type: "timeoutInviterVerdict", inviterIsAdmin });
@@ -208,7 +182,7 @@ interface ExpelMemberParams {
    * 失败时结局按「没踢动」结算。
    */
   canRestrict: boolean;
-  expectedState: VerificationTerminalState & { kind: "expelling" };
+  expectedState: ExpellingState;
   dispatchVerification: VerificationDispatcher;
 }
 
@@ -234,7 +208,6 @@ async function kickPresentMember(
     chatId,
     userId,
     isSupergroup,
-    api: telegramApi,
   });
   if (outcome === "kicked") return "kicked";
   if (outcome === "absent") return "absent";
@@ -322,8 +295,8 @@ async function expelMember({
   expectedState,
   dispatchVerification,
 }: ExpelMemberParams): Promise<boolean> {
-  const stillCurrent = (): boolean =>
-    verificationEntries.get(verificationKey(chatId, userId))?.state === expectedState;
+  const key: string = verificationKey(chatId, userId);
+  const stillCurrent = (): boolean => verificationEntries.get(key)?.state === expectedState;
   let removalOutcome: ExpelRemovalOutcome = "failed";
   if (!stillCurrent()) return false;
   if (reason === "flood") {
@@ -335,9 +308,10 @@ async function expelMember({
   const cleanup: VerificationCleanupResult | null =
     await deleteVerificationMessages({ chatId, userId, snapshot, isCurrent: stillCurrent });
   if (cleanup === null) return false;
-  // 只在真的一条不剩时置位；欠着账就留给下一轮重试（见 ExpellingState.cleanupSettled）。
-  if (cleanup.missed === 0) expectedState.cleanupSettled = true;
-  if (!stillCurrent()) return false;
+  const entry: VerificationEntry | undefined = verificationEntries.get(key);
+  if (entry?.state !== expectedState) return false;
+  // 只在真的一条不剩时置位；欠着账就留给下一轮重试（见 VerificationEntry.cleanupSettled）。
+  if (cleanup.missed === 0) entry.cleanupSettled = true;
   if (reason === "timeout") {
     removalOutcome = canRestrict
       ? await kickPresentMember(chatId, userId, stillCurrent)

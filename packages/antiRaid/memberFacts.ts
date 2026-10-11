@@ -45,10 +45,15 @@ export function pickMember(user: PickMemberParams): AntiRaidMember {
 }
 
 /**
- * 只有身份可归因的非匿名管理员才提供“邀请者免验证”。匿名管理员仍是
- * Telegram 管理员，也仍可因自身管理员身份免验证；这里只避免把匿名操作
+ * 只有身份可归因的非匿名人类管理员才提供“邀请者免验证”，并进入 Worker 侧管理员缓存。
+ * 匿名管理员仍是 Telegram 管理员，也仍可因自身管理员身份免验证；这里只避免把匿名操作
  * 可能携带的脱敏/共享 actor 身份当作可信邀请者。
+ *
+ * 机器人不论是不是管理员都按普通成员处理：不免验证邀请，消息照常过刷屏与广告处置。
+ * 与全量拉取同口径，见 workers/antiRaid/adminCache.ts 的 fetchAdminIds。
  */
 export function isInviterExemptAdmin(member: ChatMember): boolean {
-  return isAdminStatus(member.status) && (!("is_anonymous" in member) || member.is_anonymous !== true);
+  return isAdminStatus(member.status) &&
+    member.user.is_bot !== true &&
+    (!("is_anonymous" in member) || member.is_anonymous !== true);
 }

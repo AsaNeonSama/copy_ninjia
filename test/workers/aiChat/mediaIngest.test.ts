@@ -60,9 +60,10 @@ function stickerMessage(): AiRecordMediaMessage {
 
 beforeEach(() => {
   dirtyMemoryChats.clear();
-  describeMedia.mockClear();
+  // getCatalogEntry 默认返回 undefined，与 reset 后的空实现等价，无需装回。
+  describeMedia.mockReset();
   describeMedia.mockResolvedValue("一只戴帽子的猫");
-  getCatalogEntry.mockClear();
+  getCatalogEntry.mockReset();
   pushBufferedMessage.mockClear();
   generateAndSendReply.mockClear();
   trackReplyGenerationTask.mockClear();

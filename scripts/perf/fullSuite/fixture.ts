@@ -27,16 +27,13 @@ import {
   IDENTITY_DATABASE_PATH,
 } from "../../../packages/consts/paths";
 import { seedStorageDatabase } from "../../fixtures/storageDatabase";
-import { storageMetadataRows } from
+import { bootstrapStorageDatabase } from
   "../../../packages/database/interact/initialization";
 import { getTimeZone } from "../../../packages/config/time";
 import {
   closeStorageDatabase,
-  enableStorageDatabaseWal,
   openStorageDatabase,
 } from "../../../packages/database/interact/connection";
-import { createStorageDatabase } from
-  "../../../packages/database/interact/migration";
 import { readStoredAiContexts } from "../../../packages/database/interact/aiContext";
 import { encodeChatStateData } from
   "../../../packages/database/codec/chatState";
@@ -52,7 +49,7 @@ import type { ChatState } from "../../../packages/types/chatState";
 import type { PendingBlockedRemoval } from
   "../../../packages/types/blocklist";
 import type { JoinLogDiskMessage } from
-  "../../../packages/types/diskIO";
+  "../../../packages/types/diskIO/messages";
 import type { SeedStorageDatabaseOptions } from
   "../../fixtures/storageDatabase";
 import type {
@@ -219,7 +216,8 @@ function removalRows(): readonly StoredPendingRemovalRow[] {
 }
 
 /**
- * 在当前进程的运行时数据根下建库并写入给定业务行。
+ * 在当前进程的运行时数据根下建库（schema 版本与本进程配置时区的 metadata 由 bootstrapStorageDatabase
+ * 写入），再写入给定业务行。
  *
  * 目录与文件权限按 `packages/consts/identityStorage.ts` 的生产口径设置，满足数据根
  * 预检对 `database/` 的权限判据。
@@ -230,8 +228,7 @@ function createDatabase(rows: SeedStorageDatabaseOptions): void {
     mode: IDENTITY_DATABASE_DIRECTORY_MODE,
   });
   chmodSync(DATABASE_DIR, IDENTITY_DATABASE_DIRECTORY_MODE);
-  createStorageDatabase(IDENTITY_DATABASE_PATH);
-  enableStorageDatabaseWal(IDENTITY_DATABASE_PATH);
+  bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, getTimeZone());
   const database: StorageDatabase = openStorageDatabase({
     path: IDENTITY_DATABASE_PATH,
   });
@@ -246,7 +243,6 @@ function createDatabase(rows: SeedStorageDatabaseOptions): void {
 /** 满库：生产量级的部署数据，供冷启动分区使用。 */
 export function createBenchmarkDatabase(): void {
   createDatabase({
-    metadata: storageMetadataRows(getTimeZone()),
     whitelist: identityRows(WHITE_DATA, 1),
     blocklist: identityRows(BLACK_DATA, BENCHMARK_BLOCKLIST_ID_BASE),
     removals: removalRows(),
@@ -258,7 +254,6 @@ export function createBenchmarkDatabase(): void {
 /** 空库，只带 storage_metadata（schema 版本与本进程配置时区）；供链路分区从零开始写。 */
 export function createEmptyBenchmarkDatabase(): void {
   createDatabase({
-    metadata: storageMetadataRows(getTimeZone()),
     whitelist: [],
     blocklist: [],
     removals: [],

@@ -6,8 +6,6 @@ import type {
   TelegramWorkerJsonCall,
   TelegramWorkerRequest,
 } from "../../packages/types/telegramWorker";
-import type { TelegramRetryCategory } from "../../packages/types/telegramOutbound";
-import { telegramRetryCategoryFor } from "../../packages/infra/telegram/outboundRetryPolicy";
 
 interface CapturedDuplexRequest {
   readonly request: TelegramWorkerRequest;
@@ -47,12 +45,13 @@ const mainGetFile = mock(async (..._args: unknown[]): Promise<unknown> => ({
   file_path: hydratedFilePath,
   getUrl: (): string => "https://api.telegram.test/files/media.bin",
 }));
-const actionSendMessage = mock(async (
+async function actionSendMessageStub(
   params: { onSent?: (messageId: number) => void }
-): Promise<number> => {
+): Promise<number> {
   params.onSent?.(88);
   return 88;
-});
+}
+const actionSendMessage = mock(actionSendMessageStub);
 const deleteMessageAfter = mock((..._args: unknown[]): void => {});
 
 mock.module("../../packages/libs/workerDuplex", () => ({ requestMainThread }));
@@ -91,7 +90,8 @@ beforeEach((): void => {
   mainSendVoice.mockClear();
   mainGetFile.mockClear();
   hydratedFilePath = "files/media.bin";
-  actionSendMessage.mockClear();
+  actionSendMessage.mockReset();
+  actionSendMessage.mockImplementation(actionSendMessageStub);
   deleteMessageAfter.mockClear();
 });
 
@@ -109,7 +109,6 @@ describe("Telegram Worker 双工代理", () => {
     expect(duplexRequests).toEqual([{
       request: {
         operation: "call",
-        category: "message",
         call: {
           method: "sendMessage",
           payload: {
@@ -124,108 +123,91 @@ describe("Telegram Worker 双工代理", () => {
     }]);
   });
 
-  test("全部 JSON 方法逐项保持 method、category、payload 与 signal", async (): Promise<void> => {
+  test("全部 JSON 方法逐项保持 method、payload 与 signal", async (): Promise<void> => {
     const signal: AbortSignal = new AbortController().signal;
     const permissions: Readonly<Record<string, boolean>> = { can_send_messages: false };
     const cases: readonly Readonly<{
       method: TelegramWorkerJsonCall["method"];
-      category: TelegramRetryCategory;
       args: readonly unknown[];
       payload: Readonly<Record<string, unknown>>;
     }>[] = [
       {
         method: "answerCallbackQuery",
-        category: "callback",
         args: ["callback-id", { text: "done" }, signal],
         payload: { callback_query_id: "callback-id", text: "done" },
       },
       {
         method: "banChatMember",
-        category: "kick",
         args: [-1001, 7, { until_date: 123 }, signal],
         payload: { chat_id: -1001, user_id: 7, until_date: 123 },
       },
       {
         method: "banChatSenderChat",
-        category: "kick",
         args: [-1001, -2002, signal],
         payload: { chat_id: -1001, sender_chat_id: -2002 },
       },
       {
         method: "deleteMessage",
-        category: "delete",
         args: [-1001, 9, signal],
         payload: { chat_id: -1001, message_id: 9 },
       },
       {
         method: "deleteMessages",
-        category: "delete",
         args: [-1001, [9, 10], signal],
         payload: { chat_id: -1001, message_ids: [9, 10] },
       },
       {
         method: "getChat",
-        category: "query",
         args: [-1001, signal],
         payload: { chat_id: -1001 },
       },
       {
         method: "getChatAdministrators",
-        category: "query",
-        args: [-1001, signal],
-        payload: { chat_id: -1001 },
+        args: [-1001, { return_bots: true }, signal],
+        payload: { chat_id: -1001, return_bots: true },
       },
       {
         method: "getChatMember",
-        category: "query",
         args: [-1001, 7, signal],
         payload: { chat_id: -1001, user_id: 7 },
       },
       {
         method: "getStickerSet",
-        category: "query",
         args: ["pack", signal],
         payload: { name: "pack" },
       },
       {
         method: "restrictChatMember",
-        category: "restrict",
         args: [-1001, 7, permissions, { until_date: 456 }, signal],
         payload: { chat_id: -1001, user_id: 7, permissions, until_date: 456 },
       },
       {
         method: "sendChatAction",
-        category: "chatAction",
         args: [-1001, "typing", { message_thread_id: 3 }, signal],
         payload: { chat_id: -1001, action: "typing", message_thread_id: 3 },
       },
       {
         method: "sendMessage",
-        category: "message",
         args: [-1001, "hello", { disable_notification: true }, signal],
         payload: { chat_id: -1001, text: "hello", disable_notification: true },
       },
       {
         method: "sendSticker",
-        category: "message",
         args: [-1001, "sticker-id", { emoji: "x" }, signal],
         payload: { chat_id: -1001, sticker: "sticker-id", emoji: "x" },
       },
       {
         method: "setChatPermissions",
-        category: "restrict",
         args: [-1001, permissions, { use_independent_chat_permissions: true }, signal],
         payload: { chat_id: -1001, permissions, use_independent_chat_permissions: true },
       },
       {
         method: "setMessageReaction",
-        category: "reaction",
         args: [-1001, 13, [], { is_big: true }, signal],
         payload: { chat_id: -1001, message_id: 13, reaction: [], is_big: true },
       },
       {
         method: "unbanChatMember",
-        category: "kick",
         args: [-1001, 7, { only_if_banned: true }, signal],
         payload: { chat_id: -1001, user_id: 7, only_if_banned: true },
       },
@@ -244,7 +226,6 @@ describe("Telegram Worker 双工代理", () => {
         | Extract<TelegramWorkerRequest, { operation: "call" }>
         | undefined;
       expect(request?.operation).toBe("call");
-      expect(request?.category).toBe(entry.category);
       expect(request?.call as unknown).toEqual({ method: entry.method, payload: entry.payload });
       expect(captured?.signal).toBe(signal);
       expect(captured?.transfer).toBeUndefined();
@@ -268,7 +249,6 @@ describe("Telegram Worker 双工代理", () => {
       request: {
         operation: "sendTemporaryMessage",
         purpose: "adWarning",
-        category: "message",
         chatId: -1001,
         identityId: 7,
         text: "temporary",
@@ -288,7 +268,6 @@ describe("Telegram Worker 双工代理", () => {
 
     expect(duplexRequests[0]?.request).toEqual({
       operation: "sendPhoto",
-      category: "message",
       chatId: -1001,
       bytes: new Uint8Array([1, 2, 3]),
       fileName: "reply.png",
@@ -325,7 +304,6 @@ describe("Telegram Worker 双工代理", () => {
       | undefined;
     expect(request).toEqual({
       operation: "sendVoice",
-      category: "message",
       chatId: -1001,
       bytes: voiceBytes,
       fileName: "voice.ogg",
@@ -384,7 +362,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
     const signal: AbortSignal = new AbortController().signal;
     await expect(handleAiWorkerTelegramRequest({
       operation: "call",
-      category: "message",
       call: {
         method: "sendMessage",
         payload: { chat_id: -1001, text: "reply" },
@@ -397,7 +374,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
 
     await expect(handleAiWorkerTelegramRequest({
       operation: "call",
-      category: "kick",
       call: {
         method: "banChatMember",
         payload: { chat_id: -1001, user_id: 7 },
@@ -409,14 +385,12 @@ describe("主线程 Telegram Worker 能力边界", () => {
     const signal: AbortSignal = new AbortController().signal;
     await expect(handleAntiRaidWorkerTelegramRequest({
       operation: "call",
-      category: "query",
       call: { method: "getChat", payload: { chat_id: -1001 } },
     }, signal)).resolves.toEqual({ id: -1001, type: "supergroup" });
     expect(rawGetChat).toHaveBeenCalledWith({ chat_id: -1001 }, signal);
 
     await expect(handleAntiRaidWorkerTelegramRequest({
       operation: "call",
-      category: "query",
       call: { method: "getStickerSet", payload: { name: "pack" } },
     }, signal)).rejects.toThrow("unsupported Telegram capability");
   });
@@ -427,7 +401,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
     await expect(handleAntiRaidWorkerTelegramRequest({
       operation: "sendTemporaryMessage",
       purpose: "adWarning",
-      category: "message",
       chatId: -1001,
       identityId: 7,
       text: "warning",
@@ -453,7 +426,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
     const signal: AbortSignal = new AbortController().signal;
     await handleAiWorkerTelegramRequest({
       operation: "sendPhoto",
-      category: "message",
       chatId: -1001,
       bytes: new Uint8Array([4, 5, 6]),
       fileName: "generated.png",
@@ -472,7 +444,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
     const signal: AbortSignal = new AbortController().signal;
     const request: TelegramWorkerRequest = {
       operation: "sendVoice",
-      category: "message",
       chatId: -1001,
       bytes: new Uint8Array([1, 2, 3]),
       fileName: "voice.ogg",
@@ -489,8 +460,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
 
     await expect(handleAntiRaidWorkerTelegramRequest(request, signal))
       .rejects.toThrow("unsupported Telegram capability");
-    await expect(handleAiWorkerTelegramRequest({ ...request, category: "query" } as never, signal))
-      .rejects.toThrow("Telegram Worker sendVoice must use the message category.");
   });
 
   test("下载能力区分缺路径、HTTP、体积、空响应与成功字节，并只转移成功 buffer", async (): Promise<void> => {
@@ -509,7 +478,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
     const signal: AbortSignal = new AbortController().signal;
     const request: TelegramWorkerRequest = {
       operation: "downloadFile",
-      category: "download",
       fileId: "file-id",
       purpose: "vision",
     };
@@ -568,7 +536,6 @@ describe("主线程 Telegram Worker 能力边界", () => {
       const payload: Record<string, string> = { marker: entry.method };
       const request = {
         operation: "call",
-        category: telegramRetryCategoryFor(entry.method),
         call: { method: entry.method, payload },
       } as unknown as TelegramWorkerRequest;
       const handler: typeof handleAiWorkerTelegramRequest = entry.owner === "ai"
@@ -583,31 +550,18 @@ describe("主线程 Telegram Worker 能力边界", () => {
     expect(rawDispatches.map((call): unknown => call.payload))
       .toEqual(cases.map((entry): Record<string, string> => ({ marker: entry.method })));
   });
-
-  test("调用方类别与真实 Bot API 方法不一致时主线程拒绝", async (): Promise<void> => {
-    const signal: AbortSignal = new AbortController().signal;
-    await expect(handleAiWorkerTelegramRequest({
-      operation: "call",
-      category: "query",
-      call: {
-        method: "sendMessage",
-        payload: { chat_id: -1001, text: "reply" },
-      },
-    }, signal)).rejects.toThrow("category does not match");
-    expect(rawSendMessage).not.toHaveBeenCalled();
-  });
 });
 
 test("AI 普通群提示带话题进入主线程清理，广告豁免能力仍不可用", async (): Promise<void> => {
   const signal: AbortSignal = new AbortController().signal;
   await expect(handleAiWorkerTelegramRequest({
-    operation: "sendTemporaryMessage", purpose: "notice", category: "message",
+    operation: "sendTemporaryMessage", purpose: "notice",
     chatId: -1001, text: "限频", messageThreadId: 23,
   }, signal)).resolves.toEqual({ messageId: 88, sentAt: expect.any(Number) });
   expect(actionSendMessage).toHaveBeenCalledWith(expect.objectContaining({ messageThreadId: 23 }));
   expect(deleteMessageAfter).toHaveBeenCalledTimes(1);
   await expect(handleAiWorkerTelegramRequest({
-    operation: "sendTemporaryMessage", purpose: "adWarning", category: "message",
+    operation: "sendTemporaryMessage", purpose: "adWarning",
     chatId: -1001, identityId: 7, text: "广告",
   }, signal)).rejects.toThrow("unsupported Telegram capability");
 });
@@ -617,7 +571,7 @@ test("远端发送成功后取消结果仍保留删除任务，发送失败不�
   actionSendMessage.mockImplementationOnce(async (params: { onSent?: (id: number) => void }): Promise<number> => {
     params.onSent?.(88); controller.abort(); return 88;
   });
-  const request: TelegramWorkerRequest = { operation: "sendTemporaryMessage", purpose: "notice", category: "message", chatId: -1001, text: "操作回执" };
+  const request: TelegramWorkerRequest = { operation: "sendTemporaryMessage", purpose: "notice", chatId: -1001, text: "操作回执" };
   await handleAntiRaidWorkerTelegramRequest(request, controller.signal).catch((): undefined => undefined);
   expect(deleteMessageAfter).toHaveBeenCalledTimes(1);
   deleteMessageAfter.mockClear();

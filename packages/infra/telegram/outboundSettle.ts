@@ -7,6 +7,7 @@
 import { telegramOutboundGateState } from "../../cache/main/telegram";
 import { isTimeoutAbort } from "../../libs/abortSignal";
 import { discardResponseBody } from "../../libs/boundedResponse";
+import { settleFlushWaiters } from "../../libs/drainWaiter";
 import type { TelegramOutboundJob } from "../../types/telegramOutbound";
 
 /** 出站请求被调用方或生命周期取消时交给调用方的错误。 */
@@ -42,13 +43,9 @@ export function settleDrainWaitersIfIdle(): void {
   settleAllDrainWaiters(true);
 }
 
-/** 以 drained 结算并清空全部排空等待者，各自的超时 timer 一并取消。 */
+/** 以 drained 结算并清空全部排空等待者（false 按 timedOut），各自的超时 timer 一并取消。 */
 export function settleAllDrainWaiters(drained: boolean): void {
-  for (const waiter of telegramOutboundGateState.drainWaiters) {
-    clearTimeout(waiter.timer);
-    waiter.resolve(drained);
-  }
-  telegramOutboundGateState.drainWaiters.clear();
+  settleFlushWaiters(telegramOutboundGateState.drainWaiters, drained ? "flushed" : "timedOut");
 }
 
 /**

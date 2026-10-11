@@ -27,9 +27,9 @@ import { forumTopicThreadId } from "../libs/forumTopic";
 import { settleWithinBudget } from "../libs/inflight";
 import { logger } from "../infra/logger";
 import { throwIfUpdateAborted } from "../infra/updateContext";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
-import { purgesChatData } from "../libs/chatTeardown";
+import { isChatUnreachable, purgesChatData } from "../libs/chatTeardown";
 import { rejectUnlessPermitted } from "./commandActor";
 import type { CachedUser } from "../types/chatState";
 import type { ChatTeardownReason } from "../types/chatTeardown";
@@ -61,7 +61,7 @@ export async function handleQaCommand(ctx: CommandContext<Context>): Promise<voi
   } else if (subcommand === "remove") {
     await removeQa(ctx, argument);
   } else {
-    await sendCommandMessage({ chatId: ctx.chat.id, text: chatAtmosphere().QA_USAGE_TEXT, replyToMessageId: ctx.msgId });
+    await replyCommandNotice(ctx, chatAtmosphere().QA_USAGE_TEXT);
   }
 }
 
@@ -88,22 +88,14 @@ async function setQa(ctx: CommandContext<Context>): Promise<void> {
   const actor: CachedUser | undefined = await requiresQaPermission(ctx);
   if (actor === undefined) return;
   if ((chatQaEntries.get(chatId)?.size ?? 0) >= CHAT_QA_MAX_PER_CHAT) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().QA_COMMAND_TEXTS.full,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.full);
     return;
   }
   const openedById: number = actor.id;
   // 同一发起人可重开；其他身份不能替换当前会话。
   const existing: QaFormSession | undefined = qaFormSessions.get(chatId);
   if (existing !== undefined && existing.openedById !== openedById) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().QA_COMMAND_TEXTS.formTaken,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.formTaken);
     return;
   }
 
@@ -113,11 +105,7 @@ async function setQa(ctx: CommandContext<Context>): Promise<void> {
     onDiscard: discardQaForm,
   });
   if (session === null) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().QA_COMMAND_TEXTS.formBusy,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.formBusy);
     return;
   }
   try {
@@ -233,22 +221,14 @@ async function queryQa(ctx: CommandContext<Context>, wanted: string): Promise<vo
   const messageId: number | undefined = ctx.msgId;
   const entries: ReadonlyMap<string, string> | undefined = chatQaEntries.get(chatId);
   if (entries === undefined || entries.size === 0) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().QA_COMMAND_TEXTS.queryEmpty,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.queryEmpty);
     return;
   }
   const selected: QaEntry[] = [];
   if (wanted.length > 0) {
     const answer: string | undefined = entries.get(wanted);
     if (answer === undefined) {
-      await sendCommandMessage({
-        chatId,
-        text: chatAtmosphere().QA_COMMAND_TEXTS.queryMissing(wanted),
-        replyToMessageId: messageId,
-      });
+      await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.queryMissing(wanted));
       return;
     }
     selected.push({ q: wanted, a: answer });
@@ -275,14 +255,9 @@ async function queryQa(ctx: CommandContext<Context>, wanted: string): Promise<vo
 /** 处理 `/qa remove <问题文本>`：删掉本群指定问答。 */
 async function removeQa(ctx: CommandContext<Context>, wanted: string): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   if (await requiresQaPermission(ctx) === undefined) return;
   if (wanted.length === 0) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().QA_COMMAND_TEXTS.removeUsage,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.removeUsage);
     return;
   }
   let removed: boolean;
@@ -290,21 +265,15 @@ async function removeQa(ctx: CommandContext<Context>, wanted: string): Promise<v
     removed = removeChatQa(chatId, wanted);
   } catch (error: unknown) {
     logger.error(`Failed to remove the qa entry for chat ${chatId}:`, error);
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().QA_COMMAND_TEXTS.persistFailed,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().QA_COMMAND_TEXTS.persistFailed);
     return;
   }
-  await sendCommandMessage({
-    chatId,
-    // 删到回 removed，没删到回 removeMissing。
-    text: removed
+  await replyCommandNotice(
+    ctx,
+    removed
       ? chatAtmosphere().QA_COMMAND_TEXTS.removed(wanted)
-      : chatAtmosphere().QA_COMMAND_TEXTS.removeMissing(wanted),
-    replyToMessageId: messageId,
-  });
+      : chatAtmosphere().QA_COMMAND_TEXTS.removeMissing(wanted)
+  );
 }
 
 /** 机器人已离群：表单消息删不掉，关闭会话后直接作废消息 id，不发删除请求。 */
@@ -315,11 +284,11 @@ function abandonQaForm(session: QaFormSession): void {
 /**
  * 群 teardown / `/init disable`：收走该群全部未完成表单，并在要删数据时删掉已登记的问答。
  *
- * 表单一律收走，表单消息只在机器人仍在群里时删除；问答只在 purgesChatData(reason) 为真时
- * 删除（见 libs/chatTeardown.ts），`lostAuthority` 保留问答。
+ * 表单一律收走，表单消息只在机器人仍能访问本群时删除（isChatUnreachable 为假）；问答只在
+ * purgesChatData(reason) 为真时删除（见 libs/chatTeardown.ts），`lostAuthority` 保留问答。
  */
 export function teardownQaInChat(chatId: number, reason: ChatTeardownReason): void {
-  closeQaFormSessionsInChat(chatId, reason === "departed" ? abandonQaForm : discardQaForm);
+  closeQaFormSessionsInChat(chatId, isChatUnreachable(reason) ? abandonQaForm : discardQaForm);
   if (purgesChatData(reason)) removeAllChatQa(chatId);
 }
 

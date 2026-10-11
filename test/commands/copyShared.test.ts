@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { waitUntil } from "../helpers/waitUntil";
 import { loggerStub } from "../helpers/loggerMock";
 import type { CachedUser } from "../../packages/types/chatState";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
@@ -6,6 +7,7 @@ import { botAtmosphereState } from "../../packages/cache/main/atmosphere";
 import type { AvatarNoticeSource } from "../../packages/types/copy/avatar";
 import type { Atmosphere } from "../../packages/types/atmosphere";
 import type { DefaultAvatarSource } from "../../packages/types/config";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const copyUserProfilePhoto = mock(async (..._args: unknown[]): Promise<boolean> => true);
@@ -19,6 +21,7 @@ const DEFAULT_AVATAR: DefaultAvatarSource = { kind: "path", path: "/srv/bot/defa
 mock.module("../../packages/config/bot", () => ({ SUPER_ADMIN_USER_ID: 100 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/infra/telegram/avatar/copy", () => ({ copyUserProfilePhoto }));
 mock.module("../../packages/infra/telegram/avatar/restore", () => ({ restoreDefaultProfilePhoto }));
@@ -62,14 +65,6 @@ interface AvatarNoticeCase {
   nextAtmosphere: Atmosphere;
 }
 
-async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let attempt: number = 0; attempt < 20; attempt++) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  throw new Error("Timed out waiting for background avatar task");
-}
-
 /** preload 接管的本进程风格；改写它的用例结束后还原。 */
 const PRELOADED_ATMOSPHERE: Atmosphere | null = botAtmosphereState.current;
 
@@ -78,12 +73,12 @@ beforeEach(() => {
   Date.now = (): number => 1_000_000;
   for (const mocked of [
     sendMessage,
-    copyUserProfilePhoto,
-    restoreDefaultProfilePhoto,
     saveStateInBackground,
     resolveCommandTarget,
     loggerError,
   ]) mocked.mockClear();
+  copyUserProfilePhoto.mockReset();
+  restoreDefaultProfilePhoto.mockReset();
   copyUserProfilePhoto.mockImplementation(async (): Promise<boolean> => true);
   restoreDefaultProfilePhoto.mockImplementation(async (): Promise<boolean> => true);
   resolveCommandTarget.mockImplementation(async (): Promise<CachedUser | undefined> => ({ id: 7, first_name: "Alice" }));
@@ -178,11 +173,11 @@ describe("copy 命令共享冷却与头像串行器", () => {
       target: { kind: "user", user: { id: 7, first_name: "Alice" } },
       source: "icon",
     });
-    await waitFor(() => copyUserProfilePhoto.mock.calls.length === 1);
+    expect(await waitUntil(() => copyUserProfilePhoto.mock.calls.length === 1)).toBe(true);
 
     quiesceAvatarUpdates();
     await expect(drainAvatarUpdates(0)).resolves.toBe("timedOut");
-    await waitFor(() => !avatarUpdateState.running);
+    expect(await waitUntil(() => !avatarUpdateState.running)).toBe(true);
 
     // abort 后不得再发送迟到战报，与 docs/cn/04-invariants.md 的停机不变量一致。
     expect(sendMessage).not.toHaveBeenCalled();
@@ -254,14 +249,14 @@ describe("copy 命令共享冷却与头像串行器", () => {
       target: { kind: "user", user: latestTarget },
       source: "icon",
     });
-    await waitFor(() => copyUserProfilePhoto.mock.calls.length === 1);
+    expect(await waitUntil(() => copyUserProfilePhoto.mock.calls.length === 1)).toBe(true);
     expect(copyUserProfilePhoto).toHaveBeenCalledWith(7, false, {
       username: "alice",
       signal: expect.any(AbortSignal),
     });
 
     resolveFirst(true);
-    await waitFor(() => sendMessage.mock.calls.length === 1);
+    expect(await waitUntil(() => sendMessage.mock.calls.length === 1)).toBe(true);
     expect(copyUserProfilePhoto).toHaveBeenCalledTimes(2);
     expect(copyUserProfilePhoto).toHaveBeenNthCalledWith(
       2,
@@ -282,7 +277,7 @@ describe("copy 命令共享冷却与头像串行器", () => {
       target: { kind: "user", user: { id: 7, first_name: "Alice" } },
       source: "icon",
     });
-    await waitFor(() => loggerError.mock.calls.length === 1);
+    expect(await waitUntil(() => loggerError.mock.calls.length === 1)).toBe(true);
     expect(loggerError).toHaveBeenCalledWith("Error in background avatar update task:", expect.any(Error));
   });
 
@@ -296,11 +291,11 @@ describe("copy 命令共享冷却与头像串行器", () => {
       target: { kind: "user", user: { id: 7, first_name: "Alice" } },
       source: "icon",
     });
-    await waitFor(() => copyUserProfilePhoto.mock.calls.length === 1);
+    expect(await waitUntil(() => copyUserProfilePhoto.mock.calls.length === 1)).toBe(true);
 
     quiesceAvatarUpdates();
     await expect(drainAvatarUpdates(1)).resolves.toBe("timedOut");
-    await waitFor(() => !avatarUpdateState.running);
+    expect(await waitUntil(() => !avatarUpdateState.running)).toBe(true);
 
     expect(sendMessage).not.toHaveBeenCalled();
     expect(avatarUpdateState.pending).toBeNull();
@@ -313,8 +308,8 @@ describe("copy 命令共享冷却与头像串行器", () => {
       target: { kind: "default" },
       source: "icon",
     });
-    await waitFor(() => restoreDefaultProfilePhoto.mock.calls.length === 1);
-    await waitFor(() => !avatarUpdateState.running);
+    expect(await waitUntil(() => restoreDefaultProfilePhoto.mock.calls.length === 1)).toBe(true);
+    expect(await waitUntil(() => !avatarUpdateState.running)).toBe(true);
 
     // 复原不该走偷脸那条路径：两者的失败含义完全不同。
     expect(copyUserProfilePhoto).not.toHaveBeenCalled();
@@ -331,8 +326,8 @@ describe("copy 命令共享冷却与头像串行器", () => {
       target: { kind: "default" },
       source: "icon",
     });
-    await waitFor(() => restoreDefaultProfilePhoto.mock.calls.length === 1);
-    await waitFor(() => !avatarUpdateState.running);
+    expect(await waitUntil(() => restoreDefaultProfilePhoto.mock.calls.length === 1)).toBe(true);
+    expect(await waitUntil(() => !avatarUpdateState.running)).toBe(true);
 
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ text: ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.iconRestoreFailed }));
   });

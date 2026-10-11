@@ -1,5 +1,5 @@
 /** gag 专属入口的定时换新、消息阈值与结束竞态。 */
-import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import {
   GAG_DURATION_MINUTES,
   GAG_SESSION_MAX,
@@ -14,6 +14,8 @@ import {
   deleteMessageWithOutcome,
   gagSessionsByChat,
   gagBackgroundTasks,
+  advanceGagTime,
+  installGagFakeClockHooks,
   installGagTestHooks,
   normalMessage,
   resolveCommandTarget,
@@ -28,27 +30,7 @@ import type { EphemeralMessageParams } from "../helpers/gagHarness";
 const gag = await import("../../packages/commands/gag");
 
 installGagTestHooks();
-beforeEach((): void => {
-  jest.useFakeTimers({ now: 1_000_000 });
-  Date.now = (): number => new Date().getTime();
-  let nextNoticeId: number = 100;
-  sendEphemeralMessage.mockImplementation(async (
-    params: EphemeralMessageParams
-  ): Promise<number> => {
-    const noticeId: number = nextNoticeId++;
-    params.onSent?.(noticeId);
-    return noticeId;
-  });
-});
-afterEach((): void => {
-  gag.resetGagSessions();
-  jest.useRealTimers();
-});
-
-async function advanceTime(milliseconds: number): Promise<void> {
-  jest.advanceTimersByTime(milliseconds);
-  await settleGagBackgroundTasks();
-}
+installGagFakeClockHooks();
 
 async function sendVisibleMessages(count: number): Promise<void> {
   for (let index: number = 0; index < count; index++) {
@@ -101,7 +83,7 @@ describe("gag 发言入口刷新", () => {
       expect(session.speakNoticeRefreshTimer?.hasRef()).toBeFalse();
       while (Date.now() + GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS < expiresAt) {
         const previousNoticeId: number = session.speakNoticeMessageId;
-        await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
+        await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
         expect(session.phase).toBe("active");
         expect(session.speakNoticeMessageId).not.toBe(previousNoticeId);
         expect(session.expiresAt).toBe(expiresAt);
@@ -114,13 +96,13 @@ describe("gag 发言入口刷新", () => {
         expect(deleteMessageWithOutcome).not.toHaveBeenCalled();
       }
       // 功能入口按会话保留，不进入普通群提示的固定延迟清理边界。
-      await advanceTime(expiresAt - Date.now() - 1);
+      await advanceGagTime(expiresAt - Date.now() - 1);
       expect(sessionFor(-1001)).toBe(session);
       expect(session.speakNoticeMessageId).toBeGreaterThan(0);
       expect(sendMessage).toHaveBeenCalledTimes(1);
       const currentNoticeId: number = session.speakNoticeMessageId;
       const sendCount: number = sendEphemeralMessage.mock.calls.length;
-      await advanceTime(1);
+      await advanceGagTime(1);
       expect(gagSessionsByChat.size).toBe(0);
       expect(session.speakNoticeRefreshTimer).toBeNull();
       expect(deleteEphemeralMessageWithOutcome).toHaveBeenLastCalledWith({
@@ -130,7 +112,7 @@ describe("gag 发言入口刷新", () => {
       });
       expect(deleteMessageWithOutcome).toHaveBeenCalledWith(-1001, 56);
       expect(sendCommandMessage).toHaveBeenCalledTimes(1);
-      await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
+      await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
       expect(sendEphemeralMessage).toHaveBeenCalledTimes(sendCount);
     });
   }
@@ -139,15 +121,15 @@ describe("gag 发言入口刷新", () => {
     await gag.handleGagCommand(commandContext());
     const session: GagSession = sessionFor(-1001)!;
     const expiresAt: number = session.expiresAt;
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS / 2);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS / 2);
     await sendVisibleMessages(6);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
     await sendVisibleMessages(1);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(2);
     expect(session.messagesSinceSpeakNotice).toBe(0);
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS - 1);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS - 1);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(2);
-    await advanceTime(1);
+    await advanceGagTime(1);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(3);
     expect(session.expiresAt).toBe(expiresAt);
   });
@@ -156,12 +138,12 @@ describe("gag 发言入口刷新", () => {
     await gag.handleGagCommand(commandContext());
     const session: GagSession = sessionFor(-1001)!;
     sendEphemeralMessage.mockResolvedValueOnce(undefined);
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
     expect(session.speakNoticeMessageId).toBe(100);
     expect(deleteEphemeralMessageWithOutcome).not.toHaveBeenCalled();
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS - 1);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS - 1);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(2);
-    await advanceTime(1);
+    await advanceGagTime(1);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(3);
     expect(session.speakNoticeMessageId).toBe(101);
     expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(1);
@@ -198,7 +180,7 @@ describe("gag 发言入口刷新", () => {
     }), 999);
     await settleGagBackgroundTasks();
     expect(session.speakNoticeThreadId).toBe(22);
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
     expect(sendEphemeralMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       receiverUserId: 7,
       messageThreadId: 22,
@@ -227,7 +209,7 @@ describe("gag 发言入口刷新", () => {
     expect(deleteEphemeralMessageWithOutcome.mock.calls.map((call): number =>
       call[0].ephemeralMessageId
     )).toEqual([100, 500]);
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(2);
   });
 
@@ -251,7 +233,7 @@ describe("gag 发言入口刷新", () => {
     expect(deleteEphemeralMessageWithOutcome.mock.calls.map((call): number =>
       call[0].ephemeralMessageId
     )).toEqual([99, 100]);
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS);
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -264,7 +246,7 @@ describe("gag 发言入口刷新", () => {
       else expect(await gag.drainGagRuntime(1_000)).toBe("flushed");
       expect(session.speakNoticeRefreshTimer).toBeNull();
       expect(sessionFor(-1001)).toBeUndefined();
-      await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
+      await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
       expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
       expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(1);
     });
@@ -279,7 +261,7 @@ describe("gag 发言入口刷新", () => {
     await gag.handleGagCommand(commandContext({ match: "-1002233445566" }));
     const session: GagSession = sessionFor(-1001, -1002233445566)!;
     expect(session.speakNoticeRefreshTimer).toBeNull();
-    await advanceTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
+    await advanceGagTime(GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS * 2);
     expect(sendMessage).toHaveBeenCalledTimes(1);
     await sendVisibleMessages(7);
     expect(sendMessage).toHaveBeenCalledTimes(2);

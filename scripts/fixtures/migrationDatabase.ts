@@ -6,15 +6,10 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { expect } from "bun:test";
 import { DEFAULT_WHITELIST_PERMISSIONS, SUPER_ADMIN_WHITELIST_PERMISSIONS } from "../../packages/consts/whitelist";
-import {
-  CHAT_PERSONA_REMOVAL_MIGRATION_CREATED_AT,
-  CHAT_PERSONA_REMOVAL_MIGRATION_HASH,
-  TIME_ZONE_MARKER_MIGRATION_CREATED_AT,
-  TIME_ZONE_MARKER_MIGRATION_HASH,
-} from "../../packages/consts/identityStorage";
+import { STORAGE_MIGRATION_LINEAGE } from "../../packages/consts/identityStorage";
 import { TOKYO_TIME_ZONE } from "../../packages/consts/time";
 import { storageMetadataRows } from "../../packages/database/interact/initialization";
-import type { StoredStorageMetadataRow } from "../../packages/types/storageDatabase";
+import type { StorageDatabaseMigrationJournalEntry, StoredStorageMetadataRow } from "../../packages/types/storageDatabase";
 import { CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION } from "../migrations/chatPersonaRemoval/database";
 
 /** 迁移与安装都不得改动的表：保留原始 SQLite 值，连 JSONB 字节与空值一起比较。 */
@@ -60,7 +55,7 @@ export interface CreateMigrationDatabaseOptions {
 async function writeMigrationPrefix(packageRoot: string, target: string, drop: 1 | 2): Promise<void> {
   const migrations: string = join(packageRoot, "packages/database/schema/migrations");
   const journal: MigrationJournal = await Bun.file(join(migrations, "meta/_journal.json")).json() as MigrationJournal;
-  if (journal.entries.at(-1)?.when !== TIME_ZONE_MARKER_MIGRATION_CREATED_AT || journal.entries.at(-2)?.when !== CHAT_PERSONA_REMOVAL_MIGRATION_CREATED_AT) {
+  if (journal.entries.at(-1)?.when !== STORAGE_MIGRATION_LINEAGE.at(-1)?.createdAt || journal.entries.at(-2)?.when !== STORAGE_MIGRATION_LINEAGE.at(-2)?.createdAt) {
     throw new Error("Expected the chat persona removal and time zone marker migrations to be the last journal entries.");
   }
   journal.entries.splice(-drop);
@@ -129,8 +124,8 @@ export async function createMigrationDatabase({
 }
 
 /**
- * 源 schema 夹具再只应用移除群人设迁移得到的中间 schema 库：缺时区标记迁移。冷迁移 CLI 必须拒绝它，
- * 停机时由生产 migrate() 只补时区标记迁移。
+ * 源 schema 夹具再只应用移除群人设迁移得到的中间 schema 库：缺时区标记迁移，不属于任何发布版本的
+ * 产出格式。冷迁移 CLI 必须拒绝它。
  */
 export async function createSchemaV12Database(options: CreateMigrationDatabaseOptions): Promise<MigrationDatabaseFixture> {
   const fixture: MigrationDatabaseFixture = await createMigrationDatabase(options);
@@ -161,8 +156,10 @@ export function assertMigratedDatabase(path: string, expected: MigrationDatabase
       .toEqual(storageMetadataRows(TOKYO_TIME_ZONE));
     expect<readonly unknown[]>(client.query("SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at").all()).toEqual([
       ...expected.lineage,
-      { hash: CHAT_PERSONA_REMOVAL_MIGRATION_HASH, created_at: CHAT_PERSONA_REMOVAL_MIGRATION_CREATED_AT },
-      { hash: TIME_ZONE_MARKER_MIGRATION_HASH, created_at: TIME_ZONE_MARKER_MIGRATION_CREATED_AT },
+      ...STORAGE_MIGRATION_LINEAGE.slice(-2).map(
+        (entry: StorageDatabaseMigrationJournalEntry): { readonly hash: string; readonly created_at: number } =>
+          ({ hash: entry.hash, created_at: entry.createdAt })
+      ),
     ]);
     expect(client.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
   } finally { client.close(true); }

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { parseIndexField } from "../../../packages/aiChat/ai/utils/toolArgs";
 
 /**
@@ -6,12 +6,15 @@ import { parseIndexField } from "../../../packages/aiChat/ai/utils/toolArgs";
  * 自身的解析、组装、两层选择与每轮限额逻辑，不发起真实 Telegram 请求。
  */
 const realTelegram = await import("../../../packages/infra/telegram");
-const sendStickerMock = mock(async (_params: {
-  chatId: number;
-  fileId: string;
-  signal?: AbortSignal;
-}): Promise<number | undefined> => 12345);
+async function sendStickerStub(_params: { chatId: number; fileId: string; signal?: AbortSignal }): Promise<number | undefined> {
+  return 12345;
+}
+const sendStickerMock = mock(sendStickerStub);
 mock.module("../../../packages/infra/telegram", () => ({ ...realTelegram, sendSticker: sendStickerMock }));
+beforeEach(() => {
+  sendStickerMock.mockReset();
+  sendStickerMock.mockImplementation(sendStickerStub);
+});
 // sendStickerTool 的发送步骤会用 pauseForToolAction 做拟人停顿（STICKER_CHOOSE_DELAY_BASE_MS/JITTER_MS）；
 // 这里把 sleep 换成立即 resolve，已 abort 时按 abort 原因 reject。
 mock.module("../../../packages/libs/sleep", () => ({
@@ -231,7 +234,6 @@ describe("aiChat/ai/stickers viewStickerPackTool", () => {
 
 describe("aiChat/ai/stickers sendStickerTool", () => {
   test("编号非法时不调用 sendSticker，返回错误结果，不切换挡位", async () => {
-    sendStickerMock.mockClear();
     const chatAction = chatActionMock();
     const result = await sendStickerForTest({
       argumentsJson: '{"pack_index": 1, "sticker_index": 99}',
@@ -243,7 +245,6 @@ describe("aiChat/ai/stickers sendStickerTool", () => {
   });
 
   test("没先 view 过对应的包时拒绝发送", async () => {
-    sendStickerMock.mockClear();
     const state = createStickerRoundState();
     state.viewedPackIntents.set(2, "表达撒娇，但不要过分亲密"); // 只看过 2 号包
     const result = JSON.parse(await sendStickerForTest({
@@ -255,7 +256,6 @@ describe("aiChat/ai/stickers sendStickerTool", () => {
   });
 
   test("编号合法且看过包时，发送步骤先亮选择贴纸并停顿，再切 idle、settle 后发送、回调 onSent、返回成功结果", async () => {
-    sendStickerMock.mockClear();
     sendStickerMock.mockImplementationOnce(async () => 999);
     const chatAction = chatActionMock();
     let recorded: [string, number] | null = null;
@@ -283,7 +283,6 @@ describe("aiChat/ai/stickers sendStickerTool", () => {
   });
 
   test("直接轮发贴纸：同样切到选择贴纸挡并停顿，随后切 idle、settle 后发送", async () => {
-    sendStickerMock.mockClear();
     const chatAction = chatActionMock();
     const result = await sendStickerForTest({
       argumentsJson: '{"pack_index": 1, "sticker_index": 2}',
@@ -297,7 +296,6 @@ describe("aiChat/ai/stickers sendStickerTool", () => {
   });
 
   test("同一轮最多发 1 枚，第二枚被限额拒绝（跨包同样计数）", async () => {
-    sendStickerMock.mockClear();
     const state = viewedState();
     expect(JSON.parse(await sendStickerForTest({
       argumentsJson: '{"pack_index": 1, "sticker_index": 1}',
@@ -313,7 +311,6 @@ describe("aiChat/ai/stickers sendStickerTool", () => {
   });
 
   test("Telegram 发送失败（sendSticker 返回 undefined）时不回调 onSent、保留预占限额、挡位停在 idle 不续回", async () => {
-    sendStickerMock.mockClear();
     sendStickerMock.mockImplementationOnce(async () => undefined);
     const chatAction = chatActionMock();
     let called = false;
@@ -338,7 +335,6 @@ describe("aiChat/ai/stickers sendStickerTool", () => {
 
 describe("aiChat/ai/stickers 跨轮", () => {
   test("同群的两轮各自持有限额，都能发出贴纸", async () => {
-    sendStickerMock.mockClear();
     expect(JSON.parse(await sendStickerForTest({
       argumentsJson: '{"pack_index": 1, "sticker_index": 1}',
       state: viewedState(),
@@ -351,7 +347,6 @@ describe("aiChat/ai/stickers 跨轮", () => {
   });
 
   test("发送失败后同一轮不能绕过预占限额换贴纸重投", async () => {
-    sendStickerMock.mockClear();
     sendStickerMock.mockImplementationOnce(async () => undefined);
     const state = viewedState();
 

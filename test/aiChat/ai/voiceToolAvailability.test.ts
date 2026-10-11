@@ -5,16 +5,17 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { replyToolContextFixture } from "../../helpers/replyToolContext";
 import type { ReplyToolContext, ReplyToolset } from "../../../packages/types/aiChat/replies";
 import type { AiToolDefinition } from "../../../packages/types/aiChat/provider";
 import type { SpeechSynthesisAttempt } from "../../../packages/types/aiChat/voiceMessage";
 import { loggerStub } from "../../helpers/loggerMock";
 import { sineWav } from "../../helpers/wav";
 
-const synthesizeSpeech = mock(async (..._args: unknown[]): Promise<SpeechSynthesisAttempt> => ({
-  ok: false,
-  reason: "synthesis failed",
-}));
+async function synthesizeSpeechStub(..._args: unknown[]): Promise<SpeechSynthesisAttempt> {
+  return { ok: false, reason: "synthesis failed" };
+}
+const synthesizeSpeech = mock(synthesizeSpeechStub);
 const ttsAiProvider = mock((): unknown => ({ name: "google", synthesizeSpeech }));
 const realTelegram = await import("../../../packages/infra/telegram");
 const realProvider = await import("../../../packages/aiChat/provider");
@@ -32,25 +33,7 @@ const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/r
 const { ACTION_TOOL_NAMES, SEND_VOICE_TOOL } = await import("../../../packages/consts/tools");
 
 function buildContext(overrides: Partial<ReplyToolContext> = {}): ReplyToolContext {
-  return {
-    chatId: -1002,
-    replyToMessageId: 5,
-    messageThreadId: undefined,
-    mediaToolsRequested: false,
-    bypassMediaToolCooldown: false,
-    direct: false,
-    chatAction: {
-      set: mock((..._args: unknown[]): number => 0),
-      settle: mock(async (): Promise<void> => {}),
-    },
-    roundHasTypo: false,
-    isActive: () => true,
-    onMessageSent: mock((..._args: unknown[]): void => {}),
-    onStickerSent: mock((..._args: unknown[]): void => {}),
-    onImageSent: mock((..._args: unknown[]): void => {}),
-    onVoiceSent: mock((..._args: unknown[]): void => {}),
-    ...overrides,
-  };
+  return replyToolContextFixture({ chatId: -1002, replyToMessageId: 5, ...overrides });
 }
 
 function toolNames(toolset: ReplyToolset): string[] {
@@ -59,7 +42,8 @@ function toolNames(toolset: ReplyToolset): string[] {
 
 beforeEach(() => {
   ttsAiProvider.mockClear();
-  synthesizeSpeech.mockClear();
+  synthesizeSpeech.mockReset();
+  synthesizeSpeech.mockImplementation(synthesizeSpeechStub);
   ttsAiProvider.mockImplementation((): unknown => ({ name: "google", synthesizeSpeech }));
 });
 

@@ -35,7 +35,8 @@ export const RESTORE_RETRY_MS: number = 30 * 1000;
  * 解除私密模式连续因权限被拒（被移出群、被撤管理员）失败多少次之内照常记错误、按
  * RESTORE_RETRY_MS 重试；超过后降为 warn，重试间隔从 RESTORE_RETRY_MS 起翻倍、以
  * RESTORE_PERMANENT_RETRY_MAX_MS 封顶。私密模式记录照旧保留，机器人重新获得限制成员权限时
- * 立即重试。所属模块：workers/antiRaid/lockdownApi.ts 与 lockdownRuntime.ts。
+ * 立即重试；只有群已不存在（teardown 起因 `gone`）时才放弃这条记录（见 libs/chatTeardown.ts 的
+ * abandonsLockdown）。所属模块：workers/antiRaid/lockdownApi.ts 与 lockdownRuntime.ts。
  */
 export const RESTORE_PERMANENT_FAILURE_LOG_LIMIT: number = 3;
 /** 权限被拒的解除重试退避上限；见 RESTORE_PERMANENT_FAILURE_LOG_LIMIT。 */

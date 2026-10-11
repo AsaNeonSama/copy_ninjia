@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../helpers/fixtureTimeZone";
 import type { CronRuntime, CronTask, CronTaskSchedule } from "../../packages/types/cron";
 
 const rounds: string[] = [];
 let pendingRound: Promise<void> | null = null;
-const runCronRound = mock(async (schedule: CronTaskSchedule, _signal: AbortSignal): Promise<void> => {
+async function runCronRoundStub(schedule: CronTaskSchedule, _signal: AbortSignal): Promise<void> {
   rounds.push(schedule.task.name);
   if (pendingRound !== null) await pendingRound;
-});
+}
+const runCronRound = mock(runCronRoundStub);
 mock.module("../../packages/cron/run", () => ({ runCronRound }));
 
 const {
@@ -16,6 +18,8 @@ const {
   startCronScheduler,
 } = await import("../../packages/cron/scheduler");
 const { cronConfigCache, cronRuntime } = await import("../../packages/cache/main/cron");
+
+installTokyoFixtureTimeZone();
 
 /** 东京时间 09:00 前一秒。 */
 const START_MS: number = Date.parse("2026-09-20T08:59:59+09:00");
@@ -48,7 +52,8 @@ async function advance(ms: number): Promise<void> {
 beforeEach(() => {
   rounds.length = 0;
   pendingRound = null;
-  runCronRound.mockClear();
+  runCronRound.mockReset();
+  runCronRound.mockImplementation(runCronRoundStub);
   jest.useFakeTimers({ now: START_MS });
   cronRuntime.current = null;
   cronConfigCache.current = null;

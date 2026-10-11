@@ -50,7 +50,7 @@ import {
   handleAntiRaidMessageIngress,
   handleVerificationCallback,
 } from "../antiRaid";
-import { handleMyChatMemberUpdate } from "../infra/botAdmin";
+import { completeChatDeparture, handleMyChatMemberUpdate } from "../infra/botAdmin";
 import { observeWedMemberDeparture, observeWedMembers } from "../commands/wed/members";
 import { CJK_ACTION_COMMAND_PATTERN, SLASH_CHAR_CODE } from "../consts/commands";
 import { logger } from "../infra/logger";
@@ -121,6 +121,155 @@ function dispatchCallbackQuery(
 }
 
 /**
+ * 运势签名回执是 chosen_inline_result 之外的确认路径，转发副本同样有效，在 `shouldPassInitGate`
+ * 网关前检查。
+ */
+function confirmLuckReceipt(ctx: Context, next: NextFunction): Promise<void> {
+  // `ctx.msg` 是每次求值的 getter 链（grammy/out/context.js 的 `get msg()`），
+  // 多次读取处先取成局部变量。
+  const message: Message | undefined = ctx.msg;
+  const confirmation: Promise<void> | undefined = confirmLuckDraw(
+    message?.text,
+    message?.entities
+  );
+  return confirmation === undefined ? next() : confirmation.then(next);
+}
+
+/**
+ * 未初始化群和不允许的私聊命令在这里终止，不进入授权维护、身份预热、验证、命令与 AI 链路。
+ * 群内只有首次 /init 与 my_chat_member 等网关自身明确放行的更新能越过初始化状态；私聊只接受
+ * 超级管理员的 /send。网关拒绝时仍摘除已保存的退群成员，不新增候选。
+ */
+function applyInitGate(ctx: Context, next: NextFunction): Promise<void> | undefined {
+  if (!shouldPassInitGate(ctx)) {
+    observeWedMemberDeparture(ctx, ctx.chat);
+    return undefined;
+  }
+  return shouldPassPrivateCommandGate(ctx) ? next() : undefined;
+}
+
+/**
+ * 受管普通群升级为超级群后，旧群 id 收到一条带 `migrate_to_chat_id` 的服务消息，此后再也不会有 update。
+ * 在这里按「群已不存在」（`gone`）收尾旧群并终止本条 update；新超级群照旧需要 /init，旧群设置不搬迁。
+ * 位于初始化网关之后，只处理受管群。
+ */
+function chatMigrationIngress(ctx: Context, next: NextFunction): Promise<void> {
+  const message: Message | undefined = ctx.message;
+  if (message?.migrate_to_chat_id === undefined) return next();
+  logger.info(`Chat ${message.chat.id} was upgraded to supergroup ${message.migrate_to_chat_id}; tearing down the old chat.`);
+  return completeChatDeparture(message.chat.id, "gone");
+}
+
+/**
+ * 本条 update 可见的全部身份里尚未缓存的那些：发送者或频道马甲（纯频道帖取频道本身）、被回复者及其
+ * 频道马甲、转发来源、被回复消息的转发来源、外部回复来源、新成员、离群成员与 chat_member 的目标。
+ * 全热时返回 null，不分配数组。
+ */
+function collectColdIdentityIds(ctx: Context): number[] | null {
+  // `ctx.msg` 与它的 `reply_to_message` 在本段里多次读取，先各取一次。
+  const message: Message | undefined = ctx.msg;
+  const repliedTo: Message | undefined = message?.reply_to_message;
+  let ids: number[] | null = null;
+  if (ctx.from !== undefined) ids = appendColdIdentityId(ids, ctx.from.id);
+  if (message?.sender_chat !== undefined) {
+    ids = appendColdIdentityId(ids, message.sender_chat.id);
+  } else {
+    // 纯频道帖没有 from 也没有 sender_chat：频道自己就是 ctx.chat，
+    // users/visibleSender.ts、commands/commandActor.ts 与 infra/updateGate.ts
+    // 按这个 id 解析行为主体。`ctx.chat` 只在这条分支读取。
+    const chat: Chat | undefined = ctx.chat;
+    if (chat?.type === "channel") ids = appendColdIdentityId(ids, chat.id);
+  }
+  if (repliedTo?.from !== undefined) {
+    ids = appendColdIdentityId(ids, repliedTo.from.id);
+  }
+  if (repliedTo?.sender_chat !== undefined) {
+    ids = appendColdIdentityId(ids, repliedTo.sender_chat.id);
+  }
+  const forwardOriginId: number | undefined =
+    messageOriginIdentityId(message?.forward_origin);
+  if (forwardOriginId !== undefined) {
+    ids = appendColdIdentityId(ids, forwardOriginId);
+  }
+  const repliedForwardOriginId: number | undefined =
+    messageOriginIdentityId(repliedTo?.forward_origin);
+  if (repliedForwardOriginId !== undefined) {
+    ids = appendColdIdentityId(ids, repliedForwardOriginId);
+  }
+  const externalReplyOriginId: number | undefined =
+    messageOriginIdentityId(message?.external_reply?.origin);
+  if (externalReplyOriginId !== undefined) {
+    ids = appendColdIdentityId(ids, externalReplyOriginId);
+  }
+  if (message?.new_chat_members !== undefined) {
+    for (const member of message.new_chat_members) {
+      ids = appendColdIdentityId(ids, member.id);
+    }
+  }
+  if (message?.left_chat_member !== undefined) {
+    ids = appendColdIdentityId(ids, message.left_chat_member.id);
+  }
+  if (ctx.chatMember !== undefined) {
+    ids = appendColdIdentityId(ids, ctx.chatMember.new_chat_member.user.id);
+  }
+  return ids;
+}
+
+/**
+ * 黑白名单判断保持同步 LRU 读取；每个 update 在进入 Anti-Raid 和命令前，一次性补齐可见身份的冷缺失。
+ * 热命中不跨线程，冷读一并查询各身份关系并写入正/负缓存。预热是 best-effort：Disk I/O 自愈窗口里
+ * 冷读失败时 prefetchIdentityPolicies 就地降级并返回 false（见该函数头注），这里不消费这个结论，
+ * 留冷身份按 fail-closed 判定。
+ *
+ * 不写成 async：全热 update 直接 next()，只有冷读分支返回新的 Promise。
+ */
+function prefetchUpdateIdentities(ctx: Context, next: NextFunction): Promise<void> {
+  // 成员集合只消费通过初始化网关的主线程更新，实际增删由 wed owner 合并落盘。
+  observeWedMembers(ctx);
+  const ids: number[] | null = collectColdIdentityIds(ctx);
+  return ids === null ? next() : prefetchIdentityPolicies(ids).then(next);
+}
+
+/** 私聊命令已在前置网关统一收口；活动中的 /send 中转会话只把非命令消息直接短路到消息流水线。 */
+function routePrivateProxyMessage(ctx: Context, next: NextFunction): Promise<void> | undefined {
+  if (shouldRoutePrivateProxyMessage(ctx)) return handleIncomingMessageMiddleware(ctx);
+  return next();
+}
+
+/** 入群验证 ingress，位于命令处理器之前。 */
+function antiRaidMessageIngress(ctx: Context, next: NextFunction): Promise<void> | undefined {
+  const message: Message | undefined = ctx.message;
+  return message === undefined
+    ? next()
+    : claimOrContinue(handleAntiRaidMessageIngress(message, ctx.me.id), next);
+}
+
+/**
+ * gag 覆盖命令消息，位于全部 bot.command 之前；Anti-Raid 先看原始消息，广告/刷屏/待验证追踪
+ * 按原始消息计数。被 gag 的消息即使 Telegram 删除失败也在这里终止，不进入 AI、copy 或命令处理器。
+ */
+function gagMessageIngress(ctx: Context, next: NextFunction): Promise<void> | undefined {
+  const message: Message | undefined = ctx.message;
+  return message === undefined
+    ? next()
+    : claimOrContinue(handleGagMessageIngress(message, ctx.me.id), next);
+}
+
+/**
+ * /qa set 表单投递覆盖命令消息与 channel_post（频道里的「问题:」「回答:」是频道帖）；被认领的
+ * 消息已删除，终止本条 update。
+ */
+function qaMessageIngress(ctx: Context, next: NextFunction): Promise<void> | undefined {
+  const message: Message | undefined = ctx.message ?? ctx.channelPost;
+  return message === undefined ? next() : claimOrContinue(handleQaMessageIngress(message), next);
+}
+
+/** 前置链末端的消息兜底：message 与 channel_post 进入自动消息流水线，其余 update 继续向后。 */
+function incomingMessageFallback(ctx: Context, next: NextFunction): Promise<void> | undefined {
+  return (ctx.message ?? ctx.channelPost) === undefined ? next() : handleIncomingMessageMiddleware(ctx);
+}
+
+/**
  * 显式安装完整的 grammY 更新链。模块导入本身不修改 Bot；调用一次本函数才
  * 注册 middleware、命令和各类 update handler。
  *
@@ -142,127 +291,13 @@ export function registerHandlers(bot: Bot): HandlerRegistration {
   // 身份预热或业务分发。频道身份与本机器人自己的发言不计数。
   preamble.push((ctx: Context, next: NextFunction): Promise<void> | undefined =>
     shouldPassBotMessage(ctx.message, ctx.me.id) ? next() : undefined);
-
-  // 运势签名回执是 chosen_inline_result 之外的确认路径，转发副本同样有效，
-  // 在 `shouldPassInitGate` 网关前检查。
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> => {
-    // `ctx.msg` 是每次求值的 getter 链（grammy/out/context.js 的 `get msg()`），
-    // 多次读取处先取成局部变量。
-    const message: Message | undefined = ctx.msg;
-    const confirmation: Promise<void> | undefined = confirmLuckDraw(
-      message?.text,
-      message?.entities
-    );
-    return confirmation === undefined ? next() : confirmation.then(next);
-  });
-
-  // 未初始化群和不允许的私聊命令在这里终止，不进入授权维护、身份预热、
-  // 验证、命令与 AI 链路。群内只有首次 /init 与 my_chat_member 等网关自身
-  // 明确放行的更新能越过初始化状态；私聊只接受超级管理员的 /send。
-  // 网关拒绝时仍摘除已保存的退群成员，不新增候选。
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> | undefined => {
-    if (!shouldPassInitGate(ctx)) {
-      observeWedMemberDeparture(ctx, ctx.chat);
-      return undefined;
-    }
-    return shouldPassPrivateCommandGate(ctx) ? next() : undefined;
-  });
-
-  // 黑白名单判断保持同步 LRU 读取；每个 update 在进入 Anti-Raid 和命令前，一次性
-  // 补齐可见身份的冷缺失。热命中不跨线程，冷读一并查询各身份关系并写入正/负缓存。
-  // 预热是 best-effort：Disk I/O 自愈窗口里冷读失败时 prefetchIdentityPolicies
-  // 就地降级并返回 false（见该函数头注），本中间件不消费这个结论，留冷身份按
-  // fail-closed 判定。
-  //
-  // 不写成 async：全热 update 的 ids 为 null，直接 next()；只有冷读分支返回 Promise。
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> => {
-    // 成员集合只消费通过初始化网关的主线程更新，实际增删由 wed owner 合并落盘。
-    observeWedMembers(ctx);
-    // 同上：`ctx.msg` 与它的 `reply_to_message` 在本段里多次读取，先各取一次。
-    const message: Message | undefined = ctx.msg;
-    const repliedTo: Message | undefined = message?.reply_to_message;
-    let ids: number[] | null = null;
-    if (ctx.from !== undefined) ids = appendColdIdentityId(ids, ctx.from.id);
-    if (message?.sender_chat !== undefined) {
-      ids = appendColdIdentityId(ids, message.sender_chat.id);
-    } else {
-      // 纯频道帖没有 from 也没有 sender_chat：频道自己就是 ctx.chat，
-      // users/visibleSender.ts、commands/commandActor.ts 与 infra/updateGate.ts
-      // 按这个 id 解析行为主体。`ctx.chat` 只在这条分支读取。
-      const chat: Chat | undefined = ctx.chat;
-      if (chat?.type === "channel") ids = appendColdIdentityId(ids, chat.id);
-    }
-    if (repliedTo?.from !== undefined) {
-      ids = appendColdIdentityId(ids, repliedTo.from.id);
-    }
-    if (repliedTo?.sender_chat !== undefined) {
-      ids = appendColdIdentityId(ids, repliedTo.sender_chat.id);
-    }
-    const forwardOriginId: number | undefined =
-      messageOriginIdentityId(message?.forward_origin);
-    if (forwardOriginId !== undefined) {
-      ids = appendColdIdentityId(ids, forwardOriginId);
-    }
-    const repliedForwardOriginId: number | undefined =
-      messageOriginIdentityId(repliedTo?.forward_origin);
-    if (repliedForwardOriginId !== undefined) {
-      ids = appendColdIdentityId(ids, repliedForwardOriginId);
-    }
-    const externalReplyOriginId: number | undefined =
-      messageOriginIdentityId(message?.external_reply?.origin);
-    if (externalReplyOriginId !== undefined) {
-      ids = appendColdIdentityId(ids, externalReplyOriginId);
-    }
-    if (message?.new_chat_members !== undefined) {
-      for (const member of message.new_chat_members) {
-        ids = appendColdIdentityId(ids, member.id);
-      }
-    }
-    if (message?.left_chat_member !== undefined) {
-      ids = appendColdIdentityId(ids, message.left_chat_member.id);
-    }
-    if (ctx.chatMember !== undefined) {
-      ids = appendColdIdentityId(ids, ctx.chatMember.new_chat_member.user.id);
-    }
-    return ids === null ? next() : prefetchIdentityPolicies(ids).then(next);
-  });
-
-  // 私聊命令已在前置网关统一收口；活动中的 /send 中转会话只把非命令消息
-  // 直接短路到消息流水线。
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> | undefined => {
-    if (shouldRoutePrivateProxyMessage(ctx)) return handleIncomingMessageMiddleware(ctx);
-    return next();
-  });
+  preamble.push(confirmLuckReceipt, applyInitGate, chatMigrationIngress, prefetchUpdateIdentities, routePrivateProxyMessage);
 
   // message / channel_post 上的 ingress 与消息兜底收进前置链，在 middleware
   // 内自行判定 update 类型。判据与 on("message")、on(["message", "channel_post"])
   // 相同（allowed_updates 不含 edited_*，消息类 update 只有 message 与 channel_post），
   // 命中集合、顺序与认领语义一致。
-
-  // 入群验证位于命令处理器之前。
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> | undefined => {
-    const message: Message | undefined = ctx.message;
-    return message === undefined
-      ? next()
-      : claimOrContinue(handleAntiRaidMessageIngress(message, ctx.me.id), next);
-  });
-
-  // gag 覆盖命令消息，位于全部 bot.command 之前；Anti-Raid 先看原始消息，
-  // 广告/刷屏/待验证追踪按原始消息计数。被 gag 的消息即使 Telegram 删除失败
-  // 也在这里终止，不进入 AI、copy 或命令处理器。
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> | undefined => {
-    const message: Message | undefined = ctx.message;
-    return message === undefined
-      ? next()
-      : claimOrContinue(handleGagMessageIngress(message, ctx.me.id), next);
-  });
-
-  // /qa set 表单投递覆盖命令消息与 channel_post（频道里的「问题:」「回答:」
-  // 是频道帖）；被认领的消息已删除，终止本条 update。
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> | undefined => {
-    const message: Message | undefined = ctx.message ?? ctx.channelPost;
-    return message === undefined ? next() : claimOrContinue(handleQaMessageIngress(message), next);
-  });
+  preamble.push(antiRaidMessageIngress, gagMessageIngress, qaMessageIngress);
 
   // 授权维护命令与其余命令一样排在上面那道 ingress 之后：/permission 与 /white
   // 的 handler 不调 next()，需经过 handleAntiRaidMessageIngress 后才执行。
@@ -322,8 +357,7 @@ export function registerHandlers(bot: Bot): HandlerRegistration {
       ? cjkActionMiddleware(ctx, next)
       : next();
   });
-  preamble.push((ctx: Context, next: NextFunction): Promise<void> | undefined =>
-    (ctx.message ?? ctx.channelPost) === undefined ? next() : handleIncomingMessageMiddleware(ctx));
+  preamble.push(incomingMessageFallback);
   bot.use(...preamble);
   bot.on("message_reaction", handleReaction);
   bot.on("chat_member", handleChatMemberUpdate);

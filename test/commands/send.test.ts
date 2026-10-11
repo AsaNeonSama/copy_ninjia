@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 /**
  * commands/send.ts 经 infra/telegram 会实例化真实的 grammY Bot、经
@@ -15,6 +16,7 @@ const getChatMock = mock(async (chatId: number): Promise<any> => ({ id: chatId, 
 const logApiErrorMock = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessageMock,
+  replyCommandNotice: replyCommandNoticeVia(sendMessageMock),
   logApiError: logApiErrorMock,
 }));
 mock.module("../../packages/infra/telegram/mainClient", () => ({
@@ -72,7 +74,7 @@ describe("handleSendCommand", () => {
     chatStates.clear();
     sendMessageMock.mockClear();
     saveStateInBackgroundMock.mockClear();
-    getChatMock.mockClear();
+    getChatMock.mockReset();
     logApiErrorMock.mockClear();
     getChatMock.mockImplementation(async (chatId: number): Promise<any> => ({ id: chatId, type: "supergroup", title: "Test Group" }));
   });

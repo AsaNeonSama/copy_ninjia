@@ -1,7 +1,18 @@
 import type { CommandTargetMessages } from "../../../types/commands";
+import type { GagInlineResultTexts } from "../../../types/gag";
 
 /** gag 开始提示里的发言入口文案。 */
 export const GAG_INLINE_SPEAK_BUTTON_TEXT: string = "发言";
+
+/**
+ * gag inline 结果的标题与描述（commands/gag/inline.ts 的 buildGagInlineResult）。
+ * 频道候选使用不含群名的通用标题。
+ */
+export const GAG_INLINE_RESULT_TEXTS: Readonly<GagInlineResultTexts> = {
+  channelTitle: "以频道身份发言",
+  userTitle: (chatLabel: string): string => `在 ${chatLabel} 发言`,
+  description: (toolLabel: string): string => `透过${toolLabel}`,
+};
 
 /** `/gag` 解析目标失败时使用的临时提示。 */
 export const GAG_TARGET_TEXTS: Readonly<CommandTargetMessages> = {

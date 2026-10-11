@@ -43,12 +43,17 @@ export interface MemberLeftMessage {
   userId: number;
 }
 
-/** 主线程 -> Worker：统一拆除某群的验证计时器，并恢复/保留 lockdown owner。 */
+/** 主线程 -> Worker：统一拆除某群的验证计时器，并恢复、保留或放弃 lockdown owner。 */
 export interface DeactivateChatMessage {
   type: "deactivateChat";
   chatId: number;
   /** 主动 `/init disable` 时清理验证按钮；失权/离群时不得发无权限请求。 */
   cleanupVerificationMessages: boolean;
+  /**
+   * 群已不存在（teardown 起因 `gone`）：私密模式不再恢复权限、不删公告，只撤掉 timer 并报 unlock，
+   * 由主线程清掉记录（见 libs/chatTeardown.ts 的 abandonsLockdown）。
+   */
+  abandonLockdown: boolean;
 }
 
 /** 主线程 -> Worker：只拆入群守卫链路，保留广告检测与防刷屏等独立能力。 */

@@ -95,7 +95,10 @@ beforeEach(() => {
   resetWedMemberStates();
   resetPendingMessageDeletions();
   sentId = 100;
-  for (const fn of [member, avatar, photo, edit, markup, remove, removeMany, notice, answer, setProfile]) fn.mockClear();
+  for (const fn of [member, removeMany, notice, setProfile]) fn.mockClear();
+  for (const fn of [avatar, photo, edit, markup, remove, answer]) fn.mockReset();
+  markup.mockResolvedValue(true);
+  answer.mockResolvedValue(true);
   avatar.mockImplementation(async (target: User | number): Promise<CurrentAvatarResult> =>
     ({ status: "ok", identity: privateChat(target), photo: new Uint8Array([1, 2, 3]) }));
   photo.mockImplementation(async (): Promise<any> => ({ message_id: ++sentId, chat, date: 1, photo: [] }));

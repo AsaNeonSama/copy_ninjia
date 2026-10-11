@@ -17,32 +17,31 @@ const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [
 const respawnListeners: DiskIORespawnListener[] = [];
 let acknowledgeFlush: boolean = true;
 let postAccepted: boolean = true;
-const flushDiskIODomain = mock(
-  async (_domain: DiskIODomain): Promise<DomainFlushOutcome> => {
-    if (acknowledgeFlush) {
-      const latest = new Map<number, number>();
-      for (const message of diskMessages) {
-        if (message.type === "chatStateWrite") {
-          latest.set(message.chatId, message.revision);
-        }
-      }
-      const chatStateWrites: { chatId: number; revision: number }[] = [];
-      for (const [chatId, revision] of latest) {
-        chatStateWrites.push({ chatId, revision });
-      }
-      for (const listener of persistedListeners) {
-        listener({
-          type: "identityStoragePersisted",
-          writes: [],
-          temporaryAdBypassWrites: [],
-          chatStateWrites,
-          chatQaWrites: [],
-        });
+async function flushDiskIODomainStub(_domain: DiskIODomain): Promise<DomainFlushOutcome> {
+  if (acknowledgeFlush) {
+    const latest = new Map<number, number>();
+    for (const message of diskMessages) {
+      if (message.type === "chatStateWrite") {
+        latest.set(message.chatId, message.revision);
       }
     }
-    return { result: "flushed" };
+    const chatStateWrites: { chatId: number; revision: number }[] = [];
+    for (const [chatId, revision] of latest) {
+      chatStateWrites.push({ chatId, revision });
+    }
+    for (const listener of persistedListeners) {
+      listener({
+        type: "identityStoragePersisted",
+        writes: [],
+        temporaryAdBypassWrites: [],
+        chatStateWrites,
+        chatQaWrites: [],
+      });
+    }
   }
-);
+  return { result: "flushed" };
+}
+const flushDiskIODomain = mock(flushDiskIODomainStub);
 
 mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   flushDiskIODomain,
@@ -86,7 +85,8 @@ beforeEach(() => {
   diskMessages.length = 0;
   acknowledgeFlush = true;
   postAccepted = true;
-  flushDiskIODomain.mockClear();
+  flushDiskIODomain.mockReset();
+  flushDiskIODomain.mockImplementation(flushDiskIODomainStub);
   resetChatStateCache();
 });
 

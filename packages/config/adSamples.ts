@@ -2,6 +2,7 @@ import { defaultAdSampleConfigCache } from "../cache/perThread/config";
 import { AD_SAMPLE_MAX_CHARS, MAX_CONFIGURED_AD_SAMPLES } from "../consts/antiRaid/adDetect";
 import { AD_SAMPLES_CONFIG_PATH } from "../consts/paths";
 import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { sanitizeInline } from "../libs/text";
 import type { AdSampleConfig } from "../types/config";
 
 /** 严格解码 ad_samples.json：顶层必须是字符串数组，拒绝空串、超长与重复。 */
@@ -24,7 +25,7 @@ export function parseAdSampleConfig(
       return invalidInput(sourcePath, `$[${index}]`, "a non-empty string");
     }
     // 空白序列压成单个空格并去掉首尾空白后，再判空、判长与判重；示例按单行拼进提示词。
-    const normalized: string = sample.replace(/\s+/g, " ").trim();
+    const normalized: string = sanitizeInline(sample);
     if (normalized.length === 0) {
       return invalidInput(sourcePath, `$[${index}]`, "a non-empty string");
     }
@@ -40,11 +41,9 @@ export function parseAdSampleConfig(
   return samples;
 }
 
-/** 从指定文件加载并校验；模块 import 本身不访问文件系统。 */
-export async function loadAdSampleConfig(
-  path: string = AD_SAMPLES_CONFIG_PATH
-): Promise<AdSampleConfig> {
-  return parseAdSampleConfig(await readJsonInput(path), path);
+/** 从 AD_SAMPLES_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。 */
+export async function loadAdSampleConfig(): Promise<AdSampleConfig> {
+  return parseAdSampleConfig(await readJsonInput(AD_SAMPLES_CONFIG_PATH), AD_SAMPLES_CONFIG_PATH);
 }
 
 /**

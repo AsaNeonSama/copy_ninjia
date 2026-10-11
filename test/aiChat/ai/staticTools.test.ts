@@ -1,5 +1,6 @@
 import { resetReplyToolsetMocks } from "../../helpers/replyToolsetMocks";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { replyToolContextFixture } from "../../helpers/replyToolContext";
 import { weatherCache } from "../../../packages/cache/workers/aiChat/weather";
 import { GET_TOKYO_WEATHER_TOOL, TOOL_DECLARATIONS } from "../../../packages/consts/tools";
 import { TOKYO_TIME_ZONE } from "../../../packages/consts/time";
@@ -60,24 +61,7 @@ describe("AI 静态查询工具", () => {
       todayMinC: 15,
       todayCondition: "晴",
     };
-    const context: ReplyToolContext = {
-      chatId: -100800,
-      replyToMessageId: 10,
-      messageThreadId: undefined,
-      mediaToolsRequested: false,
-      bypassMediaToolCooldown: false,
-      direct: false,
-      chatAction: {
-        set: mock((): number => 0),
-        settle: mock(async (): Promise<void> => {}),
-      },
-      roundHasTypo: false,
-      isActive: (): boolean => true,
-      onMessageSent: mock((): void => {}),
-      onStickerSent: mock((): void => {}),
-      onImageSent: mock((): void => {}),
-      onVoiceSent: mock((): void => {}),
-    };
+    const context: ReplyToolContext = replyToolContextFixture();
     const toolset: ReplyToolset = await createReplyToolset(context);
     expect(toolset.functions.some((declaration: AiToolDefinition): boolean => declaration.name === GET_TOKYO_WEATHER_TOOL)).toBe(enabled);
     expect(JSON.parse(callTool(GET_TOKYO_WEATHER_TOOL))).toEqual(enabled

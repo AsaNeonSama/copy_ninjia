@@ -2,7 +2,7 @@ import {
   deleteMessageAfter,
   sendMessage,
 } from "./actions";
-import type { SendMessageBaseParams, SendMessageFormat, SendMessageParams } from "./actions";
+import type { SendMessageBaseParams, SendMessageFormat } from "./actions";
 import { COMMAND_MESSAGE_AUTO_DELETE_MS } from "../../consts/commands";
 import type { TelegramApi } from "../../types/telegramWorker";
 import { updateTopicThreadIdFor } from "../updateContext";
@@ -16,8 +16,10 @@ import { updateTopicThreadIdFor } from "../updateContext";
  * 参数里没有 `messageThreadId` 这个键时沿用当前 update 触发消息所在的论坛话题（仅限同群，见
  * infra/updateContext.ts 的 updateTopicThreadIdFor）；显式传 undefined 表示不带话题（General），
  * 不按作用域补齐。不在 update 作用域内发送的调用方必须显式传入。
+ *
+ * 不收 `onSent` 与 `linkPreviewOptions`：群聊里 onSent 由本边界用来登记自动删除。
  */
-export interface SendCommandMessageBaseParams extends Omit<SendMessageBaseParams, "api"> {
+export interface SendCommandMessageBaseParams extends Omit<SendMessageBaseParams, "api" | "onSent" | "linkPreviewOptions"> {
   api?: Pick<TelegramApi, "sendMessage" | "deleteMessage" | "deleteMessages">;
   preserveInGroup?: boolean;
 }
@@ -36,7 +38,6 @@ export async function sendCommandMessage({
 }: SendCommandMessageParams): Promise<number | undefined> {
   if (!("messageThreadId" in params)) params.messageThreadId = updateTopicThreadIdFor(params.chatId);
   if (params.chatId >= 0 || preserveInGroup) return sendMessage(params);
-  const callerOnSent: SendMessageParams["onSent"] = params.onSent;
   return sendMessage({
     ...params,
     // 在 onSent 回调（拿到 id 的同步时点）登记删除，早于 runTelegramAction 的取消判定。
@@ -47,7 +48,20 @@ export async function sendCommandMessage({
         delayMs: COMMAND_MESSAGE_AUTO_DELETE_MS,
         api: params.api,
       });
-      callerOnSent?.(messageId);
     },
   });
+}
+
+/** replyCommandNotice 读取的命令上下文：触发命令所在的聊天与触发消息 id。 */
+export interface CommandNoticeContext {
+  readonly chat: { readonly id: number };
+  readonly msgId: number | undefined;
+}
+
+/** 在触发命令的聊天里回复触发消息，发送一条纯文本命令提示；清理与话题规则同 sendCommandMessage。 */
+export function replyCommandNotice(
+  ctx: CommandNoticeContext,
+  text: string
+): Promise<number | undefined> {
+  return sendCommandMessage({ chatId: ctx.chat.id, text, replyToMessageId: ctx.msgId });
 }

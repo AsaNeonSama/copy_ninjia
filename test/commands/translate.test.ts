@@ -3,6 +3,8 @@ import type { CachedUser, GlobalCopyState } from "../../packages/types/chatState
 import type { TranslateLanguage, TranslateState } from "../../packages/types/translate";
 import type { SendCommandMessageParams } from "../../packages/infra/telegram/commandMessages";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
+import { TRANSLATE_LANGUAGE_LABELS } from "../../packages/consts/translate";
+import { formatUserLabel } from "../../packages/users/userLabel";
 import { TRANSLATE_CAPACITY_TEXT, TRANSLATE_CHAT_CAPACITY_TEXT, TRANSLATE_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/translate";
 import {
   TRANSLATE_TARGET_TEXTS as PLAIN_TRANSLATE_TARGET_TEXTS,
@@ -14,6 +16,7 @@ import { botAtmosphereState } from "../../packages/cache/main/atmosphere";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { longestTemplatePart } from "../helpers/templateText";
 import type { Atmosphere } from "../../packages/types/atmosphere";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendCommandMessage = mock(async (..._args: unknown[]): Promise<number> => 1);
 const persistChatState = mock(async (..._args: unknown[]): Promise<void> => {});
@@ -62,7 +65,7 @@ const translateStates = {
 };
 const globalCopy: GlobalCopyState = { copiedUser: { id: 8 }, copyChatId: -2002, copyMode: "nya", lastCopyTime: Date.now() };
 const resolveCommandTarget = mock(async (..._args: unknown[]): Promise<CachedUser | undefined> => target);
-mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage }));
+mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage, replyCommandNotice: replyCommandNoticeVia(sendCommandMessage) }));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub() }));
 mock.module("../../packages/config/readiness", () => ({
   translateConfigReadiness: () => configured ? { ok: true } : { ok: false, failure: { file: "g-auth.json", reason: "Invalid g-auth.json" } },
@@ -171,13 +174,17 @@ describe("/translate 独立命令", () => {
 
   test("所有方向各群独立，活动 copy 与头像冷却不阻挡翻译", async () => {
     const copyBefore: string = JSON.stringify(globalCopy);
-    for (const [chatId, language, label] of [
-      [-1001, "ja", "日语"], [-2002, "cn", "简体中文"], [-3003, "en", "美式英语"],
-      [-4004, "uk", "乌克兰语"], [-5005, "ru", "俄语"],
+    for (const [chatId, language] of [
+      [-1001, "ja"], [-2002, "cn"], [-3003, "en"], [-4004, "uk"], [-5005, "ru"],
     ] as const) {
       await handleTranslateCommand(context(language, chatId));
       expect(translateStates.get(chatId)).toEqual([{ translatedUser: { id: 7, first_name: "Target" }, language }]);
-      expect(sendCommandMessage.mock.calls.at(-1)?.[0]).toMatchObject({ text: expect.stringContaining(`翻成${label}`) });
+      expect(sendCommandMessage.mock.calls.at(-1)?.[0]).toMatchObject({
+        text: ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.translateStarted(
+          formatUserLabel({ id: 7, first_name: "Target" }, ATMOSPHERE_TEXTS.teasing),
+          TRANSLATE_LANGUAGE_LABELS[language]
+        ),
+      });
     }
     expect(JSON.stringify(globalCopy)).toBe(copyBefore);
     expect(copySideEffect).not.toHaveBeenCalled();

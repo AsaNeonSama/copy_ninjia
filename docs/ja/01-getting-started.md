@@ -37,17 +37,17 @@
 新規サーバーへの導入には、自動化スクリプト [`install.sh`](../../install.sh) の利用を推奨します：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash
 ```
 
 インストールモードは、引数または環境変数 `COPY_NINJIA_INSTALL_MODE`（`source` または `binary`）で指定できます（両方の同時指定は不可）。未指定の場合は、対話式プロンプトで確認されます（デフォルトは `source`）。`COPY_NINJIA_DIR` でインストール先ディレクトリ名を指定できます（デフォルトは `copy_ninjia`）。
 
 ```bash
 # バイナリ配布版のインストール（素早いデプロイに推奨、git や Bun の事前導入は不要）
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --binary
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --binary
 
 # ソースコード版のインストール（二次開発やカスタマイズに適しています）
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --source
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --source
 ```
 
 #### インストール方式の比較と動作
@@ -99,7 +99,7 @@ curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/instal
 
 ```bash
 # 1. リポジトリをクローン
-git clone https://github.com/Asashishi/copy_ninjia.git
+git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 
 # 2. ロックファイルに従って依存関係を厳格にインストール
@@ -220,25 +220,12 @@ config/
 ```bash
 mkdir -p database
 bun -e '
-  import { createStorageDatabase } from "./packages/database/interact/migration";
-  import {
-    closeStorageDatabase,
-    enableStorageDatabaseWal,
-    openStorageDatabase,
-  } from "./packages/database/interact/connection";
-  import { initializeStorageDatabase } from "./packages/database/interact/initialization";
+  import { bootstrapStorageDatabase } from "./packages/database/interact/initialization";
   import { loadBotConfig } from "./packages/config/botInput";
   import { IDENTITY_DATABASE_PATH } from "./packages/consts/paths";
 
   const { timeZone } = await loadBotConfig();
-  createStorageDatabase(IDENTITY_DATABASE_PATH);
-  const database = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
-  try {
-    initializeStorageDatabase(database, timeZone);
-  } finally {
-    closeStorageDatabase(database);
-  }
-  enableStorageDatabaseWal(IDENTITY_DATABASE_PATH);
+  bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, timeZone);
 '
 chmod 2770 database
 chmod 660 database/storage.sqlite

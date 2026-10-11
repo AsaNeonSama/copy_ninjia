@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { drainWithWaiter } from "../../packages/libs/drainWaiter";
-import type { FlushResult } from "../../packages/types/lifecycle";
+import { drainWithWaiter, settleFlushWaiters, waitForFlush } from "../../packages/libs/drainWaiter";
+import type { FlushResult, FlushWaiter } from "../../packages/types/lifecycle";
 
 /**
  * 停机 drain 骨架的两条语义（见 libs/drainWaiter.ts 的模块头注）：
@@ -9,7 +9,7 @@ import type { FlushResult } from "../../packages/types/lifecycle";
  */
 
 interface Harness {
-  readonly waiters: Set<() => void>;
+  readonly waiters: Set<FlushWaiter>;
   readonly abortCalls: () => number;
   readonly notifyCalls: () => number;
   readonly drain: (timeoutMs: number) => Promise<FlushResult>;
@@ -18,7 +18,7 @@ interface Harness {
 
 /** 建一个可控 owner：空闲判定、waiter 集合与两个副作用计数都由用例驱动。 */
 function harness(initiallyIdle: boolean, notifyBecomesIdle: boolean = false): Harness {
-  const waiters = new Set<() => void>();
+  const waiters = new Set<FlushWaiter>();
   let idle: boolean = initiallyIdle;
   let abortCalls: number = 0;
   let notifyCalls: number = 0;
@@ -36,7 +36,7 @@ function harness(initiallyIdle: boolean, notifyBecomesIdle: boolean = false): Ha
         notifyCalls++;
         // 覆盖「登记 waiter」与「owner 恰好转为空闲」之间那道缝：真实 owner 在
         // 这一刻已经空闲，只是最后一个任务的结算跑在登记之前。
-        if (notifyBecomesIdle) for (const waiter of [...waiters]) waiter();
+        if (notifyBecomesIdle) settleFlushWaiters(waiters, "flushed");
       },
       abort: (): void => { abortCalls++; },
     }),
@@ -75,7 +75,7 @@ describe("drainWithWaiter 停机排空骨架", () => {
     expect(owner.waiters.size).toBe(1);
     expect(owner.notifyCalls()).toBe(1);
 
-    for (const waiter of [...owner.waiters]) waiter();
+    settleFlushWaiters(owner.waiters, "flushed");
     await expect(pending).resolves.toBe("flushed");
     expect(owner.waiters.size).toBe(0);
     expect(owner.abortCalls()).toBe(0);
@@ -96,8 +96,55 @@ describe("drainWithWaiter 停机排空骨架", () => {
     expect(owner.waiters.size).toBe(0);
 
     // 迟到的空闲回调此时已被摘除；owner 事后再排空一次也不会二次结算。
-    for (const waiter of [...owner.waiters]) waiter();
+    settleFlushWaiters(owner.waiters, "flushed");
     await expect(pending).resolves.toBe("timedOut");
     expect(owner.abortCalls()).toBe(1);
+  });
+});
+
+describe("waitForFlush 与 settleFlushWaiters", () => {
+  test("owner 结算时各等待者拿到同一结论，各自的预算 timer 一并取消", async () => {
+    const waiters = new Set<FlushWaiter>();
+    let timeouts: number = 0;
+    const first: Promise<FlushResult> = waitForFlush({ waiters, timeoutMs: 20, onTimeout: (): void => { timeouts++; } });
+    const second: Promise<FlushResult> = waitForFlush({ waiters, timeoutMs: 20 });
+    expect(waiters.size).toBe(2);
+
+    settleFlushWaiters(waiters, "failed");
+    await expect(first).resolves.toBe("failed");
+    await expect(second).resolves.toBe("failed");
+    expect(waiters.size).toBe(0);
+    await Bun.sleep(40);
+    expect(timeouts).toBe(0);
+  });
+
+  test("预算先耗尽时先调用 onTimeout，没被它结算的等待者按 timedOut 出队，其余等待者不受影响", async () => {
+    const waiters = new Set<FlushWaiter>();
+    const sizes: number[] = [];
+    const expiring: Promise<FlushResult> = waitForFlush({
+      waiters,
+      timeoutMs: 5,
+      onTimeout: (): void => { sizes.push(waiters.size); },
+    });
+    const waiting: Promise<FlushResult> = waitForFlush({ waiters, timeoutMs: 60_000 });
+
+    await expect(expiring).resolves.toBe("timedOut");
+    // onTimeout 运行时本等待者还在集合里。
+    expect(sizes).toEqual([2]);
+    expect(waiters.size).toBe(1);
+    settleFlushWaiters(waiters, "flushed");
+    await expect(waiting).resolves.toBe("flushed");
+  });
+
+  test("onTimeout 同步结算的结论对到期的等待者同样生效", async () => {
+    const waiters = new Set<FlushWaiter>();
+    const expiring: Promise<FlushResult> = waitForFlush({
+      waiters,
+      timeoutMs: 5,
+      onTimeout: (): void => settleFlushWaiters(waiters, "flushed"),
+    });
+
+    await expect(expiring).resolves.toBe("flushed");
+    expect(waiters.size).toBe(0);
   });
 });

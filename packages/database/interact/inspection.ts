@@ -1,32 +1,7 @@
 import { asc, count, gt } from "drizzle-orm";
 import { BLOCKLIST_REMOVAL_HYDRATION_PAGE_SIZE } from
   "../../consts/antiRaid/blocklist";
-import {
-  TIME_ZONE_MARKER_MIGRATION_CREATED_AT,
-  TIME_ZONE_MARKER_MIGRATION_HASH,
-  CHAT_PERSONA_REMOVAL_MIGRATION_CREATED_AT,
-  CHAT_PERSONA_REMOVAL_MIGRATION_HASH,
-  CLEAR_CONTEXT_PERMISSION_MIGRATION_CREATED_AT,
-  CLEAR_CONTEXT_PERMISSION_MIGRATION_HASH,
-  H_IMAGE_ADD_PERMISSION_MIGRATION_CREATED_AT,
-  H_IMAGE_ADD_PERMISSION_MIGRATION_HASH,
-  AI_CONTEXT_MIGRATION_CREATED_AT,
-  AI_CONTEXT_MIGRATION_HASH,
-  IDENTITY_DATABASE_CHAT_QA_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_CHAT_QA_MIGRATION_HASH,
-  IDENTITY_DATABASE_CHAT_STATE_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_CHAT_STATE_MIGRATION_HASH,
-  IDENTITY_DATABASE_BASE_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_BASE_MIGRATION_HASH,
-  IDENTITY_DATABASE_TEMPORARY_ACTIVITY_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_TEMPORARY_ACTIVITY_MIGRATION_HASH,
-  IDENTITY_DATABASE_TEMPORARY_AD_BYPASS_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_TEMPORARY_AD_BYPASS_MIGRATION_HASH,
-  IDENTITY_DATABASE_TRANSLATE_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_TRANSLATE_MIGRATION_HASH,
-  IDENTITY_DATABASE_WHITELIST_PERMISSION_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_WHITELIST_PERMISSION_MIGRATION_HASH,
-} from "../../consts/identityStorage";
+import { STORAGE_MIGRATION_LINEAGE } from "../../consts/identityStorage";
 import {
   assertTelegramIdentityId,
   decodeBlocklistEntryData,
@@ -168,88 +143,26 @@ export function assertStorageDatabaseIntegrity(
   }
 }
 
-function isMigrationEntry(
-  entry: StorageDatabaseMigrationJournalEntry | undefined,
-  createdAt: number,
-  hash: string
+/** 两段迁移谱系逐行相等：条数相同，每行的 created_at 与 hash 都相同。 */
+export function isSameMigrationLineage(
+  actual: readonly StorageDatabaseMigrationJournalEntry[],
+  expected: readonly StorageDatabaseMigrationJournalEntry[]
 ): boolean {
-  return entry?.createdAt === createdAt && entry.hash === hash;
+  if (actual.length !== expected.length) return false;
+  for (let index: number = 0; index < expected.length; index++) {
+    const row: StorageDatabaseMigrationJournalEntry | undefined = actual[index];
+    const want: StorageDatabaseMigrationJournalEntry | undefined = expected[index];
+    if (row?.createdAt !== want?.createdAt || row?.hash !== want?.hash) return false;
+  }
+  return true;
 }
 
-/** 谱系开头恰好是初始 migration 与白名单代加权限 migration 两条。 */
-function hasBaseLineage(
-  rows: readonly StorageDatabaseMigrationJournalEntry[]
-): boolean {
-  return rows.length === 2 &&
-    isMigrationEntry(rows[0], IDENTITY_DATABASE_BASE_MIGRATION_CREATED_AT, IDENTITY_DATABASE_BASE_MIGRATION_HASH) &&
-    isMigrationEntry(
-      rows[1],
-      IDENTITY_DATABASE_WHITELIST_PERMISSION_MIGRATION_CREATED_AT,
-      IDENTITY_DATABASE_WHITELIST_PERMISSION_MIGRATION_HASH
-    );
-}
-
-function hasSchemaV5MigrationLineage(
-  rows: readonly StorageDatabaseMigrationJournalEntry[]
-): boolean {
-  return rows.length >= 4 &&
-    isMigrationEntry(
-      rows.at(-1),
-      IDENTITY_DATABASE_CHAT_QA_MIGRATION_CREATED_AT,
-      IDENTITY_DATABASE_CHAT_QA_MIGRATION_HASH
-    ) &&
-    isMigrationEntry(
-      rows.at(-2),
-      IDENTITY_DATABASE_CHAT_STATE_MIGRATION_CREATED_AT,
-      IDENTITY_DATABASE_CHAT_STATE_MIGRATION_HASH
-    ) &&
-    hasBaseLineage(rows.slice(0, -2));
-}
-
-/**
- * 当前 schema 版本必须包含完整迁移谱系，并依次以 AI 上下文、清理上下文权限、`/h_image add` 权限、
- * 移除群人设、时区标记迁移结尾，不接受缺项或额外项。
- */
+/** `__drizzle_migrations` 必须与 STORAGE_MIGRATION_LINEAGE 逐行相等，不接受缺项、额外项或乱序。 */
 export function assertStorageDatabaseMigrationLineage(
   database: StorageDatabase,
   source: string
 ): void {
-  const journal: readonly StorageDatabaseMigrationJournalEntry[] =
-    readStorageDatabaseMigrationJournal(database, source);
-  if (!isMigrationEntry(journal.at(-1), TIME_ZONE_MARKER_MIGRATION_CREATED_AT, TIME_ZONE_MARKER_MIGRATION_HASH) ||
-    !isMigrationEntry(journal.at(-2), CHAT_PERSONA_REMOVAL_MIGRATION_CREATED_AT, CHAT_PERSONA_REMOVAL_MIGRATION_HASH) ||
-    !isMigrationEntry(journal.at(-3), H_IMAGE_ADD_PERMISSION_MIGRATION_CREATED_AT, H_IMAGE_ADD_PERMISSION_MIGRATION_HASH) ||
-    !isMigrationEntry(journal.at(-4), CLEAR_CONTEXT_PERMISSION_MIGRATION_CREATED_AT, CLEAR_CONTEXT_PERMISSION_MIGRATION_HASH) ||
-    !isMigrationEntry(journal.at(-5), AI_CONTEXT_MIGRATION_CREATED_AT, AI_CONTEXT_MIGRATION_HASH)) {
-    throw new Error(`${source}: expected the exact supported schema v13 migration lineage.`);
-  }
-  const rows: readonly StorageDatabaseMigrationJournalEntry[] = journal.slice(0, -5);
-  if (
-    rows.length < 7 ||
-    !isMigrationEntry(
-      rows.at(-1),
-      IDENTITY_DATABASE_TRANSLATE_MIGRATION_CREATED_AT,
-      IDENTITY_DATABASE_TRANSLATE_MIGRATION_HASH
-    ) ||
-    !isMigrationEntry(
-      rows.at(-2),
-      IDENTITY_DATABASE_TEMPORARY_AD_BYPASS_MIGRATION_CREATED_AT,
-      IDENTITY_DATABASE_TEMPORARY_AD_BYPASS_MIGRATION_HASH
-    )
-  ) {
-    throw new Error(`${source}: expected the exact supported schema v13 migration lineage.`);
-  }
-  const v6Rows: readonly StorageDatabaseMigrationJournalEntry[] =
-    rows.slice(0, -2);
-  if (
-    v6Rows.length < 5 ||
-    !isMigrationEntry(
-      v6Rows.at(-1),
-      IDENTITY_DATABASE_TEMPORARY_ACTIVITY_MIGRATION_CREATED_AT,
-      IDENTITY_DATABASE_TEMPORARY_ACTIVITY_MIGRATION_HASH
-    ) ||
-    !hasSchemaV5MigrationLineage(v6Rows.slice(0, -1))
-  ) {
+  if (!isSameMigrationLineage(readStorageDatabaseMigrationJournal(database, source), STORAGE_MIGRATION_LINEAGE)) {
     throw new Error(`${source}: expected the exact supported schema v13 migration lineage.`);
   }
 }

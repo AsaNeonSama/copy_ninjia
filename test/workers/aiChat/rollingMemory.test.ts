@@ -4,6 +4,7 @@ import {
   bufferedMessageFixture,
   bufferedReplyReferenceFixture,
 } from "../../helpers/aiMemoryFixtures";
+import { NON_TEXT_PLACEHOLDER } from "../../../packages/consts/auto";
 import { BoundedDeque } from "../../../packages/libs/boundedDeque";
 import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
 
@@ -174,7 +175,7 @@ describe("AI rolling-memory capacity", () => {
       expect(buildBufferedMessage(source, empty, 0)).toBeNull();
     }
     const built: BufferedMessage | null = buildBufferedMessage(source, "正文", 0);
-    expect(built?.replyTo?.text).toBe("[非文本消息]");
+    expect(built?.replyTo?.text).toBe(NON_TEXT_PLACEHOLDER);
     expect(built?.replyTo?.quote).toBeUndefined();
   });
 

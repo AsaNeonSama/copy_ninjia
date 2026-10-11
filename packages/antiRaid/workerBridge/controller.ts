@@ -236,16 +236,18 @@ export function initAntiRaid(): void {
   }
 }
 
-/** 统一群 teardown：取消验证并对 lockdown 发起可恢复解锁。 */
+/** 统一群 teardown：取消验证，并对 lockdown 发起可恢复解锁；群已不存在时改为放弃。 */
 export function deactivateAntiRaidChat(
   chatId: number,
-  cleanupVerificationMessages: boolean
+  cleanupVerificationMessages: boolean,
+  abandonLockdown: boolean
 ): void {
   deleteDeferredVerificationsForChat(chatId);
   postAntiRaidOrThrow({
     type: "deactivateChat",
     chatId,
     cleanupVerificationMessages,
+    abandonLockdown,
   });
 }
 

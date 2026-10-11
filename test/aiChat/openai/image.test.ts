@@ -14,9 +14,13 @@ import type {
   OpenAiImageProtocol,
 } from "../../../packages/types/config";
 
-const generate = mock(async (..._args: unknown[]): Promise<unknown> => ({ data: [{ b64_json: "" }] }));
-const edit = mock(async (..._args: unknown[]): Promise<unknown> => ({ data: [{ b64_json: "" }] }));
-const post = mock(async (..._args: unknown[]): Promise<unknown> => ({ data: [{ b64_json: "" }] }));
+/** generate、edit、post 三个替身共用的默认实现：每次交回一份新的空图响应。 */
+async function emptyImageResponse(..._args: unknown[]): Promise<unknown> {
+  return { data: [{ b64_json: "" }] };
+}
+const generate = mock(emptyImageResponse);
+const edit = mock(emptyImageResponse);
+const post = mock(emptyImageResponse);
 const loggerError = mock((..._args: unknown[]): void => {});
 const IMAGE_MODEL: string = "configured-image-model";
 let imageProtocol: OpenAiImageProtocol = "openai";
@@ -104,9 +108,10 @@ function respondWith(encoded: string): void {
 }
 
 beforeEach(() => {
-  generate.mockClear();
-  edit.mockClear();
-  post.mockClear();
+  for (const fn of [generate, edit, post]) {
+    fn.mockReset();
+    fn.mockImplementation(emptyImageResponse);
+  }
   loggerError.mockClear();
   imageProtocol = "openai";
 });

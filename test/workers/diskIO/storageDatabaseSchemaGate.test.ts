@@ -4,11 +4,10 @@ import { DEFAULT_WHITELIST_PERMISSIONS } from
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
 import {
   IDENTITY_DATABASE_METADATA_KEYS,
-  IDENTITY_DATABASE_BASE_MIGRATION_CREATED_AT,
-  IDENTITY_DATABASE_BASE_MIGRATION_HASH,
   IDENTITY_DATABASE_SCHEMA_KEY,
   IDENTITY_DATABASE_SCHEMA_VERSION,
   IDENTITY_DATABASE_TIME_ZONE_KEY,
+  STORAGE_MIGRATION_LINEAGE,
 } from "../../../packages/consts/identityStorage";
 import { getTimeZone } from "../../../packages/config/time";
 import { storageMetadataRows } from "../../../packages/database/interact/initialization";
@@ -26,7 +25,7 @@ import { adoptStorageDatabase, inspectStorageDatabase } from
 import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
 import { resetStorageDatabaseCache, storageDatabaseHandle } from
   "../../../packages/cache/workers/diskIO/storageDatabase";
-import type { StorageDatabase } from "../../../packages/types/storageDatabase";
+import type { StorageDatabase, StorageDatabaseMigrationJournalEntry } from "../../../packages/types/storageDatabase";
 import type { PendingBlockedRemoval } from "../../../packages/types/blocklist";
 
 function withDatabase<T>(run: (database: StorageDatabase) => T): T {
@@ -241,9 +240,9 @@ describe("共享存储库的启动 schema 闸", () => {
     } finally {
       withDatabase((database: StorageDatabase): void => {
         database.$client.run("DELETE FROM __drizzle_migrations WHERE created_at = ?1;", [20_260_811_010_000]);
-        database.$client.run("UPDATE __drizzle_migrations SET hash = ?1 WHERE created_at = ?2;", [
-          IDENTITY_DATABASE_BASE_MIGRATION_HASH, IDENTITY_DATABASE_BASE_MIGRATION_CREATED_AT,
-        ]);
+        const base: StorageDatabaseMigrationJournalEntry | undefined = STORAGE_MIGRATION_LINEAGE[0];
+        if (base === undefined) throw new Error("Expected the base migration lineage entry.");
+        database.$client.run("UPDATE __drizzle_migrations SET hash = ?1 WHERE created_at = ?2;", [base.hash, base.createdAt]);
       });
     }
     expect(() => inspectStorageDatabase()).not.toThrow();

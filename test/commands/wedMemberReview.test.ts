@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../helpers/fixtureTimeZone";
 import { GrammyError } from "grammy";
 import type { ChatMember } from "grammy/types";
 import { diskIORuntime } from "../../packages/cache/main/diskIO";
@@ -15,6 +16,8 @@ import { DAY_MS } from "../../packages/consts/time";
 import * as diskIO from "../../packages/infra/diskIO";
 import { logger } from "../../packages/infra/logger";
 import { getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+
+installTokyoFixtureTimeZone();
 
 const DAY: string = "2026-09-07";
 const MIDNIGHT: number = Date.parse(`${DAY}T00:00:00+09:00`);
@@ -65,7 +68,8 @@ beforeEach((): void => {
   initWedRuntime();
   getOrCreateChatState(-1001).isInitEnabled = true;
   hydrateWedMembers(new Map([[-1001, new Set([1, 2])]]));
-  for (const fn of [probe, post, errorLog]) fn.mockClear();
+  for (const fn of [post, errorLog]) fn.mockClear();
+  probe.mockReset();
   probe.mockImplementation(async (_chatId: number, userId: number): Promise<ChatMember> => member(userId));
   post.mockReturnValue(true);
   errorLog.mockImplementation((): void => {});

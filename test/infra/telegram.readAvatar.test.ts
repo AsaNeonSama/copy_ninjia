@@ -37,7 +37,8 @@ function currentPhotos(): UserProfilePhotos {
 }
 
 beforeEach((): void => {
-  for (const fn of [getChat, getUserProfilePhotos, download, web, logError]) fn.mockClear();
+  for (const fn of [web, logError]) fn.mockClear();
+  for (const fn of [getChat, getUserProfilePhotos, download]) fn.mockReset();
   getChat.mockImplementation(async (): Promise<any> => ({ photo: { big_file_id: "active-photo", big_file_unique_id: "active-unique" } }));
   getUserProfilePhotos.mockImplementation(async (): Promise<UserProfilePhotos> => ({ total_count: 0, photos: [] }));
   download.mockImplementation(async (): Promise<any> => ({ status: "ok", bytes: new Uint8Array([1, 2, 3]) }));

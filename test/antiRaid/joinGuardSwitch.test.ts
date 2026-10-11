@@ -218,6 +218,25 @@ describe("入群守卫开关（主线程投递侧）", () => {
     }));
   });
 
+  test("机器人升降管理员不投邀请者豁免变更：机器人按普通成员处理", async () => {
+    const promote = demoteUpdate(8) as unknown as {
+      chatMember: {
+        old_chat_member: { status: string; user: { is_bot: boolean } };
+        new_chat_member: { status: string; is_anonymous?: boolean; user: { is_bot: boolean } };
+      };
+    };
+    promote.chatMember.old_chat_member = { status: "member", user: { ...promote.chatMember.old_chat_member.user, is_bot: true } };
+    promote.chatMember.new_chat_member = {
+      status: "administrator",
+      is_anonymous: false,
+      user: { ...promote.chatMember.new_chat_member.user, is_bot: true },
+    };
+
+    await handleChatMemberUpdate(promote as never);
+
+    expect(workerPosts).not.toContainEqual(expect.objectContaining({ type: "adminsChanged" }));
+  });
+
   test("开着时照常投 join/left", async () => {
     chatState.isAntiRaidEnabled = true;
 

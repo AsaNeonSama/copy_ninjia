@@ -111,7 +111,7 @@ function decodeVerificationBase(
   };
 }
 
-/** kickPending：本次入群的动作时刻同时是入群与到期时刻。 */
+/** kickPending：本次入群的动作时刻同时是入群与到期时刻；还没发过验证提醒，两类提醒 id 缺省。 */
 function decodeKickPending(
   base: VerificationSnapshotBase,
   value: Record<string, unknown>
@@ -122,7 +122,9 @@ function decodeKickPending(
     !isSafeTimestamp(requestedAt) ||
     !isOptionalSafeTimestamp(countedJoinAt) ||
     base.joinedAt !== requestedAt ||
-    base.expiresAt !== requestedAt
+    base.expiresAt !== requestedAt ||
+    base.reminderMessageId !== undefined ||
+    base.replyReminderMessageId !== undefined
   ) return null;
   return { ...base, phase: "kickPending", requestedAt, countedJoinAt };
 }
@@ -166,14 +168,19 @@ function decodeExpelling(
 }
 
 /**
- * 回复提醒三字段的一致性：pending 阶段 replyReminderRequested、reminderSuperseded 与「welcomeAnchorMessageId 已知」
- * 同真同假（只由 states/verification/pending.ts 一并置位）；其余阶段只能是快照写出的 false、无锚点、true
- * （见 workers/antiRaid/verificationSnapshot.ts）。
+ * pending 独有字段的一致性。pending 阶段 replyReminderRequested、reminderSuperseded 与
+ * 「welcomeAnchorMessageId 已知」同真同假（只由 states/verification/pending.ts 一并置位）；其余阶段
+ * 不带这组事实，只能是快照写出的占位：空发言窗口、无拉人者、false、无锚点、true（见
+ * workers/antiRaid/verificationSnapshot.ts）。占位以外的值恢复时会被丢弃，因此整份拒绝。
  */
-function hasConsistentReplyReminder(phase: unknown, base: VerificationSnapshotBase): boolean {
+function hasConsistentPendingFacts(phase: unknown, base: VerificationSnapshotBase): boolean {
   const anchored: boolean = base.welcomeAnchorMessageId !== undefined;
   if (phase === "pending") return base.replyReminderRequested === anchored && base.reminderSuperseded === anchored;
-  return !base.replyReminderRequested && !anchored && base.reminderSuperseded;
+  return base.trackedMessageTimes.length === 0 &&
+    base.invitedBy === undefined &&
+    !base.replyReminderRequested &&
+    !anchored &&
+    base.reminderSuperseded;
 }
 
 /**
@@ -188,7 +195,7 @@ function decodeVerificationSnapshot(
 ): VerificationSnapshot | null {
   if (!isPlainRecord(value) || !hasCurrentVerificationKeys(value)) return null;
   const base: VerificationSnapshotBase | null = decodeVerificationBase(key, value);
-  if (base === null || !hasConsistentReplyReminder(value.phase, base)) return null;
+  if (base === null || !hasConsistentPendingFacts(value.phase, base)) return null;
   switch (value.phase) {
     case "pending":
       return { ...base, phase: "pending" };

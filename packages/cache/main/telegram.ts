@@ -7,8 +7,8 @@
  * 填充单例句柄和对应类别队列。
  */
 
+import type { FlushWaiter } from "../../types/lifecycle";
 import type {
-  TelegramOutboundDrainWaiter,
   TelegramOutboundJob,
   TelegramRetryCategory,
   TelegramRetryLane,
@@ -60,7 +60,7 @@ export const telegramOutboundGateState: {
   aborting: boolean;
   readonly activeJobs: Set<TelegramOutboundJob>;
   readonly lanes: Readonly<Record<TelegramRetryCategory, TelegramRetryLane>>;
-  readonly drainWaiters: Set<TelegramOutboundDrainWaiter>;
+  readonly drainWaiters: Set<FlushWaiter>;
 } = {
   activeCount: 0,
   retryPendingCount: 0,

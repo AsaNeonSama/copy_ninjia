@@ -39,6 +39,7 @@
    - 在 `packages/commands/` 目录下创建对应的文件，导出强类型返回的 `handleXxxCommand`。
    - **权限检查**：需要特定功能权限的命令，调用 `rejectUnlessPermitted(ctx, key, rejection)`；仅允许超级管理员使用的系统命令，调用 `rejectUnlessSuperAdmin(ctx, rejection)`（参考 `commands/commandActor.ts`）。
    - **文案组织**：命令回复文案按调侃风（`teasing`）与普通风（`plain`）分别保存在 `packages/consts/atmosphere/{teasing,plain}/` 中对应的领域文件，两份文案需遵循相同的接口类型。业务逻辑通过 `chatAtmosphere()` 获取当前风格文案。
+   - **命令回执**：回复触发消息的纯文本提示（用法、拒绝、失败与操作回执）调用 `replyCommandNotice(ctx, text)`（`infra/telegram/commandMessages.ts`），沿用 `sendCommandMessage` 的 30 秒自动删除与话题补齐；需要格式、长期保留或在 update 作用域之外发送时直接调用 `sendCommandMessage`。
 2. **导出模块**：将新增的命令处理函数在 `packages/commands/index.ts` 中统一导出。
 3. **注册路由**：
    - 打开 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts)，在 `commands` 子链上调用 `commands.command("xxx", ...)` 注册命令。

@@ -5,6 +5,7 @@
  */
 
 import { afterEach, beforeEach, expect, mock, setSystemTime, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../../helpers/fixtureTimeZone";
 import { loggerStub } from "../../helpers/loggerMock";
 import { TOKYO_TIME_ZONE } from "../../../packages/consts/time";
 import type { AiWebSearchFacade, AiWebSearchRequest, AiWebSearchResult } from "../../../packages/types/aiChat/provider";
@@ -47,6 +48,8 @@ function fakeProvider(results: AiWebSearchResult[]): { provider: AiWebSearchFaca
 function resultText(outcome: WebSearchToolOutcome): string {
   return (JSON.parse(outcome.result) as { result: string }).result;
 }
+
+installTokyoFixtureTimeZone();
 
 beforeEach(() => loggerError.mockClear());
 afterEach(() => setSystemTime());

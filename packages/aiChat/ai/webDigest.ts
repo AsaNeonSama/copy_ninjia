@@ -33,7 +33,7 @@ import { decodeWebDigest } from "../../libs/webDigest";
 import { renderWebDigestMarkdown } from "../../libs/webDigestMarkdown";
 import { researchSourceUrls } from "../../libs/webDigestUrls";
 import { escapeMarkdownV2 } from "../../libs/telegramMarkdown";
-import { truncateInline } from "../../libs/text";
+import { truncateWithEllipsis } from "../../libs/text";
 import { currentTimeSentence } from "./timeSentence";
 import { WEB_SEARCH_TIME_LABEL } from "../../consts/aiChat/prompts/researchTime";
 import type {
@@ -185,9 +185,7 @@ export async function composeWebDigest(
     const response: string = research.text.trim();
     if (response.length === 0) return failed("search failed", "the endpoint returned no text", signal);
     const bodyLimit: number = TELEGRAM_MESSAGE_MAX_CHARS - WEB_DIGEST_UNSEARCHED_WARNING.length - 2;
-    const body: string = response.length > bodyLimit
-      ? `${truncateInline(response, bodyLimit - 1)}…`
-      : response;
+    const body: string = truncateWithEllipsis(response, bodyLimit);
     logger.warn(`Web digest research answered without searching; sending with warning: ${noSearchDetail(research)}; ` +
       `messageTruncated=${response.length > bodyLimit}.`);
     return { ok: true, text: escapeMarkdownV2(`${WEB_DIGEST_UNSEARCHED_WARNING}\n\n${body}`) };

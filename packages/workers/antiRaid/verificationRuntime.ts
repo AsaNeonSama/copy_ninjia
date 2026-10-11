@@ -128,6 +128,7 @@ export function dispatchVerification(
         state: next,
         timer: startVerificationTimer(chatId, userId, next),
         terminalRetries: 0,
+        cleanupSettled: false,
       });
     }
   } else if (rescheduleTimer && entry !== undefined && next !== undefined) {
@@ -301,6 +302,7 @@ export function adoptVerifications(message: AdoptVerificationsMessage): void {
       state,
       timer: startVerificationTimer(record.chatId, record.userId, state),
       terminalRetries: 0,
+      cleanupSettled: false,
     });
     if (state.kind === "pending" && record.expiresAt <= now) {
       dispatchVerification(
@@ -373,7 +375,7 @@ function deleteChatDeferredVerifications(chatId: number, prefix: string): void {
  * 直接删内存条目再补 tombstone；这条把每条记录都喂给 dispatchVerification 走一次
  * guardDisabled 转移，由状态机决定哪些事不再发生（见 states/verification/disable.ts：
  * 一律回 ABSENT；仍在群里的带按钮提醒会删除，但不再提醒、不踢人）。
- * 终态（checkingInviter/expelling）的 tombstone 由 dispatchVerification 统一发布。
+ * 已落盘记录（pending 与各终态）的 tombstone 由 dispatchVerification 统一发布。
  *
  * 先删 thread comment 确认 owner，再逐条转移。
  */

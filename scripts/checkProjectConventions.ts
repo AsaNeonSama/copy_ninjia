@@ -1,9 +1,10 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
+import type { Stats } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import type ts from "typescript";
 import { createModuleGraphReader } from "./conventions/moduleGraph";
 import type { ModuleGraphReader } from "./conventions/moduleGraph";
-import { parseSourceFile, sourceFilesUnder } from "./conventions/sourceAnalysis";
+import { createTypeCheckProgram, parseSourceFile, sourceFilesUnder } from "./conventions/sourceAnalysis";
 import {
   collectCacheJsDocProblems,
   collectConstantProblems,
@@ -16,7 +17,7 @@ import type { SourceFileRuleParams } from "./conventions/sourceRules";
 import { collectColdMigrationProblems } from "./conventions/coldMigrations";
 import { collectConstExhaustiveListProblems, PARTIAL_LITERAL_TABLES } from "./conventions/constExhaustiveLists";
 import { collectConstImmutabilityAssertionProblems } from "./conventions/constImmutability";
-import { createConstsProgram, exportedConstDeclarations } from "./conventions/constsProgram";
+import { exportedConstDeclarations } from "./conventions/constsProgram";
 import type { ExportedConstDeclaration } from "./conventions/constsProgram";
 import { collectCoverageMetricProblems } from "./conventions/coverageMetrics";
 import { collectFaultInjectionSuiteProblems } from "./conventions/faultInjectionSuite";
@@ -57,6 +58,7 @@ import {
   collectExportedStringConstants,
   collectStringConstantAssertionProblems,
 } from "./conventions/testAssertions";
+import { collectMockResetProblems } from "./conventions/testMockReset";
 import {
   collectConstantTextFragmentAssertionProblems,
   collectConstantTextFragments,
@@ -69,6 +71,7 @@ import {
   collectInfraLayeringProblems,
   collectStatesPurityProblems,
   collectConstsPurityProblems,
+  STATES_CLOSURE_OPAQUE_MODULES,
 } from "./conventions/moduleBoundaries";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..");
@@ -246,7 +249,7 @@ const tracked: string[] = projectFiles();
 for (const trackedPath of tracked) {
   const path: string = join(PROJECT_ROOT, trackedPath);
   // 允许尚未 stage 的正常删除；其它门禁会从最终工作树/索引确认变更范围。
-  if (!existsSync(path)) continue;
+  if (!(await Bun.file(path).exists())) continue;
   if (/\.(?:[cm]?[jt]sx?|sh)$/.test(path)) {
     failures.push(...collectFileLengthProblems(trackedPath, await Bun.file(path).text()));
   }
@@ -262,7 +265,7 @@ for (const trackedPath of tracked) {
   }
   const extension: string = extname(path);
   if (![".ts", ".json", ".md", ".yaml", ".yml"].includes(extension)) continue;
-  const stats: ReturnType<typeof statSync> = statSync(path);
+  const stats: Stats = await Bun.file(path).stat();
   if (!stats.isFile() || (stats.mode & 0o111) === 0) continue;
   if ((await Bun.file(path).text()).startsWith("#!")) continue;
   failures.push(
@@ -271,6 +274,14 @@ for (const trackedPath of tracked) {
 }
 
 const moduleGraph: ModuleGraphReader = createModuleGraphReader();
+const statesOpaqueModules: ReadonlySet<string> = new Set(
+  STATES_CLOSURE_OPAQUE_MODULES.map((module: string): string => join(PROJECT_ROOT, module))
+);
+for (const module of STATES_CLOSURE_OPAQUE_MODULES) {
+  if (!(await Bun.file(join(PROJECT_ROOT, module)).exists())) {
+    failures.push(`STATES_CLOSURE_OPAQUE_MODULES lists ${module}, which no longer exists`);
+  }
+}
 const threadClosures: Map<string, Map<string, string[]>> = new Map();
 for (const [thread, entry] of Object.entries(THREAD_ENTRIES)) {
   threadClosures.set(thread, await moduleGraph.threadModuleClosure(entry));
@@ -367,7 +378,10 @@ for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
   for (const problem of collectDeclarationProblems(params)) failures.push(problem);
   failures.push(...collectEnvironmentAccessProblems(params));
   if (path.startsWith(STATES_ROOT + "/")) {
-    failures.push(...collectStatesPurityProblems(params));
+    failures.push(...collectStatesPurityProblems({
+      ...params,
+      closure: await moduleGraph.boundedModuleClosure(path, statesOpaqueModules),
+    }));
   }
   if (path.startsWith(CONSTS_ROOT + "/")) {
     failures.push(...collectConstsPurityProblems(params));
@@ -420,7 +434,7 @@ for (const path of [...sourceFilesUnder(SCRIPTS_ROOT), ...sourceFilesUnder(TEST_
 }
 failures.push(...collectUnusedConstantTextExemptionProblems(usedConstantTextExemptions));
 const constFiles: readonly string[] = [...constsSourceFiles];
-const constsProgram: ts.Program = createConstsProgram(PROJECT_ROOT, constFiles);
+const constsProgram: ts.Program = createTypeCheckProgram(PROJECT_ROOT, constFiles);
 const constsChecker: ts.TypeChecker = constsProgram.getTypeChecker();
 const constDeclarations: readonly ExportedConstDeclaration[] = exportedConstDeclarations(constsProgram, constFiles);
 failures.push(...collectConstImmutabilityAssertionProblems({
@@ -436,6 +450,12 @@ failures.push(...collectConstExhaustiveListProblems({
   partialTables: PARTIAL_LITERAL_TABLES,
 }));
 failures.push(...collectUnusedNodeAllowanceProblems(nodeImportUsage));
+const testFiles: readonly string[] = sourceFilesUnder(TEST_ROOT);
+failures.push(...collectMockResetProblems({
+  projectRoot: PROJECT_ROOT,
+  program: createTypeCheckProgram(PROJECT_ROOT, testFiles),
+  testFiles,
+}));
 
 for (const problem of await collectTelegramMessageProblems(
   PROJECT_ROOT,

@@ -19,15 +19,14 @@
 | `bun run lint:fast` | 本地带缓存 ESLint | 附加 `--cache`，仅供本地开发调试回路快速迭代使用 |
 | `bun run typecheck` | TypeScript 类型检查 | `bun --check` 按 `tsconfig.json` 全严格模式检查整个项目，不写增量缓存 |
 | `bun run test` | 全量测试 | 强制启用进程上下文隔离（`bun test --isolate`） |
-| `bun run test:random` | 乱序全量测试 | 固定种子的乱序全量测试，专门用于暴露测试间的全局状态残留与 mock 泄漏 |
-| `bun run test:coverage` | 测试 + 覆盖率 | 运行全量测试并统计全源码覆盖率指标 |
+| `bun run test:coverage` | 测试 + 覆盖率 | 以随机顺序（`--randomize`，摘要打印 `--seed=` 供复现）运行全量测试并统计全源码覆盖率指标，同时暴露测试间的全局状态残留与 mock 泄漏 |
 | `bun run check:install-script-syntax` | 安装脚本语法检查 | `bash -n` 解析 `install.sh` 及其引用的所有 shell 模块，不执行实际逻辑 |
 | `bun run check:install-isolation` | 安装器隔离验证 | 在专属临时根跑真实 `install.sh` 夹具，核对回滚、中断续跑、备份保留、凭据隔离、服务保护与启动观察 |
 | `bun run check:conventions` | 仓库约定自检 | 运行 `scripts/checkProjectConventions.ts`，验证常量、缓存归属、文档链接与架构边界 |
-| `bun run check` | **全量集成门禁** | 语法 + 安装隔离 + 约定自检 + lint + typecheck + 覆盖率 + 乱序测试 + 热路径门禁（合入 `master` 必跑） |
+| `bun run check` | **全量集成门禁** | 语法 + 安装隔离 + 约定自检 + lint + typecheck + 随机顺序的覆盖率测试 + 热路径门禁（合入 `master` 必跑） |
 | `bun run check:coverage` | 覆盖率指标对账 | 校验三语 README、文档与 SVG 徽章指标与真实读数的一致性 |
-| `bun run test:fault-injection` | 确定性故障注入套件 | 验证进程崩溃、异常停机、数据库瞬断与 Worker 重生时的恢复一致性 |
-| `bun run perf:hot-paths -- <场景> [--profile]` | 热路径独立进程测量 | 测量单个热路径场景（`--profile` 用于采样分析） |
+| `bun run test:fault-injection` | 确定性故障注入套件 | 由 `scripts/testFaultInjection.ts` 按 `FAULT_INJECTION_TESTS` 清单运行，验证进程崩溃、异常停机、数据库瞬断与 Worker 重生时的恢复一致性 |
+| `bun run perf:hot-paths -- <场景> [--profile]` | 热路径独立进程测量 | 在 `performance/` 下的隔离数据根与配置副本中，按 `HOT_PATH_PROFILE_REPEATS` 轮独立进程测量单个热路径场景（`--profile` 用于采样分析）；直接运行 `scripts/perf/hotPaths.ts` 会在加载场景前拒绝 |
 | `bun run perf:hot-path-gate` | **热路径性能门禁** | 精选热路径场景的内存/GC/JIT 硬门禁（已并入 `check`） |
 | `bun run perf:join-log` | 入群日志性能基准 | 入群日志容量/快照/追加记账的独立进程对照基准 |
 | `bun run perf:identity-database` | 身份数据库基准 | 身份数据库冷热读写、主线程 LRU 读与写透链路的独立进程基准 |
@@ -65,11 +64,12 @@
   - 语法层面不支持标注的 `for...of` / `for...in` 循环变量自动豁免；初始化器已是全标注箭头函数的 `const` 同样豁免。
 - **仓库约定自检（`check:conventions`）**：
   - **结构与链接校验**：检查源码行数、文件归位、Markdown 文档的本地相对链接与锚点有效性；核对文档中提及的文件清单真实存在；校验可执行脚本的权限位与安装步骤编号的一致性。
-  - **模块与架构隔离**：核对常量与缓存归属（`packages/cache/<owner>/` 线程单属性边界），按真实模块导入图核验 Worker 与 Telegram 能力隔离；环境变量仅允许在 `consts/paths.ts` 与 `consts/environment.ts` 中读取；`consts/` 运行期只依赖 `consts`（其它 `packages/` 模块只能 `import type`）；`states/` 仅依赖 `consts`、`libs`、`types` 与 `states`；`infra/` 严禁反向依赖业务层；全量基准测试父进程仅允许引入纯常量与类型。
+  - **模块与架构隔离**：核对常量与缓存归属（`packages/cache/<owner>/` 线程单属性边界），按真实模块导入图核验 Worker 与 Telegram 能力隔离；环境变量仅允许在 `consts/paths.ts` 与 `consts/environment.ts` 中读取；`consts/` 运行期只依赖 `consts`（其它 `packages/` 模块只能 `import type`）；`states/` 的直接与间接运行时依赖只能落在 `consts`、`libs`、`types` 与 `states`（间接依赖按真实模块图追踪，`config/time.ts` 时区快照是 `STATES_CLOSURE_OPAQUE_MODULES` 登记的唯一例外）；`infra/` 严禁反向依赖业务层；全量基准测试父进程仅允许引入纯常量与类型。
   - **常量表约束**：带对象元素的导出常量表（正则与函数值除外）必须在 `test/consts/immutability.test.ts` 中有一行紧跟 `@ts-expect-error` 注释的访问（`scripts/conventions/constImmutability.ts`）；元素为字面量联合的导出数组表必须写成 `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`），`U` 与声明的元素类型一致、实参逐项写字符串或数字字面量，类型新增或删除成员而表没跟上时编译失败。有意只列子集的表按 `<相对路径>#<表名>` 登记在 `scripts/conventions/constExhaustiveLists.ts` 的 `PARTIAL_LITERAL_TABLES`，登记失效同样报错。
   - **运行时安全与 API 规范**：`packages/workers/` 中的定时器必须显式调用 `unref()`；Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用，未使用的登记同样报错；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
   - **门禁与指标对账**：静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标，确保记录同源。
   - **测试断言规范**：测试用例中严禁将常量与原始字面量进行比对，禁止直接在断言中硬编码与 `packages/consts` 相同的长字符串或中文提示文案片段（必须引用常量或模板辅助函数 `test/helpers/templateText.ts`）。特殊断言豁免必须在 `scripts/conventions/testAssertionFragments.ts` 中显式登记。
+  - **测试替身复位**：同一个替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 的回调及其可传递调用到的测试侧函数）里就必须用 `mockReset()` 再装回默认实现，不能只 `mockClear()`：`mockClear()` 不清排队中的 Once。门禁按 TypeScript checker 把替身解析到声明符号判定（`scripts/conventions/testMockReset.ts`），用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
 
 ---
 
@@ -89,14 +89,14 @@
 - **图片编解码**：使用 Bun 原生 `Bun.Image` 进行图片转码处理（`packages/infra/image.ts`）：
   - JPEG 与 PNG 图片原样透传；WebP 与 GIF 转码为 PNG 并完整保留 Alpha 透明通道；GIF 提取首帧，动图 WebP 提取首个 `ANMF` 帧重封装为静态 WebP 后解码。
   - 单张图片解码像素上限为 `VISION_TRANSCODE_MAX_PIXELS`，超限在分配内存前立即拒绝。编解码能力由 Bun 内置提供，不依赖 `node_modules` 中的外部原生 C/C++ 扩展。
-- **原生文件 I/O 规范**：文件读取、写入和删除优先使用 `Bun.write` 与 `Bun.file`；原子写入（`atomicWriteText`）通过 `Bun.write(Bun.file(handle.fd), content)` 配合 fsync 与原子 rename；同步文件 I/O、目录遍历、路径操作与硬链接等 Bun 原生未覆盖的功能统一按规范使用 `node:` 兼容模块。
+- **原生文件 I/O 规范**：文件读取、写入和删除优先使用 `Bun.write` 与 `Bun.file`；异步上下文里的元数据读取使用 `Bun.file().stat()`，普通文件的存在判断使用 `Bun.file().exists()`；原子写入（`atomicWriteText`）通过 `Bun.write(Bun.file(handle.fd), content)` 配合 fsync 与原子 rename；目录的存在判断（`Bun.file().exists()` 对目录恒为 false）、允许目标缺失的删除（`force: true`；`Bun.file().delete()` 遇缺失文件抛 `ENOENT`）、同步文件 I/O、目录遍历、路径操作与硬链接等 Bun 原生未覆盖的功能统一按规范使用 `node:` 兼容模块。
 - **性能基准校准**：运行时版本升级后，所有性能基准数据必须在相同的 Bun 版本与提交修订上重新实测校准。
 
 ---
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**6386 tests / 530 files / 445518 次 `expect()`**；全源码**函数覆盖率 98.27% / 行覆盖率 98.78%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**6624 tests / 553 files / 446303 次 `expect()`**；全源码**函数覆盖率 98.35% / 行覆盖率 98.84%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 
@@ -121,7 +121,7 @@
 
 ## 故障注入套件
 
-`bun run test:fault-injection` 全面验证服务崩溃、异常中断与极端边界下的系统一致性（完整清单见 [`package.json`](../../package.json)）：
+`bun run test:fault-injection` 全面验证服务崩溃、异常中断与极端边界下的系统一致性（完整清单见 [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts) 的 `FAULT_INJECTION_TESTS`，按字典序一行一个）：
 - **生命周期与恢复边界**：覆盖应用与 Worker 生命周期、群锁定恢复、AI 回复容量与取消、凭据快照一致性、Telegram 出站与自毁消息的停机排空、群 teardown 清理。
 - **数据持久化与一致性**：验证入群日志未确认镜像与处置回执、Anti-Raid 任务排空与验证恢复、双工 Worker 重建取消、SQLite 启动检查与停机关库（残余写提交、WAL checkpoint）、冷迁移以及 Disk I/O Worker 的原子写入故障恢复。
 - **交互状态机稳定性**：包含 `test/workers/antiRaid/verificationWelcome.test.ts`（双工协议与临时提示自毁）以及 `/wed` 交互状态机（群容量上限 `STATE_MANAGED_CHAT_LIMIT`、排队取消、头像抓取与停机排空）。

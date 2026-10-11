@@ -66,9 +66,15 @@ export interface KickPendingState {
   countedJoinAt: number | undefined;
   /** 入群公告 id；首次动作须在落盘回执后先清理该痕迹再踢人。 */
   announcementMessageId: number | undefined;
-  /** Worker 本地的 effect 幂等门；不持久化，重建后允许安全重放。 */
+  /**
+   * 本轮踢人尝试已开始（kickMember 已派发、尚未结算或排上重试）。Worker 本地幂等门，不持久化，
+   * 重建后允许安全重放；只经状态机改写：terminalPersisted 与 kickRetry 置位，terminalAttemptUnsettled 复位。
+   */
   effectStarted: boolean;
-  /** Telegram 请求已同步发出，之后到达的豁免已无法撤销这次调用。 */
+  /**
+   * Telegram 踢人请求已同步发出，之后到达的豁免已无法撤销这次调用。Worker 本地，不持久化；只经状态机
+   * 改写：kickRequestSent 置位，kickRequestFailed 与 terminalAttemptUnsettled 复位。
+   */
   executionStarted: boolean;
 }
 
@@ -98,7 +104,10 @@ export interface CheckingInviterState {
   kind: "checkingInviter";
   inviterId: number;
   snapshot: ExpelSnapshot;
-  /** Worker 本地幂等门；不持久化，构造与重建时为 false，Worker 重建后允许安全重放。 */
+  /**
+   * 本轮终核已开始。Worker 本地幂等门，不持久化，构造与重建时为 false，Worker 重建后允许安全重放；
+   * 只经状态机改写：terminalPersisted 置位，terminalAttemptUnsettled 复位。
+   */
   executionStarted: boolean;
 }
 
@@ -107,7 +116,11 @@ export interface ExpellingState {
   kind: "expelling";
   reason: "timeout" | "flood";
   snapshot: ExpelSnapshot;
-  /** Worker 本地幂等门；不持久化，构造与重建时为 false，Worker 重建后允许安全重放。 */
+  /**
+   * 本轮处置已开始；flood 终态开始执行后不再接受评论区豁免。Worker 本地幂等门，不持久化，构造与
+   * 重建时为 false，Worker 重建后允许安全重放；只经状态机改写：terminalPersisted 置位，
+   * terminalAttemptUnsettled 复位。
+   */
   executionStarted: boolean;
   /**
    * 「想踢却踢不动」（缺 can_restrict_members）这条告警已发送。
@@ -131,21 +144,18 @@ export interface ExpellingState {
    * 下一轮据此把成员探测得到的「不在群里」认作本机器人踢人成功，继续发送成功播报。
    */
   removalConfirmed: true | undefined;
-  /**
-   * 机器人自己的验证消息已经全部清理完毕。
-   *
-   * Worker 本地幂等门，不持久化（同 executionStarted）。
-   * verificationEffects/terminal.ts 里「确证没有封禁权限就不再发请求」的短路以它为前提：
-   * 清理未结清时不短路。
-   */
-  cleanupSettled: boolean;
 }
 
-export type VerificationTerminalState = CheckingInviterState | ExpellingState;
+/** pending 超时或刷屏之后的两段处置终态；都持有冻结的 ExpelSnapshot。 */
+export type VerificationExpelState = CheckingInviterState | ExpellingState;
+/**
+ * 落盘回执到达后才执行动作的终态：私密模式秒踢与两段处置终态。与 states/verification/shared.ts 的
+ * isTerminalVerificationPhase 判定同一组 kind。
+ */
+export type VerificationTerminalState = KickPendingState | VerificationExpelState;
 export type VerificationState =
   | PendingState
   | ExemptState
-  | KickPendingState
   | KickedState
   | VerificationTerminalState;
 
@@ -220,6 +230,20 @@ export interface TimeoutInviterVerdictEvent {
   inviterIsAdmin: boolean;
 }
 
+/** 私密模式踢人请求即将同步发出（kickRequestSent），或已返回但没有结算（kickRequestFailed）。 */
+export interface KickRequestEvent {
+  type: "kickRequestSent" | "kickRequestFailed";
+  /** 发起这次踢人时捕获的执行 token；条目已换成别的状态对象时转移不生效。 */
+  attemptState: KickPendingState;
+}
+
+/** 本轮终态动作没有结算、解释器即将按退避排一次重试。 */
+export interface TerminalAttemptUnsettledEvent {
+  type: "terminalAttemptUnsettled";
+  /** 发起这一轮尝试时捕获的执行 token；条目已换成别的状态对象时转移不生效。 */
+  attemptState: VerificationTerminalState;
+}
+
 export interface ReminderLandedEvent {
   type: "reminderLanded";
   reminderKind: "original" | "reply";
@@ -237,7 +261,7 @@ export type VerificationEvent =
    * 本群的入群守卫被 `/antiraid disable` 关掉了（见 commands/antiRaid.ts）。
    *
    * 与 `left` 的区别：`left` 是这个成员离开了群，验证自然作废；本事件是功能本身被关掉，
-   * 每一种状态都就地收摊，包括已经落盘、正等着踢人的两个终态，不再踢人。
+   * 每一种状态都就地收摊，包括已经落盘、正等着执行的各终态，不再踢人。
    */
   | { type: "guardDisabled" }
   | TrackedMessageEvent
@@ -255,6 +279,8 @@ export type VerificationEvent =
   /** 踢人已确认成功、成功播报未发出：expelling 终态记下 removalConfirmed 并发布快照，其余状态不变。 */
   | { type: "removalConfirmed" }
   | { type: "kickRetry" }
+  | KickRequestEvent
+  | TerminalAttemptUnsettledEvent
   | { type: "kickSettled"; now: number }
   | ReminderLandedEvent
   | { type: "dedupeExpired" };

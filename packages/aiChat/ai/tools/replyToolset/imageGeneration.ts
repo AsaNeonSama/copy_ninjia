@@ -28,6 +28,7 @@ import { toolError } from "../../utils/toolResult";
 import { sendPhotoWithResult } from "../../../../infra/telegram";
 import { sanitizeInline, truncateInline } from "../../../../libs/text";
 import type { ReplyActionPause, ReplyToolContext, ReplyToolExecution, RoundMessageState } from "../../../../types/aiChat/replies";
+import type { ImageGenerationReference } from "../../../../types/aiChat/protocol";
 import type { ChatActionControl } from "../../../../types/aiChat/chatAction";
 import type {
   GeneratedChatImage,
@@ -147,6 +148,53 @@ function coolingDownError(retryAfterMs: number): string {
   });
 }
 
+/** 生图结果回执里 caption_delivery 的取值。 */
+type ImageCaptionDelivery = "inline" | "separate_message" | "failed" | "no_action_budget";
+
+/** 下载本轮参考图：排进媒体任务的交互档并继承本轮取消信号；失败、排不上或被取消时返回 null。 */
+async function downloadReferenceImage(
+  ctx: ReplyToolContext,
+  reference: ImageGenerationReference
+): Promise<VisionImage | null> {
+  return await mediaTaskRunner.run("interactive", (): Promise<VisionImage | null> => downloadTelegramVisionImage({
+    fileId: reference.fileId,
+    logLabel: "image generation reference",
+    signal: ctx.signal,
+  }), ctx.signal) ?? null;
+}
+
+interface SeparateCaptionParams {
+  readonly ctx: ReplyToolContext;
+  readonly caption: string;
+  readonly chatAction: ChatActionControl;
+  readonly pause: ReplyActionPause;
+}
+
+/** 图片落地后补发超长图注：先按打字节奏停顿，再经 send_message 同一出口作为独立消息发出。 */
+async function deliverSeparateCaption({
+  ctx,
+  caption,
+  chatAction,
+  pause,
+}: SeparateCaptionParams): Promise<"separate_message" | "failed"> {
+  // 图片落地，一段状态到此结束：图注的「正在输入」在静默之后亮起。
+  chatAction.set("idle");
+  const blocked: string | null = await pauseThenSettle({
+    isActive: ctx.isActive,
+    chatAction,
+    pause,
+    phase: "typing",
+    delayMs: typingDelayMs(caption),
+  });
+  if (blocked !== null) return "failed";
+  const captionMessageId: number | undefined = await sendDirectMessage({
+    ctx,
+    text: caption,
+    replyToMessageId: ctx.replyToMessageId,
+  });
+  return captionMessageId === undefined ? "failed" : "separate_message";
+}
+
 /** 接纳时认领群冷却；参考图排队继承本轮取消信号，未发起模型请求时释放认领。生命周期见 docs/cn/04-invariants.md。 */
 export function createGenerateImageExecutor(
   ctx: ReplyToolContext,
@@ -207,39 +255,30 @@ export function createGenerateImageExecutor(
         queued: true,
         actions_used: separateCaption ? 2 : 1,
         aspect_ratio: parsed.aspectRatio,
-        ...(caption !== null ? { caption_delivery: inlineCaption !== null ? "inline" : separateCaption ? "separate_message" : "no_action_budget" } : {}),
+        caption_delivery: caption === null
+          ? undefined
+          : inlineCaption !== null ? "inline" : separateCaption ? "separate_message" : "no_action_budget",
       }),
       run: async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
         let modelRequestStarted: boolean = false;
         try {
           if (!ctx.isActive()) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
           chatAction.set("upload_photo");
-          let image: GeneratedChatImage | null;
+          let image: GeneratedChatImage | null = null;
           let referenceUnavailable: boolean = false;
           try {
-            let referenceImage: VisionImage | undefined;
-            if (ctx.imageGenerationReference) {
-              const referenceFileId: string = ctx.imageGenerationReference.fileId;
-              referenceImage = await mediaTaskRunner.run("interactive", (): Promise<VisionImage | null> => downloadTelegramVisionImage({
-                fileId: referenceFileId,
-                logLabel: "image generation reference",
-                signal: ctx.signal,
-              }), ctx.signal) ?? undefined;
-              referenceUnavailable = referenceImage === undefined;
-            }
-            if (referenceUnavailable) {
-              image = null;
-            } else {
-              if (!ctx.isActive()) {
-                return toolError(REPLY_INVALIDATED_TOOL_ERROR);
-              }
+            const referenceImage: VisionImage | null | undefined = ctx.imageGenerationReference === undefined
+              ? undefined
+              : await downloadReferenceImage(ctx, ctx.imageGenerationReference);
+            referenceUnavailable = referenceImage === null;
+            if (!referenceUnavailable && ctx.isActive()) {
               modelRequestStarted = true;
               // 生图只走 agent.json 的 image 能力（见 aiChat/provider.ts）；未配置时按失败结算。
               const provider: AiImageProvider | null = imageAiProvider();
               image = provider === null ? null : await provider.generateImage({
                 prompt: parsed.prompt,
                 aspectRatio: parsed.aspectRatio,
-                referenceImage,
+                referenceImage: referenceImage ?? undefined,
                 signal: ctx.signal,
               });
             }
@@ -264,7 +303,7 @@ export function createGenerateImageExecutor(
             replyToMessageId: ctx.replyToMessageId,
             signal: ctx.signal,
             messageThreadId: ctx.messageThreadId,
-            ...(inlineCaption !== null ? { caption: inlineCaption } : {}),
+            caption: inlineCaption ?? undefined,
           });
           if (sent === undefined) {
             return toolError("Failed to send generated image", { retryable: false });
@@ -282,45 +321,21 @@ export function createGenerateImageExecutor(
             photo: sent.photo,
           });
 
-          let actionsUsedByTool: number = 1;
-          let captionDelivery: "inline" | "separate_message" | "failed" | "no_action_budget" | null =
-            inlineCaption !== null ? "inline" : null;
-
-          if (caption !== null && inlineCaption === null && !captionBudgetLeft) {
-            captionDelivery = "no_action_budget";
-          } else if (caption !== null && inlineCaption === null) {
-            // 图片落地，一段状态到此结束：图注的「正在输入」在静默之后亮起。
-            chatAction.set("idle");
-            const blocked: string | null = await pauseThenSettle({
-              isActive: ctx.isActive,
-              chatAction,
-              pause,
-              phase: "typing",
-              delayMs: typingDelayMs(caption),
-            });
-
-            const captionMessageId: number | undefined = blocked !== null
-              ? undefined
-              : await sendDirectMessage({
-                ctx,
-                text: caption,
-                replyToMessageId: ctx.replyToMessageId,
-              });
-            if (captionMessageId === undefined) {
-              captionDelivery = "failed";
-            } else {
-              captionDelivery = "separate_message";
-              actionsUsedByTool++;
-            }
-          }
+          const captionDelivery: ImageCaptionDelivery | null = caption === null
+            ? null
+            : inlineCaption !== null
+              ? "inline"
+              : separateCaption
+                ? await deliverSeparateCaption({ ctx, caption, chatAction, pause })
+                : "no_action_budget";
 
           return JSON.stringify({
             success: true,
             message_id: sent.messageId,
             aspect_ratio: parsed.aspectRatio,
-            actions_used: actionsUsedByTool,
-            ...(captionDelivery !== null ? { caption_delivery: captionDelivery } : {}),
-            ...(ctx.imageGenerationReference ? { reference_image_used: true } : {}),
+            actions_used: captionDelivery === "separate_message" ? 2 : 1,
+            caption_delivery: captionDelivery ?? undefined,
+            reference_image_used: ctx.imageGenerationReference ? true : undefined,
           });
         } finally {
           if (!modelRequestStarted) releaseImageGenerationClaim(ctx.chatId, claim.token);

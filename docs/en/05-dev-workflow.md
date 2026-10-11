@@ -19,15 +19,14 @@
 | `bun run lint:fast` | Local cached ESLint | Appends `--cache` for fast iterative feedback during local dev |
 | `bun run typecheck` | TypeScript type check | Strict check of the whole project with `bun --check`, driven by `tsconfig.json`; writes no incremental cache |
 | `bun run test` | Full test suite | Forces process context isolation (`bun test --isolate`) |
-| `bun run test:random` | Random-order test suite | Fixed-seed shuffled test suite to uncover cross-test state leaks and lingering mocks |
-| `bun run test:coverage` | Tests + coverage | Runs the full test suite and measures coverage across all production source files |
+| `bun run test:coverage` | Tests + coverage | Runs the full test suite in random order (`--randomize`; the summary prints `--seed=` for reproduction) and measures coverage across all production source files, also surfacing cross-test state leaks and lingering mocks |
 | `bun run check:install-script-syntax` | Install script syntax check | Uses `bash -n` to parse `install.sh` and all included shell modules without executing |
 | `bun run check:install-isolation` | Installer isolation test | Runs real `install.sh` fixtures in a dedicated temp root to verify rollback, resumption, backup safety, credential isolation, and service supervision |
 | `bun run check:conventions` | Repository convention check | Runs `scripts/checkProjectConventions.ts` to validate constants, cache ownership, doc links, and architecture boundaries |
-| `bun run check` | **Full integration gate** | Syntax + installer isolation + conventions + lint + typecheck + coverage + shuffled tests + hot-path gate (required before merge to `master`) |
+| `bun run check` | **Full integration gate** | Syntax + installer isolation + conventions + lint + typecheck + randomized coverage run + hot-path gate (required before merge to `master`) |
 | `bun run check:coverage` | Coverage metrics reconciliation | Validates that figures in trilingual READMEs, docs, and SVG badges match actual test readings |
-| `bun run test:fault-injection` | Deterministic fault-injection suite | Validates state recovery across process crashes, abnormal exits, database drops, and Worker respawns |
-| `bun run perf:hot-paths -- <scenario> [--profile]` | Hot-path standalone measurement | Profiles a single hot-path scenario (pass `--profile` for detailed CPU sampling) |
+| `bun run test:fault-injection` | Deterministic fault-injection suite | Runs the `FAULT_INJECTION_TESTS` list through `scripts/testFaultInjection.ts`, validating state recovery across process crashes, abnormal exits, database drops, and Worker respawns |
+| `bun run perf:hot-paths -- <scenario> [--profile]` | Hot-path standalone measurement | Profiles a single hot-path scenario in `HOT_PATH_PROFILE_REPEATS` isolated processes against a data root and config copy under `performance/` (pass `--profile` for detailed CPU sampling); running `scripts/perf/hotPaths.ts` directly is refused before any scenario loads |
 | `bun run perf:hot-path-gate` | **Hot-path performance gate** | Enforces hard memory/GC/JIT limits on core hot paths (included in `check`) |
 | `bun run perf:join-log` | Join-log performance benchmark | Standalone benchmark for join-log capacity limits, snapshots, and append accounting |
 | `bun run perf:identity-database` | Identity database benchmark | Standalone benchmark for cold/hot SQLite reads/writes, main-thread LRU cache, and write-through pipelines |
@@ -65,11 +64,12 @@
   - Loop variables in `for...of` and `for...in` statements are exempt because TypeScript does not permit syntax annotations there. Const variables initialized directly with fully annotated arrow functions are also exempt.
 - **Repository convention checks (`check:conventions`)**:
   - **Structure and links**: Verifies source line counts, file locations, relative Markdown links, and in-page anchor IDs. Confirms that all file paths referenced in docs actually exist on disk, verifies script execution bits, and ensures installer step numbers match module references.
-  - **Architectural boundaries**: Validates constant and cache ownership (`packages/cache/<owner>/` thread-single-owner policy) and verifies Worker and Telegram capability isolation against the actual import graph. Environment variables may only be read in `consts/paths.ts` and `consts/environment.ts`. The `consts/` layer may only depend on `consts` at runtime (other `packages/` modules only through `import type`). The `states/` layer may only depend on `consts`, `libs`, `types`, and `states`. The `infra/` layer cannot import business modules. The benchmark parent process may only import pure constants and types.
+  - **Architectural boundaries**: Validates constant and cache ownership (`packages/cache/<owner>/` thread-single-owner policy) and verifies Worker and Telegram capability isolation against the actual import graph. Environment variables may only be read in `consts/paths.ts` and `consts/environment.ts`. The `consts/` layer may only depend on `consts` at runtime (other `packages/` modules only through `import type`). Direct and indirect runtime dependencies of the `states/` layer must stay within `consts`, `libs`, `types`, and `states` (indirect dependencies are traced along the actual import graph; the `config/time.ts` time-zone snapshot is the only exception, registered in `STATES_CLOSURE_OPAQUE_MODULES`). The `infra/` layer cannot import business modules. The benchmark parent process may only import pure constants and types.
   - **Constant table rules**: exported constant tables with object elements (regular expressions and function values excluded) must have an access in `test/consts/immutability.test.ts` on the line right after a `@ts-expect-error` comment (`scripts/conventions/constImmutability.ts`). Exported array tables whose elements are a literal union must be written as `exhaustiveList<U>()([...])` (`packages/consts/exhaustiveList.ts`), with `U` equal to the declared element type and every item a string or number literal, so adding or removing a member of the type without updating the table fails to compile. Tables that intentionally list a subset are registered as `<relative path>#<table name>` in `PARTIAL_LITERAL_TABLES` in `scripts/conventions/constExhaustiveLists.ts`; stale registrations are reported as well.
   - **Runtime safety and APIs**: Every timer in `packages/workers/` must explicitly call `.unref()`. Node compatibility modules and `Buffer` usage are restricted to an explicit whitelist; unused registrations trigger errors. CLI arguments must be read via `Bun.argv`. Runtime packages imported bare must be declared directly in the root `package.json`.
   - **Gate reconciliation**: Statically verifies Telegram prompt cleanup exemptions and topic ownership. Validates that active cold migration scripts match `migrate:*` entries in `package.json`. Checks that test coverage and performance metrics documented in trilingual files match `performance-result.json`.
   - **Test assertion rules**: Test assertions must not compare uppercase constants against raw numeric or string literals. Never hardcode strings or long Chinese prompt fragments identical to those in `packages/consts` directly in test assertions (import the constant or use `test/helpers/templateText.ts`). Contract tests verifying exact prompt wording must be registered in `scripts/conventions/testAssertionFragments.ts`.
+  - **Test double resets**: once a mock queues `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` in any test, its reset hooks (the `beforeEach` / `afterEach` / `beforeAll` / `afterAll` callbacks and the test-side functions they transitively call) must use `mockReset()` and reinstall the default implementation instead of only `mockClear()`, because `mockClear()` keeps queued Once values. The gate resolves mocks to their declaring symbols with the TypeScript checker (`scripts/conventions/testMockReset.ts`); a `mockClear()` used mid-test only to clear call records is out of scope.
 
 ---
 
@@ -89,14 +89,14 @@ All dependency installations enforce a 7-day release cooling period defined in `
 - **Image transcoding**: Images are processed via native `Bun.Image` (`packages/infra/image.ts`):
   - JPEG and PNG images pass through without modification. WebP and GIF convert to PNG with full Alpha transparency preserved. For GIFs, the first frame is extracted; for animated WebP, the first `ANMF` frame is repackaged as static WebP before decoding.
   - Single-image decoding is capped at `VISION_TRANSCODE_MAX_PIXELS`. Excessively large images are rejected before memory allocation. Codecs are built into Bun, eliminating any need for external C/C++ native addons in `node_modules`.
-- **Native file I/O guidelines**: Reading, writing, and deleting files prioritize native `Bun.write` and `Bun.file`. Exclusive atomic writes (`atomicWriteText`) use `Bun.write(Bun.file(handle.fd), content)` followed by `fsync` and atomic rename. Synchronous file I/O, directory traversal, path handling, and hard links use explicit `node:` compatibility modules.
+- **Native file I/O guidelines**: Reading, writing, and deleting files prioritize native `Bun.write` and `Bun.file`. In asynchronous code, metadata reads use `Bun.file().stat()` and regular-file existence checks use `Bun.file().exists()`. Exclusive atomic writes (`atomicWriteText`) use `Bun.write(Bun.file(handle.fd), content)` followed by `fsync` and atomic rename. Directory existence checks (`Bun.file().exists()` is always false for directories), deletions that tolerate a missing target (`force: true`; `Bun.file().delete()` throws `ENOENT` for a missing file), synchronous file I/O, directory traversal, path handling, and hard links use explicit `node:` compatibility modules.
 - **Performance recalibration**: After upgrading the Bun runtime, all performance benchmarks must be re-calibrated against the new Bun version.
 
 ---
 
 ### Measurements for This Documentation Version
 
-`bun run test:coverage`: **6386 tests / 530 files / 445518 `expect()` calls**; full-source **function coverage 98.27% / line coverage 98.78%**. The Coverage badge in each project README displays line coverage.
+`bun run test:coverage`: **6624 tests / 553 files / 446303 `expect()` calls**; full-source **function coverage 98.35% / line coverage 98.84%**. The Coverage badge in each project README displays line coverage.
 
 ---
 
@@ -121,7 +121,7 @@ All tests must be run via `bun run test` (which invokes `bun test --isolate`), p
 
 ## Fault-Injection Suite
 
-`bun run test:fault-injection` validates system consistency under process crashes, unexpected shutdowns, and boundary failures (see [`package.json`](../../package.json) for the full list):
+`bun run test:fault-injection` validates system consistency under process crashes, unexpected shutdowns, and boundary failures (the full list is `FAULT_INJECTION_TESTS` in [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts), one path per line in lexical order):
 - **Lifecycle and recovery limits**: Covers application and Worker lifecycles, group lockdown recovery, AI reply limits and cancellations, credential snapshots, Telegram outbound shutdown drains, delayed-deletion queues, and chat teardown cleanup.
 - **Data durability and consistency**: Verifies join-log pending mirrors, Anti-Raid task draining and verification recovery, duplex Worker respawn cancellation, SQLite startup row validation and shutdown close (remaining-write commit, WAL checkpoint), cold migrations, and Disk I/O Worker atomic write failures.
 - **Interactive state machines**: Includes `test/workers/antiRaid/verificationWelcome.test.ts` (duplex protocol and temporary notice self-deletion) and `/wed` state machines (chat capacity cap `STATE_MANAGED_CHAT_LIMIT`, queue cancellation, avatar downloads, and shutdown drains).

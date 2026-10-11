@@ -8,7 +8,7 @@ import { RELEASE_VERSION_PATTERN } from "../../packages/consts/release";
 import type { ReleaseAsset } from "./assets";
 
 /** 发布仓库固定为安装器下载来源；命令显式指定主机。 */
-const REPOSITORY: string = "github.com/Asashishi/copy_ninjia";
+const REPOSITORY: string = "github.com/AsaNeonSama/copy_ninjia";
 interface RemoteAsset { readonly name: string; readonly size: number; readonly state: string; }
 interface RemoteRelease {
   readonly tag_name: string;
@@ -37,7 +37,7 @@ function parseRelease(value: unknown): RemoteRelease {
 /** 草稿通过完整分页列表读取；Latest 只有明确的 HTTP 404 才表示不存在。 */
 function readRelease(command: ReleaseCommand, selector: string): RemoteRelease | null {
   if (selector.startsWith("tags/")) {
-    const pages: unknown = JSON.parse(checked(command, ["gh", "api", "repos/Asashishi/copy_ninjia/releases?per_page=100", "--hostname", "github.com", "--paginate", "--slurp"])) as unknown;
+    const pages: unknown = JSON.parse(checked(command, ["gh", "api", "repos/AsaNeonSama/copy_ninjia/releases?per_page=100", "--hostname", "github.com", "--paginate", "--slurp"])) as unknown;
     if (!Array.isArray(pages)) throw new Error("Malformed GitHub Release list.");
     let matched: RemoteRelease | null = null;
     for (const page of pages as unknown[]) {
@@ -51,7 +51,7 @@ function readRelease(command: ReleaseCommand, selector: string): RemoteRelease |
     }
     return matched;
   }
-  const result: CommandResult = command(["gh", "api", `repos/Asashishi/copy_ninjia/releases/${selector}`, "--hostname", "github.com", "--include"]);
+  const result: CommandResult = command(["gh", "api", `repos/AsaNeonSama/copy_ninjia/releases/${selector}`, "--hostname", "github.com", "--include"]);
   const header: RegExpExecArray | null = /^HTTP\/\S+\s+(\d+)[\s\S]*?\r?\n\r?\n/.exec(result.stdout);
   if (header?.[1] === "404") return null;
   if (result.exitCode !== 0 || header?.[1] !== "200") throw new Error("Cannot read GitHub Release state.");

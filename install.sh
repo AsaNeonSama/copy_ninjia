@@ -3,7 +3,7 @@
 # Copy Ninjia 一键安装脚本。
 #
 # 直接跑：
-#   curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash
 #   bash install.sh --binary  # 下载 GitHub Release 预编译发行包
 #   bash install.sh --source  # 安装源码版本
 #
@@ -24,9 +24,9 @@
 
 set -Eeuo pipefail
 
-readonly REPOSITORY_URL="https://github.com/Asashishi/copy_ninjia.git"
+readonly REPOSITORY_URL="https://github.com/AsaNeonSama/copy_ninjia.git"
 # Latest Release 的来源接口。
-readonly RELEASE_API_URL="https://api.github.com/repos/Asashishi/copy_ninjia/releases/latest"
+readonly RELEASE_API_URL="https://api.github.com/repos/AsaNeonSama/copy_ninjia/releases/latest"
 readonly SERVICE_NAME="copy-ninjia"
 readonly SERVICE_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 # clone 落地目录；已在仓库内运行时用不到。可用环境变量覆盖。
@@ -184,7 +184,7 @@ download_binary_release() {
   require_command tar tar
   require_command sha256sum coreutils
   asset="copy-ninjia-linux-${architecture}${suffix}.tar.gz"
-  url="https://github.com/Asashishi/copy_ninjia/releases/download/${RELEASE_TAG}/${asset}"
+  url="https://github.com/AsaNeonSama/copy_ninjia/releases/download/${RELEASE_TAG}/${asset}"
   BINARY_DOWNLOAD_ROOT="$(mktemp -d)" || die "无法创建下载暂存目录。"
   trap 'rm -rf -- "$BINARY_DOWNLOAD_ROOT"' EXIT
   curl -fSL --output "$BINARY_DOWNLOAD_ROOT/$asset" -- "$url" ||

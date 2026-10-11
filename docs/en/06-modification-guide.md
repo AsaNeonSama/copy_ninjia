@@ -39,6 +39,7 @@ To add a new slash command (e.g. `/my_cmd`), follow this standard checklist:
    - Create a dedicated file under `packages/commands/` and export a strongly-typed `handleXxxCommand` function.
    - **Permission checks**: Guard permission-scoped commands with `rejectUnlessPermitted(ctx, key, rejection)`. For superadmin-only commands, use `rejectUnlessSuperAdmin(ctx, rejection)` (see `commands/commandActor.ts`).
    - **Copywriting**: Store command replies under `packages/consts/atmosphere/{teasing,plain}/` in matching domain files. Both teasing and plain styles must satisfy the same interface. The main thread retrieves the active copy via `chatAtmosphere()`.
+   - **Command replies**: Plain-text notices that reply to the triggering message (usage, rejection, failure, and action receipts) go through `replyCommandNotice(ctx, text)` (`infra/telegram/commandMessages.ts`), inheriting the 30-second auto-delete and topic fill-in of `sendCommandMessage`. Call `sendCommandMessage` directly when the reply needs formatting, long-term retention, or is sent outside the update scope.
 2. **Export the handler**: Re-export the new handler function in `packages/commands/index.ts`.
 3. **Register the route**:
    - In [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts), mount the route via `commands.command("xxx", ...)` on the `commands` sub-chain.

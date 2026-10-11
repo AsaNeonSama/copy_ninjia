@@ -112,6 +112,9 @@
 - ソース実行時のプロジェクトルートはモジュールの物理位置、バイナリ実行時はデプロイ作業ディレクトリから決定されます。設定、素材、デフォルトのデータルートはそこから導出されます。各 Worker のエントリポイントは `packages/consts/paths.ts` に集約され、バイナリは埋め込み Worker を使用します。スレッド所有権、メッセージプロトコル、シャットダウン順序には同一の制約が適用されます。
 - `bot.lock`、`logs/`、`memory/`（グローバル状態 `memory/global/state.json` を含む）、`database/` はすべて 1 つの実行時データルートから導出されます。本番環境のデフォルト値はプロジェクトルートです。テスト用 preload は本番モジュールを import する前に isolate ごとの一時データルートを注入し、物理ファイル I/O が本番キャッシュや身分データベースへアクセスするのを完全に遮断します。
 - 低優先度のグループタイトル保守タスクは、コマンドメニュー、`bot.init()`、Worker hydrate、acknowledgement-safe runner の準備完了後にのみ開始されます。title owner は `runBoundedSettledBatch` でグループごとに `getChat` を呼び出し、並行上限は `STATE_MANAGED_CHAT_LIMIT` です（グループ状態は管理対象グループのみを対象とするため、管理グループごとに 1 回ずつ照会します）。各グループは独立して結果を確定し、ライフサイクルの quiesce/abort シグナルを受理します。
+  - `getChat` の失敗は `infra/telegram/errors.ts` の `classifyChatAbsence` が分類します。400 で説明が `chat not found`・`group chat was upgraded to a supergroup chat` のもの、または `parameters.migrate_to_chat_id` を伴うものは `gone`、403 で説明が `bot was kicked from the (super)group chat`・`bot is not a member of the (super)group chat` のものは `departed` とし、それ以外のエラーはログに記録するだけです。
+  - 到達不能と判定したグループは `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` 間隔で再照会し、初回を含めて `CHAT_ABSENCE_CONFIRM_ATTEMPTS` 回すべて同じ分類になった場合に限り `completeChatDeparture` で後始末し、warn を 1 行記録します。途中でグループが見つかった、別の分類やエラーになった、グループ状態表から既に消えている場合は確認を打ち切り、今回は後始末しません。
+  - 再照会までの待機は `chatTitleRefreshRuntime.absenceConfirmation` を待ち受け、停止時の quiesce と abort のどちらでも即座に中断されるため、タイトル更新タスクはすぐに確定します。処理中の `getChat` は影響を受けず、従来どおり保守予算内で確定します。
 
 ### 送信リクエストとメッセージの安全性
 
@@ -209,11 +212,13 @@
 
 ### 状態機械の contract
 
-- ステートマシンの `State/Event/Effect/Transition/Decision` contract はすべて `packages/types/states/` が所有します。`packages/states/` は I/O のない純粋な状態遷移のみを実装し、interpreter と cache は前者の型へ直接依存します。
+- ステートマシンの `State/Event/Effect/Transition/Decision` contract はすべて `packages/types/states/` が所有します。`packages/states/` は I/O のない純粋な状態遷移のみを実装し、interpreter と cache は前者の型へ直接依存します。直接・間接の実行時依存はいずれも `consts`、`libs`、`types`、`states` に限られます。直接 import は 1 件ずつ照合し、直接依存の先でさらに読み込まれるモジュールは実際の import グラフで追跡します（`scripts/conventions/moduleBoundaries.ts`）。`libs/time.ts` の日付計算は `config/time.ts` を通じてスレッド起動時のタイムゾーンスナップショットを読みます。このモジュールは、許可したうえでその先を展開しない唯一の登録済み例外です（`STATES_CLOSURE_OPAQUE_MODULES`）。
 
-  **形態は 2 種類あり、判定対象に永続化すべき離散状態が存在するかで選択します**。`verification` と `lockdown` には離散状態が存在し（PENDING/ACTIVE のような状態を Map に保存し、後続イベントが参照します）、`transition(state, event) → {next, effects}` のステートマシン形態を取ります。
+  **形態は 3 種類あり、判定対象の状態の持ち方で選択します**。`verification` と `lockdown` には離散状態が存在し（PENDING/ACTIVE のような状態を Map に保存し、後続イベントが参照します）、`transition(state, event) → {next, effects}` のステートマシン形態を取ります。
 
   `replyAdmission` と `adDetectAdmission` には永続化すべき離散状態がなく（判定規則は呼び出し側が算出したスカラー値のみを受け取り、コンテナとタイマーは実行時モジュールに残ります）、純粋関数の集合という形態を取ります。
+
+  `mediaInputSupport` と `temporaryAdBypass` は、1 件の記録を呼び出し結果や時刻で進める単一記録の reducer 形態を取ります（`reduceMediaInputResult(current, event) → {next, effects}`、`advanceTemporaryAdBypassActivity(current, now) → next`）。コンテナと書き戻しは呼び出し側に残り、状態が変わらないときは入力オブジェクトをそのまま返すため、呼び出し側は参照の一致で表の差し替えや書き戻しを省きます。
 - **ロックダウンがチャットのデフォルト permission を読み書きする際は、毎回 `use_independent_chat_permissions: true` を渡します。** 封鎖、期限切れの復元、遅延応答後の再適用、メイン側の onGiveUp 緊急復元は `packages/workers/antiRaid/lockdownApi.ts` と `packages/infra/telegram/lockdownPermissions.ts` を使用します。双方の境界は `getChat().permissions` を読み直し、`can_invite_users` のみを変更して、未知フィールドを含む他の既定権限をそのまま Telegram へ返却します。
 - **封鎖告知は開始時のラウンドに属します**（`LockdownState.announced` と `announcementMessageId`）。APPLYING のプレースホルダー設置後、告知は権限の準備クエリより先にグループ単位の直列チェーンに入ります。送信前と応答の適用時に `LockdownEntry` のオブジェクト同一性を確認します。終了済みラウンドの未送信タスクは破棄され、送信済みの告知は同一チェーンで自身の ID を削除し、新規ラウンドの告知を引き受けることはありません。`onSent` はキャンセルの伝播前にリモート ID を記録します。現ラウンドの ID は永続化され、復元完了後に該当メッセージを削除します。削除失敗はログに記録され、権限復元の状態を変更することはありません。
 
@@ -221,7 +226,9 @@
 
   告知の記録は同一の封鎖ラウンドに属し、APPLYING / ACTIVE / RESTORING / RECONCILING を通じて保持されます。RESTORING 中の閾値超過は復元意図を維持し、新規ラウンドを開始しません。`announced` と `announcementMessageId` は `{phase,intentId,originalPermissions,announced,announcementMessageId?,expiresAt}` として永続化されます。ID は送信成功時のみ設定され、`announced` と同時に成立するか同時に不成立となります。未告知であるにもかかわらず ID が存在する記録も、告知済みなのに ID がない記録も拒否されます。APPLYING フェーズでも告知済みになり得ます。送信中状態はメモリ上のみに存在し、再構築時に継続が必要な未告知ラウンドは再告知されますが、RESTORING では行われません。現ラウンドの復元完了時に `reportUnlock` を送信し、メインスレッドが永続化記録を削除します。
 
-- **非公開モード（ロックダウン）は期限満了後に復元を進めます。** `LOCKDOWN_MS` の期限は ACTIVE への遷移時に確定し、追加の入室によって再延長されることはありません。期限満了時は復元意図を永続化し、durable ACK 受信後に復元 API を呼び出します。RESTORING 中の閾値超過イベントは管理者キャッシュの準備のみを行い、ACTIVE へ戻すことはありません。失敗時は `RESTORE_RETRY_MS` 後に再試行します。権限拒否（Bot の退出・管理者解任）により連続して `RESTORE_PERMANENT_FAILURE_LOG_LIMIT` 回を超えて失敗した後は警告ログに引き下げ、リトライ間隔を `RESTORE_RETRY_MS` から指数関数的に延長して `RESTORE_PERMANENT_RETRY_MAX_MS` で頭打ちとし、記録は保持します。Bot がメンバー制限権限を再取得したことが確認された時点で直ちに再試行します。Worker 停止時の drain でキャンセルされた復元リクエストは通常の失敗として返され、連続拒否回数を変更せず、エラーログも出力しません。外部 API が即時成功することは保証されません。成功後に入室ウィンドウを空にします。告知メッセージの削除失敗はログに記録されるのみで次ラウンドを妨げず、後続の入室から再カウントされます。
+- **非公開モード（ロックダウン）は期限満了後に復元を進めます。** `LOCKDOWN_MS` の期限は ACTIVE への遷移時に確定し、追加の入室によって再延長されることはありません。期限満了時は復元意図を永続化し、durable ACK 受信後に復元 API を呼び出します。RESTORING 中の閾値超過イベントは管理者キャッシュの準備のみを行い、ACTIVE へ戻すことはありません。失敗時は `RESTORE_RETRY_MS` 後に再試行します。権限拒否（Bot の退出・管理者解任）により連続して `RESTORE_PERMANENT_FAILURE_LOG_LIMIT` 回を超えて失敗した後は警告ログに引き下げ、リトライ間隔を `RESTORE_RETRY_MS` から指数関数的に延長して `RESTORE_PERMANENT_RETRY_MAX_MS` で頭打ちとし、記録は保持します（唯一の例外はグループが既に存在しない teardown 理由 `gone` で、下記のとおり記録を放棄します）。Bot がメンバー制限権限を再取得したことが確認された時点で直ちに再試行します。Worker 停止時の drain でキャンセルされた復元リクエストは通常の失敗として返され、連続拒否回数を変更せず、エラーログも出力しません。外部 API が即時成功することは保証されません。成功後に入室ウィンドウを空にします。告知メッセージの削除失敗はログに記録されるのみで次ラウンドを妨げず、後続の入室から再カウントされます。
+
+- **グループが既に存在しない場合は非公開モードの記録を放棄します。** teardown 理由が `gone` のとき、メインスレッドは `deactivateChat` に `abandonLockdown: true` を付けて送り、Worker は状態機械イベント `chatGone` を発行します。どのフェーズからでも記録を削除してタイマーを解除し、`reportUnlock` のみを発行します。権限の復元も告知の削除も行いません。メインスレッドは `unlock` を受けて `lockdown` を消去し、ほかに何も残らないグループ状態は削除され、管理グループの枠が解放されます。Worker の処理中の状態報告が書き戻さないよう、メインスレッドが非公開モードの記録を直接削除することはありません。
 
 - **永続化する permission のコピーにはスキーマが宣言したフィールドのみを含めます**（`packages/libs/chatPermissions.ts` の `normalizeChatPermissions`）。準備クエリの入口で `ChatState.lockdown.originalPermissions` を収束させ、strict decoder がそのコピーを検証します。復元時はコピーから元の `can_invite_users` のみを読み取ります。Telegram への書き込みは再照会した完全な permission を使用し、招待権限のみを上書きします。他のフィールドを永続化コピーで置き換えることは禁止されます。
 
@@ -484,7 +491,8 @@
 - **検証終端の再試行と永続化保証**：
   - 単一プロセス内での検証終端操作は最大 `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` 回まで試行します。
   - 終端操作の完了後は、最終リビジョンの永続化レシート（durable ACK）を待ってからメモリ上の記録を消去します。待機中にリビジョンが進んだ場合は、試行上限に達していても新しいリビジョンを確認し、成功済みの終端処理を遅延させません。
-  - 終端許可を得た副作用の一群が途中で reject した場合（Worker→メインスレッド要求の失敗など）、`retryRejectedTerminal` はエントリーが同じ終端オブジェクトを保持している限り Worker ローカルの実行ゲートを戻し、そのエントリーのバックオフ列で再試行を 1 回予約します（`kickPending` は `kickRetry`、`checkingInviter` と `expelling` は `terminalPersisted` を投げます）。エラーは通常どおりログに残し、状態が変わったエントリーには触れません。タイムアウトキックの処置レポートは `runTelegramAction` 経由で送るため、要求の reject は「未送信」として同じバックオフに乗ります。
+  - 終端状態の Worker ローカル実行ゲート（`effectStarted`、`executionStarted`）は永続化せず、状態機械のイベントでのみ書き換えます。`kickRequestSent` は私密モードのキック要求を同期送信する直前に `executionStarted` を立て、`kickRequestFailed` は要求が精算されずに戻ったときにそれを下ろし、`terminalAttemptUnsettled` は終端操作の 1 ラウンドが精算されずに終わったときに実行ゲートを下ろします（`kickPending` は両方のゲート）。3 つのイベントはいずれも試行開始時に捕捉した状態オブジェクトを伴い、状態が置き換わっていれば作用しません。
+  - ラウンドが未精算で終わると、`retryTerminalAttempt` がまず `terminalAttemptUnsettled` を投げ、そのエントリーのバックオフ列で再試行を 1 回予約します（`kickPending` は `kickRetry`、`checkingInviter` と `expelling` は `terminalPersisted` を投げます）。終端許可を得た副作用の一群が途中で reject した場合（Worker→メインスレッド要求の失敗など）も同じ処理を通り、エラーは通常どおりログに残し、状態が変わったエントリーには触れません。タイムアウトキックの処置レポートは `runTelegramAction` 経由で送るため、要求の reject は「未送信」として同じバックオフに乗ります。
   - メインスレッドが緊急私密モード（Lockdown）を復元する際は、記録消去前に公告 ID に基づくメッセージ削除を開始します。削除失敗時は Telegram ログにのみ記録し、復元のメインフローは削除の完了を待ちません。
 
 - **タイムアウト検証における招待者身分の再確認（`checkingInviter`）**：
@@ -536,7 +544,8 @@
 - **認証ボタンの対話権限の独立性**：
   - **「我是良民」（本人認証）ボタン**：認証待ちの新人本人のクリックのみを受け付けます。Worker は発言者の自己申告ではなく、`callback_query.from.id === callback_data` の対象関係から厳格に本人性を検証します。
   - **「通过」（承認）ボタン**：そのグループの**非匿名管理者**が他人の代理で押した場合のみ受け付けます（人間と Bot は同一）。資格は Worker 側の管理者キャッシュ（`isChatAdmin`）で判定し、キャッシュミス時は `getChatAdministrators` を取得し、失敗時は「後ほど再試行してください」と応答して記録は変更しません。
-  - **ホワイトリストとの完全な非相関**：ホワイトリストメンバーやスーパー管理者であっても、該当グループの管理者でなければ「通过」を押す権限はありません。また、認証対象者本人が「通过」を押しても必ず拒否されます。招待者免除も同様に非匿名管理者のみを認め、ホワイトリストメンバーによる招待は免除対象となりません。
+  - **ホワイトリストとの完全な非相関**：ホワイトリストメンバーやスーパー管理者であっても、該当グループの管理者でなければ「通过」を押す権限はありません。また、認証対象者本人が「通过」を押しても必ず拒否されます。招待者免除も同様に非匿名の人間の管理者のみを認め、ホワイトリストメンバーによる招待は免除対象となりません。
+  - **Bot は一般メンバーとして扱う**：Bot は管理者かどうかにかかわらず Worker 側の管理者キャッシュに入りません。`getChatAdministrators` の全量取得は `return_bots` を付けず、応答に含まれる Bot 自身も `user.is_bot` で除外します。`chat_member` の差分（`isInviterExemptAdmin`）も同じ基準です。したがって Bot が招待したメンバーは認証を免除されず、連投ミュートと広告処置の管理者判定も Bot を管理者として扱いません。
 
 - **終端キックとグループタイプの適合**：
   - `kickChatMember` を呼び出す前に、必ず `probeChatMembership` で現在のメンバー状態を確認します。在室を確認できた場合のみキックを実行し、既に退出していることが確認された場合は処置レポートを出さずに完了します。照会失敗時は終端状態を保持してバックオフ再試行に回します。
@@ -602,6 +611,7 @@
 - **ユーザー名双方向キャッシュの整合性**：
   - 送信者キャッシュは「正規化 username → identity」と「sender ID → 現在の username」の双方向マッピングを同時に維持します。
   - 改名、username の削除、再紐付け、および LRU 容量淘汰は、同一の owner が双方向の関係性をアトミックに更新します。リゾルバは別名の衝突や不整合な記録を厳格に拒否します。
+  - **破壊的コマンドのユーザー名照会**：別名テーブルは直近に観測した発言者しか記録しないため、改名や再紐付けの後も前の保持者を指したままになり得ます。`requireIdentityPolicies` を有効にしたコマンド（`/block … enable|disable`、`/mute`、`/white`、`/permission` の変更経路）が `@username` で対象を指定した場合、実行前に id で対象の現在の身分を照会し（`commands/liveTargetIdentity.ts`：ユーザーは本グループの `getChatMember`、チャンネルとグループ身分は `getChat`）、結果を身分キャッシュへ書き戻します。ユーザー名が一致した場合のみ実行し、一致しない場合は古い別名を破棄して実行を拒否します。照会に失敗した場合も拒否し、返信または id での指定を促します。返信と生の id はそれ自体が確定した身分のため照会しません。
 - **匿名管理者とグループ身分の取り扱い**：
   - 匿名管理者本人は管理者としての免除を享受しますが、特定の識別可能なアカウントに帰属できないため、管理者招待による継承免除を新規メンバーに与えることはできません。
   - 匿名管理者が現在のグループとして発言した場合、可視送信者の解決は `/copy` やアバター取得のためにそのグループ identity を保持します。ただし、破壊的な管理コマンドは現在のグループ identity をユーザー対象として受け付けることを拒否しなければなりません。
@@ -654,15 +664,19 @@
 - **グループ Runtime Teardown（解体）規約**：
   - 各ドメインのクリーンアップコールバック（`copy`、`translate`、`gag`、`qa`、`wed`、`aiChat`、`antiRaid`、`joinLog`）は `packages/cache/main/chatTeardown.ts` が集中的に保持し、上位ドメインは末端モジュール `packages/infra/chatTeardownRegistry.ts` を通じて逆向きに登録します。`packages/infra/chatTeardown.ts` は統合的な呼び出しのみを担当し、個別の業務モジュールへの静的依存を禁じます。
   - **解体理由とデータ保持の判定（`ChatTeardownReason`）**：
-    - `explicitDisable`（手動での `/init disable`）および `departed`（Bot がグループから除外された場合）：管理の完全停止を意味し、該当グループの `/wed` メンバー集合、入室ログ、問答データベース、および `chat_states` レコードを完全に削除しなければなりません。
+    - `explicitDisable`（手動での `/init disable`）、`departed`（Bot がグループから除外された場合、または起動時にメンバーでないことを確証した場合）、`gone`（グループが既に存在しない場合：通常グループがスーパーグループへ昇格した後の旧 ID、または起動時に `chat not found` を確証した場合）：管理の完全停止を意味し、該当グループの `/wed` メンバー集合、入室ログ、問答データベース、および `chat_states` レコードを完全に削除しなければなりません。
     - `lostAuthority`（グループに在室したまま管理者権限のみ剥奪された場合）：実行時状態を停止するのみで、永続化データはすべて保持し、権限復帰後に即座に再開できるようにします。
-    - 各ドメインは必ず `packages/libs/chatTeardown.ts` の `purgesChatData` 共通ユーティリティを介して判定しなければならず、独自に reason 文字列を比較してはなりません。
-    - 例外：AI 記憶はいかなる teardown 理由でも削除されます。参加認証等の残留ボタンメッセージは `explicitDisable` のときのみ API で削除し、`departed` 時は Bot が既に退出しているため Telegram リクエストを発行しません。
+    - 各ドメインは必ず `packages/libs/chatTeardown.ts` の 3 つの判定関数を介して結論を得なければならず、独自に reason 文字列を比較してはなりません：`purgesChatData`（永続化データを削除するか）、`isChatUnreachable`（`departed` と `gone`：Bot がもうそのグループの API を呼べないため、ローカルのメッセージ ID を破棄するだけにする）、`abandonsLockdown`（`gone` のみ：非公開モードの記録を放棄する）。
+    - 例外：AI 記憶はいかなる teardown 理由でも削除されます。参加認証等の残留ボタンメッセージは `explicitDisable` のときのみ API で削除し、`departed` と `gone` のときは Telegram リクエストを発行しません。
+  - **退出時の後始末の入口（`completeChatDeparture`）**：`packages/infra/botAdmin.ts` の `completeChatDeparture(chatId, "departed" | "gone")` は権限スナップショットを破棄し、全 owner の teardown を実行してから、ブラックリスト補完スイープの進捗と非公開モード記録以外のグループ状態を消去して永続化します。同じグループに対する重複呼び出しは冪等です。呼び出し元は次の 3 か所だけです：
+    - `my_chat_member` が Bot の left/kicked を示す場合：`departed`。
+    - 管理グループが `migrate_to_chat_id` 付きのサービスメッセージを受け取った場合：`packages/app/registerHandlers.ts` の前置チェーンで初期化ゲートの後ろにある移行 ingress が `gone` として後始末し、その update を終了します。新しいスーパーグループは引き続き `/init` が必要で、旧グループの設定は移されません。
+    - 起動時のタイトル更新がグループの到達不能を確証した場合（上記の低優先度タイトル保守を参照）：確証した分類で後始末します。
   - **厳格な順序による同期的ディスパッチ**：`teardownChatRuntime` は `packages/consts/chatTeardown.ts` の `CHAT_TEARDOWN_ORDER`（型システムにより `ChatRuntimeOwner` を網羅）を順次走査します。teardown はこの順序で全 owner のクリーンアップを同期的に開始してから、非同期の完了をまとめて待機します。
 - **メンバー在室再確認の境界**：
   - 非同期照会 `probeChatMembership` が在室を返してから実際に `kickChatMember` を呼び出す直前に、メモリ内の終端状態オブジェクトの参照が変化していないことを再確認しなければなりません。この確認ステップと API 呼び出しの間に `await` を挟んではなりません。
 - **`/block` 跨グループ BAN の結果キャッシュ禁止**：
-  - `/block` を実行するたび、管理対象グループのリスト全体へ `banChatMember` を再送しなければなりません（Telegram の `revoke_messages` による過去メッセージ撤回をトリガーするため）。権限スナップショットで `canRestrictMembers` の欠如が確証されたグループでのみリクエストをスキップして失敗計上します。`/block disable` も同様にコマンド側の BAN 結果キャッシュを持ちません。
+  - `/block` を実行するたび、管理対象グループのリスト全体へ `banChatMember` を再送しなければなりません（Telegram の `revoke_messages` による過去メッセージ撤回をトリガーするため）。権限スナップショットで `canRestrictMembers` の欠如が確証されたグループでのみリクエストをスキップして失敗計上します。`/block disable` も同様にコマンド側の BAN 結果キャッシュを持たず、グループ横断の BAN 解除も同じ基準で権限欠如が確証されたグループを飛ばします。
 
 ### `/wed` のメンバー永続化と操作
 
@@ -885,7 +899,7 @@
 - **`/block disable` による完全解除フロー**：
   - 対象がテーブル内に存在する場合、メインスレッドはネガティブキャッシュと件数を公開し、`pendingBlockedRemovals` の進行中バッチから該当 ID を除外してトリム後の outbox スナップショットを送信し、最後に削除墓石を送信します（`queueBlocklistDeletion`）。
   - Disk I/O Worker は到着順に処理し、スナップショットの書き込みが削除に先行するため、データベースが削除済みエントリを参照したり不要な補掃タスクが残留したりすることはありません。Worker 再構築時はドメイン優先度順に復旧されます。
-  - 対象が以前登録されていたかどうかにかかわらず、`managedAdminChatIds` の管理対象グループ一覧において BAN を解除します：コマンドを発行した本グループを先頭とし、残りは `/init enable` かつ Bot が管理者と確認済みの全グループです。通常ユーザーは `unbanChatMemberIfBanned`（`only_if_banned: true`）、チャンネル身分は `unbanChatSenderChat` を呼び出します。必要な権限は `isCanUnBlock` です。
+  - 対象が以前登録されていたかどうかにかかわらず、`managedAdminChatIds` の管理対象グループ一覧において BAN を解除します：コマンドを発行した本グループを先頭とし、残りは `/init enable` かつ Bot が管理者と確認済みの全グループです。通常ユーザーは `unbanChatMemberIfBanned`（`only_if_banned: true`）、チャンネル身分は `unbanChatSenderChat` を呼び出します。権限スナップショットで「メンバーの制限」権限の欠如が確証されたグループにはリクエストを送らず、失敗として数えます。必要な権限は `isCanUnBlock` です。
 - **保護対象身分と排他直列化**：
   - スーパー管理者（`SUPER_ADMIN_USER_ID`）と恒久ホワイトリストメンバーは無条件で保護され、`isWhitelisted` は `/block`、`/mute`、`/batch_kick` の受付ゲートを横断して機能します。一時的な広告免除はこの恒久保護境界に含まれません。
   - `/white enable` はブラックリストに既に存在する身分を厳格に拒否します。
@@ -908,7 +922,11 @@
   - ブラックリスト対象者の入室時は即時キックを発動し、通常の入室認証フローをバイパスします（認証ウィンドウを開きません）。`recentBlockedJoinCounts` により `chat_member` と `new_chat_members` の重複イベントを排除し、スライディングウィンドウの入室カウントを補記して入室サービス通知を削除します。
 - **スレッド協調とクロスグループファンアウト**：
   - 身分の判定と名簿の管理はメインスレッドに帰属します。メンバー照会、BAN、および再試行の順序制御は Anti-Raid Worker が非同期直列に実行し、出線リクエストは `query` / `kick` の 429 制御レーンへ振り分けられます。
-  - `/block` コマンド自身によるグループ横断の連動 BAN は明示的な例外です：メインスレッドは update 内で永続化確認を完了した後、遅延実行器のバックグラウンド枠（`commands/blocklistFanOut.ts`）へファンアウトタスクを投入し、並行数上限 `MANAGED_CHAT_BATCH_CONCURRENCY` で各グループへ `banChatMember` または `banChatSenderChat` を直接送信します。失敗したグループは後続の補掃へ委ねられます。
+  - `/block` コマンド自身（`enable` と `disable`）のグループ横断ファンアウトは明示的な例外です（`commands/blocklistFanOut.ts`）：
+    - handler は検証の完了後、到着順にその身分のブラックリスト直列枠（`blocklistIdentityMutationRunner`、広告処置と共用）を予約します。リストへの書き込みと永続化確認、グループ横断の BAN または BAN 解除、応答はすべてこの直列枠の中で順に実行され、同じ身分に対する連続したコマンドと広告処置は到着順に確定します。
+    - 直列枠が空いている場合、リストへの書き込みと永続化確認はその update 内で完了します。同じ身分に先行する処置が実行中の場合は両者ともファンアウトと一緒に後回しになり、update は待たずに終了し、その時点ではリストはまだ変わっていません。
+    - グループ横断の部分は遅延実行器のバックグラウンド枠へ投入され、並行数上限 `MANAGED_CHAT_BATCH_CONCURRENCY` で各グループへ `banChatMember`、`banChatSenderChat` または対応する BAN 解除を直接送信します。BAN に失敗したグループは後続の補掃へ委ねられます。
+    - 実行開始前、または直列枠の待機中に停止処理で取り消された場合はエラーログを記録し、未実行のリスト書き込みとファンアウトは実行せず、応答も送信しません。
 
 #### 広告検出の受付・判定・処置
 
@@ -918,7 +936,7 @@
 - **免除および特殊メッセージソース**：
   - 連携チャンネルからの自動転送（`is_automatic_forward`）および Bot 自身の投稿（`isBotOwnMessage`）は一律にスキップします。
   - 本 Bot が送信した inline メッセージ（`via_bot` が自身を指すもの）は、グループに投稿されたレンダリング後の本文ではなく、ユーザーの**元のクエリテキスト**を送検して判定します。各 inline 機能は応答成功後に `recordInlineResultSources` で元テキストを登録し、容量上限は `INLINE_RESULT_SOURCE_MAX_AUTHORS` です。元テキストが取得できない場合や本文が一致しない場合は判定をスキップします。
-  - ディスカッショングループのコメント欄で引用されたチャンネル投稿の本文や抜粋は、判定対象テキストに混入させません。グループオーナーおよび管理者は決して広告として処分しません。
+  - ディスカッショングループのコメント欄で引用されたチャンネル投稿の本文や抜粋は、判定対象テキストに混入させません。グループオーナーおよび人間の管理者は決して広告として処分しません。Bot は管理者であっても通常どおり判定と処置の対象になります。
 - **キュー管理と流量制御（Worker スレッド）**：
   - キューは `chatId:senderId` をキーとし、同一送信者の連続メッセージは `pendingAdMessages` 内の単一 bundle にマージされ、重複してキュー枠を占有しません。
   - 待機送信者上限は `AD_DETECT_MAX_PENDING_SENDERS` であり、満杯時は新規送信者を拒否し、未判定の既存送信者を FIFO 追い出しすることはありません。

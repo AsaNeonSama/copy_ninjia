@@ -123,7 +123,7 @@ describe("aiChat/ai/stickers/sets getStickerSet 失败恢复", () => {
 
     try {
       // 共享请求绑的是 Worker 信号，不是任一调用方的 signal。
-      const request: Promise<any> = getStickerSet(pack, api);
+      const request: Promise<any> = getStickerSet(pack, api as never);
       await Promise.resolve();
       expect(receivedSignal.current).toBe(controller.signal);
       controller.abort(new DOMException("worker stopped", "AbortError"));

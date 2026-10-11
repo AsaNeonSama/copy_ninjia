@@ -4,20 +4,23 @@ import type { RawApi, Transformer } from "grammy";
 import { hydrateFiles } from "@grammyjs/files";
 import type { FileApiFlavor } from "@grammyjs/files";
 import type { TelegramWorkerApi, TelegramWorkerJsonCall, TelegramWorkerRequest } from "../../packages/types/telegramWorker";
-import { telegramRetryCategoryFor } from "../../packages/infra/telegram/outboundRetryPolicy";
 import { telegramOutboundGate } from "../../packages/infra/telegram/outboundGate";
 import { drainTelegramOutbound, initTelegramOutbound, telegramOutboundStats } from "../../packages/infra/telegram/outboundLifecycle";
-import { isSelfSent } from "../../packages/infra/selfSentTracker";
+import { isSelfSent, waitForBotOwnMessage } from "../../packages/infra/selfSentTracker";
+import type { Message } from "grammy/types";
 
 const calls: { readonly method: string; readonly payload: any; readonly signal: AbortSignal | undefined }[] = [];
 let owner: "ai" | "antiRaid" = "ai";
 let retry: boolean = false;
 let messageSequence: number = 900;
+/** 非 null 时传输层在返回前等待它，用来观察请求在途期间的状态。 */
+let hold: Promise<void> | null = null;
 const api: FileApiFlavor<Api> = new Api("123:test-only") as FileApiFlavor<Api>;
 const transport: Transformer<RawApi> = async (...args: Parameters<Transformer<RawApi>>): Promise<any> => {
   const [, method, payload, signal]: Parameters<Transformer<RawApi>> = args;
   calls.push({ method, payload, signal: signal as AbortSignal | undefined });
   expect(telegramOutboundStats().active).toBeGreaterThan(0);
+  if (hold !== null) await hold;
   if (retry) {
     retry = false;
     return { ok: false, error_code: 429, description: "retry", parameters: { retry_after: 0 } };
@@ -57,6 +60,7 @@ beforeEach((): void => {
   calls.length = 0;
   owner = "ai";
   retry = false;
+  hold = null;
   initTelegramOutbound();
 });
 afterEach(async (): Promise<void> => {
@@ -76,7 +80,7 @@ test("每个 JSON 方法逐 owner 验证允许与拒绝，主线程专属方法�
   const methods: readonly string[] = [...Object.keys(permissions), "copyMessage", "deleteEphemeralMessage", "editMessageText", "unbanChatSenderChat"];
   for (const [index, handler] of [handleAiWorkerTelegramRequest, handleAntiRaidWorkerTelegramRequest].entries()) {
     for (const method of methods) {
-      const request: TelegramWorkerRequest = { operation: "call", category: telegramRetryCategoryFor(method as keyof RawApi), call: { method, payload: { chat_id: -1001 } } } as TelegramWorkerRequest;
+      const request: TelegramWorkerRequest = { operation: "call", call: { method, payload: { chat_id: -1001 } } } as TelegramWorkerRequest;
       const before: number = calls.length;
       const result: Promise<unknown> = handler(request, new AbortController().signal);
       if (permissions[method as TelegramWorkerJsonCall["method"]]?.[index] === true) {
@@ -134,34 +138,26 @@ test("上传与 CDN 下载均经主线程出站闸；跨 owner 调用和取消�
   }
 });
 
-test("能力白名单之内仍按操作核对 429 类别与临时消息参数，不符时拒绝且不出站", async (): Promise<void> => {
-  const signal: AbortSignal = new AbortController().signal;
-  const rejected: [TelegramWorkerRequest, string][] = [
-    [
-      { operation: "call", category: "query", call: { method: "sendMessage", payload: { chat_id: -1001, text: "x" } } } as TelegramWorkerRequest,
-      "category does not match its Bot API method",
-    ],
-    [
-      { operation: "sendPhoto", category: "download", chatId: -1001, bytes: new Uint8Array([1]), fileName: "a.png", other: {} } as unknown as TelegramWorkerRequest,
-      "sendPhoto must use the message category",
-    ],
-    [
-      { operation: "sendVoice", category: "download", chatId: -1001, bytes: new Uint8Array([1]), fileName: "a.ogg", other: {} } as unknown as TelegramWorkerRequest,
-      "sendVoice must use the message category",
-    ],
-    [
-      { operation: "downloadFile", category: "message", fileId: "file", purpose: "vision" } as unknown as TelegramWorkerRequest,
-      "downloadFile must use the download category",
-    ],
-    [
-      { operation: "sendTemporaryMessage", category: "download", purpose: "notice", chatId: -1001, text: "x" } as unknown as TelegramWorkerRequest,
-      "temporary messages must use the message category",
-    ],
-  ];
-  for (const [request, message] of rejected) {
-    await expect(handleAiWorkerTelegramRequest(request, signal)).rejects.toThrow(message);
-  }
-  expect(calls).toEqual([]);
+test("自发消息在途计数由主线程按方法与操作判定：产消息请求计入，查询请求不计入", async (): Promise<void> => {
+  const channelPost = (messageId: number): Message =>
+    ({ chat: { id: -1001, type: "channel", title: "channel" }, message_id: messageId, date: 0 }) as Message;
+  let release: () => void = (): void => undefined;
+  hold = new Promise<void>((resolve: () => void): void => { release = resolve; });
+  owner = "antiRaid";
+  const query: Promise<unknown> = workerTelegramApi.getChat(-1001);
+  while (calls.length < 1) await Bun.sleep(1);
+  expect(await waitForBotOwnMessage(channelPost(messageSequence + 1), 1_000)).toBeFalse();
+  release();
+  await query;
+
+  hold = new Promise<void>((resolve: () => void): void => { release = resolve; });
+  owner = "ai";
+  const sent: Promise<unknown> = workerTelegramApi.sendMessage(-1001, "hello");
+  while (calls.length < 2) await Bun.sleep(1);
+  const waiting: Promise<boolean> = waitForBotOwnMessage(channelPost(messageSequence + 1), 1_000);
+  release();
+  await sent;
+  expect(await waiting).toBeTrue();
 });
 
 test("Worker 代理没有主线程专属方法，共享门面在本地拒绝这些方法", (): void => {

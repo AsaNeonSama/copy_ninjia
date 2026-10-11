@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import type { CachedUser } from "../../packages/types/chatState";
-import { settleTestBatch } from "../helpers/common";
+import { replyCommandNoticeVia, settleTestBatch } from "../helpers/common";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { longestTemplatePart } from "../helpers/templateText";
 
@@ -25,12 +26,18 @@ mock.module("../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing", SUPER_ADMIN_USER_ID: 1 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
   hasWhitelistPermission,
   setWhitelistMembership,
 }));
 mock.module("../../packages/infra/blocklist/membership", () => ({ isUserBlocked }));
+// @username 目标的现查：替身按「用户名没变」原样交回缓存身份（真实语义见
+// test/commands/targetResolution.test.ts 与 test/commands/liveTargetIdentity.test.ts）。
+mock.module("../../packages/commands/liveTargetIdentity", () => ({
+  readLiveTargetIdentity: async (_chatId: number, target: CachedUser): Promise<CachedUser> => target,
+}));
 
 const {
   handleWhiteCommand,
@@ -63,21 +70,7 @@ function context(
   match: string,
   replyToMessage?: object
 ): never {
-  const chat = { id: -1001, type: "supergroup" };
-  return {
-    chat,
-    from: { id: userId, first_name: "Admin", username: "admin" },
-    msg: {
-      message_id: 10,
-      chat,
-      ...(replyToMessage === undefined
-        ? {}
-        : { reply_to_message: replyToMessage }),
-    },
-    msgId: 10,
-    me: { id: 999 },
-    match,
-  } as never;
+  return groupCommandContext({ userId, match, replyToMessage });
 }
 
 function repliedUser(id: number): object {
@@ -105,12 +98,12 @@ function repliedChannel(id: number): object {
 
 beforeEach(() => {
   sendMessage.mockClear();
-  setWhitelistMembership.mockClear();
+  setWhitelistMembership.mockReset();
   setWhitelistMembership.mockImplementation(() => ({
     changed: true,
     permissions: undefined,
   }));
-  confirmWhitelistEntryPersisted.mockClear();
+  confirmWhitelistEntryPersisted.mockReset();
   confirmWhitelistEntryPersisted.mockImplementation(
     async (): Promise<void> => {}
   );

@@ -1,9 +1,11 @@
 import { getTimeZone } from "../../packages/config/time";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import { loggerStub } from "../helpers/loggerMock";
 import type { BotConfig } from "../../packages/types/config";
 import { MOOD_USAGE_TEXT } from "../../packages/consts/atmosphere/teasing/commandUsage";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const queryAiMood = mock(async (): Promise<string> => "平静");
@@ -23,6 +25,7 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/aiChat", () => ({
   requestAiMood: (requestType: "queryMood" | "switchMood"): Promise<string> =>
@@ -35,20 +38,13 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
 
 const { handleMoodCommand } = await import("../../packages/commands/mood");
 
-function context(argument: string, userId: number | undefined = 100): never {
-  const chat = { id: -1001, type: "supergroup" };
-  return {
-    chat,
-    from: userId === undefined ? undefined : { id: userId, first_name: "Admin", username: "admin" },
-    msg: { message_id: 7, chat },
-    msgId: 7,
-    match: argument,
-  } as never;
+function context(argument: string, userId: number = 100): never {
+  return groupCommandContext({ match: argument, userId, messageId: 7 });
 }
 
 beforeEach(() => {
   states.clear();
-  sendMessage.mockClear();
+  sendMessage.mockReset();
   sendMessage.mockImplementation(async (..._args: unknown[]): Promise<number | undefined> => 1);
   queryAiMood.mockClear();
   queryAiMood.mockImplementation(async (): Promise<string> => "平静");

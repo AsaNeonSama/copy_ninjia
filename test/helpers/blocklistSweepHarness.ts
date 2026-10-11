@@ -33,15 +33,21 @@ export const configuredBlockedIds: {
 };
 
 export const states = new Map<number, Record<string, unknown>>();
-export const getChatMember = mock(async (): Promise<{ status: string }> => ({ status: "administrator" }));
+async function getChatMemberStub(): Promise<{ status: string }> {
+  return { status: "administrator" };
+}
+export const getChatMember = mock(getChatMemberStub);
 export const persistChatState = mock(async (): Promise<void> => {});
+/** 默认整批投出去：返回值等于这一批的条数。 */
+async function removeWholeBatch(...args: unknown[]): Promise<number> {
+  return (args[0] as readonly unknown[]).length;
+}
 /**
  * 处置的执行 owner 替身，返回值是真正投出去的条数（`BlockedMemberRemover`，
  * 见 docs/cn/04-invariants.md 黑名单补扫小节）。默认整批投出去，零投递由个别
  * 用例单独 mock。
  */
-export const remover = mock(async (...args: unknown[]): Promise<number> =>
-  (args[0] as readonly unknown[]).length);
+export const remover = mock(removeWholeBatch);
 export const postDiskIO = mock((..._args: unknown[]): boolean => true);
 /** 生产 owner 登记的 Disk I/O 重建重放回调，按 owner 名索引；用例据此驱动重放。 */
 export const respawnListeners = new Map<string, DiskIORespawnListener>();
@@ -215,16 +221,17 @@ export function installBlocklistSweepHooks(injected: BlocklistSweepDeps): void {
     injected.blocklistSweepPages.clear();
     injected.blocklistSweepState.clear();
     injected.pendingBlockedRemovals.clear();
-    remover.mockClear();
     loggerError.mockClear();
     loggerLog.mockClear();
     readBlocklistIdPage.mockClear();
     postDiskIO.mockClear();
-    getChatMember.mockClear();
-    persistChatState.mockClear();
     postDiskIO.mockImplementation((): boolean => true);
-    remover.mockImplementation(async (...args: unknown[]): Promise<number> =>
-      (args[0] as readonly unknown[]).length);
+    remover.mockReset();
+    remover.mockImplementation(removeWholeBatch);
+    getChatMember.mockReset();
+    getChatMember.mockImplementation(getChatMemberStub);
+    persistChatState.mockReset();
+    persistChatState.mockResolvedValue(undefined);
     injected.registerBlockedMemberRemover(remover as unknown as BlockedMemberRemover);
     blocklistIdPageSource.current = async (): Promise<readonly number[]> =>
       readBlockedIdentityTestIds();

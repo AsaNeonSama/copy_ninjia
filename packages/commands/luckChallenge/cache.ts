@@ -130,7 +130,8 @@ export function ensureLuckCacheFreshForToday(): Promise<void> {
   });
 }
 
-function currentLuckSecret(): LuckReceiptSecret {
+/** 当天的回执密钥；未初始化或仍是前一天的密钥时抛错。抽签派生与回执签名共用这一口径。 */
+export function currentLuckSecret(): LuckReceiptSecret {
   const secret: LuckReceiptSecret | null = luckReceiptSecretState.current;
   if (secret?.day !== luckCacheState.dayKey) {
     throw new Error("Daily luck receipt secret is not initialized");

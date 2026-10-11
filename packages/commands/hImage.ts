@@ -18,7 +18,7 @@ import {
 } from "../consts/hImage";
 import { recentHImageCallTimestamps } from "../cache/main/hImage";
 import { chatAtmosphere } from "../infra/atmosphere";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import { forumTopicThreadId } from "../libs/forumTopic";
 import { tryConsumeSlidingWindow } from "../libs/slidingWindowRateLimit";
 import type { AtmosphereTexts } from "../types/atmosphere";
@@ -55,7 +55,7 @@ export async function handleHImageCommand(ctx: CommandContext<Context>): Promise
     return;
   }
   if (argument.length > 0) {
-    await sendCommandMessage({ chatId, text: texts.usage, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, texts.usage);
     return;
   }
   const request: HImageRequest = { chatId, messageId, messageThreadId: forumTopicThreadId(ctx.msg) };
@@ -64,5 +64,5 @@ export async function handleHImageCommand(ctx: CommandContext<Context>): Promise
     task: (): Promise<void> => deliverRandomImage(request),
     errorLabel: "Unexpected error while processing /h_image request:",
   });
-  if (!accepted) await sendCommandMessage({ chatId, text: texts.busy, replyToMessageId: messageId });
+  if (!accepted) await replyCommandNotice(ctx, texts.busy);
 }

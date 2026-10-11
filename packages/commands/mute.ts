@@ -5,7 +5,7 @@ import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import type { CachedUser } from "../types/chatState";
 import type { MuteChatMemberOutcome, UnmuteChatMemberOutcome } from "../infra/telegram";
-import { muteChatMemberWithOutcome, sendCommandMessage, unmuteChatMemberWithOutcome } from "../infra/telegram";
+import { muteChatMemberWithOutcome, replyCommandNotice, unmuteChatMemberWithOutcome } from "../infra/telegram";
 import { formatTargetLabel } from "../users/userLabel";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
 import { botChatPermissionsIn } from "../infra/botAdmin";
@@ -70,8 +70,6 @@ async function forbiddenReplyText(
  * （同 antiRaid/floodControl.ts 只在超级群计数的口径）。
  */
 async function passesMuteCommandGate(ctx: CommandContext<Context>, command: "mute" | "unmute"): Promise<boolean> {
-  const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const permission: "isCanMute" | "isCanUnMute" =
     command === "mute" ? "isCanMute" : "isCanUnMute";
   const actor: CachedUser | undefined = await rejectUnlessPermitted(
@@ -82,11 +80,7 @@ async function passesMuteCommandGate(ctx: CommandContext<Context>, command: "mut
   if (actor === undefined) return false;
 
   if (ctx.chat.type !== "supergroup") {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.muteSupergroupOnly,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.muteSupergroupOnly);
     return false;
   }
 
@@ -103,11 +97,7 @@ async function rejectUnrestrictableTarget(
 ): Promise<boolean> {
   if (targetUser.isChannel !== true) return false;
   const atmosphere: AtmosphereTexts = chatAtmosphere();
-  await sendCommandMessage({
-    chatId: ctx.chat.id,
-    text: atmosphere.NOTICE_TEXTS.muteChannelTarget(formatTargetLabel(targetUser, atmosphere)),
-    replyToMessageId: ctx.msgId,
-  });
+  await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.muteChannelTarget(formatTargetLabel(targetUser, atmosphere)));
   return true;
 }
 
@@ -130,7 +120,6 @@ async function rejectUnrestrictableTarget(
  */
 export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
 
   if (!await passesMuteCommandGate(ctx, "mute")) return;
 
@@ -139,7 +128,7 @@ export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<v
   const { last: durationToken, rest: targetArgument }: TrailingTokenSplit = splitTrailingToken(ctx.match);
   const durationMs: number | undefined = durationToken === undefined ? undefined : parseMuteDurationMs(durationToken);
   if (durationMs === undefined) {
-    await sendCommandMessage({ chatId, text: chatAtmosphere().MUTE_USAGE_TEXT, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, chatAtmosphere().MUTE_USAGE_TEXT);
     return;
   }
 
@@ -160,11 +149,7 @@ export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<v
   // 自己人不可禁言（口径同自动处置的 isWhitelisted 边界，超级管理员已含在内）。
   if (isWhitelisted(targetUser.id)) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.NOTICE_TEXTS.muteProtected(formatTargetLabel(targetUser, atmosphere)),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.muteProtected(formatTargetLabel(targetUser, atmosphere)));
     return;
   }
 
@@ -179,18 +164,14 @@ export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<v
     dispatchTimeoutMs: durationMs - MUTE_DISPATCH_MIN_REMAINING_MS,
   });
   if (outcome === "muted") {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.muteDone(targetLabel, formatDurationCn(durationMs)),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.muteDone(targetLabel, formatDurationCn(durationMs)));
     return;
   }
   // failed 是限流/网络抖动，值得再试；forbidden 的措辞见 forbiddenReplyText。
   const failureText: string = outcome === "forbidden"
     ? await forbiddenReplyText(chatId, targetLabel, "mute")
     : chatAtmosphere().NOTICE_TEXTS.muteFailed(targetLabel);
-  await sendCommandMessage({ chatId, text: failureText, replyToMessageId: messageId });
+  await replyCommandNotice(ctx, failureText);
 }
 
 /**
@@ -201,7 +182,6 @@ export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<v
  */
 export async function handleUnmuteCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
 
   if (!await passesMuteCommandGate(ctx, "unmute")) return;
 
@@ -222,15 +202,11 @@ export async function handleUnmuteCommand(ctx: CommandContext<Context>): Promise
     userId: targetUser.id,
   });
   if (outcome === "unmuted") {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.unmuteDone(targetLabel),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.unmuteDone(targetLabel));
     return;
   }
   const failureText: string = outcome === "forbidden"
     ? await forbiddenReplyText(chatId, targetLabel, "unmute")
     : chatAtmosphere().NOTICE_TEXTS.unmuteFailed(targetLabel);
-  await sendCommandMessage({ chatId, text: failureText, replyToMessageId: messageId });
+  await replyCommandNotice(ctx, failureText);
 }

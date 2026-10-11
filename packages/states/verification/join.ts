@@ -11,8 +11,8 @@ import type {
   JoinExemption,
   PendingState,
   VerificationEffect,
+  VerificationExpelState,
   VerificationState,
-  VerificationTerminalState,
   VerificationTransition,
 } from "../../types/states/verification";
 import { exemptOf, kickPendingOf, pendingUpdated, remindersOf } from "./shared";
@@ -40,8 +40,8 @@ export function joinCreatesNewRecord(
     !resolveJoinExemption(event).exempt;
 }
 
-/** 终态之外、可以被一次入群直接改写的记录状态。 */
-type JoinableState = Exclude<VerificationState, VerificationTerminalState>;
+/** 两段处置终态之外、可以被一次入群直接改写的记录状态（含尚未结算的秒踢）。 */
+type JoinableState = Exclude<VerificationState, VerificationExpelState>;
 
 /**
  * 豁免成立的入群：已有豁免占位与已完成的踢人原样保留；未发出的秒踢换成豁免占位并撤回
@@ -194,7 +194,7 @@ export function handleJoin(
   state: VerificationState | undefined,
   event: JoinEvent
 ): VerificationTransition {
-  // 终态属于上一次物理入群：新入群以新记录替换它，解释器捕获的旧终态
+  // 两段处置终态属于上一次物理入群：新入群以新记录替换它，解释器捕获的旧终态
   // 因对象同一性不再匹配而停止踢人。
   if (state?.kind === "checkingInviter" || state?.kind === "expelling") {
     // 被替换记录的验证提醒带按钮，不挂固定延迟删除；它的 expel 收尾因对象同一性
@@ -217,7 +217,7 @@ export function handleJoin(
  *
  * pending 直接回到 ABSENT，并删掉两条带按钮的验证提醒。
  *
- * 两个终态保持原状：正在执行的踢人可能由本机器人发起，这条 left 即是其结果，
+ * 两段处置终态保持原状：正在执行的踢人可能由本机器人发起，这条 left 即是其结果，
  * 记录保留到处置结算事件到达（结算路径见 verificationRuntime.ts 的
  * dispatchVerification）。其余状态（EXEMPT / KICK_PENDING / KICKED）随离群
  * 一并作废。

@@ -7,7 +7,7 @@ import { WED_CALLBACK_PREFIX, WED_OPERATION_TIMEOUT_MS, WED_SESSION_LIMIT } from
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { purgesChatData } from "../libs/chatTeardown";
 import { isTimeoutAbort, signalWithTimeout } from "../libs/abortSignal";
-import { answerCallbackQuery, sendCommandMessage } from "../infra/telegram";
+import { answerCallbackQuery, replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { combineWithUpdateAbortSignal } from "../infra/updateContext";
 import { forumTopicThreadId } from "../libs/forumTopic";
 import type { ChatTeardownReason } from "../types/chatTeardown";
@@ -84,11 +84,11 @@ export async function handleWedCommand(ctx: CommandContext<Context>): Promise<vo
   const actor: User | undefined = ctx.from;
   if ((ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") ||
     ctx.msg.sender_chat !== undefined || actor === undefined || actor.is_bot) {
-    await sendCommandMessage({ chatId: ctx.chat.id, text: chatAtmosphere().WED_TEXTS.groupOnly, replyToMessageId: ctx.msgId });
+    await replyCommandNotice(ctx, chatAtmosphere().WED_TEXTS.groupOnly);
     return;
   }
   if (ctx.match.trim().length > 0) {
-    await sendCommandMessage({ chatId: ctx.chat.id, text: chatAtmosphere().WED_TEXTS.usage, replyToMessageId: ctx.msgId });
+    await replyCommandNotice(ctx, chatAtmosphere().WED_TEXTS.usage);
     return;
   }
   const chat: WedChat | undefined = getOrCreateWedChat(ctx.chat.id);
@@ -98,7 +98,7 @@ export async function handleWedCommand(ctx: CommandContext<Context>): Promise<vo
     : chat.members.size === 0 || (chat.members.size === 1 && chat.members.has(actor.id)) ? chatAtmosphere().WED_TEXTS.empty
     : undefined;
   if (rejected !== undefined || chat === undefined) {
-    await sendCommandMessage({ chatId: ctx.chat.id, text: rejected ?? chatAtmosphere().WED_TEXTS.full, replyToMessageId: ctx.msgId });
+    await replyCommandNotice(ctx, rejected ?? chatAtmosphere().WED_TEXTS.full);
     return;
   }
   const session: WedSession = {

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../../helpers/fixtureTimeZone";
 import {
   IDENTITY_WRITE_BATCH_MAX_ENTRIES,
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
 } from "../../../packages/consts/identityStorage";
 import { DAY_MS } from "../../../packages/consts/time";
-import { adoptTimeZone, getTimeZone } from "../../../packages/config/time";
+import { adoptTimeZone } from "../../../packages/config/time";
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
 import {
   pendingTemporaryAdBypassWrites,
@@ -36,8 +37,9 @@ import type { StorageDatabase } from
 import type { StoredTemporaryAdBypassActivity } from
   "../../../packages/types/temporaryAdBypass";
 
+installTokyoFixtureTimeZone();
+
 const NOW: number = new Date("2026-08-30T00:00:00+09:00").getTime();
-const INITIAL_TIME_ZONE: string = getTimeZone();
 const acknowledgements: IdentityStoragePersistedReply[] = [];
 
 function reply(value: IdentityStoragePersistedReply): void {
@@ -98,7 +100,6 @@ afterEach((): void => {
   resetStorageDatabaseCache();
   storagePersistenceReplyHolder.current = null;
   jest.useRealTimers();
-  adoptTimeZone(INITIAL_TIME_ZONE);
 });
 
 describe("临时广告免检 SQLite 合并写与过期清理", () => {

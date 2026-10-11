@@ -21,10 +21,11 @@ const sent: string[] = [];
 const models = new Map<number, PromiseWithResolvers<string | null>>();
 const toolsets = new Map<number, ReplyToolset>();
 const contexts = new Map<number, UserContentOptions>();
-const sendMessage = mock(async (params: { text: string }): Promise<TelegramSendResult> => {
+async function sendMessageStub(params: { text: string }): Promise<TelegramSendResult> {
   sent.push(params.text);
   return { messageId: sent.length, repliedToMessageId: undefined };
-});
+}
+const sendMessage = mock(sendMessageStub);
 const describeMedia = mock(async (): Promise<string | null> => "图片描述");
 const logError = mock((..._args: unknown[]): void => {});
 const realTelegram = await import("../../../packages/infra/telegram");
@@ -116,7 +117,9 @@ beforeEach(() => {
   botInfoState.current = { id: 99, first_name: "Bot", username: "bot" };
   models.clear(); toolsets.clear(); contexts.clear(); sent.length = 0;
   describeMedia.mockReset().mockResolvedValue("图片描述");
-  sendMessage.mockClear(); logError.mockClear();
+  sendMessage.mockReset();
+  sendMessage.mockImplementation(sendMessageStub);
+  logError.mockClear();
   sendNotice.mockClear(); pushBufferedMessage.mockClear();
   spyOn(Math, "random").mockReturnValue(1);
 });

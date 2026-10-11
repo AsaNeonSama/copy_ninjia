@@ -1,4 +1,5 @@
 import { REPLY_REFERENCE_MAX_CHARS } from "../../consts/aiChat/memory";
+import { NON_TEXT_PLACEHOLDER } from "../../consts/auto";
 import { sanitizeInline, stripLeadingAtSigns, truncateInline } from "../../libs/text";
 import { formatLocalTime } from "../../libs/time";
 import type { BufferedMessage, BufferedReplyReference, PendingBotImage } from "../../types/aiChat/memory";
@@ -21,7 +22,7 @@ export function sanitizeReplyReference(reference: AiReplyReference): BufferedRep
     firstName: sanitizeInline(reference.firstName),
     lastName: sanitizeInline(reference.lastName),
     username: sanitizedUsername ? sanitizedUsername : undefined,
-    text: truncateInline(sanitizeInline(reference.text), REPLY_REFERENCE_MAX_CHARS) || "[非文本消息]",
+    text: truncateInline(sanitizeInline(reference.text), REPLY_REFERENCE_MAX_CHARS) || NON_TEXT_PLACEHOLDER,
     quote: sanitizedQuote ? sanitizedQuote : undefined,
     forwardedFrom: sanitizedForwardedFrom ? sanitizedForwardedFrom : undefined,
   };

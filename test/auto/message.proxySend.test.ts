@@ -8,13 +8,19 @@ import type { TelegramSendResult } from "../../packages/types/telegram";
 
 const copyMessageMock = mock(async (..._args: unknown[]): Promise<number | undefined> => 42);
 const sendMessageMock = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
-const sendVoiceWithResultMock = mock(async (..._args: unknown[]): Promise<TelegramSendResult | undefined> => ({ messageId: 88, repliedToMessageId: undefined }));
+async function sendVoiceWithResultStub(..._args: unknown[]): Promise<TelegramSendResult | undefined> {
+  return { messageId: 88, repliedToMessageId: undefined };
+}
+const sendVoiceWithResultMock = mock(sendVoiceWithResultStub);
 const VOICE_BYTES: Uint8Array<ArrayBuffer> = new Uint8Array([0x4f, 0x67, 0x67, 0x53]);
 const VOICE_FILE: string = "fixture-voice.mp3";
-const synthesizeVoiceMock = mock(async (..._args: unknown[]): Promise<VoiceSynthesisResult> => ({
-  ok: true,
-  voice: { bytes: VOICE_BYTES, durationSeconds: 4, fileName: VOICE_FILE },
-}));
+async function synthesizeVoiceStub(..._args: unknown[]): Promise<VoiceSynthesisResult> {
+  return {
+    ok: true,
+    voice: { bytes: VOICE_BYTES, durationSeconds: 4, fileName: VOICE_FILE },
+  };
+}
+const synthesizeVoiceMock = mock(synthesizeVoiceStub);
 /** 延迟执行器替身：接纳的任务收进队列，由用例显式执行。 */
 const deferredTasks: (() => Promise<void>)[] = [];
 let deferredAccepting: boolean = true;
@@ -118,8 +124,10 @@ describe("/send 私聊中转权限", () => {
     sendMessageMock.mockClear();
     disableChatStateSwitchMock.mockClear();
     persistChatStateMock.mockClear();
-    sendVoiceWithResultMock.mockClear();
-    synthesizeVoiceMock.mockClear();
+    sendVoiceWithResultMock.mockReset();
+    sendVoiceWithResultMock.mockImplementation(sendVoiceWithResultStub);
+    synthesizeVoiceMock.mockReset();
+    synthesizeVoiceMock.mockImplementation(synthesizeVoiceStub);
     submitDeferredCommandMock.mockClear();
     deferredTasks.length = 0;
     deferredAccepting = true;
@@ -166,13 +174,10 @@ describe("/send 代发的 TTS 请求", () => {
   beforeEach(() => {
     copyMessageMock.mockClear();
     sendMessageMock.mockClear();
-    sendVoiceWithResultMock.mockClear();
-    sendVoiceWithResultMock.mockImplementation(async (): Promise<TelegramSendResult | undefined> => ({ messageId: 88, repliedToMessageId: undefined }));
-    synthesizeVoiceMock.mockClear();
-    synthesizeVoiceMock.mockImplementation(async (): Promise<VoiceSynthesisResult> => ({
-      ok: true,
-      voice: { bytes: VOICE_BYTES, durationSeconds: 4, fileName: VOICE_FILE },
-    }));
+    sendVoiceWithResultMock.mockReset();
+    sendVoiceWithResultMock.mockImplementation(sendVoiceWithResultStub);
+    synthesizeVoiceMock.mockReset();
+    synthesizeVoiceMock.mockImplementation(synthesizeVoiceStub);
     submitDeferredCommandMock.mockClear();
     deferredTasks.length = 0;
     deferredAccepting = true;

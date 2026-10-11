@@ -24,7 +24,7 @@ import {
 import { ensureStickerConfig } from "../../../packages/config/stickers";
 import { adoptTimeZone } from "../../../packages/config/time";
 import { DEFAULT_BOT_TIME_ZONE } from "../../../packages/consts/bot";
-import type { LoadedData } from "../../../packages/types/diskIO";
+import type { LoadedData } from "../../../packages/types/diskIO/replies";
 import type { WhitelistEntryData } from
   "../../../packages/types/identityPolicy";
 import type { FlushResult } from "../../../packages/types/lifecycle";

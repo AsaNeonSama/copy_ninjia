@@ -25,7 +25,8 @@ type StorageDatabaseTransaction = Parameters<
 >[0];
 
 export interface SeedStorageDatabaseOptions {
-  readonly metadata: readonly StoredStorageMetadataRow[];
+  /** storage_metadata 行；库已由 bootstrapStorageDatabase 写好 metadata 时省略。 */
+  readonly metadata?: readonly StoredStorageMetadataRow[];
   readonly whitelist: readonly StoredIdentityPolicyRow[];
   readonly blocklist: readonly StoredIdentityPolicyRow[];
   readonly removals: readonly StoredPendingRemovalRow[];
@@ -42,7 +43,7 @@ export interface SeedStorageDatabaseOptions {
 export function seedStorageDatabase(
   database: StorageDatabase,
   {
-    metadata,
+    metadata = [],
     whitelist,
     blocklist,
     removals,

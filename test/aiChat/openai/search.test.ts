@@ -12,7 +12,10 @@ import type { OpenAiRequestResult } from "../../../packages/types/aiChat/openai"
 import type { AiWebSearchResult } from "../../../packages/types/aiChat/provider";
 import type { AgentCapability } from "../../../packages/types/config";
 
-const requestOpenAiResult = mock(async (..._args: unknown[]): Promise<OpenAiRequestResult> => ({ ok: false, failureKind: "request" }));
+async function requestOpenAiResultStub(..._args: unknown[]): Promise<OpenAiRequestResult> {
+  return { ok: false, failureKind: "request" };
+}
+const requestOpenAiResult = mock(requestOpenAiResultStub);
 mock.module("../../../packages/aiChat/openai/client", () => ({ requestOpenAiResult }));
 
 const { searchOpenAiWeb } = await import("../../../packages/aiChat/openai/search");
@@ -59,7 +62,8 @@ function searchedResponse(): OpenAI.Responses.Response {
 const reported: AiCacheUsage[] = [];
 
 beforeEach(() => {
-  requestOpenAiResult.mockClear();
+  requestOpenAiResult.mockReset();
+  requestOpenAiResult.mockImplementation(requestOpenAiResultStub);
   reported.length = 0;
   installAiCacheUsageSink((usage: AiCacheUsage): void => { reported.push(usage); });
 });
@@ -113,11 +117,12 @@ test("产出不可用时仍计入已执行的检索；请求失败时没有检�
 });
 
 test("text 能力的检索用对话模型，执行器不重复上报用量", async () => {
-  requestOpenAiResult.mockImplementationOnce(async (...args: unknown[]): Promise<OpenAiRequestResult> => {
-    expect((args[0] as { capability: string }).capability).toBe(TEXT_CAPABILITY);
-    expect((args[0] as { buildBody: () => ResponseBody }).buildBody().model).toBe(getAgentDeploymentConfig().text.model);
-    return { ok: true, response: searchedResponse() };
-  });
-  await searchOpenAiWeb(TEXT_CAPABILITY, { instruction: "i", query: "q" });
+  requestOpenAiResult.mockResolvedValueOnce({ ok: true, response: searchedResponse() });
+  expect(await searchOpenAiWeb(TEXT_CAPABILITY, { instruction: "i", query: "q" })).toMatchObject({ ok: true });
+  expect(requestOpenAiResult).toHaveBeenCalledTimes(1);
+  const options: { capability: string; buildBody: () => ResponseBody } =
+    requestOpenAiResult.mock.calls[0]![0] as { capability: string; buildBody: () => ResponseBody };
+  expect(options.capability).toBe(TEXT_CAPABILITY);
+  expect(options.buildBody().model).toBe(getAgentDeploymentConfig().text.model);
   expect(reported).toEqual([]);
 });

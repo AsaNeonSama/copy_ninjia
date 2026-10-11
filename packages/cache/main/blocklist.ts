@@ -25,9 +25,9 @@ export const protectedIdentityMutationQueue: { current: Promise<void> } = {
 /**
  * 动态黑名单处置的逐身份串行尾链。
  *
- * owner 是主线程；广告命中的「拉黑、落盘、登记并投递封禁」、`/block enable` 的跨群封禁扇出
- * （提交给延迟命令执行器时即占位，commands/blocklistFanOut.ts）与 `/block disable` 的
- * 「删名单、落盘、跨群解封」按同一身份的到达顺序完整结算，不同身份互不阻塞。
+ * owner 是主线程；广告命中的「拉黑、落盘、登记并投递封禁」与 `/block enable`、`/block disable`
+ * 的「写名单、落盘、跨群封禁或解封、回执」（handler 校验完即占位，commands/blocklistFanOut.ts）
+ * 按同一身份的到达顺序完整结算，不同身份互不阻塞。
  * 每条尾链结算后立即删除，容量等于当前仍在处理的身份数；进程重启后从空表重建。
  * 只经 blocklistIdentityMutationRunner 读写。
  */

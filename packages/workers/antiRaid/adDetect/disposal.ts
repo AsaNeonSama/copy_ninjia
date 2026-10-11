@@ -222,8 +222,8 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
     messages: judged.map((entry: AdCandidateEntry): AdSampleMessage => ({
       messageId: entry.messageId,
       text: entry.text,
-      ...(entry.quote !== undefined ? { quote: entry.quote } : {}),
-      ...(entry.replyTo !== undefined ? { replyTo: entry.replyTo } : {}),
+      quote: entry.quote,
+      replyTo: entry.replyTo,
     })),
   });
 

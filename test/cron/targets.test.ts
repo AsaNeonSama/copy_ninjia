@@ -8,11 +8,12 @@ import { chatStateOf } from "../helpers/chatState";
 const members: Map<number, ChatMember> = new Map<number, ChatMember>();
 const defaults: Map<number, ChatPermissions | undefined> = new Map<number, ChatPermissions | undefined>();
 const chatStates: Map<number, ChatState> = new Map<number, ChatState>();
-const getChatMember = mock(async (chatId: number, _userId: number): Promise<ChatMember> => {
+async function getChatMemberStub(chatId: number, _userId: number): Promise<ChatMember> {
   const member: ChatMember | undefined = members.get(chatId);
   if (member === undefined) throw new Error("Bad Request: chat not found");
   return member;
-});
+}
+const getChatMember = mock(getChatMemberStub);
 const getChat = mock(async (chatId: number): Promise<unknown> => ({ id: chatId, type: "supergroup", permissions: defaults.get(chatId) }));
 mock.module("../../packages/infra/telegram/mainClient", () => ({
   bot: { botInfo: { id: 42 }, api: { getChatMember, getChat } },
@@ -42,7 +43,8 @@ beforeEach(() => {
   members.clear();
   defaults.clear();
   chatStates.clear();
-  getChatMember.mockClear();
+  getChatMember.mockReset();
+  getChatMember.mockImplementation(getChatMemberStub);
   getChat.mockClear();
 });
 

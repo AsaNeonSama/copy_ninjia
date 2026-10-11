@@ -8,6 +8,7 @@ import { botAtmosphereState } from "../../packages/cache/main/atmosphere";
 import type { Atmosphere } from "../../packages/types/atmosphere";
 import type { AvatarUpdateRequest } from "../../packages/types/copy/avatar";
 import type { ResolveCommandTargetParams } from "../../packages/commands/targetResolution";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const saveStateInBackground = mock((..._args: unknown[]): void => {});
@@ -25,7 +26,10 @@ const globalCopy: {
 let jaReadiness: { ok: true } | { ok: false; failure: { file: string; reason: string } } = { ok: true };
 
 const claimCopyCooldownOrReject = mock(async () => cooldownRejected ? { rejected: true as const } : claim);
-const resolveCopyCommandTarget = mock(async (..._args: unknown[]): Promise<CachedUser | undefined> => target);
+async function resolveCopyCommandTargetStub(..._args: unknown[]): Promise<CachedUser | undefined> {
+  return target;
+}
+const resolveCopyCommandTarget = mock(resolveCopyCommandTargetStub);
 
 const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
@@ -34,6 +38,7 @@ mock.module("../../packages/config/readiness", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
   getGlobalCopyState: () => globalCopy,
@@ -110,14 +115,16 @@ beforeEach(() => {
   delete globalCopy.copyMode;
   delete globalCopy.copyChatId;
   for (const mocked of [
-    sendMessage,
     saveStateInBackground,
     releaseCopyCooldownClaim,
     stealAvatarInBackground,
     restoreAvatarInBackground,
     claimCopyCooldownOrReject,
-    resolveCopyCommandTarget,
   ]) mocked.mockClear();
+  sendMessage.mockReset();
+  sendMessage.mockResolvedValue(1);
+  resolveCopyCommandTarget.mockReset();
+  resolveCopyCommandTarget.mockImplementation(resolveCopyCommandTargetStub);
 });
 
 describe("copy 类命令生命周期", () => {

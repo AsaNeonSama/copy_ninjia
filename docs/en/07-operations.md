@@ -341,6 +341,12 @@ The `install.sh` installation script enforces several safeguards:
   The `send_voice` tool failed to generate audio during an AI reply (API timeout, quota limit, etc.). Text replies continue to be sent normally.
 - `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`:
   The blocklist sweep encountered a deleted Telegram account. When a user ID returns this error for `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` consecutive checks, the system automatically purges the deleted ID from the blocklist.
+- `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`:
+  A managed group was upgraded to a supergroup, and the old chat id has been torn down as "chat no longer exists" (data purged, managed-chat slot freed). Run `/init enable` again in the new supergroup; the old settings are not carried over.
+- `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`:
+  At startup the title refresh confirmed several times in a row that a chat no longer exists (`gone`) or that the bot is no longer a member (`departed`), and tore it down. For a `departed` chat, a lockdown record that has not been restored yet is kept and restored automatically once the bot is back with the right to restrict members.
+- `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`:
+  The first lookup looked unreachable but a later one disagreed (usually a transient Telegram error). Nothing is torn down this time; the next startup confirms again from scratch.
 - `Gemini context cache API ... create rejected (n/3): 400`:
   Gemini returned HTTP 400 when attempting to create a context cache. This usually means the context contains fewer tokens than the required minimum, or parameters are invalid. The system waits for `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` before retrying; after `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` consecutive failures, caching is disabled for that content. Regular chat replies continue to function normally without caching.
 

@@ -91,7 +91,6 @@ import {
   noteAdDetectSaturation,
   pendingAdBundle,
   pendingAdBundleForKey,
-  refreshAdDetectCapacitySaturation,
   rejectNewAdBundleAtCapacity,
   requeueIfUnchecked,
   storeBundle,
@@ -279,7 +278,6 @@ export function runAdDetectBatch(now: number = Date.now()): Promise<void> {
     pruneConsumedContext(bundle, now);
     if (bundle.entries.length === 0) {
       deletePendingAdBundle(bundle.chatId, bundle.senderId);
-      refreshAdDetectCapacitySaturation();
       continue;
     }
     // 复核：requeueIfUnchecked 保证在途的键不会同时排在队列里，正常路径不会走到
@@ -326,7 +324,6 @@ export function clearChatAdDetect(chatId: number): void {
     if (key.startsWith(prefix)) recentlyDisposedAdKeys.delete(key);
   }
   clearChatReferencedAdWarnings(chatId);
-  refreshAdDetectCapacitySaturation();
 }
 
 /**
@@ -345,7 +342,6 @@ export function clearIdentityAdDetect(identityId: number): void {
     if (belongsToIdentity(key)) recentlyDisposedAdKeys.delete(key);
   }
   clearIdentityReferencedAdWarnings(identityId);
-  refreshAdDetectCapacitySaturation();
 }
 
 /**
@@ -374,7 +370,6 @@ export function sweepAdDetect(now: number = Date.now()): void {
     }
   }
   sweepReferencedAdWarnings(now);
-  refreshAdDetectCapacitySaturation();
 }
 
 /** Worker 启动入口：登记回投通道并挂上唯一批处理节拍。 */

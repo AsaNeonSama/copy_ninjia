@@ -4,7 +4,7 @@ import type { CommandContext, Context } from "grammy";
 import { invalidateAiChat } from "../aiChat";
 
 import { logger } from "../infra/logger";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import type { CachedUser } from "../types/chatState";
 import { rejectUnlessPermitted } from "./commandActor";
 
@@ -25,7 +25,6 @@ import { rejectUnlessPermitted } from "./commandActor";
  */
 export async function handleClearContextCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const actor: CachedUser | undefined = await rejectUnlessPermitted(
     ctx,
     "isCanClearContext",
@@ -33,11 +32,7 @@ export async function handleClearContextCommand(ctx: CommandContext<Context>): P
   );
   if (actor === undefined) return;
   if (ctx.match.trim().length > 0) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().CLEAR_CONTEXT_USAGE_TEXT,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().CLEAR_CONTEXT_USAGE_TEXT);
     return;
   }
 
@@ -45,17 +40,9 @@ export async function handleClearContextCommand(ctx: CommandContext<Context>): P
     await invalidateAiChat(chatId);
   } catch (error: unknown) {
     logger.error(`Failed to clear the AI chat context of chat ${chatId}:`, error);
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.clearContextFailed,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.clearContextFailed);
     return;
   }
 
-  await sendCommandMessage({
-    chatId,
-    text: chatAtmosphere().NOTICE_TEXTS.clearContextDone,
-    replyToMessageId: messageId,
-  });
+  await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.clearContextDone);
 }

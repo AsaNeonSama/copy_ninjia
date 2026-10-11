@@ -6,7 +6,6 @@ import type {
 } from "../../types/antiRaid/verification";
 import type {
   ExpelSnapshot,
-  KickPendingState,
   PendingState,
   VerificationState,
   VerificationTerminalState,
@@ -14,10 +13,7 @@ import type {
 import { isTerminalVerificationPhase } from "../../states/verification/shared";
 
 /** 需要跨 Worker 重建持久化的验证阶段。 */
-type PersistedVerificationState =
-  | PendingState
-  | KickPendingState
-  | VerificationTerminalState;
+type PersistedVerificationState = PendingState | VerificationTerminalState;
 
 /** 当前状态是否拥有持久化快照。 */
 export function isPersistedVerificationState(

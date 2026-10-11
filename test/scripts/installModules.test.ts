@@ -13,9 +13,9 @@ const REPO_ROOT: string = join(import.meta.dir, "..", "..");
 let fixtureRoot: string | null = null;
 
 /** 把入口与安装模块复制到临时目录；其余文件本门禁用不到。 */
-function fixture(): string {
+async function fixture(): Promise<string> {
   fixtureRoot = mkdtempSync(join(tmpdir(), "copy-ninjia-install-gate-"));
-  cpSync(join(REPO_ROOT, "install.sh"), join(fixtureRoot, "install.sh"));
+  await Bun.write(join(fixtureRoot, "install.sh"), Bun.file(join(REPO_ROOT, "install.sh")));
   cpSync(join(REPO_ROOT, "scripts", "install"), join(fixtureRoot, "scripts", "install"), { recursive: true });
   return fixtureRoot;
 }
@@ -36,7 +36,7 @@ describe("安装脚本自洽性", () => {
   });
 
   test("头注的步骤名与真实 step 调用必须逐字一致", async () => {
-    const root: string = fixture();
+    const root: string = await fixture();
     await rewrite(root, (source: string): string => source.replace("#   6/8 填写配置", "#   6/8 填写设置"));
 
     expect(await collectInstallModuleProblems(root))
@@ -44,7 +44,7 @@ describe("安装脚本自洽性", () => {
   });
 
   test("语法自检循环与 source 顺序不一致时报错", async () => {
-    const root: string = fixture();
+    const root: string = await fixture();
     await rewrite(root, (source: string): string => source.replace(
       "for install_module in repository service config runtime configure start; do",
       "for install_module in repository service config runtime start configure; do"
@@ -55,7 +55,7 @@ describe("安装脚本自洽性", () => {
   });
 
   test("少 source 一个模块时同时报「与目录不符」和「顺序不一致」", async () => {
-    const root: string = fixture();
+    const root: string = await fixture();
     await rewrite(root, (source: string): string =>
       source.replace('source "./scripts/install/start.sh"', "# start module intentionally dropped"));
     const problems: readonly string[] = await collectInstallModuleProblems(root);
@@ -65,7 +65,7 @@ describe("安装脚本自洽性", () => {
   });
 
   test("步骤编号不连续时点名那一步", async () => {
-    const root: string = fixture();
+    const root: string = await fixture();
     await Bun.write(
       join(root, "scripts", "install", "configure.sh"),
       (await Bun.file(join(root, "scripts", "install", "configure.sh")).text())

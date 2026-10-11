@@ -38,8 +38,8 @@
 <p align="center">
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6386_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.78%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6624_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.84%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -68,7 +68,7 @@ Every line of production code, every test case, and this README itself was writt
 <tbody>
   <tr>
     <td><nobr>📐 <b>Architecture</b></nobr></td>
-    <td><b>Asashishi</b></td>
+    <td><b>AsaNeonSama</b></td>
     <td>Defines and adjudicates system boundaries, multi-worker decomposition, persistence models, and recovery strategies</td>
   </tr>
   <tr>
@@ -78,7 +78,7 @@ Every line of production code, every test case, and this README itself was writt
   </tr>
   <tr>
     <td><nobr>🧾 <b>Commit Review</b></nobr></td>
-    <td><nobr><b>Asashishi</b> × AI</nobr></td>
+    <td><nobr><b>AsaNeonSama</b> × AI</nobr></td>
     <td>Every single commit is paired and verified by human and AI before being merged into the repository</td>
   </tr>
   <tr>
@@ -104,7 +104,7 @@ From commit-by-commit human/AI co-review to repeated full-repository audits and 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 6386 tests passed, 530 test files, 445,518 expect() calls, 98.27% function coverage, 98.78% line coverage" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 6624 tests passed, 553 test files, 446,303 expect() calls, 98.35% function coverage, 98.84% line coverage" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -300,10 +300,10 @@ The full command reference and permission matrix are documented in **[📖 09 Co
 
 ```bash
 # Automatically detects environment and guides through interactive setup
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash
 
 # Or select mode explicitly: --binary (recommended) or --source (git clone)
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --binary
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --binary
 ```
 
 > [!TIP]
@@ -314,7 +314,7 @@ curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/instal
 
 ```bash
 # 1. Clone repository and install dependencies
-git clone https://github.com/Asashishi/copy_ninjia.git
+git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 bun install
 

@@ -10,6 +10,7 @@ import {
   GAG_SPEAK_NOTICE_MESSAGE_INTERVAL,
 } from "../../packages/consts/gag";
 import { GAG_THUMBNAIL_URL } from "../../packages/consts/ui/assets";
+import { chatAtmosphere } from "../../packages/infra/atmosphere";
 import type { GagSession } from "../../packages/types/gag";
 import { inlineResultSourceOf } from "../../packages/infra/inlineResultSources";
 import { settleTestBatch } from "../helpers/common";
@@ -740,7 +741,7 @@ describe("gag 消息与 inline 入口", () => {
     const results: readonly InlineResult[] = answerInlineQuery.mock.calls[0]?.[0] ?? [];
     expect(results).toHaveLength(1);
     expect(results[0]?.id).toBe("gag--1001--1002233445566");
-    expect(results[0]?.title).toBe("以频道身份发言");
+    expect(results[0]?.title).toBe(chatAtmosphere().GAG_INLINE_RESULT_TEXTS.channelTitle);
     const content: { message_text: string; entities?: MessageEntity[] } =
       results[0]?.input_message_content as {
         message_text: string;

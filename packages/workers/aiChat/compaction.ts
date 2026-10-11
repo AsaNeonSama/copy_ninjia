@@ -1,5 +1,5 @@
 import { logger } from "../../infra/logger";
-import { sleep } from "../../libs/sleep";
+import { resampleAiText } from "../../aiChat/ai/utils/resample";
 import { BoundedDeque } from "../../libs/boundedDeque";
 import { sanitizeInline, truncateAtClauseBoundary } from "../../libs/text";
 import { formatBufferedMessageLine } from "../../aiChat/ai/utils/chatTranscript";
@@ -95,7 +95,15 @@ async function rotateCompaction({
     if (promoteFirst) {
       promotePendingSummary(chatId);
     }
-    const summary: string | null = await summarizeBatchWithRetry(chatId, mirrorBatch, signal);
+    // 只有 HTTP 成功但 candidate 异常或清洗后正文为空才按 SUMMARY_RETRY_DELAYS_MS 重采样；Anthropic
+    // 拒答不重采样（配置了 fallback_model 时回退模型已在同一次调用里接手过）。重采样在该群的轮换
+    // 串行链上执行，只顺延本群后续轮换，不阻塞消息分发。
+    const summary: string | null = await resampleAiText({
+      label: `AI compaction for chat ${chatId}`,
+      call: (): Promise<AiTextResult> => summarizeBatch(mirrorBatch, signal),
+      delaysMs: SUMMARY_RETRY_DELAYS_MS,
+      signal,
+    });
     if (signal.aborted || !isCachedReplyGenerationCurrent(chatId, generation)) return;
     if (summary) {
       pendingSummaries.set(chatId, summary);
@@ -108,28 +116,6 @@ async function rotateCompaction({
   } catch (error: unknown) {
     if (signal.aborted) return;
     logger.error("Error in chat compaction task:", error);
-  }
-}
-
-/**
- * 带退避重采样的镜像压缩：只有 HTTP 成功但 candidate 异常（Anthropic 拒答除外）或清洗后正文为空
- * 才按 SUMMARY_RETRY_DELAYS_MS 再发请求。网络/HTTP 失败由供应商 SDK 重试；Anthropic 拒答不重采样（配置了
- * fallback_model 时回退模型已在同一次调用里接手过），此处都不再重试。本函数在该群的轮换串行链上执行，只顺延本群后续轮换，不阻塞消息分发。
- */
-async function summarizeBatchWithRetry(
-  chatId: number,
-  batch: BufferedMessage[],
-  signal: AbortSignal
-): Promise<string | null> {
-  for (let attempt: number = 0; ; attempt++) {
-    if (signal.aborted) return null;
-    const result: AiTextResult = await summarizeBatch(batch, signal);
-    if (signal.aborted) return null;
-    if (result.ok) return result.text;
-    if (!result.retryable || attempt >= SUMMARY_RETRY_DELAYS_MS.length) return null;
-    const delayMs: number = SUMMARY_RETRY_DELAYS_MS[attempt]!;
-    logger.warn(`AI compaction attempt ${attempt + 1} returned no usable summary for chat ${chatId}; resampling in ${delayMs} ms.`);
-    await sleep(delayMs, signal);
   }
 }
 

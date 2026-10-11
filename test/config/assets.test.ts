@@ -182,11 +182,14 @@ describe("parseAssetConfig", () => {
   test("直链写坏时拒绝整份文件，诊断不回显原值", () => {
     expect(() => parse(onlyUrl({ fortune_thumbnail_url: "drive.google.com/uc?id=secret" })))
       .toThrow(`assets.json: ${onlyUrlField("fortune_thumbnail_url")} must be an absolute https URL.`);
+    let message: string | null = null;
     try {
       parse(onlyUrl({ fortune_thumbnail_url: "drive.google.com/uc?id=secret" }));
     } catch (error: unknown) {
-      expect((error as Error).message).not.toContain("secret");
+      message = (error as Error).message;
     }
+    expect(message).not.toBeNull();
+    expect(message).not.toContain("secret");
     for (const bad of ["", "  ", 1, null]) {
       expect(() => parse(onlyUrl({ probability_thumbnail_url: bad }))).toThrow(
         `assets.json: ${onlyUrlField("probability_thumbnail_url")} must be a non-empty string.`

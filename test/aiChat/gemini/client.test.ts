@@ -74,7 +74,7 @@ describe("Gemini request safety settings", () => {
   beforeEach(() => {
     geminiClientCache.current = null;
     createdClientOptions.length = 0;
-    generateContent.mockClear();
+    generateContent.mockReset();
     loggerError.mockClear();
     generateContent.mockImplementation(async (): Promise<GenerateContentResponse> => geminiResponse({
       candidates: [{ finishReason: FinishReason.STOP, content: { role: "model", parts: [{ text: "ok" }] } }],

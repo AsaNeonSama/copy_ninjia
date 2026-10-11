@@ -1,6 +1,6 @@
 /**
  * Anti-Raid 主线程控制器（packages/antiRaid/workerBridge/controller.ts）的
- * 公开控制命令与双工能力分派。
+ * 公开控制命令、双工能力分派，以及初始化与重建重放（含已落盘终态验证的回执补投）。
  *
  * 与 workerBridgeObservers.test.ts 分工：那一条驱动「注册一次、由上游回调」
  * 的观察者；本文件驱动命令侧——`/antiraid disable`、`/ad_detect disable`、
@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
 import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid/protocol";
 import type { BotChatPermissions } from "../../packages/types/telegram";
+import type { VerificationSnapshot, VerificationSnapshotBase } from "../../packages/types/antiRaid/verification";
 
 const workerPosts: AntiRaidWorkerMessage[] = [];
 /**
@@ -119,11 +120,52 @@ const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRai
 const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 const { VERIFICATION_RECORD_CAPACITY } =
   await import("../../packages/consts/antiRaid/verification");
+const {
+  clearActiveVerificationSnapshots,
+  persistedVerificationRevisions,
+  setActiveVerificationSnapshot,
+} = await import("../../packages/cache/main/antiRaid/verificationMirror");
+const { verificationKey } = await import("../../packages/libs/verificationKey");
 
 const CHAT_ID: number = -1001;
 
 function typesOf(): string[] {
   return workerPosts.map((message: AntiRaidWorkerMessage): string => message.type);
+}
+
+/**
+ * 一条活动验证快照夹具；expelling 终态带上处置原因，pending 不带。代际取当前进程代际，
+ * 与 persistedVerificationRevisions 里的落盘水位线对得上。
+ */
+function verificationSnapshot(
+  userId: number,
+  phase: "pending" | "expelling",
+  revision: number
+): VerificationSnapshot {
+  const base: VerificationSnapshotBase = {
+    chatId: CHAT_ID,
+    userId,
+    generation: antiRaidRuntimeState.generation,
+    revision,
+    label: "Zako",
+    isBot: false,
+    trackedMessageTimes: [],
+    replyReminderRequested: false,
+    reminderSuperseded: false,
+    joinedAt: 1_000,
+    expiresAt: 2_000,
+  };
+  return phase === "expelling"
+    ? { ...base, phase, expelReason: "timeout" }
+    : { ...base, phase };
+}
+
+/** 登记一条活动快照，并把它当前的 (generation, revision) 记为已落盘。 */
+function seedPersistedVerification(snapshot: VerificationSnapshot): string {
+  const key: string = verificationKey(snapshot.chatId, snapshot.userId);
+  setActiveVerificationSnapshot(key, snapshot);
+  persistedVerificationRevisions.set(key, { generation: snapshot.generation, revision: snapshot.revision });
+  return key;
 }
 
 beforeEach(() => {
@@ -143,23 +185,25 @@ beforeEach(() => {
 
 describe("Anti-Raid 控制命令", () => {
   test("统一 teardown 先丢本进程延后闩锁，再投 deactivateChat 并带上清理标记", () => {
-    deactivateAntiRaidChat(CHAT_ID, true);
+    deactivateAntiRaidChat(CHAT_ID, true, false);
 
     expect(deletedDeferralChats).toEqual([CHAT_ID]);
     expect(workerPosts).toEqual([{
       type: "deactivateChat",
       chatId: CHAT_ID,
       cleanupVerificationMessages: true,
+      abandonLockdown: false,
     }]);
   });
 
-  test("teardown 的清理标记原样传下去，不在主线程改写", () => {
-    deactivateAntiRaidChat(CHAT_ID, false);
+  test("teardown 的清理与放弃私密模式标记原样传下去，不在主线程改写", () => {
+    deactivateAntiRaidChat(CHAT_ID, false, true);
 
     expect(workerPosts).toEqual([{
       type: "deactivateChat",
       chatId: CHAT_ID,
       cleanupVerificationMessages: false,
+      abandonLockdown: true,
     }]);
   });
 
@@ -181,7 +225,7 @@ describe("Anti-Raid 控制命令", () => {
   test("Worker 不可用时四条控制命令一律上抛，不静默吞掉", () => {
     delivery.accepts = false;
 
-    expect(() => deactivateAntiRaidChat(CHAT_ID, true))
+    expect(() => deactivateAntiRaidChat(CHAT_ID, true, false))
       .toThrow("Anti-Raid Worker is unavailable.");
     expect(() => deactivateJoinGuardChat(CHAT_ID))
       .toThrow("Anti-Raid Worker is unavailable.");
@@ -233,7 +277,6 @@ describe("Anti-Raid 双工能力分派", () => {
     const request = {
       operation: "sendTemporaryMessage",
       purpose: "adWarning",
-      category: "message",
       chatId: CHAT_ID,
       identityId: 7,
       text: "warning",
@@ -363,6 +406,59 @@ describe("Anti-Raid 初始化与重建重放", () => {
 
     // 第一条被拒后停止投递，留给下一次重建重放同一份镜像。
     expect(replayed.map((message: AntiRaidWorkerMessage): string => message.type)).toEqual(["agentConfig"]);
+  });
+
+  test("已落盘的终态验证在接管快照之后补投落盘回执，带新代际与原 revision；未进终态的不补", () => {
+    const oldGeneration: number = antiRaidRuntimeState.generation;
+    const terminalKey: string = seedPersistedVerification(verificationSnapshot(501, "expelling", 4));
+    seedPersistedVerification(verificationSnapshot(502, "pending", 2));
+    const replayed: AntiRaidWorkerMessage[] = [];
+    try {
+      captured.options?.onRespawn((message: AntiRaidWorkerMessage): boolean => {
+        replayed.push(message);
+        return true;
+      });
+    } finally {
+      clearActiveVerificationSnapshots();
+      persistedVerificationRevisions.clear();
+    }
+
+    const adopt: AntiRaidWorkerMessage | undefined = replayed.find(
+      (message: AntiRaidWorkerMessage): boolean => message.type === "adoptVerifications"
+    );
+    if (adopt?.type !== "adoptVerifications") throw new Error("Expected an adoptVerifications replay.");
+    expect(adopt.generation).not.toBe(oldGeneration);
+    const persisted: AntiRaidWorkerMessage[] = replayed.filter(
+      (message: AntiRaidWorkerMessage): boolean => message.type === "verificationPersisted"
+    );
+    // 新 Worker 凭这条回执直接续跑终态副作用，不必等 Disk I/O 再写一遍同一 revision。
+    expect(persisted).toEqual([{
+      type: "verificationPersisted",
+      key: terminalKey,
+      generation: adopt.generation,
+      revision: 4,
+    }]);
+    const types: string[] = replayed.map((message: AntiRaidWorkerMessage): string => message.type);
+    expect(types.indexOf("adoptVerifications")).toBeLessThan(types.indexOf("verificationPersisted"));
+    // 本群没开 /antiraid：回执之后照常清理残留的入群守卫。
+    expect(types.indexOf("verificationPersisted")).toBeLessThan(types.indexOf("deactivateJoinGuard"));
+  });
+
+  test("补投落盘回执被拒时立刻停手，不再投后面的守卫清理", () => {
+    const terminalKey: string = seedPersistedVerification(verificationSnapshot(503, "expelling", 6));
+    const replayed: AntiRaidWorkerMessage[] = [];
+    try {
+      captured.options?.onRespawn((message: AntiRaidWorkerMessage): boolean => {
+        replayed.push(message);
+        return message.type !== "verificationPersisted";
+      });
+    } finally {
+      clearActiveVerificationSnapshots();
+      persistedVerificationRevisions.clear();
+    }
+
+    expect(replayed.at(-1)).toMatchObject({ type: "verificationPersisted", key: terminalKey, revision: 6 });
+    expect(replayed.map((message: AntiRaidWorkerMessage): string => message.type)).not.toContain("deactivateJoinGuard");
   });
 });
 

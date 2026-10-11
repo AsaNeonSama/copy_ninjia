@@ -33,6 +33,22 @@ describe("createKeyedSerialTaskRunner", () => {
     expect(finished).toEqual([1, 2]);
   });
 
+  test("isIdle 只在 key 的链尾结算并删除后报空闲", async () => {
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const chains = new Map<string, Promise<void>>();
+    const runner = createKeyedSerialTaskRunner(chains);
+
+    expect(runner.isIdle("chat-1")).toBeTrue();
+    const task: Promise<void> = runner.run("chat-1", (): Promise<void> => gate.promise);
+    expect(runner.isIdle("chat-1")).toBeFalse();
+    expect(runner.isIdle("chat-2")).toBeTrue();
+
+    gate.resolve();
+    await task;
+    await Bun.sleep(0);
+    expect(runner.isIdle("chat-1")).toBeTrue();
+  });
+
   test("不同 key 各自独立，互不阻塞", async () => {
     const slow: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const order: string[] = [];

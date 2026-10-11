@@ -10,7 +10,8 @@ import { globalPropertyName } from "./staticAccess";
  * `states/` 纯度与 `infra` 依赖方向见 docs/cn/04-invariants.md；判定细节以本文件
  * 各规则的常量与 JSDoc 为准。
  *
- * 各条规则都只看 AST，不解析模块图，只判定这一个文件写了什么 import。
+ * 各条规则都只看 AST，判定这一个文件写了什么 import；`states/` 纯度另按调用方给出的
+ * 运行时模块闭包判定间接依赖。
  */
 
 /** 逐文件边界规则的公共入参。 */
@@ -90,10 +91,10 @@ export function collectConstsPurityProblems({
 }
 
 /**
- * `packages/states/` 只允许依赖同为叶子的纯模块。
+ * `packages/states/` 只允许依赖纯模块。
  *
  * 状态机是「给定状态与事件算出 `{ next, effects }`」的纯函数。types 与 consts 是纯声明，
- * libs 是无副作用的叶子工具，其余一律拒绝。
+ * libs 是无副作用的工具，其余一律拒绝；libs 再往外引入的模块同样计入。
  */
 const STATES_ALLOWED_PREFIXES: readonly string[] = [
   "packages/consts/",
@@ -102,20 +103,61 @@ const STATES_ALLOWED_PREFIXES: readonly string[] = [
   "packages/types/",
 ];
 
+/**
+ * states 间接依赖里允许出现、但不再展开的模块，相对仓库根。
+ *
+ * 唯一条目：`packages/config/time.ts`，本线程的启动时区快照。libs/time.ts 的按日运算经它
+ * 取时区；时区在线程启动时由 adoptTimeZone 接管一次，日历运算只在其上缓存 UTC 偏移区段，
+ * 同一线程内结果只取决于入参。它背后的 holder（cache/perThread/time.ts）与配置路径不再计入。
+ * 新增条目必须同时改这里与被豁免模块的头注。
+ */
+export const STATES_CLOSURE_OPAQUE_MODULES: readonly string[] = [
+  "packages/config/time.ts",
+];
+
+function isStatesDependencyAllowed(target: string): boolean {
+  return STATES_ALLOWED_PREFIXES.some((prefix: string): boolean => target.startsWith(prefix));
+}
+
+/** collectStatesPurityProblems 的入参。 */
+export interface StatesPurityParams extends ModuleBoundaryParams {
+  /**
+   * 该模块的运行时模块闭包与最短引入路径：ModuleGraphReader.boundedModuleClosure，以
+   * STATES_CLOSURE_OPAQUE_MODULES 的绝对路径为不透明模块。
+   */
+  readonly closure: ReadonlyMap<string, readonly string[]>;
+}
+
+/**
+ * 直接 import 按 AST 逐条判定（含解析不到 .ts 的相对路径），只放行 STATES_ALLOWED_PREFIXES；
+ * 经直接依赖再往外引入的模块按闭包判定，另放行 STATES_CLOSURE_OPAQUE_MODULES。
+ */
 export function collectStatesPurityProblems({
   projectRoot,
   path,
   source,
-}: ModuleBoundaryParams): readonly string[] {
+  closure,
+}: StatesPurityParams): readonly string[] {
   const relativePath: string = relative(projectRoot, path);
   const problems: string[] = [];
   for (const reference of runtimeModuleReferences(source)) {
     if (!reference.specifier.startsWith(".")) continue;
     const target: string = relative(projectRoot, resolve(dirname(path), reference.specifier));
-    if (STATES_ALLOWED_PREFIXES.some((prefix: string): boolean => target.startsWith(prefix))) continue;
+    if (isStatesDependencyAllowed(target)) continue;
     problems.push(
       `${relativePath}:${lineOf(source, reference.start)} imports ${target} at runtime; ` +
       "packages/states/ may only depend on consts, libs, types and other states modules"
+    );
+  }
+  for (const [module, trail] of closure) {
+    // 入口自身与直接依赖（引入路径不超过两步）已由上面的逐条判定覆盖。
+    if (trail.length <= 2) continue;
+    const target: string = relative(projectRoot, module);
+    if (isStatesDependencyAllowed(target) || STATES_CLOSURE_OPAQUE_MODULES.includes(target)) continue;
+    problems.push(
+      `${relativePath} reaches ${target} at runtime (` +
+      trail.map((step: string): string => relative(projectRoot, step)).join(" -> ") +
+      "); packages/states/ may only depend on consts, libs, types and other states modules"
     );
   }
   return problems;

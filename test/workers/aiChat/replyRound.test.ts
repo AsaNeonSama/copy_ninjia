@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { waitUntil } from "../../helpers/waitUntil";
 import { loggerStub } from "../../helpers/loggerMock";
 import {
   aiRecordMessageFixture,
@@ -96,11 +97,6 @@ async function runRound(overrides: Partial<Parameters<typeof startReplyRound>[0]
   return chatId;
 }
 
-async function waitUntil(predicate: () => boolean): Promise<void> {
-  for (let attempt: number = 0; attempt < 100 && !predicate(); attempt++) await Bun.sleep(1);
-  expect(predicate()).toBe(true);
-}
-
 /**
  * 跑一轮直接轮并按发生顺序记下：兜底发送（带工具名）、收回模型期状态、模型阶段结束通知、
  * 等发送链收尾、停心跳与整轮收尾；前四项附上当时本群的并发位计数，用来区分模型阶段内外。
@@ -148,14 +144,15 @@ beforeEach(() => {
   builtPromptSections = defaultPromptSections();
   actionsUsed = 1;
   capturedContext = null;
-  heartbeatStop.mockClear();
+  heartbeatStop.mockReset();
+  heartbeatStop.mockResolvedValue(undefined);
   startChatActionHeartbeat.mockClear();
   createReplyToolset.mockClear();
-  execute.mockClear();
+  execute.mockReset();
   settleActions.mockReset().mockResolvedValue();
   afterModel.mockReset();
   execute.mockImplementation((): string => JSON.stringify({ success: true }));
-  generateReply.mockClear();
+  generateReply.mockReset();
   generateReply.mockImplementation(async (): Promise<string | null> => "最终正文");
   buildReplyPromptSections.mockClear();
   recordChatMessage.mockClear();
@@ -204,7 +201,7 @@ describe("AI 单轮回复生命周期", () => {
       if (phase === "发送收尾") fail();
     }, phase === "模型完成" ? fail : undefined);
     try {
-      await waitUntil(() => settleActions.mock.calls.length === 1);
+      expect(await waitUntil(() => settleActions.mock.calls.length === 1)).toBe(true);
       expect(settleActions).toHaveBeenCalledTimes(1);
       expect(activeReplyCounts.has(-1001)).toBe(false);
       expect(replyGenerationTasks.size).toBe(1);
@@ -233,7 +230,7 @@ describe("AI 单轮回复生命周期", () => {
       isRandomTrigger: false,
     }, finished.resolve)).toBe(true);
     try {
-      await waitUntil(() => settleActions.mock.calls.length === 1);
+      expect(await waitUntil(() => settleActions.mock.calls.length === 1)).toBe(true);
       expect(activeReplyCounts.has(-1001)).toBe(false);
       expect(replyGenerationTasks.size).toBe(1);
       expect(heartbeatStop).not.toHaveBeenCalled();
@@ -345,7 +342,7 @@ describe("AI 单轮回复生命周期", () => {
       expect(buildReplyPromptSections).not.toHaveBeenCalled();
 
       backfill.resolve();
-      await waitUntil((): boolean => finished);
+      expect(await waitUntil((): boolean => finished)).toBe(true);
       expect(buildReplyPromptSections).toHaveBeenCalledTimes(1);
       expect(generateReply).toHaveBeenCalledTimes(1);
     } finally {

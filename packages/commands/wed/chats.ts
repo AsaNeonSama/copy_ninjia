@@ -1,6 +1,7 @@
 import { wedChats } from "../../cache/main/wed";
 import { TELEGRAM_DELETE_MESSAGES_BATCH_MAX } from "../../consts/telegram";
 import { deleteMessages } from "../../infra/telegram";
+import { isChatUnreachable } from "../../libs/chatTeardown";
 import type { ChatTeardownReason } from "../../types/chatTeardown";
 import type { WedChat, WedMemberState, WedSession } from "../../types/wed";
 import { getOrCreateWedMemberState } from "./persistence";
@@ -22,9 +23,10 @@ export function getOrCreateWedChat(chatId: number): WedChat | undefined {
 /**
  * 群关闭同步取消排队及会话；忙碌项由自身 finally 清理。
  *
- * 机器人已离群（`departed`）时结果一条也删不掉：作废全部消息 id 并置位 `departed`，忙碌项的
- * finally（含重抽时被替换、已不在会话表里的旧结果）随之不再发删除请求。其余起因把此刻空闲的
- * 结果按 deleteMessages 的单次上限分批删除，整批成功才作废这一批的消息 id。
+ * 机器人已无法访问本群（isChatUnreachable：被移出或群已不存在）时结果一条也删不掉：作废全部
+ * 消息 id 并置位 `departed`，忙碌项的 finally（含重抽时被替换、已不在会话表里的旧结果）随之
+ * 不再发删除请求。其余起因把此刻空闲的结果按 deleteMessages 的单次上限分批删除，整批成功才作废
+ * 这一批的消息 id。
  */
 export async function teardownWedChat(
   chatId: number,
@@ -34,9 +36,10 @@ export async function teardownWedChat(
   const idle: WedSession[] = [];
   const idleMessageIds: number[] = [];
   chat.controller.abort();
-  if (reason === "departed") chat.departed = true;
+  const unreachable: boolean = isChatUnreachable(reason);
+  if (unreachable) chat.departed = true;
   for (const session of chat.sessions.values()) {
-    if (reason === "departed") {
+    if (unreachable) {
       session.messageId = undefined;
     } else if (!session.busy && session.messageId !== undefined) {
       idle.push(session);

@@ -49,15 +49,14 @@ export function quiesceLifecycleMaintenance(
 }
 
 /**
- * 在正常预算内等待 runner 排空；超时后取消在途 update，并区分取消是否真正结算。
+ * 在 RUNNER_DRAIN_TIMEOUT_MS 内等待 runner 排空；超时后取消在途 update，并区分取消是否真正结算。
  */
 export async function drainAcknowledgedUpdateRunner(
   runner: AcknowledgedUpdateRunner,
-  dependencies: ApplicationLifecycleDependencies,
-  timeoutMs: number = RUNNER_DRAIN_TIMEOUT_MS
+  dependencies: ApplicationLifecycleDependencies
 ): Promise<"drained" | "aborted" | "unsettled"> {
   const deadline: number = createMonotonicDeadline(
-    timeoutMs,
+    RUNNER_DRAIN_TIMEOUT_MS,
     dependencies.monotonicNow
   );
   while (
@@ -70,7 +69,7 @@ export async function drainAcknowledgedUpdateRunner(
 
   const activeAtDeadline: number = runner.size();
   dependencies.logger.error(
-    `Shutdown drain still had ${activeAtDeadline} active update(s) after ${timeoutMs}ms; ` +
+    `Shutdown drain still had ${activeAtDeadline} active update(s) after ${RUNNER_DRAIN_TIMEOUT_MS}ms; ` +
     "aborting them and withholding their Telegram offset."
   );
   runner.abortActive();

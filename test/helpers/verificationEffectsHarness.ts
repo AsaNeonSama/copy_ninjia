@@ -72,7 +72,10 @@ export const testState: {
 };
 
 export const getChatAdministrators = mock(async (): Promise<{ user: { id: number }; is_anonymous: boolean }[]> => []);
-export const probeChatMembership = mock(async (): Promise<boolean | undefined> => testState.membershipPresent);
+async function probeChatMembershipStub(): Promise<boolean | undefined> {
+  return testState.membershipPresent;
+}
+export const probeChatMembership = mock(probeChatMembershipStub);
 export const getChat = mock(async (): Promise<{ type: "group" | "supergroup" }> => {
   if (testState.fetchedChatType === undefined) throw new Error("getChat unavailable");
   return { type: testState.fetchedChatType };
@@ -134,7 +137,12 @@ mock.module("../../packages/infra/telegram", () => ({
  */
 export interface VerificationEffectsDeps {
   readonly runVerificationEffects: (params: never) => Promise<void>;
-  readonly verificationEntries: Map<string, { state: unknown; timer?: ReturnType<typeof setTimeout>; terminalRetries: number }>;
+  readonly verificationEntries: Map<string, {
+    state: unknown;
+    timer?: ReturnType<typeof setTimeout>;
+    terminalRetries: number;
+    cleanupSettled: boolean;
+  }>;
   readonly verificationRevisions: Map<string, { revision: number }>;
   readonly verificationGeneration: { current: number };
   readonly reminderDeliveries: Map<string, { timer?: ReturnType<typeof setTimeout> }>;
@@ -229,7 +237,7 @@ export function kickPendingState(): VerificationState & { kind: "kickPending" } 
 }
 
 export function setState(state: VerificationState): VerificationState {
-  requireDeps().verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 0 });
+  requireDeps().verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 0, cleanupSettled: false });
   return state;
 }
 
@@ -250,19 +258,27 @@ export function run(
     userId: USER_ID,
     effects,
     dispatchVerification: (_chatId: number, userId: number, event: VerificationEvent): void => {
-      if (!applyFlagEvent(event, (): void => { testState.publishedChanges++; })) dispatched.push({ userId, event });
+      if (!applyInPlaceEvent(event, (): void => { testState.publishedChanges++; })) dispatched.push({ userId, event });
     },
     requestTerminalAttempt: async (): Promise<VerificationAttemptPermitResult> => permit,
   } as never);
 }
 
 /**
- * 驱逐播报标记的两个事件（expelNoticeSent、removalConfirmed）按生产状态机真实转移当前条目，快照有变化时调用
- * onPublished（对应生产 dispatchVerification 发布新 revision）；它们不记入 dispatched。
- * @returns event 是否属于这两个事件。
+ * 状态机原地改写当前条目的事件按生产状态机真实转移：驱逐播报标记（expelNoticeSent、
+ * removalConfirmed）与 Worker 本地执行门（kickRequestSent、kickRequestFailed、
+ * terminalAttemptUnsettled）。快照有变化时调用 onPublished（对应生产 dispatchVerification
+ * 发布新 revision）；它们不记入 dispatched。
+ * @returns event 是否属于这几类事件。
  */
-export function applyFlagEvent(event: VerificationEvent, onPublished: () => void): boolean {
-  if (event.type !== "expelNoticeSent" && event.type !== "removalConfirmed") return false;
+export function applyInPlaceEvent(event: VerificationEvent, onPublished: () => void): boolean {
+  if (
+    event.type !== "expelNoticeSent" &&
+    event.type !== "removalConfirmed" &&
+    event.type !== "kickRequestSent" &&
+    event.type !== "kickRequestFailed" &&
+    event.type !== "terminalAttemptUnsettled"
+  ) return false;
   const entry: { state: unknown } | undefined = requireDeps().verificationEntries.get(KEY);
   const { snapshotChanged = false }: VerificationTransition =
     transitionVerification(entry?.state as VerificationState | undefined, event);
@@ -306,9 +322,10 @@ export function installVerificationEffectsHooks(injected: VerificationEffectsDep
     testState.membershipPresent = true;
     testState.fetchedChatType = "supergroup";
     testState.publishedChanges = 0;
-    probeChatMembership.mockClear();
+    probeChatMembership.mockReset();
+    probeChatMembership.mockImplementation(probeChatMembershipStub);
     getChat.mockClear();
-    getChatAdministrators.mockClear();
+    getChatAdministrators.mockReset();
     getChatAdministrators.mockResolvedValue([]);
   });
 }

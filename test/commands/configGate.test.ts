@@ -1,11 +1,13 @@
 /**
- * 部署配置写坏时（config/readiness.ts 判定失败），开关命令与 /mood switch/query
- * 的统一拒绝路径：不写入任何状态、点名具体坏掉的文件。
+ * 部署配置写坏时（config/readiness.ts 判定失败）的统一拒绝边界 commands/configGate.ts：
+ * 边界本身的判定，以及开关命令与 /mood switch/query 经它拒绝时不写入任何状态、点名具体坏掉的文件。
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import { loggerStub } from "../helpers/loggerMock";
 import type { ConfigReadiness } from "../../packages/types/config";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const persistChatState = mock(async (..._args: unknown[]): Promise<void> => {});
@@ -35,6 +37,7 @@ mock.module("../../packages/config/bot", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 mock.module("../../packages/aiChat", () => ({
@@ -59,20 +62,14 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   persistGlobalState: async (): Promise<void> => {},
 }));
 
+const { refuseIfConfigBroken } = await import("../../packages/commands/configGate");
 const { handleAiChatCommand } = await import("../../packages/commands/aiChat");
 const { handleAdDetectCommand } = await import("../../packages/commands/adDetect");
 const { handleTranslateCommand } = await import("../../packages/commands/translate");
 const { handleMoodCommand } = await import("../../packages/commands/mood");
 
 function context(argument: string): never {
-  const chat = { id: -1001, type: "supergroup" };
-  return {
-    chat,
-    from: { id: 100, first_name: "Admin", username: "admin" },
-    msg: { message_id: 7, chat },
-    msgId: 7,
-    match: argument,
-  } as never;
+  return groupCommandContext({ match: argument, messageId: 7 });
 }
 
 beforeEach(() => {
@@ -186,5 +183,33 @@ describe("部署配置写坏时的 enable 拒绝", () => {
       isTranslationEnabled: true,
     });
     expect(loggerError).not.toHaveBeenCalled();
+  });
+});
+
+describe("refuseIfConfigBroken", () => {
+  test("配置可用时什么都不做，返回 false", async () => {
+    await expect(refuseIfConfigBroken({
+      readiness: { ok: true },
+      chatId: -1001,
+      messageId: 7,
+      feature: "Test feature",
+      text: (file: string): string => `坏了：${file}`,
+    })).resolves.toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(loggerError).not.toHaveBeenCalled();
+  });
+
+  test("配置不可用时记一行点名文件与原因的诊断，回复点名文件的拒绝，返回 true", async () => {
+    await expect(refuseIfConfigBroken({
+      readiness: broken("config/agent.json"),
+      chatId: -1001,
+      messageId: 7,
+      feature: "Test feature",
+      text: (file: string): string => `坏了：${file}`,
+    })).resolves.toBe(true);
+    expect(loggerError.mock.calls).toEqual([[
+      "Test feature is unavailable in chat -1001: config/agent.json is unusable — Invalid config/agent.json: boom",
+    ]]);
+    expect(sendMessage.mock.calls).toEqual([[{ chatId: -1001, text: "坏了：config/agent.json", replyToMessageId: 7 }]]);
   });
 });

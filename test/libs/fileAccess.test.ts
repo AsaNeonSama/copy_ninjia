@@ -206,7 +206,7 @@ describe("尽力删除", () => {
     mkdirSync(directory);
 
     expect(await bestEffortUnlink(file)).toBeTrue();
-    expect(fs.existsSync(file)).toBeFalse();
+    expect(await Bun.file(file).exists()).toBeFalse();
     expect(await bestEffortUnlink(file)).toBeFalse();
     expect(await bestEffortUnlink(directory)).toBeFalse();
     expect(fs.existsSync(directory)).toBeTrue();

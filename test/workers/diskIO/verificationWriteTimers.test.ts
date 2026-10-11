@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../../helpers/fixtureTimeZone";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { recoverVerificationDay } from "./verificationDayRecovery";
 import { VERIFICATION_ROLLOVER_RETRY_MS } from "../../../packages/consts/diskIO/verification";
 import { FLUSH_INTERVAL_MS } from "../../../packages/consts/diskIO/appendOnly";
 import {
@@ -13,17 +15,11 @@ import {
   verificationWorkerCache,
 } from "../../../packages/cache/workers/diskIO/verification";
 import {
-  adoptVerificationDay,
-  inspectVerificationDay,
-  maintainVerificationDay,
-} from "../../../packages/workers/diskIO/verificationRecovery";
-import {
   handleVerificationUpsert,
   maintainVerificationDayForToday,
 } from "../../../packages/workers/diskIO/verificationWrites";
 import type {
   PendingVerificationSnapshot,
-  VerificationSnapshot,
   VerificationSnapshotBase,
 } from "../../../packages/types/antiRaid/verification";
 import type { VerificationPersistedReply } from
@@ -32,6 +28,8 @@ import { diskIOOperationTail } from
   "../../../packages/cache/workers/diskIO/recovery";
 import { enqueueDiskIOOperation } from
   "../../../packages/workers/diskIO/operationQueue";
+
+installTokyoFixtureTimeZone();
 
 const DAY_ONE: string = "2026-07-19";
 const DAY_TWO: string = "2026-07-20";
@@ -80,28 +78,6 @@ async function restartFixtureClock(now: number): Promise<void> {
   jest.useRealTimers();
   jest.useFakeTimers({ now });
   await recoverVerificationDay(DAY_ONE, dir);
-}
-
-/**
- * 单领域恢复的测试编排：按生产 handleDiskIOStartupLoad 的顺序跑
- * inspect -> adopt -> maintenance（见 workers/diskIO/startup.ts）。
- *
- * 与生产的差异：生产的 runMaintenance 对每个领域单独 try/catch 并只记一行
- * console.error，不上抛、也不重置本领域缓存；这里维护阶段失败时先重置缓存再上抛。
- */
-async function recoverVerificationDay(
-  day: string,
-  dir: string
-): Promise<Map<string, VerificationSnapshot>> {
-  const inspection = await inspectVerificationDay(day, dir);
-  const recovered = adoptVerificationDay(inspection);
-  try {
-    await maintainVerificationDay(inspection);
-  } catch (error: unknown) {
-    resetVerificationPersistenceCache();
-    throw error;
-  }
-  return recovered;
 }
 
 beforeEach(async (): Promise<void> => {
@@ -172,7 +148,7 @@ describe("pending verification 定时落盘与午夜轮换", (): void => {
         jest.setSystemTime(Date.parse(`${DAY_TWO}T00:00:00+09:00`));
         jest.advanceTimersByTime(VERIFICATION_ROLLOVER_RETRY_MS);
         await diskIOOperationTail.current;
-        expect(existsSync(oldPath)).toBeFalse();
+        expect(await Bun.file(oldPath).exists()).toBeFalse();
         expect(replies.at(-1)).toMatchObject({ revision: 2, deleted: false });
         expect(verificationPendingChanges).toHaveLength(0);
       }
@@ -236,8 +212,8 @@ describe("pending verification 定时落盘与午夜轮换", (): void => {
     await upsert(1, false);
     await maintainVerificationDayForToday(receiveReply, DAY_TWO, dir);
 
-    expect(existsSync(join(dir, `${DAY_ONE}.json`))).toBeFalse();
-    expect(existsSync(join(dir, `${DAY_TWO}.json`))).toBeTrue();
+    expect(await Bun.file(join(dir, `${DAY_ONE}.json`)).exists()).toBeFalse();
+    expect(await Bun.file(join(dir, `${DAY_TWO}.json`)).exists()).toBeTrue();
     expect(verificationPendingChanges).toHaveLength(0);
     expect(verificationFlushTimer.timer).toBeNull();
     expect(verificationRolloverRetryTimer.timer).toBeNull();
@@ -262,7 +238,7 @@ describe("pending verification 定时落盘与午夜轮换", (): void => {
     jest.advanceTimersByTime(VERIFICATION_ROLLOVER_RETRY_MS);
     await diskIOOperationTail.current;
 
-    expect(existsSync(join(dir, `${DAY_TWO}.json`))).toBeTrue();
+    expect(await Bun.file(join(dir, `${DAY_TWO}.json`)).exists()).toBeTrue();
     expect(JSON.parse(await Bun.file(join(dir, `${DAY_TWO}.json`)).text()))
       .toHaveProperty("-1001:42.revision", 1);
     expect(verificationRolloverRetryTimer.timer).toBeNull();

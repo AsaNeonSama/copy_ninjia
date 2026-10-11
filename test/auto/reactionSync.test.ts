@@ -42,8 +42,8 @@ function context(
 }
 
 beforeEach(() => {
-  activeCopyTargetIdIn.mockClear();
-  setMessageReactions.mockClear();
+  activeCopyTargetIdIn.mockReset();
+  setMessageReactions.mockReset();
   loggerLog.mockClear();
   activeTranslateStateIn.mockClear();
   translatedUserId = undefined;

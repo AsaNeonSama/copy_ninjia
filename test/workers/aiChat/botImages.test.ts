@@ -55,7 +55,7 @@ function recordReply(messageId: number, repliedToMessageId: number): BufferedMes
 beforeEach(() => {
   resetAiChatWorkerCache();
   botInfoState.current = { id: BOT_ID, username: "tensai_bot", first_name: "Tensai" };
-  describeMedia.mockClear();
+  describeMedia.mockReset();
   describeMedia.mockResolvedValue("一只戴帽子的猫");
 });
 

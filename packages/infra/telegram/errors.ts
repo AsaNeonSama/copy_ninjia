@@ -1,3 +1,6 @@
+import { BOT_DEPARTED_DESCRIPTION_PATTERN, CHAT_GONE_DESCRIPTION_PATTERN } from "../../consts/telegram";
+import type { ChatDepartureReason } from "../../types/chatTeardown";
+
 /**
  * 破坏性 Telegram 请求命中 429 后，重试前现查发现原前置条件已失效。
  * name 会穿过 Worker 双工错误线协议，业务动作据此把它归一化成「目标已离群」。
@@ -51,4 +54,31 @@ export function isTelegramRequestRejected(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);
   return details !== undefined && details.errorCode >= 400 && details.errorCode < 500;
+}
+
+/**
+ * 把 getChat 的失败归为确证的「群不可达」：400 且带 `parameters.migrate_to_chat_id` 或描述匹配
+ * CHAT_GONE_DESCRIPTION_PATTERN 为 `gone`（群已不存在）；403 且描述匹配 BOT_DEPARTED_DESCRIPTION_PATTERN
+ * 为 `departed`（机器人已不是成员）。其余错误（网络、5xx、429、别的 4xx）不下结论，返回 null。
+ */
+export function classifyChatAbsence(error: unknown): ChatDepartureReason | null {
+  const details: Readonly<{ errorCode: number; description: string }> | undefined =
+    telegramErrorDetails(error);
+  if (details === undefined) return null;
+  if (details.errorCode === 400) {
+    if (hasMigrationTarget(error) || CHAT_GONE_DESCRIPTION_PATTERN.test(details.description)) return "gone";
+    return null;
+  }
+  if (details.errorCode === 403 && BOT_DEPARTED_DESCRIPTION_PATTERN.test(details.description)) return "departed";
+  return null;
+}
+
+/** GrammyError 的 parameters 里是否带群迁移目标。 */
+function hasMigrationTarget(error: unknown): boolean {
+  if (!(error instanceof Error) || !("parameters" in error)) return false;
+  const parameters: unknown = error.parameters;
+  return typeof parameters === "object" &&
+    parameters !== null &&
+    "migrate_to_chat_id" in parameters &&
+    typeof parameters.migrate_to_chat_id === "number";
 }

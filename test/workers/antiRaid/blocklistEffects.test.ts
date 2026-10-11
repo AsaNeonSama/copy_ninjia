@@ -1,99 +1,23 @@
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { loggerStub } from "../../helpers/loggerMock";
-import { waitUntil } from "../../helpers/waitUntil";
-import type { BlockedMembersRemovedEvent } from "../../../packages/types/antiRaid";
-
-const probeChatMembershipWithOutcome = mock(async (..._args: unknown[]): Promise<string> => "present");
-const banChatMemberWithOutcome = mock(async (..._args: unknown[]): Promise<string> => "banned");
-const banChatSenderChatWithOutcome = mock(async (..._args: unknown[]): Promise<string> => "banned");
-const probeChatAdmin = mock(async (..._args: unknown[]): Promise<boolean | undefined> => false);
-const deleteMessage = mock(async (..._args: unknown[]): Promise<boolean> => true);
-const recordJoin = mock((..._args: unknown[]): void => {});
-const releaseAdDetectDedupKey = mock((..._args: unknown[]): void => {});
-/** 入群守卫调用面的替身：断言处置始终使用受限 Worker 能力边界。 */
-const guardApi = { kind: "guard-api" };
-
-mock.module("../../../packages/infra/logger", () => ({
-  logger: loggerStub(),
-}));
-mock.module("../../../packages/infra/telegram", () => ({
-  probeChatAdmin,
+import { describe, expect, spyOn, test } from "bun:test";
+import {
+  applyBotPermissionsChange,
   banChatMemberWithOutcome,
   banChatSenderChatWithOutcome,
+  bumpBlocklistRemovalEpoch,
   deleteMessage,
-  telegramApi: guardApi,
-}));
-mock.module("../../../packages/infra/telegram/actions/membership", () => ({
-  probeChatMembershipWithOutcome,
-}));
-mock.module("../../../packages/workers/antiRaid/lockdownRuntime", () => ({ recordJoin }));
-mock.module("../../../packages/workers/antiRaid/adDetect/queueState", () => ({
-  releaseAdDetectDedupKey,
-}));
-// 退避间隔与补扫批量在测试里压缩，不改变分支。
-mock.module("../../../packages/consts/antiRaid/blocklist", () => ({
-  BLOCKLIST_REMOVAL_MAX_ATTEMPTS: 3,
-  BLOCKLIST_REMOVAL_RETRY_DELAY_MS: 1,
-  BLOCKLIST_SWEEP_BATCH_SIZE: 2,
-  BLOCKLIST_SWEEP_BATCH_PAUSE_MS: 1,
-}));
-
-const { handleRemoveBlockedMembers } = await import("../../../packages/workers/antiRaid/blocklistEffects");
-const {
-  applyBotPermissionsChange,
-  resetWorkerBotPermissions,
-} = await import("../../../packages/workers/antiRaid/botPermissions");
-const { bumpBlocklistRemovalEpoch, blocklistRemovalEpochs } = await import("../../../packages/cache/workers/antiRaid/blocklist");
-const {
   drainAntiRaidTasks,
+  events,
+  guardApi,
+  handleRemoveBlockedMembers,
+  probeChatAdmin,
+  probeChatMembershipWithOutcome,
+  publish,
   quiesceAntiRaidDispatch,
-  resetAntiRaidTaskTracker,
-} = await import("../../../packages/workers/antiRaid/taskTracker");
-
-const events: BlockedMembersRemovedEvent[] = [];
-const publish = (event: BlockedMembersRemovedEvent): void => { events.push(event); };
-
-/** 轮询同步点的兜底上限，到点未成立时交给随后的断言报告失败。 */
-const SETTLE_TIMEOUT_MS: number = 2_000;
-
-/** 轮询等到条件成立；到点仍不成立就返回，让后面的断言给出真正的失败信息。 */
-async function until(ready: () => boolean): Promise<void> {
-  await waitUntil(ready, SETTLE_TIMEOUT_MS);
-}
-
-/**
- * 等这批处置发出落定回执。
- *
- * handleRemoveBlockedMembers 在 removeBlockedMembers 完成之后（成功或异常）恒发且只发一条回执，
- * 回执到达即这批的探测、封禁、删公告、补记入群全部结束。
- */
-function settle(): Promise<void> {
-  return until((): boolean => events.length > 0);
-}
-
-beforeEach(() => {
-  for (const mocked of [
-    probeChatMembershipWithOutcome,
-    probeChatAdmin,
-    banChatMemberWithOutcome,
-    banChatSenderChatWithOutcome,
-    deleteMessage,
-    recordJoin,
-    releaseAdDetectDedupKey,
-  ]) {
-    mocked.mockClear();
-  }
-  probeChatAdmin.mockImplementation(async (): Promise<boolean | undefined> => false);
-  probeChatMembershipWithOutcome.mockImplementation(async (): Promise<string> => "present");
-  banChatMemberWithOutcome.mockImplementation(async (): Promise<string> => "banned");
-  banChatSenderChatWithOutcome.mockImplementation(async (): Promise<string> => "banned");
-  deleteMessage.mockImplementation(async (): Promise<boolean> => true);
-  events.length = 0;
-  // 换回未 abort 的停机取消信号，并清空上一条用例留下的在途任务。
-  resetAntiRaidTaskTracker();
-  blocklistRemovalEpochs.clear();
-  resetWorkerBotPermissions();
-});
+  recordJoin,
+  releaseAdDetectDedupKey,
+  settle,
+  until,
+} from "./blocklistEffectsHarness";
 
 describe("黑名单处置副作用（守卫线程侧）", () => {
   test("probeMembership=false 时直接封禁，不多打一次成员探测", async () => {
@@ -189,7 +113,7 @@ describe("黑名单处置副作用（守卫线程侧）", () => {
     });
     await settle();
 
-    expect(probeChatAdmin).toHaveBeenCalledWith({ chatId: -1001, userId: 7, api: guardApi });
+    expect(probeChatAdmin).toHaveBeenCalledWith({ chatId: -1001, userId: 7 });
     // 同批其余 id 照常处置，整批落定。
     expect(banChatMemberWithOutcome).toHaveBeenCalledWith(-1001, 8, guardApi);
     expect(events).toEqual([

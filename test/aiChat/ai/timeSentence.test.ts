@@ -1,17 +1,24 @@
 import { beforeEach, expect, mock, test } from "bun:test";
+import type { CurrentTimeResult } from "../../../packages/types/time";
 
-const getCurrentTime = mock(() => ({
-  iso: "2026-08-12T03:04:05.000Z",
-  timezone: "Asia/Tokyo",
-  formatted: "2026年8月12日星期三 12:04:05",
-}));
+function getCurrentTimeStub(): CurrentTimeResult {
+  return {
+    iso: "2026-08-12T03:04:05.000Z",
+    timezone: "Asia/Tokyo",
+    formatted: "2026年8月12日星期三 12:04:05",
+  };
+}
+const getCurrentTime = mock(getCurrentTimeStub);
 
 mock.module("../../../packages/libs/time", () => ({ getCurrentTime }));
 
 const { currentTimeSentence } = await import("../../../packages/aiChat/ai/timeSentence");
 const { CURRENT_TIME_LABEL } = await import("../../../packages/consts/aiChat/prompts/memory");
 const { WEB_SEARCH_TIME_LABEL } = await import("../../../packages/consts/aiChat/prompts/researchTime");
-beforeEach((): void => { getCurrentTime.mockClear(); });
+beforeEach((): void => {
+  getCurrentTime.mockReset();
+  getCurrentTime.mockImplementation(getCurrentTimeStub);
+});
 
 test("当前时间提示现取配置时区并保持各 AI 路径共用的固定措辞", () => {
   expect(currentTimeSentence(CURRENT_TIME_LABEL)).toBe(

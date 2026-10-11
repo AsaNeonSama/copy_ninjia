@@ -16,7 +16,7 @@ import {
 } from "../infra/botAdmin";
 import {
   probeChatMembership,
-  sendCommandMessage,
+  replyCommandNotice,
   sendMessage,
 } from "../infra/telegram";
 import { describeBotPermissionGap } from "../libs/botPermissionGap";
@@ -59,11 +59,7 @@ async function passesGagCommandGate(
     ctx.chat.type !== "group" &&
     ctx.chat.type !== "supergroup"
   ) {
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: chatAtmosphere().NOTICE_TEXTS.gagGroupOnly,
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.gagGroupOnly);
     return false;
   }
   const permissions: BotChatPermissions | undefined =
@@ -75,14 +71,16 @@ async function passesGagCommandGate(
     atmosphere.NOTICE_TEXTS
   );
   if (permissionGap !== undefined) {
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: atmosphere.NOTICE_TEXTS.gagMissingRights(command, permissionGap),
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.gagMissingRights(command, permissionGap));
     return false;
   }
   return true;
+}
+
+/** 目标在本群已有会话时的回执：会话在收尾中提示稍后再试，否则提示已在管教中。 */
+function gagConflictText(existing: GagSession | undefined, targetLabel: string): string {
+  const texts: AtmosphereTexts["NOTICE_TEXTS"] = chatAtmosphere().NOTICE_TEXTS;
+  return existing?.phase === "ending" ? texts.gagEnding(targetLabel) : texts.gagExists(targetLabel);
 }
 
 /** 构造一次容量预约；字段一次初始化，进入 active 后不再增删字段。 */
@@ -128,27 +126,15 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
     explicitReplyTo(ctx.msg) !== undefined
   );
   if (parsed === undefined) {
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: chatAtmosphere().GAG_USAGE_TEXT,
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().GAG_USAGE_TEXT);
     return;
   }
   if (!canRenderMaximumInlineQuery(parsed.tool)) {
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: chatAtmosphere().NOTICE_TEXTS.gagToolTooLong,
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.gagToolTooLong);
     return;
   }
   if (gagSessionCount() >= GAG_SESSION_MAX) {
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: chatAtmosphere().NOTICE_TEXTS.gagCapacity(GAG_SESSION_MAX),
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.gagCapacity(GAG_SESSION_MAX));
     return;
   }
   const target: CachedUser | undefined = await resolveCommandTarget({
@@ -166,14 +152,7 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
     target.id
   );
   if (existingTarget !== undefined) {
-    const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: existingTarget.phase === "ending"
-        ? atmosphere.NOTICE_TEXTS.gagEnding(formatTargetLabel(target, atmosphere))
-        : atmosphere.NOTICE_TEXTS.gagExists(formatTargetLabel(target, atmosphere)),
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, gagConflictText(existingTarget, formatTargetLabel(target, chatAtmosphere())));
     return;
   }
   const targetMembership: boolean | undefined = target.isChannel === true
@@ -181,13 +160,12 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
     : await probeChatMembership(ctx.chat.id, target.id);
   if (targetMembership !== true) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: targetMembership === false
+    await replyCommandNotice(
+      ctx,
+      targetMembership === false
         ? atmosphere.NOTICE_TEXTS.gagTargetAbsent(formatTargetLabel(target, atmosphere))
-        : atmosphere.NOTICE_TEXTS.gagMembershipUnknown(formatTargetLabel(target, atmosphere)),
-      replyToMessageId: ctx.msgId,
-    });
+        : atmosphere.NOTICE_TEXTS.gagMembershipUnknown(formatTargetLabel(target, atmosphere))
+    );
     return;
   }
   // 目标解析与成员查询之后同步预约，守住全局容量；starting 阶段不拦消息，
@@ -196,28 +174,21 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
   const reservation: GagReservationOutcome = reserveGagSession(session);
   if (reservation === "quiescing") return;
   if (reservation !== "reserved") {
-    const existing: GagSession | undefined = findGagSession(
-      session.chatId,
-      session.targetId
-    );
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: reservation === "full"
+    await replyCommandNotice(
+      ctx,
+      reservation === "full"
         ? chatAtmosphere().NOTICE_TEXTS.gagCapacity(GAG_SESSION_MAX)
-        : existing?.phase === "ending"
-          ? chatAtmosphere().NOTICE_TEXTS.gagEnding(session.targetLabel)
-          : chatAtmosphere().NOTICE_TEXTS.gagExists(session.targetLabel),
-      replyToMessageId: ctx.msgId,
-    });
+        : gagConflictText(findGagSession(session.chatId, session.targetId), session.targetLabel)
+    );
     return;
   }
   // 普通用户先在群里留一条无按钮的公开状态，再发 receiver_user_id 限定的发言入口；
   // 频道没有接收用户，只发一条发言入口提示。两个 message id 分开登记，结束会话时
   // 按各自的精确 id 删除。
   //
-  // onSent 在发送返回前同步登记 message id：停机 abort 落在发送完成与
+  // message id 只经 onSent 在发送返回前同步登记：停机 abort 落在发送完成与
   // commitGagNotices 之间时，会话仍是「已发出、可删除」的状态，由停机排空按 ending
-  // 路径删除。
+  // 路径删除；发送返回的 id 与登记的是同一个，只用来判定发送是否成功。
   const recordPublicNotice = (sentMessageId: number): void => {
     recordGagPublicNotice(session, sentMessageId);
   };
@@ -237,7 +208,6 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
         await failGagNotice(session);
         return;
       }
-      recordGagSpeakNotice(session, speakNoticeMessageId);
       await commitGagNotices(session);
       return;
     }
@@ -254,7 +224,6 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
       await failGagNotice(session);
       return;
     }
-    recordGagPublicNotice(session, publicNoticeMessageId);
     if (
       findGagSession(session.chatId, session.targetId) !== session ||
       session.phase !== "starting"
@@ -272,7 +241,6 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
       await failGagNotice(session);
       return;
     }
-    recordGagSpeakNotice(session, speakNoticeMessageId);
     await commitGagNotices(session);
   } catch (error: unknown) {
     // 判据是整段发送流程是否仍未提交（session.noticePending）。failGagNotice 删除
@@ -301,15 +269,14 @@ export async function handleUngagCommand(ctx: CommandContext<Context>): Promise<
       requestGagCleanupRetry(session);
     }
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: session?.phase === "ending"
+    await replyCommandNotice(
+      ctx,
+      session?.phase === "ending"
         ? atmosphere.NOTICE_TEXTS.ungagEnding(formatTargetLabel(target, atmosphere))
         : session?.phase === "starting"
           ? atmosphere.NOTICE_TEXTS.ungagStarting(formatTargetLabel(target, atmosphere))
-          : atmosphere.NOTICE_TEXTS.ungagAbsent(formatTargetLabel(target, atmosphere)),
-      replyToMessageId: ctx.msgId,
-    });
+          : atmosphere.NOTICE_TEXTS.ungagAbsent(formatTargetLabel(target, atmosphere))
+    );
     return;
   }
   await finishGag(session, "ungag", ctx.msgId);

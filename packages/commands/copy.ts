@@ -8,7 +8,7 @@ import type { CachedUser, CopyMode, GlobalCopyState } from "../types/chatState";
 import type { ChatTeardownReason } from "../types/chatTeardown";
 import type { CommandTargetMessages } from "../types/commands";
 import { adoptCopyTarget, clearCopyTarget, getGlobalCopyState, persistGlobalState } from "../infra/storage/stateStore";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { logger } from "../infra/logger";
 import { describeCopyModeEffect } from "../copy/copyModes";
@@ -41,7 +41,7 @@ export async function handleCopyCommand(ctx: CommandContext<Context>): Promise<v
   const subcommand: string | undefined = match?.[1]?.toLowerCase();
   if (subcommand === "stop") {
     if (match?.[2] !== undefined) {
-      await sendCommandMessage({ chatId, text: chatAtmosphere().COPY_USAGE_TEXT, replyToMessageId: messageId });
+      await replyCommandNotice(ctx, chatAtmosphere().COPY_USAGE_TEXT);
       return;
     }
     await stopCopy(ctx);
@@ -61,7 +61,7 @@ export async function handleCopyCommand(ctx: CommandContext<Context>): Promise<v
     const replyText: string = globalCopy.copiedUser.id === targetUser?.id
       ? atmosphere.NOTICE_TEXTS.copyAlreadyRunning(formatUserLabel(targetUser, atmosphere))
       : atmosphere.NOTICE_TEXTS.copyOtherTarget;
-    await sendCommandMessage({ chatId, text: replyText, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, replyText);
     return;
   }
 
@@ -95,7 +95,7 @@ export async function handleCopyCommand(ctx: CommandContext<Context>): Promise<v
   const atmosphere: AtmosphereTexts = chatAtmosphere();
   const targetLabel: string = formatUserLabel(targetUser, atmosphere);
   const startText: string = atmosphere.NOTICE_TEXTS.copyStarting(targetLabel, describeCopyModeEffect(mode, atmosphere));
-  await sendCommandMessage({ chatId, text: startText, replyToMessageId: messageId });
+  await replyCommandNotice(ctx, startText);
 
   // 头像复制放在后台执行：copiedUser 已经写入，复读逻辑立即生效。
   queueAvatarUpdate({ chatId, target: { kind: "user", user: targetUser }, source: "copy" });
@@ -107,22 +107,17 @@ export async function handleCopyCommand(ctx: CommandContext<Context>): Promise<v
  */
 async function stopCopy(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const globalCopy: Readonly<GlobalCopyState> = getGlobalCopyState();
 
   if (!globalCopy.copiedUser) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.copyNotRunning,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.copyNotRunning);
     return;
   }
 
   clearCopyTarget();
   await persistGlobalState("copy stopped");
 
-  await sendCommandMessage({ chatId, text: chatAtmosphere().NOTICE_TEXTS.copyStopped, replyToMessageId: messageId });
+  await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.copyStopped);
 
   // /copy stop 不占全局冷却；仅在停止活动复读后预约恢复默认头像。
   queueAvatarUpdate({ chatId, target: { kind: "default" }, source: "copy" });

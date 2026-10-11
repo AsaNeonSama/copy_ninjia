@@ -91,6 +91,8 @@ export type LockdownMachineEvent =
   | { type: "restoreRetryFired" }
   | { type: "reapplyRetryFired" }
   | { type: "deactivate"; intentId: number }
+  /** 群已不存在：放弃本轮，不恢复权限、不删公告（见 states/lockdown/restore.ts 的 handleChatGone）。 */
+  | { type: "chatGone" }
   | { type: "restoreResult"; ok: boolean }
   | { type: "reapplyResult"; ok: boolean }
   /** 公告发送结果：发送成功时为消息 ID，供解除时定向删除；发送失败为 undefined。 */

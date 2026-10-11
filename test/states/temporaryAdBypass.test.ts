@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../helpers/fixtureTimeZone";
 import { DAY_MS } from "../../packages/consts/time";
 import {
   TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD,
@@ -12,6 +13,8 @@ import {
 } from "../../packages/states/temporaryAdBypass";
 import type { TemporaryAdBypassActivity } from
   "../../packages/types/states/temporaryAdBypass";
+
+installTokyoFixtureTimeZone();
 
 const FIRST_DAY_AT: number = new Date("2026-08-01T12:00:00+09:00").getTime();
 const QUALIFYING_MESSAGE_COUNT: number = TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD + 1;

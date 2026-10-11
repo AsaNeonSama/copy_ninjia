@@ -1,3 +1,4 @@
+import "./hotPaths/isolationGuard";
 import {
   memoryUsage as jscMemoryUsage,
   profile,
@@ -151,6 +152,7 @@ const SCENARIO_NAMES: Readonly<Record<ScenarioName, true>> = {
   "storage-sqlite-flush": true,
   "verification-snapshot": true,
   "verification-snapshot-clone": true,
+  "pending-verification-lookup": true,
   "bounded-response-empty": true,
   "bounded-response-tiny": true,
   "bounded-response-small": true,
@@ -395,7 +397,7 @@ async function runBenchmark(
 const scenarioName: ScenarioName = parseScenarioName(Bun.argv[2]);
 const mode: string | undefined = Bun.argv[3];
 if (mode !== undefined && mode !== "--profile") {
-  throw new Error("Usage: bun scripts/perf/hotPaths.ts <scenario> [--profile]");
+  throw new Error("Usage: bun run perf:hot-paths -- <scenario> [--profile]");
 }
 const result: BenchmarkResult = await runBenchmark(
   scenarioName,

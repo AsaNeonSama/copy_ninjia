@@ -281,7 +281,6 @@ export const TEST_SHARED_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowan
       "readdirSync",
       "rmSync",
       "rmdirSync",
-      "statSync",
       "symlinkSync",
       "writeSync",
     ],
@@ -350,10 +349,6 @@ export const TEST_NODE_IMPORTS: Readonly<
 
 /** 测试文件中有字节接口语义依据的 Node Buffer 全局调用位置。 */
 export const TEST_BUFFER_GLOBALS: Readonly<Record<string, BufferGlobalAllowance>> = {
-  "test/config/googleAuth.test.ts": {
-    methods: ["from"],
-    purpose: "DER byte patching of generated private-key fixtures",
-  },
   "test/infra/loggerSerializationBudget.test.ts": {
     methods: ["byteLength"],
     purpose: "production-equivalent UTF-8 byte budget assertions",

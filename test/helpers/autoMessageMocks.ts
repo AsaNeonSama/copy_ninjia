@@ -99,20 +99,20 @@ mock.module("../../packages/infra/selfSentTracker", () => ({
   waitForBotOwnMessage: waitForBotOwnMessageMock,
 }));
 
-/** 逐用例复位：清空调用记录、恢复默认实现、把旋钮拨回缺省。 */
+/** 逐用例复位：清空调用记录，带默认实现的替身 mockReset 后装回（连同没消费完的 *Once 一起清掉），旋钮拨回缺省。 */
 export function resetAutoMessageMocks(): void {
   recordChatMessageMock.mockClear();
   recordChatMediaMock.mockClear();
   generateAndSendReplyMock.mockClear();
-  copyMessageMock.mockClear();
+  copyMessageMock.mockReset();
   copyMessageMock.mockImplementation(async (): Promise<number | undefined> => undefined);
-  sendMessageMock.mockClear();
+  sendMessageMock.mockReset();
   sendMessageMock.mockImplementation(async (): Promise<number | undefined> => undefined);
-  isBotOwnMessageMock.mockClear();
+  isBotOwnMessageMock.mockReset();
   isBotOwnMessageMock.mockImplementation((): boolean => false);
-  needsBotOwnMessageWaitMock.mockClear();
+  needsBotOwnMessageWaitMock.mockReset();
   needsBotOwnMessageWaitMock.mockImplementation((): boolean => false);
-  waitForBotOwnMessageMock.mockClear();
+  waitForBotOwnMessageMock.mockReset();
   waitForBotOwnMessageMock.mockImplementation(async (): Promise<boolean> => false);
   autoMessageChatState.isAIChatEnabled = true;
   autoMessageChatState.isTranslationEnabled = false;

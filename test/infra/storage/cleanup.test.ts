@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cleanupOrphanedTempFiles } from "../../../packages/infra/storage/cleanup";
@@ -172,8 +172,8 @@ describe("guard 归属判定的真实实现", () => {
 
     const remaining: string[] = readdirSync(testDir).sort();
     expect(remaining).toEqual([unparseable, unsafePid, liveOwner].sort());
-    expect(existsSync(join(testDir, deadOwner))).toBe(false);
-    expect(existsSync(join(testDir, recycledPid))).toBe(false);
+    expect(await Bun.file(join(testDir, deadOwner)).exists()).toBe(false);
+    expect(await Bun.file(join(testDir, recycledPid)).exists()).toBe(false);
   });
 
   test("0 字节 candidate 按文件名里的 PID 判活：属主已死就回收，还活着就保留", async () => {
@@ -186,9 +186,9 @@ describe("guard 归属判定的真实实现", () => {
 
     await cleanupOrphanedTempFiles({ stateFilePath, lockFilePath });
 
-    expect(existsSync(join(testDir, deadOwner))).toBe(false);
+    expect(await Bun.file(join(testDir, deadOwner)).exists()).toBe(false);
     // PID 还活着（可能是原属主，也可能是复用）：保留。
-    expect(existsSync(join(testDir, liveOwner))).toBe(true);
+    expect(await Bun.file(join(testDir, liveOwner)).exists()).toBe(true);
   });
 
   test("bot.lock.guard.recovery 内容为空时仍然保留：文件名里没有 PID 可兜底", async () => {
@@ -198,7 +198,7 @@ describe("guard 归属判定的真实实现", () => {
 
     await cleanupOrphanedTempFiles({ stateFilePath, lockFilePath });
 
-    expect(existsSync(recoveryPath)).toBe(true);
+    expect(await Bun.file(recoveryPath).exists()).toBe(true);
   });
 
   test("bot.lock.guard.recovery 同样按归属判定，读不出内容时保留", async () => {
@@ -206,12 +206,12 @@ describe("guard 归属判定的真实实现", () => {
     await Bun.write(recoveryPath, `v2:${DEAD_PID}:1234:${BOOT_ID}`);
 
     await cleanupOrphanedTempFiles({ stateFilePath, lockFilePath });
-    expect(existsSync(recoveryPath)).toBe(false);
+    expect(await Bun.file(recoveryPath).exists()).toBe(false);
 
     const current: ProcessIdentity = (await readLinuxProcessIdentity(process.pid))!;
     await Bun.write(recoveryPath, `v2:${current.pid}:${current.startTimeTicks}:${current.bootId}`);
 
     await cleanupOrphanedTempFiles({ stateFilePath, lockFilePath });
-    expect(existsSync(recoveryPath)).toBe(true);
+    expect(await Bun.file(recoveryPath).exists()).toBe(true);
   });
 });

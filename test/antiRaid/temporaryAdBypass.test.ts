@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { loggerStub } from "../helpers/loggerMock";
 import type { Message } from "grammy/types";
 import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid";
 import { TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD, TEMPORARY_AD_BYPASS_REQUIRED_DAYS } from "../../packages/consts/temporaryAdBypass";
@@ -14,6 +15,12 @@ const promotions: {
 let readinessOk: boolean = true;
 let grantOnRecord: boolean = false;
 let promoteOnRecord: boolean = false;
+/** 永久晋升写入与临时累计删除各自是否被持久化 Worker 收下；false 模拟入队被拒。 */
+const persistence: { promotionQueued: boolean; temporaryCleared: boolean } = {
+  promotionQueued: true,
+  temporaryCleared: true,
+};
+const loggerError = mock((..._args: unknown[]): void => {});
 
 mock.module("../../packages/config/readiness", () => ({
   adDetectConfigReadiness: (): { readonly ok: boolean } => ({ ok: readinessOk }),
@@ -34,7 +41,7 @@ mock.module("../../packages/infra/identityPolicy/temporaryAdBypass", () => ({
   hasActiveTemporaryAdBypassAt: (id: number): boolean => temporaryIds.has(id),
   clearTemporaryAdBypassActivity: (id: number): boolean => {
     temporaryIds.delete(id);
-    return true;
+    return persistence.temporaryCleared;
   },
 }));
 mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
@@ -45,9 +52,10 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
   ): { readonly changed: boolean; readonly queued: boolean } => {
     promotions.push({ id, meta });
     permanentIds.add(id);
-    return { changed: true, queued: true };
+    return { changed: true, queued: persistence.promotionQueued };
   },
 }));
+mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 mock.module("../../packages/antiRaid/workerBridge/controller", () => ({
   postAntiRaid: (message: AntiRaidWorkerMessage): boolean => {
     workerPosts.push(message);
@@ -93,6 +101,9 @@ beforeEach((): void => {
   readinessOk = true;
   grantOnRecord = false;
   promoteOnRecord = false;
+  persistence.promotionQueued = true;
+  persistence.temporaryCleared = true;
+  loggerError.mockClear();
 });
 
 describe("临时广告免检发言入口", () => {
@@ -120,6 +131,30 @@ describe("临时广告免检发言入口", () => {
     }]);
     expect(permanentIds.has(7)).toBeTrue();
     expect(temporaryIds.has(7)).toBeFalse();
+    expect(loggerError).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["永久白名单写入入队被拒", { promotionQueued: false, temporaryCleared: true }],
+    ["临时累计删除入队被拒", { promotionQueued: true, temporaryCleared: false }],
+    ["两步都被拒", { promotionQueued: false, temporaryCleared: false }],
+  ] as const)("晋升时%s：两步照样都尝试，点名该身份记一行错误，本条发言仍算计入", (
+    _label: string,
+    outcome: { readonly promotionQueued: boolean; readonly temporaryCleared: boolean }
+  ) => {
+    const promotedId: number = 80_001;
+    grantOnRecord = true;
+    promoteOnRecord = true;
+    persistence.promotionQueued = outcome.promotionQueued;
+    persistence.temporaryCleared = outcome.temporaryCleared;
+
+    expect(record(message({ from: { id: promotedId, is_bot: false, first_name: "Bob" } }), 7_000)).toBeTrue();
+
+    // 一步被拒不跳过另一步：未 ACK 最终值各自留在主线程等重放。
+    expect(promotions.map((promotion: { readonly id: number }): number => promotion.id)).toEqual([promotedId]);
+    expect(temporaryIds.has(promotedId)).toBeFalse();
+    expect(loggerError).toHaveBeenCalledTimes(1);
+    expect(loggerError.mock.calls[0]).toEqual([expect.stringContaining(String(promotedId))]);
   });
 
   test("刚进入临时广告免检时只推一次 Worker 旧状态清理", () => {

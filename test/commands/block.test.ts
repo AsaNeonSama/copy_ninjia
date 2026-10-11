@@ -2,6 +2,7 @@ import type { FlushResult } from "../../packages/types/lifecycle";
 import { acknowledgeIdentityPolicyWrites, diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import type { IdentityStoragePersistedReply } from "../../packages/types/diskIO/replies";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import { waitUntil } from "../helpers/waitUntil";
 import { loggerStub } from "../helpers/loggerMock";
 import type { CachedUser } from "../../packages/types/chatState";
@@ -15,6 +16,7 @@ import {
   blockedIdentityTestView as blockedUserIds,
   seedMissingIdentity,
 } from "../helpers/identityStorage";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 55);
 const banChatMember = mock(async (..._args: unknown[]): Promise<boolean> => true);
@@ -60,6 +62,7 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
   banChatMember,
   banChatSenderChat,
 }));
@@ -136,16 +139,8 @@ function blockResultText({
   });
 }
 
-function context(userId: number | undefined = 100): never {
-  const chat = { id: -1001, type: "supergroup" };
-  return {
-    chat,
-    from: userId === undefined ? undefined : { id: userId, first_name: "Admin", username: "admin" },
-    msgId: 10,
-    msg: { message_id: 10, chat },
-    me: { id: 999 },
-    match: "@alice enable",
-  } as never;
+function context(userId: number = 100): never {
+  return groupCommandContext({ userId, match: "@alice enable" });
 }
 
 beforeEach(() => {
@@ -154,14 +149,12 @@ beforeEach(() => {
   for (const mocked of [
     handleBlockDisable,
     sendMessage,
-    banChatMember,
     banChatSenderChat,
-    botChatPermissionsIn,
     loggerError,
     resolveCommandTarget,
     postDiskIO,
-    flushDiskIO,
   ]) mocked.mockClear();
+  for (const mocked of [banChatMember, botChatPermissionsIn, flushDiskIO]) mocked.mockReset();
   flushDiskIO.mockImplementation(async (): Promise<FlushResult> => "flushed");
   identityAck.enabled = true;
   blockedUserIds.clear();

@@ -4,9 +4,10 @@ import type { CommandContext, Context } from "grammy";
 import type { CachedUser } from "../types/chatState";
 import type { ToggleAction } from "../types/commands";
 import {
-  sendCommandMessage,
   banChatMember,
   banChatSenderChat,
+  replyCommandNotice,
+  sendCommandMessage,
 } from "../infra/telegram";
 import { formatTargetLabel } from "../users/userLabel";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
@@ -31,10 +32,10 @@ import type { ManagedChatOutcome } from "../infra/blocklist/membership";
 import { requestBlocklistResweep } from "../infra/blocklist/sweep";
 import { runBlocklistFanOut } from "./blocklistFanOut";
 
-interface BlockAdmission {
-  readonly protected: boolean;
-  readonly newlyBlocked: boolean;
-}
+/** 串行位内的名单写入结果：受保护目标不写名单。 */
+type BlockAdmission =
+  | { readonly protected: true }
+  | { readonly protected: false; readonly newlyBlocked: boolean; readonly persisted: boolean };
 
 /**
  * `/block <目标> enable`：把目标写进持久化黑名单，并在所有机器人是管理员的群里
@@ -46,8 +47,9 @@ interface BlockAdmission {
  * 管理员时，本群不在清单内，其它受管群照常封禁，回复里说明本群没封；清单为空时只
  * 回执名单写入结果（blockNoManagedChat）。
  *
- * 名单写入与落盘确认在本条 update 内完成；跨群封禁与战报交给延迟命令执行器的后台档
- * （见 ./blocklistFanOut.ts），update runner 不等各群的 Telegram 请求。
+ * 名单写入与落盘确认、跨群封禁与战报都在该身份的黑名单串行位里依次执行：串行位空闲时
+ * 名单写入在本条 update 内完成，跨群封禁与战报交给延迟命令执行器的后台档，update runner
+ * 不等各群的 Telegram 请求（见 ./blocklistFanOut.ts）。
  *
  * 黑名单先于封禁写入，与封禁结果无关；之后这个 id 出现在任何监听群的入群更新里都会
  * 被秒踢（见 antiRaid/blocklistGuard.ts），名单由 DiskIO Worker 持久化到
@@ -89,38 +91,64 @@ async function blockTarget(ctx: CommandContext<Context>, targetArgument: string)
   });
   if (!targetUser) return;
 
-  // 白名单保护检查与名单写入处于同一身份事务边界，受保护目标不进入封禁流程。
-  const admission: BlockAdmission = await runProtectedIdentityMutation(
-    (): BlockAdmission => {
-      // isWhitelisted 已经把超级管理员算进白名单边界（whitelist.ts）。
-      if (isWhitelisted(targetUser.id)) {
-        return { protected: true, newlyBlocked: false };
-      }
-      return {
-        protected: false,
-        newlyBlocked: blockUser(
-          targetUser.id,
-          identityMetadataFromCachedUser(targetUser)
-        ),
-      };
-    }
+  await runBlocklistFanOut({
+    identityId: targetUser.id,
+    command: "/block enable",
+    prepare: (): Promise<BlockAdmission> => admitBlockTarget(targetUser),
+    fanOut: (admission: BlockAdmission): Promise<void> => reportBlockAdmission({
+      chatId,
+      messageId,
+      targetUser,
+      herePermissions,
+      isAdminHere,
+      admission,
+    }),
+  });
+}
+
+/**
+ * 白名单保护检查与名单写入处于同一身份事务边界，受保护目标不进入封禁流程。黑名单先写、
+ * 与封禁结果无关：先发布 LRU 最终值，再把 revision 投给 DiskIO Worker；重复 /block 同一个人时
+ * blockUser 返回 false，不创建新 revision。随后等待该 id 最新 revision 的事务 ACK；重复
+ * /block 时若最新 revision 尚未 ACK，先把同一最终值重投给当前 Worker（不创建新 revision）再等待。
+ */
+async function admitBlockTarget(targetUser: CachedUser): Promise<BlockAdmission> {
+  // isWhitelisted 已经把超级管理员算进白名单边界（whitelist.ts）；受保护时返回 undefined。
+  const newlyBlocked: boolean | undefined = await runProtectedIdentityMutation(
+    (): boolean | undefined => isWhitelisted(targetUser.id)
+      ? undefined
+      : blockUser(targetUser.id, identityMetadataFromCachedUser(targetUser))
   );
+  if (newlyBlocked === undefined) return { protected: true };
+  const persisted: boolean = await confirmBlocklistPersisted(targetUser.id, !newlyBlocked);
+  return { protected: false, newlyBlocked, persisted };
+}
+
+/** reportBlockAdmission 的入参：handler 的校验结果与串行位内的名单写入结果。 */
+interface ReportBlockAdmissionParams {
+  readonly chatId: number;
+  readonly messageId: number | undefined;
+  readonly targetUser: CachedUser;
+  readonly herePermissions: BotChatPermissions | undefined;
+  readonly isAdminHere: boolean;
+  readonly admission: BlockAdmission;
+}
+
+/** 受保护目标与无受管群时直接回执；否则跨群封禁并发战报。 */
+async function reportBlockAdmission({
+  chatId,
+  messageId,
+  targetUser,
+  herePermissions,
+  isAdminHere,
+  admission,
+}: ReportBlockAdmissionParams): Promise<void> {
   if (admission.protected) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.NOTICE_TEXTS.blockProtected(formatTargetLabel(targetUser, atmosphere)),
-      replyToMessageId: messageId,
-    });
+    const text: string = atmosphere.NOTICE_TEXTS.blockProtected(formatTargetLabel(targetUser, atmosphere));
+    await sendCommandMessage({ chatId, text, replyToMessageId: messageId });
     return;
   }
-
-  // 黑名单先写、与封禁结果无关：先发布 LRU 最终值，再把 revision 投给 DiskIO Worker；
-  // 重复 /block 同一个人时 blockUser 返回 false，不创建新 revision。
-  const newlyBlocked: boolean = admission.newlyBlocked;
-  // 等待该 id 最新 revision 的事务 ACK；重复 /block 时若最新 revision 尚未 ACK，先把同一
-  // 最终值重投给当前 Worker（不创建新 revision）再等待。
-  const persisted: boolean = await confirmBlocklistPersisted(targetUser.id, !newlyBlocked);
 
   // 封禁清单与 /block disable 的跨群解封同源，见 infra/blocklist/membership.ts 的 managedAdminChatIds。
   const targetChatIds: number[] = managedAdminChatIds(chatId, isAdminHere);
@@ -129,29 +157,21 @@ async function blockTarget(ctx: CommandContext<Context>, targetArgument: string)
   if (targetChatIds.length === 0) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
     const targetLabel: string = formatTargetLabel(targetUser, atmosphere);
-    const persistWarning: string = persisted ? "" : atmosphere.NOTICE_TEXTS.blockPersistFailed;
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.NOTICE_TEXTS.blockNoManagedChat(targetLabel, persistWarning),
-      replyToMessageId: messageId,
-    });
+    const persistWarning: string = admission.persisted ? "" : atmosphere.NOTICE_TEXTS.blockPersistFailed;
+    const text: string = atmosphere.NOTICE_TEXTS.blockNoManagedChat(targetLabel, persistWarning);
+    await sendCommandMessage({ chatId, text, replyToMessageId: messageId });
     return;
   }
 
-  // 跨群封禁与战报交给延迟命令执行器的后台档（见 ./blocklistFanOut.ts）。
-  await runBlocklistFanOut({
-    identityId: targetUser.id,
-    errorLabel: "Unexpected error while banning a /block target across chats:",
-    fanOut: (): Promise<void> => banEverywhereAndReport({
-      chatId,
-      messageId,
-      targetUser,
-      targetChatIds,
-      herePermissions,
-      isAdminHere,
-      newlyBlocked,
-      persisted,
-    }),
+  await banEverywhereAndReport({
+    chatId,
+    messageId,
+    targetUser,
+    targetChatIds,
+    herePermissions,
+    isAdminHere,
+    newlyBlocked: admission.newlyBlocked,
+    persisted: admission.persisted,
   });
 }
 
@@ -244,11 +264,7 @@ export async function handleBlockCommand(ctx: CommandContext<Context>): Promise<
   const { last: rawAction, rest: targetArgument }: TrailingTokenSplit = splitTrailingToken(ctx.match);
   const action: ToggleAction | undefined = rawAction === undefined ? undefined : parseToggleAction(rawAction);
   if (action === undefined) {
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: chatAtmosphere().NOTICE_TEXTS.blockUsage,
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.blockUsage);
     return;
   }
   if (action === "enable") await blockTarget(ctx, targetArgument);

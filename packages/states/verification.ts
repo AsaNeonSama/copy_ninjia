@@ -18,9 +18,11 @@ import {
   handleExpelNoticeSent,
   handleExpelSettled,
   handleRemovalConfirmed,
+  handleKickRequest,
   handleKickRetry,
   handleKickSettled,
   handleTerminalAttemptBudgetExhausted,
+  handleTerminalAttemptUnsettled,
   handleTerminalPersisted,
   handleTimeoutInviterVerdict,
 } from "./verification/terminal";
@@ -53,6 +55,9 @@ export { adoptVerificationState } from "./verification/adopt";
  *
  * 同 kind 字段更新原地修改并原样返回；kind 变化才返回新对象。对象同一性既
  * 驱动计时器管理，也是异步结果的失效 token，领域 handler 不得随意复制状态。
+ * 终态的 Worker 本地执行门（effectStarted / executionStarted）同样只经这里的转移改写：
+ * 解释器以 kickRequestSent、kickRequestFailed、terminalAttemptUnsettled 带上发起尝试时的
+ * 状态对象回投，状态已换代时转移不生效。
  */
 export function transitionVerification(
   state: VerificationState | undefined,
@@ -89,6 +94,11 @@ export function transitionVerification(
       return handleRemovalConfirmed(state);
     case "kickRetry":
       return handleKickRetry(state);
+    case "kickRequestSent":
+    case "kickRequestFailed":
+      return handleKickRequest(state, event);
+    case "terminalAttemptUnsettled":
+      return handleTerminalAttemptUnsettled(state, event.attemptState);
     case "kickSettled":
       return handleKickSettled(state, event.now);
     case "reminderLanded":

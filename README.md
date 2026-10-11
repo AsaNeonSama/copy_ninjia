@@ -38,8 +38,8 @@
 <p align="center">
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6386_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.78%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6624_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.84%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -68,7 +68,7 @@
 <tbody>
   <tr>
     <td><nobr>📐 <b>架构设计</b></nobr></td>
-    <td><b>Asashishi</b></td>
+    <td><b>AsaNeonSama</b></td>
     <td>负责系统边界定义、多线程 Worker 拆分、持久化与故障自愈策略的架构裁决</td>
   </tr>
   <tr>
@@ -78,7 +78,7 @@
   </tr>
   <tr>
     <td><nobr>🧾 <b>提交审查</b></nobr></td>
-    <td><nobr><b>Asashishi</b> × AI</nobr></td>
+    <td><nobr><b>AsaNeonSama</b> × AI</nobr></td>
     <td>每次提交均经过人类架构师与 AI 结对核验后方可落库</td>
   </tr>
   <tr>
@@ -104,7 +104,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：6386 项测试全部通过 / 530 个测试文件 / 445,518 次 expect() 调用 / 函数覆盖率 98.27% / 行覆盖率 98.78%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：6624 项测试全部通过 / 553 个测试文件 / 446,303 次 expect() 调用 / 函数覆盖率 98.35% / 行覆盖率 98.84%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -300,10 +300,10 @@
 
 ```bash
 # 自动检测环境并进入交互式配置向导
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash
 
 # 亦可显式指定安装模式：--binary（二进制包，推荐）或 --source（源码克隆）
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --binary
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --binary
 ```
 
 > [!TIP]
@@ -314,7 +314,7 @@ curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/instal
 
 ```bash
 # 1. 克隆代码仓库并安装依赖
-git clone https://github.com/Asashishi/copy_ninjia.git
+git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 bun install
 

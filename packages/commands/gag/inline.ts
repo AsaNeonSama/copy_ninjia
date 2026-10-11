@@ -25,6 +25,8 @@ import {
 } from "../../infra/updateContext";
 import { forumTopicThreadId } from "../../libs/forumTopic";
 import { sanitizeInline, truncateInline } from "../../libs/text";
+import { chatAtmosphere } from "../../infra/atmosphere";
+import type { AtmosphereTexts } from "../../types/atmosphere";
 import type {
   GagSession,
   ParsedGagInlineQuery,
@@ -204,7 +206,7 @@ function claimGagMessage(
     if (!isCandidate || !hasDeletableText) return false;
     return deleteClaimedGagMessage(message);
   }
-  if (session.expiresAt <= Date.now()) {
+  if (session.expiresAt <= now) {
     return finishExpiredGagOnMessage(session, message, isCandidate && hasDeletableText);
   }
   if (isGagInlineMessage && senderId === session.targetId) return false;
@@ -217,12 +219,10 @@ function buildGagInlineResult(
   session: GagSession,
   query: string
 ): InlineQueryResultArticle {
+  const texts: AtmosphereTexts["GAG_INLINE_RESULT_TEXTS"] = chatAtmosphere().GAG_INLINE_RESULT_TEXTS;
   const resultTitle: string = session.targetId < 0
-    ? "以频道身份发言"
-    : `在 ${truncateInline(
-      session.chatLabel,
-      GAG_INLINE_LABEL_MAX_CHARS
-    )} 发言`;
+    ? texts.channelTitle
+    : texts.userTitle(truncateInline(session.chatLabel, GAG_INLINE_LABEL_MAX_CHARS));
   const toolLabel: string = truncateInline(
     session.tool,
     GAG_INLINE_LABEL_MAX_CHARS
@@ -242,7 +242,7 @@ function buildGagInlineResult(
     `gag-${session.chatId}-${session.targetId}`,
     resultTitle,
     {
-      description: `透过${toolLabel}`,
+      description: texts.description(toolLabel),
       thumbnail_url: getAssetConfig().gagThumbnailUrl,
     }
   ).text(messageText, {

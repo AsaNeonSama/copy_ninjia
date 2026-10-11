@@ -13,7 +13,7 @@ import type { CommandContext, Context } from "grammy";
 import type { ChatFullInfo, MessageEntity, User } from "grammy/types";
 import { INFO_TASK_BUDGET_MS } from "../consts/info";
 import { chatAtmosphere } from "../infra/atmosphere";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { runTelegramAction } from "../infra/telegram/actions/core";
 import { readChatMemberUser } from "../infra/telegram/actions/membership";
 import { readCurrentAvatar } from "../infra/telegram/avatar/read";
@@ -99,7 +99,12 @@ async function deliverInfo(request: InfoRequest): Promise<void> {
   const lookup: InfoLookup | undefined = await lookUp(request, signal);
   if (signal.aborted && !isTimeoutAbort(signal)) return;
   if (lookup === undefined) {
-    await sendCommandMessage({ chatId: request.chatId, text: texts.notFound, replyToMessageId: request.messageId });
+    await sendCommandMessage({
+      chatId: request.chatId,
+      text: texts.notFound,
+      replyToMessageId: request.messageId,
+      messageThreadId: request.messageThreadId,
+    });
     return;
   }
   const avatar: CurrentAvatarResult | undefined = lookup.avatarTarget === undefined || signal.aborted
@@ -157,5 +162,5 @@ export async function handleInfoCommand(ctx: CommandContext<Context>): Promise<v
     task: (): Promise<void> => deliverInfo(request),
     errorLabel: "Unexpected error while processing /info:",
   });
-  if (!accepted) await sendCommandMessage({ chatId, text: atmosphere.INFO_TEXTS.busy, replyToMessageId: messageId });
+  if (!accepted) await replyCommandNotice(ctx, atmosphere.INFO_TEXTS.busy);
 }

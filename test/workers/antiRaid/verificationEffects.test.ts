@@ -524,7 +524,7 @@ describe("同步副作用的逐条执行", () => {
     testState.membershipPresent = false;
     const state = kickPendingState();
     setState(state);
-    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1 });
+    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1, cleanupSettled: false });
 
     await run([{ kind: "kickMember" }]);
 
@@ -541,7 +541,7 @@ describe("同步副作用的逐条执行", () => {
     testState.membershipPresent = undefined;
     const state = kickPendingState();
     setState(state);
-    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1 });
+    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1, cleanupSettled: false });
 
     await run([{ kind: "kickMember" }]);
 

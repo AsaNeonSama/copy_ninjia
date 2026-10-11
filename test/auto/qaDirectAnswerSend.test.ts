@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 /**
  * 问答直答的发送边界。判定那一半在 qaDirectAnswer.test.ts；这里验证两件发送侧的事：
@@ -22,6 +23,7 @@ mock.module("../../packages/infra/telegram", () => ({
     return Promise.resolve(4242);
   },
   sendCommandMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendCommandMessage),
 }));
 
 const { sendQaDirectAnswer } = await import("../../packages/auto/message/qaDirectAnswer");

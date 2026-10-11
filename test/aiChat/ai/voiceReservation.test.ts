@@ -5,6 +5,7 @@
  */
 
 import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { replyToolContextFixture } from "../../helpers/replyToolContext";
 import type { Mock } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { waitUntil } from "../../helpers/waitUntil";
@@ -80,25 +81,13 @@ interface VoidableRound {
 
 function buildRound(): VoidableRound {
   const controller: AbortController = new AbortController();
-  const ctx: ReplyToolContext = {
+  const ctx: ReplyToolContext = replyToolContextFixture({
     chatId: CHAT_ID,
     replyToMessageId: 5,
-    messageThreadId: undefined,
-    mediaToolsRequested: false,
-    bypassMediaToolCooldown: false,
     direct: true,
-    chatAction: {
-      set: mock((..._args: unknown[]): number => 0),
-      settle: mock(async (): Promise<void> => {}),
-    },
-    roundHasTypo: false,
     isActive: (): boolean => !controller.signal.aborted,
     signal: controller.signal,
-    onMessageSent: mock((..._args: unknown[]): void => {}),
-    onStickerSent: mock((..._args: unknown[]): void => {}),
-    onImageSent: mock((..._args: unknown[]): void => {}),
-    onVoiceSent: mock((..._args: unknown[]): void => {}),
-  };
+  });
   return { ctx, controller };
 }
 

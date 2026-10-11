@@ -167,6 +167,19 @@ export function runtimeModuleReferences(source: ts.SourceFile): readonly Runtime
   return references;
 }
 
+/**
+ * 按仓库 tsconfig 为给定入口文件建一个只做类型检查的 program。常量不可变性断言与字面量
+ * 联合全集表两道门禁以 packages/consts/ 为入口共用一个，测试替身复位门禁以 test/ 为入口另建一个。
+ */
+export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly string[]): ts.Program {
+  const config: { config?: unknown } = ts.readConfigFile(
+    join(projectRoot, "tsconfig.json"),
+    (path: string): string | undefined => ts.sys.readFile(path)
+  );
+  const options: ts.CompilerOptions = ts.parseJsonConfigFileContent(config.config, ts.sys, projectRoot).options;
+  return ts.createProgram({ rootNames: [...rootFiles], options: { ...options, noEmit: true } });
+}
+
 /** 递归读取目录下的 TypeScript 源文件。 */
 export function sourceFilesUnder(root: string): string[] {
   const files: string[] = [];

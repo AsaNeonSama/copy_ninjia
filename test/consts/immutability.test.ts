@@ -8,6 +8,7 @@ import {
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { RELEASE_PLATFORMS, RELEASE_REQUIRED_FILES, RELEASE_VERSION_PATTERN } from "../../packages/consts/release";
 import { LOGGER_HTTP_URL_PATTERN } from "../../packages/consts/logger";
+import { STORAGE_MIGRATION_LINEAGE } from "../../packages/consts/identityStorage";
 import { AI_WORKER_JOB_ABORTED, AI_WORKER_JOB_TIMED_OUT, AI_WORKER_JOB_UNAVAILABLE } from "../../packages/consts/aiChat/workerJob";
 import { VOICE_LANGUAGE_PROMPTS } from "../../packages/consts/aiChat/prompts/tools";
 import { TTS_BOT_LANGUAGES } from "../../packages/consts/aiChat/voiceMessage";
@@ -158,7 +159,7 @@ import {
 } from "../../packages/consts/agent";
 import { LUCK_TIERS } from "../../packages/consts/luckChallenge";
 import { GAG_MIN_OPERATION_TIERS, GAG_REPLACEMENT_CHARACTERS } from "../../packages/consts/gag";
-import { GAG_TARGET_TEXTS, UNGAG_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/gag";
+import { GAG_INLINE_RESULT_TEXTS, GAG_TARGET_TEXTS, UNGAG_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/gag";
 import { GEMINI_SAFETY_SETTINGS, GEMINI_SERVER_TOOL_CONFIG } from "../../packages/consts/aiChat/gemini";
 import {
   OPENAI_FLEXIBLE_IMAGE_SIZE_BY_ASPECT_RATIO,
@@ -391,6 +392,8 @@ test("各命令的目标解析文案表不可写入", () => {
   expect(() => { GAG_TARGET_TEXTS.selfTarget = "篡改"; }).toBeDefined();
   // @ts-expect-error ungag 的目标文案表同样跨调用共享，不允许改写
   expect(() => { UNGAG_TARGET_TEXTS.missingTarget = "篡改"; }).toBeDefined();
+  // @ts-expect-error gag inline 结果文案表同样跨调用共享，不允许改写
+  expect(() => { GAG_INLINE_RESULT_TEXTS.channelTitle = "篡改"; }).toBeDefined();
 });
 
 /**
@@ -630,3 +633,11 @@ function assertAdDetectSchemaReadonly(): void {
   AD_DETECT_JSON_SCHEMA.required.push("extra");
 }
 void assertAdDetectSchemaReadonly;
+
+function assertStorageMigrationLineageReadonly(): void {
+  // @ts-expect-error 迁移谱系表禁止调用方增删。
+  STORAGE_MIGRATION_LINEAGE.push({ createdAt: 1, hash: "mock" });
+  // @ts-expect-error 谱系条目禁止调用方改写。
+  STORAGE_MIGRATION_LINEAGE[0]!.hash = "mock";
+}
+void assertStorageMigrationLineageReadonly;

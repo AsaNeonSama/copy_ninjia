@@ -19,8 +19,10 @@ const postMessage = mock((event: AiWebDigestComposedEvent): void => {
 Object.defineProperty(globalThis, "self", { configurable: true, value: { postMessage } });
 
 type ComposeWebDigest = (request: WebDigestRequest, signal: AbortSignal) => Promise<WebDigestCompositionResult>;
-const composeWebDigest = mock<ComposeWebDigest>((): Promise<WebDigestCompositionResult> =>
-  Promise.resolve({ ok: true, text: "digest" }));
+function composeWebDigestStub(): Promise<WebDigestCompositionResult> {
+  return Promise.resolve({ ok: true, text: "digest" });
+}
+const composeWebDigest = mock<ComposeWebDigest>(composeWebDigestStub);
 mock.module("../../../packages/aiChat/ai/webDigest", () => ({ composeWebDigest }));
 const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
@@ -54,7 +56,8 @@ beforeEach((): void => {
   posted.length = 0;
   postWaiters.length = 0;
   postMessage.mockClear();
-  composeWebDigest.mockClear();
+  composeWebDigest.mockReset();
+  composeWebDigest.mockImplementation(composeWebDigestStub);
   loggerError.mockClear();
   webDigestRequests.clear();
   aiChatWorkerQuiescing.current = false;

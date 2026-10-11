@@ -11,6 +11,9 @@ import { loggerStub } from "../../helpers/loggerMock";
 const errorLogs: string[] = [];
 const cachedAdmins = new Map<number, Set<number>>();
 const fetchedAdmins = new Map<number, Set<number>>();
+/** 返回里的机器人管理员（本机器人自己，或请求带 return_bots 时的其他机器人）。 */
+const fetchedBotAdmins = new Map<number, Set<number>>();
+const fetchOptions: unknown[] = [];
 let fetchCalls: number = 0;
 
 mock.module("../../../packages/infra/logger", () => ({
@@ -18,11 +21,19 @@ mock.module("../../../packages/infra/logger", () => ({
 }));
 mock.module("../../../packages/infra/telegram", () => ({
   telegramApi: {
-    getChatAdministrators: async (chatId: number): Promise<{ user: { id: number }; is_anonymous?: boolean }[]> => {
+    getChatAdministrators: async (
+      chatId: number,
+      other?: unknown
+    ): Promise<{ user: { id: number; is_bot: boolean }; is_anonymous?: boolean }[]> => {
       fetchCalls++;
+      fetchOptions.push(other);
       const admins: Set<number> | undefined = fetchedAdmins.get(chatId);
       if (!admins) throw new Error("admin fetch failed");
-      return [...admins].map((id: number): { user: { id: number } } => ({ user: { id } }));
+      const bots: Set<number> = fetchedBotAdmins.get(chatId) ?? new Set();
+      return [
+        ...[...admins].map((id: number) => ({ user: { id, is_bot: false } })),
+        ...[...bots].map((id: number) => ({ user: { id, is_bot: true } })),
+      ];
     },
   },
 }));
@@ -37,6 +48,8 @@ beforeEach(() => {
   errorLogs.length = 0;
   cachedAdmins.clear();
   fetchedAdmins.clear();
+  fetchedBotAdmins.clear();
+  fetchOptions.length = 0;
   chatAdmins.clear();
   fetchCalls = 0;
 });
@@ -60,6 +73,16 @@ describe("处置前的管理员身份闸", () => {
 
     expect(await isChatAdmin(-1001, 7, "sender")).toBeTrue();
     expect(fetchCalls).toBe(1);
+  });
+
+  test("机器人即使是管理员也按普通成员处理：请求不带 return_bots，返回里的机器人也不进集合", async () => {
+    fetchedAdmins.set(-1001, new Set([7]));
+    fetchedBotAdmins.set(-1001, new Set([8]));
+
+    expect(await isChatAdmin(-1001, 8, "sender")).toBeFalse();
+    expect(await isChatAdmin(-1001, 7, "sender")).toBeTrue();
+    expect(fetchCalls).toBe(1);
+    expect(fetchOptions).toEqual([undefined]);
   });
 
   test("拉取失败返回 undefined 而不是 false：确证不了一律不处置", async () => {

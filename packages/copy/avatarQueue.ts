@@ -1,6 +1,6 @@
 import { avatarDrainWaiters, avatarUpdateRuntime, avatarUpdateState } from "../cache/main/copy/avatar";
 import type { FlushResult } from "../types/lifecycle";
-import { drainWithWaiter } from "../libs/drainWaiter";
+import { drainWithWaiter, settleFlushWaiters } from "../libs/drainWaiter";
 import { logger } from "../infra/logger";
 import { copyUserProfilePhoto } from "../infra/telegram/avatar/copy";
 import { restoreDefaultProfilePhoto } from "../infra/telegram/avatar/restore";
@@ -29,8 +29,7 @@ function renderAvatarNotice(task: AvatarUpdateTask, updated: boolean): string {
 
 function notifyAvatarDrainIfIdle(): void {
   if (avatarUpdateState.running || avatarUpdateState.pending !== null) return;
-  for (const resolve of avatarDrainWaiters) resolve();
-  avatarDrainWaiters.clear();
+  settleFlushWaiters(avatarDrainWaiters, "flushed");
 }
 
 async function consumeAvatarUpdates(): Promise<void> {

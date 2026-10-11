@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Stats } from "node:fs";
 import { prepareRuntimeDataRoot } from "../../../packages/infra/storage/dataRoot";
 import { IDENTITY_DATABASE_DIRECTORY_MODE } from "../../../packages/consts/identityStorage";
+import { RUNTIME_DATA_ROOT_MAX_MODE } from "../../../packages/consts/storage";
+import { DATABASE_DIR_NAME, LOGS_DIR_NAME, MEMORY_DIR_NAME } from "../../../packages/consts/dataRootLayout";
+
+/** 报错里数据根权限上限的写法（四位八进制）。 */
+const MAX_MODE_TEXT: string = RUNTIME_DATA_ROOT_MAX_MODE.toString(8).padStart(4, "0");
 
 let testDir: string;
 
@@ -24,8 +29,8 @@ describe("runtime data root preflight", () => {
     await prepareRuntimeDataRoot(nested);
 
     expect(existsSync(nested)).toBeTrue();
-    expect((statSync(nested).mode & 0o777) & ~0o755).toBe(0);
-    expect(readdirSync(nested).sort()).toEqual(["database", "logs", "memory"]);
+    expect(((await Bun.file(nested).stat()).mode & 0o777) & ~RUNTIME_DATA_ROOT_MAX_MODE).toBe(0);
+    expect(readdirSync(nested).sort()).toEqual([DATABASE_DIR_NAME, LOGS_DIR_NAME, MEMORY_DIR_NAME].sort());
     expect(existsSync(join(nested, "config"))).toBeFalse();
   });
 
@@ -64,27 +69,27 @@ describe("runtime data root preflight", () => {
   test("数据根拿到 group/other 写位时 fail closed，且不会自动 chmod", async () => {
     const publicRoot: string = join(testDir, "public-root");
     await prepareRuntimeDataRoot(publicRoot);
-    // 默认 umask 建出来的 0755 放行：这道闸拦的是别的账号能不能改运行状态，不管读（读侧见 RUNTIME_DATA_ROOT_MAX_MODE 的 JSDoc）。
-    chmodSync(publicRoot, 0o755);
+    // 上限本身放行：这道闸拦的是别的账号能不能改运行状态，不管读（读侧见 RUNTIME_DATA_ROOT_MAX_MODE 的 JSDoc）。
+    chmodSync(publicRoot, RUNTIME_DATA_ROOT_MAX_MODE);
     await expect(prepareRuntimeDataRoot(publicRoot)).resolves.toBeUndefined();
 
     chmodSync(publicRoot, 0o775);
-    await expect(prepareRuntimeDataRoot(publicRoot)).rejects.toThrow("mode 0775 is broader than 0755");
+    await expect(prepareRuntimeDataRoot(publicRoot)).rejects.toThrow(`mode 0775 is broader than ${MAX_MODE_TEXT}`);
     // 拒绝之后原样保留，不替部署方 chmod。
-    expect(statSync(publicRoot).mode & 0o777).toBe(0o775);
+    expect((await Bun.file(publicRoot).stat()).mode & 0o777).toBe(0o775);
   });
 
   test("敏感顶层目录沿用同一 owner/mode 门禁：读放行、写拒绝", async () => {
     const privateRoot: string = join(testDir, "private-root");
     await prepareRuntimeDataRoot(privateRoot);
-    const memoryDir: string = join(privateRoot, "memory");
+    const memoryDir: string = join(privateRoot, MEMORY_DIR_NAME);
     chmodSync(memoryDir, 0o775);
 
     await expect(prepareRuntimeDataRoot(privateRoot)).rejects.toThrow(`${memoryDir} mode 0775`);
-    expect(statSync(memoryDir).mode & 0o777).toBe(0o775);
+    expect((await Bun.file(memoryDir).stat()).mode & 0o777).toBe(0o775);
 
-    // 0755 与更严格的 0750 都放行。
-    chmodSync(memoryDir, 0o755);
+    // 上限本身与更严格的 0750 都放行。
+    chmodSync(memoryDir, RUNTIME_DATA_ROOT_MAX_MODE);
     await expect(prepareRuntimeDataRoot(privateRoot)).resolves.toBeUndefined();
     chmodSync(memoryDir, 0o750);
     await expect(prepareRuntimeDataRoot(privateRoot)).resolves.toBeUndefined();
@@ -93,25 +98,25 @@ describe("runtime data root preflight", () => {
   test("database 允许迁移脚本建立的协作组写入权限，其他敏感目录仍拒绝", async () => {
     const privateRoot: string = join(testDir, "collaborative-database-root");
     await prepareRuntimeDataRoot(privateRoot);
-    const databaseDir: string = join(privateRoot, "database");
+    const databaseDir: string = join(privateRoot, DATABASE_DIR_NAME);
     chmodSync(databaseDir, IDENTITY_DATABASE_DIRECTORY_MODE);
 
     await expect(prepareRuntimeDataRoot(privateRoot)).resolves.toBeUndefined();
 
-    const memoryDir: string = join(privateRoot, "memory");
+    const memoryDir: string = join(privateRoot, MEMORY_DIR_NAME);
     chmodSync(memoryDir, 0o770);
     await expect(prepareRuntimeDataRoot(privateRoot)).rejects.toThrow(
-      `${memoryDir} mode 0770 is broader than 0755`
+      `${memoryDir} mode 0770 is broader than ${MAX_MODE_TEXT}`
     );
   });
 
   test("database 可由同一有效协作组的部署账号持有", async () => {
     const privateRoot: string = join(testDir, "group-owned-database-root");
     await prepareRuntimeDataRoot(privateRoot);
-    const databaseDir: string = join(privateRoot, "database");
+    const databaseDir: string = join(privateRoot, DATABASE_DIR_NAME);
     chmodSync(databaseDir, IDENTITY_DATABASE_DIRECTORY_MODE);
     const currentUid: number = process.getuid!();
-    const databaseGid: number = statSync(databaseDir).gid;
+    const databaseGid: number = (await Bun.file(databaseDir).stat()).gid;
     const spoofDatabaseOwner = (async (path: string): Promise<Stats> => {
       const stats: Stats = await lstat(path);
       if (path === databaseDir) {
@@ -170,7 +175,7 @@ describe("runtime data root preflight", () => {
     await prepareRuntimeDataRoot(root);
     const externalTarget: string = join(testDir, "external-memory");
     mkdirSync(externalTarget, { mode: 0o750 });
-    const memoryPath: string = join(root, "memory");
+    const memoryPath: string = join(root, MEMORY_DIR_NAME);
     rmSync(memoryPath, { recursive: true });
     symlinkSync(externalTarget, memoryPath, "dir");
 

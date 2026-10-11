@@ -1,4 +1,8 @@
-/** 为单个专项场景准备隔离根，并复用热路径入口按 `HOT_PATH_PROFILE_REPEATS` 轮独立进程测量。 */
+/**
+ * `bun run perf:hot-paths -- <场景> [--profile]` 入口：建立 `performance/` 下的隔离数据根与配置副本，
+ * 按 `HOT_PATH_PROFILE_REPEATS` 轮各起一个独立进程运行 hotPaths.ts，每轮结束删除该轮数据根，
+ * 全部结束后删除整次隔离根。
+ */
 
 import { join } from "node:path";
 import { HOT_PATH_PROFILE_REPEATS } from "../../packages/consts/performance";

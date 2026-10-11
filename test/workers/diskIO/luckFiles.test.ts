@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_DATA_ROOT } from "../../preloadEnv";
 
@@ -155,8 +155,8 @@ describe("diskIO/luckFiles：运势缓冲/落盘调度", () => {
 
     await expect(recoverLuckDay(DAY)).rejects.toThrow("must be a JSON object keyed by canonical luck cache keys");
     expect(await Bun.file(todayPath).text()).toBe(original);
-    expect(existsSync(`${todayPath}.corrupt`)).toBe(false);
-    expect(existsSync(stalePath)).toBe(true);
+    expect(await Bun.file(`${todayPath}.corrupt`).exists()).toBe(false);
+    expect(await Bun.file(stalePath).exists()).toBe(true);
   });
 
   test("启动恢复遇到非法运势记录时阻止启动并保持原文件不变", async () => {
@@ -193,7 +193,7 @@ describe("diskIO/luckFiles：运势缓冲/落盘调度", () => {
     await expect(recoverLuckDay(DAY)).rejects.toThrow("$filename must be a canonical calendar date");
     expect(await Bun.file(invalidPath).text()).toBe("{}");
 
-    rmSync(invalidPath);
+    await Bun.file(invalidPath).delete();
     const futurePath: string = join(luckDir, "2026-07-17.json");
     await Bun.write(futurePath, "{}");
     await expect(recoverLuckDay(DAY)).rejects.toThrow("a date no later than the current configured local day");
@@ -245,7 +245,7 @@ describe("diskIO/luckFiles：运势缓冲/落盘调度", () => {
     await flushLuckAppends();
     expect(await readDayFile()).toEqual({ "222": { label: "小凶", fortunePercent: 39.99 } });
     // 当日 flush 之后的 cleanupStaleLuckFiles 才回收旧日文件。
-    expect(existsSync(join(luckDir, "2026-07-15.json"))).toBe(false);
+    expect(await Bun.file(join(luckDir, "2026-07-15.json")).exists()).toBe(false);
   });
 
   test("跨天刷盘失败时拒绝切日：宁可拒掉新日消息，也不拿旧日条目换 owner", async () => {
@@ -282,7 +282,7 @@ describe("diskIO/luckFiles：运势缓冲/落盘调度", () => {
     expect(luckPendingAppends).toEqual([]);
     expect(await flushLuckAppends()).toBeTrue();
     expect(await readDayFile()).toEqual({ "222": { label: "小凶", fortunePercent: 39.99 } });
-    expect(existsSync(join(luckDir, "2026-07-15.json"))).toBe(false);
+    expect(await Bun.file(join(luckDir, "2026-07-15.json")).exists()).toBe(false);
   });
 
   test("启动 inspect 只列出 *.tmp 残留，maintainLuckDay 才删除", async () => {
@@ -292,21 +292,21 @@ describe("diskIO/luckFiles：运势缓冲/落盘调度", () => {
 
     const inspection = await snapshotFiles.inspectLuckDay(DAY);
     expect(inspection.cache).toBeNull();
-    expect(existsSync(temporaryPath)).toBeTrue();
+    expect(await Bun.file(temporaryPath).exists()).toBeTrue();
 
     await snapshotFiles.maintainLuckDay(DAY, inspection);
-    expect(existsSync(temporaryPath)).toBeFalse();
+    expect(await Bun.file(temporaryPath).exists()).toBeFalse();
   });
 
   test("flush 后 cleanupStaleLuckFiles 顺带删除非当日文件", async () => {
     await handleLuckDrawMessage(luckMsg({ key: "111", label: "大吉", fortunePercent: 90.12, day: "2026-07-15" }));
     await flushLuckAppends();
-    expect(existsSync(join(luckDir, "2026-07-15.json"))).toBe(true);
+    expect(await Bun.file(join(luckDir, "2026-07-15.json")).exists()).toBe(true);
 
     await handleLuckDrawMessage(luckMsg({ key: "111", label: "大吉", fortunePercent: 90.12, day: DAY }));
     await flushLuckAppends();
-    expect(existsSync(join(luckDir, "2026-07-15.json"))).toBe(false);
-    expect(existsSync(join(luckDir, `${DAY}.json`))).toBe(true);
+    expect(await Bun.file(join(luckDir, "2026-07-15.json")).exists()).toBe(false);
+    expect(await Bun.file(join(luckDir, `${DAY}.json`)).exists()).toBe(true);
   });
 
   test("每日维护先提交旧日缓冲，再切换 owner 并清理旧日文件", async () => {
@@ -319,7 +319,7 @@ describe("diskIO/luckFiles：运势缓冲/落盘调度", () => {
 
     await maintainLuckForDay(DAY);
 
-    expect(existsSync(join(luckDir, "2026-07-15.json"))).toBeFalse();
+    expect(await Bun.file(join(luckDir, "2026-07-15.json")).exists()).toBeFalse();
     expect(luckWorkerCache.current).toBeNull();
     expect(luckPendingAppends).toHaveLength(0);
   });
@@ -341,7 +341,7 @@ describe("diskIO/luckFiles：运势缓冲/落盘调度", () => {
     );
     expect(luckWorkerCache.current?.day).toBe("2026-07-15");
     expect(luckPendingAppends).toHaveLength(1);
-    expect(existsSync(olderPath)).toBeTrue();
+    expect(await Bun.file(olderPath).exists()).toBeTrue();
   });
 
   test("条数达到 FLUSH_MAX_ENTRIES 立即落盘，不等定时器", async () => {

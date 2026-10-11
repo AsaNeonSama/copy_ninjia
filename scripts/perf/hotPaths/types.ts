@@ -24,6 +24,7 @@ export type ScenarioName =
   | "storage-sqlite-flush"
   | "verification-snapshot"
   | "verification-snapshot-clone"
+  | "pending-verification-lookup"
   | "bounded-response-empty"
   | "bounded-response-tiny"
   | "bounded-response-small"

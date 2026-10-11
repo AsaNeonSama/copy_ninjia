@@ -3,7 +3,7 @@ import type { CommandContext, Context } from "grammy";
 import { wedChats, wedRuntime } from "../../cache/main/wed";
 import { WED_CALLBACK_PREFIX } from "../../consts/wed";
 
-import { answerCallbackQuery, sendCommandMessage } from "../../infra/telegram";
+import { answerCallbackQuery, replyCommandNotice } from "../../infra/telegram";
 import type { WedChat } from "../../types/wed";
 import { handleWedCallback, handleWedCommand } from "../wed";
 import { getOrCreateWedChat } from "./chats";
@@ -15,8 +15,7 @@ export function dispatchWedCommand(ctx: CommandContext<Context>): void | Promise
   if ((ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") || ctx.msg.sender_chat !== undefined) return handleWedCommand(ctx);
   const chat: WedChat | undefined = getOrCreateWedChat(ctx.chat.id);
   if (chat !== undefined && submitWedTask(chat, (): Promise<void> => handleWedCommand(ctx))) return;
-  return sendCommandMessage({ chatId: ctx.chat.id,
-    text: chat === undefined ? chatAtmosphere().WED_TEXTS.full : chatAtmosphere().WED_TEXTS.queueFull, replyToMessageId: ctx.msgId }).then((): void => undefined);
+  return replyCommandNotice(ctx, chat === undefined ? chatAtmosphere().WED_TEXTS.full : chatAtmosphere().WED_TEXTS.queueFull).then((): void => undefined);
 }
 
 /** /wed 按钮与命令共享执行槽；出队后重新核对消息、目标及发起人身份。 */

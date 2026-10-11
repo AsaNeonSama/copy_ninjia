@@ -31,7 +31,6 @@ export interface SendCommandPhotoParams {
    * （General），不按作用域补齐。
    */
   readonly messageThreadId?: number;
-  readonly signal?: AbortSignal;
 }
 
 /**
@@ -40,7 +39,7 @@ export interface SendCommandPhotoParams {
  * @returns 已发送的 message id；失败时为 undefined（错误由统一动作边界记录）。
  */
 export function sendCommandPhoto(params: SendCommandPhotoParams): Promise<number | undefined> {
-  const { chatId, photo, caption, captionEntities, replyToMessageId, signal }: SendCommandPhotoParams = params;
+  const { chatId, photo, caption, captionEntities, replyToMessageId }: SendCommandPhotoParams = params;
   const messageThreadId: number | undefined = "messageThreadId" in params
     ? params.messageThreadId
     : updateTopicThreadIdFor(chatId);
@@ -63,7 +62,6 @@ export function sendCommandPhoto(params: SendCommandPhotoParams): Promise<number
       return sent.message_id;
     },
     fallback: undefined,
-    signal,
     selfSentChatId: chatId,
   });
 }

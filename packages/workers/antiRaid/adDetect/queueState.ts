@@ -7,7 +7,7 @@
  *   派发循环里。
  * - `pendingAdMessages`：每个发送者的消息串（群 -> 发送者两层表），撞上
  *   AD_DETECT_MAX_PENDING_SENDERS 时拒绝新的不同 key。读写一律经本文件的
- *   访问函数，条数同步记在 `pendingAdBundleCount`。
+ *   访问函数，条数同步记在 `pendingAdBundleCount`；写入与删除函数自行刷新容量状态。
  * - `recentlyDisposedAdKeys`：逐 key 的处置抑制窗口，读到即回收；处置路径的
  *   写入在 verdict.ts，清群与停机的整表清理在 queue.ts。
  *
@@ -87,32 +87,37 @@ export function storeBundle(bundle: AdMessageBundle): void {
   refreshAdDetectCapacitySaturation();
 }
 
-/** 删掉某群某发送者的消息串；不存在时什么都不做。容量状态由调用方按需刷新。 */
+/** 删掉某群某发送者的消息串并刷新容量状态；不存在时什么都不做。 */
 export function deletePendingAdBundle(chatId: number, senderId: number): void {
   const bundles: Map<number, AdMessageBundle> | undefined = pendingAdMessages.get(chatId);
   if (bundles?.delete(senderId) !== true) return;
   pendingAdBundleCount.current--;
   if (bundles.size === 0) pendingAdMessages.delete(chatId);
+  refreshAdDetectCapacitySaturation();
 }
 
-/** 停管或关开关：整层删掉这个群的全部消息串。 */
+/** 停管或关开关：整层删掉这个群的全部消息串并刷新容量状态。 */
 export function deletePendingAdBundlesInChat(chatId: number): void {
   const bundles: Map<number, AdMessageBundle> | undefined = pendingAdMessages.get(chatId);
   if (bundles === undefined) return;
   pendingAdBundleCount.current -= bundles.size;
   pendingAdMessages.delete(chatId);
+  refreshAdDetectCapacitySaturation();
 }
 
-/** 临时免检：删掉这个身份在各群的消息串。 */
+/** 临时免检：删掉这个身份在各群的消息串，删到任一条时刷新一次容量状态。 */
 export function deletePendingAdBundlesOfSender(senderId: number): void {
+  let deleted: boolean = false;
   for (const [chatId, bundles] of pendingAdMessages) {
     if (!bundles.delete(senderId)) continue;
+    deleted = true;
     pendingAdBundleCount.current--;
     if (bundles.size === 0) pendingAdMessages.delete(chatId);
   }
+  if (deleted) refreshAdDetectCapacitySaturation();
 }
 
-/** Worker 停止：清空全部消息串。 */
+/** Worker 停止：清空全部消息串；容量边沿标记由 stopAdDetectQueue 一并复位。 */
 export function clearPendingAdBundles(): void {
   pendingAdMessages.clear();
   pendingAdBundleCount.current = 0;
@@ -202,7 +207,7 @@ function noteAdDetectCapacitySaturation(saturated: boolean): void {
 }
 
 /** 按待检表的现场刷新容量状态；它是唯一一张会撞上接纳硬顶的表。 */
-export function refreshAdDetectCapacitySaturation(): void {
+function refreshAdDetectCapacitySaturation(): void {
   noteAdDetectCapacitySaturation(
     isNewAdBundleAtCapacity(pendingAdBundleCount.current)
   );

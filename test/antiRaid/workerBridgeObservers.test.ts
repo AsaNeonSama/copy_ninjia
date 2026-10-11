@@ -16,7 +16,7 @@ import type { ChatTeardownReason } from "../../packages/types/chatTeardown";
  */
 
 const post = mock((_message: AntiRaidWorkerMessage): boolean => true);
-const deactivateChat = mock((_chatId: number, _cleanup: boolean): void => {});
+const deactivateChat = mock((_chatId: number, _cleanup: boolean, _abandonLockdown: boolean): void => {});
 const settleDeferral = mock((..._args: unknown[]): boolean => false);
 const loggerError = mock((..._args: unknown[]): void => {});
 
@@ -121,16 +121,26 @@ describe("Anti-Raid 主线程观察者", () => {
     expect("permissions" in unknownPermissions).toBeFalse();
   });
 
-  test("群 teardown 只有显式关闭才连带清理验证痕迹，失去权限时不清，且一律摘掉群类型镜像", () => {
+  test("群 teardown 只有显式关闭才连带清理验证痕迹，只有群已不存在才放弃私密模式，且一律摘掉群类型镜像", () => {
     chatIsSupergroupById.set(-1001, true);
     captured.teardown?.(-1001, "explicitDisable");
-    expect(deactivateChat).toHaveBeenCalledWith(-1001, true);
+    expect(deactivateChat).toHaveBeenCalledWith(-1001, true, false);
     expect(chatIsSupergroupById.has(-1001)).toBeFalse();
 
     chatIsSupergroupById.set(-1002, true);
     captured.teardown?.(-1002, "lostAuthority");
-    expect(deactivateChat).toHaveBeenLastCalledWith(-1002, false);
+    expect(deactivateChat).toHaveBeenLastCalledWith(-1002, false, false);
     expect(chatIsSupergroupById.has(-1002)).toBeFalse();
+
+    chatIsSupergroupById.set(-1003, true);
+    captured.teardown?.(-1003, "departed");
+    expect(deactivateChat).toHaveBeenLastCalledWith(-1003, false, false);
+    expect(chatIsSupergroupById.has(-1003)).toBeFalse();
+
+    chatIsSupergroupById.set(-1004, true);
+    captured.teardown?.(-1004, "gone");
+    expect(deactivateChat).toHaveBeenLastCalledWith(-1004, false, true);
+    expect(chatIsSupergroupById.has(-1004)).toBeFalse();
   });
 
   test("Worker 重生重放把镜像与在途删除整份交出去", () => {

@@ -26,7 +26,7 @@ const {
 } = await import("../../../packages/consts/aiChat/imageGeneration");
 
 beforeEach(() => {
-  requestGeminiResponse.mockClear();
+  requestGeminiResponse.mockReset();
   requestGeminiResponse.mockResolvedValue(null);
 });
 

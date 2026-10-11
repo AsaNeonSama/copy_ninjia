@@ -58,7 +58,12 @@ export interface LockdownEntry {
   restorePermanentFailures: number;
 }
 
-/** 一条验证状态机条目：纯状态 + 解释器持有的活动计时器。 */
+/**
+ * 一条验证状态机条目：纯状态 + 解释器持有的活动计时器与本地重试记账。
+ *
+ * 条目与状态对象同生同灭：状态换成新对象时整条换新（见 verificationRuntime.ts 的
+ * dispatchVerification 与 adoptVerifications），下面的本地记账随之从初始值起。
+ */
 export interface VerificationEntry {
   state: VerificationState;
   timer: ReturnType<typeof setTimeout> | undefined;
@@ -68,6 +73,13 @@ export interface VerificationEntry {
    * 或持久化快照。记录不因重试耗尽被删除；条目删除即消失，Worker 重建后从头计数。
    */
   terminalRetries: number;
+  /**
+   * expelling 终态的机器人验证消息已全部清理完毕。Worker 本地幂等门，不进入状态机或持久化快照；
+   * 条目构造时为 false，只由 workers/antiRaid/verificationEffects/terminal.ts 的 expelMember 在
+   * 仍是当前条目时置位，其余 kind 恒为 false。确证没有封禁权限时，「不再发请求」的短路以它与
+   * failureNoticeSent 同时成立为前提：清理未结清时不短路。
+   */
+  cleanupSettled: boolean;
 }
 
 /** 反刷群 Worker 的入群滑动计数窗口。 */

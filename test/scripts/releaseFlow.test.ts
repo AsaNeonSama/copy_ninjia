@@ -85,7 +85,7 @@ function github(assets: readonly ReleaseAsset[], options: {
   const calls: string[] = [];
   const state: { release: FakeRelease | null } = { release: options.existing ? {
     tag_name: VERSION, draft: !options.published, prerelease: false, body: options.wrongNotes ? "wrong" : NOTES,
-    html_url: "https://github.com/Asashishi/copy_ninjia/releases/tag/12.1.0",
+    html_url: "https://github.com/AsaNeonSama/copy_ninjia/releases/tag/12.1.0",
     assets: options.missingPublishedAssets ? [] : assets.map((asset: ReleaseAsset) => ({ name: asset.name, size: asset.size, state: "uploaded" })),
   } : null };
   const ok = (stdout: string = ""): CommandResult => ({ exitCode: 0, stdout });
@@ -94,7 +94,7 @@ function github(assets: readonly ReleaseAsset[], options: {
     calls.push(value);
     if (arguments_[0] === "git") {
       if (arguments_[1] === "branch") return ok("master");
-      if (arguments_[1] === "remote") return ok("https://github.com/Asashishi/copy_ninjia.git");
+      if (arguments_[1] === "remote") return ok("https://github.com/AsaNeonSama/copy_ninjia.git");
       if (arguments_[1] === "cat-file") return ok("tag");
       if (arguments_[1] === "rev-parse") return ok(arguments_[2] === `refs/tags/${VERSION}` ? TAG_OBJECT : HEAD);
       if (arguments_[1] === "ls-remote") return ok(`${options.movedMaster ? "d".repeat(40) : HEAD}\trefs/heads/master\n${TAG_OBJECT}\trefs/tags/${VERSION}\n${HEAD}\trefs/tags/${VERSION}^{}\n`);

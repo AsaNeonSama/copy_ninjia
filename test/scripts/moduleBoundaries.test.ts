@@ -3,6 +3,7 @@
  * 真实仓库全部合规，这里逐条造违规样本，确认它们被拦下。
  */
 
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import ts from "typescript";
 import {
@@ -11,7 +12,10 @@ import {
   collectFullSuiteImportProblems,
   collectInfraLayeringProblems,
   collectStatesPurityProblems,
+  STATES_CLOSURE_OPAQUE_MODULES,
 } from "../../scripts/conventions/moduleBoundaries";
+import { createModuleGraphReader } from "../../scripts/conventions/moduleGraph";
+import type { ModuleGraphReader } from "../../scripts/conventions/moduleGraph";
 
 const PROJECT_ROOT: string = "/project";
 
@@ -74,29 +78,94 @@ describe("packages/consts 纯度", () => {
 });
 
 describe("packages/states 纯度", () => {
-  test("只允许 consts、libs、types 与同目录模块", () => {
-    expect(collectStatesPurityProblems(params(
-      "packages/states/example.ts",
-      'import { A } from "../consts/x";\nimport { B } from "../libs/y";\n' +
-      'import type { C } from "../types/z";\nimport { D } from "./other";'
-    ))).toEqual([]);
+  const ENTRY_RELATIVE: string = "packages/states/example.ts";
+  const ENTRY: string = `${PROJECT_ROOT}/${ENTRY_RELATIVE}`;
+
+  /** 由若干条相对路径的引入链造闭包；每条链从被检查的 states 模块起。 */
+  function closureOf(...trails: readonly (readonly string[])[]): Map<string, string[]> {
+    const closure: Map<string, string[]> = new Map<string, string[]>([[ENTRY, [ENTRY]]]);
+    for (const trail of trails) {
+      const absolute: string[] = [ENTRY, ...trail.map((step: string): string => `${PROJECT_ROOT}/${step}`)];
+      closure.set(absolute.at(-1)!, absolute);
+    }
+    return closure;
+  }
+
+  test("直接依赖只允许 consts、libs、types 与同目录模块", () => {
+    expect(collectStatesPurityProblems({
+      ...params(
+        ENTRY_RELATIVE,
+        'import { A } from "../consts/x";\nimport { B } from "../libs/y";\n' +
+        'import type { C } from "../types/z";\nimport { D } from "./other";'
+      ),
+      closure: closureOf(),
+    })).toEqual([]);
   });
 
-  test("缓存、infra 与 Worker 桥一律拦下", () => {
-    const problems = collectStatesPurityProblems(params(
-      "packages/states/example.ts",
-      'import { logger } from "../infra/logger";\nimport { cache } from "../cache/main/x";\n' +
-      'import { post } from "../antiRaid/workerBridge/controller";'
-    ));
-    expect(problems).toHaveLength(3);
+  test("直接依赖缓存、infra 与 Worker 桥一律拦下，登记的不透明模块也不能直接引入", () => {
+    const problems: readonly string[] = collectStatesPurityProblems({
+      ...params(
+        ENTRY_RELATIVE,
+        'import { logger } from "../infra/logger";\nimport { cache } from "../cache/main/x";\n' +
+        'import { post } from "../antiRaid/workerBridge/controller";\nimport { getTimeZone } from "../config/time";'
+      ),
+      closure: closureOf(),
+    });
+    expect(problems).toHaveLength(4);
     expect(problems.every((problem: string): boolean => problem.includes("may only depend on"))).toBeTrue();
   });
 
   test("纯类型引用被擦除，不算运行期依赖", () => {
-    expect(collectStatesPurityProblems(params(
-      "packages/states/example.ts",
-      'import type { ChatState } from "../types/chatState";\nimport type { Api } from "../infra/telegram";'
-    ))).toEqual([]);
+    expect(collectStatesPurityProblems({
+      ...params(
+        ENTRY_RELATIVE,
+        'import type { ChatState } from "../types/chatState";\nimport type { Api } from "../infra/telegram";'
+      ),
+      closure: closureOf(),
+    })).toEqual([]);
+  });
+
+  test("经 libs 间接碰到缓存时拦下并给出引入路径；不透明模块放行，直接依赖不在闭包里重复报", () => {
+    const problems: readonly string[] = collectStatesPurityProblems({
+      ...params(ENTRY_RELATIVE, 'import { B } from "../libs/y";'),
+      closure: closureOf(
+        ["packages/libs/y.ts"],
+        ["packages/libs/y.ts", "packages/cache/main/x.ts"],
+        ["packages/libs/time.ts", ...STATES_CLOSURE_OPAQUE_MODULES],
+        ["packages/infra/logger.ts"]
+      ),
+    });
+    expect(problems).toEqual([
+      "packages/states/example.ts reaches packages/cache/main/x.ts at runtime " +
+      "(packages/states/example.ts -> packages/libs/y.ts -> packages/cache/main/x.ts); " +
+      "packages/states/ may only depend on consts, libs, types and other states modules",
+    ]);
+  });
+
+  test("真实 states 模块：时区快照之后的 holder 不再展开，不登记时会被报出", async () => {
+    const projectRoot: string = process.cwd();
+    const path: string = join(projectRoot, "packages", "states", "temporaryAdBypass.ts");
+    const source: ts.SourceFile = ts.createSourceFile(
+      path,
+      await Bun.file(path).text(),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS
+    );
+    const opaque: ReadonlySet<string> = new Set(
+      STATES_CLOSURE_OPAQUE_MODULES.map((module: string): string => join(projectRoot, module))
+    );
+    const reader: ModuleGraphReader = createModuleGraphReader();
+    const bounded: Map<string, string[]> = await reader.boundedModuleClosure(path, opaque);
+    const holder: string = join(projectRoot, "packages", "cache", "perThread", "time.ts");
+    for (const module of opaque) expect(bounded.has(module)).toBeTrue();
+    expect(bounded.has(holder)).toBeFalse();
+    expect(collectStatesPurityProblems({ projectRoot, path, source, closure: bounded })).toEqual([]);
+
+    const unbounded: Map<string, string[]> = await reader.threadModuleClosure(path);
+    expect(unbounded.has(holder)).toBeTrue();
+    expect(collectStatesPurityProblems({ projectRoot, path, source, closure: unbounded }))
+      .toContainEqual(expect.stringContaining("reaches packages/cache/perThread/time.ts at runtime"));
   });
 });
 

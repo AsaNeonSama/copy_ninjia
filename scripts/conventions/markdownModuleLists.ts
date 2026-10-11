@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { withoutMarkdownCodeFences } from "./markdownSource";
 
@@ -93,7 +93,7 @@ export async function collectMarkdownModuleListProblems(
     for (const member of segment.matchAll(MEMBER_PATTERN)) {
       const fileName: string | undefined = member[1];
       if (fileName === undefined) continue;
-      if (existsSync(join(directory, fileName))) continue;
+      if (await Bun.file(join(directory, fileName)).exists()) continue;
       const line: number = source.slice(0, match.index).split("\n").length;
       problems.push(
         `${relative(projectRoot, path)}:${line} lists ${fileName} under ${directoryName}/, ` +

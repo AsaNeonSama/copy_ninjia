@@ -21,7 +21,7 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 <!-- performance-benchmark:start -->
 
-**Latest full benchmark** · Bun 1.4.3 · 3-run mean · 2026-10-10T17:53:33Z · Process start to local recovery ready 355.6 ms · Route one group message through base dispatch 153.9 ns · ai_chat: generate and send one reply turn (no network or human-like pause) 194.1 µs / 4,294 ops/s · Ad detection: fully classify and dispose of one group message (no network) 1.84 ms / 499 ops/s
+**Latest full benchmark** · Bun 1.4.3 · 3-run mean · 2026-10-11T14:15:36Z · Process start to local recovery ready 359.9 ms · Route one group message through base dispatch 153.1 ns · ai_chat: generate and send one reply turn (no network or human-like pause) 199.8 µs / 4,292 ops/s · Ad detection: fully classify and dispose of one group message (no network) 1.82 ms / 502 ops/s
 
 ## Environment
 
@@ -33,7 +33,7 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 | Memory | 7.76 GiB |
 | Rounds | 3 |
 | Mock data root | `performance/` |
-| Generated at | 2026-10-10T17:53:33Z |
+| Generated at | 2026-10-11T14:15:36Z |
 
 ## Total throughput and I/O (per round)
 
@@ -42,12 +42,12 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 | Metric | Value |
 | --- | --- |
 | Measured operations | 392,931,453 |
-| Process reads | 182.43 MiB |
-| Process writes | 185.43 MiB |
+| Process reads | 182.35 MiB |
+| Process writes | 185.47 MiB |
 | Block-device reads | 0 B |
 | Block-device writes | 234.66 MiB |
-| Read syscalls | 53,048 |
-| Write syscalls | 243,743 |
+| Read syscalls | 53,002 |
+| Write syscalls | 243,768 |
 | Mock root on disk | 14.49 MiB |
 | Mock root files | 103 |
 
@@ -57,17 +57,17 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 | Phase | Duration | Variation |
 | --- | --- | --- |
-| Load production modules<br><code>module-graph</code> | 102.7 ms | ±1.9% |
-| Acquire the single-instance data-root lock<br><code>instance-lock</code> | 11.07 ms | ±2.6% |
-| Remove interrupted atomic-write temporary files<br><code>orphan-cleanup</code> | 632.2 µs | ±6.3% |
-| Read and strictly parse runtime state<br><code>state-load</code> | 1.18 ms | ±3.6% |
-| Validate deployment config and AI personas<br><code>deployment-inputs</code> | 4.60 ms | ±2.6% |
-| Create the Disk I/O Worker<br><code>disk-io-init</code> | 700.6 µs | ±8.1% |
-| Recover data from SQLite and snapshots<br><code>persisted-load</code> | 221.4 ms | ±1.0% |
-| Populate main-thread hot caches<br><code>hydrate</code> | 271.3 µs | ±15.8% |
-| Process start to local recovery ready<br><code>ready-total</code> | 355.6 ms | ±1.2% |
+| Load production modules<br><code>module-graph</code> | 100.8 ms | ±1.9% |
+| Acquire the single-instance data-root lock<br><code>instance-lock</code> | 11.16 ms | ±7.4% |
+| Remove interrupted atomic-write temporary files<br><code>orphan-cleanup</code> | 623.3 µs | ±5.0% |
+| Read and strictly parse runtime state<br><code>state-load</code> | 1.12 ms | ±3.4% |
+| Validate deployment config and AI personas<br><code>deployment-inputs</code> | 4.49 ms | ±1.0% |
+| Create the Disk I/O Worker<br><code>disk-io-init</code> | 707.6 µs | ±1.1% |
+| Recover data from SQLite and snapshots<br><code>persisted-load</code> | 228.0 ms | ±2.0% |
+| Populate main-thread hot caches<br><code>hydrate</code> | 285.6 µs | ±6.3% |
+| Process start to local recovery ready<br><code>ready-total</code> | 359.9 ms | ±1.3% |
 
-> Recovered this round: 8,192 whitelist · 8,192 blocklist · 25 chat states · 375 chat Q&A entries · 25 AI memory snapshots; process peak RSS 113.49 MiB.
+> Recovered this round: 8,192 whitelist · 8,192 blocklist · 25 chat states · 375 chat Q&A entries · 25 AI memory snapshots; process peak RSS 115.26 MiB.
 
 ## Hot path · production functions
 
@@ -75,34 +75,34 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 | Scenario | Typical time per call | Calls per second | Peak RSS | Retained after GC | Variation |
 | --- | --- | --- | --- | --- | --- |
-| Route one group message through base dispatch<br><code>incoming-message-spine</code> | 153.9 ns | 6,502,451 ops/s | 88.02 MiB | 18.44 KiB | ±3.1% |
-| Build the trigger context and record payload for one directly addressed media message<br><code>ai-media-direct-trigger</code> | 93.9 ns | 10,663,979 ops/s | 90.32 MiB | 20.06 KiB | ±3.2% |
-| Resolve a sender without a username<br><code>sender-no-username</code> | 14.2 ns | 70,339,124 ops/s | 77.84 MiB | 25.33 KiB | ±4.3% |
-| Resolve a sender whose username is unchanged<br><code>sender-stable-username</code> | 27.0 ns | 37,038,019 ops/s | 77.49 MiB | 24.41 KiB | ±1.3% |
-| Resolve senders when users and channel identities interleave in one chat<br><code>sender-mixed-identity</code> | 32.0 ns | 31,222,698 ops/s | 79.48 MiB | 24.71 KiB | ±1.4% |
-| Reject an empty self-sent message<br><code>self-sent-empty</code> | 0.9 ns | 1,165,558,130 ops/s | 76.09 MiB | 23.70 KiB | ±3.0% |
-| Decide whether a group message is a self-sent echo while the bot has recently sent one<br><code>self-sent-active</code> | 46.4 ns | 21,592,746 ops/s | 78.49 MiB | 23.61 KiB | ±3.8% |
-| Read the current chat state directly<br><code>chat-state-read</code> | 3.7 ns | 268,592,322 ops/s | 76.73 MiB | 24.55 KiB | ±1.8% |
-| Look up one chat in the state Map<br><code>chat-state-map-read</code> | 10.2 ns | 98,317,479 ops/s | 77.28 MiB | 23.61 KiB | ±2.2% |
-| Update the AI activity sliding window<br><code>ai-activity-window</code> | 40.5 ns | 24,674,949 ops/s | 79.23 MiB | 24.47 KiB | ±0.7% |
-| Create a missing AI activity LRU entry<br><code>ai-activity-lru-miss</code> | 1.097 µs | 912,742 ops/s | 99.22 MiB | 20.36 KiB | ±3.5% |
-| Look up local identity permissions<br><code>identity-permission-read</code> | 89.1 ns | 11,233,364 ops/s | 85.59 MiB | 25.92 KiB | ±2.8% |
-| Advance temporary-allowlist activity across its qualified steady state and grant edge<br><code>temporary-whitelist-activity</code> | 38.8 ns | 25,807,588 ops/s | 85.86 MiB | 24.06 KiB | ±1.1% |
-| Look up an existing flood-control window<br><code>flood-window-hit</code> | 50.0 ns | 20,015,039 ops/s | 80.10 MiB | 25.27 KiB | ±0.4% |
-| Grow and trim a flood-control window<br><code>flood-window-growth</code> | 261.6 ns | 3,828,101 ops/s | 123.32 MiB | 5.64 MiB | ±3.8% |
-| Update a steady-state flood-control window<br><code>flood-window-steady</code> | 302.5 ns | 3,315,351 ops/s | 133.45 MiB | 20.99 KiB | ±5.3% |
-| Ad detection empty-metadata fast path<br><code>ad-empty-metadata</code> | 4.3 ns | 230,572,391 ops/s | 77.53 MiB | 23.72 KiB | ±1.6% |
-| Clone an ad candidate Worker payload<br><code>ad-wire-clone</code> | 2.153 µs | 464,577 ops/s | 85.55 MiB | 22.30 KiB | ±1.3% |
-| Reject a full ad-detection queue<br><code>ad-capacity-reject</code> | 33.3 ns | 30,052,374 ops/s | 86.36 MiB | 21.74 KiB | ±2.1% |
-| Build one AI context message<br><code>buffered-message-build</code> | 291.7 ns | 3,431,936 ops/s | 85.88 MiB | 21.68 KiB | ±3.1% |
-| Render AI chat context into a prompt<br><code>transcript-render</code> | 38.24 µs | 26,152 ops/s | 96.19 MiB | 22.27 KiB | ±0.5% |
-| Extract a reply reference<br><code>reply-reference</code> | 28.6 ns | 35,033,170 ops/s | 87.82 MiB | 22.51 KiB | ±4.9% |
-| Extract an @mention from Telegram entities<br><code>mention-facts</code> | 51.6 ns | 19,391,035 ops/s | 96.60 MiB | 23.76 KiB | ±1.5% |
-| No-entity mention fast path<br><code>mention-facts-plain</code> | 6.0 ns | 199,854,037 ops/s | 77.13 MiB | 24.76 KiB | ±47.3% |
-| Update a gag speech counter<br><code>gag-speak-counter</code> | 35.6 ns | 28,140,414 ops/s | 84.62 MiB | 23.61 KiB | ±2.6% |
-| Claim a fortune-send receipt<br><code>luck-receipt-fast-path</code> | 20.2 ns | 49,601,238 ops/s | 77.27 MiB | 23.89 KiB | ±1.9% |
-| Look up a fortune tier by percentage<br><code>luck-tier-table</code> | 14.8 ns | 67,478,691 ops/s | 76.73 MiB | 24.97 KiB | ±0.5% |
-| Check log text that needs no redaction<br><code>redact-clean-log</code> | 78.5 ns | 12,747,008 ops/s | 76.36 MiB | 24.48 KiB | ±1.0% |
+| Route one group message through base dispatch<br><code>incoming-message-spine</code> | 153.1 ns | 6,533,621 ops/s | 91.60 MiB | 17.84 KiB | ±1.9% |
+| Build the trigger context and record payload for one directly addressed media message<br><code>ai-media-direct-trigger</code> | 95.7 ns | 10,472,785 ops/s | 89.89 MiB | 20.28 KiB | ±5.0% |
+| Resolve a sender without a username<br><code>sender-no-username</code> | 10.4 ns | 334,327,222 ops/s | 77.87 MiB | 24.57 KiB | ±62.9% |
+| Resolve a sender whose username is unchanged<br><code>sender-stable-username</code> | 27.6 ns | 36,223,891 ops/s | 78.11 MiB | 23.33 KiB | ±3.0% |
+| Resolve senders when users and channel identities interleave in one chat<br><code>sender-mixed-identity</code> | 31.7 ns | 31,556,947 ops/s | 79.33 MiB | 24.96 KiB | ±0.6% |
+| Reject an empty self-sent message<br><code>self-sent-empty</code> | 0.8 ns | 1,180,465,175 ops/s | 76.56 MiB | 24.62 KiB | ±0.7% |
+| Decide whether a group message is a self-sent echo while the bot has recently sent one<br><code>self-sent-active</code> | 47.6 ns | 21,045,345 ops/s | 78.86 MiB | 23.58 KiB | ±4.4% |
+| Read the current chat state directly<br><code>chat-state-read</code> | 3.7 ns | 267,324,596 ops/s | 76.64 MiB | 24.55 KiB | ±0.1% |
+| Look up one chat in the state Map<br><code>chat-state-map-read</code> | 10.2 ns | 98,545,039 ops/s | 77.20 MiB | 23.93 KiB | ±3.8% |
+| Update the AI activity sliding window<br><code>ai-activity-window</code> | 39.7 ns | 25,354,553 ops/s | 81.01 MiB | 23.56 KiB | ±8.6% |
+| Create a missing AI activity LRU entry<br><code>ai-activity-lru-miss</code> | 1.202 µs | 833,912 ops/s | 100.27 MiB | 23.75 KiB | ±5.3% |
+| Look up local identity permissions<br><code>identity-permission-read</code> | 88.1 ns | 11,353,487 ops/s | 85.91 MiB | 25.74 KiB | ±0.2% |
+| Advance temporary-allowlist activity across its qualified steady state and grant edge<br><code>temporary-whitelist-activity</code> | 40.8 ns | 24,533,970 ops/s | 85.97 MiB | 23.92 KiB | ±2.8% |
+| Look up an existing flood-control window<br><code>flood-window-hit</code> | 48.9 ns | 20,465,854 ops/s | 79.85 MiB | 23.83 KiB | ±2.9% |
+| Grow and trim a flood-control window<br><code>flood-window-growth</code> | 275.8 ns | 3,635,196 ops/s | 124.25 MiB | 5.64 MiB | ±5.3% |
+| Update a steady-state flood-control window<br><code>flood-window-steady</code> | 299.7 ns | 3,337,477 ops/s | 129.54 MiB | 20.31 KiB | ±1.4% |
+| Ad detection empty-metadata fast path<br><code>ad-empty-metadata</code> | 4.2 ns | 237,710,144 ops/s | 77.39 MiB | 23.57 KiB | ±1.0% |
+| Clone an ad candidate Worker payload<br><code>ad-wire-clone</code> | 2.136 µs | 468,301 ops/s | 85.58 MiB | 22.23 KiB | ±1.3% |
+| Reject a full ad-detection queue<br><code>ad-capacity-reject</code> | 32.6 ns | 30,677,449 ops/s | 85.93 MiB | 20.67 KiB | ±2.3% |
+| Build one AI context message<br><code>buffered-message-build</code> | 286.6 ns | 3,488,783 ops/s | 86.38 MiB | 21.77 KiB | ±0.3% |
+| Render AI chat context into a prompt<br><code>transcript-render</code> | 43.16 µs | 23,378 ops/s | 96.47 MiB | 20.99 KiB | ±9.8% |
+| Extract a reply reference<br><code>reply-reference</code> | 30.5 ns | 32,869,681 ops/s | 88.84 MiB | 22.00 KiB | ±4.2% |
+| Extract an @mention from Telegram entities<br><code>mention-facts</code> | 46.9 ns | 21,982,076 ops/s | 95.63 MiB | 24.08 KiB | ±16.6% |
+| No-entity mention fast path<br><code>mention-facts-plain</code> | 4.0 ns | 253,172,008 ops/s | 77.28 MiB | 24.25 KiB | ±1.2% |
+| Update a gag speech counter<br><code>gag-speak-counter</code> | 38.7 ns | 25,913,987 ops/s | 84.09 MiB | 23.24 KiB | ±6.0% |
+| Claim a fortune-send receipt<br><code>luck-receipt-fast-path</code> | 20.9 ns | 47,914,946 ops/s | 76.82 MiB | 24.18 KiB | ±3.8% |
+| Look up a fortune tier by percentage<br><code>luck-tier-table</code> | 15.3 ns | 65,543,615 ops/s | 77.00 MiB | 24.27 KiB | ±2.3% |
+| Check log text that needs no redaction<br><code>redact-clean-log</code> | 86.1 ns | 11,631,398 ops/s | 76.90 MiB | 23.18 KiB | ±3.4% |
 
 ## Complete flows · commands and durable actions
 
@@ -110,17 +110,17 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 | Production action | Complete runs/s | Mean time per run | Typical time (p50) | Slow-run time (p95) | Slowest run | Business records/s | Block-device writes | Variation |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Append one join log and receive its durable ACK<br><code>join-log-append</code> | 824 ops/s | 1.21 ms | 1.11 ms | 1.71 ms | 9.36 ms | 824 records/s | 3.91 MiB | ±4.6% |
-| Write 128 identity policies and receive the durable ACK<br><code>identity-policy-write</code> | 324 ops/s | 3.09 ms | 2.94 ms | 5.90 ms | 12.85 ms | 41,449 records/s | 21.42 MiB | ±1.5% |
-| Record one temporary-allowlist activity and receive its exact SQLite ACK<br><code>temporary-whitelist-write</code> | 784 ops/s | 1.28 ms | 1.19 ms | 1.70 ms | 5.78 ms | 784 records/s | 3.15 MiB | ±4.9% |
-| Write one chat state and receive its SQLite durable ACK<br><code>chat-state-write</code> | 663 ops/s | 1.52 ms | 1.32 ms | 2.52 ms | 7.43 ms | 663 records/s | 3.13 MiB | ±7.4% |
-| Write one chat Q&A entry and receive its SQLite durable ACK<br><code>chat-qa-write</code> | 703 ops/s | 1.42 ms | 1.33 ms | 1.88 ms | 8.06 ms | 703 records/s | 3.13 MiB | ±1.1% |
-| Rewrite one AI memory snapshot and receive its durable ACK<br><code>ai-memory-snapshot</code> | 355 ops/s | 2.82 ms | 2.53 ms | 4.56 ms | 11.87 ms | 355 records/s | 5.55 MiB | ±3.1% |
-| Append one diagnostic log and receive its durable ACK<br><code>diagnostic-log</code> | 877 ops/s | 1.14 ms | 1.07 ms | 1.56 ms | 5.81 ms | 877 records/s | 4.16 MiB | ±0.8% |
-| Ad detection: fully classify and dispose of one group message (no network)<br><code>ad-detect-command</code> | 499 ops/s | 2.01 ms | 1.84 ms | 2.88 ms | 6.71 ms | 499 records/s | 1.20 MiB | ±1.9% |
-| ai_chat: generate and send one reply turn (no network or human-like pause)<br><code>ai-reply-command</code> | 4,294 ops/s | 230.8 µs | 194.1 µs | 393.5 µs | 632.8 µs | 4,294 records/s | 0 B | ±3.5% |
-| cron send_voice: synthesize, encode and send one voice message (no network)<br><code>cron-send-voice</code> | 5 ops/s | 219.8 ms | 219.2 ms | 225.8 ms | 228.9 ms | 5 records/s | 0 B | ±3.4% |
-| cron.json change to one task: hot reload and reschedule (full-size task table)<br><code>cron-config-reload</code> | 7 ops/s | 136.2 ms | 135.4 ms | 141.6 ms | 144.0 ms | 7 records/s | 7.31 MiB | ±1.1% |
+| Append one join log and receive its durable ACK<br><code>join-log-append</code> | 1,009 ops/s | 991.0 µs | 908.6 µs | 1.33 ms | 6.58 ms | 1,009 records/s | 3.91 MiB | ±2.0% |
+| Write 128 identity policies and receive the durable ACK<br><code>identity-policy-write</code> | 334 ops/s | 3.00 ms | 2.92 ms | 5.27 ms | 12.34 ms | 42,711 records/s | 21.42 MiB | ±2.8% |
+| Record one temporary-allowlist activity and receive its exact SQLite ACK<br><code>temporary-whitelist-write</code> | 838 ops/s | 1.19 ms | 1.13 ms | 1.55 ms | 4.86 ms | 838 records/s | 3.15 MiB | ±3.6% |
+| Write one chat state and receive its SQLite durable ACK<br><code>chat-state-write</code> | 744 ops/s | 1.35 ms | 1.26 ms | 1.79 ms | 5.32 ms | 744 records/s | 3.13 MiB | ±2.8% |
+| Write one chat Q&A entry and receive its SQLite durable ACK<br><code>chat-qa-write</code> | 723 ops/s | 1.38 ms | 1.31 ms | 1.78 ms | 4.47 ms | 723 records/s | 3.13 MiB | ±3.7% |
+| Rewrite one AI memory snapshot and receive its durable ACK<br><code>ai-memory-snapshot</code> | 379 ops/s | 2.64 ms | 2.44 ms | 3.78 ms | 10.09 ms | 379 records/s | 5.55 MiB | ±1.7% |
+| Append one diagnostic log and receive its durable ACK<br><code>diagnostic-log</code> | 871 ops/s | 1.15 ms | 1.05 ms | 1.56 ms | 13.74 ms | 871 records/s | 4.16 MiB | ±2.2% |
+| Ad detection: fully classify and dispose of one group message (no network)<br><code>ad-detect-command</code> | 502 ops/s | 2.00 ms | 1.82 ms | 2.93 ms | 7.29 ms | 502 records/s | 1.20 MiB | ±5.7% |
+| ai_chat: generate and send one reply turn (no network or human-like pause)<br><code>ai-reply-command</code> | 4,292 ops/s | 230.6 µs | 199.8 µs | 396.1 µs | 551.3 µs | 4,292 records/s | 0 B | ±2.7% |
+| cron send_voice: synthesize, encode and send one voice message (no network)<br><code>cron-send-voice</code> | 5 ops/s | 219.2 ms | 218.1 ms | 224.6 ms | 228.5 ms | 5 records/s | 0 B | ±2.6% |
+| cron.json change to one task: hot reload and reschedule (full-size task table)<br><code>cron-config-reload</code> | 8 ops/s | 132.1 ms | 129.3 ms | 146.1 ms | 169.5 ms | 8 records/s | 7.31 MiB | ±1.3% |
 
 ## Storage · SQLite and main-thread caches
 
@@ -128,12 +128,12 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 | Operation | Calls per second | Mean batch time | Block-device writes | Retained after GC | Variation |
 | --- | --- | --- | --- | --- | --- |
-| Query the main-thread identity LRU cache<br><code>main-lru-read</code> | 30,339,431 ops/s | 263.7 ns | 0 B | 12.09 KiB | ±1.5% |
-| Write an identity through to SQLite and await its ACK<br><code>main-write-through-acked</code> | 44,298 ops/s | 2.89 ms | 56.55 MiB | 22.08 KiB | ±1.2% |
-| SQLite query (reused warm connection)<br><code>storage-read-hot-connection</code> | 72,586 ops/s | 110.2 µs | 5.29 MiB | 88.85 KiB | ±0.2% |
-| SQLite query (new connection per batch)<br><code>storage-read-cold-connection</code> | 13,016 ops/s | 615.0 µs | 34.01 MiB | 243.00 KiB | ±2.4% |
-| SQLite transactional write (reused warm connection)<br><code>storage-write-hot-connection</code> | 61,263 ops/s | 2.09 ms | 73.14 MiB | 140.78 KiB | ±1.5% |
-| SQLite transactional write (new connection per batch)<br><code>storage-write-cold-connection</code> | 18,730 ops/s | 6.84 ms | 12.63 MiB | 426.00 KiB | ±3.7% |
+| Query the main-thread identity LRU cache<br><code>main-lru-read</code> | 30,584,092 ops/s | 261.7 ns | 0 B | 12.33 KiB | ±1.7% |
+| Write an identity through to SQLite and await its ACK<br><code>main-write-through-acked</code> | 44,670 ops/s | 2.87 ms | 56.55 MiB | 21.44 KiB | ±1.3% |
+| SQLite query (reused warm connection)<br><code>storage-read-hot-connection</code> | 71,494 ops/s | 111.9 µs | 5.30 MiB | 73.86 KiB | ±1.0% |
+| SQLite query (new connection per batch)<br><code>storage-read-cold-connection</code> | 13,283 ops/s | 602.5 µs | 34.02 MiB | 245.23 KiB | ±2.1% |
+| SQLite transactional write (reused warm connection)<br><code>storage-write-hot-connection</code> | 59,896 ops/s | 2.14 ms | 73.15 MiB | 127.14 KiB | ±3.1% |
+| SQLite transactional write (new connection per batch)<br><code>storage-write-cold-connection</code> | 18,229 ops/s | 7.04 ms | 12.60 MiB | 424.44 KiB | ±5.0% |
 
 ## Containers and algorithms
 
@@ -141,9 +141,9 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 | Container | Typical time per call | Calls per second | Peak RSS | Retained after GC | Variation |
 | --- | --- | --- | --- | --- | --- |
-| Record into and expire a quota-capped sliding timestamp window<br><code>quota-timestamp-window</code> | 15.3 ns | 65,542,086 ops/s | 81.51 MiB | 21.51 KiB | ±1.1% |
-| Record saturation and expiry in the bounded join window<br><code>join-timestamp-window</code> | 37.9 ns | 26,364,996 ops/s | 80.41 MiB | 25.62 KiB | ±0.2% |
-| Append to and evict from bounded AI rolling memory<br><code>bounded-rolling-buffer</code> | 17.2 ns | 58,514,402 ops/s | 85.81 MiB | 27.35 KiB | ±6.4% |
+| Record into and expire a quota-capped sliding timestamp window<br><code>quota-timestamp-window</code> | 17.1 ns | 58,920,768 ops/s | 80.47 MiB | 21.53 KiB | ±8.8% |
+| Record saturation and expiry in the bounded join window<br><code>join-timestamp-window</code> | 36.0 ns | 27,825,019 ops/s | 80.20 MiB | 25.32 KiB | ±2.1% |
+| Append to and evict from bounded AI rolling memory<br><code>bounded-rolling-buffer</code> | 19.6 ns | 51,337,369 ops/s | 86.14 MiB | 27.65 KiB | ±9.5% |
 
 ## Join log · 250k capacity line
 
@@ -151,8 +151,8 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 | Operation | Elapsed | Allocated before GC | Retained after GC | Variation |
 | --- | --- | --- | --- | --- |
-| Copy a snapshot of 250k join-log records<br><code>snapshot</code> | 123.7 ms | 2.02 MiB | 6.55 KiB | ±2.4% |
-| Trim 250k join-log records to the capacity limit<br><code>capacity</code> | 17.08 ms | 0 B | -4.74 KiB | ±3.7% |
+| Copy a snapshot of 250k join-log records<br><code>snapshot</code> | 119.9 ms | 1.72 MiB | 5.93 KiB | ±1.7% |
+| Trim 250k join-log records to the capacity limit<br><code>capacity</code> | 16.30 ms | 0 B | -4.74 KiB | ±2.3% |
 
 > Reproduce with `bun run perf:full`.
 

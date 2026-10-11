@@ -54,8 +54,6 @@ export function parseGoogleServiceAccountKey(
 }
 
 /** 启动阶段读取并严格解析服务账号文件；外部连接时序见 docs/cn/04-invariants.md。 */
-export async function validateGoogleServiceAccountKey(
-  path: string = GOOGLE_AUTH_FILE_PATH
-): Promise<GoogleServiceAccountKey> {
-  return parseGoogleServiceAccountKey(await readJsonInput(path), path);
+export async function validateGoogleServiceAccountKey(): Promise<GoogleServiceAccountKey> {
+  return parseGoogleServiceAccountKey(await readJsonInput(GOOGLE_AUTH_FILE_PATH), GOOGLE_AUTH_FILE_PATH);
 }

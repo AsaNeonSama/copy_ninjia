@@ -23,28 +23,11 @@ if [ -e "$IDENTITY_DATABASE_FILE" ]; then
   info "${IDENTITY_DATABASE_FILE} 已存在，不动它。"
 else
   mkdir -p -- "$IDENTITY_DATABASE_DIR"
-  # 运行时不会凭缺失数据库生成空名单，全新部署显式建库；复用生产建库入口。
-  #
-  # createStorageDatabase 只建表；schema-version 与 bot.json 的时区标记由初始化边界另写一笔。
+  # 运行时不会凭缺失数据库生成空名单，全新部署显式建库：建表、写入 schema 版本与 bot.json 的时区标记、启用 WAL。
   bun -e '
-    import {
-      closeStorageDatabase,
-      createStorageDatabase,
-      enableStorageDatabaseWal,
-      IDENTITY_DATABASE_PATH,
-      initializeStorageDatabase,
-      loadInstallerBotConfig,
-      openStorageDatabase,
-    } from "./scripts/install/runtime";
+    import { bootstrapStorageDatabase, IDENTITY_DATABASE_PATH, loadInstallerBotConfig } from "./scripts/install/runtime";
     const config = await loadInstallerBotConfig("config/static/bot.json");
-    createStorageDatabase(IDENTITY_DATABASE_PATH);
-    const database = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
-    try {
-      initializeStorageDatabase(database, config.timeZone);
-    } finally {
-      closeStorageDatabase(database);
-    }
-    enableStorageDatabaseWal(IDENTITY_DATABASE_PATH);
+    bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, config.timeZone);
   ' || die "创建 database/storage.sqlite 失败。"
   # 与 packages/consts/identityStorage.ts 的 IDENTITY_DATABASE_{DIRECTORY,FILE}_MODE 一致：
   # setgid 让 WAL/SHM 旁路文件继承同一个协作组。

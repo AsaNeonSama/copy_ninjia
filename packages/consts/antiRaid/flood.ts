@@ -1,10 +1,12 @@
 /** 刷屏禁言（packages/workers/antiRaid/floodControl.ts）的调参常量。 */
 
+import { MINUTE_MS } from "../time";
+
 /**
  * 统计单人发言频率的滑动窗口时长。窗口边界语义由
  * libs/slidingWindowRateLimit.ts 统一定义，这里只给长度。
  */
-export const FLOOD_WINDOW_MS: number = 60_000;
+export const FLOOD_WINDOW_MS: number = MINUTE_MS;
 
 /**
  * 一个窗口内达到这个条数即判定为刷屏（达到即触发，不要求超过）。
@@ -19,7 +21,7 @@ export const FLOOD_MESSAGE_LIMIT: number = 15;
  *
  * 须高于 Bot API 把 until_date 当成永久限制的官方下限。
  */
-export const FLOOD_MUTE_DURATION_MS: number = 3 * 60_000;
+export const FLOOD_MUTE_DURATION_MS: number = 3 * MINUTE_MS;
 
 /**
  * 禁言请求从「算好 until_date」到「真的发出去」的容忍上限；超过就放弃这次禁言
@@ -33,7 +35,7 @@ export const FLOOD_MUTE_DURATION_MS: number = 3 * 60_000;
  * 取值保证真正发出去的那一刻 until_date 离当下明显大于该下限，
  * 不直接取 FLOOD_MUTE_DURATION_MS 的原值。
  */
-export const FLOOD_MUTE_DISPATCH_TIMEOUT_MS: number = FLOOD_MUTE_DURATION_MS - 60_000;
+export const FLOOD_MUTE_DISPATCH_TIMEOUT_MS: number = FLOOD_MUTE_DURATION_MS - MINUTE_MS;
 
 /**
  * 禁言公告从「禁言已落地」到「真的发出去」的容忍上限；超过就不发这条公告，

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { rmSync, mkdirSync, statSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { rename } from "node:fs/promises";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -19,7 +19,7 @@ test("空环境 bootstrap 安装并启动真实应用，系统操作与网络由
   mkdirSync(bootstrap);
   await Bun.write(join(bootstrap, "install.sh"), Bun.file(join(fixture.worktree, "install.sh")));
   await rename(fixture.worktree, seed);
-  rmSync(join(fixture.root, "systemd/copy-ninjia.service"));
+  await Bun.file(join(fixture.root, "systemd/copy-ninjia.service")).delete();
   await rename(join(fixture.binRoot, "bun"), join(fixture.binRoot, "bun-template"));
   const bunTemplate: string = await Bun.file(join(fixture.binRoot, "bun-template")).text();
   await writeText(join(fixture.binRoot, "bun-template"), bunTemplate.replace("  install)\n", '  install)\n    [ "$*" = "install --frozen-lockfile" ] || exit 99\n'), 0o700);
@@ -48,7 +48,7 @@ test("空环境 bootstrap 安装并启动真实应用，系统操作与网络由
     "#!/usr/bin/env bash", "set -Eeuo pipefail",
     'if [ "${1:-}" = "describe" ]; then printf "99.0.0\\n"; exit 0; fi',
     'if [ "${1:-}" = "-C" ] && [ "${3:-}" = "rev-parse" ]; then printf "%s\\n" "$FAKE_WORKTREE"; exit 0; fi',
-    'if [ "$*" = "-c advice.detachedHead=false clone --branch 99.0.0 -- https://github.com/Asashishi/copy_ninjia.git $FAKE_WORKTREE" ]; then',
+    'if [ "$*" = "-c advice.detachedHead=false clone --branch 99.0.0 -- https://github.com/AsaNeonSama/copy_ninjia.git $FAKE_WORKTREE" ]; then',
     '  printf "mock:clone\\n" >> "$FAKE_CALL_LOG"',
     '  exec /bin/mv -- "$FAKE_SEED" "$FAKE_WORKTREE"',
     "fi", 'printf "git:blocked\\n" >> "$FAKE_OUTBOUND_LOG"; exit 93',
@@ -56,7 +56,7 @@ test("空环境 bootstrap 安装并启动真实应用，系统操作与网络由
   await writeText(join(fixture.binRoot, "curl"), [
     "#!/usr/bin/env bash", "set -Eeuo pipefail",
     'case "${@: -1}" in',
-    "https://api.github.com/repos/Asashishi/copy_ninjia/releases/latest)",
+    "https://api.github.com/repos/AsaNeonSama/copy_ninjia/releases/latest)",
     '  printf "mock:latest\\n" >> "$FAKE_CALL_LOG"',
     '  printf \'{"tag_name":"99.0.0"}\\n\';;',
     "https://bun.sh/install)",
@@ -108,7 +108,7 @@ test("空环境 bootstrap 安装并启动真实应用，系统操作与网络由
     lockReleased: !await Bun.file(join(fixture.runtimeRoot, "bot.lock")).exists(),
     noUnexpectedOutbound: !outbound.includes(":blocked") && !output.includes("INSTALL_NETWORK_BLOCKED"),
     observed12Seconds: outbound.includes("sleep:guarded:12"), unitGenerated: await Bun.file(join(fixture.runtimeRoot, "unit-preview")).exists(),
-    databaseMode: await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists() ? (statSync(join(fixture.runtimeRoot, "database/storage.sqlite")).mode & 0o777).toString(8) : null,
+    databaseMode: await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists() ? ((await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).stat()).mode & 0o777).toString(8) : null,
     installedUnzip: calls.includes("mock:apt-get:install -y unzip"),
   };
   expect(checks.exit, output).toBe(0);

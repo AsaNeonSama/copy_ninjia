@@ -399,53 +399,62 @@ async function continueBlocklistSweep(
  * 任务与补扫记录都已被 forgetChatBlocklistWork 撤销（群不再受管）时，迟到回执直接丢弃。
  */
 export function settleBlockedRemoval(event: BlockedMembersRemovedEvent): void {
+  if (advanceSweepPage(event)) return;
+  settleRemovalOutcome(event);
+}
+
+/**
+ * 分页补扫的逐页回执：下一页仍在读取或落盘时的重复回执忽略，非末页完成时拉取下一页（缺游标按投递边界
+ * 失败记账），这些情况返回 true；不属于当前分页、末页或未完成时返回 false，交给 settleRemovalOutcome。
+ */
+function advanceSweepPage(event: BlockedMembersRemovedEvent): boolean {
   const page: BlocklistSweepPageState | undefined =
     blocklistSweepPages.get(event.removalId);
   const currentProgress: BlocklistSweepRecord | undefined =
     blocklistSweepState.get(event.chatId);
-  if (
-    page !== undefined &&
-    currentProgress?.removalId === event.removalId
-  ) {
-    // awaitingAck 为 false 表示下一页仍在 read/flush，此时收到的重复回执忽略。
-    if (!page.awaitingAck) return;
-    if (event.complete && !page.done) {
-      if (event.targetIsAdmin === true) {
-        blocklistSweepState.set(event.chatId, {
-          ...currentProgress,
-          resweepRequested: true,
-        });
-      }
-      if (page.nextCursor === null) {
-        blocklistSweepPages.delete(event.removalId);
-        recordPendingRemovalFailure(
-          event.removalId,
-          event.chatId,
-          "delivery-boundary"
-        );
-        noteSweepAttemptFailed(
-          event.chatId,
-          currentProgress.failedSweeps,
-          Date.now()
-        );
-        logger.error(
-          `Non-final blocklist sweep ${event.removalId} is missing its next cursor.`
-        );
-        return;
-      }
-      blocklistSweepPages.set(event.removalId, {
-        ...page,
-        awaitingAck: false,
-      });
-      void continueBlocklistSweep(
-        event.chatId,
-        event.removalId,
-        page.nextCursor
-      );
-      return;
-    }
+  if (page === undefined || currentProgress?.removalId !== event.removalId) return false;
+  if (!page.awaitingAck) return true;
+  if (!event.complete || page.done) {
     blocklistSweepPages.delete(event.removalId);
+    return false;
   }
+  if (event.targetIsAdmin === true) {
+    blocklistSweepState.set(event.chatId, {
+      ...currentProgress,
+      resweepRequested: true,
+    });
+  }
+  if (page.nextCursor === null) {
+    blocklistSweepPages.delete(event.removalId);
+    recordPendingRemovalFailure(
+      event.removalId,
+      event.chatId,
+      "delivery-boundary"
+    );
+    noteSweepAttemptFailed(
+      event.chatId,
+      currentProgress.failedSweeps,
+      Date.now()
+    );
+    logger.error(
+      `Non-final blocklist sweep ${event.removalId} is missing its next cursor.`
+    );
+    return true;
+  }
+  blocklistSweepPages.set(event.removalId, {
+    ...page,
+    awaitingAck: false,
+  });
+  void continueBlocklistSweep(
+    event.chatId,
+    event.removalId,
+    page.nextCursor
+  );
+  return true;
+}
+
+/** 整批结算：销账、权限闩锁或失败记账，再更新本群补扫记录并重新武装补扫调度。 */
+function settleRemovalOutcome(event: BlockedMembersRemovedEvent): void {
   if (
     !pendingBlockedRemovals.has(event.removalId) &&
     !blocklistSweepState.has(event.chatId)

@@ -31,6 +31,7 @@ import {
   banChatMemberWithOutcome,
   kickChatMemberWithOutcome,
   probeChatMembership,
+  replyCommandNotice,
   sendCommandMessage,
 } from "../infra/telegram";
 import type { JoinLogRecord } from "../types/diskIO/storage";
@@ -347,11 +348,7 @@ export async function handleBatchKickCommand(
   );
   if (actor === undefined) return;
   if (ctx.chat.type !== "supergroup") {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.batchKickSupergroupOnly,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.batchKickSupergroupOnly);
     return;
   }
   const tokens: string[] = commandArgumentTokens(ctx.match);
@@ -359,21 +356,13 @@ export async function handleBatchKickCommand(
     ? parseBatchKickDurationMs(tokens[0]!)
     : undefined;
   if (durationMs === undefined) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().BATCH_KICK_USAGE_TEXT,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().BATCH_KICK_USAGE_TEXT);
     return;
   }
 
   // 同群单飞在读日志之前判定：上一批还在后台跑时不读盘。
   if (batchKickChats.has(chatId)) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.batchKickRunning,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.batchKickRunning);
     return;
   }
 
@@ -395,20 +384,12 @@ export async function handleBatchKickCommand(
       `Failed to read join logs for /batch_kick in chat ${chatId}:`,
       error
     );
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.joinLogUnavailable,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.joinLogUnavailable);
     return;
   }
 
   if (records.length === 0) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.batchKickEmpty(formatDurationCn(durationMs)),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.batchKickEmpty(formatDurationCn(durationMs)));
     return;
   }
 
@@ -419,25 +400,18 @@ export async function handleBatchKickCommand(
     priority: "background",
     task: (): Promise<void> => deliverBatchKick({ chatId, messageId, durationMs, records, acknowledged: acknowledged.promise }),
     errorLabel: "Unexpected error while processing /batch_kick:",
+    onSkipped: (): void => { batchKickChats.delete(chatId); },
   });
   if (!accepted) {
     batchKickChats.delete(chatId);
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.batchKickBusy,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.batchKickBusy);
     return;
   }
   try {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.batchKickAccepted({
-        duration: formatDurationCn(durationMs),
-        recordCount: records.length,
-      }),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.batchKickAccepted({
+      duration: formatDurationCn(durationMs),
+      recordCount: records.length,
+    }));
   } finally {
     acknowledged.resolve();
   }

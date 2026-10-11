@@ -1,5 +1,43 @@
-import type { FlushResult } from "../types/lifecycle";
+import type { FlushResult, FlushWaiter } from "../types/lifecycle";
 import { assertTimeoutMs } from "./inflight";
+
+/** waitForFlush 的入参。 */
+export interface WaitForFlushParams {
+  /** owner 持有的等待者集合；owner 经 settleFlushWaiters 统一结算。 */
+  readonly waiters: Set<FlushWaiter>;
+  /** 本次等待的预算。 */
+  readonly timeoutMs: number;
+  /** 预算耗尽时调用（如打断 owner 的在途工作）；此时本等待者仍在集合里。 */
+  readonly onTimeout?: () => void;
+}
+
+/**
+ * 登记一个带预算的排空等待者并返回它的结论。owner 排空或放弃时经 settleFlushWaiters
+ * 结算。预算先耗尽时先调用 onTimeout：它同步引起的结算对本等待者同样生效；仍未结算才
+ * 出队并按 `"timedOut"` 结算。已被结算的等待者的 timer 已取消，不会再触发。
+ */
+export function waitForFlush({ waiters, timeoutMs, onTimeout }: WaitForFlushParams): Promise<FlushResult> {
+  return new Promise<FlushResult>((resolve: (result: FlushResult) => void): void => {
+    const waiter: FlushWaiter = {
+      resolve,
+      timer: setTimeout((): void => {
+        if (!waiters.has(waiter)) return;
+        onTimeout?.();
+        if (waiters.delete(waiter)) resolve("timedOut");
+      }, timeoutMs),
+    };
+    waiters.add(waiter);
+  });
+}
+
+/** 以同一结论结算并清空全部等待者，各自的预算 timer 一并取消。 */
+export function settleFlushWaiters(waiters: Set<FlushWaiter>, result: FlushResult): void {
+  for (const waiter of waiters) {
+    clearTimeout(waiter.timer);
+    waiter.resolve(result);
+  }
+  waiters.clear();
+}
 
 /** drainWithWaiter 的入参。 */
 export interface DrainWaiterParams {
@@ -9,8 +47,8 @@ export interface DrainWaiterParams {
   timeoutMs: number;
   /** owner 当前是否已无在途任务与待执行任务。 */
   isIdle: () => boolean;
-  /** owner 持有的空闲回调集合；本函数只负责登记与摘除自己那一个。 */
-  waiters: Set<() => void>;
+  /** owner 持有的等待者集合；owner 转为空闲时以 `"flushed"` 经 settleFlushWaiters 结算。 */
+  waiters: Set<FlushWaiter>;
   /** 触发一次空闲检查，覆盖「登记 waiter」与「owner 恰好转为空闲」之间的缝隙。 */
   notifyIfIdle: () => void;
   /** 预算耗尽时打断在途请求、结算尚未开始的任务。 */
@@ -41,21 +79,7 @@ export function drainWithWaiter({
     abort();
     return Promise.resolve("timedOut");
   }
-  return new Promise((resolve: (value: FlushResult | PromiseLike<FlushResult>) => void): void => {
-    let settled: boolean = false;
-    function finish(result: FlushResult): void {
-      if (settled) return;
-      settled = true;
-      waiters.delete(onIdle);
-      clearTimeout(timer);
-      resolve(result);
-    }
-    const onIdle = (): void => finish("flushed");
-    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-      abort();
-      finish("timedOut");
-    }, timeoutMs);
-    waiters.add(onIdle);
-    notifyIfIdle();
-  });
+  const result: Promise<FlushResult> = waitForFlush({ waiters, timeoutMs, onTimeout: abort });
+  notifyIfIdle();
+  return result;
 }

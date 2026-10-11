@@ -4,11 +4,11 @@ import type { Sticker, StickerSet } from "grammy/types";
 import { getStickerSet } from "./sets";
 import { pickStickerVisionSource } from "./describe";
 import { describeMediaForStickerCatalog } from "../imageDescription";
+import { resampleAiText } from "../utils/resample";
 import { summaryAiProvider } from "../../provider";
 import { invalidInput } from "../../../libs/inputValidation";
 import { parseStickerCatalogSnapshot } from "../../../libs/persistedSnapshotCodec";
 import { sanitizeInline, truncateAtClauseBoundary } from "../../../libs/text";
-import { sleep } from "../../../libs/sleep";
 import {
   catalogs,
   dirtyPacks,
@@ -59,25 +59,6 @@ interface ParsedStickerCatalog {
  * cache/workers/aiChat/stickers/catalog.ts。本模块是这些原始集合唯一的业务写入方；外部
  * 调用方只能通过本文件导出的查询、恢复与刷盘函数改变目录生命周期。
  */
-
-/** 跑一次贴纸目录的 AI 调用（逐枚视觉解析/整包简介）。结果的 retryable 为 true 时按
- * STICKER_CATALOG_RETRY_DELAYS_MS 逐档重新采样；档位用尽或 retryable 为 false 时返回 null。 */
-async function callWithRetry(
-  label: string,
-  call: () => Promise<AiTextResult>,
-  signal: AbortSignal
-): Promise<string | null> {
-  for (let attempt: number = 0; ; attempt++) {
-    if (signal.aborted) return null;
-    const result: AiTextResult = await call();
-    if (signal.aborted) return null;
-    if (result.ok) return result.text;
-    if (!result.retryable || attempt >= STICKER_CATALOG_RETRY_DELAYS_MS.length) return null;
-    const delayMs: number = STICKER_CATALOG_RETRY_DELAYS_MS[attempt]!;
-    logger.warn(`${label} attempt ${attempt + 1} returned no usable text; resampling in ${delayMs} ms.`);
-    await sleep(delayMs, signal);
-  }
-}
 
 function getPackMap(pack: string): Map<string, StickerCatalogEntry> {
   let map: Map<string, StickerCatalogEntry> | undefined = catalogs.get(pack);
@@ -309,11 +290,12 @@ export async function generatePackCatalog(pack: string, signal: AbortSignal = ai
         continue;
       }
       // 目录条目属于常驻权威缓存，不写入 transientDescriptionCache。
-      const description: string | null = await callWithRetry(
-        `Sticker catalog description (pack "${pack}", sticker ${sticker.file_unique_id})`,
-        (): Promise<AiTextResult> => describeMediaForStickerCatalog(source.fileId, signal),
-        signal
-      );
+      const description: string | null = await resampleAiText({
+        label: `Sticker catalog description (pack "${pack}", sticker ${sticker.file_unique_id})`,
+        call: (): Promise<AiTextResult> => describeMediaForStickerCatalog(source.fileId, signal),
+        delaysMs: STICKER_CATALOG_RETRY_DELAYS_MS,
+        signal,
+      });
       if (signal.aborted) return;
       if (!description) {
         markEntryFailed(pack, sticker.file_unique_id);
@@ -328,11 +310,12 @@ export async function generatePackCatalog(pack: string, signal: AbortSignal = ai
 
     // 包内容有增删或缺少简介时生成整包简介；失败保留已有简介，缺失简介由维护节拍重试。
     if (map.size > 0 && (entriesChanged || !packSummaries.has(pack))) {
-      const summary: string | null = await callWithRetry(
-        `Sticker pack summary (pack "${pack}")`,
-        (): Promise<AiTextResult> => summarizePack(set.title, [...map.values()].map(formatEntryForSummary), signal),
-        signal
-      );
+      const summary: string | null = await resampleAiText({
+        label: `Sticker pack summary (pack "${pack}")`,
+        call: (): Promise<AiTextResult> => summarizePack(set.title, [...map.values()].map(formatEntryForSummary), signal),
+        delaysMs: STICKER_CATALOG_RETRY_DELAYS_MS,
+        signal,
+      });
       if (signal.aborted) return;
       if (summary) {
         packSummaries.set(pack, summary);

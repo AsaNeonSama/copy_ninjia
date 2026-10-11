@@ -124,6 +124,9 @@
 - **低优先级群标题维护**：
   - 在系统启动就绪、命令菜单与长轮询 Runner 完全运转后，主线程会启动低优先级的群组标题异步更新任务。
   - 通过 `runBoundedSettledBatch` 逐个调用 `getChat` 获取最新群名，各群独立处理，支持在收到停机信号时平滑中止。
+  - `getChat` 的失败由 `infra/telegram/errors.ts` 的 `classifyChatAbsence` 归类：400 且描述为 `chat not found`、`group chat was upgraded to a supergroup chat` 或带 `parameters.migrate_to_chat_id` 判为 `gone`；403 且描述为 `bot was kicked from the (super)group chat`、`bot is not a member of the (super)group chat` 判为 `departed`；其余错误只记日志。
+  - 判为不可达的群按 `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` 间隔重查，累计 `CHAT_ABSENCE_CONFIRM_ATTEMPTS` 次（含首次）都得到同一类结论，才经 `completeChatDeparture` 收尾并记一条 warn。中途查到群、得到别的结论或错误、该群已不在群状态表里，都放弃，本次不收尾。
+  - 两次重查之间的等待挂在 `chatTitleRefreshRuntime.absenceConfirmation` 上，停机 quiesce 与 abort 都会立刻打断它，标题刷新任务随即结算；在途的 `getChat` 不受影响，照常在维护预算内结算。
 
 ### 出站请求与消息安全
 
@@ -268,9 +271,11 @@
 - **状态机与业务逻辑严格解耦**：
   - 状态机的 `State / Event / Effect / Transition / Decision` 类型由 `packages/types/states/` 集中管理。
   - `packages/states/` 仅包含没有任何 I/O 操作的纯状态转移函数；具体解释器和缓存直接依赖上述类型。
-  - **两种实现形态**：
+  - 直接与间接运行时依赖都只能落在 `consts`、`libs`、`types` 与 `states`：直接 import 逐条核对，经直接依赖再往外引入的模块按真实模块图追踪（`scripts/conventions/moduleBoundaries.ts`）。`libs/time.ts` 的按日运算经 `config/time.ts` 读取本线程启动时区快照，该模块登记为唯一放行且不再展开的例外（`STATES_CLOSURE_OPAQUE_MODULES`）。
+  - **三种实现形态**：
     - **离散状态机**：针对存在需要持久化离散状态的场景（如 `verification`、`lockdown`，需要将 PENDING / ACTIVE 等状态保存在 Map 中供后续事件查询），采用标准的 `transition(state, event) → {next, effects}` 形态。
     - **纯函数规则集**：针对没有独立生命周期状态的场景（如 `replyAdmission`、`adDetectAdmission`，仅根据调用方传入的标量做准入判定，容器与计时器留在外部），采用纯函数判定集合的形态。
+    - **单记录归约**：针对一条记录随调用结果或时间推进、容器与写回留在外部的场景（如 `mediaInputSupport` 的 `reduceMediaInputResult(current, event) → {next, effects}`、`temporaryAdBypass` 的 `advanceTemporaryAdBypassActivity(current, now) → next`）；状态不变时原样返回入参对象，调用方按引用相等跳过整表替换或写回。
 
 - **私密模式（Lockdown）群默认权限更新必须包含独立标识**：
   - 修改群默认权限时，每一次读改写都必须带上 `use_independent_chat_permissions: true`。
@@ -296,6 +301,7 @@
   - 倒计时到期后，系统首先将恢复意图落盘，收到 durable ACK 后调用 Telegram API 恢复权限。
   - `RESTORING` 阶段收到新的入群阈值事件，仅预热管理员缓存，绝不倒退回 `ACTIVE`。
   - 若权限恢复失败，系统按 `RESTORE_RETRY_MS` 进行退避重试。若连续因权限不足（如机器人被踢出群或被撤销管理员）失败超过 `RESTORE_PERMANENT_FAILURE_LOG_LIMIT` 次，错误日志降级为 warn，重试间隔自 `RESTORE_RETRY_MS` 起成倍增加，上限为 `RESTORE_PERMANENT_RETRY_MAX_MS`。记录始终保留，一旦确证机器人重新获得限制成员权限，立即恢复重试。
+  - 唯一例外是群已不存在（teardown 起因 `gone`）：主线程在 `deactivateChat` 里带 `abandonLockdown: true`，Worker 派发状态机事件 `chatGone`，任何阶段都直接删除记录、撤掉 timer，只发 `reportUnlock`，不恢复权限、不删公告；主线程收到 `unlock` 后清掉 `lockdown`，只剩它的群状态随之删除，受管名额释放。主线程不直接删私密模式记录，以免 Worker 在途的状态上报把它写回。
   - 因 Worker 停机被撤销的恢复请求按普通失败处理，不累加连续被拒计数，也不记录错误日志。
   - 权限成功恢复后，清空本群入群滑动窗口；公告删除失败仅记录日志，后续的入群计数从下一轮重新累计。
 
@@ -562,7 +568,8 @@
 - **验证终态重试与落盘保障**：
   - 单个进程内验证终态操作最多重试 `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` 次。
   - 终态操作完成后，必须等待最终 revision 的落盘回执，确认安全持久化后再清理内存记录。在等待回执期间若 revision 递增，需继续确认新 revision，绝不因达到重试次数上限而推迟已成功的终态。
-  - 取得终态许可的那批副作用中途 reject（如 Worker→主线程请求失败）时，`retryRejectedTerminal` 在条目仍是同一终态对象的前提下复位 Worker 本地执行门，并按该条目的退避序列排一次重试（`kickPending` 投递 `kickRetry`，`checkingInviter` 与 `expelling` 投递 `terminalPersisted`），错误照常记日志；条目已换状态时不动。超时踢人的战报经 `runTelegramAction` 发送，请求 reject 按「没发出去」走同一退避。
+  - 终态的 Worker 本地执行门（`effectStarted`、`executionStarted`）不持久化，只经状态机事件改写：`kickRequestSent` 在私密模式踢人请求同步发出前置位 `executionStarted`，`kickRequestFailed` 在请求返回而未结算时复位它，`terminalAttemptUnsettled` 在本轮终态动作未结算时复位执行门（`kickPending` 两道门一并复位）。三个事件都带发起尝试时的状态对象，状态已换代时不生效。
+  - 本轮未结算时由 `retryTerminalAttempt` 先投递 `terminalAttemptUnsettled`，再按该条目的退避序列排一次重试（`kickPending` 投递 `kickRetry`，`checkingInviter` 与 `expelling` 投递 `terminalPersisted`）；取得终态许可的那批副作用中途 reject（如 Worker→主线程请求失败）时同样走这一步，错误照常记日志；条目已换状态时不动。超时踢人的战报经 `runTelegramAction` 发送，请求 reject 按「没发出去」走同一退避。
   - 主线程紧急恢复私密模式（Lockdown）时，在清理记录前先根据公告 ID 触发删除；删除失败仅输出 Telegram 日志，恢复主流程不等待删除结果。
 
 - **超时验证复核邀请人身份（`checkingInviter`）**：
@@ -614,7 +621,8 @@
 - **验证按钮交互权限独立性**：
   - **「我是良民」按钮**：仅允许待验证新人本人点击。Worker 严格通过 `callback_query.from.id === callback_data` 校验目标关系，绝不接受前端直接声明。
   - **「通过」按钮**：仅允许本群**非匿名管理员**代点（真人与机器人目标一致）。资格由 Worker 侧的管理员缓存（`isChatAdmin`）判定，缓存未命中时拉取 `getChatAdministrators`，查询失败时提示稍后重试，不变更记录。
-  - **白名单完全无关**：白名单成员或超级管理员若在当前群并非管理员，无权代点「通过」；待验证成员本人点「通过」一律拒绝。拉人豁免同样只认非匿名管理员，白名单拉人不免除验证。
+  - **白名单完全无关**：白名单成员或超级管理员若在当前群并非管理员，无权代点「通过」；待验证成员本人点「通过」一律拒绝。拉人豁免同样只认非匿名的人类管理员，白名单拉人不免除验证。
+  - **机器人按普通成员处理**：机器人不论是否为管理员都不进入 Worker 侧管理员缓存。全量拉取 `getChatAdministrators` 不带 `return_bots`，并按 `user.is_bot` 滤掉返回里的本机器人；`chat_member` 增量（`isInviterExemptAdmin`）同口径。因此机器人拉人不免验证，刷屏禁言与广告处置的管理员身份闸也不把它当管理员。
 
 - **终态踢人与群组类型适配**：
   - 执行 `kickChatMember` 前必须通过 `probeChatMembership` 现查成员状态：确认仍在群内才执行踢人；若成员已主动离群，直接结算收工且不发战报；查询失败保留终态并进入退避。
@@ -679,6 +687,7 @@
 - **用户名双向缓存一致性**：
   - 发送者缓存同时维护「归一化 username → identity」与「sender ID → 当前 username」的双向映射。
   - 用户改名、去名、换绑与 LRU 容量淘汰由同一 owner 原子更新双向关系；解析器严格拒绝别名冲突或不一致记录。
+  - **破坏性命令现查用户名**：别名表只记最近一次观察到的发言者，改名或换绑后可能仍指向前任持有人。开启 `requireIdentityPolicies` 的命令（`/block … enable|disable`、`/mute`、`/white`、`/permission` 修改路径）经 `@username` 指定目标时，执行前按 id 现查目标当前身份（`commands/liveTargetIdentity.ts`：用户经本群 `getChatMember`，频道与群身份经 `getChat`），现查结果写回身份缓存。用户名一致才执行；不一致时拒绝执行并撤掉过期别名，现查失败同样拒绝，提示改用回复或 id 定位。回复与裸 id 本身就是权威身份，不现查。
 - **匿名管理员与群身份处理**：
   - 匿名管理员本人仍享有管理员身份豁免，但不能作为“可归属的管理员邀请人”为新入群成员继承免验证等特权。
   - 匿名管理员代表当前群发言时，可见发送者保留当前群 identity，供 `/copy` 及头像抓取复用；但破坏性管理命令必须拒绝将当前群 identity 作为目标用户。
@@ -731,15 +740,19 @@
 - **群 Runtime Teardown（拆除）规范**：
   - 各领域清理回调（`copy`、`translate`、`gag`、`qa`、`wed`、`aiChat`、`antiRaid`、`joinLog`）集中由 `packages/cache/main/chatTeardown.ts` 维护，上层领域通过叶子模块 `packages/infra/chatTeardownRegistry.ts` 进行反向注册。`packages/infra/chatTeardown.ts` 仅负责组合调用，禁止静态依赖各具体业务。
   - **清理原因与数据保留判定（`ChatTeardownReason`）**：
-    - `explicitDisable`（主动执行 `/init disable`）与 `departed`（机器人被移出群）：表示彻底停管，必须清除本群 `/wed` 成员集合、入群日志、问答库及 `chat_states` 记录。
+    - `explicitDisable`（主动执行 `/init disable`）、`departed`（机器人被移出群，或启动时确证已不是成员）与 `gone`（群已不存在：普通群升级为超级群后的旧 id，或启动时确证 `chat not found`）：表示彻底停管，必须清除本群 `/wed` 成员集合、入群日志、问答库及 `chat_states` 记录。
     - `lostAuthority`（机器人在群内但失去管理员权限）：仅暂停运行态，保留所有持久化数据，待权限恢复后可继续使用。
-    - 各领域必须通过统一工具函数 `packages/libs/chatTeardown.ts` 的 `purgesChatData` 判定，禁止自行比对 reason 字符串。
-    - 特殊例外：AI 记忆在任何 teardown 原因下均清除；入群验证等残留按钮消息仅在 `explicitDisable` 时主动发 API 删除，`departed` 时因机器人已退群不发 Telegram 请求。
+    - 各领域必须通过 `packages/libs/chatTeardown.ts` 的三个判定函数取结论，禁止自行比对 reason 字符串：`purgesChatData`（是否删持久化数据）、`isChatUnreachable`（`departed` 与 `gone`：机器人已无法调用本群 API，只作废本地消息 id）、`abandonsLockdown`（仅 `gone`：放弃私密模式记录）。
+    - 特殊例外：AI 记忆在任何 teardown 原因下均清除；入群验证等残留按钮消息仅在 `explicitDisable` 时主动发 API 删除，`departed` 与 `gone` 时不发 Telegram 请求。
+  - **离群收尾入口（`completeChatDeparture`）**：`packages/infra/botAdmin.ts` 的 `completeChatDeparture(chatId, "departed" | "gone")` 依次作废权限快照、执行全部 owner 的 teardown，再清掉黑名单补扫进度与除私密模式记录以外的群状态并落盘；对同一个群重复调用幂等。入口只有三处：
+    - `my_chat_member` 显示机器人 left/kicked：`departed`；
+    - 受管群收到带 `migrate_to_chat_id` 的服务消息：`packages/app/registerHandlers.ts` 前置链里位于初始化网关之后的迁移 ingress 按 `gone` 收尾并终止本条 update，新超级群仍需 `/init`，旧群设置不搬迁；
+    - 启动标题刷新确证群不可达（见上文「低优先级群标题维护」）：按确证的类别收尾。
   - **严格按序同步派发**：`teardownChatRuntime` 遍历 `packages/consts/chatTeardown.ts` 中的 `CHAT_TEARDOWN_ORDER` 常量（类型系统强制穷尽 `ChatRuntimeOwner`）。一次 teardown 必须按此顺序同步启动所有清理逻辑，最后统一等待异步收尾。
 - **成员在群复查边界**：
   - 异步查询 `probeChatMembership` 返回“仍在群”到真正调用 `kickChatMember` 之前，必须再次核对当前终态对象引用未发生变更，且该确认步骤与踢人 API 调用之间严禁插入任何 `await`。
 - **`/block` 跨群封禁无结果缓存**：
-  - 每次执行 `/block` 都必须向受管群列表重新派发 `banChatMember`（以触发 Telegram `revoke_messages` 撤回历史消息）；仅在权限快照已确证缺乏 `canRestrictMembers` 时才跳过请求并按失败记账。`/block disable` 同样不维护命令层封禁缓存。
+  - 每次执行 `/block` 都必须向受管群列表重新派发 `banChatMember`（以触发 Telegram `revoke_messages` 撤回历史消息）；仅在权限快照已确证缺乏 `canRestrictMembers` 时才跳过请求并按失败记账。`/block disable` 同样不维护命令层封禁缓存，跨群解封按同一口径跳过已确证缺权限的群。
 
 ### `/wed` 成员持久化与交互
 
@@ -960,7 +973,7 @@
 - **`/block disable` 完整解除机制**：
   - 若目标已在表中，主线程先发布负向缓存与计数，从 `pendingBlockedRemovals` 在途批次中剔除该 ID 并投递裁剪后的 outbox 快照，最后投递删除墓碑（`queueBlocklistDeletion`）。
   - Disk I/O Worker 按顺序处理，快照写入优先于删除，确保数据库不引用已删条目且不残留补扫任务；Worker 重建时按领域优先级恢复。
-  - 无论目标此前是否在库中，均在 `managedAdminChatIds` 受管群清单中解除封禁：发起命令的本群排在最前，其余为所有已 `/init enable` 且机器人具备管理员权限的群。普通用户调用 `unbanChatMemberIfBanned`（`only_if_banned: true`），频道身份调用 `unbanChatSenderChat`。
+  - 无论目标此前是否在库中，均在 `managedAdminChatIds` 受管群清单中解除封禁：发起命令的本群排在最前，其余为所有已 `/init enable` 且机器人具备管理员权限的群。普通用户调用 `unbanChatMemberIfBanned`（`only_if_banned: true`），频道身份调用 `unbanChatSenderChat`；权限快照已确证缺「限制与封禁成员」的群不发请求，计为失败。
 - **保护身份与互斥串行化**：
   - 超级管理员（`SUPER_ADMIN_USER_ID`）与永久白名单成员恒受保护，`isWhitelisted` 贯穿 `/block`、`/mute` 与 `/batch_kick` 的准入门禁；临时广告免检不享有该永久保护。
   - `/white enable` 严格拒绝已处于黑名单中的身份。
@@ -983,7 +996,11 @@
   - 黑名单成员入群时触发秒踢，取代常规的入群验证流程（不开启验证窗口）；通过 `recentBlockedJoinCounts` 消除 `chat_member` 与 `new_chat_members` 的重复入群事件，补记滑动窗口入群计数并撤销入群服务通知。
 - **线程协作与跨群扇出**：
   - 身份判定与名单维护归属主线程；探测、封禁与重试顺序交由 Anti-Raid Worker 异步串行执行，出站请求按 `query` / `kick` 分流至 429 调度车道。
-  - `/block` 命令自身的跨群封禁扇出属于显式例外：主线程在 update 内完成落盘确认后，将扇出任务提交至延迟执行器的后台档（`commands/blocklistFanOut.ts`），以 `MANAGED_CHAT_BATCH_CONCURRENCY` 限制并发，逐群直接派发 `banChatMember` 或 `banChatSenderChat`，失败群交回后续补扫统一处理。
+  - `/block` 命令自身（`enable` 与 `disable`）的跨群扇出属于显式例外（`commands/blocklistFanOut.ts`）：
+    - handler 校验完成后，按到达顺序在该身份的黑名单串行位（`blocklistIdentityMutationRunner`，与广告处置共用）占位；名单写入与落盘确认、跨群封禁或解封、回执都在这个串行位里依次执行，同一身份的先后命令与广告处置按到达顺序落定。
+    - 串行位空闲时，名单写入与落盘确认在本条 update 内完成；有更早的同身份处置在途时，二者随扇出一起延后，update 不等待，结束时名单尚未改动。
+    - 跨群部分提交至延迟执行器的后台档，以 `MANAGED_CHAT_BATCH_CONCURRENCY` 限制并发，逐群直接派发 `banChatMember`、`banChatSenderChat` 或对应的解封请求；封禁失败的群交回后续补扫统一处理。
+    - 任务在开跑前或等串行位期间被停机撤销时记错误日志，未执行的名单写入与扇出不再执行，回执不再发出。
 
 #### 广告检测的准入、判定与处置
 
@@ -993,7 +1010,7 @@
 - **豁免与特殊消息来源**：
   - 关联频道的自动转发（`is_automatic_forward`）与机器人自身发布的消息（`isBotOwnMessage`）一律跳过。
   - 本 bot 发出的 inline 消息（`via_bot` 指向自身）送检的是用户的**原始查询文本**，而非 bot 渲染后的带格式落群正文。各 inline 功能在应答成功后调用 `recordInlineResultSources` 登记源文本，容量上限 `INLINE_RESULT_SOURCE_MAX_AUTHORS`；取不到源文本或正文不符时跳过判定。
-  - 讨论组评论区引用的频道原帖正文与截取片段不混入待检正文。群主与管理员恒不被判定为广告。
+  - 讨论组评论区引用的频道原帖正文与截取片段不混入待检正文。群主与人类管理员恒不被判定为广告；机器人即使是管理员也照常送检与处置。
 - **队列管理与流量控制**（Worker 线程）：
   - 队列以 `chatId:senderId` 为键，同一用户的连续消息合并入 `pendingAdMessages` 的单一 bundle 中，不重复排队。
   - 待检发送者上限 `AD_DETECT_MAX_PENDING_SENDERS`，满载后直接拒绝新用户，禁止淘汰已有未检用户。

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import { TEST_DATA_ROOT } from "../preloadEnv";
@@ -26,9 +26,9 @@ async function reload(path: string): Promise<Record<string, unknown>> {
 }
 
 describe("performance-result.json 的共享写入边界", () => {
-  test("常量指向仓库根那份真实记录，且它确实存在", () => {
+  test("常量指向仓库根那份真实记录，且它确实存在", async () => {
     expect(PERFORMANCE_RESULT_PATH.endsWith("performance-result.json")).toBeTrue();
-    expect(existsSync(PERFORMANCE_RESULT_PATH)).toBeTrue();
+    expect(await Bun.file(PERFORMANCE_RESULT_PATH).exists()).toBeTrue();
   });
 
   test("只换自己那一格，另一节与其中的人写说明原样保留", async () => {

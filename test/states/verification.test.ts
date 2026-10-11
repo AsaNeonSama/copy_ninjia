@@ -3,7 +3,7 @@ import {
   joinCreatesNewRecord,
   transitionVerification,
 } from "../../packages/states/verification";
-import { checkingInviterOf, expellingOf } from "../../packages/states/verification/shared";
+import { checkingInviterOf, expellingOf, snapshotOf } from "../../packages/states/verification/shared";
 import type { JoinEvent, PendingState, VerificationState } from "../../packages/types/states/verification";
 import {
   ANTI_RAID_PER_MINUTE_LIMIT,
@@ -507,6 +507,83 @@ describe("私密模式踢人结算", () => {
       transitionVerification(pendingState(), { type: "kickRetry" }).effects
     ).toEqual([]);
   });
+
+  test("踢人请求发出后豁免无法撤销；请求失败后豁免又能替换 token，本轮尝试仍占着效果门", () => {
+    const state = kickPendingState({ requestedAt: 12_345, countedJoinAt: 12_345 });
+    transitionVerification(state, { type: "terminalPersisted" });
+
+    expect(transitionVerification(state, { type: "kickRequestSent", attemptState: state }))
+      .toEqual({ next: state, effects: [] });
+    expect(state.executionStarted).toBeTrue();
+    expect(transitionVerification(state, joinEvent({ identityExempt: true }))).toEqual({
+      next: state,
+      effects: [{ kind: "logUncancelableKickExemption", label: "杂鱼A" }],
+    });
+
+    expect(transitionVerification(state, { type: "kickRequestFailed", attemptState: state }))
+      .toEqual({ next: state, effects: [] });
+    expect(state.executionStarted).toBeFalse();
+    expect(state.effectStarted).toBeTrue();
+    expect(transitionVerification(state, { type: "kickRetry" }).effects).toEqual([]);
+    expect(transitionVerification(state, joinEvent({ identityExempt: true }))).toEqual({
+      next: { kind: "exempt", label: "杂鱼A", isBot: false },
+      effects: [{ kind: "retractJoinCount", joinedAt: 12_345 }],
+    });
+  });
+
+  test("terminalAttemptUnsettled 复位执行门，到点的重试事件能重新发出动作", () => {
+    const kickPending = kickPendingState();
+    transitionVerification(kickPending, { type: "terminalPersisted" });
+    transitionVerification(kickPending, { type: "kickRequestSent", attemptState: kickPending });
+    expect(transitionVerification(kickPending, { type: "terminalAttemptUnsettled", attemptState: kickPending }))
+      .toEqual({ next: kickPending, effects: [] });
+    expect(kickPending.effectStarted).toBeFalse();
+    expect(kickPending.executionStarted).toBeFalse();
+    expect(transitionVerification(kickPending, { type: "kickRetry" }).effects).toEqual([{ kind: "kickMember" }]);
+
+    const checking = checkingInviterOf(7, snapshotOf(pendingState()));
+    expect(transitionVerification(checking, { type: "terminalPersisted" }).effects)
+      .toEqual([{ kind: "recheckInviter", inviterId: 7, snapshot: checking.snapshot }]);
+    expect(transitionVerification(checking, { type: "terminalPersisted" }).effects).toEqual([]);
+    transitionVerification(checking, { type: "terminalAttemptUnsettled", attemptState: checking });
+    expect(checking.executionStarted).toBeFalse();
+    expect(transitionVerification(checking, { type: "terminalPersisted" }).effects)
+      .toEqual([{ kind: "recheckInviter", inviterId: 7, snapshot: checking.snapshot }]);
+
+    // flood 终态退回未执行后，权威评论区确认重新可以撤回它。
+    const flood = expellingOf("flood", snapshotOf(pendingState()));
+    transitionVerification(flood, { type: "terminalPersisted" });
+    const comment = {
+      type: "confirmedThreadComment",
+      messageId: 46,
+      now: 10_000,
+      allowFloodTerminalExemption: true,
+    } as const;
+    expect(transitionVerification(flood, comment).next).toBe(flood);
+    transitionVerification(flood, { type: "terminalAttemptUnsettled", attemptState: flood });
+    expect(transitionVerification(flood, comment).next?.kind).toBe("exempt");
+  });
+
+  test("执行门事件只作用于发起尝试的那个状态对象，已换代的 token 不改当前记录", () => {
+    const stale = kickPendingState();
+    const current = kickPendingState({ effectStarted: true, executionStarted: true });
+    for (const type of ["kickRequestSent", "kickRequestFailed", "terminalAttemptUnsettled"] as const) {
+      expect(transitionVerification(current, { type, attemptState: stale }))
+        .toEqual({ next: current, effects: [] });
+      expect(transitionVerification(undefined, { type, attemptState: stale }))
+        .toEqual({ next: undefined, effects: [] });
+    }
+    expect(current.effectStarted).toBeTrue();
+    expect(current.executionStarted).toBeTrue();
+
+    const terminal = expellingOf("timeout", snapshotOf(pendingState()));
+    terminal.executionStarted = true;
+    transitionVerification(terminal, {
+      type: "terminalAttemptUnsettled",
+      attemptState: expellingOf("timeout", snapshotOf(pendingState())),
+    });
+    expect(terminal.executionStarted).toBeTrue();
+  });
 });
 
 describe("callback", () => {
@@ -775,8 +852,8 @@ describe("异步核查通过 / 离群 / 提醒回填 / 去重到期", () => {
     }]);
   });
 
-  test("guardDisabled：两个已落盘终态一并作废，不再踢人", () => {
-    // 终态是「已经决定要踢、正等落盘回执」：开关关掉之后不踢人，返回 undefined 让解释器发 tombstone，重启也不复活。
+  test("guardDisabled：两段处置终态一并作废，不再踢人", () => {
+    // 处置终态是「已经决定要踢、正等落盘回执」：开关关掉之后不踢人，返回 undefined 让解释器发 tombstone，重启也不复活。
     const snapshot = {
       label: "杂鱼A",
       isBot: false,

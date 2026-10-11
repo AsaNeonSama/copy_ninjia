@@ -11,14 +11,14 @@ mock.module("../../packages/infra/telegram/actions", () => ({
   sendMessage,
 }));
 
-const { sendCommandMessage } = await import(
+const { replyCommandNotice, sendCommandMessage } = await import(
   "../../packages/infra/telegram/commandMessages"
 );
 const { runWithUpdateAbortSignal } = await import("../../packages/infra/updateContext");
 
 beforeEach(() => {
-  sendMessage.mockClear();
   deleteMessageAfter.mockClear();
+  sendMessage.mockReset();
   sendMessage.mockImplementation(
     async (): Promise<number | undefined> => 77
   );
@@ -117,6 +117,31 @@ describe("sendCommandMessage", () => {
     expect(deleteMessageAfter).toHaveBeenCalledWith({
       chatId: -1001,
       messageId: 91,
+      delayMs: COMMAND_MESSAGE_AUTO_DELETE_MS,
+      api: undefined,
+    });
+  });
+});
+
+describe("replyCommandNotice", () => {
+  test("在触发命令的聊天里回复触发消息，沿用命令提示的话题补齐与自动清理", async () => {
+    await runWithUpdateAbortSignal(new AbortController().signal, async (): Promise<void> => {
+      await expect(replyCommandNotice({ chat: { id: -1001 }, msgId: 10 }, "提示")).resolves.toBe(77);
+    }, { chatId: -1001, threadId: 5 });
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      chatId: -1001,
+      text: "提示",
+      replyToMessageId: 10,
+      messageThreadId: 5,
+      onSent: expect.any(Function),
+    });
+    const onSent: ((messageId: number) => void) =
+      (sendMessage.mock.calls[0]![0] as { onSent: (messageId: number) => void }).onSent;
+    onSent(77);
+    expect(deleteMessageAfter).toHaveBeenCalledWith({
+      chatId: -1001,
+      messageId: 77,
       delayMs: COMMAND_MESSAGE_AUTO_DELETE_MS,
       api: undefined,
     });

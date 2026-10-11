@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type ts from "typescript";
 import { collectConstImmutabilityAssertionProblems } from "../../scripts/conventions/constImmutability";
-import { createConstsProgram, exportedConstDeclarations } from "../../scripts/conventions/constsProgram";
+import { exportedConstDeclarations } from "../../scripts/conventions/constsProgram";
+import { createTypeCheckProgram } from "../../scripts/conventions/sourceAnalysis";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..", "..");
 const MEMORY_PROMPTS: string = join(PROJECT_ROOT, "packages", "consts", "aiChat", "prompts", "memory.ts");
@@ -15,7 +16,7 @@ await Bun.write(FUNCTIONS_FIXTURE, [
   "export const HANDLERS: Readonly<Record<string, () => void>> = { tick: (): void => {} };",
   "",
 ].join("\n"));
-const PROGRAM: ts.Program = createConstsProgram(PROJECT_ROOT, [MEMORY_PROMPTS, TRANSCRIPT_PROMPTS, FUNCTIONS_FIXTURE]);
+const PROGRAM: ts.Program = createTypeCheckProgram(PROJECT_ROOT, [MEMORY_PROMPTS, TRANSCRIPT_PROMPTS, FUNCTIONS_FIXTURE]);
 
 afterAll((): void => {
   rmSync(FIXTURE_DIR, { recursive: true, force: true });

@@ -117,11 +117,11 @@ async function sharedChatQueueScenario(): Promise<void> {
   const main: Promise<unknown> = telegramApi.sendMessage(-1001, "main");
   await started.promise;
   const ai: Promise<unknown> = handleAiWorkerTelegramRequest({
-    operation: "call", category: "message",
+    operation: "call",
     call: { method: "sendMessage", payload: { chat_id: -1001, text: "ai" } },
   }, new AbortController().signal);
   const antiRaid: Promise<unknown> = handleAntiRaidWorkerTelegramRequest({
-    operation: "call", category: "message",
+    operation: "call",
     call: { method: "sendMessage", payload: { chat_id: -1001, text: "antiRaid" } },
   }, new AbortController().signal);
   handleContext = async (ctx: Context): Promise<void> => {
@@ -277,7 +277,7 @@ test("主线程查询的 429 同时暂停 Worker 与 ctx.api 查询，并保持�
   await waitUntil((): boolean => telegramOutboundStats().pending === 1);
   expect(telegramOutboundStats().pending).toBe(1);
   const worker: Promise<unknown> = handleAntiRaidWorkerTelegramRequest({
-    operation: "call", category: "query",
+    operation: "call",
     call: { method: "getChat", payload: { chat_id: -1002 } },
   }, new AbortController().signal);
   handleContext = async (ctx: Context): Promise<void> => { await ctx.api.getChat(-1003); };

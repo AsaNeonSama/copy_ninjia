@@ -32,7 +32,7 @@ function dependencies(
   return deps;
 }
 
-/** 假计时器下 settleBackgroundWork 的 setTimeout(0) 不会自行到点，改为排空微任务。 */
+/** 假计时器下 settleBackgroundWork 的 Bun.sleep(0) 不会自行到点，改为排空微任务。 */
 async function flushMicrotasks(): Promise<void> {
   for (let i: number = 0; i < 20; i++) await Promise.resolve();
 }
@@ -466,7 +466,8 @@ describe("chatActionHeartbeat", () => {
       const sendTyping = mock(async (_chatId: number): Promise<boolean> => true);
       const deps = dependencies(sendTyping, async () => true);
       deps.intervalMs = 100;
-      deps.restMs = 500;
+      // 静默在第 550 ms 结束，与每 100 ms 的定时 tick 错开；推进到 551 ms 只覆盖推迟的补发。
+      deps.restMs = 450;
       const heartbeat = startChatActionHeartbeat({ chatId: 508, messageThreadId: undefined, dependencies: deps });
 
       heartbeat.set("typing");
@@ -481,7 +482,7 @@ describe("chatActionHeartbeat", () => {
       await flushMicrotasks();
       expect(sendTyping).toHaveBeenCalledTimes(2);
 
-      jest.advanceTimersByTime(101);
+      jest.advanceTimersByTime(51);
       await flushMicrotasks();
       expect(sendTyping).toHaveBeenCalledTimes(3);
       await heartbeat.stop();

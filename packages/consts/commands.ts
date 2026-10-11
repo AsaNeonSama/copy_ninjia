@@ -1,4 +1,4 @@
-import { DAY_MS } from "./time";
+import { DAY_MS, HOUR_MS, MINUTE_MS } from "./time";
 
 /**
  * 群聊全部非功能性提示统一的延迟删除时长（命令提示与回执、广告警告与处置播报、刷屏禁言、
@@ -100,8 +100,8 @@ export const DURATION_TOKEN_PATTERN: Readonly<RegExp> = /^([1-9]\d*)([mhd])$/i;
  * `commands/gag/runtime.ts` 也按它换算分钟。
  */
 export const DURATION_UNIT_MS: Readonly<Record<"m" | "h" | "d", number>> = {
-  m: 60_000,
-  h: 60 * 60_000,
+  m: MINUTE_MS,
+  h: HOUR_MS,
   d: DAY_MS,
 };
 

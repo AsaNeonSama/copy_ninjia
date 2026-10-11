@@ -4,10 +4,7 @@ import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
 import { IDENTITY_DATABASE_SCHEMA_VERSION, IDENTITY_DATABASE_TIME_ZONE_KEY } from "../../packages/consts/identityStorage";
-import { closeStorageDatabase, openStorageDatabase } from "../../packages/database/interact/connection";
-import { initializeStorageDatabase } from "../../packages/database/interact/initialization";
-import { createStorageDatabase } from "../../packages/database/interact/migration";
-import type { StorageDatabase } from "../../packages/types/storageDatabase";
+import { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
 import { readMigrationFileSnapshot } from "../../scripts/fixtures/migrationFiles";
 import type { MigrationFileSnapshot } from "../../scripts/fixtures/migrationFiles";
 import {
@@ -90,13 +87,7 @@ test("已有数据库绑定的时区与 bot.json 不一致时安装器在注册�
   }), 0o600);
   const path: string = join(fixture.runtimeRoot, "database/storage.sqlite");
   mkdirSync(dirname(path), { mode: 0o770 });
-  createStorageDatabase(path);
-  const database: StorageDatabase = openStorageDatabase({ path });
-  try {
-    initializeStorageDatabase(database, "Asia/Seoul");
-  } finally {
-    closeStorageDatabase(database);
-  }
+  bootstrapStorageDatabase(path, "Asia/Seoul");
   const before: MigrationFileSnapshot | null = await readMigrationFileSnapshot(path);
   const result: InstallerRunResult = await runInstaller(fixture, [
     { prompt: "是否重新填写？", reply: "n" },

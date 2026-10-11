@@ -123,15 +123,19 @@ describe("黑名单主键读失败的降级边界", () => {
     remover.mockClear();
     failBlocklistIdReads();
 
+    const before: number = Date.now();
     replayPendingBlockedRemovals();
     await Bun.sleep(0);
+    const after: number = Date.now();
 
     // 冻结批次没有 timer、没有退避，重试钩子只有「下一次 Worker 重建」和「一次确证的权限恢复」；读失败时不整体 return。
     expect(remover).toHaveBeenCalledTimes(1);
     expectLastRemoval({ chatId: -1001, userIds: [7], probeMembership: false });
-    // 被跳过的补扫没有回执可等，重新欠一次。
+    // 被跳过的补扫没有回执可等，按首档退避重新欠一次。
     expect(blocklistSweepState.get(-1002)?.sweptAt).toBeNull();
-    expect(blocklistSweepState.get(-1002)?.nextRetryAt).toBeGreaterThan(0);
+    const nextRetryAt: number = blocklistSweepState.get(-1002)!.nextRetryAt;
+    expect(nextRetryAt).toBeGreaterThanOrEqual(before + BLOCKLIST_SWEEP_RETRY_INTERVAL_MS);
+    expect(nextRetryAt).toBeLessThanOrEqual(after + BLOCKLIST_SWEEP_RETRY_INTERVAL_MS);
   });
 });
 

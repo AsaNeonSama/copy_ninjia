@@ -2,6 +2,7 @@ import type { FlushResult } from "../../packages/types/lifecycle";
 import { acknowledgeIdentityPolicyWrites, diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import type { IdentityStoragePersistedReply } from "../../packages/types/diskIO/replies";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import { loggerStub } from "../helpers/loggerMock";
 import { runWithUpdateAbortSignal } from "../../packages/infra/updateContext";
 import type { CachedUser } from "../../packages/types/chatState";
@@ -12,7 +13,11 @@ import {
   blockedIdentityTestView as blockedUserIds,
   seedMissingIdentity,
 } from "../helpers/identityStorage";
+import { replyCommandNoticeVia } from "../helpers/common";
+import { waitUntil } from "../helpers/waitUntil";
 
+/** 管理员且有「限制与封禁成员」：/block disable 照常对这类群发解封请求。 */
+const RESTRICT_PERMISSIONS: BotChatPermissions = botPermissions({ canRestrictMembers: true });
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 55);
 const unbanChatMemberIfBanned = mock(async (..._args: unknown[]): Promise<boolean> => true);
 const unbanChatSenderChat = mock(async (..._args: unknown[]): Promise<boolean> => true);
@@ -64,6 +69,7 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
   unbanChatMemberIfBanned,
   unbanChatSenderChat,
 }));
@@ -71,7 +77,12 @@ mock.module("../../packages/infra/telegram/client", () => ({
   installTelegramApi: (): void => {},
   telegramApi: { kind: "guard-api" },
 }));
-mock.module("../../packages/infra/botAdmin", () => ({ resolveBotAdminStatus }));
+mock.module("../../packages/infra/botAdmin", () => ({
+  resolveBotAdminStatus,
+  // 与生产同构：读各群 ChatState 里的权限快照，没有记录即未知。
+  botCanRestrictMembersIn: (chatId: number): boolean | undefined =>
+    chatStates.get(chatId)?.botPermissions?.canRestrictMembers,
+}));
 mock.module("../../packages/infra/storage/stateStore", () => ({
   getChatState: (): Record<string, never> => ({}), getChatStateCache: () => chatStates }));
 mock.module("../../packages/commands/targetResolution", () => ({ resolveCommandTarget }));
@@ -99,16 +110,8 @@ function handleUnblockCommand(ctx: never): Promise<void> {
 }
 const { blocklistIdentityMutationQueues } = await import("../../packages/cache/main/blocklist");
 
-function context(userId: number | undefined = 100, match: string = "@alice"): never {
-  const chat = { id: -1001, type: "supergroup" };
-  return {
-    chat,
-    from: userId === undefined ? undefined : { id: userId, first_name: "Admin", username: "admin" },
-    msgId: 10,
-    msg: { message_id: 10, chat },
-    me: { id: 999 },
-    match,
-  } as never;
+function context(userId: number = 100, match: string = "@alice"): never {
+  return groupCommandContext({ userId, match });
 }
 
 beforeEach(() => {
@@ -121,11 +124,11 @@ beforeEach(() => {
     resolveCommandTarget,
     postDiskIO,
     flushDiskIO,
-    unbanChatMemberIfBanned,
     unbanChatSenderChat,
-    resolveBotAdminStatus,
     loggerError,
   ]) mocked.mockClear();
+  unbanChatMemberIfBanned.mockReset();
+  resolveBotAdminStatus.mockReset();
   sendMessage.mockImplementation(async (): Promise<number | undefined> => 55);
   postDiskIO.mockImplementation((): boolean => true);
   flushDiskIO.mockImplementation(async (): Promise<FlushResult> => "flushed");
@@ -163,7 +166,7 @@ describe("/block disable", () => {
 
   test("从 SQLite 视图移除后在所有管理员群解除真人封禁", async () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
-    chatStates.set(-2002, { isInitEnabled: true, botPermissions: botPermissions() });
+    chatStates.set(-2002, { isInitEnabled: true, botPermissions: RESTRICT_PERMISSIONS });
     resolveBotAdminStatus.mockResolvedValueOnce(true);
 
     await handleUnblockCommand(context());
@@ -209,13 +212,26 @@ describe("/block disable", () => {
 
   test("跨群解封与连坐同一清单：是管理员但未 /init enable 的群不解封", async () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
-    chatStates.set(-2002, { isInitEnabled: true, botPermissions: botPermissions() });
-    chatStates.set(-3003, { botPermissions: botPermissions() });
+    chatStates.set(-2002, { isInitEnabled: true, botPermissions: RESTRICT_PERMISSIONS });
+    chatStates.set(-3003, { botPermissions: RESTRICT_PERMISSIONS });
     resolveBotAdminStatus.mockResolvedValueOnce(true);
 
     await handleUnblockCommand(context());
 
     expect(unbanChatMemberIfBanned.mock.calls.map((call): unknown => call[0])).toEqual([-1001, -2002]);
+  });
+
+  test("权限快照已确证缺封禁权限的群不发解封请求，计为失败", async () => {
+    blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+    chatStates.set(-2002, { isInitEnabled: true, botPermissions: botPermissions({ canRestrictMembers: false }) });
+    chatStates.set(-3003, { isInitEnabled: true, botPermissions: RESTRICT_PERMISSIONS });
+
+    await handleUnblockCommand(context());
+
+    expect(unbanChatMemberIfBanned.mock.calls.map((call): unknown => call[0])).toEqual([-3003]);
+    expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: expect.stringMatching(/在 1 个群把封禁一并解开了.*还有 1 个群没解开/),
+    }));
   });
 
   test("目标名单预热失败由解析层拒绝：不回「本来就不在小本本上」，也不跨群解封", async () => {
@@ -256,7 +272,7 @@ describe("/block disable", () => {
     // 扇出与 /block 共用 runManagedChatBatch：常规 API 错误由适配层归一化成 false，能抛到这里的是意外异常；
     // 逐项结算，不让整条命令连同战报一起失败。
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
-    chatStates.set(-2002, { isInitEnabled: true, botPermissions: botPermissions() });
+    chatStates.set(-2002, { isInitEnabled: true, botPermissions: RESTRICT_PERMISSIONS });
     resolveBotAdminStatus.mockResolvedValueOnce(true);
     unbanChatMemberIfBanned
       .mockRejectedValueOnce(new Error("unexpected adapter rejection"))
@@ -276,7 +292,7 @@ describe("/block disable", () => {
 
   test("update 被取消时各群的取消不逐群记意外错误，整条命令以取消解开", async () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
-    chatStates.set(-2002, { isInitEnabled: true, botPermissions: botPermissions() });
+    chatStates.set(-2002, { isInitEnabled: true, botPermissions: RESTRICT_PERMISSIONS });
     resolveBotAdminStatus.mockResolvedValueOnce(true);
     const controller: AbortController = new AbortController();
     unbanChatMemberIfBanned.mockImplementation(async (): Promise<boolean> => {
@@ -317,6 +333,55 @@ describe("/block disable", () => {
     });
     expect(unbanChatMemberIfBanned).not.toHaveBeenCalled();
     expect(unbanChatSenderChat).not.toHaveBeenCalled();
+  });
+
+  test("跨群解封与回执交给延迟命令执行器后台档：名单在 update 内解除，update 不等解封", async () => {
+    const { drainDeferredCommandRuntime, initDeferredCommandRuntime } = await import("../../packages/commands/deferredCommands");
+    initDeferredCommandRuntime();
+    try {
+      blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+      resolveBotAdminStatus.mockResolvedValueOnce(true);
+      const unbanGate: PromiseWithResolvers<boolean> = Promise.withResolvers<boolean>();
+      unbanChatMemberIfBanned.mockImplementationOnce(async (): Promise<boolean> => unbanGate.promise);
+
+      await handleUnblockCommand(context());
+
+      // handler 已返回：名单已解除，解封仍在后台等待，回执还没发。
+      expect(blockedUserIds.has(7)).toBeFalse();
+      await waitUntil((): boolean => unbanChatMemberIfBanned.mock.calls.length > 0);
+      expect(sendMessage).not.toHaveBeenCalled();
+      unbanGate.resolve(true);
+      expect(await drainDeferredCommandRuntime(1_000)).toBe("flushed");
+      expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+        chatId: -1001,
+        replyToMessageId: 10,
+        text: expect.stringContaining("1 个群"),
+      }));
+    } finally {
+      await drainDeferredCommandRuntime(0);
+    }
+  });
+
+  test("同身份更早的处置还在串行位上时 update 不等它，名单解除排在它之后", async () => {
+    const { drainDeferredCommandRuntime, initDeferredCommandRuntime } = await import("../../packages/commands/deferredCommands");
+    const { blocklistIdentityMutationRunner } = await import("../../packages/cache/main/blocklist");
+    initDeferredCommandRuntime();
+    try {
+      blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+      const earlier: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+      void blocklistIdentityMutationRunner.run(7, (): Promise<void> => earlier.promise);
+
+      await handleUnblockCommand(context());
+
+      // 更早的处置（如 /block enable 的扇出或广告处置）没结算前名单不动。
+      expect(blockedUserIds.has(7)).toBeTrue();
+      earlier.resolve();
+      expect(await drainDeferredCommandRuntime(1_000)).toBe("flushed");
+      expect(blockedUserIds.has(7)).toBeFalse();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      await drainDeferredCommandRuntime(0);
+    }
   });
 
   test("名单原本不存在仍执行 Telegram 解封，但不排队数据库 tombstone", async () => {

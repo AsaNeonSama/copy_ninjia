@@ -29,6 +29,7 @@ import {
   sweepBlockedMembers,
 } from "./blocklist/sweep";
 import { teardownChatRuntime } from "./chatTeardown";
+import type { ChatDepartureReason } from "../types/chatTeardown";
 import type { ChatState } from "../types/chatState";
 import type { BotChatPermissions } from "../types/telegram";
 import type { ChatMember, ChatMemberUpdated } from "grammy/types";
@@ -128,23 +129,7 @@ export async function handleMyChatMemberUpdate(ctx: Context): Promise<void> {
   // 私聊没有管理员概念，频道里机器人不做任何守卫/踢人，都不记录。
   if (update.chat.type !== "group" && update.chat.type !== "supergroup") return;
   if (update.new_chat_member.status === "left" || update.new_chat_member.status === "kicked") {
-    // 机器人已不在群内，权限位作废；重新入群后走按需现查重建。
-    forgetBotChatPermissions(update.chat.id);
-    // reason 为 `departed`：本群的 AI 记忆、`/wed` 成员集合、入群日志与问答一并删除
-    // （见 libs/chatTeardown.ts 的 purgesChatData）；被撤管理员的路径用 `lostAuthority`，不删数据。
-    await completeAfterTeardown(
-      teardownChatRuntime(update.chat.id, "departed"),
-      async (): Promise<void> => {
-        // 清除除 lockdown 之外的群状态；lockdown 尚未恢复时保留其 write-ahead owner。
-        forgetChatBlocklistWork(update.chat.id);
-        purgeChatStateExceptLockdown(update.chat.id);
-        await persistChatState(
-          update.chat.id,
-          `chat ${update.chat.id} state pruned after bot left/kicked`
-        );
-      },
-      `Failed to complete departure transition for chat ${update.chat.id}.`
-    );
+    await completeChatDeparture(update.chat.id, "departed");
     return;
   }
   const wasAdmin: boolean = isAdminStatus(update.old_chat_member.status);
@@ -160,6 +145,30 @@ export async function handleMyChatMemberUpdate(ctx: Context): Promise<void> {
   // 权限开关被改动（仍是管理员）同样以 my_chat_member 送达，
   // 这条路径是权限快照的近实时维护点。
   await recordBotChatPermissions(update.chat.id, permissions);
+}
+
+/**
+ * 机器人已离开群（`departed`）或群已不存在（`gone`）时的收尾，my_chat_member 离群、群升级迁移消息
+ * （app/registerHandlers.ts）与启动时确证不可达（infra/chatTitle.ts）三处共用：
+ * 1. 权限快照作废；机器人重新入群后走按需现查重建。
+ * 2. 全部 owner 的群 teardown：本群的 AI 记忆、`/wed` 成员集合、入群日志与问答一并删除
+ *    （见 libs/chatTeardown.ts 的 purgesChatData）。
+ * 3. teardown 落定后清掉黑名单补扫进度与除私密模式记录以外的群状态并落盘。私密模式记录在
+ *    `departed` 下留给 write-ahead owner 继续恢复；在 `gone` 下由 Anti-Raid Worker 放弃，主线程
+ *    收到 unlock 后清掉它，群状态随之删除（见 libs/chatTeardown.ts 的 abandonsLockdown）。
+ * 对同一个群重复调用是幂等的。teardown 与落盘的失败合并上抛。
+ */
+export async function completeChatDeparture(chatId: number, reason: ChatDepartureReason): Promise<void> {
+  forgetBotChatPermissions(chatId);
+  await completeAfterTeardown(
+    teardownChatRuntime(chatId, reason),
+    async (): Promise<void> => {
+      forgetChatBlocklistWork(chatId);
+      purgeChatStateExceptLockdown(chatId);
+      await persistChatState(chatId, `chat ${chatId} state pruned on departure (${reason})`);
+    },
+    `Failed to complete departure transition for chat ${chatId}.`
+  );
 }
 
 /**

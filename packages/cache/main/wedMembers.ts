@@ -9,9 +9,8 @@ import type { WedMembersDeleteDiskMessage } from "../../types/diskIO/messages";
  * 进程初始化清空后从文件恢复。
  *
  * 整群条目只在 `/init disable` 与机器人离群时由 commands/wed/persistence.ts 的
- * purgeWedMembers 删除，并连带删掉 `memory/wed/<chatId>.json`；被撤管理员与 LRU
- * 淘汰交互缓存都只收掉交互，成员集合原样保留（见 libs/chatTeardown.ts 的
- * purgesChatData）。待确认删除由 pendingWedMemberDeletes 持有，不再作为候选。
+ * purgeWedMembers 删除，并连带删掉 `memory/wed/<chatId>.json`；被撤管理员只收掉
+ * 交互，成员集合原样保留（见 libs/chatTeardown.ts 的 purgesChatData）。待确认删除由 pendingWedMemberDeletes 持有，不再作为候选。
  *
  * 本表是权威 owner；DiskIO 崩溃后由主线程全量重放，缺失条目表示没有候选。
  * 仅批量窗口关闭时投递最终数组，普通发言不创建快照或跨线程同步。

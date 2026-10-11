@@ -8,6 +8,7 @@ import type { FileApiFlavor } from "@grammyjs/files";
 import { Bot, InputFile } from "grammy";
 import type { Api, Context } from "grammy";
 import { telegramClientInitialization } from "../../cache/main/telegram";
+import { telegramSignal } from "../../libs/telegramSignal";
 import { BOT_TOKEN } from "../../config/bot";
 import { installTelegramApi } from "./client";
 import {
@@ -60,7 +61,7 @@ const mainTelegramApi: TelegramApi = {
       chat_id: chatId,
       receiver_user_id: receiverUserId,
       ephemeral_message_id: ephemeralMessageId,
-    }, signal as never),
+    }, telegramSignal(signal)),
   getChat: (...args: Parameters<TelegramApi["getChat"]>): ReturnType<TelegramApi["getChat"]> =>
     bot.api.getChat(...args),
   getChatAdministrators: (...args: Parameters<TelegramApi["getChatAdministrators"]>): ReturnType<TelegramApi["getChatAdministrators"]> =>

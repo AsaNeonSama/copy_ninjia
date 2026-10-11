@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { InputFile } from "grammy";
 
-const sendPhoto = mock(async (chatId: number, ..._rest: unknown[]): Promise<unknown> => ({ message_id: 55, chat: { id: chatId } }));
+async function sendPhotoStub(chatId: number, ..._rest: unknown[]): Promise<unknown> {
+  return { message_id: 55, chat: { id: chatId } };
+}
+const sendPhoto = mock(sendPhotoStub);
 const deleteMessageAfter = mock((..._args: unknown[]): void => {});
 const markSelfSent = mock((_chatId: number, _messageId: number): void => {});
 mock.module("../../packages/infra/telegram/mainClient", () => ({ bot: { api: { sendPhoto } } }));
@@ -17,9 +20,10 @@ const { runWithUpdateAbortSignal } = await import("../../packages/infra/updateCo
 const { COMMAND_MESSAGE_AUTO_DELETE_MS } = await import("../../packages/consts/commands");
 
 beforeEach(() => {
-  sendPhoto.mockClear();
   deleteMessageAfter.mockClear();
   markSelfSent.mockClear();
+  sendPhoto.mockReset();
+  sendPhoto.mockImplementation(sendPhotoStub);
 });
 
 describe("sendCommandPhoto", () => {

@@ -53,4 +53,4 @@ export {
   probeChatAdmin,
   probeChatMembership,
 } from "./actions/membership";
-export { sendCommandMessage } from "./commandMessages";
+export { replyCommandNotice, sendCommandMessage } from "./commandMessages";

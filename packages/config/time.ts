@@ -1,3 +1,9 @@
+/**
+ * 本线程启动时区快照的接管与读取。
+ *
+ * `packages/states/` 经 libs/time.ts 的按日运算传递依赖本模块；纯度门禁把它登记为不透明模块，
+ * 不再展开它背后的 holder（scripts/conventions/moduleBoundaries.ts 的 STATES_CLOSURE_OPAQUE_MODULES）。
+ */
 import { timeZoneState } from "../cache/perThread/time";
 import { BOT_CONFIG_PATH } from "../consts/paths";
 import { invalidInput } from "../libs/inputValidation";

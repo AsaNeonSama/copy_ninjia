@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from "bun:test";
+import type { Mock } from "bun:test";
 import type { ChatPermissions } from "grammy/types";
+import type { LockdownEntry } from "../../../packages/types/antiRaid/internal";
 import { ANTI_RAID_PER_MINUTE_LIMIT, RESTORE_RETRY_MS } from "../../../packages/consts/antiRaid/lockdown";
 import { waitUntil } from "../../helpers/waitUntil";
 
@@ -66,7 +68,7 @@ mock.module("../../../packages/workers/antiRaid/taskTracker", () => ({
   trackAntiRaidTask: ({ task }: { task: Promise<void> }): Promise<void> => task,
 }));
 const { lockdownEntries, lockdownApiChains } = await import("../../../packages/cache/workers/antiRaid/lockdown");
-const { recordJoin, adoptLockdowns, deactivateLockdownChat, handleLockdownPersisted, handleLockdownPersistFailed, stopLockdownRuntime } = await import("../../../packages/workers/antiRaid/lockdownRuntime");
+const { recordJoin, adoptLockdowns, abandonLockdownChat, deactivateLockdownChat, handleLockdownPersisted, handleLockdownPersistFailed, stopLockdownRuntime } = await import("../../../packages/workers/antiRaid/lockdownRuntime");
 
 function trigger(): void {
   for (let index: number = 0; index <= ANTI_RAID_PER_MINUTE_LIMIT; index++) recordJoin(CHAT_ID, Date.now());
@@ -178,4 +180,25 @@ test("公告执行前已解除时不再发送旧公告或读取旧权限", async
   await drain();
   expect(sent).toEqual([]);
   expect(queries).toBe(0);
+});
+
+test("群已不存在时放弃已生效的私密模式：撤掉 timer、只报 unlock，不恢复权限也不删公告", async (): Promise<void> => {
+  trigger();
+  await drain();
+  const entry: LockdownEntry | undefined = lockdownEntries.get(CHAT_ID);
+  expect(entry?.state.kind).toBe("active");
+  expect(entry?.restoreTimer).toBeDefined();
+  // beforeEach 已经把 postMessage 换成替身；清掉激活阶段的调用，只看放弃之后发了什么。
+  const posted: Mock<typeof postMessage> = spyOn(globalThis, "postMessage");
+  posted.mockClear();
+
+  abandonLockdownChat(CHAT_ID);
+  await drain();
+
+  expect(lockdownEntries.has(CHAT_ID)).toBe(false);
+  expect(entry?.restoreTimer).toBeUndefined();
+  expect(posted.mock.calls).toEqual([[{ type: "unlock", chatId: CHAT_ID }]]);
+  expect(writes).toEqual([false]);
+  expect(restoreAttempts).toBe(0);
+  expect(deleted).toEqual([]);
 });

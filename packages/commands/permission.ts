@@ -23,7 +23,7 @@ import { escapeMarkdownV2, markdownV2Pre } from "../libs/telegramMarkdown";
 
 import { confirmIdentityPolicyPersisted, prefetchIdentityPolicies } from "../infra/identityStorage";
 import { logger } from "../infra/logger";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { formatActorLabel, formatTargetLabel } from "../users/userLabel";
 import { resolveCommandActor } from "./commandActor";
 import { resolveCommandTarget } from "./targetResolution";
@@ -70,18 +70,6 @@ export function parsePermissionBoolean(raw: string): boolean | undefined {
   return undefined;
 }
 
-/** reportWhitelistMutationFailure 的入参。 */
-interface ReportWhitelistMutationFailureParams {
-  /** 回执发往的会话。 */
-  readonly chatId: number;
-  /** 命令消息 id，回执回复到它下面。 */
-  readonly messageId: number | undefined;
-  /** 本次要改的身份，只用于日志定位。 */
-  readonly targetId: number;
-  /** 写盘抛出的原始错误。 */
-  readonly error: unknown;
-}
-
 /**
  * 白名单写盘失败时就地降级：记一行错误日志并回执 mutationFailed，异常不逸出 handler。
  *
@@ -89,21 +77,16 @@ interface ReportWhitelistMutationFailureParams {
  * 主线程 LRU 里，幂等重试与 Worker 重建都会重放；回执只说「没写进硬盘」。降级语义与
  * antiRaid/blocklistGuard.ts 的 claimBlockedJoiner、commands/white.ts 一致。
  */
-async function reportWhitelistMutationFailure({
-  chatId,
-  messageId,
-  targetId,
-  error,
-}: ReportWhitelistMutationFailureParams): Promise<void> {
+async function reportWhitelistMutationFailure(
+  ctx: CommandContext<Context>,
+  targetId: number,
+  error: unknown
+): Promise<void> {
   logger.error(
     `Failed to persist the whitelist permission change for identity ${targetId}:`,
     error
   );
-  await sendCommandMessage({
-    chatId,
-    text: chatAtmosphere().PERMISSION_COMMAND_TEXTS.mutationFailed,
-    replyToMessageId: messageId,
-  });
+  await replyCommandNotice(ctx, chatAtmosphere().PERMISSION_COMMAND_TEXTS.mutationFailed);
 }
 
 /** `/permission help`：长期保留的权限说明看板。 */
@@ -143,11 +126,7 @@ async function handlePermissionQuery(
   }
   if (target === undefined) return;
   if (!await prefetchIdentityPolicies([target.id])) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().IDENTITY_POLICY_QUERY_UNAVAILABLE_TEXT,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().IDENTITY_POLICY_QUERY_UNAVAILABLE_TEXT);
     return;
   }
 
@@ -183,15 +162,10 @@ async function handlePermissionMutation(
   tokens: readonly string[]
 ): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const isEnableAll: boolean =
     tokens.at(-1)?.toLowerCase() === WHITELIST_PERMISSION_ALL_COMMAND;
   if (!isEnableAll && tokens.length < 2) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().PERMISSION_COMMAND_TEXTS.usage,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().PERMISSION_COMMAND_TEXTS.usage);
     return;
   }
 
@@ -200,13 +174,9 @@ async function handlePermissionMutation(
     const key: WhitelistPermissionKey | undefined = parseWhitelistPermissionKey(tokens.at(-2)!);
     const value: boolean | undefined = parsePermissionBoolean(tokens.at(-1)!);
     if (key === undefined || value === undefined) {
-      await sendCommandMessage({
-        chatId,
-        text: chatAtmosphere().PERMISSION_COMMAND_TEXTS.usageWithKeys(
-          WHITELIST_PERMISSION_KEYS.join(", ")
-        ),
-        replyToMessageId: messageId,
-      });
+      await replyCommandNotice(ctx, chatAtmosphere().PERMISSION_COMMAND_TEXTS.usageWithKeys(
+        WHITELIST_PERMISSION_KEYS.join(", ")
+      ));
       return;
     }
     mutation = { kind: "set", key, value };
@@ -234,20 +204,12 @@ async function handlePermissionMutation(
   // 超级管理员的权限来自身份本身、恒为全开，不落进 SQLite 白名单表
   // （见 consts/whitelist.ts 的 SUPER_ADMIN_WHITELIST_PERMISSIONS），目标是他时在入口拒绝。
   if (target.id === SUPER_ADMIN_USER_ID) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().PERMISSION_COMMAND_TEXTS.superAdminTarget,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().PERMISSION_COMMAND_TEXTS.superAdminTarget);
     return;
   }
   if (!isWhitelisted(target.id)) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.PERMISSION_COMMAND_TEXTS.targetNotWhitelisted(formatTargetLabel(target, atmosphere)),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, atmosphere.PERMISSION_COMMAND_TEXTS.targetNotWhitelisted(formatTargetLabel(target, atmosphere)));
     return;
   }
 
@@ -258,7 +220,7 @@ async function handlePermissionMutation(
       : setWhitelistPermission({ id: target.id, key: mutation.key, value: mutation.value });
     await confirmIdentityPolicyPersisted("whitelist", target.id, !result.changed);
   } catch (error: unknown) {
-    await reportWhitelistMutationFailure({ chatId, messageId, targetId: target.id, error });
+    await reportWhitelistMutationFailure(ctx, target.id, error);
     return;
   }
   const atmosphere: AtmosphereTexts = chatAtmosphere();
@@ -276,7 +238,7 @@ async function handlePermissionMutation(
       changed: result.changed,
     });
   }
-  await sendCommandMessage({ chatId, text: replyText, replyToMessageId: messageId });
+  await replyCommandNotice(ctx, replyText);
 }
 
 /**
@@ -305,11 +267,7 @@ export async function handlePermissionCommand(
   }
   if (actor?.id !== SUPER_ADMIN_USER_ID) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId: ctx.chat.id,
-      text: atmosphere.PERMISSION_COMMAND_TEXTS.mutationRejection(formatActorLabel(actor, atmosphere)),
-      replyToMessageId: ctx.msgId,
-    });
+    await replyCommandNotice(ctx, atmosphere.PERMISSION_COMMAND_TEXTS.mutationRejection(formatActorLabel(actor, atmosphere)));
     return;
   }
   await handlePermissionMutation(ctx, tokens);

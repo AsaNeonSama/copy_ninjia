@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { statSync } from "node:fs";
 import { getTableName } from "drizzle-orm";
 import { chatStates } from "../../../packages/database/schema/chatState";
 import { blocklistEntries, permissionList } from "../../../packages/database/schema/identityPolicy";
@@ -174,10 +173,10 @@ beforeEach(() => {
 });
 
 describe("DiskIO Worker SQLite 身份存储", () => {
-  test("数据库文件由 owner 读写，启动只恢复计数和待踢行", () => {
-    expect(statSync(IDENTITY_DATABASE_PATH).mode & 0o777).toBe(IDENTITY_DATABASE_FILE_MODE);
+  test("数据库文件由 owner 读写，启动只恢复计数和待踢行", async () => {
+    expect((await Bun.file(IDENTITY_DATABASE_PATH).stat()).mode & 0o777).toBe(IDENTITY_DATABASE_FILE_MODE);
     // 隔离测试进程未必属于临时根目录的 group，内核可清除 setgid；这里只验证 owner/group 权限位。
-    expect(statSync(DATABASE_DIR).mode & 0o777).toBe(
+    expect((await Bun.file(DATABASE_DIR).stat()).mode & 0o777).toBe(
       IDENTITY_DATABASE_DIRECTORY_MODE & 0o777
     );
     expect(hydrateStorageDatabase()).toEqual({

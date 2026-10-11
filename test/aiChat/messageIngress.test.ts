@@ -40,7 +40,7 @@ beforeEach((): void => {
   telegramOutboundGateState.retryPendingCount = 0;
   telegramOutboundGateState.lanes.inline.activeCount = 0;
   telegramOutboundGateState.lanes.inline.pendingCount = 0;
-  postAiChatOrThrow.mockClear();
+  postAiChatOrThrow.mockReset();
   postAiChatOrThrow.mockImplementation((message: AiChatWorkerMessage): void => {
     workerPosts.push(message);
   });

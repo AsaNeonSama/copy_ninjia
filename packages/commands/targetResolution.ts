@@ -3,16 +3,23 @@ import type { Message } from "grammy/types";
 import type { CachedUser } from "../types/chatState";
 import type { CommandTargetMessages } from "../types/commands";
 import { sendCommandMessage } from "../infra/telegram";
-import { resolveIdTarget, resolveReplyTarget, resolveUsernameTarget } from "../users/senderIdentity";
+import {
+  resolveIdTarget,
+  resolveReplyTarget,
+  resolveUsernameTarget,
+  updateCachedIdentity,
+} from "../users/senderIdentity";
 import { sanitizeDisplayName, truncateInline } from "../libs/text";
 import { INVALID_USERNAME_ECHO_MAX_CHARS, USERNAME_ARG_PATTERN } from "../consts/commands";
 import { parseChatIdArgument, parseUserIdArgument } from "../libs/telegramId";
 
 import { prefetchIdentityPolicies } from "../infra/identityStorage";
+import { readLiveTargetIdentity } from "./liveTargetIdentity";
 
 /** 参数那一路的解析结果；各状态对应不同的提示。 */
 type ArgumentTarget =
-  | { readonly kind: "resolved"; readonly user: CachedUser }
+  /** username 只在经 @username 别名解析时出现（大小写按参数原文）。 */
+  | { readonly kind: "resolved"; readonly user: CachedUser; readonly username?: string }
   /** 形态就不对：既不是合法 @username，也不是（按开关放行的）id。 */
   | { readonly kind: "malformed" }
   /** 是合法 @username，但缓存里没有这个人。 */
@@ -65,6 +72,11 @@ export interface ResolveCommandTargetParams {
    * 破坏性决策的命令（`/block … enable`、`/block … disable`、`/mute`、`/white`、`/permission` 修改
    * 路径）必须开启：此时发送 IDENTITY_POLICY_UNAVAILABLE_TEXT 并返回 undefined。
    * 不读名单做决策的命令保持缺省，预热结果不影响目标解析。
+   *
+   * 同一批命令经 @username 指定目标时，执行前还按 id 现查目标当前的用户名（见
+   * ./liveTargetIdentity.ts）：别名表只记最近一次观察到的发言者，改名或换绑后可能仍指向
+   * 前任持有人。用户名一致才放行；不一致发送 usernameTargetChanged，现查失败发送
+   * usernameTargetUnverified，都返回 undefined。现查结果写回身份缓存。
    */
   requireIdentityPolicies?: boolean;
   /**
@@ -103,7 +115,7 @@ function resolveArgumentTarget({
   if (usernameMatch === null) return { kind: "malformed" };
   const username: string = usernameMatch[1]!;
   const user: CachedUser | undefined = resolveUsernameTarget(username);
-  return user === undefined ? { kind: "unknownUsername", username } : { kind: "resolved", user };
+  return user === undefined ? { kind: "unknownUsername", username } : { kind: "resolved", user, username };
 }
 
 /**
@@ -162,6 +174,8 @@ export async function resolveCommandTarget({
     : resolveArgumentTarget({ trimmedArgument, acceptUserId, acceptChatId });
 
   let targetUser: CachedUser;
+  // 经 @username 别名解析出的目标才有值；回复与 id 两条路本身就是权威身份。
+  let aliasUsername: string | undefined;
   if (replyTarget !== undefined) {
     // 参数与回复指向同一个 id 时照常放行；其余情形一律报冲突，见函数头注。
     if (argument !== undefined && (argument.kind !== "resolved" || argument.user.id !== replyTarget.id)) {
@@ -188,12 +202,36 @@ export async function resolveCommandTarget({
     return undefined;
   } else {
     targetUser = argument.user;
+    aliasUsername = argument.username;
   }
 
   // 缺省不允许把机器人自己设成目标；只读的 /info 例外（allowSelfTarget）。
   if (!allowSelfTarget && targetUser.id === botUserId) {
     await sendCommandMessage({ chatId, text: messages.selfTarget, replyToMessageId: messageId });
     return undefined;
+  }
+
+  if (requireIdentityPolicies && aliasUsername !== undefined) {
+    const live: CachedUser | undefined = await readLiveTargetIdentity(chatId, targetUser);
+    if (live === undefined) {
+      await sendCommandMessage({
+        chatId,
+        text: chatAtmosphere().NOTICE_TEXTS.usernameTargetUnverified(aliasUsername),
+        replyToMessageId: messageId,
+      });
+      return undefined;
+    }
+    // 现查结果是此刻的权威资料：一致时刷新展示字段，不一致时撤掉过期别名。
+    updateCachedIdentity(live);
+    if (live.username?.toLowerCase() !== aliasUsername.toLowerCase()) {
+      await sendCommandMessage({
+        chatId,
+        text: chatAtmosphere().NOTICE_TEXTS.usernameTargetChanged(aliasUsername),
+        replyToMessageId: messageId,
+      });
+      return undefined;
+    }
+    targetUser = live;
   }
 
   // 目标是当前群自己的 identity 时缺省放行（/copy 保留该身份）；

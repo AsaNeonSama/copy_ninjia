@@ -10,15 +10,17 @@ import {
   GAG_CLEANUP_RETRY_DELAYS_MS,
   GAG_SESSION_MAX,
 } from "../../consts/gag";
+import { trackBackgroundTask } from "../../infra/backgroundTasks";
 import { registerChatTeardown } from "../../infra/chatTeardownRegistry";
 import { logger } from "../../infra/logger";
+import { isChatUnreachable } from "../../libs/chatTeardown";
 import { settleWithinBudget } from "../../libs/inflight";
 import { sendCommandMessage } from "../../infra/telegram";
 import type { FlushResult } from "../../types/lifecycle";
 import type { ChatTeardownReason } from "../../types/chatTeardown";
 import type { GagSession } from "../../types/gag";
 import { releaseGagNoticeSlot } from "./notices";
-import { findGagSession, trackGagBackgroundTask } from "./owner";
+import { findGagSession } from "./owner";
 import {
   clearGagSpeakNoticeRefreshTimer,
   scheduleGagSpeakNoticeRefresh,
@@ -150,8 +152,12 @@ async function runExclusiveEndingTask(
   }
 }
 
+/**
+ * 把收尾任务纳入 gag 后台任务集合，调用方不等待 Telegram 往返；停机由 drainGagRuntime 排空，
+ * 生命周期边界见 docs/cn/04-invariants.md。
+ */
 function observeGagTask(task: Promise<boolean>): void {
-  trackGagBackgroundTask(task, "Unexpected error while finishing a gag session:");
+  trackBackgroundTask(gagBackgroundTasks, task, "Unexpected error while finishing a gag session:");
 }
 
 function scheduleCleanupRetry(session: GagSession): void {
@@ -339,7 +345,8 @@ export async function commitGagNotices(session: GagSession): Promise<void> {
 /**
  * 群停管、机器人离群或降权时静默结束 gag，并重试遗留的 ending 提示。
  *
- * reason 为 `departed` 时直接释放会话与 timer，不发起提示删除，也不留给停机排空。
+ * 机器人已无法访问本群（isChatUnreachable：被移出或群已不存在）时直接释放会话与 timer，
+ * 不发起提示删除，也不留给停机排空。
  */
 export async function teardownGagInChat(
   chatId: number,
@@ -348,7 +355,7 @@ export async function teardownGagInChat(
   const sessions: GagSession[] | undefined = gagSessionsByChat.get(chatId);
   if (sessions === undefined) return;
   const snapshot: GagSession[] = [...sessions];
-  if (reason === "departed") {
+  if (isChatUnreachable(reason)) {
     for (const session of snapshot) removeGagSession(session);
     return;
   }

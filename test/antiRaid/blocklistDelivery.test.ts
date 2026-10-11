@@ -60,7 +60,8 @@ const replacedJoin: AntiRaidWorkerMessage = {
 beforeEach(() => {
   errorLogs.length = 0;
   requestBlocklistResweep.mockClear();
-  persistPendingBlockedRemovals.mockClear();
+  persistPendingBlockedRemovals.mockReset();
+  persistPendingBlockedRemovals.mockResolvedValue(undefined);
   retainCurrentlyBlockedIdentityIds.mockClear();
   effectiveBlockedIds.clear();
   effectiveBlockedIds.add(42);

@@ -53,8 +53,8 @@ describe("diskIO/logFiles 启动恢复", () => {
     await initLogFiles();
 
     expect(loggerFileState.current?.day).toBe(today);
-    expect(existsSync(stalePath)).toBeFalse();
-    expect(existsSync(tempPath)).toBeFalse();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
+    expect(await Bun.file(tempPath).exists()).toBeFalse();
   });
 
   test("inspect 不规范化或清理，adopt 与 maintenance 分阶段生效", async () => {
@@ -69,17 +69,17 @@ describe("diskIO/logFiles 启动恢复", () => {
 
     const inspection = await inspectLogFiles();
     expect(await Bun.file(todayPath).text()).toBe(original);
-    expect(existsSync(stalePath)).toBeTrue();
-    expect(existsSync(tempPath)).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeTrue();
+    expect(await Bun.file(tempPath).exists()).toBeTrue();
 
     adoptLogFiles(inspection);
     expect((await Bun.file(todayPath).text()).endsWith("\n}")).toBeTrue();
-    expect(existsSync(stalePath)).toBeTrue();
-    expect(existsSync(tempPath)).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeTrue();
+    expect(await Bun.file(tempPath).exists()).toBeTrue();
 
     await maintainLogFiles(inspection);
-    expect(existsSync(stalePath)).toBeFalse();
-    expect(existsSync(tempPath)).toBeFalse();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
+    expect(await Bun.file(tempPath).exists()).toBeFalse();
   });
 
   test("当前日志文件结构不兼容时阻止接管并保留原文件及旧日日志", async () => {
@@ -92,7 +92,7 @@ describe("diskIO/logFiles 启动恢复", () => {
 
     await expect(initLogFiles()).rejects.toThrow("must contain a top-level JSON object");
     expect(await Bun.file(todayPath).text()).toBe(original);
-    expect(existsSync(stalePath)).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeTrue();
     expect(loggerFileState.current).toBeNull();
   });
 
@@ -106,7 +106,7 @@ describe("diskIO/logFiles 启动恢复", () => {
 
     await expect(initLogFiles()).rejects.toThrow("entry[0] must be a log record");
     expect(await Bun.file(todayPath).text()).toBe(original);
-    expect(existsSync(stalePath)).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeTrue();
     expect(loggerFileState.current).toBeNull();
   });
 
@@ -186,9 +186,9 @@ describe("diskIO/logFiles 启动恢复", () => {
     await maintainLogRetention();
 
     expect(flushBuffer.entries).toHaveLength(0);
-    expect(existsSync(join(LOGS_DIR, `${getDateKey(timestamp)}.json`))).toBeTrue();
-    expect(existsSync(stalePath)).toBeFalse();
-    expect(existsSync(tempPath)).toBeFalse();
+    expect(await Bun.file(join(LOGS_DIR, `${getDateKey(timestamp)}.json`)).exists()).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
+    expect(await Bun.file(tempPath).exists()).toBeFalse();
   });
 
   test("临时与过期文件删不掉时静默跳过，其余照删、维护不抛", async () => {
@@ -207,8 +207,8 @@ describe("diskIO/logFiles 启动恢复", () => {
 
     expect(existsSync(stuckTempPath)).toBeTrue();
     expect(existsSync(stuckStalePath)).toBeTrue();
-    expect(existsSync(tempPath)).toBeFalse();
-    expect(existsSync(stalePath)).toBeFalse();
+    expect(await Bun.file(tempPath).exists()).toBeFalse();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
   });
 
   test("批次写入遇到不兼容文件时失败并重置游标，原文件保持不变", async () => {

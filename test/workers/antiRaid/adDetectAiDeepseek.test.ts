@@ -61,7 +61,7 @@ beforeEach(() => {
   adDetectOpenAiClientHolder.current = null;
   errorLogs.length = 0;
   constructions.length = 0;
-  create.mockClear();
+  create.mockReset();
   create.mockImplementation(async (): Promise<unknown> => ({
     choices: [{ message: { content: "{\"ok\": true}" } }],
   }));

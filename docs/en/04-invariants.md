@@ -124,6 +124,9 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 - **Low-priority group title maintenance**:
   - Starts asynchronously after startup, command registration, and update runner initialization are complete.
   - Batches `getChat` calls via `runBoundedSettledBatch` (capped at `STATE_MANAGED_CHAT_LIMIT`), handling chats independently and respecting lifecycle termination signals.
+  - `classifyChatAbsence` in `infra/telegram/errors.ts` classifies `getChat` failures: a 400 whose description is `chat not found` or `group chat was upgraded to a supergroup chat`, or that carries `parameters.migrate_to_chat_id`, is `gone`; a 403 whose description is `bot was kicked from the (super)group chat` or `bot is not a member of the (super)group chat` is `departed`; every other error is only logged.
+  - A chat classified as unreachable is looked up again every `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` until `CHAT_ABSENCE_CONFIRM_ATTEMPTS` lookups (including the first) have been made. Only when every lookup reaches the same class is the chat torn down through `completeChatDeparture`, with one warn line. Finding the chat, a different class or error, or the chat having left the chat-state table abandons the confirmation for this run.
+  - The wait between lookups listens on `chatTitleRefreshRuntime.absenceConfirmation`; shutdown quiesce and abort both interrupt it at once, so the title refresh task settles immediately. In-flight `getChat` calls are unaffected and settle within the maintenance budget as before.
 
 ### Outbound Requests and Message Safety
 
@@ -262,9 +265,11 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 - **Decoupled state machines and pure transitions**:
   - State machine types (`State / Event / Effect / Transition / Decision`) reside in `packages/types/states/`.
   - `packages/states/` contains pure transition functions with zero I/O operations; interpreters and caches depend directly on these types.
-  - **Two structural models**:
+  - Both direct and indirect runtime dependencies must stay within `consts`, `libs`, `types`, and `states`: direct imports are checked one by one, and modules reached further through direct dependencies are traced along the actual import graph (`scripts/conventions/moduleBoundaries.ts`). Day-index arithmetic in `libs/time.ts` reads the thread's startup time-zone snapshot through `config/time.ts`; that module is the only registered exception, allowed without being expanded further (`STATES_CLOSURE_OPAQUE_MODULES`).
+  - **Three structural models**:
     - **Discrete state machines**: For domains with persistent lifecycle states (like `verification` and `lockdown`), using `transition(state, event) → {next, effects}`.
     - **Pure rule functions**: For stateless evaluations (like `replyAdmission` and `adDetectAdmission`), taking computed inputs and returning decisions without internal timers.
+    - **Single-record reducers**: For one record advanced by call results or time while containers and write-back stay outside (like `reduceMediaInputResult(current, event) → {next, effects}` in `mediaInputSupport` and `advanceTemporaryAdBypassActivity(current, now) → next` in `temporaryAdBypass`). An unchanged state returns the input object itself, so callers skip the table replacement or write-back by reference equality.
 
 - **Lockdown default chat permission updates must set independent flags**:
   - Every read-modify-write of group default permissions passes `use_independent_chat_permissions: true`.
@@ -286,6 +291,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
   - Entering `ACTIVE` locks the `LOCKDOWN_MS` deadline; subsequent joins do not reschedule it.
   - Expiration persists restore intent, receives durable ACKs, and invokes the Telegram API.
   - Failed restorations retry via `RESTORE_RETRY_MS`. Repeated permission denials (`RESTORE_PERMANENT_FAILURE_LOG_LIMIT`) double the retry interval up to `RESTORE_PERMANENT_RETRY_MAX_MS` while retaining records.
+  - The only exception is a chat that no longer exists (teardown reason `gone`): the main thread sends `deactivateChat` with `abandonLockdown: true`, and the Worker dispatches the `chatGone` state-machine event, which deletes the record from any phase, clears its timers, and only emits `reportUnlock` — no permission restore, no announcement deletion. On `unlock` the main thread clears `lockdown`; a chat state left with nothing else is deleted and its managed-chat slot is freed. The main thread never deletes the lockdown record directly, so an in-flight state report from the Worker cannot write it back.
   - Restoration success clears the group join window; announcement deletion failures log without blocking subsequent rounds.
 
 - **Schema normalization for persisted permissions**:
@@ -545,7 +551,8 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 - **Verification terminal retry and persistence guarantees**:
   - Verification terminal operations are limited to at most `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` attempts per process.
   - Completed terminal actions wait for the final revision's durable persistence receipt before cleaning up in-memory records. If revisions increment while waiting, the new revision is confirmed without delaying completed terminal results.
-  - If the batch of side effects that obtained a terminal permit rejects midway (for example, a Worker→main-thread request fails), `retryRejectedTerminal` resets the Worker-local execution gate while the entry still holds the same terminal object and schedules one retry on that entry's backoff sequence (`kickPending` dispatches `kickRetry`; `checkingInviter` and `expelling` dispatch `terminalPersisted`); the error is still logged. Entries that changed state are left alone. Timeout-kick battle reports are sent through `runTelegramAction`, so a rejected request counts as "not sent" and follows the same backoff.
+  - Worker-local execution gates on terminal states (`effectStarted`, `executionStarted`) are never persisted and change only through state machine events: `kickRequestSent` sets `executionStarted` right before the lockdown kick request is issued synchronously, `kickRequestFailed` clears it when the request returns without settling, and `terminalAttemptUnsettled` clears the execution gates when a terminal attempt ends unsettled (both gates for `kickPending`). All three events carry the state object captured when the attempt started and have no effect once the state has been replaced.
+  - When an attempt ends unsettled, `retryTerminalAttempt` first dispatches `terminalAttemptUnsettled` and then schedules one retry on that entry's backoff sequence (`kickPending` dispatches `kickRetry`; `checkingInviter` and `expelling` dispatch `terminalPersisted`). The same step runs when the batch of side effects that obtained a terminal permit rejects midway (for example, a Worker→main-thread request fails); the error is still logged, and entries that changed state are left alone. Timeout-kick battle reports are sent through `runTelegramAction`, so a rejected request counts as "not sent" and follows the same backoff.
   - When the main thread executes emergency lockdown recovery, it dispatches deletion of the recorded announcement before clearing records; deletion failures log to the shared Telegram logger, and recovery does not block on deletion results.
 
 - **Timeout verification rechecks inviter identity (`checkingInviter`)**:
@@ -597,7 +604,8 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 - **Verification button interaction permissions**:
   - **"我是良民" (Self-verify)**: Allowed only for the pending member. The Worker verifies `callback_query.from.id === callback_data` directly, rejecting unverified claims.
   - **"通过" (Approve)**: Allowed only for **non-anonymous group administrators** clicking on behalf of candidates. Evaluated via Worker-side admin caches (`isChatAdmin`), fetching `getChatAdministrators` on cold misses; query failures prompt retries without altering records.
-  - **Allowlist independence**: Allowlist members or the super administrator cannot approve members unless they are administrators in that group; targets clicking "通过" on themselves are rejected. Inviter exemptions similarly recognize only non-anonymous administrators.
+  - **Allowlist independence**: Allowlist members or the super administrator cannot approve members unless they are administrators in that group; targets clicking "通过" on themselves are rejected. Inviter exemptions similarly recognize only non-anonymous human administrators.
+  - **Bots are treated as ordinary members**: Bots never enter the Worker-side admin cache, whether or not they are administrators. The full `getChatAdministrators` fetch omits `return_bots` and filters out the bot itself by `user.is_bot`; `chat_member` increments (`isInviterExemptAdmin`) follow the same rule. Members a bot adds are therefore not exempt from verification, and the admin identity gates of flood muting and ad disposal do not treat bots as administrators.
 
 - **Terminal member kicks and group type adaptation**:
   - `kickChatMember` must always be preceded by `probeChatMembership`: kicks proceed only if presence is confirmed; confirmed absence settles silently without battle-reports; query failures enter retry backoff.
@@ -670,6 +678,7 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
 - **Two-Way Username Cache Consistency**:
   - The sender cache maintains two-way mappings: normalized `username -> identity` and `sender ID -> current username`.
   - Atomically updates both mappings under a single owner during renames, removals, reassignments, and LRU evictions. The resolver rejects alias conflicts and inconsistent records.
+  - **Live username check for destructive commands**: The alias table only remembers the most recently observed speaker, so after a rename or reassignment it may still point at the previous holder. When a command with `requireIdentityPolicies` (`/block … enable|disable`, `/mute`, `/white`, the `/permission` modification path) targets `@username`, it re-reads the target's current identity by id before acting (`commands/liveTargetIdentity.ts`: users via `getChatMember` in the current chat, channel and group identities via `getChat`) and writes the result back to the identity cache. It proceeds only if the username still matches; on a mismatch it refuses and drops the stale alias, and a failed lookup also refuses, asking the caller to reply to the target or use its id. Replies and bare ids are authoritative identities and are not re-checked.
 - **Anonymous Admins and Group Identities**:
   - Anonymous admins retain admin exemptions, but cannot act as identifiable inviters to pass down verification waivers to newcomers.
   - When speaking on behalf of the group, visible sender resolution keeps the group identity for `/copy` and avatar fetching. Destructive management commands must reject the current group identity as a user target.
@@ -722,15 +731,19 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
 - **Chat Runtime Teardown**:
   - Domain cleanup callbacks (`copy`, `translate`, `gag`, `qa`, `wed`, `aiChat`, `antiRaid`, `joinLog`) are registered in reverse through `packages/infra/chatTeardownRegistry.ts` into `packages/cache/main/chatTeardown.ts`. `packages/infra/chatTeardown.ts` orchestrates cleanup and must not statically depend on business modules.
   - **Teardown Reason & Purge Decision (`ChatTeardownReason`)**:
-    - `explicitDisable` (`/init disable`) and `departed` (bot removed from chat): chat is no longer managed; purge `/wed` members, join logs, Q&A records, and `chat_states`.
+    - `explicitDisable` (`/init disable`), `departed` (bot removed from chat, or confirmed at startup to no longer be a member), and `gone` (the chat no longer exists: the old id of a group upgraded to a supergroup, or `chat not found` confirmed at startup): chat is no longer managed; purge `/wed` members, join logs, Q&A records, and `chat_states`.
     - `lostAuthority` (bot lost admin rights but remains in chat): pause runtime only; preserve all persisted data to resume when permissions return.
-    - Call `purgesChatData` in `packages/libs/chatTeardown.ts` rather than checking reason strings manually.
-    - Exceptions: AI memory purges on all teardown reasons; leftover buttons (verification, etc.) delete via API only on `explicitDisable` (on `departed`, the bot has already left and issues no API calls).
+    - Owners take their decisions from the three predicates in `packages/libs/chatTeardown.ts` rather than checking reason strings manually: `purgesChatData` (whether persisted data is deleted), `isChatUnreachable` (`departed` and `gone`: the bot can no longer call the chat's API, so only local message ids are discarded), and `abandonsLockdown` (`gone` only: the lockdown record is abandoned).
+    - Exceptions: AI memory purges on all teardown reasons; leftover buttons (verification, etc.) delete via API only on `explicitDisable` (on `departed` and `gone`, no Telegram request is made).
+  - **Departure entry point (`completeChatDeparture`)**: `completeChatDeparture(chatId, "departed" | "gone")` in `packages/infra/botAdmin.ts` forgets the permission snapshot, runs every owner's teardown, then clears blocklist sweep progress and all chat state except the lockdown record and persists it; repeated calls for the same chat are idempotent. It has exactly three callers:
+    - `my_chat_member` reporting the bot as left/kicked: `departed`;
+    - a managed chat receiving a service message with `migrate_to_chat_id`: the migration ingress in the `packages/app/registerHandlers.ts` preamble, placed after the init gate, tears the old chat down as `gone` and ends the update. The new supergroup still needs `/init`; old settings are not carried over;
+    - the startup title refresh confirming a chat as unreachable (see "Low-priority group title maintenance" above): torn down with the confirmed class.
   - **Synchronous Order Dispatch**: `teardownChatRuntime` iterates `CHAT_TEARDOWN_ORDER` in `packages/consts/chatTeardown.ts` (exhaustively typed). Starts all cleanup owners synchronously before awaiting settlement together.
 - **Membership Probe Boundary**:
   - Between `probeChatMembership` confirming membership and calling `kickChatMember`, verify that the in-memory terminal state reference has not changed; do not insert any `await` between this check and the API call.
 - **No Ban Outcome Cache for `/block`**:
-  - Re-issue `banChatMember` across all managed chats on every `/block` invocation (to trigger Telegram's `revoke_messages`). Only chats with confirmed missing `canRestrictMembers` rights skip the request. `/block disable` similarly avoids ban-outcome caching.
+  - Re-issue `banChatMember` across all managed chats on every `/block` invocation (to trigger Telegram's `revoke_messages`). Only chats with confirmed missing `canRestrictMembers` rights skip the request. `/block disable` similarly avoids ban-outcome caching, and its cross-chat unban skips chats with confirmed missing rights in the same way.
 
 ### `/wed` Member Persistence and Interaction
 
@@ -953,7 +966,7 @@ This section covers the [authoritative blocklist and the block command](#authori
 - **Full Unblock Workflow (`/block disable`)**:
   - If the target exists, the main thread publishes negative cache entries, removes the ID from in-flight `pendingBlockedRemovals` batches, posts the trimmed outbox snapshot, and finally queues a deletion tombstone (`queueBlocklistDeletion`).
   - Disk I/O Worker processes messages in arrival order; snapshot commits precede deletions, preventing dangling references to deleted entries. Worker restarts replay by domain priority.
-  - Irrespective of whether the target was stored, bans are lifted across all `managedAdminChatIds` (origin chat first, followed by all initialized chats where the bot is confirmed admin). Users call `unbanChatMemberIfBanned` (`only_if_banned: true`); channel identities call `unbanChatSenderChat`. Requires `isCanUnBlock`.
+  - Irrespective of whether the target was stored, bans are lifted across all `managedAdminChatIds` (origin chat first, followed by all initialized chats where the bot is confirmed admin). Users call `unbanChatMemberIfBanned` (`only_if_banned: true`); channel identities call `unbanChatSenderChat`. Chats whose permission snapshot confirms missing "restrict members" rights are not sent a request and count as failures. Requires `isCanUnBlock`.
 - **Protected Identities & Serialization**:
   - Super administrators (`SUPER_ADMIN_USER_ID`) and permanent allowlist members are unconditionally protected; `isWhitelisted` guards `/block`, `/mute`, and `/batch_kick`. Temporary ad-bypass status does not confer this permanent immunity.
   - `/white enable` strictly rejects identities already in the blocklist.
@@ -976,7 +989,11 @@ This section covers the [authoritative blocklist and the block command](#authori
   - Blocklisted users joining trigger instant bans instead of join verification (no verification window opened). `recentBlockedJoinCounts` deduplicates concurrent `chat_member` and `new_chat_members` events, logging join counts and deleting join announcements.
 - **Thread Coordination & Cross-Chat Fan-Out**:
   - Policy decisions and list maintenance belong to the main thread; probing, banning, and retry sequencing belong asynchronously to the Anti-Raid Worker. Outbound calls route to `query` or `kick` 429 queues.
-  - `/block` cross-chat ban fan-out is an explicit exception: after disk confirmation in the update, the main thread hands fan-out tasks to the deferred command executor's background tier (`commands/blocklistFanOut.ts`). Dispatches `banChatMember` or `banChatSenderChat` concurrently up to `MANAGED_CHAT_BATCH_CONCURRENCY`, deferring failed chats to subsequent sweeps.
+  - The cross-chat fan-out of the `/block` command itself (`enable` and `disable`) is an explicit exception (`commands/blocklistFanOut.ts`):
+    - After validation the handler reserves a turn, in arrival order, on the identity's blocklist serial slot (`blocklistIdentityMutationRunner`, shared with ad disposal). The list write and persistence confirmation, the cross-chat ban or unban, and the receipt all run in that slot in order, so successive commands and ad disposals for the same identity settle in arrival order.
+    - When the slot is idle, the list write and persistence confirmation finish inside the update. When an earlier disposal for the same identity is still running, both are deferred together with the fan-out and the update does not wait, ending before the list changes.
+    - The cross-chat part goes to the deferred command executor's background tier, dispatching `banChatMember`, `banChatSenderChat` or the matching unban concurrently up to `MANAGED_CHAT_BATCH_CONCURRENCY`; chats whose ban failed are left to subsequent sweeps.
+    - If shutdown cancels the task before it starts or while it waits for the slot, an error is logged, the pending list write and fan-out are not run, and no receipt is sent.
 
 #### Ad-detection admission, classification, and disposal
 
@@ -986,7 +1003,7 @@ This section covers the [authoritative blocklist and the block command](#authori
 - **Exemptions & Special Message Sources**:
   - Linked-channel automatic forwards (`is_automatic_forward`) and the bot's own messages (`isBotOwnMessage`) are skipped.
   - Inline messages sent via the bot (`via_bot` pointing to self) are classified on the user's **original query text**, not the bot's formatted output. Inline features register raw query text via `recordInlineResultSources` (up to `INLINE_RESULT_SOURCE_MAX_AUTHORS`). Unregistered or mismatched text is skipped.
-  - Discussion group comments referencing channel posts do not include channel post bodies in quote context. Group owners and admins are never classified as advertisers.
+  - Discussion group comments referencing channel posts do not include channel post bodies in quote context. Group owners and human admins are never classified as advertisers; bots are checked and disposed of even when they are admins.
 - **Queue Management & Flow Control** (Worker Thread):
   - Keys queue by `chatId:senderId`. Consecutive messages from the same sender merge into a single `pendingAdMessages` bundle without taking extra slots.
   - Bounded by `AD_DETECT_MAX_PENDING_SENDERS`; rejects new senders when full without evicting unjudged senders.

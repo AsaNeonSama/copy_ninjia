@@ -11,6 +11,7 @@ import { BATCH_KICK_CONCURRENCY } from "../../packages/consts/commands";
 import { runWithUpdateAbortSignal } from "../../packages/infra/updateContext";
 import { formatDurationCn } from "../../packages/libs/durationToken";
 import { botPermissions } from "../helpers/botPermissions";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 55);
 const probeChatMembership = mock(
@@ -54,6 +55,7 @@ mock.module("../../packages/infra/logger", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
   probeChatMembership,
   kickChatMemberWithOutcome,
   banChatMemberWithOutcome,
@@ -63,7 +65,12 @@ const {
   handleBatchKickCommand,
   parseBatchKickDurationMs,
 } = await import("../../packages/commands/batchKick");
-const { initDeferredCommandRuntime } = await import("../../packages/commands/deferredCommands");
+const {
+  drainDeferredCommandRuntime,
+  initDeferredCommandRuntime,
+  submitDeferredCommand,
+} = await import("../../packages/commands/deferredCommands");
+const { DEFERRED_COMMAND_MAX_CONCURRENT } = await import("../../packages/consts/deferredCommands");
 const { deferredCommandRuntime } = await import("../../packages/cache/main/deferredCommands");
 const { batchKickChats } = await import("../../packages/cache/main/batchKick");
 const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
@@ -148,18 +155,23 @@ beforeEach(async () => {
   chatState.botPermissions = undefined;
   for (const mocked of [
     sendMessage,
-    probeChatMembership,
-    kickChatMemberWithOutcome,
-    banChatMemberWithOutcome,
     isUserBlocked,
     requestBlocklistResweep,
-    sweepBlockedMembers,
-    readJoinLog,
     loggerError,
     readIdentityPolicyVerdicts,
   ]) {
     mocked.mockClear();
   }
+  for (const mocked of [
+    probeChatMembership,
+    kickChatMemberWithOutcome,
+    banChatMemberWithOutcome,
+    sweepBlockedMembers,
+    readJoinLog,
+  ]) {
+    mocked.mockReset();
+  }
+  sweepBlockedMembers.mockResolvedValue(undefined);
   readIdentityPolicyVerdicts.mockImplementation(
     async (): Promise<IdentityPolicyVerdicts | null> => EMPTY_VERDICTS
   );
@@ -345,6 +357,24 @@ describe("/batch_kick", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(lastReplyText(sendMessage)).toBe(acceptedText(records.length));
     expect(batchKickChats.size).toBe(0);
+  });
+
+  test("排队中的批次被停机撤销时摘除单飞标记", async () => {
+    readJoinLog.mockResolvedValueOnce([{ userId: 42, joinedAt: 1 }]);
+    const blocker: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    for (let index: number = 0; index < DEFERRED_COMMAND_MAX_CONCURRENT; index++) {
+      expect(submitDeferredCommand({ priority: "interactive", task: (): Promise<void> => blocker.promise, errorLabel: "test:" })).toBeTrue();
+    }
+
+    await handleBatchKickCommand(context());
+    expect(batchKickChats.has(-1001)).toBeTrue();
+
+    // 零预算排空撤销排队中的批次；占位任务仍挂着。
+    await drainDeferredCommandRuntime(0);
+    await Bun.sleep(0);
+    expect(batchKickChats.has(-1001)).toBeFalse();
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    blocker.resolve();
   });
 
   test("有记录时先回已受理（带记录数与时长），后台批次结束后战报逐字照旧", async () => {

@@ -6,7 +6,7 @@ import type { CommandRejectionText } from "../types/commands";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import { chatAtmosphere } from "../infra/atmosphere";
 import { hasWhitelistPermission } from "../infra/identityPolicy/whitelist";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import { formatActorLabel } from "../users/userLabel";
 import { channelIdentity, userIdentity, visibleSenderChat } from "../users/visibleSender";
@@ -64,11 +64,6 @@ async function replyCommandRejection(
   actor: CachedUser | undefined,
   rejection: CommandRejectionText
 ): Promise<void> {
-  const chatId: number = ctx.chat.id;
   const atmosphere: AtmosphereTexts = chatAtmosphere();
-  await sendCommandMessage({
-    chatId,
-    text: rejection(formatActorLabel(actor, atmosphere), atmosphere),
-    replyToMessageId: ctx.msgId,
-  });
+  await replyCommandNotice(ctx, rejection(formatActorLabel(actor, atmosphere), atmosphere));
 }

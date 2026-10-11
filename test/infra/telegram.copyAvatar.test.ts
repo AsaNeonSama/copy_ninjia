@@ -40,9 +40,8 @@ describe("copyUserProfilePhoto t.me 兜底", () => {
     loggerErrorMock.mockClear();
     loggerWarnMock.mockClear();
     loggerLogMock.mockClear();
-    getChatMock.mockClear();
-    setMyProfilePhotoMock.mockClear();
-    // 另一组用例会把上传改成持久拒绝；mockClear 不重置实现，这里显式恢复成功。
+    getChatMock.mockReset();
+    setMyProfilePhotoMock.mockReset();
     setMyProfilePhotoMock.mockImplementation(async (): Promise<boolean> => true);
     getChatMock.mockImplementation(async (_chatId: number): Promise<any> => ({
       id: -1003952764805,
@@ -162,10 +161,10 @@ describe("copyUserProfilePhoto Bot API 主路径", () => {
 
   beforeEach(() => {
     loggerErrorMock.mockClear();
-    getChatMock.mockClear();
     getUserProfilePhotosMock.mockClear();
     getFileMock.mockClear();
-    setMyProfilePhotoMock.mockClear();
+    getChatMock.mockReset();
+    setMyProfilePhotoMock.mockReset();
     getChatMock.mockImplementation(async (_chatId: number): Promise<any> => ({
       id: 42,
       type: "private",

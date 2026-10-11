@@ -6,7 +6,7 @@ import {
   formatBotUptime,
 } from "../../packages/commands/botStatus";
 import type { BotStatusSnapshot } from "../../packages/commands/botStatus";
-import { BOT_CHAT_PERMISSION_KEYS } from "../../packages/consts/botAdmin";
+import { BOT_CHAT_PERMISSION_KEYS, BOT_CHAT_PERMISSION_LABELS } from "../../packages/consts/botAdmin";
 import { MAX_SUMMARY_ROUNDS, VERBATIM_CONTEXT_MAX } from "../../packages/consts/aiChat/memory";
 import {
   BOT_STATUS_COLD_MEMORY_WEIGHT,
@@ -326,9 +326,9 @@ describe("/bot_status", () => {
     expect(message.text).toContain(`${PLAIN.statusPermissions}\n${json}`);
     // 快照是「管理员 + 通用管理能力 + 删除消息」，顺序仍随权限清单。
     expect(JSON.parse(json)).toEqual({
-      isAdministrator: "管理员身份",
-      canManageChat: "管理聊天",
-      canDeleteMessages: "删除消息",
+      isAdministrator: BOT_CHAT_PERMISSION_LABELS.isAdministrator,
+      canManageChat: BOT_CHAT_PERMISSION_LABELS.canManageChat,
+      canDeleteMessages: BOT_CHAT_PERMISSION_LABELS.canDeleteMessages,
     });
     expect(Object.keys(JSON.parse(json) as Record<string, string>)).toEqual(
       [...BOT_CHAT_PERMISSION_KEYS].filter((key: string): boolean =>

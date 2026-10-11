@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
+import type { AtmosphereTexts } from "../../../packages/types/atmosphere";
 import type { VerificationSnapshot } from "../../../packages/types/antiRaid";
 import { VERIFICATION_CALLBACK_CHECK_MAX, VERIFICATION_CALLBACK_REPLY_MAX } from "../../../packages/consts/antiRaid/verification";
 import { verificationCallbackChecks, verificationCallbackReplies } from "../../../packages/cache/workers/antiRaid/verificationCallbacks";
@@ -107,11 +108,11 @@ function answeredText(callbackQueryId: string): string | undefined {
 
 beforeEach((): void => {
   loggerErrorMock.mockClear();
-  answerCallbackQueryMock.mockClear();
+  answerCallbackQueryMock.mockReset();
   answerCallbackQueryMock.mockImplementation(
     async (): Promise<boolean> => true
   );
-  getChatAdministratorsMock.mockClear();
+  getChatAdministratorsMock.mockReset();
   getChatAdministratorsMock.mockImplementation(async () => []);
   resetAdminCache();
   resetAntiRaidTaskTracker();
@@ -204,7 +205,6 @@ describe("verification callback ownership", () => {
       callbackQueryId: "detached-callback",
       text: undefined,
       showAlert: false,
-      api: expect.any(Object),
     });
     expect(verificationEntries.size).toBe(0);
   });
@@ -312,7 +312,11 @@ describe("verification callback ownership", () => {
     await drainAntiRaidTasks();
 
     expect(verificationEntries.get(`${CHAT_ID}:50`)?.state.kind).toBe("pending");
-    expect(answeredText("self-approve")).toContain("我是良民");
+    const teasing: AtmosphereTexts = ATMOSPHERE_TEXTS.teasing;
+    expect(answeredText("self-approve")).toBe(teasing.NOTICE_TEXTS.verificationUseSelfButton(
+      teasing.VERIFICATION_SELF_BUTTON_TEXT,
+      teasing.VERIFICATION_APPROVE_BUTTON_TEXT
+    ));
     expect(getChatAdministratorsMock).not.toHaveBeenCalled();
   });
 

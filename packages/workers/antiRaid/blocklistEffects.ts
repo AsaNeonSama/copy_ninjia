@@ -103,7 +103,7 @@ async function removeOne({ chatId, userId, probeMembership, signal }: RemoveOneP
       // 权限不够不再消耗剩余尝试。判成群级「缺封禁权限」之前先探测目标是否管理员：
       // 是则归 targetIsAdmin（见 RemovalOutcome）；查不出身份时维持 forbidden。
       if (outcome === "forbidden") {
-        return await probeChatAdmin({ chatId, userId, api: telegramApi }) === true
+        return await probeChatAdmin({ chatId, userId }) === true
           ? "targetIsAdmin"
           : "forbidden";
       }

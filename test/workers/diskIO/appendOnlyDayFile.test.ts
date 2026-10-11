@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, statSync, writeSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -46,11 +46,11 @@ describe("appendOnlyDayFile：按位置追加的字节层机制", () => {
       process.umask(previousUmask);
     }
     const path: string = join(dir, "2026-07-16.json");
-    expect(statSync(path).mode & 0o777).toBe(0o644);
+    expect((await Bun.file(path).stat()).mode & 0o777).toBe(PERSISTED_FILE_MODE);
 
     chmodSync(path, 0o600);
     await openDayFile(dir, "2026-07-16", PERSISTED_FILE_MODE);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect((await Bun.file(path).stat()).mode & 0o777).toBe(0o600);
   });
 
   test("文件不存在 -> openDayFile 视为空文件", async () => {
@@ -109,7 +109,7 @@ describe("appendOnlyDayFile：按位置追加的字节层机制", () => {
 
     const state: DayFileState = await openRepairableDay("2026-07-16");
     expect(await Bun.file(path).text()).toBe("{\n  \"a\": 1\n}");
-    expect(state).toEqual({ day: "2026-07-16", size: statSync(path).size, empty: false });
+    expect(state).toEqual({ day: "2026-07-16", size: (await Bun.file(path).stat()).size, empty: false });
   });
 
   test("从空文件开始追加一条，结果是合法 JSON 且值正确", async () => {
@@ -168,7 +168,7 @@ describe("appendOnlyDayFile：按位置追加的字节层机制", () => {
 
     expect(writes.length).toBeGreaterThan(1);
     expect(await readDay("2026-07-16")).toEqual({ A: { label: "大吉" }, B: { label: "小吉" } });
-    expect(state.size).toBe(statSync(join(dir, "2026-07-16.json")).size);
+    expect(state.size).toBe((await Bun.file(join(dir, "2026-07-16.json")).stat()).size);
   });
 
   test("已有文件的追加在成功返回前只执行一次 fsync，且顺序晚于完整 write", async () => {
@@ -207,7 +207,7 @@ describe("appendOnlyDayFile：按位置追加的字节层机制", () => {
     })).rejects.toThrow("injected fsync failure");
 
     // 回滚的 fsync 同样失败，走重新探测；回滚已把页缓存里的字节截回追加前。
-    expect(state.size).toBe(statSync(join(dir, "2026-07-16.json")).size);
+    expect(state.size).toBe((await Bun.file(join(dir, "2026-07-16.json")).stat()).size);
     expect(() => writeSync(capturedFd!, new TextEncoder().encode("x"), 0, 1, 0)).toThrow();
     await appendToDayFile({ dir, state, chunk: serializeDayFileEntry("C", 3) });
     expect(await readDay("2026-07-16")).toEqual({ A: 1, C: 3 });
@@ -315,7 +315,7 @@ describe("appendOnlyDayFile：按位置追加的字节层机制", () => {
     })).rejects.toThrow("injected I/O failure");
 
     expect(await readDay("2026-07-16")).toEqual({ A: { value: 1 } });
-    expect(state.size).toBe(statSync(join(dir, "2026-07-16.json")).size);
+    expect(state.size).toBe((await Bun.file(join(dir, "2026-07-16.json")).stat()).size);
     await appendToDayFile({ dir, state, chunk: serializeDayFileEntry("C", 3) });
     expect(await readDay("2026-07-16")).toEqual({ A: { value: 1 }, C: 3 });
   });

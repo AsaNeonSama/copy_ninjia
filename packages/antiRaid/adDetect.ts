@@ -74,8 +74,15 @@ function recordAdSample(event: AdDetectedEvent): void {
  * LRU 并投过落盘，其余群的封禁批次仍在 outbox 里等重试。
  */
 async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
-  // 写前重读身份策略，使互斥检查与表计数建立在当前数据库最终值上。
-  if (!await prefetchIdentityPolicies([event.senderId])) return;
+  // 写前重读身份策略，使互斥检查与表计数建立在当前数据库最终值上。冷读失败时放弃这次
+  // 判定：Worker 已删掉命中的消息，这里不拉黑、不封禁、不播报。
+  if (!await prefetchIdentityPolicies([event.senderId])) {
+    logger.error(
+      `Dropped the ad detection verdict for sender ${event.senderId} in chat ${event.chatId}: ` +
+      "identity policies could not be read, so the sender was not added to the permanent blocklist."
+    );
+    return;
+  }
   const newlyBlocked: boolean | null = await runProtectedIdentityMutation(
     (): boolean | null => {
       // 写名单前复查本群广告检测开关：判定回投期间可能已执行 /ad_detect disable，
@@ -166,7 +173,7 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
 }
 
 /**
- * 同一身份的广告封禁与 `/block disable` 按完整副作用串行结算（cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）。
+ * 同一身份的广告封禁与 `/block` 的名单写入和跨群扇出按完整副作用串行结算（cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）。
  */
 function disposeDetectedAd(event: AdDetectedEvent): Promise<void> {
   return blocklistIdentityMutationRunner.run(

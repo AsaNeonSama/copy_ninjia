@@ -45,7 +45,6 @@ import {
 import {
   deletePendingAdBundle,
   pendingAdBundle,
-  refreshAdDetectCapacitySaturation,
   requeueIfUnchecked,
 } from "./queueState";
 import type {
@@ -182,7 +181,6 @@ function retainPostWarningContent(
     bundle.pendingDeleteIds.length === 0
   ) {
     deletePendingAdBundle(bundle.chatId, bundle.senderId);
-    refreshAdDetectCapacitySaturation();
   }
 }
 
@@ -247,97 +245,19 @@ export async function detectOne(
     // 重新排队。
     if (isAdmin === true) {
       deletePendingAdBundle(bundle.chatId, bundle.senderId);
-      refreshAdDetectCapacitySaturation();
     } else {
       requeueIfUnchecked(key, bundle);
     }
     return;
   }
   if (outcome.kind === "referencedOnly" && !withinReferencedWarning) {
-    const warningGeneration: number | undefined =
-      beginReferencedAdWarning(key);
-    if (warningGeneration === undefined) return;
-    // 判定已经离开上面的 finally，警告取得 message_id 之前这段网络往返仍是同一个键的
-    // 处置临界区，只覆盖发送本身；广告消息删除是独立任务（见 deleteReferencedAdMessages），
-    // 不占分类并发槽。
-    inFlightAdDetectKeys.add(key);
-    try {
-      let warningResult: TelegramWorkerTemporaryMessageResult | undefined;
-      try {
-        warningResult = await warnReferencedAdSender(bundle);
-      } catch (error: unknown) {
-        logger.error(
-          `Ad detection failed to send referenced-ad warning for sender ${bundle.senderId} ` +
-          `in chat ${bundle.chatId}:`,
-          error
-        );
-      }
-      if (
-        warningResult !== undefined &&
-        "suppressed" in warningResult
-      ) {
-        cancelReferencedAdWarning(key, warningGeneration);
-        if (pendingAdBundle(bundle.chatId, bundle.senderId) === bundle) {
-          deletePendingAdBundle(bundle.chatId, bundle.senderId);
-          refreshAdDetectCapacitySaturation();
-        }
-        return;
-      }
-      const warning: TelegramWorkerTemporaryMessageSentResult | undefined =
-        warningResult;
-      if (warning === undefined) {
-        cancelReferencedAdWarning(key, warningGeneration);
-        if (
-          !adDetectStopping.current &&
-          pendingAdBundle(bundle.chatId, bundle.senderId) === bundle
-        ) {
-          deleteReferencedAdMessages({
-            bundle,
-            judged,
-            messageIdThrough: Number.POSITIVE_INFINITY,
-          });
-        }
-        return;
-      }
-      if (
-        adDetectStopping.current ||
-        pendingAdBundle(bundle.chatId, bundle.senderId) !== bundle ||
-        !completeReferencedAdWarning(
-          key,
-          warningGeneration,
-          warning.sentAt
-        )
-      ) {
-        cancelReferencedAdWarning(key, warningGeneration);
-        // 清群或停机使警告回执过期：立即撤掉已经发出的迟到提示，不再动用户消息。
-        void deleteMessage(bundle.chatId, warning.messageId, telegramApi);
-        return;
-      }
-      deleteReferencedAdMessages({
-        bundle,
-        judged,
-        messageIdThrough: warning.messageId,
-      });
-      retainPostWarningContent(bundle, warning);
-    } finally {
-      inFlightAdDetectKeys.delete(key);
-      if (!adDetectStopping.current) {
-        // message_id 晚于警告的新消息已从旧串里保留下来，但发送临界区内不排队；
-        // 警告结算后立刻补排。发送失败时旧 bundle 仍在，本批水位已推进，
-        // 只有期间真有未检内容才会排。
-        const current: AdMessageBundle | undefined = pendingAdBundle(bundle.chatId, bundle.senderId);
-        if (current !== undefined) {
-          requeueIfUnchecked(key, current);
-        }
-      }
-    }
+    await warnReferencedOnlySender(key, bundle, judged);
     return;
   }
   // 处置前先摘掉这一串，并把这个键记进逐 key TTL 已处置表：处置期间以及封禁真正
   // 落地之前抢跑进来的消息不再判定（见 docs/cn/04-invariants.md）。该 key TTL 到期时
   // 记录删除，之后由主线程黑名单门禁接管。
   deletePendingAdBundle(bundle.chatId, bundle.senderId);
-  refreshAdDetectCapacitySaturation();
   // 硬顶与待检 key 同源（AD_DETECT_MAX_PENDING_SENDERS）：这张表只由处置路径写入，
   // 写入时直接限制容量；撑满时淘汰最早处置的键，其后续消息由主线程黑名单门禁接管。
   setBoundedMapValue({
@@ -349,4 +269,92 @@ export async function detectOne(
   // 升级为 block 后旧警告失去用途，不再占着容量。
   referencedAdWarningStates.delete(key);
   await disposeAdSender({ bundle, verdict: outcome.verdict, judged });
+}
+
+/**
+ * 只命中被引用的广告（referencedOnly）且不在本键既有警告窗口内时的处置：先发警告；警告取得 message_id
+ * 后删掉警告之前的广告消息，并从消息串里只保留晚于警告的新内容。警告被豁免抑制、发送失败或回执过期时
+ * 按各自分支收尾。发送临界区内占住 inFlight，结算后补排期间到达的未判内容。
+ */
+async function warnReferencedOnlySender(
+  key: string,
+  bundle: AdMessageBundle,
+  judged: readonly AdCandidateEntry[]
+): Promise<void> {
+  const warningGeneration: number | undefined =
+    beginReferencedAdWarning(key);
+  if (warningGeneration === undefined) return;
+  // 判定已经离开 detectOne 释放 inFlight 的 finally，警告取得 message_id 之前这段网络往返仍是同一个键的
+  // 处置临界区，只覆盖发送本身；广告消息删除是独立任务（见 deleteReferencedAdMessages），
+  // 不占分类并发槽。
+  inFlightAdDetectKeys.add(key);
+  try {
+    let warningResult: TelegramWorkerTemporaryMessageResult | undefined;
+    try {
+      warningResult = await warnReferencedAdSender(bundle);
+    } catch (error: unknown) {
+      logger.error(
+        `Ad detection failed to send referenced-ad warning for sender ${bundle.senderId} ` +
+        `in chat ${bundle.chatId}:`,
+        error
+      );
+    }
+    if (
+      warningResult !== undefined &&
+      "suppressed" in warningResult
+    ) {
+      cancelReferencedAdWarning(key, warningGeneration);
+      if (pendingAdBundle(bundle.chatId, bundle.senderId) === bundle) {
+        deletePendingAdBundle(bundle.chatId, bundle.senderId);
+      }
+      return;
+    }
+    const warning: TelegramWorkerTemporaryMessageSentResult | undefined =
+      warningResult;
+    if (warning === undefined) {
+      cancelReferencedAdWarning(key, warningGeneration);
+      if (
+        !adDetectStopping.current &&
+        pendingAdBundle(bundle.chatId, bundle.senderId) === bundle
+      ) {
+        deleteReferencedAdMessages({
+          bundle,
+          judged,
+          messageIdThrough: Number.POSITIVE_INFINITY,
+        });
+      }
+      return;
+    }
+    if (
+      adDetectStopping.current ||
+      pendingAdBundle(bundle.chatId, bundle.senderId) !== bundle ||
+      !completeReferencedAdWarning(
+        key,
+        warningGeneration,
+        warning.sentAt
+      )
+    ) {
+      cancelReferencedAdWarning(key, warningGeneration);
+      // 清群或停机使警告回执过期：立即撤掉已经发出的迟到提示，不再动用户消息。
+      void deleteMessage(bundle.chatId, warning.messageId, telegramApi);
+      return;
+    }
+    deleteReferencedAdMessages({
+      bundle,
+      judged,
+      messageIdThrough: warning.messageId,
+    });
+    retainPostWarningContent(bundle, warning);
+  } finally {
+    inFlightAdDetectKeys.delete(key);
+    if (!adDetectStopping.current) {
+      // message_id 晚于警告的新消息已从旧串里保留下来，但发送临界区内不排队；
+      // 警告结算后立刻补排。发送失败时旧 bundle 仍在，本批水位已推进，
+      // 只有期间真有未检内容才会排。
+      const current: AdMessageBundle | undefined = pendingAdBundle(bundle.chatId, bundle.senderId);
+      if (current !== undefined) {
+        requeueIfUnchecked(key, current);
+      }
+    }
+  }
 }

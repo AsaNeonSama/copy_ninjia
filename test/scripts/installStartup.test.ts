@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { lstatSync, mkdirSync, statSync, symlinkSync } from "node:fs";
+import { lstatSync, mkdirSync, symlinkSync } from "node:fs";
+import type { Stats } from "node:fs";
 import { join } from "node:path";
 import { AGENT_CAPABILITY_NAMES } from "../../packages/consts/agent";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
@@ -95,7 +96,7 @@ describe("install.sh 到真实应用启动", () => {
       bot_token: "123456789:existing_test_token", super_admin_user_id: 123456789, atmosphere: "normal", time_zone: "UTC",
     }), 0o640);
     symlinkSync(target, entry);
-    const original: ReturnType<typeof statSync> = statSync(target);
+    const original: Stats = await Bun.file(target).stat();
     const result: InstallerRunResult = await runInstaller(fixture, [
       { prompt: "是否重新填写？", reply: "y" },
       { prompt: "Telegram bot token", reply: "987654321:replacement_test_token", secret: true },
@@ -115,7 +116,7 @@ describe("install.sh 到真实应用启动", () => {
     expect(await Bun.file(target).json()).toEqual({
       bot_token: "987654321:replacement_test_token", super_admin_user_id: 987654321, atmosphere: "normal", time_zone: "UTC",
     });
-    const replaced: ReturnType<typeof statSync> = statSync(target);
+    const replaced: Stats = await Bun.file(target).stat();
     expect(replaced.mode).toBe(original.mode);
     expect(replaced.uid).toBe(original.uid);
     expect(replaced.gid).toBe(original.gid);

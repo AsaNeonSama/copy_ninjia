@@ -126,7 +126,7 @@ async function installBunGuard(fixture: InstallerFixture): Promise<void> {
     "if [[ \"$inline_source\" == *\"assertStorageDatabaseTimeZone\"* ]]; then",
     "  COPY_NINJIA_DATA_ROOT=\"${COPY_NINJIA_DATA_ROOT:-$FAKE_RUNTIME_ROOT}\" exec \"$REAL_BUN_PATH\" -e 'const runtime = await import(Bun.argv[1]); const config = await runtime.loadInstallerBotConfig(\"config/static/bot.json\"); runtime.assertStorageDatabaseTimeZone(config.timeZone);' \"$FAKE_INSTALL_RUNTIME_MODULE\"",
     "fi",
-    "if [[ \"$inline_source\" == *\"createStorageDatabase\"* ]]; then",
+    "if [[ \"$inline_source\" == *\"bootstrapStorageDatabase\"* ]]; then",
     "  mkdir -p -- \"$(dirname -- \"$FAKE_IDENTITY_DATABASE\")\"",
     "  : > \"$FAKE_IDENTITY_DATABASE\"",
     "  printf 'database:create\\n' >> \"$FAKE_CALL_LOG\"",

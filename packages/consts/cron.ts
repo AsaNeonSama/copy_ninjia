@@ -1,5 +1,5 @@
 import type { CronAllChats, CronExceptChats } from "../types/cron";
-import { DAY_MS } from "./time";
+import { DAY_MS, MINUTE_MS } from "./time";
 
 /**
  * cron.json 任务 `chat_id` 数组的「所有群」写法，属 packages/config/cron.ts：
@@ -38,7 +38,7 @@ export const CRON_RANDOM_INTERVAL_MAX_MS: number = 24 * DAY_MS;
  * cron 表达式的时间粒度（一分钟）毫秒数，属 packages/cron/scheduler.ts：`rand_cron` 的随机
  * 时刻向上取整到它的整数倍，再写成只匹配那一分钟的表达式。
  */
-export const CRON_MINUTE_MS: number = 60_000;
+export const CRON_MINUTE_MS: number = MINUTE_MS;
 
 /**
  * `rand_cron` 随机时刻所注册的一次性 cron 的时区，属 packages/cron/scheduler.ts；表达式按

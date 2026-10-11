@@ -29,7 +29,7 @@ import { mediaGroupImagesIn } from "../../infra/mediaGroups";
 import { readImageDimensions } from "../../infra/image";
 import { isRandomImageDirectory, readRandomImageLibrary, storeRandomImage } from "../../infra/randomImage";
 import { getAssetConfig } from "../../config/assets";
-import { sendCommandMessage } from "../../infra/telegram";
+import { replyCommandNotice, sendCommandMessage } from "../../infra/telegram";
 import { downloadTelegramFileBytes } from "../../infra/telegram/fileDownload";
 import { currentUpdateAbortSignal } from "../../infra/updateContext";
 import { isTimeoutAbort, signalWithTimeout } from "../../libs/abortSignal";
@@ -181,12 +181,12 @@ export async function handleHImageAddCommand(ctx: CommandContext<Context>): Prom
   if (actor === undefined) return;
   const replied: Message | undefined = explicitReplyTo(ctx.msg);
   if (replied === undefined) {
-    await sendCommandMessage({ chatId, text: texts.addUsage, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, texts.addUsage);
     return;
   }
   const candidates: MessageImageCandidate[] = collectCandidates(chatId, replied);
   if (candidates.length === 0) {
-    await sendCommandMessage({ chatId, text: texts.addNoImage, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, texts.addNoImage);
     return;
   }
   const request: HImageAddRequest = { chatId, messageId, messageThreadId: forumTopicThreadId(ctx.msg), candidates };
@@ -195,5 +195,5 @@ export async function handleHImageAddCommand(ctx: CommandContext<Context>): Prom
     task: (): Promise<void> => addRandomImages(request),
     errorLabel: "Unexpected error while processing /h_image add:",
   });
-  if (!accepted) await sendCommandMessage({ chatId, text: texts.busy, replyToMessageId: messageId });
+  if (!accepted) await replyCommandNotice(ctx, texts.busy);
 }

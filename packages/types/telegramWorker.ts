@@ -1,5 +1,4 @@
 import type { Api, RawApi } from "grammy";
-import type { TelegramRetryCategory } from "./telegramOutbound";
 import type { TelegramFileDownloadResult } from "./telegram";
 
 /** 指定 grammY RawApi 方法的 JSON payload。 */
@@ -27,7 +26,6 @@ export type TelegramWorkerJsonCall =
 /** Worker 上传图片所需的可克隆载荷；主线程重新构造 grammY InputFile。 */
 export interface TelegramWorkerSendPhotoRequest {
   readonly operation: "sendPhoto";
-  readonly category: "message";
   readonly chatId: number | string;
   readonly bytes: Uint8Array;
   readonly fileName: string;
@@ -37,7 +35,6 @@ export interface TelegramWorkerSendPhotoRequest {
 /** Worker 上传语音消息所需的可克隆载荷；主线程重新构造 grammY InputFile。 */
 export interface TelegramWorkerSendVoiceRequest {
   readonly operation: "sendVoice";
-  readonly category: "message";
   readonly chatId: number | string;
   readonly bytes: Uint8Array;
   readonly fileName: string;
@@ -47,7 +44,6 @@ export interface TelegramWorkerSendVoiceRequest {
 /** 主线程代 Worker 完成 getFile + Telegram 文件下载的两段式请求。 */
 export interface TelegramWorkerDownloadFileRequest {
   readonly operation: "downloadFile";
-  readonly category: "download";
   readonly fileId: string;
   readonly purpose: "vision" | "voice";
 }
@@ -58,7 +54,6 @@ export interface TelegramWorkerDownloadFileRequest {
  */
 interface TelegramWorkerTemporaryMessageBase {
   readonly operation: "sendTemporaryMessage";
-  readonly category: "message";
   readonly chatId: number;
   readonly messageThreadId?: number;
   readonly replyToMessageId?: number;
@@ -112,7 +107,6 @@ export interface TelegramDeleteEphemeralMessageParams {
 export type TelegramWorkerRequest =
   | {
     readonly operation: "call";
-    readonly category: TelegramRetryCategory;
     readonly call: TelegramWorkerJsonCall;
   }
   | TelegramWorkerSendPhotoRequest

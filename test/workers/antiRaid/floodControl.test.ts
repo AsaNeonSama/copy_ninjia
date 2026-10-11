@@ -3,6 +3,7 @@ import { ATMOSPHERE_TEXTS } from "../../../packages/consts/atmosphere";
 import { COMMAND_MESSAGE_AUTO_DELETE_MS } from "../../../packages/consts/commands";
 installTemporaryMessageWorkerMock();
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { waitUntil } from "../../helpers/waitUntil";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { BotActionPermissions } from "../../../packages/types/telegram";
 import type { FloodCandidateMessage } from "../../../packages/types/antiRaid";
@@ -480,7 +481,7 @@ describe("刷屏禁言的处置", () => {
     // 禁言请求最长排 FLOOD_MUTE_DISPATCH_TIMEOUT_MS；drain 到达时就地撤掉已排上队的禁言。
     holdMute = true;
     for (let i: number = 0; i < FLOOD_MESSAGE_LIMIT; i++) handleFloodCandidate(candidate());
-    await Bun.sleep(1);
+    expect(await waitUntil((): boolean => releaseMute !== undefined)).toBe(true);
     expect(muteCalls).toHaveLength(1);
 
     quiesceAntiRaidDispatch();
@@ -498,7 +499,7 @@ describe("刷屏禁言的处置", () => {
     fetchedAdmins.set(-1001, new Set([42]));
     holdAdminFetch = true;
     for (let i: number = 0; i < FLOOD_MESSAGE_LIMIT; i++) handleFloodCandidate(candidate());
-    await Bun.sleep(1);
+    expect(await waitUntil((): boolean => releaseAdminFetch !== undefined)).toBe(true);
 
     clearChatFloodWindows(-1001);
     releaseAdminFetch!();

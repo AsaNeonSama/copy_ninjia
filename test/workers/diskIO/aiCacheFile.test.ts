@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
   aiCacheBuffer,
@@ -35,13 +35,6 @@ import type { AiCacheSummary, AiTokenUsage } from "../../../packages/types/aiCac
 /** 东京某日中午的时间戳；只用于把记录归到指定配置时区的日期。 */
 function tokyoNoon(day: string): number {
   return Temporal.PlainDateTime.from(`${day}T12:00:00`).toZonedDateTime(getTimeZone()).epochMilliseconds;
-}
-
-/** 按生产常量的小数位数算出期望命中率；分母为 0 时为 null。 */
-function expectedHitRate(cachedInputTokens: number, reportedInputTokens: number): number | null {
-  if (reportedInputTokens === 0) return null;
-  const scale: number = 10 ** AI_CACHE_HIT_RATE_DIGITS;
-  return Math.round(cachedInputTokens / reportedInputTokens * scale) / scale;
 }
 
 /** 记录键里的配置时区的日期（第 1 组捕获）；不是记录键时为 undefined。 */
@@ -117,7 +110,7 @@ describe("diskIO/aiCacheFile 缓冲与追加", () => {
     await handleAiCacheUsageMessage(usage("2026-09-26"));
     await handleAiCacheUsageMessage(usage("2026-09-26", { cachedInputTokens: null, provider: "google", model: "gemini" }));
     expect(aiCacheBuffer.texts).toHaveLength(2);
-    expect(existsSync(AI_CACHE_FILE_PATH)).toBeFalse();
+    expect(await Bun.file(AI_CACHE_FILE_PATH).exists()).toBeFalse();
 
     expect(await flushAiCacheBuffer()).toBeTrue();
     const document: Record<string, unknown> = await readDocument();
@@ -159,7 +152,7 @@ describe("diskIO/aiCacheFile 追加失败与退避", () => {
       const healthyContent: string = await Bun.file(AI_CACHE_FILE_PATH).text();
 
       // 统计文件换成同名目录：下一次追加必然失败。
-      rmSync(AI_CACHE_FILE_PATH);
+      await Bun.file(AI_CACHE_FILE_PATH).delete();
       mkdirSync(AI_CACHE_FILE_PATH);
       setSystemTime(new Date(failedAt));
       await handleAiCacheUsageMessage(usage("2026-09-26", { model: "dropped-on-failure" }));
@@ -230,6 +223,18 @@ describe("diskIO/aiCacheFile 追加失败与退避", () => {
 });
 
 describe("diskIO/aiCacheFile 每日汇总", () => {
+  test("命中率四舍五入到 AI_CACHE_HIT_RATE_DIGITS 位小数，误差不超过末位的一半", async () => {
+    await initAiCache();
+    await handleAiCacheUsageMessage(usage("2026-09-25", { inputTokens: 3, cachedInputTokens: 1 }));
+    await summarizeAiCache("2026-09-26");
+
+    const summary: AiCacheSummary = (await readDocument())[AI_CACHE_SUMMARY_KEY] as AiCacheSummary;
+    const rate: number = summary.cacheHitRate!;
+    expect(rate).not.toBe(1 / 3);
+    expect(Number(rate.toFixed(AI_CACHE_HIT_RATE_DIGITS))).toBe(rate);
+    expect(Math.abs(rate - 1 / 3)).toBeLessThanOrEqual(0.5 / 10 ** AI_CACHE_HIT_RATE_DIGITS);
+  });
+
   test("前一天的记录汇总到顶部并删除，当天记录保留，之后仍可继续追加", async () => {
     await initAiCache();
     await handleAiCacheUsageMessage(usage("2026-09-25"));
@@ -253,14 +258,14 @@ describe("diskIO/aiCacheFile 每日汇总", () => {
       reportedInputTokens: 4_000,
       cachedInputTokens: 1_800,
       outputTokens: 125,
-      cacheHitRate: expectedHitRate(1_800, 4_000),
+      cacheHitRate: 1_800 / 4_000,
       byModel: {
         "ad_detect/openai/deepseek-flash": {
-          requests: 1, inputTokens: 500, reportedInputTokens: 0, cachedInputTokens: 0, outputTokens: 5, cacheHitRate: expectedHitRate(0, 0),
+          requests: 1, inputTokens: 500, reportedInputTokens: 0, cachedInputTokens: 0, outputTokens: 5, cacheHitRate: null,
         },
         "text/openai/deepseek-flash": {
           requests: 2, inputTokens: 4_000, reportedInputTokens: 4_000, cachedInputTokens: 1_800, outputTokens: 120,
-          cacheHitRate: expectedHitRate(1_800, 4_000),
+          cacheHitRate: 1_800 / 4_000,
         },
       },
     });
@@ -292,16 +297,16 @@ describe("diskIO/aiCacheFile 每日汇总", () => {
       reportedInputTokens: 1_000,
       cachedInputTokens: 800,
       outputTokens: 50,
-      cacheHitRate: expectedHitRate(800, 1_000),
+      cacheHitRate: 800 / 1_000,
       costInUsdTicks: 500_000_000,
       byModel: {
         "image/openai/grok-image": {
           requests: 2, inputTokens: 0, reportedInputTokens: 0, cachedInputTokens: 0, outputTokens: 0,
-          cacheHitRate: expectedHitRate(0, 0), costInUsdTicks: 500_000_000,
+          cacheHitRate: null, costInUsdTicks: 500_000_000,
         },
         "text/openai/deepseek-flash": {
           requests: 1, inputTokens: 1_000, reportedInputTokens: 1_000, cachedInputTokens: 800, outputTokens: 50,
-          cacheHitRate: expectedHitRate(800, 1_000),
+          cacheHitRate: 800 / 1_000,
         },
       },
     });
@@ -344,11 +349,11 @@ describe("diskIO/aiCacheFile 每日汇总", () => {
     const merged: AiCacheSummary | null = (await inspectAiCacheFile()).document.summary;
     expect(merged).toMatchObject({
       requests: 3, inputTokens: 2_400, reportedInputTokens: 2_000, cachedInputTokens: 1_600,
-      outputTokens: 110, searchCalls: 7, cacheHitRate: expectedHitRate(1_600, 2_000),
+      outputTokens: 110, searchCalls: 7, cacheHitRate: 1_600 / 2_000,
       byModel: {
         "web_search/google/gemini-search": {
           requests: 2, inputTokens: 1_400, reportedInputTokens: 1_000, cachedInputTokens: 800,
-          outputTokens: 60, searchCalls: 7, cacheHitRate: expectedHitRate(800, 1_000),
+          outputTokens: 60, searchCalls: 7, cacheHitRate: 800 / 1_000,
         },
       },
     });
@@ -468,7 +473,7 @@ describe("diskIO/aiCacheFile 每日汇总", () => {
 
     await maintainAiCacheFile();
 
-    expect(existsSync(orphan)).toBeFalse();
+    expect(await Bun.file(orphan).exists()).toBeFalse();
     expect((await readDocument())[AI_CACHE_SUMMARY_KEY]).toMatchObject({ day: "2000-01-01", requests: 1 });
     expect(readdirSync(AI_CACHE_MEMORY_DIR)).toEqual([basename(AI_CACHE_FILE_PATH)]);
   });
@@ -478,7 +483,7 @@ describe("diskIO/aiCacheFile 每日汇总", () => {
 const ROW_KEY: string = `${formatLogTimestamp(tokyoNoon("2026-09-26"))}_00000000-0000-4000-8000-000000000000`;
 const ROW = { capability: "text", provider: "openai", model: "m", inputTokens: 10, cachedInputTokens: 4, outputTokens: 1 } as const;
 const TOTALS = {
-  requests: 1, inputTokens: 10, reportedInputTokens: 10, cachedInputTokens: 4, outputTokens: 1, cacheHitRate: expectedHitRate(4, 10),
+  requests: 1, inputTokens: 10, reportedInputTokens: 10, cachedInputTokens: 4, outputTokens: 1, cacheHitRate: 4 / 10,
   cacheWriteInputTokens: undefined, costInUsdTicks: undefined, searchCalls: undefined,
 } as const;
 const SUMMARY = { day: "2026-09-25", ...TOTALS, byModel: { "text/openai/m": TOTALS } } as const;
@@ -579,8 +584,8 @@ describe("diskIO/aiCacheFile 严格解码", () => {
     ["汇总费用非法", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, costInUsdTicks: 1.5 } }, `contains invalid totals at ${AI_CACHE_SUMMARY_KEY}.`],
     ["非法汇总日期", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, day: "2026-02-30" } }, `contains an invalid ${AI_CACHE_SUMMARY_KEY}.day.`],
     ["汇总多出字段", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, extra: 1 } }, `contains invalid totals at ${AI_CACHE_SUMMARY_KEY}.`],
-    ["命中率与合计不符", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, cacheHitRate: expectedHitRate(9, 10) } }, `contains invalid totals at ${AI_CACHE_SUMMARY_KEY}.`],
-    ["命中超过有口径输入", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, cachedInputTokens: 11, cacheHitRate: expectedHitRate(11, 10) } }, `contains invalid totals at ${AI_CACHE_SUMMARY_KEY}.`],
+    ["命中率与合计不符", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, cacheHitRate: 9 / 10 } }, `contains invalid totals at ${AI_CACHE_SUMMARY_KEY}.`],
+    ["命中超过有口径输入", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, cachedInputTokens: 11, cacheHitRate: 11 / 10 } }, `contains invalid totals at ${AI_CACHE_SUMMARY_KEY}.`],
     ["非法分组键", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, byModel: { "chat/openai/m": TOTALS } } }, `contains an invalid ${AI_CACHE_SUMMARY_KEY}.byModel key at entry[0]`],
     ["空白分组模型名", { [AI_CACHE_SUMMARY_KEY]: { ...SUMMARY, byModel: { "text/openai/  ": TOTALS } } }, `contains an invalid ${AI_CACHE_SUMMARY_KEY}.byModel key`],
     ["非对象汇总", { [AI_CACHE_SUMMARY_KEY]: null }, "expected a summary object"],

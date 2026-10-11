@@ -11,7 +11,10 @@ const isReplyRoundRateLimited = mock((_windowCount: number): boolean => roundRat
 const startReplyRound = mock((_input: unknown, _drain: (chatId: number) => void, _modelFinished: (chatId: number) => void): boolean => true);
 const pushReplyTrigger = mock((_input: unknown): void => {});
 const drainQueuedReplies = mock((_chatId: number, _start: (trigger: unknown) => void): void => {});
-const flushOverflowNotice = mock((chatId: number): void => { pendingOverflowNotices.delete(chatId); });
+function flushOverflowNoticeStub(chatId: number): void {
+  pendingOverflowNotices.delete(chatId);
+}
+const flushOverflowNotice = mock(flushOverflowNoticeStub);
 const loggerError = mock((_message: string): void => {});
 const pendingOverflowNotices = new Map<number, number | undefined>();
 const pendingReplyTriggers = new Map<number, { size: number }>();
@@ -79,11 +82,12 @@ beforeEach(() => {
     startReplyRound,
     pushReplyTrigger,
     drainQueuedReplies,
-    flushOverflowNotice,
     isReplyRoundRateLimited,
     loggerError,
     replyReferenceForBufferedMessage,
   ]) fn.mockClear();
+  flushOverflowNotice.mockReset();
+  flushOverflowNotice.mockImplementation(flushOverflowNoticeStub);
 });
 
 describe("AI reply admission pipeline", () => {

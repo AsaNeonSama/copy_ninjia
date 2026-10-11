@@ -69,6 +69,15 @@ export function handleDeactivate(
   };
 }
 
+/**
+ * 群已不存在：任何阶段都直接删除记录，只报 unlock 让主线程清掉落盘的私密模式；不恢复权限、不删
+ * 公告，群里已没有可调的 API。在途的权限调用随后回投的结果撞上空状态，不再推进。
+ */
+export function handleChatGone(state: LockdownState | undefined): LockdownTransition {
+  if (state === undefined) return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+  return { next: undefined, effects: [{ kind: "reportUnlock" }] };
+}
+
 /** 恢复调用结果；迟到回执与新一轮的关系见 docs/cn/04-invariants.md。 */
 export function handleRestoreResult(
   state: LockdownState | undefined,

@@ -5,6 +5,8 @@ import type { AntiRaidWorkerEvent } from "../../../packages/types/antiRaid/event
 import type { VerificationAttemptPermitResult, VerificationPersistedMessage } from "../../../packages/types/antiRaid/protocol";
 import type { VerificationSnapshot, VerificationSnapshotBase } from "../../../packages/types/antiRaid/verification";
 import type { VerificationEntry } from "../../../packages/types/antiRaid/internal";
+import type { VerificationTerminalState } from "../../../packages/types/states/verification";
+import { isTerminalVerificationState } from "../../../packages/states/verification/shared";
 
 const getChatAdministrators: Mock<() => Promise<{ user: { id: number }; is_anonymous: boolean }[]>> = mock(async (): Promise<{ user: { id: number }; is_anonymous: boolean }[]> => []);
 const kickChatMemberWithOutcome: Mock<() => Promise<"kicked">> = mock(async (): Promise<"kicked"> => "kicked");
@@ -59,7 +61,13 @@ const { applyChatKindChange, resetWorkerChatKind } = await import(
 );
 const { resetAdminCache } = await import("../../../packages/cache/workers/antiRaid/admins");
 const { joinWindows } = await import("../../../packages/cache/workers/antiRaid/lockdown");
-const { scheduleTerminalRetry } = await import("../../../packages/workers/antiRaid/verificationEffects/retry");
+const { retryTerminalAttempt } = await import("../../../packages/workers/antiRaid/verificationEffects/retry");
+
+/** 取条目上的终态；夹具都是 adopt 出来的终态记录。 */
+function terminalStateOf(entry: VerificationEntry): VerificationTerminalState {
+  if (!isTerminalVerificationState(entry.state)) throw new Error("expected a terminal verification fixture");
+  return entry.state;
+}
 const { VERIFICATION_REVISION_CAPACITY, VERIFICATION_REVISION_RETENTION_MS, VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS } = await import(
   "../../../packages/consts/antiRaid/verification"
 );
@@ -299,9 +307,8 @@ describe("Anti-Raid Worker verification attempt budget", (): void => {
       });
       const entry: VerificationEntry = verificationEntries.get(ACK.key)!;
       for (let index: number = 0; index < 2; index++) {
-        scheduleTerminalRetry({
-          chatId: -1001, userId: 42, state: entry.state,
-          event: { type: "terminalPersisted" }, dispatchVerification: runtime.dispatchVerification,
+        retryTerminalAttempt({
+          chatId: -1001, userId: 42, state: terminalStateOf(entry), dispatchVerification: runtime.dispatchVerification,
         });
       }
       const currentTimer: ReturnType<typeof setTimeout> | undefined = entry.timer;
@@ -328,9 +335,8 @@ describe("Anti-Raid Worker verification attempt budget", (): void => {
       verifications: [{ ...record, successNoticeSent: true }],
     });
     const entry: VerificationEntry = verificationEntries.get(ACK.key)!;
-    scheduleTerminalRetry({
-      chatId: -1001, userId: 42, state: entry.state,
-      event: { type: "terminalPersisted" }, dispatchVerification: runtime.dispatchVerification,
+    retryTerminalAttempt({
+      chatId: -1001, userId: 42, state: terminalStateOf(entry), dispatchVerification: runtime.dispatchVerification,
     });
     runtime.handleVerificationPersisted(ACK);
     expect(verificationEntries.has(ACK.key)).toBeFalse();

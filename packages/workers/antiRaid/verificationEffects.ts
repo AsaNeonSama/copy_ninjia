@@ -23,7 +23,7 @@ import type {
 import { fetchAdminIds } from "./adminCache";
 import { retractJoinWindow } from "./lockdownJoinWindow";
 import { runKickMemberEffect } from "./verificationEffects/kick";
-import { retryRejectedTerminal } from "./verificationEffects/retry";
+import { retryTerminalAttempt } from "./verificationEffects/retry";
 import {
   runExpelEffect,
   runRecheckInviterEffect,
@@ -36,7 +36,10 @@ import { trackAntiRaidTask } from "./taskTracker";
 import { requestVerificationAttemptPermit } from "./verificationAttemptPermit";
 import type { VerificationAttemptPermitResult } from
   "../../types/antiRaid/protocol";
-import { isTerminalVerificationPhase } from "../../states/verification/shared";
+import {
+  isTerminalVerificationPhase,
+  isTerminalVerificationState,
+} from "../../states/verification/shared";
 import { antiRaidDispatchAbort } from "../../cache/workers/antiRaid/tasks";
 
 export type VerificationAttemptRequester = (
@@ -263,9 +266,11 @@ export async function runVerificationEffects({
       }
     }
   } catch (error: unknown) {
-    // 取得许可的这批终态动作中途 reject：复位执行门并退避重试，再把错误交给 dispatchVerification 记日志。
-    if (granted !== null) {
-      retryRejectedTerminal({ chatId, userId, state: transitionState, dispatchVerification });
+    // 取得许可的这批终态动作中途 reject：条目仍是同一终态对象时复位执行门并按退避重试
+    // （kickPending 投递 kickRetry，其余终态投递 terminalPersisted），再把错误交给
+    // dispatchVerification 记日志。
+    if (granted !== null && isTerminalVerificationState(transitionState)) {
+      retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     }
     throw error;
   }

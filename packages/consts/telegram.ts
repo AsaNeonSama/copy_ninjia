@@ -1,7 +1,7 @@
 import type { ChatPermissions, MessageEntity } from "grammy/types";
 import type { TelegramSubscribedUpdate } from "../types/telegram";
 import { exhaustiveList } from "./exhaustiveList";
-import { DAY_MS } from "./time";
+import { DAY_MS, SECOND_MS } from "./time";
 
 /** Telegram API 封装（packages/infra/telegram/）的调参常量。 */
 
@@ -9,7 +9,7 @@ import { DAY_MS } from "./time";
 export const TELEGRAM_BOT_TOKEN_PLACEHOLDER: string = "replace-with-telegram-bot-token";
 
 /** Telegram update 里 `date` 字段（Unix 秒）换算成毫秒的倍数。 */
-export const TELEGRAM_DATE_UNIT_MS: number = 1_000;
+export const TELEGRAM_DATE_UNIT_MS: number = SECOND_MS;
 
 /** 长轮询订阅的完整 update 类型集合（TelegramSubscribedUpdate 的全部成员）。 */
 export const TELEGRAM_ALLOWED_UPDATES: readonly TelegramSubscribedUpdate[] = exhaustiveList<TelegramSubscribedUpdate>()([
@@ -300,6 +300,19 @@ export const DISABLED_LINK_PREVIEW: Readonly<{ is_disabled: true }> = { is_disab
 
 /** Telegram 编辑边界识别目标内容已经相同的拒绝语。 */
 export const MESSAGE_NOT_MODIFIED: string = "message is not modified";
+
+/**
+ * getChat 以 400 回报群已不存在时的描述：群已被删除或从未存在为 `chat not found`，普通群升级为超级群后
+ * 旧 id 为 `group chat was upgraded to a supergroup chat`（同时带 parameters.migrate_to_chat_id）。
+ * 所属模块：infra/telegram/errors.ts 的 classifyChatAbsence。
+ */
+export const CHAT_GONE_DESCRIPTION_PATTERN: RegExp = /\b(?:chat not found|group chat was upgraded to a supergroup chat)\b/i;
+
+/**
+ * getChat 以 403 回报机器人已不是成员时的描述：被踢出，或已不在该（超级）群。
+ * 所属模块：infra/telegram/errors.ts 的 classifyChatAbsence。
+ */
+export const BOT_DEPARTED_DESCRIPTION_PATTERN: RegExp = /\bbot (?:was kicked from|is not a member of) the (?:super)?group chat\b/i;
 
 /**
  * Bot API 限制成员时的永久分界：`until_date` 距当前超过 366 天按永久限制处理。`/mute` 的上限

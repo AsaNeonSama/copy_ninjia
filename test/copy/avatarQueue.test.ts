@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 /** 头像执行槽的回执开关：silent 任务只换头像、不发回执。 */
 
@@ -8,7 +9,7 @@ mock.module("../../packages/infra/telegram/avatar/restore", () => ({ restoreDefa
 mock.module("../../packages/infra/telegram/avatar/copy", () => ({
   copyUserProfilePhoto: async (): Promise<boolean> => true,
 }));
-mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage }));
+mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage, replyCommandNotice: replyCommandNoticeVia(sendCommandMessage) }));
 mock.module("../../packages/config/assets", () => ({
   getAssetConfig: (): Readonly<{ botDefaultAvatar: string }> => ({ botDefaultAvatar: "avatar.png" }),
 }));

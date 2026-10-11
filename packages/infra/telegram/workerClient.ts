@@ -9,7 +9,6 @@ import type {
   TelegramWorkerTemporaryMessageResult,
   TelegramWorkerTemporaryMessageRequest,
 } from "../../types/telegramWorker";
-import type { TelegramRetryCategory } from "../../types/telegramOutbound";
 
 export interface DownloadTelegramFileFromMainParams {
   readonly fileId: string;
@@ -17,7 +16,7 @@ export interface DownloadTelegramFileFromMainParams {
   readonly signal?: AbortSignal;
 }
 
-export type SendTemporaryMessageFromMainParams = Omit<TelegramWorkerTemporaryMessageRequest, "operation" | "category" | "purpose"> & (
+export type SendTemporaryMessageFromMainParams = Omit<TelegramWorkerTemporaryMessageRequest, "operation" | "purpose"> & (
   | { readonly purpose: "adWarning"; readonly identityId: number }
   | { readonly purpose: "notice" }
 ) & { readonly signal?: AbortSignal };
@@ -32,7 +31,6 @@ export function sendTemporaryMessageFromMain({
 }: SendTemporaryMessageFromMainParams): Promise<TelegramWorkerTemporaryMessageResult | undefined> {
   return requestMainThread<TelegramWorkerRequest, TelegramWorkerTemporaryMessageResult | undefined>({
     operation: "sendTemporaryMessage",
-    category: "message",
     ...request,
   }, signal);
 }
@@ -45,22 +43,25 @@ export function downloadTelegramFileFromMain({
 }: DownloadTelegramFileFromMainParams): Promise<TelegramWorkerDownloadFileResult> {
   return requestMainThread<TelegramWorkerRequest, TelegramWorkerDownloadFileResult>({
     operation: "downloadFile",
-    category: "download",
     fileId,
     purpose,
   }, signal);
 }
 
 function requestCall<TResult>(
-  category: TelegramRetryCategory,
   call: TelegramWorkerJsonCall,
   signal?: AbortSignal
 ): Promise<TResult> {
-  const request: TelegramWorkerRequest = { operation: "call", category, call };
+  const request: TelegramWorkerRequest = { operation: "call", call };
   return requestMainThread<TelegramWorkerRequest, TResult>(request, signal);
 }
 
-function asSignal(value: unknown): AbortSignal | undefined {
+/**
+ * grammY 方法签名里的 signal 是 abort-controller shim 的类型，交给双工请求前转成全局
+ * AbortSignal。入参取 grammY 自己的 signal 类型：位置参数解构错位（例如把 `other`
+ * 当成 signal）在编译期报错。
+ */
+function asSignal(value: Parameters<Api["getChat"]>[1]): AbortSignal | undefined {
   return value as AbortSignal | undefined;
 }
 
@@ -130,78 +131,78 @@ async function requestMemoryFileSend<TResult>({
 export const workerTelegramApi: TelegramWorkerApi = {
   answerCallbackQuery: (...args: Parameters<Api["answerCallbackQuery"]>): ReturnType<Api["answerCallbackQuery"]> => {
     const [callbackQueryId, other = {}, signal]: Parameters<Api["answerCallbackQuery"]> = args;
-    return requestCall("callback", {
+    return requestCall({
       method: "answerCallbackQuery",
       payload: { callback_query_id: callbackQueryId, ...other },
     }, asSignal(signal));
   },
   banChatMember: (...args: Parameters<Api["banChatMember"]>): ReturnType<Api["banChatMember"]> => {
     const [chatId, userId, other = {}, signal]: Parameters<Api["banChatMember"]> = args;
-    return requestCall("kick", {
+    return requestCall({
       method: "banChatMember",
       payload: { chat_id: chatId, user_id: userId, ...other },
     }, asSignal(signal));
   },
   banChatSenderChat: (...args: Parameters<Api["banChatSenderChat"]>): ReturnType<Api["banChatSenderChat"]> => {
     const [chatId, senderChatId, signal]: Parameters<Api["banChatSenderChat"]> = args;
-    return requestCall("kick", {
+    return requestCall({
       method: "banChatSenderChat",
       payload: { chat_id: chatId, sender_chat_id: senderChatId },
     }, asSignal(signal));
   },
   deleteMessage: (...args: Parameters<Api["deleteMessage"]>): ReturnType<Api["deleteMessage"]> => {
     const [chatId, messageId, signal]: Parameters<Api["deleteMessage"]> = args;
-    return requestCall("delete", {
+    return requestCall({
       method: "deleteMessage",
       payload: { chat_id: chatId, message_id: messageId },
     }, asSignal(signal));
   },
   deleteMessages: (...args: Parameters<Api["deleteMessages"]>): ReturnType<Api["deleteMessages"]> => {
     const [chatId, messageIds, signal]: Parameters<Api["deleteMessages"]> = args;
-    return requestCall("delete", {
+    return requestCall({
       method: "deleteMessages",
       payload: { chat_id: chatId, message_ids: messageIds },
     }, asSignal(signal));
   },
   getChat: (...args: Parameters<Api["getChat"]>): ReturnType<Api["getChat"]> => {
     const [chatId, signal]: Parameters<Api["getChat"]> = args;
-    return requestCall("query", { method: "getChat", payload: { chat_id: chatId } }, asSignal(signal));
+    return requestCall({ method: "getChat", payload: { chat_id: chatId } }, asSignal(signal));
   },
   getChatAdministrators: (...args: Parameters<Api["getChatAdministrators"]>): ReturnType<Api["getChatAdministrators"]> => {
-    const [chatId, signal]: Parameters<Api["getChatAdministrators"]> = args;
-    return requestCall("query", {
+    const [chatId, other = {}, signal]: Parameters<Api["getChatAdministrators"]> = args;
+    return requestCall({
       method: "getChatAdministrators",
-      payload: { chat_id: chatId },
+      payload: { chat_id: chatId, ...other },
     }, asSignal(signal));
   },
   getChatMember: (...args: Parameters<Api["getChatMember"]>): ReturnType<Api["getChatMember"]> => {
     const [chatId, userId, signal]: Parameters<Api["getChatMember"]> = args;
-    return requestCall("query", {
+    return requestCall({
       method: "getChatMember",
       payload: { chat_id: chatId, user_id: userId },
     }, asSignal(signal));
   },
   getStickerSet: (...args: Parameters<Api["getStickerSet"]>): ReturnType<Api["getStickerSet"]> => {
     const [name, signal]: Parameters<Api["getStickerSet"]> = args;
-    return requestCall("query", { method: "getStickerSet", payload: { name } }, asSignal(signal));
+    return requestCall({ method: "getStickerSet", payload: { name } }, asSignal(signal));
   },
   restrictChatMember: (...args: Parameters<Api["restrictChatMember"]>): ReturnType<Api["restrictChatMember"]> => {
     const [chatId, userId, permissions, other = {}, signal]: Parameters<Api["restrictChatMember"]> = args;
-    return requestCall("restrict", {
+    return requestCall({
       method: "restrictChatMember",
       payload: { chat_id: chatId, user_id: userId, permissions, ...other },
     }, asSignal(signal));
   },
   sendChatAction: (...args: Parameters<Api["sendChatAction"]>): ReturnType<Api["sendChatAction"]> => {
     const [chatId, action, other = {}, signal]: Parameters<Api["sendChatAction"]> = args;
-    return requestCall("chatAction", {
+    return requestCall({
       method: "sendChatAction",
       payload: { chat_id: chatId, action, ...other },
     }, asSignal(signal));
   },
   sendMessage: (...args: Parameters<Api["sendMessage"]>): ReturnType<Api["sendMessage"]> => {
     const [chatId, text, other = {}, signal]: Parameters<Api["sendMessage"]> = args;
-    return requestCall("message", {
+    return requestCall({
       method: "sendMessage",
       payload: { chat_id: chatId, text, ...other },
     }, asSignal(signal));
@@ -212,7 +213,7 @@ export const workerTelegramApi: TelegramWorkerApi = {
       file: photo,
       label: "Worker photo",
       buildRequest: (bytes: Uint8Array<ArrayBuffer>, fileName: string): TelegramWorkerRequest =>
-        ({ operation: "sendPhoto", category: "message", chatId, bytes, fileName, other }),
+        ({ operation: "sendPhoto", chatId, bytes, fileName, other }),
       signal: asSignal(signal),
     });
   },
@@ -222,7 +223,7 @@ export const workerTelegramApi: TelegramWorkerApi = {
       file: voice,
       label: "Worker voice",
       buildRequest: (bytes: Uint8Array<ArrayBuffer>, fileName: string): TelegramWorkerRequest =>
-        ({ operation: "sendVoice", category: "message", chatId, bytes, fileName, other }),
+        ({ operation: "sendVoice", chatId, bytes, fileName, other }),
       signal: asSignal(signal),
     });
   },
@@ -231,28 +232,28 @@ export const workerTelegramApi: TelegramWorkerApi = {
     if (typeof sticker !== "string") {
       return Promise.reject(new TypeError("Worker sendSticker requires a Telegram file_id."));
     }
-    return requestCall("message", {
+    return requestCall({
       method: "sendSticker",
       payload: { chat_id: chatId, sticker, ...other },
     }, asSignal(signal));
   },
   setChatPermissions: (...args: Parameters<Api["setChatPermissions"]>): ReturnType<Api["setChatPermissions"]> => {
     const [chatId, permissions, other = {}, signal]: Parameters<Api["setChatPermissions"]> = args;
-    return requestCall("restrict", {
+    return requestCall({
       method: "setChatPermissions",
       payload: { chat_id: chatId, permissions, ...other },
     }, asSignal(signal));
   },
   setMessageReaction: (...args: Parameters<Api["setMessageReaction"]>): ReturnType<Api["setMessageReaction"]> => {
     const [chatId, messageId, reaction, other = {}, signal]: Parameters<Api["setMessageReaction"]> = args;
-    return requestCall("reaction", {
+    return requestCall({
       method: "setMessageReaction",
       payload: { chat_id: chatId, message_id: messageId, reaction, ...other },
     }, asSignal(signal));
   },
   unbanChatMember: (...args: Parameters<Api["unbanChatMember"]>): ReturnType<Api["unbanChatMember"]> => {
     const [chatId, userId, other = {}, signal]: Parameters<Api["unbanChatMember"]> = args;
-    return requestCall("kick", {
+    return requestCall({
       method: "unbanChatMember",
       payload: { chat_id: chatId, user_id: userId, ...other },
     }, asSignal(signal));

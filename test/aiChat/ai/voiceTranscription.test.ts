@@ -1,5 +1,5 @@
 /**
- * 群聊语音转写：下载适配层的容器归一与上限，以及供应商不支持转写时的降级口径。
+ * 群聊语音转写：下载适配层的容器归一与上限，供应商不支持转写或转写抛错时的降级口径。
  * 转写不可用时留兜底占位，不切换到另一家供应商。
  */
 
@@ -47,8 +47,9 @@ function voiceParams(overrides: Partial<{ fileId: string; declaredMime: string |
 }
 
 beforeEach(() => {
-  for (const mocked of [downloadTelegramFileFromMain, transcribeVoice, loggerError, mediaAiProvider]) {
-    mocked.mockClear();
+  loggerError.mockClear();
+  for (const mocked of [downloadTelegramFileFromMain, transcribeVoice, mediaAiProvider]) {
+    mocked.mockReset();
   }
   downloadTelegramFileFromMain.mockImplementation(async (): Promise<TelegramWorkerDownloadFileResult> => ({
     status: "ok" as const,
@@ -141,7 +142,32 @@ describe("语音转写", () => {
     expect(loggerError).toHaveBeenCalledTimes(4);
   });
 
-  test("下载抛错不上抛，归一成不可重采样的失败", async () => {
+  test("供应商转写抛错不上抛：记一行带原错误的日志，按不可重采样的失败返回", async () => {
+    const failure: Error = new Error("provider exploded");
+    transcribeVoice.mockRejectedValueOnce(failure);
+
+    await expect(transcribeVoiceUncached(voiceParams())).resolves.toEqual({ ok: false, retryable: false });
+
+    expect(transcribeVoice).toHaveBeenCalledTimes(1);
+    expect(loggerError).toHaveBeenCalledTimes(1);
+    expect(loggerError.mock.calls[0]).toEqual([expect.any(String), failure]);
+  });
+
+  test("调用方已中止时供应商抛出的中止不记错误日志，同样不可重采样", async () => {
+    const controller: AbortController = new AbortController();
+    transcribeVoice.mockImplementationOnce(async (): Promise<AiTextResult> => {
+      controller.abort();
+      throw new DOMException("aborted", "AbortError");
+    });
+
+    await expect(transcribeVoiceUncached({ ...voiceParams(), signal: controller.signal }))
+      .resolves.toEqual({ ok: false, retryable: false });
+
+    expect(transcribeVoice).toHaveBeenCalledTimes(1);
+    expect(loggerError).not.toHaveBeenCalled();
+  });
+
+  test("下载抛错不上抛，归一成可重采样的失败", async () => {
     downloadTelegramFileFromMain.mockRejectedValueOnce(new Error("getFile failed"));
     await expect(transcribeVoiceUncached(voiceParams())).resolves.toEqual({ ok: false, retryable: true });
     expect(loggerError).toHaveBeenCalledWith("Error loading chat voice:", expect.any(Error));

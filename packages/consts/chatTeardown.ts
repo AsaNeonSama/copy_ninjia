@@ -21,3 +21,14 @@ export const CHAT_TEARDOWN_ORDER: readonly ChatRuntimeOwner[] = exhaustiveList<C
   "antiRaid",
   "joinLog",
 ]);
+
+/**
+ * 启动标题刷新确证群不可达时，相邻两次 getChat 的间隔（ms）。所属模块：infra/chatTitle.ts。
+ */
+export const CHAT_ABSENCE_CONFIRM_INTERVAL_MS: number = 60_000;
+
+/**
+ * 启动标题刷新确证群不可达的 getChat 总次数（含首次）：每次都得到同一类结论才按离群或群已不存在
+ * 收尾，中途任何一次查到群或得到别的错误都放弃。所属模块：infra/chatTitle.ts。
+ */
+export const CHAT_ABSENCE_CONFIRM_ATTEMPTS: number = 3;

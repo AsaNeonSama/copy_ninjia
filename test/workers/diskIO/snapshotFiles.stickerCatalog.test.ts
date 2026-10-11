@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_DATA_ROOT } from "../../preloadEnv";
 
@@ -64,7 +64,7 @@ describe("workers/diskIO/snapshotFiles recoverStickerCatalogs 白名单对账", 
     const recovered: Map<string, string> = await recoverStickerCatalogs(["pack_a"]);
     writeStickerCatalogFile("pack_a", recovered.get("pack_a")!);
 
-    expect(statSync(path).mode & 0o777).toBe(0o640);
+    expect((await Bun.file(path).stat()).mode & 0o777).toBe(0o640);
   });
 
   test("inspect 只登记临时文件和合法孤儿，maintenance 才删除", async () => {
@@ -76,12 +76,12 @@ describe("workers/diskIO/snapshotFiles recoverStickerCatalogs 白名单对账", 
     const inspection = await inspectStickerCatalogs([]);
 
     expect(inspection.snapshots.size).toBe(0);
-    expect(existsSync(orphanPath)).toBeTrue();
-    expect(existsSync(temporaryPath)).toBeTrue();
+    expect(await Bun.file(orphanPath).exists()).toBeTrue();
+    expect(await Bun.file(temporaryPath).exists()).toBeTrue();
 
     await maintainStickerCatalogFiles(inspection);
-    expect(existsSync(orphanPath)).toBeFalse();
-    expect(existsSync(temporaryPath)).toBeFalse();
+    expect(await Bun.file(orphanPath).exists()).toBeFalse();
+    expect(await Bun.file(temporaryPath).exists()).toBeFalse();
   });
 
   test("回归用例：键名恰好是 __proto__ 的条目照常恢复，不被原型 setter 吃掉", async () => {
@@ -112,17 +112,17 @@ describe("workers/diskIO/snapshotFiles recoverStickerCatalogs 白名单对账", 
     mkdirSync(stickerDir, { recursive: true });
     await Bun.write(join(stickerDir, "pack_a.json"), JSON.stringify({ version: 1, entries: { "file-uid-1": { emoji: "😂", description: "旧条目" } }, savedAt: 0 }));
     await expect(recoverStickerCatalogs(["pack_a"])).rejects.toThrow("current version=1 sticker catalog schema");
-    expect(existsSync(join(stickerDir, "pack_a.json"))).toBe(true);
+    expect(await Bun.file(join(stickerDir, "pack_a.json")).exists()).toBe(true);
   });
 
   test("白名单已经不包含的包视为孤儿：不载入内存，且磁盘文件被删除", async () => {
     writeStickerCatalogFile("removed_pack", snapshot("过时的贴纸"));
     const filePath = join(stickerDir, "removed_pack.json");
-    expect(existsSync(filePath)).toBe(true);
+    expect(await Bun.file(filePath).exists()).toBe(true);
 
     const result = await recoverStickerCatalogs(["pack_a"]); // 白名单里没有 removed_pack
     expect(result.has("removed_pack")).toBe(false);
-    expect(existsSync(filePath)).toBe(false);
+    expect(await Bun.file(filePath).exists()).toBe(false);
   });
 
   test("孤儿清理与正常恢复互不影响，混合场景各自正确处理", async () => {
@@ -132,8 +132,8 @@ describe("workers/diskIO/snapshotFiles recoverStickerCatalogs 白名单对账", 
     const result = await recoverStickerCatalogs(["kept_pack"]);
     expect(result.size).toBe(1);
     expect(result.has("kept_pack")).toBe(true);
-    expect(existsSync(join(stickerDir, "kept_pack.json"))).toBe(true);
-    expect(existsSync(join(stickerDir, "orphan_pack.json"))).toBe(false);
+    expect(await Bun.file(join(stickerDir, "kept_pack.json")).exists()).toBe(true);
+    expect(await Bun.file(join(stickerDir, "orphan_pack.json")).exists()).toBe(false);
   });
 
   test("损坏的 JSON 文件属于白名单内包时拒绝恢复并保持原始字节", async () => {
@@ -177,8 +177,8 @@ describe("workers/diskIO/snapshotFiles recoverStickerCatalogs 白名单对账", 
     writeStickerCatalogFile("pack_b", snapshot("b"));
     const result = await recoverStickerCatalogs([]);
     expect(result.size).toBe(0);
-    expect(existsSync(join(stickerDir, "pack_a.json"))).toBe(false);
-    expect(existsSync(join(stickerDir, "pack_b.json"))).toBe(false);
+    expect(await Bun.file(join(stickerDir, "pack_a.json")).exists()).toBe(false);
+    expect(await Bun.file(join(stickerDir, "pack_b.json")).exists()).toBe(false);
   });
 });
 
@@ -188,8 +188,8 @@ test("未配置包列表仍严格校验全部快照，并保留合法包文件",
   expect(inspection.orphanPaths).toHaveLength(0);
   await maintainStickerCatalogFiles(inspection);
   expect(inspection.snapshots.has("valid_pack")).toBeTrue();
-  expect(existsSync(join(stickerDir, "valid_pack.json"))).toBeTrue();
+  expect(await Bun.file(join(stickerDir, "valid_pack.json")).exists()).toBeTrue();
   await Bun.write(join(stickerDir, "invalid_pack.json"), "{broken");
   await expect(inspectStickerCatalogs(null)).rejects.toThrow();
-  expect(existsSync(join(stickerDir, "valid_pack.json"))).toBeTrue();
+  expect(await Bun.file(join(stickerDir, "valid_pack.json")).exists()).toBeTrue();
 });

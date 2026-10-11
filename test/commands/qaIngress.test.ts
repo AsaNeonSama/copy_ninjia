@@ -17,7 +17,10 @@ mock.module("../../packages/infra/telegram", () => ({
 let botOwnMessage: boolean = false;
 /** 同步标记还没到、但有界 rendezvous 等到了它——Worker 发送的固有时序。 */
 let lateBotOwnMessage: boolean = false;
-const waitForBotOwnMessage: Mock<() => Promise<boolean>> = mock(async (): Promise<boolean> => botOwnMessage || lateBotOwnMessage);
+async function waitForBotOwnMessageStub(): Promise<boolean> {
+  return botOwnMessage || lateBotOwnMessage;
+}
+const waitForBotOwnMessage: Mock<() => Promise<boolean>> = mock(waitForBotOwnMessageStub);
 mock.module("../../packages/infra/selfSentTracker", () => ({
   isBotOwnMessage: (): boolean => botOwnMessage,
   needsBotOwnMessageWait: (message: Message): boolean => message.chat.type === "channel",
@@ -79,7 +82,8 @@ function openForm(openedById: number): void {
 }
 
 beforeEach((): void => {
-  waitForBotOwnMessage.mockClear();
+  waitForBotOwnMessage.mockReset();
+  waitForBotOwnMessage.mockImplementation(waitForBotOwnMessageStub);
   deleteMessageWithOutcome.mockClear();
   botOwnMessage = false;
   lateBotOwnMessage = false;
@@ -179,7 +183,7 @@ describe("表单投递的认领判据", () => {
 
     expect(claimed?.accepted.a).toBe("点置顶");
     expect(qaFormSessions.get(CHAT_ID)?.a).toBe("点置顶");
-    expect(deleteMessageWithOutcome).toHaveBeenCalled();
+    expect(deleteMessageWithOutcome).toHaveBeenCalledWith(CHAT_ID, 78);
   });
 
   test("表单消息自己不参与认领", async () => {
@@ -210,7 +214,7 @@ describe("长度闸", () => {
     expect(claimed?.accepted.q).toBeUndefined();
     expect(qaFormSessions.get(CHAT_ID)?.q).toBeUndefined();
     // 已经认领的超长消息照常删除。
-    expect(deleteMessageWithOutcome).toHaveBeenCalled();
+    expect(deleteMessageWithOutcome).toHaveBeenCalledWith(CHAT_ID, 77);
   });
 
   test("超长答案同理，且不影响已经填好的问题", async () => {
@@ -247,7 +251,7 @@ describe("可点命令闸", () => {
     expect(claimed?.rejection).toBe("questionHasCommand");
     expect(claimed?.accepted.q).toBeUndefined();
     expect(qaFormSessions.get(CHAT_ID)?.q).toBeUndefined();
-    expect(deleteMessageWithOutcome).toHaveBeenCalled();
+    expect(deleteMessageWithOutcome).toHaveBeenCalledWith(CHAT_ID, 77);
   });
 
   test("答案在代码块之外含可点命令时不写进会话，报 answerHasCommand", async () => {

@@ -6,6 +6,7 @@
 
 import { DEFAULT_MAX_PENDING_BUSINESS_MESSAGES, LOAD_TIMEOUT_MS } from "../../consts/diskIO/common";
 import { DISK_IO_FLUSH_TIMEOUT_MS } from "../../consts/lifecycle";
+import type { FlushWaiter } from "../../types/lifecycle";
 import { WORKER_MAX_RESTARTS, WORKER_RESTART_WINDOW_MS } from "../../consts/workerSupervisor";
 import { createFlushBarrier } from "../../libs/flushBarrier";
 import { LinkedQueue } from "../../libs/linkedQueue";
@@ -131,10 +132,7 @@ interface DiskIORuntime {
   diagnosticRetryTimer: ReturnType<typeof setTimeout> | null;
   consecutiveDiagnosticWriteFailures: number;
   consecutiveDiagnosticRebuilds: number;
-  diagnosticDrainWaiters: Set<{
-    resolve: (result: "flushed" | "timedOut" | "failed") => void;
-    timer: ReturnType<typeof setTimeout>;
-  }>;
+  diagnosticDrainWaiters: Set<FlushWaiter>;
   respawnListeners: DiskIORespawnRegistration[];
   replyListeners: DiskIOReplyListeners;
   giveUpListeners: (() => void)[];

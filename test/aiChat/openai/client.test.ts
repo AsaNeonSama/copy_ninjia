@@ -8,13 +8,16 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import type OpenAI from "openai";
 
-const create = mock(async (..._args: unknown[]): Promise<unknown> => ({
-  status: "completed",
-  error: null,
-  incomplete_details: null,
-  output: [{ type: "message", content: [] }],
-  output_text: "ok",
-}));
+async function createStub(..._args: unknown[]): Promise<unknown> {
+  return {
+    status: "completed",
+    error: null,
+    incomplete_details: null,
+    output: [{ type: "message", content: [] }],
+    output_text: "ok",
+  };
+}
+const create = mock(createStub);
 const loggerError = mock((..._args: unknown[]): void => {});
 const createdOptions: Record<string, unknown>[] = [];
 
@@ -77,7 +80,8 @@ function respondWith(overrides: Record<string, unknown>): void {
 
 beforeEach(() => {
   openAiClientCache.current = null;
-  create.mockClear();
+  create.mockReset();
+  create.mockImplementation(createStub);
   loggerError.mockClear();
   createdOptions.length = 0;
 });

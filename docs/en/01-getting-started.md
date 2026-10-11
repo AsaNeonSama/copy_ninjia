@@ -37,17 +37,17 @@ This guide walks you through the quickest path to take a clean server environmen
 For a fresh deployment, using the automated [`install.sh`](../../install.sh) script is recommended:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash
 ```
 
 You can specify the installation mode using command-line flags or the `COPY_NINJIA_INSTALL_MODE` environment variable (`binary` | `source`). When omitted, the installer prompts interactively:
 
 ```bash
 # Standalone binary installation (Recommended for production; no git or Bun required)
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --binary
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --binary
 
 # Source installation (Ideal for contributors and local development)
-curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/install.sh | bash -s -- --source
+curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/install.sh | bash -s -- --source
 ```
 
 #### Installation Mode Comparison and Behavior
@@ -96,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/Asashishi/copy_ninjia/master/instal
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/Asashishi/copy_ninjia.git
+git clone https://github.com/AsaNeonSama/copy_ninjia.git
 cd copy_ninjia
 
 # 2. Install dependencies with strict lockfile verification
@@ -215,25 +215,12 @@ Copy Ninjia does not perform dynamic schema migrations at runtime. Fresh deploym
 ```bash
 mkdir -p database
 bun -e '
-  import { createStorageDatabase } from "./packages/database/interact/migration";
-  import {
-    closeStorageDatabase,
-    enableStorageDatabaseWal,
-    openStorageDatabase,
-  } from "./packages/database/interact/connection";
-  import { initializeStorageDatabase } from "./packages/database/interact/initialization";
+  import { bootstrapStorageDatabase } from "./packages/database/interact/initialization";
   import { loadBotConfig } from "./packages/config/botInput";
   import { IDENTITY_DATABASE_PATH } from "./packages/consts/paths";
 
   const { timeZone } = await loadBotConfig();
-  createStorageDatabase(IDENTITY_DATABASE_PATH);
-  const database = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
-  try {
-    initializeStorageDatabase(database, timeZone);
-  } finally {
-    closeStorageDatabase(database);
-  }
-  enableStorageDatabaseWal(IDENTITY_DATABASE_PATH);
+  bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, timeZone);
 '
 chmod 2770 database
 chmod 660 database/storage.sqlite

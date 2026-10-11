@@ -4,18 +4,19 @@ import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
 import { IDENTITY_WRITE_BATCH_MAX_ENTRIES } from "../../../packages/consts/identityStorage";
 import { storageDatabaseHandle, resetStorageDatabaseCache } from "../../../packages/cache/workers/diskIO/storageDatabase";
 import { openStorageDatabase } from "../../../packages/database/interact/connection";
-import { createStorageDatabase } from "../../../packages/database/interact/migration";
+import { bootstrapStorageDatabase } from "../../../packages/database/interact/initialization";
+import { DEFAULT_BOT_TIME_ZONE } from "../../../packages/consts/bot";
 import { handleTemporaryAdBypassWrite } from "../../../packages/workers/diskIO/storageDatabase/temporaryAdBypass";
 import { flushStorageDatabase } from "../../../packages/workers/diskIO/storageDatabase/flush";
 import type { IdentityStoragePersistedReply } from "../../../packages/types/diskIO/replies";
 import { assertInsidePerformanceMockRoot } from "../fullSuite/mockRoot";
 import type { Scenario } from "./types";
 
-/** 真正的 SQLite 批量写入和精确 ACK；每次迭代提交一个生产容量的事务。 */
+/** 真正的 SQLite 批量写入和精确 ACK；库按生产建库入口建立（WAL），每次迭代提交一个生产容量的事务。 */
 export function storageFlushScenario(): Scenario {
   assertInsidePerformanceMockRoot(IDENTITY_DATABASE_PATH);
   mkdirSync(dirname(IDENTITY_DATABASE_PATH), { recursive: true });
-  if (!existsSync(IDENTITY_DATABASE_PATH)) createStorageDatabase(IDENTITY_DATABASE_PATH);
+  if (!existsSync(IDENTITY_DATABASE_PATH)) bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, DEFAULT_BOT_TIME_ZONE);
   let confirmed: number = 0;
   let revision: number = 0;
   function reply(value: IdentityStoragePersistedReply): void { confirmed += value.temporaryAdBypassWrites.length; }

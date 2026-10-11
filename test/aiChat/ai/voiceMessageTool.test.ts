@@ -10,6 +10,7 @@ import { TTS_DEFAULT_BOT_LANGUAGE, TTS_DEFAULT_STYLE } from "../../../packages/c
  */
 
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
+import { replyToolContextFixture } from "../../helpers/replyToolContext";
 import { loggerStub } from "../../helpers/loggerMock";
 import { sineWav } from "../../helpers/wav";
 import type { AgentDeploymentConfig, AgentTtsCapabilityConfig } from "../../../packages/types/config";
@@ -78,25 +79,7 @@ function adoptTtsQuota(dailyLimit: number, dailyReserveQuota: number): void {
 }
 
 function buildContext(overrides: Partial<ReplyToolContext> = {}): ReplyToolContext {
-  return {
-    chatId: -1001,
-    replyToMessageId: 42,
-    messageThreadId: 9,
-    mediaToolsRequested: false,
-    bypassMediaToolCooldown: false,
-    direct: false,
-    chatAction: {
-      set: mock((..._args: unknown[]): number => 0),
-      settle: mock(async (): Promise<void> => {}),
-    },
-    roundHasTypo: false,
-    isActive: () => true,
-    onMessageSent: mock((..._args: unknown[]): void => {}),
-    onStickerSent: mock((..._args: unknown[]): void => {}),
-    onImageSent: mock((..._args: unknown[]): void => {}),
-    onVoiceSent: mock((..._args: unknown[]): void => {}),
-    ...overrides,
-  };
+  return replyToolContextFixture({ chatId: -1001, replyToMessageId: 42, messageThreadId: 9, ...overrides });
 }
 
 /** 只记录后台登记的串行链替身；投递步骤由执行器交回、由用例按需执行，执行器不得自己排链。 */

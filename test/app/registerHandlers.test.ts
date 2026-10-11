@@ -98,9 +98,9 @@ describe("application handler registration", () => {
     expect(SDK_REGISTRATIONS_AFTER_IMPORT).toBe(0);
     const { used, middleware, commands, directCommands, directHears }: Registration = registerOnFakeBot();
 
-    // 前置链 + Anti-Raid / gag / qa 三条 ingress + 命令外闸 + 中文动作命令外闸 + 消息兜底，按这个顺序收在同一个数组里。
+    // 前置链（含群升级迁移 ingress）+ Anti-Raid / gag / qa 三条 ingress + 命令外闸 + 中文动作命令外闸 + 消息兜底，按这个顺序收在同一个数组里。
     expect(used).toHaveLength(1);
-    expect(middleware).toHaveLength(12);
+    expect(middleware).toHaveLength(13);
     expect(used[0]).toBe(middleware);
     expect(commands).toEqual([
       "permission",

@@ -38,7 +38,7 @@ function identityPrefetchMiddleware(): TestMiddleware {
   const noop = (): unknown => fakeBot;
   const fakeBot: Record<string, unknown> = {
     use(...middleware: TestMiddleware[]): unknown {
-      prefetchMiddleware = middleware[4];
+      prefetchMiddleware = middleware.find((fn: TestMiddleware): boolean => fn.name === "prefetchUpdateIdentities");
       return fakeBot;
     },
     command: noop,

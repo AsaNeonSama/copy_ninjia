@@ -71,7 +71,7 @@ beforeEach(() => {
   warnings.length = 0;
   fallbackMiddleware.mockClear();
   reported.length = 0;
-  create.mockClear();
+  create.mockReset();
   create.mockImplementation(async (): Promise<unknown> => response("end_turn"));
   installAiCacheUsageSink((usage: AiCacheUsage): void => { reported.push(usage); });
 });

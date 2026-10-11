@@ -31,7 +31,7 @@ describe("Bun 原生不可信输入读取", () => {
     tempDirs.push(directory);
     const path: string = join(directory, "input.txt");
     await Bun.write(path, "ready");
-    rmSync(path);
+    await Bun.file(path).delete();
 
     await expect(readUtf8TextInput(path)).rejects.toThrow();
   });

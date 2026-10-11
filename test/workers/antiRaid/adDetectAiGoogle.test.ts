@@ -23,14 +23,15 @@ interface FakeCreateParams {
   readonly config: { readonly displayName: string; readonly ttl: string; readonly abortSignal?: AbortSignal };
 }
 
-const cacheCreate = mock(async (params: FakeCreateParams): Promise<FakeCache> => {
+async function cacheCreateStub(params: FakeCreateParams): Promise<FakeCache> {
   createdCount += 1;
   return {
     name: `cachedContents/ad-${createdCount}`,
     displayName: params.config.displayName,
     expireTime: new Date(Date.now() + Number.parseInt(params.config.ttl, 10) * 1_000).toISOString(),
   };
-});
+}
+const cacheCreate = mock(cacheCreateStub);
 const cacheDelete = mock(async (..._args: unknown[]): Promise<object> => ({}));
 const cacheUpdate = mock(async (..._args: unknown[]): Promise<FakeCache> => ({}));
 const cacheList = mock(async (..._args: unknown[]): Promise<AsyncIterable<FakeCache>> => ({
@@ -136,7 +137,10 @@ beforeEach((): void => {
   constructions.length = 0;
   errorLogs.length = 0;
   createdCount = 0;
-  for (const fn of [generateContent, cacheCreate, cacheDelete, cacheUpdate, cacheList]) fn.mockClear();
+  for (const fn of [cacheDelete, cacheUpdate, cacheList]) fn.mockClear();
+  cacheCreate.mockReset();
+  cacheCreate.mockImplementation(cacheCreateStub);
+  generateContent.mockReset();
   generateContent.mockImplementation(async (): Promise<unknown> => ({
     candidates: [{ finishReason: "STOP" }],
     text: "{\"ad\":false,\"reason\":\"闲聊\"}",

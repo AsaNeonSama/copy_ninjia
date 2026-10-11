@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
 import { botPermissions } from "../helpers/botPermissions";
+import type { LockdownRecord } from "../../packages/types/chatState";
 
 const calls: string[] = [];
 const states = new Map<number, Record<string, unknown>>();
@@ -66,7 +67,17 @@ const botAdminCache = await import("../../packages/cache/main/botAdmin");
 const chatTeardown = await import("../../packages/infra/chatTeardown");
 const chatTeardownRegistry = await import("../../packages/infra/chatTeardownRegistry");
 const { CHAT_TEARDOWN_ORDER } = await import("../../packages/consts/chatTeardown");
-const { purgesChatData } = await import("../../packages/libs/chatTeardown");
+const { abandonsLockdown, isChatUnreachable, purgesChatData } = await import("../../packages/libs/chatTeardown");
+
+/** 机器人离群时仍在生效、等待恢复的私密模式记录。 */
+const ACTIVE_LOCKDOWN: LockdownRecord = {
+  phase: "active",
+  intentId: 7,
+  originalPermissions: {},
+  announced: true,
+  announcementMessageId: 7001,
+  expiresAt: 9_000,
+};
 
 function memberContext(newStatus: string, oldStatus: string = "administrator"): never {
   return {
@@ -82,7 +93,7 @@ beforeEach(() => {
   calls.length = 0;
   states.clear();
   saveStateInBackground.mockClear();
-  getChatMember.mockClear();
+  getChatMember.mockReset();
   getChatMember.mockImplementation(async (): Promise<{ status: string }> => ({ status: "administrator" }));
   botAdminCache.botPermissionFetches.clear();
   botAdminCache.botPermissionRequestTokens.clear();
@@ -121,11 +132,23 @@ describe("chat runtime teardown", () => {
     expect(reasons).toEqual(["explicitDisable", "departed", "lostAuthority"]);
   });
 
-  // 各 owner 一律走这个判定，不在自己那里手写字面量比较。
-  test("只有失权停管不删数据，另外两条起因都删", () => {
+  // 各 owner 一律走这几个判定，不在自己那里手写字面量比较。
+  test("只有失权停管不删数据，其余起因都删", () => {
     expect(purgesChatData("explicitDisable")).toBeTrue();
     expect(purgesChatData("departed")).toBeTrue();
+    expect(purgesChatData("gone")).toBeTrue();
     expect(purgesChatData("lostAuthority")).toBeFalse();
+  });
+
+  test("被移出与群已不存在时不再访问本群；只有群已不存在才放弃私密模式", () => {
+    expect(isChatUnreachable("departed")).toBeTrue();
+    expect(isChatUnreachable("gone")).toBeTrue();
+    expect(isChatUnreachable("explicitDisable")).toBeFalse();
+    expect(isChatUnreachable("lostAuthority")).toBeFalse();
+    expect(abandonsLockdown("gone")).toBeTrue();
+    expect(abandonsLockdown("departed")).toBeFalse();
+    expect(abandonsLockdown("explicitDisable")).toBeFalse();
+    expect(abandonsLockdown("lostAuthority")).toBeFalse();
   });
 
   test("按 proxy、copy、gag、qa、AI、Anti-Raid、入群日志顺序拆除组合运行态", async () => {
@@ -183,19 +206,11 @@ describe("chat runtime teardown", () => {
   });
 
   test("退群保留尚未恢复的 lockdown owner，删除其它群配置", async () => {
-    const lockdown = {
-      phase: "active",
-      intentId: 7,
-      originalPermissions: {},
-      announced: true,
-      announcementMessageId: 7001,
-      expiresAt: 9_000,
-    };
     states.set(-1001, {
       isInitEnabled: true,
       botPermissions: botPermissions(),
       isProxySendEnabled: true,
-      lockdown,
+      lockdown: ACTIVE_LOCKDOWN,
     });
     const reasons: string[] = [];
     chatTeardownRegistry.registerChatTeardown("wed", (_chatId: number, reason): void => {
@@ -206,7 +221,7 @@ describe("chat runtime teardown", () => {
     // 离群按 departed 派发：人已经不在这个群里，本群的记忆、奖池、入群日志与
     // 问答一并删除；被撤管理员那一路仍是 lostAuthority，一条数据都不动。
     expect(reasons).toEqual(["departed"]);
-    expect(states.get(-1001)).toEqual({ lockdown });
+    expect(states.get(-1001)).toEqual({ lockdown: ACTIVE_LOCKDOWN });
     // 第二条是权限快照被丢掉时顺手排的后台写：botPermissions 是持久字段，内存清除时磁盘同步清除
     // （见 infra/botAdmin.ts 的 forgetBotChatPermissions）。这一路后面那次 persistChatState 以更高 revision 覆盖它；
     // 这次写是 teardown 每群一次的固定成本。
@@ -221,8 +236,23 @@ describe("chat runtime teardown", () => {
       "anti:-1001",
       "joinlog:-1001",
       "prune:-1001",
-      "save:chat -1001 state pruned after bot left/kicked",
+      "save:chat -1001 state pruned on departure (departed)",
     ]);
+  });
+
+  test("群已不存在时按 gone 收尾：teardown 起因为 gone，群状态同样只留私密模式记录等 Worker 放弃", async () => {
+    states.set(-1001, { isInitEnabled: true, botPermissions: botPermissions(), lockdown: ACTIVE_LOCKDOWN });
+    const reasons: string[] = [];
+    chatTeardownRegistry.registerChatTeardown("wed", (_chatId: number, reason): void => {
+      reasons.push(reason);
+    });
+
+    await botAdmin.completeChatDeparture(-1001, "gone");
+
+    expect(reasons).toEqual(["gone"]);
+    expect(states.get(-1001)).toEqual({ lockdown: ACTIVE_LOCKDOWN });
+    expect(calls).toContain("clear:botPermissions");
+    expect(calls.at(-1)).toBe("save:chat -1001 state pruned on departure (gone)");
   });
 
   test("退群 teardown 失败仍裁剪并持久化权威状态，随后传播错误", async () => {
@@ -241,7 +271,7 @@ describe("chat runtime teardown", () => {
     expect((error as AggregateError).errors).toEqual([teardownError]);
     expect(states.has(-1001)).toBe(false);
     expect(calls).toContain("prune:-1001");
-    expect(calls).toContain("save:chat -1001 state pruned after bot left/kicked");
+    expect(calls).toContain("save:chat -1001 state pruned on departure (departed)");
   });
 
   test("管理员降级调用同一 teardown，按 lostAuthority 保留数据并记录完整非管理员权限快照", async () => {

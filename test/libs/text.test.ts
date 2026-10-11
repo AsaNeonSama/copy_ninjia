@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeDisplayName, sanitizeInline, splitGraphemes, stripLeadingAtSigns, truncateAtClauseBoundary, truncateInline } from "../../packages/libs/text";
+import {
+  sanitizeDisplayName,
+  sanitizeInline,
+  splitGraphemes,
+  stripLeadingAtSigns,
+  truncateAtClauseBoundary,
+  truncateInline,
+  truncateWithEllipsis,
+} from "../../packages/libs/text";
+import { TRUNCATION_ELLIPSIS } from "../../packages/consts/text";
 
 describe("libs/text truncateAtClauseBoundary", () => {
   test("不超限时原样返回", () => {
@@ -214,5 +223,27 @@ describe("libs/text sanitizeInline 字符类", () => {
     }
     expect(firstMismatch).toBe("");
     expect(mismatches).toBe(0);
+  });
+});
+
+describe("truncateWithEllipsis", () => {
+  test("未超出上限原样返回，恰好等于上限也不补省略号", () => {
+    expect(truncateWithEllipsis("abcde", 5)).toBe("abcde");
+    expect(truncateWithEllipsis("", 1)).toBe("");
+  });
+
+  test("超出时截断并补缺省省略号，总长不超过上限", () => {
+    const result: string = truncateWithEllipsis("abcdefgh", 5);
+    expect(result).toBe(`abcd${TRUNCATION_ELLIPSIS}`);
+    expect(result.length).toBe(5);
+  });
+
+  test("自定义标记计入预算", () => {
+    expect(truncateWithEllipsis("abcdefgh", 5, "...")).toBe("ab...");
+  });
+
+  test("截断点落在代理对中间时去掉孤立的高位代理", () => {
+    const result: string = truncateWithEllipsis("ab😀cd", 4);
+    expect(result).toBe(`ab${TRUNCATION_ELLIPSIS}`);
   });
 });

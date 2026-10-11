@@ -1,3 +1,4 @@
+import type { FlushResult } from "../../packages/types/lifecycle";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { RawApi, Transformer } from "grammy";
 import { settleTestBatch } from "../helpers/common";
@@ -258,7 +259,7 @@ describe("Telegram 主线程出站总闸", () => {
           const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {}, 60_000);
           timer.unref();
           telegramOutboundGateState.drainWaiters.add({
-            resolve: (_drained: boolean): void => {},
+            resolve: (_result: FlushResult): void => {},
             timer,
           });
         },
@@ -481,9 +482,7 @@ describe("Telegram 主线程出站总闸", () => {
     expect(telegramOutboundGateState.retryPendingCount).toBe(1);
     expect(telegramOutboundGateState.lanes.query.retryTimer).not.toBeNull();
 
-    await new Promise<void>((resolve: () => void): void => {
-      setTimeout(resolve, 10);
-    });
+    await Bun.sleep(10);
     await expect(request).resolves.toEqual({ ok: true, result: { id: -1001 } });
     expect(attempts).toBe(2);
     expect(telegramOutboundGateState.retryPendingCount).toBe(0);
@@ -540,9 +539,7 @@ describe("Telegram 主线程出站总闸", () => {
     );
 
     for (let tick: number = 0; tick < 500 && deferred.size < 2; tick++) {
-      await new Promise<void>((resolve: () => void): void => {
-        setTimeout(resolve, 1);
-      });
+      await Bun.sleep(1);
     }
     expect([...deferred.keys()].sort()).toEqual(["B#2", "C#2"]);
     expect(telegramOutboundGateState.lanes.query.recoveryActive).toBe(2);

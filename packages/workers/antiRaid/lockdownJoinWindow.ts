@@ -13,13 +13,14 @@ import { TimestampDeque } from "../../libs/timestampDeque";
 import type { JoinWindow } from "../../types/antiRaid/internal";
 import type { LockdownAbandonReason } from "../../types/states/lockdown";
 import { logger } from "../../infra/logger";
+import { MINUTE_MS, SECOND_MS } from "../../consts/time";
 
 /** 生成超过入群阈值时的封锁公告。 */
 export function lockdownAnnouncementText(joinCount: number | undefined, atmosphere: AtmosphereTexts): string {
   const influx: string = joinCount === undefined
     ? atmosphere.NOTICE_TEXTS.lockdownInfluxUnknown
-    : atmosphere.NOTICE_TEXTS.lockdownInflux(JOIN_WINDOW_MS / 1000, joinCount);
-  return atmosphere.NOTICE_TEXTS.lockdownStarted(influx, LOCKDOWN_MS / 60_000);
+    : atmosphere.NOTICE_TEXTS.lockdownInflux(JOIN_WINDOW_MS / SECOND_MS, joinCount);
+  return atmosphere.NOTICE_TEXTS.lockdownStarted(influx, LOCKDOWN_MS / MINUTE_MS);
 }
 
 /** 丢弃某群的入群滑窗与静默清理计时器；重新计数从零开始。 */
@@ -82,7 +83,7 @@ export function beginLockdownRetriggerCooldown(
   suppressJoinWindowRetrigger(chatId, durationMs);
   logger.error(
     `Anti-raid lockdown for chat ${chatId} was abandoned (${reason}); ` +
-    `suppressing new lockdown triggers there for ${durationMs / 60_000} minutes. ` +
+    `suppressing new lockdown triggers there for ${durationMs / MINUTE_MS} minutes. ` +
     "Per-member join verification is unaffected."
   );
 }

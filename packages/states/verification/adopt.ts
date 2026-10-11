@@ -11,8 +11,8 @@ import { checkingInviterOf, expellingOf, kickPendingOf, snapshotOf } from "./sha
  *
  * kickPending、checkingInviter、expelling 这几个 phase 与新建路径共用 ./shared.ts 的
  * 构造器，pending 与 ./join.ts 的新建字面量保持同一字段顺序，产出同一个
- * hidden class；`executionStarted`、`effectStarted`、
- * `cleanupSettled` 是 Worker 本地幂等门，不随快照持久化，重建时从初始值起。
+ * hidden class；`executionStarted`、`effectStarted` 是 Worker 本地幂等门，
+ * 不随快照持久化，重建时从初始值起。
  *
  * pending 的发言窗口经 trimSlidingWindowArray 裁剪，与 ./pending.ts 的 handleTrackedMessage
  * 的刷屏窗口共用同一份边界判定（含时钟回拨后落在「未来」的时间戳）。

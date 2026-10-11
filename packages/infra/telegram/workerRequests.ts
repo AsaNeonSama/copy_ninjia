@@ -15,7 +15,8 @@ import type {
   TelegramWorkerTemporaryMessageResult,
   TelegramWorkerTemporaryMessageSentResult,
 } from "../../types/telegramWorker";
-import { telegramRetryCategoryFor } from "./outboundRetryPolicy";
+import { isTelegramMessageRequest } from "./outboundRetryPolicy";
+import { telegramSignal } from "../../libs/telegramSignal";
 import { beginSelfSentSend, endSelfSentSend, markSelfSent } from "../selfSentTracker";
 
 async function sendTemporaryMessage(
@@ -36,44 +37,19 @@ async function sendTemporaryMessage(
   });
 }
 
+/** grammY raw API 的单方法调用形态；raw 是按方法名转发到 callApi 的 Proxy，经过同一组出站 transformer。 */
+type TelegramRawCall = (
+  payload: TelegramWorkerJsonCall["payload"],
+  signal?: ReturnType<typeof telegramSignal>
+) => Promise<unknown>;
+
+/** 按方法名调用 raw API；方法白名单已由 aiAllows / antiRaidAllows 判过，payload 形态由 TelegramWorkerJsonCall 约束。 */
 function executeJsonCall(
   call: TelegramWorkerJsonCall,
   signal: AbortSignal
 ): Promise<unknown> {
-  switch (call.method) {
-    case "answerCallbackQuery":
-      return bot.api.raw.answerCallbackQuery(call.payload, signal as never);
-    case "banChatMember":
-      return bot.api.raw.banChatMember(call.payload, signal as never);
-    case "banChatSenderChat":
-      return bot.api.raw.banChatSenderChat(call.payload, signal as never);
-    case "deleteMessage":
-      return bot.api.raw.deleteMessage(call.payload, signal as never);
-    case "deleteMessages":
-      return bot.api.raw.deleteMessages(call.payload, signal as never);
-    case "getChat":
-      return bot.api.raw.getChat(call.payload, signal as never);
-    case "getChatAdministrators":
-      return bot.api.raw.getChatAdministrators(call.payload, signal as never);
-    case "getChatMember":
-      return bot.api.raw.getChatMember(call.payload, signal as never);
-    case "getStickerSet":
-      return bot.api.raw.getStickerSet(call.payload, signal as never);
-    case "restrictChatMember":
-      return bot.api.raw.restrictChatMember(call.payload, signal as never);
-    case "sendChatAction":
-      return bot.api.raw.sendChatAction(call.payload, signal as never);
-    case "sendMessage":
-      return bot.api.raw.sendMessage(call.payload, signal as never);
-    case "sendSticker":
-      return bot.api.raw.sendSticker(call.payload, signal as never);
-    case "setChatPermissions":
-      return bot.api.raw.setChatPermissions(call.payload, signal as never);
-    case "setMessageReaction":
-      return bot.api.raw.setMessageReaction(call.payload, signal as never);
-    case "unbanChatMember":
-      return bot.api.raw.unbanChatMember(call.payload, signal as never);
-  }
+  const rawCall: TelegramRawCall = bot.api.raw[call.method] as TelegramRawCall;
+  return rawCall(call.payload, telegramSignal(signal));
 }
 
 function downloadTelegramFile(
@@ -127,49 +103,44 @@ async function dispatchTelegramWorkerRequest(
 ): Promise<unknown> {
   switch (request.operation) {
     case "call":
-      if (telegramRetryCategoryFor(request.call.method) !== request.category) {
-        throw new Error("Telegram Worker request category does not match its Bot API method.");
-      }
       return executeJsonCall(request.call, signal);
     case "sendPhoto":
-      if (request.category !== "message") {
-        throw new Error("Telegram Worker sendPhoto must use the message category.");
-      }
       return bot.api.sendPhoto(
         request.chatId,
         new InputFile(request.bytes, request.fileName),
         request.other,
-        signal as never
+        telegramSignal(signal)
       );
     case "sendVoice":
-      if (request.category !== "message") {
-        throw new Error("Telegram Worker sendVoice must use the message category.");
-      }
       return bot.api.sendVoice(
         request.chatId,
         new InputFile(request.bytes, request.fileName),
         request.other,
-        signal as never
+        telegramSignal(signal)
       );
     case "downloadFile":
-      if (request.category !== "download") {
-        throw new Error("Telegram Worker downloadFile must use the download category.");
-      }
       return downloadTelegramFile(request, signal);
     case "sendTemporaryMessage":
-      if (request.category !== "message") {
-        throw new Error("Telegram Worker temporary messages must use the message category.");
-      }
       return sendTemporaryMessage(request, signal);
   }
 }
 
-/** 产消息（message 档）的 Worker 请求发往的数字 chat；其余请求不进入自发消息在途计数。 */
+/**
+ * 产消息的 Worker 请求发往的数字 chat：上传、临时提示，以及 isTelegramMessageRequest 认定的 JSON 方法；
+ * 其余请求不进入自发消息在途计数。
+ */
 function selfSentTargetChatId(request: TelegramWorkerRequest): number | undefined {
-  if (request.category !== "message") return undefined;
   let chatId: number | string | undefined;
-  if (request.operation !== "call") chatId = request.chatId;
-  else if ("chat_id" in request.call.payload) chatId = request.call.payload.chat_id;
+  switch (request.operation) {
+    case "call":
+      if (!isTelegramMessageRequest(request.call.method) || !("chat_id" in request.call.payload)) return undefined;
+      chatId = request.call.payload.chat_id;
+      break;
+    case "downloadFile":
+      return undefined;
+    default:
+      chatId = request.chatId;
+  }
   return typeof chatId === "number" ? chatId : undefined;
 }
 

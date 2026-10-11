@@ -1,9 +1,11 @@
 import { getTimeZone } from "../../packages/config/time";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import { loggerStub } from "../helpers/loggerMock";
 import type { BotConfig } from "../../packages/types/config";
 import { CLEAR_CONTEXT_USAGE_TEXT } from "../../packages/consts/atmosphere/teasing/commandUsage";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const invalidateAiChat = mock(async (_chatId: number): Promise<void> => undefined);
@@ -23,6 +25,7 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/aiChat", () => ({ invalidateAiChat }));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
@@ -31,14 +34,7 @@ const { handleClearContextCommand } = await import("../../packages/commands/clea
 
 // userId 传 null 表示这条 update 解析不出发起身份；显式 undefined 取默认值（超级管理员）。
 function context(argument: string = "", userId: number | null = 100): never {
-  const chat = { id: -1001, type: "supergroup" };
-  return {
-    chat,
-    from: userId === null ? undefined : { id: userId, first_name: "Admin", username: "admin" },
-    msg: { message_id: 7, chat },
-    msgId: 7,
-    match: argument,
-  } as never;
+  return groupCommandContext({ match: argument, userId, messageId: 7 });
 }
 
 beforeEach(() => {

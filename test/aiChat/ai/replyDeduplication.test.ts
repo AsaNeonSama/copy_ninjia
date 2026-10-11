@@ -1,5 +1,6 @@
 import { executeAndSettle } from "../../helpers/replyToolExecution";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { replyToolContextFixture } from "../../helpers/replyToolContext";
 import type { ReplyToolContext, ReplyToolset, RoundMessageState } from "../../../packages/types/aiChat/replies";
 import type { TelegramSendResult } from "../../../packages/types/telegram";
 
@@ -29,27 +30,6 @@ const {
 } = await import("../../../packages/aiChat/ai/tools/replyToolset/messageState");
 const { modelAuthoredTextPolicyResult } = await import("../../../packages/aiChat/ai/tools/replyToolset/modelAuthoredText");
 
-function context(): ReplyToolContext {
-  return {
-    chatId: -100800,
-    replyToMessageId: 10,
-    messageThreadId: undefined,
-    mediaToolsRequested: false,
-    bypassMediaToolCooldown: false,
-    direct: false,
-    chatAction: {
-      set: mock((): number => 0),
-      settle: mock(async (): Promise<void> => {}),
-    },
-    roundHasTypo: false,
-    isActive: (): boolean => true,
-    onMessageSent: mock((): void => {}),
-    onStickerSent: mock((): void => {}),
-    onImageSent: mock((): void => {}),
-    onVoiceSent: mock((): void => {}),
-  };
-}
-
 beforeEach(() => {
   nextMessageId = 100;
   sendMessage.mockReset();
@@ -58,7 +38,7 @@ beforeEach(() => {
 
 describe("单轮回复静默去重", () => {
   test("换行、连续空白和 Unicode 等价编码不产生第二次发送或动作计数", async () => {
-    const ctx: ReplyToolContext = context();
+    const ctx: ReplyToolContext = replyToolContextFixture();
     const toolset: ReplyToolset = await createReplyToolset(ctx);
     await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({ text: "café 明天见" }));
 
@@ -78,7 +58,7 @@ describe("单轮回复静默去重", () => {
   });
 
   test("清洗包裹符号后同样判重，丢弃不会追加输入状态或记忆", async () => {
-    const ctx: ReplyToolContext = context();
+    const ctx: ReplyToolContext = replyToolContextFixture();
     const toolset: ReplyToolset = await createReplyToolset(ctx);
     await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({ text: "明天见" }));
     for (const text of ["「明天见」", "```\n明天见\n```", "明天见"]) {
@@ -93,7 +73,7 @@ describe("单轮回复静默去重", () => {
 
   test("已接纳内容在发送失败后也不接受模型重投", async () => {
     sendMessage.mockImplementationOnce(async (): Promise<undefined> => undefined);
-    const toolset: ReplyToolset = await createReplyToolset(context());
+    const toolset: ReplyToolset = await createReplyToolset(replyToolContextFixture());
     const args: string = JSON.stringify({ text: "明天见" });
     expect(JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, args)).queued).toBe(true);
     expect(toolset.actionsUsed()).toBe(1);
@@ -104,7 +84,7 @@ describe("单轮回复静默去重", () => {
 
   test("下一轮独立判断，不把历史上的正常同文回复永久屏蔽", async () => {
     for (let round: number = 0; round < 2; round++) {
-      const toolset: ReplyToolset = await createReplyToolset(context());
+      const toolset: ReplyToolset = await createReplyToolset(replyToolContextFixture());
       expect(JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({ text: "晚安" }))).success).toBe(true);
       expect(toolset.actionsUsed()).toBe(1);
     }
@@ -112,7 +92,7 @@ describe("单轮回复静默去重", () => {
   });
 
   test("已发送的媒体附言阻止同轮独立文字重发", async () => {
-    const ctx: ReplyToolContext = context();
+    const ctx: ReplyToolContext = replyToolContextFixture();
     const state: RoundMessageState = createRoundMessageState();
     acceptRoundText(state, "今晚 月色不错");
     const execute = createSendMessageExecutor(ctx, state, (): number => 1);

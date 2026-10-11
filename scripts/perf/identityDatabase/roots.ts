@@ -5,21 +5,15 @@ import {
   CONFIG_ROOT_ENV,
   RUNTIME_DATA_ROOT_ENV,
 } from "../../../packages/consts/environment";
-import {
-  seedStorageDatabase,
-} from "../../fixtures/storageDatabase";
-import { storageMetadataRows } from
+import { bootstrapStorageDatabase } from
   "../../../packages/database/interact/initialization";
 import { DEFAULT_BOT_TIME_ZONE } from "../../../packages/consts/bot";
 import {
   closeStorageDatabase,
-  enableStorageDatabaseWal,
   openStorageDatabase,
 } from "../../../packages/database/interact/connection";
 import { assertStorageDatabaseJsonbStorage } from
   "../../../packages/database/interact/inspection";
-import { createStorageDatabase } from
-  "../../../packages/database/interact/migration";
 import type { StorageDatabase } from
   "../../../packages/types/storageDatabase";
 import { RUN_ROOT_PREFIX } from "../fullSuite/constants";
@@ -112,19 +106,7 @@ export function createMainBenchmarkRoot(mockRoot: string): string {
     const databaseDirectory: string = join(temporaryRoot, "database");
     mkdirSync(databaseDirectory);
     const path: string = join(databaseDirectory, "storage.sqlite");
-    createStorageDatabase(path);
-    enableStorageDatabaseWal(path);
-    const database: StorageDatabase = openStorageDatabase({ path });
-    try {
-      seedStorageDatabase(database, {
-        metadata: storageMetadataRows(DEFAULT_BOT_TIME_ZONE),
-        whitelist: [],
-        blocklist: [],
-        removals: [],
-      });
-    } finally {
-      closeStorageDatabase(database);
-    }
+    bootstrapStorageDatabase(path, DEFAULT_BOT_TIME_ZONE);
     return temporaryRoot;
   } catch (error: unknown) {
     removeMainBenchmarkRoot(temporaryRoot, mockRoot);

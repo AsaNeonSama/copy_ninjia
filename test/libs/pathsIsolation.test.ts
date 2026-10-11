@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   AD_SAMPLES_CONFIG_PATH,
@@ -44,10 +44,10 @@ test("测试环境的真实运行时文件与生产数据根完全隔离", async
   await Bun.write(isolatedMarker, "real test cache");
 
   expect(await Bun.file(isolatedMarker).text()).toBe("real test cache");
-  expect(existsSync(productionMarker)).toBeFalse();
+  expect(await Bun.file(productionMarker).exists()).toBeFalse();
 });
 
-test("测试环境的默认部署配置只读取独占临时副本", () => {
+test("测试环境的默认部署配置只读取独占临时副本", async () => {
   expect(CONFIG_ROOT).toBe(TEST_CONFIG_ROOT);
   for (const path of [
     AD_SAMPLES_CONFIG_PATH,
@@ -55,9 +55,9 @@ test("测试环境的默认部署配置只读取独占临时副本", () => {
     STICKERS_CONFIG_PATH,
   ]) {
     expect(path.startsWith(`${CONFIG_ROOT}/`)).toBeTrue();
-    expect(existsSync(path)).toBeTrue();
+    expect(await Bun.file(path).exists()).toBeTrue();
   }
   // 翻译凭据位于静态子目录 config/static/；测试副本删掉了示例里的占位凭据。
   expect(GOOGLE_AUTH_FILE_PATH).toBe(join(STATIC_CONFIG_DIR, "g-auth.json"));
-  expect(existsSync(GOOGLE_AUTH_FILE_PATH)).toBeFalse();
+  expect(await Bun.file(GOOGLE_AUTH_FILE_PATH).exists()).toBeFalse();
 });

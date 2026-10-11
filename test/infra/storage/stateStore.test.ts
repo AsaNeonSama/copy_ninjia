@@ -19,6 +19,7 @@ import {
   purgeChatStateExceptLockdown,
 } from "../../../packages/infra/storage/stateStore";
 import { chatStateCache } from "../../../packages/cache/main/chatState";
+import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 import { LEGACY_STATE_FILE_PATHS } from "../../../packages/consts/paths";
 import { logger } from "../../../packages/infra/logger";
 import {
@@ -597,6 +598,28 @@ describe("群级状态门面", () => {
     expect(chatStateCache.has(-1001)).toBeFalse();
     expect(chatStateCache.get(-1002)).toEqual(chatStateOf({ lockdown }));
     expect(chatStateCache.has(-1003)).toBeFalse();
+  });
+
+  test("只剩私密模式记录的群在 unlock 清掉记录后删除，受管名额随之空出", () => {
+    const lockdown: LockdownRecord = {
+      phase: "restoring",
+      intentId: 4,
+      originalPermissions: { can_invite_users: true },
+      announced: false,
+      announcementMessageId: undefined,
+      expiresAt: 1_700_000_000_000,
+    };
+    chatStateCache.set(-1002, chatStateOf({ isInitEnabled: true, lockdown }));
+    purgeChatStateExceptLockdown(-1002);
+    for (let chatId: number = -2001; chatStateCache.size < STATE_MANAGED_CHAT_LIMIT; chatId--) {
+      chatStateCache.set(chatId, chatStateOf({ isInitEnabled: true }));
+    }
+    expect(() => getOrCreateChatState(-3001)).toThrow(`at most ${STATE_MANAGED_CHAT_LIMIT} chats`);
+
+    expect(clearChatStateField(-1002, "lockdown")).toBeTrue();
+
+    expect(chatStateCache.has(-1002)).toBeFalse();
+    expect(getOrCreateChatState(-3001)).toBe(chatStateCache.get(-3001)!);
   });
 
   test("中转发送目标全局唯一，扫描全部群只认显式启用的那个", () => {

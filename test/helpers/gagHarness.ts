@@ -5,7 +5,7 @@
  * 每个文件都要在顶层调用一次 installGagTestHooks()。
  */
 
-import { afterEach, beforeEach, mock } from "bun:test";
+import { afterEach, beforeEach, jest, mock } from "bun:test";
 import { loggerStub } from "./loggerMock";
 import type {
   InlineKeyboardMarkup,
@@ -17,7 +17,7 @@ import type { CachedUser } from "../../packages/types/chatState";
 import type { GagSession } from "../../packages/types/gag";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "./botPermissions";
-import { settleTestBatch } from "./common";
+import { replyCommandNoticeVia, settleTestBatch } from "./common";
 // 这三个模块不在被替身覆盖的范围内（只依赖 consts/types/libs），静态导入即可；
 // 被测的 packages/commands/gag 由各用例文件在本模块的 mock.module 生效之后自行 await import。
 import * as identity from "../../packages/commands/gag/identity";
@@ -64,22 +64,45 @@ export interface EphemeralDeletionParams {
 export type InlineResult = Record<string, unknown>;
 export type InlineAnswerOptions = Record<string, unknown>;
 
-export const sendCommandMessage = mock(async (_params: TextMessageParams): Promise<number | undefined> => 56);
-export const sendMessage = mock(async (_params: TextMessageParams): Promise<number | undefined> => 56);
-export const sendEphemeralMessage = mock(async (_params: EphemeralMessageParams): Promise<number | undefined> => 57);
-export const deleteEphemeralMessageWithOutcome = mock(async (_params: EphemeralDeletionParams): Promise<string> => "deleted");
-export const deleteMessageWithOutcome = mock(async (_chatId: number, _messageId: number): Promise<string> => "deleted");
-export const probeChatMembership = mock(async (_chatId: number, _userId: number): Promise<boolean | undefined> => true);
-export const resolveCommandTarget = mock(async (_params: unknown): Promise<CachedUser | undefined> => ({
-  id: 7,
-  first_name: "Alice",
-  username: "alice",
-}));
-export const answerInlineQuery = mock(async (
+/** 下列替身的默认实现；声明处与 installGagTestHooks 的 mockReset 之后共用同一份。 */
+async function sendCommandMessageStub(_params: TextMessageParams): Promise<number | undefined> {
+  return 56;
+}
+/** 与真实发送边界同一契约：成功时先经 onSent 同步登记 id，再返回同一个 id。 */
+async function sendMessageStub(params: TextMessageParams): Promise<number | undefined> {
+  params.onSent?.(56);
+  return 56;
+}
+async function sendEphemeralMessageStub(params: EphemeralMessageParams): Promise<number | undefined> {
+  params.onSent?.(57);
+  return 57;
+}
+async function deleteEphemeralMessageStub(_params: EphemeralDeletionParams): Promise<string> {
+  return "deleted";
+}
+async function deleteMessageStub(_chatId: number, _messageId: number): Promise<string> {
+  return "deleted";
+}
+async function probeChatMembershipStub(_chatId: number, _userId: number): Promise<boolean | undefined> {
+  return true;
+}
+async function resolveCommandTargetStub(_params: unknown): Promise<CachedUser | undefined> {
+  return { id: 7, first_name: "Alice", username: "alice" };
+}
+async function answerInlineQueryStub(
   _results: readonly InlineResult[],
   _options: InlineAnswerOptions,
   _signal?: unknown
-): Promise<void> => undefined);
+): Promise<void> {}
+
+export const sendCommandMessage = mock(sendCommandMessageStub);
+export const sendMessage = mock(sendMessageStub);
+export const sendEphemeralMessage = mock(sendEphemeralMessageStub);
+export const deleteEphemeralMessageWithOutcome = mock(deleteEphemeralMessageStub);
+export const deleteMessageWithOutcome = mock(deleteMessageStub);
+export const probeChatMembership = mock(probeChatMembershipStub);
+export const resolveCommandTarget = mock(resolveCommandTargetStub);
+export const answerInlineQuery = mock(answerInlineQueryStub);
 /** 开关由用例直接改写；mock 出口在每次调用时读取当前值。 */
 export const gagTestSwitches: {
   permissionAllowed: boolean;
@@ -123,6 +146,7 @@ mock.module("../../packages/infra/telegram", () => ({
   logApiError: (): void => undefined,
   probeChatMembership,
   sendCommandMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendCommandMessage),
   sendEphemeralMessage,
   sendMessage,
 }));
@@ -322,18 +346,15 @@ export function installGagTestHooks(): void {
       probeChatMembership,
       resolveCommandTarget,
       answerInlineQuery,
-    ]) mocked.mockClear();
-    sendCommandMessage.mockImplementation(async (_params: TextMessageParams): Promise<number | undefined> => 56);
-    sendEphemeralMessage.mockImplementation(async (_params: EphemeralMessageParams): Promise<number | undefined> => 57);
-    deleteEphemeralMessageWithOutcome.mockImplementation(async (_params: EphemeralDeletionParams): Promise<string> => "deleted");
-    sendMessage.mockImplementation(async (_params: TextMessageParams): Promise<number | undefined> => 56);
-    deleteMessageWithOutcome.mockImplementation(async (_chatId: number, _messageId: number): Promise<string> => "deleted");
-    probeChatMembership.mockImplementation(async (_chatId: number, _userId: number): Promise<boolean | undefined> => true);
-    resolveCommandTarget.mockImplementation(async (_params: unknown): Promise<CachedUser | undefined> => ({
-      id: 7,
-      first_name: "Alice",
-      username: "alice",
-    }));
+    ]) mocked.mockReset();
+    sendCommandMessage.mockImplementation(sendCommandMessageStub);
+    sendEphemeralMessage.mockImplementation(sendEphemeralMessageStub);
+    deleteEphemeralMessageWithOutcome.mockImplementation(deleteEphemeralMessageStub);
+    sendMessage.mockImplementation(sendMessageStub);
+    deleteMessageWithOutcome.mockImplementation(deleteMessageStub);
+    probeChatMembership.mockImplementation(probeChatMembershipStub);
+    resolveCommandTarget.mockImplementation(resolveCommandTargetStub);
+    answerInlineQuery.mockImplementation(answerInlineQueryStub);
   });
 
   afterEach(() => {
@@ -341,4 +362,32 @@ export function installGagTestHooks(): void {
     Date.now = originalDateNow;
     botAtmosphereState.current = preloadedAtmosphere;
   });
+}
+
+/**
+ * 定时换新与沉默刷新用例共用的假时钟钩子，在 installGagTestHooks 之后调用：每条用例从 1_000_000 起
+ * 走 jest 假 timer，Date.now 读假时钟；临时提示的 id 从 100 起逐条递增，区分前后几次换新发出的入口。
+ * 用例结束先撤掉会话与 timer，再换回真 timer。
+ */
+export function installGagFakeClockHooks(): void {
+  beforeEach((): void => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    Date.now = (): number => new Date().getTime();
+    let nextNoticeId: number = 100;
+    sendEphemeralMessage.mockImplementation(async (params: EphemeralMessageParams): Promise<number> => {
+      const noticeId: number = nextNoticeId++;
+      params.onSent?.(noticeId);
+      return noticeId;
+    });
+  });
+  afterEach((): void => {
+    resetGagTestState();
+    jest.useRealTimers();
+  });
+}
+
+/** 推进假时钟并排空随之触发的 gag 后台任务。 */
+export async function advanceGagTime(milliseconds: number): Promise<void> {
+  jest.advanceTimersByTime(milliseconds);
+  await settleGagBackgroundTasks();
 }

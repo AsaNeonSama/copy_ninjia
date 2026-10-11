@@ -163,6 +163,8 @@ export const NOTICE_TEXTS: Readonly<AtmosphereNotices> = {
   unblockNoManagedChat: (listNote: string): string => `哼，${listNote}——不过本天才一个群的管理员都不是，各群的封禁想解也解不了呀♡`,
   unblockPartialFailure: (failedCount: number): string => `（还有 ${failedCount} 个群没解开，杂鱼管理员快去检查权限）`,
   unblockResult: (listNote: string, unbannedCount: number, failedNote: string): string => `哼，${listNote}，还在 ${unbannedCount} 个群把封禁一并解开了${failedNote}——这次真的放 TA 回来了，别再让本天才失望哦♡`,
+  usernameTargetChanged: (username: string): string => `@${username} 已经改名或换人了，本次一个人都没动；回复 TA 的消息来定位吧，杂鱼♡`,
+  usernameTargetUnverified: (username: string): string => `呜……暂时确认不了 @${username} 现在是谁，本次一个人都没动；回复 TA 的消息或者直接给 id 吧♡`,
   copyReverseEffect: "，之后 TA 说的纯文字都会被本天才倒过来念",
   copyNyaEffect: "，之后 TA 说的纯文字后面本天才都会给它加上喵~",
   unknownUser: "这个杂鱼",

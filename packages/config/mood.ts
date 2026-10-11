@@ -153,11 +153,9 @@ export function parseMoodConfig(
   return { moods };
 }
 
-/** 从指定文件加载并校验；模块 import 本身不访问文件系统。 */
-export async function loadMoodConfig(
-  path: string = MOOD_CONFIG_PATH
-): Promise<MoodConfig> {
-  return parseMoodConfig(await readJsonInput(path), path);
+/** 从 MOOD_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。 */
+export async function loadMoodConfig(): Promise<MoodConfig> {
+  return parseMoodConfig(await readJsonInput(MOOD_CONFIG_PATH), MOOD_CONFIG_PATH);
 }
 
 /**

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { User } from "grammy/types";
+import type { MessageEntity, User } from "grammy/types";
 import type { CachedUser } from "../../packages/types/chatState";
 import type { CurrentAvatarResult } from "../../packages/types/telegram";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendCommandMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const sendCommandPhoto = mock(async (..._args: unknown[]): Promise<number | undefined> => 2);
@@ -17,7 +18,7 @@ const getChat = mock(async (..._args: unknown[]): Promise<unknown> => {
 let resolvedTarget: CachedUser | undefined;
 const resolveCommandTarget = mock(async (..._args: unknown[]): Promise<CachedUser | undefined> => resolvedTarget);
 
-mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage }));
+mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage, replyCommandNotice: replyCommandNoticeVia(sendCommandMessage) }));
 mock.module("../../packages/infra/telegram/commandPhotos", () => ({ sendCommandPhoto }));
 mock.module("../../packages/infra/telegram/actions/membership", () => ({ readChatMemberUser }));
 mock.module("../../packages/infra/telegram/avatar/read", () => ({ readCurrentAvatar }));
@@ -58,13 +59,43 @@ interface ExpectedInfo {
   readonly withAvatar: boolean;
 }
 
-/** 期望的正文与 id 的 code 实体。 */
-function expected({ name, username, id, withAvatar }: ExpectedInfo): { text: string; entities: unknown[] } {
-  const head: string = `名称：${name}\n用户名：${username}\nID：`;
-  return {
-    text: withAvatar ? `${head}${id}` : `${head}${id}\n头像：无`,
-    entities: [{ type: "code", offset: head.length, length: String(id).length }],
-  };
+/** 发出去的回执：纯文字走 text/entities，带图走 caption/captionEntities。 */
+interface SentInfo {
+  readonly chatId: number;
+  readonly photo?: string | Uint8Array;
+  readonly replyToMessageId?: number;
+  readonly messageThreadId?: number;
+  readonly text?: string;
+  readonly entities?: readonly MessageEntity[];
+  readonly caption?: string;
+  readonly captionEntities?: readonly MessageEntity[];
+}
+
+/**
+ * 核对回执正文逐行是名称、用户名、ID（没有头像时再加一行头像标签），标签取当前通知风格的常量；
+ * 唯一的 code 实体按 Telegram 的 UTF-16 偏移恰好圈住 id。
+ */
+function expectInfoBody(text: string | undefined, entities: readonly MessageEntity[] | undefined, info: ExpectedInfo): void {
+  const lines: string[] = [`${texts.nameLabel}${info.name}`, `${texts.usernameLabel}${info.username}`, `${texts.idLabel}${info.id}`];
+  if (!info.withAvatar) lines.push(texts.noAvatar);
+  expect(text?.split("\n")).toEqual(lines);
+  expect(entities).toHaveLength(1);
+  const entity: MessageEntity = entities![0]!;
+  expect(entity.type).toBe("code");
+  expect(text!.slice(entity.offset, entity.offset + entity.length)).toBe(String(info.id));
+}
+
+/** 最近一条纯文字回执只带这几个字段：回复触发消息、不带话题，正文与实体见 expectInfoBody。 */
+function expectLastInfoMessage(info: ExpectedInfo): void {
+  const sent: SentInfo = sendCommandMessage.mock.calls.at(-1)![0] as SentInfo;
+  expect(sent).toEqual({
+    chatId: CHAT_ID,
+    text: expect.any(String),
+    entities: expect.any(Array),
+    replyToMessageId: 10,
+    messageThreadId: undefined,
+  });
+  expectInfoBody(sent.text, sent.entities, info);
 }
 
 beforeEach(() => {
@@ -100,11 +131,17 @@ describe("/info", () => {
     await runInfo("42");
     expect(readChatMemberUser).toHaveBeenCalledWith(expect.objectContaining({ chatId: CHAT_ID, userId: 42 }));
     expect(readCurrentAvatar.mock.calls[0]![0]).toBe(memberUser);
-    const message = expected({ name: "Alice Liddell", username: "@alice", id: 42, withAvatar: true });
-    expect(sendCommandPhoto).toHaveBeenCalledWith({
-      chatId: CHAT_ID, photo: "avatar-file-id", caption: message.text, captionEntities: message.entities,
-      replyToMessageId: 10, messageThreadId: undefined,
+    expect(sendCommandPhoto).toHaveBeenCalledTimes(1);
+    const photo: SentInfo = sendCommandPhoto.mock.calls[0]![0] as SentInfo;
+    expect(photo).toEqual({
+      chatId: CHAT_ID,
+      photo: "avatar-file-id",
+      caption: expect.any(String),
+      captionEntities: expect.any(Array),
+      replyToMessageId: 10,
+      messageThreadId: undefined,
     });
+    expectInfoBody(photo.caption, photo.captionEntities, { name: "Alice Liddell", username: "@alice", id: 42, withAvatar: true });
     expect(sendCommandMessage).not.toHaveBeenCalled();
   });
 
@@ -112,16 +149,14 @@ describe("/info", () => {
     resolvedTarget = { id: 42 };
     memberUser = { id: 42, is_bot: false, first_name: "Alice" };
     await runInfo("42");
-    expect(sendCommandMessage).toHaveBeenLastCalledWith({
-      chatId: CHAT_ID, ...expected({ name: "Alice", username: "无", id: 42, withAvatar: false }), replyToMessageId: 10, messageThreadId: undefined,
-    });
+    expectLastInfoMessage({ name: "Alice", username: texts.noUsername, id: 42, withAvatar: false });
 
     avatar = { status: "ok", identity: memberUser, photo: new Uint8Array([1]) };
     sendCommandPhoto.mockImplementation(async (): Promise<number | undefined> => undefined);
     await runInfo("42");
     expect(sendCommandPhoto).toHaveBeenCalledTimes(1);
     expect(sendCommandMessage).toHaveBeenCalledTimes(2);
-    expect(sendCommandMessage).toHaveBeenLastCalledWith(expect.objectContaining({ text: expected({ name: "Alice", username: "无", id: 42, withAvatar: false }).text }));
+    expectLastInfoMessage({ name: "Alice", username: texts.noUsername, id: 42, withAvatar: false });
   });
 
   test("机器人自己：直接用自身资料，不再现查成员身份", async () => {
@@ -129,7 +164,8 @@ describe("/info", () => {
     await runInfo();
     expect(readChatMemberUser).not.toHaveBeenCalled();
     expect(readCurrentAvatar.mock.calls[0]![0]).toBe(BOT);
-    expect(sendCommandMessage).toHaveBeenCalledWith(expect.objectContaining({ text: expected({ name: "Copy Ninjia", username: "@copy_ninjia_bot", id: 999, withAvatar: false }).text }));
+    expect(sendCommandMessage).toHaveBeenCalledTimes(1);
+    expectLastInfoMessage({ name: "Copy Ninjia", username: "@copy_ninjia_bot", id: 999, withAvatar: false });
   });
 
   test("频道：getChat 取 title 与用户名，按 id 读头像；群身份没有头像可读", async () => {
@@ -137,7 +173,7 @@ describe("/info", () => {
     chatInfo = { id: -1002, type: "channel", title: "News", username: "news" };
     await runInfo("-1002");
     expect(readCurrentAvatar.mock.calls[0]![0]).toBe(-1002);
-    expect(sendCommandMessage).toHaveBeenLastCalledWith(expect.objectContaining({ text: expected({ name: "News", username: "@news", id: -1002, withAvatar: false }).text }));
+    expectLastInfoMessage({ name: "News", username: "@news", id: -1002, withAvatar: false });
 
     readCurrentAvatar.mockClear();
     chatInfo = { id: -1003, type: "supergroup", title: "Group" };
@@ -149,11 +185,18 @@ describe("/info", () => {
   test("现查失败时退回解析得到的身份；连名称和用户名都没有时回查不到", async () => {
     resolvedTarget = { id: 42, first_name: "Cached", username: "cached" };
     await runInfo("42");
-    expect(sendCommandMessage).toHaveBeenLastCalledWith(expect.objectContaining({ text: expected({ name: "Cached", username: "@cached", id: 42, withAvatar: false }).text }));
+    expectLastInfoMessage({ name: "Cached", username: "@cached", id: 42, withAvatar: false });
 
     resolvedTarget = { id: 43 };
     await runInfo("43");
     expect(sendCommandMessage).toHaveBeenLastCalledWith({ chatId: CHAT_ID, text: texts.notFound, replyToMessageId: 10 });
+  });
+
+  test("名称含 emoji 等代理对字符时，id 实体按 UTF-16 偏移仍圈住 id", async () => {
+    resolvedTarget = { id: 42 };
+    memberUser = { id: 42, is_bot: false, first_name: "Alice 🐇", username: "alice" };
+    await runInfo("42");
+    expectLastInfoMessage({ name: "Alice 🐇", username: "@alice", id: 42, withAvatar: false });
   });
 
   test("名称里的命令与双向控制字符被中和", async () => {

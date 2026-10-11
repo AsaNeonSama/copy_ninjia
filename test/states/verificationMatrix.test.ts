@@ -6,9 +6,10 @@
 
 import { describe, expect, test } from "bun:test";
 import { transitionVerification } from "../../packages/states/verification";
-import { checkingInviterOf, expellingOf } from "../../packages/states/verification/shared";
+import { checkingInviterOf, expellingOf, kickPendingOf } from "../../packages/states/verification/shared";
 import type {
   ExpelSnapshot,
+  KickPendingState,
   VerificationEffect,
   VerificationEvent,
   VerificationState,
@@ -79,6 +80,17 @@ const VERIFICATION_ROWS: Readonly<Record<VerificationRowLabel, () => Verificatio
   "expelling:flood": (): VerificationState => expellingOf("flood", SNAPSHOT),
 };
 
+/** 不属于任何一行的 kickPending 对象，作执行门事件里已换代的 token。 */
+function staleKickAttempt(): KickPendingState {
+  return kickPendingOf({
+    label: LABEL,
+    isBot: false,
+    requestedAt: JOINED_AT,
+    countedJoinAt: JOINED_AT,
+    announcementMessageId: 10,
+  });
+}
+
 /** 每个事件类型一列；参数取最常见的形态（自主入群、本人点按钮、非管理员拉人者）。 */
 const VERIFICATION_COLUMNS: Readonly<Record<VerificationEvent["type"], () => VerificationEvent>> = {
   join: (): VerificationEvent => ({
@@ -123,6 +135,13 @@ const VERIFICATION_COLUMNS: Readonly<Record<VerificationEvent["type"], () => Ver
   expelNoticeSent: (): VerificationEvent => ({ type: "expelNoticeSent", notice: "success" }),
   removalConfirmed: (): VerificationEvent => ({ type: "removalConfirmed" }),
   kickRetry: (): VerificationEvent => ({ type: "kickRetry" }),
+  // 三个执行门事件带另造的 attemptState，代表已换代的 token：每一行都原样返回。
+  kickRequestSent: (): VerificationEvent => ({ type: "kickRequestSent", attemptState: staleKickAttempt() }),
+  kickRequestFailed: (): VerificationEvent => ({ type: "kickRequestFailed", attemptState: staleKickAttempt() }),
+  terminalAttemptUnsettled: (): VerificationEvent => ({
+    type: "terminalAttemptUnsettled",
+    attemptState: checkingInviterOf(7, SNAPSHOT),
+  }),
   kickSettled: (): VerificationEvent => ({ type: "kickSettled", now: NOW }),
   reminderLanded: (): VerificationEvent => ({
     type: "reminderLanded",

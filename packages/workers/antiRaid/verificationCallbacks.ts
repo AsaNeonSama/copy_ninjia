@@ -6,7 +6,7 @@ import {
 import { verificationEntries, verificationGeneration } from "../../cache/workers/antiRaid/verification";
 import { VERIFICATION_CALLBACK_CHECK_MAX, VERIFICATION_CALLBACK_REPLY_MAX } from "../../consts/antiRaid/verification";
 import { logger } from "../../infra/logger";
-import { answerCallbackQuery, telegramApi } from "../../infra/telegram";
+import { answerCallbackQuery } from "../../infra/telegram";
 import { verificationKey } from "../../libs/verificationKey";
 import { formatUserLabel } from "../../users/userLabel";
 import type { VerificationDispatcher, VerificationEntry } from "../../types/antiRaid/internal";
@@ -56,7 +56,6 @@ export function answerVerificationCallback({
     callbackQueryId,
     text,
     showAlert: reply !== undefined && reply !== "ok",
-    api: telegramApi,
   }).catch((error: unknown): void => {
     logger.error("Error answering join verification callback:", error);
   }).finally((): void => { verificationCallbackReplies.current--; });

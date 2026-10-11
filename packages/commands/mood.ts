@@ -5,7 +5,7 @@ import { requestAiMood } from "../aiChat";
 import { aiChatConfigReadiness } from "../config/readiness";
 import { getChatState } from "../infra/storage/stateStore";
 import { logger } from "../infra/logger";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import { refuseIfConfigBroken } from "./configGate";
 import { rejectUnlessPermitted } from "./commandActor";
 import type { CachedUser } from "../types/chatState";
@@ -19,13 +19,12 @@ export async function handleMoodCommand(ctx: CommandContext<Context>): Promise<v
   } else if (argument === "switch") {
     await switchMood(ctx);
   } else {
-    await sendCommandMessage({ chatId: ctx.chat.id, text: chatAtmosphere().MOOD_USAGE_TEXT, replyToMessageId: ctx.msgId });
+    await replyCommandNotice(ctx, chatAtmosphere().MOOD_USAGE_TEXT);
   }
 }
 
 interface MoodAvailabilityOptions {
-  chatId: number;
-  messageId?: number;
+  ctx: CommandContext<Context>;
   feature: "AI mood query" | "AI mood switch";
   brokenConfigText: (file: string) => string;
   disabledText: string;
@@ -33,8 +32,7 @@ interface MoodAvailabilityOptions {
 
 /** 心情查询与重抽共用的运行前提；只负责说明 Worker 为何不可用，不做权限判断。 */
 async function isMoodAvailable({
-  chatId,
-  messageId,
+  ctx,
   feature,
   brokenConfigText,
   disabledText,
@@ -42,19 +40,15 @@ async function isMoodAvailable({
   // 先核对 aiChatConfigReadiness；不可用时点名配置文件并回执，不向 Worker 投递。
   const refused: boolean = await refuseIfConfigBroken({
     readiness: aiChatConfigReadiness(),
-    chatId,
-    messageId,
+    chatId: ctx.chat.id,
+    messageId: ctx.msgId,
     feature,
     text: brokenConfigText,
   });
   if (refused) return false;
 
-  if (getChatState(chatId).isAIChatEnabled !== true) {
-    await sendCommandMessage({
-      chatId,
-      text: disabledText,
-      replyToMessageId: messageId,
-    });
+  if (getChatState(ctx.chat.id).isAIChatEnabled !== true) {
+    await replyCommandNotice(ctx, disabledText);
     return false;
   }
   return true;
@@ -67,10 +61,8 @@ async function isMoodAvailable({
  */
 async function queryMood(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const available: boolean = await isMoodAvailable({
-    chatId,
-    messageId,
+    ctx,
     feature: "AI mood query",
     brokenConfigText: (file: string): string => chatAtmosphere().NOTICE_TEXTS.moodQueryConfigInvalid(file),
     disabledText: chatAtmosphere().NOTICE_TEXTS.moodQueryDisabled,
@@ -82,19 +74,11 @@ async function queryMood(ctx: CommandContext<Context>): Promise<void> {
     moodName = await requestAiMood("queryMood");
   } catch (error: unknown) {
     logger.error(`Failed to confirm AI mood query for chat ${chatId}:`, error);
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.moodQueryFailed,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.moodQueryFailed);
     return;
   }
 
-  await sendCommandMessage({
-    chatId,
-    text: chatAtmosphere().NOTICE_TEXTS.moodCurrent(moodName),
-    replyToMessageId: messageId,
-  });
+  await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.moodCurrent(moodName));
 }
 
 /**
@@ -106,7 +90,6 @@ async function queryMood(ctx: CommandContext<Context>): Promise<void> {
  */
 async function switchMood(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
 
   const actor: CachedUser | undefined = await rejectUnlessPermitted(
     ctx,
@@ -116,8 +99,7 @@ async function switchMood(ctx: CommandContext<Context>): Promise<void> {
   if (actor === undefined) return;
 
   const available: boolean = await isMoodAvailable({
-    chatId,
-    messageId,
+    ctx,
     feature: "AI mood switch",
     brokenConfigText: (file: string): string => chatAtmosphere().NOTICE_TEXTS.moodSwitchConfigInvalid(file),
     disabledText: chatAtmosphere().NOTICE_TEXTS.moodSwitchDisabled,
@@ -129,18 +111,10 @@ async function switchMood(ctx: CommandContext<Context>): Promise<void> {
     moodName = await requestAiMood("switchMood");
   } catch (error: unknown) {
     logger.error(`Failed to confirm AI mood switch for chat ${chatId}:`, error);
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().NOTICE_TEXTS.moodSwitchFailed,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.moodSwitchFailed);
     return;
   }
 
   // Worker 已回执成功；这里的发送失败按消息投递错误上抛，由 grammY 的统一错误边界按 update 失败处理。
-  await sendCommandMessage({
-    chatId,
-    text: chatAtmosphere().NOTICE_TEXTS.moodSwitched(moodName),
-    replyToMessageId: messageId,
-  });
+  await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.moodSwitched(moodName));
 }

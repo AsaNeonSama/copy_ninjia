@@ -48,6 +48,7 @@ import {
   replyReferenceScenario,
   transcriptRenderScenario,
 } from "./transcriptScenarios";
+import { pendingVerificationLookupScenario } from "./verificationLookupScenario";
 import type { Scenario, ScenarioName } from "./types";
 import { base64PayloadScenario, replyAdmissionScenario, replyDeliveryScenario } from "./replyScenarios";
 import { proxyTtsDetectScenario, voiceMessageEncodeScenario } from "./voiceScenarios";
@@ -72,6 +73,7 @@ export function createScenario(name: ScenarioName): Scenario {
     case "storage-sqlite-flush": return storageFlushScenario();
     case "verification-snapshot": return verificationSnapshotScenario(false);
     case "verification-snapshot-clone": return verificationSnapshotScenario(true);
+    case "pending-verification-lookup": return pendingVerificationLookupScenario();
     case "bounded-response-empty": return boundedResponseScenario("empty");
     case "bounded-response-tiny": return boundedResponseScenario("tiny");
     case "bounded-response-small": return boundedResponseScenario("small");

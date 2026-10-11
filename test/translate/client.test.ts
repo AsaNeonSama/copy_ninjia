@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { TRANSLATE_REQUEST_TIMEOUT_MS } from "../../packages/consts/lifecycle";
 import { loggerStub } from "../helpers/loggerMock";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -59,10 +60,10 @@ beforeEach(async () => {
   clientOptions.length = 0;
   await Bun.write(authFilePath, JSON.stringify(credentialInput));
   googleServiceAccountKey.current = await validateGoogleServiceAccountKey();
-  getProjectId.mockClear();
-  translateText.mockClear();
-  close.mockClear();
   loggerError.mockClear();
+  getProjectId.mockReset();
+  translateText.mockReset();
+  close.mockReset();
   getProjectId.mockImplementation(async (): Promise<string> => "project-123");
   translateText.mockImplementation(async () => [{ translations: [{ translatedText: "こんにちは" }] }]);
   close.mockImplementation(async (): Promise<void> => {});
@@ -136,7 +137,7 @@ describe("Google Translation 适配层", () => {
         mimeType: "text/plain",
         targetLanguageCode: "ja",
       },
-      { timeout: 2_500 }
+      { timeout: TRANSLATE_REQUEST_TIMEOUT_MS }
     );
   });
 

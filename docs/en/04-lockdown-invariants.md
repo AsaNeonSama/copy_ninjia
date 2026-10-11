@@ -22,6 +22,9 @@
   - The recovery pipeline reads each entry synchronously before any `await`; each locked chat is processed once and logged once in the takeover journal.
   - If recovery for a chat is already active with the identical `phase` and `intentId`, `startEmergencyLockdownRecovery` returns immediately. If a different intent is detected, it aborts the old recovery process and restarts anew.
 
+- **Abandoning the Mirror When the Chat No Longer Exists**:
+  - With teardown reason `gone`, the Anti-Raid Worker abandons the chat's lockdown through the `chatGone` event: it deletes the state, clears the restore and retry timers, and only reports `unlock`, without calling Telegram. The main thread clears the `lockdown` mirror on `unlock` and persists it in the background; any earlier in-flight `lockdown` report arrives first and `unlock` last, so the mirror ends up empty.
+  - Late permission-call results after the abandonment hit an empty state and do not advance it; `departed` and every other reason still take the persist-first restore path.
 - **Mirror Validation & Optional Fields**:
   - Active lockdown mirrors must contain `phase` and a positive integer `intentId`. `announcementMessageId` is present exactly when `announced` is true.
   - Verification challenge snapshots must include `phase` and `trackedMessageTimes`.
@@ -46,6 +49,6 @@
   - When `botCanRestrictIn` is false, the cycle exits early only if both `failureNoticeSent` and `cleanupSettled` are true; each such cycle sends a single membership probe, settles if the member has left, and otherwise keeps backing off.
   - Lockdown instant kicks (`kickPending`) also probe membership first when the ban permission is missing: a departed member settles and its record is released; a present member is logged and backed off without a kick request.
   - If cleanup remains unsettled, the full disposal cycle continues: the kick is bypassed by `canRestrict`, the report is bypassed by `failureNoticeSent`, and message deletions are bypassed when `can_delete_messages` is absent. Only pending deletions that can still execute are retried.
-  - Like `executionStarted`, `cleanupSettled` is an **in-memory Worker-local idempotency gate that is never written to disk snapshots**.
+  - `cleanupSettled` lives on the Worker runtime entry (`VerificationEntry`), while `executionStarted` lives on the terminal state object and changes only through state machine events. Both are **in-memory Worker-local idempotency gates that are never written to disk snapshots** and restart from their initial values when the entry or state is replaced.
 
 <p align="right"><a href="04-invariants.md#quick-navigation">↑ Back to quick navigation</a></p>

@@ -33,7 +33,7 @@ function snapshot(userId: number): VerificationSnapshot {
   };
 }
 
-describe("Disk I/O Worker 路由：此前无用例覆盖的分支", () => {
+describe("Disk I/O Worker 路由：AI 记忆遗忘、待验证写入、入群日志删除与身份读取回执", () => {
   test("forgetAiMemory 同步丢掉该群的 revision 水位线", async () => {
     aiMemoryRevisions.set(CHAT_ID, 9);
     aiMemoryOperations.set(CHAT_ID, "delete");

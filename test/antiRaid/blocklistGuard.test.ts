@@ -49,7 +49,7 @@ beforeEach(() => {
   errorLogs.length = 0;
   recentBlockedJoinCounts.clear();
   requestBlocklistResweep.mockClear();
-  deleteMessageWithOutcome.mockClear();
+  deleteMessageWithOutcome.mockReset();
   deleteMessageWithOutcome.mockImplementation(async (): Promise<string> => "deleted");
   removalCounter = 0;
   trackFails = false;

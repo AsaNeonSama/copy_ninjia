@@ -7,7 +7,7 @@ import { translateConfigReadiness } from "../config/readiness";
 import { TRANSLATE_ARGUMENT_PATTERN, TRANSLATE_STOP_ARGUMENT_PATTERN, TRANSLATE_LANGUAGE_LABELS, TRANSLATE_LIST_JSON_INDENT, TRANSLATE_LIST_JSON_LANGUAGE } from "../consts/translate";
 
 import { getChatState, persistChatState } from "../infra/storage/stateStore";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { explicitReplyTo } from "../libs/forumTopic";
 import { isTelegramGroupChatId } from "../libs/telegramId";
 import { isTranslateLanguage } from "../translate/language";
@@ -71,7 +71,7 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
   if (stopMatch !== null) {
     if (stopMatch[1] === undefined && explicitReplyTo(ctx.msg) === undefined && ctx.msg.external_reply === undefined) {
       await stopTranslation(chatId);
-      await sendCommandMessage({ chatId, text: chatAtmosphere().TRANSLATE_STOP_ALL_TEXT, replyToMessageId: messageId });
+      await replyCommandNotice(ctx, chatAtmosphere().TRANSLATE_STOP_ALL_TEXT);
       return;
     }
     const target: CachedUser | undefined = await resolveCommandTarget({
@@ -82,29 +82,24 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
     const current: TranslateState | undefined = getTranslateState(chatId, target.id);
     await stopTranslation(chatId, target.id);
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId,
-      text: current === undefined
+    await replyCommandNotice(
+      ctx,
+      current === undefined
         ? atmosphere.NOTICE_TEXTS.translateNotRunning(formatUserLabel(target, atmosphere))
-        : atmosphere.NOTICE_TEXTS.translateStopped(formatUserLabel(target, atmosphere)),
-      replyToMessageId: messageId,
-    });
+        : atmosphere.NOTICE_TEXTS.translateStopped(formatUserLabel(target, atmosphere))
+    );
     return;
   }
 
   const match: RegExpExecArray | null = TRANSLATE_ARGUMENT_PATTERN.exec(argument);
   const language: string | undefined = match?.[1]?.toLowerCase();
   if (language === undefined || !isTranslateLanguage(language)) {
-    await sendCommandMessage({ chatId, text: chatAtmosphere().TRANSLATE_USAGE_TEXT, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, chatAtmosphere().TRANSLATE_USAGE_TEXT);
     return;
   }
   if (await refuseUnavailableTranslation(chatId, messageId)) return;
   if (getChatState(chatId).isTranslationEnabled !== true) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().TRANSLATE_DISABLED_TEXT,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().TRANSLATE_DISABLED_TEXT);
     return;
   }
 
@@ -119,27 +114,15 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
   const current: TranslateState | undefined = getTranslateState(chatId, target.id);
   if (current !== undefined) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.NOTICE_TEXTS.translateAlreadyRunning(formatUserLabel(current.translatedUser, atmosphere), TRANSLATE_LANGUAGE_LABELS[current.language]),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.translateAlreadyRunning(formatUserLabel(current.translatedUser, atmosphere), TRANSLATE_LANGUAGE_LABELS[current.language]));
     return;
   }
 
   if (!setTranslateState(chatId, { translatedUser: target, language })) {
-    await sendCommandMessage({
-      chatId,
-      text: getChatState(chatId).translate !== undefined ? chatAtmosphere().TRANSLATE_CHAT_CAPACITY_TEXT : chatAtmosphere().TRANSLATE_CAPACITY_TEXT,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, getChatState(chatId).translate !== undefined ? chatAtmosphere().TRANSLATE_CHAT_CAPACITY_TEXT : chatAtmosphere().TRANSLATE_CAPACITY_TEXT);
     return;
   }
   await persistChatState(chatId, "translation started");
   const atmosphere: AtmosphereTexts = chatAtmosphere();
-  await sendCommandMessage({
-    chatId,
-    text: atmosphere.NOTICE_TEXTS.translateStarted(formatUserLabel(target, atmosphere), TRANSLATE_LANGUAGE_LABELS[language]),
-    replyToMessageId: messageId,
-  });
+  await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.translateStarted(formatUserLabel(target, atmosphere), TRANSLATE_LANGUAGE_LABELS[language]));
 }

@@ -13,7 +13,7 @@ export const PARTIAL_LITERAL_TABLES: ReadonlyMap<string, string> = new Map<strin
 /** collectConstExhaustiveListProblems 的入参。 */
 export interface ConstExhaustiveListParams {
   readonly projectRoot: string;
-  /** createConstsProgram 建的 program 的类型检查器。 */
+  /** 以 packages/consts/ 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
   readonly checker: ts.TypeChecker;
   /** packages/consts/ 的全部导出常量声明（exportedConstDeclarations）；废弃登记按这批声明判定。 */
   readonly declarations: readonly ExportedConstDeclaration[];

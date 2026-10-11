@@ -5,6 +5,7 @@
  */
 
 import { afterEach, beforeEach, expect, mock, setSystemTime, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../../helpers/fixtureTimeZone";
 import { loggerStub } from "../../helpers/loggerMock";
 import { parseMarkdownV2 } from "../../helpers/markdownV2";
 import { TOKYO_TIME_ZONE } from "../../../packages/consts/time";
@@ -79,6 +80,8 @@ function digestJson(url: string = SOURCE_URL, body: string = "正文。"): strin
     sections: [{ heading: "AI", items: [{ title: "新模型", body, source: "甲", url }] }],
   });
 }
+
+installTokyoFixtureTimeZone();
 
 beforeEach(() => {
   searchRequests.length = 0;

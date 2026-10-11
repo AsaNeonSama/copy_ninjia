@@ -14,18 +14,20 @@ import type { TelegramSendResult } from "../../packages/types/telegram";
 /** 文字与贴纸替身共用的下一条消息 ID；每个用例开始时复位，按发送顺序递增。 */
 const nextMessageId: { current: number } = { current: 100 };
 
-export const sendMessageMock = mock(async (
-  params: { replyToMessageId?: number }
-): Promise<TelegramSendResult | undefined> => ({
-  messageId: nextMessageId.current++,
-  repliedToMessageId: params.replyToMessageId,
-}));
+async function sendMessageStub(params: { replyToMessageId?: number }): Promise<TelegramSendResult | undefined> {
+  return { messageId: nextMessageId.current++, repliedToMessageId: params.replyToMessageId };
+}
+export const sendMessageMock = mock(sendMessageStub);
 export const deleteMessageMock = mock(async (..._args: unknown[]): Promise<boolean> => true);
-export const setMessageReactionMock = mock(async (..._args: unknown[]): Promise<boolean> => true);
+async function setMessageReactionStub(..._args: unknown[]): Promise<boolean> {
+  return true;
+}
+export const setMessageReactionMock = mock(setMessageReactionStub);
 export const sendStickerMock = mock(
   async (..._args: unknown[]): Promise<number | undefined> => nextMessageId.current++
 );
-export const sleepMock = mock(async (..._args: unknown[]): Promise<void> => {});
+async function sleepStub(..._args: unknown[]): Promise<void> {}
+export const sleepMock = mock(sleepStub);
 
 mock.module("../../packages/infra/telegram", () => ({
   ...realTelegram,
@@ -43,13 +45,18 @@ mock.module("../../packages/libs/sleep", () => ({
   sleep: sleepMock,
 }));
 
-/** 各用例文件的 beforeEach：复位消息 ID、清空调用记录，并恢复反应替身的默认成功实现。 */
+/**
+ * 各用例文件的 beforeEach：复位消息 ID、清空调用记录；有用例排 *Once 的替身用 mockReset
+ * 连同没消费完的 Once 一起清掉，再装回默认实现。
+ */
 export function resetReplyToolsetMocks(): void {
   nextMessageId.current = 100;
-  sendMessageMock.mockClear();
+  sendMessageMock.mockReset();
+  sendMessageMock.mockImplementation(sendMessageStub);
   deleteMessageMock.mockClear();
-  setMessageReactionMock.mockClear();
-  setMessageReactionMock.mockImplementation(async (): Promise<boolean> => true);
+  setMessageReactionMock.mockReset();
+  setMessageReactionMock.mockImplementation(setMessageReactionStub);
   sendStickerMock.mockClear();
-  sleepMock.mockClear();
+  sleepMock.mockReset();
+  sleepMock.mockImplementation(sleepStub);
 }

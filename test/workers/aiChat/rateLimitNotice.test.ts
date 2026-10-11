@@ -12,9 +12,10 @@ import { COMMAND_MESSAGE_AUTO_DELETE_MS } from "../../../packages/consts/command
  */
 
 let nextSentMessageId: number | undefined = 501;
-const sendMessage = mock(async (_message: { chatId: number; text: string }): Promise<number | undefined> =>
-  nextSentMessageId
-);
+async function sendMessageStub(_message: { chatId: number; text: string }): Promise<number | undefined> {
+  return nextSentMessageId;
+}
+const sendMessage = mock(sendMessageStub);
 const recordChatMessage = mock((..._args: unknown[]): void => {});
 const deleteMessageAfter = mock((_params: { chatId: number; messageId: number; delayMs: number }): void => {});
 
@@ -40,7 +41,8 @@ beforeEach(() => {
   resetAiChatReplyCache();
   botInfoState.current = { id: 99, first_name: "Ninja", username: "ninja_bot" };
   nextSentMessageId = 501;
-  sendMessage.mockClear();
+  sendMessage.mockReset();
+  sendMessage.mockImplementation(sendMessageStub);
   recordChatMessage.mockClear();
   deleteMessageAfter.mockClear();
 });

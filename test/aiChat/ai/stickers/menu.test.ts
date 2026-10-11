@@ -47,7 +47,7 @@ function sticker(fileUniqueId: string): any {
 }
 
 beforeEach(() => {
-  getStickerSetMock.mockClear();
+  getStickerSetMock.mockReset();
   loggerError.mockClear();
   getStickerSetMock.mockImplementation(async () => ({ title: "猫猫包", stickers: [sticker("a1")] }));
   catalogs.clear();

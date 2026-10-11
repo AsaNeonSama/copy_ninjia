@@ -76,7 +76,7 @@ function apiError(status: number, message: string): Error {
 
 beforeEach(() => {
   requestOpenAiTextResult.mockClear();
-  createTranscription.mockClear();
+  createTranscription.mockReset();
   getOpenAiClient.mockClear();
   loggerError.mockClear();
   createTranscription.mockImplementation(async (): Promise<{ text: string }> => ({ text: "  你好\n世界  " }));

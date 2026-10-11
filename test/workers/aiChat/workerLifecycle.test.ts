@@ -26,7 +26,10 @@ const flushDirtyStickerCatalogs = mock((emit: (event: unknown) => void): void =>
   calls.push("flushCatalogs");
   emit({ type: "stickerCatalogSnapshot", name: "pack" });
 });
-const hydrateStickerCatalogs = mock((_catalogs: unknown): void => { calls.push("hydrateCatalogs"); });
+function hydrateStickerCatalogsStub(_catalogs: unknown): void {
+  calls.push("hydrateCatalogs");
+}
+const hydrateStickerCatalogs = mock(hydrateStickerCatalogsStub);
 const pruneStickerCatalogs = mock((_packs: readonly string[]): void => { calls.push("pruneCatalogs"); });
 const pruneStickerSets = mock((_packs: readonly string[]): void => { calls.push("pruneSets"); });
 mock.module("../../../packages/aiChat/ai/stickers/sets", () => ({ pruneStickerSets }));
@@ -40,8 +43,14 @@ const flushDirtyMemories = mock((): void => { calls.push("flushMemories"); });
 const flushMemorySnapshot = mock((_chatId: number, _persistImmediately?: boolean): void => {
   calls.push("flushMemorySnapshot");
 });
-const hydrateMemories = mock((_memories: unknown): void => { calls.push("hydrateMemories"); });
-const recordChatMessage = mock((..._args: unknown[]): void => { calls.push("record"); });
+function hydrateMemoriesStub(_memories: unknown): void {
+  calls.push("hydrateMemories");
+}
+const hydrateMemories = mock(hydrateMemoriesStub);
+function recordChatMessageStub(..._args: unknown[]): void {
+  calls.push("record");
+}
+const recordChatMessage = mock(recordChatMessageStub);
 const recordChatMedia = mock((_message: unknown): void => { calls.push("recordMedia"); });
 const generateAndSendReply = mock((..._args: unknown[]): void => { calls.push("trigger"); });
 const drainPendingReplyQueues = mock((_now: number): void => { calls.push("drainReplyQueues"); });
@@ -129,9 +138,7 @@ beforeEach(() => {
   resetAiChatMemoryCache();
   for (const mocked of [
     ensureStickerCatalogs,
-    drainStickerCatalogTasks,
     flushDirtyStickerCatalogs,
-    hydrateStickerCatalogs,
     pruneStickerCatalogs,
     pruneStickerSets,
     getStickerConfig,
@@ -142,21 +149,26 @@ beforeEach(() => {
     sweepImageGenerationCache,
     flushDirtyMemories,
     flushMemorySnapshot,
-    hydrateMemories,
-    recordChatMessage,
     recordChatMedia,
     recordBotImage,
     resolveRepliedBotImage,
     generateAndSendReply,
     invalidateChatReplies,
-    quiesceAiChatReplies,
     initTelegramClients,
     currentMood,
     switchMood,
     refreshMood,
     loggerError,
   ]) mocked.mockClear();
+  hydrateStickerCatalogs.mockReset();
+  hydrateStickerCatalogs.mockImplementation(hydrateStickerCatalogsStub);
+  hydrateMemories.mockReset();
+  hydrateMemories.mockImplementation(hydrateMemoriesStub);
+  recordChatMessage.mockReset();
+  recordChatMessage.mockImplementation(recordChatMessageStub);
+  quiesceAiChatReplies.mockReset();
   quiesceAiChatReplies.mockImplementation(async (): Promise<void> => { calls.push("drainReplies"); });
+  drainStickerCatalogTasks.mockReset();
   drainStickerCatalogTasks.mockImplementation(async (): Promise<void> => { calls.push("drainCatalogs"); });
 });
 

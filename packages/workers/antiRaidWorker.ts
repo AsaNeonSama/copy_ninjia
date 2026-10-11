@@ -13,6 +13,7 @@ import { installAiCacheUsageSink } from "../infra/aiCacheUsage";
 import type { AiCacheUsage } from "../types/aiCache";
 import {
   adoptLockdowns,
+  abandonLockdownChat,
   deactivateLockdownChat,
   handleLockdownPersisted,
   handleLockdownPersistFailed,
@@ -139,7 +140,8 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
     case "deactivateChat":
       if (msg.cleanupVerificationMessages) disableJoinGuardChat(msg.chatId);
       else deactivateVerificationChat(msg.chatId);
-      deactivateLockdownChat(msg.chatId);
+      if (msg.abandonLockdown) abandonLockdownChat(msg.chatId);
+      else deactivateLockdownChat(msg.chatId);
       // 在途的黑名单补扫在停管后不再于本群封人。
       bumpBlocklistRemovalEpoch(msg.chatId);
       // 待检的广告消息串同理：停管后不再判定、不再删消息。

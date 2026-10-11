@@ -63,7 +63,7 @@ describe("diskIO/joinLogFiles", () => {
 
     await expect(recoverJoinLogFiles()).rejects.toThrow("$.<record> must be exactly");
     expect(await Bun.file(currentPath).text()).toBe(original);
-    expect(existsSync(stalePath)).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeTrue();
     expect(joinLogFileCaches.size).toBe(0);
   });
 
@@ -73,10 +73,10 @@ describe("diskIO/joinLogFiles", () => {
     await Bun.write(stalePath, "{}");
 
     const inspection = await inspectJoinLogFiles();
-    expect(existsSync(stalePath)).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeTrue();
 
     await maintainJoinLogFiles(inspection);
-    expect(existsSync(stalePath)).toBeFalse();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
   });
 
   test("启动恢复拒绝非法或未来文件名，不把它们当成可忽略资产", async () => {
@@ -87,13 +87,13 @@ describe("diskIO/joinLogFiles", () => {
     await expect(recoverJoinLogFiles()).rejects.toThrow("canonical <chatId>.<YYYY-MM-DD>.json form");
     expect(await Bun.file(invalidPath).text()).toBe("{}");
 
-    rmSync(invalidPath);
+    await Bun.file(invalidPath).delete();
     const invalidDayPath: string = datedFile(-1001, "2026-02-30");
     await Bun.write(invalidDayPath, "{}");
     await expect(recoverJoinLogFiles()).rejects.toThrow("a canonical calendar date");
     expect(await Bun.file(invalidDayPath).text()).toBe("{}");
 
-    rmSync(invalidDayPath);
+    await Bun.file(invalidDayPath).delete();
     const futureDay: string = getDateKey(todayAt() + 2 * 24 * 60 * 60_000);
     const futurePath: string = datedFile(-1001, futureDay);
     await Bun.write(futurePath, "{}");
@@ -117,7 +117,7 @@ describe("diskIO/joinLogFiles", () => {
 
     expect(joinLogBuffer.entries).toHaveLength(2);
     expect(joinLogBuffer.timer).not.toBeNull();
-    expect(existsSync(currentFile(-1001))).toBeFalse();
+    expect(await Bun.file(currentFile(-1001)).exists()).toBeFalse();
 
     expect(await flushJoinLogBuffer()).toBeTrue();
     expect(joinLogBuffer.entries).toHaveLength(0);
@@ -141,8 +141,8 @@ describe("diskIO/joinLogFiles", () => {
     await maintainJoinLogRetention(tomorrow);
 
     expect(joinLogBuffer.entries).toHaveLength(0);
-    expect(existsSync(currentFile(-1001))).toBeTrue();
-    expect(existsSync(stalePath)).toBeFalse();
+    expect(await Bun.file(currentFile(-1001)).exists()).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
   });
 
   test("临时与过期文件删不掉时静默跳过，保留其缓存，其余照删", async () => {
@@ -162,7 +162,7 @@ describe("diskIO/joinLogFiles", () => {
 
     expect(existsSync(stuckTempPath)).toBeTrue();
     expect(existsSync(stuckStalePath)).toBeTrue();
-    expect(existsSync(stalePath)).toBeFalse();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
     expect(joinLogRetryAt.has("-1001:2000-01-02")).toBeTrue();
     expect(joinLogRetryAt.has("-1001:2000-01-01")).toBeFalse();
     rmSync(stuckTempPath, { recursive: true, force: true });
@@ -210,11 +210,11 @@ describe("diskIO/joinLogFiles", () => {
       { userId: 43, joinedAt: beforeMidnight + 1 },
       { userId: 42, joinedAt: afterMidnight },
     ]);
-    expect(existsSync(datedFile(
+    expect(await Bun.file(datedFile(
       -1001,
       getDateKey(beforeMidnight)
-    ))).toBeTrue();
-    expect(existsSync(currentFile(-1001))).toBeTrue();
+    )).exists()).toBeTrue();
+    expect(await Bun.file(currentFile(-1001)).exists()).toBeTrue();
   });
 
   test("夏令时短日的滚动窗口补记并读取三个日期，跨日排队后仍保留全部窗口文件", async (): Promise<void> => {
@@ -240,7 +240,7 @@ describe("diskIO/joinLogFiles", () => {
       clock.mockReturnValue(Date.parse("2026-03-10T04:00:00Z"));
       await maintainJoinLogRetention();
       expect(await readJoinLog(request)).toEqual(expected);
-      expect(existsSync(datedFile(-1001, getDateKey(since)))).toBeTrue();
+      expect(await Bun.file(datedFile(-1001, getDateKey(since))).exists()).toBeTrue();
     } finally {
       clock.mockRestore();
       adoptTimeZone(initialTimeZone);
@@ -273,11 +273,11 @@ describe("diskIO/joinLogFiles", () => {
       now: todayAt(),
     })).toEqual([]);
 
-    expect(existsSync(stalePath)).toBeFalse();
-    expect(existsSync(retainedPath)).toBeTrue();
-    expect(existsSync(tmpPath)).toBeFalse();
-    expect(existsSync(currentOtherChatPath)).toBeTrue();
-    expect(existsSync(unrelatedPath)).toBeTrue();
+    expect(await Bun.file(stalePath).exists()).toBeFalse();
+    expect(await Bun.file(retainedPath).exists()).toBeTrue();
+    expect(await Bun.file(tmpPath).exists()).toBeFalse();
+    expect(await Bun.file(currentOtherChatPath).exists()).toBeTrue();
+    expect(await Bun.file(unrelatedPath).exists()).toBeTrue();
   });
 
   test("可解析但 schema 错误的当前日志拒绝读取并保留原字节", async () => {
@@ -318,8 +318,8 @@ describe("diskIO/joinLogFiles", () => {
       record: { userId: 42, joinedAt: aheadAt },
     }]);
     expect(joinLogBuffer.timer).not.toBeNull();
-    expect(existsSync(currentFile(-1002))).toBeTrue();
-    expect(existsSync(datedFile(-1001, getDateKey(aheadAt)))).toBeFalse();
+    expect(await Bun.file(currentFile(-1002)).exists()).toBeTrue();
+    expect(await Bun.file(datedFile(-1001, getDateKey(aheadAt))).exists()).toBeFalse();
     // 序号 2 已落盘可释放，序号 1 仍在缓冲里，回执把它列为待写。
     expect(persistedReplies).toEqual([{ type: "joinLogPersisted", through: 2, pending: [1] }]);
   });
@@ -669,7 +669,7 @@ describe("diskIO/joinLogFiles", () => {
       await handleJoinLogMessage(joinMessage(-1001, index + 1, now + index));
     }
     expect(joinLogBuffer.entries).toHaveLength(FLUSH_MAX_ENTRIES - 1);
-    expect(existsSync(currentFile(-1001))).toBeFalse();
+    expect(await Bun.file(currentFile(-1001)).exists()).toBeFalse();
     expect(persistedReplies).toEqual([]);
 
     await handleJoinLogMessage(joinMessage(-1001, FLUSH_MAX_ENTRIES, now + FLUSH_MAX_ENTRIES));
@@ -843,18 +843,18 @@ describe("diskIO/joinLogFiles", () => {
 
     handleJoinLogDeleteMessage({ type: "deleteJoinLog", chatId: -1001 });
 
-    expect(existsSync(currentFile(-1001))).toBeFalse();
-    expect(existsSync(datedFile(-1001, yesterday))).toBeFalse();
+    expect(await Bun.file(currentFile(-1001)).exists()).toBeFalse();
+    expect(await Bun.file(datedFile(-1001, yesterday)).exists()).toBeFalse();
     expect(joinLogFileCaches.has(`-1001:${today}`)).toBeFalse();
     expect(joinLogRetryAt.has(`-1001:${today}`)).toBeFalse();
     expect(joinLogDeletions.size).toBe(0);
     // 只删这一个群：别的群的文件与待写事实都留着。
-    expect(existsSync(datedFile(-2002, today))).toBeTrue();
+    expect(await Bun.file(datedFile(-2002, today)).exists()).toBeTrue();
     expect(joinLogBuffer.entries).toEqual([
       { sequence: 3, chatId: -2002, day: today, record: { userId: 44, joinedAt: todayAt(2) } },
     ]);
     expect(purgeJoinLogDeletions()).toBeTrue();
-    expect(existsSync(currentFile(-1001))).toBeFalse();
+    expect(await Bun.file(currentFile(-1001)).exists()).toBeFalse();
   });
 
   test("没有日志的群照常删成功，不留待删标记", () => {

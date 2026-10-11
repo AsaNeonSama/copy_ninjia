@@ -18,10 +18,10 @@ import { SEND_MESSAGE_TOOL } from "../../../packages/consts/tools";
 import { installAiCacheUsageSink } from "../../../packages/infra/aiCacheUsage";
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
 
-const requestOpenAiResult = mock(async (..._args: unknown[]): Promise<OpenAiRequestResult> => ({
-  ok: false,
-  failureKind: "request",
-}));
+async function requestOpenAiResultStub(..._args: unknown[]): Promise<OpenAiRequestResult> {
+  return { ok: false, failureKind: "request" };
+}
+const requestOpenAiResult = mock(requestOpenAiResultStub);
 
 /** 会话创建时固定的客户端替身；请求经被替换的 requestOpenAiResult 发出，不触达它。 */
 const PINNED_CLIENT: object = { label: "pinned openai client" };
@@ -97,7 +97,8 @@ function useOpenAiTextConfig(config: OpenAiAgentCapabilityConfig): void {
 }
 
 beforeEach(() => {
-  requestOpenAiResult.mockClear();
+  requestOpenAiResult.mockReset();
+  requestOpenAiResult.mockImplementation(requestOpenAiResultStub);
   agentDeploymentConfigCache.current = ORIGINAL_AGENT_CONFIG;
 });
 

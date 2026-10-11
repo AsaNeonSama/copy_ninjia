@@ -77,10 +77,11 @@ const REQUEST_FAILURE: AiReplyTurn = {
   toolCallLimitHit: false,
 };
 
-const requestMock = mock(async (request: AiReplyTurnRequest): Promise<AiReplyTurn> => {
+async function requestStub(request: AiReplyTurnRequest): Promise<AiReplyTurn> {
   requests.push(request);
   return turns.shift() ?? REQUEST_FAILURE;
-});
+}
+const requestMock = mock(requestStub);
 
 const session: AiReplySession = {
   request: requestMock,
@@ -188,7 +189,8 @@ beforeEach(() => {
   appendedOutputs.length = 0;
   sessionParams = undefined;
   appendSucceeds = true;
-  requestMock.mockClear();
+  requestMock.mockReset();
+  requestMock.mockImplementation(requestStub);
   callToolMock.mockClear();
   loggerErrorMock.mockClear();
 });

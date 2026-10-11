@@ -8,6 +8,9 @@ export const INLINE_WHITESPACE_PATTERN: RegExp = /[\s\u0085]+/g;
  */
 export const INLINE_SANITIZE_REQUIRED_PATTERN: RegExp = /[^\S ]|\u0085|^ | $| {2}/;
 
+/** libs/text.ts 的 truncateWithEllipsis 缺省补在截断处的省略号。 */
+export const TRUNCATION_ELLIPSIS: string = "…";
+
 /** 安全展示文本时需要移除的双向控制字符。 */
 export const BIDI_CONTROL_PATTERN: RegExp = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 

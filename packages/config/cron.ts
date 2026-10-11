@@ -366,18 +366,18 @@ async function verifyLocalSource(
 }
 
 /** 读取并严格解析 cron.json，再核对全部本地来源；模块 import 本身不访问文件系统。 */
-export async function loadCronConfig(path: string = CRON_CONFIG_PATH): Promise<CronConfig> {
-  const config: CronConfig = parseCronConfig(await readJsonInput(path), path);
+export async function loadCronConfig(): Promise<CronConfig> {
+  const config: CronConfig = parseCronConfig(await readJsonInput(CRON_CONFIG_PATH), CRON_CONFIG_PATH);
   for (let taskIndex: number = 0; taskIndex < config.length; taskIndex++) {
     const actions: readonly Readonly<CronAction>[] = config[taskIndex]!.actions;
     for (let actionIndex: number = 0; actionIndex < actions.length; actionIndex++) {
       const action: Readonly<CronAction> = actions[actionIndex]!;
       if (action.type === "send_message" || action.type === "send_voice" || action.type === "send_web_digest") continue;
-      const context: InputFieldContext = { source: path, path: `$[${taskIndex}].actions[${actionIndex}].payload.path` };
+      const context: InputFieldContext = { source: CRON_CONFIG_PATH, path: `$[${taskIndex}].actions[${actionIndex}].payload.path` };
       if (action.source.kind === "path") await verifyLocalSource(action.source.path, "file", context);
       else if (action.source.kind === "paths") {
         for (let index: number = 0; index < action.source.paths.length; index++) {
-          await verifyLocalSource(action.source.paths[index]!, "file", { source: path, path: `${context.path}[${index}]` });
+          await verifyLocalSource(action.source.paths[index]!, "file", { source: CRON_CONFIG_PATH, path: `${context.path}[${index}]` });
         }
       } else if (action.source.kind === "random" && action.source.directory !== null) {
         await verifyLocalSource(action.source.directory, "directory", context);

@@ -52,6 +52,7 @@ mock.module("../../../packages/workers/antiRaid/lockdownRuntime", () => ({
   handleLockdownPersisted(): void { calls.push("lockdownPersisted"); },
   handleLockdownPersistFailed(): void { calls.push("lockdownPersistFailed"); },
   deactivateLockdownChat(): void { calls.push("deactivateLockdown"); },
+  abandonLockdownChat(): void { calls.push("abandonLockdown"); },
   retryDeniedLockdownRestore(): void { calls.push("retryDeniedLockdownRestore"); },
   stopLockdownRuntime(): void { calls.push("stopLockdown"); },
 }));
@@ -164,7 +165,7 @@ describe("Anti-Raid Worker lifecycle", () => {
     worker.handleAntiRaidWorkerMessage({ type: "agentConfig", timeZone: "UTC", atmosphere: "plain", adDetect: null, adSamples: null });
     expect(workerAtmosphere()).toBe(ATMOSPHERE_TEXTS.plain);
     expect(getTimeZone()).toBe("UTC");
-    worker.handleAntiRaidWorkerMessage({ type: "deactivateChat", chatId: -1001, cleanupVerificationMessages: false });
+    worker.handleAntiRaidWorkerMessage({ type: "deactivateChat", chatId: -1001, cleanupVerificationMessages: false, abandonLockdown: false });
     expect(workerAtmosphere()).toBe(ATMOSPHERE_TEXTS.plain);
     worker.stopAntiRaidWorker();
     expect(atmosphereState.current).toBeNull();
@@ -219,6 +220,7 @@ describe("Anti-Raid Worker lifecycle", () => {
       type: "deactivateChat",
       chatId: -1001,
       cleanupVerificationMessages: true,
+      abandonLockdown: false,
     });
     expect(calls[0]).toBe("disableJoinGuard");
 
@@ -227,8 +229,30 @@ describe("Anti-Raid Worker lifecycle", () => {
       type: "deactivateChat",
       chatId: -1001,
       cleanupVerificationMessages: false,
+      abandonLockdown: false,
     });
     expect(calls[0]).toBe("deactivateVerification");
+  });
+
+  test("群已不存在时放弃私密模式，不走可恢复解锁", () => {
+    worker.handleAntiRaidWorkerMessage({
+      type: "deactivateChat",
+      chatId: -1001,
+      cleanupVerificationMessages: false,
+      abandonLockdown: true,
+    });
+    expect(calls.slice(0, 2)).toEqual(["deactivateVerification", "abandonLockdown"]);
+    expect(calls).not.toContain("deactivateLockdown");
+
+    calls.length = 0;
+    worker.handleAntiRaidWorkerMessage({
+      type: "deactivateChat",
+      chatId: -1001,
+      cleanupVerificationMessages: false,
+      abandonLockdown: false,
+    });
+    expect(calls.slice(0, 2)).toEqual(["deactivateVerification", "deactivateLockdown"]);
+    expect(calls).not.toContain("abandonLockdown");
   });
 
   test("启动幂等、路由完整，停止后清除 handler 与唯一 sweeper", async () => {
@@ -246,7 +270,7 @@ describe("Anti-Raid Worker lifecycle", () => {
         member: { id: 1 },
       },
       { type: "left", chatId: -1001, userId: 1 },
-      { type: "deactivateChat", chatId: -1001, cleanupVerificationMessages: false },
+      { type: "deactivateChat", chatId: -1001, cleanupVerificationMessages: false, abandonLockdown: false },
       { type: "deactivateJoinGuard", chatId: -1001 },
       { type: "message", chatId: -1001, userId: 1, messageId: 10 },
       {
@@ -422,6 +446,7 @@ describe("Anti-Raid Worker lifecycle", () => {
         type: "deactivateChat",
         chatId,
         cleanupVerificationMessages: false,
+        abandonLockdown: false,
       });
     }
     expect(blocklistRemovalTaskCounts.size).toBe(0);

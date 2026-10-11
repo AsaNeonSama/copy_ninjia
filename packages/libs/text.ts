@@ -3,6 +3,7 @@ import {
   INLINE_SANITIZE_REQUIRED_PATTERN,
   INLINE_WHITESPACE_PATTERN,
   LEADING_AT_SIGNS_PATTERN,
+  TRUNCATION_ELLIPSIS,
 } from "../consts/text";
 /**
  * 拼进机器人自己文案的那些文本的共用处理：清洗（压成单行、剥双向控制符、
@@ -94,6 +95,15 @@ export function truncateInline(text: string, maxChars: number): string {
     truncated = truncated.slice(0, -1);
   }
   return truncated;
+}
+
+/**
+ * 超过 maxChars 个 UTF-16 码元时截断并补上 mark，结果总长不超过 maxChars；截断点规则同
+ * truncateInline。未超出时原样返回。
+ */
+export function truncateWithEllipsis(text: string, maxChars: number, mark: string = TRUNCATION_ELLIPSIS): string {
+  if (text.length <= maxChars) return text;
+  return truncateInline(text, maxChars - mark.length) + mark;
 }
 
 /**

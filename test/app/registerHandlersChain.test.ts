@@ -151,7 +151,7 @@ describe("registerHandlers SDK 链边界", () => {
     const preamble: Parameters<Bot["use"]> | undefined = sdkUse.mock.calls[0];
     sdkUse.mockRestore();
     if (preamble === undefined) throw new Error("The preamble batch must be registered.");
-    expect(preamble).toHaveLength(12);
+    expect(preamble).toHaveLength(13);
     // 使用登记的整批前置链，只把末层替换为用例自己的 next 探针。
     const boundary: Composer<Context> = new Composer<Context>();
     boundary.use(...preamble.slice(0, -1), async (_ctx: Context, next: NextFunction): Promise<void> => {

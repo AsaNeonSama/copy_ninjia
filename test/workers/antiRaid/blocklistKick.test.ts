@@ -151,7 +151,7 @@ beforeEach(() => {
   diskPosts.length = 0;
   deliveryOrder.length = 0;
   refuseJoinLog = false;
-  flushDiskIODomain.mockClear();
+  flushDiskIODomain.mockReset();
   flushDiskIODomain.mockImplementation(async (): Promise<FlushResult> => {
     deliveryOrder.push("disk-flush");
     return "flushed";

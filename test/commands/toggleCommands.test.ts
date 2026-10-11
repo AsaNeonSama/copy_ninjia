@@ -1,6 +1,8 @@
+import { replyCommandNoticeVia } from "../helpers/common";
 const postAntiRaid = mock((_message: unknown): boolean => true);
 mock.module("../../packages/antiRaid/workerBridge/controller", () => ({ postAntiRaid }));
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import {
   ANTI_RAID_DISABLE_TEARDOWN_FAILED_TEXT,
   INIT_CHAT_LIMIT_TEXT,
@@ -48,6 +50,7 @@ mock.module("../../packages/config/readiness", () => ({
 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/aiChat", () => ({ invalidateAiChat }));
 mock.module("../../packages/antiRaid", () => ({ clearAdDetection, clearFloodControl, deactivateJoinGuardChat }));
@@ -74,14 +77,7 @@ const { handleAntiRaidCommand } = await import("../../packages/commands/antiRaid
 const { resolveSuperAdminToggleArg } = await import("../../packages/commands/superAdminToggle");
 
 function context(argument: string, userId: number | null = 100, chatId: number = -1001): never {
-  const chat = { id: chatId, type: "supergroup" };
-  return {
-    chat,
-    from: userId === null ? undefined : { id: userId, first_name: "Admin", username: "admin" },
-    msg: { message_id: 7, chat },
-    msgId: 7,
-    match: argument,
-  } as never;
+  return groupCommandContext({ match: argument, userId, chatId, messageId: 7 });
 }
 
 beforeEach(() => {
@@ -90,8 +86,8 @@ beforeEach(() => {
   postAntiRaid.mockClear();
   delegatedPermissions.clear();
   sendMessage.mockClear();
-  invalidateAiChat.mockClear();
-  teardownChatRuntime.mockClear();
+  invalidateAiChat.mockReset();
+  teardownChatRuntime.mockReset();
   // 模拟 Anti-Raid teardown 对群类型镜像的清理。
   teardownChatRuntime.mockImplementation(async (chatId: number): Promise<void> => {
     chatIsSupergroupById.delete(chatId);
@@ -100,14 +96,14 @@ beforeEach(() => {
   resolveBotAdminStatus.mockClear();
   resolveBotAdminStatus.mockImplementation(async (_chatId: number): Promise<boolean> => false);
   saveStateInBackground.mockClear();
-  persistChatState.mockClear();
+  persistChatState.mockReset();
   persistChatState.mockImplementation(async (_chatId: number, context: string): Promise<void> => {
     saveStateInBackground(context);
   });
   handleCopyCommand.mockClear();
-  clearAdDetection.mockClear();
-  clearFloodControl.mockClear();
-  deactivateJoinGuardChat.mockClear();
+  clearAdDetection.mockReset();
+  clearFloodControl.mockReset();
+  deactivateJoinGuardChat.mockReset();
   deactivateJoinGuardChat.mockImplementation((..._args: unknown[]): void => {});
 });
 

@@ -17,6 +17,16 @@ export interface ParsedGagInlineQuery {
   readonly text: string;
 }
 
+/** gag inline 结果的标题与描述文案；入参已按 GAG_INLINE_LABEL_MAX_CHARS 截断。 */
+export interface GagInlineResultTexts {
+  /** 频道目标的通用标题，不带群名。 */
+  readonly channelTitle: string;
+  /** 用户目标的标题，带会话群名。 */
+  readonly userTitle: (chatLabel: string) => string;
+  /** 结果描述，带当前用具。 */
+  readonly description: (toolLabel: string) => string;
+}
+
 /** 主线程 command 域维护的一条临时 gag 会话。 */
 export interface GagSession {
   /** 命令入口确定的权威会话群；不得从 inline query 声称值或 token 派生。 */

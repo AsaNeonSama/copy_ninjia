@@ -11,7 +11,7 @@ mock.module("../../packages/commands/luckChallenge", () => ({
 const { handleInlineQuery } = await import("../../packages/commands/inline");
 
 beforeEach(() => {
-  handleGagInlineQuery.mockClear();
+  handleGagInlineQuery.mockReset();
   handleLuckChallengeInlineQuery.mockClear();
   handleGagInlineQuery.mockImplementation(async (): Promise<boolean> => false);
 });

@@ -62,7 +62,7 @@ beforeEach(() => {
   resetStickerCatalogCache();
   clearStickerDirectory();
   recoverStickerCatalogs.mockClear();
-  writeStickerCatalogFile.mockClear();
+  writeStickerCatalogFile.mockReset();
 });
 
 afterEach(() => {

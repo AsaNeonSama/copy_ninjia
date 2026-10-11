@@ -2,14 +2,21 @@ import { TRANSLATE_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { CachedUser } from "../../packages/types/chatState";
 import type { CommandTargetMessages } from "../../packages/types/commands";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessageMock = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 let replyTarget: CachedUser | undefined;
 const knownTargets = new Map<string, CachedUser>();
 const knownIdTargets = new Map<number, CachedUser>();
+/** 现查替身：按 id 给出目标此刻的身份；没有条目即现查失败。 */
+const liveIdentities = new Map<number, CachedUser>();
+const readLiveTargetIdentity = mock(async (_chatId: number, target: CachedUser): Promise<CachedUser | undefined> =>
+  liveIdentities.get(target.id));
+const updateCachedIdentity = mock((_identity: CachedUser): void => {});
 
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessageMock,
+  replyCommandNotice: replyCommandNoticeVia(sendMessageMock),
 }));
 mock.module("../../packages/users/senderIdentity", () => ({
   resolveReplyTarget: (): CachedUser | undefined => replyTarget,
@@ -18,12 +25,15 @@ mock.module("../../packages/users/senderIdentity", () => ({
   // 负数 id 一律带上 isChannel（真实实现同此，见 users/senderIdentity.ts）。
   resolveIdTarget: (targetId: number): CachedUser =>
     knownIdTargets.get(targetId) ?? (targetId < 0 ? { id: targetId, isChannel: true } : { id: targetId }),
+  updateCachedIdentity,
 }));
+mock.module("../../packages/commands/liveTargetIdentity", () => ({ readLiveTargetIdentity }));
 
 const { resolveCommandTarget } = await import("../../packages/commands/targetResolution");
 const identityStorage = await import("../../packages/infra/identityStorage");
 const prefetchIdentityPolicies = spyOn(identityStorage, "prefetchIdentityPolicies");
 const { IDENTITY_POLICY_UNAVAILABLE_TEXT } = await import("../../packages/consts/atmosphere/teasing/commands");
+const { NOTICE_TEXTS } = await import("../../packages/consts/atmosphere/teasing/notices");
 const { INVALID_USERNAME_ECHO_MAX_CHARS, TELEGRAM_USERNAME_MIN_LENGTH, TELEGRAM_USERNAME_MAX_LENGTH } = await import("../../packages/consts/commands");
 
 const messages = {
@@ -51,6 +61,9 @@ describe("resolveCommandTarget", () => {
     replyTarget = undefined;
     knownTargets.clear();
     knownIdTargets.clear();
+    liveIdentities.clear();
+    readLiveTargetIdentity.mockClear();
+    updateCachedIdentity.mockClear();
     sendMessageMock.mockClear();
     prefetchIdentityPolicies.mockReset();
     prefetchIdentityPolicies.mockResolvedValue(true);
@@ -176,6 +189,65 @@ describe("resolveCommandTarget", () => {
       text: IDENTITY_POLICY_UNAVAILABLE_TEXT,
       replyToMessageId: 7,
     });
+  });
+
+  test("破坏性命令的 @username 目标现查一致才放行，并以现查资料为准、写回缓存", async () => {
+    knownTargets.set("alice_1", { id: 42, username: "Alice_1", first_name: "Old" });
+    liveIdentities.set(42, { id: 42, username: "ALICE_1", first_name: "New" });
+
+    expect(await resolveCommandTarget({ ...params("@alice_1"), requireIdentityPolicies: true }))
+      .toEqual({ id: 42, username: "ALICE_1", first_name: "New" });
+    expect(readLiveTargetIdentity).toHaveBeenCalledWith(-1001, { id: 42, username: "Alice_1", first_name: "Old" });
+    expect(updateCachedIdentity).toHaveBeenCalledWith({ id: 42, username: "ALICE_1", first_name: "New" });
+    expect(prefetchIdentityPolicies).toHaveBeenCalledWith([42]);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("回归用例：别名的前任持有人已改名时拒绝执行，撤掉过期别名，不预热也不落到前任身上", async () => {
+    knownTargets.set("foo_bar", { id: 42, username: "foo_bar" });
+    liveIdentities.set(42, { id: 42, username: "renamed" });
+
+    expect(await resolveCommandTarget({ ...params("@foo_bar"), requireIdentityPolicies: true })).toBeUndefined();
+    expect(updateCachedIdentity).toHaveBeenCalledWith({ id: 42, username: "renamed" });
+    expect(prefetchIdentityPolicies).not.toHaveBeenCalled();
+    expect(sendMessageMock).toHaveBeenCalledWith({
+      chatId: -1001,
+      text: NOTICE_TEXTS.usernameTargetChanged("foo_bar"),
+      replyToMessageId: 7,
+    });
+  });
+
+  test("现在没有用户名同样算已变更", async () => {
+    knownTargets.set("foo_bar", { id: 42, username: "foo_bar" });
+    liveIdentities.set(42, { id: 42 });
+
+    expect(await resolveCommandTarget({ ...params("foo_bar"), requireIdentityPolicies: true })).toBeUndefined();
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({ text: NOTICE_TEXTS.usernameTargetChanged("foo_bar") }));
+  });
+
+  test("现查失败时拒绝执行，不按缓存猜", async () => {
+    knownTargets.set("foo_bar", { id: 42, username: "foo_bar" });
+
+    expect(await resolveCommandTarget({ ...params("@foo_bar"), requireIdentityPolicies: true })).toBeUndefined();
+    expect(updateCachedIdentity).not.toHaveBeenCalled();
+    expect(prefetchIdentityPolicies).not.toHaveBeenCalled();
+    expect(sendMessageMock).toHaveBeenCalledWith({
+      chatId: -1001,
+      text: NOTICE_TEXTS.usernameTargetUnverified("foo_bar"),
+      replyToMessageId: 7,
+    });
+  });
+
+  test("回复与裸 id 本身就是权威身份，不现查；不读名单的命令按 @username 也不现查", async () => {
+    replyTarget = { id: 42, first_name: "Reply Target" };
+    expect(await resolveCommandTarget({ ...params(""), requireIdentityPolicies: true })).toEqual(replyTarget);
+    replyTarget = undefined;
+    expect(await resolveCommandTarget({ ...params("43", true), requireIdentityPolicies: true })).toEqual({ id: 43 });
+    knownTargets.set("alice_1", { id: 44, username: "alice_1" });
+    expect(await resolveCommandTarget(params("@alice_1"))).toEqual({ id: 44, username: "alice_1" });
+
+    expect(readLiveTargetIdentity).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
   test("无回复且 trim 后为空时报告缺少目标", async () => {

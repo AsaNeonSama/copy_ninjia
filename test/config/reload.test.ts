@@ -275,7 +275,7 @@ describe("config/dynamic/ 热重载判定", () => {
   });
 
   test("删除启动时存在的文件：holder 换成 null 并记入删除清单，不算拒绝", async () => {
-    rmSync(MOOD_CONFIG_PATH);
+    await Bun.file(MOOD_CONFIG_PATH).delete();
     const changes: HotDeploymentConfigChanges = await reload();
     expect(changes.mood).toBe(true);
     expect(changes.rejections).toEqual([]);
@@ -295,7 +295,7 @@ describe("config/dynamic/ 热重载判定", () => {
 
   test("启动时缺省且仍然缺省的文件不产生诊断，也不算变化", async () => {
     defaultStickerConfigCache.current = null;
-    rmSync(STICKERS_CONFIG_PATH);
+    await Bun.file(STICKERS_CONFIG_PATH).delete();
     const changes: HotDeploymentConfigChanges = await reload();
     expect(changes.stickers).toBe(false);
     expect(changes.rejections).toEqual([]);
@@ -353,7 +353,7 @@ describe("config/dynamic/ 热重载判定", () => {
   });
 
   test("整份删除 agent.json 时两段都清空，并记入删除清单", async () => {
-    rmSync(AGENT_CONFIG_PATH);
+    await Bun.file(AGENT_CONFIG_PATH).delete();
     const changes: HotDeploymentConfigChanges = await reload();
     expect(changes.adDetect).toBe(true);
     expect(changes.aiAgent).toBe(true);
@@ -381,7 +381,7 @@ describe("config/dynamic/ 热重载判定", () => {
     expect(changes.rejections).toEqual([`${CRON_CONFIG_PATH}: $[0].cron must be a 5-field cron expression or @nickname with a future occurrence.`]);
     expect(cronConfigCache.current?.map((task) => task.name)).toEqual(["daily"]);
 
-    rmSync(CRON_CONFIG_PATH);
+    await Bun.file(CRON_CONFIG_PATH).delete();
     changes = await reload();
     expect(changes.cron).toBe(true);
     expect(changes.removedPaths).toEqual([CRON_CONFIG_PATH]);
@@ -451,7 +451,7 @@ describe("cron.json 的 send_voice 与 agent.json 的 agent.tts", () => {
     expect(changes.adDetect).toBe(false);
     expect(agentDeploymentConfigCache.current).toBe(baseline.agent);
 
-    rmSync(AGENT_CONFIG_PATH);
+    await Bun.file(AGENT_CONFIG_PATH).delete();
     expect((await reload()).rejections).toEqual([AGENT_REJECTION]);
     expect(agentDeploymentConfigCache.current).toBe(baseline.agent);
     expect(adDetectAgentConfigCache.current).toBe(baseline.adDetect);
@@ -523,7 +523,7 @@ describe("cron.json 的 send_web_digest 与 agent.json 的对话核心能力", (
     expect(cronConfigCache.current?.[0]?.actions[0]?.type).toBe("send_web_digest");
 
     const adopted = agentDeploymentConfigCache.current;
-    rmSync(AGENT_CONFIG_PATH);
+    await Bun.file(AGENT_CONFIG_PATH).delete();
     const changes: HotDeploymentConfigChanges = await reload();
     expect(changes.rejections).toEqual([AGENT_REJECTION]);
     expect(changes.aiAgent).toBe(false);
@@ -532,7 +532,7 @@ describe("cron.json 的 send_web_digest 与 agent.json 的对话核心能力", (
 
   test("同一轮里新增 send_web_digest 又删掉 agent.json：拒绝 cron.json，agent.json 的删除照常生效", async () => {
     await writeJson(CRON_CONFIG_PATH, DIGEST_TASKS);
-    rmSync(AGENT_CONFIG_PATH);
+    await Bun.file(AGENT_CONFIG_PATH).delete();
 
     const changes: HotDeploymentConfigChanges = await reload();
 
@@ -553,7 +553,7 @@ describe("cron.json 的 send_web_digest 与 agent.json 的对话核心能力", (
     const adoptedCron: CronConfig | null = cronConfigCache.current;
 
     // 新任务表用 send_voice：候选 agent 已删、现行 agent 没有 tts，两边都撑不起它。
-    rmSync(AGENT_CONFIG_PATH);
+    await Bun.file(AGENT_CONFIG_PATH).delete();
     await writeJson(CRON_CONFIG_PATH, [{
       name: "voice",
       chat_id: [-1001],
@@ -605,7 +605,7 @@ describe("config/dynamic/assets.json 热重载", () => {
     expect(changes.assets).toBe(false);
     expect(assetConfigCache.current).toBe(adopted);
 
-    rmSync(ASSETS_CONFIG_PATH);
+    await Bun.file(ASSETS_CONFIG_PATH).delete();
     changes = await reload();
     expect(changes.assets).toBe(true);
     expect(changes.removedPaths).toEqual([ASSETS_CONFIG_PATH]);

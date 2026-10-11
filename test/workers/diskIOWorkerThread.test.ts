@@ -5,7 +5,6 @@
 
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
 import { getTimeZone } from "../../packages/config/time";
 import { DISK_IO_WORKER_URL, IDENTITY_DATABASE_PATH } from "../../packages/consts/paths";
 import { encodeChatStateData } from "../../packages/database/codec/chatState";
@@ -93,7 +92,7 @@ test("真实线程：恢复握手、业务批与 flush 回执，closeStorage 关
   expect((await probe.waitFor("identityStoragePersisted")).chatStateWrites).toEqual([{ chatId: -1001, revision: 1 }]);
   expect((await probe.waitFor("flushed")).flushedId).toBe(1);
   expect((await probe.waitFor("operationBatchAccepted")).batchId).toBe(1);
-  expect(existsSync(`${IDENTITY_DATABASE_PATH}-wal`)).toBeTrue();
+  expect(await Bun.file(`${IDENTITY_DATABASE_PATH}-wal`).exists()).toBeTrue();
 
   probe.post({ type: "operationBatch", batchId: 2, messages: [{ type: "closeStorage", requestId: 1 }] });
   expect(await probe.waitFor("storageClosed")).toEqual({
@@ -102,8 +101,8 @@ test("真实线程：恢复握手、业务批与 flush 回执，closeStorage 关
     outcome: { committed: true, checkpointBusy: false },
   });
 
-  expect(existsSync(`${IDENTITY_DATABASE_PATH}-wal`)).toBeFalse();
-  expect(existsSync(`${IDENTITY_DATABASE_PATH}-shm`)).toBeFalse();
+  expect(await Bun.file(`${IDENTITY_DATABASE_PATH}-wal`).exists()).toBeFalse();
+  expect(await Bun.file(`${IDENTITY_DATABASE_PATH}-shm`).exists()).toBeFalse();
   const reopened: Database = new Database(IDENTITY_DATABASE_PATH, { readonly: true });
   try {
     expect(reopened.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM chat_states;").get()!.count).toBe(1);

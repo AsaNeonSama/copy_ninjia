@@ -2,11 +2,9 @@ import { afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { adoptTimeZone } from "../../packages/config/time";
 import { BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES } from "../../packages/consts/antiRaid/blocklist";
 import {
-  IDENTITY_DATABASE_MIGRATIONS_DIR,
   IDENTITY_DATABASE_SCHEMA_DATA,
   IDENTITY_DATABASE_SCHEMA_VERSION,
 } from "../../packages/consts/identityStorage";
@@ -197,25 +195,6 @@ test("已迁到 v12 但缺时区标记的库不被冷迁移接受，源副本保
     .rejects.toThrow(`schema version ${CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION} from the preceding migration`);
   expect(await Bun.file(join(root, "output/ready.json")).exists()).toBeFalse();
   expect(await Bun.file(v12Path).bytes()).toEqual(before);
-});
-
-test("停机时对 v12 库调用生产 migrate() 只补时区标记迁移，产物与冷迁移一致", async () => {
-  const v12Root: string = join(root, "v12");
-  const v12Source: string = join(v12Root, "source");
-  await mkdir(v12Root);
-  const v12: MigrationDatabaseFixture = await createSchemaV12Database({ packageRoot: PROJECT_ROOT, root: v12Root, source: v12Source });
-  const v12Path: string = join(v12Source, "database/storage.sqlite");
-  const database: StorageDatabase = openStorageDatabase({ path: v12Path });
-  try {
-    expect(() => validateStorageDatabase(database, v12Path)).toThrow(
-      `${v12Path}: storage_metadata schema-version must be ${IDENTITY_DATABASE_SCHEMA_DATA}.`
-    );
-    migrate(database, { migrationsFolder: IDENTITY_DATABASE_MIGRATIONS_DIR });
-    expect(validateStorageDatabase(database, v12Path).hydration).toMatchObject({ blocklistEntryCount: 1, permissionEntryCount: 2 });
-  } finally {
-    closeStorageDatabase(database);
-  }
-  assertMigratedDatabase(v12Path, v12);
 });
 
 test("全新库上移除群人设与时区标记迁移的条件语句均不生效", async () => {

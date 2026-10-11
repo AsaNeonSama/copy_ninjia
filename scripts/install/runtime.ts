@@ -1,4 +1,4 @@
-/** 安装器共用的路径、严格校验和新库初始化入口；二进制发行时单独打包。 */
+/** 安装器共用的路径、严格校验和建库入口；二进制发行时单独打包。 */
 export { RUNTIME_DATA_ROOT, IDENTITY_DATABASE_PATH } from "../../packages/consts/paths";
 import { IDENTITY_DATABASE_PATH } from "../../packages/consts/paths";
 import { IDENTITY_DATABASE_SCHEMA_VERSION } from "../../packages/consts/identityStorage";
@@ -15,13 +15,7 @@ import { invalidInput, readJsonInput } from "../../packages/libs/inputValidation
 import { isPlainRecord } from "../../packages/libs/record";
 import type { BotConfig } from "../../packages/types/config";
 import type * as Readiness from "../../packages/config/readiness";
-export { createStorageDatabase } from "../../packages/database/interact/migration";
-export {
-  closeStorageDatabase,
-  enableStorageDatabaseWal,
-  openStorageDatabase,
-} from "../../packages/database/interact/connection";
-export { initializeStorageDatabase } from "../../packages/database/interact/initialization";
+export { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
 
 /** 完成问卷和新库初始化后才加载启动总闸。 */
 export async function validateExistingDeploymentInputs(): Promise<void> {

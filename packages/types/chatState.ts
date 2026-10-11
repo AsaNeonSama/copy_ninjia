@@ -16,8 +16,8 @@ export interface LockdownRecord {
   /** 本轮封锁公告是否确实发送过；决定恢复后能否发送解锁公告。 */
   announced: boolean;
   /**
-   * 封锁公告的消息 ID；解除封锁时按它删除群里那条公告。发送失败、或接管的是
-   * 更早进程留下的记录时缺省，缺省时不删。
+   * 封锁公告的消息 ID；解除封锁时按它删除群里那条公告。与 announced 同时成立或同时不成立
+   * （database/codec/chatState.ts 校验）；没公告过时缺省，不删。
    */
   announcementMessageId?: number;
   /**

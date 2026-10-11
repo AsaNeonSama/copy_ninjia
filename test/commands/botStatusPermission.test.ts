@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { TranslateState } from "../../packages/types/translate";
 import { TELEGRAM_429_RETRY_QUEUE_MAX } from "../../packages/consts/telegram";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 interface SentCommandMessage {
   readonly chatId: number;
@@ -51,7 +52,7 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
 mock.module("../../packages/users/userLabel", () => ({
   formatActorLabel: (): string => "@viewer",
 }));
-mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage }));
+mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage, replyCommandNotice: replyCommandNoticeVia(sendCommandMessage) }));
 mock.module("../../packages/config/readiness", () => ({
   adDetectConfigReadiness,
   aiChatConfigReadiness,

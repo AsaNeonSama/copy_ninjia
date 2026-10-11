@@ -1,7 +1,8 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_DATA_ROOT } from "../../preloadEnv";
+import { PERSISTED_FILE_MODE } from "../../../packages/consts/diskIO/common";
 import { recoverLuckReceiptSecret } from "../../../packages/workers/diskIO/luckSecretFile";
 import type { LuckSecretFileIO } from "../../../packages/workers/diskIO/luckSecretFile";
 
@@ -24,14 +25,14 @@ describe("daily luck receipt secret file", () => {
     const loaded = await recoverLuckReceiptSecret({ day: "2026-07-19", confirmedResultCount: 3, path });
     expect(loaded).toEqual(created);
     expect(JSON.parse(await Bun.file(path).text())).toEqual(created);
-    expect(statSync(path).mode & 0o777).toBe(0o644);
+    expect((await Bun.file(path).stat()).mode & 0o777).toBe(PERSISTED_FILE_MODE);
 
     chmodSync(path, 0o600);
     await recoverLuckReceiptSecret({ day: "2026-07-19", confirmedResultCount: 3, path });
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect((await Bun.file(path).stat()).mode & 0o777).toBe(0o600);
   });
 
-  test("东京日期前进时生成新密钥并原子替换旧日文件", async () => {
+  test("日期前进时生成新密钥并原子替换旧日文件", async () => {
     const previous = await recoverLuckReceiptSecret({ day: "2026-07-19", confirmedResultCount: 0, path });
     const next = await recoverLuckReceiptSecret({ day: "2026-07-20", confirmedResultCount: 0, path });
     expect(next.day).toBe("2026-07-20");
@@ -67,7 +68,7 @@ describe("daily luck receipt secret file", () => {
       path,
       io,
     })).rejects.toThrow("disk full");
-    expect(existsSync(path)).toBe(false);
+    expect(await Bun.file(path).exists()).toBe(false);
   });
 
   test("当天已有确认结果时，密钥缺失会拒绝铸造并保留缺失现场", async () => {
@@ -76,7 +77,7 @@ describe("daily luck receipt secret file", () => {
       confirmedResultCount: 2,
       path,
     })).rejects.toThrow("must be present for the same day as the confirmed luck state");
-    expect(existsSync(path)).toBe(false);
+    expect(await Bun.file(path).exists()).toBe(false);
   });
 
   test("当天已有确认结果时，旧日密钥会拒绝轮换并保留原文件", async () => {

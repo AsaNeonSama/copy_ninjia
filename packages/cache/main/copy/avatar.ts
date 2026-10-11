@@ -1,6 +1,7 @@
 /** owner: main。头像更新队列（packages/copy/avatarQueue.ts）的内存状态。 */
 
 import type { AvatarUpdateTask } from "../../../types/copy/avatar";
+import type { FlushWaiter } from "../../../types/lifecycle";
 
 /** 全局头像资源：入口收到任务时填入一个执行槽与一个 latest-only 待执行槽。 */
 export const avatarUpdateState: {
@@ -16,10 +17,10 @@ export const avatarUpdateState: {
 };
 
 /**
- * 等待头像执行槽和 latest-only 槽归零的回调；完成或停机超时时结算清空。
- * 容量：同时在等排空的调用方数，只有停机路径登记；不设淘汰。
+ * 等待头像执行槽和 latest-only 槽归零的等待者（libs/drainWaiter.ts）；归零时结算清空，
+ * 预算耗尽的等待者自行出队。容量：同时在等排空的调用方数，只有停机路径登记；不设淘汰。
  */
-export const avatarDrainWaiters: Set<() => void> = new Set();
+export const avatarDrainWaiters: Set<FlushWaiter> = new Set();
 /** 头像入口闸与统一 abort owner；init 重建 controller，quiesce/abort 时关闭。 */
 export const avatarUpdateRuntime: { accepting: boolean; controller: AbortController } = {
   accepting: true,

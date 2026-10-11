@@ -75,7 +75,7 @@ beforeEach(() => {
   adoptAgentDeploymentConfig({ ...PRELOADED, text: CAPABILITY, media: CAPABILITY, webSearch: { ...CAPABILITY, maxCallsPerUse: 7 } });
   anthropicClientCache.current = null;
   constructions.length = 0;
-  create.mockClear();
+  create.mockReset();
   create.mockImplementation(async (): Promise<unknown> => message("end_turn"));
   loggerError.mockClear();
   loggerWarn.mockClear();

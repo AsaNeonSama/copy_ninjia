@@ -4,6 +4,7 @@ import type { Message } from "grammy/types";
 import type { TelegramFileDownloadResult } from "../../packages/types/telegram";
 import { imageFixture } from "../helpers/image";
 import { waitUntil } from "../helpers/waitUntil";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendCommandMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const downloads: Map<string, TelegramFileDownloadResult | Error> = new Map<string, TelegramFileDownloadResult | Error>();
@@ -28,7 +29,7 @@ let permitted: boolean = true;
 const DOWNLOAD_BATCH_SIZE: number = 2;
 const loggerError = mock((..._args: unknown[]): void => {});
 
-mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage, sendPhotoWithResult: async (): Promise<undefined> => undefined }));
+mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage, replyCommandNotice: replyCommandNoticeVia(sendCommandMessage), sendPhotoWithResult: async (): Promise<undefined> => undefined }));
 mock.module("../../packages/infra/telegram/fileDownload", () => ({ downloadTelegramFileBytes }));
 mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
   hasWhitelistPermission: (id: number, key: string): boolean => id === 5 && key === "isCanAddHImage" && permitted,

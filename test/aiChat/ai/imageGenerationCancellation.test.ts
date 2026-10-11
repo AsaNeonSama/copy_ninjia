@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { replyToolContextFixture } from "../../helpers/replyToolContext";
 import { mediaTaskRunner } from "../../../packages/cache/workers/aiChat/mediaTasks";
 import { imageGenerationClaimTimes, resetImageGenerationCache } from "../../../packages/cache/workers/aiChat/imageGeneration";
 import { MEDIA_DESCRIPTION_MAX_CONCURRENCY } from "../../../packages/consts/aiChat/media";
@@ -30,17 +31,15 @@ test("满载媒体队列中的参考生图取消后立即排空动作链并释�
     active.push(mediaTaskRunner.run("interactive", (): Promise<null> => occupied.promise));
   }
   const controller: AbortController = new AbortController();
-  const context: ReplyToolContext = {
-    chatId: -100123, replyToMessageId: 1, messageThreadId: undefined,
+  const context: ReplyToolContext = replyToolContextFixture({
+    chatId: -100123,
+    replyToMessageId: 1,
     mediaToolsRequested: true,
     imageGenerationReference: { fileId: "mock-reference", fileUniqueId: "mock-unique", width: 64, height: 64 },
-    bypassMediaToolCooldown: false,
-    chatAction: { set: (): number => 0, settle: async (): Promise<void> => {} },
-    direct: true, roundHasTypo: false,
-    isActive: (): boolean => !controller.signal.aborted, signal: controller.signal,
-    onMessageSent: (): void => {}, onStickerSent: (): void => {},
-    onImageSent: (): void => {}, onVoiceSent: (): void => {},
-  };
+    direct: true,
+    isActive: (): boolean => !controller.signal.aborted,
+    signal: controller.signal,
+  });
   let action: Promise<void> | undefined;
   try {
     const execution: ReplyToolExecution = createGenerateImageExecutor(context, createRoundMessageState(), (): number => 0)(

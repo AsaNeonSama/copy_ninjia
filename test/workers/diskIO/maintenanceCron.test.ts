@@ -1,5 +1,6 @@
 import { adoptTimeZone, getTimeZone } from "../../../packages/config/time";
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../../helpers/fixtureTimeZone";
 import {
   DISK_IO_MAINTENANCE_CRON,
 } from "../../../packages/consts/diskIO/maintenance";
@@ -23,9 +24,10 @@ const { diskIOMaintenanceCron } = await import(
   "../../../packages/cache/workers/diskIO/maintenance"
 );
 
+installTokyoFixtureTimeZone();
+
 const BEFORE_MIDNIGHT_MS: number =
   Date.parse("2026-08-30T23:59:59+09:00");
-const INITIAL_TIME_ZONE: string = getTimeZone();
 
 function reply(
   _value: Parameters<DiskIOMaintenanceReplySink>[0]
@@ -39,7 +41,6 @@ beforeEach((): void => {
 
 afterEach((): void => {
   stopDiskIOMaintenanceCron();
-  adoptTimeZone(INITIAL_TIME_ZONE);
   jest.useRealTimers();
 });
 

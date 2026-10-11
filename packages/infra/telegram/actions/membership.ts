@@ -111,8 +111,8 @@ export interface ChatMemberUserOptions {
 
 /**
  * 取本轮查询到的成员身份，不解释成员状态，离群与被踢同样返回身份。
- * 只供 `/info` 现查目标资料（commands/info.ts 的 lookUp）：要的是名称与用户名，
- * 不判断在不在群。
+ * 供 `/info` 现查目标资料（commands/info.ts 的 lookUp）与破坏性命令核对 @username 目标
+ * （commands/liveTargetIdentity.ts）：要的是名称与用户名，不判断在不在群。
  * @returns 查询成功返回身份，查询失败返回 undefined。
  */
 export function readChatMemberUser({ chatId, userId, signal }: ChatMemberUserOptions): Promise<User | undefined> {

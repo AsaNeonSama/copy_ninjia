@@ -16,7 +16,7 @@ import { expectTemplateRendered, longestTemplatePart } from "../../helpers/templ
 const {
   CHAT_ID,
   KEY,
-  applyFlagEvent,
+  applyInPlaceEvent,
   USER_ID,
   autoDeleted,
   deletedMessageIds,
@@ -56,7 +56,10 @@ const {
   VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS,
   VERIFICATION_TERMINAL_RETRY_MAX_MS,
   VERIFICATION_TERMINAL_RETRY_MS,
+  VERIFICATION_TIMEOUT_MS,
 } = await import("../../../packages/consts/antiRaid/verification");
+
+const { formatMinSec } = await import("../../../packages/libs/time");
 
 const {
   applyBotPermissionsChange,
@@ -269,8 +272,8 @@ describe("踢人失败时的权限告警", () => {
       applyBotPermissionsChange(CHAT_ID, { canRestrictMembers: false, canDeleteMessages: true });
       const state = expellingState();
       state.failureNoticeSent = true;
-      state.cleanupSettled = true;
       setState(state);
+      verificationEntries.get(KEY)!.cleanupSettled = true;
 
       await run([{ kind: "expel", snapshot: state.snapshot }]);
       expect(probeChatMembership).toHaveBeenCalledTimes(1);
@@ -289,6 +292,35 @@ describe("踢人失败时的权限告警", () => {
       expect(sentTexts).toEqual([]);
       expect(dispatched).toEqual([{ userId: USER_ID, event: { type: "expelSettled" } }]);
       expect(delays).toEqual([VERIFICATION_TERMINAL_RETRY_MS]);
+    } finally {
+      restoreTimeouts();
+    }
+  });
+
+  test("确证没有限制成员权限、告警已闩住且上一轮已踢掉时，探测到离群即补发成功战报并等落盘回执", async () => {
+    const delays: number[] = [];
+    const restoreTimeouts: () => void = recordScheduledDelays(delays);
+    try {
+      applyBotPermissionsChange(CHAT_ID, { canRestrictMembers: false, canDeleteMessages: true });
+      const state = expellingState();
+      state.failureNoticeSent = true;
+      state.removalConfirmed = true;
+      setState(state);
+      verificationEntries.get(KEY)!.cleanupSettled = true;
+      testState.membershipPresent = false;
+
+      await run([{ kind: "expel", snapshot: state.snapshot }]);
+
+      expect(kickedUserIds).toEqual([]);
+      expect(sentTexts).toHaveLength(1);
+      const timeout: string = formatMinSec(VERIFICATION_TIMEOUT_MS);
+      expectTemplateRendered(
+        sentTexts[0]!,
+        (label: string): string => ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationMemberTimeout(label, timeout)
+      );
+      expect(state.successNoticeSent).toBeTrue();
+      expect(dispatched).toEqual([]);
+      expect(delays).toEqual([]);
     } finally {
       restoreTimeouts();
     }
@@ -511,7 +543,7 @@ describe("踢人失败时的权限告警", () => {
   });
 
   test("确证没有封禁权限时，清理还欠着账就不闩住：下一轮仍然重试删除", async () => {
-    // 确证没有封禁权限时，闩住条件除 failureNoticeSent 外还要清理已结算（cleanupSettled）。
+    // 确证没有封禁权限时，闩住条件除 failureNoticeSent 外还要清理已结算（条目的 cleanupSettled）。
     applyBotPermissionsChange(CHAT_ID, { canRestrictMembers: false, canDeleteMessages: true });
     traceDeleteOutcomes.push("failed");
     const state = expellingState({ announcementMessageId: 20 });
@@ -521,7 +553,7 @@ describe("踢人失败时的权限告警", () => {
 
     expect(deletedMessageIds).toEqual([20]);
     expect(state.failureNoticeSent).toBeTrue();
-    expect(state.cleanupSettled).toBeFalse();
+    expect(verificationEntries.get(KEY)?.cleanupSettled).toBeFalse();
 
     // 第二轮：告警闩住了不再重发，公告仍然要重试删除。
     deletedMessageIds.length = 0;
@@ -530,7 +562,7 @@ describe("踢人失败时的权限告警", () => {
 
     expect(deletedMessageIds).toEqual([20]);
     expect(sentTexts).toEqual([]);
-    expect(state.cleanupSettled).toBeTrue();
+    expect(verificationEntries.get(KEY)?.cleanupSettled).toBeTrue();
 
     // 第三轮：清干净之后才真正闩住，一个请求都不发。
     deletedMessageIds.length = 0;
@@ -626,13 +658,13 @@ describe("验证终态进程级尝试预算", () => {
       userId: USER_ID,
       effects,
       dispatchVerification: (_chatId: number, userId: number, event: VerificationEvent): void => {
-        const isFlagEvent: boolean = applyFlagEvent(event, (): void => {
+        const isInPlaceEvent: boolean = applyInPlaceEvent(event, (): void => {
           testState.publishedChanges++;
           verificationRevisions.set(KEY, {
             revision: (verificationRevisions.get(KEY)?.revision ?? 0) + 1,
           });
         });
-        if (!isFlagEvent) dispatched.push({ userId, event });
+        if (!isInPlaceEvent) dispatched.push({ userId, event });
       },
       requestTerminalAttempt: async (): Promise<VerificationAttemptPermitResult> => permit,
     });

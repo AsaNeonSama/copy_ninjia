@@ -163,6 +163,8 @@ export const NOTICE_TEXTS: Readonly<AtmosphereNotices> = {
   unblockNoManagedChat: (listNote: string): string => `${listNote}；机器人尚未在任何群担任管理员，无法解除各群封禁。`,
   unblockPartialFailure: (failedCount: number): string => `（另有 ${failedCount} 个群未解封成功，请管理员检查权限）`,
   unblockResult: (listNote: string, unbannedCount: number, failedNote: string): string => `${listNote}，已在 ${unbannedCount} 个群解除封禁${failedNote}。`,
+  usernameTargetChanged: (username: string): string => `@${username} 的归属已变更，本次未执行任何处置，请回复对方消息定位。`,
+  usernameTargetUnverified: (username: string): string => `暂时无法确认 @${username} 当前对应的身份，本次未执行任何处置，请回复对方消息或使用 id。`,
   copyReverseEffect: "，之后会倒序复读目标的纯文字消息",
   copyNyaEffect: "，之后会在目标的纯文字消息末尾追加喵~",
   unknownUser: "这个用户",

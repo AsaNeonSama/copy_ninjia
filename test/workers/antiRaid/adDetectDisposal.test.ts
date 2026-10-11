@@ -83,9 +83,9 @@ function bundle(): AdMessageBundle {
 beforeEach(() => {
   errorLogs.length = 0;
   deleteMessage.mockClear();
-  deleteMessages.mockClear();
+  deleteMessages.mockReset();
   deleteMessages.mockImplementation(async (): Promise<boolean> => true);
-  sendTemporaryMessageFromMain.mockClear();
+  sendTemporaryMessageFromMain.mockReset();
   sendTemporaryMessageFromMain.mockImplementation(async (): Promise<TelegramWorkerTemporaryMessageResult> => ({
     messageId: 555,
     sentAt: 1_500,

@@ -64,7 +64,7 @@ function fillDedupes(size: number = VERIFICATION_RUNTIME_CAPACITY): void {
     const key: string = verificationKey(CHAT_ID, userId);
     if (verificationEntries.has(key)) continue;
     const entry: VerificationEntry = {
-      state: exemptOf("容量占位", false), timer: undefined, terminalRetries: 0,
+      state: exemptOf("容量占位", false), timer: undefined, terminalRetries: 0, cleanupSettled: false,
     };
     verificationEntries.set(key, entry);
   }
@@ -291,7 +291,7 @@ describe("验证运行态容量与去重生命周期", () => {
           replyReminderRequested: false, welcomeAnchorMessageId: undefined,
           reminderSuperseded: false, joinedAt: record.joinedAt, expiresAt: record.expiresAt,
         },
-        timer: undefined, terminalRetries: 0,
+        timer: undefined, terminalRetries: 0, cleanupSettled: false,
       });
     }
     const first: VerificationEntry | undefined = verificationEntries.get(verificationKey(CHAT_ID, 1));

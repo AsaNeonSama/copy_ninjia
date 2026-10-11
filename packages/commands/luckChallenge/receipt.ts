@@ -13,13 +13,11 @@ import {
 import { logger } from "../../infra/logger";
 import type { LuckReceiptSecret } from "../../types/diskIO/storage";
 import type { SignedLuckResult } from "../../types/luckChallenge";
-import { ensureLuckCacheFreshForToday, promotePendingDraw } from "./cache";
+import { currentLuckSecret, ensureLuckCacheFreshForToday, promotePendingDraw } from "./cache";
 
 /** 正文直接展示回执的定长 HMAC；自描述签名回执放在同范围的 text_link 元数据中。 */
 export function signLuckResultText(bodyText: string, cacheKey: string): SignedLuckResult {
-  const secret: LuckReceiptSecret | null = luckReceiptSecretState.current;
-  if (!secret) throw new Error("Daily luck receipt secret is not initialized");
-  const receipt: string = createLuckReceipt(secret, cacheKey);
+  const receipt: string = createLuckReceipt(currentLuckSecret(), cacheKey);
   const receiptHash: string | undefined = luckReceiptHmacHash(receipt);
   if (!receiptHash) throw new Error("Created an invalid luck receipt");
   const displayLine: string = `${LUCK_RECEIPT_DISPLAY_PREFIX}${receiptHash}`;

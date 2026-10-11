@@ -1,7 +1,9 @@
 import type { StickerSet } from "grammy/types";
+import type { TelegramApi } from "../../../types/telegramWorker";
 import { logger } from "../../../infra/logger";
 import { telegramApi } from "../../../infra/telegram";
 import { raceAbort } from "../../../libs/abortSignal";
+import { telegramSignal } from "../../../libs/telegramSignal";
 import { failedPacks, inflightStickerSets, stickerSetCache } from "../../../cache/workers/aiChat/stickers/sets";
 import { STICKER_SET_FAILURE_RETRY_MS } from "../../../consts/aiChat/stickers";
 import { invalidateStickerMenu } from "../../../cache/workers/aiChat/stickers/menu";
@@ -19,18 +21,8 @@ export function pruneStickerSets(activePacks: readonly string[]): void {
   }
 }
 
-/**
- * 与 grammy 的 `Api.getStickerSet(name, signal?)` 同签名，可注入测试替身。
- *
- * signal 声明为 DOM 的 `AbortSignal`；它与 grammy `.d.ts` 里同名类型的结构不兼容，
- * 只在下面绑定 `telegramApi` 时断言，调用点与注入替身按真实 AbortSignal 类型检查。
- */
-interface StickerSetApi {
-  getStickerSet(packName: string, signal?: AbortSignal): Promise<StickerSet>;
-}
-
-/** grammy 的 signal 类型与 DOM 版结构不兼容（见 StickerSetApi），在这一处收口。 */
-const defaultStickerSetApi: StickerSetApi = telegramApi as unknown as StickerSetApi;
+/** 本模块用到的 Telegram 能力子集，可注入测试替身。 */
+type StickerSetApi = Pick<TelegramApi, "getStickerSet">;
 
 /**
  * 白名单贴纸包的拉取与缓存（getStickerSet，按 pack short name），供
@@ -48,7 +40,7 @@ const defaultStickerSetApi: StickerSetApi = telegramApi as unknown as StickerSet
  *  请求属于所有等待者，其生命周期由 Worker 决定（见下方 workerSignal）。 */
 export async function getStickerSet(
   packName: string,
-  api: StickerSetApi = defaultStickerSetApi,
+  api: StickerSetApi = telegramApi,
   signal?: AbortSignal
 ): Promise<StickerSet | null> {
   if (signal?.aborted === true) return null;
@@ -72,7 +64,7 @@ export async function getStickerSet(
   // 请求先启动，再登记；结算清理由登记后的微任务执行，覆盖 API 同步抛错。
   const request: Promise<StickerSet | null> = (async (): Promise<StickerSet | null> => {
     try {
-      const set: StickerSet = await api.getStickerSet(packName, workerSignal);
+      const set: StickerSet = await api.getStickerSet(packName, telegramSignal(workerSignal));
       // Worker 已停时不回写正缓存。
       if (workerSignal.aborted) return null;
       if (getStickerConfig().packs.includes(packName)) {

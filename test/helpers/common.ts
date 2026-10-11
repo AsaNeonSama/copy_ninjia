@@ -7,7 +7,7 @@
  * 用一个宏任务收口，不数 `await Promise.resolve()` 的圈数。
  */
 export function settleBackgroundWork(): Promise<void> {
-  return new Promise((resolve: () => void): void => { setTimeout(resolve, 0); });
+  return Bun.sleep(0);
 }
 
 /** 按给定分块流式返回 body 的 Response，流式读取/字节上限类测试用。 */
@@ -45,4 +45,15 @@ export async function settleTestBatch<T>(tasks: readonly Promise<T>[]): Promise<
     throw new AggregateError(failures, "Test batch tasks rejected.");
   }
   return values;
+}
+
+/**
+ * 整模块替换 infra/telegram 时，按真实实现把 replyCommandNotice 委托给替身 sendCommandMessage，
+ * 断言仍落在 sendCommandMessage 的入参上。
+ */
+export function replyCommandNoticeVia(
+  sendCommandMessage: (params: any) => unknown
+): (ctx: { readonly chat: { readonly id: number }; readonly msgId: number | undefined }, text: string) => unknown {
+  return (ctx: { readonly chat: { readonly id: number }; readonly msgId: number | undefined }, text: string): unknown =>
+    sendCommandMessage({ chatId: ctx.chat.id, text, replyToMessageId: ctx.msgId });
 }

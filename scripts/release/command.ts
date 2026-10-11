@@ -35,8 +35,8 @@ export function readBuildSourceTree(command: ReleaseCommand): string | null {
 export function verifyReleaseReferences(command: ReleaseCommand, version: string): void {
   if (checked(command, ["git", "branch", "--show-current"]) !== "master") throw new Error("Publish requires master.");
   const origin: string = checked(command, ["git", "remote", "get-url", "origin"]);
-  if (!/^(?:https:\/\/github\.com\/|git@github\.com:)Asashishi\/copy_ninjia(?:\.git)?$/.test(origin)) {
-    throw new Error("origin must be Asashishi/copy_ninjia on github.com.");
+  if (!/^(?:https:\/\/github\.com\/|git@github\.com:)AsaNeonSama\/copy_ninjia(?:\.git)?$/.test(origin)) {
+    throw new Error("origin must be AsaNeonSama/copy_ninjia on github.com.");
   }
   const head: string = checked(command, ["git", "rev-parse", "HEAD"]);
   const tag: string = `refs/tags/${version}`;

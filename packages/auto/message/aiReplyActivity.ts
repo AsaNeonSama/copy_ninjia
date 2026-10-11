@@ -11,6 +11,8 @@ import {
   aiReplyActivitySweepState,
 } from "../../cache/main/auto";
 import { TimestampDeque } from "../../libs/timestampDeque";
+import { scheduleEarliestExpirySweep } from "../../libs/earliestExpirySweep";
+import type { EarliestExpirySweeper } from "../../libs/earliestExpirySweep";
 import type { AiReplyActivityEntry } from "../../types/auto";
 
 function pruneEntry(entry: AiReplyActivityEntry, now: number): void {
@@ -48,24 +50,19 @@ export function sweepAiReplyActivity(now: number = Date.now()): void {
   }
 }
 
-function scheduleNextSweep(now: number): void {
-  if (aiReplyActivitySweepState.timer !== null || aiReplyActivityByChat.size === 0) return;
-  let earliestExpiry: number = Number.POSITIVE_INFINITY;
-  for (const entry of aiReplyActivityByChat.values()) {
-    const oldest: number | undefined = entry.timestamps.peek();
-    if (oldest !== undefined) earliestExpiry = Math.min(earliestExpiry, oldest + AI_REPLY_ACTIVITY_WINDOW_MS);
-  }
-  if (!Number.isFinite(earliestExpiry)) return;
-  const delay: number = Math.max(1, earliestExpiry - now);
-  const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-    aiReplyActivitySweepState.timer = null;
-    const currentTime: number = Date.now();
-    sweepAiReplyActivity(currentTime);
-    scheduleNextSweep(currentTime);
-  }, delay);
-  timer.unref();
-  aiReplyActivitySweepState.timer = timer;
-}
+/** 活跃度表的唯一清扫 timer：按最早的窗口到期时刻清扫（见 libs/earliestExpirySweep.ts）。 */
+const activitySweeper: EarliestExpirySweeper = {
+  state: aiReplyActivitySweepState,
+  earliestExpiry: (): number => {
+    let earliestExpiry: number = Number.POSITIVE_INFINITY;
+    for (const entry of aiReplyActivityByChat.values()) {
+      const oldest: number | undefined = entry.timestamps.peek();
+      if (oldest !== undefined) earliestExpiry = Math.min(earliestExpiry, oldest + AI_REPLY_ACTIVITY_WINDOW_MS);
+    }
+    return earliestExpiry;
+  },
+  sweep: sweepAiReplyActivity,
+};
 
 function probabilityFromCount(recentMessageCount: number): number {
   const base: number = Math.max(
@@ -100,7 +97,7 @@ export function observeGroupMessageForAiReply(chatId: number, now: number = Date
   aiReplyActivitySequenceState.current += 1;
   entry.lastAccessSequence = aiReplyActivitySequenceState.current;
   if (isNewEntry) storeActivityEntry(chatId, entry);
-  scheduleNextSweep(now);
+  scheduleEarliestExpirySweep(activitySweeper, now);
   return probabilityFromCount(entry.timestamps.size);
 }
 

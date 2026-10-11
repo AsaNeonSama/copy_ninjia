@@ -9,6 +9,7 @@ import { handleAdopt } from "./lockdown/adopt";
 import { handleAnnouncementResult } from "./lockdown/announcement";
 import { handlePersistFailed, handleStatePersisted } from "./lockdown/persistence";
 import {
+  handleChatGone,
   handleDeactivate,
   handleReapplyResult,
   handleReapplyRetryFired,
@@ -40,6 +41,7 @@ import type {
  *   RESTORING ──再次超阈值──> RESTORING
  *   ACTIVE ──迟到恢复成功──> RECONCILING
  *   RECONCILING ──重新收紧成功──> ACTIVE
+ *   任一阶段 ──群已不存在（chatGone）──> INACTIVE
  *
  * 恢复或重新收紧失败时保留对应阶段并重试；持久化失败按当前阶段发出补偿效果。
  */
@@ -70,6 +72,8 @@ export function transitionLockdown(
       return handleReapplyRetryFired(state);
     case "deactivate":
       return handleDeactivate(state, event);
+    case "chatGone":
+      return handleChatGone(state);
     case "restoreResult":
       return handleRestoreResult(state, event);
     case "reapplyResult":

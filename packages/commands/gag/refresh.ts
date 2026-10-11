@@ -1,11 +1,12 @@
-import { gagRuntimeAccepting } from "../../cache/main/gag";
+import { gagBackgroundTasks, gagRuntimeAccepting } from "../../cache/main/gag";
+import { trackBackgroundTask } from "../../infra/backgroundTasks";
 import {
   GAG_SPEAK_NOTICE_IDLE_INTERVAL_MS,
   GAG_SPEAK_NOTICE_REFRESH_INTERVAL_MS,
 } from "../../consts/gag";
 import type { GagSession } from "../../types/gag";
 import { releaseGagNoticeSlot, sendGagSpeakNotice } from "./notices";
-import { findGagSession, trackGagBackgroundTask } from "./owner";
+import { findGagSession } from "./owner";
 
 /** 发送与每个异步结算点都核对 owner、停机闸门与绝对到期时间。 */
 function canRefreshGagSpeakNotice(session: GagSession): boolean {
@@ -127,7 +128,7 @@ function refreshGagSpeakNotice(
     }
   );
   session.speakNoticeRefreshTask = task;
-  trackGagBackgroundTask(task, "Unexpected error while refreshing a gag speak notice:");
+  trackBackgroundTask(gagBackgroundTasks, task, "Unexpected error while refreshing a gag speak notice:");
 }
 
 /**

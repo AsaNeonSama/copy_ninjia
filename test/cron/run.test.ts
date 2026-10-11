@@ -7,12 +7,13 @@ const delivered: string[] = [];
 const destinations: number[] = [];
 const outcomes: CronDeliveryOutcome[] = [];
 const roundVoices: CronRoundVoices[] = [];
-const deliverCronAction = mock(async ({ chatId, action, voices }: DeliverCronActionOptions): Promise<CronDeliveryOutcome> => {
+async function deliverCronActionStub({ chatId, action, voices }: DeliverCronActionOptions): Promise<CronDeliveryOutcome> {
   destinations.push(chatId);
   roundVoices.push(voices);
   delivered.push(action.type === "send_message" ? action.content : action.type);
   return outcomes.shift() ?? { kind: "sent" };
-});
+}
+const deliverCronAction = mock(deliverCronActionStub);
 let groupTargets: CronGroupTargets = { chatIds: [], skipped: 0 };
 const excludedChatIds: number[][] = [];
 const resolveCronGroupTargets = mock(async (
@@ -73,7 +74,8 @@ beforeEach(() => {
   outcomes.length = 0;
   groupTargets = { chatIds: [], skipped: 0 };
   excludedChatIds.length = 0;
-  deliverCronAction.mockClear();
+  deliverCronAction.mockReset();
+  deliverCronAction.mockImplementation(deliverCronActionStub);
   resolveCronGroupTargets.mockClear();
   loggerError.mockClear();
   loggerLog.mockClear();

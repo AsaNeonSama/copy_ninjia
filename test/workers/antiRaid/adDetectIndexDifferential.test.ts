@@ -27,7 +27,6 @@ const {
   deletePendingAdBundlesOfSender,
   pendingAdBundle,
   pendingAdBundleForKey,
-  refreshAdDetectCapacitySaturation,
   rejectNewAdBundleAtCapacity,
   storeBundle,
 } = await import("../../../packages/workers/antiRaid/adDetect/queueState");
@@ -159,23 +158,20 @@ test("两层索引与旧单层索引在同一随机操作序列下逐步一致",
         }
       }
     } else if (roll < 0.8) {
-      // 判定处置或整串判完：删掉这一串，调用方随后刷新容量状态。
+      // 判定处置或整串判完：删掉这一串（删除函数自行刷新容量状态）。
       legacy.delete(chatId, senderId);
       legacy.refresh();
       deletePendingAdBundle(chatId, senderId);
-      refreshAdDetectCapacitySaturation();
     } else if (roll < 0.9) {
       // 停管或关开关。
       legacy.deleteChat(chatId);
       legacy.refresh();
       deletePendingAdBundlesInChat(chatId);
-      refreshAdDetectCapacitySaturation();
     } else if (roll < 0.99) {
       // 取得临时免检的身份。
       legacy.deleteSender(senderId);
       legacy.refresh();
       deletePendingAdBundlesOfSender(senderId);
-      refreshAdDetectCapacitySaturation();
     } else {
       // Worker 停止：整表清空，饱和标志归零（同 stopAdDetectQueue）。
       legacy.bundles.clear();

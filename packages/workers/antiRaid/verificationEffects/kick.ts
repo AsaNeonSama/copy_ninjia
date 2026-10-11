@@ -14,7 +14,7 @@ import type { VerificationState } from "../../../types/states/verification";
 import type { KickChatMemberOutcome } from "../../../infra/telegram";
 import { botCanRestrictIn } from "../botPermissions";
 import { resolveChatIsSupergroup } from "../chatKind";
-import { scheduleKickRetry } from "./retry";
+import { retryTerminalAttempt } from "./retry";
 
 interface RunKickMemberEffectParams {
   chatId: number;
@@ -43,7 +43,6 @@ export async function runKickMemberEffect({
   // 不发踢人请求——成员已离群即结算，否则推进本地退避；未知仍让 Telegram 作最终裁判。
   // 请求短路时诊断照常：每轮记一行日志，与正常路径每次重试失败各记一行同一密度。
   if (botCanRestrictIn(chatId) === false) {
-    transitionState.executionStarted = false;
     const presentWithoutPermission: boolean | undefined =
       await probeChatMembership(chatId, userId, telegramApi);
     if (verificationEntries.get(key)?.state !== transitionState) return;
@@ -58,29 +57,18 @@ export async function runKickMemberEffect({
       `Lockdown kick for user ${userId} in chat ${chatId} was not attempted: the bot is confirmed to lack ` +
       "can_restrict_members there; retaining the pending action and backing off until the permission returns."
     );
-    scheduleKickRetry({
-      chatId,
-      userId,
-      state: transitionState,
-      dispatchVerification,
-    });
+    retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     return;
   }
   const isSupergroup: boolean | undefined =
     await resolveChatIsSupergroup(chatId);
   if (verificationEntries.get(key)?.state !== transitionState) return;
   if (isSupergroup === undefined) {
-    transitionState.executionStarted = false;
     logger.error(
       `Lockdown kick for user ${userId} in chat ${chatId} could not resolve whether the chat is a group or supergroup; ` +
       "retaining the pending action rather than guessing a removal API."
     );
-    scheduleKickRetry({
-      chatId,
-      userId,
-      state: transitionState,
-      dispatchVerification,
-    });
+    retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     return;
   }
   // **首发与重试都先做成员探测。** 超级群的「只踢不封」映射到 unbanChatMember，
@@ -104,21 +92,15 @@ export async function runKickMemberEffect({
       `Lockdown kick for user ${userId} in chat ${chatId} could not confirm the member is still present; ` +
       "retaining the pending action rather than issuing a removal that would lift a ban placed in the meantime."
     );
-    scheduleKickRetry({
-      chatId,
-      userId,
-      state: transitionState,
-      dispatchVerification,
-    });
+    retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     return;
   }
 
-  transitionState.executionStarted = true;
+  dispatchVerification(chatId, userId, { type: "kickRequestSent", attemptState: transitionState });
   const outcome: KickChatMemberOutcome = await kickChatMemberWithOutcome({
     chatId,
     userId,
     isSupergroup,
-    api: telegramApi,
   });
   if (verificationEntries.get(key)?.state !== transitionState) return;
   if (outcome === "kicked" || outcome === "absent") {
@@ -130,7 +112,7 @@ export async function runKickMemberEffect({
   }
 
   // 请求失败后重新允许权威豁免替换 token，再用成员探测消除响应丢失的不确定性。
-  transitionState.executionStarted = false;
+  dispatchVerification(chatId, userId, { type: "kickRequestFailed", attemptState: transitionState });
   const memberPresent: boolean | undefined =
     await probeChatMembership(chatId, userId, telegramApi);
   if (verificationEntries.get(key)?.state !== transitionState) return;
@@ -146,10 +128,5 @@ export async function runKickMemberEffect({
       ? `Lockdown kick for user ${userId} in chat ${chatId} was forbidden by Telegram permissions or member status; retaining the pending action for retry.`
       : `Lockdown kick for user ${userId} in chat ${chatId} did not settle; retaining the pending action for retry.`
   );
-  scheduleKickRetry({
-    chatId,
-    userId,
-    state: transitionState,
-    dispatchVerification,
-  });
+  retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
 }

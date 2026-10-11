@@ -145,7 +145,7 @@ describe("Telegram 客户端初始化", () => {
       { method: "deleteMessages", args: [-1001, [9, 10], signal] },
       { method: "editMessageText", args: [-1001, 12, "updated", { parse_mode: "HTML" }, signal] },
       { method: "getChat", args: [-1001, signal] },
-      { method: "getChatAdministrators", args: [-1001, signal] },
+      { method: "getChatAdministrators", args: [-1001, { return_bots: true }, signal] },
       { method: "getChatMember", args: [-1001, 7, signal] },
       { method: "getStickerSet", args: ["pack", signal] },
       { method: "restrictChatMember", args: [-1001, 7, permissions, { until_date: 456 }, signal] },

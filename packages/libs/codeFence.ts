@@ -118,7 +118,7 @@ export function renderFencedText(text: string): RichTextMessage {
         type: "pre",
         offset,
         length: body.length,
-        ...(language !== undefined && language.length > 0 ? { language } : {}),
+        language: language !== undefined && language.length > 0 ? language : undefined,
       });
     }
     parts.push(body);

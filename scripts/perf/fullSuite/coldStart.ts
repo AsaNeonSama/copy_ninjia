@@ -18,7 +18,7 @@ import type { ProcessIoSnapshot } from "./processIo";
 // 只导类型：`import type` 在运行期被擦除，不加载生产模块图。
 import type { ApplicationLifecycleDependencies } from
   "../../../packages/app/lifecycleDependencies";
-import type { LoadedData } from "../../../packages/types/diskIO";
+import type { LoadedData } from "../../../packages/types/diskIO/replies";
 import type {
   ColdStartPhaseTimings,
   ColdStartRecovered,

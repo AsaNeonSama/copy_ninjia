@@ -123,8 +123,15 @@ mock.module("../../packages/antiRaid", () => ({
   },
   handleVerificationCallback: record("handleVerificationCallback"),
 }));
+/** 迁移收尾收到的参数，按调用顺序。 */
+const departures: (readonly [number, string])[] = [];
 mock.module("../../packages/infra/botAdmin", () => ({
   handleMyChatMemberUpdate: record("handleMyChatMemberUpdate"),
+  completeChatDeparture: (chatId: number, reason: string): Promise<void> => {
+    calls.push("completeChatDeparture");
+    departures.push([chatId, reason]);
+    return Promise.resolve();
+  },
 }));
 mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub(),
@@ -198,6 +205,7 @@ function commandMessage(text: string): unknown {
 
 async function dispatch(update: unknown): Promise<readonly string[]> {
   calls.length = 0;
+  departures.length = 0;
   commandArguments.length = 0;
   cjkMatches.length = 0;
   await bot.handleUpdate(update as Parameters<Bot["handleUpdate"]>[0]);
@@ -482,5 +490,23 @@ describe("registerHandlers 分发", () => {
       update_id: nextUpdateId,
       chosen_inline_result: { result_id: "r1", from: FROM, query: "" },
     })).toEqual(["handleLuckChosenInlineResult"]);
+  });
+});
+
+describe("群升级迁移", () => {
+  /** 受管普通群升级为超级群后，旧群收到的那条迁移服务消息（正文为空）。 */
+  function migrationMessage(): unknown {
+    const update: { message: Record<string, unknown> } = groupMessage("") as { message: Record<string, unknown> };
+    update.message.migrate_to_chat_id = -100_999;
+    return update;
+  }
+
+  test("受管旧群收到迁移消息时按群已不存在收尾并终止本条 update；未过初始化网关的群不收尾", async () => {
+    expect(await dispatch(migrationMessage())).toEqual(["completeChatDeparture"]);
+    expect(departures).toEqual([[CHAT.id, "gone"]]);
+
+    gates.init = false;
+    expect(await dispatch(migrationMessage())).not.toContain("completeChatDeparture");
+    expect(departures).toEqual([]);
   });
 });

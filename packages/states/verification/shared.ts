@@ -8,14 +8,15 @@ import type {
   PendingState,
   VerificationEffect,
   VerificationState,
+  VerificationTerminalState,
   VerificationTransition,
 } from "../../types/states/verification";
 import type { VerificationSnapshot } from "../../types/antiRaid/verification";
 
 /**
- * 验证记录是否处在终态执行段（kickPending / checkingInviter / expelling）。
- * 状态机的 `kind` 与持久化快照的 `phase` 用同一组字面量，主线程镜像、Anti-Raid
- * Worker 解释器与状态机转移共用这一条判定；纯函数，只比较字符串。
+ * 验证记录是否处在终态执行段（kickPending / checkingInviter / expelling，即
+ * VerificationTerminalState 的 kind）。状态机的 `kind` 与持久化快照的 `phase` 用同一组字面量，
+ * 主线程镜像、Anti-Raid Worker 解释器与状态机转移共用这一条判定；纯函数，只比较字符串。
  */
 export function isTerminalVerificationPhase(
   phase: VerificationState["kind"] | VerificationSnapshot["phase"] | undefined
@@ -23,6 +24,13 @@ export function isTerminalVerificationPhase(
   return phase === "kickPending" ||
     phase === "checkingInviter" ||
     phase === "expelling";
+}
+
+/** isTerminalVerificationPhase 的状态对象版本，供需要收窄到 VerificationTerminalState 的调用方使用。 */
+export function isTerminalVerificationState(
+  state: VerificationState | undefined
+): state is VerificationTerminalState {
+  return isTerminalVerificationPhase(state?.kind);
 }
 
 /** 建立 exempt 去重占位；全部构造点共用，保证同一个 kind 只有一种形状。 */
@@ -96,8 +104,8 @@ export function checkingInviterOf(
 /**
  * 建立 expelling 终态；构造顺序与形状约束同 checkingInviterOf。
  *
- * `executionStarted` 与 `cleanupSettled` 是 Worker 本地幂等门，不随快照持久化，
- * 重建时同样从 false 起；其余各项由 adopt 从落盘记账带回。
+ * `executionStarted` 是 Worker 本地幂等门，不随快照持久化，重建时同样从 false 起；
+ * 其余各项由 adopt 从落盘记账带回。
  */
 export function expellingOf(
   reason: ExpellingState["reason"],
@@ -113,7 +121,6 @@ export function expellingOf(
     unconfirmedNoticeSent: persisted?.unconfirmedNoticeSent,
     successNoticeSent: persisted?.successNoticeSent,
     removalConfirmed: persisted?.removalConfirmed,
-    cleanupSettled: false,
   };
 }
 

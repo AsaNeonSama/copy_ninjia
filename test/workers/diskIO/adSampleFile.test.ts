@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, readdirSync, rmSync, statSync, mkdirSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { AD_SAMPLE_FILE_PATH, AD_SAMPLE_MEMORY_DIR } from "../../../packages/consts/paths";
 import { AD_SAMPLE_FILE_MAX_BYTES, PERSISTED_FILE_MODE } from "../../../packages/consts/diskIO/common";
@@ -61,7 +61,7 @@ beforeEach(() => {
 describe("广告命中样本旁路", () => {
   test("样本先进批次，由 unref timer 或 flush 落盘，累计 FLUSH_MAX_ENTRIES 条立即追加", async () => {
     await handleAdSampleMessage(sample());
-    expect(existsSync(AD_SAMPLE_FILE_PATH)).toBeFalse();
+    expect(await Bun.file(AD_SAMPLE_FILE_PATH).exists()).toBeFalse();
     expect(adSampleBuffer.chunks).toHaveLength(1);
     expect(adSampleBuffer.timer?.hasRef()).toBeFalse();
 
@@ -91,7 +91,7 @@ describe("广告命中样本旁路", () => {
         { messageId: 12, text: "微信 xxx", quote: "别人说过的话" },
       ],
     });
-    expect(statSync(AD_SAMPLE_FILE_PATH).mode & 0o777).toBe(PERSISTED_FILE_MODE);
+    expect((await Bun.file(AD_SAMPLE_FILE_PATH).stat()).mode & 0o777).toBe(PERSISTED_FILE_MODE);
   });
 
   test("后续命中按位置追加，不整文件重写，旧条目原样保留", async () => {
@@ -145,7 +145,7 @@ describe("广告命中样本旁路", () => {
     adSampleFileState.current = { size: AD_SAMPLE_FILE_MAX_BYTES, empty: true };
     await appendSample(sample({ messages: [{ messageId: 99, text: "gap" }] }));
 
-    expect(existsSync(join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.2.json`))).toBeTrue();
+    expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.2.json`)).exists()).toBeTrue();
   });
 
   test("归档只按严格文件名保留最近 15 个配置时区的自然日，不误删当前文件、未知项或目录", async () => {
@@ -174,10 +174,10 @@ describe("广告命中样本旁路", () => {
     await sweepExpiredAdSampleArchives({ today: "2026-07-28" });
 
     for (const name of removedNames) {
-      expect(existsSync(join(AD_SAMPLE_MEMORY_DIR, name))).toBe(false);
+      expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, name)).exists()).toBe(false);
     }
     for (const name of retainedNames) {
-      expect(existsSync(join(AD_SAMPLE_MEMORY_DIR, name))).toBe(true);
+      expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, name)).exists()).toBe(true);
     }
     expect(existsSync(matchingDirectory)).toBe(true);
   });
@@ -245,9 +245,9 @@ describe("广告命中样本旁路", () => {
 
     await maintainAdSampleFiles("2026-07-28");
 
-    expect(existsSync(orphan)).toBe(false);
-    expect(existsSync(expired)).toBe(false);
-    expect(existsSync(retained)).toBe(true);
+    expect(await Bun.file(orphan).exists()).toBe(false);
+    expect(await Bun.file(expired).exists()).toBe(false);
+    expect(await Bun.file(retained).exists()).toBe(true);
   });
 
   test("写盘失败只作废游标、不抛出：旁路绝不能拖住封禁本身", async () => {
@@ -261,7 +261,7 @@ describe("广告命中样本旁路", () => {
     expect(adSampleFileState.current).toBeNull();
     // 失败即弃：这一批不留在缓冲里等重试。
     expect(adSampleBuffer.chunks).toHaveLength(0);
-    expect(existsSync(AD_SAMPLE_FILE_PATH)).toBe(false);
+    expect(await Bun.file(AD_SAMPLE_FILE_PATH).exists()).toBe(false);
 
     rmSync(AD_SAMPLE_MEMORY_DIR, { force: true });
   });

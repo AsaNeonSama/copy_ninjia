@@ -22,7 +22,8 @@ import { getOrCreateKeyedTask } from "../../libs/keyedTask";
  * （verificationEvents.ts、verificationEffects.ts、verificationEffects/terminal.ts、
  * verificationCallbacks.ts）、私密模式预热（lockdownRuntime.ts）、刷屏禁言与广告处置的
  * 管理员身份判定使用。
- * 匿名管理员不进入缓存，不用于跳过入群验证。
+ * 匿名管理员与机器人不进入缓存：匿名管理员不用于跳过入群验证，机器人不论是不是管理员
+ * 都按普通成员处理。
  */
 
 /**
@@ -38,7 +39,13 @@ export function freshAdminIds(chatId: number, now: number = Date.now()): Set<num
   return cached.adminIds;
 }
 
-/** 全量拉取某群非匿名管理员并落缓存（带进行中去重，见 adminFetches）。 */
+/**
+ * 全量拉取某群非匿名管理员并落缓存（带进行中去重，见 adminFetches）。
+ *
+ * 机器人不论是不是管理员都按普通成员处理，不进入集合：请求不带 `return_bots`（Bot API
+ * 缺省就不返回本机器人以外的机器人），返回里仍有本机器人自己，按 `user.is_bot` 一并滤掉。
+ * chat_member 增量同口径，见 antiRaid/memberFacts.ts 的 isInviterExemptAdmin。
+ */
 export function fetchAdminIds(chatId: number): Promise<Set<number>> {
   // 记下启动时的整表世代号：resetAdminCache() 会把 chatAdmins 与
   // pendingAdminChangesDuringFetch 一起清空，世代不符的拉取不再写回。
@@ -47,9 +54,10 @@ export function fetchAdminIds(chatId: number): Promise<Set<number>> {
     telegramApi
       .getChatAdministrators(chatId)
       .then((admins: (ChatMemberOwner | ChatMemberAdministrator)[]): Set<number> => {
-        const adminIds: Set<number> = new Set(
-          admins.filter((admin: ChatMemberOwner | ChatMemberAdministrator): boolean => admin.is_anonymous !== true).map((admin: ChatMemberOwner | ChatMemberAdministrator): number => admin.user.id)
-        );
+        const adminIds: Set<number> = new Set();
+        for (const admin of admins) {
+          if (admin.is_anonymous !== true && admin.user.is_bot !== true) adminIds.add(admin.user.id);
+        }
         // 世代对不上就只把结果交给等待者，不写回缓存。
         if (adminCacheGeneration.current !== generation) return adminIds;
         // 拉取在途期间到达的增量变化比这份快照新，重放在其上（见

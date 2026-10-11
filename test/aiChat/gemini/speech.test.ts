@@ -38,7 +38,7 @@ function audioInteraction(overrides: Record<string, unknown> = {}): Record<strin
 }
 
 beforeEach(() => {
-  create.mockClear();
+  create.mockReset();
   getGeminiClient.mockClear();
   loggerError.mockClear();
   create.mockResolvedValue(audioInteraction());

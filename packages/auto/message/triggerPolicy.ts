@@ -7,6 +7,8 @@ import {
   USER_REPLY_TRIGGER_COOLDOWN_MS,
 } from "../../consts/auto";
 import type { MessageTriggerContext, RandomMediaTrigger } from "../../types/auto";
+import { scheduleEarliestExpirySweep } from "../../libs/earliestExpirySweep";
+import type { EarliestExpirySweeper } from "../../libs/earliestExpirySweep";
 
 /** 文本和各媒体 handler（photo/sticker/animation/voice）共用的随机搭话/评价掷骰条件。 */
 export function shouldAttemptRandomTrigger(context: MessageTriggerContext): boolean {
@@ -74,33 +76,20 @@ export function sweepUserReplyTriggerTimes(now: number = Date.now()): void {
     : Number.NEGATIVE_INFINITY;
 }
 
-/** 只为整张冷却表安排一个最早到期清扫。 */
-function scheduleUserReplyTriggerSweep(now: number): void {
-  if (
-    userReplyTriggerSweepState.timer !== null ||
-    userReplyTriggerSweepState.size === 0
-  ) {
-    return;
-  }
-  let earliestExpiry: number = Number.POSITIVE_INFINITY;
-  for (const users of userReplyTriggerTimes.values()) {
-    for (const claimedAt of users.values()) {
-      earliestExpiry = Math.min(
-        earliestExpiry,
-        claimedAt + USER_REPLY_TRIGGER_COOLDOWN_MS
-      );
+/** 整张冷却表的唯一清扫 timer：按最早的冷却到期时刻清扫（见 libs/earliestExpirySweep.ts）。 */
+const userReplyTriggerSweeper: EarliestExpirySweeper = {
+  state: userReplyTriggerSweepState,
+  earliestExpiry: (): number => {
+    let earliestExpiry: number = Number.POSITIVE_INFINITY;
+    for (const users of userReplyTriggerTimes.values()) {
+      for (const claimedAt of users.values()) {
+        earliestExpiry = Math.min(earliestExpiry, claimedAt + USER_REPLY_TRIGGER_COOLDOWN_MS);
+      }
     }
-  }
-  if (!Number.isFinite(earliestExpiry)) return;
-  const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-    userReplyTriggerSweepState.timer = null;
-    const currentTime: number = Date.now();
-    sweepUserReplyTriggerTimes(currentTime);
-    scheduleUserReplyTriggerSweep(currentTime);
-  }, Math.max(1, earliestExpiry - now));
-  timer.unref();
-  userReplyTriggerSweepState.timer = timer;
-}
+    return earliestExpiry;
+  },
+  sweep: sweepUserReplyTriggerTimes,
+};
 
 /**
  * 按「群 × 发言人」占用一次随机回复冷却名额。明确回复或 @ 机器人的直接
@@ -135,7 +124,7 @@ export function tryClaimUserReplyTrigger(chatId: number, speakerId: number, now:
   }
   users.set(speakerId, now);
   userReplyTriggerSweepState.size++;
-  scheduleUserReplyTriggerSweep(now);
+  scheduleEarliestExpirySweep(userReplyTriggerSweeper, now);
   return true;
 }
 

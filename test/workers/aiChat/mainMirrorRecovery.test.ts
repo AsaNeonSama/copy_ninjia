@@ -403,7 +403,7 @@ describe("AI main-thread persistence mirror", () => {
       post: (): boolean => false,
     })).toBeFalse();
     expect(diskPosts).toEqual([
-      { type: "aiMemory", chatId: -1001, revision: 1, snapshot: "latest-memory" },
+      { type: "aiMemory", chatId: -1001, revision: 1, snapshot: "latest-memory", persistImmediately: false },
       { type: "stickerCatalog", pack: "pack_a", snapshot: "latest-catalog", revision: 1 },
     ]);
     expect(aiMemoryUsages.get(-1001)).toEqual({ bufferedCount: 12, summaryCount: 2 });

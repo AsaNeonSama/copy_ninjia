@@ -77,7 +77,7 @@ const {
   JOIN_LOG_MAX_USERS_PER_CHAT_DAY,
   JOIN_LOG_SNAPSHOT_CHUNK_BYTES,
 } = await import("../../../packages/consts/diskIO/joinLog");
-const { getDateKey } = await import("../../../packages/libs/time");
+const { getDateKey, getDayStartTimestamp } = await import("../../../packages/libs/time");
 import type { JoinLogDiskMessage, JoinLogPersistedReply } from "../../../packages/types/diskIO";
 import type { JoinLogFileCache } from "../../../packages/types/diskIO/storage";
 
@@ -110,13 +110,14 @@ function datedFile(chatId: number, day: string): string {
   return join(joinLogDir, `${chatId}.${day}.json`);
 }
 
-/** 取东京当天中午的时间戳，再叠加 offsetMs。 */
+/** 配置时区当天零点起 12 小时的时间戳，再叠加 offsetMs。 */
 function todayAt(offsetMs: number = 0): number {
-  return Date.parse(`${getDateKey()}T12:00:00+09:00`) + offsetMs;
+  return todayMidnight() + 12 * 3_600_000 + offsetMs;
 }
 
+/** 配置时区当天的首个时刻。 */
 function todayMidnight(): number {
-  return Date.parse(`${getDateKey()}T00:00:00+09:00`);
+  return getDayStartTimestamp(Date.now());
 }
 
 /**

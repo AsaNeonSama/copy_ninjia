@@ -46,13 +46,14 @@ test("可解析的 EC 与 Ed25519 密钥不满足 RS256", (): void => {
 });
 
 test("RSA-PSS 算法标识的 PEM 不作为 RS256 凭据接受", (): void => {
-  const der: Buffer = Buffer.from(privateKey.replace(/-----[^-]+-----|\s/gu, ""), "base64");
-  const rsaOid: Buffer = Buffer.from([0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01]);
-  const offset: number = der.indexOf(rsaOid);
-  expect(offset).toBeGreaterThan(0);
+  const der: Uint8Array = Uint8Array.fromBase64(privateKey.replace(/-----[^-]+-----|\s/gu, ""));
+  const rsaOid: string = new Uint8Array([0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01]).toHex();
+  const hexOffset: number = der.toHex().indexOf(rsaOid);
+  expect(hexOffset).toBeGreaterThan(0);
+  expect(hexOffset % 2).toBe(0);
   // 相同 RSA 私钥材料使用 id-RSASSA-PSS 算法标识；Bun 不支持时在解析阶段拒绝。
-  der[offset + rsaOid.length - 1] = 0x0a;
-  const pem: string = `-----BEGIN PRIVATE KEY-----\n${der.toString("base64")}\n-----END PRIVATE KEY-----`;
+  der[(hexOffset + rsaOid.length) / 2 - 1] = 0x0a;
+  const pem: string = `-----BEGIN PRIVATE KEY-----\n${der.toBase64()}\n-----END PRIVATE KEY-----`;
   expect(() => parseGoogleServiceAccountKey({ ...minimal, private_key: pem }, source)).toThrow(`${source}: $.private_key must be`);
 });
 

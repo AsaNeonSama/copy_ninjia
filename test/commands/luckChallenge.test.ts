@@ -1,3 +1,4 @@
+import { LUCK_RECEIPT_DISPLAY_PREFIX, LUCK_RECEIPT_HASH_PATTERN, LUCK_RECEIPT_LINK_PREFIX, LUCK_RECEIPT_PATTERN } from "../../packages/consts/luckReceipt";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -19,14 +20,15 @@ const loggerErrorMock = mock((..._args: unknown[]): void => {});
 const loggerWarnMock = mock((..._args: unknown[]): void => {});
 let ensureLuckReceiptSecretError: unknown = null;
 
-const ensureLuckReceiptSecretMock = mock(async (day: string) => {
+async function ensureLuckReceiptSecretStub(day: string): Promise<{ version: 1; day: string; key: string }> {
   if (ensureLuckReceiptSecretError !== null) throw ensureLuckReceiptSecretError;
   return {
     version: 1 as const,
     day,
     key: new Uint8Array(32).fill(7).toBase64({ alphabet: "base64url", omitPadding: true }),
   };
-});
+}
+const ensureLuckReceiptSecretMock = mock(ensureLuckReceiptSecretStub);
 
 mock.module("../../packages/infra/telegram", () => ({
   logApiError: logApiErrorMock,
@@ -70,6 +72,7 @@ const {
 } = await import("../../packages/consts/luckChallenge");
 const { getDateKey } = await import("../../packages/libs/time");
 const luckCache = await import("../../packages/commands/luckChallenge/cache");
+const { signLuckResultText } = await import("../../packages/commands/luckChallenge/receipt");
 const TEST_SECRET = {
   version: 1 as const,
   day: getDateKey(),
@@ -119,9 +122,17 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     postDiskIOAccepted = true;
     logApiErrorMock.mockClear();
     loggerErrorMock.mockClear();
-    ensureLuckReceiptSecretMock.mockClear();
+    ensureLuckReceiptSecretMock.mockReset();
+    ensureLuckReceiptSecretMock.mockImplementation(ensureLuckReceiptSecretStub);
     ensureLuckReceiptSecretError = null;
     inlineResultSources.clear();
+  });
+
+  test("回执签名与抽签派生同一口径：密钥不是当天的就拒绝签名", () => {
+    expect(signLuckResultText("正文", "7").text.startsWith("正文\n")).toBeTrue();
+
+    cache.luckReceiptSecretState.current = { ...TEST_SECRET, day: "2000-01-01" };
+    expect(() => signLuckResultText("正文", "7")).toThrow("Daily luck receipt secret is not initialized");
   });
 
   test("普通内联回答失败只记录错误，不向 update handler 抛出", async () => {
@@ -187,12 +198,12 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     const receipt: string = `luck:v1:${getDateKey()}:AAAAA.${signaturePart}`;
     const receiptHash: string = new Uint8Array(32).fill(0xab).toHex();
     const body: string = "随便一段正文";
-    const text: string = `${body}\n防伪标记: ${receiptHash}`;
+    const text: string = `${body}\n${LUCK_RECEIPT_DISPLAY_PREFIX}${receiptHash}`;
     const entities = [{
       type: "text_link",
-      offset: body.length + 1 + "防伪标记: ".length,
+      offset: body.length + 1 + LUCK_RECEIPT_DISPLAY_PREFIX.length,
       length: receiptHash.length,
-      url: `https://t.me/#luck-receipt=${receipt}`,
+      url: `${LUCK_RECEIPT_LINK_PREFIX}${receipt}`,
     }];
 
     const confirmation: Promise<void> | undefined =
@@ -209,7 +220,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
       const ordinaryConfirmation: Promise<void> | undefined =
         luckChallenge.confirmLuckDraw("普通消息\n第二行也只是正文");
       const forgedConfirmation: Promise<void> | undefined =
-        luckChallenge.confirmLuckDraw(`伪造消息\n防伪标记: ${"a".repeat(64)}`);
+        luckChallenge.confirmLuckDraw(`伪造消息\n${LUCK_RECEIPT_DISPLAY_PREFIX}${"a".repeat(64)}`);
       expect(ordinaryConfirmation).toBeUndefined();
       expect(forgedConfirmation).toBeUndefined();
 
@@ -253,16 +264,19 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     expect(ctx.results.length).toBe(2);
 
     const fortuneBody: string = bodyTextOf(ctx.results[0]);
-    expect(fortuneBody.split("\n").at(-1)).toMatch(/^防伪标记: [a-f0-9]{64}$/);
+    const lastLine: string = fortuneBody.split("\n").at(-1)!;
+    expect(lastLine.startsWith(LUCK_RECEIPT_DISPLAY_PREFIX)).toBe(true);
+    expect(lastLine.slice(LUCK_RECEIPT_DISPLAY_PREFIX.length)).toMatch(LUCK_RECEIPT_HASH_PATTERN);
     const spoiler = ctx.results[0].input_message_content.entities[0];
-    expect(fortuneBody.slice(spoiler.offset, spoiler.offset + spoiler.length)).toMatch(/^[a-f0-9]{64}$/);
+    expect(fortuneBody.slice(spoiler.offset, spoiler.offset + spoiler.length)).toMatch(LUCK_RECEIPT_HASH_PATTERN);
     const receiptLink = ctx.results[0].input_message_content.entities[1];
     expect(receiptLink).toMatchObject({
       type: "text_link",
       offset: spoiler.offset,
       length: spoiler.length,
     });
-    expect(receiptLink.url.startsWith("https://t.me/#luck-receipt=luck:v1:")).toBe(true);
+    expect(receiptLink.url.startsWith(LUCK_RECEIPT_LINK_PREFIX)).toBe(true);
+    expect(receiptLink.url.slice(LUCK_RECEIPT_LINK_PREFIX.length)).toMatch(LUCK_RECEIPT_PATTERN);
     await confirmResult(ctx.results[0]);
 
     expect(postDiskIOMock).toHaveBeenCalledTimes(1);
@@ -279,7 +293,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     const lines: string[] = bodyTextOf(ctx.results[0]).split("\n");
     lines.pop();
     const receiptUrl: string = entitiesOf(ctx.results[0])[1]!.url;
-    const legacyReceipt: string = receiptUrl.slice("https://t.me/#luck-receipt=".length);
+    const legacyReceipt: string = receiptUrl.slice(LUCK_RECEIPT_LINK_PREFIX.length);
 
     // 验签要求回执内嵌日期等于当天，日级密钥每天轮换。
     await luckChallenge.confirmLuckDraw(`${lines.join("\n")}\n${legacyReceipt}`);
@@ -514,7 +528,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
     const visibleBody: string = visibleBodyOf(ctx.results[0]);
 
     await luckChallenge.confirmLuckDraw(visibleBody);
-    await luckChallenge.confirmLuckDraw(`${visibleBody}\n防伪标记: luck:v1:${TEST_SECRET.day}:MTIz.${"B".repeat(43)}`);
+    await luckChallenge.confirmLuckDraw(`${visibleBody}\n${LUCK_RECEIPT_DISPLAY_PREFIX}luck:v1:${TEST_SECRET.day}:MTIz.${"B".repeat(43)}`);
     await luckChallenge.confirmLuckDraw(signedBody);
     const tamperedBody: string = `${signedBody.slice(0, -1)}${signedBody.endsWith("a") ? "b" : "a"}`;
     await luckChallenge.confirmLuckDraw(tamperedBody, entitiesOf(ctx.results[0]));
@@ -854,7 +868,8 @@ describe("运势日缓存的跨日轮换、共享刷新与 Worker 重建重放",
     luckChallenge.restoreLuckState(TEST_SECRET, null);
     postDiskIOMock.mockClear();
     loggerErrorMock.mockClear();
-    ensureLuckReceiptSecretMock.mockClear();
+    ensureLuckReceiptSecretMock.mockReset();
+    ensureLuckReceiptSecretMock.mockImplementation(ensureLuckReceiptSecretStub);
     ensureLuckReceiptSecretError = null;
   });
 

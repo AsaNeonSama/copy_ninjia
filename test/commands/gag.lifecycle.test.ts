@@ -1,7 +1,7 @@
 /** `/gag` 与 `/ungag` 的容量预约、提示收尾与停机排空状态机。 */
 
 import { describe, expect, test } from "bun:test";
-import { GAG_SESSION_MAX } from "../../packages/consts/gag";
+import { GAG_INLINE_QUERY_PREFIX, GAG_SESSION_MAX } from "../../packages/consts/gag";
 import { GAG_TARGET_TEXTS, UNGAG_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/gag";
 import {
   GAG_TARGET_TEXTS as PLAIN_GAG_TARGET_TEXTS,
@@ -210,8 +210,8 @@ describe("/gag 与 /ungag 状态机", () => {
     const sessionButton = sendEphemeralMessage.mock.calls[0]?.[0]?.keyboard
       ?.inline_keyboard[0]?.[0];
     expect(sessionButton).toMatchObject({
-      text: "发言",
-      switch_inline_query_current_chat: "gag:7 ",
+      text: ATMOSPHERE_TEXTS.teasing.GAG_INLINE_SPEAK_BUTTON_TEXT,
+      switch_inline_query_current_chat: `${GAG_INLINE_QUERY_PREFIX}7 `,
     });
     expect(sessionButton).not.toHaveProperty("callback_data");
     // 交出去的是 GAG_TARGET_TEXTS 本身：解析失败的各条文案由解析器渲染并经 sendCommandMessage 发出（覆盖见 test/commands/targetResolution.test.ts）。
@@ -335,8 +335,8 @@ describe("/gag 与 /ungag 状态机", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage.mock.calls[0]?.[0]?.keyboard?.inline_keyboard[0]?.[0])
       .toMatchObject({
-        text: "发言",
-        switch_inline_query_current_chat: "gag:-1002233445566 ",
+        text: ATMOSPHERE_TEXTS.teasing.GAG_INLINE_SPEAK_BUTTON_TEXT,
+        switch_inline_query_current_chat: `${GAG_INLINE_QUERY_PREFIX}-1002233445566 `,
       });
     expect(lastStateText()).toContain(NOTICES.gagChannelEntry);
   });
@@ -569,9 +569,13 @@ describe("/gag 与 /ungag 状态机", () => {
 
   test("teardown 在开始提示发送期间到达时不会复活会话，并撤掉迟到提示", async () => {
     let finishSend: ((messageId: number) => void) | undefined;
-    sendEphemeralMessage.mockImplementationOnce((_params: EphemeralMessageParams): Promise<number> =>
+    // 与真实发送边界同一契约：远端返回 id 时先经 onSent 同步登记，再结算。
+    sendEphemeralMessage.mockImplementationOnce((params: EphemeralMessageParams): Promise<number> =>
       new Promise<number>((resolve: (messageId: number) => void): void => {
-        finishSend = resolve;
+        finishSend = (messageId: number): void => {
+          params.onSent?.(messageId);
+          resolve(messageId);
+        };
       })
     );
     const starting: Promise<void> = gag.handleGagCommand(commandContext());

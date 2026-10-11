@@ -12,7 +12,7 @@ import {
   persistChatState,
   purgeChatStateExceptLockdown,
 } from "../infra/storage/stateStore";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import { resolveSuperAdminToggleArg, toggleReplyText } from "./superAdminToggle";
 import { invalidateBotAdminStatus, resolveBotAdminStatus } from "../infra/botAdmin";
 import { teardownChatRuntime } from "../infra/chatTeardown";
@@ -35,18 +35,13 @@ export async function handleInitCommand(ctx: CommandContext<Context>): Promise<v
   if (!arg) return;
 
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const knownChats: ReadonlyMap<number, ChatState> = getChatStateCache();
   if (
     arg === "enable" &&
     !knownChats.has(chatId) &&
     knownChats.size >= STATE_MANAGED_CHAT_LIMIT
   ) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().INIT_CHAT_LIMIT_TEXT,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().INIT_CHAT_LIMIT_TEXT);
     return;
   }
   const wasEnabled: boolean = getChatState(chatId).isInitEnabled === true;
@@ -111,5 +106,5 @@ export async function handleInitCommand(ctx: CommandContext<Context>): Promise<v
       wasEnabled,
       texts: chatAtmosphere().INIT_TOGGLE_TEXTS,
     });
-  await sendCommandMessage({ chatId, text: replyText, replyToMessageId: messageId });
+  await replyCommandNotice(ctx, replyText);
 }

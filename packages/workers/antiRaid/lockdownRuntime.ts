@@ -10,6 +10,7 @@ import {
 } from "./lockdownApi";
 import { sendTemporaryMessageFromMain } from "../../infra/telegram/workerClient";
 import { logger } from "../../infra/logger";
+import { MINUTE_MS } from "../../consts/time";
 import {
   LOCKDOWN_MS,
   RESTORE_PERMANENT_FAILURE_LOG_LIMIT,
@@ -237,7 +238,7 @@ function runLockdownEffects(chatId: number, effects: readonly LockdownEffect[]):
             purpose: "notice",
             chatId,
             text: effect.reason === "expired"
-              ? workerAtmosphere().NOTICE_TEXTS.lockdownEnded(LOCKDOWN_MS / 60_000)
+              ? workerAtmosphere().NOTICE_TEXTS.lockdownEnded(LOCKDOWN_MS / MINUTE_MS)
               : workerAtmosphere().NOTICE_TEXTS.lockdownLifted,
           }),
         });
@@ -275,6 +276,13 @@ export function deactivateLockdownChat(chatId: number): void {
   // 守卫关闭时丢弃重触发冷却。
   lockdownRetriggerCooldowns.delete(chatId);
   dispatchLockdown(chatId, { type: "deactivate", intentId: nextLockdownIntentId() });
+}
+
+/** 群已不存在时放弃本群私密模式：撤掉 timer 并报 unlock，不调 Telegram。 */
+export function abandonLockdownChat(chatId: number): void {
+  clearJoinWindow(chatId);
+  lockdownRetriggerCooldowns.delete(chatId);
+  dispatchLockdown(chatId, { type: "chatGone" });
 }
 
 /**

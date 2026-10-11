@@ -5,7 +5,8 @@
  *
  * Disk I/O 替身与逐用例复位见 test/helpers/identityStorageHarness.ts。
  */
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { installTokyoFixtureTimeZone } from "../helpers/fixtureTimeZone";
 import {
   acceptDiskMessages,
   blockValue,
@@ -56,6 +57,8 @@ const {
 
 /** 一个东京日内让当天成为合格日所需的发言条数。 */
 const QUALIFYING_DAILY_MESSAGES: number = TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD + 1;
+
+installTokyoFixtureTimeZone();
 
 beforeEach(resetIdentityStorageHarness);
 
@@ -248,6 +251,45 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     })]);
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)?.activity).toBeNull();
     expect(temporaryAdBypassActivityCache.peek(7)).toBeNull();
+  });
+
+  test("Worker 重建按 revision 而不是插入顺序重放多条未 ACK 写，只把已过保留期的那条归一为墓碑", async () => {
+    const dayAt: number = new Date("2026-08-01T12:00:00+09:00").getTime();
+    const staleAt: number = dayAt - 2 * DAY_MS;
+    for (const id of [7, 8, 9]) seedMissing(id);
+    // 主键 7 先进 Map，又在最后再写一次：插入顺序 7、8、9，revision 顺序 8、9、7。
+    const firstFresh: Readonly<TemporaryAdBypassActivity> | undefined = recordTemporaryAdBypassActivity(7, dayAt);
+    const stale: Readonly<TemporaryAdBypassActivity> | undefined = recordTemporaryAdBypassActivity(8, staleAt);
+    const otherFresh: Readonly<TemporaryAdBypassActivity> | undefined = recordTemporaryAdBypassActivity(9, dayAt);
+    const latestFresh: Readonly<TemporaryAdBypassActivity> | undefined = recordTemporaryAdBypassActivity(7, dayAt + 1);
+    expect(firstFresh).not.toBe(latestFresh);
+    expect(stale?.countedAt).toBe(staleAt);
+    const revisions: Map<number, number> = new Map<number, number>();
+    for (const [id, write] of unacknowledgedTemporaryAdBypassWrites) revisions.set(id, write.revision);
+    expect([...revisions.keys()]).toEqual([7, 8, 9]);
+
+    const replayed: DiskBusinessMessage[] = [];
+    const transport: DiskIORecoveryTransport = recordingTransport(replayed);
+    // 重建发生在同一东京日稍晚：7、9 仍在保留期内，8 已跨过两天。
+    const nowSpy: ReturnType<typeof spyOn> = spyOn(Date, "now").mockReturnValue(dayAt + 2);
+    try {
+      for (const listener of respawnListeners) expect(await listener(transport)).toBeTrue();
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(replayed).toEqual([
+      { type: "temporaryAdBypassWrite", id: 8, activity: null, revision: revisions.get(8)! },
+      { type: "temporaryAdBypassWrite", id: 9, activity: otherFresh!, revision: revisions.get(9)! },
+      { type: "temporaryAdBypassWrite", id: 7, activity: latestFresh!, revision: revisions.get(7)! },
+    ]);
+    // 归一只改内容不改 revision：之后到达的旧 revision ACK 照样能精确结算墓碑。
+    expect(unacknowledgedTemporaryAdBypassWrites.get(8)).toEqual({ activity: null, revision: revisions.get(8)! });
+    expect(temporaryAdBypassActivityCache.peek(8)).toBeNull();
+    // 仍有效的条目原对象保留，不另建副本。
+    expect(unacknowledgedTemporaryAdBypassWrites.get(7)?.activity).toBe(latestFresh!);
+    expect(unacknowledgedTemporaryAdBypassWrites.get(9)?.activity).toBe(otherFresh!);
+    expect(temporaryAdBypassActivityCache.peek(7)).toBe(latestFresh!);
   });
 
   test("长时间取键流转下临时广告免检只保留有界现场，Worker 重建按 revision 重放", async () => {

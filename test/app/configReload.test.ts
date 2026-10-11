@@ -81,6 +81,9 @@ beforeEach((): void => {
 
 afterEach(async (): Promise<void> => {
   quiesceConfigReload();
+  // 执行器跨启停保留：排空本用例在途的那一轮（关闸后读完即丢弃），免得它在下一用例
+  // 重新开闸后才落地、改写下一用例的 holder。
+  await configReloadRuntime.runner?.push(null);
   await Bun.write(MOOD_CONFIG_PATH, originalMoodText);
   await Bun.write(STICKERS_CONFIG_PATH, originalStickerText);
   await Bun.write(AD_SAMPLES_CONFIG_PATH, originalAdSampleText);

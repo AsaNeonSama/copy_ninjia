@@ -62,25 +62,24 @@ export const readBlocklistIdPage = mock(
  * 领域 flush 替身：把已投出的该领域身份写逐条作为精确 ACK 交给回执回调，再报告
  * flushed。用例可用 mockImplementationOnce 模拟缺少精确 ACK 或 flush 失败。
  */
-export const flushDiskIODomain = mock(
-  async (domain: DiskIODomain): Promise<DomainFlushOutcome> => {
-    const writes: { table: "whitelist" | "blocklist"; id: number; revision: number }[] = [];
-    for (const message of diskMessages) {
-      if (message.type !== "identityPolicyWrite" || message.table !== domain) continue;
-      writes.push({ table: message.table, id: message.id, revision: message.revision });
-    }
-    for (const listener of persistedListeners) {
-      listener({
-        type: "identityStoragePersisted",
-        writes,
-        temporaryAdBypassWrites: [],
-        chatStateWrites: [],
-        chatQaWrites: [],
-      });
-    }
-    return { result: "flushed" };
+async function flushDiskIODomainStub(domain: DiskIODomain): Promise<DomainFlushOutcome> {
+  const writes: { table: "whitelist" | "blocklist"; id: number; revision: number }[] = [];
+  for (const message of diskMessages) {
+    if (message.type !== "identityPolicyWrite" || message.table !== domain) continue;
+    writes.push({ table: message.table, id: message.id, revision: message.revision });
   }
-);
+  for (const listener of persistedListeners) {
+    listener({
+      type: "identityStoragePersisted",
+      writes,
+      temporaryAdBypassWrites: [],
+      chatStateWrites: [],
+      chatQaWrites: [],
+    });
+  }
+  return { result: "flushed" };
+}
+export const flushDiskIODomain = mock(flushDiskIODomainStub);
 
 mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   isDiskIOInitialized: (): boolean => true,
@@ -136,7 +135,8 @@ export function resetIdentityStorageHarness(): void {
   resetIdentityStorageCache();
   readIdentityPolicies.mockClear();
   readBlocklistIdPage.mockClear();
-  flushDiskIODomain.mockClear();
+  flushDiskIODomain.mockReset();
+  flushDiskIODomain.mockImplementation(flushDiskIODomainStub);
   readImplementation.current = emptyIdentityPolicyRead;
   pageReadImplementation.current = emptyBlocklistIdPage;
 }

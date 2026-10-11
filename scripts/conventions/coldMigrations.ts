@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
@@ -33,7 +32,7 @@ export async function collectColdMigrationProblems(
     if (scripts[edge.command] !== edge.invocation) {
       problems.push(`${edge.command} must invoke ${edge.invocation}`);
     }
-    if (!existsSync(join(projectRoot, edge.entryPath))) {
+    if (!(await Bun.file(join(projectRoot, edge.entryPath)).exists())) {
       problems.push(`active cold migration entry does not exist: ${edge.entryPath}`);
     }
   }

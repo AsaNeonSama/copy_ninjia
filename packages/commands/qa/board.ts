@@ -18,17 +18,13 @@ import { QA_QUERY_ANSWER_PREVIEW_MAX_CHARS, QA_QUERY_JSON_INDENT, QA_QUERY_JSON_
 
 import { answerCallbackQuery, editMessageText } from "../../infra/telegram";
 import { chatQaEntries } from "../../cache/main/qa";
-import { truncateInline } from "../../libs/text";
+import { truncateWithEllipsis } from "../../libs/text";
 import type { QaEntry } from "../../types/qa";
 import type { RichTextMessage } from "../../types/telegram";
 
 /** 看板上的一条答案：超出展示上限时截断并补省略号，总长仍在上限之内。 */
 function answerPreview(answer: string): string {
-  if (answer.length <= QA_QUERY_ANSWER_PREVIEW_MAX_CHARS) return answer;
-  return truncateInline(
-    answer,
-    QA_QUERY_ANSWER_PREVIEW_MAX_CHARS - QA_TRUNCATION_MARK.length
-  ) + QA_TRUNCATION_MARK;
+  return truncateWithEllipsis(answer, QA_QUERY_ANSWER_PREVIEW_MAX_CHARS, QA_TRUNCATION_MARK);
 }
 
 /** 把一页条目渲染成「前缀 + json 代码块」；实体偏移按 UTF-16 code unit 计。 */

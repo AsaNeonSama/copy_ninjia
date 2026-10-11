@@ -34,31 +34,27 @@ export const adoptAiMemorySnapshots = mock((_inspection: unknown): Map<number, s
 export interface StickerInspection {
   readonly kind: "stickers";
 }
-export const inspectStickerCatalogs = mock(async (
-  _packs: readonly string[]
-): Promise<StickerInspection> => ({ kind: "stickers" }));
+async function inspectStickerCatalogsStub(_packs: readonly string[]): Promise<StickerInspection> {
+  return { kind: "stickers" };
+}
+export const inspectStickerCatalogs = mock(inspectStickerCatalogsStub);
 export const adoptStickerCatalogSnapshots = mock((_inspection: unknown): Map<string, string> => new Map());
 export const maintainStickerCatalogFiles = mock((_inspection: unknown): void => {});
 export const inspectJoinLogFiles = mock((day: string): { readonly today: string } => ({ today: day }));
 export const maintainJoinLogFiles = mock((_inspection: unknown): void => {});
 export const maintainJoinLogRetention = mock((_day?: string): void => {});
-export const readJoinLog = mock((_message: unknown): readonly {
-  userId: number;
-  joinedAt: number;
-}[] => [{ userId: 42, joinedAt: 1_000 }]);
+function readJoinLogStub(_message: unknown): readonly { userId: number; joinedAt: number }[] {
+  return [{ userId: 42, joinedAt: 1_000 }];
+}
+export const readJoinLog = mock(readJoinLogStub);
 interface LuckSecretRecoveryInput {
   day: string;
   confirmedResultCount: number;
 }
-export const recoverLuckReceiptSecret = mock((input: LuckSecretRecoveryInput): {
-  version: 1;
-  day: string;
-  key: string;
-} => ({
-  version: 1,
-  day: input.day,
-  key: "secret",
-}));
+function recoverLuckReceiptSecretStub(input: LuckSecretRecoveryInput): { version: 1; day: string; key: string } {
+  return { version: 1, day: input.day, key: "secret" };
+}
+export const recoverLuckReceiptSecret = mock(recoverLuckReceiptSecretStub);
 export const luckWorkerCache: {
   current: { day: string; entries: Map<string, { label: string; fortunePercent: number }> } | null;
 } = { current: null };
@@ -111,10 +107,10 @@ export const flushJoinLogBuffer = mock((): boolean => true);
 export const handleBlocklistRemovalsMessage = mock((_message: unknown): void => {});
 export const handleIdentityPolicyWrite = mock((_message: unknown): void => {});
 export const setStorageFlushHold = mock((_active: boolean, _reply: unknown): void => {});
-export const closeStorageDatabaseForShutdown = mock((_reply: unknown): { committed: boolean; checkpointBusy: boolean } => ({
-  committed: true,
-  checkpointBusy: false,
-}));
+function closeStorageDatabaseForShutdownStub(_reply: unknown): { committed: boolean; checkpointBusy: boolean } {
+  return { committed: true, checkpointBusy: false };
+}
+export const closeStorageDatabaseForShutdown = mock(closeStorageDatabaseForShutdownStub);
 export const handleChatStateWrite = mock((_message: unknown): void => {});
 export const handleChatQaWrite = mock((_message: unknown): void => {});
 export const handleTemporaryAdBypassWrite = mock((_message: unknown): void => {});
@@ -127,7 +123,10 @@ interface HydratedStorageDatabase {
   readonly chatStates: Map<number, never>;
   readonly chatQa: Map<number, never>;
 }
-export const inspectStorageDatabase = mock((): { readonly kind: "storage" } => ({ kind: "storage" }));
+function inspectStorageDatabaseStub(): { readonly kind: "storage" } {
+  return { kind: "storage" };
+}
+export const inspectStorageDatabase = mock(inspectStorageDatabaseStub);
 export const adoptStorageDatabase = mock((_inspection: unknown): HydratedStorageDatabase => ({
   blocklistEntryCount: 0,
   permissionEntryCount: 0,
@@ -272,7 +271,6 @@ beforeEach(() => {
     handleAdSampleMessage,
     flushAdSampleBuffer,
     handleAiCacheUsageMessage,
-    flushAiCacheBuffer,
     inspectAiCacheFile,
     adoptAiCacheFile,
     maintainAiCacheFile,
@@ -281,39 +279,25 @@ beforeEach(() => {
     deleteAiMemorySnapshot,
     markStickerCatalogSnapshotDirty,
     handleLuckDrawMessage,
-    handleVerificationUpsert,
     handleVerificationDelete,
     handleJoinLogMessage,
     inspectLogFiles,
     adoptLogFiles,
-    maintainLogFiles,
     maintainLogRetention,
 
     adoptAiMemorySnapshots,
 
-    inspectStickerCatalogs,
     adoptStickerCatalogSnapshots,
     maintainStickerCatalogFiles,
     inspectJoinLogFiles,
     maintainJoinLogFiles,
     maintainJoinLogRetention,
-    readJoinLog,
-    flushLogBuffer,
-    flushStickerCatalogs,
-    flushLuckAppends,
     flushVerificationChanges,
     maintainVerificationDayForToday,
     maintainAdSampleFiles,
     maintainTemporaryAdBypassActivities,
     flushBlocklistRemovalOutbox,
-    collectStorageDatabaseFailures,
     flushJoinLogBuffer,
-    purgeJoinLogDeletions,
-    handleBlocklistRemovalsMessage,
-    handleIdentityPolicyWrite,
-    handleChatStateWrite,
-    handleChatQaWrite,
-    handleTemporaryAdBypassWrite,
     postMessage,
     switchLuckDay,
     replayDeferredLuckDraws,
@@ -327,9 +311,7 @@ beforeEach(() => {
     adoptVerificationDay,
     maintainVerificationDay,
     consoleError,
-    inspectStorageDatabase,
     adoptStorageDatabase,
-    closeStorageDatabaseForShutdown,
   ]) fn.mockClear();
   // 重放窗口是 Worker 独占的模块级状态，每个用例复位。
   diskIOReplayWindow.current = false;
@@ -337,8 +319,34 @@ beforeEach(() => {
   diskIOOperationTail.current = Promise.resolve();
   luckWorkerCache.current = null;
   hydratedLuckEntries.current = new Map();
+  // 默认实现返回 undefined 的几个，reset 后的空实现与之等价，无需装回。
+  for (const fn of [
+    handleVerificationUpsert,
+    collectStorageDatabaseFailures,
+    handleBlocklistRemovalsMessage,
+    handleIdentityPolicyWrite,
+    handleChatStateWrite,
+    handleChatQaWrite,
+    handleTemporaryAdBypassWrite,
+  ]) fn.mockReset();
+  for (const fn of [flushLogBuffer, flushStickerCatalogs, flushLuckAppends, purgeJoinLogDeletions]) {
+    fn.mockReset();
+    fn.mockReturnValue(true);
+  }
+  flushAiCacheBuffer.mockReset();
+  flushAiCacheBuffer.mockResolvedValue(true);
+  maintainLogFiles.mockReset();
+  maintainLogFiles.mockResolvedValue(undefined);
+  inspectStickerCatalogs.mockReset();
+  inspectStickerCatalogs.mockImplementation(inspectStickerCatalogsStub);
+  readJoinLog.mockReset();
+  readJoinLog.mockImplementation(readJoinLogStub);
   recoverLuckReceiptSecret.mockReset();
-  recoverLuckReceiptSecret.mockImplementation((input) => ({ version: 1, day: input.day, key: "secret" }));
+  recoverLuckReceiptSecret.mockImplementation(recoverLuckReceiptSecretStub);
+  inspectStorageDatabase.mockReset();
+  inspectStorageDatabase.mockImplementation(inspectStorageDatabaseStub);
+  closeStorageDatabaseForShutdown.mockReset();
+  closeStorageDatabaseForShutdown.mockImplementation(closeStorageDatabaseForShutdownStub);
   adoptStorageDatabase.mockImplementation((): HydratedStorageDatabase => ({
     blocklistEntryCount: 0,
     permissionEntryCount: 0,
@@ -346,14 +354,9 @@ beforeEach(() => {
     chatStates: new Map<number, never>(),
     chatQa: new Map<number, never>(),
   }));
-  flushLogBuffer.mockReturnValue(true);
-  flushStickerCatalogs.mockReturnValue(true);
-  flushLuckAppends.mockReturnValue(true);
   flushVerificationChanges.mockReturnValue(true);
   flushBlocklistRemovalOutbox.mockReturnValue(true);
   flushJoinLogBuffer.mockReturnValue(true);
-  purgeJoinLogDeletions.mockReturnValue(true);
-  readJoinLog.mockImplementation(() => [{ userId: 42, joinedAt: 1_000 }]);
 });
 
 /** 单条消息走一次真实路由。 */

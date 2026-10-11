@@ -30,9 +30,9 @@ function speak(id: number): void {
 beforeEach(() => {
   initWedRuntime();
   getOrCreateChatState(-1001).isInitEnabled = true;
-  post.mockClear();
+  post.mockReset();
   post.mockReturnValue(true);
-  flush.mockClear();
+  flush.mockReset();
   flush.mockResolvedValue({ result: "flushed" });
   jest.useFakeTimers();
 });

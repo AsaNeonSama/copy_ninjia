@@ -4,6 +4,8 @@ import {
   IDENTITY_DATABASE_TIME_ZONE_KEY,
 } from "../../consts/identityStorage";
 import { storageMetadata } from "../schema/metadata";
+import { closeStorageDatabase, enableStorageDatabaseWal, openStorageDatabase } from "./connection";
+import { createStorageDatabase } from "./migration";
 import type {
   StorageDatabase,
   StorageTimeZoneMetadata,
@@ -39,4 +41,19 @@ export function initializeStorageDatabase(
   database.transaction((transaction: StorageDatabaseTransaction): void => {
     transaction.insert(storageMetadata).values([...rows]).run();
   });
+}
+
+/**
+ * 建立新的共享 SQLite 库：createStorageDatabase 建表（目标已存在时拒绝），一个事务内写入当前 schema 版本与
+ * timeZone 时区标记，关闭连接后启用 WAL。安装器、发行包自检与性能夹具共用；生产启动不调用。
+ */
+export function bootstrapStorageDatabase(path: string, timeZone: string): void {
+  createStorageDatabase(path);
+  const database: StorageDatabase = openStorageDatabase({ path });
+  try {
+    initializeStorageDatabase(database, timeZone);
+  } finally {
+    closeStorageDatabase(database);
+  }
+  enableStorageDatabaseWal(path);
 }

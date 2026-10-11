@@ -329,6 +329,12 @@ WantedBy=multi-user.target
   AI 返信において `send_voice` ツールが正常な音声を出力できなかったことを示します（モデルまたはネットワークの障害、利用枠の枯渇）。このエラーによってテキスト返信の正常な送信が妨げられることはありません。
 - `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`：
   ブラックリストメンバーの再スキャン時に、削除済みのアカウントに遭遇したことを示します。同一ユーザーに対して `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 回連続で再スキャンの処置がすべてこのエラーで拒否された場合、システムは自動的にその ID をブラックリストから登録解除します。
+- `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`：
+  管理グループがスーパーグループへ昇格し、旧グループ ID を「グループが既に存在しない」として後始末しました（データ削除、管理グループ枠の解放）。新しいスーパーグループで改めて `/init enable` を実行してください。旧グループの設定は移されません。
+- `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`：
+  起動時のタイトル更新が、グループが既に存在しない（`gone`）、または Bot がもうメンバーでない（`departed`）ことを続けて複数回確証し、自動で後始末しました。`departed` のグループに未復元の非公開モード記録がある場合は保持され、Bot がグループに戻ってメンバー制限権限を取り戻した時点で自動的に復元されます。
+- `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`：
+  初回の照会は到達不能に見えたものの、再照会の結論が一致しませんでした（多くは Telegram の一時的なエラー）。今回は後始末せず、次回起動時に改めて確証します。
 - `Gemini context cache API ... create rejected (n/3): 400`：
   キャッシュ作成が 400 で拒否されています。内容がキャッシュの最小 token 数に届かない場合と、パラメータが不正な場合があります。同じ内容は `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` のクールダウン後に再試行し、拒否が累計 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 回になると停止します。その間もキャッシュなしでリクエストを送れます。
 

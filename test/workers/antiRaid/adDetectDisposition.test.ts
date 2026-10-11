@@ -21,10 +21,11 @@ const confirmBlocklistPersisted = mock(async (): Promise<boolean> => true);
 const isUserBlocked = mock((userId: number): boolean => blockedIds.has(userId));
 const diskMessages: unknown[] = [];
 const postDiskIO = mock((message: unknown): boolean => (diskMessages.push(message), true));
-const dispatchBlockedRemovals = mock(async (removals: readonly RemoveBlockedMembersParams[]): Promise<number> => {
+async function dispatchBlockedRemovalsStub(removals: readonly RemoveBlockedMembersParams[]): Promise<number> {
   dispatched.push([...removals]);
   return removals.length;
-});
+}
+const dispatchBlockedRemovals = mock(dispatchBlockedRemovalsStub);
 let removalCounter: number = 0;
 const resweepRequests: number[] = [];
 const requestBlocklistResweep = mock((chatId: number): void => { resweepRequests.push(chatId); });
@@ -50,6 +51,8 @@ const sendMessage = mock(async (params: SendMessageMockParams): Promise<number |
 });
 const deleteMessageAfter = mock((..._args: unknown[]): void => {});
 const clearTemporaryAdBypassActivity = mock((_id: number): boolean => true);
+/** 置真时身份策略预热会真的去读 Disk I/O；读取替身一律拒绝，模拟冷读失败。 */
+let diskIOInitialized: boolean = false;
 mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
 }));
@@ -107,7 +110,10 @@ mock.module("../../../packages/cache/main/antiRaid/verificationMirror", () => ({
   activeVerificationSnapshots,
   isActiveVerificationUser: (chatId: number, userId: number): boolean => activeVerificationSnapshots.has(`${chatId}:${userId}`),
 }));
-mock.module("../../../packages/infra/diskIO", () => (diskIOStub({ postDiskIODiagnostic: postDiskIO })));
+mock.module("../../../packages/infra/diskIO", () => (diskIOStub({
+  isDiskIOInitialized: (): boolean => diskIOInitialized,
+  postDiskIODiagnostic: postDiskIO,
+})));
 mock.module("../../../packages/infra/storage/stateStore", () => ({
   getChatStateCache: () => chatStates,
   getChatState: (chatId: number) => chatStates.get(chatId) ?? {},
@@ -176,10 +182,11 @@ beforeEach(() => {
   }
   blockUser.mockClear();
   clearTemporaryAdBypassActivity.mockClear();
-  confirmBlocklistPersisted.mockClear();
-  confirmBlocklistPersisted.mockImplementation(async (): Promise<boolean> => true);
   isUserBlocked.mockClear();
-  dispatchBlockedRemovals.mockClear();
+  confirmBlocklistPersisted.mockReset();
+  confirmBlocklistPersisted.mockImplementation(async (): Promise<boolean> => true);
+  dispatchBlockedRemovals.mockReset();
+  dispatchBlockedRemovals.mockImplementation(dispatchBlockedRemovalsStub);
   inFlightAdDisposals.clear();
   blocklistIdentityMutationQueues.clear();
   sendMessage.mockClear();
@@ -193,6 +200,7 @@ beforeEach(() => {
   postDiskIO.mockImplementation((message: unknown): boolean => (diskMessages.push(message), true));
   resetSelfSentTracker();
   inlineResultSources.clear();
+  diskIOInitialized = false;
 });
 
 describe("广告判定命中后的处置", () => {
@@ -237,6 +245,24 @@ describe("广告判定命中后的处置", () => {
     // 触发判定的群排最前；未初始化或没有管理员身份的群不进清单。
     expect(dispatched[0]?.map((params) => params.chatId)).toEqual([-1001, -1002]);
     expect(dispatched[0]?.[0]).toMatchObject({ userIds: [7], probeMembership: false });
+  });
+
+  test("身份策略冷读失败时放弃判定，并留下写明未拉黑的错误日志", async () => {
+    // 发送者在三份 LRU 里都是冷缺失，预热才会去读 Disk I/O。
+    blocklistEntryCache.delete(7);
+    whitelistEntryCache.delete(7);
+    temporaryAdBypassActivityCache.delete(7);
+    diskIOInitialized = true;
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(blockUser).not.toHaveBeenCalled();
+    expect(dispatched).toHaveLength(0);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(errorLogs.some((line: string): boolean =>
+      line.includes("Dropped the ad detection verdict for sender 7 in chat -1001")
+    )).toBeTrue();
   });
 
   test("落盘失败留下可排查的错误日志", async () => {

@@ -108,12 +108,6 @@ export interface TelegramSendLane {
   inGlobalRing: boolean;
 }
 
-/** 等待 Telegram 出站请求和 429 队列完全排空的调用方。 */
-export interface TelegramOutboundDrainWaiter {
-  readonly resolve: (drained: boolean) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
-}
-
 /** 出站 job 唯一构造点的稳定字段集合。 */
 export interface CreateTelegramOutboundJobOptions {
   readonly signal: AbortSignal;

@@ -1,14 +1,10 @@
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
-import {
-  IDENTITY_DATABASE_MIGRATIONS_DIR,
-  CHAT_PERSONA_REMOVAL_MIGRATION_CREATED_AT, CHAT_PERSONA_REMOVAL_MIGRATION_HASH,
-  TIME_ZONE_MARKER_MIGRATION_CREATED_AT, TIME_ZONE_MARKER_MIGRATION_HASH,
-} from "../../../packages/consts/identityStorage";
+import { IDENTITY_DATABASE_MIGRATIONS_DIR, STORAGE_MIGRATION_LINEAGE } from "../../../packages/consts/identityStorage";
 import { decodeWhitelistEntryData } from "../../../packages/database/codec/identity";
 import { readStorageDatabaseMigrationJournal } from "../../../packages/database/interact/migration";
 import {
-  assertStorageDatabaseIntegrity, assertStorageDatabaseJsonbStorage, readStorageDatabaseSchemaMetadata,
+  assertStorageDatabaseIntegrity, assertStorageDatabaseJsonbStorage, isSameMigrationLineage, readStorageDatabaseSchemaMetadata,
 } from "../../../packages/database/interact/inspection";
 import { validateStorageDatabase } from "../../../packages/database/interact/validation";
 import { readStorageSchemaVersion } from "../../../packages/database/validation/storageRows";
@@ -23,22 +19,18 @@ export const CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION: number = 11;
 /** 本次直接迁移直接移除的权限位。 */
 const REMOVED_PERMISSION_KEY: string = "isCanConfigAiPrompt";
 
-/** 校验上次迁移产出的完整源谱系；未知、过旧和额外条目一律拒绝。 */
+/**
+ * 校验上次迁移产出的完整源谱系：随包迁移文件必须恰为 STORAGE_MIGRATION_LINEAGE，源库谱系必须恰为
+ * 去掉末两条（移除群人设与时区标记迁移）的前缀；未知、过旧和额外条目一律拒绝。
+ */
 function assertSourceLineage(database: StorageDatabase, source: string): void {
-  const migrations: MigrationMeta[] = readMigrationFiles({ migrationsFolder: IDENTITY_DATABASE_MIGRATIONS_DIR });
-  const removal: MigrationMeta | undefined = migrations.at(-2);
-  const marker: MigrationMeta | undefined = migrations.at(-1);
-  if (
-    removal?.folderMillis !== CHAT_PERSONA_REMOVAL_MIGRATION_CREATED_AT || removal.hash !== CHAT_PERSONA_REMOVAL_MIGRATION_HASH ||
-    marker?.folderMillis !== TIME_ZONE_MARKER_MIGRATION_CREATED_AT || marker.hash !== TIME_ZONE_MARKER_MIGRATION_HASH
-  ) {
-    return invalidInput(source, "__drizzle_migrations", "the current chat persona removal and time zone marker migration files");
-  }
-  const expected: readonly StorageDatabaseMigrationJournalEntry[] = migrations.slice(0, -2).map(
+  const files: readonly StorageDatabaseMigrationJournalEntry[] = readMigrationFiles({ migrationsFolder: IDENTITY_DATABASE_MIGRATIONS_DIR }).map(
     (entry: MigrationMeta): StorageDatabaseMigrationJournalEntry => ({ createdAt: entry.folderMillis, hash: entry.hash })
   );
-  const actual: string = JSON.stringify(readStorageDatabaseMigrationJournal(database, source));
-  if (actual !== JSON.stringify(expected)) {
+  if (!isSameMigrationLineage(files, STORAGE_MIGRATION_LINEAGE)) {
+    return invalidInput(source, "__drizzle_migrations", "the current release migration files");
+  }
+  if (!isSameMigrationLineage(readStorageDatabaseMigrationJournal(database, source), STORAGE_MIGRATION_LINEAGE.slice(0, -2))) {
     return invalidInput(source, "__drizzle_migrations", "the exact schema v11 lineage");
   }
 }

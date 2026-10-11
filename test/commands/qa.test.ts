@@ -7,6 +7,7 @@ import { runWithUpdateAbortSignal, throwIfUpdateAborted } from "../../packages/i
 import { CHAT_QA_MAX_PER_CHAT, CHAT_QA_QUESTION_MAX_CHARS, QA_FORM_SESSION_MAX, QA_FORM_SESSION_TTL_MS } from "../../packages/consts/qa";
 import { QA_COMMAND_TEXTS } from "../../packages/consts/atmosphere/teasing/qa";
 import { QA_USAGE_TEXT } from "../../packages/consts/atmosphere/teasing/commandUsage";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 interface SentMessage {
   chatId: number;
@@ -22,12 +23,11 @@ mock.module("../../packages/infra/diskIO", (): Record<string, unknown> => ({ ...
 
 const sendCommandMessage = mock(async (_message: SentMessage): Promise<number | undefined> => 1);
 // 与真实 sendMessage 同构：拿到 id 的同步时点回调 onSent，表单 id 才登记得上。
-const sendMessage = mock(
-  async (message: { onSent?: (id: number) => void }): Promise<number | undefined> => {
-    message.onSent?.(55);
-    return 55;
-  }
-);
+async function sendMessageStub(message: { onSent?: (id: number) => void }): Promise<number | undefined> {
+  message.onSent?.(55);
+  return 55;
+}
+const sendMessage = mock(sendMessageStub);
 const deleteMessageWithOutcome: Mock<(chatId: number, messageId: number) => Promise<DeleteMessageOutcome>> = mock(async (_chatId: number, _messageId: number): Promise<DeleteMessageOutcome> => "deleted");
 const answerCallbackQuery = mock(async (): Promise<void> => {});
 
@@ -42,6 +42,7 @@ const permitted: Set<number> = new Set<number>();
 
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendCommandMessage),
   sendMessage,
   deleteMessageWithOutcome,
   answerCallbackQuery,
@@ -140,10 +141,14 @@ function lastText(): string {
 
 beforeEach((): void => {
   postDiskIO.mockClear();
-  sendCommandMessage.mockClear();
-  sendMessage.mockClear();
-  deleteMessageWithOutcome.mockClear();
-  editMessageText.mockClear();
+  sendCommandMessage.mockReset();
+  sendCommandMessage.mockResolvedValue(1);
+  sendMessage.mockReset();
+  sendMessage.mockImplementation(sendMessageStub);
+  deleteMessageWithOutcome.mockReset();
+  deleteMessageWithOutcome.mockResolvedValue("deleted");
+  editMessageText.mockReset();
+  editMessageText.mockResolvedValue(true);
   permitted.clear();
   permitted.add(OWNER);
   resetChatQaCache();
@@ -528,7 +533,7 @@ describe("表单填齐后的结算", () => {
     await handleQaMessageIngress(delivered("回答:\n点置顶"));
 
     expect(editMessageText).not.toHaveBeenCalled();
-    expect(deleteMessageWithOutcome).toHaveBeenCalled();
+    expect(deleteMessageWithOutcome).toHaveBeenCalledWith(CHAT_ID, 55);
   });
 
   test("两项齐了就落库、收走表单，并按新增/覆盖如实回执", async () => {
@@ -544,7 +549,7 @@ describe("表单填齐后的结算", () => {
     expect(chatQaEntries.get(CHAT_ID)?.get("怎么入群？")).toBe("点置顶");
     // 结算之后表单会话与表单消息都不该再留着。
     expect(qaFormSessions.get(CHAT_ID)).toBeUndefined();
-    expect(deleteMessageWithOutcome).toHaveBeenCalled();
+    expect(deleteMessageWithOutcome).toHaveBeenCalledWith(CHAT_ID, 55);
   });
 
   test("两项写在同一条消息里也能一次结算", async () => {

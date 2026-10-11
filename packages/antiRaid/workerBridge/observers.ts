@@ -9,6 +9,7 @@ import {
   registerBotPermissionObserver,
 } from "../../infra/botAdmin";
 import { registerChatTeardown } from "../../infra/chatTeardownRegistry";
+import { abandonsLockdown } from "../../libs/chatTeardown";
 import { projectBotActionPermissions } from "../../libs/chatMember";
 import {
   onDiskIORespawn,
@@ -37,7 +38,8 @@ export interface RegisterAntiRaidBridgeObserversOptions {
   readonly post: (message: AntiRaidWorkerMessage) => boolean;
   readonly deactivateChat: (
     chatId: number,
-    cleanupVerificationMessages: boolean
+    cleanupVerificationMessages: boolean,
+    abandonLockdown: boolean
   ) => void;
 }
 
@@ -70,7 +72,7 @@ export function registerAntiRaidBridgeObservers({
     chatId: number,
     reason: ChatTeardownReason
   ): void => {
-    deactivateChat(chatId, reason === "explicitDisable");
+    deactivateChat(chatId, reason === "explicitDisable", abandonsLockdown(reason));
     chatIsSupergroupById.delete(chatId);
     blockedSenderChatDeleteDeniedChats.delete(chatId);
   });

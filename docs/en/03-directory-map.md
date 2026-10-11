@@ -44,8 +44,8 @@ This document answers the core organizational question: **"Where does existing c
   - **Responsibility**: In-memory sender identity cache, visible identity resolution, user label formatting, and sender deduplication.
   - **Key Modules**: `senderIdentity.ts`, `visibleSender.ts`, `userLabel.ts`, `identityMetadata.ts`.
 - **`packages/states/`**
-  - **Responsibility**: **Completely I/O-free, pure functional state machines** and admission predicates for join challenges, lockdown, AI replies, and temporary ad bypasses.
-  - **Key Modules**: `verification/` (join, pending, terminal, disable, adopt), `lockdown/` (apply, persistence, restore, announcement, adopt), `replyAdmission.ts`, `adDetectAdmission.ts`.
+  - **Responsibility**: **Completely I/O-free, pure functional state machines** and admission predicates for join challenges, lockdown, AI replies, ad-detection admission, temporary ad bypasses, and media input support.
+  - **Key Modules**: `verification/` (join, pending, terminal, disable, adopt), `lockdown/` (apply, persistence, restore, announcement, adopt), `replyAdmission.ts`, `adDetectAdmission.ts`, `temporaryAdBypass.ts`, `mediaInputSupport.ts`.
 - **`packages/config/`**
   - **Responsibility**: Strict schema validation, process snapshots, and hot-reload logic for `config/{static,dynamic}/*.json`.
   - **Key Modules**: `bot.ts`, `agent.ts`, `assets.ts`, `cron.ts`, `mood.ts`, `stickers.ts`, `adSamples.ts`, `googleAuth.ts`, `readiness.ts`.
@@ -136,7 +136,7 @@ When a large module is split into submodules, the original file path may tempora
 
 ## Mirrored Test Structure
 
-Test files under `test/` strictly mirror the directory hierarchy of `packages/`. For example, `packages/commands/copy.ts` is tested by `test/commands/copy.test.ts`. Shared test doubles, mock harnesses, and sandbox factories reside in `test/helpers/`. For details on sandbox isolation and temporary data roots, see [05 Development Workflow](05-dev-workflow.md#test-isolation).
+Paths under `test/` mirror `packages/` in principle; modules split from one domain may share a domain-level test. For example, `packages/workers/diskIO/verificationCodec.ts`, `verificationRecovery.ts`, and `verificationWrites.ts` are all covered by `test/workers/diskIO/verificationFiles.test.ts`. Tests for other new modules follow the directory structure. Cross-domain test doubles, fixtures, and harnesses reside in `test/helpers/`, and domain-agnostic small utilities in `test/helpers/common.ts`. For details on sandbox isolation and temporary data roots, see [05 Development Workflow](05-dev-workflow.md#test-isolation).
 
 ---
 

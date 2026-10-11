@@ -15,6 +15,11 @@ export interface KeyedSerialTaskRunner<K> {
    * 抛错或 reject 时返回的 Promise 随之 reject，链照常推进。
    */
   readonly run: <T>(key: K, task: () => T | Promise<T>) => Promise<T>;
+  /**
+   * key 上没有尚未结算的任务。链尾在结算之后的微任务里才从 Map 删除，刚结算的 key
+   * 在那之前仍报占用。
+   */
+  readonly isIdle: (key: K) => boolean;
 }
 
 /** 链尾吸收任务结果与异常的共用回调，每次 run 不另建闭包。 */
@@ -32,6 +37,9 @@ export function createKeyedSerialTaskRunner<K>(chains: Map<K, Promise<void>>): K
         if (chains.get(key) === tail) chains.delete(key);
       });
       return result;
+    },
+    isIdle(key: K): boolean {
+      return !chains.has(key);
     },
   };
 }

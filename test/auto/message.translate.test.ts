@@ -40,7 +40,8 @@ beforeEach(() => {
   autoMessageChatState.isTranslationEnabled = true;
   autoMessageTranslateSessions.clear();
   autoMessageTranslateSessions.set(-1001, [{ translatedUser: { id: 7 }, language: "ja" }]);
-  translateText.mockClear();
+  translateText.mockReset();
+  translateText.mockResolvedValue("こんにちは");
 });
 
 describe("复读接管时的 AI 分流", () => {

@@ -18,7 +18,10 @@ const WEB_SEARCH_CAPABILITY: AgentCapability = "web_search";
 /** 没配 web_search 时 cron 摘要用来检索的对话能力名。 */
 const TEXT_CAPABILITY: AgentCapability = "text";
 
-const requestGeminiResult = mock(async (..._args: unknown[]): Promise<GeminiRequestResult> => ({ ok: false, failureKind: "request" }));
+async function requestGeminiResultStub(..._args: unknown[]): Promise<GeminiRequestResult> {
+  return { ok: false, failureKind: "request" };
+}
+const requestGeminiResult = mock(requestGeminiResultStub);
 mock.module("../../../packages/aiChat/gemini/client", () => ({ requestGeminiResult }));
 
 const { searchGeminiWeb } = await import("../../../packages/aiChat/gemini/search");
@@ -45,7 +48,8 @@ function groundedResponse(): GenerateContentResponse {
 const reported: AiCacheUsage[] = [];
 
 beforeEach(() => {
-  requestGeminiResult.mockClear();
+  requestGeminiResult.mockReset();
+  requestGeminiResult.mockImplementation(requestGeminiResultStub);
   reported.length = 0;
   installAiCacheUsageSink((usage: AiCacheUsage): void => { reported.push(usage); });
 });
@@ -101,11 +105,11 @@ test("产出不可用时仍计入已执行的检索；请求失败时没有检�
 });
 
 test("text 能力的检索用对话模型，执行器不重复上报用量", async () => {
-  requestGeminiResult.mockImplementationOnce(async (...args: unknown[]): Promise<GeminiRequestResult> => {
-    expect((args[0] as GeminiRequestOptions).capability).toBe(TEXT_CAPABILITY);
-    expect((args[0] as GeminiRequestOptions).buildBody().model).toBe(getAgentDeploymentConfig().text.model);
-    return { ok: true, response: groundedResponse() };
-  });
-  await searchGeminiWeb(TEXT_CAPABILITY, { instruction: "i", query: "q" });
+  requestGeminiResult.mockResolvedValueOnce({ ok: true, response: groundedResponse() });
+  expect(await searchGeminiWeb(TEXT_CAPABILITY, { instruction: "i", query: "q" })).toMatchObject({ ok: true });
+  expect(requestGeminiResult).toHaveBeenCalledTimes(1);
+  const options: GeminiRequestOptions = requestGeminiResult.mock.calls[0]![0] as GeminiRequestOptions;
+  expect(options.capability).toBe(TEXT_CAPABILITY);
+  expect(options.buildBody().model).toBe(getAgentDeploymentConfig().text.model);
   expect(reported).toEqual([]);
 });

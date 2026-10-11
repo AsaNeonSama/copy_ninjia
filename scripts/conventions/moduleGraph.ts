@@ -13,6 +13,9 @@ function resolveRelativeModule(specifier: string, fromFile: string): string | un
   return undefined;
 }
 
+/** threadModuleClosure 不设不透明模块，闭包按全部运行时依赖展开。 */
+const NO_OPAQUE_MODULES: ReadonlySet<string> = new Set();
+
 /** 一个模块在同线程内的运行时依赖边。 */
 interface ModuleEdges {
   /** 解析到的仓库内 .ts 目标。 */
@@ -37,6 +40,11 @@ export interface ModuleGraphReader {
    * 不跟随 `new Worker(new URL(...))`，它是线程边界。
    */
   threadModuleClosure(entry: string): Promise<Map<string, string[]>>;
+  /**
+   * 同 threadModuleClosure，但 `opaque` 里的模块只收进闭包、不再展开它自己的依赖。
+   * 供只关心「入口能直接或经允许路径碰到什么」的边界规则使用。
+   */
+  boundedModuleClosure(entry: string, opaque: ReadonlySet<string>): Promise<Map<string, string[]>>;
   /** 本文件会在运行期加载的 npm 包；类型专用 import 不进入结果。 */
   externalDependencies(path: string): Promise<readonly string[]>;
 }
@@ -84,21 +92,30 @@ export function createModuleGraphReader(): ModuleGraphReader {
     return edges;
   }
 
-  return {
-    async threadModuleClosure(entry: string): Promise<Map<string, string[]>> {
-      const trail: Map<string, string[]> = new Map([[entry, [entry]]]);
-      const queue: string[] = [entry];
-      while (queue.length > 0) {
-        const current: string = queue.shift()!;
-        const path: string[] = trail.get(current)!;
-        for (const dependency of (await moduleEdges(current)).internal) {
-          if (trail.has(dependency)) continue;
-          trail.set(dependency, [...path, dependency]);
-          queue.push(dependency);
-        }
+  async function boundedModuleClosure(
+    entry: string,
+    opaque: ReadonlySet<string>
+  ): Promise<Map<string, string[]>> {
+    const trail: Map<string, string[]> = new Map([[entry, [entry]]]);
+    const queue: string[] = [entry];
+    while (queue.length > 0) {
+      const current: string = queue.shift()!;
+      if (current !== entry && opaque.has(current)) continue;
+      const path: string[] = trail.get(current)!;
+      for (const dependency of (await moduleEdges(current)).internal) {
+        if (trail.has(dependency)) continue;
+        trail.set(dependency, [...path, dependency]);
+        queue.push(dependency);
       }
-      return trail;
+    }
+    return trail;
+  }
+
+  return {
+    threadModuleClosure(entry: string): Promise<Map<string, string[]>> {
+      return boundedModuleClosure(entry, NO_OPAQUE_MODULES);
     },
+    boundedModuleClosure,
     async externalDependencies(path: string): Promise<readonly string[]> {
       return (await moduleEdges(path)).external;
     },

@@ -36,11 +36,12 @@ async function nextEvent(): Promise<[unknown, unknown]> {
 
 beforeEach(() => {
   postMessage.mockClear();
-  synthesizeSpeech.mockClear();
+  synthesizeSpeech.mockReset();
   synthesizeSpeech.mockImplementation(async (): Promise<SpeechSynthesisAttempt> => ({
     ok: true,
     speech: { bytes: sineWav(24_000, 0.5), mimeType: "audio/wav" },
   }));
+  ttsAiProvider.mockReset();
   ttsAiProvider.mockImplementation((): unknown => ({ name: "google", synthesizeSpeech }));
   loggerError.mockClear();
   aiChatWorkerQuiescing.current = false;

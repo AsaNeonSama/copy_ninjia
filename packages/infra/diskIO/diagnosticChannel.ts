@@ -5,6 +5,7 @@ import type {
 } from "../../types/diskIO/messages";
 import type { FlushResult } from "../../types/lifecycle";
 import type { AcknowledgedBatch } from "../../libs/acknowledgedBatchQueue";
+import { settleFlushWaiters, waitForFlush } from "../../libs/drainWaiter";
 import { jsonSerializedBytes } from "../../libs/jsonBytes";
 import { saturatingSafeIntegerAdd } from "../../libs/saturatingNumber";
 import { writeDiskIODiagnostic } from "../../workers/diskIO/diagnosticSink";
@@ -58,11 +59,7 @@ function clearDiskDiagnosticRetryTimer(): void {
 
 /** 结算等待诊断 FIFO 清空的全局 flush；领域级 flush 不登记到这里。 */
 export function settleDiskDiagnosticDrainWaiters(result: FlushResult): void {
-  for (const waiter of diskIORuntime.diagnosticDrainWaiters) {
-    clearTimeout(waiter.timer);
-    waiter.resolve(result);
-  }
-  diskIORuntime.diagnosticDrainWaiters.clear();
+  settleFlushWaiters(diskIORuntime.diagnosticDrainWaiters, result);
 }
 
 /** 在不阻止进程退出的 timer 后重投当前原批；只允许一个重试 timer。 */
@@ -134,19 +131,7 @@ export function waitForDiskIODiagnostics(timeoutMs: number): Promise<FlushResult
   if (worker !== null && diskIORuntime.writable) pumpDiskIODiagnostics(worker);
   if (diskIORuntime.diagnosticQueue.size === 0) return Promise.resolve("flushed");
   if (worker === null) return Promise.resolve("failed");
-  return new Promise<FlushResult>((resolve: (result: FlushResult) => void): void => {
-    const waiter: {
-      resolve: (result: FlushResult) => void;
-      timer: ReturnType<typeof setTimeout>;
-    } = {
-      resolve,
-      timer: setTimeout((): void => {
-        diskIORuntime.diagnosticDrainWaiters.delete(waiter);
-        resolve("timedOut");
-      }, timeoutMs),
-    };
-    diskIORuntime.diagnosticDrainWaiters.add(waiter);
-  });
+  return waitForFlush({ waiters: diskIORuntime.diagnosticDrainWaiters, timeoutMs });
 }
 
 export interface RetryDiskIODiagnosticBatchOptions {

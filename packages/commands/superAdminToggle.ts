@@ -4,7 +4,7 @@ import {
   getOrCreateChatState,
   persistChatState,
 } from "../infra/storage/stateStore";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type { CachedUser, ChatState } from "../types/chatState";
 import type { ToggleAction, ToggleCommandTexts } from "../types/commands";
@@ -135,7 +135,7 @@ export async function runChatToggleCommand({
   const replyText: string = teardownFailed && teardownFailedText !== undefined
     ? teardownFailedText
     : toggleReplyText({ isEnabled, wasEnabled, texts });
-  await sendCommandMessage({ chatId, text: replyText, replyToMessageId: messageId });
+  await replyCommandNotice(ctx, replyText);
 }
 
 /**
@@ -150,8 +150,6 @@ export async function resolveSuperAdminToggleArg(
   ctx: CommandContext<Context>,
   { texts, permission }: SuperAdminToggleOptions
 ): Promise<ToggleAction | undefined> {
-  const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const actor: CachedUser | undefined = permission === undefined
     ? await rejectUnlessSuperAdmin(ctx, texts.rejection)
     : await rejectUnlessPermitted(ctx, permission, texts.rejection);
@@ -159,7 +157,7 @@ export async function resolveSuperAdminToggleArg(
 
   const arg: ToggleAction | undefined = parseToggleAction(ctx.match.trim());
   if (arg === undefined) {
-    await sendCommandMessage({ chatId, text: texts.usage, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, texts.usage);
     return undefined;
   }
 

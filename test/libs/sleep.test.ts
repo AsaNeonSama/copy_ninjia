@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { sleep, sleepUnlessAborted } from "../../packages/libs/sleep";
 
 describe("abortable sleep", () => {
@@ -29,17 +29,19 @@ describe("abortable sleep", () => {
   });
 
   test("带 signal 且未被打断时按时长正常结算，并摘掉 abort 监听", async () => {
-    const controller = new AbortController();
+    const controller: AbortController = new AbortController();
+    const added: ReturnType<typeof spyOn> = spyOn(controller.signal, "addEventListener");
+    const removed: ReturnType<typeof spyOn> = spyOn(controller.signal, "removeEventListener");
     const startedAt: number = Date.now();
 
     await expect(sleep(30, controller.signal)).resolves.toBeUndefined();
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(25);
 
-    // 结算后摘掉监听：sleep 的 signal 常是整条停机链路那个长生命周期 controller。事后 abort 不再触发任何回调。
-    let listenerFired: boolean = false;
-    controller.signal.addEventListener("abort", (): void => { listenerFired = true; });
-    controller.abort(new Error("late"));
-    expect(listenerFired).toBeTrue();
+    // 结算后摘掉监听：sleep 的 signal 常是整条停机链路那个长生命周期 controller，摘的必须是登记的同一个 handler。
+    expect(added).toHaveBeenCalledTimes(1);
+    const [type, handler]: unknown[] = added.mock.calls[0]!;
+    expect(type).toBe("abort");
+    expect(removed.mock.calls).toEqual([["abort", handler]]);
   });
 
   test("已 abort 的 signal 立即拒绝，不注册任何 timer", async () => {

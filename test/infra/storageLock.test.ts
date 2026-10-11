@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InstanceLockOptions } from "../../packages/infra/storage/instanceLock";
@@ -68,7 +68,7 @@ describe("single instance lock (bot.lock)", () => {
 
     expect(await Bun.file(lockFilePath).text()).toBe(lockLineText(current, TOKEN_A));
     expect(await Bun.file(lockFilePath).text()).not.toContain(TOKEN_A);
-    expect(existsSync(`${lockFilePath}.guard`)).toBe(false);
+    expect(await Bun.file(`${lockFilePath}.guard`).exists()).toBe(false);
   });
 
   test("不同 token 也不能并发使用同一个数据目录", async () => {
@@ -123,8 +123,8 @@ describe("single instance lock (bot.lock)", () => {
 
     await acquireSingleInstanceLock(TOKEN_A, lockFilePath, options);
 
-    expect(existsSync(`${lockFilePath}.guard`)).toBe(false);
-    expect(existsSync(`${lockFilePath}.guard.recovery`)).toBe(false);
+    expect(await Bun.file(`${lockFilePath}.guard`).exists()).toBe(false);
+    expect(await Bun.file(`${lockFilePath}.guard.recovery`).exists()).toBe(false);
     expect(await Bun.file(lockFilePath).text()).toBe(lockLineText(current, TOKEN_A));
   });
 
@@ -140,7 +140,7 @@ describe("single instance lock (bot.lock)", () => {
       .rejects.toThrow(`Another process (pid=${recoverer.pid}) is recovering the bot lock guard`);
     expect(await Bun.file(`${lockFilePath}.guard`).text()).toBe(ownerText(staleOwner));
     expect(await Bun.file(`${lockFilePath}.guard.recovery`).text()).toBe(ownerText(recoverer));
-    expect(existsSync(lockFilePath)).toBe(false);
+    expect(await Bun.file(lockFilePath).exists()).toBe(false);
     expect(leftoverCandidates()).toEqual([]);
   });
 
@@ -162,8 +162,8 @@ describe("single instance lock (bot.lock)", () => {
 
     await acquireSingleInstanceLock(TOKEN_A, lockFilePath, options);
 
-    expect(existsSync(`${lockFilePath}.guard`)).toBe(false);
-    expect(existsSync(recoveryPath)).toBe(false);
+    expect(await Bun.file(`${lockFilePath}.guard`).exists()).toBe(false);
+    expect(await Bun.file(recoveryPath).exists()).toBe(false);
     expect(await Bun.file(lockFilePath).text()).toBe(lockLineText(current, TOKEN_A));
   });
 
@@ -186,8 +186,8 @@ describe("single instance lock (bot.lock)", () => {
     await expect(acquireSingleInstanceLock(TOKEN_A, lockFilePath, options))
       .rejects.toThrow(`Another process (pid=${newcomer.pid}) acquired the bot lock guard during recovery.`);
     expect(await Bun.file(guardPath).text()).toBe(ownerText(newcomer));
-    expect(existsSync(`${guardPath}.recovery`)).toBe(false);
-    expect(existsSync(lockFilePath)).toBe(false);
+    expect(await Bun.file(`${guardPath}.recovery`).exists()).toBe(false);
+    expect(await Bun.file(lockFilePath).exists()).toBe(false);
     expect(leftoverCandidates()).toEqual([]);
   });
 
@@ -215,7 +215,7 @@ describe("single instance lock (bot.lock)", () => {
 
     await expect(acquireSingleInstanceLock(TOKEN_A, lockFilePath)).rejects.toThrow("repair it manually");
     expect(await Bun.file(guardPath).text()).toBe("2147483647");
-    expect(existsSync(lockFilePath)).toBe(false);
+    expect(await Bun.file(lockFilePath).exists()).toBe(false);
   });
 
   test("旧纯 PID recovery 原样保留并要求人工处理", async () => {
@@ -272,7 +272,7 @@ describe("single instance lock (bot.lock)", () => {
     expect(await Bun.file(lockFilePath).text()).toBe(lockLineText(replacementOwner, TOKEN_A));
 
     await releaseSingleInstanceLock(TOKEN_A, lockFilePath, lockOptions(replacementOwner, [replacementOwner]));
-    expect(existsSync(lockFilePath)).toBe(false);
+    expect(await Bun.file(lockFilePath).exists()).toBe(false);
   });
 
   test("进程身份读取异常时 fail-closed，不清理当前 v2 owner", async () => {

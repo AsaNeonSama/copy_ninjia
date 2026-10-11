@@ -6,7 +6,6 @@ import {
 import { TELEGRAM_429_RETRY_QUEUE_MAX } from "../../consts/telegram";
 import type { FlushResult } from "../../types/lifecycle";
 import type {
-  TelegramOutboundDrainWaiter,
   TelegramOutboundJob,
   TelegramRetryLane,
 } from "../../types/telegramOutbound";
@@ -14,6 +13,7 @@ import {
   abortJob,
   resetRecoveryIfIdle,
 } from "./outboundGate";
+import { waitForFlush } from "../../libs/drainWaiter";
 import { laneFor } from "./outboundQueue";
 import { abortReason, settleAllDrainWaiters } from "./outboundSettle";
 import { resetSendScheduler } from "./sendScheduler";
@@ -124,18 +124,9 @@ export function drainTelegramOutbound(
     abortTelegramOutbound();
     return Promise.resolve("timedOut");
   }
-  return new Promise<FlushResult>((
-    resolve: (result: FlushResult) => void
-  ): void => {
-    const waiter: TelegramOutboundDrainWaiter = {
-      resolve: (drained: boolean): void =>
-        resolve(drained ? "flushed" : "timedOut"),
-      timer: setTimeout((): void => {
-        if (!telegramOutboundGateState.drainWaiters.delete(waiter)) return;
-        abortTelegramOutbound();
-        resolve("timedOut");
-      }, timeoutMs),
-    };
-    telegramOutboundGateState.drainWaiters.add(waiter);
+  return waitForFlush({
+    waiters: telegramOutboundGateState.drainWaiters,
+    timeoutMs,
+    onTimeout: abortTelegramOutbound,
   });
 }

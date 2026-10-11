@@ -19,15 +19,14 @@
 | `bun run lint:fast` | ローカルキャッシュ付き ESLint | `--cache` 有効。ローカルの開発デバッグループでのみ使用 |
 | `bun run typecheck` | TypeScript 型検査 | `bun --check` が `tsconfig.json` に従いプロジェクト全体を完全 strict モードで検査。増分キャッシュは書き出しません |
 | `bun run test` | 全量テスト | ファイル単位の完全分離を強制（`bun test --isolate`） |
-| `bun run test:random` | ランダム順全量テスト | 固定シードによるランダム順テスト。テスト間の状態残留やモック漏れを検知 |
-| `bun run test:coverage` | テスト + カバレッジ | 全量テストを実行し、全ソースコードのカバレッジ指標を集計 |
+| `bun run test:coverage` | テスト + カバレッジ | 全量テストをランダム順（`--randomize`、サマリーに再現用の `--seed=` を出力）で実行し、全ソースコードのカバレッジ指標を集計。テスト間の状態残留やモック漏れも検知 |
 | `bun run check:install-script-syntax` | インストーラー構文検査 | `bash -n` で `install.sh` と全シェルモジュールを静的解析（実処理は非実行） |
 | `bun run check:install-isolation` | インストーラー隔離検証 | 専用の一時環境で `install.sh` のテストフィクスチャを実行し、ロールバック、中断再開、バックアップ保持、認証情報隔離、サービス保護、起動監視を検証 |
 | `bun run check:conventions` | プロジェクト規約自己検査 | `scripts/checkProjectConventions.ts` を実行し、定数定義、スレッド所有権、リンク整合性、アーキテクチャ境界を検証 |
-| `bun run check` | **全量統合ゲート** | 構文検査 + インストーラー隔離 + 規約検査 + lint + typecheck + カバレッジ + ランダム順テスト + ホットパスゲート（`master` マージ前必須） |
+| `bun run check` | **全量統合ゲート** | 構文検査 + インストーラー隔離 + 規約検査 + lint + typecheck + ランダム順のカバレッジテスト + ホットパスゲート（`master` マージ前必須） |
 | `bun run check:coverage` | カバレッジ指標突合 | 3 言語 README、ドキュメント、SVG バッジの数値と実測値の一致を検証 |
-| `bun run test:fault-injection` | 決定論的障害注入スイート | プロセスクラッシュ、異常停止、DB 瞬断、Worker 再起動時の復元整合性を検証 |
-| `bun run perf:hot-paths -- <シナリオ> [--profile]` | ホットパス独立プロセス測定 | 単一ホットパスシナリオの測定（`--profile` でサンプリングプロファイル出力） |
+| `bun run test:fault-injection` | 決定論的障害注入スイート | `scripts/testFaultInjection.ts` が `FAULT_INJECTION_TESTS` の一覧を実行し、プロセスクラッシュ、異常停止、DB 瞬断、Worker 再起動時の復元整合性を検証 |
+| `bun run perf:hot-paths -- <シナリオ> [--profile]` | ホットパス独立プロセス測定 | `performance/` 配下の隔離データルートと設定コピーで、単一ホットパスシナリオを `HOT_PATH_PROFILE_REPEATS` 回の独立プロセスで測定（`--profile` でサンプリングプロファイル出力）。`scripts/perf/hotPaths.ts` の直接実行はシナリオ読み込み前に拒否 |
 | `bun run perf:hot-path-gate` | **ホットパス性能ゲート** | 厳選ホットパスシナリオのメモリ / GC / JIT ハードゲート（`check` に組み込み済み） |
 | `bun run perf:join-log` | 入室ログ性能ベンチマーク | 入室ログの容量境界 / スナップショット / 追記記帳の独立プロセスベンチマーク |
 | `bun run perf:identity-database` | ID データベースベンチマーク | データベースのコールド / ホット読み書き、メインスレッド LRU キャッシュ、ライトスルー経路のベンチマーク |
@@ -52,11 +51,12 @@
 - **明示的な型注釈の強制**：本番コード（`index.ts`、`packages/`、`scripts/`）の変数・引数・分割代入は `@typescript-eslint/typedef`、関数・コールバックの戻り値型は `@typescript-eslint/explicit-function-return-type` で強制され、文脈からの暗黙推論は認められません。`for...of` / `for...in` のループ変数は TypeScript の構文上型注釈を記述できないためルール側で自動除外されます。また、初期化子が完全注釈付きアロー関数である const も除外されます。テストコードはこの制限を受けません。
 - **規約自己検査（`check:conventions`）**：
   - **構造とリンク**：ファイル行数上限、コード配置ルール、Markdown のローカルリンクおよび同一文書内アンカー、ドキュメント内のファイル参照記述の存在性、実行権限、ワンショットインストーラーのモジュール一覧とステップ番号の整合性を検査。
-  - **境界とスレッド分離**：定数およびキャッシュのスレッド所有権（`packages/cache/<owner>/` の単一所有権境界）を照合し、モジュール依存グラフに基づいて Worker と Telegram クライアントの隔離を検証。環境変数の読み込みは `consts/paths.ts` と `consts/environment.ts` にのみ限定し、`consts/` は実行時に `consts` 以外へ依存せず（他の `packages/` モジュールは `import type` のみ）、`states/` は `consts`、`libs`、`types`、`states` 以外に依存せず、`infra/` は上位の業務層に逆依存せず、ベンチマーク親プロセスは純粋定数と型のみを import します。
+  - **境界とスレッド分離**：定数およびキャッシュのスレッド所有権（`packages/cache/<owner>/` の単一所有権境界）を照合し、モジュール依存グラフに基づいて Worker と Telegram クライアントの隔離を検証。環境変数の読み込みは `consts/paths.ts` と `consts/environment.ts` にのみ限定し、`consts/` は実行時に `consts` 以外へ依存せず（他の `packages/` モジュールは `import type` のみ）、`states/` は直接・間接の実行時依存を `consts`、`libs`、`types`、`states` に限り（間接依存は実際の import グラフで追跡し、`config/time.ts` のタイムゾーンスナップショットのみ `STATES_CLOSURE_OPAQUE_MODULES` に登録した例外）、`infra/` は上位の業務層に逆依存せず、ベンチマーク親プロセスは純粋定数と型のみを import します。
   - **定数テーブルの制約**：オブジェクト要素を持つエクスポート定数テーブル（正規表現と関数値を除く）は、`test/consts/immutability.test.ts` で `@ts-expect-error` コメントの直後の行から参照されていなければなりません（`scripts/conventions/constImmutability.ts`）。要素がリテラル union のエクスポート配列テーブルは `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`）の形で書き、`U` は宣言した要素型と一致させ、引数は各要素を文字列または数値リテラルで並べます。型のメンバーを追加・削除してテーブルが追従していなければコンパイルに失敗します。意図的に部分集合だけを列挙するテーブルは `<相対パス>#<テーブル名>` で `scripts/conventions/constExhaustiveLists.ts` の `PARTIAL_LITERAL_TABLES` に登録し、無効になった登録もエラーとなります。
   - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
   - **整合性突合**：Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。
   - **テストアサーション規約**：テストコード内で大文字定数や数値リテラルを直接ハードコードして比較することを禁止します。matcher の引数に `packages/consts` の文字列定数（長さ `STRING_CONSTANT_MIN_LENGTH` 以上）と同一のリテラルを書くこと、および漢字・仮名を `CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上含む文言の断片を書き写すことも禁止されます（期待値は定数そのもの、または template 定数から描画された固定部分を使用。`test/helpers/templateText.ts` 参照）。プロンプトの文言を検証する契約テストは `scripts/conventions/testAssertionFragments.ts` の `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` に登録する必要があります。
+  - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません。`mockClear()` はキュー済みの Once を消さないためです。ゲートは TypeScript checker でモックを宣言シンボルまで解決して判定します（`scripts/conventions/testMockReset.ts`）。テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
 
 ---
 
@@ -75,14 +75,14 @@
 - **画像コーデック**：Bun 内蔵の `Bun.Image` で画像変換を実行します（`packages/infra/image.ts`）：
   - JPEG / PNG はそのまま透過し、WebP / GIF は透明度を維持したまま PNG にトランスコード。GIF は先頭フレームを取得し、アニメーション WebP は先頭の `ANMF` フレームを静的 WebP に再構成してからデコード。
   - 1 枚あたりの最大デコード画素数は `VISION_TRANSCODE_MAX_PIXELS` で制限され、超過した場合はピクセルバッファ確保前に安全に拒否。コーデックは Bun ランタイムに内蔵されているため、ソースコード版・バイナリ配布版ともに `node_modules` のネイティブアドオンには依存しません。
-- **ネイティブファイル I/O**：ファイル内容の読み書き・削除には `Bun.write` と `Bun.file` を優先使用します。`atomicWriteText` の排他的書き込みは `Bun.write(Bun.file(handle.fd), content)`、fsync、アトミック rename を組み合わせて実現しています。Disk I/O Worker の同期アトミック書き込み、ディレクトリ走査、パス操作、パーミッション管理、ハードリンク作成など、Bun ネイティブ API が提供しない操作にのみ `node:` 互換モジュールを使用します。
+- **ネイティブファイル I/O**：ファイル内容の読み書き・削除には `Bun.write` と `Bun.file` を優先使用します。非同期コードでのメタデータ取得は `Bun.file().stat()`、通常ファイルの存在確認は `Bun.file().exists()` を使用します。`atomicWriteText` の排他的書き込みは `Bun.write(Bun.file(handle.fd), content)`、fsync、アトミック rename を組み合わせて実現しています。ディレクトリの存在確認（`Bun.file().exists()` はディレクトリに対して常に false）、対象の欠落を許容する削除（`force: true`。`Bun.file().delete()` は欠落ファイルで `ENOENT` を投げる）、Disk I/O Worker の同期アトミック書き込みなどの同期ファイル I/O、ディレクトリ走査、パス操作、パーミッション管理、ハードリンク作成など、Bun ネイティブ API が提供しない操作にのみ `node:` 互換モジュールを使用します。
 - **性能ベンチマークの再校正**：ランタイムのバージョン更新時は、同一の Bun バージョン / リビジョンを対象に性能キャリブレーションを再測定する必要があります。
 
 ---
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**6386 tests / 530 files / 445518 `expect()` calls**。全ソースコードの**関数カバレッジは 98.27%、行カバレッジは 98.78%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**6624 tests / 553 files / 446303 `expect()` calls**。全ソースコードの**関数カバレッジは 98.35%、行カバレッジは 98.84%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 
@@ -107,7 +107,7 @@
 
 ## 障害注入スイート
 
-`bun run test:fault-injection` は、アプリケーションおよび Worker のライフサイクル、ロック復元、返信キューの容量上限とキャンセル、認証情報スナップショット、Telegram 送信と遅延削除の停止時ドレイン、グループ teardown、入室ログ未コミットミラーと処分レシート、Anti-Raid タスクドレインと認証復旧、双方向 Worker 再構築キャンセル、SQLite 起動時バリデーションと停止時クローズ（残り書き込みのコミット、WAL checkpoint）、コールドマイグレーション、Disk I/O の整合性検査・アトミック書き込み・復旧時例外処理を網羅します。完全な一覧は [`package.json`](../../package.json) を参照してください。
+`bun run test:fault-injection` は、アプリケーションおよび Worker のライフサイクル、ロック復元、返信キューの容量上限とキャンセル、認証情報スナップショット、Telegram 送信と遅延削除の停止時ドレイン、グループ teardown、入室ログ未コミットミラーと処分レシート、Anti-Raid タスクドレインと認証復旧、双方向 Worker 再構築キャンセル、SQLite 起動時バリデーションと停止時クローズ（残り書き込みのコミット、WAL checkpoint）、コールドマイグレーション、Disk I/O の整合性検査・アトミック書き込み・復旧時例外処理を網羅します。完全な一覧は [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts) の `FAULT_INJECTION_TESTS`（辞書順に 1 行 1 パス）を参照してください。
 
 - **規約検証**：`check:conventions` が、登録済みテストハーネスと本番の復旧・ライフサイクル境界の実パスを突合し、登録漏れがないことを検証。
 - **入室歓迎メッセージと通知**：`test/workers/antiRaid/verificationWelcome.test.ts` が、双方向プロトコル、メインスレッド一時メッセージ、自動削除境界の貫通動作を検証。

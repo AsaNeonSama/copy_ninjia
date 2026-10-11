@@ -3,10 +3,24 @@ import { aiReplyReferenceFixture } from "../helpers/aiMemoryFixtures";
 import type { Animation, Message, MessageEntity, PhotoSize } from "grammy/types";
 import { MEDIA_MAX_DOWNLOAD_BYTES } from "../../packages/consts/aiChat/media";
 import {
+  ANIMATION_PLACEHOLDER,
+  AUDIO_PLACEHOLDER,
   BOTH_MENTION_FACTS,
   BOT_MENTION_FACTS,
+  LOCATION_PLACEHOLDER,
+  NON_TEXT_PLACEHOLDER,
   NO_MENTION_FACTS,
   OTHER_MENTION_FACTS,
+  PHOTO_PLACEHOLDER,
+  VIDEO_NOTE_PLACEHOLDER,
+  VIDEO_PLACEHOLDER,
+  VOICE_PLACEHOLDER,
+  contactPlaceholder,
+  dicePlaceholder,
+  documentPlaceholder,
+  pollPlaceholder,
+  stickerPlaceholder,
+  venuePlaceholder,
 } from "../../packages/consts/auto";
 import type { MentionFacts, MessageTriggerContext } from "../../packages/types/auto";
 import type { AiBotInfo } from "../../packages/types/aiChat/protocol";
@@ -464,27 +478,27 @@ describe("回复引用的非文本占位", () => {
     )?.text;
   }
 
-  test("各类型占位逐字固定，带 caption 的类型以空格接上图注", () => {
+  test("各类型取对应的占位常量，带 caption 的类型以空格接上图注", () => {
     const cases: readonly (readonly [Record<string, unknown>, string])[] = [
-      [{ photo: [{ file_id: "p", file_unique_id: "p", width: 1, height: 1 }] }, "[图片]"],
-      [{ photo: [{ file_id: "p", file_unique_id: "p", width: 1, height: 1 }], caption: "晚霞" }, "[图片] 晚霞"],
-      [{ sticker: { emoji: "😺" } }, "[贴纸：😺]"],
-      [{ sticker: {} }, "[贴纸]"],
-      [{ animation: {} }, "[GIF]"],
-      [{ animation: {}, caption: "笑死" }, "[GIF] 笑死"],
-      [{ video: {}, caption: "看" }, "[视频] 看"],
-      [{ video_note: {} }, "[视频消息]"],
-      [{ voice: {}, caption: "听" }, "[语音] 听"],
-      [{ audio: {} }, "[音频]"],
-      [{ document: { file_name: "a.pdf" }, caption: "资料" }, "[文件：a.pdf] 资料"],
-      [{ document: {} }, "[文件]"],
-      [{ poll: { question: "吃什么" } }, "[投票：吃什么]"],
-      [{ dice: { emoji: "🎲", value: 6 } }, "[骰子：🎲 6]"],
-      [{ contact: { first_name: "Ann", last_name: "Lee" } }, "[联系人：Ann Lee]"],
-      [{ contact: { first_name: "Ann" } }, "[联系人：Ann]"],
-      [{ venue: { title: "车站" }, location: {} }, "[地点：车站]"],
-      [{ location: {} }, "[位置]"],
-      [{}, "[非文本消息]"],
+      [{ photo: [{ file_id: "p", file_unique_id: "p", width: 1, height: 1 }] }, PHOTO_PLACEHOLDER],
+      [{ photo: [{ file_id: "p", file_unique_id: "p", width: 1, height: 1 }], caption: "晚霞" }, `${PHOTO_PLACEHOLDER} 晚霞`],
+      [{ sticker: { emoji: "😺" } }, stickerPlaceholder("😺")],
+      [{ sticker: {} }, stickerPlaceholder(undefined)],
+      [{ animation: {} }, ANIMATION_PLACEHOLDER],
+      [{ animation: {}, caption: "笑死" }, `${ANIMATION_PLACEHOLDER} 笑死`],
+      [{ video: {}, caption: "看" }, `${VIDEO_PLACEHOLDER} 看`],
+      [{ video_note: {} }, VIDEO_NOTE_PLACEHOLDER],
+      [{ voice: {}, caption: "听" }, `${VOICE_PLACEHOLDER} 听`],
+      [{ audio: {} }, AUDIO_PLACEHOLDER],
+      [{ document: { file_name: "a.pdf" }, caption: "资料" }, `${documentPlaceholder("a.pdf")} 资料`],
+      [{ document: {} }, documentPlaceholder(undefined)],
+      [{ poll: { question: "吃什么" } }, pollPlaceholder("吃什么")],
+      [{ dice: { emoji: "🎲", value: 6 } }, dicePlaceholder("🎲", 6)],
+      [{ contact: { first_name: "Ann", last_name: "Lee" } }, contactPlaceholder("Ann", "Lee")],
+      [{ contact: { first_name: "Ann" } }, contactPlaceholder("Ann", undefined)],
+      [{ venue: { title: "车站" }, location: {} }, venuePlaceholder("车站")],
+      [{ location: {} }, LOCATION_PLACEHOLDER],
+      [{}, NON_TEXT_PLACEHOLDER],
     ];
     for (const [repliedTo, expected] of cases) {
       expect(referenceText(repliedTo)).toBe(expected);

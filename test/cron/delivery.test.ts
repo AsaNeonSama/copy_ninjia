@@ -35,12 +35,15 @@ function apiMethod(method: string): (...args: unknown[]) => Promise<unknown> {
   };
 }
 const markSelfSent = mock((_chatId: number, _messageId: number): void => {});
-const pickRandomImage = mock(async (_directory: string): Promise<RandomImagePick> => ({
-  status: "ok",
-  bytes: new Uint8Array([9]),
-  mimeType: "image/png",
-  fileName: "drawn.png",
-}));
+async function pickRandomImageStub(_directory: string): Promise<RandomImagePick> {
+  return {
+    status: "ok",
+    bytes: new Uint8Array([9]),
+    mimeType: "image/png",
+    fileName: "drawn.png",
+  };
+}
+const pickRandomImage = mock(pickRandomImageStub);
 mock.module("../../packages/infra/telegram/mainClient", () => ({
   bot: {
     api: {
@@ -100,11 +103,12 @@ beforeEach(() => {
   calls.length = 0;
   nextFailure = undefined;
   markSelfSent.mockClear();
-  pickRandomImage.mockClear();
   recordBotImage.mockClear();
-  synthesizeVoice.mockClear();
+  pickRandomImage.mockReset();
+  pickRandomImage.mockImplementation(pickRandomImageStub);
+  synthesizeVoice.mockReset();
   synthesizeVoice.mockImplementation(async (): Promise<VoiceSynthesisResult> => voiceResult());
-  composeWebDigest.mockClear();
+  composeWebDigest.mockReset();
   composeWebDigest.mockImplementation(async (): Promise<WebDigestCompositionResult> => ({ ok: true, text: DIGEST_TEXT }));
   mkdirSync(FILES_ROOT, { recursive: true });
 });

@@ -20,7 +20,8 @@ function session(): QaFormSession {
 }
 
 beforeEach((): void => {
-  deleteMessage.mockClear();
+  deleteMessage.mockReset();
+  deleteMessage.mockResolvedValue(true);
   logApiError.mockClear();
 });
 

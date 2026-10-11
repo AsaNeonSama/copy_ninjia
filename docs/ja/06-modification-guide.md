@@ -35,6 +35,7 @@
    - `packages/commands/` 配下にハンドラー関数を作成し、明示的な戻り値型を持つ `handleXxxCommand` をエクスポート。
    - 権限検証：権限キーに基づく認可には `rejectUnlessPermitted(ctx, key, rejection)` を使用。スーパー管理者専用コマンドには `rejectUnlessSuperAdmin(ctx, rejection)` を使用（`commands/commandActor.ts` 参照）。
    - メッセージ文言の管理：固定文言およびフォーマッター関数は `packages/consts/atmosphere/{teasing,plain}/` の該当ドメインファイルに配置し、通常版とメスガキ風で同一の型定義を共有。メインスレッドは `chatAtmosphere()` により現在のスタイルに対応する文言を読み込みます。
+   - コマンド応答：トリガーメッセージへ返信するプレーンテキストの通知（用法、拒否、失敗、操作結果）は `replyCommandNotice(ctx, text)`（`infra/telegram/commandMessages.ts`）を使い、`sendCommandMessage` の 30 秒自動削除とトピック補完をそのまま継承します。書式、長期保持、update スコープ外での送信が必要な場合は `sendCommandMessage` を直接呼び出します。
 2. **モジュールのエクスポート**：`packages/commands/index.ts` にエントリを追加。
 3. **コマンドの登録**：
    - [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) の `commands` サブチェーンに `commands.command("xxx", ...)` を追加。

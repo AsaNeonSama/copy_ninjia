@@ -56,14 +56,10 @@ try {
   } }));
   mkdirSync(join(root, "database"), { mode: 0o770 });
   run(["-e", `
-    import { createStorageDatabase, openStorageDatabase, initializeStorageDatabase,
-      closeStorageDatabase, enableStorageDatabaseWal, IDENTITY_DATABASE_PATH,
-      loadInstallerBotConfig, validateExistingDeploymentInputs } from "./scripts/install/runtime.js";
+    import { bootstrapStorageDatabase, IDENTITY_DATABASE_PATH, loadInstallerBotConfig,
+      validateExistingDeploymentInputs } from "./scripts/install/runtime.js";
     const config = await loadInstallerBotConfig("config/static/bot.json");
-    createStorageDatabase(IDENTITY_DATABASE_PATH);
-    const db = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
-    try { initializeStorageDatabase(db, config.timeZone); } finally { closeStorageDatabase(db); }
-    enableStorageDatabaseWal(IDENTITY_DATABASE_PATH);
+    bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, config.timeZone);
     await validateExistingDeploymentInputs();
     // 视觉转码只依赖运行时内置的 Bun.Image：gif 与由它编码的 webp 都要能转成 png。
     const gif = Uint8Array.fromBase64("R0lGODlhAgACAIAAAExpcf//ACH/C05FVFNDQVBFMi4wAwEAAAAh+QQFCgAAACwAAAAAAgACAAACAoxTACH5BAUKAAAALAAAAAACAAIAgExpcQAA/wICjFMAOw==");
@@ -80,7 +76,7 @@ try {
   for (const marker of ["diskIOWorker.ts", "aiChatWorker.ts", "antiRaidWorker.ts", "BINARY_API getUpdates", "BINARY_WEATHER"]) {
     if (!output.includes(marker)) throw new Error(`Binary check missing ${marker}:\n${output}`);
   }
-  if (output.includes("BINARY_NETWORK_BLOCKED") || existsSync(join(root, "bot.lock"))) {
+  if (output.includes("BINARY_NETWORK_BLOCKED") || await Bun.file(join(root, "bot.lock")).exists()) {
     throw new Error(`Binary check did not complete cleanly:\n${output}`);
   }
   const migrated: MigratedDeployment = await checkBinaryMigrations(root);
@@ -110,7 +106,7 @@ try {
   if (installed.exitCode !== 0 || (await Bun.file(fixture.callLog).text()).includes("bun:")) {
     throw new Error(`Binary installer failed or invoked system Bun:\n${installed.output}`);
   }
-  if (!existsSync(join(fixture.runtimeRoot, "database/storage.sqlite"))) throw new Error("Binary installer did not initialize storage.");
+  if (!(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists())) throw new Error("Binary installer did not initialize storage.");
   const unit: string = await Bun.file(join(fixture.runtimeRoot, "unit-preview")).text();
   if (!unit.split("\n").includes(`ExecStart=":${join(worktree, "copy-ninjia")}"`)) {
     throw new Error("Binary installer must quote the executable path as one systemd argument.");
@@ -138,7 +134,7 @@ try {
   }
   if (started.exitCode !== 0 || !migratedOutput.includes("Restored state for 1 chat(s), currently copying 42.") ||
     !migratedOutput.includes("BINARY_API getUpdates") || migratedOutput.includes("BINARY_NETWORK_BLOCKED") ||
-    migratedOutput.includes("Shutdown drain/flush results:") || existsSync(join(fixture.runtimeRoot, "bot.lock"))) {
+    migratedOutput.includes("Shutdown drain/flush results:") || await Bun.file(join(fixture.runtimeRoot, "bot.lock")).exists()) {
     throw new Error(`Migrated binary startup failed:\n${migratedOutput}`);
   }
   for (const name of PRESERVED_MIGRATION_CONFIG_FILES) {

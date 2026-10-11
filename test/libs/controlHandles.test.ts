@@ -29,6 +29,8 @@ test("异步队列与 flush 句柄的方法不可替换", (): void => {
     handles.barrier.pendingCount = (): number => 0;
     // @ts-expect-error 分组串行任务入口只读。
     handles.keyed.run = (): Promise<void> => Promise.resolve();
+    // @ts-expect-error 分组空闲查询入口只读。
+    handles.keyed.isIdle = (): boolean => true;
     // @ts-expect-error 最新值提交入口只读。
     handles.latest.push = (): Promise<void> => Promise.resolve();
     // @ts-expect-error 有界优先级任务入口只读，保留泛型结果。

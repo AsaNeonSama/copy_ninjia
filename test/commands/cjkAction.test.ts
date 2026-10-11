@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CachedUser } from "../../packages/types/chatState";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 55);
 let target: CachedUser | undefined;
@@ -7,6 +8,7 @@ const resolveCommandTarget = mock(async (..._args: unknown[]): Promise<CachedUse
 
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 mock.module("../../packages/commands/targetResolution", () => ({ resolveCommandTarget }));
 

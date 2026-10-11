@@ -396,9 +396,7 @@ export async function handleDiskIOWorkerMessage(
  * 不得与跨领域 inspect/adopt 事务交错。
  */
 export function queueDiskIOWorkerMessage(message: DiskIOMessage): Promise<void> {
-  return enqueueDiskIOOperation(
-    async (): Promise<void> => handleDiskIOWorkerMessage(message)
-  );
+  return enqueueDiskIOOperation((): Promise<void> => handleDiskIOWorkerMessage(message));
 }
 
 /**

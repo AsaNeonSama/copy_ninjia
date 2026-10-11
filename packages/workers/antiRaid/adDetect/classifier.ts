@@ -24,7 +24,7 @@ import {
   buildAdDetectInstructions,
 } from "../../../consts/antiRaid/adDetect";
 import { isPlainRecord } from "../../../libs/record";
-import { truncateInline } from "../../../libs/text";
+import { sanitizeInline, truncateInline } from "../../../libs/text";
 import type { AdDetectPrompts, AdVerdict } from "../../../types/antiRaid/adDetect";
 import { getAdDetectAgentConfig } from "../../../config/agent";
 
@@ -58,7 +58,7 @@ export function parseAdVerdict(raw: string | null | undefined): AdVerdict | null
   // reason 经 truncateInline 按代理对安全截断，会被拼进群内播报
   // （见 antiRaid/adDetect.ts 的 formatAdNotice）。
   const reason: string = typeof verdict.reason === "string"
-    ? truncateInline(verdict.reason.replace(/\s+/g, " ").trim(), AD_DETECT_REASON_MAX_CHARS)
+    ? truncateInline(sanitizeInline(verdict.reason), AD_DETECT_REASON_MAX_CHARS)
     : "";
   return { isAd: verdict.ad, reason };
 }

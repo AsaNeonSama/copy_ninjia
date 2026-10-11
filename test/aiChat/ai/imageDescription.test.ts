@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { waitUntil } from "../../helpers/waitUntil";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { AiTextResult } from "../../../packages/types/aiChat/provider";
 import type { TelegramWorkerDownloadFileResult } from "../../../packages/types/telegramWorker";
@@ -75,11 +76,6 @@ function controlNextVisionCall(): ControlledVisionCall {
     })
   );
   return { started, resolve: (result: AiTextResult): void => settle(result) };
-}
-
-/** 有界地等 describeVision 累计到 count 次调用；等不到时交给随后的断言报错，不挂死用例。 */
-async function waitForVisionCalls(count: number): Promise<void> {
-  for (let turn: number = 0; turn < 50 && describeVision.mock.calls.length < count; turn++) await Bun.sleep(0);
 }
 
 /** 下载桩收到的 fileId，按调用顺序。 */
@@ -397,7 +393,7 @@ describe("Telegram 媒体下载与视觉描述适配层", () => {
     // HTTP 成功但这一份的正文不可用：不带 mediaFailure，不构成模态结论。
     firstProbe.resolve({ ok: false, retryable: true });
     await expect(first).resolves.toBeNull();
-    await waitForVisionCalls(2);
+    await waitUntil((): boolean => describeVision.mock.calls.length >= 2);
     // 只有一个等待者成为新探测，另一个继续等它，没有并发探测。
     expect(describeVision).toHaveBeenCalledTimes(2);
     expect(downloadedFileIds()).toEqual(["single-a", "single-b"]);

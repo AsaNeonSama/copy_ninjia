@@ -80,4 +80,5 @@ export const HOT_PATH_PROFILE_SCENARIOS: readonly HotPathProfileScenarioName[] =
   "identity-permission-read",
   "buffered-message-build",
   "temporary-whitelist-activity",
+  "pending-verification-lookup",
 ]);

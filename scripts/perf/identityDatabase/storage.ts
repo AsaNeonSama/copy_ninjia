@@ -1,22 +1,16 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { IDENTITY_WRITE_BATCH_MAX_ENTRIES } from "../../../packages/consts/identityStorage";
-import {
-  clearStorageBusinessTables,
-  seedStorageDatabase,
-} from "../../fixtures/storageDatabase";
-import { storageMetadataRows } from
+import { clearStorageBusinessTables, seedStorageDatabase } from "../../fixtures/storageDatabase";
+import { bootstrapStorageDatabase } from
   "../../../packages/database/interact/initialization";
 import { DEFAULT_BOT_TIME_ZONE } from "../../../packages/consts/bot";
 import {
   closeStorageDatabase,
-  enableStorageDatabaseWal,
   openStorageDatabase,
 } from "../../../packages/database/interact/connection";
 import { readStoredIdentityPolicies } from
   "../../../packages/database/interact/identityPolicy";
-import { createStorageDatabase } from
-  "../../../packages/database/interact/migration";
 import {
   commitStorageDatabaseChanges,
   prepareStorageDatabaseWriter,
@@ -63,15 +57,8 @@ function createFixture(mockRoot: string): DatabaseFixture {
   assertMockRoot(mockRoot);
   const root: string = mkdtempSync(join(mockRoot, DATABASE_FIXTURE_ROOT_PREFIX));
   const path: string = join(root, "storage.sqlite");
-  createStorageDatabase(path);
-  enableStorageDatabaseWal(path);
+  bootstrapStorageDatabase(path, DEFAULT_BOT_TIME_ZONE);
   const database: StorageDatabase = openStorageDatabase({ path });
-  seedStorageDatabase(database, {
-    metadata: storageMetadataRows(DEFAULT_BOT_TIME_ZONE),
-    whitelist: [],
-    blocklist: [],
-    removals: [],
-  });
   return { root, path, database };
 }
 
@@ -110,7 +97,6 @@ function seedReadFixture(database: StorageDatabase): void {
     else whitelist.push({ id, data: WHITE_DATA });
   }
   seedStorageDatabase(database, {
-    metadata: [],
     whitelist,
     blocklist,
     removals: [],

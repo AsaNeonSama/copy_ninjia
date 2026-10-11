@@ -50,5 +50,10 @@ export async function deliverRandomImage(request: HImageRequest): Promise<void> 
   const text: string = pick.status === "missingDirectory"
     ? texts.missingDirectory
     : pick.status === "empty" ? texts.empty : texts.tooLarge(pick.fileName);
-  await sendCommandMessage({ chatId: request.chatId, text, replyToMessageId: request.messageId });
+  await sendCommandMessage({
+    chatId: request.chatId,
+    text,
+    replyToMessageId: request.messageId,
+    messageThreadId: request.messageThreadId,
+  });
 }

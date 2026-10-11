@@ -118,7 +118,6 @@ function attemptReminderDelivery(
         chatId: delivery.chatId,
         text,
         replyToMessageId: delivery.replyToMessageId,
-        api: telegramApi,
         keyboard: verifyKeyboard,
       });
     } catch (error: unknown) {

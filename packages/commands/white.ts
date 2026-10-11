@@ -16,7 +16,7 @@ import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import { runProtectedIdentityMutation } from "../infra/identityPolicy/coordination";
 import { confirmIdentityPolicyPersisted, identityMetadataFromCachedUser } from "../infra/identityStorage";
 import { logger } from "../infra/logger";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import { formatActorLabel, formatTargetLabel } from "../users/userLabel";
 import { rejectUnlessPermitted } from "./commandActor";
 import { resolveCommandTarget } from "./targetResolution";
@@ -45,7 +45,6 @@ export async function handleWhiteCommand(
   ctx: CommandContext<Context>
 ): Promise<void> {
   const chatId: number = ctx.chat.id;
-  const messageId: number | undefined = ctx.msgId;
   const actor: CachedUser | undefined = await rejectUnlessPermitted(
     ctx,
     "isCanWhiteOther",
@@ -59,19 +58,11 @@ export async function handleWhiteCommand(
     ? undefined
     : parseToggleAction(rawAction);
   if (action === undefined) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().WHITE_COMMAND_TEXTS.usage,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().WHITE_COMMAND_TEXTS.usage);
     return;
   }
   if (!actorIsSuperAdmin && action === "disable") {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().WHITE_COMMAND_TEXTS.delegatedDisableRejection,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().WHITE_COMMAND_TEXTS.delegatedDisableRejection);
     return;
   }
 
@@ -99,11 +90,7 @@ export async function handleWhiteCommand(
   // 回执见下面的 superAdminDisable*。
   const isSuperAdminTarget: boolean = target.id === SUPER_ADMIN_USER_ID;
   if (enabled && isSuperAdminTarget) {
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().WHITE_COMMAND_TEXTS.superAdminEnable,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().WHITE_COMMAND_TEXTS.superAdminEnable);
     return;
   }
   // 编码、互斥、DiskIO 投递或事务确认异常时就地回执 mutationFailed，不外抛。已发布的
@@ -137,29 +124,17 @@ export async function handleWhiteCommand(
       `Failed to persist the whitelist membership change for identity ${target.id}:`,
       error
     );
-    await sendCommandMessage({
-      chatId,
-      text: chatAtmosphere().WHITE_COMMAND_TEXTS.mutationFailed,
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, chatAtmosphere().WHITE_COMMAND_TEXTS.mutationFailed);
     return;
   }
   if (outcome.kind === "unauthorized") {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.WHITE_COMMAND_TEXTS.rejection(formatActorLabel(actor, atmosphere)),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, atmosphere.WHITE_COMMAND_TEXTS.rejection(formatActorLabel(actor, atmosphere)));
     return;
   }
   if (outcome.kind === "blocked") {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.WHITE_COMMAND_TEXTS.blocked(formatTargetLabel(target, atmosphere)),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, atmosphere.WHITE_COMMAND_TEXTS.blocked(formatTargetLabel(target, atmosphere)));
     return;
   }
   const result: SetWhitelistMembershipResult = outcome.result;
@@ -178,9 +153,5 @@ export async function handleWhiteCommand(
       : result.changed
         ? chatAtmosphere().WHITE_COMMAND_TEXTS.disabled(targetLabel)
         : chatAtmosphere().WHITE_COMMAND_TEXTS.alreadyDisabled(targetLabel);
-  await sendCommandMessage({
-    chatId,
-    text: replyText,
-    replyToMessageId: messageId,
-  });
+  await replyCommandNotice(ctx, replyText);
 }

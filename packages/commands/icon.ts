@@ -5,7 +5,7 @@ import { ICON_SUBCOMMAND_PATTERN } from "../consts/icon";
 import type { CachedUser } from "../types/chatState";
 import type { AtmosphereTexts } from "../types/atmosphere";
 import type { CopyCooldownClaim } from "../types/copy/cooldown";
-import { sendCommandMessage } from "../infra/telegram";
+import { replyCommandNotice } from "../infra/telegram";
 import { formatUserLabel } from "../users/userLabel";
 import { queueAvatarUpdate } from "../copy/avatarQueue";
 import { claimCopyCooldownOrReject, releaseCopyCooldownClaim } from "./copyShared";
@@ -19,7 +19,7 @@ export async function handleIconCommand(ctx: CommandContext<Context>): Promise<v
   const match: RegExpExecArray | null = ICON_SUBCOMMAND_PATTERN.exec(ctx.match.trim());
   const subcommand: string | undefined = match?.[1]?.toLowerCase();
   if (match === null || (subcommand === "reset" && match[2] !== undefined)) {
-    await sendCommandMessage({ chatId, text: chatAtmosphere().ICON_USAGE_TEXT, replyToMessageId: messageId });
+    await replyCommandNotice(ctx, chatAtmosphere().ICON_USAGE_TEXT);
     return;
   }
 
@@ -35,11 +35,7 @@ export async function handleIconCommand(ctx: CommandContext<Context>): Promise<v
   let avatarQueued: boolean = false;
   try {
     if (subcommand === "reset") {
-      await sendCommandMessage({
-        chatId,
-        text: chatAtmosphere().NOTICE_TEXTS.iconRestoring,
-        replyToMessageId: messageId,
-      });
+      await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.iconRestoring);
       queueAvatarUpdate({ chatId, target: { kind: "default" }, source: "icon" });
       avatarQueued = true;
       return;
@@ -55,11 +51,7 @@ export async function handleIconCommand(ctx: CommandContext<Context>): Promise<v
     if (!targetUser) return;
     const atmosphere: AtmosphereTexts = chatAtmosphere();
     const targetLabel: string = formatUserLabel(targetUser, atmosphere);
-    await sendCommandMessage({
-      chatId,
-      text: atmosphere.NOTICE_TEXTS.iconStarting(targetLabel),
-      replyToMessageId: messageId,
-    });
+    await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.iconStarting(targetLabel));
     // 后台换头像：不阻塞本命令，完成后按结果发战报（见 copy/avatarQueue.ts）。
     queueAvatarUpdate({ chatId, target: { kind: "user", user: targetUser }, source: "icon" });
     avatarQueued = true;

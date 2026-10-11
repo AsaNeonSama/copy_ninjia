@@ -1,11 +1,20 @@
 /** 东京天气工具的 IANA 时区名，与所查询的东京地理位置一致。所属模块：时间。 */
 export const TOKYO_TIME_ZONE: string = "Asia/Tokyo";
 
+/** 一秒的毫秒数：秒与毫秒互换的单位。所属模块：时间。 */
+export const SECOND_MS: number = 1_000;
+
+/** 一分钟的毫秒数：分钟级时长常量与「毫秒 → 分钟」展示换算的单位。所属模块：时间。 */
+export const MINUTE_MS: number = 60 * SECOND_MS;
+
+/** 一小时的毫秒数。所属模块：时间。 */
+export const HOUR_MS: number = 60 * MINUTE_MS;
+
 /**
  * 固定 24 小时的毫秒数：公历日序与 UTC 日期算术的日长，以及以 24 小时计的时长常量的单位；
  * 不代表配置时区每个自然日的实际长度。所属模块：时间。
  */
-export const DAY_MS: number = 24 * 60 * 60 * 1_000;
+export const DAY_MS: number = 24 * HOUR_MS;
 
 /**
  * 规范日期键 YYYY-MM-DD 的字面形态；公历有效性由 libs/time.ts 的 isCanonicalDateKey

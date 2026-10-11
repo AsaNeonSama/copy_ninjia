@@ -16,10 +16,7 @@ import { sendTemporaryMessageFromMain } from "../../infra/telegram/workerClient"
  * 不写持久化状态，Worker 重建不需要 adopt。
  */
 
-import {
-  muteChatMemberWithOutcome,
-  telegramApi,
-} from "../../infra/telegram";
+import { muteChatMemberWithOutcome } from "../../infra/telegram";
 import { logger } from "../../infra/logger";
 import {
   FLOOD_MESSAGE_LIMIT,
@@ -34,6 +31,7 @@ import {
   floodWindowsByChat,
 } from "../../cache/workers/antiRaid/flood";
 import { signalWithTimeout } from "../../libs/abortSignal";
+import { MINUTE_MS, SECOND_MS } from "../../consts/time";
 import { TimestampDeque } from "../../libs/timestampDeque";
 import { sanitizeDisplayName } from "../../libs/text";
 import { botCanRestrictIn } from "./botPermissions";
@@ -152,7 +150,7 @@ export function observeMemberMessage(
  * 导出仅为可测试性。
  */
 export function formatFloodMuteNotice(label: string, atmosphere: AtmosphereTexts): string {
-  const minutes: number = Math.round(FLOOD_MUTE_DURATION_MS / 60_000);
+  const minutes: number = Math.round(FLOOD_MUTE_DURATION_MS / MINUTE_MS);
   return atmosphere.NOTICE_TEXTS.floodMuted(label, FLOOD_MESSAGE_LIMIT, minutes);
 }
 
@@ -207,7 +205,6 @@ async function muteFlooder({ message, entry }: MuteFlooderParams): Promise<void>
     chatId: message.chatId,
     userId: message.userId,
     mutedUntil,
-    api: telegramApi,
     // 两个取消源由 muteChatMemberWithOutcome 合并：
     // - 派发截止（FLOOD_MUTE_DISPATCH_TIMEOUT_MS）：until_date 是此刻算好的绝对时刻，
     //   超过截止的请求放弃发出，抑制位由下面的 failed 分支回滚，下一个满窗口重来。
@@ -230,7 +227,8 @@ async function muteFlooder({ message, entry }: MuteFlooderParams): Promise<void>
   }
   logger.log(
     `Flood control muted user ${message.userId} in chat ${message.chatId} for ` +
-    `${Math.round(FLOOD_MUTE_DURATION_MS / 1000)}s after ${FLOOD_MESSAGE_LIMIT} messages in one minute.`
+    `${Math.round(FLOOD_MUTE_DURATION_MS / SECOND_MS)}s after ${FLOOD_MESSAGE_LIMIT} messages ` +
+    `in ${Math.round(FLOOD_WINDOW_MS / SECOND_MS)}s.`
   );
   // 禁言请求期间群可能已停管；已停管时不再发言。
   if (!stillManaged()) return;

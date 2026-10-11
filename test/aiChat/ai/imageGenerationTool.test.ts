@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { IMAGE_GENERATION_COOLDOWN_MS } from "../../../packages/consts/aiChat/imageGeneration";
 import type { ReplyToolContext, RoundMessageState } from "../../../packages/types/aiChat/replies";
 import type { ChatActionPhase } from "../../../packages/types/aiChat/chatAction";
 import type { TelegramPhotoSendResult, TelegramSendResult } from "../../../packages/types/telegram";
@@ -190,13 +191,21 @@ describe("generate_image 工具执行器", () => {
   });
 
   test("冷却中在解析参数之前就返回提示，不请求模型", async () => {
+    const now = spyOn(Date, "now").mockReturnValue(1_000_000);
     claimImageGeneration({ chatId: -1001, bypassCooldown: false });
 
     // 参数故意写坏：冷却闸排在参数解析之前，模型拿到的是「还要等多久」；本轮工具状态是回复开始时的快照，以调用时这条结果为准。
-    const result = JSON.parse(await buildExecutor(buildContext())(JSON.stringify({ prompt: "" })));
+    let result: Record<string, unknown>;
+    try {
+      result = JSON.parse(await buildExecutor(buildContext())(JSON.stringify({ prompt: "" })));
+    } finally {
+      now.mockRestore();
+    }
 
     expect(result.error).toBe("Image generation is cooling down in this chat");
-    expect(result.retry_after_seconds).toBeGreaterThan(0);
+    // 时钟停在占位那一刻：剩余整段冷却，按秒向上取整。
+    expect(result.retry_after_seconds).toBeGreaterThanOrEqual(IMAGE_GENERATION_COOLDOWN_MS / 1_000);
+    expect(result.retry_after_seconds).toBeLessThan(IMAGE_GENERATION_COOLDOWN_MS / 1_000 + 1);
     expect(result.retryable).toBe(false);
     expect(result.required_action).toContain(SEND_MESSAGE_TOOL);
     expect(generateImage).not.toHaveBeenCalled();
@@ -542,7 +551,7 @@ describe("generate_image 工具执行器", () => {
     })));
     expect(explicitNull.success).toBe(true);
     expect(explicitNull.caption_delivery).toBeUndefined();
-    expect(sendPhotoWithResult.mock.calls[0]?.[0]).not.toHaveProperty("caption");
+    expect(sendPhotoWithResult.mock.calls[0]?.[0]).toMatchObject({ caption: undefined });
 
     const ctx: ReplyToolContext = buildContext(-1003);
     const blank = JSON.parse(await buildExecutor(ctx)(JSON.stringify({
@@ -551,7 +560,7 @@ describe("generate_image 工具执行器", () => {
     })));
     expect(blank.success).toBe(true);
     expect(blank.caption_delivery).toBeUndefined();
-    expect(sendPhotoWithResult.mock.calls[1]?.[0]).not.toHaveProperty("caption");
+    expect(sendPhotoWithResult.mock.calls[1]?.[0]).toMatchObject({ caption: undefined });
     expect(ctx.onImageSent).toHaveBeenCalledWith({ text: "（生成并发送了一张图片：空图注）", messageId: 77, repliedToMessageId: 42, origin: "generated", caption: "", photo: GENERATED_PHOTO });
   });
 
@@ -630,10 +639,18 @@ describe("generate_image 工具执行器", () => {
     const sameChat = buildExecutor(buildContext(-1001));
     const otherChat = buildExecutor(buildContext(-1002));
 
-    expect(JSON.parse(await first(JSON.stringify({ prompt: "first" }))).success).toBe(true);
-    const limited = JSON.parse(await sameChat(JSON.stringify({ prompt: "second" })));
+    const now = spyOn(Date, "now").mockReturnValue(1_000_000);
+    let limited: Record<string, unknown>;
+    try {
+      expect(JSON.parse(await first(JSON.stringify({ prompt: "first" }))).success).toBe(true);
+      limited = JSON.parse(await sameChat(JSON.stringify({ prompt: "second" })));
+    } finally {
+      now.mockRestore();
+    }
     expect(limited.error).toContain("cooling down");
-    expect(limited.retry_after_seconds).toBeGreaterThan(0);
+    // 两次调用之间时钟没走：剩余整段冷却，按秒向上取整。
+    expect(limited.retry_after_seconds).toBeGreaterThanOrEqual(IMAGE_GENERATION_COOLDOWN_MS / 1_000);
+    expect(limited.retry_after_seconds).toBeLessThan(IMAGE_GENERATION_COOLDOWN_MS / 1_000 + 1);
     expect(limited.retryable).toBe(false);
     expect(limited.required_action).toContain("必须使用 send_message 明确告诉群友当前暂时不能使用生图");
     expect(limited.required_action).toContain("本轮不要再次调用 generate_image");

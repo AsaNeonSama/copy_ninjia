@@ -7,7 +7,8 @@ import {
   collectConstExhaustiveListProblems,
   PARTIAL_LITERAL_TABLES,
 } from "../../scripts/conventions/constExhaustiveLists";
-import { createConstsProgram, exportedConstDeclarations } from "../../scripts/conventions/constsProgram";
+import { exportedConstDeclarations } from "../../scripts/conventions/constsProgram";
+import { createTypeCheckProgram } from "../../scripts/conventions/sourceAnalysis";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..", "..");
 const REACTIONS: string = join(PROJECT_ROOT, "packages", "consts", "aiChat", "reactions.ts");
@@ -28,7 +29,7 @@ await Bun.write(FIXTURE, [
   "",
 ].join("\n"));
 const FILES: readonly string[] = [REACTIONS, AGENT, BLOCKLIST, FIXTURE];
-const PROGRAM: ts.Program = createConstsProgram(PROJECT_ROOT, FILES);
+const PROGRAM: ts.Program = createTypeCheckProgram(PROJECT_ROOT, FILES);
 
 afterAll((): void => {
   rmSync(FIXTURE_DIR, { recursive: true, force: true });

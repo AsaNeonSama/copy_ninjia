@@ -114,9 +114,9 @@ beforeEach(() => {
   deleteMessageResult = true;
   getChat.mockReset();
   getChat.mockImplementation(async () => ({ permissions: { ...currentPermissions } }));
-  getChatAdministrators.mockClear();
+  getChatAdministrators.mockReset();
   getChatAdministrators.mockResolvedValue([]);
-  setChatPermissions.mockClear();
+  setChatPermissions.mockReset();
   setChatPermissions.mockImplementation(async (
     _chatId: number,
     permissions: Record<string, boolean | undefined>

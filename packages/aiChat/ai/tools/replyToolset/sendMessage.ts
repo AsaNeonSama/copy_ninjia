@@ -65,7 +65,7 @@ export function createSendMessageExecutor(
         success: true,
         queued: true,
         actions_used: correctTypo ? 2 : 1,
-        ...(typo.rejectedReason ? { typo_rejected: typo.rejectedReason } : {}),
+        typo_rejected: typo.rejectedReason ?? undefined,
       }),
       run: async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
         if (!ctx.isActive()) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
@@ -108,7 +108,7 @@ export function createSendMessageExecutor(
           success: true,
           message_id: sentMessageId,
           actions_used: actionsUsedByTool,
-          ...(typo.rejectedReason ? { typo_rejected: typo.rejectedReason } : {}),
+          typo_rejected: typo.rejectedReason ?? undefined,
         });
       },
     };

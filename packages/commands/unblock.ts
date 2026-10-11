@@ -7,7 +7,7 @@ import { sendCommandMessage, unbanChatMemberIfBanned, unbanChatSenderChat } from
 import { formatTargetLabel } from "../users/userLabel";
 import { resolveCommandTarget } from "./targetResolution";
 import { rejectUnlessPermitted } from "./commandActor";
-import { resolveBotAdminStatus } from "../infra/botAdmin";
+import { botCanRestrictMembersIn, resolveBotAdminStatus } from "../infra/botAdmin";
 import {
   confirmBlocklistPersisted,
   managedAdminChatIds,
@@ -15,29 +15,32 @@ import {
   unblockUser,
 } from "../infra/blocklist/membership";
 import type { ManagedChatOutcome } from "../infra/blocklist/membership";
-import { blocklistIdentityMutationRunner } from "../cache/main/blocklist";
+import { runBlocklistFanOut } from "./blocklistFanOut";
 
-interface UnblockExecutionOutcome extends UnbanOutcome {
-  removedFromList: boolean;
-  persisted: boolean;
+/** 串行位内的名单解除结果。 */
+interface UnblockListOutcome {
+  readonly removedFromList: boolean;
+  readonly persisted: boolean;
 }
 
-/** 同一身份较早的自动封禁结算后，再以本命令的较晚结果覆盖名单与群级封禁。 */
-async function executeUnblock(targetUser: CachedUser, originChatId: number): Promise<UnblockExecutionOutcome> {
-  // 先发布主线程 LRU 的解除结论，再投递 tombstone；后续入群更新立即读到新结论。
+/**
+ * 先发布主线程 LRU 的解除结论，再投递 tombstone；后续入群更新立即读到新结论。随后等待
+ * tombstone 的事务 ACK；名单里本就没有目标时，若上一次解除的 tombstone 尚未 ACK，先补投同一
+ * 最终值再等待。名单里没有目标不代表各群没有封禁，跨群解封照常执行。
+ */
+async function removeFromBlocklist(targetUser: CachedUser): Promise<UnblockListOutcome> {
   const removedFromList: boolean = unblockUser(targetUser.id);
-  // 等待 tombstone 的事务 ACK；名单里本就没有目标时，若上一次解除的 tombstone 尚未 ACK，
-  // 先补投同一最终值再等待。名单里没有目标不代表各群没有封禁；默认完整解封仍要继续逐群执行。
   const persisted: boolean = await confirmBlocklistPersisted(targetUser.id, !removedFromList);
-  const { unbannedCount, failedCount }: UnbanOutcome = await unbanEverywhereFor(targetUser, originChatId);
-  return { removedFromList, persisted, unbannedCount, failedCount };
+  return { removedFromList, persisted };
 }
 
 /**
  * `/block <目标> disable`：移除持久化黑名单身份，并解除已知管理群中的群级封禁。
  * 由 commands/block.ts 的 handleBlockCommand 按末位动作分派，只认 isCanUnBlock。
  *
- * 先移出名单并等待持久化结果，再执行各群解封；持久化失败仍继续解封，并在
+ * 移出名单并等待持久化结果、跨群解封与回执都在该身份的黑名单串行位里依次执行：串行位
+ * 空闲时名单解除在本条 update 内完成，跨群解封与回执交给延迟命令执行器的后台档，update
+ * runner 不等各群的 Telegram 请求（见 ./blocklistFanOut.ts）。持久化失败仍继续解封，并在
  * 回执中附加警告。revision/ACK 与崩溃重放约束见 docs/cn/04-invariants.md。
  *
  * 目标支持回复、用户名、用户 id 或频道的负数 id；回复与参数同时存在时必须
@@ -69,40 +72,54 @@ export async function handleBlockDisable(ctx: CommandContext<Context>, targetArg
   });
   if (!targetUser) return;
 
-  const {
-    removedFromList,
-    persisted,
-    unbannedCount,
-    failedCount,
-  }: UnblockExecutionOutcome = await blocklistIdentityMutationRunner.run(
-    targetUser.id,
-    (): Promise<UnblockExecutionOutcome> => executeUnblock(targetUser, chatId)
-  );
+  await runBlocklistFanOut({
+    identityId: targetUser.id,
+    command: "/block disable",
+    prepare: (): Promise<UnblockListOutcome> => removeFromBlocklist(targetUser),
+    fanOut: (listOutcome: UnblockListOutcome): Promise<void> => unbanEverywhereAndReport({
+      chatId,
+      messageId,
+      targetUser,
+      listOutcome,
+    }),
+  });
+}
+
+/** unbanEverywhereAndReport 的入参：handler 的校验结果与串行位内的名单解除结果。 */
+interface UnbanEverywhereParams {
+  readonly chatId: number;
+  readonly messageId: number | undefined;
+  readonly targetUser: CachedUser;
+  readonly listOutcome: UnblockListOutcome;
+}
+
+/** 跨群解封后在发起群回执名单结论与解封计数。 */
+async function unbanEverywhereAndReport({
+  chatId,
+  messageId,
+  targetUser,
+  listOutcome,
+}: UnbanEverywhereParams): Promise<void> {
+  const { unbannedCount, failedCount }: UnbanOutcome = await unbanEverywhereFor(targetUser, chatId);
   // 该 id 的最终值（本次或上一次解除的 tombstone）未收到持久化确认时附加警告；没有未 ACK 最终值时不等待。
   const atmosphere: AtmosphereTexts = chatAtmosphere();
   const targetLabel: string = formatTargetLabel(targetUser, atmosphere);
-  const persistWarning: string = persisted
+  const persistWarning: string = listOutcome.persisted
     ? ""
     : atmosphere.NOTICE_TEXTS.unblockPersistFailed;
 
-  const listNote: string = removedFromList
+  const listNote: string = listOutcome.removedFromList
     ? atmosphere.NOTICE_TEXTS.unblockRecorded(targetLabel, persistWarning)
     : atmosphere.NOTICE_TEXTS.unblockNotRecorded(targetLabel, persistWarning);
 
   if (unbannedCount === 0 && failedCount === 0) {
-    await sendCommandMessage({
-      chatId,
-      replyToMessageId: messageId,
-      text: atmosphere.NOTICE_TEXTS.unblockNoManagedChat(listNote),
-    });
+    const text: string = atmosphere.NOTICE_TEXTS.unblockNoManagedChat(listNote);
+    await sendCommandMessage({ chatId, text, replyToMessageId: messageId });
     return;
   }
   const failedNote: string = failedCount > 0 ? atmosphere.NOTICE_TEXTS.unblockPartialFailure(failedCount) : "";
-  await sendCommandMessage({
-    chatId,
-    replyToMessageId: messageId,
-    text: atmosphere.NOTICE_TEXTS.unblockResult(listNote, unbannedCount, failedNote),
-  });
+  const text: string = atmosphere.NOTICE_TEXTS.unblockResult(listNote, unbannedCount, failedNote);
+  await sendCommandMessage({ chatId, text, replyToMessageId: messageId });
 }
 
 interface UnbanOutcome {
@@ -122,10 +139,15 @@ async function unbanEverywhereFor(targetUser: CachedUser, chatId: number): Promi
     chatIds: targetChatIds,
     action: `lift the ban on identity ${targetUser.id}`,
     onUnexpectedFailure: false,
-    // 频道身份解除 sender_chat 封禁；用户仅解除已有封禁，保留在群成员身份。
-    execute: (targetChatId: number): Promise<boolean> => targetUser.isChannel === true
-      ? unbanChatSenderChat(targetChatId, targetUser.id)
-      : unbanChatMemberIfBanned(targetChatId, targetUser.id),
+    execute: (targetChatId: number): Promise<boolean> => {
+      // 快照已确证缺「限制与封禁成员」的群不发请求，计为失败；快照未知时照常发，
+      // 由 Telegram 裁决（与 /block enable 同口径，见 infra/botAdmin.ts 的 botCanRestrictMembersIn）。
+      if (botCanRestrictMembersIn(targetChatId) === false) return Promise.resolve(false);
+      // 频道身份解除 sender_chat 封禁；用户仅解除已有封禁，保留在群成员身份。
+      return targetUser.isChannel === true
+        ? unbanChatSenderChat(targetChatId, targetUser.id)
+        : unbanChatMemberIfBanned(targetChatId, targetUser.id);
+    },
   });
 
   let unbannedCount: number = 0;

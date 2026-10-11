@@ -16,13 +16,14 @@ export function trackBackgroundTask(
   task: Promise<unknown>,
   failureMessage: string
 ): void {
-  const observed: Promise<void> = task
-    .then((): void => undefined)
-    .catch((error: unknown): void => {
-      logger.error(failureMessage, error);
-    })
-    .finally((): void => {
+  const observed: Promise<void> = task.then(
+    (): void => {
       tasks.delete(observed);
-    });
+    },
+    (error: unknown): void => {
+      tasks.delete(observed);
+      logger.error(failureMessage, error);
+    }
+  );
   tasks.add(observed);
 }

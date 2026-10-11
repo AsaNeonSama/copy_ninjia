@@ -1,4 +1,6 @@
+import type { CachedUser } from "../../packages/types/chatState";
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { groupCommandContext } from "../helpers/groupCommandContext";
 import { NON_WHITELIST_PERMISSIONS } from "../../packages/consts/whitelist";
 import { TELEGRAM_MESSAGE_MAX_CHARS } from "../../packages/consts/telegram";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
@@ -9,6 +11,7 @@ import { MARKDOWN_V2_PARSE_MODE } from "../../packages/consts/telegramMarkdown";
 import { parseMarkdownV2 } from "../helpers/markdownV2";
 import type { ParsedMarkdownV2, ParsedMarkdownV2Entity } from "../helpers/markdownV2";
 import { expectTemplateRendered, longestTemplatePart } from "../helpers/templateText";
+import { replyCommandNoticeVia } from "../helpers/common";
 
 /** 本文件的默认通知风格（BOT_ATMOSPHERE 替身为 teasing）下 /permission 的文案表。 */
 const TEASING_PERMISSION = ATMOSPHERE_TEXTS.teasing.PERMISSION_COMMAND_TEXTS;
@@ -101,10 +104,16 @@ mock.module("../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing", SUPER_ADMIN_USER_ID: 1 }));
 mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
+  replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
 // 1 是超级管理员：始终在白名单边界内、逐项权限全开，且永远不出现在
 // whitelistPermissionsById（即已预热的 SQLite 白名单视图）里——照实模拟
 // packages/infra/identityPolicy/whitelist.ts 那层只读覆盖。
+// @username 目标的现查：替身按「用户名没变」原样交回缓存身份（真实语义见
+// test/commands/targetResolution.test.ts 与 test/commands/liveTargetIdentity.test.ts）。
+mock.module("../../packages/commands/liveTargetIdentity", () => ({
+  readLiveTargetIdentity: async (_chatId: number, target: CachedUser): Promise<CachedUser> => target,
+}));
 mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
   hasWhitelistPermission: (id: number): boolean => id === 1,
   enableAllWhitelistPermissions,
@@ -144,21 +153,7 @@ function context(
   match: string,
   replyToMessage?: object
 ): never {
-  const chat = { id: -1001, type: "supergroup" };
-  return {
-    chat,
-    from: { id: userId, first_name: "Admin", username: "admin" },
-    msg: {
-      message_id: 10,
-      chat,
-      ...(replyToMessage === undefined
-        ? {}
-        : { reply_to_message: replyToMessage }),
-    },
-    msgId: 10,
-    me: { id: 999 },
-    match,
-  } as never;
+  return groupCommandContext({ userId, match, replyToMessage });
 }
 
 /** 读取最后一条 query 回执里的 JSON 代码块。 */
@@ -183,14 +178,14 @@ beforeEach(() => {
   whitelistPermissionsById.clear();
   whitelistPermissionsById.set(100, permissions({ isCanMute: true }));
   sendMessage.mockClear();
-  enableAllWhitelistPermissions.mockClear();
   getWhitelistPermissionQueryView.mockClear();
-  setWhitelistPermission.mockClear();
+  enableAllWhitelistPermissions.mockReset();
+  setWhitelistPermission.mockReset();
   enableAllWhitelistPermissions.mockImplementation(() => ({
     changed: true,
     permissions: {},
   }));
-  confirmWhitelistEntryPersisted.mockClear();
+  confirmWhitelistEntryPersisted.mockReset();
   confirmWhitelistEntryPersisted.mockImplementation(
     async (): Promise<void> => {}
   );

@@ -12,6 +12,7 @@ import { BOT_STATUS_BYTES_PER_GIB, BOT_STATUS_BYTES_PER_KIB, BOT_STATUS_BYTES_PE
 import { BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS } from "../consts/commands";
 import { MARKDOWN_V2_PARSE_MODE } from "../consts/telegramMarkdown";
 import { escapeMarkdownV2, markdownV2InlineCode, markdownV2Pre } from "../libs/telegramMarkdown";
+import { sanitizeInline, truncateWithEllipsis } from "../libs/text";
 import { MAX_SUMMARY_ROUNDS, VERBATIM_CONTEXT_MAX } from "../consts/aiChat/memory";
 import { aiMemoryUsages } from "../cache/main/aiChat";
 import { GAG_SESSION_MAX } from "../consts/gag";
@@ -54,9 +55,7 @@ export interface BotStatusSnapshot {
 }
 
 function statusLabel(value: string): string {
-  const normalized: string = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS) return normalized;
-  return `${normalized.slice(0, BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS - 1)}…`;
+  return truncateWithEllipsis(sanitizeInline(value), BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS);
 }
 
 /**

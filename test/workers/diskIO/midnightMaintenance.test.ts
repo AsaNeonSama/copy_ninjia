@@ -45,14 +45,14 @@ const reply = mock((_value: Parameters<DiskIOMaintenanceReplySink>[0]): void => 
 
 beforeEach((): void => {
   for (const fn of [
-    reply,
-    maintainLuckForDay,
     maintainLogRetention,
     maintainJoinLogRetention,
-    maintainAdSampleFiles,
     maintainVerificationDayForToday,
     maintainTemporaryAdBypassActivities,
   ]) fn.mockClear();
+  reply.mockReset();
+  maintainLuckForDay.mockReset();
+  maintainAdSampleFiles.mockReset();
   maintainLuckForDay.mockImplementation((_day: string): void => {});
   maintainAdSampleFiles.mockImplementation(async (_day: string): Promise<void> => {});
 });

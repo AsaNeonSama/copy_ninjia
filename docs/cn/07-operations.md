@@ -331,6 +331,12 @@ WantedBy=multi-user.target
   AI 在群聊回复时尝试调用 `send_voice` 工具生成语音失败（可能由于模型接口超时或每日配额超标）。该错误不会中断文本消息的正常发出。
 - `Failed to probe chat membership ... PARTICIPANT_ID_INVALID`：
   黑名单成员巡检在探测群成员时遇到了已被 Telegram 官方注销的“已销号账号”（Deleted Account）。当同一个用户连续 `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 次巡检均返回该错误时，系统会自动将该注销 ID 从黑名单中永久移除。
+- `Chat <id> was upgraded to supergroup <newId>; tearing down the old chat.`：
+  受管普通群升级成了超级群，旧群 id 已按「群已不存在」收尾（数据清除、受管名额释放）。新超级群需要重新执行 `/init enable`，旧群设置不会自动搬迁。
+- `Chat <id> was gone|departed in <n> lookups <ms>ms apart; tearing it down.`：
+  启动时标题刷新连续多次确证某群已不存在（`gone`）或机器人已不是成员（`departed`），已自动收尾。`departed` 的群若还有未恢复的私密模式记录会继续保留，机器人回到群里并拿回限制成员权限后自动还原。
+- `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`：
+  首次查询像是不可达，但后续重查结论不一致（多为 Telegram 偶发错误），本次不收尾，下次启动重新确证。
 - `Gemini context cache API ... create rejected (n/3): 400`：
   向 Gemini 创建上下文缓存请求时被接口返回 HTTP 400 拒绝。通常是因为当前上下文总 Token 数尚未达到官方要求的创建下限，或者请求参数不合法。系统在等待 `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` 冷却时间后会尝试重试，累计达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次失败后将不再为当前内容尝试建立缓存；在此期间，常规的对话回复不受影响，将以不带缓存的方式正常调用。
 

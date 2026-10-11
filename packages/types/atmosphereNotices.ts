@@ -169,6 +169,10 @@ export interface AtmosphereNotices {
   readonly unblockNoManagedChat: (listNote: string) => string;
   readonly unblockPartialFailure: (failedCount: number) => string;
   readonly unblockResult: (listNote: string, unbannedCount: number, failedNote: string) => string;
+  /** 破坏性命令按 @username 指定目标，现查发现该用户名已不属于记住的那个身份。 */
+  readonly usernameTargetChanged: (username: string) => string;
+  /** 破坏性命令按 @username 指定目标，现查目标当前身份失败。 */
+  readonly usernameTargetUnverified: (username: string) => string;
   readonly copyReverseEffect: string;
   readonly copyNyaEffect: string;
   readonly unknownUser: string;

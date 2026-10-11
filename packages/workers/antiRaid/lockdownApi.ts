@@ -51,7 +51,6 @@ export function beginLockdownAnnouncement(chatId: number, joinCount: number | un
       const sentMessageId: number | undefined = await sendMessage({
         chatId,
         text: lockdownAnnouncementText(joinCount, workerAtmosphere()),
-        api: telegramApi,
         onSent: (pendingMessageId: number): void => {
           messageId = pendingMessageId;
         },

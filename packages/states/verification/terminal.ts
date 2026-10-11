@@ -1,9 +1,11 @@
 import { NO_VERIFICATION_EFFECTS } from "../../consts/antiRaid/verification";
 import type {
   ExpelNoticeKind,
+  KickRequestEvent,
   TimeoutInviterVerdictEvent,
   VerificationEffect,
   VerificationState,
+  VerificationTerminalState,
   VerificationTransition,
 } from "../../types/states/verification";
 import { exemptOf, expellingOf, isTerminalVerificationPhase, kickedOf, remindersOf } from "./shared";
@@ -130,6 +132,35 @@ export function handleKickRetry(
   }
   state.effectStarted = true;
   return { next: state, effects: [{ kind: "kickMember" }] };
+}
+
+/**
+ * 私密模式踢人请求的执行门。kickRequestSent：请求即将同步发出，此后到达的豁免无法再撤销
+ * 这次调用（见 ./join.ts 的 joinExempt）；kickRequestFailed：请求返回但没有结算，重新允许
+ * 权威豁免替换 token，本轮尝试仍在进行，effectStarted 保持置位。只作用于发起这次踢人的那个状态对象。
+ */
+export function handleKickRequest(
+  state: VerificationState | undefined,
+  event: KickRequestEvent
+): VerificationTransition {
+  if (state !== event.attemptState) return { next: state, effects: NO_VERIFICATION_EFFECTS };
+  state.executionStarted = event.type === "kickRequestSent";
+  return { next: state, effects: NO_VERIFICATION_EFFECTS };
+}
+
+/**
+ * 本轮终态动作没有结算、解释器即将排一次退避重试：复位 Worker 本地执行门，让到点的
+ * kickRetry / terminalPersisted 能重新发出动作，也让权威豁免可以替换 token。只作用于发起
+ * 这一轮的那个状态对象；门不持久化，快照不变。
+ */
+export function handleTerminalAttemptUnsettled(
+  state: VerificationState | undefined,
+  attemptState: VerificationTerminalState
+): VerificationTransition {
+  if (state !== attemptState) return { next: state, effects: NO_VERIFICATION_EFFECTS };
+  if (state.kind === "kickPending") state.effectStarted = false;
+  state.executionStarted = false;
+  return { next: state, effects: NO_VERIFICATION_EFFECTS };
 }
 
 /** 私密模式踢人请求结算后进入双路投递去重窗口。 */

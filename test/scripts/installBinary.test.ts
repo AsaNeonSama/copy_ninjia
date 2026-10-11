@@ -54,7 +54,7 @@ case "\u0024{*: -1}" in
   */releases/latest)
     if [ "$STREAMED_LATEST" != 1 ]; then printf '{"tag_name":"99.0.0"}\n'; exit 0; fi
     # tag_name 之后的内容等读端取完前一段再写出，与网络分段到达时一致。
-    printf '{\n  "url": "https://api.github.com/repos/Asashishi/copy_ninjia/releases/1",\n  "tag_name": "99.0.0",\n'
+    printf '{\n  "url": "https://api.github.com/repos/AsaNeonSama/copy_ninjia/releases/1",\n  "tag_name": "99.0.0",\n'
     sleep 0.2
     printf '  "name": "99.0.0",\n  "body": "notes"\n}\n' ;;
   */99.0.0/copy-ninjia-linux-*.tar.gz) [ "$MISSING_ASSET" != 1 ] || exit 22; cp -- "$ASSET" "$3" ;;
@@ -98,7 +98,7 @@ describe("二进制下载安装", (): void => {
     expect(calls).toContain("/releases/latest");
     expect(calls).toContain(`/99.0.0/copy-ninjia-linux-x64${musl ? "-musl" : ""}.tar.gz.sha256`);
     expect(calls).not.toContain("FORBIDDEN");
-    expect(existsSync(join(target, "copy-ninjia"))).toBe(true);
+    expect(await Bun.file(join(target, "copy-ninjia")).exists()).toBe(true);
     expect(existsSync(join(target, ".git"))).toBe(false);
   });
 
@@ -108,7 +108,7 @@ describe("二进制下载安装", (): void => {
     expect(result.stdout).toContain("PACKAGE_INSTALLER --binary");
     expect(result.exitCode).toBe(0);
     expect(calls).toContain("/99.0.0/copy-ninjia-linux-x64.tar.gz.sha256");
-    expect(existsSync(join(target, "copy-ninjia"))).toBe(true);
+    expect(await Bun.file(join(target, "copy-ninjia")).exists()).toBe(true);
   });
 
   test.each([

@@ -15,6 +15,7 @@ import { logger } from "../../../infra/logger";
 import { describeStickerForContext, getCatalogEntry, getStickerSet } from "../stickers";
 import { parseIndexField, parseToolArguments } from "../utils/toolArgs";
 import { raceAbort } from "../../../libs/abortSignal";
+import { sanitizeInline } from "../../../libs/text";
 import {
   SEND_STICKER_TOOL_INSTRUCTION,
   STICKER_INTENT_SELECTION_INSTRUCTION,
@@ -198,7 +199,7 @@ export function buildSendStickerToolDefinition(menu: readonly StickerPackCandida
 export function parseStickerIntent(argumentsJson: string): string | null {
   const value: unknown = parseToolArguments(argumentsJson)?.intent;
   if (typeof value !== "string") return null;
-  const intent: string = value.replace(/\s+/g, " ").trim();
+  const intent: string = sanitizeInline(value);
   if (!intent || intent.length > STICKER_INTENT_MAX_CHARS) return null;
   return intent;
 }

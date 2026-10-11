@@ -35,12 +35,9 @@ function postToWorker(message: unknown): void {
 
 beforeEach(() => {
   posted.length = 0;
-  for (const mocked of [
-    settleBlockedRemoval,
-    recordBlocklistParticipantReadability,
-    handleAdDetected,
-    handleAdVerdictTrue,
-  ]) mocked.mockClear();
+  for (const mocked of [handleAdDetected, handleAdVerdictTrue]) mocked.mockClear();
+  settleBlockedRemoval.mockReset();
+  recordBlocklistParticipantReadability.mockReset();
 });
 
 test("黑名单移除回执先结算 outbox，再记录销号可读性", () => {

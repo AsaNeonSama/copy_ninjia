@@ -44,8 +44,8 @@
   - **責務**：送信者身元キャッシュ、表示用送信者判定、ユーザーラベル生成、名簿・広告判定が共用するメタデータ・メッセージ内容・発信元解決。
   - **代表ファイル**：`senderIdentity.ts`、`visibleSender.ts`、`userLabel.ts`、`identityMetadata.ts`、`messageContent.ts`、`messageOrigin.ts`。
 - **`packages/states/`**
-  - **責務**：**I/O を一切行わない**純粋な状態遷移ロジック。参加認証、ロックダウン、AI 返信受付、広告判定受付、一時広告バイパスのルールセット。
-  - **代表ファイル**：`verification.ts` と `verification/`（`join` / `pending` / `terminal` / `disable` フェーズ、永続化スナップショットから状態を再構築する `adopt.ts`）、`lockdown.ts` と `lockdown/`（`apply` / `persistence` / `restore` / `announcement` / `adopt` フェーズ）、`replyAdmission.ts`、`adDetectAdmission.ts`、`temporaryAdBypass.ts`。
+  - **責務**：**I/O を一切行わない**純粋な状態遷移ロジック。参加認証、ロックダウン、AI 返信受付、広告判定受付、一時広告バイパス、メディア入力サポート度のルールセット。
+  - **代表ファイル**：`verification.ts` と `verification/`（`join` / `pending` / `terminal` / `disable` フェーズ、永続化スナップショットから状態を再構築する `adopt.ts`）、`lockdown.ts` と `lockdown/`（`apply` / `persistence` / `restore` / `announcement` / `adopt` フェーズ）、`replyAdmission.ts`、`adDetectAdmission.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
 - **`packages/config/`**
   - **責務**：デプロイ設定 `config/{static,dynamic}/*.json` の厳格なスキーマ検証、プロセススナップショット作成、ホットリロード判定、機能ごとの readiness（利用可能）判定。ID ポリシーの永続化データは扱いません。
   - **代表ファイル**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`assets.ts`、`cron.ts`、`mood.ts`、`stickers.ts`、`adSamples.ts`、`googleAuth.ts`、`readiness.ts`、`reload.ts`。
@@ -99,9 +99,9 @@
   - **代表ファイル**：`test/commands/copyShared.test.ts`。
 - **`scripts/`**
   - **責務**：リポジトリ自己検査、ビルド・リリース、性能ベンチマーク、インストーラー、停止中専用のデータマイグレーション。
-  - **自己検査・ゲート**：`checkProjectConventions.ts` と `conventions/`、`checkCoverageMetrics.ts` と `coverageSummary.ts`、`checkInstallScriptSyntax.ts`、`checkInstallIsolation.ts` と `installIsolation/`。
+  - **自己検査・ゲート**：`checkProjectConventions.ts` と `conventions/`、`checkCoverageMetrics.ts` と `coverageSummary.ts`、`checkInstallScriptSyntax.ts`、`checkInstallIsolation.ts` と `installIsolation/`、`test:fault-injection` の実行入口 `testFaultInjection.ts`。
   - **ビルド・リリース**：`build.ts`、`binary.ts`（バイナリエントリ）、`checkBinary.ts`、`checkBinaryMigrations.ts`、`release.ts` と `release/`。
-  - **性能ベンチマーク**：`perf/identityDatabase.ts`、`perf/joinLog.ts`、`perf/hotPaths.ts`、`perf/hotPathProfileGate.ts`、`perf/hotPaths/gateResult.ts`（`performance-result.json` のゲートセクション厳格パース）、`perf/performanceResult.ts`（同ファイルの共有書き込み境界。各ベンチマークは自身のセクションのみを更新）、リリース時専用の全量ベンチマーク `perf/fullSuite.ts` と `perf/fullSuite/`、ならびにベンチマーク間で共用される `fixtures/copyTree.ts`（ディレクトリツリー複製）と `fixtures/pathBoundary.ts`（書き込みパス境界検証）。
+  - **性能ベンチマーク**：`perf/identityDatabase.ts`、`perf/joinLog.ts`、`perf/hotPaths.ts` と `perf:hot-paths` の隔離入口 `perf/isolatedHotPath.ts`、`perf/hotPathProfileGate.ts`、`perf/hotPaths/gateResult.ts`（`performance-result.json` のゲートセクション厳格パース）、`perf/performanceResult.ts`（同ファイルの共有書き込み境界。各ベンチマークは自身のセクションのみを更新）、リリース時専用の全量ベンチマーク `perf/fullSuite.ts` と `perf/fullSuite/`、ならびにベンチマーク間で共用される `fixtures/copyTree.ts`（ディレクトリツリー複製）と `fixtures/pathBoundary.ts`（書き込みパス境界検証）。
   - **インストーラー**：`install.sh` は対象ワークツリーを特定し、そのバージョンのインストーラーへ処理を委譲。`scripts/install/` 配下の shell モジュール群は構文と可読性を一括確認した上で順次ロード。`installSources.ts` は構文検証および分離テスト用フィクスチャへ同一のモジュールリストを提供。
   - **コールドマイグレーション**：`migrateChatPersonaRemoval.ts` はバージョン 16.3.2 が出力した停止時バックアップ（移行元スキーマ `CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION`）のみを受け付け、データベースの複製を現行スキーマ（`IDENTITY_DATABASE_SCHEMA_VERSION`）へ移行し、`chat_states.ai_persona` と `isCanConfigAiPrompt` を削除して `Asia/Tokyo` タイムゾーンマーカーを書き込みます。移行元ディレクトリは読み取り専用で保護され、`ready.json` が完了マーカーとなります。`migrations/files.ts` と `migrations/cli.ts` はパス判定や引数パースを共通化しており、起動依存グラフには含まれません。
   - **ファイルハッシュ計算**：`fileSha256.ts` は `Bun.file(path).stream()` と `Bun.CryptoHasher` を用いて SHA-256 16進ハッシュをストリーミング計算し、リリース検証、マイグレーション、テスト用フィクスチャで共用されます。

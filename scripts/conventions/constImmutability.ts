@@ -5,7 +5,7 @@ import type { ExportedConstDeclaration } from "./constsProgram";
 /** collectConstImmutabilityAssertionProblems 的入参。 */
 export interface ConstImmutabilityParams {
   readonly projectRoot: string;
-  /** createConstsProgram 建的 program 的类型检查器。 */
+  /** 以 packages/consts/ 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
   readonly checker: ts.TypeChecker;
   /** packages/consts/ 的全部导出常量声明（exportedConstDeclarations）。 */
   readonly declarations: readonly ExportedConstDeclaration[];

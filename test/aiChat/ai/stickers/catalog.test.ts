@@ -385,12 +385,12 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
     stickerCatalogRetryState.lastAttemptAt = 0;
 
     retryIncompleteStickerCatalogs(["pack_periodic"], 10_000);
-    await Bun.sleep(1);
+    await drainStickerCatalogTasks();
     expect(getStickerSetMock).toHaveBeenCalledTimes(1);
 
     // 间隔没到不重复打请求。
     retryIncompleteStickerCatalogs(["pack_periodic"], 10_001);
-    await Bun.sleep(1);
+    await drainStickerCatalogTasks();
     expect(getStickerSetMock).toHaveBeenCalledTimes(1);
 
     // 间隔到了就再试一次，这次拉到了。
@@ -398,13 +398,13 @@ describe("aiChat/ai/stickers/catalog generatePackCatalog 对账", () => {
     describeMediaForStickerCatalogMock.mockImplementationOnce(async () => generatedText("补出来的描述"));
     generateTextMock.mockImplementationOnce(async () => generatedText("补出来的简介"));
     retryIncompleteStickerCatalogs(["pack_periodic"], 10_000 + STICKER_CATALOG_RETRY_INTERVAL_MS);
-    await Bun.sleep(1);
+    await drainStickerCatalogTasks();
     expect(getStickerSetMock).toHaveBeenCalledTimes(2);
     expect(getCatalogEntry("late-uid")).toEqual({ emoji: "😂", description: "补出来的描述" });
 
     // 目录与简介都齐了：此后每一轮都是一次判空，不再发请求。
     retryIncompleteStickerCatalogs(["pack_periodic"], 10_000 + STICKER_CATALOG_RETRY_INTERVAL_MS * 2);
-    await Bun.sleep(1);
+    await drainStickerCatalogTasks();
     expect(getStickerSetMock).toHaveBeenCalledTimes(2);
   });
 

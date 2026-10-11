@@ -4,6 +4,7 @@
  */
 
 import { isTimeoutAbort, signalWithTimeout } from "../../libs/abortSignal";
+import { telegramSignal } from "../../libs/telegramSignal";
 import { discardResponseBody, readBoundedResponseBytes } from "../../libs/boundedResponse";
 import type { BoundedResponseResult } from "../../libs/boundedResponse";
 import type { TelegramFileDownloadResult } from "../../types/telegram";
@@ -39,7 +40,7 @@ export async function downloadTelegramFileBytes({
   const metadataSignal: AbortSignal = signalWithTimeout(signal, metadataTimeoutMs);
   let file: HydratedTelegramFile;
   try {
-    file = await bot.api.getFile(fileId, metadataSignal as never);
+    file = await bot.api.getFile(fileId, telegramSignal(metadataSignal));
   } catch (error: unknown) {
     if (isStageTimeout(signal, metadataSignal)) return { status: "metadataTimeout" };
     throw error;

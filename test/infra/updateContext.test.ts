@@ -72,16 +72,22 @@ describe("本条 update 统一的「现在」", () => {
   });
 
   test("两条 update 各记各的，不共享上一条的时刻", async () => {
-    const first: number = await runWithUpdateAbortSignal(
-      new AbortController().signal,
-      async (): Promise<number> => updateNow()
-    );
-    await Bun.sleep(2);
-    const second: number = await runWithUpdateAbortSignal(
-      new AbortController().signal,
-      async (): Promise<number> => updateNow()
-    );
-    expect(second).toBeGreaterThan(first);
+    const spy: ReturnType<typeof spyOn> = spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const first: number = await runWithUpdateAbortSignal(
+        new AbortController().signal,
+        async (): Promise<number> => updateNow()
+      );
+      spy.mockReturnValue(1_700_000_000_002);
+      const second: number = await runWithUpdateAbortSignal(
+        new AbortController().signal,
+        async (): Promise<number> => updateNow()
+      );
+      expect(first).toBe(1_700_000_000_000);
+      expect(second).toBe(1_700_000_000_002);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("不在 update 作用域内时如实返回当刻墙钟，语义同 Date.now", () => {
@@ -98,16 +104,22 @@ describe("本条 update 统一的「现在」", () => {
   });
 
   test("跨过有界等待后 refreshUpdateNow 重新取值，后续调用点改用新值", async () => {
-    await runWithUpdateAbortSignal(
-      new AbortController().signal,
-      async (): Promise<void> => {
-        const before: number = updateNow();
-        await Bun.sleep(2);
-        const refreshed: number = refreshUpdateNow();
-        expect(refreshed).toBeGreaterThan(before);
-        expect(updateNow()).toBe(refreshed);
-      }
-    );
+    const spy: ReturnType<typeof spyOn> = spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      await runWithUpdateAbortSignal(
+        new AbortController().signal,
+        async (): Promise<void> => {
+          expect(updateNow()).toBe(1_700_000_000_000);
+          spy.mockReturnValue(1_700_000_000_002);
+          // 时钟走了，但没刷新之前仍是 scope 里缓存的那一刻。
+          expect(updateNow()).toBe(1_700_000_000_000);
+          expect(refreshUpdateNow()).toBe(1_700_000_000_002);
+          expect(updateNow()).toBe(1_700_000_000_002);
+        }
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("scope 之外调用 refreshUpdateNow 只返回当刻墙钟，不写任何状态", () => {

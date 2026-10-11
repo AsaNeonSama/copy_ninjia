@@ -14,10 +14,11 @@ let download = Promise.withResolvers<void>();
 let upload = Promise.withResolvers<void>();
 /** 抽取按 ID 读头像，身份是那次 getChat 返回的私聊资料。 */
 const partner: Chat.PrivateChat = { id: 999, type: "private", first_name: "群友" };
-const avatar = mock(async () => {
+async function avatarStub(): Promise<{ status: "ok"; identity: Chat.PrivateChat; photo: string }> {
   await download.promise;
-  return { status: "ok" as const, identity: partner, photo: "current-avatar" };
-});
+  return { status: "ok", identity: partner, photo: "current-avatar" };
+}
+const avatar = mock(avatarStub);
 mock.module("../../packages/infra/telegram/avatar/read", () => ({ readCurrentAvatar: avatar }));
 
 const { bot } = await import("../../packages/infra/telegram/mainClient");
@@ -34,10 +35,11 @@ const { STATE_MANAGED_CHAT_LIMIT } = await import("../../packages/consts/storage
 const { TELEGRAM_DELETE_MESSAGES_BATCH_MAX } = await import("../../packages/consts/telegram");
 const chat = { id: -1001, type: "supergroup", title: "群" } as const;
 let nextMessageId: number = 100;
-const photo = mock(async (..._args: any[]): Promise<any> => {
+async function photoStub(..._args: any[]): Promise<any> {
   await upload.promise;
   return { message_id: ++nextMessageId, chat, date: 1, photo: [] };
-});
+}
+const photo = mock(photoStub);
 const answer = mock(async (..._args: any[]) => true);
 const edit = mock(async (..._args: any[]) => true);
 const remove = mock(async (..._args: any[]) => true);
@@ -56,7 +58,15 @@ beforeEach(() => {
   download = Promise.withResolvers<void>();
   upload = Promise.withResolvers<void>();
   nextMessageId = 100;
-  for (const fn of [avatar, photo, answer, edit, remove, removeMany, send, logError]) fn.mockClear();
+  for (const fn of [answer, edit, send, logError]) fn.mockClear();
+  avatar.mockReset();
+  avatar.mockImplementation(avatarStub);
+  photo.mockReset();
+  photo.mockImplementation(photoStub);
+  for (const fn of [remove, removeMany]) {
+    fn.mockReset();
+    fn.mockResolvedValue(true);
+  }
   Object.assign(bot.api, {
     getChatMember: async () => { throw new Error("wed must not query chat members"); },
     sendPhoto: photo, answerCallbackQuery: answer, editMessageMedia: edit, deleteMessage: remove,

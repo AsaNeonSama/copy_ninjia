@@ -75,8 +75,8 @@ beforeEach(() => {
   actions.resetPendingMessageDeletions();
   logApiError.mockClear();
   loggerError.mockClear();
-  markSelfSent.mockClear();
-  copyMessageApi.mockClear();
+  markSelfSent.mockReset();
+  copyMessageApi.mockReset();
   copyMessageApi.mockImplementation(async () => ({ message_id: 91 }));
 });
 

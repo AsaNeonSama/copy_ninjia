@@ -7,9 +7,10 @@ import { summarySelfNote } from "../../../packages/consts/aiChat/prompts/memory"
 import { SELF_SPEAKER_NAME } from "../../../packages/consts/aiChat/prompts/transcript";
 
 const responses: AiTextResult[] = [];
-const generateText = mock(async (..._args: unknown[]): Promise<AiTextResult> =>
-  responses.shift() ?? { ok: false, retryable: false }
-);
+async function generateTextStub(..._args: unknown[]): Promise<AiTextResult> {
+  return responses.shift() ?? { ok: false, retryable: false };
+}
+const generateText = mock(generateTextStub);
 const sleep = mock(async (..._args: unknown[]): Promise<void> => {});
 const logError = mock((..._args: unknown[]): void => {});
 
@@ -59,7 +60,8 @@ async function waitForRotation(chatId: number): Promise<void> {
 
 beforeEach(() => {
   responses.length = 0;
-  generateText.mockClear();
+  generateText.mockReset();
+  generateText.mockImplementation(generateTextStub);
   sleep.mockClear();
   logError.mockClear();
   resetAiChatCompactionCache();

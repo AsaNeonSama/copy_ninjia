@@ -1,6 +1,6 @@
 /** 脚本共用的目录树复制边界：发行包暂存与测试夹具都用它。 */
 
-import { mkdirSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -16,7 +16,7 @@ export async function copyFixtureTree(
   assertDestination?: (path: string) => void
 ): Promise<void> {
   assertDestination?.(destination);
-  if (!statSync(source).isDirectory()) {
+  if (!(await Bun.file(source).stat()).isDirectory()) {
     await Bun.write(destination, Bun.file(source));
     return;
   }

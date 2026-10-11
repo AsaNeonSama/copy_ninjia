@@ -32,11 +32,9 @@ export function parseStickerConfig(
   return { packs };
 }
 
-/** 从指定文件加载并校验；模块 import 本身不访问文件系统。 */
-export async function loadStickerConfig(
-  path: string = STICKERS_CONFIG_PATH
-): Promise<StickerConfig> {
-  return parseStickerConfig(await readJsonInput(path), path);
+/** 从 STICKERS_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。 */
+export async function loadStickerConfig(): Promise<StickerConfig> {
+  return parseStickerConfig(await readJsonInput(STICKERS_CONFIG_PATH), STICKERS_CONFIG_PATH);
 }
 
 /**

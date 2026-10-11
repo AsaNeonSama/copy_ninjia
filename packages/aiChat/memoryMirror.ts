@@ -209,11 +209,9 @@ onDiskIORespawn("AI memory", DISK_IO_RESPAWN_PRIORITIES.AI_MEMORY, (transport: D
       chatId,
       revision,
       snapshot,
-      ...(immediateRevision !== undefined &&
-      immediateRevision !== null &&
-      revision >= immediateRevision
-        ? { persistImmediately: true }
-        : {}),
+      persistImmediately: immediateRevision !== undefined &&
+        immediateRevision !== null &&
+        revision >= immediateRevision,
     })) {
       return false;
     }

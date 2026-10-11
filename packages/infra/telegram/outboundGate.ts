@@ -36,6 +36,7 @@ import {
 } from "./outboundSettle";
 import { abortSendJob, admitSendJob } from "./sendScheduler";
 import { toErrorOr } from "../../libs/errorMessage";
+import { telegramSignal } from "../../libs/telegramSignal";
 import { logger } from "../logger";
 
 type PreviousCall = Parameters<Transformer<RawApi>>[0];
@@ -67,7 +68,7 @@ async function revalidateUnbanKickRetry(
     execute: (requestSignal: AbortSignal): Promise<unknown> => previous("getChatMember", {
       chat_id: payload.chat_id,
       user_id: payload.user_id,
-    }, requestSignal as never),
+    }, telegramSignal(requestSignal)),
   }, true);
   if (!isRawSuccess(response)) {
     throw new Error("Telegram kick retry membership revalidation failed.");
@@ -457,7 +458,7 @@ export function telegramOutboundGate(): Transformer<RawApi> {
           )
           : undefined,
         call: (requestSignal: AbortSignal): Promise<unknown> =>
-          previous(method, payload, requestSignal as never),
+          previous(method, payload, telegramSignal(requestSignal)),
         resolve: resolve as (value: unknown) => void,
         reject,
       });
