@@ -11,6 +11,7 @@ import {
   collectConstantLocationProblems,
   collectDeclarationProblems,
   collectModuleCacheProblems,
+  collectIteratorHeadProblems,
   collectObjectFreezeProblems,
 } from "./conventions/sourceRules";
 import type { SourceFileRuleParams } from "./conventions/sourceRules";
@@ -372,6 +373,7 @@ for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
     collectConstantTextFragments(source, constantTextFragments);
   }
   for (const problem of collectObjectFreezeProblems(params)) failures.push(problem);
+  for (const problem of collectIteratorHeadProblems(params)) failures.push(problem);
   if (!path.startsWith(CACHE_ROOT) && !path.startsWith(CONSTS_ROOT)) {
     for (const problem of collectModuleCacheProblems(params)) failures.push(problem);
   }

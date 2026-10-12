@@ -71,7 +71,7 @@ flowchart TD
 
 ## 一条消息的旅程
 
-系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配。前置处理链通过 `bot.use(...preamble)` 批量注册，由 grammY 统一调度；表情反应、成员变更、内联回调等非消息事件则通过独立的 `bot.on` 注册。
+系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配，整条链只经一个 `bot.use` 登记：这一层完成 update_id 记账与 Bot 发言限流后，进入 [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) 的前置链。前置链各段按下图顺序同步调用下一段，只有真正碰到 I/O（预热冷身份、认领型 ingress 等待落盘或网络、命令与消息处理器）时才返回 Promise。斜杠命令、中文动作命令，以及表情反应、成员变更、内联回调等非消息事件分别建成 grammY `Composer`，由前置链在对应位置调用。
 
 系统没有使用并发队列中间件，而是直接在拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）层面保证顺序：每次长轮询只拉取 1 条更新（`UPDATE_POLL_LIMIT`），必须等当前消息的整条处理链路完全执行完毕后，才会发起下一次 `getUpdates`。这种设计在根源上实现了全局逐条串行处理。
 

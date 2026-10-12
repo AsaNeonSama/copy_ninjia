@@ -1,6 +1,7 @@
 /** 热路径性能门禁的场景名与 GC 分档合同。 */
 
 export type HotPathProfileScenarioName =
+  | "registered-middleware"
   | "incoming-message-spine"
   | "ai-media-direct-trigger"
   | "sender-stable-username"

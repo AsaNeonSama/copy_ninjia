@@ -67,7 +67,7 @@ flowchart TD
 
 ## 1 件のメッセージが通る経路
 
-すべてのメッセージミドルウェアは [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) で明示的に組み立てられます。下図の前置チェーンは 1 つの配列にまとめられ、`bot.use(...preamble)` で一括登録されます。実行順序と next() の伝播契約は grammY のミドルウェア仕様に従います。リアクション、メンバー増減、コールバック、インラインクエリなど、通常のメッセージ以外の update は個別の `bot.on` で登録されます。
+すべてのメッセージミドルウェアは [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) で明示的に組み立てられ、チェーン全体は 1 つの `bot.use` だけで登録されます。この層で update_id の記録と Bot 発言の流量制限を済ませたあと、[`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) の前置チェーンに入ります。前置チェーンの各段は下図の順に次の段を同期的に呼び出し、実際に I/O に当たったとき（コールド身分のプリフェッチ、永続化やネットワークを待つ認領型 ingress、コマンドとメッセージのハンドラ）だけ Promise を返します。スラッシュコマンド、漢字アクションコマンド、およびリアクション、メンバー増減、コールバック、インラインクエリなど通常のメッセージ以外の update は、それぞれ grammY の `Composer` として組み立てられ、前置チェーンが該当位置で呼び出します。
 本パイプラインは `sequentialize` を使用せず、メッセージのグローバルな処理順序は取得側の ACK 付き runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）によって保証されます。一度に 1 件の update のみを取得し（`UPDATE_POLL_LIMIT`）、そのミドルウェアチェーンが完全に完了するまで次の `getUpdates` を呼び出さないことで、システム全体で厳格な 1 件ずつの直列処理を実現しています。
 
 ```text

@@ -70,8 +70,8 @@
   - Disk I/O Worker 在启动时会核验 SQLite 完整性、JSONB 存储类、迁移版本、数据库时区标记、每行数据的编解码以及黑白名单的互斥性，任何一项校验失败都会终止启动，防止系统以部分损坏的状态运行。
 
 - **主线程通过有界 LRU 缓存进行同步鉴权**：
-  - 为了避免高频消息处理在鉴权时频繁发起跨线程请求，主线程维护了容量有限的 LRU 缓存（永久白名单、黑名单与临时广告免检各最多保存 `IDENTITY_READ_CACHE_MAX_ENTRIES` 项）。缓存中为 `null` 表示明确不在名单中（负缓存）。
-  - **按需批量预热**：每条消息在进入具体业务逻辑前，前置中间件会收集本条消息涉及的所有用户和频道身份，单次向 Disk I/O Worker 批量预取策略状态（单次最多 `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` 个）。后续的命令执行与权限判定直接同步读取主线程内存缓存，无需反复进行跨线程往返请求。
+  - 为了避免高频消息处理在鉴权时频繁发起跨线程请求，主线程维护一张容量为 `IDENTITY_READ_CACHE_MAX_ENTRIES` 的 LRU 缓存（`packages/cache/main/identityStorage.ts` 的 `identityPolicyCache`）：每个身份一个条目，固定持有永久白名单、黑名单与临时广告免检三项，三项随条目一起淘汰。某一项为 `undefined` 表示尚未加载，为 `null` 表示明确不在名单中（负缓存）；三项都已加载才算该身份已缓存。
+  - **按需批量预热**：每条消息在进入具体业务逻辑前，前置中间件会收集本条消息涉及的所有用户和频道身份，单次向 Disk I/O Worker 批量预取策略状态（单次最多 `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` 个），同一身份的三项一次写入同一条目。后续的命令执行与权限判定直接同步读取主线程内存缓存，无需反复进行跨线程往返请求。Disk I/O 侧的白名单、黑名单、临时免检批量读取与群状态 id 读取使用连接级预编译语句（id 列表经 `json_each` 占位传入），不在每次读取时重新拼装查询。
   - **冷读失败安全处理**：若跨线程预热读取失败，普通业务将安全降级（按未授权处理）；对于踢人、拉黑等破坏性批量操作，则直接取消执行，绝不把未知状态当成无保护状态。
   - **批量踢人例外（`/batch_kick`）**：批量踢人不依赖缓存是否常驻，而是在每个批次开始前直接冷读本批全部身份的永久策略并在局部持有。
 
@@ -133,6 +133,7 @@
 - **主线程独占 Telegram 网络连接**：
   - 真实的 grammY Bot 实例、底层 HTTP 请求与文件 CDN 下载能力仅归主线程独占。
   - AI Worker 与 Anti-Raid Worker 内部不包含 Bot Token 和网络客户端，需要调用 Telegram 接口时，必须通过进程内双工通道向主线程申请白名单允许的受限动作，由主线程出站总闸统一代理执行。
+  - Worker 的发送类请求（`sendMessage`、`sendSticker`、`sendPhoto`、`sendVoice`）只收回消息 id 与回复关系（`TelegramSentMessage`），图片另带按 `pickPhotoSize` 选中的那一档 `photo`：主线程先用完整结果登记自发消息，再投影后回传，其余请求的结果原样回传。目标专属消息（`sendEphemeralMessage`）与 `copyMessage`、`editMessageText`、`deleteEphemeralMessage`、`unbanChatSenderChat` 一样只在主线程提供。
 
 - **统一的出站请求闸门与 429 智能退避**：
   - 所有发往 Telegram 的请求统一由出站网关管理，并根据请求类型（普通群消息、查询、删除、禁言、踢人等）划分独立的调度车道。
@@ -256,9 +257,9 @@
 
 - **Update 分发链路与外闸设计**：
   - **命令外闸聚合**：所有斜杠命令必须收敛在单个 `:entities:bot_command` 外闸背后的子 Composer 中，严禁逐条直接挂载在 `bot` 根实例上。外闸使用 grammY 的 `matchFilter(":entities:bot_command")`，不带 `bot_command` 实体的消息能在一瞬间跳过整组命令匹配。
-  - **前置链批量注入**：从 update_id 记账到兜底消息处理的前置链（包含 Anti-Raid、gag、`/qa set` 投递的消息 ingress、命令外闸、中文动作命令外闸与消息兜底），按顺序放入数组并通过 `bot.use(...preamble)` 批量注册，执行顺序与认领生命周期由 grammY 统一调度。
+  - **前置链单点登记**：整条更新链只经 `app/registerHandlers.ts` 的一个 `bot.use` 登记，这一层完成 update_id 记账与 Bot 发言限流后进入 `app/updatePreamble.ts` 的续接链：运势回执 → 初始化网关 → 群升级迁移 → 身份预热 → 私聊中转 → Anti-Raid、gag、`/qa set` 三条认领型 ingress → 命令外闸 → 中文动作命令外闸 → 消息兜底 → 非消息 update 路由。各段按固定顺序同步调用下一段，只有真正碰到 I/O 时才返回 Promise。新增前置段必须插入这条续接链，不得另开 `bot.use` 或 `bot.on`；斜杠命令、中文动作命令与非消息 update 由三个 grammY `Composer` 承接，前置链在对应位置调用，未被认领时调用外层 `next` 恰好一次。`test/app/registerHandlers.test.ts` 断言 `bot.use` 只登记一次、`bot.on` 不被直接调用，`registered-middleware` 在热路径门禁中覆盖整条链。
   - **消息入口判据统一**：`message` 与 `channel_post` 的 ingress 与兜底处理不调用 `bot.on`，而是直接校验统一判据（`allowed_updates` 不含 `edited_*`，且 `ctx.msg` 等于 `message ?? channelPost`）。中文动作命令收敛在「原文首字符是 `/`」外闸下的子 Composer，该外闸是 `CJK_ACTION_COMMAND_PATTERN` 的严格超集。
-  - **同步 vs 异步 Promise 契约**：每条群消息前置的各 ingress 及其自身的管理员权限判定，统一返回 `boolean | Promise<boolean>`。稳定状态下同步返回布尔值（不分配 Promise 内存）；仅在需要现查网络权限、实际删除消息或等待落盘 barrier 时才返回 Promise，由 `app/registerHandlers.ts` 的 `claimOrContinue` 统一接管。`callback_query:data` 上的 `/wed` 与 `/qa query` 翻页使用同一返回类型：前缀未命中时同步返回 false。`dispatchCallbackQuery` 本身不是 `async`，两条都同步未命中时直接调用 `next()`；只有某一条返回 Promise 时才等待结果，再决定是否继续交给入群验证。
+  - **同步 vs 异步 Promise 契约**：每条群消息前置的各 ingress 及其自身的管理员权限判定，统一返回 `boolean | Promise<boolean>`。稳定状态下同步返回布尔值（不分配 Promise 内存）；仅在需要现查网络权限、实际删除消息或等待落盘 barrier 时才返回 Promise。消息类 ingress 的结果由 `app/updatePreamble.ts` 的续接函数就地判定：布尔值直接决定是否进入下一段，Promise 等待结果后再决定；按钮回调的认领由 `app/registerHandlers.ts` 的 `claimOrContinue` 接管。`callback_query:data` 上的 `/wed` 与 `/qa query` 翻页使用同一返回类型：前缀未命中时同步返回 false。`dispatchCallbackQuery` 本身不是 `async`，两条都同步未命中时直接调用 `next()`；只有某一条返回 Promise 时才等待结果，再决定是否继续交给入群验证。
   - **必须严格遵守 Promise 返回语义**：等待持久化确认的入口（如入群/离群服务消息、验证按钮交互）必须返回 Promise，若误写为同步返回，会导致 Telegram update 在数据尚未安全落盘前就被提前确认；相反，恒为假值的同步逻辑严禁声明为 `async`。测试中对这两种情况均有断言覆盖。
 
 - **`packages/workers/` 内自持的 Timer 必须调用 `unref()`**：
@@ -521,17 +522,17 @@
     - OpenAI：使用单条 user message，下含多个 `input_text`。
     - Anthropic：使用单条 user message 下的多个 `text` 块，当前会话按已定切点切分。
   - **防注入边界**：防注入总原则（区分数据与指令、伪造边界无效、不暴露内部结构）在系统提示词中声明一次，不逐段重复。转录数据中出现的同名标签或状态声明一律视为纯文本，不产生控制效果。
-  - **系统提示词严格逐字恒定**：系统提示词仅通过独立的系统字段传入，动态的状态数据（时间、心情、工具状态）必须放入 user 内容中的运行时状态区块，严禁混入系统提示词。
+  - **系统提示词严格逐字恒定**：系统提示词仅通过独立的系统字段传入，动态的状态数据（时间、心情、工具状态）必须放入 user 内容中的运行时状态区块，严禁混入系统提示词。人设、行动与停止段、本地 `web_search` 模式三项都与上一轮相等时，AI Worker 复用上一轮拼好的同一个系统提示词字符串（`packages/cache/workers/aiChat/replyPrefix.ts` 的单槽），任一项不等即重拼并替换。
 
 - **Gemini 显式上下文缓存（Explicit Context Cache）**：
   - **两套请求结构**：每轮回复的第 1 次请求，仅当本群还没有触发时刻记录、或距记录超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS`，且显式缓存就绪时，引用显式缓存（`cachedContent`），请求体只包含 `contents`，不携带 `systemInstruction`、`tools`、`toolConfig`。距记录落在该时长内（含相等）、缓存未就绪，或会话固定的 text 快照已被热重载替换时，发送完整配置。第 2 次及后续往返一律携带静态 `systemInstruction` 与工具配置，由服务端隐式前缀缓存接管。触发时刻是本群上一次成功的 `generateContent` 的发出时刻，取本线程单调时钟 `performance.now()`，按群各记一个内存值（`chatId` 经回复会话参数传入，只有 Gemini 实现读取），其它群的请求不影响本群。失败的请求不写入；并行请求乱序完成时，较早的发出时刻不覆盖较晚的记录；显式缓存被拒后的完整结构补发按补发时刻计。`/ai_chat disable`、`/clear_context`、群级清理、记忆淘汰与停机时删除本群的值，AI Worker 维护节拍删除已超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` 的值（与没有记录等价），`agent.text` 热重载不清除。Worker 换 isolate 后全部为空，各群下一次回复的第 1 次请求按上述条件决定。
   - **显式缓存内容**：仅缓存「系统提示词 + 工具声明 + toolConfig」，不缓存参考记忆、转录与运行时状态。
-  - **分槽管理**：按系统提示词指纹分槽，全群共享同一槽位。槽数上限为 `GEMINI_TEXT_CACHE_MAX_SLOTS`，超出时按 `lastUsedAt` 淘汰最久未用的槽及服务端条目。`displayName` 格式为 `copy-ninjia:text:<槽指纹>:<内容指纹>`。
+  - **分槽管理**：按系统提示词指纹分槽，全群共享同一槽位。槽数上限为 `GEMINI_TEXT_CACHE_MAX_SLOTS`，超出时按 `lastUsedAt` 淘汰最久未用的槽及服务端条目。`displayName` 格式为 `copy-ninjia:text:<槽指纹>:<内容指纹>`。模型、系统指令、工具声明 JSON 与 toolConfig 都与上一轮相等时复用上一轮算好的两段指纹，任一项不等即重算。
   - **非阻塞取用**：调用 `acquireGeminiContextCache` 时从不等待创建完成。首次使用时当前请求直接发送完整配置，并在后台启动扫描与创建；命中缓存时刷新 `lastUsedAt`；若剩余生命周期不足 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS`，在后台静默续期回完整 TTL。
   - **失败退避**：端点报 400 拒绝时记录指纹并进入冷却；达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次后放弃为该内容建缓存，回退为全量请求。
 
 - **提示词缓存断点（Prompt Cache Breakpoints）**：
-  - OpenAI 协议请求确保稳定内容在前、动态内容在后，并携带按群分桶的 `prompt_cache_key`；对于官方端点且模型名以 `OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX` 开头的模型，在最后一个稳定区块后设置显式 `prompt_cache_breakpoint`。
+  - OpenAI 协议请求确保稳定内容在前、动态内容在后，并携带按群分桶的 `prompt_cache_key`。该键的指纹对系统提示词与工具声明 JSON 两段复用上一轮的 SHA-256 哈希状态（`libs/prefixFingerprint.ts` 的 `stablePrefixFingerprintWithSlot`），前提是两段内容都与上一轮相等，否则重建；摘要与对全部分段直接哈希逐字节一致。对于官方端点且模型名以 `OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX` 开头的模型，在最后一个稳定区块后设置显式 `prompt_cache_breakpoint`。
   - Anthropic 会话依次在以下边界设置缓存断点：系统提示词末尾、最后一个稳定区块末尾、当前会话最后一个已定段末尾，以及请求顶层的自动断点。
 
 - **直接唤起时的阅读顺序与防混淆**：
@@ -573,6 +574,7 @@
 
 - **验证终态重试与落盘保障**：
   - 单个进程内验证终态操作最多重试 `VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS` 次。
+  - Disk I/O Worker 处理一个操作批时，批内的验证关键写（新建、终态与删除）只登记，整批处理完（含抛错）后统一追加并 fsync 一次，`verificationPersisted` 回执在这次 fsync 之后发出，操作批的接收回执晚于它；批外单独到达的关键写当场落盘。
   - 终态操作完成后，必须等待最终 revision 的落盘回执，确认安全持久化后再清理内存记录。在等待回执期间若 revision 递增，需继续确认新 revision，绝不因达到重试次数上限而推迟已成功的终态。
   - 终态的 Worker 本地执行门（`effectStarted`、`executionStarted`）不持久化，只经状态机事件改写：`kickRequestSent` 在私密模式踢人请求同步发出前置位 `executionStarted`，`kickRequestFailed` 在请求返回而未结算时复位它，`terminalAttemptUnsettled` 在本轮终态动作未结算时复位执行门（`kickPending` 两道门一并复位）。三个事件都带发起尝试时的状态对象，状态已换代时不生效。
   - 本轮未结算时由 `retryTerminalAttempt` 先投递 `terminalAttemptUnsettled`，再按该条目的退避序列排一次重试（`kickPending` 投递 `kickRetry`，`checkingInviter` 与 `expelling` 投递 `terminalPersisted`）；取得终态许可的那批副作用中途 reject（如 Worker→主线程请求失败）时同样走这一步，错误照常记日志；条目已换状态时不动。超时踢人的战报经 `runTelegramAction` 发送，请求 reject 按「没发出去」走同一退避。
@@ -771,7 +773,7 @@
 - **权限与准入网关**：
   - `/wed` 命令与回调均置于统一 `/init` 网关之后；记录新成员要求 `isInitEnabled === true`。未开启初始化的群发生退群时，仅在已有滑窗中剔除 ID，不创建群状态也不放行业务。
 - **缓存与持久化架构**：
-  - **成员权威缓存**：`packages/cache/main/wedMembers.ts` 为每个群长期复用单一 `Map<number, number>`（成员 ID → 进入时间），作为容量 `WED_MEMBER_LIMIT` 的进入时间滑窗：插入顺序即进入顺序，新成员的进入时间取当前时刻与已分配最大进入时间的较大值，满额时先挤出首项（进入最早）；窗口内成员再次发言不刷新进入时间。频道、回复/转发来源、匿名身份发言不计入候选。
+  - **成员权威缓存**：`packages/cache/main/wedMembers.ts` 为每个群长期复用单一 `FifoMap<number, number>`（`packages/libs/fifoMap.ts`，成员 ID → 进入时间），作为容量 `WED_MEMBER_LIMIT` 的进入时间滑窗：插入顺序即进入顺序，新成员的进入时间取当前时刻与已分配最大进入时间的较大值，满额时先挤出首项（进入最早）；窗口内成员再次发言不刷新进入时间。频道、回复/转发来源、匿名身份发言不计入候选。
   - **交互会话缓存**：`packages/cache/main/wed.ts` 管理交互状态与头像探测，每人每群仅占 1 个会话，每群上限 `WED_SESSION_LIMIT` 个会话。群列表受 `STATE_MANAGED_CHAT_LIMIT` 约束，不执行 LRU 淘汰。
   - **落盘策略**：仅在实际增删或挤出成员时自增 revision 并标脏。复用 Disk I/O 的 `FLUSH_MAX_ENTRIES` 与 `FLUSH_INTERVAL_MS` 阈值，跨线程只投递扁平的 `[id, enteredAt, ...]` 快照，由 Disk I/O Worker 写成 `{ id, enteredAt }` 数组，通过临时文件、fsync 与原子 rename 写入 `memory/wed/<chatId>.json`。
   - **整群清空保证**：`purgeWedMembers` 移除内存集合后，向 `pendingWedMemberDeletes` 登记单调递增编号并向 Worker 投递。只有收到精确持久化确认后才注销待决任务。停机或重建时重放最新状态。
@@ -963,7 +965,7 @@
 - **直答匹配与 AI 隔离**：
   - 问题文本在写入时执行 trim，热匹配路径不做全局归一化；首实体为前导 `@机器人` 时仅对 bot 用户名忽略大小写，问题文本本身仍要求一字不差匹配。
   - 直答优先于 AI 闲聊触发，且不受 `/quiet` 静音抑制；命中后立即发送答案并终止下游处理，该交互不进入 AI 滚动上下文。
-  - 模型侧查询工具（`group_qa_query` 与 `group_qa_answer`）所需上下文直接搭载于主线程的 `trigger` 消息中，不建立跨线程镜像，不支持模糊匹配。落盘遵循统一的 write-through 与精确 revision ACK 规范。
+  - 模型侧查询工具（`group_qa_query` 与 `group_qa_answer`）所需上下文随主线程的 `trigger` 消息投递：主线程热读副本另持本群问答的 JSON 文本（`[问题, 回答]` 对的数组）与条数，在问答写入、删除与群 teardown 时失效、下次需要时重建；trigger 只带这两项原始值，AI Worker 只在工具调用时解析 JSON。不建立跨线程镜像，不支持模糊匹配。落盘遵循统一的 write-through 与精确 revision ACK 规范。
 
 ### 黑名单与广告检测
 
@@ -1042,7 +1044,8 @@
 #### 黑名单移除 outbox
 
 - **跨进程持久化保证**：
-  - 黑名单封禁批次通过 Disk I/O Worker 写入 SQLite `pending_blocked_removals` 表。只有在事务落盘（durable）并收到 revision ACK 后，主线程才向 Anti-Raid Worker 派发任务并确认 update。
+  - 黑名单封禁批次通过 Disk I/O Worker 写入 SQLite `pending_blocked_removals` 表。写入按行进行：主线程每改动一行只为该行发一条 `blocklistRemovalWrite`（该行当前值，行已不在即删除），带单调 revision；Disk I/O Worker 事务提交后按 `(removalId, revision)` 回精确 ACK，迟到的旧 ACK 不清掉更新的写。Disk I/O Worker 重建时主线程只按 revision 顺序重放尚未确认的行。只有 outbox 全部行的最近一次写入都已落盘（durable）后，主线程才向 Anti-Raid Worker 派发任务并确认 update。
+  - Disk I/O Worker 收下一行之前严格解码并核对它对黑名单的引用：指名行冻结的 `userIds` 必须都在有效黑名单里，补扫行要求有效黑名单非空。删除黑名单身份时反向核对没有指名行仍冻结它、删除后有补扫行时黑名单不为空；主线程 `unblockUser` 必须先发出行改动、再发出黑名单删除。镜像重放区间（`storageFlushHold`）内黑名单先于 outbox 到达且不提交，删除侧核对在该区间内跳过，由启动期校验复核已提交状态。
   - 补扫任务（`probeMembership: true`）在 outbox 中仅持久化群 ID，执行时以稳定游标按 `BLOCKLIST_SWEEP_PAGE_SIZE` 分页拉取最新黑名单主键；秒踢任务（`probeMembership: false`）则冻结当时确定的 `userIds` 列表。
   - 启动阶段自动从 SQLite 恢复未结任务并重放；outbox 容量上限 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`，校验失败安全退出。
 

@@ -34,7 +34,6 @@ export type ScenarioName =
   | "wed-member-growth"
   | "wed-member-churn"
   | "wed-member-chat-switch"
-  | "registered-middleware"
   | "sender-no-username"
   | "sender-mixed-identity"
   | "ai-activity-lru-miss"

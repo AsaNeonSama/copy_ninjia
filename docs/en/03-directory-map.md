@@ -54,7 +54,7 @@ This document answers the core organizational question: **"Where does existing c
   - **Key Modules**: `schema/` (migrations), `codec/`, `interact/` (connection, transactions, migrations, queries).
 - **`packages/libs/`**
   - **Responsibility**: Reusable, domain-agnostic foundation utilities (bounded queues, atomic filesystem operations, markdown escaping, and concurrency barriers).
-  - **Key Modules**: `flushBarrier.ts`, `boundedSettledBatch.ts`, `telegramMarkdown.ts`, `workerRequestTable.ts`.
+  - **Key Modules**: `flushBarrier.ts`, `fifoMap.ts` and `lruCache.ts`, `boundedSettledBatch.ts`, `telegramMarkdown.ts`, `workerRequestTable.ts`.
 - **`packages/workers/`**
   - **Responsibility**: Thread entry points and isolated worker-side implementations for all three Worker processes.
   - **Key Modules**: `aiChatWorker.ts`, `antiRaidWorker.ts`, `diskIOWorker.ts`, `businessWorkerPort.ts`.

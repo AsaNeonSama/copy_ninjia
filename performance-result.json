@@ -6,9 +6,8 @@
         "bunRevision": "c6da4a4d3010e5553438c60f6bd76d981976867c",
         "notes": [
           "热路径校准固定 Bun 版本与完整构建 revision；版本或构建不一致时在创建基准子进程前拒绝比较。",
-          "除 pending-verification-lookup 以外的场景于 2026-10-10T06:36:49Z（JST 15:36）至 2026-10-10T06:47:26Z（JST 15:47）之间分 2 轮，每轮每场景交替运行 10 个独立稳态 profile 进程与 10 个 retained 进程，合计各 20 个；复用生产场景和标准预热，逐进程执行 GC、JIT 与内存硬门禁。",
-          "软阈值为本次各场景最慢 median ns/op 的 1.5 倍向上取整，为 VPS 时段性波动留余量；GC、JIT 和内存硬上限单独验收。",
-          "pending-verification-lookup 于 2026-10-11T14:19:59Z（JST 23:19）至 2026-10-11T14:23:21Z（JST 23:23）之间分 2 轮单独校准，每轮交替运行 10 个独立稳态 profile 进程与 10 个 retained 进程，合计各 20 个；Bun 构建、场景预热与逐进程硬门禁与其余场景相同。其各进程样本数不低于、内存读数不高于 limits 注记中的本次读数。"
+          "全部场景于 2026-10-12T14:52:28Z（JST 23:52）至 2026-10-12T15:00:15Z（JST 00:00）之间分 2 轮，每轮每场景交替运行 10 个独立稳态 profile 进程与 10 个 retained 进程，合计各 20 个；复用生产场景和标准预热，逐进程执行 GC、JIT 与内存硬门禁。",
+          "软阈值为本次各场景最慢 median ns/op 的 1.5 倍向上取整，为 VPS 时段性波动留余量；GC、JIT 和内存硬上限单独验收。"
         ]
       },
       "limits": {
@@ -20,417 +19,550 @@
         "maxRetainedObjectGrowth": 4096,
         "notes": {
           "minProfileSamples": [
-            "稳态 profile 至少需要的样本数；本次各进程最少观测 104 个样本。"
+            "稳态 profile 至少需要的样本数；本次各进程最少观测 65 个样本。"
           ],
           "maxRssBytes": [
-            "采样峰值与进程生命周期高水位的共同硬上限；本次最高分别为 184971264 和 184971264 字节。"
+            "采样峰值与进程生命周期高水位的共同硬上限；本次最高分别为 152256512 和 152424448 字节。"
           ],
           "maxSampledHeapGrowthBytes": [
-            "正式采样相对预热基线的堆增长上限；本次最高 50488064 字节。"
+            "正式采样相对预热基线的堆增长上限；本次最高 22754315 字节。"
           ],
           "maxRetainedHeapGrowthBytes": [
-            "full GC 后的 JSC 堆增量上限；本次最高 27064 字节。"
+            "full GC 后的 JSC 堆增量上限；本次最高 31732 字节。"
           ],
           "maxRetainedExtraMemoryGrowthBytes": [
-            "full GC 后的 JSC 堆外内存增量上限；本次最高 17741 字节。"
+            "full GC 后的 JSC 堆外内存增量上限；本次最高 24404 字节。"
           ],
           "maxRetainedObjectGrowth": [
-            "full GC 后的对象增量上限；本次最高 113 个对象。"
+            "full GC 后的对象增量上限；本次最高 112 个对象。"
           ]
         }
       },
       "scenarios": {
-        "incoming-message-spine": {
-          "medianNsPerOpReportThreshold": 282,
+        "registered-middleware": {
+          "medianNsPerOpReportThreshold": 1596,
           "measured": {
-            "slowestMedianNsPerOp": 187.735545,
+            "slowestMedianNsPerOp": 1063.7109,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 232.28777099999996,
+                "elapsedMs": 110.53557799999999,
+                "pauseCount": 6,
+                "pauseMs": 5.835134,
+                "gcPercent": 5.278964570122391
+              },
+              {
+                "elapsedMs": 106.10547200000002,
+                "pauseCount": 5,
+                "pauseMs": 5.186823,
+                "gcPercent": 4.888365229646214
+              },
+              {
+                "elapsedMs": 103.19113299999998,
+                "pauseCount": 6,
+                "pauseMs": 5.658830999999999,
+                "gcPercent": 5.483834546132951
+              },
+              {
+                "elapsedMs": 101.47188500000004,
+                "pauseCount": 5,
+                "pauseMs": 5.070566,
+                "gcPercent": 4.997015675819956
+              },
+              {
+                "elapsedMs": 101.94227000000001,
+                "pauseCount": 6,
+                "pauseMs": 5.2469079999999995,
+                "gcPercent": 5.146940518393399
+              },
+              {
+                "elapsedMs": 103.21945000000005,
+                "pauseCount": 5,
+                "pauseMs": 4.989674000000001,
+                "gcPercent": 4.834044358887786
+              },
+              {
+                "elapsedMs": 102.62248299999999,
+                "pauseCount": 5,
+                "pauseMs": 5.041406,
+                "gcPercent": 4.912574567115084
+              },
+              {
+                "elapsedMs": 100.58652600000005,
+                "pauseCount": 5,
+                "pauseMs": 4.939679,
+                "gcPercent": 4.910875438724266
+              },
+              {
+                "elapsedMs": 98.75185799999997,
+                "pauseCount": 5,
+                "pauseMs": 5.3445350000000005,
+                "gcPercent": 5.4120855123556275
+              },
+              {
+                "elapsedMs": 103.814887,
+                "pauseCount": 6,
+                "pauseMs": 5.626333000000001,
+                "gcPercent": 5.4195820682249565
+              },
+              {
+                "elapsedMs": 106.764317,
+                "pauseCount": 5,
+                "pauseMs": 5.201687000000001,
+                "gcPercent": 4.872121272503435
+              },
+              {
+                "elapsedMs": 98.06736800000004,
+                "pauseCount": 5,
+                "pauseMs": 4.379512,
+                "gcPercent": 4.465819863749171
+              },
+              {
+                "elapsedMs": 101.55630500000001,
+                "pauseCount": 6,
+                "pauseMs": 6.280251999999999,
+                "gcPercent": 6.184009944040401
+              },
+              {
+                "elapsedMs": 107.15878499999997,
+                "pauseCount": 6,
+                "pauseMs": 6.319001999999999,
+                "gcPercent": 5.896858573004538
+              },
+              {
+                "elapsedMs": 111.20597300000003,
+                "pauseCount": 6,
+                "pauseMs": 5.844023,
+                "gcPercent": 5.255134092482603
+              },
+              {
+                "elapsedMs": 101.97561499999995,
+                "pauseCount": 5,
+                "pauseMs": 4.513013,
+                "gcPercent": 4.425580566491314
+              },
+              {
+                "elapsedMs": 102.020399,
+                "pauseCount": 5,
+                "pauseMs": 4.407446,
+                "gcPercent": 4.320161500250553
+              },
+              {
+                "elapsedMs": 106.31292199999996,
+                "pauseCount": 6,
+                "pauseMs": 5.576034,
+                "gcPercent": 5.2449259178484455
+              },
+              {
+                "elapsedMs": 108.72216200000003,
+                "pauseCount": 6,
+                "pauseMs": 5.856231999999999,
+                "gcPercent": 5.386419743934082
+              },
+              {
+                "elapsedMs": 107.21216699999997,
+                "pauseCount": 5,
+                "pauseMs": 4.965388999999999,
+                "gcPercent": 4.631367072358495
+              }
+            ],
+            "note": "固定 Bun 与输入，预热后在 20 个独立进程中以 JSC logGC 计量正式窗口内的每段暂停。并发 GC 只累计暂停段，不累计后台收集时间。"
+          }
+        },
+        "incoming-message-spine": {
+          "medianNsPerOpReportThreshold": 246,
+          "measured": {
+            "slowestMedianNsPerOp": 163.976585,
+            "processes": 20
+          },
+          "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
+          "gc": {
+            "samples": [
+              {
+                "elapsedMs": 232.00254400000006,
+                "pauseCount": 7,
+                "pauseMs": 6.810625000000001,
+                "gcPercent": 2.935582033962524
+              },
+              {
+                "elapsedMs": 226.07070599999997,
                 "pauseCount": 8,
-                "pauseMs": 8.878039999999999,
-                "gcPercent": 3.822000599420277
+                "pauseMs": 8.099264999999999,
+                "gcPercent": 3.5826247209578757
               },
               {
-                "elapsedMs": 299.148078,
-                "pauseCount": 1,
-                "pauseMs": 2.448902,
-                "gcPercent": 0.8186253498175575
+                "elapsedMs": 193.97522200000003,
+                "pauseCount": 0,
+                "pauseMs": 0,
+                "gcPercent": 0
               },
               {
-                "elapsedMs": 253.38437200000004,
+                "elapsedMs": 218.09017100000005,
+                "pauseCount": 0,
+                "pauseMs": 0,
+                "gcPercent": 0
+              },
+              {
+                "elapsedMs": 232.56755099999998,
+                "pauseCount": 7,
+                "pauseMs": 7.085434,
+                "gcPercent": 3.046613325691339
+              },
+              {
+                "elapsedMs": 198.50040099999995,
+                "pauseCount": 0,
+                "pauseMs": 0,
+                "gcPercent": 0
+              },
+              {
+                "elapsedMs": 195.35276700000003,
+                "pauseCount": 0,
+                "pauseMs": 0,
+                "gcPercent": 0
+              },
+              {
+                "elapsedMs": 219.53178000000003,
                 "pauseCount": 8,
-                "pauseMs": 8.884882,
-                "gcPercent": 3.506483817399756
+                "pauseMs": 7.368658999999999,
+                "gcPercent": 3.356534074474319
               },
               {
-                "elapsedMs": 205.54462699999993,
+                "elapsedMs": 244.05075699999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 211.02286200000003,
-                "pauseCount": 0,
-                "pauseMs": 0,
-                "gcPercent": 0
-              },
-              {
-                "elapsedMs": 233.093928,
+                "elapsedMs": 225.13081599999998,
                 "pauseCount": 8,
-                "pauseMs": 8.876878999999999,
-                "gcPercent": 3.8082841008196486
+                "pauseMs": 7.695502000000001,
+                "gcPercent": 3.418235733663401
               },
               {
-                "elapsedMs": 216.593092,
-                "pauseCount": 0,
-                "pauseMs": 0,
-                "gcPercent": 0
-              },
-              {
-                "elapsedMs": 234.16675400000003,
+                "elapsedMs": 212.65461800000003,
                 "pauseCount": 8,
-                "pauseMs": 8.474293,
-                "gcPercent": 3.6189138104549197
+                "pauseMs": 7.759161000000001,
+                "gcPercent": 3.648715025788906
               },
               {
-                "elapsedMs": 210.72326499999997,
+                "elapsedMs": 222.853249,
+                "pauseCount": 7,
+                "pauseMs": 6.418859,
+                "gcPercent": 2.880307569579118
+              },
+              {
+                "elapsedMs": 185.47814500000004,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 198.06578899999994,
+                "elapsedMs": 205.738385,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 204.603994,
+                "elapsedMs": 187.624415,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 198.724105,
-                "pauseCount": 0,
-                "pauseMs": 0,
-                "gcPercent": 0
-              },
-              {
-                "elapsedMs": 196.60144899999995,
-                "pauseCount": 0,
-                "pauseMs": 0,
-                "gcPercent": 0
-              },
-              {
-                "elapsedMs": 241.61320599999993,
+                "elapsedMs": 230.84173400000003,
                 "pauseCount": 8,
-                "pauseMs": 8.502695000000001,
-                "gcPercent": 3.5191350426433248
+                "pauseMs": 8.089948999999999,
+                "gcPercent": 3.504543506851321
               },
               {
-                "elapsedMs": 235.872068,
+                "elapsedMs": 228.28925899999996,
                 "pauseCount": 8,
-                "pauseMs": 8.911928000000001,
-                "gcPercent": 3.778288830706314
+                "pauseMs": 7.891259,
+                "gcPercent": 3.4566930720117677
               },
               {
-                "elapsedMs": 229.20623000000006,
-                "pauseCount": 8,
-                "pauseMs": 8.382987,
-                "gcPercent": 3.657399277497823
-              },
-              {
-                "elapsedMs": 241.71481900000003,
-                "pauseCount": 8,
-                "pauseMs": 8.822934,
-                "gcPercent": 3.650141946820397
-              },
-              {
-                "elapsedMs": 226.11354800000004,
+                "elapsedMs": 195.84371099999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 196.36400800000007,
+                "elapsedMs": 223.79272899999995,
+                "pauseCount": 7,
+                "pauseMs": 7.5865469999999995,
+                "gcPercent": 3.389988152832258
+              },
+              {
+                "elapsedMs": 200.14656100000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
-              },
-              {
-                "elapsedMs": 227.643323,
-                "pauseCount": 8,
-                "pauseMs": 8.555836000000001,
-                "gcPercent": 3.7584392492812104
               }
             ],
             "note": "固定 Bun 与输入，预热后在 20 个独立进程中以 JSC logGC 计量正式窗口内的每段暂停。并发 GC 只累计暂停段，不累计后台收集时间。"
           }
         },
         "ai-media-direct-trigger": {
-          "medianNsPerOpReportThreshold": 198,
+          "medianNsPerOpReportThreshold": 155,
           "measured": {
-            "slowestMedianNsPerOp": 131.83965,
+            "slowestMedianNsPerOp": 103.03693666666666,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 323.094476,
-                "pauseCount": 82,
-                "pauseMs": 68.61028599999999,
-                "gcPercent": 21.23536336783424
-              },
-              {
-                "elapsedMs": 246.71715999999998,
+                "elapsedMs": 242.91485099999994,
                 "pauseCount": 81,
-                "pauseMs": 61.81447600000001,
-                "gcPercent": 25.054793918671898
+                "pauseMs": 64.282327,
+                "gcPercent": 26.46290530832963
               },
               {
-                "elapsedMs": 310.90344699999997,
-                "pauseCount": 82,
-                "pauseMs": 69.93901400000001,
-                "gcPercent": 22.495412860443462
-              },
-              {
-                "elapsedMs": 250.303905,
+                "elapsedMs": 237.716313,
                 "pauseCount": 81,
-                "pauseMs": 65.23068999999998,
-                "gcPercent": 26.060596218025438
+                "pauseMs": 61.92083800000002,
+                "gcPercent": 26.048207301616706
               },
               {
-                "elapsedMs": 242.65623699999998,
+                "elapsedMs": 244.47423200000003,
                 "pauseCount": 81,
-                "pauseMs": 63.06435800000001,
-                "gcPercent": 25.989176614487768
+                "pauseMs": 64.76883600000002,
+                "gcPercent": 26.49311359734633
               },
               {
-                "elapsedMs": 243.09221800000006,
+                "elapsedMs": 244.23190899999997,
                 "pauseCount": 81,
-                "pauseMs": 62.590640999999984,
-                "gcPercent": 25.747694235115322
+                "pauseMs": 64.32838000000001,
+                "gcPercent": 26.33905629423714
               },
               {
-                "elapsedMs": 245.37279400000006,
+                "elapsedMs": 238.86753799999997,
                 "pauseCount": 81,
-                "pauseMs": 61.31634500000001,
-                "gcPercent": 24.98905604017371
+                "pauseMs": 60.809212999999986,
+                "gcPercent": 25.45729466178028
               },
               {
-                "elapsedMs": 247.12055100000003,
-                "pauseCount": 82,
-                "pauseMs": 63.876073000000005,
-                "gcPercent": 25.848142836165817
-              },
-              {
-                "elapsedMs": 245.45979599999998,
+                "elapsedMs": 247.027894,
                 "pauseCount": 81,
-                "pauseMs": 65.46739299999999,
-                "gcPercent": 26.67133032246144
+                "pauseMs": 63.337886000000005,
+                "gcPercent": 25.63997327362553
               },
               {
-                "elapsedMs": 247.81144800000004,
+                "elapsedMs": 239.80629299999993,
                 "pauseCount": 81,
-                "pauseMs": 63.52689699999999,
-                "gcPercent": 25.635174449244968
+                "pauseMs": 60.955598,
+                "gcPercent": 25.418681568961173
               },
               {
-                "elapsedMs": 238.33738599999992,
+                "elapsedMs": 247.73635600000006,
                 "pauseCount": 81,
-                "pauseMs": 59.860848,
-                "gcPercent": 25.11601264268293
+                "pauseMs": 62.774835999999986,
+                "gcPercent": 25.339371666546985
               },
               {
-                "elapsedMs": 243.74516200000005,
+                "elapsedMs": 239.31330099999997,
                 "pauseCount": 81,
-                "pauseMs": 63.413685,
-                "gcPercent": 26.016387147819568
+                "pauseMs": 60.80777100000002,
+                "gcPercent": 25.40927342772311
               },
               {
-                "elapsedMs": 245.25913899999995,
+                "elapsedMs": 304.675422,
                 "pauseCount": 81,
-                "pauseMs": 61.75754999999999,
-                "gcPercent": 25.180529562243958
+                "pauseMs": 61.63489699999999,
+                "gcPercent": 20.229691189202647
               },
               {
-                "elapsedMs": 235.68585000000007,
+                "elapsedMs": 228.681193,
                 "pauseCount": 81,
-                "pauseMs": 60.08848499999999,
-                "gcPercent": 25.49516018887005
+                "pauseMs": 57.80242299999999,
+                "gcPercent": 25.276421835004154
               },
               {
-                "elapsedMs": 233.79481599999997,
+                "elapsedMs": 286.12102000000004,
                 "pauseCount": 81,
-                "pauseMs": 59.473648,
-                "gcPercent": 25.43839466483295
+                "pauseMs": 59.47708,
+                "gcPercent": 20.787385701337143
               },
               {
-                "elapsedMs": 306.3226240000001,
+                "elapsedMs": 286.601837,
                 "pauseCount": 81,
-                "pauseMs": 65.31952799999999,
-                "gcPercent": 21.32376875956768
+                "pauseMs": 57.79855299999999,
+                "gcPercent": 20.166846662605302
               },
               {
-                "elapsedMs": 262.42131299999994,
+                "elapsedMs": 287.568072,
                 "pauseCount": 81,
-                "pauseMs": 67.53361599999998,
-                "gcPercent": 25.73480607499285
+                "pauseMs": 59.13709699999999,
+                "gcPercent": 20.564555928865424
               },
               {
-                "elapsedMs": 243.83157499999993,
+                "elapsedMs": 303.2028,
                 "pauseCount": 81,
-                "pauseMs": 62.336458,
-                "gcPercent": 25.565375608142638
+                "pauseMs": 58.09656600000001,
+                "gcPercent": 19.160959595359937
               },
               {
-                "elapsedMs": 242.32677999999999,
+                "elapsedMs": 227.84653800000007,
                 "pauseCount": 81,
-                "pauseMs": 62.458824000000014,
-                "gcPercent": 25.774627137784776
+                "pauseMs": 57.409414,
+                "gcPercent": 25.19652679559256
               },
               {
-                "elapsedMs": 253.26784800000001,
+                "elapsedMs": 241.57822399999992,
                 "pauseCount": 81,
-                "pauseMs": 69.26520400000001,
-                "gcPercent": 27.348597363215248
+                "pauseMs": 62.15054400000001,
+                "gcPercent": 25.726881740797975
+              },
+              {
+                "elapsedMs": 289.199643,
+                "pauseCount": 81,
+                "pauseMs": 58.88887799999999,
+                "gcPercent": 20.362707709151632
+              },
+              {
+                "elapsedMs": 243.20903100000004,
+                "pauseCount": 81,
+                "pauseMs": 60.838145,
+                "gcPercent": 25.01475572261952
+              },
+              {
+                "elapsedMs": 240.03347799999995,
+                "pauseCount": 81,
+                "pauseMs": 60.36641699999999,
+                "gcPercent": 25.149165650968076
               }
             ],
             "note": "固定 Bun 与输入，预热后在 20 个独立进程中以 JSC logGC 计量正式窗口内的每段暂停。并发 GC 只累计暂停段，不累计后台收集时间。"
           }
         },
         "sender-stable-username": {
-          "medianNsPerOpReportThreshold": 55,
+          "medianNsPerOpReportThreshold": 47,
           "measured": {
-            "slowestMedianNsPerOp": 36.04184,
+            "slowestMedianNsPerOp": 31.305671,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 194.07048499999996,
+                "elapsedMs": 193.18429199999997,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 202.859618,
+                "elapsedMs": 191.394544,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 202.72598700000003,
+                "elapsedMs": 196.32862,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 206.95313900000002,
+                "elapsedMs": 212.40160000000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 209.64665200000002,
+                "elapsedMs": 193.21317399999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 213.67782700000004,
+                "elapsedMs": 197.192182,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 204.64964600000002,
+                "elapsedMs": 194.77432100000004,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 208.39146600000004,
+                "elapsedMs": 198.85564399999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 193.37956299999996,
+                "elapsedMs": 194.934192,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 194.74209299999995,
+                "elapsedMs": 194.32353899999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 194.56521300000003,
+                "elapsedMs": 197.80480300000005,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 213.114572,
+                "elapsedMs": 200.42199699999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 193.179015,
+                "elapsedMs": 195.11938799999996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 198.95446700000002,
+                "elapsedMs": 193.80397999999997,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 203.91688000000005,
+                "elapsedMs": 192.002501,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 234.42000699999994,
+                "elapsedMs": 202.215664,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 215.618334,
+                "elapsedMs": 191.810653,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 194.819866,
+                "elapsedMs": 192.73920600000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 196.97481400000004,
+                "elapsedMs": 192.063217,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 193.18546400000002,
+                "elapsedMs": 200.837357,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
@@ -440,130 +572,130 @@
           }
         },
         "luck-receipt-fast-path": {
-          "medianNsPerOpReportThreshold": 34,
+          "medianNsPerOpReportThreshold": 35,
           "measured": {
-            "slowestMedianNsPerOp": 22.4988295,
+            "slowestMedianNsPerOp": 23.0855835,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 297.89549700000003,
+                "elapsedMs": 311.250727,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 298.77134099999995,
+                "elapsedMs": 286.19690499999996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 305.290371,
+                "elapsedMs": 311.626521,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 293.841135,
+                "elapsedMs": 287.70995999999997,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 297.331267,
+                "elapsedMs": 282.05307600000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 300.796389,
+                "elapsedMs": 291.21063300000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 294.265105,
+                "elapsedMs": 292.530026,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 302.962902,
+                "elapsedMs": 290.713793,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 309.98387099999997,
+                "elapsedMs": 307.11547700000006,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 298.07059,
+                "elapsedMs": 312.179122,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 294.653301,
+                "elapsedMs": 290.99507000000006,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 301.29612799999995,
+                "elapsedMs": 302.406756,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 292.030102,
+                "elapsedMs": 289.886086,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 290.845115,
+                "elapsedMs": 281.5934960000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 286.63725600000004,
+                "elapsedMs": 292.89638399999995,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 291.57445000000007,
+                "elapsedMs": 291.077928,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 297.66082299999994,
+                "elapsedMs": 279.49254,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 296.67458300000004,
+                "elapsedMs": 288.74964800000004,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 301.54807600000004,
+                "elapsedMs": 303.431169,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 301.44615200000004,
+                "elapsedMs": 287.84768699999995,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
@@ -573,130 +705,130 @@
           }
         },
         "ai-activity-window": {
-          "medianNsPerOpReportThreshold": 67,
+          "medianNsPerOpReportThreshold": 71,
           "measured": {
-            "slowestMedianNsPerOp": 44.24476,
+            "slowestMedianNsPerOp": 47.09353,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 152.65844299999998,
+                "elapsedMs": 156.190386,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 151.43908100000004,
+                "elapsedMs": 146.66846999999996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 145.74518799999998,
+                "elapsedMs": 147.145308,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 146.04531200000002,
+                "elapsedMs": 130.474879,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 151.67994,
+                "elapsedMs": 133.96367299999997,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 149.987928,
+                "elapsedMs": 144.64160800000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 160.10192999999998,
+                "elapsedMs": 149.31086200000004,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 153.88743499999998,
+                "elapsedMs": 139.87667499999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 154.926849,
+                "elapsedMs": 143.839652,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 151.893841,
+                "elapsedMs": 145.89824199999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 159.86913499999997,
+                "elapsedMs": 161.14439299999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 171.71403600000002,
+                "elapsedMs": 140.11712899999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 164.92628099999996,
+                "elapsedMs": 134.47456900000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 146.91143400000004,
+                "elapsedMs": 153.584675,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 147.408522,
+                "elapsedMs": 177.64965600000005,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 152.90786899999995,
+                "elapsedMs": 134.544286,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 154.61652699999996,
+                "elapsedMs": 152.56152199999997,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 151.07988999999998,
+                "elapsedMs": 129.68611799999996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 154.062573,
+                "elapsedMs": 166.689531,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 149.583461,
+                "elapsedMs": 146.97614500000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
@@ -706,263 +838,263 @@
           }
         },
         "flood-window-steady": {
-          "medianNsPerOpReportThreshold": 524,
+          "medianNsPerOpReportThreshold": 496,
           "measured": {
-            "slowestMedianNsPerOp": 349.115205,
+            "slowestMedianNsPerOp": 330.239675,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 486.416366,
-                "pauseCount": 38,
-                "pauseMs": 67.70198900000001,
-                "gcPercent": 13.918526129525835
+                "elapsedMs": 487.806921,
+                "pauseCount": 42,
+                "pauseMs": 63.614618000000014,
+                "gcPercent": 13.04094207388255
               },
               {
-                "elapsedMs": 479.725682,
-                "pauseCount": 39,
-                "pauseMs": 62.787984,
-                "gcPercent": 13.088309914581558
-              },
-              {
-                "elapsedMs": 483.164774,
-                "pauseCount": 38,
-                "pauseMs": 62.13836699999998,
-                "gcPercent": 12.860698946566822
-              },
-              {
-                "elapsedMs": 517.7578840000001,
-                "pauseCount": 49,
-                "pauseMs": 76.33088100000002,
-                "gcPercent": 14.742582075292937
-              },
-              {
-                "elapsedMs": 511.28293099999996,
-                "pauseCount": 59,
-                "pauseMs": 77.94263999999997,
-                "gcPercent": 15.244522215430653
-              },
-              {
-                "elapsedMs": 495.291772,
-                "pauseCount": 43,
-                "pauseMs": 83.53941399999998,
-                "gcPercent": 16.86670740817394
-              },
-              {
-                "elapsedMs": 474.185722,
-                "pauseCount": 46,
-                "pauseMs": 76.05462800000001,
-                "gcPercent": 16.038995792454504
-              },
-              {
-                "elapsedMs": 506.302799,
-                "pauseCount": 45,
-                "pauseMs": 76.16744000000001,
-                "gcPercent": 15.043851258661523
-              },
-              {
-                "elapsedMs": 579.370636,
-                "pauseCount": 52,
-                "pauseMs": 84.33289400000004,
-                "gcPercent": 14.555948948714073
-              },
-              {
-                "elapsedMs": 507.345586,
+                "elapsedMs": 473.93366,
                 "pauseCount": 44,
-                "pauseMs": 70.235094,
-                "gcPercent": 13.84363951084025
+                "pauseMs": 63.505042999999986,
+                "gcPercent": 13.399563770169856
               },
               {
-                "elapsedMs": 507.307528,
-                "pauseCount": 47,
-                "pauseMs": 75.33586000000001,
-                "gcPercent": 14.8501364245476
-              },
-              {
-                "elapsedMs": 476.56689100000006,
-                "pauseCount": 35,
-                "pauseMs": 55.43596,
-                "gcPercent": 11.632356558315756
-              },
-              {
-                "elapsedMs": 508.66006,
-                "pauseCount": 51,
-                "pauseMs": 72.21113600000002,
-                "gcPercent": 14.19634480442597
-              },
-              {
-                "elapsedMs": 488.85639199999997,
-                "pauseCount": 41,
-                "pauseMs": 65.594853,
-                "gcPercent": 13.418020930776745
-              },
-              {
-                "elapsedMs": 516.262854,
-                "pauseCount": 57,
-                "pauseMs": 75.312823,
-                "gcPercent": 14.588077065099089
-              },
-              {
-                "elapsedMs": 502.638053,
-                "pauseCount": 37,
-                "pauseMs": 63.283706,
-                "gcPercent": 12.590313372075713
-              },
-              {
-                "elapsedMs": 495.462076,
-                "pauseCount": 46,
-                "pauseMs": 74.91069,
-                "gcPercent": 15.119359004179364
-              },
-              {
-                "elapsedMs": 555.796795,
+                "elapsedMs": 477.94531099999995,
                 "pauseCount": 45,
-                "pauseMs": 84.10969800000001,
-                "gcPercent": 15.133174346570316
+                "pauseMs": 69.01471400000001,
+                "gcPercent": 14.439876783308378
               },
               {
-                "elapsedMs": 524.532626,
-                "pauseCount": 40,
-                "pauseMs": 81.969227,
-                "gcPercent": 15.627097903343765
+                "elapsedMs": 458.658732,
+                "pauseCount": 41,
+                "pauseMs": 66.772443,
+                "gcPercent": 14.55819726986033
               },
               {
-                "elapsedMs": 485.172049,
-                "pauseCount": 39,
-                "pauseMs": 60.379773,
-                "gcPercent": 12.445022981940165
+                "elapsedMs": 481.640632,
+                "pauseCount": 49,
+                "pauseMs": 72.65626900000001,
+                "gcPercent": 15.085161876458963
+              },
+              {
+                "elapsedMs": 467.226156,
+                "pauseCount": 52,
+                "pauseMs": 70.795106,
+                "gcPercent": 15.152213781456192
+              },
+              {
+                "elapsedMs": 500.80559700000003,
+                "pauseCount": 43,
+                "pauseMs": 72.341372,
+                "gcPercent": 14.445000701539684
+              },
+              {
+                "elapsedMs": 466.70551599999993,
+                "pauseCount": 41,
+                "pauseMs": 66.58266900000001,
+                "gcPercent": 14.266527117712494
+              },
+              {
+                "elapsedMs": 504.468987,
+                "pauseCount": 48,
+                "pauseMs": 73.68491799999998,
+                "gcPercent": 14.60643169329257
+              },
+              {
+                "elapsedMs": 476.728441,
+                "pauseCount": 38,
+                "pauseMs": 62.440174000000006,
+                "gcPercent": 13.097639794475786
+              },
+              {
+                "elapsedMs": 457.65662499999996,
+                "pauseCount": 47,
+                "pauseMs": 64.14220700000001,
+                "gcPercent": 14.015356382091054
+              },
+              {
+                "elapsedMs": 454.56182900000005,
+                "pauseCount": 46,
+                "pauseMs": 66.95142100000001,
+                "gcPercent": 14.72878203330179
+              },
+              {
+                "elapsedMs": 458.87791,
+                "pauseCount": 37,
+                "pauseMs": 63.738820000000004,
+                "gcPercent": 13.89014781731376
+              },
+              {
+                "elapsedMs": 463.022042,
+                "pauseCount": 45,
+                "pauseMs": 70.47954299999999,
+                "gcPercent": 15.221638843707572
+              },
+              {
+                "elapsedMs": 433.204143,
+                "pauseCount": 42,
+                "pauseMs": 64.63372699999998,
+                "gcPercent": 14.919923561303516
+              },
+              {
+                "elapsedMs": 467.810127,
+                "pauseCount": 45,
+                "pauseMs": 70.04326200000001,
+                "gcPercent": 14.972583524255345
+              },
+              {
+                "elapsedMs": 483.58279200000004,
+                "pauseCount": 48,
+                "pauseMs": 73.11664700000001,
+                "gcPercent": 15.119778496998299
+              },
+              {
+                "elapsedMs": 494.338735,
+                "pauseCount": 42,
+                "pauseMs": 69.33786699999999,
+                "gcPercent": 14.02638759432841
+              },
+              {
+                "elapsedMs": 488.04431900000003,
+                "pauseCount": 47,
+                "pauseMs": 74.500803,
+                "gcPercent": 15.265171645200526
+              },
+              {
+                "elapsedMs": 495.20911199999995,
+                "pauseCount": 47,
+                "pauseMs": 71.38737899999998,
+                "gcPercent": 14.415602877678872
               }
             ],
             "note": "固定 Bun 与输入，预热后在 20 个独立进程中以 JSC logGC 计量正式窗口内的每段暂停。并发 GC 只累计暂停段，不累计后台收集时间。"
           }
         },
         "join-timestamp-window": {
-          "medianNsPerOpReportThreshold": 67,
+          "medianNsPerOpReportThreshold": 58,
           "measured": {
-            "slowestMedianNsPerOp": 44.346677,
+            "slowestMedianNsPerOp": 38.154522,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 273.56431999999995,
+                "elapsedMs": 253.03346400000004,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 290.816308,
+                "elapsedMs": 267.0335620000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 298.35805700000003,
+                "elapsedMs": 250.35284299999995,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 279.63742,
+                "elapsedMs": 264.9939299999999,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 309.43577999999997,
+                "elapsedMs": 258.619782,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 276.86647099999993,
+                "elapsedMs": 266.044102,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 258.67750900000004,
+                "elapsedMs": 281.36801399999996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 265.121844,
+                "elapsedMs": 297.504351,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 253.11622599999998,
+                "elapsedMs": 282.4341969999999,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 261.93245599999995,
+                "elapsedMs": 250.91560800000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 266.00838099999993,
+                "elapsedMs": 260.926477,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 272.005637,
+                "elapsedMs": 250.50018199999994,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 275.674569,
+                "elapsedMs": 262.88360300000005,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 266.50492499999996,
+                "elapsedMs": 256.598279,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 276.27208899999994,
+                "elapsedMs": 261.7815739999999,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 261.19784200000004,
+                "elapsedMs": 267.1605,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 280.48180599999995,
+                "elapsedMs": 263.27893800000004,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 262.99436599999996,
+                "elapsedMs": 266.824709,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 255.272585,
+                "elapsedMs": 268.628424,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 273.79741,
+                "elapsedMs": 304.67577300000005,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
@@ -972,130 +1104,130 @@
           }
         },
         "mention-facts-plain": {
-          "medianNsPerOpReportThreshold": 16,
+          "medianNsPerOpReportThreshold": 15,
           "measured": {
-            "slowestMedianNsPerOp": 10.5214,
+            "slowestMedianNsPerOp": 9.498906,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 127.74485199999998,
+                "elapsedMs": 122.20167700000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 127.29551299999997,
+                "elapsedMs": 118.84083700000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 121.78612299999998,
+                "elapsedMs": 122.48388799999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 129.548721,
+                "elapsedMs": 281.797634,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 115.027713,
+                "elapsedMs": 114.74555800000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 124.51013499999999,
+                "elapsedMs": 117.53781799999996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 116.47279399999996,
+                "elapsedMs": 123.37683899999996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 114.35936599999997,
+                "elapsedMs": 115.80902800000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 124.30424800000003,
+                "elapsedMs": 284.185091,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 115.58147299999996,
+                "elapsedMs": 114.85636699999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 118.01266300000003,
+                "elapsedMs": 116.38800400000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 122.52401299999997,
+                "elapsedMs": 112.56504199999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 130.473207,
+                "elapsedMs": 113.689043,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 118.706163,
+                "elapsedMs": 118.01098199999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 114.41373200000004,
+                "elapsedMs": 122.72789599999999,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 114.23270500000001,
+                "elapsedMs": 113.42271199999999,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 124.495871,
+                "elapsedMs": 112.418544,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 114.19793500000003,
+                "elapsedMs": 285.78234999999995,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 117.641369,
+                "elapsedMs": 121.69377600000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 117.19991800000003,
+                "elapsedMs": 114.98872899999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
@@ -1105,130 +1237,130 @@
           }
         },
         "ad-capacity-reject": {
-          "medianNsPerOpReportThreshold": 55,
+          "medianNsPerOpReportThreshold": 53,
           "measured": {
-            "slowestMedianNsPerOp": 36.581216,
+            "slowestMedianNsPerOp": 34.893302,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 120.82279599999998,
+                "elapsedMs": 118.168879,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 121.68428499999999,
+                "elapsedMs": 115.45948400000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 120.19008400000001,
+                "elapsedMs": 114.600099,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 121.72968600000002,
+                "elapsedMs": 113.035525,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 118.42801700000001,
+                "elapsedMs": 108.91109799999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 120.37421999999998,
+                "elapsedMs": 115.27160700000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 125.45689599999997,
+                "elapsedMs": 114.92329099999995,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 137.42650799999996,
+                "elapsedMs": 114.02234199999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 147.15506699999997,
+                "elapsedMs": 118.33148300000005,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 114.19283000000001,
+                "elapsedMs": 117.625291,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 117.26631900000001,
+                "elapsedMs": 122.423924,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 123.12962499999998,
+                "elapsedMs": 114.93410999999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 116.191666,
+                "elapsedMs": 115.17193500000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 116.262088,
+                "elapsedMs": 107.898661,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 115.22761199999997,
+                "elapsedMs": 117.86016999999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 117.41298799999998,
+                "elapsedMs": 117.884729,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 122.70403700000003,
+                "elapsedMs": 114.92481100000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 116.22355800000003,
+                "elapsedMs": 113.00674800000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 116.43161300000003,
+                "elapsedMs": 112.77035000000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 114.354378,
+                "elapsedMs": 113.61598400000003,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
@@ -1238,130 +1370,130 @@
           }
         },
         "identity-permission-read": {
-          "medianNsPerOpReportThreshold": 144,
+          "medianNsPerOpReportThreshold": 95,
           "measured": {
-            "slowestMedianNsPerOp": 95.73847733333334,
+            "slowestMedianNsPerOp": 63.052429333333336,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 1977.938767,
+                "elapsedMs": 1274.343387,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2007.644785,
+                "elapsedMs": 1304.176724,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1866.6852,
+                "elapsedMs": 1347.1266850000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1943.4634690000003,
+                "elapsedMs": 1320.054177,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2017.445213,
+                "elapsedMs": 1301.3405240000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1998.345554,
+                "elapsedMs": 1315.618926,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2185.839449,
+                "elapsedMs": 1286.455009,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2004.8346809999998,
+                "elapsedMs": 1308.955146,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2031.7262230000001,
+                "elapsedMs": 1345.613977,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1992.199722,
+                "elapsedMs": 1301.509853,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2092.101232,
+                "elapsedMs": 1305.082048,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2024.532193,
+                "elapsedMs": 1339.2825280000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1949.0604829999997,
+                "elapsedMs": 1380.4746819999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2019.667564,
+                "elapsedMs": 1440.6057739999999,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2050.960227,
+                "elapsedMs": 1359.47911,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1944.97428,
+                "elapsedMs": 1386.9202559999999,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1924.100595,
+                "elapsedMs": 1357.6403030000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1948.802803,
+                "elapsedMs": 1250.687232,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1905.732037,
+                "elapsedMs": 1332.5053910000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2021.464595,
+                "elapsedMs": 1375.848044,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
@@ -1371,266 +1503,266 @@
           }
         },
         "buffered-message-build": {
-          "medianNsPerOpReportThreshold": 477,
+          "medianNsPerOpReportThreshold": 396,
           "measured": {
-            "slowestMedianNsPerOp": 317.470214,
+            "slowestMedianNsPerOp": 263.524566,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 1176.8700079999999,
-                "pauseCount": 119,
-                "pauseMs": 110.186248,
-                "gcPercent": 9.362652395845576
+                "elapsedMs": 970.5361060000001,
+                "pauseCount": 92,
+                "pauseMs": 73.12890900000004,
+                "gcPercent": 7.534898346172401
               },
               {
-                "elapsedMs": 1108.654543,
-                "pauseCount": 119,
-                "pauseMs": 107.68105300000002,
-                "gcPercent": 9.712768840383493
+                "elapsedMs": 949.370962,
+                "pauseCount": 93,
+                "pauseMs": 74.49908199999999,
+                "gcPercent": 7.847204620947737
               },
               {
-                "elapsedMs": 1160.691744,
-                "pauseCount": 119,
-                "pauseMs": 109.69958899999999,
-                "gcPercent": 9.45122506187138
+                "elapsedMs": 903.222675,
+                "pauseCount": 92,
+                "pauseMs": 73.46411100000002,
+                "gcPercent": 8.133554773743919
               },
               {
-                "elapsedMs": 1193.471183,
-                "pauseCount": 119,
-                "pauseMs": 113.99212899999999,
-                "gcPercent": 9.551309711011262
+                "elapsedMs": 943.648199,
+                "pauseCount": 93,
+                "pauseMs": 75.86046999999996,
+                "gcPercent": 8.039062659197633
               },
               {
-                "elapsedMs": 1156.446249,
-                "pauseCount": 118,
-                "pauseMs": 110.270324,
-                "gcPercent": 9.53527447517364
+                "elapsedMs": 927.0090520000001,
+                "pauseCount": 92,
+                "pauseMs": 74.04892100000004,
+                "gcPercent": 7.987939366961007
               },
               {
-                "elapsedMs": 1382.5340030000002,
-                "pauseCount": 118,
-                "pauseMs": 115.86952000000004,
-                "gcPercent": 8.380952638312797
+                "elapsedMs": 913.8806510000001,
+                "pauseCount": 93,
+                "pauseMs": 75.62074500000001,
+                "gcPercent": 8.27468498400236
               },
               {
-                "elapsedMs": 1117.68828,
-                "pauseCount": 118,
-                "pauseMs": 102.62293399999997,
-                "gcPercent": 9.181713348555464
+                "elapsedMs": 895.681849,
+                "pauseCount": 92,
+                "pauseMs": 71.14163399999998,
+                "gcPercent": 7.942734809176644
               },
               {
-                "elapsedMs": 1155.132691,
-                "pauseCount": 118,
-                "pauseMs": 114.77283499999999,
-                "gcPercent": 9.935900515519215
+                "elapsedMs": 890.343379,
+                "pauseCount": 92,
+                "pauseMs": 69.39504300000003,
+                "gcPercent": 7.794188695820023
               },
               {
-                "elapsedMs": 1270.554288,
-                "pauseCount": 119,
-                "pauseMs": 110.46727099999998,
-                "gcPercent": 8.694415661206282
+                "elapsedMs": 959.958465,
+                "pauseCount": 93,
+                "pauseMs": 77.04199799999996,
+                "gcPercent": 8.02555535566843
               },
               {
-                "elapsedMs": 1148.339896,
-                "pauseCount": 119,
-                "pauseMs": 110.78400600000006,
-                "gcPercent": 9.647318392915965
+                "elapsedMs": 933.7496990000001,
+                "pauseCount": 92,
+                "pauseMs": 72.81022000000002,
+                "gcPercent": 7.797616435965246
               },
               {
-                "elapsedMs": 1151.930156,
-                "pauseCount": 119,
-                "pauseMs": 109.36547899999997,
-                "gcPercent": 9.49410677638341
+                "elapsedMs": 955.7593209999999,
+                "pauseCount": 92,
+                "pauseMs": 76.85805899999997,
+                "gcPercent": 8.041570436329543
               },
               {
-                "elapsedMs": 1157.3110270000002,
-                "pauseCount": 118,
-                "pauseMs": 112.94919000000002,
-                "gcPercent": 9.759622725862094
+                "elapsedMs": 903.5368800000001,
+                "pauseCount": 92,
+                "pauseMs": 72.90656299999998,
+                "gcPercent": 8.069019053212303
               },
               {
-                "elapsedMs": 1146.749194,
-                "pauseCount": 118,
-                "pauseMs": 101.31812099999996,
-                "gcPercent": 8.835246759283963
+                "elapsedMs": 948.443558,
+                "pauseCount": 92,
+                "pauseMs": 69.72895999999999,
+                "gcPercent": 7.351935643596831
               },
               {
-                "elapsedMs": 1180.584707,
-                "pauseCount": 119,
-                "pauseMs": 104.936535,
-                "gcPercent": 8.888522304058611
+                "elapsedMs": 926.7884609999999,
+                "pauseCount": 92,
+                "pauseMs": 69.725892,
+                "gcPercent": 7.523388015078019
               },
               {
-                "elapsedMs": 1108.2143219999998,
-                "pauseCount": 118,
-                "pauseMs": 98.700585,
-                "gcPercent": 8.906272283313807
+                "elapsedMs": 935.929017,
+                "pauseCount": 92,
+                "pauseMs": 69.349063,
+                "gcPercent": 7.409649849546229
               },
               {
-                "elapsedMs": 1133.8197930000001,
-                "pauseCount": 119,
-                "pauseMs": 107.49390400000006,
-                "gcPercent": 9.480686848443476
+                "elapsedMs": 880.87877,
+                "pauseCount": 93,
+                "pauseMs": 71.31760400000002,
+                "gcPercent": 8.096188309771618
               },
               {
-                "elapsedMs": 1226.5029909999998,
-                "pauseCount": 118,
-                "pauseMs": 119.257374,
-                "gcPercent": 9.723365933479409
+                "elapsedMs": 934.8048390000001,
+                "pauseCount": 92,
+                "pauseMs": 75.88463200000002,
+                "gcPercent": 8.117697816067897
               },
               {
-                "elapsedMs": 1111.046999,
-                "pauseCount": 118,
-                "pauseMs": 102.82274400000004,
-                "gcPercent": 9.254580957650385
+                "elapsedMs": 976.124449,
+                "pauseCount": 93,
+                "pauseMs": 81.56152600000001,
+                "gcPercent": 8.355648307298983
               },
               {
-                "elapsedMs": 1154.0673499999998,
-                "pauseCount": 119,
-                "pauseMs": 111.52443300000007,
-                "gcPercent": 9.66359831599084
+                "elapsedMs": 899.5134229999999,
+                "pauseCount": 93,
+                "pauseMs": 74.957364,
+                "gcPercent": 8.333101217101015
               },
               {
-                "elapsedMs": 1108.461966,
-                "pauseCount": 119,
-                "pauseMs": 100.52650999999997,
-                "gcPercent": 9.069008507595466
+                "elapsedMs": 911.7813409999999,
+                "pauseCount": 92,
+                "pauseMs": 72.08051699999999,
+                "gcPercent": 7.905460855444288
               }
             ],
             "note": "固定 Bun 与输入，预热后在 20 个独立进程中以 JSC logGC 计量正式窗口内的每段暂停。并发 GC 只累计暂停段，不累计后台收集时间。"
           }
         },
         "temporary-whitelist-activity": {
-          "medianNsPerOpReportThreshold": 80,
+          "medianNsPerOpReportThreshold": 72,
           "measured": {
-            "slowestMedianNsPerOp": 52.797419,
+            "slowestMedianNsPerOp": 47.495826,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 321.534311,
+                "elapsedMs": 294.529488,
                 "pauseCount": 10,
-                "pauseMs": 11.589903999999999,
-                "gcPercent": 3.604562127119304
+                "pauseMs": 9.796936999999998,
+                "gcPercent": 3.326300896567612
               },
               {
-                "elapsedMs": 310.995215,
+                "elapsedMs": 298.96444699999995,
                 "pauseCount": 10,
-                "pauseMs": 11.078917,
-                "gcPercent": 3.562407543794525
+                "pauseMs": 8.527737,
+                "gcPercent": 2.8524251246503574
               },
               {
-                "elapsedMs": 299.02316700000006,
+                "elapsedMs": 292.59564599999993,
                 "pauseCount": 10,
-                "pauseMs": 11.238818,
-                "gcPercent": 3.7585107912391273
+                "pauseMs": 9.089083000000002,
+                "gcPercent": 3.106363038635238
               },
               {
-                "elapsedMs": 287.92532300000005,
+                "elapsedMs": 286.252394,
                 "pauseCount": 10,
-                "pauseMs": 11.173134999999998,
-                "gcPercent": 3.880566976041908
+                "pauseMs": 8.719958,
+                "gcPercent": 3.0462480603743005
               },
               {
-                "elapsedMs": 346.951957,
+                "elapsedMs": 275.05482099999995,
                 "pauseCount": 10,
-                "pauseMs": 11.866174,
-                "gcPercent": 3.420120209899839
+                "pauseMs": 8.845027,
+                "gcPercent": 3.215732401214666
               },
               {
-                "elapsedMs": 296.9332820000001,
+                "elapsedMs": 297.7009090000001,
                 "pauseCount": 10,
-                "pauseMs": 10.63312,
-                "gcPercent": 3.5809795144486354
+                "pauseMs": 8.283856,
+                "gcPercent": 2.7826102472532246
               },
               {
-                "elapsedMs": 322.41202999999996,
+                "elapsedMs": 296.69469300000003,
                 "pauseCount": 10,
-                "pauseMs": 11.217614000000001,
-                "gcPercent": 3.479278983479618
+                "pauseMs": 8.960163000000001,
+                "gcPercent": 3.0199943616787244
               },
               {
-                "elapsedMs": 325.50304600000004,
+                "elapsedMs": 305.62398,
                 "pauseCount": 10,
-                "pauseMs": 11.378712,
-                "gcPercent": 3.4957313425570824
+                "pauseMs": 8.699976,
+                "gcPercent": 2.846627414511125
               },
               {
-                "elapsedMs": 308.059236,
+                "elapsedMs": 317.611835,
                 "pauseCount": 10,
-                "pauseMs": 11.465311999999999,
-                "gcPercent": 3.7217881044150873
+                "pauseMs": 9.412204,
+                "gcPercent": 2.9634298734491424
               },
               {
-                "elapsedMs": 294.416238,
+                "elapsedMs": 294.663817,
                 "pauseCount": 10,
-                "pauseMs": 10.443280999999999,
-                "gcPercent": 3.54711447674975
+                "pauseMs": 9.946182000000002,
+                "gcPercent": 3.3754337744155407
               },
               {
-                "elapsedMs": 319.832809,
+                "elapsedMs": 296.06499299999996,
                 "pauseCount": 10,
-                "pauseMs": 11.382386,
-                "gcPercent": 3.558855026658632
+                "pauseMs": 9.057991000000001,
+                "gcPercent": 3.0594603259967323
               },
               {
-                "elapsedMs": 294.970046,
+                "elapsedMs": 310.40939299999997,
                 "pauseCount": 10,
-                "pauseMs": 10.710891999999998,
-                "gcPercent": 3.6311795537367875
+                "pauseMs": 9.627719999999998,
+                "gcPercent": 3.101620059545041
               },
               {
-                "elapsedMs": 327.468634,
+                "elapsedMs": 362.33432500000004,
                 "pauseCount": 10,
-                "pauseMs": 12.447927000000002,
-                "gcPercent": 3.8012578022968766
+                "pauseMs": 10.848811000000001,
+                "gcPercent": 2.9941438752732026
               },
               {
-                "elapsedMs": 313.254567,
+                "elapsedMs": 313.879733,
                 "pauseCount": 10,
-                "pauseMs": 10.429846999999999,
-                "gcPercent": 3.3295115534580533
+                "pauseMs": 9.579578000000001,
+                "gcPercent": 3.0519899798691372
               },
               {
-                "elapsedMs": 323.64304500000003,
+                "elapsedMs": 284.053368,
                 "pauseCount": 10,
-                "pauseMs": 12.345424,
-                "gcPercent": 3.8145185539210336
+                "pauseMs": 10.077977999999998,
+                "gcPercent": 3.547917094227166
               },
               {
-                "elapsedMs": 297.693959,
+                "elapsedMs": 296.92652599999997,
                 "pauseCount": 10,
-                "pauseMs": 10.868034000000002,
-                "gcPercent": 3.6507405244323423
+                "pauseMs": 9.332696,
+                "gcPercent": 3.143099448110608
               },
               {
-                "elapsedMs": 302.505635,
+                "elapsedMs": 286.22881899999993,
                 "pauseCount": 10,
-                "pauseMs": 10.681727,
-                "gcPercent": 3.5310836441112907
+                "pauseMs": 8.935105,
+                "gcPercent": 3.121665047990853
               },
               {
-                "elapsedMs": 296.741666,
+                "elapsedMs": 289.89938700000005,
                 "pauseCount": 10,
-                "pauseMs": 10.493805000000002,
-                "gcPercent": 3.536343628939524
+                "pauseMs": 9.027608999999998,
+                "gcPercent": 3.114049013149516
               },
               {
-                "elapsedMs": 307.96063100000003,
+                "elapsedMs": 271.31477800000005,
                 "pauseCount": 10,
-                "pauseMs": 10.510785000000002,
-                "gcPercent": 3.413028790683313
+                "pauseMs": 9.313923,
+                "gcPercent": 3.432884514679845
               },
               {
-                "elapsedMs": 320.04890400000005,
+                "elapsedMs": 290.87104500000004,
                 "pauseCount": 10,
-                "pauseMs": 11.481872000000001,
-                "gcPercent": 3.5875367346985194
+                "pauseMs": 9.36553,
+                "gcPercent": 3.219822034881471
               }
             ],
             "note": "固定 Bun 与输入，预热后在 20 个独立进程中以 JSC logGC 计量正式窗口内的每段暂停。并发 GC 只累计暂停段，不累计后台收集时间。"
@@ -1639,128 +1771,128 @@
         "pending-verification-lookup": {
           "medianNsPerOpReportThreshold": 23,
           "measured": {
-            "slowestMedianNsPerOp": 15.2834065,
+            "slowestMedianNsPerOp": 15.2743433,
             "processes": 20
           },
           "note": "Bun 1.4.3 固定场景与输入，独立 retained 进程分别完成预热与稳态测量；软阈值为最慢中位数乘 1.5 向上取整。",
           "gc": {
             "samples": [
               {
-                "elapsedMs": 2204.98584,
+                "elapsedMs": 2108.425122,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1845.44535,
+                "elapsedMs": 1863.108328,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2103.862218,
+                "elapsedMs": 1804.0472529999997,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1938.6482219999998,
+                "elapsedMs": 2120.18545,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1871.816992,
+                "elapsedMs": 1863.450996,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1886.216051,
+                "elapsedMs": 1869.213588,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2147.555549,
+                "elapsedMs": 1827.51294,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1856.296069,
+                "elapsedMs": 1826.6937030000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2358.521875,
+                "elapsedMs": 1853.919583,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1907.7145410000003,
+                "elapsedMs": 1892.7213150000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2147.117172,
+                "elapsedMs": 2106.203087,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2089.1076860000003,
+                "elapsedMs": 2148.963644,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2058.9646060000005,
+                "elapsedMs": 2082.117841,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1966.695863,
+                "elapsedMs": 2089.608034,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2182.6243289999998,
+                "elapsedMs": 1815.249563,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 2113.5557470000003,
+                "elapsedMs": 2137.596703,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1846.3265700000002,
+                "elapsedMs": 2082.3096610000002,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1846.117187,
+                "elapsedMs": 1939.3096389999998,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1845.582308,
+                "elapsedMs": 1824.0613680000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0
               },
               {
-                "elapsedMs": 1954.0294339999998,
+                "elapsedMs": 2044.9102480000001,
                 "pauseCount": 0,
                 "pauseMs": 0,
                 "gcPercent": 0

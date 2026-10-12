@@ -35,6 +35,7 @@ import {
   collectConstantLocationProblems,
   collectDeclarationProblems,
   collectModuleCacheProblems,
+  collectIteratorHeadProblems,
   collectObjectFreezeProblems,
 } from "../../scripts/conventions/sourceRules";
 import {
@@ -409,6 +410,25 @@ describe("逐文件源码规则", () => {
     expect(collectObjectFreezeProblems(rule(path, "export const A: number = 1;\n"))).toEqual([]);
     expect(collectObjectFreezeProblems(rule(path, "const a = Object.freeze({ x: 1 });\n")))
       .toEqual([expect.stringContaining("packages/example.ts:1 Object.freeze is not allowed")]);
+  });
+
+  test("packages/ 下不许用 keys/values/entries 的 .next() 取最早项", () => {
+    const path: string = "/project/packages/example.ts";
+    expect(collectIteratorHeadProblems(rule(path,
+      "const oldest = table.oldestKey();\n" +
+      "for (const key of table.keys()) void key;\n" +
+      "const step = iterator.next();\n" +
+      "const page = list.keys(1).next();\n"
+    ))).toEqual([]);
+    expect(collectIteratorHeadProblems(rule(path,
+      "const a = table.keys().next().value;\n" +
+      "const b = this.map.values().next();\n" +
+      "const c = set.entries().next().done;\n"
+    ))).toEqual([
+      expect.stringContaining("packages/example.ts:1 .keys().next() is not allowed"),
+      expect.stringContaining("packages/example.ts:2 .values().next() is not allowed"),
+      expect.stringContaining("packages/example.ts:3 .entries().next() is not allowed"),
+    ]);
   });
 
   test("模块级 Map/Set/AsyncLocalStorage/holder 必须落在 packages/cache/<owner>/", () => {

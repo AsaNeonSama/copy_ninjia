@@ -184,6 +184,44 @@ export function collectObjectFreezeProblems({
   return problems;
 }
 
+/** 迭代器取头的三个方法名；`<expr>.<name>().next()` 即按插入序取最早项。 */
+const ITERATOR_HEAD_METHODS: ReadonlySet<string> = new Set(["keys", "values", "entries"]);
+
+/**
+ * packages/ 下不许用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项。
+ *
+ * 有界 FIFO / LRU 的最早项一律经 libs/fifoMap.ts 的 FifoMap（或继承它的 LruCache）取得：
+ * 它的 `oldestKey()` 与满载淘汰都是 O(1)。规则按语法判定，不区分接收者类型。
+ */
+export function collectIteratorHeadProblems({
+  projectRoot,
+  path,
+  source,
+}: SourceFileRuleParams): readonly string[] {
+  const problems: string[] = [];
+  const relativePath: string = relative(projectRoot, path);
+  function visit(node: ts.Node): void {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "next" &&
+      ts.isCallExpression(node.expression.expression) &&
+      node.expression.expression.arguments.length === 0 &&
+      ts.isPropertyAccessExpression(node.expression.expression.expression) &&
+      ITERATOR_HEAD_METHODS.has(node.expression.expression.expression.name.text)
+    ) {
+      problems.push(
+        `${relativePath}:${lineOf(source, node)} ` +
+        `.${node.expression.expression.expression.name.text}().next() is not allowed: ` +
+        "take the oldest entry from FifoMap (packages/libs/fifoMap.ts) instead"
+      );
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return problems;
+}
+
 /** 模块级 Map/Set/AsyncLocalStorage/holder 必须声明在带 owner 的 `packages/cache/<owner>/` 下。 */
 export function collectModuleCacheProblems({
   projectRoot,
