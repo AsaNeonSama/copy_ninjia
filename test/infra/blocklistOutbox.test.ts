@@ -3,7 +3,7 @@
  *
  * 这些路径都会去掉已经登记的待踢任务并逐行发出删除写入：启动恢复时群不再受管、
  * 机器人不再是管理员、补扫名单已空；运行期 /block disable 摘掉最后一个目标、群被停止管理。
- * 另含 write-ahead 补投、精确 ACK 与 Disk I/O 重建后的未 ACK 行重放。
+ * 另含 write-ahead 补投（含只改了内存的诊断）、精确 ACK 与 Disk I/O 重建后的未 ACK 行重放。
  */
 
 import { describe, expect, spyOn, test } from "bun:test";
@@ -39,11 +39,15 @@ const {
   settleBlockedRemoval,
 } = await import("../../packages/infra/blocklist/sweep");
 
+const { updatePendingRemovalFailure } =
+  await import("../../packages/infra/blocklist/sweepRetryState");
+
 const {
   blocklistRemovalCounter,
   blocklistSweepPages,
   blocklistSweepState,
   pendingBlockedRemovals,
+  unwrittenRemovalDiagnostics,
 } = await import("../../packages/cache/main/blocklist");
 
 const { logger } = await import("../../packages/infra/logger");
@@ -356,6 +360,39 @@ describe("黑名单 outbox 的投递边界", () => {
     expect(unacknowledgedRemovalWrites.get(tracked.removalId)).toEqual({ revision, posted: true });
 
     // 都已投出时 write-ahead 只等 flush，不重复投递。
+    postDiskIO.mockClear();
+    await persistPendingBlockedRemovals();
+    expect(postDiskIO).not.toHaveBeenCalled();
+  });
+
+  test("只改了内存的诊断在 write-ahead 时逐行发出；已随这一行写入发出的不再重复", async () => {
+    governedChat();
+    blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+    const tracked = trackBlockedRemoval({ chatId: -1001, probeMembership: false, userIds: [7] } as never);
+    const trackedRevision: number = unacknowledgedRemovalWrites.get(tracked.removalId)!.revision;
+    postDiskIO.mockClear();
+
+    updatePendingRemovalFailure(tracked.removalId, -1001, "worker-restarted");
+    expect(postDiskIO).not.toHaveBeenCalled();
+    expect([...unwrittenRemovalDiagnostics]).toEqual([tracked.removalId]);
+
+    await persistPendingBlockedRemovals();
+    expect(postDiskIO).toHaveBeenCalledTimes(1);
+    const rowWrite = postDiskIO.mock.calls[0]?.[0] as {
+      readonly type: string;
+      readonly removalId: number;
+      readonly data: string;
+      readonly revision: number;
+    };
+    expect(rowWrite.type).toBe("blocklistRemovalWrite");
+    expect(rowWrite.removalId).toBe(tracked.removalId);
+    expect(rowWrite.revision).toBeGreaterThan(trackedRevision);
+    expect(JSON.parse(rowWrite.data)).toEqual(expect.objectContaining({ attempts: 1, lastFailure: "worker-restarted" }));
+    expect(unwrittenRemovalDiagnostics.size).toBe(0);
+
+    // 这一行之后的任何一次写入都带着当前诊断，write-ahead 不再为它补发。
+    updatePendingRemovalFailure(tracked.removalId, -1001, "worker-restarted");
+    queueBlocklistRemovalWrite(tracked.removalId);
     postDiskIO.mockClear();
     await persistPendingBlockedRemovals();
     expect(postDiskIO).not.toHaveBeenCalled();

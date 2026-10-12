@@ -44,9 +44,9 @@ import { getDayStartTimestamp } from "../../packages/libs/time";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
-const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
-const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const {
   identityEntryCounts,
@@ -251,7 +251,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       meta: { firstName: "Alice", lastName: "", username: "alice" },
     })).toThrow("revision space is exhausted");
 
-    expect(whitelistEntryCache.peek(7)).toBeNull();
+    expect(whitelistField.peek(7)).toBeNull();
     expect(identityEntryCounts.whitelist).toBe(0);
     expect(unacknowledgedWhitelistWrites.has(7)).toBeFalse();
     expect(diskMessages).toEqual([]);
@@ -306,18 +306,18 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     expect(first.revision).toBeLessThan(second.revision);
   });
 
-  test("三份正/负 LRU 各自严格限制为 IDENTITY_READ_CACHE_MAX_ENTRIES 项", () => {
+  test("合并身份缓存严格限制为 IDENTITY_READ_CACHE_MAX_ENTRIES 条，三项随条目一起淘汰", () => {
     for (let id: number = 1; id <= IDENTITY_READ_CACHE_MAX_ENTRIES + 1; id++) {
-      blocklistEntryCache.set(id, null);
-      whitelistEntryCache.set(id, null);
-      temporaryAdBypassActivityCache.set(id, null);
+      blocklistField.set(id, null);
+      whitelistField.set(id, null);
+      temporaryAdBypassField.set(id, null);
     }
-    expect(blocklistEntryCache.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
-    expect(whitelistEntryCache.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
-    expect(temporaryAdBypassActivityCache.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
-    expect(blocklistEntryCache.has(1)).toBeFalse();
-    expect(whitelistEntryCache.has(1)).toBeFalse();
-    expect(temporaryAdBypassActivityCache.has(1)).toBeFalse();
+    expect(blocklistField.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
+    expect(whitelistField.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
+    expect(temporaryAdBypassField.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
+    expect(blocklistField.has(1)).toBeFalse();
+    expect(whitelistField.has(1)).toBeFalse();
+    expect(temporaryAdBypassField.has(1)).toBeFalse();
   });
 
   test("一次更新的超大身份集合按预取分块上限分成有界数据库读", async () => {
@@ -377,21 +377,21 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     expect(readIdentityPolicies).toHaveBeenCalledTimes(2);
     expect(readIdentityPolicies.mock.calls[0]![0]).toHaveLength(IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES);
     expect(readIdentityPolicies.mock.calls[1]![0]).toEqual([coldId]);
-    // 第一块读回后已逐键写入三份 LRU；第二块失败只让自己的主键保持冷缺失。
+    // 第一块读回后已逐键整条写入合并身份缓存；第二块失败只让自己的主键保持冷缺失。
     expect(cachedWhitelistEntry(1)?.meta.username).toBe("alice");
     expect(cachedBlocklistEntry(1)).toBeUndefined();
     expect(cachedBlocklistEntry(2)?.meta.username).toBe("alice");
-    expect(temporaryAdBypassActivityCache.peek(3)).toMatchObject({
+    expect(temporaryAdBypassField.peek(3)).toMatchObject({
       adBypass: true,
       qualifiedDays: TEMPORARY_AD_BYPASS_REQUIRED_DAYS,
     });
     expect(isIdentityPolicyCached(lastWarmId)).toBeTrue();
-    expect(whitelistEntryCache.peek(lastWarmId)).toBeNull();
-    expect(blocklistEntryCache.peek(lastWarmId)).toBeNull();
-    expect(temporaryAdBypassActivityCache.peek(lastWarmId)).toBeNull();
-    expect(whitelistEntryCache.has(coldId)).toBeFalse();
-    expect(blocklistEntryCache.has(coldId)).toBeFalse();
-    expect(temporaryAdBypassActivityCache.has(coldId)).toBeFalse();
+    expect(whitelistField.peek(lastWarmId)).toBeNull();
+    expect(blocklistField.peek(lastWarmId)).toBeNull();
+    expect(temporaryAdBypassField.peek(lastWarmId)).toBeNull();
+    expect(whitelistField.has(coldId)).toBeFalse();
+    expect(blocklistField.has(coldId)).toBeFalse();
+    expect(temporaryAdBypassField.has(coldId)).toBeFalse();
 
     readImplementation.current = async (): Promise<IdentityPolicyRawReadResult> => ({
       whitelist: [],
@@ -407,17 +407,17 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
 });
 
 describe("启动计数灌入", () => {
-  test("合法计数清空三份主线程 LRU 后写入两表计数，黑名单计数决定是否存在拉黑身份", () => {
+  test("合法计数清空合并身份缓存后写入两表计数，黑名单计数决定是否存在拉黑身份", () => {
     seedMissing(7);
-    blocklistEntryCache.set(8, blockValue());
-    whitelistEntryCache.set(8, null);
-    temporaryAdBypassActivityCache.set(8, null);
+    blocklistField.set(8, blockValue());
+    whitelistField.set(8, null);
+    temporaryAdBypassField.set(8, null);
 
     hydrateIdentityStorageCounts(2, 1);
 
-    expect(whitelistEntryCache.size).toBe(0);
-    expect(blocklistEntryCache.size).toBe(0);
-    expect(temporaryAdBypassActivityCache.size).toBe(0);
+    expect(whitelistField.size).toBe(0);
+    expect(blocklistField.size).toBe(0);
+    expect(temporaryAdBypassField.size).toBe(0);
     expect(isIdentityPolicyCached(7)).toBeFalse();
     expect(cachedBlocklistEntry(8)).toBeUndefined();
     expect(identityEntryCounts).toEqual({ whitelist: 2, blocklist: 1 });
@@ -432,7 +432,7 @@ describe("启动计数灌入", () => {
     expect(identityEntryCounts.whitelist).toBe(3);
 
     hydrateIdentityStorageCounts(0, 0);
-    expect(whitelistEntryCache.has(9)).toBeFalse();
+    expect(whitelistField.has(9)).toBeFalse();
     expect(identityEntryCounts).toEqual({ whitelist: 0, blocklist: 0 });
     expect(hasAnyBlockedIdentity()).toBeFalse();
 
@@ -461,9 +461,9 @@ describe("启动计数灌入", () => {
 
     hydrateIdentityStorageCounts(1, 1);
 
-    expect(whitelistEntryCache.size).toBe(0);
-    expect(blocklistEntryCache.size).toBe(0);
-    expect(temporaryAdBypassActivityCache.size).toBe(0);
+    expect(whitelistField.size).toBe(0);
+    expect(blocklistField.size).toBe(0);
+    expect(temporaryAdBypassField.size).toBe(0);
     expect(unacknowledgedWhitelistWrites.get(7)?.revision).toBe(whitelistRevision);
     expect(unacknowledgedBlocklistWrites.get(8)?.revision).toBe(blocklistRevision);
     expect(unacknowledgedTemporaryAdBypassWrites.get(9)?.revision).toBe(temporaryRevision);
@@ -473,7 +473,7 @@ describe("启动计数灌入", () => {
     await expect(prefetchIdentityPolicies([7, 8, 9])).resolves.toBeTrue();
     expect(cachedWhitelistEntry(7)?.meta.username).toBe("alice");
     expect(cachedBlocklistEntry(8)?.meta.username).toBe("alice");
-    expect(temporaryAdBypassActivityCache.peek(9)?.sendCount).toBe(1);
+    expect(temporaryAdBypassField.peek(9)?.sendCount).toBe(1);
 
     // revision 发号器没有回退：下一次写入的 revision 严格大于灌入前的那次。
     expect(recordTemporaryAdBypassActivity(9, now)).toBeDefined();
@@ -490,9 +490,9 @@ describe("启动计数灌入", () => {
   for (const [label, invalid] of invalidCounts) {
     test(`计数为${label}时在清空缓存前拒绝，既有 LRU 与计数原样保留`, () => {
       seedMissing(7);
-      blocklistEntryCache.set(8, blockValue());
-      whitelistEntryCache.set(8, null);
-      temporaryAdBypassActivityCache.set(8, null);
+      blocklistField.set(8, blockValue());
+      whitelistField.set(8, null);
+      temporaryAdBypassField.set(8, null);
       identityEntryCounts.whitelist = 4;
       identityEntryCounts.blocklist = 5;
 
@@ -503,9 +503,9 @@ describe("启动计数灌入", () => {
         .toThrow("Blocklist entry count must be a non-negative safe integer.");
 
       expect(identityEntryCounts).toEqual({ whitelist: 4, blocklist: 5 });
-      expect(whitelistEntryCache.size).toBe(2);
-      expect(blocklistEntryCache.size).toBe(2);
-      expect(temporaryAdBypassActivityCache.size).toBe(2);
+      expect(whitelistField.size).toBe(2);
+      expect(blocklistField.size).toBe(2);
+      expect(temporaryAdBypassField.size).toBe(2);
       expect(isIdentityPolicyCached(7)).toBeTrue();
       expect(cachedBlocklistEntry(8)?.meta.username).toBe("alice");
     });

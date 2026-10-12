@@ -123,8 +123,8 @@ async function replayPendingBlockedRemovalsAsync(
       continue;
     }
     if (countPreviousAttempt) {
-      // 重放计数只改内存镜像、不单独发写入，诊断随这一行下一次 outbox 写入落盘
-      // （按条件发写入见 sweepRetryState.ts 的 recordPendingRemovalFailure）。
+      // 重放计数只改内存镜像、不单独发写入，诊断随这一行下一次写入或下一次投递前的
+      // write-ahead 落盘（按条件立即发写入见 sweepRetryState.ts 的 recordPendingRemovalFailure）。
       updatePendingRemovalFailure(
         removalId,
         pending.params.chatId,

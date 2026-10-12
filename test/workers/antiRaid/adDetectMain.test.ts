@@ -13,9 +13,9 @@ import { chatStateOf } from "../../helpers/chatState";
 import { identityFieldView } from "../../helpers/identityCacheView";
 import type { IdentityFieldView } from "../../helpers/identityCacheView";
 
-const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
-const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 const chatStates = new Map<number, ChatState>();
 const getChatState = mock((chatId: number) => chatStates.get(chatId) ?? chatStateOf());
 const activeVerificationSnapshots = new Map<string, unknown>();
@@ -168,13 +168,13 @@ beforeEach(() => {
   }));
   blockedIds.clear();
   temporaryAdBypassIds.clear();
-  blocklistEntryCache.clear();
-  whitelistEntryCache.clear();
-  temporaryAdBypassActivityCache.clear();
+  blocklistField.clear();
+  whitelistField.clear();
+  temporaryAdBypassField.clear();
   for (const id of [7, -300, -1005]) {
-    blocklistEntryCache.set(id, null);
-    whitelistEntryCache.set(id, null);
-    temporaryAdBypassActivityCache.set(id, null);
+    blocklistField.set(id, null);
+    whitelistField.set(id, null);
+    temporaryAdBypassField.set(id, null);
   }
   blockUser.mockClear();
   clearTemporaryAdBypassActivity.mockClear();

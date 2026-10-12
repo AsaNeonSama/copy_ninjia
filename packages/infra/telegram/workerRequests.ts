@@ -100,21 +100,22 @@ function markWorkerSentMessage(result: unknown): void {
   markSelfSent(chatId, messageId);
 }
 
-/** 发送回执投影：消息 id 与回复关系两个键固定写全，没有回复关系时为 undefined。 */
-function sentMessageReceipt(sent: Message): TelegramSentMessage {
+/** 回复关系只保留被回复消息的 id；没有回复关系时为 undefined。 */
+function repliedToReceipt(sent: Message): TelegramSentMessage["reply_to_message"] {
   const repliedTo: Message | undefined = sent.reply_to_message;
-  return {
-    message_id: sent.message_id,
-    reply_to_message: repliedTo === undefined ? undefined : { message_id: repliedTo.message_id },
-  };
+  return repliedTo === undefined ? undefined : { message_id: repliedTo.message_id };
+}
+
+/** 发送回执投影：消息 id 与回复关系两个键固定写全。 */
+function sentMessageReceipt(sent: Message): TelegramSentMessage {
+  return { message_id: sent.message_id, reply_to_message: repliedToReceipt(sent) };
 }
 
 /** 图片发送回执投影：在 sentMessageReceipt 的两个键之后只带 pickPhotoSize 选中的那一档。 */
 function sentPhotoReceipt(sent: Message.PhotoMessage): TelegramSentPhotoMessage {
-  const repliedTo: Message | undefined = sent.reply_to_message;
   return {
     message_id: sent.message_id,
-    reply_to_message: repliedTo === undefined ? undefined : { message_id: repliedTo.message_id },
+    reply_to_message: repliedToReceipt(sent),
     photo: [pickPhotoSize(sent.photo)],
   };
 }

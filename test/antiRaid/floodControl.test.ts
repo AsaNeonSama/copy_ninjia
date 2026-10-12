@@ -13,8 +13,8 @@ import { chatStateOf } from "../helpers/chatState";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
-const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const BOT_ID: number = 99;
 /** 固定的主线程观测时刻；投递载荷原样带给 Worker 当窗口时刻。 */
@@ -42,14 +42,14 @@ function candidate(
 beforeEach(() => {
   chatStateCache.clear();
   chatStateCache.set(-1001, chatStateOf({ isFloodControlEnabled: true }));
-  whitelistEntryCache.clear();
-  temporaryAdBypassActivityCache.clear();
+  whitelistField.clear();
+  temporaryAdBypassField.clear();
 });
 
 afterEach(() => {
   chatStateCache.clear();
-  whitelistEntryCache.clear();
-  temporaryAdBypassActivityCache.clear();
+  whitelistField.clear();
+  temporaryAdBypassField.clear();
 });
 
 describe("刷屏计数的主线程投递门禁", () => {
@@ -119,12 +119,12 @@ describe("刷屏计数的主线程投递门禁", () => {
       groupMessage({ from: { id: SUPER_ADMIN_USER_ID, is_bot: false, first_name: "超管" } } as Partial<Message>)
     )).toBeUndefined();
 
-    whitelistEntryCache.set(7, {
+    whitelistField.set(7, {
       permissions: DEFAULT_WHITELIST_PERMISSIONS,
       meta: { firstName: "刷屏怪", lastName: "", username: "" },
     });
     expect(candidate(groupMessage())).toBeUndefined();
-    whitelistEntryCache.set(7, {
+    whitelistField.set(7, {
       permissions: {
         ...DEFAULT_WHITELIST_PERMISSIONS,
         isCanBypassFloodControl: false,
@@ -133,8 +133,8 @@ describe("刷屏计数的主线程投递门禁", () => {
     });
     expect(candidate(groupMessage())?.userId).toBe(7);
 
-    whitelistEntryCache.set(7, null);
-    temporaryAdBypassActivityCache.set(7, {
+    whitelistField.set(7, null);
+    temporaryAdBypassField.set(7, {
       adBypass: true,
       adBypassGrantedAt: 1,
       qualifiedDays: TEMPORARY_AD_BYPASS_REQUIRED_DAYS,

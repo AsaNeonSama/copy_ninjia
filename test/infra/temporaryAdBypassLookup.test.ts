@@ -9,18 +9,18 @@ import { getEffectiveWhitelistPermissions } from "../../packages/infra/identityP
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
-const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 afterEach(() => {
-  temporaryAdBypassActivityCache.clear();
-  whitelistEntryCache.clear();
+  temporaryAdBypassField.clear();
+  whitelistField.clear();
 });
 
 test("缺省时刻时只在缓存确有免检记录时读墙钟，负缓存查询不取时钟", () => {
   const now: number = Date.now();
-  whitelistEntryCache.set(7, null);
-  temporaryAdBypassActivityCache.set(7, {
+  whitelistField.set(7, null);
+  temporaryAdBypassField.set(7, {
     adBypass: true,
     adBypassGrantedAt: now - DAY_MS,
     qualifiedDays: 7,
@@ -28,8 +28,8 @@ test("缺省时刻时只在缓存确有免检记录时读墙钟，负缓存查�
     countedAt: now - DAY_MS,
     qualifiedAt: now - DAY_MS,
   });
-  whitelistEntryCache.set(8, null);
-  temporaryAdBypassActivityCache.set(8, null);
+  whitelistField.set(8, null);
+  temporaryAdBypassField.set(8, null);
   const clock = spyOn(Date, "now");
   try {
     expect(hasActiveTemporaryAdBypass(8)).toBeFalse();

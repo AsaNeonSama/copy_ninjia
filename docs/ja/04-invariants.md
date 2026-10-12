@@ -965,7 +965,7 @@
 #### blocklist removal outbox
 
 - **プロセス再起動を跨ぐ永続化保証**：
-  - ブラックリスト処分バッチは Disk I/O Worker を通じて SQLite の `pending_blocked_removals` テーブルに行単位で永続化されます。メインスレッドは行を変更するたびにその行だけの `blocklistRemovalWrite`（その行の現在値、行がなくなっていれば削除）を単調増加の revision 付きで送り、Disk I/O Worker はトランザクションのコミット後に `(removalId, revision)` の exact ACK を返します。遅れて届いた古い ACK が新しい書き込みを消すことはありません。Disk I/O Worker の再構築時、メインスレッドは未確認の行だけを revision 順に再送します。outbox の全行の最新の書き込みがディスクにコミット（durable）された後にのみ、メインスレッドは Anti-Raid Worker へタスクを委譲し update を確認します。
+  - ブラックリスト処分バッチは Disk I/O Worker を通じて SQLite の `pending_blocked_removals` テーブルに行単位で永続化されます。メインスレッドは行を変更するたびにその行だけの `blocklistRemovalWrite`（その行の現在値、行がなくなっていれば削除）を単調増加の revision 付きで送り、Disk I/O Worker はトランザクションのコミット後に `(removalId, revision)` の exact ACK を返します。遅れて届いた古い ACK が新しい書き込みを消すことはありません。Disk I/O Worker の再構築時、メインスレッドは未確認の行だけを revision 順に再送します。診断フィールド（`attempts`、`lastFailure`）だけを変える失敗の記録はいったんメモリに留め、その行の次の書き込みとともに送ります。委譲前の write-ahead はまずこれらの行を 1 行ずつ送り、outbox の全行の現在の内容がディスクにコミット（durable）された後にのみ、メインスレッドは Anti-Raid Worker へタスクを委譲し update を確認します。
   - Disk I/O Worker は行を受け取る前に厳密にデコードし、ブラックリストへの参照を検証します。指名行に凍結された `userIds` はすべて有効なブラックリストに含まれていなければならず、補足スキャン行は有効なブラックリストが空でないことを要求します。ブラックリストの身分を削除するときは逆向きに、その身分を凍結している指名行が残っていないこと、補足スキャン行が残る間にブラックリストが空にならないことを検証します。メインスレッドの `unblockUser` は行の変更を先に送り、ブラックリストの削除はその後に送らなければなりません。ミラー再送区間（`storageFlushHold`）ではブラックリストが outbox より先に届き、コミットも行われないため、削除側の検証はこの区間では省略し、起動時の検証がコミット済みの状態を再確認します。
   - 補掃タスク（`probeMembership: true`）は outbox 内にグループ ID のみを保持し、実行時に安定したカーソルで `BLOCKLIST_SWEEP_PAGE_SIZE` 件ずつ最新のブラックリスト主キーをページング取得します。即時キックタスク（`probeMembership: false`）は作成時に確定した `userIds` リストを凍結して保持します。
   - 起動段階で未完了タスクを SQLite から自動復元してリプレイします。outbox の容量上限は `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES` であり、検証失敗時は安全のため起動を停止します。

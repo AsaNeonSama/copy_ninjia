@@ -1,6 +1,7 @@
 import {
   blocklistSweepState,
   pendingBlockedRemovals,
+  unwrittenRemovalDiagnostics,
 } from "../../cache/main/blocklist";
 import {
   BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS,
@@ -69,9 +70,10 @@ export function noteSweepAttemptFailed(
 }
 
 /**
- * 更新一次任务诊断，只改内存镜像、不发 durable 写入；attempts 达到
+ * 更新一次任务诊断，只改内存镜像并登记进 unwrittenRemovalDiagnostics，不立即发 durable 写入：
+ * 诊断随这一行下一次写入或下一次投递前的 write-ahead 落盘。attempts 达到
  * BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS 只告警，不删除任务。
- * 需要按条件发出行写入的调用方用 recordPendingRemovalFailure。
+ * 需要按条件立即发出行写入的调用方用 recordPendingRemovalFailure。
  */
 export function updatePendingRemovalFailure(
   removalId: number,
@@ -83,6 +85,7 @@ export function updatePendingRemovalFailure(
   if (pending === undefined) return false;
   if (pending.attempts < Number.MAX_SAFE_INTEGER) pending.attempts++;
   pending.lastFailure = failure;
+  unwrittenRemovalDiagnostics.add(removalId);
   if (pending.attempts === BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS) {
     logger.error(
       `Blocklist removal ${removalId} for chat ${chatId} failed ${pending.attempts} time(s); ` +
@@ -94,7 +97,8 @@ export function updatePendingRemovalFailure(
 
 /**
  * 更新任务诊断。`lastFailure` 变为 `missing-permission`，或告警阈值首次跨越时，
- * 为这一行发出 durable 写入；其余失败只改内存镜像，随这一行下一次写入一并落盘。
+ * 立即为这一行发出 durable 写入；其余失败只改内存镜像，随这一行下一次写入或下一次投递前的
+ * write-ahead 落盘。
  */
 export function recordPendingRemovalFailure(
   removalId: number,

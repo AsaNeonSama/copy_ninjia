@@ -73,6 +73,17 @@ export const blocklistParticipantInvalidQueue: { current: Promise<void> } = {
  */
 export const pendingBlockedRemovals: Map<number, PendingBlockedRemoval> = new Map();
 
+/**
+ * 诊断字段（attempts、lastFailure）只改了内存、尚未随行写入发出的待踢任务 removalId。
+ *
+ * 填充：infra/blocklist/sweepRetryState.ts 的 updatePendingRemovalFailure。清理：这一行的任何一次
+ * 写入（infra/blocklist/outbox.ts 的 queueBlocklistRemovalWrite，正文带当前诊断）发出时移除；
+ * 投递前的 write-ahead（persistPendingBlockedRemovals）先为剩下的行逐行发出写入；hydrateBlocklist
+ * 启动恢复时清空。容量不超过 pendingBlockedRemovals 的行数。主线程状态，Worker 重建不影响；
+ * 进程重启后为空，诊断以 SQLite 里这一行最近一次写入为准。
+ */
+export const unwrittenRemovalDiagnostics: Set<number> = new Set();
+
 /** 处置批次编号发号器；只在主线程自增，用于回执对账。 */
 export const blocklistRemovalCounter: { current: number } = { current: 0 };
 

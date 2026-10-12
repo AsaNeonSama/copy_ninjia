@@ -1044,7 +1044,7 @@
 #### 黑名单移除 outbox
 
 - **跨进程持久化保证**：
-  - 黑名单封禁批次通过 Disk I/O Worker 写入 SQLite `pending_blocked_removals` 表。写入按行进行：主线程每改动一行只为该行发一条 `blocklistRemovalWrite`（该行当前值，行已不在即删除），带单调 revision；Disk I/O Worker 事务提交后按 `(removalId, revision)` 回精确 ACK，迟到的旧 ACK 不清掉更新的写。Disk I/O Worker 重建时主线程只按 revision 顺序重放尚未确认的行。只有 outbox 全部行的最近一次写入都已落盘（durable）后，主线程才向 Anti-Raid Worker 派发任务并确认 update。
+  - 黑名单封禁批次通过 Disk I/O Worker 写入 SQLite `pending_blocked_removals` 表。写入按行进行：主线程每改动一行只为该行发一条 `blocklistRemovalWrite`（该行当前值，行已不在即删除），带单调 revision；Disk I/O Worker 事务提交后按 `(removalId, revision)` 回精确 ACK，迟到的旧 ACK 不清掉更新的写。Disk I/O Worker 重建时主线程只按 revision 顺序重放尚未确认的行。只改诊断字段（`attempts`、`lastFailure`）的失败记账先留在内存，随这一行下一次写入发出；投递前的 write-ahead 先为这些行逐行发出写入，只有 outbox 全部行的当前内容都已落盘（durable）后，主线程才向 Anti-Raid Worker 派发任务并确认 update。
   - Disk I/O Worker 收下一行之前严格解码并核对它对黑名单的引用：指名行冻结的 `userIds` 必须都在有效黑名单里，补扫行要求有效黑名单非空。删除黑名单身份时反向核对没有指名行仍冻结它、删除后有补扫行时黑名单不为空；主线程 `unblockUser` 必须先发出行改动、再发出黑名单删除。镜像重放区间（`storageFlushHold`）内黑名单先于 outbox 到达且不提交，删除侧核对在该区间内跳过，由启动期校验复核已提交状态。
   - 补扫任务（`probeMembership: true`）在 outbox 中仅持久化群 ID，执行时以稳定游标按 `BLOCKLIST_SWEEP_PAGE_SIZE` 分页拉取最新黑名单主键；秒踢任务（`probeMembership: false`）则冻结当时确定的 `userIds` 列表。
   - 启动阶段自动从 SQLite 恢复未结任务并重放；outbox 容量上限 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`，校验失败安全退出。

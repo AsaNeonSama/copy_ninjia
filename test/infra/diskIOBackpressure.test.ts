@@ -13,7 +13,7 @@ import { emitSuccessfulDiskIOLoad, FakeDiskIOWorker, installFakeDiskIOWorker, cr
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 let restoreWorker: () => void;
 const fatals: Error[] = [];
@@ -40,11 +40,11 @@ test("非消费 Worker 只有一个在途批次；条数满后保留原事实并
   expect(fatals).toHaveLength(1); expect(diskIORuntime.operationQueue.size).toBe(3);
 });
 
-test("传输满额在临时广告免检 LRU、revision 和未 ACK 发布之前拒收", (): void => {
+test("传输满额在临时广告免检缓存写入、revision 和未 ACK 发布之前拒收", (): void => {
   for (let id: number = 1; id <= 3; id++) postDiskIO(write(id));
   seedMissingIdentity(9);
   expect((): unknown => recordTemporaryAdBypassActivity(9)).toThrow("publication");
-  expect(temporaryAdBypassActivityCache.peek(9)).toBeNull();
+  expect(temporaryAdBypassField.peek(9)).toBeNull();
   expect(temporaryAdBypassWriteRevision.current).toBe(0);
   expect(unacknowledgedTemporaryAdBypassWrites.size).toBe(0);
 });
@@ -100,7 +100,7 @@ test("未 ACK 主键达到上限后不通过 LRU 淘汰释放持久化事实", (
   seedMissingIdentity(newcomer);
   expect((): unknown => recordTemporaryAdBypassActivity(newcomer)).toThrow("capacity");
   expect(unacknowledgedTemporaryAdBypassWrites.size).toBe(STORAGE_PENDING_MAX_ENTRIES);
-  expect(temporaryAdBypassActivityCache.peek(newcomer)).toBeNull();
+  expect(temporaryAdBypassField.peek(newcomer)).toBeNull();
   expect(temporaryAdBypassWriteRevision.current).toBe(0);
   expect(worker().operationBatches).toHaveLength(0);
 });

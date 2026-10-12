@@ -6,7 +6,9 @@
  *
  * 持久化按行进行（同黑白名单、临时免检、群状态与群问答的写协议）：每处改动只为被改动的那一行
  * 发一条 blocklistRemovalWrite（正文为该行当前值的 JSON，行已不在表里即 null 删除），带单调
- * revision；Disk I/O Worker 事务提交后按 (removalId, revision) 回精确 ACK。
+ * revision；Disk I/O Worker 事务提交后按 (removalId, revision) 回精确 ACK。只改诊断字段的失败
+ * 记账（sweepRetryState.ts 的 updatePendingRemovalFailure）先留在内存，由投递前的
+ * persistPendingBlockedRemovals 补发。
  * 它不调用 Telegram API，执行 owner 通过单槽 holder 反向注册。
  * @see ../../../docs/cn/04-invariants.md
  */
@@ -17,6 +19,7 @@ import {
   blocklistSweepPages,
   blocklistSweepState,
   pendingBlockedRemovals,
+  unwrittenRemovalDiagnostics,
 } from "../../cache/main/blocklist";
 import {
   removalWriteRevision,
@@ -68,8 +71,8 @@ function removalWriteMessage(removalId: number, revision: number): BlocklistRemo
 }
 
 /**
- * 为一行发出当前最终值并登记未 ACK revision。投递被拒时登记为未投递，留给 write-ahead
- * 补投与 Worker 重建重放。
+ * 为一行发出当前最终值并登记未 ACK revision；正文带着当前诊断，这一行随即移出
+ * unwrittenRemovalDiagnostics。投递被拒时登记为未投递，留给 write-ahead 补投与 Worker 重建重放。
  * @internal 供同目录 sweep owner 在改动任务诊断后调用。
  * @returns 本次投递是否被 Disk I/O 接收。
  */
@@ -79,6 +82,7 @@ export function queueBlocklistRemovalWrite(removalId: number): boolean {
   }
   removalWriteRevision.current++;
   const revision: number = removalWriteRevision.current;
+  unwrittenRemovalDiagnostics.delete(removalId);
   const posted: boolean = postDiskIO(removalWriteMessage(removalId, revision));
   unacknowledgedRemovalWrites.set(removalId, { revision, posted });
   return posted;
@@ -138,6 +142,7 @@ export function hydrateBlocklist(
   recoveredRemovals: Map<number, PendingBlockedRemoval>
 ): void {
   pendingBlockedRemovals.clear();
+  unwrittenRemovalDiagnostics.clear();
   blocklistSweepState.clear();
   blocklistSweepPages.clear();
   blocklistRemovalCounter.current = 0;
@@ -198,10 +203,13 @@ export function hydrateBlocklist(
 }
 
 /**
- * Anti-Raid 投递前的 write-ahead 边界：先补投此前被 Disk I/O 拒收的行（同一 revision），再等待
- * `blocklistRemovalOutbox` 领域 flush 完成；返回后 outbox 全部行的最近一次写入都已 durable。
+ * Anti-Raid 投递前的 write-ahead 边界：先为只改了内存诊断的行（unwrittenRemovalDiagnostics）逐行发出
+ * 写入，再补投此前被 Disk I/O 拒收的行（同一 revision），最后等待 `blocklistRemovalOutbox` 领域
+ * flush 完成；返回后 outbox 全部行的当前内容都已 durable。
  */
 export async function persistPendingBlockedRemovals(): Promise<void> {
+  // 投递被拒的行登记为未投递，由下面的补投循环处理。
+  for (const removalId of unwrittenRemovalDiagnostics) queueBlocklistRemovalWrite(removalId);
   for (const [removalId, write] of unacknowledgedRemovalWrites) {
     if (write.posted) continue;
     if (!postDiskIO(removalWriteMessage(removalId, write.revision))) {

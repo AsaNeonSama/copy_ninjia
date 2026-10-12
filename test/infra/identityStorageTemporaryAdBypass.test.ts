@@ -37,8 +37,8 @@ import type { TemporaryAdBypassActivity } from "../../packages/types/states/temp
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
-const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const {
   temporaryAdBypassWriteRevision,
@@ -117,7 +117,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     expect(unacknowledgedTemporaryAdBypassWrites.has(7)).toBeFalse();
 
     expect(clearTemporaryAdBypassActivity(7)).toBeTrue();
-    expect(temporaryAdBypassActivityCache.peek(7)).toBeNull();
+    expect(temporaryAdBypassField.peek(7)).toBeNull();
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)?.activity).toBeNull();
   });
 
@@ -127,13 +127,13 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     expect(queueIdentityPolicyWrite("blocklist", 7, blockValue())).toBeTrue();
     expect(recordTemporaryAdBypassActivity(7, now)).toBeUndefined();
 
-    // 三份 LRU 各自淘汰：临时累计仍热而黑名单视图已冷时，不按「不在名单」累计。
-    whitelistEntryCache.set(8, null);
-    temporaryAdBypassActivityCache.set(8, null);
+    // 条目里临时累计已加载、黑名单项仍未加载时，不按「不在名单」累计。
+    whitelistField.set(8, null);
+    temporaryAdBypassField.set(8, null);
     expect(recordTemporaryAdBypassActivity(8, now)).toBeUndefined();
 
-    expect(temporaryAdBypassActivityCache.peek(7)).toBeNull();
-    expect(temporaryAdBypassActivityCache.peek(8)).toBeNull();
+    expect(temporaryAdBypassField.peek(7)).toBeNull();
+    expect(temporaryAdBypassField.peek(8)).toBeNull();
     expect(unacknowledgedTemporaryAdBypassWrites.size).toBe(0);
     expect(diskMessages.some(
       (message: DiskBusinessMessage): boolean => message.type === "temporaryAdBypassWrite"
@@ -147,7 +147,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       expect(recordTemporaryAdBypassActivity(7, dayAt + index)).toBeDefined();
     }
     const qualified: Readonly<TemporaryAdBypassActivity> | null | undefined =
-      temporaryAdBypassActivityCache.peek(7);
+      temporaryAdBypassField.peek(7);
     if (qualified === null || qualified === undefined) {
       throw new Error("qualified activity must exist");
     }
@@ -162,7 +162,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     }
     expect(diskMessages.length).toBe(queuedWrites);
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)?.revision).toBe(revision);
-    expect(temporaryAdBypassActivityCache.peek(7)).toBe(qualified);
+    expect(temporaryAdBypassField.peek(7)).toBe(qualified);
 
     // 跨东京日的第一条发言仍然重置当日累计并落盘。
     const nextDayAt: number = dayAt + DAY_MS;
@@ -177,7 +177,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     for (let index: number = 1; index < QUALIFYING_DAILY_MESSAGES; index++) {
       expect(recordTemporaryAdBypassActivity(7, nextDayAt + index)).toBeDefined();
     }
-    expect(temporaryAdBypassActivityCache.peek(7)).toMatchObject({
+    expect(temporaryAdBypassField.peek(7)).toMatchObject({
       qualifiedDays: 2,
       sendCount: QUALIFYING_DAILY_MESSAGES,
       qualifiedAt: nextDayAt + QUALIFYING_DAILY_MESSAGES - 1,
@@ -186,11 +186,11 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
   });
 
   test("广告 true 清理在冷读失败窗口仍发布可重放墓碑", () => {
-    expect(temporaryAdBypassActivityCache.has(7)).toBeFalse();
+    expect(temporaryAdBypassField.has(7)).toBeFalse();
 
     expect(clearTemporaryAdBypassActivity(7)).toBeTrue();
 
-    expect(temporaryAdBypassActivityCache.peek(7)).toBeNull();
+    expect(temporaryAdBypassField.peek(7)).toBeNull();
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)).toEqual({
       activity: null,
       revision: 1,
@@ -209,7 +209,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     temporaryAdBypassWriteRevision.current = Number.MAX_SAFE_INTEGER;
 
     expect(() => recordTemporaryAdBypassActivity(7, now)).toThrow("revision space is exhausted");
-    expect(temporaryAdBypassActivityCache.peek(7)).toBeNull();
+    expect(temporaryAdBypassField.peek(7)).toBeNull();
     expect(unacknowledgedTemporaryAdBypassWrites.has(7)).toBeFalse();
     expect(diskMessages).toEqual([]);
 
@@ -219,7 +219,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       recordTemporaryAdBypassActivity(7, now);
 
     expect(recorded).toBeDefined();
-    expect(temporaryAdBypassActivityCache.peek(7)).toBe(recorded);
+    expect(temporaryAdBypassField.peek(7)).toBe(recorded);
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)).toEqual({
       activity: recorded!,
       revision: 1,
@@ -251,7 +251,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       activity: null,
     })]);
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)?.activity).toBeNull();
-    expect(temporaryAdBypassActivityCache.peek(7)).toBeNull();
+    expect(temporaryAdBypassField.peek(7)).toBeNull();
   });
 
   test("Worker 重建按 revision 而不是插入顺序重放多条未 ACK 写，只把已过保留期的那条归一为墓碑", async () => {
@@ -286,11 +286,11 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
     ]);
     // 归一只改内容不改 revision：之后到达的旧 revision ACK 照样能精确结算墓碑。
     expect(unacknowledgedTemporaryAdBypassWrites.get(8)).toEqual({ activity: null, revision: revisions.get(8)! });
-    expect(temporaryAdBypassActivityCache.peek(8)).toBeNull();
+    expect(temporaryAdBypassField.peek(8)).toBeNull();
     // 仍有效的条目原对象保留，不另建副本。
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)?.activity).toBe(latestFresh!);
     expect(unacknowledgedTemporaryAdBypassWrites.get(9)?.activity).toBe(otherFresh!);
-    expect(temporaryAdBypassActivityCache.peek(7)).toBe(latestFresh!);
+    expect(temporaryAdBypassField.peek(7)).toBe(latestFresh!);
   });
 
   test("长时间取键流转下临时广告免检只保留有界现场，Worker 重建按 revision 重放", async () => {
@@ -309,8 +309,8 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       }
     }
     expect(queued).toBe(churn);
-    expect(temporaryAdBypassActivityCache.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
-    expect(temporaryAdBypassActivityCache.has(1)).toBeFalse();
+    expect(temporaryAdBypassField.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
+    expect(temporaryAdBypassField.has(1)).toBeFalse();
     expect(unacknowledgedTemporaryAdBypassWrites.size).toBe(0);
 
     const settled: { id: number; revision: number }[] = [];
@@ -327,7 +327,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       });
     }
     expect(unacknowledgedTemporaryAdBypassWrites.size).toBe(0);
-    expect(temporaryAdBypassActivityCache.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
+    expect(temporaryAdBypassField.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
 
     // 达标稳态不再产生任何未 ACK 现场：连续发言只走热度刷新。
     const steady: number = churn;

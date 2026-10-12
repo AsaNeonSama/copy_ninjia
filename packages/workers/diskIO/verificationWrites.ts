@@ -142,17 +142,13 @@ async function flushCriticalVerificationChanges(
 /**
  * 在一个 operationBatch 的整段循环期间合并待验证关键写的落盘：run 内的关键写只登记，run 结束
  * （含抛错）后统一 flush 一次，同一批 N 条关键写只追加、fsync 一次，verificationPersisted 回执仍在
- * fsync 之后发出。调用方须在本函数返回后才回 operationBatchAccepted。嵌套调用直接执行 run，由最外层
- * 负责 flush。
+ * fsync 之后发出。调用方须在本函数返回后才回 operationBatchAccepted。批内消息不含 operationBatch，
+ * 不会嵌套调用。
  */
 export async function withVerificationBatchFlush(
   reply: VerificationReplySink,
   run: () => Promise<void>
 ): Promise<void> {
-  if (verificationBatchFlush.active) {
-    await run();
-    return;
-  }
   verificationBatchFlush.active = true;
   try {
     await run();

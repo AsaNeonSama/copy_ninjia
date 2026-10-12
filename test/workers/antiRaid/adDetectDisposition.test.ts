@@ -13,9 +13,9 @@ import { longestTemplatePart } from "../../helpers/templateText";
 import { identityFieldView } from "../../helpers/identityCacheView";
 import type { IdentityFieldView } from "../../helpers/identityCacheView";
 
-const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
-const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 const chatStates = new Map<number, Record<string, unknown>>();
 const activeVerificationSnapshots = new Map<string, unknown>();
 const dispatched: RemoveBlockedMembersParams[][] = [];
@@ -176,13 +176,13 @@ beforeEach(() => {
   }));
   blockedIds.clear();
   temporaryAdBypassIds.clear();
-  blocklistEntryCache.clear();
-  whitelistEntryCache.clear();
-  temporaryAdBypassActivityCache.clear();
+  blocklistField.clear();
+  whitelistField.clear();
+  temporaryAdBypassField.clear();
   for (const id of [7, -300, -1005]) {
-    blocklistEntryCache.set(id, null);
-    whitelistEntryCache.set(id, null);
-    temporaryAdBypassActivityCache.set(id, null);
+    blocklistField.set(id, null);
+    whitelistField.set(id, null);
+    temporaryAdBypassField.set(id, null);
   }
   blockUser.mockClear();
   clearTemporaryAdBypassActivity.mockClear();
@@ -252,10 +252,10 @@ describe("广告判定命中后的处置", () => {
   });
 
   test("身份策略冷读失败时放弃判定，并留下写明未拉黑的错误日志", async () => {
-    // 发送者在三份 LRU 里都是冷缺失，预热才会去读 Disk I/O。
-    blocklistEntryCache.delete(7);
-    whitelistEntryCache.delete(7);
-    temporaryAdBypassActivityCache.delete(7);
+    // 发送者在合并身份缓存里是冷缺失，预热才会去读 Disk I/O。
+    blocklistField.delete(7);
+    whitelistField.delete(7);
+    temporaryAdBypassField.delete(7);
     diskIOInitialized = true;
 
     handleAdDetected(detected());

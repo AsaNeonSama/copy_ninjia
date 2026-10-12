@@ -15,7 +15,7 @@ import type { TelegramIdentityMetadata } from "../../packages/types/identityPoli
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
-const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 /** 本文件不关心展示元数据；拉黑时统一带空字段。 */
 const NO_META: Readonly<TelegramIdentityMetadata> = { firstName: "", lastName: "", username: "" };
@@ -99,7 +99,7 @@ describe("SQLite 黑名单主线程最终值", () => {
   test("拉黑已有临时累计时先排 tombstone，再排永久黑名单", () => {
     const now: number = Date.now();
     seedMissingIdentity(8);
-    temporaryAdBypassActivityCache.set(8, {
+    temporaryAdBypassField.set(8, {
       adBypass: true,
       adBypassGrantedAt: now,
       qualifiedDays: 7,

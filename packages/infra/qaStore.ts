@@ -151,13 +151,13 @@ export function removeAllChatQa(chatId: number): number {
     for (const q of [...questions.keys()]) {
       const message: ChatQaWriteDiskMessage = prepareChatQaWrite(chatId, q, undefined);
       questions.delete(q);
-      chatQaTriggerJson.delete(chatId);
       queueChatQaWrite(message);
       removed++;
     }
   } finally {
     // 空表不留存，同 removeChatQa。放在 finally 中，中途抛错时按此刻的 size 判定：
-    // 已摘走的条目不回表，剩余条目保留。
+    // 已摘走的条目不回表，剩余条目保留；trigger JSON 同样在这里失效一次。
+    chatQaTriggerJson.delete(chatId);
     if (questions.size === 0) chatQaEntries.delete(chatId);
   }
   return removed;

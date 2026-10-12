@@ -474,14 +474,14 @@ describe("「是管理员 && 已初始化」成立的那一刻触发清扫", () 
     expect(blocklistSweepState.get(-1001)?.sweptAt).toEqual(expect.any(Number));
   });
 
-  test("没落定的回执不逐条排完整 outbox 快照：那是 O(n²)", async () => {
+  test("没落定的回执只改内存诊断、不逐份发行写入；跨越告警阈值那一次立即落盘", async () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/07/26 00:00:00" });
     await sweepBlockedMembers(-1001, 1_000);
     const removalId: number = lastRemovalId();
     postDiskIO.mockClear();
 
-    // 一轮重放会回来多份「没落定」回执；每份都不排全表深拷贝与整文件 fsync（见 replayPendingBlockedRemovals 注释）；
-    // 这里变的只有诊断字段，任务本身没有增删。
+    // 一轮重放会回来多份「没落定」回执；这里变的只有诊断字段，任务本身没有增删，每份都不单独发写入
+    // （诊断在投递前的 write-ahead 落盘，见 sweepRetryState.ts 的 updatePendingRemovalFailure）。
     for (let attempt: number = 1; attempt < BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS; attempt++) {
       settleBlockedRemoval({ type: "blockedMembersRemoved", participantInvalidUserIds: [], settledUserIds: [], chatId: -1001, removalId, complete: false });
     }
