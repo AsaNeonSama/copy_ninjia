@@ -55,6 +55,7 @@ import {
 import {
   handleVerificationDelete,
   handleVerificationUpsert,
+  withVerificationBatchFlush,
 } from "./diskIO/verificationWrites";
 import {
   deleteAiMemorySnapshot,
@@ -256,7 +257,10 @@ export async function handleDiskIOWorkerMessage(
         msg.messages.length < 1 || msg.messages.length > DISK_BUSINESS_BATCH_MAX_MESSAGES) {
         throw new Error("Invalid Disk I/O operation batch.");
       }
-      for (const message of msg.messages) await handleDiskIOWorkerMessage(message);
+      // 批内待验证关键写只登记，循环结束后统一落盘一次，再回 accepted。
+      await withVerificationBatchFlush(postReply, async (): Promise<void> => {
+        for (const message of msg.messages) await handleDiskIOWorkerMessage(message);
+      });
       postReply({ type: "operationBatchAccepted", batchId: msg.batchId });
       break;
     case "diagnosticBatch":

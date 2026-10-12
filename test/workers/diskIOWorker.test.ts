@@ -62,6 +62,7 @@ import {
   recoverLuckReceiptSecret,
   rejectedStorageDomains,
   route,
+  withVerificationBatchFlush,
 } from "../helpers/diskIOWorkerRouterHarness";
 import type { StickerInspection } from "../helpers/diskIOWorkerRouterHarness";
 
@@ -148,6 +149,10 @@ describe("Disk I/O Worker protocol router", () => {
       type: "operationBatchAccepted",
       batchId: 11,
     });
+    // 整个批循环包在待验证关键写的合并落盘作用域里，作用域结束（批末 flush）后才回 accepted。
+    expect(withVerificationBatchFlush).toHaveBeenCalledTimes(1);
+    expect(withVerificationBatchFlush.mock.invocationCallOrder[0]!)
+      .toBeLessThan(postMessage.mock.invocationCallOrder.at(-1)!);
   });
 
   test("批号或批长越界一律当场抛，不发回执", async () => {

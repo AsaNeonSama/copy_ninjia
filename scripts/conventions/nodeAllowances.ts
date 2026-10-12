@@ -345,6 +345,12 @@ export const TEST_NODE_IMPORTS: Readonly<
       purpose: "spyOn target for directory fsync failures",
     },
   },
+  "test/workers/diskIO/verificationFiles.test.ts": {
+    "node:fs": {
+      symbols: "*",
+      purpose: "spyOn target counting fsync calls per operation-batch verification flush",
+    },
+  },
 };
 
 /** 测试文件中有字节接口语义依据的 Node Buffer 全局调用位置。 */

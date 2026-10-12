@@ -5,7 +5,7 @@
 import type { VerificationSnapshot } from
   "../../../types/antiRaid/verification";
 import type { VerificationFileChange } from "../../../types/diskIO/messages";
-import type { DayFileState } from "../../../types/diskIO/storage";
+import type { DayFileState, VerificationFlushTarget } from "../../../types/diskIO/storage";
 
 /**
  * 待验证记录的当前 active 镜像，key 为 "chatId:userId"。Worker 启动时先由
@@ -43,6 +43,17 @@ export const verificationFileState: {
 };
 /** 普通验证变化的合并 timer；flush/reset 时清除。 */
 export const verificationFlushTimer: { timer: ReturnType<typeof setTimeout> | null } = { timer: null };
+/**
+ * 一个 operationBatch 内关键写的合并落盘（workers/diskIO/verificationWrites.ts 的
+ * withVerificationBatchFlush）：active 期间新建、终态 upsert 与 delete 只把落盘目标记进 target，
+ * 批循环结束、回 operationBatchAccepted 之前统一 flush 一次，回执仍在 fsync 之后发出。
+ * 批外的单条消息（恢复重放经恢复通道直投）active 为 false，照旧当场 flush。
+ * 容量为一个布尔值与一条目标；批结束或 reset 时清除，Worker 重建时随 isolate 回到初值。
+ */
+export const verificationBatchFlush: { active: boolean; target: VerificationFlushTarget | null } = {
+  active: false,
+  target: null,
+};
 /** 午夜轮换失败后的唯一重试 timer；成功、重新维护或 reset 时清除。 */
 export const verificationRolloverRetryTimer: {
   timer: ReturnType<typeof setTimeout> | null;
@@ -76,7 +87,7 @@ export function takeVerificationWriteRejection(): boolean {
   return rejected;
 }
 
-/** Worker 恢复/停止时取消两个 timer 并清空镜像、增量、文件游标、旧日解码失败计数与拒收标记。 */
+/** Worker 恢复/停止时取消两个 timer 并清空镜像、增量、文件游标、旧日解码失败计数、拒收标记与批内落盘状态。 */
 export function resetVerificationPersistenceCache(): void {
   if (verificationFlushTimer.timer !== null) clearTimeout(verificationFlushTimer.timer);
   if (verificationRolloverRetryTimer.timer !== null) {
@@ -92,4 +103,6 @@ export function resetVerificationPersistenceCache(): void {
   verificationPriorDayDecodeFailures.path = null;
   verificationPriorDayDecodeFailures.count = 0;
   verificationWriteRejected.current = false;
+  verificationBatchFlush.active = false;
+  verificationBatchFlush.target = null;
 }

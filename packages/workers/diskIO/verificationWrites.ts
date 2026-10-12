@@ -11,6 +11,7 @@ import {
 import { FLUSH_INTERVAL_MS, FLUSH_MAX_ENTRIES } from "../../consts/diskIO/appendOnly";
 import { VERIFICATION_MEMORY_DIR } from "../../consts/paths";
 import {
+  verificationBatchFlush,
   verificationFileState,
   verificationFlushTimer,
   verificationPendingChanges,
@@ -27,6 +28,7 @@ import type {
   VerificationUpsertDiskMessage,
 } from "../../types/diskIO/messages";
 import type { VerificationPersistedReply } from "../../types/diskIO/replies";
+import type { VerificationFlushTarget } from "../../types/diskIO/storage";
 import { appendToDayFile, serializeDayFileEntry } from "./appendOnlyDayFile";
 import { storedVerificationSnapshot } from "./verificationCodec";
 import {
@@ -124,6 +126,44 @@ function scheduleVerificationFlush(
   );
 }
 
+/** 关键写（新建、终态、删除）的落盘：批内只登记目标，由 withVerificationBatchFlush 统一 flush；批外当场 flush。 */
+async function flushCriticalVerificationChanges(
+  reply: VerificationReplySink,
+  dir: string,
+  day: string
+): Promise<void> {
+  if (verificationBatchFlush.active) {
+    verificationBatchFlush.target = { dir, day };
+    return;
+  }
+  await flushVerificationChanges(reply, dir, day);
+}
+
+/**
+ * 在一个 operationBatch 的整段循环期间合并待验证关键写的落盘：run 内的关键写只登记，run 结束
+ * （含抛错）后统一 flush 一次，同一批 N 条关键写只追加、fsync 一次，verificationPersisted 回执仍在
+ * fsync 之后发出。调用方须在本函数返回后才回 operationBatchAccepted。嵌套调用直接执行 run，由最外层
+ * 负责 flush。
+ */
+export async function withVerificationBatchFlush(
+  reply: VerificationReplySink,
+  run: () => Promise<void>
+): Promise<void> {
+  if (verificationBatchFlush.active) {
+    await run();
+    return;
+  }
+  verificationBatchFlush.active = true;
+  try {
+    await run();
+  } finally {
+    const target: VerificationFlushTarget | null = verificationBatchFlush.target;
+    verificationBatchFlush.active = false;
+    verificationBatchFlush.target = null;
+    if (target !== null) await flushVerificationChanges(reply, target.dir, target.day);
+  }
+}
+
 export interface HandleVerificationUpsertParams {
   msg: VerificationUpsertDiskMessage;
   reply: VerificationReplySink;
@@ -131,7 +171,10 @@ export interface HandleVerificationUpsertParams {
   day?: string;
 }
 
-/** 新建与终态立即追加；普通字段变化按 key 合并，累计 FLUSH_MAX_ENTRIES 个 key 或等满 FLUSH_INTERVAL_MS 后追加。 */
+/**
+ * 新建与终态立即追加（同一 operationBatch 内合并为批末一次，见 withVerificationBatchFlush）；
+ * 普通字段变化按 key 合并，累计 FLUSH_MAX_ENTRIES 个 key 当场追加，否则等满 FLUSH_INTERVAL_MS 后追加。
+ */
 export async function handleVerificationUpsert({
   msg,
   reply,
@@ -168,10 +211,9 @@ export async function handleVerificationUpsert({
     revision: snapshot.revision,
     value: snapshot,
   });
-  if (
-    msg.critical ||
-    verificationPendingChanges.size >= FLUSH_MAX_ENTRIES
-  ) {
+  if (msg.critical) {
+    await flushCriticalVerificationChanges(reply, dir, day);
+  } else if (verificationPendingChanges.size >= FLUSH_MAX_ENTRIES) {
     await flushVerificationChanges(reply, dir, day);
   } else {
     scheduleVerificationFlush(reply, dir);
@@ -185,7 +227,7 @@ export interface HandleVerificationDeleteParams {
   day?: string;
 }
 
-/** 终结清掉同 key 缓冲 upsert、立即追加 durable tombstone 并回执。 */
+/** 终结清掉同 key 缓冲 upsert、立即追加 durable tombstone 并回执（批内合并为批末一次）。 */
 export async function handleVerificationDelete({
   msg,
   reply,
@@ -210,7 +252,7 @@ export async function handleVerificationDelete({
     revision: msg.revision,
     value: null,
   });
-  await flushVerificationChanges(reply, dir, day);
+  await flushCriticalVerificationChanges(reply, dir, day);
 }
 
 /** 批量追加本窗口最终变化；仅在历史越过阈值时原子收敛 active 镜像。 */

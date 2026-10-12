@@ -22,6 +22,13 @@ export const deleteAiMemorySnapshot = mock((_chatId: number, _revision: number):
 export const markStickerCatalogSnapshotDirty = mock((_pack: string, _snapshot: string): void => {});
 export const handleLuckDrawMessage = mock((_message: unknown): void => {});
 export const handleVerificationUpsert = mock((_input: unknown): void => {});
+/** 批内落盘合并作用域：直接执行 run，记下调用以便断言 accepted 在它返回之后。 */
+export const withVerificationBatchFlush = mock(async (
+  _reply: unknown,
+  run: () => Promise<void>
+): Promise<void> => {
+  await run();
+});
 export const handleVerificationDelete = mock((_input: unknown): void => {});
 export const handleJoinLogMessage = mock((_message: unknown): void => {});
 export const handleJoinLogDeleteMessage = mock((_message: unknown): void => {});
@@ -170,6 +177,7 @@ mock.module("../../packages/workers/diskIO/verificationWrites", () => ({
   handleVerificationDelete,
   handleVerificationUpsert,
   maintainVerificationDayForToday,
+  withVerificationBatchFlush,
 }));
 mock.module("../../packages/workers/diskIO/aiCacheFile", () => ({
   adoptAiCacheFile,
@@ -280,6 +288,7 @@ beforeEach(() => {
     markStickerCatalogSnapshotDirty,
     handleLuckDrawMessage,
     handleVerificationDelete,
+    withVerificationBatchFlush,
     handleJoinLogMessage,
     inspectLogFiles,
     adoptLogFiles,
