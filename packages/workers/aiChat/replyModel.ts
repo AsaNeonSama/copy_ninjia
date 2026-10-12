@@ -19,7 +19,13 @@ import { textAiProvider } from "../../aiChat/provider";
 import { TOOL_BUDGET_EXHAUSTED_RESULT, WEB_SEARCH_TOOL } from "../../consts/tools";
 import { callTool } from "../../aiChat/ai/tools";
 import { diagnosticWithDetails } from "../../aiChat/ai/utils/finishDetails";
-import type { ReplyPromptSections, ReplyToolset, WebSearchToolOutcome } from "../../types/aiChat/replies";
+import type {
+  ReplyPromptSections,
+  ReplySystemPromptSlot,
+  ReplyToolset,
+  WebSearchToolOutcome,
+} from "../../types/aiChat/replies";
+import { replySystemPromptSlot } from "../../cache/workers/aiChat/replyPrefix";
 import type {
   AiFunctionCall,
   AiReplySession,
@@ -59,17 +65,40 @@ function toolCountsDiagnostic(counts: ReadonlyMap<string, number>): string {
     .map(([name, count]: [string, number]): string => `${name}:${count}`).join(",") || "none";
 }
 
-/** 拼装一轮回复的系统提示词；同一回复的全部工具往返复用这一份字符串。 */
+/**
+ * 拼装一轮回复的系统提示词；同一回复的全部工具往返复用这一份字符串。
+ * 人设、行动与停止段、是否挂本地 web_search 三项都与上一轮相等时直接复用
+ * cache/workers/aiChat/replyPrefix.ts 单槽里的同一个字符串，否则重拼并替换。
+ */
 function buildReplySystemPrompt(toolset: ReplyToolset): string {
   // 人设是 init 接管的本进程快照，「行动与停止」段取自组装工具时的同一份台词语言快照。
-  return `${getPersona()}\n\n## Agent 身份与权限边界\n${AI_CHAT_AGENT_ROLE_INSTRUCTION}\n\n` +
+  const persona: string = getPersona();
+  const actionInstruction: string = toolset.replyActionInstruction;
+  const functionSearch: boolean = toolset.searchWeb !== null;
+  const slot: ReplySystemPromptSlot | null = replySystemPromptSlot.current;
+  if (
+    slot !== null &&
+    slot.persona === persona &&
+    slot.actionInstruction === actionInstruction &&
+    slot.functionSearch === functionSearch
+  ) {
+    return slot.prompt;
+  }
+  const prompt: string = composeReplySystemPrompt(persona, actionInstruction, functionSearch);
+  replySystemPromptSlot.current = { persona, actionInstruction, functionSearch, prompt };
+  return prompt;
+}
+
+/** 按固定顺序拼出回复系统提示词全文。 */
+function composeReplySystemPrompt(persona: string, actionInstruction: string, functionSearch: boolean): string {
+  return `${persona}\n\n## Agent 身份与权限边界\n${AI_CHAT_AGENT_ROLE_INSTRUCTION}\n\n` +
     `${CHAT_INTERACTION_INSTRUCTION}\n\n` +
     `## 上下文区块与记忆\n${REPLY_CONTEXT_STRUCTURE_INSTRUCTION}\n` +
     // 上下文结构后依次声明转录格式、两层仲裁与直接唤起的读取顺序。
     `${TRANSCRIPT_FORMAT_INSTRUCTION}\n${CHAT_MEMORY_PRIORITY_INSTRUCTION}\n` +
     `${DIRECT_INVOCATION_READING_INSTRUCTION}\n${MEMORY_MECHANISM_SILENCE_INSTRUCTION}\n\n` +
-    `## 行动与停止\n${toolset.replyActionInstruction}\n\n` +
-    `## 联网查证\n${toolset.searchWeb === null ? WEB_SEARCH_INSTRUCTION : WEB_SEARCH_FUNCTION_INSTRUCTION}`;
+    `## 行动与停止\n${actionInstruction}\n\n` +
+    `## 联网查证\n${functionSearch ? WEB_SEARCH_FUNCTION_INSTRUCTION : WEB_SEARCH_INSTRUCTION}`;
 }
 
 /** 一轮回复内跨工具轮累积的调用计数，只在 generateReply 与 runFunctionCalls 之间传递。 */

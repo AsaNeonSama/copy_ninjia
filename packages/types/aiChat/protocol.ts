@@ -208,13 +208,17 @@ export interface AiTriggerMessage {
    */
   imageGenerationReference: ImageGenerationReference | undefined;
   /**
-   * 本群已登记的问答（问题原文 -> 答案）；键恒发，本群一条都没有时为 undefined。载荷有界，
+   * 本群已登记问答的 `[问题原文, 答案]` 对数组 JSON 文本（主线程按群缓存，见
+   * cache/main/qa.ts 的 chatQaTriggerJson）；键恒发，本群一条都没有时为 undefined。
+   * 载荷全是原始值，不携带 Map；Worker 只在 group_qa_* 工具被调用时解析。
    * 每群至多 CHAT_QA_MAX_PER_CHAT 条。
    *
    * 字面完全一致的提问由主线程直答，不发 trigger；到达 Worker 的由模型判断是否对应
    * 已登记的问答。
    */
-  chatQa: ReadonlyMap<string, string> | undefined;
+  chatQaJson: string | undefined;
+  /** 同一时刻本群已登记问答条数；没有时为 0。本轮工具状态只读它，不解析 chatQaJson。 */
+  chatQaCount: number;
   /**
    * 触发消息所在的论坛话题 id；General、非论坛群与讨论组评论为 undefined。
    *

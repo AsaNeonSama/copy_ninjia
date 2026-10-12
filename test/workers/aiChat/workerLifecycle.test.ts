@@ -296,7 +296,8 @@ describe("AI Chat Worker lifecycle", () => {
       telegramBackpressured: true,
       imageGenerationRequested: true,
       imageGenerationReference: { fileId: "reference-file", fileUniqueId: "reference-unique", width: 1600, height: 900, mediaGroupId: undefined },
-      chatQa: undefined,
+      chatQaJson: undefined,
+      chatQaCount: 0,
     };
     await routeAfterInit([trigger]);
     expect(generateAndSendReply).toHaveBeenCalledWith(trigger);
@@ -445,7 +446,8 @@ describe("AI Chat Worker lifecycle", () => {
       telegramBackpressured: false,
       imageGenerationRequested: false,
       imageGenerationReference: undefined,
-      chatQa: undefined,
+      chatQaJson: undefined,
+      chatQaCount: 0,
     });
     await Promise.resolve();
 

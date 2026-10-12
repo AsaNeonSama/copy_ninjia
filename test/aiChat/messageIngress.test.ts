@@ -10,7 +10,7 @@ import {
 import type { AiChatWorkerMessage } from "../../packages/types/aiChat/protocol";
 import type { TelegramRetryLane } from "../../packages/types/telegramOutbound";
 import { telegramOutboundGateState } from "../../packages/cache/main/telegram";
-import { chatQaEntries } from "../../packages/cache/main/qa";
+import { chatQaEntries, chatQaTriggerJson } from "../../packages/cache/main/qa";
 
 const workerPosts: AiChatWorkerMessage[] = [];
 const messageLane: TelegramRetryLane = telegramOutboundGateState.lanes.message;
@@ -144,7 +144,8 @@ describe("AI 主线程消息入口", () => {
         telegramBackpressured: true,
         imageGenerationRequested: false,
         imageGenerationReference: undefined,
-        chatQa: undefined,
+        chatQaJson: undefined,
+        chatQaCount: 0,
       },
       {
         type: "trigger",
@@ -156,7 +157,8 @@ describe("AI 主线程消息入口", () => {
         telegramBackpressured: true,
         imageGenerationRequested: true,
         imageGenerationReference: undefined,
-        chatQa: undefined,
+        chatQaJson: undefined,
+        chatQaCount: 0,
       },
       {
         type: "trigger",
@@ -168,15 +170,28 @@ describe("AI 主线程消息入口", () => {
         telegramBackpressured: false,
         imageGenerationRequested: false,
         imageGenerationReference: undefined,
-        chatQa: undefined,
+        chatQaJson: undefined,
+        chatQaCount: 0,
       },
     ]);
   });
 
-  test("本群登记了问答时触发载荷带上主线程热读副本里的同一份清单", () => {
-    const entries: Map<string, string> = new Map<string, string>([["几点集合", "早上九点"]]);
+  test("本群登记了问答时触发载荷带上热表清单的 JSON 文本与条数，同群重复触发复用同一段文本", () => {
+    const entries: Map<string, string> = new Map<string, string>([["几点集合", "早上九点"], ["带什么", "身份证"]]);
     chatQaEntries.set(-1001, entries);
     try {
+      generateAndSendReply({
+        chatId: -1001,
+        triggerSenderId: 7,
+        replyToMessageId: 16,
+        messageThreadId: undefined,
+        imageGenerationRequested: false,
+        imageGenerationReference: undefined,
+      });
+      expect(chatQaTriggerJson.get(-1001)).toBe(JSON.stringify([...entries]));
+      // 绕过 infra/qaStore.ts 直接改热表不会失效缓存：第二次触发仍带缓存里的文本，
+      // 证明同群重复触发不重新序列化；失效由 qaStore 负责（见 test/infra/qaStore.test.ts）。
+      entries.set("不该出现", "未经 qaStore 的改动");
       generateAndSendReply({
         chatId: -1001,
         triggerSenderId: 7,
@@ -195,11 +210,13 @@ describe("AI 主线程消息入口", () => {
       });
     } finally {
       chatQaEntries.delete(-1001);
+      chatQaTriggerJson.clear();
     }
 
-    expect(workerPosts.map((message: AiChatWorkerMessage) => message.type === "trigger" ? message.chatQa : null))
-      .toEqual([entries, undefined]);
-    expect((workerPosts[0] as { chatQa?: unknown }).chatQa).toBe(entries);
+    const expectedJson: string = JSON.stringify([["几点集合", "早上九点"], ["带什么", "身份证"]]);
+    expect(workerPosts.map((message: AiChatWorkerMessage) =>
+      message.type === "trigger" ? [message.chatQaJson, message.chatQaCount] : null))
+      .toEqual([[expectedJson, 2], [expectedJson, 3], [undefined, 0]]);
   });
 
   test("要发起回复轮的媒体在投递时刻写入与文字触发同源的发送面高压快照", () => {

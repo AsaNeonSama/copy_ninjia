@@ -236,7 +236,8 @@ describe("AI reply admission pipeline", () => {
     expect(roundParams.triggerReference).toBeUndefined();
     expect(Object.keys(roundParams).sort()).toEqual([
       "chatId",
-      "chatQa",
+      "chatQaCount",
+      "chatQaJson",
       "generation",
       "imageGenerationReference",
       "imageGenerationRequested",

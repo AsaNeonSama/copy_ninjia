@@ -38,8 +38,13 @@ const {
   removeChatQa,
   setChatQa,
 } = await import("../../packages/infra/qaStore");
-const { chatQaEntries, unacknowledgedChatQaTotals, unacknowledgedChatQaWrites, resetChatQaCache } =
-  await import("../../packages/cache/main/qa");
+const {
+  chatQaEntries,
+  chatQaTriggerJson,
+  unacknowledgedChatQaTotals,
+  unacknowledgedChatQaWrites,
+  resetChatQaCache,
+} = await import("../../packages/cache/main/qa");
 
 const CHAT_ID: number = -1001;
 
@@ -177,6 +182,35 @@ describe("群问答主线程持久化边界", () => {
 
     expect(chatQaEntries.has(CHAT_ID)).toBeFalse();
     expect(unacknowledgedChatQaWrites.get(CHAT_ID)?.size).toBe(2);
+  });
+
+  test("每次改动热表都失效该群的 trigger JSON，别的群不受影响；hydrate 整表清空", () => {
+    const OTHER_CHAT_ID: number = -1002;
+    chatQaTriggerJson.set(OTHER_CHAT_ID, "[]");
+
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    setChatQa(CHAT_ID, "怎么入群？", "点置顶");
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    setChatQa(CHAT_ID, "怎么入群？", "改答案");
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+
+    setChatQa(CHAT_ID, "几点开饭", "十一点半");
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    expect(removeChatQa(CHAT_ID, "几点开饭")).toBeTrue();
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    expect(removeChatQa(CHAT_ID, "没登记过")).toBeFalse();
+    expect(chatQaTriggerJson.get(CHAT_ID)).toBe("stale");
+
+    expect(removeAllChatQa(CHAT_ID)).toBe(1);
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+    expect(chatQaTriggerJson.get(OTHER_CHAT_ID)).toBe("[]");
+
+    hydrateChatQaCache(new Map());
+    expect(chatQaTriggerJson.size).toBe(0);
   });
 
   test("hydrate 只搬持久化值，空群不进热表", () => {

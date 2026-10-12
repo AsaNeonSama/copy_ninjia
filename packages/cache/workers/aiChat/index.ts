@@ -11,6 +11,7 @@ import { resetAiChatMemoryCache } from "./memory";
 import { resetAiChatMoodCache } from "./mood";
 import { resetAiProviderSchedulerCache } from "./providerScheduler";
 import { invalidateChatReplyCache, resetAiChatReplyCache } from "./replies";
+import { resetReplyPrefixCache } from "./replyPrefix";
 
 /** AI 禁用或记忆淘汰的统一运行时失效边界。压缩链不提前删除：代际使旧
  * 结果失效，链自然排空。 */
@@ -42,4 +43,5 @@ export function resetAiChatWorkerCache(): void {
   resetAiChatMoodCache();
   resetAiProviderSchedulerCache();
   resetAiChatReplyCache();
+  resetReplyPrefixCache();
 }

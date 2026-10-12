@@ -2,6 +2,8 @@
  * 主线程群问答持久化边界：内存 Map 是唯一热读副本，SQLite 是权威落盘源。
  *
  * 写入在容量准入后发布内存最终值，再只保留 revision，正文不复制到第二张主线程表；
+ * 每次改动某群热表都同时失效 cache/main/qa.ts 的 chatQaTriggerJson 该群项（AI trigger
+ * 载荷按需重建）；
  * Disk I/O Worker 崩溃后从内存重编码并重放未 ACK 的 revision。语义与
  * infra/chatStateStorage.ts 一致，只是主键换成 (chatId, q) 复合键。
  */
@@ -12,6 +14,7 @@ import { postWithTransport } from "./diskIO/businessWrite";
 import { storageWriteCost } from "../libs/storageWriteBudget";
 import {
   chatQaEntries,
+  chatQaTriggerJson,
   nextChatQaRevision,
   unacknowledgedChatQaTotals,
   unacknowledgedChatQaWrites,
@@ -39,6 +42,7 @@ export function hydrateChatQaCache(
   entries: ReadonlyMap<number, ReadonlyMap<string, string>>
 ): void {
   chatQaEntries.clear();
+  chatQaTriggerJson.clear();
   unacknowledgedChatQaWrites.clear();
   unacknowledgedChatQaTotals.entries = 0;
   unacknowledgedChatQaTotals.bytes = 0;
@@ -109,6 +113,7 @@ export function setChatQa(chatId: number, q: string, a: string): "created" | "re
   const message: ChatQaWriteDiskMessage = prepareChatQaWrite(chatId, q, a);
   questions.set(q, a);
   if (existing === undefined) chatQaEntries.set(chatId, questions);
+  chatQaTriggerJson.delete(chatId);
   queueChatQaWrite(message);
   return replaced ? "replaced" : "created";
 }
@@ -119,6 +124,7 @@ export function removeChatQa(chatId: number, q: string): boolean {
   if (questions?.has(q) !== true) return false;
   const message: ChatQaWriteDiskMessage = prepareChatQaWrite(chatId, q, undefined);
   questions.delete(q);
+  chatQaTriggerJson.delete(chatId);
   // 空表不留存，直答路径第一步的 `get(chatId)` 靠 undefined 短路。
   if (questions.size === 0) chatQaEntries.delete(chatId);
   queueChatQaWrite(message);
@@ -145,6 +151,7 @@ export function removeAllChatQa(chatId: number): number {
     for (const q of [...questions.keys()]) {
       const message: ChatQaWriteDiskMessage = prepareChatQaWrite(chatId, q, undefined);
       questions.delete(q);
+      chatQaTriggerJson.delete(chatId);
       queueChatQaWrite(message);
       removed++;
     }

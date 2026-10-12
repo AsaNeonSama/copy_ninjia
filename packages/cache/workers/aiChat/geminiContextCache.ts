@@ -1,7 +1,10 @@
 /** owner: workers/aiChat。Gemini 回复共用显式缓存（cachedContent，text scope）的本地登记，以及各群上一次回复请求的触发时刻。 */
 
 import { GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS } from "../../../consts/aiChat/gemini";
-import type { GeminiContextCacheRegistry } from "../../../types/geminiContextCache";
+import type {
+  GeminiContextCacheRegistry,
+  GeminiReplyCacheContentSlot,
+} from "../../../types/geminiContextCache";
 
 /**
  * text scope 的登记表（结构见 types/geminiContextCache.ts，读写见
@@ -47,8 +50,17 @@ export function sweepGeminiReplyRequestTimes(now: number): void {
   }
 }
 
-/** 测试隔离时丢弃本地登记与各群上一次回复请求的触发时刻；不触碰服务端条目。 */
+/**
+ * 回复共用显式缓存的上一份内容（infra/geminiContextCache.ts 的 geminiContextCacheContent 结果，含两段
+ * 指纹）及其工具声明 JSON。aiChat/gemini/replySession.ts 每次取用前核对模型、系统指令、工具声明
+ * JSON 与 toolConfig 引用，都相等时复用，不重算指纹；否则重算并整体替换。
+ * 清理：只随替换释放旧值。Worker 崩溃重建：从 null 起步。容量固定为一份。
+ */
+export const textGeminiReplyCacheContent: { current: GeminiReplyCacheContentSlot | null } = { current: null };
+
+/** 测试隔离时丢弃本地登记、各群上一次回复请求的触发时刻与回复内容单槽；不触碰服务端条目。 */
 export function resetGeminiContextCache(): void {
   textGeminiContextCache.current = null;
   geminiReplyLastRequestAt.clear();
+  textGeminiReplyCacheContent.current = null;
 }

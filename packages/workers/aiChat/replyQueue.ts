@@ -32,8 +32,9 @@ export interface PushReplyTriggerParams {
   imageGenerationRequested: boolean;
   imageGenerationReference?: QueuedReplyTrigger["imageGenerationReference"];
   triggerReference?: BufferedReplyReference;
-  /** 触发时刻的本群问答；随触发一起入队，补跑时用当时那份清单。 */
-  chatQa?: ReadonlyMap<string, string>;
+  /** 触发时刻的本群问答 JSON 文本与条数；随触发一起入队，补跑时用当时那份清单。 */
+  chatQaJson?: string;
+  chatQaCount?: number;
   /** 触发消息所在的论坛话题；补跑那一轮仍然回到当初那个话题。 */
   messageThreadId: number | undefined;
   mediaTrigger?: MediaCommentContext;
@@ -62,7 +63,8 @@ export function pushReplyTrigger({
   imageGenerationRequested,
   imageGenerationReference,
   triggerReference,
-  chatQa,
+  chatQaJson,
+  chatQaCount,
   messageThreadId,
   mediaTrigger,
   mediaPreparation,
@@ -84,7 +86,8 @@ export function pushReplyTrigger({
       forwardedFrom: mediaTrigger.forwardedFrom ? mediaTrigger.forwardedFrom : undefined,
       imageGenerationRequested,
       imageGenerationReference,
-      chatQa,
+      chatQaJson,
+      chatQaCount,
       messageThreadId,
       senderName: mediaTrigger.senderName,
       text: truncateInline(
@@ -108,7 +111,8 @@ export function pushReplyTrigger({
     forwardedFrom: triggerEntry?.forwardedFrom ? triggerEntry.forwardedFrom : undefined,
     imageGenerationRequested,
     imageGenerationReference,
-    chatQa,
+    chatQaJson,
+    chatQaCount,
     messageThreadId,
     senderName: triggerEntry ? displaySpeakerName(triggerEntry) : "",
     text: triggerEntry ? truncateInline(triggerEntry.text, QUEUED_TRIGGER_SNIPPET_MAX_CHARS) : "",

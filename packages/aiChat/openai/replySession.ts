@@ -31,7 +31,8 @@ import {
 } from "../../consts/aiChat/openai";
 import { getAgentDeploymentConfig } from "../../config/agent";
 import { getOpenAiClient, requestOpenAiResult } from "./client";
-import { stablePrefixFingerprint } from "../../libs/prefixFingerprint";
+import { stablePrefixFingerprintWithSlot } from "../../libs/prefixFingerprint";
+import { openAiReplyPrefixSlot } from "../../cache/workers/aiChat/replyPrefix";
 import {
   countWebSearchCalls,
   extractFunctionCalls,
@@ -155,6 +156,8 @@ export function createOpenAiReplySession(
    * 取本轮请求的 prompt_cache_key，工具形态没变就复用上一次算好的。
    *
    * 指纹覆盖 systemPrompt、工具声明与全部稳定区块（含按群变化的参考记忆），因此键按群区分。
+   * 系统提示词与工具声明 JSON 两段的哈希状态跨轮复用（cache/workers/aiChat/replyPrefix.ts），
+   * 每轮只重喂稳定区块；摘要与对全部分段直接哈希逐字节相同。
    */
   function promptCacheKeyFor(request: AiReplyTurnRequest, tools: readonly OpenAI.Responses.Tool[]): string {
     if (
@@ -165,11 +168,11 @@ export function createOpenAiReplySession(
     ) {
       return cacheKey;
     }
-    const fingerprint: string = stablePrefixFingerprint([
-      request.systemPrompt,
-      JSON.stringify(tools),
-      ...stableBlocks,
-    ]);
+    const fingerprint: string = stablePrefixFingerprintWithSlot(
+      openAiReplyPrefixSlot,
+      [request.systemPrompt, JSON.stringify(tools)],
+      stableBlocks
+    );
     cacheKey = OPENAI_PROMPT_CACHE_KEY_PREFIX + ":" + fingerprint;
     keyedFunctions = request.functions;
     keyedWebSearchEnabled = request.webSearchEnabled;

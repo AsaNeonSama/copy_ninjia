@@ -21,10 +21,11 @@ export interface QueuedReplyTrigger {
   imageGenerationRequested: boolean;
   imageGenerationReference?: ImageGenerationReference;
   /**
-   * 触发时刻的本群问答快照；与 triggerReference 同理在入队时捕获，补跑沿用这份清单。
-   * 载荷有界，每群至多 CHAT_QA_MAX_PER_CHAT 条。
+   * 触发时刻的本群问答快照（`[问题, 答案]` 对数组的 JSON 文本）与条数；与 triggerReference
+   * 同理在入队时捕获，补跑沿用这份清单。每群至多 CHAT_QA_MAX_PER_CHAT 条。
    */
-  chatQa?: ReadonlyMap<string, string>;
+  chatQaJson?: string;
+  chatQaCount?: number;
   /** 触发消息所在的论坛话题；补跑时这一轮仍然回到当初那个话题。 */
   messageThreadId: number | undefined;
   senderName: string;
@@ -60,8 +61,13 @@ export interface ReplyToolContext {
    * 文字、贴纸、生图、语音与「正在输入…」共用这一个话题（见 libs/forumTopic.ts）。
    */
   messageThreadId: number | undefined;
-  /** 本群已登记问答；为空或缺省时问答执行器返回空清单，本轮工具状态写明没有登记。 */
-  chatQa?: ReadonlyMap<string, string>;
+  /**
+   * 本群已登记问答的 `[问题, 答案]` 对数组 JSON 文本，只在 group_qa_* 执行器被调用时解析；
+   * 缺省时执行器返回空清单。
+   */
+  chatQaJson?: string;
+  /** 本群已登记问答条数；本轮工具状态只读它，缺省按 0（写明没有登记）。 */
+  chatQaCount?: number;
   /**
    * 重媒体工具（generate_image）的直接触发资格。工具只按部署能力恒挂；为 false 时
    * 本轮工具状态写明不可用，执行器在调用时直接拒绝。具体意图由模型按当前消息自行判断。
@@ -313,4 +319,15 @@ export interface MediaCommentContext {
   directTriggerReason?: AiDirectTriggerReason;
   /** 排队时随触发快照保存；原转录条目滑出后仍保留回复对象。 */
   replyTo?: BufferedReplyReference;
+}
+
+/**
+ * 回复系统提示词单槽：拼装输入与拼好的整段文本（见 workers/aiChat/replyModel.ts 的
+ * buildReplySystemPrompt）。三项输入都相等时直接复用 prompt。
+ */
+export interface ReplySystemPromptSlot {
+  readonly persona: string;
+  readonly actionInstruction: string;
+  readonly functionSearch: boolean;
+  readonly prompt: string;
 }

@@ -102,6 +102,7 @@ beforeEach(() => {
   }));
   acquireGeminiContextCache.mockReset();
   acquireGeminiContextCache.mockImplementation((): string | null => null);
+  geminiContextCacheContent.mockClear();
   releaseGeminiContextCache.mockClear();
   builtBodies.length = 0;
   resetGeminiContextCache();
@@ -200,6 +201,30 @@ describe("两套请求结构", () => {
     expect(second.config?.toolConfig).toEqual({ includeServerSideToolInvocations: true });
     expect((second.contents as Content[])[2]).toEqual(modelContent());
     expect(acquireGeminiContextCache).toHaveBeenCalledTimes(1);
+  });
+
+  test("跨会话取用共用缓存时，模型、系统指令、工具声明与 toolConfig 都相等就复用同一份内容，任一项变化才重算", async () => {
+    acquireGeminiContextCache.mockImplementation((): string | null => "cachedContents/shared");
+    requestGeminiResult.mockImplementation(respond(okResult(modelContent())));
+    const requests: readonly AiReplyTurnRequest[] = [
+      REQUEST,
+      { ...REQUEST, systemPrompt: `${"系统提示词"}` },
+      { ...REQUEST, functions: [SEND_MESSAGE] },
+      { ...REQUEST, webSearchEnabled: false },
+      { ...REQUEST, systemPrompt: "换了人设" },
+    ];
+    for (const [index, request] of requests.entries()) {
+      // 每个会话的第 1 次请求都取缓存：用不同群让本群触发时刻互不影响。
+      const session: AiReplySession = createGeminiReplySession({ chatId: CHAT_ID - index, stableBlocks: ["参考记忆"], volatileBlocks: ["转录"] });
+      await session.request(request);
+    }
+    const contents: unknown[] = acquireGeminiContextCache.mock.calls.map((args: unknown[]): unknown => args[1]);
+    expect(contents).toHaveLength(requests.length);
+    expect(contents[1]).toBe(contents[0]);
+    expect(contents[2]).toBe(contents[0]);
+    expect(contents[3]).not.toBe(contents[0]);
+    expect(contents[4]).not.toBe(contents[3]);
+    expect(geminiContextCacheContent).toHaveBeenCalledTimes(3);
   });
 
   test("缓存被端点拒绝时释放登记，并按完整结构补发一次", async () => {

@@ -94,3 +94,9 @@ export interface GeminiContextCacheContent {
   /** 内容键：模型、系统指令、工具声明与 toolConfig 的指纹。 */
   readonly contentKey: string;
 }
+
+/** AI 回复侧的内容单槽：上一份缓存内容及其工具声明 JSON（见 cache/workers/aiChat/geminiContextCache.ts）。 */
+export interface GeminiReplyCacheContentSlot {
+  readonly content: GeminiContextCacheContent;
+  readonly toolsJson: string;
+}

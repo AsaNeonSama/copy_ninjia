@@ -15,7 +15,7 @@ import {
   AI_TELEGRAM_MESSAGE_ACTIVE_HIGH_WATER,
   AI_TELEGRAM_MESSAGE_RETRY_HIGH_WATER,
 } from "../consts/aiChat/provider";
-import { chatQaEntries } from "../cache/main/qa";
+import { chatQaEntries, chatQaTriggerJson } from "../cache/main/qa";
 import { telegramOutboundGateState } from "../cache/main/telegram";
 import type { TelegramRetryLane } from "../types/telegramOutbound";
 import { postAiChatOrThrow } from "./workerBridge";
@@ -90,10 +90,24 @@ export function recordChatMedia(message: AiRecordMediaMessage): void {
 /** 触发一次回复所需的主线程载荷；随机触发默认关闭，发送面高压与本群问答由本模块补齐。 */
 export type GenerateAndSendReplyParams = Omit<
   AiTriggerMessage,
-  "type" | "isRandomTrigger" | "telegramBackpressured" | "chatQa"
+  "type" | "isRandomTrigger" | "telegramBackpressured" | "chatQaJson" | "chatQaCount"
 > & {
   isRandomTrigger?: boolean;
 };
+
+/**
+ * 本群问答的 trigger JSON：命中 chatQaTriggerJson 直接复用，否则按热表当前顺序生成并登记；
+ * 本群没有问答时为 undefined。
+ */
+function chatQaJsonFor(chatId: number, entries: ReadonlyMap<string, string> | undefined): string | undefined {
+  if (entries === undefined) return undefined;
+  let json: string | undefined = chatQaTriggerJson.get(chatId);
+  if (json === undefined) {
+    json = JSON.stringify([...entries]);
+    chatQaTriggerJson.set(chatId, json);
+  }
+  return json;
+}
 
 /** 把一次回复触发投给 Worker；生成、工具调用和发送均不阻塞主线程。 */
 export function generateAndSendReply({
@@ -105,6 +119,7 @@ export function generateAndSendReply({
   isRandomTrigger = false,
   messageThreadId,
 }: GenerateAndSendReplyParams): void {
+  const chatQa: ReadonlyMap<string, string> | undefined = chatQaEntries.get(chatId);
   postAiChatOrThrow({
     type: "trigger",
     chatId,
@@ -116,10 +131,10 @@ export function generateAndSendReply({
     // 同 workers/aiChat/rollingMemory.ts：字段一律发出，不用条件展开，保持消息
     // 对象 shape 稳定。
     imageGenerationReference,
-    // 同理恒发。本群没登记问答时是 undefined，Worker 侧据此在本轮工具状态里写明没有登记；
-    // structuredClone 会复制这张 Map，两条线程不共享可变内存。载荷有界：
-    // 每群至多 CHAT_QA_MAX_PER_CHAT 条。
-    chatQa: chatQaEntries.get(chatId),
+    // 同理恒发。本群问答只带按群缓存的 JSON 文本与条数，都是原始值，不克隆 Map；
+    // 没登记问答时为 undefined 与 0，Worker 侧据此在本轮工具状态里写明没有登记。
+    chatQaJson: chatQaJsonFor(chatId, chatQa),
+    chatQaCount: chatQa === undefined ? 0 : chatQa.size,
     // 话题群里的主动发送靠它落回原话题；同样恒发，
     // General 与非论坛群是显式 undefined（见 libs/forumTopic.ts）。
     messageThreadId,

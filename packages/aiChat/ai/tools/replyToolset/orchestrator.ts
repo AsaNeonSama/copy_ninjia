@@ -153,9 +153,9 @@ export async function createReplyToolset(ctx: ReplyToolContext, deliveryReady?: 
           ? toolError(unknownToolError(name))
           : executeSendVoice(argumentsJson);
       case GROUP_QA_QUERY_TOOL:
-        return executeGroupQaQuery(ctx.chatQa);
+        return executeGroupQaQuery(ctx.chatQaJson);
       case GROUP_QA_ANSWER_TOOL:
-        return executeGroupQaAnswer(ctx.chatQa, argumentsJson);
+        return executeGroupQaAnswer(ctx.chatQaJson, argumentsJson);
       case VIEW_STICKER_PACK_TOOL: {
         const viewedBefore: number = stickerState.viewedPackIntents.size;
         const result: string = viewStickerPackTool({

@@ -3,9 +3,10 @@
 import type { QaFormSession, UnacknowledgedChatQaWrite } from "../../types/qa";
 
 /**
- * 群 -> 问题原文 -> 答案。主线程是唯一 owner：infra/qaStore.ts 是唯一写入者，
+ * 群 -> 问题原文 -> 答案。主线程是唯一 owner：infra/qaStore.ts 是唯一写入者（每次写入同时
+ * 失效 chatQaTriggerJson 的该群项），
  * `/qa set`、`/qa remove` 经它写入后再投给 Disk I/O Worker 落盘；直答路径
- * （auto/message/qaDirectAnswer.ts，每条群消息一次）、AI 触发载荷（aiChat/messageIngress.ts）
+ * （auto/message/qaDirectAnswer.ts，每条群消息一次）、AI 触发载荷的 JSON 生成（aiChat/messageIngress.ts）
  * 与 `/qa` 查询/翻页（commands/qa.ts、commands/qa/board.ts）直接只读，读取点以
  * ReadonlyMap 接收，不改写内容。
  *
@@ -19,6 +20,19 @@ import type { QaFormSession, UnacknowledgedChatQaWrite } from "../../types/qa";
  * 语义相近的提问由模型侧的 group_qa_answer 处理，不走这张表的键。
  */
 export const chatQaEntries: Map<number, Map<string, string>> = new Map();
+
+/**
+ * 群 -> 本群问答 `[问题, 答案]` 对数组的 JSON 文本，顺序同 chatQaEntries 该群的迭代顺序。
+ * AI trigger 载荷只带这段文本与条数（aiChat/messageIngress.ts），不克隆整张 Map。
+ *
+ * 填充：某群首次需要投 trigger 时由 aiChat/messageIngress.ts 从 chatQaEntries 生成并登记。
+ * 清理：infra/qaStore.ts 每次改动某群热表（setChatQa、removeChatQa、removeAllChatQa）都删掉
+ * 该群这一项，hydrateChatQaCache 与 resetChatQaCache 整表清空；任何一处改动 chatQaEntries
+ * 而不失效本表，trigger 就会带出旧清单。
+ * 容量：群数不超过 chatQaEntries 的群数，单项文本受 CHAT_QA_MAX_PER_CHAT 与问答长度上限约束；
+ * 只在主线程，不受 Worker 生命周期影响，进程重启后为空。
+ */
+export const chatQaTriggerJson: Map<number, string> = new Map();
 
 /**
  * `/qa set` 未填完的表单会话，按群索引、按发起人鉴权。
@@ -64,6 +78,7 @@ export const nextChatQaRevision: { current: number } = { current: 1 };
  */
 export function resetChatQaCache(): void {
   chatQaEntries.clear();
+  chatQaTriggerJson.clear();
   for (const session of qaFormSessions.values()) {
     if (session.timer !== null) clearTimeout(session.timer);
   }

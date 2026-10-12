@@ -251,12 +251,17 @@ test("话题群：reply_to_trigger=false 的正文照样带上本轮话题，不
 describe("工具清单恒定", () => {
   test("触发类型、本群问答与手滑抽签都不改变工具声明的任何一个字节", async () => {
     const shapes: string[] = [];
-    for (const { mediaToolsRequested, roundHasTypo, chatQa } of cartesianProduct({
+    for (const { mediaToolsRequested, roundHasTypo, chatQaJson } of cartesianProduct({
       mediaToolsRequested: [false, true],
       roundHasTypo: [false, true],
-      chatQa: [undefined, new Map([["怎么入群？", "点置顶那条链接"]])],
+      chatQaJson: [undefined, JSON.stringify([["怎么入群？", "点置顶那条链接"]])],
     })) {
-      const toolset = await createReplyToolset(replyToolContextFixture({ mediaToolsRequested, roundHasTypo, chatQa }));
+      const toolset = await createReplyToolset(replyToolContextFixture({
+        mediaToolsRequested,
+        roundHasTypo,
+        chatQaJson,
+        chatQaCount: chatQaJson === undefined ? 0 : 1,
+      }));
       shapes.push(JSON.stringify(toolset.functions));
       expect(toolset.toolStatus).toStartWith(TOOL_STATUS_BLOCK_LABEL);
     }
@@ -381,13 +386,16 @@ describe("群问答工具在按次工具集里的接线", () => {
   });
 
   test("本群有问答时两个工具都挂上，且 dispatch 真的走到执行器", async () => {
-    const toolset = await createReplyToolset(replyToolContextFixture({ chatQa: new Map([["怎么入群？", "点置顶那条链接"]]) }));
+    const toolset = await createReplyToolset(replyToolContextFixture({
+      chatQaJson: JSON.stringify([["怎么入群？", "点置顶那条链接"]]),
+      chatQaCount: 1,
+    }));
 
     expect(toolset.has(GROUP_QA_QUERY_TOOL)).toBe(true);
     expect(toolset.has(GROUP_QA_ANSWER_TOOL)).toBe(true);
     expect(toolset.toolStatus).toContain(groupQaToolStatus(1));
 
-    // 直接断言 ReplyToolContext.chatQa 被交给执行器。
+    // 直接断言 ReplyToolContext.chatQaJson 被交给执行器。
     const listed: { questions: string[] } = JSON.parse(
       await executeAndSettle(toolset, GROUP_QA_QUERY_TOOL, "{}")
     );
@@ -401,7 +409,7 @@ describe("群问答工具在按次工具集里的接线", () => {
   });
 
   test("问答工具不消耗整轮可见动作预算", async () => {
-    const toolset = await createReplyToolset(replyToolContextFixture({ chatQa: new Map([["a", "1"]]) }));
+    const toolset = await createReplyToolset(replyToolContextFixture({ chatQaJson: JSON.stringify([["a", "1"]]), chatQaCount: 1 }));
 
     // 先把动作预算打到硬顶之上，验证查询工具此时仍不受预算限制。
     for (let index: number = 0; index < HARD_MAX_ACTIONS_PER_REPLY + 1; index++) {

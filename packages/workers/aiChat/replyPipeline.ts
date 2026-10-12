@@ -49,7 +49,8 @@ function startQueuedRound(chatId: number, trigger: QueuedReplyTrigger): boolean 
       imageGenerationReference: trigger.imageGenerationReference,
       triggerReference: trigger.triggerReference,
       isRandomTrigger: false,
-      chatQa: trigger.chatQa,
+      chatQaJson: trigger.chatQaJson,
+      chatQaCount: trigger.chatQaCount,
       messageThreadId: trigger.messageThreadId,
       mediaComment: undefined,
       mediaPreparation: trigger.mediaPreparation,
@@ -126,8 +127,10 @@ export interface GenerateAndSendReplyParams {
    * 或媒体记录的 replyTelegramBackpressured；缺省按未高压。
    */
   telegramBackpressured?: boolean;
-  /** 主线程随 trigger 消息附带的本群问答；本群没有时是 undefined。 */
-  chatQa?: ReadonlyMap<string, string>;
+  /** 主线程随 trigger 消息附带的本群问答 JSON 文本；本群没有时是 undefined。 */
+  chatQaJson?: string;
+  /** 同一时刻本群已登记问答条数；缺省（媒体触发）按 0。 */
+  chatQaCount?: number;
   /** 触发消息所在的论坛话题；本轮全部发送据此落回原话题。 */
   messageThreadId: number | undefined;
   mediaComment?: MediaCommentContext;
@@ -147,7 +150,8 @@ export function generateAndSendReply({
   imageGenerationReference,
   isRandomTrigger,
   telegramBackpressured = false,
-  chatQa,
+  chatQaJson,
+  chatQaCount = 0,
   messageThreadId,
   mediaComment,
   mediaPreparation,
@@ -180,7 +184,8 @@ export function generateAndSendReply({
           imageGenerationReference,
           triggerReference,
           isRandomTrigger,
-          chatQa,
+          chatQaJson,
+          chatQaCount,
           messageThreadId,
           mediaComment,
           mediaPreparation,
@@ -200,7 +205,8 @@ export function generateAndSendReply({
         imageGenerationRequested,
         imageGenerationReference,
         triggerReference,
-        chatQa,
+        chatQaJson,
+        chatQaCount,
         messageThreadId,
         mediaTrigger: mediaComment,
         mediaPreparation,

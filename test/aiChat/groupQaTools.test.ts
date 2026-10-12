@@ -3,14 +3,17 @@ import {
   buildGroupQaToolDefinitions,
   executeGroupQaAnswer,
   executeGroupQaQuery,
+  parseChatQaJson,
 } from "../../packages/aiChat/ai/tools/replyToolset/groupQa";
 import { TOOL_STATUS_POINTER } from "../../packages/consts/aiChat/prompts/tools";
 import { GROUP_QA_ANSWER_TOOL, GROUP_QA_QUERY_TOOL } from "../../packages/consts/tools";
 
-const ENTRIES: ReadonlyMap<string, string> = new Map([
+const ENTRY_MAP: ReadonlyMap<string, string> = new Map([
   ["怎么入群？", "点置顶那条链接"],
   ["几点开饭", "十一点半"],
 ]);
+/** 与主线程 aiChat/messageIngress.ts 生成 trigger 载荷的方式相同。 */
+const ENTRIES: string = JSON.stringify([...ENTRY_MAP]);
 
 describe("群问答的两个模型工具", () => {
   test("两个纯查询工具恒挂、逐字恒定，都不占动作预算，并指向本轮工具状态", async () => {
@@ -65,5 +68,18 @@ describe("群问答的两个模型工具", () => {
 
   test("没有问答表时 query 返回空清单而不是抛出", () => {
     expect(JSON.parse(executeGroupQaQuery(undefined))).toEqual({ questions: [] });
+  });
+
+  test("trigger 的问答 JSON 解析回与主线程热表相同的有序对", () => {
+    expect(new Map(parseChatQaJson(ENTRIES))).toEqual(new Map(ENTRY_MAP));
+    expect(parseChatQaJson(ENTRIES).map(([question]: readonly [string, string]): string => question))
+      .toEqual([...ENTRY_MAP.keys()]);
+    expect(parseChatQaJson(undefined)).toEqual([]);
+  });
+
+  test("问答 JSON 形态不符时直接抛错", () => {
+    for (const malformed of ['{"a":"b"}', '[["只有问题"]]', '[["问题", 1]]', '["问题"]']) {
+      expect(() => parseChatQaJson(malformed)).toThrow("[question, answer] pairs");
+    }
   });
 });

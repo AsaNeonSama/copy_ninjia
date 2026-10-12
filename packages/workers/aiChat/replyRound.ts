@@ -52,8 +52,9 @@ export interface ReplyRoundRequest {
   /** 轮次开始前捕获的触发消息快照；生成或排队期间滑出热区时用于自录兜底。 */
   triggerReference?: BufferedReplyReference;
   isRandomTrigger: boolean;
-  /** 触发时刻的本群问答；空或缺省时问答执行器返回空清单，本轮工具状态写明没有登记。 */
-  chatQa?: ReadonlyMap<string, string>;
+  /** 触发时刻的本群问答 JSON 文本与条数；缺省时问答执行器返回空清单，本轮工具状态写明没有登记。 */
+  chatQaJson?: string;
+  chatQaCount?: number;
   /** 本轮全部发送要落进的论坛话题；General、非论坛群为 undefined。 */
   messageThreadId: number | undefined;
   mediaComment?: MediaCommentContext;
@@ -100,7 +101,8 @@ function buildReplyToolContext({
     triggerSenderId,
     replyToMessageId,
     messageThreadId,
-    chatQa,
+    chatQaJson,
+    chatQaCount,
     imageGenerationReference,
     triggerReference,
   }: ReplyRoundRequest = request;
@@ -132,7 +134,8 @@ function buildReplyToolContext({
     chatId,
     replyToMessageId,
     messageThreadId,
-    chatQa,
+    chatQaJson,
+    chatQaCount,
     mediaToolsRequested: mediaToolsAllowed,
     // 相册补齐读的是组装时刻（媒体解析完成之后）的相册缓存。
     imageGenerationReferences: mediaToolsAllowed && imageGenerationReference !== undefined

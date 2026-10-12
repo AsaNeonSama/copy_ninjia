@@ -36,7 +36,7 @@ import type { TelegramVisionSource } from "../../../../types/media";
 /** 本模块从本轮回复上下文里真正读到的字段。 */
 export type ToolStatusContext = Pick<
   ReplyToolContext,
-  "chatId" | "chatQa" | "mediaToolsRequested" | "imageGenerationReferences" | "bypassMediaToolCooldown"
+  "chatId" | "chatQaCount" | "mediaToolsRequested" | "imageGenerationReferences" | "bypassMediaToolCooldown"
 >;
 
 /** buildToolStatusBlock 的入参：上下文子集、媒体能力与独立检索的本轮配置上限。 */
@@ -83,7 +83,7 @@ export function buildToolStatusBlock({ ctx, imageEnabled, voiceEnabled, webSearc
   let block: string = TOOL_STATUS_BLOCK_LABEL;
   if (imageEnabled) block += "\n" + imageStatusLine(ctx);
   if (voiceEnabled) block += "\n" + voiceStatusLine();
-  block += "\n" + groupQaToolStatus(ctx.chatQa?.size ?? 0);
+  block += "\n" + groupQaToolStatus(ctx.chatQaCount ?? 0);
   if (webSearchMaxCallsPerUse !== undefined) block += "\n" + webSearchToolStatus(webSearchMaxCallsPerUse);
   return block;
 }

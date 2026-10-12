@@ -38,7 +38,12 @@ import type {
   GoogleGenAI,
   Part,
   Tool,
+  ToolConfig,
 } from "@google/genai";
+import type {
+  GeminiContextCacheContent,
+  GeminiReplyCacheContentSlot,
+} from "../../types/geminiContextCache";
 import {
   GEMINI_GROUNDED_REPLY_TEMPERATURE,
   GEMINI_REPLY_ERROR_LABEL,
@@ -48,7 +53,10 @@ import {
   GEMINI_SERVER_TOOL_CONFIG,
 } from "../../consts/aiChat/gemini";
 import { getAgentDeploymentConfig } from "../../config/agent";
-import { geminiReplyLastRequestAt } from "../../cache/workers/aiChat/geminiContextCache";
+import {
+  geminiReplyLastRequestAt,
+  textGeminiReplyCacheContent,
+} from "../../cache/workers/aiChat/geminiContextCache";
 import { isPlainRecord } from "../../libs/record";
 import { getGeminiClient, requestGeminiResult } from "./client";
 import {
@@ -195,6 +203,33 @@ export function createGeminiReplySession(
     return result;
   }
 
+  /**
+   * 本次要交给共用显式缓存的内容；模型、系统指令、工具声明 JSON 与 toolConfig 都与上一份相等时
+   * 复用 textGeminiReplyCacheContent 里已算好的两段指纹，否则重算并替换。
+   */
+  function replyCacheContent(model: string, request: AiReplyTurnRequest, tools: Tool[]): GeminiContextCacheContent {
+    const toolsJson: string = JSON.stringify(tools);
+    const toolConfig: Readonly<ToolConfig> | undefined = request.webSearchEnabled ? GEMINI_SERVER_TOOL_CONFIG : undefined;
+    const cached: GeminiReplyCacheContentSlot | null = textGeminiReplyCacheContent.current;
+    if (
+      cached !== null &&
+      cached.content.model === model &&
+      cached.content.systemInstruction === request.systemPrompt &&
+      cached.content.toolConfig === toolConfig &&
+      cached.toolsJson === toolsJson
+    ) {
+      return cached.content;
+    }
+    const content: GeminiContextCacheContent = geminiContextCacheContent({
+      model,
+      systemInstruction: request.systemPrompt,
+      tools,
+      toolConfig,
+    });
+    textGeminiReplyCacheContent.current = { content, toolsJson };
+    return content;
+  }
+
   /** 按完整结构发一次请求（不引用显式缓存）。 */
   function requestFull(request: AiReplyTurnRequest, tools: Tool[], sentAt: number): Promise<GeminiRequestResult> {
     return send((): GenerateContentParameters => buildBody(request, tools, null), sentAt);
@@ -210,12 +245,11 @@ export function createGeminiReplySession(
     if (getAgentDeploymentConfig().text !== textConfig) return requestFull(request, tools, sentAt);
     const acquired: { name: string | null } = { name: null };
     const result: GeminiRequestResult = await send((): GenerateContentParameters => {
-      acquired.name = acquireGeminiContextCache(TEXT_GEMINI_CONTEXT_CACHE_SCOPE, geminiContextCacheContent({
-        model: textConfig.model,
-        systemInstruction: request.systemPrompt,
-        tools,
-        toolConfig: request.webSearchEnabled ? GEMINI_SERVER_TOOL_CONFIG : undefined,
-      }));
+      acquired.name = acquireGeminiContextCache(TEXT_GEMINI_CONTEXT_CACHE_SCOPE, replyCacheContent(
+        textConfig.model,
+        request,
+        tools
+      ));
       return buildBody(request, tools, acquired.name);
     }, sentAt);
     const cachedContent: string | null = acquired.name;
