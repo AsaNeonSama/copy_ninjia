@@ -9,6 +9,7 @@ import type {
 } from "../../../types/diskIO/replies";
 import type {
   StorageDatabase,
+  StorageDatabaseReader,
   StorageDatabaseWriter,
   StoredIdentityIdLookups,
 } from "../../../types/storageDatabase";
@@ -74,6 +75,17 @@ export const storageDatabaseWriters: WeakMap<
   StorageDatabase,
   StorageDatabaseWriter
 > = new WeakMap<StorageDatabase, StorageDatabaseWriter>();
+
+/**
+ * 每条连接一整套预热与容量闸用的预编译读语句（名单、临时免检批量读与群状态主键），首次读取时由
+ * workers/diskIO/storageDatabase/context.ts 的 requireStorageDatabaseReader 建好放进来，同一连接
+ * 的每次读取复用。容量、清理与 Worker 重建口径同 storedIdentityIdLookups：每条活着的连接一项，
+ * 键随连接回收，Worker 重建后为空。
+ */
+export const storageDatabaseReaders: WeakMap<
+  StorageDatabase,
+  StorageDatabaseReader
+> = new WeakMap<StorageDatabase, StorageDatabaseReader>();
 
 /**
  * 固定截止 timer 使用的 ACK 通道；Worker 启动时填充，随整个 DiskIO isolate 销毁。

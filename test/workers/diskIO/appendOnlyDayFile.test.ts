@@ -14,6 +14,7 @@ import {
 } from "../../../packages/workers/diskIO/appendOnlyDayFile";
 import { PERSISTED_FILE_MODE } from
   "../../../packages/consts/diskIO/common";
+import { DAY_FILE_JSON_INDENT } from "../../../packages/consts/diskIO/appendOnly";
 import type { DayFileState } from "../../../packages/types/diskIO/storage";
 
 let dir: string;
@@ -496,5 +497,41 @@ describe("appendOnlyDayFile：截断修复与规范格式校验", () => {
       .toThrow(AppendOnlyFileFormatError);
     expect((): unknown => openValidatedAppendOnlyFile({ path, content: JSON.stringify({ a: 1 }), empty: false }))
       .toThrow("must use the canonical append-only JSON object formatting");
+  });
+});
+
+describe("serializeDayFileEntry：与整对象 stringify 的条目逐字节一致", () => {
+  /** 对照：单条目对象 stringify 后掐掉外层「{\n」与「\n}」。 */
+  function referenceEntry(key: string, value: unknown): string {
+    return JSON.stringify({ [key]: value }, null, DAY_FILE_JSON_INDENT).slice(2, -2);
+  }
+
+  const values: readonly (readonly [string, unknown])[] = [
+    ["对象", { label: "大吉", fortunePercent: 90.12, nested: { list: [1, "二", null] } }],
+    ["嵌套数组", [[1, 2], [], [{ a: [] }]]],
+    ["空对象", {}],
+    ["空数组", []],
+    ["null", null],
+    ["数字", -0.5],
+    ["字符串", "引号\"与\\反斜杠\n换行"],
+    ["布尔", true],
+  ];
+  const keys: readonly string[] = ["plain", "111_222", "带\"引号\"的键", "back\\slash", "换行\n键", "\u0001控制", "__proto__"];
+
+  for (const [label, value] of values) {
+    test(`${label}：各类键名下与对照逐字节相等`, () => {
+      for (const key of keys) {
+        expect(serializeDayFileEntry(key, value)).toBe(referenceEntry(key, value));
+      }
+    });
+  }
+
+  test("多条拼成整对象后可按原值解析", () => {
+    const text: string = `{\n${keys.map((key: string, index: number): string =>
+      serializeDayFileEntry(key, { index })).join(",\n")}\n}`;
+    const parsed: unknown = JSON.parse(text);
+    for (const [index, key] of keys.entries()) {
+      expect(Object.getOwnPropertyDescriptor(parsed, key)?.value).toEqual({ index });
+    }
   });
 });

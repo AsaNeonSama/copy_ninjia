@@ -90,6 +90,21 @@ describe("libs/time formatLocalTime", () => {
     expect(formatLocalTime(base + 1_000)).not.toBe(formatLocalTime(base));
   });
 
+  test("日期前缀单槽：两日交替与换时区后仍与参照一致", () => {
+    const dayA: number = Date.UTC(2026, 2, 3, 1, 2, 3);
+    const dayB: number = Date.UTC(1999, 11, 31, 20, 0, 0);
+    for (const ms of [dayA, dayB, dayA, dayA + 1_000, dayB, dayA + DAY_MS]) {
+      expect(formatLocalTime(ms)).toBe(reference(ms));
+    }
+    const crossZone: number = Date.UTC(2026, 6, 1, 20, 0, 0);
+    expect(formatLocalTime(crossZone)).toBe(reference(crossZone));
+    adoptTimeZone("America/New_York");
+    expect(formatLocalTime(crossZone)).toBe(
+      Temporal.Instant.fromEpochMilliseconds(crossZone).toZonedDateTimeISO("America/New_York")
+        .toPlainDateTime().toString().replace("T", " ").replaceAll("-", "/")
+    );
+  });
+
   test("历史夏令时按 IANA 规则格式化", () => {
     const duringJapaneseDst: number = Date.UTC(1950, 6, 1, 3, 0, 0);
     expect(formatLocalTime(duringJapaneseDst)).toBe(reference(duringJapaneseDst));

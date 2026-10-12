@@ -141,12 +141,20 @@ export function getDateKey(timestampMs: number = Date.now()): string {
   return formatCivilDate(Math.floor((timestampMs + localOffsetMs(timestampMs)) / DAY_MS), "-");
 }
 
-/** 配置时区的 YYYY/MM/DD HH:mm:ss；记录时格式化，供 AI 转录与持久化条目使用。 */
+/**
+ * 配置时区的 YYYY/MM/DD HH:mm:ss；记录时格式化，供 AI 转录与持久化条目使用。
+ * 日期段按本线程 TimeZoneState 的 dateDay / datePrefix 单槽复用，只在日序号变化时重算。
+ */
 export function formatLocalTime(timestampMs: number): string {
   validateFormatTimestamp(timestampMs);
   const shifted: number = timestampMs + localOffsetMs(timestampMs);
   const days: number = Math.floor(shifted / DAY_MS);
-  return `${formatCivilDate(days, "/")} ${formatSecondOfDay(((shifted - days * DAY_MS) / 1_000) | 0)}`;
+  const state: TimeZoneState = getTimeZoneState();
+  if (state.dateDay !== days) {
+    state.datePrefix = `${formatCivilDate(days, "/")} `;
+    state.dateDay = days;
+  }
+  return `${state.datePrefix}${formatSecondOfDay(((shifted - days * DAY_MS) / 1_000) | 0)}`;
 }
 
 /** 配置时区的 YYYY-MM-DD HH:mm:ss.SSS；用于落盘日志条目的 key 前缀。 */

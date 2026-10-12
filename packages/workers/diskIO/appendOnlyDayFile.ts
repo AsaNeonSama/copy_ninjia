@@ -20,7 +20,7 @@
 import { closeSync, fsyncSync, ftruncateSync, openSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { AppendOnlyFileState, DayFileState } from "../../types/diskIO/storage";
-import { DAY_FILE_JSON_INDENT } from "../../consts/diskIO/appendOnly";
+import { DAY_FILE_ENTRY_INDENT, DAY_FILE_JSON_INDENT } from "../../consts/diskIO/appendOnly";
 import { atomicWriteTextSync, writeBufferFullySync } from "../../libs/atomicFile";
 import type { SyncBufferWriter } from "../../libs/atomicFile";
 import { readUtf8TextInput } from "../../libs/inputValidation";
@@ -407,9 +407,14 @@ export async function appendToDayFile({
 /**
  * 把单条记录序列化成顶层对象里的一段文本（含 DAY_FILE_JSON_INDENT 缩进、
  * 不含前后逗号），与 JSON.stringify(整个对象, null, DAY_FILE_JSON_INDENT)
- * 中该条目的形态完全一致。实现上借单条目对象的 stringify 结果，掐掉外层各固定
- * 2 个字符的「{\n」和「\n}」，与缩进宽度无关。
+ * 中该条目的形态逐字节一致。
+ *
+ * 键与值分开序列化后拼接：值包进单元素数组 stringify，数组元素与对象成员同处第一层
+ * 缩进，掐掉开头的「[\n」加一级缩进和结尾的「\n]」即得值文本。整个过程不以记录键
+ * 为属性名创建对象，热路径上不产生随键变化的对象 shape。value 必须是可序列化的 JSON
+ * 值（不能是 undefined、函数或 symbol）。等价性由 test/workers/diskIO/appendOnlyDayFile.test.ts 对拍。
  */
 export function serializeDayFileEntry(key: string, value: unknown): string {
-  return JSON.stringify({ [key]: value }, null, DAY_FILE_JSON_INDENT).slice(2, -2);
+  const valueText: string = JSON.stringify([value], null, DAY_FILE_JSON_INDENT);
+  return `${DAY_FILE_ENTRY_INDENT}${JSON.stringify(key)}: ${valueText.slice(2 + DAY_FILE_JSON_INDENT, -2)}`;
 }

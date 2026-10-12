@@ -1,11 +1,11 @@
-import { asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { asc, eq, gt, sql } from "drizzle-orm";
 import { IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES } from "../../consts/identityStorage";
 import { blocklistEntries, permissionList } from "../schema/identityPolicy";
-import { jsonbTextProjection } from "../schema/jsonb";
 import { temporaryAdBypassEntries } from "../schema/temporaryAdBypass";
 import type { IdentityPolicyTable } from "../../types/identityPolicy";
 import type {
   StorageDatabase,
+  StorageDatabaseReader,
   StoredIdentityIdLookups,
   StoredIdentityIdRow,
   StoredIdentityPolicyRow,
@@ -54,9 +54,12 @@ export function readStoredBlocklistIdPage(
   return rows.map((row: StoredIdentityIdRow): number => row.id);
 }
 
-/** 批量读取某名单的已提交行；JSONB 解码统一经过 schema 文本投影。 */
+/**
+ * 批量读取某名单的已提交行；走连接级预编译语句（database/interact/reader.ts），
+ * JSONB 解码统一经过 schema 文本投影。
+ */
 export function readStoredIdentityPolicies(
-  database: StorageDatabase,
+  reader: StorageDatabaseReader,
   table: IdentityPolicyTable,
   ids: readonly number[]
 ): readonly StoredIdentityPolicyRow[] {
@@ -66,15 +69,6 @@ export function readStoredIdentityPolicies(
       `Identity policy reads accept at most ${IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES} IDs.`
     );
   }
-  return table === "whitelist"
-    ? database
-      .select({ id: permissionList.id, data: jsonbTextProjection(permissionList.data) })
-      .from(permissionList)
-      .where(inArray(permissionList.id, ids))
-      .all()
-    : database
-      .select({ id: blocklistEntries.id, data: jsonbTextProjection(blocklistEntries.data) })
-      .from(blocklistEntries)
-      .where(inArray(blocklistEntries.id, ids))
-      .all();
+  return (table === "whitelist" ? reader.whitelistPolicies : reader.blocklistPolicies)
+    .all({ ids: JSON.stringify(ids) });
 }

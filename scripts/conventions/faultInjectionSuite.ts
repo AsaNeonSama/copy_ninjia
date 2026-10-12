@@ -79,6 +79,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/database/storageAdmin.test.ts",
   "test/database/storageConnection.test.ts",
   "test/database/storageMigration.test.ts",
+  "test/database/storageReader.test.ts",
   "test/database/storageRows.test.ts",
   "test/database/storageRowsValidation.test.ts",
   "test/database/storageTransaction.test.ts",

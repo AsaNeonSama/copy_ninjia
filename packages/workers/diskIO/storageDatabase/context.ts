@@ -1,7 +1,8 @@
-import { storageDatabaseHandle } from "../../../cache/workers/diskIO/storageDatabase";
+import { storageDatabaseHandle, storageDatabaseReaders } from "../../../cache/workers/diskIO/storageDatabase";
 import { IDENTITY_DATABASE_PATH } from "../../../consts/paths";
+import { prepareStorageDatabaseReader } from "../../../database/interact/reader";
 import { storageRowSource } from "../../../database/validation/storageRows";
-import type { StorageDatabase } from "../../../types/storageDatabase";
+import type { StorageDatabase, StorageDatabaseReader } from "../../../types/storageDatabase";
 
 /** 返回 Disk I/O Worker 独占连接；hydrate 前调用一律视为生命周期错误。 */
 export function requireStorageDatabase(): StorageDatabase {
@@ -10,6 +11,16 @@ export function requireStorageDatabase(): StorageDatabase {
     throw new Error(`${IDENTITY_DATABASE_PATH}: database must be loaded before use.`);
   }
   return database;
+}
+
+/** 取独占连接上的整套预编译读语句；同一连接首次调用时建好挂进连接级缓存，之后复用。 */
+export function requireStorageDatabaseReader(): StorageDatabaseReader {
+  const database: StorageDatabase = requireStorageDatabase();
+  const cached: StorageDatabaseReader | undefined = storageDatabaseReaders.get(database);
+  if (cached !== undefined) return cached;
+  const reader: StorageDatabaseReader = prepareStorageDatabaseReader(database);
+  storageDatabaseReaders.set(database, reader);
+  return reader;
 }
 
 /** 统一生成当前部署数据库业务行的安全来源路径。 */

@@ -45,7 +45,12 @@ import type {
   StoredIdentityIdLookups,
   StoredIdentityPolicyRow,
 } from "../../../types/storageDatabase";
-import { assertPositiveRevision, requireStorageDatabase, storageSource } from "./context";
+import {
+  assertPositiveRevision,
+  requireStorageDatabase,
+  requireStorageDatabaseReader,
+  storageSource,
+} from "./context";
 import { flushIfStorageFull } from "./flush";
 import { errorMessage } from "../../../libs/errorMessage";
 
@@ -188,7 +193,7 @@ function temporaryAdBypassRowsWithPending(
   ids: readonly number[]
 ): readonly StoredTemporaryAdBypassActivity[] {
   const rows: readonly StoredTemporaryAdBypassActivity[] =
-    readStoredTemporaryAdBypassActivities(requireStorageDatabase(), ids);
+    readStoredTemporaryAdBypassActivities(requireStorageDatabaseReader(), ids);
   const values: Map<number, StoredTemporaryAdBypassActivity> = new Map();
   for (const row of rows) values.set(row.id, row);
   for (const id of ids) {
@@ -222,7 +227,7 @@ function policyRowsWithPending(
 ): readonly (readonly [number, string])[] {
   if (ids.length === 0) return [];
   const rows: readonly StoredIdentityPolicyRow[] = readStoredIdentityPolicies(
-    requireStorageDatabase(),
+    requireStorageDatabaseReader(),
     table,
     ids
   );

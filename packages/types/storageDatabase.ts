@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import type { storageDatabaseSchema } from "../database/schema/storage";
+import type { StoredTemporaryAdBypassActivity } from "./temporaryAdBypass";
 
 /** Drizzle 绑定 Bun SQLite 与共享运行时 schema 后的同步句柄。 */
 export type StorageDatabase = BunSQLiteDatabase<typeof storageDatabaseSchema> & {
@@ -132,6 +133,25 @@ export interface StorageDatabaseWriter {
   readonly upsertChatQa: StorageWriteStatement;
   readonly deleteChatQa: StorageWriteStatement;
   readonly updateAiContext: StorageWriteStatement;
+}
+
+/**
+ * `prepare().all()` 的读语句形态；占位值原样写成 `Record<string, unknown>`
+ * （同 StoredIdentityIdLookup）。
+ */
+export interface StorageReadStatement<TRow> {
+  readonly all: (values?: Record<string, unknown>) => TRow[];
+}
+
+/**
+ * 预热与容量闸用的整套预编译读语句，随连接一起存活：三张身份表按 `ids` 占位
+ * （JSON 数组文本，经 SQLite `json_each` 展开）批量读取，群状态表只读主键。
+ */
+export interface StorageDatabaseReader {
+  readonly whitelistPolicies: StorageReadStatement<StoredIdentityPolicyRow>;
+  readonly blocklistPolicies: StorageReadStatement<StoredIdentityPolicyRow>;
+  readonly temporaryAdBypassActivities: StorageReadStatement<StoredTemporaryAdBypassActivity>;
+  readonly chatStateIds: StorageReadStatement<Pick<StoredChatStateRow, "chatId">>;
 }
 
 /** 各身份关系各一条预编译语句，随连接一起存活。 */

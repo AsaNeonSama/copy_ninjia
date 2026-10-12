@@ -18,6 +18,7 @@ import {
   closeStorageDatabase,
   openStorageDatabase,
 } from "../../../packages/database/interact/connection";
+import { prepareStorageDatabaseReader } from "../../../packages/database/interact/reader";
 import { readStoredTemporaryAdBypassActivities } from
   "../../../packages/database/interact/temporaryAdBypass";
 import { clearStorageBusinessTables } from
@@ -118,7 +119,7 @@ describe("临时广告免检 SQLite 合并写与过期清理", () => {
     expect(flushStorageDatabase(reply)).toBeTrue();
     jest.setSystemTime(nextStart);
     maintainTemporaryAdBypassActivities(reply, nextStart);
-    expect(readStoredTemporaryAdBypassActivities(requireStorageDatabaseFixture(), [7, 8])
+    expect(readStoredTemporaryAdBypassActivities(prepareStorageDatabaseReader(requireStorageDatabaseFixture()), [7, 8])
       .map((row: StoredTemporaryAdBypassActivity): number => row.id)).toEqual([7]);
   });
 
@@ -145,7 +146,7 @@ describe("临时广告免检 SQLite 合并写与过期清理", () => {
       chatQaWrites: [],
     }]);
     expect(readStoredTemporaryAdBypassActivities(
-      requireStorageDatabaseFixture(),
+      prepareStorageDatabaseReader(requireStorageDatabaseFixture()),
       [7]
     )[0]?.sendCount).toBe(2);
   });
@@ -202,7 +203,7 @@ describe("临时广告免检 SQLite 合并写与过期清理", () => {
 
     const rows: readonly StoredTemporaryAdBypassActivity[] =
       readStoredTemporaryAdBypassActivities(
-        requireStorageDatabaseFixture(),
+        prepareStorageDatabaseReader(requireStorageDatabaseFixture()),
         [7, 8, 9, 10, 11, 12]
       );
     expect(rows.map((row: StoredTemporaryAdBypassActivity): number => row.id))
@@ -223,7 +224,7 @@ describe("临时广告免检 SQLite 合并写与过期清理", () => {
     expect(flushStorageDatabase(reply)).toBeTrue();
 
     expect(readStoredTemporaryAdBypassActivities(
-      requireStorageDatabaseFixture(),
+      prepareStorageDatabaseReader(requireStorageDatabaseFixture()),
       [7, 8]
     ).map((row: StoredTemporaryAdBypassActivity): number => row.id)).toEqual([8]);
     expect(acknowledgements.at(-1)?.temporaryAdBypassWrites).toEqual([
@@ -250,7 +251,7 @@ describe("临时广告免检 SQLite 合并写与过期清理", () => {
       path: IDENTITY_DATABASE_PATH,
     });
     expect(readStoredTemporaryAdBypassActivities(
-      requireStorageDatabaseFixture(),
+      prepareStorageDatabaseReader(requireStorageDatabaseFixture()),
       [7]
     )).toHaveLength(1);
     expect(flushStorageDatabase(reply)).toBeTrue();

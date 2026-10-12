@@ -1,13 +1,16 @@
-import { and, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, isNull, lt, or } from "drizzle-orm";
 import { getDayStartTimestamp } from "../../libs/time";
 import { IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES } from "../../consts/identityStorage";
 import { temporaryAdBypassEntries } from "../schema/temporaryAdBypass";
-import type { StorageDatabase } from "../../types/storageDatabase";
+import type { StorageDatabase, StorageDatabaseReader } from "../../types/storageDatabase";
 import type { StoredTemporaryAdBypassActivity } from "../../types/temporaryAdBypass";
 
-/** 按身份批量读取临时广告免检累计行；调用方负责叠加尚未提交的最终值。 */
+/**
+ * 按身份批量读取临时广告免检累计行；走连接级预编译语句（database/interact/reader.ts），
+ * 调用方负责叠加尚未提交的最终值。
+ */
 export function readStoredTemporaryAdBypassActivities(
-  database: StorageDatabase,
+  reader: StorageDatabaseReader,
   ids: readonly number[]
 ): readonly StoredTemporaryAdBypassActivity[] {
   if (ids.length === 0) return [];
@@ -16,8 +19,7 @@ export function readStoredTemporaryAdBypassActivities(
       `Temporary ad bypass reads accept at most ${IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES} IDs.`
     );
   }
-  return database.select().from(temporaryAdBypassEntries)
-    .where(inArray(temporaryAdBypassEntries.id, ids)).all();
+  return reader.temporaryAdBypassActivities.all({ ids: JSON.stringify(ids) });
 }
 
 /** 删除不属于当天、也未在刚结束的配置时区自然日达标的累计行。 */

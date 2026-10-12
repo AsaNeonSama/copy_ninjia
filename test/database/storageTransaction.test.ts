@@ -21,6 +21,7 @@ import {
 import { readStoredAiContexts } from "../../packages/database/interact/aiContext";
 import { readStoredChatQa } from "../../packages/database/interact/chatQa";
 import { readStoredChatStateIds } from "../../packages/database/interact/chatState";
+import { prepareStorageDatabaseReader } from "../../packages/database/interact/reader";
 import {
   closeStorageDatabase,
   openStorageDatabase,
@@ -138,7 +139,7 @@ test("AI 上下文排在群状态之后：同批新建的群写得进，同批�
     ]),
   });
   expect(new Set(readStoredAiContexts(database, "test").keys())).toEqual(new Set([CHAT_ID, NEW_CHAT_ID]));
-  expect(readStoredChatStateIds(database).map((row: { chatId: number }): number => row.chatId)).not.toContain(OTHER_CHAT_ID);
+  expect(readStoredChatStateIds(prepareStorageDatabaseReader(database)).map((row: { chatId: number }): number => row.chatId)).not.toContain(OTHER_CHAT_ID);
 
   commitStorageDatabaseChanges(prepareStorageDatabaseWriter(database), { ...NO_CHANGES, aiContexts: new Map([[CHAT_ID, { snapshot: null }]]) });
   expect([...readStoredAiContexts(database, "test").keys()]).toEqual([NEW_CHAT_ID]);
@@ -176,7 +177,7 @@ test("白名单删除只命中该 id，黑名单不受影响", () => {
     whitelist: new Map([[7, { data: null }]]),
   });
 
-  expect(readStoredIdentityPolicies(database, "whitelist", [7, 8]).map((row: { id: number }): number => row.id)).toEqual([8]);
+  expect(readStoredIdentityPolicies(prepareStorageDatabaseReader(database), "whitelist", [7, 8]).map((row: { id: number }): number => row.id)).toEqual([8]);
   expect(readStoredBlocklistIdPage(database, null, 10)).toEqual([11, 12]);
 });
 
@@ -187,7 +188,7 @@ test("黑名单删除只命中该 id，白名单不受影响", () => {
   });
 
   expect(readStoredBlocklistIdPage(database, null, 10)).toEqual([12]);
-  expect(readStoredIdentityPolicies(database, "whitelist", [7, 8]).map((row: { id: number }): number => row.id)).toEqual([7, 8]);
+  expect(readStoredIdentityPolicies(prepareStorageDatabaseReader(database), "whitelist", [7, 8]).map((row: { id: number }): number => row.id)).toEqual([7, 8]);
 });
 
 test("待踢 outbox、临时免检与群状态的删除各自只命中一行", () => {
@@ -199,17 +200,17 @@ test("待踢 outbox、临时免检与群状态的删除各自只命中一行", (
   });
 
   expect(readStorageDatabasePendingRemovalPage(database, null).map((row: { removalId: number }): number => row.removalId)).toEqual([32]);
-  expect(readStoredTemporaryAdBypassActivities(database, [21, 22]).map((row: { id: number }): number => row.id)).toEqual([22]);
-  expect(readStoredChatStateIds(database).map((row: { chatId: number }): number => row.chatId)).toEqual([OTHER_CHAT_ID]);
+  expect(readStoredTemporaryAdBypassActivities(prepareStorageDatabaseReader(database), [21, 22]).map((row: { id: number }): number => row.id)).toEqual([22]);
+  expect(readStoredChatStateIds(prepareStorageDatabaseReader(database)).map((row: { chatId: number }): number => row.chatId)).toEqual([OTHER_CHAT_ID]);
 });
 
 test("临时免检读取与清理的入参守卫：空批直接返回，超批次与非法日界拒绝", () => {
-  expect(readStoredTemporaryAdBypassActivities(database, [])).toEqual([]);
+  expect(readStoredTemporaryAdBypassActivities(prepareStorageDatabaseReader(database), [])).toEqual([]);
   const oversized: number[] = Array.from(
     { length: IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES + 1 },
     (_unused: unknown, index: number): number => index + 1
   );
-  expect(() => readStoredTemporaryAdBypassActivities(database, oversized))
+  expect(() => readStoredTemporaryAdBypassActivities(prepareStorageDatabaseReader(database), oversized))
     .toThrow(`at most ${IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES} IDs`);
 
   for (const [currentDayStart, previousDayStart] of [

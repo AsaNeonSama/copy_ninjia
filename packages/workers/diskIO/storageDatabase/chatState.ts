@@ -22,13 +22,18 @@ import type {
 import type { ChatState } from "../../../types/chatState";
 import type { PendingChatStateWrite } from "../../../types/identityStorage";
 import type { StoredChatStateRow } from "../../../types/storageDatabase";
-import { assertPositiveRevision, requireStorageDatabase, storageSource } from "./context";
+import {
+  assertPositiveRevision,
+  requireStorageDatabase,
+  requireStorageDatabaseReader,
+  storageSource,
+} from "./context";
 import { flushIfStorageFull } from "./flush";
 
 /** 已提交主键叠加未提交最终值后的有效群集合；容量闸只需要这个，不碰 data。 */
 function effectiveChatStateIds(): Set<number> {
   const rows: readonly Pick<StoredChatStateRow, "chatId">[] =
-    readStoredChatStateIds(requireStorageDatabase());
+    readStoredChatStateIds(requireStorageDatabaseReader());
   const chatIds: Set<number> = new Set();
   for (const row of rows) chatIds.add(row.chatId);
   for (const [chatId, pending] of pendingChatStateWrites) {

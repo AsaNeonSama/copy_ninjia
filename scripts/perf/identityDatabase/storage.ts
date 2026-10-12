@@ -11,6 +11,7 @@ import {
 } from "../../../packages/database/interact/connection";
 import { readStoredIdentityPolicies } from
   "../../../packages/database/interact/identityPolicy";
+import { prepareStorageDatabaseReader } from "../../../packages/database/interact/reader";
 import {
   commitStorageDatabaseChanges,
   prepareStorageDatabaseWriter,
@@ -18,6 +19,7 @@ import {
 import type {
   StorageDatabase,
   StorageDatabaseChange,
+  StorageDatabaseReader,
   StorageDatabaseWriter,
   StoredIdentityPolicyRow,
 } from "../../../packages/types/storageDatabase";
@@ -109,9 +111,10 @@ function runReadBatches(
   batches: number
 ): number {
   let checksum: number = 0;
+  const reader: StorageDatabaseReader = prepareStorageDatabaseReader(database);
   for (let batch: number = 0; batch < batches; batch += 1) {
-    checksum += readStoredIdentityPolicies(database, "whitelist", ids).length;
-    checksum += readStoredIdentityPolicies(database, "blocklist", ids).length;
+    checksum += readStoredIdentityPolicies(reader, "whitelist", ids).length;
+    checksum += readStoredIdentityPolicies(reader, "blocklist", ids).length;
   }
   return checksum;
 }
@@ -132,8 +135,9 @@ function runColdReadBatches(
       readonly: true,
     });
     try {
-      checksum += readStoredIdentityPolicies(database, "whitelist", ids).length;
-      checksum += readStoredIdentityPolicies(database, "blocklist", ids).length;
+      const reader: StorageDatabaseReader = prepareStorageDatabaseReader(database);
+      checksum += readStoredIdentityPolicies(reader, "whitelist", ids).length;
+      checksum += readStoredIdentityPolicies(reader, "blocklist", ids).length;
     } finally {
       closeStorageDatabase(database);
     }
