@@ -118,14 +118,14 @@ describe("Telegram 常规动作封装", () => {
     expect(sendMessageMock).toHaveBeenCalledWith(-1001, "普通群", {}, undefined);
   });
 
-  test("目标专属临时消息透传 Bot API 10.3 嵌套字段且不登记 message_id 0", async () => {
-    const sendMessageMock = mock(async (..._args: unknown[]) => ({
+  test("目标专属临时消息经主线程独占入口透传 Bot API 10.3 嵌套字段且不登记 message_id 0", async () => {
+    const sendEphemeralMessageMock = mock(async (..._args: unknown[]) => ({
       message_id: 0,
       chat: { id: -1001 },
       receiver_user: { id: 7 },
       ephemeral_message_id: 71,
     }));
-    const api = { sendMessage: sendMessageMock } as unknown as TelegramApi;
+    const api = { sendEphemeralMessage: sendEphemeralMessageMock } as unknown as TelegramApi;
     const keyboard = {
       inline_keyboard: [[{
         text: "发言",
@@ -141,7 +141,7 @@ describe("Telegram 常规动作封装", () => {
       keyboard,
       api,
     })).toBe(71);
-    expect(sendMessageMock).toHaveBeenCalledWith(-1001, "只给目标看的入口", {
+    expect(sendEphemeralMessageMock).toHaveBeenCalledWith(-1001, "只给目标看的入口", {
       ephemeral_message_parameters: { receiver_user_id: 7, callback_query_id: "callback-id" },
       reply_markup: keyboard,
     }, undefined);
@@ -178,7 +178,7 @@ describe("Telegram 常规动作封装", () => {
     const keyboard = { inline_keyboard: [] };
     for (const response of responses) {
       const api = {
-        sendMessage: mock(async (..._args: unknown[]) => response),
+        sendEphemeralMessage: mock(async (..._args: unknown[]) => response),
       } as unknown as TelegramApi;
       expect(await sendEphemeralMessage({
         chatId: -1001,

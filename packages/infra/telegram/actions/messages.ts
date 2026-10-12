@@ -18,10 +18,11 @@ import type {
   TelegramParseMode,
   TelegramSendResult,
 } from "../../../types/telegram";
-import type { TelegramApi } from "../../../types/telegramWorker";
+import type { TelegramApi, TelegramSentMessage } from "../../../types/telegramWorker";
 import { toTelegramSendResult } from "./sendResult";
 
 type SendMessageApi = Pick<TelegramApi, "sendMessage">;
+type SendEphemeralMessageApi = Pick<TelegramApi, "sendEphemeralMessage">;
 type EditMessageTextApi = Pick<TelegramApi, "editMessageText">;
 type SendChatActionApi = Pick<TelegramApi, "sendChatAction">;
 type AnswerCallbackQueryApi = Pick<TelegramApi, "answerCallbackQuery">;
@@ -104,7 +105,7 @@ export async function sendMessageWithResult({
     action: "send message",
     execute: async (
       requestSignal?: AbortSignal
-    ): Promise<Message.TextMessage> => {
+    ): Promise<TelegramSentMessage> => {
       // 定形一次初始化：字段齐、顺序固定，缺席用 undefined 表达；grammY 两条
       // 序列化路径都丢弃 undefined，请求体与不带该键逐字节相同
       // （对拍见 test/infra/telegramSendPayload.test.ts）。
@@ -124,7 +125,7 @@ export async function sendMessageWithResult({
       );
     },
     map: (
-      sent: Message.TextMessage
+      sent: TelegramSentMessage
     ): TelegramSendResult | undefined => {
       const result: TelegramSendResult = toTelegramSendResult(chatId, sent);
       onSent?.(result.messageId);
@@ -149,7 +150,8 @@ export interface SendEphemeralMessageParams {
   callbackQueryId?: string;
   text: string;
   keyboard: InlineKeyboardMarkup;
-  api?: SendMessageApi;
+  /** 主线程独占的发送入口；回执要读 chat、receiver_user 与 ephemeral_message_id。 */
+  api?: SendEphemeralMessageApi;
   signal?: AbortSignal;
   /**
    * 论坛（topics）群里这条目标专属提示要亮在哪个话题；语义见 SendMessageParams
@@ -167,7 +169,7 @@ export interface SendEphemeralMessageParams {
 }
 
 /**
- * 使用 SDK 的 ephemeral_message_parameters 发送目标专属消息。
+ * 使用 SDK 的 ephemeral_message_parameters 发送目标专属消息，只在主线程可用。
  * 响应身份校验后交给业务状态机定向删除。
  */
 export async function sendEphemeralMessage({
@@ -181,7 +183,7 @@ export async function sendEphemeralMessage({
   messageThreadId,
   onSent,
 }: SendEphemeralMessageParams): Promise<number | undefined> {
-  const other: Parameters<SendMessageApi["sendMessage"]>[2] = {
+  const other: Parameters<SendEphemeralMessageApi["sendEphemeralMessage"]>[2] = {
     message_thread_id: messageThreadId,
     ephemeral_message_parameters: {
       receiver_user_id: receiverUserId,
@@ -191,8 +193,8 @@ export async function sendEphemeralMessage({
   };
   return runTelegramAction({
     action: "send ephemeral message",
-    execute: (requestSignal?: AbortSignal): ReturnType<TelegramApi["sendMessage"]> =>
-      api.sendMessage(
+    execute: (requestSignal?: AbortSignal): ReturnType<TelegramApi["sendEphemeralMessage"]> =>
+      api.sendEphemeralMessage(
         chatId,
         text,
         other,

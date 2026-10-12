@@ -74,6 +74,8 @@ const mainTelegramApi: TelegramApi = {
     bot.api.restrictChatMember(...args),
   sendChatAction: (...args: Parameters<TelegramApi["sendChatAction"]>): ReturnType<TelegramApi["sendChatAction"]> =>
     bot.api.sendChatAction(...args),
+  sendEphemeralMessage: (...args: Parameters<TelegramApi["sendEphemeralMessage"]>): ReturnType<TelegramApi["sendEphemeralMessage"]> =>
+    bot.api.sendMessage(...args),
   sendMessage: (...args: Parameters<TelegramApi["sendMessage"]>): ReturnType<TelegramApi["sendMessage"]> =>
     bot.api.sendMessage(...args),
   // grammY 的外部签名固定为四个位置参数；此处适配层必须逐位透传。

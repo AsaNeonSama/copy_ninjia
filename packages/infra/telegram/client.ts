@@ -64,6 +64,8 @@ export const telegramApi: TelegramApi = {
     currentTelegramApi().restrictChatMember(...args),
   sendChatAction: (...args: Parameters<TelegramApi["sendChatAction"]>): ReturnType<TelegramApi["sendChatAction"]> =>
     currentTelegramApi().sendChatAction(...args),
+  sendEphemeralMessage: (...args: Parameters<TelegramApi["sendEphemeralMessage"]>): ReturnType<TelegramApi["sendEphemeralMessage"]> =>
+    currentMainTelegramApi().sendEphemeralMessage(...args),
   sendMessage: (...args: Parameters<TelegramApi["sendMessage"]>): ReturnType<TelegramApi["sendMessage"]> =>
     currentTelegramApi().sendMessage(...args),
   sendPhoto: (...args: Parameters<TelegramApi["sendPhoto"]>): ReturnType<TelegramApi["sendPhoto"]> =>

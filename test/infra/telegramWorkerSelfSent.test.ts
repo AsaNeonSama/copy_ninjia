@@ -52,7 +52,10 @@ mock.module("../../packages/infra/telegram/mainClient", () => ({
         sendMessage: async (payload: SentPayload): Promise<unknown> => sentMessage(payload.chat_id),
         sendSticker: async (payload: SentPayload): Promise<unknown> => sentMessage(payload.chat_id),
       },
-      sendPhoto: async (chatId: number): Promise<unknown> => sentMessage(chatId),
+      sendPhoto: async (chatId: number): Promise<unknown> => ({
+        ...sentMessage(chatId),
+        photo: [{ file_id: "photo", file_unique_id: "photo-u", width: 1, height: 1 }],
+      }),
       sendVoice: async (chatId: number): Promise<unknown> => sentMessage(chatId),
     },
   },
@@ -73,7 +76,7 @@ beforeEach((): void => {
   nextResultOverride = null;
 });
 
-/** 从代理返回的 Message 取出 id；四条能力的返回形状一致。 */
+/** 从代理返回的发送回执（TelegramSentMessage）取出 id；四条能力都带 message_id。 */
 function messageIdOf(sent: unknown): number {
   const id: unknown = (sent as { message_id?: unknown }).message_id;
   if (typeof id !== "number") throw new Error("proxy did not return a message id");

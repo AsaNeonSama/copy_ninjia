@@ -1,4 +1,5 @@
 import { InputFile } from "grammy";
+import type { Message } from "grammy/types";
 import { bot } from "./mainClient";
 import { downloadTelegramFileBytes } from "./fileDownload";
 import type { SendTemporaryMessageOnMainParams } from "./temporaryMessage";
@@ -9,6 +10,8 @@ import {
 } from "../../consts/aiChat/media";
 import { VOICE_MAX_DOWNLOAD_BYTES } from "../../consts/aiChat/voice";
 import type {
+  TelegramSentMessage,
+  TelegramSentPhotoMessage,
   TelegramWorkerDownloadFileResult,
   TelegramWorkerJsonCall,
   TelegramWorkerRequest,
@@ -17,6 +20,7 @@ import type {
 } from "../../types/telegramWorker";
 import { isTelegramMessageRequest } from "./outboundRetryPolicy";
 import { telegramSignal } from "../../libs/telegramSignal";
+import { pickPhotoSize } from "../../libs/telegramImage";
 import { beginSelfSentSend, endSelfSentSend, markSelfSent } from "../selfSentTracker";
 
 async function sendTemporaryMessage(
@@ -96,6 +100,68 @@ function markWorkerSentMessage(result: unknown): void {
   markSelfSent(chatId, messageId);
 }
 
+/** 发送回执投影：消息 id 与回复关系两个键固定写全，没有回复关系时为 undefined。 */
+function sentMessageReceipt(sent: Message): TelegramSentMessage {
+  const repliedTo: Message | undefined = sent.reply_to_message;
+  return {
+    message_id: sent.message_id,
+    reply_to_message: repliedTo === undefined ? undefined : { message_id: repliedTo.message_id },
+  };
+}
+
+/** 图片发送回执投影：在 sentMessageReceipt 的两个键之后只带 pickPhotoSize 选中的那一档。 */
+function sentPhotoReceipt(sent: Message.PhotoMessage): TelegramSentPhotoMessage {
+  const repliedTo: Message | undefined = sent.reply_to_message;
+  return {
+    message_id: sent.message_id,
+    reply_to_message: repliedTo === undefined ? undefined : { message_id: repliedTo.message_id },
+    photo: [pickPhotoSize(sent.photo)],
+  };
+}
+
+/** JSON 方法的回执：sendMessage / sendSticker 投影成 TelegramSentMessage，其余原样返回。 */
+function jsonCallReply(call: TelegramWorkerJsonCall, result: unknown): unknown {
+  switch (call.method) {
+    case "sendMessage":
+    case "sendSticker":
+      return sentMessageReceipt(result as Message);
+    case "answerCallbackQuery":
+    case "banChatMember":
+    case "banChatSenderChat":
+    case "deleteMessage":
+    case "deleteMessages":
+    case "getChat":
+    case "getChatAdministrators":
+    case "getChatMember":
+    case "getStickerSet":
+    case "restrictChatMember":
+    case "sendChatAction":
+    case "setChatPermissions":
+    case "setMessageReaction":
+    case "unbanChatMember":
+      return result;
+  }
+}
+
+/**
+ * 回传给 Worker 的结果：发送类只留共享动作层读取的字段（TelegramSentMessage /
+ * TelegramSentPhotoMessage），其余请求原样返回。Bot API 对这几种发送恒返回 Message，
+ * 投影按该契约读取；必须在 markWorkerSentMessage 读过完整结果之后调用。
+ */
+function workerReply(request: TelegramWorkerRequest, result: unknown): unknown {
+  switch (request.operation) {
+    case "call":
+      return jsonCallReply(request.call, result);
+    case "sendPhoto":
+      return sentPhotoReceipt(result as Message.PhotoMessage);
+    case "sendVoice":
+      return sentMessageReceipt(result as Message);
+    case "downloadFile":
+    case "sendTemporaryMessage":
+      return result;
+  }
+}
+
 /** 按操作分派到具体的主线程实现；能力白名单已在调用方判过。 */
 async function dispatchTelegramWorkerRequest(
   request: TelegramWorkerRequest,
@@ -148,7 +214,8 @@ function selfSentTargetChatId(request: TelegramWorkerRequest): number | undefine
  * 主线程执行已通过 Worker 能力白名单的 Telegram 请求。
  *
  * 所有 Worker 的 Telegram 请求都收在这一个漏斗里，自发消息登记因此也只此一处
- * （见 markWorkerSentMessage）；产消息的请求在同一处登记在途发送。
+ * （见 markWorkerSentMessage）；产消息的请求在同一处登记在途发送。先用完整结果登记
+ * 自发消息，再经 workerReply 投影后回传。
  */
 async function executeTelegramWorkerRequest(
   request: TelegramWorkerRequest,
@@ -159,7 +226,7 @@ async function executeTelegramWorkerRequest(
   try {
     const result: unknown = await dispatchTelegramWorkerRequest(request, signal);
     markWorkerSentMessage(result);
-    return result;
+    return workerReply(request, result);
   } finally {
     if (selfSentChatId !== undefined) endSelfSentSend(selfSentChatId);
   }
