@@ -194,8 +194,9 @@ done
       "provider": "openai",
       "api_key": "replace-with-xai-api-key",
       "base_url": "https://api.x.ai/v1",
-      "model": "grok-imagine-image",
-      "image_protocol": "xai"
+      "model": "grok-imagine-image-2.0",
+      "image_protocol": "xai",
+      "max_reference_images": 5
     },
     "tts": {
       "provider": "google",
