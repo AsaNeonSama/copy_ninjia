@@ -9,7 +9,10 @@ import { bot } from "../../../packages/infra/telegram/mainClient";
 import { BENCHMARK_BOT_INFO, BENCHMARK_CHAT_ID, BENCHMARK_SENDER_ID } from "./fixtures";
 import type { Scenario } from "./types";
 
-/** 成员观察实际入口；预热与采样均使用生产量级用户 ID，新增 ID 位于预热区间之后。 */
+/**
+ * 成员观察实际入口；预热与采样均使用生产量级用户 ID，新增 ID 位于预热区间之后。hit 命中满窗成员，
+ * growth 从空窗增长到满，churn 在满窗上每次挤出进入最早的成员再追加新 ID。
+ */
 export function wedMemberScenario(mode: "hit" | "growth" | "churn"): Scenario {
   const user: User = { id: BENCHMARK_SENDER_ID, is_bot: false, first_name: "member" };
   const update: Update = { update_id: 1, message: {
@@ -37,11 +40,15 @@ export function wedMemberScenario(mode: "hit" | "growth" | "churn"): Scenario {
         user.id = mode === "hit" ? BENCHMARK_SENDER_ID + (index % WED_MEMBER_LIMIT) : nextId++;
         observeWedMembers(ctx);
       }
-      const size: number = wedMemberStates.get(BENCHMARK_CHAT_ID)?.members.size ?? 0;
+      const members: Map<number, number> | undefined = wedMemberStates.get(BENCHMARK_CHAT_ID)?.members;
+      const size: number = members?.size ?? 0;
       const expectedSize: number = mode === "growth" ? Math.min(previousSize + iterations, WED_MEMBER_LIMIT) : WED_MEMBER_LIMIT;
       if (size !== expectedSize) throw new Error("Wed member observer did not consume the fixture.");
-      if ((wedMemberStates.get(BENCHMARK_CHAT_ID)?.revision ?? 0) - previousRevision !== size - previousSize) {
-        throw new Error("Wed member observer marked unchanged members dirty.");
+      if ((wedMemberStates.get(BENCHMARK_CHAT_ID)?.revision ?? 0) - previousRevision !== (mode === "hit" ? 0 : iterations)) {
+        throw new Error("Wed member observer revision does not match the window changes.");
+      }
+      if (mode === "churn" && members?.keys().next().value !== nextId - WED_MEMBER_LIMIT) {
+        throw new Error("Wed member observer did not evict the earliest member.");
       }
       return size;
     },

@@ -1,19 +1,20 @@
-/** owner: main。/wed 已发言成员集合与合并落盘窗口。 */
+/** owner: main。/wed 已发言成员滑窗与合并落盘窗口。 */
 import type { WedMemberState } from "../../types/wed";
 import type { WedMembersDeleteDiskMessage } from "../../types/diskIO/messages";
 
 /**
- * init 从 DiskIO 严格校验的快照恢复；实际个人发言新增，退群、每日复核确认离群或
- * getChat 明确找不到私聊时从所有群奖池移除；查询期间新发言的群保留。
- * 每群最多 WED_MEMBER_LIMIT 个 number，群数受 STATE_MANAGED_CHAT_LIMIT 限制；满额拒绝新增。
- * 进程初始化清空后从文件恢复。
+ * init 从 DiskIO 严格校验的快照恢复；不在窗口内的成员实际个人发言时以进入时间追加到末尾，
+ * 窗口内成员再次发言不刷新进入时间；退群、每日复核确认离群或 getChat 明确找不到私聊时
+ * 从所有群奖池移除；查询期间新发言的群保留。
+ * 每群最多 WED_MEMBER_LIMIT 个成员，群数受 STATE_MANAGED_CHAT_LIMIT 限制；满额时新成员挤出
+ * 首项（进入时间最早）。进程初始化清空后从文件恢复。
  *
  * 整群条目只在 `/init disable` 与机器人离群时由 commands/wed/persistence.ts 的
  * purgeWedMembers 删除，并连带删掉 `memory/wed/<chatId>.json`；被撤管理员只收掉
- * 交互，成员集合原样保留（见 libs/chatTeardown.ts 的 purgesChatData）。待确认删除由 pendingWedMemberDeletes 持有，不再作为候选。
+ * 交互，成员滑窗原样保留（见 libs/chatTeardown.ts 的 purgesChatData）。待确认删除由 pendingWedMemberDeletes 持有，不再作为候选。
  *
  * 本表是权威 owner；DiskIO 崩溃后由主线程全量重放，缺失条目表示没有候选。
- * 仅批量窗口关闭时投递最终数组，普通发言不创建快照或跨线程同步。
+ * 仅批量窗口关闭时投递最终快照，普通发言不创建快照或跨线程同步。
  * 跨线程持久化与停机约束见 docs/cn/04-invariants.md。
  */
 export const wedMemberStates: Map<number, WedMemberState> = new Map();

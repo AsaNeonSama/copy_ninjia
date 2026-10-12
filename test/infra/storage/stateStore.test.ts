@@ -729,7 +729,7 @@ describe("全局状态的加载接线", () => {
       const logged = spyOn(logger, "error").mockImplementation((): void => {});
       try {
         await expect(loadState()).rejects.toThrow(
-          `${legacyPath}: $ must be absent; first upgrade to 16.3.2 and complete its migrations.`
+          `${legacyPath}: $ must be absent; first upgrade to 17.2.1 and complete its migrations.`
         );
         expect(globalCopyState.lastCopyTime).toBeUndefined();
         expect(await Bun.file(legacyPath).text()).toBe("{\"global\":{}}");

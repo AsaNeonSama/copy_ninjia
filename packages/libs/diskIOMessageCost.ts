@@ -158,7 +158,7 @@ export function diskIOMessageCost(message: QueuedDiskIOOperationMessage): number
       payloadBytes = message.ids.length * 8;
       break;
     case "wedMembers":
-      payloadBytes = message.members.length * 8;
+      payloadBytes = message.entries.length * 8;
       break;
     case "blocklistRemovals":
       payloadBytes = blocklistRemovalsMaxBytes(message) * 2;

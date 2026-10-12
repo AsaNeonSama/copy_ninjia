@@ -13,6 +13,7 @@ import { TELEGRAM_BOT_TOKEN_PLACEHOLDER } from "../../packages/consts/telegram";
 import { StateStore, loadCurrentGlobalState } from "../../packages/infra/storage/statePersistence";
 import { invalidInput, readJsonInput } from "../../packages/libs/inputValidation";
 import { isPlainRecord } from "../../packages/libs/record";
+import { inspectWedMemberFiles } from "../../packages/workers/diskIO/wedMemberFiles";
 import type { BotConfig } from "../../packages/types/config";
 import type * as Readiness from "../../packages/config/readiness";
 export { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
@@ -31,6 +32,14 @@ export async function assertStateFilesMigrated(): Promise<void> {
   await loadCurrentGlobalState(new StateStore());
 }
 
+/**
+ * 安装前按启动恢复同一口径只读校验 memory/wed：任一群文件不是当前 `{ id, enteredAt }` 滑窗格式
+ * （例如仍是未经 migrate:wed-member-window 的成员 ID 数组）时拒绝，不改写文件。
+ */
+export async function assertWedMemberFilesMigrated(): Promise<void> {
+  await inspectWedMemberFiles();
+}
+
 /** 只读读出已有共享数据库的 metadata，并先确认 schema 版本是当前版本。 */
 function readCurrentStorageMetadata(database: StorageDatabase): readonly StoredStorageMetadataRow[] {
   const metadata: readonly StoredStorageMetadataRow[] = readStorageDatabaseSchemaMetadata(database);
@@ -42,9 +51,8 @@ function readCurrentStorageMetadata(database: StorageDatabase): readonly StoredS
 }
 
 /**
- * 安装前只读核对已有共享数据库的 schema 版本：不是当前版本（例如未经
- * migrate:chat-persona-removal 的源 schema）时拒绝，不改写数据库。库不存在时由建库步骤创建；
- * 完整校验留给启动恢复。
+ * 安装前只读核对已有共享数据库的 schema 版本：不是当前版本时拒绝，不改写数据库。库不存在时由
+ * 建库步骤创建；完整校验留给启动恢复。
  */
 export async function assertStorageDatabaseMigrated(): Promise<void> {
   if (!await Bun.file(IDENTITY_DATABASE_PATH).exists()) return;

@@ -16,8 +16,8 @@ import type { StoredTemporaryAdBypassActivity } from "../temporaryAdBypass";
  * 供 hydrate 链路直接透传。 */
 export interface LoadedReply {
   type: "loaded";
-  /** /wed 已发言成员集合；DiskIO 校验时建立，经消息复制后由主线程直接接管。 */
-  wedMembers: ReadonlyMap<number, Set<number>>;
+  /** /wed 已发言成员滑窗（成员 ID → 进入时间）；DiskIO 校验时按文件顺序建立，经消息复制后由主线程直接接管。 */
+  wedMembers: ReadonlyMap<number, Map<number, number>>;
   aiMemories: Map<number, string>;
   stickerCatalogs: Map<string, string>;
   luckDay: LuckDayCache | null;
@@ -42,7 +42,7 @@ export interface LoadedReply {
  * 序列化的 JSON 文本；SQLite 群状态信任当前写入格式，只恢复进热缓存。
  */
 export interface LoadedData {
-  wedMembers: ReadonlyMap<number, Set<number>>;
+  wedMembers: ReadonlyMap<number, Map<number, number>>;
   aiMemories: Map<number, string>;
   stickerCatalogs: Map<string, string>;
   luckDay: LuckDayCache | null;

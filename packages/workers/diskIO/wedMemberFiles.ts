@@ -11,11 +11,10 @@ import { FLUSH_INTERVAL_MS } from "../../consts/diskIO/appendOnly";
 import { PERSISTED_FILE_MODE } from "../../consts/diskIO/common";
 import { WED_MEMORY_DIR } from "../../consts/paths";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../consts/storage";
-import { WED_MEMBER_LIMIT } from "../../consts/wed";
 import { atomicWriteTextSync, durableUnlinkSync, removeOrphanedTempFiles } from "../../libs/atomicFile";
 import { assertFileReadableWritable, listOptionalDirectory } from "../../libs/fileAccess";
 import { invalidInput, readJsonInput } from "../../libs/inputValidation";
-import { isTelegramGroupChatId } from "../../libs/telegramId";
+import { parseWedMemberFile, parseWedMemberFileName, serializeWedMemberEntries } from "../../libs/wedMemberFile";
 import type {
   WedMembersDeleteDiskMessage,
   WedMembersDiskMessage,
@@ -23,40 +22,25 @@ import type {
 import { flushDirtyEntries } from "./dirtyFlush";
 
 export interface WedMemberInspection {
-  readonly snapshots: ReadonlyMap<number, Set<number>>;
+  /** 群 ID → 成员 ID → 进入时间，插入顺序同文件顺序。 */
+  readonly snapshots: ReadonlyMap<number, Map<number, number>>;
   /** 目录项全集，供启动维护清理 *.tmp 残留。 */
   readonly names: readonly string[];
 }
 
-/** 启动只读门禁：文件名、数字 ID、唯一性、每群容量和群总数均严格验证。 */
+/** 启动只读门禁：群总数在此验证，文件名与每份文件的项形态、唯一性、进入时间顺序与容量见 libs/wedMemberFile.ts。 */
 export async function inspectWedMemberFiles(): Promise<WedMemberInspection> {
-  const snapshots: Map<number, Set<number>> = new Map();
+  const snapshots: Map<number, Map<number, number>> = new Map();
   const names: readonly string[] = listOptionalDirectory(WED_MEMORY_DIR);
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
     const path: string = join(WED_MEMORY_DIR, name);
-    const chatIdText: string = name.slice(0, -".json".length);
-    const chatId: number = Number(chatIdText);
-    if (!isTelegramGroupChatId(chatId) || String(chatId) !== chatIdText) {
-      return invalidInput(path, "$filename", "the canonical <negative safe integer chatId>.json form");
-    }
+    const chatId: number = parseWedMemberFileName(name, path);
     if (snapshots.size >= STATE_MANAGED_CHAT_LIMIT) {
       return invalidInput(WED_MEMORY_DIR, "$", `at most ${STATE_MANAGED_CHAT_LIMIT} group files`);
     }
     assertFileReadableWritable(path);
-    const parsed: unknown = await readJsonInput(path);
-    if (!Array.isArray(parsed) || parsed.length > WED_MEMBER_LIMIT) {
-      return invalidInput(path, "$", `an array of at most ${WED_MEMBER_LIMIT} unique positive safe integer user IDs`);
-    }
-    const ids: Set<number> = new Set();
-    for (let index: number = 0; index < parsed.length; index++) {
-      const id: unknown = parsed[index];
-      if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 || ids.has(id)) {
-        return invalidInput(path, `$[${index}]`, "a unique positive safe integer user ID");
-      }
-      ids.add(id);
-    }
-    snapshots.set(chatId, ids);
+    snapshots.set(chatId, parseWedMemberFile(await readJsonInput(path), path));
   }
   return { snapshots, names };
 }
@@ -67,10 +51,10 @@ export async function maintainWedMemberFiles(inspection: WedMemberInspection): P
   await removeOrphanedTempFiles(WED_MEMORY_DIR, inspection.names);
 }
 
-/** 唯一落盘边界；完整数组经现有 tmp、fsync、rename 实现原子替换，缺失文件自动创建。 */
-export function writeWedMemberFile(chatId: number, members: readonly number[]): void {
+/** 唯一落盘边界；完整快照经现有 tmp、fsync、rename 实现原子替换，缺失文件自动创建。 */
+export function writeWedMemberFile(chatId: number, entries: readonly number[]): void {
   mkdirSync(WED_MEMORY_DIR, { recursive: true });
-  atomicWriteTextSync(join(WED_MEMORY_DIR, `${chatId}.json`), JSON.stringify(members), PERSISTED_FILE_MODE);
+  atomicWriteTextSync(join(WED_MEMORY_DIR, `${chatId}.json`), serializeWedMemberEntries(entries), PERSISTED_FILE_MODE);
 }
 
 /** 唯一删除边界；文件不存在按已删除处理，删掉后 fsync 目录项。 */
@@ -82,7 +66,7 @@ export function deleteWedMemberFile(chatId: number): void {
 /** 主线程已按 TTL/累计条数合并；到达 DiskIO 后直接提交，失败仅保留每群最新一份。 */
 export function handleWedMembersMessage(message: WedMembersDiskMessage): void {
   deletedWedChats.delete(message.chatId);
-  pendingWedMembers.set(message.chatId, message.members);
+  pendingWedMembers.set(message.chatId, message.entries);
   dirtyWedChats.add(message.chatId);
   if (wedFileFlushTimer.current === null) flushWedMemberFiles();
 }

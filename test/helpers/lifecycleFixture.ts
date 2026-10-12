@@ -21,7 +21,7 @@ const validateExistingDeploymentInputs = mock(async (): Promise<void> => {
 const loadState = mock(async (): Promise<void> => { calls.push("loadState"); });
 const refreshAllChatTitles = mock(async (): Promise<void> => { calls.push("refreshTitles"); });
 const loadPersistedData = mock(async () => ({
-  wedMembers: new Map<number, Set<number>>(),
+  wedMembers: new Map<number, Map<number, number>>(),
   aiMemories: new Map<number, string>(),
   stickerCatalogs: new Map<string, string>(),
   luckDay: null,

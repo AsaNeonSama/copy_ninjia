@@ -140,7 +140,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/libs/workerDuplex.test.ts",
   "test/scripts/installMigration.test.ts",
   "test/scripts/installStartup.test.ts",
-  "test/scripts/migrateChatPersonaRemoval.test.ts",
+  "test/scripts/migrateWedMemberWindow.test.ts",
   "test/states/lockdown.test.ts",
   "test/states/lockdownMatrix.test.ts",
   "test/translate/client.test.ts",

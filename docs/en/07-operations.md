@@ -131,7 +131,7 @@ If the `time_zone` in `bot.json` does not match the database marker at startup, 
 - **Schema requirements**: Top-level keys must contain only the required `copy` object and an optional `ttsUsage` object. `copy.copiedUser` is mandatory (`null` when no user is targeted); `copy.copyMode` accepts omitted, `reverse`, or `nya`. When `ttsUsage` is present, all three subfields must be non-negative integers, with at least one greater than 0. Missing files are treated as fresh deployments; malformed files or undeclared keys cause **immediate startup rejection**. The installer validates this file with equal strictness.
 - **Write pattern**: The main thread writes this file exclusively (writing to a temporary file + `fsync` + atomic `rename`). The Disk I/O Worker never accesses this directory. Modifications to `copy` flush to disk immediately; `ttsUsage` changes are coalesced and flushed in the background after `STATE_BACKGROUND_SAVE_DELAY_MS`. Clean shutdowns commit all pending writes; abrupt termination (`kill -9` or power failure) may lose uncoalesced quota increments.
 - **Manual editing**: Always stop the service and ensure the process has exited before making manual adjustments. Make an external backup via `mktemp -d` before editing. Never delete unrecognized fields, and verify JSON syntax against schema requirements before restarting.
-- **Root-level legacy check**: If legacy files like `state.json` or `state.json.bak` linger in the root of the data directory, the service and installer will refuse to start. Follow the [staged upgrade](#staged-upgrade) guide to reach version 16.3.2 and migrate state files out of the root.
+- **Root-level legacy check**: If legacy files like `state.json` or `state.json.bak` linger in the root of the data directory, the service and installer will refuse to start. Follow the [staged upgrade](#staged-upgrade) guide to reach version 17.2.1 and complete its migrations, then move these files out of the root.
 
 ### 2. Dedicated Image Library: `random_h_image_dir`
 - **Responsibilities**: Configured by `onlyPath.random_h_image_dir` in `config/dynamic/assets.json` (defaults to `./h_image` relative to the data root). The `/h_image` command and scheduled image tasks select images uniformly at random from this directory. Administrators can upload new files using `/h_image add`.
@@ -139,9 +139,10 @@ If the `time_zone` in `bot.json` does not match the database marker at startup, 
 - **Startup preflight**: A missing directory is created automatically. At boot, the system scans the directory; invalid filenames, subdirectories, symlinks, or stray `.h_image-add-*` temporary files cause **startup failure**. Adding or removing valid images does not require a service restart; updating the directory path dynamically at runtime pre-validates the new target directory before switching.
 
 ### 3. Group Marriage Candidates: `memory/wed/<chatId>.json`
-- **Responsibilities**: A plain JSON array of Telegram user IDs representing speaking members in each chat (e.g. `[5974478892]`). The main thread keeps a reusable `Set<number>` for each group. The system manages up to `STATE_MANAGED_CHAT_LIMIT` chats, with up to `WED_MEMBER_LIMIT` candidates per chat.
-- **Validation rules**: The filename must be a canonical negative safe-integer chat ID. Array elements must be unique positive safe integers. Format errors, duplicates, or overflowing entries fail startup checks.
-- **Persistence flow**: Once `FLUSH_MAX_ENTRIES` mutations accumulate or `FLUSH_INTERVAL_MS` passes since the first change, the main thread dispatches an atomic replacement job to the Disk I/O Worker. Running `/init disable` or removing the bot from a chat deletes the corresponding file permanently.
+- **Responsibilities**: One sliding window of speaking members per chat, stored as an array of objects in entry order (e.g. `[{"id":5974478892,"enteredAt":1791770134683}]`), where `enteredAt` is the Unix millisecond timestamp at which the member entered the window. The main thread keeps a reusable `Map<number, number>` (member ID → entry time) for each group. The system manages up to `STATE_MANAGED_CHAT_LIMIT` chats, with a window capacity of `WED_MEMBER_LIMIT` per chat.
+- **Window rules**: When a member outside the window speaks as a personal account, they are appended with the current time (never earlier than the largest entry time already recorded). Members already in the window keep their entry time when they speak again. When the window is full, the member with the earliest entry time is evicted first.
+- **Validation rules**: The filename must be a canonical negative safe-integer chat ID. Each entry must contain exactly `id` and `enteredAt`; `id` must be a unique positive safe integer, `enteredAt` a non-negative safe integer that never decreases along the array, and the array may hold at most `WED_MEMBER_LIMIT` entries. Any violation fails startup checks, and the installer applies the same checks. Legacy files that are still arrays of member IDs must first go through the [/wed member window cold migration](#upgrade-wed-member-window).
+- **Persistence flow**: Once `FLUSH_MAX_ENTRIES` additions, deletions, or evictions accumulate or `FLUSH_INTERVAL_MS` passes since the first change, the main thread dispatches an atomic replacement job to the Disk I/O Worker. Running `/init disable` or removing the bot from a chat deletes the corresponding file permanently.
 - **Pruning departures**: Departed users are pruned via service messages, `chat_member` updates, and midnight sweeps (the latter two require bot administrator rights). In large supergroups where member lists are hidden and the bot lacks administrator privileges, departure events may not be received, meaning former members can remain in the pool; this is expected under Telegram API limitations.
 
 ### 4. Stickers and Fortunes: `memory/stickers/` and `memory/luck/`
@@ -195,7 +196,7 @@ Accompanied at runtime by SQLite temporary WAL (`-wal`) and shared memory (`-shm
 
 <a id="identity-storage-migration"></a>
 
-## Identity Storage Migration
+## Persistent Data Migration
 
 **The codebase contains zero legacy compatibility layers and never alters database schemas automatically at startup**. Schema migrations require stopping the bot and confirming that processes have exited. If a migration fails, keep external backups intact; never launch the new version prematurely, and never overwrite real configurations with `config_example/`.
 
@@ -205,23 +206,23 @@ Before performing offline migrations, create an external backup via `mktemp -d` 
 
 When booting with a missing database, the bot halts with an error instead of guessing default configurations. Fresh deployments must initialize an empty database using the [identity storage initialization steps in 01 Getting Started](01-getting-started.md#initializing-identity-storage). The `install.sh` script executes this automatically if no database is found. The script safely refuses to overwrite existing databases.
 
-<a id="upgrade-chat-persona"></a>
+<a id="upgrade-wed-member-window"></a>
 
-### Shared Database Cold Migration (Per-Chat Persona Removal, Schema v11 → v13)
+### /wed Member Window Cold Migration (Member ID Arrays → `{ id, enteredAt }`)
 
-Run the migration script at [`scripts/migrateChatPersonaRemoval.ts`](../../scripts/migrateChatPersonaRemoval.ts). This script removes legacy per-chat persona columns and permissions, writes the `Asia/Tokyo` time zone metadata marker, and increments the database to Schema v13 (the `time_zone` in `bot.json` must remain `Asia/Tokyo`). Groups with no active state, no AI context, and only leftover personas are pruned; unexpected empty states fail the migration immediately. The script strictly accepts Schema v11 databases produced by version 16.3.2; older versions or already migrated databases are rejected. All other persistent files and JSON configs from 16.3.2 remain unchanged.
+Run the migration script at [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts). This script rewrites `memory/wed/<chatId>.json` from the 17.2.1 member ID arrays into `{ id, enteredAt }` window arrays in entry order. Each chat keeps only the last (most recently entered) `WED_MEMBER_LIMIT` IDs in their original order, and every `enteredAt` is set to the migration start time; the overflow is dropped from the earliest end and counted as `truncatedMembers` in `ready.json`. The script only accepts 17.2.1 member files (at most `WED_MEMBER_WINDOW_SOURCE_LIMIT` unique positive safe-integer IDs per file, and no more than `STATE_MANAGED_CHAT_LIMIT` chat files); already migrated files, non-canonical filenames, and symbolic links are rejected, while non-`.json` leftovers such as `*.tmp` are not migrated. All other persistent files and JSON configs from 17.2.1 remain unchanged.
 
-1. **Stop service and back up**: Stop the service and confirm it is inactive. Ensure no process retains database locks, then back up the entire `database/` directory (main database plus `-wal` and `-shm` sidecars) to an external directory.
+1. **Stop service and back up**: Stop the service and confirm it is inactive. Back up the entire `memory/wed/` directory with its ownership, permissions, and SHA-256 manifest to an external directory, keeping the `memory/wed/` relative path under the backup root.
 2. **Execute the migration script**:
    ```bash
-   bun run migrate:chat-persona-removal \
+   bun run migrate:wed-member-window \
      --source-root /absolute/cold-backup \
      --output-root /absolute/new-staging-directory
    ```
-3. **Verify migration output**: Inspect `ready.json` in the output directory, verifying source and destination SHA-256 hashes and confirming statistics for `removedPersonas`, `removedEmptyChats`, and `removedPermissions`.
-4. **Deploy the updated database**: Copy the migrated database to `database/storage.sqlite`, delete stale `-wal` and `-shm` sidecars, and restore correct user ownership and file permissions.
-5. **Clean up legacy menus**: If per-chat persona command menus were previously configured, call Telegram's `deleteMyCommands` API with chat-specific scopes to remove leftover menus.
-6. **Verify startup**: Start the bot and verify operation. Clean up temporary backups only after confirming stable execution.
+   Binary releases run `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` with the same arguments.
+3. **Verify migration output**: Inspect `ready.json` in the output directory, verifying the SHA-256 hashes in `sourceFiles` and `outputFiles` and confirming `chatCount`, `keptMembers`, `truncatedMembers`, and `enteredAt`. Output files are readable and writable only by the current account.
+4. **Replace the member files**: While the service is stopped, replace each deployed `memory/wed/<chatId>.json` with the migrated file, restore the original ownership and permissions from `sourceFiles`, and make sure the service account can write `memory/wed/` and its files.
+5. **Verify startup**: Start the bot and verify operation. Clean up temporary backups only after confirming stable execution.
 
 ---
 
@@ -229,7 +230,7 @@ Run the migration script at [`scripts/migrateChatPersonaRemoval.ts`](../../scrip
 
 ### Staged Upgrades from Older Layouts
 
-- **Deployments older than 16.3.2**: This release provides direct migration scripts exclusively for version 16.3.2. If running an earlier version, you must first upgrade to 16.3.2, complete all intermediate migrations (global state format, image filenames, and configuration directory restructuring), verify that 16.3.2 boots stably, and then proceed with this release's [shared database cold migration](#upgrade-chat-persona).
+- **Deployments older than 17.2.1**: This release provides direct migration scripts exclusively for version 17.2.1. If running an earlier version, you must first upgrade to 17.2.1 and complete its migrations (16.3.2 runs the shared database cold migration `migrate:chat-persona-removal`; older versions first follow their own guides up to 16.3.2), verify that 17.2.1 boots stably, and then proceed with this release's [/wed member window cold migration](#upgrade-wed-member-window).
 - **Major version path from 11.0.9 (Schema v8)**:
   Run sequential cold migrations across isolated directories using tagged releases:
   1. Commit `500e848fae`: Run `migrate:ai-context` (v8 → v9)
@@ -237,7 +238,8 @@ Run the migration script at [`scripts/migrateChatPersonaRemoval.ts`](../../scrip
   3. Tag `13.0.2`: Run `migrate:h-image-add-permission` (v10 → v11) and `migrate:bot-config`
   4. Tag `14.0.0`: Run `migrate:translate-sessions`
   5. Tag `16.3.2`: Run `migrate:global-state` and `migrate:random-image-names`
-  6. Latest version: Run `migrate:chat-persona-removal` (v11 → v13)
+  6. Tag `17.2.1`: Run `migrate:chat-persona-removal` (v11 → v13)
+  7. Latest version: Run `migrate:wed-member-window`
 
   *Tip*: You can also use the intermediate source archive `copy-ninjia-schema-v9-source-500e848f.tar.gz` attached to the 12.0.0 Release (SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`).
 
@@ -267,7 +269,7 @@ The application deliberately follows a **Fail-Fast** design. Any configuration o
 
 ### 5. Identity Database Validation Failure
 - **Cause**: `storage.sqlite` is unwritable; the database file is corrupt; the database schema is outdated; the `time_zone` setting conflicts with the zone recorded in the database (the log states `storage_metadata.time-zone` and the expected value); or user IDs overlap between the blocklist and ad bypass whitelist.
-- **Solution**: For time zone mismatches, restore `time_zone` in `bot.json` to the database value. For Schema v11 databases from 16.3.2, run the cold migration script; upgrade older databases sequentially to 16.3.2 first. If the file is corrupt, restore the database and its matching `-wal`/`-shm` files from backup. Never overwrite with a blank database or edit SQLite tables manually.
+- **Solution**: For time zone mismatches, restore `time_zone` in `bot.json` to the database value. If the database is not on the current schema (for example a Schema v11 database from 16.3.2), follow the [staged upgrade](#staged-upgrade) to 17.2.1 and complete its migrations first. If the file is corrupt, restore the database and its matching `-wal`/`-shm` files from backup. Never overwrite with a blank database or edit SQLite tables manually.
 
 ### 6. Inconsistent Fortune Results and Receipt Key
 - **Cause**: The current day's fortune files and `receipt-secret.json` originate from different backup points, causing cryptographic signature verification to fail.
@@ -275,7 +277,11 @@ The application deliberately follows a **Fail-Fast** design. Any configuration o
 
 ### 7. Invalid Global State File or Residual Legacy state.json
 - **Cause**: `memory/global/state.json` fails current schema parsing, or legacy `state.json` files linger in the data root.
-- **Solution**: Back up the file, identify the issue, and correct invalid fields. For legacy formats, upgrade to 16.3.2 to run state migrations, then remove lingering files from the data root.
+- **Solution**: Back up the file, identify the issue, and correct invalid fields. For legacy formats, follow the [staged upgrade](#staged-upgrade) to 17.2.1 and complete its migrations, then remove lingering files from the data root.
+
+### 8. Invalid /wed Candidate Files
+- **Cause**: `memory/wed/<chatId>.json` does not match the current window format (for example it is still a 17.2.1 member ID array, lacks `enteredAt`, has decreasing entry times, or exceeds `WED_MEMBER_LIMIT` entries), or the filename is not a canonical chat ID.
+- **Solution**: After a stopped backup, run the [/wed member window cold migration](#upgrade-wed-member-window) for legacy member ID arrays; otherwise fix the file and field path named in the error, or restore from backup.
 
 ---
 

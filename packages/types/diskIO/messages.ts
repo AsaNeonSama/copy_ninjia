@@ -105,12 +105,13 @@ export interface WedMembersDeleteDiskMessage {
   readonly revision: number;
 }
 
-/** 主线程按统一 TTL/条数窗口投递成员最终数组；DiskIO 接收后全量原子替换。 */
+/** 主线程按统一 TTL/条数窗口投递成员滑窗的最终快照；DiskIO 接收后全量原子替换。 */
 export interface WedMembersDiskMessage {
   readonly type: "wedMembers";
   readonly chatId: number;
   readonly revision: number;
-  readonly members: readonly number[];
+  /** 按进入顺序交替排列的 `[id0, enteredAt0, id1, enteredAt1, ...]`，由 DiskIO 写成 `{ id, enteredAt }` 数组。 */
+  readonly entries: readonly number[];
 }
 
 /** 主线程 -> diskIOWorker：一次抽签结果的增量写入。 */

@@ -97,8 +97,8 @@
 
 ### 主要テストスイートの分布
 
-- **インストール・更新テスト**：`test/scripts/installStartup.test.ts`、`test/scripts/installMigration.test.ts` が、インストーラースクリプト、空データベース初期化、起動シーケンス、ならびに旧形式のデプロイ入力・グローバル状態・データベースを起動前に安全に拒否しデータを改変しないことを検証。
-- **コールドマイグレーションテスト**：`test/scripts/migrateChatPersonaRemoval.test.ts` が、バージョン 16.3.2 由来のスキーマ（`CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION`）のみを受け付け、現行スキーマ（`IDENTITY_DATABASE_SCHEMA_VERSION`）へのデータベース移行（Asia/Tokyo タイムゾーンマーカー付与を含む）、および移行前後の起動検証を確認。
+- **インストール・更新テスト**：`test/scripts/installStartup.test.ts`、`test/scripts/installMigration.test.ts` が、インストーラースクリプト、空データベース初期化、起動シーケンス、ならびに旧形式のデプロイ入力・グローバル状態・データベース・`/wed` メンバーファイルを起動前に安全に拒否しデータを改変しないことを検証。
+- **コールドマイグレーションテスト**：`test/scripts/migrateWedMemberWindow.test.ts` が、17.2.1 の `memory/wed` メンバー ID 配列のみを受け付け、末尾 `WED_MEMBER_LIMIT` 件の ID を順序どおり保持して同一の参加時刻で `{ id, enteredAt }` ウィンドウへ書き換え、成果物が本番の起動検証を通過すること、ならびに移行済み・不正な移行元、シンボリックリンク、既存の出力ディレクトリを拒否し移行元バックアップを変更しないことを確認。
 - **メディア・外部送信ゲートテスト**：`test/aiChat/ai/mediaAdmission.test.ts`、`test/aiChat/ai/imageDescription.test.ts`、`test/infra/telegramWorkerCapabilities.test.ts` がマルチモーダル認識と Telegram 送信ゲートの双方向通信を検証。
 - **統一送信統合テスト**：`test/infra/telegramOutboundIntegration.test.ts` が、実体クライアント、送信ゲート、チャット別送信スケジューラを動作させ、最深層のネットワーク応答のみをモック化してテスト。メインスレッド、コンテキスト、両 Worker、cron からの同一チャット FIFO 順序、種別ごとの 429 リトライ、権限問い合わせ、アバターおよびファイル取得の共有バックオフ、キャンセル、シャットダウン時ドレインを検証。
 - **セキュリティ・ログテスト**：`test/infra/loggerSecurity.test.ts` が機密認証情報のマスキングを検証。

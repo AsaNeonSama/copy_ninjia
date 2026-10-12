@@ -31,7 +31,7 @@
     "release:verify": "bun scripts/release.ts verify",
     "release:publish": "bun scripts/release.ts publish",
     "audit:release": "bun audit --audit-level=moderate",
-    "migrate:chat-persona-removal": "bun scripts/migrateChatPersonaRemoval.ts"
+    "migrate:wed-member-window": "bun scripts/migrateWedMemberWindow.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -763,16 +763,16 @@
   - 仅当 Telegram 明确返回已离群，或返回 400 `PARTICIPANT_ID_INVALID` 时，才调用 `removeWedMember` 剔除成员并标脏（不计入 API 错误）；其他临时网络错误保留成员。若复核期间观察到该用户发言、在群 `chat_member` 或入群服务消息，可否决迟到的离群判定。
   - 若机器人在群内不是管理员，`getChatMember` 将因权限被拒绝（403 或 400 `CHAT_ADMIN_REQUIRED`），此时记录错误并直接结束本群检查，保留现有成员列表。**在非管理员群中，抽中已退群成员属于已知预期行为**。
 - **权限与准入网关**：
-  - `/wed` 命令与回调均置于统一 `/init` 网关之后；记录新成员要求 `isInitEnabled === true`。未开启初始化的群发生退群时，仅在已有集合中剔除 ID，不创建群状态也不放行业务。
+  - `/wed` 命令与回调均置于统一 `/init` 网关之后；记录新成员要求 `isInitEnabled === true`。未开启初始化的群发生退群时，仅在已有滑窗中剔除 ID，不创建群状态也不放行业务。
 - **缓存与持久化架构**：
-  - **成员权威缓存**：`packages/cache/main/wedMembers.ts` 为每个群长期复用单一 `Set<number>`，上限 `WED_MEMBER_LIMIT` 人；满额后不再接纳新 ID，退群腾出空间后恢复。频道、回复/转发来源、匿名身份发言不计入候选。
+  - **成员权威缓存**：`packages/cache/main/wedMembers.ts` 为每个群长期复用单一 `Map<number, number>`（成员 ID → 进入时间），作为容量 `WED_MEMBER_LIMIT` 的进入时间滑窗：插入顺序即进入顺序，新成员的进入时间取当前时刻与已分配最大进入时间的较大值，满额时先挤出首项（进入最早）；窗口内成员再次发言不刷新进入时间。频道、回复/转发来源、匿名身份发言不计入候选。
   - **交互会话缓存**：`packages/cache/main/wed.ts` 管理交互状态与头像探测，每人每群仅占 1 个会话，每群上限 `WED_SESSION_LIMIT` 个会话。群列表受 `STATE_MANAGED_CHAT_LIMIT` 约束，不执行 LRU 淘汰。
-  - **落盘策略**：仅在实际增删成员时自增 revision 并标脏。复用 Disk I/O 的 `FLUSH_MAX_ENTRIES` 与 `FLUSH_INTERVAL_MS` 阈值，通过临时文件、fsync 与原子 rename 写入 `memory/wed/<chatId>.json`。
+  - **落盘策略**：仅在实际增删或挤出成员时自增 revision 并标脏。复用 Disk I/O 的 `FLUSH_MAX_ENTRIES` 与 `FLUSH_INTERVAL_MS` 阈值，跨线程只投递扁平的 `[id, enteredAt, ...]` 快照，由 Disk I/O Worker 写成 `{ id, enteredAt }` 数组，通过临时文件、fsync 与原子 rename 写入 `memory/wed/<chatId>.json`。
   - **整群清空保证**：`purgeWedMembers` 移除内存集合后，向 `pendingWedMemberDeletes` 登记单调递增编号并向 Worker 投递。只有收到精确持久化确认后才注销待决任务。停机或重建时重放最新状态。
 - **启动只读校验门禁**：
-  - 启动阶段严格校验 `memory/wed/` 下所有文件名（规范负整数群 ID）、用户 ID（正安全整数）、单群上限及总群数；出现任何非法数据立即拒绝启动并保留原文件。缺失文件则视为无记录按需新建。
+  - 启动阶段严格校验 `memory/wed/` 下所有文件名（规范负整数群 ID）、每项恰为 `{ id, enteredAt }`、用户 ID（不重复的正安全整数）、进入时间（非负安全整数且按数组顺序不减）、单群上限及总群数；出现任何非法数据立即拒绝启动并保留原文件。缺失文件则视为无记录按需新建。
 - **抽取与头像流程**：
-  - 候选人信源完全取自 `memory/wed` 的 ID 集合。抽中后仅通过 `readCurrentAvatar` 获取头像（复用 `getChat` 私聊资料），无需机器人具备管理员权限。
+  - 候选人信源完全取自 `memory/wed` 的成员滑窗。抽中后仅通过 `readCurrentAvatar` 获取头像（复用 `getChat` 私聊资料），无需机器人具备管理员权限。
   - 若 `getChat` 返回 400 `Bad Request: chat not found`，判定该 ID 彻底失效，从所有受管群的奖池中剔除。
   - 抽取执行器复用 `createPrioritizedBoundedTaskRunner`，共享全局 `WED_MAX_CONCURRENT` 执行槽与 `WED_MAX_PENDING` FIFO 等待队列。
   - **结果发送与替换**：`commands/wed/messages.ts` 的 `sendWedResult` 为唯一发图边界，结果长期保留，不挂 30 秒延迟自毁。发起人重抽时，仅在新结果成功发出后才删除旧图；若发送失败，保留旧图与会话状态。机器人已离群（`departed`）时，重抽中的会话收尾时不为新旧结果发删除请求。

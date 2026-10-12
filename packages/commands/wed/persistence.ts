@@ -14,7 +14,12 @@ export function getOrCreateWedMemberState(chatId: number): WedMemberState | unde
   if (state !== undefined) return state;
   const pending: WedMembersDeleteDiskMessage | undefined = pendingWedMemberDeletes.get(chatId);
   if (pending === undefined && wedMemberStates.size + pendingWedMemberDeletes.size >= STATE_MANAGED_CHAT_LIMIT) return undefined;
-  state = { members: new Set(), revision: pending === undefined ? 0 : pending.revision + 1, dirty: pending !== undefined };
+  state = {
+    members: new Map(),
+    latestEnteredAt: 0,
+    revision: pending === undefined ? 0 : pending.revision + 1,
+    dirty: pending !== undefined,
+  };
   wedMemberStates.set(chatId, state);
   if (pending !== undefined) {
     pendingWedMemberDeletes.delete(chatId);
@@ -23,11 +28,16 @@ export function getOrCreateWedMemberState(chatId: number): WedMemberState | unde
   return state;
 }
 
-/** init 在联网前接管 DiskIO 已严格验证的全部集合；进程重启不恢复按钮会话。 */
-export function hydrateWedMembers(snapshots: ReadonlyMap<number, Set<number>>): void {
+/**
+ * init 在联网前接管 DiskIO 已严格验证的全部滑窗；文件顺序即进入顺序，末项进入时间即最大进入时间。
+ * 进程重启不恢复按钮会话。
+ */
+export function hydrateWedMembers(snapshots: ReadonlyMap<number, Map<number, number>>): void {
   resetWedMemberStates();
   for (const [chatId, members] of snapshots) {
-    wedMemberStates.set(chatId, { members, revision: 0, dirty: false });
+    let latestEnteredAt: number = 0;
+    for (const enteredAt of members.values()) latestEnteredAt = enteredAt;
+    wedMemberStates.set(chatId, { members, latestEnteredAt, revision: 0, dirty: false });
   }
 }
 
@@ -49,11 +59,14 @@ export function markWedMembersDirty(state: WedMemberState): void {
   scheduleWedMemberFlush(wedMemberFlushState.changes >= FLUSH_MAX_ENTRIES);
 }
 
+/** 按进入顺序展开成扁平的 `[id, enteredAt, ...]`，跨线程只复制数字数组。 */
 function snapshotWedMembers(chatId: number, state: WedMemberState): WedMembersDiskMessage {
-  return { type: "wedMembers", chatId, revision: state.revision, members: [...state.members] };
+  const entries: number[] = [];
+  for (const [id, enteredAt] of state.members) entries.push(id, enteredAt);
+  return { type: "wedMembers", chatId, revision: state.revision, entries };
 }
 
-/** TTL、累计阈值和停机共用的投递边界；失败保留最终集合，不累计历史快照。 */
+/** TTL、累计阈值和停机共用的投递边界；失败保留最终滑窗，不累计历史快照。 */
 export function flushWedMembers(): boolean {
   if (wedMemberFlushState.timer !== null) clearTimeout(wedMemberFlushState.timer);
   wedMemberFlushState.timer = null;
@@ -97,7 +110,7 @@ export async function purgeWedMembers(chatId: number): Promise<void> {
   if (pendingWedMemberDeletes.get(chatId) === message) pendingWedMemberDeletes.delete(chatId);
 }
 
-/** 先删除集合中的 ID，再登记落盘；退群、每日复核和私聊不可访问探测共用此边界。 */
+/** 先删除滑窗中的 ID，再登记落盘；退群、每日复核和私聊不可访问探测共用此边界。 */
 export function removeWedMember(chatId: number, userId: number): void {
   const state: WedMemberState | undefined = wedMemberStates.get(chatId);
   if (state?.members.delete(userId)) markWedMembersDirty(state);
@@ -110,7 +123,7 @@ export function removeWedMemberFromAllChats(userId: number, observedChats: Reado
   }
 }
 
-/** DiskIO 重建时重放待删责任与最终集合；恢复层仅覆盖重放时 FIFO 中的同群旧操作。 */
+/** DiskIO 重建时重放待删责任与最终滑窗；恢复层仅覆盖重放时 FIFO 中的同群旧操作。 */
 export function replayWedMembers(transport: DiskIORecoveryTransport): boolean {
   for (const message of pendingWedMemberDeletes.values()) {
     if (!transport.post(message)) return false;

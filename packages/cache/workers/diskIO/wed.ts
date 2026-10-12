@@ -2,7 +2,8 @@
 import type { WedMembersDeletedPersistedReply } from "../../../types/diskIO/replies";
 
 /**
- * 主线程批量投递时接管最终数组，写成功即释放；每群一份，容量受主线程群数和成员数上限约束。
+ * 主线程批量投递时接管按进入顺序交替排列的 `[id, enteredAt, ...]` 快照，写成功即释放；
+ * 每群一份，容量受主线程群数和 WED_MEMBER_LIMIT 约束。
  * 仅用于持久化防丢失；权威集合在主线程，Worker 重建后由主线程全量重放。
  * 缺失条目表示没有待写快照，不表示沿用旧值；进程重启由文件恢复成员。
  * 跨线程持久化与停机约束见 docs/cn/04-invariants.md。

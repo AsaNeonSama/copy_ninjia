@@ -1,25 +1,25 @@
 /**
- * 源码与二进制共用的冷迁移端到端验证：以上一次迁移产出格式的停机备份执行当前全部冷迁移边；全部路径归
- * 调用方的独立临时根所有。
+ * 源码与二进制共用的冷迁移端到端验证：以上一次迁移产出格式（17.2.1）的停机备份执行当前全部冷迁移边；
+ * 全部路径归调用方的独立临时根所有。
  */
 import { expect } from "bun:test";
 import { chmodSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
+import { DEFAULT_BOT_TIME_ZONE } from "../../packages/consts/bot";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
 import { ASSET_ONLY_PATH_GROUP, ASSET_ONLY_URL_GROUP, ASSET_PATH_OR_URL_GROUP } from "../../packages/consts/ui/assets";
-import { IDENTITY_DATABASE_SCHEMA_VERSION } from "../../packages/consts/identityStorage";
+import { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
+import type { WedMemberEntry } from "../../packages/types/wed";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
-import { CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION } from "../migrations/chatPersonaRemoval/database";
 import { copyFixtureTree } from "./copyTree";
 import { googleAuthFixture } from "./googleAuth";
-import { createMigrationDatabase, assertMigratedDatabase } from "./migrationDatabase";
-import type { MigrationDatabaseFixture } from "./migrationDatabase";
 import { readMigrationFileSnapshot } from "./migrationFiles";
 import type { MigrationFileSnapshot } from "./migrationFiles";
 import { runCapturedCommand } from "./subprocess";
 import type { CapturedCommandResult } from "./subprocess";
-import type { ChatPersonaRemovalMigrationResult } from "../migrateChatPersonaRemoval";
+import type { WedMemberWindowMigrationResult } from "../migrateWedMemberWindow";
 
 export interface MigrationDeploymentOptions {
   readonly packageRoot: string;
@@ -30,11 +30,12 @@ export interface MigrationDeploymentOptions {
 export interface MigratedDeployment {
   readonly config: string;
   readonly data: string;
-  readonly database: MigrationDatabaseFixture;
   readonly sources: readonly MigrationFileSnapshot[];
+  /** 部署后 memory/wed/-1001.json 应有的内容：迁移产物原样替换。 */
+  readonly wedMembers: readonly WedMemberEntry[];
 }
 
-/** 冷迁移输入格式的 bot.json（没有 time_zone）；身份与安装器夹具的 API 桩一致。 */
+/** 冷迁移输入格式的 bot.json（time_zone 缺省）；身份与安装器夹具的 API 桩一致。 */
 const BOT_IDENTITY: Readonly<Record<string, unknown>> = {
   bot_token: "123456789:migration_test_token",
   super_admin_user_id: 123456789,
@@ -58,14 +59,36 @@ export const PRESERVED_MIGRATION_CONFIG_FILES: readonly string[] = [
 
 /** 每条冷迁移边在源备份上的参数；产物目录参数由调用处补上。 */
 function migrationArguments(command: string, data: string): readonly string[] {
-  if (command === "migrate:chat-persona-removal") return ["--source-root", data];
-  throw new Error(`No 16.3.2 fixture arguments for cold migration ${command}.`);
+  if (command === "migrate:wed-member-window") return ["--source-root", data];
+  throw new Error(`No 17.2.1 fixture arguments for cold migration ${command}.`);
 }
 
 /**
- * 建立上一次迁移产出格式的完整 mock 停机备份（当前配置布局、当前全局状态、内容摘要命名的图库与源
- * schema 库，复读与翻译目标及群名含空字符串），执行实际 CLI，核对拒绝覆盖与源哈希，再按清单组装部署目录：
- * 只替换数据库，其余文件原样沿用。
+ * 17.2.1 产出格式的非空共享数据库：当前 schema 与默认时区标记，一个群状态（翻译目标及群名含空字符串）
+ * 与一条群问答。冷迁移不触碰数据库，部署时原样沿用；关闭连接后 WAL 已并入主库。
+ */
+function createDeploymentDatabase(data: string): void {
+  const path: string = join(data, "database/storage.sqlite");
+  bootstrapStorageDatabase(path, DEFAULT_BOT_TIME_ZONE);
+  const client: Database = new Database(path);
+  try {
+    // Telegram 允许空字符串的名称与群名；安装与启动都原样保留。
+    client.run("INSERT INTO chat_states VALUES (?, jsonb(?), jsonb(?))", [
+      -1001,
+      JSON.stringify({
+        title: "", isInitEnabled: true, isAIChatEnabled: true, isTranslationEnabled: true,
+        translate: [{ translatedUser: { id: 7, username: "", first_name: "", last_name: "" }, language: "ja" }],
+      }),
+      JSON.stringify({ version: 1, buffer: [], summaries: ["迁移前的上下文"], pendingSummary: null, savedAt: 1 }),
+    ]);
+    client.run("INSERT INTO chat_qa VALUES (-1001, '迁移问题', jsonb('{\"a\":\"保留答案\"}'))");
+  } finally { client.close(true); }
+}
+
+/**
+ * 建立上一次迁移产出格式的完整 mock 停机备份（当前配置布局、当前全局状态、内容摘要命名的图库、当前
+ * schema 库与成员 ID 数组形式的 /wed 文件），执行实际 CLI，核对拒绝覆盖与源哈希，再按清单组装部署目录：
+ * 只替换 memory/wed/ 下的文件，其余文件原样沿用。
  */
 export async function prepareMigratedDeployment({
   packageRoot, root, binary = false,
@@ -111,7 +134,8 @@ export async function prepareMigratedDeployment({
   await Bun.write(join(data, "memory/wed/-1001.json"), "[42,43]");
   await mkdir(join(data, "logs"));
   await Bun.write(join(data, "logs/mock-history.json"), "[]");
-  const database: MigrationDatabaseFixture = await createMigrationDatabase({ packageRoot, root, source: data });
+  await mkdir(join(data, "database"));
+  createDeploymentDatabase(data);
   const sources: MigrationFileSnapshot[] = [];
   for (const directory of [config, data]) {
     for await (const name of new Bun.Glob("**/*").scan({ cwd: directory, onlyFiles: true })) {
@@ -150,23 +174,20 @@ export async function prepareMigratedDeployment({
     expect(await readMigrationFileSnapshot(ready.path)).toEqual(ready);
     outputs.set(edge.command, output);
   }
-  const databaseOutput: string = outputs.get("migrate:chat-persona-removal")!;
-  const databaseResult: ChatPersonaRemovalMigrationResult = await Bun.file(join(databaseOutput, "ready.json")).json() as ChatPersonaRemovalMigrationResult;
-  expect(databaseResult).toMatchObject({
-    sourceSchema: CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION, targetSchema: IDENTITY_DATABASE_SCHEMA_VERSION,
-    removedPersonas: 2, removedEmptyChats: 1, removedPermissions: 2,
-  });
-  expect(databaseResult.outputFiles.map((file: { readonly path: string }): string => file.path)).toEqual(["database/storage.sqlite"]);
+  const wedOutput: string = outputs.get("migrate:wed-member-window")!;
+  const wedResult: WedMemberWindowMigrationResult = await Bun.file(join(wedOutput, "ready.json")).json() as WedMemberWindowMigrationResult;
+  expect(wedResult).toMatchObject({ chatCount: 1, keptMembers: 2, truncatedMembers: 0 });
+  expect(wedResult.outputFiles.map((file: { readonly path: string }): string => file.path)).toEqual(["memory/wed/-1001.json"]);
+  const wedMembers: readonly WedMemberEntry[] = [{ id: 42, enteredAt: wedResult.enteredAt }, { id: 43, enteredAt: wedResult.enteredAt }];
+  expect(await Bun.file(join(wedOutput, "memory/wed/-1001.json")).json()).toEqual(wedMembers);
   await assertMigrationSourcesUnchanged(sources);
-  // 数据库取迁移产物，配置与其余数据原样沿用停机备份；完成清单留在产物目录。
-  // SQLite 只替换主库文件，停机备份里的 WAL/SHM 已并入产物，不随部署。
+  // /wed 文件取迁移产物、沿用备份里的权限，配置与其余数据原样沿用停机备份；完成清单留在产物目录。
   await copyFixtureTree(config, deployedConfig);
-  await mkdir(join(deployedData, "database"));
-  await Bun.write(join(deployedData, "database/storage.sqlite"), Bun.file(join(databaseOutput, "database/storage.sqlite")));
-  for (const name of ["memory", "logs"]) await copyFixtureTree(join(data, name), join(deployedData, name));
+  for (const name of ["database", "memory", "logs"]) await copyFixtureTree(join(data, name), join(deployedData, name));
+  await Bun.write(join(deployedData, "memory/wed/-1001.json"), Bun.file(join(wedOutput, "memory/wed/-1001.json")));
   chmodSync(join(deployedData, "database"), 0o2770);
   chmodSync(join(deployedData, "database/storage.sqlite"), 0o660);
-  return { config: deployedConfig, data: deployedData, database, sources };
+  return { config: deployedConfig, data: deployedData, sources, wedMembers };
 }
 
 /** 模拟运维按清单替换后的目录，显式恢复 SQLite 协作权限，再交给真实安装器。 */
@@ -176,10 +197,9 @@ export async function deployMigratedFixture(migrated: MigratedDeployment, config
   for (const path of SECRET_CONFIG_FILES) chmodSync(join(config, path), 0o600);
   chmodSync(join(data, "database"), 0o2770);
   chmodSync(join(data, "database/storage.sqlite"), 0o660);
-  assertMigratedDatabase(join(data, "database/storage.sqlite"), migrated.database);
 }
 
-/** 校验备份正文、权限、属主与链接拓扑，数据库源快照从未以 SQLite 方式打开。 */
+/** 校验备份正文、权限、属主与链接拓扑；冷迁移只读取 memory/wed/，其余源文件同样不得改动。 */
 export async function assertMigrationSourcesUnchanged(sources: readonly MigrationFileSnapshot[]): Promise<void> {
   for (const source of sources) expect(await readMigrationFileSnapshot(source.path)).toEqual(source);
 }

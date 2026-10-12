@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, jest, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, setSystemTime, spyOn, test } from "bun:test";
 import { pendingWedMemberDeletes, resetWedMemberStates, wedMemberFlushState, wedMemberStates } from "../../packages/cache/main/wedMembers";
 import { diskIORuntime } from "../../packages/cache/main/diskIO";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
@@ -40,10 +40,11 @@ beforeEach(() => {
 afterEach(() => {
   resetWedMemberStates();
   jest.useRealTimers();
+  setSystemTime();
 });
 
 test("只有实际增删才标脏，重复发言和不存在的退群 ID 不创建写任务", () => {
-  const members: Set<number> = new Set<number>([5974478892]);
+  const members: Map<number, number> = new Map<number, number>([[5974478892, 1_000]]);
   hydrateWedMembers(new Map([[-1001, members]]));
   expect(wedMemberStates.get(-1001)!.members).toBe(members);
   expect(getOrCreateWedChat(-1001)!.members).toBe(members);
@@ -53,6 +54,7 @@ test("只有实际增删才标脏，重复发言和不存在的退群 ID 不创�
   expect(post).not.toHaveBeenCalled();
   expect(wedMemberFlushState.timer).toBeNull();
   expect(wedMemberStates.get(-1001)!.dirty).toBeFalse();
+  jest.setSystemTime(2_000);
   speak(2);
   expect(wedMemberStates.get(-1001)!.dirty).toBeTrue();
   expect(wedMemberFlushState.changes).toBe(1);
@@ -61,13 +63,22 @@ test("只有实际增删才标脏，重复发言和不存在的退群 ID 不创�
   expect(wedMemberFlushState.changes).toBe(1);
   expect(post).not.toHaveBeenCalled();
   jest.advanceTimersByTime(1);
-  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 1, members: [5974478892, 2] });
+  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 1, entries: [5974478892, 1_000, 2, 2_000] });
   expect(wedMemberStates.get(-1001)!.dirty).toBeFalse();
   jest.advanceTimersByTime(FLUSH_INTERVAL_MS * 2);
   expect(post).toHaveBeenCalledTimes(1);
 });
 
-test("累计阈值异步投递完整最终集合，发言路径不创建跨线程快照", () => {
+test("hydrate 以末项进入时间续接滑窗，墙钟早于末项时新成员沿用末项进入时间", () => {
+  hydrateWedMembers(new Map([[-1001, new Map([[1, 1_000], [2, 3_000]])], [-1002, new Map()]]));
+  expect(wedMemberStates.get(-1001)!.latestEnteredAt).toBe(3_000);
+  expect(wedMemberStates.get(-1002)!.latestEnteredAt).toBe(0);
+  jest.setSystemTime(2_000);
+  speak(3);
+  expect([...wedMemberStates.get(-1001)!.members]).toEqual([[1, 1_000], [2, 3_000], [3, 3_000]]);
+});
+
+test("累计阈值异步投递完整最终滑窗，发言路径不创建跨线程快照", () => {
   for (let id = 1; id <= FLUSH_MAX_ENTRIES; id++) speak(id);
   expect(post).not.toHaveBeenCalled();
   expect(wedMemberFlushState.immediate).toBeTrue();
@@ -76,22 +87,22 @@ test("累计阈值异步投递完整最终集合，发言路径不创建跨线�
   const message = post.mock.calls[0]![0];
   expect(message.type).toBe("wedMembers");
   if (message.type !== "wedMembers") throw new Error("missing snapshot");
-  expect(message.members).toHaveLength(FLUSH_MAX_ENTRIES);
+  expect(message.entries).toHaveLength(FLUSH_MAX_ENTRIES * 2);
   removeWedMember(-1001, 1);
   expect(wedMemberStates.get(-1001)!.members.has(1)).toBeFalse();
-  expect(message.members[0]).toBe(1);
+  expect(message.entries[0]).toBe(1);
   jest.advanceTimersByTime(FLUSH_INTERVAL_MS);
   expect(post).toHaveBeenCalledTimes(2);
 });
 
-test("投递失败保留 dirty，下一次只重试最新集合，空集合也覆盖旧文件", () => {
+test("投递失败保留 dirty，下一次只重试最新滑窗，空滑窗也覆盖旧文件", () => {
   speak(1);
   post.mockReturnValueOnce(false);
   expect(flushWedMembers()).toBeFalse();
   expect(wedMemberStates.get(-1001)!.dirty).toBeTrue();
   removeWedMember(-1001, 1);
   jest.advanceTimersByTime(FLUSH_INTERVAL_MS);
-  expect(post).toHaveBeenLastCalledWith({ type: "wedMembers", chatId: -1001, revision: 2, members: [] });
+  expect(post).toHaveBeenLastCalledWith({ type: "wedMembers", chatId: -1001, revision: 2, entries: [] });
   expect(wedMemberFlushState.timer).toBeNull();
 });
 
@@ -105,7 +116,7 @@ test("失权停管只清交互，重开复用成员；停机不等 TTL 即投递
   expect(wedMemberFlushState.timer).toBeNull();
 });
 
-test("/init disable 与离群删掉奖池并等待 durable 回执，重开是空集合", async () => {
+test("/init disable 与离群删掉奖池并等待 durable 回执，重开是空滑窗", async () => {
   for (const reason of ["explicitDisable", "departed"] as const) {
     post.mockClear();
     flush.mockClear();
@@ -136,7 +147,7 @@ test("投递被拒或领域 flush 失败时删除上抛，不把奖池报成删�
   await expect(purgeWedMembers(-1001)).rejects.toThrow(/flush failed/);
 });
 
-test("Worker 重放当前集合，统一恢复水位跳过旧 FIFO 快照，恢复失败明确返回", () => {
+test("Worker 重放当前滑窗，统一恢复水位跳过旧 FIFO 快照，恢复失败明确返回", () => {
   speak(1);
   flushWedMembers();
   const old = post.mock.calls[0]![0];
@@ -194,7 +205,7 @@ test("重开以空奖池接管旧删除，旧回执不能摘除新一轮删除",
   expect(wedMemberStates.get(-1001)!.dirty).toBe(true);
   expect(pendingWedMemberDeletes.size).toBe(0);
   flushWedMembers();
-  expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: "wedMembers", members: [] }));
+  expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: "wedMembers", entries: [] }));
   await expect(purgeWedMembers(-1001)).rejects.toThrow("flush failed");
   const current = pendingWedMemberDeletes.get(-1001)!;
   expect(current.revision).toBeGreaterThan(old.revision);
@@ -226,20 +237,20 @@ test("恢复镜像覆盖旧删除与高修订旧快照，但不覆盖之后新�
   const revisions = new DiskIORecoveryRevisions();
   const buffered = new LinkedQueue<DiskBusinessMessage>();
   const oldDelete: DiskBusinessMessage = { type: "deleteWedMembers", chatId: -1001, revision: 1 };
-  const oldWrite: DiskBusinessMessage = { type: "wedMembers", chatId: -1001, revision: 100, members: [1] };
-  const current: DiskBusinessMessage = { type: "wedMembers", chatId: -1001, revision: 0, members: [2] };
+  const oldWrite: DiskBusinessMessage = { type: "wedMembers", chatId: -1001, revision: 100, entries: [1, 0] };
+  const current: DiskBusinessMessage = { type: "wedMembers", chatId: -1001, revision: 0, entries: [2, 0] };
   buffered.push(oldWrite);
   buffered.push(oldDelete);
   revisions.record(current, buffered);
   expect(revisions.covers(oldDelete)).toBe(true);
   expect(revisions.covers(oldWrite)).toBe(true);
-  expect(revisions.covers({ type: "wedMembers", chatId: -1001, revision: 0, members: [3] })).toBe(false);
+  expect(revisions.covers({ type: "wedMembers", chatId: -1001, revision: 0, entries: [3, 0] })).toBe(false);
   const nextDelete: DiskBusinessMessage = { type: "deleteWedMembers", chatId: -1001, revision: 2 };
   expect(revisions.covers(nextDelete)).toBe(false);
   buffered.push(current);
   revisions.record(nextDelete, buffered);
   expect(revisions.covers(current)).toBe(true);
-  expect(revisions.covers({ type: "wedMembers", chatId: -1001, revision: 0, members: [] })).toBe(false);
+  expect(revisions.covers({ type: "wedMembers", chatId: -1001, revision: 0, entries: [] })).toBe(false);
 });
 
 test("待删群与奖池合计有界，满额时同群仍能重开", async () => {

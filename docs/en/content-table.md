@@ -128,7 +128,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 7. **[07 Operations and Troubleshooting](07-operations.md)**
    - Systemd unit setup, hardware planning reference, and binary release deployment.
    - Data root directory structure, filesystem compatibility checks (fsync, hard link, rename), and permission security.
-   - Database migrations: fresh database initialization, cold migration from v11 to v13, and staged historical upgrades.
+   - Persistent data migrations: fresh database initialization, the /wed member window cold migration, and staged historical upgrades.
    - Fast-fail startup diagnosis: handling `bot.lock` conflicts, schema mismatches, and receipt HMAC validation.
 
 8. **[08 Image Library and Scheduled Tasks](08-images-and-cron.md)**

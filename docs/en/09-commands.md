@@ -252,16 +252,16 @@ In groups initialized with `/init enable`, members can send `/wed` (with no argu
 
 - **Caller exclusivity**: Only the user who sent `/wed` can click the buttons. Clicking old buttons while a redraw is in progress does not affect the new target. Sending `/wed` again starts a new draw, deleting the previous card only after the new card arrives; if the new card fails to send, the old card is kept; if the old card fails to delete, it remains with deactivated buttons. Each user retains at most one active card per group.
 - **Candidate pool construction**:
-  - The bot maintains an in-memory **`Set<number>`** candidate pool for each group, capped at `WED_MEMBER_LIMIT`.
+  - The bot maintains an in-memory **`Map<number, number>`** (member ID → entry time) candidate window for each group, with a capacity of `WED_MEMBER_LIMIT`.
   - Only users who actively speak as **personal accounts** in the group are added (channels, anonymous admins, and service messages are excluded).
-  - When the pool reaches capacity, additions pause; departure events remove members immediately.
+  - A member outside the window is appended by entry time when they speak; members already in the window keep their entry time. A full window evicts the earliest entrant. Departure events remove members immediately.
   - At 00:00 local time, background maintenance instructs the main thread to verify candidate presence sequentially via `getChatMember` at `WED_MEMBER_REVIEW_INTERVAL_MS` intervals (requires admin permissions); non-admin groups rely on leave service notices.
 - **Avatar retrieval and caching**:
   - Upon selecting a candidate, the bot queries `getChat` and `getUserProfilePhotos` concurrently, matching active avatars via `big_file_unique_id`.
   - Matching avatars are forwarded directly using Telegram's cached `PhotoSize.file_id` without downloading or re-uploading bytes. Unmatched avatars fall back to downloading and uploading.
 - **Concurrency and capacity**:
   - All draws and button clicks route through a dedicated main-thread scheduler: global concurrency is capped at `WED_MAX_CONCURRENT`, and the waiting queue at `WED_MAX_PENDING` (FIFO).
-  - Candidate IDs persist as JSON arrays in `memory/wed/<chatId>.json`, written in batches by the Disk I/O Worker (see flush rules in [07 Operations](07-operations.md#data-root)).
+  - The candidate window persists as a JSON array of `{ id, enteredAt }` entries in entry order in `memory/wed/<chatId>.json`, written in batches by the Disk I/O Worker (see flush rules in [07 Operations](07-operations.md#data-root)).
   - Concurrent user sessions per group are capped at `WED_SESSION_LIMIT`, and managed groups at `STATE_MANAGED_CHAT_LIMIT`. Result cards do not have static auto-deletion timers; they are removed via buttons or during group teardown.
 
 ---

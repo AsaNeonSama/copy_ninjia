@@ -119,7 +119,7 @@ const CASES: Readonly<Record<QueuedDiskIOOperationMessage["type"], MessageCase>>
     business: false,
   },
   wedMembers: {
-    message: { type: "wedMembers", chatId: -1001, revision: 6, members: [1, 2, 3, 4] },
+    message: { type: "wedMembers", chatId: -1001, revision: 6, entries: [1, 10, 2, 20] },
     payloadBytes: 4 * 8,
     business: true,
   },

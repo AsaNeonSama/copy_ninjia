@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
+import { DEFAULT_BOT_TIME_ZONE } from "../../packages/consts/bot";
 import { STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
 import { IDENTITY_DATABASE_SCHEMA_VERSION, IDENTITY_DATABASE_TIME_ZONE_KEY } from "../../packages/consts/identityStorage";
 import { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
@@ -10,7 +11,6 @@ import type { MigrationFileSnapshot } from "../../scripts/fixtures/migrationFile
 import {
   PRESERVED_MIGRATION_CONFIG_FILES, assertMigrationSourcesUnchanged, deployMigratedFixture, prepareMigratedDeployment,
 } from "../../scripts/fixtures/migrationDeployment";
-import { createMigrationDatabase } from "../../scripts/fixtures/migrationDatabase";
 import type { MigratedDeployment } from "../../scripts/fixtures/migrationDeployment";
 import { cleanupFixtures, createFixture, runInstaller, systemdPrompt, writeText } from "../../scripts/installIsolation/fixture";
 import type { InstallerFixture, InstallerRunResult } from "../../scripts/installIsolation/fixture";
@@ -32,14 +32,14 @@ test("仍是 12.1.0 身份入口时安装器拒绝启动并指向 13.x 分阶段
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
-test.each(["state.json", "state.json.bak"])("数据根仍有 14.x 的 %s 时安装器拒绝启动并提示先升级到 16.3.2，不改写状态或创建数据库", async (name: string): Promise<void> => {
+test.each(["state.json", "state.json.bak"])("数据根仍有 14.x 的 %s 时安装器拒绝启动并提示先升级到 17.2.1，不改写状态或创建数据库", async (name: string): Promise<void> => {
   const fixture: InstallerFixture = await createFixture(true);
   const path: string = join(fixture.runtimeRoot, name);
   await Bun.write(path, JSON.stringify({ global: { copy: { copiedUser: null } } }));
   const before: MigrationFileSnapshot | null = await readMigrationFileSnapshot(path);
   const result: InstallerRunResult = await runInstaller(fixture, []);
   expect(result.exitCode).not.toBe(0);
-  expect(result.output).toContain("先升级到 16.3.2");
+  expect(result.output).toContain("先升级到 17.2.1");
   expect(result.output).not.toContain("migrate:global-state");
   expect(result.output).not.toContain("INSTALL_API");
   expect(await readMigrationFileSnapshot(path)).toEqual(before);
@@ -47,7 +47,7 @@ test.each(["state.json", "state.json.bak"])("数据根仍有 14.x 的 %s 时安�
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
-test("memory/global/state.json 仍是总计数 ttsUsage 时安装器在启动前拒绝并提示先升级到 16.3.2，不改写状态或创建数据库", async (): Promise<void> => {
+test("memory/global/state.json 仍是总计数 ttsUsage 时安装器在启动前拒绝并提示先升级到 17.2.1，不改写状态或创建数据库", async (): Promise<void> => {
   const fixture: InstallerFixture = await createFixture(true);
   const path: string = join(fixture.runtimeRoot, "memory/global/state.json");
   await Bun.write(path, JSON.stringify({ copy: { copiedUser: null }, ttsUsage: { windowStartedAt: 1_000, count: 10 } }));
@@ -55,7 +55,7 @@ test("memory/global/state.json 仍是总计数 ttsUsage 时安装器在启动前
   const result: InstallerRunResult = await runInstaller(fixture, []);
   expect(result.exitCode).not.toBe(0);
   expect(result.output).toContain("memory/global/state.json: $.ttsUsage.<key> must be absent");
-  expect(result.output).toContain("先升级到 16.3.2");
+  expect(result.output).toContain("先升级到 17.2.1");
   expect(result.output).not.toContain("migrate:global-state");
   expect(result.output).not.toContain("配置校验通过");
   expect(result.output).not.toContain("INSTALL_API");
@@ -64,18 +64,41 @@ test("memory/global/state.json 仍是总计数 ttsUsage 时安装器在启动前
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
-test("数据库仍是 schema v11 时安装器在启动前拒绝并提示冷迁移，不改写数据库", async (): Promise<void> => {
+test("数据库不是当前 schema 时安装器在启动前拒绝并提示先升级到 17.2.1，不改写数据库", async (): Promise<void> => {
   const fixture: InstallerFixture = await createFixture(true);
-  await createMigrationDatabase({ packageRoot: join(import.meta.dir, "../.."), root: fixture.root, source: fixture.runtimeRoot });
   const path: string = join(fixture.runtimeRoot, "database/storage.sqlite");
+  mkdirSync(dirname(path), { mode: 0o770 });
+  bootstrapStorageDatabase(path, DEFAULT_BOT_TIME_ZONE);
+  const client: Database = new Database(path);
+  try {
+    client.run("UPDATE storage_metadata SET data = jsonb(?) WHERE key = 'schema-version'", [
+      JSON.stringify({ version: IDENTITY_DATABASE_SCHEMA_VERSION - 1 }),
+    ]);
+  } finally { client.close(true); }
   const before: MigrationFileSnapshot | null = await readMigrationFileSnapshot(path);
   const result: InstallerRunResult = await runInstaller(fixture, []);
   expect(result.exitCode).not.toBe(0);
   expect(result.output).toContain(`storage_metadata.schema-version must be {"version":${IDENTITY_DATABASE_SCHEMA_VERSION}}`);
-  expect(result.output).toContain("migrate:chat-persona-removal");
+  expect(result.output).toContain("先升级到 17.2.1");
   expect(result.output).not.toContain("配置校验通过");
   expect(result.output).not.toContain("INSTALL_API");
   expect(await readMigrationFileSnapshot(path)).toEqual(before);
+  expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
+}, 30_000);
+
+test("memory/wed 仍是成员 ID 数组时安装器在启动前拒绝并提示冷迁移，不改写文件", async (): Promise<void> => {
+  const fixture: InstallerFixture = await createFixture(true);
+  const path: string = join(fixture.runtimeRoot, "memory/wed/-1001.json");
+  await Bun.write(path, "[42,43]");
+  const before: MigrationFileSnapshot | null = await readMigrationFileSnapshot(path);
+  const result: InstallerRunResult = await runInstaller(fixture, []);
+  expect(result.exitCode).not.toBe(0);
+  expect(result.output).toContain(`${path}: $[0] must be an object with exactly id and enteredAt`);
+  expect(result.output).toContain("migrate:wed-member-window");
+  expect(result.output).not.toContain("配置校验通过");
+  expect(result.output).not.toContain("INSTALL_API");
+  expect(await readMigrationFileSnapshot(path)).toEqual(before);
+  expect(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists()).toBeFalse();
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
@@ -102,7 +125,7 @@ test("已有数据库绑定的时区与 bot.json 不一致时安装器在注册�
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
-test("16.3.2 格式 mock 备份经源码冷迁移、安装与真实启动保留业务数据、全局状态、空字符串身份与配置", async (): Promise<void> => {
+test("17.2.1 格式 mock 备份经源码冷迁移、安装与真实启动保留 /wed 滑窗、业务数据、全局状态、空字符串身份与配置", async (): Promise<void> => {
   const fixture: InstallerFixture = await createFixture(true);
   const migrated: MigratedDeployment = await prepareMigratedDeployment({
     packageRoot: join(import.meta.dir, "../.."), root: join(fixture.root, "migration"),
@@ -125,7 +148,7 @@ test("16.3.2 格式 mock 备份经源码冷迁移、安装与真实启动保留�
   expect(result.output).not.toContain("/translate 翻译不可用");
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain(":blocked");
   expect(await Bun.file(join(fixture.runtimeRoot, "bot.lock")).exists()).toBeFalse();
-  expect(await Bun.file(join(fixture.runtimeRoot, "memory/wed/-1001.json")).json()).toEqual([42, 43]);
+  expect(await Bun.file(join(fixture.runtimeRoot, "memory/wed/-1001.json")).json()).toEqual(migrated.wedMembers);
   expect(await Bun.file(join(fixture.runtimeRoot, "memory/global/state.json")).text())
     .toBe(await Bun.file(join(migrated.data, "memory/global/state.json")).text());
   expect(await Bun.file(join(fixture.runtimeRoot, "state.json")).exists()).toBeFalse();

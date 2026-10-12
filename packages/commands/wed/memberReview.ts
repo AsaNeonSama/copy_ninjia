@@ -30,7 +30,7 @@ async function reviewWedMembers(review: WedMemberReview): Promise<void> {
   try {
     for (const [chatId, state] of wedMemberStates) {
       if (review.controller.signal.aborted) return;
-      const members: readonly number[] = [...state.members];
+      const members: readonly number[] = [...state.members.keys()];
       for (const userId of members) {
         if (review.controller.signal.aborted) return;
         if (wedMemberStates.get(chatId) !== state) break;

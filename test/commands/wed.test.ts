@@ -71,9 +71,9 @@ const notice = mock(async (..._args: any[]): Promise<any> => ({ message_id: ++se
 const answer = mock(async (..._args: any[]): Promise<any> => true);
 const setProfile = mock(async (..._args: any[]): Promise<any> => true);
 
-/** 把一位成员的 ID 记进集合；抽取只认 ID，身份由读头像那次 getChat 取回。 */
-function seed(members: Set<number>, identity: User): void {
-  members.add(identity.id);
+/** 把一位成员的 ID 记进滑窗；抽取只认 ID，身份由读头像那次 getChat 取回。 */
+function seed(members: Map<number, number>, identity: User): void {
+  members.set(identity.id, 0);
 }
 
 function command(overrides: Record<string, unknown> = {}): never {
@@ -464,7 +464,7 @@ describe("/wed 图片和按钮交互", () => {
     expect(remove).toHaveBeenCalledWith(chat.id, 101, undefined);
   });
 
-  test("头像查询故障不回写集合；不可用头像探测次数有界且不重复抽同一个人", async () => {
+  test("头像查询故障不回写滑窗；不可用头像探测次数有界且不重复抽同一个人", async () => {
     avatar.mockImplementationOnce(async (): Promise<CurrentAvatarResult> => ({ status: "transient-failure" }));
     await handleWedCommand(command());
     expect(wedChats.get(chat.id)!.members.has(2)).toBeTrue();

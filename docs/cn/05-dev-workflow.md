@@ -111,8 +111,8 @@
 
 ### 关键测试套件分布
 
-- **安装与升级测试**：`test/scripts/installStartup.test.ts` 与 `test/scripts/installMigration.test.ts` 验证安装脚本、新库初始化与完整启动流程，确保安装器在遇到非当前格式的配置或数据库时能提前拒绝并不修改数据。
-- **冷迁移测试**：`test/scripts/migrateChatPersonaRemoval.test.ts` 验证仅接受 16.3.2 产出的数据库 schema（`CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION`）向当前版本（`IDENTITY_DATABASE_SCHEMA_VERSION`）迁移的完整链路（含 Asia/Tokyo 时区校验），以及启动前后的版本判定。
+- **安装与升级测试**：`test/scripts/installStartup.test.ts` 与 `test/scripts/installMigration.test.ts` 验证安装脚本、新库初始化与完整启动流程，确保安装器在遇到非当前格式的配置、数据库或 `/wed` 成员文件时能提前拒绝并不修改数据。
+- **冷迁移测试**：`test/scripts/migrateWedMemberWindow.test.ts` 验证仅接受 17.2.1 的 `memory/wed` 成员 ID 数组，按顺序保留最后 `WED_MEMBER_LIMIT` 个 ID 并以同一进入时间写成 `{ id, enteredAt }` 滑窗、产物通过生产启动校验，以及已迁移或非法来源、符号链接、既有输出目录的拒绝与源备份不变。
 - **媒体与出站测试**：`test/aiChat/ai/mediaAdmission.test.ts`、`test/aiChat/ai/imageDescription.test.ts` 与 `test/infra/telegramWorkerCapabilities.test.ts` 验证多模态内容审查与 Telegram 双工出站闸门。
 - **统一出站集成测试**：`test/infra/telegramOutboundIntegration.test.ts` 使用真实客户端初始化、出站调度器与发送车道，仅在最内层替换网络响应，验证主线程与各 Worker 之间的同群 FIFO、分类 429 退避重试、下载限流及停机排空。
 - **安全与日志脱敏测试**：`test/infra/loggerSecurity.test.ts` 验证敏感凭据在各类异常展开下的脱敏完整性。
