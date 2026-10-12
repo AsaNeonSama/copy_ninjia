@@ -101,7 +101,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
         writes: [],
         temporaryAdBypassWrites: [{ id: 7, revision: firstRevision }],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(unacknowledgedTemporaryAdBypassWrites.get(7)?.revision).toBe(secondRevision);
@@ -111,7 +111,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
         writes: [],
         temporaryAdBypassWrites: [{ id: 7, revision: secondRevision }],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(unacknowledgedTemporaryAdBypassWrites.has(7)).toBeFalse();
@@ -305,7 +305,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       if (id % IDENTITY_WRITE_BATCH_MAX_ENTRIES === 0) {
         const writes: { id: number; revision: number }[] = [];
         for (const [key, write] of unacknowledgedTemporaryAdBypassWrites) writes.push({ id: key, revision: write.revision });
-        for (const listener of persistedListeners) listener({ type: "identityStoragePersisted", writes: [], temporaryAdBypassWrites: writes, chatStateWrites: [], chatQaWrites: [] });
+        for (const listener of persistedListeners) listener({ type: "identityStoragePersisted", writes: [], temporaryAdBypassWrites: writes, chatStateWrites: [], chatQaWrites: [], removalWrites: [] });
       }
     }
     expect(queued).toBe(churn);
@@ -323,7 +323,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
         writes: [],
         temporaryAdBypassWrites: settled,
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(unacknowledgedTemporaryAdBypassWrites.size).toBe(0);

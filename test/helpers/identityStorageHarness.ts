@@ -74,7 +74,7 @@ async function flushDiskIODomainStub(domain: DiskIODomain): Promise<DomainFlushO
       writes,
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [],
+      chatQaWrites: [], removalWrites: [],
     });
   }
   return { result: "flushed" };

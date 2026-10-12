@@ -13,7 +13,7 @@ import type {
   PendingBlockedRemoval,
 } from "../../types/blocklist";
 import { logger } from "../logger";
-import { queuePendingBlockedRemovalsSnapshot } from "./outbox";
+import { queueBlocklistRemovalWrite } from "./outbox";
 import { armBlocklistSweepScheduler } from "./sweepScheduler";
 
 /** 按连续失败次数线性放大重扫间隔，并封顶。 */
@@ -69,9 +69,9 @@ export function noteSweepAttemptFailed(
 }
 
 /**
- * 更新一次任务诊断，只改内存镜像、不排 durable 快照；attempts 达到
+ * 更新一次任务诊断，只改内存镜像、不发 durable 写入；attempts 达到
  * BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS 只告警，不删除任务。
- * 需要按条件排快照的调用方用 recordPendingRemovalFailure。
+ * 需要按条件发出行写入的调用方用 recordPendingRemovalFailure。
  */
 export function updatePendingRemovalFailure(
   removalId: number,
@@ -94,7 +94,7 @@ export function updatePendingRemovalFailure(
 
 /**
  * 更新任务诊断。`lastFailure` 变为 `missing-permission`，或告警阈值首次跨越时，
- * 把诊断状态纳入下一份 durable outbox 快照；其余失败只改内存镜像。
+ * 为这一行发出 durable 写入；其余失败只改内存镜像，随这一行下一次写入一并落盘。
  */
 export function recordPendingRemovalFailure(
   removalId: number,
@@ -114,7 +114,7 @@ export function recordPendingRemovalFailure(
   ) {
     return;
   }
-  if (!queuePendingBlockedRemovalsSnapshot()) {
+  if (!queueBlocklistRemovalWrite(removalId)) {
     logger.error(`Failed to queue blocklist removal retry state ${removalId}.`);
   }
 }

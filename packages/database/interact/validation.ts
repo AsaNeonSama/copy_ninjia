@@ -56,7 +56,6 @@ function assertPendingRemovalPage(
 
 interface PendingRemovalInspection {
   readonly values: Map<number, PendingBlockedRemoval>;
-  readonly encoded: Map<number, string>;
 }
 
 /**
@@ -69,7 +68,6 @@ function inspectPendingRemovalPages(
   source: string
 ): PendingRemovalInspection {
   const values: Map<number, PendingBlockedRemoval> = new Map();
-  const encoded: Map<number, string> = new Map();
   let afterRemovalId: number | null = null;
   while (true) {
     const page: readonly StoredPendingRemovalStartupRow[] =
@@ -88,14 +86,11 @@ function inspectPendingRemovalPages(
     for (const [removalId, pending] of removals.values) {
       values.set(removalId, pending);
     }
-    for (const [removalId, data] of removals.encoded) {
-      encoded.set(removalId, data);
-    }
     if (page.length < BLOCKLIST_REMOVAL_HYDRATION_PAGE_SIZE) {
-      return { values, encoded };
+      return { values };
     }
     const last: StoredPendingRemovalStartupRow | undefined = page.at(-1);
-    if (last === undefined) return { values, encoded };
+    if (last === undefined) return { values };
     afterRemovalId = last.removalId;
   }
 }
@@ -148,7 +143,6 @@ export function validateStorageDatabase(database: StorageDatabase, source: strin
       chatStates,
       chatQa: chatQaEntries,
     },
-    pendingRemovalData: removals.encoded,
     aiMemories: readStoredAiContexts(database, source),
   };
 }

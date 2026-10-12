@@ -37,7 +37,7 @@ const flushDiskIODomain = mock(
         writes,
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     return { result: "flushed" as const };

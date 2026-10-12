@@ -256,8 +256,8 @@ export interface EncodedPendingBlockedRemoval {
 /**
  * 编码前先走同一严格解码器，并把那次解码得到的规范值一并返回。
  *
- * outbox 快照需要同时得到落库文本与内存镜像用的规范值，调用方见
- * workers/diskIO/storageDatabase/pendingRemoval.ts 的 handlePendingRemovalSnapshot。
+ * 主线程为待踢任务一行生成 blocklistRemovalWrite 正文时调用（infra/blocklist/outbox.ts），
+ * 非法行在离开主线程前就抛错。
  */
 export function encodePendingBlockedRemovalData(
   value: PendingBlockedRemoval,

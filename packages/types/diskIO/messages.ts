@@ -1,7 +1,6 @@
 import type { AiCacheUsage } from "../aiCache";
 import type { AdSampleMessage } from "../antiRaid/adDetect";
 import type { VerificationSnapshot } from "../antiRaid/verification";
-import type { PendingBlockedRemoval } from "../blocklist";
 import type { IdentityPolicyTable } from "../identityPolicy";
 import type { TemporaryAdBypassActivity } from "../states/temporaryAdBypass";
 import type { LuckReceiptSecret } from "./storage";
@@ -147,11 +146,15 @@ export interface VerificationDeleteDiskMessage {
   revision: number;
 }
 
-/** 主线程 -> diskIOWorker：覆盖式写入尚未完成的黑名单成员移除 outbox。 */
-export interface BlocklistRemovalsDiskMessage {
-  type: "blocklistRemovals";
-  removals: readonly (readonly [number, PendingBlockedRemoval])[];
-  /** 主线程 outbox 快照单调修订号；事务提交后按它回 ACK。 */
+/**
+ * 主线程 -> Disk I/O Worker：黑名单处置 outbox 一行的最终值；`data` 为该行 PendingBlockedRemoval
+ * 的 JSON 文本，null 表示删除这一行。载荷全是原始值。
+ */
+export interface BlocklistRemovalWriteDiskMessage {
+  type: "blocklistRemovalWrite";
+  removalId: number;
+  data: string | null;
+  /** 主线程待踢任务写入的单调修订号；事务提交后按 (removalId, revision) 回精确 ACK。 */
   revision: number;
 }
 
@@ -277,7 +280,7 @@ export type DiskBusinessMessage =
   | LuckDrawDiskMessage
   | VerificationUpsertDiskMessage
   | VerificationDeleteDiskMessage
-  | BlocklistRemovalsDiskMessage
+  | BlocklistRemovalWriteDiskMessage
   | IdentityPolicyWriteDiskMessage
   | TemporaryAdBypassWriteDiskMessage
   | ChatStateWriteDiskMessage
@@ -350,7 +353,8 @@ export interface RecoveryReplayRequest {
  * 区间内共享 SQLite 的满批提交、定时提交与 AI 上下文的即时提交只重新挂定时器、不提交；
  * 显式 flush 照常执行。关标记到达时若有待回执的 AI 上下文删除或即时快照，或任一领域已达
  * 批次阈值，立即以一个事务提交区间内的全部变化，因此按优先级依次重放的黑名单写入与待踢
- * outbox 快照落在同一事务里（见 docs/cn/04-invariants.md 的 Disk I/O 恢复约束）。
+ * outbox 行写入落在同一事务里；区间内黑名单删除不做 outbox 引用校验（见 workers/diskIO/
+ * storageDatabase/identityPolicy.ts 与 docs/cn/04-invariants.md 的 Disk I/O 恢复约束）。
  */
 export interface StorageFlushHoldRequest {
   type: "storageFlushHold";

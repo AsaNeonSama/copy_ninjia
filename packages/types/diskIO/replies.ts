@@ -130,6 +130,12 @@ export interface ChatQaPersistedRevision {
   readonly revision: number;
 }
 
+/** 一行待踢任务最终值已经由显式 SQLite 事务提交。 */
+export interface BlocklistRemovalPersistedRevision {
+  readonly removalId: number;
+  readonly revision: number;
+}
+
 /** Disk I/O Worker -> 主线程：清理最终一致性重放缓冲的事务 ACK。 */
 export interface IdentityStoragePersistedReply {
   type: "identityStoragePersisted";
@@ -140,8 +146,8 @@ export interface IdentityStoragePersistedReply {
   chatStateWrites: readonly ChatStatePersistedRevision[];
   /** 本事务提交的群问答 revision；与群状态共享同一 SQLite 事务。 */
   chatQaWrites: readonly ChatQaPersistedRevision[];
-  /** 本事务覆盖到的最新待踢成员快照修订号。 */
-  removalSnapshotRevision?: number;
+  /** 本事务提交的待踢任务行 revision；与身份策略共享同一 SQLite 事务。 */
+  removalWrites: readonly BlocklistRemovalPersistedRevision[];
 }
 
 /** Disk I/O Worker 在 SQLite 事务 durable 后发送精确 ACK 的线程内回调。 */

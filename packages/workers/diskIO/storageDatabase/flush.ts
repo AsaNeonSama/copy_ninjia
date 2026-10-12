@@ -8,7 +8,6 @@ import {
   pendingChatQaEntryCount,
   pendingChatQaWrites,
   pendingChatStateWrites,
-  pendingRemovalSnapshotRevision,
   pendingRemovalWrites,
   pendingTemporaryAdBypassWrites,
   pendingWhitelistWrites,
@@ -30,6 +29,7 @@ import {
   prepareStorageDatabaseWriter,
 } from "../../../database/interact/transaction";
 import type {
+  BlocklistRemovalPersistedRevision,
   ChatQaPersistedRevision,
   ChatStatePersistedRevision,
   DiskIODomain,
@@ -136,8 +136,6 @@ export function flushIfStorageFull(reply: IdentityPersistenceReply): void {
  * @returns true 表示本轮全部变化已 durable 或本来无变化。
  */
 export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
-  // outbox 快照 revision 只与待写行一同挂起（没有行变化时当场确认，见 pendingRemoval.ts），
-  // 待写缓冲只在提交成功或整表复位时清空，两处都同时清掉 revision：无待写即无待确认的 revision。
   if (!hasPendingStorageWrites()) return true;
   if (storageDatabaseClosed.current) return false;
   if (storageWriteFlushTimer.current !== null) {
@@ -146,7 +144,6 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
   }
   // Bun SQLite 事务同步执行；提交、清空与 ACK 回调之间不让出本 isolate，因此提交的
   // 就是各缓冲的全部内容，成功后整表结算清空。
-  const removalRevision: number | null = pendingRemovalSnapshotRevision.current;
   try {
     commitStorageDatabaseChanges(storageDatabaseWriter(), {
       whitelist: pendingWhitelistWrites,
@@ -176,6 +173,7 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
   const temporaryAdBypassAcknowledgements: TemporaryAdBypassPersistedRevision[] = [];
   const chatStateAcknowledgements: ChatStatePersistedRevision[] = [];
   const chatQaAcknowledgements: ChatQaPersistedRevision[] = [];
+  const removalAcknowledgements: BlocklistRemovalPersistedRevision[] = [];
   for (const [id, change] of pendingWhitelistWrites) {
     acknowledgements.push({ table: "whitelist", id, revision: change.revision });
   }
@@ -188,6 +186,9 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
     temporaryAdBypassAcknowledgements.push({ id, revision: change.revision });
   }
   pendingTemporaryAdBypassWrites.clear();
+  for (const [removalId, change] of pendingRemovalWrites) {
+    removalAcknowledgements.push({ removalId, revision: change.revision });
+  }
   pendingRemovalWrites.clear();
   for (const [chatId, change] of pendingChatStateWrites) {
     chatStateAcknowledgements.push({ chatId, revision: change.revision });
@@ -204,14 +205,13 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
     settleAiContextPersisted(chatId, change);
   }
   pendingAiContextWrites.clear();
-  pendingRemovalSnapshotRevision.current = null;
   reply({
     type: "identityStoragePersisted",
     writes: acknowledgements,
     temporaryAdBypassWrites: temporaryAdBypassAcknowledgements,
     chatStateWrites: chatStateAcknowledgements,
     chatQaWrites: chatQaAcknowledgements,
-    ...(removalRevision === null ? {} : { removalSnapshotRevision: removalRevision }),
+    removalWrites: removalAcknowledgements,
   });
   scheduleStorageCommit();
   return true;

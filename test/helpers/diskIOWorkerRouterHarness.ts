@@ -111,7 +111,7 @@ export const collectStorageDatabaseFailures = mock((
   _failedDomains: DiskIODomain[]
 ): void => {});
 export const flushJoinLogBuffer = mock((): boolean => true);
-export const handleBlocklistRemovalsMessage = mock((_message: unknown): void => {});
+export const handleBlocklistRemovalWriteMessage = mock((_message: unknown): void => {});
 export const handleIdentityPolicyWrite = mock((_message: unknown): void => {});
 export const setStorageFlushHold = mock((_active: boolean, _reply: unknown): void => {});
 function closeStorageDatabaseForShutdownStub(_reply: unknown): { committed: boolean; checkpointBusy: boolean } {
@@ -228,7 +228,7 @@ mock.module("../../packages/workers/diskIO/storageDatabase", () => ({
   handleChatStateWrite,
   handleChatQaWrite,
   handleTemporaryAdBypassWrite,
-  handlePendingRemovalSnapshot: handleBlocklistRemovalsMessage,
+  handleBlocklistRemovalWrite: handleBlocklistRemovalWriteMessage,
   inspectStorageDatabase,
   collectStorageDatabaseFailures,
   maintainTemporaryAdBypassActivities,
@@ -332,7 +332,7 @@ beforeEach(() => {
   for (const fn of [
     handleVerificationUpsert,
     collectStorageDatabaseFailures,
-    handleBlocklistRemovalsMessage,
+    handleBlocklistRemovalWriteMessage,
     handleIdentityPolicyWrite,
     handleChatStateWrite,
     handleChatQaWrite,

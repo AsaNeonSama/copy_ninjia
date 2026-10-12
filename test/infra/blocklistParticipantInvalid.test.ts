@@ -106,9 +106,9 @@ describe("黑名单销号计数", () => {
       userIds: [8],
       removalId: 3,
     });
-    // 裁剪后的 outbox 快照先于 tombstone 投递。
+    // 裁剪后的 outbox 行先于 tombstone 投递。
     expect(participantInvalidHarness.diskMessages.slice(-2).map((message) => message.type))
-      .toEqual(["blocklistRemovals", "identityPolicyWrite"]);
+      .toEqual(["blocklistRemovalWrite", "identityPolicyWrite"]);
     // 计数只持久化到上限减 1；满额那次直接解除，不写出越界值。
     expect(writtenCounts()).toEqual([[7, 1], [7, 2], [7, 3], [7, 4], [7, null]]);
     expect(participantInvalidHarness.logged.some((message: string): boolean =>

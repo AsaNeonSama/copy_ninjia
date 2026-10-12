@@ -2,6 +2,8 @@ import {
   storagePendingBudgets,
   pendingBlocklistWrites,
   pendingWhitelistWrites,
+  removalRowTargets,
+  storageFlushHold,
   storedIdentityIdLookups,
   pendingTemporaryAdBypassWrites,
 } from "../../../cache/workers/diskIO/storageDatabase";
@@ -206,6 +208,33 @@ function temporaryAdBypassRowsWithPending(
   return [...values.values()];
 }
 
+/**
+ * 黑名单删除前核对待踢 outbox 的引用：已接受的指名行不得仍冻结该身份；删除后黑名单为空时
+ * 不得再留补扫行。主线程 unblockUser 先投行改动、再投删除（infra/identityStorage/write.ts 的
+ * queueBlocklistDeletion），按序到达时必然满足；镜像重放区间（storageFlushHold）内各领域按优先级
+ * 先黑名单后 outbox 到达、提交推迟到镜像到齐之后，此时不做本校验，启动期由
+ * assertPendingRemovalBlocklistReferences 严格复核已提交状态。
+ */
+function assertBlocklistDeletionUnreferenced(id: number): void {
+  if (storageFlushHold.current) return;
+  let hasProbeRow: boolean = false;
+  for (const [removalId, targets] of removalRowTargets) {
+    if (targets.probeMembership) {
+      hasProbeRow = true;
+    } else if (targets.userIds.includes(id)) {
+      throw new Error(
+        `Blocklist identity ${id} is still frozen in pending removal row ${removalId}.`
+      );
+    }
+  }
+  if (!hasProbeRow) return;
+  if (!effectiveBlocklistIdPage(null).ids.some((other: number): boolean => other !== id)) {
+    throw new Error(
+      `Deleting blocklist identity ${id} would leave pending sweep rows without any blocklist entry.`
+    );
+  }
+}
+
 /** 收下一条黑/白名单最终值；迟到 revision 不得覆盖更新值。 */
 export function handleIdentityPolicyWrite(
   message: IdentityPolicyWriteDiskMessage,
@@ -216,6 +245,9 @@ export function handleIdentityPolicyWrite(
   const current: PendingIdentityPolicyWrite | undefined = pending.get(message.id);
   if (current !== undefined && current.revision >= message.revision) return;
   assertOppositePolicyAbsent(message);
+  if (message.table === "blocklist" && message.data === null) {
+    assertBlocklistDeletionUnreferenced(message.id);
+  }
   storagePendingBudgets[message.table].reserve(current === undefined ? 1 : 0, storageWriteCost(message.data) - (current === undefined ? 0 : storageWriteCost(current.data)));
   pending.set(message.id, { data: message.data, revision: message.revision });
   flushIfStorageFull(reply);

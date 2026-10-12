@@ -127,10 +127,9 @@ export function assertStorageTimeZone(
   }
 }
 
-/** 待踢行校验结果同时保留规范文本，供 Worker 快照 diff 避免重复编码。 */
+/** 待踢行的严格解码结果。 */
 export interface DecodedPendingRemovalRows {
   readonly values: ReadonlyMap<number, PendingBlockedRemoval>;
-  readonly encoded: ReadonlyMap<number, string>;
 }
 
 /** 严格解码待踢 outbox 自身；调用方随后用同一只读数据库核对名单引用。 */
@@ -139,7 +138,6 @@ export function decodeStoredPendingRemovals(
   source: string
 ): DecodedPendingRemovalRows {
   const values: Map<number, PendingBlockedRemoval> = new Map();
-  const encoded: Map<number, string> = new Map();
   for (const row of rows) {
     const path: string = storageRowSource(
       source,
@@ -154,10 +152,8 @@ export function decodeStoredPendingRemovals(
       throw new Error(`${path}: params.removalId must equal the row primary key.`);
     }
     values.set(row.removalId, pending);
-    // pending 已由上面的严格 decoder 规范化；这里直接生成与 encoder 相同的稳定文本。
-    encoded.set(row.removalId, JSON.stringify(pending));
   }
-  return { values, encoded };
+  return { values };
 }
 
 /** 启动逐项核对 outbox 对黑名单的引用，不把完整黑名单复制进内存。 */

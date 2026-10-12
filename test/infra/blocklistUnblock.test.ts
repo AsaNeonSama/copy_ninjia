@@ -149,7 +149,7 @@ describe("SQLite 黑名单主线程最终值", () => {
     expect(unblockUser(7)).toBeFalse();
   });
 
-  test("解除拉黑先投裁剪后的 outbox 快照，再投 tombstone", () => {
+  test("解除拉黑先投裁剪后的 outbox 行，再投 tombstone", () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     blockedUserIds.set(8, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     pendingBlockedRemovals.set(1, {
@@ -161,13 +161,16 @@ describe("SQLite 黑名单主线程最终值", () => {
 
     expect(unblockUser(7)).toBeTrue();
 
-    // Worker 可能在任一条消息后提交：快照在前，已提交的库里就不会出现引用 7 的冻结批次。
+    // Worker 可能在任一条消息后提交：行写入在前，已提交的库里就不会出现引用 7 的冻结批次。
     expect(diskMessages.map((message: DiskBusinessMessage) => message.type))
-      .toEqual(["blocklistRemovals", "identityPolicyWrite"]);
+      .toEqual(["blocklistRemovalWrite", "identityPolicyWrite"]);
+    const rowWrite: DiskBusinessMessage = diskMessages[0]!;
+    expect(rowWrite).toEqual(expect.objectContaining({ removalId: 1 }));
+    expect(JSON.parse((rowWrite as { data: string }).data).params.userIds).toEqual([8]);
     expect(diskMessages[1]).toEqual(expect.objectContaining({ table: "blocklist", id: 7, data: null }));
   });
 
-  test("名单清空时补扫任务随快照先于 tombstone 销账", () => {
+  test("名单清空时补扫任务的删除行先于 tombstone 投递", () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     pendingBlockedRemovals.set(2, {
       params: { chatId: -1001, probeMembership: true, removalId: 2 },
@@ -180,8 +183,8 @@ describe("SQLite 黑名单主线程最终值", () => {
 
     expect(pendingBlockedRemovals.size).toBe(0);
     expect(diskMessages.map((message: DiskBusinessMessage) => message.type))
-      .toEqual(["blocklistRemovals", "identityPolicyWrite"]);
-    expect(diskMessages[0]).toEqual(expect.objectContaining({ removals: [] }));
+      .toEqual(["blocklistRemovalWrite", "identityPolicyWrite"]);
+    expect(diskMessages[0]).toEqual(expect.objectContaining({ removalId: 2, data: null }));
   });
 
   test("删除入口先发布负缓存与计数，再执行回调，最后投递 tombstone", () => {
@@ -230,7 +233,7 @@ describe("SQLite 黑名单主线程最终值", () => {
         writes: [{ table: "blocklist", id: 9, revision }],
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(requeueUnacknowledgedIdentityWrite("blocklist", 9)).toBeFalse();

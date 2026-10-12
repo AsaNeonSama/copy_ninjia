@@ -33,7 +33,7 @@ import {
   handleChatStateWrite,
   handleIdentityPolicyWrite,
   handleTemporaryAdBypassWrite,
-  handlePendingRemovalSnapshot,
+  handleBlocklistRemovalWrite,
   readBlocklistIdPage,
   readIdentityPolicies,
   setStorageFlushHold,
@@ -312,14 +312,14 @@ export async function handleDiskIOWorkerMessage(
         (): Promise<void> => handleVerificationDelete({ msg, reply: postReply })
       );
       break;
-    // 共享 SQLite 写消息的非法输入就地拒收，异常不离开 onmessage：handlePendingRemovalSnapshot
-    // 在 removalId 重复、params.removalId 不匹配、probe 批次黑名单为空、冻结 userId 不在名单时抛，
-    // handleIdentityPolicyWrite 由 validatePolicyData / assertOppositePolicyAbsent 抛。
-    // 拒收时按领域留下标记，主线程的下一次领域 flush 拿到失败回执。
-    case "blocklistRemovals":
+    // 共享 SQLite 写消息的非法输入就地拒收，异常不离开 onmessage：handleBlocklistRemovalWrite
+    // 在行解码失败、params.removalId 不匹配、补扫行黑名单为空、冻结 userId 不在名单或超出容量时抛，
+    // handleIdentityPolicyWrite 由 validatePolicyData / assertOppositePolicyAbsent 与黑名单删除的
+    // outbox 引用校验抛。拒收时按领域留下标记，主线程的下一次领域 flush 拿到失败回执。
+    case "blocklistRemovalWrite":
       handleIdentityMessage(
         "blocklistRemovalOutbox",
-        (): void => handlePendingRemovalSnapshot(msg, postReply)
+        (): void => handleBlocklistRemovalWrite(msg, postReply)
       );
       break;
     case "identityPolicyWrite":

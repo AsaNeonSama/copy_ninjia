@@ -148,7 +148,7 @@ describe("「是管理员 && 已初始化」成立的那一刻触发清扫", () 
     expect(remover).not.toHaveBeenCalled();
   });
 
-  test("缺权限标记立即进入 durable outbox 快照，重启恢复后仍是闩锁态", async () => {
+  test("缺权限标记立即发出该行的 durable 写入，重启恢复后仍是闩锁态", async () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/07/26 00:00:00" });
     states.set(-1001, { isInitEnabled: true, botPermissions: botPermissions() });
     await sweepBlockedMembers(-1001, 1_000);
@@ -157,20 +157,21 @@ describe("「是管理员 && 已初始化」成立的那一刻触发清扫", () 
 
     settleLastAsForbidden();
     expect(postDiskIO).toHaveBeenCalledTimes(1);
-    const snapshot = postDiskIO.mock.calls[0]?.[0] as {
+    const rowWrite = postDiskIO.mock.calls[0]?.[0] as {
       readonly type: string;
-      readonly removals: readonly (readonly [number, { readonly lastFailure: string | null }])[];
+      readonly removalId: number;
+      readonly data: string;
     };
-    expect(snapshot.type).toBe("blocklistRemovals");
-    expect(snapshot.removals).toEqual([
-      [removalId, expect.objectContaining({ lastFailure: "missing-permission" })],
-    ]);
+    expect(rowWrite.type).toBe("blocklistRemovalWrite");
+    expect(rowWrite.removalId).toBe(removalId);
+    expect(JSON.parse(rowWrite.data)).toEqual(expect.objectContaining({ lastFailure: "missing-permission" }));
 
-    // 标记没有变化的重复拒绝不再排整份快照。
+    // 标记没有变化的重复拒绝不再发写入。
     settleLastAsForbidden();
     expect(postDiskIO).toHaveBeenCalledTimes(1);
 
-    hydrateBlocklist(new Map(snapshot.removals as never));
+    // 按刚发出的行写入恢复：重启后从 SQLite 读回的就是这一行。
+    hydrateBlocklist(new Map([[removalId, JSON.parse(rowWrite.data)]]));
     expect(blocklistSweepState.get(-1001)?.permissionBlocked).toBeTrue();
     remover.mockClear();
     replayPendingBlockedRemovals(false);

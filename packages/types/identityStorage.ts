@@ -54,9 +54,28 @@ export interface PendingIdentityPolicyWrite {
   readonly revision: number;
 }
 
-/** Disk I/O Worker 待踢成员按快照 diff 后的单行最终值。 */
+/**
+ * 主线程待踢任务一行最近一次写入的 revision 与投递结果；正文不复制，投递与重放都从
+ * pendingBlockedRemovals 现编码。posted 为 false 表示该次投递被 Disk I/O 拒收，write-ahead 前补投。
+ */
+export interface UnacknowledgedRemovalWrite {
+  readonly revision: number;
+  readonly posted: boolean;
+}
+
+/** Disk I/O Worker 待踢任务一行在事务提交前保留的最新最终值。 */
 export interface PendingRemovalWrite {
   readonly data: string | null;
+  readonly revision: number;
+}
+
+/**
+ * Disk I/O Worker 已接受的一行待踢任务的处置目标（cache/workers/diskIO/storageDatabase.ts 的
+ * removalRowTargets）：补扫行不冻结名单，指名行冻结 userIds。黑名单删除时据此校验没有行再引用。
+ */
+export interface RemovalRowTargets {
+  readonly probeMembership: boolean;
+  readonly userIds: readonly number[];
 }
 
 /** Disk I/O Worker 同一群主键在事务提交前保留的最新最终值。 */
@@ -101,5 +120,4 @@ export interface StorageDatabaseHydration {
 export interface StorageDatabaseInspection {
   readonly hydration: StorageDatabaseHydration;
   readonly aiMemories: ReadonlyMap<number, string>;
-  readonly pendingRemovalData: ReadonlyMap<number, string>;
 }

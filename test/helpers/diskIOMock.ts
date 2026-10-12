@@ -74,6 +74,6 @@ export function acknowledgeIdentityPolicyWrites(
     writes.push({ table: write.table!, id: write.id!, revision: write.revision! });
   }
   for (const listener of listeners) {
-    listener({ type: "identityStoragePersisted", writes, temporaryAdBypassWrites: [], chatStateWrites: [], chatQaWrites: [] });
+    listener({ type: "identityStoragePersisted", writes, temporaryAdBypassWrites: [], chatStateWrites: [], chatQaWrites: [], removalWrites: [] });
   }
 }

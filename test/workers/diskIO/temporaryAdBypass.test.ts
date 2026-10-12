@@ -143,7 +143,7 @@ describe("临时广告免检 SQLite 合并写与过期清理", () => {
       writes: [],
       temporaryAdBypassWrites: [{ id: 7, revision: 2 }],
       chatStateWrites: [],
-      chatQaWrites: [],
+      chatQaWrites: [], removalWrites: [],
     }]);
     expect(readStoredTemporaryAdBypassActivities(
       prepareStorageDatabaseReader(requireStorageDatabaseFixture()),

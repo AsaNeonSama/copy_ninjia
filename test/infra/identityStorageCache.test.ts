@@ -116,7 +116,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
         writes: [{ table: "blocklist", id: 7, revision: writeRevision }],
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(unacknowledgedBlocklistWrites.has(7)).toBeFalse();
@@ -146,7 +146,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
         writes: [{ table: "blocklist", id: 7, revision: firstRevision }],
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(unacknowledgedBlocklistWrites.get(7)?.revision).toBe(secondRevision);
@@ -157,7 +157,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
         writes: [{ table: "blocklist", id: 7, revision: secondRevision }],
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(unacknowledgedBlocklistWrites.has(7)).toBeFalse();
@@ -178,7 +178,7 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
       listener({
         type: "identityStoragePersisted",
         writes: [{ table: "blocklist", id: 7, revision }],
-        temporaryAdBypassWrites: [], chatStateWrites: [], chatQaWrites: [],
+        temporaryAdBypassWrites: [], chatStateWrites: [], chatQaWrites: [], removalWrites: [],
       });
     }
     expect(unacknowledgedIdentityBytes.current.blocklist).toBe(otherBytes);

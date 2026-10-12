@@ -4,7 +4,6 @@ import {
   isDiskBusinessMessage,
 } from "../../packages/libs/diskIOMessageCost";
 import { DISK_BUSINESS_MESSAGE_BASE_BYTES } from "../../packages/consts/diskIO/business";
-import { BLOCKLIST_REMOVAL_FAILURE_TYPES } from "../../packages/consts/antiRaid/blocklist";
 import type { QueuedDiskIOOperationMessage } from "../../packages/types/diskIO/messages";
 import type { VerificationSnapshot, VerificationSnapshotBase } from "../../packages/types/antiRaid/verification";
 import type { PendingBlockedRemoval } from "../../packages/types/blocklist";
@@ -51,9 +50,10 @@ const REMOVAL: PendingBlockedRemoval = {
   lastFailure: null,
 };
 
-const BLOCKLIST_REMOVALS: QueuedDiskIOOperationMessage = {
-  type: "blocklistRemovals",
-  removals: [[-1001, REMOVAL]],
+const BLOCKLIST_REMOVAL_WRITE: QueuedDiskIOOperationMessage = {
+  type: "blocklistRemovalWrite",
+  removalId: 5,
+  data: JSON.stringify(REMOVAL),
   revision: 9,
 };
 
@@ -128,11 +128,10 @@ const CASES: Readonly<Record<QueuedDiskIOOperationMessage["type"], MessageCase>>
     payloadBytes: 0,
     business: true,
   },
-  blocklistRemovals: {
-    message: BLOCKLIST_REMOVALS,
-    payloadBytes: serializedBytes(BLOCKLIST_REMOVALS) * 2,
+  blocklistRemovalWrite: {
+    message: BLOCKLIST_REMOVAL_WRITE,
+    payloadBytes: JSON.stringify(REMOVAL).length * 2,
     business: true,
-    upperBound: true,
   },
   verificationUpsert: {
     message: VERIFICATION_UPSERT,
@@ -243,56 +242,6 @@ describe("Disk I/O 消息计价", () => {
     }
   });
 
-  test("outbox 快照的结构上界覆盖最长整数、全部可选字段与每种失败分类，典型行不超过实际 1.5 倍", () => {
-    const removals: [number, PendingBlockedRemoval][] = [];
-    for (const lastFailure of [null, ...BLOCKLIST_REMOVAL_FAILURE_TYPES]) {
-      const removalId: number = Number.MIN_SAFE_INTEGER + removals.length;
-      removals.push([removalId, {
-        params: {
-          chatId: Number.MIN_SAFE_INTEGER,
-          probeMembership: false,
-          userIds: [Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
-          removalId,
-          joinedAt: Number.MIN_SAFE_INTEGER,
-          announcementMessageId: Number.MIN_SAFE_INTEGER,
-        },
-        createdAt: Number.MIN_SAFE_INTEGER,
-        attempts: Number.MIN_SAFE_INTEGER,
-        lastFailure,
-      }]);
-      removals.push([removalId - 1, {
-        params: { chatId: Number.MIN_SAFE_INTEGER, probeMembership: true, removalId: removalId - 1 },
-        createdAt: Number.MIN_SAFE_INTEGER,
-        attempts: Number.MIN_SAFE_INTEGER,
-        lastFailure,
-      }]);
-    }
-    const worst: QueuedDiskIOOperationMessage = { type: "blocklistRemovals", removals, revision: Number.MIN_SAFE_INTEGER };
-    expect(diskIOMessageCost(worst)).toBeGreaterThanOrEqual(DISK_BUSINESS_MESSAGE_BASE_BYTES + serializedBytes(worst) * 2);
-
-    const typicalRows: [number, PendingBlockedRemoval][] = [];
-    for (let index: number = 1; index <= 64; index++) {
-      typicalRows.push([index, {
-        params: {
-          chatId: -1_001_234_567_890 - index,
-          probeMembership: false,
-          userIds: [7_000_000_000 + index],
-          removalId: index,
-          joinedAt: 1_790_000_000_000 + index,
-          announcementMessageId: 50_000 + index,
-        },
-        createdAt: 1_790_000_000_000 + index,
-        attempts: index % 3,
-        lastFailure: null,
-      }]);
-    }
-    const typical: QueuedDiskIOOperationMessage = { type: "blocklistRemovals", removals: typicalRows, revision: 64 };
-    const typicalJson: number = serializedBytes(typical) * 2;
-    const typicalPayload: number = diskIOMessageCost(typical) - DISK_BUSINESS_MESSAGE_BASE_BYTES;
-    expect(typicalPayload).toBeGreaterThanOrEqual(typicalJson);
-    expect(typicalPayload).toBeLessThanOrEqual(typicalJson * 1.5);
-  });
-
   test("验证快照的结构上界覆盖每个 phase 的全部可选字段、需转义的 label 与消息时间戳", () => {
     const label: string = "\u0001\"\\测试😀\ud800";
     const base: VerificationSnapshotBase = {
@@ -344,7 +293,7 @@ describe("Disk I/O 消息计价", () => {
       .map(([type]) => type)
       .sort();
     expect(business).toEqual([
-      "aiMemory", "blocklistRemovals", "chatQaWrite", "chatStateWrite", "deleteAiMemory",
+      "aiMemory", "blocklistRemovalWrite", "chatQaWrite", "chatStateWrite", "deleteAiMemory",
       "deleteJoinLog", "deleteWedMembers", "forgetAiMemory", "identityPolicyWrite", "joinLog",
       "luckDraw", "stickerCatalog", "temporaryAdBypassWrite", "verificationDelete",
       "verificationUpsert", "wedMembers",

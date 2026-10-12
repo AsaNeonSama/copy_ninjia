@@ -13,8 +13,6 @@ import {
   openStorageDatabase,
 } from "../../../packages/database/interact/connection";
 import {
-  latestRemovalSnapshotRevision,
-  pendingRemovalSnapshotRevision,
   pendingWhitelistWrites,
   resetStorageDatabaseCache,
   storageDatabaseHandle,
@@ -30,7 +28,7 @@ import {
 import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
 import { handleIdentityPolicyWrite } from
   "../../../packages/workers/diskIO/storageDatabase/identityPolicy";
-import { handlePendingRemovalSnapshot } from
+import { handleBlocklistRemovalWrite } from
   "../../../packages/workers/diskIO/storageDatabase/pendingRemoval";
 import type {
   DiskIODomain,
@@ -124,7 +122,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       ],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [],
+      chatQaWrites: [], removalWrites: [],
     }]);
   });
 
@@ -150,7 +148,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       writes: [{ table: "whitelist", id: 9, revision: 4 }],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [],
+      chatQaWrites: [], removalWrites: [],
     }]);
 
     resetStorageDatabaseCache();
@@ -235,22 +233,23 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
     }
   });
 
-  test("空 outbox 的新 revision 当场 ACK，后续 flush 不重复确认", (): void => {
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [],
+  test("删除一行从未落库的待踢任务同样进入事务并精确 ACK，后续 flush 不重复确认", (): void => {
+    handleBlocklistRemovalWrite({
+      type: "blocklistRemovalWrite",
+      removalId: 5,
+      data: null,
       revision: 5,
     }, reply);
+    expect(acknowledgements).toEqual([]);
 
-    expect(latestRemovalSnapshotRevision.current).toBe(5);
-    expect(pendingRemovalSnapshotRevision.current).toBeNull();
+    expect(flushStorageDatabase(reply)).toBeTrue();
     expect(acknowledgements).toEqual([{
       type: "identityStoragePersisted",
       writes: [],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
       chatQaWrites: [],
-      removalSnapshotRevision: 5,
+      removalWrites: [{ removalId: 5, revision: 5 }],
     }]);
 
     expect(flushStorageDatabase(reply)).toBeTrue();

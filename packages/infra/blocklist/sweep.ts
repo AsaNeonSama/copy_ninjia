@@ -2,7 +2,8 @@
  * 黑名单补扫的主线程状态机：退避、权限闩锁、回执结算与 Worker 重建重放。
  *
  * durable 任务的编号、裁剪和 write-ahead 由 outbox.ts 持有；本模块修改
- * blocklistSweepState、blocklistSweepPages 与任务诊断字段，并通过 outbox.ts 合并完整快照。
+ * blocklistSweepState、blocklistSweepPages 与任务诊断字段，改动的行经 outbox.ts 的
+ * queueBlocklistRemovalWrite 逐行落盘。
  * @see ../../../docs/cn/04-invariants.md
  */
 
@@ -27,7 +28,7 @@ import { canClaimSweep, isManagedAdminChat } from "./sweepEligibility";
 import {
   forgetSupersededChatSweepBatches,
   materializeRemovalParams,
-  queuePendingBlockedRemovalsSnapshot,
+  queueBlocklistRemovalWrite,
   trackBlockedRemoval,
 } from "./outbox";
 import type { BlockedMembersRemovedEvent } from
@@ -79,7 +80,7 @@ function notePermissionBlocked(chatId: number, removalId: number): void {
   }
   if (pendingBlockedRemovals.get(removalId)?.params.probeMembership === false) {
     pendingBlockedRemovals.delete(removalId);
-    if (!queuePendingBlockedRemovalsSnapshot()) {
+    if (!queueBlocklistRemovalWrite(removalId)) {
       logger.error(`Failed to queue permission-blocked blocklist removal cleanup ${removalId}.`);
     }
   } else {
@@ -464,7 +465,7 @@ function settleRemovalOutcome(event: BlockedMembersRemovedEvent): void {
   if (event.complete) {
     if (
       pendingBlockedRemovals.delete(event.removalId) &&
-      !queuePendingBlockedRemovalsSnapshot()
+      !queueBlocklistRemovalWrite(event.removalId)
     ) {
       logger.error(`Failed to queue completed blocklist removal cleanup ${event.removalId}.`);
     }

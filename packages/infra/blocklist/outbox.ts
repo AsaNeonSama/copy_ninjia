@@ -2,7 +2,11 @@
  * 黑名单群级处置 durable outbox 的主线程 owner。
  *
  * 本模块持有启动恢复、write-ahead、任务编号与裁剪，以及 Disk I/O Worker
- * 重建后的快照重放；补扫的退避与回执状态机在 sweep.ts。
+ * 重建后的未 ACK 行重放；补扫的退避与回执状态机在 sweep.ts。
+ *
+ * 持久化按行进行（同黑白名单、临时免检、群状态与群问答的写协议）：每处改动只为被改动的那一行
+ * 发一条 blocklistRemovalWrite（正文为该行当前值的 JSON，行已不在表里即 null 删除），带单调
+ * revision；Disk I/O Worker 事务提交后按 (removalId, revision) 回精确 ACK。
  * 它不调用 Telegram API，执行 owner 通过单槽 holder 反向注册。
  * @see ../../../docs/cn/04-invariants.md
  */
@@ -15,11 +19,12 @@ import {
   pendingBlockedRemovals,
 } from "../../cache/main/blocklist";
 import {
-  removalSnapshotRevision,
-  unacknowledgedRemovalSnapshotRevision,
+  removalWriteRevision,
+  unacknowledgedRemovalWrites,
 } from "../../cache/main/identityStorage";
 import { BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES } from "../../consts/antiRaid/blocklist";
 import { DISK_IO_RESPAWN_PRIORITIES } from "../../consts/diskIO/common";
+import { encodePendingBlockedRemovalData } from "../../database/codec/identity";
 import {
   flushDiskIODomain,
   onDiskIORespawn,
@@ -40,20 +45,51 @@ import type {
 } from "../../types/blocklist";
 import type { ChatState } from "../../types/chatState";
 import type {
-  BlocklistRemovalsDiskMessage,
+  BlocklistRemovalWriteDiskMessage,
   DiskIORecoveryTransport,
 } from "../../types/diskIO/messages";
 import type {
   IdentityStoragePersistedReply,
 } from "../../types/diskIO/replies";
+import type { UnacknowledgedRemovalWrite } from "../../types/identityStorage";
 import type { FlushResult } from "../../types/lifecycle";
 
-/** 新一轮补扫完整取代同群旧批次，并把变化纳入 durable outbox 快照。 */
+/** 一行当前最终值的写入消息：行在表里时编码当前值，不在即删除。 */
+function removalWriteMessage(removalId: number, revision: number): BlocklistRemovalWriteDiskMessage {
+  const pending: PendingBlockedRemoval | undefined = pendingBlockedRemovals.get(removalId);
+  return {
+    type: "blocklistRemovalWrite",
+    removalId,
+    data: pending === undefined
+      ? null
+      : encodePendingBlockedRemovalData(pending, `pending blocked removal ${removalId}`).text,
+    revision,
+  };
+}
+
+/**
+ * 为一行发出当前最终值并登记未 ACK revision。投递被拒时登记为未投递，留给 write-ahead
+ * 补投与 Worker 重建重放。
+ * @internal 供同目录 sweep owner 在改动任务诊断后调用。
+ * @returns 本次投递是否被 Disk I/O 接收。
+ */
+export function queueBlocklistRemovalWrite(removalId: number): boolean {
+  if (!Number.isSafeInteger(removalWriteRevision.current + 1)) {
+    throw new Error("Pending removal revision space is exhausted.");
+  }
+  removalWriteRevision.current++;
+  const revision: number = removalWriteRevision.current;
+  const posted: boolean = postDiskIO(removalWriteMessage(removalId, revision));
+  unacknowledgedRemovalWrites.set(removalId, { revision, posted });
+  return posted;
+}
+
+/** 新一轮补扫完整取代同群旧批次，被取代的行逐行发出删除。 */
 export function forgetSupersededChatSweepBatches(
   chatId: number,
   exceptRemovalId?: number
 ): void {
-  let changed: boolean = false;
+  let posted: boolean = true;
   for (const [removalId, pending] of pendingBlockedRemovals) {
     if (
       pending.params.chatId === chatId &&
@@ -62,10 +98,10 @@ export function forgetSupersededChatSweepBatches(
     ) {
       pendingBlockedRemovals.delete(removalId);
       blocklistSweepPages.delete(removalId);
-      changed = true;
+      if (!queueBlocklistRemovalWrite(removalId)) posted = false;
     }
   }
-  if (changed && !queuePendingBlockedRemovalsSnapshot()) {
+  if (!posted) {
     logger.error(
       `Failed to queue superseded blocklist sweep cleanup for chat ${chatId}.`
     );
@@ -105,18 +141,18 @@ export function hydrateBlocklist(
   blocklistSweepState.clear();
   blocklistSweepPages.clear();
   blocklistRemovalCounter.current = 0;
-  let filtered: boolean = false;
+  const filtered: number[] = [];
   for (const [removalId, pending] of recoveredRemovals) {
     blocklistRemovalCounter.current = Math.max(blocklistRemovalCounter.current, removalId);
     const state: ChatState | undefined = getChatStateCache().get(pending.params.chatId);
     if (!isManagedAdminChat(state)) {
-      filtered = true;
+      filtered.push(removalId);
       continue;
     }
     // 补扫不带名单，投递时按当前名单现算；名单为空时销账。
     if (pending.params.probeMembership) {
       if (!hasAnyBlockedIdentity()) {
-        filtered = true;
+        filtered.push(removalId);
         continue;
       }
       pendingBlockedRemovals.set(removalId, { ...pending });
@@ -139,7 +175,7 @@ export function hydrateBlocklist(
     // 冻结批次在这里不裁剪：启动期 inspectStorageDatabase（workers/diskIO/storageDatabase/
     // hydration.ts）经 validateStorageDatabase 的 assertPendingRemovalBlocklistReferences
     // （database/validation/storageRows.ts）对「冻结 userId 不在 blocklist_entries」抛错并拒绝启动；
-    // 运行期的 handlePendingRemovalSnapshot（workers/diskIO/storageDatabase/pendingRemoval.ts）同样拒绝。
+    // 运行期的 handleBlocklistRemovalWrite（workers/diskIO/storageDatabase/pendingRemoval.ts）同样拒绝。
     const userIds: number[] = [...pending.params.userIds];
     pendingBlockedRemovals.set(removalId, {
       params: { ...pending.params, userIds },
@@ -151,43 +187,27 @@ export function hydrateBlocklist(
       restorePermissionBlockedSweep(pending.params.chatId, pending);
     }
   }
-  if (filtered && !queuePendingBlockedRemovalsSnapshot()) {
+  // 被过滤的行逐行发出删除。
+  let posted: boolean = true;
+  for (const removalId of filtered) {
+    if (!queueBlocklistRemovalWrite(removalId)) posted = false;
+  }
+  if (!posted) {
     logger.error("Failed to queue the filtered blocklist removal outbox after startup recovery.");
   }
 }
 
 /**
- * 把主线程权威镜像完整投给 Disk I/O Worker。写入端逐字段重建并标脏，紧随
- * 其后的领域 flush 才是 durable 边界。
- * @internal 供同目录 sweep owner 合并权威变更。
+ * Anti-Raid 投递前的 write-ahead 边界：先补投此前被 Disk I/O 拒收的行（同一 revision），再等待
+ * `blocklistRemovalOutbox` 领域 flush 完成；返回后 outbox 全部行的最近一次写入都已 durable。
  */
-export function queuePendingBlockedRemovalsSnapshot(): boolean {
-  if (!Number.isSafeInteger(removalSnapshotRevision.current + 1)) {
-    throw new Error("Pending removal snapshot revision space is exhausted.");
-  }
-  removalSnapshotRevision.current++;
-  const revision: number = removalSnapshotRevision.current;
-  unacknowledgedRemovalSnapshotRevision.current = revision;
-  return postDiskIO({
-    type: "blocklistRemovals",
-    removals: pendingRemovalSnapshot(),
-    revision,
-  } satisfies BlocklistRemovalsDiskMessage);
-}
-
-/** 逐条浅拷贝 pending 作为快照；params 只由整条记录替换，不原地修改。 */
-function pendingRemovalSnapshot(): readonly (readonly [number, PendingBlockedRemoval])[] {
-  const snapshot: (readonly [number, PendingBlockedRemoval])[] = [];
-  for (const [id, pending] of pendingBlockedRemovals) {
-    snapshot.push([id, { ...pending }]);
-  }
-  return snapshot;
-}
-
-/** Anti-Raid 投递前的 write-ahead 边界：投递快照并等待 `blocklistRemovalOutbox` 领域 flush 完成。 */
 export async function persistPendingBlockedRemovals(): Promise<void> {
-  if (!queuePendingBlockedRemovalsSnapshot()) {
-    throw new Error("Persistence Worker rejected the blocklist removal outbox snapshot.");
+  for (const [removalId, write] of unacknowledgedRemovalWrites) {
+    if (write.posted) continue;
+    if (!postDiskIO(removalWriteMessage(removalId, write.revision))) {
+      throw new Error("Persistence Worker rejected a blocklist removal outbox write.");
+    }
+    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true });
   }
   const result: FlushResult = (await flushDiskIODomain("blocklistRemovalOutbox")).result;
   if (result !== "flushed") {
@@ -244,7 +264,7 @@ function releaseSweepClaim(chatId: number, removalId: number): void {
  * @internal 由 membership.ts 的 unblockUser 调用（/block disable 与销号自动摘除）。
  */
 export function forgetUserBlocklistRemovals(userId: number): void {
-  let changed: boolean = false;
+  let posted: boolean = true;
   const blocklistEmptied: boolean = !hasAnyBlockedIdentity();
   for (const [removalId, pending] of pendingBlockedRemovals) {
     if (pending.params.probeMembership) {
@@ -252,7 +272,7 @@ export function forgetUserBlocklistRemovals(userId: number): void {
       pendingBlockedRemovals.delete(removalId);
       blocklistSweepPages.delete(removalId);
       releaseSweepClaim(pending.params.chatId, removalId);
-      changed = true;
+      if (!queueBlocklistRemovalWrite(removalId)) posted = false;
       continue;
     }
     if (!pending.params.userIds.includes(userId)) continue;
@@ -267,9 +287,9 @@ export function forgetUserBlocklistRemovals(userId: number): void {
         params: { ...pending.params, userIds: remaining },
       });
     }
-    changed = true;
+    if (!queueBlocklistRemovalWrite(removalId)) posted = false;
   }
-  if (changed && !queuePendingBlockedRemovalsSnapshot()) {
+  if (!posted) {
     logger.error(`Failed to queue blocklist removal outbox cleanup for unblocked user ${userId}.`);
   }
 }
@@ -280,7 +300,7 @@ export function registerBlockedMemberRemover(remover: BlockedMemberRemover): voi
 }
 
 /**
- * 给一批处置编号并登记镜像。补扫只存任务，其余批次冻结并去重具体名单。
+ * 给一批处置编号并登记镜像，同时发出这一行的写入。补扫只存任务，其余批次冻结并去重具体名单。
  */
 export function trackBlockedRemoval(
   input: TrackBlockedRemovalInput,
@@ -310,6 +330,8 @@ export function trackBlockedRemoval(
     pendingBlockedRemovals.delete(removalId);
     throw new Error("Blocklist removal has no target to enforce.");
   }
+  // 新行立即发出；投递被拒时由投递前的 persistPendingBlockedRemovals 补投。
+  queueBlocklistRemovalWrite(removalId);
   return tracked;
 }
 
@@ -318,39 +340,42 @@ export function trackBlockedRemoval(
  * durable 裁剪在这里完成。
  */
 export function forgetChatBlocklistWork(chatId: number): void {
-  let changed: boolean = false;
+  let posted: boolean = true;
   for (const [removalId, pending] of pendingBlockedRemovals) {
     if (pending.params.chatId !== chatId) continue;
     pendingBlockedRemovals.delete(removalId);
     blocklistSweepPages.delete(removalId);
-    changed = true;
+    if (!queueBlocklistRemovalWrite(removalId)) posted = false;
   }
-  if (changed && !queuePendingBlockedRemovalsSnapshot()) {
+  if (!posted) {
     logger.error(`Failed to queue blocklist removal outbox cleanup for unmanaged chat ${chatId}.`);
   }
   blocklistSweepState.delete(chatId);
 }
 
-function settleRemovalSnapshot(reply: IdentityStoragePersistedReply): void {
-  if (
-    reply.removalSnapshotRevision !== undefined &&
-    unacknowledgedRemovalSnapshotRevision.current === reply.removalSnapshotRevision
-  ) {
-    unacknowledgedRemovalSnapshotRevision.current = null;
+/** 精确 ACK 只清掉对应 revision；迟到的旧 ACK 不删更新的写。 */
+function settleRemovalWrites(reply: IdentityStoragePersistedReply): void {
+  for (const persisted of reply.removalWrites) {
+    if (unacknowledgedRemovalWrites.get(persisted.removalId)?.revision === persisted.revision) {
+      unacknowledgedRemovalWrites.delete(persisted.removalId);
+    }
   }
 }
 
-onDiskIOReply("identityStoragePersisted", settleRemovalSnapshot);
+onDiskIOReply("identityStoragePersisted", settleRemovalWrites);
 
-// Disk I/O Worker 重建后只重放尚未收到事务 ACK 的最新 outbox 快照。
+// Disk I/O Worker 重建后按 revision 顺序只重放未 ACK 的行，正文从当前镜像现编码。
 onDiskIORespawn("blocklist outbox", DISK_IO_RESPAWN_PRIORITIES.BLOCKLIST + 1, (
   transport: DiskIORecoveryTransport
 ): boolean => {
-  const revision: number | null = unacknowledgedRemovalSnapshotRevision.current;
-  if (revision === null) return true;
-  return transport.post({
-    type: "blocklistRemovals",
-    removals: pendingRemovalSnapshot(),
-    revision,
-  } satisfies BlocklistRemovalsDiskMessage);
+  const writes: (readonly [number, UnacknowledgedRemovalWrite])[] = [...unacknowledgedRemovalWrites];
+  writes.sort((
+    left: readonly [number, UnacknowledgedRemovalWrite],
+    right: readonly [number, UnacknowledgedRemovalWrite]
+  ): number => left[1].revision - right[1].revision);
+  for (const [removalId, write] of writes) {
+    if (!transport.post(removalWriteMessage(removalId, write.revision))) return false;
+    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true });
+  }
+  return true;
 });

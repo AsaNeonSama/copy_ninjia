@@ -26,7 +26,7 @@ import {
   handleAdSampleMessage,
   handleAiCacheUsageMessage,
   flushAiCacheBuffer,
-  handleBlocklistRemovalsMessage,
+  handleBlocklistRemovalWriteMessage,
   handleChatQaWrite,
   handleVerificationUpsert,
   handleChatStateWrite,
@@ -87,7 +87,7 @@ describe("Disk I/O Worker protocol router", () => {
     await route({ type: "stickerCatalog", revision: 1, pack: "pack", snapshot: "catalog" });
     await route({ type: "luckDraw", day: "2026-07-22", key: "42", label: "大吉", fortunePercent: 99 });
     await route({ type: "verificationDelete", chatId: -1, userId: 42, generation: 1, revision: 4 });
-    await route({ type: "blocklistRemovals", revision: 1, removals: [] });
+    await route({ type: "blocklistRemovalWrite", removalId: 1, data: null, revision: 1 });
     await route({
       type: "joinLog",
       sequence: 1,
@@ -108,7 +108,7 @@ describe("Disk I/O Worker protocol router", () => {
     expect(markStickerCatalogSnapshotDirty).toHaveBeenCalledWith("pack", "catalog", 1);
     expect(handleLuckDrawMessage).toHaveBeenCalledTimes(1);
     expect(handleVerificationDelete).toHaveBeenCalledTimes(1);
-    expect(handleBlocklistRemovalsMessage).toHaveBeenCalledTimes(1);
+    expect(handleBlocklistRemovalWriteMessage).toHaveBeenCalledTimes(1);
     expect(handleJoinLogMessage).toHaveBeenCalledTimes(1);
     expect(postMessage).toHaveBeenCalledWith({
       type: "diagnosticBatchAccepted",
@@ -232,7 +232,7 @@ describe("Disk I/O Worker protocol router", () => {
     handleIdentityPolicyWrite.mockImplementationOnce((): void => {
       throw new Error("Identity 7 cannot exist in both permission_list and blocklist_entries.");
     });
-    handleBlocklistRemovalsMessage.mockImplementationOnce((): void => {
+    handleBlocklistRemovalWriteMessage.mockImplementationOnce((): void => {
       throw new Error("Pending removal row 1 contains an identity absent from the effective blocklist.");
     });
     handleTemporaryAdBypassWrite.mockImplementationOnce((): void => {
@@ -251,9 +251,10 @@ describe("Disk I/O Worker protocol router", () => {
         revision: 1,
       })).resolves.toBeUndefined();
       await expect(route({
-        type: "blocklistRemovals",
+        type: "blocklistRemovalWrite",
+        removalId: 1,
+        data: null,
         revision: 1,
-        removals: [],
       })).resolves.toBeUndefined();
       await expect(route({
         type: "temporaryAdBypassWrite",

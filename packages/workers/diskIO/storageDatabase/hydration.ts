@@ -1,5 +1,5 @@
 import {
-  removalSnapshotData,
+  removalRowTargets,
   resetStorageDatabaseCache,
   storageDatabaseHandle,
 } from "../../../cache/workers/diskIO/storageDatabase";
@@ -23,7 +23,7 @@ export function inspectStorageDatabase(): StorageDatabaseInspection {
   }
 }
 
-/** 全域 inspect 成功后打开唯一可写连接，并发布 outbox 镜像。 */
+/** 全域 inspect 成功后打开唯一可写连接，并由校验过的 outbox 行建立 removalRowTargets。 */
 export function adoptStorageDatabase(
   inspection: StorageDatabaseInspection
 ): StorageDatabaseHydration {
@@ -33,8 +33,10 @@ export function adoptStorageDatabase(
     requireWritableAccess: true,
   });
   storageDatabaseHandle.current = database;
-  for (const [removalId, data] of inspection.pendingRemovalData) {
-    removalSnapshotData.set(removalId, data);
+  for (const [removalId, pending] of inspection.hydration.pendingBlockedRemovals) {
+    removalRowTargets.set(removalId, pending.params.probeMembership
+      ? { probeMembership: true, userIds: [] }
+      : { probeMembership: false, userIds: pending.params.userIds });
   }
   return inspection.hydration;
 }

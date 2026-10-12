@@ -19,6 +19,7 @@ import type {
   PendingChatStateWrite,
   PendingIdentityPolicyWrite,
   PendingRemovalWrite,
+  RemovalRowTargets,
 } from "../../../types/identityStorage";
 import type { PendingTemporaryAdBypassWrite } from
   "../../../types/temporaryAdBypass";
@@ -131,8 +132,8 @@ export const pendingTemporaryAdBypassWrites: Map<
 > = new Map();
 
 /**
- * 待踢成员未提交行变化；条数达到 IDENTITY_WRITE_BATCH_MAX_ENTRIES 即触发一次显式事务。
- * 清理与重建路径同 pendingWhitelistWrites。
+ * 待踢任务未提交的逐行最终值（含 revision，提交后按行回精确 ACK）；条数达到
+ * IDENTITY_WRITE_BATCH_MAX_ENTRIES 即触发一次显式事务。清理与重建路径同 pendingWhitelistWrites。
  */
 export const pendingRemovalWrites: Map<number, PendingRemovalWrite> = new Map();
 
@@ -169,23 +170,15 @@ export const pendingChatQaEntryCount: { current: number } = { current: 0 };
 export const pendingAiContextWrites: Map<number, PendingAiContextWrite> = new Map();
 
 /**
- * Worker 当前待踢成员权威快照的已编码规范文本，按 removalId 索引，只用于计算
- * 行级 diff。启动从 SQLite 恢复，之后由主线程完整快照替换；容量受 outbox 业务硬顶
- * （BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES）约束。
+ * Worker 已接受（已提交叠加未提交）的待踢任务行 -> 处置目标：补扫行不冻结名单，指名行带冻结的
+ * userIds。黑名单删除时据此断言没有行再引用该身份、名单删空后不留补扫行（identityPolicy.ts）；
+ * 容量受 outbox 业务硬顶 BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES 约束。
  *
- * 清理：每次主线程快照整体替换时按 diff 删除消失的行，
- * resetStorageDatabaseCache 整表清空。Worker 重建：从 SQLite 重新 hydrate，
- * 随后主线程重放最新 outbox 快照。
+ * 填充：启动 adoptStorageDatabase 从严格校验过的 SQLite 行灌入；之后每条 blocklistRemovalWrite
+ * 被接受时按行设置或删除。清理：resetStorageDatabaseCache 整表清空。Worker 重建：从 SQLite
+ * 重新灌入，随后主线程按 revision 重放未 ACK 的行。
  */
-export const removalSnapshotData: Map<number, string> = new Map();
-
-/** 当前待写变化全部提交后可确认的最新主线程 outbox revision。 */
-export const pendingRemovalSnapshotRevision: { current: number | null } = {
-  current: null,
-};
-
-/** Worker 本代际已接收的最高 outbox revision，用于拒绝迟到快照。 */
-export const latestRemovalSnapshotRevision: { current: number } = { current: 0 };
+export const removalRowTargets: Map<number, RemovalRowTargets> = new Map();
 
 /**
  * Worker 重建后的镜像重放区间是否打开。由主线程 `storageFlushHold` 标记开合
@@ -225,9 +218,7 @@ export function resetStorageDatabaseCache(): void {
   pendingChatQaWrites.clear();
   pendingChatQaEntryCount.current = 0;
   pendingAiContextWrites.clear();
-  removalSnapshotData.clear();
-  pendingRemovalSnapshotRevision.current = null;
-  latestRemovalSnapshotRevision.current = 0;
+  removalRowTargets.clear();
   rejectedStorageDomains.clear();
   storageFlushHold.current = false;
   if (storageWriteFlushTimer.current !== null) {
