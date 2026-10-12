@@ -295,7 +295,7 @@ describe("AI Chat Worker lifecycle", () => {
       isRandomTrigger: false,
       telegramBackpressured: true,
       imageGenerationRequested: true,
-      imageGenerationReference: { fileId: "reference-file", fileUniqueId: "reference-unique", width: 1600, height: 900 },
+      imageGenerationReference: { fileId: "reference-file", fileUniqueId: "reference-unique", width: 1600, height: 900, mediaGroupId: undefined },
       chatQa: undefined,
     };
     await routeAfterInit([trigger]);

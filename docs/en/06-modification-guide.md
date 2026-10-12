@@ -100,7 +100,7 @@ All operational constants are declared in `packages/consts/`. Tuning bot behavio
 | AI trigger rate, rate limits, concurrency limits, queue depth | `packages/consts/aiChat/rateLimit.ts` |
 | AI context memory limits, snapshot intervals, backpressure thresholds | `packages/consts/aiChat/memory.ts` |
 | Image analysis text length, execution slots, LRU cache sizes | `packages/consts/aiChat/media.ts` |
-| Image generation cooldowns and byte ceilings | `packages/consts/aiChat/imageGeneration.ts` |
+| Image generation cooldowns, byte ceilings, and reference image ceiling | `packages/consts/aiChat/imageGeneration.ts` |
 | Mood decay intervals and toggle cooldowns | `packages/consts/aiChat/mood.ts` |
 | Tool invocation limits, typing simulation, typo frequencies | `packages/consts/aiChat/tools.ts` |
 | Voice transcription duration/size limits, placeholder notices | `packages/consts/aiChat/voice.ts` |
@@ -108,6 +108,7 @@ All operational constants are declared in `packages/consts/`. Tuning bot behavio
 | AI API timeouts, retry attempts, sampling temperature, safety tiers | `packages/consts/aiChat/gemini.ts`, `openai.ts`, `anthropic.ts` |
 | **Model names, provider keys, endpoints** | **Not code constants**: configure per capability in `config/dynamic/agent.json` |
 | OpenAI-compatible image protocol format and supported dimensions | `config/dynamic/agent.json` via `agent.image.image_protocol` |
+| Reference images passed to the model per generation | `config/dynamic/agent.json` via `agent.image.max_reference_images` |
 | Join verification timeout, spam detection thresholds, mute extensions | `packages/consts/antiRaid/` |
 | Repeat cooldowns, `/quiet` duration ranges, action command rate limits | `packages/consts/commands.ts` |
 | Speaker cooldowns for autonomous random chat triggers | `packages/consts/auto.ts` |

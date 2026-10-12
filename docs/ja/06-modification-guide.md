@@ -96,7 +96,7 @@
 | AI トリガー確率、レート制限、並行数、キュー上限 | `packages/consts/aiChat/rateLimit.ts` |
 | AI 会話メモリ容量、スナップショット周期、要約バックプレッシャー | `packages/consts/aiChat/memory.ts` |
 | メディア解説の最大長、実行スロット数、LRU キャッシュ容量 | `packages/consts/aiChat/media.ts` |
-| 画像生成クールダウンおよびバイト数上限 | `packages/consts/aiChat/imageGeneration.ts` |
+| 画像生成クールダウン、バイト数上限、参照画像枚数の上限 | `packages/consts/aiChat/imageGeneration.ts` |
 | ムード（感情）持続時間と切り替えタイムアウト | `packages/consts/aiChat/mood.ts` |
 | ツールアクション / クエリ上限、タイピングと誤字演出の間隔 | `packages/consts/aiChat/tools.ts` |
 | 音声文字起こしの長さ / サイズ上限とプレースホルダー文言 | `packages/consts/aiChat/voice.ts` |
@@ -104,6 +104,7 @@
 | リクエストタイムアウト、リトライ回数、サンプリングおよび安全性設定 | `packages/consts/aiChat/gemini.ts`、`packages/consts/aiChat/openai.ts`、`packages/consts/aiChat/anthropic.ts` |
 | **モデル名、プロバイダ、API キー、エンドポイント** | **定数ではありません**：`config/dynamic/agent.json` で機能ごとに設定 |
 | OpenAI 互換画像プロトコル / 画像サイズ設定 | `config/dynamic/agent.json` の `agent.image.image_protocol` |
+| 1 回の画像生成でモデルに渡す参照画像の枚数 | `config/dynamic/agent.json` の `agent.image.max_reference_images` |
 | 参加認証ウィンドウ、連投判定しきい値、追記 / コンパクション方針 | `packages/consts/antiRaid/` |
 | リピートクールダウン、/quiet 適用範囲、アクションコマンドレート制限 | `packages/consts/commands.ts` |
 | ランダム発話の発言者クールダウン | `packages/consts/auto.ts` |

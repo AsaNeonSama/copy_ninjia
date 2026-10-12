@@ -191,7 +191,7 @@ config/
        - `summary`: Memory condensation and rolling summarization model.
        - `media`: Multimodal vision and audio transcription model.
     2. **Extended Generation Tools** (absence automatically disables the corresponding tool):
-       - `image`: Image generation. OpenAI-compatible endpoints declare `image_protocol` (`openai` | `openai-standard` | `xai`).
+       - `image`: Image generation. OpenAI-compatible endpoints declare `image_protocol` (`openai` | `openai-standard` | `xai`). Optional `max_reference_images` (`1`–`5`, default `1`) sets the maximum reference images passed to the model per generation; album images fill the remaining slots in album order.
        - `tts`: Speech synthesis. Must declare a `voice` identifier; OpenAI-compatible endpoints set `speech_protocol` (`openai` | `xai`). Optional `style` provides baseline voice characteristics.
          - `bot_language` (`en` | `zh` | `ja`, default `ja`) sets the speaking language for AI-generated voice lines.
          - `daily_limit` (default 100) and `daily_reserve_quota` (default 25) partition daily synthesis volume between AI chatter and administrative `/send`/cron broadcasts.

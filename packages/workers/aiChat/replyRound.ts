@@ -40,6 +40,7 @@ import { notifyRateLimited } from "./replyState";
 import { replyGenerationSignal, trackReplyGenerationTask } from "./replyGeneration";
 import { recordChatMessage } from "./rollingMemory";
 import { repliedBotImageBackfill, trackGeneratedImage } from "./botImages";
+import { imageGenerationReferencesFor } from "./imageReferenceAlbums";
 import type { ChatActionHeartbeatControl } from "../../types/aiChat/chatAction";
 
 export interface ReplyRoundRequest {
@@ -133,7 +134,10 @@ function buildReplyToolContext({
     messageThreadId,
     chatQa,
     mediaToolsRequested: mediaToolsAllowed,
-    imageGenerationReference: mediaToolsAllowed ? imageGenerationReference : undefined,
+    // 相册补齐读的是组装时刻（媒体解析完成之后）的相册缓存。
+    imageGenerationReferences: mediaToolsAllowed && imageGenerationReference !== undefined
+      ? imageGenerationReferencesFor(chatId, imageGenerationReference)
+      : undefined,
     bypassMediaToolCooldown: triggerSenderId === superAdminUserIdState.current,
     chatAction: heartbeat,
     direct,

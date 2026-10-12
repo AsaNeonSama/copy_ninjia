@@ -8,6 +8,7 @@ import {
 } from "../../helpers/aiMemoryFixtures";
 import type { ReplyPromptSections, ReplyToolContext, ReplyToolset } from "../../../packages/types/aiChat/replies";
 import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
+import type { ImageGenerationReference } from "../../../packages/types/aiChat/protocol";
 import { REPLY_DELIVERY_MAX_PER_CHAT } from "../../../packages/consts/aiChat/rateLimit";
 import { reserveReplyDelivery } from "../../../packages/workers/aiChat/replyDelivery";
 import { SELF_SPEAKER_NAME } from "../../../packages/consts/aiChat/prompts/transcript";
@@ -453,22 +454,21 @@ describe("AI 单轮回复生命周期", () => {
     expect(capturedContext?.bypassMediaToolCooldown).toBe(false);
   });
 
-  test("参考图短期引用原样进入本轮工具上下文", async () => {
-    await runRound({
-      imageGenerationRequested: true,
-      imageGenerationReference: { fileId: "reference-file", fileUniqueId: "reference-unique", width: 1600, height: 900 },
-    });
-
-    expect(capturedContext?.imageGenerationReference).toEqual({
+  test("不在相册里的参考图短期引用原样作为唯一参考图进入本轮工具上下文", async () => {
+    const reference: ImageGenerationReference = {
       fileId: "reference-file",
       fileUniqueId: "reference-unique",
       width: 1600,
       height: 900,
-    });
+      mediaGroupId: undefined,
+    };
+    await runRound({ imageGenerationRequested: true, imageGenerationReference: reference });
+
+    expect(capturedContext?.imageGenerationReferences).toEqual([reference]);
   });
 
   test("自动文字回复与随机媒体评价即使被误传资格，也会强制关闭生图", async () => {
-    const reference = { fileId: "must-drop", fileUniqueId: "must-drop-unique", width: 512, height: 512 };
+    const reference = { fileId: "must-drop", fileUniqueId: "must-drop-unique", width: 512, height: 512, mediaGroupId: undefined };
 
     await runRound({
       isRandomTrigger: true,
@@ -476,7 +476,7 @@ describe("AI 单轮回复生命周期", () => {
       imageGenerationReference: reference,
     });
     expect(capturedContext?.mediaToolsRequested).toBe(false);
-    expect(capturedContext?.imageGenerationReference).toBeUndefined();
+    expect(capturedContext?.imageGenerationReferences).toBeUndefined();
 
     await runRound({
       imageGenerationRequested: true,
@@ -484,7 +484,7 @@ describe("AI 单轮回复生命周期", () => {
       mediaComment: { kind: "photo", senderId: 7, senderName: "Alice", description: "一张夜景" },
     });
     expect(capturedContext?.mediaToolsRequested).toBe(false);
-    expect(capturedContext?.imageGenerationReference).toBeUndefined();
+    expect(capturedContext?.imageGenerationReferences).toBeUndefined();
   });
 
   test("用户直接叫机器人的媒体轮仍可把生图资格交给模型判断", async () => {

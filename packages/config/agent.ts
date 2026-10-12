@@ -36,7 +36,9 @@ import type {
  * 可选 max_calls_per_use 指定每轮回复最多调用该函数的次数，缺省使用 WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE。
  * 非法或未知字段在建立外部连接前直接拒绝启动。
  *
- * image 额外要求 OpenAI 侧显式给 image_protocol；Google 侧禁止该字段。
+ * image 额外要求 OpenAI 侧显式给 image_protocol；Google 侧禁止该字段。两侧都接受可选
+ * max_reference_images（1～IMAGE_GENERATION_MAX_REFERENCE_IMAGES，缺省
+ * IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES），即一次生图最多交给模型的参考图张数。
  * tts 额外要求 voice，只校验为非空字符串，音色是否存在由首次
  * 合成请求决定；OpenAI 侧另要求 speech_protocol（`openai` 为 audio/speech，`xai` 为 xAI
  * `POST /tts`），Google 侧禁止该字段。可选 style 指定基础风格，缺省使用 TTS_DEFAULT_STYLE；

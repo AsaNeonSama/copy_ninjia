@@ -100,7 +100,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 | AI 触发概率、限频、并发槽位、排队上限 | `packages/consts/aiChat/rateLimit.ts` |
 | AI 上下文记忆条数、快照触发周期、背压压缩门限 | `packages/consts/aiChat/memory.ts` |
 | 媒体描述字数、并发分析槽位、LRU 缓存容量 | `packages/consts/aiChat/media.ts` |
-| 生图冷却时长与图片字节上限 | `packages/consts/aiChat/imageGeneration.ts` |
+| 生图冷却时长、图片字节上限与参考图张数上限 | `packages/consts/aiChat/imageGeneration.ts` |
 | 心情衰减周期与开关冷却时间 | `packages/consts/aiChat/mood.ts` |
 | 工具单次调用上限、打字模拟与错字偶发概率 | `packages/consts/aiChat/tools.ts` |
 | 语音转写的音频长度/体积限制与占位提示文案 | `packages/consts/aiChat/voice.ts` |
@@ -108,6 +108,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 | AI 请求超时、重试次数、采样温度与安全过滤等级 | `packages/consts/aiChat/gemini.ts`、`openai.ts`、`anthropic.ts` |
 | **模型名称、供应商提供商、API Key、请求端点** | **非代码常量**：在 `config/dynamic/agent.json` 中按能力独立配置 |
 | OpenAI 兼容生图接口协议与支持的分辨率尺寸 | `config/dynamic/agent.json` 中的 `agent.image.image_protocol` |
+| 一次生图交给模型的参考图张数 | `config/dynamic/agent.json` 中的 `agent.image.max_reference_images` |
 | 入群验证等待时间、刷屏检测阈值与禁言追加策略 | `packages/consts/antiRaid/` |
 | 复读冷却时长、/quiet 静音时长范围、动作命令限流 | `packages/consts/commands.ts` |
 | 随机发言的主动发言人防连续打扰冷却 | `packages/consts/auto.ts` |

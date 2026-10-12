@@ -33,7 +33,7 @@ mock.module("../../../packages/config/agent", () => ({
     text: { provider: "openai", apiKey: "text-key", baseUrl: undefined, headers: undefined, model: "r" },
     summary: { provider: "openai", apiKey: "summary-key", baseUrl: undefined, headers: undefined, model: "s" },
     media: { provider: "openai", apiKey: "media-key", baseUrl: undefined, headers: undefined, model: "m" },
-    image: { provider: "openai", apiKey: "image-key", baseUrl: undefined, headers: undefined, model: IMAGE_MODEL, imageProtocol },
+    image: { provider: "openai", apiKey: "image-key", baseUrl: undefined, headers: undefined, model: IMAGE_MODEL, imageProtocol, maxReferenceImages: 1 },
   }),
 }));
 mock.module("../../../packages/infra/logger", () => ({
@@ -63,8 +63,8 @@ test("所有图片协议的生成和编辑都在解码前按响应计量一次",
     generate.mockResolvedValueOnce(response);
     if (protocol === "xai") post.mockResolvedValueOnce(response);
     else edit.mockResolvedValueOnce(response);
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImage: { bytes: PNG, mime: "image/png" } })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [{ bytes: PNG, mime: "image/png" }] })).resolves.toBeNull();
   }
   expect(reported).toHaveLength(6);
   for (const usage of reported) {
@@ -79,13 +79,13 @@ test("xAI 生图不给 token 时按费用计量；给出 token 时只记 token �
   const costOnly = { data: [], usage: { cost_in_usd_ticks: 200_000_000 } };
   generate.mockResolvedValueOnce(costOnly);
   post.mockResolvedValueOnce({ data: [], usage: { cost_in_usd_ticks: 300_000_000, input_tokens: null, output_tokens: null } });
-  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
-  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImage: { bytes: PNG, mime: "image/png" } })).resolves.toBeNull();
+  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
+  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [{ bytes: PNG, mime: "image/png" }] })).resolves.toBeNull();
   generate.mockResolvedValueOnce({
     data: [],
     usage: { cost_in_usd_ticks: 1, input_tokens: 40, output_tokens: 60, input_tokens_details: { cached_tokens: 16 } },
   });
-  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
 
   expect(reported.map(({ timestamp: _timestamp, ...rest }: AiCacheUsage) => rest)).toEqual([
     { kind: "cost", capability: "image", provider: "openai", model: IMAGE_MODEL, costInUsdTicks: 200_000_000 },
@@ -99,7 +99,7 @@ test("OpenAI 原生生图只按 token 计量，只给费用的响应不入账", 
   installAiCacheUsageSink((usage: AiCacheUsage): void => { reported.push(usage); });
   imageProtocol = "openai";
   generate.mockResolvedValueOnce({ data: [], usage: { cost_in_usd_ticks: 200_000_000 } });
-  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+  await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
   expect(reported).toEqual([]);
 });
 
@@ -131,7 +131,7 @@ describe("OpenAI 官方 gpt-image-2 画幅", () => {
       ["21:9", "1568x672"],
     ] as const) {
       respondWith(PNG.toBase64());
-      await generateOpenAiImage({ prompt: "p", aspectRatio });
+      await generateOpenAiImage({ prompt: "p", aspectRatio, referenceImages: [] });
       expect((generate.mock.calls.at(-1)![0] as { size: string }).size).toBe(expectedSize);
     }
   });
@@ -148,7 +148,7 @@ describe("OpenAI 官方 GPT Image 通用画幅", () => {
       ["9:16", "1024x1536"],
     ] as const) {
       respondWith(PNG.toBase64());
-      await generateOpenAiImage({ prompt: "p", aspectRatio });
+      await generateOpenAiImage({ prompt: "p", aspectRatio, referenceImages: [] });
       expect((generate.mock.calls.at(-1)![0] as { size: string }).size).toBe(expectedSize);
     }
   });
@@ -160,7 +160,7 @@ describe("OpenAI 官方 GPT Image 通用画幅", () => {
     await generateOpenAiImage({
       prompt: "改成水彩",
       aspectRatio: "9:16",
-      referenceImage: { bytes: JPEG, mime: "image/jpeg" },
+      referenceImages: [{ bytes: JPEG, mime: "image/jpeg" }],
     });
 
     expect(generate).not.toHaveBeenCalled();
@@ -171,7 +171,7 @@ describe("OpenAI 官方 GPT Image 通用画幅", () => {
 describe("请求分流", () => {
   test("无参考图走 images.generate，并使用独立的生图超时", async () => {
     respondWith(PNG.toBase64());
-    await generateOpenAiImage({ prompt: "一只纸飞机", aspectRatio: "16:9" });
+    await generateOpenAiImage({ prompt: "一只纸飞机", aspectRatio: "16:9", referenceImages: [] });
 
     expect(edit).not.toHaveBeenCalled();
     expect(generate.mock.calls[0]![0]).toEqual({
@@ -196,7 +196,7 @@ describe("请求分流", () => {
     await generateOpenAiImage({
       prompt: "把原图改成水彩",
       aspectRatio: "1:1",
-      referenceImage: { bytes: JPEG, mime: "image/jpeg" },
+      referenceImages: [{ bytes: JPEG, mime: "image/jpeg" }],
     });
 
     expect(generate).not.toHaveBeenCalled();
@@ -216,9 +216,25 @@ describe("请求分流", () => {
     // ImageEditParamsBase 上没有 moderation 字段，edit 分支不发送它。
     expect(body.moderation).toBeUndefined();
     expect(body.n).toBe(1);
-    // 扩展名与 MIME 跟随实际字节格式，服务端据此判格式。
-    expect(body.image.name).toBe("reference.jpg");
+    // 单张参考图按单文件字段上传；扩展名与 MIME 跟随实际字节格式，服务端据此判格式。
+    expect(Array.isArray(body.image)).toBe(false);
+    expect(body.image.name).toBe("reference-1.jpg");
     expect(body.image.type).toBe("image/jpeg");
+  });
+
+  test("多张参考图按顺序以数组上传，文件名带 1 起的序号", async () => {
+    edit.mockResolvedValueOnce({ data: [{ b64_json: PNG.toBase64() }] });
+    await generateOpenAiImage({
+      prompt: "把两张图合成一张",
+      aspectRatio: "1:1",
+      referenceImages: [{ bytes: JPEG, mime: "image/jpeg" }, { bytes: PNG, mime: "image/png" }],
+    });
+
+    const body = edit.mock.calls[0]![0] as { image: { name?: string; type?: string }[] };
+    expect(body.image.map((upload: { name?: string; type?: string }) => [upload.name, upload.type])).toEqual([
+      ["reference-1.jpg", "image/jpeg"],
+      ["reference-2.png", "image/png"],
+    ]);
   });
 });
 
@@ -227,7 +243,7 @@ describe("api.x.ai 的 Grok Imagine 兼容请求", () => {
     imageProtocol = "xai";
     respondWith(JPEG.toBase64());
 
-    await generateOpenAiImage({ prompt: "超宽海报", aspectRatio: "21:9" });
+    await generateOpenAiImage({ prompt: "超宽海报", aspectRatio: "21:9", referenceImages: [] });
 
     expect(edit).not.toHaveBeenCalled();
     expect(post).not.toHaveBeenCalled();
@@ -253,7 +269,7 @@ describe("api.x.ai 的 Grok Imagine 兼容请求", () => {
       ["16:9", "16:9"],
     ] as const) {
       respondWith(PNG.toBase64());
-      await generateOpenAiImage({ prompt: "p", aspectRatio: requested });
+      await generateOpenAiImage({ prompt: "p", aspectRatio: requested, referenceImages: [] });
       expect((generate.mock.calls.at(-1)![0] as { aspect_ratio: string }).aspect_ratio).toBe(expected);
     }
   });
@@ -265,7 +281,7 @@ describe("api.x.ai 的 Grok Imagine 兼容请求", () => {
     await generateOpenAiImage({
       prompt: "改成铅笔画",
       aspectRatio: "16:9",
-      referenceImage: { bytes: JPEG, mime: "image/jpeg" },
+      referenceImages: [{ bytes: JPEG, mime: "image/jpeg" }],
     });
 
     expect(generate).not.toHaveBeenCalled();
@@ -284,6 +300,33 @@ describe("api.x.ai 的 Grok Imagine 兼容请求", () => {
     });
   });
 
+  test("多张参考图改发 images 数组，顺序与请求一致，不发送 image 与 aspect_ratio", async () => {
+    imageProtocol = "xai";
+    post.mockResolvedValueOnce({ data: [{ b64_json: JPEG.toBase64() }] });
+
+    await generateOpenAiImage({
+      prompt: "把 <IMAGE_0> 的猫放进 <IMAGE_1>",
+      aspectRatio: "16:9",
+      referenceImages: [{ bytes: JPEG, mime: "image/jpeg" }, { bytes: PNG, mime: "image/png" }],
+    });
+
+    expect(post.mock.calls[0]![0]).toBe("/images/edits");
+    expect(post.mock.calls[0]![1]).toEqual({
+      body: {
+        model: IMAGE_MODEL,
+        prompt: "把 <IMAGE_0> 的猫放进 <IMAGE_1>",
+        images: [
+          { type: "image_url", url: `data:image/jpeg;base64,${JPEG.toBase64()}` },
+          { type: "image_url", url: `data:image/png;base64,${PNG.toBase64()}` },
+        ],
+        resolution: XAI_IMAGE_RESOLUTION,
+        response_format: "b64_json",
+      },
+      signal: expect.any(AbortSignal),
+      timeout: OPENAI_IMAGE_REQUEST_TIMEOUT_MS,
+    });
+  });
+
   test("参考图空响应的日志不把未发送的领域画幅说成实际 canvas", async () => {
     imageProtocol = "xai";
     post.mockResolvedValueOnce({ data: [] });
@@ -291,7 +334,7 @@ describe("api.x.ai 的 Grok Imagine 兼容请求", () => {
     await expect(generateOpenAiImage({
       prompt: "改成铅笔画",
       aspectRatio: "16:9",
-      referenceImage: { bytes: JPEG, mime: "image/jpeg" },
+      referenceImages: [{ bytes: JPEG, mime: "image/jpeg" }],
     })).resolves.toBeNull();
 
     expect((post.mock.calls[0]![1] as { body: { aspect_ratio?: string } }).body.aspect_ratio)
@@ -304,17 +347,17 @@ describe("api.x.ai 的 Grok Imagine 兼容请求", () => {
 describe("载荷校验", () => {
   test("按字节签名判定 MIME：PNG 与 JPEG 都接受", async () => {
     respondWith(PNG.toBase64());
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" }))
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] }))
       .resolves.toEqual({ bytes: PNG, mimeType: "image/png" });
 
     respondWith(JPEG.toBase64());
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" }))
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] }))
       .resolves.toEqual({ bytes: JPEG, mimeType: "image/jpeg" });
   });
 
   test("签名认不出 png/jpeg 时不做猜测性放行，且点名记下原因", async () => {
     respondWith(new TextEncoder().encode("RIFF????WEBP").toBase64());
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
       expect.stringContaining("unusable image payload: byte signature matches neither PNG nor JPEG")
     );
@@ -322,7 +365,7 @@ describe("载荷校验", () => {
 
   test("拒绝非法 base64，并与格式不匹配分开记", async () => {
     respondWith("not-base64!");
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
       expect.stringContaining("unusable image payload: payload is not canonical base64")
     );
@@ -330,7 +373,7 @@ describe("载荷校验", () => {
 
   test("编码长度已证明解码后可能超限时不分配图片字节数组，并如实记为超限", async () => {
     respondWith("A".repeat(Math.ceil(IMAGE_GENERATION_MAX_BYTES / 3) * 4 + 4));
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
       expect.stringContaining("unusable image payload: encoded payload exceeds the size limit")
     );
@@ -338,7 +381,7 @@ describe("载荷校验", () => {
 
   test("响应里没有图片载荷时点名记录，返回 null", async () => {
     generate.mockResolvedValueOnce({ data: [] });
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("no usable image payload: no entries"));
   });
 
@@ -346,7 +389,7 @@ describe("载荷校验", () => {
     // agent.image.model 是自由文本、解析器只校验非空：填成非 gpt-image 模型，
     // 或指向一个默认回 URL 信封的兼容网关，就是这个形状。
     generate.mockResolvedValueOnce({ data: [{ url: "https://cdn.invalid/generated.png" }] });
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
       expect.stringContaining("no usable image payload: url envelope instead of base64")
     );
@@ -361,6 +404,7 @@ describe("失败处理", () => {
     await expect(generateOpenAiImage({
       prompt: "p",
       aspectRatio: "1:1",
+      referenceImages: [],
       signal: controller.signal,
     })).resolves.toBeNull();
     expect(generate).not.toHaveBeenCalled();
@@ -371,7 +415,7 @@ describe("失败处理", () => {
 
   test("请求抛错时记一行日志并返回 null", async () => {
     generate.mockRejectedValueOnce(new Error("boom"));
-    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1" })).resolves.toBeNull();
+    await expect(generateOpenAiImage({ prompt: "p", aspectRatio: "1:1", referenceImages: [] })).resolves.toBeNull();
     expect(loggerError).toHaveBeenCalledWith("Error calling OpenAI image generation API:", expect.any(Error));
   });
 
@@ -407,7 +451,7 @@ describe("失败处理", () => {
           prompt: "p",
           aspectRatio: "1:1",
           signal: caller.signal,
-          ...(hasReference ? { referenceImage: { bytes: JPEG, mime: "image/jpeg" as const } } : {}),
+          referenceImages: hasReference ? [{ bytes: JPEG, mime: "image/jpeg" }] : [],
         });
         for (let turn: number = 0; turn < 20 && endpoint.mock.calls.length === 0; turn++) await Bun.sleep(0);
 
@@ -443,6 +487,7 @@ describe("失败处理", () => {
     const pendingResult: ReturnType<typeof generateOpenAiImage> = generateOpenAiImage({
       prompt: "p",
       aspectRatio: "1:1",
+      referenceImages: [],
       signal: controller.signal,
     });
     controller.abort();

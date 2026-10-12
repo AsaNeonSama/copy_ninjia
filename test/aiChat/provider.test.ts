@@ -70,6 +70,7 @@ beforeEach((): void => {
       headers: undefined,
       model: "grok-image",
       imageProtocol: "xai",
+      maxReferenceImages: 1,
     },
     tts: { provider: "google", apiKey: "google-tts-key", baseUrl: undefined, headers: undefined, model: "tts-model", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
   };

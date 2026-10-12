@@ -236,6 +236,7 @@ Applies to all capabilities (`text`, `summary`, `media`, `ad_detect`, `image`, `
 | Key | Type | Required | Constraints & Values | Description |
 | --- | --- | --- | --- | --- |
 | `image_protocol` | `string` | **OpenAI Required** | `"openai"`, `"openai-standard"`, or `"xai"` | Request payload protocol format. **Strictly forbidden** when `provider: "google"` |
+| `max_reference_images` | `number` | Optional | Integer `1`–`5`, default `1` | Maximum reference images passed to the model per generation. The triggering message's image (or the image it replies to) comes first; when that image belongs to an album, the album's other images follow in album order. Set it to the number of input images the chosen model actually accepts |
 
 ### Speech Synthesis Keys (`agent.tts`)
 

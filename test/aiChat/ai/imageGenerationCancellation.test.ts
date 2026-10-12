@@ -35,7 +35,7 @@ test("满载媒体队列中的参考生图取消后立即排空动作链并释�
     chatId: -100123,
     replyToMessageId: 1,
     mediaToolsRequested: true,
-    imageGenerationReference: { fileId: "mock-reference", fileUniqueId: "mock-unique", width: 64, height: 64 },
+    imageGenerationReferences: [{ fileId: "mock-reference", fileUniqueId: "mock-unique", width: 64, height: 64 }],
     direct: true,
     isActive: (): boolean => !controller.signal.aborted,
     signal: controller.signal,

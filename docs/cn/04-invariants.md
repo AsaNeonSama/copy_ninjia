@@ -408,6 +408,12 @@
     - 文本在比较时合并多余空白并执行 Unicode NFC 归一化，与本轮已接纳的正文、caption 和纠正文本进行整串比对。
     - 命中重复时直接返回 `{"success": true, "skipped": "duplicate", "actions_used": 0}`，不触发输入状态、不扣除冷却、不发送消息，也不写入自录记忆。
 
+- **生图参考图**：
+  - 只有直接触发的轮次带参考图：触发消息本身的图片/贴纸，或文字回复的那张图片/贴纸是主参考图，排第一。
+  - 主参考图属于相册（`media_group_id`）时，AI Worker 在组装回复轮工具上下文时从相册缓存（`cache/workers/aiChat/imageReferenceAlbums.ts`）按 `message_id` 顺序补上同一相册的其余图片，合计至多 `agent.image.max_reference_images` 张；缓存里没有这一组（含 Worker 重建后）时只用主参考图。
+  - 相册缓存由 AI Worker 在记录每条相册图片时写入，每组只保留 `message_id` 最小的 `IMAGE_GENERATION_MAX_REFERENCE_IMAGES` 张，按 LRU 至多保留 `IMAGE_REFERENCE_ALBUM_CACHE_MAX` 组，不随群失效清理，不落盘、不跨线程。
+  - 参考图在模型调用 `generate_image` 后按顺序并发下载，每张各占媒体执行器一个交互档任务；任一张失败、被取消或合计超过 `MEDIA_MAX_DOWNLOAD_BYTES` 时本次生图失败，未发起模型请求的群冷却占位随之释放。
+
 - **工具声明恒定性与语言规范**：
   - 工具列表在每轮构造时严格由配置条件决定，与当前触发类型、本群问答或是否抽中手滑无关：
     - 基础工具恒定挂载：`send_message`、`add_reaction`、`group_qa_query`、`group_qa_answer`。

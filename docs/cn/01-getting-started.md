@@ -195,7 +195,7 @@ config/
        - `summary`：群聊长上下文的滚动记忆压缩与摘要模型。
        - `media`：图像理解与语音识别转写模型。首次请求会自动探测端点对模态的支持度。
     2. **扩展生成工具**（未配置时自动卸载对应工具）：
-       - `image`：AI 画图生成能力。使用 OpenAI 兼容协议时需声明 `image_protocol`（`openai` | `openai-standard` | `xai`）。
+       - `image`：AI 画图生成能力。使用 OpenAI 兼容协议时需声明 `image_protocol`（`openai` | `openai-standard` | `xai`）。可选 `max_reference_images`（`1`–`5`，缺省 `1`）指定一次生图最多交给模型的参考图张数，相册图片按顺序补齐。
        - `tts`：语音合成能力。必须指定 `voice` 音色。可选配置 `bot_language`（台词语言）以及每日合成额度预算。
     3. **检索与风控能力**：
        - `web_search`：联网检索工具。未单独配置时，将回退使用 `text` 模型的服务商内建搜索能力。

@@ -185,7 +185,7 @@ AI 触发包含两种途径：
 | **`add_reaction`** | 动作 | 从白名单 emoji 中选取并为消息添加表情反应；单轮上限为 `MAX_REACTIONS_PER_REPLY`。 |
 | **`view_sticker_pack`** | 查询 | 查看指定贴纸包内的贴纸列表；不消耗动作额度，发送贴纸前模型必须先查询清单。 |
 | **`send_sticker`** | 动作 | 发送指定的贴纸；单轮上限为 `MAX_STICKERS_PER_REPLY`。 |
-| **`generate_image`** | 动作 | 生成并向群内发送图片。校验群冷却时间；单轮上限为 `MAX_GENERATED_IMAGES_PER_REPLY`。 |
+| **`generate_image`** | 动作 | 生成并向群内发送图片。校验群冷却时间；单轮上限为 `MAX_GENERATED_IMAGES_PER_REPLY`。直接触发附带的参考图（相册按顺序补齐，至多 `agent.image.max_reference_images` 张）随请求交给图片模型。 |
 | **`send_voice`** | 动作 | 按配置语言合成台词语音；后台异步合成并由动作链排队发送；单轮上限为 `MAX_VOICES_PER_REPLY`。 |
 | **`web_search`** | 查询 | 本地联网检索工具（配置了 `agent.web_search` 时挂载）；受单轮最大调用次数约束。 |
 | **`group_qa_query`** | 查询 | 查询本群预先登记的问题清单；不占用动作额度。 |

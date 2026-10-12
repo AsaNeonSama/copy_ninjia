@@ -146,11 +146,19 @@ export type AgentWebSearchCapabilityConfig = AgentCapabilityConfig & {
 /** Google 生图配置；Google SDK 自己定义请求体，imageProtocol 恒为 undefined。 */
 export interface GoogleAgentImageCapabilityConfig extends GoogleAgentCapabilityConfig {
   readonly imageProtocol: undefined;
+  /**
+   * 部署字段 `max_reference_images`：一次生图最多交给模型的参考图张数，取值 1～
+   * IMAGE_GENERATION_MAX_REFERENCE_IMAGES，缺省为 IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES
+   * （见 config/agentCapability.ts 的 parseImageCapability）。
+   */
+  readonly maxReferenceImages: number;
 }
 
 /** OpenAI 兼容生图配置；协议必须显式给出。 */
 export interface OpenAiAgentImageCapabilityConfig extends OpenAiAgentCapabilityConfig {
   readonly imageProtocol: OpenAiImageProtocol;
+  /** 部署字段 `max_reference_images`，口径同 GoogleAgentImageCapabilityConfig.maxReferenceImages。 */
+  readonly maxReferenceImages: number;
 }
 
 /**

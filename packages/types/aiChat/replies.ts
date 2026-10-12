@@ -71,7 +71,12 @@ export interface ReplyToolContext {
    * 和媒体直接触发状态合并。
    */
   mediaToolsRequested: boolean;
-  imageGenerationReference?: ImageGenerationReference;
+  /**
+   * 本轮交给生图工具的参考图，按传给模型的顺序排列：主参考图在前，同一相册的其余图片按相册顺序
+   * 在后，至多 `agent.image.max_reference_images` 张（见 workers/aiChat/imageReferenceAlbums.ts）。
+   * 缺省表示本轮没有参考图；存在时至少一张。
+   */
+  imageGenerationReferences?: readonly TelegramVisionSource[];
   /** superAdmin 触发：跳过生图的群共享冷却。 */
   bypassMediaToolCooldown: boolean;
   /**

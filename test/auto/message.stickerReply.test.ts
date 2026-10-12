@@ -310,10 +310,44 @@ describe("媒体直接叫机器人", () => {
         fileUniqueId: "reply-photo-large-uid",
         width: 1280,
         height: 960,
+        mediaGroupId: undefined,
       },
       isRandomTrigger: false,
       messageThreadId: undefined,
     });
+  });
+
+  test("被回复的图片在相册里时，短期参考图带上相册 id", async () => {
+    await handleIncomingMessageMiddleware({
+      me: botInfo,
+      msg: {
+        message_id: 144,
+        date: 1,
+        chat,
+        from: alice,
+        text: "@test_bot 把这几张合成一张",
+        entities: [{ type: "mention", offset: 0, length: 9 }],
+        reply_to_message: {
+          message_id: 143,
+          date: 1,
+          chat,
+          from: { id: 456, is_bot: false, first_name: "Bob" },
+          media_group_id: "album-143",
+          photo: [{ file_id: "album-photo", file_unique_id: "album-photo-uid", width: 1280, height: 960 }],
+        },
+      },
+    } as any);
+
+    expect(generateAndSendReplyMock).toHaveBeenCalledWith(expect.objectContaining({
+      replyToMessageId: 144,
+      imageGenerationReference: {
+        fileId: "album-photo",
+        fileUniqueId: "album-photo-uid",
+        width: 1280,
+        height: 960,
+        mediaGroupId: "album-143",
+      },
+    }));
   });
 
   test("文字回复静态贴纸并 @ 机器人要求修图：把贴纸本体作为短期参考图", async () => {
@@ -355,6 +389,7 @@ describe("媒体直接叫机器人", () => {
         fileUniqueId: "reply-sticker-uid",
         width: 512,
         height: 512,
+        mediaGroupId: undefined,
       },
       isRandomTrigger: false,
       messageThreadId: undefined,

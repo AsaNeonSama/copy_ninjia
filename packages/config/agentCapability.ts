@@ -2,7 +2,7 @@
  * config/dynamic/agent.json 里单项 AI 能力的严格解码（纯函数，不读盘、不接触缓存）：通用字段
  * provider、api_key、base_url、model（provider 为 google、openai 或 anthropic；anthropic 不支持
  * image 与 tts，那两项拒绝它），google 与 anthropic provider 可选的 headers，anthropic provider
- * 可选的 fallback_model，image 的 image_protocol、tts 的 speech_protocol、voice、style、language、
+ * 可选的 fallback_model，image 的 image_protocol 与 max_reference_images、tts 的 speech_protocol、voice、style、language、
  * bot_language 与每日额度字段，以及 web_search 的 max_calls_per_use。
  * 文件级加载、分段快照与 holder 在 config/agent.ts。报错只写来源路径、字段路径与期望形态，
  * 不回显配置值。
@@ -31,6 +31,10 @@ import {
   isTtsBotLanguage,
 } from "../consts/aiChat/voiceMessage";
 import { XAI_SPEECH_DEFAULT_LANGUAGE } from "../consts/aiChat/openai";
+import {
+  IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
+  IMAGE_GENERATION_MAX_REFERENCE_IMAGES,
+} from "../consts/aiChat/imageGeneration";
 import { invalidInput } from "../libs/inputValidation";
 import { hasOnlyKeys, isPlainRecord } from "../libs/record";
 import type {
@@ -273,7 +277,11 @@ export function parseWebSearchCapability(value: unknown, sourcePath: string): Ag
   return { ...fields, maxCallsPerUse };
 }
 
-/** 解码生图能力；只有 OpenAI 协议分支接受并要求 image_protocol，anthropic 不受理。 */
+/**
+ * 解码生图能力；只有 OpenAI 协议分支接受并要求 image_protocol，anthropic 不受理。两个分支都接受
+ * 可选的 max_reference_images：缺省补 IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES，存在时必须是
+ * 1～IMAGE_GENERATION_MAX_REFERENCE_IMAGES 的整数。
+ */
 export function parseImageCapability(
   value: unknown,
   sourcePath: string
@@ -281,17 +289,43 @@ export function parseImageCapability(
   const context: string = "$.agent.image";
   const record: Readonly<Record<string, unknown>> = capabilityRecord(value, context, sourcePath);
   const provider: "google" | "openai" = requiredMediaProvider(record.provider, `${context}.provider`, sourcePath);
-  const extraKeys: readonly string[] = provider === "openai" ? ["image_protocol"] : [];
+  const extraKeys: readonly string[] = provider === "openai"
+    ? ["image_protocol", "max_reference_images"]
+    : ["max_reference_images"];
   if (!hasOnlyKeys(record, capabilityKeys(provider, extraKeys))) {
-    return invalidInput(sourcePath, context, capabilityShape(provider, provider === "openai" ? ", image_protocol" : ""));
+    return invalidInput(
+      sourcePath,
+      context,
+      capabilityShape(provider, provider === "openai" ? ", image_protocol, max_reference_images?" : ", max_reference_images?")
+    );
   }
   const fields: AgentCapabilityConfig = parseCapabilityFields(record, context, sourcePath);
-  if (fields.provider === "google") return { ...fields, imageProtocol: undefined };
+  if (fields.provider === "google") {
+    return { ...fields, imageProtocol: undefined, maxReferenceImages: optionalMaxReferenceImages(record, context, sourcePath) };
+  }
   if (fields.provider === "anthropic") return invalidInput(sourcePath, `${context}.provider`, '"google" or "openai"');
   return {
     ...fields,
     imageProtocol: requiredImageProtocol(record.image_protocol, `${context}.image_protocol`, sourcePath),
+    maxReferenceImages: optionalMaxReferenceImages(record, context, sourcePath),
   };
+}
+
+/** 解码生图能力可选的 max_reference_images；context 是 image 能力自身的字段路径。 */
+function optionalMaxReferenceImages(
+  record: Readonly<Record<string, unknown>>,
+  context: string,
+  sourcePath: string
+): number {
+  return optionalQuotaInteger({
+    value: record.max_reference_images,
+    context: `${context}.max_reference_images`,
+    sourcePath,
+    fallback: IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
+    min: 1,
+    max: IMAGE_GENERATION_MAX_REFERENCE_IMAGES,
+    expected: `an integer from 1 to ${IMAGE_GENERATION_MAX_REFERENCE_IMAGES}`,
+  });
 }
 
 /** optionalQuotaInteger 的参数。 */
@@ -307,8 +341,8 @@ interface QuotaIntegerOptions {
 }
 
 /**
- * 解码语音每日额度或检索调用上限的整数字段：存在时必须是 min～max 的安全整数；缺省时取 fallback，
- * fallback 落在区间外同样按 expected 拒绝。
+ * 解码语音每日额度、检索调用上限或生图参考图张数的整数字段：存在时必须是 min～max 的安全整数；
+ * 缺省时取 fallback，fallback 落在区间外同样按 expected 拒绝。
  */
 function optionalQuotaInteger({ value, context, sourcePath, fallback, min, max, expected }: QuotaIntegerOptions): number {
   if (value === undefined) {

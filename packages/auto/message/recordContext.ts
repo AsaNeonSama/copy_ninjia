@@ -117,5 +117,6 @@ export function buildAiRecordMediaMessage({
     directTriggerReason: context.directTriggerReason,
     // Worker 按入站占位并异步解析媒体；话题落点随载荷保留到该轮实际发送。
     messageThreadId: context.messageThreadId,
+    mediaGroupId: context.message.media_group_id,
   };
 }

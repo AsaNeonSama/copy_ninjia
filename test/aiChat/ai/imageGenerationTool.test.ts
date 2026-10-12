@@ -6,6 +6,8 @@ import type { TelegramPhotoSendResult, TelegramSendResult } from "../../../packa
 import type { TelegramVisionSource } from "../../../packages/types/media";
 import type { TaskPriority } from "../../../packages/libs/prioritizedBoundedTaskRunner";
 import { GENERATE_IMAGE_TOOL_INSTRUCTION } from "../../../packages/consts/aiChat/prompts/tools";
+import { MEDIA_MAX_DOWNLOAD_BYTES } from "../../../packages/consts/aiChat/media";
+import { loggerStub } from "../../helpers/loggerMock";
 import { GENERATE_IMAGE_TOOL, SEND_MESSAGE_TOOL } from "../../../packages/consts/tools";
 import { TELEGRAM_CAPTION_MAX_CHARS, TELEGRAM_MESSAGE_MAX_CHARS } from "../../../packages/consts/telegram";
 import {
@@ -45,8 +47,10 @@ const realProvider = await import("../../../packages/aiChat/provider");
 /** 当前生图供应商；用例置 null 模拟 agent.json 没有配置 image 能力。 */
 const imageProvider: { current: { name: "gemini"; generateImage: typeof generateImage } | null } = { current: null };
 const realTelegram = await import("../../../packages/infra/telegram");
+const loggerError = mock((..._args: unknown[]): void => {});
 
 mock.module("../../../packages/libs/sleep", () => ({ sleep: sleepMock }));
+mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 
 mock.module("../../../packages/aiChat/provider", () => ({
   ...realProvider,
@@ -111,12 +115,12 @@ function buildContext(
 function buildReferenceContext(chatId: number = -1001, bypass: boolean = false): ReplyToolContext {
   return {
     ...buildContext(chatId, bypass),
-    imageGenerationReference: {
+    imageGenerationReferences: [{
       fileId: "reference-file",
       fileUniqueId: "reference-unique",
       width: 1600,
       height: 900,
-    },
+    }],
   };
 }
 
@@ -136,6 +140,7 @@ beforeEach(() => {
   sendMessageWithResult.mockResolvedValue({ messageId: 78, repliedToMessageId: 42 });
   sleepMock.mockReset();
   sleepMock.mockImplementation(sleepStub);
+  loggerError.mockReset();
 });
 
 afterEach(() => {
@@ -235,7 +240,7 @@ describe("generate_image 工具执行器", () => {
     expect(generateImage).toHaveBeenCalledWith({
       prompt: "日落下的纸飞机",
       aspectRatio: "4:3",
-      referenceImage: undefined,
+      referenceImages: [],
       signal: undefined,
     });
     expect(sendPhotoWithResult).toHaveBeenCalledWith({
@@ -263,12 +268,76 @@ describe("generate_image 工具执行器", () => {
     expect(generateImage).toHaveBeenCalledWith({
       prompt: "把原图改成油画",
       aspectRatio: "16:9",
-      referenceImage: referenceVisionImage,
+      referenceImages: [referenceVisionImage],
       signal: undefined,
     });
     expect(result.aspect_ratio).toBe("16:9");
-    expect(result.reference_image_used).toBe(true);
+    expect(result.reference_images_used).toBe(1);
     expect(ctx.onImageSent).toHaveBeenCalledWith({ text: "（参考素材生成并发送了一张图片：把原图改成油画）", messageId: 77, repliedToMessageId: 42, origin: "referenceGenerated", caption: "", photo: GENERATED_PHOTO });
+  });
+
+  test("多张参考图按上下文顺序下载并原序交给模型，比例默认跟随第一张", async () => {
+    const references: TelegramVisionSource[] = [
+      { fileId: "primary", fileUniqueId: "primary-u", width: 900, height: 1600 },
+      { fileId: "album-1", fileUniqueId: "album-1-u", width: 1600, height: 900 },
+      { fileId: "album-2", fileUniqueId: "album-2-u", width: 1000, height: 1000 },
+    ];
+    const images = references.map((_reference: TelegramVisionSource, index: number) => ({
+      bytes: new Uint8Array([0xff, 0xd8, 0xff, index]),
+      mime: "image/jpeg" as const,
+    }));
+    // 后发起的下载先完成，结果顺序仍按参考图顺序。
+    downloadTelegramVisionImage.mockImplementation(async (...args: unknown[]) => {
+      const { fileId } = args[0] as { fileId: string };
+      const index: number = references.findIndex((reference: TelegramVisionSource): boolean => reference.fileId === fileId);
+      await Bun.sleep(references.length - index);
+      return images[index] ?? null;
+    });
+    const ctx: ReplyToolContext = { ...buildContext(), imageGenerationReferences: references };
+
+    const status: string = buildToolStatusBlock({ ctx, imageEnabled: true, voiceEnabled: false });
+    expect(status).toContain("当前触发附带 3 张参考图片素材");
+    expect(status).toContain("（900×1600）");
+    expect(status).toContain("其余 2 张来自同一相册");
+    expect(status).toContain("默认使用最接近第 1 张素材的 9:16");
+
+    const result = JSON.parse(await buildExecutor(ctx)(JSON.stringify({ prompt: "把三张图拼成海报" })));
+
+    expect(downloadTelegramVisionImage.mock.calls.map((call: unknown[]) => (call[0] as { fileId: string }).fileId))
+      .toEqual(["primary", "album-1", "album-2"]);
+    expect(runMediaTask).toHaveBeenCalledTimes(3);
+    expect(generateImage).toHaveBeenCalledWith({
+      prompt: "把三张图拼成海报",
+      aspectRatio: "9:16",
+      referenceImages: images,
+      signal: undefined,
+    });
+    expect(result.reference_images_used).toBe(3);
+    expect(ctx.onImageSent).toHaveBeenCalledWith(expect.objectContaining({ origin: "referenceGenerated" }));
+  });
+
+  test("多张参考图里任一张下载失败或合计超出内联预算时不调用图片模型", async () => {
+    const references: TelegramVisionSource[] = [
+      { fileId: "primary", fileUniqueId: "primary-u", width: 64, height: 64 },
+      { fileId: "album-1", fileUniqueId: "album-1-u", width: 64, height: 64 },
+    ];
+    downloadTelegramVisionImage.mockResolvedValueOnce(referenceVisionImage);
+    downloadTelegramVisionImage.mockResolvedValueOnce(null);
+    const failed = JSON.parse(await buildExecutor({ ...buildContext(-1001, true), imageGenerationReferences: references })(
+      JSON.stringify({ prompt: "第二张取不到" })
+    ));
+    expect(failed.error).toBe("Failed to load the reference images from Telegram");
+
+    const half = { bytes: new Uint8Array(Math.floor(MEDIA_MAX_DOWNLOAD_BYTES / 2) + 1), mime: "image/jpeg" as const };
+    downloadTelegramVisionImage.mockResolvedValue(half);
+    const oversized = JSON.parse(await buildExecutor({ ...buildContext(-1001, true), imageGenerationReferences: references })(
+      JSON.stringify({ prompt: "两张合计超限" })
+    ));
+    expect(oversized.error).toBe("Failed to load the reference images from Telegram");
+    expect(loggerError).toHaveBeenCalledWith(
+      `Image generation reference images exceeded the combined size limit (${half.bytes.byteLength * 2} bytes).`
+    );
+    expect(generateImage).not.toHaveBeenCalled();
   });
 
   test("参考图下显式比例仍优先，非官方比例照常归一化", async () => {
@@ -283,7 +352,7 @@ describe("generate_image 工具执行器", () => {
     expect(generateImage).toHaveBeenCalledWith({
       prompt: "把原图改成油画",
       aspectRatio: "4:3",
-      referenceImage: referenceVisionImage,
+      referenceImages: [referenceVisionImage],
       signal: undefined,
     });
   });

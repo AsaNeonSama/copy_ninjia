@@ -336,17 +336,28 @@ export const VOICE_LANGUAGE_PROMPTS: Readonly<Record<TtsBotLanguage, Readonly<Vo
 export const IMAGE_REFERENCE_POINTER: string =
   `本轮有没有可用的参考图片素材，见 ${TOOL_STATUS_POINTER}里 ${GENERATE_IMAGE_TOOL} 那一行。`;
 
-/** 本轮触发附带参考图素材时的说明。
- *  @param width 素材像素宽。
- *  @param height 素材像素高。
- *  @param defaultAspectRatio 省略 aspect_ratio 时执行侧采用的比例。 */
-export function imageReferencePresent(
-  width: number,
-  height: number,
-  defaultAspectRatio: string
-): string {
-  return `当前触发附带一份 ${width}×${height} 的参考图片素材；调用时会自动交给图片模型。` +
-    `prompt 要写清如何编辑或参考这份素材，不要向群友索要 URL；未指定比例时默认使用最接近原素材的 ${defaultAspectRatio}。`;
+/** imageReferencePresent 的参数。 */
+export interface ImageReferencePresentParams {
+  /** 本轮参考图张数，至少为 1。 */
+  readonly count: number;
+  /** 第一张（主参考图）的像素宽。 */
+  readonly width: number;
+  /** 第一张（主参考图）的像素高。 */
+  readonly height: number;
+  /** 省略 aspect_ratio 时执行侧采用的比例。 */
+  readonly defaultAspectRatio: string;
+}
+
+/** 本轮触发附带参考图素材时的说明；多张时交代顺序：主参考图在前，同一相册的其余图片按相册顺序在后。 */
+export function imageReferencePresent({ count, width, height, defaultAspectRatio }: ImageReferencePresentParams): string {
+  if (count === 1) {
+    return `当前触发附带一份 ${width}×${height} 的参考图片素材；调用时会自动交给图片模型。` +
+      `prompt 要写清如何编辑或参考这份素材，不要向群友索要 URL；未指定比例时默认使用最接近原素材的 ${defaultAspectRatio}。`;
+  }
+  return `当前触发附带 ${count} 张参考图片素材，调用时会按顺序全部交给图片模型：` +
+    `第 1 张是触发消息本身或它回复的那张图（${width}×${height}），其余 ${count - 1} 张来自同一相册，按相册顺序排列。` +
+    "prompt 要写清如何编辑或组合这些素材，需要区分时用「第 1 张」「第 2 张」这样的顺序指代，不要向群友索要 URL；" +
+    `未指定比例时默认使用最接近第 1 张素材的 ${defaultAspectRatio}。`;
 }
 
 /** 本轮触发没有参考图素材时的说明；顺带交代此时省略 aspect_ratio 的默认值。 */

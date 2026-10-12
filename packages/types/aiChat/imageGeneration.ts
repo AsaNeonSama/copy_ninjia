@@ -2,6 +2,7 @@
  *  发送 size、标准档收敛到全系通用的标准尺寸，xAI 改传最近 aspect_ratio，见
  *  aiChat/openai/image.ts。 */
 import type { Base64PayloadDecodeFailure } from "./payload";
+import type { TelegramVisionSource } from "../media";
 
 export type ImageGenerationAspectRatio =
   | "1:1" | "3:2" | "2:3" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
@@ -24,3 +25,15 @@ export type GeneratedImageDecodeFailure =
 export type GeneratedImageDecodeResult =
   | { readonly ok: true; readonly image: GeneratedChatImage }
   | { readonly ok: false; readonly reason: GeneratedImageDecodeFailure };
+
+/** AI Worker 相册缓存里的一张图：视觉源加所在消息的 message_id，相册顺序按它升序。 */
+export interface ImageReferenceAlbumPhoto extends TelegramVisionSource {
+  readonly messageId: number;
+}
+
+/** AI Worker 相册缓存的一项（cache/workers/aiChat/imageReferenceAlbums.ts）：相册所在的群与已见过的图。 */
+export interface ImageReferenceAlbum {
+  readonly chatId: number;
+  /** 按 messageId 升序，按 messageId 去重，至多 IMAGE_GENERATION_MAX_REFERENCE_IMAGES 张。 */
+  readonly photos: ImageReferenceAlbumPhoto[];
+}

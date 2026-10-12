@@ -392,6 +392,12 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
     - Text comparisons collapse whitespace, apply Unicode NFC normalization, and check against accepted text, captions, and reserved correction characters.
     - Duplicates return `{"success": true, "skipped": "duplicate", "actions_used": 0}`, skipping typing indicators, cooldown deductions, network sends, and memory recording.
 
+- **Image generation reference images**:
+  - Only direct-trigger rounds carry reference images: the triggering message's own photo/sticker, or the photo/sticker a text message replies to, is the primary reference and comes first.
+  - When the primary reference belongs to an album (`media_group_id`), the AI Worker fills in the album's other images from the album cache (`cache/workers/aiChat/imageReferenceAlbums.ts`) in `message_id` order while assembling the round's tool context, up to `agent.image.max_reference_images` in total; when the cache has no such album (including after a Worker rebuild), only the primary reference is used.
+  - The AI Worker writes the album cache as it records each album photo, keeps only the `IMAGE_GENERATION_MAX_REFERENCE_IMAGES` photos with the smallest `message_id` per album, and retains at most `IMAGE_REFERENCE_ALBUM_CACHE_MAX` albums by LRU. It is not cleared by chat invalidation, is not persisted, and does not cross threads.
+  - Reference images are downloaded concurrently and in order after the model calls `generate_image`, each as one interactive task on the media executor; if any image fails, is cancelled, or the total exceeds `MEDIA_MAX_DOWNLOAD_BYTES`, the generation fails and the chat cooldown claim is released because no model request was started.
+
 - **Tool declaration invariants and language alignment**:
   - Tools mounted per round are determined strictly by configuration, regardless of trigger type, Q&A entries, or typo draws:
     - Base tools always mounted: `send_message`, `add_reaction`, `group_qa_query`, `group_qa_answer`.

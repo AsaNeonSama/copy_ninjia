@@ -196,7 +196,7 @@ config/
        - `summary`：短期・長期コンテキストの要約圧縮モデル。
        - `media`：画像・音声の文字起こしおよびマルチモーダル認識モデル。初回リクエストの自動プローブとエンドポイントの指数バックオフに対応。
     2. **拡張生成機能**（未設定時は該当ツールのみが無効化されます）：
-       - `image`：画像生成機能。OpenAI 互換プロトコルでは `image_protocol`（`openai` | `openai-standard` | `xai`）の明示指定が必要です（Google プロバイダではこのフィールドを指定できません）。
+       - `image`：画像生成機能。OpenAI 互換プロトコルでは `image_protocol`（`openai` | `openai-standard` | `xai`）の明示指定が必要です（Google プロバイダではこのフィールドを指定できません）。任意の `max_reference_images`（`1`〜`5`、既定 `1`）で 1 回の画像生成でモデルに渡す参照画像の最大枚数を指定し、アルバムの画像がアルバム順に残りを埋めます。
        - `tts`：音声合成機能。`voice`（声色）の指定が必須です。OpenAI プロトコルでは `speech_protocol`（`openai` | `xai`）の指定が必要です（Google プロバイダでは指定不可）。任意の `style`（デフォルトの声質定義。省略時は `TTS_DEFAULT_STYLE`。`/send` や cron からも共用されるため、言語名ではなく声質のみを記述します）を指定できます。`xai` プロトコルはモデル名やスタイル指示をサポートしないため、`model` または `style` を指定するとエラーになります。また任意の `language` も指定可能です。
          - `bot_language`（`en` | `zh` | `ja`。省略時は `TTS_DEFAULT_BOT_LANGUAGE`）：AI 音声のセリフ言語を指定します。システムプロンプトが切り替わり、AI 返信の合成リクエスト時に基本スタイルの末尾へ言語指定が自動付与されます（`/send` や cron 経由の合成には付与されません）。なお、`style` および `prompt/voice_tool.md` は自動追従しないため、`bot_language` を変更する際は手動で対応言語の内容に書き換えてください。
          - `daily_limit`（省略時は `TTS_DEFAULT_DAILY_LIMIT`）および `daily_reserve_quota`（省略時は `TTS_DEFAULT_DAILY_RESERVE_QUOTA`。`daily_limit` 未満である必要があります）：1 日あたりの合成回数クォータを AI 返信用と `/send`・cron 共用の予約枠に分割し、それぞれ独立して消費をカウントします。

@@ -99,7 +99,7 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
     chat: { completions: { create: completion } },
   } as unknown as OpenAI;
   try {
-    adoptAgentDeploymentConfig({ text: google, summary: google, media: google, image: { ...google, imageProtocol: undefined },
+    adoptAgentDeploymentConfig({ text: google, summary: google, media: google, image: { ...google, imageProtocol: undefined, maxReferenceImages: 1 },
       tts: parseTtsCapability({ provider: "google", api_key: "fixture", model: "speech", voice: "fixture" }, "fixture.json") });
     geminiClientCache.current = new Map<AgentCapability, GoogleGenAI>(["text", "summary", "media", "image", "tts"].map((capability) => [capability as AgentCapability, fakeGoogle]));
     openAiClientCache.current = new Map<AgentCapability, OpenAI>([["image", fakeOpenAi], ["media", fakeOpenAi]]);
@@ -112,10 +112,10 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
         errorLabel: "fixture",
       })).ok).toBeTrue();
     }
-    expect(await generateGeminiImage({ prompt: "fixture", aspectRatio: "1:1" })).not.toBeNull();
+    expect(await generateGeminiImage({ prompt: "fixture", aspectRatio: "1:1", referenceImages: [] })).not.toBeNull();
     expect(await synthesizeGeminiSpeech({ text: "fixture" })).not.toBeNull();
-    adoptAgentDeploymentConfig({ ...getAgentDeploymentConfig(), image: { ...openai, imageProtocol: "openai" }, media: openai });
-    expect(await generateOpenAiImage({ prompt: "fixture", aspectRatio: "1:1" })).toBeNull();
+    adoptAgentDeploymentConfig({ ...getAgentDeploymentConfig(), image: { ...openai, imageProtocol: "openai", maxReferenceImages: 1 }, media: openai });
+    expect(await generateOpenAiImage({ prompt: "fixture", aspectRatio: "1:1", referenceImages: [] })).toBeNull();
     expect(await transcribeOpenAiVoice({ prompt: "fixture", clip: { bytes: new TextEncoder().encode("OggS"), mime: "audio/ogg" }, normalize: (text: string): string => text, errorLabel: "fixture" })).toEqual({ ok: true, text: "ok" });
     const adRequest = { model: "ad-fixture", instructions: "json", fact: "fixture fact", systemPrompt: "json\nfixture fact", userContent: "fixture", temperature: 0, maxOutputTokens: 100, errorLabel: "fixture" };
     adoptAdDetectAgentConfig(openai);

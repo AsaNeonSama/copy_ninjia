@@ -6,6 +6,7 @@ import { geminiReplyLastRequestAt, resetGeminiContextCache } from "./geminiConte
 import { clearChatHeartbeatCache, resetAiChatHeartbeatCache } from "./heartbeat";
 import { resetAiChatIdentityCache } from "./identity";
 import { resetImageGenerationCache } from "./imageGeneration";
+import { resetImageReferenceAlbumCache } from "./imageReferenceAlbums";
 import { resetAiChatMemoryCache } from "./memory";
 import { resetAiChatMoodCache } from "./mood";
 import { resetAiProviderSchedulerCache } from "./providerScheduler";
@@ -36,6 +37,7 @@ export function resetAiChatWorkerCache(): void {
   resetGeminiContextCache();
   resetAiChatIdentityCache();
   resetImageGenerationCache();
+  resetImageReferenceAlbumCache();
   resetAiChatMemoryCache();
   resetAiChatMoodCache();
   resetAiProviderSchedulerCache();

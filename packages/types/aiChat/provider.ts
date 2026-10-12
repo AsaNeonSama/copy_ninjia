@@ -201,7 +201,8 @@ export interface AiVoiceRequest {
 export interface AiImageRequest {
   readonly prompt: string;
   readonly aspectRatio: ImageGenerationAspectRatio;
-  readonly referenceImage?: VisionImage;
+  /** 按顺序交给图片模型的参考图；空数组表示按文字从零生成。 */
+  readonly referenceImages: readonly VisionImage[];
   readonly signal?: AbortSignal;
 }
 

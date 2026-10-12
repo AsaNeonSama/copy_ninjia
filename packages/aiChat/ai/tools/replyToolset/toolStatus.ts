@@ -31,11 +31,12 @@ import { defaultAspectRatioFor, imageCooldownRetrySeconds } from "./imageGenerat
 import type { AgentTtsCapabilityConfig } from "../../../../types/config";
 import type { CooldownAvailability } from "../../../../types/cooldown";
 import type { ReplyToolContext } from "../../../../types/aiChat/replies";
+import type { TelegramVisionSource } from "../../../../types/media";
 
 /** 本模块从本轮回复上下文里真正读到的字段。 */
 export type ToolStatusContext = Pick<
   ReplyToolContext,
-  "chatId" | "chatQa" | "mediaToolsRequested" | "imageGenerationReference" | "bypassMediaToolCooldown"
+  "chatId" | "chatQa" | "mediaToolsRequested" | "imageGenerationReferences" | "bypassMediaToolCooldown"
 >;
 
 /** buildToolStatusBlock 的入参：上下文子集、媒体能力与独立检索的本轮配置上限。 */
@@ -59,9 +60,15 @@ function imageStatusLine(ctx: ToolStatusContext): string {
   if (!availability.allowed) {
     return imageToolStatusCoolingDown(imageCooldownRetrySeconds(availability.retryAfterMs));
   }
-  const reference: ReplyToolContext["imageGenerationReference"] = ctx.imageGenerationReference;
-  return imageToolStatusAvailable(reference
-    ? imageReferencePresent(reference.width, reference.height, defaultAspectRatioFor(reference))
+  const references: readonly TelegramVisionSource[] | undefined = ctx.imageGenerationReferences;
+  const primary: TelegramVisionSource | undefined = references?.[0];
+  return imageToolStatusAvailable(references !== undefined && primary !== undefined
+    ? imageReferencePresent({
+      count: references.length,
+      width: primary.width,
+      height: primary.height,
+      defaultAspectRatio: defaultAspectRatioFor(primary),
+    })
     : IMAGE_REFERENCE_ABSENT);
 }
 

@@ -1,5 +1,6 @@
 /**
  * Gemini 侧的生图：调独立图片模型按 GEMINI_IMAGE_SIZE 生成一张图片，文本段与思考中间图一律忽略。
+ * 有参考图时同一个 user 轮次先放提示词，再按顺序放每张参考图的内联数据。
  * 载荷校验（base64 规范性、大小上限、文件签名）走 aiChat/ai/utils/imagePayload.ts（Gemini 与 OpenAI 共用）。
  */
 
@@ -15,6 +16,7 @@ import { requestGeminiResult } from "./client";
 import type { GeminiRequestResult } from "../../types/aiChat/gemini";
 import type { AiImageRequest } from "../../types/aiChat/provider";
 import type { GeneratedChatImage } from "../../types/aiChat/imageGeneration";
+import type { VisionImage } from "../../types/media";
 
 function extractGeneratedImage(data: GenerateContentResponse): GeneratedChatImage | null {
   const candidate: Candidate | undefined = data.candidates?.[0];
@@ -31,21 +33,24 @@ function extractGeneratedImage(data: GenerateContentResponse): GeneratedChatImag
   return null;
 }
 
+/** 提示词在前、参考图按顺序在后的单个 user 轮次。 */
+function referenceContents(prompt: string, referenceImages: readonly VisionImage[]): GenerateContentParameters["contents"] {
+  const parts: Part[] = [{ text: prompt }];
+  for (const referenceImage of referenceImages) {
+    parts.push({ inlineData: { mimeType: referenceImage.mime, data: referenceImage.bytes.toBase64() } });
+  }
+  return [{ role: "user", parts }];
+}
+
 /** 调 Gemini 生图模型按 GEMINI_IMAGE_SIZE 生成一张图片；无可用载荷时返回 null。 */
 export async function generateGeminiImage({
   prompt,
   aspectRatio,
-  referenceImage,
+  referenceImages,
   signal,
 }: AiImageRequest): Promise<GeneratedChatImage | null> {
-  const contents: GenerateContentParameters["contents"] = referenceImage
-    ? [{
-      role: "user",
-      parts: [
-        { text: prompt },
-        { inlineData: { mimeType: referenceImage.mime, data: referenceImage.bytes.toBase64() } },
-      ],
-    }]
+  const contents: GenerateContentParameters["contents"] = referenceImages.length > 0
+    ? referenceContents(prompt, referenceImages)
     : prompt;
   const result: GeminiRequestResult = await requestGeminiResult({
     capability: "image",

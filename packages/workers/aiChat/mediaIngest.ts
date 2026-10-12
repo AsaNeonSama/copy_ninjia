@@ -13,11 +13,13 @@ import { generateAndSendReply } from "./replyPipeline";
 import { replyGenerationSignal, trackReplyGenerationTask } from "./replyGeneration";
 import { replyReferenceForBufferedEntry } from "./bufferedMessageIndex";
 import { resolveRepliedBotImage } from "./botImages";
+import { observeImageReferenceAlbumPhoto } from "./imageReferenceAlbums";
 import type { MediaCommentContext } from "../../types/aiChat/replies";
 import type { StickerCatalogEntry } from "../../types/stickers/catalog";
 
 /**
  * 直接拿当前图片/贴纸叫机器人时附上短期参考；是否实际编辑由模型决定。GIF 不隐式混入。
+ * 相册里的图片带上 mediaGroupId，回复轮据此补齐同一相册的其余图片。
  *
  * 「有没有图片工具资格」直接读 directTriggerReason（见 types/aiChat/protocol.ts 的
  * directTriggerReason）。
@@ -31,6 +33,7 @@ function imageGenerationReferenceFor(msg: AiRecordMediaMessage): ImageGeneration
     fileUniqueId: msg.fileUniqueId,
     width: msg.width,
     height: msg.height,
+    mediaGroupId: msg.mediaGroupId,
   };
 }
 
@@ -56,7 +59,8 @@ function mediaCommentFor(msg: AiRecordMediaMessage, entry: BufferedMessage, desc
 }
 
 /**
- * 媒体先同步记录并准入占位，再异步识别；识别完成回填原条目和本轮上下文。
+ * 媒体先同步记录并准入占位，再异步识别；识别完成回填原条目和本轮上下文。相册里的图片在准入前
+ * 同步记进生图参考相册缓存（见 imageReferenceAlbums.ts）。
  * 回复了机器人图片的媒体另由 botImages.ts 识图回填回复引用，回复轮开始前等待它。
  * 直接触发失败时使用兜底描述，随机评价失败时完成空占位。贴纸目录命中时同步使用真实描述。
  * 只有 `replyTelegramBackpressured` 有值的媒体进入回复准入，并把这份主线程投递时刻的
@@ -70,6 +74,7 @@ export function recordChatMedia(msg: AiRecordMediaMessage): void {
   const imageGenerationReference: ImageGenerationReference | undefined = imageGenerationReferenceFor(msg);
   const telegramBackpressured: boolean | undefined = msg.replyTelegramBackpressured;
   const now: number = Date.now();
+  observeImageReferenceAlbumPhoto(msg);
 
   if (msg.kind === "sticker") {
     const catalogEntry: StickerCatalogEntry | undefined = getCatalogEntry(msg.fileUniqueId);

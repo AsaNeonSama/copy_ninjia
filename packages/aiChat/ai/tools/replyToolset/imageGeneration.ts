@@ -28,7 +28,6 @@ import { toolError } from "../../utils/toolResult";
 import { sendPhotoWithResult } from "../../../../infra/telegram";
 import { sanitizeInline, truncateInline } from "../../../../libs/text";
 import type { ReplyActionPause, ReplyToolContext, ReplyToolExecution, RoundMessageState } from "../../../../types/aiChat/replies";
-import type { ImageGenerationReference } from "../../../../types/aiChat/protocol";
 import type { ChatActionControl } from "../../../../types/aiChat/chatAction";
 import type {
   GeneratedChatImage,
@@ -40,16 +39,18 @@ import { imageAiProvider } from "../../../provider";
 import { normalizeImageAspectRatio } from "../../utils/aspectRatio";
 import { downloadTelegramVisionImage } from "../../telegramImage";
 import { mediaTaskRunner } from "../../../../cache/workers/aiChat/mediaTasks";
-import type { VisionImage } from "../../../../types/media";
+import type { TelegramVisionSource, VisionImage } from "../../../../types/media";
+import { MEDIA_MAX_DOWNLOAD_BYTES } from "../../../../consts/aiChat/media";
+import { logger } from "../../../../infra/logger";
 import { cleanReply } from "../../utils/replyText";
 import { typingDelayMs } from "../../utils/timing";
 import { acceptRoundText, sendDirectMessage } from "./messageState";
 import { modelAuthoredTextPolicyResult } from "./modelAuthoredText";
 import { pauseThenSettle } from "./pacing";
 
-/** 省略 aspect_ratio 时执行侧采用的比例：有参考素材就取最接近它的官方比例。
+/** 省略 aspect_ratio 时执行侧采用的比例：有参考素材就取最接近第一张（主参考图）的官方比例。
  *  本轮工具状态的参考素材文案（见 toolStatus.ts）与执行侧解析共用这一个函数。 */
-export function defaultAspectRatioFor(reference: ReplyToolContext["imageGenerationReference"]): ImageGenerationAspectRatio {
+export function defaultAspectRatioFor(reference: TelegramVisionSource | undefined): ImageGenerationAspectRatio {
   if (!reference || reference.width <= 0 || reference.height <= 0) return DEFAULT_IMAGE_GENERATION_ASPECT_RATIO;
   return normalizeImageAspectRatio(`${reference.width}:${reference.height}`) ?? DEFAULT_IMAGE_GENERATION_ASPECT_RATIO;
 }
@@ -151,16 +152,37 @@ function coolingDownError(retryAfterMs: number): string {
 /** 生图结果回执里 caption_delivery 的取值。 */
 type ImageCaptionDelivery = "inline" | "separate_message" | "failed" | "no_action_budget";
 
-/** 下载本轮参考图：排进媒体任务的交互档并继承本轮取消信号；失败、排不上或被取消时返回 null。 */
-async function downloadReferenceImage(
+/**
+ * 下载本轮全部参考图，结果与入参同序：每张各排进媒体任务的交互档并继承本轮取消信号。任一张失败、
+ * 排不上或被取消，或合计字节超过 MEDIA_MAX_DOWNLOAD_BYTES 时返回 null。
+ */
+async function downloadReferenceImages(
   ctx: ReplyToolContext,
-  reference: ImageGenerationReference
-): Promise<VisionImage | null> {
-  return await mediaTaskRunner.run("interactive", (): Promise<VisionImage | null> => downloadTelegramVisionImage({
-    fileId: reference.fileId,
-    logLabel: "image generation reference",
-    signal: ctx.signal,
-  }), ctx.signal) ?? null;
+  references: readonly TelegramVisionSource[]
+): Promise<VisionImage[] | null> {
+  const downloads: PromiseSettledResult<VisionImage | null | undefined>[] = await Promise.allSettled(
+    references.map((reference: TelegramVisionSource): Promise<VisionImage | null | undefined> => mediaTaskRunner.run(
+      "interactive",
+      (): Promise<VisionImage | null> => downloadTelegramVisionImage({
+        fileId: reference.fileId,
+        logLabel: "image generation reference",
+        signal: ctx.signal,
+      }),
+      ctx.signal
+    ))
+  );
+  const images: VisionImage[] = [];
+  let totalBytes: number = 0;
+  for (const download of downloads) {
+    if (download.status !== "fulfilled" || !download.value) return null;
+    totalBytes += download.value.bytes.byteLength;
+    images.push(download.value);
+  }
+  if (totalBytes > MEDIA_MAX_DOWNLOAD_BYTES) {
+    logger.error(`Image generation reference images exceeded the combined size limit (${totalBytes} bytes).`);
+    return null;
+  }
+  return images;
 }
 
 interface SeparateCaptionParams {
@@ -195,7 +217,10 @@ async function deliverSeparateCaption({
   return captionMessageId === undefined ? "failed" : "separate_message";
 }
 
-/** 接纳时认领群冷却；参考图排队继承本轮取消信号，未发起模型请求时释放认领。生命周期见 docs/cn/04-invariants.md。 */
+/**
+ * 接纳时认领群冷却；参考图按 ctx.imageGenerationReferences 的顺序下载并交给模型，排队继承本轮
+ * 取消信号，未发起模型请求时释放认领。生命周期见 docs/cn/04-invariants.md。
+ */
 export function createGenerateImageExecutor(
   ctx: ReplyToolContext,
   state: RoundMessageState,
@@ -224,7 +249,8 @@ export function createGenerateImageExecutor(
       bypassCooldown: ctx.bypassMediaToolCooldown,
     });
     if (!availability.allowed) return coolingDownError(availability.retryAfterMs);
-    const parsed: ParsedImageArguments | null = parseArguments(argumentsJson, defaultAspectRatioFor(ctx.imageGenerationReference));
+    const references: readonly TelegramVisionSource[] | undefined = ctx.imageGenerationReferences;
+    const parsed: ParsedImageArguments | null = parseArguments(argumentsJson, defaultAspectRatioFor(references?.[0]));
     if (!parsed) {
       return toolError(
         "Invalid image arguments: prompt must be non-empty, aspect_ratio must look like W:H, W/H, WxH, or W×H, and caption must be a string"
@@ -267,18 +293,18 @@ export function createGenerateImageExecutor(
           let image: GeneratedChatImage | null = null;
           let referenceUnavailable: boolean = false;
           try {
-            const referenceImage: VisionImage | null | undefined = ctx.imageGenerationReference === undefined
-              ? undefined
-              : await downloadReferenceImage(ctx, ctx.imageGenerationReference);
-            referenceUnavailable = referenceImage === null;
-            if (!referenceUnavailable && ctx.isActive()) {
+            const referenceImages: VisionImage[] | null = references === undefined
+              ? []
+              : await downloadReferenceImages(ctx, references);
+            referenceUnavailable = referenceImages === null;
+            if (referenceImages !== null && ctx.isActive()) {
               modelRequestStarted = true;
               // 生图只走 agent.json 的 image 能力（见 aiChat/provider.ts）；未配置时按失败结算。
               const provider: AiImageProvider | null = imageAiProvider();
               image = provider === null ? null : await provider.generateImage({
                 prompt: parsed.prompt,
                 aspectRatio: parsed.aspectRatio,
-                referenceImage: referenceImage ?? undefined,
+                referenceImages,
                 signal: ctx.signal,
               });
             }
@@ -288,7 +314,7 @@ export function createGenerateImageExecutor(
           }
           if (!ctx.isActive()) return toolError(REPLY_INVALIDATED_TOOL_ERROR);
           if (referenceUnavailable) {
-            return toolError("Failed to load the reference image from Telegram");
+            return toolError("Failed to load the reference images from Telegram");
           }
           if (!image) {
             return toolError("Image generation failed or returned no usable image", {
@@ -310,13 +336,13 @@ export function createGenerateImageExecutor(
           }
 
           const memoryPrompt: string = truncateInline(sanitizeInline(parsed.prompt), IMAGE_GENERATION_MEMORY_PROMPT_MAX_CHARS);
-          const imageTag: string = imageSentTagTemplate(memoryPrompt, ctx.imageGenerationReference !== undefined);
+          const imageTag: string = imageSentTagTemplate(memoryPrompt, references !== undefined);
 
           ctx.onImageSent({
             text: inlineCaption !== null ? `${imageTag}${inlineCaption}` : imageTag,
             messageId: sent.messageId,
             repliedToMessageId: sent.repliedToMessageId,
-            origin: ctx.imageGenerationReference !== undefined ? "referenceGenerated" : "generated",
+            origin: references !== undefined ? "referenceGenerated" : "generated",
             caption: inlineCaption ?? "",
             photo: sent.photo,
           });
@@ -335,7 +361,7 @@ export function createGenerateImageExecutor(
             aspect_ratio: parsed.aspectRatio,
             actions_used: captionDelivery === "separate_message" ? 2 : 1,
             caption_delivery: captionDelivery ?? undefined,
-            reference_image_used: ctx.imageGenerationReference ? true : undefined,
+            reference_images_used: references?.length,
           });
         } finally {
           if (!modelRequestStarted) releaseImageGenerationClaim(ctx.chatId, claim.token);

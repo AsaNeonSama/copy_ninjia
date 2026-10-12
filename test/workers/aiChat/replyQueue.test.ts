@@ -67,7 +67,7 @@ describe("AI 回复触发队列", () => {
       telegramBackpressured: false,
       messageThreadId: undefined,
       imageGenerationRequested: true,
-      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960 },
+      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960, mediaGroupId: undefined },
     });
 
     expect(pendingReplyTriggers.get(-1001)?.shift()).toEqual({
@@ -86,7 +86,7 @@ describe("AI 回复触发队列", () => {
       replyTo: bufferedReplyReferenceFixture({ messageId: 70, id: 4, firstName: "Carol", lastName: "", text: "原问题" }),
       forwardedFrom: "频道 [id:-100666] 东京日报",
       imageGenerationRequested: true,
-      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960 },
+      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960, mediaGroupId: undefined },
       senderName: "Alice Chen",
       text: "x".repeat(QUEUED_TRIGGER_SNIPPET_MAX_CHARS),
     });

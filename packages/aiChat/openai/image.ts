@@ -1,5 +1,5 @@
 /**
- * OpenAI 侧的生图。无参考图走 images.generate，有参考图走 images.edit。
+ * OpenAI 侧的生图。无参考图走 images.generate，有参考图走 images.edit，参考图按请求里的顺序传入。
  *
  * 画幅映射收在本包内：OpenAI 官方 gpt-image-2 协议（`openai`）发送满足 16 像素倍数约束的
  * `size`；`openai-standard` 取全系共同支持的标准尺寸；xAI 的 Grok Imagine 改用 `aspect_ratio`。
@@ -14,7 +14,8 @@
  * 本模块只读 `b64_json`：响应里只有 url 的情况在日志里与「一条也没有」分开点名，见下方读取处。
  *
  * xAI edit 不走 SDK `images.edit()` 的 multipart 请求，参考图作为 base64 data URI 放进 JSON：
- * 复用同一个 SDK 客户端的底层 `post`（保留认证、超时和重试），只替换请求体形状。
+ * 复用同一个 SDK 客户端的底层 `post`（保留认证、超时和重试），只替换请求体形状。单张参考图放
+ * `image`，多张放 `images`（两字段互斥）。
  *
  * 内容审核档位：只有 OpenAI 原生 generate 带 moderation（SDK 只在 generate 的参数类型上声明它，
  * 见 consts/aiChat/openai.ts 的 OPENAI_IMAGE_MODERATION）；xAI 两条分支不发送审核字段。
@@ -73,13 +74,22 @@ interface XAiImageInput {
   readonly url: string;
 }
 
-/** xAI edit 不兼容 SDK 的 multipart 类型，故只描述官方 JSON 请求体。 */
-interface XAiImageEditParams {
+/** xAI edit 不兼容 SDK 的 multipart 类型，故只描述官方 JSON 请求体；两种形状共用的字段。 */
+interface XAiImageEditBaseParams {
   readonly model: string;
   readonly prompt: string;
-  readonly image: XAiImageInput;
   readonly resolution: string;
   readonly response_format: "b64_json";
+}
+
+/** 单张参考图的 xAI edit 请求体。 */
+interface XAiSingleImageEditParams extends XAiImageEditBaseParams {
+  readonly image: XAiImageInput;
+}
+
+/** 多张参考图的 xAI edit 请求体；按数组顺序对应提示词里的 `<IMAGE_0>`、`<IMAGE_1>`…。 */
+interface XAiMultiImageEditParams extends XAiImageEditBaseParams {
+  readonly images: readonly XAiImageInput[];
 }
 
 /**
@@ -113,17 +123,17 @@ function pickXAiAspectRatio(aspectRatio: ImageGenerationAspectRatio): XAiImageAs
   }
 }
 
-/** 参考图转 SDK 可上传的文件句柄；扩展名跟随实际 MIME，服务端据此判格式。 */
-function toReferenceUpload(referenceImage: VisionImage): Promise<Uploadable> {
+/**
+ * 参考图转 SDK 可上传的文件句柄；文件名带 1 起的序号，扩展名跟随实际 MIME，服务端据此判格式。
+ */
+function toReferenceUpload(referenceImage: VisionImage, ordinal: number): Promise<Uploadable> {
   const extension: string = referenceImage.mime === "image/png" ? "png" : "jpg";
-  return toFile(referenceImage.bytes, `reference.${extension}`, { type: referenceImage.mime });
+  return toFile(referenceImage.bytes, `reference-${ordinal}.${extension}`, { type: referenceImage.mime });
 }
 
-/**
- * xAI JSON edit 的参考图 data URI，字节经 `Uint8Array.toBase64()` 编码。
- */
-function toXAiReferenceDataUri(referenceImage: VisionImage): string {
-  return `data:${referenceImage.mime};base64,${referenceImage.bytes.toBase64()}`;
+/** xAI JSON edit 的一张参考图输入：data URI，字节经 `Uint8Array.toBase64()` 编码。 */
+function toXAiImageInput(referenceImage: VisionImage): XAiImageInput {
+  return { type: "image_url", url: `data:${referenceImage.mime};base64,${referenceImage.bytes.toBase64()}` };
 }
 
 /**
@@ -137,7 +147,7 @@ async function requestOpenAiCompatibleImage(
   {
     prompt,
     aspectRatio,
-    referenceImage,
+    referenceImages,
   }: AiImageRequest,
   signal: AbortSignal
 ): Promise<OpenAI.Images.ImagesResponse> {
@@ -146,15 +156,24 @@ async function requestOpenAiCompatibleImage(
   const model: string = config.model;
   switch (protocol) {
     case "xai": {
-      if (referenceImage !== undefined) {
-        // xAI 单图 edit 的输出比例跟随输入图，不发送 aspect_ratio。
-        const body: XAiImageEditParams = {
-          model,
-          prompt,
-          image: { type: "image_url", url: toXAiReferenceDataUri(referenceImage) },
-          resolution: XAI_IMAGE_RESOLUTION,
-          response_format: "b64_json",
-        };
+      const firstReference: VisionImage | undefined = referenceImages[0];
+      if (firstReference !== undefined) {
+        // xAI edit 的输出比例跟随第一张输入图，不发送 aspect_ratio。
+        const body: XAiSingleImageEditParams | XAiMultiImageEditParams = referenceImages.length === 1
+          ? {
+            model,
+            prompt,
+            image: toXAiImageInput(firstReference),
+            resolution: XAI_IMAGE_RESOLUTION,
+            response_format: "b64_json",
+          }
+          : {
+            model,
+            prompt,
+            images: referenceImages.map(toXAiImageInput),
+            resolution: XAI_IMAGE_RESOLUTION,
+            response_format: "b64_json",
+          };
         return client.post<OpenAI.Images.ImagesResponse>("/images/edits", {
           body,
           signal,
@@ -177,13 +196,18 @@ async function requestOpenAiCompatibleImage(
     case "openai":
     case "openai-standard": {
       const size: string = pickOpenAiImageSize(protocol, aspectRatio);
-      if (referenceImage !== undefined) {
-        const upload: Uploadable = await toReferenceUpload(referenceImage);
+      if (referenceImages.length > 0) {
+        const uploads: Uploadable[] = [];
+        for (const referenceImage of referenceImages) {
+          uploads.push(await toReferenceUpload(referenceImage, uploads.length + 1));
+        }
         signal.throwIfAborted();
+        const [onlyUpload]: Uploadable[] = uploads;
         return client.images.edit(
           {
             model,
-            image: upload,
+            // 单张参考图按单文件字段上传，多张按顺序以数组上传（SDK 编码为 `image[]`）。
+            image: uploads.length === 1 && onlyUpload !== undefined ? onlyUpload : uploads,
             prompt,
             size,
             output_format: OPENAI_IMAGE_OUTPUT_FORMAT,
@@ -211,7 +235,7 @@ async function requestOpenAiCompatibleImage(
   }
 }
 
-/** 日志使用的实际画幅；xAI 单参考图 edit 不发送画幅，标记为 follows-reference。 */
+/** 日志使用的实际画幅；xAI 参考图 edit 不发送画幅，标记为 follows-reference。 */
 function imageCanvasForLog(
   protocol: OpenAiImageProtocol,
   aspectRatio: ImageGenerationAspectRatio,
@@ -240,7 +264,7 @@ function imageCanvasForLog(
 export async function generateOpenAiImage(request: AiImageRequest): Promise<GeneratedChatImage | null> {
   const {
     aspectRatio,
-    referenceImage,
+    referenceImages,
     signal,
   }: AiImageRequest = request;
   try {
@@ -286,21 +310,21 @@ export async function generateOpenAiImage(request: AiImageRequest): Promise<Gene
       const kind: string = entry === undefined
         ? "no entries"
         : (typeof entry.url === "string" ? "url envelope instead of base64" : "entry without b64_json");
-      const canvas: string = imageCanvasForLog(protocol, aspectRatio, referenceImage !== undefined);
+      const canvas: string = imageCanvasForLog(protocol, aspectRatio, referenceImages.length > 0);
       logger.error(
         `${OPENAI_IMAGE_ERROR_LABEL} returned no usable image payload: ${kind} ` +
         `(entries=${response.data?.length ?? 0}, model=${model}, canvas=${canvas}, ` +
-        `has_reference=${referenceImage !== undefined}).`
+        `reference_images=${referenceImages.length}).`
       );
       return null;
     }
     const decoded: GeneratedImageDecodeResult = decodeGeneratedImageBySignature(encoded);
     if (!decoded.ok) {
       // 解码被拒时日志写明 reason（格式不匹配或大小越界）。
-      const canvas: string = imageCanvasForLog(protocol, aspectRatio, referenceImage !== undefined);
+      const canvas: string = imageCanvasForLog(protocol, aspectRatio, referenceImages.length > 0);
       logger.error(
         `${OPENAI_IMAGE_ERROR_LABEL} returned an unusable image payload: ${decoded.reason} ` +
-        `(encoded_chars=${encoded.length}, canvas=${canvas}, has_reference=${referenceImage !== undefined}).`
+        `(encoded_chars=${encoded.length}, canvas=${canvas}, reference_images=${referenceImages.length}).`
       );
       return null;
     }

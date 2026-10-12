@@ -36,6 +36,10 @@ import {
   TTS_DEFAULT_STYLE,
 } from "../../packages/consts/aiChat/voiceMessage";
 import { XAI_SPEECH_DEFAULT_LANGUAGE } from "../../packages/consts/aiChat/openai";
+import {
+  IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
+  IMAGE_GENERATION_MAX_REFERENCE_IMAGES,
+} from "../../packages/consts/aiChat/imageGeneration";
 import type { AdDetectAgentConfig, AgentDeploymentConfig, AgentTtsCapabilityConfig, AgentWebSearchCapabilityConfig } from "../../packages/types/config";
 
 const AD_DETECT: Readonly<Record<string, string>> = {
@@ -115,6 +119,7 @@ describe("agent capability config", () => {
         headers: undefined,
         model: "grok-image",
         imageProtocol: "xai",
+        maxReferenceImages: IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
       },
       tts: { provider: "google", apiKey: "google-tts-key", baseUrl: undefined, headers: undefined, model: "tts-test", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
     });
@@ -284,7 +289,31 @@ describe("agent capability config", () => {
       headers: undefined,
       model: "gemini-image",
       imageProtocol: undefined,
+      maxReferenceImages: IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
     });
+  });
+
+  test("生图参考图张数缺省补齐，存在时只接受 1 到上限的整数", () => {
+    for (const image of [
+      { provider: "google", api_key: "key", model: "gemini-image" },
+      { provider: "openai", api_key: "key", model: "gpt-image", image_protocol: "openai" },
+    ] as const) {
+      for (const maxReferenceImages of [1, IMAGE_GENERATION_MAX_REFERENCE_IMAGES]) {
+        const parsed: AgentDeploymentConfig = parseAgentDeploymentConfig({
+          ...AGENT,
+          image: { ...image, max_reference_images: maxReferenceImages },
+        }, "agent.json");
+        expect(parsed.image?.maxReferenceImages).toBe(maxReferenceImages);
+      }
+      for (const invalid of [0, IMAGE_GENERATION_MAX_REFERENCE_IMAGES + 1, 2.5, "3", null, -1]) {
+        expect(() => parseAgentDeploymentConfig({
+          ...AGENT,
+          image: { ...image, max_reference_images: invalid },
+        }, "agent.json")).toThrow(
+          `$.agent.image.max_reference_images must be an integer from 1 to ${IMAGE_GENERATION_MAX_REFERENCE_IMAGES}`
+        );
+      }
+    }
   });
 
   test("tts 可选择任一已支持 provider，由工具装配判断实现能力", () => {
@@ -443,7 +472,7 @@ describe("agent capability headers", () => {
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       image: { provider: "openai", api_key: "key", model: "m", image_protocol: "xai", headers: { "x-a": "b" } },
-    }, "agent.json")).toThrow(/agent\.image must be exactly \{ provider, api_key, base_url\?, model, image_protocol \} when provider is openai/);
+    }, "agent.json")).toThrow(/agent\.image must be exactly \{ provider, api_key, base_url\?, model, image_protocol, max_reference_images\? \} when provider is openai/);
   });
 
   test("headers 对象与请求头名非法时拒绝在 headers 路径上", () => {
