@@ -45,7 +45,7 @@ describe("recent channel comment cache", () => {
 
     rememberRecentComment({ chatId: -1001, userId: 42, messageId: 11, observedAt: 3_000 });
     expect(takeRecentComment(-1001, 42, 3_000 + COMMENT_JOIN_CORRELATE_MS)).toBeUndefined();
-    expect(recentChannelComments).toHaveLength(0);
+    expect(recentChannelComments.size).toBe(0);
   });
 
   test("同 key 更新只保留最新评论，并以最新观察时间重置关联期限", () => {
@@ -70,10 +70,10 @@ describe("recent channel comment cache", () => {
         observedAt: 10_000 + userId,
       });
     }
-    expect(recentChannelComments).toHaveLength(RECENT_COMMENT_CACHE_MAX);
+    expect(recentChannelComments.size).toBe(RECENT_COMMENT_CACHE_MAX);
 
     rememberRecentComment({ chatId: -2002, userId: 99_999, messageId: 99_999, observedAt: 20_000 });
-    expect(recentChannelComments).toHaveLength(RECENT_COMMENT_CACHE_MAX);
+    expect(recentChannelComments.size).toBe(RECENT_COMMENT_CACHE_MAX);
     expect(recentChannelComments.has("-1001:1")).toBeFalse();
     expect(recentChannelComments.has("-2002:99999")).toBeTrue();
   });
@@ -86,13 +86,13 @@ describe("recent channel comment cache", () => {
     // userId 1 恰好到期：内联 sweep 只删它，不淘汰仍在窗口内的 userId 2。
     const expiring: number = 10_001 + COMMENT_JOIN_CORRELATE_MS;
     rememberRecentComment({ chatId: -2002, userId: 1, messageId: 1, observedAt: expiring });
-    expect(recentChannelComments).toHaveLength(RECENT_COMMENT_CACHE_MAX);
+    expect(recentChannelComments.size).toBe(RECENT_COMMENT_CACHE_MAX);
     expect(recentChannelComments.has("-1001:1")).toBeFalse();
     expect(recentChannelComments.has("-1001:2")).toBeTrue();
     expect(recentCommentsMinObservedAt.current).toBe(10_002);
     // 下界证明没有到期项：跳过 sweep，按插入序淘汰最早的 userId 2。
     rememberRecentComment({ chatId: -2002, userId: 2, messageId: 2, observedAt: expiring });
-    expect(recentChannelComments).toHaveLength(RECENT_COMMENT_CACHE_MAX);
+    expect(recentChannelComments.size).toBe(RECENT_COMMENT_CACHE_MAX);
     expect(recentChannelComments.has("-1001:2")).toBeFalse();
     expect(recentChannelComments.has("-1001:3")).toBeTrue();
     // 取出与淘汰只让真实最小值变大，下界仍然成立；整表 sweep 重算为精确值。
@@ -100,7 +100,7 @@ describe("recent channel comment cache", () => {
     expect(sweepRecentComments(10_003 + COMMENT_JOIN_CORRELATE_MS)).toBe(1);
     expect(recentCommentsMinObservedAt.current).toBe(10_004);
     resetRecentComments();
-    expect(recentChannelComments).toHaveLength(0);
+    expect(recentChannelComments.size).toBe(0);
     expect(recentCommentsMinObservedAt.current).toBe(Number.POSITIVE_INFINITY);
   });
 });

@@ -1,6 +1,7 @@
 /** owner: main。抽签命令（packages/commands/luckChallenge/）的内存状态。 */
 
-import { RATE_LIMIT_MAX_CALLS_PER_WINDOW } from "../../consts/luckChallenge";
+import { PENDING_LUCK_CACHE_MAX, RATE_LIMIT_MAX_CALLS_PER_WINDOW } from "../../consts/luckChallenge";
+import { FifoMap } from "../../libs/fifoMap";
 import { TimestampDeque } from "../../libs/timestampDeque";
 import type { LuckReceiptSecret } from "../../types/diskIO/storage";
 import type { LuckDraw } from "../../types/luckChallenge";
@@ -20,10 +21,9 @@ export const dailyLuckCacheSaturated: { current: boolean } = { current: false };
  * （见 commands/luckChallenge/cache.ts 的 getOrDrawLuck 与 receipt.ts 的 confirmLuckDraw），
  * 不计入「今天测过」。key 是 cacheKey（同 dailyLuckCache）。
  * 清理：confirmLuckDraw 认领后移入 dailyLuckCache 并删除本项，跨日随整份缓存清空。
- * 容量：硬顶 PENDING_LUCK_CACHE_MAX（见 consts/luckChallenge.ts），经
- * libs/boundedMap.ts 的 setBoundedMapValue 写入，撑满时淘汰最早插入的一项（FIFO）。
- * 进程重启后为空。 */
-export const pendingLuckDraws: Map<string, LuckDraw> = new Map();
+ * 容量：硬顶 PENDING_LUCK_CACHE_MAX（见 consts/luckChallenge.ts），FifoMap 撑满时写入新 key
+ * 先淘汰最早插入的一项，命中不刷新位置。进程重启后为空。 */
+export const pendingLuckDraws: FifoMap<string, LuckDraw> = new FifoMap(PENDING_LUCK_CACHE_MAX);
 
 /** 当前配置时区日期的持久化密钥；启动恢复前为 null，此时不生成预览。 */
 export const luckReceiptSecretState: { current: LuckReceiptSecret | null } = { current: null };

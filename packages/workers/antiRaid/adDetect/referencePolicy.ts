@@ -4,10 +4,7 @@ import {
   referencedAdWarningGeneration,
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
-import {
-  AD_DETECT_MAX_PENDING_SENDERS,
-  AD_REFERENCE_WARNING_WINDOW_MS,
-} from "../../../consts/antiRaid/adDetect";
+import { AD_REFERENCE_WARNING_WINDOW_MS } from "../../../consts/antiRaid/adDetect";
 import { logger } from "../../../infra/logger";
 import {
   parseVerificationKey,
@@ -23,12 +20,8 @@ export function beginReferencedAdWarning(key: string): number | undefined {
     return undefined;
   }
   referencedAdWarningGeneration.current = nextGeneration;
+  // 先删再写：本键挪到最新端；满载时 FifoMap 淘汰最早的警告状态。
   referencedAdWarningStates.delete(key);
-  if (referencedAdWarningStates.size >= AD_DETECT_MAX_PENDING_SENDERS) {
-    const oldestKey: string | undefined =
-      referencedAdWarningStates.keys().next().value;
-    if (oldestKey !== undefined) referencedAdWarningStates.delete(oldestKey);
-  }
   referencedAdWarningStates.set(key, {
     phase: "sending",
     generation: nextGeneration,

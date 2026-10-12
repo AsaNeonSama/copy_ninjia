@@ -151,7 +151,7 @@ export function hasActiveAdDisposalMarker(key: string): boolean {
  * 回收已经过期的处置抑制记录。
  *
  * 挂在维护 sweep（sweepAdDetect）上，不进判定节拍：正确性由 hasActiveAdDisposalMarker
- * 的读时回收保证，容量由 setBoundedMapValue 的硬顶保证，这里清掉判过之后再没来过
+ * 的读时回收保证，容量由 FifoMap 的硬顶保证，这里清掉判过之后再没来过
  * 消息的过期记录。
  */
 export function expireAdDetectDisposalMarkers(now: number = performance.now()): void {

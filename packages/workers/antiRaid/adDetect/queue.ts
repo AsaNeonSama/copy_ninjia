@@ -12,7 +12,7 @@
  * 一次判定看到的是该 key 派发前已经并入的完整批次，而不是逐条并发送检。
  *
  * **节拍不做任何全表扫描**：这一拍取到的键顺路裁一次已判上下文，处置抑制记录
- * 读到即回收、容量由 setBoundedMapValue 顶住，其余到期记录交给维护 sweep
+ * 读到即回收、容量由 FifoMap 顶住，其余到期记录交给维护 sweep
  * （sweepAdDetect）。待派发所有权只由 queuedAdDetectKeys 与队列同步表达。
  *
  * AD_DETECT_JUDGED_RETENTION_WINDOW_MS 只约束处置抑制与已经消费的上下文：尚未判定的

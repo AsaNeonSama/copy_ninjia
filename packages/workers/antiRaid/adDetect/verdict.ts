@@ -25,11 +25,7 @@ import {
   recentlyDisposedAdKeys,
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
-import {
-  AD_DETECT_MAX_PENDING_SENDERS,
-  AD_REFERENCE_WARNING_WINDOW_MS,
-} from "../../../consts/antiRaid/adDetect";
-import { setBoundedMapValue } from "../../../libs/boundedMap";
+import { AD_REFERENCE_WARNING_WINDOW_MS } from "../../../consts/antiRaid/adDetect";
 import {
   claimSampleContextParts,
   containsReferencedAdContent,
@@ -260,12 +256,7 @@ export async function detectOne(
   deletePendingAdBundle(bundle.chatId, bundle.senderId);
   // 硬顶与待检 key 同源（AD_DETECT_MAX_PENDING_SENDERS）：这张表只由处置路径写入，
   // 写入时直接限制容量；撑满时淘汰最早处置的键，其后续消息由主线程黑名单门禁接管。
-  setBoundedMapValue({
-    map: recentlyDisposedAdKeys,
-    key,
-    value: performance.now(),
-    maxEntries: AD_DETECT_MAX_PENDING_SENDERS,
-  });
+  recentlyDisposedAdKeys.set(key, performance.now());
   // 升级为 block 后旧警告失去用途，不再占着容量。
   referencedAdWarningStates.delete(key);
   await disposeAdSender({ bundle, verdict: outcome.verdict, judged });

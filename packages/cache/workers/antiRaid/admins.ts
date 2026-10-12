@@ -2,22 +2,20 @@
 
 import type { ChatAdminCache } from "../../../types/antiRaid/internal";
 import { ADMIN_CACHE_TTL_MS, ANTI_RAID_CHAT_CACHE_MAX } from "../../../consts/antiRaid/cache";
-import {
-  setBoundedMapValue,
-  sweepExpiredSnapshots,
-} from "../../../libs/boundedMap";
+import { sweepExpiredSnapshots } from "../../../libs/boundedMap";
+import { FifoMap } from "../../../libs/fifoMap";
 
 /**
  * 按需拉取的各群非匿名管理员 ID 表。
  *
  * 填充：首次需要判定时整群拉一次，此后按 chat_member 更新经 adminsChanged 增量更新。
  * 清理：读时按 ADMIN_CACHE_TTL_MS 回收过期快照，周期 sweep 清死记录，
- * resetAdminCache 整表清空。容量：setBoundedMapValue 限制为
- * ANTI_RAID_CHAT_CACHE_MAX 项，满载淘汰最早写入的群。
+ * resetAdminCache 整表清空。容量：FifoMap 限制为
+ * ANTI_RAID_CHAT_CACHE_MAX 项，满载写入新群时淘汰最早写入的群。
  * Worker 崩溃重建：不重放——新 isolate 从空表开始，下一次判定重新拉取；
  * 「没有条目」表示「此刻不知道」，不表示「不是管理员」。
  */
-export const chatAdmins: Map<number, ChatAdminCache> = new Map();
+export const chatAdmins: FifoMap<number, ChatAdminCache> = new FifoMap(ANTI_RAID_CHAT_CACHE_MAX);
 /**
  * 进行中的全量管理员拉取，按 chatId 去重（libs/keyedTask.ts 的 getOrCreateKeyedTask：
  * resetAdminCache 在拉取在途时清空整张表后，陈旧拉取结算不会删掉新登记的槽位）。
@@ -43,12 +41,7 @@ export const adminCacheGeneration: { current: number } = { current: 0 };
 
 /** 在 ANTI_RAID_CHAT_CACHE_MAX 硬顶内落一份非匿名管理员豁免快照。 */
 export function cacheAdminIds(chatId: number, adminIds: Set<number>, fetchedAt: number = Date.now()): void {
-  setBoundedMapValue({
-    map: chatAdmins,
-    key: chatId,
-    value: { adminIds, fetchedAt },
-    maxEntries: ANTI_RAID_CHAT_CACHE_MAX,
-  });
+  chatAdmins.set(chatId, { adminIds, fetchedAt });
 }
 
 /** 若全量拉取正在进行，合并记录一条比快照更新的邀请豁免资格变化。 */

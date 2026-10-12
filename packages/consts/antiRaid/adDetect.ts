@@ -65,7 +65,7 @@ export const AD_REFERENCE_WARNING_WINDOW_MS: number = 300_000;
  * 上限按撑满时该 isolate 仍存活来定；改动本值或 AD_DETECT_MAX_MESSAGES_PER_SENDER
  * 都要重算这个乘积。
  *
- * 同一个上限还约束 recentlyDisposedAdKeys（setBoundedMapValue）；待检
+ * 同一个上限还约束 recentlyDisposedAdKeys（FifoMap 容量）；待检
  * 位置由 queuedAdDetectKeys 表达，每键最多一个位置，长度被本值约束。
  */
 export const AD_DETECT_MAX_PENDING_SENDERS: number = 8_192;

@@ -1,6 +1,5 @@
 import type { Context } from "grammy";
 import type { Chat, ChatMember, Message } from "grammy/types";
-import { WED_MEMBER_LIMIT } from "../../consts/wed";
 import { wedAvatarProbes } from "../../cache/main/wed";
 import { noteWedMemberPresence } from "../../cache/main/wedMemberReview";
 import { isPresentMember } from "../../libs/chatMember";
@@ -51,10 +50,7 @@ export function observeWedMembers(ctx: Context): void {
   if (probes !== undefined) for (const probe of probes) probe.observedChats.add(chat.id);
   const state: WedMemberState | undefined = getOrCreateWedMemberState(chat.id);
   if (state === undefined || state.members.has(message.from.id)) return;
-  if (state.members.size >= WED_MEMBER_LIMIT) {
-    const earliestId: number | undefined = state.members.keys().next().value;
-    if (earliestId !== undefined) state.members.delete(earliestId);
-  }
+  // 满额时 FifoMap 在写入新成员前挤出首项（进入时间最早）。
   const now: number = Date.now();
   if (now > state.latestEnteredAt) state.latestEnteredAt = now;
   state.members.set(message.from.id, state.latestEnteredAt);

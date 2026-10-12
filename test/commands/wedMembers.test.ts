@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { FifoMap } from "../../packages/libs/fifoMap";
 import type { ChatMember } from "grammy/types";
 import { wedChats } from "../../packages/cache/main/wed";
 import { resetWedMemberStates, wedMemberStates } from "../../packages/cache/main/wedMembers";
@@ -50,10 +51,10 @@ test("每群独立滑窗：满额挤出进入最早的成员，再次发言不�
   expect(members.get(1)).toBe(1_000);
   observeWedMembers(message(WED_MEMBER_LIMIT + 1));
   expect(state.revision).toBe(revision + 1);
-  expect(members).toBeInstanceOf(Map);
+  expect(members).toBeInstanceOf(FifoMap);
   expect(members.size).toBe(WED_MEMBER_LIMIT);
   expect(members.has(1)).toBeFalse();
-  expect(members.keys().next().value).toBe(2);
+  expect(members.oldestKey()).toBe(2);
   expect([...members].at(-1)).toEqual([WED_MEMBER_LIMIT + 1, 2_000]);
   observeWedMembers(message(2, -2000));
   expect([...wedMemberStates.get(-2000)!.members]).toEqual([[2, 2_000]]);

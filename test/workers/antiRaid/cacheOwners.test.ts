@@ -148,10 +148,10 @@ describe("Anti-Raid cache owners", () => {
     cacheAdminIds(ANTI_RAID_CHAT_CACHE_MAX + 1, new Set(), 999);
     cacheLinkedChannel(ANTI_RAID_CHAT_CACHE_MAX + 1, true, 999);
 
-    expect(chatAdmins).toHaveLength(ANTI_RAID_CHAT_CACHE_MAX);
+    expect(chatAdmins.size).toBe(ANTI_RAID_CHAT_CACHE_MAX);
     expect(chatAdmins.has(1)).toBeFalse();
     expect(chatAdmins.has(ANTI_RAID_CHAT_CACHE_MAX + 1)).toBeTrue();
-    expect(linkedChannels).toHaveLength(ANTI_RAID_CHAT_CACHE_MAX);
+    expect(linkedChannels.size).toBe(ANTI_RAID_CHAT_CACHE_MAX);
     expect(linkedChannels.has(1)).toBeFalse();
     expect(linkedChannels.has(ANTI_RAID_CHAT_CACHE_MAX + 1)).toBeTrue();
   });

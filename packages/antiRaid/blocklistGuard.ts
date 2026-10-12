@@ -13,7 +13,6 @@ import {
   recentBlockedJoinCounts,
 } from "../cache/main/antiRaid/blocklistGuard";
 import { verificationKey } from "../libs/verificationKey";
-import { BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES } from "../consts/antiRaid/blocklist";
 import { JOIN_WINDOW_MS } from "../consts/antiRaid/lockdown";
 import { visibleSenderChat } from "../users/visibleSender";
 import type { AntiRaidWorkerMessage } from "../types/antiRaid/protocol";
@@ -104,20 +103,16 @@ export interface ClaimBlockedJoinerParams {
 }
 
 /**
- * 淘汰过期的入群记账，并把表压回 BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES 上界。写入侧保证
- * 插入顺序即时间顺序，碰到第一个还在窗口内的条目即停。
- *
- * 本修剪在插入之前运行，一次可淘汰多条，独立于 libs/boundedMap.ts 的 setBoundedMapValue。
+ * 从最早项开始淘汰过期的入群记账，碰到第一个还在窗口内的条目即停；写入侧保证插入顺序
+ * 即时间顺序。容量上界由 FifoMap 在写入新键时兜住（BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES）。
  */
 function pruneRecentBlockedJoins(now: number): void {
-  for (const [key, countedAt] of recentBlockedJoinCounts) {
-    if (now - countedAt < JOIN_WINDOW_MS) break;
-    recentBlockedJoinCounts.delete(key);
-  }
-  while (recentBlockedJoinCounts.size > BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES) {
-    const oldest: IteratorResult<string> = recentBlockedJoinCounts.keys().next();
-    if (oldest.done === true) break;
-    recentBlockedJoinCounts.delete(oldest.value);
+  for (;;) {
+    const oldestKey: string | undefined = recentBlockedJoinCounts.oldestKey();
+    if (oldestKey === undefined) return;
+    const countedAt: number | undefined = recentBlockedJoinCounts.get(oldestKey);
+    if (countedAt !== undefined && now - countedAt < JOIN_WINDOW_MS) return;
+    recentBlockedJoinCounts.delete(oldestKey);
   }
 }
 

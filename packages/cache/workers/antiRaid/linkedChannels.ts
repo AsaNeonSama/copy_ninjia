@@ -3,10 +3,8 @@
 
 import type { LinkedChannelCache } from "../../../types/antiRaid/internal";
 import { ANTI_RAID_CHAT_CACHE_MAX, LINKED_CHANNEL_TTL_MS } from "../../../consts/antiRaid/cache";
-import {
-  setBoundedMapValue,
-  sweepExpiredSnapshots,
-} from "../../../libs/boundedMap";
+import { sweepExpiredSnapshots } from "../../../libs/boundedMap";
+import { FifoMap } from "../../../libs/fifoMap";
 
 /**
  * 各群是否有关联频道的按需 TTL 缓存。
@@ -14,10 +12,10 @@ import {
  * 填充：cacheLinkedChannel 在一次按需查询结算后写入。清理：
  * sweepLinkedChannelCache 按 LINKED_CHANNEL_TTL_MS 淘汰过期项（仍在拉取的群
  * 保留旧值作为同步降级结果），resetLinkedChannelCache 整表清空。
- * 容量：setBoundedMapValue 限制为 ANTI_RAID_CHAT_CACHE_MAX 项，满载淘汰最早
+ * 容量：FifoMap 限制为 ANTI_RAID_CHAT_CACHE_MAX 项，满载写入新群时淘汰最早
  * 写入的群。Worker 崩溃重建：不重放，从空表开始由下一次按需查询重新填充。
  */
-export const linkedChannels: Map<number, LinkedChannelCache> = new Map();
+export const linkedChannels: FifoMap<number, LinkedChannelCache> = new FifoMap(ANTI_RAID_CHAT_CACHE_MAX);
 /**
  * 进行中的关联频道信息拉取，按 chatId 去重。
  * 清理：libs/keyedTask.ts 的 getOrCreateKeyedTask 在 settle 后释放自己的槽位，
@@ -32,12 +30,7 @@ export const linkedChannelCacheGeneration: { current: number } = { current: 0 };
 
 /** 在 ANTI_RAID_CHAT_CACHE_MAX 硬顶内落一份关联频道快照。 */
 export function cacheLinkedChannel(chatId: number, hasLinked: boolean, fetchedAt: number = Date.now()): void {
-  setBoundedMapValue({
-    map: linkedChannels,
-    key: chatId,
-    value: { hasLinked, fetchedAt },
-    maxEntries: ANTI_RAID_CHAT_CACHE_MAX,
-  });
+  linkedChannels.set(chatId, { hasLinked, fetchedAt });
 }
 
 /** 淘汰过期快照；仍在拉取的群保留旧值作为同步降级结果。 */

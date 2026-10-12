@@ -2,6 +2,8 @@ import { pendingWedMemberDeletes, wedMemberDeleteCounter, wedMemberFlushState, w
 import { FLUSH_INTERVAL_MS, FLUSH_MAX_ENTRIES } from "../../consts/diskIO/appendOnly";
 import { DISK_IO_RESPAWN_PRIORITIES } from "../../consts/diskIO/common";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../consts/storage";
+import { WED_MEMBER_LIMIT } from "../../consts/wed";
+import { FifoMap } from "../../libs/fifoMap";
 import { flushDiskIODomain, onDiskIORespawn, postDiskIO } from "../../infra/diskIO";
 import { onDiskIOReply } from "../../infra/diskIO/observers";
 import type { DiskIORecoveryTransport, WedMembersDeleteDiskMessage, WedMembersDiskMessage } from "../../types/diskIO/messages";
@@ -15,7 +17,7 @@ export function getOrCreateWedMemberState(chatId: number): WedMemberState | unde
   const pending: WedMembersDeleteDiskMessage | undefined = pendingWedMemberDeletes.get(chatId);
   if (pending === undefined && wedMemberStates.size + pendingWedMemberDeletes.size >= STATE_MANAGED_CHAT_LIMIT) return undefined;
   state = {
-    members: new Map(),
+    members: new FifoMap(WED_MEMBER_LIMIT),
     latestEnteredAt: 0,
     revision: pending === undefined ? 0 : pending.revision + 1,
     dirty: pending !== undefined,
@@ -29,14 +31,18 @@ export function getOrCreateWedMemberState(chatId: number): WedMemberState | unde
 }
 
 /**
- * init 在联网前接管 DiskIO 已严格验证的全部滑窗；文件顺序即进入顺序，末项进入时间即最大进入时间。
- * 进程重启不恢复按钮会话。
+ * init 在联网前接管 DiskIO 已严格验证的全部滑窗（每群不超过 WED_MEMBER_LIMIT）；按文件顺序（即进入顺序）
+ * 转成容量 WED_MEMBER_LIMIT 的 FifoMap，末项进入时间即最大进入时间。进程重启不恢复按钮会话。
  */
-export function hydrateWedMembers(snapshots: ReadonlyMap<number, Map<number, number>>): void {
+export function hydrateWedMembers(snapshots: ReadonlyMap<number, ReadonlyMap<number, number>>): void {
   resetWedMemberStates();
-  for (const [chatId, members] of snapshots) {
+  for (const [chatId, entries] of snapshots) {
+    const members: FifoMap<number, number> = new FifoMap(WED_MEMBER_LIMIT);
     let latestEnteredAt: number = 0;
-    for (const enteredAt of members.values()) latestEnteredAt = enteredAt;
+    for (const [id, enteredAt] of entries) {
+      members.set(id, enteredAt);
+      latestEnteredAt = enteredAt;
+    }
     wedMemberStates.set(chatId, { members, latestEnteredAt, revision: 0, dirty: false });
   }
 }
@@ -62,7 +68,9 @@ export function markWedMembersDirty(state: WedMemberState): void {
 /** 按进入顺序展开成扁平的 `[id, enteredAt, ...]`，跨线程只复制数字数组。 */
 function snapshotWedMembers(chatId: number, state: WedMemberState): WedMembersDiskMessage {
   const entries: number[] = [];
-  for (const [id, enteredAt] of state.members) entries.push(id, enteredAt);
+  state.members.forEach((enteredAt: number, id: number): void => {
+    entries.push(id, enteredAt);
+  });
   return { type: "wedMembers", chatId, revision: state.revision, entries };
 }
 

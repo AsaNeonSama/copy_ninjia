@@ -1,4 +1,5 @@
 import { Context } from "grammy";
+import type { FifoMap } from "../../../packages/libs/fifoMap";
 import type { Update, User } from "grammy/types";
 import { resetWedMemberStates, wedMemberStates } from "../../../packages/cache/main/wedMembers";
 import { WED_MEMBER_LIMIT } from "../../../packages/consts/wed";
@@ -40,14 +41,14 @@ export function wedMemberScenario(mode: "hit" | "growth" | "churn"): Scenario {
         user.id = mode === "hit" ? BENCHMARK_SENDER_ID + (index % WED_MEMBER_LIMIT) : nextId++;
         observeWedMembers(ctx);
       }
-      const members: Map<number, number> | undefined = wedMemberStates.get(BENCHMARK_CHAT_ID)?.members;
+      const members: FifoMap<number, number> | undefined = wedMemberStates.get(BENCHMARK_CHAT_ID)?.members;
       const size: number = members?.size ?? 0;
       const expectedSize: number = mode === "growth" ? Math.min(previousSize + iterations, WED_MEMBER_LIMIT) : WED_MEMBER_LIMIT;
       if (size !== expectedSize) throw new Error("Wed member observer did not consume the fixture.");
       if ((wedMemberStates.get(BENCHMARK_CHAT_ID)?.revision ?? 0) - previousRevision !== (mode === "hit" ? 0 : iterations)) {
         throw new Error("Wed member observer revision does not match the window changes.");
       }
-      if (mode === "churn" && members?.keys().next().value !== nextId - WED_MEMBER_LIMIT) {
+      if (mode === "churn" && members?.oldestKey() !== nextId - WED_MEMBER_LIMIT) {
         throw new Error("Wed member observer did not evict the earliest member.");
       }
       return size;

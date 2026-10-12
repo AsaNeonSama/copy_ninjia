@@ -1,4 +1,5 @@
 import { resetWedMemberStates, wedMemberStates } from "../../packages/cache/main/wedMembers";
+import type { FifoMap } from "../../packages/libs/fifoMap";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
@@ -72,7 +73,7 @@ const answer = mock(async (..._args: any[]): Promise<any> => true);
 const setProfile = mock(async (..._args: any[]): Promise<any> => true);
 
 /** 把一位成员的 ID 记进滑窗；抽取只认 ID，身份由读头像那次 getChat 取回。 */
-function seed(members: Map<number, number>, identity: User): void {
+function seed(members: FifoMap<number, number>, identity: User): void {
   members.set(identity.id, 0);
 }
 

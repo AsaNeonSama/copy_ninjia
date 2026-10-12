@@ -9,7 +9,6 @@ import {
 import {
   DAILY_LUCK_CACHE_MAX,
   luckTierByLabel,
-  PENDING_LUCK_CACHE_MAX,
 } from "../../consts/luckChallenge";
 import { DISK_IO_RESPAWN_PRIORITIES } from "../../consts/diskIO/common";
 import { logger } from "../../infra/logger";
@@ -20,7 +19,6 @@ import type { LuckDayCache, LuckReceiptSecret } from "../../types/diskIO/storage
 import type { LuckDraw, LuckTier } from "../../types/luckChallenge";
 import { deriveLuckDraw } from "./draw";
 import { ensureLuckReceiptSecret, onDiskIORespawn, onDiskIOReply, postDiskIO } from "../../infra/diskIO";
-import { setBoundedMapValue } from "../../libs/boundedMap";
 
 /**
  * 采用某个配置时区自然日的持久化密钥，并清空日缓存与 pending。换日采用时置
@@ -147,12 +145,7 @@ export function getOrDrawLuck(cacheKey: string): LuckDraw {
   if (pending) return pending;
 
   const draw: LuckDraw = deriveLuckDraw(currentLuckSecret(), cacheKey);
-  setBoundedMapValue({
-    map: pendingLuckDraws,
-    key: cacheKey,
-    value: draw,
-    maxEntries: PENDING_LUCK_CACHE_MAX,
-  });
+  pendingLuckDraws.set(cacheKey, draw);
   return draw;
 }
 

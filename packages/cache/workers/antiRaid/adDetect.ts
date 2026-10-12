@@ -5,6 +5,8 @@
  * （见 docs/cn/04-invariants.md）。
  */
 
+import { AD_DETECT_MAX_PENDING_SENDERS } from "../../../consts/antiRaid/adDetect";
+import { FifoMap } from "../../../libs/fifoMap";
 import { LinkedQueue } from "../../../libs/linkedQueue";
 import type {
   AdDetectedEvent,
@@ -40,11 +42,11 @@ export const queuedAdDetectKeys: Set<string> = new Set<string>();
  * 处置到主线程写入黑名单之间有一段跨线程往返，本表在此期间拦住本线程后续排队的
  * 同一发送者的消息（见 adDetect.ts 的 disposeDetectedAd 与 docs/cn/04-invariants.md）。
  *
- * 写入只来自处置路径，由 setBoundedMapValue 将容量硬顶在 AD_DETECT_MAX_PENDING_SENDERS，
- * 满载时淘汰最早处置的键。每个 key 在 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 后到期；
+ * 写入只来自处置路径，FifoMap 将容量硬顶在 AD_DETECT_MAX_PENDING_SENDERS，
+ * 满载时写入新键先淘汰最早处置的键。每个 key 在 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 后到期；
  * 封禁取得确定结果时由 blocklistEffects 提前回收。Worker 重建时清空，由后续真实处置重新填充。
  */
-export const recentlyDisposedAdKeys: Map<string, number> = new Map<string, number>();
+export const recentlyDisposedAdKeys: FifoMap<string, number> = new FifoMap(AD_DETECT_MAX_PENDING_SENDERS);
 
 /**
  * 引用类广告已公开警告的发送者键 -> 警告失效时刻。
@@ -52,10 +54,10 @@ export const recentlyDisposedAdKeys: Map<string, number> = new Map<string, numbe
  * owner 是 Anti-Raid Worker；第一次引用类广告警告成功后填充，
  * AD_REFERENCE_WARNING_WINDOW_MS 到期、停管、关开关或 Worker 停止时清理，
  * Worker 崩溃后从空表重建。容量与待检发送者上限 AD_DETECT_MAX_PENDING_SENDERS 相同；
- * 满载时淘汰最早警告，被淘汰的发送者重新走首次警告。
+ * 首次警告先删后写把本键挪到最新端，满载时 FifoMap 淘汰最早警告，被淘汰的发送者重新走首次警告。
  */
-export const referencedAdWarningStates: Map<string, ReferencedAdWarningState> =
-  new Map<string, ReferencedAdWarningState>();
+export const referencedAdWarningStates: FifoMap<string, ReferencedAdWarningState> =
+  new FifoMap(AD_DETECT_MAX_PENDING_SENDERS);
 
 /**
  * 引用广告警告 attempt 的 Worker 内单调序号。清群只删状态、不回退序号，

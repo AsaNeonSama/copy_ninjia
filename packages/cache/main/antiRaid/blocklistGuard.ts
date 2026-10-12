@@ -1,5 +1,8 @@
 /** owner: main。黑名单入群秒踢主线程侧代理（packages/antiRaid/blocklistGuard.ts）的内存状态。 */
 
+import { BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES } from "../../../consts/antiRaid/blocklist";
+import { FifoMap } from "../../../libs/fifoMap";
+
 /**
  * 最近已经替哪些 `(chatId, userId)` 的入群记过反刷群计数（键 → 记账时刻）。
  *
@@ -9,11 +12,11 @@
  * 普通入群由 states/verification.ts 的 joinCreatesNewRecord 去重，处置这一路由本表承担。
  *
  * 生命周期：claimBlockedJoiner 命中黑名单且本次要记账时写入；每次调用按
- * JOIN_WINDOW_MS 淘汰过期项，并按 BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES 兜住上界。
- * 写入一律先 delete 再 set，Map 的插入顺序即时间顺序，淘汰遇到第一个未过期项即停。
+ * JOIN_WINDOW_MS 从最早项淘汰过期项，遇到第一个未过期项即停。写入一律先 delete 再 set，
+ * 插入顺序即时间顺序；容量 BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES，满载时 FifoMap 淘汰最早一项。
  * 主线程状态，与 Worker 崩溃重建无关；进程重启后清空。
  */
-export const recentBlockedJoinCounts: Map<string, number> = new Map();
+export const recentBlockedJoinCounts: FifoMap<string, number> = new FifoMap(BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES);
 
 /**
  * 已记过「已拉黑频道身份的消息因缺删消息权限删不掉」错误的群。命中后该群的同类消息

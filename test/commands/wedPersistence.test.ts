@@ -46,8 +46,8 @@ afterEach(() => {
 test("只有实际增删才标脏，重复发言和不存在的退群 ID 不创建写任务", () => {
   const members: Map<number, number> = new Map<number, number>([[5974478892, 1_000]]);
   hydrateWedMembers(new Map([[-1001, members]]));
-  expect(wedMemberStates.get(-1001)!.members).toBe(members);
-  expect(getOrCreateWedChat(-1001)!.members).toBe(members);
+  expect([...wedMemberStates.get(-1001)!.members]).toEqual([...members]);
+  expect(getOrCreateWedChat(-1001)!.members).toBe(wedMemberStates.get(-1001)!.members);
   speak(5974478892);
   removeWedMember(-1001, 2);
   jest.advanceTimersByTime(FLUSH_INTERVAL_MS * 2);

@@ -80,9 +80,9 @@ export function updateCachedIdentity(identity: CachedUser): void {
 
   // 只有新增正向 key 才占容量，同名资料刷新和 username 换绑不增长条数。
   // 淘汰经 deleteAlias 连带摘掉 senderUsernameCache 与 identityById 两份按 id 的索引，
-  // 不使用只维护单张 Map 的 libs/boundedMap.ts 的 setBoundedMapValue。
+  // 写入前就腾出位置，userCache（FifoMap）自身的容量淘汰不会触发。
   if (!previousIdentity && userCache.size >= USER_CACHE_MAX) {
-    const oldestUsername: string | undefined = userCache.keys().next().value;
+    const oldestUsername: string | undefined = userCache.oldestKey();
     if (oldestUsername !== undefined) deleteAlias(oldestUsername);
   }
 

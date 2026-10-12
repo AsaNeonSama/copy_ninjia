@@ -133,9 +133,8 @@ test("所有群共用每秒五个 ID 的限速，只移除明确离群者并复�
   expect(probe.mock.calls.map(([chatId, userId]) => [chatId, userId])).toEqual([
     [-1001, 1], [-1001, 2], [-1001, 3], [-1001, 4], [-1002, 5], [-1002, 6], [-1002, 7],
   ]);
-  expect(wedMemberStates.get(-1001)!.members).toBe(first);
-  expect([...first.keys()]).toEqual([1]);
-  expect([...second.keys()]).toEqual([5, 6, 7]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1]);
+  expect([...wedMemberStates.get(-1002)!.members.keys()]).toEqual([5, 6, 7]);
   expect(errorLog).toHaveBeenCalledTimes(1);
   expect(flushWedMembers()).toBeTrue();
   expect(post).toHaveBeenCalledTimes(1);
@@ -204,7 +203,7 @@ test("Telegram 以 PARTICIPANT_ID_INVALID 拒绝的 ID 按离群移除且不记�
   await tick();
   for (let index: number = 0; index < 2; index++) await tick(WED_MEMBER_REVIEW_INTERVAL_MS);
   expect(probe).toHaveBeenCalledTimes(3);
-  expect([...members.keys()]).toEqual([1, 3]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1, 3]);
   expect(errorLog).toHaveBeenCalledTimes(1);
   expect(flushWedMembers()).toBeTrue();
   expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 1, entries: [1, 0, 3, 0] });
@@ -347,7 +346,7 @@ test("本群拒绝成员查询时只查一次即结束该群本轮，成员全�
   await tick();
   for (let index: number = 0; index < 2; index++) await tick(WED_MEMBER_REVIEW_INTERVAL_MS);
   expect(probe.mock.calls.map(([chatId, userId]) => [chatId, userId])).toEqual([[-1001, 1], [-1002, 4], [-1002, 5]]);
-  expect([...denied.keys()]).toEqual([1, 2, 3]);
-  expect([...reviewed.keys()]).toEqual([4]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1, 2, 3]);
+  expect([...wedMemberStates.get(-1002)!.members.keys()]).toEqual([4]);
   expect(errorLog).toHaveBeenCalledTimes(1);
 });

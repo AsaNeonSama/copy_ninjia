@@ -1,5 +1,7 @@
 /** owner: workers/antiRaid。频道评论区留言暂存缓冲（packages/workers/antiRaid/recentComments.ts）的内存状态。 */
 
+import { RECENT_COMMENT_CACHE_MAX } from "../../../consts/antiRaid/cache";
+import { FifoMap } from "../../../libs/fifoMap";
 import type { RecentChannelComment } from "../../../types/antiRaid/internal";
 
 /**
@@ -7,12 +9,12 @@ import type { RecentChannelComment } from "../../../types/antiRaid/internal";
  * rememberRecentComment 在留言到达且发言者尚无验证记录时写入（同一键只接受不早于现有
  * 记录的观察时间，更新时先删再插）；takeRecentComment 在入群事件命中时取出即删。
  * 容量硬顶 RECENT_COMMENT_CACHE_MAX：写入时若已满且 recentCommentsMinObservedAt
- * 显示可能有到期条目，先内联触发一次 sweep，仍满则按插入序淘汰最早一条。
+ * 显示可能有到期条目，先内联触发一次 sweep，仍满则由 FifoMap 按插入序淘汰最早一条。
  * 超过 COMMENT_JOIN_CORRELATE_MS 未被消费的条目由 Anti-Raid Worker 的周期
  * sweeper（sweepRecentComments）清理，读取和墙钟 sweep 都拒绝过期及未来记录。
  * 不落盘；Worker 重启后清空。
  */
-export const recentChannelComments: Map<string, RecentChannelComment> = new Map();
+export const recentChannelComments: FifoMap<string, RecentChannelComment> = new FifoMap(RECENT_COMMENT_CACHE_MAX);
 
 /**
  * recentChannelComments 里最小 observedAt 的下界（ms）；自上次 sweep 起表空时为 +Infinity。
