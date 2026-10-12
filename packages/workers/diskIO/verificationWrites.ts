@@ -199,10 +199,8 @@ export async function handleVerificationUpsert({
     );
   }
 
-  const snapshot: VerificationSnapshot = {
-    ...msg.record,
-    trackedMessageTimes: [...msg.record.trackedMessageTimes],
-  };
+  // msg 是本线程刚反序列化、独占的消息，记录直接进镜像，不再复制。
+  const snapshot: VerificationSnapshot = msg.record;
   verificationWorkerCache.set(key, snapshot);
   verificationPendingChanges.set(key, {
     chatId: snapshot.chatId,

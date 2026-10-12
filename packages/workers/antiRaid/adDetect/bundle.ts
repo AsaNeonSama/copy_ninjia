@@ -205,9 +205,11 @@ export function boundSampleContext(
   const quote: string = (rawQuote ?? "").slice(0, AD_SAMPLE_CONTEXT_MAX_CHARS);
   const replyTo: string = (rawReplyTo ?? "").slice(0, AD_SAMPLE_CONTEXT_MAX_CHARS);
   if (quote.length === 0 && replyTo.length === 0) return undefined;
-  if (quote.length === 0) return { replyTo };
-  if (replyTo.length === 0) return { quote };
-  return { quote, replyTo };
+  // 两个键固定写全，空段为 undefined，返回值只有一种 shape。
+  return {
+    quote: quote.length === 0 ? undefined : quote,
+    replyTo: replyTo.length === 0 ? undefined : replyTo,
+  };
 }
 
 /**

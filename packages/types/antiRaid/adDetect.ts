@@ -55,10 +55,10 @@ export interface AdDetectPrompts {
 
 /** 参与判定、同时写进命中样本的上下文。两项都可能缺席。 */
 export interface AdSampleContext {
-  /** 这条消息里被引用的那一段（message.quote）。 */
-  quote?: string;
-  /** 这条消息回复的那条原消息的正文。 */
-  replyTo?: string;
+  /** 这条消息里被引用的那一段（message.quote）；没有时为 undefined，键恒写。 */
+  quote: string | undefined;
+  /** 这条消息回复的那条原消息的正文；没有时为 undefined，键恒写。 */
+  replyTo: string | undefined;
 }
 
 /**

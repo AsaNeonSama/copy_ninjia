@@ -15,7 +15,7 @@ const source: ExpelSnapshot = {
 beforeEach((): void => { verificationGeneration.current = 1; });
 afterEach((): void => { verificationGeneration.current = 0; });
 
-test("pending 快照独立持有时间戳并可经当前落盘格式恢复", (): void => {
+test("pending 快照直接引用状态里的时间戳，投递时的结构化克隆与之独立，并可经当前落盘格式恢复", (): void => {
   const state: PendingState = {
     ...source, kind: "pending", trackedMessageTimes: [source.joinedAt],
     invitedBy: 23, replyReminderRequested: true, welcomeAnchorMessageId: 14, reminderSuperseded: true,
@@ -28,10 +28,12 @@ test("pending 快照独立持有时间戳并可经当前落盘格式恢复", ():
     trackedMessageTimes: before.trackedMessageTimes, invitedBy: 23,
     welcomeAnchorMessageId: 14, replyReminderRequested: true, reminderSuperseded: true,
   });
-  expect(snapshot.trackedMessageTimes).not.toBe(state.trackedMessageTimes);
+  // 快照只交给随即的 postMessage：同步完成的结构化克隆才是跨线程载荷，之后状态再变也不影响它。
+  expect(snapshot.trackedMessageTimes).toBe(state.trackedMessageTimes);
+  const posted: VerificationSnapshot = structuredClone(snapshot);
   state.trackedMessageTimes.push(source.joinedAt + 1);
-  expect(snapshot.trackedMessageTimes).toEqual(before.trackedMessageTimes);
-  expect(decodeVerificationDay("fixture", JSON.stringify({ "-1001:42": storedVerificationSnapshot(snapshot) })).get("-1001:42")).toEqual(snapshot);
+  expect(posted.trackedMessageTimes).toEqual(before.trackedMessageTimes);
+  expect(decodeVerificationDay("fixture", JSON.stringify({ "-1001:42": storedVerificationSnapshot(posted) })).get("-1001:42")).toEqual(posted);
 });
 
 test("终态快照保留各阶段字段且不会回写状态对象", (): void => {

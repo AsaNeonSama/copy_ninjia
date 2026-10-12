@@ -23,10 +23,9 @@ import type {
   AdDetectionMessageContext,
   AdSampleContext,
 } from "../types/antiRaid/adDetect";
-import type { TelegramIdentityMetadata } from "../types/identityPolicy";
 import { messageOriginIdentityId } from "../users/messageOrigin";
 import { visibleSenderId } from "../users/visibleSender";
-import { messageIdentityMetadata } from "../users/identityMetadata";
+import { identityFirstName, identityLastName, identityUsername } from "../users/identityMetadata";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
 import { canBypassAdDetection } from "./memberFacts";
 
@@ -116,9 +115,11 @@ function buildSampleContext(
     AD_SAMPLE_CONTEXT_MAX_CHARS
   ).trimEnd();
   if (quote.length === 0 && replyTo.length === 0) return undefined;
-  if (quote.length === 0) return { replyTo };
-  if (replyTo.length === 0) return { quote };
-  return { quote, replyTo };
+  // 两个键固定写全，空段为 undefined，返回值只有一种 shape。
+  return {
+    quote: quote.length === 0 ? undefined : quote,
+    replyTo: replyTo.length === 0 ? undefined : replyTo,
+  };
 }
 
 /**
@@ -190,11 +191,10 @@ export function buildAdCandidate(
   const sampleContext: AdSampleContext | undefined = buildSampleContext(message, now);
   if (text.length === 0 && linkUrls === undefined && sampleContext === undefined) return undefined;
 
-  const meta: Readonly<TelegramIdentityMetadata> =
-    messageIdentityMetadata(message, senderChat);
   // 可缺席的字段无条件写在初始化处，保持对象 shape 一致，口径同 aiChat/workerBridge.ts
-  // 的「字段一律发出，不用条件展开」与 auto/message/facts.ts。元数据与引用上下文平铺成
-  // 原始值字段，载荷保持扁平（见 types/antiRaid/adDetect.ts 的 AdCandidateMessage）。
+  // 的「字段一律发出，不用条件展开」与 auto/message/facts.ts。展示身份三项直接读值、
+  // 引用上下文平铺成原始值字段，不构造中间元数据对象，载荷保持扁平（见
+  // types/antiRaid/adDetect.ts 的 AdCandidateMessage）。
   return {
     type: "adCandidate",
     chatId,
@@ -202,9 +202,9 @@ export function buildAdCandidate(
     messageId: message.message_id,
     observedAt: now,
     text,
-    firstName: meta.firstName,
-    lastName: meta.lastName,
-    username: meta.username,
+    firstName: identityFirstName(message, senderChat),
+    lastName: identityLastName(message, senderChat),
+    username: identityUsername(message, senderChat),
     isChannel: senderChat !== undefined,
     isForwarded,
     blocked,

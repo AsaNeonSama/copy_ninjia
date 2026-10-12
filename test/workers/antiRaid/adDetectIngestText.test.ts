@@ -39,6 +39,8 @@ describe("入队时的送检文本整形", () => {
         directText: "第一条",
         receivedAt: 1,
         withinReferencedWarning: false,
+        quote: undefined,
+        replyTo: undefined,
       },
       {
         messageId: 2,
@@ -47,6 +49,8 @@ describe("入队时的送检文本整形", () => {
         directText: "第二条",
         receivedAt: 2,
         withinReferencedWarning: false,
+        quote: undefined,
+        replyTo: undefined,
       },
     ])).toBe("1. 第一条\n2. 第二条");
     expect(formatAdBundleText([])).toBe("");
