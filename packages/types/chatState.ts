@@ -104,7 +104,7 @@ export interface ChatState {
   /**
    * 本群是否已初始化，机器人是否处理这个群的更新。缺省视为未初始化，
    * 需由超级管理员通过 /init enable 显式开启（见 commands/init.ts）。未初始化
-   * 群的更新在 app/registerHandlers.ts 的前置网关处直接丢弃（除 /init 与本群
+   * 群的更新在 app/updatePreamble.ts 前置链的初始化网关处直接丢弃（除 /init 与本群
    * 无关的 my_chat_member 外），不进入授权维护、入群验证、普通指令匹配、AI
    * 调用等后续处理。
    */

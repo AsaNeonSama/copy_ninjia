@@ -151,7 +151,7 @@ export async function handleChatMemberUpdate(ctx: Context): Promise<void> {
 }
 
 /**
- * 消息事件的投递入口，在 app/registerHandlers.ts 里以中间件形式挂在所有
+ * 消息事件的投递入口，在 app/updatePreamble.ts 的前置链里位于所有
  * 命令处理器之前，待验证用户发的命令消息（/copy 之类）也计入刷屏窗口。职责：在群组
  * 未隐藏 `new_chat_members`/`left_chat_member` 服务消息时顺带捕获它们，并把
  * 每条消息的（chatId, userId, messageId）投递给 Worker；messageId 只用于回复式
@@ -162,7 +162,7 @@ export async function handleChatMemberUpdate(ctx: Context): Promise<void> {
  * 为 true；否则为 false，让消息正常继续流转。稳定态（管理员身份已确证、非
  * 服务消息、非黑名单频道身份）**同步**返回 false，不分配 Promise；只有现查
  * 管理员身份、删除黑名单频道消息或 durable 投递这三种情形返回 Promise，
- * 调用方按 MaybePromise 处理（见 app/registerHandlers.ts 的 claimOrContinue）。
+ * 调用方按 MaybePromise 处理（见 app/updatePreamble.ts 前置链的认领型 ingress 段）。
  */
 export function handleAntiRaidMessageIngress(
   message: Message,

@@ -149,7 +149,7 @@ export async function handleMyChatMemberUpdate(ctx: Context): Promise<void> {
 
 /**
  * 机器人已离开群（`departed`）或群已不存在（`gone`）时的收尾，my_chat_member 离群、群升级迁移消息
- * （app/registerHandlers.ts）与启动时确证不可达（infra/chatTitle.ts）三处共用：
+ * （app/updatePreamble.ts）与启动时确证不可达（infra/chatTitle.ts）三处共用：
  * 1. 权限快照作废；机器人重新入群后走按需现查重建。
  * 2. 全部 owner 的群 teardown：本群的 AI 记忆、`/wed` 成员集合、入群日志与问答一并删除
  *    （见 libs/chatTeardown.ts 的 purgesChatData）。

@@ -9,7 +9,7 @@
  * 不分配对象，也不对底层 Map 做删除后重插。
  *
  * 缓存整表填满（容量 `IDENTITY_READ_CACHE_MAX_ENTRIES`）：每条 update 的前置预热把
- * 见到的每个身份连同负缓存一起写进来（见 app/registerHandlers.ts）。取键序列固定，
+ * 见到的每个身份连同负缓存一起写进来（见 app/updatePreamble.ts）。取键序列固定，
  * 偏斜到反复发言的工作集（`WORKING_SET`），其余散落全表，不依赖时钟。
  */
 

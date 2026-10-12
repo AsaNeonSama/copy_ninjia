@@ -72,7 +72,7 @@ export const CJK_ACTION_COMMAND_PATTERN: RegExp =
   /^\/([\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]{1,2})(?:@([A-Za-z0-9_]+))?(?:\s|$)/;
 
 /**
- * 「/」的 UTF-16 码元。app/registerHandlers.ts 用它给中文动作命令的 hears 子链做
+ * 「/」的 UTF-16 码元。app/updatePreamble.ts 用它给中文动作命令的 hears 子链做
  * 外闸：CJK_ACTION_COMMAND_PATTERN 以 `^\/` 开头，原文首字符不是它的消息不进子链。
  */
 export const SLASH_CHAR_CODE: number = 0x2f;

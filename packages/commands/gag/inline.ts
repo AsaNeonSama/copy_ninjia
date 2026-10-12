@@ -127,7 +127,7 @@ function findActiveGagSenderSession(
  * 认领判定全部同步完成，只有真要删消息或结束过期会话时才返回 Promise：本群没有会话、
  * 这条也不是本 bot 发出的旧 gag inline 结果时，判定只有一次 Map 查询与一次 via_bot/entity
  * 检查；本群有会话时，不认领的消息（非目标发言人等）同样同步返回 false。本 handler 挂在
- * 每条群消息之前（见 app/registerHandlers.ts）。
+ * 每条群消息之前（见 app/updatePreamble.ts 的前置链）。
  */
 export function handleGagMessageIngress(
   message: Message,
