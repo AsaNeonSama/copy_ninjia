@@ -1,9 +1,8 @@
 import { basename, dirname, resolve } from "node:path";
 import {
-  blocklistEntryCache,
+  identityPolicyCache,
   resetIdentityStorageCache,
   unacknowledgedWhitelistWrites,
-  whitelistEntryCache,
 } from "../../../packages/cache/main/identityStorage";
 import {
   IDENTITY_WRITE_BATCH_MAX_ENTRIES,
@@ -44,13 +43,12 @@ import type { ChildResult } from "./types";
 function seedMainLru(): void {
   resetIdentityStorageCache();
   for (let id: number = 1; id <= READ_FIXTURE_SIZE; id += 1) {
-    if ((id & 1) === 0) {
-      whitelistEntryCache.set(id, null);
-      blocklistEntryCache.set(id, BLACK_ENTRY);
-    } else {
-      whitelistEntryCache.set(id, WHITE_ENTRY);
-      blocklistEntryCache.set(id, null);
-    }
+    const blocked: boolean = (id & 1) === 0;
+    identityPolicyCache.set(id, {
+      whitelist: blocked ? null : WHITE_ENTRY,
+      blocklist: blocked ? BLACK_ENTRY : null,
+      temporaryAdBypass: undefined,
+    });
   }
 }
 
@@ -70,8 +68,7 @@ function runMainLruReadBatches(batches: number): number {
 
 function seedMainWriteThroughCache(): void {
   for (let id: number = 1; id <= MAIN_WRITE_THROUGH_WORKING_SET; id += 1) {
-    whitelistEntryCache.set(id, null);
-    blocklistEntryCache.set(id, null);
+    identityPolicyCache.set(id, { whitelist: null, blocklist: null, temporaryAdBypass: undefined });
   }
 }
 

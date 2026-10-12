@@ -22,6 +22,11 @@ import {
 import type { BlocklistIdPage } from "../../packages/types/identityStorage";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 /**
  * 黑名单销号计数的次序边界：回执到达顺序、逐身份队列里的解除核对、预热等待期间的
@@ -40,9 +45,7 @@ const {
   pendingBlockedRemovals,
 } = await import("../../packages/cache/main/blocklist");
 const {
-  blocklistEntryCache,
   resetIdentityStorageCache,
-  whitelistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
 const {
   cachedBlocklistEntry,

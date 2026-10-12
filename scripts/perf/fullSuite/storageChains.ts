@@ -26,14 +26,8 @@ import type { recordEligibleTemporaryAdBypassActivity } from
   "../../../packages/antiRaid/temporaryAdBypass";
 import type { validateAgentDeploymentConfig } from
   "../../../packages/config/agent";
-import type {
-  blocklistEntryCache,
-  whitelistEntryCache,
-} from "../../../packages/cache/main/identityStorage";
-import type {
-  temporaryAdBypassActivityCache,
-  unacknowledgedTemporaryAdBypassWrites,
-} from "../../../packages/cache/main/temporaryAdBypass";
+import type { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
+import type { unacknowledgedTemporaryAdBypassWrites } from "../../../packages/cache/main/temporaryAdBypass";
 import type { ChainDefinition } from "./chainDefinition";
 import type { ChainName } from "./types";
 
@@ -68,10 +62,7 @@ export interface StorageChainDependencies {
   readonly recordEligibleTemporaryAdBypassActivity:
     typeof recordEligibleTemporaryAdBypassActivity;
   readonly validateAgentDeploymentConfig: typeof validateAgentDeploymentConfig;
-  readonly whitelistEntryCache: Pick<typeof whitelistEntryCache, "set">;
-  readonly blocklistEntryCache: Pick<typeof blocklistEntryCache, "set">;
-  readonly temporaryAdBypassActivityCache:
-  Pick<typeof temporaryAdBypassActivityCache, "set">;
+  readonly identityPolicyCache: Pick<typeof identityPolicyCache, "set">;
   readonly unacknowledgedTemporaryAdBypassWrites:
   Pick<typeof unacknowledgedTemporaryAdBypassWrites, "has">;
 }
@@ -124,8 +115,7 @@ function identityPolicyChain(
         id <= dependencies.mainWriteThroughWorkingSet;
         id += 1
       ) {
-        dependencies.whitelistEntryCache.set(id, null);
-        dependencies.blocklistEntryCache.set(id, null);
+        dependencies.identityPolicyCache.set(id, { whitelist: null, blocklist: null, temporaryAdBypass: undefined });
       }
     },
     run: async (sequence: number): Promise<void> => {
@@ -174,9 +164,7 @@ function temporaryAdBypassWriteChain(
       dependencies.hydrateIdentityStorageCounts(0, 0);
       for (let sequence: number = 0; sequence < totalOperations; sequence += 1) {
         const id: number = dependencies.benchmarkUserId(sequence);
-        dependencies.whitelistEntryCache.set(id, null);
-        dependencies.blocklistEntryCache.set(id, null);
-        dependencies.temporaryAdBypassActivityCache.set(id, null);
+        dependencies.identityPolicyCache.set(id, { whitelist: null, blocklist: null, temporaryAdBypass: null });
       }
     },
     run: async (sequence: number): Promise<void> => {

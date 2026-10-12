@@ -34,12 +34,13 @@ import type {
 } from "../../packages/types/diskIO";
 import type { IdentityPolicyRawReadResult } from "../../packages/types/identityStorage";
 import type { TemporaryAdBypassActivity } from "../../packages/types/states/temporaryAdBypass";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const {
-  whitelistEntryCache,
-} = await import("../../packages/cache/main/identityStorage");
-const {
-  temporaryAdBypassActivityCache,
   temporaryAdBypassWriteRevision,
   unacknowledgedTemporaryAdBypassWrites,
 } = await import(

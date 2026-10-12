@@ -21,12 +21,15 @@ import type {
   BlocklistIdPage,
   IdentityPolicyRawReadResult,
 } from "../../packages/types/identityStorage";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 const {
-  blocklistEntryCache,
   identityEntryCounts,
   unacknowledgedBlocklistWrites,
-  whitelistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
 const {
   queueIdentityPolicyWrite,

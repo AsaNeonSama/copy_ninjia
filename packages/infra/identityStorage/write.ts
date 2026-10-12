@@ -4,14 +4,13 @@ import { canQueueDiskIOBusiness } from "../diskIO/transport";
 import { describeFlushFailure } from "../diskIO/businessWrite";
 import { storageWriteCost } from "../../libs/storageWriteBudget";
 import {
-  blocklistEntryCache,
   identityEntryCounts,
+  identityPolicyCache,
   identityWriteRevision,
   unacknowledgedBlocklistWrites,
   unacknowledgedIdentityWrites,
   unacknowledgedIdentityBytes,
   unacknowledgedWhitelistWrites,
-  whitelistEntryCache,
 } from "../../cache/main/identityStorage";
 import { DISK_IO_RESPAWN_PRIORITIES } from
   "../../consts/diskIO/common";
@@ -34,8 +33,10 @@ import type {
   IdentityPolicyTable,
   WhitelistEntryData,
 } from "../../types/identityPolicy";
-import type { UnacknowledgedIdentityWrite } from
-  "../../types/identityStorage";
+import type {
+  IdentityPolicyCacheEntry,
+  UnacknowledgedIdentityWrite,
+} from "../../types/identityStorage";
 
 interface QueuedIdentityWrite {
   readonly table: IdentityPolicyTable;
@@ -43,21 +44,10 @@ interface QueuedIdentityWrite {
   readonly change: UnacknowledgedIdentityWrite;
 }
 
-function cacheForTable(
-  table: IdentityPolicyTable
-): typeof whitelistEntryCache | typeof blocklistEntryCache {
-  return table === "whitelist" ? whitelistEntryCache : blocklistEntryCache;
-}
-
-function oppositeCache(
-  table: IdentityPolicyTable
-): typeof whitelistEntryCache | typeof blocklistEntryCache {
-  return table === "whitelist" ? blocklistEntryCache : whitelistEntryCache;
-}
-
 /**
- * 校验并发布一次身份策略最终值：容量准入后写 LRU 与表计数，登记未 ACK revision，
- * 返回待投递消息。所有拒绝都发生在任何状态变化之前。
+ * 校验并发布一次身份策略最终值：容量准入后写合并身份缓存的该表字段（并刷新条目热度）与表计数，
+ * 登记未 ACK revision，返回待投递消息。白名单与黑名单两项都必须已加载；所有拒绝都发生在任何
+ * 状态变化之前。
  */
 function publishIdentityPolicyWrite(
   table: IdentityPolicyTable,
@@ -65,24 +55,20 @@ function publishIdentityPolicyWrite(
   value: Readonly<WhitelistEntryData> | Readonly<BlocklistEntryData> | null
 ): IdentityPolicyWriteDiskMessage {
   assertTelegramIdentityId(id, `identity ${table} write`);
-  const cache: typeof whitelistEntryCache | typeof blocklistEntryCache =
-    cacheForTable(table);
-  const other: typeof whitelistEntryCache | typeof blocklistEntryCache =
-    oppositeCache(table);
-  if (!cache.has(id) || !other.has(id)) {
+  const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.peek(id);
+  if (entry?.whitelist === undefined || entry.blocklist === undefined) {
     throw new Error(`Identity ${id} must be prefetched before a ${table} mutation.`);
   }
-  if (value !== null && other.peek(id) !== null) {
+  const other: Readonly<WhitelistEntryData> | Readonly<BlocklistEntryData> | null =
+    table === "whitelist" ? entry.blocklist : entry.whitelist;
+  if (value !== null && other !== null) {
     throw new Error(`Identity ${id} cannot exist in both whitelist and blocklist.`);
   }
   if (!Number.isSafeInteger(identityWriteRevision.current + 1)) {
     throw new Error("Identity policy revision space is exhausted.");
   }
-  const previous:
-    | Readonly<WhitelistEntryData>
-    | Readonly<BlocklistEntryData>
-    | null
-    | undefined = cache.peek(id);
+  const previous: Readonly<WhitelistEntryData> | Readonly<BlocklistEntryData> | null =
+    table === "whitelist" ? entry.whitelist : entry.blocklist;
   const data: string | null = value === null
     ? null
     : table === "whitelist"
@@ -103,14 +89,14 @@ function publishIdentityPolicyWrite(
   assertStorageAdmission(pendingWrites.size + (pendingPrevious === undefined ? 1 : 0), bytes);
   if (!canQueueDiskIOBusiness(message)) throw new Error("Disk I/O refused identity state publication.");
   if (table === "whitelist") {
-    whitelistEntryCache.set(id, value as Readonly<WhitelistEntryData> | null);
+    entry.whitelist = value as Readonly<WhitelistEntryData> | null;
   } else {
-    blocklistEntryCache.set(id, value as Readonly<BlocklistEntryData> | null);
+    entry.blocklist = value as Readonly<BlocklistEntryData> | null;
   }
+  // 写入视为一次使用：已有键 set 只把条目挪到最新端。
+  identityPolicyCache.set(id, entry);
   if (previous === null && value !== null) identityEntryCounts[table]++;
-  if (previous !== null && previous !== undefined && value === null) {
-    identityEntryCounts[table]--;
-  }
+  if (previous !== null && value === null) identityEntryCounts[table]--;
   identityWriteRevision.current++;
   pendingWrites.set(id, { data, revision });
   unacknowledgedIdentityBytes.current[table] = bytes;

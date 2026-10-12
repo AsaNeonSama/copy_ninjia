@@ -35,26 +35,38 @@ import type {
   DomainFlushOutcome,
   DiskIORecoveryTransport,
 } from "../../packages/types/diskIO";
-import type { IdentityPolicyRawReadResult } from "../../packages/types/identityStorage";
+import type {
+  IdentityPolicyCacheEntry,
+  IdentityPolicyRawReadResult,
+} from "../../packages/types/identityStorage";
+import type { TemporaryAdBypassActivity } from "../../packages/types/states/temporaryAdBypass";
+import { getDayStartTimestamp } from "../../packages/libs/time";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const {
-  blocklistEntryCache,
   identityEntryCounts,
   identityWriteRevision,
   resetIdentityStorageCache,
   unacknowledgedBlocklistWrites,
   unacknowledgedWhitelistWrites,
   unacknowledgedIdentityBytes,
-  whitelistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
 const {
-  temporaryAdBypassActivityCache,
   unacknowledgedTemporaryAdBypassWrites,
 } = await import(
   "../../packages/cache/main/temporaryAdBypass"
 );
-const { recordTemporaryAdBypassActivity } =
-  await import("../../packages/infra/identityPolicy/temporaryAdBypass");
+const {
+  clearTemporaryAdBypassActivity,
+  hasActiveTemporaryAdBypassAt,
+  recordTemporaryAdBypassActivity,
+} = await import("../../packages/infra/identityPolicy/temporaryAdBypass");
+const { identityPolicyCache } = await import("../../packages/cache/main/identityStorage");
 const {
   cachedBlocklistEntry,
   cachedWhitelistEntry,
@@ -498,4 +510,61 @@ describe("启动计数灌入", () => {
       expect(cachedBlocklistEntry(8)?.meta.username).toBe("alice");
     });
   }
+});
+
+describe("合并身份缓存的条目语义", () => {
+  test("只加载了临时免检一项的条目不算已预热，白名单与黑名单仍按未加载 fail-closed，预热补齐时复用同一条目", async () => {
+    // 冷身份撤销临时累计：只写临时免检一项（确证不存在），其余两项未加载。
+    expect(clearTemporaryAdBypassActivity(7)).toBeTrue();
+    const partial: IdentityPolicyCacheEntry | undefined = identityPolicyCache.peek(7);
+    expect(partial).toEqual({ whitelist: undefined, blocklist: undefined, temporaryAdBypass: null });
+    expect(isIdentityPolicyCached(7)).toBeFalse();
+    expect(cachedWhitelistEntry(7)).toBeUndefined();
+    expect(cachedBlocklistEntry(7)).toBeUndefined();
+
+    await prefetchIdentityPolicies([7]);
+    expect(readIdentityPolicies).toHaveBeenCalledTimes(1);
+    expect(identityPolicyCache.peek(7)).toBe(partial);
+    // 未 ACK 的墓碑覆盖数据库迟到值；白名单、黑名单这次确证不存在。
+    expect(identityPolicyCache.peek(7)).toEqual({ whitelist: null, blocklist: null, temporaryAdBypass: null });
+    expect(isIdentityPolicyCached(7)).toBeTrue();
+  });
+
+  test("预热每个冷身份只建一条三项齐全的条目", async () => {
+    await prefetchIdentityPolicies([7, 8, 7]);
+    expect(identityPolicyCache.size).toBe(2);
+    for (const id of [7, 8]) {
+      expect(identityPolicyCache.peek(id)).toEqual({ whitelist: null, blocklist: null, temporaryAdBypass: null });
+    }
+  });
+
+  test("没有新事实的记账只 peek 不刷新热度；同一条消息先经免检读口 get 才保住热度", async () => {
+    const ids: number[] = Array.from({ length: IDENTITY_READ_CACHE_MAX_ENTRIES }, (_: unknown, index: number): number => index + 1);
+    for (let index: number = 0; index < ids.length; index += IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES) {
+      await prefetchIdentityPolicies(ids.slice(index, index + IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES));
+    }
+    // 当天已达标的累计：状态机对同一天的后续发言原样返回入参，记账路径不写缓存。
+    const countedAt: number = getDayStartTimestamp(Date.now()) + 60_000;
+    const qualified: Readonly<TemporaryAdBypassActivity> = {
+      adBypass: true,
+      adBypassGrantedAt: countedAt,
+      qualifiedDays: 1,
+      sendCount: TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD + 1,
+      countedAt,
+      qualifiedAt: countedAt,
+    };
+    // 直接改字段，不经 get / set，不改变 LRU 顺序。
+    identityPolicyCache.peek(1)!.temporaryAdBypass = qualified;
+    identityPolicyCache.peek(2)!.temporaryAdBypass = qualified;
+    const now: number = countedAt + 1;
+    // 1 号只记账：不刷新热度，下一条冷身份进来时被挤出。
+    expect(recordTemporaryAdBypassActivity(1, now)).toBe(qualified);
+    // 2 号先读免检（get 刷新热度）再记账：保住。
+    hasActiveTemporaryAdBypassAt(2, now);
+    expect(recordTemporaryAdBypassActivity(2, now)).toBe(qualified);
+    await prefetchIdentityPolicies([IDENTITY_READ_CACHE_MAX_ENTRIES + 1, IDENTITY_READ_CACHE_MAX_ENTRIES + 2]);
+    expect(identityPolicyCache.size).toBe(IDENTITY_READ_CACHE_MAX_ENTRIES);
+    expect(identityPolicyCache.has(1)).toBeFalse();
+    expect(identityPolicyCache.has(2)).toBeTrue();
+  });
 });

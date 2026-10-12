@@ -390,7 +390,7 @@ export interface ReadJoinLogRequest {
   now: number;
 }
 
-/** 主线程 -> Disk I/O Worker：按主键批量读取身份策略，供三份 LRU 冷缺失预热。 */
+/** 主线程 -> Disk I/O Worker：按主键批量读取身份策略，供合并身份缓存（identityPolicyCache）冷缺失预热。 */
 export interface ReadIdentityPoliciesRequest {
   type: "readIdentityPolicies";
   requestId: number;

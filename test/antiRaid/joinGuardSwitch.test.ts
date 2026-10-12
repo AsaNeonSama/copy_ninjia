@@ -7,6 +7,11 @@ import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid/protoc
 import type { AdDetectionMessageContext } from
   "../../packages/types/antiRaid/adDetect";
 import type { DiskBusinessMessage, AdSampleDiskMessage, AiCacheUsageDiskMessage } from "../../packages/types/diskIO";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 /**
  * `/antiraid` 开关在主线程投递侧的边界（见 antiRaid/updateIngress.ts）。
@@ -111,8 +116,7 @@ const {
   handleChatMemberUpdate,
   handleVerificationCallback,
 } = await import("../../packages/antiRaid");
-const { blocklistEntryCache, whitelistEntryCache } =
-  await import("../../packages/cache/main/identityStorage");
+
 const { runWithUpdateAbortSignal, updateNow } = await import("../../packages/infra/updateContext");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
 const { replayChatKinds } = await import("../../packages/antiRaid/workerBridge/replay");

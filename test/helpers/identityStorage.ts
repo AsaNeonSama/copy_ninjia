@@ -1,12 +1,15 @@
 import {
-  blocklistEntryCache,
   identityEntryCounts,
   resetIdentityStorageCache,
-  whitelistEntryCache,
 } from "../../packages/cache/main/identityStorage";
-import { temporaryAdBypassActivityCache } from
-  "../../packages/cache/main/temporaryAdBypass";
+
 import type { BlocklistEntryData } from "../../packages/types/identityPolicy";
+import { identityFieldView } from "./identityCacheView";
+import type { IdentityFieldView } from "./identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 interface BlockedTestRecord {
   readonly isBlocked: true;

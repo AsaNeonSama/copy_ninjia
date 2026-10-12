@@ -13,6 +13,12 @@ import type {
   DiskBusinessMessage,
   IdentityStoragePersistedReply,
 } from "../../packages/types/diskIO";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const diskMessages: DiskBusinessMessage[] = [];
 const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [];
@@ -55,15 +61,11 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
 })));
 
 const {
-  blocklistEntryCache,
   resetIdentityStorageCache,
   unacknowledgedWhitelistWrites,
-  whitelistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
 const { confirmIdentityPolicyPersisted } = await import("../../packages/infra/identityStorage");
-const { temporaryAdBypassActivityCache } = await import(
-  "../../packages/cache/main/temporaryAdBypass"
-);
+
 const {
   enableAllWhitelistPermissions,
   getEffectiveWhitelistPermissions,

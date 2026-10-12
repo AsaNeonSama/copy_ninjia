@@ -1,9 +1,8 @@
 import { assertStorageAdmission } from "../diskIO/storageAdmission";
 import { canQueueDiskIOBusiness } from "../diskIO/transport";
 import { storageWriteCost } from "../../libs/storageWriteBudget";
-import { blocklistEntryCache } from "../../cache/main/identityStorage";
+import { identityPolicyCache } from "../../cache/main/identityStorage";
 import {
-  temporaryAdBypassActivityCache,
   temporaryAdBypassWriteRevision,
   unacknowledgedTemporaryAdBypassWrites,
 } from "../../cache/main/temporaryAdBypass";
@@ -22,6 +21,7 @@ import type {
   TemporaryAdBypassWriteDiskMessage,
 } from "../../types/diskIO/messages";
 import type { IdentityStoragePersistedReply } from "../../types/diskIO/replies";
+import type { IdentityPolicyCacheEntry } from "../../types/identityStorage";
 import type {
   StoredTemporaryAdBypassActivity,
   UnacknowledgedTemporaryAdBypassWrite,
@@ -34,7 +34,7 @@ import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBy
  */
 export function hasActiveTemporaryAdBypass(id: number): boolean {
   const activity: Readonly<TemporaryAdBypassActivity> | null | undefined =
-    temporaryAdBypassActivityCache.get(id);
+    identityPolicyCache.get(id)?.temporaryAdBypass;
   if (!activity?.adBypass) return false;
   return isTemporaryAdBypassActive(activity, Date.now());
 }
@@ -45,17 +45,20 @@ export function hasActiveTemporaryAdBypassAt(
   now: number
 ): boolean {
   const activity: Readonly<TemporaryAdBypassActivity> | null | undefined =
-    temporaryAdBypassActivityCache.get(id);
+    identityPolicyCache.get(id)?.temporaryAdBypass;
   if (!activity?.adBypass) return false;
   return isTemporaryAdBypassActive(activity, now);
 }
 
-/** 批量读取回执叠加主线程未 ACK 最终值后写入正/负 LRU。 */
-export function hydrateTemporaryAdBypassActivities(
+/**
+ * 校验批量读取回执里的临时累计行，按 id 收成表；行 id 必须在本次请求内且不重复。
+ * 叠加未 ACK 最终值见 currentTemporaryAdBypassActivity；写缓存由预热循环整条完成
+ * （infra/identityStorage/read.ts）。
+ */
+export function storedTemporaryAdBypassActivities(
   rows: readonly StoredTemporaryAdBypassActivity[],
-  requested: ReadonlySet<number>,
-  ids: readonly number[]
-): void {
+  requested: ReadonlySet<number>
+): ReadonlyMap<number, Readonly<TemporaryAdBypassActivity>> {
   const stored: Map<number, Readonly<TemporaryAdBypassActivity>> = new Map();
   for (const row of rows) {
     assertTelegramIdentityId(row.id, "temporary ad bypass read reply");
@@ -77,13 +80,29 @@ export function hydrateTemporaryAdBypassActivities(
       qualifiedAt: row.qualifiedAt,
     });
   }
-  for (const id of ids) {
-    const pending: UnacknowledgedTemporaryAdBypassWrite | undefined =
-      unacknowledgedTemporaryAdBypassWrites.get(id);
-    temporaryAdBypassActivityCache.set(
-      id,
-      pending === undefined ? stored.get(id) ?? null : pending.activity
-    );
+  return stored;
+}
+
+/** 本地未 ACK 最终值覆盖数据库迟到值后的当前临时累计；都没有时为 null（确证不存在）。 */
+export function currentTemporaryAdBypassActivity(
+  id: number,
+  stored: ReadonlyMap<number, Readonly<TemporaryAdBypassActivity>>
+): Readonly<TemporaryAdBypassActivity> | null {
+  const pending: UnacknowledgedTemporaryAdBypassWrite | undefined =
+    unacknowledgedTemporaryAdBypassWrites.get(id);
+  return pending === undefined ? stored.get(id) ?? null : pending.activity;
+}
+
+/** 把临时累计最终值写进合并身份缓存的该字段并刷新热度；条目不存在时建三字段条目，其余两项为未加载。 */
+function cacheTemporaryAdBypassActivity(
+  id: number,
+  activity: Readonly<TemporaryAdBypassActivity> | null
+): void {
+  const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.get(id);
+  if (entry === undefined) {
+    identityPolicyCache.set(id, { whitelist: undefined, blocklist: undefined, temporaryAdBypass: activity });
+  } else {
+    entry.temporaryAdBypass = activity;
   }
 }
 
@@ -109,7 +128,7 @@ function queueTemporaryAdBypassWrite(
   assertStorageAdmission(entries, entries * storageWriteCost(null));
   if (!canQueueDiskIOBusiness(message)) throw new Error("Disk I/O refused temporary ad bypass state publication.");
   temporaryAdBypassWriteRevision.current = revision;
-  temporaryAdBypassActivityCache.set(id, activity);
+  cacheTemporaryAdBypassActivity(id, activity);
   unacknowledgedTemporaryAdBypassWrites.set(id, { activity, revision });
   if (diskIO.postDiskIO(message)) return true;
   logger.error(
@@ -121,11 +140,11 @@ function queueTemporaryAdBypassWrite(
 /**
  * 计入一条已通过入口门禁的群发言；该主键未预热时返回 undefined，不创建记录。
  *
- * 临时累计与黑名单互斥（见 docs/cn/04-invariants.md）：黑名单 LRU 命中或冷缺失
+ * 临时累计与黑名单互斥（见 docs/cn/04-invariants.md）：黑名单项为已加载的记录或未加载
  * 时同样返回 undefined，只有确认不在黑名单的身份才推进累计。
  *
- * 状态机原样返回入参时没有新事实要落盘：跳过 revision 递增、LRU 写、未 ACK
- * 记账与投递。这一路不刷新 `LruCache.set` 的热度，调用方须在同一条消息上先经
+ * 状态机原样返回入参时没有新事实要落盘：跳过 revision 递增、缓存写、未 ACK
+ * 记账与投递。本函数只 `peek`，不刷新条目热度，调用方须在同一条消息上先经
  * `hasActiveTemporaryAdBypassAt` 读过该主键，由那次 `get` 维持热度。投递失败由
  * queueTemporaryAdBypassWrite 记日志并保留未 ACK 最终值等待重放。
  * @returns 计入后的最终累计；未计入时为 undefined。
@@ -134,12 +153,9 @@ export function recordTemporaryAdBypassActivity(
   id: number,
   now: number = Date.now()
 ): Readonly<TemporaryAdBypassActivity> | undefined {
-  if (
-    !temporaryAdBypassActivityCache.has(id) ||
-    blocklistEntryCache.peek(id) !== null
-  ) return undefined;
-  const current: Readonly<TemporaryAdBypassActivity> | null =
-    temporaryAdBypassActivityCache.peek(id) ?? null;
+  const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.peek(id);
+  if (entry?.temporaryAdBypass === undefined || entry.blocklist !== null) return undefined;
+  const current: Readonly<TemporaryAdBypassActivity> | null = entry.temporaryAdBypass;
   const activity: Readonly<TemporaryAdBypassActivity> =
     advanceTemporaryAdBypassActivity(current, now);
   if (activity !== current) queueTemporaryAdBypassWrite(id, activity);
@@ -148,8 +164,7 @@ export function recordTemporaryAdBypassActivity(
 
 /** 删除整条临时累计：广告判定为 true、晋升永久白名单后与 /block 拉黑时调用；不存在时幂等成功。 */
 export function clearTemporaryAdBypassActivity(id: number): boolean {
-  const cached: boolean = temporaryAdBypassActivityCache.has(id);
-  if (cached && temporaryAdBypassActivityCache.peek(id) === null) return true;
+  if (identityPolicyCache.peek(id)?.temporaryAdBypass === null) return true;
   // 删除不依赖旧值：缓存冷缺失时同样发布墓碑，并保留到 ACK。
   return queueTemporaryAdBypassWrite(id, null);
 }
@@ -197,7 +212,7 @@ function replayTemporaryAdBypassWrites(transport: DiskIORecoveryTransport): bool
         revision: change.revision,
       };
       unacknowledgedTemporaryAdBypassWrites.set(id, normalized);
-      temporaryAdBypassActivityCache.set(id, activity);
+      cacheTemporaryAdBypassActivity(id, activity);
     }
     if (!transport.post({
       type: "temporaryAdBypassWrite",

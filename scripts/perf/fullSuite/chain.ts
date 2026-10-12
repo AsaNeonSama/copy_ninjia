@@ -44,14 +44,8 @@ import { createConfigChain } from "./configChains";
 import { MAIN_WRITE_THROUGH_WORKING_SET } from
   "../identityDatabase/constants";
 import { WHITE_ENTRY } from "../identityDatabase/fixtures";
-import {
-  blocklistEntryCache,
-  whitelistEntryCache,
-} from "../../../packages/cache/main/identityStorage";
-import {
-  temporaryAdBypassActivityCache,
-  unacknowledgedTemporaryAdBypassWrites,
-} from "../../../packages/cache/main/temporaryAdBypass";
+import { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
+import { unacknowledgedTemporaryAdBypassWrites } from "../../../packages/cache/main/temporaryAdBypass";
 import { IDENTITY_WRITE_BATCH_MAX_ENTRIES } from
   "../../../packages/consts/identityStorage";
 import { STATE_MANAGED_CHAT_LIMIT } from
@@ -156,9 +150,7 @@ const STORAGE_CHAIN_DEPENDENCIES: StorageChainDependencies = {
   readIdentityPolicies,
   recordEligibleTemporaryAdBypassActivity,
   validateAgentDeploymentConfig,
-  whitelistEntryCache,
-  blocklistEntryCache,
-  temporaryAdBypassActivityCache,
+  identityPolicyCache,
   unacknowledgedTemporaryAdBypassWrites,
 };
 

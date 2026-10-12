@@ -1,21 +1,9 @@
-/** owner: main。临时广告免检读取 LRU 与尚未收到 SQLite ACK 的最终值。 */
+/** owner: main。临时广告免检尚未收到 SQLite ACK 的最终值与 revision；热查询结论在
+ * cache/main/identityStorage.ts 的 identityPolicyCache（temporaryAdBypass 字段）。 */
 
-import { IDENTITY_READ_CACHE_MAX_ENTRIES } from "../../consts/identityStorage";
-import { LruCache } from "../../libs/lruCache";
 import type {
   UnacknowledgedTemporaryAdBypassWrite,
 } from "../../types/temporaryAdBypass";
-import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBypass";
-
-/**
- * 临时广告免检累计热查询；update 预读与本地 write-through 填充，null 表示确证不存在。
- * 容量上限为 IDENTITY_READ_CACHE_MAX_ENTRIES，超出按 LRU 淘汰；进程初始化时清空。Disk I/O Worker 重建期间
- * 本缓存继续提供同步最终值，冷缺失在新 Worker 激活后重新预读。
- */
-export const temporaryAdBypassActivityCache: LruCache<
-  number,
-  Readonly<TemporaryAdBypassActivity> | null
-> = new LruCache(IDENTITY_READ_CACHE_MAX_ENTRIES);
 
 /**
  * SQLite 尚未精确 ACK 的主线程最终值；同一身份原地合并，ACK 后删除。
@@ -35,9 +23,8 @@ export const unacknowledgedTemporaryAdBypassWrites: Map<
  */
 export const temporaryAdBypassWriteRevision: { current: number } = { current: 0 };
 
-/** 清空读取、未 ACK 最终值与 revision；只由 resetIdentityStorageCache 在测试隔离与基准重置时调用。 */
+/** 清空未 ACK 最终值与 revision；只由 resetIdentityStorageCache 在测试隔离与基准重置时调用（它同时清空 identityPolicyCache）。 */
 export function resetTemporaryAdBypassCache(): void {
-  temporaryAdBypassActivityCache.clear();
   unacknowledgedTemporaryAdBypassWrites.clear();
   temporaryAdBypassWriteRevision.current = 0;
 }

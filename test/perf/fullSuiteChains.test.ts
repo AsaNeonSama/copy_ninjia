@@ -20,6 +20,7 @@ import { createCommandChain } from "../../scripts/perf/fullSuite/commandChains";
 import type { CommandChainDependencies } from "../../scripts/perf/fullSuite/commandChains";
 import type { DeliverCronActionOptions } from "../../packages/cron/delivery";
 import type { CronDeliveryOutcome } from "../../packages/types/cron";
+import type { IdentityPolicyCacheEntry } from "../../packages/types/identityStorage";
 import type { EncodedVoiceMessage, VoiceSynthesisResult } from "../../packages/types/aiChat/voiceMessage";
 
 describe("全量性能链路编排", () => {
@@ -33,9 +34,7 @@ describe("全量性能链路编排", () => {
   });
 
   test("durable 场景从资格入口等到精确 ACK，并核验最终记录数", async () => {
-    const whitelist: Map<number, unknown> = new Map<number, unknown>();
-    const blocklist: Map<number, unknown> = new Map<number, unknown>();
-    const temporary: Map<number, unknown> = new Map<number, unknown>();
+    const identities: Map<number, IdentityPolicyCacheEntry> = new Map<number, IdentityPolicyCacheEntry>();
     const unacknowledged: Set<number> = new Set<number>();
     const rows: StoredTemporaryAdBypassActivity[] = [];
     let readinessCalls: number = 0;
@@ -49,9 +48,7 @@ describe("全量性能链路编排", () => {
         return undefined as never;
       },
       hydrateIdentityStorageCounts: (): void => {},
-      whitelistEntryCache: whitelist as never,
-      blocklistEntryCache: blocklist as never,
-      temporaryAdBypassActivityCache: temporary as never,
+      identityPolicyCache: identities as never,
       unacknowledgedTemporaryAdBypassWrites: unacknowledged as never,
       recordEligibleTemporaryAdBypassActivity: ({
         message,
@@ -90,9 +87,8 @@ describe("全量性能链路编排", () => {
     await definition.verify?.();
 
     expect(readinessCalls).toBe(1);
-    expect(whitelist.has(10_000)).toBeTrue();
-    expect(blocklist.has(10_000)).toBeTrue();
-    expect(temporary.has(10_000)).toBeTrue();
+    // 预热按整条写入三项负缓存。
+    expect(identities.get(10_000)).toEqual({ whitelist: null, blocklist: null, temporaryAdBypass: null });
     expect(unacknowledged.size).toBe(0);
     expect(rows).toHaveLength(1);
   });

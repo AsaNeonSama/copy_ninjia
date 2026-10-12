@@ -1,12 +1,16 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { temporaryAdBypassActivityCache } from "../../packages/cache/main/temporaryAdBypass";
-import { whitelistEntryCache } from "../../packages/cache/main/identityStorage";
+
 import { DAY_MS } from "../../packages/consts/time";
 import {
   hasActiveTemporaryAdBypass,
   hasActiveTemporaryAdBypassAt,
 } from "../../packages/infra/identityPolicy/temporaryAdBypass";
 import { getEffectiveWhitelistPermissions } from "../../packages/infra/identityPolicy/whitelist";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 afterEach(() => {
   temporaryAdBypassActivityCache.clear();

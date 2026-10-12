@@ -1,7 +1,7 @@
 import * as diskIO from "../diskIO";
 import {
-  blocklistEntryCache,
   identityEntryCounts,
+  identityPolicyCache,
   identityWriteRevision,
   unacknowledgedBlocklistWrites,
 } from "../../cache/main/identityStorage";
@@ -125,7 +125,7 @@ export async function retainParticipantInvalidBlocklistIds(
   const cold: number[] = [];
   for (const id of ids) {
     const cached: Readonly<BlocklistEntryData> | null | undefined =
-      blocklistEntryCache.peek(id);
+      identityPolicyCache.peek(id)?.blocklist;
     if (cached === undefined) cold.push(id);
     else if (cached?.participantInvalidCount !== undefined) retained.push(id);
   }

@@ -18,6 +18,10 @@ import { BLOCKLIST_PARTICIPANT_INVALID_LIMIT } from "../../packages/consts/antiR
 import type { PendingBlockedRemoval } from "../../packages/types/blocklist";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 /**
  * 黑名单销号计数规则：回执驱动的 JSONB 计数、清零、满额解除与失败路径。
@@ -36,7 +40,6 @@ const {
   pendingBlockedRemovals,
 } = await import("../../packages/cache/main/blocklist");
 const {
-  blocklistEntryCache,
   resetIdentityStorageCache,
 } = await import("../../packages/cache/main/identityStorage");
 const { diskIORuntime } = await import("../../packages/cache/main/diskIO");

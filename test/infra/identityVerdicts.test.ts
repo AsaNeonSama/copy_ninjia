@@ -9,6 +9,12 @@ import type {
   IdentityPolicyRawReadResult,
   IdentityPolicyVerdicts,
 } from "../../packages/types/identityStorage";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 /**
  * 身份 LRU 驻留与批量处置局部结论：预热命中刷新热度，破坏性批量路径按块直接
@@ -29,10 +35,8 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
 
 const {
   resetIdentityStorageCache,
-  whitelistEntryCache,
-  blocklistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
-const { temporaryAdBypassActivityCache } = await import("../../packages/cache/main/temporaryAdBypass");
+
 const {
   cachedWhitelistEntry,
   isIdentityPolicyCached,

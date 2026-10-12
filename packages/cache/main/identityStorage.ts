@@ -2,33 +2,28 @@
 
 import { IDENTITY_READ_CACHE_MAX_ENTRIES } from "../../consts/identityStorage";
 import { LruCache } from "../../libs/lruCache";
+import type { IdentityPolicyTable } from "../../types/identityPolicy";
 import type {
-  BlocklistEntryData,
-  IdentityPolicyTable,
-  WhitelistEntryData,
-} from "../../types/identityPolicy";
-import type { UnacknowledgedIdentityWrite } from "../../types/identityStorage";
+  IdentityPolicyCacheEntry,
+  UnacknowledgedIdentityWrite,
+} from "../../types/identityStorage";
 import { resetTemporaryAdBypassCache } from "./temporaryAdBypass";
 
 /**
- * 白名单热查询缓存；null 是已确认不存在的负缓存，容量上限为
- * IDENTITY_READ_CACHE_MAX_ENTRIES。
- * 清理：LruCache 满载淘汰最久未用项；写入路径按主键覆盖，`/white disable`
- * 写入 null 负缓存。进程重启归零，由 prefetchIdentityPolicies 重新预热。
+ * 身份 id -> 白名单、黑名单、临时广告免检三项热查询结论（条目语义见 types/identityStorage.ts 的
+ * IdentityPolicyCacheEntry：undefined 未加载、null 确证不存在）。容量 IDENTITY_READ_CACHE_MAX_ENTRIES，
+ * 三项随条目一起按 LRU 淘汰。
+ * 填充：prefetchIdentityPolicies / readIdentityPolicyVerdicts 每个 id 一次整条写入；写入路径
+ * （infra/identityStorage/write.ts、infra/identityPolicy/temporaryAdBypass.ts）按字段覆盖，条目不存在
+ * 时先建三字段齐全的条目，其余字段为 undefined。
+ * 读取：cachedWhitelistEntry、cachedBlocklistEntry、hasActiveTemporaryAdBypass(At) 用 `get`
+ * 刷新热度；同一条消息的后续读取命中最新端，不再移动节点。isIdentityPolicyCached、写入前校验与
+ * recordTemporaryAdBypassActivity 用 `peek`，不刷新热度。
+ * 清理：启动接管计数时整表清空；进程重启归零，由预热重新填充。Disk I/O Worker 重建期间本表继续
+ * 提供同步最终值，冷缺失在新 Worker 激活后重新预读。
  */
-export const whitelistEntryCache: LruCache<
-  number,
-  Readonly<WhitelistEntryData> | null
-> = new LruCache(IDENTITY_READ_CACHE_MAX_ENTRIES);
-
-/**
- * 黑名单热查询缓存；null 是已确认不存在的负缓存，容量与淘汰同
- * whitelistEntryCache。
- */
-export const blocklistEntryCache: LruCache<
-  number,
-  Readonly<BlocklistEntryData> | null
-> = new LruCache(IDENTITY_READ_CACHE_MAX_ENTRIES);
+export const identityPolicyCache: LruCache<number, IdentityPolicyCacheEntry> =
+  new LruCache(IDENTITY_READ_CACHE_MAX_ENTRIES);
 
 /** 启动时从 SQLite 取得的两表计数；之后随已预热主键的本地最终值变化增减。 */
 export const identityEntryCounts: {
@@ -87,8 +82,7 @@ export function unacknowledgedIdentityWrites(
 
 /** 测试隔离与基准重置时清空有界缓存与一致性水位；生产进程从模块初始值开始。 */
 export function resetIdentityStorageCache(): void {
-  whitelistEntryCache.clear();
-  blocklistEntryCache.clear();
+  identityPolicyCache.clear();
   identityEntryCounts.whitelist = 0;
   identityEntryCounts.blocklist = 0;
   unacknowledgedWhitelistWrites.clear();

@@ -13,12 +13,7 @@
  * 偏斜到反复发言的工作集（`WORKING_SET`），其余散落全表，不依赖时钟。
  */
 
-import {
-  blocklistEntryCache,
-  whitelistEntryCache,
-} from "../../../packages/cache/main/identityStorage";
-import { temporaryAdBypassActivityCache } from
-  "../../../packages/cache/main/temporaryAdBypass";
+import { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
 import { IDENTITY_READ_CACHE_MAX_ENTRIES } from "../../../packages/consts/identityStorage";
 import { DEFAULT_WHITELIST_PERMISSIONS } from "../../../packages/consts/whitelist";
 import { SUPER_ADMIN_USER_ID } from "../../../packages/config/bot";
@@ -90,13 +85,15 @@ export function createIdentityPermissionReadScenario(): Scenario {
     prepare: (): void => {
       for (let index: number = 0; index < ids.length; index += 1) {
         const id: number = ids[index]!;
-        // 绝大多数条目是负缓存（见过、但不在任何名单里）；三张表一起填充，
+        // 绝大多数条目是负缓存（见过、但不在任何名单里）；三项与预热一样整条写入，
         // 临时广告免检的常态热读也进入场景。
         const whitelisted: boolean = index % 50 === 0;
         const blocked: boolean = !whitelisted && index % 97 === 0;
-        whitelistEntryCache.set(id, whitelisted ? WHITELIST_ENTRY : null);
-        blocklistEntryCache.set(id, blocked ? BLOCKLIST_ENTRY : null);
-        temporaryAdBypassActivityCache.set(id, null);
+        identityPolicyCache.set(id, {
+          whitelist: whitelisted ? WHITELIST_ENTRY : null,
+          blocklist: blocked ? BLOCKLIST_ENTRY : null,
+          temporaryAdBypass: null,
+        });
       }
     },
     run: (iterations: number): number => {
@@ -111,9 +108,7 @@ export function createIdentityPermissionReadScenario(): Scenario {
       return checksum;
     },
     reset: (): void => {
-      whitelistEntryCache.clear();
-      blocklistEntryCache.clear();
-      temporaryAdBypassActivityCache.clear();
+      identityPolicyCache.clear();
     },
     probes: {
       canBypassFloodControl,

@@ -5,13 +5,16 @@ import type { FloodCandidateMessage } from "../../packages/types/antiRaid/protoc
 import type { ChatState } from "../../packages/types/chatState";
 import { chatStateCache } from "../../packages/cache/main/chatState";
 import { getChatState } from "../../packages/infra/storage/stateStore";
-import { whitelistEntryCache } from "../../packages/cache/main/identityStorage";
-import { temporaryAdBypassActivityCache } from
-  "../../packages/cache/main/temporaryAdBypass";
+
 import { SUPER_ADMIN_USER_ID } from "../../packages/config/bot";
 import { DEFAULT_WHITELIST_PERMISSIONS } from "../../packages/consts/whitelist";
 import { TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD, TEMPORARY_AD_BYPASS_REQUIRED_DAYS } from "../../packages/consts/temporaryAdBypass";
 import { chatStateOf } from "../helpers/chatState";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const BOT_ID: number = 99;
 /** 固定的主线程观测时刻；投递载荷原样带给 Worker 当窗口时刻。 */

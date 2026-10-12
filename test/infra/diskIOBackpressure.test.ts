@@ -2,7 +2,7 @@ import { getTimeZone } from "../../packages/config/time";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { diskIORuntime } from "../../packages/cache/main/diskIO";
 import { defaultStickerConfigCache } from "../../packages/cache/perThread/config";
-import { temporaryAdBypassActivityCache, temporaryAdBypassWriteRevision, unacknowledgedTemporaryAdBypassWrites } from "../../packages/cache/main/temporaryAdBypass";
+import { temporaryAdBypassWriteRevision, unacknowledgedTemporaryAdBypassWrites } from "../../packages/cache/main/temporaryAdBypass";
 import { resetIdentityStorageCache } from "../../packages/cache/main/identityStorage";
 import { seedMissingIdentity } from "../helpers/identityStorage";
 import { recordTemporaryAdBypassActivity } from "../../packages/infra/identityPolicy/temporaryAdBypass";
@@ -10,6 +10,10 @@ import { initDiskIO, postDiskIO, terminateDiskIO, loadPersistedData, readIdentit
 import { DISK_BUSINESS_MAX_RETAINED_BYTES, STORAGE_PENDING_MAX_ENTRIES } from "../../packages/consts/diskIO/business";
 import type { DiskIOReply, TemporaryAdBypassWriteDiskMessage } from "../../packages/types/diskIO";
 import { emitSuccessfulDiskIOLoad, FakeDiskIOWorker, installFakeDiskIOWorker, crashDiskIOWorker } from "../helpers/diskIOWorkerHarness";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 let restoreWorker: () => void;
 const fatals: Error[] = [];

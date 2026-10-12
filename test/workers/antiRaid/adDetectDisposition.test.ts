@@ -10,6 +10,12 @@ import { botPermissions } from "../../helpers/botPermissions";
 import { isManagedAdminChat } from "../../../packages/infra/blocklist/sweepEligibility";
 import type { ChatState } from "../../../packages/types/chatState";
 import { longestTemplatePart } from "../../helpers/templateText";
+import { identityFieldView } from "../../helpers/identityCacheView";
+import type { IdentityFieldView } from "../../helpers/identityCacheView";
+
+const whitelistEntryCache: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistEntryCache: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 const chatStates = new Map<number, Record<string, unknown>>();
 const activeVerificationSnapshots = new Map<string, unknown>();
 const dispatched: RemoveBlockedMembersParams[][] = [];
@@ -100,7 +106,8 @@ mock.module("../../../packages/infra/identityPolicy/temporaryAdBypass", () => ({
     if (!clearTemporaryAdBypassActivity(id)) throw new Error(`Temporary ad bypass reset for identity ${id} was rejected.`);
   },
   hasActiveTemporaryAdBypassAt: (id: number): boolean => temporaryAdBypassIds.has(id),
-  hydrateTemporaryAdBypassActivities: (): void => {},
+  storedTemporaryAdBypassActivities: (): ReadonlyMap<number, never> => new Map<number, never>(),
+  currentTemporaryAdBypassActivity: (): null => null,
 }));
 mock.module("../../../packages/infra/blocklist/outbox", () => ({
   trackBlockedRemoval,
@@ -134,10 +141,7 @@ const { blocklistIdentityMutationQueues } = await import("../../../packages/cach
 const { blocklistIdentityMutationRunner } = await import("../../../packages/cache/main/blocklist");
 const { inlineResultSources } = await import("../../../packages/cache/main/inlineResultSources");
 const { resetSelfSentTracker } = await import("../../../packages/cache/perThread/selfSentTracker");
-const { blocklistEntryCache, whitelistEntryCache } =
-  await import("../../../packages/cache/main/identityStorage");
-const { temporaryAdBypassActivityCache } =
-  await import("../../../packages/cache/main/temporaryAdBypass");
+
 function detected(overrides: Partial<AdDetectedEvent> = {}): AdDetectedEvent {
   return {
     type: "adDetected",

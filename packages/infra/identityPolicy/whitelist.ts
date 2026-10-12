@@ -59,7 +59,7 @@ export interface PromoteAdBypassWhitelistResult {
 
 /**
  * 取得某身份在指定墙钟时刻的完整权限；未传时刻则读取当前值，且只在确有临时免检记录时才读
- * 墙钟。普通身份只读主线程白名单 LRU，超级管理员由身份直授。
+ * 墙钟。普通身份只读主线程合并身份缓存的白名单项，超级管理员由身份直授。
  */
 export function getEffectiveWhitelistPermissions(
   id: number,

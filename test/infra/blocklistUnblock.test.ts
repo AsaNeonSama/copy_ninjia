@@ -12,6 +12,10 @@ import {
   seedMissingIdentity,
 } from "../helpers/identityStorage";
 import type { TelegramIdentityMetadata } from "../../packages/types/identityPolicy";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const temporaryAdBypassActivityCache: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 /** 本文件不关心展示元数据；拉黑时统一带空字段。 */
 const NO_META: Readonly<TelegramIdentityMetadata> = { firstName: "", lastName: "", username: "" };
@@ -47,7 +51,6 @@ const {
   unacknowledgedBlocklistWrites,
 } = await import("../../packages/cache/main/identityStorage");
 const {
-  temporaryAdBypassActivityCache,
   unacknowledgedTemporaryAdBypassWrites,
 } = await import("../../packages/cache/main/temporaryAdBypass");
 const {

@@ -77,7 +77,7 @@ export const luckSecretRequests: DiskIORequestChannel<LuckReceiptSecret> =
 export const joinLogReadRequests: DiskIORequestChannel<readonly JoinLogRecord[]> =
   createDiskIORequestChannel("join log read", "Disk I/O Worker returned no join records.");
 
-/** 黑白名单 LRU 冷缺失的请求通道。 */
+/** 合并身份缓存冷缺失的请求通道。 */
 export const identityPolicyReadRequests: DiskIORequestChannel<IdentityPolicyRawReadResult> =
   createDiskIORequestChannel("identity policy read", "Disk I/O Worker returned no identity policy rows.");
 

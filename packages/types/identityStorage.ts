@@ -1,6 +1,19 @@
 import type { PendingBlockedRemoval } from "./blocklist";
 import type { ChatState } from "./chatState";
+import type { BlocklistEntryData, WhitelistEntryData } from "./identityPolicy";
+import type { TemporaryAdBypassActivity } from "./states/temporaryAdBypass";
 import type { StoredTemporaryAdBypassActivity } from "./temporaryAdBypass";
+
+/**
+ * 主线程合并身份缓存的一条（cache/main/identityStorage.ts 的 identityPolicyCache）。三个字段固定写全、
+ * 顺序固定：`undefined` 表示该项尚未加载，`null` 表示已确证不存在，对象为已加载的最终值。
+ * 三项随条目一起淘汰。
+ */
+export interface IdentityPolicyCacheEntry {
+  whitelist: Readonly<WhitelistEntryData> | null | undefined;
+  blocklist: Readonly<BlocklistEntryData> | null | undefined;
+  temporaryAdBypass: Readonly<TemporaryAdBypassActivity> | null | undefined;
+}
 
 /** Disk I/O 回执路由层尚未解码的永久策略文本与临时累计关系列。 */
 export interface IdentityPolicyRawReadResult {
