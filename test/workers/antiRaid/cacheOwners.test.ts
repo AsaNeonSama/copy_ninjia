@@ -256,6 +256,29 @@ describe("Anti-Raid cache owners", () => {
     expect(adminFetches.has(-1010)).toBeFalse();
   });
 
+  test("单群停用清除该群管理员快照与在途拉取，不影响其它群", async () => {
+    cacheAdminIds(-1011, new Set([41]), Date.now());
+    cacheAdminIds(-1012, new Set([99]), Date.now());
+    let resolveStale!: (admins: { user: { id: number }; is_anonymous: boolean }[]) => void;
+    getChatAdministrators.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveStale = resolve; })
+    );
+    const stale = adminCache.fetchAdminIds(-1011);
+    adminCache.applyAdminChange(-1011, 41, false);
+
+    const { clearChatAdminCache } = await import("../../../packages/cache/workers/antiRaid/admins");
+    clearChatAdminCache(-1011);
+
+    expect(chatAdmins.has(-1011)).toBeFalse();
+    expect(adminFetches.has(-1011)).toBeFalse();
+    expect(pendingAdminChangesDuringFetch.has(-1011)).toBeFalse();
+    expect(chatAdmins.get(-1012)?.adminIds).toEqual(new Set([99]));
+
+    resolveStale([{ user: { id: 41 }, is_anonymous: false }]);
+    await expect(stale).resolves.toEqual(new Set([41]));
+    expect(chatAdmins.has(-1011)).toBeFalse();
+  });
+
   test("增量只原地改已有快照；没拉取过的群不建条目也不留增量", () => {
     cacheAdminIds(-1005, new Set([41]), Date.now());
 

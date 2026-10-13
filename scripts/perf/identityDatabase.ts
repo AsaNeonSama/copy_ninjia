@@ -10,7 +10,6 @@
  * GC、完整性检查与 mock 根清理。
  */
 
-import { rmSync } from "node:fs";
 import {
   IDENTITY_READ_CACHE_MAX_ENTRIES,
   IDENTITY_WRITE_BATCH_MAX_ENTRIES,
@@ -31,6 +30,7 @@ import {
   createMainBenchmarkRoot,
   createMockRoot,
   mainBenchmarkEnvironment,
+  removeMainBenchmarkRoot,
   removeMockRoot,
 } from "./identityDatabase/roots";
 import { perfChildEnvironment } from "./childEnvironment";
@@ -128,7 +128,7 @@ function runIndependentChild(
     return result;
   } finally {
     if (temporaryRoot !== null) {
-      rmSync(temporaryRoot, { recursive: true, force: true });
+      removeMainBenchmarkRoot(temporaryRoot, mockRoot);
     }
   }
 }
@@ -194,7 +194,7 @@ function runSingleProcessParent(mockRoot: string): BenchmarkReport {
     assertMainBenchmarkDatabase(temporaryRoot);
     return result;
   } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    removeMainBenchmarkRoot(temporaryRoot, mockRoot);
   }
 }
 

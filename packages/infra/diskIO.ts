@@ -26,7 +26,6 @@ import {
   diskIORuntime,
   identityPolicyReadRequests,
   joinLogReadRequests,
-  pendingFlushFailedDomains,
   pendingLoad,
   storageCloseRequests,
 } from "../cache/main/diskIO";
@@ -473,7 +472,6 @@ export async function terminateDiskIO(): Promise<void> {
   diskIORuntime.pendingBusinessMessages.clear();
   resetDiskIODiagnosticChannel();
   diskIOFlushBarrier.settleAll("failed");
-  pendingFlushFailedDomains.clear();
   const terminationMessage: string = "Persistence Worker terminated before the request completed.";
   if (pendingLoad.timer !== null) clearTimeout(pendingLoad.timer);
   pendingLoad.timer = null;

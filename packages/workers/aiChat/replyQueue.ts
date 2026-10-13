@@ -19,7 +19,7 @@ import { lookupBufferedMessage, replyReferenceForBufferedEntry } from "./buffere
 /** 触发分类：随机触发优先于媒体触发。 */
 export function triggerKindFor(isRandomTrigger: boolean, mediaComment: MediaCommentContext | undefined): TriggerKind {
   if (isRandomTrigger) return "random";
-  if (mediaComment) return mediaComment.directTriggerReason ? "mediaDirect" : "mediaRandom";
+  if (mediaComment) return mediaComment.directTriggerReason ? "direct" : "random";
   return "direct";
 }
 

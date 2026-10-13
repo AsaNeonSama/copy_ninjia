@@ -144,7 +144,7 @@ export function assertStorageDatabaseIntegrity(
 }
 
 /** 两段迁移谱系逐行相等：条数相同，每行的 created_at 与 hash 都相同。 */
-export function isSameMigrationLineage(
+function isSameMigrationLineage(
   actual: readonly StorageDatabaseMigrationJournalEntry[],
   expected: readonly StorageDatabaseMigrationJournalEntry[]
 ): boolean {

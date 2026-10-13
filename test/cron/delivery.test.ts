@@ -158,7 +158,7 @@ describe("cron 发送边界", () => {
     expect(upload.filename).toBe("report.pdf");
     for (let attempt: number = 0; attempt < 2; attempt++) {
       const raw: unknown = await (upload as unknown as { toRaw(): Promise<ReadableStream<Uint8Array>> }).toRaw();
-      expect(await new Response(raw as ReadableStream<Uint8Array>).text()).toBe("pdf-bytes");
+      expect(await (raw as ReadableStream<Uint8Array>).text()).toBe("pdf-bytes");
     }
   });
 
@@ -252,7 +252,7 @@ test("本地相册整组预检，任一项失效不发送；每张上传流均�
     for (const [index, media] of (call.args[1] as { media: InputFile }[]).entries()) {
       for (let attempt: number = 0; attempt < 2; attempt++) {
         const raw: ReadableStream<Uint8Array> = await (media.media as unknown as { toRaw(): Promise<ReadableStream<Uint8Array>> }).toRaw();
-        expect(await new Response(raw).text()).toBe(index === 0 ? "first" : "second");
+        expect(await raw.text()).toBe(index === 0 ? "first" : "second");
       }
     }
   }

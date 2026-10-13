@@ -53,7 +53,7 @@ function storageDatabaseWriter(): StorageDatabaseWriter {
 }
 
 /** 任一共享 SQLite 业务表或 AI 上下文存在待提交最终值时返回 true。 */
-export function hasPendingStorageWrites(): boolean {
+function hasPendingStorageWrites(): boolean {
   return pendingWhitelistWrites.size > 0 ||
     pendingBlocklistWrites.size > 0 ||
     pendingTemporaryAdBypassWrites.size > 0 ||

@@ -65,13 +65,19 @@ export const unacknowledgedIdentityBytes: { current: Record<IdentityPolicyTable,
 export const identityWriteRevision: { current: number } = { current: 0 };
 
 /**
- * 待踢 outbox 已发出、尚未收到精确事务 ACK 的行 -> 最近一次写入（revision 与投递结果）。
+ * 待踢 outbox 已发出、尚未收到精确事务 ACK 的行 -> 最近一次写入（revision、投递结果与准入字节）。
  * 填充：infra/blocklist/outbox.ts 每次改动一行都发一条 blocklistRemovalWrite 并登记。
- * 清理：收到 (removalId, revision) 精确 ACK 时删除；迟到的旧 ACK 不删更新的写。Disk I/O Worker
+ * 清理：收到 (removalId, revision) 精确 ACK 时删除并释放字节预算；迟到的旧 ACK 不删更新的写。Disk I/O Worker
  * 重建时不清空，按 revision 顺序重放（正文从 pendingBlockedRemovals 现编码，行已不在即删除）。
- * 容量：行数受 outbox 硬顶 BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES 与在途删除约束，ACK 后回落。
+ * 容量：行数与字节总数由 unacknowledgedRemovalBytes 记账并受写预算与 outbox 硬顶约束，ACK 后回落。
  */
 export const unacknowledgedRemovalWrites: Map<number, UnacknowledgedRemovalWrite> = new Map();
+
+/**
+ * 待踢 outbox 未 ACK 行的字节总数；发布行写入时按差额更新，精确 ACK 释放，reset 清零。
+ * Disk I/O Worker 重建时与 unacknowledgedRemovalWrites 一起保留，重放不重复记账。
+ */
+export const unacknowledgedRemovalBytes: { current: number } = { current: 0 };
 
 /** 待踢任务行写入 revision 发号器；只在主线程同步自增，Worker 重建不回退。 */
 export const removalWriteRevision: { current: number } = { current: 0 };
@@ -96,6 +102,7 @@ export function resetIdentityStorageCache(): void {
   unacknowledgedIdentityBytes.current.blocklist = 0;
   identityWriteRevision.current = 0;
   unacknowledgedRemovalWrites.clear();
+  unacknowledgedRemovalBytes.current = 0;
   removalWriteRevision.current = 0;
   resetTemporaryAdBypassCache();
 }

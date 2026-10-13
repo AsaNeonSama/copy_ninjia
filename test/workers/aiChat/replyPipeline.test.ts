@@ -50,7 +50,7 @@ mock.module("../../../packages/workers/aiChat/replyQueue", () => ({
   drainReplyQueue: drainQueuedReplies,
   flushOverflowNotice,
   pushReplyTrigger,
-  triggerKindFor: (random: boolean, media: unknown): string => media ? "mediaDirect" : random ? "random" : "direct",
+  triggerKindFor: (random: boolean, _media: unknown): string => random ? "random" : "direct",
 }));
 mock.module("../../../packages/workers/aiChat/replyRound", () => ({ startReplyRound }));
 mock.module("../../../packages/workers/aiChat/bufferedMessageIndex", () => ({ replyReferenceForBufferedMessage }));

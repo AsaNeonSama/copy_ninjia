@@ -129,8 +129,6 @@ export function observeMemberMessage(
     state.entryCount++;
     linkFloodWindowAsNewest(entry);
   } else {
-    // Date.now() 因系统校时回退时仍保持队列单调。
-    now = Math.max(now, entry.lastObservedAt);
     touchFloodWindow(entry);
   }
   entry.lastObservedAt = now;
@@ -266,10 +264,7 @@ export function handleFloodCandidate(message: FloodCandidateMessage): void {
   const entry: FloodWindowEntry | undefined =
     observeMemberMessage(message.chatId, message.userId, message.observedAt);
   if (entry === undefined) return;
-  // 乐观抑制：先置抑制位再派生任务，瞬时失败由 muteFlooder 回滚。
-  //
-  // 基准取 entry.lastObservedAt 而非 message.observedAt：observeMemberMessage 已把时刻
-  // 钳到单调值（见那边的 Math.max），消费侧用同一个钟比较 suppressedUntil。
+  // 乐观抑制：先按本次命中时刻置抑制位再派生任务，瞬时失败由 muteFlooder 回滚。
   entry.suppressedUntil = entry.lastObservedAt + FLOOD_MUTE_DURATION_MS;
 
   // 三态：确证没有权限才就地放弃；「没观测到」照常往下走，由 Telegram 的回应判定。

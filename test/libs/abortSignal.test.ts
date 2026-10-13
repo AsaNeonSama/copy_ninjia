@@ -190,8 +190,8 @@ for (const mode of ["immediate", "later"]) {
       cmd: [Bun.argv[0]!, `${import.meta.dir}/../fixtures/preAbortedSharedTask.ts`, mode],
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
-    const output: string = await new Response(child.stdout).text();
-    const errors: string = await new Response(child.stderr).text();
+    const output: string = await child.stdout.text();
+    const errors: string = await child.stderr.text();
     expect(await child.exited, errors).toBe(0);
     expect(JSON.parse(output)).toEqual({ unhandled: 0, result: "cancelled" });
   });

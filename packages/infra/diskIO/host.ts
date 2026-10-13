@@ -7,7 +7,6 @@ import {
   identityPolicyReadRequests,
   joinLogReadRequests,
   luckSecretRequests,
-  pendingFlushFailedDomains,
   pendingLoad,
   storageCloseRequests,
 } from "../../cache/main/diskIO";
@@ -134,12 +133,9 @@ export function createDiskIOWorker(): Worker {
         diskIOFlushBarrier.settle(data.flushedId, "flushed");
         return;
       case "flushFailed":
-        // 失败领域名写入诊断 sink；按领域的判定只读下面按 flushId 记账的
-        // pendingFlushFailedDomains。
+        // 失败领域名写入诊断 sink，并随同一次 barrier 结算直接交回等待方。
         writeDiskIODiagnostic(`[diskIO] flush failed for domain(s): ${data.failedDomains.join(", ")}.`);
-        if (diskIOFlushBarrier.settle(data.flushedId, "failed")) {
-          pendingFlushFailedDomains.set(data.flushedId, data.failedDomains);
-        }
+        diskIOFlushBarrier.settle(data.flushedId, "failed", data.failedDomains);
         return;
       case "luckSecret":
         settleDiskIOReply({

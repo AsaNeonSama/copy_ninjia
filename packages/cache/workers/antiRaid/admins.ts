@@ -10,7 +10,7 @@ import { FifoMap } from "../../../libs/fifoMap";
  *
  * 填充：首次需要判定时整群拉一次，此后按 chat_member 更新经 adminsChanged 增量更新。
  * 清理：读时按 ADMIN_CACHE_TTL_MS 回收过期快照，周期 sweep 清死记录，
- * resetAdminCache 整表清空。容量：FifoMap 限制为
+ * clearChatAdminCache 按群清除停用或离群的群，resetAdminCache 整表清空。容量：FifoMap 限制为
  * ANTI_RAID_CHAT_CACHE_MAX 项，满载写入新群时淘汰最早写入的群。
  * Worker 崩溃重建：不重放——新 isolate 从空表开始，下一次判定重新拉取；
  * 「没有条目」表示「此刻不知道」，不表示「不是管理员」。
@@ -18,24 +18,24 @@ import { FifoMap } from "../../../libs/fifoMap";
 export const chatAdmins: FifoMap<number, ChatAdminCache> = new FifoMap(ANTI_RAID_CHAT_CACHE_MAX);
 /**
  * 进行中的全量管理员拉取，按 chatId 去重（libs/keyedTask.ts 的 getOrCreateKeyedTask：
- * resetAdminCache 在拉取在途时清空整张表后，陈旧拉取结算不会删掉新登记的槽位）。
- * 清理：请求结算（成功或失败）时删除自己的槽位，resetAdminCache 整表清空。
+ * clearChatAdminCache / resetAdminCache 在拉取在途时清除槽位后，陈旧拉取结算不会删掉新登记的槽位）。
+ * 清理：请求结算（成功或失败）时删除自己的槽位，clearChatAdminCache 按群清除，resetAdminCache 整表清空。
  * 容量：同时在途的群数，上界为受管群数；Worker 崩溃后旧 Promise 随 isolate 消失。
  */
 export const adminFetches: Map<number, Promise<Set<number>>> = new Map();
 /**
  * 全量拉取在途期间到达的增量资格变化，待快照落地后重放。
- * 清理：对应的拉取落地并重放完毕时按 chatId 删除，resetAdminCache 整表清空。
+ * 清理：对应的拉取落地并重放完毕时按 chatId 删除，clearChatAdminCache 按群清除，resetAdminCache 整表清空。
  * 容量：只在拉取在途的那几个群上存在，内层是那段窗口里变动过的成员数。
  * Worker 崩溃重建：不重放——快照本身就要重拉，那段窗口的增量随之作废。
  */
 export const pendingAdminChangesDuringFetch: Map<number, Map<number, boolean>> = new Map();
 
 /**
- * 整表世代号：`resetAdminCache()` 每次自增。在途的全量拉取用它判断自己那份
- * 快照是否已被整表清空作废；reset 同时清掉 `pendingAdminChangesDuringFetch`，作废的快照不写回。
- * 填充/清理时机：只在 resetAdminCache 自增，不回退；容量固定一个数字，
- * Worker 崩溃重建后从 0 重新开始，在途拉取随旧 isolate 消失。
+ * 缓存世代号：`resetAdminCache()` 每次自增，`clearChatAdminCache()` 在清除在途拉取时自增。
+ * 在途的全量拉取用它判断自己那份快照是否已被清空作废；清理同时删掉对应的 `pendingAdminChangesDuringFetch`，
+ * 作废的快照不写回。填充/清理时机：只在作废在途拉取或 resetAdminCache 时自增，不回退；
+ * 容量固定一个数字，Worker 崩溃重建后从 0 重新开始，在途拉取随旧 isolate 消失。
  */
 export const adminCacheGeneration: { current: number } = { current: 0 };
 
@@ -74,6 +74,14 @@ export function sweepAdminCache(now: number = Date.now()): number {
     ttlMs: ADMIN_CACHE_TTL_MS,
     now,
   });
+}
+
+/** 群停用或离群时清除该群的管理员快照、在途拉取槽位与暂存增量，并作废在途拉取的写回。 */
+export function clearChatAdminCache(chatId: number): void {
+  chatAdmins.delete(chatId);
+  const hadInFlight: boolean = adminFetches.delete(chatId);
+  pendingAdminChangesDuringFetch.delete(chatId);
+  if (hadInFlight) adminCacheGeneration.current++;
 }
 
 /** Worker dispose/测试隔离时清空管理员缓存及其在途状态，并作废在途拉取的写回。 */

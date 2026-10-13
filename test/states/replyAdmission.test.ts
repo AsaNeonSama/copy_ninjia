@@ -11,7 +11,7 @@ import {
 } from "../../packages/states/replyAdmission";
 import type { AdmitDecision, AdmitTriggerInput, TriggerKind } from "../../packages/types/states/replyAdmission";
 
-const ALL_KINDS: TriggerKind[] = ["direct", "random", "mediaDirect", "mediaRandom"];
+const ALL_KINDS: TriggerKind[] = ["direct", "random"];
 
 function admitTrigger(
   input: Omit<AdmitTriggerInput, "telegramBackpressured" | "deliveryAvailable" | "directRoundActive"> &
@@ -54,24 +54,12 @@ describe("admitTrigger：并发已满（activeRounds === 上限，边界值）",
     expect(admitTrigger({ activeRounds: REPLY_ROUND_MAX_CONCURRENT, queueSize: 0, kind: "random" })).toBe("dropSilently");
   });
 
-  test("kind=mediaRandom → dropSilently，即使队列全空", () => {
-    expect(admitTrigger({ activeRounds: REPLY_ROUND_MAX_CONCURRENT, queueSize: 0, kind: "mediaRandom" })).toBe("dropSilently");
-  });
-
   test("kind=direct 且队列未满 → enqueue", () => {
     expect(admitTrigger({ activeRounds: REPLY_ROUND_MAX_CONCURRENT, queueSize: REPLY_TRIGGER_QUEUE_MAX - 1, kind: "direct" })).toBe("enqueue");
   });
 
-  test("kind=mediaDirect 且队列未满 → enqueue", () => {
-    expect(admitTrigger({ activeRounds: REPLY_ROUND_MAX_CONCURRENT, queueSize: 0, kind: "mediaDirect" })).toBe("enqueue");
-  });
-
   test("kind=direct 且队列已达上限（边界值）→ enqueueOverflow", () => {
     expect(admitTrigger({ activeRounds: REPLY_ROUND_MAX_CONCURRENT, queueSize: REPLY_TRIGGER_QUEUE_MAX, kind: "direct" })).toBe("enqueueOverflow");
-  });
-
-  test("kind=mediaDirect 且队列已达上限 → enqueueOverflow", () => {
-    expect(admitTrigger({ activeRounds: REPLY_ROUND_MAX_CONCURRENT, queueSize: REPLY_TRIGGER_QUEUE_MAX, kind: "mediaDirect" })).toBe("enqueueOverflow");
   });
 
   test("kind=direct 且队列超过上限（异常输入防御）→ enqueueOverflow", () => {
@@ -116,7 +104,7 @@ describe("admitTrigger：Telegram 发送面软背压", () => {
 test.each(ALL_KINDS)("存活轮次容量耗尽时 %s 不继续调用模型", (kind) => {
   for (const queueSize of [0, REPLY_TRIGGER_QUEUE_MAX - 1, REPLY_TRIGGER_QUEUE_MAX]) {
     expect(decideTrigger({ activeRounds: 0, queueSize, kind, telegramBackpressured: false, directRoundActive: false, deliveryAvailable: false })).toBe(
-      kind === "random" || kind === "mediaRandom"
+      kind === "random"
         ? "dropSilently" : queueSize >= REPLY_TRIGGER_QUEUE_MAX ? "enqueueOverflow" : "enqueue"
     );
   }

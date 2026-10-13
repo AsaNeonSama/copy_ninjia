@@ -340,8 +340,14 @@ describe("黑名单 outbox 的投递边界", () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     postDiskIO.mockImplementation((): boolean => false);
     const tracked = trackBlockedRemoval({ chatId: -1001, probeMembership: false, userIds: [7] } as never);
-    const revision: number = unacknowledgedRemovalWrites.get(tracked.removalId)!.revision;
-    expect(unacknowledgedRemovalWrites.get(tracked.removalId)).toEqual({ revision, posted: false });
+    const write = unacknowledgedRemovalWrites.get(tracked.removalId)!;
+    const revision: number = write.revision;
+    expect(write.bytes).toBeGreaterThan(0);
+    expect(unacknowledgedRemovalWrites.get(tracked.removalId)).toEqual({
+      revision,
+      posted: false,
+      bytes: write.bytes,
+    });
 
     // write-ahead：补投仍被拒时抛错，处置不先于落盘发出。
     await expect(persistPendingBlockedRemovals()).rejects.toThrow(
@@ -357,12 +363,32 @@ describe("黑名单 outbox 的投递边界", () => {
       removalId: tracked.removalId,
       revision,
     }));
-    expect(unacknowledgedRemovalWrites.get(tracked.removalId)).toEqual({ revision, posted: true });
+    expect(unacknowledgedRemovalWrites.get(tracked.removalId)).toEqual({
+      revision,
+      posted: true,
+      bytes: write.bytes,
+    });
 
     // 都已投出时 write-ahead 只等 flush，不重复投递。
     postDiskIO.mockClear();
     await persistPendingBlockedRemovals();
     expect(postDiskIO).not.toHaveBeenCalled();
+  });
+
+  test("未确认字节超过存储写预算时拒绝排队，并回滚新登记的镜像行", async () => {
+    const { STORAGE_PENDING_MAX_BYTES } = await import("../../packages/consts/diskIO/business");
+    const { unacknowledgedRemovalBytes } = await import("../../packages/cache/main/identityStorage");
+    governedChat();
+    blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
+    unacknowledgedRemovalBytes.current = STORAGE_PENDING_MAX_BYTES;
+
+    expect(() => trackBlockedRemoval({
+      chatId: -1001,
+      probeMembership: false,
+      userIds: [7],
+    } as never)).toThrow("Storage pending write capacity was exhausted.");
+    expect(pendingBlockedRemovals.size).toBe(0);
+    expect(unacknowledgedRemovalWrites.size).toBe(0);
   });
 
   test("只改了内存的诊断在 write-ahead 时逐行发出；已随这一行写入发出的不再重复", async () => {

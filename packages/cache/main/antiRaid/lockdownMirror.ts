@@ -20,7 +20,7 @@ import type {
  * 先清空，再用已加载的 SQLite 记录播种（能载入即视为上次已持久化）；
  * Worker 报告新的 lockdown 持久化事实或 unlock（onEvent）时先删除旧指纹，
  * persistCurrentLockdown 待 SQLite ACK 成功且记录未被更新覆盖后才重新写入
- * 并通知 Worker；落盘失败且记录仍是该次意图时、主线程紧急恢复权限成功后同样
+ * 并通知 Worker；落盘失败且记录仍是该次意图时、主线程紧急恢复权限成功后或群 gone 放弃紧急恢复时同样
  * 删除。仅供 antiRaid/lockdownMirror.ts 构建 adopt 消息时判断某条记录是否已知持久化。
  *
  * 容量：每个受管群至多一项，上界 STATE_MANAGED_CHAT_LIMIT（见 consts/storage.ts）；
@@ -45,7 +45,7 @@ export const queuedLockdownPersistence: Set<number> = new Set();
 
 /**
  * Worker 放弃自愈后，主线程每群至多持有一条权限恢复链。
- * 清理：恢复成功、显式 unlock 或 terminate 关闸时按 chatId 删除。
+ * 清理：恢复成功、显式 unlock、群 gone 放弃恢复或 terminate 关闸时按 chatId 删除。
  * 容量：每个受管群至多一条，上界 STATE_MANAGED_CHAT_LIMIT。
  */
 export const emergencyLockdownRecoveries: Map<number, EmergencyLockdownRecovery> = new Map();

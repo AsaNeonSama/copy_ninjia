@@ -3,14 +3,20 @@ import { createFlushBarrier } from "../../packages/libs/flushBarrier";
 
 describe("flush barrier", () => {
   test("ack 只结算一次并忽略迟到回执", async () => {
-    const barrier = createFlushBarrier({ timeoutMs: 1_000 });
+    const barrier = createFlushBarrier<readonly string[]>({ timeoutMs: 1_000 });
     let id: number = 0;
-    const result = barrier.begin((nextId) => { id = nextId; });
+    let receivedDetail: readonly string[] | undefined;
+    const result = barrier.begin(
+      (nextId) => { id = nextId; },
+      undefined,
+      (detail) => { receivedDetail = detail; }
+    );
 
     expect(barrier.pendingCount()).toBe(1);
-    expect(barrier.settle(id, "flushed")).toBeTrue();
-    expect(barrier.settle(id, "failed")).toBeFalse();
-    await expect(result).resolves.toBe("flushed");
+    expect(barrier.settle(id, "failed", ["chatState"])).toBeTrue();
+    expect(barrier.settle(id, "flushed", ["other"])).toBeFalse();
+    await expect(result).resolves.toBe("failed");
+    expect(receivedDetail).toEqual(["chatState"]);
     expect(barrier.pendingCount()).toBe(0);
   });
 

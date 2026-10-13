@@ -9,6 +9,7 @@ import { DISK_IO_FLUSH_TIMEOUT_MS } from "../../consts/lifecycle";
 import type { FlushWaiter } from "../../types/lifecycle";
 import { WORKER_MAX_RESTARTS, WORKER_RESTART_WINDOW_MS } from "../../consts/workerSupervisor";
 import { createFlushBarrier } from "../../libs/flushBarrier";
+import type { FlushBarrier } from "../../libs/flushBarrier";
 import { LinkedQueue } from "../../libs/linkedQueue";
 import { createRestartThrottle } from "../../libs/restartThrottle";
 import { AcknowledgedBatchQueue } from "../../libs/acknowledgedBatchQueue";
@@ -100,16 +101,6 @@ export const DISK_IO_REQUEST_CHANNELS: readonly DiskIORequestChannel<never>[] = 
   blocklistIdPageReadRequests,
   storageCloseRequests,
 ] as readonly DiskIORequestChannel<never>[];
-
-/**
- * Worker 明确回复为部分失败、且正在等待调用方消费的 flush 回执。
- * infra/diskIO/host.ts 只在对应 barrier 仍在途时填充；infra/diskIO.ts 的
- * requestDiskIOFlush 与 infra/diskIO/recovery.ts 的诊断回收 flush 在各自 barrier
- * 结算后立即删除，terminateDiskIO 整表清空。传输失败、超时、Worker 崩溃不产生条目。
- * 容量：同时在途的 flush barrier 数（键是 flushId），由各 barrier 调用方
- * 自己的串行边界封住；不设淘汰。
- */
-export const pendingFlushFailedDomains: Map<number, readonly DiskIODomain[]> = new Map();
 
 interface DiskIORuntime {
   worker: Worker | null;
@@ -211,8 +202,8 @@ export const diskIORestartThrottle: ReturnType<typeof createRestartThrottle> =
   createRestartThrottle(WORKER_MAX_RESTARTS, WORKER_RESTART_WINDOW_MS);
 
 /**
- * Disk I/O flush 的在途 barrier。flush 请求时填充，回执、超时、崩溃或
- * terminate 时结算清空；进程重启后从空表重建，容量受在途 flush 数约束。
+ * Disk I/O flush 的在途 barrier。flush 请求时填充，回执（含部分失败领域名）、超时、
+ * 崩溃或 terminate 时结算清空；进程重启后从空表重建，容量受在途 flush 数约束。
  */
-export const diskIOFlushBarrier: ReturnType<typeof createFlushBarrier> =
-  createFlushBarrier({ timeoutMs: DISK_IO_FLUSH_TIMEOUT_MS });
+export const diskIOFlushBarrier: FlushBarrier<readonly DiskIODomain[]> =
+  createFlushBarrier<readonly DiskIODomain[]>({ timeoutMs: DISK_IO_FLUSH_TIMEOUT_MS });

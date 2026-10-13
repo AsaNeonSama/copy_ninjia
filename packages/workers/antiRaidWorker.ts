@@ -50,7 +50,7 @@ import {
 import { bumpBlocklistRemovalEpoch } from "../cache/workers/antiRaid/blocklist";
 import { adoptAdDetectConfigMessage } from "./antiRaid/adDetect/config";
 import { ANTI_RAID_CACHE_SWEEP_INTERVAL_MS } from "../consts/antiRaid/cache";
-import { resetAdminCache, sweepAdminCache } from "../cache/workers/antiRaid/admins";
+import { clearChatAdminCache, resetAdminCache, sweepAdminCache } from "../cache/workers/antiRaid/admins";
 import { resetLinkedChannelCache, sweepLinkedChannelCache } from "../cache/workers/antiRaid/linkedChannels";
 import { sweepVerificationRevisionCache } from "../cache/workers/antiRaid/verification";
 import type {
@@ -146,8 +146,9 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
       bumpBlocklistRemovalEpoch(msg.chatId);
       // 待检的广告消息串同理：停管后不再判定、不再删消息。
       clearChatAdDetect(msg.chatId);
-      // 刷屏计数与权限镜像一并丢掉；重新接管时主线程重新观测并镜像，计数从零开始。
+      // 刷屏计数、管理员快照与权限镜像一并丢掉；重新接管时主线程重新观测并镜像，计数从零开始。
       clearChatFloodWindows(msg.chatId);
+      clearChatAdminCache(msg.chatId);
       applyBotPermissionsChange(msg.chatId, undefined);
       forgetWorkerChatKind(msg.chatId);
       break;

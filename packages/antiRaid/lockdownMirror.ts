@@ -253,6 +253,19 @@ export function stopEmergencyLockdownRecoveries(): void {
   emergencyLockdownRecoveries.clear();
 }
 
+/** 群已不存在（teardown 起因 gone）且主线程紧急恢复已接管时，终止该群的紧急恢复并清除 lockdown 记录。 */
+export function abandonEmergencyLockdownRecovery(chatId: number): void {
+  const recovery: EmergencyLockdownRecovery | undefined =
+    emergencyLockdownRecoveries.get(chatId);
+  if (recovery === undefined) return;
+  finishEmergencyLockdownRecovery(chatId, recovery);
+  persistedLockdownFingerprints.delete(chatId);
+  if (clearChatStateField(chatId, "lockdown")) {
+    saveChatStateInBackground(chatId, "abandoned emergency anti-raid lockdown");
+    antiRaidRuntimeState.lockdownVersion++;
+  }
+}
+
 /** Worker 自愈放弃后，由主线程独立接管仍挂着的邀请权限恢复。 */
 export function recoverAbandonedLockdowns(): void {
   const abandoned: number[] = [];

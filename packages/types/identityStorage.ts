@@ -55,12 +55,14 @@ export interface PendingIdentityPolicyWrite {
 }
 
 /**
- * 主线程待踢任务一行最近一次写入的 revision 与投递结果；正文不复制，投递与重放都从
+ * 主线程待踢任务一行最近一次写入的 revision、投递结果与准入估算字节；正文不复制，投递与重放都从
  * pendingBlockedRemovals 现编码。posted 为 false 表示该次投递被 Disk I/O 拒收，write-ahead 前补投。
  */
 export interface UnacknowledgedRemovalWrite {
   readonly revision: number;
   readonly posted: boolean;
+  /** 这次写入该行正文的准入估算字节，计入 unacknowledgedRemovalBytes。 */
+  readonly bytes: number;
 }
 
 /** Disk I/O Worker 待踢任务一行在事务提交前保留的最新最终值。 */

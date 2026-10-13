@@ -33,8 +33,8 @@ describe("AI 回复触发队列", () => {
     expect(triggerKindFor(true, undefined)).toBe("random");
     expect(triggerKindFor(true, { ...media, directTriggerReason: "mention" })).toBe("random");
     expect(triggerKindFor(false, undefined)).toBe("direct");
-    expect(triggerKindFor(false, media)).toBe("mediaRandom");
-    expect(triggerKindFor(false, { ...media, directTriggerReason: "reply" })).toBe("mediaDirect");
+    expect(triggerKindFor(false, media)).toBe("random");
+    expect(triggerKindFor(false, { ...media, directTriggerReason: "reply" })).toBe("direct");
   });
 
   test("文本触发快照按 replyToMessageId 定位触发消息，不取缓冲尾条", () => {

@@ -23,6 +23,7 @@ import {
 } from "../../cache/main/blocklist";
 import {
   removalWriteRevision,
+  unacknowledgedRemovalBytes,
   unacknowledgedRemovalWrites,
 } from "../../cache/main/identityStorage";
 import { BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES } from "../../consts/antiRaid/blocklist";
@@ -34,9 +35,11 @@ import {
   onDiskIOReply,
   postDiskIO,
 } from "../diskIO";
+import { assertStorageAdmission } from "../diskIO/storageAdmission";
 import { logger } from "../logger";
 import { getChatStateCache } from "../storage/stateStore";
 import { hasAnyBlockedIdentity } from "../identityStorage";
+import { storageWriteCost } from "../../libs/storageWriteBudget";
 import { isManagedAdminChat } from "./sweepEligibility";
 import type {
   BlockedMemberRemover,
@@ -71,20 +74,26 @@ function removalWriteMessage(removalId: number, revision: number): BlocklistRemo
 }
 
 /**
- * 为一行发出当前最终值并登记未 ACK revision；正文带着当前诊断，这一行随即移出
+ * 为一行发出当前最终值并登记未 ACK revision 与准入字节；正文带着当前诊断，这一行随即移出
  * unwrittenRemovalDiagnostics。投递被拒时登记为未投递，留给 write-ahead 补投与 Worker 重建重放。
  * @internal 供同目录 sweep owner 在改动任务诊断后调用。
  * @returns 本次投递是否被 Disk I/O 接收。
  */
 export function queueBlocklistRemovalWrite(removalId: number): boolean {
-  if (!Number.isSafeInteger(removalWriteRevision.current + 1)) {
+  const nextRevision: number = removalWriteRevision.current + 1;
+  if (!Number.isSafeInteger(nextRevision)) {
     throw new Error("Pending removal revision space is exhausted.");
   }
-  removalWriteRevision.current++;
-  const revision: number = removalWriteRevision.current;
+  const message: BlocklistRemovalWriteDiskMessage = removalWriteMessage(removalId, nextRevision);
+  const previous: UnacknowledgedRemovalWrite | undefined = unacknowledgedRemovalWrites.get(removalId);
+  const cost: number = storageWriteCost(message.data);
+  const bytes: number = unacknowledgedRemovalBytes.current + cost - (previous?.bytes ?? 0);
+  assertStorageAdmission(unacknowledgedRemovalWrites.size + (previous === undefined ? 1 : 0), bytes);
+  removalWriteRevision.current = nextRevision;
   unwrittenRemovalDiagnostics.delete(removalId);
-  const posted: boolean = postDiskIO(removalWriteMessage(removalId, revision));
-  unacknowledgedRemovalWrites.set(removalId, { revision, posted });
+  const posted: boolean = postDiskIO(message);
+  unacknowledgedRemovalWrites.set(removalId, { revision: nextRevision, posted, bytes: cost });
+  unacknowledgedRemovalBytes.current = bytes;
   return posted;
 }
 
@@ -215,7 +224,7 @@ export async function persistPendingBlockedRemovals(): Promise<void> {
     if (!postDiskIO(removalWriteMessage(removalId, write.revision))) {
       throw new Error("Persistence Worker rejected a blocklist removal outbox write.");
     }
-    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true });
+    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true, bytes: write.bytes });
   }
   const result: FlushResult = (await flushDiskIODomain("blocklistRemovalOutbox")).result;
   if (result !== "flushed") {
@@ -338,8 +347,13 @@ export function trackBlockedRemoval(
     pendingBlockedRemovals.delete(removalId);
     throw new Error("Blocklist removal has no target to enforce.");
   }
-  // 新行立即发出；投递被拒时由投递前的 persistPendingBlockedRemovals 补投。
-  queueBlocklistRemovalWrite(removalId);
+  // 新行立即发出；写入准入失败时同步撤销镜像条目，投递被拒时由 persistPendingBlockedRemovals 补投。
+  try {
+    queueBlocklistRemovalWrite(removalId);
+  } catch (error: unknown) {
+    pendingBlockedRemovals.delete(removalId);
+    throw error;
+  }
   return tracked;
 }
 
@@ -364,8 +378,10 @@ export function forgetChatBlocklistWork(chatId: number): void {
 /** 精确 ACK 只清掉对应 revision；迟到的旧 ACK 不删更新的写。 */
 function settleRemovalWrites(reply: IdentityStoragePersistedReply): void {
   for (const persisted of reply.removalWrites) {
-    if (unacknowledgedRemovalWrites.get(persisted.removalId)?.revision === persisted.revision) {
+    const current: UnacknowledgedRemovalWrite | undefined = unacknowledgedRemovalWrites.get(persisted.removalId);
+    if (current?.revision === persisted.revision) {
       unacknowledgedRemovalWrites.delete(persisted.removalId);
+      unacknowledgedRemovalBytes.current -= current.bytes;
     }
   }
 }
@@ -383,7 +399,7 @@ onDiskIORespawn("blocklist outbox", DISK_IO_RESPAWN_PRIORITIES.BLOCKLIST + 1, (
   ): number => left[1].revision - right[1].revision);
   for (const [removalId, write] of writes) {
     if (!transport.post(removalWriteMessage(removalId, write.revision))) return false;
-    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true });
+    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true, bytes: write.bytes });
   }
   return true;
 });

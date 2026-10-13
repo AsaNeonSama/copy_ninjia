@@ -40,15 +40,12 @@ export function replyRoundConcurrencyLimit(telegramBackpressured: boolean, direc
  * @param input.kind 本次触发的种类。
  */
 export function admitTrigger(input: AdmitTriggerInput): AdmitDecision {
-  if (
-    input.telegramBackpressured &&
-    (input.kind === "random" || input.kind === "mediaRandom")
-  ) return "dropSilently";
+  if (input.telegramBackpressured && input.kind === "random") return "dropSilently";
   const maxConcurrent: number = replyRoundConcurrencyLimit(input.telegramBackpressured, input.directRoundActive);
   if (input.deliveryAvailable && input.queueSize === 0 && input.activeRounds < maxConcurrent) {
     return "startRound";
   }
-  if (input.kind === "random" || input.kind === "mediaRandom") return "dropSilently";
+  if (input.kind === "random") return "dropSilently";
   if (input.queueSize >= REPLY_TRIGGER_QUEUE_MAX) return "enqueueOverflow";
   return "enqueue";
 }

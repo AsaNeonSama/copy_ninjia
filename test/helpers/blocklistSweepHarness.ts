@@ -12,7 +12,7 @@ import type { IdentityStoragePersistedReply } from "../../packages/types/diskIO/
  */
 
 import { beforeEach, expect, mock } from "bun:test";
-import { unacknowledgedRemovalWrites } from "../../packages/cache/main/identityStorage";
+import { unacknowledgedRemovalBytes, unacknowledgedRemovalWrites } from "../../packages/cache/main/identityStorage";
 import { unwrittenRemovalDiagnostics } from "../../packages/cache/main/blocklist";
 import { loggerStub } from "./loggerMock";
 import type { BlockedMemberRemover } from "../../packages/types/blocklist";
@@ -225,6 +225,7 @@ export function installBlocklistSweepHooks(injected: BlocklistSweepDeps): void {
     injected.pendingBlockedRemovals.clear();
     unwrittenRemovalDiagnostics.clear();
     unacknowledgedRemovalWrites.clear();
+    unacknowledgedRemovalBytes.current = 0;
     loggerError.mockClear();
     loggerLog.mockClear();
     readBlocklistIdPage.mockClear();

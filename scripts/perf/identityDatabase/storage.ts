@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { IDENTITY_WRITE_BATCH_MAX_ENTRIES } from "../../../packages/consts/identityStorage";
 import { clearStorageBusinessTables, seedStorageDatabase } from "../../fixtures/storageDatabase";
@@ -39,7 +39,7 @@ import {
   WHITE_DATA,
 } from "./fixtures";
 import { measuredResult } from "./measurement";
-import { assertMockRoot, isBenchmarkMockRoot } from "./roots";
+import { assertMockRoot, isBenchmarkMockRoot, removeMainBenchmarkRoot } from "./roots";
 import type { ChildResult } from "./types";
 import type { PendingTemporaryAdBypassWrite } from
   "../../../packages/types/temporaryAdBypass";
@@ -67,15 +67,16 @@ function createFixture(mockRoot: string): DatabaseFixture {
 function removeFixture(fixture: DatabaseFixture): void {
   const resolvedRoot: string = resolve(fixture.root);
   const resolvedPath: string = resolve(fixture.path);
+  const mockRoot: string = dirname(resolvedRoot);
   if (
     dirname(resolvedPath) !== resolvedRoot ||
     basename(resolvedPath) !== "storage.sqlite" ||
     !basename(resolvedRoot).startsWith(DATABASE_FIXTURE_ROOT_PREFIX) ||
-    !isBenchmarkMockRoot(dirname(resolvedRoot))
+    !isBenchmarkMockRoot(mockRoot)
   ) {
     throw new Error("Identity benchmark refused to remove an unexpected fixture root.");
   }
-  rmSync(fixture.root, { recursive: true, force: true });
+  removeMainBenchmarkRoot(fixture.root, mockRoot);
 }
 
 function closeFixture(fixture: DatabaseFixture): void {

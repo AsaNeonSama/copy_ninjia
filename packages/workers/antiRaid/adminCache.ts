@@ -47,8 +47,8 @@ export function freshAdminIds(chatId: number, now: number = Date.now()): Set<num
  * chat_member 增量同口径，见 antiRaid/memberFacts.ts 的 isInviterExemptAdmin。
  */
 export function fetchAdminIds(chatId: number): Promise<Set<number>> {
-  // 记下启动时的整表世代号：resetAdminCache() 会把 chatAdmins 与
-  // pendingAdminChangesDuringFetch 一起清空，世代不符的拉取不再写回。
+  // 记下启动时的世代号：clearChatAdminCache() / resetAdminCache() 会清除在途槽位与
+  // pendingAdminChangesDuringFetch，世代不符的拉取不再写回。
   const generation: number = adminCacheGeneration.current;
   const task: Promise<Set<number>> = getOrCreateKeyedTask(adminFetches, chatId, (): Promise<Set<number>> =>
     telegramApi

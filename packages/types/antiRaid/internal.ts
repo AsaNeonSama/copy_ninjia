@@ -110,7 +110,7 @@ export interface FloodWindowEntry {
    * 禁言后整条清空，队列长度恒不超过 FLOOD_MESSAGE_LIMIT。
    */
   timestamps: TimestampDeque;
-  /** 上一次观测到的时刻；系统校时回拨时用它保持队列单调，也用于空闲清扫。 */
+  /** 上一次观测到的发言时刻；用于乐观抑制起算与空闲清扫。 */
   lastObservedAt: number;
   /**
    * 在此之前到达的消息一律不计数（ms 绝对时刻，0 表示不抑制）。

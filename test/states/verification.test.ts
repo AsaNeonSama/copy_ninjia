@@ -179,9 +179,12 @@ describe("join：重复投递（chat_member 与服务消息各到一次）", () 
     expect(result.snapshotChanged).toBeTrue();
   });
 
-  test("PENDING + 缓存热（同步快路径已判过非管理员）→ 不再挂核查", () => {
-    const { effects } = transitionVerification(pendingState(), joinEvent({ actorId: 999, adminCacheFresh: true }));
-    expect(effects).toEqual([]);
+  test("PENDING + 缓存热（同步快路径已判过非管理员）→ 补记 invitedBy 且不再挂核查", () => {
+    const state = pendingState();
+    const result = transitionVerification(state, joinEvent({ actorId: 999, adminCacheFresh: true }));
+    expect(state.invitedBy).toBe(999);
+    expect(result.effects).toEqual([]);
+    expect(result.snapshotChanged).toBeTrue();
   });
 
   test("KICK_PENDING 上的迟到公告（去重宽限期内）→ 顺手删除，不重复踢", () => {

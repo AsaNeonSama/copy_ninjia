@@ -139,12 +139,14 @@ function joinDuplicateDelivery(
       effects,
     };
   }
-  if (state.kind === "pending" && invitedByOther && !event.adminCacheFresh) {
+  if (state.kind === "pending" && invitedByOther) {
     if (state.invitedBy === undefined) {
       state.invitedBy = event.actorId;
       snapshotChanged = true;
     }
-    effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+    if (!event.adminCacheFresh) {
+      effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+    }
   }
   if (state.kind === "pending" && snapshotChanged) return pendingUpdated(state, effects);
   return { next: state, effects };

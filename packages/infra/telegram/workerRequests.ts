@@ -2,7 +2,7 @@ import { InputFile } from "grammy";
 import type { Message } from "grammy/types";
 import { bot } from "./mainClient";
 import { downloadTelegramFileBytes } from "./fileDownload";
-import type { SendTemporaryMessageOnMainParams } from "./temporaryMessage";
+import { sendTemporaryMessageOnMain } from "./temporaryMessage";
 import {
   MEDIA_DOWNLOAD_TIMEOUT_MS,
   MEDIA_FILE_METADATA_TIMEOUT_MS,
@@ -16,23 +16,17 @@ import type {
   TelegramWorkerJsonCall,
   TelegramWorkerRequest,
   TelegramWorkerTemporaryMessageResult,
-  TelegramWorkerTemporaryMessageSentResult,
 } from "../../types/telegramWorker";
 import { isTelegramMessageRequest } from "./outboundRetryPolicy";
 import { telegramSignal } from "../../libs/telegramSignal";
 import { pickPhotoSize } from "../../libs/telegramImage";
 import { beginSelfSentSend, endSelfSentSend, markSelfSent } from "../selfSentTracker";
 
-async function sendTemporaryMessage(
+function sendTemporaryMessage(
   request: Extract<TelegramWorkerRequest, { operation: "sendTemporaryMessage" }>,
   signal: AbortSignal
 ): Promise<TelegramWorkerTemporaryMessageResult | undefined> {
-  // 动态导入：组合能力依赖线程内 Telegram 动作层，只在执行时加载。
-  const temporarySender: (
-    params: SendTemporaryMessageOnMainParams
-  ) => Promise<TelegramWorkerTemporaryMessageSentResult | undefined> =
-    (await import("./temporaryMessage")).sendTemporaryMessageOnMain;
-  return temporarySender({
+  return sendTemporaryMessageOnMain({
     chatId: request.chatId,
     text: request.text,
     messageThreadId: request.messageThreadId,
