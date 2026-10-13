@@ -5,6 +5,7 @@ export * from "./teasing/qa";
 export * from "./teasing/wed";
 export * from "./teasing/translate";
 export * from "./teasing/gag";
+export * from "./teasing/deleteMessage";
 export * from "./teasing/aiChat_rateLimit";
 export * from "./teasing/antiRaid_verification";
 export * from "./teasing/notices";

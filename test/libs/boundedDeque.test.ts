@@ -30,6 +30,23 @@ describe("BoundedDeque", () => {
     expect(queue.last(1)).toEqual([current]);
   });
 
+  test("peek 只看队首、不出队，环形回绕后仍指向最早入队的元素", () => {
+    const queue = new BoundedDeque<number>(4, 2);
+    expect(queue.peek()).toBeUndefined();
+    queue.push(1);
+    queue.push(2);
+    expect(queue.shift()).toBe(1);
+    queue.push(3);
+    queue.push(4);
+
+    expect(queue.peek()).toBe(2);
+    expect(queue.size).toBe(3);
+    expect(queue.shift()).toBe(2);
+    expect(queue.peek()).toBe(3);
+    queue.clear();
+    expect(queue.peek()).toBeUndefined();
+  });
+
   test("达到领域硬上限时拒绝继续增长", () => {
     const queue = new BoundedDeque<number>(2);
     queue.push(1);

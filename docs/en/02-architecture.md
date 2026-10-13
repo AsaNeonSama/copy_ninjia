@@ -94,22 +94,25 @@ All incoming update handlers are explicitly registered in [`packages/app/registe
  7. Join Verification Ingress── Runs before commands; captures and evaluates messages from unverified users
        │
        ▼
- 8. Gag Muting Ingress       ── Intercepts and purges direct chat messages from restricted users
+ 8. Delete Target Ingress    ── Enqueues messages from /delete_message targets for deletion and ends the chain
        │
        ▼
- 9. /qa Form Ingress         ── Claims and parses in-progress "问题:" / "回答:" question-answer form submissions
+ 9. Gag Muting Ingress       ── Intercepts and purges direct chat messages from restricted users
        │
        ▼
-10. Command Sub-Chain (:entities:bot_command)
+10. /qa Form Ingress         ── Claims and parses in-progress "问题:" / "回答:" question-answer form submissions
+       │
+       ▼
+11. Command Sub-Chain (:entities:bot_command)
        │                     ── Filters non-commands; ordinary messages bypass this composer entirely
        ├─ /permission, /white, /copy, /translate, /wed, /block, /ai_chat ...
        └─ /x (menu placeholder guiding CJK action command usage)
        │
        ▼
-11. CJK Action Commands      ── Matches 1-2 character Chinese actions (e.g. /咬, /贴贴) before fallback
+12. CJK Action Commands      ── Matches 1-2 character Chinese actions (e.g. /咬, /贴贴) before fallback
        │
        ▼
-12. Automatic Message Pipeline── auto/message/ handles copying, Q&A direct answering, and AI conversation triggers
+13. Automatic Message Pipeline── auto/message/ handles copying, Q&A direct answering, and AI conversation triggers
 ```
 
 Reactions (`message_reaction`) are handled by an independent listener (`auto/reactionSync.ts`) outside the primary message pipeline.

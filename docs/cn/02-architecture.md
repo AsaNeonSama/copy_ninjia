@@ -100,22 +100,25 @@ flowchart TD
  7. 入群验证 Ingress     ── 早于命令处理，待验证成员的所有发言在此被捕获与追踪
        │
        ▼
- 8. gag 禁言 Ingress     ── 被 gag 用户的发言在此被捕获并删除，直接终止链路
+ 8. 删除目标 Ingress     ── /delete_message 目标的发言在此入队待删，直接终止链路
        │
        ▼
- 9. /qa 表单 Ingress    ── 捕获并认领正在填写的「问题:」「回答:」表单消息
+ 9. gag 禁言 Ingress     ── 被 gag 用户的发言在此被捕获并删除，直接终止链路
        │
        ▼
-10. 命令子链 (:entities:bot_command)
+10. /qa 表单 Ingress    ── 捕获并认领正在填写的「问题:」「回答:」表单消息
+       │
+       ▼
+11. 命令子链 (:entities:bot_command)
        │                 ── 外闸过滤，不含命令实体的消息单次跳过整组命令
        ├─ /permission, /white, /copy, /translate, /wed, /block, /ai_chat ...
        └─ /x (菜单占位项，引导中文动作命令用法)
        │
        ▼
-11. 中文动作命令 (hears) ── 匹配 /咬、/贴贴 等 1~2 字动作词；在消息兜底前截获
+12. 中文动作命令 (hears) ── 匹配 /咬、/贴贴 等 1~2 字动作词；在消息兜底前截获
        │
        ▼
-12. 自动消息流水线       ── auto/message/ 处理复读、群问答直答、AI 触发与转录等
+13. 自动消息流水线       ── auto/message/ 处理复读、群问答直答、AI 触发与转录等
 ```
 
 表情反应同步由 `message_reaction` 的独立 handler（`auto/reactionSync.ts`）处理，不经过上面的消息链。

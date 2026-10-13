@@ -257,8 +257,9 @@ describe("应用最终 offset 确认与排空", () => {
     await lifecycle.dispose();
     expect(drainTelegramOutbound).toHaveBeenCalledTimes(2);
     expect(drainTelegramOutbound).toHaveBeenLastCalledWith(expect.any(Number), { quiesce: true });
-    // gag 与延迟删除的最后一次重试仍排在关闸之前。
+    // gag、目标消息待删队列与延迟删除的最后一次排空仍排在关闸之前。
     expect(calls.lastIndexOf("drainGag")).toBeLessThan(calls.lastIndexOf("drainTelegramOutbound"));
+    expect(calls.lastIndexOf("drainTargetMessageDeletions")).toBeLessThan(calls.lastIndexOf("drainTelegramOutbound"));
     expect(calls.lastIndexOf("drainMessageDeletions")).toBeLessThan(calls.lastIndexOf("drainTelegramOutbound"));
   });
 

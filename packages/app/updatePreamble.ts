@@ -1,7 +1,7 @@
 /**
  * 每条 update 的前置链：运势回执 → 初始化网关 → 群升级迁移 → 身份预热 → 私聊中转 →
- * Anti-Raid / gag / `/qa set` 三条认领型 ingress → 命令外闸 → 中文动作外闸 → 消息兜底 →
- * 非消息 update 路由。
+ * Anti-Raid / `/delete_message` 目标 / gag / `/qa set` 四条认领型 ingress → 命令外闸 → 中文动作外闸 →
+ * 消息兜底 → 非消息 update 路由。
  *
  * 约束（跨模块部分见 docs/cn/04-invariants.md 的「线程与状态归属」）：
  * - 整条链只经 app/registerHandlers.ts 的一个 `bot.use` 登记，update_id 记账与 bot 发言外闸
@@ -16,7 +16,12 @@ import { matchFilter } from "grammy";
 import type { Context, Filter, MiddlewareFn, NextFunction } from "grammy";
 import type { Chat, Message } from "grammy/types";
 import { handleIncomingMessageMiddleware } from "../auto";
-import { confirmLuckDraw, handleGagMessageIngress, handleQaMessageIngress } from "../commands";
+import {
+  confirmLuckDraw,
+  handleDeleteMessageIngress,
+  handleGagMessageIngress,
+  handleQaMessageIngress,
+} from "../commands";
 import { handleAntiRaidMessageIngress } from "../antiRaid";
 import { completeChatDeparture } from "../infra/botAdmin";
 import { observeWedMemberDeparture, observeWedMembers } from "../commands/wed/members";
@@ -164,15 +169,26 @@ export function createUpdatePreamble({
   }
 
   /**
-   * gag 覆盖命令消息，位于全部命令之前；Anti-Raid 先看原始消息，广告/刷屏/待验证追踪按原始消息
-   * 计数。被 gag 的消息即使 Telegram 删除失败也在这里终止，不进入 AI、copy 或命令处理器。
+   * gag 覆盖命令消息，位于全部命令之前。被 gag 的消息即使 Telegram 删除失败也在这里终止，不进入
+   * AI、copy 或命令处理器。
    */
-  function afterAntiRaidIngress(ctx: Context, next: NextFunction): unknown {
+  function afterDeleteMessageIngress(ctx: Context, next: NextFunction): unknown {
     const message: Message | undefined = ctx.message;
     if (message === undefined) return afterGagIngress(ctx, next);
     const claimed: boolean | Promise<boolean> = handleGagMessageIngress(message, ctx.me.id);
     if (typeof claimed === "boolean") return claimed ? undefined : afterGagIngress(ctx, next);
     return claimed.then((handled: boolean): unknown => handled ? undefined : afterGagIngress(ctx, next));
+  }
+
+  /**
+   * `/delete_message` 目标的消息同样覆盖命令消息，位于 gag 之前；Anti-Raid 先看原始消息，广告/刷屏/
+   * 待验证追踪按原始消息计数。目标的消息排进待删队列后在这里终止，不进入 gag、AI、copy 或命令处理器。
+   * 判定同步完成，不返回 Promise。
+   */
+  function afterAntiRaidIngress(ctx: Context, next: NextFunction): unknown {
+    const message: Message | undefined = ctx.message;
+    if (message !== undefined && handleDeleteMessageIngress(message)) return undefined;
+    return afterDeleteMessageIngress(ctx, next);
   }
 
   /**

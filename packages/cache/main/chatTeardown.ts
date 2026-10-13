@@ -18,6 +18,7 @@ export const chatTeardownCallbacks: Record<ChatRuntimeOwner, ChatTeardownCallbac
   copy: noChatTeardown,
   translate: noChatTeardown,
   gag: noChatTeardown,
+  deleteMessage: noChatTeardown,
   aiChat: noChatTeardown,
   antiRaid: noChatTeardown,
   qa: noChatTeardown,

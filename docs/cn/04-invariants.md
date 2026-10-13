@@ -257,9 +257,9 @@
 
 - **Update 分发链路与外闸设计**：
   - **命令外闸聚合**：所有斜杠命令必须收敛在单个 `:entities:bot_command` 外闸背后的子 Composer 中，严禁逐条直接挂载在 `bot` 根实例上。外闸使用 grammY 的 `matchFilter(":entities:bot_command")`，不带 `bot_command` 实体的消息能在一瞬间跳过整组命令匹配。
-  - **前置链单点登记**：整条更新链只经 `app/registerHandlers.ts` 的一个 `bot.use` 登记，这一层完成 update_id 记账与 Bot 发言限流后进入 `app/updatePreamble.ts` 的续接链：运势回执 → 初始化网关 → 群升级迁移 → 身份预热 → 私聊中转 → Anti-Raid、gag、`/qa set` 三条认领型 ingress → 命令外闸 → 中文动作命令外闸 → 消息兜底 → 非消息 update 路由。各段按固定顺序同步调用下一段，只有真正碰到 I/O 时才返回 Promise。新增前置段必须插入这条续接链，不得另开 `bot.use` 或 `bot.on`；斜杠命令、中文动作命令与非消息 update 由三个 grammY `Composer` 承接，前置链在对应位置调用，未被认领时调用外层 `next` 恰好一次。`test/app/registerHandlers.test.ts` 断言 `bot.use` 只登记一次、`bot.on` 不被直接调用，`registered-middleware` 在热路径门禁中覆盖整条链。
+  - **前置链单点登记**：整条更新链只经 `app/registerHandlers.ts` 的一个 `bot.use` 登记，这一层完成 update_id 记账与 Bot 发言限流后进入 `app/updatePreamble.ts` 的续接链：运势回执 → 初始化网关 → 群升级迁移 → 身份预热 → 私聊中转 → Anti-Raid、`/delete_message` 目标、gag、`/qa set` 四条认领型 ingress → 命令外闸 → 中文动作命令外闸 → 消息兜底 → 非消息 update 路由。各段按固定顺序同步调用下一段，只有真正碰到 I/O 时才返回 Promise。新增前置段必须插入这条续接链，不得另开 `bot.use` 或 `bot.on`；斜杠命令、中文动作命令与非消息 update 由三个 grammY `Composer` 承接，前置链在对应位置调用，未被认领时调用外层 `next` 恰好一次。`test/app/registerHandlers.test.ts` 断言 `bot.use` 只登记一次、`bot.on` 不被直接调用，`registered-middleware` 在热路径门禁中覆盖整条链。
   - **消息入口判据统一**：`message` 与 `channel_post` 的 ingress 与兜底处理不调用 `bot.on`，而是直接校验统一判据（`allowed_updates` 不含 `edited_*`，且 `ctx.msg` 等于 `message ?? channelPost`）。中文动作命令收敛在「原文首字符是 `/`」外闸下的子 Composer，该外闸是 `CJK_ACTION_COMMAND_PATTERN` 的严格超集。
-  - **同步 vs 异步 Promise 契约**：每条群消息前置的各 ingress 及其自身的管理员权限判定，统一返回 `boolean | Promise<boolean>`。稳定状态下同步返回布尔值（不分配 Promise 内存）；仅在需要现查网络权限、实际删除消息或等待落盘 barrier 时才返回 Promise。消息类 ingress 的结果由 `app/updatePreamble.ts` 的续接函数就地判定：布尔值直接决定是否进入下一段，Promise 等待结果后再决定；按钮回调的认领由 `app/registerHandlers.ts` 的 `claimOrContinue` 接管。`callback_query:data` 上的 `/wed` 与 `/qa query` 翻页使用同一返回类型：前缀未命中时同步返回 false。`dispatchCallbackQuery` 本身不是 `async`，两条都同步未命中时直接调用 `next()`；只有某一条返回 Promise 时才等待结果，再决定是否继续交给入群验证。
+  - **同步 vs 异步 Promise 契约**：每条群消息前置的各 ingress 及其自身的管理员权限判定，统一返回 `boolean | Promise<boolean>`。稳定状态下同步返回布尔值（不分配 Promise 内存）；仅在需要现查网络权限、实际删除消息或等待落盘 barrier 时才返回 Promise；`/delete_message` 目标 ingress 只入队、不等待删除，恒同步返回布尔值。消息类 ingress 的结果由 `app/updatePreamble.ts` 的续接函数就地判定：布尔值直接决定是否进入下一段，Promise 等待结果后再决定；按钮回调的认领由 `app/registerHandlers.ts` 的 `claimOrContinue` 接管。`callback_query:data` 上的 `/wed` 与 `/qa query` 翻页使用同一返回类型：前缀未命中时同步返回 false。`dispatchCallbackQuery` 本身不是 `async`，两条都同步未命中时直接调用 `next()`；只有某一条返回 Promise 时才等待结果，再决定是否继续交给入群验证。
   - **必须严格遵守 Promise 返回语义**：等待持久化确认的入口（如入群/离群服务消息、验证按钮交互）必须返回 Promise，若误写为同步返回，会导致 Telegram update 在数据尚未安全落盘前就被提前确认；相反，恒为假值的同步逻辑严禁声明为 `async`。测试中对这两种情况均有断言覆盖。
 
 - **`packages/workers/` 内自持的 Timer 必须调用 `unref()`**：
@@ -706,8 +706,9 @@
   - **参数与回复冲突判定**：若同时提供了回复消息和命令行参数，且两者指向不同用户，必须直接报错拒绝，严禁静默偏向任一方；参数无法解析出目标时同样按冲突报错。若两者指向同一用户，则视为无害重复，正常放行。
 - **会话 ID 参数支持（`acceptChatId`）**：
   - 针对负数频道/群组 ID（匹配 `CHAT_ID_ARG_PATTERN`）设立独立的 `acceptChatId` 开关。
-  - 仅 `/gag`、`/ungag`、`/block disable`、`/permission`、`/white`、`/translate`（指定停止翻译目标）与 `/info` 支持会话 ID：
+  - 仅 `/gag`、`/ungag`、`/delete_message`、`/block disable`、`/permission`、`/white`、`/translate`（指定停止翻译目标）与 `/info` 支持会话 ID：
     - `/gag` 与 `/ungag` 仅负责创建或解除临时可逆的发言拦截；
+    - `/delete_message` 只删除频道身份此后在本群发出的新消息；
     - `/block disable` 属于恢复操作；
     - `/permission` 与 `/white` 用于维护允许存在的频道白名单配置；
     - `/info` 属于纯只读查询。
@@ -743,10 +744,15 @@
     - 任何带 `gag:` 前缀的查询均由 gag 入口全权处理；若参数非法、会话过期或用户身份不匹配，直接返回空结果，禁止回退给运势。
     - 查询应答后记录的源文本（`recordInlineResultSources`）仅供广告检测比对，不得作为身份放行或群绑定的凭证。消息落群时，必须严格校验 bot 身份、前缀、marker、活跃会话及发送者/群组 ID。
     - 精确 marker 固定格式为 `<目标主页>#<会话群 ID>`，仅作为公开校验载荷；消息落群后若任意校验不匹配或跨群，立即删除并终止处理。
+- **`/delete_message` 目标与待删队列**：
+  - 目标表 `deleteMessageTargetsByChat` 与待删队列只归主线程（`packages/cache/main/deleteMessage.ts`），不落盘、不镜像到 Worker，进程重启后为空；目标只在已初始化的群登记，每群上限 `DELETE_MESSAGE_CHAT_TARGET_MAX`。
+  - 消息 ingress 排在 Anti-Raid 之后、gag 之前，同步判定、只入队不等待删除；本群没有目标时只有一次 Map 查询。
+  - 待删队列容量 `DELETE_MESSAGE_QUEUE_MAX`，满时不入队但照常认领。唯一的消费循环以队列自己的取消上下文运行（`runWithUpdateAbortSignal`），不继承触发它的 update 的取消信号与话题；按群连续段合批调用 `deleteMessages`，经统一 Telegram 出站，失败不重试。
+  - 群 teardown 撤销本群目标并摘掉本群尚未发出的条目；停机 drain owner 排在 Telegram 出站总闸之前，超出预算整队丢弃、中止消费循环并记错误日志。
 - **`/icon steal` 头像抓取兜底**：
   - 通过 t.me 主页抓取头像时，**必须以 `getChat(targetId)` 现查返回的 username 为准**，禁止直接使用上下文传入的 username（如回复上下文或身份缓存）来跳过该查询；传入的 username 仅作为诊断日志线索。
 - **群 Runtime Teardown（拆除）规范**：
-  - 各领域清理回调（`copy`、`translate`、`gag`、`qa`、`wed`、`aiChat`、`antiRaid`、`joinLog`）集中由 `packages/cache/main/chatTeardown.ts` 维护，上层领域通过叶子模块 `packages/infra/chatTeardownRegistry.ts` 进行反向注册。`packages/infra/chatTeardown.ts` 仅负责组合调用，禁止静态依赖各具体业务。
+  - 各领域清理回调（`copy`、`translate`、`gag`、`deleteMessage`、`qa`、`wed`、`aiChat`、`antiRaid`、`joinLog`）集中由 `packages/cache/main/chatTeardown.ts` 维护，上层领域通过叶子模块 `packages/infra/chatTeardownRegistry.ts` 进行反向注册。`packages/infra/chatTeardown.ts` 仅负责组合调用，禁止静态依赖各具体业务。
   - **清理原因与数据保留判定（`ChatTeardownReason`）**：
     - `explicitDisable`（主动执行 `/init disable`）、`departed`（机器人被移出群，或启动时确证已不是成员）与 `gone`（群已不存在：普通群升级为超级群后的旧 id，或启动时确证 `chat not found`）：表示彻底停管，必须清除本群 `/wed` 成员集合、入群日志、问答库及 `chat_states` 记录。
     - `lostAuthority`（机器人在群内但失去管理员权限）：仅暂停运行态，保留所有持久化数据，待权限恢复后可继续使用。
@@ -1102,7 +1108,7 @@
   - Anti-Raid 停机时先向 Worker 发送 `drain` 协议，停止广告判定节拍并阻断新请求；取得回执后，主线程在有界预算内排空在途处置、持久化事务并完成固定点对账。
   - 停机流程遵循固定顺序：
     1. 暂停所有新任务接入（quiesce 各业务调度器、热重载与 runner）；
-    2. 有界排空 Anti-Raid、未决消息自毁、问答表单、wed 交互；
+    2. 有界排空 Anti-Raid、未决消息自毁、问答表单、wed 交互、`/delete_message` 待删队列；
     3. Flush 并终止 AI Worker；
     4. 排空 Telegram 出站队列；
     5. Flush 并终止 Disk I/O 与 Anti-Raid Worker；

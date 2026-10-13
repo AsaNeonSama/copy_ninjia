@@ -16,6 +16,7 @@ import {
 import { drainAvatarUpdates, initAvatarUpdates, quiesceAvatarUpdates } from "../copy/avatarQueue";
 import { drainWedRuntime, initWedRuntime, quiesceWedRuntime } from "../commands/wed/runtime";
 import { drainQaForms } from "../commands/qa";
+import { drainTargetMessageDeletions } from "../commands/deleteMessage/queue";
 import { drainDeferredCommandRuntime, initDeferredCommandRuntime, quiesceDeferredCommandRuntime } from "../commands/deferredCommands";
 import { ensureRandomImageDirectory } from "../infra/randomImage";
 import { drainCronScheduler, quiesceCronScheduler, startCronScheduler } from "../cron/scheduler";
@@ -83,6 +84,7 @@ export const lifecycleDependencies = {
   drainDeferredCommandRuntime,
   drainCronScheduler,
   drainPendingMessageDeletions,
+  drainTargetMessageDeletions,
   drainTelegramOutbound,
   drainTranslate,
   flushAiMemory,

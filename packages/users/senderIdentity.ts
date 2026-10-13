@@ -178,7 +178,7 @@ export function resolveUsernameTarget(username: string): CachedUser | undefined 
 
 /**
  * 按裸 id 取目标身份，供 `/block … enable`、`/block … disable`、`/gag`、`/ungag`、
- * `/permission` 与 `/white` 解析 id 形式的参数，见 commands/targetResolution.ts。
+ * `/delete_message`、`/permission` 与 `/white` 解析 id 形式的参数，见 commands/targetResolution.ts。
  *
  * **与 @username 那条路的差别：查不到不是失败。** id 本身就是权威目标，
  * 缓存只用来给回执配一个人类可读的标签；缓存落空时返回只带 id 的最小身份，

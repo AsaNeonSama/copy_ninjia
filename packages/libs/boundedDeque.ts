@@ -48,6 +48,11 @@ export class BoundedDeque<T> {
     this.count += 1;
   }
 
+  /** 返回队首但不移除；队列为空时返回 undefined。 */
+  peek(): T | undefined {
+    return this.count === 0 ? undefined : this.values[this.head];
+  }
+
   /** 移除并返回队首，同时立即解除 backing array 对该值的引用。 */
   shift(): T | undefined {
     if (this.count === 0) return undefined;

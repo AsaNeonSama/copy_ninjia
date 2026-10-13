@@ -4,7 +4,8 @@ import type { UpdateScope, UpdateTopic } from "../types/lifecycle";
 /**
  * 一条 update 的取消边界、统一时刻与触发话题。app/updateRunner.ts 为每条 update
  * 填入独立 signal 与触发话题；wed/runtime.ts 与 commands/deferredCommands.ts 在任务
- * 出队时恢复接纳时的话题，并以自己的停机边界作为信号。存储实例见
+ * 出队时恢复接纳时的话题，并以自己的停机边界作为信号；commands/deleteMessage/queue.ts 的
+ * 消费循环以待删队列自己的取消边界运行，不带话题。存储实例见
  * cache/perThread/updateContext.ts，Worker isolate 不共享主线程的作用域。
  */
 

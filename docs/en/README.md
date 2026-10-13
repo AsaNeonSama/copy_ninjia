@@ -279,7 +279,7 @@ Commands are organized into three clear authorization tiers:
 
 - **Group Members**: Basic chat features such as copying, translation, actions, `/info`, `/wed`, and `/h_image` are open to all group participants.
 - **Identity Permissions (`isCanXxx`)**: Administrative commands including `/bot_status`, `/mute` / `/unmute`, `/gag`, `/block`, `/h_image add`, and feature switches, granted individually via fine-grained permission rules.
-- **Super Administrator (`SUPER_ADMIN_USER_ID`)**: Strict hard boundaries restricted exclusively to the configured owner ID: `/init` group onboarding, `/permission` grants, `/white disable` member removal, `/batch_kick` mass removal of recent joins, and private `/send` relays. Allowlisted users with `isCanWhiteOther` may use `/white enable` to add members, but can only assign default baseline permissions.
+- **Super Administrator (`SUPER_ADMIN_USER_ID`)**: Strict hard boundaries restricted exclusively to the configured owner ID: `/init` group onboarding, `/permission` grants, `/white disable` member removal, `/batch_kick` mass removal of recent joins, `/delete_message` deletion of a target's new messages, and private `/send` relays. Allowlisted users with `isCanWhiteOther` may use `/white enable` to add members, but can only assign default baseline permissions.
 
 Image library and cron task configuration and usage are documented in [08 Images and Scheduled Tasks](08-images-and-cron.md); offline cold migration steps live in the [Operations Manual](07-operations.md).
 
@@ -487,7 +487,7 @@ Promote the bot to a group administrator and grant permissions based on required
 <tbody>
   <tr>
     <td><nobr>🗑️ <b>Delete Messages</b></nobr></td>
-    <td><code>/gag</code> speech moderation, automatic ad deletion, and removing messages from blocklisted channel identities.</td>
+    <td><code>/gag</code> speech moderation, <code>/delete_message</code> deletion of a target's new messages, automatic ad deletion, and removing messages from blocklisted channel identities.</td>
   </tr>
   <tr>
     <td><nobr>🚫 <b>Restrict & Ban Members</b></nobr></td>

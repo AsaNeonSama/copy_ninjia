@@ -21,7 +21,7 @@ This document answers the core organizational question: **"Where does existing c
   - **Key Modules**: `lifecycle.ts` and `lifecycle/` (`maintenance.ts`, `shutdown.ts`), `registerHandlers.ts`, `updateRunner.ts`, `configReload.ts`.
 - **`packages/commands/`**
   - **Responsibility**: Explicit slash command handlers, sub-command dispatchers, and permission checks.
-  - **Key Modules**: `copy.ts`, `icon.ts`, `mood.ts`, `qa.ts`, `block.ts`, `hImage.ts` (image drawing/collection), `info.ts`, `deferredCommands.ts` (shared bounded executor for async commands), `mute.ts`, `batchKick.ts`, `targetResolution.ts`, `gag/` (speech restriction runtime and rendering), `luckChallenge/` (daily fortune draws).
+  - **Key Modules**: `copy.ts`, `icon.ts`, `mood.ts`, `qa.ts`, `block.ts`, `hImage.ts` (image drawing/collection), `info.ts`, `deferredCommands.ts` (shared bounded executor for async commands), `mute.ts`, `batchKick.ts`, `targetResolution.ts`, `gag/` (speech restriction runtime and rendering), `deleteMessage.ts` with `deleteMessage/queue.ts` (`/delete_message` command, message ingress, and deletion queue), `luckChallenge/` (daily fortune draws).
 - **`packages/auto/`**
   - **Responsibility**: Passive and proactive non-command behaviors, including message copying, reaction synchronization, and spontaneous AI conversation triggers.
   - **Key Modules**: `message/` (including `triggerPolicy.ts`) and `reactionSync.ts`.

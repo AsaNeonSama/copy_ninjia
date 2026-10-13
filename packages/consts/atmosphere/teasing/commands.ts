@@ -29,6 +29,7 @@ export const BOT_COMMANDS: readonly Readonly<BotCommand>[] = [
   { command: "unmute", description: "提前解除目标禁言；支持回复、@username 或用户 id，仅持有 isCanUnMute 的身份配用，连等到期都做不到吗，杂鱼♡" },
   { command: "gag", description: "限制用户或频道的文字发言 5/10/15 分钟，默认 5 分钟，按群内入口提示发言；回复目标、@username 或身份 id 指定目标，需要 isCanGag，杂鱼♡" },
   { command: "ungag", description: "定向解除目标 gag；必须回复、写 @username 或用户/频道 id，同样需要 isCanGag，笨蛋♡" },
+  { command: "delete_message", description: "目标之后在本群发的每条消息都会被本天才删掉；回复、写 @username 或用户/频道 id，stop 停下；仅超级管理员配用，杂鱼别乱碰♡" },
   { command: "batch_kick", description: "踢出本群滚动时间窗内加入的人，如 30m/2h/1d；只踢不拉黑，仅超级管理员配用，杂鱼围观就好♡" },
   { command: "permission", description: "用 help 看说明、query 查权限，所有杂鱼都能用；修改权限仅限超级管理员，杂鱼别乱碰♡" },
   { command: "qa", description: `set 开表单登记问答（最多 ${CHAT_QA_MAX_PER_CHAT} 条），remove <问题> 删除，均需 isCanControllQaPermission；query [问题] 查一条或全部，群成员都能看，杂鱼♡` },

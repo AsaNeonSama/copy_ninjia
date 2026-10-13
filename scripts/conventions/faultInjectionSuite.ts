@@ -55,6 +55,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/commands/copyShared.test.ts",
   "test/commands/copyTeardown.test.ts",
   "test/commands/deferredCommands.test.ts",
+  "test/commands/deleteMessage.test.ts",
   "test/commands/gag.ingress.test.ts",
   "test/commands/gag.lifecycle.test.ts",
   "test/commands/gag.refresh.test.ts",

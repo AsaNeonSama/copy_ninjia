@@ -65,7 +65,7 @@ type ShutdownOwnerClose =
 
 /** 一个按固定顺序排空的停机 owner。 */
 interface ShutdownDrainOwner {
-  /** 写进哪个结果字段；问答表单、延迟命令、cron 与延迟删除不参与共享数据落盘闸门，为 null。 */
+  /** 写进哪个结果字段；问答表单、延迟命令、cron、目标消息待删队列与延迟删除不参与共享数据落盘闸门，为 null。 */
   readonly result: keyof OwnerDrainResults | null;
   /** 失败隔离与诊断日志里的 owner 名。 */
   readonly label: string;
@@ -87,8 +87,8 @@ interface ShutdownDrainOwner {
  * 进程退出前的收尾（runShutdownOwners）共用它的顺序、门禁与结果聚合。
  *
  * 顺序是约束（见 docs/cn/04-invariants.md）：
- * - gag、问答表单、wed、延迟命令、cron 与延迟删除排在 Telegram 总闸之前，它们的收尾要发
- *   Telegram 请求。
+ * - gag、问答表单、wed、延迟命令、cron、目标消息待删队列与延迟删除排在 Telegram 总闸之前，
+ *   它们的收尾要发 Telegram 请求。
  * - 延迟删除排在 anti-raid 之后：anti-raid 排空期间补发的待删公告一并提前兑现。
  * - AI memory 先回传到 diskIOWorker，再 flush 那个 Worker。
  */
@@ -168,6 +168,15 @@ const SHUTDOWN_DRAIN_OWNERS: readonly Readonly<ShutdownDrainOwner>[] = [
     initFlag: null,
     drain: (dependencies: ApplicationLifecycleDependencies, timeoutMs: number): Promise<FlushResult> =>
       dependencies.drainCronScheduler(timeoutMs),
+  },
+  {
+    // `/delete_message` 的待删队列只在内存里，超出预算时整队丢弃并记日志，不属于共享数据落盘闸门。
+    result: null,
+    label: "target message deletion drain",
+    timeout: "maintenanceMs",
+    initFlag: null,
+    drain: (dependencies: ApplicationLifecycleDependencies, timeoutMs: number): Promise<FlushResult> =>
+      dependencies.drainTargetMessageDeletions(timeoutMs),
   },
   {
     // 删除失败/超时有自己的统一日志，但不属于共享数据落盘闸门。

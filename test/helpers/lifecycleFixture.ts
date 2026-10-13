@@ -51,6 +51,10 @@ const drainPendingMessageDeletions = mock(async (): Promise<FlushResult> => {
   calls.push("drainMessageDeletions");
   return "flushed";
 });
+const drainTargetMessageDeletions = mock(async (): Promise<FlushResult> => {
+  calls.push("drainTargetMessageDeletions");
+  return "flushed";
+});
 const drainTelegramOutbound = mock(async (): Promise<FlushResult> => {
   calls.push("drainTelegramOutbound");
   return "flushed";
@@ -151,6 +155,7 @@ const testDependencies = {
   drainCronScheduler,
   drainTranslate,
   drainPendingMessageDeletions,
+  drainTargetMessageDeletions,
   drainTelegramOutbound,
   flushAiMemory,
   flushDiskIO,
@@ -280,6 +285,7 @@ export function installLifecycleFixtureHooks(): void {
       drainCronScheduler,
       drainTranslate,
       drainPendingMessageDeletions,
+      drainTargetMessageDeletions,
       drainTelegramOutbound,
       closeTranslate,
       initAvatarUpdates,
@@ -350,6 +356,10 @@ export function installLifecycleFixtureHooks(): void {
       calls.push("drainMessageDeletions");
       return "flushed" as const;
     });
+    drainTargetMessageDeletions.mockImplementation(async () => {
+      calls.push("drainTargetMessageDeletions");
+      return "flushed" as const;
+    });
     drainTelegramOutbound.mockImplementation(async () => {
       calls.push("drainTelegramOutbound");
       return "flushed" as const;
@@ -387,6 +397,7 @@ export const lifecycleFixture = {
   drainDeferredCommandRuntime,
   drainCronScheduler,
   drainPendingMessageDeletions,
+  drainTargetMessageDeletions,
   drainTelegramOutbound,
   drainTranslate,
   flushAiMemory,

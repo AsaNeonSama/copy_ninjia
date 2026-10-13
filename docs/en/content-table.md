@@ -139,7 +139,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 9. **[09 Command and Behaviour Reference](09-commands.md)**
    - Global copying modes, avatar cloning, and parameter targeting semantics.
    - Three-tier authorization matrix: Group Member, Identity Policy (`isCanXxx`), and Super Administrator.
-   - Deep-dive behavioral contracts for speech restrictions (`/gag`), global blocklists (`/block`), batch kicks, and anti-flood mutes.
+   - Deep-dive behavioral contracts for speech restrictions (`/gag`), target message deletion (`/delete_message`), global blocklists (`/block`), batch kicks, and anti-flood mutes.
 
 10. **[10 Performance Benchmark](10-performance.md)**
     - Measurement scope of `bun run perf:full`: cold-start recovery, production hot paths, SQLite transaction chains, and data structures.

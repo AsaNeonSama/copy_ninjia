@@ -285,7 +285,7 @@
 
 - **一般グループメンバー**：復唱、翻訳、アクション、`/info` 照会、`/wed` 抽選、`/h_image` 閲覧などの基本チャット機能。
 - **身元権限キー（`isCanXxx`）**：グループ管理・運用コマンド。`/bot_status`、`/mute` / `/unmute`、`/gag`、`/block`、`/h_image add` および各機能スイッチ。
-- **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、個別チャットでの `/send` 中継。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
+- **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、指定身分の新しい発言を削除する `/delete_message`、個別チャットでの `/send` 中継。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
 
 画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
 
@@ -495,7 +495,7 @@ Bot をグループ管理者に昇格させ、利用したい機能に応じて�
 <tbody>
   <tr>
     <td><nobr>🗑️ <b>メッセージの削除</b></nobr></td>
-    <td><code>/gag</code> 発言制限、広告検出による自動削除、ブロックリスト入りチャンネル identity の発言削除。</td>
+    <td><code>/gag</code> 発言制限、<code>/delete_message</code> による指定身分の新しい発言の削除、広告検出による自動削除、ブロックリスト入りチャンネル identity の発言削除。</td>
   </tr>
   <tr>
     <td><nobr>🚫 <b>メンバーの制限と BAN</b></nobr></td>

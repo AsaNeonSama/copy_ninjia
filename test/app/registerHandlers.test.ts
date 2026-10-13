@@ -155,6 +155,7 @@ describe("application handler registration", () => {
       "unmute",
       "gag",
       "ungag",
+      "delete_message",
       "send",
       "qa",
       "x",

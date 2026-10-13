@@ -57,7 +57,7 @@ export interface ResolveCommandTargetParams {
   /**
    * 是否接受裸会话 id（频道/群的负数 id）作为目标（缺省不接受）。
    *
-   * `/gag`、`/ungag`、`/block disable`、`/permission`、`/white`、`/translate stop` 与 `/info` 开启。
+   * `/gag`、`/ungag`、`/delete_message`、`/block disable`、`/permission`、`/white`、`/translate stop` 与 `/info` 开启。
    * `/block enable` 保持缺省，频道目标须由回复或用户名解析。
    * 形态校验见 consts/commands.ts 的 CHAT_ID_ARG_PATTERN；当前群身份的处置约束
    * 见 docs/cn/04-invariants.md。
@@ -91,7 +91,7 @@ export interface ResolveCommandTargetParams {
    * 不暴露皮套底下的真实用户，解析结果是这个群自己的频道 identity；开了
    * acceptChatId 的命令把本群 id 粘进参数，落点相同。`/copy` 一类保留该身份
    * （复制群头像、复读同一皮套），缺省放行；`/block`、`/block disable`、`/white`、
-   * `/permission` 这些会据此做破坏性处置或发权限的命令传入各自文案，命中时发送它
+   * `/permission`、`/delete_message` 这些会据此做破坏性处置或发权限的命令传入各自文案，命中时发送它
    * 并返回 undefined。这道闸排在身份名单预热之后。
    */
   currentChatTargetText?: string;

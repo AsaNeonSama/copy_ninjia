@@ -21,7 +21,7 @@
   - **代表文件**：`lifecycle.ts` 与 `lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updateRunner.ts` / `updateFetcher.ts`。
 - **`packages/commands/`**
   - **职责**：所有用户显式触发的 Telegram 斜杠命令实现，按命令领域组织；子命令在各自领域内分发，公用的权限门禁独立抽离。
-  - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts`、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts` 与 `gag/rendering.ts` 承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
+  - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts`、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts` 与 `gag/rendering.ts` 承接；`/delete_message` 由 `deleteMessage.ts`（命令与消息 ingress）与 `deleteMessage/queue.ts`（待删队列与停机排空）承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
 - **`packages/auto/`**
   - **职责**：非命令形式的自动响应行为，包括自动复读、AI 聊天转录与智能触发、群表情反应同步。
   - **代表文件**：`message/`（含 `triggerPolicy.ts`）、`reactionSync.ts`。
