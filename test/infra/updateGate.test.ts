@@ -57,6 +57,19 @@ describe("shouldPassInitGate", () => {
     expect(shouldPassInitGate(ctx)).toBeFalse();
   });
 
+  test("未初始化群里超管的 /delete_message（含 stop）同样拦下：删除目标只能在 /init enable 之后登记", () => {
+    const chat = { id: -1001111111130, type: "supergroup" };
+    for (const text of ["/delete_message 7", "/delete_message stop 7", `/delete_message@${ME.username} 7`]) {
+      expect(shouldPassInitGate(fakeCtx({ chat, from: { id: SUPER_ADMIN_USER_ID }, message: { text } }))).toBe(false);
+    }
+    getOrCreateChatState(chat.id).isInitEnabled = true;
+    expect(shouldPassInitGate(fakeCtx({
+      chat,
+      from: { id: SUPER_ADMIN_USER_ID },
+      message: { text: "/delete_message 7" },
+    }))).toBe(true);
+  });
+
   test("未初始化的群 + /init 指令本身：放行（否则永远没法首次初始化）", () => {
     const chatId = -1001111111112;
     const ctx = fakeCtx({
