@@ -13,6 +13,7 @@ import {
   parseJsonInput,
 } from "../../libs/inputValidation";
 import { TRANSLATE_CHAT_USER_LIMIT } from "../../consts/translate";
+import { DELETE_MESSAGE_CHAT_TARGET_MAX } from "../../consts/deleteMessage";
 import type { InputFieldContext } from "../../libs/inputValidation";
 import { hasOnlyKeys, isPlainRecord } from "../../libs/record";
 import { decodeCachedUser } from "../../libs/cachedUserCodec";
@@ -209,6 +210,32 @@ function decodeTranslateSessions(value: unknown, source: string): readonly Trans
 }
 
 /**
+ * 本群 `/delete_message` 目标：1 至 DELETE_MESSAGE_CHAT_TARGET_MAX 个互不相同的非零安全整数
+ * （用户为正数、频道为负数）。
+ */
+function decodeDeleteMessageTargets(value: unknown, source: string): readonly number[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > DELETE_MESSAGE_CHAT_TARGET_MAX) {
+    return invalidInput(
+      source,
+      "$.deleteMessageTargets",
+      `an array containing 1 to ${DELETE_MESSAGE_CHAT_TARGET_MAX} user or channel IDs`
+    );
+  }
+  const targets: number[] = [];
+  for (let index: number = 0; index < value.length; index++) {
+    const id: unknown = value[index];
+    if (!Number.isSafeInteger(id) || id === 0) {
+      return invalidInput(source, `$.deleteMessageTargets[${index}]`, "a non-zero safe integer user or channel ID");
+    }
+    if (targets.includes(id as number)) {
+      return invalidInput(source, `$.deleteMessageTargets[${index}]`, "unique within the chat");
+    }
+    targets.push(id as number);
+  }
+  return targets;
+}
+
+/**
  * 严格解码 status；未知字段与空状态对象均拒绝。缺省的开关解码为 false。
  */
 export function decodeChatStateData(text: string, source: string): ChatState {
@@ -238,6 +265,9 @@ export function decodeChatStateData(text: string, source: string): ChatState {
     title: titleValue,
     isProxySendEnabled: optionalBooleanField(value, "isProxySendEnabled", rootContext) === true,
     translate: value.translate === undefined ? undefined : decodeTranslateSessions(value.translate, source),
+    deleteMessageTargets: value.deleteMessageTargets === undefined
+      ? undefined
+      : decodeDeleteMessageTargets(value.deleteMessageTargets, source),
   };
   if (Object.keys(value).length === 0) {
     return invalidInput(source, "$", "a non-empty chat-state object");
@@ -271,6 +301,7 @@ export function encodeChatStateData(
     title: state.title,
     isProxySendEnabled: enabledOrOmitted(state.isProxySendEnabled),
     translate: state.translate,
+    deleteMessageTargets: state.deleteMessageTargets,
   });
   decodeChatStateData(text, source);
   return text;

@@ -104,6 +104,22 @@ describe("应用启动失败与退出清理", () => {
     }
   });
 
+  test("群状态里的删除目标含超管时，在 Bot 握手前以非零码拒绝启动", async () => {
+    const assertTargets = spyOn(testDependencies, "assertSuperAdminNotDeleteMessageTarget").mockImplementationOnce((): never => {
+      throw new Error("database/storage.sqlite:chat_states[-1001].status: $.deleteMessageTargets[0] must not be the configured super admin identity.");
+    });
+    try {
+      const lifecycle = new ApplicationLifecycle(testDependencies);
+      await lifecycle.run("main");
+      expect(assertTargets).toHaveBeenCalledWith(testDependencies.SUPER_ADMIN_USER_ID);
+      expect(calls).toContain("hydrateChatStates");
+      expect(botInit).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(1);
+    } finally {
+      assertTargets.mockRestore();
+    }
+  });
+
   // 在取得实例锁后、初始化 Disk I/O Worker 前让临时文件清理失败，验证资源收尾。
   test("取得单实例锁后 init 抛错，run 仍刷 state、释放锁并移除进程监听器", async () => {
     cleanupOrphanedTempFiles.mockImplementationOnce(async (): Promise<never> => {

@@ -76,7 +76,7 @@ All incoming update handlers are explicitly registered in [`packages/app/registe
  1. update_id Tracking       ── Records highest processed update_id to set offset upon graceful shutdown
        │
        ▼
- 2. Inbound Bot Rate Limiting── Messages from other bots are rate-limited per ID across chats; excess drops silently
+ 2. Inbound Bot Rate Limiting── Messages from other bots are rate-limited per ID across chats; excess drops silently; deletion targets in the chat are not counted
        │
        ▼
  3. Signed Fortune Receipt   ── Resolves inline draw confirmation receipts immediately

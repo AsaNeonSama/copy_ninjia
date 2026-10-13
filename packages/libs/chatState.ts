@@ -26,6 +26,7 @@ export function createChatState(): ChatState {
     title: undefined,
     isProxySendEnabled: false,
     translate: undefined,
+    deleteMessageTargets: undefined,
   };
 }
 
@@ -54,6 +55,7 @@ export function adoptChatState(decoded: Readonly<ChatState>): ChatState {
   chatState.title = decoded.title;
   chatState.isProxySendEnabled = decoded.isProxySendEnabled;
   chatState.translate = decoded.translate;
+  chatState.deleteMessageTargets = decoded.deleteMessageTargets;
   return chatState;
 }
 
@@ -102,5 +104,6 @@ export function isEmptyChatState(chatState: ChatState): boolean {
     chatState.botPermissions === undefined &&
     chatState.title === undefined &&
     !chatState.isProxySendEnabled &&
-    chatState.translate === undefined;
+    chatState.translate === undefined &&
+    chatState.deleteMessageTargets === undefined;
 }

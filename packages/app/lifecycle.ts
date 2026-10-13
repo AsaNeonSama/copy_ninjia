@@ -162,6 +162,10 @@ export class ApplicationLifecycle {
     await this.dependencies.assertSuperAdminNotBlocked(
       this.dependencies.SUPER_ADMIN_USER_ID
     );
+    // 超管与各群 /delete_message 目标互斥，读的是上面刚载入的群状态热读副本。
+    this.dependencies.assertSuperAdminNotDeleteMessageTarget(
+      this.dependencies.SUPER_ADMIN_USER_ID
+    );
     const restoredCopiedUser: CachedUser | null = this.dependencies.getGlobalCopyState().copiedUser;
     if (restoredCopiedUser) this.dependencies.seedSenderCache(restoredCopiedUser);
     this.dependencies.seedTranslateTargets();

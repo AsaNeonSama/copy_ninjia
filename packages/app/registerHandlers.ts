@@ -166,7 +166,7 @@ export function registerHandlers(bot: Bot): HandlerRegistration {
     // 追踪已进入处理的最大 update_id，停机时用于确认 Telegram offset。
     if (ctx.update.update_id > lastSeenUpdateId) lastSeenUpdateId = ctx.update.update_id;
     // 收到其他机器人的 message 时在接收链前段计数；超额更新不进入回执、初始化、
-    // 身份预热或业务分发。频道身份与本机器人自己的发言不计数。
+    // 身份预热或业务分发。频道身份、本机器人自己与本群 /delete_message 目标的发言不计数。
     return shouldPassBotMessage(ctx.message, ctx.me.id) ? preamble(ctx, next) : undefined;
   });
 

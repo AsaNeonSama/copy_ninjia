@@ -471,7 +471,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
 
 > [!WARNING]
 > **Bot-to-Bot 跨机器人通讯模式说明**：
-> 开启此模式后，机器人可以在具备管理员权限或已关闭群隐私模式的群组中接收其他第三方 Bot 的普通发言。接收到的其他 Bot 消息会经过全局入口防刷限流保护：同一个 Bot 在连续活跃期间的前 `BOT_MESSAGE_ACTIVITY_LIMIT` 条消息允许进入业务处理，超出后静默忽略；停止发言满 `BOT_MESSAGE_ACTIVITY_TTL_MS` 后重新计数。系统最多记录 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 个其他 Bot 的活跃状态，池满时暂不接收新 Bot；机器人自身的发言不计入该限额。详见 [消息分发约束](docs/cn/04-invariants.md)。
+> 开启此模式后，机器人可以在具备管理员权限或已关闭群隐私模式的群组中接收其他第三方 Bot 的普通发言。接收到的其他 Bot 消息会经过全局入口防刷限流保护：同一个 Bot 在连续活跃期间的前 `BOT_MESSAGE_ACTIVITY_LIMIT` 条消息允许进入业务处理，超出后静默忽略；停止发言满 `BOT_MESSAGE_ACTIVITY_TTL_MS` 后重新计数。系统最多记录 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 个其他 Bot 的活跃状态，池满时暂不接收新 Bot；机器人自身的发言与本群 `/delete_message` 目标的发言不计入该限额（后者每条都会被删除）。详见 [消息分发约束](docs/cn/04-invariants.md)。
 
 ### 群内管理员权限
 

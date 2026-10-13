@@ -86,6 +86,7 @@ const hydrateWedMembers = mock((_value: unknown): void => { calls.push("hydrateW
 const hydrateChatQaCache = mock((_value: unknown): void => { calls.push("hydrateChatQa"); });
 const hydrateIdentityStorageCounts = mock((..._args: unknown[]): void => { calls.push("hydrateIdentityCounts"); });
 const assertSuperAdminNotBlocked = mock(async (..._args: unknown[]): Promise<void> => { calls.push("assertSuperAdminNotBlocked"); });
+const assertSuperAdminNotDeleteMessageTarget = mock((..._args: unknown[]): void => { calls.push("assertSuperAdminNotDeleteMessageTarget"); });
 const hydrateBlocklist = mock((..._args: unknown[]): void => { calls.push("hydrateBlocklist"); });
 const initAntiRaid = mock((): void => { calls.push("initAntiRaid"); });
 const initBlocklistSweepScheduler = mock((): void => { calls.push("initBlocklistScheduler"); });
@@ -164,6 +165,7 @@ const testDependencies = {
   getGlobalCopyState,
   seedTranslateTargets: (): void => {},
   assertSuperAdminNotBlocked,
+  assertSuperAdminNotDeleteMessageTarget,
   hydrateIdentityStorageCounts,
   hydrateChatStateCache,
   hydrateChatQaCache,
@@ -312,6 +314,7 @@ export function installLifecycleFixtureHooks(): void {
       initAiChat,
       hydratePendingVerifications,
       assertSuperAdminNotBlocked,
+      assertSuperAdminNotDeleteMessageTarget,
       hydrateChatStateCache,
       hydrateIdentityStorageCounts,
       hydrateBlocklist,

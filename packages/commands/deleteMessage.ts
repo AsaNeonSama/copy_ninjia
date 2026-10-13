@@ -1,32 +1,33 @@
 /**
  * `/delete_message`：超级管理员把本群的一个用户或频道身份设为删除目标，此后该身份在本群发出的每条
  * 新消息由消息 ingress 认领并排进待删队列（./deleteMessage/queue.ts），经统一 Telegram 出站删除；
- * `/delete_message stop` 撤销。目标只存在主线程内存，进程重启后全部撤销。
+ * `/delete_message stop` 撤销。目标保存在群状态的 deleteMessageTargets，随 `chat_states` 持久化，
+ * 登记与撤销都等落盘确认后才回执。
  */
 
 import type { CommandContext, Context } from "grammy";
 import type { Message } from "grammy/types";
-import { deleteMessageTargetsByChat } from "../cache/main/deleteMessage";
 import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import {
   DELETE_MESSAGE_CHAT_TARGET_MAX,
   DELETE_MESSAGE_STOP_ARGUMENT_PATTERN,
 } from "../consts/deleteMessage";
+import { IDENTITY_DATABASE_PATH } from "../consts/paths";
+import { storageRowSource } from "../database/validation/storageRows";
 import { chatAtmosphere } from "../infra/atmosphere";
 import { botChatPermissionsIn } from "../infra/botAdmin";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState, getChatStateCache, persistChatState } from "../infra/storage/stateStore";
 import { replyCommandNotice } from "../infra/telegram";
 import { describeBotPermissionGap } from "../libs/botPermissionGap";
 import type { AtmosphereTexts } from "../types/atmosphere";
-import type { CachedUser } from "../types/chatState";
+import type { CachedUser, ChatState } from "../types/chatState";
 import type { ParsedDeleteMessageCommand } from "../types/deleteMessage";
 import { formatTargetLabel } from "../users/userLabel";
 import { rejectUnlessSuperAdmin } from "./commandActor";
 import {
   dropQueuedTargetMessageDeletions,
   enqueueTargetMessageDeletion,
-  resetTargetMessageDeletionQueue,
 } from "./deleteMessage/queue";
 import { resolveCommandTarget } from "./targetResolution";
 
@@ -40,8 +41,8 @@ export function parseDeleteMessageCommand(match: string): ParsedDeleteMessageCom
 }
 
 /**
- * 登记删除目标。机器人须有删除消息权限；目标可以是回复对象、@username、用户 id 或频道 id，
- * 不接受机器人自己、当前群身份与超级管理员。解析期间本群已不再初始化时不登记、不回执。
+ * 登记删除目标并等待群状态落盘。机器人须有删除消息权限；目标可以是回复对象、@username、用户 id
+ * 或频道 id，不接受机器人自己、当前群身份与超级管理员。解析期间本群已不再初始化时不登记、不回执。
  */
 async function startDeletingTargetMessages(
   ctx: CommandContext<Context>,
@@ -73,34 +74,24 @@ async function startDeletingTargetMessages(
     await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageSuperAdminTarget);
     return;
   }
-  if (getChatState(chatId).isInitEnabled !== true) return;
+  const chatState: ChatState | undefined = getChatStateCache().get(chatId);
+  if (chatState?.isInitEnabled !== true) return;
   const targetLabel: string = formatTargetLabel(target, atmosphere);
-  let targets: Set<number> | undefined = deleteMessageTargetsByChat.get(chatId);
-  if (targets?.has(target.id) === true) {
+  const current: readonly number[] | undefined = chatState.deleteMessageTargets;
+  if (current?.includes(target.id) === true) {
     await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageExists(targetLabel));
     return;
   }
-  if (targets !== undefined && targets.size >= DELETE_MESSAGE_CHAT_TARGET_MAX) {
+  if (current !== undefined && current.length >= DELETE_MESSAGE_CHAT_TARGET_MAX) {
     await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageCapacity(DELETE_MESSAGE_CHAT_TARGET_MAX));
     return;
   }
-  if (targets === undefined) {
-    targets = new Set();
-    deleteMessageTargetsByChat.set(chatId, targets);
-  }
-  targets.add(target.id);
+  chatState.deleteMessageTargets = current === undefined ? [target.id] : [...current, target.id];
+  await persistChatState(chatId, "delete message target added");
   await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageStarted(targetLabel));
 }
 
-/** 撤销本群的一个删除目标；本群最后一个目标撤销时连同群键一并删除。返回目标原先是否在册。 */
-function removeDeleteMessageTarget(chatId: number, targetId: number): boolean {
-  const targets: Set<number> | undefined = deleteMessageTargetsByChat.get(chatId);
-  if (targets?.delete(targetId) !== true) return false;
-  if (targets.size === 0) deleteMessageTargetsByChat.delete(chatId);
-  return true;
-}
-
-/** 撤销删除目标；已排队的条目照常删除。 */
+/** 撤销删除目标并等待群状态落盘；已排队的条目照常删除，目标原本不在册时不落盘。 */
 async function stopDeletingTargetMessages(
   ctx: CommandContext<Context>,
   rawTarget: string
@@ -117,12 +108,16 @@ async function stopDeletingTargetMessages(
   });
   if (target === undefined) return;
   const targetLabel: string = formatTargetLabel(target, atmosphere);
-  await replyCommandNotice(
-    ctx,
-    removeDeleteMessageTarget(ctx.chat.id, target.id)
-      ? atmosphere.NOTICE_TEXTS.deleteMessageStopped(targetLabel)
-      : atmosphere.NOTICE_TEXTS.deleteMessageAbsent(targetLabel)
-  );
+  const chatState: ChatState | undefined = getChatStateCache().get(ctx.chat.id);
+  const current: readonly number[] | undefined = chatState?.deleteMessageTargets;
+  if (chatState === undefined || current?.includes(target.id) !== true) {
+    await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageAbsent(targetLabel));
+    return;
+  }
+  const remaining: readonly number[] = current.filter((id: number): boolean => id !== target.id);
+  chatState.deleteMessageTargets = remaining.length === 0 ? undefined : remaining;
+  await persistChatState(ctx.chat.id, "delete message target removed");
+  await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.deleteMessageStopped(targetLabel));
 }
 
 /**
@@ -146,24 +141,40 @@ export async function handleDeleteMessageCommand(ctx: CommandContext<Context>): 
  * Map 查询。同步返回，不分配 Promise（挂载位置见 app/updatePreamble.ts 的前置链）。
  */
 export function handleDeleteMessageIngress(message: Message): boolean {
-  const targets: Set<number> | undefined = deleteMessageTargetsByChat.get(message.chat.id);
+  const targets: readonly number[] | undefined = getChatState(message.chat.id).deleteMessageTargets;
   if (targets === undefined) return false;
   const senderId: number | undefined = message.sender_chat?.id ?? message.from?.id;
-  if (senderId === undefined || !targets.has(senderId)) return false;
+  if (senderId === undefined || !targets.includes(senderId)) return false;
   enqueueTargetMessageDeletion(message.chat.id, message.message_id);
   return true;
 }
 
-/** 群 teardown：撤销本群全部删除目标并摘掉本群尚未发出的待删条目，不发 Telegram 请求。 */
-function teardownDeleteMessageInChat(chatId: number): void {
-  deleteMessageTargetsByChat.delete(chatId);
+/**
+ * 群 teardown：同步摘掉本群尚未发出的待删条目并撤销本群全部删除目标，随后等待群状态落盘；
+ * 不发 Telegram 请求。
+ */
+async function teardownDeleteMessageInChat(chatId: number): Promise<void> {
   dropQueuedTargetMessageDeletions(chatId);
+  const chatState: ChatState | undefined = getChatStateCache().get(chatId);
+  if (chatState?.deleteMessageTargets === undefined) return;
+  chatState.deleteMessageTargets = undefined;
+  await persistChatState(chatId, "delete message targets cleared");
 }
 
 registerChatTeardown("deleteMessage", teardownDeleteMessageInChat);
 
-/** 测试隔离：撤销全部目标并复位待删队列（见 resetTargetMessageDeletionQueue）。 */
-export function resetDeleteMessageRuntime(): void {
-  deleteMessageTargetsByChat.clear();
-  resetTargetMessageDeletionQueue();
+/**
+ * 启动阶段的致命互斥校验：配置里的超级管理员不得出现在任何群的删除目标里。排在群状态热读副本
+ * 载入之后；校验失败时抛错，启动以非零码退出。
+ */
+export function assertSuperAdminNotDeleteMessageTarget(superAdminUserId: number): void {
+  for (const [chatId, chatState] of getChatStateCache()) {
+    const index: number = chatState.deleteMessageTargets?.indexOf(superAdminUserId) ?? -1;
+    if (index < 0) continue;
+    throw new Error(
+      `${storageRowSource(IDENTITY_DATABASE_PATH, "chat_states", chatId)}: ` +
+      `$.deleteMessageTargets[${index}] must not be the configured super admin identity; ` +
+      "expected the delete targets and super_admin_user_id to stay disjoint."
+    );
+  }
 }

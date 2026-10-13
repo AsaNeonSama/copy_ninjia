@@ -136,6 +136,13 @@ export interface ChatState {
    * 创建新对象，用对象身份撤销旧会话的在途响应（见 translate/message.ts）。
    */
   translate?: readonly TranslateState[];
+  /**
+   * 本群 `/delete_message` 的删除目标身份 id（用户为正数、频道为负数），按登记顺序去重，最多
+   * DELETE_MESSAGE_CHAT_TARGET_MAX 项，不含超级管理员与本群自身。没有目标时为 undefined，不保存
+   * 空数组；增删时创建新数组。目标此后在本群发出的消息由 commands/deleteMessage.ts 的 ingress
+   * 排进待删队列。
+   */
+  deleteMessageTargets?: readonly number[];
 }
 
 /**

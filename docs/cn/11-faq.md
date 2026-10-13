@@ -67,7 +67,7 @@
     <td><nobr>🌐 <b>无法翻译另一个 Bot 的发言</b></nobr></td>
     <td>
       • 必须先在 @BotFather 中为本机器人开启 <b>Bot-to-Bot Communication Mode</b>。<br>
-      • 接收其他 Bot 消息受到全局入口限流保护：同一个 Bot 连续发言超过 <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 条后会被临时忽略，停止发言满 <code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 后重置计数；全局跟踪数达到 <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> 时暂不接收新 Bot（详见 <a href="04-invariants.md">消息分发约束</a>）。<br>
+      • 接收其他 Bot 消息受到全局入口限流保护：同一个 Bot 连续发言超过 <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 条后会被临时忽略，停止发言满 <code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 后重置计数；全局跟踪数达到 <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> 时暂不接收新 Bot；本群 <code>/delete_message</code> 目标的发言不计数，每条都会被删除（详见 <a href="04-invariants.md">消息分发约束</a>）。<br>
       • 翻译仅处理文本与图注，纯媒体、纯数字标点或已属于目标语种的消息不予翻译转发。
     </td>
   </tr>

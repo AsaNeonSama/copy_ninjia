@@ -67,7 +67,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
     <td><nobr>🌐 <b>他の Bot が翻訳・復唱されない</b></nobr></td>
     <td>
       • @BotFather で <b>Bot-to-Bot Communication Mode</b> を有効化する必要があります。<br>
-      • 他の Bot から届くメッセージにはグローバルな入口制限があります。継続して発言する同一 Bot のメッセージは <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 件を超えると無視され、<code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 発言がなければカウントがリセットされます。記録数が <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> に達している間は新規 Bot のメッセージを受け付けません（詳細は <a href="04-invariants.md">dispatch の不変条件</a> を参照）。<br>
+      • 他の Bot から届くメッセージにはグローバルな入口制限があります。継続して発言する同一 Bot のメッセージは <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 件を超えると無視され、<code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 発言がなければカウントがリセットされます。記録数が <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> に達している間は新規 Bot のメッセージを受け付けません。そのグループの <code>/delete_message</code> 対象の発言は数えず、すべて削除します（詳細は <a href="04-invariants.md">dispatch の不変条件</a> を参照）。<br>
       • 翻訳はテキストとキャプションのみを扱い、純粋なメディアや数字・記号のみのメッセージは送信しません。
     </td>
   </tr>

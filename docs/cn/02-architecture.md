@@ -82,7 +82,7 @@ flowchart TD
  1. update_id 追踪       ── 记录最大已处理 update_id，停机时确立 offset
        │
        ▼
- 2. Bot 发言限流         ── 其他 Bot 的 message 按 ID 跨群计数，超额的更新静默丢弃
+ 2. Bot 发言限流         ── 其他 Bot 的 message 按 ID 跨群计数，超额的更新静默丢弃；本群删除目标的发言不计数
        │
        ▼
  3. 运势签名回执确认    ── 优先结算内联抽签落地回执（转发副本同样有效）

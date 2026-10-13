@@ -7,8 +7,9 @@
 export const DELETE_MESSAGE_QUEUE_MAX: number = 512;
 
 /**
- * 每个群同时处于删除状态的目标身份数上限；同群同身份只占一个名额，不淘汰已登记目标。
- * 所属模块：commands/deleteMessage.ts。
+ * 每个群同时处于删除状态的目标身份数上限；同群同身份只占一个名额，不淘汰已登记目标。持久化的
+ * `chat_states.status.deleteMessageTargets` 按同一上限严格解码。所属模块：commands/deleteMessage.ts、
+ * database/codec/chatState.ts。
  */
 export const DELETE_MESSAGE_CHAT_TARGET_MAX: number = 15;
 

@@ -67,7 +67,7 @@ If the bot process is running but fails to respond as expected in chat, work thr
     <td><nobr>🌐 <b>Cannot translate another bot's messages</b></nobr></td>
     <td>
       • You must enable <b>Bot-to-Bot Communication Mode</b> for this bot in @BotFather.<br>
-      • Incoming messages from other bots are subject to global ingress throttling: messages from a bot exceeding <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> are temporarily ignored until <code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> of silence passes; new bots are ignored once <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> entries are tracked (see <a href="04-invariants.md">Dispatch Invariants</a>).<br>
+      • Incoming messages from other bots are subject to global ingress throttling: messages from a bot exceeding <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> are temporarily ignored until <code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> of silence passes; new bots are ignored once <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> entries are tracked; messages from a <code>/delete_message</code> target in the chat are not counted and are all deleted (see <a href="04-invariants.md">Dispatch Invariants</a>).<br>
       • Translation only processes text and captions; pure media, numeric strings, or messages already in the target language are skipped.
     </td>
   </tr>

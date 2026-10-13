@@ -248,6 +248,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 - **Ingress rate-limiting for other bots**:
   - `app/registerHandlers.ts` invokes `shouldPassBotMessage` (`infra/botMessageGate.ts`) before dispatching business logic.
   - Filters messages where `message.from.is_bot === true` without a channel sender. Channel personas, non-message updates, and the bot itself are bypassed without tracking.
+  - Messages from a `/delete_message` target in the chat are checked before counting: they pass without being counted or extending the timeout, and the preamble's deletion ingress handles them.
   - Other bot messages are counted globally across chats: the first `BOT_MESSAGE_ACTIVITY_LIMIT` messages pass normally, while subsequent messages are silently dropped.
   - Each message extends the bot record's timeout to `BOT_MESSAGE_ACTIVITY_TTL_MS`. The map holds at most `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` bot IDs; at capacity, new IDs are rejected without timers.
 
@@ -736,10 +737,12 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
     - Registered source text (`recordInlineResultSources`) is strictly for ad detection matching, never for identity or chat admission.
     - Result marker is formatted as `<target profile>#<session chat ID>` as public validation payload; mismatched or cross-chat results are deleted immediately and terminate downstream handling.
 - **`/delete_message` Targets and Deletion Queue**:
-  - The target table `deleteMessageTargetsByChat` and the deletion queue belong to the main thread only (`packages/cache/main/deleteMessage.ts`); they are never persisted or mirrored to Workers and start empty after a restart. Targets are registered only in initialized groups, up to `DELETE_MESSAGE_CHAT_TARGET_MAX` per group.
+  - Targets live in the chat state `ChatState.deleteMessageTargets` and persist with `chat_states.status`; the hot read copy is the only in-memory copy. Targets are registered only in initialized groups, up to `DELETE_MESSAGE_CHAT_TARGET_MAX` per group. Arming, stopping, and teardown clearing all update the hot copy first, then wait for durability through `persistChatState`.
+  - Startup decodes them strictly as 1 to `DELETE_MESSAGE_CHAT_TARGET_MAX` distinct non-zero safe integers; `decodeStoredChatStates` rejects a row that targets the group itself, and `assertSuperAdminNotDeleteMessageTarget` (right after `assertSuperAdminNotBlocked`) rejects the configured super administrator. Either violation refuses startup with a non-zero exit.
+  - The deletion queue belongs to the main thread only (`packages/cache/main/deleteMessage.ts`); it is never persisted or mirrored to Workers and starts empty after a restart.
   - The message ingress runs after Anti-Raid and before gag. It decides synchronously and only enqueues, never awaiting the deletion; a group without targets costs a single Map lookup.
   - The queue holds at most `DELETE_MESSAGE_QUEUE_MAX` entries; when full, new messages are still claimed but not enqueued. A single consumer loop runs in the queue's own cancellation context (`runWithUpdateAbortSignal`), so it never inherits the triggering update's signal or topic. It batches consecutive same-group entries into `deleteMessages` calls through the unified Telegram outbound gate and does not retry failures.
-  - Group teardown removes the group's targets and its unsent entries. The shutdown drain owner runs before the Telegram outbound gate; past the budget it drops the whole queue, aborts the consumer loop, and logs an error.
+  - Group teardown synchronously drops the group's unsent entries, removes its targets, and persists the removal. The shutdown drain owner runs before the Telegram outbound gate; past the budget it drops the whole queue, aborts the consumer loop, and logs an error.
 - **`/icon steal` Profile Fallback**:
   - Live username lookup via `getChat(targetId)` is strictly authoritative. Never short-circuit using context-provided usernames; caller usernames serve solely as diagnostic log hints.
 - **Chat Runtime Teardown**:
@@ -927,7 +930,7 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
 
 - **Authoritative Storage and Capacity Limits**:
   - Authoritative chat state resides in the SQLite `chat_states` table. The main thread maintains a fixed-capacity hot read copy capped at `STATE_MANAGED_CHAT_LIMIT` (`packages/cache/main/chatState.ts`).
-  - Fully stored in the `status` column: feature toggles (including `isProxySendEnabled`), `quietUntil`, `lockdown` WAL records, `botPermissions` snapshot, `title`, and `translate` sessions.
+  - Fully stored in the `status` column: feature toggles (including `isProxySendEnabled`), `quietUntil`, `lockdown` WAL records, `botPermissions` snapshot, `title`, `translate` sessions, and `/delete_message` targets `deleteMessageTargets`.
 - **Capacity Enforcement**:
   - Strictly rejects additions when full; **never uses LRU eviction**. `assertChatStateCapacity` throws when capacity is exceeded; validated during decode at startup and by Disk I/O Worker before writes.
   - Iterates in insertion order; `get` operations do not alter order, ensuring deterministic chat ordering in `/block` connected bans.

@@ -232,6 +232,17 @@ describe("群状态严格解码", () => {
     ], SOURCE)).toThrow(/at most one active proxy send target/);
   });
 
+  test("删除目标含本群自身 id 时拒绝启动，并写明行路径与下标", () => {
+    expect(() => decodeStoredChatStates([
+      chatStateRow(CHAT_ID, chatStateOf({ isInitEnabled: true, deleteMessageTargets: [7, CHAT_ID] })),
+    ], SOURCE)).toThrow(
+      `${SOURCE}:chat_states[${CHAT_ID}].status: $.deleteMessageTargets[1] must be a user or channel ID other than the chat itself.`
+    );
+    expect(decodeStoredChatStates([
+      chatStateRow(CHAT_ID, chatStateOf({ isInitEnabled: true, deleteMessageTargets: [7, CHAT_ID - 1] })),
+    ], SOURCE).get(CHAT_ID)?.deleteMessageTargets).toEqual([7, CHAT_ID - 1]);
+  });
+
   test("只有一个代发目标时正常解出", () => {
     expect(() => decodeStoredChatStates([
       chatStateRow(CHAT_ID, chatStateOf({ isProxySendEnabled: true })),

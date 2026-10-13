@@ -471,7 +471,7 @@ There is no need to configure `/setcommands` manually in BotFather: the bot auto
 
 > [!WARNING]
 > **Bot-to-Bot Communication Mode Details**:
-> When enabled, this bot can receive ordinary messages from other bots in groups where it is an administrator or has privacy mode disabled. Incoming messages from other bots pass through a global ingress rate-limiter: the first `BOT_MESSAGE_ACTIVITY_LIMIT` messages from each bot during continuous activity enter business handlers, and subsequent messages are silently ignored. The count resets after `BOT_MESSAGE_ACTIVITY_TTL_MS` of inactivity. At most `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` other bots are tracked; when full, messages from newly observed bots are ignored. The bot's own messages are neither counted nor blocked by this gate. See [dispatch invariants](04-invariants.md).
+> When enabled, this bot can receive ordinary messages from other bots in groups where it is an administrator or has privacy mode disabled. Incoming messages from other bots pass through a global ingress rate-limiter: the first `BOT_MESSAGE_ACTIVITY_LIMIT` messages from each bot during continuous activity enter business handlers, and subsequent messages are silently ignored. The count resets after `BOT_MESSAGE_ACTIVITY_TTL_MS` of inactivity. At most `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` other bots are tracked; when full, messages from newly observed bots are ignored. The bot's own messages and messages from a `/delete_message` target in the chat are neither counted nor blocked by this gate (the latter are all deleted). See [dispatch invariants](04-invariants.md).
 
 ### Administrator Rights in the Group
 

@@ -498,6 +498,7 @@ test("默认群状态单例与新建状态同形状：形状不一致会让热�
     title: true,
     isProxySendEnabled: true,
     translate: true,
+    deleteMessageTargets: true,
   };
   expect(Object.keys(createChatState())).toEqual(Object.keys(shape));
   expect(Object.keys(DEFAULT_CHAT_STATE)).toEqual(Object.keys(shape));
@@ -507,7 +508,7 @@ test("默认群状态单例与新建状态同形状：形状不一致会让热�
   expect([...CHAT_STATE_KEYS]).toEqual(Object.keys(shape));
 });
 
-test("isEmptyChatState 必须认得全部 12 个字段：漏掉一个就会把有状态的群当成空条目回收", () => {
+test("isEmptyChatState 必须认得全部 13 个字段：漏掉一个就会把有状态的群当成空条目回收", () => {
   const values: Readonly<Record<keyof ChatState, unknown>> = {
     quietUntil: 1,
     lockdown: { phase: "applying", intentId: 1, originalPermissions: {}, announced: false, expiresAt: 1 },
@@ -521,6 +522,7 @@ test("isEmptyChatState 必须认得全部 12 个字段：漏掉一个就会把�
     title: "群名",
     isProxySendEnabled: true,
     translate: [{ translatedUser: { id: 1 }, language: "ja" }],
+    deleteMessageTargets: [7],
   };
   expect(isEmptyChatState(createChatState())).toBe(true);
   for (const [field, value] of Object.entries(values)) {

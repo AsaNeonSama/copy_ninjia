@@ -189,7 +189,9 @@ export function assertPendingRemovalBlocklistReferences(
   }
 }
 
-/** 严格解码群状态，并执行 STATE_MANAGED_CHAT_LIMIT 群上限与唯一代理目标约束。 */
+/**
+ * 严格解码群状态，并执行 STATE_MANAGED_CHAT_LIMIT 群上限、唯一代理目标与「删除目标不含本群自身」约束。
+ */
 export function decodeStoredChatStates(
   rows: readonly StoredChatStateRow[],
   source: string
@@ -209,6 +211,12 @@ export function decodeStoredChatStates(
       throw new Error(`${path}: duplicate chat primary key.`);
     }
     const state: ChatState = decodeChatStateData(row.data, path);
+    const ownIdIndex: number = state.deleteMessageTargets?.indexOf(row.chatId) ?? -1;
+    if (ownIdIndex >= 0) {
+      throw new Error(
+        `${path}: $.deleteMessageTargets[${ownIdIndex}] must be a user or channel ID other than the chat itself.`
+      );
+    }
     if (state.isProxySendEnabled === true) {
       if (proxyTargetChatId !== undefined) {
         throw new Error(

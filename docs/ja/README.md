@@ -479,7 +479,7 @@ BotFather で `/setcommands` を手動設定する必要はありません。Bot
 
 > [!WARNING]
 > **Bot-to-Bot 通信モードの注意点**：
-> このモードを有効にすると、管理者権限を持つかプライバシーモードを無効にしたグループで他の Bot の通常メッセージを受信できます。他の Bot から届いたメッセージはグローバルな入口制限を通ります。継続して活動する各 Bot の最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件だけを業務処理へ渡し、それ以降は通知せずに無視します。発言が `BOT_MESSAGE_ACTIVITY_TTL_MS` なければカウントをリセットします。記録できる他の Bot は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 件で、満杯の間は新しい Bot のメッセージを無視します。この Bot 自身のメッセージは記録も遮断もしません。詳しくは [dispatch の不変条件](04-invariants.md) を参照してください。
+> このモードを有効にすると、管理者権限を持つかプライバシーモードを無効にしたグループで他の Bot の通常メッセージを受信できます。他の Bot から届いたメッセージはグローバルな入口制限を通ります。継続して活動する各 Bot の最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件だけを業務処理へ渡し、それ以降は通知せずに無視します。発言が `BOT_MESSAGE_ACTIVITY_TTL_MS` なければカウントをリセットします。記録できる他の Bot は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 件で、満杯の間は新しい Bot のメッセージを無視します。この Bot 自身のメッセージと、そのグループの `/delete_message` 対象の発言は記録も遮断もしません（後者はすべて削除します）。詳しくは [dispatch の不変条件](04-invariants.md) を参照してください。
 
 ### グループ内の管理者権限
 

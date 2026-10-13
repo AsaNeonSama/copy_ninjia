@@ -1,17 +1,10 @@
-/** owner: main。`/delete_message`（commands/deleteMessage.ts 与 commands/deleteMessage/queue.ts）的运行时状态；Worker 不得 import。 */
+/** owner: main。`/delete_message` 待删队列（commands/deleteMessage/queue.ts）的运行时状态；Worker 不得 import。
+ * 删除目标保存在群状态的 deleteMessageTargets（types/chatState.ts），不在这里。 */
 
 import { DELETE_MESSAGE_QUEUE_MAX } from "../../consts/deleteMessage";
 import { BoundedDeque } from "../../libs/boundedDeque";
 import type { QueuedTargetMessageDeletion } from "../../types/deleteMessage";
 import type { FlushWaiter } from "../../types/lifecycle";
-
-/**
- * 正在删除新消息的目标：chatId → 目标身份 id（用户为正数，频道为负数）。`/delete_message`
- * 登记，`/delete_message stop` 与群 teardown 摘除，群里最后一个目标摘除时连同 chatId 键一并删除。
- * 容量：每群至多 DELETE_MESSAGE_CHAT_TARGET_MAX 个目标，只在已初始化的群登记，群数受
- * STATE_MANAGED_CHAT_LIMIT 约束；不淘汰。不落盘，进程重启从空表开始；主线程不随 Worker 重建。
- */
-export const deleteMessageTargetsByChat: Map<number, Set<number>> = new Map();
 
 /**
  * 待删队列：目标的每条新消息由消息 ingress 入队一条，消费循环从队首按群取批后出队。

@@ -250,6 +250,7 @@
 - **其他 Bot 的群消息在主线程入口限流**：
   - `app/registerHandlers.ts` 在记录 update ID 之后、确认回执和派发业务之前，统一调用 `shouldPassBotMessage`（`infra/botMessageGate.ts`）。
   - 仅拦截识别为真实机器人的发言（`message.from.is_bot === true` 且不包含 `sender_chat` 频道马甲）。频道身份、非 message 更新以及本 Bot 自己的消息均放行且不记录。
+  - 本群 `/delete_message` 目标的发言先于计数判定：直接放行，不计数、不续期，交给前置链的删除 ingress。
   - 其余 Bot 的发言按 ID 进行全局跨群计数：前 `BOT_MESSAGE_ACTIVITY_LIMIT` 条正常放行，之后的消息静默丢弃。
   - 该 Bot 每发送一条消息（含已超额的消息），其记录的独立超时计时器都会续期至该发言之后的 `BOT_MESSAGE_ACTIVITY_TTL_MS`。
   - 主线程 Map 最多容纳 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 个 Bot 记录。满载时直接拒绝记录新 ID 且不分配 timer；已存在的 ID 继续按频次阈值判定，不淘汰旧记录。
@@ -745,10 +746,12 @@
     - 查询应答后记录的源文本（`recordInlineResultSources`）仅供广告检测比对，不得作为身份放行或群绑定的凭证。消息落群时，必须严格校验 bot 身份、前缀、marker、活跃会话及发送者/群组 ID。
     - 精确 marker 固定格式为 `<目标主页>#<会话群 ID>`，仅作为公开校验载荷；消息落群后若任意校验不匹配或跨群，立即删除并终止处理。
 - **`/delete_message` 目标与待删队列**：
-  - 目标表 `deleteMessageTargetsByChat` 与待删队列只归主线程（`packages/cache/main/deleteMessage.ts`），不落盘、不镜像到 Worker，进程重启后为空；目标只在已初始化的群登记，每群上限 `DELETE_MESSAGE_CHAT_TARGET_MAX`。
+  - 目标保存在群状态 `ChatState.deleteMessageTargets`，随 `chat_states.status` 持久化，热读副本即唯一内存副本；只在已初始化的群登记，每群上限 `DELETE_MESSAGE_CHAT_TARGET_MAX`。登记、撤销与 teardown 清空都先改热读副本，再经 `persistChatState` 等落盘确认。
+  - 启动时严格解码为 1 至 `DELETE_MESSAGE_CHAT_TARGET_MAX` 个互不相同的非零安全整数；`decodeStoredChatStates` 拒绝含本群自身 ID 的行，`assertSuperAdminNotDeleteMessageTarget`（紧随 `assertSuperAdminNotBlocked`）拒绝含配置的超级管理员，任一违反即以非零码拒绝启动。
+  - 待删队列只归主线程（`packages/cache/main/deleteMessage.ts`），不落盘、不镜像到 Worker，进程重启后为空。
   - 消息 ingress 排在 Anti-Raid 之后、gag 之前，同步判定、只入队不等待删除；本群没有目标时只有一次 Map 查询。
   - 待删队列容量 `DELETE_MESSAGE_QUEUE_MAX`，满时不入队但照常认领。唯一的消费循环以队列自己的取消上下文运行（`runWithUpdateAbortSignal`），不继承触发它的 update 的取消信号与话题；按群连续段合批调用 `deleteMessages`，经统一 Telegram 出站，失败不重试。
-  - 群 teardown 撤销本群目标并摘掉本群尚未发出的条目；停机 drain owner 排在 Telegram 出站总闸之前，超出预算整队丢弃、中止消费循环并记错误日志。
+  - 群 teardown 同步摘掉本群尚未发出的条目、撤销本群目标并落盘；停机 drain owner 排在 Telegram 出站总闸之前，超出预算整队丢弃、中止消费循环并记错误日志。
 - **`/icon steal` 头像抓取兜底**：
   - 通过 t.me 主页抓取头像时，**必须以 `getChat(targetId)` 现查返回的 username 为准**，禁止直接使用上下文传入的 username（如回复上下文或身份缓存）来跳过该查询；传入的 username 仅作为诊断日志线索。
 - **群 Runtime Teardown（拆除）规范**：
@@ -934,7 +937,7 @@
 
 - **权威副本与容量上限**：
   - 每群状态的权威存储为 SQLite `chat_states` 表；主线程维护容量上限为 `STATE_MANAGED_CHAT_LIMIT` 的固定热读副本（`packages/cache/main/chatState.ts`）。
-  - 字段完整保存在 `status` 列中，覆盖功能开关（含 `isProxySendEnabled`）、`quietUntil`、`lockdown` 预写记录、`botPermissions` 快照、`title` 与翻译会话 `translate`。
+  - 字段完整保存在 `status` 列中，覆盖功能开关（含 `isProxySendEnabled`）、`quietUntil`、`lockdown` 预写记录、`botPermissions` 快照、`title`、翻译会话 `translate` 与 `/delete_message` 目标 `deleteMessageTargets`。
 - **容量保护策略**：
   - 容量达到上限时**严格拒绝、绝不执行 LRU 淘汰**：新建超出限额的群时 `assertChatStateCapacity` 抛错；启动阶段由 `decodeStoredChatStates` 校验容量，Disk I/O Worker 写入前独立复核。
   - 热读副本按插入顺序迭代，`get` 操作不改变顺序，使 `/block` 连带封禁群列表的展示顺序具备确定性。
