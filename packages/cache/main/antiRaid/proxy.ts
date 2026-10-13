@@ -2,12 +2,13 @@
 
 import { ANTI_RAID_BARRIER_TIMEOUT_MS } from "../../../consts/antiRaid/protocol";
 import { createFlushBarrier } from "../../../libs/flushBarrier";
+import type { FlushBarrier } from "../../../libs/flushBarrier";
 
 /**
  * Anti-Raid 主线程与 Worker 的 mailbox barrier。模块加载时创建，terminate
  * 时统一结算等待者；进程重启后以空等待表和新序号重建，容量受并发 flush 数约束。
  */
-export const antiRaidBarrier: ReturnType<typeof createFlushBarrier> = createFlushBarrier({
+export const antiRaidBarrier: FlushBarrier = createFlushBarrier({
   timeoutMs: ANTI_RAID_BARRIER_TIMEOUT_MS,
 });
 

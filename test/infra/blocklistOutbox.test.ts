@@ -31,8 +31,10 @@ const {
   trackBlockedRemoval,
 } = await import("../../packages/infra/blocklist/outbox");
 
-const { unacknowledgedRemovalWrites } =
+const { unacknowledgedRemovalBytes, unacknowledgedRemovalWrites } =
   await import("../../packages/cache/main/identityStorage");
+
+const { STORAGE_PENDING_MAX_BYTES } = await import("../../packages/consts/diskIO/business");
 
 const {
   quiesceBlocklistSweepScheduler,
@@ -375,12 +377,11 @@ describe("黑名单 outbox 的投递边界", () => {
     expect(postDiskIO).not.toHaveBeenCalled();
   });
 
-  test("未确认字节超过存储写预算时拒绝排队，并回滚新登记的镜像行", async () => {
-    const { STORAGE_PENDING_MAX_BYTES } = await import("../../packages/consts/diskIO/business");
-    const { unacknowledgedRemovalBytes } = await import("../../packages/cache/main/identityStorage");
+  test("未确认字节超过存储写预算时拒绝排队，并回滚新登记的镜像行", () => {
     governedChat();
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     unacknowledgedRemovalBytes.current = STORAGE_PENDING_MAX_BYTES;
+    const counterBefore: number = blocklistRemovalCounter.current;
 
     expect(() => trackBlockedRemoval({
       chatId: -1001,
@@ -389,6 +390,8 @@ describe("黑名单 outbox 的投递边界", () => {
     } as never)).toThrow("Storage pending write capacity was exhausted.");
     expect(pendingBlockedRemovals.size).toBe(0);
     expect(unacknowledgedRemovalWrites.size).toBe(0);
+    expect(unacknowledgedRemovalBytes.current).toBe(STORAGE_PENDING_MAX_BYTES);
+    expect(blocklistRemovalCounter.current).toBe(counterBefore);
   });
 
   test("只改了内存的诊断在 write-ahead 时逐行发出；已随这一行写入发出的不再重复", async () => {

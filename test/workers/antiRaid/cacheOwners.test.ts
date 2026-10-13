@@ -9,6 +9,7 @@ import {
   bufferAdminChangeDuringFetch,
   cacheAdminIds,
   chatAdmins,
+  clearChatAdminCache,
   pendingAdminChangesDuringFetch,
   resetAdminCache,
   takePendingAdminChanges,
@@ -269,7 +270,6 @@ describe("Anti-Raid cache owners", () => {
     adminCache.applyAdminChange(-1011, 41, false);
     adminCache.applyAdminChange(-1013, 88, true);
 
-    const { clearChatAdminCache } = await import("../../../packages/cache/workers/antiRaid/admins");
     clearChatAdminCache(-1011);
 
     expect(chatAdmins.has(-1011)).toBeFalse();

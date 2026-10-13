@@ -19,6 +19,7 @@ export const chatAdmins: FifoMap<number, ChatAdminCache> = new FifoMap(ANTI_RAID
 /**
  * 进行中的全量管理员拉取，按 chatId 去重（libs/keyedTask.ts 的 getOrCreateKeyedTask：
  * clearChatAdminCache / resetAdminCache 在拉取在途时清除槽位后，陈旧拉取结算不会删掉新登记的槽位）。
+ * fetchAdminIds 结算时槽位已不指向本次拉取即视为作废，结果只交给等待者，不写回快照。
  * 清理：请求结算（成功或失败）时删除自己的槽位，clearChatAdminCache 按群清除，resetAdminCache 整表清空。
  * 容量：同时在途的群数，上界为受管群数；Worker 崩溃后旧 Promise 随 isolate 消失。
  */
@@ -30,14 +31,6 @@ export const adminFetches: Map<number, Promise<Set<number>>> = new Map();
  * Worker 崩溃重建：不重放——快照本身就要重拉，那段窗口的增量随之作废。
  */
 export const pendingAdminChangesDuringFetch: Map<number, Map<number, boolean>> = new Map();
-
-/**
- * 缓存世代号：`resetAdminCache()` 每次自增。在途的全量拉取用它与 `adminFetches` 当前槽位配合判断自己
- * 那份快照是否已被清空作废；清理同时删掉对应的 `pendingAdminChangesDuringFetch`，作废的快照不写回。
- * 填充/清理时机：只在 `resetAdminCache()` 时自增，不回退；容量固定一个数字，
- * Worker 崩溃重建后从 0 重新开始，在途拉取随旧 isolate 消失。
- */
-export const adminCacheGeneration: { current: number } = { current: 0 };
 
 /** 在 ANTI_RAID_CHAT_CACHE_MAX 硬顶内落一份非匿名管理员豁免快照。 */
 export function cacheAdminIds(chatId: number, adminIds: Set<number>, fetchedAt: number = Date.now()): void {
@@ -88,5 +81,4 @@ export function resetAdminCache(): void {
   chatAdmins.clear();
   adminFetches.clear();
   pendingAdminChangesDuringFetch.clear();
-  adminCacheGeneration.current++;
 }

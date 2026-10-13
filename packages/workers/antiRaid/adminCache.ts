@@ -2,7 +2,6 @@ import { telegramApi } from "../../infra/telegram";
 import { logger } from "../../infra/logger";
 import { ADMIN_CACHE_TTL_MS } from "../../consts/antiRaid/cache";
 import {
-  adminCacheGeneration,
   bufferAdminChangeDuringFetch,
   cacheAdminIds,
   chatAdmins,
@@ -47,9 +46,6 @@ export function freshAdminIds(chatId: number, now: number = Date.now()): Set<num
  * chat_member 增量同口径，见 antiRaid/memberFacts.ts 的 isInviterExemptAdmin。
  */
 export function fetchAdminIds(chatId: number): Promise<Set<number>> {
-  // 记下启动时的世代号与本轮槽位：resetAdminCache() 自增世代并整表清空，clearChatAdminCache(chatId)
-  // 移除该群槽位与 pendingAdminChangesDuringFetch，已失效的拉取不再写回。
-  const generation: number = adminCacheGeneration.current;
   const inFlight: Promise<Set<number>> = getOrCreateKeyedTask(adminFetches, chatId, (): Promise<Set<number>> =>
     telegramApi
       .getChatAdministrators(chatId)
@@ -58,8 +54,8 @@ export function fetchAdminIds(chatId: number): Promise<Set<number>> {
         for (const admin of admins) {
           if (admin.is_anonymous !== true && admin.user.is_bot !== true) adminIds.add(admin.user.id);
         }
-        // 世代或槽位对不上就只把结果交给等待者，不写回缓存。
-        if (adminCacheGeneration.current !== generation || adminFetches.get(chatId) !== inFlight) return adminIds;
+        // 槽位已被 resetAdminCache / clearChatAdminCache 移除或替换时只把结果交给等待者，不写回缓存。
+        if (adminFetches.get(chatId) !== inFlight) return adminIds;
         // 拉取在途期间到达的增量变化比这份快照新，重放在其上（见
         // pendingAdminChangesDuringFetch 注释）。
         const pending: Map<number, boolean> | undefined = takePendingAdminChanges(chatId);
@@ -74,10 +70,8 @@ export function fetchAdminIds(chatId: number): Promise<Set<number>> {
       })
       .catch((error: unknown): never => {
         // 没有成功的全量快照就没有可重放增量的基底：丢弃该群在途增量，下次拉取取得
-        // 新的权威快照。世代或槽位不符时不动这张 Map。
-        if (adminCacheGeneration.current === generation && adminFetches.get(chatId) === inFlight) {
-          pendingAdminChangesDuringFetch.delete(chatId);
-        }
+        // 新的权威快照。槽位不符时不动这张 Map。
+        if (adminFetches.get(chatId) === inFlight) pendingAdminChangesDuringFetch.delete(chatId);
         throw error;
       })
   );

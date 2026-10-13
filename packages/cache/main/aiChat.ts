@@ -2,6 +2,7 @@
 
 import { AI_MEMORY_FLUSH_TIMEOUT_MS } from "../../consts/lifecycle";
 import { createFlushBarrier } from "../../libs/flushBarrier";
+import type { FlushBarrier } from "../../libs/flushBarrier";
 import type { AiMemoryUsage } from "../../types/aiChat/memory";
 import type { AiBotInfo, AiInitMessage } from "../../types/aiChat/protocol";
 import type {
@@ -16,7 +17,7 @@ import type { WorkerRequestOutcome, WorkerRequestTable } from "../../types/worke
  * AI Worker 记忆回传 barrier。模块加载时创建，Worker 终止时统一结算等待者；
  * 进程重启后以空等待表重建，容量受并发 flush 数约束。
  */
-export const aiMemoryFlushBarrier: ReturnType<typeof createFlushBarrier> = createFlushBarrier({
+export const aiMemoryFlushBarrier: FlushBarrier = createFlushBarrier({
   timeoutMs: AI_MEMORY_FLUSH_TIMEOUT_MS,
 });
 

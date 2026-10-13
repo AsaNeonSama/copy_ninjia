@@ -15,25 +15,11 @@ import type {
   TelegramWorkerDownloadFileResult,
   TelegramWorkerJsonCall,
   TelegramWorkerRequest,
-  TelegramWorkerTemporaryMessageResult,
 } from "../../types/telegramWorker";
 import { isTelegramMessageRequest } from "./outboundRetryPolicy";
 import { telegramSignal } from "../../libs/telegramSignal";
 import { pickPhotoSize } from "../../libs/telegramImage";
 import { beginSelfSentSend, endSelfSentSend, markSelfSent } from "../selfSentTracker";
-
-function sendTemporaryMessage(
-  request: Extract<TelegramWorkerRequest, { operation: "sendTemporaryMessage" }>,
-  signal: AbortSignal
-): Promise<TelegramWorkerTemporaryMessageResult | undefined> {
-  return sendTemporaryMessageOnMain({
-    chatId: request.chatId,
-    text: request.text,
-    messageThreadId: request.messageThreadId,
-    replyToMessageId: request.replyToMessageId,
-    signal,
-  });
-}
 
 /** grammY raw API 的单方法调用形态；raw 是按方法名转发到 callApi 的 Proxy，经过同一组出站 transformer。 */
 type TelegramRawCall = (
@@ -182,7 +168,13 @@ async function dispatchTelegramWorkerRequest(
     case "downloadFile":
       return downloadTelegramFile(request, signal);
     case "sendTemporaryMessage":
-      return sendTemporaryMessage(request, signal);
+      return sendTemporaryMessageOnMain({
+        chatId: request.chatId,
+        text: request.text,
+        messageThreadId: request.messageThreadId,
+        replyToMessageId: request.replyToMessageId,
+        signal,
+      });
   }
 }
 

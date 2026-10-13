@@ -623,9 +623,9 @@
   - 候选范围严格限定在关联频道的讨论线程内：论坛超级群（Topics）的常规话题消息虽同样携带 `message_thread_id`，但通过 `is_topic_message !== true` 予以排除，走普通待验证逻辑。
   - 冷缓存中的 `message_thread_id` 仅作为异步确认候选：在查询结果落地前暂按普通消息处理，一旦确认为 `linked_chat_id` 且状态代际一致，立即撤销验证责任；查询失败时 fail closed，保留后续重试。
 
-- **Worker 侧管理员缓存的在途与代际管理**：
+- **Worker 侧管理员缓存的在途槽位管理**：
   - 管理员列表异步拉取通过 `libs/keyedTask.ts` 集中去重，`.finally()` 中仅在当前 promise 仍然是表内记录时才执行清理。
-  - 每次重置缓存（`resetAdminCache()`）均自增表世代号（Generation），单群停用或离群（`clearChatAdminCache(chatId)`）清除该群快照、在途拉取槽位与暂存增量；在途请求返回时若世代号不符或该群槽位不再指向当前请求，仅将结果返回给当前等待者，不写回 `cacheAdminIds`，丢弃过期的待定变更。
+  - 整表重置（`resetAdminCache()`）清空全部快照、在途拉取槽位与暂存增量，单群停用或离群（`clearChatAdminCache(chatId)`）只清除该群的这三项；在途请求返回时若该群槽位不再指向当前请求，仅将结果返回给当前等待者，不写回 `cacheAdminIds`，也不改动暂存增量。
 
 - **验证按钮交互权限独立性**：
   - **「我是良民」按钮**：仅允许待验证新人本人点击。Worker 严格通过 `callback_query.from.id === callback_data` 校验目标关系，绝不接受前端直接声明。
@@ -1053,7 +1053,7 @@
 #### 黑名单移除 outbox
 
 - **跨进程持久化保证**：
-  - 黑名单封禁批次通过 Disk I/O Worker 写入 SQLite `pending_blocked_removals` 表。写入按行进行：主线程每改动一行只为该行发一条 `blocklistRemovalWrite`（该行当前值，行已不在即删除），带单调 revision；Disk I/O Worker 事务提交后按 `(removalId, revision)` 回精确 ACK，迟到的旧 ACK 不清掉更新的写。Disk I/O Worker 重建时主线程只按 revision 顺序重放尚未确认的行。只改诊断字段（`attempts`、`lastFailure`）的失败记账先留在内存，随这一行下一次写入发出；投递前的 write-ahead 先为这些行逐行发出写入，只有 outbox 全部行的当前内容都已落盘（durable）后，主线程才向 Anti-Raid Worker 派发任务并确认 update。
+  - 黑名单封禁批次通过 Disk I/O Worker 写入 SQLite `pending_blocked_removals` 表。写入按行进行：主线程每改动一行只为该行发一条 `blocklistRemovalWrite`（该行当前值，行已不在即删除），带单调 revision；Disk I/O Worker 事务提交后按 `(removalId, revision)` 回精确 ACK，迟到的旧 ACK 不清掉更新的写。Disk I/O Worker 重建时主线程只按 revision 顺序重放尚未确认的行。发出每一行写入前，主线程按未确认行数与估算字节核对共享 SQLite 写预算（`STORAGE_PENDING_MAX_ENTRIES`、`STORAGE_PENDING_MAX_BYTES`），超出即拒绝并发出 Disk I/O 致命信号，新登记的任务行随之撤销；精确 ACK 释放该行占用的字节。只改诊断字段（`attempts`、`lastFailure`）的失败记账先留在内存，随这一行下一次写入发出；投递前的 write-ahead 先为这些行逐行发出写入，只有 outbox 全部行的当前内容都已落盘（durable）后，主线程才向 Anti-Raid Worker 派发任务并确认 update。
   - Disk I/O Worker 收下一行之前严格解码并核对它对黑名单的引用：指名行冻结的 `userIds` 必须都在有效黑名单里，补扫行要求有效黑名单非空。删除黑名单身份时反向核对没有指名行仍冻结它、删除后有补扫行时黑名单不为空；主线程 `unblockUser` 必须先发出行改动、再发出黑名单删除。镜像重放区间（`storageFlushHold`）内黑名单先于 outbox 到达且不提交，删除侧核对在该区间内跳过，由启动期校验复核已提交状态。
   - 补扫任务（`probeMembership: true`）在 outbox 中仅持久化群 ID，执行时以稳定游标按 `BLOCKLIST_SWEEP_PAGE_SIZE` 分页拉取最新黑名单主键；秒踢任务（`probeMembership: false`）则冻结当时确定的 `userIds` 列表。
   - 启动阶段自动从 SQLite 恢复未结任务并重放；outbox 容量上限 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`，校验失败安全退出。
