@@ -23,7 +23,7 @@
   - If recovery for a chat is already active with the identical `phase` and `intentId`, `startEmergencyLockdownRecovery` returns immediately. If a different intent is detected, it aborts the old recovery process and restarts anew.
 
 - **Abandoning the Mirror When the Chat No Longer Exists**:
-  - With teardown reason `gone`, the Anti-Raid Worker abandons the chat's lockdown through the `chatGone` event: it deletes the state, clears the restore and retry timers, and only reports `unlock`, without calling Telegram. The main thread clears the `lockdown` mirror on `unlock` and persists it in the background; any earlier in-flight `lockdown` report arrives first and `unlock` last, so the mirror ends up empty.
+  - With teardown reason `gone`, the Anti-Raid Worker abandons the chat's lockdown through the `chatGone` event: it deletes the state, clears the restore and retry timers, and only reports `unlock`, without calling Telegram. The main thread clears the `lockdown` mirror on `unlock` and persists it in the background; any earlier in-flight `lockdown` report arrives first and `unlock` last, so the mirror ends up empty. If the main thread has already taken over emergency lockdown recovery for that chat, `abandonEmergencyLockdownRecovery` synchronously cancels the recovery task and clears the `lockdown` mirror.
   - Late permission-call results after the abandonment hit an empty state and do not advance it; `departed` and every other reason still take the persist-first restore path.
 - **Mirror Validation & Optional Fields**:
   - Active lockdown mirrors must contain `phase` and a positive integer `intentId`. `announcementMessageId` is present exactly when `announced` is true.

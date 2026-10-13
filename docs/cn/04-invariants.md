@@ -625,7 +625,7 @@
 
 - **Worker 侧管理员缓存的在途与代际管理**：
   - 管理员列表异步拉取通过 `libs/keyedTask.ts` 集中去重，`.finally()` 中仅在当前 promise 仍然是表内记录时才执行清理。
-  - 每次重置缓存（`resetAdminCache()`）均自增表世代号（Generation）；在途请求返回时若世代号不符，仅将结果返回给当前等待者，不写回 `cacheAdminIds`，丢弃过期的待定变更。
+  - 每次重置缓存（`resetAdminCache()`）均自增表世代号（Generation），单群停用或离群（`clearChatAdminCache(chatId)`）清除该群快照、在途拉取槽位与暂存增量；在途请求返回时若世代号不符或该群槽位不再指向当前请求，仅将结果返回给当前等待者，不写回 `cacheAdminIds`，丢弃过期的待定变更。
 
 - **验证按钮交互权限独立性**：
   - **「我是良民」按钮**：仅允许待验证新人本人点击。Worker 严格通过 `callback_query.from.id === callback_data` 校验目标关系，绝不接受前端直接声明。

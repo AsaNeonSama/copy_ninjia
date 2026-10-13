@@ -328,25 +328,23 @@ export function trackBlockedRemoval(
       `Blocklist removal outbox reached its ${BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES}-entry capacity.`
     );
   }
-  if (!Number.isSafeInteger(blocklistRemovalCounter.current + 1)) {
+  const removalId: number = blocklistRemovalCounter.current + 1;
+  if (!Number.isSafeInteger(removalId)) {
     throw new Error("Blocklist removal id space is exhausted.");
   }
-  blocklistRemovalCounter.current++;
-  const removalId: number = blocklistRemovalCounter.current;
   const stored: PendingBlockedRemovalParams = input.probeMembership
     ? { chatId: input.chatId, probeMembership: true, removalId }
     : { ...input, userIds: [...new Set(input.userIds)], removalId };
+  const tracked: RemoveBlockedMembersParams | undefined = materializeRemovalParams(stored, blockedIds);
+  if (tracked === undefined) {
+    throw new Error("Blocklist removal has no target to enforce.");
+  }
   pendingBlockedRemovals.set(removalId, {
     params: stored,
     createdAt: Date.now(),
     attempts: 0,
     lastFailure: null,
   });
-  const tracked: RemoveBlockedMembersParams | undefined = materializeRemovalParams(stored, blockedIds);
-  if (tracked === undefined) {
-    pendingBlockedRemovals.delete(removalId);
-    throw new Error("Blocklist removal has no target to enforce.");
-  }
   // 新行立即发出；写入准入失败时同步撤销镜像条目，投递被拒时由 persistPendingBlockedRemovals 补投。
   try {
     queueBlocklistRemovalWrite(removalId);
@@ -354,6 +352,7 @@ export function trackBlockedRemoval(
     pendingBlockedRemovals.delete(removalId);
     throw error;
   }
+  blocklistRemovalCounter.current = removalId;
   return tracked;
 }
 
@@ -362,6 +361,7 @@ export function trackBlockedRemoval(
  * durable 裁剪在这里完成。
  */
 export function forgetChatBlocklistWork(chatId: number): void {
+  blocklistSweepState.delete(chatId);
   let posted: boolean = true;
   for (const [removalId, pending] of pendingBlockedRemovals) {
     if (pending.params.chatId !== chatId) continue;
@@ -372,7 +372,6 @@ export function forgetChatBlocklistWork(chatId: number): void {
   if (!posted) {
     logger.error(`Failed to queue blocklist removal outbox cleanup for unmanaged chat ${chatId}.`);
   }
-  blocklistSweepState.delete(chatId);
 }
 
 /** 精确 ACK 只清掉对应 revision；迟到的旧 ACK 不删更新的写。 */
@@ -398,8 +397,12 @@ onDiskIORespawn("blocklist outbox", DISK_IO_RESPAWN_PRIORITIES.BLOCKLIST + 1, (
     right: readonly [number, UnacknowledgedRemovalWrite]
   ): number => left[1].revision - right[1].revision);
   for (const [removalId, write] of writes) {
-    if (!transport.post(removalWriteMessage(removalId, write.revision))) return false;
-    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true, bytes: write.bytes });
+    const message: BlocklistRemovalWriteDiskMessage = removalWriteMessage(removalId, write.revision);
+    if (!transport.post(message)) return false;
+    const cost: number = storageWriteCost(message.data);
+    unacknowledgedRemovalBytes.current += cost - write.bytes;
+    unwrittenRemovalDiagnostics.delete(removalId);
+    unacknowledgedRemovalWrites.set(removalId, { revision: write.revision, posted: true, bytes: cost });
   }
   return true;
 });

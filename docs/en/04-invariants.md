@@ -608,7 +608,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 
 - **Worker admin cache generation management**:
   - Asynchronous administrator fetches deduplicate via `libs/keyedTask.ts`, clearing promises in `.finally()` only if the stored promise matches.
-  - `resetAdminCache()` increments table generation counters; completed in-flight fetches with mismatched generations return results to current waiters without writing to `cacheAdminIds`.
+  - `resetAdminCache()` increments table generation counters, and single-chat deactivation or departure (`clearChatAdminCache(chatId)`) clears that chat's snapshot, in-flight slot, and buffered increments; completed in-flight fetches with mismatched generations or replaced slots return results to current waiters without writing to `cacheAdminIds`.
 
 - **Verification button interaction permissions**:
   - **"我是良民" (Self-verify)**: Allowed only for the pending member. The Worker verifies `callback_query.from.id === callback_data` directly, rejecting unverified claims.

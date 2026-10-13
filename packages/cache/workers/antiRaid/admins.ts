@@ -32,10 +32,10 @@ export const adminFetches: Map<number, Promise<Set<number>>> = new Map();
 export const pendingAdminChangesDuringFetch: Map<number, Map<number, boolean>> = new Map();
 
 /**
- * 缓存世代号：`resetAdminCache()` 每次自增，`clearChatAdminCache()` 在清除在途拉取时自增。
- * 在途的全量拉取用它判断自己那份快照是否已被清空作废；清理同时删掉对应的 `pendingAdminChangesDuringFetch`，
- * 作废的快照不写回。填充/清理时机：只在作废在途拉取或 resetAdminCache 时自增，不回退；
- * 容量固定一个数字，Worker 崩溃重建后从 0 重新开始，在途拉取随旧 isolate 消失。
+ * 缓存世代号：`resetAdminCache()` 每次自增。在途的全量拉取用它与 `adminFetches` 当前槽位配合判断自己
+ * 那份快照是否已被清空作废；清理同时删掉对应的 `pendingAdminChangesDuringFetch`，作废的快照不写回。
+ * 填充/清理时机：只在 `resetAdminCache()` 时自增，不回退；容量固定一个数字，
+ * Worker 崩溃重建后从 0 重新开始，在途拉取随旧 isolate 消失。
  */
 export const adminCacheGeneration: { current: number } = { current: 0 };
 
@@ -76,12 +76,11 @@ export function sweepAdminCache(now: number = Date.now()): number {
   });
 }
 
-/** 群停用或离群时清除该群的管理员快照、在途拉取槽位与暂存增量，并作废在途拉取的写回。 */
+/** 群停用或离群时清除该群的管理员快照、在途拉取槽位与暂存增量，并作废该群在途拉取的写回。 */
 export function clearChatAdminCache(chatId: number): void {
   chatAdmins.delete(chatId);
-  const hadInFlight: boolean = adminFetches.delete(chatId);
+  adminFetches.delete(chatId);
   pendingAdminChangesDuringFetch.delete(chatId);
-  if (hadInFlight) adminCacheGeneration.current++;
 }
 
 /** Worker dispose/测试隔离时清空管理员缓存及其在途状态，并作废在途拉取的写回。 */

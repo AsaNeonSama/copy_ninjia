@@ -17,7 +17,7 @@
   - 恢复链在首个 `await` 之前同步读取当前群状态，每个处于锁定态的群仅触发一次恢复接管并在日志中打印一次。
   - 若某群的恢复任务已在册且 `phase` 与 `intentId` 相同，`startEmergencyLockdownRecovery` 直接返回；若锁定意图不同，则先注销旧任务再开启新恢复。
 - **群已不存在时放弃镜像**：
-  - teardown 起因为 `gone` 时，Anti-Raid Worker 以 `chatGone` 事件放弃本群私密模式：删除状态、撤掉恢复与重试 timer，只上报 `unlock`，不调 Telegram。主线程按 `unlock` 清除 `lockdown` 镜像并后台落盘；此前在途的 `lockdown` 上报先到、`unlock` 后到，镜像最终为空。
+  - teardown 起因为 `gone` 时，Anti-Raid Worker 以 `chatGone` 事件放弃本群私密模式：删除状态、撤掉恢复与重试 timer，只上报 `unlock`，不调 Telegram。主线程按 `unlock` 清除 `lockdown` 镜像并后台落盘；此前在途的 `lockdown` 上报先到、`unlock` 后到，镜像最终为空；若主线程已在紧急恢复接管本群私密模式，`abandonEmergencyLockdownRecovery` 同步撤掉恢复任务并清空 `lockdown` 镜像。
   - 放弃之后迟到的权限调用结果撞上空状态，不再推进；`departed` 等其它起因仍走落盘优先的恢复路径。
 - **镜像格式与严格校验**：
   - 运行时 lockdown 镜像必须包含 `phase` 与正整数 `intentId`；`announcementMessageId` 与 `announced === true` 同时成立或同时不成立。
