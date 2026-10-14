@@ -10,13 +10,12 @@ import type { MessageTriggerContext, RandomMediaTrigger } from "../../types/auto
 import { scheduleEarliestExpirySweep } from "../../libs/earliestExpirySweep";
 import type { EarliestExpirySweeper } from "../../libs/earliestExpirySweep";
 
-/** 文本和各媒体 handler（photo/sticker/animation/voice）共用的随机搭话/评价掷骰条件。 */
+/**
+ * 文本和各媒体 handler（photo/sticker/animation/voice）共用的随机搭话/评价掷骰条件。
+ * 直接唤起、安静期、提及他人与自回复已由 triggerContext.ts 折算为概率 0，此时不掷骰。
+ */
 export function shouldAttemptRandomTrigger(context: MessageTriggerContext): boolean {
-  return context.directTriggerReason === undefined &&
-    !context.isQuiet &&
-    !context.hasOtherMention &&
-    !context.repliesToSelf &&
-    Math.random() < context.aiReplyProbability;
+  return context.aiReplyProbability > 0 && Math.random() < context.aiReplyProbability;
 }
 
 /**
@@ -32,7 +31,7 @@ export function claimRandomMediaTrigger(
   speakerId: number
 ): RandomMediaTrigger {
   if (!shouldAttemptRandomTrigger(context)) return "none";
-  return tryClaimUserReplyTrigger(context.chatId, speakerId, context.now)
+  return tryClaimUserReplyTrigger(context.message.chat.id, speakerId, context.now)
     ? "claimed"
     : "candidate";
 }

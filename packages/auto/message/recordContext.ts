@@ -28,7 +28,7 @@ export function buildAiRecordMessage({
 }: BuildAiRecordMessageParams): AiRecordMessage {
   return {
     type: "record",
-    chatId: context.chatId,
+    chatId: context.message.chat.id,
     senderId: speaker.id,
     firstName: speaker.firstName,
     lastName: speaker.lastName,
@@ -96,7 +96,7 @@ export function buildAiRecordMediaMessage({
 }: BuildAiRecordMediaMessageParams): AiRecordMediaMessage {
   return {
     type: "recordMedia",
-    chatId: context.chatId,
+    chatId: context.message.chat.id,
     senderId: speaker.id,
     firstName: speaker.firstName,
     lastName: speaker.lastName,

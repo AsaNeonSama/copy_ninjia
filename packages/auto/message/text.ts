@@ -11,9 +11,10 @@ import type { ImageGenerationReference } from "../../types/aiChat/protocol";
 
 /** 记录普通文字并处理直接回复/@ 与随机搭话。true 表示终止后续主动行为。 */
 export function handleTextMessage(context: MessageTriggerContext): boolean {
-  const { message, chatId }: MessageTriggerContext = context;
+  const { message }: MessageTriggerContext = context;
   if (typeof message.text !== "string" || message.text.startsWith("/")) return false;
 
+  const chatId: number = message.chat.id;
   const speaker: AiSpeakerSnapshot = resolveSpeaker(message);
   recordChatMessage(buildAiRecordMessage({ context, speaker, text: message.text }));
 

@@ -111,9 +111,15 @@ export function resolveMentionFacts(
   return hasOtherMention ? OTHER_MENTION_FACTS : NO_MENTION_FACTS;
 }
 
-/** 判断当前消息是否显式回复同一个可见发送者先前的消息（判定见 libs/forumTopic.ts 的 explicitReplyTo）。 */
-export function isReplyToSelf(message: Message): boolean {
-  const repliedTo: Message | undefined = explicitReplyTo(message);
+/**
+ * 判断当前消息是否显式回复同一个可见发送者先前的消息。repliedTo 是 libs/forumTopic.ts
+ * 的 explicitReplyTo 对 message 的解析结果；调用方已解析过时传入，省略或为 undefined
+ * 时在这里重新解析。
+ */
+export function isReplyToSelf(
+  message: Message,
+  repliedTo: Message | undefined = explicitReplyTo(message)
+): boolean {
   if (!repliedTo) return false;
   const senderId: number | undefined = visibleSenderId(message);
   return senderId !== undefined && senderId === visibleSenderId(repliedTo);
@@ -184,13 +190,16 @@ function repliedBotImage(repliedTo: Message, botId: number): RepliedBotImage | u
   };
 }
 
-/** 提取当前消息的显式回复关系。原消息取自 reply_to_message，
- * 不发额外 API 请求；论坛话题自动填入的话题创建消息不算回复（见
- * libs/forumTopic.ts 的 explicitReplyTo）；quote 则保留用户选中的精确引用片段。
+/** 提取当前消息的显式回复关系。原消息取自 reply_to_message，不发额外 API 请求；
+ * 论坛话题自动填入的话题创建消息不算回复（见 libs/forumTopic.ts 的 explicitReplyTo），
+ * repliedTo 的传法同 isReplyToSelf；quote 则保留用户选中的精确引用片段。
  * 被回复的是机器人自己的图片时附上 botImage，由 Worker 识图后回填（见
  * workers/aiChat/botImages.ts）。 */
-export function resolveReplyReference(message: Message, botId: number): AiReplyReference | undefined {
-  const repliedTo: Message | undefined = explicitReplyTo(message);
+export function resolveReplyReference(
+  message: Message,
+  botId: number,
+  repliedTo: Message | undefined = explicitReplyTo(message)
+): AiReplyReference | undefined {
   if (!repliedTo) return undefined;
   const speaker: AiSpeakerSnapshot = resolveSpeaker(repliedTo);
   // 可选字段都显式写出（缺省为 undefined），进入 Worker 与逐字缓存的引用保持

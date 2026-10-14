@@ -184,10 +184,10 @@ export function incomingMessageSpineScenario(): Scenario {
  * 掷骰判定与媒体载荷（`buildAiRecordMediaMessage`）。
  *
  * fixture 选「回复机器人的图片」这条直接唤起路径：
- * - 有 directTriggerReason 时 shouldAttemptRandomTrigger 在第一个条件就短路，
- *   不调 Math.random()、不写 userReplyTriggerTimes、不排 timer。
- * - 本场景在 triggerPolicy.ts 的直接唤起分支短路，不访问随机触发的冷却缓存；
- *   triggerContext.ts / recordContext.ts 及 facts.ts 只计算输入事实与载荷。
+ * - 直接唤起时 createMessageTriggerContext 把随机触发概率归零，shouldAttemptRandomTrigger
+ *   在第一个条件就短路，不调 Math.random()、不写 userReplyTriggerTimes、不排 timer。
+ * - 本场景不访问随机触发的冷却缓存；triggerContext.ts / recordContext.ts 及 facts.ts
+ *   只计算输入事实与载荷。
  *   不调 recordChatMedia（它会 postAiChatOrThrow 到 AI Worker，基准进程不启动该 Worker）。
  */
 export function aiMediaDirectTriggerScenario(): Scenario {

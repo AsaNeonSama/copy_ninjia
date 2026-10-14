@@ -26,7 +26,7 @@ export function replyToUnresolvableMedia({
   generateAndSendReply({
     // 字段写全（缺省显式 undefined），不用条件展开，各入口共用同一个 hidden class，
     // 口径同 auto/message/text.ts 与 recordContext.ts。
-    chatId: context.chatId,
+    chatId: context.message.chat.id,
     triggerSenderId: speaker.id,
     replyToMessageId: context.message.message_id,
     imageGenerationRequested: true,

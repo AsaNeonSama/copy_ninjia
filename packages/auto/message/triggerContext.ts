@@ -10,6 +10,7 @@ export interface CreateMessageTriggerContextParams {
   /** 本条消息统一的「现在」；见 types/auto.ts 的 MessageTriggerContext.now。 */
   now: number;
   isQuiet: boolean;
+  /** 门控前的随机触发概率，由 auto/message/index.ts 算出。 */
   aiReplyProbability: number;
 }
 
@@ -31,19 +32,19 @@ export function createMessageTriggerContext({
     ? "mention"
     : undefined;
 
+  const repliesToSelf: boolean = isReplyToSelf(message, repliedTo);
+  const effectiveProbability: number =
+    directTriggerReason === undefined && !isQuiet && !mentionFacts.hasOtherMention && !repliesToSelf
+      ? aiReplyProbability
+      : 0;
+
   return {
     message,
-    chatId: message.chat.id,
     now,
-    bot,
-    isQuiet,
-    aiReplyProbability,
+    aiReplyProbability: effectiveProbability,
     repliedTo,
-    replyReference: resolveReplyReference(message, bot.id),
+    replyReference: resolveReplyReference(message, bot.id, repliedTo),
     forwardedFrom: resolveForwardOrigin(message),
-    isMentioned: mentionFacts.isMentioned,
-    hasOtherMention: mentionFacts.hasOtherMention,
-    repliesToSelf: isReplyToSelf(message),
     directTriggerReason,
     messageThreadId: forumTopicThreadId(message),
   };
