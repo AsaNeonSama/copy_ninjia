@@ -17,6 +17,7 @@ import { getAnthropicClient, requestAnthropicMessage } from "./client";
 import { countAnthropicWebSearches, messageText, toolUseCalls } from "./response";
 import type { AnthropicClient, AnthropicRequestResult } from "../../types/aiChat/anthropic";
 import type {
+  AiFunctionCall,
   AiReplySession,
   AiReplySessionParams,
   AiReplyTurn,
@@ -123,7 +124,8 @@ export function createAnthropicReplySession(
         const blocks: Anthropic.Beta.BetaContentBlockParam[] = prefix === null
           ? result.message.content
           : [...prefix, ...result.message.content];
-        if (result.message.stop_reason === "pause_turn") {
+        const functionCalls: readonly AiFunctionCall[] = toolUseCalls(result.message);
+        if (result.message.stop_reason === "pause_turn" && functionCalls.length === 0) {
           if (continuation >= ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS) return failedReplyTurn(webSearchCalls, "pause_turn", undefined);
           paused = blocks;
           continue;
@@ -132,7 +134,7 @@ export function createAnthropicReplySession(
         return {
           ok: true,
           text: text || null,
-          functionCalls: toolUseCalls(result.message),
+          functionCalls,
           webSearchCalls,
           finishReason: undefined,
           finishDetails: undefined,

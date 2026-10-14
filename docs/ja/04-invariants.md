@@ -192,7 +192,7 @@
 
   並行 batch で `Promise.all` を直接使ってはいけません。独立した固定 task は `Promise.allSettled` ですべての settlement を待ち、項目ごとに failure を集約します。動的 input は固定 worker 数の `runBoundedSettledBatch` を通し、各項目を 1 回だけ実行し、結果に `item/index` を保持します。Telegram outbound gate など下位 owner が既に retry する場合、呼び出し側は副作用を重ねて実行してはいけません。owner に登録済みの task だけを待つ drain は snapshot を直接 `allSettled` できますが、各 task が既に error の帰属先を持つ必要があり、settlement をエラーの捨て場所にしてはいけません。Disk I/O の runtime recovery は不可分な 1 つの handshake です。
 
-  load 成功後、各 domain は登録順に現世代の scoped transport だけを使って mirror を replay し、非同期処理をすべて await します。その後で復旧窓の上限付き business FIFO を排出し、最後にだけ writable を公開できます。mirror replay の前後には `storageFlushHold` の開始・終了マークを送り、区間内の Worker は満杯 batch と定時 commit の timer だけを設定し、終了マークで閾値に従って 1 回のトランザクションで commit します。明示的な flush はこのマークの影響を受けません。AI context の削除と purge 後の最初の snapshot は区間内では queue に入るだけで、マークを閉じた時点で即座に commit します。listener の `false`、throw、reject、timeout、または scoped post の拒否は現世代を終了させる fatal failure です。
+  load 成功後、各 domain は登録順に現世代の scoped transport だけを使って mirror を replay し、非同期処理をすべて await します。その後で復旧窓の上限付き business FIFO を排出し、最後にだけ writable を公開できます。mirror replay の前後には `storageFlushHold` の開始・終了マークを送り、区間内の Worker は満杯 batch と定時 commit の timer だけを設定し、群状態（管理群上限と代送先の一意性）および群 QA（群ごとの上限）の集約検証を終了マークまで遅延させ、終了マークで集約制約を検証した上で閾値に従って 1 回のトランザクションで commit します。明示的な flush はこのマークの影響を受けません。AI context の削除と purge 後の最初の snapshot は区間内では queue に入るだけで、マークを閉じた時点で即座に commit します。listener の `false`、throw、reject、timeout、または scoped post の拒否は現世代を終了させる fatal failure です。
 
   旧世代 listener の遅延 settlement が新しい世代へ書き込んだり、activate したりしてはいけません。処理または永続化の確認が必要な caller は `false` を失敗として扱い、対応する Telegram update を確認してはいけません。
 

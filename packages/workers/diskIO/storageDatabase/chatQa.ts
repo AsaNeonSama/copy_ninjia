@@ -2,6 +2,7 @@ import {
   storagePendingBudgets,
   pendingChatQaEntryCount,
   pendingChatQaWrites,
+  storageFlushHold,
 } from "../../../cache/workers/diskIO/storageDatabase";
 import { storageWriteCost } from "../../../libs/storageWriteBudget";
 import { IDENTITY_DATABASE_PATH } from "../../../consts/paths";
@@ -39,7 +40,24 @@ function effectiveChatQaQuestions(chatId: number): Set<string> {
   return questions;
 }
 
-/** 校验并接收一条群问答写入，验证单群条数上限后排入事务缓冲。 */
+/** 校验指定群的有效问题集合不超过单群条数上限。 */
+function assertChatQaCapacity(effective: ReadonlySet<string>): void {
+  if (effective.size > CHAT_QA_MAX_PER_CHAT) {
+    throw new Error(
+      `${IDENTITY_DATABASE_PATH}:chat_qa must contain at most ` +
+      `${CHAT_QA_MAX_PER_CHAT} entries per chat; remove one before adding another.`
+    );
+  }
+}
+
+/** 镜像重放结束时统一复核所有存在待提交问答变更的群条数上限。 */
+export function assertPendingChatQaCapacity(): void {
+  for (const chatId of pendingChatQaWrites.keys()) {
+    assertChatQaCapacity(effectiveChatQaQuestions(chatId));
+  }
+}
+
+/** 校验并接收一条群问答写入，验证单群条数上限（镜像重放暂挂期间延后至重放结束统一复核）后排入事务缓冲。 */
 export function handleChatQaWrite(
   message: ChatQaWriteDiskMessage,
   reply: IdentityPersistenceReply
@@ -55,14 +73,11 @@ export function handleChatQaWrite(
   const current: PendingChatQaWrite | undefined = questions.get(message.q);
   if (current !== undefined && current.revision >= message.revision) return;
 
-  const effective: Set<string> = effectiveChatQaQuestions(message.chatId);
-  if (message.data === null) effective.delete(message.q);
-  else effective.add(message.q);
-  if (effective.size > CHAT_QA_MAX_PER_CHAT) {
-    throw new Error(
-      `${IDENTITY_DATABASE_PATH}:chat_qa must contain at most ` +
-      `${CHAT_QA_MAX_PER_CHAT} entries per chat; remove one before adding another.`
-    );
+  if (!storageFlushHold.current) {
+    const effective: Set<string> = effectiveChatQaQuestions(message.chatId);
+    if (message.data === null) effective.delete(message.q);
+    else effective.add(message.q);
+    assertChatQaCapacity(effective);
   }
 
   storagePendingBudgets.chatQa.reserve(current === undefined ? 1 : 0, storageWriteCost(message.data, message.q) - (current === undefined ? 0 : storageWriteCost(current.data, message.q)));

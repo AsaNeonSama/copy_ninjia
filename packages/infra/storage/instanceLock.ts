@@ -83,9 +83,7 @@ export async function readLinuxProcessIdentity(pid: number): Promise<ProcessIden
 
 export function getBotTokenFingerprint(botToken: string): string {
   if (botToken.length === 0) throw new Error("Cannot derive a bot instance lock from an empty token");
-  return new Bun.CryptoHasher("sha256")
-    .update(botToken, "utf8")
-    .digest("hex");
+  return Bun.SHA256.hash(botToken, "hex");
 }
 
 function serializeProcessIdentity(identity: ProcessIdentity): string {

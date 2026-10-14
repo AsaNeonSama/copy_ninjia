@@ -1,4 +1,4 @@
-import { isPlainRecord } from "./record";
+import { hasOnlyKeys, isPlainRecord } from "./record";
 import { isTelegramGroupChatId } from "./telegramId";
 import { decodeCachedUser } from "./cachedUserCodec";
 import { invalidInput, optionalTimestampField } from "./inputValidation";
@@ -27,11 +27,8 @@ function record(value: unknown, context: InputFieldContext): Record<string, unkn
 }
 
 function knownKeys(value: Record<string, unknown>, allowed: readonly string[], context: InputFieldContext): void {
-  const keys: Set<string> = new Set(allowed);
-  for (const key of Object.keys(value)) {
-    if (!keys.has(key)) {
-      invalidInput(context.source, `${context.path}.<key>`, "absent (not part of the current state schema)");
-    }
+  if (!hasOnlyKeys(value, allowed)) {
+    invalidInput(context.source, `${context.path}.<key>`, "absent (not part of the current state schema)");
   }
 }
 

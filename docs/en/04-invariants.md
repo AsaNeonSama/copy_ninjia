@@ -228,7 +228,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 
 - **Disk I/O runtime recovery handshake**:
   - Recovery is an indivisible handshake: after loading data, domains replay state via generation-scoped transport in registration order and await asynchronous logic. The host then drains the recovery-window business FIFO before exposing writable status.
-  - Mirror replay is bracketed by `storageFlushHold` open/close markers: automatic batch and timed commits queue on timers while open, committing in a single transaction when closed. Explicit flushes bypass the hold.
+  - Mirror replay is bracketed by `storageFlushHold` open/close markers: automatic batch and timed commits queue on timers and cross-row aggregate checks for chat states (managed-chat limit and proxy-send uniqueness) and chat QA (per-chat capacity) are deferred while open, then verified and committed in a single transaction when closed. Explicit flushes bypass the hold.
   - Any listener returning `false`, throwing, rejecting, timing out, or encountering message post failures immediately terminates the current generation and triggers a fatal shutdown. Stale callbacks never mutate new instances.
   - Callers requiring durability must treat `false` as failure and refuse to acknowledge updates.
   - FIFO draining is bracketed by `recoveryReplay` markers (`RecoveryReplayRequest`): rejections during this phase reply with `recoveryReplayFailed`, triggering a unified fatal shutdown so Telegram redelivers from the last durable checkpoint.

@@ -108,7 +108,7 @@ export const pendingAiContextWrites: Map<number, PendingAiContextWrite> = new Ma
 /** 已受理（含已提交与未提交）待踢任务行的目标快照表（removalId -> RemovalRowTargets）：启动 adoptStorageDatabase 从 SQLite 灌入，运行期随 blocklistRemovalWrite 增删，resetStorageDatabaseCache 时清空；容量上限为 BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES，Worker 重建后从 SQLite 与主线程重放恢复。 */
 export const removalRowTargets: Map<number, RemovalRowTargets> = new Map();
 
-/** Worker 重建后主线程镜像重放期间的事务提交暂缓开关：收到 storageFlushHold 消息时切换，为 true 时暂缓满批、定时与即时提交；Worker 重建或 resetStorageDatabaseCache 时恢复为 false。 */
+/** Worker 重建后主线程镜像重放期间的事务提交暂缓开关：收到 storageFlushHold 消息时切换，为 true 时暂缓满批、定时与即时提交并将群状态/群问答聚合校验延后到解除暂挂时执行；Worker 重建或 resetStorageDatabaseCache 时恢复为 false。 */
 export const storageFlushHold: { current: boolean } = { current: false };
 
 /** 未提交写入的定时事务刷盘 timer 单例（间隔 IDENTITY_WRITE_FLUSH_INTERVAL_MS）：首条未提交写入到达时启动，事务提交或 resetStorageDatabaseCache 时清除；Worker 重建后从 null 开始。 */

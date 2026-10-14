@@ -172,17 +172,37 @@ function settleChatQaWrites(reply: IdentityStoragePersistedReply): void {
   }
 }
 
-/** Worker 重建后按内存最终值重放全部未确认写；正文从热表现编码。 */
+interface QueuedChatQaWrite {
+  readonly chatId: number;
+  readonly q: string;
+  readonly revision: number;
+}
+
+/** Worker 重建后按 revision 升序重放全部未确认写；正文从热表现编码。 */
 function replayChatQaWrites(transport: DiskIORecoveryTransport): boolean {
+  const writes: QueuedChatQaWrite[] = [];
   for (const [chatId, questions] of unacknowledgedChatQaWrites) {
     for (const [q, pending] of questions) {
-      const answer: string | undefined = chatQaEntries.get(chatId)?.get(q);
-      const data: string | null = answer === undefined
-        ? null
-        : encodeChatQaData(answer, `${IDENTITY_DATABASE_PATH}:chat_qa[${chatId}]`);
-      if (!postWithTransport({ type: "chatQaWrite", chatId, q, data, revision: pending.revision }, transport)) {
-        return false;
-      }
+      writes.push({ chatId, q, revision: pending.revision });
+    }
+  }
+  writes.sort((left: QueuedChatQaWrite, right: QueuedChatQaWrite): number =>
+    left.revision - right.revision);
+  for (const write of writes) {
+    const current: UnacknowledgedChatQaWrite | undefined =
+      unacknowledgedChatQaWrites.get(write.chatId)?.get(write.q);
+    if (current?.revision !== write.revision) continue;
+    const answer: string | undefined = chatQaEntries.get(write.chatId)?.get(write.q);
+    const data: string | null = answer === undefined
+      ? null
+      : encodeChatQaData(answer, `${IDENTITY_DATABASE_PATH}:chat_qa[${write.chatId}]`);
+    if (
+      !postWithTransport(
+        { type: "chatQaWrite", chatId: write.chatId, q: write.q, data, revision: write.revision },
+        transport
+      )
+    ) {
+      return false;
     }
   }
   return true;

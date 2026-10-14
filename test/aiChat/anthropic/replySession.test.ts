@@ -194,6 +194,15 @@ describe("Anthropic 回复会话", () => {
     results.push({ ok: true, message: message([{ type: "text", text: "完" }]) });
     await session.request(REQUEST);
     expect(bodies[2]!.messages[1] as unknown).toEqual({ role: "assistant", content: [...paused, ...rest] });
+
+    // pause_turn 若已带出客户端 tool_use，立即交回调用方补齐 tool_result，不无条件续发。
+    results.push({ ok: true, message: message([{ type: "tool_use", id: "call-2", name: "send_message", input: { text: "先交工具" } }], "pause_turn", 1) });
+    const withToolUse: AiReplyTurn = await session.request(REQUEST);
+    expect(withToolUse).toMatchObject({
+      ok: true,
+      functionCalls: [{ id: "call-2", name: "send_message", argumentsJson: "{\"text\":\"先交工具\"}" }],
+    });
+    expect(bodies).toHaveLength(4);
   });
 
   test("续发用尽仍暂停按失败收尾；请求失败时已执行的检索照样计入，收尾详情透传", async () => {

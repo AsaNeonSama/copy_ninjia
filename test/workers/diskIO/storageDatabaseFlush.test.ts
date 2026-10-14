@@ -21,6 +21,8 @@ import {
   storagePersistenceReplyHolder,
   storageWriteFlushTimer,
 } from "../../../packages/cache/workers/diskIO/storageDatabase";
+import { diskIOOperationTail } from
+  "../../../packages/cache/workers/diskIO/recovery";
 import {
   flushStorageDatabase,
   collectStorageDatabaseFailures,
@@ -88,7 +90,7 @@ afterEach((): void => {
 });
 
 describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
-  test("首条 dirty 只建一个 unref timer，ACK 通道恢复后原批只提交一次", (): void => {
+  test("首条 dirty 只建一个 unref timer，ACK 通道恢复后原批只提交一次", async (): Promise<void> => {
     jest.useFakeTimers();
 
     handleIdentityPolicyWrite(whitelistWrite(7, 1), reply);
@@ -101,6 +103,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
     expect(storageWriteFlushTimer.current).toBe(firstTimer);
 
     jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+    await diskIOOperationTail.current;
     const retryTimer: ReturnType<typeof setTimeout> | null =
       storageWriteFlushTimer.current;
     expect(retryTimer).not.toBeNull();
@@ -111,6 +114,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
 
     storagePersistenceReplyHolder.current = reply;
     jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+    await diskIOOperationTail.current;
 
     expect(storageWriteFlushTimer.current).toBeNull();
     expect(pendingWhitelistWrites).toHaveLength(0);
@@ -155,7 +159,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
     expect(hydrateStorageDatabase().permissionEntryCount).toBe(1);
   });
 
-  test("节拍到点时提交仍然失败：点名记一行并重排下一拍，不丢最终值", (): void => {
+  test("节拍到点时提交仍然失败：点名记一行并重排下一拍，不丢最终值", async (): Promise<void> => {
     // 提交失败时重排下一拍：定时器已自清，dirty 标记保留，最终值留在内存等下一拍。
     const error = spyOn(console, "error").mockImplementation((): void => {});
     try {
@@ -165,6 +169,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       closeStorageDatabase(storageDatabaseHandle.current!);
 
       jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+      await diskIOOperationTail.current;
 
       expect(error).toHaveBeenCalledTimes(1);
       expect(error).toHaveBeenCalledWith("[diskIOWorker] storage database transaction failed:", expect.any(Error));
@@ -213,7 +218,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
     expect(again).toEqual([]);
   });
 
-  test("事务提交成功而另有拒收标记时，提交结果仍报成功，定时节拍不记失败", (): void => {
+  test("事务提交成功而另有拒收标记时，提交结果仍报成功，定时节拍不记失败", async (): Promise<void> => {
     const error = spyOn(console, "error").mockImplementation((): void => {});
     try {
       jest.useFakeTimers();
@@ -222,6 +227,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       storagePersistenceReplyHolder.current = reply;
 
       jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+      await diskIOOperationTail.current;
 
       expect(pendingWhitelistWrites).toHaveLength(0);
       expect(error).not.toHaveBeenCalled();

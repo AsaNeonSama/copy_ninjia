@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from "bun:test
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { deletedWedChats, dirtyWedChats, pendingWedMembers, resetWedFileWrites, wedFileFlushTimer, wedMemberDeletePersistedNotifier } from "../../../packages/cache/workers/diskIO/wed";
+import { diskIOOperationTail } from "../../../packages/cache/workers/diskIO/recovery";
 import { FLUSH_INTERVAL_MS } from "../../../packages/consts/diskIO/appendOnly";
 import { WED_MEMORY_DIR } from "../../../packages/consts/paths";
 import { WED_MEMBER_LIMIT } from "../../../packages/consts/wed";
@@ -173,6 +174,7 @@ test("原子替换失败保留旧文件和最新待写快照，重试成功后�
     handleWedMembersMessage({ type: "wedMembers", chatId: -1001, revision: 2, entries: [3, 0] });
     expect(pendingWedMembers.get(-1001)).toEqual([3, 0]);
     jest.advanceTimersByTime(FLUSH_INTERVAL_MS);
+    await diskIOOperationTail.current;
     expect(await Bun.file(path).json()).toEqual([{ id: 3, enteredAt: 0 }]);
     expect(dirtyWedChats.size).toBe(0);
     expect(pendingWedMembers.size).toBe(0);
@@ -242,6 +244,7 @@ test("删除失败保留待删标记并让本领域回报失败，重试成功�
     expect(wedFileFlushTimer.current).not.toBeNull();
 
     jest.advanceTimersByTime(FLUSH_INTERVAL_MS);
+    await diskIOOperationTail.current;
     expect(await Bun.file(path).exists()).toBeFalse();
     expect(deletedWedChats.size).toBe(0);
     expect(flushWedMemberFiles()).toBeTrue();

@@ -187,24 +187,48 @@ describe("join：重复投递（chat_member 与服务消息各到一次）", () 
     expect(result.snapshotChanged).toBeTrue();
   });
 
-  test("KICK_PENDING 上的迟到公告（去重宽限期内）→ 顺手删除，不重复踢", () => {
+  test("KICK_PENDING 上的迟到公告（去重宽限期内）→ 异号顺手删除，同号不重复删", () => {
     const state = kickPendingState({ requestedAt: 0 });
     const { next, effects } = transitionVerification(state, joinEvent({ announcementMessageId: 9, now: 1000 }));
     expect(next).toBe(state);
     expect(effects).toEqual([{ kind: "deleteMessage", messageId: 9 }]);
+
+    const withAnnouncement = kickPendingState({ requestedAt: 0, announcementMessageId: 9 });
+    const duplicateSame = transitionVerification(
+      withAnnouncement,
+      joinEvent({ announcementMessageId: 9, now: 1000 })
+    );
+    expect(duplicateSame.next).toBe(withAnnouncement);
+    expect(duplicateSame.effects).toEqual([]);
   });
 
-  test("KICKED 占位遇到真的重新入群 → 换成待落盘状态，不提前补踢", () => {
+  test("KICKED 占位遇到真的重新入群：私密模式仍开启时换成待落盘 kickPending 且不双重删公告，已解除时转入正常 pending", () => {
     const state = kickedState({ kickedAt: 0 });
-    const { next, effects } = transitionVerification(state, joinEvent({ now: 10_000 }));
+    const { next, effects } = transitionVerification(
+      state,
+      joinEvent({ now: 10_000, lockdownActive: true, announcementMessageId: 19 })
+    );
     expect(next).not.toBe(state);
     expect(next).toMatchObject({
       kind: "kickPending",
       label: "杂鱼A",
       isBot: false,
       requestedAt: 10_000,
+      announcementMessageId: 19,
     });
     expect(effects).toEqual([]);
+
+    const unlockedJoin = joinEvent({ now: 10_000, lockdownActive: false, announcementMessageId: 20 });
+    expect(joinCreatesNewRecord(state, unlockedJoin)).toBeTrue();
+    const unlocked = transitionVerification(state, unlockedJoin);
+    expect(unlocked.next).toMatchObject({
+      kind: "pending",
+      label: "杂鱼A",
+      isBot: false,
+      joinedAt: 10_000,
+      announcementMessageId: 20,
+    });
+    expect(unlocked.effects).toEqual([{ kind: "sendReminder", label: "杂鱼A", isBot: false }]);
   });
 
   test("豁免入群撞上已开的验证窗口 → 撤销并删提醒，且按精确时刻撤销此前记的那次刷群计数", () => {

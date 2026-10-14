@@ -10,7 +10,7 @@ import {
 import { MOOD_CONFIG_PATH } from "../consts/paths";
 import { cartesianProduct } from "../libs/cartesianProduct";
 import { invalidInput, readJsonInput } from "../libs/inputValidation";
-import { hasExactKeys, isPlainRecord } from "../libs/record";
+import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../libs/record";
 import type { MoodOption, TimeBucket, WeatherBucket } from "../types/aiChat/mood";
 import type { MoodConfig } from "../types/config";
 
@@ -64,9 +64,8 @@ function parseMoodOption(value: unknown, index: number, sourcePath: string): Moo
   if (!isPlainRecord(value)) {
     return invalidInput(sourcePath, fieldPath, "a mood object");
   }
-  const knownKeys: ReadonlySet<string> = new Set([...MOOD_ENTRY_REQUIRED_KEYS, ...MOOD_ENTRY_OPTIONAL_KEYS]);
-  for (const key of Object.keys(value)) {
-    if (!knownKeys.has(key)) return invalidInput(sourcePath, `${fieldPath}.<key>`, "a current mood schema field");
+  if (!hasOnlyKeys(value, [...MOOD_ENTRY_REQUIRED_KEYS, ...MOOD_ENTRY_OPTIONAL_KEYS])) {
+    return invalidInput(sourcePath, `${fieldPath}.<key>`, "a current mood schema field");
   }
   const name: string = typeof value.name === "string" ? value.name.trim() : "";
   if (name.length === 0) {

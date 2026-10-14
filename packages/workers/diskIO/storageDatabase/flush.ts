@@ -1,6 +1,7 @@
 import { STORAGE_DATABASE_DOMAINS, STORAGE_WRITE_MAX_FAILURES } from "../../../consts/diskIO/business";
 import {
   resetStoragePendingBudgets,
+  storagePendingBudgets,
   storageWriteRetry,
   storageWriteFatalReply,
   pendingAiContextWrites,
@@ -39,7 +40,10 @@ import type {
   TemporaryAdBypassPersistedRevision,
 } from "../../../types/diskIO/replies";
 import type { StorageDatabase, StorageDatabaseWriter } from "../../../types/storageDatabase";
+import { queueTimedDiskIOOperation } from "../timedFlush";
 import { hasUrgentAiContextWrites, settleAiContextPersisted } from "./aiContext";
+import { assertPendingChatQaCapacity } from "./chatQa";
+import { assertPendingChatStateInvariants } from "./chatState";
 import { requireStorageDatabase } from "./context";
 
 /** 当前连接的预编译写语句；每条连接首次提交时建一次。 */
@@ -63,7 +67,23 @@ function hasPendingStorageWrites(): boolean {
     pendingAiContextWrites.size > 0;
 }
 
-/** 按需注册共享 SQLite 事务的定时提交 timer。 */
+/** 执行定时到点的共享 SQLite 事务提交。 */
+function runScheduledStorageCommit(): void {
+  if (!hasPendingStorageWrites() || storageDatabaseClosed.current) return;
+  if (storageFlushHold.current) {
+    scheduleStorageCommit();
+    return;
+  }
+  const reply: IdentityPersistenceReply | null = storagePersistenceReplyHolder.current;
+  if (reply === null) {
+    console.error("[diskIOWorker] storage database flush reply channel is unavailable.");
+    scheduleStorageCommit();
+    return;
+  }
+  flushStorageDatabase(reply);
+}
+
+/** 按需注册共享 SQLite 事务的定时提交 timer，到点后经统一操作队列合并执行。 */
 export function scheduleStorageCommit(): void {
   if (
     !hasPendingStorageWrites() ||
@@ -73,17 +93,7 @@ export function scheduleStorageCommit(): void {
   ) return;
   storageWriteFlushTimer.current = setTimeout((): void => {
     storageWriteFlushTimer.current = null;
-    if (storageFlushHold.current) {
-      scheduleStorageCommit();
-      return;
-    }
-    const reply: IdentityPersistenceReply | null = storagePersistenceReplyHolder.current;
-    if (reply === null) {
-      console.error("[diskIOWorker] storage database flush reply channel is unavailable.");
-      scheduleStorageCommit();
-      return;
-    }
-    flushStorageDatabase(reply);
+    queueTimedDiskIOOperation(runScheduledStorageCommit);
   }, Math.max(IDENTITY_WRITE_FLUSH_INTERVAL_MS, storageWriteRetry.retryAt - performance.now()));
   storageWriteFlushTimer.current.unref();
 }
@@ -231,13 +241,32 @@ function isStorageDomainDirty(domain: StorageDatabaseDomain): boolean {
   }
 }
 
-/** 设置或解除镜像重放暂挂状态；解除时按紧急写或批次阈值触发提交。 */
+/** 设置或解除镜像重放暂挂状态；解除时先统一复核群状态与群问答聚合约束，再按紧急写或批次阈值触发提交。 */
 export function setStorageFlushHold(active: boolean, reply: IdentityPersistenceReply): void {
   storageFlushHold.current = active;
   if (active) return;
+  let validationError: Error | undefined;
+  try {
+    assertPendingChatStateInvariants();
+  } catch (error: unknown) {
+    pendingChatStateWrites.clear();
+    storagePendingBudgets.chatState.reset();
+    rejectedStorageDomains.add("chatState");
+    validationError = error instanceof Error ? error : new Error(String(error));
+  }
+  try {
+    assertPendingChatQaCapacity();
+  } catch (error: unknown) {
+    pendingChatQaWrites.clear();
+    pendingChatQaEntryCount.current = 0;
+    storagePendingBudgets.chatQa.reset();
+    rejectedStorageDomains.add("chatQa");
+    validationError ??= error instanceof Error ? error : new Error(String(error));
+  }
   if (storageWriteRetry.failures === 0 && hasUrgentAiContextWrites()) {
     flushStorageDatabase(reply);
-    return;
+  } else {
+    flushIfStorageFull(reply);
   }
-  flushIfStorageFull(reply);
+  if (validationError !== undefined) throw validationError;
 }

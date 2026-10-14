@@ -199,13 +199,7 @@ export function decodeStoredChatStates(
     if (chatStates.has(row.chatId)) {
       throw new Error(`${path}: duplicate chat primary key.`);
     }
-    const state: ChatState = decodeChatStateData(row.data, path);
-    const ownIdIndex: number = state.deleteMessageTargets?.indexOf(row.chatId) ?? -1;
-    if (ownIdIndex >= 0) {
-      throw new Error(
-        `${path}: $.deleteMessageTargets[${ownIdIndex}] must be a user or channel ID other than the chat itself.`
-      );
-    }
+    const state: ChatState = decodeChatStateData(row.data, path, row.chatId);
     if (state.isProxySendEnabled === true) {
       if (proxyTargetChatId !== undefined) {
         throw new Error(

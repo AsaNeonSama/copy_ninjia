@@ -48,6 +48,8 @@ const {
   stickerCatalogCache,
   stickerFlushState,
 } = await import("../../../packages/cache/workers/diskIO/stickers");
+const { diskIOOperationTail } =
+  await import("../../../packages/cache/workers/diskIO/recovery");
 
 /**
  * 启动恢复的测试编排：与生产 adoptStickerCatalogSnapshots 一样把只读扫描的结果整体发布进
@@ -98,7 +100,7 @@ describe("Disk I/O sticker catalog snapshot owner", () => {
     expect(writeStickerCatalogFile).not.toHaveBeenCalled();
   });
 
-  test("markDirty 排的定时 flush 到点后真的落盘并交回 timer 槽", () => {
+  test("markDirty 排的定时 flush 到点后真的落盘并交回 timer 槽", async () => {
     jest.useFakeTimers();
     try {
       // 定时 flush 走模块默认依赖，真实写进贴纸目录，内容是合法的快照 JSON（owner 缓存里存的是序列化好的文本）。
@@ -108,6 +110,7 @@ describe("Disk I/O sticker catalog snapshot owner", () => {
       markStickerCatalogSnapshotDirty("pack_three", stickerSnapshotJson("同一拍"), 1);
 
       jest.advanceTimersByTime(SNAPSHOT_FLUSH_INTERVAL_MS);
+      await diskIOOperationTail.current;
 
       expect(stickerFlushState.timer).toBeNull();
       expect(dirtyStickerPacks).toHaveLength(0);

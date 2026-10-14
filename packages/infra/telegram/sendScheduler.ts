@@ -295,6 +295,26 @@ function joinGlobalRing(lane: TelegramSendLane, now: number): void {
   armGlobalTimer(now);
 }
 
+/** 车道因排队任务全部取消而腾空时退出全局轮转环，并同步清理或重挂全局定时器。 */
+function leaveGlobalRing(lane: TelegramSendLane): void {
+  if (!lane.inGlobalRing) return;
+  const wasHead: boolean = sendGlobalRing.peek() === lane;
+  lane.inGlobalRing = false;
+  sendGlobalRing.removeValue(lane);
+  if (sendGlobalRing.size === 0) {
+    if (sendSchedulerState.globalTimer !== null) {
+      clearTimeout(sendSchedulerState.globalTimer);
+      sendSchedulerState.globalTimer = null;
+    }
+    return;
+  }
+  if (wasHead && sendSchedulerState.globalTimer !== null) {
+    clearTimeout(sendSchedulerState.globalTimer);
+    sendSchedulerState.globalTimer = null;
+    armGlobalTimer(performance.now());
+  }
+}
+
 /** 全局额度腾出后按轮转顺序放行：每条车道一次只放一条，额度不够时续挂定时器。 */
 function onGlobalTimer(): void {
   sendSchedulerState.globalTimer = null;
@@ -442,7 +462,10 @@ export function admitSendJob(job: TelegramOutboundJob, method: keyof RawApi, pay
 export function abortSendJob(job: TelegramOutboundJob): void {
   const lane: TelegramSendLane | null = job.sendLane;
   if (job.state === "settled" || lane === null) return;
-  if (job.state === "sendQueued") removeQueued(lane, job);
+  if (job.state === "sendQueued") {
+    removeQueued(lane, job);
+    if (lane.head === null) leaveGlobalRing(lane);
+  }
   settleSendJob(job);
   job.reject(jobAbortReason(job.signal));
   if (isLaneLive(lane)) pumpSendLane(lane, false);

@@ -201,8 +201,12 @@ function decodeTranslateSessions(value: unknown, source: string): readonly Trans
   return sessions;
 }
 
-/** 解码并校验本群自动删帖目标列表（非空且不超过 DELETE_MESSAGE_CHAT_TARGET_MAX 个互异非零安全整数）。 */
-function decodeDeleteMessageTargets(value: unknown, source: string): readonly number[] {
+/** 解码并校验本群自动删帖目标列表（非空且不超过 DELETE_MESSAGE_CHAT_TARGET_MAX 个互异非零安全整数，且不含本群自身 ID）。 */
+function decodeDeleteMessageTargets(
+  value: unknown,
+  source: string,
+  chatId?: number
+): readonly number[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > DELETE_MESSAGE_CHAT_TARGET_MAX) {
     return invalidInput(
       source,
@@ -216,6 +220,9 @@ function decodeDeleteMessageTargets(value: unknown, source: string): readonly nu
     if (!Number.isSafeInteger(id) || id === 0) {
       return invalidInput(source, `$.deleteMessageTargets[${index}]`, "a non-zero safe integer user or channel ID");
     }
+    if (chatId !== undefined && id === chatId) {
+      return invalidInput(source, `$.deleteMessageTargets[${index}]`, "a user or channel ID other than the chat itself");
+    }
     if (targets.includes(id as number)) {
       return invalidInput(source, `$.deleteMessageTargets[${index}]`, "unique within the chat");
     }
@@ -225,7 +232,7 @@ function decodeDeleteMessageTargets(value: unknown, source: string): readonly nu
 }
 
 /** 严格解码 `chat_states.status` JSON 文本；拒绝未知字段与空对象，缺省布尔开关归并为 false。 */
-export function decodeChatStateData(text: string, source: string): ChatState {
+export function decodeChatStateData(text: string, source: string, chatId?: number): ChatState {
   const value: unknown = parseJsonInput(text, source);
   if (!isPlainRecord(value) || !hasOnlyKeys(value, CHAT_STATE_KEYS)) {
     return invalidInput(source, "$", "an object containing only supported chat-state fields");
@@ -254,7 +261,7 @@ export function decodeChatStateData(text: string, source: string): ChatState {
     translate: value.translate === undefined ? undefined : decodeTranslateSessions(value.translate, source),
     deleteMessageTargets: value.deleteMessageTargets === undefined
       ? undefined
-      : decodeDeleteMessageTargets(value.deleteMessageTargets, source),
+      : decodeDeleteMessageTargets(value.deleteMessageTargets, source, chatId),
   };
   if (Object.keys(value).length === 0) {
     return invalidInput(source, "$", "a non-empty chat-state object");

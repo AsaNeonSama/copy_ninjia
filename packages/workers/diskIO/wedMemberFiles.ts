@@ -20,6 +20,7 @@ import type {
   WedMembersDiskMessage,
 } from "../../types/diskIO/messages";
 import { flushDirtyEntries } from "./dirtyFlush";
+import { queueTimedDiskIOOperation } from "./timedFlush";
 
 export interface WedMemberInspection {
   /** 群 ID → 成员 ID → 进入时间，插入顺序同文件顺序。 */
@@ -96,10 +97,18 @@ function flushWedMemberDeletions(remove: typeof deleteWedMemberFile): void {
   }
 }
 
-/** 按需注册待写与待删共用的重试 timer。 */
+/** 执行定时到点的 wed 成员待删与待写落盘。 */
+function runScheduledWedMemberFlush(): void {
+  flushWedMemberFiles();
+}
+
+/** 按需注册待写与待删共用的重试 timer，到点后经统一操作队列合并执行。 */
 function scheduleWedMemberFlush(): void {
   if (wedFileFlushTimer.current !== null) return;
-  wedFileFlushTimer.current = setTimeout(flushWedMemberFiles, FLUSH_INTERVAL_MS);
+  wedFileFlushTimer.current = setTimeout((): void => {
+    wedFileFlushTimer.current = null;
+    queueTimedDiskIOOperation(runScheduledWedMemberFlush);
+  }, FLUSH_INTERVAL_MS);
   wedFileFlushTimer.current.unref();
 }
 

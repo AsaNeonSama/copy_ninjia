@@ -151,17 +151,20 @@ describe("群问答主线程持久化边界", () => {
     expect(unacknowledgedChatQaTotals).toEqual({ entries: 0, bytes: 0 });
   });
 
-  test("Worker 重建后按内存最终值重放未确认写", () => {
-    setChatQa(CHAT_ID, "怎么入群？", "点置顶");
+  test("Worker 重建后按内存最终值并按 revision 升序重放未确认写", () => {
+    setChatQa(CHAT_ID, "问题A", "答案A");
+    setChatQa(CHAT_ID, "问题B", "答案B");
+    // 先插入的问题A 被墓碑覆盖后拿到更大的 revision，Map 插入序仍是 问题A 在前、问题B 在后。
+    removeChatQa(CHAT_ID, "问题A");
     posted.length = 0;
-    const replayed: unknown[] = [];
+    const replayed: { readonly q: string; readonly revision: number; readonly data: string | null }[] = [];
 
     expect(respawnListener?.({ ensureLuckReceiptSecret: async (): Promise<never> => { throw new Error("Unexpected secret request."); }, post: (m: unknown): boolean => {
-      replayed.push(m);
+      replayed.push(m as { readonly q: string; readonly revision: number; readonly data: string | null });
       return true;
     } })).toBeTrue();
-    expect(replayed).toHaveLength(1);
-    expect(replayed[0]).toMatchObject({ type: "chatQaWrite", chatId: CHAT_ID });
+    expect(replayed.map((entry: { readonly q: string }): string => entry.q)).toEqual(["问题B", "问题A"]);
+    expect(replayed[0]!.revision).toBeLessThan(replayed[1]!.revision);
   });
 
   test("发布后投递失败不抛错：改动已生效，未确认 revision 留给重建重放", () => {

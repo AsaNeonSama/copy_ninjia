@@ -291,7 +291,7 @@ describe("每聊天发送调度器", () => {
     expect(sendChatLanes.size).toBe(2);
   });
 
-  test("排队中取消立即出队且不扣额度，在途计数随之归还", async () => {
+  test("排队中取消立即出队且不扣额度，在途计数随之归还；等全局窗口的车道排空后当场退出 sendGlobalRing", async () => {
     const queued: Promise<unknown>[] = Array.from({ length: TELEGRAM_SEND_CHAT_BURST }, (_: unknown, index: number): Promise<unknown> => send(42, `m${index}`));
     const controller: AbortController = new AbortController();
     const cancelled: Promise<unknown> = (gate(previous, "sendMessage", { chat_id: 42, text: "cancelled" } as never, controller.signal as never) as Promise<unknown>)
@@ -307,6 +307,18 @@ describe("每聊天发送调度器", () => {
     await advance(TELEGRAM_SEND_CHAT_REFILL_MS);
     await after;
     expect(textsOf(42)).toEqual([...Array.from({ length: TELEGRAM_SEND_CHAT_BURST }, (_: unknown, index: number): string => `m${index}`), "after"]);
+
+    await advance(TELEGRAM_SEND_GLOBAL_WINDOW_MS);
+    const fill: Promise<unknown>[] = Array.from({ length: TELEGRAM_SEND_GLOBAL_LIMIT }, (_: unknown, index: number): Promise<unknown> => send(2_000 + index, `fill${index}`));
+    const ringController: AbortController = new AbortController();
+    const ringCancelled: Promise<unknown> = (gate(previous, "sendMessage", { chat_id: 9_999, text: "ring-cancel" } as never, ringController.signal as never) as Promise<unknown>)
+      .catch((error: unknown): unknown => error);
+    await flush();
+    expect(sendSchedulerState.globalTimer).not.toBeNull();
+    ringController.abort();
+    expect(await ringCancelled).toMatchObject({ name: "AbortError" });
+    expect(sendSchedulerState.globalTimer).toBeNull();
+    await settleTestBatch(fill);
   });
 
   test("单群与单私聊的排队上限满时当即拒绝新请求，不计入在途", async () => {
