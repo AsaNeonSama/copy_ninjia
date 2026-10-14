@@ -27,7 +27,7 @@ This document answers the core organizational question: **"Where does existing c
   - **Key Modules**: `message/` (including `triggerPolicy.ts`), `reactionSync.ts`.
 - **`packages/aiChat/`**
   - **Responsibility**: Main-thread conversational AI proxy and model capability integration, including Worker supervision, memory mirrors, startup and hot-reload state hydration, availability checks, and provider clients/tools (`gemini/`, `openai/`, `anthropic/`).
-  - **Key Modules**: `workerBridge.ts`, `hydration.ts`, `messageIngress.ts`, `botImages.ts`, `voiceSynthesis.ts`, `webDigest.ts`, `memoryMirror.ts`, `stickerMirror.ts`, `workerJob.ts`, `availability.ts`, `provider.ts`, `providerLanes.ts`, `capabilityClient.ts`, `gemini/`, `openai/`, `anthropic/`, `ai/`; `index.ts` provides a thin stateless public facade.
+  - **Key Modules**: `workerBridge.ts`, `hydration.ts`, `messageIngress.ts`, `abuseMark.ts`, `botImages.ts`, `voiceSynthesis.ts`, `webDigest.ts`, `memoryMirror.ts`, `stickerMirror.ts`, `workerJob.ts`, `availability.ts`, `provider.ts`, `providerLanes.ts`, `capabilityClient.ts`, `gemini/`, `openai/`, `anthropic/`, `ai/`; `index.ts` provides a thin stateless public facade.
 - **`packages/antiRaid/`**
   - **Responsibility**: Main-thread Anti-Raid proxy, including Worker supervision, durable message delivery, join/message update ingress, ad candidate queuing and disposal, blocklist enforcement, and verification scheduling.
   - **Key Modules**: `workerBridge/` (`controller.ts`, `events.ts`, `observers.ts`, `replay.ts`), `durableDelivery.ts`, `updateIngress.ts`, `adCandidate.ts`, `adDetect.ts`; `index.ts` provides a thin stateless public facade.

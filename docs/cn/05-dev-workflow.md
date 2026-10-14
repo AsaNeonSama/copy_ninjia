@@ -79,7 +79,7 @@
 - **紧急安全补丁豁免**：未满冷却期的紧急漏洞修复，仅允许将该单一包名加入 `install.minimumReleaseAgeExcludes`，完成安装后必须立即移除，禁止使用命令行参数 `--minimum-release-age` 全局绕过。
 - **安全核验要求**：被豁免的包版本必须交叉核对至少两个独立的安全受害清单，校验 npm registry 的 `integrity` 哈希，排查安装脚本与持久化后门，并在提交记录中注明包名、CVE 编号及移除时间。
 - **运行时版本锁定**：Bun 运行时及 `@types/bun` 严格固定为 `package.json` 声明的版本；`packageManager` 与 `install.sh` 共同锁定运行环境。
-- **TypeScript 编译器**：`bun run typecheck` 以 `bun --check` 调用 Bun 内置的类型检查器；`bun check` 执行的是仓库的 `check` 脚本。ESLint 与约定检查工具通过 `@typescript/old` 使用 TypeScript 6 编译器 API。
+- **TypeScript 编译器**：`bun run typecheck` 以 `bun --check` 调用 Bun 内置的类型检查器；`bun check` 执行的是仓库的 `check` 脚本。ESLint 与约定检查工具通过 `package.json` 中别名为 `@typescript/typescript6` 的 `typescript` 使用 TypeScript 6 编译器 API。
 
 ---
 
@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**6624 tests / 553 files / 446303 次 `expect()`**；全源码**函数覆盖率 98.35% / 行覆盖率 98.84%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**6737 tests / 559 files / 447641 次 `expect()`**；全源码**函数覆盖率 98.32% / 行覆盖率 98.85%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 

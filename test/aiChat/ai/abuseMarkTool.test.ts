@@ -1,9 +1,9 @@
 /**
  * abuse_mark 拒答冷却工具的声明、目标校验、onAbuseMark 回传与冷处理通知发送：
  * - 工具声明始终挂载，说明与参数描述与常量一致
- * - user_id 必须是当前轮触发用户（triggerSenderId），拒绝非安全整数、<=0、非当前触发者、机器人自身与超级管理员
+ * - user_id 必须是当前轮触发用户（triggerSenderId），拒绝非安全整数、0、非当前触发者、机器人自身与超级管理员
  * - 命中后同步触发 onAbuseMark(userId)，再经动作链发出冷处理通知并计入本轮动作与滚动记忆（用户明确授权的长期保留例外，不挂 30 秒自删）
- * - 通知文案按 atmósfera（teasing / plain）分派，继承本轮 replyToMessageId 与 messageThreadId
+ * - 通知文案按通知风格（teasing / plain）分派，继承本轮 replyToMessageId 与 messageThreadId
  * - 直接轮首条动作经过 typing 节奏停顿
  */
 import {
@@ -65,7 +65,7 @@ describe("abuse_mark 工具", () => {
     expect(toolset.has(ABUSE_MARK_TOOL)).toBe(true);
   });
 
-  test("拒绝缺失、非整数、小于等于 0、非当前触发者、机器人自身及超级管理员的 user_id", async () => {
+  test("拒绝缺失、非整数、0、非当前触发者、机器人自身及超级管理员的 user_id", async () => {
     const onAbuseMark = mock((_userId: number): void => {});
     const toolset = await createReplyToolset(replyToolContextFixture({
       triggerSenderId: 1001,
@@ -87,10 +87,19 @@ describe("abuse_mark 工具", () => {
       expect(typeof result.error).toBe("string");
     }
 
-    // 即使 triggerSenderId 恰好是超级管理员或 bypassMediaToolCooldown 为 true，也必须拒绝标记。
+    // 触发者身份未知（triggerSenderId === 0）时，即使传入 user_id: 0 也必须拒绝标记。
+    const unknownSenderToolset = await createReplyToolset(replyToolContextFixture({
+      triggerSenderId: 0,
+      onAbuseMark,
+    }));
+    const unknownSenderResult = JSON.parse(
+      await executeAndSettle(unknownSenderToolset, ABUSE_MARK_TOOL, JSON.stringify({ user_id: 0 }))
+    );
+    expect(typeof unknownSenderResult.error).toBe("string");
+
+    // 即使 triggerSenderId 恰好是超级管理员，也必须拒绝标记。
     const adminToolset = await createReplyToolset(replyToolContextFixture({
       triggerSenderId: 42,
-      bypassMediaToolCooldown: true,
       onAbuseMark,
     }));
     const adminResult = JSON.parse(

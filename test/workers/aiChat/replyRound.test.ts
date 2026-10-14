@@ -676,7 +676,7 @@ describe("AI 单轮回复生命周期", () => {
     try {
       await runRound({ triggerSenderId: 7 });
       expect(capturedContext?.triggerSenderId).toBe(7);
-      capturedContext?.onAbuseMark?.(7);
+      capturedContext?.onAbuseMark(7);
 
       expect(pendingReplyTriggers.get(-1002)?.size).toBe(1);
       expect(pendingReplyTriggers.get(-1002)?.peek()?.replyToMessageId).toBe(22);

@@ -37,9 +37,8 @@ export function parseIndexField(argumentsJson: string, field: string, max: numbe
   return index;
 }
 
-/** 解析非零安全整数字段；解析失败、缺失、非安全整数或为 0 时返回 null。 */
+/** 解析安全整数字段；解析失败、缺失或非安全整数时返回 null。 */
 export function parseSafeIntegerField(argumentsJson: string, field: string): number | null {
   const value: unknown = parseToolArguments(argumentsJson)?.[field];
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value === 0) return null;
-  return value;
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
 }

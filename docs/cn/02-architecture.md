@@ -156,6 +156,7 @@ flowchart TD
     G --> A4["🎟️ send_sticker (发送贴纸)"]:::action
     G --> A5["🎨 generate_image (生成图片)"]:::action
     G --> A6["🎙️ send_voice (发送语音)"]:::action
+    G --> A7["🚫 abuse_mark (拒答冷却)"]:::action
 ```
 
 ### 1. 媒体分流与占位回填管线
@@ -214,7 +215,7 @@ AI 触发包含两种途径：
    - 检查并确保专用图库目录就绪（核对权限与文件格式）。
 3. **启动 Disk I/O Worker 并恢复持久化数据**：
    - Worker 启动时对所有持久化数据（SQLite 数据库、日志、AI 用量、贴纸、运势、入群日志等）进行只读检查与格式校验；校验全部通过后才接管状态并注册每日零点维护任务。
-   - 主线程同步填充群状态、群问答等热读缓存副本，初始化 Telegram 客户端，确认超级管理员未被拉黑。
+   - 主线程同步填充群状态、群问答等热读缓存副本，初始化 Telegram 客户端，确认超级管理员未被拉黑或列为 `/delete_message` 目标。
 4. **注册中间件与握手**：挂载全部消息中间件、注册命令菜单，并执行 `bot.init()` 与 Telegram 服务器完成连接握手。
 5. **初始化业务 Worker 与调度器**：
    - 启动 AI Worker（若 AI 配置就绪），加载对话记忆快照与贴纸目录。
@@ -237,7 +238,7 @@ AI 触发包含两种途径：
    - 按依赖顺序排空各 Worker 的等待队列并将所有脏数据刷新到磁盘（flush）。
    - 全部数据确认安全落盘后，通过一次轻量 `getUpdates` 向 Telegram 正式提交最后处理完毕的 update_id 作为 offset。若前面的落盘步骤发生任何异常，则坚决不提交 offset，并以非零状态码退出。
 4. **资源释放（Dispose）**：
-   - 依次释放各模块资源：AI Worker 退出、出站队列关闸、终止 Anti-Raid 与 Disk I/O Worker（Disk I/O Worker 终止前提交残余写、执行 WAL checkpoint 并关闭共享 SQLite）、保存最终全局状态。
+   - 依次释放各模块资源：排空目标消息删除队列（`/delete_message`）与统一延迟删除队列、AI Worker 退出、出站队列关闸、终止 Anti-Raid 与 Disk I/O Worker（Disk I/O Worker 终止前提交残余写、执行 WAL checkpoint 并关闭共享 SQLite）、保存最终全局状态。
    - 最终释放 `bot.lock` 单实例锁（若退出过程发生异常未结算，则保持锁直至操作系统回收进程，防止故障态下被 supervisor 盲目秒级拉起）。
 
 ---

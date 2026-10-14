@@ -129,8 +129,8 @@ done
 - **`super_admin_user_id`**（必填，正整数）
   - 全局超级管理员的十进制 Telegram 用户 ID。
   - **特权边界**：超级管理员身份天生拥有白名单所能授予的**全部权限**，不需要（也不会）写入数据库白名单表中。
-  - **豁免保护**：复读、生图等操作的调用冷却仅豁免超级管理员；超级管理员享有永久保护，不可被 `/block`、`/mute` 或 `/batch_kick` 处置。
-  - **专属命令**：`/init`、`/batch_kick`、`/permission` 修改、`/white disable` 以及私聊 `/send` 仅允许超级管理员调用。
+  - **豁免保护**：复读、生图等操作的调用冷却仅豁免超级管理员；超级管理员享有永久保护，不可被 `/block`、`/mute`、`/delete_message`、`/batch_kick` 或 AI `abuse_mark` 处置。
+  - **专属命令**：`/init`、`/batch_kick`、`/delete_message`、`/permission` 修改、`/white disable` 以及私聊 `/send` 仅允许超级管理员调用。
 - **`atmosphere`**（可选，枚举：`"mesugaki"` | `"normal"`）
   - 系统通知与命令菜单的默认语气风格（`mesugaki` 雌小鬼版 / `normal` 普通版）。
   - 若显式配置则以此为准；未配置时，若存在 `prompt/persona.md` 则默认使用普通版，否则使用雌小鬼版。

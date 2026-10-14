@@ -36,7 +36,7 @@ If the bot process is running but fails to respond as expected in chat, work thr
       • <b>Missing configuration</b>: Requires valid <code>text</code>, <code>summary</code>, and <code>media</code> providers in <code>agent.json</code>, plus <code>stickers.json</code> and <code>mood.json</code>; missing any of these disables AI chat entirely.<br>
       • <b>Trigger mechanics</b>: Direct replies to the bot or <code>@bot_username</code> mentions always trigger a reply; regular messages trigger probabilistically (no interjections during <code>/quiet</code>).<br>
       • <b>Repeat mode conflict</b>: If active repetition (<code>/copy</code>) is running in the group, AI chat pauses automatically.<br>
-      • <b>Rate limiting</b>: Frequent triggers engage sliding-window rate limits (see <code>RATE_LIMIT_LONG_WINDOW_MS</code> and <code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>).
+      • <b>Rate limiting &amp; abuse cooldown</b>: Frequent triggers engage sliding-window rate limits (see <code>RATE_LIMIT_LONG_WINDOW_MS</code> and <code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>); users marked by <code>abuse_mark</code> for repeatedly requesting disallowed or pestering content are also ignored by AI chat for <code>ABUSE_MARK_DURATION_MS</code>.
     </td>
   </tr>
   <tr>

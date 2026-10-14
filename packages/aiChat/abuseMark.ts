@@ -14,8 +14,7 @@ export function markAbuseUser(userId: number): void {
   } else if (abuseMarkedUsers.size >= ABUSE_MARK_MAX_USERS) {
     const oldestUserId: number | undefined = abuseMarkedUsers.oldestKey();
     if (oldestUserId !== undefined) {
-      const oldestTimer: ReturnType<typeof setTimeout> | undefined = abuseMarkedUsers.get(oldestUserId);
-      if (oldestTimer !== undefined) clearTimeout(oldestTimer);
+      clearTimeout(abuseMarkedUsers.get(oldestUserId));
       abuseMarkedUsers.delete(oldestUserId);
     }
   }

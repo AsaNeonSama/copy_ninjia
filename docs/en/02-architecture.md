@@ -150,6 +150,7 @@ flowchart TD
     G --> A4["🎟️ send_sticker (Send Sticker)"]:::action
     G --> A5["🎨 generate_image (Generate Image)"]:::action
     G --> A6["🎙️ send_voice (Send Voice Note)"]:::action
+    G --> A7["🚫 abuse_mark (Abuse Cooldown)"]:::action
 ```
 
 ### 1. Media Routing and Placeholder Pipeline

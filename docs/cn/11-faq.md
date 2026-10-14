@@ -36,7 +36,7 @@
       • <b>核心配置缺失</b>：需要 <code>agent.json</code> 中的 <code>text</code>、<code>summary</code>、<code>media</code> 三项能力以及 <code>stickers.json</code> 和 <code>mood.json</code> 配置完整；缺失任何一项，AI 闲聊都会自动停用。<br>
       • <b>触发条件机制</b>：仅在用户显式回复机器人或 <code>@机器人</code> 时才会百分之百必回；常规群消息只按概率随机插话（群处于 <code>/quiet</code> 静音期时不插话）。<br>
       • <b>与复读互斥</b>：群内若正在执行 <code>/copy</code> 复读，AI 闲聊与主动插话会自动暂停。<br>
-      • <b>限频机制保护</b>：短时间内发言过于频繁会触发滑动窗口限频保护（相关窗口与上限见 <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>）。
+      • <b>限频与拒答冷却</b>：短时间内发言过于频繁会触发滑动窗口限频保护（相关窗口与上限见 <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>）；反复要求生成违规或令模型厌烦的内容被 <code>abuse_mark</code> 标记后，该用户在 <code>ABUSE_MARK_DURATION_MS</code> 内也不会进入 AI 闲聊。
     </td>
   </tr>
   <tr>

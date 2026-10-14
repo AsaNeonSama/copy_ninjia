@@ -151,6 +151,7 @@ flowchart TD
     G --> A4["🎟️ send_sticker (スタンプ送信)"]:::action
     G --> A5["🎨 generate_image (画像生成)"]:::action
     G --> A6["🎙️ send_voice (音声送信)"]:::action
+    G --> A7["🚫 abuse_mark (拒答クールダウン)"]:::action
 ```
 
 ### 1. メディア分流とプレースホルダーパイプライン

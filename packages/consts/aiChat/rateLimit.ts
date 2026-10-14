@@ -1,4 +1,5 @@
 import { STATE_MANAGED_CHAT_LIMIT } from "../storage";
+import { MINUTE_MS } from "../time";
 
 /** AI 随机搭话的按群活跃度观察窗口；不落盘，重启后从冷群起步。 */
 export const AI_REPLY_ACTIVITY_WINDOW_MS: number = 60 * 60 * 1000;
@@ -39,6 +40,6 @@ export const RATE_LIMIT_NOTICE_COOLDOWN_MS: number = 60_000;
 /** 被 abuse_mark 工具标记的用户在主线程不再进入 AI 闲聊的冷却分钟数。 */
 export const ABUSE_MARK_DURATION_MINUTES: number = 5;
 /** 被 abuse_mark 工具标记的用户在主线程不再进入 AI 闲聊的冷却时长（毫秒）。 */
-export const ABUSE_MARK_DURATION_MS: number = ABUSE_MARK_DURATION_MINUTES * 60_000;
+export const ABUSE_MARK_DURATION_MS: number = ABUSE_MARK_DURATION_MINUTES * MINUTE_MS;
 /** 主线程最多同时保留的 abuse_mark 标记用户数；满额按 FIFO 淘汰最早项。所属模块：cache/main/aiChat.ts。 */
 export const ABUSE_MARK_MAX_USERS: number = 1_024;

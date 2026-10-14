@@ -55,8 +55,8 @@ export interface ReplyPromptSections {
 /** 一轮 AI 回复行动工具所需的外部上下文。 */
 export interface ReplyToolContext {
   chatId: number;
-  /** 触发本轮回复的发送者用户 ID；abuse_mark 工具据此校验目标必须为当前触发者。 */
-  triggerSenderId?: number;
+  /** 触发本轮回复的发言人身份 ID（口径同 auto/message/facts.ts 的 resolveSpeaker，无身份时为 0）；abuse_mark 只接受这个目标。 */
+  triggerSenderId: number;
   replyToMessageId: number;
   /**
    * 本轮全部发送要落进的论坛话题；General、非论坛群与讨论组评论为 undefined。
@@ -115,7 +115,7 @@ export interface ReplyToolContext {
   /** 语音落地后自录；与 onMessageSent 同构，只采信服务端实际返回的回复关系。 */
   onVoiceSent: (voiceDescription: string, messageId: number, repliedToMessageId?: number) => void;
   /** 模型调用 abuse_mark 校验通过后同步触发：清理排队触发并通知主线程标记该用户。 */
-  onAbuseMark?: (userId: number) => void;
+  onAbuseMark: (userId: number) => void;
 }
 
 /** 生图落地后交给 Worker 自录的事实。 */

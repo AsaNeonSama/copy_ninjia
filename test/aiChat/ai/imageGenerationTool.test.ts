@@ -94,6 +94,7 @@ function buildContext(
 ): ReplyToolContext {
   return {
     chatId,
+    triggerSenderId: 1001,
     replyToMessageId: 42,
     messageThreadId: undefined,
     mediaToolsRequested: requested,
@@ -109,6 +110,7 @@ function buildContext(
     onStickerSent: mock((..._args: unknown[]): void => {}),
     onImageSent: mock((..._args: unknown[]): void => {}),
     onVoiceSent: mock((..._args: unknown[]): void => {}),
+    onAbuseMark: mock((..._args: unknown[]): void => {}),
   };
 }
 

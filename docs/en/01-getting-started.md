@@ -129,8 +129,8 @@ Core bot credentials and administrator ownership are declared in `config/static/
 - **`super_admin_user_id`** (required, positive integer)
   - The Telegram numeric user ID of the primary operator.
   - **Privilege Boundary**: Holds all system permissions inherently. Does not need to be added to the SQLite allowlist table.
-  - **Exemption Protections**: Completely exempt from rate limits and cooldowns (copying, image generation, etc.). Cannot be targeted by `/block`, `/mute`, or `/batch_kick`.
-  - **Exclusive Authority**: Commands like `/init`, `/batch_kick`, `/permission` assignments, `/white disable`, and `/send` are strictly restricted to this user ID.
+  - **Exemption Protections**: Completely exempt from rate limits and cooldowns (copying, image generation, etc.). Cannot be targeted by `/block`, `/mute`, `/delete_message`, `/batch_kick`, or AI `abuse_mark`.
+  - **Exclusive Authority**: Commands like `/init`, `/batch_kick`, `/delete_message`, `/permission` assignments, `/white disable`, and `/send` are strictly restricted to this user ID.
 - **`atmosphere`** (optional, enum: `"mesugaki"` | `"normal"`)
   - Sets the communication tone for system notices, menus, and help messages (`mesugaki` for teasing tone, `normal` for clean/restrained tone).
   - Explicit configuration takes precedence. If omitted, custom personas use `normal` tone by default, while the built-in persona uses `mesugaki`.

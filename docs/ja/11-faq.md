@@ -36,7 +36,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
       • <b>設定の不備</b>：<code>agent.json</code> 内の <code>text</code>、<code>summary</code>、<code>media</code> の 3 項目と、<code>stickers.json</code>、<code>mood.json</code> が必要です。いずれかが欠けると AI 雑談は動作しません。<br>
       • <b>トリガー条件</b>：Bot への返信または <code>@Bot</code> メンションでのみ確実にトリガーされます。その他の通常発言はランダムな確率で割り込みます（<code>/quiet</code> による静寂中は割り込みません）。<br>
       • <b>モードの排他</b>：<code>/copy</code> 復唱中は AI 雑談および自発的な割り込み動作が一時停止します。<br>
-      • <b>レート制限</b>：発言頻度が高い場合、スライディングウィンドウ制限が適用されます（ウィンドウと上限値は <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code> を参照）。
+      • <b>レート制限と拒答クールダウン</b>：発言頻度が高い場合、スライディングウィンドウ制限が適用されます（ウィンドウと上限値は <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code> を参照）。また、許可されない内容や嫌がる内容を執拗に要求して <code>abuse_mark</code> で記録されたユーザーは、<code>ABUSE_MARK_DURATION_MS</code> の間 AI 雑談から除外されます。
     </td>
   </tr>
   <tr>

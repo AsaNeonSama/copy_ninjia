@@ -743,7 +743,7 @@ test("等检索结果期间本轮作废时不再喂回结果", async () => {
   expect(appendedOutputs).toHaveLength(0);
 });
 
-test("abuse_mark 成功落地后立即结束本轮会话，不执行同响应后续调用也不喂回结果", async () => {
+test("abuse_mark 被接纳后立即结束本轮会话，不执行同响应后续调用也不喂回结果", async () => {
   turns.push(
     okTurn({
       calls: [
@@ -754,10 +754,7 @@ test("abuse_mark 成功落地后立即结束本轮会话，不执行同响应后
     }),
     okTurn({ text: "不该进入第二轮" })
   );
-  const execute = mock((name: string): string =>
-    name === ABUSE_MARK_TOOL
-      ? JSON.stringify({ success: true })
-      : JSON.stringify({ success: true }));
+  const execute = mock((): string => JSON.stringify({ success: true }));
 
   await expect(generateReply(-1001, promptSections("拒答冷却"), toolset({
     functions: [declaration(ABUSE_MARK_TOOL), declaration(SEND_MESSAGE_TOOL)],

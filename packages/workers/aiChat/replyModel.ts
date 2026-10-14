@@ -120,7 +120,7 @@ async function runFunctionCalls(
 }
 
 /**
- * 执行一轮完整的模型回复对话，返回模型最终轮正文；请求失败、异常结束、工具无法续接或本轮作废时返回 null。
+ * 执行一轮完整的模型回复对话，返回模型最终轮正文；请求失败、异常结束、工具无法续接、本轮作废或 abuse_mark 被接纳时返回 null。
  */
 export async function generateReply(
   chatId: number,

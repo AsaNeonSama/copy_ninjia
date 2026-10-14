@@ -16,7 +16,7 @@ import { sendDirectMessage } from "./messageState";
 import { pauseThenSettle } from "./pacing";
 
 /**
- * 校验 abuse_mark 的 user_id 入参（仅允许当前轮次非零触发者，排除机器人自身与 superAdmin），
+ * 校验 abuse_mark 的 user_id 入参（只接受本轮非零触发者，排除机器人自身与 superAdmin），
  * 接纳时同步触发 ctx.onAbuseMark 并在动作链上以当前通知风格发送长期保留的提示消息。
  */
 export function createAbuseMarkExecutor(
@@ -28,24 +28,16 @@ export function createAbuseMarkExecutor(
     }
     const userId: number | null = parseSafeIntegerField(argumentsJson, "user_id");
     if (userId === null) {
-      return toolError("Invalid user_id: must be a non-zero integer");
+      return toolError("Invalid user_id: must be an integer");
     }
-    if (
-      ctx.triggerSenderId === undefined ||
-      ctx.triggerSenderId === 0 ||
-      userId !== ctx.triggerSenderId ||
-      (botInfoState.current !== null && userId === botInfoState.current.id)
-    ) {
+    if (ctx.triggerSenderId === 0 || userId !== ctx.triggerSenderId || userId === botInfoState.current?.id) {
       return toolError("abuse_mark can only target the current trigger sender");
     }
-    if (
-      ctx.bypassMediaToolCooldown ||
-      (superAdminUserIdState.current !== null && userId === superAdminUserIdState.current)
-    ) {
+    if (userId === superAdminUserIdState.current) {
       return toolError("abuse_mark is not allowed for the super admin");
     }
 
-    ctx.onAbuseMark?.(userId);
+    ctx.onAbuseMark(userId);
     const atmosphere: Atmosphere = atmosphereState.current ?? BOT_ATMOSPHERES[DEFAULT_BOT_ATMOSPHERE];
     const text: string = ATMOSPHERE_TEXTS[atmosphere].ABUSE_MARK_NOTICE_TEXT;
 
