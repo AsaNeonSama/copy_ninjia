@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import type { Message } from "grammy/types";
+import { isAbuseMarkedUser } from "../../aiChat/abuseMark";
 import { isAiChatConfigured } from "../../aiChat/availability";
 import { AI_REPLY_PROBABILITY_BASE_INITIAL } from "../../consts/aiChat/rateLimit";
 import { recordChatTitleFromChat } from "../../infra/chatTitle";
@@ -137,6 +138,7 @@ function handleAcceptedIncomingMessage(
     isAiChatConfigured() && state.isAIChatEnabled === true;
 
   if (copyTargetId === undefined && aiChatEnabled) {
+    if (senderId !== undefined && isAbuseMarkedUser(senderId)) return undefined;
     const payload: AiTriggerPayload | undefined = aiTriggerPayloadOf(message);
     if (payload !== undefined) {
       const triggerContext: MessageTriggerContext = createMessageTriggerContext({

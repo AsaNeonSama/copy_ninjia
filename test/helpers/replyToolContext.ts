@@ -8,6 +8,7 @@ import type { ReplyToolContext } from "../../packages/types/aiChat/replies";
 export function replyToolContextFixture(overrides: Partial<ReplyToolContext> = {}): ReplyToolContext {
   return {
     chatId: -100800,
+    triggerSenderId: 1001,
     replyToMessageId: 10,
     messageThreadId: undefined,
     mediaToolsRequested: false,
@@ -23,6 +24,7 @@ export function replyToolContextFixture(overrides: Partial<ReplyToolContext> = {
     onStickerSent: mock((..._args: unknown[]): void => {}),
     onImageSent: mock((..._args: unknown[]): void => {}),
     onVoiceSent: mock((..._args: unknown[]): void => {}),
+    onAbuseMark: mock((..._args: unknown[]): void => {}),
     ...overrides,
   };
 }

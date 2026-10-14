@@ -16,9 +16,10 @@ import { AI_CHAT_AGENT_ROLE_INSTRUCTION } from "../../consts/aiChat/prompts/agen
 import { WEB_SEARCH_FUNCTION_INSTRUCTION, WEB_SEARCH_INSTRUCTION } from "../../consts/aiChat/prompts/search";
 import { logger } from "../../infra/logger";
 import { textAiProvider } from "../../aiChat/provider";
-import { TOOL_BUDGET_EXHAUSTED_RESULT, WEB_SEARCH_TOOL } from "../../consts/tools";
+import { ABUSE_MARK_TOOL, TOOL_BUDGET_EXHAUSTED_RESULT, WEB_SEARCH_TOOL } from "../../consts/tools";
 import { callTool } from "../../aiChat/ai/tools";
 import { diagnosticWithDetails } from "../../aiChat/ai/utils/finishDetails";
+import { parseToolResult } from "../../aiChat/ai/utils/toolResult";
 import type {
   ReplyPromptSections,
   ReplySystemPromptSlot,
@@ -84,7 +85,7 @@ interface ReplyCallCounters {
   readonly customToolCallsByName: Map<string, number>;
 }
 
-/** 按模型调用顺序执行或接纳一轮函数调用，返回喂回模型的工具输出列表；本轮作废时返回 null。 */
+/** 按模型调用顺序执行或接纳一轮函数调用，返回喂回模型的工具输出列表；本轮作废或 abuse_mark 已接纳并终止本轮时返回 null。 */
 async function runFunctionCalls(
   functionCalls: readonly AiFunctionCall[],
   toolset: ReplyToolset,
@@ -109,6 +110,9 @@ async function runFunctionCalls(
       toolResult = toolset.has(call.name)
         ? toolset.execute(call.name, call.argumentsJson)
         : callTool(call.name);
+      if (call.name === ABUSE_MARK_TOOL && parseToolResult(toolResult).error === null) {
+        return null;
+      }
     }
     outputs.push({ call, responseJson: toolResult });
   }

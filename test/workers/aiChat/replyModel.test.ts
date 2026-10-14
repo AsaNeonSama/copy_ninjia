@@ -46,6 +46,7 @@ import {
 } from "../../../packages/consts/aiChat/prompts/transcript";
 import { VOICE_LANGUAGE_PROMPTS } from "../../../packages/consts/aiChat/prompts/tools";
 import {
+  ABUSE_MARK_TOOL,
   ADD_REACTION_TOOL,
   GENERATE_IMAGE_TOOL,
   SEND_MESSAGE_TOOL,
@@ -740,4 +741,50 @@ test("等检索结果期间本轮作废时不再喂回结果", async () => {
     isActive: (): boolean => active,
   }))).resolves.toBeNull();
   expect(appendedOutputs).toHaveLength(0);
+});
+
+test("abuse_mark 成功落地后立即结束本轮会话，不执行同响应后续调用也不喂回结果", async () => {
+  turns.push(
+    okTurn({
+      calls: [
+        call(ABUSE_MARK_TOOL, { user_id: 1001 }),
+        call(SEND_MESSAGE_TOOL, { text: "这条不该再发" }),
+      ],
+      text: "这段尾随正文也不该返回",
+    }),
+    okTurn({ text: "不该进入第二轮" })
+  );
+  const execute = mock((name: string): string =>
+    name === ABUSE_MARK_TOOL
+      ? JSON.stringify({ success: true })
+      : JSON.stringify({ success: true }));
+
+  await expect(generateReply(-1001, promptSections("拒答冷却"), toolset({
+    functions: [declaration(ABUSE_MARK_TOOL), declaration(SEND_MESSAGE_TOOL)],
+    has: (): boolean => true,
+    execute,
+  }))).resolves.toBeNull();
+
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute).toHaveBeenCalledWith(ABUSE_MARK_TOOL, JSON.stringify({ user_id: 1001 }));
+  expect(appendedOutputs).toHaveLength(0);
+  expect(requestMock).toHaveBeenCalledTimes(1);
+});
+
+test("abuse_mark 返回错误时不终止当前轮次，错误结果正常喂回模型", async () => {
+  turns.push(
+    okTurn({ calls: [call(ABUSE_MARK_TOOL, { user_id: 9999 })] }),
+    okTurn({ text: "改正常回复" })
+  );
+  const execute = mock((): string => JSON.stringify({ error: "invalid user_id" }));
+
+  await expect(generateReply(-1001, promptSections("误用恢复"), toolset({
+    functions: [declaration(ABUSE_MARK_TOOL)],
+    has: (): boolean => true,
+    execute,
+  }))).resolves.toBe("改正常回复");
+
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(appendedOutputs).toHaveLength(1);
+  expect(requestMock).toHaveBeenCalledTimes(2);
 });

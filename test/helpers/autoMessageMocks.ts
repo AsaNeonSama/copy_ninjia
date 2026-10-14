@@ -12,6 +12,7 @@
 
 import { mock } from "bun:test";
 import type { TranslateState } from "../../packages/types/translate";
+import { clearAbuseMarkedUsers } from "../../packages/aiChat/abuseMark";
 import { chatQaEntries } from "../../packages/cache/main/qa";
 
 export const recordChatMessageMock = mock((..._args: unknown[]): void => {});
@@ -121,4 +122,5 @@ export function resetAutoMessageMocks(): void {
   autoMessageChatState.quietUntilOffsetMs = 60_000;
   chatQaEntries.clear();
   autoMessageTranslateSessions.clear();
+  clearAbuseMarkedUsers();
 }

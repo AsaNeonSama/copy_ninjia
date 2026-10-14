@@ -191,6 +191,7 @@ AI 触发包含两种途径：
 | **`web_search`** | 查询 | 本地联网检索工具（配置了 `agent.web_search` 时挂载）；受单轮最大调用次数约束。 |
 | **`group_qa_query`** | 查询 | 查询本群预先登记的问题清单；不占用动作额度。 |
 | **`group_qa_answer`** | 查询 | 获取 `group_qa_query` 中特定问题的预置答案；由模型根据语义自行决定是否引用。 |
+| **`abuse_mark`** | 动作 | 当触发本轮回复的当前用户反复要求生成违规或令模型厌烦的内容时，标记该用户在 `ABUSE_MARK_DURATION_MS` 内不再进入 AI 闲聊，发出对应风格提示后立即结束本轮模型会话。 |
 | **`get_tokyo_weather`** | 查询 | 查询东京当日天气与温度；仅在时区为 `TOKYO_TIME_ZONE` 时挂载。 |
 
 > [!TIP]

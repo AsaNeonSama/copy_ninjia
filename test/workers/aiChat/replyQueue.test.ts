@@ -19,7 +19,12 @@ import { BoundedDeque } from "../../../packages/libs/boundedDeque";
 import { LinkedQueue } from "../../../packages/libs/linkedQueue";
 import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
 import type { QueuedReplyTrigger } from "../../../packages/types/aiChat/replies";
-import { drainReplyQueue, pushReplyTrigger, triggerKindFor } from "../../../packages/workers/aiChat/replyQueue";
+import {
+  drainReplyQueue,
+  dropQueuedReplyTriggersForUser,
+  pushReplyTrigger,
+  triggerKindFor,
+} from "../../../packages/workers/aiChat/replyQueue";
 import { indexBufferedMessage } from "../../../packages/workers/aiChat/bufferedMessageIndex";
 
 afterEach(() => {
@@ -194,5 +199,23 @@ describe("AI 回复触发队列", () => {
 
     expect(started).toEqual([1]);
     expect(pendingReplyTriggers.get(-1001)?.peek()?.replyToMessageId).toBe(2);
+  });
+
+  test("dropQueuedReplyTriggersForUser 按用户剔除跨群排队触发并清理空队列", () => {
+    const firstChatQueue = new LinkedQueue<QueuedReplyTrigger>();
+    firstChatQueue.push({ triggerSenderId: 7, replyToMessageId: 10, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "A", text: "spam1" });
+    firstChatQueue.push({ triggerSenderId: 8, replyToMessageId: 11, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "B", text: "keep" });
+    firstChatQueue.push({ triggerSenderId: 7, replyToMessageId: 12, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "A", text: "spam2" });
+    pendingReplyTriggers.set(-1001, firstChatQueue);
+
+    const secondChatQueue = new LinkedQueue<QueuedReplyTrigger>();
+    secondChatQueue.push({ triggerSenderId: 7, replyToMessageId: 20, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "A", text: "spam3" });
+    pendingReplyTriggers.set(-1002, secondChatQueue);
+
+    dropQueuedReplyTriggersForUser(7);
+
+    expect(pendingReplyTriggers.get(-1001)?.size).toBe(1);
+    expect(pendingReplyTriggers.get(-1001)?.peek()?.replyToMessageId).toBe(11);
+    expect(pendingReplyTriggers.has(-1002)).toBe(false);
   });
 });

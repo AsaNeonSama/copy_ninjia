@@ -36,3 +36,10 @@ export function parseIndexField(argumentsJson: string, field: string, max: numbe
   if (typeof index !== "number" || !Number.isInteger(index) || index < 1 || index > max) return null;
   return index;
 }
+
+/** 解析非零安全整数字段；解析失败、缺失、非安全整数或为 0 时返回 null。 */
+export function parseSafeIntegerField(argumentsJson: string, field: string): number | null {
+  const value: unknown = parseToolArguments(argumentsJson)?.[field];
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value === 0) return null;
+  return value;
+}

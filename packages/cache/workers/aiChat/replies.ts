@@ -55,7 +55,7 @@ export const replyDeliveryTotal: { current: number } = { current: 0 };
 
 /**
  * chatId -> 待处理的直接回复触发 FIFO 队列。
- * 填充：触发准入排队时入队；清理：轮次启动出队并在排空时删键，或随群失效清空；重建：Worker 重启后为空；容量：单群上限为 REPLY_TRIGGER_QUEUE_MAX，群数受 STATE_MANAGED_CHAT_LIMIT 约束。
+ * 填充：触发准入排队时入队；清理：轮次启动出队、dropQueuedReplyTriggersForUser 移除被 abuse_mark 标记用户的排队项并在排空时删键，或随群失效清空；重建：Worker 重启后为空；容量：单群上限为 REPLY_TRIGGER_QUEUE_MAX，群数受 STATE_MANAGED_CHAT_LIMIT 约束。
  */
 export const pendingReplyTriggers: Map<number, LinkedQueue<QueuedReplyTrigger>> = new Map();
 

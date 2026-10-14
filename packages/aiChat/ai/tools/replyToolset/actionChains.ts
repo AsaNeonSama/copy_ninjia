@@ -1,4 +1,4 @@
-import { SEND_MESSAGE_TOOL } from "../../../../consts/tools";
+import { ABUSE_MARK_TOOL, SEND_MESSAGE_TOOL } from "../../../../consts/tools";
 import { logger } from "../../../../infra/logger";
 import { trackInflight } from "../../../../libs/inflight";
 import { raceAbort } from "../../../../libs/abortSignal";
@@ -62,7 +62,11 @@ export function createReplyActionChains(
 
   return {
     start: (name: string, run: ReplyActionRun): void => {
-      enqueue(name, run, pacing === null ? pause : pacing.startAction(name === SEND_MESSAGE_TOOL));
+      enqueue(
+        name,
+        run,
+        pacing === null ? pause : pacing.startAction(name === SEND_MESSAGE_TOOL || name === ABUSE_MARK_TOOL)
+      );
     },
     defer: (name: string, pending: Promise<ReplyActionRun | null>): void => {
       void trackInflight(inflight, pending.then(

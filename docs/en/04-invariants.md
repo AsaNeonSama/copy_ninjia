@@ -371,11 +371,14 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
   - **Chat action indicators (Heartbeats)**:
     - Typing, choosing stickers, recording audio, and uploading photos are managed via `aiChat/ai/chatActionHeartbeat.ts`.
     - Statuses switch only during active chain steps, not during tool invocation.
-    - Direct rounds use `createDirectPacing` to show "typing" during initial model generation; if the first action is `send_message`, it sends immediately without extra typing pauses.
+    - Direct rounds use `createDirectPacing` to show "typing" during initial model generation; if the first action is `send_message` or `abuse_mark`, it sends immediately without extra typing pauses.
     - Switching to idle initiates a `CHAT_ACTION_REST_MS` silence window, preventing repetitive heartbeats.
     - Typo corrections pause silently for `TYPO_QUICK_CORRECTION_MIN_MS`–`TYPO_QUICK_CORRECTION_MAX_MS`, display "typing" for `TYPO_QUICK_CORRECTION_TYPING_MS`, then send the correction.
   - **Sticker pack viewing (`view_sticker_pack`)**:
     - Returns current pack index, descriptions, and names synchronously, recording intent. Rounds view up to `MAX_STICKER_PACK_VIEWS_PER_REPLY` distinct packs (once each); subsequent `send_sticker` calls must reference viewed menus.
+  - **Abuse cooldown marking (`abuse_mark`)**:
+    - `user_id` must be a non-zero safe integer matching the current round's `triggerSenderId`, excluding the bot itself and `superAdmin`.
+    - Upon acceptance, synchronously runs `dropQueuedReplyTriggersForUser` to remove queued direct triggers from that user across all chats in `pendingReplyTriggers`, posts `abuseMark` to the main thread (`aiChat/abuseMark.ts` records the user in `abuseMarkedUsers` (`FifoMap`, capped at `ABUSE_MARK_MAX_USERS`) with a per-entry unref `setTimeout` of `ABUSE_MARK_DURATION_MS` without polling, intercepting that user's messages at the `auto/message` AI chat ingress), enqueues the atmosphere-matched `ABUSE_MARK_NOTICE_TEXT` on the serial action chain (retained in the group as a conversational AI reply and recorded into rolling memory), and immediately terminates the current model round in `runFunctionCalls` (skipping any remaining tool calls in the same response and any further tool round-trips).
   - **Concurrency and delivery queues**:
     - `activeReplyCounts` tracks in-flight rounds: up to `REPLY_ROUND_MAX_CONCURRENT` ordered parallel rounds per chat; direct rounds take an independent model slot; under Telegram backpressure, each chat converges to a single active round.
     - `pendingReplyTriggers` holds up to `REPLY_TRIGGER_QUEUE_MAX` unstarted direct triggers per chat.
@@ -402,7 +405,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 
 - **Tool declaration invariants and language alignment**:
   - Tools mounted per round are determined strictly by configuration, regardless of trigger type, Q&A entries, or typo draws:
-    - Base tools always mounted: `send_message`, `add_reaction`, `group_qa_query`, `group_qa_answer`.
+    - Base tools always mounted: `send_message`, `add_reaction`, `group_qa_query`, `group_qa_answer`, `abuse_mark`.
     - `generate_image`: mounted when image provider is configured.
     - `send_voice`: mounted when `agent.tts` is configured with speech synthesis support.
     - `view_sticker_pack`, `send_sticker`: mounted when sticker menu is non-empty.

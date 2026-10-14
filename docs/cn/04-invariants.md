@@ -387,11 +387,14 @@
   - **聊天状态指示器（Chat Action Heartbeat）**：
     - 「正在输入」、「选择贴纸」、「正在录音」等状态统一由 `aiChat/ai/chatActionHeartbeat.ts` 管理。
     - 状态档位仅由动作链中正在执行的当前步骤切换，执行器在调用阶段不切换状态。
-    - 直接轮次通过 `createDirectPacing` 提前点亮状态：若尚未接纳动作，在模型生成期间显示「正在输入」；若首个动作为 `send_message`，直接沿用该输入状态发送，不额外插入拟人停顿。
+    - 直接轮次通过 `createDirectPacing` 提前点亮状态：若尚未接纳动作，在模型生成期间显示「正在输入」；若首个动作为 `send_message` 或 `abuse_mark`，直接沿用该输入状态发送，不额外插入拟人停顿。
     - 状态切换至 idle 代表本段状态结束，同群在此后 `CHAT_ACTION_REST_MS` 内进入静默期，期间不重复发送状态心跳。
     - 发生打字手滑（错字纠正）时，错字消息落地后先静默 `TYPO_QUICK_CORRECTION_MIN_MS`～`TYPO_QUICK_CORRECTION_MAX_MS`，随后显示 `TYPO_QUICK_CORRECTION_TYPING_MS` 的「正在输入」，再将纠正消息发出。
   - **贴纸包查看（`view_sticker_pack`）**：
     - 同步返回当前菜单的真实编号、简介与名称，并记录查看意图；每轮最多查看 `MAX_STICKER_PACK_VIEWS_PER_REPLY` 个不同贴纸包，同一包只允许查看一次，后续 `send_sticker` 必须引用已查看的菜单。
+  - **不当纠缠冷却（`abuse_mark`）**：
+    - `user_id` 必须是非零安全整数且严格等于当前轮触发用户（`triggerSenderId`），同时排除机器人自身与 `superAdmin`。
+    - 校验通过后同步调用 `dropQueuedReplyTriggersForUser` 剔除该用户在所有群 `pendingReplyTriggers` 中的排队触发，向主线程推送 `abuseMark` 事件（主线程 `aiChat/abuseMark.ts` 在 `abuseMarkedUsers`（`FifoMap`，容量 `ABUSE_MARK_MAX_USERS`）中为该用户挂载独立的单次 unref `setTimeout`（时长 `ABUSE_MARK_DURATION_MS`，不做轮扫），期间在 `auto/message` 的 AI 闲聊入口直接拦截该用户的消息），将当前通知风格的 `ABUSE_MARK_NOTICE_TEXT` 排入串行动作链发送（作为会话性 AI 回复长期保留并记入滚动记忆），并立即在 `runFunctionCalls` 中结束本轮模型会话（不执行同响应后续工具调用，也不再向模型回喂工具输出）。
   - **并发控制与交付队列**：
     - `activeReplyCounts` 统计未完成轮次：有序并行轮次单群最多 `REPLY_ROUND_MAX_CONCURRENT` 轮；直接轮次独立占用 1 个模型槽；Telegram 高压时同群收敛至 1 轮。
     - `pendingReplyTriggers` 单群最多保留 `REPLY_TRIGGER_QUEUE_MAX` 个未启动的直接触发任务。
@@ -418,7 +421,7 @@
 
 - **工具声明恒定性与语言规范**：
   - 工具列表在每轮构造时严格由配置条件决定，与当前触发类型、本群问答或是否抽中手滑无关：
-    - 基础工具恒定挂载：`send_message`、`add_reaction`、`group_qa_query`、`group_qa_answer`。
+    - 基础工具恒定挂载：`send_message`、`add_reaction`、`group_qa_query`、`group_qa_answer`、`abuse_mark`。
     - `generate_image`：仅在配置了图片生成供应商时挂载。
     - `send_voice`：仅在配置了 `agent.tts` 且具备语音合成能力时挂载。
     - `view_sticker_pack`、`send_sticker`：仅在贴纸菜单非空时挂载。

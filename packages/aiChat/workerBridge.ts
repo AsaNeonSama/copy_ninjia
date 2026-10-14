@@ -58,6 +58,7 @@ import {
   telegramWorkerResponseTransfer,
 } from "../infra/telegram/workerRequests";
 import { activeStickerCatalogs, mirrorStickerCatalog, pruneStickerCatalogMirror } from "./stickerMirror";
+import { clearAbuseMarkedUsers, markAbuseUser } from "./abuseMark";
 import { requestVoiceSynthesis } from "./voiceSynthesis";
 import type { VoiceSynthesisRequest } from "./voiceSynthesis";
 import type { VoiceSynthesisResult } from "../types/aiChat/voiceMessage";
@@ -164,6 +165,9 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
         break;
       case "aiCacheUsage":
         relayAiCacheUsage(event.usage);
+        break;
+      case "abuseMark":
+        markAbuseUser(event.userId);
         break;
     }
   },
@@ -296,6 +300,7 @@ export async function terminateAiChat(): Promise<void> {
     "AI Worker is shutting down before completing chat invalidation."
   );
   aiChatWorkerState.available = false;
+  clearAbuseMarkedUsers();
   purgedAiMemoryChats.clear();
   postPurgeAiMemoryPersistRevisions.clear();
   await terminateAiChatWorker();

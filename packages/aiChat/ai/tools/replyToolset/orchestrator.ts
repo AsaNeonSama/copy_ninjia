@@ -1,6 +1,7 @@
 import type { AiToolDefinition, AiWebSearchFacade } from "../../../../types/aiChat/provider";
 import { HARD_MAX_ACTIONS_PER_REPLY } from "../../../../consts/aiChat/tools";
 import {
+  ABUSE_MARK_TOOL,
   ACTION_TOOL_NAMES,
   REPLY_INVALIDATED_TOOL_ERROR,
   TOOL_DECLARATIONS,
@@ -34,10 +35,12 @@ import {
   sendStickerTool,
   viewStickerPackTool,
 } from "../stickers";
+import { createAbuseMarkExecutor } from "./abuseMark";
 import { buildGenerateImageToolDefinition, createGenerateImageExecutor } from "./imageGeneration";
 import { buildToolStatusBlock } from "./toolStatus";
 import { buildSendVoiceToolDefinition, createSendVoiceExecutor, isSendVoiceAvailable } from "./voiceMessage";
 import {
+  buildAbuseMarkToolDefinition,
   buildAddReactionToolDefinition,
   buildSendMessageToolDefinition,
 } from "./definitions";
@@ -93,6 +96,7 @@ export async function createReplyToolset(ctx: ReplyToolContext, deliveryReady?: 
   if (viewDefinition !== null) declarations.push(viewDefinition);
   if (sendStickerDefinition !== null) declarations.push(sendStickerDefinition);
   declarations.push(...buildGroupQaToolDefinitions());
+  declarations.push(buildAbuseMarkToolDefinition());
   const names: Set<string> = new Set<string>();
   for (const declaration of declarations) names.add(declaration.name);
   const functions: AiToolDefinition[] = [];
@@ -108,6 +112,7 @@ export async function createReplyToolset(ctx: ReplyToolContext, deliveryReady?: 
 
   const executeSendMessage: (argumentsJson: string) => ReplyToolExecution = createSendMessageExecutor(ctx, messageState, (): number => actionsUsed);
   const executeAddReaction: (argumentsJson: string) => ReplyToolExecution = createAddReactionExecutor(ctx);
+  const executeAbuseMark: (argumentsJson: string) => ReplyToolExecution = createAbuseMarkExecutor(ctx);
   const executeGenerateImage: ((argumentsJson: string) => ReplyToolExecution) | null = imageEnabled
     ? createGenerateImageExecutor(ctx, messageState, (): number => actionsUsed)
     : null;
@@ -128,6 +133,8 @@ export async function createReplyToolset(ctx: ReplyToolContext, deliveryReady?: 
         return executeSendMessage(argumentsJson);
       case ADD_REACTION_TOOL:
         return executeAddReaction(argumentsJson);
+      case ABUSE_MARK_TOOL:
+        return executeAbuseMark(argumentsJson);
       case GENERATE_IMAGE_TOOL:
         return executeGenerateImage === null
           ? toolError(unknownToolError(name))

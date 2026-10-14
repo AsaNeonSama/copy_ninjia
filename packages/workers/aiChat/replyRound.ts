@@ -21,7 +21,7 @@ import { TimestampDeque } from "../../libs/timestampDeque";
 import { raceAbort } from "../../libs/abortSignal";
 import { truncateInline } from "../../libs/text";
 import { isReplyRoundRateLimited } from "../../states/replyAdmission";
-import type { AiBotInfo, ImageGenerationReference } from "../../types/aiChat/protocol";
+import type { AiAbuseMarkEvent, AiBotInfo, ImageGenerationReference } from "../../types/aiChat/protocol";
 import type { BufferedMessage, BufferedReplyReference } from "../../types/aiChat/memory";
 import type {
   QueuedReplyTrigger,
@@ -36,12 +36,15 @@ import { generateReply } from "./replyModel";
 import { reserveReplyDelivery } from "./replyDelivery";
 import { buildReplyPromptSections } from "./promptContext";
 import { replyReferenceForBufferedMessage } from "./bufferedMessageIndex";
+import { dropQueuedReplyTriggersForUser } from "./replyQueue";
 import { notifyRateLimited } from "./replyState";
 import { replyGenerationSignal, trackReplyGenerationTask } from "./replyGeneration";
 import { recordChatMessage } from "./rollingMemory";
 import { repliedBotImageBackfill, trackGeneratedImage } from "./botImages";
 import { imageGenerationReferencesFor } from "./imageReferenceAlbums";
 import type { ChatActionHeartbeatControl } from "../../types/aiChat/chatAction";
+
+declare const self: Worker;
 
 export interface ReplyRoundRequest {
   chatId: number;
@@ -128,6 +131,7 @@ function buildReplyToolContext({
   };
   return {
     chatId,
+    triggerSenderId,
     replyToMessageId,
     messageThreadId,
     chatQaJson,
@@ -158,7 +162,14 @@ function buildReplyToolContext({
       });
     },
     onVoiceSent: recordSelfSent,
+    onAbuseMark: handleAbuseMark,
   };
+}
+
+/** 处理模型触发的 abuse_mark：清理该用户在 Worker 内的排队触发并通知主线程启动冷却。 */
+function handleAbuseMark(userId: number): void {
+  dropQueuedReplyTriggersForUser(userId);
+  self.postMessage({ type: "abuseMark", userId } satisfies AiAbuseMarkEvent);
 }
 
 /** 将模型最终正文经 send_message 兜底发送（随机触发不挂回复）。 */

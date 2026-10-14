@@ -1,6 +1,8 @@
 /** owner: main。AI 闲聊主线程代理（packages/aiChat/）的内存状态。 */
 
+import { ABUSE_MARK_MAX_USERS } from "../../consts/aiChat/rateLimit";
 import { AI_MEMORY_FLUSH_TIMEOUT_MS } from "../../consts/lifecycle";
+import { FifoMap } from "../../libs/fifoMap";
 import { createFlushBarrier } from "../../libs/flushBarrier";
 import type { FlushBarrier } from "../../libs/flushBarrier";
 import type { AiMemoryUsage } from "../../types/aiChat/memory";
@@ -162,3 +164,14 @@ export const aiChatWorkerState: { available: boolean } = { available: false };
  * 容量为当前配置白名单包与待确认落盘的旧包数。
  */
 export const latestStickerCatalogs: Map<string, string> = new Map();
+
+/**
+ * 被 abuse_mark 工具标记的用户及其独立到期清理定时器（userId -> Timer）。
+ *
+ * 填充：主线程收到 AI Worker 的 abuseMark 事件时由 aiChat/abuseMark.ts 的 markAbuseUser 写入，
+ * 每个条目持有独立的单次 setTimeout（unref）。清理：对应定时器满 ABUSE_MARK_DURATION_MS 到期时自动删除该键，
+ * 重复标记同一用户时先 clearTimeout 并删除旧项再重建，满额淘汰或 terminateAiChat 时调用 clearTimeout 并移除。
+ * 重建：AI Worker 崩溃重建时主线程保留当前未到期条目，进程重启后从空表开始。
+ * 容量上限为 ABUSE_MARK_MAX_USERS，超出时经 FifoMap.oldestKey() 淘汰最早插入项并取消其定时器。
+ */
+export const abuseMarkedUsers: FifoMap<number, ReturnType<typeof setTimeout>> = new FifoMap(ABUSE_MARK_MAX_USERS);

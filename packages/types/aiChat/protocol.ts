@@ -425,6 +425,12 @@ export interface AiCacheUsageEvent {
   usage: AiCacheUsage;
 }
 
+/** Worker -> 主线程：模型调用 abuse_mark 标记了当前触发用户，主线程据此启动该用户的 AI 闲聊冷却定时器。 */
+export interface AiAbuseMarkEvent {
+  type: "abuseMark";
+  userId: number;
+}
+
 export type AiChatWorkerEvent =
   | AiMemoryEvent
   | AiMemoryUsagesEvent
@@ -437,4 +443,5 @@ export type AiChatWorkerEvent =
   | AiWebDigestComposedEvent
   | AiTtsUsageEvent
   | AiCacheUsageEvent
+  | AiAbuseMarkEvent
   | AiStickerCatalogEvent;

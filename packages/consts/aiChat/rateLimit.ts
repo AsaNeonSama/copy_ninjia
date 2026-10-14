@@ -36,3 +36,9 @@ export const REPLY_TRIGGER_QUEUE_MAX: number = 15;
 export const QUEUED_TRIGGER_SNIPPET_MAX_CHARS: number = 200;
 /** 同群限频提示的冷却时长；冷却期内不重复发提示（提示文案在 consts/atmosphere/ 各风格的 aiChat_rateLimit.ts）。 */
 export const RATE_LIMIT_NOTICE_COOLDOWN_MS: number = 60_000;
+/** 被 abuse_mark 工具标记的用户在主线程不再进入 AI 闲聊的冷却分钟数。 */
+export const ABUSE_MARK_DURATION_MINUTES: number = 5;
+/** 被 abuse_mark 工具标记的用户在主线程不再进入 AI 闲聊的冷却时长（毫秒）。 */
+export const ABUSE_MARK_DURATION_MS: number = ABUSE_MARK_DURATION_MINUTES * 60_000;
+/** 主线程最多同时保留的 abuse_mark 标记用户数；满额按 FIFO 淘汰最早项。所属模块：cache/main/aiChat.ts。 */
+export const ABUSE_MARK_MAX_USERS: number = 1_024;

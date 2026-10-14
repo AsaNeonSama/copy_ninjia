@@ -185,6 +185,7 @@ The model can execute multiple tool calls within a single round. All visible sid
 | **`web_search`** | Query | Local web search tool (mounted when `agent.web_search` is configured); bounded by `max_calls_per_use`. |
 | **`group_qa_query`** | Query | Lists registered Q&A questions in the current group; does not consume action budget. |
 | **`group_qa_answer`** | Query | Fetches pre-registered answers for specific questions discovered via `group_qa_query`. |
+| **`abuse_mark`** | Action | Marks the current trigger user to be ignored by AI chat for `ABUSE_MARK_DURATION_MS` when repeatedly requesting disallowed or pestering content, sends an atmosphere-specific notice, and immediately ends the model round. |
 | **`get_tokyo_weather`** | Query | Queries Tokyo daily weather and temperature; mounted only when configured time zone is `TOKYO_TIME_ZONE`. |
 
 > [!TIP]

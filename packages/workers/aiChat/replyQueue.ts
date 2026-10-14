@@ -131,3 +131,11 @@ export function drainReplyQueue(chatId: number, startQueuedRound: (trigger: Queu
   }
   if (queue.size === 0) pendingReplyTriggers.delete(chatId);
 }
+
+/** 移除所有群排队队列中由指定用户发起的直接触发；队列排空时删除外层键。 */
+export function dropQueuedReplyTriggersForUser(userId: number): void {
+  for (const [chatId, queue] of pendingReplyTriggers) {
+    queue.removeWhere((trigger: QueuedReplyTrigger): boolean => trigger.triggerSenderId === userId);
+    if (queue.size === 0) pendingReplyTriggers.delete(chatId);
+  }
+}

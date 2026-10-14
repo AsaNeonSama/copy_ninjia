@@ -1,6 +1,11 @@
 import type { AiToolDefinition } from "../../../../types/aiChat/provider";
-import { ADD_REACTION_TOOL_INSTRUCTION } from "../../../../consts/aiChat/prompts/tools";
 import {
+  ABUSE_MARK_TOOL_INSTRUCTION,
+  ABUSE_MARK_USER_ID_DESCRIPTION,
+  ADD_REACTION_TOOL_INSTRUCTION,
+} from "../../../../consts/aiChat/prompts/tools";
+import {
+  ABUSE_MARK_TOOL,
   ADD_REACTION_TOOL,
   SEND_MESSAGE_TOOL,
 } from "../../../../consts/tools";
@@ -42,6 +47,21 @@ export function buildAddReactionToolDefinition(): AiToolDefinition {
         emoji: { type: "string", description: "要扣的反应 emoji，必须是清单里列出的其中一个。" },
       },
       required: ["emoji"],
+    },
+  };
+}
+
+/** 构造 abuse_mark 工具声明。 */
+export function buildAbuseMarkToolDefinition(): AiToolDefinition {
+  return {
+    name: ABUSE_MARK_TOOL,
+    description: ABUSE_MARK_TOOL_INSTRUCTION,
+    parametersJsonSchema: {
+      type: "object",
+      properties: {
+        user_id: { type: "integer", description: ABUSE_MARK_USER_ID_DESCRIPTION },
+      },
+      required: ["user_id"],
     },
   };
 }
