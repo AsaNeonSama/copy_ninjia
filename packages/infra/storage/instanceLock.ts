@@ -324,9 +324,8 @@ export async function acquireSingleInstanceLock(
 }
 
 /**
- * 停机时释放单实例锁，在 bot.lock.guard 互斥下执行：文件不存在时直接返回；属主是本进程且
- * token 相同，或属主进程已不在时删除文件；属主是另一个仍在运行的进程时原样保留。
- * 读取同样严格，格式不符时抛错并原样保留文件，由停机流程记 error 并以退出码 1 结束。
+ * 停机时释放单实例锁（在 `bot.lock.guard` 互斥下执行）：文件不存在时直接返回；
+ * 属主是本进程且 token 相同，或属主进程已不在时删除文件；属主为其它运行中进程时原样保留。
  */
 export async function releaseSingleInstanceLock(
   botToken: string,

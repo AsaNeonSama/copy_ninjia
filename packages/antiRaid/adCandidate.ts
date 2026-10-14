@@ -104,8 +104,7 @@ function buildSampleContext(
   ) {
     return undefined;
   }
-  // 截断后去掉末尾空白，交给 Worker 的是清洗完成的单行文本，
-  // Worker 侧只再收一次长度（见 workers/antiRaid/adDetect/bundle.ts 的 boundSampleContext）。
+  // 截断并去除末尾空白，Worker 侧仅复核长度（见 workers/antiRaid/adDetect/bundle.ts 的 boundSampleContext）。
   const quote: string = truncateInline(
     sanitizeInline(rawQuote ?? ""),
     AD_SAMPLE_CONTEXT_MAX_CHARS
@@ -115,7 +114,6 @@ function buildSampleContext(
     AD_SAMPLE_CONTEXT_MAX_CHARS
   ).trimEnd();
   if (quote.length === 0 && replyTo.length === 0) return undefined;
-  // 两个键固定写全，空段为 undefined，返回值只有一种 shape。
   return {
     quote: quote.length === 0 ? undefined : quote,
     replyTo: replyTo.length === 0 ? undefined : replyTo,
@@ -123,10 +121,9 @@ function buildSampleContext(
 }
 
 /**
- * 广告累计与候选构建共同的前置判定，每条群消息只做一次；调用方已确认本群开着广告检测，
- * senderChat 为 visibleSenderChat(message)。判定广告检测配置就绪、不是自动转发或机器人
- * 自己的消息、有展示身份且不是机器人自己或本群的群身份。
- * @returns 通过时返回展示身份 id（频道马甲优先，否则 from.id），否则 undefined。
+ * 广告累计与候选构建的共用前置判定。确认配置就绪、非自动转发或自身消息、
+ * 具有展示身份且非机器人自身或本群群身份。
+ * @returns 通过时返回展示身份 id（频道身份优先，否则 from.id），否则返回 undefined。
  */
 export function adDetectionSenderId(
   message: Message,
@@ -141,8 +138,8 @@ export function adDetectionSenderId(
 }
 
 /**
- * 收敛一条已通过 adDetectionSenderId 前置判定的待判定消息。受保护身份返回 undefined；
- * 频道黑名单落地空档仍投递，由 Worker 删除漏网消息。
+ * 构建已通过 adDetectionSenderId 前置判定的候选载荷。受保护身份返回 undefined；
+ * 已拉黑频道身份仍构建载荷，交由 Worker 删除漏网消息。
  */
 export function buildAdCandidate(
   {
@@ -158,8 +155,7 @@ export function buildAdCandidate(
   const blocked: boolean = isUserBlocked(senderId);
   if (blocked && senderChat === undefined) return undefined;
 
-  // 本 bot 自己的 inline 结果送检用户打进 inline 查询的源文本，不送检落群的渲染正文。
-  // 源文本只在应答时登记（见 infra/inlineResultSources.ts），取不到就整条不判。
+  // 本机器人 inline 结果按应答时登记的查询源文本送检（见 infra/inlineResultSources.ts），未命中则跳过。
   const selfInlineResult: boolean = message.via_bot?.id === botId;
   let inlineSource: string | undefined;
   if (selfInlineResult) {
@@ -180,8 +176,6 @@ export function buildAdCandidate(
   const text: string = sanitizeInline(
     inlineSource ?? message.text ?? message.caption ?? ""
   );
-  // 送检源文本时不补 text_link：实体属于本 bot 渲染的正文，与源文本对不上；
-  // 用户打进查询的链接留在源文本里参与判定。
   const linkUrls: string[] | undefined = selfInlineResult
     ? undefined
     : collectHiddenLinkUrls(
@@ -191,10 +185,6 @@ export function buildAdCandidate(
   const sampleContext: AdSampleContext | undefined = buildSampleContext(message, now);
   if (text.length === 0 && linkUrls === undefined && sampleContext === undefined) return undefined;
 
-  // 可缺席的字段无条件写在初始化处，保持对象 shape 一致，口径同 aiChat/workerBridge.ts
-  // 的「字段一律发出，不用条件展开」与 auto/message/facts.ts。展示身份三项直接读值、
-  // 引用上下文平铺成原始值字段，不构造中间元数据对象，载荷保持扁平（见
-  // types/antiRaid/adDetect.ts 的 AdCandidateMessage）。
   return {
     type: "adCandidate",
     chatId,

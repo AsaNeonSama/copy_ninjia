@@ -6,8 +6,7 @@ import { globalPropertyName } from "./staticAccess";
 /**
  * 逐文件判定几条「谁能依赖谁」的硬边界：读取环境变量的唯一入口、
  * `packages/consts/` 与 `packages/states/` 的纯度、`infra` 不得向上依赖业务层，以及全量基准父进程与
- * 非夹具模块的 import 约束。环境变量入口与全量基准 import 约束写在 AGENTS.md，
- * `states/` 纯度与 `infra` 依赖方向见 docs/cn/04-invariants.md；判定细节以本文件
+ * 非夹具模块的 import 约束。`states/` 纯度与 `infra` 依赖方向见 docs/cn/04-invariants.md；判定细节以本文件
  * 各规则的常量与 JSDoc 为准。
  *
  * 各条规则都只看 AST，判定这一个文件写了什么 import；`states/` 纯度另按调用方给出的
@@ -184,8 +183,7 @@ const INFRA_FORBIDDEN_PREFIXES: readonly string[] = [
 /**
  * 唯一豁免：`packages/workers/diskIO/diagnosticSink.ts`。
  *
- * 它是没有任何依赖的叶子，只包一层 `console.error`，位于 AGENTS.md 允许直接
- * `console.error` 的 `packages/workers/diskIO/` 目录；主线程的 Disk I/O 宿主经它输出
+ * 它是没有任何依赖的叶子，只包一层 `console.error`；主线程的 Disk I/O 宿主经它输出
  * 诊断而不经 logger。新增豁免必须同时改这里与被豁免模块的头注。
  */
 const INFRA_LAYERING_EXEMPTIONS: readonly string[] = [

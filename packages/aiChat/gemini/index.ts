@@ -1,11 +1,5 @@
 /**
- * Gemini 实现包的对外入口：把本包的能力装配成一个 AiChatProvider。
- * 领域侧只经 aiChat/provider.ts 的各能力路由拿到它，不直接 import
- * 本目录下的任何子模块。
- *
- * 四项必备能力（回复会话、纯文本、视觉、生图）之外，本包还实现语音转写与语音合成。
- * OpenAI 侧同样实现这两项；调用方一律按「这个成员在不在」判断，不按供应商名字判断，
- * 见 types/aiChat/provider.ts 的模块头注。联网检索执行器挂 `googleSearch`（见 ./search.ts）。
+ * Gemini 供应商实现入口：装配回复会话、纯文本、结构化 JSON、视觉描述、生图、语音转写、语音合成与联网检索能力。
  */
 
 import { generateGeminiImage } from "./image";
@@ -15,7 +9,7 @@ import { synthesizeGeminiSpeech } from "./speech";
 import { describeGeminiVision, generateGeminiJson, generateGeminiText, transcribeGeminiVoice } from "./text";
 import type { AiChatProvider } from "../../types/aiChat/provider";
 
-/** Google GenAI 协议实现；每项能力的认证与端点来自 config/dynamic/agent.json。 */
+/** Google GenAI 供应商实现。 */
 export const geminiProvider: AiChatProvider = {
   name: "google",
   createReplySession: createGeminiReplySession,

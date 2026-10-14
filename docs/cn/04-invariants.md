@@ -31,11 +31,11 @@
 ### 启动顺序与资源获取
 
 - **默认时区为进程启动时的只读快照**：
-  - `config/static/bot.json` 中的可选字段 `time_zone` 使用标准 IANA 时区名称，缺省值为 `DEFAULT_BOT_TIME_ZONE`（即 `Asia/Tokyo`）。
+  - `config/static/bot.json` 中的可选字段 `time_zone` 使用标准 IANA 时区名称，缺省值为 `DEFAULT_BOT_TIME_ZONE`。
   - 去除首尾空白后，系统会严格校验 Intl、Temporal 及 Bun 原生 cron 是否均支持此时区，并取 Temporal 规范化后的大小写名称（如 `asia/tokyo` 规范化为 `Asia/Tokyo`；`Japan` 等别名原样保留）。若时区为空字符串、类型非法或操作系统不支持，将在建立任何外部连接前报错退出。
   - 主线程持有该时区的权威快照，在启动时分别通过 `init`、`agentConfig` 和 `load` 消息分发给 AI、Anti-Raid 与 Disk I/O Worker；Worker 崩溃重建时重放同一份快照。
   - 每个线程的 `cache/perThread/time.ts` 独立维护此时区、格式化器与当前处于的 UTC 偏移区间：在相邻两次夏令时/冬令时转换之间，UTC 偏移恒定不变；日序号、日期字符串、本地时间串和小时计算在此区间内仅进行整数运算与对比，未命中区间时才由 Temporal 重新计算。
-  - 机器人的运势抽签、日志记录、广告频次累计、入群日志、AI 时间感知及每日维护共用此时区。东京天气查询工具仅在基准时区为 `Asia/Tokyo` 时启用，其他时区下不注册该工具。
+  - 机器人的运势抽签、日志记录、广告频次累计、入群日志、AI 时间感知及每日维护共用此时区。东京天气查询工具仅在基准时区为 `TOKYO_TIME_ZONE` 时启用，其他时区下不注册该工具。
 
 - **数据根永久绑定时区**：
   - 首次初始化数据库时，`initializeStorageDatabase` 会将当前配置的时区写入 `storage_metadata` 表中的 `time-zone` 记录（如 `{"timeZone":"Asia/Tokyo"}`）。
@@ -70,7 +70,7 @@
   - Disk I/O Worker 在启动时会核验 SQLite 完整性、JSONB 存储类、迁移版本、数据库时区标记、每行数据的编解码以及黑白名单的互斥性，任何一项校验失败都会终止启动，防止系统以部分损坏的状态运行。
 
 - **主线程通过有界 LRU 缓存进行同步鉴权**：
-  - 为了避免高频消息处理在鉴权时频繁发起跨线程请求，主线程维护一张容量为 `IDENTITY_READ_CACHE_MAX_ENTRIES` 的 LRU 缓存（`packages/cache/main/identityStorage.ts` 的 `identityPolicyCache`）：每个身份一个条目，固定持有永久白名单、黑名单与临时广告免检三项，三项随条目一起淘汰。某一项为 `undefined` 表示尚未加载，为 `null` 表示明确不在名单中（负缓存）；三项都已加载才算该身份已缓存。
+  - 主线程维护一张容量为 `IDENTITY_READ_CACHE_MAX_ENTRIES` 的 LRU 缓存（`packages/cache/main/identityStorage.ts` 的 `identityPolicyCache`）：每个身份一个条目，固定持有永久白名单、黑名单与临时广告免检三项，三项随条目一起淘汰。某一项为 `undefined` 表示尚未加载，为 `null` 表示明确不在名单中（负缓存）；三项都已加载才算该身份已缓存。
   - **按需批量预热**：每条消息在进入具体业务逻辑前，前置中间件会收集本条消息涉及的所有用户和频道身份，单次向 Disk I/O Worker 批量预取策略状态（单次最多 `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` 个），同一身份的三项一次写入同一条目。后续的命令执行与权限判定直接同步读取主线程内存缓存，无需反复进行跨线程往返请求。Disk I/O 侧的白名单、黑名单、临时免检批量读取与群状态 id 读取使用连接级预编译语句（id 列表经 `json_each` 占位传入），不在每次读取时重新拼装查询。
   - **冷读失败安全处理**：若跨线程预热读取失败，普通业务将安全降级（按未授权处理）；对于踢人、拉黑等破坏性批量操作，则直接取消执行，绝不把未知状态当成无保护状态。
   - **批量踢人例外（`/batch_kick`）**：批量踢人不依赖缓存是否常驻，而是在每个批次开始前直接冷读本批全部身份的永久策略并在局部持有。
@@ -79,7 +79,7 @@
   - 仅当广告检测功能可用且当前群已显式开启广告检测时，普通用户或频道马甲的正常发言才会参与免检累计；机器人自身、自动转发、匿名管理员与永久白名单成员均不参与累计。
   - 在配置时区的自然日内，发言次数严格超过 `TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD` 时，记录本日达标（同一天只记一次）；首个达标日立即授予临时广告免检权限。
   - 连续 `TEMPORARY_AD_BYPASS_REQUIRED_DAYS` 个自然日均达标后，系统会自动将其升级写入永久白名单（仍仅持有广告免检权限）。
-  - 累计严格按配置时区的自然日计算，不使用滚动的 24 小时：若某一天未达标，次日零点维护时将删除该条临时累计记录；若用户被检测出广告违规或被管理员手动拉黑，其临时累计记录将被立即清除。
+  - 累计严格按配置时区的自然日计算，不使用滚动时间窗口：若某一天未达标，次日零点维护时将删除该条临时累计记录；若用户被检测出广告违规或被管理员手动拉黑，其临时累计记录将被立即清除。
 
 - **写入采用容量准入、写透（write-through）与精确版本号确认（revision ACK）**：
   - 身份策略变更时，主线程先核查未确认的条目数与载荷预算，随后更新本地 LRU 缓存、记录 revision 版本号并投递给 Disk I/O Worker。
@@ -162,13 +162,13 @@
 - **禁言时长与截止时间的严格校验**：
   - 使用 `/mute` 临时禁言时，时长必须严格留出安全余量，避免因时间临界点被 Telegram 误判为永久禁言；若请求在出站队列中排队等待过久导致实际截止时间已过，系统会自动放弃执行该次禁言，避免产生脏状态。
 
-- **群内非功能性提示的 30 秒自动删除**：
-  - 机器人在群内发送的非功能性提示（如命令参数错误、权限拒绝、用法说明与操作成功回执等），在发送成功 30 秒（`COMMAND_MESSAGE_AUTO_DELETE_MS`）后必须自动从群内删除，避免污染群聊天记录。
+- **群内非功能性提示的自动删除**：
+  - 机器人在群内发送的非功能性提示（如命令参数错误、权限拒绝、用法说明与操作成功回执等），在发送成功后按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 延迟自动从群内删除。
   - **长期保留的例外项**：用户明确授权的权限看板（`/permission query/help`）、问答看板（`/qa query`）、问答直接命中的答案、成功的中文动作命令结果（如 `/咬`）、`/h_image` 随机图片以及 AI 和翻译等会话性消息。
   - 状态机拥有的交互消息（如入群验证按钮卡片、`/qa set` 录入表单、`/wed` 结果卡片、口球管教公告等）不由固定定时器删除，而是由用户点击按钮、状态机流转或机器人退群时主动清理。
 
 - **论坛话题群（Topics）的消息落点规则**：
-  - **交互触发的消息**：用户命令或群友交互所触发的所有回复（无论是长期保留的消息还是 30 秒自删的回执），均自动发送到触发消息所在的具体话题线程（`message_thread_id`）。
+  - **交互触发的消息**：用户命令或群友交互所触发的所有回复（无论是长期保留的消息还是按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删的回执），均自动发送到触发消息所在的具体话题线程（`message_thread_id`）。
   - **主动广播的消息**：机器人主动发出的系统性公告（如防刷屏禁言播报、广告封禁提醒、防冲群私密模式公告等）以及 `cron.json` 定时任务，在开启了话题的群组中统一发送到通用（General）话题。
 
 - **开关命令状态反馈的一致性**：
@@ -440,7 +440,7 @@
     - 仅在 TTS 供应商调用成功后才正式记入 `agentCount`（`settleAiTtsReservation`）；若合成前取消或失败，释放预留额度；合成成功后的编码或网络发送失败不退回额度。
     - 每日配额由 `agent.tts.daily_limit` 减去 `daily_reserve_quota` 算出，与运维入口独立。
   - **音频编码管线**：
-    - WAV：取出单声道 PCM，按 `VOICE_OPUS_ENCODE_CHUNK_SECONDS` 分块交给 `@audio/encode-opus` 编码为 OGG/Opus，块间主动让出事件循环。编码器按 PCM 的原始采样率建立，由依赖跨块连续重采样到 48 kHz；各块产出的页由 `Bun.concatArrayBuffers` 拼成整段。
+    - WAV：取出单声道 PCM，按 `VOICE_OPUS_ENCODE_CHUNK_SECONDS` 分块交给 `@audio/encode-opus` 编码为 OGG/Opus，块间主动让出事件循环。编码器按 PCM 的原始采样率建立，由依赖跨块连续重采样到 `OPUS_GRANULE_RATE`；各块产出的页由 `Bun.concatArrayBuffers` 拼成整段。
     - OGG/Opus 与 MP3：校验容器结构完整性（Ogg 页结构与 OpusHead，或 MPEG Layer III 帧序列）并计算时长，校验通过后原样封装。
     - 响应体读取上限为 `VOICE_SPEECH_MAX_BYTES`。
 
@@ -499,7 +499,7 @@
 ### AI 提示词与转录
 
 - **机器人自我身份与发言人标识**：
-  - 在 AI 自录、转录名册、回复引用及对话摘要输入中，机器人自身的发言统一使用 `SELF_SPEAKER_NAME`（`自己（也就是你）`）标记，不展示 Telegram 上的 `first_name`、`last_name` 或 `username`。
+  - 在 AI 自录、转录名册、回复引用及对话摘要输入中，机器人自身的发言统一使用 `SELF_SPEAKER_NAME` 标记，不展示 Telegram 上的 `first_name`、`last_name` 或 `username`。
   - 回复提示词的只读参考记忆中，会附带一句包含当前部署 `@username` 的自我身份说明：主线程在每次启动时通过 `bot.init()` 的 `getMe` 获取自身账号信息，并在 `initAiChat` 中注入 AI Worker；Worker 重建时重放此启动快照，不随逐条消息重复查询。
   - 名册中机器人固定使用编号 `me`，其余群成员保留账号 ID 与姓名原貌，历史逐字快照在渲染时遵循相同规则。
 
@@ -659,7 +659,7 @@
 
 - **防刷屏禁言完全由 Anti-Raid Worker 独立计算并执行**：
   - 功能按群默认关闭，仅当 `ChatState.isFloodControlEnabled === true` 时才生效；持有 `isCanControllFloodControlPermission` 权限者可通过 `/flood_control enable|disable` 修改并持久化，关闭时清空该群现有窗口。
-  - 仅针对**超级群**生效：同一成员在 1 分钟内发言达到 `FLOOD_MESSAGE_LIMIT` 条，立即触发禁言 `FLOOD_MUTE_DURATION_MS`（`restrictChatMember` 在 Telegram 底层仅对超级群有效）。
+  - 仅针对**超级群**生效：同一成员在 `FLOOD_WINDOW_MS` 滑窗内发言达到 `FLOOD_MESSAGE_LIMIT` 条，立即触发禁言 `FLOOD_MUTE_DURATION_MS`（`restrictChatMember` 在 Telegram 底层仅对超级群有效）。
   - **主线程同步过滤**：在创建候选对象前，主线程依次核验群开关、超级群类型、真实用户身份以及防刷屏豁免权限（`isCanBypassFloodControl`）。频道马甲与匿名管理员无真实成员 ID，不计入统计；白名单默认持有豁免；超级管理员恒免检。通过门禁后以常规 `post` 投递给 Worker（不阻塞主线程 update 循环）。
   - 窗口状态存储在 Worker 的 `cache/workers/antiRaid/flood.ts` 中，条目上限为 `FLOOD_WINDOW_MAX_MEMBERS`，采用 LRU 淘汰与定期扫除。禁言解除依赖 Telegram 到期自动恢复，Worker 不维护恢复定时器，也不写持久化磁盘。
 
@@ -729,7 +729,7 @@
     - 超时、主动 `/ungag` 或群 runtime teardown 触发清理时，必须先同步认领 `ending` 状态并注销定时器，再依次调用 Telegram 删除 API。
     - 仅当所有关联消息的删除结果确证为 `deleted` 或 `gone`，且所需的解除回执消息完成结算后，方可按身份释放槽位。
     - 若删除遇到 `failed` 或 `forbidden`，继续保留 `ending` 归属，执行有限次数的 `unref` 退避重试；重试耗尽后挂起，等待后续 `/ungag`、teardown 或停机时再次清理。旧会话清理未完前，严禁同目标新会话穿插插入或误删新消息，未决债务受 `GAG_SESSION_MAX` 约束。
-    - 启动阶段状态由 gag 会话直接持有，不进入常规命令提示的 30 秒自毁队列；解除回执则走统一命令删除边界。停机时 gag owner 必须在 Telegram 闸门前完成排空（quiesce/drain），未清理完毕将阻止最终 offset 确认与实例锁释放。
+    - 启动阶段状态由 gag 会话直接持有，不进入常规命令提示的 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁队列；解除回执则走统一命令删除边界。停机时 gag owner 必须在 Telegram 闸门前完成排空（quiesce/drain），未清理完毕将阻止最终 offset 确认与实例锁释放。
   - **发言提示入口的刷新机制**：
     - 刷新由当前会话 owner 统一调度：`commands/gag/counter.ts` 统计群消息数量，达到 `GAG_SPEAK_NOTICE_MESSAGE_INTERVAL` 阈值时触发。若未达阈值或已有刷新任务（`speakNoticeRefreshTask`）在途，不生成待刷新任务。
     - `commands/gag/refresh.ts` 为就绪会话认领任务并登记至 `gagBackgroundTasks`，各会话独立启动，出站并发由 Telegram 统一边界兜底。群消息积压、跨话题移动或定时补发均复用已有任务，最多并发 `GAG_SESSION_MAX` 个刷新任务。
@@ -792,7 +792,7 @@
   - 候选人信源完全取自 `memory/wed` 的成员滑窗。抽中后仅通过 `readCurrentAvatar` 获取头像（复用 `getChat` 私聊资料），无需机器人具备管理员权限。
   - 若 `getChat` 返回 400 `Bad Request: chat not found`，判定该 ID 彻底失效，从所有受管群的奖池中剔除。
   - 抽取执行器复用 `createPrioritizedBoundedTaskRunner`，共享全局 `WED_MAX_CONCURRENT` 执行槽与 `WED_MAX_PENDING` FIFO 等待队列。
-  - **结果发送与替换**：`commands/wed/messages.ts` 的 `sendWedResult` 为唯一发图边界，结果长期保留，不挂 30 秒延迟自毁。发起人重抽时，仅在新结果成功发出后才删除旧图；若发送失败，保留旧图与会话状态。机器人已离群（`departed`）时，重抽中的会话收尾时不为新旧结果发删除请求。
+  - **结果发送与替换**：`commands/wed/messages.ts` 的 `sendWedResult` 为唯一发图边界，结果长期保留，不挂 `COMMAND_MESSAGE_AUTO_DELETE_MS` 延迟自毁。发起人重抽时，仅在新结果成功发出后才删除旧图；若发送失败，保留旧图与会话状态。机器人已离群（`departed`）时，重抽中的会话收尾时不为新旧结果发删除请求。
 
 ### `/info` 资料查询
 
@@ -803,13 +803,13 @@
   - 用户目标优先调用 `readChatMemberUser` 获取本群成员身份；频道/群组调用 `getChat`；机器人自身使用 `ctx.me`；均查不到时退回缓存。
   - 用户名使用 `sanitizeDisplayName` 清洗双向控制字符，ID 使用 `code` 实体展示。头像复用 `readCurrentAvatar`（群组不获取头像）。
 - **回执发送规则**：
-  - 带头像回执经 `infra/telegram/commandPhotos.ts` 的 `sendCommandPhoto` 发送，群聊中挂载 30 秒自毁，私聊不删除。若带图发送失败，自动降级为 `sendCommandMessage` 纯文本回执。
+  - 带头像回执经 `infra/telegram/commandPhotos.ts` 的 `sendCommandPhoto` 发送，群聊中挂载 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁，私聊不删除。若带图发送失败，自动降级为 `sendCommandMessage` 纯文本回执。
 
 ### `/h_image` 随机图片
 
 - **图库目录校验与热重载**：
-  - 图库路径来自 `config/dynamic/assets.json` 的 `onlyPath.random_h_image_dir`（默认 `./h_image`）。
-  - 启动阶段在外部连接建立前通过 `infra/randomImage.ts` 的 `ensureRandomImageDirectory` 检查目录有效性：必须存在且可读写；子目录、软链接文件、隐藏文件或未按 64 位小写 SHA-256 命名的文件均直接拒绝启动。
+  - 图库路径来自 `config/dynamic/assets.json` 的 `onlyPath.random_h_image_dir`（缺省 `RANDOM_H_IMAGE_DIR`）。
+  - 启动阶段在外部连接建立前通过 `infra/randomImage.ts` 的 `ensureRandomImageDirectory` 检查目录有效性：必须存在且可读写；子目录、软链接文件、隐藏文件或未匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN` 命名的文件均直接拒绝启动。
   - 热重载更改目录时执行相同严格检查；若新目录不合规，则拒绝变更并保持原目录运行。运行期间若目录被删，不自动重建。
 - **抽图算法（`pickRandomImage`）**：
   - 每次重新枚举目录（不常驻文件列表），仅筛选合法扩展名且小于等于 `RANDOM_IMAGE_MAX_BYTES` 的普通文件进行均匀随机抽取。
@@ -821,7 +821,7 @@
     - 收图（add）、`/batch_kick` 与 `/block` 扇出进入 `background` 优先级。
     - 队列满载时直接返回忙碌提示，停机时在 Telegram 总闸前排空。
 - **发图边界与相册收录（add）**：
-  - `commands/hImage/draw.ts` 的 `sendHImageResult` 是发图唯一边界。结果图片属于长期保留例外，不挂 30 秒自毁，论坛群中附带话题并回复触发消息；各类提示信息则挂 30 秒自毁。
+  - `commands/hImage/draw.ts` 的 `sendHImageResult` 是发图唯一边界。结果图片属于长期保留例外，不挂固定延迟自毁，论坛群中附带话题并回复触发消息；各类提示信息则挂 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁。
   - `/h_image add` 要求具备 `isCanAddHImage` 权限。候选图片来自回复消息以及主线程相册缓存（`mediaGroups.ts`）中相同 `media_group_id` 的图片。
   - 下载在 `H_IMAGE_ADD_TASK_BUDGET_MS` 预算内按 `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` 分页并发抓取。下载后计算 SHA-256 并使用 UUIDv7 临时文件写入，再通过原子 rename 落盘。若已存在相同哈希文件则跳过，实现全局内容去重。
 
@@ -843,7 +843,7 @@
     - `send_message`：`content` 去除首尾空白后非空，不超过 `TELEGRAM_MESSAGE_MAX_CHARS`。
     - `send_image` 与 `send_file`：`content`（图注）选填，不超过 `TELEGRAM_CAPTION_MAX_CHARS`。`send_file` 的来源恰好二选一：`url`（绝对 HTTP(S) 地址）或 `path`。固定图片要求 1 至 `CRON_MAX_IMAGES` 项；单张调用 `sendPhoto`，多张调用 `sendMediaGroup`（仅首项附带 caption）。随机图片模式限制单张。
     - `send_voice`：`content` 必填，`tone` 选填；去首尾空白后分别不超过 `VOICE_OPERATOR_TEXT_MAX_CHARS` 与 `VOICE_TONE_MAX_CHARS`，清洗为单行且非空。
-    - `send_web_digest`：`topic` 必填，单行且不超过 `WEB_DIGEST_TOPIC_MAX_CHARS`；`language` 选填（`zh` / `ja` / `en`，默认 `zh`）；`max_items` 选填整数（范围 `WEB_DIGEST_MIN_ITEMS`–`WEB_DIGEST_MAX_ITEMS`，默认 `WEB_DIGEST_DEFAULT_MAX_ITEMS`）；`instructions` 选填，不超过 `WEB_DIGEST_INSTRUCTIONS_MAX_CHARS`。
+    - `send_web_digest`：`topic` 必填，单行且不超过 `WEB_DIGEST_TOPIC_MAX_CHARS`；`language` 选填（`WEB_DIGEST_LANGUAGES`，缺省 `WEB_DIGEST_DEFAULT_LANGUAGE`）；`max_items` 选填整数（范围 `WEB_DIGEST_MIN_ITEMS`–`WEB_DIGEST_MAX_ITEMS`，缺省 `WEB_DIGEST_DEFAULT_MAX_ITEMS`）；`instructions` 选填，不超过 `WEB_DIGEST_INSTRUCTIONS_MAX_CHARS`。
   - **依赖契约与群列表**：
     - 任务使用 `send_voice` 时必须在配置中启用 `agent.tts`；使用 `send_web_digest` 时必须启用核心对话能力。`assertCronAgentSupported` 在启动总闸与热重载中严格核验。
     - `chat_id` 必须为非空数组：仅允许单元素 `["all"]`（`CRON_ALL_CHATS`）、首项为排除标记的 `["except", <id>, ...]`（`CRON_EXCEPT_CHATS`），或显式列出的正负安全整数 ID 列表（去重且至多 `CRON_MAX_CHAT_IDS_PER_TASK` 个）。禁止标量写法。
@@ -864,7 +864,7 @@
     - `packages/cron/targets.ts` 遍历主线程 `chat_states` 中所有开启了 `/init` 且未被排除的群，按 chat ID 升序通过 `getChatMember` 与 `getChat` 现查机器人发送对应媒体的权限（`can_send_messages`、`can_send_photos`、`can_send_documents`、`can_send_voice_notes`）。权限不足或查询失败的群整群跳过，并在轮末记录日志。
   - **消息发送边界与留存**：
     - `delivery.ts` 为唯一发送边界，走主线程出站调度器，不附带论坛话题（落入 General 话题），成功后登记自发消息。
-    - 定时任务消息属于用户授权的长期保留例外，不挂 30 秒自毁定时器。
+    - 定时任务消息属于用户授权的长期保留例外，不挂 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁定时器。
     - 本地文件上传前核对大小上限（`TELEGRAM_PHOTO_UPLOAD_MAX_BYTES`、`TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES`），流读取每次序列化重新打开，确保 429 重试时不复用已耗尽的流。
 - **AI 摘要生成（`send_web_digest`）**：
   - 由 AI Worker 内的 `aiChat/ai/webDigest.ts` 执行。检索优先使用 `agent.web_search` 模型，未配置时退回 `text` 模型内建检索。
@@ -1041,7 +1041,7 @@
   - 模型上下文事实声明：主线程同步获取用户是否处于入群待验证状态，作为事实独立声明并附加于固定位置，不混入待判定正文。
 - **处置执行与通知**：
   - 判定为广告后，Worker 侧删除该用户待删消息列表并回传 `adDetected`；主线程在临界区内执行 `blockUser`、刷新黑名单落盘，并生成持久化封禁批次投回 Worker 执行全群封禁。
-  - 主线程通过 `sendTemporaryMessageOnMain` 发布处理播报，挂载 30 秒自毁定时器，播报内容如实反馈成功封禁的群数与权限缺失情况。
+  - 主线程通过 `sendTemporaryMessageOnMain` 发布处理播报，挂载 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁定时器，播报内容如实反馈成功封禁的群数与权限缺失情况。
   - 停机时广告检测仅停止接入新请求，在途模型调用自行超时收尾，不阻塞快速停机。命中样本以追加方式写入 `memory/ad-detected/sample.json`，按配置时区日期自动归档轮转。
 
 #### 封禁与消息撤回
@@ -1096,7 +1096,7 @@
 - **Telegram Update 确认边界**：
   - Update 仅在对应中间件执行完毕、所有副作用结算后，方可推进确认边界（offset）。
   - 若停机期间正在处理的 update 遭遇失败或被强行放弃，runner 立即写入显式失败标记；生命周期在停机收尾阶段核验该标记，若存在未决失败则**拒绝向 Telegram 确认最终 offset** 并以非零码退出，确保 Telegram 重启后重新投递该消息。
-  - runner 轮询严格使用 `limit: 1`，保证每条消息在独立的确认边界内落定，杜绝批次内非幂等操作重复执行。
+  - runner 轮询严格使用 `UPDATE_POLL_LIMIT`（单次单条），保证每条消息在独立的确认边界内落定，杜绝批次内非幂等操作重复执行。
 - **长轮询与网络退避机制**（`app/updateFetcher.ts`）：
   - 长轮询超时为 `UPDATE_POLL_TIMEOUT_SECONDS`，重试窗口 `UPDATE_POLL_RETRY_WINDOW_MS`。
   - 取数失败时，在 `UPDATE_POLL_INITIAL_RETRY_MS` 至 `UPDATE_POLL_MAX_RETRY_MS` 之间执行指数退避；遇到带 `retry_after` 的 429 时先等满 `retry_after`，再照常执行本次指数退避，两段等待共用重试窗口，任一段达到剩余窗口即抛出最后错误；遭遇 401/409 等凭据冲突时直接抛出致命错误退出。

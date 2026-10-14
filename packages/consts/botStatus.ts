@@ -37,13 +37,13 @@ export const BOT_STATUS_BYTES_PER_GIB: number =
  *
  * `/bot_status` 的上下文容量是两段记忆各自占用率的加权和：滑动热记忆按
  * VERBATIM_CONTEXT_MAX 算占用率，冷记忆摘要按 MAX_SUMMARY_ROUNDS 算（两个上限
- * 都在 consts/aiChat/memory.ts）。**本值与 BOT_STATUS_COLD_MEMORY_WEIGHT 之和
- * 恒为 1**。所属模块：packages/commands/botStatus.ts。
+ * 都在 consts/aiChat/memory.ts），与 BOT_STATUS_COLD_MEMORY_WEIGHT 互补归一化。
+ * 所属模块：packages/commands/botStatus.ts。
  */
 export const BOT_STATUS_HOT_MEMORY_WEIGHT: number = 0.7;
 
 /**
- * 本群上下文容量里冷记忆摘要占的比重；与 BOT_STATUS_HOT_MEMORY_WEIGHT 之和恒为 1。
+ * 本群上下文容量里冷记忆摘要占的比重，与 BOT_STATUS_HOT_MEMORY_WEIGHT 互补归一化。
  * 所属模块：packages/commands/botStatus.ts。
  */
 export const BOT_STATUS_COLD_MEMORY_WEIGHT: number = 0.3;

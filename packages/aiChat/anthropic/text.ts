@@ -1,9 +1,5 @@
 /**
- * Anthropic 侧的纯文本生成、结构化 JSON 生成与视觉描述，共用 client.ts 的
- * requestAnthropicTextResult，差别只在请求体。语音转写不实现：
- * 契约里的 transcribeVoice 在本包缺席（见 aiChat/provider.ts 的启动诊断）。
- *
- * 清洗与截断由调用方通过 normalize 传入，口径同 aiChat/openai/text.ts。请求不带采样温度。
+ * Anthropic 侧的纯文本生成、结构化 JSON 生成与视觉描述。
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -22,7 +18,7 @@ import type {
   AiVisionRequest,
 } from "../../types/aiChat/provider";
 
-/** 中性总结档位的一次文本生成（冷消息压缩、贴纸整包简介）。 */
+/** 使用 `summary` 能力生成摘要文本。 */
 export function generateAnthropicText(request: AiTextRequest): Promise<AiTextResult> {
   return requestAnthropicTextResult({
     capability: "summary",
@@ -40,10 +36,7 @@ export function generateAnthropicText(request: AiTextRequest): Promise<AiTextRes
   });
 }
 
-/**
- * text 能力的一次结构化 JSON 生成：不挂工具，按 `output_config.format`（json_schema）约束输出；
- * 解码与校验仍由调用方负责。
- */
+/** 使用 `text` 能力按给定 JSON Schema 生成结构化 JSON 文本。 */
 export function generateAnthropicJson(request: AiJsonRequest): Promise<AiTextResult> {
   return requestAnthropicTextResult({
     capability: "text",
@@ -60,7 +53,7 @@ export function generateAnthropicJson(request: AiJsonRequest): Promise<AiTextRes
   });
 }
 
-/** 一次视觉描述：图片以 base64 内联（字节已由 aiChat/ai/telegramImage.ts 转码成 jpg/png）。 */
+/** 使用 `media` 能力对内联 base64 图片生成视觉描述。 */
 export function describeAnthropicVision(request: AiVisionRequest): Promise<AiTextResult> {
   return requestAnthropicTextResult({
     capability: "media",

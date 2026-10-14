@@ -1,44 +1,29 @@
-/** owner: main。主线程 command/gag 的运行时状态；Worker 不得 import。 */
+/** owner: main。`/gag` 会话运行时状态（packages/commands/gag/）。 */
 
 import type { GagSession } from "../../types/gag";
 
 /**
- * 主线程权威 gag 表：chatId 定位目标列表，同群可同时管教多个身份，
- * 同群同 targetId 至多一条。`/gag` 在发开始提示前以 starting 预约，
- * 公开状态与目标入口全部成功后切 active 并安装 unref timer；每条入口各自按
- * 群消息数滚动换新，用户专属入口另有每会话一个 unref timer 定时补发；换新在途、
- * 结束与停机时撤销，结算后仅为未到期会话重设。目标消息另更新沉默起点，
- * 用户久未发言后再次发言沿同一任务补发并重设 timer。发言入口提示的 current/pending/retired
- * 固定 id 槽位承载换新与结束的交接，不随失败次数增长。
- * 超时、`/ungag` 或群 teardown 同步认领为 ending，
- * 只有全部提示确实 deleted/gone 后才按对象身份删除；瞬时失败
- * 保留有界重试与 owner。全局容量上限为 GAG_SESSION_MAX，不淘汰有效会话。
- * 不落盘，Worker 重建不影响此主线程权威表；正常进程停机由 gag drain 在
- * Telegram 总闸关闭前清理，进程终止时内存状态丢失。
+ * 群 ID 到活跃 gag 会话列表的映射（同群同 targetId 唯一）：
+ * - `/gag` 发起时以 starting 阶段写入，提示消息发送成功后切为 active 并启动到期与入口定时换新定时器；
+ * - 到期、`/ungag`、群 teardown 或停机排空时切为 ending，待公开提示与发言入口提示全部删除后移除条目。
+ * 全局容量上限为 GAG_SESSION_MAX，满额拒绝新会话且不淘汰现有会话；进程重启后从空表开始。
  */
 export const gagSessionsByChat: Map<number, GagSession[]> = new Map();
 
-/**
- * gag owner 是否接受新预约。应用初始化时置真，停机先置假；已有会话仍由 drain
- * 清理。容量恒为一个布尔值，进程重启后由应用生命周期重新初始化。
- */
+/** gag 新会话准入开关：启动时为 true，停机 quiesce 时置为 false；单例布尔值，进程重启后恢复为 true。 */
 export const gagRuntimeAccepting: { current: boolean } = { current: true };
 
-/**
- * timeout/清理重试/入口换新派生的后台任务。任务结算后立即自删；每条会话最多
- * 一个 ending task 与一个入口换新请求，全局受 GAG_SESSION_MAX 间接约束，停机
- * 先撤销定时换新再 drain 当前快照；Worker 重建不影响此主线程集合。
- */
+/** gag 到期清理、删除重试与入口换新的在途后台任务集合：任务发起时登记，结算时自摘除；容量与 GAG_SESSION_MAX 同阶，进程重启后从空集开始。 */
 export const gagBackgroundTasks: Set<Promise<void>> = new Set();
 
-/** 统计 starting、active 与 ending 的全部占位；用于原子预约全局容量。 */
+/** 统计全部群的 gag 会话总数（含 starting、active 与 ending）。 */
 export function gagSessionCount(): number {
   let count: number = 0;
   for (const sessions of gagSessionsByChat.values()) count += sessions.length;
   return count;
 }
 
-/** 统计真正正在拦截消息的 active 目标；用于 `/bot_status` 展示。 */
+/** 统计全部群处于 active 阶段的 gag 会话总数。 */
 export function activeGagSessionCount(): number {
   let count: number = 0;
   for (const sessions of gagSessionsByChat.values()) {

@@ -72,7 +72,7 @@ export const TTS_DEFAULT_DAILY_RESERVE_QUOTA: number = 25;
  */
 export const TTS_USAGE_WINDOW_MS: number = DAY_MS;
 
-/** 语音工具单轮最多接纳一条语音；接纳时同时预占一个共享可见动作。 */
+/** 语音工具单轮最多接纳的语音条数；接纳时同时预占共享可见动作额度。 */
 export const MAX_VOICES_PER_REPLY: number = 1;
 
 /**
@@ -123,22 +123,21 @@ export const VOICE_SPEECH_MAX_BYTES: number = 8 * 1_024 * 1_024;
 export const VOICE_SPEECH_MAX_ENCODED_CHARS: number = Math.ceil(VOICE_SPEECH_MAX_BYTES / 3) * 4;
 
 /**
- * OGG/Opus 语音的上传文件名：发到 Telegram 的语音（本地编码结果与 OpenAI `opus` 响应），以及
- * 交给 OpenAI 兼容转写接口的群语音（aiChat/openai/text.ts）。sendVoice 显示为语音气泡只接受
- * OGG/Opus、MP3 与 M4A，扩展名与容器一致。
+ * OGG/Opus 语音的上传文件名：发到 Telegram 的语音（本地编码结果与 OpenAI 响应），以及
+ * 交给 OpenAI 兼容转写接口的群语音（aiChat/openai/text.ts）。
  */
 export const VOICE_OGG_FILE_NAME: string = "voice.ogg";
 
-/** MP3 语音上传到 Telegram 的文件名（xAI `mp3` 响应）。 */
+/** MP3 语音上传到 Telegram 的文件名（xAI 响应）。 */
 export const VOICE_MP3_FILE_NAME: string = "voice.mp3";
 
 /** Opus 编码目标码率（kbps），用于供应商合成的单声道人声。 */
 export const VOICE_OPUS_BITRATE_KBPS: number = 48;
 
-/** Opus 编码器的计算档位（0～10），档位越高单次编码占用 AI Worker 线程越久。 */
+/** Opus 编码器的计算复杂度档位。 */
 export const VOICE_OPUS_COMPLEXITY: number = 5;
 
-/** Opus 编码的应用档位；`audio` 以保真为先，不加 `voip` 档的语音高通处理。 */
+/** Opus 编码的应用模式档位。 */
 export const VOICE_OPUS_APPLICATION: "voip" | "audio" | "lowdelay" = "audio";
 
 /**

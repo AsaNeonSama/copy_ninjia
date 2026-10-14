@@ -30,7 +30,7 @@
 | `bun run perf:hot-path-gate` | **ホットパス性能ゲート** | 厳選ホットパスシナリオのメモリ / GC / JIT ハードゲート（`check` に組み込み済み） |
 | `bun run perf:join-log` | 入室ログ性能ベンチマーク | 入室ログの容量境界 / スナップショット / 追記記帳の独立プロセスベンチマーク |
 | `bun run perf:identity-database` | ID データベースベンチマーク | データベースのコールド / ホット読み書き、メインスレッド LRU キャッシュ、ライトスルー経路のベンチマーク |
-| `bun run perf:full` | 全量性能ベンチマークスイート | 全セクションを規定ラウンド数で独立子プロセス実行（`--write-doc` で各言語の 10 ドキュメントと `performance-result.json` を更新） |
+| `bun run perf:full` | 全量性能ベンチマークスイート | 全セクションを `FULL_SUITE_ROUNDS` ラウンドの独立子プロセスで実行（`--write-doc` で各言語の 10 ドキュメントと `performance-result.json` を更新） |
 | `bun run perf:review` | 専門性能再検証 | ホットパス、AI 返信 / ペイロード / 音声エンコード、完全コマンドチェーン、Disk I/O 負荷を網羅 |
 | `bun run build -- --version <tag>` | バイナリパッケージ構築 | プレフィックスなしのバージョン指定が必須。現在のプラットフォーム向け `dist/` 配布物と SHA-256 を生成 |
 | `bun run release:check -- --version <tag>` | リリース前全量自検 | frozen lockfile + check + カバレッジ突合 + 障害注入 + バイナリビルド検証 |
@@ -48,7 +48,7 @@
 - **全ソースコードを分母とするカバレッジ計測**：`test/productionModules.test.ts` が `index.ts` および `packages/types/` を除く `packages/` 配下の全ランタイムモジュールをロードします。どのテストからも実行されなかったモジュールは 0% として分母に算入されます。関数・行カバレッジはともに `bunfig.toml` の `coverageThreshold` を満たす必要があります。テストを伴わない新規モジュールの追加は、全体カバレッジを直接低下させます。
 - **ESLint + 完全 strict な型検査**：`tsconfig.json` で `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals`、`noUnusedParameters` を有効化しています。本番コードでは `any` の使用を禁止し（テストコードのみ例外）、`Promise.all` は `no-restricted-syntax` で禁止されているため、安全な `Promise.allSettled` による有界並行処理を用います。
 - **型 import の明示的分離**：本番コード・スクリプト・テストのすべてで独立した `import type` を使用します。ESLint の `no-restricted-syntax` が `import { value, type Shape }` のようなインライン型指定を禁止しています。
-- **明示的な型注釈の強制**：本番コード（`index.ts`、`packages/`、`scripts/`）の変数・引数・分割代入は `@typescript-eslint/typedef`、関数・コールバックの戻り値型は `@typescript-eslint/explicit-function-return-type` で強制され、文脈からの暗黙推論は認められません。`for...of` / `for...in` のループ変数は TypeScript の構文上型注釈を記述できないためルール側で自動除外されます。また、初期化子が完全注釈付きアロー関数である const も除外されます。テストコードはこの制限を受けません。
+- **明示的な型注釈の強制**：本番コード（`index.ts`、`packages/`、`scripts/`）の変数・引数・分割代入は `@typescript-eslint/typedef`、関数・コールバックの戻り値型は `@typescript-eslint/explicit-function-return-type` で強制され、文脈からの暗黙推論は認められません。`for...of` / `for...in` のループ変数および初期化子が完全注釈付きアロー関数である `const` は除外されます。テストコードはこの制限を受けません。
 - **規約自己検査（`check:conventions`）**：
   - **構造とリンク**：ファイル行数上限、コード配置ルール、Markdown のローカルリンクおよび同一文書内アンカー、ドキュメント内のファイル参照記述の存在性、実行権限、ワンショットインストーラーのモジュール一覧とステップ番号の整合性を検査。
   - **境界とスレッド分離**：定数およびキャッシュのスレッド所有権（`packages/cache/<owner>/` の単一所有権境界）を照合し、モジュール依存グラフに基づいて Worker と Telegram クライアントの隔離を検証。環境変数の読み込みは `consts/paths.ts` と `consts/environment.ts` にのみ限定し、`consts/` は実行時に `consts` 以外へ依存せず（他の `packages/` モジュールは `import type` のみ）、`states/` は直接・間接の実行時依存を `consts`、`libs`、`types`、`states` に限り（間接依存は実際の import グラフで追跡し、`config/time.ts` のタイムゾーンスナップショットのみ `STATES_CLOSURE_OPAQUE_MODULES` に登録した例外）、`infra/` は上位の業務層に逆依存せず、ベンチマーク親プロセスは純粋定数と型のみを import します。
@@ -56,16 +56,16 @@
   - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。`packages/` では `Object.freeze` を禁止し、`.keys().next()`、`.values().next()`、`.entries().next()` で最古の項目を取ることも禁止します。有界 FIFO / LRU の最古の項目は必ず `libs/fifoMap.ts` の `FifoMap`（またはそれを継承する `LruCache`）から取得します。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
   - **整合性突合**：Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。
   - **テストアサーション規約**：テストコード内で大文字定数や数値リテラルを直接ハードコードして比較することを禁止します。matcher の引数に `packages/consts` の文字列定数（長さ `STRING_CONSTANT_MIN_LENGTH` 以上）と同一のリテラルを書くこと、および漢字・仮名を `CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上含む文言の断片を書き写すことも禁止されます（期待値は定数そのもの、または template 定数から描画された固定部分を使用。`test/helpers/templateText.ts` 参照）。プロンプトの文言を検証する契約テストは `scripts/conventions/testAssertionFragments.ts` の `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` に登録する必要があります。
-  - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません。`mockClear()` はキュー済みの Once を消さないためです。ゲートは TypeScript checker でモックを宣言シンボルまで解決して判定します（`scripts/conventions/testMockReset.ts`）。テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
+  - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません。ゲートは TypeScript checker でモックを宣言シンボルまで解決して判定します（`scripts/conventions/testMockReset.ts`）。テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
 
 ---
 
 ### 依存関係のリリース待機期間
 
-依存関係のインストールでは、`bunfig.toml` で規定された 7 日間のリリース待機期間（`minimumReleaseAge = 604_800`）を厳格に適用します：
-- 待機期間を満たしていない緊急セキュリティ修正を取り込む場合、該当するパッケージ名 1 件のみを `install.minimumReleaseAgeExcludes` に一時追加し、インストール完了後ただちに削除します。`--minimum-release-age` オプションによる全体緩和は禁止されています。除外対象のバージョンは少なくとも 2 つの独立したセキュリティ情報源と照合し、npm registry の `integrity` ハッシュやインストールスクリプト、バックドアの不在を確認した上で、パッケージ名、理由（CVE 番号等）、削除日時を記録します。
+依存関係のインストールでは、`bunfig.toml` の `install.minimumReleaseAge` で規定されたリリース待機期間を厳格に適用します：
+- `install.minimumReleaseAge` を満たしていない緊急セキュリティ修正を取り込む場合、該当するパッケージ名のみを `install.minimumReleaseAgeExcludes` に一時追加し、インストール完了後ただちに削除します。`--minimum-release-age` オプションによる全体緩和は禁止されています。除外対象のバージョンは複数の独立したセキュリティ情報源と照合し、npm registry の `integrity` ハッシュやインストールスクリプト、バックドアの不在を確認した上で、パッケージ名、理由（CVE 番号等）、削除日時を記録します。
 - 使用する Bun ランタイムと `@types/bun` は、`package.json` に宣言されたバージョンに固定されています。`packageManager` と `install.sh` がランタイムバージョンを共同でロックします。
-- `bun run typecheck` は Bun 内蔵の型検査器を `bun --check` で呼び出します。`bun check` はリポジトリの `check` スクリプトを実行します。また、ESLint および規約検査ツールに TypeScript 6 のコンパイラ API を提供するため、`npm:@typescript/typescript6@^6.0.2` が `@typescript/old` 経由で利用されます。
+- `bun run typecheck` は Bun 内蔵の型検査器を `bun --check` で呼び出します。`bun check` はリポジトリの `check` スクリプトを実行します。ESLint および規約検査ツールは `package.json` で `@typescript/typescript6` にエイリアスされた `typescript` を通じて TypeScript コンパイラ API を利用します。
 
 ---
 
@@ -117,11 +117,11 @@
 
 ## ホットパスゲート
 
-`bun run perf:hot-path-gate` は `bun run check` に組み込まれたハードゲートです。`packages/consts/performance.ts` の `HOT_PATH_PROFILE_SCENARIOS` に基づき、シナリオごとに `HOT_PATH_PROFILE_REPEATS` 回ずつ 2 つの独立した子プロセスを起動して測定します：
-- `steadyProfile`：`BUN_JSC_logGC=1` の下で定常ループを実行し、GC 停止時間の比率および JIT コンパイル階層を測定。
+`bun run perf:hot-path-gate` は `bun run check` に組み込まれたハードゲートです。`packages/consts/performance.ts` の `HOT_PATH_PROFILE_SCENARIOS` に基づき、シナリオごとに `steadyProfile` と `retained` の独立した子プロセスを `HOT_PATH_PROFILE_REPEATS` 回ずつ起動して測定します：
+- `steadyProfile`：`JSC_GC_LOG_ENV=1`（`BUN_JSC_logGC=1`）の下で定常ループを実行し、GC 停止時間の比率および JIT コンパイル階層を測定。
 - `retained`：プロファイラーによる干渉を排除した状態で、実際の RSS ピーク、heapUsed ピーク、および full-GC 後のメモリ残存量を測定。
 
-ゲートの子プロセスと、フルスイート・`perf:review`・`perf:disk-transport`・`perf:identity-database`・`perf:join-log` の子プロセスは、いずれも `scripts/perf/childEnvironment.ts` の `perfChildEnvironment` から環境を取得します。親プロセスの環境を継承して分離ルートなどの変数を重ね、`BUN_INSPECTOR_ENVS` に列挙された Bun デバッガー接続用の変数（VS Code のターミナルが注入する `BUN_INSPECT_CONNECT_TO` など）を取り除くため、子プロセスの JSC ヒープはメインスレッドの 1 つだけになります。GC ログの `starting` ハンドシェイクはちょうど 1 行でなければならず、複数のヒープが現れた場合は GC の読み取り値を出しません。
+ゲートの子プロセスと、フルスイート・`perf:review`・`perf:disk-transport`・`perf:identity-database`・`perf:join-log` の子プロセスは、いずれも `scripts/perf/childEnvironment.ts` の `perfChildEnvironment` から環境を取得します。親プロセスの環境を継承して分離ルートなどの変数を重ね、`BUN_INSPECTOR_ENVS` に列挙された Bun デバッガー接続用の変数（VS Code のターミナルが注入する `BUN_INSPECT_CONNECT_TO` など）を取り除くため、子プロセスの JSC ヒープはメインスレッドのみになります。GC ログの `starting` ハンドシェイクは単一行でなければならず、複数のヒープが現れた場合は GC の読み取り値を出しません。
 
 ### ゲート指標と段階区分
 

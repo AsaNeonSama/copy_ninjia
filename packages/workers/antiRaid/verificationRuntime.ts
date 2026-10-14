@@ -369,15 +369,7 @@ function deleteChatDeferredVerifications(chatId: number, prefix: string): void {
 }
 
 /**
- * `/antiraid disable`：把这个群每一条验证记录**经状态机**收摊。
- *
- * 与 deactivateVerificationChat 的区别在于**走状态机**：那条是停管/退群的紧急拆除，
- * 直接删内存条目再补 tombstone；这条把每条记录都喂给 dispatchVerification 走一次
- * guardDisabled 转移，由状态机决定哪些事不再发生（见 states/verification/disable.ts：
- * 一律回 ABSENT；仍在群里的带按钮提醒会删除，但不再提醒、不踢人）。
- * 已落盘记录（pending 与各终态）的 tombstone 由 dispatchVerification 统一发布。
- *
- * 先删 thread comment 确认 owner，再逐条转移。
+ * 关闭入群守卫（`/antiraid disable`）：清理本群频道评论确认 owner，将每条验证记录经 `guardDisabled` 状态机转移收尾，并将延后记录转为删除墓碑。
  */
 export function disableJoinGuardChat(chatId: number): void {
   const prefix: string = verificationKeyPrefix(chatId);

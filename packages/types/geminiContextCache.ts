@@ -52,7 +52,7 @@ export interface GeminiContextCacheRegistry {
   /**
    * 槽键 → 创建被端点以 400 拒绝的内容指纹、累计次数与时刻；未满
    * GEMINI_CONTEXT_CACHE_MAX_REJECTIONS 次时按 GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS 冷却
-   * 后再试，满额后同一内容不再创建，被拒内容变了从 1 重新计。同一槽键之后创建成功、或该槽
+   * 后再试，满额后同一内容不再创建，被拒内容变化时重新计数。同一槽键之后创建成功、或该槽
    * 已有的旧缓存被淘汰时删除；登记表在 `config.text` / `agent.ad_detect` 变化时整表替换。
    * 容量为本表存续期间被拒的不同槽键数（每个槽键只记最近被拒的内容）；被拒的槽键不占
    * slots，不按 maxSlots 截断。

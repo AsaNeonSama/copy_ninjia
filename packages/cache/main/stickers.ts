@@ -1,9 +1,10 @@
-/** owner: main。贴纸目录落盘回执与重建重放的进程内状态。 */
+/** owner: main。贴纸目录落盘未确认 revision 与发号器状态（packages/infra/stickerCatalog.ts）。 */
 
-/** 每个未确认包的最新编号；发布时覆盖，匹配 durable 回执时删除。
- * 容量为当前配置包及仍待落盘的历史包；Disk I/O 重建时与目录镜像一同重放。
- * 缺失表示没有待确认写入，已退出配置的镜像可以释放。 */
+/**
+ * 贴纸包名到未确认落盘最新 revision 的映射：发布贴纸目录写入时覆盖，收到匹配 revision 的 durable 回执时删除；Disk I/O Worker 重建时与贴纸目录镜像一同重放（缺失表示无待确认写入，已移出配置的包镜像可释放）。
+ * 容量与当前配置贴纸包及待确认历史包数同阶，不淘汰未确认条目；进程重启后从空表开始。
+ */
 export const pendingStickerCatalogRevisions: Map<string, number> = new Map();
 
-/** 全进程递增编号，重加同包时不复用旧回执；进程退出释放，Worker 重建不重置。 */
+/** 贴纸目录写入的单调递增 revision 发号器：每次发布自增，Worker 重建不重置，进程重启后从零开始；单例标量。 */
 export const stickerCatalogRevisionCounter: { current: number } = { current: 0 };

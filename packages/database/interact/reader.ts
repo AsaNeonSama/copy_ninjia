@@ -7,19 +7,12 @@ import type { SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { StorageDatabase, StorageDatabaseReader } from "../../types/storageDatabase";
 
-/** 主键落在 `ids` 占位（JSON 数组文本）展开出的集合里。 */
+/** 生成列值属于 `ids` JSON 数组占位符展开集合的 SQL 条件。 */
 function idInPlaceholderList(column: SQLiteColumn): SQL {
   return sql`${column} IN (SELECT value FROM json_each(${sql.placeholder("ids")}))`;
 }
 
-/**
- * 为一条连接建预热与容量闸用的整套预编译读语句。
- *
- * 批量读取以 `ids` 占位绑定一个 JSON 数组文本，id 个数不同也复用同一条语句；
- * 调用方不得在每次读取时现拼 Drizzle 查询。本函数只建不持有：语句挂在
- * cache/workers/diskIO/storageDatabase.ts 的连接级 WeakMap 上（由
- * workers/diskIO/storageDatabase/context.ts 取用），本文件不接触线程独占缓存。
- */
+/** 为指定数据库连接预编译名单批量读取、临时广告免检批量读取与群状态主键读取语句。 */
 export function prepareStorageDatabaseReader(database: StorageDatabase): StorageDatabaseReader {
   return {
     whitelistPolicies: database

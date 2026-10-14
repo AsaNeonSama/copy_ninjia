@@ -71,9 +71,8 @@ export const MEDIA_PROBE_BACKOFF_BASE_MS: number = 30_000;
  */
 export const MEDIA_PROBE_BACKOFF_MAX_MS: number = 10 * 60_000;
 /**
- * 连续瞬时失败计数的封顶，只用于选退避档位。按 `MEDIA_PROBE_BACKOFF_BASE_MS
- * × 2^(n-1)` 换算退避时长，超过本值不再继续增长；必须选到刚好使换算结果达到
- * MEDIA_PROBE_BACKOFF_MAX_MS 的档位，改动其中一个常量需要一并重算另一个。
+ * 连续瞬时失败计数的封顶，用于按 MEDIA_PROBE_BACKOFF_BASE_MS 指数换算退避时长并封顶于
+ * MEDIA_PROBE_BACKOFF_MAX_MS。
  */
 export const MEDIA_PROBE_MAX_TRANSIENT_FAILURES: number = 6;
 
@@ -91,9 +90,8 @@ export const MEDIA_CANCELLED_RESULT: Readonly<AiTextResult> = { ok: false, retry
 
 /**
  * media 模态从未探测过的初始状态，属 cache/workers/aiChat/mediaInputSupport.ts。两种模态各取
- * 这一份共享只读对象；状态机只整体替换，不就地改写。
- * 配置代次 0 是第一代，agent.json 热重载替换 media 能力时由 resetMediaInputSupport
- * 递增。
+ * 这一份共享只读对象；状态机只整体替换，不就地改写；agent.json 热重载替换 media 能力时由
+ * resetMediaInputSupport 递增配置代次。
  */
 export const INITIAL_MEDIA_INPUT_STATE: Readonly<MediaInputModalityState> = {
   support: "unknown",

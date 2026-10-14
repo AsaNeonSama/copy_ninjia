@@ -18,7 +18,7 @@ export function formatMinSec(ms: number): string {
   return `${minutes}分${seconds}秒`;
 }
 
-/** 严格判断 YYYY-MM-DD 是否为可往返的公历日期，拒绝 02-30 等归一化输入。 */
+/** 严格判断 YYYY-MM-DD 是否为可往返的公历日期，拒绝被 Date 静默进位的非法公历日。 */
 export function isCanonicalDateKey(value: string): boolean {
   if (!DATE_KEY_PATTERN.test(value)) return false;
   const parsed: Date = new Date(`${value}T00:00:00.000Z`);
@@ -85,7 +85,7 @@ function localOffsetMs(timestampMs: number): number {
   return state.offsetMs;
 }
 
-/** 0~99 的两位零填充串定表；只服务本文件的固定宽度时间串，模块加载时建一次。 */
+/** 两位十进制零填充串定表；只服务本文件的固定宽度时间串，模块加载时建一次。 */
 const TWO_DIGIT_STRINGS: readonly string[] = ((): readonly string[] => {
   const table: string[] = new Array<string>(100);
   for (let value: number = 0; value < 100; value += 1) {
@@ -170,7 +170,7 @@ export function formatLogTimestamp(timestampMs: number): string {
   return `${formatCivilDate(days, "-")} ${formatSecondOfDay((millisecondOfDay / 1_000) | 0)}.${millisecondText}`;
 }
 
-/** 配置时区小时数 0~23；供心情系统按时段分档。 */
+/** 配置时区的整点小时数；供心情系统按时段分档。 */
 export function getLocalHour(timestampMs: number = Date.now()): number {
   validateCalendarTimestamp(timestampMs);
   return Math.floor(((timestampMs + localOffsetMs(timestampMs)) % DAY_MS + DAY_MS) % DAY_MS / 3_600_000);

@@ -9,14 +9,8 @@ import { adoptStickerConfig } from "../../config/stickers";
 import type { AiConfigReloadMessage } from "../../types/aiChat/protocol";
 
 /**
- * AI Worker 接管主线程热重载投递的部署配置（协议见 AiConfigReloadMessage）。
- *
- * 每个变化的领域先整体替换本线程 holder，再失效按旧快照派生的运行时状态：
- * agent 段见 aiChat/provider.ts 的 reloadAgentDeploymentConfig；心情按档位名换成
- * 新快照；贴纸白名单替换后显式失效菜单，清理退出白名单的集合正负缓存，
- * 并剪枝已完成生成与上报的目录。随后为当前白名单启动目录对账，同包任务去重；
- * 停机排空期间不启动后台任务。目录文件由下次 Disk I/O 启动恢复按白名单对账。
- * 跨线程保留与清理约束见 docs/cn/04-invariants.md。
+ * 应用主线程热重载投递的部署配置：按变更领域替换本线程配置快照，刷新心情状态，
+ * 失效并剪枝贴纸缓存，非停机排空期间启动白名单目录对账。跨线程保留与清理约束见 docs/cn/04-invariants.md。
  */
 export function applyAiChatConfigReload(msg: AiConfigReloadMessage): void {
   if (msg.agent !== undefined) reloadAgentDeploymentConfig(msg.agent);

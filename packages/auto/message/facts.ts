@@ -59,15 +59,8 @@ export function resolveSpeaker(message: Message): AiSpeakerSnapshot {
  * consts/auto.ts 的共享只读常量之一（没有 entity 表时返回 NO_MENTION_FACTS），
  * 不分配对象；调用方只读字段，不比较对象身份。
  *
- * 逐个实体先用长度筛一道，筛掉的实体不物化子串：`toLowerCase` 只会让
- * 长度不变或变长（全 Unicode 里唯一会变长的是 U+0130，`test/auto/messageFacts.test.ts`
- * 逐码元锁住这一点），因此 `实体码元数 > @用户名码元数` 的实体折完大小写也不会
- * 与目标等长，不是本机器人。
- *
- * 长度筛选只在实体完整落在正文内时下结论：`substring` 会把越界实体夹短，
- * `entity.length` 不再等于参与比对的长度，越界实体一律走下面的物化比对。
- * 两条分支与「整串折小写后逐字比对 `@用户名`」同解，
- * 由 `test/auto/messageFacts.test.ts` 的参考实现穷举对拍。
+ * 完整落在正文内且 `entity.length > botMentionLength` 的实体直接记为提及他人，不物化子串；
+ * 其余实体切片折小写后与 `@` 加 `botUsernameLower` 比对（参考实现对拍见 `test/auto/messageFacts.test.ts`）。
  */
 export function resolveMentionFacts(
   message: Message,
@@ -87,11 +80,7 @@ export function resolveMentionFacts(
   }
   let isMentioned: boolean = false;
   let hasOtherMention: boolean = false;
-  // 只折用户名自己的大小写，不拼 `@用户名`；前导 `@` 由下面的首码元判定承担，
-  // 两者合起来与整串比对 `@用户名` 的小写形态等价（`@` 既非 cased 也非
-  // case-ignorable，不影响后续字符的折叠结果）。
-  // 没有用户名（含空串）时 botMentionLength 为 -1：两处长度判定都不成立，
-  // 任何 mention 记为他人。
+  // 没有用户名（含空串）时 botMentionLength 为 -1：两处长度判定都不成立，任何 mention 记为他人。
   const botUsernameLower: string = botUsername ? botUsername.toLowerCase() : "";
   const botMentionLength: number = botUsernameLower.length === 0 ? -1 : botUsernameLower.length + 1;
   for (const entity of entities) {

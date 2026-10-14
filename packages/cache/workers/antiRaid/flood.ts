@@ -1,4 +1,4 @@
-/** owner: workers/antiRaid。主线程只能通过 floodCandidate 消息间接写入。 */
+/** owner: workers/antiRaid。防刷屏发言滑窗缓存（packages/workers/antiRaid/floodControl.ts）。 */
 
 import type {
   FloodWindowCacheState,
@@ -6,25 +6,17 @@ import type {
 } from "../../../types/antiRaid/internal";
 
 /**
- * 按 chatId → userId 两层数值索引记的发言窗口，纯内存、不落盘。
- *
- * 由主线程投来的 `floodCandidate` 逐条填充；条目自身组成无分配的双向 LRU，条目
- * 数由 FLOOD_WINDOW_MAX_MEMBERS 兜住（见 consts/antiRaid/flood.ts）。单条队列长度
- * 被阈值封顶（命中即清空），整表占用上界为「条目数 × 阈值」。
- * 空闲满一个窗口的条目由 Worker 的统一 sweep 节拍删除（sweepFloodWindows）。
- *
- * 停管、`/init disable` 与群 teardown（deactivateChat）清掉该群的全部条目；
- * Worker 崩溃重建或进程重启后整表为空、从零重新计数；Telegram
- * 侧的禁言由 `until_date` 自行到期。
+ * chatId -> (userId -> 发言滑窗条目)。
+ * 填充：收到主线程 floodCandidate 消息时写入或更新，并维护侵入式双向 LRU 链表。
+ * 清理：触发禁言后清空队列，空闲超期由 sweepFloodWindows 淘汰，群停管（deactivateChat）按群删除，reset 时清空。
+ * 重建：Worker 崩溃重启后从空表重新计数。
+ * 容量：全局条目数上限为 FLOOD_WINDOW_MAX_MEMBERS（consts/antiRaid/flood.ts），满载时按 LRU 淘汰最久未发言条目；单条队列长度受群刷屏阈值封顶。
  */
 export const floodWindowsByChat: Map<number, Map<number, FloodWindowEntry>> = new Map();
 
 /**
- * 分层索引的全局条目数及 LRU 两端。
- *
- * 每次候选消息原地刷新，淘汰、TTL sweep、停管和 reset 同步摘链；Worker 崩溃或
- * 进程重启后由模块初始化为空。entryCount 恒不超过 FLOOD_WINDOW_MAX_MEMBERS，
- * newest/oldest 只指向仍在 floodWindowsByChat 中的条目。
+ * 防刷屏滑窗的全局条目计数与双向 LRU 链表头尾指针。
+ * 填充与清理：随 floodWindowsByChat 的增删、淘汰、sweep 与 reset 同步更新；重建：Worker 重启后恢复为空链表与零计数；容量：固定为单个状态对象，entryCount 上限为 FLOOD_WINDOW_MAX_MEMBERS。
  */
 export const floodWindowCacheStateHolder: { current: FloodWindowCacheState } = {
   current: { entryCount: 0, newest: null, oldest: null },

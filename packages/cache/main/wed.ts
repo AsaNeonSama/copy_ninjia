@@ -1,27 +1,21 @@
-/** owner: main。/wed 的按钮会话、在途头像探测与执行器。 */
+/** owner: main。`/wed` 按钮会话、在途头像探测与命令执行器（packages/commands/wed/）。 */
 import type { CommandExecutorRuntime } from "../../types/commandExecutor";
 import type { WedAvatarProbe, WedChat } from "../../types/wed";
 
 /**
- * 已初始化群首次交互时填充，成员集合引用 wedMembers.ts 的 owner；每位发起人
- * 一张会话，每群最多 WED_SESSION_LIMIT 张。只有已取得成员集合的群才能建立交互，
- * 群 teardown 先删交互再清成员集合，因此群数不超过 STATE_MANAGED_CHAT_LIMIT，不设淘汰。
- * 会话满额拒绝新建；移除按钮、重开与群 teardown 清理会话并取消在途操作。
- * Worker 崩溃不影响本表；进程重启清空交互，旧按钮提示重新 /wed。
+ * 群 ID 到 `/wed` 交互会话容器的映射：群首次建立交互时填充（引用 wedMembers.ts 的成员池），移除按钮、重开或群 teardown 时清理会话并取消在途操作。
+ * 群数上限为 STATE_MANAGED_CHAT_LIMIT，每群会话上限为 WED_SESSION_LIMIT（满额拒绝新建且不淘汰现有会话）；进程重启后从空表开始。
  */
 export const wedChats: Map<number, WedChat> = new Map();
 
 /**
- * 抽取时按用户 ID 填充，实际个人发言记下群 ID；查询结算时释放。
- * 最多 WED_MAX_CONCURRENT 个在途探测，进程初始化清空；Worker 重建不影响主线程探测。
- * 无条目表示当前没有该 ID 的头像查询。
+ * 用户 ID 到在途头像探测集合的映射：抽取候选探测头像时登记（探测期间新发言追加群 ID），查询结算时移除。
+ * 并发上限受 WED_MAX_CONCURRENT 约束，不淘汰；进程重启后从空表开始（无条目表示无在途探测）。
  */
 export const wedAvatarProbes: Map<number, Set<WedAvatarProbe>> = new Map();
 
 /**
- * 启动时创建 /wed 执行器，最多 WED_MAX_CONCURRENT 个在途交互和 WED_MAX_PENDING
- * 个 FIFO 等待项。群 teardown 撤销该群等待项；停机停止接纳并有界排空，超时取消。
- * 每日成员复核至多一项登记到 tasks；quiesce 先取消复核，再等待结算并投递最终成员集合。
- * Worker 崩溃不影响本主线程 owner；进程重启不重放纯内存交互。
+ * `/wed` 命令执行器运行时单例：启动时由 initWedRuntime 创建（并发上限 WED_MAX_CONCURRENT，排队上限 WED_MAX_PENDING），群 teardown 撤销对应群等待项，停机时先 quiesce 取消每日复核再有界排空。
+ * 进程重启后从 null 重新创建。
  */
 export const wedRuntime: { current: CommandExecutorRuntime | null } = { current: null };

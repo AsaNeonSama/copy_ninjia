@@ -1,22 +1,9 @@
-/** owner: workers/diskIO。定时 flush 合并（packages/workers/diskIO/timedFlush.ts）的进程内状态。 */
+/** owner: workers/diskIO。定时刷盘任务合并队列状态（packages/workers/diskIO/timedFlush.ts）。 */
 
 import type { TimedDiskIOOperation } from "../../../types/diskIO/storage";
 
-/**
- * 已到点、等待合并执行的定时操作。
- *
- * - 填充：领域 flush timer 到点时加入；同一函数只占一项。
- * - 清理：合并操作按加入顺序逐项取出后执行。
- * - 容量：以定时来源的种类数为上界（AI 用量、运势、入群日志、广告样本、验证合并与验证
- *   轮换重试），各来源的 timer 槽位保证同一来源不重复排队。
- * - 重建：Worker 重建时随 isolate 清空；未执行的定时 flush 由各领域下一次写入重新装
- *   timer 或统一 flush 兑现。
- */
+/** 已到期等待合并执行的定时刷盘回调集合：各领域定时 timer 到期时加入，合并执行时按序取出并移除；容量上限为固定定时来源种类数，不淘汰，Worker 重建后从空集开始。 */
 export const dueTimedDiskIOOperations: Set<TimedDiskIOOperation> = new Set();
 
-/**
- * 合并操作是否已排进统一操作队列且尚未执行完毕：排入时置 true，执行结束（含拒绝）时置
- * false。Worker 重建时从 false 起步；true 期间新到点的操作只加入
- * dueTimedDiskIOOperations，由那一项合并操作一并执行。
- */
+/** 定时刷盘合并任务是否已排入 diskIOOperationTail 串行队列的标记：排入时置为 true，执行完毕时置为 false；单例布尔值，Worker 重建后从 false 开始。 */
 export const timedDiskIOOperationState: { queued: boolean } = { queued: false };

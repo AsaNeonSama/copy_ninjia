@@ -111,9 +111,7 @@ describe("shouldPassInitGate", () => {
   test("已 /init 过的群 + 普通消息：放行", () => {
     const chatId = -1001111111113;
     getOrCreateChatState(chatId).isInitEnabled = true;
-    // 测完把这个字段清回去，不留给同进程里的其它测试文件。只重置字段，不删除整个状态：
-    // 本文件只 mock 了 infra/diskIO，没有 mock infra/storage 本体，带落盘的删除路径会触发
-    // saveStateInBackground 写项目根目录下的 state.json。
+    // 测完把该字段复位，不留给同进程里的其它测试文件。
     try {
       const ctx = fakeCtx({ chat: { id: chatId, type: "supergroup" }, message: { text: "随便说点什么" } });
       expect(shouldPassInitGate(ctx)).toBe(true);

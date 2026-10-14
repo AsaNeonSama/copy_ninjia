@@ -21,23 +21,13 @@ export function pruneStickerSets(activePacks: readonly string[]): void {
   }
 }
 
-/** 本模块用到的 Telegram 能力子集，可注入测试替身。 */
+/** 本模块使用的 Telegram API 子集。 */
 type StickerSetApi = Pick<TelegramApi, "getStickerSet">;
 
 /**
- * 白名单贴纸包的拉取与缓存（getStickerSet，按 pack short name），供
- * aiChat/ai/tools/stickers.ts（两层贴纸工具）与 aiChat/ai/stickers/catalog.ts（贴纸目录
- * 生成）使用。
- *
- * 本模块持有 AI 闲聊 Worker 独占的贴纸集合缓存，只能在那条线程里加载；
- * 主线程也要用的两个纯函数在 aiChat/ai/stickers/describe.ts，见该文件模块头注。
+ * 拉取或复用缓存的单个白名单贴纸集合（同包并发请求合并，底层请求绑定 Worker 生命周期信号，
+ * 调用方 signal 仅取消自身等待）；失败时记录负缓存并返回 null。
  */
-
-/** 拉取（或复用缓存）单个包的贴纸集合；失败返回 null（不是空集合），调用方据此
- *  区分「拉取失败」与「包没有贴纸」，见 aiChat/ai/stickers/catalog.ts 的 generatePackCatalog。
- *
- *  `signal` 只约束本次调用自己的等待，不驱动共享请求：合并后的那一次 Telegram
- *  请求属于所有等待者，其生命周期由 Worker 决定（见下方 workerSignal）。 */
 export async function getStickerSet(
   packName: string,
   api: StickerSetApi = telegramApi,
@@ -52,20 +42,13 @@ export async function getStickerSet(
     failedPacks.delete(packName);
   }
 
-  // 缓存未命中时把在途 Promise 登记进 inflightStickerSets 做请求合并（同
-  // aiChat/ai/imageDescription.ts 的 describeMedia）：同一个未缓存的包同时只有一次 Telegram 请求。
   const inflight: Promise<StickerSet | null> | undefined = inflightStickerSets.get(packName);
   if (inflight) return waitForStickerSet(inflight, signal);
 
-  // 共享请求绑 Worker 信号，不绑任一调用方的 signal。现取当前 controller 的 signal
-  // （Worker 重建时 holder 换成新的，见 cache/workers/aiChat/worker.ts）；下面两处
-  // await 后以 workerSignal.aborted 守卫。
   const workerSignal: AbortSignal = aiChatWorkerAbortController.current.signal;
-  // 请求先启动，再登记；结算清理由登记后的微任务执行，覆盖 API 同步抛错。
   const request: Promise<StickerSet | null> = (async (): Promise<StickerSet | null> => {
     try {
       const set: StickerSet = await api.getStickerSet(packName, telegramSignal(workerSignal));
-      // Worker 已停时不回写正缓存。
       if (workerSignal.aborted) return null;
       if (getStickerConfig().packs.includes(packName)) {
         stickerSetCache.set(packName, set);
@@ -83,7 +66,6 @@ export async function getStickerSet(
     }
   })();
   inflightStickerSets.set(packName, request);
-  // 按 Promise 身份摘除在途条目，不误删同包的后续请求。
   const settleInflight = (): void => {
     if (inflightStickerSets.get(packName) === request) {
       inflightStickerSets.delete(packName);
@@ -93,7 +75,7 @@ export async function getStickerSet(
   return waitForStickerSet(request, signal);
 }
 
-/** 每个调用方只取消自己的等待；共享请求继续服务其余等待者，见 libs/abortSignal.ts。 */
+/** 按调用方 signal 等待共享贴纸集合请求。 */
 function waitForStickerSet(
   request: Promise<StickerSet | null>,
   signal?: AbortSignal

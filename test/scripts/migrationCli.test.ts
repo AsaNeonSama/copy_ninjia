@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseSourceOutputRoots } from "../../scripts/migrations/cli";
 
-/** 冷迁移与停机清理 CLI 共用的 `--source-root`/`--output-root` 解析。 */
+/** 冷迁移 CLI 的 `--source-root`/`--output-root` 解析。 */
 describe("parseSourceOutputRoots", () => {
   test("两项都给出时按任意顺序取值并去掉首尾空白", (): void => {
     expect(parseSourceOutputRoots(["--source-root", " /backup ", "--output-root", "/out"]))

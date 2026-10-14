@@ -1,51 +1,42 @@
-/** owner: workers/aiChat。白名单贴纸包画面描述目录的权威内存状态。
- * 仅 aiChat/ai/stickers/catalog.ts 写入；除 packSummaries 由贴纸工具只读外，其它领域
- * 不得绕过其公开生命周期 API。
- * 每包容量由 Telegram 当前贴纸集合自然约束，不另设 TTL；目录快照持久化到
- * memory/stickers/，Worker 重建时接收主线程镜像并启动目录对账。dirty、失败
- * 与生成中集合只属于本次 Worker 生命周期，重启后清空重建。 */
+/** owner: workers/aiChat。白名单贴纸包目录与生成状态（packages/aiChat/ai/stickers/catalog.ts）。 */
 
 import type { StickerCatalogEntry } from "../../../../types/stickers/catalog";
 
 /**
- * pack short name -> (贴纸自身 file_unique_id -> 目录条目)。
- * 填充：从主线程镜像 hydrate，或由目录生成任务补齐。
- * 清理：对账剪枝删掉已移出包的贴纸；包退出配置白名单后，等生成任务结算且
- * dirty 快照上报完成，再由 pruneStickerCatalogs 删整包；Worker 销毁时释放。
- * 容量：外层为配置白名单、在途生成及待上报包，内层为该包在 Telegram 上的贴纸数。
- * Worker 崩溃重建：主线程重放 init 与当前白名单目录镜像，接收侧恢复条目并对账。
+ * packShortName -> (fileUniqueId -> 贴纸目录条目)。
+ * 填充：从主线程镜像 hydrate 或由目录生成任务写入。
+ * 清理：对账剪枝移除退包贴纸；贴纸包退出白名单且生成与上报完成后由 pruneStickerCatalogs 删除整包。
+ * 重建：Worker 崩溃重启后接收主线程当前白名单目录镜像恢复并对账。
+ * 容量：外层受配置白名单与在途包数约束，内层受贴纸包内贴纸数约束，不设 TTL 淘汰。
  */
 export const catalogs: Map<string, Map<string, StickerCatalogEntry>> = new Map();
 
-/** pack short name -> AI 生成的整包简介，供两层贴纸工具的第一层
- *  挑包：aiChat/ai/tools/stickers.ts 直接只读，缺项表示尚未生成或生成失败。
- *  生成/重生成时机见 packages/aiChat/ai/stickers/catalog.ts 的 generatePackCatalog。
- *  清理与容量跟随 catalogs：包退出白名单且生成、上报责任结束后随目录删除。
- *  Worker 重建时由主线程目录镜像恢复。 */
+/**
+ * packShortName -> AI 生成的整包简介（供 aiChat/ai/tools/stickers.ts 只读挑包，缺项表示尚未生成或生成失败）。
+ * 填充：generatePackCatalog 或主线程镜像 hydrate 写入；清理、重建与容量同 catalogs。
+ */
 export const packSummaries: Map<string, string> = new Map();
 
-/** 自上次上报后有更新、待上报给主线程落盘的包。
- *  清理：全部上报成功后清空；退出白名单的包在生成与上报责任结束后释放目录。
- *  容量：catalogs 的待上报子集；Worker 重建时此集合为空，目录由主线程镜像恢复。 */
+/**
+ * 待上报给主线程落盘的脏贴纸包名集合。
+ * 填充：目录或整包简介更新时登记；清理：上报成功后清空；重建：Worker 重启后从空集合开始；容量：catalogs 的子集。
+ */
 export const dirtyPacks: Set<string> = new Set();
 
-/** pack short name -> (贴纸 file_unique_id -> 可以再试的最早时刻)。
- *  填充：贴纸缺少视觉源，或请求重试、允许的业务重采样结束后仍未得到描述。
- *  TTL 内对账跳过该贴纸；到期项由下一次对账移除并重试，维护节拍只选择当前白名单。
- *  清理：贴纸移出包时剪枝；包退出白名单且生成、上报责任结束后删除整包记录。
- *  容量：外层为当前白名单、在途生成及待上报包，内层至多为该包的贴纸数。
- *  不按容量淘汰、不落盘；Worker 重建后清空，失败记录由后续生成任务重新填充。 */
+/**
+ * packShortName -> (fileUniqueId -> 允许再次尝试生成的时间戳)。
+ * 填充：贴纸描述生成失败时写入；清理：到期重试、贴纸移出包或整包移除时删除；重建：Worker 重启后从空表开始；容量：不超过 catalogs 同范围的贴纸数，按冷却到期清理。
+ */
 export const failedEntries: Map<string, Map<string, number>> = new Map();
 
 /**
- * 正在后台生成中的包及其任务句柄。既用于防止 init/维护节拍重复发起，也供
- * Worker 停机 flush 等到目录不再改写后再上报最终 dirty 快照。任务 settle 后
- * 立即删除；每包至多一个任务，容量包括当前白名单及配置轮换前尚未结算的包。
- * Worker 重建后清空，由 init 与维护节拍重新登记。
+ * packShortName -> 后台目录生成任务 Promise。
+ * 填充：发起目录生成时登记；清理：任务结算后立即删除；重建：Worker 重启后从空表开始；容量：每包至多一个在途任务。
  */
 export const generatingPacks: Map<string, Promise<void>> = new Map();
 
-/** 维护节拍选中不完整目录时记录的重试时刻，见 aiChat/ai/stickers/catalog.ts。
- *  容量为单个时间戳；Worker 重建时归零，表示本实例尚未发起维护重试。
- *  无需定期清理；没有待重试包时保持原值。 */
+/**
+ * 贴纸目录维护重试的最近一次触发时间戳。
+ * 填充：维护节拍触发不完整目录重试时更新；清理：测试重置或新值覆盖；重建：Worker 重启后归零；容量：固定为单个时间戳。
+ */
 export const stickerCatalogRetryState: { lastAttemptAt: number } = { lastAttemptAt: 0 };

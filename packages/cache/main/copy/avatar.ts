@@ -1,9 +1,9 @@
-/** owner: main。头像更新队列（packages/copy/avatarQueue.ts）的内存状态。 */
+/** owner: main。头像更新队列状态（packages/copy/avatarQueue.ts）。 */
 
 import type { AvatarUpdateTask } from "../../../types/copy/avatar";
 import type { FlushWaiter } from "../../../types/lifecycle";
 
-/** 全局头像资源：入口收到任务时填入一个执行槽与一个 latest-only 待执行槽。 */
+/** 全局头像更新单飞与最新待执行槽：入队时写入 pending 并递增代数，消费循环取出后清空 pending，全部完成时 running 归零；单例固定字段，进程重启后从初始值开始。 */
 export const avatarUpdateState: {
   running: boolean;
   pending: AvatarUpdateTask | null;
@@ -16,12 +16,9 @@ export const avatarUpdateState: {
   latestGeneration: 0,
 };
 
-/**
- * 等待头像执行槽和 latest-only 槽归零的等待者（libs/drainWaiter.ts）；归零时结算清空，
- * 预算耗尽的等待者自行出队。容量：同时在等排空的调用方数，只有停机路径登记；不设淘汰。
- */
+/** 头像更新排空等待集合（libs/drainWaiter.ts）：停机等待时登记，running 与 pending 归零或超时时结算移除；容量与并发停机调用方同阶，不淘汰，进程重启后从空集开始。 */
 export const avatarDrainWaiters: Set<FlushWaiter> = new Set();
-/** 头像入口闸与统一 abort owner；init 重建 controller，quiesce/abort 时关闭。 */
+/** 头像更新准入开关与取消控制器：initAvatarUpdateRuntime 重建 controller 并开启准入，quiesceAvatarUpdateRuntime 关闭准入，abortAvatarUpdateRuntime 中止 controller；单例固定字段，进程重启后重新创建。 */
 export const avatarUpdateRuntime: { accepting: boolean; controller: AbortController } = {
   accepting: true,
   controller: new AbortController(),

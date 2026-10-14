@@ -1,18 +1,20 @@
-/** owner: workers/aiChat。AI 模型请求闸门与能力门面缓存。
- *
- * 能力配置注入后按协议、端点、凭据建立配额 lane，lane 数不超过能力项数；
- * 每条 lane 的活动与等待容量均由 consts/aiChat/provider.ts 限制。agent.json 热重载
- * 时门面整体清空、只保留新配置仍引用的 lane（见 aiChat/provider.ts 的
- * reloadAgentDeploymentConfig）。Worker 崩溃时 isolate
- * 整体销毁，队列与门面自然重建；没有跨线程镜像，也不持久化模型请求。
- */
+/** owner: workers/aiChat。AI 模型请求配额队列与能力门面缓存（packages/aiChat/provider.ts）。 */
 
 import type { AiProviderFacadeCache, AiProviderQuotaLane } from "../../../types/aiChat/providerScheduler";
 
-/** 同一 Worker 内已建立的 AI 配额 lane，数量不超过能力项数；线性匹配只发生在门面首次构造。 */
+/**
+ * 按协议、端点与凭据建立的配额 lane 列表。
+ * 填充：首次构造能力门面或热重载配置时按需追加。
+ * 清理：reloadAgentDeploymentConfig 剔除不再引用的 lane，resetAiProviderSchedulerCache 清空。
+ * 重建：Worker 崩溃重启后从空数组按需重建。
+ * 容量：不超过 AgentCapability 能力项数；单条 lane 的并发与等待上限见 consts/aiChat/provider.ts。
+ */
 export const aiProviderQuotaLanes: AiProviderQuotaLane[] = [];
 
-/** 各项能力的稳定门面；首次读取时填充，Worker 重建时恢复为空。 */
+/**
+ * 各项能力的稳定门面缓存。
+ * 填充：能力门面首次读取时写入；清理：reloadAgentDeploymentConfig 与 resetAiProviderFacades 置空；重建：Worker 重启后从空门面按需重建；容量：固定为 AgentCapability 字段集合。
+ */
 export const aiProviderFacades: AiProviderFacadeCache = {
   text: undefined,
   summary: undefined,
@@ -25,10 +27,7 @@ export const aiProviderFacades: AiProviderFacadeCache = {
   structuredText: undefined,
 };
 
-/**
- * 丢弃全部能力门面，下一次取用按当前配置快照重建；在途请求继续持有旧门面直至
- * 结算。agent.json 热重载与下方全量清理共用。
- */
+/** 清空全部能力门面缓存，下次读取时按当前配置重建。 */
 export function resetAiProviderFacades(): void {
   aiProviderFacades.text = undefined;
   aiProviderFacades.summary = undefined;
@@ -41,10 +40,7 @@ export function resetAiProviderFacades(): void {
   aiProviderFacades.structuredText = undefined;
 }
 
-/**
- * 测试隔离时丢弃配额 lane 和稳定门面。调用方须先结算旧执行器上的任务，不能在旧
- * 执行器仍有任务时重建新 lane。
- */
+/** 清空全部配额 lane 与能力门面缓存。 */
 export function resetAiProviderSchedulerCache(): void {
   aiProviderQuotaLanes.length = 0;
   resetAiProviderFacades();

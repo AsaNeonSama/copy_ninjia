@@ -1,36 +1,17 @@
-/** owner: main。发送者身份缓存（packages/users/senderIdentity.ts）的内存状态；进程重启后从空表
- * 开始，由后续发送者消息重新填充。 */
+/** owner: main。发送者身份双向索引缓存（packages/users/senderIdentity.ts）。 */
 
 import { USER_CACHE_MAX } from "../../consts/senderIdentity";
 import { FifoMap } from "../../libs/fifoMap";
 import type { CachedUser } from "../../types/chatState";
 
-/** 小写 username -> 最近一次观察到的身份，供 /copy、/block 等命令按
- *  @username 解析目标；条数上限见 consts/senderIdentity.ts 的 USER_CACHE_MAX。
- * 任何写入都必须同时维护下方两份按 id 的索引，见 users/senderIdentity.ts。
- * 清理：满载时 users/senderIdentity.ts 先用 oldestKey 取最旧 alias 交给 deleteAlias 淘汰（连带
- * 两份按 id 的索引），再写入新 alias，FifoMap 自身的容量淘汰不会触发；发送者改名/去名/换绑时
- * 同步撤销旧 alias；没有整表清空路径，进程重启归零。 */
+/**
+ * 小写 username 到最近观测到的 CachedUser 的 FIFO 缓存：启动预热或收到消息时由 users/senderIdentity.ts 写入，发送者改名、去名或换绑时撤销旧键。
+ * 容量上限为 USER_CACHE_MAX，满额时由 deleteAlias 连带淘汰最旧条目及其反向索引；进程重启后从空表开始。
+ */
 export const userCache: FifoMap<string, CachedUser> = new FifoMap(USER_CACHE_MAX);
 
-/** sender id -> 当前小写 username。用于在发送者改名、去名、username 换绑或
- * 正向缓存淘汰时同步撤销旧 alias，也作为破坏性命令解析前的一致性校验。
- * 容量与淘汰同 userCache（USER_CACHE_MAX），两张表成对增删。 */
+/** 发送者 ID 到当前小写 username 的反向索引：与 userCache 成对写入、同步淘汰；容量上限为 USER_CACHE_MAX，进程重启后从空表开始。 */
 export const senderUsernameCache: Map<number, string> = new Map();
 
-/**
- * sender id -> 该 id 当前的身份对象，即 `userCache.get(senderUsernameCache.get(id))`
- * 的直查形式。
- *
- * 键集与 senderUsernameCache 相同：两张表只在 users/senderIdentity.ts 的
- * updateCachedIdentity 与 deleteAlias 里成对写入、成对删除，容量同为
- * consts/senderIdentity.ts 的 USER_CACHE_MAX，淘汰也由那一处的 deleteAlias 一并完成。
- * 值与 userCache 里是同一个 CachedUser 引用，不额外持有对象。
- *
- * 用途：cacheSender 在每条群消息上的稳态判定直接读这个对象（见 users/senderIdentity.ts
- * 的 cacheSender）。
- *
- * 进程重启后从空表开始，由后续发送者消息与启动预热重新填充，与另外两张表同步；
- * 缺条目表示「这个 id 当前没有缓存身份」，不得解释为沿用旧值。
- */
+/** 发送者 ID 到当前 CachedUser 引用的直查表：与 senderUsernameCache 键集一致，在 updateCachedIdentity 与 deleteAlias 中成对写入和淘汰；容量上限为 USER_CACHE_MAX，进程重启后从空表开始（无条目表示未缓存该身份）。 */
 export const identityById: Map<number, CachedUser> = new Map();

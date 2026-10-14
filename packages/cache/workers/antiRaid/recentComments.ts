@@ -1,26 +1,20 @@
-/** owner: workers/antiRaid。频道评论区留言暂存缓冲（packages/workers/antiRaid/recentComments.ts）的内存状态。 */
+/** owner: workers/antiRaid。频道评论区留言短期关联缓冲（packages/workers/antiRaid/recentComments.ts）。 */
 
 import { RECENT_COMMENT_CACHE_MAX } from "../../../consts/antiRaid/cache";
 import { FifoMap } from "../../../libs/fifoMap";
 import type { RecentChannelComment } from "../../../types/antiRaid/internal";
 
 /**
- * 评论先于入群事件到达时的短期关联缓冲，以 "chatId:userId" 为键。
- * rememberRecentComment 在留言到达且发言者尚无验证记录时写入（同一键只接受不早于现有
- * 记录的观察时间，更新时先删再插）；takeRecentComment 在入群事件命中时取出即删。
- * 容量硬顶 RECENT_COMMENT_CACHE_MAX：写入时若已满且 recentCommentsMinObservedAt
- * 显示可能有到期条目，先内联触发一次 sweep，仍满则由 FifoMap 按插入序淘汰最早一条。
- * 超过 COMMENT_JOIN_CORRELATE_MS 未被消费的条目由 Anti-Raid Worker 的周期
- * sweeper（sweepRecentComments）清理，读取和墙钟 sweep 都拒绝过期及未来记录。
- * 不落盘；Worker 重启后清空。
+ * `chatId:userId` -> 评论先于入群事件到达时的短期关联记录。
+ * 填充：rememberRecentComment 在留言到达且发言者尚无验证记录时写入。
+ * 清理：takeRecentComment 命中即删，超过 COMMENT_JOIN_CORRELATE_MS 的过期项由 sweepRecentComments 或满表内联 sweep 清理，resetRecentComments 清空。
+ * 重建：Worker 崩溃重启后从空表开始。
+ * 容量：FifoMap 限制为 RECENT_COMMENT_CACHE_MAX，内联 sweep 后仍满则淘汰最早插入项。
  */
 export const recentChannelComments: FifoMap<string, RecentChannelComment> = new FifoMap(RECENT_COMMENT_CACHE_MAX);
 
 /**
- * recentChannelComments 里最小 observedAt 的下界（ms）；自上次 sweep 起表空时为 +Infinity。
- * rememberRecentComment 写入时下移，sweepRecentComments 整表扫描后重算为精确最小值；
- * 取出、同键覆盖与容量淘汰只删条目，下界仍然成立。满表写入时
- * `observedAt - current < COMMENT_JOIN_CORRELATE_MS` 即证明表内没有到期条目，内联 sweep
- * 跳过。Worker 停止时随表一起复位（resetRecentComments）；Worker 重建后为初始值。
+ * recentChannelComments 内最小 observedAt 时间戳下界（表空时为正无穷），供满表写入判断是否存在可内联淘汰的过期项。
+ * 填充与清理：rememberRecentComment 写入时下移，sweepRecentComments 扫描后重算，resetRecentComments 复位；重建：Worker 重启后为初始值；容量：固定为单个数值 holder。
  */
 export const recentCommentsMinObservedAt: { current: number } = { current: Number.POSITIVE_INFINITY };

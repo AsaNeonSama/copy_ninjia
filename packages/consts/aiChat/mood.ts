@@ -6,21 +6,15 @@ export const MOOD_ENTRY_REQUIRED_KEYS: readonly string[] = ["name", "weight", "i
 /** 单条心情配置允许额外出现的可选字段。 */
 export const MOOD_ENTRY_OPTIONAL_KEYS: readonly string[] = ["weatherMultipliers", "timeMultipliers"];
 
-/**
- * mood.json 全部 base weight 之和必须恰好等于的值，让配置里的权重可以直接当百分比读。
- * 抽取算法按倍率调整后的连续权重工作、不依赖总和。所属模块：config/mood.ts。
- */
+/** mood.json 全部基础权重之和的固定要求值。所属模块：config/mood.ts。 */
 export const MOOD_WEIGHT_TOTAL: number = 100;
 
-/** 心情的随机寿命区间：抽到后过这么久自然到期重抽，与群是否活跃无关；
- *  心情与到期时刻均不落盘。 */
+/** 单次心情保持时长的随机下界（不落盘）。 */
 export const MOOD_REROLL_MIN_MS: number = 2 * 60 * 60_000;
 /** 单次心情保持时长的随机上界。 */
 export const MOOD_REROLL_MAX_MS: number = 4 * 60 * 60_000;
 
-/** 心情查询/重抽命令等待 Worker 回执的超时（见 packages/aiChat/index.ts），
- *  同时用于生成请求的绝对截止时刻：Worker 侧同步完成、正常毫秒级返回，
- *  积压至截止时刻后的请求不再执行。 */
+/** 心情查询/重抽命令等待 Worker 回执的超时及请求截止时长（见 packages/aiChat/index.ts）。 */
 export const MOOD_REQUEST_TIMEOUT_MS: number = 5_000;
 
 /**

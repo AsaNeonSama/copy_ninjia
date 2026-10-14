@@ -92,7 +92,7 @@
 ## 📑 页面清单与核心内容
 
 1. **[01 环境搭建与首次运行](01-getting-started.md)**
-   - 基础依赖要求（Bun 1.4.3 / Linux 系统 / Telegram Bot Token / AI 模型 API Key）
+   - 基础依赖要求（Bun（按 `package.json` 的 `engines.bun`）/ Linux 系统 / Telegram Bot Token / AI 模型 API Key）
    - `install.sh` 自动化安装向导与手动源码安装步骤
    - `config/static/bot.json` 等配置文件的说明与校验规则
    - Telegram 机器人设置（隐私模式、管理员权限、内联模式与 Bot 间通信）
@@ -158,7 +158,7 @@
 ## 📝 文档维护约定
 
 - **三语同步**：中文文档位于 `docs/cn/`，英文镜像位于 `docs/en/`，日文镜像位于 `docs/ja/`。修改架构设计或技术数值时需同步更新对应文档。
-- **单点权威**：跨模块不变量仅在 [04 权威约束](04-invariants.md) 中统一维护，其他页面仅提供引用链接，避免信息多处维护导致不一致。
+- **单点权威**：跨模块不变量仅在 [04 权威约束](04-invariants.md) 中统一维护，其他页面仅提供引用链接。
 - **参数来源**：参数与数值的最终权威来源为 `packages/consts/`，文档中优先引用具体的常量名称。
 
 ---

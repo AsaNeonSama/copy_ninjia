@@ -161,7 +161,7 @@ function sendVoiceToolInstruction({ languageName, lineRules, duplicateRule }: Se
     "不要重试，也不要在群里提语音、额度或失败的事，当作没打算发语音继续回复。";
 }
 
-/** send_voice 参数 tone 说明的公共结尾，三种台词语言共用。 */
+/** send_voice 参数 tone 说明的公共结尾，各台词语言共用。 */
 const VOICE_TONE_DESCRIPTION_TAIL: string = "会追加在固定的基础声线描述之后，只影响这一句。省略则只用基础声线。";
 
 /**
@@ -246,12 +246,8 @@ function replyActionInstruction(voiceDuplicateRule: string): string {
 }
 
 /**
- * 按 `agent.tts.bot_language` 注册的语音相关文案，键与 TtsBotLanguage 一一对应。`ja` 的台词是日语
- * 动漫腔，`en`、`zh` 换成对应语言的台词示例、语气描述与去重判定；其余模型可见段落三种语言共用同一份
- * 中文说明。speechLanguageStyle 是交给语音合成模型的朗读语言要求，用该语言本身写成。
- * aiChat/ai/tools/replyToolset/orchestrator.ts 每轮按配置取一份，send_message、send_voice 的声明、系统提示词
- * 「行动与停止」段与本轮 send_voice 的合成请求同用这一份；prompt/voice_tool.md 存在时 send_voice 的
- * 说明改用其正文（见 aiChat/ai/tools/replyToolset/voiceMessage.ts 的 buildSendVoiceToolDefinition）。
+ * 按 `agent.tts.bot_language` 注册的语音相关提示词与合成朗读语言说明，键与 TtsBotLanguage 一一对应。
+ * prompt/voice_tool.md 存在时 send_voice 的说明改用其正文（见 aiChat/ai/tools/replyToolset/voiceMessage.ts 的 buildSendVoiceToolDefinition）。
  * 所属模块：aiChat/ai/tools/replyToolset。
  */
 export const VOICE_LANGUAGE_PROMPTS: Readonly<Record<TtsBotLanguage, Readonly<VoiceLanguagePrompts>>> = {
@@ -338,7 +334,7 @@ export const IMAGE_REFERENCE_POINTER: string =
 
 /** imageReferencePresent 的参数。 */
 export interface ImageReferencePresentParams {
-  /** 本轮参考图张数，至少为 1。 */
+  /** 本轮参考图张数（正整数）。 */
   readonly count: number;
   /** 第一张（主参考图）的像素宽。 */
   readonly width: number;

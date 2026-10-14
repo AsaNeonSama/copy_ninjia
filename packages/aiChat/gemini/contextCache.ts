@@ -1,13 +1,5 @@
 /**
- * Gemini 回复的共用显式缓存 scope（text）：只装「系统提示词 + 工具声明 + toolConfig」，
- * 全群共用；参考记忆、转录与运行时状态不进缓存。回复会话的第 1 次请求只在本群没有触发时刻记录，
- * 或距本群上一次成功请求的发出超过 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 时引用它；落在此时长内
- * （含相等），以及第 2 次起，都发完整请求，由隐式前缀缓存接住（见 replySession.ts）。
- *
- * 按系统提示词分槽：人设进程内恒定，全群共用一槽，至多
- * GEMINI_TEXT_CACHE_MAX_SLOTS 槽。扫描、创建、续期、释放与淘汰都在
- * infra/geminiContextCache.ts 的共用核心里；本 scope 的登记表归 AI 闲聊 Worker，后台请求
- * 沿用该 Worker 的 abort 信号，创建的输入 token 以 text 能力上报。
+ * Gemini 回复会话（`text` 能力）的共用显式上下文缓存 scope。
  */
 
 import {
@@ -21,7 +13,7 @@ import { createGeminiContextCacheRegistry } from "../../infra/geminiContextCache
 import { getGeminiClient } from "./client";
 import type { GeminiContextCacheRegistry, GeminiContextCacheScope } from "../../types/geminiContextCache";
 
-/** 回复共用显式缓存的 scope；登记表按当下 text 客户端惰性新建。 */
+/** 回复共用显式缓存的 scope；登记表按当前 `text` 客户端惰性初始化。 */
 export const TEXT_GEMINI_CONTEXT_CACHE_SCOPE: Readonly<GeminiContextCacheScope> = {
   registry(): GeminiContextCacheRegistry {
     textGeminiContextCache.current ??= createGeminiContextCacheRegistry(getGeminiClient("text"));

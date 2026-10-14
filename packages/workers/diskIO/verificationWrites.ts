@@ -65,10 +65,7 @@ function acknowledge(
   }
 }
 
-/**
- * 跨日先发布新日 active 快照（含覆盖旧日的 tombstone，见 verificationRecovery.ts 的
- * compactVerificationDay），成功后才删旧日文件，跨午夜 pending 不逃逸。
- */
+/** 跨日先发布新日 active 快照与 tombstone，成功后删除旧日文件并确认待写变更。 */
 async function rolloverVerificationDay(
   day: string,
   reply: VerificationReplySink,
@@ -82,7 +79,7 @@ async function rolloverVerificationDay(
   acknowledge(changes, reply);
 }
 
-/** 装轮换失败后的唯一重试 timer；到点按当时的配置时区的日期重新维护。 */
+/** 注册跨日轮换失败后的重试定时器。 */
 function scheduleVerificationRolloverRetry(
   reply: VerificationReplySink,
   dir: string
@@ -94,10 +91,7 @@ function scheduleVerificationRolloverRetry(
   );
 }
 
-/**
- * 发布目标配置时区自然日的 active 快照并清理旧日；失败时保留镜像并安装唯一 unref 重试。
- * 正常的每日调用由 Disk I/O Worker 统一维护 cron 负责。
- */
+/** 发布目标日的 active 快照并清理旧日文件；失败时保留镜像并注册重试定时器。 */
 export async function maintainVerificationDayForToday(
   reply: VerificationReplySink,
   day: string = getDateKey(),
@@ -109,12 +103,11 @@ export async function maintainVerificationDayForToday(
     await rolloverVerificationDay(day, reply, dir);
   } catch (error: unknown) {
     console.error("[diskIOWorker] failed to roll pending verification day:", error);
-    // 按 VERIFICATION_ROLLOVER_RETRY_MS 重试旧日清理，不依赖新的验证消息。
     scheduleVerificationRolloverRetry(reply, dir);
   }
 }
 
-/** 按需装普通验证变化的合并 timer；已装时不重复装。 */
+/** 按需注册待验证普通变更的定时落盘 timer。 */
 function scheduleVerificationFlush(
   reply: VerificationReplySink,
   dir: string
@@ -126,7 +119,7 @@ function scheduleVerificationFlush(
   );
 }
 
-/** 关键写（新建、终态、删除）的落盘：批内只登记目标，由 withVerificationBatchFlush 统一 flush；批外当场 flush。 */
+/** 关键变更落盘：在批处理期间仅登记目标，批外立即 flush。 */
 async function flushCriticalVerificationChanges(
   reply: VerificationReplySink,
   dir: string,
@@ -139,12 +132,7 @@ async function flushCriticalVerificationChanges(
   await flushVerificationChanges(reply, dir, day);
 }
 
-/**
- * 在一个 operationBatch 的整段循环期间合并待验证关键写的落盘：run 内的关键写只登记，run 结束
- * （含抛错）后统一 flush 一次，同一批 N 条关键写只追加、fsync 一次，verificationPersisted 回执仍在
- * fsync 之后发出。调用方须在本函数返回后才回 operationBatchAccepted。批内消息不含 operationBatch，
- * 不会嵌套调用。
- */
+/** 在 operationBatch 执行期间合并待验证关键变更的落盘，在 finally 中统一 flush 一次。 */
 export async function withVerificationBatchFlush(
   reply: VerificationReplySink,
   run: () => Promise<void>
@@ -167,10 +155,7 @@ export interface HandleVerificationUpsertParams {
   day?: string;
 }
 
-/**
- * 新建与终态立即追加（同一 operationBatch 内合并为批末一次，见 withVerificationBatchFlush）；
- * 普通字段变化按 key 合并，累计 FLUSH_MAX_ENTRIES 个 key 当场追加，否则等满 FLUSH_INTERVAL_MS 后追加。
- */
+/** 处理待验证 upsert：按 generation/revision 去重后更新镜像，关键变更或满批立即落盘，否则定时落盘。 */
 export async function handleVerificationUpsert({
   msg,
   reply,
@@ -195,7 +180,6 @@ export async function handleVerificationUpsert({
     );
   }
 
-  // msg 是本线程刚反序列化、独占的消息，记录直接进镜像，不再复制。
   const snapshot: VerificationSnapshot = msg.record;
   verificationWorkerCache.set(key, snapshot);
   verificationPendingChanges.set(key, {
@@ -221,7 +205,7 @@ export interface HandleVerificationDeleteParams {
   day?: string;
 }
 
-/** 终结清掉同 key 缓冲 upsert、立即追加 durable tombstone 并回执（批内合并为批末一次）。 */
+/** 处理待验证删除：从镜像移除并登记 null 墓碑，按关键变更立即落盘或批末落盘。 */
 export async function handleVerificationDelete({
   msg,
   reply,

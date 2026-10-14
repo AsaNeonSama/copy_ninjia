@@ -2,12 +2,6 @@
  * Gemini 实现包（packages/aiChat/gemini/）独占的常量：请求超时与 SDK 重试次数、
  * 采样温度与输出 token 上限、生图分辨率、内容过滤与工具配置、语音合成参数、日志调用名，
  * 以及回复共用显式缓存（text scope）的前缀、槽数、日志名与首轮触发间隔。
- *
- * **模型名不在这里**：provider=google 的能力从 config/dynamic/agent.json 各自读取 model
- * 与可选 base_url，代码不持有任何模型默认值（见 config/agent.ts）。
- *
- * 与供应商无关的预算（工具轮数、动作上限）在 consts/aiChat/tools.ts 与各领域 consts
- * 里；采样温度与输出 token 上限属于供应商能力，各家各自定义。
  * 所属模块：packages/aiChat/gemini/。
  */
 
@@ -72,10 +66,8 @@ export const GEMINI_SPEECH_TEMPERATURE: number = 1;
 
 /**
  * 按能力取 SDK 每次尝试的超时上限，requestGeminiResult 同时以它作整次调用的 deadline。
- * media（视觉描述与语音转写）宽一档：服务端需先把整份图片或整段音频解码进上下文才开始出字；
- * 视觉与语音共用 config/dynamic/agent.json 的 `agent.media`，
- * 共用同一档。web_search 由交互式检索与 cron 摘要共用。语音合成由 aiChat/gemini/speech.ts
- * 在每次调用上另行覆盖（GEMINI_SPEECH_REQUEST_TIMEOUT_MS）。所属模块：aiChat/gemini/client.ts。
+ * 语音合成由 aiChat/gemini/speech.ts 在每次调用上另行覆盖（GEMINI_SPEECH_REQUEST_TIMEOUT_MS）。
+ * 所属模块：aiChat/gemini/client.ts。
  */
 export const GEMINI_REQUEST_TIMEOUTS_MS: Readonly<Record<AgentCapability, number>> = {
   text: 180_000,
@@ -93,11 +85,7 @@ export const GEMINI_REQUEST_RETRY_ATTEMPTS: number = 6;
 
 /**
  * 所有 Gemini 请求统一携带的内容过滤设置；应用不按可调概率等级主动拒绝，
- * 仍受 API 不可关闭的核心安全策略约束。数组与元素字段都由只读类型表达不可变
- * （见 AGENTS.md 的「常量」一节）。
- *
- * 这一档没有跨供应商对等物：OpenAI 侧的文本安全策略不可调（见
- * consts/aiChat/openai.ts 的模块头注）。
+ * 仍受 API 不可关闭的核心安全策略约束。
  */
 export const GEMINI_SAFETY_SETTINGS: readonly Readonly<SafetySetting>[] = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -116,9 +104,9 @@ export const GEMINI_SERVER_TOOL_CONFIG: Readonly<{ includeServerSideToolInvocati
 };
 
 /**
- * 本群上一次成功的回复 generateContent 发出后，下一轮第 1 次请求仍走完整结构、由隐式前缀缓存
+ * 本群上一次成功的回复 generateContent 发出后，下一轮首轮请求仍走完整结构、由隐式前缀缓存
  * 命中的最长时间（毫秒，按 performance.now() 计）。距该发出时刻不超过此时长（含相等）时不引用
- * 显式缓存；超过此时长或本群还没有成功请求时才引用。第 2 次及后续请求不看这个间隔。
+ * 显式缓存；超过此时长或本群还没有成功请求时才引用。本轮后续请求不看这个间隔。
  * 所属模块：aiChat/gemini/replySession.ts。
  */
 export const GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS: number = 30_000;
@@ -131,9 +119,8 @@ export const GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS: number = 30_000;
 export const GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX: string = "copy-ninjia:text:";
 
 /**
- * 回复共用显式缓存同时登记的分槽上限。一个槽对应一份系统提示词；人设由启动总闸接管、
- * 进程内恒定，全群只用一槽，启动扫描接管的其它槽超出时按最久未用删除。所属模块：
- * aiChat/gemini/contextCache.ts。
+ * 回复共用显式缓存同时登记的分槽上限。一个槽对应一份系统提示词；启动扫描接管的其它槽
+ * 超出时按最久未用删除。所属模块：aiChat/gemini/contextCache.ts。
  */
 export const GEMINI_TEXT_CACHE_MAX_SLOTS: number = 1;
 

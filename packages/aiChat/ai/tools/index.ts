@@ -6,20 +6,15 @@ import { toolError } from "../utils/toolResult";
 import type { TokyoWeatherResult } from "../../../types/aiChat/weather";
 
 /**
- * AI 回复流水线的工具目录（packages/aiChat/ai/tools/）。本文件是其中「静态查询工具」的
- * 分发（声明清单见 consts/tools.ts 的 TOOL_DECLARATIONS）：每个工具都无入参、无副作用
- * （纯查询），出错时返回描述性的 JSON 字符串，不抛错。
- * 有副作用的行动工具（发言/反应/两层贴纸/生图/语音）与依赖本群问答的问答查询工具
- * 不在静态清单里；它们依赖 chatId、逐轮状态或动态能力，并由 replyToolset/ 按轮组装。
+ * 静态查询工具分发（声明清单见 consts/tools.ts 的 TOOL_DECLARATIONS）：无入参、无副作用，
+ * 出错时返回错误 JSON。行动工具与群问答工具由 replyToolset/ 按轮组装。
  */
 
-/** 按名字执行静态查询；东京天气仅在启动时区为东京时可用，未挂载的名称返回未知工具错误。 */
+/** 按名称执行静态查询；东京天气仅在启动时区为东京时可用，未挂载的名称返回未知工具错误。 */
 export function callTool(name: string): string {
   switch (name) {
     case GET_TOKYO_WEATHER_TOOL: {
       if (getTimeZone() !== TOKYO_TIME_ZONE) return toolError(unknownToolError(name));
-      // 只读现有缓存，不发请求；刷新由 aiChat/ai/weather.ts 的后台定时循环负责，
-      // 见该文件模块头注。
       const result: TokyoWeatherResult | null = weatherCache.current;
       return JSON.stringify(result ?? { error: "Weather data not available yet" });
     }

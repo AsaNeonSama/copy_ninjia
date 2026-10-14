@@ -1,17 +1,9 @@
 /**
  * config/dynamic/cron.json 的严格解析：定时任务表，缺省即没有任务。
  *
- * parseCronConfig 只做形态、取值与路径的词法判定，不做 I/O；loadCronConfig 在读盘后
- * 再逐项核对 `payload.path` 指向的文件或目录存在且类型相符（跟随符号链接）。
- * 固定图片使用 1 到 CRON_MAX_IMAGES 项文件或 URL 数组，随机图片的 path 使用可选目录字符串；
- * 随机目录缺省时由发送侧使用 config/dynamic/assets.json 的 `random_h_image_dir`（见
- * config/assets.ts）。`payload.path` 写绝对路径，或相对运行时数据根（RUNTIME_DATA_ROOT）的
- * 路径，不限定目录；相对路径基准与 assets.json 的本机路径一致。
- * `send_voice` 依赖 config/dynamic/agent.json 的 `agent.tts`，`send_web_digest` 依赖对话核心能力
- * （text、summary、media）：assertCronAgentSupported 在启动总闸（ensureCronConfig）与热重载
- * （config/reload.ts）里按当时生效的 agent 配置核对。任何一处
- * 非法都整份拒绝：启动时拒绝启动，热重载时沿用上一份（见 config/reload.ts）。诊断只含
- * 文件路径、字段路径与期望形态。
+ * parseCronConfig 只做形态、取值与路径的词法判定；loadCronConfig 在读盘后再逐项核对 `payload.path`
+ * 指向的文件或目录存在且类型相符（相对路径以 RUNTIME_DATA_ROOT 为基准，固定图片不超过 CRON_MAX_IMAGES 项）。
+ * `send_voice` 与 `send_web_digest` 对 agent.json 的依赖由 assertCronAgentSupported 在启动总闸与热重载时核对。
  */
 
 import type { Stats } from "node:fs";

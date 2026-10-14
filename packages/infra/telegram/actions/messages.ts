@@ -40,22 +40,9 @@ export interface SendMessageBaseParams {
   /** 原样沿用的链接预览设置（复读、翻译照搬原消息的预览）；给出时优先于 disableLinkPreview。 */
   linkPreviewOptions?: LinkPreviewOptions;
   /**
-   * 论坛（topics）群里这条消息要落进哪个话题。
-   *
-   * 不传就是 General（Bot API 里没有 message_thread_id 即 General）。
-   * 话题群里不挂回复的主动发送需要显式带上它（见 libs/forumTopic.ts）；挂了回复时，
-   * `allow_sending_without_reply` 在目标已被删除时会降级成普通发送，此时只有这个参数
-   * 保留话题。
-   *
-   * 用户命令与交互触发的消息落在触发消息所在的话题（`AGENTS.md`「Telegram
-   * 提示留存」）：
-   * - 会话性输出、长期保留例外与按钮消息由调用方显式传入；`preserveInGroup`
-   *   那一档由 `bun run check:conventions` 强制。
-   * - 30 秒自删的命令提示省略时由 commandMessages.ts / commandPhotos.ts 按当前
-   *   update 的触发话题补齐（infra/updateContext.ts 的 updateTopicThreadIdFor）；
-   *   脱离 update 作用域的回执（头像更新、AI 限频提示、gag 结束回执）显式带上。
-   * - bot 主动发出的提示不带：刷屏禁言公告、广告警告与封禁播报、入群验证提醒
-   *   （另见 libs/forumTopic.ts 的豁免）、私密模式公告与 cron 定时任务。
+   * 论坛（topics）群的目标话题 ID（不传则落入 General）：
+   * 用户命令与交互触发的消息落在触发消息所在话题，主线程命令提示由 `commandMessages.ts` / `commandPhotos.ts`
+   * 自动按当前 update 补齐，脱离 update 作用域的回执与长期保留消息由调用方显式传入；bot 主动公告与定时任务不传。
    */
   messageThreadId?: number;
   /** 消息 id 的同步登记点，语义见 SendEphemeralMessageParams.onSent。 */

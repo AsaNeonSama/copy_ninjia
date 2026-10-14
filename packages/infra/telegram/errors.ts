@@ -2,7 +2,7 @@ import { BOT_DEPARTED_DESCRIPTION_PATTERN, CHAT_GONE_DESCRIPTION_PATTERN } from 
 import type { ChatDepartureReason } from "../../types/chatTeardown";
 
 /**
- * 破坏性 Telegram 请求命中 429 后，重试前现查发现原前置条件已失效。
+ * 破坏性 Telegram 请求命中限流退避后，重试前现查发现原前置条件已失效。
  * name 会穿过 Worker 双工错误线协议，业务动作据此把它归一化成「目标已离群」。
  */
 export class TelegramRetryPreconditionChangedError extends Error {
@@ -47,8 +47,8 @@ export function telegramErrorDetails(
 }
 
 /**
- * Bot API 以 4xx（含 429）明确拒收了这次请求，请求没有生效。
- * 网络失败、5xx 与本地错误不算：请求可能已经送达并生效。
+ * Bot API 以客户端错误状态码明确拒收了这次请求，请求没有生效。
+ * 网络失败、服务端错误与本地错误不算：请求可能已经送达并生效。
  */
 export function isTelegramRequestRejected(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
@@ -57,9 +57,9 @@ export function isTelegramRequestRejected(error: unknown): boolean {
 }
 
 /**
- * 把 getChat 的失败归为确证的「群不可达」：400 且带 `parameters.migrate_to_chat_id` 或描述匹配
- * CHAT_GONE_DESCRIPTION_PATTERN 为 `gone`（群已不存在）；403 且描述匹配 BOT_DEPARTED_DESCRIPTION_PATTERN
- * 为 `departed`（机器人已不是成员）。其余错误（网络、5xx、429、别的 4xx）不下结论，返回 null。
+ * 把 getChat 的失败归为确证的「群不可达」：带 `parameters.migrate_to_chat_id` 或描述匹配
+ * CHAT_GONE_DESCRIPTION_PATTERN 为 `gone`（群已不存在）；权限拒绝且描述匹配 BOT_DEPARTED_DESCRIPTION_PATTERN
+ * 为 `departed`（机器人已不是成员）。其余错误不下结论，返回 null。
  */
 export function classifyChatAbsence(error: unknown): ChatDepartureReason | null {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =

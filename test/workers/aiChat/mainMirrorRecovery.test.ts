@@ -442,7 +442,7 @@ describe("AI main-thread persistence mirror", () => {
 
   test("启动恢复不会 hydrate 已关闭群，并为磁盘残留安排 durable 删除", () => {
     aiEnabledChats.add(-1002);
-    // -1001 在 state.json 里但开关不是 true，即管理员关闭的群。
+    // -1001 在已持久化群状态里但开关未启用，即管理员关闭的群。
     knownChats.add(-1001);
     aiChat.initAiChat({ id: 99, username: "ninja_bot", first_name: "Ninja" });
 

@@ -1,7 +1,5 @@
 /**
- * Gemini 侧的联网检索执行器（web_search 或 text 能力）：用该能力的模型发一次挂 `googleSearch` 的
- * generateContent 单轮请求，交回结论正文、groundingChunks 给出的来源与实际检索次数。收发与
- * 失败归一化走 client.ts 的 requestGeminiResult；token 与检索次数在那里按同一响应上报。
+ * Gemini 联网检索实现：挂载服务端 `googleSearch` 工具调用 `generateContent`，提取正文、来源与检索次数。
  */
 
 import {
@@ -20,7 +18,7 @@ import type {
   AiWebSearchSource,
 } from "../../types/aiChat/provider";
 
-/** 第一个 candidate 的 groundingChunks 里带地址的网页来源，按出现顺序；没有标题时以地址代替。 */
+/** 按出现顺序提取首个 candidate `groundingChunks` 中的网页来源。 */
 function groundedSources(data: GenerateContentResponse): readonly AiWebSearchSource[] {
   const sources: AiWebSearchSource[] = [];
   for (const chunk of data.candidates?.[0]?.groundingMetadata?.groundingChunks ?? []) {
@@ -31,7 +29,7 @@ function groundedSources(data: GenerateContentResponse): readonly AiWebSearchSou
   return sources;
 }
 
-/** 按指定能力执行一次联网检索；不抛出，失败已由 requestGeminiResult 记日志。 */
+/** 按指定能力执行一次 Gemini 联网检索。 */
 export async function searchGeminiWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest
@@ -39,7 +37,6 @@ export async function searchGeminiWeb(
   const result: GeminiRequestResult = await requestGeminiResult({
     capability,
     buildBody: (): GenerateContentParameters => {
-      // web_search 没配时抛错，由 requestGeminiResult 的 try 归一成失败；text 取对话模型。
       const model: string = requireAgentCapabilityConfig(capability).model;
       return {
         model,

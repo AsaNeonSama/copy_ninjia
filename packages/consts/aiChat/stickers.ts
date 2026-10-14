@@ -1,7 +1,7 @@
 /** getStickerSet 失败后的短期负缓存；到期后同进程可重新请求。 */
 export const STICKER_SET_FAILURE_RETRY_MS: number = 60_000;
 
-/** 一轮回复最多发送一枚贴纸。 */
+/** 一轮回复最多发送的贴纸枚数。 */
 export const MAX_STICKERS_PER_REPLY: number = 1;
 /** 部署配置允许的贴纸包上限，启动预检拒绝超出的配置。 */
 export const MAX_CONFIGURED_STICKER_PACKS: number = 5;

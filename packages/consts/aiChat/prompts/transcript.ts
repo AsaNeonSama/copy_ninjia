@@ -84,7 +84,7 @@ export const COLD_MEMORY_BLOCK_HEADER: string =
   `${blockTitle(COLD_MEMORY_TIER_NAME, "长期背景")}下列内容是更早对话的压缩摘要（按时间从旧到新），只用于理解长期话题、称呼、人物关系和前因后果，不用于判断当前状态；` +
   "它与较新的逐字记录不一致时，只说明情况后来变了，当前状态以逐字记录为准：\n";
 
-/** 机器人自己在名册里的固定编号，不参与 u1/u2 排号。 */
+/** 机器人自己在名册里的固定编号，不参与群友排号。 */
 export const SELF_ROSTER_CODE: string = "me";
 
 /** AI 上下文中本机器人发言的唯一代称；仅按自身账号 ID 使用，转录身份不展示 Telegram 姓名或用户名。 */
@@ -223,12 +223,7 @@ export const SELF_ACTION_TAG_MARKERS: readonly string[] = [
 ];
 
 /**
- * 拦截侧的判定式：模型给 send_message 的正文里命中其中任何一条，就是在用文字
- * 伪造一次执行侧动作，必须拒发（见 aiChat/ai/tools/replyToolset/sendMessage.ts）。
- *
- * 锚定的是上面这些模板的**整体形状**：记号出现在一对全角括号里、紧跟着 `：` 或
- * 收尾的 `）`，中间只允许一小段没跨过 `）` 的前缀（容许「参考素材」写成
- * 「参考上传的素材」这类变体）。括号外提到这些词一律放行，括号内摆成凭据形状的一律拦下。
+ * 拦截 send_message 正文中伪造执行侧动作记号的正则列表（见 aiChat/ai/tools/replyToolset/sendMessage.ts）。
  */
 export const SELF_ACTION_TAG_PATTERNS: readonly RegExp[] = [
   new RegExp(`（[^）]{0,20}${SELF_STICKER_TAG_MARKER}(?:：|）)`),

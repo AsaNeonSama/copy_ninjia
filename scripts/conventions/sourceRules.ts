@@ -159,7 +159,7 @@ export function collectConstantProblems({
  * `Object.freeze` 在 packages/ 下一处都不许有。
  *
  * 常量、部署配置快照、句柄对象都一样：不可变性一律由 `readonly`/`Readonly<T>`
- * 在编译期表达（见 AGENTS.md「常量与不可变性」），不做运行期冻结。
+ * 在编译期表达，不做运行期冻结。
  *
  * 这条独立于 collectConstantProblems：解析结果和句柄对象不是 SCREAMING_SNAKE 常量，
  * 不经过那一条，同样不许冻结。
@@ -247,7 +247,7 @@ export function collectModuleCacheProblems({
 }
 
 /**
- * 生产代码不得导入的类型聚合入口（AGENTS.md「类型与接口」）：仅供测试的 `types/antiRaid` 与
+ * 生产代码不得导入的类型聚合入口：仅供测试的 `types/antiRaid` 与
  * `types/diskIO`，以及不存在、也不得重建的 `types` 目录入口（`types/index`）。生产代码必须
  * 直接导入所属领域模块。
  */

@@ -1,6 +1,4 @@
-/** owner: main。群 teardown 注册表（packages/infra/chatTeardownRegistry.ts）的内存状态。各 owner 注册时
- * 填充固定槽位，运行中不清除；进程退出时整表释放，重启后从 no-op 重新注册，
- * 不淘汰单个槽位。 */
+/** owner: main。群 teardown 注册表状态（packages/infra/chatTeardownRegistry.ts）。 */
 
 import type {
   ChatRuntimeOwner,
@@ -13,7 +11,7 @@ const noChatTeardown: ChatTeardownCallback = (
   _reason: ChatTeardownReason
 ): undefined => undefined;
 
-/** 上层运行态固定 owner 的 teardown；槽位数恒定，不随聊天或事件增长。 */
+/** 各业务模块注册的群 teardown 回调表：启动注册时填充固定槽位，运行期不清除、不淘汰；槽位数与 ChatRuntimeOwner 恒定同阶，进程重启后从空操作回调重新注册。 */
 export const chatTeardownCallbacks: Record<ChatRuntimeOwner, ChatTeardownCallback> = {
   copy: noChatTeardown,
   translate: noChatTeardown,

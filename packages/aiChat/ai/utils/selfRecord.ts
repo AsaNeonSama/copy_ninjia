@@ -6,20 +6,17 @@ import type {
 import type { BufferedReplyReference } from "../../../types/aiChat/memory";
 
 /**
- * 机器人把自己刚发出的消息写回滚动记忆时的公共载荷。主线程侧与 AI Worker 侧
- * 调用点共用完整 AiRecordMessage 构造；senderId 保留自身 ID，姓名改用统一代称，
- * lastName 为空且 username 显式 undefined。builder 一次写齐固定字段，不创建投影或对象展开；
- * persistImmediately 恒为 false（自录不参与 purge 后的即时上报），键始终写出，与普通记录同一对象形状。
+ * 构造机器人将自身发出的消息写回滚动记忆时的 AiRecordMessage 载荷。
  */
 export interface SelfRecordMessageParams {
   chatId: number;
-  /** 机器人自己的账号身份，来源见 cache/workers/aiChat/identity.ts 的 botInfoState。 */
+  /** 机器人账号身份。 */
   self: AiBotInfo;
-  /** 刚发出的那条消息的 message_id。 */
+  /** 已发出消息的 message_id。 */
   messageId: number;
-  /** 这条自录的正文。 */
+  /** 自录消息正文。 */
   text: string;
-  /** Telegram 实际建立的回复关系（热区快照）；没挂回复时传 undefined。 */
+  /** 可选的回复引用快照。 */
   replyTo?: BufferedReplyReference | undefined;
 }
 
@@ -38,7 +35,6 @@ export function buildSelfRecordMessage({
     lastName: "",
     username: undefined,
     messageId,
-    // 快照逐字段复制成协议引用；自录的回复目标由 Worker 自己解析，botImage 为 undefined。
     replyTo: replyTo === undefined ? undefined : {
       messageId: replyTo.messageId,
       id: replyTo.id,

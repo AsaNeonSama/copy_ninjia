@@ -15,122 +15,151 @@ This document answers the core organizational question: **"Where does existing c
 ## Directory Responsibilities
 
 - **`LICENSES/`**
-  - **Contents**: The project's MIT [`LICENSE`](../../LICENSES/LICENSE), [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt) for CJK character variants, and third-party licenses for Opus audio codecs.
+  - **Contents**: The project's MIT [`LICENSE`](../../LICENSES/LICENSE), [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt) for CJK character variants, and third-party licenses for Opus audio encoding ([`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) and [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)).
 - **`packages/app/`**
-  - **Responsibility**: System lifecycle orchestration, startup configuration preflight checks, dynamic hot-reload file watching, handler registration, command menu management, and the Telegram update polling runner.
-  - **Key Modules**: `lifecycle.ts` and `lifecycle/` (`maintenance.ts`, `shutdown.ts`), `registerHandlers.ts`, `updateRunner.ts`, `configReload.ts`.
+  - **Responsibility**: System lifecycle orchestration, startup configuration preflight checks, `config/dynamic/` hot-reload watching and propagation, handler registration, command menu assembly, and the Telegram update polling runner.
+  - **Key Modules**: `lifecycle.ts` and `lifecycle/` (`maintenance.ts`, `shutdown.ts`), `lifecycleDependencies.ts`, `configReload.ts`, `registerHandlers.ts`, `updateRunner.ts` / `updateFetcher.ts`.
 - **`packages/commands/`**
-  - **Responsibility**: Explicit slash command handlers, sub-command dispatchers, and permission checks.
-  - **Key Modules**: `copy.ts`, `icon.ts`, `mood.ts`, `qa.ts`, `block.ts`, `hImage.ts` (image drawing/collection), `info.ts`, `deferredCommands.ts` (shared bounded executor for async commands), `mute.ts`, `batchKick.ts`, `targetResolution.ts`, `gag/` (speech restriction runtime and rendering), `deleteMessage.ts` with `deleteMessage/queue.ts` (`/delete_message` command, message ingress, and deletion queue), `luckChallenge/` (daily fortune draws).
+  - **Responsibility**: Explicit Telegram slash command handlers organized by command domain; sub-commands dispatch within their domain and shared permission/config gates are extracted into dedicated modules.
+  - **Key Modules**: `copy.ts`, `icon.ts`, `mood.ts`, `qa.ts`, `block.ts`, `hImage.ts` and `hImage/` (image drawing and collection), `info.ts`, `deferredCommands.ts`, `blocklistFanOut.ts`, `mute.ts`, `batchKick.ts`, `targetResolution.ts`, `configGate.ts`, `arguments.ts`; gag speech restrictions in `gag.ts` (entry), `gag/runtime.ts` (lifecycle), `gag/inline.ts`, and `gag/rendering.ts`; `/delete_message` in `deleteMessage.ts` (command and message ingress) and `deleteMessage/queue.ts` (deletion queue and shutdown drain); daily fortune draws in `luckChallenge/` (`cache.ts`, `draw.ts`, `key.ts`, `rateLimit.ts`, `receipt.ts`, `rendering.ts`, `telegramAdapter.ts`).
 - **`packages/auto/`**
-  - **Responsibility**: Passive and proactive non-command behaviors, including message copying, reaction synchronization, and spontaneous AI conversation triggers.
-  - **Key Modules**: `message/` (including `triggerPolicy.ts`) and `reactionSync.ts`.
+  - **Responsibility**: Non-command automatic behaviors, including message copying, AI chat transcription and trigger evaluation, and reaction synchronization.
+  - **Key Modules**: `message/` (including `triggerPolicy.ts`), `reactionSync.ts`.
 - **`packages/aiChat/`**
-  - **Responsibility**: Main-thread conversational AI facade, AI Worker supervisor bridge, context memory mirrors, startup hydration, sticker pack mirrors, and provider adapters (`gemini/`, `openai/`, `anthropic/`).
-  - **Key Modules**: `workerBridge.ts`, `hydration.ts`, `messageIngress.ts`, `voiceSynthesis.ts`, `webDigest.ts`, `memoryMirror.ts`, `provider.ts`.
+  - **Responsibility**: Main-thread conversational AI proxy and model capability integration, including Worker supervision, memory mirrors, startup and hot-reload state hydration, availability checks, and provider clients/tools (`gemini/`, `openai/`, `anthropic/`).
+  - **Key Modules**: `workerBridge.ts`, `hydration.ts`, `messageIngress.ts`, `botImages.ts`, `voiceSynthesis.ts`, `webDigest.ts`, `memoryMirror.ts`, `stickerMirror.ts`, `workerJob.ts`, `availability.ts`, `provider.ts`, `providerLanes.ts`, `capabilityClient.ts`, `gemini/`, `openai/`, `anthropic/`, `ai/`; `index.ts` provides a thin stateless public facade.
 - **`packages/antiRaid/`**
-  - **Responsibility**: Main-thread Anti-Raid facade, Worker supervision, durable IPC handoff, ad detection pipelines, and join challenge coordination.
-  - **Key Modules**: `workerBridge/controller.ts`, `durableDelivery.ts`, `updateIngress.ts`, `adCandidate.ts`, `adDetect.ts`.
+  - **Responsibility**: Main-thread Anti-Raid proxy, including Worker supervision, durable message delivery, join/message update ingress, ad candidate queuing and disposal, blocklist enforcement, and verification scheduling.
+  - **Key Modules**: `workerBridge/` (`controller.ts`, `events.ts`, `observers.ts`, `replay.ts`), `durableDelivery.ts`, `updateIngress.ts`, `adCandidate.ts`, `adDetect.ts`; `index.ts` provides a thin stateless public facade.
 - **`packages/cron/`**
-  - **Responsibility**: Main-thread scheduler for `cron.json` tasks (native Bun cron, random intervals, one-shot jobs), sequential action execution, and dedicated Telegram dispatch boundaries.
+  - **Responsibility**: Main-thread scheduler for `cron.json` tasks (standard cron expressions, one-shot `just_once`, and random interval `rand_cron`), sequential action execution with retries, and Telegram outbound delivery.
   - **Key Modules**: `scheduler.ts`, `run.ts`, `delivery.ts`, `targets.ts`.
 - **`packages/copy/`**
   - **Responsibility**: Message echoing logic, text transformations (reverse, nya), and avatar update queues.
   - **Key Modules**: `echo.ts`, `copyModes.ts`, `avatarQueue.ts`.
 - **`packages/translate/`**
-  - **Responsibility**: Per-group translation sessions, regex language detection, and Google Translation client interactions.
+  - **Responsibility**: Per-group translation sessions, state recovery, regex language detection, and Google Translation client wrapper.
   - **Key Modules**: `state.ts`, `recovery.ts`, `message.ts`, `language.ts`, `client.ts`.
 - **`packages/users/`**
-  - **Responsibility**: In-memory sender identity cache, visible identity resolution, user label formatting, and sender deduplication.
-  - **Key Modules**: `senderIdentity.ts`, `visibleSender.ts`, `userLabel.ts`, `identityMetadata.ts`.
+  - **Responsibility**: In-memory sender identity cache, visible sender extraction and label formatting, and shared identity/message metadata resolution.
+  - **Key Modules**: `senderIdentity.ts`, `visibleSender.ts`, `userLabel.ts`, `identityMetadata.ts`, `messageContent.ts`, `messageOrigin.ts`.
 - **`packages/states/`**
-  - **Responsibility**: **Completely I/O-free, pure functional state machines** and admission predicates for join challenges, lockdown, AI replies, ad-detection admission, temporary ad bypasses, and media input support.
-  - **Key Modules**: `verification/` (join, pending, terminal, disable, adopt), `lockdown/` (apply, persistence, restore, announcement, adopt), `replyAdmission.ts`, `adDetectAdmission.ts`, `temporaryAdBypass.ts`, `mediaInputSupport.ts`.
+  - **Responsibility**: **Completely I/O-free, pure functional state machines** and admission predicates for join verification transitions, lockdown transitions, AI reply admission, ad-detection admission, temporary ad bypasses, and media input support reduction.
+  - **Key Modules**: `verification.ts` and `verification/` (`join`/`pending`/`terminal`/`disable` phases and `adopt.ts` recovery), `lockdown.ts` and `lockdown/` (`apply`/`persistence`/`restore`/`announcement`/`adopt` phases), `replyAdmission.ts`, `adDetectAdmission.ts`, `temporaryAdBypass.ts`, `mediaInputSupport.ts`.
 - **`packages/config/`**
-  - **Responsibility**: Strict schema validation, process snapshots, and hot-reload logic for `config/{static,dynamic}/*.json`.
-  - **Key Modules**: `bot.ts`, `agent.ts`, `assets.ts`, `cron.ts`, `mood.ts`, `stickers.ts`, `adSamples.ts`, `googleAuth.ts`, `readiness.ts`.
+  - **Responsibility**: Strict schema validation, in-memory snapshots, hot-reload diffing, and capability readiness checks for `config/{static,dynamic}/*.json`.
+  - **Key Modules**: `bot.ts`, `botInput.ts`, `layout.ts`, `agent.ts`, `agentCapability.ts`, `assets.ts`, `cron.ts`, `mood.ts`, `stickers.ts`, `adSamples.ts`, `googleAuth.ts`, `readiness.ts`, `reload.ts`.
 - **`packages/database/`**
-  - **Responsibility**: Shared SQLite database schemas, codecs, row validations, and Drizzle interaction boundaries. Exclusively owned at runtime by the Disk I/O Worker.
-  - **Key Modules**: `schema/` (migrations), `codec/`, `interact/` (connection, transactions, migrations, queries).
+  - **Responsibility**: Shared SQLite database schemas, codecs, row validations, and Drizzle ORM interaction boundaries; runtime database handles are exclusively owned by the Disk I/O Worker.
+  - **Key Modules**: `schema/` (including `migrations/`), `codec/identity.ts`, `codec/chatState.ts`, `codec/chatQa.ts`, `codec/temporaryAdBypass.ts`, `interact/` (`connection.ts`, `transaction.ts`, `identityPolicy.ts`, `chatState.ts`, `chatQa.ts`, `temporaryAdBypass.ts`, `aiContext.ts`, `migration.ts`, `initialization.ts`, `inspection.ts`), `validation/storageRows.ts`.
 - **`packages/libs/`**
-  - **Responsibility**: Reusable, domain-agnostic foundation utilities (bounded queues, atomic filesystem operations, markdown escaping, and concurrency barriers).
-  - **Key Modules**: `flushBarrier.ts`, `fifoMap.ts` and `lruCache.ts`, `boundedSettledBatch.ts`, `telegramMarkdown.ts`, `workerRequestTable.ts`.
+  - **Responsibility**: Domain-agnostic foundation utilities, including atomic file operations, bounded queues, and concurrency/IPC helpers.
+  - **Key Modules**: `flushBarrier.ts`, `linkedQueue.ts`, `fifoMap.ts` and `lruCache.ts`, `acknowledgedBatchQueue.ts`, `boundedResponse.ts`, `boundedSettledBatch.ts`, `monotonicDeadline.ts`, `text.ts`, `errorMessage.ts`, `telegramMarkdown.ts`, `webDigest.ts` and `webDigestMarkdown.ts`, `webDigestUrls.ts`, `workerRequestTable.ts`.
 - **`packages/workers/`**
-  - **Responsibility**: Thread entry points and isolated worker-side implementations for all three Worker processes.
-  - **Key Modules**: `aiChatWorker.ts`, `antiRaidWorker.ts`, `diskIOWorker.ts`, `businessWorkerPort.ts`.
+  - **Responsibility**: Internal implementations for the three Worker threads.
+  - **Key Modules**: `aiChatWorker.ts`, `antiRaidWorker.ts`, `diskIOWorker.ts`, `businessWorkerPort.ts`, `aiChat/`, `antiRaid/verificationEffects/`, `diskIO/storageDatabase.ts` and `diskIO/storageDatabase/`, `diskIO/verification{Codec,Recovery,Writes}.ts`.
+- **`packages/aiChat/ai/`**
+  - **Responsibility**: Tool and prompt implementations for AI capabilities.
+  - **Key Modules**: `tools/replyToolset/`, `tools/webSearch.ts`, `webDigest.ts`, `utils/`, `stickers/`, `voiceSynthesis.ts`, `ttsUsage.ts`.
+- **`packages/workers/antiRaid/adDetect/`**
+  - **Responsibility**: Ad detection pipeline, including batch queuing, message bundling, classifier invocation, and violation disposal.
+  - **Key Modules**: `queue.ts`, `queueState.ts`, `verdict.ts`, `bundle.ts`, `classifier.ts`, `disposal.ts`, `config.ts`.
 - **`packages/infra/`**
-  - **Responsibility**: Main-thread infrastructure: primary Telegram API client, outbound message gates, worker IPC hosts, structured logging, and image library disk management.
-  - **Key Modules**: `telegram/`, `diskIO.ts`, `identityStorage.ts`, `logger.ts`, `supervisedWorker.ts`, `randomImage.ts`.
+  - **Responsibility**: Main-thread sole Telegram client and outbound gate, Worker duplex IPC hosts, structured logging, main-thread I/O proxies, and dedicated image library management.
+  - **Key Modules & Directories**:
+    - `telegram/` (including `telegram/avatar/`, `telegram/actions/`)
+    - `diskIO.ts` and `diskIO/` (`businessWrite.ts`, `diagnosticChannel.ts`, `fatal.ts`, `host.ts`, `observers.ts`, `recovery.ts`, `requests.ts`, `storageAdmission.ts`, `transport.ts`)
+    - `identityStorage.ts` and `identityStorage/` (`read.ts`, `shared.ts`, `sweep.ts`, `write.ts`)
+    - `logger.ts` and `logger/` (`forwarding.ts`, `redaction.ts`, `serialization.ts`)
+    - `supervisedWorker.ts`, `workerSupervisor.ts`
+    - `aiCacheUsage.ts`, `geminiContextCache.ts`
+    - `randomImage.ts`, `mediaGroups.ts`
+    - `telegram/fileDownload.ts`, `telegram/commandPhotos.ts`, `commandExecutor.ts`
+- **`packages/infra/identityPolicy/`**
+  - **Responsibility**: Main-thread read boundaries for allowlist permissions, temporary ad bypasses, and list mutual-exclusion coordination.
+  - **Key Modules**: `whitelist.ts`, `temporaryAdBypass.ts`, `coordination.ts`.
+- **`packages/infra/blocklist/`**
+  - **Responsibility**: Main-thread blocklist infrastructure, including membership checks, durable outbox, cross-group member sweeps, and deleted-account detection.
+  - **Key Modules**: `membership.ts`, `outbox.ts`, `participantInvalid.ts`, `sweep.ts`, `sweepEligibility.ts`, `sweepReplay.ts`, `sweepRetryState.ts`, `sweepScheduler.ts`.
+- **`packages/infra/storage/`**
+  - **Responsibility**: Data root preflight checks, single-instance lock protection, global state (`memory/global/state.json`) facade, and startup cleanup.
+  - **Key Modules**: `dataRoot.ts`, `instanceLock.ts`, `stateStore.ts`, `statePersistence.ts`, `cleanup.ts`.
 - **`packages/cache/`**
-  - **Responsibility**: Storage containers for mutable in-process state. **The first directory level explicitly specifies the owning thread**.
+  - **Responsibility**: In-process mutable state containers. **The first directory level strictly corresponds to the owning thread**.
   - **Key Subdirectories**: `main/`, `workers/aiChat/`, `workers/antiRaid/`, `workers/diskIO/`, `perThread/`.
 - **`packages/consts/`**
-  - **Responsibility**: Immutable literal constants, tunable limits, and localized user-facing copy dictionary tables.
-  - **Key Modules**: `atmosphere/{teasing,plain}/`, `commands.ts`, `whitelist.ts`, `aiChat/`, `antiRaid/`.
+  - **Responsibility**: Immutable literal constants, runtime parameters, and user-facing copy tables organized by domain.
+  - **Key Modules**: `atmosphere/{teasing,plain}/`, `commands.ts`, `whitelist.ts`, `aiChat/rateLimit.ts`, `antiRaid/`, `diskIO/`.
 - **`packages/types/`**
-  - **Responsibility**: Shared TypeScript interfaces, domain data models, inter-worker IPC message schemas, and state machine contracts.
+  - **Responsibility**: Cross-module contracts, domain model types, and state machine state/event definitions (`types/states/`).
+  - **Key Modules**: `chatState.ts`, `commands.ts`, `lifecycle.ts`, `diskIO/` (`messages.ts`, `replies.ts`).
 - **`test/`**
-  - **Responsibility**: Bun test suites mirroring the structure of `packages/`.
+  - **Responsibility**: Bun unit and integration test suites mirroring `packages/`.
 - **`scripts/`**
-  - **Responsibility**: Automated quality gates, build/release tooling, performance benchmark suites, setup installers, and offline cold migrations.
+  - **Responsibility**: Convention checks, build/release packaging, performance benchmark suites, installer scripts, and offline cold migration scripts.
 
 ---
 
 ## Deciding Where New Code Belongs
 
-When introducing new code or refactoring existing modules, follow this decision tree in order:
+When introducing new code or refactoring existing modules, follow this decision order:
 
-1. **Is it a static configuration, tunable parameter, or user-facing text?**
-   → Put it in `packages/consts/<domain>.ts`. Document with Chinese JSDoc explaining its purpose and constraints. If it represents deployment JSON schema validation, put it in `packages/config/<domain>.ts`.
-2. **Is it a shared type definition, IPC message contract, or state machine interface?**
-   → Put it in `packages/types/<domain>.ts` or `packages/types/states/`.
-3. **Is it long-lived mutable in-memory state (Map, Set, queue, timer, singleton)?**
-   → Put it in `packages/cache/`. **Choose the owning thread directory first** (`main/`, `workers/<worker>/`, or `perThread/`), then create the domain file inside it. Use `{ current: T | null }` holder objects instead of `export let`.
-4. **Is it pure, side-effect-free state transition logic?**
-   → Put it in `packages/states/`. Keep it free of any file I/O or network dependencies so it can be thoroughly unit-tested in isolation.
-5. **Is it operational business logic or external side-effect execution?**
-   → Place it directly in its owning subsystem: commands in `packages/commands/`, passive behavior in `packages/auto/`, internal worker logic in `packages/workers/<domain>/`, and shared process infrastructure in `packages/infra/`.
+1. **Is it a literal parameter, threshold, or user-facing text?**
+   - Put it in `packages/consts/<domain>.ts` (or split into `packages/consts/<domain>/` when large).
+   - Include Chinese JSDoc explaining its purpose and invariants. Command notices and receipts belong in copy tables rather than inline in handlers.
+   - Deployment JSON parsing and validation belong in `packages/config/<domain>.ts`; environment variables may only be read in `packages/consts/paths.ts` and `packages/consts/environment.ts`.
+2. **Is it a shared type definition or protocol across modules?**
+   - Put it in `packages/types/<domain>.ts`. Pure state machine state, event, and decision contracts go in `packages/types/states/`.
+3. **Is it long-lived mutable state (Map, Set, queue, timer, or singleton)?**
+   - Put it in `packages/cache/` under the owning thread's subdirectory (`main/`, `workers/<worker>/`, or `perThread/`).
+   - Wrap singletons in `{ current: T | null }` holders (never `export let`), and document initialization, cleanup, and Worker crash-recovery behavior in JSDoc.
+4. **Is it pure state transition logic (zero I/O, pure computation)?**
+   - Put it in `packages/states/`. Actual I/O side effects are executed by the main-thread or Worker interpreter.
+5. **Is it operational business logic, side effects, or external integration?**
+   - Place it in its owning domain: user commands in `packages/commands/`, non-command automatic behavior in `packages/auto/`, internal Worker logic in `packages/workers/<domain>/`, model capabilities in the domain's `ai/` directory, and shared infrastructure in `packages/infra/`.
 
 > [!CAUTION]
-> **Prohibited Anti-Patterns**:
-> - Never declare unbounded global `Map` or `Set` collections directly inside business logic files.
-> - Never scatter magic numbers or ad-hoc strings across call sites.
-> - Workers must never access the filesystem directly via `node:fs` or `Bun.file` for shared data; all disk writes must be routed through the Disk I/O Worker.
+> **Prohibited Patterns**:
+> - Declaring module-level `Map` or `Set` collections inside ordinary business files.
+> - Scattering constants inside business logic.
+> - Reading or writing shared data directly via `fs` inside Worker threads, bypassing the Disk I/O Worker.
 
 ---
 
 ## Cache Partitioned by Owning Thread
 
-Because each thread runs in its own memory space and communicates strictly through message passing, importing a cache module across different threads creates completely separate, disconnected instances. The top-level folder under `packages/cache/` strictly designates ownership:
+The first directory level under `packages/cache/` declares which thread owns the state—threads communicate exclusively by message passing without shared memory, so importing the same cache module from two threads instantiates two independent copies:
 
 - **`main/`**
-  - **Owner**: Main Coordinator Thread.
-  - **Contents**: Update queues, global copy state mirrors (`stateStore.ts`), dynamic asset snapshots (`assets.ts`), group state hot-read maps (`chatState.ts`), Disk I/O host state, and main-thread recovery mirrors for Worker data.
+  - **Owner**: Main thread.
+  - **Contents**: Command and auto-pipeline state, global `memory/global/state.json` mirror (`storage.ts`, managed via the `stateStore.ts` facade), `config/dynamic/assets.json` asset snapshots (`assets.ts`), `chat_states` hot-read map (`chatState.ts`, up to `STATE_MANAGED_CHAT_LIMIT` chats including per-group translation sessions), Disk I/O host state, and **main-thread Worker proxies and recovery mirrors** (`main/aiChat.ts`, `main/antiRaid/`).
 - **`workers/aiChat/`**
   - **Owner**: AI Chat Worker.
-  - **Contents**: Conversation memory buffers, rolling summaries, admission counters, active mood state, sticker catalogs, and AI provider client singletons.
+  - **Contents**: Rolling conversation memory, reply admission counters, bot-sent image description backfill registrations, active mood state, sticker catalogs and sets, in-flight voice synthesis and web digest jobs delegated from the main thread, daily voice synthesis counters, and model provider client singletons.
 - **`workers/antiRaid/`**
   - **Owner**: Anti-Raid Worker.
-  - **Contents**: Verification challenge state machines, raid lockdown windows, spam classification queues, and moderation provider clients.
+  - **Contents**: Verification and lockdown state machines, flood windows, ad detection queues, and Google/OpenAI/Anthropic moderation clients.
 - **`workers/diskIO/`**
   - **Owner**: Disk I/O Worker.
-  - **Contents**: Transactional write buffers, database connection handles, and coalesced flush timers (`timedFlush.ts`).
+  - **Contents**: Per-domain write buffers, indexes, dirty flags, and coalesced periodic flush timers (`timedFlush.ts`).
 - **`perThread/`**
-  - **Owner**: Instantiated independently in each thread (never shared).
-  - **Contents**: Thread-local Telegram proxy holders, duplex IPC waiters, configuration singletons, and cancellation contexts.
+  - **Owner**: Instantiated independently once per thread.
+  - **Contents**: Telegram capability implementation holders (real adapter on the main thread, duplex proxy in business Workers), Worker duplex waiters, deployment config singletons, self-sent message registry, update cancellation context storage, and AI cache usage reporting sink.
 
 > [!IMPORTANT]
-> `main/antiRaid/` and `workers/antiRaid/` represent **two completely independent sets of state**: the authoritative state machine lives inside the Anti-Raid Worker, while the main-thread copy is a recovery snapshot used solely to rebuild worker memory after a crash. Placing state in the wrong directory breaks isolation and will be rejected by `bun run check:conventions`.
+> `main/antiRaid/` and `workers/antiRaid/` are **two non-shared sets of state**: the authoritative state machine lives inside the Anti-Raid Worker, while the main thread holds only a pure data mirror for crash replay. `bun run check:conventions` verifies ownership against the actual module import graph (see [04 Authoritative Runtime Invariants](04-invariants.md#thread-and-state-ownership)) and prints the full import chain on violation.
+>
+> Domain modules reused across threads (such as `packages/aiChat/ai/`) must separate pure functions from thread-exclusive caches: for example, [`packages/aiChat/ai/stickers/describe.ts`](../../packages/aiChat/ai/stickers/describe.ts) is called directly by the main-thread message pipeline, while the sticker set cache in `sets.ts` is owned exclusively by the AI Worker.
 
 ---
 
 ## Compatibility Entry-Point (Barrel) Convention
 
-When a large module is split into submodules, the original file path may temporarily remain as a thin, stateless compatibility re-export entry point (for example, `packages/infra/telegram/actions.ts` forwarding to `packages/infra/telegram/actions/`):
+When a large file is split into submodules, the original path may remain as a thin, stateless compatibility export entry point (such as `packages/infra/telegram/actions.ts` for `packages/infra/telegram/actions/`, or `packages/workers/diskIO/storageDatabase.ts` for `packages/workers/diskIO/storageDatabase/`):
 
-- Compatibility entry points exist solely to prevent breaking existing imports during refactoring. **All newly written code must import directly from specific domain submodules.**
-- Compatibility barrels must never hold mutable state, perform configuration parsing, or introduce side effects upon import.
-- Package `index.ts` files should remain clean, selective public facades rather than unbounded `export *` barrels.
+- Compatibility entry points serve only gradual migration of existing imports; **all new code must import directly from domain leaf files**.
+- Compatibility entry points must never hold mutable state, parse configuration, or introduce import side effects.
+- Package `index.ts` files are kept only when callers genuinely need a single package surface; `packages/aiChat/index.ts`, `packages/antiRaid/index.ts`, and `packages/infra/telegram/index.ts` are explicit thin exports with no state (`infra/telegram/index.ts` re-exports only the client, common actions, and command receipt symbols used by existing modules, while new code imports leaf modules such as `client`, `actions/*`, and `commandMessages` directly). Production internals of `aiChat` and `antiRaid` import their owner leaf modules directly, and none of these entry points use unbounded `export *`.
 
 ---
 

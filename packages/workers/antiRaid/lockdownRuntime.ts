@@ -51,13 +51,7 @@ import { publishLockdownState } from "./lockdownPersistence";
 declare const self: Worker;
 
 /**
- * 反刷群私密模式状态机（packages/states/lockdown.ts 与同名目录）的解释器：把每条投递翻译成
- * 状态机事件、同步落下一状态、管理恢复计时器、把返回的副作用列表逐个执行。
- * thresholdExceeded 的占位同步生效——recordJoin 调用 dispatchLockdown 后，
- * 同一批投递里紧随其后的入群立刻就能在 verificationEvents.ts 的 handleJoinEvent
- * 里看到 lockdownEntries 有记录。lockdown/unlock 事件回报主线程用于持久化 +
- * Worker 崩溃后的 adopt 重放，机制见 antiRaid/workerBridge/controller.ts；总体架构见
- * ../antiRaidWorker.ts 模块头。
+ * 反刷群私密模式状态机（packages/states/lockdown.ts）解释器：同步推进状态机、管理到期与重试计时器，并按序执行返回的副作用（不变量见 docs/cn/04-lockdown-invariants.md）。
  */
 
 function dispatchLockdown(chatId: number, event: LockdownMachineEvent): void {
@@ -97,17 +91,7 @@ function clearRetryTimer(entry: LockdownEntry): void {
   entry.retryTimer = undefined;
 }
 
-/**
- * 排一次重试节拍：换掉这个群仍在等的那颗重试 timer，到点把 `event` 投回状态机。
- *
- * 恢复重试（restoreRetryFired）与重新收紧重试（reapplyRetryFired）共用
- * `entry.retryTimer` 一个字段，状态机保证同一时刻只有一个阶段在等重试。
- * 两个事件都只带 `type`，在排程时定形；`scheduleRestore` 的 `intentId` 在**触发那一刻**
- * 才铸出。
- *
- * 回调先把句柄归零再派发。timer 不阻止线程退出，Worker 停止时由 stopLockdownRuntime
- * 统一清理。
- */
+/** 替换该群的 `retryTimer`，到期后向状态机派发 `event`。 */
 function scheduleLockdownRetry(
   chatId: number,
   delayMs: number,

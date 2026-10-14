@@ -98,7 +98,7 @@ describe("部署配置写坏时的 enable 拒绝", () => {
       text: expect.stringContaining("config/dynamic/mood.json"),
       replyToMessageId: 7,
     });
-    // 用户看到的是中文文案，运维要的定位信息在日志里（英文，见 AGENTS.md）。
+    // 用户回执为中文文案，日志记录英文定位信息。
     expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("Invalid config/dynamic/mood.json"));
   });
 

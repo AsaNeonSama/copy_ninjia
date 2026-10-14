@@ -69,12 +69,7 @@ export function noteSweepAttemptFailed(
   armBlocklistSweepScheduler();
 }
 
-/**
- * 更新一次任务诊断，只改内存镜像并登记进 unwrittenRemovalDiagnostics，不立即发 durable 写入：
- * 诊断随这一行下一次写入或下一次投递前的 write-ahead 落盘。attempts 达到
- * BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS 只告警，不删除任务。
- * 需要按条件立即发出行写入的调用方用 recordPendingRemovalFailure。
- */
+/** 更新任务内存诊断并记入 unwrittenRemovalDiagnostics；首次达到告警阈值时记录错误日志。 */
 export function updatePendingRemovalFailure(
   removalId: number,
   chatId: number,
@@ -95,11 +90,7 @@ export function updatePendingRemovalFailure(
   return true;
 }
 
-/**
- * 更新任务诊断。`lastFailure` 变为 `missing-permission`，或告警阈值首次跨越时，
- * 立即为这一行发出 durable 写入；其余失败只改内存镜像，随这一行下一次写入或下一次投递前的
- * write-ahead 落盘。
- */
+/** 更新任务诊断；首次置为 missing-permission 或达到告警阈值时立即投递行写入。 */
 export function recordPendingRemovalFailure(
   removalId: number,
   chatId: number,

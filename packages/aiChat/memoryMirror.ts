@@ -30,18 +30,12 @@ import type {
 import type { DiskIORecoveryTransport } from "../types/diskIO/messages";
 
 /**
- * AI 记忆的主线程镜像侧（owner 是 packages/aiChat/index.ts）：按 chat 单调递增的
- * revision、待确认删除 tombstone、删除回执 waiter，以及 Disk I/O Worker 重建
- * 后的镜像重放。
- *
- * 这套状态与 aiChat/workerBridge.ts 里的 Worker 监督相互独立：aiChatWorker 崩溃靠
- * latestAiMemories 重放 hydrate（在 aiChat/workerBridge.ts 的 onRespawn 里），diskIOWorker
- * 崩溃靠本文件的 onDiskIORespawn 重放 tombstone 与最新快照。只有 durable 删除
- * 回执能释放 tombstone。
+ * AI 记忆的主线程镜像维护：按群单调递增的 revision、待确认删除墓碑、删除回执等待表，
+ * 以及 Disk I/O Worker 重建后的镜像重放。
  * @see ../../docs/cn/04-invariants.md
  */
 
-/** 取该群下一个记忆 revision；镜像与 tombstone 都以它判定新旧。 */
+/** 分配并返回该群的下一个记忆 revision。 */
 export function nextAiMemoryRevision(chatId: number): number {
   const revision: number = (aiMemoryRevisionCounters.get(chatId) ?? aiMemoryRevisionFloor.current) + 1;
   aiMemoryRevisionCounters.set(chatId, revision);
@@ -49,10 +43,7 @@ export function nextAiMemoryRevision(chatId: number): number {
 }
 
 /**
- * teardown 在 durable 删除与 AI Worker 失效均完成后释放两侧水位。
- * 任一新快照、首份持久化标志、墓碑或 waiter 仍在时保留计数。
- * 全局标量记录已释放的最高 revision，新生命周期从其后分配，拒绝旧回执撞号；
- * DiskIO forget 沿删除所在 FIFO 投递。普通禁用仍保留计数以武装首份快照。
+ * 在快照、首份持久化标志、墓碑与删除等待者均已清空时，释放该群的 revision 计数并通知 Disk I/O 释放对应水位。
  */
 export function forgetAiMemoryRevisionCounter(chatId: number): void {
   if (
@@ -65,11 +56,10 @@ export function forgetAiMemoryRevisionCounter(chatId: number): void {
   }
   aiMemoryRevisionFloor.current = Math.max(aiMemoryRevisionFloor.current, aiMemoryRevisionCounters.get(chatId) ?? 0);
   aiMemoryRevisionCounters.delete(chatId);
-  // forget 与已确认删除共用 FIFO；拒收由 DiskIO fatal/重建边界处理。
   postDiskIO({ type: "forgetAiMemory", chatId });
 }
 
-/** 开始彻底清理并保留超时后的收尾责任，普通禁用不建立此身份。 */
+/** 登记该群的记忆 teardown 状态；超出受管群上限时触发 Disk I/O 致命错误并抛错。 */
 export function beginAiMemoryTeardown(chatId: number): void {
   if (!pendingAiMemoryTeardowns.has(chatId) && pendingAiMemoryTeardowns.size >= STATE_MANAGED_CHAT_LIMIT) {
     const error: Error = new Error("AI memory teardown capacity was exhausted.");
@@ -79,7 +69,7 @@ export function beginAiMemoryTeardown(chatId: number): void {
   pendingAiMemoryTeardowns.set(chatId, { requestId: null, workerSettled: !aiChatWorkerState.available });
 }
 
-/** 在回执或 teardown 结算点检查收尾；新记忆接管时只撤销旧身份，不改新代水位。 */
+/** 检查并完成该群的记忆 teardown 收尾；若已有新记忆写入则仅移除旧 teardown 登记。 */
 export function finishAiMemoryTeardown(chatId: number): void {
   const teardown: AiMemoryTeardown | undefined = pendingAiMemoryTeardowns.get(chatId);
   if (teardown === undefined) return;
@@ -92,7 +82,7 @@ export function finishAiMemoryTeardown(chatId: number): void {
   pendingAiMemoryTeardowns.delete(chatId);
 }
 
-/** 旧 AI Worker 已终止，其 invalidate 请求不再等待；durable 删除仍由 DiskIO 回执拥有。 */
+/** 将所有在途记忆 teardown 的 Worker 侧状态标为已结算，并尝试完成收尾。 */
 export function settleAiMemoryTeardownWorker(): void {
   for (const [chatId, teardown] of pendingAiMemoryTeardowns) {
     teardown.workerSettled = true;
@@ -127,17 +117,13 @@ function waitForAiMemoryDelete(chatId: number, revision: number): Promise<void> 
   });
 }
 
-/** 建立/重放最新墓碑；wait=true 用于命令与 teardown 的 update durability barrier。 */
+/** 清空该群主线程记忆镜像并向 Disk I/O 投递删除墓碑；`wait` 为 true 时等待持久化回执。 */
 export function requestAiMemoryDelete(chatId: number, wait: true): Promise<void>;
 export function requestAiMemoryDelete(chatId: number, wait: false): undefined;
 export function requestAiMemoryDelete(chatId: number, wait: boolean): Promise<void> | undefined {
-  // 新一轮 purge 使此前任何“首份新快照”确认失效；删除 revision 之后真正
-  // 出现的新记录会按 aiMemoryRevisionCounters + 无镜像条件重新武装快速路径。
   postPurgeAiMemoryPersistRevisions.delete(chatId);
   const hadLatestSnapshot: boolean = latestAiMemories.delete(chatId);
   latestAiMemoryRevisions.delete(chatId);
-  // 占用量镜像与快照镜像同生共死：无条目时 `/bot_status` 显示 0
-  // （见 cache/main/aiChat.ts 的 aiMemoryUsages）。
   aiMemoryUsages.delete(chatId);
   let revision: number | undefined = pendingAiMemoryDeletes.get(chatId);
   if (revision === undefined || hadLatestSnapshot) {
@@ -158,8 +144,6 @@ export function requestAiMemoryDelete(chatId: number, wait: boolean): Promise<vo
 }
 
 onDiskIOGiveUp((): void => {
-  // Worker 已放弃自愈：onDiskIORespawn 不会跑，deleteAiMemory 不会重放，durable 回执不会来；
-  // 立即把所有等待者结算为失败。
   for (const waiters of aiMemoryDeleteWaiters.values()) {
     for (const waiter of [...waiters]) {
       clearTimeout(waiter.timer);
@@ -194,8 +178,6 @@ onDiskIOReply("aiMemoryPersisted", (reply: AiMemoryPersistedReply): void => {
   }
 });
 
-// diskIOWorker 崩溃重建后，把当前记忆/贴纸目录镜像整份重发给它，补齐上
-// 一次成功落盘之后的增量（见 infra/diskIO.ts 的 onDiskIORespawn 注释）。
 onDiskIORespawn("AI memory", DISK_IO_RESPAWN_PRIORITIES.AI_MEMORY, (transport: DiskIORecoveryTransport): boolean => {
   for (const [chatId, revision] of pendingAiMemoryDeletes) {
     if (!transport.post({ type: "deleteAiMemory", chatId, revision })) return false;

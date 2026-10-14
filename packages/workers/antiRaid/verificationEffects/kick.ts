@@ -39,9 +39,7 @@ export async function runKickMemberEffect({
     transitionState?.kind !== "kickPending" ||
     entry?.state !== transitionState
   ) return;
-  // 与可恢复 expelling 共用同一权限语义：确证没有限制成员权限时，本轮只发成员探测、
-  // 不发踢人请求——成员已离群即结算，否则推进本地退避；未知仍让 Telegram 作最终裁判。
-  // 请求短路时诊断照常：每轮记一行日志，与正常路径每次重试失败各记一行同一密度。
+  // 确证缺少限制成员权限时只做成员探测：已离群即结算，否则进入退避重试。
   if (botCanRestrictIn(chatId) === false) {
     const presentWithoutPermission: boolean | undefined =
       await probeChatMembership(chatId, userId, telegramApi);
@@ -71,12 +69,7 @@ export async function runKickMemberEffect({
     retryTerminalAttempt({ chatId, userId, state: transitionState, dispatchVerification });
     return;
   }
-  // **首发与重试都先做成员探测。** 超级群的「只踢不封」映射到 unbanChatMember，
-  // 不带 only_if_banned 时会**解除已有封禁**（见 infra/telegram/actions/moderation.ts
-  // 的 kickChatMemberWithOutcome），因此发请求前必须确认目标此刻仍是在群的普通成员：
-  // `getChatMember` 报 `kicked` 时探测结果为 false，直接结算，不碰封禁。
-  //
-  // 查询失败（undefined）不等于不在群，也不足以授权这个调用，照常退避重试。
+  // 踢人前先探测成员是否仍在群内（超级群「只踢不封」约束见 docs/cn/04-invariants.md）。
   const memberPresentBeforeKick: boolean | undefined =
     await probeChatMembership(chatId, userId, telegramApi);
   if (verificationEntries.get(key)?.state !== transitionState) return;

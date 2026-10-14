@@ -39,7 +39,7 @@ export function recordEligibleTemporaryAdBypassActivity(
     recordTemporaryAdBypassActivity(senderId, now);
   if (activity === undefined) return false;
   if (!wasActive && hasActiveTemporaryAdBypassAt(senderId, now)) {
-    // 状态边沿才推一次；Worker 重建时这两类非持久状态本来就是空的。
+    // 仅在首次达到免检条件时通知 Worker 清理该身份的在途广告检测状态。
     postAntiRaid({ type: "temporaryAdBypassGranted", identityId: senderId });
   }
   if (shouldPromoteToPermanentBypass(activity)) {

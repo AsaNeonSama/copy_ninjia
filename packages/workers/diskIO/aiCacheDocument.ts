@@ -20,10 +20,7 @@ import { isCanonicalDateKey } from "../../libs/time";
 import type { AiCacheCapability, AiCacheDocument, AiCacheRow, AiCacheSummary, AiCacheTotals } from "../../types/aiCache";
 import { AppendOnlyFileFormatError } from "./appendOnlyDayFile";
 
-/**
- * 可累加的合计；命中率在输出时才计算，cacheWriteInputTokens、costInUsdTicks 与 searchCalls 在计入第一条
- * 对应记录前为 undefined。
- */
+/** 可变累加合计；可选计数在计入首条对应记录前为 undefined。 */
 interface MutableTotals {
   requests: number;
   inputTokens: number;
@@ -101,14 +98,14 @@ function decodeRow(path: string, index: number, value: unknown): AiCacheRow {
   };
 }
 
-/** 命中率：cached / reported，保留 AI_CACHE_HIT_RATE_DIGITS 位小数；分母为 0 时为 null。 */
+/** 计算缓存输入占上报输入的命中率（按 AI_CACHE_HIT_RATE_DIGITS 舍入）；无上报输入时返回 null。 */
 function hitRate(cachedInputTokens: number, reportedInputTokens: number): number | null {
   if (reportedInputTokens === 0) return null;
   const scale: number = 10 ** AI_CACHE_HIT_RATE_DIGITS;
   return Math.round(cachedInputTokens / reportedInputTokens * scale) / scale;
 }
 
-/** 必填字段齐全，且除必填与 AI_CACHE_TOTALS_OPTIONAL_FIELDS 外没有别的字段。 */
+/** 检查必填字段齐全且仅包含必填与 AI_CACHE_TOTALS_OPTIONAL_FIELDS。 */
 function hasTotalsKeys(value: Record<string, unknown>, required: readonly string[]): boolean {
   for (const key of required) {
     if (!Object.hasOwn(value, key)) return false;
@@ -116,11 +113,7 @@ function hasTotalsKeys(value: Record<string, unknown>, required: readonly string
   return hasOnlyKeys(value, [...required, ...AI_CACHE_TOTALS_OPTIONAL_FIELDS]);
 }
 
-/**
- * 解码一份合计；汇总本身比 byModel 分组多 day 与 byModel，由 field 选择必填字段集合。
- * cacheWriteInputTokens、costInUsdTicks 与 searchCalls 可缺省；命中数不得超过有缓存口径的输入数，后者不得
- * 超过总输入数，写入数不得超过总输入数减命中数，命中率必须等于按同一口径重算的值。
- */
+/** 解码一份合计记录并校验各计数器上界与命中率。 */
 function decodeTotals(path: string, value: unknown, field: string): AiCacheTotals {
   const keys: readonly string[] = field === AI_CACHE_SUMMARY_KEY ? AI_CACHE_SUMMARY_FIELDS : AI_CACHE_TOTALS_FIELDS;
   if (
@@ -224,7 +217,7 @@ function emptyTotals(): MutableTotals {
   };
 }
 
-/** 计入一条记录；token 记录含检索时仍算一次请求，独立检索记录只累加次数。 */
+/** 将单条记录计入可变合计。 */
 function addRow(totals: MutableTotals, row: AiCacheRow): void {
   if ("searchCalls" in row && row.searchCalls !== undefined) totals.searchCalls = (totals.searchCalls ?? 0) + row.searchCalls;
   if (!("inputTokens" in row) && !("costInUsdTicks" in row)) return;
@@ -274,10 +267,7 @@ function finishTotals(totals: MutableTotals): AiCacheTotals {
   };
 }
 
-/**
- * 把 day 当天的记录汇总成一份 summary；previous 是同一天已有的汇总时相加。
- * byModel 按键排序，键为 `<capability>/<provider>/<model>`；总计由分组相加，命中率统一重算。
- */
+/** 将指定日期的记录与已有汇总合并，生成按 `<capability>/<provider>/<model>` 排序的当日汇总。 */
 export function buildAiCacheSummary(
   day: string,
   rows: readonly AiCacheRow[],

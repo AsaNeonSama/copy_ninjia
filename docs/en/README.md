@@ -206,7 +206,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🫧 Natural Chinese Actions</b><br>
-  <sub>Responds to 1–2 character action commands (e.g. /咬, /贴贴) without requiring pre-registration in menus.</sub></p>
+  <sub>Responds to Chinese action commands (e.g. /咬, /贴贴) without requiring pre-registration in menus.</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌊 Flood Control</b><br>
@@ -238,7 +238,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 | Claude | 90%± |
 
 > [!TIP]
-> The lower cache hit rate for Google models stems from mutual exclusion between explicit and implicit caching, as well as unpredictable server-side implicit cache expiration (observed expiring in as little as ~20 seconds). If cache hit rates are a primary concern, consider other models; however, Gemini models deliver the best conversational results.
+> The lower cache hit rate for Google models stems from mutual exclusion between explicit and implicit caching, as well as unpredictable server-side implicit cache expiration. If cache hit rates are a primary concern, consider other models; however, Gemini models deliver the best conversational results.
 
 ### Voice, images, and memory
 
@@ -265,8 +265,8 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 </tbody>
 </table>
 
-- **TTS Configuration**: Configured under `agent.tts` in `config/dynamic/agent.json` (supports native Google, OpenAI-compatible `audio/speech`, and xAI Grok `/tts`; Google supports custom `base_url` and `headers` for third-party gateways). Optional `bot_language` (`en` / `zh` / `ja`, default `ja`) sets the language of AI voice lines; placing `prompt/voice_tool.md` in the project root overrides the entire `send_voice` tool instruction (takes effect after a restart; see [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)). The AI reply pipeline automatically appends target language guidance based on `bot_language`; `style` is shared with `/send` and cron and describes only the acoustic timbre. When changing `bot_language`, remember to align `style` and `voice_tool.md` accordingly.
-- **Quota Isolation**: The daily quota `daily_limit` (default 100) reserves `daily_reserve_quota` (default 25) exclusively for `/send` and scheduled cron tasks, leaving the remainder for spontaneous AI chatter; both pools track counts independently. The tracking window (`TTS_USAGE_WINDOW_MS`) begins on the first request and resets both counters upon window expiry.
+- **TTS Configuration**: Configured under `agent.tts` in `config/dynamic/agent.json` (supports native Google, OpenAI-compatible `audio/speech`, and xAI Grok `/tts`; Google supports custom `base_url` and `headers` for third-party gateways). Optional `bot_language` (`en` / `zh` / `ja`, default `TTS_DEFAULT_BOT_LANGUAGE`) sets the language of AI voice lines; placing `prompt/voice_tool.md` in the project root overrides the entire `send_voice` tool instruction (takes effect after a restart; see [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)). The AI reply pipeline automatically appends target language guidance based on `bot_language`; `style` is shared with `/send` and cron and describes only the acoustic timbre. When changing `bot_language`, remember to align `style` and `voice_tool.md` accordingly.
+- **Quota Isolation**: The daily quota `daily_limit` (default `TTS_DEFAULT_DAILY_LIMIT`) reserves `daily_reserve_quota` (default `TTS_DEFAULT_DAILY_RESERVE_QUOTA`) exclusively for `/send` and scheduled cron tasks, leaving the remainder for spontaneous AI chatter; both pools track counts independently. The tracking window (`TTS_USAGE_WINDOW_MS`) begins on the first request and resets both counters upon window expiry.
 - **Memory Ingestion Boundaries**: Messages forwarded via `/send` and scheduled cron tasks are excluded from AI conversation context. Automatic image logging requires AI chat to be enabled in the group and not suppressed by active copying mode. See [11 FAQ](11-faq.md).
 
 For comprehensive behavioral contracts, configuration parameters, and invariants for every feature, explore the **[📚 Developer Documentation](content-table.md)**.
@@ -293,7 +293,7 @@ The full command reference and permission matrix are documented in **[📖 09 Co
 
 - **OS**: Linux with a readable `/proc` filesystem (the instance lock enforces fail-closed behavior on unsupported platforms).
 - **Telegram Credentials**: A Bot Token from BotFather and your personal Telegram user ID as super administrator.
-- **Runtime**: [Bun](https://bun.sh/) 1.4.3 for source installs; official binary releases bundle the runtime statically.
+- **Runtime**: [Bun](https://bun.sh/) (version per `package.json` `engines.bun`) for source installs; official binary releases bundle the runtime statically.
 - **External Services**: API keys for enabled AI capabilities; Google Cloud service-account JSON credentials for `/translate`. Hardware sizing recommendations: [07 Operations](07-operations.md#hardware-guidance).
 
 ### One-Shot Installation

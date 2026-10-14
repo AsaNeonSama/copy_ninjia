@@ -1,8 +1,4 @@
-/** owner: main。磁盘 IO 宿主（packages/infra/diskIO.ts）的内存状态：主线程侧的 flush/load 回执路由。
- *
- * 只有主线程加载；Worker 侧的 error 日志经 postMessage 信封回主线程转投（见 infra/logger.ts 模块头注），
- * 不读写这里。
- */
+/** owner: main。磁盘 IO 宿主（packages/infra/diskIO.ts）的内存状态与请求通道。 */
 
 import { DEFAULT_MAX_PENDING_BUSINESS_MESSAGES, LOAD_TIMEOUT_MS } from "../../consts/diskIO/common";
 import { DISK_IO_FLUSH_TIMEOUT_MS } from "../../consts/lifecycle";
@@ -36,29 +32,18 @@ import type { WorkerRequestTable } from "../../types/workerRequest";
 import type { JoinLogRecord, LuckReceiptSecret } from "../../types/diskIO/storage";
 import type { IdentityPolicyRawReadResult, BlocklistIdPage } from "../../types/identityStorage";
 
-/**
- * 启动恢复挂起的回调：infra/diskIO.ts 的 loadPersistedData 填充，infra/diskIO/host.ts
- * 收到 loaded 回执时取走结算，terminateDiskIO 以拒绝结算。运行时重建另由
- * infra/diskIO/recovery.ts 经 diskIORuntime.runtimeRecoveryWorker 接管，成功前始终不可写。
- */
+/** 启动恢复回调槽：loadPersistedData 填充，收到 loaded 回执或 terminateDiskIO 时结算清空；单例固定字段，进程重启后从初始值开始。 */
 export const pendingLoad: {
   resolve: ((reply: LoadedReply) => void) | null;
   reject: ((error: Error) => void) | null;
   timer: ReturnType<typeof setTimeout> | null;
 } = { resolve: null, reject: null, timer: null };
 
-/**
- * 一条 main -> diskIO 的 request/reply 通道：共享等待表与两句领域文案。
- *
- * 各领域（运势密钥、入群日志、身份策略、黑名单主键、停机关库）各声明一个通道对象；等待表的
- * 填充与结算只由 infra/diskIO/requests.ts 经 libs/workerRequestTable.ts 完成，
- * 回执、超时、投递被拒、Worker 代际失效与 terminate 都会摘除等待者。容量为同时
- * 在途的请求数，由各调用方的串行或批量边界封住。
- */
+/** 主线程向 Disk I/O Worker 发起 request/reply 的请求通道描述与等待表。 */
 export interface DiskIORequestChannel<TResult> {
-  /** 超时、拒收与代际失效文案里的领域名，例如 `identity policy read`。 */
+  /** 通道领域名称。 */
   readonly label: string;
-  /** Worker 回执缺少载荷时的错误文案；各领域点名自己缺的东西。 */
+  /** 回执缺少载荷时的错误文案。 */
   readonly missingPayload: string;
   readonly table: WorkerRequestTable<DiskIORequestOutcome<TResult>>;
 }
@@ -70,30 +55,27 @@ function createDiskIORequestChannel<TResult>(
   return { label, missingPayload, table: { waiters: new Map(), counter: { current: 0 } } };
 }
 
-/** ensureLuckReceiptSecret 的请求通道。 */
+/** 运势密钥查询通道：发起请求时登记，收到回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
 export const luckSecretRequests: DiskIORequestChannel<LuckReceiptSecret> =
   createDiskIORequestChannel("luck receipt secret", "Disk I/O Worker returned no luck receipt secret.");
 
-/** `/batch_kick` 按需读取入群日志的请求通道。 */
+/** 入群日志读取通道：`/batch_kick` 请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
 export const joinLogReadRequests: DiskIORequestChannel<readonly JoinLogRecord[]> =
   createDiskIORequestChannel("join log read", "Disk I/O Worker returned no join records.");
 
-/** 合并身份缓存冷缺失的请求通道。 */
+/** 身份策略读取通道：冷缺失请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
 export const identityPolicyReadRequests: DiskIORequestChannel<IdentityPolicyRawReadResult> =
   createDiskIORequestChannel("identity policy read", "Disk I/O Worker returned no identity policy rows.");
 
-/** 群级补扫有界黑名单主键页的请求通道。 */
+/** 黑名单主键页读取通道：群级补扫请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
 export const blocklistIdPageReadRequests: DiskIORequestChannel<BlocklistIdPage> =
   createDiskIORequestChannel("blocklist ID page read", "Disk I/O Worker returned no blocklist ID page.");
 
-/** 干净停机关库（closeStorage）的请求通道。 */
+/** 停机关库（closeStorage）请求通道：请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量至多一个在途请求，进程重启后从空表开始。 */
 export const storageCloseRequests: DiskIORequestChannel<StorageCloseOutcome> =
   createDiskIORequestChannel("storage close", "Disk I/O Worker returned no storage close outcome.");
 
-/**
- * 全部请求通道。Worker 代际失效、恢复失败与 terminate 都按表结算所有等待者。
- * 元素的 TResult 各不相同，统一失败路径只写入失败结局，故按 never 擦除。
- */
+/** 全部 Disk I/O 请求通道列表，供代际失效、恢复失败与 terminateDiskIO 统一结算等待者。 */
 export const DISK_IO_REQUEST_CHANNELS: readonly DiskIORequestChannel<never>[] = [
   luckSecretRequests,
   joinLogReadRequests,
@@ -130,24 +112,11 @@ interface DiskIORuntime {
 }
 
 /**
- * 主线程 Disk I/O Worker 的完整运行态。initDiskIO 填充 Worker/配置，恢复
- * 窗口暂存有硬顶的业务消息；terminateDiskIO 结算等待、清 timer 并恢复默认值。
- * Worker 崩溃后保留监听器并从主线程镜像重建，业务队列容量由配置硬顶约束。
- * replyListeners 按回执类型分表，只由各 owner 模块初始化时经 onDiskIOReply 登记，
- * 容量由订阅该回执的 owner 数固定；Worker 重建沿用，进程退出时释放。缺失监听器
- * 不构成落盘确认；午夜维护通知不在 Worker 重建时重放；成员删除回执只结算本代
- * Worker 的 durable 删除。
- * diagnosticQueue 由 relayLogMessage/postDiskIODiagnostic 填充、DiskIO ACK 排空；
- * 单批在途并保留到 ACK，Worker 崩溃后原批重发。总消息数与 JSON 载荷字节均有
- * 硬顶；越界项只累加两个标量，队列重新有空间后追加一条汇总日志。terminate 时
- * 队列与丢弃计数一起清空。
- * operationQueue 保存业务与读取的单批在途 FIFO；消费 ACK 后释放，崩溃时业务
- * 转交恢复 FIFO，查询由宿主拒绝。两份 FIFO 共用条数与字节上限，单批 timer
- * 超时通知 fatal。terminate 清理全部队列和 timer，Worker 重建按原序重放。
- * diagnosticDrainWaiters 只由并发的进程级 flush 填充，ACK、超时、放弃自愈或
- * terminate 结算清理，容量受同时在途的 shutdown flush 数约束；Worker 重建期间原样
- * 等待重放。giveUpListeners 由 owner 模块初始化时经 onDiskIOGiveUp 登记，放弃自愈
- * 时逐个调用，容量由订阅 owner 数固定。
+ * 主线程 Disk I/O Worker 宿主运行态：
+ * - initDiskIO 填充 Worker 与配置，terminateDiskIO 结算等待者、清理队列与定时器并恢复默认值。
+ * - operationQueue 保存单批在途业务与查询消息（容量上限 maxPendingBusinessMessages + DISK_OPERATION_CONTROL_RESERVE、字节上限 DISK_OPERATION_MAX_RETAINED_BYTES），收到批次 ACK 后释放；Worker 崩溃重建期间业务消息转入 pendingBusinessMessages 按原序重放，查询由宿主拒绝。
+ * - diagnosticQueue 保存单批在途诊断与日志消息（容量上限 DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES、字节上限 DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES），ACK 后排空，Worker 重建时原批重发；满额越界累加 diagnosticDroppedMessages 与 diagnosticDroppedSerializedBytes 并在恢复空间后追加汇总日志；diagnosticDrainWaiters 在并发 flush 时登记并在 ACK、超时、放弃自愈或 terminateDiskIO 时结算清空。
+ * - respawnListeners、replyListeners、giveUpListeners 由各模块初始化时登记，Worker 重建时保留，进程重启后重新注册。
  */
 export const diskIORuntime: DiskIORuntime = {
   worker: null,
@@ -194,16 +163,10 @@ export const diskIORuntime: DiskIORuntime = {
   giveUpListeners: [],
 };
 
-/**
- * Disk I/O Worker 的滑动窗口重启节流器。进程启动时创建，Worker 重建时
- * 累积时间戳，超过窗口后触发 fatal；进程重启后从空窗口重建，容量有硬顶。
- */
+/** Disk I/O Worker 滑动窗口重启节流器：Worker 重建时记录时间戳并淘汰滑出 WORKER_RESTART_WINDOW_MS 的记录，容量上限为 WORKER_MAX_RESTARTS；进程重启后从空窗口重建。 */
 export const diskIORestartThrottle: ReturnType<typeof createRestartThrottle> =
   createRestartThrottle(WORKER_MAX_RESTARTS, WORKER_RESTART_WINDOW_MS);
 
-/**
- * Disk I/O flush 的在途 barrier。flush 请求时填充，回执（含部分失败领域名）、超时、
- * 崩溃或 terminate 时结算清空；进程重启后从空表重建，容量受在途 flush 数约束。
- */
+/** Disk I/O flush 在途屏障：发起 flush 时登记，收到回执、超时（DISK_IO_FLUSH_TIMEOUT_MS）、崩溃或 terminateDiskIO 时结算清空；容量与在途 flush 请求数同阶，进程重启后从空表重建。 */
 export const diskIOFlushBarrier: FlushBarrier<readonly DiskIODomain[]> =
   createFlushBarrier<readonly DiskIODomain[]>({ timeoutMs: DISK_IO_FLUSH_TIMEOUT_MS });

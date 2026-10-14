@@ -33,8 +33,7 @@ interface ResolveArgumentTargetParams {
 
 /**
  * resolveCommandTarget 的入参，只含命令消息与标量字段，不含 grammY 的
- * CommandContext：`/咬` 这类中文动作命令走 bot.hears，没有 CommandContext
- * （见 commands/cjkAction.ts）。
+ * CommandContext：中文动作命令走 bot.hears，没有 CommandContext（见 commands/cjkAction.ts）。
  */
 export interface ResolveCommandTargetParams {
   /** 命令所在会话 id，失败提示发到这里。 */
@@ -87,12 +86,9 @@ export interface ResolveCommandTargetParams {
   /**
    * 目标落在「当前群自己的 identity」上时的拒绝文案（缺省不拒绝）。
    *
-   * 匿名管理员以当前群为 sender_chat 发言时，Telegram 只提供 sender_chat=本群、
-   * 不暴露皮套底下的真实用户，解析结果是这个群自己的频道 identity；开了
-   * acceptChatId 的命令把本群 id 粘进参数，落点相同。`/copy` 一类保留该身份
-   * （复制群头像、复读同一皮套），缺省放行；`/block`、`/block disable`、`/white`、
-   * `/permission`、`/delete_message` 这些会据此做破坏性处置或发权限的命令传入各自文案，命中时发送它
-   * 并返回 undefined。这道闸排在身份名单预热之后。
+   * `/copy` 保留该身份，缺省放行；`/block`、`/block disable`、`/white`、
+   * `/permission`、`/delete_message` 传入各自文案，命中时在身份名单预热之后发送该文案并返回 undefined
+   * （见 docs/cn/04-invariants.md）。
    */
   currentChatTargetText?: string;
 }

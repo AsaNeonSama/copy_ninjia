@@ -48,19 +48,13 @@ import { acceptRoundText, sendDirectMessage } from "./messageState";
 import { modelAuthoredTextPolicyResult } from "./modelAuthoredText";
 import { pauseThenSettle } from "./pacing";
 
-/** 省略 aspect_ratio 时执行侧采用的比例：有参考素材就取最接近第一张（主参考图）的官方比例。
- *  本轮工具状态的参考素材文案（见 toolStatus.ts）与执行侧解析共用这一个函数。 */
+/** 省略 aspect_ratio 时的默认比例：有主参考图时取最接近其尺寸的官方比例，否则返回 DEFAULT_IMAGE_GENERATION_ASPECT_RATIO。 */
 export function defaultAspectRatioFor(reference: TelegramVisionSource | undefined): ImageGenerationAspectRatio {
   if (!reference || reference.width <= 0 || reference.height <= 0) return DEFAULT_IMAGE_GENERATION_ASPECT_RATIO;
   return normalizeImageAspectRatio(`${reference.width}:${reference.height}`) ?? DEFAULT_IMAGE_GENERATION_ASPECT_RATIO;
 }
 
-/**
- * generate_image 的工具声明。整段逐字恒定，不接受本轮上下文；前缀缓存约束见
- * docs/cn/04-invariants.md。直接触发资格、群冷却剩余秒数与参考素材文案都写进运行时
- * 状态区块的本轮工具状态（见 toolStatus.ts）；工具只要部署配置了生图能力就由
- * createReplyToolset 恒挂，资格与冷却由 createGenerateImageExecutor 在调用时兜底拒绝。
- */
+/** 构造 generate_image 工具声明；前缀缓存与资格约束见 docs/cn/04-invariants.md。 */
 export function buildGenerateImageToolDefinition(): AiToolDefinition {
   return {
     name: GENERATE_IMAGE_TOOL,
@@ -111,33 +105,21 @@ function parseArguments(
   const prompt: string = parsed.prompt.trim();
   if (!prompt || prompt.length > IMAGE_GENERATION_PROMPT_MAX_CHARS) return null;
   if (parsed.aspect_ratio !== undefined && typeof parsed.aspect_ratio !== "string") return null;
-  // caption 是可选字段，null 与 undefined 一样按没写处理。
   if (parsed.caption !== undefined && parsed.caption !== null && typeof parsed.caption !== "string") return null;
   const requestedAspectRatio: string | undefined = parsed.aspect_ratio;
   const aspectRatio: ImageGenerationAspectRatio | null = requestedAspectRatio === undefined || requestedAspectRatio.trim() === ""
     ? defaultAspectRatio
     : normalizeImageAspectRatio(requestedAspectRatio);
-  // 图注与 send_message 的 text 共用 cleanReply 清洗；清洗后为空串按「没写图注」处理，
-  // 不算参数错误。
   const caption: string | null = typeof parsed.caption === "string" ? cleanReply(parsed.caption) : null;
   return aspectRatio ? { prompt, aspectRatio, caption } : null;
 }
 
-/**
- * 生图冷却剩余毫秒换成告诉模型的秒数（向上取整）。工具状态行、调用入口的只读判定与
- * claim 落空三处共用这一口径。
- * @param retryAfterMs 冷却剩余毫秒，由生图冷却表给出，恒为正。
- */
+/** 将生图冷却剩余毫秒数向上取整为秒数。 */
 export function imageCooldownRetrySeconds(retryAfterMs: number): number {
   return Math.ceil(retryAfterMs / 1_000);
 }
 
-/**
- * 冷却未过时回给模型的统一提示。
- *
- * 调用入口的只读判定与 claim 落空（同群并发轮抢在前面）共用这一段，文案与秒数口径同源。
- * @param retryAfterMs 冷却剩余毫秒，由生图冷却表给出。
- */
+/** 构造生图冷却未过时的工具错误回执。 */
 function coolingDownError(retryAfterMs: number): string {
   const retryAfterSeconds: number = imageCooldownRetrySeconds(retryAfterMs);
   return toolError("Image generation is cooling down in this chat", {
@@ -153,8 +135,8 @@ function coolingDownError(retryAfterMs: number): string {
 type ImageCaptionDelivery = "inline" | "separate_message" | "failed" | "no_action_budget";
 
 /**
- * 下载本轮全部参考图，结果与入参同序：每张各排进媒体任务的交互档并继承本轮取消信号。任一张失败、
- * 排不上或被取消，或合计字节超过 MEDIA_MAX_DOWNLOAD_BYTES 时返回 null。
+ * 下载本轮全部参考图（交互档并发，继承本轮取消信号）；任一张失败或总字节数超过
+ * MEDIA_MAX_DOWNLOAD_BYTES 时返回 null。
  */
 async function downloadReferenceImages(
   ctx: ReplyToolContext,
@@ -192,14 +174,13 @@ interface SeparateCaptionParams {
   readonly pause: ReplyActionPause;
 }
 
-/** 图片落地后补发超长图注：先按打字节奏停顿，再经 send_message 同一出口作为独立消息发出。 */
+/** 图片发出后按打字节奏停顿并补发超长图注。 */
 async function deliverSeparateCaption({
   ctx,
   caption,
   chatAction,
   pause,
 }: SeparateCaptionParams): Promise<"separate_message" | "failed"> {
-  // 图片落地，一段状态到此结束：图注的「正在输入」在静默之后亮起。
   chatAction.set("idle");
   const blocked: string | null = await pauseThenSettle({
     isActive: ctx.isActive,
@@ -218,8 +199,8 @@ async function deliverSeparateCaption({
 }
 
 /**
- * 接纳时认领群冷却；参考图按 ctx.imageGenerationReferences 的顺序下载并交给模型，排队继承本轮
- * 取消信号，未发起模型请求时释放认领。生命周期见 docs/cn/04-invariants.md。
+ * 创建 generate_image 执行器：接纳时校验资格、参数、图注策略并认领群冷却；串行步骤中下载参考图、
+ * 调用生图模型并发送图片与图注，未发起模型请求时释放冷却认领。生命周期见 docs/cn/04-invariants.md。
  */
 export function createGenerateImageExecutor(
   ctx: ReplyToolContext,
@@ -241,9 +222,6 @@ export function createGenerateImageExecutor(
         { retryable: false }
       );
     }
-    // 本轮工具状态里的冷却是组装时的快照，可能已过期；在解析参数、下载参考图和请求
-    // 模型之前先做一次只读判定，冷却中直接把剩余秒数回给模型。真正的原子闸仍是下面的
-    // claim——只读判定与 claim 之间同群另一轮可能抢先占位，那条路径回同一段文案。
     const availability: CooldownAvailability = getImageGenerationAvailability({
       chatId: ctx.chatId,
       bypassCooldown: ctx.bypassMediaToolCooldown,
@@ -258,7 +236,6 @@ export function createGenerateImageExecutor(
     }
     const caption: string | null = parsed.caption;
     if (caption !== null) {
-      // 在实际生成和 claim 冷却前完成硬校验，拒绝的 caption 不产生账单或冷却。
       const policyResult: string | null = modelAuthoredTextPolicyResult(caption, state, "picture");
       if (policyResult !== null) return policyResult;
     }
@@ -299,7 +276,6 @@ export function createGenerateImageExecutor(
             referenceUnavailable = referenceImages === null;
             if (referenceImages !== null && ctx.isActive()) {
               modelRequestStarted = true;
-              // 生图只走 agent.json 的 image 能力（见 aiChat/provider.ts）；未配置时按失败结算。
               const provider: AiImageProvider | null = imageAiProvider();
               image = provider === null ? null : await provider.generateImage({
                 prompt: parsed.prompt,

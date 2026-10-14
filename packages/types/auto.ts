@@ -46,7 +46,7 @@ export interface MessageTriggerContext {
   messageThreadId?: number;
   /**
    * 直接唤起的成因；随机/无触发为 undefined。字段名与
-   * types/aiChat/protocol.ts 的 AiTriggerMessage.directTriggerReason 一致。
+   * types/aiChat/protocol.ts 的 AiRecordMediaMessage.directTriggerReason 一致。
    */
   directTriggerReason?: AiDirectTriggerReason;
 }

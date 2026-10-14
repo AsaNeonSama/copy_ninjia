@@ -111,13 +111,7 @@ export const CRON_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "cron.json");
 export const LOGS_DIR: string = join(RUNTIME_DATA_ROOT, LOGS_DIR_NAME);
 
 /**
- * memory/ 落盘目录：每日运势缓存（luck/ 下按配置时区的日期一个文件，只留当天）、白名单贴纸包的目录快照
- * （stickers/ 下按 pack short name 一个 <pack>.json，见 aiChat/ai/stickers/catalog.ts）、
- * 待验证当日增量（anti-raid/ 下只保留配置时区的当天），以及滚动窗口内的入群事实
- * （joinlog/）和每群已发言成员集合（wed/），均由 diskIOWorker 落盘，见
- * packages/workers/diskIOWorker.ts；ai-daily-usage/ 下是模型请求的缓存用量统计，同样由 diskIOWorker
- * 落盘；ad-detected/ 是广告命中样本旁路（见 AD_SAMPLE_MEMORY_DIR）；global/ 下的全局状态由主线程落盘。每一类数据各占
- * 一个子目录，顶层不放单个文件。不进 git，与 logs/ 同级对待；部署时应按敏感数据保护。
+ * memory/ 运行时领域数据根目录（各子目录分别由 Disk I/O Worker 或主线程 StateStore 落盘，顶层不放单个文件）。
  */
 export const MEMORY_DIR: string = join(RUNTIME_DATA_ROOT, MEMORY_DIR_NAME);
 /**
@@ -167,7 +161,7 @@ export const AD_SAMPLE_FILE_PATH: string = join(AD_SAMPLE_MEMORY_DIR, "sample.js
 export const AI_CACHE_MEMORY_DIR: string = join(MEMORY_DIR, "ai-daily-usage");
 /**
  * AI 缓存使用统计文件：顶部 `summary` 是最近一个已结束的配置时区自然日的汇总，其余键是尚未汇总的
- * 逐条用量记录。每日配置时区 0 点把前一天的记录并入汇总后删除。
+ * 逐条用量记录；按配置时区跨日维护时把前一天的记录并入汇总后删除。
  */
 export const AI_CACHE_FILE_PATH: string = join(AI_CACHE_MEMORY_DIR, "usage.json");
 

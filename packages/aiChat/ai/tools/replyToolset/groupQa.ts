@@ -1,12 +1,6 @@
 /**
- * 群问答的两个查询工具：`group_qa_query` 与 `group_qa_answer`。
- *
- * 两个都是纯查询：不发消息、不改状态、不计入整轮可见动作预算。数据来自本轮
- * trigger 消息随附的问答 JSON 文本（`[问题, 答案]` 对数组），每次调用时就地解析，
- * 执行期不跨线程、不读盘。
- *
- * 一字不差的提问在主干上由 auto/message/qaDirectAnswer.ts 直答，不发 trigger；
- * 到模型面前的是字面对不上的问法，由模型用这两个工具判断语义是否足够近。
+ * 群问答查询工具（`group_qa_query` 与 `group_qa_answer`）：就地解析 trigger 消息随附的
+ * 本群问答 JSON，不计入可见动作预算。
  */
 
 import { GROUP_QA_ANSWER_TOOL, GROUP_QA_QUERY_TOOL } from "../../../../consts/tools";
@@ -19,12 +13,7 @@ interface GroupQaAnswerArguments {
   readonly question?: unknown;
 }
 
-/**
- * 两个问答工具的声明，每轮恒挂、逐字恒定。
- *
- * 本群有没有登记问答只写进运行时状态区块的本轮工具状态（见 toolStatus.ts 的问答行），
- * 工具清单不随群变化；没登记的群调用时由执行器如实返回空清单或未找到。
- */
+/** 构造群问答两个查询工具的声明。 */
 export function buildGroupQaToolDefinitions(): readonly AiToolDefinition[] {
   return [
     {
@@ -54,10 +43,7 @@ export function buildGroupQaToolDefinitions(): readonly AiToolDefinition[] {
   ];
 }
 
-/**
- * 解析 trigger 随附的问答 JSON（主线程 aiChat/messageIngress.ts 生成的 `[问题, 答案]` 对数组）。
- * 缺省时为空清单；形态不符说明跨线程协议被破坏，直接抛错。
- */
+/** 解析 trigger 随附的问答对数组 JSON；缺省时返回空数组，形态不符时抛错。 */
 export function parseChatQaJson(chatQaJson: string | undefined): readonly (readonly [string, string])[] {
   if (chatQaJson === undefined) return [];
   const parsed: unknown = JSON.parse(chatQaJson);
@@ -72,14 +58,14 @@ export function parseChatQaJson(chatQaJson: string | undefined): readonly (reado
   return pairs;
 }
 
-/** 列出问题清单，只含问题不含答案；顺序同主线程热表。 */
+/** 列出已登记的问题清单（不含答案）。 */
 export function executeGroupQaQuery(chatQaJson: string | undefined): string {
   const questions: string[] = [];
   for (const [question] of parseChatQaJson(chatQaJson)) questions.push(question);
   return JSON.stringify({ questions });
 }
 
-/** 按原文取答案；对不上返回 found: false，不做模糊匹配。 */
+/** 按问题原文精确匹配并返回登记的答案。 */
 export function executeGroupQaAnswer(
   chatQaJson: string | undefined,
   argumentsJson: string
@@ -102,7 +88,6 @@ export function executeGroupQaAnswer(
     }
   }
   if (answer === undefined) {
-    // 不做模糊匹配：原文对不上即返回未找到。
     return JSON.stringify({ found: false, question });
   }
   return JSON.stringify({ found: true, question, answer });

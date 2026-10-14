@@ -146,9 +146,9 @@
   - **内容**：Telegram 能力实现 holder（主线程真实适配器、业务 Worker 双工代理）、
     Worker 双工 waiter、部署配置单例、自发消息登记、update 取消上下文存储、AI 缓存用量上报出口；同一份代码在每条线程独立实例化。
 
-注意 `main/antiRaid/` 与 `workers/antiRaid/` 是**两拨完全不共享的状态**：权威状态机在 Worker 内，主线程那份只是供崩溃重放的纯数据镜像。放错目录不是风格问题——写进去的东西对面永远读不到。`bun run check:conventions` 按真实模块图核对这条归属（详见 [04 运行时权威约束](04-invariants.md#线程与状态归属)），违例时打印完整引入链。
+`main/antiRaid/` 与 `workers/antiRaid/` 为互不共享的两套状态：权威状态机在 Worker 内，主线程仅持有供崩溃重放的纯数据镜像。`bun run check:conventions` 按真实模块图核对归属（详见 [04 运行时权威约束](04-invariants.md#线程与状态归属)），违例时打印完整引入链。
 
-`packages/aiChat/ai/` 这类被多条线程复用的领域代码要留意：一个只被主线程用到的纯函数，若与 Worker 独占的缓存同住一个文件，主线程 import 它就会把那份缓存一并实例化。范例是 [`packages/aiChat/ai/stickers/describe.ts`](../../packages/aiChat/ai/stickers/describe.ts)：主线程消息流水线直接使用它的纯描述函数，`sets.ts` 的贴纸集合缓存由 AI Worker 独占。
+多条线程复用的领域模块（如 `packages/aiChat/ai/`）必须将纯函数与线程独占缓存拆分：例如 [`packages/aiChat/ai/stickers/describe.ts`](../../packages/aiChat/ai/stickers/describe.ts) 供主线程消息流水线直接调用，`sets.ts` 的贴纸集合缓存由 AI Worker 独占。
 
 ## 兼容入口（barrel）约定
 

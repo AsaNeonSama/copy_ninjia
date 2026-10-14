@@ -26,14 +26,7 @@ import type {
 } from "../types/antiRaid/events";
 
 /**
- * 同代际的 revision 水位线；旧代际的条目一律记 0。
- *
- * revision 只在一个代际内部单调递增：Worker 崩溃重建时 adoptVerifications 按
- * activeVerificationSnapshots 重放，已删除的 key 不在重放范围内，其新记录从
- * revision 1 重新开始。
- *
- * 两个入口（acceptVerificationUpsert、acceptVerificationDelete）都已在最前面用相等判定
- * 挡掉非当前代际的事件，能走到这里的条目属于当前代际。
+ * 提取同代际条目的 revision 水位线；非当前代际条目视为无基线。
  */
 function currentGenerationRevision(
   entry: Readonly<{ generation: number; revision: number }> | undefined
@@ -43,8 +36,7 @@ function currentGenerationRevision(
 }
 
 /**
- * active、deferred 与 pending delete 按协议互斥；pending deferral 始终仍在 active
- * 内，因此不重复计数。O(1) 计数，不构造临时 Set。
+ * 统计当前验证记录总数（active、deferred 与 pending delete 互斥）。
  */
 function verificationRecordCount(): number {
   return activeVerificationSnapshots.size +
@@ -113,8 +105,6 @@ export function acceptVerificationDelete(
   const deferred: DeferredVerificationRecord | undefined =
     deferredVerificationRecords.get(key) ?? pendingVerificationDeferrals.get(key);
   const pendingRevision: number = currentGenerationRevision(pendingVerificationDeletes.get(key));
-  // 水位线同样只认同代际条目，见 currentGenerationRevision；`!current` 那半
-  // 边判的是「本来就没有活跃记录、也没有待确认墓碑」，与代际无关。
   if (
     (!current && deferred === undefined && pendingRevision === 0) ||
     event.revision <= Math.max(

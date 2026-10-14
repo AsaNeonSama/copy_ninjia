@@ -135,16 +135,11 @@ export class ApplicationLifecycle {
     this.dependencies.initDeferredCommandRuntime();
     this.flags.translateInitialized = true;
 
-    // 配置文件和持久化状态按不可信部署输入严格校验；已有部署输入不受功能开关影响，
-    // 各 Worker 在自己的 isolate 中复用同一严格解析器。
+    // 配置文件和持久化状态在启动边界按不可信部署输入严格校验。
     await this.dependencies.cleanupOrphanedTempFiles();
     await this.dependencies.loadState();
     await this.dependencies.validateExistingDeploymentInputs();
-    // 按已校验的 config/dynamic/assets.json 准备专用图库，并在 Worker 与外部连接之前核对权限、文件名和条目类型。
     await this.dependencies.prepareRandomImageDirectory();
-    // 全局状态与部署输入都通过严格校验后，才创建本地 Disk I/O Worker。
-    // SQLite 群状态只负责恢复运行时开关，不充当功能前提或数据正确性的启动总闸；
-    // 功能命令和消息入口各自在 readiness 边界拒绝不可用配置。
     this.dependencies.initDiskIO({ onFatal: this.handleDiskIOFatal });
     this.flags.diskIOInitialized = true;
 
@@ -189,8 +184,7 @@ export class ApplicationLifecycle {
     // 两条业务 Worker 都已持有初始配置快照，此后 config/dynamic/ 的改动才有分发对象。
     this.dependencies.startConfigReload();
     this.dependencies.initBlocklistSweepScheduler();
-    // SQLite 黑名单身份未必已有对应 outbox；在 runner 接收新 update 前，对
-    // 所有已初始化且已确证管理员的群补一轮，频道 ID 会由 Worker 走封发言权路径。
+    // 在 runner 接收新 update 前，对所有已初始化且已确证管理员的群补跑一轮黑名单清扫。
     await this.dependencies.sweepManagedBlocklistChats();
 
     this.dependencies.logger.log(
@@ -203,15 +197,9 @@ export class ApplicationLifecycle {
       this.dependencies.bot,
       TELEGRAM_ALLOWED_UPDATES
     );
-    // 启动期到达的停止信号在这里重新收口：它触发的那次 quiesce 发生在 init 前段，
-    // 其后的 initAvatarUpdates/initChatTitleRefresh/initTranslate/initGagRuntime/
-    // initWedRuntime/initDeferredCommandRuntime/startCronScheduler/startConfigReload/
-    // initBlocklistSweepScheduler 把这些 owner 重新置为接受工作。
-    // 该步骤位于标题刷新之前（refreshAllChatTitles 只在入口同步检查一次 accepting）。
+    // 启动期到达的停止信号在各运行时初始化完成后重新收口，位于 refreshAllChatTitles 之前。
     if (this.stopRequested) this.stopForShutdown("Error stopping runner:");
     this.dependencies.enableWedMemberReview();
-    // 关键 Bot API 握手、Worker hydrate 和 runner 入口全部就绪后，才让低优先级
-    // 标题维护进入 Telegram query 类别的 429 队列；小并发池由 chatTitle owner 自己保证。
     this.chatTitleRefreshSettled = false;
     this.chatTitleRefreshTask = this.dependencies.refreshAllChatTitles()
       .catch((error: unknown): void => {

@@ -24,41 +24,10 @@ import type {
 } from "../types/config";
 
 /**
- * config/dynamic/agent.json：所有 AI 能力的统一部署配置。
+ * config/dynamic/agent.json：AI 能力的统一部署配置解析与快照管理（字段形态见 config/agentCapability.ts，跨线程约束见 docs/cn/04-invariants.md）。
  *
- * 顶层只含 agent；其下按能力分组。ad_detect、text、summary、media、image、tts、web_search 各自声明
- * provider、api_key、model 与可选 base_url；google 与 anthropic provider 另可声明 headers，给每个请求
- * 附加请求头（Cloudflare AI Gateway 等三方网关鉴权），openai provider 不接受该字段；anthropic provider 另可
- * 声明与 model 不同的 fallback_model，model 拒答时用它重发同一请求。provider 只表示调用协议，接受
- * google、openai 与 anthropic；Grok 等 OpenAI 兼容模型使用 openai provider 加对应端点。
- * text、summary、media 是对话核心能力；ad_detect、image、tts、web_search
- * 均可缺省，由对应功能门禁或工具装配单独处理。web_search 由它的模型执行带内建检索的单轮请求，
- * 可选 max_calls_per_use 指定每轮回复最多调用该函数的次数，缺省使用 WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE。
- * 非法或未知字段在建立外部连接前直接拒绝启动。
- *
- * image 额外要求 OpenAI 侧显式给 image_protocol；Google 侧禁止该字段。两侧都接受可选
- * max_reference_images（1～IMAGE_GENERATION_MAX_REFERENCE_IMAGES，缺省
- * IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES），即一次生图最多交给模型的参考图张数。
- * tts 额外要求 voice，只校验为非空字符串，音色是否存在由首次
- * 合成请求决定；OpenAI 侧另要求 speech_protocol（`openai` 为 audio/speech，`xai` 为 xAI
- * `POST /tts`），Google 侧禁止该字段。可选 style 指定基础风格，缺省使用 TTS_DEFAULT_STYLE；
- * xai 协议没有模型名与风格指令，出现 model 或 style 即拒绝，另有可选 language（缺省 `auto`）。
- * 各协议都接受可选 bot_language（`en`、`zh` 或 `ja`，缺省 TTS_DEFAULT_BOT_LANGUAGE），只决定
- * AI 回复取哪一份语音相关提示词。
- * 可选的 daily_limit 与 daily_reserve_quota 将每日预算拆为 AI 与 `/send`、cron 共用的预留额度，
- * 两边独立计数。image/tts 缺省或所选实现不支持时，分别不挂生图/语音工具。
- *
- * **读盘只发生在主线程。** 本文件按所在线程分为以下边界：
- *
- * 1. `parse*` / `load*` / `validateAgentDeploymentConfig`：解析与启动总闸，只有
- *    主线程走。总闸解析成功后把两段结果放进本 isolate 的 holder，成为主线程的
- *    权威快照；运行期由 config/reload.ts 用同一份 loadAgentConfigSnapshots 严格
- *    解析改过的文件，通过后整体替换 holder。
- * 2. `*Snapshot` / `get*` / `adopt*`：**只读 holder，绝不读盘**。`*Snapshot` 返回可空的当前快照
- *    （null 表示明确未配置），`get*` 取不到时抛错。Worker 只 adopt 主线程经初始化
- *    消息与热重载消息投递的快照，每条群消息的模型名、凭据与端点都只从 holder 取。
- *    Worker 崩溃重建重放的是主线程当前生效的那份快照（见 aiChat/workerBridge.ts
- *    与 antiRaid/workerBridge/controller.ts），Worker 自己从不读盘。
+ * 顶层只含 agent，其下按能力分组：text、summary、media 为对话核心能力，ad_detect、image、tts、web_search 可选。
+ * 读盘只发生在主线程（parse* / load* / validateAgentDeploymentConfig）；*Snapshot / get* / adopt* 只读写当前线程 holder，不读盘。
  */
 
 /** 解码广告检测能力；base_url 缺省时跟随所选 SDK 的官方端点。 */
@@ -171,49 +140,27 @@ export async function validateAgentDeploymentConfig(
   }
 }
 
-/**
- * 本 isolate 当前的 ad_detect 快照：主线程据此投递 Anti-Raid Worker 初始化消息，Worker 侧
- * 接管新快照前据此判断 agent.ad_detect 是否变化。
- *
- * 返回 null 表示**明确未配置**（文件缺省，或文件在但没有 ad_detect 段），不是
- * 「还没读」：调用点在启动总闸之后，文件一旦存在且该段非法，进程早已带着字段
- * 路径退出。Worker 侧据此 fail-closed，不会沿用上一实例的值。
- */
+/** 本 isolate 当前的 ad_detect 快照；null 表示文件或 ad_detect 段明确缺省。 */
 export function adDetectAgentConfigSnapshot(): AdDetectAgentConfig | null {
   return adDetectAgentConfigCache.current;
 }
 
-/**
- * 本 isolate 当前的对话能力快照；null 表示明确未配置（文件或对话核心能力段缺省），语义同
- * adDetectAgentConfigSnapshot。cron.json 的启动核对据此判断依赖 agent 的动作能否生效。
- */
+/** 本 isolate 当前的对话能力快照；null 表示文件或对话核心能力段明确缺省。 */
 export function agentDeploymentConfigSnapshot(): AgentDeploymentConfig | null {
   return agentDeploymentConfigCache.current;
 }
 
-/**
- * 接管已严格校验的 ad_detect 快照：Worker 侧来自主线程的初始化、重建与热重载
- * 消息，主线程侧来自 config/reload.ts。
- *
- * 每次都无条件整体赋值（含显式 null），不做 `??=`，也不就地改写旧对象；
- * logger 的凭据脱敏按 holder 的对象身份判断是否重算。
- */
+/** 接管已严格校验的 ad_detect 快照（含显式 null），整体替换 holder。 */
 export function adoptAdDetectAgentConfig(config: AdDetectAgentConfig | null): void {
   adDetectAgentConfigCache.current = config;
 }
 
-/** 接管已严格校验的 AI 对话能力快照；来源与语义同上，null 表示文件或对话核心能力段已删除。 */
+/** 接管已严格校验的 AI 对话能力快照（含显式 null），整体替换 holder。 */
 export function adoptAgentDeploymentConfig(config: AgentDeploymentConfig | null): void {
   agentDeploymentConfigCache.current = config;
 }
 
-/**
- * 读取本 isolate 的 ad_detect 配置。**只读 holder，不读盘。**
- *
- * 主线程由启动总闸与热重载填充，Anti-Raid Worker 由主线程的 agentConfig 消息填充。取不到表示
- * 「这个部署没配广告检测」或「配置消息还没到」，两种都 fail-closed 抛错：主线程
- * 的 adDetectConfigReadiness 门禁已拦住候选消息，走到这里说明调用序有问题。
- */
+/** 读取本 isolate 的 ad_detect 配置；只读 holder，未填充时抛错。 */
 export function getAdDetectAgentConfig(): AdDetectAgentConfig {
   const config: AdDetectAgentConfig | null = adDetectAgentConfigCache.current;
   if (config === null) {

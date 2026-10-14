@@ -14,8 +14,8 @@
 
 ## 前置条件
 
-- **Linux 系统**（必须具备可读的 `/proc` 目录）：系统的单实例锁机制强依赖 `/proc/<pid>/stat` 与内核 boot ID，以此防止多进程并发冲突。不支持非 Linux 系统，启动时若检测到不支持的平台将直接退出以保障安全。
-- **Bun 1.4.3**：源码安装与本地开发所需，可通过以下命令快速安装：
+- **Linux 系统**（必须具备可读的 `/proc` 目录）：单实例锁依赖 `/proc/<pid>/stat` 与内核 boot ID，非 Linux 平台在启动时直接拒绝退出。
+- **Bun**（版本按 `package.json` 的 `engines.bun`）：源码安装与本地开发所需，可通过官方安装脚本安装指定版本：
   ```bash
   curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
   ```
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
   <tr>
     <td><nobr>⚙️ <b>系统依赖</b></nobr></td>
     <td>无需系统预装 Bun、git 或编译工具链；脚本会自动尝试补齐基础下载工具</td>
-    <td>需要 git 与 Bun 1.4.3；安装脚本会尝试辅助安装缺失工具，若版本不符需手动调整</td>
+    <td>需要 git 与对应版本的 Bun（见 <code>package.json</code> 的 <code>engines.bun</code>）；安装脚本会尝试辅助安装缺失工具，若版本不符需手动调整</td>
   </tr>
   <tr>
     <td><nobr>🚀 <b>运行时封装</b></nobr></td>
@@ -134,14 +134,14 @@ done
 - **`atmosphere`**（可选，枚举：`"mesugaki"` | `"normal"`）
   - 系统通知与命令菜单的默认语气风格（`mesugaki` 雌小鬼版 / `normal` 普通版）。
   - 若显式配置则以此为准；未配置时，若存在 `prompt/persona.md` 则默认使用普通版，否则使用雌小鬼版。
-- **`time_zone`**（可选，IANA 时区名，默认为 `Asia/Tokyo`）
+- **`time_zone`**（可选，IANA 时区名，缺省为 `DEFAULT_BOT_TIME_ZONE`）
   - 机器人的基准日历时区，供运势抽签、日志归档、广告统计、AI 时间感知、每日维护以及未指定时区的 cron 任务共同使用（不会直接继承宿主机操作系统时区）。
   - 配置时会自动去除首尾空白并规范化名称（例如 `asia/tokyo` 会标准化为 `Asia/Tokyo`）。
   - **时区绑定**：数据库初始化时会将此时区写入 `storage_metadata` 表中。此后机器人启动或安装脚本均会核对此时区；若中途修改 `time_zone` 将导致启动报错退出。已有数据不支持直接更换时区。
 
 ---
 
-## 项目侧配置文件
+<a id="项目侧配置文件"></a>
 
 ## 项目配置文件说明
 
@@ -174,7 +174,7 @@ config/
 
 - **`prompt/voice_tool.md`**（可选，项目根目录；参考 [示例](../../prompt_example/voice_tool.md)）
   - **作用**：自定义 AI 调用语音合成工具（`send_voice`）时的提示词说明。
-  - **行为**：默认根据 `agent.json` 中配置的语音语言（`en` / `zh` / `ja`）自动加载内置说明；如果该文件存在，则整份替换为该文件的内容。修改后需要重启生效。
+  - **行为**：默认根据 `agent.json` 中配置的语音语言（`TTS_BOT_LANGUAGES`）自动加载内置说明；如果该文件存在，则整份替换为该文件的内容。修改后需要重启生效。
 
 - **`config/static/bot.json`**（参考 [示例](../../config_example/static/bot.json)）
   - 核心身份配置文件，字段见上文「配置 Telegram 身份」。启动时进行严格校验，不允许出现未知字段或非法数据类型。
@@ -195,24 +195,24 @@ config/
        - `summary`：群聊长上下文的滚动记忆压缩与摘要模型。
        - `media`：图像理解与语音识别转写模型。首次请求会自动探测端点对模态的支持度。
     2. **扩展生成工具**（未配置时自动卸载对应工具）：
-       - `image`：AI 画图生成能力。使用 OpenAI 兼容协议时需声明 `image_protocol`（`openai` | `openai-standard` | `xai`）。可选 `max_reference_images`（`1`–`5`，缺省 `1`）指定一次生图最多交给模型的参考图张数，相册图片按顺序补齐。
+       - `image`：AI 画图生成能力。使用 OpenAI 兼容协议时需声明 `image_protocol`（`openai` | `openai-standard` | `xai`）。可选 `max_reference_images`（`1`～`IMAGE_GENERATION_MAX_REFERENCE_IMAGES`，缺省 `IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES`）指定一次生图最多交给模型的参考图张数，相册图片按顺序补齐。
        - `tts`：语音合成能力。必须指定 `voice` 音色。可选配置 `bot_language`（台词语言）以及每日合成额度预算。
     3. **检索与风控能力**：
        - `web_search`：联网检索工具。未单独配置时，将回退使用 `text` 模型的服务商内建搜索能力。
        - `ad_detect`：进群消息的广告自动识别模型。未配置时广告检测不可用。
     4. **通用配置项**：
-       - `provider`：模型供应商，支持 `google`、`openai`、`anthropic`（生图与语音仅支持前两者）。
+       - `provider`：模型供应商，支持 `AGENT_PROVIDERS`（`google`、`openai`、`anthropic`；生图与语音仅支持前两者）。
        - `api_key`：访问密钥；占位字符串会被校验拦截。
        - `model`：具体的模型名称。
        - `base_url`：可选的自定义 API 端点（用于代理或内网网关）。
-       - `headers`：仅 `google` 与 `anthropic` provider 可配置的附加请求头（1～`AGENT_HEADERS_MAX_ENTRIES` 个，用于 Cloudflare AI Gateway 等三方网关鉴权）。
+       - `headers`：仅 `google` 与 `anthropic` provider 可配置的附加请求头（`1`～`AGENT_HEADERS_MAX_ENTRIES` 个，用于 Cloudflare AI Gateway 等三方网关鉴权）。
        - `fallback_model`：仅 `anthropic` provider 可配置的回退模型（不能与 `model` 相同）。`model` 拒答时用它重发同一请求；回退模型也拒答或未配置时，该请求直接失败、不重试。
 
 ---
 
 ### 初始化身份数据库
 
-为保证数据一致性，机器人运行时不会自动建表。在首次部署时，必须通过以下脚本初始化本地 SQLite 数据库：
+机器人运行时不自动建表。首次部署时，通过以下脚本初始化本地 SQLite 数据库（目录与文件权限见 `IDENTITY_DATABASE_DIRECTORY_MODE` 与 `IDENTITY_DATABASE_FILE_MODE`）：
 
 ```bash
 mkdir -p database
@@ -229,7 +229,7 @@ chmod 660 database/storage.sqlite
 ```
 
 > [!IMPORTANT]
-> 这一步至关重要：它会在数据库的 `storage_metadata` 表中写入当前结构版本号与配置的基准时区。请务必在完成 `bot.json` 配置后再执行初始化；若跳过此步，启动时将因找不到数据库元数据而直接报错退出。
+> 该步骤会在数据库的 `storage_metadata` 表中写入当前结构版本号（`IDENTITY_DATABASE_SCHEMA_VERSION`）与配置的基准时区。必须在完成 `bot.json` 配置后再执行初始化；跳过此步会导致启动阶段报错退出。
 
 ---
 
@@ -254,8 +254,8 @@ chmod 660 database/storage.sqlite
 ```
 
 各字段说明如下：
-- **`onlyPath`**：仅支持本地文件路径（绝对路径或以 `./`、`../` 开头的相对数据根路径）。`random_h_image_dir` 指定随机图库目录，供 `/h_image` 命令与定时发图任务读取。
-- **`pathOrUrl`**：支持本地路径或 HTTP(S) 直链。`bot_default_avatar` 为复原默认头像时所使用的素材：JPEG/PNG 图片（不超过 10 MiB）设为静态头像，MP4 视频（不超过 50 MiB，视频画面须为正方形且不超过 1080×1080）设为动态头像。直链单次下载超时为 90 秒。
+- **`onlyPath`**：仅支持本地文件路径（绝对路径或以 `./`、`../` 开头的相对数据根路径）。`random_h_image_dir` 指定随机图库目录（缺省 `RANDOM_H_IMAGE_DIR`），供 `/h_image` 命令与定时发图任务读取。
+- **`pathOrUrl`**：支持本地路径或 HTTP(S) 直链。`bot_default_avatar` 为复原默认头像时所使用的素材：JPEG/PNG 图片（不超过 `BOT_PROFILE_PHOTO_MAX_BYTES`）设为静态头像，MP4 视频（不超过 `BOT_PROFILE_ANIMATION_MAX_BYTES`，视频画面须为正方形且单边不超过 `BOT_PROFILE_ANIMATION_MAX_SIDE`）设为动态头像。直链单次下载超时为 `DEFAULT_AVATAR_FETCH_TIMEOUT_MS`。
 - **`onlyUrl`**：必须为有效的 `https://` 图片绝对地址。分别用于运势抽签、概率计算与口球发言入口的卡片缩略图。
 
 ---

@@ -1,12 +1,5 @@
 /**
- * OpenAI 实现包的对外入口：把本包的能力装配成一个 AiChatProvider。
- * 领域侧只经 aiChat/provider.ts 的各能力路由拿到它，不直接 import
- * 本目录下的任何子模块。
- *
- * 四项必备能力之外，本包还实现语音转写与语音合成。音频转写走 OpenAI 兼容 audio
- * transcriptions；所配 media 模型/端点是否支持由第一次真实请求确认并缓存。语音合成按
- * `agent.tts.speech_protocol` 分派到 OpenAI audio/speech 或 xAI `/tts`（见 ./speech.ts）。联网检索
- * 执行器挂 hosted `web_search`（见 ./search.ts）。
+ * OpenAI 供应商实现入口：装配回复会话、纯文本、结构化 JSON、视觉描述、生图、语音转写、语音合成与联网检索能力。
  */
 
 import { generateOpenAiImage } from "./image";
@@ -16,7 +9,7 @@ import { synthesizeOpenAiSpeech } from "./speech";
 import { describeOpenAiVision, generateOpenAiJson, generateOpenAiText, transcribeOpenAiVoice } from "./text";
 import type { AiChatProvider } from "../../types/aiChat/provider";
 
-/** OpenAI 协议实现；每项能力的认证与端点来自 config/dynamic/agent.json。 */
+/** OpenAI 供应商实现。 */
 export const openAiProvider: AiChatProvider = {
   name: "openai",
   createReplySession: createOpenAiReplySession,

@@ -1,24 +1,18 @@
-/** owner: workers/aiChat。语音合成每日计数（packages/aiChat/ai/ttsUsage.ts）的权威值。 */
+/** owner: workers/aiChat。语音合成每日配额计数与在途预留状态（packages/aiChat/ai/ttsUsage.ts）。 */
 
 import type { TtsDailyUsage } from "../../../types/aiChat/voiceMessage";
 
 /**
- * AI 与预留额度的共同窗口及各自计数；null 表示从没发起过合成请求。
- *
- * 填充：init 之后主线程投递的 hydrateTtsUsage 写入 memory/global/state.json 的 `ttsUsage` 恢复出的
- * 值，Worker 崩溃重建时主线程改为重放它持有的最新 ttsUsage 回执。每次登记整体替换成
- * 新对象，并以 ttsUsage 事件交给主线程落盘。清理：过期窗口不主动清除，下一次登记时
- * 两项一起重置，并换成以本次请求为起点的新窗口。容量恒为一个对象。
+ * 语音合成每日窗口与已用计数；null 表示尚未发起过合成请求。
+ * 填充：主线程 hydrateTtsUsage 注入或合成成功后整槽替换（并向主线程发送 ttsUsage 回执落盘）。
+ * 清理：窗口过期后在下一次登记时重置为新窗口。
+ * 重建：Worker 崩溃重启后由主线程重放最新 ttsUsage 回执恢复。
+ * 容量：恒为单个对象槽位。
  */
 export const ttsDailyUsage: { current: TtsDailyUsage | null } = { current: null };
 
 /**
- * AI 语音工具已准入、TTS 调用还没结束的 `ai` 口径预留数（见 aiChat/ai/ttsUsage.ts 的
- * reserveAiTtsUsage）。它计入模型可见余量与准入判定，不进 agentCount、不落盘。
- *
- * 填充：send_voice 准入通过时加一。清理：同一次 TTS 调用结束时减一——成功时同时登记
- * agentCount，失败、取消或意外异常时只释放（settleAiTtsReservation）。
- * Worker 崩溃重建：新 isolate 从 0 起步，旧 isolate 里在途的合成随之终止，不需要重放。
- * 容量：不超过同时在途的 send_voice 合成数（每轮回复至多 MAX_VOICES_PER_REPLY 条）。
+ * 已通过 send_voice 准入但尚未结算的 AI 语音合成预留计数。
+ * 填充：reserveAiTtsUsage 准入通过时递增；清理：settleAiTtsReservation 在合成结束时递减；重建：Worker 崩溃重启后从零开始；容量：不超过同时在途的 send_voice 合成数（单轮上限 MAX_VOICES_PER_REPLY）。
  */
 export const pendingAiTtsReservations: { current: number } = { current: 0 };

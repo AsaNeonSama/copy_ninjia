@@ -1,18 +1,11 @@
-/** owner: main。 */
+/** owner: main。config/dynamic/ 热重载运行时状态（packages/app/configReload.ts）。 */
 
 import type { FSWatcher } from "node:fs";
 import type { LatestValueRunner } from "../../libs/latestValueRunner";
 
 /**
- * config/dynamic/ 热重载（app/configReload.ts）的运行时状态。
- *
- * startConfigReload 填充 watcher 与执行器并开始接纳事件；每个文件事件整体替换
- * 一次防抖 timer，到期即清空。被监听目录自身改名时排一个重建监听 timer，到期即清空；
- * 目录暂缺时按 CONFIG_RELOAD_REWATCH_RETRY_DELAYS_MS 重排，`rewatchAttempts` 记连续失败
- * 次数，重建成功或关闸归零。quiesceConfigReload 停止接纳、关闭 watcher 并清除两个
- * timer。执行器跨启停保留，同一时刻至多一轮在途读取加一轮待补跑。容量恒为一个
- * watcher、两个 timer 与一个执行器，不随事件数增长；主线程不随 Worker 重建，
- * 进程重启后从初始值开始。
+ * 热重载监听器与单飞执行器状态：startConfigReload 填充 watcher 与 runner 并开启 accepting；文件变更事件重设 debounceTimer（到期清空），目录改名或暂缺时按 CONFIG_RELOAD_REWATCH_RETRY_DELAYS_MS 调度 rewatchTimer 并递增 rewatchAttempts（重建成功或关闸时归零）；quiesceConfigReload 关闭 accepting、关闭 watcher 并清除定时器。
+ * 单例固定字段，不淘汰；进程重启后从初始值开始。
  */
 export const configReloadRuntime: {
   watcher: FSWatcher | null;

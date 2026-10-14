@@ -32,7 +32,7 @@ export function clearJoinWindow(chatId: number): void {
 }
 
 /**
- * 每群只保留一个静默清理 timer：持续入群只更新 expiresAt，旧 timer 到点后若
+ * 每群保留单颗静默清理 timer：持续入群只更新 expiresAt，旧 timer 到点后若
  * 仍未静默，再按剩余时间续排。
  */
 function scheduleJoinWindowCleanup(
@@ -92,10 +92,9 @@ export function beginLockdownRetriggerCooldown(
  * 记录一次已确认的新成员加入。返回超过阈值时用于状态机的保守计数；未超过、
  * 或仍在作废冷却期时返回 undefined。
  *
- * 每群最多保留 JOIN_WINDOW_CAPACITY 个 number。超出时覆盖最早项，并用
+ * 每群最多保留 JOIN_WINDOW_CAPACITY 个时间戳。超出时覆盖最早项，并用
  * overflowThrough 记住被覆盖数据尚未全部过期；异步撤销无法确认被覆盖项身份时
- * 保持 fail-safe 饱和，直到该时间段退出窗口。墙钟回拨会使未来的饱和证明失效，
- * 与 TimestampDeque.trim 丢弃未来记录的语义保持一致。
+ * 保持 fail-safe 饱和，直到该时间段退出窗口。
  */
 export function recordJoinWindow(chatId: number, now: number): number | undefined {
   if (joinWindowCoolingDown(chatId, now)) return undefined;
@@ -132,18 +131,7 @@ export function recordJoinWindow(chatId: number, now: number): number | undefine
 }
 
 /**
- * 撤销一次此前 recordJoin 计入的入群计数。由验证状态机的 `retractJoinCount`
- * 效果调用：一次已计入窗口的入群事后被确证为豁免时（states/verification/ 下 join.ts
- * 的豁免分支、pending.ts 的 handleAdminCheckResolved、shared.ts 的
- * channelCommentExemption、terminal.ts 的 handleTimeoutInviterVerdict「拉人者确是
- * 管理员」分支），按当初压进窗口的时间戳撤销；这些转移只对入群时已计过数的记录触发
- * （pending 及由它演进的终态，或带 countedJoinAt 的 kickPending）。
- *
- * joinedAt 必须是当初 recordJoin 压进窗口的同一个时间戳
- * （见 verificationEvents.ts 把 event.now 同时传给 recordJoin 与状态机），按值
- * 精确移除，不无差别 shift 队首。找不到表示该项已经过期、窗口已清空，或在极端
- * 过载时被硬顶覆盖；前两者无需撤销，最后一种保持 overflowThrough 的 fail-safe
- * 饱和判定，直到被覆盖时间戳全部过期。
+ * 按入群时压进窗口的 `joinedAt` 时间戳精确移除一次已计入的入群记录；若已被硬顶覆盖则保留 `overflowThrough` 饱和判定直至窗口滑过。
  */
 export function retractJoinWindow(chatId: number, joinedAt: number): void {
   joinWindows.get(chatId)?.timestamps.removeValue(joinedAt);

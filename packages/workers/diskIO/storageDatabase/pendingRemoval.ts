@@ -18,10 +18,7 @@ import {
   hasEffectiveBlocklistIdentity,
 } from "./identityPolicy";
 
-/**
- * 严格解码一行待踢任务并核对它对黑名单的引用：主键与 params.removalId 一致；补扫行要求
- * 事务叠加后的黑名单非空，指名行冻结的 userId 必须都在有效黑名单里。
- */
+/** 解码待踢任务行并校验 removalId 一致性与黑名单引用有效性。 */
 function acceptedRemovalTargets(removalId: number, data: string, source: string): RemovalRowTargets {
   const pending: PendingBlockedRemoval = decodePendingBlockedRemovalData(data, source);
   if (pending.params.removalId !== removalId) {
@@ -45,11 +42,7 @@ function acceptedRemovalTargets(removalId: number, data: string, source: string)
   return { probeMembership: false, userIds: pending.params.userIds };
 }
 
-/**
- * 收下一行待踢任务最终值（data 为 null 表示删除这一行）；迟到的旧 revision 不覆盖更新值。
- * 校验与容量判定都在进入事务缓冲之前完成，拒收时抛错由路由层记领域拒收；接受后同步更新
- * removalRowTargets，事务提交后按 (removalId, revision) 回精确 ACK。
- */
+/** 校验并接收待踢 outbox 写入或删除，同步更新 removalRowTargets 并排入事务缓冲。 */
 export function handleBlocklistRemovalWrite(
   message: BlocklistRemovalWriteDiskMessage,
   reply: IdentityPersistenceReply

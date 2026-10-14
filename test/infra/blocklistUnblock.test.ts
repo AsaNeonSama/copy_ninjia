@@ -249,7 +249,7 @@ describe("超管与黑名单互斥的启动断言", () => {
   test("超管在黑名单里时拒绝启动，并点名文件与两张表", async () => {
     seedMissingIdentity(1);
     blockUser(1, NO_META);
-    // isWhitelisted 对超管短路 true、isUserBlocked 不短路；超管出现在 blocklist_entries 时在启动阶段拒绝启动（见 AGENTS.md「不为用户行为兜底」）。
+    // isWhitelisted 对超管短路 true、isUserBlocked 不短路；超管出现在 blocklist_entries 时在启动阶段拒绝启动。
     await expect(assertSuperAdminNotBlocked(1)).rejects.toThrow(
       /blocklist_entries must not contain the configured super admin identity 1/
     );

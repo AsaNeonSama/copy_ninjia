@@ -1,13 +1,5 @@
 /**
- * Telegram sendVoice 直接接受的两种容器的校验与时长计算：OGG/Opus（OpenAI audio/speech 的
- * `opus`）与 MP3（xAI `/tts` 的 `mp3`）。只走容器结构，不解码音频。
- *
- * OGG/Opus：逐页核对捕获模式与段表长度，首页必须是 OpusHead；时长取最后一个带 granule
- * position 的页减去 pre-skip，按 OPUS_GRANULE_RATE 固定时钟换算。MP3：跳过开头的 ID3v2 标签，逐帧核对
- * MPEG Layer III 帧头并累加样本数，末尾只允许一个 ID3v1 标签；帧间出现其它字节或末帧不完整
- * 即拒绝。时长一律向上取整到整秒。
- *
- * 纯函数叶子模块，不接触任何缓存与 SDK 类型（见 AGENTS.md 的「缓存与线程归属」）。
+ * OGG/Opus 与 MP3 语音容器的结构校验与整秒时长计算。
  */
 
 import {
@@ -33,7 +25,7 @@ import {
 } from "../../../consts/audio";
 import type { VoiceContainerProbeResult } from "../../../types/aiChat/voiceMessage";
 
-/** bytes 在 offset 处是否逐字节等于 ASCII 串 text；越界视为不等。 */
+/** 判断 bytes 在 offset 处是否匹配给定 ASCII 串；越界时返回 false。 */
 function hasAscii(bytes: Uint8Array, offset: number, text: string): boolean {
   if (offset + text.length > bytes.byteLength) return false;
   for (let index: number = 0; index < text.length; index++) {
@@ -43,8 +35,7 @@ function hasAscii(bytes: Uint8Array, offset: number, text: string): boolean {
 }
 
 /**
- * 校验单路 OGG/Opus 并算出时长。
- * @param bytes 完整响应体字节。
+ * 校验单路 OGG/Opus 页序列与 OpusHead 头，并按末个有效 granule position 与 pre-skip 计算向上取整的秒数。
  */
 export function probeOggOpus(bytes: Uint8Array): VoiceContainerProbeResult {
   const view: DataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -54,7 +45,6 @@ export function probeOggOpus(bytes: Uint8Array): VoiceContainerProbeResult {
   while (offset < bytes.byteLength) {
     if (offset + OGG_PAGE_HEADER_BYTES > bytes.byteLength) return { ok: false, reason: "truncated Ogg page" };
     if (!hasAscii(bytes, offset, OGG_CAPTURE_PATTERN)) return { ok: false, reason: "not an Ogg Opus stream" };
-    // 页头最后一个字节是段数，其后紧跟段表，段表各项之和即页体长度。
     const segments: number = bytes[offset + OGG_PAGE_HEADER_BYTES - 1]!;
     const bodyStart: number = offset + OGG_PAGE_HEADER_BYTES + segments;
     if (bodyStart > bytes.byteLength) return { ok: false, reason: "truncated Ogg page" };
@@ -65,14 +55,11 @@ export function probeOggOpus(bytes: Uint8Array): VoiceContainerProbeResult {
       if (bodyLength < OPUS_HEAD_MIN_BYTES || !hasAscii(bytes, bodyStart, OPUS_HEAD_MAGIC)) {
         return { ok: false, reason: "not an Ogg Opus stream" };
       }
-      // 魔数之后依次是 1 字节版本、1 字节声道数、2 字节小端 pre-skip。
       preSkip = view.getUint16(bodyStart + OPUS_HEAD_MAGIC.length + 2, true);
     }
-    // granule position 是页头第 6～13 字节的 64 位小端整数。
     const granuleLow: number = view.getUint32(offset + 6, true);
     const granuleHigh: number = view.getUint32(offset + 10, true);
     if (granuleLow !== OGG_GRANULE_UNSET_WORD || granuleHigh !== OGG_GRANULE_UNSET_WORD) {
-      // 高 32 位非 0 的 granule 不属于一段语音。
       if (granuleHigh !== 0) return { ok: false, reason: "invalid Ogg granule position" };
       granule = granuleLow;
     }
@@ -83,11 +70,10 @@ export function probeOggOpus(bytes: Uint8Array): VoiceContainerProbeResult {
   return { ok: true, durationSeconds: Math.ceil((granule - preSkip) / OPUS_GRANULE_RATE) };
 }
 
-/** 开头 ID3v2 标签之后第一个字节的位置；没有标签时为 0，标签长度字段非法时为 -1。 */
+/** 计算开头可选 ID3v2 标签之后的首字节偏移；标签长度字段非法时返回负值。 */
 function id3v2End(bytes: Uint8Array): number {
   if (!hasAscii(bytes, 0, ID3V2_MAGIC)) return 0;
   if (bytes.byteLength < ID3V2_HEADER_BYTES) return -1;
-  // 标签头第 5 字节是 flags，第 6～9 字节是每字节 7 位的 syncsafe 长度。
   let size: number = 0;
   for (let index: number = 6; index < ID3V2_HEADER_BYTES; index++) {
     const byte: number = bytes[index]!;
@@ -99,8 +85,7 @@ function id3v2End(bytes: Uint8Array): number {
 }
 
 /**
- * 校验 MPEG Layer III 帧序列并算出时长。
- * @param bytes 完整响应体字节。
+ * 校验 MPEG Layer III 帧序列并按总样本数与采样率计算向上取整的秒数。
  */
 export function probeMp3(bytes: Uint8Array): VoiceContainerProbeResult {
   let offset: number = id3v2End(bytes);
@@ -112,7 +97,6 @@ export function probeMp3(bytes: Uint8Array): VoiceContainerProbeResult {
     if (offset + MP3_FRAME_HEADER_BYTES > bytes.byteLength) return { ok: false, reason: "truncated MP3 frame" };
     const second: number = bytes[offset + 1]!;
     const third: number = bytes[offset + 2]!;
-    // 帧同步 11 bit 全 1；版本 01 保留；层 01 为 Layer III；码率索引 0（free format）与 15、采样率索引 3 非法。
     const version: number = (second >> 3) & 0b11;
     const bitrateIndex: number = third >> 4;
     const rateIndex: number = (third >> 2) & 0b11;
@@ -129,7 +113,6 @@ export function probeMp3(bytes: Uint8Array): VoiceContainerProbeResult {
     if (sampleRate !== 0 && rate !== sampleRate) return { ok: false, reason: "not an MP3 stream" };
     sampleRate = rate;
     const frameSamples: number = mpeg1 ? MP3_MPEG1_SAMPLES_PER_FRAME : MP3_MPEG2_SAMPLES_PER_FRAME;
-    // 帧长（字节）= 每帧样本数 / 8 × 码率（bps）/ 采样率，再加 1 字节填充位。
     const frameLength: number = Math.floor(frameSamples / 8 * kbps * 1_000 / rate) + ((third >> 1) & 1);
     if (offset + frameLength > bytes.byteLength) return { ok: false, reason: "truncated MP3 frame" };
     samples += frameSamples;

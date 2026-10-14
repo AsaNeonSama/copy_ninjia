@@ -42,8 +42,8 @@ export interface BlocklistEntryData {
   readonly blockedAt: string;
   readonly meta: Readonly<TelegramIdentityMetadata>;
   /**
-   * 连续被 Telegram 以 PARTICIPANT_ID_INVALID 拒绝的群级补扫处置次数；缺省表示 0，
-   * 存在时为 1 到 BLOCKLIST_PARTICIPANT_INVALID_LIMIT - 1。
+   * 连续被 Telegram 以 PARTICIPANT_ID_INVALID 拒绝的群级补扫处置次数；缺省表示未累计，
+   * 存在时为小于 BLOCKLIST_PARTICIPANT_INVALID_LIMIT 的正整数。
    */
   readonly participantInvalidCount?: number;
 }

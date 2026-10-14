@@ -89,9 +89,8 @@ function runMaintenance(
 }
 
 /**
- * 所有持久化域先只读严格解码；任一失败都不 adopt、chmod、rewrite、unlink 或
- * 启动维护 cron。全部成功后统一发布 owner，发送成功回执，再执行可重试维护。
- * SQLite 排在第一个 inspect：版本与数据根时区校验先于按「今天」校验的日文件。
+ * 执行 Disk I/O Worker 全域启动恢复：先只读 inspect 全部持久化领域，全部通过后统一 adopt，
+ * 发送 loaded 回执后再执行维护任务并注册午夜维护 cron，参见 docs/cn/04-invariants.md。
  */
 export async function handleDiskIOStartupLoad(
   stickerPacks: readonly string[] | null,
@@ -125,7 +124,6 @@ export async function handleDiskIOStartupLoad(
       await inspectVerificationDay(today);
     const wedMembers: WedMemberInspection = await inspectWedMemberFiles();
 
-    // 可写 SQLite 连接先接管；文件 adopt 才可能创建或规范化内容。
     const identityStorage: ReturnType<typeof adoptStorageDatabase> =
       adoptStorageDatabase(storage);
     adoptLogFiles(logs);

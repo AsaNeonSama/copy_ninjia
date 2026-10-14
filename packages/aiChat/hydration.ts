@@ -1,13 +1,6 @@
 /**
- * AI Worker 的状态灌入：启动恢复与 config/dynamic/ 热重载恢复共用同一份主线程镜像。
- *
- * 启动时 diskIOWorker 恢复出的 AI 记忆与贴纸目录一律先写进主线程镜像
- * （cache/main/aiChat.ts 的 latestAiMemories / latestStickerCatalogs，也是双向崩溃
- * 重放的来源，见 aiChat/workerBridge.ts 模块头注）。AI 前提可用时立刻投给 Worker；
- * 不可用时 Worker 不启动、一条记忆都不删，镜像留到热重载补齐前提后由
- * resumeAiChat 投递。镜像之后的删除（`/clear_context`、`/ai_chat disable`、群
- * teardown）照常经 aiChat/memoryMirror.ts 的 requestAiMemoryDelete 同步摘除，因此
- * 恢复时投出去的内容与 Disk I/O 的权威状态一致。
+ * AI Worker 的记忆与贴纸目录状态灌入及热重载恢复。
+ * @see ../../docs/cn/04-invariants.md
  */
 
 import { isAiChatConfigured } from "./availability";
@@ -27,8 +20,7 @@ import { getChatState } from "../infra/storage/stateStore";
 import type { AiBotInfo } from "../types/aiChat/protocol";
 
 /**
- * 按镜像把 AI 记忆投给已启动的 Worker：未开启 AI 或已不受管的群安排 durable 删除，
- * 其余群一次 hydrate。判据只看群开关，不看配置可用性（见 aiChat/availability.ts）。
+ * 将主线程镜像中的 AI 记忆投递给已启动的 Worker；未开启 AI 闲聊的群安排持久化删除。
  */
 function postMirroredAiMemories(): void {
   const enabledMemories: Map<number, string> = new Map();
@@ -37,7 +29,6 @@ function postMirroredAiMemories(): void {
     if (getChatState(chatId).isAIChatEnabled === true) enabledMemories.set(chatId, snapshot);
     else dropped.push(chatId);
   }
-  // 删除会改写镜像，放在遍历结束之后。
   for (const chatId of dropped) requestAiMemoryDelete(chatId, false);
   if (dropped.length > 0) {
     logger.log(`Dropping the persisted AI memory of ${dropped.length} chat(s) with AI chat disabled: ${dropped.join(", ")}.`);
@@ -47,7 +38,7 @@ function postMirroredAiMemories(): void {
   }
 }
 
-/** 按镜像把贴纸目录投给已启动的 Worker，让 ensureStickerCatalogs 的 diff 看到已恢复条目。 */
+/** 将主线程镜像中当前生效的贴纸目录投递给已启动的 Worker。 */
 function postMirroredStickerCatalogs(): void {
   if (latestStickerCatalogs.size > 0) {
     postAiChatOrThrow({ type: "hydrateStickerCatalog", catalogs: activeStickerCatalogs() });
@@ -55,9 +46,7 @@ function postMirroredStickerCatalogs(): void {
 }
 
 /**
- * 启动时把 diskIOWorker 落盘恢复出的 AI 记忆快照写进镜像，AI 前提可用时再投给
- * Worker。必须在 initAiChat 之后、runner 开始投喂更新之前调用（见 app/lifecycle.ts），
- * FIFO 保证 hydrate 消息先于一切 record/trigger 到达。
+ * 启动时将恢复出的 AI 记忆快照写入主线程镜像，并在 AI 配置就绪时投递给 Worker。
  */
 export function hydrateAiMemory(memories: Map<number, string>): void {
   for (const [chatId, snapshot] of memories) {
@@ -69,8 +58,7 @@ export function hydrateAiMemory(memories: Map<number, string>): void {
 }
 
 /**
- * 启动时把 diskIOWorker 落盘恢复出的白名单贴纸目录写进镜像，AI 前提可用时再投给
- * Worker；时序要求同 hydrateAiMemory，排在它之后。
+ * 启动时将恢复出的贴纸目录写入主线程镜像，并在 AI 配置就绪时投递给 Worker。
  */
 export function hydrateStickerCatalog(catalogs: Map<string, string>): void {
   for (const [pack, snapshot] of catalogs) {
@@ -80,14 +68,7 @@ export function hydrateStickerCatalog(catalogs: Map<string, string>): void {
 }
 
 /**
- * config/dynamic/ 热重载让 AI 前提从不可用变为可用时调用（见 app/configReload.ts）。调用方
- * 在本函数正常返回之后才发布 readiness，因此投喂在此之前一直关闭；抛错时调用方
- * 保持不可用，下一次 config/dynamic/ 事件再试。
- *
- * - Worker 已在运行（启动时可用、之后前提缺失而闲置）：按主线程当前快照改写
- *   lastInitState 并投递完整 configReload。
- * - Worker 从未启动（启动时就不可用）：按启动恢复同一顺序投递 init、语音合成计数、
- *   记忆与贴纸目录镜像。
+ * 热重载使 AI 配置从不可用变为可用时恢复 Worker：已在运行时同步配置快照，从未启动时启动 Worker 并灌入记忆与贴纸目录镜像。
  */
 export function resumeAiChat(): void {
   if (lastInitState.current !== null) {

@@ -98,7 +98,7 @@ export const QA_QUERY_JSON_INDENT: number = 2;
 export const QA_QUERY_PAGE_MAX_ENTRIES: number = 3;
 
 /**
- * `/qa query` 翻页按钮的 callback_data 前缀，后面接目标页号（从 0 起）。
+ * `/qa query` 翻页按钮的 callback_data 前缀，后面接零基目标页号。
  *
  * 前缀与入群验证按钮的前缀互不为前缀。
  * 所属模块：packages/commands/qa/board.ts。
@@ -106,11 +106,8 @@ export const QA_QUERY_PAGE_MAX_ENTRIES: number = 3;
 export const QA_QUERY_PAGE_CALLBACK_PREFIX: string = "qa_page:";
 
 /**
- * `/qa query` 看板翻页按钮 callback_data 里页号的严格形态：非负十进制整数，
- * 不带正号、前导零、空白、小数点与指数。
- *
- * 页号从 0 起，因此与 USER_ID_ARG_PATTERN 不同，这里显式放行单独的 `0`；
- * 越界由调用方按当前页数判定。
+ * `/qa query` 看板翻页按钮 callback_data 里零基页号的严格形态：非负十进制整数，
+ * 不带正号、前导零、空白、小数点与指数；越界由调用方按当前页数判定。
  */
 export const QA_QUERY_PAGE_ARG_PATTERN: RegExp = /^(?:0|[1-9]\d*)$/;
 

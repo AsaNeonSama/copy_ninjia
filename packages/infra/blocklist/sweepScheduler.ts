@@ -29,8 +29,6 @@ function nextBlocklistSweepAt(): number | null {
   let earliest: number | null = null;
   for (const [chatId, progress] of blocklistSweepState) {
     const chatState: ChatState | undefined = getChatStateCache().get(chatId);
-    // 只判槽位是否空闲，不带 now；退避截止时刻由下面挑最早的 nextRetryAt
-    // （判据见 sweepEligibility.ts）。
     if (!isManagedAdminChat(chatState) || !isSweepSlotFree(progress)) {
       continue;
     }
@@ -63,7 +61,6 @@ export function armBlocklistSweepScheduler(): void {
   clearBlocklistSweepTimer();
   blocklistSweepSchedulerState.scheduledAt = scheduledAt;
   const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-    // timer 句柄已被重排替换的陈旧回调直接返回，不清句柄也不启动补扫。
     if (blocklistSweepSchedulerState.timer !== timer) return;
     blocklistSweepSchedulerState.timer = null;
     blocklistSweepSchedulerState.scheduledAt = null;

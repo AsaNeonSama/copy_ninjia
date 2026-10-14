@@ -88,13 +88,13 @@ WantedBy=multi-user.target
   sudo install -d -o copy-ninjia -g copy-ninjia -m 0750 /var/lib/copy-ninjia
   ```
   在 Docker 等容器中部署时，需将数据根作为持久化 Volume 挂载，由宿主机或 init container 设置属主；注意 `memory/` 与 `database/` 切勿放在容器可写但易失的临时分层中。
-- **自动初始化与严格写保护**：服务启动时会自动补齐数据根、`logs/`、`memory/`、`memory/global/` 与初始的 `database/` 目录（前四者默认权限为 `0755`，`database/` 为 `0770`，实际生效值受 umask 限制），且所有路径**严禁使用符号链接**。
-  - 数据根、`logs/`、`memory/` 与 `memory/global/` 必须归属于当前运行用户的 UID，且权限不能比 `0755` 更宽松。一旦检测到所属组（group）或其它人（other）拥有写入权限（`w` 位），程序将**立即拒绝启动**（以防止同主机未授权写入）。读取权限最高允许开放至 `0755`。
+- **自动初始化与严格写保护**：服务启动时会自动补齐数据根、`logs/`、`memory/`、`memory/global/` 与初始的 `database/` 目录（前四者权限上限为 `RUNTIME_DATA_ROOT_MAX_MODE`，`database/` 为 `IDENTITY_DATABASE_DIRECTORY_MODE`，实际生效值受 umask 限制），且所有路径**严禁使用符号链接**。
+  - 数据根、`logs/`、`memory/` 与 `memory/global/` 必须归属于当前运行用户的 UID，且权限不能比 `RUNTIME_DATA_ROOT_MAX_MODE` 更宽松。一旦检测到所属组（group）或其它人（other）拥有写入权限（`w` 位），程序将**立即拒绝启动**。
 
 > [!WARNING]
 > **多租户环境的数据权限隔离**：
-> `memory/` 目录下新建文件的默认权限是 `0644`。如果上层目录保持 `0755`，同一台机器上的其他本地用户将能够直接读取群聊数据。在多用户共享的服务器上，建议将数据根与 `memory/` 权限收紧为 `0750`，已有文件收紧为 `0600` 或 `0640`（程序运行时会保留已有文件的权限，不会静默修改）。
-> `database/` 目录可设为 `02770`，主数据库及 WAL/SHM 临时文件默认创建权限为 `0660`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 属于只读输入，保持普通只读即可。
+> `memory/` 目录下新建文件的默认权限是 `0644`。如果上层目录开放了其他本地用户的读取权限，同一台机器上的其他本地用户将能够直接读取群聊数据。在多用户共享的服务器上，建议将数据根与 `memory/` 权限收紧为 `0750`，已有文件收紧为 `0600` 或 `0640`（程序运行时会保留已有文件的权限，不会静默修改）。
+> `database/` 目录权限上限为 `IDENTITY_DATABASE_DIRECTORY_MODE`（含 setgid 位时为 `02770`），主数据库及 WAL/SHM 临时文件创建权限为 `IDENTITY_DATABASE_FILE_MODE`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 属于只读输入，保持普通只读即可。
 
 - **崩溃自愈机制**：如果进程意外崩溃或以非零码退出，systemd 的 `Restart=on-failure` 会自动拉起实例。尚未完成的入群验证状态、锁定计时器、身份写入、AI 上下文记忆以及未确认的 Telegram update 将按照 [04 运行时权威约束](04-invariants.md#持久化) 的规则无缝恢复。
 
@@ -117,7 +117,7 @@ WantedBy=multi-user.target
 
 ### 日历时区
 
-时区在 `config/static/bot.json` 的 `time_zone` 字段中配置（启动时生效，缺省为 `Asia/Tokyo`），运行期间不会动态更新。定时任务可在 `cron.json` 中配置独立的 `time_zone` 覆盖全局设定。
+时区在 `config/static/bot.json` 的 `time_zone` 字段中配置（启动时生效，缺省为 `DEFAULT_BOT_TIME_ZONE`），运行期间不会动态更新。定时任务可在 `cron.json` 中配置独立的 `time_zone` 覆盖全局设定。
 
 **时区与数据根强绑定**：首次建库时，数据库 `database/storage.sqlite` 的 `storage_metadata` 表中会持久化记录 `time-zone` 标记。此后，日报文件按自然日划分的切分点、运势回执签名密钥、临时广告免检计数以及入群日志周期，均严格按此绑定时区计算。
 若启动时发现 `bot.json` 中的 `time_zone` 与数据库中的记录不一致，程序将直接终止启动，并在日志中明确打印 `storage_metadata.time-zone` 与期望值。安装器注册服务前也会做同样的检查。已有数据根不支持动态更改时区；若需启动，必须把 `time_zone` 改回库中记录的值。`database/` 与 `memory/` 必须来自同一个时间点的备份，备份与恢复必须整体处理。
@@ -130,9 +130,9 @@ WantedBy=multi-user.target
 - **根目录遗留检查**：如果数据根顶层存在遗留的旧版 `state.json` 或 `state.json.bak`，服务启动与安装器都会拒绝运行。请先参考[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移，再把这些旧文件移出数据根。
 
 ### 2. 色图专用图库：`random_h_image_dir`
-- **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（默认相对数据根目录下的 `./h_image`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令上传收录。
-- **命名规范**：文件名必须严格等于**图片二进制内容的 SHA-256 哈希**（64 位小写十六进制字符串），扩展名仅支持 `jpg`、`jpeg`、`png`、`webp`。严禁在此目录存放任何非色图文件或说明文档。
-- **启动检查**：若目录不存在，启动时会自动创建；启动阶段会逐项扫描该目录，一旦发现非法文件名、子目录、软链接或异常残留的 `.h_image-add-*` 临时文件，程序将**直接拒绝启动**。往该目录手动增删合规图片无需重启服务，即时生效；若在运行期间动态修改配置路径，程序会以同等规则严格校验新目录，若存在非法文件则拒绝切换。
+- **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（缺省为相对数据根目录的 `RANDOM_H_IMAGE_DIR`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令上传收录。
+- **命名规范**：文件名必须严格等于**图片二进制内容的 SHA-256 哈希**（匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN`），扩展名仅支持 `RANDOM_IMAGE_EXTENSIONS`。严禁在此目录存放任何非色图文件或说明文档。
+- **启动检查**：若目录不存在，启动时会自动创建；启动阶段会逐项扫描该目录，一旦发现非法文件名、子目录、软链接或异常残留的 `RANDOM_IMAGE_TEMP_PREFIX` 前缀临时文件，程序将**直接拒绝启动**。往该目录手动增删合规图片无需重启服务，即时生效；若在运行期间动态修改配置路径，程序会以同等规则严格校验新目录，若存在非法文件则拒绝切换。
 
 ### 3. 群友老婆候选库：`memory/wed/<chatId>.json`
 - **功能职责**：每群一份已发言成员滑窗，文件是按进入顺序排列的对象数组（如 `[{"id":5974478892,"enteredAt":1791770134683}]`），`enteredAt` 为成员进入滑窗时的 Unix 毫秒时间戳；主线程为每个活跃群维护一个复用的 `Map<number, number>`（成员 ID → 进入时间）。系统管理的群数量上限为 `STATE_MANAGED_CHAT_LIMIT`，单群滑窗容量为 `WED_MEMBER_LIMIT`。
@@ -142,9 +142,9 @@ WantedBy=multi-user.target
 - **离群清理**：退群服务消息、`chat_member` 状态更新以及每日零点的成员巡检会自动清理已退群的用户（后两项需要机器人具备群管理员权限）。如果机器人没有管理员权限，在开启了“隐藏成员列表”的大群中可能无法感知成员离群，此时该成员仍可能保留在候选池中并被抽中，此属 Telegram API 权限限制下的正常现象。
 
 ### 4. 贴纸与运势：`memory/stickers/` 与 `memory/luck/`
-- **`memory/stickers/<pack>.json`**：白名单贴纸包的索引描述缓存（格式版本 `version=1`），记录贴纸的 `file_unique_id`、对应 emoji、提示描述以及整包摘要信息。若缺失可随时从 Telegram 重新同步对账；启动时会自动删除不在当前配置白名单中的贴纸包文件。
+- **`memory/stickers/<pack>.json`**：白名单贴纸包的索引描述缓存（包含格式版本 `version` 字段），记录贴纸的 `file_unique_id`、对应 emoji、提示描述以及整包摘要信息。若缺失可随时从 Telegram 重新同步对账；启动时会自动删除不在当前配置白名单中的贴纸包文件。
 - **`memory/luck/<YYYY-MM-DD>.json`**：在绑定时区下当天已抽取的运势结果，以用户 ID 为键，包含运势等级及用户所求事项的摘要。每天只保留当天的记录。
-- **`memory/luck/receipt-secret.json`**：用于校验当天运势回执真实性的 HMAC 密钥（格式版本 `version=1`，包含所属日期与 32 字节随机密钥）。**此文件必须与当天的运势文件作为整体一同备份与恢复**，严禁单方面删除或重新生成，否则会导致之前发放的运势回执全部失效。
+- **`memory/luck/receipt-secret.json`**：用于校验当天运势回执真实性的 HMAC 密钥（包含格式版本 `version` 字段、所属日期与匹配 `LUCK_RECEIPT_SECRET_PATTERN` 的十六进制随机密钥）。**此文件必须与当天的运势文件作为整体一同备份与恢复**，严禁单方面删除或重新生成，否则会导致之前发放的运势回执全部失效。
 
 ### 5. 待验证与入群日志：`memory/anti-raid/` 与 `memory/joinlog/`
 - **`memory/anti-raid/<YYYY-MM-DD>.json`**：当天入群验证挑战（Challenge）的状态日志，记录活跃状态、修订版本（revision）、已解决的墓碑记录（tombstone），以及写入但尚未确认执行完毕的剔除任务 `kickPending`（服务重启后会自动继续执行未完成的剔除操作）。稳定状态下只保留当天数据，追加日志条数或体积达到 `VERIFICATION_FILE_COMPACT_ENTRIES` 或 `VERIFICATION_FILE_COMPACT_BYTES` 门限时会自动触发整理压缩。整理时目录里若还留着更早的日文件，会为其中最新一份里仍为活跃、当前已终结的记录写入墓碑，旧日文件删除前进程退出也不会让已终结的记录在恢复时复活。同一份最新旧日文件连续 `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` 次解码失败（不是合法 UTF-8 或不是当前格式）时，运行中的整理把它改名为 `<YYYY-MM-DD>.json.corrupt` 原样保留供人工排查，新的一天直接按内存镜像写入；改名后的文件不再以 `.json` 结尾，启动恢复与旧日清理都不读也不删它。启动时最新旧日文件损坏仍拒绝启动。
@@ -244,8 +244,8 @@ WantedBy=multi-user.target
 程序在启动时若检测到任何配置或数据异常，均会**主动快速失败（Fail-Fast）**终止进程，日志中会清晰输出失败的具体原因与出错的字段路径。请根据错误提示精确定位，切勿强行绕过检查：
 
 ### 1. 数据根预检失败
-- **原因**：数据根、`memory/`、`memory/global/`、`logs/` 或 `database/` 中包含软链接；相关目录的属主不是当前运行进程的 UID，或者目录权限过于宽松（包含了 group 或 other 的写权限）；`database/` 权限比 `0770` 更宽，或者运行用户对该目录缺乏所属组写入权限；底层挂载的文件系统不支持 fsync、硬链接（hard link）或原子 rename。
-- **解决方法**：停止服务，修正各目录的属主账号与权限模式。将数据根、`memory/`、`memory/global/`、`logs/` 设置为 `0750` 或 `0755`，`database/` 设置为 `0750` 或 `02770`。确保数据根位于标准本地 POSIX 文件系统上，避免使用不支持标准文件锁的特定网络文件系统。
+- **原因**：数据根、`memory/`、`memory/global/`、`logs/` 或 `database/` 中包含软链接；相关目录的属主不是当前运行进程的 UID，或者目录权限过于宽松（包含了 group 或 other 的写权限，超过 `RUNTIME_DATA_ROOT_MAX_MODE`）；`database/` 权限比 `IDENTITY_DATABASE_DIRECTORY_MODE` 更宽，或者运行用户对该目录缺乏所属组写入权限；底层挂载的文件系统不支持 fsync、硬链接（hard link）或原子 rename。
+- **解决方法**：停止服务，修正各目录的属主账号与权限模式。将数据根、`memory/`、`memory/global/`、`logs/` 收紧为 `0750`（不超过 `RUNTIME_DATA_ROOT_MAX_MODE`），`database/` 设置为 `0750` 或 `02770`（不超过 `IDENTITY_DATABASE_DIRECTORY_MODE`）。确保数据根位于标准本地 POSIX 文件系统上，避免使用不支持标准文件锁的特定网络文件系统。
 
 ### 2. `bot.lock` 拒绝启动
 - **原因**：检测到已有另一个活跃的进程实例正在使用当前数据根（即使使用不同 Token 也不允许并发占用），或者锁文件损坏、为旧版本遗留格式。
@@ -343,7 +343,7 @@ WantedBy=multi-user.target
   启动时标题刷新连续多次确证某群已不存在（`gone`）或机器人已不是成员（`departed`），已自动收尾。`departed` 的群若还有未恢复的私密模式记录会继续保留，机器人回到群里并拿回限制成员权限后自动还原。
 - `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`：
   首次查询像是不可达，但后续重查结论不一致（多为 Telegram 偶发错误），本次不收尾，下次启动重新确证。
-- `Gemini context cache API ... create rejected (n/3): 400`：
+- `Gemini context cache API ... create rejected (n/<max>): 400`：
   向 Gemini 创建上下文缓存请求时被接口返回 HTTP 400 拒绝。通常是因为当前上下文总 Token 数尚未达到官方要求的创建下限，或者请求参数不合法。系统在等待 `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` 冷却时间后会尝试重试，累计达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次失败后将不再为当前内容尝试建立缓存；在此期间，常规的对话回复不受影响，将以不带缓存的方式正常调用。
 
 ---

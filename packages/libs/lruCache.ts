@@ -20,8 +20,7 @@ export class LruCache<K, V> extends FifoMap<K, V> {
     return node.value;
   }
 
-  /** 不影响使用顺序地查看一个键的当前值，用于"这个 key 现在还是不是我
-   *  插入的那份"之类的引用比对。 */
+  /** 读取一个键的当前值，不影响使用顺序。 */
   peek(key: K): V | undefined {
     return this.map.get(key)?.value;
   }

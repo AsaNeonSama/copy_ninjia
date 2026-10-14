@@ -20,11 +20,7 @@ import type { StoredChatQaRow } from "../../../types/storageDatabase";
 import { assertPositiveRevision, requireStorageDatabase, storageSource } from "./context";
 import { flushIfStorageFull } from "./flush";
 
-/**
- * 某群已提交问题叠加未提交最终值后的有效问题集合。
- *
- * 只查这一个群的 `q` 列，不读 data（JSONB BLOB）。口径同 chat_states 的容量闸。
- */
+/** 读取指定群已提交问题并叠加待提交变更，返回有效问题集合。 */
 function effectiveChatQaQuestions(chatId: number): Set<string> {
   const rows: readonly Pick<StoredChatQaRow, "q">[] = readStoredChatQaQuestions(
     requireStorageDatabase(),
@@ -43,7 +39,7 @@ function effectiveChatQaQuestions(chatId: number): Set<string> {
   return questions;
 }
 
-/** 收下一条问答最终值；每群条数上限在进入事务缓冲前严格验证。 */
+/** 校验并接收一条群问答写入，验证单群条数上限后排入事务缓冲。 */
 export function handleChatQaWrite(
   message: ChatQaWriteDiskMessage,
   reply: IdentityPersistenceReply
@@ -52,13 +48,11 @@ export function handleChatQaWrite(
   assertTelegramChatId(message.chatId, rowSource);
   assertChatQaQuestion(message.q, rowSource);
   assertPositiveRevision(message.revision, rowSource);
-  // 解码只为在进缓冲前拒掉非法答案，结果不留用；落库的是主线程已编码的文本。
   if (message.data !== null) decodeChatQaData(message.data, rowSource);
 
   const questions: Map<string, PendingChatQaWrite> =
     pendingChatQaWrites.get(message.chatId) ?? new Map<string, PendingChatQaWrite>();
   const current: PendingChatQaWrite | undefined = questions.get(message.q);
-  // 迟到的写不得覆盖更新的最终值；与其它领域同一条 revision 单调规则。
   if (current !== undefined && current.revision >= message.revision) return;
 
   const effective: Set<string> = effectiveChatQaQuestions(message.chatId);

@@ -41,13 +41,7 @@ import type { AdSampleDiskMessage } from "../types/diskIO/messages";
 import type { FlushResult } from "../types/lifecycle";
 
 /**
- * 把这次命中的原始素材投给落盘线程（memory/ad-detected/sample.json）。
- *
- * 纯旁路：进程从不读回它，不等落盘确认、不进统一 flush、投递失败只记一行日志。
- * 投递走 postDiskIODiagnostic（见 infra/diskIO.ts）。素材供人工查看，用于调整
- * config/dynamic/ad_samples.json 的示例（见 consts/antiRaid/adDetect.ts）。
- *
- * 排在 blockUser 之前，同步记账。
+ * 将命中广告的原始样本经 postDiskIODiagnostic 异步投递至落盘线程（见 infra/diskIO.ts）。
  */
 function recordAdSample(event: AdDetectedEvent): void {
   if (event.messages.length === 0) return;
@@ -66,16 +60,10 @@ function recordAdSample(event: AdDetectedEvent): void {
 }
 
 /**
- * 执行一次判定命中的处置：先写名单再落盘，然后为每个在管群登记一批封禁并交回
- * Worker。顺序与 /block 一致：名单覆盖以后的入群，封禁覆盖此刻已知且有管理权的群。
- *
- * 重复命中同一个人（blockUser 返回 false，名单条目已存在）时只补触发群一批封禁，
- * 不再等待名单落盘，也不为其余群登记封禁批次：名单条目在第一次命中时已写进主线程
- * LRU 并投过落盘，其余群的封禁批次仍在 outbox 里等重试。
+ * 执行广告命中处置：写入永久黑名单并落盘，随后为受管群登记封禁批次并交回 Worker。
+ * 同一身份重复命中（blockUser 返回 false）时仅补登记触发群的封禁批次。
  */
 async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
-  // 写前重读身份策略，使互斥检查与表计数建立在当前数据库最终值上。冷读失败时放弃这次
-  // 判定：Worker 已删掉命中的消息，这里不拉黑、不封禁、不播报。
   if (!await prefetchIdentityPolicies([event.senderId])) {
     logger.error(
       `Dropped the ad detection verdict for sender ${event.senderId} in chat ${event.chatId}: ` +
@@ -85,14 +73,8 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
   }
   const newlyBlocked: boolean | null = await runProtectedIdentityMutation(
     (): boolean | null => {
-      // 写名单前复查本群广告检测开关：判定回投期间可能已执行 /ad_detect disable，
-      // clearAdDetection 只清 Worker 里还没判的队列（见 antiRaid/workerBridge/controller.ts）。
-      // 复查位于临界区内、紧挨着 blockUser。
       if (getChatState(event.chatId).isAdDetectEnabled !== true) return null;
-      // 候选入队与模型回投之间发送者可能刚达到临时广告免检条件；
-      // 在清除累计之前复查当前权限。
       if (canBypassAdDetection(event.senderId)) return null;
-      // 白名单成员不写入永久黑名单；本检查同样在临时累计删除之前完成。
       if (isWhitelisted(event.senderId)) return null;
       clearTemporaryAdBypassActivityOrThrow(event.senderId);
       recordAdSample(event);
@@ -120,8 +102,6 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
     );
   }
 
-  // 处置范围与 /block 同源（managedAdminChatIds），判定发生的这个群排最前。
-  // 重复命中只补触发群这一批，同样过受管过滤。
   const managed: number[] = managedAdminChatIds(
     event.chatId,
     isManagedAdminChat(getChatStateCache().get(event.chatId))
@@ -129,8 +109,6 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
   const enforcementChatIds: number[] = newlyBlocked
     ? managed
     : managed.filter((chatId: number): boolean => chatId === event.chatId);
-  // 逐个群登记，失败只作废这一个群；降级语义同 blocklistGuard.claimBlockedJoiner，
-  // 失败的群改由补扫接手。
   const removals: RemoveBlockedMembersParams[] = [];
   let failedChats: number = 0;
   for (const chatId of enforcementChatIds) {
@@ -138,7 +116,6 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
       removals.push(trackBlockedRemoval({
         chatId,
         userIds: [event.senderId],
-        // 不探测成员关系；封禁对不在群的人同样幂等（同秒踢那一路）。
         probeMembership: false,
       }));
     } catch (error: unknown) {
@@ -173,7 +150,7 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
 }
 
 /**
- * 同一身份的广告封禁与 `/block` 的名单写入和跨群扇出按完整副作用串行结算（cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）。
+ * 按身份串行执行广告封禁与 `/block` 名单写入及跨群扇出（见 cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）。
  */
 function disposeDetectedAd(event: AdDetectedEvent): Promise<void> {
   return blocklistIdentityMutationRunner.run(
@@ -183,29 +160,19 @@ function disposeDetectedAd(event: AdDetectedEvent): Promise<void> {
 }
 
 export interface FormatAdNoticeParams {
-  /** 发送者的展示标签（见 users/userLabel.ts 的 formatUserLabel），由 Worker 侧算好带回。 */
+  /** 发送者的展示标签（见 users/userLabel.ts 的 formatUserLabel）。 */
   label: string;
-  /** 模型给的判定理由；空串走兜底文案。 */
+  /** 模型返回的判定理由；空串时使用默认文案。 */
   reason: string;
-  /** 真正登记上封禁批次的群数。 */
+  /** 成功登记封禁批次的群数。 */
   enforcedChats: number;
-  /** 登记失败、改由补扫接手的群数。 */
+  /** 登记失败、交由补扫接手的群数。 */
   failedChats: number;
   readonly atmosphere: AtmosphereTexts;
 }
 
 /**
- * 群内播报：只带展示标签与判定理由，不回显广告原文。模型没给理由时用兜底文案
- * （adDefaultReason）。
- *
- * 文案按真正登记上的封禁群数分三档：
- * - 一个都没登记上（outbox 触顶、刚被撤管理员、`/init disable`）：adNoManagedChat，
- *   点名请管理员介入；
- * - 部分群登记失败：adPartialBan，报真正封上的群数与失败群数；
- * - 全部登记上：adBanned。
- *
- * 文案只说记进名单与封了几个群，不提删消息：删除跑在判定线程上，主线程不知道结果，
- * 删除失败由判定线程自己记日志（见 workers/antiRaid/adDetect/disposal.ts）。
+ * 生成广告处置群内播报文案，仅包含展示标签、判定理由及封禁群统计，不回显广告原文。
  */
 export function formatAdNotice({ label, reason, enforcedChats, failedChats, atmosphere }: FormatAdNoticeParams): string {
   const head: string = atmosphere.NOTICE_TEXTS.adDetected(label, reason || atmosphere.NOTICE_TEXTS.adDefaultReason);
@@ -219,12 +186,7 @@ export function formatAdNotice({ label, reason, enforcedChats, failedChats, atmo
 }
 
 /**
- * 发播报并挂上 COMMAND_MESSAGE_AUTO_DELETE_MS 的自动清理，经统一的临时提示边界
- * （infra/telegram/temporaryMessage.ts）在拿到 id 的同步时点认领删除。
- *
- * 在主线程发送：封禁结果只有主线程知道（见 workers/antiRaid/adDetect/disposal.ts
- * 的 disposeAdSender）。整段尽力而为，失败不影响已经落定的拉黑与封禁登记；
- * bot 主动播报不带话题。
+ * 经统一临时消息边界发送广告处置播报并登记延迟删除（见 infra/telegram/temporaryMessage.ts）。
  */
 async function announceAdDisposal(
   event: AdDetectedEvent,
@@ -238,12 +200,9 @@ async function announceAdDisposal(
 }
 
 /**
- * Worker 回投的判定命中：登记成在途处置任务。事件回调是同步的，处置任务登记进
- * cache/main/antiRaid/adDisposal.ts 的 inFlightAdDisposals，由停机 drain 统一等待。
+ * 接收 Worker 回投的广告命中事件，将处置任务登记入 cache/main/antiRaid/adDisposal.ts 的 inFlightAdDisposals。
  */
 export function handleAdDetected(event: AdDetectedEvent): void {
-  // 名单与 outbox 都已经 durable，失败的只是这一次投递；重启恢复与下一次
-  // 管理员身份观测触发的补扫都会把它接上。
   trackBackgroundTask(
     inFlightAdDisposals,
     disposeDetectedAd(event),
@@ -252,16 +211,14 @@ export function handleAdDetected(event: AdDetectedEvent): void {
 }
 
 async function clearAdVerdictActivity(event: AdVerdictTrueEvent): Promise<void> {
-  // 身份已经被 LRU 淘汰且冷读失败时不能按“无豁免”撤销临时成员关系。
   if (!await prefetchIdentityPolicies([event.senderId])) return;
   await runProtectedIdentityMutation((): void => {
-    // 判定回投时以当前权限为准：已获临时广告豁免的成员不能被旧候选撤权。
     if (canBypassAdDetection(event.senderId)) return;
     clearTemporaryAdBypassActivityOrThrow(event.senderId);
   });
 }
 
-/** 模型明确返回 ad=true 时清空未授权累计；当前广告绕过权限优先。 */
+/** 模型返回广告命中时清空发送者的临时免检累计。 */
 export function handleAdVerdictTrue(event: AdVerdictTrueEvent): void {
   trackBackgroundTask(
     inFlightAdDisposals,
@@ -271,11 +228,8 @@ export function handleAdVerdictTrue(event: AdVerdictTrueEvent): void {
 }
 
 /**
- * 停机排空：在预算内等待所有在途处置结算（含结算过程中新派生的）。
- *
- * 等待受 timeoutMs 预算约束；预算为 0 的路径（异常退出的 EMERGENCY_FLUSH_TIMEOUTS，见
- * docs/cn/04-invariants.md）立即结算为 timedOut。
- * @returns 全部结算为 flushed；预算用尽仍有在途为 timedOut。
+ * 停机排空：在 timeoutMs 预算内等待全部在途广告处置任务结算（含结算期间新派生的任务，见 docs/cn/04-invariants.md）。
+ * @returns 全部结算返回 flushed；预算耗尽仍有在途任务返回 timedOut。
  */
 export async function drainAdDisposals(timeoutMs: number): Promise<FlushResult> {
   const deadline: number = createMonotonicDeadline(timeoutMs);

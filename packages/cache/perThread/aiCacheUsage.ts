@@ -1,19 +1,9 @@
-/** owner: perThread。 */
+/** owner: perThread。AI 缓存用量上报回调与告警去重集合（packages/infra/aiCacheUsage.ts）。 */
 
 import type { AiCacheUsage, AiUsageWarningKey } from "../../types/aiCache";
 
-/**
- * AI 缓存用量上报出口（packages/infra/aiCacheUsage.ts）的线程内 holder。
- *
- * perThread：AI 闲聊 Worker 与 Anti-Raid Worker 启动时各自装上把用量作为事件发回主线程的
- * 出口，停止时清除；主线程与未装出口的线程保持 null，无法上报时由边界给出一次诊断。容量恒为一个函数，
- * 不淘汰；Worker 重建后由新 isolate 重新安装。
- */
+/** 当前线程的 AI 缓存用量上报函数单例：AI 闲聊 Worker 与 Anti-Raid Worker 启动时安装，停止时清空为 null；主线程保持 null，不淘汰，Worker 重建后由新 isolate 重新安装。 */
 export const aiCacheUsageSink: { current: ((usage: AiCacheUsage) => void) | null } = { current: null };
 
-/**
- * perThread 用量诊断去重集合：首次出现的原因填充，安装/卸下出口时清空。
- * 容量以「能力 × 供应商 × 原因」的组合数为上界，不含可增长的模型名或响应字段。
- * Worker 重建后为空，同一出口生命周期内每种组合只记录一次。
- */
+/** 当前线程的 AI 用量缺失告警去重集合：首次触发某「能力 × 供应商 × 原因」组合时写入，安装或卸载 aiCacheUsageSink 时清空；容量上限为固定枚举组合数，不淘汰，Worker 重建后从空集开始。 */
 export const aiUsageWarningKeys: Set<AiUsageWarningKey> = new Set();

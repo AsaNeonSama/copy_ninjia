@@ -107,23 +107,22 @@ export function truncateWithEllipsis(text: string, maxChars: number, mark: strin
 }
 
 /**
- * 句末标点「。！？…～♡」的码元；取值集合与 test/libs/text.test.ts 的对拍用例一致。
+ * 句末标点的 UTF-16 码元判定；取值集合与 test/libs/text.test.ts 的对拍用例一致。
  */
 function isSentenceEndCode(code: number): boolean {
   return code === 0x3002 || code === 0xff01 || code === 0xff1f ||
     code === 0x2026 || code === 0xff5e || code === 0x2661;
 }
 
-/** 子句分隔符「，、；：」的码元；语义同 isSentenceEndCode。 */
+/** 子句分隔符的 UTF-16 码元判定；语义同 isSentenceEndCode。 */
 function isClauseBreakCode(code: number): boolean {
   return code === 0xff0c || code === 0x3001 || code === 0xff1b || code === 0xff1a;
 }
 
 /**
- * 截断到 maxChars 以内，但尽量收在子句边界上，不把句子从中间剁断；用于模型
- * 生成的描述与简介。
- * 规则：先硬切到 maxChars；若切点内能找到句末标点（。！？…～♡），收到
- * 最后一个句末标点为止（含标点）；否则找最后一个子句分隔符（，、；：）
+ * 截断到 maxChars 以内，尽量收在子句边界上；用于模型生成的描述与简介。
+ * 规则：先硬切到 maxChars；若切点内能找到句末标点（isSentenceEndCode），收到
+ * 最后一个句末标点为止（含标点）；否则找最后一个子句分隔符（isClauseBreakCode），
  * 收到它之前（丢掉悬空的分隔符）。边界位置不足上限一半时放弃找边界，退回硬切。
  */
 export function truncateAtClauseBoundary(text: string, maxChars: number): string {

@@ -52,8 +52,7 @@ const TEST_BOT_CONFIG: string = readFileSync(TEST_BOT_CONFIG_PATH, "utf8").repla
 );
 writeFileSync(TEST_BOT_CONFIG_PATH, TEST_BOT_CONFIG, { mode: 0o600 });
 
-// 在任何生产模块 import 之前切断 state/lock/logs/memory 的默认生产路径。
-// 测试仍做真实文件 I/O，只是所有漏注入的写入也只能落到本隔离目录。
+// 在任何生产模块 import 之前将 database/、memory/、logs/ 与 bot.lock 定向到隔离数据根。
 process.env[RUNTIME_DATA_ROOT_ENV] = TEST_DATA_ROOT;
 // 部署 config/ 不受版本控制；测试和测试 Worker 统一读取独占临时副本，不读也不改开发机上的真实部署配置。
 process.env[CONFIG_ROOT_ENV] = TEST_CONFIG_ROOT;

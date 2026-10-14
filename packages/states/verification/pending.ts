@@ -35,10 +35,6 @@ export function handleTrackedMessage(
 
   if (event.inCommentThread) return channelCommentExemption(state, event.messageId);
 
-  // 频道评论区活动已提前豁免；其余消息按成员自己的滑动窗口统计。
-  //
-  // 就地修剪窗口数组：状态机独占这份数组，消费方都以 `[...]` 复制出去，
-  // 见 libs/slidingWindowRateLimit.ts 的 trimSlidingWindowArrayInPlace。
   trimSlidingWindowArrayInPlace(state.trackedMessageTimes, JOIN_WINDOW_MS, event.now);
   state.trackedMessageTimes.push(event.now);
   if (state.trackedMessageTimes.length > ANTI_RAID_PER_MINUTE_LIMIT) {
@@ -47,7 +43,6 @@ export function handleTrackedMessage(
       effects: NO_VERIFICATION_EFFECTS,
     };
   }
-  // 滑动窗口是持久字段，提醒已补发时也发布本次原地修改。
   if (state.replyReminderRequested) return pendingUpdated(state, NO_VERIFICATION_EFFECTS);
   state.replyReminderRequested = true;
   state.welcomeAnchorMessageId = event.messageId;
@@ -58,7 +53,6 @@ export function handleTrackedMessage(
     label: state.label,
     targetMessageId: event.messageId,
   }];
-  // 先发补充提醒再删旧提醒。
   if (state.reminderMessageId !== undefined) {
     effects.push({ kind: "deleteMessage", messageId: state.reminderMessageId });
     state.reminderMessageId = undefined;
@@ -84,8 +78,7 @@ export function handleConfirmedThreadComment(
 }
 
 /**
- * 「通过」按钮的驳回理由；undefined 表示放行。本人不能靠它自验，
- * 代点资格没查出来时只应答「稍后再试」。
+ * 计算「通过」按钮的驳回理由；返回 undefined 表示放行。
  */
 function approveDenial(
   event: VerificationCallbackEvent
@@ -96,8 +89,8 @@ function approveDenial(
 }
 
 /**
- * 处理两颗验证按钮：本人验证只认待验证真人本人，「通过」只认本群管理员
- * 的代点。记录不在 pending 时先应答失效，不泄漏也不改变任何状态。
+ * 处理验证按钮回调：本人验证仅接受待验证真人本人，「通过」仅接受群管理员代点；
+ * 记录非 pending 时应答失效。
  */
 export function handleCallback(
   state: VerificationState | undefined,
@@ -139,7 +132,7 @@ export function handleCallback(
   };
 }
 
-/** 处理验证到期；不可见提醒先续期，已可见提醒进入可恢复终态。 */
+/** 处理验证到期：提醒尚未送达且在重试窗口内时续期重发，否则进入处置终态。 */
 export function handleVerifyTimeout(
   state: VerificationState | undefined,
   event: VerifyTimeoutEvent
@@ -152,8 +145,6 @@ export function handleVerifyTimeout(
     event.now - state.joinedAt < VERIFICATION_REMINDER_UNDELIVERED_MAX_MS
   ) {
     state.expiresAt = event.now + VERIFICATION_TIMEOUT_MS;
-    // replyReminderRequested、reminderSuperseded 与锚点同真同假（写入只在 handleTrackedMessage，
-    // 落盘恢复由 verificationCodec 校验），有锚点即要求过回复式提醒。
     const anchorMessageId: number | undefined = state.welcomeAnchorMessageId;
     const effects: VerificationEffect[] = anchorMessageId !== undefined
       ? [{
@@ -175,7 +166,7 @@ export function handleVerifyTimeout(
   return { next: expellingOf("timeout", snapshot), effects: NO_VERIFICATION_EFFECTS };
 }
 
-/** 回填真正落地的提醒，并从按钮可见时重新给满验证窗口。 */
+/** 回填已落地的提醒消息 ID，并重置验证到期时间。 */
 export function handleReminderLanded(
   state: VerificationState | undefined,
   event: ReminderLandedEvent
@@ -193,12 +184,8 @@ export function handleReminderLanded(
 }
 
 /**
- * 处理异步管理员核查返回的通过结论。
- *
- * 只对 pending 生效：结论回来时记录若已不是 pending（按钮已通过、已离群、已进终态），
- * 迟到结论原样放过，不把记录重新拉回 EXEMPT。
- *
- * 通过时删掉两条验证提醒，并撤销这次入群在反刷群滑动窗口里的计数。
+ * 处理异步管理员核查返回的通过结论：仅对 pending 状态切换至 exempt，
+ * 删除验证提醒并撤回入群滑动窗口计数。
  */
 export function handleAdminCheckResolved(
   state: VerificationState | undefined

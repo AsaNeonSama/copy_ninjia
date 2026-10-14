@@ -1,6 +1,6 @@
 import { invalidInput } from "../../packages/libs/inputValidation";
 
-/** 停机备份根与独立产物目录；冷迁移与停机清理 CLI 都要求两项由命令行明确给出。 */
+/** 冷迁移 CLI 的停机备份根与独立产物目录。 */
 export interface SourceOutputRoots {
   readonly sourceRoot: string;
   readonly outputRoot: string;

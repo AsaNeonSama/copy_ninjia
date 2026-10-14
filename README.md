@@ -206,7 +206,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🫧 中文动作命令</b><br>
-  <sub>直接发送 /咬、/贴贴 等 1~2 个汉字动作，无需事先向系统注册。</sub></p>
+  <sub>直接发送 /咬、/贴贴 等中文动作（<code>CJK_ACTION_COMMAND_PATTERN</code>），无需事先向系统注册。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌊 刷屏防御控制</b><br>
@@ -238,7 +238,7 @@
 | Claude | 90%± |
 
 > [!TIP]
-> 谷歌模型缓存率较低的问题主要来自显式与隐式缓存互斥，以及隐式缓存过期时间不可控（最快观测到 20s 左右过期）。如果在意请使用其他模型，但是 Gemini 的模型在会话效果中是最好的。
+> Gemini 显式缓存与隐式缓存互斥且隐式缓存过期时间不可控；在意缓存命中率可选用其他厂商，注重会话效果可选用 Gemini。
 
 ### 语音、图片与记忆
 
@@ -265,8 +265,8 @@
 </tbody>
 </table>
 
-- **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 与 `headers` 接入反向代理或网关）。可选 `bot_language`（`en` / `zh` / `ja`，缺省为 `ja`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
-- **配额物理隔离**：每日总配额 `daily_limit`（默认 100 次）中切分出 `daily_reserve_quota`（默认 25 次）专供 `/send` 与定时任务使用，AI 闲聊仅使用剩余额度；两套额度独立统计、互不挤占。配额窗口（`TTS_USAGE_WINDOW_MS`）从窗口内首次请求开始计时，到期后的首个请求会自动清零计数开启新周期。
+- **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 与 `headers` 接入反向代理或网关）。可选 `bot_language`（`TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
+- **配额物理隔离**：每日总配额 `daily_limit`（缺省 `TTS_DEFAULT_DAILY_LIMIT`）中切分出 `daily_reserve_quota`（缺省 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）专供 `/send` 与定时任务使用，AI 闲聊仅使用剩余额度；两套额度独立统计、互不挤占。配额窗口（`TTS_USAGE_WINDOW_MS`）从窗口内首次请求开始计时，到期后的首个请求会自动清零计数开启新周期。
 - **记忆准入机制**：`/send` 转发消息与定时语音不录入 AI 对话上下文；群内图片的自动记录仅在群内已启用 AI 且当前未处于复读状态时生效。详见 [11 常见问题](docs/cn/11-faq.md)。
 
 每项功能的完整行为细节、配置指南与系统边界请参阅 **[📚 开发者文档](docs/cn/content-table.md)**。
@@ -293,7 +293,7 @@
 
 - **操作系统**：Linux 系统（必须具备标准可读的 `/proc` 文件系统；其他平台因缺乏实例锁将自动拒绝启动）。
 - **Telegram 凭据**：Bot Token 与超级管理员的 Telegram User ID。
-- **运行时环境**：源码运行需 [Bun](https://bun.sh/) 1.4.3；官方二进制发行包已静态内置运行时，无需在宿主机额外安装。
+- **运行时环境**：源码运行需按 `package.json` 的 `engines.bun` 安装 [Bun](https://bun.sh/)；官方二进制发行包已静态内置运行时，无需在宿主机额外安装。
 - **外部依赖**：开启 AI 需准备对应服务商的 API Key；翻译功能需准备 Google Cloud 服务账号 JSON 凭据。硬件配置建议请参考 [07 运维手册](docs/cn/07-operations.md#硬件参考)。
 
 ### 一键安装

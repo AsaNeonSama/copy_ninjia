@@ -35,16 +35,16 @@ interface ActionMessage {
 
 /** parseCjkActionCommand 的解析结果。 */
 export interface CjkActionCommand {
-  /** 动作词本身（字数由 CJK_ACTION_COMMAND_PATTERN 限定的中文字），如「咬」「贴贴」。 */
+  /** 动作词本身（字数由 CJK_ACTION_COMMAND_PATTERN 限定的中文字）。 */
   actionWord: string;
-  /** `/咬@BotUsername` 里的定向后缀；没写 @ 时为 undefined。 */
+  /** 命令后紧跟的 `@<BotUsername>` 定向后缀；未指定时为 undefined。 */
   addressedBotUsername: string | undefined;
   /** 命令词之后的参数原文，已去掉首尾空白；没带参数时为空串。 */
   rawArgument: string;
 }
 
 /**
- * 从消息原文解析 `/<动作词>` 动作命令，兼容 `/咬@BotUsername` 写法。
+ * 从消息原文解析 `/<动作词>` 动作命令，兼容 `@<BotUsername>` 定向后缀。
  * 与 bot.hears 用的是同一条正则（CJK_ACTION_COMMAND_PATTERN，见 consts/commands.ts），
  * 能匹配进 handler 的消息在这里必定也能解析出来。
  * @returns 不是中文动作命令时为 undefined。
@@ -112,18 +112,17 @@ export async function handleCjkActionUsageCommand(ctx: Context): Promise<void> {
 }
 
 /**
- * 处理 `/<动作词>` 动作命令（`/咬`、`/贴贴`……）：回复「发起人 X了 目标！」，
+ * 处理 `/<动作词>` 动作命令：回复「发起人 <动作词>了 目标！」，
  * 两个名字都用 first_name last_name 形式，并各自挂上 t.me 主页链接（只有公开
  * username 的人才有链接，其余是纯文本）。链接靠显式 entities 表达，不使用 parse_mode。
  * 目标解析与 /copy、/block 共用 targetResolution.ts：支持回复目标或当前缓存中的
- * 用户名（如 `/咬 @username`）；回复与参数同时给出时必须指向同一身份。
+ * 用户名；回复与参数同时给出时必须指向同一身份。
  * 成功动作结果属获授权的长期保留例外，与 `/permission help`、`/permission query`
  * 一样显式设置 preserveInGroup；目标解析失败与 `/x` 用法提示仍走默认自动清理。
  * 命令名只收 ASCII，动作命令拿不到 bot_command 实体，由 bot.hears 按原文匹配；
  * 菜单里的 `/x` 是占位说明项，见 handleCjkActionUsageCommand 与
  * consts/atmosphere/teasing/commands.ts 的 BOT_COMMANDS。
- * @param next 命令并非发给本机器人（`/咬@OtherBot`）或消息形态不符时放行，
- * 回到普通消息流水线。
+ * @param next 命令并非发给本机器人或消息形态不符时放行，回到普通消息流水线。
  */
 export async function handleCjkActionCommand(ctx: Context, next: NextFunction): Promise<void> {
   const message: Message | undefined = ctx.msg;
@@ -142,7 +141,7 @@ export async function handleCjkActionCommand(ctx: Context, next: NextFunction): 
   if (isBotOwnMessage(message)) return next();
   if (needsBotOwnMessageWait(message) && await waitForBotOwnMessage(message)) return next();
 
-  // `/咬@SomeoneElse` 指名了其它机器人时放行。
+  // 指名了其它机器人时放行。
   if (
     command.addressedBotUsername !== undefined &&
     command.addressedBotUsername.toLowerCase() !== ctx.me.username.toLowerCase()

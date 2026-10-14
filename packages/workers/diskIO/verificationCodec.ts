@@ -53,15 +53,12 @@ function hasCurrentVerificationKeys(value: Record<string, unknown>): boolean {
   return true;
 }
 
-/** expelling 的四个播报标记只会从缺省变成 true，落盘值只接受缺省或 true。 */
+/** 判断值是否为缺省或布尔真。 */
 function isOptionalTrue(value: unknown): value is true | undefined {
   return value === undefined || value === true;
 }
 
-/**
- * 校验各 phase 共有的字段与记录键，返回公共部分；任一项不合法返回 null。本 phase 不允许的
- * 字段已由 hasCurrentVerificationKeys 的白名单拒绝（JSON 解析结果不含 undefined 值，键在即值在）。
- */
+/** 校验各阶段共有字段与记录键，任一项非法返回 null。 */
 function decodeVerificationBase(
   key: string,
   value: Record<string, unknown>
@@ -111,7 +108,7 @@ function decodeVerificationBase(
   };
 }
 
-/** kickPending：本次入群的动作时刻同时是入群与到期时刻；还没发过验证提醒，两类提醒 id 缺省。 */
+/** 解码 kickPending 阶段快照并校验时间戳与提醒字段约束。 */
 function decodeKickPending(
   base: VerificationSnapshotBase,
   value: Record<string, unknown>
@@ -129,7 +126,7 @@ function decodeKickPending(
   return { ...base, phase: "kickPending", requestedAt, countedJoinAt };
 }
 
-/** checkingInviter：带最终核查对象。 */
+/** 解码 checkingInviter 阶段快照。 */
 function decodeCheckingInviter(
   base: VerificationSnapshotBase,
   value: Record<string, unknown>
@@ -139,7 +136,7 @@ function decodeCheckingInviter(
   return { ...base, phase: "checkingInviter", terminalInviterId };
 }
 
-/** expelling：处置原因与可选的播报/确认标志（只为 true 或缺省）。 */
+/** 解码 expelling 阶段快照。 */
 function decodeExpelling(
   base: VerificationSnapshotBase,
   value: Record<string, unknown>
@@ -167,12 +164,7 @@ function decodeExpelling(
   };
 }
 
-/**
- * pending 独有字段的一致性。pending 阶段 replyReminderRequested、reminderSuperseded 与
- * 「welcomeAnchorMessageId 已知」同真同假（只由 states/verification/pending.ts 一并置位）；其余阶段
- * 不带这组事实，只能是快照写出的占位：空发言窗口、无拉人者、false、无锚点、true（见
- * workers/antiRaid/verificationSnapshot.ts）。占位以外的值恢复时会被丢弃，因此整份拒绝。
- */
+/** 校验 pending 专属字段与当前阶段的一致性。 */
 function hasConsistentPendingFacts(phase: unknown, base: VerificationSnapshotBase): boolean {
   const anchored: boolean = base.welcomeAnchorMessageId !== undefined;
   if (phase === "pending") return base.replyReminderRequested === anchored && base.reminderSuperseded === anchored;
@@ -183,12 +175,7 @@ function hasConsistentPendingFacts(phase: unknown, base: VerificationSnapshotBas
     base.reminderSuperseded;
 }
 
-/**
- * 对当天文件中的最新值逐字段校验，不把畸形数据带回业务 Worker。
- *
- * 只服务同文件的 decodeVerificationDay，不导出：单条记录的合法性判据依附于
- * 「整份日文件要么全收、要么整份拒绝」。
- */
+/** 校验并解码单条待验证快照记录。 */
 function decodeVerificationSnapshot(
   key: string,
   value: unknown
@@ -210,14 +197,14 @@ function decodeVerificationSnapshot(
   }
 }
 
-/** 把内存快照转成带格式版本的日文件值。 */
+/** 将内存快照转换为带 VERIFICATION_FILE_VERSION 的持久化对象。 */
 export function storedVerificationSnapshot(
   snapshot: VerificationSnapshot
 ): Record<string, unknown> {
   return { version: VERIFICATION_FILE_VERSION, ...snapshot };
 }
 
-/** null 墓碑的键同样必须是「群 id:正整数用户 id」的规范验证键。 */
+/** 校验墓碑记录键是否为合法的群与用户复合键。 */
 function isVerificationTombstoneKey(key: string): boolean {
   const parsed: ParsedVerificationKey | null = parseVerificationKey(key);
   return parsed !== null && isTelegramGroupChatId(parsed.chatId) && isPositiveId(parsed.userId);

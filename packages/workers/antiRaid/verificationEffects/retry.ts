@@ -17,11 +17,7 @@ export interface RetryTerminalAttemptParams {
 }
 
 /**
- * 终态动作（私密模式踢人、拉人者终核、处置）这一轮没有结算时的收尾：先投递
- * terminalAttemptUnsettled，由状态机复位 Worker 本地执行门，让权威豁免可以替换 token；
- * 再清掉条目上的旧计时器，按 terminalRetries 算出第几次有上限的指数退避并加一，到点投递
- * kickRetry（kickPending）或 terminalPersisted（checkingInviter、expelling）。
- * 条目已换成别的状态对象时什么也不做；到点时条目、状态或计时器任一已换也不投递。
+ * 终态动作本轮未结算时复位本地执行门，并按 `terminalRetries` 安排带上限的指数退避重试。
  */
 export function retryTerminalAttempt({
   chatId,

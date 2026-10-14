@@ -21,9 +21,10 @@ interface MultiplierParseOptions<Bucket extends string> {
   readonly sourcePath: string;
 }
 
-/** 解码倍率表：键必须是对应维度的合法桶名，倍率必须是不超过 MOOD_MULTIPLIER_MAX 的正有限数
- *  （computeAdjustedWeight 假定倍率乘完权重仍为正，见 aiChat/ai/mood.ts）。
- *  非法键与非法值分别以 `<fieldPath>.<key>`、`<fieldPath>.<value>` 报出。 */
+/**
+ * 解码倍率表：键必须是对应维度的合法桶名，倍率必须是不超过 MOOD_MULTIPLIER_MAX 的正有限数。
+ * 非法键与非法值分别以 `<fieldPath>.<key>`、`<fieldPath>.<value>` 报出。
+ */
 function parseMultipliers<Bucket extends string>(
   value: unknown,
   { allowedBuckets, fieldPath, sourcePath }: MultiplierParseOptions<Bucket>
@@ -101,10 +102,7 @@ function parseMoodOption(value: unknown, index: number, sourcePath: string): Moo
   return mood;
 }
 
-/**
- * 穷举配置能进入的全部天气/时段组合，确保每个调整权重和累计总权重都有限。
- * 倍率上限 MOOD_MULTIPLIER_MAX 已限定数值范围；本校验是抽选算法的直接契约。
- */
+/** 穷举全部天气/时段组合，校验每个调整权重为有限正数且累计总权重为有限数。 */
 function validateAdjustedWeights(moods: readonly MoodOption[], sourcePath: string): void {
   const weatherBuckets: readonly (WeatherBucket | null)[] =
     [null, ...WEATHER_BUCKETS];

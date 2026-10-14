@@ -59,8 +59,7 @@ function statusLabel(value: string): string {
 }
 
 /**
- * 只展示模型名：不带 provider，并去掉模型 id 里最后一个 `/` 之前的厂商命名空间
- * （`openai/gpt-6-luna` 展示为 `gpt-6-luna`）。
+ * 只展示模型名：不带 provider，并去掉模型 id 里最后一个 `/` 之前的厂商命名空间。
  */
 function modelName(model: string): string {
   return statusLabel(model.slice(model.lastIndexOf("/") + 1));
@@ -102,7 +101,7 @@ export function formatBotMemory(bytes: number): string {
   return `${Math.floor(safeBytes)} B`;
 }
 
-/** 百分比只在展示边界取两位小数，采样快照保留完整精度。 */
+/** 百分比只在展示边界按 BOT_STATUS_DECIMAL_PLACES 取小数，采样快照保留完整精度。 */
 function formatPercent(value: number): string {
   const safeValue: number = Number.isFinite(value) && value > 0 ? value : 0;
   return `${safeValue.toFixed(BOT_STATUS_DECIMAL_PLACES)}%`;

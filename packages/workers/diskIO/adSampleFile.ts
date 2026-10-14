@@ -1,20 +1,7 @@
 /**
- * 广告判定命中样本的旁路落盘：memory/ad-detected/sample.json，顶层 JSON 对象
- * `{ "<chatId>:<首条 messageId>": { detectedAt, ... }, ... }`，复用
- * appendOnlyDayFile.ts 的按位置追加（只覆写结尾的「\n}」）。
- *
- * **这是整个持久化里唯一只写不读的一类**，由此有三条规则：
- * - **进程从不读样本内容**。启动恢复不 hydrate，也没有任何业务内存镜像；维护只
- *   扫描目录项以清理孤儿临时文件与过期归档。样本不是运行时状态，是给人看的原始素材，
- *   用于调整 config/dynamic/ad_samples.json 的判定口径，缺失不影响机器人的行为。
- * - **不进统一 flush 的失败领域清单**。样本先进内存批次（cache/workers/diskIO/adSample.ts），
- *   累计 FLUSH_MAX_ENTRIES 条或等满 FLUSH_INTERVAL_MS 后整批追加，统一 flush 也会刷出；
- *   写失败整批丢弃（只 console.error），Worker 重建时未刷出的批次随 isolate 丢失。
- * - **允许截断自愈**（repair=true）。撕裂的末尾条目被裁掉，同日志与 AI 用量统计。
- *
- * 文件达到 AD_SAMPLE_FILE_MAX_BYTES 时轮转成带日期的归档；归档按文件名中的
- * 配置时区的日期保留最近 AD_SAMPLE_ARCHIVE_RETENTION_DAYS 个自然日。追加游标在
- * Worker 重建后与每次追加失败后作废，下一批样本要对整份文件重跑一次异步读 + parse。
+ * 广告判定命中样本的旁路落盘：按 `FLUSH_MAX_ENTRIES` 或 `FLUSH_INTERVAL_MS` 批量追加到
+ * `AD_SAMPLE_FILE_PATH`（支持截断修复），达到 `AD_SAMPLE_FILE_MAX_BYTES` 时按日期轮转归档，
+ * 并保留最近 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 个自然日的归档文件。
  */
 
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
@@ -42,7 +29,7 @@ import { getDateKey, isCanonicalDateKey, shiftDateKey } from "../../libs/time";
 import { appendToAppendOnlyFile, openAppendOnlyFile, serializeDayFileEntry } from "./appendOnlyDayFile";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
-/** 一条样本的落地形态，身份字段只含 senderId。 */
+/** 广告样本的持久化记录结构。 */
 interface AdSampleRecord {
   detectedAt: string;
   chatId: number;
@@ -69,19 +56,12 @@ export interface SweepExpiredAdSampleArchivesParams {
   removeFile?: (path: string) => Promise<void>;
 }
 
-/**
- * 样本在顶层对象里的键：`<chatId>:<本次判定第一条消息的 messageId>`。
- *
- * message_id 在一个群里不重复，键因此唯一，且可对回 Telegram 里的那条消息。
- */
+/** 构造样本在顶层 JSON 对象中的键：`<chatId>:<首条消息 messageId>`。 */
 function sampleKey(msg: AdSampleDiskMessage): string {
   return `${msg.chatId}:${msg.messages[0]?.messageId ?? 0}`;
 }
 
-/**
- * 清掉这个目录里的孤儿 .tmp（原子写在 openSync 与 renameSync 之间被终止会留下残片）。
- * 本领域没有启动恢复阶段，因此挂在启动后维护或第一次写入前，每个 isolate 只做一次。
- */
+/** 清理样本目录中的孤儿临时文件，每个 Worker 生命周期最多执行一次。 */
 async function sweepOrphanedTemps(): Promise<void> {
   if (adSampleTempsSwept.current) return;
   adSampleTempsSwept.current = true;
@@ -96,7 +76,7 @@ async function sweepOrphanedTemps(): Promise<void> {
   }
 }
 
-/** 列出目录项并保留“普通文件”信息；符号链接和目录都不能进入归档删除路径。 */
+/** 列出样本目录项及其是否为普通文件。 */
 function listAdSampleArchiveEntries(): AdSampleArchiveEntry[] {
   return readdirSync(AD_SAMPLE_MEMORY_DIR, { withFileTypes: true }).map(
     (entry: Dirent<string>): AdSampleArchiveEntry => ({
@@ -106,17 +86,14 @@ function listAdSampleArchiveEntries(): AdSampleArchiveEntry[] {
   );
 }
 
-/** 解析严格归档名中的有效公历日期；未知格式和不存在的日期都返回 null。 */
+/** 提取归档文件名中的有效公历日期；不匹配时返回 null。 */
 function archiveDayFromName(name: string): string | null {
   const matched: RegExpExecArray | null = AD_SAMPLE_ARCHIVE_FILENAME_PATTERN.exec(name);
   const day: string | undefined = matched?.[1];
   return day !== undefined && isCanonicalDateKey(day) ? day : null;
 }
 
-/**
- * 按归档名里的配置时区的日期清理过期普通文件。清扫和单文件删除都 best effort；
- * 日期先记账，同一天不重复扫描。
- */
+/** 清理超出保留期的样本归档文件并更新当日归档序号游标；同一自然日只执行一次。 */
 export async function sweepExpiredAdSampleArchives({
   today,
   listEntries = listAdSampleArchiveEntries,
@@ -125,7 +102,6 @@ export async function sweepExpiredAdSampleArchives({
   const previousDay: string | null = adSampleArchiveSweepDay.current;
   if (previousDay !== null && today <= previousDay) return;
   adSampleArchiveSweepDay.current = today;
-  // 今天在内最近 N 个公历日期的首日。
   const earliestRetainedDay: string = shiftDateKey(today, 1 - AD_SAMPLE_ARCHIVE_RETENTION_DAYS);
   let entries: AdSampleArchiveEntry[];
   try {
@@ -142,7 +118,6 @@ export async function sweepExpiredAdSampleArchives({
       const match: RegExpExecArray | null = AD_SAMPLE_ARCHIVE_FILENAME_PATTERN.exec(entry.name);
       const suffix: string | undefined = match?.[2];
       const index: number = suffix === undefined ? 1 : Number(suffix);
-      // `.1` 不是选名器会生成的候选；它不能占用无序号的 index=1。
       if (suffix === undefined || (index >= 2 && Number.isSafeInteger(index))) {
         occupiedTodayIndexes ??= new Set<number>();
         occupiedTodayIndexes.add(index);
@@ -167,9 +142,7 @@ export async function sweepExpiredAdSampleArchives({
   }
 }
 
-/**
- * 已存在样本目录时清理孤儿临时文件与过期归档；目录尚未使用时保持按需创建语义。
- */
+/** 样本目录已存在时清理孤儿临时文件与过期归档。 */
 export async function maintainAdSampleFiles(
   today: string = getDateKey()
 ): Promise<void> {
@@ -178,10 +151,7 @@ export async function maintainAdSampleFiles(
   await sweepExpiredAdSampleArchives({ today });
 }
 
-/**
- * 给这次轮转挑一个没被占用的归档名：`sample.<配置时区的日期>.json`，同一天再轮转
- * 就往后加序号；保留期清理由 sweepExpiredAdSampleArchives 独立负责。
- */
+/** 选择当前自然日下一个未被占用的归档文件路径。 */
 function nextArchiveTarget(): AdSampleArchiveTarget {
   const day: string = getDateKey();
   const base: string = join(AD_SAMPLE_MEMORY_DIR, `sample.${day}`);
@@ -199,15 +169,11 @@ function nextArchiveTarget(): AdSampleArchiveTarget {
   }
 }
 
-/**
- * 文件涨过上限就整份改名归档，让下一条样本从空文件写起。
- * @returns 轮转后应当使用的游标；没到上限时原样返回传入的游标。
- */
+/** 样本文件大小达到 AD_SAMPLE_FILE_MAX_BYTES 时重命名归档并重置追加游标。 */
 function rotateIfOversized(state: AppendOnlyFileState): AppendOnlyFileState {
   if (state.size < AD_SAMPLE_FILE_MAX_BYTES) return state;
   const archive: AdSampleArchiveTarget = nextArchiveTarget();
   renameSync(AD_SAMPLE_FILE_PATH, archive.path);
-  // 只有 rename 成功才推进；失败时下轮仍复用同一个最小空缺。
   adSampleArchiveCursor.current = { day: archive.day, nextIndex: archive.index + 1 };
   console.error(
     `[diskIOWorker] ad sample file reached ${state.size} bytes; archived it as ${basename(archive.path)}.`
@@ -215,17 +181,13 @@ function rotateIfOversized(state: AppendOnlyFileState): AppendOnlyFileState {
   return { size: 0, empty: true };
 }
 
-/**
- * 把当前样本批次整批追加进 sample.json。失败只 console.error、作废游标并丢弃这一批，
- * 不重试、不上报——调用方（统一 flush 与定时器）也不看结果。
- */
+/** 将缓冲中的广告样本批量追加到 `AD_SAMPLE_FILE_PATH`；失败时作废游标并丢弃本批。 */
 export async function flushAdSampleBuffer(): Promise<void> {
   cancelDiskIOFlushTimer(adSampleBuffer);
   if (adSampleBuffer.chunks.length === 0) return;
   const chunk: string = adSampleBuffer.chunks.join(",\n");
   adSampleBuffer.chunks = [];
   try {
-    // 目录在这里按需建，recursive 保证幂等。
     mkdirSync(AD_SAMPLE_MEMORY_DIR, { recursive: true });
     await sweepOrphanedTemps();
     await sweepExpiredAdSampleArchives({ today: getDateKey() });
@@ -234,7 +196,6 @@ export async function flushAdSampleBuffer(): Promise<void> {
       PERSISTED_FILE_MODE,
       true
     );
-    // 每批追加前判一次轮转。
     adSampleFileState.current = rotateIfOversized(adSampleFileState.current);
     const state: AppendOnlyFileState = adSampleFileState.current;
     await appendToAppendOnlyFile({
@@ -245,13 +206,12 @@ export async function flushAdSampleBuffer(): Promise<void> {
       repair: true,
     });
   } catch (error: unknown) {
-    // 游标作废：可能已经有前缀落盘，旧位置不再可信，下次写入前重新探测。
     adSampleFileState.current = null;
     console.error("[diskIOWorker] failed to append ad detection samples:", error);
   }
 }
 
-/** 序列化一条命中样本并放进批次；达到 FLUSH_MAX_ENTRIES 立即整批追加，否则按需排定时刷出。 */
+/** 序列化一条命中样本并写入缓冲；达到 FLUSH_MAX_ENTRIES 时立即刷盘，否则启动定时刷盘。 */
 export async function handleAdSampleMessage(
   msg: AdSampleDiskMessage
 ): Promise<void> {

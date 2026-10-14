@@ -57,7 +57,7 @@ export interface GoogleServiceAccountKey {
 export type AdDetectAgentConfig = AgentCapabilityConfig;
 
 /**
- * OpenAI 兼容生图的线协议，对应请求体能力边界：`openai` 表示 gpt-image-2
+ * OpenAI 兼容生图的线协议，对应请求体能力边界：`openai` 表示 OpenAI
  * 任意尺寸协议，`openai-standard` 表示 GPT Image 全系共同支持的标准尺寸，
  * `xai` 表示 xAI JSON/画幅协议。同一个代理端点也必须显式选择；新增不兼容
  * 的 images 请求形状时，须在这里和 aiChat/openai/image.ts 的穷举分派同步增加一档。
@@ -147,8 +147,8 @@ export type AgentWebSearchCapabilityConfig = AgentCapabilityConfig & {
 export interface GoogleAgentImageCapabilityConfig extends GoogleAgentCapabilityConfig {
   readonly imageProtocol: undefined;
   /**
-   * 部署字段 `max_reference_images`：一次生图最多交给模型的参考图张数，取值 1～
-   * IMAGE_GENERATION_MAX_REFERENCE_IMAGES，缺省为 IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES
+   * 部署字段 `max_reference_images`：一次生图最多交给模型的参考图张数，为不超过
+   * IMAGE_GENERATION_MAX_REFERENCE_IMAGES 的正整数，缺省为 IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES
    * （见 config/agentCapability.ts 的 parseImageCapability）。
    */
   readonly maxReferenceImages: number;
@@ -169,7 +169,7 @@ export interface OpenAiAgentImageCapabilityConfig extends OpenAiAgentCapabilityC
 export type OpenAiSpeechProtocol = "openai" | "xai";
 
 /**
- * `agent.tts.bot_language` 的取值闭集：AI 语音台词所用的语言，`en` 为英语、`zh` 为中文、`ja` 为日语。
+ * `agent.tts.bot_language` 的取值闭集：AI 语音台词所用的语言。
  * 每个取值在 consts/aiChat/prompts/tools.ts 的 VOICE_LANGUAGE_PROMPTS 里各有一份语音相关提示词。
  */
 export type TtsBotLanguage = "en" | "zh" | "ja";
@@ -191,7 +191,7 @@ interface AgentTtsVoiceQuota {
   /** 每个窗口拆分给 AI 与预留额度的总预算，正整数；缺省时为 TTS_DEFAULT_DAILY_LIMIT。 */
   readonly dailyLimit: number;
   /**
-   * `/send` 与 cron 共用的独立额度，0～dailyLimit-1；AI 独立使用 dailyLimit - dailyReserveQuota，
+   * `/send` 与 cron 共用的独立额度，为小于 dailyLimit 的非负整数；AI 独立使用 dailyLimit - dailyReserveQuota，
    * 两边互不借用。daily_reserve_quota 缺省时为 TTS_DEFAULT_DAILY_RESERVE_QUOTA。
    */
   readonly dailyReserveQuota: number;
@@ -226,7 +226,7 @@ export interface XAiAgentTtsCapabilityConfig extends AgentTtsVoiceQuota {
   readonly model: undefined;
   readonly speechProtocol: "xai";
   readonly style: undefined;
-  /** BCP-47 语言代码或 `auto`；部署字段 language 缺省时为 XAI_SPEECH_DEFAULT_LANGUAGE。 */
+  /** BCP-47 语言代码或自动识别标识；部署字段 language 缺省时为 XAI_SPEECH_DEFAULT_LANGUAGE。 */
   readonly language: string;
 }
 
@@ -355,7 +355,7 @@ export interface HotDeploymentConfigChanges {
 export interface ConfigFailure {
   /** 相对项目根的路径，如 `config/dynamic/stickers.json`；直接出现在命令的拒绝文案里。 */
   readonly file: string;
-  /** 解析器/文件系统给出的英文诊断，只进日志（见 AGENTS.md 的日志约定）。 */
+  /** 解析器/文件系统给出的英文诊断，只进日志。 */
   readonly reason: string;
 }
 

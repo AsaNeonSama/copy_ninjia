@@ -19,10 +19,7 @@ const STICKER_CATALOG_FILE_DEPENDENCIES: Readonly<StickerCatalogFileDependencies
   write: writeStickerCatalogFile,
 };
 
-/**
- * 按需装贴纸目录的重试/合并 timer。贴纸目录是同步覆盖写，到点直接在 timer 回调里写，
- * 不进统一操作队列（与 wedMemberFiles.ts 相同）。
- */
+/** 按需注册贴纸目录定时落盘 timer。 */
 function scheduleStickerCatalogFlush(): void {
   if (stickerFlushState.timer !== null) return;
   stickerFlushState.timer = setTimeout((): void => {

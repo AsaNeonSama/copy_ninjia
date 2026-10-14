@@ -2,20 +2,20 @@ import type { CronAllChats, CronExceptChats } from "../types/cron";
 import { DAY_MS, MINUTE_MS } from "./time";
 
 /**
- * cron.json 任务 `chat_id` 数组的「所有群」写法，属 packages/config/cron.ts：
- * 写成 `["all"]` 时每一轮向所有已启用、且机器人此刻能发出全部动作的群逐个发送。
+ * cron.json 任务 `chat_id` 数组的「所有群」标识字面量，属 packages/config/cron.ts：
+ * 每一轮向所有已启用、且机器人此刻能发出全部动作的群逐个发送。
  */
 export const CRON_ALL_CHATS: CronAllChats = "all";
 
 /**
- * cron.json 任务 `chat_id` 数组的「排除」写法，属 packages/config/cron.ts：
- * 首项写成 `"except"` 时，其余会话 id 从「所有已启用、且机器人此刻能发出全部动作的群」里剔除。
+ * cron.json 任务 `chat_id` 数组的「排除」前缀标识字面量，属 packages/config/cron.ts：
+ * 其余会话 id 从「所有已启用、且机器人此刻能发出全部动作的群」里剔除。
  */
 export const CRON_EXCEPT_CHATS: CronExceptChats = "except";
 
 /**
  * 单个任务 `chat_id` 数组里最多的会话 id，属 packages/config/cron.ts；超出拒绝整份文件。
- * 逐个列出与 `"except"` 排除共用这一个上限，限定一轮要遍历的会话数。
+ * 逐个列出与 CRON_EXCEPT_CHATS 排除共用这一个上限，限定一轮要遍历的会话数。
  */
 export const CRON_MAX_CHAT_IDS_PER_TASK: number = 64;
 
@@ -35,20 +35,18 @@ export const CRON_RANDOM_INTERVAL_MIN_MS: number = 60_000;
 export const CRON_RANDOM_INTERVAL_MAX_MS: number = 24 * DAY_MS;
 
 /**
- * cron 表达式的时间粒度（一分钟）毫秒数，属 packages/cron/scheduler.ts：`rand_cron` 的随机
- * 时刻向上取整到它的整数倍，再写成只匹配那一分钟的表达式。
+ * cron 表达式的时间粒度毫秒数，属 packages/cron/scheduler.ts：`rand_cron` 的随机
+ * 时刻向上取整到它的整数倍，再写成只匹配该时刻的表达式。
  */
 export const CRON_MINUTE_MS: number = MINUTE_MS;
 
 /**
- * `rand_cron` 随机时刻所注册的一次性 cron 的时区，属 packages/cron/scheduler.ts；表达式按
- * UTC 字段写出，与任务自己的 `time_zone` 无关。
+ * `rand_cron` 随机时刻所注册的一次性 cron 的时区，属 packages/cron/scheduler.ts（与任务自身的 `time_zone` 无关）。
  */
 export const CRON_RANDOM_FIRE_TIME_ZONE: string = "UTC";
 
 /**
- * `chat_id: ["all"]` 交给目标解析的空排除表，属 packages/cron/run.ts；
- * 只有 `["except", ...]` 才带排除名单；本常量是共用的空排除表。
+ * 全群模式（CRON_ALL_CHATS）交给目标解析的共享只读空排除表，属 packages/cron/run.ts。
  */
 export const CRON_NO_EXCLUDED_CHAT_IDS: readonly number[] = [];
 

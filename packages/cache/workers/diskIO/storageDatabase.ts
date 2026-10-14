@@ -1,4 +1,4 @@
-/** owner: workers/diskIO。独占的 SQLite 连接与业务表写缓冲。 */
+/** owner: workers/diskIO。SQLite 连接、预编译语句与业务表未提交写缓冲（packages/workers/diskIO/storageDatabase/）。 */
 
 import { closeStorageDatabase } from "../../../database/interact/connection";
 import { StorageWriteBudget } from "../../../libs/storageWriteBudget";
@@ -24,11 +24,7 @@ import type {
 import type { PendingTemporaryAdBypassWrite } from
   "../../../types/temporaryAdBypass";
 
-/**
- * 各领域（BudgetedStorageDomain）的未 ACK 条目与字节预算，上限与主线程逐领域准入一致，
- * Worker 重建时主线程重放的已接纳写入据此重新预约。写前预约、事务成功由 resetStoragePendingBudgets
- * 全部清空；每个领域一项；Worker 重建后为新 isolate 的初值。
- */
+/** 各领域（BudgetedStorageDomain）未提交写入的条数与字节预算表：写入前预约，事务提交成功或 resetStoragePendingBudgets 时清空；固定每领域一项，Worker 重建后随主线程重放重新预约。 */
 export const storagePendingBudgets: Readonly<Record<BudgetedStorageDomain, StorageWriteBudget>> = {
   whitelist: new StorageWriteBudget(),
   blocklist: new StorageWriteBudget(),
@@ -38,168 +34,92 @@ export const storagePendingBudgets: Readonly<Record<BudgetedStorageDomain, Stora
   chatQa: new StorageWriteBudget(),
 };
 
-/** 统一事务成功或 Worker 重置时清空全部领域预算。 */
+/** 清空全部受预算控制领域的未提交写入预算。 */
 export function resetStoragePendingBudgets(): void {
   for (const budget of Object.values(storagePendingBudgets)) budget.reset();
 }
 
-/** 连续失败与重试截止；成功或重建复位，达到失败上限通知宿主一次。 */
+/** SQLite 事务连续失败次数、下次重试时间戳与致命错误已通知标记：事务成功或 resetStorageDatabaseCache 时归零，达到失败上限时调用 storageWriteFatalReply。 */
 export const storageWriteRetry: { failures: number; retryAt: number; signaled: boolean } = {
   failures: 0, retryAt: 0, signaled: false,
 };
 
-/** 启动安装的容量/持续失败通知；容量一项，isolate 销毁后重新安装。 */
+/** SQLite 写入持续失败或容量致命错误的通知回调单例：Disk I/O Worker 启动时安装，isolate 销毁时释放。 */
 export const storageWriteFatalReply: { current: (() => void) | null } = { current: null };
 
-/**
- * 每条连接上永久白名单、永久黑名单与临时广告免检各一条预编译的主键存在性语句，首次由
- * workers/diskIO/storageDatabase/identityPolicy.ts 建好放进来。写入路径按条目调用
- * assertOppositePolicyAbsent，复用同一连接的预编译语句。
- *
- * 容量为每条活着的连接一项，本线程同时只持有一条连接，不设淘汰。
- * 清理交给 GC：键是连接对象本身，连接被换掉后整项随之回收，本表不额外持有强引用。
- * 预编译语句绑定所属连接，库句柄被整个换掉（重开库、测试重建）后按新连接重新建立。
- * Worker 崩溃重建后是全新 isolate，本表随之为空，下一次调用重新预编译。
- */
+/** SQLite 连接对象到名单主键存在性预编译查询语句的 WeakMap：首次校验互斥名单时创建，连接关闭或替换后随 GC 回收；每条活跃连接一项，Worker 重建后按新连接重新创建。 */
 export const storedIdentityIdLookups: WeakMap<
   StorageDatabase,
   StoredIdentityIdLookups
 > = new WeakMap<StorageDatabase, StoredIdentityIdLookups>();
 
-/**
- * 每条连接一整套统一事务提交用的预编译写语句，首次提交时由
- * workers/diskIO/storageDatabase/flush.ts 建好放进来，同一连接的每次提交复用。容量、清理与
- * Worker 重建口径同 storedIdentityIdLookups：每条活着的连接一项，键随连接回收，关库时
- * `close(true)` 一并结束这些语句。
- */
+/** SQLite 连接对象到统一事务提交预编译写语句的 WeakMap：首次提交事务时创建，连接关闭或替换后随 GC 回收；每条活跃连接一项，Worker 重建后按新连接重新创建。 */
 export const storageDatabaseWriters: WeakMap<
   StorageDatabase,
   StorageDatabaseWriter
 > = new WeakMap<StorageDatabase, StorageDatabaseWriter>();
 
-/**
- * 每条连接一整套预热与容量闸用的预编译读语句（名单、临时免检批量读与群状态主键），首次读取时由
- * workers/diskIO/storageDatabase/context.ts 的 requireStorageDatabaseReader 建好放进来，同一连接
- * 的每次读取复用。容量、清理与 Worker 重建口径同 storedIdentityIdLookups：每条活着的连接一项，
- * 键随连接回收，Worker 重建后为空。
- */
+/** SQLite 连接对象到预热与分页读取预编译读语句的 WeakMap：首次读取时创建，连接关闭或替换后随 GC 回收；每条活跃连接一项，Worker 重建后按新连接重新创建。 */
 export const storageDatabaseReaders: WeakMap<
   StorageDatabase,
   StorageDatabaseReader
 > = new WeakMap<StorageDatabase, StorageDatabaseReader>();
 
-/**
- * 固定截止 timer 使用的 ACK 通道；Worker 启动时填充，随整个 DiskIO isolate 销毁。
- * 不跨线程共享，只由本 Worker 的 SQLite owner 读写。
- */
+/** SQLite 事务提交后的持久化回执发送回调单例：Disk I/O Worker 启动时填充，isolate 销毁时释放。 */
 export const storagePersistenceReplyHolder: {
   current: IdentityPersistenceReply | null;
 } = { current: null };
 
-/** SQLite 连接句柄；只在本 Worker isolate 内填充和释放。 */
+/** 当前 Disk I/O Worker 持有的 SQLite 连接句柄单例：启动恢复 adopt 时填充，关库或 resetStorageDatabaseCache 时关闭并置为 null，Worker 重建后重新打开。 */
 export const storageDatabaseHandle: { current: StorageDatabase | null } = {
   current: null,
 };
 
-/**
- * 停机已关库（workers/diskIO/storageDatabase/shutdown.ts）。置位后到达的身份写消息直接忽略，
- * AI 上下文写只进缓冲，提交与定时提交都不再执行；resetStorageDatabaseCache 复位，容量为
- * 一个布尔值。Worker 重建后为新 isolate 的初值 false。
- */
+/** SQLite 连接是否已执行停机关库的标记：closeStorage 时置为 true（此后忽略身份写入并停止事务提交），resetStorageDatabaseCache 或 Worker 重建后恢复为 false；单例布尔值。 */
 export const storageDatabaseClosed: { current: boolean } = { current: false };
 
-/**
- * 白名单未提交最终值；条数达到 IDENTITY_WRITE_BATCH_MAX_ENTRIES 即触发一次显式事务。
- * 提交成功后由 flush 清空，失败时保留给固定截止 timer 重试；resetStorageDatabaseCache
- * 也会清空。Worker 重建后为空，主线程以未 ACK revision 重放最终值。
- */
+/** 白名单未提交写入表（主键 ID -> 最新写入）：消息到达时覆盖（满 IDENTITY_WRITE_BATCH_MAX_ENTRIES 触发事务），事务提交成功或 resetStorageDatabaseCache 时清空；容量受 whitelist 领域写预算约束，Worker 重建后由主线程重放未确认写入。 */
 export const pendingWhitelistWrites: Map<number, PendingIdentityPolicyWrite> = new Map();
 
-/**
- * 黑名单未提交最终值；条数达到 IDENTITY_WRITE_BATCH_MAX_ENTRIES 即触发一次显式事务。
- * 清理与重建路径同 pendingWhitelistWrites。
- */
+/** 黑名单未提交写入表（主键 ID -> 最新写入）：填充、满批触发、提交清空与 Worker 重建重放同 pendingWhitelistWrites。 */
 export const pendingBlocklistWrites: Map<number, PendingIdentityPolicyWrite> = new Map();
 
-/**
- * 临时广告免检累计未提交最终值；消息到达时按身份合并，条数达到 IDENTITY_WRITE_BATCH_MAX_ENTRIES 即触发事务。
- * 成功提交后由 flush 清理，失败时保留给固定截止 timer 重试；Worker 重建后为空，
- * 主线程以未 ACK revision 重放最终值。
- */
+/** 临时广告免检未提交写入表（身份 ID -> 合并后最新写入）：消息到达时按身份合并（满 IDENTITY_WRITE_BATCH_MAX_ENTRIES 触发事务），事务提交成功或 resetStorageDatabaseCache 时清空；Worker 重建后由主线程重放未确认写入。 */
 export const pendingTemporaryAdBypassWrites: Map<
   number,
   PendingTemporaryAdBypassWrite
 > = new Map();
 
-/**
- * 待踢任务未提交的逐行最终值（含 revision，提交后按行回精确 ACK）；条数达到
- * IDENTITY_WRITE_BATCH_MAX_ENTRIES 即触发一次显式事务。清理与重建路径同 pendingWhitelistWrites。
- */
+/** 黑名单待踢 outbox 未提交写入表（removalId -> 最新行写入）：填充、满批触发、提交清空与 Worker 重建重放同 pendingWhitelistWrites。 */
 export const pendingRemovalWrites: Map<number, PendingRemovalWrite> = new Map();
 
-/**
- * 群状态未提交最终值；达到 STATE_MANAGED_CHAT_LIMIT 群时由显式事务整体提交。
- * 清理与重建路径同 pendingWhitelistWrites。
- */
+/** 群状态未提交写入表（chatId -> 最新群状态写入）：消息到达时覆盖（达 STATE_MANAGED_CHAT_LIMIT 群时触发事务），事务提交成功或 resetStorageDatabaseCache 时清空；Worker 重建后由主线程重放未确认写入。 */
 export const pendingChatStateWrites: Map<number, PendingChatStateWrite> = new Map();
 
-/**
- * 群问答未提交最终值，外层按群、内层按问题文本。
- *
- * 活跃问答受群数和每群容量限制；删除墓碑与正文共同占用 chatQa 领域预算，
- * 超限拒收新事实，提交成功后才释放，Worker 重建由主线程重放未 ACK 最终值。
- * 一群的最后一条被提交或删除后，外层那一项随之移除，空 Map 不留存。
- */
+/** 群问答未提交写入表（chatId -> question -> 最新写入或删除墓碑）：消息到达时覆盖，事务提交成功或 resetStorageDatabaseCache 时清空；容量受 chatQa 领域写预算约束，Worker 重建后由主线程重放未确认写入。 */
 export const pendingChatQaWrites: Map<number, Map<string, PendingChatQaWrite>> = new Map();
 
-/**
- * pendingChatQaWrites 内层条目总数（含删除墓碑），供批次阈值判定直接读取，不在每次
- * 写入时遍历各群。与内层条目同增同删：新 (chatId, q) 进缓冲时加一，事务提交摘除
- * 条目时减一，resetStorageDatabaseCache 归零；Worker 重建后从零开始，随主线程重放
- * 重新累计。
- */
+/** pendingChatQaWrites 的内层条目总数：新增（chatId, question）键时递增，事务提交清空或 resetStorageDatabaseCache 时归零；单例标量，Worker 重建后从零重新累计。 */
 export const pendingChatQaEntryCount: { current: number } = { current: 0 };
 
-/**
- * AI 上下文未提交最终值，按群一份；事务内排在群状态之后按主键更新 `ai_context`，
- * 群行不存在时不插入。填充：aiMemoryStorage.ts 按 revision 接受 upsert 或删除时覆盖；
- * 清理：提交成功后由 flush 摘除，失败保留重试，resetStorageDatabaseCache 清空。容量：
- * 每群至多一项，上界 AI_MEMORY_MAX_CHATS，不计入 storagePendingBudgets。Worker 重建后为空，
- * 主线程重放最新快照与未确认删除墓碑。
- */
+/** AI 上下文未提交写入表（chatId -> 最新快照或删除）：aiMemoryStorage.ts 按 revision 校验通过后覆盖，事务提交成功或 resetStorageDatabaseCache 时清空；容量上限为 AI_MEMORY_MAX_CHATS，Worker 重建后由主线程重放最新快照与未确认删除。 */
 export const pendingAiContextWrites: Map<number, PendingAiContextWrite> = new Map();
 
-/**
- * Worker 已接受（已提交叠加未提交）的待踢任务行 -> 处置目标：补扫行不冻结名单，指名行带冻结的
- * userIds。黑名单删除时据此断言没有行再引用该身份、名单删空后不留补扫行（identityPolicy.ts）；
- * 容量受 outbox 业务硬顶 BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES 约束。
- *
- * 填充：启动 adoptStorageDatabase 从严格校验过的 SQLite 行灌入；之后每条 blocklistRemovalWrite
- * 被接受时按行设置或删除。清理：resetStorageDatabaseCache 整表清空。Worker 重建：从 SQLite
- * 重新灌入，随后主线程按 revision 重放未 ACK 的行。
- */
+/** 已受理（含已提交与未提交）待踢任务行的目标快照表（removalId -> RemovalRowTargets）：启动 adoptStorageDatabase 从 SQLite 灌入，运行期随 blocklistRemovalWrite 增删，resetStorageDatabaseCache 时清空；容量上限为 BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES，Worker 重建后从 SQLite 与主线程重放恢复。 */
 export const removalRowTargets: Map<number, RemovalRowTargets> = new Map();
 
-/**
- * Worker 重建后的镜像重放区间是否打开。由主线程 `storageFlushHold` 标记开合
- * （见 types/diskIO/messages.ts 的 StorageFlushHoldRequest）；为 true 时满批、定时与
- * AI 上下文的即时提交暂缓。新 Worker 与 resetStorageDatabaseCache 从 false 起步，容量为一个布尔值。
- */
+/** Worker 重建后主线程镜像重放期间的事务提交暂缓开关：收到 storageFlushHold 消息时切换，为 true 时暂缓满批、定时与即时提交；Worker 重建或 resetStorageDatabaseCache 时恢复为 false。 */
 export const storageFlushHold: { current: boolean } = { current: false };
 
-/** 第一条未提交变化建立的固定截止 timer，间隔为 IDENTITY_WRITE_FLUSH_INTERVAL_MS。 */
+/** 未提交写入的定时事务刷盘 timer 单例（间隔 IDENTITY_WRITE_FLUSH_INTERVAL_MS）：首条未提交写入到达时启动，事务提交或 resetStorageDatabaseCache 时清除；Worker 重建后从 null 开始。 */
 export const storageWriteFlushTimer: {
   current: ReturnType<typeof setTimeout> | null;
 } = { current: null };
 
-/**
- * 本轮未进入写缓冲的拒收领域；单领域 flush 只取走本领域的标记，all/business flush
- * 取走全部，取走即清除。容量不超过共享 SQLite 持久化领域数
- * （StorageDatabaseDomain，含 AI 上下文），Worker 重建时由 reset 清空。
- */
+/** 本轮发生过写入拒收的 SQLite 领域集合：写入被拒时加入，对应领域或全量 flush 读取后清除，resetStorageDatabaseCache 时清空；容量上限为 StorageDatabaseDomain 枚举数，Worker 重建后从空集开始。 */
 export const rejectedStorageDomains: Set<StorageDatabaseDomain> = new Set();
 
-/** Worker load/重建前重置同 isolate 状态，避免重复显式 hydrate 污染。 */
+/** 关闭当前 SQLite 连接、取消定时刷盘 timer 并清空全部未提交写缓冲与预算状态。 */
 export function resetStorageDatabaseCache(): void {
   resetStoragePendingBudgets();
   storageWriteRetry.failures = 0;

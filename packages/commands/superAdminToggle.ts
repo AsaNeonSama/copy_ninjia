@@ -55,7 +55,7 @@ export interface ChatToggleCommandParams {
   readonly permission: WhitelistPermissionKey;
   /** 落盘原因串，进 persistChatState。 */
   readonly persistReason: string;
-  /** 运行时清理对象的英文名，只进错误日志，例如 `queued ad detection`。 */
+  /** 运行时清理对象的英文名，只进错误日志。 */
   readonly runtimeLabel: string;
   /** 读这个群当前的开关位。 */
   readonly read: (state: ChatState) => boolean;

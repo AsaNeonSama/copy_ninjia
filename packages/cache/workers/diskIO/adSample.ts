@@ -1,61 +1,31 @@
-/** owner: workers/diskIO。广告命中样本文件（packages/workers/diskIO/adSampleFile.ts）的
- * 落盘线程内存状态。
- *
- * 样本是纯旁路素材：批次写失败就丢，不进统一 flush 的失败领域、不占重试预算
- * （见 adSampleFile.ts 的文件头）。
- */
+/** owner: workers/diskIO。广告命中样本文件追加状态（packages/workers/diskIO/adSampleFile.ts）。 */
 
 import type { AppendOnlyFileState } from "../../../types/diskIO/storage";
 
-/**
- * 待追加的已序列化样本与负责刷出它们的 timer。handleAdSampleMessage 填充，累计
- * FLUSH_MAX_ENTRIES 条、FLUSH_INTERVAL_MS 到期或统一 flush 时整批取走；写失败整批
- * 丢弃，因此容量不超过 FLUSH_MAX_ENTRIES 条。Worker 重建后随 isolate 清空，主线程
- * 不镜像、不重放。
- */
+/** 待追加的已序列化广告样本批次与定时刷盘 timer：handleAdSampleMessage 写入，满 FLUSH_MAX_ENTRIES 条、FLUSH_INTERVAL_MS 到期或统一 flush 时整批取走（写失败直接丢弃）；容量上限为 FLUSH_MAX_ENTRIES，Worker 重建后从空缓冲开始。 */
 export const adSampleBuffer: { chunks: string[]; timer: ReturnType<typeof setTimeout> | null } = {
   chunks: [],
   timer: null,
 };
 
-/**
- * 样本文件的追加游标。null 表示尚未打开，或上一次追加失败后作废；
- * 下一次写入前重新探测文件形态。Worker 重建后从 null 起步。
- */
+/** 广告样本文件追加游标单例：打开或写入成功时填充，追加失败时置为 null 并在下次写入前重新探测；Worker 重建后从 null 开始。 */
 export const adSampleFileState: { current: AppendOnlyFileState | null } = { current: null };
 
-/**
- * 本进程是否已经清扫过 memory/ad-detected/ 里的孤儿 .tmp。
- *
- * 启动成功后的维护或第一次写入会清扫，一个 isolate 只做一次 readdir。
- * Worker 重建后回到 false，重新扫一次。
- */
+/** 本 Worker isolate 是否已清扫过 memory/ad-detected/ 孤儿临时文件的标记：首次维护或写入清扫后置为 true，Worker 重建后恢复为 false；单例布尔值。 */
 export const adSampleTempsSwept: { current: boolean } = { current: false };
 
-/**
- * 最近完成或尝试过归档保留期清扫的配置时区的日期。只有日期严格前进时才再扫；
- * Worker 重建后回到 null，重扫一次；清扫失败也记录日期，不影响旁路追加。
- */
+/** 最近一次完成或尝试归档保留期清扫的配置时区自然日：清扫后更新，仅当日期前进时再次扫描，Worker 重建后恢复为 null；单例字符串。 */
 export const adSampleArchiveSweepDay: { current: string | null } = { current: null };
 
-/** 每日归档选名的最小有界游标；完整生命周期见 adSampleArchiveCursor。 */
+/** 每日广告样本归档文件命名的候选序号游标。 */
 export interface AdSampleArchiveCursor {
-  /** 当前索引所属的配置时区的日期。 */
+  /** 当前游标所属的配置时区自然日。 */
   readonly day: string;
-  /** 按既有命名规则应当从哪个正整数候选继续碰撞检查；1 表示无序号文件。 */
+  /** 下一个待探测归档文件名的正整数序号（首个候选对应无序号归档文件）。 */
   readonly nextIndex: number;
 }
 
-/**
- * 广告样本归档的下一个候选索引。
- *
- * - 填充：每日保留期目录扫描完成后，从同一份目录快照算出最小空缺；每次成功
- *   选名后前移一格。
- * - 清理/重建：Worker 重建后为 null，由首次样本触发的目录扫描重建；日期变化
- *   时用新日扫描结果整体替换。
- * - 容量：一个日期和一个安全整数，无增长。
- * - 碰撞策略：使用前仍以 existsSync 向前复核，不覆盖已有归档。
- */
+/** 广告样本归档候选序号游标单例：每日目录扫描完成后填入最小空缺序号并在每次选名后递增，跨日整体替换，Worker 重建后恢复为 null。 */
 export const adSampleArchiveCursor: {
   current: AdSampleArchiveCursor | null;
 } = { current: null };

@@ -28,18 +28,15 @@ export interface EchoMessageParams {
  */
 export async function echoMessage(params: EchoMessageParams): Promise<void> {
   const { chatId, message, mode, expectedTargetId, messageThreadId }: EchoMessageParams = params;
-  // caption 也检查：被复读出去的 caption 含 `/batch_kick 1d` 时 Telegram 会渲染成
-  // 可点击的命令链接。判定不用 `startsWith("/")`，bot_command 不只认行首
-  // （`喵 /batch_kick 1d`）。
+  // 正文与 caption 均检查是否含可点击命令片段。
   const source: string | undefined = message.text ?? message.caption;
   if (source !== undefined && containsRenderableCommand(source)) return;
 
   const text: string | undefined = source === undefined ? undefined : applyCopyModeTransform(source, mode);
   if (text !== undefined) {
-    // 上面那道守卫判定变换前的原文，这一道判定实际发出去的串（`reverse` 能把
-    // `d1 kcik_hctab/` 倒成 `/batch_kick 1d`）；命中即整条丢弃，不退化成原样复制。
+    // 变换后的输出串再次检查是否含可点击命令片段；命中即整条丢弃，不退化成原样复制。
     if (containsRenderableCommand(text)) return;
-    // 变换可能撑破上限（nya 的后缀），超限整条丢弃。
+    // 变换后超过长度上限时整条丢弃。
     const limit: number = typeof message.text === "string" ? TELEGRAM_MESSAGE_MAX_CHARS : TELEGRAM_CAPTION_MAX_CHARS;
     if (text.length > limit) return;
   }

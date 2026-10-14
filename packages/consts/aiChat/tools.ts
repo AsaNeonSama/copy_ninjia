@@ -89,15 +89,10 @@ export const CHAT_ACTION_REST_MS: number = 500;
 
 /** 本轮由代码侧预先决定是否制造一次单字手滑。 */
 export const AI_TEXT_TYPO_PROBABILITY: number = 0.15;
-/** 采纳一次手滑要求的最少剩余动作预算：错字消息本体之外，还得给可能的
- *  快速补正确单字留一个动作，见
- *  aiChat/ai/tools/replyToolset/typoHandling.ts 的 decideMessageTypo。 */
+/** 采纳一次手滑要求的最少剩余动作预算（含错字消息与后续补正消息，见 aiChat/ai/tools/replyToolset/typoHandling.ts 的 decideMessageTypo）。 */
 export const TYPO_MIN_REMAINING_ACTIONS: number = 2;
 /**
- * 超长图注改用独立文本消息补发时要求的最少剩余动作预算：图片本体之外还得给
- * 那条文本留一个动作。
- *
- * 接纳时预留图片与补发文本各一格额度；不足时只接纳图片，回执标记图注未接纳。
+ * 超长图注改用独立文本消息补发时要求的最少剩余动作预算（含图片与独立图注文本；不足时只接纳图片）。
  * 所属模块：aiChat/ai/tools/replyToolset/imageGeneration.ts。
  */
 export const IMAGE_SEPARATE_CAPTION_MIN_REMAINING_ACTIONS: number = 2;

@@ -58,11 +58,7 @@ interface PendingRemovalInspection {
   readonly values: Map<number, PendingBlockedRemoval>;
 }
 
-/**
- * 一页完成存储形态与领域解码后才推进游标；失败由外层统一丢弃半恢复快照。
- * 累计行数超过 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES` 时在解码该页之前拒绝启动，
- * 主线程 `hydrateBlocklist` 只接收本处校验过的快照，不再重复判定。
- */
+/** 按主键游标分页读取并解码全部待踢任务行，校验总行数不超过 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`。 */
 function inspectPendingRemovalPages(
   database: StorageDatabase,
   source: string
@@ -95,13 +91,9 @@ function inspectPendingRemovalPages(
   }
 }
 
-/**
- * 启动恢复的完整只读校验（由 workers/diskIO/storageDatabase/hydration.ts 调用）；连接与快照生命周期由调用方持有。
- * 时区标记按本线程已接管的配置时区（getTimeZone）比对。
- */
+/** 执行共享存储数据库的启动全量校验，返回恢复快照与 AI 上下文映射。 */
 export function validateStorageDatabase(database: StorageDatabase, source: string): StorageDatabaseInspection {
   assertStorageDatabaseStartupJsonbStorage(database, source);
-  // 版本判定排在读取业务行之前：只有当前 schema 保证所有业务表存在。
   const metadata: readonly StoredStorageMetadataRow[] =
     readStorageDatabaseSchemaMetadata(database);
   const version: number = readStorageSchemaVersion(
@@ -114,7 +106,6 @@ export function validateStorageDatabase(database: StorageDatabase, source: strin
       "{\"version\":" + String(IDENTITY_DATABASE_SCHEMA_VERSION) + "}."
     );
   }
-  // 时区标记紧随版本闸、先于一切按日校验。
   assertStorageTimeZone({ metadata }, source, getTimeZone());
   assertStorageDatabaseIntegrity(database, source);
   assertStorageDatabaseMigrationLineage(database, source);
@@ -131,7 +122,6 @@ export function validateStorageDatabase(database: StorageDatabase, source: strin
     removals.values,
     source
   );
-  // 群状态与问答沿用同一连接的启动读取边界；本函数不打开连接或发布缓存。
   const chatQaEntries: Map<number, ReadonlyMap<string, string>> = new Map(
     decodeStoredChatQa(rows.chatQa, source)
   );

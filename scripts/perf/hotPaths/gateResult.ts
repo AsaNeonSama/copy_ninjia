@@ -13,7 +13,7 @@
  *   一次门禁的读数；不传 `--write-result` 时门禁不写盘。
  *
  * 解析一律 fail-fast：未知键、缺字段、类型不符、取值越界都抛错并点明字段路径，
- * 不做默认值回填、不丢弃非法条目（见 AGENTS.md 的「不为用户行为兜底」）。
+ * 不做默认值回填、不丢弃非法条目。
  */
 
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../../../packages/libs/record";

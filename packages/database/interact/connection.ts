@@ -37,15 +37,12 @@ export function openStorageDatabase({
   return drizzle({ client, schema: storageDatabaseSchema });
 }
 
-/**
- * 关闭共享存储数据库连接；由持有句柄的调用边界显式触发。一并结束这条连接上的全部预编译
- * 语句并立即释放句柄，关闭失败时抛错。
- */
+/** 关闭共享存储数据库连接并释放关联的预编译语句。 */
 export function closeStorageDatabase(database: StorageDatabase): void {
   database.$client.close(true);
 }
 
-/** 按 Bun 官方建议为已发布的新库启用 WAL。 */
+/** 打开指定路径的共享存储数据库，设置 WAL 模式后关闭连接。 */
 export function enableStorageDatabaseWal(path: string): void {
   const database: StorageDatabase = openStorageDatabase({ path });
   try {

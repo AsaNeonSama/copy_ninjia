@@ -1,17 +1,10 @@
-/** owner: workers/aiChat。 */
+/** owner: workers/aiChat。Google GenAI 客户端按能力缓存（packages/aiChat/gemini/client.ts）。 */
 
 import type { GoogleGenAI } from "@google/genai";
 import type { AgentCapability } from "../../../types/config";
 
 /**
- * Google GenAI 底层客户端的线程内缓存。aiChat/gemini/client.ts 按能力首次请求
- * 时填充；每项能力独立持有 api_key 与 base_url，每项能力至多一个条目。进程退出时随 isolate 释放，Worker 崩溃重建后从空 holder 按配置重建。
- *
- * 归属 AI 闲聊 Worker：Gemini 的全部调用方（回复生成、冷消息压缩与贴纸整包简介、
- * 视觉描述与语音转写、生图、语音合成）都在那条线程上，主线程侧只经消息协议要结果，
- * 不碰客户端。
- *
- * 与 cache/workers/aiChat/openai.ts 可同时非空：
- * 供应商按能力分别选，闲聊与生图可以分属两家。
+ * 能力名（AgentCapability）到 GoogleGenAI 客户端实例的映射 holder：首次按能力调用时填充，agent.json 热重载时由 reloadAgentDeploymentConfig 置为 null（下次请求重建），isolate 销毁时释放。
+ * 容量上限为 AgentCapability 枚举数，不淘汰；Worker 重建后从 null 重新创建。
  */
 export const geminiClientCache: { current: Map<AgentCapability, GoogleGenAI> | null } = { current: null };

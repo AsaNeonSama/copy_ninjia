@@ -58,7 +58,7 @@ async function sourceMemberPaths(source: string): Promise<readonly string[]> {
 }
 
 /**
- * 从 17.2.1 格式（成员 ID 数组）的停机备份生成 `{ id, enteredAt }` 滑窗产物：每群只保留最后
+ * 从上一次迁移产出格式（成员 ID 数组）的停机备份生成 `{ id, enteredAt }` 滑窗产物：每群只保留最后
  * WED_MEMBER_LIMIT 个 ID，顺序不变，进入时间统一记为迁移开始时刻。不改源文件，不覆盖既有目录，
  * 不执行服务操作；每份产物按生产启动口径回读校验，ready.json 只在全部校验及源哈希复核后产生，
  * 中断后保留目录，换新 outputRoot 重跑。部署方停服期间按清单手工替换 memory/wed/ 下的文件。

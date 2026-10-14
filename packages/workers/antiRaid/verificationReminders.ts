@@ -40,10 +40,7 @@ export function clearReminderDeliveries(): void {
   reminderDeliveries.clear();
 }
 
-/**
- * 验证提醒下面的按钮行。真人两颗：本人验证给本人、「通过」给本群非匿名
- * 管理员代点；机器人点不了按钮，只留「通过」。
- */
+/** 构造验证提醒内联键盘：真人展示本人验证与管理员通过按钮，机器人仅展示管理员通过按钮。 */
 function buildVerificationKeyboard(userId: number, isBot: boolean, atmosphere: AtmosphereTexts): InlineKeyboardMarkup {
   const approveButton: InlineKeyboardButton = {
     text: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT,

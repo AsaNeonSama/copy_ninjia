@@ -1,4 +1,4 @@
-/** owner: main。抽签命令（packages/commands/luckChallenge/）的内存状态。 */
+/** owner: main。抽签命令运行态与当日缓存（packages/commands/luckChallenge/）。 */
 
 import { PENDING_LUCK_CACHE_MAX, RATE_LIMIT_MAX_CALLS_PER_WINDOW } from "../../consts/luckChallenge";
 import { FifoMap } from "../../libs/fifoMap";
@@ -6,29 +6,20 @@ import { TimestampDeque } from "../../libs/timestampDeque";
 import type { LuckReceiptSecret } from "../../types/diskIO/storage";
 import type { LuckDraw } from "../../types/luckChallenge";
 
-/** dayKey 记录当前日缓存对应的配置时区自然日；与今天不一致时整体清空并切换到新日（commands/luckChallenge/cache.ts 的 adoptLuckSecret）；进程重启后为空串，由 restoreLuckState 填充。 */
+/** 当前运势缓存对应的配置时区自然日：启动时由 restoreLuckState 填充，跨日由 adoptLuckSecret 切换并清空当日缓存；进程重启后从空串开始。 */
 export const luckCacheState: { dayKey: string } = { dayKey: "" };
-/** 当日已确认抽签结果，即用户选中并发出的 inline 结果（chosen_inline_result 见
- *  commands/luckChallenge/telegramAdapter.ts，签名回执认领见 commands/luckChallenge/receipt.ts）。
- *  确认时经 postDiskIO 落盘到 memory/luck/（只留当天一份文件），启动时由 restoreLuckState 灌回
- *  （见 commands/luckChallenge/cache.ts）；跨日整体清空。
- *  容量上限 DAILY_LUCK_CACHE_MAX（见 consts/luckChallenge.ts），撑满时拒绝新 key，不淘汰已确认项。 */
+/** 当日已确认运势结果表（cacheKey -> LuckDraw）：启动时由 restoreLuckState 灌入，用户发出 inline 结果经 confirmLuckDraw 确认时写入，跨日整体清空；容量上限为 DAILY_LUCK_CACHE_MAX，满额拒绝新键且不淘汰已确认项。 */
 export const dailyLuckCache: Map<string, LuckDraw> = new Map();
-/** 当日容量撑满后是否已记过日志；跨日随缓存一起复位。 */
+/** 当日已确认运势表满额告警标记：满额记日志时置为 true，跨日随缓存一起复位为 false。 */
 export const dailyLuckCacheSaturated: { current: boolean } = { current: false };
 
-/** 尚未确认的抽签结果：inline_query 应答（预览）阶段抽到、尚未被用户选中发出的草稿
- * （见 commands/luckChallenge/cache.ts 的 getOrDrawLuck 与 receipt.ts 的 confirmLuckDraw），
- * 不计入「今天测过」。key 是 cacheKey（同 dailyLuckCache）。
- * 清理：confirmLuckDraw 认领后移入 dailyLuckCache 并删除本项，跨日随整份缓存清空。
- * 容量：硬顶 PENDING_LUCK_CACHE_MAX（见 consts/luckChallenge.ts），FifoMap 撑满时写入新 key
- * 先淘汰最早插入的一项，命中不刷新位置。进程重启后为空。 */
+/** 待确认运势草稿 FIFO 表（cacheKey -> LuckDraw）：inline_query 预览时由 getOrDrawLuck 写入，confirmLuckDraw 认领时移入 dailyLuckCache 并删除，跨日整体清空；容量上限为 PENDING_LUCK_CACHE_MAX，满额按 FIFO 淘汰最早写入项，进程重启后从空表开始。 */
 export const pendingLuckDraws: FifoMap<string, LuckDraw> = new FifoMap(PENDING_LUCK_CACHE_MAX);
 
-/** 当前配置时区日期的持久化密钥；启动恢复前为 null，此时不生成预览。 */
+/** 当日运势回执签名密钥单例：启动恢复或跨日轮换时填充，进程重启后从 null 开始。 */
 export const luckReceiptSecretState: { current: LuckReceiptSecret | null } = { current: null };
 
-/** 日期轮换、Worker 重建监听与跨日 fail-closed 判定的主线程运行态。 */
+/** 运势跨日轮换单飞 Promise、Worker 重建监听注册标记与跨日切换标记；单例固定字段，进程重启后从初始值开始。 */
 export const luckRuntimeState: {
   dayRefreshPromise: Promise<void> | null;
   respawnRecoveryInitialized: boolean;
@@ -39,10 +30,6 @@ export const luckRuntimeState: {
   daySwitchedInProcess: false,
 };
 
-/** 内联查询的全局滑动窗口频率限制：最近 RATE_LIMIT_WINDOW_MS 内各次请求的时刻戳。
- *  只在仍有配额时记账，长度不超过 RATE_LIMIT_MAX_CALLS_PER_WINDOW，
- *  环形缓冲按该值定容，见 libs/slidingWindowRateLimit.ts。
- *  清理：每次记账前由 TimestampDeque.trim 丢掉窗口外的队首与时钟回拨后落在未来
- *  的队尾；没有整体清空路径，进程重启归零。 */
+/** 运势 inline 查询全局滑动窗口调用时间戳队列（窗口长度 RATE_LIMIT_WINDOW_MS）：每次判定时先淘汰滑出窗口的队首时间戳，未满额时写入当前时间戳；容量固定为 RATE_LIMIT_MAX_CALLS_PER_WINDOW，进程重启后从空队列开始。 */
 export const recentCallTimestamps: TimestampDeque =
   new TimestampDeque(RATE_LIMIT_MAX_CALLS_PER_WINDOW);

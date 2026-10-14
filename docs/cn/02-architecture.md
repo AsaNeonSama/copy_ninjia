@@ -29,7 +29,7 @@ flowchart TD
     MAIN -->|单向/带回执写| DISK
 ```
 
-系统的核心设计原则是**状态单宿主（Single Ownership）**：任何一份运行时状态，在同一时刻只能由一个指定的线程独占持有。不同线程之间严格通过结构化消息通信，不共享可变内存，从而彻底消除竞态条件与多线程锁竞争。
+系统采用**状态单宿主（Single Ownership）**：每份运行时状态在同一时刻仅由一个指定线程独占持有，跨线程仅通过结构化消息通信，不共享可变内存。
 
 ### 四大线程职责分工
 
@@ -73,7 +73,7 @@ flowchart TD
 
 系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配，整条链只经一个 `bot.use` 登记：这一层完成 update_id 记账与 Bot 发言限流后，进入 [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) 的前置链。前置链各段按下图顺序同步调用下一段，只有真正碰到 I/O（预热冷身份、认领型 ingress 等待落盘或网络、命令与消息处理器）时才返回 Promise。斜杠命令、中文动作命令，以及表情反应、成员变更、内联回调等非消息事件分别建成 grammY `Composer`，由前置链在对应位置调用。
 
-系统没有使用并发队列中间件，而是直接在拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）层面保证顺序：每次长轮询只拉取 1 条更新（`UPDATE_POLL_LIMIT`），必须等当前消息的整条处理链路完全执行完毕后，才会发起下一次 `getUpdates`。这种设计在根源上实现了全局逐条串行处理。
+拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）每次长轮询按 `UPDATE_POLL_LIMIT` 拉取更新，待当前消息的整条处理链路完全执行完毕后才发起下一次 `getUpdates`，全局逐条串行处理。
 
 ```text
 [Telegram Update]
@@ -115,7 +115,7 @@ flowchart TD
        └─ /x (菜单占位项，引导中文动作命令用法)
        │
        ▼
-12. 中文动作命令 (hears) ── 匹配 /咬、/贴贴 等 1~2 字动作词；在消息兜底前截获
+12. 中文动作命令 (hears) ── 匹配 CJK_ACTION_COMMAND_PATTERN 动作词；在消息兜底前截获
        │
        ▼
 13. 自动消息流水线       ── auto/message/ 处理复读、群问答直答、AI 触发与转录等
@@ -125,8 +125,6 @@ flowchart TD
 
 > [!NOTE]
 > `bot.catch` 记录错误日志后必须继续向上抛出异常，防止未成功处理的 update 被误认为已完成；如果静默吞掉异常，该消息的 offset 会被错误推进，导致消息丢失。
-
----
 
 ---
 
@@ -193,7 +191,7 @@ AI 触发包含两种途径：
 | **`web_search`** | 查询 | 本地联网检索工具（配置了 `agent.web_search` 时挂载）；受单轮最大调用次数约束。 |
 | **`group_qa_query`** | 查询 | 查询本群预先登记的问题清单；不占用动作额度。 |
 | **`group_qa_answer`** | 查询 | 获取 `group_qa_query` 中特定问题的预置答案；由模型根据语义自行决定是否引用。 |
-| **`get_tokyo_weather`** | 查询 | 查询东京当日天气与温度；仅在时区为 `Asia/Tokyo` 时挂载。 |
+| **`get_tokyo_weather`** | 查询 | 查询东京当日天气与温度；仅在时区为 `TOKYO_TIME_ZONE` 时挂载。 |
 
 > [!TIP]
 > **动作链与拟人化聊天状态**：

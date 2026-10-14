@@ -1,23 +1,6 @@
 /**
- * AI 缓存使用统计落盘：memory/ai-daily-usage/usage.json 一份文件，内容是一个顶层 JSON 对象。
- *
- * - `summary`（写在首位）：最近一个已结束的配置时区自然日的汇总，见 types/aiCache.ts 的 AiCacheSummary；
- *   有过费用请求的合计另带 costInUsdTicks，有请求给出过缓存写入用量的合计另带 cacheWriteInputTokens，
- *   没有时省略对应的键。
- * - 其余键：尚未汇总的逐条用量，键为「配置时区的时间 YYYY-MM-DD HH:mm:ss.SSS_uuid」，值为
- *   capability、provider、model 加上三项 token 数或 costInUsdTicks。供应商给出缓存写入用量的 token
- *   记录另带 cacheWriteInputTokens，执行过检索的 token 记录同时带 searchCalls；没有有效 token 的检索
- *   响应只记 searchCalls，不计入 requests。有过检索的合计另带 searchCalls，没有时省略该键。
- *
- * 逐条记录经诊断通道到达后先进内存缓冲（cache/workers/diskIO/aiCache.ts），达到
- * FLUSH_MAX_ENTRIES 或等满 FLUSH_INTERVAL_MS 后按 appendOnlyDayFile.ts 的机制追加到文件末尾，
- * 统一 flush 时也会刷出。每日配置时区 0 点的维护 cron（maintenanceCron.ts）与启动维护调用
- * summarizeAiCache：先刷缓冲，再把今天之前的记录汇总成最近那一天的 summary（与同日已有汇总
- * 相加），删掉这些记录后整份原子重写；更早日期的记录与旧汇总不保留。
- *
- * 统计是旁路数据：写盘失败只丢这一批并 console.error，不计入统一 flush 回执的失败领域，
- * 也不升级为业务失败。文件存在但不是当前格式时，与日志一样尝试裁掉撕裂的尾部；仍不合法
- * （未知键或缺字段、summary 不在首位、合计之间不自洽）则拒绝接管并保留原字节。
+ * AI 缓存用量统计落盘：按 `FLUSH_MAX_ENTRIES` 或 `FLUSH_INTERVAL_MS` 将逐条记录追加到
+ * `AI_CACHE_FILE_PATH`（支持截断修复），并在启动与每日维护时将历史记录汇总为首位的 `summary`。
  */
 
 import { mkdirSync } from "node:fs";

@@ -225,12 +225,7 @@ export function restoreLuckState(secret: LuckReceiptSecret, loaded: LuckDayCache
   initializeRespawnRecovery();
   const todayKey: string = getDateKey();
   if (secret.day !== todayKey) {
-    // 进程恰好卡在配置时区 00:00 前后启动：Disk I/O Worker 在启动边界取的是 D，
-    // 主线程收到 load 回执时已经是 D+1。丢掉这份过期凭据：不 adopt，缓存留空，
-    // 首次用到运势时由 ensureLuckCacheFreshForToday 向 Worker 重新取当天密钥。
-    // 同时置 daySwitchedInProcess，让 promotePendingDraw 对拿不出当天证明的确认
-    // 一律丢弃。loaded 一并丢弃，它属于 secret.day 那一天，磁盘上那份由 Worker 侧的
-    // cleanupStaleLuckFiles 按新日期清掉。
+    // 跨过配置时区日界时丢弃过期凭据与快照，置位 daySwitchedInProcess，首次使用时由 ensureLuckCacheFreshForToday 重取当天密钥。
     logger.warn(
       `Loaded luck receipt secret is for ${secret.day} but the configured local day already rolled over to ${todayKey}; ` +
       "discarding it and re-deriving today's secret on first use."

@@ -23,7 +23,7 @@ export function parseDurationTokenMs(token: string): number | undefined {
 }
 
 /**
- * 把整分钟毫秒念成中文战报用语，取能整除的最大单位（90m 念作 90 分钟）。
+ * 把整分钟毫秒格式化为中文时长文案，取能整除的最大单位。
  */
 export function formatDurationCn(durationMs: number): string {
   if (durationMs % DURATION_UNIT_MS.d === 0) {

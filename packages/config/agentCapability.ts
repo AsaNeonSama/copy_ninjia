@@ -68,12 +68,7 @@ function requiredApiKey(value: unknown, context: string, sourcePath: string): st
 
 /**
  * 解码可选的绝对端点；缺省交给对应 SDK 的官方地址。
- *
- * 只接受 HTTPS；LOOPBACK_HOSTS 内的本机主机可用明文 HTTP。
- *
- * userinfo 一律拒绝：供应商凭据走 api_key，三方网关鉴权走 google 或 anthropic provider 的 headers。
- *
- * fragment 一律拒绝：SDK 把 base_url 当路径前缀拼接，`#` 之后的部分不会被发到服务端。
+ * 只接受 HTTPS 或 LOOPBACK_HOSTS 内的明文 HTTP，且不得含 userinfo 或 fragment。
  */
 function optionalBaseUrl(value: unknown, context: string, sourcePath: string): string | undefined {
   if (value === undefined) return undefined;
@@ -138,7 +133,7 @@ interface OptionalHeadersOptions {
 }
 
 /**
- * 解码 google 或 anthropic provider 的可选 headers：1～AGENT_HEADERS_MAX_ENTRIES 条，名为 HTTP token、
+ * 解码 google 或 anthropic provider 的可选 headers：非空且不超过 AGENT_HEADERS_MAX_ENTRIES 条，名为 HTTP token、
  * 忽略大小写不重复且不是该 provider 的 AGENT_CREDENTIAL_HEADER_NAMES；值去掉首尾空白后非空，
  * 只含可打印 ASCII 与空格、制表符。报错只写字段路径与期望形态，不回显请求头值。
  */
@@ -280,7 +275,7 @@ export function parseWebSearchCapability(value: unknown, sourcePath: string): Ag
 /**
  * 解码生图能力；只有 OpenAI 协议分支接受并要求 image_protocol，anthropic 不受理。两个分支都接受
  * 可选的 max_reference_images：缺省补 IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES，存在时必须是
- * 1～IMAGE_GENERATION_MAX_REFERENCE_IMAGES 的整数。
+ * 不超过 IMAGE_GENERATION_MAX_REFERENCE_IMAGES 的正整数。
  */
 export function parseImageCapability(
   value: unknown,
@@ -371,8 +366,8 @@ interface TtsDailyQuota {
 
 /**
  * 解码可选的 daily_limit 与 daily_reserve_quota。daily_limit 是正整数；daily_reserve_quota 是
- * 0～daily_limit-1 的整数，使 AI 语音工具至少保留一次额度。缺省值（TTS_DEFAULT_DAILY_LIMIT、
- * TTS_DEFAULT_DAILY_RESERVE_QUOTA）同样按这一关系核对。
+ * 小于 daily_limit 的非负整数。缺省值（TTS_DEFAULT_DAILY_LIMIT、TTS_DEFAULT_DAILY_RESERVE_QUOTA）
+ * 同样按这一关系核对。
  */
 function parseTtsDailyQuota(
   record: Readonly<Record<string, unknown>>,

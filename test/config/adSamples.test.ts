@@ -32,8 +32,7 @@ describe("ad samples config", () => {
   });
 
   test("解析结果只读，调用方改不动共享单例", () => {
-    // 保护由类型承担（见 AGENTS.md 的「常量」一节）；`@ts-expect-error` 只压制类型报错、底下那行照样执行，
-    // 所以只试这份用完即弃的解析结果，不碰 getAdSampleConfig() 的共享单例。
+    // `@ts-expect-error` 只压制类型报错、底下那行照样执行，这里在临时解析结果上验证，不改动 getAdSampleConfig() 的共享单例。
     const probe: readonly string[] = parseAdSampleConfig(["加微信"]);
     expect(probe).toEqual(["加微信"]);
     // @ts-expect-error 示例表不允许就地追加

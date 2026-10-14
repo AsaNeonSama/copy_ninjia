@@ -1,41 +1,31 @@
-/** owner: main。/wed 已发言成员滑窗与合并落盘窗口。 */
+/** owner: main。`/wed` 已发言成员池与落盘合并状态（packages/commands/wed/persistence.ts），跨线程边界见 docs/cn/04-invariants.md。 */
 import type { WedMemberState } from "../../types/wed";
 import type { WedMembersDeleteDiskMessage } from "../../types/diskIO/messages";
 
 /**
- * init 从 DiskIO 严格校验的快照恢复；不在窗口内的成员实际个人发言时以进入时间追加到末尾，
- * 窗口内成员再次发言不刷新进入时间；退群、每日复核确认离群或 getChat 明确找不到私聊时
- * 从所有群奖池移除；查询期间新发言的群保留。
- * 每群最多 WED_MEMBER_LIMIT 个成员，群数受 STATE_MANAGED_CHAT_LIMIT 限制；满额时新成员挤出
- * 首项（进入时间最早）。进程初始化清空后从文件恢复。
- *
- * 整群条目只在 `/init disable` 与机器人离群时由 commands/wed/persistence.ts 的
- * purgeWedMembers 删除，并连带删掉 `memory/wed/<chatId>.json`；被撤管理员只收掉
- * 交互，成员滑窗原样保留（见 libs/chatTeardown.ts 的 purgesChatData）。待确认删除由 pendingWedMemberDeletes 持有，不再作为候选。
- *
- * 本表是权威 owner；DiskIO 崩溃后由主线程全量重放，缺失条目表示没有候选。
- * 仅批量窗口关闭时投递最终快照，普通发言不创建快照或跨线程同步。
- * 跨线程持久化与停机约束见 docs/cn/04-invariants.md。
+ * 群 ID 到 `/wed` 已发言候选成员池的权威映射：
+ * - 填充：启动时从 Disk I/O Worker 快照恢复，运行期新成员个人发言时追加到末尾；
+ * - 清理与淘汰：成员退群、每日复核确认离群或私聊不可达时移除该成员，清除群数据的 teardown（purgeWedMembers）删除整群条目；群数上限为 STATE_MANAGED_CHAT_LIMIT，每群成员上限为 WED_MEMBER_LIMIT（满额按 FIFO 淘汰最早进入的成员）；
+ * - 重建：Disk I/O Worker 重建时由主线程全量重放脏快照，进程重启后从磁盘文件恢复（无条目表示无候选成员）。
  */
 export const wedMemberStates: Map<number, WedMemberState> = new Map();
 
 /**
- * teardown 摘除奖池时登记，durable 删除回执或新奖池接管后清理；投递失败按原 timer 重试。
- * 与现存奖池合计最多 STATE_MANAGED_CHAT_LIMIT 群，满额拒绝新群；同群重开不增加占额。
- * 权威 owner 为主线程，DiskIO 重建时全量重放；无条目表示没有仍需确认的删除。
+ * 群 ID 到未确认落盘整群成员删除消息的映射：teardown 删除成员池时登记，收到匹配 durable 删除回执或同群重建成员池时清除，Disk I/O Worker 重建时全量重放。
+ * 与 wedMemberStates 合计群数上限为 STATE_MANAGED_CHAT_LIMIT，不淘汰未确认条目；进程重启后从空表开始（无条目表示无待确认删除）。
  */
 export const pendingWedMemberDeletes: Map<number, WedMembersDeleteDiskMessage> = new Map();
-/** 删除回执的进程内唯一编号；teardown 分配，进程重启从零开始，Worker 重建不归零，容量一个标量。 */
+/** `/wed` 成员池删除请求的单调递增序号发号器：teardown 时分配，Worker 重建不重置，进程重启后从零开始；单例标量。 */
 export const wedMemberDeleteCounter: { current: number } = { current: 0 };
 
-/** 首次变更创建 timer，累计阈值提前调度；发送或初始化清理，失败保留 dirty 并定时重试。容量为一个 timer 和两个标量。 */
+/** `/wed` 成员池批量落盘定时器与变更计数状态：首次变更启动定时器或达阈值提前触发，发送或 resetWedMemberStates 时清理；单例固定字段。 */
 export const wedMemberFlushState: {
   timer: ReturnType<typeof setTimeout> | null;
   changes: number;
   immediate: boolean;
 } = { timer: null, changes: 0, immediate: false };
 
-/** init 或测试隔离时清除整份 owner；Worker 重建不得调用。 */
+/** 清空 `/wed` 成员池、待确认删除表与落盘定时器状态（初始化或测试隔离用）。 */
 export function resetWedMemberStates(): void {
   if (wedMemberFlushState.timer !== null) clearTimeout(wedMemberFlushState.timer);
   wedMemberFlushState.timer = null;

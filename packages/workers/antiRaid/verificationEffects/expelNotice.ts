@@ -12,7 +12,7 @@ export interface ExpelNoticeTextOptions {
   readonly texts: AtmosphereNotices;
   readonly reason: "timeout" | "flood";
   readonly removalOutcome: ExpelRemovalOutcome;
-  /** 人是本天才踢走的：本轮踢成，或上一轮已踢成（removalConfirmed）而本轮探测为不在群。 */
+  /** 是否为本轮确认踢出：本轮踢成，或上一轮已踢成（removalConfirmed）而本轮探测为不在群。 */
   readonly kicked: boolean;
   readonly cleanup: VerificationCleanupResult;
   readonly label: string;

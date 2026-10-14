@@ -256,9 +256,7 @@ export function assertStoredIdentityPolicies(
   }
 }
 
-/**
- * 生产启动的版本前置闸只扫描 storage_metadata；版本与时区通过后再检查当前各表与正文。
- */
+/** 校验 `storage_metadata.data` 列为严格 JSONB BLOB。 */
 export function assertStorageDatabaseStartupJsonbStorage(
   database: StorageDatabase,
   source: string
@@ -270,10 +268,7 @@ export function assertStorageDatabaseStartupJsonbStorage(
   ], source, 1);
 }
 
-/**
- * 只读 storage_metadata（当前格式为 schema 版本与时区标记两行）。启动先确认版本与
- * 时区，再查询当前版本的业务表。
- */
+/** 读取 `storage_metadata` 全表行。 */
 export function readStorageDatabaseSchemaMetadata(
   database: StorageDatabase
 ): readonly StoredStorageMetadataRow[] {
@@ -283,11 +278,7 @@ export function readStorageDatabaseSchemaMetadata(
     .all();
 }
 
-/**
- * 生产启动读取：名单只做 COUNT；群状态与问答只为恢复热缓存读取，不在这里校验。
- * 调用方须已用 readStorageDatabaseSchemaMetadata 确认过 schema 版本；本函数
- * 查询 `chat_states` 与 `chat_qa`，版本不符的库不得进入这里。
- */
+/** 读取启动恢复所需的名单条数统计、群状态全表行与群问答全表行。 */
 export function readStorageDatabaseStartupRows(
   database: StorageDatabase
 ): StorageDatabaseStartupRows {
@@ -300,15 +291,11 @@ export function readStorageDatabaseStartupRows(
     permissionEntryCount,
     blocklistEntryCount,
     chatStates: storedChatStates,
-    // 全表读取不分页：行数以 STATE_MANAGED_CHAT_LIMIT × CHAT_QA_MAX_PER_CHAT 为界。
     chatQa: readStoredChatQa(database),
   };
 }
 
-/**
- * 启动按主键游标读取一页 outbox；存储形态与严格 JSONB 结果随正文同页投影。
- * null 游标读取第一页，后续页只读取更大的 removal_id，不使用 OFFSET。
- */
+/** 按 `removal_id` 升序游标读取一页待踢任务行及其存储形态。 */
 export function readStorageDatabasePendingRemovalPage(
   database: StorageDatabase,
   afterRemovalId: number | null

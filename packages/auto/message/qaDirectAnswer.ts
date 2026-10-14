@@ -17,11 +17,9 @@ import { renderFencedText } from "../../libs/codeFence";
 import type { RichTextMessage } from "../../types/telegram";
 
 /**
- * 首个实体正好是从 0 开始的 @提及时返回它的长度，否则 0。
+ * 首个实体正好是从 0 开始的本机器人 @提及时返回它的长度，否则返回 0。
  *
- * 只看第一个实体、只认 offset 0：`@bot 怎么入群？` 按登记的 `怎么入群？` 直答，
- * 句中的提及（`问 @bot 怎么入群？`）不处理。
- *
+ * 只认 offset 为 0 的首个实体，句中的提及不剥离。
  * 用户名比对折大小写，口径同 infra/updateGate.ts、auto/message/facts.ts、
  * commands/cjkAction.ts；问题文本不折大小写，仍要求一字不差。
  */
@@ -31,8 +29,7 @@ function leadingBotMentionLength(message: Message, botUsername: string): number 
   if (first?.offset !== 0 || first.type !== "mention") return 0;
   const text: string | undefined = message.text;
   if (text === undefined) return 0;
-  // mention 实体的正文含前导 @，比对时跳过它；长度取实体自己的长度，
-  // `@bot2` 这类同前缀更长的名字不匹配。
+  // mention 实体的正文含前导 @，比对时跳过首字符并按实体完整长度切取。
   if (text.slice(1, first.length).toLowerCase() !== botUsername.toLowerCase()) return 0;
   return first.length;
 }

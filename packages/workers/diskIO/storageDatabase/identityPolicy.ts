@@ -56,10 +56,7 @@ import {
 import { flushIfStorageFull } from "./flush";
 import { errorMessage } from "../../../libs/errorMessage";
 
-/**
- * 取本连接的预编译主键查询语句，首次用到时建好挂进连接级缓存。
- * 缓存归本 Worker 持有，database/interact 层不接触线程独占缓存。
- */
+/** 获取或初始化当前连接的预编译主键存在性查询语句。 */
 function identityIdLookups(): StoredIdentityIdLookups {
   const database: StorageDatabase = requireStorageDatabase();
   const cached: StoredIdentityIdLookups | undefined =
@@ -71,7 +68,7 @@ function identityIdLookups(): StoredIdentityIdLookups {
   return lookups;
 }
 
-/** 某名单主键是否已经持久化；走本连接的预编译语句，不现场拼 SQL。 */
+/** 查询指定名单主键是否已在 SQLite 中持久化。 */
 function hasStoredIdentityPolicy(table: IdentityPolicyTable, id: number): boolean {
   const lookups: StoredIdentityIdLookups = identityIdLookups();
   const lookup: StoredIdentityIdLookup =
@@ -85,10 +82,7 @@ function pendingPolicyMap(
   return table === "whitelist" ? pendingWhitelistWrites : pendingBlocklistWrites;
 }
 
-/**
- * SQLite 已提交游标页叠加事务内最终值；候选集合严格受「页 + pending 硬顶」约束。
- * 补扫每页前会先 flush，这个合并只处理 flush 回执后并发到达的短窗口变化。
- */
+/** 读取一页已提交黑名单主键并叠加事务缓冲中的未提交变更。 */
 function effectiveBlocklistIdPage(afterId: number | null): BlocklistIdPage {
   if (
     pendingBlocklistWrites.size >
@@ -131,7 +125,7 @@ function effectiveBlocklistIdPage(afterId: number | null): BlocklistIdPage {
   };
 }
 
-/** outbox 严格校验一个冻结目标是否仍属于事务叠加后的黑名单。 */
+/** 判断指定身份是否属于叠加未提交变更后的有效黑名单。 */
 export function hasEffectiveBlocklistIdentity(id: number): boolean {
   const pending: PendingIdentityPolicyWrite | undefined =
     pendingBlocklistWrites.get(id);
@@ -139,7 +133,7 @@ export function hasEffectiveBlocklistIdentity(id: number): boolean {
   return hasStoredIdentityPolicy("blocklist", id);
 }
 
-/** outbox 的 probe 任务是否仍至少有一个目标；只读取第一张有界游标页。 */
+/** 判断叠加未提交变更后的有效黑名单是否非空。 */
 export function hasAnyEffectiveBlocklistIdentity(): boolean {
   return effectiveBlocklistIdPage(null).ids.length > 0;
 }
@@ -208,13 +202,7 @@ function temporaryAdBypassRowsWithPending(
   return [...values.values()];
 }
 
-/**
- * 黑名单删除前核对待踢 outbox 的引用：已接受的指名行不得仍冻结该身份；删除后黑名单为空时
- * 不得再留补扫行。主线程 unblockUser 先投行改动、再投删除（infra/identityStorage/write.ts 的
- * queueBlocklistDeletion），按序到达时必然满足；镜像重放区间（storageFlushHold）内各领域按优先级
- * 先黑名单后 outbox 到达、提交推迟到镜像到齐之后，此时不做本校验，启动期由
- * assertPendingRemovalBlocklistReferences 严格复核已提交状态。
- */
+/** 校验待删除黑名单身份未被待踢 outbox 活动行引用（镜像重放暂挂期间跳过，参见 docs/cn/04-invariants.md）。 */
 function assertBlocklistDeletionUnreferenced(id: number): void {
   if (storageFlushHold.current) return;
   let hasProbeRow: boolean = false;

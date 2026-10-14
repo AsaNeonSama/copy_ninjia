@@ -95,36 +95,27 @@
   - **責務**：モジュール間インターフェース型、ドメイン型、`types/states/` のステートマシン契約型。
   - **代表ファイル**：`chatState.ts`、`commands.ts`、`lifecycle.ts`、`diskIO/`（`messages.ts`、`replies.ts`）。
 - **`test/`**
-  - **責務**：`packages/` と 1 対 1 で対応する Bun 単体テストスイート。
-  - **代表ファイル**：`test/commands/copyShared.test.ts`。
+  - **責務**：`packages/` と 1 対 1 で対応する Bun 単体テスト・結合テストスイート。
 - **`scripts/`**
-  - **責務**：リポジトリ自己検査、ビルド・リリース、性能ベンチマーク、インストーラー、停止中専用のデータマイグレーション。
-  - **自己検査・ゲート**：`checkProjectConventions.ts` と `conventions/`、`checkCoverageMetrics.ts` と `coverageSummary.ts`、`checkInstallScriptSyntax.ts`、`checkInstallIsolation.ts` と `installIsolation/`、`test:fault-injection` の実行入口 `testFaultInjection.ts`。
-  - **ビルド・リリース**：`build.ts`、`binary.ts`（バイナリエントリ）、`checkBinary.ts`、`checkBinaryMigrations.ts`、`release.ts` と `release/`。
-  - **性能ベンチマーク**：`perf/identityDatabase.ts`、`perf/joinLog.ts`、`perf/hotPaths.ts` と `perf:hot-paths` の隔離入口 `perf/isolatedHotPath.ts`、`perf/hotPathProfileGate.ts`、`perf/hotPaths/gateResult.ts`（`performance-result.json` のゲートセクション厳格パース）、`perf/performanceResult.ts`（同ファイルの共有書き込み境界。各ベンチマークは自身のセクションのみを更新）、リリース時専用の全量ベンチマーク `perf/fullSuite.ts` と `perf/fullSuite/`、ならびにベンチマーク間で共用される `fixtures/copyTree.ts`（ディレクトリツリー複製）と `fixtures/pathBoundary.ts`（書き込みパス境界検証）。
-  - **インストーラー**：`install.sh` は対象ワークツリーを特定し、そのバージョンのインストーラーへ処理を委譲。`scripts/install/` 配下の shell モジュール群は構文と可読性を一括確認した上で順次ロード。`installSources.ts` は構文検証および分離テスト用フィクスチャへ同一のモジュールリストを提供。
-  - **コールドマイグレーション**：`migrateWedMemberWindow.ts` は 17.2.1 が出力した停止時バックアップの `memory/wed/` メンバー ID 配列のみを受け付け、各グループの末尾 `WED_MEMBER_LIMIT` 件を移行開始時刻の `{ id, enteredAt }` ウィンドウへ書き換えます（移行元の解析は `migrations/wedMemberWindow/members.ts`）。移行元ディレクトリは読み取り専用で保護され、`ready.json` が完了マーカーとなります。`migrations/files.ts` と `migrations/cli.ts` はパス判定や引数パースを共通化しており、起動依存グラフには含まれません。
-  - **ファイルハッシュ計算**：`fileSha256.ts` は `Bun.file(path).stream()` と `Bun.CryptoHasher` を用いて SHA-256 16進ハッシュをストリーミング計算し、リリース検証、マイグレーション、テスト用フィクスチャで共用されます。
+  - **責務**：規約自検ゲート、ビルド・リリース、性能ベンチマークスイート、インストーラースクリプト、および停止時専用のデータコールドマイグレーションスクリプト。
 
-`scripts/migrations/active.ts` は、ビルド・配布物検証・規約検査で共通利用される有効なマイグレーション一覧です。バイナリ配布版にもこの一覧に含まれる CLI が内包されており、`BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/<エントリ>.js` の形式で実行できます。配置と運用手順は [07 運用手順](07-operations.md) を参照してください。
-
-`botInput.ts` はインストーラーとランタイムが共用する厳格な設定ファイル読み込みエントリであり、モジュール import 時にはディスクの読み込みやキャッシュへの格納を行いません。`bot.ts` は実行時スナップショットを管理し、読み込み前に `layout.ts` で `config/static/` と `config/dynamic/` のディレクトリ構造を検査します。`libs/inflight.ts` は実行中タスクの有界待機ロジックを共通化し、受付・キャンセル・タイムアウトのポリシーは各ドメイン owner が個別に管理します。`infra/backgroundTasks.ts` はバックグラウンドタスクのエラーログ記録と完了後の自動解放を担当します。グループ単位の各種機能トグルコマンドは、`commands/superAdminToggle.ts` の認証、設定ゲート、状態更新、永続化、メッセージ応答の実行シーケンスを共用します。
-
-`commands/wed.ts` は wed 機能のステートマシン、`wed/dispatch.ts` はコマンド受付、`wed/chats.ts` はグループごとのキャッシュ管理・LRU 追放・セッション掃除、`wed/members.ts` はメンバー増減イベントの監視、`wed/runtime.ts` は有界実行器とアプリケーションライフサイクルの橋渡しを担当し、`wed/rendering.ts` が結果画像の純粋描画ロジックを担います。操作ステートと実行器ハンドルは `cache/main/wed.ts`、各グループの長期メンバーウィンドウ（メンバー ID → 参加時刻）および変更通知ウィンドウは `cache/main/wedMembers.ts` に配置されます。`wed/persistence.ts` は起動時の引き継ぎ（adopt）、バッチ保存、Worker 再構築時のリプレイを統括します。`workers/diskIO/wedMemberFiles.ts` はファイルの厳格検証とアトミック置換を実行し（ファイル名・内容の解析と直列化は `libs/wedMemberFile.ts`）、書き込み待ちスナップショットは `cache/workers/diskIO/wed.ts` が排他的に保持します。アバター画像の取得と出力は `infra/telegram/` を再利用します。
-
-`wed/memberReview.ts` は Disk I/O Worker の深夜メンテナンス通知を受け取り、Bot の初期化完了後に登録グループの全メンバーを順次再確認します。起動時の受付状態、進捗カウンタ、照会対象は `cache/main/wedMemberReview.ts` が保持します。再確認タスクは既存の wed ランタイムに登録され、停止時はキャンセル後にドレインされます。退会メンバーの削除と永続化は `wed/persistence.ts` を再利用します。
+---
 
 ## 新しいコードの配置判断
 
 新しいロジックを追加する際は、以下の優先順で配置場所を決定します：
 
-1. **リテラル定数、しきい値、またはユーザー向け表示文言か？** → `packages/consts/<domain>.ts`（規模が大きい場合は `packages/consts/<domain>/`）。用途と不変条件を説明する中国語 JSDoc を付与します。コマンドの返信テキストはハンドラー内に直接記述せず、必ずコマンド固有の定数テーブルに定義してください。設定 JSON の解析スキーマは `packages/config/<domain>.ts` に配置し、環境変数の読み込みは `packages/consts/paths.ts` の実行時パス解決のみに限定します。
+1. **リテラル定数、しきい値、またはユーザー向け表示文言か？** → `packages/consts/<domain>.ts`（規模が大きい場合は `packages/consts/<domain>/`）。用途と不変条件を説明する中国語 JSDoc を付与します。コマンドの返信テキストはハンドラー内に直接記述せず、必ずコマンド固有の定数テーブルに定義してください。設定 JSON の解析スキーマは `packages/config/<domain>.ts` に配置し、環境変数の読み込みは `packages/consts/paths.ts` と `packages/consts/environment.ts` のみに限定します。
 2. **モジュール間で共有される型定義またはプロトコルか？** → `packages/types/<domain>.ts`。ステートマシンの `State/Event/Effect/Transition/Decision` 契約型は `packages/types/states/` に配置します。
 3. **Map、Set、AsyncLocalStorage、キュー、タイマー、シングルトンなど長期生存する可変状態か？** → `packages/cache/`。**必ずその状態を所有するスレッドのディレクトリを選択し**（後述）、ドメインごとにファイルを分割します。`export let` による直接公開は禁止し、holder オブジェクト（`{ current: T | null }`）を使用します。JSDoc には格納・破棄の契機、Worker 再起動時の再構築手順を明記してください。保持件数とクリーンアップポリシーは [04 実行時の正式な不変条件](04-invariants.md) の制約を満たす必要があります。
-4. **I/O を伴わない、単体テスト可能な純粋状態遷移ロジックか？** → `packages/states/`。副作用の実行は Worker 側のインタープリターに委譲します。
+4. **I/O を伴わない、単体テスト可能な純粋状態遷移ロジックか？** → `packages/states/`。副作用の実行はメインスレッドまたは Worker 側のインタープリターに委譲します。
 5. **副作用を伴う実行処理またはオーケストレーションか？** → 責務の所有者に応じて配置します。ユーザーコマンドは `packages/commands/`、自動応答は `packages/auto/`、Worker 内部のロジックは `packages/workers/<domain>/`、モデル機能は該当ドメインの `ai/` サブディレクトリ、インフラ共通基盤は `packages/infra/` に配置します。
 
-モジュールレベルで安易にグローバル Map を宣言すること、定数を呼び出し側のコード内に散在させること、Disk I/O Worker を迂回して Worker が `fs` で共有ディレクトリに直接書き込むことは厳禁です。
+> [!CAUTION]
+> **禁止パターン**：
+> - 通常の業務ファイル内でモジュールレベルのグローバル `Map` や `Set` を宣言すること。
+> - 定数を呼び出し側の業務ロジック内に散在させること。
+> - Disk I/O Worker を迂回して Worker スレッドが `fs` で共有データを直接読み書きすること。
 
 ## スレッド別に分けたキャッシュ
 
@@ -132,7 +123,7 @@
 
 - **`main/`**
   - **所有スレッド**：メインスレッド。
-  - **管理内容**：コマンドおよび自動パイプラインの実行状態、`stateStore.ts` ファサードが管理するグローバル `memory/global/state.json` ミラー、`assets.ts` の `config/dynamic/assets.json` アセットスナップショット、`chatState.ts` の `chat_states` インメモリキャッシュ（`Map`、最大 `STATE_MANAGED_CHAT_LIMIT` グループ。グループ別翻訳セッションを含む）、Disk I/O ホスト、および **各 Worker のメインスレッド側プロキシ・ミラー**（`main/aiChat.ts`、`main/antiRaid/`）。
+  - **管理内容**：コマンドおよび自動パイプラインの実行状態、`stateStore.ts` ファサードが管理するグローバル `memory/global/state.json` ミラー（`storage.ts`）、`assets.ts` の `config/dynamic/assets.json` アセットスナップショット、`chatState.ts` の `chat_states` インメモリキャッシュ（`Map`、最大 `STATE_MANAGED_CHAT_LIMIT` グループ。グループ別翻訳セッションを含む）、Disk I/O ホスト、および **各 Worker のメインスレッド側プロキシ・ミラー**（`main/aiChat.ts`、`main/antiRaid/`）。
 - **`workers/aiChat/`**
   - **所有スレッド**：AI 会話 Worker。
   - **管理内容**：ローリング会話メモリ、返信受付判定カウンタ、Bot 送信画像への返信時に使用する画像説明補完タスク、感情ステート、スタンプ目録とセット情報、メインスレッドから委託された進行中の音声合成・ダイジェスト生成ジョブ、音声合成の日次利用枠、および各モデルプロバイダのクライアントシングルトン。
@@ -144,11 +135,11 @@
   - **管理内容**：ドメインごとの書き込みバッファ、インデックス、dirty フラグ、期限切れの定期フラッシュをまとめるコレクション（`timedFlush.ts`）。
 - **`perThread/`**
   - **所有スレッド**：スレッドごとに独立して 1 つずつ生成。
-  - **管理内容**：Telegram クライアントホルダー（メインスレッドの実体アダプタ、または Worker 側の双方向プロキシ）、Worker 応答待機テーブル、デプロイ設定シングルトン、自己送信メッセージ記録、update キャンセルコンテキスト、Prompt キャッシュ使用量の集計先。各スレッドが独立してインスタンス化し、スレッド間の共有は意図していません。
+  - **管理内容**：Telegram クライアントホルダー（メインスレッドの実体アダプタ、または Worker 側の双方向プロキシ）、Worker 応答待機テーブル、デプロイ設定シングルトン、自己送信メッセージ記録、update キャンセルコンテキスト、Prompt キャッシュ使用量の集計先。同一コードが各スレッドで独立してインスタンス化されます。
 
-`main/antiRaid/` と `workers/antiRaid/` は**メモリを共有しない全く別の状態**である点に十分留意してください。公式なステートマシンは Worker 内にのみ存在し、メインスレッド側が保持する情報はクラッシュ復旧用のバックアップデータにすぎません。配置ディレクトリを誤ると、片方のスレッドで更新した値がもう一方のスレッドから永久に読み取れなくなります。このスレッド帰属規則は `bun run check:conventions` によって実際のモジュール依存グラフに基づき自動検証されます（詳細は [04 実行時の正式な不変条件](04-invariants.md#スレッドと状態の帰属) を参照）。違反があった場合は関連する import チェーンがすべて報告されます。
+`main/antiRaid/` と `workers/antiRaid/` は**メモリを共有しない全く別の状態**です：公式なステートマシンは Worker 内にのみ存在し、メインスレッド側はクラッシュ復旧用の純粋なデータミラーのみを保持します。`bun run check:conventions` が実際のモジュール依存グラフに基づき帰属を検証し（詳細は [04 実行時の正式な不変条件](04-invariants.md#スレッドと状態の帰属) を参照）、違反時は import チェーン全体を出力します。
 
-`packages/aiChat/ai/` のように複数スレッドから再利用されるドメインコードでは、キャッシュの混入に細心の注意が必要です。メインスレッドからしか呼ばれない純粋関数が Worker 専有のキャッシュと同じファイルに定義されていると、メインスレッドがその関数を import しただけで意図しないキャッシュが実体化してしまいます。代表例が [`packages/aiChat/ai/stickers/describe.ts`](../../packages/aiChat/ai/stickers/describe.ts) です。メインスレッドのメッセージ処理は純粋な説明関数のみを利用し、`sets.ts` が管理するスタンプセットキャッシュは AI Worker のみが専有します。
+複数スレッドで再利用されるドメインモジュール（`packages/aiChat/ai/` など）では、純粋関数とスレッド専有キャッシュを分離する必要があります：たとえば [`packages/aiChat/ai/stickers/describe.ts`](../../packages/aiChat/ai/stickers/describe.ts) はメインスレッドのメッセージパイプラインから直接呼び出され、`sets.ts` のスタンプセットキャッシュは AI Worker が専有します。
 
 ## 互換エントリ（barrel）の規約
 

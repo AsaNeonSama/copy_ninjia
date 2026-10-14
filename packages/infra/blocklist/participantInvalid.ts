@@ -1,12 +1,6 @@
 /**
- * 黑名单销号识别的主线程 owner。
- *
- * Anti-Raid 处置回执带回两组用户 ID：本批补扫里全部探测与封禁都被 Telegram 以
- * PARTICIPANT_ID_INVALID 拒绝的，以及本批已落定的。本模块按回执到达顺序维护
- * `blocklist_entries.data.participantInvalidCount`：前者每条回执加 1，后者清零；
- * 达到 BLOCKLIST_PARTICIPANT_INVALID_LIMIT 视为已销号，经 unblockUser 移出黑名单
- * 并裁剪待踢批次。补扫的重试、退避与 outbox 结算不在这里改动。
- * @see ../../../docs/cn/04-invariants.md
+ * 黑名单销号识别：按补扫回执维护 `participantInvalidCount`，达到 BLOCKLIST_PARTICIPANT_INVALID_LIMIT
+ * 时自动解除拉黑并裁剪待踢任务，参见 docs/cn/04-invariants.md。
  */
 
 import {
@@ -36,10 +30,7 @@ function allIdentityPoliciesCached(ids: readonly number[]): boolean {
   return true;
 }
 
-/**
- * 在同一身份的黑名单处置队列里解除一名已判定销号的用户。缓存里的条目必须仍是
- * 排队时那一个对象，期间被改写、清零、淘汰重读或已被 `/block disable` 删除时放弃。
- */
+/** 校验缓存条目未变化后解除已判定销号用户的黑名单记录。 */
 async function unblockDeletedAccount(
   userId: number,
   expected: Readonly<BlocklistEntryData>
@@ -53,7 +44,7 @@ async function unblockDeletedAccount(
   );
 }
 
-/** 同步写出一条回执对应的计数变化；调用方已确认相关身份全部在缓存中。 */
+/** 同步写出单条回执对应的销号计数递增、清零或解除拉黑操作。 */
 function applyParticipantReadability(
   participantInvalidUserIds: readonly number[],
   resettableUserIds: readonly number[]
@@ -78,7 +69,6 @@ function applyParticipantReadability(
       });
       continue;
     }
-    // 与广告封禁、/block disable 共用逐身份队列，较早的封禁处置先完整结算。
     void blocklistIdentityMutationRunner.run(
       userId,
       (): Promise<void> => unblockDeletedAccount(userId, entry)
@@ -88,12 +78,7 @@ function applyParticipantReadability(
   }
 }
 
-/**
- * 只预热需要改写的身份，并在全部仍在缓存时同步写出整条回执的计数变化。
- * 已落定的 ID 可达一整页，先经不回填 LRU 的读取筛出仍带计数的条目；预热
- * 等待期间有身份被淘汰时整条重试，最多 BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS 次，
- * 不做部分写入。
- */
+/** 预热需改写的黑名单条目并在全部命中缓存后应用销号计数更新（最多重试 BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS 次）。 */
 async function settleParticipantReadability(
   event: BlockedMembersRemovedEvent
 ): Promise<void> {
@@ -116,10 +101,7 @@ async function settleParticipantReadability(
   );
 }
 
-/**
- * 接收一条处置回执的销号观测，排进主线程串行尾链；没有观测时不排队。
- * 调用方在 settleBlockedRemoval 之后同步调用。
- */
+/** 将处置回执中的销号观测排入主线程串行更新队列。 */
 export function recordBlocklistParticipantReadability(
   event: BlockedMembersRemovedEvent
 ): void {

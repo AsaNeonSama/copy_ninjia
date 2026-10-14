@@ -2,7 +2,7 @@
 import { WED_MEMBER_LIMIT } from "../../../packages/consts/wed";
 import { invalidInput } from "../../../packages/libs/inputValidation";
 
-/** 源格式（17.2.1 产出）每份文件的成员 ID 数上限。 */
+/** 源格式每份文件的成员 ID 数上限。 */
 export const WED_MEMBER_WINDOW_SOURCE_LIMIT: number = 150_000;
 
 /** 源格式的一份文件：按进入顺序排列、互不重复的正安全整数成员 ID 数组。 */

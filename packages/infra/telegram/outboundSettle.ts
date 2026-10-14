@@ -33,7 +33,7 @@ export function detachAbortListener(job: TelegramOutboundJob): void {
   job.abortListener = undefined;
 }
 
-/** 全部已接纳请求都已结算、429 队列为空时结算排空等待者；全局取消进行中不结算。 */
+/** 全部已接纳请求都已结算、退避队列为空时结算排空等待者；全局取消进行中不结算。 */
 export function settleDrainWaitersIfIdle(): void {
   if (telegramOutboundGateState.aborting) return;
   if (
@@ -51,8 +51,8 @@ export function settleAllDrainWaiters(drained: boolean): void {
 /**
  * 释放不再交给调用方的响应体。
  *
- * `telegramRetryAfterMilliseconds` 只读 header、不消费 body，判成 429 后不外交的响应
- * 由这里显式释放（同 telegram/fileDownload.ts 对非 2xx 响应的处理）。
+ * `telegramRetryAfterMilliseconds` 只读 header、不消费 body，判成限流退避后不外交的响应
+ * 由这里显式释放（同 telegram/fileDownload.ts 对非成功 HTTP 响应的处理）。
  * 只有 fetch 路径（媒体下载、头像抓取）拿到真正的 Response；grammY transformer 路径返回
  * 已解析的 Bot API 对象，此时为 no-op。
  */

@@ -1,20 +1,12 @@
-/** owner: workers/aiChat。回复机器人图片时等待识图回填的登记表。 */
+/** owner: workers/aiChat。回复机器人图片时等待识图回填的 Promise 登记表（packages/workers/aiChat/botImages.ts）。 */
 
 /**
- * 各群「回复了机器人图片、回复引用正在等识图回填」的消息：chatId → 这条回复的
- * message_id → 回填完成的 Promise（从不 reject）。
- *
- * 填充：workers/aiChat/botImages.ts 的 resolveRepliedBotImage 记录这条回复时登记。
- * 读取：workers/aiChat/replyRound.ts 在拼提示词前等待，本轮因此读得到识图结果。
- * 清理：Promise 结算时由同一模块按身份删除，内层表空时连外层键一并删除；按群
- * 失效与测试重置经 cache/workers/aiChat/index.ts 清空。
- * 容量：每项对应一次在途的媒体识别，受 cache/workers/aiChat/mediaTasks.ts 的有界
- * 执行器约束，识别结束即删除。
- * Worker 崩溃重建时随 isolate 清空；等待它的回复轮同在旧 isolate 内一并消失，无需重放。
+ * 群 ID 到回复消息 ID 再到识图回填完成 Promise 的映射：resolveRepliedBotImage 记录回复机器人图片时登记，供 replyRound.ts 拼装提示词前等待，Promise 结算时按身份删除（内层表空时移除外层键），按群失效或 resetAiChatBotImageCache 时清除。
+ * 容量受 mediaTasks.ts 有界执行器并发与排队上限约束，不设 TTL 淘汰；Worker 重建后从空表开始。
  */
 export const repliedBotImageBackfills: Map<number, Map<number, Promise<void>>> = new Map();
 
-/** 测试隔离用的全量清理。 */
+/** 清空全部群的机器人图片识图回填等待表。 */
 export function resetAiChatBotImageCache(): void {
   repliedBotImageBackfills.clear();
 }

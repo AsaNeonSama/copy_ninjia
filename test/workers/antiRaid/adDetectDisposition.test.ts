@@ -453,8 +453,7 @@ describe("广告判定命中后的处置", () => {
   });
 
   test("远端已收下、返回值被停机 abort 吃掉时，删除 owner 仍已认领", async () => {
-    // runTelegramAction 先跑 map（onSent 在其中）再检查 update 取消，取消时抛错、返回值丢失；
-    // 删除 owner 在 onSent 中认领（固定延迟自删的约定见 AGENTS.md「Telegram 提示留存」）。
+    // runTelegramAction 先跑 map（onSent 在其中）再检查 update 取消，删除 owner 在 onSent 中认领。
     sendMessage.mockImplementation(async (params: SendMessageMockParams): Promise<number | undefined> => {
       params.onSent?.(NOTICE_MESSAGE_ID);
       throw new DOMException("Telegram update was aborted during shutdown.", "AbortError");

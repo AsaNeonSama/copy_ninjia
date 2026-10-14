@@ -6,7 +6,7 @@
  * 与载荷类型无关，由本契约承担。失败原因为公共原因加各自的领域专属原因。
  */
 
-/** base64 解码闸的公共失败原因；只用于错误日志定位（英文，见 AGENTS.md 日志约定）。 */
+/** base64 解码闸的公共失败原因，只用于错误日志定位。 */
 export type Base64PayloadDecodeFailure =
   | "empty payload"
   | "encoded payload exceeds the size limit"

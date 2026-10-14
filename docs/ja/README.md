@@ -122,7 +122,7 @@
 <tr>
 <td align="left" valign="top" width="33%">
   <p><b>🪞 高精度な復唱</b><br>
-  <sub>特定の対象を固定し、発言を1件ずつ復唱しながらアバターもリアルタイム同期。</sub></p>
+  <sub>特定の対象を固定し、発言を復唱しながらアバターもリアルタイム同期。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌐 多言語翻訳</b><br>
@@ -210,7 +210,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🫧 CJK アクション</b><br>
-  <sub>返信で /咬 や /贴贴 など漢字 1〜2 文字のアクションを実行。事前登録は不要。</sub></p>
+  <sub>/咬 や /贴贴 などの漢字アクションコマンドを実行。事前登録は不要。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌊 連投対策</b><br>
@@ -220,7 +220,7 @@
 <tr>
 <td align="left" valign="top" width="33%">
   <p><b>🔎 ID・プロフィールの照会</b><br>
-  <sub>/info でユーザーやチャンネルの公開情報、アイコン、グループ情報を照会（結果は30秒で自動削除）。</sub></p>
+  <sub>/info でユーザーやチャンネルの公開情報、アイコン、グループ情報を照会（結果は自動削除）。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🔐 きめ細かな権限管理</b><br>
@@ -242,7 +242,7 @@
 | Claude | 90%± |
 
 > [!TIP]
-> Google モデルのキャッシュ率が低い問題は、明示的キャッシュと暗黙的キャッシュの排他性、および暗黙的キャッシュの有効期限が制御不能である点（最短で約 20 秒での失効を観測）に起因します。キャッシュ率が気になる場合は他のモデルをご利用ください。ただし、実際の会話セッションにおける品質や応答効果は Gemini が最も優れています。
+> Google モデルのキャッシュ率が低い問題は、明示的キャッシュと暗黙的キャッシュの排他性、および暗黙的キャッシュの有効期限が制御不能である点に起因します。キャッシュ率が気になる場合は他のモデルをご利用ください。ただし、実際の会話セッションにおける品質や応答効果は Gemini が最も優れています。
 
 ### ボイス・画像・記憶
 
@@ -260,7 +260,7 @@
   </tr>
   <tr>
     <td><nobr>📢 <b>管理者・定時ボイス</b></nobr></td>
-    <td><code>/send</code> と cron で TTS リソースを共有し、セリフの長さの上限は <code>VOICE_OPERATOR_TEXT_MAX_CHARS</code>（UTF-16 コード単位）。定時ボイスは 1 ターンにつき 1 回だけ合成し、Telegram <code>file_id</code> を再利用。</td>
+    <td><code>/send</code> と cron で TTS リソースを共有し、セリフの長さの上限は <code>VOICE_OPERATOR_TEXT_MAX_CHARS</code>（UTF-16 コード単位）。複数グループへの定時ボイス配信は 1 回だけ合成し、Telegram <code>file_id</code> を再利用。</td>
   </tr>
   <tr>
     <td><nobr>🖼️ <b>画像の記憶</b></nobr></td>
@@ -269,8 +269,8 @@
 </tbody>
 </table>
 
-- **TTS 音声設定**：`config/dynamic/agent.json` で `agent.tts` の明示設定が必要です（Google、OpenAI 互換 `audio/speech`、xAI Grok `/tts` に対応。Google は `base_url` と `headers` によるゲートウェイ経由も可能）。任意の `bot_language`（`en` / `zh` / `ja`、既定 `ja`）で AI ボイスのセリフの言語を指定できます。プロジェクトルートの `prompt/voice_tool.md` で AI `send_voice` のツール説明全体を置き換えられます（再起動後に反映。例は [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)）。AI 返信の合成には `bot_language` に従って読み上げ言語指定が自動で追加されます。`style` は `/send`・cron と共用で声質だけを書きます。`bot_language` を変えるときは `style` と `voice_tool.md` も同じ言語に変えることを推奨します。
-- **枠の独立管理**：`daily_limit`（既定 100）のうち `daily_reserve_quota`（既定 25）を管理者と cron 用に予約し、残りを AI 音声に割り当てます。両方の回数は独立して数え、カウントウィンドウ（`TTS_USAGE_WINDOW_MS`）はその中の最初のリクエストから起算され、ウィンドウ終了後の次のリクエストで新しいウィンドウが始まり、まとめてゼロに戻ります。
+- **TTS 音声設定**：`config/dynamic/agent.json` で `agent.tts` の明示設定が必要です（Google、OpenAI 互換 `audio/speech`、xAI Grok `/tts` に対応。Google は `base_url` と `headers` によるゲートウェイ経由も可能）。任意の `bot_language`（`en` / `zh` / `ja`、既定 `TTS_DEFAULT_BOT_LANGUAGE`）で AI ボイスのセリフの言語を指定できます。プロジェクトルートの `prompt/voice_tool.md` で AI `send_voice` のツール説明全体を置き換えられます（再起動後に反映。例は [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)）。AI 返信の合成には `bot_language` に従って読み上げ言語指定が自動で追加されます。`style` は `/send`・cron と共用で声質だけを書きます。`bot_language` を変えるときは `style` と `voice_tool.md` も同じ言語に変えることを推奨します。
+- **枠の独立管理**：`daily_limit`（既定 `TTS_DEFAULT_DAILY_LIMIT`）のうち `daily_reserve_quota`（既定 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）を管理者と cron 用に予約し、残りを AI 音声に割り当てます。両方の回数は独立して数え、カウントウィンドウ（`TTS_USAGE_WINDOW_MS`）はその中の最初のリクエストから起算され、ウィンドウ終了後の次のリクエストで新しいウィンドウが始まり、まとめてゼロに戻ります。
 - **コンテキスト記録規則**：`/send` による中継メッセージや定時テキスト/音声は AI 記憶に自動記録されません。画像の自動記録は、グループで AI が有効かつ非復唱状態の場合に動作します。詳細は [11 よくある質問](11-faq.md)。
 
 各機能の挙動・設定・境界は **[📚 開発者ドキュメント](content-table.md)** を参照してください。
@@ -301,7 +301,7 @@
 
 - **OS**：Linux（`/proc` が読み取り可能であること。他の OS ではインスタンスロックが fail-closed になります）。
 - **Telegram 資格情報**：BotFather 発行の Bot Token と、スーパー管理者の Telegram User ID。
-- **ランタイム**：ソース実行には [Bun](https://bun.sh/) 1.4.3 が必要です。バイナリ配布パッケージにはランタイムが内蔵されています。
+- **ランタイム**：ソース実行には [Bun](https://bun.sh/)（バージョンは `package.json` の `engines.bun` に準拠）が必要です。バイナリ配布パッケージにはランタイムが内蔵されています。
 - **外部サービス**：有効化する AI 各機能の API Key。`/translate` には Google Cloud サービスアカウント JSON が必要です。ハードウェア目安は [07 運用マニュアル](07-operations.md#ハードウェアの目安) を参照してください。
 
 ### ワンショットインストール

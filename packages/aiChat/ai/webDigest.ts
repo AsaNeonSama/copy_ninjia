@@ -1,16 +1,5 @@
 /**
- * cron `send_web_digest` 的摘要生成（AI Worker 内执行，主线程经 composeWebDigest 请求借用）。
- *
- * 1. 检索：配了 `web_search` 用该能力的模型，否则用 text 模型的内建检索；未调用搜索时
- *    直接把模型正文加警示后按 MarkdownV2 发送。已调用搜索时同时读取来源元数据与正文链接；
- *    两处都没有来源地址时判本轮失败。
- * 2. 组稿：text 模型不挂工具、输出 digest/v1 JSON（aiChat/provider.ts 的 structuredTextAiProvider，
- *    不使用 Gemini 显式缓存），本地严格解码（libs/webDigest.ts），核对每条 url 都逐字取自正文链接或来源列表，
- *    再渲染成 MarkdownV2（libs/webDigestMarkdown.ts）并核对可见正文不超过 Telegram 上限。任何一项
- *    不合格都带着诊断重试，总尝试次数为 WEB_DIGEST_COMPOSE_ATTEMPTS，仍不合格就判本轮失败，不截断、不拆条。
- *
- * 检索或组稿的 Anthropic 模型拒答时立即判本轮失败（`refused`），不再重试。未检索时记一行带有界模型正文的告警；
- * 失败时记英文错误日志。取消后不再记错误。
+ * 联网摘要生成：先执行联网检索收集结论与来源链接，再经结构化文本模型按模式生成、校验并渲染摘要（不合格时带诊断重试）。
  */
 
 import { textWebSearchAiProvider, structuredTextAiProvider, webSearchAiProvider } from "../provider";

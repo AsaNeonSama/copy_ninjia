@@ -133,8 +133,8 @@ function onRetryTimer(category: TelegramRetryCategory): void {
 }
 
 /**
- * 按真实 429 设定或延长类别的退避截止；不晚于已排期截止的 429 不改状态。开始一段新的
- * 等待（此前没有排期中的退避 timer）时记一条 warn，等待期间的后续 429 不重复记录。
+ * 按真实限流响应设定或延长类别的退避截止；不晚于已排期截止的响应不改状态。开始一段新的
+ * 等待（此前没有排期中的退避 timer）时记一条 warn，等待期间的后续限流响应不重复记录。
  */
 function extendRetry(
   category: TelegramRetryCategory,
@@ -254,7 +254,7 @@ function handleActiveResponse(job: TelegramOutboundJob, response: unknown): void
   }
   const lane: TelegramRetryLane = releaseActiveJob(job);
   if (job.signal.aborted) {
-    // 调用方在 429 返回的同时取消：不重排也不交给调用方，在此释放 body。
+    // 调用方在限流响应返回的同时取消：不重排也不交给调用方，在此释放 body。
     releaseResponseBody(response);
     job.state = "settled";
     detachAbortListener(job);
@@ -263,7 +263,7 @@ function handleActiveResponse(job: TelegramOutboundJob, response: unknown): void
     // 按接纳序号回到原有 FIFO 位置，下一次尝试取新响应，本次响应丢弃。
     releaseResponseBody(response);
   } else {
-    // 队列已满：原样把 429 交给调用方，body 所有权随之转移，这里不释放。
+    // 队列已满：原样把限流响应交给调用方，body 所有权随之转移，这里不释放。
     job.state = "settled";
     detachAbortListener(job);
     job.resolve(response);
@@ -337,7 +337,7 @@ function pumpRetryLane(lane: TelegramRetryLane): void {
 }
 
 /**
- * 新接纳的任务：所在类别正在退避或已有积压时按接纳序号排进 429 FIFO，否则直接开始。
+ * 新接纳的任务：所在类别正在退避或已有积压时按接纳序号排进退避 FIFO，否则直接开始。
  * 调用方（runTelegramCategorizedRequestInternal、telegramOutboundGate）在构造 job 前的
  * 同一个同步片段里已判过接纳状态与信号，这里不复判。
  */
@@ -419,7 +419,7 @@ function runTelegramCategorizedRequestInternal<T>({
 
 /**
  * 让 Telegram 文件下载（download）与外部抓取（externalFetch）等非 Bot API HTTP 请求
- * 复用同一组分类型 429 队列与出站生命周期。execute 只能发起一次尝试；返回 429 时
+ * 复用同一组分类型退避队列与出站生命周期。execute 只能发起一次尝试；返回限流响应时
  * 调度器会在对应域内重新调用它。
  */
 export function runTelegramCategorizedRequest<T>(
@@ -430,8 +430,8 @@ export function runTelegramCategorizedRequest<T>(
 
 /**
  * 主线程唯一 Telegram 出站闸门。发送类（isTelegramMessageRequest）交给每聊天发送调度器
- * （./sendScheduler.ts）按 Telegram 公开限额主动控速、按聊天冻结 429；其余请求直接执行，
- * 某一类别真实收到 429 后，仅该类别按 retry_after 排队并渐进恢复。
+ * （./sendScheduler.ts）按 Telegram 公开限额主动控速、按聊天冻结限流退避；其余请求直接执行，
+ * 某一类别真实收到限流响应后，仅该类别按 retry_after 排队并渐进恢复。
  */
 export function telegramOutboundGate(): Transformer<RawApi> {
   // grammY 的 transformer 固定为四参数泛型回调，参数类型由 Transformer 完整约束。

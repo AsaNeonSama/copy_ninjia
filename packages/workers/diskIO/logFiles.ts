@@ -1,16 +1,6 @@
 /**
- * 日志落盘逻辑：接收 diskIOWorker.ts 从诊断批路由来的日志消息，先进入内存 buffer，
- * 每个诊断批消费完、每日维护或收到统一 flush 指令时批量落盘到 logs/YYYY-MM-DD.json：文件内容是一个
- * JSON 对象，键为「配置时区的日期时间_uuid」（如 2026-07-12 11:48:25.123_9f…），
- * 值为该条日志的内容对象，与 JSON.stringify(entries, null, DAY_FILE_JSON_INDENT) 的输出逐字节
- * 一致。
- *
- * 键包含记录时的本地时间与独立 UUID，新条目追加到对象末尾；夏令时回拨时本地时间可重复。
- * 落盘不整文件重写——具体的
- * 按位置追加/损坏修复机制见 diskIO/appendOnlyDayFile.ts。
- * 仅保留 RETENTION_DAYS 天内的文件（见 consts/diskIO/appendOnly.ts），跨天写入
- * 与每日维护都会清理过期文件。日期与 key 前缀按配置时区划分（libs/time.ts 的
- * getDateKey、formatLogTimestamp），与部署机器的系统时区无关。
+ * 日志文件落盘与保留期清理：将诊断批中的日志消息缓冲后按配置时区日期追加写入
+ * `LOGS_DIR/<YYYY-MM-DD>.json`（支持截断修复），并保留最近 `RETENTION_DAYS` 天的日志文件。
  */
 
 import { mkdirSync, readdirSync } from "node:fs";

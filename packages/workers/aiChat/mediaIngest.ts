@@ -17,13 +17,7 @@ import { observeImageReferenceAlbumPhoto } from "./imageReferenceAlbums";
 import type { MediaCommentContext } from "../../types/aiChat/replies";
 import type { StickerCatalogEntry } from "../../types/stickers/catalog";
 
-/**
- * 直接拿当前图片/贴纸叫机器人时附上短期参考；是否实际编辑由模型决定。GIF 不隐式混入。
- * 相册里的图片带上 mediaGroupId，回复轮据此补齐同一相册的其余图片。
- *
- * 「有没有图片工具资格」直接读 directTriggerReason（见 types/aiChat/protocol.ts 的
- * directTriggerReason）。
- */
+/** 直接触发的图片或贴纸返回短期生图参考源，其余情况返回 undefined。 */
 function imageGenerationReferenceFor(msg: AiRecordMediaMessage): ImageGenerationReference | undefined {
   if (msg.directTriggerReason === undefined || (msg.kind !== "photo" && msg.kind !== "sticker")) {
     return undefined;
@@ -37,13 +31,13 @@ function imageGenerationReferenceFor(msg: AiRecordMediaMessage): ImageGeneration
   };
 }
 
-/** 这条媒体回复了机器人的图片时，识图回填回复引用（见 botImages.ts）。 */
+/** 媒体消息回复了机器人图片时启动识图回填。 */
 function resolveRepliedBotImageOf(msg: AiRecordMediaMessage, entry: BufferedMessage): void {
   const botImage: RepliedBotImage | undefined = msg.replyTo?.botImage;
   if (botImage !== undefined) resolveRepliedBotImage(msg.chatId, entry, botImage);
 }
 
-/** 入站与解析完成使用同一份媒体身份、回复关系和直接触发资格。 */
+/** 构造媒体评价触发上下文。 */
 function mediaCommentFor(msg: AiRecordMediaMessage, entry: BufferedMessage, description: string): MediaCommentContext {
   return {
     kind: msg.kind,
@@ -59,13 +53,8 @@ function mediaCommentFor(msg: AiRecordMediaMessage, entry: BufferedMessage, desc
 }
 
 /**
- * 媒体先同步记录并准入占位，再异步识别；识别完成回填原条目和本轮上下文。相册里的图片在准入前
- * 同步记进生图参考相册缓存（见 imageReferenceAlbums.ts）。
- * 回复了机器人图片的媒体另由 botImages.ts 识图回填回复引用，回复轮开始前等待它。
- * 直接触发失败时使用兜底描述，随机评价失败时完成空占位。贴纸目录命中时同步使用真实描述。
- * 只有 `replyTelegramBackpressured` 有值的媒体进入回复准入，并把这份主线程投递时刻的
- * 高压快照交给准入：高压时随机评价丢弃、直接触发同群只开一轮（媒体本身照常记录）。
- * 顺位、取消与有界容量约束见 docs/cn/04-invariants.md。
+ * 记录入站媒体并按需触发回复：贴纸目录命中时同步写入描述，其余媒体先写入占位并在后台识图后回填；
+ * `replyTelegramBackpressured` 有值时同步进入回复准入。顺位、取消与有界容量约束见 docs/cn/04-invariants.md。
  */
 export function recordChatMedia(msg: AiRecordMediaMessage): void {
   const generation: number = cachedReplyGeneration(msg.chatId);
@@ -129,7 +118,6 @@ export function recordChatMedia(msg: AiRecordMediaMessage): void {
       mediaPreparation: preparation.promise,
     });
   }
-  // 描述缓存按 file_unique_id 去重，下载、转码与视觉请求经过全局有界执行器。
   const task: Promise<void> = describeMedia({
     kind: msg.kind,
     fileId: msg.fileId,

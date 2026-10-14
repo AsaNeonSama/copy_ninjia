@@ -40,10 +40,8 @@ const DEFAULT_IS_CAN_CONTROLL_QA_PERMISSION: boolean = false;
 const DEFAULT_IS_CAN_ADD_H_IMAGE: boolean = false;
 
 /**
- * 白名单权限的完整默认值。跨调用方共享同一个对象，由 `Readonly<>` 在编译期
- * 锁住全部字段（不可变性只在编译期表达，见 AGENTS.md 的「常量」一节；断言在
- * `test/consts/immutability.test.ts`）。新增白名单成员使用这份完整默认值；
- * 已持久化权限必须逐项完整，不在读取时补齐。
+ * 新增白名单成员使用的完整默认权限视图（已持久化权限须逐项完整，不在读取时补齐）。
+ * 所属模块：packages/infra/identityPolicy/whitelist.ts。
  */
 export const DEFAULT_WHITELIST_PERMISSIONS: Readonly<WhitelistPermissions> = {
   isCanMute: DEFAULT_IS_CAN_MUTE,
@@ -67,11 +65,8 @@ export const DEFAULT_WHITELIST_PERMISSIONS: Readonly<WhitelistPermissions> = {
 };
 
 /**
- * 非白名单身份的只读权限视图：逐项均为 false。
- *
- * `/permission query` 在同步白名单缓存没有目标条目时直接复用本对象，不创建、
- * 补齐或写入 SQLite 记录。字段顺序与 DEFAULT_WHITELIST_PERMISSIONS 保持一致，
- * 让全部查询视图（超级管理员、永久条目、临时免检、非白名单）拥有相同对象 shape。所属模块：packages/infra/identityPolicy/whitelist.ts。
+ * 非白名单身份的只读权限视图（逐项关闭，字段顺序与 DEFAULT_WHITELIST_PERMISSIONS 一致）。
+ * 所属模块：packages/infra/identityPolicy/whitelist.ts。
  */
 export const NON_WHITELIST_PERMISSIONS: Readonly<WhitelistPermissions> = {
   isCanMute: false,
@@ -95,13 +90,8 @@ export const NON_WHITELIST_PERMISSIONS: Readonly<WhitelistPermissions> = {
 };
 
 /**
- * 临时广告免检的固定权限：仅绕过广告检测，其余权限逐项为 false。
- *
- * 没有永久白名单条目、但当日发言已越过阈值的成员读取到本视图；连续
- * TEMPORARY_AD_BYPASS_REQUIRED_DAYS 个合格日后，promoteAdBypassWhitelistMembership
- * 把本对象作为永久白名单条目的权限写入。两种情形都不提供防刷屏、命令、状态查看或
- * 入群验证权限。字段顺序必须与 DEFAULT_WHITELIST_PERMISSIONS 一致，让消息热路径的
- * 逐项权限读取保持稳定对象 shape。所属模块：packages/infra/identityPolicy/whitelist.ts。
+ * 临时广告免检与自动晋升白名单条目的固定权限视图（仅开启广告免检，字段顺序与 DEFAULT_WHITELIST_PERMISSIONS 一致）。
+ * 所属模块：packages/infra/identityPolicy/whitelist.ts。
  */
 export const TEMPORARY_AD_BYPASS_PERMISSIONS: Readonly<WhitelistPermissions> = {
   isCanMute: false,
@@ -125,21 +115,8 @@ export const TEMPORARY_AD_BYPASS_PERMISSIONS: Readonly<WhitelistPermissions> = {
 };
 
 /**
- * 超级管理员的固定有效权限：逐项全开。
- *
- * 超级管理员的授权来自 `SUPER_ADMIN_USER_ID` 这个身份本身，不来自 SQLite
- * 白名单表：它**不写入**该表，只在运行时由
- * `packages/infra/identityPolicy/whitelist.ts` 的读取边界覆盖上去。所有可授予的
- * 白名单权限判定对超级管理员恒为 true，`/white`、`/permission` 只落盘管理员明确登记的条目。
- *
- * 与 DEFAULT_WHITELIST_PERMISSIONS 一样跨调用方共享同一个对象，由
- * `Readonly<>` 在编译期锁住全部字段（断言在 `test/consts/immutability.test.ts`）。
- *
- * **字段顺序必须与 DEFAULT_WHITELIST_PERMISSIONS 逐字一致**，与
- * `parseStoredPermissions`（database/codec/identity.ts）产出的条目共用同一个对象
- * shape（见 docs/cn/04-invariants.md 的对象 shape 稳定性约束）；该顺序在每条群
- * 消息的广告检测与防刷屏门禁（antiRaid/adCandidate.ts、antiRaid/floodControl.ts）
- * 读取权限时生效。所属模块：packages/infra/identityPolicy/whitelist.ts。
+ * 超级管理员的固定有效权限视图（逐项全开，不落盘，字段顺序与 DEFAULT_WHITELIST_PERMISSIONS 一致，见 docs/cn/04-invariants.md）。
+ * 所属模块：packages/infra/identityPolicy/whitelist.ts。
  */
 export const SUPER_ADMIN_WHITELIST_PERMISSIONS: Readonly<WhitelistPermissions> = {
   isCanMute: true,

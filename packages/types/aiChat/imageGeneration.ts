@@ -13,10 +13,7 @@ export interface GeneratedChatImage {
   mimeType: "image/jpeg" | "image/png";
 }
 
-/**
- * 生图载荷不可用的具体原因，只用于错误日志定位（英文，见 AGENTS.md 的日志约定）；
- * 上层都按「没图」处理。
- */
+/** 生图载荷不可用的具体原因，只用于错误日志定位；上层都按无可用图片处理。 */
 export type GeneratedImageDecodeFailure =
   | Base64PayloadDecodeFailure
   | "byte signature matches neither PNG nor JPEG";

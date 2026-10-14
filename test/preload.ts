@@ -76,8 +76,7 @@ const botConfig: BotConfig = parseBotConfig(await Bun.file(BOT_CONFIG_PATH).json
 botAtmosphereState.current = BOT_ATMOSPHERES[botConfig.atmosphere ?? DEFAULT_BOT_ATMOSPHERE];
 adoptTimeZone(botConfig.timeZone);
 
-// 每个测试进程用独立数据根创建空库，时区标记取本 isolate 刚接管的配置时区；
-// 生产运行期仍只接受迁移脚本建好的数据库。
+// 每个测试进程在独立数据根创建空库，时区标记取本 isolate 刚接管的配置时区。
 mkdirSync(DATABASE_DIR, {
   recursive: true,
   mode: IDENTITY_DATABASE_DIRECTORY_MODE,

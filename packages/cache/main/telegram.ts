@@ -1,11 +1,4 @@
-/** owner: main。主线程唯一的 Telegram 客户端与按类别 429 退避运行态。
- *
- * 正常请求不排队；Telegram 返回 429 后，请求及同类别后来者进入
- * 对应侵入式 FIFO。全类别合计最多 TELEGRAM_429_RETRY_QUEUE_MAX 条，超出即拒绝；
- * Worker 崩溃时其代际 signal 摘除对应任务。进程重启从空队列开始，安全动作由 verification 快照和
- * blocklist outbox 重放，退避层不复制持久化权威。客户端初始化与首次 429 分别
- * 填充单例句柄和对应类别队列。
- */
+/** owner: main。Telegram 客户端初始化状态与按类别限流退避队列（packages/infra/telegram/outboundGate.ts）。 */
 
 import type { FlushWaiter } from "../../types/lifecycle";
 import type {
@@ -14,7 +7,7 @@ import type {
   TelegramRetryLane,
 } from "../../types/telegramOutbound";
 
-/** 构造一条初始状态的 429 退避 lane；telegramOutboundGateState 初始化与测试复位共用这一份字段表。 */
+/** 构造初始状态的 Telegram 限流退避车道。 */
 export function createRetryLane(): TelegramRetryLane {
   return {
     head: null,
@@ -29,29 +22,22 @@ export function createRetryLane(): TelegramRetryLane {
   };
 }
 
-/** Telegram transformer 是否已安装。 */
+/** Telegram 客户端 transformer 是否已安装的标记：首次初始化客户端时置为 true，单例布尔值，进程重启后从 false 开始。 */
 export const telegramClientInitialization: { current: boolean } = { current: false };
 
-/**
- * Telegram 出站 owner 当前是否接受新工作。应用初始化时置真，所有生产者排空后
- * 由生命周期置假；进程内重复初始化会重新武装。容量恒为一个布尔值。
- */
+/** Telegram 出站请求准入开关：initTelegramOutboundGate 置为 true，quiesceTelegramOutboundGate 置为 false；单例布尔值，进程重启后从 true 开始。 */
 export const telegramOutboundAccepting: { current: boolean } = { current: true };
 
-/**
- * 当前 Telegram 出站生命周期的统一取消源。初始化时替换为新 controller；排空
- * 预算耗尽时 abort，使 grammY/fetch 中的真实网络请求和 429 重试同时停止。
- */
+/** Telegram 出站统一取消控制器：initTelegramOutboundGate 替换为新实例，停机排空超时时中止在途请求与退避重试；单例对象，进程重启后重新创建。 */
 export const telegramOutboundAbortController: { current: AbortController } = {
   current: new AbortController(),
 };
 
 /**
- * 主线程唯一 Telegram 出站 429 队列的计数、active 对象、类别状态与排空等待者。
- * activeJobs 只保存已开始且未结算的现有 job，预算耗尽时用于同步取消；正常或
- * 取消结算立即删除。容量为 active 请求数加 TELEGRAM_429_RETRY_QUEUE_MAX 条 pending
- * 硬顶，进程重启从空状态开始。nextAdmissionSeq 是下一条 job 的接纳序号，每构造一条 job 加一，
- * 跨出站生命周期代际不清零。
+ * Telegram 出站限流退避门控状态：
+ * - activeJobs 在请求启动时登记，结算或取消时移除；
+ * - 收到 Telegram 限流响应时，该请求与同类别后续请求进入对应类别的 lanes 侵入式 FIFO 排队，到期重试结算或调用方取消（含 Worker 代际失效）时摘除；
+ * - 全类别排队总数上限为 TELEGRAM_429_RETRY_QUEUE_MAX，满额拒绝新入队且不淘汰在途项；drainWaiters 在停机排空时登记并在归零或超时时结算清空；进程重启后从空状态开始。
  */
 export const telegramOutboundGateState: {
   activeCount: number;

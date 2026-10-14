@@ -22,7 +22,7 @@ import type { CachedUser, ChatState, LockdownPhase, LockdownRecord } from "../..
 import type { TranslateState } from "../../types/translate";
 import type { BotChatPermissions } from "../../types/telegram";
 
-/** 严格校验 SQLite 主键可直接表示 Telegram 群或频道 ID。 */
+/** 校验主键为合法的 Telegram 群或频道 ID。 */
 export function assertTelegramChatId(chatId: number, source: string): void {
   if (!isTelegramGroupChatId(chatId)) {
     return invalidInput(source, "$.chatId", "a negative safe integer Telegram group or channel ID");
@@ -39,7 +39,7 @@ function requiredBoolean(
   return field;
 }
 
-/** Telegram 消息 ID 为正整数；0 与负数按非法值拒绝。 */
+/** 校验可选的 Telegram 消息 ID（正安全整数）。 */
 function optionalMessageId(
   value: Record<string, unknown>,
   key: string,
@@ -146,7 +146,6 @@ function decodeLockdown(
   const announced: boolean = requiredBoolean(value, "announced", context);
   const announcementMessageId: number | undefined =
     optionalMessageId(value, "announcementMessageId", context);
-  // 消息 ID 来自一次成功的发送，与 announced 必须同时成立或同时不成立。
   if (announcementMessageId !== undefined && !announced) {
     return invalidInput(source, `${path}.announcementMessageId`, "absent while announced is false");
   }
@@ -167,11 +166,7 @@ function decodeLockdown(
   };
 }
 
-/**
- * 主线程接收 Worker lockdown 事件时的入站校验，校验规则与磁盘解码同源。
- *
- * ChatState 先写内存、再落盘，校验在写入内存前完成，不延后到 encodeChatStateData。
- */
+/** 校验 LockdownRecord 是否满足持久化约束。 */
 export function assertPersistableLockdown(
   record: LockdownRecord,
   source: string
@@ -179,10 +174,7 @@ export function assertPersistableLockdown(
   decodeLockdown(record, source, "$.lockdown");
 }
 
-/**
- * 本群翻译会话：1 至 TRANSLATE_CHAT_USER_LIMIT 项，每项只含 translatedUser 与 language，
- * 目标身份在群内唯一，方向限定为 ja、cn、en、uk、ru。
- */
+/** 解码并校验群翻译会话列表（非空且不超过 TRANSLATE_CHAT_USER_LIMIT 项，群内目标用户唯一）。 */
 function decodeTranslateSessions(value: unknown, source: string): readonly TranslateState[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > TRANSLATE_CHAT_USER_LIMIT) {
     return invalidInput(source, "$.translate", `an array containing 1 to ${TRANSLATE_CHAT_USER_LIMIT} translation sessions`);
@@ -209,10 +201,7 @@ function decodeTranslateSessions(value: unknown, source: string): readonly Trans
   return sessions;
 }
 
-/**
- * 本群 `/delete_message` 目标：1 至 DELETE_MESSAGE_CHAT_TARGET_MAX 个互不相同的非零安全整数
- * （用户为正数、频道为负数）。
- */
+/** 解码并校验本群自动删帖目标列表（非空且不超过 DELETE_MESSAGE_CHAT_TARGET_MAX 个互异非零安全整数）。 */
 function decodeDeleteMessageTargets(value: unknown, source: string): readonly number[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > DELETE_MESSAGE_CHAT_TARGET_MAX) {
     return invalidInput(
@@ -235,9 +224,7 @@ function decodeDeleteMessageTargets(value: unknown, source: string): readonly nu
   return targets;
 }
 
-/**
- * 严格解码 status；未知字段与空状态对象均拒绝。缺省的开关解码为 false。
- */
+/** 严格解码 `chat_states.status` JSON 文本；拒绝未知字段与空对象，缺省布尔开关归并为 false。 */
 export function decodeChatStateData(text: string, source: string): ChatState {
   const value: unknown = parseJsonInput(text, source);
   if (!isPlainRecord(value) || !hasOnlyKeys(value, CHAT_STATE_KEYS)) {
@@ -275,15 +262,12 @@ export function decodeChatStateData(text: string, source: string): ChatState {
   return state;
 }
 
-/** 开关为 true 时写入 true，否则省略该键。 */
+/** 布尔开关为 true 时返回 true，否则返回 undefined 以在 JSON 中省略。 */
 function enabledOrOmitted(enabled: boolean): true | undefined {
   return enabled ? true : undefined;
 }
 
-/**
- * 编码前走同一严格解码器，非法内存状态不得进入 SQLite。字段顺序与
- * createChatState 一致。
- */
+/** 将 ChatState 编码为 JSON 文本并经 decodeChatStateData 复核。 */
 export function encodeChatStateData(
   state: Readonly<ChatState>,
   source: string = "chat state"

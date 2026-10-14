@@ -25,7 +25,6 @@
 set -Eeuo pipefail
 
 readonly REPOSITORY_URL="https://github.com/AsaNeonSama/copy_ninjia.git"
-# Latest Release 的来源接口。
 readonly RELEASE_API_URL="https://api.github.com/repos/AsaNeonSama/copy_ninjia/releases/latest"
 readonly SERVICE_NAME="copy-ninjia"
 readonly SERVICE_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -33,8 +32,7 @@ readonly SERVICE_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly CLONE_TARGET="${COPY_NINJIA_DIR:-copy_ninjia}"
 INSTALL_MODE="${COPY_NINJIA_INSTALL_MODE:-}"
 
-# 所有交互输入都从这里读，不使用标准输入：`curl | bash` 时 fd 0 是脚本正文，
-# bash 一边执行一边从它读取后续内容。
+# 所有交互输入都从控制终端读取，不使用标准输入。
 readonly TTY_DEVICE="/dev/tty"
 
 step() { printf '\n==> %s\n' "$1"; }
@@ -152,7 +150,6 @@ require_command() {
     die "安装 ${package_name} 之后仍然找不到 ${command_name}。"
 }
 
-# 目录是不是一个可用的 Copy Ninjia 工作树。
 is_repository_root() {
   [ -d "$1/config_example" ] && [ -f "$1/package.json" ] && [ -f "$1/index.ts" ]
 }
@@ -223,8 +220,7 @@ step "1/8 平台自检"
   die "只支持 Linux：实例锁依赖 /proc/<pid>/stat 与 boot ID，其它平台会 fail-closed 拒绝启动。"
 [ -r /proc/self/stat ] ||
   die "/proc 不可读：实例锁无法工作。容器请挂载 /proc 后重试。"
-# 不看 `[ -t 0 ]`：`curl | bash` 时 fd 0 是脚本正文。要求一个能读能写的控制终端，
-# 后面所有问答都从它读。
+# 校验控制终端可读可写；后续交互问答均从该终端读取。
 { [ -r "$TTY_DEVICE" ] && [ -w "$TTY_DEVICE" ]; } ||
   die "拿不到控制终端（${TTY_DEVICE}），无法询问配置。请在交互式终端里运行本脚本。"
 info "Linux + 可读 /proc + 可用控制终端，均满足。"

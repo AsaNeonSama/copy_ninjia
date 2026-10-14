@@ -349,10 +349,8 @@ const referenceResolutionFiles: readonly string[] = [
 ];
 // 逐文件的源码约定：每个文件只读一次、只解析一次，适用的规则全在这一趟里跑完。
 // cache/consts 规则按 sourceFilesUnder 的真实文件集合判定适用范围；模块级缓存规则由
-// collectModuleCacheProblems 判定。失败列表按文件汇总。
-//
-// 仓库根的 index.ts 是生产入口，AGENTS.md 多条规则的适用范围是「packages/ 与
-// index.ts」；它不在 sourceFilesUnder(SOURCE_ROOT) 里，显式并进同一趟判定。
+// collectModuleCacheProblems 判定。仓库根的 index.ts 不在 sourceFilesUnder(SOURCE_ROOT) 里，
+// 显式并进同一趟判定。
 for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
   const source: ts.SourceFile = await parseSourceFile(path);
   const params: SourceFileRuleParams = { projectRoot: PROJECT_ROOT, path, source };

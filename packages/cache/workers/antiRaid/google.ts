@@ -1,11 +1,12 @@
-/** owner: workers/antiRaid。 */
+/** owner: workers/antiRaid。Google 广告检测客户端缓存。 */
 
 import type { GoogleGenAI } from "@google/genai";
 
 /**
- * Google 广告检测客户端首次请求时填充，主线程投递新的 ad_detect 快照时由
- * workers/antiRaid/adDetect/config.ts 清空，进程退出时随 isolate 释放；Worker 崩溃
- * 重建后按主线程投递的 ad_detect 快照重新创建。该线程只有一个广告检测
- * 能力，容量固定为一个客户端，无淘汰需求。
+ * Google 广告检测客户端单例 holder。
+ * 填充：首次发起 Google 广告检测请求时创建写入。
+ * 清理：主线程投递新 ad_detect 配置快照时由 workers/antiRaid/adDetect/config.ts 置空，或随进程退出释放。
+ * 重建：Worker 崩溃重启后从 null 按当前配置重建。
+ * 容量：固定为单个客户端实例，不设淘汰。
  */
 export const adDetectGoogleClientHolder: { current: GoogleGenAI | null } = { current: null };

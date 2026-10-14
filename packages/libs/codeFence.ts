@@ -1,14 +1,12 @@
 import { FENCE_LANGUAGE_REJECT } from "../consts/text";
 /**
- * Telegram `pre` 代码块与 ``` 围栏文本之间的双向转换。
+ * Telegram `pre` 代码块与 CODE_FENCE 围栏文本之间的双向转换。
  *
- * Telegram 客户端在发送前把 ```json 围栏吃掉：`message.text` 里只剩块内
- * 正文，围栏与语言标记变成一条 `pre` 实体。入口把实体还原成字面围栏
- * （captureFencedText），出口把字面围栏拆回正文加实体（renderFencedText）。
- * 落盘存的是字面围栏文本，不是实体偏移。
+ * 入口把 `pre` 实体还原成字面围栏（captureFencedText），出口把字面围栏拆回正文加实体
+ * （renderFencedText）。落盘存的是字面围栏文本，不是实体偏移。
  *
- * 两个方向共用同一套围栏语法：开栏是一整行 ```<语言>，闭栏是一整行 ```。行内
- * 单反引号不在本模块职责内，原样当普通文本处理。
+ * 两个方向共用同一套围栏语法：开栏是一整行 CODE_FENCE 加可选语言标记，闭栏是一整行 CODE_FENCE。
+ * 行内单反引号不在本模块职责内，原样当普通文本处理。
  */
 
 import type { MessageEntity } from "grammy/types";
@@ -34,7 +32,7 @@ export interface CaptureFencedTextParams {
 }
 
 /**
- * 把区间内的 `pre` 实体还原成字面 ``` 围栏，取出可直接落盘的文本。
+ * 把区间内的 `pre` 实体还原成字面 CODE_FENCE 围栏，取出可直接落盘的文本。
  *
  * 只认完整落在区间内的 `pre` 实体；跨越区间边界的实体按普通文本取出。区间内没有
  * `pre` 实体时返回的就是 `text.slice(start, end)`，不产生额外拼接。
@@ -66,7 +64,7 @@ export function captureFencedText({
 /**
  * 一行如果是开栏，返回它声明的语言（无语言时为空串）；否则 undefined。
  *
- * 语言标记只接受不含空白与反引号的单词；「```」单独一行按无语言的开栏处理。
+ * 语言标记只接受不含空白与反引号的单词；CODE_FENCE 单独一行按无语言的开栏处理。
  */
 function fenceLanguage(line: string): string | undefined {
   if (!line.startsWith(CODE_FENCE)) return undefined;
@@ -84,15 +82,12 @@ function findFenceClose(lines: readonly string[], from: number): number {
 }
 
 /**
- * 把字面 ``` 围栏拆成正文加 `pre` 实体，让 Telegram 正常渲染成代码块。
+ * 把字面 CODE_FENCE 围栏拆成正文加 `pre` 实体，让 Telegram 正常渲染成代码块。
  *
  * 没有围栏的文本原样返回同一个字符串对象与共用空实体表；这条判定在最前面，
  * 不进入按行扫描，也不分配中间对象。
  *
- * 未闭合的开栏行按普通文本原样保留。空代码块整组丢弃。
- *
- * 拆完为空时整段退回原文：正文只有一个空代码块（`\`\`\`json` 紧跟闭栏）时，
- * 丢弃它得到空正文，此时返回原文。
+ * 未闭合的开栏行按普通文本原样保留。空代码块整组丢弃；拆完为空时整段退回原文。
  */
 export function renderFencedText(text: string): RichTextMessage {
   if (!text.includes(CODE_FENCE)) return { text, entities: EMPTY_MESSAGE_ENTITIES };

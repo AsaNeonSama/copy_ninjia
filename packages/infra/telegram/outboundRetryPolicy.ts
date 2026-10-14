@@ -45,7 +45,7 @@ export function isTelegramMessageRequest(method: keyof RawApi): boolean {
   }
 }
 
-/** 429 退避队列拒绝错误；安全动作的 durable owner 收到后保留原任务并重投。 */
+/** 退避队列拒绝错误；安全动作的 durable owner 收到后保留原任务并重投。 */
 export class TelegramRetryQueueFullError extends Error {
   constructor() {
     super(`Telegram 429 retry queue reached its ${TELEGRAM_429_RETRY_QUEUE_MAX} request limit.`);
@@ -54,7 +54,7 @@ export class TelegramRetryQueueFullError extends Error {
 }
 
 /**
- * 按业务语义选择独立的 429 域。高频调用都走 switch 的稳定分支；前缀兜底只
+ * 按业务语义选择独立的退避域。高频调用都走 switch 的稳定分支；前缀兜底只
  * 服务未在项目调用面出现的 Bot API。
  */
 export function telegramRetryCategoryFor(
@@ -122,13 +122,13 @@ export function telegramRetryCategoryFor(
   return "other";
 }
 
-/** 429 退避的下限；非正数一律回落到统一兜底值。 */
+/** 退避延迟的下限；非正数一律回落到统一兜底值。 */
 function clampRetryDelay(delayMs: number): number {
   return delayMs > 0 ? delayMs : TELEGRAM_429_FALLBACK_RETRY_MS;
 }
 
 /**
- * 从 fetch Response 或 Bot API 原始响应提取退避毫秒数；非 429 返回 undefined。
+ * 从 fetch Response 或 Bot API 原始响应提取限流退避毫秒数；非限流响应返回 undefined。
  * 空白、非法、非正或已经过去的 Retry-After 都回落到 TELEGRAM_429_FALLBACK_RETRY_MS。
  */
 export function telegramRetryAfterMilliseconds(

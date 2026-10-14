@@ -16,8 +16,7 @@ export const WEATHER_REQUEST_TIMEOUT_MS: number = 10_000;
 export const WEATHER_REFRESH_INTERVAL_MS: number = 60 * 60 * 1_000;
 
 /** WMO 天气代码 -> 中文描述，覆盖 Open-Meteo 会返回的全部取值；被 aiChat/ai/mood.ts 与
- *  aiChat/ai/weather.ts 共用；`Readonly<Record<>>` 在编译期表达不可变
- *  （见 AGENTS.md 的「常量」一节）。 */
+ *  aiChat/ai/weather.ts 共用。 */
 export const WEATHER_CODE_DESCRIPTIONS: Readonly<Record<number, string>> = {
   0: "晴朗",
   1: "大致晴朗",

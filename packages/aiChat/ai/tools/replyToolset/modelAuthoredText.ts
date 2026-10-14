@@ -34,11 +34,8 @@ function renderableCommandError(surface: ModelAuthoredTextSurface): string {
 }
 
 /**
- * 统一校验模型即将对外发送的正文或 caption。
- *
- * 依次检查：同轮重复文本以 DUPLICATE_REPLY_RESULT 静默丢弃；含执行侧转录记号
- * （SELF_ACTION_TAG_PATTERNS）的文本拒绝；含可渲染斜杠命令的文本拒绝。返回值是工具错误或
- * 零动作的跳过回执，null 表示允许继续执行。
+ * 校验模型即将发送的正文或图注：同轮重复文本返回 DUPLICATE_REPLY_RESULT，含执行侧转录记号或可渲染斜杠命令时返回工具错误，
+ * 通过时返回 null。
  */
 export function modelAuthoredTextPolicyResult(
   text: string,

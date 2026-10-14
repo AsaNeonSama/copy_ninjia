@@ -49,7 +49,7 @@
   - 测试套件逐项断言替身正常加载、轮询链路畅通、收到 SIGTERM 信号后优雅排空，以及锁文件安全释放。
 - **源码文件行数限制（`MAX_SOURCE_LINES`）**：
   - 手写 TypeScript、JavaScript 与 Shell 文件若超过 `MAX_SOURCE_LINES`（定义于 `scripts/conventions/fileLength.ts`）将被门禁直接拒绝。
-  - 文件超过 512 行时应评估拆分，超过 1024 行时必须拆分。
+  - 文件超过 512 行时应评估拆分，达到 `MAX_SOURCE_LINES` 时必须拆分。
   - 检查范围覆盖所有受 Git 跟踪的文件及暂存区新文件，忽略的文件不纳入扫描。安装语法检查全面覆盖 `install.sh` 及其调用的所有独立 Shell 模块。
 - **全源码覆盖率考核**：
   - `test/productionModules.test.ts` 主动加载 `index.ts` 以及 `packages/` 下除 `packages/types/` 外的全部运行时模块；未被任何测试覆盖的模块直接按 0% 计入分母。
@@ -75,8 +75,8 @@
 
 ### 依赖冷却期
 
-依赖安装严格执行 `bunfig.toml` 中配置的 7 天发布冷却期（`minimumReleaseAge = 604_800`）：
-- **紧急安全补丁豁免**：未满 7 天冷却期的紧急漏洞修复，仅允许将该单一包名加入 `install.minimumReleaseAgeExcludes`，完成安装后必须立即移除，禁止使用命令行参数 `--minimum-release-age` 全局绕过。
+依赖安装严格执行 `bunfig.toml` 中配置的 `minimumReleaseAge` 发布冷却期：
+- **紧急安全补丁豁免**：未满冷却期的紧急漏洞修复，仅允许将该单一包名加入 `install.minimumReleaseAgeExcludes`，完成安装后必须立即移除，禁止使用命令行参数 `--minimum-release-age` 全局绕过。
 - **安全核验要求**：被豁免的包版本必须交叉核对至少两个独立的安全受害清单，校验 npm registry 的 `integrity` 哈希，排查安装脚本与持久化后门，并在提交记录中注明包名、CVE 编号及移除时间。
 - **运行时版本锁定**：Bun 运行时及 `@types/bun` 严格固定为 `package.json` 声明的版本；`packageManager` 与 `install.sh` 共同锁定运行环境。
 - **TypeScript 编译器**：`bun run typecheck` 以 `bun --check` 调用 Bun 内置的类型检查器；`bun check` 执行的是仓库的 `check` 脚本。ESLint 与约定检查工具通过 `@typescript/old` 使用 TypeScript 6 编译器 API。

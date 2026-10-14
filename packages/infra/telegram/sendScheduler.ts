@@ -1,6 +1,6 @@
 /**
  * 主线程每聊天发送调度器。出站闸（./outboundGate.ts）把发送类请求（isTelegramMessageRequest）交到
- * 这里，其余类别仍走按类别的 429 退避。按 Telegram FAQ 的公开限额主动控速，三层额度都满足才发出：
+ * 这里，其余类别仍走按类别的限流退避。按 Telegram FAQ 的公开限额主动控速，三层额度都满足才发出：
  * - 单聊天令牌桶：每 TELEGRAM_SEND_CHAT_REFILL_MS 补一个，容量 TELEGRAM_SEND_CHAT_BURST（保守档内降为单条）；
  * - 群类聊天（负数 id 与 `@username`）：任意 TELEGRAM_SEND_GROUP_WINDOW_MS 内不超过 TELEGRAM_SEND_GROUP_LIMIT 条；
  * - 全局：任意 TELEGRAM_SEND_GLOBAL_WINDOW_MS 内不超过 TELEGRAM_SEND_GLOBAL_LIMIT 条。
@@ -8,11 +8,11 @@
  * 窗口按其容量封顶记账。
  *
  * 每个聊天一条 FIFO、单槽在途，保持同一聊天的发送顺序；只差全局额度的车道进全局轮转队列
- * 依次放行。收到 429 只冻结这个聊天 retry_after，冻结结束后 TELEGRAM_SEND_CHAT_CAUTIOUS_MS 内
- * 突发容量降为单条，期间再 429 则顺延。额度在真正发出时才扣，排队中取消 O(1) 出队、不扣额度。
+ * 依次放行。收到限流响应只冻结这个聊天 retry_after，冻结结束后 TELEGRAM_SEND_CHAT_CAUTIOUS_MS 内
+ * 突发容量降为单条，期间再命中限流则顺延。额度在真正发出时才扣，排队中取消按双向指针直接出队、不扣额度。
  *
  * 计数口径与出站闸一致：已接纳、未结算的任务（含等额度的）计入 activeCount 与 message 类的
- * activeCount；因 429 在聊天 FIFO 里等待重发的任务改计入 retryPendingCount 与 message 类的
+ * activeCount；因限流在聊天 FIFO 里等待重发的任务改计入 retryPendingCount 与 message 类的
  * pendingCount，重新发出时计回在途。运行态见 cache/main/telegramSend.ts。
  * @see ../../../docs/cn/04-invariants.md
  */
@@ -80,7 +80,7 @@ function sendChatKeyOf(chatId: unknown): TelegramSendChatKey {
   return trimmed.length > 0 && Number.isSafeInteger(numeric) ? numeric : trimmed;
 }
 
-/** 一次发送扣的额度条数：相册按张数、批量复制/转发按条数，其余为 1。 */
+/** 一次发送扣的额度条数：相册按张数、批量复制/转发按条数，其余按单条计。 */
 function sendCostOf(method: keyof RawApi, payload: unknown): number {
   let units: unknown;
   if (method === "sendMediaGroup") units = (payload as { media?: unknown }).media;
@@ -129,7 +129,7 @@ function appendQueued(lane: TelegramSendLane, job: TelegramOutboundJob): void {
   sendSchedulerState.queuedTotal++;
 }
 
-/** 已接纳任务计入在途；429 等待中的任务改计 429 等待。 */
+/** 已接纳任务计入在途；退避等待中的任务改计退避等待。 */
 function countActive(delta: number): void {
   telegramOutboundGateState.activeCount += delta;
   messageLane().activeCount += delta;
@@ -140,7 +140,7 @@ function countRetryPending(delta: number): void {
   messageLane().pendingCount += delta;
 }
 
-/** 429 后放回队首并改计 429 等待；不受排队上限约束（任务早已接纳）。 */
+/** 限流退避后放回队首并改计退避等待；不受排队上限约束（任务早已接纳）。 */
 function prependRetryQueued(lane: TelegramSendLane, job: TelegramOutboundJob): void {
   job.previous = null;
   job.next = lane.head;
@@ -324,7 +324,7 @@ function afterSendSettled(lane: TelegramSendLane): void {
   settleDrainWaitersIfIdle();
 }
 
-/** 收到 429：只冻结这个聊天，冻结结束后进入保守档；保守档内再 429 则顺延。 */
+/** 收到限流响应：只冻结这个聊天，冻结结束后进入保守档；保守档内再命中限流则顺延。 */
 function freezeLane(lane: TelegramSendLane, retryAfterMs: number): void {
   const frozenUntil: number = performance.now() + retryAfterMs;
   if (frozenUntil > lane.frozenUntil) lane.frozenUntil = frozenUntil;
@@ -436,7 +436,7 @@ export function admitSendJob(job: TelegramOutboundJob, method: keyof RawApi, pay
 }
 
 /**
- * 取消一条已接纳的发送任务（sendQueued 或 active）：排队中 O(1) 出队、不扣额度；在途的立即
+ * 取消一条已接纳的发送任务（sendQueued 或 active）：排队中按双向指针直接出队、不扣额度；在途的立即
  * 结算给调用方，车道在途位保留到网络结算。全局取消进行中不推进车道。
  */
 export function abortSendJob(job: TelegramOutboundJob): void {

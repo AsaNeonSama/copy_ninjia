@@ -38,8 +38,7 @@ export function parseMuteDurationMs(token: string): number | undefined {
 }
 
 /**
- * `forbidden` 结局的回执。Telegram 对「机器人缺限制成员权限」与「目标本身是管理员」
- * 返回同一种 400；这里按机器人自己的权限快照分辨：确证不是管理员或缺
+ * `forbidden` 结局的回执。按机器人自己的权限快照分辨：确证不是管理员或缺
  * 「限制与封禁成员」时点名原因；快照缺失或该位齐全时两种成因都说明。
  * 具体错误已由统一错误边界记进日志。
  */

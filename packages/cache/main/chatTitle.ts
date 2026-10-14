@@ -1,9 +1,8 @@
-/** owner: main。群标题刷新调度（packages/infra/chatTitle.ts）的内存状态。 */
+/** owner: main。群标题刷新调度状态（packages/infra/chatTitle.ts）。 */
 
 /**
- * 启动时填充的标题维护 owner：生命周期可先 quiesce，预算到期后再 abort；容量固定为一个，进程重启时
- * 创建新 controller。`controller` 取消在途的 getChat；`absenceConfirmation` 只打断「群不可达」确证
- * 两次重查之间的等待，quiesce 与 abort 都会触发它，在途的 getChat 不受影响。
+ * 群标题刷新的准入开关与取消控制器：启动或 initChatTitleRefreshRuntime 时初始化，quiesceChatTitleRefreshRuntime 关闭准入并中止 absenceConfirmation（打断群不可达复核等待），abortChatTitleRefreshRuntime 中止 controller（取消在途 getChat）与 absenceConfirmation。
+ * 单例固定字段，不淘汰；进程重启后重新创建。
  */
 export const chatTitleRefreshRuntime: {
   accepting: boolean;

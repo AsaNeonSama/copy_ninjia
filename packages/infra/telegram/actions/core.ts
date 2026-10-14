@@ -167,32 +167,18 @@ export interface TelegramReplyParameters {
   readonly allow_sending_without_reply: true;
 }
 
-/**
- * 把可选的「回复哪一条」译成 Bot API 的 `reply_parameters`，没有回复时给
- * `undefined`。
- *
- * `allow_sending_without_reply` 恒为 true：被回复的消息已被删除时这条仍发出
- * （降级成普通发送、掉出话题，落点由 `message_thread_id` 保证，见 libs/forumTopic.ts）。
- *
- * 返回 `undefined` 而不是让调用方条件展开：payload 按定形一次初始化，
- * grammY 序列化时丢掉值为 undefined 的字段（core/payload.js 的 `str()`
- * 与 payloadToMultipartItr 各自过滤 null/undefined），请求体与不带这个键
- * 逐字节相同。
- */
+/** 将可选的目标消息 ID 转换为 Bot API 的 `reply_parameters`（`allow_sending_without_reply` 恒为 true）。 */
 export function replyParametersFor(
   replyToMessageId: number | undefined
 ): TelegramReplyParameters | undefined {
-  // 判真值：message_id 为 0 时不挂回复。
   return replyToMessageId ? { message_id: replyToMessageId, allow_sending_without_reply: true } : undefined;
 }
 
-/** Telegram 是否明确拒绝了这次操作的权限，而不是偶发失败。 */
+/** 判断 Telegram 错误是否属于操作权限不足。 */
 export function isPermissionDenied(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);
   if (details === undefined) return false;
-  // 403 一律算权限拒绝；400 只认描述含 `not enough rights` 的一类，
-  // 其余 400（如用户不存在、聊天不存在）不算。
   if (details.errorCode === 403) return true;
   return (
     details.errorCode === 400 &&
@@ -200,10 +186,7 @@ export function isPermissionDenied(error: unknown): boolean {
   );
 }
 
-/**
- * Telegram 是否拒绝了本群的成员查询本身，而不是针对目标用户：403（机器人不在群、
- * 被踢出），或 400 `CHAT_ADMIN_REQUIRED`（本群只允许管理员查询他人成员身份）。
- */
+/** 判断 Telegram 错误是否属于本群成员查询本身被拒（机器人不在群或需管理员权限）。 */
 export function isChatMemberQueryDenied(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);
@@ -212,10 +195,7 @@ export function isChatMemberQueryDenied(error: unknown): boolean {
   return details.errorCode === 400 && /\bCHAT_ADMIN_REQUIRED\b/.test(details.description);
 }
 
-/**
- * Telegram 是否以 PARTICIPANT_ID_INVALID 拒绝了目标用户 ID。
- * 已销号账号的 getChatMember 与 banChatMember 都返回这一句 400。
- */
+/** 判断 Telegram 错误是否以 `PARTICIPANT_ID_INVALID` 拒绝目标用户 ID。 */
 export function isParticipantIdInvalid(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);

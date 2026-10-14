@@ -289,7 +289,7 @@ describe("Anti-Raid main-thread persistence mirror", () => {
   });
 
   test("开关已关的群：adopt 之后立刻收掉残留的验证窗口与私密模式", async () => {
-    // 残留来自 /antiraid disable 时 Worker 不可用：开关已落盘，运行态仍留在镜像和 state.json 里；adopt 之后收掉。
+    // 残留来自 /antiraid disable 时 Worker 不可用：开关已落盘，运行态仍留在镜像和群状态里；adopt 之后收掉。
     await resetAntiRaidTestState();
     chatStates.set(-1001, { isAntiRaidEnabled: false });
     chatStates.set(-1002, {

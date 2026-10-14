@@ -1,5 +1,5 @@
 /**
- * 源码与二进制共用的冷迁移端到端验证：以上一次迁移产出格式（17.2.1）的停机备份执行当前全部冷迁移边；
+ * 源码与二进制共用的冷迁移端到端验证：以上一次迁移产出格式的停机备份执行当前全部冷迁移边；
  * 全部路径归调用方的独立临时根所有。
  */
 import { expect } from "bun:test";
@@ -64,7 +64,7 @@ function migrationArguments(command: string, data: string): readonly string[] {
 }
 
 /**
- * 17.2.1 产出格式的非空共享数据库：当前 schema 与默认时区标记，一个群状态（翻译目标及群名含空字符串）
+ * 上一次迁移产出格式的非空共享数据库：当前 schema 与默认时区标记，一个群状态（翻译目标及群名含空字符串）
  * 与一条群问答。冷迁移不触碰数据库，部署时原样沿用；关闭连接后 WAL 已并入主库。
  */
 function createDeploymentDatabase(data: string): void {

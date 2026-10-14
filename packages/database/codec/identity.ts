@@ -205,7 +205,7 @@ function decodePendingParams(
   };
 }
 
-/** 严格解码 pending_blocked_removals.data。 */
+/** 严格解码 `pending_blocked_removals.data` JSON 文本。 */
 export function decodePendingBlockedRemovalData(
   text: string,
   source: string
@@ -231,34 +231,29 @@ export function decodePendingBlockedRemovalData(
   };
 }
 
-/** 编码前先走同一严格解码器，非法结构不进入数据库。 */
+/** 将白名单条目编码为 JSON 文本并经 decodeWhitelistEntryData 复核。 */
 export function encodeWhitelistEntryData(value: Readonly<WhitelistEntryData>): string {
   const text: string = JSON.stringify(value);
   decodeWhitelistEntryData(text, "whitelist entry");
   return text;
 }
 
-/** 编码前先走同一严格解码器。 */
+/** 将黑名单条目编码为 JSON 文本并经 decodeBlocklistEntryData 复核。 */
 export function encodeBlocklistEntryData(value: Readonly<BlocklistEntryData>): string {
   const text: string = JSON.stringify(value);
   decodeBlocklistEntryData(text, "blocklist entry");
   return text;
 }
 
-/** 编码结果连同校验时解出的规范值一起交出，调用方不需要重复 parse。 */
+/** 待踢任务行的编码结果与经解码器规范化后的值。 */
 export interface EncodedPendingBlockedRemoval {
-  /** 落库文本；同一个值反复编码逐字节稳定，可直接用于变更比较。 */
+  /** 序列化后的 JSON 文本。 */
   readonly text: string;
-  /** 解码校验过程中得到的规范值。 */
+  /** 解码校验得到的规范值。 */
   readonly value: PendingBlockedRemoval;
 }
 
-/**
- * 编码前先走同一严格解码器，并把那次解码得到的规范值一并返回。
- *
- * 主线程为待踢任务一行生成 blocklistRemovalWrite 正文时调用（infra/blocklist/outbox.ts），
- * 非法行在离开主线程前就抛错。
- */
+/** 将待踢任务条目编码为 JSON 文本，经 decodePendingBlockedRemovalData 复核后一并返回规范值。 */
 export function encodePendingBlockedRemovalData(
   value: PendingBlockedRemoval,
   source: string = "pending blocked removal"

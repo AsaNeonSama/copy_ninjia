@@ -172,10 +172,7 @@ describe("chat_states codec", () => {
   });
 });
 
-/**
- * 群状态解码器剩下的拒绝分支：补齐可选字段、两张权限表和 lockdown 各字段的逐条拒绝。
- * 对应 AGENTS.md「不为用户行为兜底」在群状态侧的落点（另见 identityCodecRejections.test.ts）。
- */
+/** 群状态解码器的拒绝分支：补齐可选字段、两张权限表和 lockdown 各字段的逐条拒绝。 */
 describe("chat_states codec 的拒绝分支", () => {
   const SOURCE: string = "chat_states[-1001].status";
 

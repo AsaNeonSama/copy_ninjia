@@ -1,25 +1,7 @@
 /**
- * config/dynamic/ 热重载的主线程判定：按启动总闸同一套严格解析器读取可热重载部署
- * 文件（assets.json、ad_samples.json、agent.json、mood.json、stickers.json、cron.json），
- * 再与主线程已生效快照比较并整体替换 holder。
- *
- * 判定口径（约束见 docs/cn/04-invariants.md）：
- * - 读不到（ENOENT 以外）或严格解析失败的变更整份拒绝，holder 保留上一份已校验快照；
- * - 文件真正不存在是合法状态：启动时存在的文件被删除，对应 holder 换成 null；启动时
- *   缺省的文件运行期出现，按新内容填充。agent.json 的 ad_detect 段与对话核心能力段
- *   同理，各段独立判定；
- * - 与当前快照深相等的内容不替换，holder 对象身份保持不变；
- * - assets.json 缺省即全部取内置缺省，删除文件时换回 DEFAULT_ASSET_CONFIG；随机图片目录
- *   与当前快照不同时，读取阶段先按启动同一口径准备并严格检查新目录，失败则拒绝
- *   assets.json 的变更；
- * - cron.json 的 send_voice 依赖 agent.json 的 `agent.tts`，send_web_digest 依赖对话核心能力：
- *   新任务表用到它们而本轮生效的 agent 配置缺了依赖时拒绝 cron.json 的变更；任务表仍在用时
- *   拒绝去掉依赖的 agent.json 变更。
- *
- * 一份文件内的变更要么整体生效、要么整体拒绝。拒绝诊断沿用 InputValidationError
- * 口径，只含文件路径、字段路径与期望形态。本模块只读盘并改写主线程 holder；
- * 功能可用性结论的重算、cron 调度对账、监听、日志与向 Worker 分发由
- * app/configReload.ts 负责。
+ * config/dynamic/ 热重载的主线程判定（跨模块约束见 docs/cn/04-invariants.md）：
+ * 严格解析可热重载部署文件，与主线程已生效快照比较并整体替换有变更的 holder。
+ * 本模块只读盘并改写主线程 holder；可用性重算、cron 调度对账与向 Worker 分发由 app/configReload.ts 负责。
  */
 
 import { adoptAdSampleConfig, loadAdSampleConfig } from "./adSamples";
@@ -163,10 +145,8 @@ function cronAgentRejection(
 }
 
 /**
- * cron.json 的 send_voice 依赖 agent.json 的 `agent.tts`，send_web_digest 依赖对话核心能力。先按
- * 本轮候选的 agent 配置核对新任务表，缺依赖时拒绝 cron.json 的变更；再按生效的任务表核对新
- * agent 配置，任务表仍在用而新配置去掉了依赖时拒绝 agent.json 的变更——此时现行 agent 配置
- * 继续生效，新任务表改按它核对。两份文件都保持整体生效或整体拒绝。
+ * 对账 cron.json 与 agent.json 的跨文件能力依赖：新任务表缺少依赖时拒绝 cron.json 变更；
+ * 生效任务表仍在使用的能力在新 agent.json 中缺失时拒绝 agent.json 变更并改按现行 agent 配置核对新任务表。
  */
 function reconcileAgentDependency({ agent, cron, rejections }: AgentDependencyOptions): AgentDependencyDecision {
   const currentAgent: AgentDeploymentConfig | null = agentDeploymentConfigCache.current;

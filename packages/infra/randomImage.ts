@@ -32,10 +32,8 @@ import type {
 } from "../types/randomImage";
 
 /**
- * 准备 /h_image 专用图库并校验 SHA-256 文件名、扩展名与条目类型：启动时在外部连接之前
- * 调用（见 docs/cn/04-invariants.md），config/dynamic/ 热重载切换目录时在接管新快照之前调用。
- * 检查只读目录项，不重算内容摘要；不修复或清理非法条目。允许目录根链接，
- * 拒绝子目录、文件链接及临时文件；报错点名 config/dynamic/assets.json 的 onlyPath.random_h_image_dir。
+ * 准备 `/h_image` 专用图库并校验内容摘要文件名、扩展名与条目类型（见 `docs/cn/04-invariants.md`）：
+ * 允许目录根为符号链接，拒绝子目录、符号链接文件及临时文件。
  */
 export async function ensureRandomImageDirectory(directory: string): Promise<void> {
   const invalid: InputValidationError = new InputValidationError(
@@ -83,14 +81,7 @@ function randomImageNames(entries: readonly Dirent[]): string[] {
   return names;
 }
 
-/**
- * 列一次目录，给出图库张数；口径同 pickRandomImage 的候选，目录读取失败原样上抛。
- * `/h_image add` 整批只读这一次，用于汇总回执里的「收图前图库里有几张」。
- *
- * 只给张数，不给已收录集合：文件名是内容的 SHA-256（见 storeRandomImage），
- * 去重靠重算哈希，不依赖列目录或 file_unique_id。
- * @param directory 已解析成绝对路径的目录。
- */
+/** 列一次目录并统计有效图库图片张数；目录读取失败原样上抛。 */
 export async function readRandomImageLibrary(directory: string): Promise<RandomImageLibrary> {
   return { size: randomImageNames(await readdir(directory, { withFileTypes: true })).length };
 }
@@ -101,11 +92,8 @@ function vanished(error: unknown): boolean {
 }
 
 /**
- * 从目录非递归地均匀抽一张图片并读出字节。候选口径见 randomImageNames。抽中的文件超过
- * RANDOM_IMAGE_MAX_BYTES（只看 stat，不读入内存），或在读取前已消失（部署方正在整理目录）
- * 时，都从剩余候选里剔除后重新均匀抽取，最多尝试候选数那么多次。候选抽完仍无可发送的图时，
- * 这一轮抽中过超限文件就报 tooLarge 并点名最后那个，否则报 empty。
- * @param directory 已解析成绝对路径的目录。
+ * 从目录非递归地均匀抽取一张不超过 `RANDOM_IMAGE_MAX_BYTES` 的图片并读取字节；
+ * 抽中超限或已消失的文件时从剩余候选中剔除并继续抽取。
  */
 export async function pickRandomImage(directory: string): Promise<RandomImagePick> {
   let entries: Dirent[];
@@ -144,16 +132,8 @@ export async function isRandomImageDirectory(directory: string): Promise<boolean
 }
 
 /**
- * 把一张图写进图库：按字节嗅探格式（只收 jpeg、png、webp），文件名取内容的 SHA-256
- * 加保存扩展名。先写点号开头的临时文件，再在同一目录内改名为正式文件名，抽图永远看不到
- * 写到一半的文件。写入或改名失败时删除临时文件并原样上抛。
- *
- * 目标已存在时直接报 existing，不读其内容、不重复写盘；手工文件也必须遵守内容摘要命名。
- * 同一张图无论由谁转发、`file_unique_id` 是否相同，都落到同一个文件名。
- * 判存在与改名之间没有加锁：这段窗口里唯一可能发生的是另一路写入同一份字节，改名覆盖的是
- * 逐字节相同的内容，结果与不覆盖一致。
- * @param directory 已解析成绝对路径的图库目录。
- * @param bytes 完整的图片字节。
+ * 将图片按魔数嗅探格式与内容 SHA-256 命名写入图库：目标已存在时返回 `existing`；
+ * 新增时先写同目录隐藏临时文件再原子改名，失败时清理临时文件并上抛。
  */
 export async function storeRandomImage(
   directory: string,

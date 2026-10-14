@@ -26,7 +26,7 @@ export function isTemporaryAdBypassActivityRetained(
     getDayIndex(activity.qualifiedAt) === countedDay;
 }
 
-/** 当前记录是否仍提供临时广告检测豁免；`now` 由调用方给出，理由同上。 */
+/** 判断当前记录在 now 时刻是否仍持有临时广告检测豁免。 */
 export function isTemporaryAdBypassActive(
   activity: Readonly<TemporaryAdBypassActivity>,
   now: number

@@ -13,15 +13,7 @@ import { postAntiRaid } from "./workerBridge/controller";
 import type { Chat } from "grammy/types";
 
 /**
- * 记下并（仅在取值变化时）镜像一次群类型。
- *
- * 只认 `group` 与 `supergroup` 两个确定值，其余一律不记；「取值不认识」不得落成
- * `isSupergroup: false`，没记就是未知，执行侧必须先反查（判定见
- * workers/antiRaid/chatKind.ts）。只保留已经 `/init enable` 的群；首次启用由命令在
- * 落盘后补一次观测，被容量门禁拒绝的 `/init` 不留下镜像。
- *
- * 投递失败不补偿也不记错误日志：`postAntiRaid` 返回 false 只发生在 Worker 已放弃
- * 或正在重建时，onRespawn 会整表重放。本地缓存照常写入，作为重放的数据来源。
+ * 记录并在取值变化时向 Worker 镜像群类型（仅接受已启用 `/init` 的 `group` 或 `supergroup`）。
  */
 export function observeChatKind(chat: Pick<Chat, "id" | "type">): void {
   if (chat.type !== "group" && chat.type !== "supergroup") return;

@@ -1,13 +1,7 @@
 /**
- * AI agent 按能力选择 SDK 实现的唯一入口。
- *
- * config/dynamic/agent.json 的 text、summary、media、image、tts、web_search 各自声明 provider；这里
- * 只把 google/openai/anthropic 映射到实现包，不做运行时故障切换，也不从模型名或 base_url
- * 猜供应商。api_key 与端点同样来自该能力配置；启动总闸会在建立外部连接前完成
- * 严格校验。跨模块与生命周期约束见 docs/cn/04-invariants.md。
- *
- * 归属 AI 闲聊 Worker：所有调用方都在该线程上。各能力门面经 aiChat/providerLanes.ts 的配额 lane
- * 排队。
+ * AI 能力门面与供应商路由入口（归属 AI 闲聊 Worker）。
+ * 各能力按部署配置的 `provider` 路由到对应实现并经配额 lane 排队。
+ * @see ../../docs/cn/04-invariants.md
  */
 
 import { claimOperatorTtsUsage, refundOperatorTtsUsage } from "./ai/ttsUsage";
@@ -64,14 +58,14 @@ import type { GeneratedChatImage } from "../types/aiChat/imageGeneration";
 import type { SpeechSynthesisAttempt, SynthesizedSpeech, TtsOperatorClaim } from "../types/aiChat/voiceMessage";
 import type { PrioritizedBoundedTaskRunner } from "../libs/prioritizedBoundedTaskRunner";
 
-/** provider 到实现包的穷举映射；扩展 AgentProvider 时编译器会要求同步补项。 */
+/** provider 到实现包的映射。 */
 const AI_CHAT_PROVIDERS: Readonly<Record<AgentCapabilityConfig["provider"], AiChatProvider>> = {
   google: geminiProvider,
   openai: openAiProvider,
   anthropic: anthropicProvider,
 };
 
-/** 下列 queueRejected* 是配额 lane 没有执行任务（队列已满或排队期间被取消）时各能力的结算值。 */
+/** 配额 lane 队列已满或排队期间被取消时各能力的回退结算值。 */
 function queueRejectedReplyTurn(): AiReplyTurn {
   return failedReplyTurn(0, "LOCAL_PROVIDER_QUEUE_FULL", undefined);
 }
@@ -84,7 +78,6 @@ function queueRejectedSpeechAttempt(): SpeechSynthesisAttempt {
   return { ok: false, reason: "synthesis failed" };
 }
 
-/** 一次都没检索。 */
 function queueRejectedWebSearchResult(): AiWebSearchResult {
   return { ok: false, searchCalls: 0 };
 }
@@ -94,12 +87,12 @@ interface ScheduledRunParams<T> {
   readonly runner: PrioritizedBoundedTaskRunner;
   readonly priority: AiProviderTaskPriority;
   readonly signal: AbortSignal | undefined;
-  /** 队列已满或排队期间被取消、任务没有执行时构造结算值。 */
+  /** 队列已满或排队期间被取消时构造结算值。 */
   readonly fallback: () => T;
   readonly task: () => Promise<T>;
 }
 
-/** 把一次供应商调用交给配额 lane 排队；没轮到执行时按 fallback 结算，不把 undefined 泄漏给调用方。 */
+/** 将供应商调用交由配额 lane 排队执行；未执行时返回 fallback 结果。 */
 async function runScheduled<T>({ runner, priority, signal, fallback, task }: ScheduledRunParams<T>): Promise<T> {
   const result: T | undefined = await runner.run(priority, task, signal);
   return result ?? fallback();
@@ -181,10 +174,7 @@ function createMediaFacade(
   };
 }
 
-/**
- * 生图门面：交互优先排队；队列已满或被取消时按「这次没做出来」结算为 `null`。所选实现缺席
- * generateImage 时没有门面，返回 null。
- */
+/** 构造生图门面；所选供应商未实现 `generateImage` 时返回 null。 */
 function createImageFacade(
   provider: AiChatProvider,
   config: AgentCapabilityConfig
@@ -207,18 +197,13 @@ function createImageFacade(
 }
 
 /**
- * 语音合成门面：请求经交互优先的配额闸门排队。`operator` 口径的请求在轮到执行、紧挨着
- * 发起供应商请求时登记每日计数（aiChat/ai/ttsUsage.ts 的 claimOperatorTtsUsage），超出本门面
- * 所属 `agent.tts` 配置的 operator 上限时不发请求，排队期间被取消或队列已满的不计数；供应商
- * 没给出音频（返回 null 或抛错）时凭登记凭据退还这一次。`ai` 口径由调用方自行预留与登记，
- * 门面直接合成。
+ * 构造语音合成门面：`operator` 口径在轮到执行时扣减每日额度并在合成失败时退还，`ai` 口径由调用方自行管理额度。
  */
 function createSpeechFacade(
   provider: AiChatProvider,
   config: AgentTtsCapabilityConfig
 ): AiSpeechFacade {
   const synthesizeSpeech: AiSpeechProvider["synthesizeSpeech"] = provider.synthesizeSpeech;
-  // 选中的那一家没有这项能力时只交出名字：工具层据此不注册对应工具。
   if (synthesizeSpeech === undefined) return { name: provider.name };
   const runner: PrioritizedBoundedTaskRunner = quotaRunnerFor(config);
   const synthesize = async (request: AiMeteredSpeechRequest): Promise<SpeechSynthesisAttempt> => {
@@ -252,16 +237,13 @@ function createSpeechFacade(
 /** createWebSearchFacade 的入参。 */
 interface WebSearchFacadeParams {
   readonly provider: AiChatProvider;
-  /** 绑定的能力；配额 lane 按它的配置归属。 */
+  /** 绑定的能力名称。 */
   readonly capability: AiWebSearchCapability;
   readonly config: AgentCapabilityConfig;
   readonly priority: AiProviderTaskPriority;
 }
 
-/**
- * 联网检索门面：绑定能力后经配额闸门排队；队列已满或排队期间被取消时按一次都没检索的
- * 失败结算。
- */
+/** 构造绑定指定能力与优先级的联网检索门面。 */
 function createWebSearchFacade({ provider, capability, config, priority }: WebSearchFacadeParams): AiWebSearchFacade {
   const runner: PrioritizedBoundedTaskRunner = quotaRunnerFor(config);
   return {
@@ -278,7 +260,7 @@ function createWebSearchFacade({ provider, capability, config, priority }: WebSe
   };
 }
 
-/** text 能力的结构化 JSON 生成门面：按后台优先级排队，队列已满或被取消时按不可重试失败返回。 */
+/** 构造 text 能力的后台结构化 JSON 生成门面。 */
 function createStructuredTextFacade(
   provider: AiChatProvider,
   config: AgentCapabilityConfig
@@ -298,7 +280,7 @@ function createStructuredTextFacade(
   };
 }
 
-/** 带工具往返的群聊正文能力；真实模型请求经过交互优先的配额闸门。 */
+/** 获取带工具往返的群聊正文门面（交互优先级）。 */
 export function textAiProvider(): AiTextProvider {
   if (aiProviderFacades.text !== undefined) return aiProviderFacades.text;
   const config: AgentCapabilityConfig = requireAgentCapabilityConfig("text");
@@ -307,7 +289,7 @@ export function textAiProvider(): AiTextProvider {
   return facade;
 }
 
-/** 记忆压缩与贴纸包简介的无状态摘要能力；固定使用后台等待额度。 */
+/** 获取记忆压缩与贴纸包简介的无状态摘要门面（后台优先级）。 */
 export function summaryAiProvider(): AiSummaryProvider {
   if (aiProviderFacades.summary !== undefined) return aiProviderFacades.summary;
   const config: AgentCapabilityConfig = requireAgentCapabilityConfig("summary");
@@ -316,7 +298,7 @@ export function summaryAiProvider(): AiSummaryProvider {
   return facade;
 }
 
-/** 视觉描述与语音转写能力；贴纸目录可显式选择后台优先级。 */
+/** 获取视觉描述与语音转写门面；默认交互优先级，可显式指定后台优先级。 */
 export function mediaAiProvider(
   priority: AiProviderTaskPriority = "interactive"
 ): AiMediaProvider {
@@ -337,20 +319,17 @@ export function mediaAiProvider(
 
 /** optionalCapabilityFacade 的入参。 */
 interface OptionalCapabilityFacadeParams<TCapability extends "image" | "tts" | "webSearch", TFacade> {
-  /** AgentDeploymentConfig 上的能力字段名，也是记忆化槽位名。 */
+  /** AgentDeploymentConfig 上的能力字段名。 */
   readonly capability: TCapability;
-  /** 当前缓存值；`undefined` 专表「还没问过」。 */
+  /** 当前缓存值；`undefined` 表示尚未初始化，`null` 表示已确认不可用。 */
   readonly cached: TFacade | null | undefined;
-  /** 配置齐全时以该能力自己的配置构造门面；所选实现缺席这项能力时返回 null。 */
+  /** 配置存在时构造门面；所选实现不支持该能力时返回 null。 */
   readonly create: (config: NonNullable<AgentDeploymentConfig[TCapability]>) => TFacade | null;
-  /** 写回记忆化槽位；null 同样要写。 */
+  /** 写回门面缓存槽位。 */
   readonly store: (facade: TFacade | null) => void;
 }
 
-/**
- * 可缺席能力（image、tts、web_search）的门面记忆化：缺配置或所选实现缺席该能力时把 `null` 也缓存下来。
- * `undefined` 专表「还没问过」，`null` 表「问过、没有门面」，两者严格分开缓存。
- */
+/** 获取并缓存可选能力（image、tts、webSearch）的门面。 */
 function optionalCapabilityFacade<TCapability extends "image" | "tts" | "webSearch", TFacade>({
   capability,
   cached,
@@ -368,7 +347,7 @@ function optionalCapabilityFacade<TCapability extends "image" | "tts" | "webSear
   return facade;
 }
 
-/** 生图能力；未配置或所选实现缺席生图时为 null，不注册对应工具。 */
+/** 获取生图能力门面；未配置或所选供应商未实现生图时返回 null。 */
 export function imageAiProvider(): AiImageProvider | null {
   return optionalCapabilityFacade<"image", AiImageProvider>({
     capability: "image",
@@ -379,7 +358,7 @@ export function imageAiProvider(): AiImageProvider | null {
   });
 }
 
-/** 带每日计数的语音合成能力；缺配置时不注册对应工具。 */
+/** 获取语音合成能力门面；未配置时返回 null。 */
 export function ttsAiProvider(): AiSpeechFacade | null {
   return optionalCapabilityFacade<"tts", AiSpeechFacade>({
     capability: "tts",
@@ -390,10 +369,7 @@ export function ttsAiProvider(): AiSpeechFacade | null {
   });
 }
 
-/**
- * web_search 能力的联网检索执行器（交互优先：回复在等它）；未配置时回复改挂 text 模型的内建
- * 检索，cron 摘要改用 textWebSearchAiProvider。
- */
+/** 获取独立 `web_search` 能力的联网检索门面（交互优先级）；未配置时返回 null。 */
 export function webSearchAiProvider(): AiWebSearchFacade | null {
   return optionalCapabilityFacade<"webSearch", AiWebSearchFacade>({
     capability: "webSearch",
@@ -408,7 +384,7 @@ export function webSearchAiProvider(): AiWebSearchFacade | null {
   });
 }
 
-/** 用 text 模型执行的联网检索（后台优先级）：没配 web_search 时 cron 摘要的检索段用它。 */
+/** 获取复用 `text` 模型配置的联网检索门面（后台优先级）。 */
 export function textWebSearchAiProvider(): AiWebSearchFacade {
   if (aiProviderFacades.textWebSearch !== undefined) return aiProviderFacades.textWebSearch;
   const config: AgentCapabilityConfig = requireAgentCapabilityConfig("text");
@@ -422,7 +398,7 @@ export function textWebSearchAiProvider(): AiWebSearchFacade {
   return facade;
 }
 
-/** text 能力的结构化 JSON 生成（cron 摘要组稿）。 */
+/** 获取复用 `text` 模型配置的结构化 JSON 生成门面（后台优先级）。 */
 export function structuredTextAiProvider(): AiStructuredTextProvider {
   if (aiProviderFacades.structuredText !== undefined) return aiProviderFacades.structuredText;
   const config: AgentCapabilityConfig = requireAgentCapabilityConfig("text");
@@ -432,10 +408,7 @@ export function structuredTextAiProvider(): AiStructuredTextProvider {
 }
 
 /**
- * 启动诊断：能力配置齐全且校验通过，但选中的 provider 没有实现这项能力
- * （工具不挂、语音不转写）时只记 warn，不拒绝启动。
- *
- * 在 AI Worker 初始化与每次 agent 配置热重载后各调用一次，逐轮回复不重复记录。
+ * 检查当前配置的供应商是否缺失语音合成或语音转写实现，若缺失则记录告警日志。
  */
 export function reportUnimplementedAgentCapabilities(): void {
   const config: AgentDeploymentConfig = getAgentDeploymentConfig();
@@ -455,15 +428,8 @@ export function reportUnimplementedAgentCapabilities(): void {
 }
 
 /**
- * 接管主线程热重载投递的 agent 对话能力快照（见 workers/aiChat/configReload.ts）。
- *
- * 整体替换本线程 holder 后丢弃按旧快照建立的能力门面与各 SDK 客户端，下一次
- * 取用按新快照重建；在途请求与已建立的回复会话（整轮工具往返）继续持有旧门面、旧模型
- * 与旧客户端直至结算（会话在创建时固定，见各实现包的 replySession.ts）。同一协议、端点
- * 与凭据的配额 lane 原样保留，并发额度跨重载延续；不再被任何能力引用的 lane
- * 从表中摘除。media 能力变化时两种输入模态回到未探测状态；text 能力变化时丢弃
- * Gemini 回复共用显式缓存的登记表，下一次走显式缓存的回复按新客户端重新扫描。
- * 各群上一次回复请求的触发时刻不随登记表丢弃。
+ * 接管热重载的 agent 配置快照：重置门面与客户端缓存、修剪不再引用的配额 lane，
+ * 并在 text 或 media 配置变化时清理对应的上下文缓存或模态支持探测状态。
  */
 export function reloadAgentDeploymentConfig(config: AgentDeploymentConfig): void {
   const previous: AgentDeploymentConfig = getAgentDeploymentConfig();

@@ -38,21 +38,10 @@ import type { StickerCandidate, StickerPackCandidate, StickerRoundState } from "
 
 /**
  * 应景贴纸的两层选择工具：
- * 一层 view_sticker_pack——工具描述里只列每个白名单包的编号、包名和整包
- * 简介（见 aiChat/ai/stickers/catalog.ts 的 summarizePack），模型按简介挑
- * 一个包调用，返回包内每枚贴纸的编号清单（emoji + 画面描述）；
- * 二层 send_sticker——按「包编号 + 贴纸编号」真正发送。必须先看过对应包的
- * 清单才能发（viewedPackIntents 强制）；每轮最多查看
- * MAX_STICKER_PACK_VIEWS_PER_REPLY 个不同包，同一包只能查看一次；每轮回复最多
- * MAX_STICKERS_PER_REPLY 枚、不重复同一枚（acceptedStickerUids 按
- * file_unique_id 强制）
- * ——这些限额状态挂在 StickerRoundState 上，每轮回复新建一份（见
- * aiChat/ai/tools/replyToolset/orchestrator.ts）。同群各轮的动作按入站顺序依次出站（见
- * workers/aiChat/replyDelivery.ts）。
- *
- * 工具定义按次回复现组装（不进 consts/tools.ts 的 TOOL_DECLARATIONS 静态清单）：
- * 模型选中的编号与组装工具描述时用的菜单对应，两处共享 buildStickerPackMenu()
- * 同一次调用的产出。
+ * - view_sticker_pack：按包编号与表达意图返回包内每枚贴纸的编号与描述；每轮最多查看
+ *   MAX_STICKER_PACK_VIEWS_PER_REPLY 个不同包，同一包只能查看一次。
+ * - send_sticker：按包编号与贴纸编号发送已查看包内的贴纸；每轮最多发送 MAX_STICKERS_PER_REPLY 枚且不重复。
+ * 工具声明与执行器共享同一轮 buildStickerPackMenu() 产出的菜单。
  */
 
 export function createStickerRoundState(): StickerRoundState {
@@ -60,10 +49,8 @@ export function createStickerRoundState(): StickerRoundState {
 }
 
 /**
- * 组装当前可选的贴纸包菜单：每个白名单包收整包简介 + 包内已经生成过画面
- * 描述的贴纸（还没描述的贴纸不出现，等下一轮目录对账补上）。拉取失败或
- * 一枚可用贴纸都没有的包整个跳过；简介还没生成出来的包用占位文案，包内
- * 清单照常可看。
+ * 组装当前可选的贴纸包菜单：收录白名单包中已有画面描述的贴纸与整包简介（未生成简介时使用占位文案）；
+ * 拉取失败或无可用贴纸的包跳过。
  */
 export function buildStickerPackMenu(
   signal?: AbortSignal
@@ -84,14 +71,13 @@ export function buildStickerPackMenu(
   return waitForStickerMenu(promise, signal);
 }
 
-/** 真正重建一次菜单，并在期间没有再次失效时写回记忆化缓存。 */
+/** 重建贴纸包菜单，构建期间目录版本未变时写回缓存。 */
 async function rebuildStickerPackMenu(
   revision: number,
   signal: AbortSignal
 ): Promise<readonly StickerPackCandidate[]> {
   try {
     const menu: readonly StickerPackCandidate[] = await collectStickerPackMenu(signal);
-    // 构建期间目录又变过（revision 不同）就不写缓存，下一次取会重建。
     if (!signal.aborted && stickerMenuRevision.current === revision) {
       stickerMenuCache.current = { revision, menu };
     }
@@ -103,8 +89,6 @@ async function rebuildStickerPackMenu(
 
 async function collectStickerPackMenu(signal: AbortSignal): Promise<StickerPackCandidate[]> {
   const packs: readonly string[] = getStickerConfig().packs;
-  // 各包拉取互不依赖，并发进行；allSettled 使单个包的意外异常不影响其余包
-  // （getStickerSet 自身失败返回 null，reject 属于防御路径）。
   const results: PromiseSettledResult<StickerSet | null>[] = await Promise.allSettled(
     packs.map((pack: string): Promise<StickerSet | null> =>
       getStickerSet(pack, undefined, signal)
@@ -115,7 +99,6 @@ async function collectStickerPackMenu(signal: AbortSignal): Promise<StickerPackC
     const pack: string = packs[i]!;
     const result: PromiseSettledResult<StickerSet | null> = results[i]!;
     if (result.status === "rejected") {
-      // 防御性 rejection 带包名落日志；常规 Telegram 失败由 getStickerSet 返回 null。
       logger.error(`Unexpected sticker menu fetch rejection for pack "${pack}":`, result.reason);
     }
     const set: StickerSet | null = result.status === "fulfilled" ? result.value : null;
@@ -131,8 +114,7 @@ async function collectStickerPackMenu(signal: AbortSignal): Promise<StickerPackC
   return menu;
 }
 
-/** 每轮回复只取消自己的等待；共享构建继续服务其它回复，底层由 Worker 信号收口，
- *  竞速实现见 libs/abortSignal.ts。 */
+/** 等待共享菜单构建完成；当前回复取消时只中止自身等待。 */
 function waitForStickerMenu(
   request: Promise<readonly StickerPackCandidate[]>,
   signal?: AbortSignal
@@ -144,16 +126,12 @@ function waitForStickerMenu(
   });
 }
 
-/** 包内贴纸的编号清单文本（每行「编号. emoji 画面描述」），一层工具的返回值用。 */
+/** 格式化包内贴纸的编号清单文本。 */
 function formatPackStickerList(candidate: StickerPackCandidate): string {
   return candidate.stickers.map((c: StickerCandidate, i: number): string => `${i + 1}. ${c.emoji || "（无 emoji）"} ${c.description}`).join("\n");
 }
 
-/**
- * 构造 view_sticker_pack 的工具定义：description 里带上包的编号清单（包名 +
- * 整包简介），pack_index 按菜单长度约束取值范围。菜单为空（白名单为空、
- * 或目录还没生成出任何描述）时返回 null——两层工具一起不提供。
- */
+/** 构造 view_sticker_pack 工具定义；菜单为空时返回 null。 */
 export function buildViewStickerPackToolDefinition(menu: readonly StickerPackCandidate[]): AiToolDefinition | null {
   if (menu.length === 0) return null;
 
@@ -176,7 +154,7 @@ export function buildViewStickerPackToolDefinition(menu: readonly StickerPackCan
   };
 }
 
-/** 构造 send_sticker 的工具定义（两层选择的第二层），菜单为空时返回 null。 */
+/** 构造 send_sticker 工具定义；菜单为空时返回 null。 */
 export function buildSendStickerToolDefinition(menu: readonly StickerPackCandidate[]): AiToolDefinition | null {
   if (menu.length === 0) return null;
 
@@ -194,8 +172,7 @@ export function buildSendStickerToolDefinition(menu: readonly StickerPackCandida
   };
 }
 
-/** 解析查看贴纸包时必填的表达意图：空白折叠成单行并去除首尾空白后非空，
- * 且不超过 STICKER_INTENT_MAX_CHARS。 */
+/** 解析并清洗查看贴纸包时必填的表达意图；为空或超过 STICKER_INTENT_MAX_CHARS 时返回 null。 */
 export function parseStickerIntent(argumentsJson: string): string | null {
   const value: unknown = parseToolArguments(argumentsJson)?.intent;
   if (typeof value !== "string") return null;
@@ -206,19 +183,14 @@ export function parseStickerIntent(argumentsJson: string): string | null {
 
 /** viewStickerPackTool 的入参。 */
 export interface ViewStickerPackToolParams {
-  /** 必须是同一轮回复里 buildStickerPackMenu 产出的那份菜单。 */
+  /** 同一轮回复里 buildStickerPackMenu 产出的菜单。 */
   menu: readonly StickerPackCandidate[];
   argumentsJson: string;
   state: StickerRoundState;
   signal?: AbortSignal;
 }
 
-/**
- * 校验查看额度并同步返回真实贴纸编号与描述，供模型下一次调用选择。不切聊天状态：
- * 有序并行轮的「正在选择贴纸」在串行链的发送步骤里随拟人停顿亮起（见 sendStickerTool），
- * 直接轮则由工具集在看过贴纸包后的下一次模型请求期间亮起（见 orchestrator.ts 的
- * beforeModelRequest）。
- */
+/** 校验查看额度并同步返回目标贴纸包的编号清单。 */
 export function viewStickerPackTool({
   menu,
   argumentsJson,
@@ -256,27 +228,18 @@ export interface SendStickerToolParams {
   chatId: number;
   /** 本轮所在的论坛话题；General、非论坛群为 undefined。 */
   messageThreadId: number | undefined;
-  /**
-   * 必须是同一轮回复里 buildStickerPackMenu 产出的那份菜单（与组装工具描述/
-   * 一层清单时用的编号一一对应，见模块头注）。
-   */
+  /** 同一轮回复里 buildStickerPackMenu 产出的菜单。 */
   menu: readonly StickerPackCandidate[];
   argumentsJson: string;
   state: StickerRoundState;
-  /**
-   * 发送成功后的回调（描述行 + 消息 ID），供调用方自录记忆/登记自发消息
-   * （防频道自回环，见 infra/selfSentTracker.ts）。
-   */
+  /** 发送成功后的回调（描述行 + 消息 ID）。 */
   onSent: (stickerDescription: string, messageId: number) => void;
-  /** 本轮回复是否仍属当前代际；失效后拒绝接纳并在发送前后复核。 */
+  /** 本轮回复是否仍属当前代际。 */
   isActive: () => boolean;
   signal?: AbortSignal;
 }
 
-/**
- * 校验已查看清单与限额，接纳时预占贴纸，返回发送步骤。
- * 发送步骤持有选择状态与拟人停顿（按注入的节奏）、取消信号和真实发送后的回调。
- */
+/** 校验已查看清单与贴纸限额，预占贴纸并返回串行发送步骤。 */
 export function sendStickerTool({
   chatId,
   messageThreadId,

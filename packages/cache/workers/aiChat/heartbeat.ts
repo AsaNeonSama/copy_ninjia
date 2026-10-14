@@ -1,18 +1,14 @@
-/** owner: workers/aiChat。聊天状态心跳（packages/aiChat/ai/chatActionHeartbeat.ts）的内存状态；
- * 容量不超过同时存在回复轮的群数，Worker 重建后从空表开始。 */
+/** owner: workers/aiChat。聊天状态心跳（typing 等动作）状态（packages/aiChat/ai/chatActionHeartbeat.ts）。 */
 
 import type { ChatActionHeartbeatEntry } from "../../../types/aiChat/chatAction";
 
 /**
- * chatId -> 共享聊天状态心跳；每个条目由同群全部在途回复轮引用计数。
- * 清理：clearChatHeartbeatCache（引用归零、群失效、AI 禁用）与
- * resetAiChatHeartbeatCache（测试隔离）各自清掉重发与静默定时器后删键。
- * 容量：同时存在回复轮的群数，上界为受管群数；不设淘汰。
+ * 群 ID 到共享聊天动作心跳条目的映射：同群在途回复轮创建并按引用计数复用，引用归零、群失效或 AI 禁用时由 clearChatHeartbeatCache 清除定时器并删除。
+ * 容量与同时存在在途回复轮的受管群数同阶，不设淘汰；Worker 重建后从空表开始。
  */
 export const typingHeartbeats: Map<number, ChatActionHeartbeatEntry> = new Map();
 
-/** 禁用/淘汰时立即停止本群后续 tick。已发出的请求仍由原回复轮 stop/settle
- * 等待；从 Map 移除后旧句柄的 set 会自动失效，重新启用可安全创建新条目。 */
+/** 停止指定群的聊天动作心跳定时器并移除条目。 */
 export function clearChatHeartbeatCache(chatId: number): void {
   const entry: ChatActionHeartbeatEntry | undefined = typingHeartbeats.get(chatId);
   if (!entry) return;
@@ -23,7 +19,7 @@ export function clearChatHeartbeatCache(chatId: number): void {
   typingHeartbeats.delete(chatId);
 }
 
-/** 测试隔离时停止所有 timer 并清空表。 */
+/** 停止全部群的聊天动作心跳定时器并清空映射。 */
 export function resetAiChatHeartbeatCache(): void {
   for (const chatId of [...typingHeartbeats.keys()]) clearChatHeartbeatCache(chatId);
 }

@@ -25,21 +25,13 @@ import { hasLiveReplyRounds, hasReplyDeliveryCapacity, isDirectReplyModelActive 
 import { replyReferenceForBufferedMessage } from "./bufferedMessageIndex";
 
 /**
- * AI 回复准入编排。并发闸决定立即执行、排队或丢弃；滑动窗口计数和单轮
- * 工具生命周期分别由 replyRound.ts 管理，队列快照与 FIFO 由 replyQueue.ts
- * 管理。本文件保留 Worker 对外调用入口，并在模型完成时补跑、发送完成时结算提示；
- * 溢出提示登记时本群没有存活轮次则当场发出。
+ * AI 回复准入编排：按并发与排队策略决定立即启动、入队等待、登记溢出提示或静默丢弃，
+ * 并在模型阶段完成、轮次收尾及维护节拍时推动待处理队列。
  */
 
-/**
- * 启动一条排队触发，并在模型处理结束时继续排空同群待处理队列。
- * @returns 本次真的开了一轮为 true；被容量或限频闸拒绝为 false，此时这条触发要留在
- *   队首等下一次 drain（见 replyQueue.ts）。
- */
+/** 启动一条排队触发，成功启动返回 true，被容量或限频拒绝时返回 false。 */
 function startQueuedRound(chatId: number, trigger: QueuedReplyTrigger): boolean {
   if (aiChatWorkerQuiescing.current) return false;
-  // 字段一律写全、缺省显式 undefined，与 generateAndSendReply 的调用同形
-  // （口径同 replyQueue.ts 的 pushReplyTrigger）。
   return startReplyRound(
     {
       chatId,
@@ -62,12 +54,7 @@ function startQueuedRound(chatId: number, trigger: QueuedReplyTrigger): boolean 
   );
 }
 
-/**
- * 只在限频窗口（RATE_LIMIT_LONG_WINDOW_MS）有余量时推一次队列。所有补跑入口都只能走这里。
- *
- * 窗口已满的群直接跳过，不调用 startReplyRound，也就不产生限频提示，见
- * docs/cn/04-invariants.md。
- */
+/** 仅在滑动限频窗口（RATE_LIMIT_LONG_WINDOW_MS）有余量时尝试排空该群队列。约束见 docs/cn/04-invariants.md。 */
 function drainReplyQueueIfWindowAllows(chatId: number, now: number): void {
   const times: TimestampDeque | undefined = longTriggerTimes.get(chatId);
   if (times !== undefined) {
@@ -77,36 +64,26 @@ function drainReplyQueueIfWindowAllows(chatId: number, now: number): void {
   drainQueuedReplies(chatId, (trigger: QueuedReplyTrigger): boolean => startQueuedRound(chatId, trigger));
 }
 
-/** 模型交付完整链即补跑下一条，发送积压不占模型位；限频窗口仍在入口判定。 */
+/** 模型阶段完成时尝试补跑同群下一条排队触发。 */
 function onReplyModelFinished(chatId: number): void {
   if (aiChatWorkerQuiescing.current) return;
   drainReplyQueueIfWindowAllows(chatId, Date.now());
 }
 
-/**
- * 一轮结束时的推力：先补发欠下的溢出提示（与窗口余量无关），再按窗口余量推队列，
- * 见 drainReplyQueueIfWindowAllows。
- */
+/** 单轮发送收尾时补发溢出提示并推动所有待处理队列。 */
 function onReplyRoundFinished(chatId: number): void {
   if (aiChatWorkerQuiescing.current) return;
   flushOverflowNotice(chatId);
   drainPendingReplyQueues();
 }
 
-/**
- * 维护节拍的兜底排空（由 aiChatWorker.ts 的 runAiChatWorkerMaintenance 调用）。
- *
- * 模型完成、发送收尾及新触发入队均尝试补跑；限频闸拒绝时 startReplyRound
- * 没有建任务，不会有完成回调，入队尝试也可能仍撞满窗口。本函数按维护节拍对
- * 所有有排队项的群再推一次。
- */
+/** 遍历所有有排队触发的群并在限频窗口允许时补跑；已消费触发且仍有余项的群移至队尾轮转。 */
 export function drainPendingReplyQueues(now: number = Date.now()): void {
   if (aiChatWorkerQuiescing.current) return;
   for (const chatId of [...pendingReplyTriggers.keys()]) {
     const queue: ReturnType<typeof pendingReplyTriggers.get> = pendingReplyTriggers.get(chatId);
     const previousSize: number = queue?.size ?? 0;
     drainReplyQueueIfWindowAllows(chatId, now);
-    // 已取得全局空位且仍有排队项的群移到末尾，下次回收优先补跑其它群。
     if (queue && queue.size > 0 && queue.size < previousSize) {
       pendingReplyTriggers.delete(chatId);
       pendingReplyTriggers.set(chatId, queue);
@@ -122,26 +99,20 @@ export interface GenerateAndSendReplyParams {
   imageGenerationRequested: boolean;
   imageGenerationReference?: QueuedReplyTrigger["imageGenerationReference"];
   isRandomTrigger: boolean;
-  /**
-   * 主线程投递时刻的 Telegram 发送面高压快照：trigger 消息的 telegramBackpressured，
-   * 或媒体记录的 replyTelegramBackpressured；缺省按未高压。
-   */
+  /** 主线程投递时刻的 Telegram 发送面高压快照；缺省按未高压处理。 */
   telegramBackpressured?: boolean;
-  /** 主线程随 trigger 消息附带的本群问答 JSON 文本；本群没有时是 undefined。 */
+  /** 主线程随 trigger 附带的本群问答 JSON 文本。 */
   chatQaJson?: string;
-  /** 同一时刻本群已登记问答条数；缺省（媒体触发）按 0。 */
+  /** 本群已登记问答条数。 */
   chatQaCount?: number;
-  /** 触发消息所在的论坛话题；本轮全部发送据此落回原话题。 */
+  /** 触发消息所在的论坛话题。 */
   messageThreadId: number | undefined;
   mediaComment?: MediaCommentContext;
-  /** 媒体入站即准入；模型等待真实描述，发送顺位不受解析完成顺序影响。 */
+  /** 媒体异步解析句柄。 */
   mediaPreparation?: Promise<MediaCommentContext | null>;
 }
 
-/**
- * 接纳一次 AI 回复触发。此函数同步完成并发准入与排队决策，真正的生成发送
- * 以 fire-and-forget 方式执行，不阻塞 Worker 继续分发消息。
- */
+/** 同步完成回复触发的并发准入与排队决策，异步启动回复轮次。 */
 export function generateAndSendReply({
   chatId,
   triggerSenderId,
@@ -211,13 +182,10 @@ export function generateAndSendReply({
         mediaTrigger: mediaComment,
         mediaPreparation,
       });
-      // 入队后按 FIFO 补跑；限频或容量仍满时由收尾和维护节拍继续推动。
       drainReplyQueueIfWindowAllows(chatId, Date.now());
       break;
     case "enqueueOverflow":
-      // 等当前轮收尾后再发提示；话题一并记下，提示落回被丢弃触发所在的话题。
       pendingOverflowNotices.set(chatId, messageThreadId);
-      // 群里没有存活轮次时没有收尾推力，当场发出。
       if (!hasLiveReplyRounds(chatId)) flushOverflowNotice(chatId);
       break;
     case "dropSilently":

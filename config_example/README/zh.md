@@ -139,7 +139,7 @@ done
 | `bot_token` | `string` | **必填** | 非空字符串，不能等于示例占位符 | BotFather 发放的 Telegram Bot API Token，形如 `123456:ABC...`，属于核心敏感凭据 |
 | `super_admin_user_id` | `number` | **必填** | 正安全整数（`> 0`） | 唯一超级管理员的 Telegram 用户数字 ID（非用户名），天生拥有全部可授予权限，无需写入数据库 |
 | `atmosphere` | `string` | 可选 | `"mesugaki"` 或 `"normal"`；首尾空白去掉后严格校验，缺省按是否配置自定义人设选择 | 机器人系统通知与命令回执的语气风格；显式配置优先（`mesugaki` 雌小鬼，`normal` 普通）。未配置时，存在 `prompt/persona.md` 使用普通风格，否则使用雌小鬼风格；不改变 AI 人设 |
-| `time_zone` | `string` | 可选 | IANA 时区名，缺省 `"Asia/Tokyo"`；首尾空白去掉后严格校验 | 默认日历时区：运势、日志、广告累计、AI 时间、每日维护与未指定时区的 cron 共用；仅为 `Asia/Tokyo`（含缺省）时注册东京天气工具；非法值拒绝启动。数据根建库时绑定该时区，之后更换会被启动拒绝，见 [07 运维与排障](../../docs/cn/07-operations.md#日历时区) |
+| `time_zone` | `string` | 可选 | IANA 时区名，缺省 `DEFAULT_BOT_TIME_ZONE`；首尾空白去掉后严格校验 | 默认日历时区：运势、日志、广告累计、AI 时间、每日维护与未指定时区的 cron 共用；仅为 `TOKYO_TIME_ZONE`（含缺省）时注册东京天气工具；非法值拒绝启动。数据根建库时绑定该时区，之后更换会被启动拒绝，见 [07 运维与排障](../../docs/cn/07-operations.md#日历时区) |
 
 ---
 
@@ -221,15 +221,15 @@ done
 
 ### 通用键说明
 
-适用于所有能力（`text`、`summary`、`media`、`ad_detect`、`image`、`tts`、`web_search`）：
+适用于所有能力（`AGENT_CAPABILITY_NAMES`）：
 
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| `provider` | `string` | **必填** | `"google"`、`"openai"` 或 `"anthropic"` | 调用协议与 SDK 类型（**注意**：`image` 与 `tts` 仅支持 `"google"` 或 `"openai"`）。兼容 OpenAI 接口的模型（如 DeepSeek、xAI）均填 `"openai"` |
+| `provider` | `string` | **必填** | `AGENT_PROVIDERS`（`"google"`、`"openai"` 或 `"anthropic"`） | 调用协议与 SDK 类型（**注意**：`image` 与 `tts` 仅支持 `"google"` 或 `"openai"`）。兼容 OpenAI 接口的模型（如 DeepSeek、xAI）均填 `"openai"` |
 | `api_key` | `string` | **必填** | 非空字符串，不能是示例占位符 | 该能力专属的 API 密钥 |
-| `base_url` | `string` | 可选 | 绝对 HTTPS URL（仅 `localhost`、`127.0.0.1`、`::1` 本地回环允许 HTTP） | 自定义端点地址。不能包含用户名/密码，不能包含 `#` 片段。缺省时直连对应官方 API |
+| `base_url` | `string` | 可选 | 绝对 HTTPS URL（仅 `LOOPBACK_HOSTS` 本地回环允许 HTTP） | 自定义端点地址。不能包含用户名/密码，不能包含 `#` 片段。缺省时直连对应官方 API |
 | `model` | `string` | **必填**（xAI TTS 禁止配置） | 非空字符串 | 端点实际接受的模型名称 |
-| `headers` | `object` | 可选 | 1–8 个键值对（**仅 `provider: "google"` 或 `"anthropic"` 时允许**） | 附加 HTTP 请求头，用于第三方网关鉴权（如 Cloudflare AI Gateway 的 `cf-aig-authorization`）。键名须为 HTTP token，忽略大小写不得重复，google 下不能是 `x-goog-api-key`，anthropic 下不能是 `x-api-key`；键值去掉首尾空白后为非空的可打印 ASCII 字符串 |
+| `headers` | `object` | 可选 | `1`～`AGENT_HEADERS_MAX_ENTRIES` 个键值对（**仅 `provider: "google"` 或 `"anthropic"` 时允许**） | 附加 HTTP 请求头，用于第三方网关鉴权（如 Cloudflare AI Gateway 的 `cf-aig-authorization`）。键名须为 HTTP token，忽略大小写不得重复，不得使用 `AGENT_CREDENTIAL_HEADER_NAMES` 中的官方凭据头；键值去掉首尾空白后为非空的可打印 ASCII 字符串 |
 | `fallback_model` | `string` | 可选 | 非空字符串，不能与 `model` 相同（**仅 `provider: "anthropic"` 时允许**） | `model` 拒答（`stop_reason: "refusal"`）时，用该模型与同一 `api_key`、`base_url`、`headers` 重发同一请求；回退额度按 best-effort 兑换，回退模型不在 `model` 的 `allowed_fallback_models` 内时按原价计费。回退模型也拒答或未配置时，该请求直接失败、不重试 |
 
 ### 生图专属键说明（`agent.image`）
@@ -237,7 +237,7 @@ done
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
 | `image_protocol` | `string` | **OpenAI 必填** | `"openai"`、`"openai-standard"` 或 `"xai"` | 生图请求体协议类型。`provider: "google"` 时**严禁**配置此键 |
-| `max_reference_images` | `number` | 可选 | 整数 `1`–`5`，缺省 `1` | 一次生图最多交给模型的参考图张数。触发消息本身或它回复的那张图排第一；该图属于相册时，按相册顺序补上同一相册的其余图片。按所选模型实际支持的输入图片张数填写 |
+| `max_reference_images` | `number` | 可选 | 整数 `1`～`IMAGE_GENERATION_MAX_REFERENCE_IMAGES`，缺省 `IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES` | 一次生图最多交给模型的参考图张数。触发消息本身或它回复的那张图排第一；该图属于相册时，按相册顺序补上同一相册的其余图片。按所选模型实际支持的输入图片张数填写 |
 
 ### 语音合成专属键说明（`agent.tts`）
 
@@ -246,16 +246,16 @@ done
 | `speech_protocol` | `string` | **OpenAI 必填** | `"openai"`（audio/speech）或 `"xai"`（POST /tts） | 语音合成协议。`provider: "google"` 时**严禁**配置此键 |
 | `voice` | `string` | **必填** | 非空字符串 | 发音音色标识。Google 可以是内置音色名（如 `en-us-nika`）或 Voice Design ID；OpenAI/xAI 为对应音色名（如 `coral`、`ara`） |
 | `style` | `string` | 可选 | 非空字符串，xAI 协议**禁止**配置 | 基础朗读风格提示词。缺省使用内置的ツンデレ风格（`TTS_DEFAULT_STYLE`） |
-| `language` | `string` | 可选 | 非空字符串（BCP-47 语言代码或 `"auto"`），**仅 xAI 协议允许** | 随合成请求发送的合成语言，缺省为 `"auto"` |
-| `bot_language` | `string` | 可选 | `"en"`、`"zh"` 或 `"ja"`；首尾空白去掉后严格校验，缺省 `"ja"` | AI 语音台词的语言：切换模型可见的语音工具说明与去重规则，并在 AI 回复的合成请求里给基础风格追加该语言的朗读语言要求（xAI 协议不发送；`/send` 与 cron 不追加）。`style` 与 `prompt/voice_tool.md` 不随它切换，更换时建议一并改成对应语言 |
-| `daily_limit` | `number` | 可选 | 正安全整数，缺省 `100` | 每个计数窗口的语音合成总预算次数；窗口自其内首次请求起算，长度为 `TTS_USAGE_WINDOW_MS` |
-| `daily_reserve_quota` | `number` | 可选 | 整数，范围 `0` ～ `daily_limit - 1`，缺省 `25` | 预留给 `/send` 和 `cron` 语音任务的独立额度。AI 对话独立使用剩余的 `daily_limit - daily_reserve_quota` 次，两边分别计数 |
+| `language` | `string` | 可选 | 非空字符串（BCP-47 语言代码或 `"auto"`），**仅 xAI 协议允许** | 随合成请求发送的合成语言，缺省为 `XAI_SPEECH_DEFAULT_LANGUAGE` |
+| `bot_language` | `string` | 可选 | `TTS_BOT_LANGUAGES`；首尾空白去掉后严格校验，缺省 `TTS_DEFAULT_BOT_LANGUAGE` | AI 语音台词的语言：切换模型可见的语音工具说明与去重规则，并在 AI 回复的合成请求里给基础风格追加该语言的朗读语言要求（xAI 协议不发送；`/send` 与 cron 不追加）。`style` 与 `prompt/voice_tool.md` 不随它切换，更换时建议一并改成对应语言 |
+| `daily_limit` | `number` | 可选 | 正安全整数，缺省 `TTS_DEFAULT_DAILY_LIMIT` | 每个计数窗口的语音合成总预算次数；窗口自其内首次请求起算，长度为 `TTS_USAGE_WINDOW_MS` |
+| `daily_reserve_quota` | `number` | 可选 | 整数，范围 `0` ～ `daily_limit - 1`，缺省 `TTS_DEFAULT_DAILY_RESERVE_QUOTA` | 预留给 `/send` 和 `cron` 语音任务的独立额度。AI 对话独立使用剩余的 `daily_limit - daily_reserve_quota` 次，两边分别计数 |
 
 ### 独立联网检索专属键说明（`agent.web_search`）
 
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| `max_calls_per_use` | `number` | 可选 | 正安全整数（`≥ 1`），缺省 `5` | 每轮对话回复最多调用本地 `web_search` 函数的次数；不限制一次调用内供应商的检索次数，也不作用于 cron 摘要 |
+| `max_calls_per_use` | `number` | 可选 | 正安全整数（`≥ 1`），缺省 `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE` | 每轮对话回复最多调用本地 `web_search` 函数的次数；不限制一次调用内供应商的检索次数，也不作用于 cron 摘要 |
 
 ---
 
@@ -285,8 +285,8 @@ done
 
 | 分组 | 键名 | 类型 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| `onlyPath` | `random_h_image_dir` | `string` | 绝对路径或 `./`、`../` 开头的目录路径，缺省 `./h_image` | `/h_image` 命令与 cron 随机抽图的图库目录，基于运行时数据根解析 |
-| `pathOrUrl` | `bot_default_avatar` | `string` | 本机图片或 MP4 文件路径，或绝对 HTTP/HTTPS URL | `/icon reset` 与 `/copy stop` 复原机器人头像时使用的素材：JPG/PNG（`≤ 10 MiB`）设为静态头像，MP4（`≤ 50 MiB`，画面为正方形且 `≤ 1080×1080`）设为动态头像。本地文件在加载时校验，直链在复原时校验，单次下载超时 90 秒 |
+| `onlyPath` | `random_h_image_dir` | `string` | 绝对路径或 `./`、`../` 开头的目录路径，缺省 `RANDOM_H_IMAGE_DIR` | `/h_image` 命令与 cron 随机抽图的图库目录，基于运行时数据根解析 |
+| `pathOrUrl` | `bot_default_avatar` | `string` | 本机图片或 MP4 文件路径，或绝对 HTTP/HTTPS URL | `/icon reset` 与 `/copy stop` 复原机器人头像时使用的素材：JPG/PNG（`≤ BOT_PROFILE_PHOTO_MAX_BYTES`）设为静态头像，MP4（`≤ BOT_PROFILE_ANIMATION_MAX_BYTES`，画面为正方形且单边 `≤ BOT_PROFILE_ANIMATION_MAX_SIDE`）设为动态头像。本地文件在加载时校验，直链在复原时校验，单次下载超时 `DEFAULT_AVATAR_FETCH_TIMEOUT_MS` |
 | `onlyUrl` | `fortune_thumbnail_url` | `string` | 绝对 HTTPS URL | 「未卜先知」inline 结果卡片展示的缩略图直链 |
 | `onlyUrl` | `probability_thumbnail_url` | `string` | 绝对 HTTPS URL | 「概率论」inline 结果卡片展示的缩略图直链 |
 | `onlyUrl` | `gag_thumbnail_url` | `string` | 绝对 HTTPS URL | gag 口球发言 inline 结果卡片展示的缩略图直链 |
@@ -313,7 +313,7 @@ done
 
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| `packs` | `string[]` | **必填** | 数组长度 `0 ～ 5`，元素去掉首尾空白后仅含字母、数字与下划线且互不重复 | Telegram 贴纸包的 short name 列表（即添加贴纸链接 `t.me/addstickers/<name>` 中的 name 部分，**不要写完整 URL**）。配置为空数组 `[]` 表示 AI 对话不使用贴纸包 |
+| `packs` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_STICKER_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | Telegram 贴纸包的 short name 列表（即添加贴纸链接 `t.me/addstickers/<name>` 中的 name 部分，**不要写完整 URL**）。配置为空数组 `[]` 表示 AI 对话不使用贴纸包 |
 
 ---
 
@@ -437,10 +437,10 @@ done
 | --- | --- | --- | --- | --- |
 | `moods` | `object[]` | **必填** | 非空对象数组 | 心情档位列表 |
 | `moods[].name` | `string` | **必填** | 非空字符串，全数组唯一 | 心情名称标识（如 `"开心"`、`"色气"`、`"困"`） |
-| `moods[].weight` | `number` | **必填** | 正整数，**所有项之和必须严格等于 100** | 基础抽取权重（可直接视为百分比） |
+| `moods[].weight` | `number` | **必填** | 正整数，**所有项之和必须严格等于 `MOOD_WEIGHT_TOTAL`** | 基础抽取权重（可直接视为百分比） |
 | `moods[].instruction` | `string` | **必填** | 非空字符串 | 该心情注入 AI Prompt 的人格与行为指导指令 |
-| `moods[].weatherMultipliers` | `object` | 可选 | 键仅限 `clear`、`cloudy`、`rain`、`snow`、`storm`、`fog`；值必须为 `0 < x ≤ 100` 的正数 | 天气影响倍率，缺省乘数为 `1.0` |
-| `moods[].timeMultipliers` | `object` | 可选 | 键仅限 `lateNight`、`morning`、`daytime`、`evening`、`night`；值必须为 `0 < x ≤ 100` 的正数 | 默认配置时区的时段倍率，缺省乘数为 `1.0` |
+| `moods[].weatherMultipliers` | `object` | 可选 | 键仅限 `WEATHER_BUCKETS`；值必须为 `0 < x ≤ MOOD_MULTIPLIER_MAX` 的正数 | 天气影响倍率，缺省乘数为 `1.0` |
+| `moods[].timeMultipliers` | `object` | 可选 | 键仅限 `TIME_BUCKETS`；值必须为 `0 < x ≤ MOOD_MULTIPLIER_MAX` 的正数 | 默认配置时区的时段倍率，缺省乘数为 `1.0` |
 
 ---
 
@@ -463,7 +463,7 @@ done
 
 | 结构 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| 顶层数组 | `string[]` | **必填** | 数组长度 `0 ～ 500`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ 1024` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长不足阈值时后台续期 |
+| 顶层数组 | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长不足阈值时后台续期 |
 
 ---
 
@@ -546,21 +546,21 @@ done
 
 ### 任务级键说明
 
-顶层数组最多 128 个任务，任务名在文件内不得重复；缺省文件即没有任务。
+顶层数组最多 `CRON_MAX_TASKS` 个任务，任务名在文件内不得重复；缺省文件即没有任务。
 
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| `name` | `string` | **必填** | 非空，`≤ 64` 字符，全文件唯一 | 任务唯一标识名。修改任务名等同于删除旧任务并注册新任务 |
+| `name` | `string` | **必填** | 非空，`≤ CRON_TASK_NAME_MAX_CHARS` 字符，全文件唯一 | 任务唯一标识名。修改任务名等同于删除旧任务并注册新任务 |
 | `chat_id` | `array` | **必填** | 详见下方「目标群投递模式」 | 目标投递群组 ID 列表 |
 | `cron` | `string` | **必填** | 标准 5 段 Cron 表达式或 `@daily` 等预设宏，须还有将来的触发时间 | 定时触发调度表达式 |
 | `time_zone` | `string` | 可选 | IANA 时区名，缺省继承 `bot.json` 的 `time_zone` | 触发时间的计算时区（如 `"Asia/Shanghai"`） |
-| `rand_cron` | `string` | 可选 | 格式 `"<min>-<max>"` 或 `"<max>"`，单位 `m`/`h`/`d`，范围 `1m ～ 24d` | 随机浮动执行模式：首次按 `cron` 触发；此后每轮结束，在区间内均匀随机取下一个触发时刻（向上取整到整分钟） |
+| `rand_cron` | `string` | 可选 | 格式 `"<min>-<max>"` 或 `"<max>"`，单位 `m`/`h`/`d`，范围 `CRON_RANDOM_INTERVAL_MIN_MS ～ CRON_RANDOM_INTERVAL_MAX_MS` | 随机浮动执行模式：首次按 `cron` 触发；此后每轮结束，在区间内均匀随机取下一个触发时刻（向上取整到整分钟） |
 | `just_once` | `boolean` | 可选 | `true` 或 `false`，缺省 `false`（**不能与 `rand_cron` 同时使用**） | 是否仅触发执行一次。**注意：执行记录保存在内存中，重启后清零** |
-| `actions` | `object[]` | **必填** | 包含 1 ～ 16 个动作对象 | 触发时按声明顺序依次执行的动作序列，相邻动作间隔 `CRON_ACTION_GAP_MS` |
+| `actions` | `object[]` | **必填** | 包含 `1 ～ CRON_MAX_ACTIONS_PER_TASK` 个动作对象 | 触发时按声明顺序依次执行的动作序列，相邻动作间隔 `CRON_ACTION_GAP_MS` |
 
 #### 目标群投递模式（`chat_id`）
 
-- **显式列表**（如 `[-1001234567890, -1009876543210]`）：按书写顺序逐个会话投递，最多 64 个、非零且互不重复的会话 ID，不核对发送权限。
+- **显式列表**（如 `[-1001234567890, -1009876543210]`）：按书写顺序逐个会话投递，最多 `CRON_MAX_CHAT_IDS_PER_TASK` 个、非零且互不重复的会话 ID，不核对发送权限。
 - **全体纳管群**（`["all"]`）：投递给所有已 `/init enable` 的群，按群 ID 升序逐群投递。每轮开始时按本任务实际用到的动作类型（文本、图片、文件、语音）逐群核对机器人当前的发信权限，权限不满足或查询失败时整群跳过。
 - **排除列表**（如 `["except", -1001234567890]`）：在 `all` 候选群的基础上排除指定群；排除项与显式列表共用会话 ID 的个数上限。
 
@@ -568,11 +568,11 @@ done
 
 | 动作类型 (`type`) | 动作说明 | Payload 结构与键说明 |
 | --- | --- | --- |
-| `send_message` | 发送纯文本消息 | • `content` (`string`, 必填)：消息正文，最长 4096 字符 |
-| `send_image` | 发送单图、相册或随机图 | • `content` (`string`, 可选)：配图文字说明，最长 1024 字符<br>• `is_blurred` (`boolean`, 可选)：是否为图片添加剧透遮罩（Spoiler），缺省 `false`<br>• **固定图片模式**：`url`（1–10 个图片直链数组）或 `path`（1–10 个本地文件路径数组），单张也必须写为数组<br>• **随机抽图模式**：`rand_image: true`，禁止配置 `url` 与多文件数组；`path` 可选指定特定目录，缺省使用 `assets.json` 的 `random_h_image_dir` |
-| `send_file` | 发送通用文件/文档 | • `content` (`string`, 可选)：说明文字，最长 1024 字符<br>• `url` (`string`, 互斥必填)：远程文件的 http(s) 直链，交给 Telegram 拉取<br>• `path` (`string`, 互斥必填)：本地文件路径，须为不超过 `TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES` 的普通文件 |
-| `send_voice` | 发送合成语音消息 | • `content` (`string`, 必填)：要念的台词正文，最长 256 字符<br>• `tone` (`string`, 可选)：本句的说话语气修饰，最长 64 字符（拼在基础风格之后）<br>*注：强依赖 `agent.tts` 配置，单轮多群投递复用首次合成音频* |
-| `send_web_digest` | 检索并生成主题汇总 | • `topic` (`string`, 必填)：简短检索主题，最长 200 字符<br>• `language` (`string`, 可选)：摘要语言，`"zh"`（缺省）、`"ja"` 或 `"en"`<br>• `max_items` (`number`, 可选)：条目数量上限（1–15，缺省 5）<br>• `instructions` (`string`, 可选)：检索与组稿共用的任务规则，最长 500 字符；每个平台独占一行等格式要求写在这里，条目正文支持 JSON 的 `\n` 换行<br>*注：需要对话核心能力；检索优先用 `agent.web_search`，未配置时用 `agent.text` 内建检索；未调用搜索时直接发送带警示的模型正文* |
+| `send_message` | 发送纯文本消息 | • `content` (`string`, 必填)：消息正文，最长 `TELEGRAM_MESSAGE_MAX_CHARS` 字符 |
+| `send_image` | 发送单图、相册或随机图 | • `content` (`string`, 可选)：配图文字说明，最长 `TELEGRAM_CAPTION_MAX_CHARS` 字符<br>• `is_blurred` (`boolean`, 可选)：是否为图片添加剧透遮罩（Spoiler），缺省 `false`<br>• **固定图片模式**：`url`（`1`～`CRON_MAX_IMAGES` 个图片直链数组）或 `path`（`1`～`CRON_MAX_IMAGES` 个本地文件路径数组），单张也必须写为数组<br>• **随机抽图模式**：`rand_image: true`，禁止配置 `url` 与多文件数组；`path` 可选指定特定目录，缺省使用 `assets.json` 的 `random_h_image_dir` |
+| `send_file` | 发送通用文件/文档 | • `content` (`string`, 可选)：说明文字，最长 `TELEGRAM_CAPTION_MAX_CHARS` 字符<br>• `url` (`string`, 互斥必填)：远程文件的 http(s) 直链，交给 Telegram 拉取<br>• `path` (`string`, 互斥必填)：本地文件路径，须为不超过 `TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES` 的普通文件 |
+| `send_voice` | 发送合成语音消息 | • `content` (`string`, 必填)：要念的台词正文，最长 `VOICE_OPERATOR_TEXT_MAX_CHARS` 字符<br>• `tone` (`string`, 可选)：本句的说话语气修饰，最长 `VOICE_TONE_MAX_CHARS` 字符（拼在基础风格之后）<br>*注：强依赖 `agent.tts` 配置，单轮多群投递复用首次合成音频* |
+| `send_web_digest` | 检索并生成主题汇总 | • `topic` (`string`, 必填)：简短检索主题，最长 `WEB_DIGEST_TOPIC_MAX_CHARS` 字符<br>• `language` (`string`, 可选)：摘要语言，`WEB_DIGEST_LANGUAGES`（缺省 `WEB_DIGEST_DEFAULT_LANGUAGE`）<br>• `max_items` (`number`, 可选)：条目数量上限（`WEB_DIGEST_MIN_ITEMS`～`WEB_DIGEST_MAX_ITEMS`，缺省 `WEB_DIGEST_DEFAULT_MAX_ITEMS`）<br>• `instructions` (`string`, 可选)：检索与组稿共用的任务规则，最长 `WEB_DIGEST_INSTRUCTIONS_MAX_CHARS` 字符；每个平台独占一行等格式要求写在这里，条目正文支持 JSON 的 `\n` 换行<br>*注：需要对话核心能力；检索优先用 `agent.web_search`，未配置时用 `agent.text` 内建检索；未调用搜索时直接发送带警示的模型正文* |
 
 ---
 
@@ -582,13 +582,13 @@ done
 | --- | --- | --- |
 | `assets.json` 的 `onlyPath.random_h_image_dir` | 运行时数据根 | 绝对路径或以 `./`、`../` 开头的目录路径 |
 | `assets.json` 的 `pathOrUrl.bot_default_avatar` | 运行时数据根 | 绝对路径或以 `./`、`../` 开头的文件路径 |
-| cron 固定图片 `payload.path` | 运行时数据根 | 1–10 个文件路径数组（绝对路径或相对路径） |
+| cron 固定图片 `payload.path` | 运行时数据根 | `1`～`CRON_MAX_IMAGES` 个文件路径数组（绝对路径或相对路径） |
 | cron 随机抽图 `payload.path` | 运行时数据根 | 目录路径字符串（绝对路径或相对路径）；省略时使用专用图库 |
 | cron 文件发送 `payload.path` | 运行时数据根 | 单个文件路径字符串（绝对路径或相对路径） |
 
-- **专用图库目录**：`assets.json` 中配置的 `random_h_image_dir`（默认 `./h_image`）。
+- **专用图库目录**：`assets.json` 中配置的 `random_h_image_dir`（缺省 `RANDOM_H_IMAGE_DIR`）。
 - **文件命名规范**：
-  - 专用图库中的图片必须使用其内容的 **64 位小写十六进制 SHA-256 哈希** 命名，扩展名仅限 `.jpg`、`.jpeg`、`.png`、`.webp`。
+  - 专用图库中的图片必须使用其内容的 SHA-256 小写十六进制哈希（`RANDOM_IMAGE_CONTENT_NAME_PATTERN`）命名，扩展名仅限 `RANDOM_IMAGE_EXTENSIONS`。
   - 通过 `/h_image add` 上传的文件会自动按哈希命名入库。启动时会严格核对图库文件合规性。
   - `cron.json` 随机图片中由 `path` 指定的自定义目录不受 SHA-256 命名限制。
 - **权限与安全**：服务账号能读取的本地文件均可发送，**严禁将路径指向 `config/` 或 `.env` 等包含敏感凭据的文件**。

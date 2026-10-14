@@ -1,26 +1,25 @@
-/** owner: workers/aiChat。天气缓存和刷新生命周期随 isolate 创建与销毁。 */
+/** owner: workers/aiChat。东京天气缓存与定时刷新句柄（packages/aiChat/ai/weather.ts）。 */
 import type { TokyoWeatherResult } from "../../../types/aiChat/weather";
 
 /**
- * 东京天气服务（packages/aiChat/ai/weather.ts）的内存缓存：仅存最近一次成功结果
- * （失败不缓存，下次照常重试）。容量固定为一个 holder，Worker 崩溃时随 isolate 销毁，
- * 重建后由下一次刷新重新填充。只有 aiChat/ai/weather.ts 写入；get_tokyo_weather 工具
- * （aiChat/ai/tools/index.ts）与心情系统（aiChat/ai/mood.ts）直接只读 current，null 表示
- * 首次成功刷新尚未完成；刷新节奏见 consts/weather.ts 的 WEATHER_REFRESH_INTERVAL_MS。
+ * 最近一次成功拉取的东京天气结果（供 get_tokyo_weather 工具与心情系统只读，null 表示尚未完成首次成功刷新）。
+ * 填充：aiChat/ai/weather.ts 刷新成功时写入（间隔 WEATHER_REFRESH_INTERVAL_MS）。
+ * 清理：新结果覆盖或进程退出释放。
+ * 重建：Worker 崩溃重启后从 null 开始，由刷新循环重新填充。
+ * 容量：固定为单个 holder。
  */
 export const weatherCache: { current: TokyoWeatherResult | null } = {
   current: null,
 };
 
 /**
- * AI Worker 内唯一的天气刷新 interval。startWeatherRefreshLoop 填充，
- * stopWeatherRefreshLoop 清除；Worker 强制崩溃时随 isolate 销毁，重建后
- * 重新启动，容量固定为一个 timer。
+ * 天气定时刷新 interval 句柄。
+ * 填充：startWeatherRefreshLoop 启动时写入；清理：stopWeatherRefreshLoop 停止时清除；重建：Worker 重启后重新创建；容量：固定为单个 timer。
  */
 export const weatherRefreshTimer: { current: ReturnType<typeof setInterval> | null } = { current: null };
 
 /**
- * 唯一天气刷新循环的取消句柄，启动时填充，停止时先清空再取消在途请求。
- * 容量固定为一个 holder；Worker 崩溃时随 isolate 销毁，重建后由启动入口重新创建。
+ * 天气刷新循环的取消控制器。
+ * 填充：startWeatherRefreshLoop 启动时创建；清理：stopWeatherRefreshLoop 先置空再 abort；重建：Worker 重启后重新创建；容量：固定为单个 holder。
  */
 export const weatherRefreshController: { current: AbortController | null } = { current: null };

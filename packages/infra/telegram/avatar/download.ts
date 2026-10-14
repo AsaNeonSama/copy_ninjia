@@ -7,9 +7,8 @@ import { logger } from "../../logger";
 import { downloadTelegramFileBytes } from "../fileDownload";
 
 /**
- * 下载头像到有界内存；复用共享的 Telegram 文件下载（download 类出站闸、取消与超时，
- * getFile 与下载各自按 AVATAR_FETCH_TIMEOUT_MS 计时），不创建本地文件。
- * 两段超时与文件服务器的非 2xx 按可重试处理，其余失败按确定性失败处理。
+ * 下载头像到有界内存（复用共享 Telegram 文件下载边界，`getFile` 与文件下载各自按 `AVATAR_FETCH_TIMEOUT_MS` 计时）：
+ * 两段超时与文件服务器非成功响应按可重试处理，其余失败按确定性失败处理。
  */
 export async function downloadAvatarFile(
   fileId: string,

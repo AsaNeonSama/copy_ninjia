@@ -1,22 +1,7 @@
 /**
- * 进程唯一的共享数据 Disk I/O Worker 宿主（主线程侧）：统一承载日志、AI/贴纸快照、
- * 每日运势、待验证当日增量 JSON、群状态与 /block 黑名单，由 diskIOWorker 在单一 Worker
- * 线程里串行执行。全局状态 memory/global/state.json
- * 由主线程经 infra/storage/stateStore.ts 门面交给 statePersistence.ts 独立异步读写与 flush。
- *
- * Worker 拥有权、flush/load 握手与对外投递语义收在本文件；Worker 创建与回执路由在
- * infra/diskIO/host.ts，逐请求投递与回执结算在 infra/diskIO/requests.ts，业务与请求的传输队列在
- * infra/diskIO/transport.ts，诊断 FIFO 在 infra/diskIO/diagnosticChannel.ts，恢复握手、
- * 镜像重放与崩溃自愈的重启节流在 infra/diskIO/recovery.ts。
- * infra/logger.ts 只是调用方之一：initDiskIO 把 relayLogMessage 装进 cache/perThread/logger.ts 的
- * logRelaySink，主线程 error 日志经它投递。
- * 各主线程领域 owner（如 aiChat/memoryMirror.ts、antiRaid/verificationMirror.ts、
- * commands/wed/persistence.ts、infra/joinLog.ts、infra/identityStorage/write.ts）经
- * postDiskIO 投递，恢复镜像重放经 infra/diskIO/businessWrite.ts 的 postWithTransport。
- *
- * 本模块自身的错误一律经 workers/diskIO/diagnosticSink.ts 的 writeDiskIODiagnostic
- * （console.error）输出，不经 logger 转发。崩溃自愈同样只用该出口，不经
- * infra/supervisedWorker.ts 通用骨架。
+ * 进程唯一的共享数据 Disk I/O Worker 主线程宿主：统一承载日志、AI/贴纸快照、每日运势、
+ * 待验证当日增量 JSON、群状态与持久化身份策略的跨线程读写、恢复握手与落盘屏障。
+ * 本模块自身的错误一律经 `writeDiskIODiagnostic` 输出，不经 `logger` 转发。
  * @see ../../docs/cn/04-invariants.md
  */
 

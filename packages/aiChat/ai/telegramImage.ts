@@ -7,15 +7,13 @@ import type { TelegramWorkerDownloadFileResult } from "../../types/telegramWorke
 
 export interface DownloadTelegramVisionImageParams {
   fileId: string;
-  /** 只用于固定格式诊断日志，不得包含用户文本、URL 或 token。 */
+  /** 诊断日志标签（不含用户文本、URL 或敏感凭据）。 */
   logLabel: string;
   signal?: AbortSignal;
 }
 
 /**
- * 通过 Telegram file_id 现取一张图片并规范成 jpeg/png。
- * getFile 与下载均由主线程能力边界完成，Worker 只收到受上限约束的字节；
- * 下载与转码后的体积由 MEDIA_MAX_DOWNLOAD_BYTES 统一约束。
+ * 通过主线程下载边界按 Telegram file_id 拉取图片，经 prepareVisionImage 规范化并校验 MEDIA_MAX_DOWNLOAD_BYTES 上限。
  */
 export async function downloadTelegramVisionImage({
   fileId,
@@ -23,8 +21,6 @@ export async function downloadTelegramVisionImage({
   signal,
 }: DownloadTelegramVisionImageParams): Promise<VisionImage | null> {
   try {
-    // 主线程内 getFile 与下载两步各自计时，不共用 deadline；invalidate signal 贯穿两步
-    // （见 docs/cn/04-invariants.md 的 AI chat invalidate 约束）。
     const download: TelegramWorkerDownloadFileResult =
       await downloadTelegramFileFromMain({
         fileId,
@@ -36,7 +32,6 @@ export async function downloadTelegramVisionImage({
       return null;
     }
 
-    // 下载缓冲已从主线程转移并归本 Worker 独占，直接传递同一个 Uint8Array。
     const image: VisionImage | null = await prepareVisionImage(download.bytes);
     if (!image) {
       logger.error(`${logLabel} is an unsupported/unrecognized image format.`);

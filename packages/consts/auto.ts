@@ -72,12 +72,12 @@ export const LOCATION_PLACEHOLDER: string = "[位置]";
 /** 以上类型都不匹配时的兜底标签。 */
 export const NON_TEXT_PLACEHOLDER: string = "[非文本消息]";
 
-/** 贴纸的类型标签；有 emoji 时写成 `[贴纸：😺]`，否则为 `[贴纸]`。所属模块：auto/message/facts.ts。 */
+/** 贴纸的类型标签；存在 emoji 时附带该 emoji。所属模块：auto/message/facts.ts。 */
 export function stickerPlaceholder(emoji: string | undefined): string {
   return emoji ? `[贴纸：${emoji}]` : "[贴纸]";
 }
 
-/** 文件的类型标签；有文件名时写成 `[文件：a.pdf]`，否则为 `[文件]`。所属模块：auto/message/facts.ts。 */
+/** 文件的类型标签；存在文件名时附带文件名。所属模块：auto/message/facts.ts。 */
 export function documentPlaceholder(fileName: string | undefined): string {
   return fileName ? `[文件：${fileName}]` : "[文件]";
 }

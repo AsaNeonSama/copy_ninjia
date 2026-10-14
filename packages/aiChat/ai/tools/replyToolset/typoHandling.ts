@@ -50,8 +50,7 @@ export function decideMessageTypo({
     ? buildCharacterTypo(text, originalChar, replacementChar)
     : null;
   const typoText: string | null = characterTypo?.typoText ?? null;
-  // 错字版本单独判一次可点击命令：send_message 的守卫校验替换前的正文，实际发出的是
-  // 错字版本；守卫与被守卫的值必须是同一个字符串。命中只作废这次手滑、正文照常发出。
+  // 错字版本须单独校验是否包含可渲染斜杠命令；命中时仅跳过本次手滑，原样发送正文。
   const shouldUseTypo: boolean = roundHasTypo &&
     !typoAlreadyUsed &&
     characterTypo !== null &&
@@ -91,10 +90,7 @@ export interface ApplyQuickTypoCorrectionParams {
   correctionText: string;
 }
 
-/**
- * 错字消息落地后补发正确单字：先静默 TYPO_QUICK_CORRECTION_MIN_MS～MAX_MS，再模拟固定
- * TYPO_QUICK_CORRECTION_TYPING_MS 的「正在输入」，切 idle、等状态收敛后发送。返回补字是否送达。
- */
+/** 错字消息发出后经过静默与打字停顿补发正确单字，返回补字是否送达。 */
 export async function applyQuickTypoCorrection({
   ctx,
   chatAction,

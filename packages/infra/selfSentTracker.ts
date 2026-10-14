@@ -11,21 +11,10 @@ import {
 import type { SelfSentWaiter } from "../types/telegram";
 
 /**
- * 登记「机器人自己刚发出的消息」，供自动流水线（packages/auto/message/）识别
- * 「这条更新其实是自己发的」并整体跳过。普通群消息 Telegram 不会把机器人
- * 自己发的推回来，但机器人在自己管理的频道里发帖时，channel_post 更新会
- * 不区分发帖者原样推回（转发进关联讨论组的副本同理，见 forward_origin 的
- * 用法）；识别后这类回环不进入 AI 随机回复、随机复读、洗澡触发等自动流水线。
- *
- * 各线程持有独立实例。Worker 的发送请求由主线程 workerRequests.ts 执行，
- * 成功后在主线程登记 markSelfSent，再向 Worker 返回回执。
- *
- * 会登记自发消息的出站请求在发出前 `beginSelfSentSend`、结算后 `endSelfSentSend`，
- * 两者成对。频道回投只在目标 chat 确有在途发送时才进入 rendezvous：没有在途发送时，
- * 机器人自己的帖子必然已经登记，未登记即判为外部消息。
+ * 机器人自发消息追踪与频道回投汇合（rendezvous）边界：
+ * 出站请求在发出前调用 `beginSelfSentSend`、成功后调用 `markSelfSent`、结算后调用 `endSelfSentSend`，
+ * 供入站自动流水线与动作命令识别并跳过频道发帖及关联讨论组自动转发的自发回环。
  * @see ../../docs/cn/04-invariants.md
- *
- * isBotOwnMessage 在每条群消息的多个入口各查一次，按 (chatId, messageId) 两级整数键直查。
  */
 
 /** TTL 到期：摘掉这一条，并在该群最后一条消失时把内层表一并删除。 */

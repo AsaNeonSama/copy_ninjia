@@ -71,7 +71,7 @@
 - **参数冲突校验**：若同时回复了一条消息又在命令中附带了不一致的目标参数，命令将被直接拒绝，不会误触发停止全群。
 - **与复读互斥**：`/copy stop` 不会影响正在运行的翻译会话；当同一个用户同时被设定为复读目标和翻译目标时，系统**优先执行翻译**（不复读原文、不复制媒体、不追加表情）；其他用户的复读不受影响。
 
-执行 `/translate list` 返回的支持语言字典如下（以 Telegram `pre` 实体附带 `json` 语法高亮发送，作为命令回执将在 30 秒后自动删除）：
+执行 `/translate list` 返回的支持语言字典如下（以 Telegram `pre` 实体附带 `json` 语法高亮发送，作为命令回执将在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除）：
 
 ```json
 {
@@ -96,7 +96,7 @@
   - 译文以纯文本发出，富文本格式不保留；若原消息包含链接，会保留原消息的链接预览设置。
   - 带有图注的图片、视频、音频、文件或付费媒体，仅提取图注翻译后作为文本发出，媒体文件本身不复制。
   - 纯无文字的图片、贴纸、文件、投票、定位等消息不予翻译，也不会回落为复读。
-  - 译文长度超出 Telegram 消息上限时不发；保留原始触发话题（Thread），拦截可渲染的斜杠命令；各类命令提示消息均在 30 秒后自动删除。
+  - 译文长度超出 Telegram 消息上限时不发；保留原始触发话题（Thread），拦截可渲染的斜杠命令；各类命令提示消息均在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除。
 - **持久化与恢复**：翻译会话持久化在 SQLite 的 `chat_states` 表对应群的 `translate` JSONB 字段中。停止某个用户的翻译仅撤销该用户，不会打断其他人的在途翻译任务。执行 `/translate disable` 或机器人离群会彻底清空本群会话。使用 `/bot_status` 可以实时查看本群当前的翻译人数与上限。
 
 ---
@@ -112,14 +112,14 @@
 | `/translate ja\|cn\|en\|uk\|ru [@username]`<br>`/translate list`<br>`/translate stop [@username/id]` | 群成员 | 选择目标语言开启翻译、查看语言列表，或停止本群/指定目标的翻译 |
 | `/translate enable\|disable` | `isCanControllTranslatePermission` | 开启或关闭本群的翻译功能（默认关闭） |
 | `/wed` | 群成员 | 随机抽取一名群友作为“老婆”并展示头像；支持确认、更换与移除，需先执行 `/init enable` |
-| `/h_image` | 群成员 | 从专用图库中均匀随机抽选一张发送（带剧透遮罩，长期保留；失败提示 30 秒自删） |
-| `/h_image add` | `isCanAddHImage` | 回复一条带图消息，将该图片（相册则连同已接收的其余图片）收录进专用图库；结果汇总 30 秒自删 |
-| `/info [@username\|id]` | 群成员 | 查询指定目标的昵称、用户名、数字 ID 与头像（支持用户、频道、Bot 及机器人自身；回执 30 秒自删） |
-| `/<1~2 个中文字>` | 群成员 | 中文动作命令（如 `/咬`、`/揪住`），回复「发起人 动作词了 目标！」；成功结果长期保留 |
-| `/quiet [1-15]` | 群成员 | 临时暂停机器人的随机插话、随机复读等主动骚扰行为，默认静音分钟数为 `QUIET_DEFAULT_MINUTES` |
+| `/h_image` | 群成员 | 从专用图库中均匀随机抽选一张发送（带剧透遮罩，长期保留；失败提示按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删） |
+| `/h_image add` | `isCanAddHImage` | 回复一条带图消息，将该图片（相册则连同已接收的其余图片）收录进专用图库；结果汇总按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删 |
+| `/info [@username\|id]` | 群成员 | 查询指定目标的昵称、用户名、数字 ID 与头像（支持用户、频道、Bot 及机器人自身；回执按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删） |
+| `/<中文动作词>` | 群成员 | 匹配 `CJK_ACTION_COMMAND_PATTERN` 的中文动作命令（如 `/咬`、`/揪住`），回复「发起人 动作词了 目标！」；成功结果长期保留 |
+| `/quiet [<分钟数>]` | 群成员 | 临时暂停机器人的随机插话、随机复读等主动骚扰行为（取值范围 `QUIET_MIN_MINUTES`～`QUIET_MAX_MINUTES`，缺省 `QUIET_DEFAULT_MINUTES`） |
 | `/unquiet` | 群成员 | 提前解除群静音模式 |
 | `/mute … <时长>`<br>`/unmute` | `isCanMute`<br>`isCanUnMute` | 在超级群中临时禁言指定用户或提前解除禁言；支持回复、`@username` 或数字 ID，时长支持 `m/h/d` 单位 |
-| `/gag … [5\|10\|15] [用具]`<br>`/ungag …` | `isCanGag` | 限制指定用户或频道身份只能通过机器人提供的专属 Inline 入口发言，或提前解除限制 |
+| `/gag … [<分钟数>] [用具]`<br>`/ungag …` | `isCanGag` | 限制指定用户或频道身份只能通过机器人提供的专属 Inline 入口发言（分钟数取值于 `GAG_DURATION_MINUTES`，缺省 `GAG_DEFAULT_DURATION_MINUTES`，默认用具 `GAG_DEFAULT_TOOL`），或提前解除限制 |
 | `/delete_message …`<br>`/delete_message stop …` | `SUPER_ADMIN_USER_ID` | 删除目标此后在本群发送的每条消息（命令之前的消息不受影响），或停止删除；支持回复、`@username`、用户 ID 或频道负数 ID |
 | `/block … enable` | `isCanBlock` | 拉黑目标：写入 SQLite 永久黑名单，并在所有已纳管的超级群中执行封禁踢出 |
 | `/block … disable` | `isCanUnBlock` | 解除黑名单：从权威数据库中移出，并在所有纳管群中解除封禁（支持用户 ID 与频道负数 ID，拒绝群自身） |
@@ -131,7 +131,7 @@
 | `/flood_control enable\|disable` | `isCanControllFloodControlPermission` | 开启或关闭本群的防连续刷屏禁言（默认关闭） |
 | `/antiraid enable\|disable` | `isCanControllAntiRaidPermission` | 开启或关闭本群的入群验证挑战与防冲群私密模式（默认关闭） |
 | `/qa set` | `isCanControllQaPermission` | 发起问答录入表单，随后由发起者通过「问题:」「回答:」两条消息录入问答对并存盘 |
-| `/qa query`<br>`/qa query <问题文本>` | 群成员 | 列出本群所有的自定义问答或精确查询某一条；带交互翻页按钮（看板长期保留，未查到的提示 30 秒自删） |
+| `/qa query`<br>`/qa query <问题文本>` | 群成员 | 列出本群所有的自定义问答或精确查询某一条；带交互翻页按钮（看板长期保留，未查到的提示按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删） |
 | `/qa remove <问题文本>` | `isCanControllQaPermission` | 删除本群中指定的自定义问答条目 |
 | `/permission query`<br>`/permission help` | 用户/频道身份 | 查询自身、回复对象或指定目标的完整权限列表，或以 JSON 列出权限说明（看板长期保留） |
 | `/permission …` | `SUPER_ADMIN_USER_ID` | 修改已在白名单中的用户/频道单项权限；支持传入 `all` 一键开启全部权限 |
@@ -153,7 +153,7 @@
 - **命令菜单交互**：带有子命令的复杂命令（如 `/copy`、`/qa`、`/mood`、`/icon`）在客户端命令菜单中作为独立条目登记，并在描述中列出常用语法。若输入缺失或传入未定义的子命令，机器人仅回复该命令的用法说明。
   - `/qa set`、`/mood query`、`/mood switch` 不接受额外参数。
   - `/qa query` 省略问题时展示全部列表，`/qa remove` 必须提供具体的问题文本；查询与删除均严格保留问题文本内部的空格与换行符。
-- **提示消息 30 秒自动删除**：在群组内执行命令时，因校验失败、权限不足、用法提示或操作成功产生的所有非功能性回执，统一在发送成功 30 秒后（`COMMAND_MESSAGE_AUTO_DELETE_MS`）自动删除，保持群聊整洁。
+- **提示消息自动删除**：在群组内执行命令时，因校验失败、权限不足、用法提示或操作成功产生的所有非功能性回执，统一在发送成功 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除。
   - **允许长期保留的例外**：`/permission help`、`/permission query` 的权限看板、`/qa query` 的问答看板、问答直答匹配出的答案文本、中文动作命令的成功执行结果、`/h_image` 抽出的图片、`cron.json` 发送的定时消息，以及复读、翻译、AI 回复等会话产物。
   - **状态机拥有的消息**：入群验证按钮、`/qa set` 录入表单、`/wed` 抽取结果及操作按钮、gag 限制发言公告等，不挂固定延迟自删，统一由用户点击按钮、业务状态机流转或群组被注销时销毁。
 - **子命令大小写不敏感**：`/copy stop|reverse|nya`、`/icon steal|reset`、`/qa set|remove|query`、`/translate <语言>|stop`、`/mood query|switch`、`/h_image add`、`/delete_message stop` 等子命令关键词均不区分大小写，与 `/block`、`/white`、`/init` 保持一致。但紧跟在子命令后的目标用户名、ID 或问答正文保持原始大小写不变。
@@ -178,12 +178,12 @@
 
 #### 3. 动作命令与 `/x`
 - 成功触发动作命令时，回复文案采用 `发起人姓名 动作 目标姓名` 格式，拥有公开 Telegram 用户名的用户会自动附带主页超链接；目标可通过回复消息或 `@username` 指定。
-- 动作成功执行的消息将长期保留；若目标缺失、参数错误或用户点击了菜单中的 `/x` 占位说明项，提示消息将在 30 秒后自动清理。
+- 动作成功执行的消息将长期保留；若目标缺失、参数错误或用户点击了菜单中的 `/x` 占位说明项，提示消息将在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动清理。
 
 > [!TIP]
-> **中文动作命令无需预先注册**，系统支持任意 1~2 个汉字的动作组合（如 `/咬`、`/抱`、`/摸摸`）。由于 Telegram 原生菜单仅支持 ASCII 字符：
+> **中文动作命令无需预先注册**，系统支持任意匹配 `CJK_ACTION_COMMAND_PATTERN` 的动作组合（如 `/咬`、`/抱`、`/摸摸`）。由于 Telegram 原生菜单仅支持 ASCII 字符：
 > - 中文动作命令不会出现在官方输入候选菜单中；菜单中使用 `/x` 作为语法占位说明项，点击会收到使用示例。
-> - 三个汉字及以上的输入（如 `/咬咬咬`）不会被识别为动作命令，将作为常规群聊消息处理。
+> - 超出 `CJK_ACTION_COMMAND_PATTERN` 长度上限的输入（如 `/咬咬咬`）不会被识别为动作命令，将作为常规群聊消息处理。
 > - 系统配备了全局滑动窗口限流：在 `CJK_ACTION_RATE_LIMIT_WINDOW_MS` 窗口内，全实例最多处理 `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW` 次动作命令，超出配额的请求将静默丢弃。
 
 #### 4. 群问答：`/qa` 全生命周期
@@ -218,7 +218,7 @@
 - **删除范围**：只删除目标在命令之后于本群发出的新消息；Bot API 无法列出历史消息，命令之前的消息不受影响。发言带 `sender_chat` 时按该频道身份判定，否则按 `from` 判定。目标的消息先照常经过入群验证、广告检测与防刷屏计数，随后被认领，不再进入 gag、命令、AI 与复读，目标发出的命令也不执行。
 - **目标为其他 Bot**：需在 @BotFather 开启本机器人的 Bot-to-Bot Communication Mode 才能收到其发言。删除目标的发言先于其他 Bot 的入口限流判定：直接放行、不计入 `BOT_MESSAGE_ACTIVITY_LIMIT`，因此持续发言的目标 Bot 每条都会被删除；同一个 Bot 在未设为目标的群里照常计数。
 - **排队与删除**：目标每发一条消息就入队一条，进入主线程内存的待删队列（全部群合计上限 `DELETE_MESSAGE_QUEUE_MAX`），由唯一的消费循环经统一 Telegram 出站调用 `deleteMessages` 删除；请求在途期间同群连续到达的条目合为一批，单批不超过 `TELEGRAM_DELETE_MESSAGES_BATCH_MAX`。删除失败只记统一 Telegram 错误日志，不重试。队列已满时新消息照常被认领但不再入队，满队时记一行 warn，队列排空时再汇总丢弃条数。
-- **容量与持久化**：每群同时最多 `DELETE_MESSAGE_CHAT_TARGET_MAX` 个目标；目标以用户/频道 ID 列表保存在 SQLite `chat_states` 表对应群的 `deleteMessageTargets` JSONB 字段中，进程重启后继续生效。登记与 `stop` 都在落盘确认后才回执。`stop` 只撤销目标，已排队的条目照常删除；群被 `/init disable`、机器人离群或被撤管理员时撤销本群全部目标并落盘，同时丢弃本群尚未发出的条目。启动时若持久化的目标含本群自身 ID 或配置的超级管理员，拒绝启动；待删队列本身只在内存中。正常停机时待删队列在 Telegram 出站总闸关闭前排空，超出预算则丢弃剩余条目并记错误日志。开始、停止与各类拒绝回执按普通命令提示在 30 秒后自删。
+- **容量与持久化**：每群同时最多 `DELETE_MESSAGE_CHAT_TARGET_MAX` 个目标；目标以用户/频道 ID 列表保存在 SQLite `chat_states` 表对应群的 `deleteMessageTargets` JSONB 字段中，进程重启后继续生效。登记与 `stop` 都在落盘确认后才回执。`stop` 只撤销目标，已排队的条目照常删除；群被 `/init disable`、机器人离群或被撤管理员时撤销本群全部目标并落盘，同时丢弃本群尚未发出的条目。启动时若持久化的目标含本群自身 ID 或配置的超级管理员，拒绝启动；待删队列本身只在内存中。正常停机时待删队列在 Telegram 出站总闸关闭前排空，超出预算则丢弃剩余条目并记错误日志。开始、停止与各类拒绝回执按普通命令提示在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自删。
 
 #### 7. 黑名单：`/block`
 - **命令语法**：使用 `/block <目标> enable` 执行拉黑，使用 `/block <目标> disable` 解除拉黑。目标参数支持回复消息、`@username`、纯数字用户 ID 以及频道的负数 ID（仅解封支持频道 ID）。
@@ -227,8 +227,8 @@
 - **销号清理机制**：在后台巡检封禁过程中，若对某一目标的封禁探测连续 `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 次均被 Telegram 官方返回 `PARTICIPANT_ID_INVALID`（账号已注销），系统会自动将其判定为“已销号账号”，并从黑名单数据库中彻底注销该 ID。
 
 #### 8. 广告检测与防冲群
-- **`/ad_detect`（智能广告拦截）**：同一发送者在短时间内发送的消息会聚合为消息串，检测队列每隔 `AD_DETECT_QUEUE_TICK_MS` 抽取一批送入广告识别模型进行判定。一旦判定命中，立即按照 `/block` 同等标准执行永久拉黑并从群中踢出，同时在群内播发带有命中理由的封禁公告（30 秒自删）。纯网络代理节点链接（如 `vless://`、`vmess://`、`trojan://`、`ss://`）若不附带招募或营销导流文案，不会被误判为广告。
-- **`/flood_control`（防连续刷屏）**：单个用户在超级群的 `FLOOD_WINDOW_MS` 滑动时间窗口内发送的消息条数达到 `FLOOD_MESSAGE_LIMIT` 时，系统将立即对其执行 `FLOOD_MUTE_DURATION_MS` 时长的临时禁言，并在群内播报警告（30 秒自删）。群管理员（机器人除外）、频道身份不计入刷屏；拥有 `isCanBypassFloodControl` 权限的身份直接豁免。
+- **`/ad_detect`（智能广告拦截）**：同一发送者在短时间内发送的消息会聚合为消息串，检测队列每隔 `AD_DETECT_QUEUE_TICK_MS` 抽取一批送入广告识别模型进行判定。一旦判定命中，立即按照 `/block` 同等标准执行永久拉黑并从群中踢出，同时在群内播发带有命中理由的封禁公告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。纯网络代理节点链接（如 `vless://`、`vmess://`、`trojan://`、`ss://`）若不附带招募或营销导流文案，不会被误判为广告。
+- **`/flood_control`（防连续刷屏）**：单个用户在超级群的 `FLOOD_WINDOW_MS` 滑动时间窗口内发送的消息条数达到 `FLOOD_MESSAGE_LIMIT` 时，系统将立即对其执行 `FLOOD_MUTE_DURATION_MS` 时长的临时禁言，并在群内播报警告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。群管理员（机器人除外）、频道身份不计入刷屏；拥有 `isCanBypassFloodControl` 权限的身份直接豁免。
 - **`/antiraid`（入群验证与私密模式）**：开启后，新成员入群需在限时内完成人机验证挑战；在遭受集中冲群攻击时可联动进入私密防护。关闭该开关时，所有未完成的验证流程立即取消，发送的提醒消息同步撤回。广告拦截、防刷屏与全局黑名单不受此开关影响。
 - **`/batch_kick`（批量清理新入群成员）**：仅超级管理员可用。通过分析入群事件日志，在指定的时间区间内（如 `30m`、`2h`、`1d`，必须在 `BATCH_KICK_MIN_DURATION_MS` 与 `BATCH_KICK_MAX_DURATION_MS` 范围内）批量踢出新加入的成员。只执行踢出操作，不加入黑名单；白名单身份与已在黑名单的身份均会自动跳过。命令受理后先行回复受理确认，踢人操作在后台异步执行并在完成后发送最终战报。
 
@@ -271,7 +271,7 @@
 - **并发控制与容量**：
   - 所有的抽取与按钮点击统一排入主线程专用调度器：全局并发处理上限为 `WED_MAX_CONCURRENT`，排队队列上限为 `WED_MAX_PENDING`（遵循先进先出 FIFO 规则），队列已满时提示稍后再试。
   - 候选滑窗以按进入顺序排列的 `{ id, enteredAt }` JSON 数组持久化在 `memory/wed/<chatId>.json` 中，由 Disk I/O Worker 批量写入（落盘条件见 [07 运维与排障](07-operations.md#数据根)）。
-  - 单群同时并存的发起人会话上限为 `WED_SESSION_LIMIT`，系统管理群数上限为 `STATE_MANAGED_CHAT_LIMIT`，超出限制将拒绝新请求。抽取结果消息不挂固定 30 秒自动删除，仅由用户点击按钮或群组被注销时销毁。
+  - 单群同时并存的发起人会话上限为 `WED_SESSION_LIMIT`，系统管理群数上限为 `STATE_MANAGED_CHAT_LIMIT`，超出限制将拒绝新请求。抽取结果消息不挂固定 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自动删除，仅由用户点击按钮或群组被注销时销毁。
 
 ---
 
@@ -281,7 +281,7 @@
 
 - **展示信息**：显示公开昵称（普通用户为 `名 姓`，频道与群组为标题）、Telegram 用户名（未设置则标明）、数字 ID（支持点击直接复制）。若目标设置了公开头像，消息将附带其当前头像一同发出；无头像时会特别注明。
 - **实时数据源**：每次查询均向 Telegram 实时发起请求。查询群内普通用户时读取其群成员资料，查询频道/群组时读取其会话信息，查询自身时直接读取本地配置。若实时请求失败，系统会回落使用解析出的缓存身份信息；若连昵称和用户名都无法解析，则回复“查不到”。头像获取逻辑复用 `/wed` 的机制（用户头像直接复用 file_id，频道头像下载后上传转发，必要时以公开 t.me 链接兜底），群组对象默认不展示头像。
-- **生命周期与队列**：查询结果与错误提示消息均在 30 秒后自动清理。所有的查询请求交由全局共享的延迟执行器处理，单次查询超时上限为 `INFO_TASK_BUDGET_MS`；排队已满时回复“稍后再试”。在机器人私聊窗口中发送 `/info` 不做响应。
+- **生命周期与队列**：查询结果与错误提示消息均在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动清理。所有的查询请求交由全局共享的延迟执行器处理，单次查询超时上限为 `INFO_TASK_BUDGET_MS`；排队已满时回复“稍后再试”。在机器人私聊窗口中发送 `/info` 不做响应。
 
 ---
 
@@ -289,13 +289,13 @@
 
 ## 🖼️ 随机图片：`/h_image`
 
-**图库配置**：图库本地目录由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（默认指向数据根目录下的 `./h_image`）。
+**图库配置**：图库本地目录由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（缺省指向数据根目录下的 `RANDOM_H_IMAGE_DIR`）。
 
 在已执行 `/init enable` 的群组中，发送 `/h_image`（不带参数）即可从该专用图库中均匀随机抽选一张发送至本群。
 
-- **文件格式过滤**：仅扫描图库根目录下的 `jpg`、`jpeg`、`png`、`webp` 格式文件（忽略隐藏文件、子目录及软链接）。若单张图片体积超出 `RANDOM_IMAGE_MAX_BYTES`，系统会自动跳过并重新抽取一张合规图片。往图库中手动增删图片无需重启服务，即时生效。
+- **文件格式过滤**：仅扫描图库根目录下扩展名属于 `RANDOM_IMAGE_EXTENSIONS` 的文件（忽略隐藏文件、子目录及软链接）。若单张图片体积超出 `RANDOM_IMAGE_MAX_BYTES`，系统会自动跳过并重新抽取一张合规图片。往图库中手动增删图片无需重启服务，即时生效。
 - **剧透遮罩保护**：抽取的图片默认全部开启 Telegram 剧透遮罩（`has_spoiler`），在群聊中以磨砂模糊图片呈现，用户需手动点击方可查看原图。
-- **消息保留规则**：抽出的图片结果属于功能性内容，**长期保留**在群聊中不自动删除；参数错误提示、图库为空或未找到等错误提示消息则在 30 秒后自动删除。
+- **消息保留规则**：抽出的图片结果属于功能性内容，**长期保留**在群聊中不自动删除；参数错误提示、图库为空或未找到等错误提示消息则在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除。
 - **并发与防刷保护**：
   - 共享延迟命令执行器的全局并发处理上限为 `DEFERRED_COMMAND_MAX_CONCURRENT`，排队等待槽位为 `DEFERRED_COMMAND_MAX_PENDING`。
   - 滑动窗口限流：与 `/h_image add` 及用法提示合并计算，在每个 `H_IMAGE_RATE_LIMIT_WINDOW_MS` 窗口内全实例最多处理 `H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` 次，超额请求将直接静默丢弃。
@@ -304,13 +304,13 @@
 
 拥有 `isCanAddHImage` 权限的用户在群内回复一张包含图片的消息并发送 `/h_image add`，即可将该图片快捷收录进专用图库。
 
-- **收录范围支持**：支持被回复消息中的原生大图（优先选取最高分辨率规格），以及以文件（Document）形式发送的 `jpg`、`png`、`webp` 图片。若被回复的消息属于某个相册（Media Group），机器人接收到的同一相册内的其余图片也会一并批量收录（单相册收录上限为 `MEDIA_GROUP_ITEMS_MAX`，内存相册组缓存上限为 `MEDIA_GROUP_CACHE_MAX`）。
+- **收录范围支持**：支持被回复消息中的原生大图（优先选取最高分辨率规格），以及以文件（Document）形式发送且扩展名属于 `RANDOM_IMAGE_EXTENSIONS` 的图片。若被回复的消息属于某个相册（Media Group），机器人接收到的同一相册内的其余图片也会一并批量收录（单相册收录上限为 `MEDIA_GROUP_ITEMS_MAX`，内存相册组缓存上限为 `MEDIA_GROUP_CACHE_MAX`）。
 - **内容寻址与天然去重**：
-  - 写入图库的文件名严格以**图片二进制数据的 SHA-256 哈希值**命名，并保留原始文件头扩展名（如 `<64位哈希>.jpg`）。
+  - 写入图库的文件名严格以**图片二进制数据的 SHA-256 哈希值**命名（匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN`），并保留原始文件头扩展名。
   - 去重发生在下载后计算哈希阶段：如果图库中已经存在相同哈希的文件，系统会跳过重复写盘，并在回执中标记为“已存在”。
 - **图片尺寸安全预检**：收图时会预先检查图片分辨率是否符合 Telegram `sendPhoto` 的限制：宽高之和不能超过 `TELEGRAM_PHOTO_MAX_DIMENSION_SUM`，宽高比不能超过 `TELEGRAM_PHOTO_MAX_ASPECT_RATIO`，超出规格的图片将被拒绝收录；超过体积上限 `RANDOM_IMAGE_MAX_BYTES`、格式不受支持或下载超时的图片均计入失败项。
-- **写入原子性保证**：收录时先在图库同目录下写入以点号开头的临时文件，完全落盘校验后通过原子 `rename` 变更为最终文件名；抽图逻辑会自动忽略点号开头的临时文件。
-- **批量并发与汇总回执**：批量收图按每组 `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` 张分页并发下载，整页下载完毕后逐张校验写盘；整个收图任务的总时间预算为 `H_IMAGE_ADD_TASK_BUDGET_MS`，超时后未下载完的图片计为失败。收图完成后发送汇总战报（包括新收录张数、图库当前总数、重复跳过数、尺寸不合规数以及下载失败数），该回执在 30 秒后自动删除。
+- **写入原子性保证**：收录时先在图库同目录下写入以 `RANDOM_IMAGE_TEMP_PREFIX` 开头的临时文件，完全落盘校验后通过原子 `rename` 变更为最终文件名；抽图逻辑会自动忽略点号开头的临时文件。
+- **批量并发与汇总回执**：批量收图按每组 `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` 张分页并发下载，整页下载完毕后逐张校验写盘；整个收图任务的总时间预算为 `H_IMAGE_ADD_TASK_BUDGET_MS`，超时后未下载完的图片计为失败。收图完成后发送汇总战报（包括新收录张数、图库当前总数、重复跳过数、尺寸不合规数以及下载失败数），该回执在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除。
 
 ---
 

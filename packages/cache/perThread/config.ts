@@ -1,21 +1,4 @@
-/** owner: perThread。部署配置快照的线程内 holder：defaultMoodConfigCache 属 packages/config/mood.ts、
- * defaultStickerConfigCache 属 packages/config/stickers.ts、defaultAdSampleConfigCache
- * 属 packages/config/adSamples.ts、personaCache 属 packages/config/persona.ts、
- * botConfigCache 属 packages/config/bot.ts；adDetectAgentConfigCache 与
- * agentDeploymentConfigCache 属 packages/config/agent.ts，同一份文件的两段各缓存
- * 各的；voiceToolPromptCache 没有访问模块，读写方直接取用（见其 JSDoc）。
- *
- * perThread：主线程在启动总闸严格解析后填充权威快照；AI 闲聊 Worker（agent 对话
- * 段、心情、贴纸、人设、send_voice 说明）与 Anti-Raid Worker（ad_detect 段、广告示例）只 adopt 主
- * 线程投递的副本，自己从不读这些文件。ad_samples.json、agent.json、mood.json 与
- * stickers.json 由主线程热重载（config/reload.ts）整体替换（文件删除时换成 null）后，
- * 再经消息投给持有副本的 Worker；Worker 崩溃重建时重放主线程当前快照。每个 holder
- * 为一个对象或 null，只整体替换，不就地改写（logger 的凭据脱敏按对象身份判断
- * 是否重算）。
- *
- * 按功能聚合的可用性结论只有主线程用，因此不在这里，见
- * cache/main/configReadiness.ts。
- */
+/** owner: perThread。部署配置快照的逐线程 holder（主线程解析填充权威快照，Worker 经初始化与热重载消息接管副本，崩溃重建时由主线程重放当前快照，每个 holder 为单例且整体替换、不淘汰），跨线程边界见 docs/cn/04-invariants.md。 */
 
 import type {
   AdDetectAgentConfig,
@@ -26,62 +9,30 @@ import type {
   BotConfig,
 } from "../../types/config";
 
-/**
- * 默认心情配置快照。主线程由启动总闸填充、热重载整体替换；AI 闲聊 Worker 由
- * init 与 configReload 消息填充。自定义路径加载不进入缓存。
- */
+/** 默认心情配置（mood.json）快照单例：主线程启动预检填充、热重载整体替换；AI 闲聊 Worker 由 init 与 configReload 消息填充，重建后从 null 重新接管。 */
 export const defaultMoodConfigCache: { current: MoodConfig | null } = { current: null };
-/** 默认贴纸配置快照；填充与替换时机同 defaultMoodConfigCache。 */
+/** 默认贴纸配置（stickers.json）快照单例：填充、热重载替换与 Worker 重建重放同 defaultMoodConfigCache。 */
 export const defaultStickerConfigCache: { current: StickerConfig | null } = { current: null };
-/**
- * 默认广告示例配置快照。主线程由启动总闸填充、热重载整体替换；Anti-Raid Worker
- * 由 agentConfig 消息填充。
- */
+/** 默认广告示例配置（ad_samples.json）快照单例：主线程启动预检填充、热重载整体替换；Anti-Raid Worker 由 agentConfig 消息填充，重建后从 null 重新接管。 */
 export const defaultAdSampleConfigCache: { current: AdSampleConfig | null } = { current: null };
-/**
- * 本进程 AI 人设的单份文本快照：主线程启动总闸填充（prompt/persona.md 存在时为其正文，
- * 缺省时为内置人设），AI Worker 由 init 消息填充，不热重载。
- */
+/** AI 人设文本（prompt/persona.md 或内置人设）快照单例：主线程启动预检填充，AI 闲聊 Worker 由 init 消息填充；运行期不热重载，重建后从 null 重新接管。 */
 export const personaCache: { current: string | null } = { current: null };
-/**
- * prompt/voice_tool.md 正文的单份快照：存在时整份替换按 `agent.tts.bot_language` 选取的内置
- * send_voice 说明（读取方 aiChat/ai/tools/replyToolset/voiceMessage.ts），null 表示未放置该文件、
- * 沿用内置说明。主线程为权威：启动总闸（config/readiness.ts 的 ensurePromptFiles）填充一次；AI Worker
- * 由 init 消息全量接管，崩溃重建时主线程重放的 init 带同一份快照。不热重载、不淘汰，容量至多一个
- * 字符串，进程重启后重建。
- */
+/** 自定义语音工具说明（prompt/voice_tool.md）快照单例：主线程启动预检填充（未放置文件时为 null），AI 闲聊 Worker 由 init 消息填充；运行期不热重载，重建后从 null 重新接管。 */
 export const voiceToolPromptCache: { current: string | null } = { current: null };
 
-/**
- * config/static/bot.json 的主线程只读快照；Bot 配置模块启动时读盘填充，进程重启后重建。
- * Worker 不加载 Bot 配置，本 holder 保持 null；通知风格与默认时区随初始化载荷单独注入。
- * 不热重载，容量至多一个对象且无需淘汰；线程边界见 docs/cn/04-invariants.md。
- */
+/** 机器人静态配置（config/static/bot.json）快照单例：主线程启动时读盘填充，Worker 中保持为 null；运行期不热重载，进程重启后从 null 重新加载。 */
 export const botConfigCache: { current: BotConfig | null } = { current: null };
 
 /**
- * config/dynamic/agent.json 的 agent.ad_detect 能力快照；主线程权威值的本线程副本。
- *
- * 填充时机按线程分两路：
- * - 主线程：启动总闸 validateAgentDeploymentConfig 解析成功后写入；文件在但没有
- *   ad_detect 段时显式写 null。热重载（config/reload.ts）按本轮读到的内容整体
- *   替换，段或文件被删除时写 null，补上时写新快照。
- * - Anti-Raid Worker：主线程 agentConfig 消息到达时 adopt 写入（含显式 null）；
- *   初始化、热重载与 Worker 崩溃重建各投递一次主线程当前快照，Worker 不自己读盘。
- *
- * null 读作「这个部署没配广告检测」，判定侧 fail-closed，不回填默认值。
- * agent.json 的两段各持一个 holder，运行时只读自己那一段。容量为一个对象。
- *
- * logger 的值级脱敏逐条日志读取本 holder（见 infra/logger/serialization.ts 的 currentSecrets），
- * 每条持有该凭据的线程各持一份，不归入任何 owner 目录。
+ * agent.json 中 `agent.ad_detect` 段配置快照单例：
+ * - 主线程启动预检填充、热重载整体替换（未配置或文件删除时置为 null）；
+ * - Anti-Raid Worker 由主线程在初始化、热重载与崩溃重建时投递的 agentConfig 消息全量覆盖（null 表示未配置广告检测，判定侧 fail-closed）。
  */
 export const adDetectAgentConfigCache: { current: AdDetectAgentConfig | null } = { current: null };
 
 /**
- * config/dynamic/agent.json 的 AI 对话能力段快照；分段与填充口径同上。
- *
- * 主线程由启动总闸填充、热重载整体替换；AI 闲聊 Worker 由 init 与 configReload
- * 消息 adopt 填充，崩溃重建时由 lastInitState 重放主线程当前快照。回复、总结、
- * 读图、生图、语音合成逐轮取模型名与凭据都只读这里，Worker 从不碰磁盘。
+ * agent.json 中 AI 对话能力段配置快照单例：
+ * - 主线程启动预检填充、热重载整体替换；
+ * - AI 闲聊 Worker 由主线程在 init、configReload 与崩溃重建时投递的消息全量覆盖（null 表示未就绪）。
  */
 export const agentDeploymentConfigCache: { current: AgentDeploymentConfig | null } = { current: null };

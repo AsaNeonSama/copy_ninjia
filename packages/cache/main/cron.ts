@@ -1,25 +1,14 @@
-/** owner: main。 */
+/** owner: main。定时任务配置与调度器运行时状态（packages/config/cron.ts、packages/cron/scheduler.ts）。 */
 
 import type { CronConfig, CronRuntime } from "../../types/cron";
 
 /**
- * cron.json 的已生效任务表（packages/config/cron.ts）。
- *
- * 启动总闸在文件存在时填充；config/dynamic/ 热重载每轮整体替换，文件被删除时置 null（等价于
- * 空表）。只整体替换、不就地改写；容量由 CRON_MAX_TASKS 与 CRON_MAX_ACTIONS_PER_TASK
- * 限定。不跨线程，Worker 崩溃不影响；进程重启从 null 重新填充。
+ * cron.json 已生效配置快照单例：启动预检在文件存在时填充，热重载时整体替换（文件删除时置 null）；容量上限为 CRON_MAX_TASKS 与 CRON_MAX_ACTIONS_PER_TASK，不淘汰，进程重启后从 null 重新填充。
  */
 export const cronConfigCache: { current: CronConfig | null } = { current: null };
 
 /**
- * cron 调度器的运行时（packages/cron/scheduler.ts）。
- *
- * 启动时由 startCronScheduler 创建并按任务表登记调度；热重载按任务名对账：未变的
- * 任务保留句柄，变更或删除的任务停止调度并撤销，新增的任务登记。每个调度至多持有一个
- * Bun 原生 cron 句柄（rand_cron 是只匹配下一个随机时刻的那一个），全部 unref；在途轮次登记到 runs，
- * 结算自摘除。just_once 执行记录放在有界 LRU（上限 CRON_JUST_ONCE_RECORD_MAX），当前
- * 任务表里的名字每轮对账刷新，淘汰只落在早已删除的旧名字上。停机先 quiesce（停止
- * 接纳、停掉全部句柄），再在预算内排空在途轮次，超时取消。调度数不超过
- * CRON_MAX_TASKS；Worker 崩溃不影响，进程重启从 null 重新创建，执行记录归零。
+ * cron 调度器运行时单例：startCronScheduler 创建并按任务表登记调度，热重载按任务名增量对账（未变保留、变更或删除停止并移除、新增登记），在途轮次登记于 runs 并在结算时移除；just_once 执行记录存于容量上限为 CRON_JUST_ONCE_RECORD_MAX 的 LRU。
+ * 停机时先 quiesce 停止全部句柄，再在预算内排空或超时中止 runs 并置 null；调度数上限为 CRON_MAX_TASKS，进程重启后从 null 重新创建。
  */
 export const cronRuntime: { current: CronRuntime | null } = { current: null };

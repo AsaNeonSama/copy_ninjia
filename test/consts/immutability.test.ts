@@ -197,16 +197,11 @@ import { EMPTY_FUNCTION_CALLS } from "../../packages/consts/aiChat/tools";
 import { EMPTY_STICKER_MENU } from "../../packages/consts/aiChat/stickers";
 
 /**
- * 共享常量表的不可变性测试。
+ * 共享常量表的编译期不可变性测试。
  *
- * 这些表运行期不 `Object.freeze`，保护全部落在类型上。
- * `bun run check:conventions` 保证「容器本身声明成只读」，但它是纯 AST 检查，
- * 判不了 `readonly LuckTier[]` 里那个 `LuckTier` 的字段是否可写；这个文件补上元素这一层。
- *
- * 每一行 `@ts-expect-error` 都是断言：元素类型被放宽成可写时，「预期的错误没有发生」会让
- * `bun run typecheck` 失败（TS2578）。
- *
- * `@ts-expect-error` 只压制类型报错，底下那行仍会执行，所以这里只做读取断言，不改这些共享表。
+ * `bun run check:conventions`（scripts/conventions/constImmutability.ts）检查导出常量容器本身为只读类型，
+ * 并要求元素含对象的常量表在本文件中有对应的 `@ts-expect-error` 改写断言。
+ * `@ts-expect-error` 只压制类型报错，底下那行仍会执行，这里只做函数闭包断言，不修改共享表。
  */
 
 test("常量表本身不可整体替换或就地增删", () => {

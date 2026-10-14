@@ -21,10 +21,7 @@ import type { TelegramRetryLane } from "../types/telegramOutbound";
 import { postAiChatOrThrow } from "./workerBridge";
 
 /**
- * 为 purge 后第一份新记忆武装即时持久化标志，并在投递失败时回滚新标志。
- *
- * 只查一次 postPurgeAiMemoryPersistRevisions：它的值域是 `number | null`，
- * `get(...) === undefined` 与 `!has(...)` 等价。
+ * 为 purge 后的首份新记忆武装即时持久化标志，并向 AI Worker 投递记录消息；投递失败时回滚新武装的标志。
  */
 function postMemoryRecord(message: AiRecordMessage | AiRecordMediaMessage | AiRecordBotImageMessage): void {
   const armedRevision: number | null | undefined =
@@ -34,8 +31,6 @@ function postMemoryRecord(message: AiRecordMessage | AiRecordMediaMessage | AiRe
     aiMemoryRevisionCounters.has(message.chatId);
   if (shouldArm) postPurgeAiMemoryPersistRevisions.set(message.chatId, null);
   try {
-    // 只改已存在字段的值，不新增键：载荷在构造点已按协议顺序写全（含
-    // persistImmediately: false）。
     if (shouldArm || armedRevision === null) message.persistImmediately = true;
     postAiChatOrThrow(message);
     if (shouldArm) pendingAiMemoryTeardowns.delete(message.chatId);
@@ -46,9 +41,7 @@ function postMemoryRecord(message: AiRecordMessage | AiRecordMediaMessage | AiRe
 }
 
 /**
- * AI 回复的 Telegram 软背压判定：message 类在途达到软高水位，或已有真实 429 等待。
- * 文字 trigger 与媒体 recordMedia 在投递时刻各调用一次，Worker 准入只读随消息
- * 带过去的这份快照（见 docs/cn/04-invariants.md 的「AI 闲聊运行时」）。
+ * 判定 Telegram message 发送车道是否处于 AI 回复软背压状态（见 docs/cn/04-invariants.md）。
  */
 function isTelegramReplyBackpressured(): boolean {
   const messageLane: TelegramRetryLane = telegramOutboundGateState.lanes.message;
@@ -57,15 +50,8 @@ function isTelegramReplyBackpressured(): boolean {
 }
 
 /**
- * 记录一条群消息到 Worker 侧滚动上下文；主线程只负责保持 FIFO 投递顺序。
- *
- * 入参就是最终载荷，不做 `{type, ...message}` 式的重新展开。文字记录由
- * auto/message/recordContext.ts 与 aiChat/ai/utils/selfRecord.ts 一次成型；命令与
- * 定时任务发出的机器人图片（占位态，不识图）由 aiChat/botImages.ts 现造。
- *
- * 调用即交出所有权：postMemoryRecord 对 `persistImmediately` 的置位
- * 改的是调用方传入的那个对象本身。每个调用点须用 builder 现造一份传入，
- * 不得重复投递同一个载荷对象。
+ * 向 AI Worker 投递一条文字或机器人图片上下文记录。
+ * 调用方必须传入独占的新构造载荷对象，本函数会原地改写 `persistImmediately`。
  */
 export function recordChatMessage(message: AiRecordMessage | AiRecordBotImageMessage): void {
   purgedAiMemoryChats.delete(message.chatId);
@@ -73,11 +59,7 @@ export function recordChatMessage(message: AiRecordMessage | AiRecordBotImageMes
 }
 
 /**
- * 记录一条图片、贴纸、GIF 或语音；媒体解析与回复准入都由 AI Worker 完成。
- *
- * 要发起回复轮的媒体（`replyTelegramBackpressured` 不是 undefined）在投递前覆写为
- * 此刻的发送面高压快照，与 trigger 消息共用 isTelegramReplyBackpressured；不发起
- * 回复的媒体不读取发送面。同 postMemoryRecord，只改已存在字段的值。
+ * 向 AI Worker 投递一条媒体消息记录；若该消息同时发起回复，原地写入当前 Telegram 发送面软背压快照。
  */
 export function recordChatMedia(message: AiRecordMediaMessage): void {
   purgedAiMemoryChats.delete(message.chatId);
@@ -96,8 +78,7 @@ export type GenerateAndSendReplyParams = Omit<
 };
 
 /**
- * 本群问答的 trigger JSON：命中 chatQaTriggerJson 直接复用，否则按热表当前顺序生成并登记；
- * 本群没有问答时为 undefined。
+ * 获取或生成本群问答的缓存 JSON 字符串；本群无问答时返回 undefined。
  */
 function chatQaJsonFor(chatId: number, entries: ReadonlyMap<string, string> | undefined): string | undefined {
   if (entries === undefined) return undefined;
@@ -109,7 +90,7 @@ function chatQaJsonFor(chatId: number, entries: ReadonlyMap<string, string> | un
   return json;
 }
 
-/** 把一次回复触发投给 Worker；生成、工具调用和发送均不阻塞主线程。 */
+/** 向 AI Worker 投递一次回复触发消息。 */
 export function generateAndSendReply({
   chatId,
   triggerSenderId,
@@ -128,15 +109,9 @@ export function generateAndSendReply({
     isRandomTrigger,
     telegramBackpressured: isTelegramReplyBackpressured(),
     imageGenerationRequested,
-    // 同 workers/aiChat/rollingMemory.ts：字段一律发出，不用条件展开，保持消息
-    // 对象 shape 稳定。
     imageGenerationReference,
-    // 同理恒发。本群问答只带按群缓存的 JSON 文本与条数，都是原始值，不克隆 Map；
-    // 没登记问答时为 undefined 与 0，Worker 侧据此在本轮工具状态里写明没有登记。
     chatQaJson: chatQaJsonFor(chatId, chatQa),
     chatQaCount: chatQa === undefined ? 0 : chatQa.size,
-    // 话题群里的主动发送靠它落回原话题；同样恒发，
-    // General 与非论坛群是显式 undefined（见 libs/forumTopic.ts）。
     messageThreadId,
   });
 }

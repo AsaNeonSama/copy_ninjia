@@ -88,12 +88,7 @@ describe("install.sh 静态 systemd 数据根边界", () => {
   });
 });
 
-/**
- * 从 install.sh 原文里抠出指定的 shell 函数定义。
- *
- * 断言跑的是**真正发出去的那份脚本**，函数改了这里就跟着变；install.sh 本身是
- * `curl | bash` 的一次性入口，不能 source（顶层会真的开始装），所以只取函数体。
- */
+/** 从安装器脚本源码中提取指定的 shell 函数定义。 */
 function extractShellFunctions(names: readonly string[]): string {
   const lines: readonly string[] = INSTALL_SCRIPT.split("\n");
   const chunks: string[] = [];
@@ -181,10 +176,7 @@ afterEach(() => {
   for (const root of shellRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-/**
- * install.sh 里那几组硬编码跟着代码走：安装器是 `curl | bash` 的一次性入口，装完没有任何运行时会核对它抄下来的这些值；
- * 各组值与权威源对拍。
- */
+/** 安装器脚本中的内置常量与代码权威源逐项对拍。 */
 describe("install.sh 与代码共享同一份事实", () => {
   test("问卷的能力全集与 AGENT_CAPABILITY_NAMES 逐项一致（含顺序）", () => {
     expect(extractShellArray("AGENT_CAPABILITIES")).toEqual([...AGENT_CAPABILITY_NAMES]);

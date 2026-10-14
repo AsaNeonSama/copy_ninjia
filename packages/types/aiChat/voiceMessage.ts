@@ -56,7 +56,7 @@ export type SpeechSynthesisAttempt =
   | { readonly ok: true; readonly speech: SynthesizedSpeech }
   | { readonly ok: false; readonly reason: "synthesis failed" | "daily limit reached" };
 
-/** 合成载荷不可用的具体原因，只用于错误日志定位（英文，见 AGENTS.md 的日志约定）。 */
+/** 合成载荷不可用的具体原因，只用于错误日志定位。 */
 export type SynthesizedSpeechDecodeFailure =
   | Base64PayloadDecodeFailure
   | "missing audio mime type"

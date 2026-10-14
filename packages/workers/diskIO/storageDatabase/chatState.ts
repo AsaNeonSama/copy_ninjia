@@ -30,7 +30,7 @@ import {
 } from "./context";
 import { flushIfStorageFull } from "./flush";
 
-/** 已提交主键叠加未提交最终值后的有效群集合；容量闸只需要这个，不碰 data。 */
+/** 读取已提交群主键并叠加待提交变更，返回有效群 ID 集合。 */
 function effectiveChatStateIds(): Set<number> {
   const rows: readonly Pick<StoredChatStateRow, "chatId">[] =
     readStoredChatStateIds(requireStorageDatabaseReader());
@@ -43,7 +43,7 @@ function effectiveChatStateIds(): Set<number> {
   return chatIds;
 }
 
-/** 同上但带 data，供唯一代理目标核对；只有「本次写打开了代理」那一条会走到。 */
+/** 读取已提交群状态并叠加待提交变更，返回有效群状态映射。 */
 function effectiveChatStateData(): Map<number, ChatState> {
   const rows: readonly StoredChatStateRow[] = readStoredChatStates(requireStorageDatabase());
   const values: Map<number, ChatState> = new Map();
@@ -55,7 +55,7 @@ function effectiveChatStateData(): Map<number, ChatState> {
   return values;
 }
 
-/** 收下一群最终状态；容量和唯一代理目标在进入事务缓冲前严格验证。 */
+/** 校验并接收群状态写入，验证群数上限与唯一代理目标约束后排入事务缓冲。 */
 export function handleChatStateWrite(
   message: ChatStateWriteDiskMessage,
   reply: IdentityPersistenceReply
@@ -63,7 +63,6 @@ export function handleChatStateWrite(
   const rowSource: string = storageSource("chat_states", message.chatId);
   assertTelegramChatId(message.chatId, rowSource);
   assertPositiveRevision(message.revision, rowSource);
-  // 解码结果留给下面的唯一代理目标判定：只看这次写是否打开了 isProxySendEnabled。
   const incoming: ChatState | null = message.data === null
     ? null
     : decodeChatStateData(message.data, rowSource);
@@ -81,8 +80,6 @@ export function handleChatStateWrite(
       `${STATE_MANAGED_CHAT_LIMIT} chats; delete chats that are no longer managed before adding another chat.`
     );
   }
-  // 唯一代理目标是归纳不变量：启动整表恢复先验证已有行，此后每次写入都过此闸。
-  // 只有把 isProxySendEnabled 打开的写入可能破坏它，因此其它字段的更新不扫描整表。
   if (incoming?.isProxySendEnabled === true) {
     for (const [chatId, data] of effectiveChatStateData()) {
       if (chatId === message.chatId) continue;

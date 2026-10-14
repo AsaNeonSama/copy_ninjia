@@ -75,7 +75,7 @@ export function hasActiveReferencedAdWarning(key: string, receivedAt: number): b
     referencedAdWarningStates.get(key);
   if (state?.phase !== "warned") return false;
   if (receivedAt >= state.warnedAt && receivedAt < state.expiresAt) return true;
-  // 走到这里只剩窗口已过、或 receivedAt 早于 warnedAt（墙钟回拨）两种情况，都直接回收。
+  // 超出警告窗口或墙钟回拨（receivedAt < warnedAt）时就地回收。
   referencedAdWarningStates.delete(key);
   return false;
 }

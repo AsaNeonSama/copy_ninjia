@@ -48,7 +48,7 @@
   <tr>
     <td><nobr>⏱️ <b>提示消息发出后自动消失</b></nobr></td>
     <td>
-      • <b>正常设计</b>：命令校验失败、权限不足、用法提示与操作执行成功的回执，在发送成功 30 秒后（<code>COMMAND_MESSAGE_AUTO_DELETE_MS</code>）会自动删除，以保持群内整洁（长期保留例外请见 <a href="09-commands.md#参数与目标匹配准则">09 命令参考</a>）。
+      • <b>正常设计</b>：命令校验失败、权限不足、用法提示与操作执行成功的回执，在发送成功 <code>COMMAND_MESSAGE_AUTO_DELETE_MS</code> 后会自动删除，以保持群内整洁（长期保留例外请见 <a href="09-commands.md#参数与目标匹配准则">09 命令参考</a>）。
     </td>
   </tr>
   <tr>
@@ -60,7 +60,7 @@
   <tr>
     <td><nobr>🫧 <b>动作命令（如 <code>/咬</code>）不触发</b></nobr></td>
     <td>
-      • 动作词仅识别 1~2 个汉字；系统具备全局滑动窗口防刷保护（在 <code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code> 窗口内最多处理 <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> 次），超出限额的请求会被静默丢弃。
+      • 动作词仅识别匹配 <code>CJK_ACTION_COMMAND_PATTERN</code> 的输入；系统具备全局滑动窗口防刷保护（在 <code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code> 窗口内最多处理 <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> 次），超出限额的请求会被静默丢弃。
     </td>
   </tr>
   <tr>
@@ -102,7 +102,7 @@
 
 ## 图库为什么拒绝启动，或收图没有判重？
 
-- **严格的文件命名规范**：专用图库目录（由 `assets.json` 中的 `random_h_image_dir` 指定）内**只允许存放纯图片文件**，文件名必须严格是图片二进制内容的 64 位小写十六进制 SHA-256 哈希值，扩展名仅支持 `.jpg`、`.jpeg`、`.png` 或 `.webp`。
+- **严格的文件命名规范**：专用图库目录（由 `assets.json` 中的 `random_h_image_dir` 指定）内**只允许存放纯图片文件**，文件名必须严格是图片二进制内容的 SHA-256 哈希值（匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN`），扩展名仅支持 `RANDOM_IMAGE_EXTENSIONS`。
 - **启动预检拦截**：如果图库目录中包含子目录、文件软链接、隐藏文件或非哈希命名的文件，服务启动时将直接报错退出。请先停止服务，按照 [07 运维与排障](07-operations.md) 清理或规范化图库文件。
 - **收图判重机制**：使用 `/h_image add` 收图时的去重逻辑发生在下载图片后计算哈希阶段。如果图库中已经存在相同哈希的文件，系统会跳过写盘并提示已收录。如果是手动拷贝图片到图库，必须保证文件名等于其 SHA-256 哈希值才能正确参与去重。
 
@@ -184,7 +184,7 @@
   - 发送请求时，系统会自动拼装为 `<基础风格>; 细节: <语气>`；若为 AI 回复中的语音合成，还会在这两者之间自动追加当前语言的朗读要求。
   - 当使用 `speech_protocol: "xai"` 协议时，接口不支持 `style` 字段，语气描述也不会发送。
 - **台词语言配置（`bot_language`）**：
-  - AI `send_voice` 工具的台词语言由可选的 `agent.tts.bot_language` 设置（可选 `en`、`zh`、`ja`，缺省为 `ja`；支持热重载，下一轮回复立即生效）。
+  - AI `send_voice` 工具的台词语言由可选的 `agent.tts.bot_language` 设置（取值属于 `TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`；支持热重载，下一轮回复立即生效）。
   - 该字段会同步切换 `send_voice` 与 `send_message` 的工具描述以及提示词中的去重规则，并在 AI 回复合成时向基础风格追加朗读语言指导（例如 `<基础风格>; <朗读语言要求>; 细节: <语气>`，模板登记在 `VOICE_LANGUAGE_PROMPTS` 的 `speechLanguageStyle`）。
   - 该配置不改变 `style` 的具体取值，也不影响私聊 `/send` 与定时任务中的台词语言；xAI 协议的合成语言直接由 `language` 字段决定。
 - **更换台词语言时的推荐配置步骤**：

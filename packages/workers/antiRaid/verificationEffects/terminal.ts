@@ -83,19 +83,7 @@ export async function runExpelEffect({
     expectedState.reason !== reason ||
     expectedState.snapshot !== effect.snapshot
   ) return;
-  // 权限镜像是三态：只有确证没有限制成员权限时才跳过踢人请求；未知交给 Telegram 裁判。
-  // 每轮保留一次 O(1) 判定并继续退避，权限恢复后下一轮重新执行。
-  //
-  // 短路的只是踢人请求，不是成员探测与诊断：第一次进这条分支时照常走一遍 expelMember——
-  // 探测成员是否还在群里（已离群即结算，不占记录）、清机器人自己的验证消息、发出点名
-  // 封禁权限的群内提示、记一行日志。之后由 failureNoticeSent 闩住：它随快照持久化，
-  // Worker 重生与进程重启后也不会重发，每轮重试只发一次成员探测并推进本地退避；探测到
-  // 已自行离群时直接结算，removalConfirmed 记着「上一轮已踢掉、战报未发出」时交给 expelMember
-  // 补发战报。提示自己没发出去时不置位（见 expelMember 收尾），下一轮重来。
-  //
-  // 清理还欠着账（条目的 cleanupSettled 为假）时不短路：照常走 expelMember，踢人被 canRestrict
-  // 短路、播报被 failureNoticeSent 短路、确证没有删除权限时删除被 botCanDeleteIn 短路，
-  // 只有仍能删且需要重试的清理才会发出请求。
+  // 确证缺少限制成员权限且失败提示与验证消息清理均已完成时，每轮重试仅探测成员是否已离群。
   const permissionBlocked: boolean = botCanRestrictIn(chatId) === false;
   if (
     permissionBlocked &&
@@ -318,23 +306,18 @@ async function expelMember({
       : await probeBlockedMember(chatId, userId, stillCurrent);
     if (removalOutcome === "stale") return false;
   }
-  // 「人已经不在群里」分两种来路：本来就走了（静默结算，不认领别人的处置）；
-  // 上一轮由机器人踢掉、播报未发出（removalConfirmed 记着，见 ExpellingState），
-  // 仍走播报路径。
+  // 已不在群内时：若上一轮已由机器人踢出但未完成播报（removalConfirmed），继续补发播报；否则静默结算。
   const kicked: boolean = removalOutcome === "kicked" ||
     (removalOutcome === "absent" && expectedState.removalConfirmed === true);
   if (removalOutcome === "absent" && !kicked) return stillCurrent();
   if (!stillCurrent()) return false;
 
-  // 三类诊断（success、unconfirmed、failure）各有各的持久化标记。
   const unconfirmed: boolean = removalOutcome === "unconfirmed" || removalOutcome === "kindUnknown";
   const shouldSendNotice: boolean = kicked
     ? expectedState.successNoticeSent !== true
     : unconfirmed
       ? expectedState.unconfirmedNoticeSent !== true
       : expectedState.failureNoticeSent !== true;
-  // 播报经统一 Telegram 动作边界发送：请求 reject（含 Worker→主线程请求失败）记一行 API 错误，
-  // 按「没发出去」走下面的退避分支。
   const noticeMessageId: number | undefined = shouldSendNotice
     ? await runTelegramAction({
       action: "send message",
@@ -357,18 +340,14 @@ async function expelMember({
       fallback: undefined,
     })
     : undefined;
-  // 播报 await 期间条目可能已被替换或移除；持久标记只经状态机写给仍是 expectedState 的条目。
   if (!stillCurrent()) return false;
   if (noticeMessageId !== undefined) {
     dispatchVerification(chatId, userId, {
       type: "expelNoticeSent",
       notice: kicked ? "success" : unconfirmed ? "unconfirmed" : "failure",
     });
-    // 成功播报已进入新快照：等落盘回执结束终态。
     if (kicked) return false;
   } else if (kicked && shouldSendNotice) {
-    // 踢成功但播报没发出去：不结算，先把 removalConfirmed 记进快照再退避重试
-    // （见上面 kicked 的两条来路）。
     dispatchVerification(chatId, userId, { type: "removalConfirmed" });
     return false;
   }

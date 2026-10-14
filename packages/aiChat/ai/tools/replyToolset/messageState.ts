@@ -40,11 +40,7 @@ export interface SendDirectMessageParams {
   replyToMessageId?: number;
 }
 
-/**
- * 发送一段纯文本并登记自录；本轮已作废时不发送并返回 undefined。正文总带触发话题
- * （ctx.messageThreadId），不论是否挂回复。
- * @returns 发出的消息 id；未发送或发送失败时为 undefined。
- */
+/** 发送纯文本消息并登记自录；本轮已作废或发送失败时返回 undefined。 */
 export async function sendDirectMessage({
   ctx,
   text,

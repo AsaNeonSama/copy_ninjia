@@ -58,10 +58,9 @@ function followsExpectError(lines: readonly string[], index: number): boolean {
 }
 
 /**
- * 带对象元素的导出常量表必须在 test/consts/immutability.test.ts 里有 `@ts-expect-error` 改写
- * 断言（AGENTS.md「常量与不可变性」）。用类型检查器读 packages/consts/ 下导出常量的声明类型，
- * 元素里有对象（函数值与正则除外）即要求断言文件里有一行按 `NAME.` 或 `NAME[` 访问它，且这一行
- * 紧跟在带 `@ts-expect-error` 的注释之后。
+ * 带对象元素的导出常量表必须在 test/consts/immutability.test.ts 里有 `@ts-expect-error` 改写断言。
+ * 用类型检查器读 packages/consts/ 下导出常量的声明类型，元素里有对象（函数值与正则除外）即要求
+ * 断言文件里有一行按 `NAME.` 或 `NAME[` 访问它，且紧跟在带 `@ts-expect-error` 的注释之后。
  */
 export function collectConstImmutabilityAssertionProblems({
   projectRoot,

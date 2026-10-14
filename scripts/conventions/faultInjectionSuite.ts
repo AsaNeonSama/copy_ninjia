@@ -18,14 +18,13 @@ import type { RuntimeModuleReference } from "./sourceAnalysis";
  * 属性访问判定），或以无法静态确定取用范围的形态引用时，才要求登记。
  *
  * 判定只做下界，不禁止清单里出现别的文件：不依赖 harness 的故障注入用例（例如
- * readiness mock 整文件生效的那种）同样该进清单，但没有机器可判的特征，仍由维护者
- * 按 AGENTS.md 的「涉及持久化、停机或 Worker 生命周期」自行判断。
+ * readiness mock 整文件生效的那种）没有机器可判的特征，由维护者登记。
  */
 
 /**
  * `bun run test:fault-injection` 执行的用例文件，仓库相对路径，按字典序一行一个。
  * 约定检查要求它覆盖全部使用 FAULT_INJECTION_BOUNDARIES 的用例；不依赖这些边界的故障注入用例
- * 由维护者按 AGENTS.md 判断后登记。
+ * 由维护者登记。
  */
 export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/aiChat/ai/imageGenerationCancellation.test.ts",

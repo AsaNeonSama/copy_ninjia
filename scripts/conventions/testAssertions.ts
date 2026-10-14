@@ -2,8 +2,7 @@ import { relative } from "node:path";
 import ts from "typescript";
 
 /**
- * 测试断言的取值口径（AGENTS.md「测试」）：断言涉及代码常量的取值时必须从常量模块
- * 读取，不得在测试里写死具体值。机器可判的下界如下：
+ * 测试断言涉及代码常量的取值时必须从常量模块读取，不得在测试里写死具体值。机器可判的下界如下：
  *
  * - 把导入的 SCREAMING_SNAKE_CASE 常量直接与数字字面量比对：
  *   `expect(IMPORTED_CONST).toBe(30_000)`、`.toEqual(3 * 60_000)` 这类写法

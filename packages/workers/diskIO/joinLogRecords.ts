@@ -15,7 +15,7 @@ import { invalidInput } from "../../libs/inputValidation";
 import { hasExactKeys, isPlainRecord } from "../../libs/record";
 import { shiftDateKey } from "../../libs/time";
 
-/** 条目一级缩进，宽度与通用追加格式的 DAY_FILE_JSON_INDENT 一致；模块初始化一次后供热序列化路径复用。 */
+/** 条目一级缩进，宽度与 DAY_FILE_JSON_INDENT 一致。 */
 const ENTRY_INDENT: string = " ".repeat(DAY_FILE_JSON_INDENT);
 /** 字段两级缩进。 */
 const FIELD_INDENT: string = " ".repeat(DAY_FILE_JSON_INDENT * 2);
@@ -29,7 +29,7 @@ function isJoinLogRecord(value: unknown): value is JoinLogRecord {
     (value.joinedAt as number) > 0;
 }
 
-/** 严格校验可解析文件的领域 schema；错误结构不得当成空日志覆盖。 */
+/** 严格校验入群日志文件的领域 schema。 */
 export function assertJoinLogSchema(
   path: string,
   parsed: unknown
@@ -53,10 +53,7 @@ export function assertJoinLogSchema(
   }
 }
 
-/**
- * 由 YYYY-MM-DD 锚点生成包含锚点在内的前 N 个公历日期（shiftDateKey 口径，
- * 不计算配置时区的实际日长）。
- */
+/** 由规范日期键生成包含当日在内的前 count 个公历日期集合。 */
 export function recentJoinLogDayKeys(
   day: string,
   count: number
@@ -68,10 +65,7 @@ export function recentJoinLogDayKeys(
   return days;
 }
 
-/**
- * 判断规范日期键是否落在锚点及其之前的 N 个公历日期内。每次入群事件调用：等于锚点
- * 直接命中，其余按字典序与最早保留日比较，不分配临时 Set。
- */
+/** 判断规范日期键是否落在 anchor 及其之前的 count 个公历日期内。 */
 export function isRecentJoinLogDay(
   candidate: string,
   anchor: string,
@@ -82,7 +76,7 @@ export function isRecentJoinLogDay(
   return candidate >= shiftDateKey(anchor, 1 - count);
 }
 
-/** 把一个文件中的物理历史条目折叠成每用户最后一次入群。 */
+/** 将文件中的历史条目折叠为每用户最后一次入群记录。 */
 export function latestJoinLogRecords(
   parsed: Readonly<Record<string, JoinLogRecord>>
 ): Map<number, JoinLogRecord> {
@@ -99,7 +93,7 @@ export function latestJoinLogRecords(
   return latest;
 }
 
-/** 将同批乱序重投折叠成每用户比已落盘值更新的最后一项。 */
+/** 将待写条目按用户折叠，仅保留比已落盘记录更新的最后一条。 */
 export function newestBufferedJoinLogRecords(
   entries: readonly BufferedJoinLogEntry[],
   persisted: ReadonlyMap<number, JoinLogRecord>
@@ -126,10 +120,7 @@ export function newestBufferedJoinLogRecords(
   return newest;
 }
 
-/**
- * 入群记录只有两个正安全整数，无需为每条记录构造投影对象再调用通用
- * JSON.stringify；字段顺序与当前持久化 schema 固定一致。
- */
+/** 将单条入群记录序列化为规范 JSON 属性片段。 */
 export function serializeJoinLogSnapshotEntry(
   record: JoinLogRecord
 ): string {
@@ -141,12 +132,12 @@ export function serializeJoinLogSnapshotEntry(
   );
 }
 
-/** 一条记录在快照中的 UTF-8 字节数，不含前置的 `,\n`。 */
+/** 计算单条入群记录在快照中的 UTF-8 字节数（不含前置分隔符）。 */
 export function joinLogSnapshotEntryBytes(record: JoinLogRecord): number {
   return Buffer.byteLength(serializeJoinLogSnapshotEntry(record));
 }
 
-/** 计算分块快照的准确 UTF-8 字节数，不构造与群规模等长的字符串。 */
+/** 计算完整入群日志快照的 UTF-8 字节数。 */
 export function measureJoinLogSnapshotBytes(
   latestByUser: ReadonlyMap<number, JoinLogRecord>
 ): number {
@@ -161,10 +152,7 @@ export function measureJoinLogSnapshotBytes(
   return bytes;
 }
 
-/**
- * 按 Map 的稳定迭代顺序生成可直接写盘的 JSON 分块。只持有当前块与当前记录，
- * 不创建 values 数组、投影对象或整文件字符串。
- */
+/** 按 Map 迭代顺序分块生成入群日志快照的 JSON 文本。 */
 export function* joinLogSnapshotChunks(
   latestByUser: ReadonlyMap<number, JoinLogRecord>
 ): Generator<string, void, undefined> {
@@ -206,7 +194,7 @@ function compareRecordAge(
   return left.joinedAt - right.joinedAt || leftUserId - rightUserId;
 }
 
-/** 在“待淘汰的最旧记录”最大堆中上浮一个 user id。 */
+/** 在待淘汰最旧记录的最大堆中上浮尾部元素。 */
 function siftOldestSelectionUp(
   heap: number[],
   records: ReadonlyMap<number, JoinLogRecord>
@@ -222,7 +210,7 @@ function siftOldestSelectionUp(
   }
 }
 
-/** 根替换后下沉，保持根是已选最旧集合中相对最新的一条。 */
+/** 在待淘汰最旧记录的最大堆中下沉堆顶元素。 */
 function siftOldestSelectionDown(
   heap: number[],
   records: ReadonlyMap<number, JoinLogRecord>
@@ -251,13 +239,7 @@ function siftOldestSelectionDown(
   }
 }
 
-/**
- * 原地只保留 joinedAt 最新的 capacity 个成员。
- * 只分配 overflow 个 user id 的选择堆；溢出量不超过一次写入批次的条数（受
- * JOIN_LOG_MAX_BUFFERED_ENTRIES 约束），不复制、不排序整张 Map，也不创建第二份
- * 完整记录对象。
- * @returns 被裁掉的记录数；容量降级只在极端高基数群日触发。
- */
+/** 原地裁剪 records，仅保留 joinedAt 最新的 capacity 个用户记录，返回淘汰条数。 */
 export function trimJoinLogRecordsToCapacity(
   records: Map<number, JoinLogRecord>,
   capacity: number,

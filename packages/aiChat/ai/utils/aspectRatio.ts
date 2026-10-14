@@ -1,8 +1,5 @@
 /**
- * 生图宽高比的解析与归一，与供应商无关。生图工具的入参校验与工具说明文案使用
- * 这里的比值口径；实现包只接收已归一的官方比例。
- *
- * 纯函数叶子模块，不接触任何缓存与 SDK 类型（见 AGENTS.md 的「缓存与线程归属」）。
+ * 生图宽高比的解析与归一，将任意正数宽高比收敛到最近的官方比例。
  */
 
 import {
@@ -11,23 +8,17 @@ import {
 } from "../../../consts/aiChat/imageGeneration";
 import type { ImageGenerationAspectRatio } from "../../../types/aiChat/imageGeneration";
 
-/** `W:H` 形式的官方比例转数值宽高比。 */
+/** 将官方比例文本解析为数值宽高比。 */
 function aspectRatioValue(ratio: ImageGenerationAspectRatio): number {
   const [width, height]: number[] = ratio.split(":").map(Number);
   return width! / height!;
 }
 
-/**
- * 官方比例表对应的数值宽高比，模块加载时一次算好；输入是只读常量表，没有失效边界。
- */
+/** 官方比例表对应的数值宽高比。 */
 const ASPECT_RATIO_VALUES: readonly number[] = IMAGE_GENERATION_ASPECT_RATIOS.map(aspectRatioValue);
 
 /**
- * 在候选比值里取与目标最接近的一项。距离按 |log(target / candidate)| 计算，
- * 横竖互换时距离对称。
- * @param target 目标宽高比数值，必须为正有限数。
- * @param candidates 候选比值，至少一项。
- * @returns 最接近项在 candidates 中的下标。
+ * 在候选比值中取对数距离最近的一项。
  */
 function closestRatioIndex(target: number, candidates: readonly number[]): number {
   let closest: number = 0;
@@ -43,8 +34,7 @@ function closestRatioIndex(target: number, candidates: readonly number[]): numbe
 }
 
 /**
- * 官方比例原样保留；其它正数比例按最近项收敛。支持 W:H、W/H、WxH 与 W×H 写法。
- * @returns 归一后的官方比例；写法不合法或数值无效时返回 null。
+ * 解析宽高比字符串并收敛到最近的官方比例；写法不合法或数值无效时返回 null。
  */
 export function normalizeImageAspectRatio(requested: string): ImageGenerationAspectRatio | null {
   const match: RegExpExecArray | null = /^(\d+(?:\.\d+)?)\s*(?::|\/|x|×)\s*(\d+(?:\.\d+)?)$/i.exec(requested.trim());

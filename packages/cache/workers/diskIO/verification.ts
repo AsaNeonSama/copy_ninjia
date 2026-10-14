@@ -1,6 +1,4 @@
-/** owner: workers/diskIO。待验证按日 append JSON 的落盘状态（packages/workers/diskIO/verificationWrites.ts）
- * 的内存状态：active 镜像、增量、文件游标、短合并 timer 与轮换失败重试 timer。
- */
+/** owner: workers/diskIO。入群验证按日追加文件落盘状态（packages/workers/diskIO/verificationWrites.ts）。 */
 
 import type { VerificationSnapshot } from
   "../../../types/antiRaid/verification";
@@ -8,30 +6,14 @@ import type { VerificationFileChange } from "../../../types/diskIO/messages";
 import type { DayFileState, VerificationFlushTarget } from "../../../types/diskIO/storage";
 
 /**
- * 待验证记录的当前 active 镜像，key 为 "chatId:userId"。Worker 启动时先由
- * inspectVerificationDay 只读解码并合并最新旧日与当天文件，所有持久化域
- * 均通过后再由 adoptVerificationDay 清空并整份灌入本镜像；单条损坏会让
- * 整个启动过程直接失败，不留部分恢复结果。此后
- * handleVerificationUpsert/handleVerificationDelete
- * 按验证生命周期增量更新/删除；compactVerificationDay 收敛快照或跨配置时区自然日
- * rollover 时会整份重写落盘文件，但不改变本镜像的更新方式。
- *
- * 清理：handleVerificationDelete 单条删除（验证通过、离群、终态结算完成），
- * 跨日 rollover 按最新旧日重建，resetVerificationPersistenceCache 整表清空。
- * 容量：硬顶 VERIFICATION_RECORD_CAPACITY（见 consts/antiRaid/verification.ts），
- * 满载时拒收新记录，不淘汰旧记录。
- * Worker 崩溃重建：由 inspectVerificationDay + adoptVerificationDay 从当天与
- * 最新旧日文件整份重建。
+ * 待验证记录的活跃镜像表（`"chatId:userId"` -> VerificationSnapshot）：
+ * - 填充：Worker 启动时由 inspectVerificationDay 与 adoptVerificationDay 从当天及最新旧日文件合并灌入，运行期由 handleVerificationUpsert 增量更新；
+ * - 清理与容量：handleVerificationDelete 单条删除，跨日轮换按最新旧日重建，resetVerificationPersistenceCache 时清空；容量上限为 VERIFICATION_RECORD_CAPACITY（满额拒收新记录且不淘汰现有记录），Worker 重建后从磁盘文件重建。
  */
 export const verificationWorkerCache: Map<string, VerificationSnapshot> = new Map();
-/**
- * 合并窗口（FLUSH_INTERVAL_MS，或累计 FLUSH_MAX_ENTRIES 个 key）内每个成员的最新变化；
- * flush 后按 revision 删除，resetVerificationPersistenceCache 整表清空。容量：一个合并
- * 窗口内发生变化的成员数，上界同 verificationWorkerCache。Worker 崩溃重建：不重放——未落盘的
- * 那一批由主线程按未 ACK revision 重投。
- */
+/** 待刷盘的验证记录增量变更表（`"chatId:userId"` -> VerificationFileChange）：合并窗口（FLUSH_INTERVAL_MS 或满 FLUSH_MAX_ENTRIES 键）内按成员合并最新变更，flush 完成后按 revision 删除；容量上限为 VERIFICATION_RECORD_CAPACITY，Worker 重建后由主线程重投未确认 revision。 */
 export const verificationPendingChanges: Map<string, VerificationFileChange> = new Map();
-/** 当前配置时区当天追加文件的游标与收敛计数；跨日、恢复或 reset 时重建。 */
+/** 当日验证追加文件游标与已追加条数/字节计数：打开或追加时更新，收敛重写、跨日、恢复或 resetVerificationPersistenceCache 时重置；Worker 重建后从初始值开始。 */
 export const verificationFileState: {
   current: DayFileState | null;
   appendedEntries: number;
@@ -41,53 +23,39 @@ export const verificationFileState: {
   appendedEntries: 0,
   appendedBytes: 0,
 };
-/** 普通验证变化的合并 timer；flush/reset 时清除。 */
+/** 普通验证增量变更的合并刷盘 timer 单例：首次待刷变更进入时启动，flush 或 resetVerificationPersistenceCache 时清除；Worker 重建后从 null 开始。 */
 export const verificationFlushTimer: { timer: ReturnType<typeof setTimeout> | null } = { timer: null };
-/**
- * 一个 operationBatch 内关键写的合并落盘（workers/diskIO/verificationWrites.ts 的
- * withVerificationBatchFlush）：active 期间新建、终态 upsert 与 delete 只把落盘目标记进 target，
- * 批循环结束、回 operationBatchAccepted 之前统一 flush 一次，回执仍在 fsync 之后发出。
- * 批外的单条消息（恢复重放经恢复通道直投）active 为 false，照旧当场 flush。
- * 容量为一个布尔值与一条目标；批结束或 reset 时清除，Worker 重建时随 isolate 回到初值。
- */
+/** 单次 operationBatch 内关键验证写入的合并刷盘状态（withVerificationBatchFlush）：批次开始时置 active 为 true 并累积 target，批次结束回执前统一 flush 并复位；单例固定字段，Worker 重建后从初始值开始。 */
 export const verificationBatchFlush: { active: boolean; target: VerificationFlushTarget | null } = {
   active: false,
   target: null,
 };
-/** 午夜轮换失败后的唯一重试 timer；成功、重新维护或 reset 时清除。 */
+/** 午夜跨日轮换失败后的重试 timer 单例：轮换失败时设置，重试成功、重新维护或 resetVerificationPersistenceCache 时清除；Worker 重建后从 null 开始。 */
 export const verificationRolloverRetryTimer: {
   timer: ReturnType<typeof setTimeout> | null;
 } = { timer: null };
 
-/**
- * 跨日整理或收敛时最新旧日文件的连续解码失败：path 为失败的文件，count 为连续次数。同一文件
- * 再次失败累加，换了文件从 1 计；解码成功、改名为损坏文件或 reset 时清零。容量为一条记录；
- * Worker 重建时随 isolate 回到初值。
- */
+/** 跨日整理或收敛时最新旧日文件的连续解码失败路径与次数：同一文件连续失败时递增、切换文件时重置为单次计数，解码成功、隔离改名或 resetVerificationPersistenceCache 时清零；单例固定字段，Worker 重建后从初始值开始。 */
 export const verificationPriorDayDecodeFailures: { path: string | null; count: number } = {
   path: null,
   count: 0,
 };
 
-/**
- * 本轮是否拒收过待验证写入（容量超限等非法输入）；下一次覆盖 verification 领域的 flush
- * 取走并按失败回报，取走即清除。容量为一个布尔值，Worker 重建时由 reset 清除。
- */
 const verificationWriteRejected: { current: boolean } = { current: false };
 
-/** 记下一次待验证写入拒收。 */
+/** 记录本轮发生过待验证写入拒收。 */
 export function noteVerificationWriteRejected(): void {
   verificationWriteRejected.current = true;
 }
 
-/** 取走拒收标记；返回取走前是否有过拒收。 */
+/** 取走并清除待验证写入拒收标记。 */
 export function takeVerificationWriteRejection(): boolean {
   const rejected: boolean = verificationWriteRejected.current;
   verificationWriteRejected.current = false;
   return rejected;
 }
 
-/** Worker 恢复/停止时取消两个 timer 并清空镜像、增量、文件游标、旧日解码失败计数、拒收标记与批内落盘状态。 */
+/** 取消验证刷盘与轮换重试 timer，并清空活跃镜像、待刷增量、文件游标、解码失败计数与批内合并状态。 */
 export function resetVerificationPersistenceCache(): void {
   if (verificationFlushTimer.timer !== null) clearTimeout(verificationFlushTimer.timer);
   if (verificationRolloverRetryTimer.timer !== null) {

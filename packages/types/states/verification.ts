@@ -2,7 +2,7 @@
  * 入群验证状态机的契约：状态、事件、效果与转移结果。
  *
  * 状态对象的缺省字段一律写成必填的 `T | undefined`，不用 `field?:`：每个构造点一次写全，
- * 同一个 kind 的对象形状恒定（见 AGENTS.md「性能、内存与 Bun/JSC JIT」，口径同
+ * 同一个 kind 的对象形状恒定（见 docs/cn/04-invariants.md，口径同
  * types/aiChat/speaker.ts 与 workers/aiChat/bufferedMessage.ts），构造顺序由声明顺序固定。
  * 除 pending 外各 kind 的构造统一收在 states/verification/shared.ts（exemptOf、
  * kickPendingOf、kickedOf、checkingInviterOf、expellingOf），adopt 重建与状态机新建共用

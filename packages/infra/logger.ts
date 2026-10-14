@@ -1,19 +1,6 @@
 /**
- * 统一日志门面，替代散落各处的 console.*。所有级别照常输出到控制台
- * （由 systemd journal 收集）；error 级别额外交给独立的 Bun Worker 线程
- * 落盘到 logs/ 目录，按日一个 JSON 文件。
- *
- * 本模块可能同时被主线程和其它 Bun Worker（如 aiChatWorker）import，不静态依赖落盘宿主。
- * 落盘线程（diskIOWorker）的显式初始化、自愈、flush/load 握手统一由
- * infra/diskIO.ts 管理，入口取得 bot.lock 后才启动该 Worker。初始化前的 error
- * 只输出到 stderr，不触碰共享 logs/。该 Worker 同时也是 AI 记忆快照的
- * 落盘线程，只由主线程启动这一个。这里只是门面：主线程下 error 日志交给
- * cache/perThread/logger.ts 的 logRelaySink（initDiskIO 装上的 relayLogMessage）转投给它；
- * Worker 线程里的 logger 处于「转发模式」：
- * error 日志经单批 ACK、有消息数与载荷字节上限的 ForwardedLogBatch 通道回主线程，由主线程的
- * infra/supervisedWorker.ts（aiChat/workerBridge.ts 与 antiRaid/workerBridge/controller.ts
- * 经 infra/supervisedDuplexWorker.ts 共用）识别该批次，逐条调用 relayLogMessage 转投唯一的
- * 落盘线程并回 ACK。
+ * 统一日志门面：所有级别经脱敏序列化后输出到控制台；`error` 级别在主线程经 `logRelaySink`
+ * 送交 Disk I/O Worker 落盘，在业务 Worker 线程经 `ForwardedLogBatch` 有界单批 ACK 通道转发回主线程。
  */
 
 import { logRelaySink } from "../cache/perThread/logger";

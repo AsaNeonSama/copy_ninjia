@@ -38,8 +38,9 @@ interface Mp4Track extends Mp4VideoTrack {
 }
 
 /**
- * 读 offset 处、不越过 end 的 box 头：长度字段 0 表示延伸到 end，1 表示取紧随其后的 64 位长度。
- * 头部不完整、长度短于头部或越过 end 时返回 null；返回的 box 至少占一个头部，调用方据此前进不会原地打转。
+ * 读 offset 处、不越过 end 的 box 头：按标准紧凑长度或紧随其后的扩展长度解析载荷区间
+ * （长度为零时延伸到 end）。头部不完整、长度短于头部或越过 end 时返回 null；返回的 box
+ * 至少占一个头部，调用方据此前进不会原地打转。
  */
 function readBox(view: DataView, offset: number, end: number): Mp4Box | null {
   const remaining: number = end - offset;
@@ -116,11 +117,11 @@ function readTrack(scan: Mp4Scan, trak: Mp4Box): Mp4Track | null {
 /**
  * 按容器结构解析 MP4，返回各视频轨（hdlr 为 `vide`）的展示宽高；不是合法 MP4 时返回 null，没有视频轨的
  * 合法 MP4 返回空数组。文件里的长度字段一律先核对再使用：
- * 1. 首个 box 是紧凑头部的 `ftyp`，长度在 [MP4_FTYP_HEADER_BYTES, MP4_FTYP_MAX_BOX_BYTES] 内、按品牌宽度
- *    对齐且整段在输入范围内，主品牌或兼容品牌之一属于 MP4_FTYP_BRANDS；
- * 2. 其后的顶层 box 恰好铺满输入，其中恰有一个 `moov`；moov、trak、mdia 的子 box 同样恰好铺满各自的
- *    载荷，每条 trak 的结构见 readTrack；
- * 3. ftyp 之后各层合计读取的 box 不超过 MP4_MAX_SCANNED_BOXES。
+ * - 首个 box 是紧凑头部的 `ftyp`，长度在 [MP4_FTYP_HEADER_BYTES, MP4_FTYP_MAX_BOX_BYTES] 内、按品牌宽度
+ *   对齐且整段在输入范围内，主品牌或兼容品牌之一属于 MP4_FTYP_BRANDS；
+ * - 其后的顶层 box 恰好铺满输入，其中恰有一个 `moov`；moov、trak、mdia 的子 box 同样恰好铺满各自的
+ *   载荷，每条 trak 的结构见 readTrack；
+ * - ftyp 之后各层合计读取的 box 不超过 MP4_MAX_SCANNED_BOXES。
  * 任一长度不合法即判为否，不截断、不跳过，截断的下载因此也判否。不解析编码，素材能否作为头像由
  * Telegram 最终判定。
  */

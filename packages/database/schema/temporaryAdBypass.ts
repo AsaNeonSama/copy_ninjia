@@ -13,8 +13,7 @@ interface TemporaryAdBypassTableParams {
   readonly qualifiedAt: SQLiteColumn;
 }
 
-/** 临时广告免检及连续日累计；全部字段使用关系列，不把可查询状态收进 JSON。 */
-// Drizzle 需要保留列 builder 的字面量泛型；显式宽化会让查询结果丢失列类型。
+/** 临时广告免检及连续日活跃累计表。 */
 // eslint-disable-next-line @typescript-eslint/typedef
 export const temporaryAdBypassEntries = sqliteTable("temporary_ad_bypass_entries", {
   id: integer("id", { mode: "number" }).primaryKey(),

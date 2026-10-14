@@ -277,7 +277,7 @@ export interface AiMeteredSpeechRequest extends AiSpeechRequest {
  */
 export interface AiReplySessionParams {
   /**
-   * 本轮回复所在的群。只有 Gemini 实现读取：按群记录上一次成功回复请求的发出时刻，决定第 1 次
+   * 本轮回复所在的群。只有 Gemini 实现读取：按群记录上一次成功回复请求的发出时刻，决定首轮
    * 请求是否引用显式缓存（见 aiChat/gemini/replySession.ts）；其余实现不读。
    */
   readonly chatId: number;

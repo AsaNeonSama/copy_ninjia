@@ -42,13 +42,13 @@ If the bot process is running but fails to respond as expected in chat, work thr
   <tr>
     <td><nobr>📨 <b>No reply in private chat</b></nobr></td>
     <td>
-      • Private chat only responds to superadmin <code>/send</code> relay commands; all other messages and casual chats are ignored by design.
+      • <b>Private chat only responds to superadmin <code>/send</code> relay commands</b>; all other messages and commands are ignored.
     </td>
   </tr>
   <tr>
-    <td><nobr>⏱️ <b>Notices vanish after 30 seconds</b></nobr></td>
+    <td><nobr>⏱️ <b>Notices vanish automatically</b></nobr></td>
     <td>
-      • <b>Expected design</b>: Command validation errors, permission denials, usage hints, and operation receipts auto-delete after 30 seconds (<code>COMMAND_MESSAGE_AUTO_DELETE_MS</code>) to keep groups clean (exceptions detailed in <a href="09-commands.md#parameter-and-target-resolution-rules">09 Command Reference</a>).
+      • Command validation errors, permission denials, usage hints, and operation receipts auto-delete after <code>COMMAND_MESSAGE_AUTO_DELETE_MS</code> (exceptions are listed in <a href="09-commands.md#parameter-and-target-resolution-rules">09 Command Reference</a>).
     </td>
   </tr>
   <tr>
@@ -60,7 +60,7 @@ If the bot process is running but fails to respond as expected in chat, work thr
   <tr>
     <td><nobr>🫧 <b>Action commands (e.g. <code>/咬</code>) get no reply</b></nobr></td>
     <td>
-      • Action commands only recognize 1–2 Chinese characters. A global sliding window limits calls (up to <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> per <code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code>); excess requests are dropped silently.
+      • Action commands only match Chinese action words defined by <code>CJK_ACTION_COMMAND_PATTERN</code>. A global sliding window limits calls (up to <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> per <code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code>); excess requests are dropped silently.
     </td>
   </tr>
   <tr>
@@ -95,14 +95,14 @@ If the bot process is running but fails to respond as expected in chat, work thr
 ## How Do I Change the Notice Atmosphere?
 
 - **Explicit configuration**: In `config/static/bot.json`, set `atmosphere` to `mesugaki` (teasing/bratty) or `normal` (reserved/standard). Restart the bot to apply changes. Explicit configuration always takes highest priority.
-- **Default fallback**: When `atmosphere` is omitted, the bot selects tone based on the persona file: if a custom `prompt/persona.md` exists in the project root, all groups default to reserved tone; if using the built-in persona, it defaults to teasing tone.
+- **Default fallback**: When `atmosphere` is omitted, the bot selects tone based on the persona file: if a custom `prompt/persona.md` exists in the project root, all groups default to `normal` (reserved tone); if using the built-in persona, it defaults to `DEFAULT_BOT_ATMOSPHERE`.
 - **Scope of influence**: The atmosphere setting only affects system notifications, command receipts, menu descriptions, and button labels; it does not alter the AI chat persona prompt.
 
 ---
 
 ## Why Does the Image Library Refuse Startup or Miss Duplicates?
 
-- **Strict filename rules**: The dedicated image library (`random_h_image_dir` in `assets.json`) **strictly accepts image files only**. Filenames must be exactly the 64-character lowercase hexadecimal SHA-256 hash of the binary file, with `.jpg`, `.jpeg`, `.png`, or `.webp` extensions.
+- **Strict filename rules**: The dedicated image library (`random_h_image_dir` in `assets.json`) **strictly accepts image files only**. Filenames must be the lowercase hexadecimal SHA-256 hash of the binary file (`RANDOM_IMAGE_CONTENT_NAME_PATTERN`), with extensions in `RANDOM_IMAGE_EXTENSIONS` (`.jpg`, `.jpeg`, `.png`, or `.webp`).
 - **Startup inspection**: If subdirectories, symlinks, hidden files, or non-hash filenames are present, the bot halts immediately at boot. Stop the service and clean up directory contents per [07 Operations](07-operations.md).
 - **Deduplication timing**: Deduplication during `/h_image add` occurs after downloading the image and computing its SHA-256 hash. If an identical hash already exists in the library, writing is skipped and reported as already collected. If manually copying files into the library, filenames must match their SHA-256 hash to deduplicate properly.
 
@@ -110,7 +110,7 @@ If the bot process is running but fails to respond as expected in chat, work thr
 
 ## Why Does a Scheduled Task Send Again After Restart?
 
-- **One-off tasks (`just_once`)**: Execution records are maintained in memory only and will fire again after a process reboot. Remove completed one-off tasks from `config/dynamic/cron.json`.
+- **One-off tasks (`just_once`)**: Execution records are maintained in memory only (up to `CRON_JUST_ONCE_RECORD_MAX`) and will fire again after a process reboot. Remove completed one-off tasks from `config/dynamic/cron.json`.
 - **Random intervals (`rand_cron`)**: Next execution times are recalculated randomly upon startup; missed triggers during downtime are not backfilled.
 - **Path and URL formatting**: Fixed images require an array for `url` or `path` (see the [Configuration Guide](../../config_example/README/en.md#cronjson)); relative paths in `cron.json` resolve against the runtime data root (no `./` prefix needed).
 
@@ -184,7 +184,7 @@ The payload is parsed as JSONC (supporting trailing commas and comments). If par
   - Requests assemble parameters as `<base style>; 细节: <tone>`; AI chat inserts language pronunciation guidelines between them.
   - The `speech_protocol: "xai"` protocol does not support `style` or tone injection.
 - **Language configuration (`bot_language`)**:
-  - The language for AI `send_voice` is specified via `agent.tts.bot_language` (`en`, `zh`, or `ja`, default `ja`; hot-reloaded dynamically).
+  - The language for AI `send_voice` is specified via `agent.tts.bot_language` (`TTS_BOT_LANGUAGES`: `en`, `zh`, or `ja`, defaulting to `TTS_DEFAULT_BOT_LANGUAGE`; hot-reloaded dynamically).
   - This switches tool descriptions for `send_voice` and `send_message`, applies system prompt deduplication rules, and appends language instructions to the voice style request (`<base style>; <language requirements>; 细节: <tone>`, defined in `VOICE_LANGUAGE_PROMPTS`).
   - This setting does not alter `style` directly, nor does it impact `/send` or cron voice delivery. For xAI, synthesis language is determined by `language`.
 - **Recommended steps when changing languages**:
