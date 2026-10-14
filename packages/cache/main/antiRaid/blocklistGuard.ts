@@ -15,7 +15,7 @@ export const recentBlockedJoinCounts: FifoMap<string, number> = new FifoMap(BLOC
 /**
  * 已记录「已拉黑频道身份消息因缺删消息权限无法删除」错误的群集合。
  *
- * 填充：handleBlockedMessage 确证缺删消息权限并首次记录错误时加入。
+ * 填充：deleteBlockedSenderChatMessage 确证缺删消息权限并首次记录错误时加入。
  * 清理：后续同类消息不再确证缺删消息权限时移除，群 teardown 时由 antiRaid/workerBridge/observers.ts 删除。
  * 容量上界为 STATE_MANAGED_CHAT_LIMIT，不设淘汰；Worker 重建不影响，进程重启后从空集开始。
  */

@@ -70,8 +70,10 @@ export const persistedVerificationRevisions: Map<string, { generation: number; r
 
 /**
  * 已从活动镜像删除、尚待 Disk I/O 落盘回执的验证删除墓碑。
- * 填充：deleteVerificationSnapshot 投递删除时写入。清理：收到匹配的 verificationPersisted 回执或
- * 启动 hydrate 时移除；Disk I/O Worker 重建时全量重放。容量受待验证记录上限约束，不设淘汰。
+ * 填充：acceptVerificationDelete 接收 Worker 墓碑、deleteDeferredVerificationsForChat 删除延后记录时
+ * 写入并投递删除。清理：收到匹配的删除落盘回执（verificationPersisted 且 deleted）、同 key 更新
+ * revision 的活动快照被接收、转入延后索引或启动 hydrate 时移除；Disk I/O Worker 重建时全量重放。
+ * 容量受待验证记录上限约束，不设淘汰。
  */
 export const pendingVerificationDeletes: Map<string, {
   chatId: number;
@@ -82,8 +84,8 @@ export const pendingVerificationDeletes: Map<string, {
 
 /**
  * 各验证 key 在本进程内的终态执行尝试次数。
- * 填充：grantTerminalVerificationAttempt 许可执行时递增，转入延后时置为
- * VERIFICATION_TERMINAL_ATTEMPT_BUDGET。清理：验证正常删除或启动 hydrate 时移除。
+ * 填充：grantVerificationAttempt 许可执行时递增，acceptVerificationDeferred 转入延后时置为
+ * VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS。清理：验证正常删除或启动 hydrate 时移除。
  * 跨 Anti-Raid Worker 代际保留，进程重启后从空表开始；容量不超过活动与延后验证 key 总数。
  */
 export const terminalVerificationAttempts: Map<string, number> = new Map();

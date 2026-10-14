@@ -5,7 +5,7 @@ import type { AiReplyActivityEntry } from "../../types/auto";
 /**
  * 各群各用户上次触发随机 AI 回复（随机插话或媒体评价）的时刻（chatId -> userId -> 时间戳）。
  *
- * 填充：claimUserReplyTrigger 认领成功时写入。清理：清扫 timer 在冷却到期后删除条目，空群桶一并移除。
+ * 填充：tryClaimUserReplyTrigger 认领成功时写入。清理：清扫 timer 在冷却到期后删除条目，空群桶一并移除。
  * 容量上限为 USER_REPLY_TRIGGER_CACHE_MAX；满载新增前补扫一次，仍满则拒绝本次触发、不淘汰未到期冷却。
  * 主线程独占，进程重启后从空表重建。
  */
@@ -25,7 +25,7 @@ export const userReplyTriggerSweepState: {
 
 /**
  * 各群滑动窗口（AI_REPLY_ACTIVITY_WINDOW_MS）发言活跃度。
- * 填充：observeAiReplyActivity 记录群消息时写入或更新。清理：清扫 timer 在窗口到期后删除条目。
+ * 填充：observeGroupMessageForAiReply 记录群消息时写入或更新。清理：清扫 timer 在窗口到期后删除条目。
  * 容量上限为 AI_REPLY_ACTIVITY_MAX_CHATS，满载新增群时按条目访问序号淘汰最久未活跃的群；
  * 进程重启后从空表重建。
  */

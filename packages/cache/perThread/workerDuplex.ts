@@ -1,4 +1,4 @@
-/** owner: perThread。业务 Worker 向主线程发起双工请求的逐线程运行态（packages/infra/workerDuplex.ts）。 */
+/** owner: perThread。业务 Worker 向主线程发起双工请求的逐线程运行态（packages/libs/workerDuplex.ts）。 */
 
 import type { WorkerDuplexOutbound } from "../../types/workerDuplex";
 

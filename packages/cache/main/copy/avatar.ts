@@ -18,7 +18,7 @@ export const avatarUpdateState: {
 
 /** 头像更新排空等待集合（libs/drainWaiter.ts）：停机等待时登记，running 与 pending 归零或超时时结算移除；容量与并发停机调用方同阶，不淘汰，进程重启后从空集开始。 */
 export const avatarDrainWaiters: Set<FlushWaiter> = new Set();
-/** 头像更新准入开关与取消控制器：initAvatarUpdateRuntime 重建 controller 并开启准入，quiesceAvatarUpdateRuntime 关闭准入，abortAvatarUpdateRuntime 中止 controller；单例固定字段，进程重启后重新创建。 */
+/** 头像更新准入开关与取消控制器：initAvatarUpdates 重建 controller 并开启准入，quiesceAvatarUpdates 关闭准入，排空超时时 abortAvatarUpdates 关闭准入并中止 controller；单例固定字段，进程重启后重新创建。 */
 export const avatarUpdateRuntime: { accepting: boolean; controller: AbortController } = {
   accepting: true,
   controller: new AbortController(),

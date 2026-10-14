@@ -15,7 +15,7 @@ export const chatStateCache: Map<number, ChatState> = new Map();
 
 /**
  * 已发出但尚未收到 Disk I/O 精确 ACK 的群状态写入（chatId -> revision 与删除标记）。
- * 填充：queueChatStatePersistence 发出写入时登记。清理：收到匹配 revision 的
+ * 填充：queueChatStateWrite 发出写入时登记。清理：收到匹配 revision 的
  * identityStoragePersisted ACK 时删除；Disk I/O Worker 重建时不清空，全表重放后待 ACK 移除。
  * 容量上限为 STATE_MANAGED_CHAT_LIMIT，不设淘汰。
  */

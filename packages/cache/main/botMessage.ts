@@ -1,4 +1,4 @@
-/** owner: main。Bot-to-Bot 发言限流状态（packages/app/botMessageGuard.ts）。 */
+/** owner: main。Bot-to-Bot 发言限流状态（packages/infra/botMessageGate.ts）。 */
 
 import type { BotMessageActivity } from "../../types/botMessage";
 

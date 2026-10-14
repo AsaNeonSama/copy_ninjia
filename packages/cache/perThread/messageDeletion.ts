@@ -1,4 +1,4 @@
-/** owner: perThread。Telegram 临时消息延迟删除的逐线程状态（packages/infra/telegram/messageDeletion.ts）。 */
+/** owner: perThread。Telegram 临时消息延迟删除的逐线程状态（packages/infra/telegram/actions/messageLifecycle.ts）。 */
 
 import type { PendingMessageDeletion } from "../../types/telegram";
 

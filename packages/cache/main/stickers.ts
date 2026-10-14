@@ -1,4 +1,4 @@
-/** owner: main。贴纸目录落盘未确认 revision 与发号器状态（packages/infra/stickerCatalog.ts）。 */
+/** owner: main。贴纸目录落盘未确认 revision 与发号器状态（packages/aiChat/stickerMirror.ts）。 */
 
 /**
  * 贴纸包名到未确认落盘最新 revision 的映射：发布贴纸目录写入时覆盖，收到匹配 revision 的 durable 回执时删除；Disk I/O Worker 重建时与贴纸目录镜像一同重放（缺失表示无待确认写入，已移出配置的包镜像可释放）。

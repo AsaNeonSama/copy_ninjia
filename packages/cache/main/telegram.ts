@@ -25,10 +25,10 @@ export function createRetryLane(): TelegramRetryLane {
 /** Telegram 客户端 transformer 是否已安装的标记：首次初始化客户端时置为 true，单例布尔值，进程重启后从 false 开始。 */
 export const telegramClientInitialization: { current: boolean } = { current: false };
 
-/** Telegram 出站请求准入开关：initTelegramOutboundGate 置为 true，quiesceTelegramOutboundGate 置为 false；单例布尔值，进程重启后从 true 开始。 */
+/** Telegram 出站请求准入开关：initTelegramOutbound 置为 true，停机排空时 quiesceTelegramOutbound 置为 false；单例布尔值，进程重启后从 true 开始。 */
 export const telegramOutboundAccepting: { current: boolean } = { current: true };
 
-/** Telegram 出站统一取消控制器：initTelegramOutboundGate 替换为新实例，停机排空超时时中止在途请求与退避重试；单例对象，进程重启后重新创建。 */
+/** Telegram 出站统一取消控制器：initTelegramOutbound 替换为新实例，停机排空超时时中止在途请求与退避重试；单例对象，进程重启后重新创建。 */
 export const telegramOutboundAbortController: { current: AbortController } = {
   current: new AbortController(),
 };
