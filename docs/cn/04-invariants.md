@@ -228,7 +228,7 @@
 
 - **Disk I/O 运行时恢复握手**：
   - 恢复流程是一段不可中断的握手协议：底层数据 load 成功后，各领域必须仅使用本代际的 scoped transport 按预定顺序重放状态，并等待全部异步逻辑完成。随后按 FIFO 顺序排空恢复窗口内的有界业务缓冲，最后才将实例标记为可写（writable）。
-  - 在镜像重放开始前与结束后，分别发送一对 `storageFlushHold` 开合标记：在开启标记期间，Worker 的满批与定时自动提交仅排入计时器，群状态（托管群上限与代发目标唯一性）和群问答（每群容量上限）的跨行聚合校验延后；标记关闭时先统一复核聚合约束，再按系统汇总阈值一次性提交共享事务。显式调用的 flush 不受该标记限制；AI 记忆上下文的删除与 purge 后的首次快照在标记期间仅排队，标记关闭时立即提交。
+  - 在镜像重放开始前与结束后，分别发送一对 `storageFlushHold` 开合标记：在开启标记期间，Worker 的满批与定时自动提交仅排入计时器，群状态（托管群上限与代发目标唯一性）和群问答（每群容量上限）的跨行聚合校验延后；标记关闭时先统一复核聚合约束，复核失败的领域丢弃区间内写入（非法聚合状态不落盘）并回报 `recoveryReplayFailed`，主线程据此 fatal 停机，其余领域再按系统汇总阈值一次性提交共享事务。显式调用的 flush 不受该标记限制；AI 记忆上下文的删除与 purge 后的首次快照在标记期间仅排队，标记关闭时立即提交。
   - 任何 listener 返回 `false`、抛出异常、reject、超时或遇到 scoped post 拒绝，都必须立即终止当前代际并触发 fatal。旧代际 listener 的迟到回调严禁写入或激活新实例。
   - 需要落盘确认的调用方必须将 `false` 视为失败，严禁确认对应的 Telegram update。
   - 排空恢复 FIFO 前后另发一对 `recoveryReplay` 开合标记（`RecoveryReplayRequest`）：共享 SQLite 在线写入被拒收时，Worker 记录领域拒收标记，调用方随后通过领域屏障获取失败回执并拒绝确认 update（触发 Telegram 重投）；而在恢复 FIFO 内部的消息没有后续屏障查询，因此该区间内的写入拒收会额外回传 `recoveryReplayFailed`，主线程据此统一触发 fatal 停机，让 Telegram 从上一个已落盘确认点重投。
@@ -643,7 +643,7 @@
   - 秒踢先进入 `kickPending`（状态快照 write-ahead 先落盘，重启后能继续探测踢出；对象本体与 `executionStarted` 仅保存在内存）。
   - 在前置清理完成后、真正调用 `kickChatMember` 前，必须复核内存条目仍持有同一状态对象，且两者之间严禁插入任何 `await`。若期间管理员豁免、退群或新一代入群覆盖了该对象，操作在此截断。
   - 仅在 Telegram 请求成功且令牌仍匹配时，才将状态转为 `kicked` 并开启去重窗口。
-  - **入群计数撤销口径**：仅对真正执行过 `recordJoin` 的物理入群记录（`joinCreatesNewRecord === true`）撤销计数，踢出后重新申请补建的记录不带 `countedJoinAt`，不参与撤销。
+  - **入群计数撤销口径**：仅对真正执行过 `recordJoin` 的物理入群记录（`joinCreatesNewRecord === true`，记录带 `countedJoinAt`）撤销计数。秒踢记录超过 `KICKED_REJOIN_GRACE_MS` 后的重新入群与无记录入群同等计数，私密模式期间重建的 `kickPending` 同样带 `countedJoinAt`；携带同一条入群公告的迟到投递仍按同一次入群去重，不重复计数。
   - 误踢管理员的诊断（`logUncancelableKickExemption`）必须输出至 `logger.error`，作为人工召回排查的唯一凭证。
 
 - **验证提醒发送与成员发言保护**：

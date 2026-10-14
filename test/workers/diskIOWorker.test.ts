@@ -1,7 +1,7 @@
 import { adoptTimeZone, getTimeZone } from "../../packages/config/time";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { DiskIOMessage, DiskIOOperationMessage, AdSampleDiskMessage } from "../../packages/types/diskIO/messages";
-import type { DiskIODomain } from "../../packages/types/diskIO/replies";
+import type { DiskIODomain, RecoveryReplayFailedReply } from "../../packages/types/diskIO/replies";
 
 import { DISK_BUSINESS_BATCH_MAX_MESSAGES } from "../../packages/consts/diskIO/business";
 import { LOG_REOPEN_RETRY_MS } from "../../packages/consts/diskIO/appendOnly";
@@ -283,6 +283,21 @@ describe("Disk I/O Worker protocol router", () => {
     await route({ type: "storageFlushHold", active: true });
     await route({ type: "storageFlushHold", active: false });
     expect(setStorageFlushHold.mock.calls.map((call: unknown[]): unknown => call[0])).toEqual([true, false]);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  test("镜像重放结束时聚合复核失败：把 recoveryReplayFailed 原样投给主线程触发 fatal", async () => {
+    setStorageFlushHold.mockImplementationOnce((): RecoveryReplayFailedReply => ({
+      type: "recoveryReplayFailed",
+      domain: "chatQa",
+      error: "chat QA capacity exceeded",
+    }));
+    await route({ type: "storageFlushHold", active: false });
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "recoveryReplayFailed",
+      domain: "chatQa",
+      error: "chat QA capacity exceeded",
+    });
   });
 
   test("恢复重放期间的身份写失败升级为停机回执，不只是记拒收", async () => {

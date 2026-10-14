@@ -27,19 +27,25 @@ function resolveJoinExemption(event: JoinEvent): JoinExemption {
   return NO_JOIN_EXEMPTION;
 }
 
-/** 判断秒踢相关记录是否已超过 KICKED_REJOIN_GRACE_MS 去重宽限期。 */
-function isExpiredKickRecord(
+/**
+ * 判断本次投递是否为秒踢记录之后的真正重新入群：距记录时刻超过 KICKED_REJOIN_GRACE_MS，
+ * 且不是携带同一条入群公告的重复投递（同号公告恒属同一次物理入群）。
+ */
+function isKickRejoin(
   state: VerificationState | undefined,
-  now: number
+  event: JoinEvent
 ): boolean {
-  return (state?.kind === "kickPending" || state?.kind === "kicked") &&
-    now - (state.kind === "kickPending" ? state.requestedAt : state.kickedAt) >
-      KICKED_REJOIN_GRACE_MS;
+  if (state?.kind === "kickPending") {
+    return event.now - state.requestedAt > KICKED_REJOIN_GRACE_MS &&
+      (event.announcementMessageId === undefined ||
+        state.announcementMessageId !== event.announcementMessageId);
+  }
+  return state?.kind === "kicked" && event.now - state.kickedAt > KICKED_REJOIN_GRACE_MS;
 }
 
 /**
- * 判定本次入群是否新建验证记录并计入刷群统计。调用方先据此决定是否调用
- * recordJoin，再读取 lockdownActive 并分派转移。
+ * 判定本次入群是否新建验证记录并计入刷群统计；秒踢记录之后的重新入群与无记录同等计入。
+ * 调用方先据此决定是否调用 recordJoin，再读取 lockdownActive 并分派转移。
  */
 export function joinCreatesNewRecord(
   state: VerificationState | undefined,
@@ -49,7 +55,7 @@ export function joinCreatesNewRecord(
     state === undefined ||
     state.kind === "checkingInviter" ||
     state.kind === "expelling" ||
-    (isExpiredKickRecord(state, event.now) && !event.lockdownActive)
+    isKickRejoin(state, event)
   ) && !resolveJoinExemption(event).exempt;
 }
 
@@ -103,38 +109,25 @@ function joinExempt(
 }
 
 /**
- * 处理已有记录时到达的补充投递：补齐公告与拉人者，不重置计时器、不重发提醒；
- * 秒踢记录超出 KICKED_REJOIN_GRACE_MS 后，私密模式仍开启时替换为新 kickPending，
- * 私密模式已解除时转入常规入群建窗。
+ * 处理已有记录时到达的补充投递：补齐公告与拉人者，不重置计时器、不重发提醒。
+ * 秒踢记录之后的重新入群（见 isKickRejoin）按新一次入群交给 joinCreate，并删除尚未进入
+ * 踢人动作的旧记录所持公告。
  */
 function joinDuplicateDelivery(
   state: JoinableState,
   event: JoinEvent,
   invitedByOther: boolean
 ): VerificationTransition {
-  if (isExpiredKickRecord(state, event.now)) {
-    const oldEffects: readonly VerificationEffect[] =
-      state.kind === "kickPending" &&
-      !state.effectStarted &&
-      state.announcementMessageId !== undefined &&
-      state.announcementMessageId !== event.announcementMessageId
-        ? [{ kind: "deleteMessage", messageId: state.announcementMessageId }]
-        : NO_VERIFICATION_EFFECTS;
-    if (!event.lockdownActive) {
-      const created: VerificationTransition = joinCreate(event, invitedByOther);
-      return oldEffects.length === 0
-        ? created
-        : { ...created, effects: [...oldEffects, ...created.effects] };
-    }
+  if (isKickRejoin(state, event)) {
+    const created: VerificationTransition = joinCreate(event, invitedByOther);
+    if (
+      state.kind !== "kickPending" ||
+      state.effectStarted ||
+      state.announcementMessageId === undefined
+    ) return created;
     return {
-      next: kickPendingOf({
-        label: state.label,
-        isBot: state.isBot,
-        requestedAt: event.now,
-        countedJoinAt: undefined,
-        announcementMessageId: event.announcementMessageId,
-      }),
-      effects: oldEffects,
+      ...created,
+      effects: [{ kind: "deleteMessage", messageId: state.announcementMessageId }, ...created.effects],
     };
   }
   const effects: VerificationEffect[] = [];

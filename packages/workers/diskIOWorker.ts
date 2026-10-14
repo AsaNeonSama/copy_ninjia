@@ -305,13 +305,11 @@ export async function handleDiskIOWorkerMessage(
     case "recoveryReplay":
       diskIOReplayWindow.current = msg.active;
       break;
-    case "storageFlushHold":
-      try {
-        setStorageFlushHold(msg.active, postReply);
-      } catch (error: unknown) {
-        console.error("[diskIOWorker] rejected storage flush hold release:", error);
-      }
+    case "storageFlushHold": {
+      const failure: RecoveryReplayFailedReply | null = setStorageFlushHold(msg.active, postReply);
+      if (failure !== null) postReply(failure);
       break;
+    }
     case "joinLog":
       await handleJoinLogMessage(msg);
       break;

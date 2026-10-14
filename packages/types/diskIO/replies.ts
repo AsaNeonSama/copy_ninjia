@@ -272,12 +272,13 @@ export interface LuckAppendStalledReply {
 }
 
 /**
- * diskIOWorker -> 主线程：恢复缓冲重放期间有一条共享 SQLite 写消息被拒收。
+ * diskIOWorker -> 主线程：恢复缓冲重放期间有一条共享 SQLite 写消息被拒收，或镜像重放
+ * 结束（storageFlushHold 关标记）时群状态 / 群问答的跨行聚合复核失败。
  *
  * 与 LuckAppendStalledReply 一样是「Worker 内部错误只 console.error」的窄口径例外，
- * 但触发的是停机而不是日志：这条事实对应的 update 已经被确认过（见
- * RecoveryReplayRequest）。主线程收到后按 stopWorkerAfterLoadFailure 的统一 fatal
- * 路径停机，Telegram 从上一个确认点重投。
+ * 但触发的是停机而不是日志：这些写入没有后续屏障查询，对应的 update 可能已经被确认过
+ * （见 RecoveryReplayRequest 与 StorageFlushHoldRequest）。主线程收到后按
+ * stopWorkerAfterLoadFailure 的统一 fatal 路径停机，Telegram 从上一个确认点重投。
  */
 export interface RecoveryReplayFailedReply {
   type: "recoveryReplayFailed";

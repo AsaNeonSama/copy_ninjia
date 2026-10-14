@@ -202,18 +202,18 @@ describe("join：重复投递（chat_member 与服务消息各到一次）", () 
     expect(duplicateSame.effects).toEqual([]);
   });
 
-  test("KICKED 占位遇到真的重新入群：私密模式仍开启时换成待落盘 kickPending 且不双重删公告，已解除时转入正常 pending", () => {
+  test("KICKED 占位遇到真的重新入群：按新入群计数，私密模式仍开启时换成待落盘 kickPending 且不双重删公告，已解除时转入正常 pending", () => {
     const state = kickedState({ kickedAt: 0 });
-    const { next, effects } = transitionVerification(
-      state,
-      joinEvent({ now: 10_000, lockdownActive: true, announcementMessageId: 19 })
-    );
+    const lockedJoin = joinEvent({ now: 10_000, lockdownActive: true, announcementMessageId: 19 });
+    expect(joinCreatesNewRecord(state, lockedJoin)).toBeTrue();
+    const { next, effects } = transitionVerification(state, lockedJoin);
     expect(next).not.toBe(state);
     expect(next).toMatchObject({
       kind: "kickPending",
       label: "杂鱼A",
       isBot: false,
       requestedAt: 10_000,
+      countedJoinAt: 10_000,
       announcementMessageId: 19,
     });
     expect(effects).toEqual([]);
@@ -229,6 +229,31 @@ describe("join：重复投递（chat_member 与服务消息各到一次）", () 
       announcementMessageId: 20,
     });
     expect(unlocked.effects).toEqual([{ kind: "sendReminder", label: "杂鱼A", isBot: false }]);
+  });
+
+  test("重新入群本身触发私密模式：计数判定与刷新后的转移一致，countedJoinAt 记下这次计数", () => {
+    const state = kickedState({ kickedAt: 0 });
+    const event = joinEvent({ now: 10_000, lockdownActive: false });
+    expect(joinCreatesNewRecord(state, event)).toBeTrue();
+    // 调用方 recordJoin 后刷新 lockdownActive 再派发（见 workers/antiRaid/verificationEvents.ts）。
+    event.lockdownActive = true;
+    const { next } = transitionVerification(state, event);
+    expect(next).toMatchObject({ kind: "kickPending", requestedAt: 10_000, countedJoinAt: 10_000 });
+  });
+
+  test("KICK_PENDING 超出宽限期：异号公告按重新入群并删除旧公告；同号公告仍是同一次入群的重复投递", () => {
+    const state = kickPendingState({ requestedAt: 0, countedJoinAt: 0, announcementMessageId: 9 });
+    const rejoin = joinEvent({ now: 10_000, lockdownActive: true, announcementMessageId: 10 });
+    expect(joinCreatesNewRecord(state, rejoin)).toBeTrue();
+    const replaced = transitionVerification(state, rejoin);
+    expect(replaced.next).toMatchObject({ kind: "kickPending", requestedAt: 10_000, countedJoinAt: 10_000, announcementMessageId: 10 });
+    expect(replaced.effects).toEqual([{ kind: "deleteMessage", messageId: 9 }]);
+
+    const redelivered = joinEvent({ now: 10_000, lockdownActive: true, announcementMessageId: 9 });
+    expect(joinCreatesNewRecord(state, redelivered)).toBeFalse();
+    const duplicate = transitionVerification(state, redelivered);
+    expect(duplicate.next).toBe(state);
+    expect(duplicate.effects).toEqual([]);
   });
 
   test("豁免入群撞上已开的验证窗口 → 撤销并删提醒，且按精确时刻撤销此前记的那次刷群计数", () => {

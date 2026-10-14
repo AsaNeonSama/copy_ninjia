@@ -352,9 +352,10 @@ export interface RecoveryReplayRequest {
  *
  * 区间内共享 SQLite 的满批提交、定时提交与 AI 上下文的即时提交只重新挂定时器、不提交；
  * 显式 flush 照常执行。区间内黑名单删除不做 outbox 引用校验，群状态与群问答的跨行聚合约束
- * 延后至解除暂挂时统一复核；关标记到达并复核通过后，若有待回执的 AI 上下文删除或即时快照，
- * 或任一领域已达批次阈值，立即以一个事务提交区间内的全部变化（见 workers/diskIO/
- * storageDatabase/ 与 docs/cn/04-invariants.md 的 Disk I/O 恢复约束）。
+ * 延后至解除暂挂时统一复核；复核失败的领域丢弃区间内写入并回报 recoveryReplayFailed，主线程
+ * 据此 fatal 停机。关标记到达后，若有待回执的 AI 上下文删除或即时快照，或任一领域已达批次
+ * 阈值，立即以一个事务提交区间内其余变化（见 workers/diskIO/storageDatabase/ 与
+ * docs/cn/04-invariants.md 的 Disk I/O 恢复约束）。
  */
 export interface StorageFlushHoldRequest {
   type: "storageFlushHold";

@@ -19,18 +19,9 @@ const STICKER_CATALOG_FILE_DEPENDENCIES: Readonly<StickerCatalogFileDependencies
   write: writeStickerCatalogFile,
 };
 
-/** 执行定时到点的贴纸目录落盘。 */
-function runScheduledStickerCatalogFlush(): void {
-  flushStickerCatalogs();
-}
-
 /** 按需注册贴纸目录定时落盘 timer，到点后经统一操作队列合并执行。 */
 function scheduleStickerCatalogFlush(): void {
-  armDiskIOFlushTimer(
-    stickerFlushState,
-    SNAPSHOT_FLUSH_INTERVAL_MS,
-    runScheduledStickerCatalogFlush
-  );
+  armDiskIOFlushTimer(stickerFlushState, SNAPSHOT_FLUSH_INTERVAL_MS, flushStickerCatalogs);
 }
 
 /** 跨域启动第二阶段：全部领域 inspect 成功后整体发布到 owner 缓存。 */

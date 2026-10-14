@@ -25,6 +25,7 @@ import {
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
 } from "../../../consts/identityStorage";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../consts/storage";
+import { errorMessage } from "../../../libs/errorMessage";
 import {
   commitStorageDatabaseChanges,
   prepareStorageDatabaseWriter,
@@ -36,6 +37,7 @@ import type {
   DiskIODomain,
   IdentityPersistenceReply,
   IdentityPolicyPersistedRevision,
+  RecoveryReplayFailedReply,
   StorageDatabaseDomain,
   TemporaryAdBypassPersistedRevision,
 } from "../../../types/diskIO/replies";
@@ -241,32 +243,65 @@ function isStorageDomainDirty(domain: StorageDatabaseDomain): boolean {
   }
 }
 
-/** 设置或解除镜像重放暂挂状态；解除时先统一复核群状态与群问答聚合约束，再按紧急写或批次阈值触发提交。 */
-export function setStorageFlushHold(active: boolean, reply: IdentityPersistenceReply): void {
+/** 丢弃群状态领域本轮全部待提交写入并归还其预算。 */
+function discardPendingChatStateWrites(): void {
+  pendingChatStateWrites.clear();
+  storagePendingBudgets.chatState.reset();
+}
+
+/** 丢弃群问答领域本轮全部待提交写入并归还其条数与预算。 */
+function discardPendingChatQaWrites(): void {
+  pendingChatQaWrites.clear();
+  pendingChatQaEntryCount.current = 0;
+  storagePendingBudgets.chatQa.reset();
+}
+
+/**
+ * 解除暂挂时复核一个领域的跨行聚合约束。不满足时丢弃该领域本轮待提交写入（非法聚合状态不落盘）、
+ * 记领域拒收并返回 recoveryReplayFailed 回报；满足时返回 null。
+ */
+function rejectHeldDomainIfInvalid(
+  domain: "chatState" | "chatQa",
+  assertInvariants: () => void,
+  discardPending: () => void
+): RecoveryReplayFailedReply | null {
+  try {
+    assertInvariants();
+    return null;
+  } catch (error: unknown) {
+    discardPending();
+    rejectedStorageDomains.add(domain);
+    console.error(`[diskIOWorker] rejected replayed ${domain} writes on storage flush hold release:`, error);
+    return { type: "recoveryReplayFailed", domain, error: errorMessage(error) };
+  }
+}
+
+/**
+ * 设置或解除镜像重放暂挂状态。解除时先统一复核群状态与群问答聚合约束，复核失败的领域丢弃本轮
+ * 待提交写入，其余领域再按紧急写或批次阈值触发提交。
+ * @returns 首个复核失败的 recoveryReplayFailed 回报，由 Worker 入口投递给主线程按 fatal 停机；
+ *   开启暂挂或复核全部通过时为 null。
+ */
+export function setStorageFlushHold(
+  active: boolean,
+  reply: IdentityPersistenceReply
+): RecoveryReplayFailedReply | null {
   storageFlushHold.current = active;
-  if (active) return;
-  let validationError: Error | undefined;
-  try {
-    assertPendingChatStateInvariants();
-  } catch (error: unknown) {
-    pendingChatStateWrites.clear();
-    storagePendingBudgets.chatState.reset();
-    rejectedStorageDomains.add("chatState");
-    validationError = error instanceof Error ? error : new Error(String(error));
-  }
-  try {
-    assertPendingChatQaCapacity();
-  } catch (error: unknown) {
-    pendingChatQaWrites.clear();
-    pendingChatQaEntryCount.current = 0;
-    storagePendingBudgets.chatQa.reset();
-    rejectedStorageDomains.add("chatQa");
-    validationError ??= error instanceof Error ? error : new Error(String(error));
-  }
+  if (active) return null;
+  const chatStateFailure: RecoveryReplayFailedReply | null = rejectHeldDomainIfInvalid(
+    "chatState",
+    assertPendingChatStateInvariants,
+    discardPendingChatStateWrites
+  );
+  const chatQaFailure: RecoveryReplayFailedReply | null = rejectHeldDomainIfInvalid(
+    "chatQa",
+    assertPendingChatQaCapacity,
+    discardPendingChatQaWrites
+  );
   if (storageWriteRetry.failures === 0 && hasUrgentAiContextWrites()) {
     flushStorageDatabase(reply);
   } else {
     flushIfStorageFull(reply);
   }
-  if (validationError !== undefined) throw validationError;
+  return chatStateFailure ?? chatQaFailure;
 }

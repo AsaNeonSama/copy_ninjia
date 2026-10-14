@@ -228,7 +228,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 
 - **Disk I/O runtime recovery handshake**:
   - Recovery is an indivisible handshake: after loading data, domains replay state via generation-scoped transport in registration order and await asynchronous logic. The host then drains the recovery-window business FIFO before exposing writable status.
-  - Mirror replay is bracketed by `storageFlushHold` open/close markers: automatic batch and timed commits queue on timers and cross-row aggregate checks for chat states (managed-chat limit and proxy-send uniqueness) and chat QA (per-chat capacity) are deferred while open, then verified and committed in a single transaction when closed. Explicit flushes bypass the hold.
+  - Mirror replay is bracketed by `storageFlushHold` open/close markers: automatic batch and timed commits queue on timers and cross-row aggregate checks for chat states (managed-chat limit and proxy-send uniqueness) and chat QA (per-chat capacity) are deferred while open, then verified when closed. A domain that fails verification discards its held writes (an invalid aggregate state is never committed) and reports `recoveryReplayFailed`, which makes the main thread stop fatally; the remaining domains commit in a single transaction. Explicit flushes bypass the hold.
   - Any listener returning `false`, throwing, rejecting, timing out, or encountering message post failures immediately terminates the current generation and triggers a fatal shutdown. Stale callbacks never mutate new instances.
   - Callers requiring durability must treat `false` as failure and refuse to acknowledge updates.
   - FIFO draining is bracketed by `recoveryReplay` markers (`RecoveryReplayRequest`): rejections during this phase reply with `recoveryReplayFailed`, triggering a unified fatal shutdown so Telegram redelivers from the last durable checkpoint.
@@ -626,7 +626,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
   - Fast kicks enter `kickPending` with write-ahead disk snapshots, enabling restarts to resume membership probing and expulsion.
   - Before calling `kickChatMember`, the system must confirm that the in-memory entry retains the exact state object, with zero intervening `await` calls. Intervening exemptions or departures abort the operation immediately.
   - Transitions to `kicked` only after successful Telegram API calls with matching tokens.
-  - **Join counter retractions**: Apply only to physical joins where `joinCreatesNewRecord === true` (records carrying `countedJoinAt`).
+  - **Join counter retractions**: Apply only to physical joins where `joinCreatesNewRecord === true` (records carrying `countedJoinAt`). A rejoin after a kick record has passed `KICKED_REJOIN_GRACE_MS` counts like a join with no record, so a `kickPending` rebuilt during lockdown also carries `countedJoinAt`; a late delivery carrying the same join announcement is still deduplicated as the same join and is not counted again.
   - Diagnostic logs for uncancelable admin kick exemptions (`logUncancelableKickExemption`) must be sent to `logger.error` as authoritative traces for manual investigation.
 
 - **Verification reminder delivery and member message safety**:

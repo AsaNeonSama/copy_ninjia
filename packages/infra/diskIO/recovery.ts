@@ -158,7 +158,8 @@ function createRecoveryTransportScope(worker: Worker, revisions: DiskIORecoveryR
  * 开合一对恢复区间标记，投递失败按 fatal 处理：
  * - recoveryReplay：重放区间，区间内写失败升级为停机，关标记后在线写恢复常规失败语义。
  * - storageFlushHold：镜像重放区间，区间内 Worker 暂缓共享 SQLite 的满批与定时提交，关标记后
- *   按批次阈值一次提交（见 types/diskIO/messages.ts 的 StorageFlushHoldRequest）。
+ *   复核聚合约束并按批次阈值一次提交，复核失败回报 recoveryReplayFailed（见
+ *   types/diskIO/messages.ts 的 StorageFlushHoldRequest）。
  * @param noun 日志里的标记名（如 `recovery replay mark`）。
  */
 function postRecoveryMarker(

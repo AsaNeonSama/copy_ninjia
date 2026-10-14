@@ -5,7 +5,7 @@
  */
 
 import { afterAll, beforeEach, mock } from "bun:test";
-import type { DiskIODomain } from "../../packages/types/diskIO/replies";
+import type { DiskIODomain, RecoveryReplayFailedReply } from "../../packages/types/diskIO/replies";
 import type { DiskIOMessage } from "../../packages/types/diskIO/messages";
 
 export const handleLogMessage = mock((_message: unknown): void => {});
@@ -113,7 +113,7 @@ export const collectStorageDatabaseFailures = mock((
 export const flushJoinLogBuffer = mock((): boolean => true);
 export const handleBlocklistRemovalWriteMessage = mock((_message: unknown): void => {});
 export const handleIdentityPolicyWrite = mock((_message: unknown): void => {});
-export const setStorageFlushHold = mock((_active: boolean, _reply: unknown): void => {});
+export const setStorageFlushHold = mock((_active: boolean, _reply: unknown): RecoveryReplayFailedReply | null => null);
 function closeStorageDatabaseForShutdownStub(_reply: unknown): { committed: boolean; checkpointBusy: boolean } {
   return { committed: true, checkpointBusy: false };
 }
