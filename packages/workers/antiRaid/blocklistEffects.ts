@@ -60,8 +60,9 @@ async function removeOne({ chatId, userId, probeMembership, signal }: RemoveOneP
       if (probeMembership) {
         const probe: ChatMembershipProbeOutcome =
           await probeChatMembershipWithOutcome(chatId, userId, telegramApi);
-        // 仅在确认不在群时跳过；探测失败时继续执行封禁。
+        // 仅在确认不在群时跳过；确认是群管理员时直接按 targetIsAdmin 结算，不发必败封禁；探测失败时继续执行封禁。
         if (probe === "absent") return "absent";
+        if (probe === "admin") return "targetIsAdmin";
         if (probe !== "participantInvalid") participantInvalid = false;
       }
       const outcome: BanChatMemberOutcome = await banChatMemberWithOutcome(chatId, userId, telegramApi);

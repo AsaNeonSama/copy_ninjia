@@ -47,7 +47,7 @@
 - **Short-Circuiting Without Ban Rights**:
   - When `botCanRestrictIn` is `false`, the cycle exits early only if both `failureNoticeSent` and `cleanupSettled` are `true`; each such cycle sends a single membership probe, settles if the member has left, and otherwise keeps backing off.
   - Lockdown instant kicks (`kickPending`) also probe membership first when the ban permission is missing: a departed member settles and its record is released; a present member is logged and backed off without a kick request.
-  - While `cleanupSettled` is `false`, the disposal cycle continues: the kick is bypassed by `canRestrict`, the report is bypassed by `failureNoticeSent`, and message deletions are bypassed when `can_delete_messages` is absent. Only pending deletions that can still execute are retried.
+  - Once `cleanupSettled` is `true`, subsequent retries on the same terminal entry skip `deleteVerificationMessages` directly. While `cleanupSettled` is `false`, the disposal cycle continues: the kick is bypassed by `canRestrict`, the report is bypassed by `failureNoticeSent`, and message deletions are bypassed when `can_delete_messages` is absent. Only pending deletions that can still execute are retried.
   - `cleanupSettled` lives on the Worker runtime entry (`VerificationEntry`), while `executionStarted` lives on the terminal state object and changes only through state machine events. Both are **in-memory Worker-local idempotency gates that are never written to disk snapshots** and restart from their initial values when the entry or state is replaced.
 
 <p align="right"><a href="04-invariants.md#quick-navigation">↑ Back to quick navigation</a></p>

@@ -105,6 +105,13 @@ describe("join：ABSENT 起步", () => {
     expect(effectKinds(effects)).toEqual(["startAdminCheck", "sendReminder"]);
   });
 
+  test("被他人拉入群（缓存热，同步快路径已判过非管理员）→ PENDING 记录拉人者 + 只发提醒，不再挂异步核查", () => {
+    const event = joinEvent({ actorId: 999, adminCacheFresh: true });
+    const { next, effects } = transitionVerification(undefined, event);
+    expect((next as PendingState).invitedBy).toBe(999);
+    expect(effectKinds(effects)).toEqual(["sendReminder"]);
+  });
+
   test("管理员身份入群 → EXEMPT，不计入刷群统计", () => {
     const event = joinEvent({ identityExempt: true });
     expect(joinCreatesNewRecord(undefined, event)).toBe(false);

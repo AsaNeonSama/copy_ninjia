@@ -76,7 +76,8 @@ export interface VerificationEntry {
   /**
    * expelling 终态的机器人验证消息已全部清理完毕。Worker 本地幂等门，不进入状态机或持久化快照；
    * 条目构造时为 false，只由 workers/antiRaid/verificationEffects/terminal.ts 的 expelMember 在
-   * 仍是当前条目时置位，其余 kind 恒为 false。确证没有封禁权限时，「不再发请求」的短路以它与
+   * 仍是当前条目时置位，其余 kind 恒为 false。置位后同一状态对象的后续重试直接跳过
+   * deleteVerificationMessages；确证没有封禁权限时，「不再发请求」的短路也以它与
    * failureNoticeSent 同时成立为前提：清理未结清时不短路。
    */
   cleanupSettled: boolean;

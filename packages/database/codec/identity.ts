@@ -245,19 +245,12 @@ export function encodeBlocklistEntryData(value: Readonly<BlocklistEntryData>): s
   return text;
 }
 
-/** 待踢任务行的编码结果与经解码器规范化后的值。 */
-export interface EncodedPendingBlockedRemoval {
-  /** 序列化后的 JSON 文本。 */
-  readonly text: string;
-  /** 解码校验得到的规范值。 */
-  readonly value: PendingBlockedRemoval;
-}
-
-/** 将待踢任务条目编码为 JSON 文本，经 decodePendingBlockedRemovalData 复核后一并返回规范值。 */
+/** 将待踢任务条目编码为 JSON 文本并经 decodePendingBlockedRemovalData 复核。 */
 export function encodePendingBlockedRemovalData(
   value: PendingBlockedRemoval,
   source: string = "pending blocked removal"
-): EncodedPendingBlockedRemoval {
+): string {
   const text: string = JSON.stringify(value);
-  return { text, value: decodePendingBlockedRemovalData(text, source) };
+  decodePendingBlockedRemovalData(text, source);
+  return text;
 }

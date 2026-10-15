@@ -71,6 +71,7 @@ function params(text: string, language: TranslateLanguage = "ja"): {
 
 beforeEach(() => {
   translateStates.clear();
+  chatStateFor(-1001);
   enabled = true;
   configured = true;
   copyMessage.mockClear();

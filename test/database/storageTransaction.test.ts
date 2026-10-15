@@ -104,8 +104,8 @@ beforeEach((): void => {
       [22, { activity: bypassActivity(22), revision: 1 }],
     ]),
     removals: new Map([
-      [31, { data: encodePendingBlockedRemovalData({ params: { chatId: CHAT_ID, probeMembership: true, removalId: 31 }, createdAt: 1, attempts: 0, lastFailure: null }).text }],
-      [32, { data: encodePendingBlockedRemovalData({ params: { chatId: CHAT_ID, probeMembership: true, removalId: 32 }, createdAt: 1, attempts: 0, lastFailure: null }).text }],
+      [31, { data: encodePendingBlockedRemovalData({ params: { chatId: CHAT_ID, probeMembership: true, removalId: 31 }, createdAt: 1, attempts: 0, lastFailure: null }) }],
+      [32, { data: encodePendingBlockedRemovalData({ params: { chatId: CHAT_ID, probeMembership: true, removalId: 32 }, createdAt: 1, attempts: 0, lastFailure: null }) }],
     ]),
     chatStates: new Map([
       [CHAT_ID, { data: encodeChatStateData(chatStateOf({ isAIChatEnabled: true })) }],

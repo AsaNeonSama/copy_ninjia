@@ -25,7 +25,10 @@ import {
   pushReplyTrigger,
   triggerKindFor,
 } from "../../../packages/workers/aiChat/replyQueue";
-import { indexBufferedMessage } from "../../../packages/workers/aiChat/bufferedMessageIndex";
+import {
+  indexBufferedMessage,
+  replyReferenceForBufferedMessage,
+} from "../../../packages/workers/aiChat/bufferedMessageIndex";
 
 afterEach(() => {
   resetAiChatReplyCache();
@@ -73,6 +76,7 @@ describe("AI 回复触发队列", () => {
       messageThreadId: undefined,
       imageGenerationRequested: true,
       imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960, mediaGroupId: undefined },
+      triggerReference: replyReferenceForBufferedMessage(-1001, 88),
     });
 
     expect(pendingReplyTriggers.get(-1001)?.shift()).toEqual({
@@ -98,6 +102,14 @@ describe("AI 回复触发队列", () => {
   });
 
   test("媒体触发使用解析结果快照，不依赖缓存尾部", () => {
+    const triggerReference = bufferedReplyReferenceFixture({
+      messageId: 89,
+      id: 3,
+      firstName: "Bob",
+      lastName: "",
+      text: "[GIF：挥手] @bot 把它画成像素风",
+      forwardedFrom: "[id:6] Eve",
+    });
     pushReplyTrigger({
       chatId: -1001,
       triggerSenderId: 3,
@@ -105,20 +117,14 @@ describe("AI 回复触发队列", () => {
       telegramBackpressured: false,
       messageThreadId: undefined,
       imageGenerationRequested: true,
+      triggerReference,
       mediaTrigger: {
         kind: "animation",
         senderId: 3,
         senderName: "Bob",
         description: "挥手",
         triggerText: "[GIF：挥手] @bot 把它画成像素风",
-        triggerReference: bufferedReplyReferenceFixture({
-          messageId: 89,
-          id: 3,
-          firstName: "Bob",
-          lastName: "",
-          text: "[GIF：挥手] @bot 把它画成像素风",
-          forwardedFrom: "[id:6] Eve",
-        }),
+        triggerReference,
         forwardedFrom: "[id:6] Eve",
         directTriggerReason: "mention",
         replyTo: bufferedReplyReferenceFixture({ messageId: 71, id: 5, firstName: "Dave", lastName: "", text: "[图片]" }),

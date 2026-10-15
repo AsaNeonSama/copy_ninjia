@@ -122,6 +122,25 @@ describe("黑名单处置副作用（守卫线程侧）", () => {
     expect(releaseAdDetectDedupKey).not.toHaveBeenCalled();
   });
 
+  test("probeMembership=true 补扫遇到管理员：首次成员探测直接识别 targetIsAdmin，不发封禁也不二次探测管理员", async () => {
+    probeChatMembershipWithOutcome.mockImplementation(async (_chatId: unknown, userId: unknown): Promise<string> =>
+      userId === 7 ? "admin" : "present");
+
+    handleRemoveBlockedMembers({
+      msg: { type: "removeBlockedMembers", chatId: -1001, userIds: [7, 8], probeMembership: true, removalId: 43 },
+      publish,
+    });
+    await settle();
+
+    expect(probeChatMembershipWithOutcome.mock.calls.map((call) => call[1])).toEqual([7, 8]);
+    expect(probeChatAdmin).not.toHaveBeenCalled();
+    expect(banChatMemberWithOutcome).toHaveBeenCalledTimes(1);
+    expect(banChatMemberWithOutcome).toHaveBeenCalledWith(-1001, 8, guardApi);
+    expect(events).toEqual([
+      { type: "blockedMembersRemoved", chatId: -1001, removalId: 43, complete: true, permissionDenied: false, targetIsAdmin: true, participantInvalidUserIds: [], settledUserIds: [7, 8] },
+    ]);
+  });
+
   test("确证不了目标身份时维持原判：仍按机器人缺权限上报", async () => {
     // 确证不了目标身份时（probeChatAdmin 返回 undefined）仍按机器人缺权限上报。
     banChatMemberWithOutcome.mockImplementation(async (): Promise<string> => "forbidden");

@@ -58,7 +58,7 @@ function removalWriteMessage(removalId: number, revision: number): BlocklistRemo
     removalId,
     data: pending === undefined
       ? null
-      : encodePendingBlockedRemovalData(pending, `pending blocked removal ${removalId}`).text,
+      : encodePendingBlockedRemovalData(pending, `pending blocked removal ${removalId}`),
     revision,
   };
 }

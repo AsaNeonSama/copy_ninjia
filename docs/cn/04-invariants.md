@@ -585,7 +585,7 @@
   - 主线程紧急恢复私密模式（Lockdown）时，在清理记录前先根据公告 ID 触发删除；删除失败仅输出 Telegram 日志，恢复主流程不等待删除结果。
 
 - **超时验证复核邀请人身份（`checkingInviter`）**：
-  - 验证超时后，在 `checkingInviter` 阶段调用 `isChatAdmin` 复核邀请人身份：
+  - 入群新建验证时仅对「存在邀请人且邀请人非成员本人」（`inviterId !== undefined && inviterId !== userId`）派发 `startAdminCheck`；验证超时后若同理存在他人的邀请记录，在 `checkingInviter` 阶段调用 `isChatAdmin` 复核邀请人身份：
     - 确认为管理员：授予受邀成员豁免；
     - 确认为非管理员：转入超时踢出阶段 `expelling`；
     - 身份未能确证（网络超时或查询失败）：保持原有终态与磁盘快照，释放本地执行占用，并按照既定的指数退避策略重新复核，每次重试仍计入主线程核批的终态预算。
@@ -638,7 +638,7 @@
 
 - **终态踢人与群组类型适配**：
   - 执行 `kickChatMember` 前必须通过 `probeChatMembership` 现查成员状态：确认仍在群内才执行踢人；若成员已主动离群，直接结算收工且不发战报；查询失败保留终态并进入退避。
-  - 确证机器人缺 `can_restrict_members`（`botCanRestrictIn === false`）时照常做成员探测，只不发踢人请求：成员已离群即结算，仍在群内则保留终态并退避；`expelling` 在失败提示已发、清理已完成后，每轮重试只发一次探测。
+  - 确证机器人缺 `can_restrict_members`（`botCanRestrictIn === false`）时照常做成员探测，只不发踢人请求：成员已离群即结算，仍在群内则保留终态并退避；`expelling` 在清理已完成（`cleanupSettled === true`）后不再重复发删消息请求，失败提示也已发时每轮重试只发一次探测。
   - **首发请求无豁免**：超级群的「踢人且不封禁」底层映射为未带 `only_if_banned` 的 `unbanChatMember`，该调用会**解封已有封禁**。因此主线程每次执行该操作前，必须先获取 `getChatMember` 确认成员当前仍在群内，若已是 `left` 或 `kicked` 则立即取消。显式解封操作携带 `only_if_banned: true`，不受此限制。
   - **群类型精确分流**：普通群使用 `banChatMember`（普通群中只移除成员）；超级群使用 `unbanChatMember`。群类型由主线程对已受管群进行 update 监听并镜像维护，冷启动无镜像时以群为键调用 `getChat`（受 `VERIFICATION_CHAT_KIND_FETCH_MAX` 限流）。
 
@@ -1009,7 +1009,7 @@
   - `sweptAt` 作为完成闩锁，在检测到群内仍残留黑名单成员（如封禁失败或秒踢未完成）时通过 `requestBlocklistResweep` 重置为 `null`；连续失败时重试退避线性递增，封顶为 `BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS`。
 - **权限不足与目标是管理员的细分判定**：
   - Telegram 返回 403 或 400 `not enough rights` 时被归类为 `forbidden`。
-  - 若封禁目标本身是该群的管理员，Telegram 同样返回 400 `not enough rights`。此时 Worker 通过 `probeChatAdmin` 现查身份：若确证目标是管理员，记录日志并跳过该目标，同批其余目标正常处置，整批照常落定；但回执附加 `targetIsAdmin` 标记，主线程据此不更新 `sweptAt` 并累计失败计数，使该群继续保持待补扫状态。
+  - 若封禁目标本身是该群的管理员，补扫路径（`probeMembership: true`）在 `probeChatMembership` 的 `getChatMember` 中直接识别管理员身份，无需调用 `banChatMember` 或再次查询；不探测成员状态的秒踢与广告处置路径（`probeMembership: false`）在 Telegram 返回 400 `not enough rights` 时由 Worker 通过 `probeChatAdmin` 现查身份。一旦确证目标是管理员，记录日志并跳过该目标，同批其余目标正常处置，整批照常落定；但回执附加 `targetIsAdmin` 标记，主线程据此不更新 `sweptAt` 并累计失败计数，使该群继续保持待补扫状态。
   - 若机器人自身确实缺乏封禁权限，Worker 回传 `permissionDenied`：主线程标记 `permissionBlocked`，暂停时间退避重试，outbox 中的补扫批次标记为 `missing-permission`。仅当接收到明确具有 `canRestrictMembers` 权限的 `my_chat_member` 更新或现查结果时，方可解除闩锁。
 - **任务持久化与秒踢（即时封禁）**：
   - 封禁批次通过 `trackBlockedRemoval` 记录于 `pendingBlockedRemovals`，Worker 重建时全量重投（封禁操作幂等）。

@@ -280,7 +280,7 @@ describe("共享存储库的启动 schema 闸", () => {
         table: "pending_blocked_removals",
         idColumn: "removal_id",
         id: 1,
-        data: encodePendingBlockedRemovalData(pending).text,
+        data: encodePendingBlockedRemovalData(pending),
       });
     });
 

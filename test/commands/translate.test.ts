@@ -2,10 +2,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CachedUser, GlobalCopyState } from "../../packages/types/chatState";
 import type { TranslateLanguage, TranslateState } from "../../packages/types/translate";
 import type { SendCommandMessageParams } from "../../packages/infra/telegram/commandMessages";
-import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { TRANSLATE_LANGUAGE_LABELS } from "../../packages/consts/translate";
 import { formatUserLabel } from "../../packages/users/userLabel";
-import { TRANSLATE_CAPACITY_TEXT, TRANSLATE_CHAT_CAPACITY_TEXT, TRANSLATE_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/translate";
+import { TRANSLATE_CHAT_CAPACITY_TEXT, TRANSLATE_DISABLED_TEXT, TRANSLATE_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/translate";
 import {
   TRANSLATE_TARGET_TEXTS as PLAIN_TRANSLATE_TARGET_TEXTS,
   TRANSLATE_TOGGLE_TEXTS as PLAIN_TRANSLATE_TOGGLE_TEXTS,
@@ -106,6 +105,7 @@ afterEach(() => { botAtmosphereState.current = PRELOADED_ATMOSPHERE; });
 
 beforeEach(() => {
   chatStates.clear();
+  for (const chatId of [-1001, -2002, -3003, -4004, -5005]) chatStateFor(chatId);
   state.isTranslationEnabled = true;
   target = { id: 7, first_name: "Target" };
   configured = true;
@@ -115,7 +115,8 @@ beforeEach(() => {
   persistChatState.mockResolvedValue(undefined);
   copySideEffect.mockClear();
   updateCachedIdentity.mockClear();
-  resolveCommandTarget.mockClear();
+  resolveCommandTarget.mockReset();
+  resolveCommandTarget.mockImplementation(async (..._args: unknown[]): Promise<CachedUser | undefined> => target);
 });
 
 describe("/translate 独立命令", () => {
@@ -413,18 +414,23 @@ describe("/translate 独立命令", () => {
     await stopping;
   });
 
-  test("容量拒绝第 26 群且不淘汰活动会话；恢复目标复用身份缓存", async () => {
-    for (let index: number = 1; index <= STATE_MANAGED_CHAT_LIMIT; index++) {
-      setTranslateState(-index, { translatedUser: { id: index }, language: "ja" });
-    }
-    expect(setTranslateState(-1001, { translatedUser: { id: 50 }, language: "en" })).toBe(false);
+  test("未初始化群或非法群 ID 调用 setTranslateState 抛错；恢复目标复用身份缓存", () => {
     expect(() => setTranslateState(1001, { translatedUser: { id: 50 }, language: "en" })).toThrow("negative");
-    expect(translateStates.size).toBe(STATE_MANAGED_CHAT_LIMIT);
-    await handleTranslateCommand(context("en"));
-    expect(sendCommandMessage).toHaveBeenCalledWith({ chatId: -1001, text: TRANSLATE_CAPACITY_TEXT, replyToMessageId: 9 });
-    expect(persistChatState).not.toHaveBeenCalled();
-    expect(setTranslateState(-1, { translatedUser: { id: 50 }, language: "en" })).toBe(true);
+    expect(() => setTranslateState(-9999, { translatedUser: { id: 50 }, language: "en" })).toThrow("uninitialized chat -9999");
+    expect(setTranslateState(-1001, { translatedUser: { id: 7 }, language: "ja" })).toBe(true);
+    expect(setTranslateState(-1001, { translatedUser: { id: 50 }, language: "en" })).toBe(true);
     seedTranslateTargets();
-    expect(updateCachedIdentity).toHaveBeenCalledTimes(STATE_MANAGED_CHAT_LIMIT + 1);
+    expect(updateCachedIdentity).toHaveBeenCalledTimes(2);
+  });
+
+  test("解析目标期间翻译被关闭时回 DISABLED，不写会话、不落盘", async () => {
+    resolveCommandTarget.mockImplementationOnce(async (): Promise<CachedUser | undefined> => {
+      state.isTranslationEnabled = false;
+      return { id: 7, first_name: "Target" };
+    });
+    await handleTranslateCommand(context("en"));
+    expect(sendCommandMessage).toHaveBeenCalledWith({ chatId: -1001, text: TRANSLATE_DISABLED_TEXT, replyToMessageId: 9 });
+    expect(translateStates.has(-1001)).toBe(false);
+    expect(persistChatState).not.toHaveBeenCalled();
   });
 });

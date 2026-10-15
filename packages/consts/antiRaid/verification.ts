@@ -1,3 +1,4 @@
+import type { VerificationCleanupResult } from "../../types/antiRaid/verification";
 import type { JoinExemption, VerificationEffect } from "../../types/states/verification";
 
 /** 验证回调管理员查询等待上限；满载只回执稍后重试，不继续增加查询等待者。 */
@@ -18,6 +19,16 @@ export const NO_JOIN_EXEMPTION: Readonly<JoinExemption> = { exempt: false, viaCh
 export const IDENTITY_JOIN_EXEMPTION: Readonly<JoinExemption> = { exempt: true, viaChannelComment: false };
 /** 入群前已观察到关联频道评论时的结论；全局共享，只读。所属模块：states/verification/join.ts。 */
 export const CHANNEL_COMMENT_JOIN_EXEMPTION: Readonly<JoinExemption> = { exempt: true, viaChannelComment: true };
+
+/**
+ * 清理已结清时的验证消息清理结果；missed 为 0 时战报文案不读 total。
+ * 所属模块：workers/antiRaid/verificationEffects/terminal.ts。
+ */
+export const VERIFICATION_CLEANUP_SETTLED: Readonly<VerificationCleanupResult> = {
+  total: 0,
+  missed: 0,
+  permissionDenied: false,
+};
 
 /**
  * 本人验证按钮 callback_data 的前缀，后面拼上待验证成员的 userId。

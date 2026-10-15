@@ -55,7 +55,9 @@ describe("成员探测的 PARTICIPANT_ID_INVALID 分档", () => {
     throw new GrammyError("x", { ok: false, error_code: 400, description: "Bad Request: PARTICIPANT_ID_INVALID" }, "getChatMember", {});
   }
 
-  test("带结局的探测区分在群、离群、认不出 ID 与其它失败，失败都记 API 错误", async () => {
+  test("带结局的探测区分管理员、在群、离群、认不出 ID 与其它失败，失败都记 API 错误", async () => {
+    expect(await membership.probeChatMembershipWithOutcome(-1001, 7, memberApi(async () => ({ status: "creator" })))).toBe("admin");
+    expect(await membership.probeChatMembershipWithOutcome(-1001, 7, memberApi(async () => ({ status: "administrator" })))).toBe("admin");
     expect(await membership.probeChatMembershipWithOutcome(-1001, 7, memberApi(async () => ({ status: "member" })))).toBe("present");
     expect(await membership.probeChatMembershipWithOutcome(-1001, 7, memberApi(async () => ({ status: "left" })))).toBe("absent");
     expect(logApiError).not.toHaveBeenCalled();

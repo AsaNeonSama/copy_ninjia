@@ -27,6 +27,7 @@ import { botCanDeleteIn, botCanRestrictIn } from "../botPermissions";
 import { resolveChatIsSupergroup } from "../chatKind";
 import { retryTerminalAttempt } from "./retry";
 import { expelNoticeText } from "./expelNotice";
+import { VERIFICATION_CLEANUP_SETTLED } from "../../../consts/antiRaid/verification";
 import type { ExpelRemovalOutcome, VerificationCleanupResult } from "../../../types/antiRaid/verification";
 
 interface RunRecheckInviterEffectParams {
@@ -284,17 +285,19 @@ async function expelMember({
   dispatchVerification,
 }: ExpelMemberParams): Promise<boolean> {
   const key: string = verificationKey(chatId, userId);
+  const initialEntry: VerificationEntry | undefined = verificationEntries.get(key);
+  if (initialEntry?.state !== expectedState) return false;
   const stillCurrent = (): boolean => verificationEntries.get(key)?.state === expectedState;
   let removalOutcome: ExpelRemovalOutcome = "failed";
-  if (!stillCurrent()) return false;
   if (reason === "flood") {
     removalOutcome = canRestrict
       ? await kickPresentMember(chatId, userId, stillCurrent)
       : await probeBlockedMember(chatId, userId, stillCurrent);
     if (removalOutcome === "stale") return false;
   }
-  const cleanup: VerificationCleanupResult | null =
-    await deleteVerificationMessages({ chatId, userId, snapshot, isCurrent: stillCurrent });
+  const cleanup: VerificationCleanupResult | null = initialEntry.cleanupSettled
+    ? VERIFICATION_CLEANUP_SETTLED
+    : await deleteVerificationMessages({ chatId, userId, snapshot, isCurrent: stillCurrent });
   if (cleanup === null) return false;
   const entry: VerificationEntry | undefined = verificationEntries.get(key);
   if (entry?.state !== expectedState) return false;

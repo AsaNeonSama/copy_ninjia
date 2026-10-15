@@ -191,6 +191,7 @@ import {
   IDENTITY_JOIN_EXEMPTION,
   NO_JOIN_EXEMPTION,
   NO_VERIFICATION_EFFECTS,
+  VERIFICATION_CLEANUP_SETTLED,
 } from "../../packages/consts/antiRaid/verification";
 import { NO_LOCKDOWN_EFFECTS } from "../../packages/consts/antiRaid/lockdown";
 import { EMPTY_FUNCTION_CALLS } from "../../packages/consts/aiChat/tools";
@@ -569,6 +570,8 @@ function assertJoinExemptionsReadonly(): void {
   IDENTITY_JOIN_EXEMPTION.viaChannelComment = true;
   // @ts-expect-error 评论区豁免时共享的入群豁免结论不可修改。
   CHANNEL_COMMENT_JOIN_EXEMPTION.exempt = false;
+  // @ts-expect-error 清理已结清的共享结果不可修改。
+  VERIFICATION_CLEANUP_SETTLED.missed = 1;
 }
 void assertJoinExemptionsReadonly;
 

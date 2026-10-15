@@ -35,7 +35,7 @@
 - **权限缺失短路门禁（`cleanupSettled`）**：
   - 确证无封禁权限（`botCanRestrictIn === false`）时的提前短路，必须以**关联清理已全部完成**（`cleanupSettled === true`）为前提：仅当 `failureNoticeSent` 与 `cleanupSettled` 同时为真时才短路，此时每轮只发一次成员探测，成员已离群即结算，否则继续退避。
   - 私密模式秒踢（`kickPending`）在无封禁权限时同样先做成员探测：成员已离群即结算并释放该条记录；仍在群内则记日志并退避，不发踢人请求。
-  - 若仍有未完成的清理动作，照常推进处置流程：踢人被封禁权限短路、战报被已发送标志短路、删消息在无删除权限时短路，确保所有可执行且需重试的清理工作（如删除消息）均得到执行。
+  - `cleanupSettled === true` 后，同一终态条目后续重试直接跳过 `deleteVerificationMessages`；若仍为 `false`，照常推进清理动作（踢人被封禁权限短路、战报被已发送标志短路、删消息在无删除权限时短路），确保所有可执行且需重试的清理工作（如删除消息）均得到执行。
   - `cleanupSettled` 记在 Worker 运行态条目（`VerificationEntry`）上，`executionStarted` 记在终态对象上且只经状态机事件改写；两者都属于 **Worker 本地内存幂等控制标志，不进入持久化快照**，条目或状态换代时从初值重来。
 
 <p align="right"><a href="04-invariants.md#快速导航">↑ 返回快速导航</a></p>

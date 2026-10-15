@@ -4,7 +4,6 @@ import { GrammyError } from "grammy";
 import {
   AVATAR_FETCH_MAX_ATTEMPTS,
   AVATAR_MAX_DOWNLOAD_BYTES,
-  USER_PROFILE_PHOTOS_LIMIT,
 } from "../../packages/consts/telegram";
 
 const loggerErrorMock = mock((..._args: unknown[]): void => {});
@@ -71,11 +70,11 @@ describe("copyUserProfilePhoto t.me 兜底", () => {
     globalThis.fetch = realFetch;
   });
 
-  test("调用方没传频道 username 时，从 getChat 补查后继续爬 t.me 主页", async () => {
+  test("尝试阶段已取得 chat 时，兜底直接复用其中的 username、不再重复 getChat", async () => {
     const result: boolean = await copyUserProfilePhoto(-1003952764805, true);
 
     expect(result).toBe(true);
-    expect(getChatMock).toHaveBeenCalledTimes(2);
+    expect(getChatMock).toHaveBeenCalledTimes(1);
     // Bot API 查不到头像是第一层未命中，随后的网页兜底是正常流程：都只记 log。
     expect(loggerLogMock).toHaveBeenCalledWith("Channel -1003952764805 has no chat photo visible to the bot");
     expect(loggerLogMock).toHaveBeenCalledWith("Falling back to t.me web profile scrape for @YunaSakagami");
@@ -84,7 +83,32 @@ describe("copyUserProfilePhoto t.me 兜底", () => {
     expect((setMyProfilePhotoMock.mock.calls[0]![0] as any).type).toBe("static");
   });
 
+  test("尝试阶段 getChat 全失败时，兜底现查一次 public username", async () => {
+    for (let i = 0; i < AVATAR_FETCH_MAX_ATTEMPTS; i++) {
+      getChatMock.mockRejectedValueOnce(new Error("transient network error"));
+    }
+    getChatMock.mockImplementationOnce(async (_chatId: number): Promise<any> => ({
+      id: -1003952764805,
+      type: "channel",
+      title: "Yuna Sakagami",
+      username: "YunaSakagami",
+    }));
+
+    const result: boolean = await copyUserProfilePhoto(-1003952764805, true);
+
+    expect(result).toBe(true);
+    expect(getChatMock).toHaveBeenCalledTimes(AVATAR_FETCH_MAX_ATTEMPTS + 1);
+    expect(loggerLogMock).toHaveBeenCalledWith("Falling back to t.me web profile scrape for @YunaSakagami");
+    expect(setMyProfilePhotoMock).toHaveBeenCalledTimes(1);
+  });
+
   test("补查 public username 遇到 403 时只记录不可访问，不断言 bot 被踢或没有公开 username", async () => {
+    const badRequest = new GrammyError(
+      "Call to 'getChat' failed!",
+      { ok: false, error_code: 400, description: "Bad Request: chat not found" },
+      "getChat",
+      { chat_id: -1003952764805 }
+    );
     const forbidden = new GrammyError(
       "Call to 'getChat' failed!",
       { ok: false, error_code: 403, description: "Forbidden: bot was kicked from the channel chat" },
@@ -92,38 +116,28 @@ describe("copyUserProfilePhoto t.me 兜底", () => {
       { chat_id: -1003952764805 }
     );
     getChatMock
-      .mockImplementationOnce(async (_chatId: number): Promise<any> => ({ id: -1003952764805, type: "channel", title: "Yuna Sakagami" }))
-      .mockImplementationOnce(async (): Promise<any> => {
-        throw forbidden;
-      });
+      .mockRejectedValueOnce(badRequest)
+      .mockRejectedValueOnce(forbidden);
 
     const result: boolean = await copyUserProfilePhoto(-1003952764805, true);
 
     expect(result).toBe(false);
+    expect(getChatMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(loggerWarnMock).toHaveBeenCalledWith("Could not check channel -1003952764805 public username via getChat: 403 Forbidden (chat is not accessible to the bot)");
     expect(loggerWarnMock).toHaveBeenCalledWith(
       "Skipping t.me web profile scrape fallback: getChat lookup for channel -1003952764805 failed"
     );
-    expect(loggerErrorMock).not.toHaveBeenCalled();
+    expect(loggerErrorMock).toHaveBeenCalledTimes(1);
   });
 
-  test("调用方给的 username 只进日志，抓取目标一律以 getChat 现查的为准", async () => {
+  test("调用方给的 username 只进日志，抓取目标一律以 getChat 的结果为准", async () => {
     // username 来自 reply_to_message 或身份缓存，可能是旧快照；用户名释放后可被别人重新注册，不短路权威查询。
-    getChatMock
-      .mockImplementationOnce(async (_chatId: number): Promise<any> => ({ id: -1003952764805, type: "channel", title: "Yuna Sakagami" }))
-      .mockImplementationOnce(async (_chatId: number): Promise<any> => ({
-        id: -1003952764805,
-        type: "channel",
-        title: "Yuna Sakagami",
-        username: "YunaSakagami",
-      }));
-
     const result: boolean = await copyUserProfilePhoto(-1003952764805, true, { username: "StaleHandle" });
 
     expect(result).toBe(true);
-    // 现查了一次，而且抓的是现查回来的那个 handle，不是调用方给的。
-    expect(getChatMock).toHaveBeenCalledTimes(2);
+    // 复用尝试阶段 getChat 回来的那个 handle，不是调用方给的。
+    expect(getChatMock).toHaveBeenCalledTimes(1);
     expect(loggerLogMock).toHaveBeenCalledWith("Falling back to t.me web profile scrape for @YunaSakagami");
   });
 
@@ -169,14 +183,7 @@ describe("copyUserProfilePhoto Bot API 主路径", () => {
       id: 42,
       type: "private",
       first_name: "Alice",
-      photo: { big_file_unique_id: "active-avatar" },
-    }));
-    getUserProfilePhotosMock.mockImplementation(async (): Promise<any> => ({
-      total_count: 1,
-      photos: [[
-        { file_id: "small-avatar", file_unique_id: "small-active", width: 80, height: 80 },
-        { file_id: "active-avatar-file", file_unique_id: "active-avatar", width: 640, height: 640 },
-      ]],
+      photo: { big_file_id: "active-avatar-file", big_file_unique_id: "active-avatar" },
     }));
     getFileMock.mockImplementation(async (): Promise<any> => ({
       file_id: "avatar-file",
@@ -220,13 +227,10 @@ describe("copyUserProfilePhoto Bot API 主路径", () => {
     expect(setMyProfilePhotoMock).toHaveBeenCalledTimes(1);
   });
 
-  test("用户路径从前一百张历史中精确匹配当前头像", async () => {
+  test("用户路径直接下载 getChat 的 big_file_id，不调用 getUserProfilePhotos", async () => {
     await expect(copyUserProfilePhoto(42)).resolves.toBeTrue();
 
-    expect(getUserProfilePhotosMock).toHaveBeenCalledWith(
-      42,
-      { offset: 0, limit: USER_PROFILE_PHOTOS_LIMIT }, undefined
-    );
+    expect(getUserProfilePhotosMock).not.toHaveBeenCalled();
     expect(getFileMock).toHaveBeenCalledWith("active-avatar-file", expect.any(AbortSignal));
     expect(setMyProfilePhotoMock).toHaveBeenCalledTimes(1);
   });

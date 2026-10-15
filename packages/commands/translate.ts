@@ -111,6 +111,10 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
     messages: chatAtmosphere().TRANSLATE_TARGET_TEXTS,
   });
   if (target === undefined) return;
+  if (getChatState(chatId).isTranslationEnabled !== true) {
+    await replyCommandNotice(ctx, chatAtmosphere().TRANSLATE_DISABLED_TEXT);
+    return;
+  }
   const current: TranslateState | undefined = getTranslateState(chatId, target.id);
   if (current !== undefined) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
@@ -119,7 +123,7 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
   }
 
   if (!setTranslateState(chatId, { translatedUser: target, language })) {
-    await replyCommandNotice(ctx, getChatState(chatId).translate !== undefined ? chatAtmosphere().TRANSLATE_CHAT_CAPACITY_TEXT : chatAtmosphere().TRANSLATE_CAPACITY_TEXT);
+    await replyCommandNotice(ctx, chatAtmosphere().TRANSLATE_CHAT_CAPACITY_TEXT);
     return;
   }
   await persistChatState(chatId, "translation started");

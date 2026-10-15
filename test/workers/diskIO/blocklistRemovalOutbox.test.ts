@@ -427,7 +427,7 @@ describe("DiskIO Worker SQLite 身份存储", () => {
     resetStorageDatabaseCache();
     const database: StorageDatabase = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
     database.$client.query("INSERT INTO pending_blocked_removals (removal_id, data) VALUES (?, jsonb(?))")
-      .run(extraId, encodePendingBlockedRemovalData(removal(extraId), "test").text);
+      .run(extraId, encodePendingBlockedRemovalData(removal(extraId), "test"));
     closeStorageDatabase(database);
 
     resetStorageDatabaseCache();

@@ -5,9 +5,6 @@ import { TRANSLATE_CHAT_USER_LIMIT, TRANSLATE_LANGUAGE_GLOSSARY, TRANSLATE_LANGU
 export const TRANSLATE_USAGE_TEXT: string =
   `笨蛋，本天才只处理文字消息。回复目标后用 /translate ${TRANSLATE_LANGUAGE_SYNOPSIS}，或 /translate ${TRANSLATE_LANGUAGE_SYNOPSIS} @username；${TRANSLATE_LANGUAGE_GLOSSARY}。每群最多 ${TRANSLATE_CHAT_USER_LIMIT} 人，查看语言用 /translate list；直接用 /translate stop 停止全群，回复目标或用 /translate stop @username/id 停止单人，功能开关用 /translate enable|disable♡`;
 
-/** 翻译会话容量已满时拒绝新增，既有会话不受影响。 */
-export const TRANSLATE_CAPACITY_TEXT: string = "翻译群数已满啦，先在不用翻译的群 /translate stop，再来开启，笨蛋♡";
-
 /** 本群翻译人数已满时拒绝新增。 */
 export const TRANSLATE_CHAT_CAPACITY_TEXT: string = `本群已经有 ${TRANSLATE_CHAT_USER_LIMIT} 个杂鱼等本天才翻译啦，回复目标用 /translate stop 腾个位置再来♡`;
 

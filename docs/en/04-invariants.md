@@ -568,7 +568,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
   - When the main thread executes emergency lockdown recovery, it dispatches deletion of the recorded announcement before clearing records; deletion failures log to the shared Telegram logger, and recovery does not block on deletion results.
 
 - **Timeout verification rechecks inviter identity (`checkingInviter`)**:
-  - Upon verification timeout, `isChatAdmin` rechecks inviter identity during the `checkingInviter` stage:
+  - On join creation, `startAdminCheck` is dispatched only when an inviter exists and is not the joining member (`inviterId !== undefined && inviterId !== userId`); upon verification timeout with a third-party inviter, `isChatAdmin` rechecks inviter identity during the `checkingInviter` stage:
     - Confirmed admin: Grants exemption to the invited member.
     - Confirmed non-admin: Advances to timeout expulsion (`expelling`).
     - Inconclusive identity (network timeout or query failure): Retains existing terminal and disk snapshots, releases local execution flags, and retries with exponential backoff, consuming one approved terminal attempt per retry.
@@ -621,7 +621,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 
 - **Terminal member kicks and group type adaptation**:
   - `kickChatMember` must always be preceded by `probeChatMembership`: kicks proceed only if presence is confirmed; confirmed absence settles silently without battle-reports; query failures enter retry backoff.
-  - When the bot is confirmed to lack `can_restrict_members` (`botCanRestrictIn === false`), the membership probe still runs and only the kick request is skipped: a departed member settles at once, a present member keeps the terminal state and backs off. Once the failure notice is sent and cleanup has settled, each `expelling` retry sends a single probe.
+  - When the bot is confirmed to lack `can_restrict_members` (`botCanRestrictIn === false`), the membership probe still runs and only the kick request is skipped: a departed member settles at once, a present member keeps the terminal state and backs off. Once `cleanupSettled` is `true`, `expelling` retries no longer re-send message deletion requests; once the failure notice is also sent, each retry sends only a single probe.
   - **Initial attempts require presence checks**: In supergroups, "kick without ban" maps to `unbanChatMember` without `only_if_banned`, which **lifts existing bans**. The main thread must verify that the target is currently present via `getChatMember`, cancelling with `absent` if already `left` or `kicked`. Explicit unbans with `only_if_banned: true` bypass this check.
   - **Group type routing**: Basic groups use `banChatMember` (removing members); supergroups use `unbanChatMember`. Tracked by the main thread and replayed before adopting terminals.
 
@@ -1002,7 +1002,7 @@ This section covers the [authoritative blocklist and the block command](#authori
   - Any signal of residual blocklisted members (failed bans, join-time removals returning `complete: false`) triggers `requestBlocklistResweep`, resetting `sweptAt` to `null`. Consecutive failures linearly increase backoff up to `BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS`.
 - **Missing Permissions vs. Target is Admin**:
   - Telegram 403 or 400 `not enough rights` maps to `forbidden`.
-  - If the target is an administrator, Telegram also returns 400 `not enough rights`. The Worker probes the target via `probeChatAdmin`: confirmed admins settle that target alone, letting the remaining batch proceed; the receipt marks `targetIsAdmin`, causing the main thread to skip updating `sweptAt` and retain the chat for future sweeps.
+  - If the target is an administrator, membership-probing sweeps (`probeMembership: true`) identify administrator status directly from the `getChatMember` call in `probeChatMembership` without calling `banChatMember` or issuing a second query; non-probing instant kicks and ad-disposal batches (`probeMembership: false`) encounter Telegram 400 `not enough rights` and then probe the target via `probeChatAdmin`. Confirmed admins log and settle that target alone while letting the remaining batch proceed; the receipt marks `targetIsAdmin`, causing the main thread to skip updating `sweptAt` and retain the chat for future sweeps.
   - If the bot itself lacks permissions, Worker returns `permissionDenied`. Main thread flags `permissionBlocked`, pausing timed retries and marking outbox batches as `missing-permission`. Cleared only upon observing confirmed `canRestrictMembers` rights via `my_chat_member` updates or direct probes.
 - **Task Durability & Instant Bans**:
   - Removal batches are tracked by `trackBlockedRemoval` in `pendingBlockedRemovals` and replayed on Worker respawns (bans are idempotent).

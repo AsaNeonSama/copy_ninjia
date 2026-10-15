@@ -34,7 +34,7 @@ function storedPendingRemovals(count: number): readonly StoredPendingRemovalRow[
         data: encodePendingBlockedRemovalData(
           pendingRemoval(removalId),
           `${SOURCE}:pending_blocked_removals[${removalId}].data`
-        ).text,
+        ),
       };
     }
   );

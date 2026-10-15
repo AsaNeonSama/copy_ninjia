@@ -1,10 +1,8 @@
-import { STATE_MANAGED_CHAT_LIMIT } from "../consts/storage";
 import { TRANSLATE_CHAT_USER_LIMIT } from "../consts/translate";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import {
   getChatState,
   getChatStateCache,
-  getOrCreateChatState,
   persistChatState,
 } from "../infra/storage/stateStore";
 import { isTelegramGroupChatId } from "../libs/telegramId";
@@ -25,14 +23,16 @@ export function getTranslateState(chatId: number, userId: number): TranslateStat
 }
 
 /**
- * 创建或替换本群一个目标的会话；同步检查群状态容量与每群人数，不淘汰其他目标。
+ * 创建或替换本群一个目标的会话；只读已初始化的群状态（缺失时抛错，不隐式新建群状态），
+ * 同步检查每群人数上限（达到上限返回 false），不淘汰其他目标。
  * 调用方随后经 persistChatState 落盘；目标身份按 Telegram 给出的原样保存，空字符串名称同样保留。
  */
 export function setTranslateState(chatId: number, state: TranslateState): boolean {
   if (!isTelegramGroupChatId(chatId)) throw new Error("Translation chat ID must be a negative safe integer.");
-  const existing: ChatState | undefined = getChatStateCache().get(chatId);
-  if (existing === undefined && getChatStateCache().size >= STATE_MANAGED_CHAT_LIMIT) return false;
-  const chatState: ChatState = existing ?? getOrCreateChatState(chatId);
+  const chatState: ChatState | undefined = getChatStateCache().get(chatId);
+  if (chatState === undefined) {
+    throw new Error(`Cannot set translation state for uninitialized chat ${chatId}.`);
+  }
   const current: readonly TranslateState[] | undefined = chatState.translate;
   if (current === undefined) {
     chatState.translate = [state];

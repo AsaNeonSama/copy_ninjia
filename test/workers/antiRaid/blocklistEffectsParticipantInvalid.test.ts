@@ -91,20 +91,21 @@ describe("黑名单处置的 PARTICIPANT_ID_INVALID 观测（守卫线程侧）"
     expect(events[0]?.participantInvalidUserIds).toEqual([]);
   });
 
-  test("混合批次按处置顺序分别报出销号观测与已落定 id", async () => {
+  test("混合批次按处置顺序分别报出销号观测与已落定 id（含探测识别的管理员）", async () => {
     probeChatMembershipWithOutcome.mockImplementation(async (_chatId: unknown, userId: unknown): Promise<string> => {
       if (userId === 7 || userId === 10) return "participantInvalid";
+      if (userId === 11) return "admin";
       return userId === 8 ? "absent" : "present";
     });
     banChatMemberWithOutcome.mockImplementation(async (_chatId: unknown, userId: unknown): Promise<string> =>
       userId === 7 || userId === 10 ? "participantInvalid" : "banned");
 
     handleRemoveBlockedMembers({
-      msg: { type: "removeBlockedMembers", chatId: -1001, userIds: [7, 8, 9, 10], probeMembership: true, removalId: 55 },
+      msg: { type: "removeBlockedMembers", chatId: -1001, userIds: [7, 8, 9, 10, 11], probeMembership: true, removalId: 55 },
       publish,
     });
     await settle();
 
-    expect(events).toEqual([{ type: "blockedMembersRemoved", chatId: -1001, removalId: 55, complete: false, permissionDenied: false, targetIsAdmin: false, participantInvalidUserIds: [7, 10], settledUserIds: [8, 9] }]);
+    expect(events).toEqual([{ type: "blockedMembersRemoved", chatId: -1001, removalId: 55, complete: false, permissionDenied: false, targetIsAdmin: true, participantInvalidUserIds: [7, 10], settledUserIds: [8, 9, 11] }]);
   });
 });

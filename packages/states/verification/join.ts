@@ -192,7 +192,9 @@ function joinCreate(event: JoinEvent, invitedByOther: boolean): VerificationTran
     expiresAt: event.now + VERIFICATION_TIMEOUT_MS,
   };
   const effects: VerificationEffect[] = [];
-  if (invitedByOther) effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+  if (invitedByOther && !event.adminCacheFresh) {
+    effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+  }
   effects.push({ kind: "sendReminder", label: event.label, isBot: event.isBot });
   return { next: pending, effects };
 }

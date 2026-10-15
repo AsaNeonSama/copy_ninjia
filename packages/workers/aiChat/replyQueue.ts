@@ -14,7 +14,7 @@ import type { TriggerKind } from "../../types/states/replyAdmission";
 import { resolvedTagFor } from "./mediaText";
 import { isDirectReplyModelActive } from "./replyDelivery";
 import { notifyRateLimited } from "./replyState";
-import { lookupBufferedMessage, replyReferenceForBufferedEntry } from "./bufferedMessageIndex";
+import { lookupBufferedMessage } from "./bufferedMessageIndex";
 
 /** 触发分类：随机触发优先于媒体触发。 */
 export function triggerKindFor(isRandomTrigger: boolean, mediaComment: MediaCommentContext | undefined): TriggerKind {
@@ -31,7 +31,7 @@ export interface PushReplyTriggerParams {
   telegramBackpressured: boolean;
   imageGenerationRequested: boolean;
   imageGenerationReference?: QueuedReplyTrigger["imageGenerationReference"];
-  triggerReference?: BufferedReplyReference;
+  triggerReference: BufferedReplyReference | undefined;
   /** 触发时刻的本群问答 JSON 文本与条数；随触发一起入队，补跑时用当时那份清单。 */
   chatQaJson?: string;
   chatQaCount?: number;
@@ -62,13 +62,11 @@ export function pushReplyTrigger({
     pendingReplyTriggers.set(chatId, queue);
   }
   if (mediaTrigger) {
-    const capturedTriggerReference: BufferedReplyReference | undefined =
-      triggerReference ?? mediaTrigger.triggerReference;
     queue.push({
       triggerSenderId,
       replyToMessageId,
       telegramBackpressured,
-      triggerReference: capturedTriggerReference,
+      triggerReference,
       replyTo: mediaTrigger.replyTo,
       forwardedFrom: mediaTrigger.forwardedFrom ? mediaTrigger.forwardedFrom : undefined,
       imageGenerationRequested,
@@ -87,13 +85,11 @@ export function pushReplyTrigger({
   }
 
   const triggerEntry: BufferedMessage | undefined = lookupBufferedMessage(chatId, replyToMessageId);
-  const capturedTriggerReference: BufferedReplyReference | undefined = triggerReference ??
-    (triggerEntry ? replyReferenceForBufferedEntry(replyToMessageId, triggerEntry) : undefined);
   queue.push({
     triggerSenderId,
     replyToMessageId,
     telegramBackpressured,
-    triggerReference: capturedTriggerReference,
+    triggerReference,
     replyTo: triggerEntry?.replyTo,
     forwardedFrom: triggerEntry?.forwardedFrom ? triggerEntry.forwardedFrom : undefined,
     imageGenerationRequested,

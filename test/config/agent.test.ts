@@ -710,6 +710,24 @@ describe("unified agent.json loading", () => {
     await expect(validateAgentDeploymentConfig(extraPath)).rejects.toThrow(/must be exactly \{ agent \}/);
   });
 
+  test("多项能力同时非法时按 text → summary → media → image → tts → web_search 顺序先报第一个（text）", async () => {
+    const multiInvalid: Record<string, unknown> = {
+      ...AGENT,
+      text: { provider: "invalid", api_key: "k", model: "m" },
+      summary: { provider: "invalid", api_key: "k", model: "m" },
+      media: { provider: "invalid", api_key: "k", model: "m" },
+      image: { provider: "invalid", api_key: "k", model: "m" },
+      tts: { provider: "invalid", api_key: "k", model: "m", voice: "v" },
+      web_search: { provider: "invalid", api_key: "k", model: "m" },
+    };
+    expect(() => parseAgentDeploymentConfig(multiInvalid, "agent.json"))
+      .toThrow(/^\S+: \$\.agent\.text\.provider must be/);
+    const path: string = await writeConfig({ agent: multiInvalid });
+    await expect(loadAgentConfigSnapshots(path)).rejects.toThrow(
+      `${path}: $.agent.text.provider must be "google", "openai" or "anthropic"`
+    );
+  });
+
   test("运行时 getter 只读 holder，取不到就 fail-closed 而不读盘", () => {
     const agentValue: AgentDeploymentConfig = parseAgentDeploymentConfig(AGENT, "agent.json");
     adoptAgentDeploymentConfig(agentValue);

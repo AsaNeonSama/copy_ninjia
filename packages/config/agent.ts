@@ -56,20 +56,23 @@ export function parseAgentDeploymentConfig(
       "exactly { ad_detect?, text, summary, media, image?, tts?, web_search? }"
     );
   }
+  const text: AgentCapabilityConfig = parseCapability(value.text, "$.agent.text", sourcePath);
+  const summary: AgentCapabilityConfig = parseCapability(value.summary, "$.agent.summary", sourcePath);
+  const media: AgentCapabilityConfig = parseCapability(value.media, "$.agent.media", sourcePath);
+  const image: AgentImageCapabilityConfig | undefined = value.image === undefined
+    ? undefined
+    : parseImageCapability(value.image, sourcePath);
   let tts: AgentTtsCapabilityConfig | undefined;
   if (value.tts !== undefined) {
     tts = parseTtsCapability(value.tts, sourcePath);
   }
-  const image: AgentImageCapabilityConfig | undefined = value.image === undefined
-    ? undefined
-    : parseImageCapability(value.image, sourcePath);
   const webSearch: AgentWebSearchCapabilityConfig | undefined = value.web_search === undefined
     ? undefined
     : parseWebSearchCapability(value.web_search, sourcePath);
   return {
-    text: parseCapability(value.text, "$.agent.text", sourcePath),
-    summary: parseCapability(value.summary, "$.agent.summary", sourcePath),
-    media: parseCapability(value.media, "$.agent.media", sourcePath),
+    text,
+    summary,
+    media,
     image,
     tts,
     webSearch,
@@ -112,6 +115,15 @@ export async function loadAgentConfigSnapshots(
   const adDetectConfig: AdDetectAgentConfig | undefined = record.ad_detect === undefined
     ? undefined
     : parseAdDetectAgentConfig(record.ad_detect, path);
+  const hasAiChatCore: boolean = AGENT_AI_CHAT_REQUIRED_CAPABILITIES.every(
+    (key: string): boolean => Object.hasOwn(record, key)
+  );
+  if (hasAiChatCore) {
+    return {
+      adDetect: adDetectConfig ?? null,
+      agent: parseAgentDeploymentConfig(record, path),
+    };
+  }
   if (record.text !== undefined) parseCapability(record.text, "$.agent.text", path);
   if (record.summary !== undefined) parseCapability(record.summary, "$.agent.summary", path);
   if (record.media !== undefined) parseCapability(record.media, "$.agent.media", path);
@@ -120,13 +132,7 @@ export async function loadAgentConfigSnapshots(
     parseTtsCapability(record.tts, path);
   }
   if (record.web_search !== undefined) parseWebSearchCapability(record.web_search, path);
-  const hasAiChatCore: boolean = AGENT_AI_CHAT_REQUIRED_CAPABILITIES.every(
-    (key: string): boolean => Object.hasOwn(record, key)
-  );
-  const agentConfig: AgentDeploymentConfig | null = hasAiChatCore
-    ? parseAgentDeploymentConfig(record, path)
-    : null;
-  return { adDetect: adDetectConfig ?? null, agent: agentConfig };
+  return { adDetect: adDetectConfig ?? null, agent: null };
 }
 
 /** 启动总闸严格校验整份已存在的 agent.json，并填充默认路径缓存。 */
