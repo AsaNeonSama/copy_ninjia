@@ -500,7 +500,8 @@
   - メインスレッドが緊急私密モード（Lockdown）を復元する際は、記録消去前に公告 ID に基づくメッセージ削除を開始します。削除失敗時は Telegram ログにのみ記録し、復元のメインフローは削除の完了を待ちません。
 
 - **タイムアウト検証における招待者身分の再確認（`checkingInviter`）**：
-  - 参加による新規作成時は、招待者が存在し本人以外である場合（`inviterId !== undefined && inviterId !== userId`）にのみ `startAdminCheck` を発行します。認証タイムアウト後も同様に、`checkingInviter` 段階で `isChatAdmin` により招待者の身分を再確認します：
+  - 他人に追加されたメンバーの入室時は、まず有効期限内の管理者キャッシュで招待者を同期判定し、管理者であれば即座に免除します。キャッシュが期限切れ（`adminCacheFresh` が偽）の場合にのみ `startAdminCheck` を発行して管理者一覧を取得し直します。同じ入室が `chat_member` と `new_chat_members` の両方から重複して届いた場合も同じ基準です。キャッシュが有効期限内で招待者が管理者でない場合は追加照会を行いません。
+  - 認証タイムアウト後、`checkingInviter` 段階で `isChatAdmin` により招待者の身分を再確認します：
     - 管理者と確証できた場合：招待されたメンバーに免除を付与します。
     - 非管理者と確証できた場合：タイムアウト追放段階（`expelling`）へ移行します。
     - 身分を確証できなかった場合（ネットワークタイムアウトや照会失敗）：元の終端状態とディスクスナップショットを維持し、ローカルの実行占有を解除して既定の指数バックオフ後に再確認します。各試行はメインスレッドが承認した終端予算を消費します。
@@ -926,7 +927,7 @@
   - `sweptAt` は完了ラッチとして機能し、グループ内にブラックリストメンバーが残存していることが判明した場合（BAN 失敗や即時キックの未完など）、`requestBlocklistResweep` により `null` にリセットされます。連続失敗時はバックオフ間隔が線形に増加し、最大 `BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS` で頭打ちとなります。
 - **権限不足と対象が管理者である場合の細分化判定**：
   - Telegram が 403 または 400 `not enough rights` を返した場合、`forbidden` として分類されます。
-  - 処分の対象自身がグループの管理者である場合、在室照会を行う補掃経路（`probeMembership: true`）は `probeChatMembership` の `getChatMember` で管理者の身分を直接識別し、`banChatMember` や再照会を行いません。在室照会を行わない即時キックや広告処置経路（`probeMembership: false`）では、Telegram が 400 `not enough rights` を返した際に Worker が `probeChatAdmin` で身分を確認します。対象が管理者であると確証された場合はログを記録して該当対象のみをスキップし、同バッチの残りは正常に処理してバッチ自体は完了させます。ただし受領通知に `targetIsAdmin` フラグを付与し、メインスレッドは `sweptAt` を更新せず失敗カウントを積算して、該当グループの補掃待ち状態を維持します。
+  - 処分の対象自身がグループの管理者である場合、在室照会を行う補掃経路（`probeMembership: true`）は `probeChatMembershipWithOutcome` の `getChatMember` で管理者の身分を直接識別し、`banChatMember` や再照会を行いません。在室照会を行わない即時キックや広告処置経路（`probeMembership: false`）では、Telegram が 400 `not enough rights` を返した際に Worker が `probeChatAdmin` で身分を確認します。対象が管理者であると確証された場合はログを記録して該当対象のみをスキップし、同バッチの残りは正常に処理してバッチ自体は完了させます。ただし受領通知に `targetIsAdmin` フラグを付与し、メインスレッドは `sweptAt` を更新せず失敗カウントを積算して、該当グループの補掃待ち状態を維持します。
   - Bot 自身に BAN 権限が不足している場合、Worker は `permissionDenied` を返送します：メインスレッドは `permissionBlocked` をマークしてタイマー再試行を一時停止し、outbox 内の補掃バッチを `missing-permission` として記録します。`canRestrictMembers` 権限を備えた `my_chat_member` 更新または現時点の照会結果を受信したときにのみ、ラッチを解除します。
 - **タスク永続化と即時キック（入室時即時処置）**：
   - 処分バッチは `trackBlockedRemoval` により `pendingBlockedRemovals` に採番・記録され、Worker 再構築時に全量が再投入されます（BAN 操作は冪等です）。

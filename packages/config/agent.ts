@@ -62,10 +62,9 @@ export function parseAgentDeploymentConfig(
   const image: AgentImageCapabilityConfig | undefined = value.image === undefined
     ? undefined
     : parseImageCapability(value.image, sourcePath);
-  let tts: AgentTtsCapabilityConfig | undefined;
-  if (value.tts !== undefined) {
-    tts = parseTtsCapability(value.tts, sourcePath);
-  }
+  const tts: AgentTtsCapabilityConfig | undefined = value.tts === undefined
+    ? undefined
+    : parseTtsCapability(value.tts, sourcePath);
   const webSearch: AgentWebSearchCapabilityConfig | undefined = value.web_search === undefined
     ? undefined
     : parseWebSearchCapability(value.web_search, sourcePath);
@@ -128,9 +127,7 @@ export async function loadAgentConfigSnapshots(
   if (record.summary !== undefined) parseCapability(record.summary, "$.agent.summary", path);
   if (record.media !== undefined) parseCapability(record.media, "$.agent.media", path);
   if (record.image !== undefined) parseImageCapability(record.image, path);
-  if (record.tts !== undefined) {
-    parseTtsCapability(record.tts, path);
-  }
+  if (record.tts !== undefined) parseTtsCapability(record.tts, path);
   if (record.web_search !== undefined) parseWebSearchCapability(record.web_search, path);
   return { adDetect: adDetectConfig ?? null, agent: null };
 }

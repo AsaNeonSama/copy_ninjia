@@ -41,6 +41,14 @@ export type ChatMembershipProbeOutcome =
   | "participantInvalid"
   | "failed";
 
+/** 查询成功时由成员记录得出的探测结局。 */
+type ChatMembershipStatusOutcome = Exclude<ChatMembershipProbeOutcome, "participantInvalid" | "failed">;
+
+function membershipStatusOutcome(member: ChatMember): ChatMembershipStatusOutcome {
+  if (isAdminStatus(member.status)) return "admin";
+  return isPresentMember(member) ? "present" : "absent";
+}
+
 /** 探测成员身份并保留管理员与 PARTICIPANT_ID_INVALID 分类；取消以外的查询失败照常记 API 错误。 */
 export async function probeChatMembershipWithOutcome(
   chatId: number,
@@ -48,17 +56,12 @@ export async function probeChatMembershipWithOutcome(
   api: ChatMemberApi = telegramApi
 ): Promise<ChatMembershipProbeOutcome> {
   let participantInvalid: boolean = false;
-  const outcome: "admin" | "present" | "absent" | undefined =
-    await runTelegramAction<ChatMember, "admin" | "present" | "absent" | undefined>({
+  const outcome: ChatMembershipStatusOutcome | undefined =
+    await runTelegramAction<ChatMember, ChatMembershipStatusOutcome | undefined>({
       action: `probe chat membership (chat ${chatId}, user ${userId})`,
       execute: (signal?: AbortSignal): Promise<ChatMember> =>
         getChatMember({ api, chatId, userId, signal }),
-      map: (member: ChatMember): "admin" | "present" | "absent" =>
-        isAdminStatus(member.status)
-          ? "admin"
-          : isPresentMember(member)
-            ? "present"
-            : "absent",
+      map: membershipStatusOutcome,
       fallback: undefined,
       shouldLogError: (error: unknown): boolean => {
         participantInvalid = isParticipantIdInvalid(error);

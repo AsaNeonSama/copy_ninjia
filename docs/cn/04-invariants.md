@@ -585,7 +585,8 @@
   - 主线程紧急恢复私密模式（Lockdown）时，在清理记录前先根据公告 ID 触发删除；删除失败仅输出 Telegram 日志，恢复主流程不等待删除结果。
 
 - **超时验证复核邀请人身份（`checkingInviter`）**：
-  - 入群新建验证时仅对「存在邀请人且邀请人非成员本人」（`inviterId !== undefined && inviterId !== userId`）派发 `startAdminCheck`；验证超时后若同理存在他人的邀请记录，在 `checkingInviter` 阶段调用 `isChatAdmin` 复核邀请人身份：
+  - 由他人拉入的成员入群时，先按未过期的管理员缓存同步判定拉人者，命中管理员即豁免；仅当缓存已过期（`adminCacheFresh` 为假）时派发 `startAdminCheck` 拉取管理员列表补查，同一次入群经 `chat_member` 与 `new_chat_members` 重复送达时口径相同。缓存未过期且拉人者不是管理员时不补查。
+  - 验证超时后，在 `checkingInviter` 阶段调用 `isChatAdmin` 复核邀请人身份：
     - 确认为管理员：授予受邀成员豁免；
     - 确认为非管理员：转入超时踢出阶段 `expelling`；
     - 身份未能确证（网络超时或查询失败）：保持原有终态与磁盘快照，释放本地执行占用，并按照既定的指数退避策略重新复核，每次重试仍计入主线程核批的终态预算。
@@ -1009,7 +1010,7 @@
   - `sweptAt` 作为完成闩锁，在检测到群内仍残留黑名单成员（如封禁失败或秒踢未完成）时通过 `requestBlocklistResweep` 重置为 `null`；连续失败时重试退避线性递增，封顶为 `BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS`。
 - **权限不足与目标是管理员的细分判定**：
   - Telegram 返回 403 或 400 `not enough rights` 时被归类为 `forbidden`。
-  - 若封禁目标本身是该群的管理员，补扫路径（`probeMembership: true`）在 `probeChatMembership` 的 `getChatMember` 中直接识别管理员身份，无需调用 `banChatMember` 或再次查询；不探测成员状态的秒踢与广告处置路径（`probeMembership: false`）在 Telegram 返回 400 `not enough rights` 时由 Worker 通过 `probeChatAdmin` 现查身份。一旦确证目标是管理员，记录日志并跳过该目标，同批其余目标正常处置，整批照常落定；但回执附加 `targetIsAdmin` 标记，主线程据此不更新 `sweptAt` 并累计失败计数，使该群继续保持待补扫状态。
+  - 若封禁目标本身是该群的管理员，补扫路径（`probeMembership: true`）在 `probeChatMembershipWithOutcome` 的 `getChatMember` 中直接识别管理员身份，无需调用 `banChatMember` 或再次查询；不探测成员状态的秒踢与广告处置路径（`probeMembership: false`）在 Telegram 返回 400 `not enough rights` 时由 Worker 通过 `probeChatAdmin` 现查身份。一旦确证目标是管理员，记录日志并跳过该目标，同批其余目标正常处置，整批照常落定；但回执附加 `targetIsAdmin` 标记，主线程据此不更新 `sweptAt` 并累计失败计数，使该群继续保持待补扫状态。
   - 若机器人自身确实缺乏封禁权限，Worker 回传 `permissionDenied`：主线程标记 `permissionBlocked`，暂停时间退避重试，outbox 中的补扫批次标记为 `missing-permission`。仅当接收到明确具有 `canRestrictMembers` 权限的 `my_chat_member` 更新或现查结果时，方可解除闩锁。
 - **任务持久化与秒踢（即时封禁）**：
   - 封禁批次通过 `trackBlockedRemoval` 记录于 `pendingBlockedRemovals`，Worker 重建时全量重投（封禁操作幂等）。

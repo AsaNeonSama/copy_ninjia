@@ -295,37 +295,12 @@ describe("project convention collectors", () => {
     expect(problems.some((problem: string): boolean => problem.includes("hImage/draw.ts"))).toBeFalse();
     expect(problems.some((problem: string): boolean => problem.includes("cron/delivery.ts:"))).toBeFalse();
 
-    const fixedRoot: string = temporaryRoot("copy-ninjia-telegram-conventions-");
-    const fixedSourceRoot: string = join(fixedRoot, "packages");
-    const fixedCommandsRoot: string = join(fixedSourceRoot, "commands");
-    for (const directory of [
-      join(fixedCommandsRoot, "gag"),
-      join(fixedCommandsRoot, "qa"),
-      join(fixedCommandsRoot, "luckChallenge"),
-      join(fixedSourceRoot, "copy"),
-      join(fixedSourceRoot, "antiRaid"),
-      join(fixedSourceRoot, "auto"),
-      join(fixedSourceRoot, "cron"),
-      join(fixedSourceRoot, "workers", "antiRaid"),
-    ]) mkdirSync(directory, { recursive: true });
-    await Bun.write(join(fixedCommandsRoot, "gag.ts"), "");
-    await Bun.write(join(fixedCommandsRoot, "gag", "notices.ts"), "");
-    await Bun.write(join(fixedCommandsRoot, "qa", "notices.ts"), "");
-    await Bun.write(join(fixedSourceRoot, "copy", "avatarQueue.ts"), "");
-    await Bun.write(
-      join(fixedSourceRoot, "workers", "antiRaid", "verificationEffects.ts"),
-      'import { sendTemporaryMessageFromMain } from "../../../infra/telegram/workerClient"; function runVerificationEffects() { return sendTemporaryMessageFromMain({purpose: "notice", chatId: 1, text: "welcome"}); }'
-    );
-    await Bun.write(
-      join(fixedSourceRoot, "workers", "antiRaid", "verificationReminders.ts"),
-      'import { sendMessage } from "../../../infra/telegram"; function attemptReminderDelivery() { return sendMessage({chatId: 1, text: "verify", keyboard: {inline_keyboard: []}}); }'
-    );
-    const fixedProblems: readonly string[] = await collectTelegramMessageProblems(
-      fixedRoot,
-      fixedSourceRoot,
-      fixedCommandsRoot
-    );
-    expect(fixedProblems).toEqual([]);
+    await Bun.write(welcomePath,
+      'import { sendTemporaryMessageFromMain } from "../../../infra/telegram/workerClient"; function runVerificationEffects() { return sendTemporaryMessageFromMain({purpose: "notice", chatId: 1, text: "welcome"}); }');
+    await Bun.write(join(sourceRoot, "workers", "antiRaid", "verificationReminders.ts"),
+      'import { sendMessage } from "../../../infra/telegram"; function attemptReminderDelivery() { return sendMessage({chatId: 1, text: "verify", keyboard: {inline_keyboard: []}}); }');
+    const fixedProblems: readonly string[] = await collectTelegramMessageProblems(root, sourceRoot, commandsRoot);
+    expect(fixedProblems.some((problem: string): boolean => /verification(?:Effects|Reminders)\.ts/.test(problem))).toBeFalse();
   });
 
   test("package.json 只允许当前声明的冷迁移边并要求入口都存在", async () => {
