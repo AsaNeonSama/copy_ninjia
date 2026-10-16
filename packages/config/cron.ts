@@ -357,6 +357,22 @@ async function verifyLocalSource(
   if (!valid) fail(context, kind === "file" ? "an existing regular file" : "an existing directory");
 }
 
+/** 核对一个动作来源引用的全部本机文件或目录；url/urls 来源与未指定目录的 random 不访问文件系统。 */
+async function verifyActionLocalSources(
+  source: CronImageSource | CronFileSource,
+  context: InputFieldContext
+): Promise<void> {
+  if (source.kind === "path") {
+    await verifyLocalSource(source.path, "file", context);
+  } else if (source.kind === "paths") {
+    for (let index: number = 0; index < source.paths.length; index++) {
+      await verifyLocalSource(source.paths[index]!, "file", { source: context.source, path: `${context.path}[${index}]` });
+    }
+  } else if (source.kind === "random" && source.directory !== null) {
+    await verifyLocalSource(source.directory, "directory", context);
+  }
+}
+
 /** 读取并严格解析 cron.json，再核对全部本地来源；模块 import 本身不访问文件系统。 */
 export async function loadCronConfig(): Promise<CronConfig> {
   const config: CronConfig = parseCronConfig(await readJsonInput(CRON_CONFIG_PATH), CRON_CONFIG_PATH);
@@ -366,14 +382,7 @@ export async function loadCronConfig(): Promise<CronConfig> {
       const action: Readonly<CronAction> = actions[actionIndex]!;
       if (action.type === "send_message" || action.type === "send_voice" || action.type === "send_web_digest") continue;
       const context: InputFieldContext = { source: CRON_CONFIG_PATH, path: `$[${taskIndex}].actions[${actionIndex}].payload.path` };
-      if (action.source.kind === "path") await verifyLocalSource(action.source.path, "file", context);
-      else if (action.source.kind === "paths") {
-        for (let index: number = 0; index < action.source.paths.length; index++) {
-          await verifyLocalSource(action.source.paths[index]!, "file", { source: CRON_CONFIG_PATH, path: `${context.path}[${index}]` });
-        }
-      } else if (action.source.kind === "random" && action.source.directory !== null) {
-        await verifyLocalSource(action.source.directory, "directory", context);
-      }
+      await verifyActionLocalSources(action.source, context);
     }
   }
   return config;

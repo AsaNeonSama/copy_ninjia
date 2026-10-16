@@ -145,7 +145,7 @@ export function requestAiMemoryDelete(chatId: number, wait: boolean): Promise<vo
 
 onDiskIOGiveUp((): void => {
   for (const waiters of aiMemoryDeleteWaiters.values()) {
-    for (const waiter of [...waiters]) {
+    for (const waiter of waiters) {
       clearTimeout(waiter.timer);
       waiter.reject(new Error(
         "Persistence Worker gave up self-healing before the AI memory deletion was durable."

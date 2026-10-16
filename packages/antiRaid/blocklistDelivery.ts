@@ -11,7 +11,7 @@ import { BLOCKLIST_REMOVAL_RECONCILE_MAX_ROUNDS } from "../consts/antiRaid/block
 import type { AntiRaidWorkerMessage } from "../types/antiRaid/protocol";
 import type { RemoveBlockedMembersParams } from "../types/blocklist";
 
-/** 判断补扫页是否包含相同顺序的主键序列。 */
+/** 判断两份补扫页或处置名单是否包含相同顺序的主键序列。 */
 function blocklistPagesMatch(
   left: readonly number[],
   right: readonly number[]
@@ -92,16 +92,7 @@ function durableAntiRaidMessagesMatch(
       return false;
     }
     if (leftMessage.probeMembership) continue;
-    if (leftMessage.userIds.length !== rightMessage.userIds.length) return false;
-    for (
-      let userIndex: number = 0;
-      userIndex < leftMessage.userIds.length;
-      userIndex++
-    ) {
-      if (leftMessage.userIds[userIndex] !== rightMessage.userIds[userIndex]) {
-        return false;
-      }
-    }
+    if (!blocklistPagesMatch(leftMessage.userIds, rightMessage.userIds)) return false;
   }
   return true;
 }

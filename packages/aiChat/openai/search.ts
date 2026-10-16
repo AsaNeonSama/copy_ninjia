@@ -19,16 +19,20 @@ import type {
   AiWebSearchSource,
 } from "../../types/aiChat/provider";
 
+/** 按出现顺序追加一段 output_text 中 `url_citation` 注解的来源。 */
+function appendUrlCitations(content: OpenAI.Responses.ResponseOutputText, sources: AiWebSearchSource[]): void {
+  for (const annotation of content.annotations) {
+    if (annotation.type === "url_citation") sources.push({ title: annotation.title, url: annotation.url });
+  }
+}
+
 /** 按出现顺序提取响应正文 `url_citation` 注解中的来源。 */
 function citedSources(response: OpenAI.Responses.Response): readonly AiWebSearchSource[] {
   const sources: AiWebSearchSource[] = [];
   for (const item of responseOutputItems(response)) {
     if (item.type !== "message") continue;
     for (const content of item.content) {
-      if (content.type !== "output_text") continue;
-      for (const annotation of content.annotations) {
-        if (annotation.type === "url_citation") sources.push({ title: annotation.title, url: annotation.url });
-      }
+      if (content.type === "output_text") appendUrlCitations(content, sources);
     }
   }
   return sources;

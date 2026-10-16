@@ -13,8 +13,52 @@ import { sleep } from "../../libs/sleep";
 import type { MidnightMaintenanceReply } from "../../types/diskIO/replies";
 import type { ChatMemberPresence } from "../../types/telegram";
 import type { CommandExecutorRuntime } from "../../types/commandExecutor";
-import type { WedMemberReview } from "../../types/wed";
+import type { WedMemberReview, WedMemberState } from "../../types/wed";
 import { removeWedMember } from "./persistence";
+
+interface ReviewChatWedMembersOptions {
+  readonly review: WedMemberReview;
+  readonly chatId: number;
+  readonly state: WedMemberState;
+  readonly nextCheckAt: number;
+}
+
+/** 复核一个群快照里的成员，返回更新后的全局下一次允许查询时刻。 */
+async function reviewChatWedMembers({
+  review,
+  chatId,
+  state,
+  nextCheckAt: initialNextCheckAt,
+}: ReviewChatWedMembersOptions): Promise<number> {
+  let nextCheckAt: number = initialNextCheckAt;
+  const members: readonly number[] = [...state.members.keys()];
+  for (const userId of members) {
+    if (review.controller.signal.aborted) return nextCheckAt;
+    if (wedMemberStates.get(chatId) !== state) break;
+    if (!state.members.has(userId)) continue;
+    let delay: number = nextCheckAt - performance.now();
+    while (delay > 0) {
+      await sleep(Math.ceil(delay), review.controller.signal);
+      delay = nextCheckAt - performance.now();
+    }
+    if (review.controller.signal.aborted) return nextCheckAt;
+    if (wedMemberStates.get(chatId) !== state) break;
+    if (!state.members.has(userId)) continue;
+    review.chatId = chatId;
+    review.userId = userId;
+    review.observed = false;
+    nextCheckAt = performance.now() + WED_MEMBER_REVIEW_INTERVAL_MS;
+    const signal: AbortSignal = signalWithTimeout(review.controller.signal, WED_OPERATION_TIMEOUT_MS);
+    const presence: ChatMemberPresence = await readPresentChatUser({ chatId, userId, signal });
+    const observed: boolean = review.observed;
+    review.chatId = null;
+    review.userId = null;
+    review.observed = false;
+    if (wedMemberStates.get(chatId) !== state || presence.kind === "chatDenied") break;
+    if (presence.kind === "absent" && !signal.aborted && !observed) removeWedMember(chatId, userId);
+  }
+  return nextCheckAt;
+}
 
 /**
  * 逐群快照，串行查询并限制全局起始频率；只删除确认离群（含 Telegram 以
@@ -30,35 +74,7 @@ async function reviewWedMembers(review: WedMemberReview): Promise<void> {
   try {
     for (const [chatId, state] of wedMemberStates) {
       if (review.controller.signal.aborted) return;
-      const members: readonly number[] = [...state.members.keys()];
-      for (const userId of members) {
-        if (review.controller.signal.aborted) return;
-        if (wedMemberStates.get(chatId) !== state) break;
-        if (!state.members.has(userId)) continue;
-        let delay: number = nextCheckAt - performance.now();
-        while (delay > 0) {
-          await sleep(Math.ceil(delay), review.controller.signal);
-          delay = nextCheckAt - performance.now();
-        }
-        if (review.controller.signal.aborted) return;
-        if (wedMemberStates.get(chatId) !== state) break;
-        if (!state.members.has(userId)) continue;
-        review.chatId = chatId;
-        review.userId = userId;
-        review.observed = false;
-        nextCheckAt = performance.now() + WED_MEMBER_REVIEW_INTERVAL_MS;
-        const signal: AbortSignal =
-          signalWithTimeout(review.controller.signal, WED_OPERATION_TIMEOUT_MS);
-        const presence: ChatMemberPresence = await readPresentChatUser({ chatId, userId, signal });
-        const observed: boolean = review.observed;
-        review.chatId = null;
-        review.userId = null;
-        review.observed = false;
-        if (wedMemberStates.get(chatId) !== state || presence.kind === "chatDenied") break;
-        if (presence.kind === "absent" && !signal.aborted && !observed) {
-          removeWedMember(chatId, userId);
-        }
-      }
+      nextCheckAt = await reviewChatWedMembers({ review, chatId, state, nextCheckAt });
     }
   } finally {
     review.chatId = null;

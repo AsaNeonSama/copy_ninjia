@@ -55,10 +55,11 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
     const details: readonly string[] = checked(command, ["tar", "-tvzf", path]).split("\n");
     if (details.length !== entries.length) throw new Error(`${name}: tar entry and mode listings must align.`);
     for (const required of [...RELEASE_REQUIRED_FILES, ...migrations]) {
-      let occurrences: number = 0;
-      for (const entry of entries) if (entry === required) occurrences++;
-      const detail: string | undefined = details[entries.indexOf(required)];
-      if (occurrences !== 1 || detail?.[0] !== "-" || !detail.endsWith(` ${required}`) ||
+      const index: number = entries.indexOf(required);
+      const detail: string | undefined = index !== -1 && index === entries.lastIndexOf(required)
+        ? details[index]
+        : undefined;
+      if (detail?.[0] !== "-" || !detail.endsWith(` ${required}`) ||
         (required === "copy-ninjia/copy-ninjia" && detail[3] !== "x")) {
         throw new Error(`${name}: ${required} must be a unique regular file; the executable must retain its owner execute bit.`);
       }

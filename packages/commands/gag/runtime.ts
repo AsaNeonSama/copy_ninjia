@@ -41,11 +41,7 @@ function removeGagSession(session: GagSession): void {
   if (sessions === undefined) return;
   const index: number = sessions.indexOf(session);
   if (index === -1) return;
-  if (session.timer !== null) clearTimeout(session.timer);
-  if (session.cleanupTimer !== null) clearTimeout(session.cleanupTimer);
-  clearGagSpeakNoticeRefreshTimer(session);
-  session.timer = null;
-  session.cleanupTimer = null;
+  clearGagSessionTimers(session);
   sessions.splice(index, 1);
   if (sessions.length === 0) gagSessionsByChat.delete(session.chatId);
 }
@@ -72,6 +68,14 @@ function clearCleanupTimer(session: GagSession): void {
   session.cleanupTimer = null;
 }
 
+/** 清掉会话的到期、提示清理重试与入口换新三个 timer，并把对应字段置空。 */
+function clearGagSessionTimers(session: GagSession): void {
+  clearGagSpeakNoticeRefreshTimer(session);
+  if (session.timer !== null) clearTimeout(session.timer);
+  session.timer = null;
+  clearCleanupTimer(session);
+}
+
 /** 认领结束：phase 置 ending 并清掉各 timer；ending 在 Telegram 收尾完成前继续占位。 */
 function claimGagEnd(session: GagSession): boolean {
   if (
@@ -79,10 +83,7 @@ function claimGagEnd(session: GagSession): boolean {
     session.phase === "ending"
   ) return false;
   session.phase = "ending";
-  clearGagSpeakNoticeRefreshTimer(session);
-  if (session.timer !== null) clearTimeout(session.timer);
-  session.timer = null;
-  clearCleanupTimer(session);
+  clearGagSessionTimers(session);
   return true;
 }
 
@@ -415,13 +416,7 @@ export function drainGagRuntime(timeoutMs: number): Promise<FlushResult> {
 /** 清空 timer 与缓存；只供测试隔离，不执行 Telegram 动作。 */
 export function resetGagSessions(): void {
   for (const sessions of gagSessionsByChat.values()) {
-    for (const session of sessions) {
-      if (session.timer !== null) clearTimeout(session.timer);
-      if (session.cleanupTimer !== null) clearTimeout(session.cleanupTimer);
-      clearGagSpeakNoticeRefreshTimer(session);
-      session.timer = null;
-      session.cleanupTimer = null;
-    }
+    for (const session of sessions) clearGagSessionTimers(session);
   }
   gagSessionsByChat.clear();
   gagBackgroundTasks.clear();
