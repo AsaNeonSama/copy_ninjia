@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import type ts from "typescript";
 
 /**
@@ -39,6 +39,7 @@ async function declaresSymbol(
   symbol: string,
   depth: number = 1
 ): Promise<boolean> {
+  if (!existsSync(path)) return false;
   const source: string = await Bun.file(path).text();
   if (new RegExp(`\\b${symbol}\\b`).test(source)) return true;
   if (depth <= 0) return false;
@@ -59,15 +60,18 @@ export interface CommentReferenceParams {
 /**
  * 把注释里写的模块路径解析成仓库里的真实文件。
  *
- * 引用可能写全（`packages/libs/time.ts`）、写成 packages 内相对路径
- * （`libs/time.ts`），也可能只写文件名。只在能唯一确定目标时才核对，
- * 歧义一律放过。
+ * 引用可能写成当前文件相对路径（`./x.ts`、`../x.ts`）、仓库根路径
+ * （`packages/libs/time.ts`）、packages 内相对路径（`libs/time.ts`），
+ * 也可能只写文件名。相对路径直接按当前文件所在目录解析；其余形态只在能
+ * 唯一确定目标时才核对，歧义一律放过。
  */
 function resolveReference(
-  projectRoot: string,
-  specifier: string,
-  allSourceFiles: readonly string[]
+  { projectRoot, path, allSourceFiles }: CommentReferenceParams,
+  specifier: string
 ): string | undefined {
+  if (specifier.startsWith("./") || specifier.startsWith("../")) {
+    return resolve(dirname(path), specifier);
+  }
   const direct: string = join(projectRoot, specifier);
   if (existsSync(direct)) return direct;
   const withPackages: string = join(projectRoot, "packages", specifier);
@@ -80,12 +84,10 @@ function resolveReference(
 }
 
 /** 核对一个源文件注释里的全部跨模块符号引用。 */
-export async function collectCommentReferenceProblems({
-  projectRoot,
-  path,
-  source,
-  allSourceFiles,
-}: CommentReferenceParams): Promise<readonly string[]> {
+export async function collectCommentReferenceProblems(
+  params: CommentReferenceParams
+): Promise<readonly string[]> {
+  const { projectRoot, path, source }: CommentReferenceParams = params;
   const problems: string[] = [];
   const relativePath: string = relative(projectRoot, path);
   const lines: readonly string[] = source.getFullText().split("\n");
@@ -100,12 +102,8 @@ export async function collectCommentReferenceProblems({
       const symbol: string | undefined = match[2];
       if (specifier === undefined || symbol === undefined) continue;
       if (EXEMPT_SYMBOLS.includes(symbol)) continue;
-      const target: string | undefined = resolveReference(
-        projectRoot,
-        specifier,
-        allSourceFiles
-      );
-      // 解析不到唯一目标就不判：注释可以引用未随仓库分发的路径。
+      const target: string | undefined = resolveReference(params, specifier);
+      // 非相对路径解析不到唯一目标就不判：注释可以引用未随仓库分发的路径。
       if (target === undefined) continue;
       if (await declaresSymbol(target, symbol)) continue;
       problems.push(
