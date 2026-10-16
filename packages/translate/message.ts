@@ -9,7 +9,7 @@ import { logger } from "../infra/logger";
 import { isAbortError } from "../libs/abortSignal";
 import { trackInflight } from "../libs/inflight";
 import { containsRenderableCommand } from "../libs/renderableCommand";
-import type { TranslateMessageBacklog, TranslateState } from "../types/translate";
+import type { TranslateLanguage, TranslateMessageBacklog, TranslateState } from "../types/translate";
 import { translateText } from "./client";
 import { needsNoTranslation } from "./language";
 import { getTranslateState } from "./state";
@@ -19,6 +19,13 @@ export function activeTranslateStateIn(chatId: number, userId: number): Translat
   const state: TranslateState | undefined = getTranslateState(chatId, userId);
   if (state === undefined || getChatState(chatId).isTranslationEnabled !== true) return undefined;
   return translateConfigReadiness().ok ? state : undefined;
+}
+
+/** 取消息的正文或图注；缺失、含可渲染命令或命中同语种判定时返回 undefined。 */
+function translatableSourceText(message: Message, language: TranslateLanguage): string | undefined {
+  const source: string | undefined = message.text ?? message.caption;
+  if (source === undefined || containsRenderableCommand(source) || needsNoTranslation(source, language)) return undefined;
+  return source;
 }
 
 /** translateMessage 的入参；当前会话对象同时是取消凭据，不依赖全局 copy 目标。 */
@@ -41,14 +48,15 @@ export interface TranslateMessageParams {
  * - 翻译 API 失败，或译文与原文逐字相同；
  * - 原文或译文含可渲染命令（见 libs/renderableCommand.ts）；
  * - 译文超过正文长度上限。
+ * 前两项及原文含可渲染命令由 translatableSourceText 统一判定（queueTranslateMessage 入队前亦调用）。
  * 以上都对发送者静默，不回错误提示；只有 API 异常由 client.ts 记错误日志。
  * 异步完成后复核会话，停止或重开后的迟到结果不发送。
  */
 export async function translateMessage(params: TranslateMessageParams): Promise<void> {
   const { chatId, message, state, messageThreadId }: TranslateMessageParams = params;
   if (activeTranslateStateIn(chatId, state.translatedUser.id) !== state) return;
-  const source: string | undefined = message.text ?? message.caption;
-  if (source === undefined || containsRenderableCommand(source) || needsNoTranslation(source, state.language)) return;
+  const source: string | undefined = translatableSourceText(message, state.language);
+  if (source === undefined) return;
 
   const translated: string | null = await translateText(source, state.language);
   if (activeTranslateStateIn(chatId, state.translatedUser.id) !== state) return;
@@ -59,11 +67,13 @@ export async function translateMessage(params: TranslateMessageParams): Promise<
 
 /**
  * 把一条翻译目标的消息交给按群串行的后台链后立即返回：串行的 update 循环不等 Google RPC 与
- * 译文发送，同群译文仍按收到顺序发出。本群积压（含正在执行的那条）已达
+ * 译文发送，同群译文仍按收到顺序发出。无正文或图注、含可渲染命令或同语种的消息（translatableSourceText
+ * 返回 undefined）不入队、不计入积压。本群积压（含正在执行的那条）已达
  * TRANSLATE_CHAT_BACKLOG_MAX 时本条不翻译，同一段积压只记一次日志。任务登记在
  * translateRuntime.tasks，由停机 drainTranslate 等待；失败只记日志，update 取消导致的中止不记。
  */
 export function queueTranslateMessage(params: TranslateMessageParams): void {
+  if (translatableSourceText(params.message, params.state.language) === undefined) return;
   const chatId: number = params.chatId;
   let backlog: TranslateMessageBacklog | undefined = translateMessageBacklogs.get(chatId);
   if (backlog === undefined) {

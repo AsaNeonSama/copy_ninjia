@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Message } from "grammy/types";
 import type { TranslateLanguage, TranslateState } from "../../packages/types/translate";
 import { TELEGRAM_CAPTION_MAX_CHARS, TELEGRAM_MESSAGE_MAX_CHARS } from "../../packages/consts/telegram";
+import { TRANSLATE_CHAT_BACKLOG_MAX } from "../../packages/consts/translate";
+import { translateMessageBacklogs, translateRuntime } from "../../packages/cache/main/translate";
 
 const copyMessage = mock(async (..._args: unknown[]): Promise<number> => 10);
 const sendMessage = mock(async (..._args: unknown[]): Promise<number> => 11);
@@ -44,7 +46,7 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   activeCopyTargetIdIn: () => 999,
   persistChatState: async (): Promise<void> => {},
 }));
-const { activeTranslateStateIn, translateMessage } = await import("../../packages/translate/message");
+const { activeTranslateStateIn, queueTranslateMessage, translateMessage } = await import("../../packages/translate/message");
 const { stopTranslation, setTranslateState } = await import("../../packages/translate/state");
 
 function params(text: string, language: TranslateLanguage = "ja"): {
@@ -255,5 +257,36 @@ describe("独立翻译消息", () => {
     await translateMessage(input);
     expect(translateText).not.toHaveBeenCalled();
     expect(copyMessage).not.toHaveBeenCalled();
+  });
+
+  test("在途译文未完成时，连发超上限的贴纸、同语种与命令消息不占积压，后续可译消息照常翻译", async () => {
+    const pending = Promise.withResolvers<string | null>();
+    translateText.mockImplementationOnce(() => pending.promise);
+    const first = params("第一条", "ja");
+    queueTranslateMessage(first);
+    expect(translateMessageBacklogs.get(-1001)?.count).toBe(1);
+
+    const { text: _text, ...stickerBase } = first.message;
+    const stickerMessage: Message = {
+      ...stickerBase,
+      sticker: { file_id: "f", file_unique_id: "u", type: "regular", width: 1, height: 1, is_animated: false, is_video: false },
+    } as Message;
+    for (let index: number = 0; index < TRANSLATE_CHAT_BACKLOG_MAX + 4; index += 1) {
+      queueTranslateMessage({ ...first, message: stickerMessage });
+      queueTranslateMessage({ ...first, message: { ...first.message, text: "こんにちは" } });
+      queueTranslateMessage({ ...first, message: { ...first.message, text: "/block 123" } });
+    }
+    expect(translateMessageBacklogs.get(-1001)?.count).toBe(1);
+
+    queueTranslateMessage({ ...first, message: { ...first.message, text: "第二条" } });
+    expect(translateMessageBacklogs.get(-1001)?.count).toBe(2);
+
+    pending.resolve("一");
+    await Promise.allSettled([...translateRuntime.tasks]);
+    expect(translateText).toHaveBeenCalledTimes(2);
+    expect(translateText).toHaveBeenNthCalledWith(1, "第一条", "ja");
+    expect(translateText).toHaveBeenNthCalledWith(2, "第二条", "ja");
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    expect(translateMessageBacklogs.get(-1001)).toBeUndefined();
   });
 });
