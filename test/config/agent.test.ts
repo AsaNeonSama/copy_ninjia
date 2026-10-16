@@ -765,4 +765,35 @@ describe("unified agent.json loading", () => {
     adoptAgentDeploymentConfig({ ...agentValue, webSearch });
     expect(requireAgentCapabilityConfig("web_search")).toBe(webSearch);
   });
+
+  test("解析结果在编译期保持只读", () => {
+    const assertReadonly = (
+      config: AgentDeploymentConfig,
+      adDetect: AdDetectAgentConfig
+    ): void => {
+      // @ts-expect-error 顶层能力槽位为只读，不得在运行期覆写。
+      config.text = adDetect;
+      // @ts-expect-error 能力内部字段为只读，不得改写凭据或模型。
+      config.text.apiKey = "replacement";
+      if (config.text.headers !== undefined) {
+        // @ts-expect-error 网关请求头表为只读，不得改写单条值。
+        config.text.headers["cf-aig-authorization"] = "replacement";
+      }
+      if (config.image !== undefined) {
+        // @ts-expect-error 生图能力字段为只读。
+        config.image.maxReferenceImages = 1;
+      }
+      if (config.tts !== undefined) {
+        // @ts-expect-error 语音能力配置为只读。
+        config.tts.voice = "replacement";
+      }
+      if (config.webSearch !== undefined) {
+        // @ts-expect-error 独立检索能力配置为只读。
+        config.webSearch.maxCallsPerUse = 1;
+      }
+      // @ts-expect-error ad_detect 能力配置为只读。
+      adDetect.model = "replacement";
+    };
+    expect(assertReadonly).toBeDefined();
+  });
 });

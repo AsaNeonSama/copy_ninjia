@@ -104,6 +104,25 @@ describe("parseAssetConfig", () => {
     expect(parse(example)).toEqual(DEFAULT_ASSET_CONFIG);
   });
 
+  test("解析结果在编译期保持只读", () => {
+    const assertReadonly = (config: AssetConfig): void => {
+      // @ts-expect-error 随机图片目录配置为只读。
+      config.randomHImageDirectory = "/other";
+      // @ts-expect-error 缩略图直链配置为只读。
+      config.fortuneThumbnailUrl = "https://other.example/fortune.png";
+      // @ts-expect-error 默认头像来源配置为只读。
+      config.botDefaultAvatar = { kind: "path", path: "/other/face.png" };
+      if (config.botDefaultAvatar.kind === "url") {
+        // @ts-expect-error 默认头像内部字段为只读。
+        config.botDefaultAvatar.url = "https://other.example/face.png";
+      } else {
+        // @ts-expect-error 默认头像内部路径字段为只读。
+        config.botDefaultAvatar.path = "/other/face.png";
+      }
+    };
+    expect(assertReadonly).toBeDefined();
+  });
+
   test("随机图片目录：相对路径按数据根解析，绝对路径原样使用", () => {
     expect(parse(onlyPath({ random_h_image_dir: "./gallery/daily" })).randomHImageDirectory)
       .toBe(join(RUNTIME_DATA_ROOT, "gallery", "daily"));
