@@ -4,6 +4,7 @@ import type { TranslateLanguage, TranslateState } from "../../packages/types/tra
 import { TELEGRAM_CAPTION_MAX_CHARS, TELEGRAM_MESSAGE_MAX_CHARS } from "../../packages/consts/telegram";
 import { TRANSLATE_CHAT_BACKLOG_MAX } from "../../packages/consts/translate";
 import { translateMessageBacklogs, translateRuntime } from "../../packages/cache/main/translate";
+import type { TranslateMessageParams } from "../../packages/translate/message";
 
 const copyMessage = mock(async (..._args: unknown[]): Promise<number> => 10);
 const sendMessage = mock(async (..._args: unknown[]): Promise<number> => 11);
@@ -46,7 +47,7 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   activeCopyTargetIdIn: () => 999,
   persistChatState: async (): Promise<void> => {},
 }));
-const { activeTranslateStateIn, queueTranslateMessage, translateMessage } = await import("../../packages/translate/message");
+const { activeTranslateStateIn, queueTranslateMessage } = await import("../../packages/translate/message");
 const { stopTranslation, setTranslateState } = await import("../../packages/translate/state");
 
 function params(text: string, language: TranslateLanguage = "ja"): {
@@ -71,6 +72,12 @@ function params(text: string, language: TranslateLanguage = "ja"): {
   };
 }
 
+/** 经入队入口提交一条消息，并等到后台译文任务全部结算。 */
+async function translateNow(input: TranslateMessageParams): Promise<void> {
+  queueTranslateMessage(input);
+  await Promise.allSettled([...translateRuntime.tasks]);
+}
+
 beforeEach(() => {
   translateStates.clear();
   chatStateFor(-1001);
@@ -85,10 +92,15 @@ beforeEach(() => {
 describe("独立翻译消息", () => {
   test.each(["add", "stop-other", "stop-self"])("在途翻译遇到 %s 时按目标独立取消", async (change: string) => {
     const pending = Promise.withResolvers<string | null>();
-    translateText.mockImplementationOnce(() => pending.promise);
+    const requested: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    translateText.mockImplementationOnce((): Promise<string | null> => {
+      requested.resolve();
+      return pending.promise;
+    });
     const input = params("你好", "uk");
     setTranslateState(-1001, { translatedUser: { id: 8 }, language: "ru" });
-    const task: Promise<void> = translateMessage(input);
+    const task: Promise<void> = translateNow(input);
+    await requested.promise;
     if (change === "add") setTranslateState(-1001, { translatedUser: { id: 9 }, language: "en" });
     else await stopTranslation(-1001, change === "stop-self" ? 7 : 8);
     pending.resolve("Привіт");
@@ -100,7 +112,7 @@ describe("独立翻译消息", () => {
     ["こんにちは", "ja"], ["你好", "cn"], ["这是一条中文消息", "cn"], ["Hello!", "en"], ["123🙂", "ja"],
     ["Привіт, світе!", "uk"], ["Привет, мир!", "ru"], ["123🙂", "uk"], ["123🙂", "ru"],
   ] as const)("同语种或中性内容 %s 不请求 API，也不发送原文", async (text: string, language: TranslateLanguage) => {
-    await translateMessage(params(text, language));
+    await translateNow(params(text, language));
     expect(translateText).not.toHaveBeenCalled();
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
@@ -110,14 +122,14 @@ describe("独立翻译消息", () => {
     const input = params("こんにちは");
     const { text: _text, ...message } = input.message;
     input.message = { ...message, photo: [{ file_id: "f", file_unique_id: "u", width: 1, height: 1 }], caption: "こんにちは" } as Message;
-    await translateMessage(input);
+    await translateNow(input);
     expect(translateText).not.toHaveBeenCalled();
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
   test.each(["ja", "cn", "en"] as const)("跨语种发送 %s 翻译，保留话题且不挂回复", async (language: TranslateLanguage) => {
-    await translateMessage(params("Привет", language));
+    await translateNow(params("Привет", language));
     expect(translateText).toHaveBeenCalledWith("Привет", language);
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith({ chatId: -1001, text: "translated", messageThreadId: 42 });
@@ -126,7 +138,7 @@ describe("独立翻译消息", () => {
   test.each([
     ["你好", "uk"], ["你好", "ru"], ["Привіт, світе!", "ru"], ["Ёжик съел сыр", "uk"],
   ] as const)("%s 翻成 %s 时请求 API 并保留话题", async (text: string, language: TranslateLanguage) => {
-    await translateMessage(params(text, language));
+    await translateNow(params(text, language));
     expect(translateText).toHaveBeenCalledWith(text, language);
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith({ chatId: -1001, text: "translated", messageThreadId: 42 });
@@ -139,7 +151,7 @@ describe("独立翻译消息", () => {
       entities: [{ type: "mention", offset: 3, length: 8 }, { type: "url", offset: 12, length: 19 }],
       link_preview_options: { is_disabled: true },
     } as Message;
-    await translateMessage(formatted);
+    await translateNow(formatted);
     expect(translateText).toHaveBeenCalledWith("你好 @someone https://example.com", "ja");
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith({
@@ -159,7 +171,7 @@ describe("独立翻译消息", () => {
     const input = params("你好");
     const { text: _text, ...message } = input.message;
     input.message = { ...message, ...media } as Message;
-    await translateMessage(input);
+    await translateNow(input);
     expect(translateText).toHaveBeenCalledWith("你好", "ja");
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith({ chatId: -1001, text: "translated", messageThreadId: 42 });
@@ -175,7 +187,7 @@ describe("独立翻译消息", () => {
     const input = params("你好");
     const { text: _text, ...message } = input.message;
     input.message = { ...message, ...media } as Message;
-    await translateMessage(input);
+    await translateNow(input);
     expect(translateText).not.toHaveBeenCalled();
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
@@ -187,46 +199,46 @@ describe("独立翻译消息", () => {
     media.message = { ...message, photo: [{ file_id: "f", file_unique_id: "u", width: 1, height: 1 }], caption: "你好" } as Message;
     const captionOverflow: string = "x".repeat(TELEGRAM_CAPTION_MAX_CHARS + 1);
     translateText.mockResolvedValueOnce(captionOverflow);
-    await translateMessage(media);
+    await translateNow(media);
     expect(sendMessage).toHaveBeenCalledWith({ chatId: -1001, text: captionOverflow, messageThreadId: 42 });
     sendMessage.mockClear();
     translateText.mockResolvedValueOnce("x".repeat(TELEGRAM_MESSAGE_MAX_CHARS + 1));
-    await translateMessage(params("你好"));
+    await translateNow(params("你好"));
     translateText.mockResolvedValueOnce("x".repeat(TELEGRAM_MESSAGE_MAX_CHARS + 1));
-    await translateMessage(media);
+    await translateNow(media);
     expect(sendMessage).not.toHaveBeenCalled();
     expect(copyMessage).not.toHaveBeenCalled();
   });
 
   test("原文、图注与翻译输出的可渲染命令均被拒绝", async () => {
-    await translateMessage(params("test /block 123"));
+    await translateNow(params("test /block 123"));
     const media = params("你好");
     media.message = { message_id: 5, date: 1, chat: media.message.chat, caption: "/block 123" } as Message;
-    await translateMessage(media);
+    await translateNow(media);
     expect(translateText).not.toHaveBeenCalled();
     translateText.mockResolvedValueOnce("result /block 123");
-    await translateMessage(params("你好"));
+    await translateNow(params("你好"));
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
   test("API 失败不发送原文", async () => {
     translateText.mockResolvedValueOnce(null);
-    await translateMessage(params("你好"));
+    await translateNow(params("你好"));
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
   test("译文与原文逐字相同时视为同语种，不发送", async () => {
     translateText.mockResolvedValueOnce("café");
-    await translateMessage(params("café", "en"));
+    await translateNow(params("café", "en"));
     expect(translateText).toHaveBeenCalledWith("café", "en");
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
   test("繁体转简体仍请求翻译，不按中文同语种跳过", async () => {
-    await translateMessage(params("這是一條中文訊息", "cn"));
+    await translateNow(params("這是一條中文訊息", "cn"));
     expect(translateText).toHaveBeenCalledWith("這是一條中文訊息", "cn");
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).toHaveBeenCalledWith({ chatId: -1001, text: "translated", messageThreadId: 42 });
@@ -234,9 +246,14 @@ describe("独立翻译消息", () => {
 
   test.each(["stop", "replace", "disable", "config"])("在途请求遇到 %s 后不得迟到发送", async (change: string) => {
     const pending = Promise.withResolvers<string | null>();
-    translateText.mockImplementationOnce(() => pending.promise);
+    const requested: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    translateText.mockImplementationOnce((): Promise<string | null> => {
+      requested.resolve();
+      return pending.promise;
+    });
     const input = params("你好");
-    const task = translateMessage(input);
+    const task: Promise<void> = translateNow(input);
+    await requested.promise;
     if (change === "stop") await stopTranslation(-1001);
     if (change === "replace") translateStates.set(-1001, [{ ...input.state }]);
     if (change === "disable") enabled = false;
@@ -251,10 +268,10 @@ describe("独立翻译消息", () => {
     expect(activeTranslateStateIn(-1001, 7)).toBeUndefined();
     const input = params("你好");
     enabled = false;
-    await translateMessage(input);
+    await translateNow(input);
     enabled = true;
     configured = false;
-    await translateMessage(input);
+    await translateNow(input);
     expect(translateText).not.toHaveBeenCalled();
     expect(copyMessage).not.toHaveBeenCalled();
   });

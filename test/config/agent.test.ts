@@ -787,10 +787,6 @@ describe("unified agent.json loading", () => {
         // @ts-expect-error 语音能力配置为只读。
         config.tts.voice = "replacement";
       }
-      if (config.webSearch !== undefined) {
-        // @ts-expect-error 独立检索能力配置为只读。
-        config.webSearch.maxCallsPerUse = 1;
-      }
       // @ts-expect-error ad_detect 能力配置为只读。
       adDetect.model = "replacement";
     };
