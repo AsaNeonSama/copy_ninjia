@@ -119,6 +119,8 @@ function adDetectCommandChain(
       dependencies.cacheAdminIds(chatId, new Set<number>(), Date.now());
     },
     run: async (sequence: number): Promise<void> => {
+      const sentBefore: number =
+        dependencies.cannedTelegramCalls.get("sendMessage") ?? 0;
       dependencies.enqueueAdCandidate({
         type: "adCandidate",
         chatId,
@@ -145,6 +147,13 @@ function adDetectCommandChain(
       ) {
         throw new Error(
           `Ad disposal ${sequence} did not settle within the drain budget.`
+        );
+      }
+      if (
+        (dependencies.cannedTelegramCalls.get("sendMessage") ?? 0) <= sentBefore
+      ) {
+        throw new Error(
+          `Ad disposal ${sequence} produced no outgoing announcement.`
         );
       }
     },

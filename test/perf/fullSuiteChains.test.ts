@@ -15,6 +15,8 @@ import type { AdDetectionMessageContext } from
   "../../packages/types/antiRaid/adDetect";
 import type { ChatState } from "../../packages/types/chatState";
 import type { DiskIOMessage } from "../../packages/types/diskIO";
+import type { BotChatPermissions } from "../../packages/types/telegram";
+import { botPermissions } from "../helpers/botPermissions";
 import { chatStateOf } from "../helpers/chatState";
 import { createCommandChain } from "../../scripts/perf/fullSuite/commandChains";
 import type { CommandChainDependencies } from "../../scripts/perf/fullSuite/commandChains";
@@ -207,5 +209,191 @@ describe("cron 语音链路", () => {
 
   test("链路登记进出数顺序", () => {
     expect(CHAIN_NAMES).toContain("cron-send-voice");
+  });
+});
+
+describe("广告检测命令链路", () => {
+  function adDetectChain(overrides: Partial<CommandChainDependencies>): {
+    definition: ChainDefinition;
+    calls: Map<string, number>;
+    openAiClient: { current: unknown };
+    publishHolder: { current: unknown };
+    candidates: unknown[];
+  } {
+    const calls: Map<string, number> = new Map<string, number>();
+    const openAiClient: { current: unknown } = { current: null };
+    const publishHolder: { current: unknown } = { current: null };
+    const candidates: unknown[] = [];
+    const state: ChatState = chatStateOf();
+    const handleAdDetected = (): void => {
+      calls.set("sendMessage", (calls.get("sendMessage") ?? 0) + 1);
+    };
+    const dependencies: CommandChainDependencies = {
+      chainAdDetectCommands: 1,
+      adDetectDrainBudgetMs: 1_000,
+      benchmarkChatId: (index: number): number => -1_000 - index,
+      benchmarkUserId: (index: number): number => 10_000 + index,
+      validateAgentDeploymentConfig: async (): Promise<void> => {},
+      handleAdDetected: handleAdDetected as never,
+      drainAdDisposals: async (): Promise<"flushed" | "timedOut"> => "flushed",
+      botChatPermissionsIn: async (): Promise<BotChatPermissions | undefined> => {
+        const permissions: BotChatPermissions = botPermissions({
+          canRestrictMembers: true,
+          canDeleteMessages: true,
+        });
+        state.botPermissions = permissions;
+        return permissions;
+      },
+      getOrCreateChatState: (): ChatState => state,
+      cacheAdminIds: (): void => {},
+      enqueueAdCandidate: (candidate: unknown): void => {
+        candidates.push(candidate);
+      },
+      runAdDetectBatch: async (): Promise<void> => {
+        const publish = publishHolder.current as (() => void) | null;
+        publish?.();
+      },
+      adDetectOpenAiClientHolder: openAiClient as never,
+      adDetectPublishHolder: publishHolder as never,
+      cannedTelegramCalls: calls,
+      ...overrides,
+    } as unknown as CommandChainDependencies;
+    return {
+      definition: createCommandChain("ad-detect-command", dependencies)!,
+      calls,
+      openAiClient,
+      publishHolder,
+      candidates,
+    };
+  }
+
+  test("罐头 OpenAI 客户端与发布回调装入后，完整跑完批次并发出处置播报", async () => {
+    const { definition, calls, openAiClient, candidates } = adDetectChain({});
+    await definition.prepare?.();
+    const client = openAiClient.current as {
+      chat: { completions: { create(): Promise<{ choices: readonly { message: { content: string } }[] }> } };
+    };
+    const completion = await client.chat.completions.create();
+    expect(JSON.parse(completion.choices[0]!.message.content)).toEqual({
+      ad: true,
+      reason: "performance benchmark",
+    });
+    await definition.run(0);
+    expect(candidates).toHaveLength(1);
+    expect(calls.get("sendMessage")).toBe(1);
+    expect(CHAIN_NAMES).toContain("ad-detect-command");
+  });
+
+  test("管理员权限未就绪、处置排空超时或未发出播报都使基准失败", async () => {
+    const notAdmin = adDetectChain({
+      botChatPermissionsIn: async (): Promise<BotChatPermissions | undefined> => undefined,
+    });
+    await expect(notAdmin.definition.prepare?.()).rejects.toThrow("never resolved to administrator");
+
+    const timedOut = adDetectChain({
+      drainAdDisposals: async (): Promise<"flushed" | "timedOut"> => "timedOut",
+    });
+    await timedOut.definition.prepare?.();
+    await expect(timedOut.definition.run(0)).rejects.toThrow("did not settle within the drain budget");
+
+    const silent = adDetectChain({
+      runAdDetectBatch: async (): Promise<void> => {},
+    });
+    await silent.definition.prepare?.();
+    await expect(silent.definition.run(0)).rejects.toThrow("produced no outgoing announcement");
+  });
+});
+
+describe("AI 回复命令链路", () => {
+  function aiReplyChain(overrides: Partial<CommandChainDependencies>): {
+    definition: ChainDefinition;
+    calls: Map<string, number>;
+    callTimes: Map<string, number>;
+    geminiClients: { current: unknown };
+    recordedMessages: number[];
+    tasks: Map<number, Set<Promise<void>>>;
+  } {
+    const calls: Map<string, number> = new Map<string, number>();
+    const callTimes: Map<string, number> = new Map<string, number>();
+    const geminiClients: { current: unknown } = { current: null };
+    const recordedMessages: number[] = [];
+    const tasks: Map<number, Set<Promise<void>>> = new Map<number, Set<Promise<void>>>();
+    const states: Map<number, ChatState> = new Map<number, ChatState>();
+    const dependencies: CommandChainDependencies = {
+      chainAiReplyCommands: 1,
+      aiReplyWarmupOperations: 0,
+      aiReplySettleAttempts: 2,
+      stateManagedChatLimit: 2,
+      benchmarkChatId: (index: number): number => -1_000 - index,
+      benchmarkUserId: (index: number): number => 10_000 + index,
+      validateAgentDeploymentConfig: async (): Promise<void> => {},
+      getOrCreateChatState: (chatId: number): ChatState => {
+        let state: ChatState | undefined = states.get(chatId);
+        if (state === undefined) {
+          state = chatStateOf();
+          states.set(chatId, state);
+        }
+        return state;
+      },
+      botInfoState: { current: null },
+      geminiClientCache: geminiClients as never,
+      replyGenerationTasks: tasks as never,
+      cannedTelegramCalls: calls,
+      cannedTelegramCallTimes: callTimes,
+      recordChatMessage: ({ messageId }: { readonly messageId: number }): void => {
+        recordedMessages.push(messageId);
+      },
+      generateAndSendReply: ({ chatId }: { readonly chatId: number }): void => {
+        const task: Promise<void> = Promise.resolve().then((): void => {
+          callTimes.set("sendChatAction", 100);
+          callTimes.set("sendMessage", 450);
+          calls.set("sendMessage", (calls.get("sendMessage") ?? 0) + 1);
+          tasks.delete(chatId);
+        });
+        tasks.set(chatId, new Set<Promise<void>>([task]));
+      },
+      ...overrides,
+    } as unknown as CommandChainDependencies;
+    return {
+      definition: createCommandChain("ai-reply-command", dependencies)!,
+      calls,
+      callTimes,
+      geminiClients,
+      recordedMessages,
+      tasks,
+    };
+  }
+
+  test("罐头 Gemini 客户端装入后播种上下文、等待生成结算并记录打字停顿", async () => {
+    const { definition, calls, geminiClients, recordedMessages } = aiReplyChain({});
+    await definition.prepare?.();
+    const client = (geminiClients.current as Map<string, {
+      models: { generateContent(): Promise<{ text: string }> };
+    }>).get("text")!;
+    const response = await client.models.generateContent();
+    expect(response.text).toBe("性能基准回复。");
+    expect(recordedMessages).toHaveLength(24);
+    await definition.run(0);
+    expect(calls.get("sendMessage")).toBe(1);
+    expect(definition.excludedNanoseconds?.()).toBe(350);
+    expect(CHAIN_NAMES).toContain("ai-reply-command");
+  });
+
+  test("生成任务未排空或模型无输出未发出消息时使基准失败", async () => {
+    const stuckTasks: Map<number, Set<Promise<void>>> = new Map<number, Set<Promise<void>>>();
+    const unsettled = aiReplyChain({
+      replyGenerationTasks: stuckTasks as never,
+      generateAndSendReply: ({ chatId }: { readonly chatId: number }): void => {
+        stuckTasks.set(chatId, new Set<Promise<void>>([Promise.resolve()]));
+      },
+    });
+    await unsettled.definition.prepare?.();
+    await expect(unsettled.definition.run(0)).rejects.toThrow("never settled");
+
+    const silent = aiReplyChain({
+      generateAndSendReply: (): void => {},
+    });
+    await silent.definition.prepare?.();
+    await expect(silent.definition.run(0)).rejects.toThrow("produced no outgoing message");
   });
 });
