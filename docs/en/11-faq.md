@@ -198,7 +198,7 @@ The payload is parsed as JSONC (supporting trailing commas and comments). If par
 
 ## How Do I Call Google Models via Third-Party Gateways (e.g., Cloudflare AI Gateway)?
 
-1. **Configure Endpoint**: Set `base_url` under the target capability to your gateway URL, for example:
+1. **Configure Endpoint**: Set `base_url` under the target capability to your gateway URL (or enter `base_url` and custom headers directly in the `install.sh` interactive wizard), for example:
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
 2. **Add Custom Headers**: Add custom authentication headers under that capability, for example:
    ```json
@@ -213,7 +213,7 @@ The payload is parsed as JSONC (supporting trailing commas and comments). If par
 
 ## How Do I Call Anthropic Models via Cloudflare AI Gateway?
 
-Capabilities with `provider: "anthropic"` (`text`, `summary`, `media`, `web_search`, `ad_detect`) attach `headers` to every request through the SDK's `defaultHeaders`. Set `base_url` to:
+Capabilities with `provider: "anthropic"` (`text`, `summary`, `media`, `web_search`, `ad_detect`) attach `headers` to every request through the SDK's `defaultHeaders` (`base_url` and custom headers can also be entered directly in the `install.sh` interactive wizard). Set `base_url` to:
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
 1. **Bring your own Anthropic key**: Put the Anthropic API key in `api_key` (sent by the SDK as `x-api-key`). If the gateway is an Authenticated Gateway, also add:

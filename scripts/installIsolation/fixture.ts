@@ -145,7 +145,7 @@ async function installBunGuard(fixture: InstallerFixture): Promise<void> {
     "fi",
     "if [[ \"$inline_source\" == *\"validateAgentDeploymentConfig\"* ]]; then",
     "  printf 'validate:agent\\n' >> \"$FAKE_CALL_LOG\"",
-    "  exec \"$REAL_BUN_PATH\" -e 'JSON.parse(await Bun.file(Bun.argv[1]).text())' \"${3:?}\"",
+    "  exec \"$REAL_BUN_PATH\" -e 'const runtime = await import(Bun.argv[1]); await runtime.validateAgentDeploymentConfig(Bun.argv[2]);' \"$FAKE_INSTALL_RUNTIME_MODULE\" \"${3:?}\"",
     "fi",
     "if [[ \"$inline_source\" == *\"IDENTITY_DATABASE_PATH\"* ]]; then",
     "  printf '%s' \"$FAKE_IDENTITY_DATABASE\"",

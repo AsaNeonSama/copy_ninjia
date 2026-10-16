@@ -195,7 +195,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 
 ## サードパーティゲートウェイ（Cloudflare AI Gateway 等）経由で Google モデルを呼び出すには？
 
-1. **エンドポイントの設定**：該当する能力の `base_url` をゲートウェイのアドレスに変更します。例：
+1. **エンドポイントの設定**：該当する能力の `base_url` をゲートウェイのアドレスに変更します（`install.sh` の対話型ウィザードでも `base_url` と追加ヘッダーを直接入力できます）。例：
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
 2. **認証ヘッダーの付加**：同一能力の下に `headers` を設定します。例：
    ```json
@@ -210,7 +210,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 
 ## Cloudflare AI Gateway 経由で Anthropic モデルを呼び出すには？
 
-`provider: "anthropic"` の能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）は、`headers` を SDK の `defaultHeaders` としてすべてのリクエストに付加します。`base_url` は次のとおり設定します：
+`provider: "anthropic"` の能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）は、`headers` を SDK の `defaultHeaders` としてすべてのリクエストに付加します（`install.sh` の対話型ウィザードでも `base_url` と追加ヘッダーを直接入力できます）。`base_url` は次のとおり設定します：
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
 1. **自前の Anthropic キーを使う場合**：`api_key` に Anthropic API キーを設定します（SDK が `x-api-key` として送信）。ゲートウェイ認証（Authenticated Gateway）が有効な場合は次を追加します：

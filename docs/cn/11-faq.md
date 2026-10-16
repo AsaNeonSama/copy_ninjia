@@ -198,7 +198,7 @@
 
 ## 如何经三方网关（如 Cloudflare AI Gateway）调用 Google 模型？
 
-1. **修改请求端点（Endpoint）**：将对应模型能力中的 `base_url` 替换为网关地址，例如：
+1. **修改请求端点（Endpoint）**：将对应模型能力中的 `base_url` 替换为网关地址（也可在 `install.sh` 安装问卷中直接填写 `base_url` 与附加请求头），例如：
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
 2. **配置自定义请求头（Headers）**：在该能力的配置下增加 `headers` 字段，例如：
    ```json
@@ -213,7 +213,7 @@
 
 ## 如何经 Cloudflare AI Gateway 调用 Anthropic 模型？
 
-`provider: "anthropic"` 的能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）把 `headers` 经 SDK 的 `defaultHeaders` 附加到每个请求上。`base_url` 统一填写：
+`provider: "anthropic"` 的能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）把 `headers` 经 SDK 的 `defaultHeaders` 附加到每个请求上（也可在 `install.sh` 安装问卷中直接填写 `base_url` 与附加请求头）。`base_url` 统一填写：
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
 1. **自带 Anthropic 密钥**：`api_key` 填写 Anthropic API Key（SDK 以 `x-api-key` 发送）。网关开启鉴权（Authenticated Gateway）时再加：
