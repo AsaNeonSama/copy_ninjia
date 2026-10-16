@@ -7,10 +7,8 @@
 export const VISION_TRANSCODE_MAX_PIXELS: number = 4_096 * 4_096;
 
 /**
- * 视觉转码输出 PNG 的长边上限（像素）。在 `VISION_TRANSCODE_MAX_PIXELS` 解码上限以内的
- * `webp`/`gif`，任一边超过本值时按 `fit: "inside"` 等比降采样至 `本值 × 本值` 以内，
- * 不超过本值时保持原尺寸（`withoutEnlargement: true`）。
- * 所属模块：infra/image.ts。
+ * 视觉转码输出 PNG 的长边上限（像素）；`webp`/`gif` 解码后任一边超过本值时等比缩小到
+ * 本值以内，小图不放大。所属模块：infra/image.ts。
  */
 export const VISION_TRANSCODE_MAX_EDGE: number = 1_024;
 
