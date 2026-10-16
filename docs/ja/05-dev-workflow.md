@@ -74,7 +74,7 @@
 - **実行モード**：`bunfig.toml` で `run.bun = true` を指定しており、Node.js 向けの shebang を持つ依存 CLI もすべて現在の Bun ランタイム上で動作します。
 - **画像コーデック**：Bun 内蔵の `Bun.Image` で画像変換を実行します（`packages/infra/image.ts`）：
   - JPEG / PNG はそのまま透過し、WebP / GIF は透明度を維持したまま PNG にトランスコード。GIF は先頭フレームを取得し、アニメーション WebP は先頭の `ANMF` フレームを静的 WebP に再構成してからデコード。
-  - 1 枚あたりの最大デコード画素数は `VISION_TRANSCODE_MAX_PIXELS` で制限され、超過した場合はピクセルバッファ確保前に安全に拒否。コーデックは Bun ランタイムに内蔵されているため、ソースコード版・バイナリ配布版ともに `node_modules` のネイティブアドオンには依存しません。
+  - 1 枚あたりの最大デコード画素数は `VISION_TRANSCODE_MAX_PIXELS` で制限され、超過した場合はピクセルバッファ確保前に安全に拒否。デコード後の長辺が `VISION_TRANSCODE_MAX_EDGE` を超える画像はアスペクト比を維持したまま同上限以内に縮小（小さい画像は拡大しない）。コーデックは Bun ランタイムに内蔵されているため、ソースコード版・バイナリ配布版ともに `node_modules` のネイティブアドオンには依存しません。
 - **ネイティブファイル I/O**：ファイル内容の読み書き・削除には `Bun.write` と `Bun.file` を優先使用します。非同期コードでのメタデータ取得は `Bun.file().stat()`、通常ファイルの存在確認は `Bun.file().exists()` を使用します。`atomicWriteText` の排他的書き込みは `Bun.write(Bun.file(handle.fd), content)`、fsync、アトミック rename を組み合わせて実現しています。ディレクトリの存在確認（`Bun.file().exists()` はディレクトリに対して常に false）、対象の欠落を許容する削除（`force: true`。`Bun.file().delete()` は欠落ファイルで `ENOENT` を投げる）、Disk I/O Worker の同期アトミック書き込みなどの同期ファイル I/O、ディレクトリ走査、パス操作、パーミッション管理、ハードリンク作成など、Bun ネイティブ API が提供しない操作にのみ `node:` 互換モジュールを使用します。
 - **性能ベンチマークの再校正**：ランタイムのバージョン更新時は、同一の Bun バージョン / リビジョンを対象に性能キャリブレーションを再測定する必要があります。
 
@@ -82,7 +82,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**6743 tests / 559 files / 447664 `expect()` calls**。全ソースコードの**関数カバレッジは 98.32%、行カバレッジは 98.85%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**6745 tests / 559 files / 447670 `expect()` calls**。全ソースコードの**関数カバレッジは 98.32%、行カバレッジは 98.85%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 

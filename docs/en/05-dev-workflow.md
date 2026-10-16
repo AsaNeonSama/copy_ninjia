@@ -87,7 +87,7 @@ All dependency installations enforce the release cooling period configured by `i
 - **Execution mode**: `bunfig.toml` sets `run.bun = true`, so CLI dependencies with Node shebangs run directly under Bun.
 - **Image transcoding**: Images are processed via native `Bun.Image` (`packages/infra/image.ts`):
   - JPEG and PNG images pass through without modification. WebP and GIF convert to PNG with full Alpha transparency preserved. For GIFs, the first frame is extracted; for animated WebP, the first `ANMF` frame is repackaged as static WebP before decoding.
-  - Single-image decoding is capped at `VISION_TRANSCODE_MAX_PIXELS`. Excessively large images are rejected before memory allocation. Codecs are built into the Bun runtime without external native addons in `node_modules`.
+  - Single-image decoding is capped at `VISION_TRANSCODE_MAX_PIXELS`; excessively large images are rejected before memory allocation, and decoded images whose longer edge exceeds `VISION_TRANSCODE_MAX_EDGE` are proportionally downsampled to fit within that limit without enlarging smaller inputs. Codecs are built into the Bun runtime without external native addons in `node_modules`.
 - **Native file I/O guidelines**: Reading, writing, and deleting files prioritize native `Bun.write` and `Bun.file`. In asynchronous code, metadata reads use `Bun.file().stat()` and regular-file existence checks use `Bun.file().exists()`. Exclusive atomic writes (`atomicWriteText`) use `Bun.write(Bun.file(handle.fd), content)` followed by `fsync` and atomic rename. Directory existence checks (`Bun.file().exists()` is always false for directories), deletions that tolerate a missing target (`force: true`; `Bun.file().delete()` throws `ENOENT` for a missing file), synchronous file I/O, directory traversal, path handling, and hard links use explicit `node:` compatibility modules.
 - **Performance recalibration**: After upgrading the Bun runtime, all performance benchmarks must be re-calibrated against the new Bun version.
 
@@ -95,7 +95,7 @@ All dependency installations enforce the release cooling period configured by `i
 
 ### Measurements for This Documentation Version
 
-`bun run test:coverage`: **6743 tests / 559 files / 447664 `expect()` calls**; full-source **function coverage 98.32% / line coverage 98.85%**. The Coverage badge in each project README displays line coverage.
+`bun run test:coverage`: **6745 tests / 559 files / 447670 `expect()` calls**; full-source **function coverage 98.32% / line coverage 98.85%**. The Coverage badge in each project README displays line coverage.
 
 ---
 

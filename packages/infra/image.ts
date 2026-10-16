@@ -1,6 +1,7 @@
 import { logger } from "./logger";
 import {
   RIFF_CHUNK_HEADER_BYTES,
+  VISION_TRANSCODE_MAX_EDGE,
   VISION_TRANSCODE_MAX_PIXELS,
   WEBP_ANMF_HEADER_BYTES,
   WEBP_ANMF_SIZE_OFFSET,
@@ -130,7 +131,8 @@ export function firstAnimatedWebpFrame(bytes: Uint8Array): Uint8Array | null {
 
 /**
  * 将支持格式的图片字节转为视觉接口可用的 `jpeg`/`png`：
- * `jpeg`/`png` 原样直通；`webp`/`gif`（含动态首帧）经 `Bun.Image` 限制在 `VISION_TRANSCODE_MAX_PIXELS` 内转为 `png`；
+ * `jpeg`/`png` 原样直通；`webp`/`gif`（含动态首帧）经 `Bun.Image` 限制在 `VISION_TRANSCODE_MAX_PIXELS` 内解码，
+ * 超过 `VISION_TRANSCODE_MAX_EDGE` 时等比降采样（不放大）后转为 `png`；
  * 不支持的格式、超限或转码失败返回 null。
  */
 export async function prepareVisionImage(bytes: Uint8Array): Promise<VisionImage | null> {
@@ -141,7 +143,10 @@ export async function prepareVisionImage(bytes: Uint8Array): Promise<VisionImage
 
   try {
     const source: Uint8Array = format === "webp" ? firstAnimatedWebpFrame(bytes) ?? bytes : bytes;
-    const png: Uint8Array = await new Bun.Image(source, { maxPixels: VISION_TRANSCODE_MAX_PIXELS }).png().bytes();
+    const png: Uint8Array = await new Bun.Image(source, { maxPixels: VISION_TRANSCODE_MAX_PIXELS })
+      .resize(VISION_TRANSCODE_MAX_EDGE, VISION_TRANSCODE_MAX_EDGE, { fit: "inside", withoutEnlargement: true })
+      .png()
+      .bytes();
     return { bytes: png, mime: "image/png" };
   } catch (error: unknown) {
     logger.error(`Failed to transcode ${format} image to png for vision API:`, error);

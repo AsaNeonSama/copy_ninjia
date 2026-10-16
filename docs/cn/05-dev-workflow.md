@@ -88,7 +88,7 @@
 - **执行模式**：项目在 `bunfig.toml` 中配置了 `run.bun = true`，所有依赖 CLI 的 Node shebang 脚本均由 Bun 直接运行。
 - **图片编解码**：使用 Bun 原生 `Bun.Image` 进行图片转码处理（`packages/infra/image.ts`）：
   - JPEG 与 PNG 图片原样透传；WebP 与 GIF 转码为 PNG 并完整保留 Alpha 透明通道；GIF 提取首帧，动图 WebP 提取首个 `ANMF` 帧重封装为静态 WebP 后解码。
-  - 单张图片解码像素上限为 `VISION_TRANSCODE_MAX_PIXELS`，超限在分配内存前立即拒绝。编解码能力由 Bun 内置提供，不依赖 `node_modules` 中的外部原生 C/C++ 扩展。
+  - 单张图片解码像素上限为 `VISION_TRANSCODE_MAX_PIXELS`，超限在分配内存前立即拒绝；解码后长边超过 `VISION_TRANSCODE_MAX_EDGE` 的图片按原比例降采样至该上限以内（小图不放大）。编解码能力由 Bun 内置提供，不依赖 `node_modules` 中的外部原生 C/C++ 扩展。
 - **原生文件 I/O 规范**：文件读取、写入和删除优先使用 `Bun.write` 与 `Bun.file`；异步上下文里的元数据读取使用 `Bun.file().stat()`，普通文件的存在判断使用 `Bun.file().exists()`；原子写入（`atomicWriteText`）通过 `Bun.write(Bun.file(handle.fd), content)` 配合 fsync 与原子 rename；目录的存在判断（`Bun.file().exists()` 对目录恒为 false）、允许目标缺失的删除（`force: true`；`Bun.file().delete()` 遇缺失文件抛 `ENOENT`）、同步文件 I/O、目录遍历、路径操作与硬链接等 Bun 原生未覆盖的功能统一按规范使用 `node:` 兼容模块。
 - **性能基准校准**：运行时版本升级后，所有性能基准数据必须在相同的 Bun 版本与提交修订上重新实测校准。
 
@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**6743 tests / 559 files / 447664 次 `expect()`**；全源码**函数覆盖率 98.32% / 行覆盖率 98.85%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**6745 tests / 559 files / 447670 次 `expect()`**；全源码**函数覆盖率 98.32% / 行覆盖率 98.85%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 

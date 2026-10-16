@@ -13,7 +13,9 @@ import {
   vp8lHeaderBytes,
   webpContainerBytes,
 } from "../helpers/image";
-import { VISION_TRANSCODE_MAX_PIXELS, WEBP_MAX_SCANNED_CHUNKS } from "../../packages/consts/image";
+import { VISION_TRANSCODE_MAX_EDGE, VISION_TRANSCODE_MAX_PIXELS, WEBP_MAX_SCANNED_CHUNKS } from "../../packages/consts/image";
+import type { DecodedPng } from "../helpers/image";
+import type { VisionImage } from "../../packages/types/media";
 
 const { firstAnimatedWebpFrame, prepareVisionImage, sniffImageFormat } = await import("../../packages/infra/image");
 
@@ -79,6 +81,24 @@ describe("infra/image prepareVisionImage", () => {
     const result = await prepareVisionImage(await tinyWebp());
     expect(result?.mime).toBe("image/png");
     expect(result && sniffImageFormatOfResult(result.bytes)).toBe("png");
+  });
+
+  test("超过 VISION_TRANSCODE_MAX_EDGE 的 webp 按长边等比降采样，未超限的不放大", async () => {
+    const seed: Uint8Array = imageFixture(1, 1);
+    const wideWebp: Uint8Array = await new Bun.Image(seed)
+      .resize(VISION_TRANSCODE_MAX_EDGE * 2, VISION_TRANSCODE_MAX_EDGE, { fit: "fill" })
+      .webp({ lossless: true })
+      .bytes();
+    const wideResult: VisionImage | null = await prepareVisionImage(wideWebp);
+    expect(wideResult?.mime).toBe("image/png");
+    const wideDecoded: DecodedPng = decodePngRgba(wideResult!.bytes);
+    expect([wideDecoded.width, wideDecoded.height]).toEqual([
+      VISION_TRANSCODE_MAX_EDGE,
+      Math.floor(VISION_TRANSCODE_MAX_EDGE / 2),
+    ]);
+
+    const smallDecoded: DecodedPng = decodePngRgba((await prepareVisionImage(await tinyWebp()))!.bytes);
+    expect([smallDecoded.width, smallDecoded.height]).toEqual([2, 2]);
   });
 
   test("gif 转码为 png（只取第一帧）", async () => {
@@ -188,6 +208,26 @@ describe("infra/image 不可信输入", () => {
     ]);
     expect(firstAnimatedWebpFrame(hidden)).not.toBeNull();
     expect(await prepareVisionImage(hidden)).toBeNull();
+  });
+
+  test("真实无损 webp 在 VISION_TRANSCODE_MAX_PIXELS 边界处降采样放行、超出后被拒绝", async () => {
+    const width: number = Math.floor(Math.sqrt(VISION_TRANSCODE_MAX_PIXELS));
+    const height: number = Math.floor(VISION_TRANSCODE_MAX_PIXELS / width);
+    const seed: Uint8Array = imageFixture(1, 1);
+    const withinLimit: Uint8Array = await new Bun.Image(seed)
+      .resize(width, height, { fit: "fill" })
+      .webp({ lossless: true })
+      .bytes();
+    const transcoded: VisionImage | null = await prepareVisionImage(withinLimit);
+    expect(transcoded?.mime).toBe("image/png");
+    const decoded: DecodedPng = decodePngRgba(transcoded!.bytes);
+    expect([decoded.width, decoded.height]).toEqual([VISION_TRANSCODE_MAX_EDGE, VISION_TRANSCODE_MAX_EDGE]);
+
+    const overLimit: Uint8Array = await new Bun.Image(seed)
+      .resize(width, height + 1, { fit: "fill" })
+      .webp({ lossless: true })
+      .bytes();
+    expect(await prepareVisionImage(overLimit)).toBeNull();
   });
 
   test("块长度越界或 ANMF 帧头不足时不抽帧", () => {

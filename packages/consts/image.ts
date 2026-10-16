@@ -1,10 +1,18 @@
 /**
  * 视觉转码单张图片允许解码的最大像素数（宽 × 高）；超出时
- * `Bun.Image` 在读完文件头、分配像素缓冲之前拒绝，这张图按「不解析」处理，
- * 单次解码的 RGBA 缓冲因此有界。
+ * `Bun.Image` 在读完文件头、分配像素缓冲之前拒绝，这张图按「不解析」处理。
+ * 单次解码的瞬时内存随本值线性增长；同时进行的解码数受 Bun 原生线程池约束。
  * 所属模块：infra/image.ts。
  */
-export const VISION_TRANSCODE_MAX_PIXELS: number = 7_680 * 4_320;
+export const VISION_TRANSCODE_MAX_PIXELS: number = 4_096 * 4_096;
+
+/**
+ * 视觉转码输出 PNG 的长边上限（像素）。在 `VISION_TRANSCODE_MAX_PIXELS` 解码上限以内的
+ * `webp`/`gif`，任一边超过本值时按 `fit: "inside"` 等比降采样至 `本值 × 本值` 以内，
+ * 不超过本值时保持原尺寸（`withoutEnlargement: true`）。
+ * 所属模块：infra/image.ts。
+ */
+export const VISION_TRANSCODE_MAX_EDGE: number = 1_024;
 
 /** RIFF 容器首个四字符码 `RIFF`，按小端 uint32 读写。所属模块：infra/image.ts。 */
 export const WEBP_FOURCC_RIFF: number = 0x46_46_49_52;
