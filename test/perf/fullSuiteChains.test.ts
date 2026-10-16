@@ -214,11 +214,17 @@ describe("cron 语音链路", () => {
 });
 
 describe("广告检测命令链路", () => {
+  interface CannedCompletion {
+    readonly choices: readonly { readonly message: { readonly content: string } }[];
+  }
+  interface CannedOpenAiClient {
+    readonly chat: { readonly completions: { create(): Promise<CannedCompletion> } };
+  }
+
   function adDetectChain(overrides: Partial<CommandChainDependencies>): {
     definition: ChainDefinition;
     calls: Map<string, number>;
     openAiClient: { current: unknown };
-    publishHolder: { current: unknown };
     candidates: unknown[];
   } {
     const calls: Map<string, number> = new Map<string, number>();
@@ -251,7 +257,7 @@ describe("广告检测命令链路", () => {
         candidates.push(candidate);
       },
       runAdDetectBatch: async (): Promise<void> => {
-        const publish = publishHolder.current as (() => void) | null;
+        const publish: (() => void) | null = publishHolder.current as (() => void) | null;
         publish?.();
       },
       adDetectOpenAiClientHolder: openAiClient as never,
@@ -263,19 +269,15 @@ describe("广告检测命令链路", () => {
       definition: createCommandChain("ad-detect-command", dependencies)!,
       calls,
       openAiClient,
-      publishHolder,
       candidates,
     };
   }
 
   test("罐头 OpenAI 客户端与发布回调装入后，完整跑完批次并发出处置播报", async (): Promise<void> => {
-    const { definition, calls, openAiClient, candidates } = adDetectChain({});
+    const { definition, calls, openAiClient, candidates }: ReturnType<typeof adDetectChain> = adDetectChain({});
     await definition.prepare?.();
-    const client = openAiClient.current as {
-      chat: { completions: { create(): Promise<{ choices: readonly { message: { content: string } }[] }> } };
-    };
-    const completion: { choices: readonly { message: { content: string } }[] } =
-      await client.chat.completions.create();
+    const client: CannedOpenAiClient = openAiClient.current as CannedOpenAiClient;
+    const completion: CannedCompletion = await client.chat.completions.create();
     expect(JSON.parse(completion.choices[0]!.message.content)).toEqual({
       ad: true,
       reason: "performance benchmark",
@@ -307,13 +309,15 @@ describe("广告检测命令链路", () => {
 });
 
 describe("AI 回复命令链路", () => {
+  interface CannedGeminiClient {
+    readonly models: { generateContent(): Promise<{ readonly text: string }> };
+  }
+
   function aiReplyChain(overrides: Partial<CommandChainDependencies>): {
     definition: ChainDefinition;
     calls: Map<string, number>;
-    callTimes: Map<string, number>;
     geminiClients: { current: unknown };
     recordedMessages: number[];
-    tasks: Map<number, Set<Promise<void>>>;
   } {
     const calls: Map<string, number> = new Map<string, number>();
     const callTimes: Map<string, number> = new Map<string, number>();
@@ -359,20 +363,16 @@ describe("AI 回复命令链路", () => {
     return {
       definition: createCommandChain("ai-reply-command", dependencies)!,
       calls,
-      callTimes,
       geminiClients,
       recordedMessages,
-      tasks,
     };
   }
 
   test("罐头 Gemini 客户端装入后播种上下文、等待生成结算并记录打字停顿", async (): Promise<void> => {
-    const { definition, calls, geminiClients, recordedMessages } = aiReplyChain({});
+    const { definition, calls, geminiClients, recordedMessages }: ReturnType<typeof aiReplyChain> = aiReplyChain({});
     await definition.prepare?.();
-    const client = (geminiClients.current as Map<string, {
-      models: { generateContent(): Promise<{ text: string }> };
-    }>).get("text")!;
-    const response: { text: string } = await client.models.generateContent();
+    const client: CannedGeminiClient = (geminiClients.current as Map<string, CannedGeminiClient>).get("text")!;
+    const response: { readonly text: string } = await client.models.generateContent();
     expect(response.text).toBe("性能基准回复。");
     expect(recordedMessages).toHaveLength(2 * AI_REPLY_SEED_MESSAGES);
     await definition.run(0);

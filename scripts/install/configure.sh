@@ -238,18 +238,13 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
         };
         if (baseUrl.length > 0) entry.base_url = baseUrl;
         if (headerCount > 0) {
-          const headers = {};
+          // 无原型对象让 __proto__ 等名字照常成为自有键；大小写完全相同的重名改写成非法键名，交给严格校验拒绝。
+          const headers = Object.create(null);
           for (let index = 0; index < headerCount; index += 1) {
             const headerName = fields[offset];
             const headerValue = fields[offset + 1];
             offset += 2;
-            const key = Object.hasOwn(headers, headerName) ? `${headerName} duplicate-${index}` : headerName;
-            Object.defineProperty(headers, key, {
-              value: headerValue,
-              enumerable: true,
-              configurable: true,
-              writable: true,
-            });
+            headers[Object.hasOwn(headers, headerName) ? `${headerName} duplicate-${index}` : headerName] = headerValue;
           }
           entry.headers = headers;
         }
@@ -257,12 +252,7 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
         if (imageProtocol.length > 0) entry.image_protocol = imageProtocol;
         if (speechProtocol.length > 0) entry.speech_protocol = speechProtocol;
         if (voice.length > 0) entry.voice = voice;
-        Object.defineProperty(agent, name, {
-          value: entry,
-          enumerable: true,
-          configurable: true,
-          writable: true,
-        });
+        agent[name] = entry;
       }
       await Bun.write(Bun.stdout, `${JSON.stringify({ agent }, null, 2)}\n`);
     ' > "$AGENT_CONFIG_STAGING_PATH"; then

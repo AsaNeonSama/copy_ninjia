@@ -28,15 +28,15 @@ export async function collectTelegramMessageProblems(
     "auto/message/proxyTts.ts": "sendProxyTtsNotice",
     "auto/message/proactive.ts": "replyToBathTrigger",
   };
+  const directSendNames: ReadonlySet<string> = new Set(["sendMessage", "sendMessageWithResult"]);
   for (const directory of ["workers", "antiRaid", "auto"]) {
     for (const path of sourceFilesUnder(join(sourceRoot, directory))) {
       const source: ts.SourceFile = await parseSourceFile(path);
-      const sendNames: Set<string> = new Set(["sendMessage", "sendMessageWithResult"]);
+      const sendNames: Set<string> = new Set(directSendNames);
       function visit(node: ts.Node): void {
-        if (
-          ts.isImportSpecifier(node) &&
-          ["sendMessage", "sendMessageWithResult"].includes(node.propertyName?.text ?? node.name.text)
-        ) sendNames.add(node.name.text);
+        if (ts.isImportSpecifier(node) && directSendNames.has(node.propertyName?.text ?? node.name.text)) {
+          sendNames.add(node.name.text);
+        }
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && sendNames.has(node.expression.text)) {
           let owner: ts.Node | undefined = node.parent;
           while (owner !== undefined && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
@@ -172,6 +172,7 @@ export async function collectTelegramMessageProblems(
     "sendPhoto",
     "sendMediaGroup",
     "sendDocument",
+    "sendVoice",
     "sendMessageWithResult",
     "sendPhotoWithResult",
     "sendVoiceWithResult",

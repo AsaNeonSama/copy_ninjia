@@ -39,7 +39,6 @@ async function declaresSymbol(
   symbol: string,
   depth: number = 1
 ): Promise<boolean> {
-  if (!existsSync(path)) return false;
   const source: string = await Bun.file(path).text();
   if (new RegExp(`\\b${symbol}\\b`).test(source)) return true;
   if (depth <= 0) return false;
@@ -105,6 +104,13 @@ export async function collectCommentReferenceProblems(
       const target: string | undefined = resolveReference(params, specifier);
       // 非相对路径解析不到唯一目标就不判：注释可以引用未随仓库分发的路径。
       if (target === undefined) continue;
+      if (!(await Bun.file(target).exists())) {
+        problems.push(
+          `${relativePath}:${index + 1} comment references ${symbol} in ${specifier}, ` +
+          "but that file does not exist"
+        );
+        continue;
+      }
       if (await declaresSymbol(target, symbol)) continue;
       problems.push(
         `${relativePath}:${index + 1} comment references ${symbol} in ${specifier}, ` +

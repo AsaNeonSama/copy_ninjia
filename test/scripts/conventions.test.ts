@@ -261,7 +261,7 @@ describe("project convention collectors", () => {
     await Bun.write(join(sourceRoot, "cron", "run.ts"),
       "export function runCronRound() { return bot.api.sendDocument(1, file); }");
     await Bun.write(join(sourceRoot, "cron", "voice.ts"),
-      "export function runCronVoice() { return sendVoiceWithResult({ chatId: 1, bytes }); }");
+      "export function runCronVoice() { sendVoiceWithResult({ chatId: 1, bytes }); return bot.api.sendVoice(1, voice); }");
     await Bun.write(
       join(commandsRoot, "luckChallenge", "inline.ts"),
       'import { sendCommandMessage } from "../../infra/telegram";\n' +
@@ -298,7 +298,8 @@ describe("project convention collectors", () => {
     ]));
     expect(problems).toContainEqual(expect.stringContaining("ordinary Worker/group notices"));
     expect(problems).toContainEqual(expect.stringContaining("verificationEffects.ts: ordinary Worker/group notices"));
-    expect(problems).toHaveLength(13);
+    expect(problems.filter((problem: string): boolean => problem.includes("cron/voice.ts:"))).toHaveLength(2);
+    expect(problems).toHaveLength(14);
     expect(problems.some((problem: string): boolean => problem.includes("copy/echo.ts:") || problem.includes("proxySend.ts:"))).toBeFalse();
     expect(problems.some((problem: string): boolean => problem.includes("hImage/draw.ts"))).toBeFalse();
     expect(problems.some((problem: string): boolean => problem.includes("cron/delivery.ts:"))).toBeFalse();
@@ -703,8 +704,8 @@ describe("注释交叉引用核对", () => {
       allSourceFiles,
     });
     expect(problems).toEqual([
-      expect.stringContaining("comment references joinExempt in ./join.ts"),
-      expect.stringContaining("comment references gone in ../missing.ts"),
+      expect.stringContaining("comment references joinExempt in ./join.ts, but that module no longer declares"),
+      expect.stringContaining("comment references gone in ../missing.ts, but that file does not exist"),
     ]);
   });
 
