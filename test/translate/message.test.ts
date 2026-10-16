@@ -259,10 +259,10 @@ describe("独立翻译消息", () => {
     expect(copyMessage).not.toHaveBeenCalled();
   });
 
-  test("在途译文未完成时，连发超上限的贴纸、同语种与命令消息不占积压，后续可译消息照常翻译", async () => {
-    const pending = Promise.withResolvers<string | null>();
-    translateText.mockImplementationOnce(() => pending.promise);
-    const first = params("第一条", "ja");
+  test("在途译文未完成时，连发超上限的贴纸、同语种与命令消息不占积压，后续可译消息照常翻译", async (): Promise<void> => {
+    const pending: PromiseWithResolvers<string | null> = Promise.withResolvers<string | null>();
+    translateText.mockImplementationOnce((): Promise<string | null> => pending.promise);
+    const first: ReturnType<typeof params> = params("第一条", "ja");
     queueTranslateMessage(first);
     expect(translateMessageBacklogs.get(-1001)?.count).toBe(1);
 

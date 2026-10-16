@@ -11,7 +11,7 @@ describe("sticker config", () => {
     expect((await loadStickerConfig()).packs.length).toBeGreaterThan(0);
   });
 
-  test("解析结果在编译期保持只读", () => {
+  test("解析结果在编译期保持只读", (): void => {
     const assertReadonly = (config: StickerConfig): void => {
       // @ts-expect-error 贴纸包白名单引用为只读。
       config.packs = [];

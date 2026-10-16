@@ -484,7 +484,7 @@ describe("逐文件源码规则", () => {
     ]));
   });
 
-  test("生产代码不得导入仅供测试的类型聚合入口；领域子模块照常", () => {
+  test("生产代码不得导入仅供测试的类型聚合入口；领域子模块照常", (): void => {
     const path: string = "/project/packages/example.ts";
     const problems: readonly string[] = collectDeclarationProblems(rule(
       path,
@@ -689,7 +689,7 @@ describe("注释交叉引用核对", () => {
     })).toEqual([]);
   });
 
-  test("相对路径引用指向不存在的符号或文件时报告", async () => {
+  test("相对路径引用指向不存在的符号或文件时报告", async (): Promise<void> => {
     const { projectRoot, allSourceFiles } = await fixture({
       "states/join.ts": "export function joinAllowed(): boolean { return true; }\n",
     });
@@ -708,7 +708,7 @@ describe("注释交叉引用核对", () => {
     ]);
   });
 
-  test("相对路径引用指向正确符号时不报告", async () => {
+  test("相对路径引用指向正确符号时不报告", async (): Promise<void> => {
     const { projectRoot, allSourceFiles } = await fixture({
       "states/join.ts": "export function joinExempt(): boolean { return true; }\n",
       "shared.ts": "export const TOP_LEVEL: number = 1;\n",

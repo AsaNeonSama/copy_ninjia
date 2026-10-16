@@ -104,7 +104,7 @@ describe("parseAssetConfig", () => {
     expect(parse(example)).toEqual(DEFAULT_ASSET_CONFIG);
   });
 
-  test("解析结果在编译期保持只读", () => {
+  test("解析结果在编译期保持只读", (): void => {
     const assertReadonly = (config: AssetConfig): void => {
       // @ts-expect-error 随机图片目录配置为只读。
       config.randomHImageDirectory = "/other";

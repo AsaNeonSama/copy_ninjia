@@ -20,6 +20,7 @@ import { botPermissions } from "../helpers/botPermissions";
 import { chatStateOf } from "../helpers/chatState";
 import { createCommandChain } from "../../scripts/perf/fullSuite/commandChains";
 import type { CommandChainDependencies } from "../../scripts/perf/fullSuite/commandChains";
+import { AI_REPLY_SEED_MESSAGES } from "../../scripts/perf/fullSuite/constants";
 import type { DeliverCronActionOptions } from "../../packages/cron/delivery";
 import type { CronDeliveryOutcome } from "../../packages/types/cron";
 import type { IdentityPolicyCacheEntry } from "../../packages/types/identityStorage";
@@ -267,13 +268,14 @@ describe("广告检测命令链路", () => {
     };
   }
 
-  test("罐头 OpenAI 客户端与发布回调装入后，完整跑完批次并发出处置播报", async () => {
+  test("罐头 OpenAI 客户端与发布回调装入后，完整跑完批次并发出处置播报", async (): Promise<void> => {
     const { definition, calls, openAiClient, candidates } = adDetectChain({});
     await definition.prepare?.();
     const client = openAiClient.current as {
       chat: { completions: { create(): Promise<{ choices: readonly { message: { content: string } }[] }> } };
     };
-    const completion = await client.chat.completions.create();
+    const completion: { choices: readonly { message: { content: string } }[] } =
+      await client.chat.completions.create();
     expect(JSON.parse(completion.choices[0]!.message.content)).toEqual({
       ad: true,
       reason: "performance benchmark",
@@ -284,19 +286,19 @@ describe("广告检测命令链路", () => {
     expect(CHAIN_NAMES).toContain("ad-detect-command");
   });
 
-  test("管理员权限未就绪、处置排空超时或未发出播报都使基准失败", async () => {
-    const notAdmin = adDetectChain({
+  test("管理员权限未就绪、处置排空超时或未发出播报都使基准失败", async (): Promise<void> => {
+    const notAdmin: ReturnType<typeof adDetectChain> = adDetectChain({
       botChatPermissionsIn: async (): Promise<BotChatPermissions | undefined> => undefined,
     });
     await expect(notAdmin.definition.prepare?.()).rejects.toThrow("never resolved to administrator");
 
-    const timedOut = adDetectChain({
+    const timedOut: ReturnType<typeof adDetectChain> = adDetectChain({
       drainAdDisposals: async (): Promise<"flushed" | "timedOut"> => "timedOut",
     });
     await timedOut.definition.prepare?.();
     await expect(timedOut.definition.run(0)).rejects.toThrow("did not settle within the drain budget");
 
-    const silent = adDetectChain({
+    const silent: ReturnType<typeof adDetectChain> = adDetectChain({
       runAdDetectBatch: async (): Promise<void> => {},
     });
     await silent.definition.prepare?.();
@@ -364,24 +366,24 @@ describe("AI 回复命令链路", () => {
     };
   }
 
-  test("罐头 Gemini 客户端装入后播种上下文、等待生成结算并记录打字停顿", async () => {
+  test("罐头 Gemini 客户端装入后播种上下文、等待生成结算并记录打字停顿", async (): Promise<void> => {
     const { definition, calls, geminiClients, recordedMessages } = aiReplyChain({});
     await definition.prepare?.();
     const client = (geminiClients.current as Map<string, {
       models: { generateContent(): Promise<{ text: string }> };
     }>).get("text")!;
-    const response = await client.models.generateContent();
+    const response: { text: string } = await client.models.generateContent();
     expect(response.text).toBe("性能基准回复。");
-    expect(recordedMessages).toHaveLength(24);
+    expect(recordedMessages).toHaveLength(2 * AI_REPLY_SEED_MESSAGES);
     await definition.run(0);
     expect(calls.get("sendMessage")).toBe(1);
     expect(definition.excludedNanoseconds?.()).toBe(350);
     expect(CHAIN_NAMES).toContain("ai-reply-command");
   });
 
-  test("生成任务未排空或模型无输出未发出消息时使基准失败", async () => {
+  test("生成任务未排空或模型无输出未发出消息时使基准失败", async (): Promise<void> => {
     const stuckTasks: Map<number, Set<Promise<void>>> = new Map<number, Set<Promise<void>>>();
-    const unsettled = aiReplyChain({
+    const unsettled: ReturnType<typeof aiReplyChain> = aiReplyChain({
       replyGenerationTasks: stuckTasks as never,
       generateAndSendReply: ({ chatId }: { readonly chatId: number }): void => {
         stuckTasks.set(chatId, new Set<Promise<void>>([Promise.resolve()]));
@@ -390,7 +392,7 @@ describe("AI 回复命令链路", () => {
     await unsettled.definition.prepare?.();
     await expect(unsettled.definition.run(0)).rejects.toThrow("never settled");
 
-    const silent = aiReplyChain({
+    const silent: ReturnType<typeof aiReplyChain> = aiReplyChain({
       generateAndSendReply: (): void => {},
     });
     await silent.definition.prepare?.();

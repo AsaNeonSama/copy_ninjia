@@ -901,7 +901,7 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
 - **Translation Sessions (`ChatState.translate`)**:
   - Stored inside SQLite `chat_states.status` along with chat state; main thread maintains a hot read copy bounded by `STATE_MANAGED_CHAT_LIMIT`.
   - Stores up to `TRANSLATE_CHAT_USER_LIMIT` distinct identities and their target languages (`TRANSLATE_LANGUAGE_LABELS`) per chat; `undefined` when empty. Rejects startup if `translate` appears in `memory/global/state.json`.
-  - Messages translate serially in background chains per chat (`translate/message.ts`) without blocking update middleware. Per-chat queues cap at `TRANSLATE_CHAT_BACKLOG_MAX`, dropping new messages when full. Enabling/disabling sessions waits for durable `persistChatState` confirmation before replying.
+  - Messages translate serially in background chains per chat (`translate/message.ts`) without blocking update middleware. Messages without text/caption, containing renderable commands, or already in the target language are skipped before queueing without counting toward the backlog; per-chat queues cap at `TRANSLATE_CHAT_BACKLOG_MAX`, dropping new messages when full. Enabling/disabling sessions waits for durable `persistChatState` confirmation before replying.
 - **Read Boundaries for State Files**:
   - `memory/global/state.json` itself must be a regular file (checked with `lstat`, links are not followed). Symlinks (including links to regular files and broken links), directories, or access errors (`EACCES`/`ELOOP`/`ENOTDIR`) reject startup. Only `ENOENT` from `lstat` treats the file as absent.
   - Strictly decodes UTF-8 and strips BOM via fatal-mode `TextDecoder`. Preserves original files on parse failure.

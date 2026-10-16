@@ -143,6 +143,9 @@ export const CRON_RELOAD_WARMUP_OPERATIONS: number = 4;
 /** AI 回复链路的预热次数；每次完整执行一轮回复及生产拟人停顿。 */
 export const AI_REPLY_WARMUP_OPERATIONS: number = 8;
 
+/** AI 回复链路在每个受管群预先播种的上下文消息条数。 */
+export const AI_REPLY_SEED_MESSAGES: number = 12;
+
 /** 单条 AI 回复等待本轮结算的轮询上限；超过按失败处理。 */
 export const AI_REPLY_SETTLE_ATTEMPTS: number = 500;
 

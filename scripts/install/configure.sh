@@ -243,7 +243,13 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
             const headerName = fields[offset];
             const headerValue = fields[offset + 1];
             offset += 2;
-            headers[headerName] = headerValue;
+            const key = Object.hasOwn(headers, headerName) ? `${headerName} duplicate-${index}` : headerName;
+            Object.defineProperty(headers, key, {
+              value: headerValue,
+              enumerable: true,
+              configurable: true,
+              writable: true,
+            });
           }
           entry.headers = headers;
         }
@@ -251,7 +257,12 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
         if (imageProtocol.length > 0) entry.image_protocol = imageProtocol;
         if (speechProtocol.length > 0) entry.speech_protocol = speechProtocol;
         if (voice.length > 0) entry.voice = voice;
-        agent[name] = entry;
+        Object.defineProperty(agent, name, {
+          value: entry,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
       }
       await Bun.write(Bun.stdout, `${JSON.stringify({ agent }, null, 2)}\n`);
     ' > "$AGENT_CONFIG_STAGING_PATH"; then

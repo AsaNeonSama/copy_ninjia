@@ -908,7 +908,7 @@
 - **翻译会话（`ChatState.translate`）状态管理**：
   - 翻译会话作为 `ChatState.translate` 字段与群状态一同存储在 SQLite `chat_states` 中，主线程维护热读副本，受 `STATE_MANAGED_CHAT_LIMIT` 容量约束。
   - 每群保存至多 `TRANSLATE_CHAT_USER_LIMIT` 个不同身份及其目标语言（`ja|cn|en|uk|ru`）；无会话时为 `undefined`。`memory/global/state.json` 中出现 `translate` 字段直接报错拒绝启动。
-  - 翻译消息由 `translate/message.ts` 按群串行异步发送，不阻塞 update 中间件；每群等待队列上限 `TRANSLATE_CHAT_BACKLOG_MAX`，满载时丢弃新消息翻译并记录日志。会话开启与关闭必须等待 `persistChatState` 精确持久化确认后才反馈成功。
+  - 翻译消息由 `translate/message.ts` 按群串行异步发送，不阻塞 update 中间件；无正文/图注、含可渲染命令或已与目标语种一致的消息在入队前直接跳过，不占积压名额；每群等待队列上限 `TRANSLATE_CHAT_BACKLOG_MAX`，满载时丢弃新消息翻译并记录日志。会话开启与关闭必须等待 `persistChatState` 精确持久化确认后才反馈成功。
 - **状态文件只读探测边界**：
   - `memory/global/state.json` 本身必须为普通文件（按 `lstat` 判定，不跟随链接）。若为软链接（含指向普通文件的链接与损坏链接）、目录或遭遇 `EACCES`/`ELOOP`/`ENOTDIR` 等访问错误，直接拒绝启动；仅在 `lstat` 返回 `ENOENT` 时按文件不存在处理。
   - 文件读取使用致命模式 `TextDecoder` 严格解码 UTF-8 并剥离 BOM，解析失败保留原文件。

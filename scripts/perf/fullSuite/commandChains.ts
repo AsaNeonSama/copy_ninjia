@@ -43,6 +43,7 @@ import type { CronAction, CronDeliveryOutcome, CronRoundVoices } from "../../../
 import type { SpeechSynthesizerLookup, VoiceSynthesisResult } from "../../../packages/types/aiChat/voiceMessage";
 import { benchmarkWav } from "../wavFixture";
 import type { ChainDefinition } from "./chainDefinition";
+import { AI_REPLY_SEED_MESSAGES } from "./constants";
 import type { ChainName } from "./types";
 
 export interface CommandChainDependencies {
@@ -79,8 +80,6 @@ export interface CommandChainDependencies {
   readonly synthesizeVoiceMessage: typeof synthesizeVoiceMessage;
   readonly deliverCronAction: typeof deliverCronAction;
 }
-
-const AI_REPLY_SEED_MESSAGES: number = 12;
 
 function adDetectCommandChain(
   dependencies: CommandChainDependencies

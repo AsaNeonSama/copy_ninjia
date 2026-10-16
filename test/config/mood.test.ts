@@ -19,7 +19,7 @@ describe("mood config", () => {
     expect(loaded.moods.reduce((sum, mood) => sum + mood.weight, 0)).toBe(MOOD_WEIGHT_TOTAL);
   });
 
-  test("解析结果在编译期保持只读", () => {
+  test("解析结果在编译期保持只读", (): void => {
     const assertReadonly = (config: MoodConfig): void => {
       // @ts-expect-error 心情列表引用为只读。
       config.moods = [];

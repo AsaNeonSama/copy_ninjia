@@ -20,6 +20,7 @@ import {
   writeText,
 } from "../../scripts/installIsolation/fixture";
 import type { InstallerFixture, InstallerRunResult, PromptReply } from "../../scripts/installIsolation/fixture";
+import type { StorageDatabase } from "../../packages/types/storageDatabase";
 
 afterEach(cleanupFixtures);
 
@@ -129,12 +130,12 @@ describe("install.sh 到真实应用启动", () => {
 
   test.each([false, true])("新安装、正常配置与重启（AI=%s）", async (ai: boolean): Promise<void> => {
     const fixture: InstallerFixture = await createFixture(true);
-    const first = await runInstaller(fixture, firstInstallPrompts(ai));
+    const first: InstallerRunResult = await runInstaller(fixture, firstInstallPrompts(ai));
     expect(first.exitCode, first.output).toBe(0);
     await assertInstalledStartup(fixture, first.output, ai);
 
     const telegram: string = await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).text();
-    const database = openStorageDatabase({ path: join(fixture.runtimeRoot, "database/storage.sqlite") });
+    const database: StorageDatabase = openStorageDatabase({ path: join(fixture.runtimeRoot, "database/storage.sqlite") });
     try {
       seedStorageDatabase(database, {
         metadata: [], whitelist: [], blocklist: [], removals: [],
@@ -144,7 +145,7 @@ describe("install.sh 到真实应用启动", () => {
     const prompts: PromptReply[] = [{ prompt: "是否重新填写？", reply: "n" }];
     if (!ai) prompts.push({ prompt: "现在配置 AI 能力", reply: "n" });
     prompts.push(systemdPrompt());
-    const second = await runInstaller(fixture, prompts);
+    const second: InstallerRunResult = await runInstaller(fixture, prompts);
     expect(second.exitCode, second.output).toBe(0);
     await assertInstalledStartup(fixture, second.output, ai);
     expect(second.output).toContain("Restored state for 1 chat(s).");
@@ -225,6 +226,16 @@ describe("install.sh 到真实应用启动", () => {
       ],
     ],
     [
+      "重复请求头名",
+      [
+        { prompt: "请求头名（直接回车结束）", reply: "cf-aig-authorization" },
+        { prompt: "cf-aig-authorization 的值", reply: "secret-header-value-1", secret: true },
+        { prompt: "请求头名（直接回车结束）", reply: "cf-aig-authorization" },
+        { prompt: "cf-aig-authorization 的值", reply: "secret-header-value-2", secret: true },
+        { prompt: "请求头名（直接回车结束）", reply: "" },
+      ],
+    ],
+    [
       "超过条数上限",
       [
         ...Array.from({ length: AGENT_HEADERS_MAX_ENTRIES + 1 }, (_unused: unknown, index: number): readonly PromptReply[] => {
@@ -272,7 +283,7 @@ describe("install.sh 到真实应用启动", () => {
   test("存在但非法的可选配置在启动之前拒绝", async (): Promise<void> => {
     const fixture: InstallerFixture = await createFixture(true);
     await writeText(join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, "stickers.json"), "{}\n");
-    const result = await runInstaller(fixture, firstInstallPrompts(false));
+    const result: InstallerRunResult = await runInstaller(fixture, firstInstallPrompts(false));
     expect(result.exitCode).not.toBe(0);
     expect(result.output).toContain("stickers.json: $ must be");
     expect(result.output).not.toContain("INSTALL_API");

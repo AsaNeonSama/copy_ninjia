@@ -766,7 +766,7 @@ describe("unified agent.json loading", () => {
     expect(requireAgentCapabilityConfig("web_search")).toBe(webSearch);
   });
 
-  test("解析结果在编译期保持只读", () => {
+  test("解析结果在编译期保持只读", (): void => {
     const assertReadonly = (
       config: AgentDeploymentConfig,
       adDetect: AdDetectAgentConfig
