@@ -1,6 +1,5 @@
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import type { ChatState } from "../types/chatState";
 import { clearAdDetection } from "../antiRaid";
 import { adDetectConfigReadiness } from "../config/readiness";
 
@@ -27,10 +26,7 @@ export async function handleAdDetectCommand(ctx: CommandContext<Context>): Promi
     permission: "isCanControllAdDetectPermission",
     persistReason: "ad_detect toggled",
     runtimeLabel: "queued ad detection",
-    read: (state: ChatState): boolean => state.isAdDetectEnabled === true,
-    write: (state: ChatState, isEnabled: boolean): void => {
-      state.isAdDetectEnabled = isEnabled;
-    },
+    switchKey: "isAdDetectEnabled",
     refuseEnable: (chatId: number, messageId: number | undefined): Promise<boolean> =>
       refuseIfConfigBroken({
         readiness: adDetectConfigReadiness(),

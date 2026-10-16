@@ -6,7 +6,7 @@ import {
 } from "../infra/storage/stateStore";
 import { replyCommandNotice } from "../infra/telegram";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type { CachedUser, ChatState } from "../types/chatState";
+import type { CachedUser, ChatState, ChatStateSwitchKey } from "../types/chatState";
 import type { ToggleAction, ToggleCommandTexts } from "../types/commands";
 import { rejectUnlessPermitted, rejectUnlessSuperAdmin } from "./commandActor";
 import { parseToggleAction } from "./arguments";
@@ -57,10 +57,8 @@ export interface ChatToggleCommandParams {
   readonly persistReason: string;
   /** 运行时清理对象的英文名，只进错误日志。 */
   readonly runtimeLabel: string;
-  /** 读这个群当前的开关位。 */
-  readonly read: (state: ChatState) => boolean;
-  /** 写入目标开关位；调用方只改自己那一个字段。 */
-  readonly write: (state: ChatState, isEnabled: boolean) => void;
+  /** 本命令读写的群功能开关字段名。 */
+  readonly switchKey: ChatStateSwitchKey;
   /**
    * 开启方向的配置总闸；返回 true 表示它已经自己回执并拒绝了本次开启。
    * 省略表示开启时不检查部署配置。
@@ -92,8 +90,7 @@ export async function runChatToggleCommand({
   permission,
   persistReason,
   runtimeLabel,
-  read,
-  write,
+  switchKey,
   refuseEnable,
   beforeDisable,
   teardown,
@@ -112,8 +109,8 @@ export async function runChatToggleCommand({
   if (!isEnabled && beforeDisable !== undefined) await beforeDisable(chatId);
 
   const state: ChatState = getOrCreateChatState(chatId);
-  const wasEnabled: boolean = read(state);
-  write(state, isEnabled);
+  const wasEnabled: boolean = state[switchKey] === true;
+  state[switchKey] = isEnabled;
   // 落盘失败原样上抛：那是 fatal durability failure，这条 update 不能被确认
   // （见 docs/cn/04-invariants.md）。
   await persistChatState(chatId, persistReason);

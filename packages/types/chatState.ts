@@ -146,7 +146,8 @@ export interface ChatState {
 }
 
 /**
- * ChatState 上取值为布尔的群功能开关字段名。关闭开关经 infra/storage/stateStore.ts 的
+ * ChatState 上取值为布尔的群功能开关字段名。按群开关命令经 commands/superAdminToggle.ts 的
+ * runChatToggleCommand 读写；关闭开关经 infra/storage/stateStore.ts 的
  * disableChatStateSwitch；`/bot_status` 的功能块按 consts/botStatus.ts 的
  * BOT_STATUS_FEATURE_KEYS 逐项列出。
  */

@@ -13,7 +13,7 @@ import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { botPermissions } from "../helpers/botPermissions";
 import { lastReplyText } from "../helpers/replies";
-import type { ChatState, LockdownRecord } from "../../packages/types/chatState";
+import type { ChatStateSwitchKey, LockdownRecord } from "../../packages/types/chatState";
 import { chatStateOf } from "../helpers/chatState";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
@@ -502,10 +502,10 @@ describe("超级管理员开关命令", () => {
   });
 });
 
-/** 每条开关命令的驱动方式与它写的那个 ChatState 字段。 */
+/** 每条开关命令的驱动方式与它写的那个 ChatState 开关字段。 */
 interface ToggleCase {
   readonly name: string;
-  readonly field: keyof ChatState;
+  readonly field: ChatStateSwitchKey;
   readonly run: (argument: string) => Promise<void>;
   /**
    * disable 之后该字段读出来是什么：功能开关落成 false（规范化后等价于「没设过」，但记录本身还在）；
@@ -531,6 +531,12 @@ const TOGGLE_CASES: readonly ToggleCase[] = [
     name: "/flood_control",
     field: "isFloodControlEnabled",
     run: (argument: string): Promise<void> => handleFloodControlCommand(context(argument)),
+    disabledValue: false,
+  },
+  {
+    name: "/antiraid",
+    field: "isAntiRaidEnabled",
+    run: (argument: string): Promise<void> => handleAntiRaidCommand(context(argument)),
     disabledValue: false,
   },
   {

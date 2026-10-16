@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { EMPTY_FUNCTION_CALLS } from "../../consts/aiChat/tools";
 import { finishDetailsJson } from "../ai/utils/finishDetails";
 import type { AiFunctionCall, AiWebSearchSource } from "../../types/aiChat/provider";
 
@@ -15,13 +16,13 @@ export function messageText(message: Anthropic.Beta.BetaMessage): string {
   return text;
 }
 
-/** 提取响应中的自定义工具调用列表。 */
+/** 提取响应中的自定义工具调用列表；无调用时返回 `EMPTY_FUNCTION_CALLS`。 */
 export function toolUseCalls(message: Anthropic.Beta.BetaMessage): readonly AiFunctionCall[] {
   const calls: AiFunctionCall[] = [];
   for (const block of message.content) {
     if (block.type === "tool_use") calls.push({ id: block.id, name: block.name, argumentsJson: JSON.stringify(block.input) });
   }
-  return calls;
+  return calls.length === 0 ? EMPTY_FUNCTION_CALLS : calls;
 }
 
 /**

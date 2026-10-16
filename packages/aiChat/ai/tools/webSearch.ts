@@ -19,8 +19,8 @@ import { WEB_SEARCH_EXECUTOR_INSTRUCTION } from "../../../consts/aiChat/prompts/
 import { currentTimeSentence } from "../timeSentence";
 import { WEB_SEARCH_TIME_LABEL } from "../../../consts/aiChat/prompts/researchTime";
 import { logger } from "../../../infra/logger";
-import { isPlainRecord } from "../../../libs/record";
 import { sanitizeInline, truncateAtClauseBoundary, truncateInline } from "../../../libs/text";
+import { parseStringField } from "../utils/toolArgs";
 import { toolError } from "../utils/toolResult";
 import type {
   AiWebSearchFacade,
@@ -31,15 +31,8 @@ import type { WebSearchToolExecutor, WebSearchToolOutcome } from "../../../types
 
 /** 解析检索问题参数；非空且不超过 WEB_SEARCH_QUERY_MAX_CHARS 时返回，否则返回 null。 */
 function parseQuery(argumentsJson: string): string | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(argumentsJson);
-  } catch {
-    return null;
-  }
-  if (!isPlainRecord(parsed) || typeof parsed.query !== "string") return null;
-  const query: string = parsed.query.trim();
-  if (query.length === 0 || query.length > WEB_SEARCH_QUERY_MAX_CHARS) return null;
+  const query: string | null = parseStringField(argumentsJson, "query")?.trim() ?? null;
+  if (query === null || query.length > WEB_SEARCH_QUERY_MAX_CHARS) return null;
   return query;
 }
 
