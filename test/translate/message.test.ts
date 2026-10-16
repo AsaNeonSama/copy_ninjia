@@ -78,6 +78,17 @@ async function translateNow(input: TranslateMessageParams): Promise<void> {
   await Promise.allSettled([...translateRuntime.tasks]);
 }
 
+/** 让下一次翻译请求挂起：result 决定译文，requested 在请求真正发出时兑现。 */
+function holdNextTranslation(): { readonly result: PromiseWithResolvers<string | null>; readonly requested: Promise<void> } {
+  const result: PromiseWithResolvers<string | null> = Promise.withResolvers<string | null>();
+  const requested: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+  translateText.mockImplementationOnce((): Promise<string | null> => {
+    requested.resolve();
+    return result.promise;
+  });
+  return { result, requested: requested.promise };
+}
+
 beforeEach(() => {
   translateStates.clear();
   chatStateFor(-1001);
@@ -91,19 +102,14 @@ beforeEach(() => {
 
 describe("独立翻译消息", () => {
   test.each(["add", "stop-other", "stop-self"])("在途翻译遇到 %s 时按目标独立取消", async (change: string) => {
-    const pending = Promise.withResolvers<string | null>();
-    const requested: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    translateText.mockImplementationOnce((): Promise<string | null> => {
-      requested.resolve();
-      return pending.promise;
-    });
+    const { result, requested }: ReturnType<typeof holdNextTranslation> = holdNextTranslation();
     const input = params("你好", "uk");
     setTranslateState(-1001, { translatedUser: { id: 8 }, language: "ru" });
     const task: Promise<void> = translateNow(input);
-    await requested.promise;
+    await requested;
     if (change === "add") setTranslateState(-1001, { translatedUser: { id: 9 }, language: "en" });
     else await stopTranslation(-1001, change === "stop-self" ? 7 : 8);
-    pending.resolve("Привіт");
+    result.resolve("Привіт");
     await task;
     expect(sendMessage).toHaveBeenCalledTimes(change === "stop-self" ? 0 : 1);
   });
@@ -245,20 +251,15 @@ describe("独立翻译消息", () => {
   });
 
   test.each(["stop", "replace", "disable", "config"])("在途请求遇到 %s 后不得迟到发送", async (change: string) => {
-    const pending = Promise.withResolvers<string | null>();
-    const requested: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-    translateText.mockImplementationOnce((): Promise<string | null> => {
-      requested.resolve();
-      return pending.promise;
-    });
+    const { result, requested }: ReturnType<typeof holdNextTranslation> = holdNextTranslation();
     const input = params("你好");
     const task: Promise<void> = translateNow(input);
-    await requested.promise;
+    await requested;
     if (change === "stop") await stopTranslation(-1001);
     if (change === "replace") translateStates.set(-1001, [{ ...input.state }]);
     if (change === "disable") enabled = false;
     if (change === "config") configured = false;
-    pending.resolve("こんにちは");
+    result.resolve("こんにちは");
     await task;
     expect(sendMessage).not.toHaveBeenCalled();
     expect(copyMessage).not.toHaveBeenCalled();
@@ -277,8 +278,7 @@ describe("独立翻译消息", () => {
   });
 
   test("在途译文未完成时，连发超上限的贴纸、同语种与命令消息不占积压，后续可译消息照常翻译", async (): Promise<void> => {
-    const pending: PromiseWithResolvers<string | null> = Promise.withResolvers<string | null>();
-    translateText.mockImplementationOnce((): Promise<string | null> => pending.promise);
+    const { result }: ReturnType<typeof holdNextTranslation> = holdNextTranslation();
     const first: ReturnType<typeof params> = params("第一条", "ja");
     queueTranslateMessage(first);
     expect(translateMessageBacklogs.get(-1001)?.count).toBe(1);
@@ -298,7 +298,7 @@ describe("独立翻译消息", () => {
     queueTranslateMessage({ ...first, message: { ...first.message, text: "第二条" } });
     expect(translateMessageBacklogs.get(-1001)?.count).toBe(2);
 
-    pending.resolve("一");
+    result.resolve("一");
     await Promise.allSettled([...translateRuntime.tasks]);
     expect(translateText).toHaveBeenCalledTimes(2);
     expect(translateText).toHaveBeenNthCalledWith(1, "第一条", "ja");

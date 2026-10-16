@@ -49,14 +49,15 @@ async function translateMessage(params: TranslateMessageParams, source: string):
 }
 
 /**
- * 翻译目标的文字与图注一律按字符串处理，带链接、@ 或格式实体的文字照常翻译；带图注的媒体只翻译
- * 图注。既无正文也无图注（贴纸、不带图注的图片与文件等）、原文含可渲染命令或同语种与中性文字
- * （needsNoTranslation 命中）的消息在入队前直接跳过：不调用翻译、不计入积压、不回提示。
+ * 把翻译目标的一条消息交给按群串行的后台链后立即返回：串行的 update 循环不等 Google RPC 与译文
+ * 发送，同群译文仍按收到顺序发出。
  *
- * 其余消息交给按群串行的后台链后立即返回：串行的 update 循环不等 Google RPC 与译文发送，同群译文
- * 仍按收到顺序发出。本群积压（含正在执行的那条）已达 TRANSLATE_CHAT_BACKLOG_MAX 时本条不翻译，
- * 同一段积压只记一次日志。任务登记在 translateRuntime.tasks，由停机 drainTranslate 等待；失败只记
- * 日志，update 取消导致的中止不记。
+ * 正文与图注一律按字符串处理，带链接、@ 或格式实体的文字照常翻译，带图注的媒体只翻译图注。既无
+ * 正文也无图注（贴纸、不带图注的图片与文件等）、原文含可渲染命令或同语种与中性文字
+ * （needsNoTranslation 命中）的消息在入队前直接跳过：不调用翻译、不计入积压、不回提示。本群积压
+ * （含正在执行的那条）已达 TRANSLATE_CHAT_BACKLOG_MAX 时本条不翻译，同一段积压只记一次日志。
+ * 任务登记在 translateRuntime.tasks，由停机 drainTranslate 等待；失败只记日志，update 取消导致的
+ * 中止不记。
  */
 export function queueTranslateMessage(params: TranslateMessageParams): void {
   const source: string | undefined = params.message.text ?? params.message.caption;
