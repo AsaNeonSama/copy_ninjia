@@ -47,23 +47,13 @@ import {
 } from "./runtime";
 import {
   createGagInlineMarkerUrl,
-  isGagInlineMarkerUrl,
+  hasGagInlineMarker,
 } from "./identity";
 
 /** 只把纯文本或带 caption 的媒体视作 gag 应删除的文字消息。 */
 function hasGagDeletableText(message: Message): boolean {
   return typeof message.text === "string" ||
     typeof message.caption === "string";
-}
-
-/** 当前 bot 消息是否带有用户或频道 gag 隐藏主页标记。 */
-function hasGagInlineMarker(message: Message, botId: number): boolean {
-  if (message.via_bot?.id !== botId) return false;
-  return message.entities?.some((entity: MessageEntity): boolean =>
-    entity.type === "text_link" &&
-    entity.offset === 0 &&
-    isGagInlineMarkerUrl(entity.url)
-  ) === true;
 }
 
 /** 当前 bot inline 文本是否匹配用具，且隐藏主页链接匹配当前目标与所在群。 */

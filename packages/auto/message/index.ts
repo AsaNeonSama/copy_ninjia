@@ -192,7 +192,7 @@ export function handleIncomingMessageMiddleware(ctx: Context): Promise<void> | u
   recordChatTitleFromChat(message.chat, groupState);
   const botIdentity: AiBotInfo = ctx.me;
 
-  // 内联结果要自录入上下文但不触发主动行为；普通自发消息回弹则完全忽略。
+  // 本机器人内联结果只记入 AI 上下文（gag 发言记为本人，其余记为机器人自身）、不触发主动行为；普通自发消息回弹则完全忽略。
   if (message.via_bot?.id === botIdentity.id) {
     recordSelfInlineResult(message, botIdentity);
     return undefined;

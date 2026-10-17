@@ -41,6 +41,35 @@ export function buildAiRecordMessage({
   };
 }
 
+export interface BuildInlineSenderRecordMessageParams {
+  readonly chatId: number;
+  readonly speaker: AiSpeakerSnapshot;
+  readonly messageId: number;
+  readonly text: string;
+}
+
+/** 不经完整触发上下文、按实际发言身份直接记入 AI 上下文的文字载荷（如 gag inline 发言）。 */
+export function buildInlineSenderRecordMessage({
+  chatId,
+  speaker,
+  messageId,
+  text,
+}: BuildInlineSenderRecordMessageParams): AiRecordMessage {
+  return {
+    type: "record",
+    chatId,
+    senderId: speaker.id,
+    firstName: speaker.firstName,
+    lastName: speaker.lastName,
+    username: speaker.username,
+    messageId,
+    replyTo: undefined,
+    forwardedFrom: undefined,
+    persistImmediately: false,
+    text,
+  };
+}
+
 /**
  * 各媒体 handler 写入 `replyTelegramBackpressured` 的构造值：直接触发或已占到
  * 随机评价名额（`claimed`）时为 false，由 aiChat/messageIngress.ts 在投递时刻覆写为
