@@ -103,7 +103,6 @@ function handleAcceptedIncomingMessage(
       message,
       // 上一行已确认本群确有目标，这里取模式才有意义（见 activeCopyModeIn）。
       mode: activeCopyModeIn(chatId),
-      expectedTargetId: copyTargetId,
       messageThreadId: forumTopicThreadId(message),
     });
   }

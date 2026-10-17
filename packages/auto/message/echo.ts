@@ -1,6 +1,5 @@
 import type { Message } from "grammy/types";
 import type { CopyMode } from "../../types/chatState";
-import { activeCopyTargetIdIn } from "../../infra/storage/stateStore";
 import { sendEchoPayload } from "../../copy/echo";
 import { applyCopyModeTransform } from "../../copy/copyModes";
 import { TELEGRAM_CAPTION_MAX_CHARS, TELEGRAM_MESSAGE_MAX_CHARS } from "../../consts/telegram";
@@ -11,7 +10,6 @@ export interface EchoMessageParams {
   chatId: number;
   message: Message;
   mode: CopyMode | undefined;
-  expectedTargetId?: number;
   /**
    * 复读要落进的论坛话题；General、非论坛群为 undefined。
    *
@@ -23,11 +21,10 @@ export interface EchoMessageParams {
 /**
  * 将消息复读回所在聊天（`/copy` 系与随机复读）。文字与图注一律按字符串处理：有模式时
  * 变换，没有模式时原样使用，链接、@ 与格式实体不单独处理；发送经 copy/echo.ts 的
- * sendEchoPayload（纯文字重新发送，媒体复制并换图注）。发送前核对锁定目标，只允许
- * 当前 copy 会话继续发送。
+ * sendEchoPayload（纯文字重新发送，媒体复制并换图注）。
  */
 export async function echoMessage(params: EchoMessageParams): Promise<void> {
-  const { chatId, message, mode, expectedTargetId, messageThreadId }: EchoMessageParams = params;
+  const { chatId, message, mode, messageThreadId }: EchoMessageParams = params;
   // 正文与 caption 均检查是否含可点击命令片段。
   const source: string | undefined = message.text ?? message.caption;
   if (source !== undefined && containsRenderableCommand(source)) return;
@@ -41,8 +38,5 @@ export async function echoMessage(params: EchoMessageParams): Promise<void> {
     if (text.length > limit) return;
   }
 
-  if (expectedTargetId !== undefined && activeCopyTargetIdIn(chatId) !== expectedTargetId) {
-    return;
-  }
   await sendEchoPayload({ chatId, message, text, messageThreadId });
 }

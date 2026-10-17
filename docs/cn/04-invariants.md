@@ -651,7 +651,7 @@
   - 误踢管理员的诊断（`logUncancelableKickExemption`）必须输出至 `logger.error`，作为人工召回排查的唯一凭证。
 
 - **验证提醒发送与成员发言保护**：
-  - 验证提醒每个成员仅分配一个投递 owner。成功发送 `reminderMessageId` 或 `replyReminderMessageId` 是超时踢人的前置必要条件；从未成功发送时仅续期窗口补发。
+  - 验证提醒每个成员仅分配一个投递 owner；状态换代时（含恢复接管、停管与停止）投递 owner 被同步取消，迟到落地的提醒自删。成功发送 `reminderMessageId` 或 `replyReminderMessageId` 是超时踢人的前置必要条件；从未成功发送时仅续期窗口补发。
   - 续期设有绝对上限：入群超过 `VERIFICATION_REMINDER_UNDELIVERED_MAX_MS` 仍无法送达提醒，按普通超时结算（只踢不封）。
   - **严禁清理成员个人发言**：验证记录仅在 `trackedMessageTimes` 中记录成员入群滑窗内的时间戳，超过 `ANTI_RAID_PER_MINUTE_LIMIT` 时直接转入刷屏终态踢出；处置时仅清理机器人自身发出的提醒与公告，绝不记录或删除成员个人的常规发言（抹除消息仅属于 `/block` 及广告秒踢路径）。
 

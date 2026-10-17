@@ -634,7 +634,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
   - Diagnostic logs for uncancelable admin kick exemptions (`logUncancelableKickExemption`) must be sent to `logger.error` as authoritative traces for manual investigation.
 
 - **Verification reminder delivery and member message safety**:
-  - Each pending member is assigned a single reminder delivery owner. Successfully sending `reminderMessageId` or `replyReminderMessageId` is a prerequisite for timeout kicks; undelivered reminders extend windows and retry delivery.
+  - Each pending member is assigned a single reminder delivery owner; when the state is superseded (including recovery adoption, chat deactivation, and runtime shutdown), the delivery owner is cancelled synchronously and any late-arriving reminder deletes itself. Successfully sending `reminderMessageId` or `replyReminderMessageId` is a prerequisite for timeout kicks; undelivered reminders extend windows and retry delivery.
   - Extensions cap at `VERIFICATION_REMINDER_UNDELIVERED_MAX_MS`, settling as ordinary timeouts (kicking without bans) if undelivered.
   - **Member messages are never deleted**: Verification records track join timestamps in `trackedMessageTimes`; exceeding `ANTI_RAID_PER_MINUTE_LIMIT` triggers flood expulsion. Expulsion deletes only bot-sent reminders and announcements, never member messages (message wiping belongs to `/block` and ad detection fast-kicks).
 

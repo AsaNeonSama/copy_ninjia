@@ -22,7 +22,7 @@ mock.module("../../../packages/infra/telegram", () => ({
 }));
 mock.module("../../../packages/infra/logger", () => ({ logger: loggerStub() }));
 
-const { sendVerificationReminder, clearReminderDeliveries } =
+const { cancelReminderDelivery, sendVerificationReminder, clearReminderDeliveries } =
   await import("../../../packages/workers/antiRaid/verificationReminders");
 const { reminderDeliveries, verificationEntries } =
   await import("../../../packages/cache/workers/antiRaid/verification");
@@ -70,6 +70,7 @@ test("提醒发送期间成员状态已被替换：迟到落地的提醒自删�
   expect(sendMessage).toHaveBeenCalledTimes(1);
 
   verificationEntries.set(KEY, { state: { kind: "passed" } } as never);
+  cancelReminderDelivery(KEY);
   releaseSend(555);
   await settleAntiRaidTasks();
 
