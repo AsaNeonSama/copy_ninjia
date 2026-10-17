@@ -63,13 +63,16 @@ function getAdDetectGoogleClient(): GoogleGenAI {
 
 /**
  * ad_detect 的显式缓存 scope：缓存内容只有「判定规则 + 部署示例」，登记表按当下
- * ad_detect 客户端惰性新建；后台请求使用 Anti-Raid Worker 的尽力而为派发信号，停机后
+ * ad_detect 客户端初始化；后台请求使用 Anti-Raid Worker 的尽力而为派发信号，停机后
  * 随之取消；创建的输入 token 以 ad_detect 能力上报。
  */
 export const AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE: Readonly<GeminiContextCacheScope> = {
   registry(): GeminiContextCacheRegistry {
     adDetectGeminiContextCache.current ??= createGeminiContextCacheRegistry(getAdDetectGoogleClient());
     return adDetectGeminiContextCache.current;
+  },
+  model(): string {
+    return getAdDetectAgentConfig().model;
   },
   signal: antiRaidDispatchSignal,
   displayNamePrefix: AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX,
@@ -129,10 +132,12 @@ async function attemptGoogleJson(params: AdDetectJsonRequestParams): Promise<Goo
   let cachedContent: string | null = null;
   let response: GenerateContentResponse;
   try {
-    cachedContent = acquireGeminiContextCache(
-      AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE,
-      cacheContentOf(params.model, params.instructions)
-    );
+    cachedContent = adDetectGeminiContextCache.current?.scan === "unsupported"
+      ? null
+      : acquireGeminiContextCache(
+        AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE,
+        cacheContentOf(params.model, params.instructions)
+      );
     response = await generateAdDetectContent(params, cachedContent);
   } catch (error: unknown) {
     logGoogleFailure(params.errorLabel, error);

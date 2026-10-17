@@ -9,15 +9,19 @@ import {
 } from "../../consts/aiChat/gemini";
 import { textGeminiContextCache } from "../../cache/workers/aiChat/geminiContextCache";
 import { aiChatWorkerAbortController } from "../../cache/workers/aiChat/worker";
+import { getAgentDeploymentConfig } from "../../config/agent";
 import { createGeminiContextCacheRegistry } from "../../infra/geminiContextCache";
 import { getGeminiClient } from "./client";
 import type { GeminiContextCacheRegistry, GeminiContextCacheScope } from "../../types/geminiContextCache";
 
-/** 回复共用显式缓存的 scope；登记表按当前 `text` 客户端惰性初始化。 */
+/** 回复共用显式缓存的 scope；登记表按当前 `text` 客户端初始化。 */
 export const TEXT_GEMINI_CONTEXT_CACHE_SCOPE: Readonly<GeminiContextCacheScope> = {
   registry(): GeminiContextCacheRegistry {
     textGeminiContextCache.current ??= createGeminiContextCacheRegistry(getGeminiClient("text"));
     return textGeminiContextCache.current;
+  },
+  model(): string {
+    return getAgentDeploymentConfig().text.model;
   },
   signal(): AbortSignal {
     return aiChatWorkerAbortController.current.signal;

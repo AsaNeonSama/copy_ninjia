@@ -54,3 +54,6 @@ export const GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS: number = 5 * 60_000;
 
 /** 启动扫描 caches.list 的单页条数。所属模块：infra/geminiContextCache.ts。 */
 export const GEMINI_CONTEXT_CACHE_LIST_PAGE_SIZE: number = 100;
+
+/** `models.get` 返回的 `supportedActions` 中表示模型支持显式缓存（`cachedContent`）的动作名。所属模块：infra/geminiContextCache.ts。 */
+export const GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION: string = "createCachedContent";

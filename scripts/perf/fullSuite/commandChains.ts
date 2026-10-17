@@ -228,6 +228,9 @@ function aiReplyCommandChain(
       };
       dependencies.geminiClientCache.current = new Map([["text", {
         models: {
+          get: (): Promise<unknown> => Promise.resolve({
+            supportedActions: ["generateContent"],
+          }),
           generateContent: (): Promise<unknown> => Promise.resolve({
             candidates: [{
               finishReason: "STOP",

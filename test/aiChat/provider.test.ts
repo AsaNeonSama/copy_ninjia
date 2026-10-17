@@ -21,6 +21,12 @@ const loggerWarn = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError, warn: loggerWarn }),
 }));
+const probeGeminiContextCache = mock((..._args: unknown[]): void => {});
+const realGeminiContextCache = await import("../../packages/infra/geminiContextCache");
+mock.module("../../packages/infra/geminiContextCache", () => ({
+  ...realGeminiContextCache,
+  probeGeminiContextCache,
+}));
 
 const {
   imageAiProvider,
@@ -34,9 +40,10 @@ const {
   ttsAiProvider,
   webSearchAiProvider,
 } = await import("../../packages/aiChat/provider");
+const { TEXT_GEMINI_CONTEXT_CACHE_SCOPE } = await import("../../packages/aiChat/gemini/contextCache");
 const { geminiClientCache } = await import("../../packages/cache/workers/aiChat/gemini");
 const { geminiReplyLastRequestAt, textGeminiContextCache } = await import("../../packages/cache/workers/aiChat/geminiContextCache");
-const { createGeminiContextCacheRegistry } = await import("../../packages/infra/geminiContextCache");
+const { createGeminiContextCacheRegistry } = realGeminiContextCache;
 const { ttsDailyUsage } = await import("../../packages/cache/workers/aiChat/ttsUsage");
 const { openAiClientCache } = await import("../../packages/cache/workers/aiChat/openai");
 const {
@@ -76,6 +83,7 @@ beforeEach((): void => {
   };
   loggerError.mockClear();
   loggerWarn.mockClear();
+  probeGeminiContextCache.mockClear();
 });
 
 test("每项能力按 agent 配置独立选择 provider", () => {
@@ -623,15 +631,25 @@ test("text 能力变化丢弃登记表时，各群上一次回复请求的触发
   }
 });
 
-test("只有 text 能力变化时才丢弃 Gemini 回复共用显式缓存的登记表", () => {
+test("只有 text 能力变化时才丢弃 Gemini 回复共用显式缓存的登记表，并在选用 Google 时重新探测显式缓存支持度", () => {
   const registry: GeminiContextCacheRegistry = createGeminiContextCacheRegistry({} as unknown as GoogleGenAI);
   textGeminiContextCache.current = registry;
 
   reloadAgentDeploymentConfig({ ...agentConfig, media: { ...agentConfig.media, model: "gemini-media-2" } });
   expect(textGeminiContextCache.current).toBe(registry);
+  expect(probeGeminiContextCache).not.toHaveBeenCalled();
 
   reloadAgentDeploymentConfig({ ...agentConfig, text: { ...agentConfig.text, apiKey: "google-text-key-rotated" } });
   expect(textGeminiContextCache.current).toBeNull();
+  expect(probeGeminiContextCache).toHaveBeenCalledTimes(1);
+  expect(probeGeminiContextCache).toHaveBeenCalledWith(TEXT_GEMINI_CONTEXT_CACHE_SCOPE);
+
+  probeGeminiContextCache.mockClear();
+  reloadAgentDeploymentConfig({
+    ...agentConfig,
+    text: { provider: "openai", apiKey: "openai-text-key", baseUrl: undefined, headers: undefined, model: "gpt-text" },
+  });
+  expect(probeGeminiContextCache).not.toHaveBeenCalled();
 });
 
 test("agent 热重载后按新快照重记「配了但没实现」的诊断", () => {

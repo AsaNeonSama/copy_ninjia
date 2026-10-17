@@ -8,9 +8,9 @@ import type {
 
 /**
  * text 能力的 Gemini 显式上下文缓存登记表（GeminiContextCacheRegistry）单例：
- * - 填充：首次使用显式缓存时创建并扫描接管服务端同 displayName 条目，后台创建成功时写入槽位，命中刷新 lastUsedAt，续期更新 expireAt；
- * - 清理与淘汰：同槽内容变化或新建后清理未使用的旧服务端条目，槽数超 GEMINI_TEXT_CACHE_MAX_SLOTS 时淘汰最久未用槽位，缓存不可用（冷却 GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS）或续期目标不存在时移除本地登记，agent.text 热重载变化或 resetGeminiContextCache 时置为 null；
- * - 重建：Worker 重建后从 null 开始，首次请求时重新扫描接管。
+ * - 填充：provider 启动、切换或首次使用显式缓存时创建并探测模型显式缓存支持度（支持则扫描接管服务端同 displayName 条目，不支持则标为 `"unsupported"`），后台创建成功时写入槽位，命中刷新 lastUsedAt，续期更新 expireAt；
+ * - 清理与淘汰：同槽内容变化或新建后清理未使用的旧服务端条目，槽数超 GEMINI_TEXT_CACHE_MAX_SLOTS 时淘汰最久未用槽位，缓存不可用（冷却 GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS）或续期目标不存在时移除本地登记，agent.text 热重载变化或 resetGeminiContextCache 时置为 null（切换后仍为 Google 时立即重建探测）；
+ * - 重建：Worker 重建后从 null 开始，随 init 或首次请求重新探测与扫描接管。
  */
 export const textGeminiContextCache: { current: GeminiContextCacheRegistry | null } = { current: null };
 

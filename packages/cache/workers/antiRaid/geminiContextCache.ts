@@ -4,9 +4,9 @@ import type { GeminiContextCacheContent, GeminiContextCacheRegistry } from "../.
 
 /**
  * ad_detect 能力的 Gemini 显式缓存登记表（读写见 infra/geminiContextCache.ts）。
- * 填充：首次使用 Google 判定时创建并扫描接管服务端既有缓存，后台创建、命中或续期成功时更新槽位。
- * 清理：内容变化替换、淘汰未用接管项、超出上限淘汰最久未用槽、缓存失效或续期报缓存不存在时摘除；收到新 ad_detect 配置快照时由 workers/antiRaid/adDetect/config.ts 置空。
- * 重建：Worker 崩溃重启后从 null 开始，首次判定时重新扫描接管。
+ * 填充：provider 启动、切换或首次使用 Google 判定时创建并探测模型显式缓存支持度（支持则扫描接管服务端既有缓存，不支持则标为 `"unsupported"`），后台创建、命中或续期成功时更新槽位。
+ * 清理：内容变化替换、淘汰未用接管项、超出上限淘汰最久未用槽、缓存失效或续期报缓存不存在时摘除；收到有变化的 ad_detect 配置快照时由 workers/antiRaid/adDetect/config.ts 置空（新配置选用 Google 时立即重建探测）。
+ * 重建：Worker 崩溃重启后从 null 开始，随配置投递或首次判定重新探测与扫描接管。
  * 容量：单张登记表，槽位上限为 AD_DETECT_GEMINI_CACHE_MAX_SLOTS。
  */
 export const adDetectGeminiContextCache: { current: GeminiContextCacheRegistry | null } = { current: null };

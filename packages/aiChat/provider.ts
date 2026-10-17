@@ -8,6 +8,7 @@ import { claimOperatorTtsUsage, refundOperatorTtsUsage } from "./ai/ttsUsage";
 import { ttsQuotaLimit } from "./ai/utils/ttsUsageWindow";
 import { anthropicProvider } from "./anthropic";
 import { geminiProvider } from "./gemini";
+import { TEXT_GEMINI_CONTEXT_CACHE_SCOPE } from "./gemini/contextCache";
 import { openAiProvider } from "./openai";
 import {
   aiProviderFacades,
@@ -20,6 +21,7 @@ import { openAiClientCache } from "../cache/workers/aiChat/openai";
 import { anthropicClientCache } from "../cache/workers/aiChat/anthropic";
 import { failedReplyTurn } from "./ai/utils/replyTurn";
 import { adoptAgentDeploymentConfig, getAgentDeploymentConfig, requireAgentCapabilityConfig } from "../config/agent";
+import { probeGeminiContextCache } from "../infra/geminiContextCache";
 import { logger } from "../infra/logger";
 import { pruneQuotaLanes, quotaRunnerFor } from "./providerLanes";
 import type {
@@ -429,18 +431,22 @@ export function reportUnimplementedAgentCapabilities(): void {
 
 /**
  * 接管热重载的 agent 配置快照：重置门面与客户端缓存、修剪不再引用的配额 lane，
- * 并在 text 或 media 配置变化时清理对应的上下文缓存或模态支持探测状态。
+ * 并在 text 或 media 配置变化时重置对应的上下文缓存（Google 同步探测显式缓存支持度）或模态支持探测状态。
  */
 export function reloadAgentDeploymentConfig(config: AgentDeploymentConfig): void {
   const previous: AgentDeploymentConfig = getAgentDeploymentConfig();
   const previousMedia: AgentCapabilityConfig = previous.media;
   const previousText: AgentCapabilityConfig = previous.text;
+  const textChanged: boolean = !Bun.deepEquals(previousText, config.text);
   adoptAgentDeploymentConfig(config);
   resetAiProviderFacades();
   geminiClientCache.current = null;
   openAiClientCache.current = null;
   anthropicClientCache.current = null;
-  if (!Bun.deepEquals(previousText, config.text)) textGeminiContextCache.current = null;
+  if (textChanged) {
+    textGeminiContextCache.current = null;
+    if (config.text.provider === "google") probeGeminiContextCache(TEXT_GEMINI_CONTEXT_CACHE_SCOPE);
+  }
   pruneQuotaLanes(config);
   if (!Bun.deepEquals(previousMedia, config.media)) resetMediaInputSupport();
   reportUnimplementedAgentCapabilities();

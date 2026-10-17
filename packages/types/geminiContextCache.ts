@@ -31,8 +31,8 @@ export interface GeminiContextCacheRejection {
   readonly rejectedAt: number;
 }
 
-/** 一张登记表对服务端既有条目的启动扫描进度。 */
-export type GeminiContextCacheScanState = "idle" | "running" | "done";
+/** 一张登记表对模型显式缓存支持度探测与服务端既有条目启动扫描的状态。 */
+export type GeminiContextCacheScanState = "idle" | "running" | "done" | "unsupported";
 
 /**
  * 一个 scope 在本线程的本地登记表。创建时绑定当下的 Google 客户端，表内全部后台请求
@@ -62,12 +62,14 @@ export interface GeminiContextCacheRegistry {
 }
 
 /**
- * 一个能力的显式缓存 scope：登记表、后台请求的取消信号与本能力的标识。text 与
+ * 一个能力的显式缓存 scope：登记表、当前模型名、后台请求的取消信号与本能力的标识。text 与
  * ad_detect 各一个，displayName 前缀互不相同，启动扫描互不接管。
  */
 export interface GeminiContextCacheScope {
   /** 本线程当前的登记表；表不存在时按当下配置的客户端新建。 */
   registry(): GeminiContextCacheRegistry;
+  /** 当前能力配置的模型名，供启动或切换时 `models.get` 探测显式缓存支持度。 */
+  model(): string;
   /** 后台扫描、创建、续期与删除使用的取消信号；停机后返回已 abort 的信号。 */
   signal(): AbortSignal;
   /** displayName 前缀，后接「槽指纹:内容指纹」。 */

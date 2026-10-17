@@ -1,10 +1,11 @@
 /**
- * Gemini 显式缓存（`cachedContent`）的共用核心：按系统指令指纹分槽管理启动扫描、后台创建、
- * 续期、释放与容量淘汰，通过调用方传入的 `GeminiContextCacheScope` 隔离不同能力的客户端与登记表。
+ * Gemini 显式缓存（`cachedContent`）的共用核心：在 provider 启动或切换时探测模型是否支持显式缓存，
+ * 支持时按系统指令指纹分槽管理启动扫描、后台创建、续期、释放与容量淘汰，不支持时直接标记为
+ * `"unsupported"` 并跳过显式缓存预热路径，通过 `GeminiContextCacheScope` 隔离不同能力的客户端与登记表。
  */
 
 import { ApiError } from "@google/genai";
-import type { CachedContent, GoogleGenAI, Pager, Tool, ToolConfig } from "@google/genai";
+import type { CachedContent, GoogleGenAI, Model, Pager, Tool, ToolConfig } from "@google/genai";
 import {
   GEMINI_CONTEXT_CACHE_KEY_PATTERN,
   GEMINI_CONTEXT_CACHE_LIST_PAGE_SIZE,
@@ -13,6 +14,7 @@ import {
   GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS,
   GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS,
   GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS,
+  GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION,
   GEMINI_CONTEXT_CACHE_TTL,
   GEMINI_CONTEXT_CACHE_TTL_SECONDS,
 } from "../consts/geminiContextCache";
@@ -138,11 +140,26 @@ function evictOverflowSlots(scope: Readonly<GeminiContextCacheScope>, registry: 
 }
 
 /**
- * 启动扫描：接管服务端已有的本 scope 条目（`displayName` 带本 scope 前缀且两段指纹合法）；
- * 同槽出现多份时保留过期更晚的一份并删除其余条目。
+ * 启动扫描：先探测当前模型是否支持显式缓存（`supportedActions` 含 `createCachedContent`），
+ * 不支持或探测失败时将登记表标为 `"unsupported"` 并跳过扫描；支持则接管服务端已有的本 scope
+ * 条目（`displayName` 带本 scope 前缀且两段指纹合法），同槽出现多份时保留过期更晚的一份并删除其余条目。
  */
 async function scanExistingCaches(scope: Readonly<GeminiContextCacheScope>, registry: GeminiContextCacheRegistry): Promise<void> {
   const signal: AbortSignal = scope.signal();
+  try {
+    const model: Model = await registry.client.models.get({
+      model: scope.model(),
+      config: { abortSignal: signal },
+    });
+    if (model.supportedActions?.includes(GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION) !== true) {
+      registry.scan = "unsupported";
+      return;
+    }
+  } catch (error: unknown) {
+    if (!signal.aborted) logger.error(`${scope.errorLabel} model probe failed:`, error);
+    registry.scan = "unsupported";
+    return;
+  }
   try {
     const pager: Pager<CachedContent> = await registry.client.caches.list({
       config: { pageSize: GEMINI_CONTEXT_CACHE_LIST_PAGE_SIZE, abortSignal: signal },
@@ -311,14 +328,26 @@ function renewSlot(
 }
 
 /**
- * 取本次请求可引用的显式缓存资源名；没有可用条目时返回 null，本次走完整请求，需要的
- * 扫描、创建或续期在后台进行。
+ * 在 provider 启动或切换后，后台探测当前模型是否支持显式缓存，支持时扫描接管服务端既有条目。
+ */
+export function probeGeminiContextCache(scope: Readonly<GeminiContextCacheScope>): void {
+  if (scope.signal().aborted) return;
+  const registry: GeminiContextCacheRegistry = scope.registry();
+  if (registry.scan !== "idle") return;
+  registry.scan = "running";
+  void scanExistingCaches(scope, registry);
+}
+
+/**
+ * 取本次请求可引用的显式缓存资源名；模型不支持显式缓存或没有可用条目时返回 null，
+ * 本次走完整请求（隐式缓存），需要的扫描、创建或续期在后台进行。
  */
 export function acquireGeminiContextCache(
   scope: Readonly<GeminiContextCacheScope>,
   content: GeminiContextCacheContent
 ): string | null {
   const registry: GeminiContextCacheRegistry = scope.registry();
+  if (registry.scan === "unsupported") return null;
   if (registry.scan === "idle") {
     registry.scan = "running";
     void scanExistingCaches(scope, registry);

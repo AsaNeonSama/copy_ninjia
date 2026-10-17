@@ -89,7 +89,7 @@ test("六种能力的真实响应适配经 Worker 转发和诊断 ACK 落盘，t
     usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 3, thoughtsTokenCount: 2, cachedContentTokenCount: 4 },
   }));
   const fakeGoogle = {
-    models: { generateContent },
+    models: { generateContent, get: async () => ({ supportedActions: ["generateContent"] }) },
     interactions: { create: async () => ({ output_audio: { data: new Uint8Array([0x52, 0x49, 0x46, 0x46, 1, 2, 3, 4]).toBase64(), mime_type: "audio/wav" }, usage: { total_input_tokens: 4, total_output_tokens: 8, total_thought_tokens: 1, total_cached_tokens: 1 } }) },
   } as unknown as GoogleGenAI;
   const completion = mock(async () => ({ choices: [{ message: { content: "{}" } }], usage: { prompt_tokens: 50, completion_tokens: 5 } }));

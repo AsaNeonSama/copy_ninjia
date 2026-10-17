@@ -1,12 +1,13 @@
 /**
- * Gemini 显式缓存共用核心的本地登记与后台生命周期：启动扫描接管、按槽创建与换内容、
- * 续期与续期失败冷却、释放、创建失败冷却与 400 拒绝、槽数淘汰、换表与停机取消。
- * 用例按真实 scope 参数化，SDK 的 caches 接口整体替换成可控的假实现。
+ * Gemini 显式缓存共用核心的本地登记与后台生命周期：provider 启动/切换时的模型显式缓存支持度探测
+ * （对比支持 `createCachedContent` 的 `gemini-3.8-flash` 与不支持的 `gemini-4-argon`）、启动扫描接管、
+ * 按槽创建与换内容、续期与续期失败冷却、释放、创建失败冷却与 400 拒绝、槽数淘汰、换表与停机取消。
+ * 用例按真实 scope 参数化，SDK 的 models 与 caches 接口整体替换成可控的假实现。
  */
 
 import { afterEach, beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { ApiError } from "@google/genai";
-import type { CachedContent, GoogleGenAI, Tool } from "@google/genai";
+import type { CachedContent, GoogleGenAI, Model, Tool } from "@google/genai";
 import { loggerStub } from "../helpers/loggerMock";
 import { waitUntil } from "../helpers/waitUntil";
 import type {
@@ -19,6 +20,11 @@ import type {
 interface CacheCreateParameters {
   readonly model: string;
   readonly config: Readonly<Record<string, unknown>>;
+}
+
+interface ModelGetParameters {
+  readonly model: string;
+  readonly config?: { readonly abortSignal?: AbortSignal };
 }
 
 let createdCount: number = 0;
@@ -42,10 +48,19 @@ const list = mock(async (..._args: unknown[]): Promise<AsyncIterable<CachedConte
     for (const cache of listed) yield cache;
   },
 }));
+const getModel = mock(async (params: ModelGetParameters): Promise<Model> => ({
+  name: `models/${params.model}`,
+  supportedActions: params.model === "gemini-4-argon"
+    ? ["generateContent", "countTokens", "batchGenerateContent"]
+    : ["generateContent", "countTokens", "createCachedContent", "batchGenerateContent"],
+}));
 const reportAiCacheUsage = mock((..._args: unknown[]): void => {});
 const loggerError = mock((..._args: unknown[]): void => {});
 const loggerWarn = mock((..._args: unknown[]): void => {});
-const fakeClient: { caches: object } = { caches: { create, update, delete: remove, list } };
+const fakeClient: { models: object; caches: object } = {
+  models: { get: getModel },
+  caches: { create, update, delete: remove, list },
+};
 
 mock.module("../../packages/aiChat/gemini/client", () => ({
   getGeminiClient: () => fakeClient,
@@ -59,6 +74,7 @@ const {
   acquireGeminiContextCache,
   geminiContextCacheContent,
   isGeminiContextCacheRejection,
+  probeGeminiContextCache,
   releaseGeminiContextCache,
 } = await import("../../packages/infra/geminiContextCache");
 const {
@@ -67,6 +83,7 @@ const {
   GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS,
   GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS,
   GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS,
+  GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION,
   GEMINI_CONTEXT_CACHE_TTL_SECONDS,
 } = await import("../../packages/consts/geminiContextCache");
 const { GEMINI_SERVER_TOOL_CONFIG } = await import("../../packages/consts/aiChat/gemini");
@@ -78,14 +95,22 @@ const { adDetectGeminiContextCache } = await import("../../packages/cache/worker
 const { adDetectGoogleClientHolder } = await import("../../packages/cache/workers/antiRaid/google");
 const { antiRaidDispatchAbort } = await import("../../packages/cache/workers/antiRaid/tasks");
 const { quiesceAntiRaidDispatch } = await import("../../packages/workers/antiRaid/taskTracker");
-const { adoptAdDetectAgentConfig } = await import("../../packages/config/agent");
+const {
+  adoptAdDetectAgentConfig,
+  adoptAgentDeploymentConfig,
+  getAgentDeploymentConfig,
+} = await import("../../packages/config/agent");
 
+const initialAgentConfig = getAgentDeploymentConfig();
 adoptAdDetectAgentConfig({ provider: "google", apiKey: "fixture-key", baseUrl: undefined, headers: undefined, model: "gemini-test" });
 
-/** 一个被测 scope：真实 scope 对象，外加换表与停机的测试操作。 */
+/** 一个被测 scope：真实 scope 对象，外加模型切换、换表与停机的测试操作。 */
 interface ScopeFixture {
   readonly label: string;
   readonly scope: Readonly<GeminiContextCacheScope>;
+  readonly defaultModel: string;
+  /** 切换当前 scope 配置的模型名。 */
+  readonly setModel: (model: string) => void;
   /** 模拟配置热重载：丢弃当前登记表。 */
   readonly dropRegistry: () => void;
   /** 模拟停机：让 scope.signal() 返回已 abort 的信号。 */
@@ -100,6 +125,13 @@ const SCOPES: readonly ScopeFixture[] = [
   {
     label: "text",
     scope: TEXT_GEMINI_CONTEXT_CACHE_SCOPE,
+    defaultModel: initialAgentConfig.text.model,
+    setModel: (model: string): void => {
+      adoptAgentDeploymentConfig({
+        ...initialAgentConfig,
+        text: { ...initialAgentConfig.text, model },
+      });
+    },
     dropRegistry: (): void => {
       textGeminiContextCache.current = null;
     },
@@ -112,6 +144,16 @@ const SCOPES: readonly ScopeFixture[] = [
   {
     label: "ad_detect",
     scope: AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE,
+    defaultModel: "gemini-test",
+    setModel: (model: string): void => {
+      adoptAdDetectAgentConfig({
+        provider: "google",
+        apiKey: "fixture-key",
+        baseUrl: undefined,
+        headers: undefined,
+        model,
+      });
+    },
     dropRegistry: (): void => {
       adDetectGeminiContextCache.current = null;
       adDetectGoogleClientHolder.current = fakeClient as unknown as GoogleGenAI;
@@ -163,11 +205,12 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
   }
 
   beforeEach(() => {
+    fixture.setModel(fixture.defaultModel);
     fixture.dropRegistry();
     fixture.restoreSignal();
     createdCount = 0;
     listed = [];
-    for (const fn of [create, update, remove, list, reportAiCacheUsage, loggerError, loggerWarn]) fn.mockReset();
+    for (const fn of [create, update, remove, list, getModel, reportAiCacheUsage, loggerError, loggerWarn]) fn.mockReset();
     create.mockImplementation(async (params: CacheCreateParameters): Promise<CachedContent> => {
       createdCount += 1;
       return {
@@ -187,14 +230,81 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         for (const cache of listed) yield cache;
       },
     }));
+    getModel.mockImplementation(async (params: ModelGetParameters): Promise<Model> => ({
+      name: `models/${params.model}`,
+      supportedActions: params.model === "gemini-4-argon"
+        ? ["generateContent", "countTokens", "batchGenerateContent"]
+        : ["generateContent", "countTokens", GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION, "batchGenerateContent"],
+    }));
   });
 
   afterEach(() => {
     setSystemTime();
+    fixture.setModel(fixture.defaultModel);
     fixture.restoreSignal();
   });
 
-  describe("启动扫描", () => {
+  describe("启动扫描与显式缓存支持度探测", () => {
+    test("provider 启动或切换时对比 gemini-3.8-flash 与 gemini-4-argon：3.8-flash 支持显式缓存并进入扫描，4-argon 不支持则直接标为 unsupported 并跳过扫描与创建", async () => {
+      fixture.setModel("gemini-3.8-flash");
+      probeGeminiContextCache(scope);
+      // 已在 running 时重复 probe 不重复触发。
+      probeGeminiContextCache(scope);
+      expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
+      expect(getModel).toHaveBeenCalledTimes(1);
+      expect(getModel).toHaveBeenCalledWith(expect.objectContaining({ model: "gemini-3.8-flash" }));
+      expect(list).toHaveBeenCalledTimes(1);
+
+      const flashEntry: GeminiContextCacheContent = geminiContextCacheContent({
+        ...content(),
+        model: "gemini-3.8-flash",
+      });
+      expect(acquireGeminiContextCache(scope, flashEntry)).toBeNull();
+      await settleCreations();
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(acquireGeminiContextCache(scope, flashEntry)).toBe("cachedContents/created-1");
+
+      // 热重载切换为不支持显式缓存的 gemini-4-argon：丢弃旧表后重新 probe。
+      fixture.setModel("gemini-4-argon");
+      fixture.dropRegistry();
+      probeGeminiContextCache(scope);
+      expect(await waitUntil((): boolean => registry().scan === "unsupported")).toBe(true);
+      expect(getModel).toHaveBeenCalledTimes(2);
+      expect(getModel).toHaveBeenLastCalledWith(expect.objectContaining({ model: "gemini-4-argon" }));
+      expect(list).toHaveBeenCalledTimes(1);
+
+      const argonEntry: GeminiContextCacheContent = geminiContextCacheContent({
+        ...content(),
+        model: "gemini-4-argon",
+      });
+      expect(acquireGeminiContextCache(scope, argonEntry)).toBeNull();
+      await settleCreations();
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    test("models.get 探测失败时记一次错误日志并标为 unsupported，不扫描也不创建；停机取消时不记日志", async () => {
+      getModel.mockImplementationOnce(async (): Promise<Model> => {
+        throw new Error("model metadata unavailable");
+      });
+      probeGeminiContextCache(scope);
+      expect(await waitUntil((): boolean => registry().scan === "unsupported")).toBe(true);
+      expect(loggerError).toHaveBeenCalledTimes(1);
+      expect(list).not.toHaveBeenCalled();
+      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      await settleCreations();
+      expect(create).not.toHaveBeenCalled();
+
+      loggerError.mockClear();
+      fixture.dropRegistry();
+      getModel.mockImplementationOnce(async (params: ModelGetParameters): Promise<Model> => {
+        fixture.abort();
+        throw params.config?.abortSignal?.reason;
+      });
+      probeGeminiContextCache(scope);
+      expect(await waitUntil((): boolean => registry().scan === "unsupported")).toBe(true);
+      expect(loggerError).not.toHaveBeenCalled();
+    });
+
     test("第一次调用只触发扫描；带本 scope 前缀的条目按槽接管，其余不碰", async () => {
       const entry: GeminiContextCacheContent = content();
       listed = [
@@ -701,6 +811,8 @@ test("scope 句柄的字段与方法都不能被调用方替换", () => {
     AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE.displayNamePrefix = "copy-ninjia:text:";
     // @ts-expect-error 调用方不能替换登记表取用方法。
     AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE.registry = TEXT_GEMINI_CONTEXT_CACHE_SCOPE.registry;
+    // @ts-expect-error 调用方不能替换模型取用方法。
+    TEXT_GEMINI_CONTEXT_CACHE_SCOPE.model = AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE.model;
   };
   expect(typeof assertScopesReadonly).toBe("function");
 });

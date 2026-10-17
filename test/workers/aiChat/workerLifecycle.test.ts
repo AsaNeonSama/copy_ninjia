@@ -106,8 +106,15 @@ mock.module("../../../packages/infra/logger", () => ({
   acceptForwardedLogBatch: (): boolean => false,
   logger: loggerStub({ error: loggerError }),
 }));
+const probeGeminiContextCache = mock((..._args: unknown[]): void => {});
+const realGeminiContextCache = await import("../../../packages/infra/geminiContextCache");
+mock.module("../../../packages/infra/geminiContextCache", () => ({
+  ...realGeminiContextCache,
+  probeGeminiContextCache,
+}));
 
 const worker = await import("../../../packages/workers/aiChatWorker");
+const { TEXT_GEMINI_CONTEXT_CACHE_SCOPE } = await import("../../../packages/aiChat/gemini/contextCache");
 const { botInfoState, superAdminUserIdState, atmosphereState } = await import("../../../packages/cache/workers/aiChat/identity");
 const { stickerMenuRevision } = await import("../../../packages/cache/workers/aiChat/stickers/menu");
 const { agentDeploymentConfigCache, personaCache, voiceToolPromptCache } = await import("../../../packages/cache/perThread/config");
@@ -159,6 +166,7 @@ beforeEach(() => {
     switchMood,
     refreshMood,
     loggerError,
+    probeGeminiContextCache,
   ]) mocked.mockClear();
   hydrateStickerCatalogs.mockReset();
   hydrateStickerCatalogs.mockImplementation(hydrateStickerCatalogsStub);
@@ -209,7 +217,7 @@ describe("AI Chat Worker lifecycle", () => {
     worker.handleAiChatWorkerMessage({ ...INIT_MESSAGE, timeZone: "UTC" });
   });
 
-  test("init 接管身份、时区、人设与主线程投来的配置快照，并按贴纸白名单补目录", async () => {
+  test("init 接管身份、时区、人设与主线程投来的配置快照，探测 Google 显式缓存支持度并按贴纸白名单补目录", async () => {
     await routeAfterInit([]);
 
     expect(botInfoState.current?.id).toBe(99);
@@ -221,6 +229,8 @@ describe("AI Chat Worker lifecycle", () => {
     expect(voiceToolPromptCache.current).toBe("测试语音说明");
     // 配置快照进 holder，且是主线程投来的那一个对象本身。
     expect(agentDeploymentConfigCache.current).toBe(injectedAgentConfig);
+    expect(probeGeminiContextCache).toHaveBeenCalledTimes(1);
+    expect(probeGeminiContextCache).toHaveBeenCalledWith(TEXT_GEMINI_CONTEXT_CACHE_SCOPE);
     expect(ensureStickerCatalogs).toHaveBeenCalledWith(["pack"]);
   });
 
