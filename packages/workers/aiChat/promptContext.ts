@@ -92,6 +92,30 @@ export interface UserContentOptions {
   roundHasTypo: boolean;
 }
 
+/** 根据本轮触发类型选择对应的回复指令文案。 */
+function replyInstructionFor(
+  { mediaComment, queuedTrigger, isRandomTrigger }: UserContentOptions,
+  rendered: RenderedTranscript
+): string {
+  if (mediaComment !== undefined) {
+    const mediaForwardNotice: string = forwardedMediaNotice(
+      forwardPathFor(mediaComment.forwardedFrom, mediaComment.senderId, mediaComment.senderName)
+    );
+    if (mediaComment.directTriggerReason === "reply") {
+      return mediaReplyTriggerInstruction(mediaComment, mediaForwardNotice);
+    }
+    if (mediaComment.directTriggerReason === "mention") {
+      return mediaMentionTriggerInstruction(mediaComment, mediaForwardNotice);
+    }
+    return mediaCommentInstruction(mediaComment, mediaForwardNotice, mediaTagHintFor(mediaComment.kind));
+  }
+  if (queuedTrigger !== undefined) {
+    return queuedTriggerInstruction(describeQueuedTrigger(queuedTrigger, rendered));
+  }
+  if (isRandomTrigger) return RANDOM_TRIGGER_INSTRUCTION;
+  return DIRECT_TRIGGER_INSTRUCTION;
+}
+
 /**
  * 组装单轮回复的三个对话上下文区块（参考记忆、当前会话及转录已定切点、本轮回复任务）；
  * 群消息缓存为空时返回 null。
@@ -99,15 +123,9 @@ export interface UserContentOptions {
 export function buildReplyPromptSections(
   chatId: number,
   selfInfo: AiBotInfo,
-  {
-    triggerMessageId,
-    directInvokerId,
-    isRandomTrigger,
-    mediaComment,
-    queuedTrigger,
-    roundHasTypo,
-  }: UserContentOptions
+  options: UserContentOptions
 ): ReplyPromptSections | null {
+  const { triggerMessageId, directInvokerId, roundHasTypo }: UserContentOptions = options;
   const buf: BoundedDeque<BufferedMessage> | undefined = chatBuffers.get(chatId);
   if (!buf || buf.size === 0) return null;
 
@@ -117,21 +135,7 @@ export function buildReplyPromptSections(
     triggerMessageId,
   });
   const triggerMessage: BufferedMessage | undefined = lookupBufferedMessage(chatId, triggerMessageId);
-  const mediaForwardNotice: string = mediaComment
-    ? forwardedMediaNotice(forwardPathFor(mediaComment.forwardedFrom, mediaComment.senderId, mediaComment.senderName))
-    : "";
-
-  const replyInstruction: string = mediaComment?.directTriggerReason === "reply"
-    ? mediaReplyTriggerInstruction(mediaComment, mediaForwardNotice)
-    : mediaComment?.directTriggerReason === "mention"
-    ? mediaMentionTriggerInstruction(mediaComment, mediaForwardNotice)
-    : mediaComment
-    ? mediaCommentInstruction(mediaComment, mediaForwardNotice, mediaTagHintFor(mediaComment.kind))
-    : queuedTrigger
-    ? queuedTriggerInstruction(describeQueuedTrigger(queuedTrigger, rendered))
-    : isRandomTrigger
-    ? RANDOM_TRIGGER_INSTRUCTION
-    : DIRECT_TRIGGER_INSTRUCTION;
+  const replyInstruction: string = replyInstructionFor(options, rendered);
 
   const selfIdentity: string = selfIdentityStatement(selfInfo.id, selfInfo.username);
 

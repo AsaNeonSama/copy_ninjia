@@ -202,6 +202,43 @@ async function runWedCallbackAction({ chat, session, action }: WedCallbackAction
   }
 }
 
+interface WedCallbackValidation {
+  readonly partsCount: number;
+  readonly actorId: number | undefined;
+  readonly targetId: number | undefined;
+  readonly action: WedButtonAction | undefined;
+  readonly message: CallbackQuery["message"];
+  readonly session: WedSession | undefined;
+  readonly fromId: number;
+}
+
+/** 校验 /wed 回调参数与当前会话状态；不合法时返回按钮提示文案。 */
+function wedCallbackRejection({
+  partsCount,
+  actorId,
+  targetId,
+  action,
+  message,
+  session,
+  fromId,
+}: WedCallbackValidation): string | undefined {
+  if (
+    partsCount !== 3 ||
+    actorId === undefined ||
+    targetId === undefined ||
+    action === undefined ||
+    message === undefined ||
+    message.date === 0 ||
+    session?.messageId !== message.message_id
+  ) {
+    return chatAtmosphere().WED_TEXTS.expired;
+  }
+  if (fromId !== session.actor.id) return chatAtmosphere().WED_TEXTS.ownerOnly;
+  if (session.targetId !== targetId) return chatAtmosphere().WED_TEXTS.updated;
+  if (session.busy) return chatAtmosphere().WED_TEXTS.busy;
+  return undefined;
+}
+
 /**
  * 认领 /wed 回调，校验群、消息、发起人和当前目标。按钮应答先于动作发出、与动作同时进行，
  * 两者都结算后才结束本次交互；任一方抛出（update 取消）时原样上抛。
@@ -217,12 +254,15 @@ export async function handleWedCallback(ctx: Context): Promise<boolean> {
   const message: CallbackQuery["message"] = query.message;
   const chat: WedChat | undefined = message === undefined ? undefined : wedChats.get(message.chat.id);
   const session: WedSession | undefined = actorId === undefined ? undefined : chat?.sessions.get(actorId);
-  const rejected: string | undefined = parts.length !== 3 || actorId === undefined || targetId === undefined ||
-    action === undefined ||
-    message === undefined || message.date === 0 || session?.messageId !== message.message_id
-    ? chatAtmosphere().WED_TEXTS.expired : query.from.id !== session.actor.id ? chatAtmosphere().WED_TEXTS.ownerOnly
-    : session.targetId !== targetId ? chatAtmosphere().WED_TEXTS.updated
-    : session.busy ? chatAtmosphere().WED_TEXTS.busy : undefined;
+  const rejected: string | undefined = wedCallbackRejection({
+    partsCount: parts.length,
+    actorId,
+    targetId,
+    action,
+    message,
+    session,
+    fromId: query.from.id,
+  });
   if (rejected !== undefined || session === undefined || chat === undefined || action === undefined) {
     await answerCallbackQuery({ callbackQueryId: query.id, text: rejected ?? chatAtmosphere().WED_TEXTS.expired });
     return true;
