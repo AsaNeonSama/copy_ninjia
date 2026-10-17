@@ -271,7 +271,7 @@
 - **并发控制与容量**：
   - 所有的抽取与按钮点击统一排入主线程专用调度器：全局并发处理上限为 `WED_MAX_CONCURRENT`，排队队列上限为 `WED_MAX_PENDING`（遵循先进先出 FIFO 规则），队列已满时提示稍后再试。
   - 候选滑窗以按进入顺序排列的 `{ id, enteredAt }` JSON 数组持久化在 `memory/wed/<chatId>.json` 中，由 Disk I/O Worker 批量写入（落盘条件见 [07 运维与排障](07-operations.md#数据根)）。
-  - 单群同时并存的发起人会话上限为 `WED_SESSION_LIMIT`，系统管理群数上限为 `STATE_MANAGED_CHAT_LIMIT`，超出限制将拒绝新请求。抽取结果消息不挂固定 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自动删除，仅由用户点击按钮或群组被注销时销毁。
+  - 每群保留最近送达的 `WED_SESSION_LIMIT` 份结果：新结果送达时最早的空闲结果滑出，图留在群里、按钮回执过期；抽取或送达失败不挤出任何结果；系统管理群数上限为 `STATE_MANAGED_CHAT_LIMIT`，超出群数限制将拒绝新群请求。抽取结果消息不挂固定 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自动删除，仅由用户点击按钮或群组被注销时销毁（滑出的结果不再由机器人删除）。
 
 ---
 

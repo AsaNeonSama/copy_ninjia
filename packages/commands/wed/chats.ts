@@ -1,23 +1,49 @@
 import { wedChats } from "../../cache/main/wed";
 import { TELEGRAM_DELETE_MESSAGES_BATCH_MAX } from "../../consts/telegram";
+import { WED_SESSION_CAPACITY, WED_SESSION_LIMIT } from "../../consts/wed";
 import { deleteMessages } from "../../infra/telegram";
 import { isChatUnreachable } from "../../libs/chatTeardown";
+import { FifoMap } from "../../libs/fifoMap";
 import type { ChatTeardownReason } from "../../types/chatTeardown";
 import type { WedChat, WedMemberState, WedSession } from "../../types/wed";
 import { getOrCreateWedMemberState } from "./persistence";
 
 /**
  * 只由通过初始化网关的群交互创建；成员集合满额（STATE_MANAGED_CHAT_LIMIT）时
- * 拒绝新群，交互表与成员集合同界，不淘汰。
+ * 拒绝新群，交互表与成员集合同界，不淘汰；每群会话表容量为 WED_SESSION_CAPACITY
+ * （WED_SESSION_LIMIT 已送达上限 + WED_MAX_CONCURRENT 并发在途上限）。
  */
 export function getOrCreateWedChat(chatId: number): WedChat | undefined {
   let chat: WedChat | undefined = wedChats.get(chatId);
   if (chat !== undefined) return chat;
   const state: WedMemberState | undefined = getOrCreateWedMemberState(chatId);
   if (state === undefined) return undefined;
-  chat = { controller: new AbortController(), members: state.members, sessions: new Map(), departed: false };
+  chat = {
+    controller: new AbortController(),
+    members: state.members,
+    sessions: new FifoMap<number, WedSession>(WED_SESSION_CAPACITY),
+    departed: false,
+  };
   wedChats.set(chatId, chat);
   return chat;
+}
+
+/**
+ * 新结果送达后将会话表裁剪回 WED_SESSION_LIMIT 份已送达结果：按送达顺序从最早到最新扫描，
+ * 跳过正在执行按钮动作的忙碌会话，滑出最早的一份空闲结果并 abort 其 controller（不删群内消息）。
+ */
+export function trimWedSessions(chat: WedChat): void {
+  let delivered: number = 0;
+  let earliestIdle: WedSession | undefined;
+  for (const session of chat.sessions.values()) {
+    if (session.messageId === undefined) continue;
+    delivered++;
+    if (earliestIdle === undefined && !session.busy) earliestIdle = session;
+  }
+  if (delivered > WED_SESSION_LIMIT && earliestIdle !== undefined) {
+    chat.sessions.delete(earliestIdle.actor.id);
+    earliestIdle.controller.abort();
+  }
 }
 
 /**

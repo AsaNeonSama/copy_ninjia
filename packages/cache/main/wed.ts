@@ -3,8 +3,8 @@ import type { CommandExecutorRuntime } from "../../types/commandExecutor";
 import type { WedAvatarProbe, WedChat } from "../../types/wed";
 
 /**
- * 群 ID 到 `/wed` 交互会话容器的映射：群首次建立交互时填充（引用 wedMembers.ts 的成员池），移除按钮、重开或群 teardown 时清理会话并取消在途操作。
- * 群数上限为 STATE_MANAGED_CHAT_LIMIT，每群会话上限为 WED_SESSION_LIMIT（满额拒绝新建且不淘汰现有会话）；进程重启后从空表开始。
+ * 群 ID 到 `/wed` 交互会话容器的映射：群首次建立交互时填充（引用 wedMembers.ts 的成员池），移除按钮、重开、滑窗淘汰或群 teardown 时清理会话并取消在途操作。
+ * 群数上限为 STATE_MANAGED_CHAT_LIMIT（不执行 LRU 淘汰）；每群会话表为容量 WED_SESSION_CAPACITY 的 FifoMap，保留最近送达的 WED_SESSION_LIMIT 份结果，新结果送达后由 trimWedSessions 滑出最早的空闲结果；进程重启后从空表开始。
  */
 export const wedChats: Map<number, WedChat> = new Map();
 

@@ -165,7 +165,7 @@
 - **群内非功能性提示的自动删除**：
   - 机器人在群内发送的非功能性提示（如命令参数错误、权限拒绝、用法说明与操作成功回执等），在发送成功后按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 延迟自动从群内删除。
   - **长期保留的例外项**：用户明确授权的权限看板（`/permission query/help`）、问答看板（`/qa query`）、问答直接命中的答案、成功的中文动作命令结果（如 `/咬`）、`/h_image` 随机图片以及 AI 和翻译等会话性消息。
-  - 状态机拥有的交互消息（如入群验证按钮卡片、`/qa set` 录入表单、`/wed` 结果卡片、口球管教公告等）不由固定定时器删除，而是由用户点击按钮、状态机流转或机器人退群时主动清理。
+  - 状态机拥有的交互消息（如入群验证按钮卡片、`/qa set` 录入表单、`/wed` 结果卡片、口球管教公告等）不由固定定时器删除，而是由用户点击按钮、状态机流转或机器人退群时主动清理（`/wed` 滑窗滑出的结果留在群里，不再删除）。
 
 - **论坛话题群（Topics）的消息落点规则**：
   - **交互触发的消息**：用户命令或群友交互所触发的所有回复（无论是长期保留的消息还是按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删的回执），均自动发送到触发消息所在的具体话题线程（`message_thread_id`）。
@@ -787,7 +787,7 @@
   - `/wed` 命令与回调均置于统一 `/init` 网关之后；记录新成员要求 `isInitEnabled === true`。未开启初始化的群发生退群时，仅在已有滑窗中剔除 ID，不创建群状态也不放行业务。
 - **缓存与持久化架构**：
   - **成员权威缓存**：`packages/cache/main/wedMembers.ts` 为每个群长期复用单一 `FifoMap<number, number>`（`packages/libs/fifoMap.ts`，成员 ID → 进入时间），作为容量 `WED_MEMBER_LIMIT` 的进入时间滑窗：插入顺序即进入顺序，新成员的进入时间取当前时刻与已分配最大进入时间的较大值，满额时先挤出首项（进入最早）；窗口内成员再次发言不刷新进入时间。频道、回复/转发来源、匿名身份发言不计入候选。
-  - **交互会话缓存**：`packages/cache/main/wed.ts` 管理交互状态与头像探测，每人每群仅占 1 个会话，每群上限 `WED_SESSION_LIMIT` 个会话。群列表受 `STATE_MANAGED_CHAT_LIMIT` 约束，不执行 LRU 淘汰。
+  - **交互会话缓存**：`packages/cache/main/wed.ts` 管理交互状态与头像探测，每人每群仅占 1 个会话；每群会话表为容量 `WED_SESSION_CAPACITY`（`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`）的 `FifoMap`，保留最近送达的 `WED_SESSION_LIMIT` 份结果，新结果送达后由 `trimWedSessions` 跳过忙碌会话滑出最早的空闲结果。群列表受 `STATE_MANAGED_CHAT_LIMIT` 约束，不执行 LRU 淘汰。
   - **落盘策略**：仅在实际增删或挤出成员时自增 revision 并标脏。复用 Disk I/O 的 `FLUSH_MAX_ENTRIES` 与 `FLUSH_INTERVAL_MS` 阈值，跨线程只投递扁平的 `[id, enteredAt, ...]` 快照，由 Disk I/O Worker 写成 `{ id, enteredAt }` 数组，通过临时文件、fsync 与原子 rename 写入 `memory/wed/<chatId>.json`。
   - **整群清空保证**：`purgeWedMembers` 移除内存集合后，向 `pendingWedMemberDeletes` 登记单调递增编号并向 Worker 投递。只有收到精确持久化确认后才注销待决任务。停机或重建时重放最新状态。
 - **启动只读校验门禁**：
@@ -796,7 +796,7 @@
   - 候选人信源完全取自 `memory/wed` 的成员滑窗。抽中后仅通过 `readCurrentAvatar` 获取头像（复用 `getChat` 私聊资料），无需机器人具备管理员权限。
   - 若 `getChat` 返回 400 `Bad Request: chat not found`，判定该 ID 彻底失效，从所有受管群的奖池中剔除。
   - 抽取执行器复用 `createPrioritizedBoundedTaskRunner`，共享全局 `WED_MAX_CONCURRENT` 执行槽与 `WED_MAX_PENDING` FIFO 等待队列。
-  - **结果发送与替换**：`commands/wed/messages.ts` 的 `sendWedResult` 为唯一发图边界，结果长期保留，不挂 `COMMAND_MESSAGE_AUTO_DELETE_MS` 延迟自毁。发起人重抽时，仅在新结果成功发出后才删除旧图；若发送失败，保留旧图与会话状态。机器人已离群（`departed`）时，重抽中的会话收尾时不为新旧结果发删除请求。
+  - **结果发送与替换**：`commands/wed/messages.ts` 的 `sendWedResult` 为唯一发图边界，结果长期保留，不挂 `COMMAND_MESSAGE_AUTO_DELETE_MS` 延迟自毁；被会话滑窗滑出的结果留在群里，不删除。发起人重抽时，仅在新结果成功发出后才删除旧图；若发送失败，保留旧图与会话状态。机器人已离群（`departed`）时，重抽中的会话收尾时不为新旧结果发删除请求。
 
 ### `/info` 资料查询
 

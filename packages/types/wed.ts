@@ -29,7 +29,8 @@ export interface WedChat {
   readonly controller: AbortController;
   /** 与 WedMemberState.members 是同一个 FifoMap。 */
   readonly members: FifoMap<number, number>;
-  readonly sessions: Map<number, WedSession>;
+  /** 发起人 ID → 会话；插入顺序即送达顺序，已送达超限时最早的空闲项先滑出。容量 WED_SESSION_CAPACITY。 */
+  readonly sessions: FifoMap<number, WedSession>;
   /** 机器人已离群或群已不存在：收尾置位后，正在重抽的会话不再删除被它替换的旧结果。 */
   departed: boolean;
 }

@@ -166,7 +166,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 - **Auto-deletion for non-functional group notices (`COMMAND_MESSAGE_AUTO_DELETE_MS`)**:
   - Non-functional notices in groups (validation errors, permission denials, usage hints, success receipts) automatically delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
   - **Permanent exceptions**: `/permission help` and `/permission query` boards, `/qa query` boards, direct Q&A answers, successful CJK action results, `/h_image` photos, `cron.json` scheduled task messages, and conversational outputs (echoes, translations, AI replies, bath replies).
-  - Interactive state machine messages (verification buttons, `/qa set` forms, wed results, gag notices) are deleted by user actions or state machine transitions, not fixed timers.
+  - Interactive state machine messages (verification buttons, `/qa set` forms, wed results, gag notices) are deleted by user actions or state machine transitions, not fixed timers (`/wed` results that slide out of the session window remain in the group and are not deleted).
 
 - **Forum topics (`message_thread_id`) routing**:
   - **User-triggered messages**: Command replies and interactive outputs route to the triggering message's topic thread (`message_thread_id`).
@@ -778,7 +778,7 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
   - `/wed` commands and callbacks sit behind the unified `/init` gateway; adding members requires `isInitEnabled === true`. An uninitialized group removes departed members upon leave events without creating state or admitting handlers.
 - **Cache and Persistence Architecture**:
   - **Authoritative Member Cache**: `packages/cache/main/wedMembers.ts` maintains a long-lived `FifoMap<number, number>` (`packages/libs/fifoMap.ts`, member ID → entry time) per group as an entry-time sliding window of capacity `WED_MEMBER_LIMIT`: insertion order is entry order, a new member's entry time is the larger of the current time and the largest entry time already assigned, and a full window evicts its first (earliest) entry. Members already in the window keep their entry time when they speak again. Channel, reply/forward, and anonymous senders are excluded.
-  - **Session Interaction Cache**: `packages/cache/main/wed.ts` tracks interactions and avatar probes (one session per user per group, up to `WED_SESSION_LIMIT` sessions per group). Bounded by `STATE_MANAGED_CHAT_LIMIT`; no LRU eviction.
+  - **Session Interaction Cache**: `packages/cache/main/wed.ts` tracks interactions and avatar probes (one session per user per group); each group's session table is a `FifoMap` of capacity `WED_SESSION_CAPACITY` (`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`) retaining the most recently delivered `WED_SESSION_LIMIT` results, with `trimWedSessions` sliding out the earliest idle result after each new delivery while skipping busy sessions. The group list is bounded by `STATE_MANAGED_CHAT_LIMIT`; no LRU eviction.
   - **Disk Flush**: Increments revision and marks dirty only on real additions, deletions, or evictions. Uses Disk I/O thresholds (`FLUSH_MAX_ENTRIES` changes or `FLUSH_INTERVAL_MS`). Only a flat `[id, enteredAt, ...]` snapshot crosses threads; the Disk I/O Worker writes it as a `{ id, enteredAt }` array to `memory/wed/<chatId>.json` via temporary file, fsync, and atomic rename.
   - **Whole-Group Deletion Guarantee**: `purgeWedMembers` assigns a monotonic ID to `pendingWedMemberDeletes` and dispatches to Worker. Releases pending state only upon durable receipt. Replayed on Worker reconstruction.
 - **Read-Only Startup Gate**:
@@ -787,7 +787,7 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
   - Candidates come exclusively from the `memory/wed` member windows. Avatars fetch via `readCurrentAvatar` (reusing `getChat` private profiles) without requiring admin permissions.
   - If `getChat` returns 400 `Bad Request: chat not found`, remove that ID from all managed group candidate pools.
   - Task runner reuses `createPrioritizedBoundedTaskRunner` with global `WED_MAX_CONCURRENT` execution slots and `WED_MAX_PENDING` FIFO queue.
-  - **Photo Delivery & Replacement**: `sendWedResult` in `commands/wed/messages.ts` is the sole send boundary. Results are retained long-term without `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion. On redrawing, delete the old photo only after the new photo sends successfully; if sending fails, keep the old photo and session intact. Once the bot has left the chat (`departed`), a redraw that is still finishing sends no delete request for either the new or the old result.
+  - **Photo Delivery & Replacement**: `sendWedResult` in `commands/wed/messages.ts` is the sole send boundary. Results are retained long-term without `COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion; results that slide out of the session window remain in the group and are not deleted. On redrawing, delete the old photo only after the new photo sends successfully; if sending fails, keep the old photo and session intact. Once the bot has left the chat (`departed`), a redraw that is still finishing sends no delete request for either the new or the old result.
 
 <p align="right"><a href="#quick-navigation">↑ Back to quick navigation</a></p>
 

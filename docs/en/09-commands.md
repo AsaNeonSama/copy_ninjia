@@ -270,7 +270,7 @@ In groups initialized with `/init enable`, members can send `/wed` (with no argu
 - **Concurrency and capacity**:
   - All draws and button clicks route through a dedicated main-thread scheduler: global concurrency is capped at `WED_MAX_CONCURRENT`, the waiting queue at `WED_MAX_PENDING` (FIFO), and each draw or delivery stage has a timeout of `WED_OPERATION_TIMEOUT_MS`.
   - The candidate window persists as a JSON array of `{ id, enteredAt }` entries in entry order in `memory/wed/<chatId>.json`, written in batches by the Disk I/O Worker (see flush rules in [07 Operations](07-operations.md#data-root)).
-  - Concurrent user sessions per group are capped at `WED_SESSION_LIMIT`, and managed groups at `STATE_MANAGED_CHAT_LIMIT`. Result cards do not have static auto-deletion timers; they are removed via buttons or during group teardown.
+  - Each group retains the most recently delivered `WED_SESSION_LIMIT` results: when a new result is delivered, the earliest idle result slides out, leaving its photo in the group with buttons replying expired; failed draws or deliveries never evict existing results; only reaching the `STATE_MANAGED_CHAT_LIMIT` group limit rejects requests from new groups. Result cards do not have static auto-deletion timers; they are removed via buttons or during group teardown (results that slide out are no longer deleted by the bot).
 
 ---
 

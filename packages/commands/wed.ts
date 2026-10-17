@@ -2,7 +2,7 @@ import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import type { CallbackQuery, User } from "grammy/types";
 import { wedChats } from "../cache/main/wed";
-import { WED_CALLBACK_PREFIX, WED_OPERATION_TIMEOUT_MS, WED_SESSION_LIMIT } from "../consts/wed";
+import { WED_CALLBACK_PREFIX, WED_OPERATION_TIMEOUT_MS } from "../consts/wed";
 
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { purgesChatData } from "../libs/chatTeardown";
@@ -13,7 +13,7 @@ import { forumTopicThreadId } from "../libs/forumTopic";
 import type { ChatTeardownReason } from "../types/chatTeardown";
 import type { WedCandidate, WedChat, WedSession } from "../types/wed";
 import { drawWedCandidate } from "./wed/draw";
-import { getOrCreateWedChat, teardownWedChat } from "./wed/chats";
+import { getOrCreateWedChat, teardownWedChat, trimWedSessions } from "./wed/chats";
 import { parseUserIdArgument } from "../libs/telegramId";
 import { purgeWedMembers } from "./wed/persistence";
 import { confirmWedResult, removeWedResult, replaceWedResult, sendWedResult } from "./wed/messages";
@@ -76,9 +76,10 @@ export async function teardownWedInChat(
 }
 
 /**
- * 每位用户在群里保留一张可操作的结果；重复命令重新抽取并回复新命令。
- * 新结果送达后才放弃并删除旧结果；送达失败时旧结果与原会话原样保留。旧结果删除失败
- * （已按统一 Telegram 错误日志记录）时那张图留在群里，按钮因会话已换成新结果而只回执过期。
+ * 每位用户在群里保留一张可操作的结果，每群保留最近送达的 WED_SESSION_LIMIT 份结果；
+ * 新结果送达后移到最新端并裁剪超出上限的最早空闲结果（被滑出的图留在群里，按钮回执过期）。
+ * 重复命令重新抽取并回复新命令；新结果送达后才放弃并删除旧结果，送达失败时旧结果与原会话原样保留。
+ * 旧结果删除失败（已按统一 Telegram 错误日志记录）时那张图留在群里，按钮因会话已换成新结果而只回执过期。
  */
 export async function handleWedCommand(ctx: CommandContext<Context>): Promise<void> {
   const actor: User | undefined = ctx.from;
@@ -94,7 +95,7 @@ export async function handleWedCommand(ctx: CommandContext<Context>): Promise<vo
   const chat: WedChat | undefined = getOrCreateWedChat(ctx.chat.id);
   const previous: WedSession | undefined = chat?.sessions.get(actor.id);
   const rejected: string | undefined = previous?.busy ? chatAtmosphere().WED_TEXTS.busy
-    : chat === undefined || (previous === undefined && chat.sessions.size >= WED_SESSION_LIMIT) ? chatAtmosphere().WED_TEXTS.full
+    : chat === undefined ? chatAtmosphere().WED_TEXTS.full
     : chat.members.size === 0 || (chat.members.size === 1 && chat.members.has(actor.id)) ? chatAtmosphere().WED_TEXTS.empty
     : undefined;
   if (rejected !== undefined || chat === undefined) {
@@ -130,9 +131,14 @@ export async function handleWedCommand(ctx: CommandContext<Context>): Promise<vo
       return;
     }
     // 群 teardown 先于迟到的送达时，新旧结果都交给 finally 按是否离群清理。
-    if (previous !== undefined && !session.controller.signal.aborted) {
-      previous.controller.abort();
-      await removeWedResult(previous);
+    if (!session.controller.signal.aborted) {
+      chat.sessions.delete(session.actor.id);
+      chat.sessions.set(session.actor.id, session);
+      trimWedSessions(chat);
+      if (previous !== undefined) {
+        previous.controller.abort();
+        await removeWedResult(previous);
+      }
     }
   } finally {
     session.busy = false;
