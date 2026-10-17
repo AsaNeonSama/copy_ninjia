@@ -134,7 +134,7 @@ async function attemptGoogleJson(params: AdDetectJsonRequestParams): Promise<Goo
   try {
     cachedContent = acquireGeminiContextCache(
       AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE,
-      cacheContentOf(params.model, params.instructions)
+      (): GeminiContextCacheContent => cacheContentOf(params.model, params.instructions)
     );
     response = await generateAdDetectContent(params, cachedContent);
   } catch (error: unknown) {

@@ -279,7 +279,10 @@ describe("ad_detect 显式缓存", () => {
     expect(registry().slots.size).toBe(1);
   });
 
-  test("指纹随规则与示例段缓存：模型与系统指令不变时每次判定复用同一份", async () => {
+  test("指纹随规则与示例段缓存：启动扫描开始前不计算，之后模型与系统指令不变时每次判定复用同一份", async () => {
+    await requestGoogleAdDetectJson(params);
+    expect(adDetectGeminiCacheContent.current).toBeNull();
+    expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
     await requestGoogleAdDetectJson(params);
     const memo = adDetectGeminiCacheContent.current;
     expect(memo).not.toBeNull();
@@ -289,6 +292,7 @@ describe("ad_detect 显式缓存", () => {
     await requestGoogleAdDetectJson({ ...params, instructions: "新的规则与示例" });
     expect(adDetectGeminiCacheContent.current).not.toBe(memo);
     expect(adDetectGeminiCacheContent.current!.systemInstruction).toBe("新的规则与示例");
+    await Promise.allSettled([...registry().creations.values()]);
   });
 
   test("缓存被端点拒绝时释放登记，当场用完整请求补发一次", async () => {

@@ -1,6 +1,7 @@
 /**
  * 将供应商合成的语音转换为 Telegram sendVoice 可用的音频容器：
- * OGG/Opus 与 MP3 校验容器结构并计算时长后直接封装，WAV 解析为单声道 PCM 后分块编码为 OGG/Opus。
+ * OGG/Opus 与 MP3 校验容器结构并计算时长后直接封装，WAV 解析为单声道 PCM 后分块编码为 OGG/Opus，
+ * 编码期间响应调用方取消。
  */
 
 import opus from "@audio/encode-opus";
@@ -39,33 +40,36 @@ function directVoice(bytes: Uint8Array, probe: VoiceContainerProbeResult, fileNa
 }
 
 /**
- * 按 VOICE_OPUS_ENCODE_CHUNK_SECONDS 分块将单声道 PCM 编码为 OGG 页，块间让出事件循环。
+ * 按 VOICE_OPUS_ENCODE_CHUNK_SECONDS 分块将单声道 PCM 编码为 OGG 页，块间让出事件循环；
+ * 每块编码前与最后一块让出后核对 signal，已中止时返回 null，剩余 PCM 不再编码。
  */
 async function encodePcmInChunks(
   encoder: StreamEncoder,
-  samples: Float32Array,
-  sampleRate: number
-): Promise<Uint8Array[]> {
+  { samples, sampleRate }: Extract<WavPcmDecodeResult, { ok: true }>,
+  signal: AbortSignal | undefined
+): Promise<Uint8Array[] | null> {
   const step: number = Math.max(1, Math.round(sampleRate * VOICE_OPUS_ENCODE_CHUNK_SECONDS));
   const pages: Uint8Array[] = [];
   for (let start: number = 0; start < samples.length; start += step) {
+    if (signal?.aborted === true) return null;
     pages.push(encoder.encode([samples.subarray(start, Math.min(samples.length, start + step))]));
     await Bun.sleep(0);
   }
-  return pages;
+  return signal?.aborted === true ? null : pages;
 }
 
 /**
- * 将合成语音校验或编码为 Telegram 语音消息载荷。
+ * 将合成语音校验或编码为 Telegram 语音消息载荷。WAV 编码期间（含编码器初始化）signal 中止时返回
+ * aborted；OGG/Opus 与 MP3 同步校验，不核对 signal。
  */
-export async function encodeVoiceMessage(speech: SynthesizedSpeech): Promise<VoiceEncodeResult> {
+export async function encodeVoiceMessage(speech: SynthesizedSpeech, signal?: AbortSignal): Promise<VoiceEncodeResult> {
   const mimeType: string = mimeEssence(speech.mimeType);
   if (mimeType === OGG_OPUS_MIME_TYPE) return directVoice(speech.bytes, probeOggOpus(speech.bytes), VOICE_OGG_FILE_NAME);
   if (mimeType === MP3_MIME_TYPE) return directVoice(speech.bytes, probeMp3(speech.bytes), VOICE_MP3_FILE_NAME);
   if (!WAV_MIME_TYPES.includes(mimeType)) return { ok: false, reason: "unsupported speech mime type" };
   const pcm: WavPcmDecodeResult = decodeWavPcm(speech.bytes);
   if (!pcm.ok) return pcm;
-  let pages: Uint8Array[];
+  let pages: Uint8Array[] | null;
   try {
     const encoder: StreamEncoder = await opus({
       sampleRate: pcm.sampleRate,
@@ -75,8 +79,8 @@ export async function encodeVoiceMessage(speech: SynthesizedSpeech): Promise<Voi
       complexity: VOICE_OPUS_COMPLEXITY,
     });
     try {
-      pages = await encodePcmInChunks(encoder, pcm.samples, pcm.sampleRate);
-      pages.push(encoder.flush());
+      pages = await encodePcmInChunks(encoder, pcm, signal);
+      pages?.push(encoder.flush());
     } finally {
       encoder.free();
     }
@@ -84,6 +88,7 @@ export async function encodeVoiceMessage(speech: SynthesizedSpeech): Promise<Voi
     logger.error("Voice message Opus encoding failed:", error);
     return { ok: false, reason: "opus encoder failed" };
   }
+  if (pages === null) return { ok: false, reason: "aborted" };
   const bytes: Uint8Array<ArrayBuffer> = Bun.concatArrayBuffers(pages, Number.POSITIVE_INFINITY, true);
   return {
     ok: true,

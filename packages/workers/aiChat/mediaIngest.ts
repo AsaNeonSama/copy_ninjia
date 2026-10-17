@@ -57,8 +57,6 @@ function mediaCommentFor(msg: AiRecordMediaMessage, entry: BufferedMessage, desc
  * `replyTelegramBackpressured` 有值时同步进入回复准入。顺位、取消与有界容量约束见 docs/cn/04-invariants.md。
  */
 export function recordChatMedia(msg: AiRecordMediaMessage): void {
-  const generation: number = cachedReplyGeneration(msg.chatId);
-  const signal: AbortSignal = replyGenerationSignal(generation);
   const sanitizedCaption: string = sanitizeInline(msg.caption);
   const imageGenerationReference: ImageGenerationReference | undefined = imageGenerationReferenceFor(msg);
   const telegramBackpressured: boolean | undefined = msg.replyTelegramBackpressured;
@@ -93,6 +91,8 @@ export function recordChatMedia(msg: AiRecordMediaMessage): void {
     }
   }
 
+  const generation: number = cachedReplyGeneration(msg.chatId);
+  const signal: AbortSignal = replyGenerationSignal(generation);
   const entry: BufferedMessage = buildBufferedMessage(
     msg,
     composeMediaText(pendingPlaceholderFor(msg.kind), sanitizedCaption),

@@ -114,10 +114,10 @@ export type VoiceEncodeFailure =
   | "unsupported speech mime type"
   | "opus encoder failed";
 
-/** 把合成语音编码成 Telegram 语音消息的结果。 */
+/** 把合成语音编码成 Telegram 语音消息的结果；`aborted` 是 WAV 分块编码期间调用方取消，不属于编码失败。 */
 export type VoiceEncodeResult =
   | { readonly ok: true; readonly voice: EncodedVoiceMessage }
-  | { readonly ok: false; readonly reason: VoiceEncodeFailure };
+  | { readonly ok: false; readonly reason: VoiceEncodeFailure | "aborted" };
 
 /**
  * 一次「文本 + 语气 → Telegram 语音消息」没有产出语音的原因，只用于错误日志与回执

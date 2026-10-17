@@ -13,6 +13,6 @@ export const adDetectGeminiContextCache: { current: GeminiContextCacheRegistry |
 
 /**
  * 当前广告判定规则与样本段的内容及指纹单槽缓存（infra/geminiContextCache.ts 的 geminiContextCacheContent）。
- * 填充：首次判定或模型、系统指令变化时计算并整槽覆盖；清理：随新值覆盖释放；重建：Worker 重启后从 null 开始；容量：固定为单个槽位。
+ * 填充：acquireGeminiContextCache 需要内容（启动扫描已开始且模型支持显式缓存）时，首次或模型、系统指令变化时计算并整槽覆盖；清理：随新值覆盖释放；重建：Worker 重启后从 null 开始；容量：固定为单个槽位。
  */
 export const adDetectGeminiCacheContent: { current: GeminiContextCacheContent | null } = { current: null };

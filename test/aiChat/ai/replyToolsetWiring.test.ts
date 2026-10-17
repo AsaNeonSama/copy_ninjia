@@ -27,6 +27,7 @@ import type { ReplyToolset } from "../../../packages/types/aiChat/replies";
 import type * as AiProviderModule from "../../../packages/aiChat/provider";
 
 const {
+  ACTION_TOOL_NAMES,
   ADD_REACTION_TOOL,
   GROUP_QA_ANSWER_TOOL,
   GROUP_QA_QUERY_TOOL,
@@ -211,6 +212,7 @@ test("模型提示按 AI_MAX_ACTIONS_PER_REPLY 限制动作数，执行侧留余
 
   expect(toolset.actionsUsed()).toBe(HARD_MAX_ACTIONS_PER_REPLY);
   expect(overflow.error).toContain(`at most ${HARD_MAX_ACTIONS_PER_REPLY} actions`);
+  for (const name of ACTION_TOOL_NAMES) expect(overflow.error).toContain(name);
   expect(sendMessageMock).toHaveBeenCalledTimes(HARD_MAX_ACTIONS_PER_REPLY);
 });
 

@@ -24,7 +24,8 @@ export function resolveSpeechSynthesizer(): SpeechSynthesizerLookup {
 }
 
 /**
- * 调用语音合成入口并将返回的音频编码为 Telegram 语音消息载荷。
+ * 调用语音合成入口并将返回的音频编码为 Telegram 语音消息载荷。合成返回后 request.signal 已中止时
+ * 返回 aborted；编码期间的中止由 encodeVoiceMessage 返回 aborted，不记编码失败。
  */
 export async function synthesizeVoiceMessage(
   synthesize: SpeechSynthesizer,
@@ -35,8 +36,8 @@ export async function synthesizeVoiceMessage(
     const attempt: SpeechSynthesisAttempt = await synthesize(request);
     if (request.signal?.aborted === true) return { ok: false, reason: "aborted" };
     if (!attempt.ok) return attempt;
-    const encoded: VoiceEncodeResult = await encodeVoiceMessage(attempt.speech);
-    if (!encoded.ok) logger.error(`Voice message encoding failed (${logContext}): ${encoded.reason}.`);
+    const encoded: VoiceEncodeResult = await encodeVoiceMessage(attempt.speech, request.signal);
+    if (!encoded.ok && encoded.reason !== "aborted") logger.error(`Voice message encoding failed (${logContext}): ${encoded.reason}.`);
     return encoded;
   } catch (error: unknown) {
     logger.error(`Voice synthesis failed unexpectedly (${logContext}):`, error);

@@ -403,7 +403,7 @@
     - 真实发送与心跳收尾后才释放存活容量；只有 Telegram 确认发送成功的消息才写入自录记忆。
 
 - **动作预算硬顶与文本去重**：
-  - 模型提示词中的推荐上限为 `AI_MAX_ACTIONS_PER_REPLY`，执行侧的绝对硬顶为 `HARD_MAX_ACTIONS_PER_REPLY`。
+  - 模型提示词中的推荐上限为 `AI_MAX_ACTIONS_PER_REPLY`，执行侧的绝对硬顶为 `HARD_MAX_ACTIONS_PER_REPLY`。计入预算的工具为 `ACTION_TOOL_NAMES`（含 `abuse_mark`），触顶时的拒绝回执逐一列出这些工具名。
   - 贴纸、表情反应（Reaction）、生图与语音，每轮回复最多各接纳一次。
   - 仅在整轮未接纳任何动作时，模型最终生成的正文才会通过 `send_message` 兜底发送；所有有意呈现的文字必须通过显式工具调用产出。
   - **可见文字出口仅有两个**：独立消息走 `send_message`，为图片配的说明走 `generate_image` 的 `caption` 字段。
@@ -443,7 +443,7 @@
     - 仅在 TTS 供应商调用成功后才正式记入 `agentCount`（`settleAiTtsReservation`）；若合成前取消或失败，释放预留额度；合成成功后的编码或网络发送失败不退回额度。
     - 每日配额由 `agent.tts.daily_limit` 减去 `daily_reserve_quota` 算出，与运维入口独立。
   - **音频编码管线**：
-    - WAV：取出单声道 PCM，按 `VOICE_OPUS_ENCODE_CHUNK_SECONDS` 分块交给 `@audio/encode-opus` 编码为 OGG/Opus，块间主动让出事件循环。编码器按 PCM 的原始采样率建立，由依赖跨块连续重采样到 `OPUS_GRANULE_RATE`；各块产出的页由 `Bun.concatArrayBuffers` 拼成整段。
+    - WAV：取出单声道 PCM，按 `VOICE_OPUS_ENCODE_CHUNK_SECONDS` 分块交给 `@audio/encode-opus` 编码为 OGG/Opus，块间主动让出事件循环。编码器按 PCM 的原始采样率建立，由依赖跨块连续重采样到 `OPUS_GRANULE_RATE`；各块产出的页由 `Bun.concatArrayBuffers` 拼成整段。每块编码前与最后一块让出后核对调用方的取消信号，已中止时停止编码、释放编码器并返回 `aborted`，不记编码失败。
     - OGG/Opus 与 MP3：校验容器结构完整性（Ogg 页结构与 OpusHead，或 MPEG Layer III 帧序列）并计算时长，校验通过后原样封装。
     - 响应体读取上限为 `VOICE_SPEECH_MAX_BYTES`。
 
@@ -534,7 +534,7 @@
   - **两套请求结构**：`text` 每轮回复的第 1 次请求，仅当本群还没有触发时刻记录、或距记录超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS`，且显式缓存就绪时，引用显式缓存（`cachedContent`），请求体只包含 `contents`，不携带 `systemInstruction`、`tools`、`toolConfig`。距记录落在该时长内（含相等）、缓存未就绪、模型不支持显式缓存（`scan === "unsupported"`），或会话固定的 text 快照已被热重载替换时，发送完整配置。第 2 次及后续往返一律携带静态 `systemInstruction` 与工具配置，由服务端隐式前缀缓存接管。触发时刻是本群上一次成功的 `generateContent` 的发出时刻，取本线程单调时钟 `performance.now()`，按群各记一个内存值（`chatId` 经回复会话参数传入，只有 Gemini 实现读取），其它群的请求不影响本群。失败的请求不写入；并行请求乱序完成时，较早的发出时刻不覆盖较晚的记录；显式缓存被拒后的完整结构补发按补发时刻计。`/ai_chat disable`、`/clear_context`、群级清理、记忆淘汰与停机时删除本群的值，AI Worker 维护节拍删除已超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` 的值（与没有记录等价），`agent.text` 热重载不清除。Worker 换 isolate 后全部为空，各群下一次回复的第 1 次请求按上述条件决定。`ad_detect` 不设按群冷却窗口，显式缓存就绪时每次请求均直接携带 `cachedContent`。
   - **显式缓存内容**：`text` 仅缓存「系统提示词 + 工具声明 + toolConfig」，不缓存参考记忆、转录与运行时状态；`ad_detect` 仅缓存 `instructions`（规则与广告样本，无 tools/toolConfig）。
   - **分槽管理**：`text` 按系统提示词指纹分槽，全群共享同一槽位，槽数上限为 `GEMINI_TEXT_CACHE_MAX_SLOTS`，`displayName` 格式为 `${GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX}<槽指纹>:<内容指纹>`；模型、系统指令、工具声明 JSON 与 toolConfig 都与上一轮相等时复用上一轮算好的两段指纹，任一项不等即重算。`ad_detect` 按 `instructions` 指纹分槽，槽数上限为 `AD_DETECT_GEMINI_CACHE_MAX_SLOTS`，`displayName` 前缀为 `AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX`，模型与 `instructions` 未变时复用单槽缓存。超出槽数上限时按 `lastUsedAt` 淘汰最久未用的槽及服务端条目。
-  - **非阻塞取用**：调用 `acquireGeminiContextCache` 时从不等待探测或创建完成。`scan === "unsupported"` 时直接返回 `null`；探测进行中或首次命中可缓存模型时当前请求直接发送完整配置，并在后台完成探测、扫描与创建；命中缓存时刷新 `lastUsedAt`；若剩余生命周期不足 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS`，在后台静默续期回完整 TTL。
+  - **非阻塞取用**：调用 `acquireGeminiContextCache` 时从不等待探测或创建完成。`scan === "unsupported"` 时直接返回 `null`；探测进行中或首次命中可缓存模型时当前请求直接发送完整配置，并在后台完成探测、扫描与创建；命中缓存时刷新 `lastUsedAt`；若剩余生命周期不足 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS`，在后台静默续期回完整 TTL。缓存内容描述（含工具声明 JSON 序列化与指纹）由调用方以回调交给 `acquireGeminiContextCache`，扫描状态为 `"unsupported"` 或 `"idle"` 时不求值。
   - **失败退避**：端点报 400 拒绝时记录指纹并进入冷却；达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次后放弃为该内容建缓存，回退为全量请求。
 
 - **提示词缓存断点（Prompt Cache Breakpoints）**：
@@ -848,7 +848,7 @@
     - `rand_cron` 选填，格式为 `"<min>-<max>"` 或单值（以下界 `CRON_RANDOM_INTERVAL_MIN_MS` 起步），单位支持 `m` / `h` / `d`，取值必须落在 `CRON_RANDOM_INTERVAL_MIN_MS` 至 `CRON_RANDOM_INTERVAL_MAX_MS` 之间且 min ≤ max；`just_once` 为 `true` 时禁止配置 `rand_cron`。
   - **各动作字段约束**：
     - `send_message`：`content` 去除首尾空白后非空，不超过 `TELEGRAM_MESSAGE_MAX_CHARS`。
-    - `send_image` 与 `send_file`：`content`（图注）选填，不超过 `TELEGRAM_CAPTION_MAX_CHARS`。`send_file` 的来源恰好二选一：`url`（绝对 HTTP(S) 地址）或 `path`。固定图片要求 1 至 `CRON_MAX_IMAGES` 项；单张调用 `sendPhoto`，多张调用 `sendMediaGroup`（仅首项附带 caption）。随机图片模式限制单张。
+    - `send_image` 与 `send_file`：`content`（图注）选填，不超过 `TELEGRAM_CAPTION_MAX_CHARS`。`send_file` 的来源恰好二选一：`url`（去除首尾空白后须为绝对 HTTP(S) 地址，固定图片的 `url` 数组逐项同此）或 `path`。固定图片要求 1 至 `CRON_MAX_IMAGES` 项；单张调用 `sendPhoto`，多张调用 `sendMediaGroup`（仅首项附带 caption）。随机图片模式限制单张。
     - `send_voice`：`content` 必填，`tone` 选填；去首尾空白后分别不超过 `VOICE_OPERATOR_TEXT_MAX_CHARS` 与 `VOICE_TONE_MAX_CHARS`，清洗为单行且非空。
     - `send_web_digest`：`topic` 必填，单行且不超过 `WEB_DIGEST_TOPIC_MAX_CHARS`；`language` 选填（`WEB_DIGEST_LANGUAGES`，缺省 `WEB_DIGEST_DEFAULT_LANGUAGE`）；`max_items` 选填整数（范围 `WEB_DIGEST_MIN_ITEMS`–`WEB_DIGEST_MAX_ITEMS`，缺省 `WEB_DIGEST_DEFAULT_MAX_ITEMS`）；`instructions` 选填，不超过 `WEB_DIGEST_INSTRUCTIONS_MAX_CHARS`。
   - **依赖契约与群列表**：
@@ -862,7 +862,7 @@
   - `just_once` 首次触发后即刻注销，记录保存在容量上限为 `CRON_JUST_ONCE_RECORD_MAX` 的 LRU 缓存中；任务转为常规周期任务后清除记录。
   - `rand_cron` 首次触发后注销原有 cron，并在随机区间内均匀抽取下一时刻，向上取整至整分钟后重新挂载单次匹配的 UTC cron。记录与随机时刻均不持久化，停机期间错过的调度不补发。
 - **投递与执行调度**（`packages/cron/run.ts` 与 `packages/cron/delivery.ts`）：
-  - 动作之间保持 `CRON_ACTION_GAP_MS` 间隔。网络错误、5xx、429 与出站队列满按 `CRON_ACTION_RETRY_DELAYS_MS` 退避重试。
+  - 动作之间保持 `CRON_ACTION_GAP_MS` 间隔。网络错误、5xx、429 与所属聊天或全局发送排队满（`TelegramSendQueueFullError`）按 `CRON_ACTION_RETRY_DELAYS_MS` 退避重试。
   - 合成与检索错误支持退避重试；但 TTS 缺失、每日限额耗尽、编码非法、组稿无来源或超长等不可逆错误不重试。最终失败记录错误日志并中止本轮剩余动作。
   - **轮内资源复用**：
     - 同一轮调度新建 `CronRoundVoices`，相同 `send_voice` 动作仅合成一次，跨会话和重试复用该音频；首次成功后记录 Telegram `file_id`，后续群直接引用该 ID 发送，避免重复上传。

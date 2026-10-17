@@ -194,7 +194,7 @@ export async function createReplyToolset(ctx: ReplyToolContext, deliveryReady?: 
       const isActionTool: boolean = ACTION_TOOL_NAMES.includes(name);
       if (isActionTool && actionsUsed >= HARD_MAX_ACTIONS_PER_REPLY) {
         return toolError(
-          `Action limit reached: at most ${HARD_MAX_ACTIONS_PER_REPLY} actions (messages + stickers + reactions + images + voices) per reply`
+          `Action limit reached: at most ${HARD_MAX_ACTIONS_PER_REPLY} actions per reply, counted across ${ACTION_TOOL_NAMES.join(", ")}`
         );
       }
       return accept(name, isActionTool, dispatch(name, argumentsJson));

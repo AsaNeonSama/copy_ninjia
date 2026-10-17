@@ -2,7 +2,7 @@
  * cron 任务的一轮：按顺序投递全部动作，相邻动作间隔 CRON_ACTION_GAP_MS。
  *
  * 每个动作最多一次尝试加 CRON_ACTION_RETRY_DELAYS_MS 那么多次重试；可重试的失败是网络
- * 错误（HttpError）、5xx、出站退避重试队列满（TelegramRetryQueueFullError）、出站闸按 retry_after 退避后仍被挡住的 429，语音合成的
+ * 错误（HttpError）、5xx、所属聊天或全局发送排队满（TelegramSendQueueFullError）、出站闸按 retry_after 退避后仍被挡住的 429，语音合成的
  * Worker 暂不可用、供应商未交回音频与等待超时，以及摘要组稿的 Worker 暂不可用、等待超时、
  * 检索或组稿请求失败都计入本动作的重试次数；其余 4xx（含 MarkdownV2 解析失败）、合成
  * 能力缺席、额度用尽、编码失败、组稿不合格与本地错误不重试。最终失败记一行英文错误日志并中止这个会话剩余的

@@ -106,9 +106,9 @@ function parseLocalPath(value: unknown, context: InputFieldContext): string {
   return resolve(RUNTIME_DATA_ROOT, path);
 }
 
-/** 交给 Telegram 拉取的绝对 http(s) 地址；只校验形态。 */
+/** 交给 Telegram 拉取的绝对 http(s) 地址；去掉首尾空白后只校验形态。 */
 function parseUrl(value: unknown, context: InputFieldContext): string {
-  const parsed: URL | null = typeof value === "string" ? URL.parse(value) : null;
+  const parsed: URL | null = typeof value === "string" ? URL.parse(value.trim()) : null;
   if (parsed === null || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
     return fail(context, "an absolute http(s) URL");
   }

@@ -341,10 +341,11 @@ export function probeGeminiContextCache(scope: Readonly<GeminiContextCacheScope>
 /**
  * 取本次请求可引用的显式缓存资源名；模型不支持显式缓存或没有可用条目时返回 null，
  * 本次走完整请求（隐式缓存），需要的扫描、创建或续期在后台进行。
+ * contentOf 在扫描状态为 "unsupported" 或 "idle" 时不调用，其余状态调用一次取本次内容。
  */
 export function acquireGeminiContextCache(
   scope: Readonly<GeminiContextCacheScope>,
-  content: GeminiContextCacheContent
+  contentOf: () => GeminiContextCacheContent
 ): string | null {
   const registry: GeminiContextCacheRegistry = scope.registry();
   if (registry.scan === "unsupported") return null;
@@ -353,6 +354,7 @@ export function acquireGeminiContextCache(
     void scanExistingCaches(scope, registry);
     return null;
   }
+  const content: GeminiContextCacheContent = contentOf();
   const now: number = Date.now();
   const slot: GeminiContextCacheSlot | undefined = registry.slots.get(content.slotKey);
   if (slot?.contentKey === content.contentKey && slot.expireAt - now > GEMINI_CONTEXT_CACHE_MIN_REMAINING_MS) {

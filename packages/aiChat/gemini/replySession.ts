@@ -146,7 +146,7 @@ export function createGeminiReplySession(
     return result;
   }
 
-  /** 获取或计算当前请求对应的显式缓存内容描述与指纹。 */
+  /** 获取或计算当前请求对应的显式缓存内容描述与指纹；只在 acquireGeminiContextCache 需要内容时回调。 */
   function replyCacheContent(model: string, request: AiReplyTurnRequest, tools: Tool[]): GeminiContextCacheContent {
     const toolsJson: string = JSON.stringify(tools);
     const toolConfig: Readonly<ToolConfig> | undefined = request.webSearchEnabled ? GEMINI_SERVER_TOOL_CONFIG : undefined;
@@ -182,11 +182,10 @@ export function createGeminiReplySession(
     if (getAgentDeploymentConfig().text !== textConfig) return requestFull(request, tools, sentAt);
     const acquired: { name: string | null } = { name: null };
     const result: GeminiRequestResult = await send((): GenerateContentParameters => {
-      acquired.name = acquireGeminiContextCache(TEXT_GEMINI_CONTEXT_CACHE_SCOPE, replyCacheContent(
-        textConfig.model,
-        request,
-        tools
-      ));
+      acquired.name = acquireGeminiContextCache(
+        TEXT_GEMINI_CONTEXT_CACHE_SCOPE,
+        (): GeminiContextCacheContent => replyCacheContent(textConfig.model, request, tools)
+      );
       return buildBody(request, tools, acquired.name);
     }, sentAt);
     const cachedContent: string | null = acquired.name;

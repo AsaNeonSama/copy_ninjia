@@ -10,7 +10,7 @@ import type { QueuedReplyTrigger, ReplyDeliveryWindow } from "../../../types/aiC
 
 /**
  * chatId -> 当前回复代际编号（本 isolate 内单调递增）。
- * 填充：cachedReplyGeneration 首次读取该群时分配（回复轮、限频提示、mediaIngest.ts、botImages.ts、compaction.ts）；清理：invalidateChatReplies 递增覆盖，evictChatReplyGeneration 或 resetAiChatReplyCache 删除；重建：Worker 重启后从空表开始；容量：不超过 AI_MEMORY_MAX_CHATS。
+ * 填充：cachedReplyGeneration 首次读取该群时分配（回复轮、限频提示、mediaIngest.ts 的后台识图、botImages.ts、compaction.ts）；清理：invalidateChatReplies 递增覆盖，evictChatReplyGeneration 或 resetAiChatReplyCache 删除；重建：Worker 重启后从空表开始；容量：不超过 AI_MEMORY_MAX_CHATS。
  */
 export const replyGenerations: Map<number, number> = new Map();
 
@@ -67,7 +67,7 @@ export const pendingOverflowNotices: Map<number, number | undefined> = new Map()
 
 /**
  * generation -> 该代际的取消控制器。
- * 填充：replyGenerationSignal 首次获取该代际信号时创建（回复轮、限频提示、mediaIngest.ts、botImages.ts、compaction.ts）；清理：invalidateChatReplies 或 evictChatReplyGeneration 时 abort 旧代际，无在途任务时立即删除或在 trackReplyGenerationTask 结算后删除，resetAiChatReplyCache 时全部 abort 并清空；重建：Worker 重启后为空；容量：当前存活群代际数（不超过 AI_MEMORY_MAX_CHATS）加尚未排空的已失效旧代际。
+ * 填充：replyGenerationSignal 首次获取该代际信号时创建（回复轮、限频提示、mediaIngest.ts 的后台识图、botImages.ts、compaction.ts）；清理：invalidateChatReplies 或 evictChatReplyGeneration 时 abort 旧代际，无在途任务时立即删除或在 trackReplyGenerationTask 结算后删除，resetAiChatReplyCache 时全部 abort 并清空；重建：Worker 重启后为空；容量：当前存活群代际数（不超过 AI_MEMORY_MAX_CHATS）加尚未排空的已失效旧代际。
  */
 export const replyAbortControllers: Map<number, AbortController> = new Map();
 

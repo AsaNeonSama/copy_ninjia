@@ -1,7 +1,8 @@
 /**
  * Gemini 显式缓存共用核心的本地登记与后台生命周期：provider 启动/切换时的模型显式缓存支持度探测
- * （对比支持 `createCachedContent` 的 `gemini-3.8-flash` 与不支持的 `gemini-4-argon`）、启动扫描接管、
- * 按槽创建与换内容、续期与续期失败冷却、释放、创建失败冷却与 400 拒绝、槽数淘汰、换表与停机取消。
+ * （对比支持 `createCachedContent` 的 `gemini-3.8-flash` 与不支持的 `gemini-4-argon`）、按扫描状态决定
+ * 是否求值 contentOf、启动扫描接管、按槽创建与换内容、续期与续期失败冷却、释放、创建失败冷却与 400 拒绝、
+ * 槽数淘汰、换表与停机取消。
  * 用例按真实 scope 参数化，SDK 的 models 与 caches 接口整体替换成可控的假实现。
  */
 
@@ -180,6 +181,11 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       : geminiContextCacheContent({ model: "gemini-test", systemInstruction });
   }
 
+  /** 以现成内容取用缓存：交给核心的 contentOf 原样交回它。 */
+  function acquire(entry: GeminiContextCacheContent): string | null {
+    return acquireGeminiContextCache(scope, (): GeminiContextCacheContent => entry);
+  }
+
   function registry(): GeminiContextCacheRegistry {
     return scope.registry();
   }
@@ -190,7 +196,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
 
   /** 跑完启动扫描：第一次调用只触发扫描、返回 null。 */
   async function finishScan(): Promise<void> {
-    expect(acquireGeminiContextCache(scope, content())).toBeNull();
+    expect(acquire(content())).toBeNull();
     expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
   }
 
@@ -202,7 +208,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
   /** 建好默认内容的条目并返回它的槽键。 */
   async function createDefault(): Promise<string> {
     await finishScan();
-    acquireGeminiContextCache(scope, content());
+    acquire(content());
     await settleCreations();
     return content().slotKey;
   }
@@ -257,10 +263,10 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         ...content(),
         model: "gemini-3.8-flash",
       });
-      expect(acquireGeminiContextCache(scope, flashEntry)).toBeNull();
+      expect(acquire(flashEntry)).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(1);
-      expect(acquireGeminiContextCache(scope, flashEntry)).toBe("cachedContents/created-1");
+      expect(acquire(flashEntry)).toBe("cachedContents/created-1");
 
       // 热重载切换为不支持显式缓存的 gemini-4-argon：丢弃旧表后重新 probe。
       fixture.setModel("gemini-4-argon");
@@ -275,9 +281,29 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         ...content(),
         model: "gemini-4-argon",
       });
-      expect(acquireGeminiContextCache(scope, argonEntry)).toBeNull();
+      expect(acquire(argonEntry)).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(1);
+    });
+
+    test("扫描未开始与模型不支持显式缓存时不求值 contentOf，扫描中与扫描完成后每次取用求值一次", async () => {
+      const contentOf = mock((): GeminiContextCacheContent => content());
+      expect(acquireGeminiContextCache(scope, contentOf)).toBeNull();
+      expect(contentOf).not.toHaveBeenCalled();
+      expect(registry().scan).toBe("running");
+      expect(acquireGeminiContextCache(scope, contentOf)).toBeNull();
+      expect(contentOf).toHaveBeenCalledTimes(1);
+      expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
+      acquireGeminiContextCache(scope, contentOf);
+      expect(contentOf).toHaveBeenCalledTimes(2);
+      await settleCreations();
+
+      fixture.setModel("gemini-4-argon");
+      fixture.dropRegistry();
+      probeGeminiContextCache(scope);
+      expect(await waitUntil((): boolean => registry().scan === "unsupported")).toBe(true);
+      expect(acquireGeminiContextCache(scope, contentOf)).toBeNull();
+      expect(contentOf).toHaveBeenCalledTimes(2);
     });
 
     test("models.get 探测失败时记一次错误日志后按支持继续扫描与创建；停机取消时不记日志", async () => {
@@ -288,7 +314,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
       expect(loggerError).toHaveBeenCalledTimes(1);
       expect(list).toHaveBeenCalledTimes(1);
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(1);
 
@@ -317,7 +343,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
 
       expect(list).toHaveBeenCalledTimes(1);
       expect(registry().slots.get(entry.slotKey)).toMatchObject({ name: "cachedContents/adopted", lastUsedAt: 0, renewFailedAt: 0 });
-      expect(acquireGeminiContextCache(scope, entry)).toBe("cachedContents/adopted");
+      expect(acquire(entry)).toBe("cachedContents/adopted");
       expect(registry().slots.get(entry.slotKey)!.lastUsedAt).toBeGreaterThan(0);
       expect(create).not.toHaveBeenCalled();
       expect(remove).not.toHaveBeenCalled();
@@ -358,7 +384,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       await finishScan();
       expect(loggerError).toHaveBeenCalledTimes(1);
 
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(1);
     });
@@ -369,9 +395,9 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       await finishScan();
       const entry: GeminiContextCacheContent = content();
 
-      expect(acquireGeminiContextCache(scope, entry)).toBeNull();
+      expect(acquire(entry)).toBeNull();
       // 创建进行中：同槽不重复创建，本次照常走完整请求。
-      expect(acquireGeminiContextCache(scope, entry)).toBeNull();
+      expect(acquire(entry)).toBeNull();
       await settleCreations();
 
       expect(create).toHaveBeenCalledTimes(1);
@@ -394,7 +420,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         cacheWriteInputTokens: 6_864,
         outputTokens: 0,
       }));
-      expect(acquireGeminiContextCache(scope, entry)).toBe("cachedContents/created-1");
+      expect(acquire(entry)).toBe("cachedContents/created-1");
     });
 
     test("同槽内容变了（模型换了）就新建条目并删掉旧的服务端条目", async () => {
@@ -405,10 +431,10 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         model: "gemini-next",
       });
       expect(changed.slotKey).toBe(content().slotKey);
-      expect(acquireGeminiContextCache(scope, changed)).toBeNull();
+      expect(acquire(changed)).toBeNull();
       await settleCreations();
 
-      expect(acquireGeminiContextCache(scope, changed)).toBe("cachedContents/created-2");
+      expect(acquire(changed)).toBe("cachedContents/created-2");
       expect(remove).toHaveBeenCalledWith(expect.objectContaining({ name: "cachedContents/created-1" }));
       expect(registry().slots.size).toBe(1);
     });
@@ -430,14 +456,14 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       const slotKey: string = await createDefault();
 
       registry().slots.get(slotKey)!.expireAt = Date.now() + GEMINI_CONTEXT_CACHE_MIN_REMAINING_MS - 1;
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(2);
     });
 
     test("新条目的剩余存活高于续期档：刚建成时命中不续期", async () => {
       await createDefault();
-      expect(acquireGeminiContextCache(scope, content())).toBe("cachedContents/created-1");
+      expect(acquire(content())).toBe("cachedContents/created-1");
       expect(update).not.toHaveBeenCalled();
     });
 
@@ -455,7 +481,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       update.mockImplementationOnce(async (): Promise<CachedContent> => ({ name: slot.name }));
       slot.expireAt = Date.now() + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
       const renewedAt: number = Date.now();
-      expect(acquireGeminiContextCache(scope, content())).toBe(slot.name);
+      expect(acquire(content())).toBe(slot.name);
       expect(await waitUntil((): boolean => !slot.renewing)).toBe(true);
       expect(slot.expireAt).toBeGreaterThanOrEqual(renewedAt + GEMINI_CONTEXT_CACHE_TTL_SECONDS * 1_000);
       expect(slot.expireAt).toBeLessThanOrEqual(Date.now() + GEMINI_CONTEXT_CACHE_TTL_SECONDS * 1_000);
@@ -469,14 +495,14 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       releaseGeminiContextCache(scope, "cachedContents/created-1");
       expect(registry().slots.size).toBe(0);
       expect(remove).toHaveBeenCalledWith(expect.objectContaining({ name: "cachedContents/created-1" }));
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(1);
 
       setSystemTime(new Date(start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS));
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
-      expect(acquireGeminiContextCache(scope, content())).toBe("cachedContents/created-2");
+      expect(acquire(content())).toBe("cachedContents/created-2");
     });
 
     test("释放一个不在当前登记表里的资源名什么都不做", async () => {
@@ -503,7 +529,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
     test("超过槽数上限时删掉最久未用的槽", async () => {
       await finishScan();
       for (let index: number = 0; index <= scope.maxSlots; index++) {
-        acquireGeminiContextCache(scope, content(`系统指令 ${index}`));
+        acquire(content(`系统指令 ${index}`));
         await settleCreations();
         await Bun.sleep(2);
       }
@@ -522,16 +548,16 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       await finishScan();
       const start: number = Date.now();
       setSystemTime(new Date(start));
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await settleCreations();
       expect(loggerError).toHaveBeenCalledTimes(1);
 
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(1);
 
       setSystemTime(new Date(start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS));
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(2);
     });
@@ -543,15 +569,15 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       await finishScan();
       const start: number = Date.now();
       setSystemTime(new Date(start));
-      acquireGeminiContextCache(scope, content("系统指令 甲"));
+      acquire(content("系统指令 甲"));
       await settleCreations();
       setSystemTime(new Date(start + 1));
-      acquireGeminiContextCache(scope, content("系统指令 乙"));
+      acquire(content("系统指令 乙"));
       await settleCreations();
       expect(registry().failures.size).toBe(2);
 
       setSystemTime(new Date(start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS));
-      acquireGeminiContextCache(scope, content("系统指令 丙"));
+      acquire(content("系统指令 丙"));
       await settleCreations();
 
       expect([...registry().failures.keys()]).toEqual([
@@ -567,11 +593,11 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       await finishScan();
       const start: number = Date.now();
       setSystemTime(new Date(start));
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await settleCreations();
 
       setSystemTime(new Date(start - 1));
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(2);
     });
@@ -585,13 +611,13 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         });
         const rejectedAt: number = start + (attempt - 1) * GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS;
         setSystemTime(new Date(rejectedAt));
-        acquireGeminiContextCache(scope, content());
+        acquire(content());
         await settleCreations();
         expect(create).toHaveBeenCalledTimes(attempt);
 
         // 拒绝冷却内不再创建。
         setSystemTime(new Date(rejectedAt + GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS - 1));
-        expect(acquireGeminiContextCache(scope, content())).toBeNull();
+        expect(acquire(content())).toBeNull();
         await settleCreations();
         expect(create).toHaveBeenCalledTimes(attempt);
       }
@@ -600,12 +626,12 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
 
       // 满额之后同一内容再也不创建。
       setSystemTime(new Date(start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS * 10));
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(GEMINI_CONTEXT_CACHE_MAX_REJECTIONS);
 
       const changed: GeminiContextCacheContent = geminiContextCacheContent({ ...content(), model: "gemini-next" });
-      acquireGeminiContextCache(scope, changed);
+      acquire(changed);
       await settleCreations();
       expect(create).toHaveBeenCalledTimes(GEMINI_CONTEXT_CACHE_MAX_REJECTIONS + 1);
       expect(registry().rejected.size).toBe(0);
@@ -618,17 +644,17 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       await finishScan();
       const start: number = Date.now();
       setSystemTime(new Date(start));
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await settleCreations();
       const retriedAt: number = start + GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS;
       setSystemTime(new Date(retriedAt));
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await settleCreations();
       const slotKey: string = content().slotKey;
       expect(registry().rejected.get(slotKey)?.count).toBe(2);
 
       const changed: GeminiContextCacheContent = geminiContextCacheContent({ ...content(), model: "gemini-next" });
-      acquireGeminiContextCache(scope, changed);
+      acquire(changed);
       await settleCreations();
       expect(registry().rejected.get(slotKey)).toEqual({ contentKey: changed.contentKey, count: 1, rejectedAt: retriedAt });
     });
@@ -646,13 +672,13 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         (_unused: unknown, index: number): string => (index % 2 === 0 ? `小指令 ${index}` : `系统指令 ${index}`)
       );
       for (const instruction of instructions) {
-        acquireGeminiContextCache(scope, content(instruction));
+        acquire(content(instruction));
         await settleCreations();
       }
       expect(create).toHaveBeenCalledTimes(instructions.length);
 
       for (const instruction of instructions) {
-        expect(acquireGeminiContextCache(scope, content(instruction))).toBeNull();
+        expect(acquire(content(instruction))).toBeNull();
         await settleCreations();
       }
       expect(create).toHaveBeenCalledTimes(instructions.length);
@@ -665,8 +691,8 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       const slotKey: string = await createDefault();
 
       registry().slots.get(slotKey)!.expireAt = Date.now() + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
-      expect(acquireGeminiContextCache(scope, content())).toBe("cachedContents/created-1");
-      expect(acquireGeminiContextCache(scope, content())).toBe("cachedContents/created-1");
+      expect(acquire(content())).toBe("cachedContents/created-1");
+      expect(acquire(content())).toBe("cachedContents/created-1");
       expect(await waitUntil((): boolean => !registry().slots.get(slotKey)!.renewing)).toBe(true);
 
       expect(update).toHaveBeenCalledTimes(1);
@@ -687,7 +713,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       registry().slots.get(slotKey)!.expireAt = start + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
 
       for (let index: number = 0; index < 20; index++) {
-        expect(acquireGeminiContextCache(scope, content())).toBe("cachedContents/created-1");
+        expect(acquire(content())).toBe("cachedContents/created-1");
         await waitUntil((): boolean => !registry().slots.get(slotKey)!.renewing);
       }
       expect(update).toHaveBeenCalledTimes(1);
@@ -696,7 +722,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
 
       setSystemTime(new Date(start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS));
       registry().slots.get(slotKey)!.expireAt = start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await waitUntil((): boolean => !registry().slots.get(slotKey)!.renewing);
       expect(update).toHaveBeenCalledTimes(2);
     });
@@ -709,13 +735,13 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       const start: number = Date.now();
       setSystemTime(new Date(start));
       registry().slots.get(slotKey)!.expireAt = start + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await waitUntil((): boolean => !registry().slots.get(slotKey)!.renewing);
       expect(registry().slots.get(slotKey)!.renewFailedAt).toBe(start);
 
       setSystemTime(new Date(start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS));
       registry().slots.get(slotKey)!.expireAt = start + GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await waitUntil((): boolean => !registry().slots.get(slotKey)!.renewing);
       expect(registry().slots.get(slotKey)!.renewFailedAt).toBe(0);
     });
@@ -728,12 +754,12 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       const start: number = Date.now();
       setSystemTime(new Date(start));
       registry().slots.get(slotKey)!.expireAt = start + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await waitUntil((): boolean => !registry().slots.get(slotKey)!.renewing);
 
       setSystemTime(new Date(start - 1));
       registry().slots.get(slotKey)!.expireAt = start - 1 + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await waitUntil((): boolean => !registry().slots.get(slotKey)!.renewing);
       expect(update).toHaveBeenCalledTimes(2);
     });
@@ -747,13 +773,13 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       });
       const slotKey: string = await createDefault();
       registry().slots.get(slotKey)!.expireAt = Date.now() + GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS - 1;
-      expect(acquireGeminiContextCache(scope, content())).toBe("cachedContents/created-1");
+      expect(acquire(content())).toBe("cachedContents/created-1");
       expect(await waitUntil((): boolean => !registry().slots.has(slotKey))).toBe(true);
       expect(loggerError).not.toHaveBeenCalled();
 
-      expect(acquireGeminiContextCache(scope, content())).toBeNull();
+      expect(acquire(content())).toBeNull();
       await settleCreations();
-      expect(acquireGeminiContextCache(scope, content())).toBe("cachedContents/created-2");
+      expect(acquire(content())).toBe("cachedContents/created-2");
     });
   });
 
@@ -764,7 +790,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       create.mockImplementationOnce((): Promise<CachedContent> => new Promise<CachedContent>((resolve) => {
         resolveCreate = resolve;
       }));
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       const previous: GeminiContextCacheRegistry = registry();
       expect(previous.creations.size).toBe(1);
 
@@ -791,7 +817,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         expect(signal.aborted).toBe(true);
         throw signal.reason;
       });
-      acquireGeminiContextCache(scope, content());
+      acquire(content());
       await settleCreations();
 
       expect(loggerError).not.toHaveBeenCalled();
