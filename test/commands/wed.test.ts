@@ -661,6 +661,19 @@ describe("/wed 图片和按钮交互", () => {
     expect(state.sessions.oldestKey()).toBe(2);
     expect(state.sessions.has(2)).toBeTrue();
     expect(Array.from(state.sessions.keys()).at(-1)).toBe(1);
+
+    // 重抽在途期间有新用户送达，随后重抽失败恢复原会话时，仍将已送达总数裁回上限。
+    const redrawGate: PromiseWithResolvers<any> = Promise.withResolvers<any>();
+    photo.mockImplementationOnce((): Promise<any> => redrawGate.promise);
+    const inFlightRedraw: Promise<void> = handleWedCommand(command({ from: { ...actor, id: 3 } }));
+    for (let i: number = 0; i < 50 && photo.mock.calls.length < 3; i++) await Promise.resolve();
+    await handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 1 } }));
+    redrawGate.reject(new Error("concurrent redraw failed"));
+    await inFlightRedraw;
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(state.sessions.has(2)).toBeFalse();
+    expect(state.sessions.has(3)).toBeTrue();
+    expect(state.sessions.has(WED_SESSION_LIMIT + 1)).toBeTrue();
   });
 
   test("满额已送达叠加多份并发在途新会话时不触发 FifoMap 自动淘汰，按送达顺序逐一滑出", async () => {

@@ -7,15 +7,15 @@ import { containsRenderableCommand } from "../../libs/renderableCommand";
 
 /** echoMessage 的入参。 */
 export interface EchoMessageParams {
-  chatId: number;
-  message: Message;
-  mode: CopyMode | undefined;
+  readonly chatId: number;
+  readonly message: Message;
+  readonly mode: CopyMode | undefined;
   /**
    * 复读要落进的论坛话题；General、非论坛群为 undefined。
    *
    * 复读不挂回复，话题由本参数确定（判定见 libs/forumTopic.ts）。
    */
-  messageThreadId?: number;
+  readonly messageThreadId?: number;
 }
 
 /**
@@ -23,8 +23,12 @@ export interface EchoMessageParams {
  * 变换，没有模式时原样使用，链接、@ 与格式实体不单独处理；发送经 copy/echo.ts 的
  * sendEchoPayload（纯文字重新发送，媒体复制并换图注）。
  */
-export async function echoMessage(params: EchoMessageParams): Promise<void> {
-  const { chatId, message, mode, messageThreadId }: EchoMessageParams = params;
+export async function echoMessage({
+  chatId,
+  message,
+  mode,
+  messageThreadId,
+}: EchoMessageParams): Promise<void> {
   // 正文与 caption 均检查是否含可点击命令片段。
   const source: string | undefined = message.text ?? message.caption;
   if (source !== undefined && containsRenderableCommand(source)) return;

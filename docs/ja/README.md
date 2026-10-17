@@ -106,7 +106,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 6777 件のテストが全て成功 / テストファイル 560 件 / expect() 呼び出し 447,852 回 / 関数カバレッジ 98.42% / 行カバレッジ 98.96%" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 6777 件のテストが全て成功 / テストファイル 560 件 / expect() 呼び出し 447,856 回 / 関数カバレッジ 98.42% / 行カバレッジ 98.96%" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 

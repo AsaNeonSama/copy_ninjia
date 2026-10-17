@@ -104,7 +104,7 @@ From commit-by-commit human/AI co-review to repeated full-repository audits and 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 6777 tests passed, 560 test files, 447,852 expect() calls, 98.42% function coverage, 98.96% line coverage" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 6777 tests passed, 560 test files, 447,856 expect() calls, 98.42% function coverage, 98.96% line coverage" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 

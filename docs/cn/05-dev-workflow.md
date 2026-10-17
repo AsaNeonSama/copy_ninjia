@@ -63,7 +63,7 @@
   - 生产代码中的变量、函数参数与解构赋值必须显式标注类型（由 `@typescript-eslint/typedef` 把守），函数和回调必须显式标注返回值类型（由 `@typescript-eslint/explicit-function-return-type` 把守），均不依赖上下文推导。
   - 语法层面不支持标注的 `for...of` / `for...in` 循环变量自动豁免；初始化器已是全标注箭头函数的 `const` 同样豁免。
 - **仓库约定自检（`check:conventions`）**：
-  - **结构与链接校验**：检查源码行数、文件归位、Markdown 文档的本地相对链接与锚点有效性；核对文档中提及的文件清单真实存在；校验可执行脚本的权限位与安装步骤编号的一致性。
+  - **结构与链接校验**：检查源码行数、文件归位、Markdown 文档的本地相对链接与锚点有效性；核对文档中提及的目录文件清单与行内反引号仓库路径真实存在；校验可执行脚本的权限位与安装步骤编号的一致性。
   - **模块与架构隔离**：核对常量与缓存归属（`packages/cache/<owner>/` 线程单属性边界），按真实模块导入图核验 Worker 与 Telegram 能力隔离；环境变量仅允许在 `consts/paths.ts` 与 `consts/environment.ts` 中读取；`consts/` 运行期只依赖 `consts`（其它 `packages/` 模块只能 `import type`）；`states/` 的直接与间接运行时依赖只能落在 `consts`、`libs`、`types` 与 `states`（间接依赖按真实模块图追踪，`config/time.ts` 时区快照是 `STATES_CLOSURE_OPAQUE_MODULES` 登记的唯一例外）；`infra/` 严禁反向依赖业务层；全量基准测试父进程仅允许引入纯常量与类型。
   - **常量表约束**：带对象元素的导出常量表（正则与函数值除外）必须在 `test/consts/immutability.test.ts` 中有一行紧跟 `@ts-expect-error` 注释的访问（`scripts/conventions/constImmutability.ts`）；元素为字面量联合的导出数组表必须写成 `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`），`U` 与声明的元素类型一致、实参逐项写字符串或数字字面量，类型新增或删除成员而表没跟上时编译失败。有意只列子集的表按 `<相对路径>#<表名>` 登记在 `scripts/conventions/constExhaustiveLists.ts` 的 `PARTIAL_LITERAL_TABLES`，登记失效同样报错。
   - **运行时安全与 API 规范**：`packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`，也禁止用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项，有界 FIFO / LRU 的最早项一律经 `libs/fifoMap.ts` 的 `FifoMap`（或继承它的 `LruCache`）取得；Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用，未使用的登记同样报错；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**6777 tests / 560 files / 447852 次 `expect()`**；全源码**函数覆盖率 98.42% / 行覆盖率 98.96%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**6777 tests / 560 files / 447856 次 `expect()`**；全源码**函数覆盖率 98.42% / 行覆盖率 98.96%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 

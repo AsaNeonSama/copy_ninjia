@@ -104,7 +104,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：6777 项测试全部通过 / 560 个测试文件 / 447,852 次 expect() 调用 / 函数覆盖率 98.42% / 行覆盖率 98.96%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：6777 项测试全部通过 / 560 个测试文件 / 447,856 次 expect() 调用 / 函数覆盖率 98.42% / 行覆盖率 98.96%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 

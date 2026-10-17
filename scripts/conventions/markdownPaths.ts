@@ -47,7 +47,7 @@ export async function collectMarkdownPathProblems(
     const normalized: string = candidate.endsWith("/")
       ? candidate.slice(0, -1)
       : candidate;
-    if (repositoryPaths.has(normalized) || repositoryPaths.has(candidate)) continue;
+    if (repositoryPaths.has(normalized)) continue;
     const line: number = source.slice(0, match.index).split("\n").length;
     problems.push(
       `${relative(projectRoot, path)}:${line} references a missing repository path: ${candidate}`

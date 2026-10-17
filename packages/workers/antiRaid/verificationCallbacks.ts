@@ -26,10 +26,10 @@ export interface AnswerVerificationCallbackOptions {
 
 /** 将验证回调应答类型映射为当前气氛下的提示文案。 */
 function verificationCallbackText(
-  atmosphere: AtmosphereTexts,
   reply: VerificationCallbackReply | undefined
 ): string | undefined {
   if (reply === undefined) return undefined;
+  const atmosphere: AtmosphereTexts = workerAtmosphere();
   switch (reply) {
     case "ok": return atmosphere.NOTICE_TEXTS.verificationCallbackPassed;
     case "invalid": return atmosphere.NOTICE_TEXTS.verificationCallbackExpired;
@@ -63,7 +63,7 @@ export function answerVerificationCallback({
     }
     return undefined;
   }
-  const text: string | undefined = verificationCallbackText(workerAtmosphere(), reply);
+  const text: string | undefined = verificationCallbackText(reply);
   verificationCallbackReplies.current++;
   return answerCallbackQuery({
     callbackQueryId,

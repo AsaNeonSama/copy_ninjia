@@ -77,7 +77,9 @@ export function decideMessageTypo({
     ? buildCharacterTypo(text, originalChar, replacementChar)
     : null;
   const typoText: string | null = characterTypo?.typoText ?? null;
-  const rejection: string | null = typoRejection(typoAlreadyUsed, typoText, remainingActions);
+  const rejection: string | null = roundHasTypo
+    ? typoRejection(typoAlreadyUsed, typoText, remainingActions)
+    : null;
   const typoToSend: string | null = roundHasTypo && rejection === null ? typoText : null;
   const shouldUseTypo: boolean = typoToSend !== null;
   const typoAttempted: boolean = roundHasTypo &&

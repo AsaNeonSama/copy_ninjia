@@ -50,7 +50,7 @@
 - **型 import の明示的分離**：本番コード・スクリプト・テストのすべてで独立した `import type` を使用します。ESLint の `no-restricted-syntax` が `import { value, type Shape }` のようなインライン型指定を禁止しています。
 - **明示的な型注釈の強制**：本番コード（`index.ts`、`packages/`、`scripts/`）の変数・引数・分割代入は `@typescript-eslint/typedef`、関数・コールバックの戻り値型は `@typescript-eslint/explicit-function-return-type` で強制され、文脈からの暗黙推論は認められません。`for...of` / `for...in` のループ変数および初期化子が完全注釈付きアロー関数である `const` は除外されます。テストコードはこの制限を受けません。
 - **規約自己検査（`check:conventions`）**：
-  - **構造とリンク**：ファイル行数上限、コード配置ルール、Markdown のローカルリンクおよび同一文書内アンカー、ドキュメント内のファイル参照記述の存在性、実行権限、ワンショットインストーラーのモジュール一覧とステップ番号の整合性を検査。
+  - **構造とリンク**：ファイル行数上限、コード配置ルール、Markdown のローカルリンクおよび同一文書内アンカー、ドキュメント内のディレクトリ一覧およびインライン逆引用符のリポジトリパスの存在性、実行権限、ワンショットインストーラーのモジュール一覧とステップ番号の整合性を検査。
   - **境界とスレッド分離**：定数およびキャッシュのスレッド所有権（`packages/cache/<owner>/` の単一所有権境界）を照合し、モジュール依存グラフに基づいて Worker と Telegram クライアントの隔離を検証。環境変数の読み込みは `consts/paths.ts` と `consts/environment.ts` にのみ限定し、`consts/` は実行時に `consts` 以外へ依存せず（他の `packages/` モジュールは `import type` のみ）、`states/` は直接・間接の実行時依存を `consts`、`libs`、`types`、`states` に限り（間接依存は実際の import グラフで追跡し、`config/time.ts` のタイムゾーンスナップショットのみ `STATES_CLOSURE_OPAQUE_MODULES` に登録した例外）、`infra/` は上位の業務層に逆依存せず、ベンチマーク親プロセスは純粋定数と型のみを import します。
   - **定数テーブルの制約**：オブジェクト要素を持つエクスポート定数テーブル（正規表現と関数値を除く）は、`test/consts/immutability.test.ts` で `@ts-expect-error` コメントの直後の行から参照されていなければなりません（`scripts/conventions/constImmutability.ts`）。要素がリテラル union のエクスポート配列テーブルは `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`）の形で書き、`U` は宣言した要素型と一致させ、引数は各要素を文字列または数値リテラルで並べます。型のメンバーを追加・削除してテーブルが追従していなければコンパイルに失敗します。意図的に部分集合だけを列挙するテーブルは `<相対パス>#<テーブル名>` で `scripts/conventions/constExhaustiveLists.ts` の `PARTIAL_LITERAL_TABLES` に登録し、無効になった登録もエラーとなります。
   - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。`packages/` では `Object.freeze` を禁止し、`.keys().next()`、`.values().next()`、`.entries().next()` で最古の項目を取ることも禁止します。有界 FIFO / LRU の最古の項目は必ず `libs/fifoMap.ts` の `FifoMap`（またはそれを継承する `LruCache`）から取得します。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
@@ -82,7 +82,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**6777 tests / 560 files / 447852 `expect()` calls**。全ソースコードの**関数カバレッジは 98.42%、行カバレッジは 98.96%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**6777 tests / 560 files / 447856 `expect()` calls**。全ソースコードの**関数カバレッジは 98.42%、行カバレッジは 98.96%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 

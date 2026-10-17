@@ -93,7 +93,7 @@ function attemptReminderDelivery(
   const atmosphere: AtmosphereTexts = workerAtmosphere();
   const verifyKeyboard: InlineKeyboardMarkup = buildVerificationKeyboard(
     delivery.userId,
-    delivery.expectedState.isBot,
+    delivery.isBot,
     atmosphere
   );
   // 每次发送尝试都按当前群风格渲染，重试队列不保存已经选定语气的正文。

@@ -12,7 +12,7 @@ import type { MessageTriggerContext, RandomMediaTrigger } from "../../types/auto
  * builder 直接产出完整消息，不创建公共字段投影，也不让调用点用对象展开重建
  * 同构载荷。options 字面量不逃逸，字段按固定顺序一次写齐。
  *
- * 字段顺序即 hidden class 顺序，两个 builder 的公共段保持一致。
+ * 字段顺序即 hidden class 顺序，三个 builder 的公共段保持一致。
  */
 export interface BuildAiRecordMessageParams {
   context: MessageTriggerContext;

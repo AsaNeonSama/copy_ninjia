@@ -29,8 +29,8 @@ export function getOrCreateWedChat(chatId: number): WedChat | undefined {
 }
 
 /**
- * 新结果送达后将会话表裁剪回 WED_SESSION_LIMIT 份已送达结果：按送达顺序从最早到最新扫描，
- * 跳过正在执行按钮动作的忙碌会话，滑出最早的一份空闲结果并 abort 其 controller（不删群内消息）。
+ * 新结果送达或重抽失败换回原会话后，将会话表裁剪回 WED_SESSION_LIMIT 份已送达结果：
+ * 按送达顺序从最早到最新扫描，跳过正在执行动作的忙碌会话，滑出最早的一份空闲结果并 abort 其 controller（不删群内消息）。
  */
 export function trimWedSessions(chat: WedChat): void {
   let delivered: number = 0;

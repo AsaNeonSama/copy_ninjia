@@ -149,9 +149,13 @@ export async function handleWedCommand(ctx: CommandContext<Context>): Promise<vo
         if (previous !== undefined) await removeWedResult(previous);
       }
     } else if (session.messageId === undefined) {
-      // 新结果没送达：旧结果还没被放弃，换回原会话。
-      if (previous !== undefined) chat.sessions.set(session.actor.id, previous);
-      else chat.sessions.delete(session.actor.id);
+      // 新结果没送达：旧结果还没被放弃，换回原会话并维持已送达上限。
+      if (previous !== undefined) {
+        chat.sessions.set(session.actor.id, previous);
+        trimWedSessions(chat);
+      } else {
+        chat.sessions.delete(session.actor.id);
+      }
     }
   }
 }
