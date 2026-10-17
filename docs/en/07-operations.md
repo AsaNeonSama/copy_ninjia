@@ -95,7 +95,7 @@ WantedBy=multi-user.target
 
 > [!WARNING]
 > **Data Isolation in Multi-Tenant Environments**:
-> Newly created files under `memory/` use `PERSISTED_FILE_MODE` (`packages/consts/diskIO/shared.ts`). If parent directories allow world read/execute (`RUNTIME_DATA_ROOT_MAX_MODE`), other local users on the server can read chat logs. On shared multi-user servers, restrict `other` permissions on the data root and `memory/`, and restrict existing files to owner-only or owner/group read access (the runtime preserves existing file permissions without overwriting them).
+> Newly created files under `memory/` use `PERSISTED_FILE_MODE` (`packages/consts/diskIO/common.ts`). If parent directories allow world read/execute (`RUNTIME_DATA_ROOT_MAX_MODE`), other local users on the server can read chat logs. On shared multi-user servers, restrict `other` permissions on the data root and `memory/`, and restrict existing files to owner-only or owner/group read access (the runtime preserves existing file permissions without overwriting them).
 > Configure `database/` with `IDENTITY_DATABASE_DIRECTORY_MODE` (optionally with the setgid bit for shared service groups); the main database file and its WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never strip group write permissions recursively across the entire data root**, because `database/` requires group write access when shared by a service group. Keep `config/` strictly read-only.
 
 - **Automated crash recovery**: If the bot crashes or exits unexpectedly, systemd restarts it automatically (`Restart=on-failure`). Pending verification state, lockdown timers, pending database writes, AI memory, and unacknowledged Telegram updates resume cleanly according to [04 Runtime Invariants](04-invariants.md#persistence).
@@ -135,7 +135,7 @@ If the `time_zone` in `bot.json` does not match the database marker at startup, 
 
 ### 2. Dedicated Image Library: `random_h_image_dir`
 - **Responsibilities**: Configured by `onlyPath.random_h_image_dir` in `config/dynamic/assets.json` (defaults to `RANDOM_H_IMAGE_DIR` in `packages/consts/paths.ts`, resolved relative to the data root). The `/h_image` command and scheduled image tasks select images uniformly at random from this directory. Administrators can upload new files using `/h_image add`.
-- **Naming requirements**: Every image filename must match `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (the lowercase hex SHA-256 digest of its binary contents with an extension from `RANDOM_IMAGE_EXTENSIONS` in `packages/consts/images.ts`). Non-image files, folders, or documentation files are strictly forbidden.
+- **Naming requirements**: Every image filename must match `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (the lowercase hex SHA-256 digest of its binary contents with an extension from `RANDOM_IMAGE_EXTENSIONS` in `packages/consts/randomImage.ts`). Non-image files, folders, or documentation files are strictly forbidden.
 - **Startup preflight**: A missing directory is created automatically. At boot, the system scans the directory; invalid filenames, subdirectories, symlinks, or stray `RANDOM_IMAGE_TEMP_PREFIX` (`.h_image-add-*`) temporary files cause **startup failure**. Adding or removing valid images does not require a service restart; updating the directory path dynamically at runtime pre-validates the new target directory before switching.
 
 ### 3. Group Marriage Candidates: `memory/wed/<chatId>.json`

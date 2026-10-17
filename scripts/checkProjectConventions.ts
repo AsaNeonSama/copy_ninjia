@@ -44,6 +44,10 @@ import {
   collectMarkdownModuleListProblems,
   collectSourceDirectories,
 } from "./conventions/markdownModuleLists";
+import {
+  collectMarkdownPathProblems,
+  collectRepositoryPaths,
+} from "./conventions/markdownPaths";
 import { collectMarkdownAnchors } from "./conventions/markdownAnchors";
 import { withoutMarkdownCodeFences } from "./conventions/markdownSource";
 import {
@@ -270,11 +274,16 @@ const sourceDirectories: readonly string[] = collectSourceDirectories([
   SCRIPTS_ROOT,
   TEST_ROOT,
 ]);
-const tracked: string[] = projectFiles();
+const tracked: string[] = [];
+for (const trackedPath of projectFiles()) {
+  // 允许尚未 stage 的正常删除；其它门禁会从最终工作树/索引确认变更范围。
+  if (await Bun.file(join(PROJECT_ROOT, trackedPath)).exists()) {
+    tracked.push(trackedPath);
+  }
+}
+const repositoryPaths: ReadonlySet<string> = collectRepositoryPaths(tracked);
 for (const trackedPath of tracked) {
   const path: string = join(PROJECT_ROOT, trackedPath);
-  // 允许尚未 stage 的正常删除；其它门禁会从最终工作树/索引确认变更范围。
-  if (!(await Bun.file(path).exists())) continue;
   if (/\.(?:[cm]?[jt]sx?|sh)$/.test(path)) {
     failures.push(...collectFileLengthProblems(trackedPath, await Bun.file(path).text()));
   }
@@ -284,6 +293,11 @@ for (const trackedPath of tracked) {
       PROJECT_ROOT,
       path,
       sourceDirectories
+    ));
+    failures.push(...await collectMarkdownPathProblems(
+      PROJECT_ROOT,
+      path,
+      repositoryPaths
     ));
   }
   const extension: string = extname(path);

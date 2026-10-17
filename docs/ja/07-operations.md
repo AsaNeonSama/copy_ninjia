@@ -86,7 +86,7 @@ WantedBy=multi-user.target
 
 > [!WARNING]
 > **マルチテナント環境のデータセキュリティ**：
-> `memory/` 配下に新規作成されるファイルのデフォルト権限は `PERSISTED_FILE_MODE`（`packages/consts/diskIO/shared.ts`）です。親ディレクトリが他のローカルアカウントに読み取り・通過を許可している場合（`RUNTIME_DATA_ROOT_MAX_MODE`）、同一ホスト上の他のローカルアカウントがグループの対話ログを読み取れる可能性があります。マルチテナント環境ではデータルートと `memory/` の `other` 権限を除去し、既存ファイルを所有者のみまたは所有者・グループのみの読み取りに制限してください（実行時のプログラムは既存ファイルの権限を尊重し、自動変更しません）。
+> `memory/` 配下に新規作成されるファイルのデフォルト権限は `PERSISTED_FILE_MODE`（`packages/consts/diskIO/common.ts`）です。親ディレクトリが他のローカルアカウントに読み取り・通過を許可している場合（`RUNTIME_DATA_ROOT_MAX_MODE`）、同一ホスト上の他のローカルアカウントがグループの対話ログを読み取れる可能性があります。マルチテナント環境ではデータルートと `memory/` の `other` 権限を除去し、既存ファイルを所有者のみまたは所有者・グループのみの読み取りに制限してください（実行時のプログラムは既存ファイルの権限を尊重し、自動変更しません）。
 > `database/` は `IDENTITY_DATABASE_DIRECTORY_MODE`（共有サービスグループ運用の場合は setgid ビットを併用可能）に設定し、メインデータベースおよび WAL/SHM の初回作成パーミッションは `IDENTITY_DATABASE_FILE_MODE` となります。**データルート全体に対して再帰的にグループ書き込み権限を除去しないでください**。`database/` には共有サービスグループの書き込み権限を残す必要があります。`config/` は読み取り専用のデプロイデータであるため、読み取り専用パーミッションを維持してください。
 
 - **クラッシュリカバリ**：プロセスクラッシュや異常終了時は、systemd の `Restart=on-failure` により自動再起動されます。認証待ち状態、ロックダウンタイマー、ID ライトスルー、AI 会話メモリ、未確認の Telegram update は、[04 実行時の正式な不変条件](04-invariants.md#永続化) のセマンティクスに従って安全に復元・再開されます。
@@ -123,7 +123,7 @@ WantedBy=multi-user.target
 
 ### 2. エロ画像専用ライブラリ：`random_h_image_dir`
 - **役割と内容**：`config/dynamic/assets.json` の `onlyPath.random_h_image_dir` で指定（デフォルトは `packages/consts/paths.ts` の `RANDOM_H_IMAGE_DIR`、データルート基準で解決）。`/h_image` およびディレクトリ未指定の cron `rand_image` はここから均等に抽選し、`/h_image add` で画像が収集されます。
-- **ファイル仕様**：`RANDOM_IMAGE_CONTENT_NAME_PATTERN`（**画像バイナリコンテンツの SHA-256** の小文字 16 進数に `packages/consts/images.ts` の `RANDOM_IMAGE_EXTENSIONS` の拡張子を付与した形式）に一致するファイル名でなければなりません。他機能の画像ファイルが混入することは厳禁です。
+- **ファイル仕様**：`RANDOM_IMAGE_CONTENT_NAME_PATTERN`（**画像バイナリコンテンツの SHA-256** の小文字 16 進数に `packages/consts/randomImage.ts` の `RANDOM_IMAGE_EXTENSIONS` の拡張子を付与した形式）に一致するファイル名でなければなりません。他機能の画像ファイルが混入することは厳禁です。
 - **起動時検査**：ディレクトリが存在しない場合は自動作成されます。ディレクトリエントリを 1 件ずつ走査し、不正なファイル名、サブディレクトリ、シンボリックリンク、および残存する `RANDOM_IMAGE_TEMP_PREFIX`（`.h_image-add-*`）一時ファイルが存在する場合は**起動を拒否**します。規約に適合した画像の追加や削除はプロセスの再起動を必要としません。稼働中に設定パスを変更した場合は、まず新ディレクトリを同等基準で事前検査し、失敗した場合は変更全体を拒否します。
 
 ### 3. グループ嫁候補ライブラリ：`memory/wed/<chatId>.json`

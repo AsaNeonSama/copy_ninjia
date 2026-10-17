@@ -309,7 +309,7 @@ Users with `isCanAddHImage` can reply to an image message with `/h_image add` to
   - Deduplication happens after downloading: if an identical hash exists in the library, writing is skipped and marked as duplicate in the receipt.
 - **Dimension pre-checks**: Resolutions are verified against Telegram `sendPhoto` limits: width + height must not exceed `TELEGRAM_PHOTO_MAX_DIMENSION_SUM`, and aspect ratio must not exceed `TELEGRAM_PHOTO_MAX_ASPECT_RATIO`. Files exceeding limits, larger than `RANDOM_IMAGE_MAX_BYTES`, in unsupported formats, or timing out are marked as failures.
 - **Atomic file writes**: Images are written to temporary files prefixed with `RANDOM_IMAGE_TEMP_PREFIX` in the library directory and renamed atomically upon verification. Draws ignore dot-prefixed files.
-- **Batching and receipts**: Albums download in batches of `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` concurrently. The overall task budget is `H_IMAGE_ADD_TASK_BUDGET_MS`; images exceeding this budget count as failures. Upon completion, a summary receipt reports new additions, total library size, duplicates, invalid dimensions, and download failures (auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS`).
+- **Batching and receipts**: Albums download in batches of `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` concurrently. The overall task budget is `H_IMAGE_ADD_TASK_BUDGET_MS`; images exceeding this budget count as failures. Upon completion, a summary receipt reports new additions, pre-collection library size, duplicates, invalid dimensions, and download failures (auto-deleted after `COMMAND_MESSAGE_AUTO_DELETE_MS`).
 
 ---
 

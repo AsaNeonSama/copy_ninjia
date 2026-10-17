@@ -310,7 +310,7 @@
   - 去重发生在下载后计算哈希阶段：如果图库中已经存在相同哈希的文件，系统会跳过重复写盘，并在回执中标记为“已存在”。
 - **图片尺寸安全预检**：收图时会预先检查图片分辨率是否符合 Telegram `sendPhoto` 的限制：宽高之和不能超过 `TELEGRAM_PHOTO_MAX_DIMENSION_SUM`，宽高比不能超过 `TELEGRAM_PHOTO_MAX_ASPECT_RATIO`，超出规格的图片将被拒绝收录；超过体积上限 `RANDOM_IMAGE_MAX_BYTES`、格式不受支持或下载超时的图片均计入失败项。
 - **写入原子性保证**：收录时先在图库同目录下写入以 `RANDOM_IMAGE_TEMP_PREFIX` 开头的临时文件，完全落盘校验后通过原子 `rename` 变更为最终文件名；抽图逻辑会自动忽略点号开头的临时文件。
-- **批量并发与汇总回执**：批量收图按每组 `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` 张分页并发下载，整页下载完毕后逐张校验写盘；整个收图任务的总时间预算为 `H_IMAGE_ADD_TASK_BUDGET_MS`，超时后未下载完的图片计为失败。收图完成后发送汇总战报（包括新收录张数、图库当前总数、重复跳过数、尺寸不合规数以及下载失败数），该回执在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除。
+- **批量并发与汇总回执**：批量收图按每组 `H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE` 张分页并发下载，整页下载完毕后逐张校验写盘；整个收图任务的总时间预算为 `H_IMAGE_ADD_TASK_BUDGET_MS`，超时后未下载完的图片计为失败。收图完成后发送汇总战报（包括新收录张数、收图前的图库张数、重复跳过数、尺寸不合规数以及下载失败数），该回执在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自动删除。
 
 ---
 
