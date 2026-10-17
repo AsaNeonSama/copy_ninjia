@@ -154,7 +154,6 @@ beforeEach(async () => {
   chatState.isInitEnabled = true;
   chatState.botPermissions = undefined;
   for (const mocked of [
-    sendMessage,
     isUserBlocked,
     requestBlocklistResweep,
     loggerError,
@@ -163,6 +162,7 @@ beforeEach(async () => {
     mocked.mockClear();
   }
   for (const mocked of [
+    sendMessage,
     probeChatMembership,
     kickChatMemberWithOutcome,
     banChatMemberWithOutcome,
@@ -171,6 +171,7 @@ beforeEach(async () => {
   ]) {
     mocked.mockReset();
   }
+  sendMessage.mockResolvedValue(55);
   sweepBlockedMembers.mockResolvedValue(undefined);
   readIdentityPolicyVerdicts.mockImplementation(
     async (): Promise<IdentityPolicyVerdicts | null> => EMPTY_VERDICTS
@@ -460,6 +461,19 @@ describe("/batch_kick", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(lastReplyText(sendMessage)).toBe(acceptedText(6));
     expect(batchKickChats.size).toBe(0);
+
+    // 已受理回执发送期间本群停管：首块开始前直接退出，连身份冷读都不发起。
+    getOrCreateChatState(-1001).isInitEnabled = true;
+    getOrCreateChatState(-1001).botPermissions = undefined;
+    readIdentityPolicyVerdicts.mockClear();
+    readJoinLog.mockResolvedValueOnce([{ userId: 42, joinedAt: 1 }]);
+    sendMessage.mockImplementationOnce(async (): Promise<number> => {
+      unmanage();
+      return 55;
+    });
+    await runCommand(context());
+    expect(readIdentityPolicyVerdicts).not.toHaveBeenCalled();
+    expect(batchKickChats.size).toBe(0);
   });
 
   test("429 等待期间目标已离群时按 absent 结算，不误报请求失败", async () => {
@@ -472,11 +486,13 @@ describe("/batch_kick", () => {
     expect(lastReplyText(sendMessage)).toContain("查询或请求失败 0");
   });
 
-  test("已有黑名单成员不执行只踢，并单独计入交回封禁", async () => {
+  test("已有黑名单成员不执行只踢，并单独计入交回封禁；补扫派发失败只记日志且战报照发", async () => {
     readJoinLog.mockResolvedValueOnce([
       { userId: 42, joinedAt: 1 },
     ]);
     isUserBlocked.mockImplementation((userId: number): boolean => userId === 42);
+    const sweepError: Error = new Error("sweep dispatch failed");
+    sweepBlockedMembers.mockRejectedValueOnce(sweepError);
 
     await runCommand(context());
 
@@ -484,9 +500,13 @@ describe("/batch_kick", () => {
     expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(banChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(lastReplyText(sendMessage)).toContain("黑名单交回封禁 1");
-    // 「交回」必须真的交出去：请求一次补扫。
+    // 「交回」必须真的交出去：请求一次补扫，派发抛错只记日志。
     expect(requestBlocklistResweep).toHaveBeenCalledWith(-1001);
     expect(sweepBlockedMembers).toHaveBeenCalledWith(-1001);
+    expect(loggerError).toHaveBeenCalledWith(
+      "Failed to dispatch the blocklist sweep after /batch_kick in chat -1001:",
+      sweepError
+    );
   });
 
   test("只踢请求期间并发拉黑时补回永久封禁", async () => {

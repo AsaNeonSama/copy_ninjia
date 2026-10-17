@@ -2,11 +2,9 @@
 
 import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { DEFAULT_WHITELIST_PERMISSIONS } from "../../../packages/consts/whitelist";
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
 import { IDENTITY_WRITE_FLUSH_INTERVAL_MS } from "../../../packages/consts/identityStorage";
 import { STORAGE_WRITE_MAX_FAILURES } from "../../../packages/consts/diskIO/business";
-import { encodeWhitelistEntryData } from "../../../packages/database/codec/identity";
 import {
   closeStorageDatabase,
   enableStorageDatabaseWal,
@@ -23,9 +21,11 @@ import { flushStorageDatabase } from "../../../packages/workers/diskIO/storageDa
 import { handleIdentityPolicyWrite } from "../../../packages/workers/diskIO/storageDatabase/identityPolicy";
 import { closeStorageDatabaseForShutdown } from "../../../packages/workers/diskIO/storageDatabase/shutdown";
 import { clearStorageBusinessTables } from "../../../scripts/fixtures/storageDatabase";
-import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
+import {
+  hydrateStorageDatabase,
+  whitelistWrite,
+} from "../../helpers/storageDatabaseHydration";
 import type {
-  IdentityPolicyWriteDiskMessage,
   IdentityStoragePersistedReply,
 } from "../../../packages/types/diskIO";
 import type { StorageDatabase } from "../../../packages/types/storageDatabase";
@@ -34,19 +34,6 @@ const acknowledgements: IdentityStoragePersistedReply[] = [];
 
 function reply(value: IdentityStoragePersistedReply): void {
   acknowledgements.push(value);
-}
-
-function whitelistWrite(id: number, revision: number): IdentityPolicyWriteDiskMessage {
-  return {
-    type: "identityPolicyWrite",
-    table: "whitelist",
-    id,
-    data: encodeWhitelistEntryData({
-      permissions: DEFAULT_WHITELIST_PERMISSIONS,
-      meta: { firstName: "成员", lastName: "", username: "" },
-    }),
-    revision,
-  };
 }
 
 function whitelistRowCount(): number {

@@ -5,3 +5,18 @@ import type { ChatState } from "../../packages/types/chatState";
 export function chatStateOf(overrides: Partial<ChatState> = {}): ChatState {
   return { ...createChatState(), ...overrides };
 }
+
+/** 返回按群读写并在缺失时由工厂初始化条目的获取函数。 */
+export function chatStateLookup<T>(
+  chatStates: Map<number, T>,
+  createState: () => T
+): (chatId: number) => T {
+  return (chatId: number): T => {
+    let chatState: T | undefined = chatStates.get(chatId);
+    if (chatState === undefined) {
+      chatState = createState();
+      chatStates.set(chatId, chatState);
+    }
+    return chatState;
+  };
+}

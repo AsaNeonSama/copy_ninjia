@@ -37,7 +37,6 @@ import type {
 } from "../../../packages/types/storageDatabase";
 import {
   encodeBlocklistEntryData,
-  encodeWhitelistEntryData,
   encodePendingBlockedRemovalData,
 } from "../../../packages/database/codec/identity";
 import {
@@ -53,7 +52,10 @@ import { handleChatStateWrite } from
   "../../../packages/workers/diskIO/storageDatabase/chatState";
 import { flushStorageDatabase, setStorageFlushHold } from
   "../../../packages/workers/diskIO/storageDatabase/flush";
-import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
+import {
+  hydrateStorageDatabase,
+  whitelistWrite,
+} from "../../helpers/storageDatabaseHydration";
 import {
   handleIdentityPolicyWrite,
   readIdentityPolicies,
@@ -68,8 +70,6 @@ import type {
   IdentityPolicyWriteDiskMessage,
   TemporaryAdBypassWriteDiskMessage,
 } from "../../../packages/types/diskIO";
-import type { WhitelistEntryData } from "../../../packages/types/identityPolicy";
-import { DEFAULT_WHITELIST_PERMISSIONS } from "../../../packages/consts/whitelist";
 import { chatStateOf } from "../../helpers/chatState";
 
 const META: Readonly<{ firstName: string; lastName: string; username: string }> = {
@@ -94,20 +94,6 @@ function clearBusinessTables(): void {
   const database: StorageDatabase = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
   clearStorageBusinessTables(database);
   closeStorageDatabase(database);
-}
-
-function whitelistWrite(id: number, revision: number): IdentityPolicyWriteDiskMessage {
-  const value: WhitelistEntryData = {
-    permissions: DEFAULT_WHITELIST_PERMISSIONS,
-    meta: META,
-  };
-  return {
-    type: "identityPolicyWrite",
-    table: "whitelist",
-    id,
-    data: encodeWhitelistEntryData(value),
-    revision,
-  };
 }
 
 function blocklistWrite(id: number, revision: number): IdentityPolicyWriteDiskMessage {

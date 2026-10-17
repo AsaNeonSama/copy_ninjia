@@ -5,13 +5,17 @@ import { TELEGRAM_CAPTION_MAX_CHARS, TELEGRAM_MESSAGE_MAX_CHARS } from "../../pa
 import { TRANSLATE_CHAT_BACKLOG_MAX } from "../../packages/consts/translate";
 import { translateMessageBacklogs, translateRuntime } from "../../packages/cache/main/translate";
 import type { TranslateMessageParams } from "../../packages/translate/message";
+import { chatStateLookup } from "../helpers/chatState";
+import { loggerStub } from "../helpers/loggerMock";
 
 const copyMessage = mock(async (..._args: unknown[]): Promise<number> => 10);
 const sendMessage = mock(async (..._args: unknown[]): Promise<number> => 11);
 const translateText = mock(async (..._args: unknown[]): Promise<string | null> => "translated");
+const loggerError = mock((..._args: unknown[]): void => {});
 let enabled: boolean = true;
 let configured: boolean = true;
 mock.module("../../packages/infra/telegram", () => ({ copyMessage, sendMessage }));
+mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));
 mock.module("../../packages/translate/client", () => ({ translateText }));
 mock.module("../../packages/config/readiness", () => ({ translateConfigReadiness: () => ({ ok: configured }) }));
 interface TestChatState {
@@ -26,14 +30,7 @@ function createTestChatState(): TestChatState {
   return { translate: undefined, get isTranslationEnabled(): boolean { return enabled; } };
 }
 
-function chatStateFor(chatId: number): TestChatState {
-  let chatState: TestChatState | undefined = chatStates.get(chatId);
-  if (chatState === undefined) {
-    chatState = createTestChatState();
-    chatStates.set(chatId, chatState);
-  }
-  return chatState;
-}
+const chatStateFor = chatStateLookup(chatStates, createTestChatState);
 
 /** 按群读写群状态上的 translate 字段。 */
 const translateStates = {
@@ -96,6 +93,7 @@ beforeEach(() => {
   configured = true;
   copyMessage.mockClear();
   sendMessage.mockClear();
+  loggerError.mockClear();
   translateText.mockReset();
   translateText.mockResolvedValue("translated");
 });
@@ -228,11 +226,18 @@ describe("独立翻译消息", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  test("API 失败不发送原文", async () => {
+  test("API 失败不发送原文，非中止异常记错误日志", async () => {
     translateText.mockResolvedValueOnce(null);
+    await translateNow(params("你好"));
+    const unexpected: Error = new Error("unexpected failure");
+    translateText.mockRejectedValueOnce(unexpected);
+    await translateNow(params("你好"));
+    translateText.mockRejectedValueOnce(new DOMException("aborted", "AbortError"));
     await translateNow(params("你好"));
     expect(copyMessage).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(loggerError).toHaveBeenCalledTimes(1);
+    expect(loggerError).toHaveBeenCalledWith("Failed to translate a message in chat -1001:", unexpected);
   });
 
   test("译文与原文逐字相同时视为同语种，不发送", async () => {

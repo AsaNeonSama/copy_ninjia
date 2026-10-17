@@ -82,12 +82,14 @@ describe("reaction sync update entry", () => {
 
   test("按新增、自定义、剩余与清除的优先级生成单个可复制反应", async () => {
     await handleReaction(context({ emoji: ["👍"], customEmojiAdded: ["custom-1"] }, { actorChatId: 42 }));
+    await handleReaction(context({ emoji: ["👍"], customEmoji: ["custom-2"] }));
     await handleReaction(context({ customEmoji: ["custom-2"] }));
     await handleReaction(context({ emojiRemoved: ["😁"] }));
     await handleReaction(context({}));
 
     expect(setMessageReactions.mock.calls.map((call) => call[0])).toEqual([
       expect.objectContaining({ reactions: [{ type: "custom_emoji", custom_emoji_id: "custom-1" }] }),
+      expect.objectContaining({ reactions: [{ type: "emoji", emoji: "👍" }] }),
       expect.objectContaining({ reactions: [{ type: "custom_emoji", custom_emoji_id: "custom-2" }] }),
       expect.objectContaining({ reactions: [] }),
     ]);

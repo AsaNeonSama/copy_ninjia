@@ -21,10 +21,8 @@ import {
 import { prepareStorageDatabaseReader } from "../../../packages/database/interact/reader";
 import { readStoredTemporaryAdBypassActivities } from
   "../../../packages/database/interact/temporaryAdBypass";
-import { clearStorageBusinessTables } from
-  "../../../scripts/fixtures/storageDatabase";
 import { flushStorageDatabase } from "../../../packages/workers/diskIO/storageDatabase/flush";
-import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
+import { resetDatabaseFixture } from "../../helpers/storageDatabaseHydration";
 import {
   handleTemporaryAdBypassWrite,
   maintainTemporaryAdBypassActivities,
@@ -80,14 +78,6 @@ function activityWrite(
       qualifiedAt: qualified ? countedAt : null,
     },
   };
-}
-
-function resetDatabaseFixture(): void {
-  resetStorageDatabaseCache();
-  const database: StorageDatabase = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
-  clearStorageBusinessTables(database);
-  closeStorageDatabase(database);
-  hydrateStorageDatabase();
 }
 
 beforeEach((): void => {

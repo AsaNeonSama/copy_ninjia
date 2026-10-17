@@ -13,8 +13,6 @@ import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
 const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
-const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
-const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 /**
  * 身份 LRU 驻留与批量处置局部结论：预热命中刷新热度，破坏性批量路径按块直接
@@ -43,12 +41,7 @@ const {
   prefetchIdentityPolicies,
   readIdentityPolicyVerdicts,
 } = await import("../../packages/infra/identityStorage");
-
-function seedMissing(id: number): void {
-  blocklistField.set(id, null);
-  whitelistField.set(id, null);
-  temporaryAdBypassField.set(id, null);
-}
+const { seedMissingIdentity: seedMissing } = await import("../helpers/identityStorage");
 
 function whitelistText(username: string): string {
   return JSON.stringify({

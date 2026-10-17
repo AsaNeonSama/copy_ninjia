@@ -1,7 +1,7 @@
 /** `/gag` 与 `/ungag` 的容量预约、提示收尾与停机排空状态机。 */
 
-import { describe, expect, test } from "bun:test";
-import { GAG_INLINE_QUERY_PREFIX, GAG_SESSION_MAX } from "../../packages/consts/gag";
+import { describe, expect, jest, test } from "bun:test";
+import { GAG_CLEANUP_RETRY_DELAYS_MS, GAG_INLINE_QUERY_PREFIX, GAG_SESSION_MAX } from "../../packages/consts/gag";
 import { GAG_TARGET_TEXTS, UNGAG_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/gag";
 import {
   GAG_TARGET_TEXTS as PLAIN_GAG_TARGET_TEXTS,
@@ -37,6 +37,7 @@ import {
   sendEphemeralMessage,
   sendMessage,
   sessionFor,
+  settleGagBackgroundTasks,
   installGagTestHooks,
   gagTestSwitches,
 } from "../helpers/gagHarness";
@@ -316,9 +317,15 @@ describe("/gag 与 /ungag 状态机", () => {
     await gag.handleGagCommand(commandContext());
     expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
     expect(lastCommandText()).toContain("不在这个群");
+
+    sendCommandMessage.mockClear();
+    probeChatMembership.mockImplementationOnce(async (_chatId: number, _userId: number): Promise<undefined> => undefined);
+    await gag.handleGagCommand(commandContext());
+    expect(sendEphemeralMessage).toHaveBeenCalledTimes(1);
+    expectTemplateRendered(lastCommandText(), NOTICES.gagMembershipUnknown);
   });
 
-  test("频道身份可通过回复、@username 或负数 id 被 gag，且不误用用户成员查询", async () => {
+  test("频道身份可通过回复、@username 或负数 id 被 gag，且不误用用户成员查询；入口发送失败则释放预约", async () => {
     resolveCommandTarget.mockImplementationOnce(async (
       params: unknown
     ): Promise<CachedUser> => {
@@ -339,6 +346,12 @@ describe("/gag 与 /ungag 状态机", () => {
         switch_inline_query_current_chat: `${GAG_INLINE_QUERY_PREFIX}-1002233445566 `,
       });
     expect(lastStateText()).toContain(NOTICES.gagChannelEntry);
+
+    gag.resetGagSessions();
+    resolveCommandTarget.mockResolvedValueOnce({ id: -1002233445566, isChannel: true, title: "测试频道" });
+    sendMessage.mockResolvedValueOnce(undefined);
+    await gag.handleGagCommand(commandContext({ match: "-1002233445566" }));
+    expect(gagSessionsByChat.has(-1001)).toBeFalse();
   });
 
   test("/ungag 按 @ 目标删除开始提示、释放状态并发送统一 30 秒回执", async () => {
@@ -452,22 +465,35 @@ describe("/gag 与 /ungag 状态机", () => {
     expect(gagSessionsByChat.has(session.chatId)).toBeFalse();
   });
 
-  test("提示删除失败时保留 ending owner，后续 teardown 成功才释放", async () => {
-    deleteEphemeralMessageWithOutcome.mockImplementationOnce(
-      async (): Promise<string> => "failed"
-    );
-    const session: GagSession = createSession();
-    addSession(session);
+  test("提示删除失败时保留 ending owner，/ungag 旁路与定时重试直至成功才释放", async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    try {
+      deleteEphemeralMessageWithOutcome
+        .mockImplementationOnce(async (): Promise<string> => "failed")
+        .mockImplementationOnce(async (): Promise<string> => "failed");
+      const session: GagSession = createSession();
+      addSession(session);
 
-    await gag.teardownGagInChat(session.chatId, "explicitDisable");
-    expect(sessionFor(session.chatId)).toBe(session);
-    expect(session.phase).toBe("ending");
-    expect(session.cleanupTimer).not.toBeNull();
-    expect(sendCommandMessage).not.toHaveBeenCalled();
+      await gag.teardownGagInChat(session.chatId, "explicitDisable");
+      expect(sessionFor(session.chatId)).toBe(session);
+      expect(session.phase).toBe("ending");
+      expect(session.cleanupTimer).not.toBeNull();
+      expect(sendCommandMessage).not.toHaveBeenCalled();
 
-    await gag.teardownGagInChat(session.chatId, "explicitDisable");
-    expect(gagSessionsByChat.has(session.chatId)).toBeFalse();
-    expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(2);
+      await gag.handleUngagCommand(commandContext());
+      await settleGagBackgroundTasks();
+      expectTemplateRendered(lastCommandText(), NOTICES.ungagEnding);
+      expect(sessionFor(session.chatId)).toBe(session);
+      expect(session.cleanupTimer).not.toBeNull();
+      expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(2);
+
+      jest.advanceTimersByTime(GAG_CLEANUP_RETRY_DELAYS_MS[1]!);
+      await settleGagBackgroundTasks();
+      expect(gagSessionsByChat.has(session.chatId)).toBeFalse();
+      expect(deleteEphemeralMessageWithOutcome).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("机器人离群时直接释放会话与 timer，不发删除请求，停机排空照常 flushed", async () => {
@@ -568,6 +594,28 @@ describe("/gag 与 /ungag 状态机", () => {
   });
 
   test("teardown 在开始提示发送期间到达时不会复活会话，并撤掉迟到提示", async () => {
+    let finishPublic: ((messageId: number) => void) | undefined;
+    sendMessage.mockImplementationOnce((params: TextMessageParams): Promise<number> =>
+      new Promise<number>((resolve: (messageId: number) => void): void => {
+        finishPublic = (messageId: number): void => {
+          params.onSent?.(messageId);
+          resolve(messageId);
+        };
+      })
+    );
+    const startingPublic: Promise<void> = gag.handleGagCommand(commandContext());
+    for (let step: number = 0; step < 6 && finishPublic === undefined; step++) {
+      await Promise.resolve();
+    }
+    expect(finishPublic).toBeDefined();
+    await gag.teardownGagInChat(-1001, "explicitDisable");
+    finishPublic!(56);
+    await startingPublic;
+    expect(gagSessionsByChat.has(-1001)).toBeFalse();
+    expect(sendEphemeralMessage).not.toHaveBeenCalled();
+    expect(deleteMessageWithOutcome).toHaveBeenCalledWith(-1001, 56);
+
+    deleteMessageWithOutcome.mockClear();
     let finishSend: ((messageId: number) => void) | undefined;
     // 与真实发送边界同一契约：远端返回 id 时先经 onSent 同步登记，再结算。
     sendEphemeralMessage.mockImplementationOnce((params: EphemeralMessageParams): Promise<number> =>

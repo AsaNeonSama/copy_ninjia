@@ -79,12 +79,7 @@ const {
 const { canBypassAdDetection } = await import(
   "../../packages/antiRaid/memberFacts"
 );
-
-function seedMissing(id: number): void {
-  whitelistField.set(id, null);
-  blocklistField.set(id, null);
-  temporaryAdBypassField.set(id, null);
-}
+const { seedMissingIdentity: seedMissing } = await import("../helpers/identityStorage");
 
 beforeEach(() => {
   diskMessages.length = 0;

@@ -14,6 +14,7 @@ import {
   resolveCommandTarget,
   sendEphemeralMessage,
   sendMessage,
+  sendVisibleMessages,
   sessionFor,
   settleGagBackgroundTasks,
 } from "../helpers/gagHarness";
@@ -38,16 +39,6 @@ installGagFakeClockHooks();
 async function speak(): Promise<void> {
   await gag.handleGagMessageIngress(normalMessage(), 999);
   await settleGagBackgroundTasks();
-}
-
-async function sendVisibleMessages(count: number): Promise<void> {
-  for (let index: number = 0; index < count; index++) {
-    await gag.handleGagMessageIngress(normalMessage({
-      message_id: 200 + index,
-      from: { id: 8, is_bot: false, first_name: "Bob" },
-    }), 999);
-    await settleGagBackgroundTasks();
-  }
 }
 
 describe("gag 沉默后的发言补发", () => {

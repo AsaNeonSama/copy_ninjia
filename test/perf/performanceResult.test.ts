@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import { TEST_DATA_ROOT } from "../preloadEnv";
+import { jsonDocumentWriter } from "../helpers/common";
 import {
   PERFORMANCE_RESULT_PATH,
   writePerformanceResultEntry,
@@ -12,14 +13,7 @@ afterAll((): void => {
   rmSync(scratchRoot, { recursive: true, force: true });
 });
 
-let documentIndex: number = 0;
-/** 把一份记录写进独立临时文件，返回路径；用例之间不共享文件。 */
-async function writeDocument(document: unknown): Promise<string> {
-  documentIndex++;
-  const path: string = join(scratchRoot, `result-${documentIndex}.json`);
-  await Bun.write(path, `${JSON.stringify(document, null, 2)}\n`);
-  return path;
-}
+const writeDocument = jsonDocumentWriter(scratchRoot);
 
 async function reload(path: string): Promise<Record<string, unknown>> {
   return JSON.parse(await Bun.file(path).text());

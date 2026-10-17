@@ -1,5 +1,5 @@
 import type { FlushResult } from "../../packages/types/lifecycle";
-import { acknowledgeIdentityPolicyWrites, diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
+import { createFlushBlocklistDomain, diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import type { IdentityStoragePersistedReply } from "../../packages/types/diskIO/replies";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { groupCommandContext } from "../helpers/groupCommandContext";
@@ -89,12 +89,12 @@ const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [
 /** 为 false 时 flush 成功也不回执身份写入，模拟 Worker 尚未提交这批事务。 */
 const identityAck: { enabled: boolean } = { enabled: true };
 
-/** 黑名单确认等的是精确 revision ACK：flush 成功时先把已投递的身份写入回执出去。 */
-async function flushBlocklistDomain(): Promise<{ result: FlushResult }> {
-  const result: FlushResult = await flushDiskIO();
-  if (result === "flushed" && identityAck.enabled) acknowledgeIdentityPolicyWrites(postDiskIO.mock.calls, persistedListeners);
-  return { result };
-}
+const flushBlocklistDomain = createFlushBlocklistDomain({
+  flushDiskIO,
+  postDiskIO,
+  listeners: persistedListeners,
+  identityAck,
+});
 mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   postDiskIO,
   onDiskIORespawn: (): void => {},

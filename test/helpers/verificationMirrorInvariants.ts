@@ -52,3 +52,20 @@ export function assertVerificationMirrorInvariants(): void {
     throw new Error(`Verification mirror invariants violated: ${violations.join("; ")}`);
   }
 }
+
+export function record(generation: number, revision: number): VerificationSnapshot {
+  return {
+    chatId: -1001,
+    userId: 42,
+    generation,
+    revision,
+    phase: "pending",
+    label: "待验证成员",
+    isBot: false,
+    trackedMessageTimes: [],
+    replyReminderRequested: false,
+    reminderSuperseded: false,
+    joinedAt: 1_000,
+    expiresAt: 121_000,
+  };
+}

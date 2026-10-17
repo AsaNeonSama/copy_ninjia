@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 import { TEST_DATA_ROOT } from "../preloadEnv";
+import { jsonDocumentWriter } from "../helpers/common";
 import {
   readHotPathGateCalibration,
   writeHotPathGateLastRun,
@@ -56,14 +57,7 @@ function validDocument(): Record<string, unknown> {
   };
 }
 
-let documentIndex: number = 0;
-/** 把一份记录写进独立临时文件，返回路径；用例之间不共享文件。 */
-async function writeDocument(document: unknown): Promise<string> {
-  documentIndex++;
-  const path: string = join(scratchRoot, `result-${documentIndex}.json`);
-  await Bun.write(path, `${JSON.stringify(document, null, 2)}\n`);
-  return path;
-}
+const writeDocument = jsonDocumentWriter(scratchRoot);
 
 describe("热路径门禁记录 performance-result.json", () => {
   test("仓库根那份记录能严格解析，且与默认场景表精确一一对应", async () => {

@@ -16,6 +16,7 @@ import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { longestTemplatePart } from "../helpers/templateText";
 import type { Atmosphere } from "../../packages/types/atmosphere";
 import { replyCommandNoticeVia } from "../helpers/common";
+import { chatStateLookup } from "../helpers/chatState";
 
 const sendCommandMessage = mock(async (..._args: unknown[]): Promise<number> => 1);
 const persistChatState = mock(async (..._args: unknown[]): Promise<void> => {});
@@ -42,14 +43,7 @@ function createTestChatState(): TestChatState {
   };
 }
 
-function chatStateFor(chatId: number): TestChatState {
-  let chatState: TestChatState | undefined = chatStates.get(chatId);
-  if (chatState === undefined) {
-    chatState = createTestChatState();
-    chatStates.set(chatId, chatState);
-  }
-  return chatState;
-}
+const chatStateFor = chatStateLookup(chatStates, createTestChatState);
 
 /** 断言用的会话视图：按群读写群状态上的 translate 字段。 */
 const translateStates = {
@@ -160,10 +154,19 @@ describe("/translate 独立命令", () => {
     expect(persistChatState).toHaveBeenCalledTimes(1);
   });
 
-  test("目标解析失败不停止全群，单人重复停止仍确认持久化", async () => {
+  test("目标解析失败或回复外部聊天消息时不停止全群，单人重复停止仍确认持久化", async () => {
     setTranslateState(-1001, { translatedUser: { id: 8 }, language: "ru" });
     target = undefined;
     await handleTranslateCommand(context("stop @Unknown"));
+    const externalReplyCtx = context("stop") as any;
+    externalReplyCtx.msg.external_reply = {
+      origin: { type: "channel", date: 1, chat: { id: -2002, type: "channel", title: "Out" }, message_id: 1 },
+    };
+    await handleTranslateCommand(externalReplyCtx);
+    expect(resolveCommandTarget).toHaveBeenLastCalledWith({
+      chatId: -1001, message: externalReplyCtx.msg, botUserId: 999, rawArgument: "",
+      messages: TRANSLATE_TARGET_TEXTS, acceptUserId: true, acceptChatId: true,
+    });
     expect(translateStates.get(-1001)).toHaveLength(1);
     expect(persistChatState).not.toHaveBeenCalled();
     target = { id: 7 };

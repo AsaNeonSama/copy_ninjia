@@ -22,6 +22,7 @@ import {
   sendCommandMessage,
   sendEphemeralMessage,
   sendMessage,
+  sendVisibleMessages,
   sessionFor,
   settleGagBackgroundTasks,
 } from "../helpers/gagHarness";
@@ -31,16 +32,6 @@ const gag = await import("../../packages/commands/gag");
 
 installGagTestHooks();
 installGagFakeClockHooks();
-
-async function sendVisibleMessages(count: number): Promise<void> {
-  for (let index: number = 0; index < count; index++) {
-    await gag.handleGagMessageIngress(normalMessage({
-      message_id: 200 + index,
-      from: { id: 8, is_bot: false, first_name: "Bob" },
-    }), 999);
-    await settleGagBackgroundTasks();
-  }
-}
 
 describe("gag 发言入口刷新", () => {
   test("满容量会话的发送阻塞时，千条群消息不会堆积等待刷新任务", async () => {

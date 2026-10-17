@@ -3,11 +3,6 @@ import {
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
 } from "../../../packages/consts/identityStorage";
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
-import { DEFAULT_WHITELIST_PERMISSIONS } from "../../../packages/consts/whitelist";
-import { encodeWhitelistEntryData } from
-  "../../../packages/database/codec/identity";
-import { clearStorageBusinessTables } from
-  "../../../scripts/fixtures/storageDatabase";
 import {
   closeStorageDatabase,
   openStorageDatabase,
@@ -27,54 +22,26 @@ import {
   flushStorageDatabase,
   collectStorageDatabaseFailures,
 } from "../../../packages/workers/diskIO/storageDatabase/flush";
-import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
+import {
+  hydrateStorageDatabase,
+  resetDatabaseFixture,
+  whitelistWrite,
+} from "../../helpers/storageDatabaseHydration";
 import { handleIdentityPolicyWrite } from
   "../../../packages/workers/diskIO/storageDatabase/identityPolicy";
 import { handleBlocklistRemovalWrite } from
   "../../../packages/workers/diskIO/storageDatabase/pendingRemoval";
 import type {
   DiskIODomain,
-  IdentityPolicyWriteDiskMessage,
   IdentityStoragePersistedReply,
 } from "../../../packages/types/diskIO";
-import type { WhitelistEntryData } from
-  "../../../packages/types/identityPolicy";
 import type { StorageDatabase } from
   "../../../packages/types/storageDatabase";
 
-const META: Readonly<{ firstName: string; lastName: string; username: string }> = {
-  firstName: "本天才才不是雑魚喵~",
-  lastName: "",
-  username: "copy_ninjia_bot",
-};
 const acknowledgements: IdentityStoragePersistedReply[] = [];
 
 function reply(value: IdentityStoragePersistedReply): void {
   acknowledgements.push(value);
-}
-
-function whitelistWrite(id: number, revision: number): IdentityPolicyWriteDiskMessage {
-  const value: WhitelistEntryData = {
-    permissions: DEFAULT_WHITELIST_PERMISSIONS,
-    meta: META,
-  };
-  return {
-    type: "identityPolicyWrite",
-    table: "whitelist",
-    id,
-    data: encodeWhitelistEntryData(value),
-    revision,
-  };
-}
-
-function resetDatabaseFixture(): void {
-  resetStorageDatabaseCache();
-  const database: StorageDatabase = openStorageDatabase({
-    path: IDENTITY_DATABASE_PATH,
-  });
-  clearStorageBusinessTables(database);
-  closeStorageDatabase(database);
-  hydrateStorageDatabase();
 }
 
 beforeEach((): void => {

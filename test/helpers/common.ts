@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 /** 多个领域的测试文件共用、与被测领域无关的小工具（非测试文件，bun test 不会执行它）。 */
 
 /**
@@ -56,4 +58,17 @@ export function replyCommandNoticeVia(
 ): (ctx: { readonly chat: { readonly id: number }; readonly msgId: number | undefined }, text: string) => unknown {
   return (ctx: { readonly chat: { readonly id: number }; readonly msgId: number | undefined }, text: string): unknown =>
     sendCommandMessage({ chatId: ctx.chat.id, text, replyToMessageId: ctx.msgId });
+}
+
+/** 返回将任意 JSON 记录写入 scratchRoot 下独立临时文件并返回路径的写入函数。 */
+export function jsonDocumentWriter(
+  scratchRoot: string
+): (document: unknown) => Promise<string> {
+  let documentIndex: number = 0;
+  return async (document: unknown): Promise<string> => {
+    documentIndex += 1;
+    const path: string = join(scratchRoot, `result-${documentIndex}.json`);
+    await Bun.write(path, `${JSON.stringify(document, null, 2)}\n`);
+    return path;
+  };
 }

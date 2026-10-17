@@ -77,3 +77,26 @@ export function acknowledgeIdentityPolicyWrites(
     listener({ type: "identityStoragePersisted", writes, temporaryAdBypassWrites: [], chatStateWrites: [], chatQaWrites: [], removalWrites: [] });
   }
 }
+
+export interface FlushBlocklistDomainParams {
+  readonly flushDiskIO: () => Promise<FlushResult>;
+  readonly postDiskIO: { readonly mock: { readonly calls: readonly (readonly unknown[])[] } };
+  readonly listeners: readonly ((reply: IdentityStoragePersistedReply) => void)[];
+  readonly identityAck: { readonly enabled: boolean };
+}
+
+/** 黑名单/白名单确认等精确 revision ACK：flush 成功且开启回执时先把已投递的身份写入回执出去。 */
+export function createFlushBlocklistDomain({
+  flushDiskIO,
+  postDiskIO,
+  listeners,
+  identityAck,
+}: FlushBlocklistDomainParams): () => Promise<{ result: FlushResult }> {
+  return async (): Promise<{ result: FlushResult }> => {
+    const result: FlushResult = await flushDiskIO();
+    if (result === "flushed" && identityAck.enabled) {
+      acknowledgeIdentityPolicyWrites(postDiskIO.mock.calls, listeners);
+    }
+    return { result };
+  };
+}
