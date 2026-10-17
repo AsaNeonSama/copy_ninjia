@@ -77,6 +77,22 @@ function seed(members: FifoMap<number, number>, identity: User): void {
   members.set(identity.id, 0);
 }
 
+/** 以用户 1..WED_SESSION_LIMIT 填满已送达的空闲会话（消息 ID 为 1000 + 用户 ID），插入顺序即送达顺序。 */
+function fillDeliveredSessions(state: WedChat): void {
+  for (let id: number = 1; id <= WED_SESSION_LIMIT; id++) {
+    state.sessions.set(id, {
+      chatId: chat.id,
+      actor: { ...actor, id },
+      messageThreadId: 77,
+      controller: new AbortController(),
+      messageId: 1000 + id,
+      targetId: partner.id,
+      confirmed: false,
+      busy: false,
+    });
+  }
+}
+
 function command(overrides: Record<string, unknown> = {}): never {
   const msg = { message_id: 10, chat, from: actor, is_topic_message: true, message_thread_id: 77 };
   return { chat, msg, message: msg, msgId: 10, from: actor, match: "", ...overrides } as never;
@@ -546,18 +562,7 @@ describe("/wed 图片和按钮交互", () => {
     const state: WedChat = getOrCreateWedChat(chat.id)!;
     seed(state.members, actor);
     seed(state.members, partner);
-    for (let id: number = 1; id <= WED_SESSION_LIMIT; id++) {
-      state.sessions.set(id, {
-        chatId: chat.id,
-        actor: { ...actor, id },
-        messageThreadId: 77,
-        controller: new AbortController(),
-        messageId: 1000 + id,
-        targetId: partner.id,
-        confirmed: false,
-        busy: false,
-      });
-    }
+    fillDeliveredSessions(state);
     const earliest: WedSession = state.sessions.get(1)!;
     const drawGate: PromiseWithResolvers<CurrentAvatarResult> = Promise.withResolvers<CurrentAvatarResult>();
     avatar.mockImplementationOnce((): Promise<CurrentAvatarResult> => drawGate.promise);
@@ -591,18 +596,7 @@ describe("/wed 图片和按钮交互", () => {
 
   test("满额时新用户抽取落空或送达失败不滑出任何已有结果；最早会话忙碌时跳过它滑出下一份", async () => {
     const state: WedChat = wedChats.get(chat.id)!;
-    for (let id: number = 1; id <= WED_SESSION_LIMIT; id++) {
-      state.sessions.set(id, {
-        chatId: chat.id,
-        actor: { ...actor, id },
-        messageThreadId: 77,
-        controller: new AbortController(),
-        messageId: 1000 + id,
-        targetId: partner.id,
-        confirmed: false,
-        busy: false,
-      });
-    }
+    fillDeliveredSessions(state);
     const first: WedSession = state.sessions.get(1)!;
     const second: WedSession = state.sessions.get(2)!;
     state.members.delete(actor.id);
@@ -632,18 +626,7 @@ describe("/wed 图片和按钮交互", () => {
 
   test("同一用户重抽失败保留原位与原会话，重抽成功移到最新端且不滑出其他会话", async () => {
     const state: WedChat = wedChats.get(chat.id)!;
-    for (let id: number = 1; id <= WED_SESSION_LIMIT; id++) {
-      state.sessions.set(id, {
-        chatId: chat.id,
-        actor: { ...actor, id },
-        messageThreadId: 77,
-        controller: new AbortController(),
-        messageId: 1000 + id,
-        targetId: partner.id,
-        confirmed: false,
-        busy: false,
-      });
-    }
+    fillDeliveredSessions(state);
     const originalFirst: WedSession = state.sessions.get(1)!;
 
     photo.mockImplementationOnce(async (): Promise<any> => { throw new Error("redraw send failed"); });
@@ -678,18 +661,7 @@ describe("/wed 图片和按钮交互", () => {
 
   test("满额已送达叠加多份并发在途新会话时不触发 FifoMap 自动淘汰，按送达顺序逐一滑出", async () => {
     const state: WedChat = wedChats.get(chat.id)!;
-    for (let id: number = 1; id <= WED_SESSION_LIMIT; id++) {
-      state.sessions.set(id, {
-        chatId: chat.id,
-        actor: { ...actor, id },
-        messageThreadId: 77,
-        controller: new AbortController(),
-        messageId: 1000 + id,
-        targetId: partner.id,
-        confirmed: false,
-        busy: false,
-      });
-    }
+    fillDeliveredSessions(state);
     const deliveries: PromiseWithResolvers<any>[] = [
       Promise.withResolvers<any>(),
       Promise.withResolvers<any>(),

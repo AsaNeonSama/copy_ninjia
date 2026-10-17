@@ -132,12 +132,10 @@ async function attemptGoogleJson(params: AdDetectJsonRequestParams): Promise<Goo
   let cachedContent: string | null = null;
   let response: GenerateContentResponse;
   try {
-    cachedContent = adDetectGeminiContextCache.current?.scan === "unsupported"
-      ? null
-      : acquireGeminiContextCache(
-        AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE,
-        cacheContentOf(params.model, params.instructions)
-      );
+    cachedContent = acquireGeminiContextCache(
+      AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE,
+      cacheContentOf(params.model, params.instructions)
+    );
     response = await generateAdDetectContent(params, cachedContent);
   } catch (error: unknown) {
     logGoogleFailure(params.errorLabel, error);

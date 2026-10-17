@@ -38,11 +38,15 @@ const cacheList = mock(async (..._args: unknown[]): Promise<AsyncIterable<FakeCa
   async *[Symbol.asyncIterator](): AsyncGenerator<FakeCache> {},
 }));
 let configuredModel: string = "gemini-ad";
-const modelGet = mock(async (params: { readonly model: string }): Promise<{ readonly supportedActions: readonly string[] }> => ({
-  supportedActions: params.model === "gemini-4-argon"
-    ? ["generateContent", "countTokens", "batchGenerateContent"]
-    : ["generateContent", "countTokens", "createCachedContent", "batchGenerateContent"],
-}));
+/** 假 `models.get`：只有 gemini-4-argon 不支持显式缓存。 */
+async function modelGetStub(params: { readonly model: string }): Promise<{ readonly supportedActions: readonly string[] }> {
+  return {
+    supportedActions: params.model === "gemini-4-argon"
+      ? ["generateContent", "countTokens", "batchGenerateContent"]
+      : ["generateContent", "countTokens", "createCachedContent", "batchGenerateContent"],
+  };
+}
+const modelGet = mock(modelGetStub);
 
 class FakeApiError extends Error {
   status: number = 429;
@@ -84,10 +88,7 @@ const {
 const { installAiCacheUsageSink } = await import("../../../packages/infra/aiCacheUsage");
 const { quiesceAntiRaidDispatch } = await import("../../../packages/workers/antiRaid/taskTracker");
 const { antiRaidDispatchAbort } = await import("../../../packages/cache/workers/antiRaid/tasks");
-const {
-  GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION,
-  GEMINI_CONTEXT_CACHE_TTL_SECONDS,
-} = await import("../../../packages/consts/geminiContextCache");
+const { GEMINI_CONTEXT_CACHE_TTL_SECONDS } = await import("../../../packages/consts/geminiContextCache");
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
 const {
   AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
@@ -150,11 +151,7 @@ beforeEach((): void => {
   createdCount = 0;
   for (const fn of [cacheDelete, cacheUpdate, cacheList]) fn.mockClear();
   modelGet.mockReset();
-  modelGet.mockImplementation(async (req: { readonly model: string }): Promise<{ readonly supportedActions: readonly string[] }> => ({
-    supportedActions: req.model === "gemini-4-argon"
-      ? ["generateContent", "countTokens", "batchGenerateContent"]
-      : ["generateContent", "countTokens", GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION, "batchGenerateContent"],
-  }));
+  modelGet.mockImplementation(modelGetStub);
   cacheCreate.mockReset();
   cacheCreate.mockImplementation(cacheCreateStub);
   generateContent.mockReset();
@@ -361,7 +358,6 @@ describe("ad_detect 显式缓存", () => {
     await expect(requestGoogleAdDetectJson(argonParams)).resolves.toContain("闲聊");
     await expect(requestGoogleAdDetectJson(argonParams)).resolves.toContain("闲聊");
     expect(cacheCreate).not.toHaveBeenCalled();
-    expect(adDetectGeminiCacheContent.current).toBeNull();
     expect(sentAt(0).config.cachedContent).toBeUndefined();
     expect(sentAt(0).config.systemInstruction).toBe(argonParams.instructions);
     expect(sentAt(1).config.cachedContent).toBeUndefined();

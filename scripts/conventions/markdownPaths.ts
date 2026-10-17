@@ -4,14 +4,17 @@ import { withoutMarkdownCodeFences } from "./markdownSource";
 /**
  * 文档里反引号包裹的仓库路径存在性核对。
  *
- * 判存以受跟踪文件集合（含未忽略的新文件，过滤掉尚未 stage 的已删除文件）及其全部祖先目录为准，
- * 不按工作树 `existsSync` 判存，避免 Git 忽略的部署数据在本机与干净检出之间得出不同结论。
+ * 判存以受跟踪文件集合（含未忽略的新文件，过滤掉尚未 stage 的已删除文件）及其全部祖先目录为准；
+ * 只在本机工作树存在、被 Git 忽略的路径同样报缺失。
  */
 
 /** 行内反引号片段。 */
 const INLINE_CODE_PATTERN: RegExp = /`([^`\n]+)`/g;
 
-/** 受核对的仓库顶层前缀与纯路径形态；含 `<`、`*`、`{`、空格、`:`、`#` 的片段自然不命中。 */
+/**
+ * 受核对的仓库顶层前缀与纯路径形态；含 `<`、`*`、`{`、空格、`:`、`#` 的片段自然不命中，
+ * 含 `xxx` 占位名的片段（如 `test/commands/xxx.test.ts`）由调用处跳过。
+ */
 const REPOSITORY_PATH_PATTERN: RegExp =
   /^(?:packages|scripts|test|docs|config_example|prompt_example|public|LICENSES)(?:\/[A-Za-z0-9_.-]+)*\/?$/;
 

@@ -28,7 +28,6 @@ import {
 import { getAgentDeploymentConfig } from "../../config/agent";
 import {
   geminiReplyLastRequestAt,
-  textGeminiContextCache,
   textGeminiReplyCacheContent,
 } from "../../cache/workers/aiChat/geminiContextCache";
 import { isPlainRecord } from "../../libs/record";
@@ -176,7 +175,7 @@ export function createGeminiReplySession(
   }
 
   /**
-   * 发送首轮请求：模型支持显式缓存时优先尝试引用共用显式缓存；若缓存因客户端请求错误被拒则释放该缓存并改发完整请求。
+   * 发送首轮请求：优先尝试引用共用显式缓存；若缓存因客户端请求错误被拒则释放该缓存并改发完整请求。
    */
   async function requestFirst(request: AiReplyTurnRequest, tools: Tool[], sentAt: number): Promise<GeminiRequestResult> {
     if (getAgentDeploymentConfig().text !== textConfig) return requestFull(request, tools, sentAt);
@@ -206,10 +205,7 @@ export function createGeminiReplySession(
       pendingModelContent = undefined;
       const tools: Tool[] = buildTools(request);
       const now: number = performance.now();
-      const useExplicitCache: boolean =
-        firstRequest &&
-        textGeminiContextCache.current?.scan !== "unsupported" &&
-        !implicitCacheStillWarm(chatId, now);
+      const useExplicitCache: boolean = firstRequest && !implicitCacheStillWarm(chatId, now);
       firstRequest = false;
       const result: GeminiRequestResult = useExplicitCache
         ? await requestFirst(request, tools, now)

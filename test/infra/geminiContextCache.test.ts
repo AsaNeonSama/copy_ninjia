@@ -48,12 +48,16 @@ const list = mock(async (..._args: unknown[]): Promise<AsyncIterable<CachedConte
     for (const cache of listed) yield cache;
   },
 }));
-const getModel = mock(async (params: ModelGetParameters): Promise<Model> => ({
-  name: `models/${params.model}`,
-  supportedActions: params.model === "gemini-4-argon"
-    ? ["generateContent", "countTokens", "batchGenerateContent"]
-    : ["generateContent", "countTokens", "createCachedContent", "batchGenerateContent"],
-}));
+/** 假 `models.get`：只有 gemini-4-argon 不支持显式缓存。 */
+async function getModelStub(params: ModelGetParameters): Promise<Model> {
+  return {
+    name: `models/${params.model}`,
+    supportedActions: params.model === "gemini-4-argon"
+      ? ["generateContent", "countTokens", "batchGenerateContent"]
+      : ["generateContent", "countTokens", "createCachedContent", "batchGenerateContent"],
+  };
+}
+const getModel = mock(getModelStub);
 const reportAiCacheUsage = mock((..._args: unknown[]): void => {});
 const loggerError = mock((..._args: unknown[]): void => {});
 const loggerWarn = mock((..._args: unknown[]): void => {});
@@ -83,7 +87,6 @@ const {
   GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS,
   GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS,
   GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS,
-  GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION,
   GEMINI_CONTEXT_CACHE_TTL_SECONDS,
 } = await import("../../packages/consts/geminiContextCache");
 const { GEMINI_SERVER_TOOL_CONFIG } = await import("../../packages/consts/aiChat/gemini");
@@ -230,12 +233,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         for (const cache of listed) yield cache;
       },
     }));
-    getModel.mockImplementation(async (params: ModelGetParameters): Promise<Model> => ({
-      name: `models/${params.model}`,
-      supportedActions: params.model === "gemini-4-argon"
-        ? ["generateContent", "countTokens", "batchGenerateContent"]
-        : ["generateContent", "countTokens", GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION, "batchGenerateContent"],
-    }));
+    getModel.mockImplementation(getModelStub);
   });
 
   afterEach(() => {
@@ -282,17 +280,17 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
       expect(create).toHaveBeenCalledTimes(1);
     });
 
-    test("models.get 探测失败时记一次错误日志并标为 unsupported，不扫描也不创建；停机取消时不记日志", async () => {
+    test("models.get 探测失败时记一次错误日志后按支持继续扫描与创建；停机取消时不记日志", async () => {
       getModel.mockImplementationOnce(async (): Promise<Model> => {
         throw new Error("model metadata unavailable");
       });
       probeGeminiContextCache(scope);
-      expect(await waitUntil((): boolean => registry().scan === "unsupported")).toBe(true);
+      expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
       expect(loggerError).toHaveBeenCalledTimes(1);
-      expect(list).not.toHaveBeenCalled();
+      expect(list).toHaveBeenCalledTimes(1);
       expect(acquireGeminiContextCache(scope, content())).toBeNull();
       await settleCreations();
-      expect(create).not.toHaveBeenCalled();
+      expect(create).toHaveBeenCalledTimes(1);
 
       loggerError.mockClear();
       fixture.dropRegistry();
@@ -301,7 +299,7 @@ describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
         throw params.config?.abortSignal?.reason;
       });
       probeGeminiContextCache(scope);
-      expect(await waitUntil((): boolean => registry().scan === "unsupported")).toBe(true);
+      expect(await waitUntil((): boolean => registry().scan === "done")).toBe(true);
       expect(loggerError).not.toHaveBeenCalled();
     });
 

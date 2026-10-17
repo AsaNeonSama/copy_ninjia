@@ -12,13 +12,11 @@ import type { Content, GenerateContentParameters } from "@google/genai";
 import type { GeminiRequestResult } from "../../../packages/types/aiChat/gemini";
 import type { GeminiRequestOptions } from "../../../packages/aiChat/gemini/client";
 import type { AiReplySession, AiReplyTurn, AiReplyTurnRequest, AiToolDefinition } from "../../../packages/types/aiChat/provider";
-import type { GeminiContextCacheRegistry } from "../../../packages/types/geminiContextCache";
 import { DUPLICATE_REPLY_RESULT } from "../../../packages/consts/aiChat/tools";
 import {
   geminiReplyLastRequestAt,
   resetGeminiContextCache,
   sweepGeminiReplyRequestTimes,
-  textGeminiContextCache,
 } from "../../../packages/cache/workers/aiChat/geminiContextCache";
 import { invalidateChatRuntimeCache } from "../../../packages/cache/workers/aiChat/index";
 import { getAgentDeploymentConfig } from "../../../packages/config/agent";
@@ -187,29 +185,6 @@ describe("两套请求结构", () => {
       systemInstruction: "系统提示词",
       toolConfig: { includeServerSideToolInvocations: true },
     }));
-  });
-
-  test("模型已探测为不支持显式缓存（scan 为 unsupported，如 gemini-4-argon）时，第 1 次请求直接走隐式缓存（完整结构），不进显式缓存预热路径", async () => {
-    textGeminiContextCache.current = {
-      client: PINNED_CLIENT as never,
-      slots: new Map(),
-      creations: new Map(),
-      failures: new Map(),
-      rejected: new Map(),
-      scan: "unsupported",
-    } satisfies GeminiContextCacheRegistry;
-    acquireGeminiContextCache.mockImplementation((): string | null => "cachedContents/shared");
-    requestGeminiResult.mockImplementation(respond(okResult(modelContent())));
-    const session: AiReplySession = createGeminiReplySession({ chatId: CHAT_ID, stableBlocks: ["参考记忆"], volatileBlocks: ["转录"] });
-    await session.request(REQUEST);
-
-    expect(geminiContextCacheContent).not.toHaveBeenCalled();
-    expect(acquireGeminiContextCache).not.toHaveBeenCalled();
-    const body: GenerateContentParameters = bodyAt(0);
-    expect(body.config?.cachedContent).toBeUndefined();
-    expect(body.config?.systemInstruction).toBe("系统提示词");
-    expect(body.config?.tools).toBeDefined();
-    expect(body.config?.toolConfig).toEqual(GEMINI_SERVER_TOOL_CONFIG);
   });
 
   test("第 2 次起换回完整结构，contents 与模型 content（含思考签名）照常接回，不再取缓存", async () => {

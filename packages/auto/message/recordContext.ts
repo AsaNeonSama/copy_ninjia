@@ -41,6 +41,7 @@ export function buildAiRecordMessage({
   };
 }
 
+/** buildInlineSenderRecordMessage 的入参。 */
 export interface BuildInlineSenderRecordMessageParams {
   readonly chatId: number;
   readonly speaker: AiSpeakerSnapshot;

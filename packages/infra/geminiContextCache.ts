@@ -1,6 +1,6 @@
 /**
  * Gemini 显式缓存（`cachedContent`）的共用核心：在 provider 启动或切换时探测模型是否支持显式缓存，
- * 支持时按系统指令指纹分槽管理启动扫描、后台创建、续期、释放与容量淘汰，不支持时直接标记为
+ * 按系统指令指纹分槽管理启动扫描、后台创建、续期、释放与容量淘汰；模型不支持时标记为
  * `"unsupported"` 并跳过显式缓存预热路径，通过 `GeminiContextCacheScope` 隔离不同能力的客户端与登记表。
  */
 
@@ -141,8 +141,9 @@ function evictOverflowSlots(scope: Readonly<GeminiContextCacheScope>, registry: 
 
 /**
  * 启动扫描：先探测当前模型是否支持显式缓存（`supportedActions` 含 `createCachedContent`），
- * 不支持或探测失败时将登记表标为 `"unsupported"` 并跳过扫描；支持则接管服务端已有的本 scope
- * 条目（`displayName` 带本 scope 前缀且两段指纹合法），同槽出现多份时保留过期更晚的一份并删除其余条目。
+ * 不支持时将登记表标为 `"unsupported"` 并跳过扫描；探测请求失败时记错误日志后按支持处理，
+ * 由创建失败冷却与 400 拒绝计数处理。随后接管服务端已有的本 scope 条目（`displayName` 带本
+ * scope 前缀且两段指纹合法），同槽出现多份时保留过期更晚的一份并删除其余条目。
  */
 async function scanExistingCaches(scope: Readonly<GeminiContextCacheScope>, registry: GeminiContextCacheRegistry): Promise<void> {
   const signal: AbortSignal = scope.signal();
@@ -157,8 +158,6 @@ async function scanExistingCaches(scope: Readonly<GeminiContextCacheScope>, regi
     }
   } catch (error: unknown) {
     if (!signal.aborted) logger.error(`${scope.errorLabel} model probe failed:`, error);
-    registry.scan = "unsupported";
-    return;
   }
   try {
     const pager: Pager<CachedContent> = await registry.client.caches.list({
@@ -328,7 +327,8 @@ function renewSlot(
 }
 
 /**
- * 在 provider 启动或切换后，后台探测当前模型是否支持显式缓存，支持时扫描接管服务端既有条目。
+ * 在 provider 启动或切换后，后台探测当前模型是否支持显式缓存，并扫描接管服务端既有条目
+ * （判定见 scanExistingCaches）。
  */
 export function probeGeminiContextCache(scope: Readonly<GeminiContextCacheScope>): void {
   if (scope.signal().aborted) return;

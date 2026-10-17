@@ -431,7 +431,7 @@ export function reportUnimplementedAgentCapabilities(): void {
 
 /**
  * 接管热重载的 agent 配置快照：重置门面与客户端缓存、修剪不再引用的配额 lane，
- * 并在 text 或 media 配置变化时重置对应的上下文缓存（Google 同步探测显式缓存支持度）或模态支持探测状态。
+ * 并在 text 或 media 配置变化时重置对应的上下文缓存或模态支持探测状态；新 text 选用 Google 时随即在后台探测显式缓存支持度。
  */
 export function reloadAgentDeploymentConfig(config: AgentDeploymentConfig): void {
   const previous: AgentDeploymentConfig = getAgentDeploymentConfig();

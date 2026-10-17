@@ -68,6 +68,9 @@ async function assertInstalledStartup(fixture: InstallerFixture, output: string,
   expect(output.match(/^INSTALL_WORKER_NETWORK_GUARD\r?$/gm)?.length).toBe(ai ? 3 : 2);
   if (ai) expect(output).toContain("INSTALL_WEATHER_MOCK");
   else expect(output).not.toContain("INSTALL_WEATHER_MOCK");
+  // AI 用例的 text 都选 google：AI Worker 启动即探测显式缓存支持度。
+  if (ai) expect(output).toContain("INSTALL_GEMINI_MODEL_PROBE");
+  else expect(output).not.toContain("INSTALL_GEMINI_MODEL_PROBE");
   expect(output).toContain(`INSTALL_WORKERS ${JSON.stringify(
     (ai ? ["aiChatWorker.ts", "antiRaidWorker.ts", "diskIOWorker.ts"] : ["antiRaidWorker.ts", "diskIOWorker.ts"])
   )}`);
