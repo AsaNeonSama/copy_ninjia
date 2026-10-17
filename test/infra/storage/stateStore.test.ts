@@ -719,7 +719,7 @@ describe("全局状态的加载接线", () => {
     expect(activeCopyModeIn(-1001)).toBe("nya");
   });
 
-  test.each(LEGACY_STATE_FILE_PATHS.map((path: string): [string] => [path]))(
+  test.each(LEGACY_STATE_FILE_PATHS)(
     "数据根仍有旧位置的 %s 时拒绝启动，不读新文件、不改旧文件",
     async (legacyPath: string) => {
       const statePath: string = join(dir, "state.json");

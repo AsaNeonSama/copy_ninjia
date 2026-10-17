@@ -11,7 +11,7 @@ import {
 } from "../../packages/states/replyAdmission";
 import type { AdmitDecision, AdmitTriggerInput, TriggerKind } from "../../packages/types/states/replyAdmission";
 
-const ALL_KINDS: TriggerKind[] = ["direct", "random"];
+const ALL_KINDS: readonly TriggerKind[] = ["direct", "random"];
 
 function admitTrigger(
   input: Omit<AdmitTriggerInput, "telegramBackpressured" | "deliveryAvailable" | "directRoundActive"> &

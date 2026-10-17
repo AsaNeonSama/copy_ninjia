@@ -76,7 +76,7 @@ describe("fault-injection 清单门禁", (): void => {
     expect(await problemsFor({ tests: { "test/infra/types.test.ts": source } })).toEqual([]);
   });
 
-  const wholeModuleBoundaries: string[] = FAULT_INJECTION_BOUNDARIES
+  const wholeModuleBoundaries: readonly string[] = FAULT_INJECTION_BOUNDARIES
     .filter((entry): boolean => entry.path.startsWith("packages/") && entry.exports === undefined)
     .map((entry): string => entry.path);
 

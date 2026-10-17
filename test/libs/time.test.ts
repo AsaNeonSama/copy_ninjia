@@ -336,7 +336,7 @@ function transitionsOf(timeZone: string): readonly number[] {
 }
 
 describe("libs/time UTC 偏移区段缓存", () => {
-  test.each([...SEGMENT_TIME_ZONES])("%s：1900–2100 采样与 Temporal 参照逐字段一致", (timeZone: string) => {
+  test.each(SEGMENT_TIME_ZONES)("%s：1900–2100 采样与 Temporal 参照逐字段一致", (timeZone: string) => {
     adoptTimeZone(timeZone);
     const start: number = Date.UTC(1900, 0, 1);
     const span: number = Date.UTC(2100, 0, 1) - start;
@@ -349,7 +349,7 @@ describe("libs/time UTC 偏移区段缓存", () => {
     }
   });
 
-  test.each([...SEGMENT_TIME_ZONES])("%s：每个转换点的前后 1 ms 正序、逆序与交替访问都一致", (timeZone: string) => {
+  test.each(SEGMENT_TIME_ZONES)("%s：每个转换点的前后 1 ms 正序、逆序与交替访问都一致", (timeZone: string) => {
     adoptTimeZone(timeZone);
     const points: readonly number[] = transitionsOf(timeZone);
     for (const point of points) {

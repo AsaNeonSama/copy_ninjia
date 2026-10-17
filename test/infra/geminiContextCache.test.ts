@@ -172,7 +172,7 @@ const SCOPES: readonly ScopeFixture[] = [
 
 const TOOLS: Tool[] = [{ googleSearch: {} }, { functionDeclarations: [{ name: "fixture_tool", description: "夹具工具" }] }];
 
-describe.each([...SCOPES])("scope $label", (fixture: ScopeFixture) => {
+describe.each(SCOPES)("scope $label", (fixture: ScopeFixture) => {
   const scope: Readonly<GeminiContextCacheScope> = fixture.scope;
 
   function content(systemInstruction: string = "系统指令", tools: Tool[] = TOOLS): GeminiContextCacheContent {
