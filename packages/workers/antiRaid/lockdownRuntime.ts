@@ -51,7 +51,7 @@ import { publishLockdownState } from "./lockdownPersistence";
 declare const self: Worker;
 
 /**
- * 反刷群私密模式状态机（packages/states/lockdown.ts）解释器：同步推进状态机、管理到期与重试计时器，并按序执行返回的副作用（不变量见 docs/cn/04-lockdown-invariants.md）。
+ * 反刷群私密模式状态机（packages/states/lockdown.ts）解释器：同步推进状态机、管理到期与重试计时器，并按序执行返回的副作用（不变量见 docs/cn/04-invariants.md 与 docs/cn/04-lockdown-invariants.md）。
  */
 
 function dispatchLockdown(chatId: number, event: LockdownMachineEvent): void {

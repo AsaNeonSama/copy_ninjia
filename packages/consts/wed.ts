@@ -1,6 +1,6 @@
 /**
  * /wed 每群已发言成员滑窗的容量，也是启动校验 `memory/wed/<chatId>.json` 的项数上限；满额时新成员
- * 挤出进入时间最早的成员。所属模块：commands/wed/members.ts、libs/wedMemberFile.ts。
+ * 挤出进入时间最早的成员。所属模块：cache/main/wedMembers.ts、commands/wed/persistence.ts、libs/wedMemberFile.ts。
  */
 export const WED_MEMBER_LIMIT: number = 2048;
 /** /wed 成员复核跨群共用的请求起始间隔；全局按该间隔逐个检查 ID，不补发积压。 */

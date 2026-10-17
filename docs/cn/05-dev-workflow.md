@@ -23,7 +23,7 @@
 | `bun run check:install-script-syntax` | 安装脚本语法检查 | `bash -n` 解析 `install.sh` 及其引用的所有 shell 模块，不执行实际逻辑 |
 | `bun run check:install-isolation` | 安装器隔离验证 | 在专属临时根跑真实 `install.sh` 夹具，核对回滚、中断续跑、备份保留、凭据隔离、服务保护与启动观察 |
 | `bun run check:conventions` | 仓库约定自检 | 运行 `scripts/checkProjectConventions.ts`，验证常量、缓存归属、文档链接与架构边界 |
-| `bun run check` | **全量集成门禁** | 语法 + 安装隔离 + 约定自检 + lint + typecheck + 随机顺序的覆盖率测试 + 热路径门禁（合入 `master` 必跑） |
+| `bun run check` | **全量集成门禁** | 语法 + 安装隔离 + 约定自检 + lint + typecheck + 随机顺序的覆盖率测试（阈值 `COVERAGE_THRESHOLD_PERCENT`）+ 热路径门禁（合入 `master` 必跑） |
 | `bun run check:coverage` | 覆盖率指标对账 | 校验三语 README、文档与 SVG 徽章指标与真实读数的一致性 |
 | `bun run test:fault-injection` | 确定性故障注入套件 | 由 `scripts/testFaultInjection.ts` 按 `FAULT_INJECTION_TESTS` 清单运行，验证进程崩溃、异常停机、数据库瞬断与 Worker 重生时的恢复一致性 |
 | `bun run perf:hot-paths -- <场景> [--profile]` | 热路径独立进程测量 | 在 `performance/` 下的隔离数据根与配置副本中，按 `HOT_PATH_PROFILE_REPEATS` 轮独立进程测量单个热路径场景（`--profile` 用于采样分析）；直接运行 `scripts/perf/hotPaths.ts` 会在加载场景前拒绝 |

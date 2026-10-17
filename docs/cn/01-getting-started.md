@@ -15,7 +15,7 @@
 ## 前置条件
 
 - **Linux 系统**（必须具备可读的 `/proc` 目录）：单实例锁依赖 `/proc/<pid>/stat` 与内核 boot ID，非 Linux 平台在启动时直接拒绝退出。
-- **Bun**（版本按 `package.json` 的 `engines.bun`）：源码安装与本地开发所需，可通过官方安装脚本安装指定版本：
+- **Bun**（版本按 `package.json` 的 `packageManager`）：源码安装与本地开发所需，可通过官方安装脚本安装指定版本：
   ```bash
   curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
   ```
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
   <tr>
     <td><nobr>⚙️ <b>系统依赖</b></nobr></td>
     <td>无需系统预装 Bun、git 或编译工具链；脚本会自动尝试补齐基础下载工具</td>
-    <td>需要 git 与对应版本的 Bun（见 <code>package.json</code> 的 <code>engines.bun</code>）；安装脚本会尝试辅助安装缺失工具，若版本不符需手动调整</td>
+    <td>需要 git 与对应版本的 Bun（见 <code>package.json</code> 的 <code>packageManager</code>）；安装脚本会尝试辅助安装缺失工具，若版本不符需手动调整</td>
   </tr>
   <tr>
     <td><nobr>🚀 <b>运行时封装</b></nobr></td>

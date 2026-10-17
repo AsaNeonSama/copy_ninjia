@@ -248,12 +248,12 @@ Running `/translate list` returns the supported language dictionary (`TRANSLATE_
 
 ## 💍 Group Marriage: `/wed`
 
-In groups initialized with `/init enable`, members can send `/wed` (with no arguments) to draw a fellow member as their "partner" for the day. The bot replies with the selected member's avatar captioned "caller, 你的群友老婆是 member!", accompanied by interactive buttons. Button text reflects the active atmosphere: teasing (`mesugaki`) tone uses "移除", "娶老婆!", and "换一只"; reserved (`normal`) tone uses "移除", "确认", and "更换", updating to "已确认" once locked in.
+In groups initialized with `/init enable`, members can send `/wed` (with no arguments) to draw a fellow member as their "partner" for the day. The bot replies with the selected member's avatar captioned "caller, 你的群友老婆是 member!", accompanied by interactive buttons. Button text reflects the active atmosphere: teasing (`mesugaki`) tone uses "移除", "娶老婆!", and "换一只" (updating to "已确认♡" once locked in); reserved (`normal`) tone uses "移除", "确认", and "更换" (updating to "已确认" once locked in).
 
 | Button | Behavior |
 | :--- | :--- |
 | **移除** | Deletes the result message and releases the session |
-| **娶老婆! / 确认** | Locks in the current choice, updating the button to "已确认"; rerolling remains available |
+| **娶老婆! / 确认** | Locks in the current choice, updating the button to "已确认♡" / "已确认"; rerolling remains available |
 | **换一只 / 更换** | Redraws a new candidate in the same card, updating avatar and caption while excluding the caller and current target |
 
 ### Core Mechanics

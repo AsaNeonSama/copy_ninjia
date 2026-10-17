@@ -293,7 +293,7 @@
 
 - **操作系统**：Linux 系统（必须具备标准可读的 `/proc` 文件系统；其他平台因缺乏实例锁将自动拒绝启动）。
 - **Telegram 凭据**：Bot Token 与超级管理员的 Telegram User ID。
-- **运行时环境**：源码运行需按 `package.json` 的 `engines.bun` 安装 [Bun](https://bun.sh/)；官方二进制发行包已静态内置运行时，无需在宿主机额外安装。
+- **运行时环境**：源码运行需按 `package.json` 的 `packageManager` 安装 [Bun](https://bun.sh/)；官方二进制发行包已静态内置运行时，无需在宿主机额外安装。
 - **外部依赖**：开启 AI 需准备对应服务商的 API Key；翻译功能需准备 Google Cloud 服务账号 JSON 凭据。硬件配置建议请参考 [07 运维手册](docs/cn/07-operations.md#硬件参考)。
 
 ### 一键安装

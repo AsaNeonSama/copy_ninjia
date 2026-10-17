@@ -1,3 +1,8 @@
+/**
+ * 群聊媒体（图片、贴纸、GIF、语音）与贴纸目录的异步解析管线：
+ * 统一管理模态探测准入、有界并发执行器与临时去重缓存。
+ */
+
 import {
   MEDIA_CLOSED_RESULT,
   MEDIA_BACKOFF_RESULT,
@@ -7,10 +12,6 @@ import {
   MEDIA_DESCRIPTION_ERROR_LABEL,
   SHORT_MEDIA_DESCRIPTION_MAX_CHARS,
 } from "../../consts/aiChat/media";
-/**
- * 群聊媒体（图片、贴纸、GIF、语音）与贴纸目录的异步解析管线：
- * 统一管理模态探测准入、有界并发执行器与临时去重缓存。
- */
 
 import { logger } from "../../infra/logger";
 import { mediaAiProvider } from "../provider";

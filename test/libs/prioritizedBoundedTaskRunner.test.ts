@@ -155,7 +155,7 @@ describe("createPrioritizedBoundedTaskRunner", () => {
 
     second.resolve();
     third.resolve();
-    // settleTestBatch 只回落定值，任一项 reject 会直接抛出（见 helpers.ts）。
+    // settleTestBatch 只回落定值，任一项 reject 会直接抛出（见 test/helpers/common.ts）。
     expect(await settleTestBatch([p2, p3])).toEqual([2, 3]);
     expect(runner.activeCount).toBe(0);
   });

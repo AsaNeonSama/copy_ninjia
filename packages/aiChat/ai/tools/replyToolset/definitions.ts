@@ -37,6 +37,7 @@ export function buildSendMessageToolDefinition(instruction: string): AiToolDefin
   };
 }
 
+/** 构造 add_reaction 工具声明。 */
 export function buildAddReactionToolDefinition(): AiToolDefinition {
   return {
     name: ADD_REACTION_TOOL,

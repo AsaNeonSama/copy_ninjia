@@ -160,11 +160,11 @@ export type SpeechSynthesizerLookup =
 /**
  * 随 `agent.tts.bot_language` 切换的一份语音相关文案（consts/aiChat/prompts/tools.ts 的
  * VOICE_LANGUAGE_PROMPTS 按 TtsBotLanguage 各注册一份）：回复模型可见的提示词，以及 AI 语音合成
- * 请求追加的朗读语言要求。replyToolset/orchestrator.ts 每轮取一份，工具声明、系统提示词与本轮
+ * 请求追加的朗读语言要求。aiChat/ai/tools/replyToolset/orchestrator.ts 每轮取一份，工具声明、系统提示词与本轮
  * send_voice 的合成请求同用这一份。
  */
 export interface VoiceLanguagePrompts {
-  /** send_voice 的内置工具说明；prompt/voice_tool.md 存在时由其正文整份替换（见 replyToolset/voiceMessage.ts）。 */
+  /** send_voice 的内置工具说明；prompt/voice_tool.md 存在时由其正文整份替换（见 aiChat/ai/tools/replyToolset/voiceMessage.ts）。 */
   readonly sendVoiceInstruction: string;
   /** send_voice 参数 text 的说明。 */
   readonly voiceTextDescription: string;

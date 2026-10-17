@@ -311,7 +311,7 @@ WantedBy=multi-user.target
 - **运行状态检查**：安装器在尝试对现有目录进行任何写操作前，会强制要求既有 systemd 服务处于 `inactive`（或 `dead`）状态。若服务仍在运行，或服务单元中配置了多条冲突的 `ExecStart`，脚本会立即拒绝执行。
 - **外部安全备份**：在覆盖或更新配置文件与 systemd unit 之前，安装器会在代码树外创建临时备份目录，记录文件清单并逐个校验 SHA-256 哈希、文件属主与权限。备份仅在启动后服务稳定性观察全部通过后才会自动清理；若任何一步校验未通过或选择在前台运行，备份与现场都会被完整保留。
 - **环境变量一致性**：若未设置 `COPY_NINJIA_DATA_ROOT`，默认解析为当前项目根目录；若显式设置，则要求现有 systemd unit 中的 `Environment` 与当前安装环境变量解析到同一个绝对路径。配置了非空的 `EnvironmentFiles`，或在 unit 中包含影响该变量的 `PassEnvironment` / `UnsetEnvironment`，均会被直接拦截拒绝。
-- **健康观察倒计时**：服务启动后，安装器会自动观察两倍的有效重启等待时长再加 2 秒。在此期间，如果 `NRestarts` 相对启动基线发生增长、进程意外终止、日志不可读或出现非零退出，安装器均会直接判定安装失败并提示回滚。
+- **健康观察倒计时**：服务启动后，安装器会按 `service_observation_seconds`（综合 `RestartUSec`、`RestartMaxDelayUSec` 与 `RestartRandomizedDelayUSec` 计算两倍有效重启等待时长再加 2 秒）自动观察。在此期间，如果 `NRestarts` 相对启动基线发生增长、进程意外终止、日志不可读或出现非零退出，安装器均会直接判定安装失败并提示回滚。
 
 ---
 

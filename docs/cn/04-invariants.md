@@ -478,13 +478,14 @@
   - 记录可见消息以提高随机插话概率，达到热群上限后不再增长；各群独立计算，重启后从冷群开始。直接触发完全绕过该概率闸。
   - 该表是每条群消息都会命中的热路径：已有群仅原地更新固定 shape 的 `AiReplyActivityEntry`，禁止 `Map.delete` + `Map.set` 重排，禁止创建复合 key 或临时对象。仅在满载且插入新群时才扫描 LRU。
   - 随机回复冷却按 `[chatId][userId]` 两层 Map 存储，避免拼接字符串。条目总数集中维护，使用单个 unref 清扫 timer。
-  - **单条群消息仅读取一次系统时间**：中间件入口处调用一次 `Date.now()`，随后将其通过上下文透传至活跃度、静默期、防刷屏等所有子模块，确保判定时刻绝对一致。
+  - **单条 Update 共享懒加载系统时钟（`updateNow()`）**：`packages/infra/updateContext.ts` 在 `UpdateScope.nowMs` 中按需缓存首次 `Date.now()`，供 `antiRaid/updateIngress.ts` 与 `auto/message/index.ts`（活跃度、静默期、防刷屏等）复用同一判定时刻；跨线程等待自发消息核对（`waitForBotOwnMessage`）结束后由 `refreshUpdateNow()` 刷新。
 
 - **多模态媒体解析管线（图片、贴纸、GIF、语音）**：
   - 统一采用「占位入缓存 → 异步解析 → 原位回填」架构。
   - `transientDescriptionCache` 基于 `file_unique_id` 缓存 Promise，容量上限 `MEDIA_DESCRIPTION_CACHE_MAX`，按 LRU 淘汰失败结果即时摘除。在途相同文件合并至同一个 Promise。
   - 并发执行器限制最多 `MEDIA_DESCRIPTION_MAX_CONCURRENCY` 个真实并发解析任务，排队与冷探测上限为 `MEDIA_DESCRIPTION_MAX_PENDING`。
   - 通过 `libs/sharedResult.ts` 实现可取消的共享订阅：单个调用方取消不影响其他消费者，最后一个消费者离开时才真正中止底层下载或解析任务。
+  - 视觉降级转码（`packages/infra/image.ts`）在解码 WebP/GIF 前先校验单帧像素上限 `VISION_TRANSCODE_MAX_PIXELS`（WebP 最多扫描 `WEBP_MAX_SCANNED_CHUNKS` 个 chunk），解码后若长边超过 `VISION_TRANSCODE_MAX_EDGE` 则等比双线性下采样后再编码为 PNG。
 
 - **机器人自发图片的记忆回填**：
   - 滚动记忆中的自发图片分为**占位态**（正文为占位记号与图注，持有 `pendingImage`）与**内容态**（记号替换为实际识图描述，`pendingImage` 清空）。
@@ -502,7 +503,7 @@
 ### AI 提示词与转录
 
 - **机器人自我身份与发言人标识**：
-  - 在 AI 自录、转录名册、回复引用及对话摘要输入中，机器人自身的发言统一使用 `SELF_SPEAKER_NAME` 标记，不展示 Telegram 上的 `first_name`、`last_name` 或 `username`。
+  - 在 AI 自录、转录名册、回复引用及对话摘要输入中，机器人自身的发言统一使用 `SELF_SPEAKER_NAME` 标记，不展示 Telegram 上的 `first_name`、`last_name` 或 `username`。对于通过本 bot 内联发出的消息（`via_bot.id === bot.id`），`recordSelfInlineResult` 仅记录上下文而不触发自动回复：其中带合法 gag 内联标记（`hasGagInlineMarker`）的受限发言按真实发送者身份记入（`buildInlineSenderRecordMessage`），其余内联结果（如运势抽签剥离回执后）按 `SELF_SPEAKER_NAME` 记入（`buildSelfRecordMessage`）。
   - 回复提示词的只读参考记忆中，会附带一句包含当前部署 `@username` 的自我身份说明：主线程在每次启动时通过 `bot.init()` 的 `getMe` 获取自身账号信息，并在 `initAiChat` 中注入 AI Worker；Worker 重建时重放此启动快照，不随逐条消息重复查询。
   - 名册中机器人固定使用编号 `me`，其余群成员保留账号 ID 与姓名原貌，历史逐字快照在渲染时遵循相同规则。
 
@@ -529,10 +530,10 @@
   - **系统提示词严格逐字恒定**：系统提示词仅通过独立的系统字段传入，动态的状态数据（时间、心情、工具状态）必须放入 user 内容中的运行时状态区块，严禁混入系统提示词。人设、行动与停止段、本地 `web_search` 模式三项都与上一轮相等时，AI Worker 复用上一轮拼好的同一个系统提示词字符串（`packages/cache/workers/aiChat/replyPrefix.ts` 的单槽），任一项不等即重拼并替换。
 
 - **Gemini 显式上下文缓存（Explicit Context Cache）**：
-  - **模型能力探测**：`text` 或 `adDetect` 在启动或热重载切换到 `google` 供应商时调用 `probeGeminiContextCache`，后台通过 `models.get` 检查当前模型的 `supportedActions` 是否包含 `GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION`（`"createCachedContent"`）。支持时继续调用 `caches.list` 领养同前缀的服务端缓存并进入 `"done"`；不支持时将注册表置为 `"unsupported"`，后续请求直接走服务端隐式前缀缓存（发送完整配置），不再调用 `caches.list` 与 `caches.create`。`models.get` 请求失败时记错误日志后按支持继续扫描，创建失败由下文的失败退避处理。
-  - **两套请求结构**：每轮回复的第 1 次请求，仅当本群还没有触发时刻记录、或距记录超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS`，且显式缓存就绪时，引用显式缓存（`cachedContent`），请求体只包含 `contents`，不携带 `systemInstruction`、`tools`、`toolConfig`。距记录落在该时长内（含相等）、缓存未就绪、模型不支持显式缓存（`scan === "unsupported"`），或会话固定的 text 快照已被热重载替换时，发送完整配置。第 2 次及后续往返一律携带静态 `systemInstruction` 与工具配置，由服务端隐式前缀缓存接管。触发时刻是本群上一次成功的 `generateContent` 的发出时刻，取本线程单调时钟 `performance.now()`，按群各记一个内存值（`chatId` 经回复会话参数传入，只有 Gemini 实现读取），其它群的请求不影响本群。失败的请求不写入；并行请求乱序完成时，较早的发出时刻不覆盖较晚的记录；显式缓存被拒后的完整结构补发按补发时刻计。`/ai_chat disable`、`/clear_context`、群级清理、记忆淘汰与停机时删除本群的值，AI Worker 维护节拍删除已超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` 的值（与没有记录等价），`agent.text` 热重载不清除。Worker 换 isolate 后全部为空，各群下一次回复的第 1 次请求按上述条件决定。
-  - **显式缓存内容**：仅缓存「系统提示词 + 工具声明 + toolConfig」，不缓存参考记忆、转录与运行时状态。
-  - **分槽管理**：按系统提示词指纹分槽，全群共享同一槽位。槽数上限为 `GEMINI_TEXT_CACHE_MAX_SLOTS`，超出时按 `lastUsedAt` 淘汰最久未用的槽及服务端条目。`displayName` 格式为 `copy-ninjia:text:<槽指纹>:<内容指纹>`。模型、系统指令、工具声明 JSON 与 toolConfig 都与上一轮相等时复用上一轮算好的两段指纹，任一项不等即重算。
+  - **模型能力探测**：`text` 或 `ad_detect` 在启动或热重载切换到 `google` 供应商时调用 `probeGeminiContextCache`，后台通过 `models.get` 检查当前模型的 `supportedActions` 是否包含 `GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION`（`"createCachedContent"`）。支持时继续调用 `caches.list` 领养同前缀的服务端缓存并进入 `"done"`；不支持时将注册表置为 `"unsupported"`，后续请求直接走服务端隐式前缀缓存（发送完整配置），不再调用 `caches.list` 与 `caches.create`。`models.get` 请求失败时记错误日志后按支持继续扫描，创建失败由下文的失败退避处理。
+  - **两套请求结构**：`text` 每轮回复的第 1 次请求，仅当本群还没有触发时刻记录、或距记录超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS`，且显式缓存就绪时，引用显式缓存（`cachedContent`），请求体只包含 `contents`，不携带 `systemInstruction`、`tools`、`toolConfig`。距记录落在该时长内（含相等）、缓存未就绪、模型不支持显式缓存（`scan === "unsupported"`），或会话固定的 text 快照已被热重载替换时，发送完整配置。第 2 次及后续往返一律携带静态 `systemInstruction` 与工具配置，由服务端隐式前缀缓存接管。触发时刻是本群上一次成功的 `generateContent` 的发出时刻，取本线程单调时钟 `performance.now()`，按群各记一个内存值（`chatId` 经回复会话参数传入，只有 Gemini 实现读取），其它群的请求不影响本群。失败的请求不写入；并行请求乱序完成时，较早的发出时刻不覆盖较晚的记录；显式缓存被拒后的完整结构补发按补发时刻计。`/ai_chat disable`、`/clear_context`、群级清理、记忆淘汰与停机时删除本群的值，AI Worker 维护节拍删除已超过 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` 的值（与没有记录等价），`agent.text` 热重载不清除。Worker 换 isolate 后全部为空，各群下一次回复的第 1 次请求按上述条件决定。`ad_detect` 不设按群冷却窗口，显式缓存就绪时每次请求均直接携带 `cachedContent`。
+  - **显式缓存内容**：`text` 仅缓存「系统提示词 + 工具声明 + toolConfig」，不缓存参考记忆、转录与运行时状态；`ad_detect` 仅缓存 `instructions`（规则与广告样本，无 tools/toolConfig）。
+  - **分槽管理**：`text` 按系统提示词指纹分槽，全群共享同一槽位，槽数上限为 `GEMINI_TEXT_CACHE_MAX_SLOTS`，`displayName` 格式为 `${GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX}<槽指纹>:<内容指纹>`；模型、系统指令、工具声明 JSON 与 toolConfig 都与上一轮相等时复用上一轮算好的两段指纹，任一项不等即重算。`ad_detect` 按 `instructions` 指纹分槽，槽数上限为 `AD_DETECT_GEMINI_CACHE_MAX_SLOTS`，`displayName` 前缀为 `AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX`，模型与 `instructions` 未变时复用单槽缓存。超出槽数上限时按 `lastUsedAt` 淘汰最久未用的槽及服务端条目。
   - **非阻塞取用**：调用 `acquireGeminiContextCache` 时从不等待探测或创建完成。`scan === "unsupported"` 时直接返回 `null`；探测进行中或首次命中可缓存模型时当前请求直接发送完整配置，并在后台完成探测、扫描与创建；命中缓存时刷新 `lastUsedAt`；若剩余生命周期不足 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS`，在后台静默续期回完整 TTL。
   - **失败退避**：端点报 400 拒绝时记录指纹并进入冷却；达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次后放弃为该内容建缓存，回退为全量请求。
 
@@ -695,6 +696,7 @@
   - 当快照缺失或状态相悖时，触发一次 `getChatMember` 现查。**该现查必须带退避闸（`BOT_PERMISSION_PROBE_RETRY_MS`），且严禁 `await`**，绝不能阻塞 update 取数主循环。
   - 镜像读出的权限必须保持三态（`true` / `false` / `undefined`），严禁压缩为二元布尔值：所有破坏性动作（踢人、禁言、删消息）仅在权限**确证为 `false`** 时才短路放弃，对于 `undefined` 照常派发请求。
   - 消息删除操作返回多态（`deleted` / `gone` / `forbidden` / `failed`），其中 `gone`（消息已被删除）与 `deleted` 均视为清理成功。
+  - Anti-Raid Worker 另行维护一份**群管理员**缓存（`workers/antiRaid/adminCache.ts`），两者描述的主体不同，既不共享也不相互替代。
 
 ### 身份解析与运行时清理
 
@@ -768,7 +770,7 @@
     - 特殊例外：AI 记忆在任何 teardown 原因下均清除；入群验证等残留按钮消息仅在 `explicitDisable` 时主动发 API 删除，`departed` 与 `gone` 时不发 Telegram 请求。
   - **离群收尾入口（`completeChatDeparture`）**：`packages/infra/botAdmin.ts` 的 `completeChatDeparture(chatId, "departed" | "gone")` 依次作废权限快照、执行全部 owner 的 teardown，再清掉黑名单补扫进度与除私密模式记录以外的群状态并落盘；对同一个群重复调用幂等。入口只有三处：
     - `my_chat_member` 显示机器人 left/kicked：`departed`；
-    - 受管群收到带 `migrate_to_chat_id` 的服务消息：`packages/app/registerHandlers.ts` 前置链里位于初始化网关之后的迁移 ingress 按 `gone` 收尾并终止本条 update，新超级群仍需 `/init`，旧群设置不搬迁；
+    - 受管群收到带 `migrate_to_chat_id` 的服务消息：`packages/app/updatePreamble.ts` 前置链里位于初始化网关之后的迁移 ingress 按 `gone` 收尾并终止本条 update，新超级群仍需 `/init`，旧群设置不搬迁；
     - 启动标题刷新确证群不可达（见上文「低优先级群标题维护」）：按确证的类别收尾。
   - **严格按序同步派发**：`teardownChatRuntime` 遍历 `packages/consts/chatTeardown.ts` 中的 `CHAT_TEARDOWN_ORDER` 常量（类型系统强制穷尽 `ChatRuntimeOwner`）。一次 teardown 必须按此顺序同步启动所有清理逻辑，最后统一等待异步收尾。
 - **成员在群复查边界**：
@@ -788,7 +790,7 @@
   - `/wed` 命令与回调均置于统一 `/init` 网关之后；记录新成员要求 `isInitEnabled === true`。未开启初始化的群发生退群时，仅在已有滑窗中剔除 ID，不创建群状态也不放行业务。
 - **缓存与持久化架构**：
   - **成员权威缓存**：`packages/cache/main/wedMembers.ts` 为每个群长期复用单一 `FifoMap<number, number>`（`packages/libs/fifoMap.ts`，成员 ID → 进入时间），作为容量 `WED_MEMBER_LIMIT` 的进入时间滑窗：插入顺序即进入顺序，新成员的进入时间取当前时刻与已分配最大进入时间的较大值，满额时先挤出首项（进入最早）；窗口内成员再次发言不刷新进入时间。频道、回复/转发来源、匿名身份发言不计入候选。
-  - **交互会话缓存**：`packages/cache/main/wed.ts` 管理交互状态与头像探测，每人每群仅占 1 个会话；每群会话表为容量 `WED_SESSION_CAPACITY`（`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`）的 `FifoMap`，保留最近送达的 `WED_SESSION_LIMIT` 份结果，新结果送达后由 `trimWedSessions` 跳过忙碌会话滑出最早的空闲结果。群列表受 `STATE_MANAGED_CHAT_LIMIT` 约束，不执行 LRU 淘汰。
+  - **交互会话缓存**：`packages/cache/main/wed.ts` 管理交互状态与头像探测，每人每群仅占 1 个会话；每群会话表为容量 `WED_SESSION_CAPACITY`（`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`）的 `FifoMap`，保留最近送达的 `WED_SESSION_LIMIT` 份结果，新结果送达后（或重抽发送失败恢复原会话 `previous` 后）由 `trimWedSessions` 跳过忙碌会话滑出最早的空闲结果。群列表受 `STATE_MANAGED_CHAT_LIMIT` 约束，不执行 LRU 淘汰。
   - **落盘策略**：仅在实际增删或挤出成员时自增 revision 并标脏。复用 Disk I/O 的 `FLUSH_MAX_ENTRIES` 与 `FLUSH_INTERVAL_MS` 阈值，跨线程只投递扁平的 `[id, enteredAt, ...]` 快照，由 Disk I/O Worker 写成 `{ id, enteredAt }` 数组，通过临时文件、fsync 与原子 rename 写入 `memory/wed/<chatId>.json`。
   - **整群清空保证**：`purgeWedMembers` 移除内存集合后，向 `pendingWedMemberDeletes` 登记单调递增编号并向 Worker 投递。只有收到精确持久化确认后才注销待决任务。停机或重建时重放最新状态。
 - **启动只读校验门禁**：
@@ -918,7 +920,7 @@
   - 字段缺省统一回退到代码内置常量（`consts/ui/assets.ts`），不沿用旧运行态。机器人从不修改或回写此文件；出现未声明分组或字段时整份拒绝。
   - 缩略图由 Telegram 客户端下载，仅允许 `https` 协议；本地抓取的默认头像允许明文 `http` 或本机文件路径（支持绝对路径或 `./`、`../` 开头的相对路径）。默认头像素材按字节签名、大小与视频轨尺寸判定（`defaultAvatarPhotoType`）：JPEG/PNG 不超过 `BOT_PROFILE_PHOTO_MAX_BYTES`，上传为静态头像；MP4 不超过 `BOT_PROFILE_ANIMATION_MAX_BYTES`、至少有一条视频轨（`hdlr` 为 `vide`），且每条视频轨的 `tkhd` 展示尺寸都是边长不超过 `BOT_PROFILE_ANIMATION_MAX_SIDE` 的非零正方形，上传为动态头像。MP4 须首个 box 为声明 MP4 品牌的 `ftyp`，其后顶层 box 恰好铺满整个文件且恰有一个 `moov`；`moov`、`trak`、`mdia` 的子 box 同样恰好铺满各自载荷，各层合计读取不超过 `MP4_MAX_SCANNED_BOXES` 个 box，长度字段越界或截断一律判否。本机文件在加载期核对、复原时按同一规则重新核对，直链只在复原时核对；读取上限为 `DEFAULT_AVATAR_MAX_READ_BYTES`，直链单次下载超时为 `DEFAULT_AVATAR_FETCH_TIMEOUT_MS`。
 - **统一日志脱敏边界**：
-  - 写入 journal、Worker 信封或 `logs/` 前，自动脱敏已加载配置中的所有敏感凭据（Tokens、API Keys、密钥、Google Provider Header 等）。
+  - 写入 journal、Worker 信封或 `logs/` 前，自动脱敏已加载配置中的所有敏感凭据（Tokens、API Keys、密钥、Google 与 Anthropic Provider Header 等）。
   - 日志中的 HTTP(S) URL 统一收敛为 `origin + pathname`，丢弃 query 参数、fragment 与 userinfo。
   - 错误对象展开 `cause` 与 `AggregateError`，最大展开深度 `LOGGER_NESTED_ERROR_MAX_DEPTH`，参数序列化受 `LOGGER_MAX_SERIALIZED_BYTES` 限制，循环引用使用静态占位符替代。
 - **群状态规范形状与 Normalizer**：
@@ -1114,13 +1116,10 @@
     - `unsettled`：存在未完成的排空任务或落盘失败。**强制扣住实例锁**以保护现场，以非零状态退出。
 - **Anti-Raid 与各 Worker 停机排空（Drain）**：
   - Anti-Raid 停机时先向 Worker 发送 `drain` 协议，停止广告判定节拍并阻断新请求；取得回执后，主线程在有界预算内排空在途处置、持久化事务并完成固定点对账。
-  - 停机流程遵循固定顺序：
-    1. 暂停所有新任务接入（quiesce 各业务调度器、热重载与 runner）；
-    2. 有界排空 Anti-Raid、未决消息自毁、问答表单、wed 交互、`/delete_message` 待删队列；
-    3. Flush 并终止 AI Worker；
-    4. 排空 Telegram 出站队列；
-    5. Flush 并终止 Disk I/O 与 Anti-Raid Worker；
-    6. 执行 StateStore 最终落盘，确认最终 offset 并释放实例锁。
+  - 停机流程遵循固定顺序（`packages/app/lifecycle/maintenance.ts` 与 `packages/app/lifecycle/shutdown.ts` 的 `SHUTDOWN_DRAIN_OWNERS` 与 `SHUTDOWN_TERMINATION_OWNERS`）：
+    1. 暂停所有新任务接入（停止配置热重载与 update 拉取，quiesce 各业务入口，排空 runner）；
+    2. 按 `SHUTDOWN_DRAIN_OWNERS` 顺序依次排空：`avatar` → `translate` → `antiRaid` → `gag` → `qa form` → `wed` → `deferred commands` → `cron` → `target message deletion` → `Telegram delayed deletion` → `ai`（Flush 并终止 AI Worker）→ `telegram`（排空 Telegram 出站总闸）→ `disk`（Flush Disk I/O）；
+    3. 按 `SHUTDOWN_TERMINATION_OWNERS` 顺序依次执行：`terminateAntiRaid` → `terminateDiskIO` → `flushStateToDisk`，随后确认最终 offset 并释放实例锁。
   - **共享 SQLite 关库**：`terminateDiskIO` 在当前代际已完成恢复握手、可写且未发出致命信号时，先把 `writable` 置假，再发一次 `closeStorage`（预算 `DISK_IO_STORAGE_CLOSE_TIMEOUT_MS`）。Disk I/O Worker 以一个事务提交残余写，执行 `PRAGMA wal_checkpoint(TRUNCATE)` 后关闭连接，此后忽略身份写消息。回执报残余写未提交，或关库请求超时、被拒、回执报错而无法确认已提交时，Worker 照常终止，磁盘终止这一步记为失败，停机结局为 `unsettled`；checkpoint 被其它读连接挡住只写诊断（残余写已提交，WAL 留在库旁）。`closeStorage` 不算业务消息，Worker 重建时不重放。
   - 停机超时与各步骤耗时预算统一由 `monotonicDeadline.ts` 依据 `performance.now()` 计算，免疫系统时钟回拨。
 

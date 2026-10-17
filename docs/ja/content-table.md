@@ -115,7 +115,7 @@
    - 永続化：永続化と snapshot の contract、グループ状態と `chat_states`、ブロックリストと広告検出、確認境界と停止、ファイル権限
 
 5. **[05 開発フローと品質ゲート](05-dev-workflow.md)**
-   - `bun run check` 直列パイプライン：install script 構文 + install 隔離 + 規約チェック + Lint + Typecheck + カバレッジ付き全テスト + 固定 seed のランダム順全テスト + hot path gate
+   - `bun run check` 直列パイプライン：install script 構文 + install 隔離 + 規約チェック + Lint + Typecheck + 固定 seed ランダム順のカバレッジ付き全テスト + hot path gate
    - テスト隔離機構と一時データサンドボックス
    - コミット手順、障害注入テスト `bun run test:fault-injection` とリリース手順
 

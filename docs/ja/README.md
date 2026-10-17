@@ -301,7 +301,7 @@
 
 - **OS**：Linux（`/proc` が読み取り可能であること。他の OS ではインスタンスロックが fail-closed になります）。
 - **Telegram 資格情報**：BotFather 発行の Bot Token と、スーパー管理者の Telegram User ID。
-- **ランタイム**：ソース実行には [Bun](https://bun.sh/)（バージョンは `package.json` の `engines.bun` に準拠）が必要です。バイナリ配布パッケージにはランタイムが内蔵されています。
+- **ランタイム**：ソース実行には [Bun](https://bun.sh/)（バージョンは `package.json` の `packageManager` に準拠）が必要です。バイナリ配布パッケージにはランタイムが内蔵されています。
 - **外部サービス**：有効化する AI 各機能の API Key。`/translate` には Google Cloud サービスアカウント JSON が必要です。ハードウェア目安は [07 運用マニュアル](07-operations.md#ハードウェアの目安) を参照してください。
 
 ### ワンショットインストール

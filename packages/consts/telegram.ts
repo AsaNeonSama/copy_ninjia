@@ -82,7 +82,7 @@ export const PUBLIC_PROFILE_PAGE_MAX_DOWNLOAD_BYTES: number = 1024 * 1024;
 /**
  * t.me / telegram.me 公开主页允许返回头像资源的 Telegram 自有域。后缀由
  * packages/libs/httpUrlPolicy.ts 按 DNS label 边界匹配；这里只限制轻量出站能力，
- * 不承担 DNS/IP 级 SSRF 防护。
+ * 不承担 DNS/IP 级 SSRF 防护。所属模块：infra/telegram/avatar/webProfile.ts。
  */
 export const TELEGRAM_PUBLIC_ASSET_HOST_SUFFIXES: readonly string[] = [
   "t.me",
@@ -274,6 +274,7 @@ export const SELF_SENT_RENDEZVOUS_TIMEOUT_MS: number = 1_000;
  * 登记的发言身份淘汰，被淘汰身份的 inline 结果拿不到源文本、退回不判定。
  * 单条登记的正文以一次应答的全部结果内容为界（运势回执或至多 GAG_SESSION_MAX
  * 条、每条受 TELEGRAM_MESSAGE_MAX_CHARS 约束的 gag 文本），整表占用有界。
+ * 所属模块：cache/main/inlineResultSources.ts。
  */
 export const INLINE_RESULT_SOURCE_MAX_AUTHORS: number = 1_024;
 

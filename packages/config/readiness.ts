@@ -125,10 +125,12 @@ export function adoptAdDetectConfigReadiness(readiness: ConfigReadiness): void {
   adDetectConfigReadinessCache.current = readiness;
 }
 
+/** 读取当前线程已发布的 AI 闲聊配置可用性结论。 */
 export function aiChatConfigReadiness(): ConfigReadiness {
   return cachedReadiness(aiChatConfigReadinessCache);
 }
 
+/** 读取当前线程已发布的广告检测配置可用性结论。 */
 export function adDetectConfigReadiness(): ConfigReadiness {
   return cachedReadiness(adDetectConfigReadinessCache);
 }
@@ -142,6 +144,7 @@ async function validateAndCacheGoogleServiceAccountKey(): Promise<void> {
   }
 }
 
+/** 读取当前线程已发布的 /translate 翻译配置可用性结论。 */
 export function translateConfigReadiness(): ConfigReadiness {
   return cachedReadiness(translateConfigReadinessCache);
 }

@@ -38,7 +38,7 @@ export const USERNAME_ARG_PATTERN: RegExp = new RegExp(
  * 指数与小数；最终的安全整数边界由调用方统一判定。
  *
  * 与 USERNAME_ARG_PATTERN 互斥（Telegram 用户名以字母开头）。**只认正数**：负数 id 是会话身份，
- * 由 CHAT_ID_ARG_PATTERN 按命令开关处理（见 commands/targetResolution.ts）。
+ * 由 CHAT_ID_ARG_PATTERN 按命令开关处理（见 libs/telegramId.ts、commands/targetResolution.ts）。
  * 位数不在这里限制，调用方还要过一次 `Number.isSafeInteger`。
  */
 export const USER_ID_ARG_PATTERN: RegExp = /^[1-9]\d*$/;

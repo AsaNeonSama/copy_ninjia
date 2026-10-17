@@ -1,8 +1,9 @@
-import { EMPTY_OUTPUT_ITEMS } from "../../consts/aiChat/openai";
-import { EMPTY_FUNCTION_CALLS } from "../../consts/aiChat/tools";
 /**
  * OpenAI Responses 响应解析辅助：提取 `output` 列表、正文、拒答说明、异常收尾诊断与详情、函数调用及联网检索次数。
  */
+
+import { EMPTY_OUTPUT_ITEMS } from "../../consts/aiChat/openai";
+import { EMPTY_FUNCTION_CALLS } from "../../consts/aiChat/tools";
 
 import { finishDetailsJson } from "../ai/utils/finishDetails";
 import type OpenAI from "openai";

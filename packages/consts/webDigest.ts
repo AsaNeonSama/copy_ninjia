@@ -1,9 +1,9 @@
+/** cron `send_web_digest` 联网摘要（libs/webDigest.ts、libs/webDigestMarkdown.ts、config/cron.ts、consts/aiChat/prompts/webDigest.ts）的格式常量。 */
+
 import type { WebDigestLanguage } from "../types/webDigest";
 import { exhaustiveList } from "./exhaustiveList";
 
-/** cron `send_web_digest` 联网摘要（libs/webDigest.ts、libs/webDigestMarkdown.ts、config/cron.ts）的格式常量。 */
-
-/** 摘要标题的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 摘要标题的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_TITLE_MAX_CHARS: number = 80;
 /** 导语的最大字符数。所属模块：libs/webDigest.ts。 */
 export const WEB_DIGEST_SUMMARY_MAX_CHARS: number = 300;

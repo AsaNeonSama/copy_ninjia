@@ -15,7 +15,7 @@
 ## 前提条件
 
 - **`/proc` にアクセス可能な Linux 環境**：インスタンスの二重起動防止ロックは、`/proc/<pid>/stat` とシステムの boot ID に依存しています。その他の OS では安全のため起動を拒否（fail-closed）します。
-- **Bun**（バージョンは `package.json` の `engines.bun` に準拠）：ソースコードからの実行およびローカル開発に必須です。次のコマンドでインストールできます：
+- **Bun**（バージョンは `package.json` の `packageManager` に準拠）：ソースコードからの実行およびローカル開発に必須です。次のコマンドでインストールできます：
   ```bash
   curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
   ```
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
   <tr>
     <td><nobr>⚙️ <b>依存要件</b></nobr></td>
     <td>ホストの Bun、git、ビルドツールは不要。展開に必要な基本コマンドが不足していればインストーラーが導入を試行</td>
-    <td>git および Bun 1.4.3 が必要。不足ツールはインストーラーが導入を試行しますが、Bun バージョンの不整合は手動解決が必要</td>
+    <td>git および対応バージョンの Bun（<code>package.json</code> の <code>packageManager</code> 参照）が必要。不足ツールはインストーラーが導入を試行しますが、Bun バージョンの不整合は手動解決が必要</td>
   </tr>
   <tr>
     <td><nobr>🚀 <b>ランタイム構成</b></nobr></td>

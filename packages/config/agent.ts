@@ -1,3 +1,10 @@
+/**
+ * config/dynamic/agent.json：AI 能力的统一部署配置解析与快照管理（字段形态见 config/agentCapability.ts 与 config/agentTts.ts，跨线程约束见 docs/cn/04-invariants.md）。
+ *
+ * 顶层只含 agent，其下按能力分组：text、summary、media 为对话核心能力，ad_detect、image、tts、web_search 可选。
+ * 读盘只发生在主线程（parse* / load* / validateAgentDeploymentConfig）；*Snapshot / get* / adopt* 只读写当前线程 holder，不读盘。
+ */
+
 import {
   AGENT_AI_CHAT_REQUIRED_CAPABILITIES,
   AGENT_CAPABILITY_NAMES,
@@ -23,13 +30,6 @@ import type {
   AgentTtsCapabilityConfig,
   AgentWebSearchCapabilityConfig,
 } from "../types/config";
-
-/**
- * config/dynamic/agent.json：AI 能力的统一部署配置解析与快照管理（字段形态见 config/agentCapability.ts 与 config/agentTts.ts，跨线程约束见 docs/cn/04-invariants.md）。
- *
- * 顶层只含 agent，其下按能力分组：text、summary、media 为对话核心能力，ad_detect、image、tts、web_search 可选。
- * 读盘只发生在主线程（parse* / load* / validateAgentDeploymentConfig）；*Snapshot / get* / adopt* 只读写当前线程 holder，不读盘。
- */
 
 /** 解码广告检测能力；base_url 缺省时跟随所选 SDK 的官方端点。 */
 export function parseAdDetectAgentConfig(

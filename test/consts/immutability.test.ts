@@ -296,7 +296,7 @@ test("Readonly<Record<…>> 形态的常量不可写入", () => {
   // 对着所有群报错一个权限位的含义。
   expect(() => { BOT_CHAT_PERMISSION_LABELS.canDeleteMessages = "篡改"; }).toBeDefined();
   // @ts-expect-error Readonly<WhitelistPermissions> 的字段只读；这份默认值被
-  // parsePermissions 逐条展开复用，写坏它等于改掉此后所有条目的缺省权限。
+  // setWhitelistMembership 逐条展开复用，写坏它等于改掉此后所有新增成员的缺省权限。
   expect(() => { DEFAULT_WHITELIST_PERMISSIONS.isCanBlock = true; }).toBeDefined();
   // @ts-expect-error 新增白名单授权默认值同样只能在编译期读取。
   expect(() => { DEFAULT_WHITELIST_PERMISSIONS.isCanWhiteOther = true; }).toBeDefined();

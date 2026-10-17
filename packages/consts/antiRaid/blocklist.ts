@@ -63,7 +63,7 @@ export const BLOCKLIST_REMOVAL_RECONCILE_MAX_ROUNDS: number = 5;
 
 /**
  * durable outbox 允许记录的失败边界。类型层从本常量派生，codec 复用同一列表。
- * 所属模块：infra/blocklist/、database/codec/identity.ts。
+ * 所属模块：types/blocklist.ts、database/codec/identity.ts。
  */
 export const BLOCKLIST_REMOVAL_FAILURE_TYPES: readonly [
   "delivery-boundary",

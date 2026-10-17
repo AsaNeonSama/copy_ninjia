@@ -1,9 +1,9 @@
-/** 生图的官方宽高比集合。OAI 兼容侧按显式线协议映射：OpenAI 任意尺寸档逐档
- *  发送 size、标准档收敛到全系通用的标准尺寸，xAI 改传最近 aspect_ratio，见
- *  aiChat/openai/image.ts。 */
 import type { Base64PayloadDecodeFailure } from "./payload";
 import type { TelegramVisionSource } from "../media";
 
+/** 生图的官方宽高比集合。OAI 兼容侧按显式线协议映射：OpenAI 任意尺寸档逐档
+ *  发送 size、标准档收敛到全系通用的标准尺寸，xAI 改传最近 aspect_ratio，见
+ *  aiChat/openai/image.ts。 */
 export type ImageGenerationAspectRatio =
   | "1:1" | "3:2" | "2:3" | "3:4" | "4:3" | "4:5" | "5:4" | "9:16" | "16:9" | "21:9";
 

@@ -18,7 +18,7 @@
   - **内容**：存放项目主许可证 [`LICENSE`](../../LICENSES/LICENSE)（MIT），以及第三方字符数据与音频编解码库的许可证：汉字变体表使用的 [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt)、Opus 编码依赖的 [`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) 与 [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)。
 - **`packages/app/`**
   - **职责**：整个应用的启动与停机生命周期编排、启动前配置文件校验、`config/dynamic/` 动态热重载分发、中间件注册、命令菜单装配，以及 Telegram update 消费 Runner。
-  - **代表文件**：`lifecycle.ts` 与 `lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updateRunner.ts` / `updateFetcher.ts`。
+  - **代表文件**：`lifecycle.ts` 与 `lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updatePreamble.ts`、`updateRunner.ts` / `updateFetcher.ts`。
 - **`packages/commands/`**
   - **职责**：所有用户显式触发的 Telegram 斜杠命令实现，按命令领域组织；子命令在各自领域内分发，公用的权限门禁独立抽离。
   - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts`、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts` 与 `gag/rendering.ts` 承接；`/delete_message` 由 `deleteMessage.ts`（命令与消息 ingress）与 `deleteMessage/queue.ts`（待删队列与停机排空）承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
@@ -63,7 +63,7 @@
   - **代表文件**：`tools/replyToolset/`、`tools/webSearch.ts`、`webDigest.ts`、`utils/`、`stickers/`、`voiceSynthesis.ts`、`ttsUsage.ts`。
 - **`packages/workers/antiRaid/adDetect/`**
   - **职责**：广告检测处理流水线，包括排队批处理、消息串拼接、模型判定与违规处置。
-  - **代表文件**：`queue.ts`、`queueState.ts`、`verdict.ts`、`bundle.ts`、`classifier.ts`、`disposal.ts`、`config.ts`。
+  - **代表文件**：`queue.ts`、`queueState.ts`、`verdict.ts`、`bundle.ts`、`classifier.ts`、`disposal.ts`、`config.ts`、`ai/`。
 - **`packages/infra/`**
   - **职责**：主线程唯一的 Telegram 客户端连接与出站闸门、Worker 双工通信宿主、系统日志输出、主线程 I/O 代理与专用图库文件管理。
   - **代表文件与目录**：

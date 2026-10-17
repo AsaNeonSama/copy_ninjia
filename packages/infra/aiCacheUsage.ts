@@ -124,7 +124,7 @@ export interface AiCostUsageReport {
   readonly capability: AiCacheCapability;
   readonly provider: AgentProvider;
   readonly model: string;
-  /** 本次请求的费用（单位為 USD tick）。 */
+  /** 本次请求的费用（单位为 USD tick）。 */
   readonly costInUsdTicks: unknown;
 }
 

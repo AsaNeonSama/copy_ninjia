@@ -13,7 +13,7 @@ import { parseToggleAction } from "./arguments";
 
 /** resolveSuperAdminToggleArg 的入参。 */
 interface SuperAdminToggleOptions {
-  /** 本命令的文案表，取自 consts/commands.ts。 */
+  /** 本命令的文案表，取自 consts/atmosphere/（经 chatAtmosphere() 读取）。 */
   readonly texts: ToggleCommandTexts;
   /** 省略时仅允许超级管理员；提供时允许拥有该项白名单权限的身份。 */
   readonly permission?: WhitelistPermissionKey;
@@ -49,7 +49,7 @@ export function toggleReplyText({
 /** runChatToggleCommand 的入参；按群开关命令的完整编排都由它描述。 */
 export interface ChatToggleCommandParams {
   readonly ctx: CommandContext<Context>;
-  /** 本命令的文案表，取自 consts/commands.ts。 */
+  /** 本命令的文案表，取自 consts/atmosphere/（经 chatAtmosphere() 读取）。 */
   readonly texts: ToggleCommandTexts;
   /** 授权用的白名单权限键；超级管理员恒持有全部键。 */
   readonly permission: WhitelistPermissionKey;

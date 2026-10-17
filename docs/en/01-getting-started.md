@@ -15,7 +15,7 @@ This guide walks you through the quickest path to take a clean server environmen
 ## Prerequisites
 
 - **Linux Operating System** (must have a readable `/proc` filesystem): The instance lock depends strictly on `/proc/<pid>/stat` and the system boot ID. Unsupported operating systems will fail closed and refuse to start.
-- **Bun** (version per `package.json` `engines.bun`): Required for source installs and local development. Install via:
+- **Bun** (version per `package.json` `packageManager`): Required for source installs and local development. Install via:
   ```bash
   curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
   ```
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
   <tr>
     <td><nobr>⚙️ <b>Dependencies</b></nobr></td>
     <td>Zero external tool requirements; no Bun, git, or compiler needed on the server</td>
-    <td>Requires git and Bun 1.4.3; the installer will attempt to install missing tools if permitted</td>
+    <td>Requires git and the Bun version specified in <code>package.json</code> <code>packageManager</code>; the installer will attempt to install missing tools if permitted</td>
   </tr>
   <tr>
     <td><nobr>🚀 <b>Runtime</b></nobr></td>

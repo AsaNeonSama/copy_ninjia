@@ -18,7 +18,7 @@ This document answers the core organizational question: **"Where does existing c
   - **Contents**: The project's MIT [`LICENSE`](../../LICENSES/LICENSE), [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt) for CJK character variants, and third-party licenses for Opus audio encoding ([`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) and [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)).
 - **`packages/app/`**
   - **Responsibility**: System lifecycle orchestration, startup configuration preflight checks, `config/dynamic/` hot-reload watching and propagation, handler registration, command menu assembly, and the Telegram update polling runner.
-  - **Key Modules**: `lifecycle.ts` and `lifecycle/` (`maintenance.ts`, `shutdown.ts`), `lifecycleDependencies.ts`, `configReload.ts`, `registerHandlers.ts`, `updateRunner.ts` / `updateFetcher.ts`.
+  - **Key Modules**: `lifecycle.ts` and `lifecycle/` (`maintenance.ts`, `shutdown.ts`), `lifecycleDependencies.ts`, `configReload.ts`, `registerHandlers.ts`, `updatePreamble.ts`, `updateRunner.ts` / `updateFetcher.ts`.
 - **`packages/commands/`**
   - **Responsibility**: Explicit Telegram slash command handlers organized by command domain; sub-commands dispatch within their domain and shared permission/config gates are extracted into dedicated modules.
   - **Key Modules**: `copy.ts`, `icon.ts`, `mood.ts`, `qa.ts`, `block.ts`, `hImage.ts` and `hImage/` (image drawing and collection), `info.ts`, `deferredCommands.ts`, `blocklistFanOut.ts`, `mute.ts`, `batchKick.ts`, `targetResolution.ts`, `configGate.ts`, `arguments.ts`; gag speech restrictions in `gag.ts` (entry), `gag/runtime.ts` (lifecycle), `gag/inline.ts`, and `gag/rendering.ts`; `/delete_message` in `deleteMessage.ts` (command and message ingress) and `deleteMessage/queue.ts` (deletion queue and shutdown drain); daily fortune draws in `luckChallenge/` (`cache.ts`, `draw.ts`, `key.ts`, `rateLimit.ts`, `receipt.ts`, `rendering.ts`, `telegramAdapter.ts`).
@@ -63,7 +63,7 @@ This document answers the core organizational question: **"Where does existing c
   - **Key Modules**: `tools/replyToolset/`, `tools/webSearch.ts`, `webDigest.ts`, `utils/`, `stickers/`, `voiceSynthesis.ts`, `ttsUsage.ts`.
 - **`packages/workers/antiRaid/adDetect/`**
   - **Responsibility**: Ad detection pipeline, including batch queuing, message bundling, classifier invocation, and violation disposal.
-  - **Key Modules**: `queue.ts`, `queueState.ts`, `verdict.ts`, `bundle.ts`, `classifier.ts`, `disposal.ts`, `config.ts`.
+  - **Key Modules**: `queue.ts`, `queueState.ts`, `verdict.ts`, `bundle.ts`, `classifier.ts`, `disposal.ts`, `config.ts`, `ai/`.
 - **`packages/infra/`**
   - **Responsibility**: Main-thread sole Telegram client and outbound gate, Worker duplex IPC hosts, structured logging, main-thread I/O proxies, and dedicated image library management.
   - **Key Modules & Directories**:

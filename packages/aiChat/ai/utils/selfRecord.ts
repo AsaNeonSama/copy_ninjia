@@ -5,9 +5,7 @@ import type {
 } from "../../../types/aiChat/protocol";
 import type { BufferedReplyReference } from "../../../types/aiChat/memory";
 
-/**
- * 构造机器人将自身发出的消息写回滚动记忆时的 AiRecordMessage 载荷。
- */
+/** buildSelfRecordMessage 的入参。 */
 export interface SelfRecordMessageParams {
   chatId: number;
   /** 机器人账号身份。 */
@@ -20,6 +18,7 @@ export interface SelfRecordMessageParams {
   replyTo?: BufferedReplyReference | undefined;
 }
 
+/** 构造机器人将自身发出的消息写回滚动记忆时的 AiRecordMessage 载荷。 */
 export function buildSelfRecordMessage({
   chatId,
   self,

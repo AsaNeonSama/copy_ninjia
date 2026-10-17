@@ -393,13 +393,14 @@
   - 可視メッセージを記録してランダム自発返信の発火確率を向上させますが、高アクティビティグループ向けの上限に達した後はそれ以上増加しません。アクティビティはグループごとに独立して計算され、プロセス再起動時は冷えた状態から始まります。直接トリガーはこの確率ゲートを完全にバイパスします。
   - このテーブルは全グループメッセージが通過する高頻度ホットパスです。既存のグループは固定 shape の `AiReplyActivityEntry`（`timestamps`、`lastAccessSequence`、`lastObservedAt`）をインプレースで更新し、`Map.delete` + `Map.set` による順序変更や複合キー・一時オブジェクトの生成を禁止します。満杯の有界テーブルに新規グループを挿入する場合にのみテーブルをスキャンして LRU を選出します。
   - ランダム返信のクールダウンは `[chatId][userId]` の 2 段の Map に保存し、文字列の連結を回避します。エントリ総数は `userReplyTriggerSweepState.size` で一元管理し、単一の unref クリーンアップタイマーを使用します。満杯テーブル走査時は全項目が有効な区間 `[validFrom, validUntil)` を記録し、有効なエントリを追い出しません。
-  - **グループメッセージ 1 件につきシステムクロックの読み取りは 1 回のみ**：ミドルウェア入口で `Date.now()` を 1 回だけ取得し、コンテキスト経由でアクティビティ、沈黙期間、連投制限などの全サブモジュールへ引き渡します。
+  - **グループメッセージ 1 件につきシステムクロックの読み取りは 1 回のみ**：update スコープの入口（`packages/infra/updateContext.ts`）で `Date.now()` を 1 回だけ取得して `UpdateScope.nowMs` に格納し、`updateNow()` を通じて `antiRaid/updateIngress.ts`、`auto/message/index.ts`、および下流の沈黙期間・アクティビティ・クールダウン・連投制限などの全判定へ引き渡します（`waitForBotOwnMessage` で実際にスレッド間待機が発生した直後にのみ `refreshUpdateNow()` で 1 回更新します）。
 
 - **マルチモーダルメディア解析パイプライン（画像、スタンプ、GIF、音声）**：
   - 「プレースホルダーでキャッシュ → 非同期解析 → その場へ書き戻し」の統一パイプラインを採用します。
   - `transientDescriptionCache` は `file_unique_id` に基づいて Promise をキャッシュし、容量上限は `MEDIA_DESCRIPTION_CACHE_MAX` 件です。LRU 方式で淘汰し、失敗結果はその場で即座に削除します。同一ファイルに対する処理中のリクエストは単一の Promise を共有します。
   - 並行エグゼキュータ（`cache/workers/aiChat/mediaTasks.ts`）はアクティブな解析タスクを最大 `MEDIA_DESCRIPTION_MAX_CONCURRENCY` 件に制限し、キューイングとコールドプローブ待機の上限は合計 `MEDIA_DESCRIPTION_MAX_PENDING` 件です。
   - `libs/sharedResult.ts` によりキャンセル可能な共有サブスクリプションを管理します。単一の呼び出し元によるキャンセルは他の消費者に影響を与えず、最後の消費者が離脱した時点で初めて背後のタスクを実際に中止します。
+  - **視覚トランスコードの画素数・長辺上限**：WebP/GIF デコード前（`packages/infra/image.ts`）にファイルヘッダーの寸法を検査し、単一フレームの画素数が `VISION_TRANSCODE_MAX_PIXELS` を超えないことを強制します（WebP の RIFF チャンク走査は `WEBP_MAX_SCANNED_CHUNKS` 個まで）。デコード後の長辺が `VISION_TRANSCODE_MAX_EDGE` を超える場合は等比率で縮小してから PNG エンコードします。
 
 - **Bot 自発画像の記憶バックフィル**：
   - ローリングメモリ内の自発画像（`packages/workers/aiChat/botImages.ts`）は、**プレースホルダー状態**（本文はプロンプトまたはキャプション記号、`pendingImage` を保持）と**内容状態**（記号が実際の画像認識記述に置き換わり、`pendingImage` が消去）に分かれます。
@@ -417,7 +418,7 @@
 ### AI プロンプトと transcript
 
 - **Bot 自身の身元と発言者識別**：
-  - AI 自録、トランスクリプト名簿、返信引用、会話要約の入力において、Bot 自身の発言は一貫して `SELF_SPEAKER_NAME` として識別され、Telegram 上の `first_name`、`last_name`、`username` は表示されません。
+  - AI 自録、トランスクリプト名簿、返信引用、会話要約の入力において、Bot 自身の発言は一貫して `SELF_SPEAKER_NAME` として識別され、Telegram 上の `first_name`、`last_name`、`username` は表示されません。本 Bot 経由で着地した inline メッセージ（`via_bot.id === bot.id`、`packages/auto/message/guards.ts` の `recordSelfInlineResult`）のうち、gag inline 発言（`hasGagInlineMarker`）は実際の送信者名義（`buildInlineSenderRecordMessage`）で記録し、それ以外の自身の inline 結果（`stripLuckReceipt` 後の運勢結果など）は `SELF_SPEAKER_NAME` 名義（`buildSelfRecordMessage`）で記録し、能動返信はトリガーしません。
   - 返信プロンプトの読み取り専用参考記憶には、現在のデプロイの `@username` を含む自己身元説明が 1 文添えられます。メインスレッドはプロセス起動ごとに `bot.init()` の `getMe` で自身のアカウント情報を一度だけ取得し、`initAiChat` で AI Worker に注入します。Worker の再生成時はこの起動時スナップショットを再送し、メッセージごとの再取得は行いません。
   - 名簿内では Bot に固定番号 `me` が割り当てられ、一般メンバーはアカウント ID と表示名が保持されます。過去の逐語スナップショットの描画時にも同一の規則が適用されます。
 
@@ -444,10 +445,10 @@
   - **system prompt の厳格な逐字不変性**：system prompt は独立したシステムフィールド経由でのみ渡されます。動的な状態データ（時刻、気分、ツール状態）は user コンテンツ内の実行時状態ブロックに配置しなければならず、system prompt への混入は固く禁じられます。人格設定、行動と停止の指示、ローカル `web_search` モードの 3 つがすべて前ラウンドと等しい間、AI Worker は前ラウンドで組み立てた同一の system prompt 文字列を再利用し（`packages/cache/workers/aiChat/replyPrefix.ts` の単一スロット）、いずれかが異なれば組み立て直して置き換えます。
 
 - **Gemini 明示コンテキストキャッシュ（Explicit Context Cache）**：
-  - **モデル能力プローブ**：`text` または `adDetect` が起動またはホットリロードで `google` プロバイダに切り替わると `probeGeminiContextCache` を呼び出し、バックグラウンドで `models.get` により対象モデルの `supportedActions` に `GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION`（`"createCachedContent"`）が含まれるかを確認します。対応している場合は続けて `caches.list` で既存のサーバー側キャッシュを引き継いで `"done"` に遷移し、非対応の場合はレジストリを `"unsupported"` に設定して以降のリクエストをサーバー側の暗黙プレフィックスキャッシュ（完全な設定の送信）へ直行させ、`caches.list`・`caches.create` を呼びません。`models.get` のリクエストが失敗した場合はエラーログを記録したうえで対応として扱いスキャンを続け、作成の失敗は後述の失敗バックオフで処理します。
-  - **2 種類のリクエスト構造**：返信ラウンドの初回リクエストは、そのグループにトリガー時刻の記録がない、または記録から `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` を超えている場合に限り、明示キャッシュの準備ができていればそれを参照します（`cachedContent`）。リクエスト本文は `contents` のみで、`systemInstruction`、`tools`、`toolConfig` は含みません。記録からその時間以内（等しい場合を含む）、キャッシュが未準備、モデルが明示キャッシュ非対応（`scan === "unsupported"`）、またはセッションが固定した text スナップショットがホットリロードで差し替わった場合は、完全な設定を送信します。2 回目以降の往復は常に静的な `systemInstruction` とツール構成を送り、サーバー側の暗黙プレフィックスキャッシュが引き継ぎます。トリガー時刻はそのグループで直前に成功した `generateContent` の送信時刻で、スレッドの単調時計 `performance.now()` から取り、グループごとに 1 つのメモリ値を持ちます（`chatId` は返信セッションのパラメータで渡され、Gemini 実装だけが読みます）。他のグループのリクエストには影響されません。失敗したリクエストは書き込まず、並行リクエストが順不同で完了しても、早い送信時刻で遅い記録を上書きしません。明示キャッシュを拒否されたあとの完全な設定での再送は再送時刻で数えます。`/ai_chat disable`、`/clear_context`、グループ単位のクリーンアップ、記憶の淘汰、停止ではそのグループの値を削除し、AI Worker の保守ティックは `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` を超えた値を削除します（記録がないのと同じ扱い）。`agent.text` のホットリロードでは消しません。Worker が新しい isolate に移るとすべての値が空になり、各グループの次の返信の初回リクエストは上記の条件に従います。
-  - **明示キャッシュの内容**：「system prompt + ツール宣言 + toolConfig」のみをキャッシュし、参考記憶、トランスクリプト、実行時状態は含めません。
-  - **スロット管理**：system prompt のフィンガープリントごとにスロットを分割し、全グループが同一スロットを共有します。スロット数上限は `GEMINI_TEXT_CACHE_MAX_SLOTS` で、超過時は `lastUsedAt` に基づき最長未使用のスロットおよびサーバー側エントリを淘汰します。`displayName` の形式は `${GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX}<スロット指紋>:<内容指紋>` です。モデル、system instruction、ツール宣言 JSON、toolConfig がすべて前ラウンドと等しい間は前ラウンドで計算した 2 つの指紋を再利用し、いずれかが異なれば計算し直します。
+  - **モデル能力プローブ**：`text` または `ad_detect` が起動またはホットリロードで `google` プロバイダに切り替わると `probeGeminiContextCache` を呼び出し、バックグラウンドで `models.get` により対象モデルの `supportedActions` に `GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION`（`"createCachedContent"`）が含まれるかを確認します。対応している場合は続けて `caches.list` で既存のサーバー側キャッシュを引き継いで `"done"` に遷移し、非対応の場合はレジストリを `"unsupported"` に設定して以降のリクエストをサーバー側の暗黙プレフィックスキャッシュ（完全な設定の送信）へ直行させ、`caches.list`・`caches.create` を呼びません。`models.get` のリクエストが失敗した場合はエラーログを記録したうえで対応として扱いスキャンを続け、作成の失敗は後述の失敗バックオフで処理します。
+  - **2 種類のリクエスト構造**：返信ラウンドの初回リクエストは、そのグループにトリガー時刻の記録がない、または記録から `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` を超えている場合に限り、明示キャッシュの準備ができていればそれを参照します（`cachedContent`）。リクエスト本文は `contents` のみで、`systemInstruction`、`tools`、`toolConfig` は含みません。記録からその時間以内（等しい場合を含む）、キャッシュが未準備、モデルが明示キャッシュ非対応（`scan === "unsupported"`）、またはセッションが固定した text スナップショットがホットリロードで差し替わった場合は、完全な設定を送信します。2 回目以降の往復は常に静的な `systemInstruction` とツール構成を送り、サーバー側の暗黙プレフィックスキャッシュが引き継ぎます。トリガー時刻はそのグループで直前に成功した `generateContent` の送信時刻で、スレッドの単調時計 `performance.now()` から取り、グループごとに 1 つのメモリ値を持ちます（`chatId` は返信セッションのパラメータで渡され、Gemini 実装だけが読みます）。他のグループのリクエストには影響されません。失敗したリクエストは書き込まず、並行リクエストが順不同で完了しても、早い送信時刻で遅い記録を上書きしません。明示キャッシュを拒否されたあとの完全な設定での再送は再送時刻で数えます。`/ai_chat disable`、`/clear_context`、グループ単位のクリーンアップ、記憶の淘汰、停止ではそのグループの値を削除し、AI Worker の保守ティックは `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` を超えた値を削除します（記録がないのと同じ扱い）。`agent.text` のホットリロードでは消しません。Worker が新しい isolate に移るとすべての値が空になり、各グループの次の返信の初回リクエストは上記の条件に従います。一方、`ad_detect` はグループごとのアイドル判定を持たない単発リクエストであり、明示キャッシュが準備完了であれば毎回直接 `cachedContent` を参照し、未準備または拒否時は完全な `systemInstruction` にフォールバックします。
+  - **明示キャッシュの内容**：`text` は「system prompt + ツール宣言 + toolConfig」のみをキャッシュし（参考記憶、トランスクリプト、実行時状態は含めない）、`ad_detect` は判定用の `instructions`（規則 + 過去サンプル、ツールおよび `toolConfig` なし）のみをキャッシュします。
+  - **スロット管理**：`text` は system prompt のフィンガープリントごとにスロットを分割して全グループで共有し（上限 `GEMINI_TEXT_CACHE_MAX_SLOTS`、`displayName` 接頭辞 `GEMINI_TEXT_CACHE_DISPLAY_NAME_PREFIX`）、`ad_detect` は判定 `instructions` のフィンガープリントごとにスロットを分割します（上限 `AD_DETECT_GEMINI_CACHE_MAX_SLOTS`、`displayName` 接頭辞 `AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX`）。超過時は `lastUsedAt` に基づき最長未使用のスロットおよびサーバー側エントリを淘汰します。モデルおよびキャッシュ対象入力がすべて前ラウンドと等しい間は前ラウンドで計算した 2 つの指紋を再利用し、いずれかが異なれば計算し直します。
   - **非ブロッキング取得**：`acquireGeminiContextCache` の呼び出し時にプローブやキャッシュ作成の完了を待つことはありません。`scan === "unsupported"` の場合は即座に `null` を返し、プローブ中または対応モデルの初回利用時は完全な設定をそのまま送信しつつ、バックグラウンドでプローブ・スキャン・作成（TTL は `GEMINI_CONTEXT_CACHE_TTL`）を進めます。キャッシュヒット時は `lastUsedAt` を更新し、残存寿命が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 未満であればバックグラウンドで `GEMINI_CONTEXT_CACHE_TTL` へ更新します。
   - **失敗バックオフ**：エンドポイントから 400 拒否が返された場合はフィンガープリントを記録してバックオフに入ります。拒否回数が `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 回に達した後はその内容でのキャッシュ作成を断念し、全量リクエストへフォールバックします。
 
@@ -683,7 +684,7 @@
     - 例外：AI 記憶はいかなる teardown 理由でも削除されます。参加認証等の残留ボタンメッセージは `explicitDisable` のときのみ API で削除し、`departed` と `gone` のときは Telegram リクエストを発行しません。
   - **退出時の後始末の入口（`completeChatDeparture`）**：`packages/infra/botAdmin.ts` の `completeChatDeparture(chatId, "departed" | "gone")` は権限スナップショットを破棄し、全 owner の teardown を実行してから、ブラックリスト補完スイープの進捗と非公開モード記録以外のグループ状態を消去して永続化します。同じグループに対する重複呼び出しは冪等です。呼び出し元は次の 3 か所だけです：
     - `my_chat_member` が Bot の left/kicked を示す場合：`departed`。
-    - 管理グループが `migrate_to_chat_id` 付きのサービスメッセージを受け取った場合：`packages/app/registerHandlers.ts` の前置チェーンで初期化ゲートの後ろにある移行 ingress が `gone` として後始末し、その update を終了します。新しいスーパーグループは引き続き `/init` が必要で、旧グループの設定は移されません。
+    - 管理グループが `migrate_to_chat_id` 付きのサービスメッセージを受け取った場合：`packages/app/updatePreamble.ts` の前置チェーンで初期化ゲートの後ろにある移行 ingress が `gone` として後始末し、その update を終了します。新しいスーパーグループは引き続き `/init` が必要で、旧グループの設定は移されません。
     - 起動時のタイトル更新がグループの到達不能を確証した場合（上記の低優先度タイトル保守を参照）：確証した分類で後始末します。
   - **厳格な順序による同期的ディスパッチ**：`teardownChatRuntime` は `packages/consts/chatTeardown.ts` の `CHAT_TEARDOWN_ORDER`（型システムにより `ChatRuntimeOwner` を網羅）を順次走査します。teardown はこの順序で全 owner のクリーンアップを同期的に開始してから、非同期の完了をまとめて待機します。
 - **メンバー在室再確認の境界**：
@@ -703,7 +704,7 @@
   - `/wed` コマンドおよびコールバックは統一された `/init` ゲートの背後に配置されます。新規メンバーの追加には `isInitEnabled === true` が必要です。初期化されていないグループで退出イベントが発生した場合は既存ウィンドウから ID を削除するのみで、グループ状態の作成や業務ハンドラの実行は行いません。
 - **キャッシュと永続化アーキテクチャ**：
   - **メンバー権威キャッシュ**：`packages/cache/main/wedMembers.ts` が各グループで単一の長期 `FifoMap<number, number>`（`packages/libs/fifoMap.ts`、メンバー ID → 参加時刻）を再利用し、容量 `WED_MEMBER_LIMIT` の参加時刻スライディングウィンドウとして扱います。挿入順が参加順で、新規メンバーの参加時刻は現在時刻と割り当て済みの最大参加時刻の大きい方です。満杯時は先頭（最も早く参加した）を押し出し、ウィンドウ内のメンバーが再度発言しても参加時刻は更新しません。チャンネル名義、返信/転送元、匿名身分からの発言は候補に追加しません。
-  - **対話セッションキャッシュ**：`packages/cache/main/wed.ts` が対話状態とアバター照会を管理し、1 人 1 グループにつき 1 セッションを割り当てます。各グループのセッションテーブルは容量 `WED_SESSION_CAPACITY`（`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`）の `FifoMap` であり、直近で配信された `WED_SESSION_LIMIT` 件の結果を保持し、新しい結果の配信後に `trimWedSessions` が処理中のセッションをスキップして最も古い待機中の結果をスライドアウトさせます。グループリストは `STATE_MANAGED_CHAT_LIMIT` で制約され、LRU 淘汰は行いません。
+  - **対話セッションキャッシュ**：`packages/cache/main/wed.ts` が対話状態とアバター照会を管理し、1 人 1 グループにつき 1 セッションを割り当てます。各グループのセッションテーブルは容量 `WED_SESSION_CAPACITY`（`WED_SESSION_LIMIT + WED_MAX_CONCURRENT`）の `FifoMap` であり、直近で配信された `WED_SESSION_LIMIT` 件の結果を保持し、新しい結果の配信後（または引き直し送信の失敗時に元のセッション `previous` を復元した後）に `trimWedSessions` が処理中のセッションをスキップして最も古い待機中の結果をスライドアウトさせます。グループリストは `STATE_MANAGED_CHAT_LIMIT` で制約され、LRU 淘汰は行いません。
   - **ディスクフラッシュ方針**：実際にメンバーの追加・削除・押し出しが発生した場合にのみリビジョンをインクリメントしてダーティマークを付与します。Disk I/O の `FLUSH_MAX_ENTRIES` および `FLUSH_INTERVAL_MS` 閾値を流用し、スレッド間ではフラットな `[id, enteredAt, ...]` スナップショットのみを渡し、Disk I/O Worker が `{ id, enteredAt }` 配列として一時ファイル、fsync、およびアトミック rename を経由して `memory/wed/<chatId>.json` を書き換えます。
   - **グループ全削除の保証**：`purgeWedMembers` がメモリ上の集合を削除した後、`pendingWedMemberDeletes` に単調増加する番号を登録して Worker へ投函します。正確な永続化確認を受け取った後にのみ保留中のタスクを解放します。シャットダウンまたは再構築時は最新状態を再送します。
 - **起動時読み取り専用ゲート**：
@@ -835,7 +836,7 @@
   - フィールドの欠落はコード内の定数（`consts/ui/assets.ts`）へ一律にフォールバックし、前回の実行状態を引き継ぐことはありません。Bot がこのファイルを書き換えることはなく、未知のグループや未宣言フィールドが存在した場合はファイル全体を拒否します。
   - サムネイルは `https` のみを許可します。ローカルで取得する既定アバターは平文 `http` またはローカルファイルパス（絶対パス、または `./` / `../` で始まる相対パス）を許可します。既定アバターの素材はバイトシグネチャ、サイズ、動画トラック寸法で判定します（`defaultAvatarPhotoType`）：`BOT_PROFILE_PHOTO_MAX_BYTES` 以下の JPEG/PNG は静止アバター、`BOT_PROFILE_ANIMATION_MAX_BYTES` 以下で動画トラック（`hdlr` が `vide`）を 1 本以上持ち、各動画トラックの `tkhd` 表示サイズがすべて一辺 `BOT_PROFILE_ANIMATION_MAX_SIDE` 以下のゼロでない正方形である MP4 は動くアバターとしてアップロードします。MP4 は先頭 box が MP4 ブランドを宣言する `ftyp` であり、続くトップレベル box がファイル全体を過不足なく埋め、`moov` をちょうど 1 つ含む必要があります。`moov`、`trak`、`mdia` の子 box も各ペイロードを過不足なく埋め、全階層で読む box は合計 `MP4_MAX_SCANNED_BOXES` 個までです。長さフィールドの範囲外や途中切れはすべて不合格です。ローカルファイルは読み込み時に検証し復元時にも同じ規則で再検証、URL は復元時にのみ検証し、読み取り上限は `DEFAULT_AVATAR_MAX_READ_BYTES`、URL の 1 回のダウンロードのタイムアウトは `DEFAULT_AVATAR_FETCH_TIMEOUT_MS` です。
 - **統一ログ秘匿化（Redaction）境界**：
-  - journal、Worker エンベロープ、または `logs/` への出力前に、読み込み済み設定に含まれるすべての機密資格情報（トークン、API キー、秘密鍵、Google プロバイダのヘッダー値など）を自動的に秘匿化します。
+  - journal、Worker エンベロープ、または `logs/` への出力前に、読み込み済み設定に含まれるすべての機密資格情報（トークン、API キー、秘密鍵、Google および Anthropic プロバイダのヘッダー値など）を自動的に秘匿化します。
   - ログ内の HTTP(S) URL は `origin + pathname` のみに正規化し、クエリパラメータ、フラグメント、userinfo を除去します。
   - エラーオブジェクトは `cause` や `AggregateError` を最大深度 `LOGGER_NESTED_ERROR_MAX_DEPTH`、最大ノード数 `LOGGER_MAX_ERROR_NODES` まで展開します。引数のシリアライズ上限は `LOGGER_MAX_SERIALIZED_BYTES` および `LOGGER_MAX_SERIALIZED_ITEMS` であり、循環参照は静的プレースホルダーで置き換えます。
 - **グループ状態の正準形状と Normalizer**：
@@ -1030,7 +1031,7 @@
   - 進行中の広告処置タスク（`inFlightAdDisposals`）、永続化書き込み、受領確認、および派生した Worker タスクを順次排出します。前段の受領取得に失敗した場合でも、進行中のタスクの排出をベストエフォートで試行した上で、元の失敗理由を呼び出し元へ返します。
 - **タイムアウト中止とリソース解放順序（Dispose 順序）**：
   - Update が通常の排出予算（`RUNNER_DRAIN_TIMEOUT_MS`）を超過した場合、ライフサイクルは `AbortController` を通じて全 update を中断し、取消収束ウィンドウ（`RUNNER_CANCELLATION_SETTLEMENT_TIMEOUT_MS`）を与えます。時間内に終了しなかったハンドラーは offset の確認とロック解放を阻止します。
-  - 停止処理は固定順序（`packages/app/lifecycle/shutdown.ts` の `SHUTDOWN_DRAIN_OWNERS` および `SHUTDOWN_TERMINATION_OWNERS`）で同期・非同期の収尾を実行します：設定ホットリロードと update ポーリングの停止 → 各業務入口の quiesce → runner 停止 → 遅延コマンド・gag・`/delete_message`・定時タスク・翻訳・Q&A・`/wed`・AI・Anti-Raid の順次 drain/flush → AI の終了 → Telegram 出線の排出 → Disk I/O のフラッシュ → Anti-Raid と Disk I/O の終了 → StateStore のフラッシュ。
+  - 停止処理は固定順序（`packages/app/lifecycle/maintenance.ts` および `packages/app/lifecycle/shutdown.ts` の `SHUTDOWN_DRAIN_OWNERS` と `SHUTDOWN_TERMINATION_OWNERS`）で同期・非同期の収尾を実行します：設定ホットリロードと update ポーリングの停止 → 各業務入口の quiesce → runner 排出 → `SHUTDOWN_DRAIN_OWNERS`（`avatar` → `translate` → `antiRaid` → `gag` → `qa form` → `wed` → `deferred commands` → `cron` → `target message deletion` → `Telegram delayed deletion` → `ai`（AI Worker のフラッシュと終了）→ `telegram`（Telegram 出線ゲートの排出）→ `disk`（Disk I/O のフラッシュ））の順次 drain/flush → `SHUTDOWN_TERMINATION_OWNERS`（`terminateAntiRaid` → `terminateDiskIO` → `flushStateToDisk`）の順次実行 → 最終 offset の確認とインスタンスロックの解放。
   - **共有 SQLite のクローズ**：現在の Disk I/O 世代が復旧ハンドシェイクを終え、書き込み可能で、致命シグナルを出していない場合、`terminateDiskIO` はまず `writable` を偽にしてから `closeStorage` を 1 回送ります（予算 `DISK_IO_STORAGE_CLOSE_TIMEOUT_MS`）。Disk I/O Worker は残りの書き込みを 1 トランザクションでコミットし、`PRAGMA wal_checkpoint(TRUNCATE)` を実行して接続を閉じ、以降の身分書き込みメッセージは無視します。応答が残り書き込みの未コミットを報告した場合、またはクローズ要求がタイムアウト・拒否・エラー応答となりコミットを確認できない場合も Worker は終了させますが、ディスク終了のステップは失敗として記録され、停止結果は `unsettled` になります。他の読み取り接続による checkpoint の阻害は診断を残すだけです（残り書き込みはコミット済みで、WAL はデータベースの横に残ります）。`closeStorage` は業務メッセージではなく、Worker 再構築時に再送されません。
   - プロセス内の経過時間予算は `packages/libs/monotonicDeadline.ts` が `performance.now()` に基づいて計算します。
 

@@ -293,7 +293,7 @@ The full command reference and permission matrix are documented in **[📖 09 Co
 
 - **OS**: Linux with a readable `/proc` filesystem (the instance lock enforces fail-closed behavior on unsupported platforms).
 - **Telegram Credentials**: A Bot Token from BotFather and your personal Telegram user ID as super administrator.
-- **Runtime**: [Bun](https://bun.sh/) (version per `package.json` `engines.bun`) for source installs; official binary releases bundle the runtime statically.
+- **Runtime**: [Bun](https://bun.sh/) (version per `package.json` `packageManager`) for source installs; official binary releases bundle the runtime statically.
 - **External Services**: API keys for enabled AI capabilities; Google Cloud service-account JSON credentials for `/translate`. Hardware sizing recommendations: [07 Operations](07-operations.md#hardware-guidance).
 
 ### One-Shot Installation

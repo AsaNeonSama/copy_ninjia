@@ -5,6 +5,7 @@ import type {
 } from "../../../../types/aiChat/replies";
 import type { TelegramSendResult } from "../../../../types/telegram";
 
+/** 创建单轮回复的文本去重与错别字预约可变状态。 */
 export function createRoundMessageState(): RoundMessageState {
   return {
     typoUsedThisRound: false,

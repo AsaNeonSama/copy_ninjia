@@ -45,6 +45,7 @@ export const ANIMATION_DESCRIPTION_PROMPT: string =
  * 所说读取；指令往「逐字」上收，并禁止把「没听清」写成解释。真的听不出内容时
  * 输出空串，由 finalizeAiTextResult 归一成一次失败，走 VOICE_FALLBACK_PLACEHOLDER 兜底
  * （见 aiChat/ai/utils/textResult.ts 与 workers/aiChat/mediaText.ts）。
+ * 所属模块：aiChat/ai/voiceTranscription.ts。
  */
 export const VOICE_TRANSCRIPTION_PROMPT: string =
   "这是中文群聊里有人发的一条语音消息。请把说话内容逐字转写成文字：" +

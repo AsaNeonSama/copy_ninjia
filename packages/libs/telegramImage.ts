@@ -26,7 +26,6 @@ export function messageImageCandidate(message: Message): MessageImageCandidate |
  * 这张图的尺寸是否过得了 `sendPhoto` 的两道门槛：宽高之和不超过
  * TELEGRAM_PHOTO_MAX_DIMENSION_SUM，长宽比不超过 TELEGRAM_PHOTO_MAX_ASPECT_RATIO（取长边
  * 除以短边）。两道门槛与字节上限相互独立。纯函数，只比较数字；零或负的边长按不合规处理。
- * @param dimensions 已读出的像素宽高。
  */
 export function isSendablePhotoDimensions({ width, height }: ImageDimensions): boolean {
   if (width <= 0 || height <= 0) return false;

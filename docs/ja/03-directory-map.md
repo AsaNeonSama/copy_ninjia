@@ -18,7 +18,7 @@
   - **内容**：プロジェクトの MIT [`LICENSE`](../../LICENSES/LICENSE)、漢字異体字データの [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt)、および Opus 音声エンコード関連の [`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) と [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)。
 - **`packages/app/`**
   - **責務**：起動・停止ライフサイクル、既存デプロイ設定の起動時バリデーション、`config/` ホットリロードの監視と伝播、ハンドラー登録、コマンドメニュー初期化、update runner、各種ライフサイクルの依存注入（composition）。
-  - **代表ファイル**：`lifecycle.ts`、`lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updateRunner.ts` / `updateFetcher.ts`。`ApplicationLifecycleDependencies` は composition オブジェクトから型推論して同階層に配置。
+  - **代表ファイル**：`lifecycle.ts`、`lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updatePreamble.ts`、`updateRunner.ts` / `updateFetcher.ts`。`ApplicationLifecycleDependencies` は composition オブジェクトから型推論して同階層に配置。
 - **`packages/commands/`**
   - **責務**：明示的なコマンドハンドラーを機能単位で集約。同一コマンドのサブコマンドはその内部で分岐。トグル系コマンドで共有される権限・設定ゲートは共通モジュールに分離。
   - **代表ファイル**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts`、`block.ts`、`hImage.ts` と `hImage/`（抽選・追加）、`info.ts`、`deferredCommands.ts`（`/h_image`、`/info`、`/send` の非同期音声合成、`/batch_kick`、`/block enable` の横断 BAN で共用される遅延コマンドエグゼキューター）、`blocklistFanOut.ts`（全グループ横断 BAN のファンアウト）、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`。インラインおみくじ機能も同様に `luckChallenge/`（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`。`index.ts` は薄い公開ファサード）に分割。規模の大きい gag 機能はコマンド受付を `gag.ts` に残し、ライフサイクル、インライン、純粋描画を `gag/runtime.ts`、`gag/inline.ts`、`gag/rendering.ts` に分離。`/delete_message` はコマンドとメッセージ ingress を `deleteMessage.ts`、削除キューと停止時の排空を `deleteMessage/queue.ts` が担う。

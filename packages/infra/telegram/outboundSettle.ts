@@ -43,7 +43,7 @@ export function settleDrainWaitersIfIdle(): void {
   settleAllDrainWaiters(true);
 }
 
-/** 以 drained 结算并清空全部排空等待者（false 按 timedOut），各自的超时 timer 一并取消。 */
+/** 以 flushed 结算并清空全部排空等待者（false 按 timedOut），各自的超时 timer 一并取消。 */
 export function settleAllDrainWaiters(drained: boolean): void {
   settleFlushWaiters(telegramOutboundGateState.drainWaiters, drained ? "flushed" : "timedOut");
 }

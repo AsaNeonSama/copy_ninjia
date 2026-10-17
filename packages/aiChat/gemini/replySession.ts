@@ -1,7 +1,8 @@
-import { EMPTY_FUNCTION_CALLS } from "../../consts/aiChat/tools";
 /**
  * Gemini 多轮工具回复会话：管理本地 `contents` 历史、显式/隐式上下文缓存切换与服务端 Google Search。
  */
+
+import { EMPTY_FUNCTION_CALLS } from "../../consts/aiChat/tools";
 
 import type {
   Content,

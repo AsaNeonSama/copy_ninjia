@@ -25,7 +25,7 @@ export const queuedAdDetectKeys: Set<string> = new Set<string>();
 
 /**
  * 已判定为广告并触发处置的发言者键 -> Worker 单调时钟处置时刻（见 docs/cn/04-invariants.md）。
- * 填充：disposeDetectedAd 触发处置时写入。
+ * 填充：workers/antiRaid/adDetect/verdict.ts 的 detectOne 触发处置前写入。
  * 清理：满 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 到期淘汰，或封禁取得确定结果时由 blocklistEffects 提前删除。
  * 重建：Worker 崩溃重启后从空表开始。
  * 容量：FifoMap 限制为 AD_DETECT_MAX_PENDING_SENDERS，满载时淘汰最早处置键。

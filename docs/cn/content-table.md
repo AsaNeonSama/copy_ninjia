@@ -92,7 +92,7 @@
 ## 📑 页面清单与核心内容
 
 1. **[01 环境搭建与首次运行](01-getting-started.md)**
-   - 基础依赖要求（Bun（按 `package.json` 的 `engines.bun`）/ Linux 系统 / Telegram Bot Token / AI 模型 API Key）
+   - 基础依赖要求（Bun（按 `package.json` 的 `packageManager`）/ Linux 系统 / Telegram Bot Token / AI 模型 API Key）
    - `install.sh` 自动化安装向导与手动源码安装步骤
    - `config/static/bot.json` 等配置文件的说明与校验规则
    - Telegram 机器人设置（隐私模式、管理员权限、内联模式与 Bot 间通信）
@@ -115,7 +115,7 @@
    - 数据持久化：SQLite 事务、状态快照、黑名单与广告风控、停机确认机制
 
 5. **[05 开发流程与质量门禁](05-dev-workflow.md)**
-   - `bun run check` 集成门禁：安装脚本检查 + 沙盒验证 + 规范自检 + 代码规范 + 类型检查 + 测试覆盖率 + 乱序测试 + 热路径基准
+   - `bun run check` 集成门禁：安装脚本检查 + 沙盒验证 + 规范自检 + 代码规范 + 类型检查 + 固定种子乱序全量测试与覆盖率 + 热路径基准
    - 测试环境隔离机制与独立临时数据根沙盒
    - 提交流程、故障注入测试（`bun run test:fault-injection`）与发布构建指南
 

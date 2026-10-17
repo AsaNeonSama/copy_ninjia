@@ -46,7 +46,7 @@ import type { EncodedVoiceMessage, VoiceSynthesisFailure, VoiceSynthesisResult }
 import type { RandomImagePick } from "../types/randomImage";
 import { errorMessage } from "../libs/errorMessage";
 
-/** 一次发送失败的分类：服务端 5xx、仍被 429 挡住、出站队列满与网络错误可重试，其余 4xx 与本地错误不重试。 */
+/** 一次发送失败的分类：TelegramRetryQueueFullError（出站退避重试队列满）、服务端 5xx、仍被 429 挡住与 HttpError 网络错误可重试，其余 4xx 与本地错误不重试。 */
 function classifyFailure(error: unknown): CronDeliveryOutcome {
   if (error instanceof TelegramRetryQueueFullError) {
     return { kind: "retryable", detail: "the Telegram outbound retry queue is full" };
