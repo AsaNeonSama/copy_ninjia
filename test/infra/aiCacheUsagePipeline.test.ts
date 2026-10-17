@@ -13,7 +13,7 @@ import { resetAiCacheState } from "../../packages/cache/workers/diskIO/aiCache";
 import { AI_CACHE_FILE_PATH, AI_CACHE_MEMORY_DIR } from "../../packages/consts/paths";
 import { TEST_DATA_ROOT } from "../preloadEnv";
 import { getAgentDeploymentConfig, getAdDetectAgentConfig, adoptAgentDeploymentConfig, adoptAdDetectAgentConfig } from "../../packages/config/agent";
-import { parseTtsCapability } from "../../packages/config/agentCapability";
+import { parseTtsCapability } from "../../packages/config/agentTts";
 import { installAiCacheUsageSink } from "../../packages/infra/aiCacheUsage";
 import { relayAiCacheUsage } from "../../packages/infra/aiCacheUsageRelay";
 import { acceptDiskIODiagnosticBatch, resetDiskIODiagnosticChannel } from "../../packages/infra/diskIO/diagnosticChannel";

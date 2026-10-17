@@ -66,7 +66,7 @@ export type OpenAiImageProtocol = "openai" | "openai-standard" | "xai";
 
 /**
  * agent 能力可选的 SDK 协议。anthropic 不支持 image 与 tts，那两项在配置解析时
- * 拒绝它（见 config/agentCapability.ts）。
+ * 拒绝它（分别见 config/agentCapability.ts 与 config/agentTts.ts）。
  */
 export type AgentProvider = "google" | "openai" | "anthropic";
 

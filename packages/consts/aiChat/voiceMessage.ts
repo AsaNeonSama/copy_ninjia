@@ -33,7 +33,7 @@ export const TTS_TONE_SEPARATOR: string = "; 细节: ";
 
 /**
  * `agent.tts.bot_language` 接受的全部取值，与 TtsBotLanguage 一一对应；部署配置解析
- * （config/agentCapability.ts）据此判定枚举是否合法。
+ * （config/agentTts.ts）据此判定枚举是否合法。
  */
 export const TTS_BOT_LANGUAGES: readonly TtsBotLanguage[] = exhaustiveList<TtsBotLanguage>()(["en", "zh", "ja"]);
 

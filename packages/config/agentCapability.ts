@@ -2,10 +2,9 @@
  * config/dynamic/agent.json 里单项 AI 能力的严格解码（纯函数，不读盘、不接触缓存）：通用字段
  * provider、api_key、base_url、model（provider 为 google、openai 或 anthropic；anthropic 不支持
  * image 与 tts，那两项拒绝它），google 与 anthropic provider 可选的 headers，anthropic provider
- * 可选的 fallback_model，image 的 image_protocol 与 max_reference_images、tts 的 speech_protocol、voice、style、language、
- * bot_language 与每日额度字段，以及 web_search 的 max_calls_per_use。
- * 文件级加载、分段快照与 holder 在 config/agent.ts。报错只写来源路径、字段路径与期望形态，
- * 不回显配置值。
+ * 可选的 fallback_model，image 的 image_protocol 与 max_reference_images，以及 web_search 的
+ * max_calls_per_use。tts 能力解码在 config/agentTts.ts，文件级加载、分段快照与 holder 在 config/agent.ts。
+ * 报错只写来源路径、字段路径与期望形态，不回显配置值。
  */
 
 import {
@@ -23,15 +22,6 @@ import {
   isAgentProvider,
 } from "../consts/agent";
 import {
-  EXPECTED_TTS_BOT_LANGUAGE,
-  TTS_DEFAULT_BOT_LANGUAGE,
-  TTS_DEFAULT_DAILY_LIMIT,
-  TTS_DEFAULT_DAILY_RESERVE_QUOTA,
-  TTS_DEFAULT_STYLE,
-  isTtsBotLanguage,
-} from "../consts/aiChat/voiceMessage";
-import { XAI_SPEECH_DEFAULT_LANGUAGE } from "../consts/aiChat/openai";
-import {
   IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
   IMAGE_GENERATION_MAX_REFERENCE_IMAGES,
 } from "../consts/aiChat/imageGeneration";
@@ -42,15 +32,12 @@ import type {
   AgentHeadersProvider,
   AgentImageCapabilityConfig,
   AgentProvider,
-  AgentTtsCapabilityConfig,
   AgentWebSearchCapabilityConfig,
   OpenAiImageProtocol,
-  OpenAiSpeechProtocol,
-  TtsBotLanguage,
 } from "../types/config";
 
 /** 解码必填非空字符串。 */
-function requiredString(value: unknown, context: string, sourcePath: string): string {
+export function requiredString(value: unknown, context: string, sourcePath: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     return invalidInput(sourcePath, context, "a non-empty string");
   }
@@ -58,7 +45,7 @@ function requiredString(value: unknown, context: string, sourcePath: string): st
 }
 
 /** 解码必填凭据；示例占位串存在时必须在启动阶段拒绝。 */
-function requiredApiKey(value: unknown, context: string, sourcePath: string): string {
+export function requiredApiKey(value: unknown, context: string, sourcePath: string): string {
   const apiKey: string = requiredString(value, context, sourcePath);
   if (AGENT_API_KEY_PLACEHOLDERS.includes(apiKey)) {
     return invalidInput(sourcePath, context, "a configured non-placeholder string");
@@ -70,7 +57,7 @@ function requiredApiKey(value: unknown, context: string, sourcePath: string): st
  * 解码可选的绝对端点；缺省交给对应 SDK 的官方地址。
  * 只接受 HTTPS 或 LOOPBACK_HOSTS 内的明文 HTTP，且不得含 userinfo 或 fragment。
  */
-function optionalBaseUrl(value: unknown, context: string, sourcePath: string): string | undefined {
+export function optionalBaseUrl(value: unknown, context: string, sourcePath: string): string | undefined {
   if (value === undefined) return undefined;
   const raw: string = requiredString(value, context, sourcePath);
   let parsed: URL;
@@ -95,7 +82,7 @@ function requiredProvider(value: unknown, context: string, sourcePath: string): 
 }
 
 /** 解码生图与语音合成的 provider：这两项只有 google 与 openai 的实现，anthropic 一律拒绝。 */
-function requiredMediaProvider(value: unknown, context: string, sourcePath: string): "google" | "openai" {
+export function requiredMediaProvider(value: unknown, context: string, sourcePath: string): "google" | "openai" {
   const provider: string = typeof value === "string" ? value.trim() : "";
   if (provider === "google" || provider === "openai") return provider;
   return invalidInput(sourcePath, context, '"google" or "openai"');
@@ -110,17 +97,6 @@ function requiredImageProtocol(
   const protocol: string = typeof value === "string" ? value.trim() : "";
   if (protocol === "openai" || protocol === "openai-standard" || protocol === "xai") return protocol;
   return invalidInput(sourcePath, context, '"openai", "openai-standard", or "xai"');
-}
-
-/** 解码 OpenAI 协议下的语音合成线协议。 */
-function requiredSpeechProtocol(
-  value: unknown,
-  context: string,
-  sourcePath: string
-): OpenAiSpeechProtocol {
-  const protocol: string = typeof value === "string" ? value.trim() : "";
-  if (protocol === "openai" || protocol === "xai") return protocol;
-  return invalidInput(sourcePath, context, '"openai" or "xai"');
 }
 
 /** optionalHeaders 的参数。 */
@@ -173,14 +149,14 @@ function optionalHeaders({
  * 某个 provider 下一项能力允许的全部字段：通用字段、google 与 anthropic 的 headers、anthropic 的
  * fallback_model，再加能力自己的字段。
  */
-function capabilityKeys(provider: AgentProvider, extraKeys: readonly string[]): readonly string[] {
+export function capabilityKeys(provider: AgentProvider, extraKeys: readonly string[]): readonly string[] {
   if (provider === "openai") return ["provider", "api_key", "base_url", "model", ...extraKeys];
   if (provider === "google") return ["provider", "api_key", "base_url", "headers", "model", ...extraKeys];
   return ["provider", "api_key", "base_url", "headers", "model", "fallback_model", ...extraKeys];
 }
 
 /** 字段集不符时的期望形态；extraShape 是能力自己的字段，以 `, ` 开头或为空串。 */
-function capabilityShape(provider: AgentProvider, extraShape: string): string {
+export function capabilityShape(provider: AgentProvider, extraShape: string): string {
   const headers: string = provider === "openai" ? "" : "headers?, ";
   const fallbackModel: string = provider === "anthropic" ? ", fallback_model?" : "";
   return `exactly { provider, api_key, base_url?, ${headers}model${fallbackModel}${extraShape} } when provider is ${provider}`;
@@ -209,7 +185,7 @@ function optionalFallbackModel({ value, model, context, sourcePath }: OptionalFa
  * 解码通用字段；调用方须先按 capabilityKeys 核对过字段集。google 与 anthropic 分支另解 headers，
  * openai 分支 headers 恒为 undefined；anthropic 分支另解 fallback_model。
  */
-function parseCapabilityFields(
+export function parseCapabilityFields(
   value: Readonly<Record<string, unknown>>,
   context: string,
   sourcePath: string
@@ -228,7 +204,7 @@ function parseCapabilityFields(
 }
 
 /** 能力值必须是普通对象；字段集由调用方在解出 provider 后按 capabilityKeys 核对。 */
-function capabilityRecord(
+export function capabilityRecord(
   value: unknown,
   context: string,
   sourcePath: string
@@ -324,7 +300,7 @@ function optionalMaxReferenceImages(
 }
 
 /** optionalQuotaInteger 的参数。 */
-interface QuotaIntegerOptions {
+export interface QuotaIntegerOptions {
   readonly value: unknown;
   readonly context: string;
   readonly sourcePath: string;
@@ -339,7 +315,7 @@ interface QuotaIntegerOptions {
  * 解码语音每日额度、检索调用上限或生图参考图张数的整数字段：存在时必须是 min～max 的安全整数；
  * 缺省时取 fallback，fallback 落在区间外同样按 expected 拒绝。
  */
-function optionalQuotaInteger({ value, context, sourcePath, fallback, min, max, expected }: QuotaIntegerOptions): number {
+export function optionalQuotaInteger({ value, context, sourcePath, fallback, min, max, expected }: QuotaIntegerOptions): number {
   if (value === undefined) {
     if (fallback >= min && fallback <= max) return fallback;
     return invalidInput(sourcePath, context, expected);
@@ -348,174 +324,4 @@ function optionalQuotaInteger({ value, context, sourcePath, fallback, min, max, 
     return invalidInput(sourcePath, context, expected);
   }
   return value;
-}
-
-/** 解码可选的 bot_language：缺省为 TTS_DEFAULT_BOT_LANGUAGE；存在时去掉首尾空白后必须是 TTS_BOT_LANGUAGES 之一。 */
-function optionalBotLanguage(value: unknown, context: string, sourcePath: string): TtsBotLanguage {
-  if (value === undefined) return TTS_DEFAULT_BOT_LANGUAGE;
-  const language: string = typeof value === "string" ? value.trim() : "";
-  if (isTtsBotLanguage(language)) return language;
-  return invalidInput(sourcePath, context, EXPECTED_TTS_BOT_LANGUAGE);
-}
-
-/** 语音合成每日额度的两个解码结果。 */
-interface TtsDailyQuota {
-  readonly dailyLimit: number;
-  readonly dailyReserveQuota: number;
-}
-
-/**
- * 解码可选的 daily_limit 与 daily_reserve_quota。daily_limit 是正整数；daily_reserve_quota 是
- * 小于 daily_limit 的非负整数。缺省值（TTS_DEFAULT_DAILY_LIMIT、TTS_DEFAULT_DAILY_RESERVE_QUOTA）
- * 同样按这一关系核对。
- */
-function parseTtsDailyQuota(
-  record: Readonly<Record<string, unknown>>,
-  context: string,
-  sourcePath: string
-): TtsDailyQuota {
-  const dailyLimit: number = optionalQuotaInteger({
-    value: record.daily_limit,
-    context: `${context}.daily_limit`,
-    sourcePath,
-    fallback: TTS_DEFAULT_DAILY_LIMIT,
-    min: 1,
-    max: Number.MAX_SAFE_INTEGER,
-    expected: "a positive integer",
-  });
-  const dailyReserveQuota: number = optionalQuotaInteger({
-    value: record.daily_reserve_quota,
-    context: `${context}.daily_reserve_quota`,
-    sourcePath,
-    fallback: TTS_DEFAULT_DAILY_RESERVE_QUOTA,
-    min: 0,
-    max: dailyLimit - 1,
-    expected: `an integer from 0 to ${dailyLimit - 1} (daily_limit - 1; defaults to ${TTS_DEFAULT_DAILY_RESERVE_QUOTA} when omitted)`,
-  });
-  return { dailyLimit, dailyReserveQuota };
-}
-
-/**
- * 解码 xai 语音协议（`POST /tts`）的配置：端点没有模型名与风格指令，model 与 style 出现即
- * 拒绝；language 是随请求发送的合成语言，缺省为 XAI_SPEECH_DEFAULT_LANGUAGE，与只决定提示词的
- * bot_language 各自独立。调用方已解出 provider 与 speech_protocol。
- */
-function parseXAiTtsCapability(
-  record: Readonly<Record<string, unknown>>,
-  context: string,
-  sourcePath: string
-): AgentTtsCapabilityConfig {
-  const keys: readonly string[] = [
-    "provider", "api_key", "base_url", "speech_protocol", "voice", "language", "bot_language", "daily_limit",
-    "daily_reserve_quota",
-  ];
-  if (!hasOnlyKeys(record, keys)) {
-    return invalidInput(
-      sourcePath,
-      context,
-      "exactly { provider, api_key, base_url?, speech_protocol, voice, language?, bot_language?, daily_limit?, " +
-      "daily_reserve_quota? } when provider is openai and speech_protocol is xai"
-    );
-  }
-  const apiKey: string = requiredApiKey(record.api_key, `${context}.api_key`, sourcePath);
-  const baseUrl: string | undefined = optionalBaseUrl(record.base_url, `${context}.base_url`, sourcePath);
-  const voice: string = requiredString(record.voice, `${context}.voice`, sourcePath);
-  const language: string = record.language === undefined
-    ? XAI_SPEECH_DEFAULT_LANGUAGE
-    : requiredString(record.language, `${context}.language`, sourcePath);
-  const botLanguage: TtsBotLanguage = optionalBotLanguage(record.bot_language, `${context}.bot_language`, sourcePath);
-  const quota: TtsDailyQuota = parseTtsDailyQuota(record, context, sourcePath);
-  return {
-    provider: "openai",
-    apiKey,
-    baseUrl,
-    headers: undefined,
-    model: undefined,
-    speechProtocol: "xai",
-    voice,
-    style: undefined,
-    language,
-    botLanguage,
-    dailyLimit: quota.dailyLimit,
-    dailyReserveQuota: quota.dailyReserveQuota,
-  };
-}
-
-/**
- * 解码语音合成能力，字段集随协议而定：
- *
- * - google：通用字段（含 headers）之外必填 voice，可选 style。
- * - openai：必填 speech_protocol。取 `openai`（audio/speech）时字段同 google 但无 headers；
- *   取 `xai` 时见 parseXAiTtsCapability。
- *
- * style 缺省使用 TTS_DEFAULT_STYLE；各协议都接受可选的 bot_language（见 optionalBotLanguage）
- * 与 daily_limit、daily_reserve_quota（见 parseTtsDailyQuota）。字段集之外的键一律拒绝；
- * anthropic 不受理。
- */
-export function parseTtsCapability(
-  value: unknown,
-  sourcePath: string
-): AgentTtsCapabilityConfig {
-  const context: string = "$.agent.tts";
-  const record: Readonly<Record<string, unknown>> = capabilityRecord(value, context, sourcePath);
-  const provider: "google" | "openai" = requiredMediaProvider(record.provider, `${context}.provider`, sourcePath);
-  if (provider === "openai") {
-    const speechProtocol: OpenAiSpeechProtocol =
-      requiredSpeechProtocol(record.speech_protocol, `${context}.speech_protocol`, sourcePath);
-    if (speechProtocol === "xai") return parseXAiTtsCapability(record, context, sourcePath);
-    if (!hasOnlyKeys(
-      record,
-      capabilityKeys(provider, ["speech_protocol", "voice", "style", "bot_language", "daily_limit", "daily_reserve_quota"])
-    )) {
-      return invalidInput(
-        sourcePath,
-        context,
-        "exactly { provider, api_key, base_url?, model, speech_protocol, voice, style?, bot_language?, daily_limit?, " +
-        "daily_reserve_quota? } when provider is openai and speech_protocol is openai"
-      );
-    }
-  } else if (!hasOnlyKeys(record, capabilityKeys(provider, ["voice", "style", "bot_language", "daily_limit", "daily_reserve_quota"]))) {
-    return invalidInput(
-      sourcePath,
-      context,
-      capabilityShape(provider, ", voice, style?, bot_language?, daily_limit?, daily_reserve_quota?")
-    );
-  }
-  const fields: AgentCapabilityConfig = parseCapabilityFields(record, context, sourcePath);
-  const voice: string = requiredString(record.voice, `${context}.voice`, sourcePath);
-  const style: string = record.style === undefined
-    ? TTS_DEFAULT_STYLE
-    : requiredString(record.style, `${context}.style`, sourcePath);
-  const botLanguage: TtsBotLanguage = optionalBotLanguage(record.bot_language, `${context}.bot_language`, sourcePath);
-  const quota: TtsDailyQuota = parseTtsDailyQuota(record, context, sourcePath);
-  if (fields.provider === "google") {
-    return {
-      provider: "google",
-      apiKey: fields.apiKey,
-      baseUrl: fields.baseUrl,
-      headers: fields.headers,
-      model: fields.model,
-      speechProtocol: undefined,
-      voice,
-      style,
-      language: undefined,
-      botLanguage,
-      dailyLimit: quota.dailyLimit,
-      dailyReserveQuota: quota.dailyReserveQuota,
-    };
-  }
-  return {
-    provider: "openai",
-    apiKey: fields.apiKey,
-    baseUrl: fields.baseUrl,
-    headers: undefined,
-    model: fields.model,
-    speechProtocol: "openai",
-    voice,
-    style,
-    language: undefined,
-    botLanguage,
-    dailyLimit: quota.dailyLimit,
-    dailyReserveQuota: quota.dailyReserveQuota,
-  };
 }

@@ -48,7 +48,7 @@ This document answers the core organizational question: **"Where does existing c
   - **Key Modules**: `verification.ts` and `verification/` (`join`/`pending`/`terminal`/`disable` phases and `adopt.ts` recovery), `lockdown.ts` and `lockdown/` (`apply`/`persistence`/`restore`/`announcement`/`adopt` phases), `replyAdmission.ts`, `adDetectAdmission.ts`, `temporaryAdBypass.ts`, `mediaInputSupport.ts`.
 - **`packages/config/`**
   - **Responsibility**: Strict schema validation, in-memory snapshots, hot-reload diffing, and capability readiness checks for `config/{static,dynamic}/*.json`.
-  - **Key Modules**: `bot.ts`, `botInput.ts`, `layout.ts`, `agent.ts`, `agentCapability.ts`, `assets.ts`, `cron.ts`, `mood.ts`, `stickers.ts`, `adSamples.ts`, `googleAuth.ts`, `readiness.ts`, `reload.ts`.
+  - **Key Modules**: `bot.ts`, `botInput.ts`, `layout.ts`, `agent.ts`, `agentCapability.ts`, `agentTts.ts`, `assets.ts`, `cron.ts`, `mood.ts`, `stickers.ts`, `adSamples.ts`, `googleAuth.ts`, `readiness.ts`, `reload.ts`.
 - **`packages/database/`**
   - **Responsibility**: Shared SQLite database schemas, codecs, row validations, and Drizzle ORM interaction boundaries; runtime database handles are exclusively owned by the Disk I/O Worker.
   - **Key Modules**: `schema/` (including `migrations/`), `codec/identity.ts`, `codec/chatState.ts`, `codec/chatQa.ts`, `codec/temporaryAdBypass.ts`, `interact/` (`connection.ts`, `transaction.ts`, `identityPolicy.ts`, `chatState.ts`, `chatQa.ts`, `temporaryAdBypass.ts`, `aiContext.ts`, `migration.ts`, `initialization.ts`, `inspection.ts`), `validation/storageRows.ts`.
