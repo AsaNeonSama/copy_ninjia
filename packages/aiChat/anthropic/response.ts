@@ -1,13 +1,13 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { EMPTY_FUNCTION_CALLS } from "../../consts/aiChat/tools";
 import { finishDetailsJson } from "../ai/utils/finishDetails";
 import type { AiFunctionCall, AiWebSearchSource } from "../../types/aiChat/provider";
 
 /**
- * Anthropic Messages（beta 端点）响应的读取辅助：正文、自定义函数调用、服务端检索计数、检索来源，
- * 收尾详情，以及 betaRefusalFallbackMiddleware 改道的诊断。aiChat 实现包与 ad_detect 传输层共用。
+ * Anthropic Messages 响应解析辅助：提取文本、函数调用、检索次数与来源、回退摘要及脱敏收尾详情。
  */
 
-/** 全部 text 块的拼接；一个都没有时为空串。 */
+/** 拼接响应中全部 `text` 块的正文。 */
 export function messageText(message: Anthropic.Beta.BetaMessage): string {
   let text: string = "";
   for (const block of message.content) {
@@ -16,18 +16,18 @@ export function messageText(message: Anthropic.Beta.BetaMessage): string {
   return text;
 }
 
-/** 模型要求执行的自定义函数调用；入参对象序列化成 JSON 字符串交给领域侧解析。 */
+/** 提取响应中的自定义工具调用列表；无调用时返回 `EMPTY_FUNCTION_CALLS`。 */
 export function toolUseCalls(message: Anthropic.Beta.BetaMessage): readonly AiFunctionCall[] {
   const calls: AiFunctionCall[] = [];
   for (const block of message.content) {
     if (block.type === "tool_use") calls.push({ id: block.id, name: block.name, argumentsJson: JSON.stringify(block.input) });
   }
-  return calls;
+  return calls.length === 0 ? EMPTY_FUNCTION_CALLS : calls;
 }
 
 /**
- * 服务端已执行的联网检索次数：以 `usage.server_tool_use.web_search_requests` 为准，缺失时按
- * 成功的 `web_search_tool_result` 块数兜底；未执行的调用与错误结果不计数。
+ * 统计响应中已执行的服务端联网检索次数：优先取 `usage.server_tool_use.web_search_requests`，
+ * 缺失时统计成功的 `web_search_tool_result` 块数。
  */
 export function countAnthropicWebSearches(message: Anthropic.Beta.BetaMessage): number {
   const reported: number | undefined = message.usage?.server_tool_use?.web_search_requests;
@@ -39,7 +39,7 @@ export function countAnthropicWebSearches(message: Anthropic.Beta.BetaMessage): 
   return calls;
 }
 
-/** HTTP 成功响应中的检索工具错误码；没有错误时为 undefined。 */
+/** 提取响应中联网检索工具的错误码；无错误时返回 undefined。 */
 export function anthropicSearchError(message: Anthropic.Beta.BetaMessage): string | undefined {
   for (const block of message.content) {
     if (block.type === "web_search_tool_result" && !Array.isArray(block.content)) return block.content.error_code;
@@ -48,8 +48,7 @@ export function anthropicSearchError(message: Anthropic.Beta.BetaMessage): strin
 }
 
 /**
- * 检索来源：先取正文引用（`web_search_result_location`）的地址，再补上检索结果块里出现过的地址，
- * 按出现顺序，未去重。
+ * 按出现顺序提取正文引用与检索结果块中的来源链接。
  */
 export function anthropicSearchSources(message: Anthropic.Beta.BetaMessage): readonly AiWebSearchSource[] {
   const sources: AiWebSearchSource[] = [];
@@ -66,11 +65,7 @@ export function anthropicSearchSources(message: Anthropic.Beta.BetaMessage): rea
   return sources;
 }
 
-/**
- * 回退模型接手时的诊断串：`from=<拒答模型>, to=<回退模型>, trigger=<trigger JSON>, fallback_credit=<usage.fallback_credit
- * JSON 或 null>`，取自 betaRefusalFallbackMiddleware 在 content 前置的 `fallback` 块（回退链只有 fallback_model
- * 一项，至多一块）；没有改道时为 undefined。
- */
+/** 提取响应中 `fallback` 块的改道诊断摘要；未发生改道时返回 undefined。 */
 export function anthropicFallbackSummary(message: Anthropic.Beta.BetaMessage): string | undefined {
   for (const block of message.content) {
     if (block.type !== "fallback") continue;
@@ -80,10 +75,7 @@ export function anthropicFallbackSummary(message: Anthropic.Beta.BetaMessage): s
   return undefined;
 }
 
-/**
- * `stop_details` 的诊断串：去掉 `fallback_credit_token`（拒答带回的、可兑换的回退额度令牌）后按 finishDetailsJson
- * 序列化，其余字段原样保留；字段为 null 或缺失时为 undefined。
- */
+/** 剥离 `fallback_credit_token` 后将 `stop_details` 序列化为 JSON 字符串。 */
 export function anthropicStopDetailsJson(message: Anthropic.Beta.BetaMessage): string | undefined {
   const details: Anthropic.Beta.BetaRefusalStopDetails | null | undefined = message.stop_details;
   if (details === null || details === undefined) return undefined;

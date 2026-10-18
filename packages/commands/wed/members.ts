@@ -1,6 +1,5 @@
 import type { Context } from "grammy";
 import type { Chat, ChatMember, Message } from "grammy/types";
-import { WED_MEMBER_LIMIT } from "../../consts/wed";
 import { wedAvatarProbes } from "../../cache/main/wed";
 import { noteWedMemberPresence } from "../../cache/main/wedMemberReview";
 import { isPresentMember } from "../../libs/chatMember";
@@ -28,7 +27,10 @@ export function observeWedMemberDeparture(ctx: Context, chat: Chat | undefined):
   return true;
 }
 
-/** 只记录以个人身份实际发言的用户 ID；离群摘除用户，不从引用和自动转发扩充候选。 */
+/**
+ * 只记录以个人身份实际发言的用户 ID；离群摘除用户，不从引用和自动转发扩充候选。
+ * 不在窗口内的发言者以进入时间追加到末尾，满额先挤出首项（进入时间最早）；窗口内成员再次发言不改动。
+ */
 export function observeWedMembers(ctx: Context): void {
   // `ctx.chat` 每次读取都重新求值，这里取一次交给下面全部判定与退群分支。
   const chat: Chat | undefined = ctx.chat;
@@ -47,7 +49,10 @@ export function observeWedMembers(ctx: Context): void {
   const probes: Set<WedAvatarProbe> | undefined = wedAvatarProbes.get(message.from.id);
   if (probes !== undefined) for (const probe of probes) probe.observedChats.add(chat.id);
   const state: WedMemberState | undefined = getOrCreateWedMemberState(chat.id);
-  if (state === undefined || state.members.has(message.from.id) || state.members.size >= WED_MEMBER_LIMIT) return;
-  state.members.add(message.from.id);
+  if (state === undefined || state.members.has(message.from.id)) return;
+  // 满额时 FifoMap 在写入新成员前挤出首项（进入时间最早）。
+  const now: number = Date.now();
+  if (now > state.latestEnteredAt) state.latestEnteredAt = now;
+  state.members.set(message.from.id, state.latestEnteredAt);
   markWedMembersDirty(state);
 }

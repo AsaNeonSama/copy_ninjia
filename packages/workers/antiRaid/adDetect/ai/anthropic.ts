@@ -1,11 +1,10 @@
 /**
- * Anthropic Messages（beta 端点）的广告检测底层收发（官方 @anthropic-ai/sdk）。本文件只管发请求、记错误日志，
- * 不认识任何业务语义；提示词拼装与 JSON 收窄由 workers/antiRaid/adDetect/classifier.ts 负责。
+ * Anthropic Messages（beta 端点）的广告检测传输层（官方 @anthropic-ai/sdk）。
+ * 提示词拼装与 JSON 收窄由 workers/antiRaid/adDetect/classifier.ts 负责。
  *
- * 系统提示词拆成两块：判定规则与部署示例（params.instructions）在前、带缓存断点，系统事实一行在后；
- * 输出按 `output_config.format`（json_schema）约束成 `{ ad, reason }`。请求不带采样温度。超时与瞬时
- * 失败重试由 SDK 内建；客户端构造、拒答回退、用量模型名与改道诊断与回复侧共用 aiChat/anthropic/sdkClient.ts。
- * 客户端是 Anti-Raid Worker 的线程内单例，Worker 崩溃重建后由 cache/workers/antiRaid/anthropic.ts 的空 holder 重建。
+ * 系统提示词分段携带判定规则与部署示例（params.instructions，配置缓存断点）及系统事实（params.fact）；
+ * 输出经 `output_config.format`（json_schema）约束为 AD_DETECT_JSON_SCHEMA。客户端构造、拒答回退、
+ * 用量上报与回退诊断复用 aiChat/anthropic/sdkClient.ts，单例持有于 cache/workers/antiRaid/anthropic.ts。
  */
 
 import Anthropic, { BetaFallbackState } from "@anthropic-ai/sdk";

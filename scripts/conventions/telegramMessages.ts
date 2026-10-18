@@ -28,12 +28,15 @@ export async function collectTelegramMessageProblems(
     "auto/message/proxyTts.ts": "sendProxyTtsNotice",
     "auto/message/proactive.ts": "replyToBathTrigger",
   };
+  const directSendNames: ReadonlySet<string> = new Set(["sendMessage", "sendMessageWithResult"]);
   for (const directory of ["workers", "antiRaid", "auto"]) {
     for (const path of sourceFilesUnder(join(sourceRoot, directory))) {
       const source: ts.SourceFile = await parseSourceFile(path);
-      const sendNames: Set<string> = new Set(["sendMessage"]);
+      const sendNames: Set<string> = new Set(directSendNames);
       function visit(node: ts.Node): void {
-        if (ts.isImportSpecifier(node) && (node.propertyName?.text ?? node.name.text) === "sendMessage") sendNames.add(node.name.text);
+        if (ts.isImportSpecifier(node) && directSendNames.has(node.propertyName?.text ?? node.name.text)) {
+          sendNames.add(node.name.text);
+        }
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && sendNames.has(node.expression.text)) {
           let owner: ts.Node | undefined = node.parent;
           while (owner !== undefined && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
@@ -165,7 +168,15 @@ export async function collectTelegramMessageProblems(
   // cron 消息是用户授权的长期保留例外，只有 cron/delivery.ts 可以发送。
   const cronDeliveryPath: string = join(sourceRoot, "cron", "delivery.ts");
   const telegramSendNames: ReadonlySet<string> = new Set([
-    "sendMessage", "sendPhoto", "sendMediaGroup", "sendDocument", "sendMessageWithResult", "sendPhotoWithResult", "sendCommandMessage",
+    "sendMessage",
+    "sendPhoto",
+    "sendMediaGroup",
+    "sendDocument",
+    "sendVoice",
+    "sendMessageWithResult",
+    "sendPhotoWithResult",
+    "sendVoiceWithResult",
+    "sendCommandMessage",
   ]);
   for (const path of sourceFilesUnder(join(sourceRoot, "cron"))) {
     if (path === cronDeliveryPath) continue;
@@ -215,7 +226,7 @@ export async function collectTelegramMessageProblems(
     function visit(node: ts.Node): void {
       if (
         ts.isImportSpecifier(node) &&
-        (node.propertyName?.text ?? node.name.text) === "sendCommandMessage"
+        ["sendCommandMessage", "sendCommandPhoto"].includes(node.propertyName?.text ?? node.name.text)
       ) {
         problems.push(
           `${relative(projectRoot, path)}:` +

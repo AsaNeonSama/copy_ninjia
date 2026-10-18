@@ -150,10 +150,7 @@ function isAggregateError(error: Error): boolean {
   }
 }
 
-/**
- * 正在展开的 Error 祖先链节点。只在某个 Error 真正含有嵌套 Error 时才为它分配，
- * 顶层 Error 深度为 0；用于深度上限判定与循环引用识别。
- */
+/** 正在展开的 `Error` 祖先链节点，用于深度上限判定与循环引用识别。 */
 interface ErrorExpansionFrame {
   readonly error: Error;
   readonly parent: ErrorExpansionFrame | null;

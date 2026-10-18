@@ -1,4 +1,5 @@
 import { resetWedMemberStates, wedMemberStates } from "../../packages/cache/main/wedMembers";
+import type { FifoMap } from "../../packages/libs/fifoMap";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
@@ -6,7 +7,7 @@ import type { Chat, User } from "grammy/types";
 import { GrammyError } from "grammy";
 import type { Mock } from "bun:test";
 import type { CurrentAvatarResult } from "../../packages/types/telegram";
-import type { WedChat } from "../../packages/types/wed";
+import type { WedChat, WedSession } from "../../packages/types/wed";
 
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub() }));
 const avatar: Mock<(target: User | number, signal: AbortSignal) => Promise<CurrentAvatarResult>> =
@@ -71,9 +72,25 @@ const notice = mock(async (..._args: any[]): Promise<any> => ({ message_id: ++se
 const answer = mock(async (..._args: any[]): Promise<any> => true);
 const setProfile = mock(async (..._args: any[]): Promise<any> => true);
 
-/** 把一位成员的 ID 记进集合；抽取只认 ID，身份由读头像那次 getChat 取回。 */
-function seed(members: Set<number>, identity: User): void {
-  members.add(identity.id);
+/** 把一位成员的 ID 记进滑窗；抽取只认 ID，身份由读头像那次 getChat 取回。 */
+function seed(members: FifoMap<number, number>, identity: User): void {
+  members.set(identity.id, 0);
+}
+
+/** 以用户 1..WED_SESSION_LIMIT 填满已送达的空闲会话（消息 ID 为 1000 + 用户 ID），插入顺序即送达顺序。 */
+function fillDeliveredSessions(state: WedChat): void {
+  for (let id: number = 1; id <= WED_SESSION_LIMIT; id++) {
+    state.sessions.set(id, {
+      chatId: chat.id,
+      actor: { ...actor, id },
+      messageThreadId: 77,
+      controller: new AbortController(),
+      messageId: 1000 + id,
+      targetId: partner.id,
+      confirmed: false,
+      busy: false,
+    });
+  }
 }
 
 function command(overrides: Record<string, unknown> = {}): never {
@@ -464,7 +481,7 @@ describe("/wed 图片和按钮交互", () => {
     expect(remove).toHaveBeenCalledWith(chat.id, 101, undefined);
   });
 
-  test("头像查询故障不回写集合；不可用头像探测次数有界且不重复抽同一个人", async () => {
+  test("头像查询故障不回写滑窗；不可用头像探测次数有界且不重复抽同一个人", async () => {
     avatar.mockImplementationOnce(async (): Promise<CurrentAvatarResult> => ({ status: "transient-failure" }));
     await handleWedCommand(command());
     expect(wedChats.get(chat.id)!.members.has(2)).toBeTrue();
@@ -537,17 +554,148 @@ describe("/wed 图片和按钮交互", () => {
     expect(wedAvatarProbes.size).toBe(0);
   });
 
-  test("普通 teardown 删除结果；会话满额不淘汰别人的按钮", async () => {
+  test("普通 teardown 批量删除空闲结果；已送达满额后新用户送达滑出最早空闲结果，按钮回执过期", async () => {
     await handleWedCommand(command());
-    const state = wedChats.get(chat.id)!;
-    const session = state.sessions.get(1)!;
-    for (let id = 2; id <= WED_SESSION_LIMIT; id++) state.sessions.set(id, session);
-    await handleWedCommand(command({ from: { ...actor, id: 9999 } }));
-    expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.full);
-    state.sessions.clear();
-    state.sessions.set(1, session);
     await teardownWedInChat(chat.id, "lostAuthority");
     expect(removeMany).toHaveBeenCalledWith(chat.id, [101], undefined);
+
+    const state: WedChat = getOrCreateWedChat(chat.id)!;
+    seed(state.members, actor);
+    seed(state.members, partner);
+    fillDeliveredSessions(state);
+    const earliest: WedSession = state.sessions.get(1)!;
+    const drawGate: PromiseWithResolvers<CurrentAvatarResult> = Promise.withResolvers<CurrentAvatarResult>();
+    avatar.mockImplementationOnce((): Promise<CurrentAvatarResult> => drawGate.promise);
+    const newActorId: number = WED_SESSION_LIMIT + 1;
+    const pending: Promise<void> = handleWedCommand(command({ from: { ...actor, id: newActorId } }));
+    for (let i: number = 0; i < 50 && avatar.mock.calls.length === 0; i++) await Promise.resolve();
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT + 1);
+    expect(state.sessions.has(1)).toBeTrue();
+    expect(earliest.controller.signal.aborted).toBeFalse();
+
+    drawGate.resolve({ status: "ok", identity: privateChat(partner), photo: new Uint8Array([1, 2, 3]) });
+    await pending;
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(state.sessions.has(1)).toBeFalse();
+    expect(earliest.controller.signal.aborted).toBeTrue();
+    expect(state.sessions.oldestKey()).toBe(2);
+    expect(state.sessions.has(newActorId)).toBeTrue();
+    expect(remove).not.toHaveBeenCalled();
+
+    await handleWedCallback({
+      callbackQuery: {
+        id: "evicted-cb",
+        data: `wed:1:${partner.id}:marry`,
+        from: { ...actor, id: 1 },
+        message: { message_id: earliest.messageId!, chat, date: 1 },
+      },
+    } as never);
+    expect(answer.mock.calls.at(-1)![1].text).toBe(WED_TEXTS.expired);
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  test("满额时新用户抽取落空或送达失败不滑出任何已有结果；最早会话忙碌时跳过它滑出下一份", async () => {
+    const state: WedChat = wedChats.get(chat.id)!;
+    fillDeliveredSessions(state);
+    const first: WedSession = state.sessions.get(1)!;
+    const second: WedSession = state.sessions.get(2)!;
+    state.members.delete(actor.id);
+
+    avatar.mockImplementationOnce(async (): Promise<CurrentAvatarResult> => ({ status: "permanent-failure" }));
+    await handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 1 } }));
+    expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.unavailable);
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(state.sessions.oldestKey()).toBe(1);
+    expect(first.controller.signal.aborted).toBeFalse();
+
+    photo.mockImplementationOnce(async (): Promise<any> => { throw new Error("send failed"); });
+    await handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 1 } }));
+    expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.failed);
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(state.sessions.oldestKey()).toBe(1);
+    expect(first.controller.signal.aborted).toBeFalse();
+
+    first.busy = true;
+    await handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 1 } }));
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(state.sessions.has(1)).toBeTrue();
+    expect(first.controller.signal.aborted).toBeFalse();
+    expect(state.sessions.has(2)).toBeFalse();
+    expect(second.controller.signal.aborted).toBeTrue();
+  });
+
+  test("同一用户重抽失败保留原位与原会话，重抽成功移到最新端且不滑出其他会话", async () => {
+    const state: WedChat = wedChats.get(chat.id)!;
+    fillDeliveredSessions(state);
+    const originalFirst: WedSession = state.sessions.get(1)!;
+
+    photo.mockImplementationOnce(async (): Promise<any> => { throw new Error("redraw send failed"); });
+    await handleWedCommand(command({ from: { ...actor, id: 1 } }));
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(state.sessions.get(1)).toBe(originalFirst);
+    expect(state.sessions.oldestKey()).toBe(1);
+    expect(originalFirst.controller.signal.aborted).toBeFalse();
+    expect(remove).not.toHaveBeenCalled();
+
+    await handleWedCommand(command({ from: { ...actor, id: 1 } }));
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(originalFirst.controller.signal.aborted).toBeTrue();
+    expect(remove).toHaveBeenCalledWith(chat.id, 1001, undefined);
+    expect(state.sessions.oldestKey()).toBe(2);
+    expect(state.sessions.has(2)).toBeTrue();
+    expect(Array.from(state.sessions.keys()).at(-1)).toBe(1);
+
+    // 重抽在途期间有新用户送达，随后重抽失败恢复原会话时，仍将已送达总数裁回上限。
+    const redrawGate: PromiseWithResolvers<any> = Promise.withResolvers<any>();
+    photo.mockImplementationOnce((): Promise<any> => redrawGate.promise);
+    const inFlightRedraw: Promise<void> = handleWedCommand(command({ from: { ...actor, id: 3 } }));
+    for (let i: number = 0; i < 50 && photo.mock.calls.length < 3; i++) await Promise.resolve();
+    await handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 1 } }));
+    redrawGate.reject(new Error("concurrent redraw failed"));
+    await inFlightRedraw;
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
+    expect(state.sessions.has(2)).toBeFalse();
+    expect(state.sessions.has(3)).toBeTrue();
+    expect(state.sessions.has(WED_SESSION_LIMIT + 1)).toBeTrue();
+  });
+
+  test("满额已送达叠加多份并发在途新会话时不触发 FifoMap 自动淘汰，按送达顺序逐一滑出", async () => {
+    const state: WedChat = wedChats.get(chat.id)!;
+    fillDeliveredSessions(state);
+    const deliveries: PromiseWithResolvers<any>[] = [
+      Promise.withResolvers<any>(),
+      Promise.withResolvers<any>(),
+      Promise.withResolvers<any>(),
+    ];
+    for (const gate of deliveries) {
+      photo.mockImplementationOnce((): Promise<any> => gate.promise);
+    }
+    const tasks: Promise<void>[] = [
+      handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 1 } })),
+      handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 2 } })),
+      handleWedCommand(command({ from: { ...actor, id: WED_SESSION_LIMIT + 3 } })),
+    ];
+    for (let i: number = 0; i < 50 && photo.mock.calls.length < 3; i++) await Promise.resolve();
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT + 3);
+    expect(state.sessions.has(1)).toBeTrue();
+    expect(state.sessions.has(2)).toBeTrue();
+    expect(state.sessions.has(3)).toBeTrue();
+
+    deliveries[0]!.resolve({ message_id: 2001, chat, date: 1, photo: [] });
+    await tasks[0];
+    expect(state.sessions.has(1)).toBeFalse();
+    expect(state.sessions.has(2)).toBeTrue();
+
+    deliveries[1]!.resolve({ message_id: 2002, chat, date: 1, photo: [] });
+    await tasks[1];
+    expect(state.sessions.has(2)).toBeFalse();
+    expect(state.sessions.has(3)).toBeTrue();
+
+    deliveries[2]!.resolve({ message_id: 2003, chat, date: 1, photo: [] });
+    await tasks[2];
+    expect(state.sessions.has(3)).toBeFalse();
+    expect(state.sessions.has(4)).toBeTrue();
+    expect(state.sessions.size).toBe(WED_SESSION_LIMIT);
   });
 
   test("抽取阶段预算耗尽回执操作失败，不误报没有可用头像", async () => {

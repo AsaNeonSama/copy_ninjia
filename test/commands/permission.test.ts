@@ -656,6 +656,12 @@ describe("/permission", () => {
     expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       text: expect.stringContaining("true|false"),
     }));
+
+    sendMessage.mockClear();
+    await handlePermissionCommand(context(1, "100"));
+    expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: TEASING_PERMISSION.usage,
+    }));
   });
 
   test("拒绝把当前群自己的身份当成授权目标（匿名管理员皮套）", async () => {

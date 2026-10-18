@@ -21,7 +21,7 @@ const validateExistingDeploymentInputs = mock(async (): Promise<void> => {
 const loadState = mock(async (): Promise<void> => { calls.push("loadState"); });
 const refreshAllChatTitles = mock(async (): Promise<void> => { calls.push("refreshTitles"); });
 const loadPersistedData = mock(async () => ({
-  wedMembers: new Map<number, Set<number>>(),
+  wedMembers: new Map<number, Map<number, number>>(),
   aiMemories: new Map<number, string>(),
   stickerCatalogs: new Map<string, string>(),
   luckDay: null,
@@ -49,6 +49,10 @@ const drainCronScheduler = mock(async (): Promise<FlushResult> => { calls.push("
 const drainTranslate = mock(async (): Promise<FlushResult> => { calls.push("drainTranslate"); return "flushed"; });
 const drainPendingMessageDeletions = mock(async (): Promise<FlushResult> => {
   calls.push("drainMessageDeletions");
+  return "flushed";
+});
+const drainTargetMessageDeletions = mock(async (): Promise<FlushResult> => {
+  calls.push("drainTargetMessageDeletions");
   return "flushed";
 });
 const drainTelegramOutbound = mock(async (): Promise<FlushResult> => {
@@ -82,6 +86,7 @@ const hydrateWedMembers = mock((_value: unknown): void => { calls.push("hydrateW
 const hydrateChatQaCache = mock((_value: unknown): void => { calls.push("hydrateChatQa"); });
 const hydrateIdentityStorageCounts = mock((..._args: unknown[]): void => { calls.push("hydrateIdentityCounts"); });
 const assertSuperAdminNotBlocked = mock(async (..._args: unknown[]): Promise<void> => { calls.push("assertSuperAdminNotBlocked"); });
+const assertSuperAdminNotDeleteMessageTarget = mock((..._args: unknown[]): void => { calls.push("assertSuperAdminNotDeleteMessageTarget"); });
 const hydrateBlocklist = mock((..._args: unknown[]): void => { calls.push("hydrateBlocklist"); });
 const initAntiRaid = mock((): void => { calls.push("initAntiRaid"); });
 const initBlocklistSweepScheduler = mock((): void => { calls.push("initBlocklistScheduler"); });
@@ -151,6 +156,7 @@ const testDependencies = {
   drainCronScheduler,
   drainTranslate,
   drainPendingMessageDeletions,
+  drainTargetMessageDeletions,
   drainTelegramOutbound,
   flushAiMemory,
   flushDiskIO,
@@ -159,6 +165,7 @@ const testDependencies = {
   getGlobalCopyState,
   seedTranslateTargets: (): void => {},
   assertSuperAdminNotBlocked,
+  assertSuperAdminNotDeleteMessageTarget,
   hydrateIdentityStorageCounts,
   hydrateChatStateCache,
   hydrateChatQaCache,
@@ -280,6 +287,7 @@ export function installLifecycleFixtureHooks(): void {
       drainCronScheduler,
       drainTranslate,
       drainPendingMessageDeletions,
+      drainTargetMessageDeletions,
       drainTelegramOutbound,
       closeTranslate,
       initAvatarUpdates,
@@ -306,6 +314,7 @@ export function installLifecycleFixtureHooks(): void {
       initAiChat,
       hydratePendingVerifications,
       assertSuperAdminNotBlocked,
+      assertSuperAdminNotDeleteMessageTarget,
       hydrateChatStateCache,
       hydrateIdentityStorageCounts,
       hydrateBlocklist,
@@ -350,6 +359,10 @@ export function installLifecycleFixtureHooks(): void {
       calls.push("drainMessageDeletions");
       return "flushed" as const;
     });
+    drainTargetMessageDeletions.mockImplementation(async () => {
+      calls.push("drainTargetMessageDeletions");
+      return "flushed" as const;
+    });
     drainTelegramOutbound.mockImplementation(async () => {
       calls.push("drainTelegramOutbound");
       return "flushed" as const;
@@ -387,6 +400,7 @@ export const lifecycleFixture = {
   drainDeferredCommandRuntime,
   drainCronScheduler,
   drainPendingMessageDeletions,
+  drainTargetMessageDeletions,
   drainTelegramOutbound,
   drainTranslate,
   flushAiMemory,

@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # 由目标工作树 install.sh 按顺序 source；共享其严格模式、日志函数与安装上下文。
 
-# 把一个已解析的环境变量值写成 systemd Environment= 单项。
-# systemd 会先按双引号规则反转义，再展开 `%` specifier；因此反斜线、双引号和
-# 百分号必须分别转义。控制字符不是 systemd 环境值允许的输入，直接拒绝。
+# 把一个已解析的环境变量值写成 systemd Environment= 单项：转义反斜线、双引号和百分号，拒绝控制字符。
 systemd_environment_assignment() {
   local variable_name="$1" value="$2" escaped_value=""
   [[ "$variable_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
@@ -61,11 +59,7 @@ service_journal_since() {
   fi
 }
 
-# 从 journal 正文里挑出 systemd 记的非零退出。
-# `code=exited, status=0/SUCCESS` 是正常停止，不算；非 0 状态码、以及被信号杀掉的
-# `code=killed` / `code=dumped` 都算。这是 AGENTS.md「journal 无新增非零退出」的判据，
-# 与 NRestarts 增量互为补充：重启计数只在 systemd 拉起下一次时增长，「退出了但没被
-# 拉起来」只在这里留痕。
+# 从 journal 正文里挑出 systemd 记录的非零退出（非 0 状态码与 code=killed / code=dumped）。
 journal_nonzero_exit_lines() {
   grep -E 'code=exited, status=0*[1-9][0-9]*|code=(killed|dumped)' || true
 }

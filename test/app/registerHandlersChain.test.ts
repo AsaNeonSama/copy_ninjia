@@ -1,7 +1,7 @@
 /** 注册边界使用真实 grammY 链，核对外层回退、提前消费、异常和末层 next 语义。 */
 import { describe, expect, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
-import { Bot, Composer, Context } from "grammy";
+import { Bot, Context } from "grammy";
 import type { MiddlewareFn, NextFunction } from "grammy";
 import type { UserFromGetMe } from "grammy/types";
 import { registerHandlers } from "../../packages/app/registerHandlers";
@@ -144,26 +144,21 @@ describe("registerHandlers SDK 链边界", () => {
     expect(outerCalls).toBe(1);
   });
 
-  test("批量注册的最后一层 next 直接使用外层回调，可按 SDK 契约调用两次", async (): Promise<void> => {
+  test("唯一登记的中间件把外层 next 透传到链尾：未被认领的非消息 update 只调用一次外层回调", async (): Promise<void> => {
     const bot: Bot = new Bot("1:AAA", { botInfo: BOT_INFO });
     const sdkUse: Mock<Bot["use"]> = spyOn(bot, "use");
     registerHandlers(bot);
-    const preamble: Parameters<Bot["use"]> | undefined = sdkUse.mock.calls[0];
+    const registered: Parameters<Bot["use"]>[] = sdkUse.mock.calls;
     sdkUse.mockRestore();
-    if (preamble === undefined) throw new Error("The preamble batch must be registered.");
-    expect(preamble).toHaveLength(13);
-    // 使用登记的整批前置链，只把末层替换为用例自己的 next 探针。
-    const boundary: Composer<Context> = new Composer<Context>();
-    boundary.use(...preamble.slice(0, -1), async (_ctx: Context, next: NextFunction): Promise<void> => {
-      await next();
-      await next();
-    });
+    expect(registered).toHaveLength(1);
+    expect(registered[0]).toHaveLength(1);
+    const middleware: MiddlewareFn<Context> = registered[0]![0] as MiddlewareFn<Context>;
     const ctx: Context = new Context({ update_id: 17 }, bot.api, BOT_INFO);
     let outerCalls: number = 0;
-    await boundary.middleware()(ctx, (): Promise<void> => {
+    await middleware(ctx, (): Promise<void> => {
       outerCalls += 1;
       return Promise.resolve();
     });
-    expect(outerCalls).toBe(2);
+    expect(outerCalls).toBe(1);
   });
 });

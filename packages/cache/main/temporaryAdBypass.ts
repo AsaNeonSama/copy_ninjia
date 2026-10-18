@@ -1,43 +1,23 @@
-/** owner: main。临时广告免检读取 LRU 与尚未收到 SQLite ACK 的最终值。 */
+/** owner: main。临时广告免检未确认落盘写入表与发号器（packages/infra/identityPolicy/temporaryAdBypass.ts）。 */
 
-import { IDENTITY_READ_CACHE_MAX_ENTRIES } from "../../consts/identityStorage";
-import { LruCache } from "../../libs/lruCache";
 import type {
   UnacknowledgedTemporaryAdBypassWrite,
 } from "../../types/temporaryAdBypass";
-import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBypass";
 
 /**
- * 临时广告免检累计热查询；update 预读与本地 write-through 填充，null 表示确证不存在。
- * 容量上限为 IDENTITY_READ_CACHE_MAX_ENTRIES，超出按 LRU 淘汰；进程初始化时清空。Disk I/O Worker 重建期间
- * 本缓存继续提供同步最终值，冷缺失在新 Worker 激活后重新预读。
- */
-export const temporaryAdBypassActivityCache: LruCache<
-  number,
-  Readonly<TemporaryAdBypassActivity> | null
-> = new LruCache(IDENTITY_READ_CACHE_MAX_ENTRIES);
-
-/**
- * SQLite 尚未精确 ACK 的主线程最终值；同一身份原地合并，ACK 后删除。
- * 不淘汰未落盘事实；批量事务（IDENTITY_WRITE_BATCH_MAX_ENTRIES 条或 IDENTITY_WRITE_FLUSH_INTERVAL_MS）
- * 持续收敛，Worker 重建时按 revision 顺序重放，进程全新初始化才整体清空。
- * 新主键在发布前受 STORAGE_PENDING_MAX_ENTRIES / STORAGE_PENDING_MAX_BYTES 限制，超限停止入口；
- * 容量由这两个预算封顶，本表不设淘汰。
+ * 临时广告免检未确认落盘写入表（身份 ID -> 最新写入状态）：写入时按身份原地合并并更新 revision，收到匹配 revision 的 SQLite ACK 时删除；Disk I/O Worker 重建时按 revision 顺序重放。
+ * 容量受 STORAGE_PENDING_MAX_ENTRIES 与 STORAGE_PENDING_MAX_BYTES 预算约束，超限拒绝新主键写入且不淘汰未确认条目；进程重启或 resetTemporaryAdBypassCache 时清空。
  */
 export const unacknowledgedTemporaryAdBypassWrites: Map<
   number,
   UnacknowledgedTemporaryAdBypassWrite
 > = new Map();
 
-/**
- * 临时广告免检累计写入 revision 发号器；主线程同步自增并在溢出前拒绝写入。
- * Disk I/O Worker 重建不回退，保证重放次序；进程全新初始化时归零。
- */
+/** 临时广告免检写入的单调递增 revision 发号器：每次写入自增，Disk I/O Worker 重建不重置，进程重启或 resetTemporaryAdBypassCache 时归零。 */
 export const temporaryAdBypassWriteRevision: { current: number } = { current: 0 };
 
-/** 清空读取、未 ACK 最终值与 revision；只由 resetIdentityStorageCache 在测试隔离与基准重置时调用。 */
+/** 清空临时广告免检未确认写入表与 revision 发号器（由 resetIdentityStorageCache 调用）。 */
 export function resetTemporaryAdBypassCache(): void {
-  temporaryAdBypassActivityCache.clear();
   unacknowledgedTemporaryAdBypassWrites.clear();
   temporaryAdBypassWriteRevision.current = 0;
 }

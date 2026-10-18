@@ -71,10 +71,7 @@ const CANNED_TELEGRAM_RESULTS: Readonly<Record<string, (payload: Record<string, 
   unbanChatSenderChat: (): true => true,
 };
 
-/**
- * 罐头应答过的方法调用次数，按方法名累计；命令链路用它断言链路真的走完（见
- * AGENTS.md 对 scripts/perf/ 的约束：静默提前返回必须使基准失败）。
- */
+/** 罐头应答过的方法调用次数，按方法名累计；命令链路据此校验完整走完。 */
 export const cannedTelegramCalls: Map<string, number> = new Map<string, number>();
 
 /**

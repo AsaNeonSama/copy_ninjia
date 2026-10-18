@@ -312,7 +312,7 @@ describe("logger persistence routing boundary", () => {
       text: { provider: "google", apiKey: "adopted-text-key", baseUrl: undefined, headers: undefined, model: "text" },
       summary: { provider: "openai", apiKey: "adopted-summary-key", baseUrl: undefined, headers: undefined, model: "summary" },
       media: { provider: "google", apiKey: "adopted-media-key", baseUrl: undefined, headers: undefined, model: "media" },
-      image: { provider: "google", apiKey: "adopted-image-key", baseUrl: undefined, headers: undefined, model: "image", imageProtocol: undefined },
+      image: { provider: "google", apiKey: "adopted-image-key", baseUrl: undefined, headers: undefined, model: "image", imageProtocol: undefined, maxReferenceImages: 1 },
       tts: { provider: "google", apiKey: "adopted-tts-key", baseUrl: undefined, headers: undefined, model: "tts", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
     });
     adoptAdDetectAgentConfig({

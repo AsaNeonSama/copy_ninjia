@@ -13,6 +13,7 @@ import { VOICE_FALLBACK_PLACEHOLDER, VOICE_PENDING_PLACEHOLDER } from "../../../
 const stickerMessage: AiRecordMediaMessage = {
   type: "recordMedia",
   messageThreadId: undefined,
+  mediaGroupId: undefined,
   kind: "sticker",
   chatId: -1001,
   senderId: 7,

@@ -1,6 +1,7 @@
 import { logger } from "./logger";
 import {
   RIFF_CHUNK_HEADER_BYTES,
+  VISION_TRANSCODE_MAX_EDGE,
   VISION_TRANSCODE_MAX_PIXELS,
   WEBP_ANMF_HEADER_BYTES,
   WEBP_ANMF_SIZE_OFFSET,
@@ -78,10 +79,7 @@ function findRiffChunk(bytes: Uint8Array, span: RiffSpan, accept: readonly numbe
   return null;
 }
 
-/**
- * 把若干 [四字符码, 载荷] 依次写成 RIFF 块（奇数长度补一个 0），外面包上 `RIFF…WEBP` 头。
- * 输出长度只由各段载荷决定，不超过输入字节与少量块头之和。
- */
+/** 把若干 `[四字符码, 载荷]` 依次写成 RIFF 块（奇数长度按偶数字节对齐补齐），外层封装 `RIFF…WEBP` 头。 */
 function writeWebpContainer(chunks: readonly (readonly [number, Uint8Array])[]): Uint8Array {
   let body: number = WEBP_CONTAINER_HEADER_BYTES - RIFF_CHUNK_HEADER_BYTES;
   for (const [, payload] of chunks) body += RIFF_CHUNK_HEADER_BYTES + payload.length + (payload.length & 1);
@@ -132,12 +130,10 @@ export function firstAnimatedWebpFrame(bytes: Uint8Array): Uint8Array | null {
 }
 
 /**
- * 把任意支持格式的图片字节转成可直接喂视觉接口的 jpeg/png。jpeg/png
- * 原样直通；webp/gif 经 `Bun.Image` 转 png，动态 webp 与 gif 都只取第一帧
- * （`Bun.Image` 只解静态 webp，动态 webp 先经 firstAnimatedWebpFrame 抽出首帧）。解码、编码在 Bun 的图像线程上执行，不阻塞调用线程；
- * 像素数超过 VISION_TRANSCODE_MAX_PIXELS 的图在分配像素缓冲前即被拒绝。不支持的格式、
- * 超限或转码失败均返回 null，调用方按「这条不解析」处理。编解码器随 Bun 运行时静态
- * 链接，源码与二进制发行包都不依赖 node_modules 里的原生模块。
+ * 将支持格式的图片字节转为视觉接口可用的 `jpeg`/`png`：
+ * `jpeg`/`png` 原样直通；`webp`/`gif`（含动态首帧）经 `Bun.Image` 限制在 `VISION_TRANSCODE_MAX_PIXELS` 内解码，
+ * 超过 `VISION_TRANSCODE_MAX_EDGE` 时等比降采样（不放大）后转为 `png`；
+ * 不支持的格式、超限或转码失败返回 null。
  */
 export async function prepareVisionImage(bytes: Uint8Array): Promise<VisionImage | null> {
   const format: SniffedImageFormat = sniffImageFormat(bytes);
@@ -147,7 +143,10 @@ export async function prepareVisionImage(bytes: Uint8Array): Promise<VisionImage
 
   try {
     const source: Uint8Array = format === "webp" ? firstAnimatedWebpFrame(bytes) ?? bytes : bytes;
-    const png: Uint8Array = await new Bun.Image(source, { maxPixels: VISION_TRANSCODE_MAX_PIXELS }).png().bytes();
+    const png: Uint8Array = await new Bun.Image(source, { maxPixels: VISION_TRANSCODE_MAX_PIXELS })
+      .resize(VISION_TRANSCODE_MAX_EDGE, VISION_TRANSCODE_MAX_EDGE, { fit: "inside", withoutEnlargement: true })
+      .png()
+      .bytes();
     return { bytes: png, mime: "image/png" };
   } catch (error: unknown) {
     logger.error(`Failed to transcode ${format} image to png for vision API:`, error);

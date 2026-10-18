@@ -1,10 +1,5 @@
 /**
- * Anthropic 侧的联网检索执行器（web_search 或 text 能力）：用该能力的模型发一次挂内建
- * 检索工具（ANTHROPIC_WEB_SEARCH_TOOL_TYPE，`allowed_callers: ["direct"]`）的单轮请求，交回结论正文、引用与检索结果
- * 给出的来源与实际检索次数。服务端工具循环暂停（`pause_turn`）时把已得内容作为续写前缀再发，
- * 最多 ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS 次，续发与首次请求共用一份 BetaFallbackState。收发与失败
- * 归一化走 client.ts 的 requestAnthropicMessage；token 与检索次数在那里按同一响应上报。HTTP 成功中的
- * 工具错误按失败交回，拒答按带 `refused` 的失败交回。
+ * Anthropic 联网检索实现：挂载服务端联网检索工具并处理 `pause_turn` 续写，提取正文、来源与检索次数。
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -28,7 +23,7 @@ import type {
   AiWebSearchSource,
 } from "../../types/aiChat/provider";
 
-/** 按指定能力执行一次联网检索；请求失败与工具错误分别在客户端和此边界记日志。 */
+/** 按指定能力执行一次 Anthropic 联网检索。 */
 export async function searchAnthropicWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest
@@ -43,7 +38,6 @@ export async function searchAnthropicWeb(
     const result: AnthropicRequestResult = await requestAnthropicMessage({
       capability,
       buildBody: (): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming => {
-        // web_search 没配时抛错，由 requestAnthropicMessage 的 try 归一成失败；text 取对话模型。
         const model: string = requireAgentCapabilityConfig(capability).model;
         const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: request.query }];
         if (prefix !== null) messages.push({ role: "assistant", content: prefix });

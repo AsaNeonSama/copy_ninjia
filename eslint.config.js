@@ -4,7 +4,6 @@ import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  // flat config 的全局忽略必须是只含 ignores 的独立配置对象。
   { ignores: ["coverage/**", "dist/**", "node_modules/**", "out/**"] },
   {
     linterOptions: {
@@ -32,8 +31,7 @@ export default defineConfig(
       // 泛型写在显式类型标注上，例如 `const cache: Map<K, V> = new Map()`。
       "@typescript-eslint/consistent-generic-constructors": ["error", "type-annotation"],
       "@typescript-eslint/consistent-type-exports": "error",
-      // 返回类型不止导出函数要写：内部函数、回调箭头，以及能从上下文推出类型的
-      // 函数表达式同样要标注，因此两个 allow* 都关掉。
+      // 导出函数、内部函数、回调箭头与上下文可推导的函数表达式均显式标注返回类型。
       "@typescript-eslint/explicit-function-return-type": [
         "error",
         { allowExpressions: false, allowTypedFunctionExpressions: false },
@@ -50,9 +48,7 @@ export default defineConfig(
         "error",
         { considerDefaultExhaustiveForUnions: true },
       ],
-      // 变量、形参、解构一律显式标注，不吃类型推导。规则本身跳过 `for...of` /
-      // `for...in` 的循环变量（TS 语法不允许标注）；初始化器已是箭头函数的
-      // const 由 variableDeclarationIgnoreFunction 放行，不重复写函数类型。
+      // 变量、形参、解构均显式标注类型；初始化器为箭头函数的 const 由 variableDeclarationIgnoreFunction 放行。
       "@typescript-eslint/typedef": [
         "error",
         {
@@ -179,7 +175,6 @@ export default defineConfig(
   {
     files: ["test/**/*.ts"],
     rules: {
-      // 测试夹具需要轻量搭建第三方 API 形状，并大量使用空函数作为 mock。
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-empty-function": "off",
     },

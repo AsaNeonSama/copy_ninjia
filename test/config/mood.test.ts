@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { loadMoodConfig, parseMoodConfig } from "../../packages/config/mood";
 import { MOOD_MULTIPLIER_MAX, MOOD_WEIGHT_TOTAL } from "../../packages/consts/aiChat/mood";
+import type { MoodConfig } from "../../packages/types/config";
 
 describe("mood config", () => {
   test("严格解析心情档位，并能加载全部部署配置", async () => {
@@ -16,6 +17,26 @@ describe("mood config", () => {
     const loaded = await loadMoodConfig();
     expect(loaded.moods.length).toBeGreaterThan(0);
     expect(loaded.moods.reduce((sum, mood) => sum + mood.weight, 0)).toBe(MOOD_WEIGHT_TOTAL);
+  });
+
+  test("解析结果在编译期保持只读", (): void => {
+    const assertReadonly = (config: MoodConfig): void => {
+      // @ts-expect-error 心情列表引用为只读。
+      config.moods = [];
+      // @ts-expect-error 心情列表容器为只读，不得增删元素。
+      config.moods.push(config.moods[0]!);
+      // @ts-expect-error 心情档位字段为只读。
+      config.moods[0]!.weight = 1;
+      if (config.moods[0]?.weatherMultipliers !== undefined) {
+        // @ts-expect-error 天气倍率表为只读。
+        config.moods[0].weatherMultipliers.clear = 2;
+      }
+      if (config.moods[0]?.timeMultipliers !== undefined) {
+        // @ts-expect-error 时段倍率表为只读。
+        config.moods[0].timeMultipliers.night = 2;
+      }
+    };
+    expect(assertReadonly).toBeDefined();
   });
 
   test("name 与 instruction 按首尾空白规范化后校验、查重并保存", () => {

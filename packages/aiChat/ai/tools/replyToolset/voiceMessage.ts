@@ -1,29 +1,11 @@
 /**
- * send_voice：把模型写的一句台词（语言由 `agent.tts.bot_language` 决定）按该语言的朗读语言要求
- * （VOICE_LANGUAGE_PROMPTS 的 speechLanguageStyle）与可选的本句语气（tone）合成语音，转成 Telegram
- * 语音格式（OGG/Opus 或 MP3，见 aiChat/ai/voiceEncoding.ts）后以语音消息
- * 发送到当前群。
- *
- * 工具声明在同一台词语言下逐字恒定，只要 `agent.tts` 配置且实现具备语音合成就挂载；调用与否由
- * 模型按工具说明（prompt/voice_tool.md 正文，未放置时为 VOICE_LANGUAGE_PROMPTS 的 sendVoiceInstruction）
- * 与本轮工具状态里的余量行（见 toolStatus.ts）判断，执行侧不另设按轮资格。
- *
- * 执行分三段，直接轮与有序并行轮相同：
- * - 准入（调用时同步）：本轮有效性、单轮限额、实现能力、参数校验，最后按 `ai` 口径
- *   预留一次每日额度（reserveAiTtsUsage），已登记加在途预留达到上限时当场回
- *   SEND_VOICE_DAILY_LIMIT_TOOL_ERROR。通过后当场交回接纳回执（带预留后的今日余量）并预占一个
- *   共享动作，模型不等合成。
- * - 生产（调用时在后台开始）：经公共实现（aiChat/ai/voiceSynthesis.ts）合成并编码，与模型
- *   后续请求及串行链上排在前面的步骤并行；前台窗口 VOICE_FOREGROUND_WAIT_MS 从调用起算。
- *   TTS 调用成功时才登记每日计数，失败、在成功前被取消或意外异常时只释放预留
- *   （settleAiTtsReservation）；TTS 成功后编码失败、发送失败或取消都不退回。
- * - 投递（串行动作链，调用时按顺序排入）：轮到这一步时合成未结束且窗口未到点，就亮
- *   「正在录音」等它。窗口到点仍未结束时收回「正在录音」，投递转入后台（chains.defer），链继续
- *   执行后续步骤；后台合成成功后投递排到链尾补发。合成失败（含超时与音频不可用）时不投递，
- *   只记英文日志，模型不会得知。
- *
- * 每条语音发送前都按语音时长模拟「正在录音」，与之前等合成亮过多久无关；随后切 idle、等状态
- * 收敛后发送，落地后按同一消息登记语音自录记号。
+ * `send_voice` 工具声明与执行器：
+ * - 准入：同步校验本轮状态、单轮限额、语音能力与参数，并预留每日 `ai` 配额（reserveAiTtsUsage），
+ *   返回接纳回执。
+ * - 生产：后台并发调用语音合成与编码（synthesizeVoiceMessage），在 TTS 调用完成时通过
+ *   settleAiTtsReservation 结清预留，同时启动 VOICE_FOREGROUND_WAIT_MS 前台等待窗口。
+ * - 投递：串行链步骤在窗口内等待合成，超时未完成则经 chains.defer 转入后台并在完成后排入链尾；
+ *   发送前按语音时长模拟录音停顿，发送成功后登记语音自录记号。
  */
 
 import type { AiMeteredSpeechRequest, AiToolDefinition } from "../../../../types/aiChat/provider";
@@ -75,11 +57,7 @@ export function isSendVoiceAvailable(): boolean {
   return ttsAiProvider()?.synthesizeSpeech !== undefined;
 }
 
-/**
- * send_voice 的工具声明；同一台词语言下整段逐字恒定，不接受任何本轮上下文。说明取本线程已接管的
- * prompt/voice_tool.md 正文，未放置时取 prompts.sendVoiceInstruction；text、tone 参数说明恒取 prompts。
- * @param prompts 本轮台词语言对应的一份文案（VOICE_LANGUAGE_PROMPTS 的取值）。
- */
+/** 构造 send_voice 工具声明；说明优先取本线程 `prompt/voice_tool.md` 缓存，未放置时取 prompts.sendVoiceInstruction。 */
 export function buildSendVoiceToolDefinition(prompts: Readonly<VoiceLanguagePrompts>): AiToolDefinition {
   return {
     name: SEND_VOICE_TOOL,
@@ -140,10 +118,7 @@ interface VoiceProduction {
   windowClosed: boolean;
 }
 
-/**
- * 包住一次 TTS 调用：调用结束时恰好结清一次准入时的预留——成功时登记每日计数，失败、取消或抛错
- * 时只释放；之后的编码失败不影响计数。
- */
+/** 包装 TTS 调用，在调用结束时按成功与否结清一次准入预留。 */
 function settlingReservation(synthesize: SpeechSynthesizer): SpeechSynthesizer {
   return async (request: AiMeteredSpeechRequest): Promise<SpeechSynthesisAttempt> => {
     let attempt: SpeechSynthesisAttempt;
@@ -158,13 +133,12 @@ function settlingReservation(synthesize: SpeechSynthesizer): SpeechSynthesizer {
   };
 }
 
-/** 开始合成并挂上前台窗口；窗口计时器不阻止进程退出，合成先结束时清掉。 */
+/** 启动后台语音合成与前台等待窗口计时器。 */
 function startVoiceProduction(
   ctx: ReplyToolContext,
   synthesize: SpeechSynthesizer,
   request: AiMeteredSpeechRequest
 ): VoiceProduction {
-  // 这份结果脱离工具调用被窗口计时、串行链与后台投递分别等待；synthesizeVoiceMessage 不抛错。
   const result: Promise<VoiceSynthesisResult> = synthesizeVoiceMessage(
     settlingReservation(synthesize),
     request,
@@ -186,7 +160,7 @@ function startVoiceProduction(
   return production;
 }
 
-/** 一次已接纳语音的生产状态与投递所需上下文，直接轮与有序并行轮共用。 */
+/** 一次已接纳语音的生产状态与投递所需上下文。 */
 interface AcceptedVoice {
   readonly ctx: ReplyToolContext;
   readonly chains: ReplyActionChains;
@@ -194,10 +168,7 @@ interface AcceptedVoice {
   readonly production: VoiceProduction;
 }
 
-/**
- * 发送已编码语音的执行步骤：先按语音时长模拟「正在录音」，再发送；与之前等合成亮过多久无关。成功
- * 结果带登记后的今日余量。
- */
+/** 按语音时长模拟录音停顿并发送已编码语音消息。 */
 function voiceDelivery(accepted: AcceptedVoice, voice: EncodedVoiceMessage): ReplyActionRun {
   const { ctx, parsed }: AcceptedVoice = accepted;
   return async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
@@ -235,12 +206,12 @@ function acceptanceReceipt(): string {
   });
 }
 
-/** 合成没有得到可发送的语音：只记英文日志、不投递；本轮已作废（含取消）时静默。 */
+/** 合成失败且本轮仍有效时记录错误日志。 */
 function reportVoiceNotSent(ctx: ReplyToolContext, reason: string): void {
   if (ctx.isActive()) logger.error(`AI reply voice was not sent (chat ${ctx.chatId}): ${reason}.`);
 }
 
-/** 窗口到点后转入后台：合成成功且本轮仍有效时排到链尾补发，失败只记日志。 */
+/** 前台窗口超时后转入后台等待，合成成功且本轮仍有效时排入链尾补发。 */
 function deferVoiceDelivery(accepted: AcceptedVoice): void {
   const { ctx, chains, production }: AcceptedVoice = accepted;
   chains.defer(SEND_VOICE_TOOL, production.result.then((late: VoiceSynthesisResult): ReplyActionRun | null => {
@@ -252,10 +223,7 @@ function deferVoiceDelivery(accepted: AcceptedVoice): void {
   }));
 }
 
-/**
- * 串行链上的投递步骤：合成还在进行且窗口未到点时亮「正在录音」等它；窗口到点仍在合成就收回录音
- * 状态、转入后台，链继续执行后续步骤；合成失败只记日志、不投递、不计动作。
- */
+/** 串行链投递步骤：等待前台窗口结果，超时则转后台，成功则投递语音。 */
 function voiceStep(accepted: AcceptedVoice): ReplyActionRun {
   const { ctx, production }: AcceptedVoice = accepted;
   return async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
@@ -276,12 +244,7 @@ function voiceStep(accepted: AcceptedVoice): ReplyActionRun {
   };
 }
 
-/**
- * 语音执行器：准入在调用时同步完成，通过后在后台开始合成，当场交回接纳回执；投递步骤交串行链
- * 执行，模型不等合成。
- * @param languageStyle 本轮台词语言的朗读语言要求（VOICE_LANGUAGE_PROMPTS 的 speechLanguageStyle），
- *   拼在每次合成请求的基础风格之后。
- */
+/** 创建 send_voice 执行器：同步完成准入与配额预留，启动后台合成并返回串行投递步骤。 */
 export function createSendVoiceExecutor(
   ctx: ReplyToolContext,
   chains: ReplyActionChains,

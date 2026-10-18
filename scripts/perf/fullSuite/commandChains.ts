@@ -43,6 +43,7 @@ import type { CronAction, CronDeliveryOutcome, CronRoundVoices } from "../../../
 import type { SpeechSynthesizerLookup, VoiceSynthesisResult } from "../../../packages/types/aiChat/voiceMessage";
 import { benchmarkWav } from "../wavFixture";
 import type { ChainDefinition } from "./chainDefinition";
+import { AI_REPLY_SEED_MESSAGES } from "./constants";
 import type { ChainName } from "./types";
 
 export interface CommandChainDependencies {
@@ -79,8 +80,6 @@ export interface CommandChainDependencies {
   readonly synthesizeVoiceMessage: typeof synthesizeVoiceMessage;
   readonly deliverCronAction: typeof deliverCronAction;
 }
-
-const AI_REPLY_SEED_MESSAGES: number = 12;
 
 function adDetectCommandChain(
   dependencies: CommandChainDependencies
@@ -119,6 +118,8 @@ function adDetectCommandChain(
       dependencies.cacheAdminIds(chatId, new Set<number>(), Date.now());
     },
     run: async (sequence: number): Promise<void> => {
+      const sentBefore: number =
+        dependencies.cannedTelegramCalls.get("sendMessage") ?? 0;
       dependencies.enqueueAdCandidate({
         type: "adCandidate",
         chatId,
@@ -145,6 +146,13 @@ function adDetectCommandChain(
       ) {
         throw new Error(
           `Ad disposal ${sequence} did not settle within the drain budget.`
+        );
+      }
+      if (
+        (dependencies.cannedTelegramCalls.get("sendMessage") ?? 0) <= sentBefore
+      ) {
+        throw new Error(
+          `Ad disposal ${sequence} produced no outgoing announcement.`
         );
       }
     },
@@ -220,6 +228,9 @@ function aiReplyCommandChain(
       };
       dependencies.geminiClientCache.current = new Map([["text", {
         models: {
+          get: (): Promise<unknown> => Promise.resolve({
+            supportedActions: ["generateContent"],
+          }),
           generateContent: (): Promise<unknown> => Promise.resolve({
             candidates: [{
               finishReason: "STOP",

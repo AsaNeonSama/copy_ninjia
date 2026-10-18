@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "grammy/types";
-import { isSendablePhotoDimensions, messageImageCandidate } from "../../packages/libs/telegramImage";
+import type { Message, PhotoSize } from "grammy/types";
+import {
+  isSendablePhotoDimensions,
+  messageImageCandidate,
+  pickPhotoFile,
+  pickPhotoSize,
+} from "../../packages/libs/telegramImage";
 import { TELEGRAM_PHOTO_MAX_ASPECT_RATIO, TELEGRAM_PHOTO_MAX_DIMENSION_SUM } from "../../packages/consts/telegram";
+import { MEDIA_MAX_DOWNLOAD_BYTES } from "../../packages/consts/aiChat/media";
 
 function message(fields: Record<string, unknown>): Message {
   return { message_id: 1, date: 1, chat: { id: -1, type: "supergroup", title: "g" }, ...fields } as unknown as Message;
@@ -65,5 +71,27 @@ describe("isSendablePhotoDimensions", () => {
   test("寻常尺寸照常放行", () => {
     expect(isSendablePhotoDimensions({ width: 1_280, height: 1_280 })).toBeTrue();
     expect(isSendablePhotoDimensions({ width: 1, height: 1 })).toBeTrue();
+  });
+});
+
+describe("pickPhotoSize", () => {
+  const sizes: readonly PhotoSize[] = [
+    { file_id: "small", file_unique_id: "small-u", width: 100, height: 100, file_size: 100 },
+    { file_id: "middle", file_unique_id: "middle-u", width: 500, height: 500, file_size: MEDIA_MAX_DOWNLOAD_BYTES },
+    { file_id: "large", file_unique_id: "large-u", width: 1000, height: 1000, file_size: MEDIA_MAX_DOWNLOAD_BYTES + 1 },
+  ];
+  const cases: readonly (readonly PhotoSize[])[] = [
+    sizes,
+    sizes.map((size: PhotoSize): PhotoSize => ({ ...size, file_size: MEDIA_MAX_DOWNLOAD_BYTES + 1 })),
+    [...sizes, { file_id: "unknown", file_unique_id: "unknown-u", width: 1200, height: 1200 }],
+  ];
+
+  test("只剩选中那一档时再选一次仍是同一档，转成的视觉源与从全部档位选出的一致", () => {
+    for (const photo of cases) {
+      const picked: PhotoSize = pickPhotoSize(photo);
+      expect(photo).toContain(picked);
+      expect(pickPhotoSize([picked])).toBe(picked);
+      expect(pickPhotoFile([picked])).toEqual(pickPhotoFile(photo));
+    }
   });
 });

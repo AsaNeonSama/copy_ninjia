@@ -1,3 +1,5 @@
+/** cron `send_web_digest` 摘要生成（aiChat/ai/webDigest.ts）的固定提示词。所属模块：aiChat/ai/webDigest.ts。 */
+
 import {
   WEB_DIGEST_CLOSING_MAX_CHARS,
   WEB_DIGEST_HEADING_MAX_CHARS,
@@ -11,8 +13,6 @@ import {
 } from "../../webDigest";
 import type { WebDigestLanguage } from "../../../types/webDigest";
 import { WEB_SEARCH_REQUEST_TIME_INSTRUCTION } from "./researchTime";
-
-/** cron `send_web_digest` 摘要生成（aiChat/ai/webDigest.ts）的固定提示词。所属模块：consts/aiChat/prompts/。 */
 
 /**
  * 检索段的系统提示词：优先使用联网工具核对事实与来源；未调用时直接给出当前内容；条目数由

@@ -1,17 +1,9 @@
-/** owner: perThread。Telegram 延迟删除的 per-thread 状态。主线程和各 Worker 各持一份，不能跨线程
- * 共享 Api 句柄；主线程实例由应用生命周期排空，Worker 实例随各自生命周期处理。
- */
+/** owner: perThread。Telegram 临时消息延迟删除的逐线程状态（packages/infra/telegram/actions/messageLifecycle.ts）。 */
 
 import type { PendingMessageDeletion } from "../../types/telegram";
 
-/**
- * 尚未到期的删除任务。发送成功后登记，到期或停机提前兑现时删除；容量等于一个
- * 延迟窗口内成功发出的临时消息数，timer 全部 unref，线程重建后清空。
- */
+/** 尚未到期的延迟删除任务集合：消息发送成功后登记，定时器到期或停机提前兑现时移除；容量与延迟窗口内本线程发出的临时消息数同阶，线程重建后从空集开始。 */
 export const pendingMessageDeletions: Set<PendingMessageDeletion> = new Set();
 
-/**
- * 已开始 Telegram 删除、尚未结算的任务。任务 settle 后立即删除；用于停机排空
- * 等待已经发出的请求，容量不超过同时兑现的 pending 数，线程重建后清空。
- */
+/** 已发起 Telegram 删除请求但尚未结算的任务集合：请求发出时登记，Promise 结算时自摘除；容量与并发兑现的删除请求数同阶，线程重建后从空集开始。 */
 export const inFlightMessageDeletions: Set<Promise<void>> = new Set();

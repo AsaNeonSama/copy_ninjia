@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { FifoMap } from "../../packages/libs/fifoMap";
 import type { ChatMember } from "grammy/types";
 import { wedChats } from "../../packages/cache/main/wed";
 import { resetWedMemberStates, wedMemberStates } from "../../packages/cache/main/wedMembers";
@@ -21,7 +22,10 @@ beforeEach(() => {
   getOrCreateChatState(-2000).isInitEnabled = true;
 });
 
-afterEach(resetWedMemberStates);
+afterEach(() => {
+  resetWedMemberStates();
+  setSystemTime();
+});
 
 test("首次 /init 特许放行仍不提前建缓存，启用后才记录成员", () => {
   getOrCreateChatState(-1001).isInitEnabled = false;
@@ -35,24 +39,42 @@ test("首次 /init 特许放行仍不提前建缓存，启用后才记录成员"
   expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1]);
 });
 
-test("每群独立 15 万个 ID，满额保留已有成员，退群后继续接纳", () => {
+test("每群独立滑窗：满额挤出进入最早的成员，再次发言不刷新进入时间，退群腾位后不挤人", () => {
+  setSystemTime(new Date(1_000));
   for (let id = 1; id <= WED_MEMBER_LIMIT; id++) observeWedMembers(message(id));
-  const members = wedMemberStates.get(-1001)!.members;
+  const state = wedMemberStates.get(-1001)!;
+  const members = state.members;
+  const revision = state.revision;
+  setSystemTime(new Date(2_000));
   observeWedMembers(message(1));
+  expect(state.revision).toBe(revision);
+  expect(members.get(1)).toBe(1_000);
   observeWedMembers(message(WED_MEMBER_LIMIT + 1));
-  expect(members).toBeInstanceOf(Set);
+  expect(state.revision).toBe(revision + 1);
+  expect(members).toBeInstanceOf(FifoMap);
   expect(members.size).toBe(WED_MEMBER_LIMIT);
-  expect(members.has(1)).toBeTrue();
-  expect(members.has(2)).toBeTrue();
-  expect(members.has(WED_MEMBER_LIMIT + 1)).toBeFalse();
-  expect([...members.keys()].at(-1)).toBe(WED_MEMBER_LIMIT);
+  expect(members.has(1)).toBeFalse();
+  expect(members.oldestKey()).toBe(2);
+  expect([...members].at(-1)).toEqual([WED_MEMBER_LIMIT + 1, 2_000]);
   observeWedMembers(message(2, -2000));
-  expect(wedMemberStates.get(-2000)!.members.size).toBe(1);
-  observeWedMembers(message(1, -1001, { left_chat_member: { id: 2 } }));
-  observeWedMembers(message(WED_MEMBER_LIMIT + 1));
-  expect(members.has(2)).toBeFalse();
-  expect(members.has(WED_MEMBER_LIMIT + 1)).toBeTrue();
+  expect([...wedMemberStates.get(-2000)!.members]).toEqual([[2, 2_000]]);
+  observeWedMembers(message(1, -1001, { left_chat_member: { id: 3 } }));
+  observeWedMembers(message(WED_MEMBER_LIMIT + 2));
+  expect(members.has(2)).toBeTrue();
+  expect(members.has(3)).toBeFalse();
+  expect(members.has(WED_MEMBER_LIMIT + 2)).toBeTrue();
   expect(members.size).toBe(WED_MEMBER_LIMIT);
+});
+
+test("墙钟回拨时新成员沿用已分配的最大进入时间，插入顺序与进入时间保持同序", () => {
+  setSystemTime(new Date(5_000));
+  observeWedMembers(message(1));
+  setSystemTime(new Date(3_000));
+  observeWedMembers(message(2));
+  setSystemTime(new Date(6_000));
+  observeWedMembers(message(3));
+  expect([...wedMemberStates.get(-1001)!.members]).toEqual([[1, 5_000], [2, 5_000], [3, 6_000]]);
+  expect(wedMemberStates.get(-1001)!.latestEnteredAt).toBe(6_000);
 });
 
 test("排除机器人、匿名群身份、私聊、回复和转发里的用户，只缓存实际发言者", () => {
@@ -106,7 +128,7 @@ test("成员权威表满额时拒绝建立新群交互，已有群仍可命中",
   expect(getOrCreateWedChat(-1)).toBe(wedChats.get(-1));
 });
 
-test("交互表与成员集合同界：2,000 个不同群只建立 STATE_MANAGED_CHAT_LIMIT 个交互", () => {
+test("交互表与成员滑窗同界：2,000 个不同群只建立 STATE_MANAGED_CHAT_LIMIT 个交互", () => {
   let created: number = 0;
   for (let id = 1; id <= 2_000; id++) if (getOrCreateWedChat(-id) !== undefined) created++;
   expect(created).toBe(STATE_MANAGED_CHAT_LIMIT);

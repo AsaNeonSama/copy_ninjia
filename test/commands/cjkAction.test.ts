@@ -150,6 +150,7 @@ describe("/<1~2 个中文字> 动作命令", () => {
         selfTarget: string;
         unknownUsername: (raw: string) => string;
         invalidUsername: (raw: string) => string;
+        conflictingTarget: (raw: string) => string;
       };
     };
     expect(params.chatId).toBe(-1001);
@@ -160,6 +161,8 @@ describe("/<1~2 个中文字> 动作命令", () => {
     expect(params.messages.unknownUsername("bob")).toContain("摸");
     expect(params.messages.invalidUsername("@bad-name")).toContain("摸");
     expect(params.messages.invalidUsername("@bad-name")).toContain("@bad-name");
+    expect(params.messages.conflictingTarget("@alice")).toContain("摸");
+    expect(params.messages.conflictingTarget("@alice")).toContain("@alice");
   });
 
   test("目标解析失败时不再发送动作消息（提示已由解析层发出）", async () => {

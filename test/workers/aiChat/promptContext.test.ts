@@ -14,6 +14,7 @@ import { expectTemplateRendered, longestTemplatePart } from "../../helpers/templ
 import {
   RANDOM_TRIGGER_INSTRUCTION,
   forwardedMediaNotice,
+  mediaCommentInstruction,
   mediaNounFor,
   mediaReplyTriggerInstruction,
   queuedTriggerDescription,
@@ -28,9 +29,10 @@ import {
 } from "../../../packages/consts/aiChat/prompts/transcript";
 import { BoundedDeque } from "../../../packages/libs/boundedDeque";
 import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
-import type { QueuedReplyTrigger, ReplyPromptSections } from "../../../packages/types/aiChat/replies";
+import type { MediaCommentContext, QueuedReplyTrigger, ReplyPromptSections } from "../../../packages/types/aiChat/replies";
 import { buildReplyPromptSections } from "../../../packages/workers/aiChat/promptContext";
 import { indexBufferedMessage } from "../../../packages/workers/aiChat/bufferedMessageIndex";
+import { resolvedTagFor } from "../../../packages/workers/aiChat/mediaText";
 
 beforeEach(resetAiChatMemoryCache);
 
@@ -446,4 +448,42 @@ test.each(["sticker", "animation", "voice", "photo"] as const)("媒体回复任�
   expect(sections.replyTask).toContain(mediaNounFor(kind));
   expectTemplateRendered(sections.replyTask, (value: string): string =>
     mediaReplyTriggerInstruction({ kind, senderId: 3, senderName: value, description: value }, value));
+});
+
+test.each(["photo", "sticker", "voice"] as const)("随机触发的媒体评价任务按类型 %s 给出占位标签与转发说明", (kind) => {
+  const messages = new BoundedDeque<BufferedMessage>(VERBATIM_CONTEXT_MAX);
+  messages.push(bufferedMessageFixture({
+    messageId: 84,
+    id: 3,
+    firstName: "Carol",
+    text: resolvedTagFor(kind, "内容描述"),
+    forwardedFrom: "[id:4] Dave",
+    at: "2026/07/22 12:03:00",
+  }));
+  chatBuffers.set(-1001, messages);
+  const mediaComment: MediaCommentContext = {
+    kind,
+    senderId: 3,
+    senderName: "Carol",
+    description: "内容描述",
+    forwardedFrom: "[id:4] Dave",
+  };
+  const forwardNotice: string = forwardedMediaNotice(forwardPathTemplate("[id:4] Dave", "[id:3] Carol"));
+
+  const sections: ReplyPromptSections = buildReplyPromptSections(
+    -1001,
+    { id: 99, first_name: "Ninja", username: "ninja_bot" },
+    {
+      triggerMessageId: 84,
+      isRandomTrigger: true,
+      mediaComment,
+      roundHasTypo: false,
+    }
+  )!;
+
+  expect(sections.replyTask).toContain(
+    mediaCommentInstruction(mediaComment, forwardNotice, resolvedTagFor(kind, "…"))
+  );
+  expect(sections.replyTask).toContain(forwardNotice);
+  expect(sections.replyTask).toContain(resolvedTagFor(kind, "…"));
 });

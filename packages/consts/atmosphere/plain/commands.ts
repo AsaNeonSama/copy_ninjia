@@ -27,6 +27,7 @@ export const BOT_COMMANDS: readonly Readonly<BotCommand>[] = [
   { command: "unmute", description: "提前解除目标禁言；回复目标、@username 或用户 id；需要 isCanUnMute" },
   { command: "gag", description: "限制用户或频道的文字发言 5/10/15 分钟，默认 5 分钟；回复目标、@username 或身份 id；需要 isCanGag" },
   { command: "ungag", description: "解除目标 gag；回复目标、@username 或用户/频道 id；需要 isCanGag" },
+  { command: "delete_message", description: "删除目标此后在本群发送的全部消息；回复目标、@username 或用户/频道 id；stop 停止；仅超级管理员可用" },
   { command: "batch_kick", description: "踢出本群滚动时间窗内加入的成员，如 30m/2h/1d；不加入黑名单，仅超级管理员可用" },
   { command: "permission", description: "help 查看说明，query 查询权限；所有人可查看，修改仅限超级管理员" },
   { command: "qa", description: "set 登记问答，remove <问题> 删除，均需问答管理权限；query [问题] 查询一条或全部，群成员可查看" },

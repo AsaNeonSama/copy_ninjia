@@ -1,6 +1,5 @@
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import type { ChatState } from "../types/chatState";
 import { clearFloodControl } from "../antiRaid";
 
 import { runChatToggleCommand } from "./superAdminToggle";
@@ -22,10 +21,7 @@ export async function handleFloodControlCommand(
     permission: "isCanControllFloodControlPermission",
     persistReason: "flood_control toggled",
     runtimeLabel: "flood control runtime",
-    read: (state: ChatState): boolean => state.isFloodControlEnabled === true,
-    write: (state: ChatState, isEnabled: boolean): void => {
-      state.isFloodControlEnabled = isEnabled;
-    },
+    switchKey: "isFloodControlEnabled",
     teardown: clearFloodControl,
   });
 }

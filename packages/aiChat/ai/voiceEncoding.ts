@@ -1,18 +1,7 @@
 /**
- * 把供应商合成的语音转成 Telegram 语音消息，按 MIME 分三路：
- *
- * - OGG/Opus（OGG_OPUS_MIME_TYPE）与 MP3（MP3_MIME_TYPE）：Telegram sendVoice 直接接受，只经
- *   utils/voiceContainer.ts 校验容器并算出时长，字节复制成独占 buffer 后原样发送，不转码。
- * - WAV（见 consts/audio.ts 的 WAV_MIME_TYPES）：先由 utils/wavPcm.ts 取出单声道 PCM，再按
- *   VOICE_OPUS_ENCODE_CHUNK_SECONDS 分块交给 @audio/encode-opus 编码，块间让出 AI Worker 事件循环，
- *   最后收尾。编码器按 PCM 的原始采样率建立，由依赖跨块连续重采样到 48 kHz，分块结果与整段一次
- *   编码相同；OpusHead 的输入采样率字段为原始采样率。单块同步占用与音频总时长无关；台词长度由
- *   AI 工具和运维入口分别限制。
- * - 其余 MIME 返回 `unsupported speech mime type`。
- *
- * 失败一律返回带原因的结果，不抛错；编码器异常在这里记下原始错误，其余原因由
- * 调用方记日志。所属线程：AI 闲聊 Worker，
- * 本模块自身不持有缓存（WASM 模块由依赖在本 isolate 内首次编码时编译一次）。
+ * 将供应商合成的语音转换为 Telegram sendVoice 可用的音频容器：
+ * OGG/Opus 与 MP3 校验容器结构并计算时长后直接封装，WAV 解析为单声道 PCM 后分块编码为 OGG/Opus，
+ * 编码期间响应调用方取消。
  */
 
 import opus from "@audio/encode-opus";
@@ -36,15 +25,14 @@ import type {
   WavPcmDecodeResult,
 } from "../../types/aiChat/voiceMessage";
 
-/** 去掉 MIME 参数并统一小写，只比较类型本体。 */
+/** 剥离 MIME 参数并转为小写类型本体。 */
 function mimeEssence(mimeType: string): string {
   const separator: number = mimeType.indexOf(";");
   return (separator === -1 ? mimeType : mimeType.slice(0, separator)).trim().toLowerCase();
 }
 
 /**
- * 容器校验通过的直发语音：字节复制成独占 ArrayBuffer（主线程转交时整块转移），带上时长与
- * 与容器一致的文件名。
+ * 将已通过容器探测的直发音频复制为独占字节缓冲并附上时长与文件名。
  */
 function directVoice(bytes: Uint8Array, probe: VoiceContainerProbeResult, fileName: string): VoiceEncodeResult {
   if (!probe.ok) return probe;
@@ -52,36 +40,36 @@ function directVoice(bytes: Uint8Array, probe: VoiceContainerProbeResult, fileNa
 }
 
 /**
- * 把单声道 PCM 按 VOICE_OPUS_ENCODE_CHUNK_SECONDS 分块交给编码器，块间让出事件循环，返回各块产出的
- * OGG 页。编码器按 PCM 的原始采样率建立，重采样状态由依赖跨块延续。
+ * 按 VOICE_OPUS_ENCODE_CHUNK_SECONDS 分块将单声道 PCM 编码为 OGG 页，块间让出事件循环；
+ * 每块编码前与最后一块让出后核对 signal，已中止时返回 null，剩余 PCM 不再编码。
  */
 async function encodePcmInChunks(
   encoder: StreamEncoder,
-  samples: Float32Array,
-  sampleRate: number
-): Promise<Uint8Array[]> {
+  { samples, sampleRate }: Extract<WavPcmDecodeResult, { ok: true }>,
+  signal: AbortSignal | undefined
+): Promise<Uint8Array[] | null> {
   const step: number = Math.max(1, Math.round(sampleRate * VOICE_OPUS_ENCODE_CHUNK_SECONDS));
   const pages: Uint8Array[] = [];
   for (let start: number = 0; start < samples.length; start += step) {
+    if (signal?.aborted === true) return null;
     pages.push(encoder.encode([samples.subarray(start, Math.min(samples.length, start + step))]));
-    // 块间让出事件循环，排队的 Worker 消息与已到期的 timer 先执行。
     await Bun.sleep(0);
   }
-  return pages;
+  return signal?.aborted === true ? null : pages;
 }
 
 /**
- * 把一段合成语音转成可直接 sendVoice 的语音消息。
- * @param speech 供应商返回并已校验大小的合成语音。
+ * 将合成语音校验或编码为 Telegram 语音消息载荷。WAV 编码期间（含编码器初始化）signal 中止时返回
+ * aborted；OGG/Opus 与 MP3 同步校验，不核对 signal。
  */
-export async function encodeVoiceMessage(speech: SynthesizedSpeech): Promise<VoiceEncodeResult> {
+export async function encodeVoiceMessage(speech: SynthesizedSpeech, signal?: AbortSignal): Promise<VoiceEncodeResult> {
   const mimeType: string = mimeEssence(speech.mimeType);
   if (mimeType === OGG_OPUS_MIME_TYPE) return directVoice(speech.bytes, probeOggOpus(speech.bytes), VOICE_OGG_FILE_NAME);
   if (mimeType === MP3_MIME_TYPE) return directVoice(speech.bytes, probeMp3(speech.bytes), VOICE_MP3_FILE_NAME);
   if (!WAV_MIME_TYPES.includes(mimeType)) return { ok: false, reason: "unsupported speech mime type" };
   const pcm: WavPcmDecodeResult = decodeWavPcm(speech.bytes);
   if (!pcm.ok) return pcm;
-  let pages: Uint8Array[];
+  let pages: Uint8Array[] | null;
   try {
     const encoder: StreamEncoder = await opus({
       sampleRate: pcm.sampleRate,
@@ -91,9 +79,8 @@ export async function encodeVoiceMessage(speech: SynthesizedSpeech): Promise<Voi
       complexity: VOICE_OPUS_COMPLEXITY,
     });
     try {
-      pages = await encodePcmInChunks(encoder, pcm.samples, pcm.sampleRate);
-      // flush 写出末页并释放编码器；异常路径由 finally 的 free 兜底（重复 free 为空操作）。
-      pages.push(encoder.flush());
+      pages = await encodePcmInChunks(encoder, pcm, signal);
+      pages?.push(encoder.flush());
     } finally {
       encoder.free();
     }
@@ -101,6 +88,7 @@ export async function encodeVoiceMessage(speech: SynthesizedSpeech): Promise<Voi
     logger.error("Voice message Opus encoding failed:", error);
     return { ok: false, reason: "opus encoder failed" };
   }
+  if (pages === null) return { ok: false, reason: "aborted" };
   const bytes: Uint8Array<ArrayBuffer> = Bun.concatArrayBuffers(pages, Number.POSITIVE_INFINITY, true);
   return {
     ok: true,

@@ -79,6 +79,7 @@ const { initTelegramOutbound, drainTelegramOutbound, telegramOutboundStats } = a
 function context(controller: AbortController = new AbortController()): ReplyToolContext {
   return {
     chatId: -1001,
+    triggerSenderId: 1001,
     replyToMessageId: 50,
     messageThreadId: 7,
     mediaToolsRequested: true,
@@ -92,6 +93,7 @@ function context(controller: AbortController = new AbortController()): ReplyTool
     onStickerSent: mock((): void => {}),
     onImageSent: mock((): void => {}),
     onVoiceSent: mock((): void => {}),
+    onAbuseMark: mock((): void => {}),
   };
 }
 

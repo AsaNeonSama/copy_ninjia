@@ -1,11 +1,5 @@
 /**
- * 合成语音的 WAV 容器解析：只接受单声道、16 bit 整数 PCM，逐块走 RIFF 子块，
- * 取出 `fmt ` 的采样率与 `data` 的样本，并把样本归一到 [-1, 1) 的 Float32。
- *
- * 子块按声明长度推进，奇数长度补一个填充字节；任何子块越界即判截断，不猜测
- * 剩余字节的含义。
- *
- * 纯函数叶子模块，不接触任何缓存与 SDK 类型（见 AGENTS.md 的「缓存与线程归属」）。
+ * 合成语音的 RIFF/WAVE 容器解析：校验单声道整数 PCM 格式子块并提取归一化浮点样本与采样率。
  */
 
 import {
@@ -19,7 +13,7 @@ import {
 } from "../../../consts/audio";
 import type { WavPcmDecodeResult } from "../../../types/aiChat/voiceMessage";
 
-/** 读 4 字节 ASCII 标识；调用方已保证不越界。 */
+/** 读取四字符 ASCII 块标识。 */
 function fourCc(view: DataView, offset: number): string {
   return String.fromCharCode(
     view.getUint8(offset),
@@ -30,9 +24,7 @@ function fourCc(view: DataView, offset: number): string {
 }
 
 /**
- * 解析单声道 16 bit PCM WAV。
- * @param bytes 完整 WAV 文件字节。
- * @returns 归一化样本与采样率，或带原因的失败。
+ * 解析单声道 PCM WAV 字节流，返回归一化样本与采样率或失败原因。
  */
 export function decodeWavPcm(bytes: Uint8Array): WavPcmDecodeResult {
   const view: DataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

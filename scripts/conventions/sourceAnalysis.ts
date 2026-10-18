@@ -191,19 +191,28 @@ export function sourceFilesUnder(root: string): string[] {
   return files;
 }
 
+/** 进程内按路径记下的最近一次解析结果，进程结束前不清理；调用方只读 AST。 */
+const parsedSourceFiles: Map<string, ts.SourceFile> = new Map<string, ts.SourceFile>();
+
 /**
  * 读入一个源文件并解析成 AST，各约定检查共用这一份：`setParentNodes` 为 true
  * （规则沿 `node.parent` 上行），`ScriptKind.TS` 固定按 TypeScript 解析。
+ * 文件内容与上次解析时相同则复用 parsedSourceFiles 里的 AST。
  * @param path 源文件路径。
  */
 export async function parseSourceFile(path: string): Promise<ts.SourceFile> {
-  return ts.createSourceFile(
+  const text: string = await Bun.file(path).text();
+  const cached: ts.SourceFile | undefined = parsedSourceFiles.get(path);
+  if (cached?.text === text) return cached;
+  const source: ts.SourceFile = ts.createSourceFile(
     path,
-    await Bun.file(path).text(),
+    text,
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS
   );
+  parsedSourceFiles.set(path, source);
+  return source;
 }
 
 /** 判断声明是否带有 export 修饰符。 */

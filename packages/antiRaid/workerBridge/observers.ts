@@ -28,6 +28,7 @@ import type {
   BotChatPermissions,
 } from "../../types/telegram";
 import { settlePersistedVerificationDeferral } from "../verificationAttempts";
+import { abandonEmergencyLockdownRecovery } from "../lockdownMirror";
 import {
   recordVerificationPersisted,
   settleVerificationDeletePersisted,
@@ -72,9 +73,11 @@ export function registerAntiRaidBridgeObservers({
     chatId: number,
     reason: ChatTeardownReason
   ): void => {
-    deactivateChat(chatId, reason === "explicitDisable", abandonsLockdown(reason));
+    const abandonLockdown: boolean = abandonsLockdown(reason);
     chatIsSupergroupById.delete(chatId);
     blockedSenderChatDeleteDeniedChats.delete(chatId);
+    if (abandonLockdown) abandonEmergencyLockdownRecovery(chatId);
+    deactivateChat(chatId, reason === "explicitDisable", abandonLockdown);
   });
 
   onDiskIORespawn(

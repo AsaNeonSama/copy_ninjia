@@ -3,10 +3,10 @@ import type { AtmosphereTexts } from "./atmosphere";
 /** 抽签命令（packages/commands/luckChallenge/）的吉凶档定义。 */
 export interface LuckTier {
   readonly label: keyof AtmosphereTexts["LUCK_TIER_COMMENTS"];
-  /** 抽签份额（百分比），全表之和必须是 100，用于抽签本身。 */
+  /** 抽签份额（百分比），全表之和固定，用于抽签本身。 */
   readonly weight: number;
   /** 落在这一档时，行大运（大吉）概率的浮动区间 [min, max]（百分比，闭区间，
-   * 取值四舍五入到两位小数）；倒大霉（大凶）概率 = 100 - 行大运概率。具体值由
+   * 取值四舍五入到两位小数）；其余份额为倒大霉（大凶）概率。具体值由
    * commands/luckChallenge/draw.ts 的 deriveLuckDraw 按当日密钥与 cacheKey 派生的
    * 摘要在区间内取得，同一档的不同抽签可得到不同数字；抽签结果随 LuckDraw 进日缓存与落盘。 */
   readonly fortunePercentRange: readonly [number, number];

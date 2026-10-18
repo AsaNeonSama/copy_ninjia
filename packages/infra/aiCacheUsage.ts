@@ -1,12 +1,5 @@
 /**
- * 模型请求用量的上报边界：各供应商客户端在拿到响应后调用 reportAiCacheUsage（token 口径）、
- * reportGeminiUsage / reportGeminiInteractionUsage（Gemini 响应适配）、reportAnthropicUsage（Anthropic
- * 响应适配）、reportOpenAiResponsesUsage / reportOpenAiChatUsage（OpenAI Responses 与 Chat Completions 响应适配）
- * 或 reportXAiUsage（xAI 响应适配，无 token 时经 reportAiCostUsage 按费用口径计入）。
- * 检索次数并入同一响应的 token 记录，没有有效 token 时经 reportAiSearchUsage 单独记录。
- * 本线程装了出口（cache/perThread/aiCacheUsage.ts）才发出。SDK 返回有效用量即计入，包括取消后迟到、正文为空或
- * 解码失败的响应；不改变业务结果。缺失、非法或无法投递时丢弃，并按能力/供应商/原因
- * 给出有界诊断。
+ * 模型请求用量的校验与上报边界：适配各供应商响应结构并投递至本线程用量出口（cache/perThread/aiCacheUsage.ts）。
  */
 
 import { aiCacheUsageSink, aiUsageWarningKeys } from "../cache/perThread/aiCacheUsage";
@@ -24,12 +17,12 @@ export interface AiCacheUsageReport {
   readonly provider: AgentProvider;
   readonly model: string;
   readonly inputTokens: unknown;
-  /** undefined 表示供应商没有给出缓存用量。 */
+  /** undefined 表示供应商未提供缓存用量。 */
   readonly cachedInputTokens: unknown;
-  /** 写入缓存的输入 token，属于 inputTokens、与命中不重叠；缺省或 undefined 表示供应商没有给出缓存写入用量。 */
+  /** 写入缓存的输入 token；缺省或 undefined 表示供应商未提供缓存写入用量。 */
   readonly cacheWriteInputTokens?: unknown;
   readonly outputTokens: unknown;
-  /** 同一响应的实际检索次数；缺省表示没有检索。 */
+  /** 同一响应的实际检索次数；缺省表示无检索。 */
   readonly searchCalls?: number;
 }
 
@@ -37,7 +30,7 @@ function isTokenCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-/** 正文与思考分别校验后相加；两者都缺失保持未知，非法分量交由统一出口拒绝。 */
+/** 校验并累加正文与思考 token；两者均缺省时返回 undefined，任一非法时返回 NaN。 */
 function geminiOutputTokens(output: unknown, thoughts: unknown): number | undefined {
   if (output === undefined && thoughts === undefined) return undefined;
   if (output !== undefined && !isTokenCount(output)) return Number.NaN;
@@ -45,13 +38,13 @@ function geminiOutputTokens(output: unknown, thoughts: unknown): number | undefi
   return (output ?? 0) + (thoughts ?? 0);
 }
 
-/** 安装或卸下本线程的上报出口；Worker 启动时安装、停止时传 null。 */
+/** 安装或卸载本线程的用量上报出口并重置告警去重集合。 */
 export function installAiCacheUsageSink(sink: ((usage: AiCacheUsage) => void) | null): void {
   aiCacheUsageSink.current = sink;
   aiUsageWarningKeys.clear();
 }
 
-/** 每个出口生命周期按固定维度诊断一次，不输出模型名、请求或响应内容。 */
+/** 按能力、供应商与原因去重记录一次用量不可用告警。 */
 export function warnAiUsageUnavailable(
   capability: AiCacheCapability,
   provider: AgentProvider,
@@ -63,7 +56,7 @@ export function warnAiUsageUnavailable(
   logger.warn(`AI token usage unavailable: capability=${capability}, provider=${provider}, reason=${reason}.`);
 }
 
-/** 校验并上报一次请求的用量，命中与写入之和不得超过输入；诊断和投递失败均不得改变模型请求的业务结果。 */
+/** 校验并上报单次请求的 token 与检索用量。 */
 export function reportAiCacheUsage({
   capability,
   provider,
@@ -111,7 +104,7 @@ export function reportAiCacheUsage({
   });
 }
 
-/** 把一条已校验的计量交给本线程出口；出口缺失或拒收时只给出固定原因的诊断。 */
+/** 将已校验的用量记录投递给本线程出口；出口缺失或抛错时记录对应告警。 */
 function deliverAiUsage(usage: AiCacheUsage): void {
   const sink: ((usage: AiCacheUsage) => void) | null = aiCacheUsageSink.current;
   if (sink === null) {
@@ -121,22 +114,21 @@ function deliverAiUsage(usage: AiCacheUsage): void {
   try {
     sink(usage);
   } catch (error: unknown) {
-    // Worker 出口拒收时只记录固定原因，不回显可能携带响应内容的异常。
     void error;
     warnAiUsageUnavailable(usage.capability, usage.provider, "transport");
   }
 }
 
-/** reportAiCostUsage 的入参；费用按供应商原样传入，由本函数校验。 */
+/** reportAiCostUsage 的入参。 */
 export interface AiCostUsageReport {
   readonly capability: AiCacheCapability;
   readonly provider: AgentProvider;
   readonly model: string;
-  /** 本次请求的费用（xAI `cost_in_usd_ticks`，单位 tick）。 */
+  /** 本次请求的费用（单位为 USD tick）。 */
   readonly costInUsdTicks: unknown;
 }
 
-/** 校验并上报一次只给出费用的请求；诊断和投递失败均不得改变模型请求的业务结果。 */
+/** 校验并上报单次按费用计量的请求。 */
 export function reportAiCostUsage({ capability, provider, model, costInUsdTicks }: AiCostUsageReport): void {
   if (!isTokenCount(costInUsdTicks)) {
     warnAiUsageUnavailable(capability, provider, costInUsdTicks === undefined ? "missing" : "invalid");
@@ -152,16 +144,16 @@ export function reportAiCostUsage({ capability, provider, model, costInUsdTicks 
   });
 }
 
-/** reportAiSearchUsage 的入参；检索次数由调用方按响应计好。 */
+/** reportAiSearchUsage 的入参。 */
 export interface AiSearchUsageReport {
   readonly capability: AiCacheCapability;
   readonly provider: AgentProvider;
   readonly model: string;
-  /** 这次请求里供应商实际执行的联网检索次数。 */
+  /** 本次请求实际执行的联网检索次数。 */
   readonly searchCalls: number;
 }
 
-/** 无有效 token 时单独上报检索次数；非法值诊断后丢弃，0 次不记，投递失败不改变业务结果。 */
+/** 无有效 token 时单独校验并上报检索次数；零次忽略。 */
 export function reportAiSearchUsage({ capability, provider, model, searchCalls }: AiSearchUsageReport): void {
   if (!isTokenCount(searchCalls)) {
     warnAiUsageUnavailable(capability, provider, "invalid");
@@ -178,19 +170,14 @@ export function reportAiSearchUsage({ capability, provider, model, searchCalls }
   });
 }
 
-/** reportXAiUsage 的入参：xAI 响应的 usage 对象原样传入。 */
+/** reportXAiUsage 的入参。 */
 export interface XAiUsageReport {
   readonly capability: AiCacheCapability;
   readonly model: string;
   readonly usage: unknown;
 }
 
-/**
- * 上报一次 xAI 请求的用量（经 OpenAI 兼容协议，供应商记为 openai）。xAI 的
- * input_tokens / output_tokens 可为空或缺席：任一项给出时走 token 口径（缓存命中取
- * input_tokens_details.cached_tokens），两项须齐全，只给一项按 missing 诊断且不改记费用；
- * 两项都没有时改按 usage.cost_in_usd_ticks 计入费用。
- */
+/** 上报 xAI 响应的用量：优先按 input_tokens/output_tokens 计入 token，两者均缺省时按 cost_in_usd_ticks 计入费用。 */
 export function reportXAiUsage({ capability, model, usage }: XAiUsageReport): void {
   if (usage !== undefined && !isPlainRecord(usage)) {
     warnAiUsageUnavailable(capability, "openai", "invalid");
@@ -213,7 +200,7 @@ export function reportXAiUsage({ capability, model, usage }: XAiUsageReport): vo
   reportAiCostUsage({ capability, provider: "openai", model, costInUsdTicks: usage?.cost_in_usd_ticks });
 }
 
-/** reportAnthropicUsage 的入参：Messages（beta 端点）响应的 usage 原样传入。 */
+/** reportAnthropicUsage 的入参。 */
 export interface AnthropicUsageReport {
   readonly capability: AiCacheCapability;
   readonly model: string;
@@ -221,11 +208,7 @@ export interface AnthropicUsageReport {
   readonly searchCalls?: number;
 }
 
-/**
- * 上报一次 Anthropic Messages 的用量。`input_tokens` 不含缓存部分，而统一口径要求输入是总量、
- * 命中与写入不超过输入，因此输入记 `input + cache_creation + cache_read`，命中记 `cache_read`，
- * 写入记 `cache_creation`（两项缓存字段为 null 时求和按 0、命中与写入按「未给出」处理）。
- */
+/** 上报 Anthropic Messages 响应用量，将 input_tokens、cache_creation_input_tokens 与 cache_read_input_tokens 折算为总输入与缓存分量。 */
 export function reportAnthropicUsage({ capability, model, usage, searchCalls = 0 }: AnthropicUsageReport): void {
   if (usage !== undefined && (usage === null || typeof usage !== "object" || Array.isArray(usage))) {
     warnAiUsageUnavailable(capability, "anthropic", "invalid");
@@ -254,10 +237,7 @@ export function reportAnthropicUsage({ capability, model, usage, searchCalls = 0
   });
 }
 
-/**
- * OpenAI 用量里命中缓存的输入 token：官方字段在 details 的 `cached_tokens`；DeepSeek 等兼容端点缺它时读顶层的
- * `prompt_cache_hit_tokens`。都没有时为 undefined。
- */
+/** 提取 OpenAI 响应中的缓存命中 token（优先读取 details.cached_tokens，回退读取顶层 prompt_cache_hit_tokens）。 */
 function openAiCachedTokens(usage: object | undefined, details: object | null | undefined): unknown {
   if (usage === undefined) return undefined;
   const cached: unknown = (details as { cached_tokens?: unknown } | null | undefined)?.cached_tokens;
@@ -265,12 +245,12 @@ function openAiCachedTokens(usage: object | undefined, details: object | null | 
   return (usage as Readonly<Record<string, unknown>>).prompt_cache_hit_tokens;
 }
 
-/** OpenAI 用量 details 里写入缓存的输入 token（`cache_write_tokens`）；兼容端点缺它时为 undefined。 */
+/** 提取 OpenAI 响应 details 中的缓存写入 token（cache_write_tokens）。 */
 function openAiCacheWriteTokens(details: object | null | undefined): unknown {
   return (details as { cache_write_tokens?: unknown } | null | undefined)?.cache_write_tokens;
 }
 
-/** reportOpenAiResponsesUsage 的入参：Responses 响应的 usage 原样传入。 */
+/** reportOpenAiResponsesUsage 的入参。 */
 export interface OpenAiResponsesUsageReport {
   readonly capability: AiCacheCapability;
   readonly model: string;
@@ -278,7 +258,7 @@ export interface OpenAiResponsesUsageReport {
   readonly searchCalls: number;
 }
 
-/** Responses 用量：输入、输出取 `input_tokens`/`output_tokens`，命中与写入取 `input_tokens_details`。 */
+/** 上报 OpenAI Responses 响应用量。 */
 export function reportOpenAiResponsesUsage({ capability, model, usage, searchCalls }: OpenAiResponsesUsageReport): void {
   reportAiCacheUsage({
     capability,
@@ -292,14 +272,14 @@ export function reportOpenAiResponsesUsage({ capability, model, usage, searchCal
   });
 }
 
-/** reportOpenAiChatUsage 的入参：Chat Completions 响应的 usage 原样传入。 */
+/** reportOpenAiChatUsage 的入参。 */
 export interface OpenAiChatUsageReport {
   readonly capability: AiCacheCapability;
   readonly model: string;
   readonly usage: OpenAI.CompletionUsage | undefined;
 }
 
-/** Chat Completions 用量：输入、输出取 `prompt_tokens`/`completion_tokens`，命中与写入取 `prompt_tokens_details`。 */
+/** 上报 OpenAI Chat Completions 响应用量。 */
 export function reportOpenAiChatUsage({ capability, model, usage }: OpenAiChatUsageReport): void {
   reportAiCacheUsage({
     capability,
@@ -312,7 +292,7 @@ export function reportOpenAiChatUsage({ capability, model, usage }: OpenAiChatUs
   });
 }
 
-/** reportGeminiUsage 的入参：generateContent 响应的 usageMetadata 原样传入。 */
+/** reportGeminiUsage 的入参。 */
 export interface GeminiUsageReport {
   readonly capability: AiCacheCapability;
   readonly model: string;
@@ -320,10 +300,7 @@ export interface GeminiUsageReport {
   readonly searchCalls?: number;
 }
 
-/**
- * 上报一次 Gemini generateContent 的用量。隐式缓存没有命中时响应不带
- * cachedContentTokenCount，此时按 0 计；输出计入正文与思考两部分。
- */
+/** 上报 Gemini generateContent 响应用量（未返回 cachedContentTokenCount 时按零命中计入）。 */
 export function reportGeminiUsage({ capability, model, usage, searchCalls = 0 }: GeminiUsageReport): void {
   if (usage === undefined) {
     warnAiUsageUnavailable(capability, "google", "missing");
@@ -346,14 +323,14 @@ export function reportGeminiUsage({ capability, model, usage, searchCalls = 0 }:
   });
 }
 
-/** Gemini Interactions 响应的总用量；与 generateContent 的字段及思考 token 口径分别适配。 */
+/** reportGeminiInteractionUsage 的入参。 */
 export interface GeminiInteractionUsageReport {
   readonly capability: AiCacheCapability;
   readonly model: string;
   readonly usage: Interactions.Usage | undefined;
 }
 
-/** Interactions 输出合计包含响应与独立的 thought token，缓存缺省表示未提供缓存计量。 */
+/** 上报 Gemini Interactions 响应用量。 */
 export function reportGeminiInteractionUsage({ capability, model, usage }: GeminiInteractionUsageReport): void {
   if (usage !== undefined && (usage === null || typeof usage !== "object" || Array.isArray(usage))) {
     warnAiUsageUnavailable(capability, "google", "invalid");

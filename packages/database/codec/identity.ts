@@ -205,7 +205,7 @@ function decodePendingParams(
   };
 }
 
-/** 严格解码 pending_blocked_removals.data。 */
+/** 严格解码 `pending_blocked_removals.data` JSON 文本。 */
 export function decodePendingBlockedRemovalData(
   text: string,
   source: string
@@ -231,38 +231,26 @@ export function decodePendingBlockedRemovalData(
   };
 }
 
-/** 编码前先走同一严格解码器，非法结构不进入数据库。 */
+/** 将白名单条目编码为 JSON 文本并经 decodeWhitelistEntryData 复核。 */
 export function encodeWhitelistEntryData(value: Readonly<WhitelistEntryData>): string {
   const text: string = JSON.stringify(value);
   decodeWhitelistEntryData(text, "whitelist entry");
   return text;
 }
 
-/** 编码前先走同一严格解码器。 */
+/** 将黑名单条目编码为 JSON 文本并经 decodeBlocklistEntryData 复核。 */
 export function encodeBlocklistEntryData(value: Readonly<BlocklistEntryData>): string {
   const text: string = JSON.stringify(value);
   decodeBlocklistEntryData(text, "blocklist entry");
   return text;
 }
 
-/** 编码结果连同校验时解出的规范值一起交出，调用方不需要重复 parse。 */
-export interface EncodedPendingBlockedRemoval {
-  /** 落库文本；同一个值反复编码逐字节稳定，可直接用于变更比较。 */
-  readonly text: string;
-  /** 解码校验过程中得到的规范值。 */
-  readonly value: PendingBlockedRemoval;
-}
-
-/**
- * 编码前先走同一严格解码器，并把那次解码得到的规范值一并返回。
- *
- * outbox 快照需要同时得到落库文本与内存镜像用的规范值，调用方见
- * workers/diskIO/storageDatabase/pendingRemoval.ts 的 handlePendingRemovalSnapshot。
- */
+/** 将待踢任务条目编码为 JSON 文本并经 decodePendingBlockedRemovalData 复核。 */
 export function encodePendingBlockedRemovalData(
   value: PendingBlockedRemoval,
   source: string = "pending blocked removal"
-): EncodedPendingBlockedRemoval {
+): string {
   const text: string = JSON.stringify(value);
-  return { text, value: decodePendingBlockedRemovalData(text, source) };
+  decodePendingBlockedRemovalData(text, source);
+  return text;
 }

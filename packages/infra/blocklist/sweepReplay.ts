@@ -98,7 +98,6 @@ async function replayPendingBlockedRemovalsAsync(
   try {
     if (hasAnyBlockedIdentity()) page = await readBlocklistSweepPage(null);
   } catch (error: unknown) {
-    // 冻结批次不依赖名单页，读失败只推迟 probeMembership 补扫批次。
     logger.error(
       "Failed to read the first blocklist ID page for pending removal replay:",
       error
@@ -123,8 +122,6 @@ async function replayPendingBlockedRemovalsAsync(
       continue;
     }
     if (countPreviousAttempt) {
-      // 重放计数只改内存镜像、不单独排快照，诊断随下一份 outbox 快照整表落盘
-      // （按条件排快照见 sweepRetryState.ts 的 recordPendingRemovalFailure）。
       updatePendingRemovalFailure(
         removalId,
         pending.params.chatId,

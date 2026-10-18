@@ -2,6 +2,8 @@ import {
   storagePendingBudgets,
   pendingBlocklistWrites,
   pendingWhitelistWrites,
+  removalRowTargets,
+  storageFlushHold,
   storedIdentityIdLookups,
   pendingTemporaryAdBypassWrites,
 } from "../../../cache/workers/diskIO/storageDatabase";
@@ -45,14 +47,16 @@ import type {
   StoredIdentityIdLookups,
   StoredIdentityPolicyRow,
 } from "../../../types/storageDatabase";
-import { assertPositiveRevision, requireStorageDatabase, storageSource } from "./context";
+import {
+  assertPositiveRevision,
+  requireStorageDatabase,
+  requireStorageDatabaseReader,
+  storageSource,
+} from "./context";
 import { flushIfStorageFull } from "./flush";
 import { errorMessage } from "../../../libs/errorMessage";
 
-/**
- * 取本连接的预编译主键查询语句，首次用到时建好挂进连接级缓存。
- * 缓存归本 Worker 持有，database/interact 层不接触线程独占缓存。
- */
+/** 获取或初始化当前连接的预编译主键存在性查询语句。 */
 function identityIdLookups(): StoredIdentityIdLookups {
   const database: StorageDatabase = requireStorageDatabase();
   const cached: StoredIdentityIdLookups | undefined =
@@ -64,7 +68,7 @@ function identityIdLookups(): StoredIdentityIdLookups {
   return lookups;
 }
 
-/** 某名单主键是否已经持久化；走本连接的预编译语句，不现场拼 SQL。 */
+/** 查询指定名单主键是否已在 SQLite 中持久化。 */
 function hasStoredIdentityPolicy(table: IdentityPolicyTable, id: number): boolean {
   const lookups: StoredIdentityIdLookups = identityIdLookups();
   const lookup: StoredIdentityIdLookup =
@@ -78,10 +82,7 @@ function pendingPolicyMap(
   return table === "whitelist" ? pendingWhitelistWrites : pendingBlocklistWrites;
 }
 
-/**
- * SQLite 已提交游标页叠加事务内最终值；候选集合严格受「页 + pending 硬顶」约束。
- * 补扫每页前会先 flush，这个合并只处理 flush 回执后并发到达的短窗口变化。
- */
+/** 读取一页已提交黑名单主键并叠加事务缓冲中的未提交变更。 */
 function effectiveBlocklistIdPage(afterId: number | null): BlocklistIdPage {
   if (
     pendingBlocklistWrites.size >
@@ -124,7 +125,7 @@ function effectiveBlocklistIdPage(afterId: number | null): BlocklistIdPage {
   };
 }
 
-/** outbox 严格校验一个冻结目标是否仍属于事务叠加后的黑名单。 */
+/** 判断指定身份是否属于叠加未提交变更后的有效黑名单。 */
 export function hasEffectiveBlocklistIdentity(id: number): boolean {
   const pending: PendingIdentityPolicyWrite | undefined =
     pendingBlocklistWrites.get(id);
@@ -132,7 +133,7 @@ export function hasEffectiveBlocklistIdentity(id: number): boolean {
   return hasStoredIdentityPolicy("blocklist", id);
 }
 
-/** outbox 的 probe 任务是否仍至少有一个目标；只读取第一张有界游标页。 */
+/** 判断叠加未提交变更后的有效黑名单是否非空。 */
 export function hasAnyEffectiveBlocklistIdentity(): boolean {
   return effectiveBlocklistIdPage(null).ids.length > 0;
 }
@@ -188,7 +189,7 @@ function temporaryAdBypassRowsWithPending(
   ids: readonly number[]
 ): readonly StoredTemporaryAdBypassActivity[] {
   const rows: readonly StoredTemporaryAdBypassActivity[] =
-    readStoredTemporaryAdBypassActivities(requireStorageDatabase(), ids);
+    readStoredTemporaryAdBypassActivities(requireStorageDatabaseReader(), ids);
   const values: Map<number, StoredTemporaryAdBypassActivity> = new Map();
   for (const row of rows) values.set(row.id, row);
   for (const id of ids) {
@@ -201,6 +202,27 @@ function temporaryAdBypassRowsWithPending(
   return [...values.values()];
 }
 
+/** 校验待删除黑名单身份未被待踢 outbox 活动行引用（镜像重放暂挂期间跳过，参见 docs/cn/04-invariants.md）。 */
+function assertBlocklistDeletionUnreferenced(id: number): void {
+  if (storageFlushHold.current) return;
+  let hasProbeRow: boolean = false;
+  for (const [removalId, targets] of removalRowTargets) {
+    if (targets.probeMembership) {
+      hasProbeRow = true;
+    } else if (targets.userIds.includes(id)) {
+      throw new Error(
+        `Blocklist identity ${id} is still frozen in pending removal row ${removalId}.`
+      );
+    }
+  }
+  if (!hasProbeRow) return;
+  if (!effectiveBlocklistIdPage(null).ids.some((other: number): boolean => other !== id)) {
+    throw new Error(
+      `Deleting blocklist identity ${id} would leave pending sweep rows without any blocklist entry.`
+    );
+  }
+}
+
 /** 收下一条黑/白名单最终值；迟到 revision 不得覆盖更新值。 */
 export function handleIdentityPolicyWrite(
   message: IdentityPolicyWriteDiskMessage,
@@ -211,6 +233,9 @@ export function handleIdentityPolicyWrite(
   const current: PendingIdentityPolicyWrite | undefined = pending.get(message.id);
   if (current !== undefined && current.revision >= message.revision) return;
   assertOppositePolicyAbsent(message);
+  if (message.table === "blocklist" && message.data === null) {
+    assertBlocklistDeletionUnreferenced(message.id);
+  }
   storagePendingBudgets[message.table].reserve(current === undefined ? 1 : 0, storageWriteCost(message.data) - (current === undefined ? 0 : storageWriteCost(current.data)));
   pending.set(message.id, { data: message.data, revision: message.revision });
   flushIfStorageFull(reply);
@@ -222,7 +247,7 @@ function policyRowsWithPending(
 ): readonly (readonly [number, string])[] {
   if (ids.length === 0) return [];
   const rows: readonly StoredIdentityPolicyRow[] = readStoredIdentityPolicies(
-    requireStorageDatabase(),
+    requireStorageDatabaseReader(),
     table,
     ids
   );

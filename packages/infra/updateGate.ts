@@ -4,11 +4,11 @@ import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import type { Chat, Message } from "grammy/types";
 
 /**
- * isInitEnabled 的低成本前置网关，见 app/registerHandlers.ts。未初始化群的
+ * isInitEnabled 的低成本前置网关，见 app/updatePreamble.ts。未初始化群的
  * 更新在这里被挡下，只放行 my_chat_member、私聊与可首次启用本群的 /init。
  * 私聊是否继续交给命令链由 shouldPassPrivateCommandGate 独立收紧；两道判断在
- * app/registerHandlers.ts 的同一个前置 middleware 中合取。
- * /permission 与 /white 同样位于本中间件之后，只有通过初始化网关才能处理。
+ * app/updatePreamble.ts 前置链的同一段中合取。
+ * /permission 与 /white 同样位于这一段之后，只有通过初始化网关才能处理。
  *
  * 指向自己的 via_bot 消息不豁免：运势回执确认位于本网关之前，未初始化群
  * 的 via_bot 更新不进入身份预热、入群守卫和刷屏流水线。下游
@@ -41,9 +41,9 @@ export function isBotCommandText(text: string, command: string, botUsername: str
 }
 
 /**
- * 私聊指令前置网关，见 app/registerHandlers.ts。私聊里以 / 开头的文本一律
+ * 私聊指令前置网关，见 app/updatePreamble.ts。私聊里以 / 开头的文本一律
  * 拦下，唯一例外是超级管理员发给当前机器人的 /send。该判断与 init 网关在
- * 所有 bot.command / bot.hears 注册之前运行，/permission、/white 同样经过。
+ * 全部命令与中文动作路由之前运行，/permission、/white 同样经过。
  * 判定同时看 text 与 caption：bot.command 只认 text，bot.hears（`/咬` 这类
  * 中文动作命令，见 commands/cjkAction.ts）两者都匹配；caption 以 / 开头的
  * 内容一律拦下。/send 中转会话运行期间，斜杠开头的内容也不作为中转消息接收。

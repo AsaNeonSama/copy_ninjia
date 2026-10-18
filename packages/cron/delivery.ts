@@ -31,7 +31,7 @@ import { runTelegramAction } from "../infra/telegram/actions/core";
 import { toTelegramSendResult } from "../infra/telegram/actions/sendResult";
 import { telegramErrorDetails } from "../infra/telegram/errors";
 import { bot } from "../infra/telegram/mainClient";
-import { TelegramRetryQueueFullError } from "../infra/telegram/outboundRetryPolicy";
+import { TelegramSendQueueFullError } from "../infra/telegram/sendScheduler";
 import type {
   CronAction,
   CronDeliveryOutcome,
@@ -46,11 +46,9 @@ import type { EncodedVoiceMessage, VoiceSynthesisFailure, VoiceSynthesisResult }
 import type { RandomImagePick } from "../types/randomImage";
 import { errorMessage } from "../libs/errorMessage";
 
-/** 一次发送失败的分类：服务端 5xx、仍被 429 挡住、出站队列满与网络错误可重试，其余 4xx 与本地错误不重试。 */
+/** 一次发送失败的分类：TelegramSendQueueFullError（所属聊天或全局发送排队满）、服务端 5xx、仍被 429 挡住与 HttpError 网络错误可重试，其余 4xx 与本地错误不重试。 */
 function classifyFailure(error: unknown): CronDeliveryOutcome {
-  if (error instanceof TelegramRetryQueueFullError) {
-    return { kind: "retryable", detail: "the Telegram outbound retry queue is full" };
-  }
+  if (error instanceof TelegramSendQueueFullError) return { kind: "retryable", detail: error.message };
   const details: Readonly<{ errorCode: number; description: string }> | undefined = telegramErrorDetails(error);
   if (details !== undefined) {
     const detail: string = `${details.errorCode} ${details.description}`;

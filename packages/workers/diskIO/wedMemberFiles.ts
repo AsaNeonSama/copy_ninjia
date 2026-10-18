@@ -11,88 +11,68 @@ import { FLUSH_INTERVAL_MS } from "../../consts/diskIO/appendOnly";
 import { PERSISTED_FILE_MODE } from "../../consts/diskIO/common";
 import { WED_MEMORY_DIR } from "../../consts/paths";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../consts/storage";
-import { WED_MEMBER_LIMIT } from "../../consts/wed";
 import { atomicWriteTextSync, durableUnlinkSync, removeOrphanedTempFiles } from "../../libs/atomicFile";
 import { assertFileReadableWritable, listOptionalDirectory } from "../../libs/fileAccess";
 import { invalidInput, readJsonInput } from "../../libs/inputValidation";
-import { isTelegramGroupChatId } from "../../libs/telegramId";
+import { parseWedMemberFile, parseWedMemberFileName, serializeWedMemberEntries } from "../../libs/wedMemberFile";
 import type {
   WedMembersDeleteDiskMessage,
   WedMembersDiskMessage,
 } from "../../types/diskIO/messages";
 import { flushDirtyEntries } from "./dirtyFlush";
+import { queueTimedDiskIOOperation } from "./timedFlush";
 
 export interface WedMemberInspection {
-  readonly snapshots: ReadonlyMap<number, Set<number>>;
+  /** 群 ID → 成员 ID → 进入时间，插入顺序同文件顺序。 */
+  readonly snapshots: ReadonlyMap<number, Map<number, number>>;
   /** 目录项全集，供启动维护清理 *.tmp 残留。 */
   readonly names: readonly string[];
 }
 
-/** 启动只读门禁：文件名、数字 ID、唯一性、每群容量和群总数均严格验证。 */
+/** 启动只读校验：校验群文件总数及各文件名与内容（单文件解析见 libs/wedMemberFile.ts）。 */
 export async function inspectWedMemberFiles(): Promise<WedMemberInspection> {
-  const snapshots: Map<number, Set<number>> = new Map();
+  const snapshots: Map<number, Map<number, number>> = new Map();
   const names: readonly string[] = listOptionalDirectory(WED_MEMORY_DIR);
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
     const path: string = join(WED_MEMORY_DIR, name);
-    const chatIdText: string = name.slice(0, -".json".length);
-    const chatId: number = Number(chatIdText);
-    if (!isTelegramGroupChatId(chatId) || String(chatId) !== chatIdText) {
-      return invalidInput(path, "$filename", "the canonical <negative safe integer chatId>.json form");
-    }
+    const chatId: number = parseWedMemberFileName(name, path);
     if (snapshots.size >= STATE_MANAGED_CHAT_LIMIT) {
       return invalidInput(WED_MEMORY_DIR, "$", `at most ${STATE_MANAGED_CHAT_LIMIT} group files`);
     }
     assertFileReadableWritable(path);
-    const parsed: unknown = await readJsonInput(path);
-    if (!Array.isArray(parsed) || parsed.length > WED_MEMBER_LIMIT) {
-      return invalidInput(path, "$", `an array of at most ${WED_MEMBER_LIMIT} unique positive safe integer user IDs`);
-    }
-    const ids: Set<number> = new Set();
-    for (let index: number = 0; index < parsed.length; index++) {
-      const id: unknown = parsed[index];
-      if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 || ids.has(id)) {
-        return invalidInput(path, `$[${index}]`, "a unique positive safe integer user ID");
-      }
-      ids.add(id);
-    }
-    snapshots.set(chatId, ids);
+    snapshots.set(chatId, parseWedMemberFile(await readJsonInput(path), path));
   }
   return { snapshots, names };
 }
 
-/** 全域校验成功后创建目录并尽力清除未提交的临时文件，口径同其它领域的 *.tmp 清理。 */
+/** 全域校验成功后创建目录并清理残留临时文件。 */
 export async function maintainWedMemberFiles(inspection: WedMemberInspection): Promise<void> {
   mkdirSync(WED_MEMORY_DIR, { recursive: true });
   await removeOrphanedTempFiles(WED_MEMORY_DIR, inspection.names);
 }
 
-/** 唯一落盘边界；完整数组经现有 tmp、fsync、rename 实现原子替换，缺失文件自动创建。 */
-export function writeWedMemberFile(chatId: number, members: readonly number[]): void {
+/** 原子覆盖写入指定群的 wed 成员快照文件。 */
+export function writeWedMemberFile(chatId: number, entries: readonly number[]): void {
   mkdirSync(WED_MEMORY_DIR, { recursive: true });
-  atomicWriteTextSync(join(WED_MEMORY_DIR, `${chatId}.json`), JSON.stringify(members), PERSISTED_FILE_MODE);
+  atomicWriteTextSync(join(WED_MEMORY_DIR, `${chatId}.json`), serializeWedMemberEntries(entries), PERSISTED_FILE_MODE);
 }
 
-/** 唯一删除边界；文件不存在按已删除处理，删掉后 fsync 目录项。 */
+/** 删除指定群的 wed 成员文件并同步父目录。 */
 export function deleteWedMemberFile(chatId: number): void {
   mkdirSync(WED_MEMORY_DIR, { recursive: true });
   durableUnlinkSync(join(WED_MEMORY_DIR, `${chatId}.json`));
 }
 
-/** 主线程已按 TTL/累计条数合并；到达 DiskIO 后直接提交，失败仅保留每群最新一份。 */
+/** 接收群 wed 成员快照并标记 dirty，未挂起重试 timer 时立即尝试写入。 */
 export function handleWedMembersMessage(message: WedMembersDiskMessage): void {
   deletedWedChats.delete(message.chatId);
-  pendingWedMembers.set(message.chatId, message.members);
+  pendingWedMembers.set(message.chatId, message.entries);
   dirtyWedChats.add(message.chatId);
   if (wedFileFlushTimer.current === null) flushWedMemberFiles();
 }
 
-/**
- * 群 teardown 的整群删除：先丢掉这个群仍未落盘的快照，再立即尝试 unlink。
- *
- * 待写快照同步丢掉，不留给后续重试 timer。删除本身失败时保留待删标记，
- * 由普通重试 timer 继续尝试，领域 flush 期间照实回报失败。
- */
+/** 丢弃指定群未落盘的快照并执行文件删除，失败时保留待删标记并调度重试。 */
 export function handleWedMembersDeleteMessage(
   message: WedMembersDeleteDiskMessage,
   remove: typeof deleteWedMemberFile = deleteWedMemberFile
@@ -104,7 +84,7 @@ export function handleWedMembersDeleteMessage(
   if (deletedWedChats.size > 0) scheduleWedMemberFlush();
 }
 
-/** 逐群尝试删除；单群失败只记一行并保留待删标记，不连坐其余群。 */
+/** 逐群执行待删文件清理并发出回执；单群失败记录错误并保留待删标记。 */
 function flushWedMemberDeletions(remove: typeof deleteWedMemberFile): void {
   for (const [chatId, revision] of deletedWedChats) {
     try {
@@ -117,18 +97,17 @@ function flushWedMemberDeletions(remove: typeof deleteWedMemberFile): void {
   }
 }
 
-/** 待写与待删共用同一个重试 timer；不阻止进程退出。 */
+/** 按需注册待写与待删共用的重试 timer，到点后经统一操作队列合并执行。 */
 function scheduleWedMemberFlush(): void {
   if (wedFileFlushTimer.current !== null) return;
-  wedFileFlushTimer.current = setTimeout(flushWedMemberFiles, FLUSH_INTERVAL_MS);
+  wedFileFlushTimer.current = setTimeout((): void => {
+    wedFileFlushTimer.current = null;
+    queueTimedDiskIOOperation(flushWedMemberFiles);
+  }, FLUSH_INTERVAL_MS);
   wedFileFlushTimer.current.unref();
 }
 
-/**
- * 复用统一 dirty flush 与原子写入；强制 flush 同样报告本领域失败，重试 timer 不阻止退出。
- *
- * 新写入撤销旧删除，删除入口丢弃旧快照；同群只有最后一种操作持有重试责任。
- */
+/** 执行 wed 成员待删与待写落盘，存在未完成项时重新注册重试 timer。 */
 export function flushWedMemberFiles(
   write: typeof writeWedMemberFile = writeWedMemberFile,
   remove: typeof deleteWedMemberFile = deleteWedMemberFile

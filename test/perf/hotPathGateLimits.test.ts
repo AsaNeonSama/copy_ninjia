@@ -15,7 +15,7 @@ import {
 } from "../../scripts/perf/hotPaths/gateLimits";
 
 describe("热路径 GC 按可用 CPU 数分档", () => {
-  test.each(HOT_PATH_GC_CPU_BUDGETS.map((budget: HotPathGcCpuBudget): [HotPathGcCpuBudget] => [budget]))(
+  test.each(HOT_PATH_GC_CPU_BUDGETS)(
     "分档下界 %o 使用该档暂停预算，直到下一档下界之前不变",
     (budget: HotPathGcCpuBudget): void => {
       expect(selectHotPathGcPausePercentLimit(budget.minCpuCount)).toBe(budget.maxPausePercent);

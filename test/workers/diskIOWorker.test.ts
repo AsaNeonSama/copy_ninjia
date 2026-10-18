@@ -1,7 +1,7 @@
 import { adoptTimeZone, getTimeZone } from "../../packages/config/time";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { DiskIOMessage, DiskIOOperationMessage, AdSampleDiskMessage } from "../../packages/types/diskIO/messages";
-import type { DiskIODomain } from "../../packages/types/diskIO/replies";
+import type { DiskIODomain, RecoveryReplayFailedReply } from "../../packages/types/diskIO/replies";
 
 import { DISK_BUSINESS_BATCH_MAX_MESSAGES } from "../../packages/consts/diskIO/business";
 import { LOG_REOPEN_RETRY_MS } from "../../packages/consts/diskIO/appendOnly";
@@ -26,7 +26,7 @@ import {
   handleAdSampleMessage,
   handleAiCacheUsageMessage,
   flushAiCacheBuffer,
-  handleBlocklistRemovalsMessage,
+  handleBlocklistRemovalWriteMessage,
   handleChatQaWrite,
   handleVerificationUpsert,
   handleChatStateWrite,
@@ -62,6 +62,7 @@ import {
   recoverLuckReceiptSecret,
   rejectedStorageDomains,
   route,
+  withVerificationBatchFlush,
 } from "../helpers/diskIOWorkerRouterHarness";
 import type { StickerInspection } from "../helpers/diskIOWorkerRouterHarness";
 
@@ -86,7 +87,7 @@ describe("Disk I/O Worker protocol router", () => {
     await route({ type: "stickerCatalog", revision: 1, pack: "pack", snapshot: "catalog" });
     await route({ type: "luckDraw", day: "2026-07-22", key: "42", label: "大吉", fortunePercent: 99 });
     await route({ type: "verificationDelete", chatId: -1, userId: 42, generation: 1, revision: 4 });
-    await route({ type: "blocklistRemovals", revision: 1, removals: [] });
+    await route({ type: "blocklistRemovalWrite", removalId: 1, data: null, revision: 1 });
     await route({
       type: "joinLog",
       sequence: 1,
@@ -107,7 +108,7 @@ describe("Disk I/O Worker protocol router", () => {
     expect(markStickerCatalogSnapshotDirty).toHaveBeenCalledWith("pack", "catalog", 1);
     expect(handleLuckDrawMessage).toHaveBeenCalledTimes(1);
     expect(handleVerificationDelete).toHaveBeenCalledTimes(1);
-    expect(handleBlocklistRemovalsMessage).toHaveBeenCalledTimes(1);
+    expect(handleBlocklistRemovalWriteMessage).toHaveBeenCalledTimes(1);
     expect(handleJoinLogMessage).toHaveBeenCalledTimes(1);
     expect(postMessage).toHaveBeenCalledWith({
       type: "diagnosticBatchAccepted",
@@ -148,6 +149,10 @@ describe("Disk I/O Worker protocol router", () => {
       type: "operationBatchAccepted",
       batchId: 11,
     });
+    // 整个批循环包在待验证关键写的合并落盘作用域里，作用域结束（批末 flush）后才回 accepted。
+    expect(withVerificationBatchFlush).toHaveBeenCalledTimes(1);
+    expect(withVerificationBatchFlush.mock.invocationCallOrder[0]!)
+      .toBeLessThan(postMessage.mock.invocationCallOrder.at(-1)!);
   });
 
   test("批号或批长越界一律当场抛，不发回执", async () => {
@@ -227,7 +232,7 @@ describe("Disk I/O Worker protocol router", () => {
     handleIdentityPolicyWrite.mockImplementationOnce((): void => {
       throw new Error("Identity 7 cannot exist in both permission_list and blocklist_entries.");
     });
-    handleBlocklistRemovalsMessage.mockImplementationOnce((): void => {
+    handleBlocklistRemovalWriteMessage.mockImplementationOnce((): void => {
       throw new Error("Pending removal row 1 contains an identity absent from the effective blocklist.");
     });
     handleTemporaryAdBypassWrite.mockImplementationOnce((): void => {
@@ -246,9 +251,10 @@ describe("Disk I/O Worker protocol router", () => {
         revision: 1,
       })).resolves.toBeUndefined();
       await expect(route({
-        type: "blocklistRemovals",
+        type: "blocklistRemovalWrite",
+        removalId: 1,
+        data: null,
         revision: 1,
-        removals: [],
       })).resolves.toBeUndefined();
       await expect(route({
         type: "temporaryAdBypassWrite",
@@ -277,6 +283,21 @@ describe("Disk I/O Worker protocol router", () => {
     await route({ type: "storageFlushHold", active: true });
     await route({ type: "storageFlushHold", active: false });
     expect(setStorageFlushHold.mock.calls.map((call: unknown[]): unknown => call[0])).toEqual([true, false]);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  test("镜像重放结束时聚合复核失败：把 recoveryReplayFailed 原样投给主线程触发 fatal", async () => {
+    setStorageFlushHold.mockImplementationOnce((): RecoveryReplayFailedReply => ({
+      type: "recoveryReplayFailed",
+      domain: "chatQa",
+      error: "chat QA capacity exceeded",
+    }));
+    await route({ type: "storageFlushHold", active: false });
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "recoveryReplayFailed",
+      domain: "chatQa",
+      error: "chat QA capacity exceeded",
+    });
   });
 
   test("恢复重放期间的身份写失败升级为停机回执，不只是记拒收", async () => {

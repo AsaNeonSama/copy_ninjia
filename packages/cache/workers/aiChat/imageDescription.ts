@@ -1,27 +1,16 @@
-/** owner: workers/aiChat。非本地贴纸目录媒体描述的临时内存缓存。 */
+/** owner: workers/aiChat。非贴纸目录媒体的临时视觉/语音描述缓存（packages/aiChat/ai/imageDescription.ts）。 */
 
 import type { SharedResult } from "../../../libs/sharedResult";
 import { LruCache } from "../../../libs/lruCache";
 import { MEDIA_DESCRIPTION_CACHE_MAX } from "../../../consts/aiChat/media";
 
 /**
- * 临时媒体描述缓存，按 file_unique_id 去重：同一份媒体的 file_id 可能不同，file_unique_id 不变
- * （file_unique_id 不能用于下载，下载仍使用 file_id）。值存 Promise：同一份媒体短时间重复出现时，
- * 后续消息挂在首条的在途解析上，合并并发的下载与 API 调用。解析失败（resolve 为 null）时摘掉条目，
- * 下次该媒体重发时重试。淘汰：超 MEDIA_DESCRIPTION_CACHE_MAX 条时淘汰最久未使用的一个
- * （命中即刷新使用顺序，见 libs/lruCache.ts）；不设 TTL。Worker 崩溃后从空缓存重建。
- *
- * config/dynamic/stickers.json 白名单包的描述不属于这份缓存：它们从 memory/stickers/ 恢复进
- * stickerCatalog 的常驻内存目录，只在线上贴纸包对账发现增删时更新。消息记录先查该目录，
- * 未命中才走这里；生成目录新条目时也不经过这里。
+ * 媒体 file_unique_id 到描述解析 Promise 的 LRU 缓存（白名单贴纸包走常驻目录，不经过本表）：
+ * - 填充与清理：首次解析该媒体时写入在途 Promise 供并发调用方复用，解析失败（返回 null）时立即删除以便后续重试；
+ * - 容量与淘汰：上限为 MEDIA_DESCRIPTION_CACHE_MAX，满额按 LRU 淘汰最久未命中项，不设 TTL；Worker 重建后从空表开始。
  */
 export const transientDescriptionCache: LruCache<string, Promise<string | null>> = new LruCache(MEDIA_DESCRIPTION_CACHE_MAX);
 
-/**
- * 在途描述的可取消订阅。imageDescription.ts 建立任务时填充、结算时删除；任务数由
- * 媒体执行与等待额度共同约束，LRU 淘汰不释放仍有消费者的任务。取消立即摘除订阅，
- * 最后一个消费者离开时由任务 owner 中止底层请求。Worker 崩溃后随 isolate 清空。
- * 无条目表示任务已结算，此时直接读取缓存 Promise。
- */
+/** 在途描述 Promise 到可取消共享结果（SharedResult）的 WeakMap：创建解析任务时写入，任务结算时删除（全部订阅者取消时中止底层请求）；容量受媒体执行器并发与等待上限约束，Worker 重建后从空表开始。 */
 export const transientDescriptionTasks: WeakMap<Promise<string | null>, SharedResult<string | null>> =
   new WeakMap<Promise<string | null>, SharedResult<string | null>>();

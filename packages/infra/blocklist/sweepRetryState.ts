@@ -1,6 +1,7 @@
 import {
   blocklistSweepState,
   pendingBlockedRemovals,
+  unwrittenRemovalDiagnostics,
 } from "../../cache/main/blocklist";
 import {
   BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS,
@@ -13,7 +14,7 @@ import type {
   PendingBlockedRemoval,
 } from "../../types/blocklist";
 import { logger } from "../logger";
-import { queuePendingBlockedRemovalsSnapshot } from "./outbox";
+import { queueBlocklistRemovalWrite } from "./outbox";
 import { armBlocklistSweepScheduler } from "./sweepScheduler";
 
 /** 按连续失败次数线性放大重扫间隔，并封顶。 */
@@ -68,11 +69,7 @@ export function noteSweepAttemptFailed(
   armBlocklistSweepScheduler();
 }
 
-/**
- * 更新一次任务诊断，只改内存镜像、不排 durable 快照；attempts 达到
- * BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS 只告警，不删除任务。
- * 需要按条件排快照的调用方用 recordPendingRemovalFailure。
- */
+/** 更新任务内存诊断并记入 unwrittenRemovalDiagnostics；首次达到告警阈值时记录错误日志。 */
 export function updatePendingRemovalFailure(
   removalId: number,
   chatId: number,
@@ -83,6 +80,7 @@ export function updatePendingRemovalFailure(
   if (pending === undefined) return false;
   if (pending.attempts < Number.MAX_SAFE_INTEGER) pending.attempts++;
   pending.lastFailure = failure;
+  unwrittenRemovalDiagnostics.add(removalId);
   if (pending.attempts === BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS) {
     logger.error(
       `Blocklist removal ${removalId} for chat ${chatId} failed ${pending.attempts} time(s); ` +
@@ -92,10 +90,7 @@ export function updatePendingRemovalFailure(
   return true;
 }
 
-/**
- * 更新任务诊断。`lastFailure` 变为 `missing-permission`，或告警阈值首次跨越时，
- * 把诊断状态纳入下一份 durable outbox 快照；其余失败只改内存镜像。
- */
+/** 更新任务诊断；首次置为 missing-permission 或达到告警阈值时立即投递行写入。 */
 export function recordPendingRemovalFailure(
   removalId: number,
   chatId: number,
@@ -114,7 +109,7 @@ export function recordPendingRemovalFailure(
   ) {
     return;
   }
-  if (!queuePendingBlockedRemovalsSnapshot()) {
+  if (!queueBlocklistRemovalWrite(removalId)) {
     logger.error(`Failed to queue blocklist removal retry state ${removalId}.`);
   }
 }

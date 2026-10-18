@@ -22,10 +22,7 @@ export interface ParsedVerificationKey {
  * verificationKey 的逆函数。
  *
  * 用 `lastIndexOf` 定位分隔符；chatId 的负号在首位，不参与分隔。
- *
- * 最后拿 `verificationKey` 回打一遍做往返校验，不只查两侧是不是安全整数：
- * `"-1001:"`、`" 42"`、`"+42"`、`"4e1"` 经 `Number` 后都通过安全整数判定，但回打结果与
- * 原键不等。往返相等才说明这个键出自 `verificationKey`。
+ * 解析出两侧安全整数后，再用 `verificationKey` 回打一遍做往返校验，拒绝非规范十进制写法。
  *
  * 形状不符一律返回 null；调用方把 null 当成「这个键不可用」处理。
  */

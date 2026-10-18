@@ -17,11 +17,7 @@ import { isPlainRecord } from "../../libs/record";
 import { TOKYO_TIME_ZONE } from "../../consts/time";
 
 /**
- * 东京天气：唯一的数据来源与刷新入口，也是 weatherCache 的唯一写入者。
- * get_tokyo_weather 工具（见 aiChat/ai/tools/index.ts）与心情系统（见 aiChat/ai/mood.ts）
- * 直接只读同一份 weatherCache.current、不各自发请求——真正的网络请求只发生在
- * 本模块内部的定时刷新循环里（startWeatherRefreshLoop，由 workers/aiChatWorker.ts
- * 在收到 init 且配置时区为 Asia/Tokyo 时调用），请求 Open-Meteo 的公开端点（WEATHER_API_URL）。
+ * 东京天气定时拉取与缓存更新（写入 weatherCache，供天气查询工具与心情系统读取）。
  */
 
 function describeWeatherCode(code: number): string {
@@ -29,7 +25,7 @@ function describeWeatherCode(code: number): string {
 }
 
 /**
- * 请求 Open-Meteo，仅当前刷新循环可写缓存。失败、超时或非法响应保留上次结果。
+ * 请求 WEATHER_API_URL 并更新 weatherCache；失败、超时、非当前世代或响应结构不符时保留原缓存。
  */
 async function refreshTokyoWeather(controller: AbortController): Promise<void> {
   if (weatherRefreshController.current !== controller) return;
@@ -83,8 +79,7 @@ async function refreshTokyoWeather(controller: AbortController): Promise<void> {
 }
 
 /**
- * 启动天气后台刷新：立即刷新一次，此后按 WEATHER_REFRESH_INTERVAL_MS 定期刷新。
- * Worker 收到 init 且配置时区为东京时调用；循环存在时重复调用无副作用。刷新失败保留缓存并按周期重试。
+ * 启动天气后台定时刷新循环（立即拉取一次并按 WEATHER_REFRESH_INTERVAL_MS 周期刷新）。
  */
 export function startWeatherRefreshLoop(): void {
   if (weatherRefreshTimer.current !== null) return;
@@ -95,7 +90,7 @@ export function startWeatherRefreshLoop(): void {
   weatherRefreshTimer.current.unref();
 }
 
-/** 停止刷新并取消在途请求，迟到结果不得写回；Worker 重建后由启动入口重新创建。 */
+/** 停止天气定时刷新循环并中止在途请求。 */
 export function stopWeatherRefreshLoop(): void {
   if (weatherRefreshTimer.current !== null) clearInterval(weatherRefreshTimer.current);
   weatherRefreshTimer.current = null;

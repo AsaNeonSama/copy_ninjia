@@ -1,14 +1,8 @@
-/** owner: perThread。Worker -> 主线程双工请求的 per-thread 运行态。
- *
- * 持有方：当前业务 Worker isolate。主线程不初始化本表；AI/Anti-Raid Worker
- * 各自得到独立实例。请求发出时填充，收到回执、取消、Worker 退出时清理；容量
- * 受各 Worker 自身业务并发上限与 Telegram 主线程总闸共同约束。Worker 重建时
- * 新 isolate 从空表开始，旧请求由主线程代际 signal 取消。
- */
+/** owner: perThread。业务 Worker 向主线程发起双工请求的逐线程运行态（packages/libs/workerDuplex.ts）。 */
 
 import type { WorkerDuplexOutbound } from "../../types/workerDuplex";
 
-/** 单个跨线程请求的等待者。 */
+/** 单个跨线程双工请求的等待者记录。 */
 export interface WorkerDuplexWaiter {
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason?: unknown) => void;
@@ -16,29 +10,16 @@ export interface WorkerDuplexWaiter {
   readonly abortListener: (() => void) | undefined;
 }
 
-/**
- * 当前 isolate 尚未收到主线程回执的请求。
- * 清理：收到回执、请求被 signal 取消、resetWorkerDuplex（Worker stop）时删除。
- * 容量：受各 Worker 自身业务并发上限与 Telegram 主线程总闸共同约束，不另设
- * 淘汰。Worker 重建：新 isolate 从空表
- * 开始，旧请求由主线程代际 signal 取消。
- */
+/** 当前 Worker isolate 尚未收到主线程回执的请求等待表（requestId -> WorkerDuplexWaiter）：发出请求时登记，收到回执、signal 中止或 resetWorkerDuplex 时结算并删除；容量受各 Worker 业务并发上限与主线程 Telegram 总闸约束，不淘汰，Worker 重建后从空表开始。 */
 export const workerDuplexWaiters: Map<number, WorkerDuplexWaiter> = new Map();
 
-/** 当前 isolate 的单调请求编号；不回退。 */
+/** 当前 Worker isolate 的双工请求单调递增编号发号器：每次请求自增，Worker 重建后从零开始；单例标量。 */
 export const workerDuplexRequestCounter: { current: number } = { current: 0 };
 
-/**
- * 当前 Worker 业务生命周期的默认能力请求取消信号。
- *
- * 由需要协作式排空的 Worker 在启动时注入；每个请求创建时捕获当时的信号，
- * drain 可短暂置空以派发只属于收尾阶段的能力请求，随后恢复已经 abort 的业务
- * 信号，保证迟到业务仍 fail-fast。AI Worker 未配置时保持 null。Worker stop
- * 由 resetWorkerDuplex 清空，重建后的新 isolate 从 null 开始。
- */
+/** 当前 Worker 业务生命周期的默认请求取消信号单例：启动时注入，停机排空收尾可临时置空，resetWorkerDuplex 时清空为 null；Worker 重建后从 null 开始。 */
 export const workerDuplexRequestSignal: { current: AbortSignal | null } = { current: null };
 
-/** 当前 isolate 注入的唯一 postMessage 出口；Worker 停止时清空。 */
+/** 当前 Worker isolate 的 postMessage 发送函数单例：启动时注入，resetWorkerDuplex 时清空为 null；Worker 重建后从 null 重新注入。 */
 export const workerDuplexPoster: {
   current: ((
     message: WorkerDuplexOutbound<unknown>,

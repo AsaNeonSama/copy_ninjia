@@ -38,7 +38,7 @@ export const USERNAME_ARG_PATTERN: RegExp = new RegExp(
  * 指数与小数；最终的安全整数边界由调用方统一判定。
  *
  * 与 USERNAME_ARG_PATTERN 互斥（Telegram 用户名以字母开头）。**只认正数**：负数 id 是会话身份，
- * 由 CHAT_ID_ARG_PATTERN 按命令开关处理（见 commands/targetResolution.ts）。
+ * 由 CHAT_ID_ARG_PATTERN 按命令开关处理（见 libs/telegramId.ts、commands/targetResolution.ts）。
  * 位数不在这里限制，调用方还要过一次 `Number.isSafeInteger`。
  */
 export const USER_ID_ARG_PATTERN: RegExp = /^[1-9]\d*$/;
@@ -62,17 +62,13 @@ export const INVALID_USERNAME_ECHO_MAX_CHARS: number = TELEGRAM_USERNAME_MAX_LEN
 
 /**
  * 中文动作命令（`/咬`、`/贴贴` 等）的匹配规则，见 commands/cjkAction.ts。
- * Telegram 只为 ASCII 命令生成 bot_command 实体，由 bot.hears 直接匹配消息原文。
- * 捕获组 1 是动作词本身，捕获组 2 是可选的 `@BotUsername` 定向后缀。
- * 动作词为 1~2 个中文字：单字如 `/咬`，叠词与双字动词如 `/贴贴`。命令词后必须紧跟空白或结束，
- * `/咬人人` 这种三字及以上的写法整条失配，消息回落到普通消息流水线。
- * 字符集覆盖 CJK 基本区、扩展 A 与兼容表意文字；增补平面的字是代理对，不在此列。
+ * 捕获组 1 是 CJK 表意文字动作词，捕获组 2 是可选的 `@BotUsername` 定向后缀，命令词后须紧跟空白或行尾。
  */
 export const CJK_ACTION_COMMAND_PATTERN: RegExp =
   /^\/([\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]{1,2})(?:@([A-Za-z0-9_]+))?(?:\s|$)/;
 
 /**
- * 「/」的 UTF-16 码元。app/registerHandlers.ts 用它给中文动作命令的 hears 子链做
+ * 「/」的 UTF-16 码元。app/updatePreamble.ts 用它给中文动作命令的 hears 子链做
  * 外闸：CJK_ACTION_COMMAND_PATTERN 以 `^\/` 开头，原文首字符不是它的消息不进子链。
  */
 export const SLASH_CHAR_CODE: number = 0x2f;

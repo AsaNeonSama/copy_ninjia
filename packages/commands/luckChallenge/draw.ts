@@ -3,7 +3,7 @@ import { deriveLuckEntropy } from "../../libs/luckReceipt";
 import type { LuckReceiptSecret } from "../../types/diskIO/storage";
 import type { LuckDraw, LuckTier } from "../../types/luckChallenge";
 
-/** 按累计权重为 [0, 100) 的抽签值选择档位；遍历生产只读常量表。 */
+/** 按 LUCK_TIERS 的累计权重为抽签值选择档位。 */
 export function drawLuckTier(roll: number): LuckTier {
   let cumulative: number = 0;
   for (const tier of LUCK_TIERS) {

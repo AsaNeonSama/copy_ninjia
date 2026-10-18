@@ -26,7 +26,6 @@ export function handleThresholdExceeded(
       },
       effects: [
         { kind: "prefetchAdmins", onlyIfCold: true },
-        // 公告排在读权限之前。
         { kind: "beginLockdownAnnouncement", joinCount: event.joinCount },
         { kind: "prepareApply" },
       ],
@@ -58,28 +57,26 @@ export function handleApplyPrepared(
   };
 }
 
-/** 读原权限失败：从未形成 intent、也从未改过 Telegram，撤销占位。 */
+/** 读原权限失败：从未形成 intent、也从未改过 Telegram，撤销占位并清理已发出的公告。 */
 export function handleApplyPreparationFailed(
   state: LockdownState | undefined
 ): LockdownTransition {
   if (state?.kind !== "applying" || state.stage !== "preparing") {
     return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   }
-  // 从未形成 intent、也从未改过 Telegram：撤销占位，并撤掉刚发出去的公告。
   return {
     next: undefined,
     effects: [...announcementCleanupEffects(state), suppressRetrigger("preparationFailed")],
   };
 }
 
-/** intent 已落盘但提交前置失败：删除 owner，不走恢复路径。 */
+/** intent 已落盘但提交前置失败：删除 owner 并清理公告，不走恢复路径。 */
 export function handleApplyCommitPreparationFailed(
   state: LockdownState | undefined
 ): LockdownTransition {
   if (state?.kind !== "applying" || state.stage !== "prepared") {
     return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   }
-  // applying intent 已落盘但 Telegram 写操作尚未开始：删除 owner，不走恢复路径。
   return {
     next: undefined,
     effects: [
@@ -90,7 +87,7 @@ export function handleApplyCommitPreparationFailed(
   };
 }
 
-/** setChatPermissions 结果：成功进 ACTIVE 并定死恢复时刻，失败补一次恢复对账。 */
+/** setChatPermissions 结果：成功进 ACTIVE 并设定恢复延迟，失败转入 RESTORING 恢复对账。 */
 export function handleApplyResult(
   state: LockdownState | undefined,
   event: Extract<LockdownMachineEvent, { type: "applyResult" }>
@@ -99,8 +96,6 @@ export function handleApplyResult(
     return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   }
   if (!event.ok) {
-    // 写操作结果不确定，补一次恢复对账；公告记账原样带走，恢复成功时
-    // 据此决定是否发解锁公告。
     return {
       next: {
         kind: "restoring",

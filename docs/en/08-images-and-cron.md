@@ -24,9 +24,9 @@ Specify the image library path in `config/dynamic/assets.json`:
 }
 ```
 
-- **Path format**: Accepts absolute paths, or relative paths starting with `./` or `../`. Relative paths resolve against the runtime data root (see [07 Operations](07-operations.md) for data-root configuration).
+- **Path format**: Accepts absolute paths, or relative paths starting with `./` or `../`. Relative paths resolve against the runtime data root (`RUNTIME_DATA_ROOT`; see [07 Operations](07-operations.md) for data-root configuration).
 - **Directory permissions**: The system user running the bot must have read, write, and directory traversal permissions. Missing directories are created automatically on startup; existing directories are scanned and validated thoroughly.
-- **Naming conventions**: The library **strictly accepts image files only**. Filenames must be exactly the 64-character lowercase hexadecimal SHA-256 hash of the image binary, using `.jpg`, `.jpeg`, `.png`, or `.webp` extensions. If subdirectories, symbolic links, or non-compliant filenames are detected, startup halts with an error.
+- **Naming conventions**: The library **strictly accepts regular image files only**. Filenames must match the lowercase hexadecimal SHA-256 hash of the image binary (`RANDOM_IMAGE_CONTENT_NAME_PATTERN`) with an extension in `RANDOM_IMAGE_EXTENSIONS`. If subdirectories, symbolic links, or non-compliant filenames are detected, startup halts with an error.
 - **Dynamic updates**: Adding pictures via `/h_image add` automatically hashes and names the files on disk; duplicate files matching existing hashes are skipped. Adding or removing compliant images manually requires no restart—subsequent draws read the directory contents dynamically.
 
 For detailed path rules, see [assets.json](../../config_example/README/en.md#assetsjson).
@@ -40,7 +40,7 @@ Follow these steps to collect and draw images:
 3. The bot replies with a receipt detailing newly added images, existing duplicates, oversized dimensions, and download failures.
 4. Group members send `/h_image` to draw a uniformly random image from the library. Output images are sent with Telegram spoiler masks, requiring users to tap before revealing them.
 
-For supported formats, size and dimension ceilings, command rate limits, and 30-second notice auto-deletion rules, see [Random Pictures](09-commands.md#random-images).
+For supported formats, size and dimension ceilings, command rate limits, and `COMMAND_MESSAGE_AUTO_DELETE_MS` notice auto-deletion rules, see [Random Pictures](09-commands.md#random-images).
 
 ## Schedule Image Delivery
 
@@ -81,14 +81,14 @@ Configure the source in `send_image.payload`:
 | **Custom directory random picture** | Set `rand_image: true` and provide a directory string, e.g. `path: "./gallery"` |
 
 - When sending fixed images, `url` and `path` are mutually exclusive. Single images must also be wrapped in an array; multiple images are delivered as a Telegram media group (album).
-- In random mode, `path` accepts a single directory path string. Images inside custom directories do not need to follow SHA-256 hash naming rules.
+- In random mode, `path` accepts a single directory path string. Images inside custom directories do not need to follow `RANDOM_IMAGE_CONTENT_NAME_PATTERN` naming rules.
 - Set `is_blurred` to `true` to deliver scheduled images behind Telegram spoiler masks (defaults to `false`).
 
 ### Times and Delivery Targets
 
-- **Cron expressions**: The `cron` field accepts standard 5-part cron syntax or standard macros like `@daily`. `time_zone` accepts IANA time zone identifiers (e.g. `Asia/Shanghai`); omitting it inherits the time zone from `config/static/bot.json` (defaults to `Asia/Tokyo`).
-- **Random intervals**: Setting `rand_cron` enables randomized scheduling (e.g. `"6h-12h"`). The initial trigger fires based on `cron`, while subsequent runs schedule next executions uniformly at random within the interval (rounded up to whole minutes). Setting `just_once: true` runs the task once during the current process lifetime; `rand_cron` and `just_once` cannot be used together.
-- **Target groups**: `chat_id` accepts an array of numerical group IDs. Specifying `["all"]` broadcasts to all enabled groups where the bot has send permissions. Specifying `["except", -1001234567890]` broadcasts to all enabled groups while excluding specified IDs.
+- **Cron expressions**: The `cron` field accepts standard 5-field cron syntax or macros like `@daily`. `time_zone` accepts IANA time zone identifiers; omitting it inherits the time zone from `config/static/bot.json` (defaults to `DEFAULT_BOT_TIME_ZONE`).
+- **Random intervals**: Setting `rand_cron` enables randomized scheduling within `[CRON_RANDOM_INTERVAL_MIN_MS, CRON_RANDOM_INTERVAL_MAX_MS]` (e.g. `"6h-12h"`). The initial trigger fires based on `cron`, while subsequent runs schedule next executions uniformly at random within the interval (rounded up to whole minutes). Setting `just_once: true` runs the task once during the current process lifetime; `rand_cron` and `just_once` cannot be used together.
+- **Target groups**: `chat_id` accepts an array of numerical group IDs. Specifying `["all"]` (`CRON_ALL_CHATS`) broadcasts to all enabled groups where the bot has send permissions. Specifying `["except", -1001234567890]` (`CRON_EXCEPT_CHATS`) broadcasts to all enabled groups while excluding specified IDs.
 
 ## Scheduled Voice and Other Actions
 

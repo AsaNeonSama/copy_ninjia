@@ -1,5 +1,6 @@
 import type { Context } from "grammy";
 import type { Message } from "grammy/types";
+import { isAbuseMarkedUser } from "../../aiChat/abuseMark";
 import { isAiChatConfigured } from "../../aiChat/availability";
 import { AI_REPLY_PROBABILITY_BASE_INITIAL } from "../../consts/aiChat/rateLimit";
 import { recordChatTitleFromChat } from "../../infra/chatTitle";
@@ -102,7 +103,6 @@ function handleAcceptedIncomingMessage(
       message,
       // 上一行已确认本群确有目标，这里取模式才有意义（见 activeCopyModeIn）。
       mode: activeCopyModeIn(chatId),
-      expectedTargetId: copyTargetId,
       messageThreadId: forumTopicThreadId(message),
     });
   }
@@ -137,6 +137,7 @@ function handleAcceptedIncomingMessage(
     isAiChatConfigured() && state.isAIChatEnabled === true;
 
   if (copyTargetId === undefined && aiChatEnabled) {
+    if (senderId !== undefined && isAbuseMarkedUser(senderId)) return undefined;
     const payload: AiTriggerPayload | undefined = aiTriggerPayloadOf(message);
     if (payload !== undefined) {
       const triggerContext: MessageTriggerContext = createMessageTriggerContext({
@@ -191,7 +192,7 @@ export function handleIncomingMessageMiddleware(ctx: Context): Promise<void> | u
   recordChatTitleFromChat(message.chat, groupState);
   const botIdentity: AiBotInfo = ctx.me;
 
-  // 内联结果要自录入上下文但不触发主动行为；普通自发消息回弹则完全忽略。
+  // 本机器人内联结果只记入 AI 上下文（gag 发言记为本人，其余记为机器人自身）、不触发主动行为；普通自发消息回弹则完全忽略。
   if (message.via_bot?.id === botIdentity.id) {
     recordSelfInlineResult(message, botIdentity);
     return undefined;

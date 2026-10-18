@@ -7,6 +7,11 @@ import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid/protoc
 import type { AdDetectionMessageContext } from
   "../../packages/types/antiRaid/adDetect";
 import type { DiskBusinessMessage, AdSampleDiskMessage, AiCacheUsageDiskMessage } from "../../packages/types/diskIO";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 /**
  * `/antiraid` 开关在主线程投递侧的边界（见 antiRaid/updateIngress.ts）。
@@ -111,8 +116,7 @@ const {
   handleChatMemberUpdate,
   handleVerificationCallback,
 } = await import("../../packages/antiRaid");
-const { blocklistEntryCache, whitelistEntryCache } =
-  await import("../../packages/cache/main/identityStorage");
+
 const { runWithUpdateAbortSignal, updateNow } = await import("../../packages/infra/updateContext");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
 const { replayChatKinds } = await import("../../packages/antiRaid/workerBridge/replay");
@@ -176,8 +180,8 @@ beforeEach(() => {
   answeredCallbacks.length = 0;
   temporaryAdBypassActivityMessages.length = 0;
   temporaryAdBypassActivityTimes.length = 0;
-  blocklistEntryCache.clear();
-  whitelistEntryCache.clear();
+  blocklistField.clear();
+  whitelistField.clear();
   clearActiveVerificationSnapshots();
   chatIsSupergroupById.clear();
   unmanagedChatIds.clear();
@@ -258,7 +262,7 @@ describe("入群守卫开关（主线程投递侧）", () => {
   });
 
   test("关着时黑名单照样秒踢，但这次入群不计进反刷群窗口", async () => {
-    blocklistEntryCache.set(42, {
+    blocklistField.set(42, {
       blockedAt: "2026/08/06 00:00:00",
       meta: { firstName: "Zako", lastName: "", username: "" },
     });

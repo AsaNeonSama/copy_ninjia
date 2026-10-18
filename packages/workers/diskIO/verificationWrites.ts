@@ -11,6 +11,7 @@ import {
 import { FLUSH_INTERVAL_MS, FLUSH_MAX_ENTRIES } from "../../consts/diskIO/appendOnly";
 import { VERIFICATION_MEMORY_DIR } from "../../consts/paths";
 import {
+  verificationBatchFlush,
   verificationFileState,
   verificationFlushTimer,
   verificationPendingChanges,
@@ -27,6 +28,7 @@ import type {
   VerificationUpsertDiskMessage,
 } from "../../types/diskIO/messages";
 import type { VerificationPersistedReply } from "../../types/diskIO/replies";
+import type { VerificationFlushTarget } from "../../types/diskIO/storage";
 import { appendToDayFile, serializeDayFileEntry } from "./appendOnlyDayFile";
 import { storedVerificationSnapshot } from "./verificationCodec";
 import {
@@ -63,10 +65,7 @@ function acknowledge(
   }
 }
 
-/**
- * 跨日先发布新日 active 快照（含覆盖旧日的 tombstone，见 verificationRecovery.ts 的
- * compactVerificationDay），成功后才删旧日文件，跨午夜 pending 不逃逸。
- */
+/** 跨日先发布新日 active 快照与 tombstone，成功后删除旧日文件并确认待写变更。 */
 async function rolloverVerificationDay(
   day: string,
   reply: VerificationReplySink,
@@ -80,7 +79,7 @@ async function rolloverVerificationDay(
   acknowledge(changes, reply);
 }
 
-/** 装轮换失败后的唯一重试 timer；到点按当时的配置时区的日期重新维护。 */
+/** 注册跨日轮换失败后的重试定时器。 */
 function scheduleVerificationRolloverRetry(
   reply: VerificationReplySink,
   dir: string
@@ -92,10 +91,7 @@ function scheduleVerificationRolloverRetry(
   );
 }
 
-/**
- * 发布目标配置时区自然日的 active 快照并清理旧日；失败时保留镜像并安装唯一 unref 重试。
- * 正常的每日调用由 Disk I/O Worker 统一维护 cron 负责。
- */
+/** 发布目标日的 active 快照并清理旧日文件；失败时保留镜像并注册重试定时器。 */
 export async function maintainVerificationDayForToday(
   reply: VerificationReplySink,
   day: string = getDateKey(),
@@ -107,12 +103,11 @@ export async function maintainVerificationDayForToday(
     await rolloverVerificationDay(day, reply, dir);
   } catch (error: unknown) {
     console.error("[diskIOWorker] failed to roll pending verification day:", error);
-    // 按 VERIFICATION_ROLLOVER_RETRY_MS 重试旧日清理，不依赖新的验证消息。
     scheduleVerificationRolloverRetry(reply, dir);
   }
 }
 
-/** 按需装普通验证变化的合并 timer；已装时不重复装。 */
+/** 按需注册待验证普通变更的定时落盘 timer。 */
 function scheduleVerificationFlush(
   reply: VerificationReplySink,
   dir: string
@@ -124,6 +119,35 @@ function scheduleVerificationFlush(
   );
 }
 
+/** 关键变更落盘：在批处理期间仅登记目标，批外立即 flush。 */
+async function flushCriticalVerificationChanges(
+  reply: VerificationReplySink,
+  dir: string,
+  day: string
+): Promise<void> {
+  if (verificationBatchFlush.active) {
+    verificationBatchFlush.target = { dir, day };
+    return;
+  }
+  await flushVerificationChanges(reply, dir, day);
+}
+
+/** 在 operationBatch 执行期间合并待验证关键变更的落盘，在 finally 中统一 flush 一次。 */
+export async function withVerificationBatchFlush(
+  reply: VerificationReplySink,
+  run: () => Promise<void>
+): Promise<void> {
+  verificationBatchFlush.active = true;
+  try {
+    await run();
+  } finally {
+    const target: VerificationFlushTarget | null = verificationBatchFlush.target;
+    verificationBatchFlush.active = false;
+    verificationBatchFlush.target = null;
+    if (target !== null) await flushVerificationChanges(reply, target.dir, target.day);
+  }
+}
+
 export interface HandleVerificationUpsertParams {
   msg: VerificationUpsertDiskMessage;
   reply: VerificationReplySink;
@@ -131,7 +155,7 @@ export interface HandleVerificationUpsertParams {
   day?: string;
 }
 
-/** 新建与终态立即追加；普通字段变化按 key 合并，累计 FLUSH_MAX_ENTRIES 个 key 或等满 FLUSH_INTERVAL_MS 后追加。 */
+/** 处理待验证 upsert：按 generation/revision 去重后更新镜像，关键变更或满批立即落盘，否则定时落盘。 */
 export async function handleVerificationUpsert({
   msg,
   reply,
@@ -156,10 +180,7 @@ export async function handleVerificationUpsert({
     );
   }
 
-  const snapshot: VerificationSnapshot = {
-    ...msg.record,
-    trackedMessageTimes: [...msg.record.trackedMessageTimes],
-  };
+  const snapshot: VerificationSnapshot = msg.record;
   verificationWorkerCache.set(key, snapshot);
   verificationPendingChanges.set(key, {
     chatId: snapshot.chatId,
@@ -168,10 +189,9 @@ export async function handleVerificationUpsert({
     revision: snapshot.revision,
     value: snapshot,
   });
-  if (
-    msg.critical ||
-    verificationPendingChanges.size >= FLUSH_MAX_ENTRIES
-  ) {
+  if (msg.critical) {
+    await flushCriticalVerificationChanges(reply, dir, day);
+  } else if (verificationPendingChanges.size >= FLUSH_MAX_ENTRIES) {
     await flushVerificationChanges(reply, dir, day);
   } else {
     scheduleVerificationFlush(reply, dir);
@@ -185,7 +205,7 @@ export interface HandleVerificationDeleteParams {
   day?: string;
 }
 
-/** 终结清掉同 key 缓冲 upsert、立即追加 durable tombstone 并回执。 */
+/** 处理待验证删除：从镜像移除并登记 null 墓碑，按关键变更立即落盘或批末落盘。 */
 export async function handleVerificationDelete({
   msg,
   reply,
@@ -210,7 +230,7 @@ export async function handleVerificationDelete({
     revision: msg.revision,
     value: null,
   });
-  await flushVerificationChanges(reply, dir, day);
+  await flushCriticalVerificationChanges(reply, dir, day);
 }
 
 /** 批量追加本窗口最终变化；仅在历史越过阈值时原子收敛 active 镜像。 */

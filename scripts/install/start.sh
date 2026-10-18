@@ -100,7 +100,6 @@ JOURNAL_SINCE="$(date -u '+%Y-%m-%d %H:%M:%S.%6N UTC')"
 
 if [ "$WRITE_UNIT" -eq 1 ]; then
   backup_deployment_config "$SERVICE_UNIT_PATH"
-  # 经 tee 写入，使 run_privileged 的提权作用于写文件的那个进程。
   printf '%s\n' \
     "[Unit]" \
     "Description=Copy Ninjia Telegram Bot" \

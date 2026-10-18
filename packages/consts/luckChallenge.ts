@@ -48,6 +48,7 @@ if (LUCK_TIER_WEIGHT_SUM !== 100) {
 /**
  * 全局滑动窗口限流：每个 RATE_LIMIT_WINDOW_MS 窗口内最多应答的内联查询次数，
  * 不分群、不分用户合并计数。超额立即拒绝，不排队（不同于 Telegram 总闸的排队与 429 退避）。
+ * 所属模块：cache/main/luckChallenge.ts、commands/luckChallenge/rateLimit.ts。
  */
 export const RATE_LIMIT_MAX_CALLS_PER_WINDOW: number = 300;
 /** 全局内联查询滑动限频窗口时长。 */

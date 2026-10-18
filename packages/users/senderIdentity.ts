@@ -80,9 +80,9 @@ export function updateCachedIdentity(identity: CachedUser): void {
 
   // 只有新增正向 key 才占容量，同名资料刷新和 username 换绑不增长条数。
   // 淘汰经 deleteAlias 连带摘掉 senderUsernameCache 与 identityById 两份按 id 的索引，
-  // 不使用只维护单张 Map 的 libs/boundedMap.ts 的 setBoundedMapValue。
+  // 写入前就腾出位置，userCache（FifoMap）自身的容量淘汰不会触发。
   if (!previousIdentity && userCache.size >= USER_CACHE_MAX) {
-    const oldestUsername: string | undefined = userCache.keys().next().value;
+    const oldestUsername: string | undefined = userCache.oldestKey();
     if (oldestUsername !== undefined) deleteAlias(oldestUsername);
   }
 
@@ -178,7 +178,7 @@ export function resolveUsernameTarget(username: string): CachedUser | undefined 
 
 /**
  * 按裸 id 取目标身份，供 `/block … enable`、`/block … disable`、`/gag`、`/ungag`、
- * `/permission` 与 `/white` 解析 id 形式的参数，见 commands/targetResolution.ts。
+ * `/delete_message`、`/permission` 与 `/white` 解析 id 形式的参数，见 commands/targetResolution.ts。
  *
  * **与 @username 那条路的差别：查不到不是失败。** id 本身就是权威目标，
  * 缓存只用来给回执配一个人类可读的标签；缓存落空时返回只带 id 的最小身份，

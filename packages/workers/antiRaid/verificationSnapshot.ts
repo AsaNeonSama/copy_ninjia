@@ -29,7 +29,10 @@ interface VerificationSnapshotParams {
   revision: number;
 }
 
-/** 将当前持久化阶段投影成跨线程严格快照。 */
+/**
+ * 将当前持久化阶段投影成跨线程严格快照。快照只交给随即的 postMessage（结构化克隆同步完成后即丢弃），
+ * 因此 trackedMessageTimes 直接引用状态里的数组，不复制；调用方不得留存返回值。
+ */
 export function verificationSnapshot({
   chatId,
   userId,
@@ -71,7 +74,7 @@ export function verificationSnapshot({
     isBot,
     announcementMessageId,
     trackedMessageTimes:
-      state.kind === "pending" ? [...state.trackedMessageTimes] : [],
+      state.kind === "pending" ? state.trackedMessageTimes : [],
     invitedBy: state.kind === "pending" ? state.invitedBy : undefined,
     reminderMessageId,
     replyReminderMessageId,

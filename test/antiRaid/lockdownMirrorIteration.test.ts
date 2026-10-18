@@ -42,6 +42,7 @@ mock.module("../../packages/infra/telegram/actions", () => ({
 }));
 
 const {
+  abandonEmergencyLockdownRecovery,
   recoverAbandonedLockdowns,
   stopEmergencyLockdownRecoveries,
 } = await import("../../packages/antiRaid/lockdownMirror");
@@ -49,6 +50,7 @@ const { RESTORE_RETRY_MS } = await import("../../packages/consts/antiRaid/lockdo
 const {
   emergencyLockdownRecoveries,
   emergencyLockdownRecoveryRuntime,
+  persistedLockdownFingerprints,
 } = await import("../../packages/cache/main/antiRaid/lockdownMirror");
 
 function lockdown(intentId: number): LockdownRecord {
@@ -281,5 +283,41 @@ describe("主线程紧急恢复收尾时清理本轮封锁公告", () => {
     expect(chatStates.get(silentChatId)?.lockdown?.announcementMessageId).toBe(343);
     expect(deleteMessageWithOutcome).not.toHaveBeenCalled();
     expect(saveChatStateInBackground).not.toHaveBeenCalled();
+  });
+
+  test("群已不存在（gone）时终止主线程紧急恢复、清指纹并落盘清除 lockdown 记录", async () => {
+    jest.useFakeTimers();
+    try {
+      restoreLockdownInvitePermission.mockImplementation(async (): Promise<void> => {
+        throw new Error("chat not found");
+      });
+      chatStates.set(announcedChatId, { lockdown: announcedLockdown(231, 351) } as ChatState);
+      persistedLockdownFingerprints.set(announcedChatId, {
+        phase: "active",
+        intentId: 231,
+        announced: true,
+      });
+
+      recoverAbandonedLockdowns();
+      const recovery: EmergencyLockdownRecovery = emergencyLockdownRecoveries.get(announcedChatId)!;
+      await recovery.inFlight;
+      expect(recovery.retryTimer).not.toBeNull();
+
+      abandonEmergencyLockdownRecovery(announcedChatId);
+
+      expect(recovery.retryTimer).toBeNull();
+      expect(emergencyLockdownRecoveries.has(announcedChatId)).toBeFalse();
+      expect(persistedLockdownFingerprints.has(announcedChatId)).toBeFalse();
+      expect(chatStates.get(announcedChatId)?.lockdown).toBeUndefined();
+      expect(saveChatStateInBackground).toHaveBeenCalledWith(
+        announcedChatId,
+        "abandoned emergency anti-raid lockdown"
+      );
+
+      jest.advanceTimersByTime(RESTORE_RETRY_MS * 2);
+      expect(restoreLockdownInvitePermission).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

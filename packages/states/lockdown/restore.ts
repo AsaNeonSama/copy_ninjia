@@ -43,14 +43,13 @@ export function handleReapplyRetryFired(state: LockdownState | undefined): Lockd
   return { next: state, effects: [{ kind: "beginReapply" }] };
 }
 
-/** 显式解除：占位阶段直接撤销，其余阶段走与到期恢复同一条落盘优先的路径。 */
+/** 显式解除：占位阶段直接撤销并清理公告，其余阶段走与到期恢复同一条落盘优先的路径。 */
 export function handleDeactivate(
   state: LockdownState | undefined,
   event: Extract<LockdownMachineEvent, { type: "deactivate" }>
 ): LockdownTransition {
   if (state === undefined) return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   if (state.kind === "applying" && state.stage === "preparing") {
-    // 尚未形成 intent、更没改过 Telegram，直接撤销占位并撤掉公告即可。
     return { next: undefined, effects: announcementCleanupEffects(state) };
   }
   const originalPermissions: ChatPermissions =

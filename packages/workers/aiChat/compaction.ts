@@ -24,18 +24,11 @@ import type { AiTextResult } from "../../types/aiChat/provider";
 import { currentTimeSentence } from "../../aiChat/ai/timeSentence";
 import { replyGenerationSignal, trackReplyGenerationTask } from "./replyGeneration";
 
-/**
- * 中期记忆的轮换/压缩：镜像块攒满后串行执行「晋升上一轮摘要 + AI 压缩新
- * 镜像」，机制见 consts/aiChat/memory.ts 的 COMPACT_BATCH_SIZE 注释。入口是
- * scheduleRotation，由 rollingMemory.ts 的 pushBufferedMessage 在块边界调用。
- */
+/** 中期记忆轮换与压缩：镜像块攒满后按群串行执行旧摘要晋升与新镜像压缩。 */
 
 /**
- * 把一轮「晋升旧摘要 + 压缩新镜像」挂到该群的轮换串行链上（链的机制见
- * libs/keyedSerialTaskRunner.ts）。同群轮换串行执行，晋升的摘要来自上一轮的
- * 压缩结果，摘要按时间顺序入队。rotateCompaction 自身兜错，链不因单轮失败中断。
- * @param mirrorBatch 刚攒满、成为新镜像的一块消息（快照，之后缓存继续滚动不影响它）。
- * @param promoteFirst 本轮是否有旧镜像滑出（首轮没有），有则先晋升其摘要。
+ * 将一轮「晋升旧摘要 + 压缩新镜像」排入该群的轮换串行链；积压达到 COMPACTION_MAX_PENDING_PER_CHAT
+ * 时丢弃当前批次并记录错误日志。
  */
 export function scheduleRotation(chatId: number, mirrorBatch: BufferedMessage[], promoteFirst: boolean): void {
   const generation: number = cachedReplyGeneration(chatId);
@@ -48,8 +41,6 @@ export function scheduleRotation(chatId: number, mirrorBatch: BufferedMessage[],
     return;
   }
 
-  // 溢出判定之后才取 signal：replyGenerationSignal 惰性创建 AbortController 并登记进
-  // replyAbortControllers，登记项由 trackReplyGenerationTask 的 finally 或整代失效清理摘除。
   const signal: AbortSignal = replyGenerationSignal(generation);
   compactionPendingCounts.set(chatId, pendingCount + 1);
   const next: Promise<void> = compactionRunner.run(chatId, (): Promise<void> => rotateCompaction({
@@ -66,8 +57,7 @@ export function scheduleRotation(chatId: number, mirrorBatch: BufferedMessage[],
   );
 }
 
-/** 完成任务后释放计数（链本身的清理由 keyedSerialTaskRunner 负责，见其
- *  内部的同一性检查）。 */
+/** 轮换任务结束后递减该群待处理计数。 */
 function finishCompactionTask(chatId: number): void {
   const remaining: number = Math.max(0, (compactionPendingCounts.get(chatId) ?? 1) - 1);
   if (remaining === 0) compactionPendingCounts.delete(chatId);
@@ -82,7 +72,7 @@ export interface RotateCompactionParams {
   signal: AbortSignal;
 }
 
-/** 执行一轮轮换：先晋升上一轮镜像的摘要（若有），再 AI 压缩新镜像存为待晋升。 */
+/** 执行单轮轮换：按需晋升上一轮待晋升摘要，再调用模型压缩新镜像批次并存入 pendingSummaries。 */
 async function rotateCompaction({
   chatId,
   mirrorBatch,
@@ -95,9 +85,6 @@ async function rotateCompaction({
     if (promoteFirst) {
       promotePendingSummary(chatId);
     }
-    // 只有 HTTP 成功但 candidate 异常或清洗后正文为空才按 SUMMARY_RETRY_DELAYS_MS 重采样；Anthropic
-    // 拒答不重采样（配置了 fallback_model 时回退模型已在同一次调用里接手过）。重采样在该群的轮换
-    // 串行链上执行，只顺延本群后续轮换，不阻塞消息分发。
     const summary: string | null = await resampleAiText({
       label: `AI compaction for chat ${chatId}`,
       call: (): Promise<AiTextResult> => summarizeBatch(mirrorBatch, signal),
@@ -109,8 +96,6 @@ async function rotateCompaction({
       pendingSummaries.set(chatId, summary);
       dirtyMemoryChats.add(chatId);
     } else {
-      // SDK 请求重试或业务层重采样用尽后放弃，不回灌；镜像原文在下一轮滑出逐字区时
-      // 这段中期记忆才缺失。
       logger.error(`AI compaction failed: chat ${chatId}'s ${mirrorBatch.length} mirrored messages produced no summary after eligible retries; mid-term memory for this window will be missing once it slides out.`);
     }
   } catch (error: unknown) {
@@ -119,11 +104,11 @@ async function rotateCompaction({
   }
 }
 
-/** 把上一轮镜像的摘要（其原文刚滑出逐字区）晋升进该群的中期记忆队列。 */
+/** 将上一轮待晋升摘要推入该群的中期记忆队列（上限 MAX_SUMMARY_ROUNDS）。 */
 function promotePendingSummary(chatId: number): void {
   const pending: string | undefined = pendingSummaries.get(chatId);
   pendingSummaries.delete(chatId);
-  if (!pending) return; // 上一轮压缩失败：无可晋升项，失败当时已记过日志。
+  if (!pending) return;
   let queue: BoundedDeque<string> | undefined = chatSummaries.get(chatId);
   if (!queue) {
     queue = new BoundedDeque<string>(MAX_SUMMARY_ROUNDS);
@@ -134,18 +119,7 @@ function promotePendingSummary(chatId: number): void {
   dirtyMemoryChats.add(chatId);
 }
 
-/**
- * 调当前供应商把一批冷消息压缩成一条摘要。使用独立的中性总结提示词（不带
- * 人设、不带工具），产出压成单行并截断，保持「一行一条」的转录结构。
- *
- * systemPrompt 只放逐字恒定的 SUMMARY_SYSTEM_PROMPT，当前时间拼在 userContent
- * **末尾**、整批转录之后；转录行自带每条消息的发送时间（见 chatTranscript.ts 的
- * formatBufferedMessageLine），末尾这句只补当前时间。
- *
- * 截断用 truncateAtClauseBoundary 按子句边界进行，上限为 SUMMARY_MAX_CHARS；摘要经
- * buildMemorySnapshot 落进 chat_states.ai_context，并作为中期记忆回喂模型最多
- * MAX_SUMMARY_ROUNDS 轮。
- */
+/** 调用 summary 能力模型将一批消息压缩为单行摘要，按子句边界截断到 SUMMARY_MAX_CHARS。 */
 async function summarizeBatch(batch: BufferedMessage[], signal: AbortSignal): Promise<AiTextResult> {
   const selfId: number | undefined = botInfoState.current?.id;
   const selfNote: string = selfId !== undefined ? summarySelfNote(selfId) : "";

@@ -38,7 +38,10 @@ interface Registration {
   readonly catchHandlers: readonly ((error: { ctx: Context; error: unknown }) => void)[];
   /** 子 Composer 上按注册顺序登记的命令名。 */
   readonly commands: readonly unknown[];
-  readonly middleware: readonly TestMiddleware[];
+  /** 子 Composer 上按注册顺序登记的 update 过滤器（非消息路由）。 */
+  readonly composerUpdates: readonly unknown[];
+  /** 唯一登记的那一个中间件。 */
+  readonly middleware: TestMiddleware;
 }
 
 function registerOnFakeBot(): Registration {
@@ -75,8 +78,11 @@ function registerOnFakeBot(): Registration {
     },
   };
   const composerCommands = spyOn(Composer.prototype, "command");
+  const composerOn = spyOn(Composer.prototype, "on");
   try {
     const registration: ReturnType<typeof registerHandlers> = registerHandlers(fakeBot as unknown as Bot);
+    const middleware: TestMiddleware | undefined = used[0]?.[0];
+    if (middleware === undefined) throw new Error("registerHandlers must register its update chain with bot.use.");
     return {
       registration,
       used,
@@ -86,22 +92,44 @@ function registerOnFakeBot(): Registration {
       registrationOrder,
       catchHandlers,
       commands: composerCommands.mock.calls.map((call: unknown[]): unknown => call[0]),
-      middleware: used[0] ?? [],
+      composerUpdates: composerOn.mock.calls.map((call: unknown[]): unknown => call[0]),
+      middleware,
     };
   } finally {
     composerCommands.mockRestore();
+    composerOn.mockRestore();
   }
 }
 
-describe("application handler registration", () => {
-  test("导入不注册；显式调用后整条前置链只挂一次 bot.use，命令全部收在外闸后的子 Composer", () => {
-    expect(SDK_REGISTRATIONS_AFTER_IMPORT).toBe(0);
-    const { used, middleware, commands, directCommands, directHears }: Registration = registerOnFakeBot();
+/** 运势回执是 bot 发言外闸之后的第一段，首先读取 ctx.msg；用读取次数判断 update 是否越过外闸。 */
+function gateProbeContext(updateId: number, message: unknown): { ctx: Context; msgReads: () => number } {
+  let reads: number = 0;
+  const ctx: Record<string, unknown> = {
+    update: { update_id: updateId },
+    me: { id: 999, username: "test_bot" },
+    message,
+    channelPost: undefined,
+    // 未初始化的群：初始化网关在这里终止链路，不进入预热与业务分发。
+    chat: { id: -1001, type: "supergroup" },
+  };
+  Object.defineProperty(ctx, "msg", {
+    get(): unknown {
+      reads += 1;
+      return message;
+    },
+  });
+  return { ctx: ctx as unknown as Context, msgReads: (): number => reads };
+}
 
-    // 前置链（含群升级迁移 ingress）+ Anti-Raid / gag / qa 三条 ingress + 命令外闸 + 中文动作命令外闸 + 消息兜底，按这个顺序收在同一个数组里。
+describe("application handler registration", () => {
+  test("导入不注册；显式调用后整条链只挂一个 bot.use、零个 bot.on，命令全部收在外闸后的子 Composer", () => {
+    expect(SDK_REGISTRATIONS_AFTER_IMPORT).toBe(0);
+    const { used, updates, commands, directCommands, directHears }: Registration = registerOnFakeBot();
+
+    // 前置链由 app/updatePreamble.ts 的续接函数串成，整条只经一个中间件登记。
     expect(used).toHaveLength(1);
-    expect(middleware).toHaveLength(13);
-    expect(used[0]).toBe(middleware);
+    expect(used[0]).toHaveLength(1);
+    expect(updates).toEqual([]);
     expect(commands).toEqual([
       "permission",
       "white",
@@ -127,6 +155,7 @@ describe("application handler registration", () => {
       "unmute",
       "gag",
       "ungag",
+      "delete_message",
       "send",
       "qa",
       "x",
@@ -135,70 +164,49 @@ describe("application handler registration", () => {
     expect(directHears).toEqual([]);
   });
 
-  test("非消息 update 在前置链之后按固定顺序登记，错误处理器只装一个", () => {
-    const { registrationOrder, updates, catchHandlers }: Registration = registerOnFakeBot();
-    // callback_query:data 的 handler：/qa query 翻页先认领（未认领时 next()），未认领的交给入群验证（不调 next()）。
-    expect(registrationOrder).toEqual([
-      "use",
-      `on:${JSON.stringify("message_reaction")}`,
-      `on:${JSON.stringify("chat_member")}`,
-      `on:${JSON.stringify("my_chat_member")}`,
-      `on:${JSON.stringify("callback_query:data")}`,
-      `on:${JSON.stringify("callback_query:data")}`,
-      `on:${JSON.stringify("inline_query")}`,
-      `on:${JSON.stringify("chosen_inline_result")}`,
+  test("非消息 update 在子 Composer 上按固定顺序路由，错误处理器只装一个", () => {
+    const { registrationOrder, composerUpdates, catchHandlers }: Registration = registerOnFakeBot();
+    expect(registrationOrder).toEqual(["use"]);
+    // callback_query:data 的 handler：/wed 与 /qa query 翻页先认领（未认领时 next()），未认领的交给入群验证（不调 next()）。
+    expect(composerUpdates).toEqual([
+      "message_reaction",
+      "chat_member",
+      "my_chat_member",
+      "callback_query:data",
+      "callback_query:data",
+      "inline_query",
+      "chosen_inline_result",
     ]);
-    expect(updates).toHaveLength(7);
     expect(catchHandlers).toHaveLength(1);
   });
 
-  test("消息类外闸对非消息 update 原样放行，并直接返回 next 的 Promise", () => {
+  test("未被认领的非消息 update 穿过整条前置链，只调用一次外层 next", async () => {
     const { middleware }: Registration = registerOnFakeBot();
-    // 发言限流、各 ingress、命令外闸、「/」外闸与消息兜底。
-    for (const index of [1, 6, 7, 8, 9, 10, 11]) {
-      const nextResult: Promise<void> = Promise.resolve();
-      let nextCalls: number = 0;
-      const result: unknown = middleware[index]!(nonMessageContext(), (): Promise<void> => {
-        nextCalls++;
-        return nextResult;
-      });
-      expect(nextCalls).toBe(1);
-      expect(result).toBe(nextResult);
-    }
-
-    // 普通消息回执检查同样不能重新包一层微任务。
-    let receiptNextCalled: boolean = false;
-    const receiptNextResult: Promise<void> = Promise.resolve();
-    const receiptMiddlewareResult: unknown = middleware[2]!({
-      update: { update_id: 11 },
-    } as Context, (): Promise<void> => {
-      receiptNextCalled = true;
-      return receiptNextResult;
+    let nextCalls: number = 0;
+    await middleware(nonMessageContext(), (): Promise<void> => {
+      nextCalls++;
+      return Promise.resolve();
     });
-    expect(receiptNextCalled).toBeTrue();
-    expect(receiptMiddlewareResult).toBe(receiptNextResult);
+    expect(nextCalls).toBe(1);
   });
 
-  test("第一道前置追踪见过的最大 update_id", async () => {
+  test("唯一中间件追踪见过的最大 update_id", async () => {
     const { middleware, registration }: Registration = registerOnFakeBot();
     const next = async (): Promise<void> => undefined;
-    await middleware[0]!({ update: { update_id: 12 } } as Context, next);
-    await middleware[0]!({ update: { update_id: 8 } } as Context, next);
+    await middleware(gateProbeContext(12, undefined).ctx, next);
+    await middleware(gateProbeContext(8, undefined).ctx, next);
     expect(registration.getLastSeenUpdateId()).toBe(12);
   });
 
-  test("第二道前置在回执和业务分发之前截断超额 bot 消息", () => {
+  test("bot 发言外闸在回执和业务分发之前截断超额 bot 消息", () => {
     const { middleware }: Registration = registerOnFakeBot();
-    const botMessage: Context = {
-      me: { id: 999 }, message: { from: { id: 42, is_bot: true } },
-    } as Context;
+    const botMessage: unknown = { from: { id: 42, is_bot: true }, chat: { id: -1001, type: "supergroup" } };
     let passedBotMessages: number = 0;
     try {
       for (let index: number = 0; index <= BOT_MESSAGE_ACTIVITY_LIMIT; index += 1) {
-        middleware[1]!(botMessage, (): Promise<void> => {
-          passedBotMessages += 1;
-          return Promise.resolve();
-        });
+        const probe: { ctx: Context; msgReads: () => number } = gateProbeContext(index + 1, botMessage);
+        middleware(probe.ctx, (): Promise<void> => Promise.resolve());
+        passedBotMessages += probe.msgReads() > 0 ? 1 : 0;
       }
       expect(passedBotMessages).toBe(BOT_MESSAGE_ACTIVITY_LIMIT);
     } finally {

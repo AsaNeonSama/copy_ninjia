@@ -89,6 +89,13 @@ export const GROUP_QA_QUERY_TOOL: string = "group_qa_query";
 export const GROUP_QA_ANSWER_TOOL: string = "group_qa_answer";
 
 /**
+ * abuse_mark 工具名：当前触发用户反复要求生成不被允许或被模型讨厌的内容时，标记该用户在
+ * ABUSE_MARK_DURATION_MS 内不再处理其消息，并发出对应风格提示后立即结束本轮回复（见
+ * aiChat/ai/tools/replyToolset/abuseMark.ts）。
+ */
+export const ABUSE_MARK_TOOL: string = "abuse_mark";
+
+/**
  * 会消耗整轮可见动作预算的工具名；查看贴纸包与查询类工具不计入。
  *
  * send_voice 恒在清单里，即使本轮没挂这个工具：这份清单只判定「这个名字算不算
@@ -100,6 +107,7 @@ export const ACTION_TOOL_NAMES: readonly string[] = [
   SEND_STICKER_TOOL,
   GENERATE_IMAGE_TOOL,
   SEND_VOICE_TOOL,
+  ABUSE_MARK_TOOL,
 ];
 
 /**

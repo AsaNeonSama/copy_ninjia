@@ -62,6 +62,7 @@ function bundle(): AdMessageBundle {
         receivedAt: 1_000,
         withinReferencedWarning: false,
         replyTo: "在吗",
+        quote: undefined,
       },
       {
         messageId: 12,
@@ -70,6 +71,8 @@ function bundle(): AdMessageBundle {
         directText: "微信 xxx",
         receivedAt: 1_100,
         withinReferencedWarning: false,
+        quote: undefined,
+        replyTo: undefined,
       },
     ],
     pendingDeleteIds: [],
@@ -113,8 +116,8 @@ describe("广告处置副作用", () => {
       reason: "引流加微信",
       // 判定依据的整串原样回投，供主线程写进命中样本；引用/回复上下文跟着各自那条消息走，不在判定文本里。
       messages: [
-        { messageId: 11, text: "加我", replyTo: "在吗" },
-        { messageId: 12, text: "微信 xxx" },
+        { messageId: 11, text: "加我", replyTo: "在吗", quote: undefined },
+        { messageId: 12, text: "微信 xxx", quote: undefined, replyTo: undefined },
       ],
     }]);
     // 整串走一次批量删除。
@@ -164,6 +167,8 @@ describe("广告处置副作用", () => {
         directText: "微信 xxx",
         receivedAt: 1_100,
         withinReferencedWarning: false,
+        quote: undefined,
+        replyTo: undefined,
       },
       {
         messageId: 13,
@@ -172,6 +177,8 @@ describe("广告处置副作用", () => {
         directText: "带你上岸",
         receivedAt: 1_200,
         withinReferencedWarning: false,
+        quote: undefined,
+        replyTo: undefined,
       },
     ];
 
@@ -311,6 +318,8 @@ describe("广告处置副作用", () => {
       // 本机时间早于发送回执也不影响 Telegram 群内的权威消息顺序。
       receivedAt: 1_400,
       withinReferencedWarning: true,
+      quote: undefined,
+      replyTo: undefined,
     });
     live.pendingDeleteIds = [10, 557];
 

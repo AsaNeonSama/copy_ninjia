@@ -1,14 +1,9 @@
 /** 触发的种类，决定并发闸打满时是丢弃还是排队，见 admitTrigger。 */
 export type TriggerKind =
-  /** 文字回复 / @ 机器人：真人在等，打满时排队补跑。 */
+  /** 文字或媒体直接回复 / @ 机器人：真人在等，打满时排队补跑。 */
   | "direct"
-  /** 无人叫机器人的随机插话：打满时直接丢弃。 */
-  | "random"
-  /** 拿媒体（贴纸/图片/GIF）回复机器人，或 caption 里 @ 机器人：语义同
-   *  direct，真人在等，打满时排队补跑。 */
-  | "mediaDirect"
-  /** 解析完媒体后随机命中的评价（非直接触发）：语义同 random，打满时丢弃。 */
-  | "mediaRandom";
+  /** 无人叫机器人的文字或媒体随机插话：打满时直接丢弃。 */
+  | "random";
 
 export interface AdmitTriggerInput {
   activeRounds: number;

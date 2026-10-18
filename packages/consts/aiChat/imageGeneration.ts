@@ -13,8 +13,17 @@ export const IMAGE_GENERATION_MAX_BYTES: number = 10 * 1024 * 1024;
 export const IMAGE_GENERATION_MAX_ENCODED_CHARS: number = Math.ceil(IMAGE_GENERATION_MAX_BYTES / 3) * 4;
 /** PNG 文件签名；只接受与 API 声明 mime type 一致的载荷。 */
 export const PNG_SIGNATURE: readonly number[] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-/** 生图工具单轮最多接纳一张图片；接纳时同时预占一个共享可见动作。 */
+/** 生图工具单轮最多接纳的图片张数；接纳时同时预占共享可见动作额度。 */
 export const MAX_GENERATED_IMAGES_PER_REPLY: number = 1;
+/**
+ * 一次生图最多交给图片模型的参考图张数，也是 `agent.image.max_reference_images` 的取值上限
+ * （config/agentCapability.ts）与 AI Worker 相册缓存每组保留的张数（cache/workers/aiChat/imageReferenceAlbums.ts）。
+ */
+export const IMAGE_GENERATION_MAX_REFERENCE_IMAGES: number = 5;
+/** `agent.image.max_reference_images` 缺省时的参考图张数，属 config/agentCapability.ts。 */
+export const IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES: number = 1;
+/** AI Worker 相册缓存最多保留的相册数，属 cache/workers/aiChat/imageReferenceAlbums.ts；满额淘汰最久未使用的一组。 */
+export const IMAGE_REFERENCE_ALBUM_CACHE_MAX: number = 256;
 
 /** 生图模型接受的全部官方宽高比，供归一校验（aiChat/ai/utils/aspectRatio.ts）与工具说明共用。 */
 export const IMAGE_GENERATION_ASPECT_RATIOS: readonly ImageGenerationAspectRatio[] = exhaustiveList<ImageGenerationAspectRatio>()([

@@ -11,6 +11,7 @@ const deletedMessageIds: number[] = [];
 let blockNextDelete: boolean = false;
 let releaseBlockedDelete: (() => void) | undefined;
 const reminderResults: (number | undefined)[] = [];
+const sentReplyToMessageIds: (number | undefined)[] = [];
 let reminderAttempts: number = 0;
 const workerEvents: AntiRaidWorkerEvent[] = [];
 Object.defineProperty(globalThis, "self", {
@@ -38,8 +39,9 @@ mock.module("../../../packages/infra/telegram", () => ({
   telegramApi: {
     getChat: async (): Promise<{ type: "supergroup" }> => ({ type: "supergroup" }),
   },
-  sendMessage: async (): Promise<number | undefined> => {
+  sendMessage: async ({ replyToMessageId }: { readonly replyToMessageId?: number }): Promise<number | undefined> => {
     reminderAttempts++;
+    sentReplyToMessageIds.push(replyToMessageId);
     // 队列为空按「发出去了」算；终态播报发不出去时不算结算（见 verificationEffects/terminal.ts 的 removalConfirmed）。
     // 要模拟发送失败的用例往队列里放一个 undefined。
     return reminderResults.length > 0 ? reminderResults.shift() : 700;
@@ -64,7 +66,7 @@ async function advanceFakeTimers(ms: number): Promise<void> {
   jest.advanceTimersByTime(ms);
   for (let index: number = 0; index < 10; index++) await Promise.resolve();
 }
-const { verificationEntries } = await import("../../../packages/cache/workers/antiRaid/verification");
+const { reminderDeliveries, verificationEntries } = await import("../../../packages/cache/workers/antiRaid/verification");
 
 function record(
   userId: number,
@@ -107,6 +109,7 @@ beforeEach(() => {
   blockNextDelete = false;
   releaseBlockedDelete = undefined;
   reminderResults.length = 0;
+  sentReplyToMessageIds.length = 0;
   reminderAttempts = 0;
   workerEvents.length = 0;
 });
@@ -373,6 +376,72 @@ describe("Anti-Raid Worker verification recovery", () => {
     expect(recovered?.kind === "pending" ? recovered.expiresAt : 0).toBeGreaterThanOrEqual(before + 90_000);
 
     runtime.adoptVerifications({ type: "adoptVerifications", generation: 10, verifications: [] });
+  });
+
+  test("恢复带回复锚点且尚未落地提醒的 pending 时发出回复式提醒；已有 replyReminderMessageId 时不再发送", async () => {
+    reminderResults.push(702);
+    const pendingNeedingReplyReminder: VerificationSnapshot = {
+      ...record(71, Date.now() + 60_000),
+      generation: 14,
+      reminderMessageId: undefined,
+      replyReminderRequested: true,
+      welcomeAnchorMessageId: 555,
+    };
+    const pendingWithReplyReminder: VerificationSnapshot = {
+      ...record(72, Date.now() + 60_000),
+      generation: 14,
+      reminderMessageId: undefined,
+      replyReminderRequested: true,
+      welcomeAnchorMessageId: 556,
+      replyReminderMessageId: 703,
+    };
+
+    runtime.adoptVerifications({
+      type: "adoptVerifications",
+      generation: 14,
+      verifications: [pendingNeedingReplyReminder, pendingWithReplyReminder],
+    });
+    await waitUntil((): boolean => {
+      const state = verificationEntries.get("-1001:71")?.state;
+      return state?.kind === "pending" && state.replyReminderMessageId === 702;
+    });
+
+    expect(reminderAttempts).toBe(1);
+    expect(sentReplyToMessageIds).toEqual([555]);
+    expect(verificationEntries.get("-1001:72")?.state).toMatchObject({
+      kind: "pending",
+      replyReminderMessageId: 703,
+    });
+
+    runtime.adoptVerifications({ type: "adoptVerifications", generation: 15, verifications: [] });
+  });
+
+  test("提醒首次发送失败进入退避后，状态换代同步移除 reminderDeliveries 并取消重试 timer", async () => {
+    jest.useFakeTimers();
+    try {
+      reminderResults.push(undefined, 704);
+      const pendingWithoutReminder: VerificationSnapshot = {
+        ...record(73, Date.now() + 60_000),
+        generation: 16,
+        reminderMessageId: undefined,
+      };
+      runtime.adoptVerifications({
+        type: "adoptVerifications",
+        generation: 16,
+        verifications: [pendingWithoutReminder],
+      });
+      for (let index: number = 0; index < 10; index++) await Promise.resolve();
+      expect(reminderAttempts).toBe(1);
+      expect(reminderDeliveries.has("-1001:73")).toBeTrue();
+
+      runtime.dispatchVerification(-1001, 73, { type: "left" });
+      expect(reminderDeliveries.has("-1001:73")).toBeFalse();
+
+      await advanceFakeTimers(10_000);
+      expect(reminderAttempts).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("私密模式删公告期间到达的管理员豁免会失效旧踢人动作", async () => {

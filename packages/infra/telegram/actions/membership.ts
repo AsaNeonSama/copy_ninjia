@@ -30,40 +30,51 @@ function getChatMember({
 }
 
 /**
- * 一次成员探测的结局。`participantInvalid` 是 Telegram 以 PARTICIPANT_ID_INVALID
+ * 一次成员探测的结局。`admin` 表示目标是群或频道的管理员/所有者，`present` 表示在群的非管理员成员，
+ * `absent` 表示确认不在群；`participantInvalid` 是 Telegram 以 PARTICIPANT_ID_INVALID
  * 拒绝这个用户 ID；其余查询失败都是 `failed`。
  */
 export type ChatMembershipProbeOutcome =
+  | "admin"
   | "present"
   | "absent"
   | "participantInvalid"
   | "failed";
 
-/** 探测成员身份并保留 PARTICIPANT_ID_INVALID 分类；取消以外的查询失败照常记 API 错误。 */
+/** 查询成功时由成员记录得出的探测结局。 */
+type ChatMembershipStatusOutcome = Exclude<ChatMembershipProbeOutcome, "participantInvalid" | "failed">;
+
+function membershipStatusOutcome(member: ChatMember): ChatMembershipStatusOutcome {
+  if (isAdminStatus(member.status)) return "admin";
+  return isPresentMember(member) ? "present" : "absent";
+}
+
+/** 探测成员身份并保留管理员与 PARTICIPANT_ID_INVALID 分类；取消以外的查询失败照常记 API 错误。 */
 export async function probeChatMembershipWithOutcome(
   chatId: number,
   userId: number,
   api: ChatMemberApi = telegramApi
 ): Promise<ChatMembershipProbeOutcome> {
   let participantInvalid: boolean = false;
-  const present: boolean | undefined = await runTelegramAction<ChatMember, boolean | undefined>({
-    action: `probe chat membership (chat ${chatId}, user ${userId})`,
-    execute: (signal?: AbortSignal): Promise<ChatMember> =>
-      getChatMember({ api, chatId, userId, signal }),
-    map: isPresentMember,
-    fallback: undefined,
-    shouldLogError: (error: unknown): boolean => {
-      participantInvalid = isParticipantIdInvalid(error);
-      return true;
-    },
-  });
-  if (present === undefined) return participantInvalid ? "participantInvalid" : "failed";
-  return present ? "present" : "absent";
+  const outcome: ChatMembershipStatusOutcome | undefined =
+    await runTelegramAction<ChatMember, ChatMembershipStatusOutcome | undefined>({
+      action: `probe chat membership (chat ${chatId}, user ${userId})`,
+      execute: (signal?: AbortSignal): Promise<ChatMember> =>
+        getChatMember({ api, chatId, userId, signal }),
+      map: membershipStatusOutcome,
+      fallback: undefined,
+      shouldLogError: (error: unknown): boolean => {
+        participantInvalid = isParticipantIdInvalid(error);
+        return true;
+      },
+    });
+  if (outcome === undefined) return participantInvalid ? "participantInvalid" : "failed";
+  return outcome;
 }
 
 /**
  * 把「确认不在群」与「查询失败」分开。
- * @returns 在群 true、确认不在群 false、查询失败 undefined。
+ * @returns 在群（含管理员）true、确认不在群 false、查询失败 undefined。
  */
 export async function probeChatMembership(
   chatId: number,
@@ -72,7 +83,7 @@ export async function probeChatMembership(
 ): Promise<boolean | undefined> {
   const outcome: ChatMembershipProbeOutcome =
     await probeChatMembershipWithOutcome(chatId, userId, api);
-  if (outcome === "present") return true;
+  if (outcome === "admin" || outcome === "present") return true;
   return outcome === "absent" ? false : undefined;
 }
 

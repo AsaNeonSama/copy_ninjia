@@ -191,19 +191,17 @@ describe("黑名单成员入群秒踢", () => {
     // 未销账的批次可被重投，编号是它的身份。
     expect(pendingBlockedRemovals.size).toBe(1);
     expect(joins()).toHaveLength(0);
-    expect(diskPosts.at(-1)).toMatchObject({
-      type: "blocklistRemovals",
-      removals: [[expect.any(Number), expect.objectContaining({
-        params: expect.objectContaining({ chatId: -1001, userIds: [42] }),
-      })]],
-    });
+    const rowWrite: TestDiskMessage | undefined = diskPosts.at(-1);
+    expect(rowWrite).toMatchObject({ type: "blocklistRemovalWrite", removalId: expect.any(Number) });
+    expect(JSON.parse((rowWrite as { data: string }).data).params)
+      .toEqual(expect.objectContaining({ chatId: -1001, userIds: [42] }));
     expect(deliveryOrder).toEqual([
       // 群类型镜像排在最前：它是踢人方法分派的依据，先于任何可能触发踢人的投递到达 Worker
       // （见 antiRaid/chatKind.ts）；按值去重，每个群只投一次。
       "worker-chatKind",
       // 入群事实进批次即受理，不等落盘屏障；outbox 仍是 write-ahead 屏障。
       "disk-joinLog",
-      "disk-blocklistRemovals",
+      "disk-blocklistRemovalWrite",
       "disk-flush",
       "worker-removeBlockedMembers",
     ]);
@@ -228,7 +226,7 @@ describe("黑名单成员入群秒踢", () => {
 
     expect(removals()).toHaveLength(0);
     expect(pendingBlockedRemovals.size).toBe(1);
-    expect(diskPosts.at(-1)?.type).toBe("blocklistRemovals");
+    expect(diskPosts.at(-1)?.type).toBe("blocklistRemovalWrite");
   });
 
   test("入群事实被拒收时不继续投递验证或黑名单处置", async () => {
@@ -275,12 +273,10 @@ describe("黑名单成员入群秒踢", () => {
 
     expect(removals()).toHaveLength(0);
     expect(pendingBlockedRemovals.size).toBe(0);
-    // 发现权威任务已取消后再 flush 一次空快照，不依赖 /block disable 排队但尚未确认的 cleanup。
+    // 发现权威任务已取消后再 flush 一次，取消（该行的删除写入）在投递前已经落盘。
     expect(flushDiskIODomain).toHaveBeenCalledTimes(2);
-    expect(diskPosts.at(-1)).toMatchObject({
-      type: "blocklistRemovals",
-      removals: [],
-    });
+    expect(diskPosts.filter((message: TestDiskMessage): boolean => message.type === "blocklistRemovalWrite").at(-1))
+      .toMatchObject({ type: "blocklistRemovalWrite", data: null });
   });
 
   test("不在名单里的人照常走验证，不投任何处置", async () => {

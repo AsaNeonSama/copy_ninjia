@@ -1,32 +1,18 @@
-/** owner: workers/antiRaid。ad_detect 显式缓存（Gemini cachedContent）的本地登记与内容指纹。 */
+/** owner: workers/antiRaid。广告检测 Gemini 显式上下文缓存登记表与内容指纹（packages/workers/antiRaid/adDetect/ai/google.ts）。 */
 
 import type { GeminiContextCacheContent, GeminiContextCacheRegistry } from "../../../types/geminiContextCache";
 
 /**
- * ad_detect scope 的登记表（结构见 types/geminiContextCache.ts，读写见
- * infra/geminiContextCache.ts，scope 在 workers/antiRaid/adDetect/ai/google.ts）。null 表示本线程尚未取用或
- * 已被复位。
- *
- * 填充：provider=google 时第一次判定按当下 ad_detect 客户端新建，随即触发启动扫描，按
- * displayName 接管服务端既有条目；后台创建成功时写槽，命中刷新 lastUsedAt，续期成功改写
- * expireAt。
- * 清理：同槽内容变化时换条目并删除旧的服务端条目；新建条目后删除接管以来从未用过的
- * 条目；超过 AD_DETECT_GEMINI_CACHE_MAX_SLOTS 槽时删除最久未用的槽；判定请求报缓存不可用
- * （此后冷却 GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS 再重建）或续期报 404 时摘掉本地登记。主线程
- * 投递的 agent.ad_detect 有变化时由 workers/antiRaid/adDetect/config.ts 置 null，下一次判定按
- * 新客户端新建并重新扫描，旧表上的在途请求只写旧表。服务端条目另按 TTL 自行过期。
- * Worker 崩溃重建：新 isolate 从 null 起步，第一次判定时重新扫描接管。
- * 容量：一张表；槽至多 AD_DETECT_GEMINI_CACHE_MAX_SLOTS 个，失败与被拒记录不超过本表出现过的
- * 槽键数（该槽创建成功或被淘汰时删除），进行中的创建不超过同时在用的槽数。
+ * ad_detect 能力的 Gemini 显式缓存登记表（读写见 infra/geminiContextCache.ts）。
+ * 填充：provider 启动、切换或首次使用 Google 判定时创建并探测模型显式缓存支持度（支持则扫描接管服务端既有缓存，不支持则标为 `"unsupported"`），后台创建、命中或续期成功时更新槽位。
+ * 清理：内容变化替换、淘汰未用接管项、超出上限淘汰最久未用槽、缓存失效或续期报缓存不存在时摘除；收到有变化的 ad_detect 配置快照时由 workers/antiRaid/adDetect/config.ts 置空（新配置选用 Google 时立即重建探测）。
+ * 重建：Worker 崩溃重启后从 null 开始，随配置投递或首次判定重新探测与扫描接管。
+ * 容量：单张登记表，槽位上限为 AD_DETECT_GEMINI_CACHE_MAX_SLOTS。
  */
 export const adDetectGeminiContextCache: { current: GeminiContextCacheRegistry | null } = { current: null };
 
 /**
- * 当前「判定规则 + 部署示例」段及其两段指纹（infra/geminiContextCache.ts 的
- * geminiContextCacheContent），判定路径每次只核对模型与系统指令的引用，不重算指纹。
- *
- * 填充：provider=google 时第一次判定时写入；模型或系统指令对不上（示例快照替换、换模型）时
- * 重算并整体替换。清理：只随替换释放旧值，不单独清空。
- * Worker 崩溃重建：从 null 起步，第一次判定时重算。容量固定为一份。
+ * 当前广告判定规则与样本段的内容及指纹单槽缓存（infra/geminiContextCache.ts 的 geminiContextCacheContent）。
+ * 填充：acquireGeminiContextCache 需要内容（扫描状态为 running 或 done）时，首次或模型、系统指令变化时计算并整槽覆盖；清理：随新值覆盖释放；重建：Worker 重启后从 null 开始；容量：固定为单个槽位。
  */
 export const adDetectGeminiCacheContent: { current: GeminiContextCacheContent | null } = { current: null };

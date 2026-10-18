@@ -1,25 +1,17 @@
-/** owner: workers/aiChat。中期记忆压缩调度（packages/workers/aiChat/compaction.ts）的内存状态。 */
+/** owner: workers/aiChat。中期记忆压缩按群串行调度状态（packages/workers/aiChat/compaction.ts）。 */
 
 import { createKeyedSerialTaskRunner } from "../../../libs/keyedSerialTaskRunner";
 import type { KeyedSerialTaskRunner } from "../../../libs/keyedSerialTaskRunner";
 
-/** 中期记忆压缩任务的运行时 owner。链和计数都不落盘；同群任务完成后自动
- * 删除。群失效时不删链，回复代际使
- * 旧结果失效，链自然排空。Worker 重建会连同在途任务一起销毁。
- * 容量：同时有在途压缩的群数，上界为持有记忆的群数（AI_MEMORY_MAX_CHATS）；
- * 不设淘汰，链排空即自动删除条目。 */
+/** 群 ID 到中期记忆压缩串行任务链尾的映射：任务入队时写入，链排空时由执行器自动删除，resetAiChatCompactionCache 时清空；容量上限为 AI_MEMORY_MAX_CHATS，不设淘汰，Worker 重建后从空表开始。 */
 export const compactionChains: Map<number, Promise<void>> = new Map();
-/**
- * 中期记忆压缩的按群串行调度器，与 compactionChains 共享生命周期；
- * Worker 重建后重新创建，空闲群的链由执行器自动删除。
- */
+/** 绑定 compactionChains 的中期记忆压缩按群串行调度器单例。 */
 export const compactionRunner: KeyedSerialTaskRunner<number> =
   createKeyedSerialTaskRunner(compactionChains);
-/** 每群执行中与排队中的压缩任务数；任务 settle 后递减并在归零时删除。
- * 容量与清理跟随 compactionChains，两张表覆盖同一批群。 */
+/** 群 ID 到在途与排队压缩任务数的映射：入队时递增，结算时递减并在归零时删除；容量与清理同 compactionChains，Worker 重建后从空表开始。 */
 export const compactionPendingCounts: Map<number, number> = new Map();
 
-/** 测试隔离时清空压缩链与计数。 */
+/** 清空全部群的压缩任务链与待处理计数。 */
 export function resetAiChatCompactionCache(): void {
   compactionChains.clear();
   compactionPendingCounts.clear();

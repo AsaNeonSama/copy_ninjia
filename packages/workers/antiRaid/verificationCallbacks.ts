@@ -17,9 +17,35 @@ import { workerAtmosphere } from "./atmosphere";
 import { isChatAdmin } from "./adminCache";
 import { trackAntiRaidTask } from "./taskTracker";
 
+type VerificationCallbackReply = Extract<VerificationEffect, { kind: "answerCallback" }>["reply"];
+
 export interface AnswerVerificationCallbackOptions {
   readonly callbackQueryId: string;
-  readonly reply?: Extract<VerificationEffect, { kind: "answerCallback" }>["reply"];
+  readonly reply?: VerificationCallbackReply;
+}
+
+/** 将验证回调应答类型映射为当前气氛下的提示文案。 */
+function verificationCallbackText(
+  reply: VerificationCallbackReply | undefined
+): string | undefined {
+  if (reply === undefined) return undefined;
+  const atmosphere: AtmosphereTexts = workerAtmosphere();
+  switch (reply) {
+    case "ok": return atmosphere.NOTICE_TEXTS.verificationCallbackPassed;
+    case "invalid": return atmosphere.NOTICE_TEXTS.verificationCallbackExpired;
+    case "useSelfButton":
+      return atmosphere.NOTICE_TEXTS.verificationUseSelfButton(
+        atmosphere.VERIFICATION_SELF_BUTTON_TEXT,
+        atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT
+      );
+    case "notApprover": return atmosphere.NOTICE_TEXTS.verificationAdminOnly;
+    case "approverUnknown": return atmosphere.NOTICE_TEXTS.verificationAdminUnknown;
+    case "notYourButton": return atmosphere.NOTICE_TEXTS.verificationOtherUser;
+    default: {
+      const unhandledReply: never = reply;
+      throw new Error(`Unsupported verification callback reply: ${String(unhandledReply)}`);
+    }
+  }
 }
 
 /**
@@ -37,20 +63,7 @@ export function answerVerificationCallback({
     }
     return undefined;
   }
-  const atmosphere: AtmosphereTexts = workerAtmosphere();
-  const text: string | undefined = reply === undefined
-    ? undefined
-    : reply === "ok"
-      ? atmosphere.NOTICE_TEXTS.verificationCallbackPassed
-      : reply === "invalid"
-        ? atmosphere.NOTICE_TEXTS.verificationCallbackExpired
-        : reply === "useSelfButton"
-          ? atmosphere.NOTICE_TEXTS.verificationUseSelfButton(atmosphere.VERIFICATION_SELF_BUTTON_TEXT, atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT)
-          : reply === "notApprover"
-            ? atmosphere.NOTICE_TEXTS.verificationAdminOnly
-            : reply === "approverUnknown"
-              ? atmosphere.NOTICE_TEXTS.verificationAdminUnknown
-              : atmosphere.NOTICE_TEXTS.verificationOtherUser;
+  const text: string | undefined = verificationCallbackText(reply);
   verificationCallbackReplies.current++;
   return answerCallbackQuery({
     callbackQueryId,

@@ -23,9 +23,9 @@ export interface AdDetectionMessageContext {
 export interface AdDetectJsonRequestParams {
   /** 模型名来自 config/dynamic/agent.json 的 agent.ad_detect。 */
   readonly model: string;
-  /** 判定规则与部署示例段，不含系统事实；Gemini 路径的系统指令，也是它显式缓存的内容。 */
+  /** 判定规则与部署示例段，不含系统事实；Gemini 路径的系统指令与显式缓存内容，Anthropic 路径带缓存断点的首个系统块。 */
   readonly instructions: string;
-  /** 本次的系统事实一行；Gemini 路径把它作为 user 轮里排在 userContent 之前的独立 part。 */
+  /** 本次的系统事实一行；Gemini 路径把它作为 user 轮里排在 userContent 之前的独立 part，Anthropic 路径作为缓存断点之后的第二个系统块。 */
   readonly fact: string;
   /**
    * instructions、换行与 fact 拼成的完整系统提示词；OpenAI 兼容路径的 system 段。
@@ -55,10 +55,10 @@ export interface AdDetectPrompts {
 
 /** 参与判定、同时写进命中样本的上下文。两项都可能缺席。 */
 export interface AdSampleContext {
-  /** 这条消息里被引用的那一段（message.quote）。 */
-  quote?: string;
-  /** 这条消息回复的那条原消息的正文。 */
-  replyTo?: string;
+  /** 这条消息里被引用的那一段（message.quote）；没有时为 undefined，键恒写。 */
+  quote: string | undefined;
+  /** 这条消息回复的那条原消息的正文；没有时为 undefined，键恒写。 */
+  replyTo: string | undefined;
 }
 
 /**

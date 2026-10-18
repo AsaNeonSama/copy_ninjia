@@ -2,8 +2,7 @@
  * config/dynamic/ 部署配置热重载的主线程 owner（状态见 cache/main/configReload.ts）。
  *
  * 只监听 config/dynamic/（config/static/ 下的文件修改后须重启）。目录级 `fs.watch` 覆盖原地写入、临时文件改名替换、删除与重建；
- * 目录自身被改名、删除或整体替换时旧 watcher 收不到新目录的事件，因此按目录名的改名事件
- * 关闭旧 watcher 并重新监听，目录暂缺时有界退避重试、只记一次错误日志。任何事件只重新
+ * 按目录名的改名事件关闭旧 watcher 并重新监听，目录暂缺时有界退避重试、只记一次错误日志。任何事件只重新
  * 武装一次防抖 timer，到期后由最新值执行器串行跑一轮：config/reload.ts 读取并
  * 严格解析各可热重载文件（assets.json 切换随机图片目录时先准备新目录）→ 同步替换
  * 主线程 holder → 按 holder 重算广告检测与 AI 闲聊的可用性 → 把变化投给持有副本的
@@ -125,8 +124,7 @@ function scheduleConfigReload(): void {
 }
 
 /**
- * 目录事件入口。事件文件名等于被监听目录自身的名字，说明目录被改名、删除或整体替换，
- * 另排一次重建监听；与目录内同名文件的事件无法区分，那时多重建一次也无害。
+ * 目录事件入口。事件文件名等于被监听目录自身的名字时，另排一次重建监听。
  */
 function handleConfigDirectoryEvent(event: WatchEventType, filename: string | null): void {
   if (event === "rename" && filename === basename(DYNAMIC_CONFIG_DIR)) {
@@ -144,8 +142,7 @@ function scheduleConfigRewatch(delayMs: number): void {
 }
 
 /**
- * 关闭旧 watcher 后重新监听同一路径（Bun 不会为仍挂着旧 watcher 的路径建立新监听）。
- * 成功后立即对账一轮，补上目录缺席期间的变化；目录暂缺时按退避表重排，只有首次失败记错误。
+ * 关闭旧 watcher 后重新监听同一路径。成功后立即对账一轮；目录暂缺时按退避表重排，只有首次失败记错误。
  */
 function rewatchConfigDirectory(): void {
   configReloadRuntime.rewatchTimer = null;

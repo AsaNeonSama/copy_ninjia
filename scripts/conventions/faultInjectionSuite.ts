@@ -18,14 +18,13 @@ import type { RuntimeModuleReference } from "./sourceAnalysis";
  * 属性访问判定），或以无法静态确定取用范围的形态引用时，才要求登记。
  *
  * 判定只做下界，不禁止清单里出现别的文件：不依赖 harness 的故障注入用例（例如
- * readiness mock 整文件生效的那种）同样该进清单，但没有机器可判的特征，仍由维护者
- * 按 AGENTS.md 的「涉及持久化、停机或 Worker 生命周期」自行判断。
+ * readiness mock 整文件生效的那种）没有机器可判的特征，由维护者登记。
  */
 
 /**
  * `bun run test:fault-injection` 执行的用例文件，仓库相对路径，按字典序一行一个。
  * 约定检查要求它覆盖全部使用 FAULT_INJECTION_BOUNDARIES 的用例；不依赖这些边界的故障注入用例
- * 由维护者按 AGENTS.md 判断后登记。
+ * 由维护者登记。
  */
 export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/aiChat/ai/imageGenerationCancellation.test.ts",
@@ -40,6 +39,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/antiRaid/verificationMirror.test.ts",
   "test/antiRaid/workerBridgeController.test.ts",
   "test/antiRaid/workerBridgeObservers.test.ts",
+  "test/antiRaid/workerBridgeReplay.test.ts",
   "test/app/configReload.test.ts",
   "test/app/lifecycle.test.ts",
   "test/app/lifecycleFailure.test.ts",
@@ -55,6 +55,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/commands/copyShared.test.ts",
   "test/commands/copyTeardown.test.ts",
   "test/commands/deferredCommands.test.ts",
+  "test/commands/deleteMessage.test.ts",
   "test/commands/gag.ingress.test.ts",
   "test/commands/gag.lifecycle.test.ts",
   "test/commands/gag.refresh.test.ts",
@@ -79,6 +80,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/database/storageAdmin.test.ts",
   "test/database/storageConnection.test.ts",
   "test/database/storageMigration.test.ts",
+  "test/database/storageReader.test.ts",
   "test/database/storageRows.test.ts",
   "test/database/storageRowsValidation.test.ts",
   "test/database/storageTransaction.test.ts",
@@ -140,7 +142,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/libs/workerDuplex.test.ts",
   "test/scripts/installMigration.test.ts",
   "test/scripts/installStartup.test.ts",
-  "test/scripts/migrateChatPersonaRemoval.test.ts",
+  "test/scripts/migrateWedMemberWindow.test.ts",
   "test/states/lockdown.test.ts",
   "test/states/lockdownMatrix.test.ts",
   "test/translate/client.test.ts",
@@ -156,6 +158,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/workers/aiChat/replyRound.test.ts",
   "test/workers/aiChat/replyState.test.ts",
   "test/workers/aiChat/stickerMirror.test.ts",
+  "test/workers/aiChat/voiceSynthesis.test.ts",
   "test/workers/aiChat/webDigest.test.ts",
   "test/workers/aiChat/workerLifecycle.test.ts",
   "test/workers/antiRaid/adDetectAiGoogle.test.ts",

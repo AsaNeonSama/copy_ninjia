@@ -30,7 +30,7 @@
 | `bun run perf:hot-path-gate` | **Hot-path performance gate** | Enforces hard memory/GC/JIT limits on core hot paths (included in `check`) |
 | `bun run perf:join-log` | Join-log performance benchmark | Standalone benchmark for join-log capacity limits, snapshots, and append accounting |
 | `bun run perf:identity-database` | Identity database benchmark | Standalone benchmark for cold/hot SQLite reads/writes, main-thread LRU cache, and write-through pipelines |
-| `bun run perf:full` | Full performance benchmark suite | Runs each section across independent child processes for default rounds (`--write-doc` syncs all three 10 performance docs and `performance-result.json`) |
+| `bun run perf:full` | Full performance benchmark suite | Runs each section across independent child processes for `FULL_SUITE_ROUNDS` rounds (`--write-doc` syncs all three 10 performance docs and `performance-result.json`) |
 | `bun run perf:review` | Targeted performance review | In-depth evaluation covering hot paths, AI replies, audio encoding, full command chains, and Disk I/O Worker pressure |
 | `bun run build -- --version <tag>` | Build binary package | Requires an explicit version with no prefix; produces the `dist/` archive and SHA-256 for the current platform |
 | `bun run release:check -- --version <tag>` | Pre-release full validation | frozen lockfile + check + coverage check + fault injection + binary build verification |
@@ -48,38 +48,37 @@
   - Workers use Bun's `preload` mechanism to install network stubs: the weather API returns a canned response, while all other outbound network calls are strictly rejected.
   - The suite asserts that stubs loaded successfully, the polling loop stayed intact, SIGTERM cleanly drained all in-flight work, and lock files were released.
 - **Source file line limit (`MAX_SOURCE_LINES`)**:
-  - Handwritten TypeScript, JavaScript, and Shell files exceeding `MAX_SOURCE_LINES` (defined in `scripts/conventions/fileLength.ts`) fail the gate immediately.
-  - Review files for refactoring once they exceed 512 lines; files exceeding 1024 lines must be split.
-  - The check scans all Git-tracked files and staged new files, while ignoring ignored deployment data. Installer syntax checks cover `install.sh` and every standalone shell module it invokes.
+  - Handwritten TypeScript, JavaScript, and Shell files exceeding `MAX_SOURCE_LINES` (`scripts/conventions/fileLength.ts`) fail the gate immediately and must be split by responsibility (see [`AGENTS.md`](../../AGENTS.md)).
+  - The check scans all Git-tracked files and untracked non-ignored files, excluding Git-ignored deployment data. Installer syntax checks cover `install.sh` and every shell module under `scripts/install/`.
 - **Universal source code coverage**:
-  - `test/productionModules.test.ts` eagerly imports `index.ts` and all runtime modules under `packages/` (except pure type declarations in `packages/types/`). Any module untouched by tests is factored into the denominator with 0% coverage.
-  - Both function and line coverage must satisfy the `coverageThreshold` in `bunfig.toml`. Adding business code without tests will fail the build.
+  - `test/productionModules.test.ts` eagerly imports `index.ts` and all runtime modules under `packages/` (except pure type declarations in `packages/types/`), so untouched modules are still included in the coverage denominator.
+  - Both function and line coverage must satisfy `coverageThreshold` in `bunfig.toml`.
 - **Strict typing and syntax standards**:
   - `tsconfig.json` enforces `strict`, `noUncheckedIndexedAccess`, `noUnusedLocals`, and `noUnusedParameters`.
   - Production code strictly forbids `any` (exempted in test files). The native `Promise.all` is disallowed by ESLint (`no-restricted-syntax`); use `Promise.allSettled` with bounded concurrency instead.
 - **Standalone type imports**:
   - Production code, scripts, and tests must use explicit, separate `import type` declarations. ESLint strictly rejects mixed import statements like `import { value, type Shape }`.
 - **Explicit type annotations**:
-  - All variables, function parameters, and destructuring patterns in production code must specify explicit types (enforced by `@typescript-eslint/typedef`). Functions and callbacks must declare explicit return types (enforced by `@typescript-eslint/explicit-function-return-type`), avoiding reliance on contextual inference.
-  - Loop variables in `for...of` and `for...in` statements are exempt because TypeScript does not permit syntax annotations there. Const variables initialized directly with fully annotated arrow functions are also exempt.
+  - All variables, function parameters, and destructuring patterns in production code (`index.ts`, `packages/`, `scripts/`) must specify explicit types (`@typescript-eslint/typedef`), and functions and callbacks must declare explicit return types (`@typescript-eslint/explicit-function-return-type`).
+  - Loop variables in `for...of` and `for...in` statements and `const` declarations initialized directly with fully annotated arrow functions are exempt; test files are not subject to this rule.
 - **Repository convention checks (`check:conventions`)**:
-  - **Structure and links**: Verifies source line counts, file locations, relative Markdown links, and in-page anchor IDs. Confirms that all file paths referenced in docs actually exist on disk, verifies script execution bits, and ensures installer step numbers match module references.
+  - **Structure and links**: Verifies source line counts, file locations, relative Markdown links, and in-page anchor IDs. Confirms that directory module lists and inline backtick repository paths referenced in docs exist in the tracked repository set, verifies script execution bits, and ensures installer step numbers match module references.
   - **Architectural boundaries**: Validates constant and cache ownership (`packages/cache/<owner>/` thread-single-owner policy) and verifies Worker and Telegram capability isolation against the actual import graph. Environment variables may only be read in `consts/paths.ts` and `consts/environment.ts`. The `consts/` layer may only depend on `consts` at runtime (other `packages/` modules only through `import type`). Direct and indirect runtime dependencies of the `states/` layer must stay within `consts`, `libs`, `types`, and `states` (indirect dependencies are traced along the actual import graph; the `config/time.ts` time-zone snapshot is the only exception, registered in `STATES_CLOSURE_OPAQUE_MODULES`). The `infra/` layer cannot import business modules. The benchmark parent process may only import pure constants and types.
   - **Constant table rules**: exported constant tables with object elements (regular expressions and function values excluded) must have an access in `test/consts/immutability.test.ts` on the line right after a `@ts-expect-error` comment (`scripts/conventions/constImmutability.ts`). Exported array tables whose elements are a literal union must be written as `exhaustiveList<U>()([...])` (`packages/consts/exhaustiveList.ts`), with `U` equal to the declared element type and every item a string or number literal, so adding or removing a member of the type without updating the table fails to compile. Tables that intentionally list a subset are registered as `<relative path>#<table name>` in `PARTIAL_LITERAL_TABLES` in `scripts/conventions/constExhaustiveLists.ts`; stale registrations are reported as well.
-  - **Runtime safety and APIs**: Every timer in `packages/workers/` must explicitly call `.unref()`. Node compatibility modules and `Buffer` usage are restricted to an explicit whitelist; unused registrations trigger errors. CLI arguments must be read via `Bun.argv`. Runtime packages imported bare must be declared directly in the root `package.json`.
-  - **Gate reconciliation**: Statically verifies Telegram prompt cleanup exemptions and topic ownership. Validates that active cold migration scripts match `migrate:*` entries in `package.json`. Checks that test coverage and performance metrics documented in trilingual files match `performance-result.json`.
-  - **Test assertion rules**: Test assertions must not compare uppercase constants against raw numeric or string literals. Never hardcode strings or long Chinese prompt fragments identical to those in `packages/consts` directly in test assertions (import the constant or use `test/helpers/templateText.ts`). Contract tests verifying exact prompt wording must be registered in `scripts/conventions/testAssertionFragments.ts`.
-  - **Test double resets**: once a mock queues `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` in any test, its reset hooks (the `beforeEach` / `afterEach` / `beforeAll` / `afterAll` callbacks and the test-side functions they transitively call) must use `mockReset()` and reinstall the default implementation instead of only `mockClear()`, because `mockClear()` keeps queued Once values. The gate resolves mocks to their declaring symbols with the TypeScript checker (`scripts/conventions/testMockReset.ts`); a `mockClear()` used mid-test only to clear call records is out of scope.
+  - **Runtime safety and APIs**: Every timer in `packages/workers/` must explicitly call `.unref()`. `packages/` must not use `Object.freeze`, nor take the oldest entry with `.keys().next()`, `.values().next()`, or `.entries().next()`; bounded FIFO / LRU tables get their oldest entry from `FifoMap` in `libs/fifoMap.ts` (or `LruCache`, which extends it). Node compatibility modules and `Buffer` usage are restricted to an explicit whitelist; unused registrations trigger errors. CLI arguments must be read via `Bun.argv`. Runtime packages imported bare must be declared directly in the root `package.json`.
+  - **Gate reconciliation**: Statically verifies Telegram prompt cleanup exemptions and topic ownership. Validates that active cold migration scripts match `migrate:*` entries in `package.json`. Verifies the fault-injection suite list. Checks that test coverage and performance metrics documented in trilingual files match `performance-result.json`. Comment cross-references of the form "`<module>.ts` 的 `<symbol>`" must point to a symbol that still exists: paths starting with `./` or `../` resolve against the directory of the commented source file, and a missing target file or symbol fails the check; other forms are checked only when they resolve to a unique file.
+  - **Test assertion rules**: Test assertions must not compare imported uppercase constants against numeric literals, nor pass string literals matching `packages/consts` exports (at least `STRING_CONSTANT_MIN_LENGTH` characters) or CJK prompt fragments (at least `CONSTANT_TEXT_FRAGMENT_MIN_CJK` CJK characters) directly to matchers; import the constant or render static template parts via `test/helpers/templateText.ts`. Prompt contract tests must be registered in `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` in `scripts/conventions/testAssertionFragments.ts`.
+  - **Test double resets**: once a mock queues `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` in any test, its reset hooks (the `beforeEach` / `afterEach` / `beforeAll` / `afterAll` callbacks and the test-side functions they transitively call) must call `mockReset()` and reinstall the default implementation instead of only `mockClear()`. The gate resolves mocks to their declaring symbols with the TypeScript checker (`scripts/conventions/testMockReset.ts`); a `mockClear()` used mid-test only to clear call records is out of scope.
 
 ---
 
 ### Dependency Release-Age Gate
 
-All dependency installations enforce a 7-day release cooling period defined in `bunfig.toml` (`minimumReleaseAge = 604_800`):
-- **Emergency security patch exemption**: When an urgent vulnerability fix is under 7 days old, add only that single package name to `install.minimumReleaseAgeExcludes`. Remove the exemption immediately after installation. Bypassing the gate via the command-line flag `--minimum-release-age` is strictly prohibited.
-- **Verification protocol**: The exempted package version must be cross-checked against at least two independent security incident advisories. You must verify the package `integrity` hash in the npm registry, inspect install scripts for backdoors, and log the package name, CVE/incident ID, and removal date in the commit message.
-- **Pinned runtime versions**: The Bun runtime and `@types/bun` are pinned to the exact version declared in `package.json`. The `packageManager` field and `install.sh` lock the runtime environment.
-- **TypeScript compilers**: `bun run typecheck` invokes Bun's built-in type checker as `bun --check`; `bun check` runs the repository's `check` script. ESLint and convention checks use `@typescript/old` (TypeScript 6 compiler API).
+All dependency installations enforce the release cooling period configured by `install.minimumReleaseAge` in `bunfig.toml`:
+- **Emergency security patch exemption**: When an urgent vulnerability fix is newer than `install.minimumReleaseAge`, add only that single package name to `install.minimumReleaseAgeExcludes` and remove it immediately after installation. Bypassing the gate via `--minimum-release-age` is prohibited.
+- **Verification protocol**: Cross-check the exempted version against independent security advisories, verify the npm registry `integrity` hash, confirm no malicious payloads or persistence mechanisms exist, and record the package name, CVE/incident ID, and removal timestamp.
+- **Pinned runtime versions**: The Bun runtime and `@types/bun` are pinned to the versions declared in `package.json`. The `packageManager` field and `install.sh` lock the runtime environment.
+- **TypeScript compilers**: `bun run typecheck` invokes Bun's built-in type checker as `bun --check`; `bun check` runs the repository's `check` script. ESLint and convention checks use the TypeScript compiler API via `typescript` (aliased to `@typescript/typescript6` in `package.json`).
 
 ---
 
@@ -88,7 +87,7 @@ All dependency installations enforce a 7-day release cooling period defined in `
 - **Execution mode**: `bunfig.toml` sets `run.bun = true`, so CLI dependencies with Node shebangs run directly under Bun.
 - **Image transcoding**: Images are processed via native `Bun.Image` (`packages/infra/image.ts`):
   - JPEG and PNG images pass through without modification. WebP and GIF convert to PNG with full Alpha transparency preserved. For GIFs, the first frame is extracted; for animated WebP, the first `ANMF` frame is repackaged as static WebP before decoding.
-  - Single-image decoding is capped at `VISION_TRANSCODE_MAX_PIXELS`. Excessively large images are rejected before memory allocation. Codecs are built into Bun, eliminating any need for external C/C++ native addons in `node_modules`.
+  - Single-image decoding is capped at `VISION_TRANSCODE_MAX_PIXELS`; excessively large images are rejected before memory allocation, and decoded images whose longer edge exceeds `VISION_TRANSCODE_MAX_EDGE` are proportionally downsampled to fit within that limit without enlarging smaller inputs. Codecs are built into the Bun runtime without external native addons in `node_modules`.
 - **Native file I/O guidelines**: Reading, writing, and deleting files prioritize native `Bun.write` and `Bun.file`. In asynchronous code, metadata reads use `Bun.file().stat()` and regular-file existence checks use `Bun.file().exists()`. Exclusive atomic writes (`atomicWriteText`) use `Bun.write(Bun.file(handle.fd), content)` followed by `fsync` and atomic rename. Directory existence checks (`Bun.file().exists()` is always false for directories), deletions that tolerate a missing target (`force: true`; `Bun.file().delete()` throws `ENOENT` for a missing file), synchronous file I/O, directory traversal, path handling, and hard links use explicit `node:` compatibility modules.
 - **Performance recalibration**: After upgrading the Bun runtime, all performance benchmarks must be re-calibrated against the new Bun version.
 
@@ -96,7 +95,7 @@ All dependency installations enforce a 7-day release cooling period defined in `
 
 ### Measurements for This Documentation Version
 
-`bun run test:coverage`: **6624 tests / 553 files / 446303 `expect()` calls**; full-source **function coverage 98.35% / line coverage 98.84%**. The Coverage badge in each project README displays line coverage.
+`bun run test:coverage`: **6792 tests / 560 files / 447983 `expect()` calls**; full-source **function coverage 98.42% / line coverage 98.96%**. The Coverage badge in each project README displays line coverage.
 
 ---
 
@@ -111,8 +110,8 @@ All tests must be run via `bun run test` (which invokes `bun test --isolate`), p
 
 ### Key Test Suite Distribution
 
-- **Installation and upgrade suites**: `test/scripts/installStartup.test.ts` and `test/scripts/installMigration.test.ts` test installation scripts, fresh database provisioning, and full startup sequences. They ensure the installer safely halts without mutating existing data when encountering unrecognized schemas or configs.
-- **Cold migration suites**: `test/scripts/migrateChatPersonaRemoval.test.ts` verifies migrations from schema version 16.3.2 (`CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION`) to the current version (`IDENTITY_DATABASE_SCHEMA_VERSION`, including the Asia/Tokyo time zone stamp), checking validation both before and after migration.
+- **Installation and upgrade suites**: `test/scripts/installStartup.test.ts` and `test/scripts/installMigration.test.ts` test installation scripts, fresh database provisioning, and full startup sequences. They ensure the installer safely halts without mutating existing data when encountering unrecognized schemas, configs, or `/wed` member files.
+- **Cold migration suites**: `test/scripts/migrateWedMemberWindow.test.ts` verifies that only 17.2.1 `memory/wed` member ID arrays are accepted, that the last `WED_MEMBER_LIMIT` IDs are kept in order and written as `{ id, enteredAt }` windows with one shared entry time that pass production startup validation, and that already migrated or invalid sources, symbolic links, and existing output directories are rejected while the source backup stays unchanged.
 - **Media and outbound suites**: `test/aiChat/ai/mediaAdmission.test.ts`, `test/aiChat/ai/imageDescription.test.ts`, and `test/infra/telegramWorkerCapabilities.test.ts` test multimodal safety filters and duplex outbound gates.
 - **Unified outbound integration suites**: `test/infra/telegramOutboundIntegration.test.ts` uses real client initialization, outbound gates, and per-chat lanes, stubbing out only innermost network responses. It validates per-chat FIFO queues across threads, category-specific 429 exponential backoffs, download throttling, and shutdown drain.
 - **Security and logger suites**: `test/infra/loggerSecurity.test.ts` ensures sensitive tokens and credentials are redacted across all error-logging formats.
@@ -130,8 +129,8 @@ All tests must be run via `bun run test` (which invokes `bun test --isolate`), p
 
 ## Hot-Path Gate
 
-`bun run perf:hot-path-gate` is a hard requirement within the `bun run check` gate. It evaluates scenarios defined in `HOT_PATH_PROFILE_SCENARIOS` under `packages/consts/performance.ts`, running each across two independent child processes for `HOT_PATH_PROFILE_REPEATS` iterations:
-- `steadyProfile`: Measures GC pause time percentage and JIT compilation tiers under `BUN_JSC_logGC=1` in steady-state loops.
+`bun run perf:hot-path-gate` is a hard requirement within the `bun run check` gate. It evaluates scenarios defined in `HOT_PATH_PROFILE_SCENARIOS` under `packages/consts/performance.ts`, running `steadyProfile` and `retained` child processes for `HOT_PATH_PROFILE_REPEATS` rounds per scenario:
+- `steadyProfile`: Measures GC pause time percentage and JIT compilation tiers under `JSC_GC_LOG_ENV=1` (`BUN_JSC_logGC=1`) in steady-state loops.
 - `retained`: Measures physical memory (RSS) peak, heapUsed peak, and retained memory after full GC without profiler overhead.
 
 Gate children, along with the child processes of the full suite, `perf:review`, `perf:disk-transport`, `perf:identity-database`, and `perf:join-log`, all take their environment from `perfChildEnvironment` in `scripts/perf/childEnvironment.ts`: it inherits the parent environment, layers on variables such as the isolated roots, then removes the Bun debugger attach variables listed in `BUN_INSPECTOR_ENVS` (for example `BUN_INSPECT_CONNECT_TO`, which VS Code terminals inject), so each child has only the main-thread JSC heap. The GC log must contain exactly one `starting` handshake; when more than one heap appears, no GC reading is produced.
@@ -147,7 +146,7 @@ Gate children, along with the child processes of the full suite, `perf:review`, 
 
 ## Join-Log Performance Benchmark
 
-`bun run perf:join-log` aligns fixture sizes directly with production constants: daily group capacity `JOIN_LOG_MAX_USERS_PER_CHAT_DAY`, flush threshold `FLUSH_MAX_ENTRIES`, and append batch size `JOIN_LOG_MAX_BUFFERED_ENTRIES`. It tests three core paths—snapshots (`snapshot`), capacity (`capacity`), and append accounting (`append-accounting`)—comparing baseline and current implementations in independent child processes to verify data checksums, throughput, and heap behavior.
+`bun run perf:join-log` aligns fixture sizes directly with production constants: daily group capacity `JOIN_LOG_MAX_USERS_PER_CHAT_DAY`, flush threshold `FLUSH_MAX_ENTRIES`, and append batch size `JOIN_LOG_MAX_BUFFERED_ENTRIES`. It tests snapshots (`snapshot`), capacity (`capacity`), and append accounting (`append-accounting`), comparing baseline and current implementations in independent child processes to verify data checksums, throughput, and heap behavior.
 
 ---
 
@@ -171,7 +170,7 @@ Gate children, along with the child processes of the full suite, `perf:review`, 
 
 ## Full Performance Benchmark
 
-`bun run perf:full` runs only during releases or upon explicit request. It does not enforce hard pass/fail thresholds. The suite runs six sections in independent child processes over `FULL_SUITE_ROUNDS` rounds, reporting averages, minimums, maximums, and coefficients of variation:
+`bun run perf:full` runs only during releases or upon explicit request. It does not enforce hard pass/fail thresholds. The suite runs each section in independent child processes over `FULL_SUITE_ROUNDS` rounds, reporting averages, minimums, maximums, and coefficients of variation:
 1. **Cold start**: Service boot and state recovery duration using fully populated fixtures.
 2. **Production hot paths**: High-frequency path duration from message ingress to dispatch.
 3. **End-to-end persistence**: Round-trip latency from main-thread trigger through Worker persistence to disk, alongside full command chains.

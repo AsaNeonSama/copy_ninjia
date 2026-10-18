@@ -51,6 +51,21 @@ function message(overrides: Record<string, unknown> = {}): Message {
   } as unknown as Message;
 }
 
+/** 夹具里门控前的随机触发概率。 */
+const UNGATED_REPLY_PROBABILITY: number = 0.25;
+const TEST_BOT: AiBotInfo = { id: TEST_BOT_ID, username: "test_bot", first_name: "Test Bot" };
+
+/** 以 TEST_BOT 与门控前概率构造一次触发上下文。 */
+function triggerContextOf(current: Message, isQuiet: boolean = false): MessageTriggerContext {
+  return createMessageTriggerContext({
+    message: current,
+    bot: TEST_BOT,
+    now: 1,
+    isQuiet,
+    aiReplyProbability: UNGATED_REPLY_PROBABILITY,
+  });
+}
+
 describe("auto/message/facts", () => {
   test("resolveSpeaker 优先使用 sender_chat，并让频道帖退回频道身份", () => {
     expect(resolveSpeaker(message())).toEqual({
@@ -295,24 +310,44 @@ describe("auto/message/facts", () => {
 
     expect(isReplyToSelf(topicMessage(selfCreated))).toBe(false);
     expect(resolveReplyReference(topicMessage(selfCreated), TEST_BOT_ID)).toBeUndefined();
-    const bot: AiBotInfo = { id: 999, username: "test_bot", first_name: "Test Bot" };
-    const context: MessageTriggerContext = createMessageTriggerContext({
-      message: topicMessage(topicCreated),
-      bot,
-      now: 1,
-      isQuiet: false,
-      aiReplyProbability: 0,
-    });
+    const context: MessageTriggerContext = triggerContextOf(topicMessage(topicCreated));
     expect(context.repliedTo).toBeUndefined();
     expect(context.replyReference).toBeUndefined();
-    expect(context.repliesToSelf).toBe(false);
+    expect(context.aiReplyProbability).toBe(UNGATED_REPLY_PROBABILITY);
     expect(context.directTriggerReason).toBeUndefined();
     expect(context.messageThreadId).toBe(3);
+    // 自己建的话题也不算自回复，随机触发概率不被门控。
+    expect(triggerContextOf(topicMessage(selfCreated)).aiReplyProbability).toBe(UNGATED_REPLY_PROBABILITY);
 
-    // 话题内显式回复另一条消息仍按回复处理。
+    // 话题内显式回复另一条消息仍按回复处理，自回复把随机触发概率归零。
     const explicit: Message = topicMessage(message({ message_id: 7, is_topic_message: true, message_thread_id: 3, text: "上一句" }));
     expect(isReplyToSelf(explicit)).toBe(true);
     expect(resolveReplyReference(explicit, TEST_BOT_ID)?.messageId).toBe(7);
+    expect(triggerContextOf(explicit).aiReplyProbability).toBe(0);
+  });
+
+  test("触发上下文在直接唤起、安静期或提及他人时把随机触发概率归零", () => {
+    const plain: Message = message({ text: "普通群聊消息" });
+    expect(triggerContextOf(plain).aiReplyProbability).toBe(UNGATED_REPLY_PROBABILITY);
+    expect(triggerContextOf(plain, true).aiReplyProbability).toBe(0);
+    expect(triggerContextOf(message({
+      text: "@other_user 你好",
+      entities: [{ type: "mention", offset: 0, length: 11 }],
+    })).aiReplyProbability).toBe(0);
+
+    const mentionBot: MessageTriggerContext = triggerContextOf(message({
+      text: "@test_bot 你好",
+      entities: [{ type: "mention", offset: 0, length: 9 }],
+    }));
+    expect(mentionBot.directTriggerReason).toBe("mention");
+    expect(mentionBot.aiReplyProbability).toBe(0);
+
+    const replyBot: MessageTriggerContext = triggerContextOf(message({
+      text: "接着说",
+      reply_to_message: message({ message_id: 2, from: { id: TEST_BOT_ID, is_bot: true, first_name: "Test Bot" } }),
+    }));
+    expect(replyBot.directTriggerReason).toBe("reply");
+    expect(replyBot.aiReplyProbability).toBe(0);
   });
 
   test("回复引用保留原发送者、原文和 Telegram 选中的精确片段", () => {

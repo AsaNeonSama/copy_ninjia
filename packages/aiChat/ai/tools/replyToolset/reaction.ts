@@ -6,6 +6,7 @@ import { setMessageReaction } from "../../../../infra/telegram";
 import type { ReplyToolContext, ReplyToolExecution } from "../../../../types/aiChat/replies";
 import { parseStringField } from "../../utils/toolArgs";
 
+/** 创建单轮回复的 add_reaction 工具执行器。 */
 export function createAddReactionExecutor(
   ctx: ReplyToolContext
 ): (argumentsJson: string) => ReplyToolExecution {

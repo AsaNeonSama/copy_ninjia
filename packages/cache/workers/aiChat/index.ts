@@ -1,4 +1,4 @@
-/** owner: workers/aiChat。本文件不持有状态，只聚合本线程各领域缓存模块的失效与清理边界。 */
+/** owner: workers/aiChat。AI 闲聊 Worker 按群运行时缓存失效与测试重置聚合入口。 */
 
 import { repliedBotImageBackfills, resetAiChatBotImageCache } from "./botImages";
 import { resetAiChatCompactionCache } from "./compaction";
@@ -6,29 +6,22 @@ import { geminiReplyLastRequestAt, resetGeminiContextCache } from "./geminiConte
 import { clearChatHeartbeatCache, resetAiChatHeartbeatCache } from "./heartbeat";
 import { resetAiChatIdentityCache } from "./identity";
 import { resetImageGenerationCache } from "./imageGeneration";
+import { resetImageReferenceAlbumCache } from "./imageReferenceAlbums";
 import { resetAiChatMemoryCache } from "./memory";
 import { resetAiChatMoodCache } from "./mood";
 import { resetAiProviderSchedulerCache } from "./providerScheduler";
 import { invalidateChatReplyCache, resetAiChatReplyCache } from "./replies";
+import { resetReplyPrefixCache } from "./replyPrefix";
 
-/** AI 禁用或记忆淘汰的统一运行时失效边界。压缩链不提前删除：代际使旧
- * 结果失效，链自然排空。 */
+/** 清理指定群的回复轮、聊天动作心跳、识图回填等待与 Gemini 最近回复请求时间缓存。 */
 export function invalidateChatRuntimeCache(chatId: number): void {
   invalidateChatReplyCache(chatId);
   clearChatHeartbeatCache(chatId);
-  // 在途识别仍按代际自行作废；在途 Gemini 回复请求成功时仍会写回触发时刻（见 geminiContextCache.ts）。
   repliedBotImageBackfills.delete(chatId);
   geminiReplyLastRequestAt.delete(chatId);
 }
 
-/**
- * 测试隔离用的聚合清理：依次调用下面各领域模块各自的 reset。不覆盖 gemini、openai、
- * imageDescription、mediaInputSupport、mediaTasks、stickers、ttsUsage、
- * voiceSynthesis、weather 与 worker 这些模块，用到它们的测试自行复位。
- *
- * 生产没有调用方：AI Worker 重建就是换一个 isolate，线程上下文销毁即清空全部缓存；
- * 运行期的按群失效走上面的 invalidateChatRuntimeCache。
- */
+/** 重置本模块聚合的 AI 闲聊 Worker 各子领域缓存（测试隔离用）。 */
 export function resetAiChatWorkerCache(): void {
   resetAiChatHeartbeatCache();
   resetAiChatBotImageCache();
@@ -36,8 +29,10 @@ export function resetAiChatWorkerCache(): void {
   resetGeminiContextCache();
   resetAiChatIdentityCache();
   resetImageGenerationCache();
+  resetImageReferenceAlbumCache();
   resetAiChatMemoryCache();
   resetAiChatMoodCache();
   resetAiProviderSchedulerCache();
   resetAiChatReplyCache();
+  resetReplyPrefixCache();
 }

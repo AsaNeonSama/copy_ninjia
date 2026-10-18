@@ -3,13 +3,11 @@ import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { replyCommandNoticeVia } from "../helpers/common";
 
 /**
- * commands/send.ts 经 infra/telegram 会实例化真实的 grammY Bot、经
- * infra/storage 会写项目根目录下的 state.json、开会话前的 getChat 校验会打真实
- * Telegram API，这里全部替换成 mock。infra/storage/stateStore 用一份内存实现
- * 代替，只覆盖 handleSendCommand 用到的接口（getChatState、
+ * 替换 infra/telegram、infra/telegram/mainClient 与 infra/storage/stateStore：
+ * stateStore 使用内存 Map 覆盖 handleSendCommand 用到的接口（getChatState、
  * getOrCreateChatState、getChatStateCache、getActiveProxySendTarget、
- * disableChatStateSwitch、persistChatState），getActiveProxySendTarget 复刻真实
- * 实现的扫描语义。
+ * disableChatStateSwitch、persistChatState），getActiveProxySendTarget 按真实
+ * 实现的扫描语义查找。
  */
 const sendMessageMock = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const getChatMock = mock(async (chatId: number): Promise<any> => ({ id: chatId, type: "supergroup", title: "Test Group" }));

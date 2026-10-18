@@ -1,10 +1,7 @@
-/** owner: workers/antiRaid。广告检测流水线（入群守卫线程 packages/workers/antiRaid/adDetect/）的内存状态。
- *
- * 全部随 Worker isolate 生死：崩溃重建后队列与消息串一起清空，主线程不做镜像。
- * 判定命中后的处置（拉黑 + 各群封禁）由主线程接管，走 /block 的 durable 路径
- * （见 docs/cn/04-invariants.md）。
- */
+/** owner: workers/antiRaid。广告检测流水线状态（packages/workers/antiRaid/adDetect/）。 */
 
+import { AD_DETECT_MAX_PENDING_SENDERS } from "../../../consts/antiRaid/adDetect";
+import { FifoMap } from "../../../libs/fifoMap";
 import { LinkedQueue } from "../../../libs/linkedQueue";
 import type {
   AdDetectedEvent,
@@ -15,122 +12,95 @@ import type {
 } from "../../../types/antiRaid/adDetect";
 
 /**
- * 待检发言者的键队列，元素是 `chatId:senderId`（verificationKey，即 AdMessageBundle.key）。
- * 队列只排键、不排内容：同一个人在等待期间新说的话并进 pendingAdMessages 里的同一串，
- * 在队列里只占一个位置。每个节拍取走队首至多 AD_DETECT_BATCH_SIZE 个。
- *
- * 清理：派发时出队、停管与关开关时按群摘键、Worker 停止时整体丢弃。
- * 容量：不单独设闸，每个键最多占一个位置（由 queuedAdDetectKeys 保证），
- * 长度被 pendingAdMessages 的 AD_DETECT_MAX_PENDING_SENDERS 硬顶兜住。
- * Worker 崩溃重建：不重放，随 isolate 一起清空（见模块头注）。
+ * 待检发言者键（`chatId:senderId`）FIFO 队列，每个节拍取走队首至多 AD_DETECT_BATCH_SIZE 个。
+ * 填充：新待检发言者入队时追加；清理：批次派发出队、停管或关开关按群摘键、Worker 停止时清空；重建：Worker 崩溃重启后从空队列开始；容量：由 queuedAdDetectKeys 去重，受 AD_DETECT_MAX_PENDING_SENDERS 约束。
  */
 export const adDetectQueue: LinkedQueue<string> = new LinkedQueue<string>();
 
 /**
- * 当前排在 adDetectQueue 里的键；随队列同步增删，出队时立即删除。
- *
- * 「这个 key 已经取得一个待派发位置」由本表表达：排着的人再说的话只并进消息串。
- * 长度被 pendingAdMessages 的硬顶兜住，不设独立容量闸；停管、关开关与 Worker 停止时
- * 随 adDetectQueue 一起摘键，Worker 崩溃后随 isolate 从空表重建。
+ * 当前排在 adDetectQueue 中的发言者键集合，随队列入队与出队同步增删。
+ * 清理：派发出队、按群摘键或 Worker 停止时删除；重建：Worker 重启后从空集合开始；容量：上限为 AD_DETECT_MAX_PENDING_SENDERS。
  */
 export const queuedAdDetectKeys: Set<string> = new Set<string>();
 
 /**
- * 已被判成广告并处置过的键 -> Worker 单调时钟下的处置时刻。
- * 处置到主线程写入黑名单之间有一段跨线程往返，本表在此期间拦住本线程后续排队的
- * 同一发送者的消息（见 adDetect.ts 的 disposeDetectedAd 与 docs/cn/04-invariants.md）。
- *
- * 写入只来自处置路径，由 setBoundedMapValue 将容量硬顶在 AD_DETECT_MAX_PENDING_SENDERS，
- * 满载时淘汰最早处置的键。每个 key 在 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 后到期；
- * 封禁取得确定结果时由 blocklistEffects 提前回收。Worker 重建时清空，由后续真实处置重新填充。
+ * 已判定为广告并触发处置的发言者键 -> Worker 单调时钟处置时刻（见 docs/cn/04-invariants.md）。
+ * 填充：workers/antiRaid/adDetect/verdict.ts 的 detectOne 触发处置前写入。
+ * 清理：满 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 到期淘汰，或封禁取得确定结果时由 blocklistEffects 提前删除。
+ * 重建：Worker 崩溃重启后从空表开始。
+ * 容量：FifoMap 限制为 AD_DETECT_MAX_PENDING_SENDERS，满载时淘汰最早处置键。
  */
-export const recentlyDisposedAdKeys: Map<string, number> = new Map<string, number>();
+export const recentlyDisposedAdKeys: FifoMap<string, number> = new FifoMap(AD_DETECT_MAX_PENDING_SENDERS);
 
 /**
- * 引用类广告已公开警告的发送者键 -> 警告失效时刻。
- *
- * owner 是 Anti-Raid Worker；第一次引用类广告警告成功后填充，
- * AD_REFERENCE_WARNING_WINDOW_MS 到期、停管、关开关或 Worker 停止时清理，
- * Worker 崩溃后从空表重建。容量与待检发送者上限 AD_DETECT_MAX_PENDING_SENDERS 相同；
- * 满载时淘汰最早警告，被淘汰的发送者重新走首次警告。
+ * 引用类广告已公开警告的发送者键 -> 警告状态与失效时刻。
+ * 填充：首次引用类广告警告发送成功后写入。
+ * 清理：AD_REFERENCE_WARNING_WINDOW_MS 到期、群停管、关开关或 Worker 停止时清除。
+ * 重建：Worker 崩溃重启后从空表开始。
+ * 容量：FifoMap 限制为 AD_DETECT_MAX_PENDING_SENDERS，满载时淘汰最早警告记录。
  */
-export const referencedAdWarningStates: Map<string, ReferencedAdWarningState> =
-  new Map<string, ReferencedAdWarningState>();
+export const referencedAdWarningStates: FifoMap<string, ReferencedAdWarningState> =
+  new FifoMap(AD_DETECT_MAX_PENDING_SENDERS);
 
 /**
- * 引用广告警告 attempt 的 Worker 内单调序号。清群只删状态、不回退序号，
- * 旧发送回执据此不会认领新状态；Worker 重建后序号与旧回执一并消失。
- * 仅在首次警告路径递增。
+ * 引用类广告首次警告发送尝试的单调序号。
+ * 填充：首次警告路径递增；清理与重建：群清理不回退，Worker 重启后归零；容量：固定为单个数值 holder。
  */
 export const referencedAdWarningGeneration: { current: number } = { current: 0 };
 
 /**
- * 群 id -> 发言者 id -> 该发言者累积的判定上下文。两层数字键，查表不拼复合键；
- * 内层表空了随即删除外层项。增删只经 workers/antiRaid/adDetect/queueState.ts
- * 的访问函数（sweep 只读遍历），条数记在 pendingAdBundleCount。
- *
- * 容量由 AD_DETECT_MAX_PENDING_SENDERS 兜住（按 pendingAdBundleCount 判）：满载后拒绝新的
- * 不同发送者，不淘汰已经接纳的旧串。未消费条目没有等待 TTL；已消费上下文在去重窗口外由
- * Worker sweep 回收。停管与关开关按群整层删除，Worker 停止时整表清空，崩溃后随 isolate 重建。
+ * chatId -> (senderId -> 累积待检消息串)，由 workers/antiRaid/adDetect/queueState.ts 维护。
+ * 填充：收到待检消息时写入或追加。
+ * 清理：已消费消息串在去重窗口外由周期 sweep 回收，停管或关开关时按群删除，Worker 停止时清空。
+ * 重建：Worker 崩溃重启后从空表开始。
+ * 容量：总串数（pendingAdBundleCount）上限为 AD_DETECT_MAX_PENDING_SENDERS，满载时拒收新发送者而不淘汰已有条目。
  */
 export const pendingAdMessages: Map<number, Map<number, AdMessageBundle>> = new Map();
 
 /**
- * pendingAdMessages 两层合计的消息串条数；随访问函数的增删同步维护，容量判定直接读它。
- * 清空 pendingAdMessages 时一并归零。
+ * pendingAdMessages 两层合计的消息串总数，随 queueState.ts 增删同步更新，清空时归零。
  */
 export const pendingAdBundleCount: { current: number } = { current: 0 };
 
 /**
- * 按当前广告示例快照拼好的判定提示词：规则与示例段，以及各系统事实变体的完整系统提示词。
- *
- * classifier.ts 首次判定时整份填充；主线程投递新的广告示例快照时由
- * workers/antiRaid/adDetect/config.ts 置 null。Anti-Raid Worker 崩溃后从 null 重建。null 表示
- * 尚未构造，调用方应用当前已严格加载的广告样本生成。容量固定为一份。
+ * 按当前广告样本快照拼接的判定提示词缓存。
+ * 填充：classifier.ts 首次判定时构造写入；清理：收到新广告样本快照时由 workers/antiRaid/adDetect/config.ts 置空；重建：Worker 重启后从 null 按需重建；容量：固定为单个槽位。
  */
 export const adDetectPrompts: { current: AdDetectPrompts | null } = { current: null };
 
 /**
- * 正在等待广告检测 provider 判定或首次公开警告发送结算的键；同一发送者不并发送检，
- * size 即全局在途计数，由 AD_DETECT_MAX_IN_FLIGHT 兜住上界
- * （见 adDetect/queue.ts 的 runAdDetectBatch）。派发时插入，判定 finally
- * 释放；引用类首次命中只在警告网络往返期间续占，广告消息的后续删除不占分类额度。
- * Worker 崩溃重建后随 isolate 归零。
+ * 正在等待模型判定或首次警告发送结算的发言者键集合。
+ * 填充：批次派发时登记；清理：判定及首次警告网络往返结算后移除；重建：Worker 重启后从空集合开始；容量：上限为 AD_DETECT_MAX_IN_FLIGHT。
  */
 export const inFlightAdDetectKeys: Set<string> = new Set<string>();
 
 /**
- * 第一次警告后的广告消息清理任务。owner 为 Anti-Raid Worker；发送警告结算后
- * 填充、删除请求结算时移除，Worker 停止或崩溃时整体清空。容量独立受
- * AD_DETECT_MAX_IN_FLIGHT 约束，满载时放弃新的清理任务，不占用分类 key。
+ * 首次警告发送结算后的广告消息异步删除任务集合。
+ * 填充：警告发送结算后登记；清理：删除请求结算或 Worker 停止时移除；重建：Worker 重启后从空集合开始；容量：上限为 AD_DETECT_MAX_IN_FLIGHT。
  */
 export const inFlightReferencedAdCleanupTasks: Set<Promise<void>> =
   new Set<Promise<void>>();
 
-/** 上一拍是否撞上了全局在途闸，用于把日志限定在状态边沿。随 isolate 生死，Worker 重建后回到 false。 */
+/** 上一轮派发是否触及全局在途上限，用于边沿告警去重；容量固定为单个布尔值，Worker 重启后恢复为 false。 */
 export const adDetectSaturated: { current: boolean } = { current: false };
 
-/** 待检 key/去重表上一轮是否撞到容量上限，用于把日志限定在状态边沿；容量恢复后归零，Worker 重建后回到 false。 */
+/** 待检队列上一轮是否触及容量上限，用于边沿告警去重；容量恢复或 Worker 重启后恢复为 false。 */
 export const adDetectCapacitySaturated: { current: boolean } = { current: false };
 
 /**
- * 判定流水线是否已经进入停机 quiesce。
- *
- * quiesceAdDetectQueue 置真、start/stop 置假。在途判定不登记进 Worker 的 drain
- * 集合（见 queue.ts 的 runAdDetectBatch），可能在主线程 drain 之后才返回；
- * detectOne 在任何处置前读取这面旗并丢弃迟到结果。
+ * 广告检测流水线是否已进入停机排空阶段（quiesceAdDetectQueue 置 true，启动或停止时置 false）。
  */
 export const adDetectStopping: { current: boolean } = { current: false };
 
-/** 批处理节拍 timer；Worker 启动时创建，协作式停止时清除，容量固定为一个。 */
+/** 广告检测批处理节拍 interval 句柄；Worker 启动时创建，停止时清除，容量固定为单个 timer。 */
 export const adDetectTickTimer: { current: ReturnType<typeof setInterval> | null } = { current: null };
 
-/** 判定命中后回投主线程的通道（antiRaidWorker.ts 注入 self.postMessage）；Worker 停止时置空。 */
+/** 广告判定命中后回投主线程的发送回调 holder；启动时注入，停止时置空，容量固定为单个回调。 */
 export const adDetectPublishHolder: {
   current: ((event: AdDetectedEvent) => void) | null;
 } = { current: null };
 
-/** ad=true 后清空主线程连续日累计的独立回投通道；测试未安装时保持为空。 */
+/** 广告判定为真时通知主线程清零无广告连续日计数的回调 holder；启动时注入，停止时置空，容量固定为单个回调。 */
 export const adVerdictTruePublishHolder: {
   current: ((event: AdVerdictTrueEvent) => void) | null;
 } = { current: null };

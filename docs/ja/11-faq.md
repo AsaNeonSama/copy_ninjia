@@ -36,7 +36,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
       • <b>設定の不備</b>：<code>agent.json</code> 内の <code>text</code>、<code>summary</code>、<code>media</code> の 3 項目と、<code>stickers.json</code>、<code>mood.json</code> が必要です。いずれかが欠けると AI 雑談は動作しません。<br>
       • <b>トリガー条件</b>：Bot への返信または <code>@Bot</code> メンションでのみ確実にトリガーされます。その他の通常発言はランダムな確率で割り込みます（<code>/quiet</code> による静寂中は割り込みません）。<br>
       • <b>モードの排他</b>：<code>/copy</code> 復唱中は AI 雑談および自発的な割り込み動作が一時停止します。<br>
-      • <b>レート制限</b>：発言頻度が高い場合、スライディングウィンドウ制限が適用されます（ウィンドウと上限値は <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code> を参照）。
+      • <b>レート制限と拒答クールダウン</b>：発言頻度が高い場合、スライディングウィンドウ制限が適用されます（ウィンドウと上限値は <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code> を参照）。また、許可されない内容や嫌がる内容を執拗に要求して <code>abuse_mark</code> で記録されたユーザーは、<code>ABUSE_MARK_DURATION_MS</code> の間 AI 雑談から除外されます。
     </td>
   </tr>
   <tr>
@@ -48,7 +48,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
   <tr>
     <td><nobr>⏱️ <b>通知が表示後すぐに消える</b></nobr></td>
     <td>
-      • <b>正常な仕様</b>：コマンドの検証失敗、権限拒否、使い方案内、操作結果の通知は、送信成功から <code>COMMAND_MESSAGE_AUTO_DELETE_MS</code>（30 秒）経過後に自動削除されます（長期保持される例外は <a href="09-commands.md#パラメータと対象のマッチング規約">09 コマンド</a> を参照）。
+      • コマンドの検証失敗、権限拒否、使い方案内、操作結果の通知は、送信成功から <code>COMMAND_MESSAGE_AUTO_DELETE_MS</code> 経過後に自動削除されます（長期保持される例外は <a href="09-commands.md#パラメータと対象のマッチング規約">09 コマンド</a> を参照）。
     </td>
   </tr>
   <tr>
@@ -60,14 +60,14 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
   <tr>
     <td><nobr>🫧 <b>アクションコマンドが動かない</b></nobr></td>
     <td>
-      • 1〜2 文字の漢字によるアクションワードのみを認識します。グローバルなスライディングウィンドウ制限（<code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code> のウィンドウごとに最大 <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> 回）があり、上限超過分は静かに破棄されます。
+      • <code>CJK_ACTION_COMMAND_PATTERN</code> に一致する漢字のアクションワードのみを認識します。グローバルなスライディングウィンドウ制限（<code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code> のウィンドウごとに最大 <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> 回）があり、上限超過分は静かに破棄されます。
     </td>
   </tr>
   <tr>
     <td><nobr>🌐 <b>他の Bot が翻訳・復唱されない</b></nobr></td>
     <td>
       • @BotFather で <b>Bot-to-Bot Communication Mode</b> を有効化する必要があります。<br>
-      • 他の Bot から届くメッセージにはグローバルな入口制限があります。継続して発言する同一 Bot のメッセージは <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 件を超えると無視され、<code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 発言がなければカウントがリセットされます。記録数が <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> に達している間は新規 Bot のメッセージを受け付けません（詳細は <a href="04-invariants.md">dispatch の不変条件</a> を参照）。<br>
+      • 他の Bot から届くメッセージにはグローバルな入口制限があります。継続して発言する同一 Bot のメッセージは <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 件を超えると無視され、<code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 発言がなければカウントがリセットされます。記録数が <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> に達している間は新規 Bot のメッセージを受け付けません。そのグループの <code>/delete_message</code> 対象の発言は数えず、すべて削除します（詳細は <a href="04-invariants.md">dispatch の不変条件</a> を参照）。<br>
       • 翻訳はテキストとキャプションのみを扱い、純粋なメディアや数字・記号のみのメッセージは送信しません。
     </td>
   </tr>
@@ -83,7 +83,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
     <td><nobr>💀 <b>プロセス停止、メニューも出ない</b></nobr></td>
     <td>
       • <b>サービス稼働確認</b>：<code>systemctl status &lt;サービス名&gt;</code> でプロセス状態を確認してください。<br>
-      • <b>設定エラーによる終了</b>：データルートの <code>logs/&lt;日付&gt;.json</code> を確認してください。不正な設定が存在すると起動時に安全のため停止し、エラー箇所を出力します。<br>
+      • <b>設定エラーによる終了</b>：データルートの <code>logs/&lt;日付&gt;.json</code> を確認してください。不正な設定が存在すると起動時に停止し、エラー箇所を出力します。<br>
       • <b>トークン競合（409 エラー）</b>：ログに 409 Conflict が記録されている場合、同一トークンで他インスタンスが稼働中であるか、Webhook が解除されていません（詳細は <a href="07-operations.md#起動失敗の調査">07 運用</a> を参照）。
     </td>
   </tr>
@@ -95,14 +95,14 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 ## 通知の口調を切り替えるには？
 
 - `config/static/bot.json` 内で `atmosphere` を `mesugaki`（メスガキ版）または `normal`（通常版）に明示指定すると、ペルソナに基づくデフォルト値より優先され、再起動後に反映されます。
-- `atmosphere` を省略した場合、プロジェクトルートに `prompt/persona.md` が存在すれば全グループの通知とメニューは通常版となり、存在しなければメスガキ版となります。
+- `atmosphere` を省略した場合、プロジェクトルートに `prompt/persona.md` が存在すれば全グループの通知とメニューは `normal`（通常版）となり、存在しなければ `DEFAULT_BOT_ATMOSPHERE` となります。
 - 通知の口調はシステム通知やボタン文言のスタイルのみを変更し、AI 雑談の System Prompt ペルソナは変更しません。
 
 ---
 
 ## 画像ライブラリが起動拒否される、または画像収集で重複排除されない原因は？
 
-- **ファイル規約**：専用画像ライブラリディレクトリ（`assets.json` の `random_h_image_dir`）には、**バイナリコンテンツの SHA-256**（64 文字の小文字 16 進数）で命名された正規の画像ファイルのみを配置できます。
+- **ファイル規約**：専用画像ライブラリディレクトリ（`assets.json` の `random_h_image_dir`）には、**バイナリコンテンツの小文字 16 進数 SHA-256 ダイジェスト**（`RANDOM_IMAGE_CONTENT_NAME_PATTERN`）と対応拡張子（`RANDOM_IMAGE_EXTENSIONS`：`.jpg`、`.jpeg`、`.png`、`.webp`）で命名された正規の画像ファイルのみを配置できます。
 - **起動時インターセプト**：ディレクトリ内にサブディレクトリ、シンボリックリンク、隠しファイル、または残存した一時ファイルが存在する場合、起動前チェックにより起動が拒否されます。サービスを停止してバックアップを取得した上で、[07 運用とトラブルシューティング](07-operations.md) に従って不要なファイルをクリーンアップしてください。
 - **重複排除ロジック**：画像収集時の重複排除はダウンロード後のハッシュ計算段階で行われます。ライブラリ内に同一ハッシュのファイルが既に存在する場合は直接スキップされ、収録済みである旨が案内されます。手動で配置された画像は、同一のダイジェスト名と拡張子を保持している場合のみ重複排除にヒットします。
 
@@ -110,7 +110,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 
 ## 定時タスクが再起動後に再送信されるのはなぜか？
 
-- `just_once` の実行記録はメモリ内にのみ保持されるため、プロセス再起動時に再登録されます。実行が完了した単発タスクは `config/dynamic/cron.json` から削除してください。
+- `just_once` の実行記録はメモリ内にのみ保持される（上限 `CRON_JUST_ONCE_RECORD_MAX`）ため、プロセス再起動時に再登録されます。実行が完了した単発タスクは `config/dynamic/cron.json` から削除してください。
 - `rand_cron` のランダム実行時刻も再起動後に指定範囲内で再抽選されます。サービス停止期間中にスキップされたタスクは補填送信されません。
 - 固定画像の `url` または `path` は配列でなければなりません（要素数の上限は [デプロイ設定説明](../../config_example/README/ja.md#cronjson) を参照）。`cron.json` 内の相対パスは一律で実行時データルートからの相対パスとして解決されます（`./` 接頭辞は不要です）。
 
@@ -183,7 +183,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
   - 基本スタイルは任意の `agent.tts.style` で設定し（ホットリロード対応）、省略時は内蔵の `TTS_DEFAULT_STYLE` を使用します。
   - 送信時に `<基本スタイル>; 细节: <口調>` として自動結合されます。AI 返信の合成では両者の間に読み上げ言語指定が挿入されます（下記のセリフの言語を参照）。
   - `speech_protocol: "xai"` プロトコルは `style` フィールドをサポートしておらず、口調も送信されません。
-- **セリフの言語**：AI `send_voice` のセリフの言語は任意の `agent.tts.bot_language` で設定します（`en` / `zh` / `ja`、省略時 `ja`。ホットリロード対応で、次の返信から反映）。`send_voice`・`send_message` のツール説明と system prompt 内のボイス重複規則を切り替え、AI 返信の合成リクエストでは基本スタイルの後ろにその言語の読み上げ言語指定を追加します（`<基本スタイル>; <読み上げ言語>; 细节: <口調>`。文言は `VOICE_LANGUAGE_PROMPTS` の `speechLanguageStyle` に登録）。`style` は変えず、`/send` と cron のセリフおよび合成リクエストにも影響しません。xai プロトコルで API に送信される合成言語は引き続き `language` で決定されます。
+- **セリフの言語**：AI `send_voice` のセリフの言語は任意の `agent.tts.bot_language` で設定します（`TTS_BOT_LANGUAGES`：`en` / `zh` / `ja`、省略時は `TTS_DEFAULT_BOT_LANGUAGE`。ホットリロード対応で、次の返信から反映）。`send_voice`・`send_message` のツール説明と system prompt 内のボイス重複規則を切り替え、AI 返信の合成リクエストでは基本スタイルの後ろにその言語の読み上げ言語指定を追加します（`<基本スタイル>; <読み上げ言語>; 细节: <口調>`。文言は `VOICE_LANGUAGE_PROMPTS` の `speechLanguageStyle` に登録）。`style` は変えず、`/send` と cron のセリフおよび合成リクエストにも影響しません。xai プロトコルで API に送信される合成言語は引き続き `language` で決定されます。
 - **セリフ言語変更時の推奨設定**：AI 返信の読み上げ言語指定は `bot_language` に従って自動追加されますが、`voice`・`style`・`prompt/voice_tool.md` は連動しません。`bot_language` を切り替える場合は以下を推奨します：
   - `style` をその言語で書かれた声質説明に書き換えます（省略時の `TTS_DEFAULT_STYLE` は日本語の説明です）。`style` は `/send` や cron でも共通利用されるため、声質のみを記述し、特定の言語指定は含めないでください。`/send` や cron で言語を指定したい場合は、各リクエストの `tone` に記述します。`style` を調整しても不自然さが残る場合は、該当言語向けに設計された音色（`voice`）に変更してください。
   - `prompt/voice_tool.md` を配置している場合は、セリフの言語・セリフ例・口調例を同一言語に揃えてください。このファイルの変更を反映するにはプロセスの再起動が必要です。
@@ -195,7 +195,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 
 ## サードパーティゲートウェイ（Cloudflare AI Gateway 等）経由で Google モデルを呼び出すには？
 
-1. **エンドポイントの設定**：該当する能力の `base_url` をゲートウェイのアドレスに変更します。例：
+1. **エンドポイントの設定**：該当する能力の `base_url` をゲートウェイのアドレスに変更します（`install.sh` の対話型ウィザードでも `base_url` と追加ヘッダーを直接入力できます）。例：
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
 2. **認証ヘッダーの付加**：同一能力の下に `headers` を設定します。例：
    ```json
@@ -210,7 +210,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 
 ## Cloudflare AI Gateway 経由で Anthropic モデルを呼び出すには？
 
-`provider: "anthropic"` の能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）は、`headers` を SDK の `defaultHeaders` としてすべてのリクエストに付加します。`base_url` は次のとおり設定します：
+`provider: "anthropic"` の能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）は、`headers` を SDK の `defaultHeaders` としてすべてのリクエストに付加します（`install.sh` の対話型ウィザードでも `base_url` と追加ヘッダーを直接入力できます）。`base_url` は次のとおり設定します：
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
 1. **自前の Anthropic キーを使う場合**：`api_key` に Anthropic API キーを設定します（SDK が `x-api-key` として送信）。ゲートウェイ認証（Authenticated Gateway）が有効な場合は次を追加します：

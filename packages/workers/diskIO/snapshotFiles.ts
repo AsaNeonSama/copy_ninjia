@@ -38,14 +38,7 @@ export interface StickerCatalogRecoveryInspection {
 }
 
 /**
- * 跨域启动第一阶段（只读）：严格校验 memory/stickers/ 下每个贴纸包的目录快照
- * （孤儿快照同样先严格解码），把它们归类成待载入快照与孤儿快照，并交回目录项供清理临时文件残留。
- * 本函数不写盘、不删除。文件名使用 pack short name，并按 activePacks 对账：
- * config/dynamic/stickers.json 的白名单不包含的包记为孤儿，不载入内存。删除由全域
- * 校验成功后的 maintainStickerCatalogFiles 执行。
- * @param activePacks 当前 config/dynamic/stickers.json 的贴纸包白名单（见
- *   config/stickers.ts），用于判定哪些持久化文件已经是孤儿；null 表示白名单缺省，
- *   全部现存快照照常载入，不判孤儿。
+ * 只读扫描并严格校验贴纸目录快照，按 activePacks 拆分为待载入快照与孤儿文件路径（activePacks 为 null 时不判孤儿）。
  */
 export async function inspectStickerCatalogs(
   activePacks: readonly string[] | null
@@ -73,7 +66,7 @@ export async function inspectStickerCatalogs(
   return { snapshots: result, orphanPaths, names };
 }
 
-/** 全域校验成功后清理临时文件与已退出白名单的严格合法快照。 */
+/** 全域校验成功后清理临时文件与已退出白名单的孤儿快照。 */
 export async function maintainStickerCatalogFiles(
   inspection: StickerCatalogRecoveryInspection
 ): Promise<void> {
@@ -82,24 +75,19 @@ export async function maintainStickerCatalogFiles(
   for (const path of inspection.orphanPaths) await bestEffortUnlink(path);
 }
 
-/** 覆盖式写入某个白名单贴纸包的目录快照（tmp + fsync + rename 原子落盘），
- *  snapshotJson 为源头序列化好的 JSON 文本。 */
+/** 原子覆盖写入单个贴纸包的目录快照 JSON。 */
 export function writeStickerCatalogFile(pack: string, snapshotJson: string): void {
   mkdirSync(STICKER_MEMORY_DIR, { recursive: true });
   atomicWriteTextSync(join(STICKER_MEMORY_DIR, `${pack}.json`), snapshotJson, PERSISTED_FILE_MODE);
 }
 
-/**
- * 返回 memory/luck/ 下早于 todayKey 的 YYYY-MM-DD.json 路径，删除由
- * cleanupStaleLuckFiles 执行；非规范或未来的日期文件直接拒绝。
- */
+/** 校验运势目录下的按日文件名，返回早于 todayKey 的过期文件路径列表。 */
 function inspectStaleLuckFiles(
   todayKey: string,
   names: readonly string[]
 ): readonly string[] {
   const stalePaths: string[] = [];
   for (const name of names) {
-    // 密钥文件由 recoverLuckReceiptSecret 单独严格校验，这里只处理按日文件。
     if (name === basename(LUCK_RECEIPT_SECRET_PATH)) continue;
     const match: RegExpExecArray | null = DAY_FILE_PATTERN.exec(name);
     if (match === null) {
@@ -143,13 +131,7 @@ export interface LuckDayRecoveryInspection {
   readonly names: readonly string[];
 }
 
-/**
- * 跨域启动第一阶段（只读）：恢复当天结果与追加游标。列出 memory/luck/ 的目录项
- * （供维护阶段清理 *.tmp 残留与过期日），校验按日文件名（非规范的 *.json 或晚于 todayKey 的日期文件
- * 拒绝启动），只载入今天那份（不存在时 cache 与 fileState 为 null）。先严格
- * 校验 JSON、领域 schema 与容量，再接管追加游标；任何不规范内容都阻止启动并
- * 保留原文件，等待人工处理。本函数不建目录、不删除，清理由 maintainLuckDay 执行。
- */
+/** 只读校验运势目录文件名并恢复 todayKey 当天的运势结果与追加游标。 */
 export async function inspectLuckDay(
   todayKey: string
 ): Promise<LuckDayRecoveryInspection> {
@@ -178,7 +160,6 @@ export async function inspectLuckDay(
   for (const key in raw) {
     if (!Object.hasOwn(raw, key)) continue;
     entryCount++;
-    // 容量错误优先于记录错误；记住首个领域错误并继续完成计数。
     if (failurePath !== null) continue;
     const value: unknown = raw[key];
     if (!LUCK_CACHE_KEY_PATTERN.test(key)) {
@@ -215,7 +196,6 @@ export async function inspectLuckDay(
     return invalidInput(todayPath, "$", `at most ${DAILY_LUCK_CACHE_MAX} confirmed luck records`);
   }
   if (failurePath !== null) return invalidInput(todayPath, failurePath, failureExpected);
-  // 领域 schema 全部通过后才接管追加游标；非规范排版同样 fail-closed。
   const opened: DayFileState = {
     day: todayKey,
     ...openValidatedAppendOnlyFile({
@@ -253,12 +233,7 @@ export async function recoverLuckDay(
   return inspection.cache;
 }
 
-/**
- * 把一批新确认的运势条目追加到当天文件末尾（按位置追加，不整文件重写，
- * 机制见 appendOnlyDayFile.ts）。fileState 由调用方（cache/workers/diskIO/luck.ts）
- * 持有并传入：为 null 或 day 对不上（本次运行第一次写、
- * 或刚跨天）时，先探测/接管一次对应日期的文件。pending 必须非空。
- */
+/** 将一批确认的运势条目按位置追加到当日文件末尾。 */
 export async function appendLuckEntries(
   day: string,
   fileState: LuckFileStateHolder,

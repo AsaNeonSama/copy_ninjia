@@ -8,6 +8,7 @@ import { InputValidationError } from "../../packages/libs/inputValidation";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
 import { chatStateOf } from "../helpers/chatState";
+import { DELETE_MESSAGE_CHAT_TARGET_MAX } from "../../packages/consts/deleteMessage";
 
 describe("chat_states codec", () => {
   test("当前翻译开关严格往返，运行时拒绝旧开关名称", () => {
@@ -171,10 +172,7 @@ describe("chat_states codec", () => {
   });
 });
 
-/**
- * 群状态解码器剩下的拒绝分支：补齐可选字段、两张权限表和 lockdown 各字段的逐条拒绝。
- * 对应 AGENTS.md「不为用户行为兜底」在群状态侧的落点（另见 identityCodecRejections.test.ts）。
- */
+/** 群状态解码器的拒绝分支：补齐可选字段、两张权限表和 lockdown 各字段的逐条拒绝。 */
 describe("chat_states codec 的拒绝分支", () => {
   const SOURCE: string = "chat_states[-1001].status";
 
@@ -285,6 +283,45 @@ describe("chat_states codec 的拒绝分支", () => {
       }),
       "$.lockdown.expiresAt"
     );
+  });
+});
+
+describe("chat_states 的 /delete_message 目标", () => {
+  const SOURCE: string = "chat_states[-1001].status";
+
+  test("用户与频道 id 按登记顺序严格往返，排在 translate 之后", () => {
+    const text: string = encodeChatStateData(
+      chatStateOf({ isInitEnabled: true, deleteMessageTargets: [7, -1009] }),
+      SOURCE
+    );
+    expect(text).toBe('{"isInitEnabled":true,"deleteMessageTargets":[7,-1009]}');
+    expect(decodeChatStateData(text, SOURCE).deleteMessageTargets).toEqual([7, -1009]);
+    expect(decodeChatStateData('{"isInitEnabled":true}', SOURCE).deleteMessageTargets).toBeUndefined();
+  });
+
+  test("空数组、超出每群上限、零、非安全整数与重复 id 一律拒绝并写明字段路径", () => {
+    const tooMany: number[] = Array.from(
+      { length: DELETE_MESSAGE_CHAT_TARGET_MAX + 1 },
+      (_value: unknown, index: number): number => index + 1
+    );
+    const cases: readonly (readonly [unknown, string])[] = [
+      [[], "$.deleteMessageTargets"],
+      [tooMany, "$.deleteMessageTargets"],
+      [7, "$.deleteMessageTargets"],
+      [[0], "$.deleteMessageTargets[0]"],
+      [[1.5], "$.deleteMessageTargets[0]"],
+      [["7"], "$.deleteMessageTargets[0]"],
+      [[Number.MAX_SAFE_INTEGER + 1], "$.deleteMessageTargets[0]"],
+      [[7, -1009, 7], "$.deleteMessageTargets[2]"],
+    ];
+    for (const [targets, path] of cases) {
+      expect(() => decodeChatStateData(JSON.stringify({ isInitEnabled: true, deleteMessageTargets: targets }), SOURCE))
+        .toThrow(`${SOURCE}: ${path}`);
+    }
+    expect(decodeChatStateData(
+      JSON.stringify({ isInitEnabled: true, deleteMessageTargets: tooMany.slice(1) }),
+      SOURCE
+    ).deleteMessageTargets).toHaveLength(DELETE_MESSAGE_CHAT_TARGET_MAX);
   });
 });
 

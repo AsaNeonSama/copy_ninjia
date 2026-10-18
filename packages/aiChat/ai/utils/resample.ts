@@ -1,5 +1,5 @@
 /**
- * 文本生成的退避重采样，贴纸目录（逐枚视觉解析、整包简介）与镜像压缩共用。
+ * 文本生成的退避重采样。
  */
 
 import { logger } from "../../../infra/logger";
@@ -8,20 +8,18 @@ import type { AiTextResult } from "../../../types/aiChat/provider";
 
 /** resampleAiText 的入参。 */
 export interface ResampleAiTextOptions {
-  /** 日志里描述这次生成的英文前缀，如 `AI compaction for chat -100`。 */
+  /** 日志中标识本次生成任务的英文前缀。 */
   readonly label: string;
-  /** 发起一次采样。 */
+  /** 发起单次文本采样。 */
   readonly call: () => Promise<AiTextResult>;
-  /** 逐档重采样前的等待（ms）；档位数即重采样次数上限。 */
+  /** 逐档重采样前的等待毫秒数列表；长度即重采样次数上限。 */
   readonly delaysMs: readonly number[];
   readonly signal: AbortSignal;
 }
 
 /**
- * 跑一次文本生成；结果的 retryable 为 true 时按 delaysMs 逐档重新采样，每次重采样前记一条 warn。
- * 哪些失败可重采样由调用方给出的结果决定（口径见 aiChat/ai/utils/textResult.ts）。
- * @returns 成功时的正文；档位用尽、retryable 为 false，或采样前后 signal 已中止时返回 null。
- *   退避等待期间中止时，按 libs/sleep.ts 的 sleep 以中止原因 reject，由调用方的 catch 按 signal 收尾。
+ * 执行文本采样，当结果标记为可重采样时按 delaysMs 逐档等待后重新采样；
+ * 成功返回文本，不可重采样、档位用尽或采样前后 signal 已中止时返回 null。
  */
 export async function resampleAiText({ label, call, delaysMs, signal }: ResampleAiTextOptions): Promise<string | null> {
   for (let attempt: number = 0; ; attempt++) {

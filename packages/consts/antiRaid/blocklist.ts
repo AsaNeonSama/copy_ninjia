@@ -11,12 +11,8 @@ export const BLOCKLIST_REMOVAL_MAX_ATTEMPTS: number = 3;
 export const BLOCKLIST_REMOVAL_RETRY_DELAY_MS: number = 5_000;
 
 /**
- * 黑名单用户被判定为已销号所需的 PARTICIPANT_ID_INVALID 连续次数。
- *
- * 一个群的一次补扫处置里，该用户的全部探测与封禁请求都被 Telegram 以
- * PARTICIPANT_ID_INVALID 拒绝，记 1 次；任一群的处置落定即清零。达到本值时
- * 把该用户移出黑名单并裁剪待踢批次。`blocklist_entries.data.participantInvalidCount`
- * 只保存 1 到本值减 1。
+ * 黑名单用户被判定为已销号所需的 PARTICIPANT_ID_INVALID 连续次数；达到本值时移出黑名单并裁剪待踢批次，
+ * `blocklist_entries.data.participantInvalidCount` 只保存小于本值的正整数（任一群处置落定即清零）。
  * 所属模块：infra/blocklist/participantInvalid.ts、database/codec/identity.ts。
  */
 export const BLOCKLIST_PARTICIPANT_INVALID_LIMIT: number = 5;
@@ -46,13 +42,8 @@ export const BLOCKLIST_SWEEP_BATCH_PAUSE_MS: number = 1_000;
 export const BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES: number = 5_000;
 
 /**
- * 持久化黑名单移除 outbox 的批次数硬顶。达到上限时 `trackBlockedRemoval` 抛错。
- *
- * 这个抛错**不构成背压**，不得逃到 update 边界（见 blocklistGuard.ts 的
- * claimBlockedJoiner）。调用方一律就地降级：记一行点名日志，再用
- * requestBlocklistResweep 把这个群挂回补扫，等 outbox 腾出位置后补做。
- * 已登记的批次留在 outbox，没登记上的由补扫覆盖。
- * Disk I/O 启动 inspect 对 `pending_blocked_removals` 行数执行同一上限，超出即拒绝启动。
+ * 持久化黑名单移除 outbox 的批次数硬顶：达到上限时 `trackBlockedRemoval` 抛错（调用方就地降级并挂回补扫，
+ * 见 blocklistGuard.ts 的 claimBlockedJoiner）；Disk I/O 启动 inspect 对 `pending_blocked_removals` 行数执行同一上限。
  * 所属模块：infra/blocklist/。
  */
 export const BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES: number = 4_096;
@@ -65,18 +56,14 @@ export const BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES: number = 4_096;
 export const BLOCKLIST_REMOVAL_HYDRATION_PAGE_SIZE: number = 2_048;
 
 /**
- * 处置消息投递前，「落盘 → 再看一眼权威镜像还是不是同一批」的对账最多重来几轮。
- *
- * 重来表示 flush 等待期间 `/block disable` 或停管裁剪了这批。每一轮是一次整份
- * outbox 深拷贝加带 fsync 的整文件重写，而本函数跑在 update 处理里面，因此轮数有上限。
- * 用尽只是这一次投递放弃并留一行错误日志，outbox 里的任务不受影响，下一次边沿会重投。
+ * 处置消息投递前，「落盘 → 对账权威镜像」的最大重试轮数；耗尽时放弃本次投递并记录错误日志，保留 outbox 任务待下次重投。
  * 所属模块：antiRaid/blocklistDelivery.ts。
  */
 export const BLOCKLIST_REMOVAL_RECONCILE_MAX_ROUNDS: number = 5;
 
 /**
  * durable outbox 允许记录的失败边界。类型层从本常量派生，codec 复用同一列表。
- * 所属模块：infra/blocklist/、database/codec/identity.ts。
+ * 所属模块：types/blocklist.ts、database/codec/identity.ts。
  */
 export const BLOCKLIST_REMOVAL_FAILURE_TYPES: readonly [
   "delivery-boundary",
@@ -133,12 +120,7 @@ export const BLOCKLIST_REMOVAL_REPLAY_ALERT_ATTEMPTS: number = 5;
 export const BLOCKLIST_SWEEP_RETRY_INTERVAL_MS: number = 300_000;
 
 /**
- * 连续没落定的补扫，退避按失败次数线性放大后的上限。
- *
- * 目标自己是该群管理员、或机器人是管理员但没有封禁权限时，每一轮补扫都是
- * `complete: false`，每轮是 O(名单长度) 次 getChatMember + banChatMember；
- * 重扫间隔随失败次数增大，直到本上限。`sweptAt` 闩锁始终有打开的路径，
- * 权限修好之后不必等到进程重启才重扫（见 docs/cn/04-invariants.md）。
+ * 连续未落定的补扫按失败次数线性放大退避后的间隔上限（跨模块约束见 docs/cn/04-invariants.md）。
  * 所属模块：infra/blocklist/。
  */
 export const BLOCKLIST_SWEEP_RETRY_MAX_INTERVAL_MS: number = 21_600_000;

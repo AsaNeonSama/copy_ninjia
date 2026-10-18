@@ -58,7 +58,8 @@ export interface DrainWaiterParams {
 /**
  * 停机 drain 的骨架：等待某个 owner 的在途与待执行工作归零，超出预算则 abort 并结算。
  *
- * 当前唯一的 owner 是头像更新队列（copy/avatarQueue.ts 的 drainAvatarUpdates）。
+ * owner 是头像更新队列（copy/avatarQueue.ts 的 drainAvatarUpdates）与 `/delete_message` 的待删队列
+ * （commands/deleteMessage/queue.ts 的 drainTargetMessageDeletions）。
  * 预算为 0 时不抛校验错，立刻 abort 并按 timedOut 结算；登记 waiter 之后再触发一次
  * 空闲检查。
  * @see ../../docs/cn/04-invariants.md

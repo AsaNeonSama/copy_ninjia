@@ -18,9 +18,17 @@ const commandArguments: { handler: string; argument: string }[] = [];
  * 缺省返回 Promise，覆盖分发函数等待后再决定的路径。
  */
 let callbackClaimsAreSync: boolean = false;
-/** 三条 ingress 是否认领本条 update；每个用例自行设置。 */
-const claims: { antiRaid: boolean; gag: boolean; qa: boolean; qaBoard: boolean; wed: boolean } = {
+/** 各条 ingress 与按钮认领是否认领本条 update；每个用例自行设置。 */
+const claims: {
+  antiRaid: boolean;
+  deleteMessage: boolean;
+  gag: boolean;
+  qa: boolean;
+  qaBoard: boolean;
+  wed: boolean;
+} = {
   antiRaid: false,
+  deleteMessage: false,
   gag: false,
   qa: false,
   qaBoard: false,
@@ -71,6 +79,7 @@ const COMMAND_HANDLERS: Readonly<Record<string, string>> = {
   unmute: "handleUnmuteCommand",
   gag: "handleGagCommand",
   ungag: "handleUngagCommand",
+  delete_message: "handleDeleteMessageCommand",
   send: "handleSendCommand",
   qa: "handleQaCommand",
   x: "handleCjkActionUsageCommand",
@@ -83,6 +92,11 @@ const commandsModule: Record<string, unknown> = {
     calls.push("handleCjkActionCommand");
     cjkMatches.push(Array.isArray(ctx.match) ? [...ctx.match] : []);
     return next();
+  },
+  // 删除目标 ingress 同步返回布尔，不分配 Promise。
+  handleDeleteMessageIngress: (): boolean => {
+    calls.push("handleDeleteMessageIngress");
+    return claims.deleteMessage;
   },
   handleGagMessageIngress: (): Promise<boolean> => {
     calls.push("handleGagMessageIngress");
@@ -216,6 +230,7 @@ beforeEach((): void => {
   resetWedMemberStates();
   getOrCreateChatState(CHAT.id).isInitEnabled = true;
   claims.antiRaid = false;
+  claims.deleteMessage = false;
   claims.gag = false;
   claims.qa = false;
   claims.qaBoard = false;
@@ -258,9 +273,10 @@ describe("registerHandlers 分发", () => {
   test("全部命令经 :entities:bot_command 子链落到各自 handler，且不再进消息兜底", async () => {
     for (const [command, handler] of Object.entries(COMMAND_HANDLERS)) {
       const observed: readonly string[] = await dispatch(commandMessage(`/${command}`));
-      // 命令消息同样先过各 ingress：待验证成员发的命令计入刷屏窗口、被 gag 的命令消息不继续，`/qa set` 表单投递先被认领。
+      // 命令消息同样先过各 ingress：待验证成员发的命令计入刷屏窗口、删除目标与被 gag 的命令消息不继续，`/qa set` 表单投递先被认领。
       expect(observed).toEqual([
         "handleAntiRaidMessageIngress",
+        "handleDeleteMessageIngress",
         "handleGagMessageIngress",
         "handleQaMessageIngress",
         handler,
@@ -290,6 +306,7 @@ describe("registerHandlers 分发", () => {
     // 整组命令 handler 都不执行。
     expect(await dispatch(groupMessage("普通群消息"))).toEqual([
       "handleAntiRaidMessageIngress",
+      "handleDeleteMessageIngress",
       "handleGagMessageIngress",
       "handleQaMessageIngress",
       "handleIncomingMessageMiddleware",
@@ -335,8 +352,9 @@ describe("registerHandlers 分发", () => {
       },
     });
     expect(observed).toContain("handleQaCommand");
-    // 频道帖不进 Anti-Raid / gag 那两条只挂在 message 上的 ingress。
+    // 频道帖不进 Anti-Raid / 删除目标 / gag 那三条只挂在 message 上的 ingress。
     expect(observed).not.toContain("handleAntiRaidMessageIngress");
+    expect(observed).not.toContain("handleDeleteMessageIngress");
     expect(observed).toContain("handleQaMessageIngress");
   });
 
@@ -346,10 +364,25 @@ describe("registerHandlers 分发", () => {
       .toEqual(["handleAntiRaidMessageIngress"]);
   });
 
+  test("删除目标 ingress 排在 Anti-Raid 之后、gag 之前，认领后整条 update 终止", async () => {
+    claims.deleteMessage = true;
+    expect(await dispatch(commandMessage("/permission"))).toEqual([
+      "handleAntiRaidMessageIngress",
+      "handleDeleteMessageIngress",
+    ]);
+    expect(await dispatch(groupMessage("普通群消息"))).toEqual([
+      "handleAntiRaidMessageIngress",
+      "handleDeleteMessageIngress",
+    ]);
+    claims.antiRaid = true;
+    expect(await dispatch(groupMessage("普通群消息"))).toEqual(["handleAntiRaidMessageIngress"]);
+  });
+
   test("gag ingress 认领后整条 update 终止", async () => {
     claims.gag = true;
     expect(await dispatch(commandMessage("/permission"))).toEqual([
       "handleAntiRaidMessageIngress",
+      "handleDeleteMessageIngress",
       "handleGagMessageIngress",
     ]);
   });
@@ -358,6 +391,7 @@ describe("registerHandlers 分发", () => {
     claims.qa = true;
     expect(await dispatch(groupMessage("回答: 一段答案"))).toEqual([
       "handleAntiRaidMessageIngress",
+      "handleDeleteMessageIngress",
       "handleGagMessageIngress",
       "handleQaMessageIngress",
     ]);
@@ -382,7 +416,7 @@ describe("registerHandlers 分发", () => {
     await dispatch(groupMessage("普通群消息"));
     expect([...wedMemberStates.get(CHAT.id)!.members.keys()]).toEqual([FROM.id]);
     expect(await dispatch(commandMessage("/wed"))).toEqual([
-      "handleAntiRaidMessageIngress", "handleGagMessageIngress", "handleQaMessageIngress", "dispatchWedCommand",
+      "handleAntiRaidMessageIngress", "handleDeleteMessageIngress", "handleGagMessageIngress", "handleQaMessageIngress", "dispatchWedCommand",
     ]);
     claims.antiRaid = true;
     expect(await dispatch(commandMessage("/wed"))).toEqual(["handleAntiRaidMessageIngress"]);

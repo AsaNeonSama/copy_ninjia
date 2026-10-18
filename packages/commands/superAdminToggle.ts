@@ -6,14 +6,14 @@ import {
 } from "../infra/storage/stateStore";
 import { replyCommandNotice } from "../infra/telegram";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type { CachedUser, ChatState } from "../types/chatState";
+import type { CachedUser, ChatState, ChatStateSwitchKey } from "../types/chatState";
 import type { ToggleAction, ToggleCommandTexts } from "../types/commands";
 import { rejectUnlessPermitted, rejectUnlessSuperAdmin } from "./commandActor";
 import { parseToggleAction } from "./arguments";
 
 /** resolveSuperAdminToggleArg 的入参。 */
 interface SuperAdminToggleOptions {
-  /** 本命令的文案表，取自 consts/commands.ts。 */
+  /** 本命令的文案表，取自 consts/atmosphere/（经 chatAtmosphere() 读取）。 */
   readonly texts: ToggleCommandTexts;
   /** 省略时仅允许超级管理员；提供时允许拥有该项白名单权限的身份。 */
   readonly permission?: WhitelistPermissionKey;
@@ -49,18 +49,16 @@ export function toggleReplyText({
 /** runChatToggleCommand 的入参；按群开关命令的完整编排都由它描述。 */
 export interface ChatToggleCommandParams {
   readonly ctx: CommandContext<Context>;
-  /** 本命令的文案表，取自 consts/commands.ts。 */
+  /** 本命令的文案表，取自 consts/atmosphere/（经 chatAtmosphere() 读取）。 */
   readonly texts: ToggleCommandTexts;
   /** 授权用的白名单权限键；超级管理员恒持有全部键。 */
   readonly permission: WhitelistPermissionKey;
   /** 落盘原因串，进 persistChatState。 */
   readonly persistReason: string;
-  /** 运行时清理对象的英文名，只进错误日志，例如 `queued ad detection`。 */
+  /** 运行时清理对象的英文名，只进错误日志。 */
   readonly runtimeLabel: string;
-  /** 读这个群当前的开关位。 */
-  readonly read: (state: ChatState) => boolean;
-  /** 写入目标开关位；调用方只改自己那一个字段。 */
-  readonly write: (state: ChatState, isEnabled: boolean) => void;
+  /** 本命令读写的群功能开关字段名。 */
+  readonly switchKey: ChatStateSwitchKey;
   /**
    * 开启方向的配置总闸；返回 true 表示它已经自己回执并拒绝了本次开启。
    * 省略表示开启时不检查部署配置。
@@ -92,8 +90,7 @@ export async function runChatToggleCommand({
   permission,
   persistReason,
   runtimeLabel,
-  read,
-  write,
+  switchKey,
   refuseEnable,
   beforeDisable,
   teardown,
@@ -112,8 +109,8 @@ export async function runChatToggleCommand({
   if (!isEnabled && beforeDisable !== undefined) await beforeDisable(chatId);
 
   const state: ChatState = getOrCreateChatState(chatId);
-  const wasEnabled: boolean = read(state);
-  write(state, isEnabled);
+  const wasEnabled: boolean = state[switchKey] === true;
+  state[switchKey] = isEnabled;
   // 落盘失败原样上抛：那是 fatal durability failure，这条 update 不能被确认
   // （见 docs/cn/04-invariants.md）。
   await persistChatState(chatId, persistReason);

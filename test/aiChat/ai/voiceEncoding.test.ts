@@ -3,7 +3,7 @@
  * 原始输入采样率与收尾页的 granule 时长，分块编码的各页内容与整段一次编码逐字节相同，块间
  * 让出事件循环；OGG/Opus 与 MP3 校验后原样透传（独占字节副本、时长、
  * 文件名）；不支持的 MIME、WAV 解析与容器校验失败原样带回原因；编码器抛错时记原始错误并
- * 归一成失败原因。
+ * 归一成失败原因；编码器初始化或块间让出期间 signal 中止时不再编码剩余块并返回 aborted。
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -203,5 +203,59 @@ describe("encodeVoiceMessage 编码器失败", () => {
       // 恢复真实导出，随机顺序下其余用例仍走真实编码器。
       mock.module("@audio/encode-opus", () => ({ default: realOpus }));
     }
+  });
+});
+
+describe("encodeVoiceMessage 取消", () => {
+  /** 被测 WAV 的分块数：时长取 VOICE_OPUS_ENCODE_CHUNK_SECONDS 的 CHUNKS 倍。 */
+  const CHUNKS: number = 3;
+
+  /**
+   * 用真实编码器包一层计数：abortAt 为 "create" 时编码器建好即中止，为数字时第 abortAt 块编码后中止；
+   * 交回编码结果、实际编码块数与编码器是否已释放。
+   */
+  async function encodeAbortingAt(
+    abortAt: "create" | number
+  ): Promise<{ result: VoiceEncodeResult; encodedChunks: number; freed: boolean }> {
+    const realOpus: typeof opus = (await import("@audio/encode-opus")).default;
+    const controller: AbortController = new AbortController();
+    let encodedChunks: number = 0;
+    let freed: boolean = false;
+    mock.module("@audio/encode-opus", () => ({
+      default: async (options: Parameters<typeof opus>[0]) => {
+        const encoder = await realOpus(options);
+        if (abortAt === "create") controller.abort();
+        return {
+          encode: (channels: Float32Array[]): Uint8Array => {
+            const page: Uint8Array = encoder.encode(channels);
+            if (++encodedChunks === abortAt) controller.abort();
+            return page;
+          },
+          flush: (): Uint8Array => encoder.flush(),
+          free: (): void => {
+            freed = true;
+            encoder.free();
+          },
+        };
+      },
+    }));
+    try {
+      const result: VoiceEncodeResult = await encodeVoiceMessage(
+        { bytes: sineWav(24_000, VOICE_OPUS_ENCODE_CHUNK_SECONDS * CHUNKS), mimeType: "audio/wav" },
+        controller.signal
+      );
+      return { result, encodedChunks, freed };
+    } finally {
+      mock.module("@audio/encode-opus", () => ({ default: realOpus }));
+    }
+  }
+
+  test.each([
+    { when: "编码器初始化期间", abortAt: "create", encodedChunks: 0 },
+    { when: "第 1 块编码后的让出期间", abortAt: 1, encodedChunks: 1 },
+    { when: "最后一块编码后的让出期间", abortAt: CHUNKS, encodedChunks: CHUNKS },
+  ] as const)("$when中止：不再编码剩余块、释放编码器并返回 aborted，不记错误", async ({ abortAt, encodedChunks }) => {
+    expect(await encodeAbortingAt(abortAt)).toEqual({ result: { ok: false, reason: "aborted" }, encodedChunks, freed: true });
+    expect(loggerError).not.toHaveBeenCalled();
   });
 });

@@ -91,7 +91,7 @@ interface MediaRecordOptions {
 /** 一条要发起回复轮的图片记录；replyTelegramBackpressured 是主线程投递时刻写入的背压快照。 */
 function mediaRecord(id: number, options: MediaRecordOptions): AiRecordMediaMessage {
   return {
-    type: "recordMedia", messageThreadId: undefined, kind: "photo", chatId: -1001,
+    type: "recordMedia", messageThreadId: undefined, mediaGroupId: undefined, kind: "photo", chatId: -1001,
     senderId: 7, firstName: "Alice", lastName: "", username: undefined,
     caption: "", fileId: `file-${id}`, fileUniqueId: `unique-${id}`, width: 100, height: 100,
     messageId: id, replyTelegramBackpressured: options.replyTelegramBackpressured, stickerFallbackText: undefined,
@@ -320,7 +320,7 @@ test("媒体入站先占位；后到文字已生成也等待媒体识别与回�
   const description = Promise.withResolvers<string | null>();
   describeMedia.mockImplementationOnce(() => description.promise);
   const msg: AiRecordMediaMessage = {
-    type: "recordMedia", messageThreadId: 17, kind: "photo", chatId: -1001,
+    type: "recordMedia", messageThreadId: 17, mediaGroupId: undefined, kind: "photo", chatId: -1001,
     senderId: 7, firstName: "Alice", lastName: "", username: undefined,
     caption: "@bot 看图", fileId: "file", fileUniqueId: "unique", width: 100, height: 100,
     messageId: 1, replyTelegramBackpressured: false, stickerFallbackText: undefined,

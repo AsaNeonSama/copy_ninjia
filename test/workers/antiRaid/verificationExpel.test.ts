@@ -245,7 +245,50 @@ describe("踢人失败时的权限告警", () => {
 
       expect(probeChatMembership).toHaveBeenCalledTimes(1);
       expect(kickedUserIds).toEqual([USER_ID]);
+      expect(deletedMessageIds).toEqual([]);
+    } finally {
+      restoreTimeouts();
+    }
+  });
+
+  test("第一轮清理完成、踢人失败重试时，第二轮不再重发 deleteMessage 且战报文案不变", async () => {
+    const delays: number[] = [];
+    const restoreTimeouts: () => void = recordScheduledDelays(delays);
+    try {
+      testState.kickSucceeds = false;
+      const state = expellingState({
+        announcementMessageId: 20,
+        reminderMessageId: 21,
+        replyReminderMessageId: 22,
+      });
+      setState(state);
+
+      await run([{ kind: "expel", snapshot: state.snapshot }]);
+
       expect(deletedMessageIds).toEqual([20, 21, 22]);
+      expect(verificationEntries.get(KEY)?.cleanupSettled).toBeTrue();
+      expect(kickedUserIds).toEqual([USER_ID]);
+      expectTemplateRendered(
+        sentTexts[0]!,
+        ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationTimeoutKickFailed
+      );
+
+      deletedMessageIds.length = 0;
+      sentTexts.length = 0;
+      kickedUserIds.length = 0;
+      testState.kickSucceeds = true;
+
+      await run([{ kind: "expel", snapshot: state.snapshot }]);
+
+      expect(deletedMessageIds).toEqual([]);
+      expect(kickedUserIds).toEqual([USER_ID]);
+      expect(sentTexts).toHaveLength(1);
+      const timeout: string = formatMinSec(VERIFICATION_TIMEOUT_MS);
+      expectTemplateRendered(
+        sentTexts[0]!,
+        (label: string): string =>
+          ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationMemberTimeout(label, timeout)
+      );
     } finally {
       restoreTimeouts();
     }

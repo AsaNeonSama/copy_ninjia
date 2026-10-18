@@ -16,12 +16,7 @@ type StorageDatabaseTransaction = Parameters<
   Parameters<StorageDatabase["transaction"]>[0]
 >[0];
 
-/**
- * 当前格式 storage_metadata 的全部行：schema 版本与数据根绑定的时区标记。
- *
- * timeZone 必须是 config/timeZoneInput.ts 规范化后的配置时区；建库与测试夹具共用这一份
- * 行构造，启动按同一形态严格比对。
- */
+/** 构造 `storage_metadata` 表的初始行（当前 schema 版本与绑定时区标记）。 */
 export function storageMetadataRows(
   timeZone: string
 ): readonly StoredStorageMetadataRow[] {
@@ -32,7 +27,7 @@ export function storageMetadataRows(
   ];
 }
 
-/** 为迁移刚创建的空库在一个事务内写入当前 schema 版本与配置时区标记。 */
+/** 在单个事务内向 `storage_metadata` 写入初始元数据行。 */
 export function initializeStorageDatabase(
   database: StorageDatabase,
   timeZone: string
@@ -43,10 +38,7 @@ export function initializeStorageDatabase(
   });
 }
 
-/**
- * 建立新的共享 SQLite 库：createStorageDatabase 建表（目标已存在时拒绝），一个事务内写入当前 schema 版本与
- * timeZone 时区标记，关闭连接后启用 WAL。安装器、发行包自检与性能夹具共用；生产启动不调用。
- */
+/** 创建新共享 SQLite 数据库、写入初始元数据并启用 WAL 模式。 */
 export function bootstrapStorageDatabase(path: string, timeZone: string): void {
   createStorageDatabase(path);
   const database: StorageDatabase = openStorageDatabase({ path });

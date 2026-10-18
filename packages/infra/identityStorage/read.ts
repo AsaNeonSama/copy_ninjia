@@ -1,11 +1,8 @@
 import * as diskIO from "../diskIO";
 import {
-  blocklistEntryCache,
   identityEntryCounts,
-  whitelistEntryCache,
+  identityPolicyCache,
 } from "../../cache/main/identityStorage";
-import { temporaryAdBypassActivityCache } from
-  "../../cache/main/temporaryAdBypass";
 import { IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES } from
   "../../consts/identityStorage";
 import {
@@ -14,7 +11,10 @@ import {
   decodeWhitelistEntryData,
 } from "../../database/codec/identity";
 import { logger } from "../logger";
-import { hydrateTemporaryAdBypassActivities } from "../identityPolicy/temporaryAdBypass";
+import {
+  currentTemporaryAdBypassActivity,
+  storedTemporaryAdBypassActivities,
+} from "../identityPolicy/temporaryAdBypass";
 import {
   currentIdentityPolicyText,
   rawIdentityPolicyRows,
@@ -26,9 +26,11 @@ import type {
   WhitelistEntryData,
 } from "../../types/identityPolicy";
 import type {
+  IdentityPolicyCacheEntry,
   IdentityPolicyRawReadResult,
   IdentityPolicyVerdicts,
 } from "../../types/identityStorage";
+import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBypass";
 
 /** CachedUser 的 Telegram 字段稳定映射到 SQLite meta。 */
 export function identityMetadataFromCachedUser(
@@ -46,7 +48,7 @@ export function identityMetadataFromCachedUser(
 /**
  * 启动恢复只灌入数据库计数。
  *
- * 两个计数都通过校验后才清空三份读取 LRU 并写入计数；三类未 ACK 最终值与
+ * 两个计数都通过校验后才清空合并身份缓存并写入计数；三类未 ACK 最终值与
  * revision 发号器不在这里改动。
  */
 export function hydrateIdentityStorageCounts(
@@ -59,32 +61,31 @@ export function hydrateIdentityStorageCounts(
   if (!Number.isSafeInteger(blocklistCount) || blocklistCount < 0) {
     throw new Error("Blocklist entry count must be a non-negative safe integer.");
   }
-  whitelistEntryCache.clear();
-  blocklistEntryCache.clear();
-  temporaryAdBypassActivityCache.clear();
+  identityPolicyCache.clear();
   identityEntryCounts.whitelist = whitelistCount;
   identityEntryCounts.blocklist = blocklistCount;
 }
 
-/** 三份 LRU 是否都已有该主键的正/负结论。 */
+/** 合并身份缓存是否已有该主键三项的正/负结论；不刷新热度。 */
 export function isIdentityPolicyCached(id: number): boolean {
-  return whitelistEntryCache.has(id) &&
-    blocklistEntryCache.has(id) &&
-    temporaryAdBypassActivityCache.has(id);
+  const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.peek(id);
+  return entry?.whitelist !== undefined &&
+    entry.blocklist !== undefined &&
+    entry.temporaryAdBypass !== undefined;
 }
 
-/** 同步读取已预热的白名单；冷缺失按 fail-closed 解释为不存在。 */
+/** 同步读取已预热的白名单并刷新条目热度；冷缺失按 fail-closed 解释为不存在。 */
 export function cachedWhitelistEntry(
   id: number
 ): Readonly<WhitelistEntryData> | undefined {
-  return whitelistEntryCache.get(id) ?? undefined;
+  return identityPolicyCache.get(id)?.whitelist ?? undefined;
 }
 
-/** 同步读取已预热的黑名单；冷缺失按 fail-closed 解释为不存在。 */
+/** 同步读取已预热的黑名单并刷新条目热度；冷缺失按 fail-closed 解释为不存在。 */
 export function cachedBlocklistEntry(
   id: number
 ): Readonly<BlocklistEntryData> | undefined {
-  return blocklistEntryCache.get(id) ?? undefined;
+  return identityPolicyCache.get(id)?.blocklist ?? undefined;
 }
 
 /** 结论收集器；readIdentityPolicyVerdicts 逐块累加，预热路径不传。 */
@@ -94,8 +95,8 @@ interface IdentityPolicyVerdictSets {
 }
 
 /**
- * 读取一块主键并写入三份 LRU；传入 verdicts 时同时把本块结论记进调用方的局部集合。
- * 本地未 ACK 最终值覆盖数据库迟到结果。
+ * 读取一块主键，每个 id 对合并身份缓存做一次整条写入（三项一起）；传入 verdicts 时同时把本块
+ * 结论记进调用方的局部集合。本地未 ACK 最终值覆盖数据库迟到结果。
  */
 async function readIdentityPolicyChunk(
   ids: readonly number[],
@@ -113,7 +114,8 @@ async function readIdentityPolicyChunk(
     requested,
     "blocklist"
   );
-  hydrateTemporaryAdBypassActivities(reply.temporaryAdBypass, requested, ids);
+  const temporaryAdBypassRows: ReadonlyMap<number, Readonly<TemporaryAdBypassActivity>> =
+    storedTemporaryAdBypassActivities(reply.temporaryAdBypass, requested);
   for (const id of ids) {
     const whitelistText: string | null = currentIdentityPolicyText(
       "whitelist",
@@ -132,29 +134,27 @@ async function readIdentityPolicyChunk(
       if (whitelistText !== null) verdicts.whitelisted.add(id);
       if (blocklistText !== null) verdicts.blocked.add(id);
     }
-    whitelistEntryCache.set(
-      id,
-      whitelistText === null
-        ? null
-        : decodeWhitelistEntryData(
-          whitelistText,
-          `permission_list[${id}].policy`
-        )
-    );
-    blocklistEntryCache.set(
-      id,
-      blocklistText === null
-        ? null
-        : decodeBlocklistEntryData(
-          blocklistText,
-          `blocklist_entries[${id}].data`
-        )
-    );
+    const whitelist: Readonly<WhitelistEntryData> | null = whitelistText === null
+      ? null
+      : decodeWhitelistEntryData(whitelistText, `permission_list[${id}].policy`);
+    const blocklist: Readonly<BlocklistEntryData> | null = blocklistText === null
+      ? null
+      : decodeBlocklistEntryData(blocklistText, `blocklist_entries[${id}].data`);
+    const temporaryAdBypass: Readonly<TemporaryAdBypassActivity> | null =
+      currentTemporaryAdBypassActivity(id, temporaryAdBypassRows);
+    const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.get(id);
+    if (entry === undefined) {
+      identityPolicyCache.set(id, { whitelist, blocklist, temporaryAdBypass });
+    } else {
+      entry.whitelist = whitelist;
+      entry.blocklist = blocklist;
+      entry.temporaryAdBypass = temporaryAdBypass;
+    }
   }
 }
 
 /**
- * 批量预热三份 LRU 的冷缺失；本地未 ACK 最终值覆盖数据库迟到结果。
+ * 批量预热合并身份缓存的冷缺失（条目不存在或任一项未加载）；本地未 ACK 最终值覆盖数据库迟到结果。
  * 已缓存的主键按一次使用刷新热度，不会被同一次预热写入的冷键挤出
  * （单块小于 LRU 容量，见 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
  * Disk I/O 未初始化时直接返回 true，同步读取保持 fail-closed。
@@ -170,16 +170,13 @@ export async function prefetchIdentityPolicies(
     assertTelegramIdentityId(id, "identity policy prefetch");
     if (seen.has(id)) continue;
     seen.add(id);
+    const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.get(id);
     if (
-      !whitelistEntryCache.has(id) ||
-      !blocklistEntryCache.has(id) ||
-      !temporaryAdBypassActivityCache.has(id)
+      entry?.whitelist === undefined ||
+      entry.blocklist === undefined ||
+      entry.temporaryAdBypass === undefined
     ) {
       missing.push(id);
-    } else {
-      whitelistEntryCache.get(id);
-      blocklistEntryCache.get(id);
-      temporaryAdBypassActivityCache.get(id);
     }
   }
   if (
@@ -209,7 +206,7 @@ export async function prefetchIdentityPolicies(
 /**
  * 为破坏性批量处置直接冷读一批主键的永久策略结论，不论它们此刻是否已缓存。
  *
- * 结论由调用方局部持有，不受处置期间 LRU 淘汰影响；读取同时写入三份 LRU，
+ * 结论由调用方局部持有，不受处置期间 LRU 淘汰影响；读取同时整条写入合并身份缓存，
  * 供处置中的实时复核继续命中。
  * 本地未 ACK 最终值覆盖数据库迟到结果；Disk I/O 不可用时按读取失败处理。
  * @returns 读取失败时为 null，调用方必须放弃本批处置。

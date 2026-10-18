@@ -19,8 +19,16 @@ import { BoundedDeque } from "../../../packages/libs/boundedDeque";
 import { LinkedQueue } from "../../../packages/libs/linkedQueue";
 import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
 import type { QueuedReplyTrigger } from "../../../packages/types/aiChat/replies";
-import { drainReplyQueue, pushReplyTrigger, triggerKindFor } from "../../../packages/workers/aiChat/replyQueue";
-import { indexBufferedMessage } from "../../../packages/workers/aiChat/bufferedMessageIndex";
+import {
+  drainReplyQueue,
+  dropQueuedReplyTriggersForUser,
+  pushReplyTrigger,
+  triggerKindFor,
+} from "../../../packages/workers/aiChat/replyQueue";
+import {
+  indexBufferedMessage,
+  replyReferenceForBufferedMessage,
+} from "../../../packages/workers/aiChat/bufferedMessageIndex";
 
 afterEach(() => {
   resetAiChatReplyCache();
@@ -33,8 +41,8 @@ describe("AI 回复触发队列", () => {
     expect(triggerKindFor(true, undefined)).toBe("random");
     expect(triggerKindFor(true, { ...media, directTriggerReason: "mention" })).toBe("random");
     expect(triggerKindFor(false, undefined)).toBe("direct");
-    expect(triggerKindFor(false, media)).toBe("mediaRandom");
-    expect(triggerKindFor(false, { ...media, directTriggerReason: "reply" })).toBe("mediaDirect");
+    expect(triggerKindFor(false, media)).toBe("random");
+    expect(triggerKindFor(false, { ...media, directTriggerReason: "reply" })).toBe("direct");
   });
 
   test("文本触发快照按 replyToMessageId 定位触发消息，不取缓冲尾条", () => {
@@ -67,7 +75,8 @@ describe("AI 回复触发队列", () => {
       telegramBackpressured: false,
       messageThreadId: undefined,
       imageGenerationRequested: true,
-      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960 },
+      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960, mediaGroupId: undefined },
+      triggerReference: replyReferenceForBufferedMessage(-1001, 88),
     });
 
     expect(pendingReplyTriggers.get(-1001)?.shift()).toEqual({
@@ -86,13 +95,21 @@ describe("AI 回复触发队列", () => {
       replyTo: bufferedReplyReferenceFixture({ messageId: 70, id: 4, firstName: "Carol", lastName: "", text: "原问题" }),
       forwardedFrom: "频道 [id:-100666] 东京日报",
       imageGenerationRequested: true,
-      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960 },
+      imageGenerationReference: { fileId: "reply-photo", fileUniqueId: "reply-photo-unique", width: 1280, height: 960, mediaGroupId: undefined },
       senderName: "Alice Chen",
       text: "x".repeat(QUEUED_TRIGGER_SNIPPET_MAX_CHARS),
     });
   });
 
   test("媒体触发使用解析结果快照，不依赖缓存尾部", () => {
+    const triggerReference = bufferedReplyReferenceFixture({
+      messageId: 89,
+      id: 3,
+      firstName: "Bob",
+      lastName: "",
+      text: "[GIF：挥手] @bot 把它画成像素风",
+      forwardedFrom: "[id:6] Eve",
+    });
     pushReplyTrigger({
       chatId: -1001,
       triggerSenderId: 3,
@@ -100,20 +117,14 @@ describe("AI 回复触发队列", () => {
       telegramBackpressured: false,
       messageThreadId: undefined,
       imageGenerationRequested: true,
+      triggerReference,
       mediaTrigger: {
         kind: "animation",
         senderId: 3,
         senderName: "Bob",
         description: "挥手",
         triggerText: "[GIF：挥手] @bot 把它画成像素风",
-        triggerReference: bufferedReplyReferenceFixture({
-          messageId: 89,
-          id: 3,
-          firstName: "Bob",
-          lastName: "",
-          text: "[GIF：挥手] @bot 把它画成像素风",
-          forwardedFrom: "[id:6] Eve",
-        }),
+        triggerReference,
         forwardedFrom: "[id:6] Eve",
         directTriggerReason: "mention",
         replyTo: bufferedReplyReferenceFixture({ messageId: 71, id: 5, firstName: "Dave", lastName: "", text: "[图片]" }),
@@ -194,5 +205,23 @@ describe("AI 回复触发队列", () => {
 
     expect(started).toEqual([1]);
     expect(pendingReplyTriggers.get(-1001)?.peek()?.replyToMessageId).toBe(2);
+  });
+
+  test("dropQueuedReplyTriggersForUser 按用户剔除跨群排队触发并清理空队列", () => {
+    const firstChatQueue = new LinkedQueue<QueuedReplyTrigger>();
+    firstChatQueue.push({ triggerSenderId: 7, replyToMessageId: 10, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "A", text: "spam1" });
+    firstChatQueue.push({ triggerSenderId: 8, replyToMessageId: 11, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "B", text: "keep" });
+    firstChatQueue.push({ triggerSenderId: 7, replyToMessageId: 12, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "A", text: "spam2" });
+    pendingReplyTriggers.set(-1001, firstChatQueue);
+
+    const secondChatQueue = new LinkedQueue<QueuedReplyTrigger>();
+    secondChatQueue.push({ triggerSenderId: 7, replyToMessageId: 20, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "A", text: "spam3" });
+    pendingReplyTriggers.set(-1002, secondChatQueue);
+
+    dropQueuedReplyTriggersForUser(7);
+
+    expect(pendingReplyTriggers.get(-1001)?.size).toBe(1);
+    expect(pendingReplyTriggers.get(-1001)?.peek()?.replyToMessageId).toBe(11);
+    expect(pendingReplyTriggers.has(-1002)).toBe(false);
   });
 });

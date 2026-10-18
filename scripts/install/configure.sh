@@ -80,6 +80,9 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
   AGENT_CONFIG_IMAGE_PROTOCOLS=()
   AGENT_CONFIG_SPEECH_PROTOCOLS=()
   AGENT_CONFIG_VOICES=()
+  AGENT_CONFIG_HEADER_COUNTS=()
+  AGENT_CONFIG_HEADER_NAMES=()
+  AGENT_CONFIG_HEADER_VALUES=()
   for capability in "${AGENT_CAPABILITIES[@]}"; do
     printf '\n'
     if ! confirm "配置 ${capability}？" n; then
@@ -125,15 +128,31 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
     base_url=""
     image_protocol=""
     voice=""
-    if [ "$provider" = "openai" ] || [ "$provider" = "anthropic" ]; then
-      ask base_url "  ${capability} 的 base_url（可留空用官方端点；只接受 https，明文 http 仅限本机）："
-      if [ "$capability" = "image" ]; then
+    header_count=0
+    ask base_url "  ${capability} 的 base_url（可留空用官方端点；只接受 https，明文 http 仅限本机）："
+    if { [ "$provider" = "google" ] || [ "$provider" = "anthropic" ]; } && [ -n "$base_url" ]; then
+      if confirm "为 ${capability} 添加附加请求头（如 Cloudflare AI Gateway 鉴权用的 cf-aig-authorization）？" n; then
         while true; do
-          ask image_protocol "  image 的 image_protocol（openai / openai-standard / xai）："
-          case "$image_protocol" in openai|openai-standard|xai) break ;; esac
-          warn "只接受 openai、openai-standard 或 xai。"
+          header_name=""
+          ask header_name "  请求头名（直接回车结束）："
+          [ -z "$header_name" ] && break
+          header_value=""
+          while [ -z "$header_value" ]; do
+            ask_secret header_value "  ${header_name} 的值（输入不回显）："
+            [ -z "$header_value" ] && warn "请求头的值不能为空。"
+          done
+          AGENT_CONFIG_HEADER_NAMES+=("$header_name")
+          AGENT_CONFIG_HEADER_VALUES+=("$header_value")
+          header_count=$((header_count + 1))
         done
       fi
+    fi
+    if [ "$capability" = "image" ] && [ "$provider" = "openai" ]; then
+      while true; do
+        ask image_protocol "  image 的 image_protocol（openai / openai-standard / xai）："
+        case "$image_protocol" in openai|openai-standard|xai) break ;; esac
+        warn "只接受 openai、openai-standard 或 xai。"
+      done
     fi
     if [ "$capability" = "tts" ]; then
       while [ -z "$voice" ]; do
@@ -150,7 +169,8 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
     AGENT_CONFIG_IMAGE_PROTOCOLS+=("$image_protocol")
     AGENT_CONFIG_SPEECH_PROTOCOLS+=("$speech_protocol")
     AGENT_CONFIG_VOICES+=("$voice")
-    unset api_key provider model base_url image_protocol speech_protocol voice
+    AGENT_CONFIG_HEADER_COUNTS+=("$header_count")
+    unset api_key provider model base_url image_protocol speech_protocol voice header_name header_value header_count
   done
 
   printf '\n'
@@ -163,8 +183,10 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
     resolve_config_target_path config/dynamic/agent.json AGENT_CONFIG_TARGET_PATH
     create_config_staging_path "$AGENT_CONFIG_TARGET_PATH" AGENT_CONFIG_STAGING_PATH
     if ! {
+      header_offset=0
       for capability_index in "${!AGENT_CONFIG_NAMES[@]}"; do
-        printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
+        header_count="${AGENT_CONFIG_HEADER_COUNTS[$capability_index]}"
+        printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
           "${AGENT_CONFIG_NAMES[$capability_index]}" \
           "${AGENT_CONFIG_PROVIDERS[$capability_index]}" \
           "${AGENT_CONFIG_API_KEYS[$capability_index]}" \
@@ -172,23 +194,60 @@ elif confirm "现在配置 AI 能力（AI 闲聊、广告检测、生图、语�
           "${AGENT_CONFIG_BASE_URLS[$capability_index]}" \
           "${AGENT_CONFIG_IMAGE_PROTOCOLS[$capability_index]}" \
           "${AGENT_CONFIG_SPEECH_PROTOCOLS[$capability_index]}" \
-          "${AGENT_CONFIG_VOICES[$capability_index]}"
+          "${AGENT_CONFIG_VOICES[$capability_index]}" \
+          "$header_count"
+        for (( header_index = 0; header_index < header_count; header_index++ )); do
+          printf '%s\0%s\0' \
+            "${AGENT_CONFIG_HEADER_NAMES[$((header_offset + header_index))]}" \
+            "${AGENT_CONFIG_HEADER_VALUES[$((header_offset + header_index))]}"
+        done
+        header_offset=$((header_offset + header_count))
       done
     } | bun -e '
       const bytes = new Uint8Array(await Bun.stdin.arrayBuffer());
       const fields = new TextDecoder().decode(bytes).split("\0");
       fields.pop();
-      if (fields.length === 0 || fields.length % 8 !== 0) {
+      if (fields.length === 0) {
         throw new Error("invalid agent config field stream");
       }
       const agent = {};
-      for (let offset = 0; offset < fields.length; offset += 8) {
-        const [name, provider, apiKey, model, baseUrl, imageProtocol, speechProtocol, voice] = fields.slice(offset, offset + 8);
+      let offset = 0;
+      while (offset < fields.length) {
+        if (offset + 9 > fields.length) {
+          throw new Error("invalid agent config field stream");
+        }
+        const [
+          name,
+          provider,
+          apiKey,
+          model,
+          baseUrl,
+          imageProtocol,
+          speechProtocol,
+          voice,
+          rawHeaderCount,
+        ] = fields.slice(offset, offset + 9);
+        offset += 9;
+        const headerCount = Number(rawHeaderCount);
+        if (!Number.isSafeInteger(headerCount) || headerCount < 0 || offset + headerCount * 2 > fields.length) {
+          throw new Error("invalid agent config field stream");
+        }
         const entry = {
           provider,
           api_key: apiKey,
         };
         if (baseUrl.length > 0) entry.base_url = baseUrl;
+        if (headerCount > 0) {
+          // 无原型对象让 __proto__ 等名字照常成为自有键；大小写完全相同的重名改写成非法键名，交给严格校验拒绝。
+          const headers = Object.create(null);
+          for (let index = 0; index < headerCount; index += 1) {
+            const headerName = fields[offset];
+            const headerValue = fields[offset + 1];
+            offset += 2;
+            headers[Object.hasOwn(headers, headerName) ? `${headerName} duplicate-${index}` : headerName] = headerValue;
+          }
+          entry.headers = headers;
+        }
         if (model.length > 0) entry.model = model;
         if (imageProtocol.length > 0) entry.image_protocol = imageProtocol;
         if (speechProtocol.length > 0) entry.speech_protocol = speechProtocol;

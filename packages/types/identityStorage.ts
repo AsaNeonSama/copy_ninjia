@@ -1,6 +1,19 @@
 import type { PendingBlockedRemoval } from "./blocklist";
 import type { ChatState } from "./chatState";
+import type { BlocklistEntryData, WhitelistEntryData } from "./identityPolicy";
+import type { TemporaryAdBypassActivity } from "./states/temporaryAdBypass";
 import type { StoredTemporaryAdBypassActivity } from "./temporaryAdBypass";
+
+/**
+ * 主线程合并身份缓存的一条（cache/main/identityStorage.ts 的 identityPolicyCache）。三个字段固定写全、
+ * 顺序固定：`undefined` 表示该项尚未加载，`null` 表示已确证不存在，对象为已加载的最终值。
+ * 三项随条目一起淘汰。
+ */
+export interface IdentityPolicyCacheEntry {
+  whitelist: Readonly<WhitelistEntryData> | null | undefined;
+  blocklist: Readonly<BlocklistEntryData> | null | undefined;
+  temporaryAdBypass: Readonly<TemporaryAdBypassActivity> | null | undefined;
+}
 
 /** Disk I/O 回执路由层尚未解码的永久策略文本与临时累计关系列。 */
 export interface IdentityPolicyRawReadResult {
@@ -41,9 +54,30 @@ export interface PendingIdentityPolicyWrite {
   readonly revision: number;
 }
 
-/** Disk I/O Worker 待踢成员按快照 diff 后的单行最终值。 */
+/**
+ * 主线程待踢任务一行最近一次写入的 revision、投递结果与准入估算字节；正文不复制，投递与重放都从
+ * pendingBlockedRemovals 现编码。posted 为 false 表示该次投递被 Disk I/O 拒收，write-ahead 前补投。
+ */
+export interface UnacknowledgedRemovalWrite {
+  readonly revision: number;
+  readonly posted: boolean;
+  /** 这次写入该行正文的准入估算字节，计入 unacknowledgedRemovalBytes。 */
+  readonly bytes: number;
+}
+
+/** Disk I/O Worker 待踢任务一行在事务提交前保留的最新最终值。 */
 export interface PendingRemovalWrite {
   readonly data: string | null;
+  readonly revision: number;
+}
+
+/**
+ * Disk I/O Worker 已接受的一行待踢任务的处置目标（cache/workers/diskIO/storageDatabase.ts 的
+ * removalRowTargets）：补扫行不冻结名单，指名行冻结 userIds。黑名单删除时据此校验没有行再引用。
+ */
+export interface RemovalRowTargets {
+  readonly probeMembership: boolean;
+  readonly userIds: readonly number[];
 }
 
 /** Disk I/O Worker 同一群主键在事务提交前保留的最新最终值。 */
@@ -88,5 +122,4 @@ export interface StorageDatabaseHydration {
 export interface StorageDatabaseInspection {
   readonly hydration: StorageDatabaseHydration;
   readonly aiMemories: ReadonlyMap<number, string>;
-  readonly pendingRemovalData: ReadonlyMap<number, string>;
 }

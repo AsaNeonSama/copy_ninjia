@@ -1,17 +1,9 @@
 /**
- * 共享存储数据库的连接边界（packages/database/interact/connection.ts）。
- *
- * 覆盖三件事：
- * 1. 缺库必须拒绝：运行时只接受迁移脚本建好的数据库，不顺手创建空库
- *    （AGENTS.md「不为用户行为兜底」）。
- * 2. 写连接额外核对文件与父目录：SQLite 写连接要维护 WAL/SHM 旁路文件，
- *    比只读连接多查一道父目录；两道检查的各类拒绝分支在 test/libs/fileAccess.test.ts，
- *    这里验证写连接确实走这一步（经软链接指向的库文件被拒，普通连接照常打开）且能写入。
+ * 共享存储数据库的连接边界（packages/database/interact/connection.ts）：
+ * 1. 缺库时拒绝打开，不顺手创建空库。
+ * 2. 写连接额外核对文件与父目录（经软链接指向的库文件被拒，普通连接照常打开并可写入）。
  * 3. 只读连接能读既有库，写入由 SQLite 拒绝。
- *
- * `enableStorageDatabaseWal` 是新库发布后的一次性动作，同样在这里覆盖：journal
- * 模式写进库文件；干净关闭后 -wal/-shm 旁路文件会被回收，因此回读 PRAGMA 判定，
- * 不看旁路文件是否存在。
+ * 4. `enableStorageDatabaseWal` 将 journal 模式写进库文件，按回读 PRAGMA 判定。
  */
 
 import { afterEach, describe, expect, test } from "bun:test";

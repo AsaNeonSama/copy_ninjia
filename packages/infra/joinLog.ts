@@ -26,13 +26,9 @@ export interface RecordJoinLogParams {
 }
 
 /**
- * 记录一条权威 `chat_member` 入群事实：投递给 Disk I/O Worker 的入群批次并登记进未确认
- * 镜像后立即返回，不等待落盘。Worker 按 FLUSH_MAX_ENTRIES 条或 FLUSH_INTERVAL_MS 批量
- * 追写，并以 joinLogPersisted 回执释放已处置的事实；Worker 崩溃重建时镜像原序重放，停机
- * 统一 flush 写出剩余批次。进程被强杀或断电时，最近一个窗口内尚未落盘的事实会丢失。
- *
- * @returns 已受理为 true；镜像已满 JOIN_LOG_MAX_BUFFERED_ENTRIES（磁盘持续写不进）或
- *   Disk I/O 拒收时为 false，调用方据此让 update 失败，由 Telegram 重投。
+ * 记录一条权威 `chat_member` 入群事实：投递给 Disk I/O Worker 并登记进未确认镜像后立即返回；
+ * Worker 批量追写后通过 `joinLogPersisted` 回执释放镜像，崩溃重建时按序重放。
+ * @returns 已受理为 true；镜像达到 `JOIN_LOG_MAX_BUFFERED_ENTRIES` 或 Disk I/O 拒收时为 false。
  */
 export function recordJoinLog({
   chatId,

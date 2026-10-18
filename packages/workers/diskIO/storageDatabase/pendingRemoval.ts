@@ -1,127 +1,78 @@
-import type { PendingRemovalWrite } from "../../../types/identityStorage";
+import type { PendingRemovalWrite, RemovalRowTargets } from "../../../types/identityStorage";
 import { BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES } from "../../../consts/antiRaid/blocklist";
 import { IDENTITY_DATABASE_PATH } from "../../../consts/paths";
 import {
-  storagePendingBudgets,
-  latestRemovalSnapshotRevision,
-  pendingRemovalSnapshotRevision,
   pendingRemovalWrites,
-  removalSnapshotData,
+  removalRowTargets,
+  storagePendingBudgets,
 } from "../../../cache/workers/diskIO/storageDatabase";
 import { storageWriteCost } from "../../../libs/storageWriteBudget";
-import { encodePendingBlockedRemovalData } from "../../../database/codec/identity";
-import type { EncodedPendingBlockedRemoval } from "../../../database/codec/identity";
+import { decodePendingBlockedRemovalData } from "../../../database/codec/identity";
 import type { PendingBlockedRemoval } from "../../../types/blocklist";
-import type {
-  BlocklistRemovalsDiskMessage,
-} from "../../../types/diskIO/messages";
-import type {
-  IdentityPersistenceReply,
-} from "../../../types/diskIO/replies";
-import { storageSource } from "./context";
-import {
-  flushIfStorageFull,
-  hasPendingStorageWrites,
-} from "./flush";
+import type { BlocklistRemovalWriteDiskMessage } from "../../../types/diskIO/messages";
+import type { IdentityPersistenceReply } from "../../../types/diskIO/replies";
+import { assertPositiveRevision, storageSource } from "./context";
+import { flushIfStorageFull } from "./flush";
 import {
   hasAnyEffectiveBlocklistIdentity,
   hasEffectiveBlocklistIdentity,
 } from "./identityPolicy";
 
-/** 一行待踢任务的解码结果与它的落盘文本；两者成对出现，由类型保证不存在只拿到一半的形态。 */
-interface EncodedPendingRemovalRow {
-  readonly pending: PendingBlockedRemoval;
-  readonly data: string;
+/** 解码待踢任务行并校验 removalId 一致性与黑名单引用有效性。 */
+function acceptedRemovalTargets(removalId: number, data: string, source: string): RemovalRowTargets {
+  const pending: PendingBlockedRemoval = decodePendingBlockedRemovalData(data, source);
+  if (pending.params.removalId !== removalId) {
+    throw new Error(`Pending removal row ${removalId} does not match params.removalId.`);
+  }
+  if (pending.params.probeMembership) {
+    if (!hasAnyEffectiveBlocklistIdentity()) {
+      throw new Error(
+        `Pending removal row ${removalId} requires at least one effective blocklist entry.`
+      );
+    }
+    return { probeMembership: true, userIds: [] };
+  }
+  if (pending.params.userIds.some(
+    (id: number): boolean => !hasEffectiveBlocklistIdentity(id)
+  )) {
+    throw new Error(
+      `Pending removal row ${removalId} contains an identity absent from the effective blocklist.`
+    );
+  }
+  return { probeMembership: false, userIds: pending.params.userIds };
 }
 
-/** 完整 outbox 快照转成按主键合并的 SQLite 行变化。 */
-export function handlePendingRemovalSnapshot(
-  message: BlocklistRemovalsDiskMessage,
+/** 校验并接收待踢 outbox 写入或删除，同步更新 removalRowTargets 并排入事务缓冲。 */
+export function handleBlocklistRemovalWrite(
+  message: BlocklistRemovalWriteDiskMessage,
   reply: IdentityPersistenceReply
 ): void {
-  if (!Number.isSafeInteger(message.revision) || message.revision < 1) {
-    throw new Error("Pending removal snapshot revision must be a positive safe integer.");
+  const source: string = storageSource("pending_blocked_removals", message.removalId);
+  if (!Number.isSafeInteger(message.removalId) || message.removalId < 1) {
+    throw new Error(`${source}: removal_id must be a positive safe integer.`);
   }
-  if (message.revision <= latestRemovalSnapshotRevision.current) return;
-  if (message.removals.length > BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES) {
+  assertPositiveRevision(message.revision, source);
+  const current: PendingRemovalWrite | undefined = pendingRemovalWrites.get(message.removalId);
+  if (current !== undefined && current.revision >= message.revision) return;
+  const targets: RemovalRowTargets | null = message.data === null
+    ? null
+    : acceptedRemovalTargets(message.removalId, message.data, source);
+  if (
+    targets !== null &&
+    !removalRowTargets.has(message.removalId) &&
+    removalRowTargets.size >= BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES
+  ) {
     throw new Error(
       `${IDENTITY_DATABASE_PATH}:pending_blocked_removals: ` +
       `expected at most ${BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES} rows.`
     );
   }
-  const next: Map<number, EncodedPendingRemovalRow> = new Map();
-  for (const [removalId, raw] of message.removals) {
-    if (next.has(removalId)) {
-      throw new Error(`Pending removal snapshot contains duplicate removalId ${removalId}.`);
-    }
-    const { text: data, value: pending }: EncodedPendingBlockedRemoval =
-      encodePendingBlockedRemovalData(
-        raw,
-        storageSource("pending_blocked_removals", removalId)
-      );
-    if (pending.params.removalId !== removalId) {
-      throw new Error(`Pending removal row ${removalId} does not match params.removalId.`);
-    }
-    next.set(removalId, { pending, data });
-  }
-  let hasAnyBlockedIdentity: boolean | undefined;
-  for (const [removalId, { pending }] of next) {
-    if (pending.params.probeMembership) {
-      hasAnyBlockedIdentity ??= hasAnyEffectiveBlocklistIdentity();
-      if (!hasAnyBlockedIdentity) {
-        throw new Error(
-          `Pending removal row ${removalId} requires at least one effective blocklist entry.`
-        );
-      }
-      continue;
-    }
-    if (pending.params.userIds.some(
-      (id: number): boolean => !hasEffectiveBlocklistIdentity(id)
-    )) {
-      throw new Error(
-        `Pending removal row ${removalId} contains an identity absent from the effective blocklist.`
-      );
-    }
-  }
-  let entryDelta: number = 0;
-  let byteDelta: number = 0;
-  for (const removalId of removalSnapshotData.keys()) {
-    if (next.has(removalId)) continue;
-    const previous: PendingRemovalWrite | undefined = pendingRemovalWrites.get(removalId);
-    if (previous === undefined) entryDelta++;
-    byteDelta += storageWriteCost(null) - (previous === undefined ? 0 : storageWriteCost(previous.data));
-  }
-  for (const [removalId, { data }] of next) {
-    if (removalSnapshotData.get(removalId) === data) continue;
-    const previous: PendingRemovalWrite | undefined = pendingRemovalWrites.get(removalId);
-    if (previous === undefined) entryDelta++;
-    byteDelta += storageWriteCost(data) - (previous === undefined ? 0 : storageWriteCost(previous.data));
-  }
-  storagePendingBudgets.blocklistRemovalOutbox.reserve(entryDelta, byteDelta);
-  for (const removalId of removalSnapshotData.keys()) {
-    if (next.has(removalId)) continue;
-    pendingRemovalWrites.set(removalId, { data: null });
-    // 迭代中删除当前键是 Map 迭代器允许的操作，不会跳过后续键。
-    removalSnapshotData.delete(removalId);
-  }
-  for (const [removalId, { data }] of next) {
-    if (removalSnapshotData.get(removalId) === data) continue;
-    pendingRemovalWrites.set(removalId, { data });
-    removalSnapshotData.set(removalId, data);
-  }
-  latestRemovalSnapshotRevision.current = message.revision;
-  pendingRemovalSnapshotRevision.current = message.revision;
-  if (pendingRemovalWrites.size === 0 && !hasPendingStorageWrites()) {
-    pendingRemovalSnapshotRevision.current = null;
-    reply({
-      type: "identityStoragePersisted",
-      writes: [],
-      temporaryAdBypassWrites: [],
-      chatStateWrites: [],
-      chatQaWrites: [],
-      removalSnapshotRevision: message.revision,
-    });
-    return;
-  }
+  storagePendingBudgets.blocklistRemovalOutbox.reserve(
+    current === undefined ? 1 : 0,
+    storageWriteCost(message.data) - (current === undefined ? 0 : storageWriteCost(current.data))
+  );
+  pendingRemovalWrites.set(message.removalId, { data: message.data, revision: message.revision });
+  if (targets === null) removalRowTargets.delete(message.removalId);
+  else removalRowTargets.set(message.removalId, targets);
   flushIfStorageFull(reply);
 }

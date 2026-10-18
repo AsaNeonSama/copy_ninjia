@@ -22,6 +22,11 @@ import {
 import type { BlocklistIdPage } from "../../packages/types/identityStorage";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 /**
  * 黑名单销号计数的次序边界：回执到达顺序、逐身份队列里的解除核对、预热等待期间的
@@ -40,9 +45,7 @@ const {
   pendingBlockedRemovals,
 } = await import("../../packages/cache/main/blocklist");
 const {
-  blocklistEntryCache,
   resetIdentityStorageCache,
-  whitelistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
 const {
   cachedBlocklistEntry,
@@ -119,7 +122,7 @@ describe("黑名单销号计数的次序", () => {
 
     recordBlocklistParticipantReadability(receipt([7]));
     await blocklistParticipantInvalidQueue.current;
-    blocklistEntryCache.delete(7);
+    blocklistField.delete(7);
     busy.resolve();
     await held;
     await drainParticipantInvalidWork();
@@ -139,7 +142,7 @@ describe("黑名单销号计数的次序", () => {
     recordBlocklistParticipantReadability(receipt([7, 8]));
     await waitUntil((): boolean => readIdentityPolicies.mock.calls.length === 1);
     // 预热正在读 8；这期间已缓存的 7 被淘汰。
-    whitelistEntryCache.delete(7);
+    whitelistField.delete(7);
     participantInvalidHarness.readGate = null;
     read.resolve();
     await drainParticipantInvalidWork();
@@ -161,7 +164,7 @@ describe("黑名单销号计数的次序", () => {
       await waitUntil((): boolean => readIdentityPolicies.mock.calls.length === attempt);
       // 这一轮在读哪个身份，就把另一个已缓存的淘汰掉。
       const reading: readonly number[] = readIdentityPolicies.mock.calls[attempt - 1]![0] as readonly number[];
-      whitelistEntryCache.delete(reading.includes(8) ? 7 : 8);
+      whitelistField.delete(reading.includes(8) ? 7 : 8);
       const current: { promise: Promise<void>; resolve: () => void } = read;
       read = Promise.withResolvers<void>();
       participantInvalidHarness.readGate = attempt < BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS ? read.promise : null;

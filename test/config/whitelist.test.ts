@@ -13,6 +13,12 @@ import type {
   DiskBusinessMessage,
   IdentityStoragePersistedReply,
 } from "../../packages/types/diskIO";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 const diskMessages: DiskBusinessMessage[] = [];
 const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [];
@@ -31,7 +37,7 @@ const flushDiskIODomain = mock(
         writes,
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     return { result: "flushed" as const };
@@ -55,15 +61,11 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
 })));
 
 const {
-  blocklistEntryCache,
   resetIdentityStorageCache,
   unacknowledgedWhitelistWrites,
-  whitelistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
 const { confirmIdentityPolicyPersisted } = await import("../../packages/infra/identityStorage");
-const { temporaryAdBypassActivityCache } = await import(
-  "../../packages/cache/main/temporaryAdBypass"
-);
+
 const {
   enableAllWhitelistPermissions,
   getEffectiveWhitelistPermissions,
@@ -77,12 +79,7 @@ const {
 const { canBypassAdDetection } = await import(
   "../../packages/antiRaid/memberFacts"
 );
-
-function seedMissing(id: number): void {
-  whitelistEntryCache.set(id, null);
-  blocklistEntryCache.set(id, null);
-  temporaryAdBypassActivityCache.set(id, null);
-}
+const { seedMissingIdentity: seedMissing } = await import("../helpers/identityStorage");
 
 beforeEach(() => {
   diskMessages.length = 0;
@@ -101,7 +98,7 @@ describe("SQLite 白名单运行时视图", () => {
 
   test("清理上下文权限默认关闭，单独授予和撤销不依赖其他权限", () => {
     seedMissing(7);
-    whitelistEntryCache.set(7, {
+    whitelistField.set(7, {
       permissions: DEFAULT_WHITELIST_PERMISSIONS,
       meta: { firstName: "Member", lastName: "", username: "" },
     });
@@ -120,7 +117,7 @@ describe("SQLite 白名单运行时视图", () => {
     expect(Object.values(getWhitelistPermissionQueryView(7)).every(
       (value: boolean): boolean => value === false
     )).toBeTrue();
-    whitelistEntryCache.set(7, null);
+    whitelistField.set(7, null);
     expect(isWhitelisted(7)).toBeFalse();
     expect(getWhitelistPermissionQueryView(7)).toBe(NON_WHITELIST_PERMISSIONS);
     expect(hasWhitelistPermission(7, "isCanMute")).toBeFalse();
@@ -130,7 +127,7 @@ describe("SQLite 白名单运行时视图", () => {
   test("上一东京日达标的临时广告免检只取得广告检测豁免", () => {
     const now: number = Date.now();
     seedMissing(7);
-    temporaryAdBypassActivityCache.set(7, {
+    temporaryAdBypassField.set(7, {
       adBypass: true,
       adBypassGrantedAt: now - DAY_MS,
       qualifiedDays: 7,
@@ -153,7 +150,7 @@ describe("SQLite 白名单运行时视图", () => {
         .toBe(key === "isCanBypassAdDetection");
     }
 
-    temporaryAdBypassActivityCache.set(7, {
+    temporaryAdBypassField.set(7, {
       adBypass: true,
       adBypassGrantedAt: now - 2 * DAY_MS,
       qualifiedDays: 1,
@@ -164,7 +161,7 @@ describe("SQLite 白名单运行时视图", () => {
     expect(canBypassAdDetection(7, now)).toBeFalse();
     expect(getEffectiveWhitelistPermissions(7)).toBeUndefined();
 
-    temporaryAdBypassActivityCache.set(7, null);
+    temporaryAdBypassField.set(7, null);
     expect(isWhitelisted(7)).toBeFalse();
     expect(canBypassAdDetection(7, now)).toBeFalse();
     expect(getEffectiveWhitelistPermissions(7)).toBeUndefined();
@@ -172,7 +169,7 @@ describe("SQLite 白名单运行时视图", () => {
 
   test("广告专用读口只服从超级管理员与永久、临时身份的单项有效权限", () => {
     seedMissing(9);
-    whitelistEntryCache.set(9, {
+    whitelistField.set(9, {
       permissions: { ...DEFAULT_WHITELIST_PERMISSIONS, isCanBypassAdDetection: false },
       meta: { firstName: "Permanent", lastName: "", username: "" },
     });
@@ -180,7 +177,7 @@ describe("SQLite 白名单运行时视图", () => {
     expect(canBypassAdDetection(9)).toBeFalse();
 
     seedMissing(10);
-    whitelistEntryCache.set(10, {
+    whitelistField.set(10, {
       permissions: DEFAULT_WHITELIST_PERMISSIONS,
       meta: { firstName: "Bypass", lastName: "", username: "" },
     });
@@ -188,7 +185,7 @@ describe("SQLite 白名单运行时视图", () => {
 
     const now: number = Date.now();
     seedMissing(11);
-    temporaryAdBypassActivityCache.set(11, {
+    temporaryAdBypassField.set(11, {
       adBypass: true,
       adBypassGrantedAt: now,
       qualifiedDays: 1,
@@ -200,7 +197,7 @@ describe("SQLite 白名单运行时视图", () => {
     expect(canBypassAdDetection(11, now + 2 * DAY_MS)).toBeFalse();
 
     seedMissing(12);
-    temporaryAdBypassActivityCache.set(12, {
+    temporaryAdBypassField.set(12, {
       adBypass: false,
       adBypassGrantedAt: null,
       qualifiedDays: 0,
@@ -225,7 +222,7 @@ describe("SQLite 白名单运行时视图", () => {
 
     expect(result).toEqual({ changed: true, permissions: DEFAULT_WHITELIST_PERMISSIONS });
     expect(result.permissions?.isCanWhiteOther).toBeFalse();
-    expect(whitelistEntryCache.peek(7)).toEqual({
+    expect(whitelistField.peek(7)).toEqual({
       permissions: DEFAULT_WHITELIST_PERMISSIONS,
       meta: { firstName: "天才", lastName: "猫", username: "genius" },
     });
@@ -246,7 +243,7 @@ describe("SQLite 白名单运行时视图", () => {
       lastName: "",
       username: "alice",
     })).toEqual({ changed: true, queued: true });
-    expect(whitelistEntryCache.peek(8)).toEqual({
+    expect(whitelistField.peek(8)).toEqual({
       permissions: TEMPORARY_AD_BYPASS_PERMISSIONS,
       meta: { firstName: "Alice", lastName: "", username: "alice" },
     });
@@ -259,7 +256,7 @@ describe("SQLite 白名单运行时视图", () => {
   test("新增缺 meta 或目标仍在黑名单时拒绝，不发布半份内存状态", () => {
     seedMissing(7);
     expect(() => setWhitelistMembership({ id: 7, enabled: true })).toThrow("metadata");
-    blocklistEntryCache.set(7, {
+    blocklistField.set(7, {
       blockedAt: "2026/08/11 00:00:00",
       meta: { firstName: "Blocked", lastName: "", username: "" },
     });
@@ -268,7 +265,7 @@ describe("SQLite 白名单运行时视图", () => {
       enabled: true,
       meta: { firstName: "Blocked", lastName: "", username: "" },
     })).toThrow("both whitelist and blocklist");
-    expect(whitelistEntryCache.peek(7)).toBeNull();
+    expect(whitelistField.peek(7)).toBeNull();
   });
 
   test("单项与全开修改保留 meta，并用新 revision 覆盖未 ACK 最终值", async () => {
@@ -280,7 +277,7 @@ describe("SQLite 白名单运行时视图", () => {
     });
     const changed = await setWhitelistPermission({ id: 7, key: "isCanMute", value: true });
     expect(changed.changed).toBeTrue();
-    expect(whitelistEntryCache.peek(7)?.meta.username).toBe("alice");
+    expect(whitelistField.peek(7)?.meta.username).toBe("alice");
     const all = await enableAllWhitelistPermissions(7);
     expect(all.changed).toBeTrue();
     expect(Object.values(all.permissions).every((value: boolean): boolean => value)).toBeTrue();
@@ -302,7 +299,7 @@ describe("SQLite 白名单运行时视图", () => {
     })).changed).toBeFalse();
     const removed = await setWhitelistMembership({ id: 7, enabled: false });
     expect(removed).toEqual({ changed: true, permissions: undefined });
-    expect(whitelistEntryCache.peek(7)).toBeNull();
+    expect(whitelistField.peek(7)).toBeNull();
     expect(unacknowledgedWhitelistWrites.get(7)?.data).toBeNull();
     expect((await setWhitelistMembership({ id: 7, enabled: false })).changed).toBeFalse();
   });

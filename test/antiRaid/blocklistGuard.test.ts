@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { verificationKey } from "../../packages/libs/verificationKey";
 import { loggerStub } from "../helpers/loggerMock";
 import type { AntiRaidWorkerMessage } from "../../packages/types/antiRaid";
 import type { RemoveBlockedMembersParams } from "../../packages/types/blocklist";
@@ -191,24 +192,38 @@ describe("黑名单入群秒踢的投递侧", () => {
 });
 
 describe("入群计数去重表的上界与处置注册", () => {
-  test("先按窗口清掉过期项，再把仍在窗口内的记账压回上界，最旧的先走", () => {
+  test("先从最早项按窗口清掉过期项，遇到第一个仍在窗口内的即停", () => {
     const now: number = 10 * JOIN_WINDOW_MS;
-    recentBlockedJoinCounts.set("expired", now - JOIN_WINDOW_MS);
-    for (let index: number = 0; index < BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES + 5; index++) {
-      recentBlockedJoinCounts.set(`live:${index}`, now);
-    }
+    recentBlockedJoinCounts.set("expired:0", now - JOIN_WINDOW_MS - 1);
+    recentBlockedJoinCounts.set("expired:1", now - JOIN_WINDOW_MS);
+    recentBlockedJoinCounts.set("live:0", now - 1);
+    // 插入序即时间序；排在未过期项之后的条目不再检查。
+    recentBlockedJoinCounts.set("after-live", now - JOIN_WINDOW_MS);
     blockedIds.add(42);
     const messages: AntiRaidWorkerMessage[] = [];
 
     expect(claimBlockedJoiner({ chatId: -1001, userId: 42, messages, replacedJoins: new Map(),
       joinGuardEnabled: true, now })).toBeTrue();
 
-    expect(recentBlockedJoinCounts.has("expired")).toBeFalse();
-    expect(recentBlockedJoinCounts.has("live:4")).toBeFalse();
-    expect(recentBlockedJoinCounts.has("live:5")).toBeTrue();
-    // 压回上界之后本次入群再记一笔，表长恒不超过上界加一。
-    expect(recentBlockedJoinCounts.size).toBe(BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES + 1);
+    expect([...recentBlockedJoinCounts.keys()]).toEqual(["live:0", "after-live", verificationKey(-1001, 42)]);
     expect((messages[0] as RemoveBlockedMembersParams).joinedAt).toBe(now);
+  });
+
+  test("容量恒不超过上界：满表时本次记账挤出最早一项", () => {
+    const now: number = 10 * JOIN_WINDOW_MS;
+    for (let index: number = 0; index < BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES + 5; index++) {
+      recentBlockedJoinCounts.set(`live:${index}`, now);
+    }
+    expect(recentBlockedJoinCounts.size).toBe(BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES);
+    expect(recentBlockedJoinCounts.oldestKey()).toBe("live:5");
+    blockedIds.add(42);
+
+    expect(claimBlockedJoiner({ chatId: -1001, userId: 42, messages: [], replacedJoins: new Map(),
+      joinGuardEnabled: true, now })).toBeTrue();
+
+    expect(recentBlockedJoinCounts.size).toBe(BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES);
+    expect(recentBlockedJoinCounts.has("live:5")).toBeFalse();
+    expect(recentBlockedJoinCounts.has(verificationKey(-1001, 42))).toBeTrue();
   });
 
   test("注册的处置投递把每批封禁包成 removeBlockedMembers 交给 durable 边界", async () => {

@@ -9,6 +9,6 @@ export const WEB_SEARCH_REQUEST_TIME_INSTRUCTION: string =
 
 /**
  * 联网检索查询与摘要组稿附加的基准时间句前缀，与 WEB_SEARCH_REQUEST_TIME_INSTRUCTION 的措辞
- * 对应。所属模块：aiChat/ai/timeSentence.ts（调用方 aiChat/ai/tools/webSearch.ts、webDigest.ts）。
+ * 对应。所属模块：aiChat/ai/timeSentence.ts（调用方 aiChat/ai/tools/webSearch.ts、aiChat/ai/webDigest.ts）。
  */
 export const WEB_SEARCH_TIME_LABEL: string = "检索基准时间";

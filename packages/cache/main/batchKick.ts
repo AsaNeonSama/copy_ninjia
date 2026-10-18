@@ -1,11 +1,10 @@
-/** owner: main。 */
+/** owner: main。批量踢人命令（packages/commands/batchKick.ts）的内存状态。 */
 
 /**
- * 正在处理 `/batch_kick` 批次的群（commands/batchKick.ts），同一群同一时刻只允许一批。
+ * 正在执行 `/batch_kick` 批次的群集合，同群同一时刻只允许一批。
  *
- * 命令在提交延迟命令执行器之前登记，提交被拒时当场摘除；批次任务结算时在 finally 里摘除，
- * 排队期间被撤销、从未开始的任务由执行器的 onSkipped 摘除。
- * 容量：每个受管群至多一项，因此不超过 STATE_MANAGED_CHAT_LIMIT；不做淘汰。主线程不随
- * Worker 重建，进程重启从空集开始，不恢复未完成的批次。
+ * 填充：提交延迟命令执行器前加入。清理：提交被拒、排队期间被 onSkipped 撤销，或批次任务
+ * finally 结算时移除。容量上界为 STATE_MANAGED_CHAT_LIMIT，不设淘汰；Worker 重建不影响，
+ * 进程重启后从空集开始。
  */
 export const batchKickChats: Set<number> = new Set();

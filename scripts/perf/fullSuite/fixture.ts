@@ -209,7 +209,7 @@ function removalRows(): readonly StoredPendingRemovalRow[] {
     };
     rows[index] = {
       removalId,
-      data: encodePendingBlockedRemovalData(pending).text,
+      data: encodePendingBlockedRemovalData(pending),
     };
   }
   return rows;

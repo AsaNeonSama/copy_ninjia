@@ -29,6 +29,7 @@ export const CHAT_STATE_KEYS: readonly string[] = [
   "title",
   "isProxySendEnabled",
   "translate",
+  "deleteMessageTargets",
 ];
 
 /** 群状态里一条翻译会话的字段闭集（database/codec/chatState.ts 严格解析用）。 */

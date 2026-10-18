@@ -50,7 +50,7 @@ import {
 import { bumpBlocklistRemovalEpoch } from "../cache/workers/antiRaid/blocklist";
 import { adoptAdDetectConfigMessage } from "./antiRaid/adDetect/config";
 import { ANTI_RAID_CACHE_SWEEP_INTERVAL_MS } from "../consts/antiRaid/cache";
-import { resetAdminCache, sweepAdminCache } from "../cache/workers/antiRaid/admins";
+import { clearChatAdminCache, resetAdminCache, sweepAdminCache } from "../cache/workers/antiRaid/admins";
 import { resetLinkedChannelCache, sweepLinkedChannelCache } from "../cache/workers/antiRaid/linkedChannels";
 import { sweepVerificationRevisionCache } from "../cache/workers/antiRaid/verification";
 import type {
@@ -89,43 +89,16 @@ import { adoptTimeZone } from "../config/time";
 import { installBusinessWorkerPort } from "./businessWorkerPort";
 
 /**
- * 入群守卫线程（Bun Worker）：入群验证 + 反刷群私密模式的合并流水线。
- * 主线程（app/registerHandlers.ts → antiRaid/workerBridge/controller.ts 代理）只做事件投递。
- *
- * 本文件是两台状态机（packages/states/verification.ts / lockdown.ts）的解释器
- * 入口：入群验证核心、事件翻译、副作用和提醒 owner 分别位于
- * antiRaid/verificationRuntime.ts、verificationEvents.ts、
- * verificationEffects.ts、verificationReminders.ts；私密模式位于
- * antiRaid/lockdownRuntime.ts。各类状态由 cache/workers/antiRaid/ 下的领域
- * 模块持有。本文件做消息路由与缓存 sweep 调度。
- * /block 黑名单的处置副作用（antiRaid/blocklistEffects.ts）也挂在本线程：
- * 它不带状态机，判定在主线程做完，这里只编排踢人这一步异步能力动作。
- * /ad_detect 广告检测（antiRaid/adDetect/）整条流水线同样挂在这里：按发送者
- * 归并消息串、固定节拍批量送配置的 provider 判定、命中后删消息并播报，判定结果回投
- * 主线程换成一次与 /block 等价的拉黑 + 各群封禁。
- * 关键约定（详见各 runtime 模块头）：
- * - dispatch 里状态更替同步完成，副作用（含主线程网络能力请求）事后执行；消息
- *   按 FIFO 逐条处理，越过阈值那次入群触发的私密模式占位对同批后续入群立即生效。
- * - 异步回调（提醒落地回填、管理员核查）以「状态对象同一性」识别过期：
- *   状态一旦被替换/删除，捕获的旧引用对不上，回调自动放弃。
- *
- * 发往 Telegram 的调用统一经双工能力请求回到主线程的唯一客户端与总闸；本线程
- * 不使用本地 Telegram 网络客户端。error 日志仍经 logger.ts 回传主线程。
- *
- * lockdown/unlock 与 pending verification 变化都会回报主线程；前者写入
- * SQLite `chat_states`，后者由主线程转投 Disk I/O Worker 的当日增量 JSON。两者都可
- * 在 Worker 或整个进程重建后 adopt。
+ * 入群守卫线程（Bun Worker）：承载入群验证、反刷群私密模式、黑名单移除、广告检测与刷屏禁言的消息路由及定时缓存清理（跨模块不变量见 docs/cn/04-invariants.md）。
  */
 
 declare const self: Worker;
 
-/** 路由一条主线程消息；独立导出便于验证协议而不启动真实 Worker。 */
+/** 路由一条主线程消息。 */
 export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
   switch (msg.type) {
     case "agentConfig":
       adoptTimeZone(msg.timeZone);
-      // 主线程投给本线程的第一条消息，config/dynamic/ 热重载替换广告检测配置时再投一次
-      // （见 types/antiRaid/protocol.ts 的 AntiRaidAgentConfigMessage）。
       atmosphereState.current = msg.atmosphere;
       adoptAdDetectConfigMessage(msg);
       break;
@@ -142,22 +115,15 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
       else deactivateVerificationChat(msg.chatId);
       if (msg.abandonLockdown) abandonLockdownChat(msg.chatId);
       else deactivateLockdownChat(msg.chatId);
-      // 在途的黑名单补扫在停管后不再于本群封人。
       bumpBlocklistRemovalEpoch(msg.chatId);
-      // 待检的广告消息串同理：停管后不再判定、不再删消息。
       clearChatAdDetect(msg.chatId);
-      // 刷屏计数与权限镜像一并丢掉；重新接管时主线程重新观测并镜像，计数从零开始。
       clearChatFloodWindows(msg.chatId);
+      clearChatAdminCache(msg.chatId);
       applyBotPermissionsChange(msg.chatId, undefined);
       forgetWorkerChatKind(msg.chatId);
       break;
     case "deactivateJoinGuard":
-      // `/antiraid disable` 专用：只收掉入群这条链路。验证记录逐条经状态机的
-      // guardDisabled 转移收摊：删除仍带按钮的验证提醒，不再触发提醒、超时
-      // 踢出与终态处置。仍生效的私密模式走可恢复解锁。
-      //
-      // 广告检测队列、刷屏窗口、权限与群类型镜像、在途黑名单补扫**都不动**：
-      // 那几样各有各的开关，见 types/antiRaid/protocol.ts 的 DeactivateJoinGuardMessage。
+      // `/antiraid disable`：仅关闭入群验证与私密模式，保留广告检测、刷屏窗口、权限与群类型镜像及黑名单补扫。
       disableJoinGuardChat(msg.chatId);
       deactivateLockdownChat(msg.chatId);
       break;
@@ -186,8 +152,6 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
       applyAdminChange(msg.chatId, msg.userId, msg.isInviterExempt);
       break;
     case "removeBlockedMembers":
-      // 判定已在主线程做完（名单是主线程状态），这里只执行网络动作；
-      // 任务交给跟踪器后台等待，不阻塞 mailbox。落地结果经回执回主线程销镜像。
       void trackAntiRaidTask({
         task: handleRemoveBlockedMembers({
           msg,
@@ -197,25 +161,22 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
       });
       break;
     case "adCandidate":
-      // 只做同步入队；判定与处置由固定节拍的批处理驱动，见 adDetect/queue.ts。
       enqueueAdCandidate(msg);
       break;
     case "clearAdDetect":
       clearChatAdDetect(msg.chatId);
       break;
     case "floodCandidate":
-      // 同步记账；只有越过阈值那一条才派生后台任务去禁言，见 antiRaid/floodControl.ts。
       handleFloodCandidate(msg);
       break;
     case "clearFloodControl":
       clearChatFloodWindows(msg.chatId);
       break;
     case "temporaryAdBypassGranted":
-      // 只清广告状态；临时广告免检不提供防刷屏或其它权限。
       clearIdentityAdDetect(msg.identityId);
       break;
     case "botPermissionsChanged": {
-      // 限制成员权限从「没有或未知」变为确证有时，被拒后拉长的私密模式解除重试提前到现在。
+      // 限制成员权限变为确证可用时，立即触发此前因缺权限拉长的私密模式解除重试。
       const couldRestrict: boolean = botCanRestrictIn(msg.chatId) === true;
       applyBotPermissionsChange(msg.chatId, msg.permissions);
       if (!couldRestrict && msg.permissions?.canRestrictMembers === true) retryDeniedLockdownRestore(msg.chatId);
@@ -228,17 +189,9 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
       self.postMessage({ type: "barrierComplete", barrierId: msg.barrierId } satisfies AntiRaidBarrierCompleteEvent);
       break;
     case "drain": {
-      // drain 只发生在停机路径上：先停掉广告判定的节拍，不再开新一批 LLM 请求与消息删除；
-      // 在途的那次不在等待集合里，不会拖住 drain。
+      // 停机排空：先停止广告检测调度并取消排队中的尽力而为请求，再以无取消信号刷出待执行的延迟删除任务并等待全部在途任务完成。
       quiesceAdDetectQueue();
-      // 再撤掉还在消息桶或分类型 429 车道里等待的尽力而为请求。排在延迟删除 flush 之前：
-      // 那一步发出的新请求属于 drain 自己，不继承前一阶段的取消（见 taskTracker.ts）。
       quiesceAntiRaidDispatch();
-      // 所有 deleteMessageAfter 路径由同一 owner 认领；刷屏公告会按群合批。
-      // 返回的请求接进 task tracker，由 drain 等待已启动的删除。
-      // 这些请求属于 drain 自己，不继承刚 abort 的业务信号：调用同步栈内清空该信号，
-      // 返回前恢复，让可能迟到的验证 timer 继续 fail-fast；每个双工请求已经捕获
-      // 创建时的 null，不受恢复影响。
       setWorkerDuplexRequestSignal(null);
       let deletionTasks: readonly Promise<void>[];
       try {

@@ -68,6 +68,7 @@ export const HOT_PATH_PROFILE_FAST_SCENARIO_ITERATION_MULTIPLIER: number = 4;
  * `assertHotPathMedianPolicyCoverage` 在门禁启动时双向核对。
  */
 export const HOT_PATH_PROFILE_SCENARIOS: readonly HotPathProfileScenarioName[] = exhaustiveList<HotPathProfileScenarioName>()([
+  "registered-middleware",
   "incoming-message-spine",
   "ai-media-direct-trigger",
   "sender-stable-username",

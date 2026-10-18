@@ -21,7 +21,7 @@
 
 <!-- performance-benchmark:start -->
 
-**最近一次全量基准** · Bun 1.4.3 · 3 轮取平均 · 2026-10-11T14:15:36Z · 进程启动到本地恢复就绪 359.9 ms · 单条群消息进入主干并完成基础分发 153.1 ns · ai_chat：生成并发送 1 轮回复（不含网络与拟人停顿） 199.8 µs / 4,292 次/s · 广告检测：完整判定并处置 1 条群消息（不含网络） 1.82 ms / 502 次/s
+**最近一次全量基准** · Bun 1.4.3 · 3 轮取平均 · 2026-10-18T05:26:56Z · 进程启动到本地恢复就绪 384.9 ms · 单条群消息进入主干并完成基础分发 154.7 ns · ai_chat：生成并发送 1 轮回复（不含网络与拟人停顿） 199.3 µs / 4,193 次/s · 广告检测：完整判定并处置 1 条群消息（不含网络） 1.63 ms / 564 次/s
 
 ## 运行环境
 
@@ -33,7 +33,7 @@
 | 内存 | 7.76 GiB |
 | 轮数 | 3 |
 | mock 数据根 | `performance/` |
-| 出数时间 | 2026-10-11T14:15:36Z |
+| 出数时间 | 2026-10-18T05:26:56Z |
 
 ## 总吞吐与总读写（每轮）
 
@@ -42,14 +42,14 @@
 | 指标 | 读数 |
 | --- | --- |
 | 被测操作数 | 392,931,453 |
-| 进程读入 | 182.35 MiB |
-| 进程写出 | 185.47 MiB |
-| 块设备读 | 0 B |
-| 块设备写 | 234.66 MiB |
-| 读系统调用 | 53,002 |
-| 写系统调用 | 243,768 |
-| mock 根落盘 | 14.49 MiB |
-| mock 根文件数 | 103 |
+| 进程读入 | 182.21 MiB |
+| 进程写出 | 186.10 MiB |
+| 块设备读 | 208.00 KiB |
+| 块设备写 | 235.29 MiB |
+| 读系统调用 | 51,931 |
+| 写系统调用 | 244,115 |
+| mock 根落盘 | 14.52 MiB |
+| mock 根文件数 | 102 |
 
 ## 冷路径 · 启动恢复
 
@@ -57,17 +57,17 @@
 
 | 启动阶段 | 耗时 | 波动 |
 | --- | --- | --- |
-| 加载生产模块<br><code>module-graph</code> | 100.8 ms | ±1.9% |
-| 取得数据根单实例锁<br><code>instance-lock</code> | 11.16 ms | ±7.4% |
-| 清理中断残留的原子写临时文件<br><code>orphan-cleanup</code> | 623.3 µs | ±5.0% |
-| 读取并严格解析运行状态<br><code>state-load</code> | 1.12 ms | ±3.4% |
-| 校验部署配置与 AI 人设<br><code>deployment-inputs</code> | 4.49 ms | ±1.0% |
-| 创建 Disk I/O Worker<br><code>disk-io-init</code> | 707.6 µs | ±1.1% |
-| 从 SQLite 与快照恢复数据<br><code>persisted-load</code> | 228.0 ms | ±2.0% |
-| 填充主线程热缓存<br><code>hydrate</code> | 285.6 µs | ±6.3% |
-| 进程启动到本地恢复就绪<br><code>ready-total</code> | 359.9 ms | ±1.3% |
+| 加载生产模块<br><code>module-graph</code> | 111.6 ms | ±2.6% |
+| 取得数据根单实例锁<br><code>instance-lock</code> | 11.52 ms | ±4.8% |
+| 清理中断残留的原子写临时文件<br><code>orphan-cleanup</code> | 781.2 µs | ±15.6% |
+| 读取并严格解析运行状态<br><code>state-load</code> | 1.34 ms | ±16.6% |
+| 校验部署配置与 AI 人设<br><code>deployment-inputs</code> | 5.24 ms | ±7.7% |
+| 创建 Disk I/O Worker<br><code>disk-io-init</code> | 695.9 µs | ±4.2% |
+| 从 SQLite 与快照恢复数据<br><code>persisted-load</code> | 237.9 ms | ±1.3% |
+| 填充主线程热缓存<br><code>hydrate</code> | 408.2 µs | ±9.9% |
+| 进程启动到本地恢复就绪<br><code>ready-total</code> | 384.9 ms | ±1.8% |
 
-> 本轮恢复：8,192 条白名单 · 8,192 条黑名单 · 25 群状态 · 375 条群问答 · 25 份 AI 记忆快照；进程峰值 RSS 115.26 MiB。
+> 本轮恢复：8,192 条白名单 · 8,192 条黑名单 · 25 群状态 · 375 条群问答 · 25 份 AI 记忆快照；进程峰值 RSS 114.66 MiB。
 
 ## 热路径 · 生产函数
 
@@ -75,34 +75,34 @@
 
 | 场景 | 典型单次耗时 | 每秒调用 | 峰值 RSS | GC 后留存 | 波动 |
 | --- | --- | --- | --- | --- | --- |
-| 单条群消息进入主干并完成基础分发<br><code>incoming-message-spine</code> | 153.1 ns | 6,533,621 次/s | 91.60 MiB | 17.84 KiB | ±1.9% |
-| AI 开启后一条直接唤起的媒体消息构造触发上下文与记录载荷<br><code>ai-media-direct-trigger</code> | 95.7 ns | 10,472,785 次/s | 89.89 MiB | 20.28 KiB | ±5.0% |
-| 解析无 username 的发送者身份<br><code>sender-no-username</code> | 10.4 ns | 334,327,222 次/s | 77.87 MiB | 24.57 KiB | ±62.9% |
-| 解析 username 未变化的发送者身份<br><code>sender-stable-username</code> | 27.6 ns | 36,223,891 次/s | 78.11 MiB | 23.33 KiB | ±3.0% |
-| 同群内用户与频道马甲混合发言时解析发送者身份<br><code>sender-mixed-identity</code> | 31.7 ns | 31,556,947 次/s | 79.33 MiB | 24.96 KiB | ±0.6% |
-| 拒绝机器人自身的空消息<br><code>self-sent-empty</code> | 0.8 ns | 1,180,465,175 次/s | 76.56 MiB | 24.62 KiB | ±0.7% |
-| 机器人刚发过消息时判定一条群消息是否为自发回环<br><code>self-sent-active</code> | 47.6 ns | 21,045,345 次/s | 78.86 MiB | 23.58 KiB | ±4.4% |
-| 直接读取当前群状态<br><code>chat-state-read</code> | 3.7 ns | 267,324,596 次/s | 76.64 MiB | 24.55 KiB | ±0.1% |
-| 从群状态 Map 查询一群<br><code>chat-state-map-read</code> | 10.2 ns | 98,545,039 次/s | 77.20 MiB | 23.93 KiB | ±3.8% |
-| 更新 AI 活跃度滑动窗口<br><code>ai-activity-window</code> | 39.7 ns | 25,354,553 次/s | 81.01 MiB | 23.56 KiB | ±8.6% |
-| AI 活跃度 LRU 未命中并新建记录<br><code>ai-activity-lru-miss</code> | 1.202 µs | 833,912 次/s | 100.27 MiB | 23.75 KiB | ±5.3% |
-| 查询本地身份权限<br><code>identity-permission-read</code> | 88.1 ns | 11,353,487 次/s | 85.91 MiB | 25.74 KiB | ±0.2% |
-| 推进临时广告免检日内已达标稳态与授权边沿<br><code>temporary-whitelist-activity</code> | 40.8 ns | 24,533,970 次/s | 85.97 MiB | 23.92 KiB | ±2.8% |
-| 查询已有刷屏控制窗口<br><code>flood-window-hit</code> | 48.9 ns | 20,465,854 次/s | 79.85 MiB | 23.83 KiB | ±2.9% |
-| 刷屏控制窗口增长与淘汰<br><code>flood-window-growth</code> | 275.8 ns | 3,635,196 次/s | 124.25 MiB | 5.64 MiB | ±5.3% |
-| 刷屏控制窗口稳态更新<br><code>flood-window-steady</code> | 299.7 ns | 3,337,477 次/s | 129.54 MiB | 20.31 KiB | ±1.4% |
-| 广告检测空元数据快速路径<br><code>ad-empty-metadata</code> | 4.2 ns | 237,710,144 次/s | 77.39 MiB | 23.57 KiB | ±1.0% |
-| 复制广告候选的 Worker 消息载荷<br><code>ad-wire-clone</code> | 2.136 µs | 468,301 次/s | 85.58 MiB | 22.23 KiB | ±1.3% |
-| 广告检测队列满载拒绝<br><code>ad-capacity-reject</code> | 32.6 ns | 30,677,449 次/s | 85.93 MiB | 20.67 KiB | ±2.3% |
-| 构造一条 AI 上下文消息<br><code>buffered-message-build</code> | 286.6 ns | 3,488,783 次/s | 86.38 MiB | 21.77 KiB | ±0.3% |
-| 把 AI 群聊上下文渲染成提示词<br><code>transcript-render</code> | 43.16 µs | 23,378 次/s | 96.47 MiB | 20.99 KiB | ±9.8% |
-| 提取回复引用<br><code>reply-reference</code> | 30.5 ns | 32,869,681 次/s | 88.84 MiB | 22.00 KiB | ±4.2% |
-| 从 Telegram entity 提取 @ 提及<br><code>mention-facts</code> | 46.9 ns | 21,982,076 次/s | 95.63 MiB | 24.08 KiB | ±16.6% |
-| 无 entity 文本的提及快速路径<br><code>mention-facts-plain</code> | 4.0 ns | 253,172,008 次/s | 77.28 MiB | 24.25 KiB | ±1.2% |
-| 更新 gag 发言计数<br><code>gag-speak-counter</code> | 38.7 ns | 25,913,987 次/s | 84.09 MiB | 23.24 KiB | ±6.0% |
-| 认领运势发送回执<br><code>luck-receipt-fast-path</code> | 20.9 ns | 47,914,946 次/s | 76.82 MiB | 24.18 KiB | ±3.8% |
-| 按百分比查询运势档位<br><code>luck-tier-table</code> | 15.3 ns | 65,543,615 次/s | 77.00 MiB | 24.27 KiB | ±2.3% |
-| 检查无需脱敏的日志文本<br><code>redact-clean-log</code> | 86.1 ns | 11,631,398 次/s | 76.90 MiB | 23.18 KiB | ±3.4% |
+| 单条群消息进入主干并完成基础分发<br><code>incoming-message-spine</code> | 154.7 ns | 6,482,416 次/s | 89.53 MiB | 22.04 KiB | ±5.3% |
+| AI 开启后一条直接唤起的媒体消息构造触发上下文与记录载荷<br><code>ai-media-direct-trigger</code> | 96.6 ns | 10,360,450 次/s | 89.90 MiB | 21.29 KiB | ±3.1% |
+| 解析无 username 的发送者身份<br><code>sender-no-username</code> | 14.9 ns | 67,772,487 次/s | 78.80 MiB | 23.51 KiB | ±9.2% |
+| 解析 username 未变化的发送者身份<br><code>sender-stable-username</code> | 29.8 ns | 33,569,648 次/s | 78.38 MiB | 24.73 KiB | ±3.9% |
+| 同群内用户与频道马甲混合发言时解析发送者身份<br><code>sender-mixed-identity</code> | 33.2 ns | 30,234,645 次/s | 80.23 MiB | 24.33 KiB | ±5.7% |
+| 拒绝机器人自身的空消息<br><code>self-sent-empty</code> | 0.9 ns | 1,159,844,269 次/s | 76.80 MiB | 24.52 KiB | ±0.2% |
+| 机器人刚发过消息时判定一条群消息是否为自发回环<br><code>self-sent-active</code> | 49.3 ns | 20,364,433 次/s | 79.30 MiB | 22.81 KiB | ±5.9% |
+| 直接读取当前群状态<br><code>chat-state-read</code> | 3.7 ns | 267,329,837 次/s | 77.89 MiB | 24.04 KiB | ±0.7% |
+| 从群状态 Map 查询一群<br><code>chat-state-map-read</code> | 10.2 ns | 97,942,099 次/s | 78.83 MiB | 23.00 KiB | ±1.8% |
+| 更新 AI 活跃度滑动窗口<br><code>ai-activity-window</code> | 40.8 ns | 24,660,458 次/s | 82.19 MiB | 25.04 KiB | ±8.0% |
+| AI 活跃度 LRU 未命中并新建记录<br><code>ai-activity-lru-miss</code> | 1.343 µs | 746,146 次/s | 99.83 MiB | 23.90 KiB | ±4.2% |
+| 查询本地身份权限<br><code>identity-permission-read</code> | 61.6 ns | 16,244,229 次/s | 84.96 MiB | 26.01 KiB | ±3.0% |
+| 推进临时广告免检日内已达标稳态与授权边沿<br><code>temporary-whitelist-activity</code> | 39.5 ns | 25,291,003 次/s | 86.47 MiB | 24.22 KiB | ±0.7% |
+| 查询已有刷屏控制窗口<br><code>flood-window-hit</code> | 50.3 ns | 19,982,486 次/s | 81.05 MiB | 24.04 KiB | ±7.7% |
+| 刷屏控制窗口增长与淘汰<br><code>flood-window-growth</code> | 289.8 ns | 3,506,573 次/s | 124.42 MiB | 5.64 MiB | ±13.1% |
+| 刷屏控制窗口稳态更新<br><code>flood-window-steady</code> | 326.2 ns | 3,075,310 次/s | 132.01 MiB | 20.84 KiB | ±5.6% |
+| 广告检测空元数据快速路径<br><code>ad-empty-metadata</code> | 4.4 ns | 227,212,510 次/s | 79.02 MiB | 23.48 KiB | ±2.7% |
+| 复制广告候选的 Worker 消息载荷<br><code>ad-wire-clone</code> | 2.251 µs | 444,795 次/s | 86.22 MiB | 22.09 KiB | ±3.3% |
+| 广告检测队列满载拒绝<br><code>ad-capacity-reject</code> | 32.3 ns | 30,992,247 次/s | 87.44 MiB | 22.06 KiB | ±2.3% |
+| 构造一条 AI 上下文消息<br><code>buffered-message-build</code> | 256.1 ns | 3,906,660 次/s | 88.00 MiB | 22.50 KiB | ±2.2% |
+| 把 AI 群聊上下文渲染成提示词<br><code>transcript-render</code> | 41.48 µs | 24,108 次/s | 97.43 MiB | 21.91 KiB | ±0.2% |
+| 提取回复引用<br><code>reply-reference</code> | 30.6 ns | 32,690,553 次/s | 90.35 MiB | 22.43 KiB | ±1.5% |
+| 从 Telegram entity 提取 @ 提及<br><code>mention-facts</code> | 51.7 ns | 19,370,749 次/s | 97.56 MiB | 24.38 KiB | ±2.8% |
+| 无 entity 文本的提及快速路径<br><code>mention-facts-plain</code> | 6.1 ns | 194,749,580 次/s | 78.52 MiB | 24.71 KiB | ±45.2% |
+| 更新 gag 发言计数<br><code>gag-speak-counter</code> | 37.3 ns | 26,823,455 次/s | 84.69 MiB | 23.84 KiB | ±3.5% |
+| 认领运势发送回执<br><code>luck-receipt-fast-path</code> | 20.6 ns | 48,468,748 次/s | 78.32 MiB | 24.61 KiB | ±1.8% |
+| 按百分比查询运势档位<br><code>luck-tier-table</code> | 14.9 ns | 67,188,959 次/s | 77.81 MiB | 24.87 KiB | ±0.3% |
+| 检查无需脱敏的日志文本<br><code>redact-clean-log</code> | 83.6 ns | 11,988,854 次/s | 77.48 MiB | 23.15 KiB | ±5.4% |
 
 ## 完整流程 · 命令与落盘动作
 
@@ -110,17 +110,17 @@
 
 | 生产动作 | 完整处理能力 | 平均单次耗时 | 典型单次耗时 (p50) | 慢请求耗时 (p95) | 最慢单次 | 业务记录吞吐 | 块设备写 | 波动 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 追加 1 条入群日志并收到落盘回执<br><code>join-log-append</code> | 1,009 次/s | 991.0 µs | 908.6 µs | 1.33 ms | 6.58 ms | 1,009 条记录/s | 3.91 MiB | ±2.0% |
-| 批量写入 128 条身份策略并收到落盘回执<br><code>identity-policy-write</code> | 334 次/s | 3.00 ms | 2.92 ms | 5.27 ms | 12.34 ms | 42,711 条记录/s | 21.42 MiB | ±2.8% |
-| 累计 1 条临时广告免检活动并收到 SQLite 精确回执<br><code>temporary-whitelist-write</code> | 838 次/s | 1.19 ms | 1.13 ms | 1.55 ms | 4.86 ms | 838 条记录/s | 3.15 MiB | ±3.6% |
-| 写入 1 群状态并收到 SQLite 落盘回执<br><code>chat-state-write</code> | 744 次/s | 1.35 ms | 1.26 ms | 1.79 ms | 5.32 ms | 744 条记录/s | 3.13 MiB | ±2.8% |
-| 写入 1 条群问答并收到 SQLite 落盘回执<br><code>chat-qa-write</code> | 723 次/s | 1.38 ms | 1.31 ms | 1.78 ms | 4.47 ms | 723 条记录/s | 3.13 MiB | ±3.7% |
-| 重写 1 份 AI 记忆快照并收到落盘回执<br><code>ai-memory-snapshot</code> | 379 次/s | 2.64 ms | 2.44 ms | 3.78 ms | 10.09 ms | 379 条记录/s | 5.55 MiB | ±1.7% |
-| 追加 1 条诊断日志并收到落盘回执<br><code>diagnostic-log</code> | 871 次/s | 1.15 ms | 1.05 ms | 1.56 ms | 13.74 ms | 871 条记录/s | 4.16 MiB | ±2.2% |
-| 广告检测：完整判定并处置 1 条群消息（不含网络）<br><code>ad-detect-command</code> | 502 次/s | 2.00 ms | 1.82 ms | 2.93 ms | 7.29 ms | 502 条记录/s | 1.20 MiB | ±5.7% |
-| ai_chat：生成并发送 1 轮回复（不含网络与拟人停顿）<br><code>ai-reply-command</code> | 4,292 次/s | 230.6 µs | 199.8 µs | 396.1 µs | 551.3 µs | 4,292 条记录/s | 0 B | ±2.7% |
-| cron send_voice：合成、编码并发送 1 条语音（不含网络）<br><code>cron-send-voice</code> | 5 次/s | 219.2 ms | 218.1 ms | 224.6 ms | 228.5 ms | 5 条记录/s | 0 B | ±2.6% |
-| cron.json 中途改动 1 个任务：热重载并重排调度（满规格任务表）<br><code>cron-config-reload</code> | 8 次/s | 132.1 ms | 129.3 ms | 146.1 ms | 169.5 ms | 8 条记录/s | 7.31 MiB | ±1.3% |
+| 追加 1 条入群日志并收到落盘回执<br><code>join-log-append</code> | 864 次/s | 1.16 ms | 1.04 ms | 1.54 ms | 9.06 ms | 864 条记录/s | 3.91 MiB | ±2.0% |
+| 批量写入 128 条身份策略并收到落盘回执<br><code>identity-policy-write</code> | 324 次/s | 3.08 ms | 2.99 ms | 5.26 ms | 12.54 ms | 41,499 条记录/s | 21.42 MiB | ±1.1% |
+| 累计 1 条临时广告免检活动并收到 SQLite 精确回执<br><code>temporary-whitelist-write</code> | 797 次/s | 1.26 ms | 1.15 ms | 1.66 ms | 7.83 ms | 797 条记录/s | 3.15 MiB | ±4.5% |
+| 写入 1 群状态并收到 SQLite 落盘回执<br><code>chat-state-write</code> | 725 次/s | 1.38 ms | 1.23 ms | 1.97 ms | 9.80 ms | 725 条记录/s | 3.13 MiB | ±5.3% |
+| 写入 1 条群问答并收到 SQLite 落盘回执<br><code>chat-qa-write</code> | 674 次/s | 1.48 ms | 1.33 ms | 2.22 ms | 7.90 ms | 674 条记录/s | 3.13 MiB | ±3.7% |
+| 重写 1 份 AI 记忆快照并收到落盘回执<br><code>ai-memory-snapshot</code> | 358 次/s | 2.80 ms | 2.52 ms | 4.30 ms | 14.39 ms | 358 条记录/s | 5.55 MiB | ±2.0% |
+| 追加 1 条诊断日志并收到落盘回执<br><code>diagnostic-log</code> | 852 次/s | 1.17 ms | 1.09 ms | 1.56 ms | 7.41 ms | 852 条记录/s | 4.16 MiB | ±2.7% |
+| 广告检测：完整判定并处置 1 条群消息（不含网络）<br><code>ad-detect-command</code> | 564 次/s | 1.78 ms | 1.63 ms | 2.32 ms | 8.74 ms | 564 条记录/s | 1.82 MiB | ±5.6% |
+| ai_chat：生成并发送 1 轮回复（不含网络与拟人停顿）<br><code>ai-reply-command</code> | 4,193 次/s | 236.0 µs | 199.3 µs | 399.8 µs | 798.9 µs | 4,193 条记录/s | 0 B | ±2.0% |
+| cron send_voice：合成、编码并发送 1 条语音（不含网络）<br><code>cron-send-voice</code> | 4 次/s | 222.8 ms | 222.4 ms | 230.0 ms | 234.2 ms | 4 条记录/s | 0 B | ±3.1% |
+| cron.json 中途改动 1 个任务：热重载并重排调度（满规格任务表）<br><code>cron-config-reload</code> | 7 次/s | 135.8 ms | 133.6 ms | 147.2 ms | 156.1 ms | 7 条记录/s | 7.31 MiB | ±0.8% |
 
 ## 存储 · SQLite 与主线程缓存
 
@@ -128,12 +128,12 @@
 
 | 操作 | 每秒调用 | 平均批次耗时 | 块设备写 | GC 后留存 | 波动 |
 | --- | --- | --- | --- | --- | --- |
-| 查询主线程身份 LRU 缓存<br><code>main-lru-read</code> | 30,584,092 次/s | 261.7 ns | 0 B | 12.33 KiB | ±1.7% |
-| 主线程身份写透 SQLite 并等待回执<br><code>main-write-through-acked</code> | 44,670 次/s | 2.87 ms | 56.55 MiB | 21.44 KiB | ±1.3% |
-| SQLite 查询（复用热连接）<br><code>storage-read-hot-connection</code> | 71,494 次/s | 111.9 µs | 5.30 MiB | 73.86 KiB | ±1.0% |
-| SQLite 查询（每批新建连接）<br><code>storage-read-cold-connection</code> | 13,283 次/s | 602.5 µs | 34.02 MiB | 245.23 KiB | ±2.1% |
-| SQLite 事务写入（复用热连接）<br><code>storage-write-hot-connection</code> | 59,896 次/s | 2.14 ms | 73.15 MiB | 127.14 KiB | ±3.1% |
-| SQLite 事务写入（每批新建连接）<br><code>storage-write-cold-connection</code> | 18,229 次/s | 7.04 ms | 12.60 MiB | 424.44 KiB | ±5.0% |
+| 查询主线程身份 LRU 缓存<br><code>main-lru-read</code> | 38,340,838 次/s | 208.7 ns | 0 B | 10.89 KiB | ±1.9% |
+| 主线程身份写透 SQLite 并等待回执<br><code>main-write-through-acked</code> | 42,537 次/s | 3.02 ms | 56.55 MiB | 24.72 KiB | ±5.4% |
+| SQLite 查询（复用热连接）<br><code>storage-read-hot-connection</code> | 288,691 次/s | 27.73 µs | 5.30 MiB | 10.22 KiB | ±2.4% |
+| SQLite 查询（每批新建连接）<br><code>storage-read-cold-connection</code> | 9,369 次/s | 857.5 µs | 34.02 MiB | 176.43 KiB | ±6.4% |
+| SQLite 事务写入（复用热连接）<br><code>storage-write-hot-connection</code> | 65,641 次/s | 1.95 ms | 73.15 MiB | 126.62 KiB | ±1.0% |
+| SQLite 事务写入（每批新建连接）<br><code>storage-write-cold-connection</code> | 17,402 次/s | 7.41 ms | 12.60 MiB | 423.37 KiB | ±8.8% |
 
 ## 容器与算法
 
@@ -141,9 +141,9 @@
 
 | 容器 | 典型单次耗时 | 每秒调用 | 峰值 RSS | GC 后留存 | 波动 |
 | --- | --- | --- | --- | --- | --- |
-| 有配额上限的滑动时间窗口记账与过期淘汰<br><code>quota-timestamp-window</code> | 17.1 ns | 58,920,768 次/s | 80.47 MiB | 21.53 KiB | ±8.8% |
-| 有界入群滑窗的饱和记账与过期淘汰<br><code>join-timestamp-window</code> | 36.0 ns | 27,825,019 次/s | 80.20 MiB | 25.32 KiB | ±2.1% |
-| AI 有界滚动记忆追加与淘汰<br><code>bounded-rolling-buffer</code> | 19.6 ns | 51,337,369 次/s | 86.14 MiB | 27.65 KiB | ±9.5% |
+| 有配额上限的滑动时间窗口记账与过期淘汰<br><code>quota-timestamp-window</code> | 18.1 ns | 55,324,759 次/s | 83.43 MiB | 21.67 KiB | ±5.1% |
+| 有界入群滑窗的饱和记账与过期淘汰<br><code>join-timestamp-window</code> | 36.5 ns | 27,380,029 次/s | 80.75 MiB | 25.25 KiB | ±1.4% |
+| AI 有界滚动记忆追加与淘汰<br><code>bounded-rolling-buffer</code> | 16.8 ns | 59,402,928 次/s | 86.36 MiB | 27.50 KiB | ±2.0% |
 
 ## 入群日志 · 25 万容量线
 
@@ -151,8 +151,8 @@
 
 | 操作 | 耗时 | GC 前分配 | GC 后留存 | 波动 |
 | --- | --- | --- | --- | --- |
-| 复制 25 万条入群日志快照<br><code>snapshot</code> | 119.9 ms | 1.72 MiB | 5.93 KiB | ±1.7% |
-| 把 25 万条入群日志裁剪到容量上限<br><code>capacity</code> | 16.30 ms | 0 B | -4.74 KiB | ±2.3% |
+| 复制 25 万条入群日志快照<br><code>snapshot</code> | 125.9 ms | 2.04 MiB | 6.58 KiB | ±1.4% |
+| 把 25 万条入群日志裁剪到容量上限<br><code>capacity</code> | 18.09 ms | 0 B | -4.74 KiB | ±11.7% |
 
 > 复现：`bun run perf:full`。
 

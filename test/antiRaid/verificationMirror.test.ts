@@ -25,7 +25,10 @@ const {
   resetVerificationAttemptRuntime,
   settlePersistedVerificationDeferral,
 } = await import("../../packages/antiRaid/verificationAttempts");
-const { assertVerificationMirrorInvariants } = await import("../helpers/verificationMirrorInvariants");
+const {
+  assertVerificationMirrorInvariants,
+  record,
+} = await import("../helpers/verificationMirrorInvariants");
 const { antiRaidRuntimeState } = await import("../../packages/cache/main/antiRaid/proxy");
 const {
   activeVerificationSnapshots,
@@ -50,23 +53,6 @@ const { VERIFICATION_RECORD_CAPACITY } = await import(
 
 const KEY: string = "-1001:42";
 const fatalErrors: Error[] = [];
-
-function record(generation: number, revision: number): VerificationSnapshot {
-  return {
-    chatId: -1001,
-    userId: 42,
-    generation,
-    revision,
-    phase: "pending",
-    label: "待验证成员",
-    isBot: false,
-    trackedMessageTimes: [],
-    replyReminderRequested: false,
-    reminderSuperseded: false,
-    joinedAt: 1_000,
-    expiresAt: 121_000,
-  };
-}
 
 beforeEach(() => {
   diskPosts.length = 0;

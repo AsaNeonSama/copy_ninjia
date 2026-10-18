@@ -1,5 +1,5 @@
 import type { FlushResult } from "../../packages/types/lifecycle";
-import { acknowledgeIdentityPolicyWrites, diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
+import { createFlushBlocklistDomain, diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import type { IdentityStoragePersistedReply } from "../../packages/types/diskIO/replies";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { groupCommandContext } from "../helpers/groupCommandContext";
@@ -89,19 +89,16 @@ const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [
 /** 为 false 时 flush 成功也不回执身份写入，模拟 Worker 尚未提交这批事务。 */
 const identityAck: { enabled: boolean } = { enabled: true };
 
-/** 黑名单确认等的是精确 revision ACK：flush 成功时先把已投递的身份写入回执出去。 */
-async function flushBlocklistDomain(): Promise<{ result: FlushResult }> {
-  const result: FlushResult = await flushDiskIO();
-  if (result === "flushed" && identityAck.enabled) acknowledgeIdentityPolicyWrites(postDiskIO.mock.calls, persistedListeners);
-  return { result };
-}
+const flushBlocklistDomain = createFlushBlocklistDomain({
+  flushDiskIO,
+  postDiskIO,
+  listeners: persistedListeners,
+  identityAck,
+});
 mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   postDiskIO,
   onDiskIORespawn: (): void => {},
-  // /block 只等黑名单这一个领域的落盘回执：统一 flush 是各领域的合取，
-  // 无关领域失败不让它报「小本本没能写进硬盘」（见 confirmBlocklistPersisted）。
-  // confirmBlocklistPersisted 经 confirmIdentityPolicyPersisted 走带回执的出口，并核对精确 revision ACK。
-  // 身份表的确认等精确 revision ACK（flushBlocklistDomain），其余领域只看 flush 结果。
+  // 身份策略落盘等精确 revision ACK（flushBlocklistDomain），其余领域只看 flush 结果。
   flushDiskIODomain: async (domain: string): Promise<{ result: FlushResult }> =>
     domain === "blocklist" || domain === "whitelist" ? flushBlocklistDomain() : { result: await flushDiskIO() },
   onDiskIOReply: diskIOReplyStub({
@@ -651,7 +648,6 @@ describe("/block 的黑名单落盘", () => {
   });
 
   test("自己人不可拉黑：超级管理员与白名单成员在入口就被挡住", async () => {
-    // 黑名单只增不删，解除要停进程手工改文件（docs/cn/04-invariants.md），入口挡下。
     for (const insiderId of [1, 100]) {
       target = { id: insiderId, first_name: "Insider" };
       await handleBlockCommand(context());

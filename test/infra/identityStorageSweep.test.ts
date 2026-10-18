@@ -21,12 +21,15 @@ import type {
   BlocklistIdPage,
   IdentityPolicyRawReadResult,
 } from "../../packages/types/identityStorage";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 const {
-  blocklistEntryCache,
   identityEntryCounts,
   unacknowledgedBlocklistWrites,
-  whitelistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
 const {
   queueIdentityPolicyWrite,
@@ -123,8 +126,8 @@ describe("补扫游标页 fail-closed 校验", () => {
     expect(readBlocklistIdPage).toHaveBeenCalledWith(afterId);
     expect(diskMessages).toEqual([]);
     expect(identityEntryCounts).toEqual({ whitelist: 0, blocklist: 0 });
-    expect(blocklistEntryCache.size).toBe(0);
-    expect(whitelistEntryCache.size).toBe(0);
+    expect(blocklistField.size).toBe(0);
+    expect(whitelistField.size).toBe(0);
   }
 
   test("超过固定页大小的回包被拒收，即使升序与游标都自洽", async () => {

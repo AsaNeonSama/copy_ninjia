@@ -1,3 +1,5 @@
+import { STATE_MANAGED_CHAT_LIMIT } from "../../storage";
+
 /** /wed 单排按钮文字，确认后仍允许更换。 */
 export const WED_BUTTON_TEXTS: Readonly<{
   remove: string;
@@ -24,7 +26,7 @@ export const WED_TEXTS: Readonly<{
   groupOnly: "噗，频道皮套还想娶老婆？用个人身份在群里发送 /wed 啦，杂鱼♡",
   usage: "连抽老婆都不会呀，杂鱼♡ 直接发送 /wed 就好，后面不用加东西啦。",
   busy: "本天才正在帮你抽呢，急着娶老婆也要乖乖等一下，杂鱼♡",
-  full: "本群的抽取会话已经塞满啦，先移除不需要的结果再来，贪心的杂鱼♡",
+  full: `本天才最多只管 ${STATE_MANAGED_CHAT_LIMIT} 个群的娶老婆名册，早就塞满啦，贪心的杂鱼♡ 去不再需要的那个群 /init disable，或者把本天才移出那个群，腾出一格再来♡`,
   queueFull: "抽老婆的队伍都排满啦，杂鱼乖乖等会儿再来♡",
   empty: "连其他可抽的群友都没有，杂鱼也太心急啦♡ 等大家发言后再来。",
   unavailable: "这次没找到头像可用的群友哦♡ 运气真差呢，杂鱼稍后再抽啦。",

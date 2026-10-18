@@ -1,54 +1,39 @@
-/** owner: workers/aiChat。Gemini 回复共用显式缓存（cachedContent，text scope）的本地登记，以及各群上一次回复请求的触发时刻。 */
+/** owner: workers/aiChat。Gemini 回复显式上下文缓存登记表与各群最近请求时间（packages/infra/geminiContextCache.ts、packages/aiChat/gemini/replySession.ts）。 */
 
 import { GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS } from "../../../consts/aiChat/gemini";
-import type { GeminiContextCacheRegistry } from "../../../types/geminiContextCache";
+import type {
+  GeminiContextCacheRegistry,
+  GeminiReplyCacheContentSlot,
+} from "../../../types/geminiContextCache";
 
 /**
- * text scope 的登记表（结构见 types/geminiContextCache.ts，读写见
- * infra/geminiContextCache.ts）。null 表示本线程尚未取用或已被复位。
- *
- * 填充：走显式缓存的回复请求第一次取用时按当下 text 客户端新建，随即触发启动扫描，按 displayName
- * 接管服务端既有条目；后台创建成功时写槽，命中刷新 lastUsedAt，续期成功改写 expireAt。
- * 清理：同槽内容变化时换条目并删除旧的服务端条目；新建条目后删除接管以来从未用过的
- * 条目；超过 GEMINI_TEXT_CACHE_MAX_SLOTS 槽时删除最久未用的槽；显式缓存请求报缓存不可用（此后
- * 冷却 GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS 再重建）或续期报 404 时摘掉本地登记。agent.text
- * 热重载有变化时置 null（aiChat/provider.ts），下一次取用按新客户端新建并重新扫描，旧表上的
- * 在途请求只写旧表。服务端条目另按 TTL 自行过期。
- * Worker 崩溃重建：新 isolate 从 null 起步，第一次走显式缓存的回复重新扫描接管。
- * 容量：一张表；槽至多 GEMINI_TEXT_CACHE_MAX_SLOTS 个，失败与被拒记录不超过本表出现过的
- * 槽键数（该槽创建成功或被淘汰时删除），进行中的创建不超过同时在用的槽数。
+ * text 能力的 Gemini 显式上下文缓存登记表（GeminiContextCacheRegistry）单例：
+ * - 填充：provider 启动、切换或首次使用显式缓存时创建并探测模型显式缓存支持度（支持则扫描接管服务端同 displayName 条目，不支持则标为 `"unsupported"`），后台创建成功时写入槽位，命中刷新 lastUsedAt，续期更新 expireAt；
+ * - 清理与淘汰：同槽内容变化或新建后清理未使用的旧服务端条目，槽数超 GEMINI_TEXT_CACHE_MAX_SLOTS 时淘汰最久未用槽位，缓存不可用（冷却 GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS）或续期目标不存在时移除本地登记，agent.text 热重载变化或 resetGeminiContextCache 时置为 null（切换后仍为 Google 时立即重建探测）；
+ * - 重建：Worker 重建后从 null 开始，随 init 或首次请求重新探测与扫描接管。
  */
 export const textGeminiContextCache: { current: GeminiContextCacheRegistry | null } = { current: null };
 
 /**
- * 各群的触发时刻：chatId -> 本群上一次成功的 Gemini 回复 generateContent 的发出时刻（本线程
- * performance.now() 毫秒）。没有条目表示本群在本线程还没有成功的回复请求，或条目已被清理。回复
- * 会话用它决定本群第 1 次请求走显式缓存还是完整结构（见 aiChat/gemini/replySession.ts，阈值
- * GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS）；各群互不影响。
- *
- * 填充：本群回复请求成功后写入它的发出时刻，失败的请求不写；并行请求可能乱序完成，不晚于本群
- * 已记录值的不覆盖。显式缓存被拒后的完整结构补发按补发时刻计。
- * 清理：经 invalidateChatRuntimeCache（cache/workers/aiChat/index.ts）随本群其它运行时缓存一起删除，
- * 此后本群在途请求成功时仍会写回；AI Worker 维护节拍经 sweepGeminiReplyRequestTimes 删除已超过
- * GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 的条目（与没有条目等价）；测试隔离时经 resetGeminiContextCache 清空。
- * text 热重载只丢弃上面的登记表，不改这些时刻。
- * Worker 崩溃重建：新 isolate 从空表起步，计时起点随之更换；各群下一次回复的第 1 次请求走显式缓存。
- * 容量：最近一个维护间隔加 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 内成功发过 Gemini 回复请求的群数。
+ * 群 ID 到该群最近一次成功发起 Gemini 回复请求时刻（performance.now() 毫秒）的映射：
+ * - 填充：回复请求成功时写入较大时刻（供 replySession.ts 按 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 判定首轮请求是否使用显式缓存）；
+ * - 清理与容量：invalidateChatRuntimeCache 按群删除，sweepGeminiReplyRequestTimes 定期清理超 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 的过期项，resetGeminiContextCache 清空；容量与窗口内活跃群数同阶，Worker 重建后从空表开始。
  */
 export const geminiReplyLastRequestAt: Map<number, number> = new Map();
 
-/**
- * 删除距 now（本线程 performance.now() 毫秒）已超过 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 的触发时刻；回复会话对这类
- * 条目与没有条目同样处理（走显式缓存）。由 AI Worker 维护节拍调用。
- */
+/** 清理距今已超过 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 的群回复请求时间记录。 */
 export function sweepGeminiReplyRequestTimes(now: number): void {
   for (const [chatId, at] of geminiReplyLastRequestAt) {
     if (now - at > GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS) geminiReplyLastRequestAt.delete(chatId);
   }
 }
 
-/** 测试隔离时丢弃本地登记与各群上一次回复请求的触发时刻；不触碰服务端条目。 */
+/** Gemini 回复共用显式缓存输入内容与指纹单槽：replySession.ts 在 acquireGeminiContextCache 需要内容（扫描状态为 running 或 done）且模型、系统指令、工具声明 JSON 或 toolConfig 变化时重算并整体替换，resetGeminiContextCache 时置为 null；单例对象，Worker 重建后从 null 开始。 */
+export const textGeminiReplyCacheContent: { current: GeminiReplyCacheContentSlot | null } = { current: null };
+
+/** 清空本地 Gemini 显式缓存登记表、各群最近请求时间与缓存内容单槽。 */
 export function resetGeminiContextCache(): void {
   textGeminiContextCache.current = null;
   geminiReplyLastRequestAt.clear();
+  textGeminiReplyCacheContent.current = null;
 }

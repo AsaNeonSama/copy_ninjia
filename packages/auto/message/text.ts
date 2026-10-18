@@ -7,12 +7,14 @@ import type { MessageTriggerContext } from "../../types/auto";
 import { shouldAttemptRandomTrigger, tryClaimUserReplyTrigger } from "./triggerPolicy";
 import type { AiSpeakerSnapshot } from "../../types/aiChat/speaker";
 import type { TelegramVisionSource } from "../../types/media";
+import type { ImageGenerationReference } from "../../types/aiChat/protocol";
 
 /** 记录普通文字并处理直接回复/@ 与随机搭话。true 表示终止后续主动行为。 */
 export function handleTextMessage(context: MessageTriggerContext): boolean {
-  const { message, chatId }: MessageTriggerContext = context;
+  const { message }: MessageTriggerContext = context;
   if (typeof message.text !== "string" || message.text.startsWith("/")) return false;
 
+  const chatId: number = message.chat.id;
   const speaker: AiSpeakerSnapshot = resolveSpeaker(message);
   recordChatMessage(buildAiRecordMessage({ context, speaker, text: message.text }));
 
@@ -25,7 +27,17 @@ export function handleTextMessage(context: MessageTriggerContext): boolean {
     const repliedSticker: TelegramVisionSource | undefined = context.repliedTo?.sticker
       ? pickStickerVisionSource(context.repliedTo.sticker) ?? undefined
       : undefined;
-    const imageGenerationReference: TelegramVisionSource | undefined = repliedPhoto ?? repliedSticker;
+    const repliedSource: TelegramVisionSource | undefined = repliedPhoto ?? repliedSticker;
+    // 被回复的图在相册里时带上相册 id，Worker 据此补齐同一相册的其余图片。
+    const imageGenerationReference: ImageGenerationReference | undefined = repliedSource === undefined
+      ? undefined
+      : {
+        fileId: repliedSource.fileId,
+        fileUniqueId: repliedSource.fileUniqueId,
+        width: repliedSource.width,
+        height: repliedSource.height,
+        mediaGroupId: repliedPhoto === undefined ? undefined : context.repliedTo?.media_group_id,
+      };
     generateAndSendReply({
       // 字段写全（缺省显式 undefined），不用条件展开，各入口共用同一个 hidden class
       // （messageIngress.ts 的解构与 Worker 侧读取）。口径同 auto/message/recordContext.ts。

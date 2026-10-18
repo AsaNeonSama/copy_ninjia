@@ -1,7 +1,5 @@
 /**
- * OpenAI 侧的联网检索执行器（web_search 或 text 能力）：用该能力的模型发一次挂 hosted `web_search`
- * 的 Responses 单轮请求，交回结论正文、`url_citation` 引用的来源与实际检索次数。收发与失败
- * 归一化走 client.ts 的 requestOpenAiResult；token 与检索次数在那里按同一响应上报。
+ * OpenAI 联网检索实现：挂载服务端 hosted `web_search` 工具调用 Responses API，提取正文、引用来源与检索次数。
  */
 
 import type OpenAI from "openai";
@@ -21,22 +19,26 @@ import type {
   AiWebSearchSource,
 } from "../../types/aiChat/provider";
 
-/** 正文里 `url_citation` 注释给出的来源，按出现顺序。 */
+/** 按出现顺序追加一段 output_text 中 `url_citation` 注解的来源。 */
+function appendUrlCitations(content: OpenAI.Responses.ResponseOutputText, sources: AiWebSearchSource[]): void {
+  for (const annotation of content.annotations) {
+    if (annotation.type === "url_citation") sources.push({ title: annotation.title, url: annotation.url });
+  }
+}
+
+/** 按出现顺序提取响应正文 `url_citation` 注解中的来源。 */
 function citedSources(response: OpenAI.Responses.Response): readonly AiWebSearchSource[] {
   const sources: AiWebSearchSource[] = [];
   for (const item of responseOutputItems(response)) {
     if (item.type !== "message") continue;
     for (const content of item.content) {
-      if (content.type !== "output_text") continue;
-      for (const annotation of content.annotations) {
-        if (annotation.type === "url_citation") sources.push({ title: annotation.title, url: annotation.url });
-      }
+      if (content.type === "output_text") appendUrlCitations(content, sources);
     }
   }
   return sources;
 }
 
-/** 按指定能力执行一次联网检索；不抛出，失败已由 requestOpenAiResult 记日志。 */
+/** 按指定能力执行一次 OpenAI 联网检索。 */
 export async function searchOpenAiWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest
@@ -44,7 +46,6 @@ export async function searchOpenAiWeb(
   const result: OpenAiRequestResult = await requestOpenAiResult({
     capability,
     buildBody: (): OpenAI.Responses.ResponseCreateParamsNonStreaming => {
-      // web_search 没配时抛错，由 requestOpenAiResult 的 try 归一成失败；text 取对话模型。
       const model: string = requireAgentCapabilityConfig(capability).model;
       return {
         model,

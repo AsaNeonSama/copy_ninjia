@@ -18,7 +18,7 @@ export function formatMinSec(ms: number): string {
   return `${minutes}分${seconds}秒`;
 }
 
-/** 严格判断 YYYY-MM-DD 是否为可往返的公历日期，拒绝 02-30 等归一化输入。 */
+/** 严格判断 YYYY-MM-DD 是否为可往返的公历日期，拒绝被 Date 静默进位的非法公历日。 */
 export function isCanonicalDateKey(value: string): boolean {
   if (!DATE_KEY_PATTERN.test(value)) return false;
   const parsed: Date = new Date(`${value}T00:00:00.000Z`);
@@ -85,7 +85,7 @@ function localOffsetMs(timestampMs: number): number {
   return state.offsetMs;
 }
 
-/** 0~99 的两位零填充串定表；只服务本文件的固定宽度时间串，模块加载时建一次。 */
+/** 两位十进制零填充串定表；只服务本文件的固定宽度时间串，模块加载时建一次。 */
 const TWO_DIGIT_STRINGS: readonly string[] = ((): readonly string[] => {
   const table: string[] = new Array<string>(100);
   for (let value: number = 0; value < 100; value += 1) {
@@ -141,12 +141,20 @@ export function getDateKey(timestampMs: number = Date.now()): string {
   return formatCivilDate(Math.floor((timestampMs + localOffsetMs(timestampMs)) / DAY_MS), "-");
 }
 
-/** 配置时区的 YYYY/MM/DD HH:mm:ss；记录时格式化，供 AI 转录与持久化条目使用。 */
+/**
+ * 配置时区的 YYYY/MM/DD HH:mm:ss；记录时格式化，供 AI 转录与持久化条目使用。
+ * 日期段按本线程 TimeZoneState 的 dateDay / datePrefix 单槽复用，只在日序号变化时重算。
+ */
 export function formatLocalTime(timestampMs: number): string {
   validateFormatTimestamp(timestampMs);
   const shifted: number = timestampMs + localOffsetMs(timestampMs);
   const days: number = Math.floor(shifted / DAY_MS);
-  return `${formatCivilDate(days, "/")} ${formatSecondOfDay(((shifted - days * DAY_MS) / 1_000) | 0)}`;
+  const state: TimeZoneState = getTimeZoneState();
+  if (state.dateDay !== days) {
+    state.datePrefix = `${formatCivilDate(days, "/")} `;
+    state.dateDay = days;
+  }
+  return `${state.datePrefix}${formatSecondOfDay(((shifted - days * DAY_MS) / 1_000) | 0)}`;
 }
 
 /** 配置时区的 YYYY-MM-DD HH:mm:ss.SSS；用于落盘日志条目的 key 前缀。 */
@@ -162,7 +170,7 @@ export function formatLogTimestamp(timestampMs: number): string {
   return `${formatCivilDate(days, "-")} ${formatSecondOfDay((millisecondOfDay / 1_000) | 0)}.${millisecondText}`;
 }
 
-/** 配置时区小时数 0~23；供心情系统按时段分档。 */
+/** 配置时区的整点小时数；供心情系统按时段分档。 */
 export function getLocalHour(timestampMs: number = Date.now()): number {
   validateCalendarTimestamp(timestampMs);
   return Math.floor(((timestampMs + localOffsetMs(timestampMs)) % DAY_MS + DAY_MS) % DAY_MS / 3_600_000);

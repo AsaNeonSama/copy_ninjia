@@ -49,17 +49,13 @@ export function trimSlidingWindowArray({
  * 判定与上面那个函数逐字相同，两者共用一份对拍用例
  * （test/libs/slidingWindowBoundary.test.ts）。
  *
- * 判据是单趟压缩，不是 `TimestampDeque.trim` 那种「先裁未来尾段、再裁过期队首」的
- * 两段式：时钟回拨后数组不再单调，deque 只裁连续尾段，这里的谓词裁掉任意位置的
- * 未来项，两者对 `[100, 200, 50]`（now=60）给出不同结果。
+ * 判据是单趟压缩：时钟回拨后数组不再单调，本函数裁掉任意位置的未来项。
  *
  * 只给独占该数组的调用方用：入群验证的 `trackedMessageTimes` 由状态机原地持有，
  * 全部消费方都用 `[...]` 复制出去（antiRaid/verificationMirror.ts /
  * workers/antiRaid/verificationSnapshot.ts / workers/diskIO/verificationWrites.ts /
  * workers/diskIO/verificationCodec.ts），没有第二处别名。
  * 需要一份新数组的冷路径（恢复与接管）使用 `trimSlidingWindowArray`。
- *
- * 参数用位置形式（三个，在 AGENTS.md 的位置参数上限内），不分配入参对象。
  *
  * @param timestamps 就地修剪的时间戳数组；长度可能变短，元素相对顺序不变。
  */

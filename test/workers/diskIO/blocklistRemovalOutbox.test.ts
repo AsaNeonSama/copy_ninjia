@@ -37,7 +37,6 @@ import type {
 } from "../../../packages/types/storageDatabase";
 import {
   encodeBlocklistEntryData,
-  encodeWhitelistEntryData,
   encodePendingBlockedRemovalData,
 } from "../../../packages/database/codec/identity";
 import {
@@ -53,22 +52,24 @@ import { handleChatStateWrite } from
   "../../../packages/workers/diskIO/storageDatabase/chatState";
 import { flushStorageDatabase, setStorageFlushHold } from
   "../../../packages/workers/diskIO/storageDatabase/flush";
-import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
+import {
+  hydrateStorageDatabase,
+  whitelistWrite,
+} from "../../helpers/storageDatabaseHydration";
 import {
   handleIdentityPolicyWrite,
   readIdentityPolicies,
 } from "../../../packages/workers/diskIO/storageDatabase/identityPolicy";
-import { handlePendingRemovalSnapshot } from
+import { handleBlocklistRemovalWrite } from
   "../../../packages/workers/diskIO/storageDatabase/pendingRemoval";
 import type { PendingBlockedRemoval } from "../../../packages/types/blocklist";
 import type {
+  BlocklistRemovalWriteDiskMessage,
   ChatStateWriteDiskMessage,
   IdentityStoragePersistedReply,
   IdentityPolicyWriteDiskMessage,
   TemporaryAdBypassWriteDiskMessage,
 } from "../../../packages/types/diskIO";
-import type { WhitelistEntryData } from "../../../packages/types/identityPolicy";
-import { DEFAULT_WHITELIST_PERMISSIONS } from "../../../packages/consts/whitelist";
 import { chatStateOf } from "../../helpers/chatState";
 
 const META: Readonly<{ firstName: string; lastName: string; username: string }> = {
@@ -93,20 +94,6 @@ function clearBusinessTables(): void {
   const database: StorageDatabase = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
   clearStorageBusinessTables(database);
   closeStorageDatabase(database);
-}
-
-function whitelistWrite(id: number, revision: number): IdentityPolicyWriteDiskMessage {
-  const value: WhitelistEntryData = {
-    permissions: DEFAULT_WHITELIST_PERMISSIONS,
-    meta: META,
-  };
-  return {
-    type: "identityPolicyWrite",
-    table: "whitelist",
-    id,
-    data: encodeWhitelistEntryData(value),
-    revision,
-  };
 }
 
 function blocklistWrite(id: number, revision: number): IdentityPolicyWriteDiskMessage {
@@ -148,6 +135,24 @@ function sweepRemoval(removalId: number): PendingBlockedRemoval {
     attempts: 0,
     lastFailure: null,
   };
+}
+
+/** 一行待踢任务的最终值写入；value 为 null 表示删除这一行。 */
+function removalWrite(
+  removalId: number,
+  value: PendingBlockedRemoval | null,
+  revision: number
+): BlocklistRemovalWriteDiskMessage {
+  return {
+    type: "blocklistRemovalWrite",
+    removalId,
+    data: value === null ? null : JSON.stringify(value),
+    revision,
+  };
+}
+
+function blocklistTombstone(id: number, revision: number): IdentityPolicyWriteDiskMessage {
+  return { type: "identityPolicyWrite", table: "blocklist", id, data: null, revision };
 }
 
 function chatStateWrite(
@@ -204,7 +209,7 @@ describe("DiskIO Worker SQLite 身份存储", () => {
       writes: [{ table: "whitelist", id: 7, revision: 1 }],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [],
+      chatQaWrites: [], removalWrites: [],
     }]);
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().permissionEntryCount).toBe(1);
@@ -236,13 +241,9 @@ describe("DiskIO Worker SQLite 身份存储", () => {
     expect(restored.blocklistEntryCount).toBe(IDENTITY_WRITE_BATCH_MAX_ENTRIES - 1);
   });
 
-  test("待踢完整快照与名单写入共用事务，并在 durable 后单独 ACK 快照 revision", () => {
+  test("待踢行写入与名单写入共用事务，并在 durable 后按 (removalId, revision) 精确 ACK", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, removal(9)]],
-      revision: 4,
-    }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, removal(9), 4), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
     expect(acknowledgements.at(-1)).toEqual({
       type: "identityStoragePersisted",
@@ -250,7 +251,7 @@ describe("DiskIO Worker SQLite 身份存储", () => {
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
       chatQaWrites: [],
-      removalSnapshotRevision: 4,
+      removalWrites: [{ removalId: 9, revision: 4 }],
     });
 
     resetStorageDatabaseCache();
@@ -259,60 +260,48 @@ describe("DiskIO Worker SQLite 身份存储", () => {
     expect(restored.pendingBlockedRemovals).toEqual(new Map([[9, removal(9)]]));
   });
 
-  test("裁剪快照先于 tombstone 到达时，tombstone 触发的满批提交仍满足启动引用约束", () => {
+  test("删除行先于 tombstone 到达时，tombstone 触发的满批提交仍满足启动引用约束", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    handlePendingRemovalSnapshot({ type: "blocklistRemovals", removals: [[9, removal(9)]], revision: 1 }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, removal(9), 1), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
     for (let index: number = 1; index < IDENTITY_WRITE_BATCH_MAX_ENTRIES; index++) {
       handleIdentityPolicyWrite(blocklistWrite(1_000 + index, 1 + index), reply);
     }
     acknowledgements.length = 0;
 
-    handlePendingRemovalSnapshot({ type: "blocklistRemovals", removals: [], revision: 2 }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, null, 2), reply);
     expect(acknowledgements).toHaveLength(0);
-    handleIdentityPolicyWrite({
-      type: "identityPolicyWrite",
-      table: "blocklist",
-      id: 7,
-      data: null,
-      revision: 1_000,
-    }, reply);
+    handleIdentityPolicyWrite(blocklistTombstone(7, 1_000), reply);
 
-    // tombstone 是第 IDENTITY_WRITE_BATCH_MAX_ENTRIES 条黑名单变化，就地提交；先到的快照删除随同一事务落盘。
+    // tombstone 是第 IDENTITY_WRITE_BATCH_MAX_ENTRIES 条黑名单变化，就地提交；先到的删除行随同一事务落盘。
     expect(acknowledgements).toHaveLength(1);
-    expect(acknowledgements[0]!.removalSnapshotRevision).toBe(2);
+    expect(acknowledgements[0]!.removalWrites).toEqual([{ removalId: 9, revision: 2 }]);
     resetStorageDatabaseCache();
     const restored = hydrateStorageDatabase();
     expect(restored.pendingBlockedRemovals.size).toBe(0);
     expect(restored.blocklistEntryCount).toBe(IDENTITY_WRITE_BATCH_MAX_ENTRIES - 1);
   });
 
-  test("镜像重放区间内 tombstone 先于快照凑满批次也不提交，关标记后同一事务落盘", () => {
+  test("镜像重放区间内 tombstone 先于删除行到达也不被引用校验拒绝、凑满批次也不提交，关标记后同一事务落盘", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    handlePendingRemovalSnapshot({ type: "blocklistRemovals", removals: [[9, removal(9)]], revision: 1 }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, removal(9), 1), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
     acknowledgements.length = 0;
 
-    // Worker 重建后的重放顺序：黑名单写入（DISK_IO_RESPAWN_PRIORITIES.BLOCKLIST）先于待踢快照（其后一位）。
+    // Worker 重建后的重放顺序：黑名单写入（DISK_IO_RESPAWN_PRIORITIES.BLOCKLIST）先于待踢行（其后一位）。
     setStorageFlushHold(true, reply);
     for (let index: number = 1; index < IDENTITY_WRITE_BATCH_MAX_ENTRIES; index++) {
       handleIdentityPolicyWrite(blocklistWrite(1_000 + index, 1 + index), reply);
     }
-    handleIdentityPolicyWrite({
-      type: "identityPolicyWrite",
-      table: "blocklist",
-      id: 7,
-      data: null,
-      revision: 1_000,
-    }, reply);
+    handleIdentityPolicyWrite(blocklistTombstone(7, 1_000), reply);
     expect(pendingBlocklistWrites.size).toBe(IDENTITY_WRITE_BATCH_MAX_ENTRIES);
     expect(acknowledgements).toHaveLength(0);
-    handlePendingRemovalSnapshot({ type: "blocklistRemovals", removals: [], revision: 2 }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, null, 2), reply);
     expect(acknowledgements).toHaveLength(0);
 
     setStorageFlushHold(false, reply);
     expect(acknowledgements).toHaveLength(1);
-    expect(acknowledgements[0]!.removalSnapshotRevision).toBe(2);
+    expect(acknowledgements[0]!.removalWrites).toEqual([{ removalId: 9, revision: 2 }]);
     resetStorageDatabaseCache();
     const restored = hydrateStorageDatabase();
     expect(restored.pendingBlockedRemovals.size).toBe(0);
@@ -329,20 +318,48 @@ describe("DiskIO Worker SQLite 身份存储", () => {
     expect(acknowledgements).toHaveLength(1);
   });
 
+  test("黑名单删除时仍有指名行冻结该身份：当场拒绝；行先改掉再删名单才通过", () => {
+    handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
+    handleIdentityPolicyWrite(blocklistWrite(8, 2), reply);
+    handleBlocklistRemovalWrite(removalWrite(9, removal(9), 1), reply);
+    expect(flushStorageDatabase(reply)).toBeTrue();
+    acknowledgements.length = 0;
+
+    expect(() => handleIdentityPolicyWrite(blocklistTombstone(7, 3), reply))
+      .toThrow("still frozen in pending removal row 9");
+    expect(pendingBlocklistWrites.size).toBe(0);
+
+    handleBlocklistRemovalWrite(removalWrite(9, null, 2), reply);
+    handleIdentityPolicyWrite(blocklistTombstone(7, 3), reply);
+    expect(flushStorageDatabase(reply)).toBeTrue();
+    resetStorageDatabaseCache();
+    const restored = hydrateStorageDatabase();
+    expect(restored.pendingBlockedRemovals.size).toBe(0);
+    expect(restored.blocklistEntryCount).toBe(1);
+  });
+
+  test("删掉最后一个黑名单身份时仍留补扫行：当场拒绝；名单还有人时允许", () => {
+    handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
+    handleIdentityPolicyWrite(blocklistWrite(8, 2), reply);
+    handleBlocklistRemovalWrite(removalWrite(9, sweepRemoval(9), 1), reply);
+    expect(flushStorageDatabase(reply)).toBeTrue();
+
+    handleIdentityPolicyWrite(blocklistTombstone(7, 3), reply);
+    expect(() => handleIdentityPolicyWrite(blocklistTombstone(8, 4), reply))
+      .toThrow("would leave pending sweep rows without any blocklist entry");
+
+    handleBlocklistRemovalWrite(removalWrite(9, null, 2), reply);
+    handleIdentityPolicyWrite(blocklistTombstone(8, 4), reply);
+    expect(flushStorageDatabase(reply)).toBeTrue();
+    resetStorageDatabaseCache();
+    expect(hydrateStorageDatabase().blocklistEntryCount).toBe(0);
+  });
+
   test("待踢启动恢复按 removal_id 分页读取并在页间继续", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    const persisted: [number, PendingBlockedRemoval][] = Array.from(
-      { length: BLOCKLIST_REMOVAL_HYDRATION_PAGE_SIZE + 1 },
-      (_value: unknown, index: number): [number, PendingBlockedRemoval] => {
-        const removalId: number = index + 1;
-        return [removalId, removal(removalId)];
-      }
-    );
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: persisted,
-      revision: 4,
-    }, reply);
+    for (let removalId: number = 1; removalId <= BLOCKLIST_REMOVAL_HYDRATION_PAGE_SIZE + 1; removalId++) {
+      handleBlocklistRemovalWrite(removalWrite(removalId, removal(removalId), removalId), reply);
+    }
     expect(flushStorageDatabase(reply)).toBeTrue();
 
     resetStorageDatabaseCache();
@@ -374,40 +391,29 @@ describe("DiskIO Worker SQLite 身份存储", () => {
     );
   });
 
-  test("待踢启动恢复在行数超过 outbox 硬顶时拒绝启动，恰好满额照常恢复", () => {
+  test("待踢行数达到 outbox 硬顶后拒收新行（改写已有行照常），启动恢复在超过硬顶时拒绝启动", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    const persist = (count: number, revision: number): void => {
-      const removals: [number, PendingBlockedRemoval][] = Array.from(
-        { length: count },
-        (_value: unknown, index: number): [number, PendingBlockedRemoval] =>
-          [index + 1, removal(index + 1)]
-      );
-      handlePendingRemovalSnapshot({
-        type: "blocklistRemovals",
-        removals,
-        revision,
-      }, reply);
-      expect(flushStorageDatabase(reply)).toBeTrue();
-    };
-    persist(BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES, 4);
+    for (let removalId: number = 1; removalId <= BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES; removalId++) {
+      handleBlocklistRemovalWrite(removalWrite(removalId, removal(removalId), removalId), reply);
+    }
+    expect(flushStorageDatabase(reply)).toBeTrue();
 
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().pendingBlockedRemovals).toHaveLength(
       BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES
     );
-    const acknowledgementsBefore: number = acknowledgements.length;
-    expect((): void => persist(BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES + 1, 5))
+    const extraId: number = BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES + 1;
+    expect((): void => handleBlocklistRemovalWrite(removalWrite(extraId, removal(extraId), extraId), reply))
       .toThrow(`expected at most ${BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES} rows.`);
-    expect(acknowledgements).toHaveLength(acknowledgementsBefore);
+    handleBlocklistRemovalWrite(removalWrite(1, { ...removal(1), attempts: 1 }, extraId + 1), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().pendingBlockedRemovals).toHaveLength(BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES);
 
     resetStorageDatabaseCache();
     const database: StorageDatabase = openStorageDatabase({ path: IDENTITY_DATABASE_PATH });
-    const extraId: number = BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES + 1;
     database.$client.query("INSERT INTO pending_blocked_removals (removal_id, data) VALUES (?, jsonb(?))")
-      .run(extraId, encodePendingBlockedRemovalData(removal(extraId), "test").text);
+      .run(extraId, encodePendingBlockedRemovalData(removal(extraId), "test"));
     closeStorageDatabase(database);
 
     resetStorageDatabaseCache();
@@ -420,11 +426,7 @@ describe("DiskIO Worker SQLite 身份存储", () => {
 
   test("待踢损坏 BLOB 在整表存储形态闸被拒绝", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, removal(9)]],
-      revision: 4,
-    }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, removal(9), 4), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
 
     resetStorageDatabaseCache();
@@ -444,84 +446,58 @@ describe("DiskIO Worker SQLite 身份存储", () => {
     );
   });
 
-  test("待踢快照只能引用同一事务最终视图中的黑名单身份", () => {
-    expect(() => handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, removal(9)]],
-      revision: 4,
-    }, reply)).toThrow("absent from the effective blocklist");
+  test("待踢行只能引用同一事务最终视图中的黑名单身份", () => {
+    expect(() => handleBlocklistRemovalWrite(removalWrite(9, removal(9), 4), reply))
+      .toThrow("absent from the effective blocklist");
     expect(acknowledgements).toHaveLength(0);
   });
 
-  test("补扫条目要求名单里至少还有一个有效身份，否则拒绝落盘", () => {
+  test("补扫行要求名单里至少还有一个有效身份，否则拒绝落盘", () => {
     // 补扫（probeMembership）不冻结 id 列表，任务语义是「拿当前名单扫这个群」；名单已空时直接拒绝。
-    expect(() => handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, sweepRemoval(9)]],
-      revision: 4,
-    }, reply)).toThrow("requires at least one effective blocklist entry");
+    expect(() => handleBlocklistRemovalWrite(removalWrite(9, sweepRemoval(9), 4), reply))
+      .toThrow("requires at least one effective blocklist entry");
     expect(acknowledgements).toHaveLength(0);
 
     // 名单里有人之后，同一条补扫可以正常落盘。
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, sweepRemoval(9)]],
-      revision: 4,
-    }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, sweepRemoval(9), 4), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().pendingBlockedRemovals)
       .toEqual(new Map([[9, sweepRemoval(9)]]));
   });
 
-  test("快照 revision 必须是正安全整数", () => {
+  test("行写入的 removalId 与 revision 都必须是正安全整数", () => {
     for (const revision of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2]) {
-      expect(() => handlePendingRemovalSnapshot({
-        type: "blocklistRemovals",
-        removals: [],
-        revision,
-      }, reply)).toThrow("revision must be a positive safe integer");
+      expect(() => handleBlocklistRemovalWrite(removalWrite(9, null, revision), reply))
+        .toThrow("revision must be a positive safe integer");
+    }
+    for (const removalId of [0, -1, 1.5, Number.NaN]) {
+      expect(() => handleBlocklistRemovalWrite(removalWrite(removalId, null, 1), reply))
+        .toThrow("removal_id must be a positive safe integer");
     }
     expect(acknowledgements).toHaveLength(0);
   });
 
-  test("同一份快照里出现重复 removalId 时整份拒绝", () => {
+  test("行主键与 params.removalId 不一致时拒绝", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    expect(() => handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, removal(9)], [9, removal(9)]],
-      revision: 4,
-    }, reply)).toThrow("duplicate removalId 9");
+    expect(() => handleBlocklistRemovalWrite(removalWrite(9, removal(10), 4), reply))
+      .toThrow("does not match params.removalId");
   });
 
-  test("行主键与 params.removalId 不一致时整份拒绝", () => {
+  test("同一行迟到的旧 revision 不覆盖更新值；删除写入落成删除行", () => {
     handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    expect(() => handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, removal(10)]],
-      revision: 4,
-    }, reply)).toThrow("does not match params.removalId");
-  });
-
-  test("下一份快照里消失的条目落成删除行，并从内存快照一并摘掉", () => {
-    handleIdentityPolicyWrite(blocklistWrite(7, 1), reply);
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[9, removal(9)], [10, removal(10)]],
-      revision: 4,
-    }, reply);
+    handleBlocklistRemovalWrite(removalWrite(9, removal(9), 4), reply);
+    handleBlocklistRemovalWrite(removalWrite(10, removal(10), 5), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().pendingBlockedRemovals.size).toBe(2);
 
-    // 9 号销账之后的下一份完整快照里只剩 10 号：9 号落成删除行。
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [[10, removal(10)]],
-      revision: 5,
-    }, reply);
+    // 9 号销账：删除写入落成删除行；之后迟到的旧 revision 不把它写回来。
+    handleBlocklistRemovalWrite(removalWrite(9, null, 7), reply);
+    handleBlocklistRemovalWrite(removalWrite(9, removal(9), 6), reply);
     expect(flushStorageDatabase(reply)).toBeTrue();
+    expect(acknowledgements.at(-1)!.removalWrites).toEqual([{ removalId: 9, revision: 7 }]);
 
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().pendingBlockedRemovals)

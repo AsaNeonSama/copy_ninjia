@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,9 +15,11 @@ import {
   handleVerificationDelete,
   handleVerificationUpsert,
   maintainVerificationDayForToday,
+  withVerificationBatchFlush,
 } from "../../../packages/workers/diskIO/verificationWrites";
 import {
   resetVerificationPersistenceCache,
+  verificationBatchFlush,
   verificationFileState,
   verificationPendingChanges,
   verificationWorkerCache,
@@ -117,6 +120,69 @@ describe("pending verification daily append JSON", () => {
       revision: 1,
       deleted: false,
     });
+  });
+
+  test("同一批内 N 条关键写只追加并 fsync 一次，回执全部晚于这次 fsync；批外关键写照旧当场落盘", async () => {
+    const fsync = spyOn(fs, "fsyncSync");
+    const events: string[] = [];
+    fsync.mockImplementation((fd: number): void => {
+      events.push("fsync");
+      fs.fdatasyncSync(fd);
+    });
+    const batchReply = (reply: VerificationPersistedReply): void => {
+      events.push(`ack:${reply.key}:${reply.revision}`);
+      receiveReply(reply);
+    };
+    try {
+      // 当天文件为空时首条走原子替换；先写一条让后续都走追加路径（每次追加恰好一次 fsync）。
+      await handleVerificationUpsert({
+        msg: { type: "verificationUpsert", record: snapshot(1, { userId: 100 }), critical: true },
+        reply: batchReply, dir, day: DAY_ONE,
+      });
+      events.length = 0;
+      await withVerificationBatchFlush(batchReply, async (): Promise<void> => {
+        for (let userId: number = 1; userId <= 16; userId++) {
+          await handleVerificationUpsert({
+            msg: { type: "verificationUpsert", record: snapshot(1, { userId }), critical: true },
+            reply: batchReply, dir, day: DAY_ONE,
+          });
+        }
+        await handleVerificationDelete({
+          msg: { type: "verificationDelete", chatId: -1001, userId: 16, generation: 1, revision: 2 },
+          reply: batchReply, dir, day: DAY_ONE,
+        });
+        // 循环期间只登记，不落盘也不回执。
+        expect(events).toEqual([]);
+        expect(verificationBatchFlush.target).toEqual({ dir, day: DAY_ONE });
+      });
+      // 16 条关键写（15 条新建 + 第 16 号的新建与终结合并为一条 tombstone）只 fsync 一次。
+      expect(events[0]).toBe("fsync");
+      expect(events.slice(1).every((event: string): boolean => event.startsWith("ack:"))).toBeTrue();
+      expect(events.slice(1)).toHaveLength(16);
+      expect(verificationBatchFlush).toEqual({ active: false, target: null });
+      const recovered: ReadonlyMap<string, VerificationSnapshot> = await recoverVerificationDay(DAY_ONE, dir);
+      expect(recovered.size).toBe(16);
+      expect(recovered.has("-1001:16")).toBeFalse();
+
+      events.length = 0;
+      await handleVerificationUpsert({
+        msg: { type: "verificationUpsert", record: snapshot(1, { userId: 99 }), critical: true },
+        reply: batchReply, dir, day: DAY_ONE,
+      });
+      expect(events).toEqual(["fsync", "ack:-1001:99:1"]);
+    } finally {
+      fsync.mockRestore();
+    }
+  });
+
+  test("批内抛错时仍在离开前统一落盘已登记的关键写", async () => {
+    await expect(withVerificationBatchFlush(receiveReply, async (): Promise<void> => {
+      await upsert({ type: "verificationUpsert", record: snapshot(1), critical: true });
+      throw new Error("batch aborted");
+    })).rejects.toThrow("batch aborted");
+    expect(replies.map((reply: VerificationPersistedReply): number => reply.revision)).toEqual([1]);
+    expect((await recoverVerificationDay(DAY_ONE, dir)).get("-1001:42")).toMatchObject({ revision: 1 });
+    expect(verificationBatchFlush).toEqual({ active: false, target: null });
   });
 
   test("新建立即写入，同一 key 高频普通更新只追加窗口内最终快照", async () => {

@@ -1,8 +1,6 @@
 /**
- * cron `send_web_digest` 转交的摘要组稿在 AI Worker 侧的执行：经 aiChat/ai/webDigest.ts 检索并组稿，
- * 以同 requestId 的 webDigestComposed 回执带回结果。
- *
- * 登记、生命周期信号与排空期间的拒收见 ./workerJob.ts；在途表见 cache/workers/aiChat/webDigest.ts。
+ * cron `send_web_digest` 转交的摘要组稿在 AI Worker 侧的执行：调用 composeWebDigest 检索并组稿，
+ * 通过 `webDigestComposed` 回执返回结果。
  */
 
 import { webDigestRequests } from "../../cache/workers/aiChat/webDigest";

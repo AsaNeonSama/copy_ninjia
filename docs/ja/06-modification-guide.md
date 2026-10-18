@@ -35,7 +35,7 @@
    - `packages/commands/` 配下にハンドラー関数を作成し、明示的な戻り値型を持つ `handleXxxCommand` をエクスポート。
    - 権限検証：権限キーに基づく認可には `rejectUnlessPermitted(ctx, key, rejection)` を使用。スーパー管理者専用コマンドには `rejectUnlessSuperAdmin(ctx, rejection)` を使用（`commands/commandActor.ts` 参照）。
    - メッセージ文言の管理：固定文言およびフォーマッター関数は `packages/consts/atmosphere/{teasing,plain}/` の該当ドメインファイルに配置し、通常版とメスガキ風で同一の型定義を共有。メインスレッドは `chatAtmosphere()` により現在のスタイルに対応する文言を読み込みます。
-   - コマンド応答：トリガーメッセージへ返信するプレーンテキストの通知（用法、拒否、失敗、操作結果）は `replyCommandNotice(ctx, text)`（`infra/telegram/commandMessages.ts`）を使い、`sendCommandMessage` の 30 秒自動削除とトピック補完をそのまま継承します。書式、長期保持、update スコープ外での送信が必要な場合は `sendCommandMessage` を直接呼び出します。
+   - コマンド応答：トリガーメッセージへ返信するプレーンテキストの通知（用法、拒否、失敗、操作結果）は `replyCommandNotice(ctx, text)`（`infra/telegram/commandMessages.ts`）を使い、`sendCommandMessage` の自動削除（`packages/consts/commands.ts` の `COMMAND_MESSAGE_AUTO_DELETE_MS`）とトピック補完をそのまま継承します。書式、長期保持、update スコープ外での送信が必要な場合は `sendCommandMessage` を直接呼び出します。
 2. **モジュールのエクスポート**：`packages/commands/index.ts` にエントリを追加。
 3. **コマンドの登録**：
    - [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) の `commands` サブチェーンに `commands.command("xxx", ...)` を追加。
@@ -48,15 +48,15 @@
 
 ### 非 ASCII のコマンド名
 
-`/咬` や `/贴贴` などの漢字アクションコマンド（1〜2 文字の漢字によるアクション指示）を追加する場合は、[`cjkAction.ts`](../../packages/commands/cjkAction.ts) の専用パイプラインに従います：
+`/咬` や `/贴贴` などの漢字アクションコマンドを追加する場合は、[`cjkAction.ts`](../../packages/commands/cjkAction.ts) の専用パイプラインに従います：
 
 - **`bot.hears` によるマッチング**：Telegram は ASCII コマンドに対してのみ `bot_command` エンティティを生成します。漢字コマンドはメッセージ本文に対して `hears(正規表現, ...)` でマッチングさせ、`cjkActions` サブ Composer（正規表現は `^\/` で開始。`CJK_ACTION_COMMAND_PATTERN` 参照）に登録して、通常メッセージへのフォールバック直前で捕捉します。
 - **独立したターゲット解決**：`resolveCommandTarget` に `ResolveCommandTargetParams` を渡して対象を解決します。一致しない形式の場合は `next()` を呼び出して後続へ通過させ、update を勝手に消費してはなりません。
 - **`message.text` のみ受け付け**：caption 付きメディアなどの場合は `next()` で通過させ、通常のメッセージパイプラインへ戻します。
-- **先行パイプラインの補完**：自動メッセージパイプラインより前に登録されるため、`isBotOwnMessage`、`needsBotOwnMessageWait`、`waitForBotOwnMessage` を明示的に呼び出して Bot 自身の発言を適切に扱い、`updateCachedIdentity` を介して送信者キャッシュを更新する必要があります。
-- **メッセージの保持ポリシー**：アクション成功の結果メッセージは長期保持対象となるため、`sendCommandMessage` の呼び出し時に `preserveInGroup: true` とトリガートピックの `messageThreadId` を明示します。引数エラー時の警告や `/x` の使い方案内は通常の 30 秒自動削除に従います。
-- **メニュー表示とプレースホルダー**：Telegram のコマンドメニューは ASCII のみを受け付けます。メニュー上ではプレースホルダー `/x` を通じて構文を示し、使い方を案内するハンドラー（`handleCjkActionUsageCommand`）を登録して、通常メッセージへ誤ってフォールバックしないようにします。
-- **スライディングウィンドウによるレート制限**：漢字アクションコマンドにはメニューの入力支援がないため、乱用を防ぐスライディングウィンドウ型レート制限（`CJK_ACTION_RATE_LIMIT_WINDOW_MS` と `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW`、`libs/slidingWindowRateLimit.ts` を再利用）を適用する必要があります。
+- **先行パイプラインの補完**：`isBotOwnMessage`、`needsBotOwnMessageWait`、`waitForBotOwnMessage` を明示的に呼び出して Bot 自身の発言を扱い、`updateCachedIdentity` を介して送信者キャッシュを更新します。
+- **メッセージの保持ポリシー**：アクション成功の結果メッセージは長期保持対象であり、`sendCommandMessage` の呼び出し時に `preserveInGroup: true` とトリガートピックの `messageThreadId` を明示します。引数エラー時の警告や `/x` の使い方案内は通常の自動削除（`COMMAND_MESSAGE_AUTO_DELETE_MS`）に従います。
+- **メニュー表示とプレースホルダー**：Telegram のコマンドメニューは ASCII のみを受け付けます。メニュー上ではプレースホルダー `/x` を通じて構文を示し、使い方を案内するハンドラー（`handleCjkActionUsageCommand`）を登録します。
+- **スライディングウィンドウによるレート制限**：グループごとにスライディングウィンドウ型レート制限（`CJK_ACTION_RATE_LIMIT_WINDOW_MS` と `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW`、`libs/slidingWindowRateLimit.ts` を再利用）を適用します。
 
 ---
 
@@ -96,7 +96,7 @@
 | AI トリガー確率、レート制限、並行数、キュー上限 | `packages/consts/aiChat/rateLimit.ts` |
 | AI 会話メモリ容量、スナップショット周期、要約バックプレッシャー | `packages/consts/aiChat/memory.ts` |
 | メディア解説の最大長、実行スロット数、LRU キャッシュ容量 | `packages/consts/aiChat/media.ts` |
-| 画像生成クールダウンおよびバイト数上限 | `packages/consts/aiChat/imageGeneration.ts` |
+| 画像生成クールダウン、バイト数上限、参照画像枚数の上限 | `packages/consts/aiChat/imageGeneration.ts` |
 | ムード（感情）持続時間と切り替えタイムアウト | `packages/consts/aiChat/mood.ts` |
 | ツールアクション / クエリ上限、タイピングと誤字演出の間隔 | `packages/consts/aiChat/tools.ts` |
 | 音声文字起こしの長さ / サイズ上限とプレースホルダー文言 | `packages/consts/aiChat/voice.ts` |
@@ -104,6 +104,7 @@
 | リクエストタイムアウト、リトライ回数、サンプリングおよび安全性設定 | `packages/consts/aiChat/gemini.ts`、`packages/consts/aiChat/openai.ts`、`packages/consts/aiChat/anthropic.ts` |
 | **モデル名、プロバイダ、API キー、エンドポイント** | **定数ではありません**：`config/dynamic/agent.json` で機能ごとに設定 |
 | OpenAI 互換画像プロトコル / 画像サイズ設定 | `config/dynamic/agent.json` の `agent.image.image_protocol` |
+| 1 回の画像生成でモデルに渡す参照画像の枚数 | `config/dynamic/agent.json` の `agent.image.max_reference_images` |
 | 参加認証ウィンドウ、連投判定しきい値、追記 / コンパクション方針 | `packages/consts/antiRaid/` |
 | リピートクールダウン、/quiet 適用範囲、アクションコマンドレート制限 | `packages/consts/commands.ts` |
 | ランダム発話の発言者クールダウン | `packages/consts/auto.ts` |
@@ -151,8 +152,8 @@
 ## ペルソナまたは JSON 設定の変更
 
 - **ペルソナ管理**：内蔵ペルソナは `packages/consts/aiChat/prompts/persona.ts` に配置されています。カスタムペルソナを適用する場合は、プロジェクトルートに `prompt/persona.md`（サンプルは [`prompt_example/persona.md`](../../prompt_example/persona.md)）を配置してプロセスを再起動します。システム通知のトーンスタイルの決定規則については [01 環境構築](01-getting-started.md#telegram-identity-の設定) を参照してください。
-- **ボイスツール説明文の管理**：内蔵の説明文は `packages/consts/aiChat/prompts/tools.ts` の `VOICE_LANGUAGE_PROMPTS`（`en` / `zh` / `ja` それぞれ 1 つずつ）に配置されています。プロジェクトルートに `prompt/voice_tool.md` を配置すると、再起動後にその本文が `send_voice` の説明文全体を置き換えます。引数の仕様やその他のボイス関連ルールは、引き続き `bot_language` に基づいて選択されます。サンプルは [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md) を参照してください。
-- **プロンプトサンプルの保守**：`prompt_example/` はリリースパッケージに同梱されます。`test/config/promptExamples.test.ts` は、2 つのサンプルファイルが `loadPromptFile` を通過すること、`voice_tool.md` のクォータ案内・1 ターンの送信件数・文字数上限がコード定数と完全一致すること、セリフ言語が `config_example/dynamic/agent.json` の `bot_language` と一致することを自動検証します。`MAX_VOICES_PER_REPLY`、`VOICE_TEXT_MAX_CHARS`、`VOICE_TONE_MAX_CHARS` やサンプルの `bot_language` を変更する際は、サンプルファイルも同期して更新してください。
+- **ボイスツール説明文の管理**：内蔵の説明文は `packages/consts/aiChat/prompts/tools.ts` の `VOICE_LANGUAGE_PROMPTS`（`TTS_BOT_LANGUAGES` の各言語に対応）に配置されています。プロジェクトルートに `prompt/voice_tool.md` を配置すると、再起動後にその本文が `send_voice` の説明文全体を置き換えます。引数の仕様やその他のボイス関連ルールは、引き続き `bot_language` に基づいて選択されます。サンプルは [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md) を参照してください。
+- **プロンプトサンプルの保守**：`prompt_example/` はリリースパッケージに同梱されます。`test/config/promptExamples.test.ts` は、サンプルファイル（`persona.md` と `voice_tool.md`）が `loadPromptFile` を通過すること、`voice_tool.md` のクォータ案内・1 ターンの送信件数・文字数上限がコード定数と完全一致すること、セリフ言語が `config_example/dynamic/agent.json` の `bot_language` と一致することを自動検証します。`MAX_VOICES_PER_REPLY`、`VOICE_TEXT_MAX_CHARS`、`VOICE_TONE_MAX_CHARS` やサンプルの `bot_language` を変更する際は、サンプルファイルも同期して更新してください。
 - **設定ファイル**：開発作業時は、Git 管理から除外されている `config/` ディレクトリ内のファイルのみを編集します。`config_example/` は初期テンプレートとしてのみ使用してください。
   - `config/dynamic/` はホットリロードに対応しています（`assets.json`、`ad_samples.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`）。
   - `config/static/` の変更反映にはプロセスの再起動が必要です（`bot.json`、`g-auth.json`）。
@@ -198,7 +199,7 @@
 
 1. `packages/database/schema/<domain>.ts` でテーブルスキーマを宣言し、`schema/storage.ts` に登録。
 2. `schema/migrations/000N_<name>.sql` を作成し、`migrations/meta/_journal.json` を更新。
-3. 一時データベース上でマイグレーションを実行し、`__drizzle_migrations` から実際の `created_at` と `hash` を取得して `packages/consts/identityStorage.ts` に記録、`IDENTITY_DATABASE_SCHEMA_VERSION` を 1 加算。
+3. 一時データベース上でマイグレーションを実行し、`__drizzle_migrations` から実際の `created_at` と `hash` を取得して `packages/consts/identityStorage.ts` の `STORAGE_MIGRATION_LINEAGE` に記録し、`IDENTITY_DATABASE_SCHEMA_VERSION` を更新。
 4. 停止時専用のコールドマイグレーションスクリプトを作成し、`scripts/migrations/active.ts` に新しい移行ステップ（エッジ）を登録して、置き換えられた古いエッジを削除。
 5. 移行スクリプト内では、対象バージョンの歴史的スキーマを厳格に使用して移行元データをデコード。
 6. 生成された移行成果物が双方向ハッシュ検証を通過した後に `ready.json` 完了マーカーを書き出し。

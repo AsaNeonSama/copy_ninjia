@@ -36,6 +36,10 @@ import {
   TTS_DEFAULT_STYLE,
 } from "../../packages/consts/aiChat/voiceMessage";
 import { XAI_SPEECH_DEFAULT_LANGUAGE } from "../../packages/consts/aiChat/openai";
+import {
+  IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
+  IMAGE_GENERATION_MAX_REFERENCE_IMAGES,
+} from "../../packages/consts/aiChat/imageGeneration";
 import type { AdDetectAgentConfig, AgentDeploymentConfig, AgentTtsCapabilityConfig, AgentWebSearchCapabilityConfig } from "../../packages/types/config";
 
 const AD_DETECT: Readonly<Record<string, string>> = {
@@ -115,6 +119,7 @@ describe("agent capability config", () => {
         headers: undefined,
         model: "grok-image",
         imageProtocol: "xai",
+        maxReferenceImages: IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
       },
       tts: { provider: "google", apiKey: "google-tts-key", baseUrl: undefined, headers: undefined, model: "tts-test", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
     });
@@ -284,7 +289,31 @@ describe("agent capability config", () => {
       headers: undefined,
       model: "gemini-image",
       imageProtocol: undefined,
+      maxReferenceImages: IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
     });
+  });
+
+  test("生图参考图张数缺省补齐，存在时只接受 1 到上限的整数", () => {
+    for (const image of [
+      { provider: "google", api_key: "key", model: "gemini-image" },
+      { provider: "openai", api_key: "key", model: "gpt-image", image_protocol: "openai" },
+    ] as const) {
+      for (const maxReferenceImages of [1, IMAGE_GENERATION_MAX_REFERENCE_IMAGES]) {
+        const parsed: AgentDeploymentConfig = parseAgentDeploymentConfig({
+          ...AGENT,
+          image: { ...image, max_reference_images: maxReferenceImages },
+        }, "agent.json");
+        expect(parsed.image?.maxReferenceImages).toBe(maxReferenceImages);
+      }
+      for (const invalid of [0, IMAGE_GENERATION_MAX_REFERENCE_IMAGES + 1, 2.5, "3", null, -1]) {
+        expect(() => parseAgentDeploymentConfig({
+          ...AGENT,
+          image: { ...image, max_reference_images: invalid },
+        }, "agent.json")).toThrow(
+          `$.agent.image.max_reference_images must be an integer from 1 to ${IMAGE_GENERATION_MAX_REFERENCE_IMAGES}`
+        );
+      }
+    }
   });
 
   test("tts 可选择任一已支持 provider，由工具装配判断实现能力", () => {
@@ -443,7 +472,7 @@ describe("agent capability headers", () => {
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       image: { provider: "openai", api_key: "key", model: "m", image_protocol: "xai", headers: { "x-a": "b" } },
-    }, "agent.json")).toThrow(/agent\.image must be exactly \{ provider, api_key, base_url\?, model, image_protocol \} when provider is openai/);
+    }, "agent.json")).toThrow(/agent\.image must be exactly \{ provider, api_key, base_url\?, model, image_protocol, max_reference_images\? \} when provider is openai/);
   });
 
   test("headers 对象与请求头名非法时拒绝在 headers 路径上", () => {
@@ -681,6 +710,24 @@ describe("unified agent.json loading", () => {
     await expect(validateAgentDeploymentConfig(extraPath)).rejects.toThrow(/must be exactly \{ agent \}/);
   });
 
+  test("多项能力同时非法时按 text → summary → media → image → tts → web_search 顺序先报第一个（text）", async () => {
+    const multiInvalid: Record<string, unknown> = {
+      ...AGENT,
+      text: { provider: "invalid", api_key: "k", model: "m" },
+      summary: { provider: "invalid", api_key: "k", model: "m" },
+      media: { provider: "invalid", api_key: "k", model: "m" },
+      image: { provider: "invalid", api_key: "k", model: "m" },
+      tts: { provider: "invalid", api_key: "k", model: "m", voice: "v" },
+      web_search: { provider: "invalid", api_key: "k", model: "m" },
+    };
+    expect(() => parseAgentDeploymentConfig(multiInvalid, "agent.json"))
+      .toThrow(/^\S+: \$\.agent\.text\.provider must be/);
+    const path: string = await writeConfig({ agent: multiInvalid });
+    await expect(loadAgentConfigSnapshots(path)).rejects.toThrow(
+      `${path}: $.agent.text.provider must be "google", "openai" or "anthropic"`
+    );
+  });
+
   test("运行时 getter 只读 holder，取不到就 fail-closed 而不读盘", () => {
     const agentValue: AgentDeploymentConfig = parseAgentDeploymentConfig(AGENT, "agent.json");
     adoptAgentDeploymentConfig(agentValue);
@@ -717,5 +764,32 @@ describe("unified agent.json loading", () => {
     const webSearch: AgentWebSearchCapabilityConfig = { ...agentValue.text, maxCallsPerUse: WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE };
     adoptAgentDeploymentConfig({ ...agentValue, webSearch });
     expect(requireAgentCapabilityConfig("web_search")).toBe(webSearch);
+  });
+
+  test("解析结果在编译期保持只读", (): void => {
+    const assertReadonly = (
+      config: AgentDeploymentConfig,
+      adDetect: AdDetectAgentConfig
+    ): void => {
+      // @ts-expect-error 顶层能力槽位为只读，不得在运行期覆写。
+      config.text = adDetect;
+      // @ts-expect-error 能力内部字段为只读，不得改写凭据或模型。
+      config.text.apiKey = "replacement";
+      if (config.text.headers !== undefined) {
+        // @ts-expect-error 网关请求头表为只读，不得改写单条值。
+        config.text.headers["cf-aig-authorization"] = "replacement";
+      }
+      if (config.image !== undefined) {
+        // @ts-expect-error 生图能力字段为只读。
+        config.image.maxReferenceImages = 1;
+      }
+      if (config.tts !== undefined) {
+        // @ts-expect-error 语音能力配置为只读。
+        config.tts.voice = "replacement";
+      }
+      // @ts-expect-error ad_detect 能力配置为只读。
+      adDetect.model = "replacement";
+    };
+    expect(assertReadonly).toBeDefined();
   });
 });

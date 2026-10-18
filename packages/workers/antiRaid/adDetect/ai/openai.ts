@@ -80,7 +80,7 @@ async function attemptOpenAiAdDetectJson({
     };
   } catch (error: unknown) {
     if (error instanceof OpenAI.APIError) {
-      // APIError.message 已以 HTTP 状态码开头，此处不另加状态码。
+      // APIError.message 已包含 HTTP 状态码前缀。
       logger.error(`${errorLabel} failed: ${error.message}`);
     } else {
       logger.error(`Error calling ${errorLabel}:`, error);
@@ -90,12 +90,8 @@ async function attemptOpenAiAdDetectJson({
 }
 
 /**
- * 发一次要求 JSON 输出的 chat completion。成功响应正文为空或被截断时按
- * AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 有界重采样；请求异常已经由 SDK 重试过，
- * 不在业务层叠加。
- *
- * 请求固定使用 JSON object 模式，系统提示词必须明确提到 json，以满足 OpenAI 与
- * 常见兼容端点的输入约束。调用方持有完整提示词，传输层不另行拼接。
+ * 发送 JSON object 模式的 chat completion 请求；响应正文为空或被截断时按
+ * AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 有界重采样。
  */
 export async function requestOpenAiAdDetectJson(
   params: AdDetectJsonRequestParams

@@ -18,8 +18,8 @@ import type {
 import { exemptOf, kickPendingOf, pendingUpdated, remindersOf } from "./shared";
 
 /**
- * 汇总一次入群的全部豁免来源。关联频道评论区的直属评论和楼中楼回复都视为
- * 已参与讨论：在关联讨论线程观察到消息即豁免，不计刷群统计。
+ * 汇总一次入群的全部豁免来源。关联频道评论区的直属评论和楼中楼回复均视为
+ * 已参与讨论，不计入刷群统计。
  */
 function resolveJoinExemption(event: JoinEvent): JoinExemption {
   if (event.identityExempt || event.actorSyncExempt) return IDENTITY_JOIN_EXEMPTION;
@@ -28,61 +28,71 @@ function resolveJoinExemption(event: JoinEvent): JoinExemption {
 }
 
 /**
- * 本次入群是否会新建一条记录（= 计入刷群统计）。调用方先用它决定是否
- * recordJoin，再取 lockdownActive、再 dispatch；recordJoin 可能同步触发
- * 私密模式，越过阈值的那次入群自己走秒踢分支。
+ * 判断本次投递是否为秒踢记录之后的真正重新入群：距记录时刻超过 KICKED_REJOIN_GRACE_MS，
+ * 且不是携带同一条入群公告的重复投递（同号公告恒属同一次物理入群）。
+ */
+function isKickRejoin(
+  state: VerificationState | undefined,
+  event: JoinEvent
+): boolean {
+  if (state?.kind === "kickPending") {
+    return event.now - state.requestedAt > KICKED_REJOIN_GRACE_MS &&
+      (event.announcementMessageId === undefined ||
+        state.announcementMessageId !== event.announcementMessageId);
+  }
+  return state?.kind === "kicked" && event.now - state.kickedAt > KICKED_REJOIN_GRACE_MS;
+}
+
+/**
+ * 判定本次入群是否新建验证记录并计入刷群统计；秒踢记录之后的重新入群与无记录同等计入。
+ * 调用方先据此决定是否调用 recordJoin，再读取 lockdownActive 并分派转移。
  */
 export function joinCreatesNewRecord(
   state: VerificationState | undefined,
   event: JoinEvent
 ): boolean {
-  return (state === undefined || state.kind === "checkingInviter" || state.kind === "expelling") &&
-    !resolveJoinExemption(event).exempt;
+  return (
+    state === undefined ||
+    state.kind === "checkingInviter" ||
+    state.kind === "expelling" ||
+    isKickRejoin(state, event)
+  ) && !resolveJoinExemption(event).exempt;
 }
 
-/** 两段处置终态之外、可以被一次入群直接改写的记录状态（含尚未结算的秒踢）。 */
+/** 除处置终态外、可被一次入群直接改写的记录状态（含尚未结算的秒踢）。 */
 type JoinableState = Exclude<VerificationState, VerificationExpelState>;
 
 /**
- * 豁免成立的入群：已有豁免占位与已完成的踢人原样保留；未发出的秒踢换成豁免占位并撤回
- * 真实计过的那一格；已开的验证窗口撤销计数、删提醒；关联频道评论另发一条欢迎。
+ * 处理豁免成立的入群：保留已有豁免占位或已完成的踢人；将未发出的秒踢替换为豁免占位并撤回
+ * 已计入的入群计数；对已开的验证窗口撤销计数并删提醒；关联频道评论入群另发欢迎消息。
  */
 function joinExempt(
   state: JoinableState | undefined,
   event: JoinEvent,
   viaChannelComment: boolean
 ): VerificationTransition {
-  // 已有豁免占位时不动它，也不刷新其去重计时。
   if (state?.kind === "exempt") return { next: state, effects: NO_VERIFICATION_EFFECTS };
   if (state?.kind === "kickPending") {
     if (state.executionStarted === true) {
-      // Telegram 调用已经同步发出，后来的身份证明无法再撤销；等待请求结算
-      // 后进入正常去重窗口，并留下诊断供管理员人工纠正。
       return {
         next: state,
         effects: [{ kind: "logUncancelableKickExemption", label: event.label }],
       };
     }
-    // 删除公告等前置 await 尚未完成：用新对象替换执行 token，旧副作用在
-    // kickMember 前的对象同一性复核会自行失效。
     return {
       next: exemptOf(event.label, event.isBot),
-      // 只撤销确实计过数的那一格；重进补踢建出的 kickPending 没有对应的
-      // recordJoin（见 KickPendingState.countedJoinAt）。
       effects: state.countedJoinAt === undefined
         ? []
         : [{ kind: "retractJoinCount", joinedAt: state.countedJoinAt }],
     };
   }
   if (state?.kind === "kicked") {
-    // 动作已经完成，无法撤销；保留占位并留下诊断供管理员人工纠正。
     return {
       next: state,
       effects: [{ kind: "logUncancelableKickExemption", label: event.label }],
     };
   }
   const effects: VerificationEffect[] = [];
-  // 已开验证窗口后才确证豁免：撤销计数并删提醒，入群公告与成员发言保留。
   if (state !== undefined) {
     effects.push(remindersOf(state));
     effects.push({ kind: "retractJoinCount", joinedAt: state.joinedAt });
@@ -99,18 +109,35 @@ function joinExempt(
 }
 
 /**
- * 已有记录时到达的另一路投递：只补充公告与拉人者，不重启计时器、不再发提醒（幂等）；
- * 秒踢记录超过双路投递误差后视为真正重进，换成新一代 kickPending。
+ * 处理已有记录时到达的补充投递：补齐公告与拉人者，不重置计时器、不重发提醒。
+ * 秒踢记录之后的重新入群（见 isKickRejoin）按新一次入群交给 joinCreate，并删除尚未进入
+ * 踢人动作的旧记录所持公告。
  */
 function joinDuplicateDelivery(
   state: JoinableState,
   event: JoinEvent,
   invitedByOther: boolean
 ): VerificationTransition {
+  if (isKickRejoin(state, event)) {
+    const created: VerificationTransition = joinCreate(event, invitedByOther);
+    if (
+      state.kind !== "kickPending" ||
+      state.effectStarted ||
+      state.announcementMessageId === undefined
+    ) return created;
+    return {
+      ...created,
+      effects: [{ kind: "deleteMessage", messageId: state.announcementMessageId }, ...created.effects],
+    };
+  }
   const effects: VerificationEffect[] = [];
   let snapshotChanged: boolean = false;
   if (event.announcementMessageId !== undefined) {
-    if (state.kind === "kickPending" || state.kind === "kicked") {
+    if (
+      state.kind === "kicked" ||
+      (state.kind === "kickPending" &&
+        state.announcementMessageId !== event.announcementMessageId)
+    ) {
       effects.push({ kind: "deleteMessage", messageId: event.announcementMessageId });
     } else if (state.kind === "pending" && state.announcementMessageId === undefined) {
       state.announcementMessageId = event.announcementMessageId;
@@ -122,35 +149,20 @@ function joinDuplicateDelivery(
       effects.push({ kind: "deleteMessage", messageId: event.announcementMessageId });
     }
   }
-  if (
-    (state.kind === "kickPending" || state.kind === "kicked") &&
-    event.now - (state.kind === "kickPending" ? state.requestedAt : state.kickedAt) >
-      KICKED_REJOIN_GRACE_MS
-  ) {
-    // 超过双路投递误差范围视为真正重进；新对象为新一代执行 token。
-    return {
-      next: kickPendingOf({
-        label: state.label,
-        isBot: state.isBot,
-        requestedAt: event.now,
-        countedJoinAt: undefined,
-        announcementMessageId: event.announcementMessageId,
-      }),
-      effects,
-    };
-  }
-  if (state.kind === "pending" && invitedByOther && !event.adminCacheFresh) {
+  if (state.kind === "pending" && invitedByOther) {
     if (state.invitedBy === undefined) {
       state.invitedBy = event.actorId;
       snapshotChanged = true;
     }
-    effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+    if (!event.adminCacheFresh) {
+      effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+    }
   }
   if (state.kind === "pending" && snapshotChanged) return pendingUpdated(state, effects);
   return { next: state, effects };
 }
 
-/** 新的一次物理入群：私密模式期间直接排秒踢，否则开验证窗口并发提醒。 */
+/** 处理新一次物理入群：私密模式期间进入 kickPending，否则开启验证窗口并发送提醒。 */
 function joinCreate(event: JoinEvent, invitedByOther: boolean): VerificationTransition {
   if (event.lockdownActive) {
     return {
@@ -180,25 +192,23 @@ function joinCreate(event: JoinEvent, invitedByOther: boolean): VerificationTran
     expiresAt: event.now + VERIFICATION_TIMEOUT_MS,
   };
   const effects: VerificationEffect[] = [];
-  if (invitedByOther) effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+  if (invitedByOther && !event.adminCacheFresh) {
+    effects.push({ kind: "startAdminCheck", actorId: event.actorId! });
+  }
   effects.push({ kind: "sendReminder", label: event.label, isBot: event.isBot });
   return { next: pending, effects };
 }
 
 /**
- * 处理双路入群投递、豁免、私密模式秒踢及普通验证窗口创建。对象同一性就是解释器的执行 token：
- * 同一次入群的补充投递原地修改记录、保持 token 不变；豁免替换秒踢、真正重进与替换终态时换成
- * 新对象，在途的旧副作用在同一性复核时自行失效。
+ * 处理入群投递、豁免、私密模式秒踢及验证窗口创建。对象同一性作为解释器的执行 token：
+ * 同一次入群的补充投递原地修改记录；豁免替换秒踢、重新入群与替换终态时返回新状态对象，
+ * 使在途旧副作用在同一性复核时失效。
  */
 export function handleJoin(
   state: VerificationState | undefined,
   event: JoinEvent
 ): VerificationTransition {
-  // 两段处置终态属于上一次物理入群：新入群以新记录替换它，解释器捕获的旧终态
-  // 因对象同一性不再匹配而停止踢人。
   if (state?.kind === "checkingInviter" || state?.kind === "expelling") {
-    // 被替换记录的验证提醒带按钮，不挂固定延迟删除；它的 expel 收尾因对象同一性
-    // 复核不过而跳过，提醒由这里的 effect 删除。
     const replaced: VerificationTransition = handleJoin(undefined, event);
     return {
       ...replaced,
@@ -213,14 +223,9 @@ export function handleJoin(
 }
 
 /**
- * 处理成员离群。
- *
- * pending 直接回到 ABSENT，并删掉两条带按钮的验证提醒。
- *
- * 两段处置终态保持原状：正在执行的踢人可能由本机器人发起，这条 left 即是其结果，
- * 记录保留到处置结算事件到达（结算路径见 verificationRuntime.ts 的
- * dispatchVerification）。其余状态（EXEMPT / KICK_PENDING / KICKED）随离群
- * 一并作废。
+ * 处理成员离群：pending 状态清除记录并删除带按钮的验证提醒；checkingInviter / expelling
+ * 终态保留至处置结算事件到达（见 verificationRuntime.ts 的 dispatchVerification）；
+ * 其余状态清除记录。
  */
 export function handleLeft(
   state: VerificationState | undefined

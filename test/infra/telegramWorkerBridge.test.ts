@@ -38,7 +38,10 @@ const rawApi: Record<PropertyKey, unknown> = new Proxy<Record<PropertyKey, unkno
     };
   },
 });
-const mainSendPhoto = mock(async (..._args: unknown[]): Promise<unknown> => ({ message_id: 19 }));
+const mainSendPhoto = mock(async (..._args: unknown[]): Promise<unknown> => ({
+  message_id: 19,
+  photo: [{ file_id: "photo", file_unique_id: "photo-u", width: 1, height: 1 }],
+}));
 const mainSendVoice = mock(async (..._args: unknown[]): Promise<unknown> => ({ message_id: 21 }));
 let hydratedFilePath: string | undefined = "files/media.bin";
 const mainGetFile = mock(async (..._args: unknown[]): Promise<unknown> => ({

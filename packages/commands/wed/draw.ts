@@ -24,7 +24,7 @@ function privateChatUser(identity: AvatarIdentity): User | undefined {
 /**
  * 在有界候选快照中无放回随机抽取；更换时排除当前结果，失败不改写会话。
  *
- * 候选信源只有 memory/wed 的已发言成员 ID 集合：抽中后只按 ID 读当前头像，身份（图注和公开
+ * 候选信源只有 memory/wed 的已发言成员滑窗：抽中后只按 ID 读当前头像，身份（图注和公开
  * 头像兜底都要用）取自同一次 getChat 返回的私聊资料，不发 getChatMember，不要求机器人是
  * 群管理员。不判断是否仍在群；getChat 明确找不到的裸 ID 从所有群集合移除，新发言可重新加入。
  * 其余离群成员由退群事件和每日复核清理，见

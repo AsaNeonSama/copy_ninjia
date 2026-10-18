@@ -31,7 +31,7 @@ export function formatActorLabel(actor: CachedUser | undefined, atmosphere: Atmo
  *
  * 与 formatUserLabel 只差兜底那一档：没有任何身份字段时，按氛围文案的 userIdLabel /
  * channelIdLabel 写成带 id 的称呼，回执原样给出 id。按裸 id 下的命令缓存里可能没有该身份；
- * `/gag`、`/ungag`、`/block disable`、`/permission` 与 `/white` 都接受负数 id，
+ * `/gag`、`/ungag`、`/delete_message`、`/block disable`、`/permission` 与 `/white` 都接受负数 id，
  * 回执据此体现目标类别，`/block disable` 还据此决定走哪个解封接口。
  * @param user 目标用户/频道；只带 id 的最小身份也接受。
  */

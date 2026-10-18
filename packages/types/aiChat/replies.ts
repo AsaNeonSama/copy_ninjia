@@ -21,10 +21,11 @@ export interface QueuedReplyTrigger {
   imageGenerationRequested: boolean;
   imageGenerationReference?: ImageGenerationReference;
   /**
-   * 触发时刻的本群问答快照；与 triggerReference 同理在入队时捕获，补跑沿用这份清单。
-   * 载荷有界，每群至多 CHAT_QA_MAX_PER_CHAT 条。
+   * 触发时刻的本群问答快照（`[问题, 答案]` 对数组的 JSON 文本）与条数；与 triggerReference
+   * 同理在入队时捕获，补跑沿用这份清单。每群至多 CHAT_QA_MAX_PER_CHAT 条。
    */
-  chatQa?: ReadonlyMap<string, string>;
+  chatQaJson?: string;
+  chatQaCount?: number;
   /** 触发消息所在的论坛话题；补跑时这一轮仍然回到当初那个话题。 */
   messageThreadId: number | undefined;
   senderName: string;
@@ -54,14 +55,21 @@ export interface ReplyPromptSections {
 /** 一轮 AI 回复行动工具所需的外部上下文。 */
 export interface ReplyToolContext {
   chatId: number;
+  /** 触发本轮回复的发言人身份 ID（口径同 auto/message/facts.ts 的 resolveSpeaker，无身份时为 0）；abuse_mark 只接受这个目标。 */
+  triggerSenderId: number;
   replyToMessageId: number;
   /**
    * 本轮全部发送要落进的论坛话题；General、非论坛群与讨论组评论为 undefined。
    * 文字、贴纸、生图、语音与「正在输入…」共用这一个话题（见 libs/forumTopic.ts）。
    */
   messageThreadId: number | undefined;
-  /** 本群已登记问答；为空或缺省时问答执行器返回空清单，本轮工具状态写明没有登记。 */
-  chatQa?: ReadonlyMap<string, string>;
+  /**
+   * 本群已登记问答的 `[问题, 答案]` 对数组 JSON 文本，只在 group_qa_* 执行器被调用时解析；
+   * 缺省时执行器返回空清单。
+   */
+  chatQaJson?: string;
+  /** 本群已登记问答条数；本轮工具状态只读它，缺省按 0（写明没有登记）。 */
+  chatQaCount?: number;
   /**
    * 重媒体工具（generate_image）的直接触发资格。工具只按部署能力恒挂；为 false 时
    * 本轮工具状态写明不可用，执行器在调用时直接拒绝。具体意图由模型按当前消息自行判断。
@@ -71,19 +79,24 @@ export interface ReplyToolContext {
    * 和媒体直接触发状态合并。
    */
   mediaToolsRequested: boolean;
-  imageGenerationReference?: ImageGenerationReference;
+  /**
+   * 本轮交给生图工具的参考图，按传给模型的顺序排列：主参考图在前，同一相册的其余图片按相册顺序
+   * 在后，至多 `agent.image.max_reference_images` 张（见 workers/aiChat/imageReferenceAlbums.ts）。
+   * 缺省表示本轮没有参考图；存在时至少一张。
+   */
+  imageGenerationReferences?: readonly TelegramVisionSource[];
   /** superAdmin 触发：跳过生图的群共享冷却。 */
   bypassMediaToolCooldown: boolean;
   /**
    * 本轮聊天状态心跳句柄（见 aiChat/ai/chatActionHeartbeat.ts）。动作的挡位只由串行动作链按工具
    * 调用顺序切换（见 aiChat/ai/tools/replyToolset/actionChains.ts）；直接轮另由工具集在链空闲时
    * 亮请求期间的挡位：还没接纳过动作的请求亮「正在输入」、挑贴纸的请求亮「正在选择贴纸」（见
-   * replyToolset/pacing.ts 与 replyToolset/orchestrator.ts）。
+   * aiChat/ai/tools/replyToolset/pacing.ts 与 aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   chatAction: ChatActionControl;
   /**
    * 本轮是直接轮（群里没有在途轮次时启动，见 workers/aiChat/replyDelivery.ts）：串行链不设闸，动作
-   * 按直接轮节奏停顿（见 replyToolset/pacing.ts）；为 false 时是有序并行轮。两种轮次的动作都在
+   * 按直接轮节奏停顿（见 aiChat/ai/tools/replyToolset/pacing.ts）；为 false 时是有序并行轮。两种轮次的动作都在
    * 接纳时回接纳回执，由串行链执行。
    */
   direct: boolean;
@@ -101,6 +114,8 @@ export interface ReplyToolContext {
   onImageSent: (image: SentGeneratedImage) => void;
   /** 语音落地后自录；与 onMessageSent 同构，只采信服务端实际返回的回复关系。 */
   onVoiceSent: (voiceDescription: string, messageId: number, repliedToMessageId?: number) => void;
+  /** 模型调用 abuse_mark 校验通过后同步触发：清理排队触发并通知主线程标记该用户。 */
+  onAbuseMark: (userId: number) => void;
 }
 
 /** 生图落地后交给 Worker 自录的事实。 */
@@ -138,7 +153,7 @@ export interface ReplyToolset {
    *  群冷却、参考素材、语音余量、问答条数）只写在这里，不进工具声明。 */
   readonly toolStatus: string;
   /** 本轮是否挂载 text 模型的服务端联网检索工具（Gemini 的 googleSearch /
-   *  OpenAI 的 hosted web_search）；配置了 web_search 能力时恒为 false。 */
+   *  OpenAI 与 Anthropic 的服务端 web_search）；配置了 web_search 能力时恒为 false。 */
   readonly webSearch: boolean;
   /**
    * 配置了 web_search 能力时的本地 `web_search` 函数工具执行器（声明已在 functions 里）；
@@ -148,23 +163,23 @@ export interface ReplyToolset {
   readonly searchWeb: WebSearchToolExecutor | null;
   /**
    * 系统提示词「行动与停止」段：组装工具时按 `agent.tts.bot_language` 从 VOICE_LANGUAGE_PROMPTS 取的
-   * 同一份文案，与 functions 里 send_message、send_voice 的声明语言一致（见 replyToolset/orchestrator.ts）。
+   * 同一份文案，与 functions 里 send_message、send_voice 的声明语言一致（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly replyActionInstruction: string;
   readonly has: (name: string) => boolean;
   /**
    * 每次请求模型前调用：直接轮在还没接纳过动作时亮「正在输入」，刚看过贴纸包时亮「正在选择贴纸」，
-   * 其余请求不亮，串行链忙时等排空再亮；有序并行轮不切挡（见 replyToolset/orchestrator.ts）。
+   * 其余请求不亮，串行链忙时等排空再亮；有序并行轮不切挡（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly beforeModelRequest: () => void;
   /**
    * 模型阶段结束时调用：直接轮收回请求期间亮着、还没被动作接走的状态；有序并行轮不切挡
-   * （见 replyToolset/orchestrator.ts）。
+   * （见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly afterModel: () => void;
   /**
    * 按模型的调用顺序同步完成校验与接纳，当场返回回执；接纳的动作交串行链执行，查看与查询
-   * 返回真实数据（见 replyToolset/orchestrator.ts）。
+   * 返回真实数据（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
    */
   readonly execute: (name: string, argumentsJson: string) => string;
   /** 已接纳动作的预占额度；失败或取消不退回给模型重复提交。 */
@@ -181,7 +196,7 @@ export interface ReplyToolset {
 /**
  * 动作执行中的拟人停顿：亮 phase 挡并等 delayMs（心跳还在静默期时顺延剩余静默）；本轮作废时返回
  * 交给调用方结算的工具错误，走完返回 null。有序并行轮每个动作都停顿，直接轮只有「正在输入」请求
- * 交回的第一条文字不停顿（见 replyToolset/pacing.ts）。
+ * 交回的第一条文字不停顿（见 aiChat/ai/tools/replyToolset/pacing.ts）。
  */
 export type ReplyActionPause = (phase: ChatActionPhase, delayMs: number) => Promise<string | null>;
 
@@ -194,7 +209,7 @@ export interface DirectReplyPacing {
   readonly beforeModelRequest: (phase: ChatActionPhase) => void;
   /**
    * 动作被接纳、排进串行链时按工具调用顺序调用：接走请求亮着的挡位，返回这个动作用的拟人停顿。
-   * text 表示动作是文字（send_message）；「正在输入」请求交回的第一个动作是文字时，它的第一次停顿
+   * text 表示动作是文字（send_message 或 abuse_mark）；「正在输入」请求交回的第一个动作是文字时，它的第一次停顿
    * 只切挡。
    */
   readonly startAction: (text: boolean) => ReplyActionPause;
@@ -275,7 +290,7 @@ export interface ReplyDeliveryWindow {
 export interface RoundMessageState {
   typoUsedThisRound: boolean;
   /**
-   * 接纳时登记的正文及媒体附言的归一化形态（见 replyToolset/messageState.ts 的
+   * 接纳时登记的正文及媒体附言的归一化形态（见 aiChat/ai/tools/replyToolset/messageState.ts 的
    * acceptRoundText），容量受本轮动作硬顶约束，随轮次释放。
    */
   acceptedCanonicalTexts: Set<string>;
@@ -308,4 +323,15 @@ export interface MediaCommentContext {
   directTriggerReason?: AiDirectTriggerReason;
   /** 排队时随触发快照保存；原转录条目滑出后仍保留回复对象。 */
   replyTo?: BufferedReplyReference;
+}
+
+/**
+ * 回复系统提示词单槽：拼装输入与拼好的整段文本（见 workers/aiChat/replyModel.ts 的
+ * buildReplySystemPrompt）。三项输入都相等时直接复用 prompt。
+ */
+export interface ReplySystemPromptSlot {
+  readonly persona: string;
+  readonly actionInstruction: string;
+  readonly functionSearch: boolean;
+  readonly prompt: string;
 }

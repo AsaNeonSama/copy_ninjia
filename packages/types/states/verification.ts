@@ -2,7 +2,7 @@
  * 入群验证状态机的契约：状态、事件、效果与转移结果。
  *
  * 状态对象的缺省字段一律写成必填的 `T | undefined`，不用 `field?:`：每个构造点一次写全，
- * 同一个 kind 的对象形状恒定（见 AGENTS.md「性能、内存与 Bun/JSC JIT」，口径同
+ * 同一个 kind 的对象形状恒定（见 docs/cn/04-invariants.md，口径同
  * types/aiChat/speaker.ts 与 workers/aiChat/bufferedMessage.ts），构造顺序由声明顺序固定。
  * 除 pending 外各 kind 的构造统一收在 states/verification/shared.ts（exemptOf、
  * kickPendingOf、kickedOf、checkingInviterOf、expellingOf），adopt 重建与状态机新建共用
@@ -54,7 +54,7 @@ export interface KickPendingState {
   kind: "kickPending";
   label: string;
   isBot: boolean;
-  /** 用于区分同一次入群的双路投递与真正重新入群。 */
+  /** 与 announcementMessageId 一起区分同一次入群的重复投递与真正重新入群（见 states/verification/join.ts 的 isKickRejoin）。 */
   requestedAt: number;
   /**
    * 本次入群计入刷群统计时用的那个时间戳；没计过数时为 undefined。
@@ -64,7 +64,7 @@ export interface KickPendingState {
    * 的 removeValue）。
    */
   countedJoinAt: number | undefined;
-  /** 入群公告 id；首次动作须在落盘回执后先清理该痕迹再踢人。 */
+  /** 入群公告 id；首次动作须在落盘回执后先清理该痕迹再踢人。携带同号公告的投递恒按同一次入群去重。 */
   announcementMessageId: number | undefined;
   /**
    * 本轮踢人尝试已开始（kickMember 已派发、尚未结算或排上重试）。Worker 本地幂等门，不持久化，

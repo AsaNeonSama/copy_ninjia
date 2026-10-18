@@ -1,10 +1,5 @@
-/** owner: main。私密模式的主线程侧镜像与紧急恢复状态（owner 是
- * packages/antiRaid/lockdownMirror.ts，落盘对账循环在
- * packages/antiRaid/workerBridge/events.ts 的 persistCurrentLockdown）。
- *
- * 本模块是主线程状态，不与 cache/workers/antiRaid/lockdown.ts 的入群守卫线程状态机共享：
- * 私密模式状态在 ChatState.lockdown（stateStore 持有），本模块只记「哪一份意图已经确认落盘」。
- */
+/** owner: main。私密模式的主线程持久化对账与紧急恢复状态（packages/antiRaid/lockdownMirror.ts 与
+ * packages/antiRaid/workerBridge/events.ts）。 */
 
 import type {
   EmergencyLockdownRecovery,
@@ -12,43 +7,37 @@ import type {
 } from "../../../types/antiRaid/internal";
 
 /**
- * 记录某群当前 lockdown 记录是否已确认落盘。
+ * 各群当前 lockdown 记录已确认落盘的指纹（`phase`、`intentId`、`announced`，见
+ * types/antiRaid/internal.ts 的 PersistedLockdownFingerprint）。
  *
- * 指纹由 `phase`、`intentId` 与 `announced` 组成，不含 `expiresAt`（判据见
- * types/antiRaid/internal.ts 的 PersistedLockdownFingerprint）；倒计时落在
- * ChatState.lockdown.expiresAt 里，adopt 时按它换算剩余时长。initAntiRaid 启动时
- * 先清空，再用已加载的 SQLite 记录播种（能载入即视为上次已持久化）；
- * Worker 报告新的 lockdown 持久化事实或 unlock（onEvent）时先删除旧指纹，
- * persistCurrentLockdown 待 SQLite ACK 成功且记录未被更新覆盖后才重新写入
- * 并通知 Worker；落盘失败且记录仍是该次意图时、主线程紧急恢复权限成功后同样
- * 删除。仅供 antiRaid/lockdownMirror.ts 构建 adopt 消息时判断某条记录是否已知持久化。
- *
- * 容量：每个受管群至多一项，上界 STATE_MANAGED_CHAT_LIMIT（见 consts/storage.ts）；
- * 不设淘汰。
+ * 填充：initAntiRaid 启动时从已加载的 SQLite 记录播种；persistCurrentLockdown 在 SQLite ACK
+ * 成功且记录未被新事件覆盖后写入并通知 Worker。
+ * 清理：Worker 上报新的 lockdown 持久化事实或 unlock、落盘失败、紧急恢复成功或群不可达放弃恢复时删除。
+ * 容量上限为 STATE_MANAGED_CHAT_LIMIT，不设淘汰；进程重启后从 SQLite 记录重建。
  */
 export const persistedLockdownFingerprints: Map<number, PersistedLockdownFingerprint> = new Map();
 
 /**
- * 每群至多保留一个 durability waiter；期间的新阶段由完成后的循环补写。
- * 清理：该群的 barrier 任务 finally 时移出。容量：每个受管群至多一项，
- * 上界 STATE_MANAGED_CHAT_LIMIT。进程重启归零，未确认的意图由 SQLite 记录重建。
+ * 正在等待 SQLite 落盘确认的群集合，每群至多一项。
+ * 填充：persistCurrentLockdown 启动对账循环时加入。清理：该群对账循环 finally 时移除。
+ * 容量上限为 STATE_MANAGED_CHAT_LIMIT；进程重启后从空集开始。
  */
 export const pendingLockdownPersistence: Set<number> = new Set();
 
 /**
- * 在某群 SQLite barrier 等待期间到达的新 lockdown 事件。每轮读取最终值前消费一次；
- * 最后一轮或同指纹倒计时刷新留下的标记会在当前任务 finally 后触发下一任务。
- * 清理：每轮消费时按 chatId 移出。容量与 pendingLockdownPersistence 同界，
- * 每个受管群至多一项。
+ * 对账循环在途期间收到新 lockdown 事件的群集合。
+ * 填充：persistCurrentLockdown 在该群已有在途循环时加入。清理：每轮循环读取最新状态前移除。
+ * 容量上限为 STATE_MANAGED_CHAT_LIMIT；进程重启后从空集开始。
  */
 export const queuedLockdownPersistence: Set<number> = new Set();
 
 /**
- * Worker 放弃自愈后，主线程每群至多持有一条权限恢复链。
- * 清理：恢复成功、显式 unlock 或 terminate 关闸时按 chatId 删除。
- * 容量：每个受管群至多一条，上界 STATE_MANAGED_CHAT_LIMIT。
+ * Anti-Raid Worker 放弃自愈后由主线程接管的各群权限紧急恢复任务。
+ * 填充：recoverAbandonedLockdowns 为仍处私密模式的群启动恢复时写入。
+ * 清理：恢复成功、显式 unlock、群不可达放弃恢复或 terminate 时删除。
+ * 容量上限为 STATE_MANAGED_CHAT_LIMIT，不设淘汰；进程重启后从空表开始。
  */
 export const emergencyLockdownRecoveries: Map<number, EmergencyLockdownRecovery> = new Map();
 
-/** terminate 关闸后，迟到 API 结果不得修改 state 或重新挂 timer。 */
+/** 主线程紧急恢复的停止标志；initAntiRaid 置 false，terminate 置 true，容量为一个布尔值。 */
 export const emergencyLockdownRecoveryRuntime: { stopped: boolean } = { stopped: true };

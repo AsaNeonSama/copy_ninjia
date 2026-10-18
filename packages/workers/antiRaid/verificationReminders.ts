@@ -40,10 +40,7 @@ export function clearReminderDeliveries(): void {
   reminderDeliveries.clear();
 }
 
-/**
- * 验证提醒下面的按钮行。真人两颗：本人验证给本人、「通过」给本群非匿名
- * 管理员代点；机器人点不了按钮，只留「通过」。
- */
+/** 构造验证提醒内联键盘：真人展示本人验证与管理员通过按钮，机器人仅展示管理员通过按钮。 */
 function buildVerificationKeyboard(userId: number, isBot: boolean, atmosphere: AtmosphereTexts): InlineKeyboardMarkup {
   const approveButton: InlineKeyboardButton = {
     text: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT,
@@ -65,11 +62,6 @@ function scheduleReminderRetry(
   delivery: ReminderDelivery,
   dispatchVerification: VerificationDispatcher
 ): void {
-  if (reminderDeliveries.get(delivery.key) !== delivery) return;
-  if (verificationEntries.get(delivery.key)?.state !== delivery.expectedState) {
-    cancelReminderDelivery(delivery.key);
-    return;
-  }
   const remainingMs: number = delivery.expectedState.expiresAt - Date.now();
   if (remainingMs <= 0) return; // verifyTimeout 会延长期限并重新唤醒这个 owner。
   const backoffMs: number = cappedExponentialMs(
@@ -88,21 +80,20 @@ function scheduleReminderRetry(
   delivery.timer.unref();
 }
 
+/**
+ * 发起一次验证提醒发送尝试。调用方保证 `delivery` 是 `reminderDeliveries` 中的当前
+ * owner、当前未在途（`!delivery.inFlight`）且对应验证状态尚未换代（状态换代时由运行态
+ * 同步取消旧 owner，见 docs/cn/04-invariants.md「验证提醒发送与成员发言保护」）。
+ */
 function attemptReminderDelivery(
   delivery: ReminderDelivery,
   dispatchVerification: VerificationDispatcher
 ): void {
-  if (reminderDeliveries.get(delivery.key) !== delivery || delivery.inFlight) return;
-  if (verificationEntries.get(delivery.key)?.state !== delivery.expectedState) {
-    cancelReminderDelivery(delivery.key);
-    return;
-  }
-
   delivery.inFlight = true;
   const atmosphere: AtmosphereTexts = workerAtmosphere();
   const verifyKeyboard: InlineKeyboardMarkup = buildVerificationKeyboard(
     delivery.userId,
-    delivery.expectedState.isBot,
+    delivery.isBot,
     atmosphere
   );
   // 每次发送尝试都按当前群风格渲染，重试队列不保存已经选定语气的正文。
@@ -125,12 +116,9 @@ function attemptReminderDelivery(
     }
     delivery.inFlight = false;
 
-    // 回复式提醒已取代原 owner，或状态已通过/离群/重建：成功落地的迟到消息
-    // 必须自删，失败结果则不能为旧 owner 再安排重试。
-    if (
-      reminderDeliveries.get(delivery.key) !== delivery ||
-      verificationEntries.get(delivery.key)?.state !== delivery.expectedState
-    ) {
+    // 回复式提醒已取代原 owner，或状态换代时已同步取消旧 owner：成功落地的迟到消息
+    // 必须自删，失败结果则不能为已取消的 owner 再安排重试。
+    if (reminderDeliveries.get(delivery.key) !== delivery) {
       if (reminderMessageId !== undefined) {
         void trackAntiRaidTask({
           task: deleteMessage(delivery.chatId, reminderMessageId, telegramApi),

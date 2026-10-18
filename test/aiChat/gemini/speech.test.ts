@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { adoptAgentDeploymentConfig, getAgentDeploymentConfig } from "../../../packages/config/agent";
-import { parseTtsCapability } from "../../../packages/config/agentCapability";
+import { parseTtsCapability } from "../../../packages/config/agentTts";
 import { installAiCacheUsageSink } from "../../../packages/infra/aiCacheUsage";
 import type { AiCacheUsage } from "../../../packages/types/aiCache";
 import { VOICE_SPEECH_MAX_BYTES } from "../../../packages/consts/aiChat/voiceMessage";

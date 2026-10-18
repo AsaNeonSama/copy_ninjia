@@ -1,4 +1,5 @@
 import type { User } from "grammy/types";
+import type { FifoMap } from "../libs/fifoMap";
 import type { CurrentAvatar } from "./telegram";
 
 /** /wed 本轮核实的用户与头像发送源，仅在本次交互中持有。 */
@@ -23,18 +24,32 @@ export interface WedAvatarProbe {
   readonly observedChats: Set<number>;
 }
 
-/** 每群结果会话为纯内存；成员集合引用主线程持久化 owner。 */
+/** 每群结果会话为纯内存；成员滑窗引用主线程持久化 owner。 */
 export interface WedChat {
   readonly controller: AbortController;
-  readonly members: Set<number>;
-  readonly sessions: Map<number, WedSession>;
+  /** 与 WedMemberState.members 是同一个 FifoMap。 */
+  readonly members: FifoMap<number, number>;
+  /** 发起人 ID → 会话；插入顺序即送达顺序，已送达超限时最早的空闲项先滑出。容量 WED_SESSION_CAPACITY。 */
+  readonly sessions: FifoMap<number, WedSession>;
   /** 机器人已离群或群已不存在：收尾置位后，正在重抽的会话不再删除被它替换的旧结果。 */
   departed: boolean;
 }
 
-/** 主线程拥有的成员集合；修订号只用于进程内恢复定序，不写入 JSON。 */
+/** `memory/wed/<chatId>.json` 数组的一项：成员 ID 与进入滑窗的 Unix 毫秒时间戳。 */
+export interface WedMemberEntry {
+  readonly id: number;
+  readonly enteredAt: number;
+}
+
+/** 主线程拥有的成员滑窗；修订号只用于进程内恢复定序，不写入 JSON。 */
 export interface WedMemberState {
-  readonly members: Set<number>;
+  /**
+   * 成员 ID → 进入时间；插入顺序即进入顺序，进入时间随之不减，首项最早。容量 WED_MEMBER_LIMIT，
+   * 满额写入新成员时 FifoMap 挤出首项。
+   */
+  readonly members: FifoMap<number, number>;
+  /** 本窗口已分配过的最大进入时间；新成员取它与当前时刻的较大值，墙钟回拨时也不破坏顺序。 */
+  latestEnteredAt: number;
   revision: number;
   dirty: boolean;
 }

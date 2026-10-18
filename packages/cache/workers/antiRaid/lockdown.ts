@@ -1,55 +1,45 @@
-/** owner: workers/antiRaid。私密模式状态机（packages/workers/antiRaid/lockdownRuntime.ts
- * 及同目录的 lockdownApi.ts、lockdownPersistence.ts）的内存状态；verificationEvents.ts
- * 只读取 lockdownEntries 判断当前是否处于私密模式。
- */
+/** owner: workers/antiRaid。私密模式状态机与入群滑窗状态（packages/workers/antiRaid/lockdownRuntime.ts）。 */
 
 import { createKeyedSerialTaskRunner } from "../../../libs/keyedSerialTaskRunner";
 import type { KeyedSerialTaskRunner } from "../../../libs/keyedSerialTaskRunner";
 import type { JoinWindow, LockdownEntry } from "../../../types/antiRaid/internal";
 
 /**
- * 每群最近入群滑窗；每条最多 JOIN_WINDOW_CAPACITY 个 number 和一个 timer。
- * 静默超时、群停用或 Worker 停止时清除；Worker 重建后为空并从下一次入群计数。
+ * chatId -> 最近入群时间戳滑窗与静默到期 timer。
+ * 填充：recordJoinWindow 在新成员入群时写入；清理：静默超时、群停用或 Worker 停止时删除；重建：Worker 重启后从空表开始；容量：单群上限为 JOIN_WINDOW_CAPACITY 个时间戳与单个 timer，群数受 STATE_MANAGED_CHAT_LIMIT 约束。
  */
 export const joinWindows: Map<number, JoinWindow> = new Map();
+
 /**
- * 每群 lockdown 状态机与恢复 timer；解锁、停用或 Worker 停止时清除。
- * 容量：每个受管群最多一条，上界 STATE_MANAGED_CHAT_LIMIT（见 consts/storage.ts）；
- * 不设淘汰，条目随恢复结束或群停用删除。Worker 崩溃重建：由
- * 主线程的 lockdown 镜像重放，未恢复的意图按 ChatState.lockdown（SQLite
- * `chat_states` 持久化）里的 LockdownRecord 接管。
+ * chatId -> 私密模式状态机条目与恢复 timer。
+ * 填充：触发私密模式或从主线程 lockdown 镜像接管恢复时写入。
+ * 清理：解锁恢复完成、群停用或 Worker 停止时删除。
+ * 重建：Worker 崩溃重启后由主线程重放 ChatState.lockdown 持久快照接管恢复。
+ * 容量：每个受管群至多一条，上限为 STATE_MANAGED_CHAT_LIMIT，不设容量淘汰。
  */
 export const lockdownEntries: Map<number, LockdownEntry> = new Map();
+
 /**
- * 每群「暂停再次触发私密模式」的绝对截止时刻（ms）。
- *
- * 状态机判定一轮作废时（读不到原权限、intent 落不了盘）发 suppressRetrigger，
- * lockdownRuntime.ts 的 runLockdownEffects 交给 lockdownJoinWindow.ts 的
- * beginLockdownRetriggerCooldown 写入；recordJoinWindow 在到期前不返回计数，
- * recordJoin 因此不投递 thresholdExceeded。清理：到期后被下一次 recordJoin 就地
- * 删除、写入新条目时顺带扫掉所有已过期条目、群停用时按 chatId 删除；
- * Worker 停止时随 stopLockdownRuntime 整体清空。
- * 条目只在作废路径产生，与机器人所在群数同阶。Worker 崩溃重建后为空 Map，
- * 无条目表示不抑制触发。
+ * chatId -> 抑制再次触发私密模式的截止时间戳。
+ * 填充：私密模式启动作废时由 beginLockdownRetriggerCooldown 写入。
+ * 清理：到期后在下一次 recordJoin 或新条目写入时清理，群停用按群删除，stopLockdownRuntime 清空。
+ * 重建：Worker 崩溃重启后从空表开始（无条目表示不抑制触发）。
+ * 容量：不超过受管群数。
  */
 export const lockdownRetriggerCooldowns: Map<number, number> = new Map();
+
 /**
- * 同一群的加锁、恢复和纠偏 API 调用共用的串行链。
- * 填充：lockdownApiRunner 为某群排入第一个任务时建链。清理：该群的链排空后由
- * 执行器自动删除条目，Worker stop 时随 runner 一起丢弃。容量：同时有在途私密
- * 模式调用的群数，上界为受管群数。Worker 崩溃重建：不重放——新 isolate 从空链
- * 开始，未结算的 Telegram 调用由主线程镜像重新驱动。
+ * chatId -> 私密模式加锁、恢复与纠偏 API 调用的按群串行 Promise 链。
+ * 填充：lockdownApiRunner 排入任务时建链；清理：链排空后自动删键，Worker 停止时丢弃；重建：Worker 重启后从空表开始；容量：不超过受管群数。
  */
 export const lockdownApiChains: Map<number, Promise<void>> = new Map();
-/**
- * 私密模式 Telegram API 的按群串行调度器，与 lockdownApiChains 共同存活；
- * Worker 重建后重新创建，空闲群的链由执行器自动删除。
- */
+
+/** 私密模式 Telegram API 的按群串行调度器，绑定 lockdownApiChains，Worker 重启后重建。 */
 export const lockdownApiRunner: KeyedSerialTaskRunner<number> =
   createKeyedSerialTaskRunner(lockdownApiChains);
 
 /**
- * 当前 Worker 最近分配的 lockdown intent ID。每次新意图单调提升；Worker
- * 重建时从 0 开始并以 Date.now() 抬高，不落盘恢复，容量固定为一个数字。
+ * 本 Worker 最近分配的私密模式意图 ID（单调递增）。
+ * 填充：分配新意图时更新；清理与重建：Worker 重启后从零开始并以当前时间戳抬高；容量：固定为单个数值 holder。
  */
 export const lastLockdownIntentId: { current: number } = { current: 0 };

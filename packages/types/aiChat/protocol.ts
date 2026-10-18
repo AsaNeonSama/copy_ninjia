@@ -19,8 +19,15 @@ export interface AiBotInfo {
   first_name: string;
 }
 
-/** 本轮生图可选的一张 Telegram 参考图；只在触发/排队链路短期流转，不落盘。 */
-export type ImageGenerationReference = TelegramVisionSource;
+/**
+ * 本轮生图的主参考图：触发消息本身或它回复的那张图片/贴纸；只在触发/排队链路短期流转，不落盘。
+ * AI Worker 组装回复轮工具上下文时按 mediaGroupId 从相册缓存补上同一相册的其余图片（见
+ * workers/aiChat/imageReferenceAlbums.ts）。
+ */
+export interface ImageGenerationReference extends TelegramVisionSource {
+  /** 这张图所在相册的 media_group_id；贴纸与不在相册里的图为 undefined。键恒发。 */
+  mediaGroupId: string | undefined;
+}
 export type AiDirectTriggerReason = "reply" | "mention";
 
 /**
@@ -154,6 +161,11 @@ export interface AiRecordMediaMessage extends AiRecordContext {
    * 键恒发、缺省显式 undefined，不得省略。
    */
   messageThreadId: number | undefined;
+  /**
+   * 这条媒体所属相册的 media_group_id；不在相册里为 undefined。键恒发。Worker 据此把相册里的
+   * 图片记进生图参考相册缓存（见 workers/aiChat/imageReferenceAlbums.ts）。
+   */
+  mediaGroupId: string | undefined;
 }
 
 /**
@@ -191,18 +203,22 @@ export interface AiTriggerMessage {
   /** 当前触发是否具备图片工具资格；具体生成/编辑意图由模型判断。 */
   imageGenerationRequested: boolean;
   /**
-   * 当前图片/贴纸，或本条文字回复的图片/贴纸；仅在直接触发的本轮短期附带。键恒发，
-   * 没有参考图时为 undefined。
+   * 本条文字回复的图片/贴纸；仅在直接触发的本轮短期附带。键恒发，没有参考图时为 undefined。
+   * 被回复的图在相册里时带上 mediaGroupId，同一相册的其余图片由 Worker 补齐。
    */
   imageGenerationReference: ImageGenerationReference | undefined;
   /**
-   * 本群已登记的问答（问题原文 -> 答案）；键恒发，本群一条都没有时为 undefined。载荷有界，
+   * 本群已登记问答的 `[问题原文, 答案]` 对数组 JSON 文本（主线程按群缓存，见
+   * cache/main/qa.ts 的 chatQaTriggerJson）；键恒发，本群一条都没有时为 undefined。
+   * 载荷全是原始值，不携带 Map；Worker 只在 group_qa_* 工具被调用时解析。
    * 每群至多 CHAT_QA_MAX_PER_CHAT 条。
    *
    * 字面完全一致的提问由主线程直答，不发 trigger；到达 Worker 的由模型判断是否对应
    * 已登记的问答。
    */
-  chatQa: ReadonlyMap<string, string> | undefined;
+  chatQaJson: string | undefined;
+  /** 同一时刻本群已登记问答条数；没有时为 0。本轮工具状态只读它，不解析 chatQaJson。 */
+  chatQaCount: number;
   /**
    * 触发消息所在的论坛话题 id；General、非论坛群与讨论组评论为 undefined。
    *
@@ -409,6 +425,12 @@ export interface AiCacheUsageEvent {
   usage: AiCacheUsage;
 }
 
+/** Worker -> 主线程：模型调用 abuse_mark 标记了当前触发用户，主线程据此启动该用户的 AI 闲聊冷却定时器。 */
+export interface AiAbuseMarkEvent {
+  type: "abuseMark";
+  userId: number;
+}
+
 export type AiChatWorkerEvent =
   | AiMemoryEvent
   | AiMemoryUsagesEvent
@@ -421,4 +443,5 @@ export type AiChatWorkerEvent =
   | AiWebDigestComposedEvent
   | AiTtsUsageEvent
   | AiCacheUsageEvent
+  | AiAbuseMarkEvent
   | AiStickerCatalogEvent;

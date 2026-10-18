@@ -1,12 +1,9 @@
 /**
- * Google GenAI 协议的广告检测传输层；业务提示词与 JSON 收窄仍归 classifier。
+ * Google GenAI 协议的广告检测传输层；提示词拼装与 JSON 收窄由 workers/antiRaid/adDetect/classifier.ts 负责。
  *
- * **请求结构**：系统指令只放「判定规则 + 部署示例」（params.instructions）；contents 固定为
- * 一个 user 轮、两个 part——系统事实一行在前、待判定消息串在后。系统指令可用时经
- * ad_detect 的显式缓存 scope（下方 AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE，核心在
- * infra/geminiContextCache.ts）改为引用 cachedContent，此时请求不带 systemInstruction，
- * contents 不变——有无缓存，模型看到的内容逐字一致。引用缓存的请求被端点拒绝
- * （isGeminiContextCacheRejection）时释放登记，当场按带系统指令的完整请求补发一次。
+ * 系统指令携带判定规则与部署示例（params.instructions），用户消息依次携带系统事实（params.fact）与待判定正文。
+ * 显式缓存可用时经 AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE（见 infra/geminiContextCache.ts）引用 cachedContent；
+ * 若缓存引用被端点拒绝（isGeminiContextCacheRejection），释放缓存登记并回退为带 systemInstruction 的完整请求重发。
  */
 
 import { ApiError, GoogleGenAI } from "@google/genai";
@@ -66,13 +63,16 @@ function getAdDetectGoogleClient(): GoogleGenAI {
 
 /**
  * ad_detect 的显式缓存 scope：缓存内容只有「判定规则 + 部署示例」，登记表按当下
- * ad_detect 客户端惰性新建；后台请求使用 Anti-Raid Worker 的尽力而为派发信号，停机后
+ * ad_detect 客户端初始化；后台请求使用 Anti-Raid Worker 的尽力而为派发信号，停机后
  * 随之取消；创建的输入 token 以 ad_detect 能力上报。
  */
 export const AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE: Readonly<GeminiContextCacheScope> = {
   registry(): GeminiContextCacheRegistry {
     adDetectGeminiContextCache.current ??= createGeminiContextCacheRegistry(getAdDetectGoogleClient());
     return adDetectGeminiContextCache.current;
+  },
+  model(): string {
+    return getAdDetectAgentConfig().model;
   },
   signal: antiRaidDispatchSignal,
   displayNamePrefix: AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX,
@@ -134,7 +134,7 @@ async function attemptGoogleJson(params: AdDetectJsonRequestParams): Promise<Goo
   try {
     cachedContent = acquireGeminiContextCache(
       AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE,
-      cacheContentOf(params.model, params.instructions)
+      (): GeminiContextCacheContent => cacheContentOf(params.model, params.instructions)
     );
     response = await generateAdDetectContent(params, cachedContent);
   } catch (error: unknown) {

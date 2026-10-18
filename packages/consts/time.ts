@@ -11,7 +11,7 @@ export const MINUTE_MS: number = 60 * SECOND_MS;
 export const HOUR_MS: number = 60 * MINUTE_MS;
 
 /**
- * 固定 24 小时的毫秒数：公历日序与 UTC 日期算术的日长，以及以 24 小时计的时长常量的单位；
+ * 标准公历日的毫秒数：公历日序与 UTC 日期算术的日长，以及按日计的时长常量单位；
  * 不代表配置时区每个自然日的实际长度。所属模块：时间。
  */
 export const DAY_MS: number = 24 * HOUR_MS;

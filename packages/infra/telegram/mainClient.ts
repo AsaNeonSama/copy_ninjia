@@ -74,6 +74,8 @@ const mainTelegramApi: TelegramApi = {
     bot.api.restrictChatMember(...args),
   sendChatAction: (...args: Parameters<TelegramApi["sendChatAction"]>): ReturnType<TelegramApi["sendChatAction"]> =>
     bot.api.sendChatAction(...args),
+  sendEphemeralMessage: (...args: Parameters<TelegramApi["sendEphemeralMessage"]>): ReturnType<TelegramApi["sendEphemeralMessage"]> =>
+    bot.api.sendMessage(...args),
   sendMessage: (...args: Parameters<TelegramApi["sendMessage"]>): ReturnType<TelegramApi["sendMessage"]> =>
     bot.api.sendMessage(...args),
   // grammY 的外部签名固定为四个位置参数；此处适配层必须逐位透传。
@@ -115,7 +117,7 @@ const mainTelegramApi: TelegramApi = {
 };
 
 /**
- * 集中安装文件增强与出站闸（发送类按聊天控速、其余分类型 429 退避）。主进程须在取得 bot.lock
+ * 集中安装文件增强与出站闸（发送类按聊天控速、其余分类型限流退避）。主进程须在取得 bot.lock
  * 后调用；模块导入本身不创建计时器或网络请求，重复调用幂等。
  */
 export function initTelegramClients(): void {

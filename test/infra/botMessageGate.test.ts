@@ -6,17 +6,22 @@ import {
   BOT_MESSAGE_ACTIVITY_TTL_MS,
 } from "../../packages/consts/botMessage";
 import { shouldPassBotMessage } from "../../packages/infra/botMessageGate";
+import { chatStateCache } from "../../packages/cache/main/chatState";
+import { getOrCreateChatState } from "../../packages/infra/storage/stateStore";
 import type { Message } from "grammy/types";
 
 const OWN_BOT_ID: number = 999;
+const CHAT_ID: number = -1001;
+const OTHER_CHAT_ID: number = -1002;
 
-function message(botId: number, isBot: boolean = true): Message {
-  return { from: { id: botId, is_bot: isBot } } as Message;
+function message(botId: number, isBot: boolean = true, chatId: number = CHAT_ID): Message {
+  return { chat: { id: chatId, type: "supergroup" }, from: { id: botId, is_bot: isBot } } as Message;
 }
 
 beforeEach((): void => {
   jest.useFakeTimers({ now: 1_000_000 });
   botMessageActivity.clear();
+  chatStateCache.clear();
 });
 
 afterEach((): void => {
@@ -24,6 +29,7 @@ afterEach((): void => {
     if (activity.timer !== null) clearTimeout(activity.timer);
   }
   botMessageActivity.clear();
+  chatStateCache.clear();
   jest.useRealTimers();
 });
 
@@ -49,6 +55,23 @@ describe("主线程 Bot-to-Bot 发言限流", () => {
     expect(shouldPassBotMessage({ ...message(42), sender_chat: { id: -1 } } as Message, OWN_BOT_ID)).toBeTrue();
     expect(botMessageActivity.size).toBe(0);
     expect(jest.getTimerCount()).toBe(initialTimers);
+  });
+
+  test("本群 /delete_message 目标的机器人发言先放行且不计数；别的群照常计数", () => {
+    getOrCreateChatState(CHAT_ID).deleteMessageTargets = [42];
+    const initialTimers: number = jest.getTimerCount();
+    for (let index: number = 0; index <= BOT_MESSAGE_ACTIVITY_LIMIT * 2; index += 1) {
+      expect(shouldPassBotMessage(message(42), OWN_BOT_ID)).toBeTrue();
+    }
+    expect(botMessageActivity.has(42)).toBeFalse();
+    expect(jest.getTimerCount()).toBe(initialTimers);
+
+    for (let index: number = 0; index < BOT_MESSAGE_ACTIVITY_LIMIT; index += 1) {
+      expect(shouldPassBotMessage(message(42, true, OTHER_CHAT_ID), OWN_BOT_ID)).toBeTrue();
+    }
+    expect(shouldPassBotMessage(message(42, true, OTHER_CHAT_ID), OWN_BOT_ID)).toBeFalse();
+    // 别的群用满额度后，本群的删除目标发言仍放行，交给删除 ingress。
+    expect(shouldPassBotMessage(message(42), OWN_BOT_ID)).toBeTrue();
   });
 
   test("每条发言续 90 分钟，到期清空计数并允许重新发言", () => {

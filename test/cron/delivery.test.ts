@@ -80,7 +80,8 @@ const { TEST_DATA_ROOT } = await import("../preloadEnv");
 /** 本地来源的测试目录；cron.json 的 path 解析后一律是绝对路径。 */
 const FILES_ROOT: string = join(TEST_DATA_ROOT, "cron-delivery-files");
 const { getAssetConfig } = await import("../../packages/config/assets");
-const { TelegramRetryQueueFullError } = await import("../../packages/infra/telegram/outboundRetryPolicy");
+const { telegramRetryCategoryFor } = await import("../../packages/infra/telegram/outboundRetryPolicy");
+const { TelegramSendQueueFullError } = await import("../../packages/infra/telegram/sendScheduler");
 const { TELEGRAM_PHOTO_UPLOAD_MAX_BYTES } = await import("../../packages/consts/telegram");
 const { MARKDOWN_V2_PARSE_MODE } = await import("../../packages/consts/telegramMarkdown");
 const { WEB_DIGEST_UNSEARCHED_WARNING } = await import("../../packages/consts/webDigest");
@@ -158,7 +159,7 @@ describe("cron 发送边界", () => {
     expect(upload.filename).toBe("report.pdf");
     for (let attempt: number = 0; attempt < 2; attempt++) {
       const raw: unknown = await (upload as unknown as { toRaw(): Promise<ReadableStream<Uint8Array>> }).toRaw();
-      expect(await new Response(raw as ReadableStream<Uint8Array>).text()).toBe("pdf-bytes");
+      expect(await (raw as ReadableStream<Uint8Array>).text()).toBe("pdf-bytes");
     }
   });
 
@@ -201,7 +202,7 @@ describe("cron 发送边界", () => {
     expect(options.map((option: { has_spoiler?: boolean }): boolean | undefined => option.has_spoiler)).toEqual([true, true, undefined]);
   });
 
-  test("失败分类：5xx、网络与出站队列满可重试，其余 4xx 不可重试", async () => {
+  test("失败分类：5xx、网络与发送排队满可重试，其余 4xx 不可重试", async () => {
     const message: CronAction = { type: "send_message", content: "hi" };
     nextFailure = Object.assign(new Error("Bad Gateway"), { error_code: 502, description: "Bad Gateway" });
     expect(await deliver(message)).toEqual({ kind: "retryable", detail: "502 Bad Gateway" });
@@ -209,9 +210,18 @@ describe("cron 发送边界", () => {
     expect(await deliver(message)).toEqual({ kind: "permanent", detail: "403 Forbidden: bot was kicked" });
     nextFailure = new HttpError("Network request for 'sendMessage' failed!", new Error("ECONNRESET"));
     expect(await deliver(message)).toMatchObject({ kind: "retryable" });
-    nextFailure = new TelegramRetryQueueFullError();
-    expect(await deliver(message)).toEqual({ kind: "retryable", detail: "the Telegram outbound retry queue is full" });
+    for (const scope of ["chat", "global"] as const) {
+      const queueFull: Error = new TelegramSendQueueFullError(scope);
+      nextFailure = queueFull;
+      expect(await deliver(message)).toEqual({ kind: "retryable", detail: queueFull.message });
+    }
     expect(markSelfSent).not.toHaveBeenCalled();
+  });
+
+  test("cron 用到的发送方法都归 message 类，排队满时由发送调度器以 TelegramSendQueueFullError 拒绝", () => {
+    for (const method of ["sendMessage", "sendPhoto", "sendMediaGroup", "sendDocument", "sendVoice"] as const) {
+      expect(telegramRetryCategoryFor(method)).toBe("message");
+    }
   });
 
   test("停机取消后失败按 aborted 返回", async () => {
@@ -252,7 +262,7 @@ test("本地相册整组预检，任一项失效不发送；每张上传流均�
     for (const [index, media] of (call.args[1] as { media: InputFile }[]).entries()) {
       for (let attempt: number = 0; attempt < 2; attempt++) {
         const raw: ReadableStream<Uint8Array> = await (media.media as unknown as { toRaw(): Promise<ReadableStream<Uint8Array>> }).toRaw();
-        expect(await new Response(raw).text()).toBe(index === 0 ? "first" : "second");
+        expect(await raw.text()).toBe(index === 0 ? "first" : "second");
       }
     }
   }

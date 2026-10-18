@@ -1,3 +1,4 @@
+import type { Message, MessageEntity } from "grammy/types";
 import {
   GAG_PRIVATE_CHANNEL_ENTRY_MESSAGE_ID,
   GAG_PRIVATE_CHANNEL_PROFILE_LINK_PREFIX,
@@ -83,4 +84,14 @@ export function isGagInlineMarkerUrl(url: string): boolean {
   return USERNAME_ARG_PATTERN.test(
     username.slice(0, -GAG_PUBLIC_PROFILE_QUERY.length)
   );
+}
+
+/** 当前 bot 消息是否带有用户或频道 gag 隐藏主页标记。 */
+export function hasGagInlineMarker(message: Message, botId: number): boolean {
+  if (message.via_bot?.id !== botId) return false;
+  return message.entities?.some((entity: MessageEntity): boolean =>
+    entity.type === "text_link" &&
+    entity.offset === 0 &&
+    isGagInlineMarkerUrl(entity.url)
+  ) === true;
 }

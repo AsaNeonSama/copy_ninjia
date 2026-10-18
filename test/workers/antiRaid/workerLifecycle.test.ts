@@ -215,7 +215,9 @@ describe("Anti-Raid Worker lifecycle", () => {
     expect(calls).toEqual(["left"]);
   });
 
-  test("显式停管会走提醒清理状态机，失权停管只清本地验证 owner", () => {
+  test("显式停管会走提醒清理状态机并清除该群管理员快照，失权停管只清本地验证 owner 与管理员快照", () => {
+    chatAdmins.set(-1001, { adminIds: new Set([42]), fetchedAt: Date.now() });
+    chatAdmins.set(-1002, { adminIds: new Set([7]), fetchedAt: Date.now() });
     worker.handleAntiRaidWorkerMessage({
       type: "deactivateChat",
       chatId: -1001,
@@ -223,6 +225,8 @@ describe("Anti-Raid Worker lifecycle", () => {
       abandonLockdown: false,
     });
     expect(calls[0]).toBe("disableJoinGuard");
+    expect(chatAdmins.has(-1001)).toBeFalse();
+    expect(chatAdmins.has(-1002)).toBeTrue();
 
     calls.length = 0;
     worker.handleAntiRaidWorkerMessage({

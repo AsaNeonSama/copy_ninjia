@@ -39,7 +39,7 @@
    - 在 `packages/commands/` 目录下创建对应的文件，导出强类型返回的 `handleXxxCommand`。
    - **权限检查**：需要特定功能权限的命令，调用 `rejectUnlessPermitted(ctx, key, rejection)`；仅允许超级管理员使用的系统命令，调用 `rejectUnlessSuperAdmin(ctx, rejection)`（参考 `commands/commandActor.ts`）。
    - **文案组织**：命令回复文案按调侃风（`teasing`）与普通风（`plain`）分别保存在 `packages/consts/atmosphere/{teasing,plain}/` 中对应的领域文件，两份文案需遵循相同的接口类型。业务逻辑通过 `chatAtmosphere()` 获取当前风格文案。
-   - **命令回执**：回复触发消息的纯文本提示（用法、拒绝、失败与操作回执）调用 `replyCommandNotice(ctx, text)`（`infra/telegram/commandMessages.ts`），沿用 `sendCommandMessage` 的 30 秒自动删除与话题补齐；需要格式、长期保留或在 update 作用域之外发送时直接调用 `sendCommandMessage`。
+   - **命令回执**：回复触发消息的纯文本提示（用法、拒绝、失败与操作回执）调用 `replyCommandNotice(ctx, text)`（`infra/telegram/commandMessages.ts`），沿用 `sendCommandMessage` 的 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自动删除与话题补齐；需要格式、长期保留或在 update 作用域之外发送时直接调用 `sendCommandMessage`。
 2. **导出模块**：将新增的命令处理函数在 `packages/commands/index.ts` 中统一导出。
 3. **注册路由**：
    - 打开 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts)，在 `commands` 子链上调用 `commands.command("xxx", ...)` 注册命令。
@@ -52,13 +52,13 @@
 
 ### 非 ASCII 命令名
 
-Telegram 官方仅对 ASCII 字符开头的命令自动生成 `bot_command` 实体。中文动作命令（如 `/咬`、`/贴贴` 等 1~2 个汉字动作）需要走专属的匹配链路，具体参考 [`cjkAction.ts`](../../packages/commands/cjkAction.ts)：
+Telegram 官方仅对 ASCII 字符开头的命令自动生成 `bot_command` 实体。中文动作命令（如 `/咬`、`/贴贴` 等匹配 `CJK_ACTION_COMMAND_PATTERN` 的动作）需要走专属的匹配链路，具体参考 [`cjkAction.ts`](../../packages/commands/cjkAction.ts)：
 
 - **使用 `bot.hears` 匹配原文**：中文命令不能通过 `bot.command` 捕获，必须用 `hears(正则, ...)` 匹配消息文本。该路由注册在 `cjkActions` 子 Composer 上（正则匹配以 `^\/` 开头，见 `CJK_ACTION_COMMAND_PATTERN`），置于普通群消息兜底逻辑之前。
 - **目标解析与放行**：将消息直接传给 `resolveCommandTarget` 进行目标解析；如果不匹配中文动作命令格式，必须显式调用 `next()` 放行给后续中间件，切勿吞掉消息更新。
 - **仅处理文本消息**：仅认 `message.text`，带媒体附带的说明文字（caption）应直接 `next()` 放行回到常规消息流水线。
 - **手动补齐前置检查**：因为中文动作命令注册在全自动流水线之前，Handler 内部需要主动调用 `isBotOwnMessage`、`needsBotOwnMessageWait` 与 `waitForBotOwnMessage` 处理机器人自身发出的消息，并通过 `updateCachedIdentity` 刷新发送者的本地身份缓存。
-- **消息保留与自删规则**：动作成功后的回复需要长期保留，调用 `sendCommandMessage` 时需显式指定 `preserveInGroup: true` 并传入当前触发话题 `messageThreadId`；若参数不合法或用户触发 `/x` 用法提示，则走默认的 30 秒自动删除。
+- **消息保留与自删规则**：动作成功后的回复需要长期保留，调用 `sendCommandMessage` 时需显式指定 `preserveInGroup: true` 并传入当前触发话题 `messageThreadId`；若参数不合法或用户触发 `/x` 用法提示，则走默认的 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自动删除。
 - **菜单展示与占位命令**：由于 Telegram 客户端菜单只支持 ASCII 字符，我们在菜单中使用 ASCII 占位符 `/x` 作为中文动作命令的用法展示，并专门注册 `handleCjkActionUsageCommand` 回复使用说明。
 - **滑动窗口限流**：由于无法依赖 Telegram 原生菜单约束，中文命令极易被连续刷屏。必须配合滑动窗口限流机制（通过 `libs/slidingWindowRateLimit.ts` 结合 `CJK_ACTION_RATE_LIMIT_WINDOW_MS` 和 `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW`）限制单群调用频率。
 
@@ -100,7 +100,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 | AI 触发概率、限频、并发槽位、排队上限 | `packages/consts/aiChat/rateLimit.ts` |
 | AI 上下文记忆条数、快照触发周期、背压压缩门限 | `packages/consts/aiChat/memory.ts` |
 | 媒体描述字数、并发分析槽位、LRU 缓存容量 | `packages/consts/aiChat/media.ts` |
-| 生图冷却时长与图片字节上限 | `packages/consts/aiChat/imageGeneration.ts` |
+| 生图冷却时长、图片字节上限与参考图张数上限 | `packages/consts/aiChat/imageGeneration.ts` |
 | 心情衰减周期与开关冷却时间 | `packages/consts/aiChat/mood.ts` |
 | 工具单次调用上限、打字模拟与错字偶发概率 | `packages/consts/aiChat/tools.ts` |
 | 语音转写的音频长度/体积限制与占位提示文案 | `packages/consts/aiChat/voice.ts` |
@@ -108,6 +108,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 | AI 请求超时、重试次数、采样温度与安全过滤等级 | `packages/consts/aiChat/gemini.ts`、`openai.ts`、`anthropic.ts` |
 | **模型名称、供应商提供商、API Key、请求端点** | **非代码常量**：在 `config/dynamic/agent.json` 中按能力独立配置 |
 | OpenAI 兼容生图接口协议与支持的分辨率尺寸 | `config/dynamic/agent.json` 中的 `agent.image.image_protocol` |
+| 一次生图交给模型的参考图张数 | `config/dynamic/agent.json` 中的 `agent.image.max_reference_images` |
 | 入群验证等待时间、刷屏检测阈值与禁言追加策略 | `packages/consts/antiRaid/` |
 | 复读冷却时长、/quiet 静音时长范围、动作命令限流 | `packages/consts/commands.ts` |
 | 随机发言的主动发言人防连续打扰冷却 | `packages/consts/auto.ts` |

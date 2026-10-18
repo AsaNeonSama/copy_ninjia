@@ -3,18 +3,11 @@ import {
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
 } from "../../../packages/consts/identityStorage";
 import { IDENTITY_DATABASE_PATH } from "../../../packages/consts/paths";
-import { DEFAULT_WHITELIST_PERMISSIONS } from "../../../packages/consts/whitelist";
-import { encodeWhitelistEntryData } from
-  "../../../packages/database/codec/identity";
-import { clearStorageBusinessTables } from
-  "../../../scripts/fixtures/storageDatabase";
 import {
   closeStorageDatabase,
   openStorageDatabase,
 } from "../../../packages/database/interact/connection";
 import {
-  latestRemovalSnapshotRevision,
-  pendingRemovalSnapshotRevision,
   pendingWhitelistWrites,
   resetStorageDatabaseCache,
   storageDatabaseHandle,
@@ -23,58 +16,32 @@ import {
   storagePersistenceReplyHolder,
   storageWriteFlushTimer,
 } from "../../../packages/cache/workers/diskIO/storageDatabase";
+import { diskIOOperationTail } from
+  "../../../packages/cache/workers/diskIO/recovery";
 import {
   flushStorageDatabase,
   collectStorageDatabaseFailures,
 } from "../../../packages/workers/diskIO/storageDatabase/flush";
-import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
+import {
+  hydrateStorageDatabase,
+  resetDatabaseFixture,
+  whitelistWrite,
+} from "../../helpers/storageDatabaseHydration";
 import { handleIdentityPolicyWrite } from
   "../../../packages/workers/diskIO/storageDatabase/identityPolicy";
-import { handlePendingRemovalSnapshot } from
+import { handleBlocklistRemovalWrite } from
   "../../../packages/workers/diskIO/storageDatabase/pendingRemoval";
 import type {
   DiskIODomain,
-  IdentityPolicyWriteDiskMessage,
   IdentityStoragePersistedReply,
 } from "../../../packages/types/diskIO";
-import type { WhitelistEntryData } from
-  "../../../packages/types/identityPolicy";
 import type { StorageDatabase } from
   "../../../packages/types/storageDatabase";
 
-const META: Readonly<{ firstName: string; lastName: string; username: string }> = {
-  firstName: "本天才才不是雑魚喵~",
-  lastName: "",
-  username: "copy_ninjia_bot",
-};
 const acknowledgements: IdentityStoragePersistedReply[] = [];
 
 function reply(value: IdentityStoragePersistedReply): void {
   acknowledgements.push(value);
-}
-
-function whitelistWrite(id: number, revision: number): IdentityPolicyWriteDiskMessage {
-  const value: WhitelistEntryData = {
-    permissions: DEFAULT_WHITELIST_PERMISSIONS,
-    meta: META,
-  };
-  return {
-    type: "identityPolicyWrite",
-    table: "whitelist",
-    id,
-    data: encodeWhitelistEntryData(value),
-    revision,
-  };
-}
-
-function resetDatabaseFixture(): void {
-  resetStorageDatabaseCache();
-  const database: StorageDatabase = openStorageDatabase({
-    path: IDENTITY_DATABASE_PATH,
-  });
-  clearStorageBusinessTables(database);
-  closeStorageDatabase(database);
-  hydrateStorageDatabase();
 }
 
 beforeEach((): void => {
@@ -90,7 +57,7 @@ afterEach((): void => {
 });
 
 describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
-  test("首条 dirty 只建一个 unref timer，ACK 通道恢复后原批只提交一次", (): void => {
+  test("首条 dirty 只建一个 unref timer，ACK 通道恢复后原批只提交一次", async (): Promise<void> => {
     jest.useFakeTimers();
 
     handleIdentityPolicyWrite(whitelistWrite(7, 1), reply);
@@ -103,6 +70,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
     expect(storageWriteFlushTimer.current).toBe(firstTimer);
 
     jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+    await diskIOOperationTail.current;
     const retryTimer: ReturnType<typeof setTimeout> | null =
       storageWriteFlushTimer.current;
     expect(retryTimer).not.toBeNull();
@@ -113,6 +81,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
 
     storagePersistenceReplyHolder.current = reply;
     jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+    await diskIOOperationTail.current;
 
     expect(storageWriteFlushTimer.current).toBeNull();
     expect(pendingWhitelistWrites).toHaveLength(0);
@@ -124,7 +93,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       ],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [],
+      chatQaWrites: [], removalWrites: [],
     }]);
   });
 
@@ -150,14 +119,14 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       writes: [{ table: "whitelist", id: 9, revision: 4 }],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
-      chatQaWrites: [],
+      chatQaWrites: [], removalWrites: [],
     }]);
 
     resetStorageDatabaseCache();
     expect(hydrateStorageDatabase().permissionEntryCount).toBe(1);
   });
 
-  test("节拍到点时提交仍然失败：点名记一行并重排下一拍，不丢最终值", (): void => {
+  test("节拍到点时提交仍然失败：点名记一行并重排下一拍，不丢最终值", async (): Promise<void> => {
     // 提交失败时重排下一拍：定时器已自清，dirty 标记保留，最终值留在内存等下一拍。
     const error = spyOn(console, "error").mockImplementation((): void => {});
     try {
@@ -167,6 +136,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       closeStorageDatabase(storageDatabaseHandle.current!);
 
       jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+      await diskIOOperationTail.current;
 
       expect(error).toHaveBeenCalledTimes(1);
       expect(error).toHaveBeenCalledWith("[diskIOWorker] storage database transaction failed:", expect.any(Error));
@@ -215,7 +185,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
     expect(again).toEqual([]);
   });
 
-  test("事务提交成功而另有拒收标记时，提交结果仍报成功，定时节拍不记失败", (): void => {
+  test("事务提交成功而另有拒收标记时，提交结果仍报成功，定时节拍不记失败", async (): Promise<void> => {
     const error = spyOn(console, "error").mockImplementation((): void => {});
     try {
       jest.useFakeTimers();
@@ -224,6 +194,7 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
       storagePersistenceReplyHolder.current = reply;
 
       jest.advanceTimersByTime(IDENTITY_WRITE_FLUSH_INTERVAL_MS);
+      await diskIOOperationTail.current;
 
       expect(pendingWhitelistWrites).toHaveLength(0);
       expect(error).not.toHaveBeenCalled();
@@ -235,22 +206,23 @@ describe("DiskIO Worker SQLite 定时提交与失败重试", (): void => {
     }
   });
 
-  test("空 outbox 的新 revision 当场 ACK，后续 flush 不重复确认", (): void => {
-    handlePendingRemovalSnapshot({
-      type: "blocklistRemovals",
-      removals: [],
+  test("删除一行从未落库的待踢任务同样进入事务并精确 ACK，后续 flush 不重复确认", (): void => {
+    handleBlocklistRemovalWrite({
+      type: "blocklistRemovalWrite",
+      removalId: 5,
+      data: null,
       revision: 5,
     }, reply);
+    expect(acknowledgements).toEqual([]);
 
-    expect(latestRemovalSnapshotRevision.current).toBe(5);
-    expect(pendingRemovalSnapshotRevision.current).toBeNull();
+    expect(flushStorageDatabase(reply)).toBeTrue();
     expect(acknowledgements).toEqual([{
       type: "identityStoragePersisted",
       writes: [],
       temporaryAdBypassWrites: [],
       chatStateWrites: [],
       chatQaWrites: [],
-      removalSnapshotRevision: 5,
+      removalWrites: [{ removalId: 5, revision: 5 }],
     }]);
 
     expect(flushStorageDatabase(reply)).toBeTrue();

@@ -6,8 +6,14 @@ import {
   aiReplyReferenceFixture,
   bufferedReplyReferenceFixture,
 } from "../../helpers/aiMemoryFixtures";
-import type { ReplyPromptSections, ReplyToolContext, ReplyToolset } from "../../../packages/types/aiChat/replies";
+import type {
+  QueuedReplyTrigger,
+  ReplyPromptSections,
+  ReplyToolContext,
+  ReplyToolset,
+} from "../../../packages/types/aiChat/replies";
 import type { BufferedMessage } from "../../../packages/types/aiChat/memory";
+import type { ImageGenerationReference } from "../../../packages/types/aiChat/protocol";
 import { REPLY_DELIVERY_MAX_PER_CHAT } from "../../../packages/consts/aiChat/rateLimit";
 import { reserveReplyDelivery } from "../../../packages/workers/aiChat/replyDelivery";
 import { SELF_SPEAKER_NAME } from "../../../packages/consts/aiChat/prompts/transcript";
@@ -70,6 +76,7 @@ const {
   cachedReplyGeneration,
   isCachedReplyGenerationCurrent,
   longTriggerTimes,
+  pendingReplyTriggers,
   rateLimitNoticeTimes,
   replyGenerations,
   replyGenerationTasks,
@@ -77,6 +84,7 @@ const {
 } = await import("../../../packages/cache/workers/aiChat/replies");
 const { invalidateChatReplyCache } = await import("../../../packages/cache/workers/aiChat/replies");
 const { repliedBotImageBackfills } = await import("../../../packages/cache/workers/aiChat/botImages");
+const { LinkedQueue } = await import("../../../packages/libs/linkedQueue");
 const { TimestampDeque } = await import("../../../packages/libs/timestampDeque");
 const { RATE_LIMIT_LONG_MAX_TRIGGERS } = await import("../../../packages/consts/aiChat/rateLimit");
 const { SEND_MESSAGE_TOOL } = await import("../../../packages/consts/tools");
@@ -453,22 +461,21 @@ describe("AI 单轮回复生命周期", () => {
     expect(capturedContext?.bypassMediaToolCooldown).toBe(false);
   });
 
-  test("参考图短期引用原样进入本轮工具上下文", async () => {
-    await runRound({
-      imageGenerationRequested: true,
-      imageGenerationReference: { fileId: "reference-file", fileUniqueId: "reference-unique", width: 1600, height: 900 },
-    });
-
-    expect(capturedContext?.imageGenerationReference).toEqual({
+  test("不在相册里的参考图短期引用原样作为唯一参考图进入本轮工具上下文", async () => {
+    const reference: ImageGenerationReference = {
       fileId: "reference-file",
       fileUniqueId: "reference-unique",
       width: 1600,
       height: 900,
-    });
+      mediaGroupId: undefined,
+    };
+    await runRound({ imageGenerationRequested: true, imageGenerationReference: reference });
+
+    expect(capturedContext?.imageGenerationReferences).toEqual([reference]);
   });
 
   test("自动文字回复与随机媒体评价即使被误传资格，也会强制关闭生图", async () => {
-    const reference = { fileId: "must-drop", fileUniqueId: "must-drop-unique", width: 512, height: 512 };
+    const reference = { fileId: "must-drop", fileUniqueId: "must-drop-unique", width: 512, height: 512, mediaGroupId: undefined };
 
     await runRound({
       isRandomTrigger: true,
@@ -476,7 +483,7 @@ describe("AI 单轮回复生命周期", () => {
       imageGenerationReference: reference,
     });
     expect(capturedContext?.mediaToolsRequested).toBe(false);
-    expect(capturedContext?.imageGenerationReference).toBeUndefined();
+    expect(capturedContext?.imageGenerationReferences).toBeUndefined();
 
     await runRound({
       imageGenerationRequested: true,
@@ -484,7 +491,7 @@ describe("AI 单轮回复生命周期", () => {
       mediaComment: { kind: "photo", senderId: 7, senderName: "Alice", description: "一张夜景" },
     });
     expect(capturedContext?.mediaToolsRequested).toBe(false);
-    expect(capturedContext?.imageGenerationReference).toBeUndefined();
+    expect(capturedContext?.imageGenerationReferences).toBeUndefined();
   });
 
   test("用户直接叫机器人的媒体轮仍可把生图资格交给模型判断", async () => {
@@ -653,5 +660,29 @@ describe("AI 单轮回复生命周期", () => {
     expect(createReplyToolset).toHaveBeenCalledTimes(1);
     expect(longTriggerTimes.get(-1001)?.size).toBe(1);
     expect(longTriggerTimes.get(-1001)?.peek()).toBeLessThan(now + 60_000);
+  });
+
+  test("工具上下文透传 triggerSenderId，onAbuseMark 清掉该用户的排队触发并向主线程推送事件", async () => {
+    const queue = new LinkedQueue<QueuedReplyTrigger>();
+    queue.push({ triggerSenderId: 7, replyToMessageId: 21, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "A", text: "queued-spam" });
+    queue.push({ triggerSenderId: 8, replyToMessageId: 22, telegramBackpressured: false, messageThreadId: undefined, imageGenerationRequested: false, senderName: "B", text: "queued-keep" });
+    pendingReplyTriggers.set(-1002, queue);
+
+    const postedEvents: unknown[] = [];
+    const originalPostMessage: unknown = Reflect.get(globalThis, "postMessage");
+    Reflect.set(globalThis, "postMessage", (event: unknown): void => {
+      postedEvents.push(event);
+    });
+    try {
+      await runRound({ triggerSenderId: 7 });
+      expect(capturedContext?.triggerSenderId).toBe(7);
+      capturedContext?.onAbuseMark(7);
+
+      expect(pendingReplyTriggers.get(-1002)?.size).toBe(1);
+      expect(pendingReplyTriggers.get(-1002)?.peek()?.replyToMessageId).toBe(22);
+      expect(postedEvents).toEqual([{ type: "abuseMark", userId: 7 }]);
+    } finally {
+      Reflect.set(globalThis, "postMessage", originalPostMessage);
+    }
   });
 });

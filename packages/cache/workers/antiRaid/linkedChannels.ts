@@ -1,46 +1,37 @@
-/** owner: workers/antiRaid。关联频道按需缓存（packages/workers/antiRaid/linkedChannel.ts）的内存状态；Worker
- * 重建后从空表开始，由下一次按需查询重新填充。 */
+/** owner: workers/antiRaid。关联频道按需查询缓存（packages/workers/antiRaid/linkedChannel.ts）。 */
 
 import type { LinkedChannelCache } from "../../../types/antiRaid/internal";
 import { ANTI_RAID_CHAT_CACHE_MAX, LINKED_CHANNEL_TTL_MS } from "../../../consts/antiRaid/cache";
-import {
-  setBoundedMapValue,
-  sweepExpiredSnapshots,
-} from "../../../libs/boundedMap";
+import { sweepExpiredSnapshots } from "../../../libs/boundedMap";
+import { FifoMap } from "../../../libs/fifoMap";
 
 /**
- * 各群是否有关联频道的按需 TTL 缓存。
- *
- * 填充：cacheLinkedChannel 在一次按需查询结算后写入。清理：
- * sweepLinkedChannelCache 按 LINKED_CHANNEL_TTL_MS 淘汰过期项（仍在拉取的群
- * 保留旧值作为同步降级结果），resetLinkedChannelCache 整表清空。
- * 容量：setBoundedMapValue 限制为 ANTI_RAID_CHAT_CACHE_MAX 项，满载淘汰最早
- * 写入的群。Worker 崩溃重建：不重放，从空表开始由下一次按需查询重新填充。
+ * chatId -> 是否存在关联频道的 TTL 缓存。
+ * 填充：cacheLinkedChannel 在查询结算后写入。
+ * 清理：sweepLinkedChannelCache 按 LINKED_CHANNEL_TTL_MS 淘汰过期项（保留仍在拉取中的旧快照），resetLinkedChannelCache 清空。
+ * 重建：Worker 崩溃重启后从空表按需重查。
+ * 容量：FifoMap 限制为 ANTI_RAID_CHAT_CACHE_MAX，满载时淘汰最早写入的群。
  */
-export const linkedChannels: Map<number, LinkedChannelCache> = new Map();
+export const linkedChannels: FifoMap<number, LinkedChannelCache> = new FifoMap(ANTI_RAID_CHAT_CACHE_MAX);
+
 /**
- * 进行中的关联频道信息拉取，按 chatId 去重。
- * 清理：libs/keyedTask.ts 的 getOrCreateKeyedTask 在 settle 后释放自己的槽位，
- * resetLinkedChannelCache 整表清空。容量：同时在途的群数，上界为受管群数。
+ * chatId -> 在途的关联频道查询 Promise（经 libs/keyedTask.ts 的 getOrCreateKeyedTask 去重）。
+ * 填充：发起查询时登记；清理：查询结算或 resetLinkedChannelCache 时删除；重建：Worker 重启后为空；容量：不超过受管群数。
  */
 export const linkedChannelFetches: Map<number, Promise<void>> = new Map();
+
 /**
- * 关联频道整表世代号；只在 reset 时递增，阻止清空前的网络结果写回新一代快照。
- * Worker 重建时从 0 开始；单个数字无容量增长，随 owner isolate 一起销毁。
+ * 关联频道缓存世代号，resetLinkedChannelCache 时递增以阻止旧在途查询写回。
+ * 重建：Worker 崩溃重启后从零开始；容量：固定为单个数值 holder。
  */
 export const linkedChannelCacheGeneration: { current: number } = { current: 0 };
 
-/** 在 ANTI_RAID_CHAT_CACHE_MAX 硬顶内落一份关联频道快照。 */
+/** 写入指定群的关联频道缓存快照。 */
 export function cacheLinkedChannel(chatId: number, hasLinked: boolean, fetchedAt: number = Date.now()): void {
-  setBoundedMapValue({
-    map: linkedChannels,
-    key: chatId,
-    value: { hasLinked, fetchedAt },
-    maxEntries: ANTI_RAID_CHAT_CACHE_MAX,
-  });
+  linkedChannels.set(chatId, { hasLinked, fetchedAt });
 }
 
-/** 淘汰过期快照；仍在拉取的群保留旧值作为同步降级结果。 */
+/** 淘汰已过期的关联频道快照，保留仍在拉取中的群快照。 */
 export function sweepLinkedChannelCache(now: number = Date.now()): number {
   return sweepExpiredSnapshots({
     snapshots: linkedChannels,
@@ -50,7 +41,7 @@ export function sweepLinkedChannelCache(now: number = Date.now()): number {
   });
 }
 
-/** Worker dispose/测试隔离时清空关联频道缓存及其在途状态。 */
+/** 清空关联频道缓存与在途查询，并递增缓存世代号。 */
 export function resetLinkedChannelCache(): void {
   linkedChannels.clear();
   linkedChannelFetches.clear();

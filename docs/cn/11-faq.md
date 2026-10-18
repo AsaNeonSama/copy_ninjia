@@ -36,7 +36,7 @@
       • <b>核心配置缺失</b>：需要 <code>agent.json</code> 中的 <code>text</code>、<code>summary</code>、<code>media</code> 三项能力以及 <code>stickers.json</code> 和 <code>mood.json</code> 配置完整；缺失任何一项，AI 闲聊都会自动停用。<br>
       • <b>触发条件机制</b>：仅在用户显式回复机器人或 <code>@机器人</code> 时才会百分之百必回；常规群消息只按概率随机插话（群处于 <code>/quiet</code> 静音期时不插话）。<br>
       • <b>与复读互斥</b>：群内若正在执行 <code>/copy</code> 复读，AI 闲聊与主动插话会自动暂停。<br>
-      • <b>限频机制保护</b>：短时间内发言过于频繁会触发滑动窗口限频保护（相关窗口与上限见 <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>）。
+      • <b>限频与拒答冷却</b>：短时间内发言过于频繁会触发滑动窗口限频保护（相关窗口与上限见 <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>）；反复要求生成违规或令模型厌烦的内容被 <code>abuse_mark</code> 标记后，该用户在 <code>ABUSE_MARK_DURATION_MS</code> 内也不会进入 AI 闲聊。
     </td>
   </tr>
   <tr>
@@ -48,7 +48,7 @@
   <tr>
     <td><nobr>⏱️ <b>提示消息发出后自动消失</b></nobr></td>
     <td>
-      • <b>正常设计</b>：命令校验失败、权限不足、用法提示与操作执行成功的回执，在发送成功 30 秒后（<code>COMMAND_MESSAGE_AUTO_DELETE_MS</code>）会自动删除，以保持群内整洁（长期保留例外请见 <a href="09-commands.md#参数与目标匹配准则">09 命令参考</a>）。
+      • <b>正常设计</b>：命令校验失败、权限不足、用法提示与操作执行成功的回执，在发送成功 <code>COMMAND_MESSAGE_AUTO_DELETE_MS</code> 后会自动删除，以保持群内整洁（长期保留例外请见 <a href="09-commands.md#参数与目标匹配准则">09 命令参考</a>）。
     </td>
   </tr>
   <tr>
@@ -60,14 +60,14 @@
   <tr>
     <td><nobr>🫧 <b>动作命令（如 <code>/咬</code>）不触发</b></nobr></td>
     <td>
-      • 动作词仅识别 1~2 个汉字；系统具备全局滑动窗口防刷保护（在 <code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code> 窗口内最多处理 <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> 次），超出限额的请求会被静默丢弃。
+      • 动作词仅识别匹配 <code>CJK_ACTION_COMMAND_PATTERN</code> 的输入；系统具备全局滑动窗口防刷保护（在 <code>CJK_ACTION_RATE_LIMIT_WINDOW_MS</code> 窗口内最多处理 <code>CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW</code> 次），超出限额的请求会被静默丢弃。
     </td>
   </tr>
   <tr>
     <td><nobr>🌐 <b>无法翻译另一个 Bot 的发言</b></nobr></td>
     <td>
       • 必须先在 @BotFather 中为本机器人开启 <b>Bot-to-Bot Communication Mode</b>。<br>
-      • 接收其他 Bot 消息受到全局入口限流保护：同一个 Bot 连续发言超过 <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 条后会被临时忽略，停止发言满 <code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 后重置计数；全局跟踪数达到 <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> 时暂不接收新 Bot（详见 <a href="04-invariants.md">消息分发约束</a>）。<br>
+      • 接收其他 Bot 消息受到全局入口限流保护：同一个 Bot 连续发言超过 <code>BOT_MESSAGE_ACTIVITY_LIMIT</code> 条后会被临时忽略，停止发言满 <code>BOT_MESSAGE_ACTIVITY_TTL_MS</code> 后重置计数；全局跟踪数达到 <code>BOT_MESSAGE_ACTIVITY_MAX_ENTRIES</code> 时暂不接收新 Bot；本群 <code>/delete_message</code> 目标的发言不计数，每条都会被删除（详见 <a href="04-invariants.md">消息分发约束</a>）。<br>
       • 翻译仅处理文本与图注，纯媒体、纯数字标点或已属于目标语种的消息不予翻译转发。
     </td>
   </tr>
@@ -102,7 +102,7 @@
 
 ## 图库为什么拒绝启动，或收图没有判重？
 
-- **严格的文件命名规范**：专用图库目录（由 `assets.json` 中的 `random_h_image_dir` 指定）内**只允许存放纯图片文件**，文件名必须严格是图片二进制内容的 64 位小写十六进制 SHA-256 哈希值，扩展名仅支持 `.jpg`、`.jpeg`、`.png` 或 `.webp`。
+- **严格的文件命名规范**：专用图库目录（由 `assets.json` 中的 `random_h_image_dir` 指定）内**只允许存放纯图片文件**，文件名必须严格是图片二进制内容的 SHA-256 哈希值（匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN`），扩展名仅支持 `RANDOM_IMAGE_EXTENSIONS`。
 - **启动预检拦截**：如果图库目录中包含子目录、文件软链接、隐藏文件或非哈希命名的文件，服务启动时将直接报错退出。请先停止服务，按照 [07 运维与排障](07-operations.md) 清理或规范化图库文件。
 - **收图判重机制**：使用 `/h_image add` 收图时的去重逻辑发生在下载图片后计算哈希阶段。如果图库中已经存在相同哈希的文件，系统会跳过写盘并提示已收录。如果是手动拷贝图片到图库，必须保证文件名等于其 SHA-256 哈希值才能正确参与去重。
 
@@ -110,7 +110,7 @@
 
 ## 定时任务为什么重启后又发一次？
 
-- **一次性任务（`just_once`）**：执行记录仅保存在内存中，服务重启后会重新加载并重新执行一次。已经执行完毕的一次性任务应及时从 `config/dynamic/cron.json` 中移除。
+- **一次性任务（`just_once`）**：执行记录仅保存在内存中（最多保留 `CRON_JUST_ONCE_RECORD_MAX` 条），服务重启后会重新加载并重新执行一次。已经执行完毕的一次性任务应及时从 `config/dynamic/cron.json` 中移除。
 - **随机浮动定时（`rand_cron`）**：任务在服务重启后会重新在设定区间内随机计算下一次触发时间，停机期间错过的触发时刻不会进行事后补发。
 - **路径与参数格式**：指定固定图片时，`url` 或 `path` 必须传入数组形式；`cron.json` 中的相对路径统一相对运行时数据根目录解析（无需强制添加 `./` 前缀）。
 
@@ -184,7 +184,7 @@
   - 发送请求时，系统会自动拼装为 `<基础风格>; 细节: <语气>`；若为 AI 回复中的语音合成，还会在这两者之间自动追加当前语言的朗读要求。
   - 当使用 `speech_protocol: "xai"` 协议时，接口不支持 `style` 字段，语气描述也不会发送。
 - **台词语言配置（`bot_language`）**：
-  - AI `send_voice` 工具的台词语言由可选的 `agent.tts.bot_language` 设置（可选 `en`、`zh`、`ja`，缺省为 `ja`；支持热重载，下一轮回复立即生效）。
+  - AI `send_voice` 工具的台词语言由可选的 `agent.tts.bot_language` 设置（取值属于 `TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`；支持热重载，下一轮回复立即生效）。
   - 该字段会同步切换 `send_voice` 与 `send_message` 的工具描述以及提示词中的去重规则，并在 AI 回复合成时向基础风格追加朗读语言指导（例如 `<基础风格>; <朗读语言要求>; 细节: <语气>`，模板登记在 `VOICE_LANGUAGE_PROMPTS` 的 `speechLanguageStyle`）。
   - 该配置不改变 `style` 的具体取值，也不影响私聊 `/send` 与定时任务中的台词语言；xAI 协议的合成语言直接由 `language` 字段决定。
 - **更换台词语言时的推荐配置步骤**：
@@ -198,7 +198,7 @@
 
 ## 如何经三方网关（如 Cloudflare AI Gateway）调用 Google 模型？
 
-1. **修改请求端点（Endpoint）**：将对应模型能力中的 `base_url` 替换为网关地址，例如：
+1. **修改请求端点（Endpoint）**：将对应模型能力中的 `base_url` 替换为网关地址（也可在 `install.sh` 安装问卷中直接填写 `base_url` 与附加请求头），例如：
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
 2. **配置自定义请求头（Headers）**：在该能力的配置下增加 `headers` 字段，例如：
    ```json
@@ -213,7 +213,7 @@
 
 ## 如何经 Cloudflare AI Gateway 调用 Anthropic 模型？
 
-`provider: "anthropic"` 的能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）把 `headers` 经 SDK 的 `defaultHeaders` 附加到每个请求上。`base_url` 统一填写：
+`provider: "anthropic"` 的能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）把 `headers` 经 SDK 的 `defaultHeaders` 附加到每个请求上（也可在 `install.sh` 安装问卷中直接填写 `base_url` 与附加请求头）。`base_url` 统一填写：
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
 1. **自带 Anthropic 密钥**：`api_key` 填写 Anthropic API Key（SDK 以 `x-api-key` 发送）。网关开启鉴权（Authenticated Gateway）时再加：

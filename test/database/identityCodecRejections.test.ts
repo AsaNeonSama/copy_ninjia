@@ -11,10 +11,8 @@ import { InputValidationError } from "../../packages/libs/inputValidation";
 import type { WhitelistPermissionKey } from "../../packages/types/identityPolicy";
 
 /**
- * 名单与 outbox 三个解码器的拒绝分支逐条核对，对应 AGENTS.md「不为用户行为兜底」
- * 在持久化侧的落点（另见 temporaryAdBypassCodec.test.ts）。
- *
- * 断言统一核对抛出 InputValidationError 且消息命中对应字段路径。
+ * 名单与 outbox 三个解码器的拒绝分支逐条核对（另见 temporaryAdBypassCodec.test.ts），
+ * 断言抛出 InputValidationError 且消息命中对应字段路径。
  */
 
 const SOURCE: string = "permission_list[7].policy";

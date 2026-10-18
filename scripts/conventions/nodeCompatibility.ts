@@ -340,6 +340,34 @@ function inScope(relativePath: string, scope: AllowanceScope): boolean {
   return !isScript && !isTest;
 }
 
+interface UnusedAllowanceSymbolCheckOptions {
+  readonly allowance: NodeImportAllowance;
+  readonly used: readonly NodeImportUsage[];
+  /** 通配登记闲置时的完整问题文案。 */
+  readonly wildcardProblem: string;
+  /** 逐符号问题文案的前缀，后接符号名。 */
+  readonly symbolProblemPrefix: string;
+  readonly problems: string[];
+}
+
+/** 按登记形态核对闲置：通配登记要求至少一个使用者，逐符号登记要求每个符号都有使用者。 */
+function collectUnusedAllowanceSymbolProblems({
+  allowance,
+  used,
+  wildcardProblem,
+  symbolProblemPrefix,
+  problems,
+}: UnusedAllowanceSymbolCheckOptions): void {
+  if (allowance.symbols === "*") {
+    if (used.length === 0) problems.push(wildcardProblem);
+    return;
+  }
+  for (const symbol of allowance.symbols) {
+    if (used.some((entry: NodeImportUsage): boolean => entry.imported === symbol)) continue;
+    problems.push(`${symbolProblemPrefix}${symbol}`);
+  }
+}
+
 /**
  * 登记表里已经没有使用者的条目。
  *
@@ -363,14 +391,13 @@ export function collectUnusedNodeAllowanceProblems(
         (entry: NodeImportUsage): boolean =>
           entry.moduleName === moduleName && inScope(entry.relativePath, scope)
       );
-      if (allowance.symbols === "*") {
-        if (used.length === 0) problems.push(`${table} retains an unused allowance for ${moduleName}`);
-        continue;
-      }
-      for (const symbol of allowance.symbols) {
-        if (used.some((entry: NodeImportUsage): boolean => entry.imported === symbol)) continue;
-        problems.push(`${table} retains an unused allowance: ${moduleName} export ${symbol}`);
-      }
+      collectUnusedAllowanceSymbolProblems({
+        allowance,
+        used,
+        wildcardProblem: `${table} retains an unused allowance for ${moduleName}`,
+        symbolProblemPrefix: `${table} retains an unused allowance: ${moduleName} export `,
+        problems,
+      });
     }
   }
   const perFile: readonly (readonly [string, Readonly<Record<string, Readonly<Record<string, NodeImportAllowance>>>>])[] = [
@@ -386,16 +413,13 @@ export function collectUnusedNodeAllowanceProblems(
           (entry: NodeImportUsage): boolean =>
             entry.relativePath === relativePath && entry.moduleName === moduleName
         );
-        if (allowance.symbols === "*") {
-          if (used.length === 0) {
-            problems.push(`${table} retains an unused allowance for ${relativePath}: ${moduleName}`);
-          }
-          continue;
-        }
-        for (const symbol of allowance.symbols) {
-          if (used.some((entry: NodeImportUsage): boolean => entry.imported === symbol)) continue;
-          problems.push(`${table} retains an unused allowance for ${relativePath}: ${moduleName} export ${symbol}`);
-        }
+        collectUnusedAllowanceSymbolProblems({
+          allowance,
+          used,
+          wildcardProblem: `${table} retains an unused allowance for ${relativePath}: ${moduleName}`,
+          symbolProblemPrefix: `${table} retains an unused allowance for ${relativePath}: ${moduleName} export `,
+          problems,
+        });
       }
     }
   }

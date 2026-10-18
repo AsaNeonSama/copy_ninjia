@@ -5,6 +5,7 @@ export * from "./plain/qa";
 export * from "./plain/wed";
 export * from "./plain/translate";
 export * from "./plain/gag";
+export * from "./plain/deleteMessage";
 export * from "./plain/aiChat_rateLimit";
 export * from "./plain/antiRaid_verification";
 export * from "./plain/notices";

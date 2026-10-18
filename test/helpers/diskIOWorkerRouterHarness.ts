@@ -5,7 +5,7 @@
  */
 
 import { afterAll, beforeEach, mock } from "bun:test";
-import type { DiskIODomain } from "../../packages/types/diskIO/replies";
+import type { DiskIODomain, RecoveryReplayFailedReply } from "../../packages/types/diskIO/replies";
 import type { DiskIOMessage } from "../../packages/types/diskIO/messages";
 
 export const handleLogMessage = mock((_message: unknown): void => {});
@@ -22,6 +22,13 @@ export const deleteAiMemorySnapshot = mock((_chatId: number, _revision: number):
 export const markStickerCatalogSnapshotDirty = mock((_pack: string, _snapshot: string): void => {});
 export const handleLuckDrawMessage = mock((_message: unknown): void => {});
 export const handleVerificationUpsert = mock((_input: unknown): void => {});
+/** 批内落盘合并作用域：直接执行 run，记下调用以便断言 accepted 在它返回之后。 */
+export const withVerificationBatchFlush = mock(async (
+  _reply: unknown,
+  run: () => Promise<void>
+): Promise<void> => {
+  await run();
+});
 export const handleVerificationDelete = mock((_input: unknown): void => {});
 export const handleJoinLogMessage = mock((_message: unknown): void => {});
 export const handleJoinLogDeleteMessage = mock((_message: unknown): void => {});
@@ -104,9 +111,9 @@ export const collectStorageDatabaseFailures = mock((
   _failedDomains: DiskIODomain[]
 ): void => {});
 export const flushJoinLogBuffer = mock((): boolean => true);
-export const handleBlocklistRemovalsMessage = mock((_message: unknown): void => {});
+export const handleBlocklistRemovalWriteMessage = mock((_message: unknown): void => {});
 export const handleIdentityPolicyWrite = mock((_message: unknown): void => {});
-export const setStorageFlushHold = mock((_active: boolean, _reply: unknown): void => {});
+export const setStorageFlushHold = mock((_active: boolean, _reply: unknown): RecoveryReplayFailedReply | null => null);
 function closeStorageDatabaseForShutdownStub(_reply: unknown): { committed: boolean; checkpointBusy: boolean } {
   return { committed: true, checkpointBusy: false };
 }
@@ -170,6 +177,7 @@ mock.module("../../packages/workers/diskIO/verificationWrites", () => ({
   handleVerificationDelete,
   handleVerificationUpsert,
   maintainVerificationDayForToday,
+  withVerificationBatchFlush,
 }));
 mock.module("../../packages/workers/diskIO/aiCacheFile", () => ({
   adoptAiCacheFile,
@@ -220,7 +228,7 @@ mock.module("../../packages/workers/diskIO/storageDatabase", () => ({
   handleChatStateWrite,
   handleChatQaWrite,
   handleTemporaryAdBypassWrite,
-  handlePendingRemovalSnapshot: handleBlocklistRemovalsMessage,
+  handleBlocklistRemovalWrite: handleBlocklistRemovalWriteMessage,
   inspectStorageDatabase,
   collectStorageDatabaseFailures,
   maintainTemporaryAdBypassActivities,
@@ -280,6 +288,7 @@ beforeEach(() => {
     markStickerCatalogSnapshotDirty,
     handleLuckDrawMessage,
     handleVerificationDelete,
+    withVerificationBatchFlush,
     handleJoinLogMessage,
     inspectLogFiles,
     adoptLogFiles,
@@ -323,7 +332,7 @@ beforeEach(() => {
   for (const fn of [
     handleVerificationUpsert,
     collectStorageDatabaseFailures,
-    handleBlocklistRemovalsMessage,
+    handleBlocklistRemovalWriteMessage,
     handleIdentityPolicyWrite,
     handleChatStateWrite,
     handleChatQaWrite,

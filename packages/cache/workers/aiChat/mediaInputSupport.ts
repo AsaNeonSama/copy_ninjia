@@ -1,13 +1,4 @@
-/** owner: workers/aiChat。media 模型视觉/语音输入支持度的 holder 与探测登记。状态机本身是纯函数，
- * 在 states/mediaInputSupport.ts；本文件持有状态、执行它给出的效果，并保存
- * 「哪一次探测正在进行」这类线程独占的运行态。
- *
- * 容量恒定：两个模态各一个固定 shape 的状态对象、各最多一个在途探测及可摘除等待者，
- * 等待者与执行器队列共用媒体等待上限，没有 timer。Worker 崩溃重建或进程重启后 holder 回到
- * null，按当前配置快照从初始状态重新探测。
- * agent.json 热重载替换 media 能力时由 resetMediaInputSupport 进入新配置代次，
- * 旧代次请求迟到的结论不再改写新状态。
- */
+/** owner: workers/aiChat。media 能力视觉与语音输入支持度状态及首次探测单飞槽（packages/states/mediaInputSupport.ts）。 */
 
 import type { SharedResult } from "../../../libs/sharedResult";
 import { logger } from "../../../infra/logger";
@@ -27,23 +18,18 @@ import type {
   MediaInputSupportState,
 } from "../../../types/states/mediaInputSupport";
 
-/**
- * 两种模态各自最多一个首次探测。字段在首次读取时一次性建立，之后只替换
- * 字段值，不增删 shape；任务完成后立即清空，探测容量恒为 0..2。等待者占共享等待
- * 额度，取消同步摘除订阅，不占执行槽。Worker 重建时整个 holder 清空。
- */
 interface MediaInputProbeState {
   vision: SharedResult<AiTextResult> | null;
   voice: SharedResult<AiTextResult> | null;
 }
 
-/** 当前 Worker 的 media 模态探测表；首次读取时一次性建立固定 shape。 */
+/** 当前 Worker 的视觉与语音模态输入支持度状态单例：首次读取时按 INITIAL_MEDIA_INPUT_STATE 初始化，recordMediaInputResult 归因更新，agent.json 热重载替换 media 能力时由 resetMediaInputSupport 推进配置代次并重置为未探测；固定两个模态字段，不淘汰，Worker 重建后从 null 开始。 */
 export const mediaInputSupportCache: { current: MediaInputSupportState | null } = { current: null };
 
-/** 当前 Worker 的首次模态探测；完成即清除，容量固定为两个字段。 */
+/** 当前 Worker 视觉与语音模态的在途首次探测单飞槽单例：setMediaInputProbe 登记，探测结束由 clearMediaInputProbe 按任务身份清除，resetMediaInputSupport 时置为 null；每种模态至多一个在途探测，Worker 重建后从 null 开始。 */
 export const mediaInputProbeCache: { current: MediaInputProbeState | null } = { current: null };
 
-/** 读取一种模态正在进行的首次探测。 */
+/** 读取指定模态当前正在进行的首次探测任务。 */
 export function getMediaInputProbe(capability: MediaInputCapability): SharedResult<AiTextResult> | null {
   const state: MediaInputProbeState = mediaInputProbeCache.current ??= {
     vision: null,
@@ -52,7 +38,7 @@ export function getMediaInputProbe(capability: MediaInputCapability): SharedResu
   return state[capability];
 }
 
-/** 登记一种模态唯一的首次探测；调用方必须在任何 await 之前同步调用。 */
+/** 同步登记指定模态的首次探测任务。 */
 export function setMediaInputProbe(
   capability: MediaInputCapability,
   pending: SharedResult<AiTextResult>
@@ -64,10 +50,7 @@ export function setMediaInputProbe(
   state[capability] = pending;
 }
 
-/**
- * 探测结束后按任务身份清理，旧任务的 finally 不清后继探测；
- * Worker 崩溃时 holder 随 isolate 释放。
- */
+/** 按任务引用身份清除已结算的首次探测登记。 */
 export function clearMediaInputProbe(
   capability: MediaInputCapability,
   pending: SharedResult<AiTextResult>
@@ -76,12 +59,7 @@ export function clearMediaInputProbe(
   if (state?.[capability] === pending) state[capability] = null;
 }
 
-/**
- * agent.json 热重载替换 media 能力后调用：两种模态回到未探测状态并进入下一配置
- * 代次，丢弃在途首次探测的登记，新请求按新配置重新探测。旧探测的等待者仍拿到
- * 旧结果，其结论由 recordMediaInputResult 按代次丢弃；旧任务的清理按身份
- * 核对，不会清掉新登记。
- */
+/** 递增 media 配置代次，将视觉与语音支持度重置为 unknown 并清空在途首次探测登记。 */
 export function resetMediaInputSupport(): void {
   const configGeneration: number = supportState().vision.configGeneration + 1;
   mediaInputSupportCache.current = {
@@ -91,7 +69,6 @@ export function resetMediaInputSupport(): void {
   mediaInputProbeCache.current = null;
 }
 
-/** 取整张支持表；首次读取时按初始状态一次性建立。 */
 function supportState(): MediaInputSupportState {
   return mediaInputSupportCache.current ??= {
     vision: INITIAL_MEDIA_INPUT_STATE,
@@ -99,7 +76,6 @@ function supportState(): MediaInputSupportState {
   };
 }
 
-/** 整体替换一种模态的状态；另一模态原样带过，表的 shape 恒定。 */
 function replaceModalityState(
   capability: MediaInputCapability,
   next: MediaInputModalityState
@@ -110,12 +86,12 @@ function replaceModalityState(
     : { vision: state.vision, voice: next };
 }
 
-/** 读取模态状态；请求接纳时保留此只读对象，完成时用对象身份核对归因代次。 */
+/** 读取指定模态的当前输入支持度状态快照。 */
 export function getMediaInputState(capability: MediaInputCapability): MediaInputModalityState {
   return supportState()[capability];
 }
 
-/** 判断某模态此刻是否还压在退避里；判据见 states/mediaInputSupport.ts。 */
+/** 判断指定模态当前是否处于探测退避冷却期内。 */
 export function isMediaInputProbeCoolingDown(
   capability: MediaInputCapability,
   now: number
@@ -123,7 +99,6 @@ export function isMediaInputProbeCoolingDown(
   return isWithinMediaProbeBackoff(getMediaInputState(capability).nextProbeAt, now);
 }
 
-/** 执行状态机给出的效果；logMisconfiguredMediaEndpoint 输出 media 端点配置错误的诊断。 */
 function applyMediaInputEffect(effect: MediaInputEffect): void {
   switch (effect.kind) {
     case "logMisconfiguredMediaEndpoint":
@@ -136,7 +111,7 @@ function applyMediaInputEffect(effect: MediaInputEffect): void {
   }
 }
 
-/** 单次请求归因输入；状态引用只在请求存活期间保留，不增加 owner 缓存容量。 */
+/** 单次媒体输入请求的结果归因参数。 */
 export interface RecordMediaInputResultOptions {
   readonly capability: MediaInputCapability;
   readonly result: AiTextResult;
@@ -144,7 +119,7 @@ export interface RecordMediaInputResultOptions {
   readonly now?: number;
 }
 
-/** 把一次真实调用的结果交给状态机归因，落定新状态并执行它给出的效果。 */
+/** 根据单次媒体调用结果演进模态支持度状态并执行副作用。 */
 export function recordMediaInputResult({
   capability,
   result,

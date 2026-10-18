@@ -16,8 +16,8 @@ import type { StoredTemporaryAdBypassActivity } from "../temporaryAdBypass";
  * 供 hydrate 链路直接透传。 */
 export interface LoadedReply {
   type: "loaded";
-  /** /wed 已发言成员集合；DiskIO 校验时建立，经消息复制后由主线程直接接管。 */
-  wedMembers: ReadonlyMap<number, Set<number>>;
+  /** /wed 已发言成员滑窗（成员 ID → 进入时间）；DiskIO 校验时按文件顺序建立，经消息复制后由主线程直接接管。 */
+  wedMembers: ReadonlyMap<number, Map<number, number>>;
   aiMemories: Map<number, string>;
   stickerCatalogs: Map<string, string>;
   luckDay: LuckDayCache | null;
@@ -42,7 +42,7 @@ export interface LoadedReply {
  * 序列化的 JSON 文本；SQLite 群状态信任当前写入格式，只恢复进热缓存。
  */
 export interface LoadedData {
-  wedMembers: ReadonlyMap<number, Set<number>>;
+  wedMembers: ReadonlyMap<number, Map<number, number>>;
   aiMemories: Map<number, string>;
   stickerCatalogs: Map<string, string>;
   luckDay: LuckDayCache | null;
@@ -130,6 +130,12 @@ export interface ChatQaPersistedRevision {
   readonly revision: number;
 }
 
+/** 一行待踢任务最终值已经由显式 SQLite 事务提交。 */
+export interface BlocklistRemovalPersistedRevision {
+  readonly removalId: number;
+  readonly revision: number;
+}
+
 /** Disk I/O Worker -> 主线程：清理最终一致性重放缓冲的事务 ACK。 */
 export interface IdentityStoragePersistedReply {
   type: "identityStoragePersisted";
@@ -140,8 +146,8 @@ export interface IdentityStoragePersistedReply {
   chatStateWrites: readonly ChatStatePersistedRevision[];
   /** 本事务提交的群问答 revision；与群状态共享同一 SQLite 事务。 */
   chatQaWrites: readonly ChatQaPersistedRevision[];
-  /** 本事务覆盖到的最新待踢成员快照修订号。 */
-  removalSnapshotRevision?: number;
+  /** 本事务提交的待踢任务行 revision；与身份策略共享同一 SQLite 事务。 */
+  removalWrites: readonly BlocklistRemovalPersistedRevision[];
 }
 
 /** Disk I/O Worker 在 SQLite 事务 durable 后发送精确 ACK 的线程内回调。 */
@@ -266,12 +272,13 @@ export interface LuckAppendStalledReply {
 }
 
 /**
- * diskIOWorker -> 主线程：恢复缓冲重放期间有一条共享 SQLite 写消息被拒收。
+ * diskIOWorker -> 主线程：恢复缓冲重放期间有一条共享 SQLite 写消息被拒收，或镜像重放
+ * 结束（storageFlushHold 关标记）时群状态 / 群问答的跨行聚合复核失败。
  *
  * 与 LuckAppendStalledReply 一样是「Worker 内部错误只 console.error」的窄口径例外，
- * 但触发的是停机而不是日志：这条事实对应的 update 已经被确认过（见
- * RecoveryReplayRequest）。主线程收到后按 stopWorkerAfterLoadFailure 的统一 fatal
- * 路径停机，Telegram 从上一个确认点重投。
+ * 但触发的是停机而不是日志：这些写入没有后续屏障查询，对应的 update 可能已经被确认过
+ * （见 RecoveryReplayRequest 与 StorageFlushHoldRequest）。主线程收到后按
+ * stopWorkerAfterLoadFailure 的统一 fatal 路径停机，Telegram 从上一个确认点重投。
  */
 export interface RecoveryReplayFailedReply {
   type: "recoveryReplayFailed";

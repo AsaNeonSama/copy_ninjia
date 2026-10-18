@@ -50,8 +50,7 @@ export const IDENTITY_DATABASE_SCHEMA_VERSION: number = 13;
 /**
  * 当前 schema 唯一受支持的完整迁移谱系，按 created_at 升序：每项是 `__drizzle_migrations` 的
  * created_at 与对应 SQL 文件的 SHA-256，与 database/schema/migrations 的 meta/_journal.json
- * 逐条对应，SQL 变更必须同步更新。启动要求 `__drizzle_migrations` 与本表逐行相等；末两条依次是
- * 移除群人设与时区标记迁移，migrate:chat-persona-removal 以去掉末两条的前缀为源谱系。
+ * 逐条对应，SQL 变更必须同步更新。启动要求 `__drizzle_migrations` 与本表逐行相等。
  * 所属模块：database/interact/inspection.ts。
  */
 export const STORAGE_MIGRATION_LINEAGE: readonly StorageDatabaseMigrationJournalEntry[] = [

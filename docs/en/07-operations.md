@@ -90,13 +90,13 @@ WantedBy=multi-user.target
   sudo install -d -o copy-ninjia -g copy-ninjia -m 0750 /var/lib/copy-ninjia
   ```
   In containerized environments, mount this directory as a persistent volume, ensuring ownership is configured by the host or an init container. Never store `memory/` or `database/` in ephemeral container layers.
-- **Automatic initialization and strict write protection**: At startup, the bot creates the data root, `logs/`, `memory/`, `memory/global/` (default mode `0755`), and the initial `database/` (`0770`), subject to process umask. None of these paths may be **symbolic links**.
-  - The data root, `logs/`, `memory/`, and `memory/global/` must be owned by the runtime UID and cannot be more permissive than `0755`. If write permissions (`w`) are granted to group or other, the application **refuses to start** (preventing unauthorized local writes). Read permissions up to `0755` are accepted.
+- **Automatic initialization and strict write protection**: At startup, the bot creates the data root, the subdirectories listed in `RUNTIME_SENSITIVE_DIRECTORY_NAMES` (`logs/`, `memory/`, `memory/global/`, with maximum mode `RUNTIME_DATA_ROOT_MAX_MODE` in `packages/consts/paths.ts`), and the initial `database/` (`IDENTITY_DATABASE_DIRECTORY_MODE` in `packages/consts/identityStorage.ts`), subject to process umask. None of these paths may be **symbolic links**.
+  - The data root and `RUNTIME_SENSITIVE_DIRECTORY_NAMES` must be owned by the runtime UID and cannot be more permissive than `RUNTIME_DATA_ROOT_MAX_MODE`. If write permissions (`w`) are granted to group or other, the application **refuses to start**.
 
 > [!WARNING]
 > **Data Isolation in Multi-Tenant Environments**:
-> Newly created files under `memory/` default to mode `0644`. If parent directories are left at `0755`, other local users on the server can read chat logs. On shared multi-user servers, tighten permissions for the data root and `memory/` to `0750`, and existing files to `0600` or `0640` (the runtime preserves existing file permissions without overwriting them).
-> Set `database/` to mode `02770`; the main database file and its WAL/SHM sidecars are created with `0660`. **Never run recursive `chmod 0750` across the entire data root**, because `database/` requires group write permissions. Keep `config/` strictly read-only.
+> Newly created files under `memory/` use `PERSISTED_FILE_MODE` (`packages/consts/diskIO/common.ts`). If parent directories allow world read/execute (`RUNTIME_DATA_ROOT_MAX_MODE`), other local users on the server can read chat logs. On shared multi-user servers, restrict `other` permissions on the data root and `memory/`, and restrict existing files to owner-only or owner/group read access (the runtime preserves existing file permissions without overwriting them).
+> Configure `database/` with `IDENTITY_DATABASE_DIRECTORY_MODE` (optionally with the setgid bit for shared service groups); the main database file and its WAL/SHM sidecars are created with `IDENTITY_DATABASE_FILE_MODE`. **Never strip group write permissions recursively across the entire data root**, because `database/` requires group write access when shared by a service group. Keep `config/` strictly read-only.
 
 - **Automated crash recovery**: If the bot crashes or exits unexpectedly, systemd restarts it automatically (`Restart=on-failure`). Pending verification state, lockdown timers, pending database writes, AI memory, and unacknowledged Telegram updates resume cleanly according to [04 Runtime Invariants](04-invariants.md#persistence).
 
@@ -121,36 +121,37 @@ All runtime data paths are derived from `COPY_NINJIA_DATA_ROOT` (defaults to the
 
 ### Calendar time zone
 
-Configure the system time zone in `config/static/bot.json` via `time_zone` (defaults to `Asia/Tokyo`). This value is loaded once at startup and is not refreshed dynamically. Scheduled tasks in `cron.json` can specify an independent `time_zone` to override the global setting.
+Configure the system time zone in `config/static/bot.json` via `time_zone` (defaults to `DEFAULT_BOT_TIME_ZONE` in `packages/consts/bot.ts`). This value is loaded once at startup and is not refreshed dynamically. Scheduled tasks in `cron.json` can specify an independent `time_zone` to override the global setting.
 
-**Permanent time zone binding**: When the database is first initialized, the `time-zone` key is persisted in the `storage_metadata` table inside `database/storage.sqlite`. From that point on, daily log cuts, fortune receipt signatures, temporary ad bypass allowances, and join-log retention periods are computed strictly within this bound time zone.
+**Permanent time zone binding**: When the database is first initialized, `IDENTITY_DATABASE_TIME_ZONE_KEY` (`"time-zone"`) is persisted in the `storage_metadata` table inside `database/storage.sqlite`. From that point on, daily log cuts, fortune receipt signatures, temporary ad bypass allowances, and join-log retention periods are computed strictly within this bound time zone.
 If the `time_zone` in `bot.json` does not match the database marker at startup, the process terminates immediately, logging both `storage_metadata.time-zone` and the expected value. The installer runs this exact check before registering system services. Changing time zones on existing data roots is unsupported; restore `time_zone` to match the stored database marker to resume. Back up and restore `database/` and `memory/` together as an inseparable snapshot.
 
 ### 1. Global State: `memory/global/state.json`
 - **Responsibilities**: Stores the global repeat configuration `copy` (target user, mode, origin chat, and cooldown timer) and speech synthesis quota window `ttsUsage` (window start timestamp `windowStartedAt`, generated count `agentCount`, and reserved relay count `reserveCount`).
-- **Schema requirements**: Top-level keys must contain only the required `copy` object and an optional `ttsUsage` object. `copy.copiedUser` is mandatory (`null` when no user is targeted); `copy.copyMode` accepts omitted, `reverse`, or `nya`. When `ttsUsage` is present, all three subfields must be non-negative integers, with at least one greater than 0. Missing files are treated as fresh deployments; malformed files or undeclared keys cause **immediate startup rejection**. The installer validates this file with equal strictness.
+- **Schema requirements**: Top-level keys must contain only the required `copy` object and an optional `ttsUsage` object. `copy.copiedUser` is mandatory (`null` when no user is targeted); `copy.copyMode` accepts omitted, `reverse`, or `nya`. When `ttsUsage` is present, `windowStartedAt`, `agentCount`, and `reserveCount` must all be non-negative integers, with at least one greater than 0. Missing files are treated as fresh deployments; malformed files or undeclared keys cause **immediate startup rejection**. The installer validates this file with equal strictness.
 - **Write pattern**: The main thread writes this file exclusively (writing to a temporary file + `fsync` + atomic `rename`). The Disk I/O Worker never accesses this directory. Modifications to `copy` flush to disk immediately; `ttsUsage` changes are coalesced and flushed in the background after `STATE_BACKGROUND_SAVE_DELAY_MS`. Clean shutdowns commit all pending writes; abrupt termination (`kill -9` or power failure) may lose uncoalesced quota increments.
 - **Manual editing**: Always stop the service and ensure the process has exited before making manual adjustments. Make an external backup via `mktemp -d` before editing. Never delete unrecognized fields, and verify JSON syntax against schema requirements before restarting.
-- **Root-level legacy check**: If legacy files like `state.json` or `state.json.bak` linger in the root of the data directory, the service and installer will refuse to start. Follow the [staged upgrade](#staged-upgrade) guide to reach version 16.3.2 and migrate state files out of the root.
+- **Root-level legacy check**: If legacy files like `state.json` or `state.json.bak` linger in the root of the data directory, the service and installer will refuse to start. Follow the [staged upgrade](#staged-upgrade) guide to reach version 17.2.1 and complete its migrations, then move these files out of the root.
 
 ### 2. Dedicated Image Library: `random_h_image_dir`
-- **Responsibilities**: Configured by `onlyPath.random_h_image_dir` in `config/dynamic/assets.json` (defaults to `./h_image` relative to the data root). The `/h_image` command and scheduled image tasks select images uniformly at random from this directory. Administrators can upload new files using `/h_image add`.
-- **Naming requirements**: Every image filename must be exactly the **lowercase 64-character SHA-256 hash** of its binary contents, using a `jpg`, `jpeg`, `png`, or `webp` extension. Non-image files, folders, or documentation files are strictly forbidden.
-- **Startup preflight**: A missing directory is created automatically. At boot, the system scans the directory; invalid filenames, subdirectories, symlinks, or stray `.h_image-add-*` temporary files cause **startup failure**. Adding or removing valid images does not require a service restart; updating the directory path dynamically at runtime pre-validates the new target directory before switching.
+- **Responsibilities**: Configured by `onlyPath.random_h_image_dir` in `config/dynamic/assets.json` (defaults to `RANDOM_H_IMAGE_DIR` in `packages/consts/paths.ts`, resolved relative to the data root). The `/h_image` command and scheduled image tasks select images uniformly at random from this directory. Administrators can upload new files using `/h_image add`.
+- **Naming requirements**: Every image filename must match `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (the lowercase hex SHA-256 digest of its binary contents with an extension from `RANDOM_IMAGE_EXTENSIONS` in `packages/consts/randomImage.ts`). Non-image files, folders, or documentation files are strictly forbidden.
+- **Startup preflight**: A missing directory is created automatically. At boot, the system scans the directory; invalid filenames, subdirectories, symlinks, or stray `RANDOM_IMAGE_TEMP_PREFIX` (`.h_image-add-*`) temporary files cause **startup failure**. Adding or removing valid images does not require a service restart; updating the directory path dynamically at runtime pre-validates the new target directory before switching.
 
 ### 3. Group Marriage Candidates: `memory/wed/<chatId>.json`
-- **Responsibilities**: A plain JSON array of Telegram user IDs representing speaking members in each chat (e.g. `[5974478892]`). The main thread keeps a reusable `Set<number>` for each group. The system manages up to `STATE_MANAGED_CHAT_LIMIT` chats, with up to `WED_MEMBER_LIMIT` candidates per chat.
-- **Validation rules**: The filename must be a canonical negative safe-integer chat ID. Array elements must be unique positive safe integers. Format errors, duplicates, or overflowing entries fail startup checks.
-- **Persistence flow**: Once `FLUSH_MAX_ENTRIES` mutations accumulate or `FLUSH_INTERVAL_MS` passes since the first change, the main thread dispatches an atomic replacement job to the Disk I/O Worker. Running `/init disable` or removing the bot from a chat deletes the corresponding file permanently.
+- **Responsibilities**: One sliding window of speaking members per chat, stored as an array of objects in entry order (e.g. `[{"id":5974478892,"enteredAt":1791770134683}]`), where `enteredAt` is the Unix millisecond timestamp at which the member entered the window. The main thread keeps a reusable `Map<number, number>` (member ID → entry time) for each group. The system manages up to `STATE_MANAGED_CHAT_LIMIT` chats, with a window capacity of `WED_MEMBER_LIMIT` per chat.
+- **Window rules**: When a member outside the window speaks as a personal account, they are appended with the current time (never earlier than the largest entry time already recorded). Members already in the window keep their entry time when they speak again. When the window is full, the member with the earliest entry time is evicted first.
+- **Validation rules**: The filename must be a canonical negative safe-integer chat ID. Each entry must contain exactly `id` and `enteredAt`; `id` must be a unique positive safe integer, `enteredAt` a non-negative safe integer that never decreases along the array, and the array may hold at most `WED_MEMBER_LIMIT` entries. Any violation fails startup checks, and the installer applies the same checks. Legacy files that are still arrays of member IDs must first go through the [/wed member window cold migration](#upgrade-wed-member-window).
+- **Persistence flow**: Once `FLUSH_MAX_ENTRIES` additions, deletions, or evictions accumulate or `FLUSH_INTERVAL_MS` passes since the first change, the main thread dispatches an atomic replacement job to the Disk I/O Worker. Running `/init disable` or removing the bot from a chat deletes the corresponding file permanently.
 - **Pruning departures**: Departed users are pruned via service messages, `chat_member` updates, and midnight sweeps (the latter two require bot administrator rights). In large supergroups where member lists are hidden and the bot lacks administrator privileges, departure events may not be received, meaning former members can remain in the pool; this is expected under Telegram API limitations.
 
 ### 4. Stickers and Fortunes: `memory/stickers/` and `memory/luck/`
-- **`memory/stickers/<pack>.json`**: Metadata cache for whitelisted sticker packs (`version=1`), mapping `file_unique_id` to emojis, prompts, and pack digests. Missing entries can be reconciled from Telegram on demand; packs removed from configuration are pruned on startup.
+- **`memory/stickers/<pack>.json`**: Metadata cache for whitelisted sticker packs (including the schema `version` field), mapping `file_unique_id` to emojis, prompts, and pack digests. Missing entries can be reconciled from Telegram on demand; packs removed from configuration are pruned on startup.
 - **`memory/luck/<YYYY-MM-DD>.json`**: Daily fortune draw results in the bound time zone, keyed by user ID and containing fortune grades and query digests. Kept for the current day only.
-- **`memory/luck/receipt-secret.json`**: HMAC secret key used to verify the authenticity of fortune receipts (`version=1`, containing the active date and a 32-byte key). **This file must be backed up and restored alongside daily fortune files**; deleting or regenerating it independently invalidates all outstanding receipts.
+- **`memory/luck/receipt-secret.json`**: HMAC secret key used to verify the authenticity of fortune receipts (including the schema `version` field, the active date, and a hex key matching `LUCK_RECEIPT_SECRET_PATTERN`). **This file must be backed up and restored alongside daily fortune files**; deleting or regenerating it independently invalidates all outstanding receipts.
 
 ### 5. Pending Verification and Join Logs: `memory/anti-raid/` and `memory/joinlog/`
-- **`memory/anti-raid/<YYYY-MM-DD>.json`**: Append-only log of join-verification Challenges, tracking active challenges, revisions, solved tombstones, and unconfirmed `kickPending` eviction tasks (evictions resume automatically across reboots). Steady-state operation retains only the current local day, compacting when append counts or file size hit `VERIFICATION_FILE_COMPACT_ENTRIES` or `VERIFICATION_FILE_COMPACT_BYTES`. If an earlier day file is still in the directory during compaction, tombstones are written for records that are active in the most recent such file but already settled, so a process exit before the old file is deleted cannot revive settled records on recovery. If the same most recent earlier day file fails to decode (invalid UTF-8 or not the current format) `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` times in a row, the running compaction renames it to `<YYYY-MM-DD>.json.corrupt` and keeps it untouched for manual inspection, and the new day is written straight from the in-memory mirror; the renamed file no longer ends in `.json`, so startup recovery and old-day cleanup neither read nor delete it. A corrupt most recent earlier day file at startup still refuses startup.
+- **`memory/anti-raid/<YYYY-MM-DD>.json`**: Append-only log of join-verification Challenges, tracking active challenges, revisions, solved tombstones, and unconfirmed `kickPending` eviction tasks (evictions resume automatically across reboots). Steady-state operation retains only the current local day, compacting when append counts or file size hit `VERIFICATION_FILE_COMPACT_ENTRIES` or `VERIFICATION_FILE_COMPACT_BYTES`. If an earlier day file is still in the directory during compaction, tombstones are written for records that are active in the most recent such file but already settled, so a process exit before the old file is deleted cannot revive settled records on recovery. If the same most recent earlier day file fails to decode (invalid UTF-8 or not the current format) `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` times in a row, the running compaction renames it with `VERIFICATION_CORRUPT_DAY_FILE_SUFFIX` (`<YYYY-MM-DD>.json.corrupt`) and keeps it untouched for manual inspection, and the new day is written straight from the in-memory mirror; the renamed file no longer ends in `.json`, so startup recovery and old-day cleanup neither read nor delete it. A corrupt most recent earlier day file at startup still refuses startup.
 - **`memory/joinlog/<chatId>.<YYYY-MM-DD>.json`**: Accurate record of `chat_member` join events, queried by `/batch_kick` across a sliding time window.
   - **Persistence**: Events are buffered in Disk I/O Worker memory, batch-appended to disk with `fsync` when `FLUSH_MAX_ENTRIES` events accumulate or `FLUSH_INTERVAL_MS` elapses. Unwritten logs are flushed before executing `/batch_kick` queries and during graceful shutdowns.
   - **Retention lifecycle**: Retains the last `JOIN_LOG_FILE_RETENTION_DAYS` days in the configured time zone, ensuring full multi-day query coverage (automatically extended during daylight saving transitions). Stores up to `JOIN_LOG_MAX_USERS_PER_CHAT_DAY` newest members per chat per day. Logs are purged when `/init disable` is run or when the bot leaves the chat.
@@ -158,7 +159,7 @@ If the `time_zone` in `bot.json` does not match the database marker at startup, 
 ### 6. Core Identity and Chat State: `database/storage.sqlite`
 Accompanied at runtime by SQLite temporary WAL (`-wal`) and shared memory (`-shm`) sidecars:
 - **Stored entities**: Primary SQLite database adhering to the current schema (`IDENTITY_DATABASE_SCHEMA_VERSION`):
-  - `storage_metadata`: Metadata table storing `schema-version` and the bound `time-zone`.
+  - `storage_metadata`: Metadata table storing the keys in `IDENTITY_DATABASE_METADATA_KEYS` (`IDENTITY_DATABASE_SCHEMA_KEY` and `IDENTITY_DATABASE_TIME_ZONE_KEY`).
   - `permission_list.policy`: Persistent user permission policies encoded as JSONB.
   - `blocklist_entries`: Authoritative global blocklist.
   - `temporary_ad_bypass_entries`: Tracking records for temporary ad detection bypass credits.
@@ -185,7 +186,7 @@ Accompanied at runtime by SQLite temporary WAL (`-wal`) and shared memory (`-shm
 
 - **Physical directory isolation**: The root of `memory/` contains no loose files; each domain owns an isolated subdirectory. Permissions and group state reside in `database/`.
 - **Read-only preflight checks**: The bot starts by scanning and strictly decoding all persistent files in read-only mode (including every file in the `joinlog/` retention window). Memory ownership is handed to functional modules only after all checks pass. The process then creates missing directories, clears orphan temporary files, and registers daily midnight cleanup jobs in the configured `time_zone`.
-- **Midnight maintenance cron**: At 00:00 every day in the configured time zone, the bot runs scheduled maintenance tasks in order: `/wed` membership validation, fortune rotation, log rotation, AI token usage aggregation, join-log expiration, ad sample rotation, Challenge log compaction, and ad bypass quota decay. Failures in one task do not disrupt subsequent tasks.
+- **Midnight maintenance cron**: On the daily midnight schedule (`DISK_IO_MAINTENANCE_CRON` in `packages/consts/diskIO/maintenance.ts`) in the configured time zone, the bot runs scheduled maintenance tasks in order: `/wed` membership validation, fortune rotation, log rotation, AI token usage aggregation, join-log expiration, ad sample rotation, Challenge log compaction, and ad bypass quota decay. Failures in one task do not disrupt subsequent tasks.
 - **Temporary files and memory state**:
   - Temporary files created during atomic writes (`.<target>.<pid>.<uuid>.tmp`) are cleaned up automatically in normal operation. Abrupt termination may leave them on disk; startup checks log them and defer safe removal to post-startup maintenance routines.
   - `storage.sqlite-wal` and `storage.sqlite-shm` are vital runtime files in SQLite WAL mode—**never delete them as temporary files**.
@@ -195,7 +196,7 @@ Accompanied at runtime by SQLite temporary WAL (`-wal`) and shared memory (`-shm
 
 <a id="identity-storage-migration"></a>
 
-## Identity Storage Migration
+## Persistent Data Migration
 
 **The codebase contains zero legacy compatibility layers and never alters database schemas automatically at startup**. Schema migrations require stopping the bot and confirming that processes have exited. If a migration fails, keep external backups intact; never launch the new version prematurely, and never overwrite real configurations with `config_example/`.
 
@@ -205,23 +206,23 @@ Before performing offline migrations, create an external backup via `mktemp -d` 
 
 When booting with a missing database, the bot halts with an error instead of guessing default configurations. Fresh deployments must initialize an empty database using the [identity storage initialization steps in 01 Getting Started](01-getting-started.md#initializing-identity-storage). The `install.sh` script executes this automatically if no database is found. The script safely refuses to overwrite existing databases.
 
-<a id="upgrade-chat-persona"></a>
+<a id="upgrade-wed-member-window"></a>
 
-### Shared Database Cold Migration (Per-Chat Persona Removal, Schema v11 → v13)
+### /wed Member Window Cold Migration (Member ID Arrays → `{ id, enteredAt }`)
 
-Run the migration script at [`scripts/migrateChatPersonaRemoval.ts`](../../scripts/migrateChatPersonaRemoval.ts). This script removes legacy per-chat persona columns and permissions, writes the `Asia/Tokyo` time zone metadata marker, and increments the database to Schema v13 (the `time_zone` in `bot.json` must remain `Asia/Tokyo`). Groups with no active state, no AI context, and only leftover personas are pruned; unexpected empty states fail the migration immediately. The script strictly accepts Schema v11 databases produced by version 16.3.2; older versions or already migrated databases are rejected. All other persistent files and JSON configs from 16.3.2 remain unchanged.
+Run the migration script at [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts). This script rewrites `memory/wed/<chatId>.json` from the 17.2.1 member ID arrays into `{ id, enteredAt }` window arrays in entry order. Each chat keeps only the last (most recently entered) `WED_MEMBER_LIMIT` IDs in their original order, and every `enteredAt` is set to the migration start time; the overflow is dropped from the earliest end and counted as `truncatedMembers` in `ready.json`. The script only accepts 17.2.1 member files (at most `WED_MEMBER_WINDOW_SOURCE_LIMIT` unique positive safe-integer IDs per file, and no more than `STATE_MANAGED_CHAT_LIMIT` chat files); already migrated files, non-canonical filenames, and symbolic links are rejected, while non-`.json` leftovers such as `*.tmp` are not migrated. All other persistent files and JSON configs from 17.2.1 remain unchanged.
 
-1. **Stop service and back up**: Stop the service and confirm it is inactive. Ensure no process retains database locks, then back up the entire `database/` directory (main database plus `-wal` and `-shm` sidecars) to an external directory.
+1. **Stop service and back up**: Stop the service and confirm it is inactive. Back up the entire `memory/wed/` directory with its ownership, permissions, and SHA-256 manifest to an external directory, keeping the `memory/wed/` relative path under the backup root.
 2. **Execute the migration script**:
    ```bash
-   bun run migrate:chat-persona-removal \
+   bun run migrate:wed-member-window \
      --source-root /absolute/cold-backup \
      --output-root /absolute/new-staging-directory
    ```
-3. **Verify migration output**: Inspect `ready.json` in the output directory, verifying source and destination SHA-256 hashes and confirming statistics for `removedPersonas`, `removedEmptyChats`, and `removedPermissions`.
-4. **Deploy the updated database**: Copy the migrated database to `database/storage.sqlite`, delete stale `-wal` and `-shm` sidecars, and restore correct user ownership and file permissions.
-5. **Clean up legacy menus**: If per-chat persona command menus were previously configured, call Telegram's `deleteMyCommands` API with chat-specific scopes to remove leftover menus.
-6. **Verify startup**: Start the bot and verify operation. Clean up temporary backups only after confirming stable execution.
+   Binary releases run `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js` with the same arguments.
+3. **Verify migration output**: Inspect `ready.json` in the output directory, verifying the SHA-256 hashes in `sourceFiles` and `outputFiles` and confirming `chatCount`, `keptMembers`, `truncatedMembers`, and `enteredAt`. Output files are readable and writable only by the current account.
+4. **Replace the member files**: While the service is stopped, replace each deployed `memory/wed/<chatId>.json` with the migrated file, restore the original ownership and permissions from `sourceFiles`, and make sure the service account can write `memory/wed/` and its files.
+5. **Verify startup**: Start the bot and verify operation. Clean up temporary backups only after confirming stable execution.
 
 ---
 
@@ -229,7 +230,7 @@ Run the migration script at [`scripts/migrateChatPersonaRemoval.ts`](../../scrip
 
 ### Staged Upgrades from Older Layouts
 
-- **Deployments older than 16.3.2**: This release provides direct migration scripts exclusively for version 16.3.2. If running an earlier version, you must first upgrade to 16.3.2, complete all intermediate migrations (global state format, image filenames, and configuration directory restructuring), verify that 16.3.2 boots stably, and then proceed with this release's [shared database cold migration](#upgrade-chat-persona).
+- **Deployments older than 17.2.1**: This release provides direct migration scripts exclusively for version 17.2.1. If running an earlier version, you must first upgrade to 17.2.1 and complete its migrations (16.3.2 runs the shared database cold migration `migrate:chat-persona-removal`; older versions first follow their own guides up to 16.3.2), verify that 17.2.1 boots stably, and then proceed with this release's [/wed member window cold migration](#upgrade-wed-member-window).
 - **Major version path from 11.0.9 (Schema v8)**:
   Run sequential cold migrations across isolated directories using tagged releases:
   1. Commit `500e848fae`: Run `migrate:ai-context` (v8 → v9)
@@ -237,7 +238,8 @@ Run the migration script at [`scripts/migrateChatPersonaRemoval.ts`](../../scrip
   3. Tag `13.0.2`: Run `migrate:h-image-add-permission` (v10 → v11) and `migrate:bot-config`
   4. Tag `14.0.0`: Run `migrate:translate-sessions`
   5. Tag `16.3.2`: Run `migrate:global-state` and `migrate:random-image-names`
-  6. Latest version: Run `migrate:chat-persona-removal` (v11 → v13)
+  6. Tag `17.2.1`: Run `migrate:chat-persona-removal` (v11 → v13)
+  7. Latest version: Run `migrate:wed-member-window`
 
   *Tip*: You can also use the intermediate source archive `copy-ninjia-schema-v9-source-500e848f.tar.gz` attached to the 12.0.0 Release (SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`).
 
@@ -250,8 +252,8 @@ Run the migration script at [`scripts/migrateChatPersonaRemoval.ts`](../../scrip
 The application deliberately follows a **Fail-Fast** design. Any configuration or data inconsistency halts startup immediately, outputting the exact cause and field path. Fix the identified issue rather than trying to bypass checks:
 
 ### 1. Data-Root Preflight Failure
-- **Cause**: The data root, `memory/`, `memory/global/`, `logs/`, or `database/` contains symbolic links; directories are not owned by the runtime UID or have overly broad permissions (write bits for group/other); `database/` is broader than `0770` or lacks group write permissions; or the underlying filesystem lacks support for `fsync`, hard links, or atomic renames.
-- **Solution**: Stop the service and fix directory ownership and permissions. Set the data root, `memory/`, `memory/global/`, and `logs/` to `0750` or `0755`; set `database/` to `0750` or `02770`. Ensure the data root resides on a standard local POSIX filesystem.
+- **Cause**: The data root, `memory/`, `memory/global/`, `logs/`, or `database/` contains symbolic links; directories are not owned by the runtime UID or have permissions broader than `RUNTIME_DATA_ROOT_MAX_MODE` (write bits for group/other); `database/` is broader than `IDENTITY_DATABASE_DIRECTORY_MODE` or lacks group write permissions when accessed by a shared service group; or the underlying filesystem lacks support for `fsync`, hard links, or atomic renames.
+- **Solution**: Stop the service and fix directory ownership and permissions so the data root and `RUNTIME_SENSITIVE_DIRECTORY_NAMES` are owned by the runtime UID with mode at most `RUNTIME_DATA_ROOT_MAX_MODE` (no group/other write bits), and `database/` uses `IDENTITY_DATABASE_DIRECTORY_MODE` (optionally with setgid). Ensure the data root resides on a standard local POSIX filesystem.
 
 ### 2. `bot.lock` Refuses Startup
 - **Cause**: An active process bound to the same data root was detected (even with a different token), or the lock file is corrupt or formatted for an older version.
@@ -267,7 +269,7 @@ The application deliberately follows a **Fail-Fast** design. Any configuration o
 
 ### 5. Identity Database Validation Failure
 - **Cause**: `storage.sqlite` is unwritable; the database file is corrupt; the database schema is outdated; the `time_zone` setting conflicts with the zone recorded in the database (the log states `storage_metadata.time-zone` and the expected value); or user IDs overlap between the blocklist and ad bypass whitelist.
-- **Solution**: For time zone mismatches, restore `time_zone` in `bot.json` to the database value. For Schema v11 databases from 16.3.2, run the cold migration script; upgrade older databases sequentially to 16.3.2 first. If the file is corrupt, restore the database and its matching `-wal`/`-shm` files from backup. Never overwrite with a blank database or edit SQLite tables manually.
+- **Solution**: For time zone mismatches, restore `time_zone` in `bot.json` to the database value. If the database is not on the current schema (for example a Schema v11 database from 16.3.2), follow the [staged upgrade](#staged-upgrade) to 17.2.1 and complete its migrations first. If the file is corrupt, restore the database and its matching `-wal`/`-shm` files from backup. Never overwrite with a blank database or edit SQLite tables manually.
 
 ### 6. Inconsistent Fortune Results and Receipt Key
 - **Cause**: The current day's fortune files and `receipt-secret.json` originate from different backup points, causing cryptographic signature verification to fail.
@@ -275,7 +277,11 @@ The application deliberately follows a **Fail-Fast** design. Any configuration o
 
 ### 7. Invalid Global State File or Residual Legacy state.json
 - **Cause**: `memory/global/state.json` fails current schema parsing, or legacy `state.json` files linger in the data root.
-- **Solution**: Back up the file, identify the issue, and correct invalid fields. For legacy formats, upgrade to 16.3.2 to run state migrations, then remove lingering files from the data root.
+- **Solution**: Back up the file, identify the issue, and correct invalid fields. For legacy formats, follow the [staged upgrade](#staged-upgrade) to 17.2.1 and complete its migrations, then remove lingering files from the data root.
+
+### 8. Invalid /wed Candidate Files
+- **Cause**: `memory/wed/<chatId>.json` does not match the current window format (for example it is still a 17.2.1 member ID array, lacks `enteredAt`, has decreasing entry times, or exceeds `WED_MEMBER_LIMIT` entries), or the filename is not a canonical chat ID.
+- **Solution**: After a stopped backup, run the [/wed member window cold migration](#upgrade-wed-member-window) for legacy member ID arrays; otherwise fix the file and field path named in the error, or restore from backup.
 
 ---
 
@@ -283,11 +289,11 @@ The application deliberately follows a **Fail-Fast** design. Any configuration o
 
 ### `bot.lock` Refuses Startup
 
-The system uses a Linux `/proc`-based instance lock formatted as `v2:pid:starttime:boot_id:sha256(token)` (where `starttime` is read from field 22 of `/proc/<pid>/stat`). The lock fails closed to guarantee data integrity:
+The system uses a Linux `/proc`-based instance lock matching `BOT_LOCK_LINE_PATTERN` (`v2:<pid>:<starttime>:<boot_id>:<sha256(token)>`, where `starttime` is read from `/proc/<pid>/stat`). The lock fails closed to guarantee data integrity:
 
 - **Active process conflict**: A process is deemed active if and only if its PID, starttime, and system boot ID all match. This indicates another instance is already running; stop the old instance first. Running multiple instances against the same data root is strictly prohibited.
 - **Stale locks from abnormal exits**: If an instance was terminated abruptly (`kill -9`) or the host rebooted, stale locks are detected and cleared automatically on the next startup or clean shutdown without manual intervention.
-- **Corrupt or legacy lock files**: The lock file must contain exactly one owner record in the current format followed by a newline; multiple lines, a mismatched format, or extra content make both acquisition and shutdown release refuse and leave the file untouched. The bot will not guess lock contents or attempt automatic upgrades. Once you have **100% verified that no related process is running**, manually delete the invalid lock file and restart.
+- **Corrupt or legacy lock files**: The lock file must contain a single owner record in the current format followed by a newline; multiple lines, a mismatched format, or extra content make both acquisition and shutdown release refuse and leave the file untouched. The bot will not guess lock contents or attempt automatic upgrades. Once you have **verified that no related process is running**, manually delete the invalid lock file and restart.
 - **Failure to release lock on shutdown**: If the lock cannot be released during clean shutdown, the process logs an error and exits with a non-zero code. Check `/proc` mount options, directory write permissions, and leftover `.guard` files.
 - **Temporary file cleanup**: Temporary candidates (`.candidate.*`) and `.tmp` files generated during atomic hard-link locking are reclaimed automatically at startup once the previous owner is confirmed inactive.
 
@@ -315,7 +321,7 @@ The `install.sh` installation script enforces several safeguards:
 - **Service state verification**: The installer requires existing services to be `inactive` (or `dead`) before touching any files. If the service is running, or if the unit file defines conflicting `ExecStart` commands, the script halts immediately.
 - **External backups**: Before replacing configuration or unit files, the installer creates an external backup outside the tree, verifying files against their SHA-256 hashes and logging ownership and permissions. Backups are cleaned up automatically only after service health checks pass; failed checks or foreground runs preserve backups and staging state completely.
 - **Environment variable consistency**: An unset `COPY_NINJIA_DATA_ROOT` resolves to the repository root. If set explicitly, both the systemd unit `Environment` and the installer environment must resolve to the identical absolute path. Units declaring `EnvironmentFiles` or setting `PassEnvironment`/`UnsetEnvironment` for this variable are rejected.
-- **Health monitoring window**: After startup, the installer monitors the service for twice the restart-delay ceiling plus two seconds. If `NRestarts` grows, the process exits, logs become unreadable, or non-zero exits occur, the installer reports failure and offers rollback options.
+- **Health monitoring window**: After startup, the installer monitors the service across the observation window computed by `service_observation_seconds` (`scripts/install/service.sh`) from systemd's `RestartUSec`, `RestartMaxDelayUSec`, and `RestartRandomizedDelayUSec` across two restart intervals plus a safety margin. If `NRestarts` grows, the process exits, logs become unreadable, or non-zero exits occur, the installer reports failure and offers rollback options.
 
 ---
 
@@ -347,7 +353,7 @@ The `install.sh` installation script enforces several safeguards:
   At startup the title refresh confirmed several times in a row that a chat no longer exists (`gone`) or that the bot is no longer a member (`departed`), and tore it down. For a `departed` chat, a lockdown record that has not been restored yet is kept and restored automatically once the bot is back with the right to restrict members.
 - `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`:
   The first lookup looked unreachable but a later one disagreed (usually a transient Telegram error). Nothing is torn down this time; the next startup confirms again from scratch.
-- `Gemini context cache API ... create rejected (n/3): 400`:
+- `Gemini context cache API ... create rejected (<n>/<max>): 400`:
   Gemini returned HTTP 400 when attempting to create a context cache. This usually means the context contains fewer tokens than the required minimum, or parameters are invalid. The system waits for `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` before retrying; after `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` consecutive failures, caching is disabled for that content. Regular chat replies continue to function normally without caching.
 
 ---

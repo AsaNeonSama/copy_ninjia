@@ -57,7 +57,7 @@ function clearIdleRetryCooldowns(): void {
 }
 
 /**
- * 预算耗尽后的全局取消：网络、429 timer、队列和调用方 promise 一并结算。发送类任务由各自的
+ * 预算耗尽后的全局取消：网络、退避 timer、队列和调用方 promise 一并结算。发送类任务由各自的
  * abort 监听随生命周期信号结算，随后清空发送调度器的车道与定时器。
  */
 function abortTelegramOutbound(): void {

@@ -191,22 +191,18 @@ import {
   IDENTITY_JOIN_EXEMPTION,
   NO_JOIN_EXEMPTION,
   NO_VERIFICATION_EFFECTS,
+  VERIFICATION_CLEANUP_SETTLED,
 } from "../../packages/consts/antiRaid/verification";
 import { NO_LOCKDOWN_EFFECTS } from "../../packages/consts/antiRaid/lockdown";
 import { EMPTY_FUNCTION_CALLS } from "../../packages/consts/aiChat/tools";
 import { EMPTY_STICKER_MENU } from "../../packages/consts/aiChat/stickers";
 
 /**
- * 共享常量表的不可变性测试。
+ * 共享常量表的编译期不可变性测试。
  *
- * 这些表运行期不 `Object.freeze`，保护全部落在类型上。
- * `bun run check:conventions` 保证「容器本身声明成只读」，但它是纯 AST 检查，
- * 判不了 `readonly LuckTier[]` 里那个 `LuckTier` 的字段是否可写；这个文件补上元素这一层。
- *
- * 每一行 `@ts-expect-error` 都是断言：元素类型被放宽成可写时，「预期的错误没有发生」会让
- * `bun run typecheck` 失败（TS2578）。
- *
- * `@ts-expect-error` 只压制类型报错，底下那行仍会执行，所以这里只做读取断言，不改这些共享表。
+ * `bun run check:conventions`（scripts/conventions/constImmutability.ts）检查导出常量容器本身为只读类型，
+ * 并要求元素含对象的常量表在本文件中有对应的 `@ts-expect-error` 改写断言。
+ * `@ts-expect-error` 只压制类型报错，底下那行仍会执行，这里只做函数闭包断言，不修改共享表。
  */
 
 test("常量表本身不可整体替换或就地增删", () => {
@@ -300,7 +296,7 @@ test("Readonly<Record<…>> 形态的常量不可写入", () => {
   // 对着所有群报错一个权限位的含义。
   expect(() => { BOT_CHAT_PERMISSION_LABELS.canDeleteMessages = "篡改"; }).toBeDefined();
   // @ts-expect-error Readonly<WhitelistPermissions> 的字段只读；这份默认值被
-  // parsePermissions 逐条展开复用，写坏它等于改掉此后所有条目的缺省权限。
+  // setWhitelistMembership 逐条展开复用，写坏它等于改掉此后所有新增成员的缺省权限。
   expect(() => { DEFAULT_WHITELIST_PERMISSIONS.isCanBlock = true; }).toBeDefined();
   // @ts-expect-error 新增白名单授权默认值同样只能在编译期读取。
   expect(() => { DEFAULT_WHITELIST_PERMISSIONS.isCanWhiteOther = true; }).toBeDefined();
@@ -498,6 +494,7 @@ test("默认群状态单例与新建状态同形状：形状不一致会让热�
     title: true,
     isProxySendEnabled: true,
     translate: true,
+    deleteMessageTargets: true,
   };
   expect(Object.keys(createChatState())).toEqual(Object.keys(shape));
   expect(Object.keys(DEFAULT_CHAT_STATE)).toEqual(Object.keys(shape));
@@ -507,7 +504,7 @@ test("默认群状态单例与新建状态同形状：形状不一致会让热�
   expect([...CHAT_STATE_KEYS]).toEqual(Object.keys(shape));
 });
 
-test("isEmptyChatState 必须认得全部 12 个字段：漏掉一个就会把有状态的群当成空条目回收", () => {
+test("isEmptyChatState 必须认得全部 13 个字段：漏掉一个就会把有状态的群当成空条目回收", () => {
   const values: Readonly<Record<keyof ChatState, unknown>> = {
     quietUntil: 1,
     lockdown: { phase: "applying", intentId: 1, originalPermissions: {}, announced: false, expiresAt: 1 },
@@ -521,6 +518,7 @@ test("isEmptyChatState 必须认得全部 12 个字段：漏掉一个就会把�
     title: "群名",
     isProxySendEnabled: true,
     translate: [{ translatedUser: { id: 1 }, language: "ja" }],
+    deleteMessageTargets: [7],
   };
   expect(isEmptyChatState(createChatState())).toBe(true);
   for (const [field, value] of Object.entries(values)) {
@@ -572,6 +570,8 @@ function assertJoinExemptionsReadonly(): void {
   IDENTITY_JOIN_EXEMPTION.viaChannelComment = true;
   // @ts-expect-error 评论区豁免时共享的入群豁免结论不可修改。
   CHANNEL_COMMENT_JOIN_EXEMPTION.exempt = false;
+  // @ts-expect-error 清理已结清的共享结果不可修改。
+  VERIFICATION_CLEANUP_SETTLED.missed = 1;
 }
 void assertJoinExemptionsReadonly;
 

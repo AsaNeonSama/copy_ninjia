@@ -48,6 +48,7 @@ describe("send_message typo correction", () => {
       const phases: string[] = [];
       const toolset = await createReplyToolset({
         chatId: -100800,
+        triggerSenderId: 1001,
         replyToMessageId: 10,
         messageThreadId: undefined,
         mediaToolsRequested: true,
@@ -66,6 +67,7 @@ describe("send_message typo correction", () => {
         onStickerSent: mock((..._args: unknown[]): void => {}),
         onImageSent: mock((..._args: unknown[]): void => {}),
         onVoiceSent: mock((..._args: unknown[]): void => {}),
+        onAbuseMark: mock((..._args: unknown[]): void => {}),
       });
 
       const result = JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({

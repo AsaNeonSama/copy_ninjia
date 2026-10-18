@@ -4,7 +4,7 @@ import { REDACTED_SECRET, REDACTED_URL } from "../consts/redaction";
  * 从一段文本中移除所有已知敏感值。按字面量替换，不使用动态正则；空值不参与替换。
  *
  * 先 `includes` 再替换，未命中的常见路径不创建临时数组；命中时用字符串形态的
- * `replaceAll` 做字面量匹配。占位符 `[REDACTED]` 不含 `$`，不触发替换模式转义。
+ * `replaceAll` 做字面量匹配。占位符 REDACTED_SECRET 不含 `$`，不触发替换模式转义。
  */
 export function redactSecretsInText(text: string, secrets: readonly string[]): string {
   let redacted: string = text;

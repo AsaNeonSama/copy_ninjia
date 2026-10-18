@@ -57,6 +57,19 @@ describe("shouldPassInitGate", () => {
     expect(shouldPassInitGate(ctx)).toBeFalse();
   });
 
+  test("未初始化群里超管的 /delete_message（含 stop）同样拦下：删除目标只能在 /init enable 之后登记", () => {
+    const chat = { id: -1001111111130, type: "supergroup" };
+    for (const text of ["/delete_message 7", "/delete_message stop 7", `/delete_message@${ME.username} 7`]) {
+      expect(shouldPassInitGate(fakeCtx({ chat, from: { id: SUPER_ADMIN_USER_ID }, message: { text } }))).toBe(false);
+    }
+    getOrCreateChatState(chat.id).isInitEnabled = true;
+    expect(shouldPassInitGate(fakeCtx({
+      chat,
+      from: { id: SUPER_ADMIN_USER_ID },
+      message: { text: "/delete_message 7" },
+    }))).toBe(true);
+  });
+
   test("未初始化的群 + /init 指令本身：放行（否则永远没法首次初始化）", () => {
     const chatId = -1001111111112;
     const ctx = fakeCtx({
@@ -98,9 +111,7 @@ describe("shouldPassInitGate", () => {
   test("已 /init 过的群 + 普通消息：放行", () => {
     const chatId = -1001111111113;
     getOrCreateChatState(chatId).isInitEnabled = true;
-    // 测完把这个字段清回去，不留给同进程里的其它测试文件。只重置字段，不删除整个状态：
-    // 本文件只 mock 了 infra/diskIO，没有 mock infra/storage 本体，带落盘的删除路径会触发
-    // saveStateInBackground 写项目根目录下的 state.json。
+    // 测完把该字段复位，不留给同进程里的其它测试文件。
     try {
       const ctx = fakeCtx({ chat: { id: chatId, type: "supergroup" }, message: { text: "随便说点什么" } });
       expect(shouldPassInitGate(ctx)).toBe(true);

@@ -159,7 +159,7 @@ export function collectConstantProblems({
  * `Object.freeze` 在 packages/ 下一处都不许有。
  *
  * 常量、部署配置快照、句柄对象都一样：不可变性一律由 `readonly`/`Readonly<T>`
- * 在编译期表达（见 AGENTS.md「常量与不可变性」），不做运行期冻结。
+ * 在编译期表达，不做运行期冻结。
  *
  * 这条独立于 collectConstantProblems：解析结果和句柄对象不是 SCREAMING_SNAKE 常量，
  * 不经过那一条，同样不许冻结。
@@ -176,6 +176,44 @@ export function collectObjectFreezeProblems({
       problems.push(
         `${relativePath}:${lineOf(source, node)} Object.freeze is not allowed: ` +
         "express immutability with readonly types instead (see AGENTS.md 常量)"
+      );
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return problems;
+}
+
+/** 迭代器取头的三个方法名；`<expr>.<name>().next()` 即按插入序取最早项。 */
+const ITERATOR_HEAD_METHODS: ReadonlySet<string> = new Set(["keys", "values", "entries"]);
+
+/**
+ * packages/ 下不许用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项。
+ *
+ * 有界 FIFO / LRU 的最早项一律经 libs/fifoMap.ts 的 FifoMap（或继承它的 LruCache）取得：
+ * 它的 `oldestKey()` 与满载淘汰都是 O(1)。规则按语法判定，不区分接收者类型。
+ */
+export function collectIteratorHeadProblems({
+  projectRoot,
+  path,
+  source,
+}: SourceFileRuleParams): readonly string[] {
+  const problems: string[] = [];
+  const relativePath: string = relative(projectRoot, path);
+  function visit(node: ts.Node): void {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "next" &&
+      ts.isCallExpression(node.expression.expression) &&
+      node.expression.expression.arguments.length === 0 &&
+      ts.isPropertyAccessExpression(node.expression.expression.expression) &&
+      ITERATOR_HEAD_METHODS.has(node.expression.expression.expression.name.text)
+    ) {
+      problems.push(
+        `${relativePath}:${lineOf(source, node)} ` +
+        `.${node.expression.expression.expression.name.text}().next() is not allowed: ` +
+        "take the oldest entry from FifoMap (packages/libs/fifoMap.ts) instead"
       );
     }
     ts.forEachChild(node, visit);
@@ -209,7 +247,7 @@ export function collectModuleCacheProblems({
 }
 
 /**
- * 生产代码不得导入的类型聚合入口（AGENTS.md「类型与接口」）：仅供测试的 `types/antiRaid` 与
+ * 生产代码不得导入的类型聚合入口：仅供测试的 `types/antiRaid` 与
  * `types/diskIO`，以及不存在、也不得重建的 `types` 目录入口（`types/index`）。生产代码必须
  * 直接导入所属领域模块。
  */

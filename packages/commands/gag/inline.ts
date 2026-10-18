@@ -47,23 +47,13 @@ import {
 } from "./runtime";
 import {
   createGagInlineMarkerUrl,
-  isGagInlineMarkerUrl,
+  hasGagInlineMarker,
 } from "./identity";
 
 /** 只把纯文本或带 caption 的媒体视作 gag 应删除的文字消息。 */
 function hasGagDeletableText(message: Message): boolean {
   return typeof message.text === "string" ||
     typeof message.caption === "string";
-}
-
-/** 当前 bot 消息是否带有用户或频道 gag 隐藏主页标记。 */
-function hasGagInlineMarker(message: Message, botId: number): boolean {
-  if (message.via_bot?.id !== botId) return false;
-  return message.entities?.some((entity: MessageEntity): boolean =>
-    entity.type === "text_link" &&
-    entity.offset === 0 &&
-    isGagInlineMarkerUrl(entity.url)
-  ) === true;
 }
 
 /** 当前 bot inline 文本是否匹配用具，且隐藏主页链接匹配当前目标与所在群。 */
@@ -127,7 +117,7 @@ function findActiveGagSenderSession(
  * 认领判定全部同步完成，只有真要删消息或结束过期会话时才返回 Promise：本群没有会话、
  * 这条也不是本 bot 发出的旧 gag inline 结果时，判定只有一次 Map 查询与一次 via_bot/entity
  * 检查；本群有会话时，不认领的消息（非目标发言人等）同样同步返回 false。本 handler 挂在
- * 每条群消息之前（见 app/registerHandlers.ts）。
+ * 每条群消息之前（见 app/updatePreamble.ts 的前置链）。
  */
 export function handleGagMessageIngress(
   message: Message,

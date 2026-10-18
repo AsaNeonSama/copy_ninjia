@@ -1,7 +1,6 @@
 import type { Message } from "grammy/types";
 import type { TimestampDeque } from "../libs/timestampDeque";
 import type {
-  AiBotInfo,
   AiDirectTriggerReason,
   AiReplyReference,
 } from "./aiChat/protocol";
@@ -18,7 +17,6 @@ export interface AiReplyActivityEntry {
 /** 文本与媒体处理器共用的一次消息触发快照。 */
 export interface MessageTriggerContext {
   message: Message;
-  chatId: number;
   /**
    * 本条消息统一的「现在」，由 auto/message/index.ts 一次取得后传下来。
    *
@@ -27,16 +25,15 @@ export interface MessageTriggerContext {
    * @see ../../docs/cn/04-invariants.md
    */
   now: number;
-  bot: AiBotInfo;
-  isQuiet: boolean;
+  /**
+   * 经触发条件门控后的随机搭话/评价概率，由 createMessageTriggerContext 折算：存在
+   * 直接唤起、处于安静期、提及他人或自回复时为 0；其余情况为本条消息的随机触发概率。
+   */
   aiReplyProbability: number;
   repliedTo?: Message;
   replyReference?: AiReplyReference;
   /** 当前消息本身是转发时的来源标注；非转发省略。 */
   forwardedFrom?: string;
-  isMentioned: boolean;
-  hasOtherMention: boolean;
-  repliesToSelf: boolean;
   /**
    * 触发消息所在的论坛话题 id；General、非论坛群与讨论组评论为 undefined。
    *
@@ -46,7 +43,7 @@ export interface MessageTriggerContext {
   messageThreadId?: number;
   /**
    * 直接唤起的成因；随机/无触发为 undefined。字段名与
-   * types/aiChat/protocol.ts 的 AiTriggerMessage.directTriggerReason 一致。
+   * types/aiChat/protocol.ts 的 AiRecordMediaMessage.directTriggerReason 一致。
    */
   directTriggerReason?: AiDirectTriggerReason;
 }

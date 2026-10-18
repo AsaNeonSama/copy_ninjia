@@ -1,4 +1,5 @@
 import type { Api, RawApi } from "grammy";
+import type { PhotoSize } from "grammy/types";
 import type { TelegramFileDownloadResult } from "./telegram";
 
 /** 指定 grammY RawApi 方法的 JSON payload。 */
@@ -96,6 +97,22 @@ export interface TelegramMemoryFile {
   readonly fileName: string;
 }
 
+/**
+ * 发送类方法的回执中，共享动作层（infra/telegram/actions/）唯一读取的字段：消息 id 与 Telegram
+ * 实际建立的回复关系。主线程直接调用时拿到完整 Message（结构上满足本类型）；Worker 经
+ * infra/telegram/workerRequests.ts 的主线程漏斗收到的是投影后的这几项，两个键固定写全。
+ * 需要更多字段的发送（目标专属消息）只走主线程独占的 sendEphemeralMessage。
+ */
+export interface TelegramSentMessage {
+  readonly message_id: number;
+  readonly reply_to_message?: { readonly message_id: number };
+}
+
+/** 图片发送回执：另带 photo 档位；Worker 收到的只有按 libs/telegramImage.ts 的 pickPhotoSize 选中的那一档。 */
+export interface TelegramSentPhotoMessage extends TelegramSentMessage {
+  readonly photo: readonly PhotoSize[];
+}
+
 /** 删除目标专属临时消息所需的稳定参数。 */
 export interface TelegramDeleteEphemeralMessageParams {
   readonly chatId: number | string;
@@ -132,8 +149,6 @@ export type TelegramApi = Pick<Api,
   | "getStickerSet"
   | "restrictChatMember"
   | "sendChatAction"
-  | "sendMessage"
-  | "sendSticker"
   | "setChatPermissions"
   | "setMessageReaction"
   | "unbanChatMember"
@@ -143,22 +158,31 @@ export type TelegramApi = Pick<Api,
     params: TelegramDeleteEphemeralMessageParams,
     signal?: AbortSignal
   ): Promise<true>;
+  /** 目标专属消息（ephemeral_message_parameters）；回执是完整 Message，仅主线程提供。 */
+  sendEphemeralMessage(...args: Parameters<Api["sendMessage"]>): ReturnType<Api["sendMessage"]>;
+  sendMessage(...args: Parameters<Api["sendMessage"]>): Promise<TelegramSentMessage>;
+  sendSticker(...args: Parameters<Api["sendSticker"]>): Promise<TelegramSentMessage>;
   sendPhoto(
     chatId: Parameters<Api["sendPhoto"]>[0],
     photo: TelegramMemoryFile,
     other?: Parameters<Api["sendPhoto"]>[2],
     signal?: Parameters<Api["sendPhoto"]>[3]
-  ): ReturnType<Api["sendPhoto"]>;
+  ): Promise<TelegramSentPhotoMessage>;
   sendVoice(
     chatId: Parameters<Api["sendVoice"]>[0],
     voice: TelegramMemoryFile,
     other?: Parameters<Api["sendVoice"]>[2],
     signal?: Parameters<Api["sendVoice"]>[3]
-  ): ReturnType<Api["sendVoice"]>;
+  ): Promise<TelegramSentMessage>;
 };
 
 /** 仅主线程提供的 Telegram 方法；不属于任何 Worker 的能力白名单。 */
-export type TelegramMainOnlyMethod = "copyMessage" | "deleteEphemeralMessage" | "editMessageText" | "unbanChatSenderChat";
+export type TelegramMainOnlyMethod =
+  | "copyMessage"
+  | "deleteEphemeralMessage"
+  | "editMessageText"
+  | "sendEphemeralMessage"
+  | "unbanChatSenderChat";
 
 /** 业务 Worker 的代理接口，仅保留至少一个 owner 获准的能力。 */
 export type TelegramWorkerApi = Readonly<Omit<TelegramApi, TelegramMainOnlyMethod>>;

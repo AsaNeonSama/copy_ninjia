@@ -1,8 +1,6 @@
 /**
- * Disk I/O Worker 的 AI 记忆 owner：按 revision 接管快照与删除，把最终值排入共享 SQLite
- * 事务缓冲，由 storageDatabase/flush.ts 与其它表在同一事务内提交。普通快照跟随共享事务的
- * 定时、满批、领域屏障与停机 flush 提交；删除与 purge 后首份快照立即提交，durable 回执在
- * 事务成功后由 storageDatabase/aiContext.ts 发出。
+ * Disk I/O Worker 的 AI 记忆落盘调度：按 revision 接管快照与删除，将变更排入共享 SQLite
+ * 事务缓冲，参见 docs/cn/04-invariants.md。
  */
 
 import {
@@ -16,7 +14,7 @@ import { rejectedStorageDomains } from "../../cache/workers/diskIO/storageDataba
 import { assertAiContextSnapshot, queueAiContextWrite } from "./storageDatabase/aiContext";
 import { commitStorageUrgently, scheduleStorageCommit } from "./storageDatabase/flush";
 
-/** 跨域启动第二阶段：全部领域 inspect 成功后按磁盘快照重建水位线，并交出恢复结果（只复制键值引用）。 */
+/** 启动恢复阶段接管已校验快照并初始化 revision 水位线。 */
 export function adoptAiMemorySnapshots(
   snapshots: ReadonlyMap<number, string>
 ): Map<number, string> {
@@ -31,11 +29,7 @@ export interface MarkAiMemorySnapshotDirtyParams {
   persistImmediately?: boolean;
 }
 
-/**
- * 接管一份快照：先严格校验，非法快照只记 console.error 与 aiMemory 领域拒收标记，不推进
- * revision 水位线、不进入共享事务；迟到 revision 直接忽略。purge 后首份快照登记即时回执并
- * 立即提交。
- */
+/** 校验并接管快照变更；非法快照登记领域拒收，persistImmediately 为真时立即提交事务。 */
 export function markAiMemorySnapshotDirty({
   chatId,
   revision,
@@ -59,7 +53,7 @@ export function markAiMemorySnapshotDirty({
   commitStorageUrgently();
 }
 
-/** 接管一次删除并立即提交；已被更新 revision 覆盖的迟到删除直接回执，不再写库。 */
+/** 接管删除请求并立即提交；已被更新 revision 覆盖时直接发出回执。 */
 export function deleteAiMemorySnapshot(chatId: number, revision: number): void {
   if (!markAiMemoryDeleted(chatId, revision)) {
     aiMemoryDeletePersistedNotifier.current({ type: "aiMemoryDeletedPersisted", chatId, revision });

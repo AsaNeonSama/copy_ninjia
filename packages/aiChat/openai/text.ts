@@ -1,14 +1,5 @@
 /**
- * OpenAI 侧的纯文本生成、结构化 JSON 生成、视觉描述与语音转写。文本与视觉共用 client.ts 的
- * requestOpenAiTextResult，差别只在请求体：文本走一段 user 文本，视觉改喂
- * 一份 data URI 图片；语音转写直接调 audio.transcriptions 并自行归因（见
- * transcribeOpenAiVoice）。
- *
- * 文本与视觉两条路径都显式传 instructions。
- *
- * 清洗与截断由调用方通过 normalize 传入。
- *
- * 请求体以构造器形式交给 client.ts，在它的 try 内求值（见 client.ts 的 requestOpenAiResult）。
+ * OpenAI 侧的纯文本生成、结构化 JSON 生成、视觉描述与语音转写。
  */
 
 import OpenAI, { toFile } from "openai";
@@ -42,7 +33,7 @@ import type {
   AiVoiceRequest,
 } from "../../types/aiChat/provider";
 
-/** 中性总结档位的一次文本生成（冷消息压缩、贴纸整包简介）。 */
+/** 使用 `summary` 能力生成摘要文本。 */
 export function generateOpenAiText(request: AiTextRequest): Promise<AiTextResult> {
   return requestOpenAiTextResult({
     capability: "summary",
@@ -50,7 +41,6 @@ export function generateOpenAiText(request: AiTextRequest): Promise<AiTextResult
       model: getAgentDeploymentConfig().summary.model,
       instructions: request.systemPrompt,
       input: request.userContent,
-      // 不带 temperature。
       max_output_tokens: request.purpose === "chatSummary"
         ? OPENAI_CHAT_SUMMARY_MAX_TOKENS
         : OPENAI_STICKER_PACK_SUMMARY_MAX_TOKENS,
@@ -62,10 +52,7 @@ export function generateOpenAiText(request: AiTextRequest): Promise<AiTextResult
   });
 }
 
-/**
- * text 能力的一次结构化 JSON 生成：不挂工具，要求端点只输出 JSON 对象（`json_object`；
- * Schema 由调用方写进提示词，解码与校验也由调用方负责）。
- */
+/** 使用 `text` 能力生成 JSON 对象格式的结构化文本。 */
 export function generateOpenAiJson(request: AiJsonRequest): Promise<AiTextResult> {
   return requestOpenAiTextResult({
     capability: "text",
@@ -83,10 +70,7 @@ export function generateOpenAiJson(request: AiJsonRequest): Promise<AiTextResult
   });
 }
 
-/**
- * 一次视觉描述。图片以 data URI 内联进请求（字节已由
- * aiChat/ai/telegramImage.ts 下载并转码成 jpg/png），描述指令走 instructions。
- */
+/** 使用 `media` 能力对 data URI 内联图片生成视觉描述。 */
 export function describeOpenAiVision(request: AiVisionRequest): Promise<AiTextResult> {
   return requestOpenAiTextResult({
     capability: "media",
@@ -118,10 +102,7 @@ function isVoiceRequestAborted(request: AiVoiceRequest): boolean {
   return request.signal?.aborted === true;
 }
 
-/**
- * 用 media 能力配置尝试 OpenAI 兼容音频转写。模型是否支持音频由第一次真实语音请求
- * 确认，结果记入媒体支持度缓存。
- */
+/** 使用 `media` 能力调用 `audio.transcriptions` 进行语音转写并分类错误。 */
 export async function transcribeOpenAiVoice(request: AiVoiceRequest): Promise<AiTextResult> {
   if (isVoiceRequestAborted(request)) return { ok: false, retryable: false };
   try {
@@ -166,11 +147,7 @@ export async function transcribeOpenAiVoice(request: AiVoiceRequest): Promise<Ai
     let failureKind: AiRequestFailureKind = "request";
     if (error instanceof OpenAI.APIError) {
       const status: number | undefined = numericErrorStatus(error);
-      // APIError.message 已以 HTTP 状态码开头，此处不另加状态码。
       logger.error(`${request.errorLabel} error: ${error.message}`);
-      // 归因级联与 gemini/client.ts、openai/client.ts 共用 classifyProviderApiFailure；
-      // 本入口恒为媒体能力（语音转写），isMediaCapability 直接传 true，归因结果经
-      // classifyAiTextFailure 映射成 AiTextResult；endpointFailure 按端点故障 request 处理。
       const providerFailure: ProviderApiFailureKind =
         classifyProviderApiFailure(status, error.message, true);
       if (providerFailure !== "endpointFailure") failureKind = providerFailure;

@@ -27,7 +27,7 @@ const DEFAULT_IO: LuckSecretFileIO = {
   writeText: atomicWriteTextSync,
 };
 
-/** 严格解码 version=1 回执密钥；诊断按字段路径写明期望形态，不回显密钥。 */
+/** 严格解码运势回执密钥对象。 */
 function decodeLuckReceiptSecret(value: unknown, path: string): LuckReceiptSecret {
   if (!isPlainRecord(value) || !hasExactKeys(value, ["version", "day", "key"])) {
     return invalidInput(path, "$", "exactly { version, day, key }");

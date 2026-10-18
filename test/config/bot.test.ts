@@ -60,8 +60,7 @@ describe("config/static/bot.json", () => {
   });
 
   test("快照未初始化时读取直接抛错，且只写路径不写值", () => {
-    // 生产里这条分支只在「模块顶层 await 尚未跑完就有人读」时到得了，属于启动期硬失败的边界
-    // （AGENTS.md「不为用户行为兜底」）：不回退默认值，也不把 token 回显进错误文案。
+    // 快照尚未初始化时直接抛错，不回退默认值，也不把 token 回显进错误文案。
     botConfigCache.current = null;
     expect(getBotConfig).toThrow(
       `Telegram configuration was not initialized from ${BOT_CONFIG_PATH}.`

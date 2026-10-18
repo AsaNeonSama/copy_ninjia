@@ -34,7 +34,6 @@ export type ScenarioName =
   | "wed-member-growth"
   | "wed-member-churn"
   | "wed-member-chat-switch"
-  | "registered-middleware"
   | "sender-no-username"
   | "sender-mixed-identity"
   | "ai-activity-lru-miss"
@@ -68,8 +67,7 @@ export type JitProbe = (...args: never[]) => unknown;
  *
  * dfgCompiles 为 0 表示从未进入 DFG（调用次数不足以触发分层，或被测逻辑不在该
  * 函数里），该场景的 ns/op 不含优化后的稳态。reoptRetries 大于 0 表示 JSC 编译后
- * 因推测失败（类型或对象 shape 不稳定）去优化并重编译，对应 AGENTS.md「热调用点
- * 保持类型和对象 shape 稳定」的规约。
+ * 因推测失败（类型或对象 shape 不稳定）去优化并重编译。
  */
 export interface JitTierCounts {
   dfgCompiles: number;

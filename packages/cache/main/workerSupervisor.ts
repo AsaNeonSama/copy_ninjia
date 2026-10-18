@@ -1,11 +1,8 @@
-/** owner: main。业务 Worker 监督器的进程级状态，由 packages/infra/workerSupervisor.ts 管理。
- * 生命周期取得实例锁后填充 fatal handler，dispose 时清空；Worker 重建不改变
- * handler，进程重启后由新 ApplicationLifecycle 重新注册。holder 容量恒为 1。
- */
+/** owner: main。业务 Worker 监督器进程级状态（packages/infra/workerSupervisor.ts）。 */
 
 import type { BusinessWorkerFatalHandler } from "../../types/workerSupervisor";
 
-/** 当前应用生命周期的业务 Worker fatal 接收者；未启动或已 dispose 时为 null。 */
+/** 业务 Worker 致命错误处理器单例：应用生命周期取得实例锁后填充，dispose 时清空为 null；Worker 重建不改变该处理器，不淘汰，进程重启后从 null 重新注册。 */
 export const businessWorkerFatalHandler: { current: BusinessWorkerFatalHandler | null } = {
   current: null,
 };

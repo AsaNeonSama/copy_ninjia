@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { stablePrefixFingerprint } from "../../packages/libs/prefixFingerprint";
+import { stablePrefixFingerprint, stablePrefixFingerprintWithSlot } from "../../packages/libs/prefixFingerprint";
+import type { PrefixHasherSlot } from "../../packages/types/prefixFingerprint";
 
 /** base64url 字符集，无填充。 */
 const BASE64URL_PATTERN: RegExp = /^[A-Za-z0-9_-]+$/;
@@ -50,5 +51,38 @@ describe("stablePrefixFingerprint：稳定前缀指纹", () => {
 
   test("任一段改动一个字符即改变摘要", () => {
     expect(stablePrefixFingerprint(["人设", "工具A"])).not.toBe(stablePrefixFingerprint(["人设", "工具B"]));
+  });
+});
+
+describe("stablePrefixFingerprintWithSlot：前缀哈希状态单槽", () => {
+  test("命中与失配两条路径的摘要都等于对全部分段直接哈希", () => {
+    const holder: { current: PrefixHasherSlot | null } = { current: null };
+    const systemPrompt: string = "人设".repeat(5_000);
+    const toolsJson: string = JSON.stringify([{ name: "send_message" }]);
+    const cases: readonly (readonly [readonly string[], readonly string[]])[] = [
+      [[systemPrompt, toolsJson], ["群甲参考记忆"]],
+      // 内容相等但不是同一个字符串对象：仍命中。
+      [[`${"人设".repeat(4_999)}人设`, toolsJson.slice()], ["群乙参考记忆"]],
+      [[systemPrompt, toolsJson], []],
+      [[systemPrompt, toolsJson], ["群甲参考记忆", "第二段"]],
+      // 工具声明变化：失配重建。
+      [[systemPrompt, JSON.stringify([])], ["群甲参考记忆"]],
+      [[systemPrompt], [toolsJson, "群甲参考记忆"]],
+      [[], ["只有尾段"]],
+    ];
+    for (const [head, tail] of cases) {
+      expect(stablePrefixFingerprintWithSlot(holder, head, tail)).toBe(stablePrefixFingerprint([...head, ...tail]));
+      expect(holder.current?.head).toEqual(head);
+    }
+  });
+
+  test("命中时复用同一份哈希状态，且该状态不被尾段污染", () => {
+    const holder: { current: PrefixHasherSlot | null } = { current: null };
+    const head: readonly string[] = ["系统提示词", "工具"];
+    const first: string = stablePrefixFingerprintWithSlot(holder, head, ["甲"]);
+    const slot: PrefixHasherSlot | null = holder.current;
+    stablePrefixFingerprintWithSlot(holder, [...head], ["乙"]);
+    expect(holder.current).toBe(slot);
+    expect(stablePrefixFingerprintWithSlot(holder, head, ["甲"])).toBe(first);
   });
 });

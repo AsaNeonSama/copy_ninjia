@@ -1,7 +1,7 @@
 import type { AtmosphereTexts } from "../types/atmosphere";
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import type { CachedUser, ChatState } from "../types/chatState";
+import type { CachedUser } from "../types/chatState";
 import type { TranslateState } from "../types/translate";
 import { translateConfigReadiness } from "../config/readiness";
 import { TRANSLATE_ARGUMENT_PATTERN, TRANSLATE_STOP_ARGUMENT_PATTERN, TRANSLATE_LANGUAGE_LABELS, TRANSLATE_LIST_JSON_INDENT, TRANSLATE_LIST_JSON_LANGUAGE } from "../consts/translate";
@@ -59,8 +59,7 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
       permission: "isCanControllTranslatePermission",
       persistReason: "translation toggled",
       runtimeLabel: "translation runtime",
-      read: (state: ChatState): boolean => state.isTranslationEnabled === true,
-      write: (state: ChatState, enabled: boolean): void => { state.isTranslationEnabled = enabled; },
+      switchKey: "isTranslationEnabled",
       refuseEnable: refuseUnavailableTranslation,
       beforeDisable: (chatId: number): Promise<void> => stopTranslation(chatId),
     });
@@ -111,6 +110,10 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
     messages: chatAtmosphere().TRANSLATE_TARGET_TEXTS,
   });
   if (target === undefined) return;
+  if (getChatState(chatId).isTranslationEnabled !== true) {
+    await replyCommandNotice(ctx, chatAtmosphere().TRANSLATE_DISABLED_TEXT);
+    return;
+  }
   const current: TranslateState | undefined = getTranslateState(chatId, target.id);
   if (current !== undefined) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
@@ -119,7 +122,7 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
   }
 
   if (!setTranslateState(chatId, { translatedUser: target, language })) {
-    await replyCommandNotice(ctx, getChatState(chatId).translate !== undefined ? chatAtmosphere().TRANSLATE_CHAT_CAPACITY_TEXT : chatAtmosphere().TRANSLATE_CAPACITY_TEXT);
+    await replyCommandNotice(ctx, chatAtmosphere().TRANSLATE_CHAT_CAPACITY_TEXT);
     return;
   }
   await persistChatState(chatId, "translation started");

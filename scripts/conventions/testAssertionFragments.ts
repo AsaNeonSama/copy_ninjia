@@ -4,7 +4,7 @@ import { fixtureLiterals, isMatcherCall, isStringLiteralNode } from "./testAsser
 import type { TestAssertionRuleParams } from "./testAssertions";
 
 /**
- * 测试断言的文案口径（AGENTS.md「测试」）的子串规则：匹配器实参里的字符串字面量或模板静态片段，
+ * 测试断言的常量文案子串规则：匹配器实参里的字符串字面量或模板静态片段，
  * 含至少 CONSTANT_TEXT_FRAGMENT_MIN_CJK 个汉字或假名、又是 packages/consts 某段文案的子串时，
  * 视为把常量文案的一部分抄进了测试；期望值从常量（或模板常量渲染出的固定片段，见
  * test/helpers/templateText.ts）取得。

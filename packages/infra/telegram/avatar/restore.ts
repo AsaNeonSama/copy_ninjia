@@ -30,17 +30,9 @@ interface DefaultAvatarMedia {
 type DefaultAvatarRead = DefaultAvatarMedia | "transient-failure" | "permanent-failure";
 
 /**
- * 按配置来源恢复机器人默认头像；调用方在主线程 copy/avatarQueue.ts 读取素材配置。
- *
- * `url` 来源允许配置的 HTTP/HTTPS 地址并跟随重定向。请求进入主线程 externalFetch 类出站闸，等待与 429 重放
- * 共用本次下载的 DEFAULT_AVATAR_FETCH_TIMEOUT_MS 超时预算，取消信号传到实际 fetch。
- * `path` 来源每次尝试都重新读取经 config/assets.ts 校验的绝对路径；读取失败不重试。
- *
- * 两种来源都按 DEFAULT_AVATAR_MAX_READ_BYTES 有界读取，上传前按 defaultAvatarPhotoType 核对签名、
- * 所属形态的大小上限与 MP4 视频轨尺寸：JPEG/PNG 上传为静态头像，MP4 上传为动态头像。
- * runAvatarFetchAttempts 仅对瞬时失败执行有界重试；超限、不符合期望形态和 Telegram 400 属确定性失败。
- * 跨模块约束见 docs/cn/04-invariants.md 的「出站请求与消息安全」。
- * @returns 恢复成功为 true；读取、校验或上传失败以及取消为 false。
+ * 按配置来源（`url` 或本地 `path`）恢复机器人默认头像：
+ * 经 `DEFAULT_AVATAR_MAX_READ_BYTES` 有界读取与 `defaultAvatarPhotoType` 校验签名及尺寸后上传，
+ * 仅对瞬时失败按 `runAvatarFetchAttempts` 有界重试（见 `docs/cn/04-invariants.md`）。
  */
 export async function restoreDefaultProfilePhoto(
   source: Readonly<DefaultAvatarSource>,
@@ -75,7 +67,7 @@ async function attemptRestoreDefaultProfilePhoto(
   }
 }
 
-/** 下载 `url` 来源：429 由统一出站闸重放，其余非 2xx 属瞬时失败；超限与签名不符不重试。 */
+/** 下载 `url` 来源：经 `externalFetch` 出站闸请求，非成功响应归为瞬时失败，超限与格式不符归为确定性失败。 */
 async function downloadDefaultAvatar(url: string, attempt: number, signal?: AbortSignal): Promise<DefaultAvatarRead> {
   const response: Response = await runTelegramCategorizedRequest({
     category: "externalFetch",

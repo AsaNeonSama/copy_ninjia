@@ -57,7 +57,7 @@ The system strictly follows the principle of **Single Ownership**: every piece o
 
 ### Module Boundaries and Worker Supervision
 
-- **Thin Public Decoupling**: [`packages/aiChat/index.ts`](../../packages/aiChat/index.ts) and [`packages/antiRaid/index.ts`](../../packages/antiRaid/index.ts) serve as stateless public facades. Actual AI supervision resides in [`workerBridge.ts`](../../packages/aiChat/workerBridge.ts); Anti-Raid supervision is managed by [`workerBridge/controller.ts`](../../packages/antiRaid/workerBridge/controller.ts).
+- **Thin Public Decoupling**: [`packages/aiChat/index.ts`](../../packages/aiChat/index.ts) and [`packages/antiRaid/index.ts`](../../packages/antiRaid/index.ts) serve as stateless public facades. AI supervision resides in [`workerBridge.ts`](../../packages/aiChat/workerBridge.ts) and message ingress in [`messageIngress.ts`](../../packages/aiChat/messageIngress.ts); Anti-Raid supervision is managed by [`workerBridge/controller.ts`](../../packages/antiRaid/workerBridge/controller.ts) and durable delivery by [`durableDelivery.ts`](../../packages/antiRaid/durableDelivery.ts).
 - **Pure State Transition Separation**: Verification logic is strictly partitioned across join, pending, terminal, disable, and adopt phases (in `packages/states/verification/`); lockdown logic is partitioned across apply, persistence, restore, announcement, and adopt phases (in `packages/states/lockdown/`).
 - **Supervision & Recovery Mechanism**:
   - AI and Anti-Raid Workers utilize [`packages/infra/supervisedWorker.ts`](../../packages/infra/supervisedWorker.ts), which throttles restarts within a rate-limited restart budget on crashes and replays the latest state mirror from the main thread.
@@ -67,7 +67,7 @@ The system strictly follows the principle of **Single Ownership**: every piece o
 
 ## The Journey of a Message
 
-All incoming update handlers are explicitly registered in [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts). Rather than relying on concurrent middleware frameworks like `sequentialize`, global message ordering is strictly enforced by the single-update polling runner ([`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)): it pulls one update at a time (`UPDATE_POLL_LIMIT = 1`) and awaits full middleware completion before requesting the next update.
+All incoming update handlers are explicitly registered in [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts), and the whole chain is registered through a single `bot.use`: that layer records the update ID and applies the bot-message limit, then enters the preamble chain in [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts). Each preamble step calls the next one synchronously in the order shown below and returns a Promise only when it actually hits I/O (prefetching cold identities, a claiming ingress waiting on persistence or the network, command and message handlers). Slash commands, CJK action commands, and non-message updates such as reactions, member changes, and inline callbacks are built as grammY `Composer`s that the preamble calls at their positions. Global message ordering is enforced by the acknowledged update polling runner ([`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)): it fetches updates using `UPDATE_POLL_LIMIT` and `UPDATE_POLL_TIMEOUT_SECONDS` and awaits full middleware completion before requesting the next batch.
 
 ```text
 [Telegram Update]
@@ -76,7 +76,7 @@ All incoming update handlers are explicitly registered in [`packages/app/registe
  1. update_id Tracking       ── Records highest processed update_id to set offset upon graceful shutdown
        │
        ▼
- 2. Inbound Bot Rate Limiting── Messages from other bots are rate-limited per ID across chats; excess drops silently
+ 2. Inbound Bot Rate Limiting── Messages from other bots are rate-limited per ID across chats; excess drops silently; deletion targets in the chat are not counted
        │
        ▼
  3. Signed Fortune Receipt   ── Resolves inline draw confirmation receipts immediately
@@ -94,28 +94,31 @@ All incoming update handlers are explicitly registered in [`packages/app/registe
  7. Join Verification Ingress── Runs before commands; captures and evaluates messages from unverified users
        │
        ▼
- 8. Gag Muting Ingress       ── Intercepts and purges direct chat messages from restricted users
+ 8. Delete Target Ingress    ── Enqueues messages from /delete_message targets for deletion and ends the chain
        │
        ▼
- 9. /qa Form Ingress         ── Claims and parses in-progress "问题:" / "回答:" question-answer form submissions
+ 9. Gag Muting Ingress       ── Intercepts and purges direct chat messages from restricted users
        │
        ▼
-10. Command Sub-Chain (:entities:bot_command)
+10. /qa Form Ingress         ── Claims and parses in-progress "问题:" / "回答:" question-answer form submissions
+       │
+       ▼
+11. Command Sub-Chain (:entities:bot_command)
        │                     ── Filters non-commands; ordinary messages bypass this composer entirely
        ├─ /permission, /white, /copy, /translate, /wed, /block, /ai_chat ...
        └─ /x (menu placeholder guiding CJK action command usage)
        │
        ▼
-11. CJK Action Commands      ── Matches 1-2 character Chinese actions (e.g. /咬, /贴贴) before fallback
+12. CJK Action Commands      ── Matches Chinese action commands via CJK_ACTION_COMMAND_PATTERN (e.g. /咬, /贴贴) before fallback
        │
        ▼
-12. Automatic Message Pipeline── auto/message/ handles copying, Q&A direct answering, and AI conversation triggers
+13. Automatic Message Pipeline── auto/message/ handles copying, Q&A direct answering, and AI conversation triggers
 ```
 
 Reactions (`message_reaction`) are handled by an independent listener (`auto/reactionSync.ts`) outside the primary message pipeline.
 
 > [!NOTE]
-> `bot.catch` re-throws errors after logging them to ensure unhandled exceptions do not accidentally acknowledge failed updates.
+> `bot.catch` logs unhandled errors and re-throws them so failed updates are not acknowledged.
 
 ---
 
@@ -147,6 +150,7 @@ flowchart TD
     G --> A4["🎟️ send_sticker (Send Sticker)"]:::action
     G --> A5["🎨 generate_image (Generate Image)"]:::action
     G --> A6["🎙️ send_voice (Send Voice Note)"]:::action
+    G --> A7["🚫 abuse_mark (Abuse Cooldown)"]:::action
 ```
 
 ### 1. Media Routing and Placeholder Pipeline
@@ -177,11 +181,12 @@ The model can execute multiple tool calls within a single round. All visible sid
 | **`add_reaction`** | Action | Adds an emoji reaction from the allowlist; bounded by `MAX_REACTIONS_PER_REPLY`. |
 | **`view_sticker_pack`** | Query | Inspects stickers within a whitelisted pack; free query budget; must be inspected before sending. |
 | **`send_sticker`** | Action | Sends a specific sticker; bounded by `MAX_STICKERS_PER_REPLY`. |
-| **`generate_image`** | Action | Synthesizes and sends an image; verified against group cooldowns; bounded by `MAX_GENERATED_IMAGES_PER_REPLY`. |
+| **`generate_image`** | Action | Synthesizes and sends an image; verified against group cooldowns; bounded by `MAX_GENERATED_IMAGES_PER_REPLY`. Reference images from a direct trigger (album images filled in album order, at most `agent.image.max_reference_images`) are passed to the image model with the request. |
 | **`send_voice`** | Action | Synthesizes voice audio matching `agent.tts.bot_language`; queued on the serial action chain; bounded by `MAX_VOICES_PER_REPLY`. |
 | **`web_search`** | Query | Local web search tool (mounted when `agent.web_search` is configured); bounded by `max_calls_per_use`. |
 | **`group_qa_query`** | Query | Lists registered Q&A questions in the current group; does not consume action budget. |
 | **`group_qa_answer`** | Query | Fetches pre-registered answers for specific questions discovered via `group_qa_query`. |
+| **`abuse_mark`** | Action | Marks the current trigger user to be ignored by AI chat for `ABUSE_MARK_DURATION_MS` when repeatedly requesting disallowed or pestering content, sends an atmosphere-specific notice, and immediately ends the model round. |
 | **`get_tokyo_weather`** | Query | Queries Tokyo daily weather and temperature; mounted only when configured time zone is `TOKYO_TIME_ZONE`. |
 
 > [!TIP]
@@ -196,40 +201,40 @@ The model can execute multiple tool calls within a single round. All visible sid
 The entry point [`index.ts`](../../index.ts) solely delegates to [`ApplicationLifecycle`](../../packages/app/lifecycle.ts). Merely importing modules never starts background workers, timers, or network connections. `ApplicationLifecycle.init()` orchestrates startup sequentially:
 
 0. **Configuration Layout Verification**: When `config/bot.ts` is imported, `layout.ts` ensures deployment files are organized strictly in `config/static/` and `config/dynamic/`.
-1. **Data Root Preflight & Instance Locking**: `acquireSingleInstanceLock` tests data root capabilities (writable, fsync, same-directory hard-links, atomic renames), then acquires the `/proc`-based `bot.lock` single-instance lock.
+1. **Data Root Preflight & Instance Locking**: `acquireSingleInstanceLock` tests data root capabilities (writable, fsync, same-directory hard-links, atomic renames, directory fsync), then acquires the `/proc`-based `bot.lock` single-instance lock. It then registers the worker fatal callback and initializes avatar, chat title, translation, gag, wed, and deferred command runtimes.
 2. **Global State & Configuration Preflight**:
    - Cleans up orphaned temporary files from previous unexpected terminations.
-   - Restores and strictly validates `memory/global/state.json` via `StateStore`.
+   - Restores and strictly validates `memory/global/state.json` via `StateStore` (rejecting any legacy `state.json` or `state.json.bak` in the data root).
    - Validates all dynamic and static deployment JSON inputs.
    - Verifies permissions and filenames in the dedicated random image library directory.
 3. **Disk I/O Worker Initialization & Data Recovery**:
-   - Disk I/O Worker performs a read-only integrity scan across all persistence domains (database, logs, fortune secrets, verification records, member pools).
-   - Once all domains validate cleanly, it takes ownership of data and schedules midnight maintenance crons.
-   - The main thread seeds hot read caches (chat states, Q&A pairs, wed candidates).
+   - Disk I/O Worker performs a read-only integrity scan across all persistence domains (database, logs, AI cache usage, sticker catalogs, fortune records, verification records, join logs, wed member pools).
+   - Once all domains validate cleanly, it adopts ownership, runs startup maintenance, and schedules the daily maintenance cron (`DISK_IO_MAINTENANCE_CRON`) in the configured time zone.
+   - The main thread loads in-memory caches (chat states, Q&A pairs, wed members), initializes the Telegram client, verifies that `super_admin_user_id` is neither on the blocklist nor targeted by `/delete_message`, and seeds sender identity and translation target caches.
 4. **Handler Registration & Telegram Handshake**: Mounts global middlewares, registers command menus, and executes `bot.init()`.
 5. **Business Worker Initialization & Scheduling**:
-   - Launches AI Worker and hydrates conversation context, sticker caches, and fortune state.
-   - Launches Anti-Raid Worker and restores verification and lockdown mirrors.
-   - Starts the `cron.json` scheduler and configuration hot-reload file watchers.
-   - Performs an initial blocklist sweep across groups where admin rights are confirmed.
-6. **Start Update Runner**: Starts the single-update long-polling runner.
+   - Launches AI Worker (when core AI config is ready) and hydrates conversation context and sticker catalogs; the main thread restores fortune state.
+   - Loads pending verification records and the blocklist kick outbox, then launches Anti-Raid Worker and restores verification and lockdown mirrors.
+   - Starts the `cron.json` scheduler, `config/dynamic/` hot-reload file watchers, and the blocklist sweep scheduler.
+   - Performs an initial blocklist sweep across groups where admin rights are confirmed before accepting new updates.
+6. **Start Update Runner**: Starts the serial update polling runner, schedules wed member review, and starts low-priority asynchronous group title hydration.
 
 ---
 
 ## Shutdown Order
 
-Shutdown is managed centrally by `ApplicationLifecycle` via sequential barriers to ensure zero message loss or data corruption:
+Shutdown is managed centrally by `ApplicationLifecycle` (`wait()` and `dispose()`) along sequential barriers defined by `SHUTDOWN_DRAIN_OWNERS` in [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts):
 
 1. **Quiesce (Close Ingress Gates)**:
-   - Halts cron tasks, blocklist sweeps, title syncs, and configuration hot-reload watchers.
+   - Stops group title hydration, avatar queue, translation, gag, wed interactions and member review, deferred commands, scheduled cron tasks, blocklist sweeps, and configuration hot-reload watchers. Any exception withholds the final update offset acknowledgement.
    - Stops the Telegram update runner to prevent pulling new updates.
 2. **Bounded Drain (Drain In-Flight Work)**:
-   - Signals cancellation to in-flight update handlers, allowing them to converge within a graceful deadline. If the deadline expires, pending updates are aborted so Telegram will redeliver them upon reboot.
-3. **Flush & Acknowledge Update Offset**: `flushAllToDisk` drains all worker mailboxes and forces disk fsync. When all components are verified clean, the final processed `update_id` is acknowledged to Telegram. If any step fails, acknowledgement is withheld.
+   - Signals cancellation to in-flight update handlers and waits within a bounded deadline (aborting and withholding offset acknowledgement on timeout), then awaits pending group title hydration tasks.
+3. **Flush & Acknowledge Update Offset**: `flushAllToDisk` drains all owners and worker mailboxes in `SHUTDOWN_DRAIN_OWNERS` order and flushes them to disk. Only when every drain succeeds is the final processed `update_id` offset acknowledged to Telegram.
 4. **Dispose (Terminate Workers & Release Lock)**:
-   - Terminates AI, Anti-Raid, and Disk I/O Workers sequentially (before terminating, the Disk I/O Worker commits remaining writes, runs a WAL checkpoint, and closes the shared SQLite database).
-   - Commits final `StateStore` global state.
-   - Releases the `bot.lock` instance lock upon a clean exit. If an abnormal outcome occurred, the lock is retained until process exit to prevent supervisor thrashing.
+   - Runs final cleanup in `SHUTDOWN_DRAIN_OWNERS` order: avatar queue, translation (then closes client), Anti-Raid, gag notices, `/qa set` forms, wed, deferred commands, scheduled tasks, target message deletion drain (`/delete_message` queue), unified delayed message deletions, AI memory flush (then terminates AI Worker), Telegram outbound queue (then closes outbound gate), and Disk I/O flush.
+   - Terminates Anti-Raid and Disk I/O Workers (before terminating, the Disk I/O Worker commits remaining writes, runs a WAL checkpoint, and closes the shared SQLite database), and flushes final `StateStore` global state.
+   - Classifies the shutdown outcome as `clean`, `offsetWithheld`, or `unsettled`. `bot.lock` is retained until process exit only on `unsettled`, and released otherwise; any non-`clean` outcome sets a non-zero process exit code.
 
 ---
 

@@ -27,22 +27,17 @@ import {
 import { stripLeadingAtSigns } from "../../../libs/text";
 
 /**
- * 发言人的显示名：first/last 拼接，都没有则给个占位。
- *
- * 每条转录行与回复标注都会调用；直接分支拼接，不创建临时数组；全空白字段与
- * 两者皆空时回退到占位符。
+ * 拼接发言人的显示名；首末名均为空白时回退到 FALLBACK_SPEAKER_NAME。
  */
 export function displaySpeakerName(speaker: AiSpeakerSnapshot): string {
   const first: string = speaker.firstName;
   const last: string = speaker.lastName;
   if (first && last) return `${first} ${last}`.trim() || FALLBACK_SPEAKER_NAME;
-  // `|| ""` 使越过类型边界的 undefined 输入同样退化成占位符。
   return (first || last || "").trim() || FALLBACK_SPEAKER_NAME;
 }
 
 /**
- * 名册、引用与唤起者共用身份段。仅 selfId 对应的发言人使用代称并省略 username，
- * 其他身份保留 `[id:…] [username:@…] 显示名`，没有公开用户名时省略中段。
+ * 格式化发言人身份段：selfId 对应账号使用 SELF_SPEAKER_NAME 并省略 username，其余账号带 ID、可选 username 与显示名。
  */
 export function formatSpeakerIdentity(speaker: AiSpeakerSnapshot, selfId?: number): string {
   if (speaker.id === selfId) return `[id:${speaker.id}] ${SELF_SPEAKER_NAME}`;
@@ -50,13 +45,12 @@ export function formatSpeakerIdentity(speaker: AiSpeakerSnapshot, selfId?: numbe
   return `[id:${speaker.id}]${usernameTag} ${displaySpeakerName(speaker)}`;
 }
 
-/** 转发来源标注，明确正文并非发送者本人所写；模板与说明文案共用（见
- * consts/aiChat/prompts/transcript.ts）。 */
+/** 格式化转发来源标注。 */
 function formatForwardTag(forwardedFrom: string | undefined): string {
   return forwardedFrom ? forwardTagTemplate(forwardedFrom) : "";
 }
 
-/** 回复关系以内嵌元数据呈现。 */
+/** 格式化内嵌回复引用标注。 */
 function formatReplyReference(reference: BufferedReplyReference, selfId: number | undefined): string {
   const quote: string = reference.quote ? replyQuoteInlineTemplate(reference.quote) : "";
   return replyTagTemplate({
@@ -68,13 +62,7 @@ function formatReplyReference(reference: BufferedReplyReference, selfId: number 
 }
 
 /**
- * 把一条缓存消息格式化成**自包含**的一行：时间、消息号、完整身份、转发来源和
- * 被回复原文全都内嵌，不依赖任何外部名册。
- *
- * 冷历史压缩由 workers/aiChat/compaction.ts 调用：每批 COMPACT_BATCH_SIZE 条消息
- * 一次模型调用，没有名册可查；说明文案见 consts/aiChat/prompts/memory.ts 的
- * SUMMARY_SYSTEM_PROMPT。回复转录使用名册 + 编号的紧凑渲染，见
- * buildTieredVerbatimTranscript。
+ * 将单条缓存消息格式化为包含时间、消息号、完整身份、转发来源与被回复原文的自包含行，供冷历史压缩使用。
  */
 export function formatBufferedMessageLine(message: BufferedMessage, selfId?: number): string {
   const isSelf: boolean = message.id === selfId;
@@ -83,72 +71,60 @@ export function formatBufferedMessageLine(message: BufferedMessage, selfId?: num
   return `[${message.at}] [message_id:${message.messageId}] [id:${message.id}]${usernameTag} ${isSelf ? SELF_SPEAKER_NAME : displaySpeakerName(message)}${formatForwardTag(message.forwardedFrom)}${replyTag}：${message.text}`;
 }
 
-/** buildTieredVerbatimTranscript 的一次渲染状态：编号表 + 哪些行要带消息号。 */
+/** buildTieredVerbatimTranscript 的单次渲染上下文。 */
 interface TranscriptContext {
-  /** 本机器人 ID；名册与窗口外引用都据此选择统一代称。 */
+  /** 本机器人账号 ID。 */
   readonly selfId: number;
-  /** 发送者 id → 行内编号；机器人自己固定是 SELF_ROSTER_CODE。
-   *  每渲染一行查一次；speakerSnapshots 只在拼名册时遍历一遍。 */
+  /** 发送者 ID 到行内短编号的映射；机器人自身固定为 SELF_ROSTER_CODE。 */
   readonly speakers: Map<number, string>;
-  /** 发送者 id → 窗口内最后一次出现时的身份快照，供名册取显示名与 username；
-   *  取法与回复任务里唤起者声明一致（见 workers/aiChat/promptContext.ts 的 resolveInvoker）。
-   *  Map 的插入顺序不因覆盖而改变，名册顺序为首次发言先后。 */
+  /** 发送者 ID 到窗口内末次出现时的身份快照映射，按首次发言顺序排列。 */
   readonly speakerSnapshots: Map<number, AiSpeakerSnapshot>;
-  /** 转发来源原串 → 行内编号（f1、f2……）。 */
+  /** 转发来源原串到行内短编号的映射。 */
   readonly origins: Map<string, string>;
-  /** 需要写出 #消息号 的消息：本段内被回复过的目标，加上本轮触发消息。 */
+  /** 需输出消息号标签的消息集合（窗口内被回复的目标消息与本轮触发消息）。 */
   readonly numbered: Set<number>;
-  /** 本段内确实存在的消息号；决定回复标注走指针还是退回内嵌快照。 */
+  /** 窗口内存在的 message_id 集合，用于判定回复标注走短指针还是内嵌快照。 */
   readonly present: Set<number>;
-  /** 入参里重复的 message_id 条数，即 `messages.length - present.size`。
-   *  >0 时调用方去重后重建一次上下文（见 buildTieredVerbatimTranscript）。 */
+  /** 入参中重复的 message_id 条数。 */
   readonly duplicates: number;
 }
 
-/** renderRange 要渲染的半开区间 [start, end) 与已定切点的记录位置。 */
+/** renderRange 的渲染半开区间与切点记录参数。 */
 interface TranscriptRange {
   readonly start: number;
   readonly end: number;
-  /** 本区间渲染结果的第一个字符在整段转录里的下标。 */
+  /** 本区间渲染结果首字符在整段转录中的偏移。 */
   readonly offset: number;
-  /** 最新消息所在格的起始序号；序号不超过它的格边界才记切点。 */
+  /** 最新消息所在分格的起始序号；序号不超过该值的格边界才记录切点。 */
   readonly settledEnd: number;
-  /** 切点按整段转录内的下标升序追加到这里。 */
+  /** 按整段转录内偏移升序追加的切点数组。 */
   readonly settledOffsets: number[];
 }
 
 /**
- * 渲染结果包含转录文本、行内编号和同源的单跳引用渲染函数：
- * 转录之外点名某个人或某条消息的地方（唤起者声明、排队补跑的回复引用）
- * 使用与转录行同一套写法。
+ * 分层逐字转录的渲染结果。
  */
 export interface RenderedTranscript {
   readonly text: string;
-  /** 发送者 id → 行内编号（uN / me）。名册里没有的人查不到，由调用方退回完整身份段。 */
+  /** 发送者 ID 到行内短编号的只读映射。 */
   readonly codeOf: ReadonlyMap<number, string>;
-  /** 转录之外引用某条被回复消息时的紧凑写法：在窗口内就给指针，否则退回内嵌快照。 */
+  /** 按当前转录上下文格式化单跳回复引用（窗口内用短指针，窗口外退回内嵌快照）。 */
   readonly replyReference: (reference: BufferedReplyReference) => string;
   /**
-   * 已定切点：text 内的 UTF-16 下标，升序。窗口按消息序号每 TRANSCRIPT_SETTLED_SEGMENT_SIZE
-   * 条一格，只取最新消息所在格之前的格边界；切点紧跟上一格最后一条消息的正文，落在其后的
-   * 换行、日期行与分层标题之前，因此分层边界移动前后同一格边界的下标不变。
-   * 切分拼回去与 text 逐字相同。
+   * 已稳定分格切点在 text 中的升序字符偏移，按 TRANSCRIPT_SETTLED_SEGMENT_SIZE 对齐且不含最新未满格。
    */
   readonly settledOffsets: readonly number[];
 }
 
 export interface TieredTranscriptOptions {
-  /** 机器人自己的账号 id：它在名册里固定拿 SELF_ROSTER_CODE。 */
+  /** 机器人自身账号 ID。 */
   readonly selfId: number;
-  /** 本轮触发消息的 message_id；即使尚未被回复也保留消息号，供模型定位当前触发。 */
+  /** 本轮触发消息的 message_id。 */
   readonly triggerMessageId: number;
 }
 
 /**
- * 扫一遍窗口，定下编号表与哪些行需要消息号。
- *
- * 转发来源只在会被渲染出来时才占编号：行自身的 forwardedFrom 一定渲染，
- * 被回复消息的 forwardedFrom 只在目标已滑出、退回内嵌快照时渲染。
+ * 扫描消息窗口，建立发言人编号表、转发来源编号表及需标注消息号的集合。
  */
 function buildTranscriptContext(
   messages: BufferedMessage[],
@@ -163,13 +139,11 @@ function buildTranscriptContext(
   const numbered: Set<number> = new Set<number>();
   if (present.has(triggerMessageId)) numbered.add(triggerMessageId);
 
-  // 编号单独计数：机器人占 SELF_ROSTER_CODE，不占 uN。
   let userCode: number = 0;
   for (const message of messages) {
     if (!speakers.has(message.id)) {
       speakers.set(message.id, message.id === selfId ? SELF_ROSTER_CODE : `u${(userCode += 1)}`);
     }
-    // 每条都覆盖，留下最后一次的身份；只存引用，身份串在拼名册时按人拼一次。
     speakerSnapshots.set(message.id, message);
     if (message.forwardedFrom !== undefined && !origins.has(message.forwardedFrom)) {
       origins.set(message.forwardedFrom, `f${origins.size + 1}`);
@@ -185,8 +159,7 @@ function buildTranscriptContext(
   return { selfId, speakers, speakerSnapshots, origins, numbered, present, duplicates: messages.length - present.size };
 }
 
-/** 名册区块：编号到人、编号到转发来源各一段；没有转发时后一段整个不出现。
- *  两段都直接遍历 buildTranscriptContext 攒好的表。 */
+/** 构造末尾的发言人名册与可选的转发来源名册区块。 */
 function buildRosterBlock(context: TranscriptContext): string {
   const speakerLines: string[] = [];
   for (const [id, snapshot] of context.speakerSnapshots) {
@@ -205,16 +178,7 @@ function buildRosterBlock(context: TranscriptContext): string {
 }
 
 /**
- * 把 [start, end) 区间渲染成紧凑行，日期变化时插一条日期分隔行。
- *
- * 区间开头先写一条日期分隔行，每个分层区块自带日期。
- *
- * 逐行 `+=` 累加，不创建行数组。生产会在拼进提示词、跨线程 clone 或发送网络时
- * 展平 rope；对应基准必须用 `charCodeAt(length - 1)` 强制物化，不能只读 `.length`，
- * 见 scripts/perf/hotPaths/transcriptScenarios.ts。
- *
- * `first` 记录是否还没写出任何行，据此决定行前是否补换行。区间内部的格边界在写出该条消息的
- * 换行与日期行之前记切点；区间起点不在这里记（分层边界由调用方记，窗口起点不切）。
+ * 将指定区间渲染为紧凑转录行，跨日期时插入日期分隔行，并在分格边界记录稳定切点。
  */
 function renderRange(
   messages: BufferedMessage[],
@@ -229,10 +193,8 @@ function renderRange(
     if (index > start && index <= settledEnd && index % TRANSCRIPT_SETTLED_SEGMENT_SIZE === 0) {
       settledOffsets.push(offset + rendered.length);
     }
-    // `at` 由记录侧格式化成「YYYY/MM/DD HH:MM:SS」；没有空格时整串当时间用、不发日期行。
     const at: string = message.at;
     const separator: number = at.indexOf(" ");
-    // 同一天判定：日期段长度与前缀都相同；只在换天时 slice 出日期串。
     if (separator > 0 && (separator !== lastDate.length || !at.startsWith(lastDate))) {
       lastDate = at.slice(0, separator);
       if (!first) rendered += "\n";
@@ -253,15 +215,13 @@ function renderRange(
 }
 
 /**
- * 紧凑回复标注。目标还在本段里就只留指针；目标已滑出窗口时退回内嵌快照，
- * 作者仍在名册里则用编号，否则写完整身份。精确引用片段两条路都保留。
+ * 格式化紧凑回复标注：目标仍在窗口内时输出消息号指针，已滑出窗口时退回内嵌快照。
  */
 function formatCompactReplyTag(
   reference: BufferedReplyReference | undefined,
   context: TranscriptContext
 ): string {
   if (reference === undefined) return "";
-  // 内嵌引用串只在「已滑出」分支里拼接；目标仍在窗口内时走指针分支。
   if (context.present.has(reference.messageId)) {
     return `${replyPointerTemplate(reference.messageId)}${reference.quote ? replyQuoteTemplate(reference.quote) : ""}`;
   }
@@ -278,22 +238,12 @@ function formatCompactReplyTag(
 }
 
 /**
- * 把逐字缓存按判断优先级分层：最新 COMPACT_BATCH_SIZE 条始终单列为最热
- * 记忆；更早、但仍未滑出逐字缓存的上一块列为次要背景。
- *
- * 行本身走紧凑渲染：身份、转发来源各出一次名册，行内只写编号；日期只在变化时
- * 单起一行；消息号只给真的会被引用的行；被回复消息只留指针。名册排在全部逐字行
- * 之后：窗口里出现新发言人只改动区块末尾，两次块轮换之间逐字行相对上一轮是纯追加。
- * settledOffsets 把转录切成按消息序号对齐的多段，切分不改变 text。
- *
- * 本段只出数据和分层标注；行格式的说明由 systemInstruction 里的
- * TRANSCRIPT_FORMAT_INSTRUCTION 给出（见 consts/aiChat/prompts/memory.ts）。
+ * 将逐字缓存渲染为分层紧凑转录（次要背景区、最热记忆区与末尾名册）并计算稳定切点。
  */
 export function buildTieredVerbatimTranscript(
   messages: BufferedMessage[],
   options: TieredTranscriptOptions
 ): RenderedTranscript {
-  // 重复条数由 buildTranscriptContext 给出；有重复才去重并重建上下文。
   const scanned: TranscriptContext = buildTranscriptContext(messages, options);
   const deduped: BufferedMessage[] = scanned.duplicates === 0
     ? messages
@@ -301,13 +251,10 @@ export function buildTieredVerbatimTranscript(
   const context: TranscriptContext = scanned.duplicates === 0
     ? scanned
     : buildTranscriptContext(deduped, options);
-  // 边界按 TIER_BOUNDARY_ALIGNMENT 向上对齐，【最热记忆】恒不超过
-  // COMPACT_BATCH_SIZE 条，与 HOT_MEMORY_BLOCK_HEADER 标题里的条数一致。
   const overflow: number = deduped.length - COMPACT_BATCH_SIZE;
   const hotStart: number = overflow <= 0
     ? 0
     : Math.ceil(overflow / TIER_BOUNDARY_ALIGNMENT) * TIER_BOUNDARY_ALIGNMENT;
-  // 最新消息所在格的起点；窗口为空时为负，不记任何切点。
   const settledEnd: number =
     Math.floor((deduped.length - 1) / TRANSCRIPT_SETTLED_SEGMENT_SIZE) * TRANSCRIPT_SETTLED_SEGMENT_SIZE;
   const settledOffsets: number[] = [];
@@ -320,8 +267,6 @@ export function buildTieredVerbatimTranscript(
       settledOffsets,
     })
     : "";
-  // 分层边界是 TIER_BOUNDARY_ALIGNMENT 的整数倍，恒为格边界。切点同样紧跟上一条消息的正文、
-  // 落在空行与【最热记忆】标题之前：边界后移一格时，这个位置在下一轮仍是同一个切点。
   if (hotStart > 0 && hotStart <= settledEnd) {
     settledOffsets.push(EARLIER_VERBATIM_BLOCK_HEADER.length + earlierLines.length);
   }
@@ -346,8 +291,7 @@ export function buildTieredVerbatimTranscript(
 }
 
 /**
- * 同一个 message_id 的重复条目只保留最后一份（回填只落在后写入的那份上），使 #N 指针唯一。
- * 仅在 duplicates > 0 时由调用方调用。
+ * 按 message_id 去重并保留每个 message_id 的最后一条记录。
  */
 function dedupeByMessageId(messages: BufferedMessage[], duplicates: number): BufferedMessage[] {
   const kept: BufferedMessage[] = new Array<BufferedMessage>(messages.length - duplicates);
@@ -363,9 +307,7 @@ function dedupeByMessageId(messages: BufferedMessage[], duplicates: number): Buf
   return kept;
 }
 
-/** 已滑出逐字区的压缩摘要：只作为长期背景纳入理解，不参与判断当前状态
- * （两层仲裁见 consts/aiChat/prompts/memory.ts 的
- * CHAT_MEMORY_PRIORITY_INSTRUCTION）。 */
+/** 将已滑出逐字区的压缩摘要拼装为冷记忆区块。 */
 export function buildColdMemoryBlock(summaries: string[]): string {
   if (summaries.length === 0) return "";
   return (

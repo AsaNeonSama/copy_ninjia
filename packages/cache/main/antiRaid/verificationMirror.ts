@@ -1,47 +1,32 @@
-/** owner: main。入群验证的主线程侧镜像（owner 是 packages/antiRaid/verificationMirror.ts；终态执行
- * 预算与延后索引由同域的 packages/antiRaid/verificationAttempts.ts 维护）。所有写入只经
- * 这两个模块的具名函数；活动快照、延后索引与待确认墓碑两两互斥，等待落盘的延后请求与
- * 精确落盘水位线都只属于仍在活动快照里的 key（test/helpers/verificationMirrorInvariants.ts
- * 逐条断言）。
- *
- * 本模块是主线程状态，不与 cache/workers/antiRaid/verification.ts 的入群守卫线程验证状态机共享：
- * 权威状态机在 Worker 内，本模块只保存供两类 Worker 崩溃重放的纯数据。
- */
+/** owner: main。入群验证的主线程镜像与终态延后状态（packages/antiRaid/verificationMirror.ts 与
+ * packages/antiRaid/verificationAttempts.ts）。 */
 
 import type {
   DeferredVerificationRecord,
   VerificationSnapshot,
 } from "../../../types/antiRaid/verification";
 
-/** activeVerificationSnapshots 的可变实例；只经下面三个写入函数修改。 */
+/** activeVerificationSnapshots 的可变底层表；仅经下方写入函数修改。 */
 const activeSnapshots: Map<string, VerificationSnapshot> = new Map();
 
 /**
- * 主线程持有的待验证纯数据镜像，key 为 verificationKey(chatId, userId)，
- * 作为 Anti-Raid Worker 与 Disk I/O Worker 崩溃重放的数据源；权威状态机在 Anti-Raid Worker 内。
- * hydratePendingVerifications 在启动时先清空、再用 Disk I/O 恢复出的记录整体重建；
- * 此后 antiRaid/verificationMirror.ts 按 generation+revision 拒绝迟到事件后增量更新/删除。
- * Anti-Raid Worker 崩溃重建时（onRespawn）本镜像不清空，只原地把每条记录的 generation
- * 提升到新代际后整体回放给新 Worker；Disk I/O Worker 崩溃重建时（onDiskIORespawn）
- * 同样整体重放给它补齐。
+ * 主线程持有的待验证纯数据只读镜像（key 为 verificationKey(chatId, userId)）。
  *
- * 容量：本层不设淘汰；硬顶由 antiRaid/verificationMirror.ts 按 VERIFICATION_RECORD_CAPACITY 拒收
- * 新记录并请求受监督重启，落盘侧 workers/diskIO/verificationWrites.ts 再核一次；延后的终态由
- * deferredVerificationRecords 以最小索引保留。
- *
- * 导出只读视图；写入只经 setActiveVerificationSnapshot、deleteActiveVerificationSnapshot 与
- * clearActiveVerificationSnapshots，三者同步维护下面的按群二级索引。
+ * 权威线程为 Anti-Raid Worker（cache/workers/antiRaid/verification.ts）。
+ * 推送时机与模式：启动时 hydratePendingVerifications 从 Disk I/O 恢复记录全量播种，此后由
+ * Anti-Raid Worker 按 generation+revision 增量推送更新或删除。
+ * 重放方：Anti-Raid Worker 崩溃重建时原地提升 generation 后全量重放给新 Worker；Disk I/O
+ * Worker 崩溃重建时由 onDiskIORespawn 全量重放。
+ * 清理：验证完成、离群、群 teardown 或转入延后索引时经 deleteActiveVerificationSnapshot 删除，
+ * 启动 hydrate 时经 clearActiveVerificationSnapshots 清空。无条目表示无活动验证快照，不沿用旧值。
+ * 容量上限为 VERIFICATION_RECORD_CAPACITY，满额拒收新记录并触发受监督重启，不设淘汰。
  */
 export const activeVerificationSnapshots: ReadonlyMap<string, VerificationSnapshot> = activeSnapshots;
 
-/**
- * activeVerificationSnapshots 的按群二级索引：chatId -> 该群活动镜像里的 userId 集合，供每条群消息判定
- * 「发送者是否待验证」时按数值键查表、不拼复合键（isActiveVerificationUser）。随活动镜像的三个写入函数
- * 同步填充与清理，群的集合清空时删除该群条目；Worker 崩溃不清理（主线程状态）。容量与活动镜像同阶。
- */
+/** activeVerificationSnapshots 的按群二级索引（chatId -> userId 集合），随写入函数同步增删。 */
 const activeUsersByChat: Map<number, Set<number>> = new Map();
 
-/** 写入或替换一条活动快照，并把 snapshot 的 chatId/userId 登记进按群索引；key 为 verificationKey(chatId, userId)。 */
+/** 写入或替换一条活动快照，并同步更新按群二级索引。 */
 export function setActiveVerificationSnapshot(key: string, snapshot: VerificationSnapshot): void {
   activeSnapshots.set(key, snapshot);
   let users: Set<number> | undefined = activeUsersByChat.get(snapshot.chatId);
@@ -52,7 +37,7 @@ export function setActiveVerificationSnapshot(key: string, snapshot: Verificatio
   users.add(snapshot.userId);
 }
 
-/** 删除一条活动快照及其按群索引；key 不在镜像里时不做任何事。 */
+/** 删除一条活动快照及其按群二级索引。 */
 export function deleteActiveVerificationSnapshot(key: string): void {
   const snapshot: VerificationSnapshot | undefined = activeSnapshots.get(key);
   if (snapshot === undefined) return;
@@ -63,29 +48,32 @@ export function deleteActiveVerificationSnapshot(key: string): void {
   if (users.size === 0) activeUsersByChat.delete(snapshot.chatId);
 }
 
-/** 清空活动镜像与按群索引。 */
+/** 清空全部活动快照与按群二级索引。 */
 export function clearActiveVerificationSnapshots(): void {
   activeSnapshots.clear();
   activeUsersByChat.clear();
 }
 
-/** userId 在 chatId 群的活动镜像里是否有待验证快照；按数值键查按群索引，不分配对象。 */
+/** 查询 userId 是否在 chatId 群的活动验证镜像中。 */
 export function isActiveVerificationUser(chatId: number, userId: number): boolean {
   if (activeUsersByChat.size === 0) return false;
   return activeUsersByChat.get(chatId)?.has(userId) === true;
 }
 
 /**
- * 主线程已收到 Disk I/O 回执的最新 active revision，用于 Anti-Raid Worker 重建。
- * 清理：对应 key 从 activeVerificationSnapshots 删除并收到删除回执时移出，
- * 完整启动 hydrate 时整表重建。容量与 activeVerificationSnapshots 同阶。
+ * 各活动验证 key 已收到 Disk I/O 落盘回执的最新 `{ generation, revision }`。
+ * 填充：启动 hydrate 与收到 verificationPersisted 回执时更新。
+ * 清理：key 从 activeVerificationSnapshots 删除且收到删除回执时移除，启动 hydrate 时整表重建。
+ * 容量与 activeVerificationSnapshots 同阶，不设淘汰。
  */
 export const persistedVerificationRevisions: Map<string, { generation: number; revision: number }> = new Map();
 
 /**
- * 已从 active 镜像删除、但尚未收到当天 JSON 追加确认的终结变化。
- * 清理：收到该 revision 的追加确认时移出，完整启动 hydrate 时整表清空。
- * 容量：同时在途的终结写入数，被 Disk I/O 的写预算封住；不设淘汰。
+ * 已从活动镜像删除、尚待 Disk I/O 落盘回执的验证删除墓碑。
+ * 填充：acceptVerificationDelete 接收 Worker 墓碑、deleteDeferredVerificationsForChat 删除延后记录时
+ * 写入并投递删除。清理：收到匹配的删除落盘回执（verificationPersisted 且 deleted）、同 key 更新
+ * revision 的活动快照被接收、转入延后索引或启动 hydrate 时移除；Disk I/O Worker 重建时全量重放。
+ * 容量受待验证记录上限约束，不设淘汰。
  */
 export const pendingVerificationDeletes: Map<string, {
   chatId: number;
@@ -95,35 +83,35 @@ export const pendingVerificationDeletes: Map<string, {
 }> = new Map();
 
 /**
- * 每条终态的本进程执行次数；首次许可时填充，确认延后时标记为上限，
- * 正常删除或完整启动 hydrate 时清理。跨 Anti-Raid Worker 代际保留，容量不超过
- * 当前活动验证与延后索引的 key 数；Worker 崩溃无需重放，主线程继续作为权威。
+ * 各验证 key 在本进程内的终态执行尝试次数。
+ * 填充：grantVerificationAttempt 许可执行时递增，acceptVerificationDeferred 转入延后时置为
+ * VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS。清理：验证正常删除或启动 hydrate 时移除。
+ * 跨 Anti-Raid Worker 代际保留，进程重启后从空表开始；容量不超过活动与延后验证 key 总数。
  */
 export const terminalVerificationAttempts: Map<string, number> = new Map();
 
 /**
- * 预算耗尽或许可无法确认后从活动镜像移出的最小索引；Worker 上报精确
- * generation/revision 时填充，明确离群、功能关闭或群 teardown 时写 tombstone 后
- * 清理。完整进程重启不恢复本索引，磁盘快照会重新进入活动镜像；容量不超过仍留在
- * 磁盘且本进程已延后的终态数。Anti-Raid Worker 重建时全量重放给新 isolate，
- * 缺少条目表示本进程没有已知的延后闩锁，不得解释为沿用旧值。
+ * 终态执行预算耗尽或无法继续执行后从活动镜像移出的延后验证索引。
+ *
+ * 权威线程为主线程；Worker 上报 defer 且最后快照已落盘时写入，离群、守卫关闭或群 teardown
+ * 写入删除墓碑后移除。重放方：Anti-Raid Worker 重建时全量重放给新 isolate；进程重启后从空表开始，
+ * 磁盘记录重新进入活动镜像。无条目表示无已生效的延后闩锁，不沿用旧值。容量不超过 VERIFICATION_RECORD_CAPACITY。
  */
 export const deferredVerificationRecords: Map<string, DeferredVerificationRecord> =
   new Map();
 
 /**
- * Worker 已卸载运行态、但最后 revision 尚未收到落盘回执的延后
- * 请求；期间完整快照继续留在 activeVerificationSnapshots，供 DiskIO 重建重放，
- * Anti-Raid Worker adopt 则只接管本最小闩锁。精确落盘回执后移入正式延后索引，
- * 显式删除或完整启动时清理。容量不超过在途关键验证写入数。
+ * 已请求延后、但最后一份快照尚未收到 Disk I/O 落盘回执的暂存表。
+ * 填充：Worker 上报 defer 且对应 revision 尚未落盘时写入（期间完整快照仍留在 activeVerificationSnapshots）。
+ * 清理：收到匹配落盘回执后移入 deferredVerificationRecords，或显式删除 / 启动 hydrate 时移除。
+ * 容量不超过在途验证写入数。
  */
 export const pendingVerificationDeferrals: Map<string, DeferredVerificationRecord> =
   new Map();
 
 /**
- * 验证记录容量首次越界后置位，确保同一停机链只向应用生命周期
- * 报告一次 fatal；完整启动 hydrate 与 terminate 重置。容量恒为一个 boolean，
- * Worker 崩溃不清理。
+ * 验证记录容量越界 fatal 边沿标记；首次越界置 true，启动 hydrate 与 terminate 时置 false。
+ * 容量恒为一个布尔值，Worker 崩溃不影响。
  */
 export const verificationCapacityFatalState: { current: boolean } = {
   current: false,

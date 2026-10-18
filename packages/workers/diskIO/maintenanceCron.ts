@@ -17,7 +17,7 @@ export function stopDiskIOMaintenanceCron(): void {
   diskIOMaintenanceCron.current = null;
 }
 
-/** 启动恢复成功后注册唯一、不会阻止 Worker 退出的配置时区午夜维护 cron。 */
+/** 注册或替换配置时区午夜维护 cron（已 unref）。 */
 export function registerDiskIOMaintenanceCron(
   reply: DiskIOMaintenanceReplySink
 ): void {
@@ -25,7 +25,6 @@ export function registerDiskIOMaintenanceCron(
   diskIOMaintenanceCron.current = Bun.cron(
     DISK_IO_MAINTENANCE_CRON,
     (): void => {
-      // 维护按到点时刻排在统一队列末尾，不并入定时 flush：它要排在此前已到达的业务消息之后。
       void enqueueDiskIOOperation(
         async (): Promise<void> => runDiskIOMidnightMaintenance(reply)
       );

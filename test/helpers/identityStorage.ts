@@ -1,12 +1,15 @@
 import {
-  blocklistEntryCache,
   identityEntryCounts,
   resetIdentityStorageCache,
-  whitelistEntryCache,
 } from "../../packages/cache/main/identityStorage";
-import { temporaryAdBypassActivityCache } from
-  "../../packages/cache/main/temporaryAdBypass";
+
 import type { BlocklistEntryData } from "../../packages/types/identityPolicy";
+import { identityFieldView } from "./identityCacheView";
+import type { IdentityFieldView } from "./identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 interface BlockedTestRecord {
   readonly isBlocked: true;
@@ -43,14 +46,14 @@ export const blockedIdentityTestView: {
   },
   get(id: number): BlockedTestRecord | undefined {
     const entry: Readonly<BlocklistEntryData> | null | undefined =
-      blocklistEntryCache.peek(id);
+      blocklistField.peek(id);
     return entry === undefined || entry === null
       ? undefined
       : { isBlocked: true, blockedAt: entry.blockedAt };
   },
   has(id: number): boolean {
-    return blocklistEntryCache.peek(id) !== undefined &&
-      blocklistEntryCache.peek(id) !== null;
+    return blocklistField.peek(id) !== undefined &&
+      blocklistField.peek(id) !== null;
   },
   keys(): IterableIterator<number> {
     return blockedIdentityTestIds.keys();
@@ -58,12 +61,12 @@ export const blockedIdentityTestView: {
   set(id: number, record: BlockedTestRecord): void {
     if (!this.has(id)) identityEntryCounts.blocklist++;
     blockedIdentityTestIds.add(id);
-    blocklistEntryCache.set(id, {
+    blocklistField.set(id, {
       blockedAt: record.blockedAt,
       meta: TEST_IDENTITY_META,
     });
-    whitelistEntryCache.set(id, null);
-    temporaryAdBypassActivityCache.set(id, null);
+    whitelistField.set(id, null);
+    temporaryAdBypassField.set(id, null);
   },
 };
 
@@ -74,9 +77,9 @@ export function readBlockedIdentityTestIds(): readonly number[] {
 
 /** 为将要新增的身份建立三张关系的负缓存。 */
 export function seedMissingIdentity(id: number): void {
-  if (!blocklistEntryCache.has(id)) blocklistEntryCache.set(id, null);
-  if (!whitelistEntryCache.has(id)) whitelistEntryCache.set(id, null);
-  if (!temporaryAdBypassActivityCache.has(id)) {
-    temporaryAdBypassActivityCache.set(id, null);
+  if (!blocklistField.has(id)) blocklistField.set(id, null);
+  if (!whitelistField.has(id)) whitelistField.set(id, null);
+  if (!temporaryAdBypassField.has(id)) {
+    temporaryAdBypassField.set(id, null);
   }
 }

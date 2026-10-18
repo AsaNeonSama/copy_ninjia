@@ -9,6 +9,7 @@ import {
   bufferAdminChangeDuringFetch,
   cacheAdminIds,
   chatAdmins,
+  clearChatAdminCache,
   pendingAdminChangesDuringFetch,
   resetAdminCache,
   takePendingAdminChanges,
@@ -148,10 +149,10 @@ describe("Anti-Raid cache owners", () => {
     cacheAdminIds(ANTI_RAID_CHAT_CACHE_MAX + 1, new Set(), 999);
     cacheLinkedChannel(ANTI_RAID_CHAT_CACHE_MAX + 1, true, 999);
 
-    expect(chatAdmins).toHaveLength(ANTI_RAID_CHAT_CACHE_MAX);
+    expect(chatAdmins.size).toBe(ANTI_RAID_CHAT_CACHE_MAX);
     expect(chatAdmins.has(1)).toBeFalse();
     expect(chatAdmins.has(ANTI_RAID_CHAT_CACHE_MAX + 1)).toBeTrue();
-    expect(linkedChannels).toHaveLength(ANTI_RAID_CHAT_CACHE_MAX);
+    expect(linkedChannels.size).toBe(ANTI_RAID_CHAT_CACHE_MAX);
     expect(linkedChannels.has(1)).toBeFalse();
     expect(linkedChannels.has(ANTI_RAID_CHAT_CACHE_MAX + 1)).toBeTrue();
   });
@@ -254,6 +255,34 @@ describe("Anti-Raid cache owners", () => {
     await expect(fresh).resolves.toEqual(new Set([7]));
     expect(chatAdmins.get(-1010)?.adminIds).toEqual(new Set([7]));
     expect(adminFetches.has(-1010)).toBeFalse();
+  });
+
+  test("单群停用清除该群管理员快照与在途拉取，不影响其它群", async () => {
+    cacheAdminIds(-1011, new Set([41]), Date.now());
+    cacheAdminIds(-1012, new Set([99]), Date.now());
+    let resolveStale!: (admins: { user: { id: number }; is_anonymous: boolean }[]) => void;
+    let resolveOther!: (admins: { user: { id: number }; is_anonymous: boolean }[]) => void;
+    getChatAdministrators
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOther = resolve; }));
+    const stale = adminCache.fetchAdminIds(-1011);
+    const otherInFlight = adminCache.fetchAdminIds(-1013);
+    adminCache.applyAdminChange(-1011, 41, false);
+    adminCache.applyAdminChange(-1013, 88, true);
+
+    clearChatAdminCache(-1011);
+
+    expect(chatAdmins.has(-1011)).toBeFalse();
+    expect(adminFetches.has(-1011)).toBeFalse();
+    expect(pendingAdminChangesDuringFetch.has(-1011)).toBeFalse();
+    expect(chatAdmins.get(-1012)?.adminIds).toEqual(new Set([99]));
+
+    resolveStale([{ user: { id: 41 }, is_anonymous: false }]);
+    resolveOther([{ user: { id: 77 }, is_anonymous: false }]);
+    await expect(stale).resolves.toEqual(new Set([41]));
+    await expect(otherInFlight).resolves.toEqual(new Set([77, 88]));
+    expect(chatAdmins.has(-1011)).toBeFalse();
+    expect(chatAdmins.get(-1013)?.adminIds).toEqual(new Set([77, 88]));
   });
 
   test("增量只原地改已有快照；没拉取过的群不建条目也不留增量", () => {

@@ -9,6 +9,10 @@ import type {
   IdentityPolicyRawReadResult,
   IdentityPolicyVerdicts,
 } from "../../packages/types/identityStorage";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
 
 /**
  * 身份 LRU 驻留与批量处置局部结论：预热命中刷新热度，破坏性批量路径按块直接
@@ -29,22 +33,15 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
 
 const {
   resetIdentityStorageCache,
-  whitelistEntryCache,
-  blocklistEntryCache,
 } = await import("../../packages/cache/main/identityStorage");
-const { temporaryAdBypassActivityCache } = await import("../../packages/cache/main/temporaryAdBypass");
+
 const {
   cachedWhitelistEntry,
   isIdentityPolicyCached,
   prefetchIdentityPolicies,
   readIdentityPolicyVerdicts,
 } = await import("../../packages/infra/identityStorage");
-
-function seedMissing(id: number): void {
-  blocklistEntryCache.set(id, null);
-  whitelistEntryCache.set(id, null);
-  temporaryAdBypassActivityCache.set(id, null);
-}
+const { seedMissingIdentity: seedMissing } = await import("../helpers/identityStorage");
 
 function whitelistText(username: string): string {
   return JSON.stringify({
@@ -67,8 +64,8 @@ describe("身份 LRU 驻留与批量处置结论", () => {
   test("预热命中的已缓存身份刷新热度，不被同一次预热写入的冷键挤出", async () => {
     const admin: number = 777;
     seedMissing(admin);
-    whitelistEntryCache.set(admin, JSON.parse(whitelistText("admin")));
-    // 其它身份全部比管理员新，管理员停在三份 LRU 的最旧端。
+    whitelistField.set(admin, JSON.parse(whitelistText("admin")));
+    // 其它身份全部比管理员新，管理员停在合并身份缓存的最旧端。
     for (let id: number = 1; id < IDENTITY_READ_CACHE_MAX_ENTRIES; id++) seedMissing(1_000_000 + id);
     const chunk: number[] = [admin];
     for (let id: number = 1; id < IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES; id++) chunk.push(2_000_000 + id);

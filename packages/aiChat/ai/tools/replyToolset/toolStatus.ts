@@ -1,15 +1,6 @@
 /**
- * 本轮工具状态：运行时状态区块里按轮变化的工具可用性，每个有条件的工具一行，只写事实
- * （能不能用、是否冷却、还剩几次、独立检索的调用上限）。模型据此怎么做由系统提示词「行动与停止」段
- * （VOICE_LANGUAGE_PROMPTS 的 replyActionInstruction）与各工具说明规定；工具清单本身每轮恒定。
- *
- * createReplyToolset 在组装工具的同一时刻取一次快照，同一回复的工具往返复用同一个
- * 字符串。快照在回复过程中可能过期（另一轮刚占了生图冷却或用掉最后一次语音），
- * 此时以各执行器在调用时的判定为准。
- *
- * 行序固定为生图 → 语音 → 问答 → 独立检索。部署没有生图或语音能力时对应工具不挂，也不出这一行；
- * 问答两件恒挂，问答行恒出现；独立检索只在配置了该能力时给出调用上限。
- * 整段位于稳定前缀之后（前缀约束见 docs/cn/04-invariants.md）。
+ * 本轮工具状态区块组装：按固定顺序（生图 → 语音 → 问答 → 独立检索）输出各工具在当前轮次的可用性快照。
+ * 前缀缓存约束见 docs/cn/04-invariants.md。
  */
 
 import {
@@ -31,11 +22,12 @@ import { defaultAspectRatioFor, imageCooldownRetrySeconds } from "./imageGenerat
 import type { AgentTtsCapabilityConfig } from "../../../../types/config";
 import type { CooldownAvailability } from "../../../../types/cooldown";
 import type { ReplyToolContext } from "../../../../types/aiChat/replies";
+import type { TelegramVisionSource } from "../../../../types/media";
 
 /** 本模块从本轮回复上下文里真正读到的字段。 */
 export type ToolStatusContext = Pick<
   ReplyToolContext,
-  "chatId" | "chatQa" | "mediaToolsRequested" | "imageGenerationReference" | "bypassMediaToolCooldown"
+  "chatId" | "chatQaCount" | "mediaToolsRequested" | "imageGenerationReferences" | "bypassMediaToolCooldown"
 >;
 
 /** buildToolStatusBlock 的入参：上下文子集、媒体能力与独立检索的本轮配置上限。 */
@@ -59,9 +51,15 @@ function imageStatusLine(ctx: ToolStatusContext): string {
   if (!availability.allowed) {
     return imageToolStatusCoolingDown(imageCooldownRetrySeconds(availability.retryAfterMs));
   }
-  const reference: ReplyToolContext["imageGenerationReference"] = ctx.imageGenerationReference;
-  return imageToolStatusAvailable(reference
-    ? imageReferencePresent(reference.width, reference.height, defaultAspectRatioFor(reference))
+  const references: readonly TelegramVisionSource[] | undefined = ctx.imageGenerationReferences;
+  const primary: TelegramVisionSource | undefined = references?.[0];
+  return imageToolStatusAvailable(references !== undefined && primary !== undefined
+    ? imageReferencePresent({
+      count: references.length,
+      width: primary.width,
+      height: primary.height,
+      defaultAspectRatio: defaultAspectRatioFor(primary),
+    })
     : IMAGE_REFERENCE_ABSENT);
 }
 
@@ -76,7 +74,7 @@ export function buildToolStatusBlock({ ctx, imageEnabled, voiceEnabled, webSearc
   let block: string = TOOL_STATUS_BLOCK_LABEL;
   if (imageEnabled) block += "\n" + imageStatusLine(ctx);
   if (voiceEnabled) block += "\n" + voiceStatusLine();
-  block += "\n" + groupQaToolStatus(ctx.chatQa?.size ?? 0);
+  block += "\n" + groupQaToolStatus(ctx.chatQaCount ?? 0);
   if (webSearchMaxCallsPerUse !== undefined) block += "\n" + webSearchToolStatus(webSearchMaxCallsPerUse);
   return block;
 }

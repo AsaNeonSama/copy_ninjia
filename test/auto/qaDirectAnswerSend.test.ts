@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { replyCommandNoticeVia } from "../helpers/common";
 
 /**
- * 问答直答的发送边界。判定那一半在 qaDirectAnswer.test.ts；这里验证两件发送侧的事：
- * 1. 答案走 sendMessage，不走命令提示的延迟清理边界（`AGENTS.md` 的长期保留例外）；
- * 2. 论坛群里带上话题：答案长期留在群里，不只靠 reply_parameters。
+ * 问答直答的发送边界（判定在 qaDirectAnswer.test.ts）：
+ * 1. 答案走 sendMessage，不走命令提示的延迟清理边界；
+ * 2. 论坛群里带上话题 ID。
  */
 
 interface CapturedSend {

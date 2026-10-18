@@ -14,7 +14,7 @@ import type { Scenario } from "./types";
 /** 覆盖模型、直接轮、存活容量、队列、触发种类和出站压力的准入组合，计时内仅传既有输入。 */
 export function replyAdmissionScenario(): Scenario {
   const inputs: AdmitTriggerInput[] = cartesianProduct({
-    kind: ["direct", "random", "mediaDirect", "mediaRandom"],
+    kind: ["direct", "random"],
     telegramBackpressured: [false, true],
     directRoundActive: [false, true],
     deliveryAvailable: [true, false],

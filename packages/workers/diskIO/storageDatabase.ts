@@ -18,7 +18,7 @@ export {
   readBlocklistIdPage,
   readIdentityPolicies,
 } from "./storageDatabase/identityPolicy";
-export { handlePendingRemovalSnapshot } from "./storageDatabase/pendingRemoval";
+export { handleBlocklistRemovalWrite } from "./storageDatabase/pendingRemoval";
 export { closeStorageDatabaseForShutdown } from "./storageDatabase/shutdown";
 export {
   handleTemporaryAdBypassWrite,

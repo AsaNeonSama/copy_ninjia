@@ -1,36 +1,30 @@
 /**
- * function calling 工具返回给模型的 wire 格式。所有执行器（aiChat/ai/tools/ 与
- * aiChat/ai/tools/replyToolset/ 下的各个 tool）都经 toolError 生成失败结果；
- * 编排器、串行动作链与兜底发送都经 parseToolResult 读回结果（见
- * aiChat/ai/tools/replyToolset/orchestrator.ts），失败结果不带 success 字段。
+ * 工具调用返回给模型的 JSON wire 格式构造与解析。
  */
 
-/** 工具结果 JSON 里编排侧读取的字段；结果只由本地执行器构造。 */
+/** 工具结果 JSON 中供编排层读取的字段。 */
 interface ToolResultWire {
   success?: boolean;
   actions_used?: number;
   error?: unknown;
 }
 
-/** 一条工具结果里编排侧读取的两项。 */
+/** 解析后的工具执行结果摘要。 */
 export interface ParsedToolResult {
-  /** 占用的动作额度：成功结果按 actions_used（缺省 1）；失败、拒绝与重复跳过为 0。 */
+  /** 占用的动作额度：成功结果按 actions_used 计（未指定时按单次动作计），失败结果不占用额度。 */
   readonly actionsUsed: number;
-  /** 失败说明；不是失败结果时为 null。 */
+  /** 失败说明；非失败结果时为 null。 */
   readonly error: string | null;
 }
 
 /**
- * 一条工具失败结果。message 直接是给模型看的说明，按调用方给出的原文，不做本地化。
- * @param extra 少数失败结果还要带上模型需要的附加字段（`retryable`、
- *   `retry_after_seconds`、`required_action` 等，见 replyToolset/imageGeneration.ts）。
- *   它们按传入顺序拼在 `error` 之后。
+ * 序列化一条工具失败结果 JSON，可选附带供模型读取的扩展字段。
  */
 export function toolError(message: string, extra?: Readonly<Record<string, unknown>>): string {
   return JSON.stringify({ error: message, ...extra });
 }
 
-/** 解析一条工具结果，只解析一次。 */
+/** 解析单条工具结果 JSON。 */
 export function parseToolResult(result: string): ParsedToolResult {
   const parsed: ToolResultWire = JSON.parse(result) as ToolResultWire;
   return {

@@ -1,6 +1,7 @@
 import { STORAGE_DATABASE_DOMAINS, STORAGE_WRITE_MAX_FAILURES } from "../../../consts/diskIO/business";
 import {
   resetStoragePendingBudgets,
+  storagePendingBudgets,
   storageWriteRetry,
   storageWriteFatalReply,
   pendingAiContextWrites,
@@ -8,7 +9,6 @@ import {
   pendingChatQaEntryCount,
   pendingChatQaWrites,
   pendingChatStateWrites,
-  pendingRemovalSnapshotRevision,
   pendingRemovalWrites,
   pendingTemporaryAdBypassWrites,
   pendingWhitelistWrites,
@@ -25,21 +25,27 @@ import {
   IDENTITY_WRITE_FLUSH_INTERVAL_MS,
 } from "../../../consts/identityStorage";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../consts/storage";
+import { errorMessage } from "../../../libs/errorMessage";
 import {
   commitStorageDatabaseChanges,
   prepareStorageDatabaseWriter,
 } from "../../../database/interact/transaction";
 import type {
+  BlocklistRemovalPersistedRevision,
   ChatQaPersistedRevision,
   ChatStatePersistedRevision,
   DiskIODomain,
   IdentityPersistenceReply,
   IdentityPolicyPersistedRevision,
+  RecoveryReplayFailedReply,
   StorageDatabaseDomain,
   TemporaryAdBypassPersistedRevision,
 } from "../../../types/diskIO/replies";
 import type { StorageDatabase, StorageDatabaseWriter } from "../../../types/storageDatabase";
+import { queueTimedDiskIOOperation } from "../timedFlush";
 import { hasUrgentAiContextWrites, settleAiContextPersisted } from "./aiContext";
+import { assertPendingChatQaCapacity } from "./chatQa";
+import { assertPendingChatStateInvariants } from "./chatState";
 import { requireStorageDatabase } from "./context";
 
 /** 当前连接的预编译写语句；每条连接首次提交时建一次。 */
@@ -53,7 +59,7 @@ function storageDatabaseWriter(): StorageDatabaseWriter {
 }
 
 /** 任一共享 SQLite 业务表或 AI 上下文存在待提交最终值时返回 true。 */
-export function hasPendingStorageWrites(): boolean {
+function hasPendingStorageWrites(): boolean {
   return pendingWhitelistWrites.size > 0 ||
     pendingBlocklistWrites.size > 0 ||
     pendingTemporaryAdBypassWrites.size > 0 ||
@@ -63,10 +69,23 @@ export function hasPendingStorageWrites(): boolean {
     pendingAiContextWrites.size > 0;
 }
 
-/**
- * 为已排入缓冲的变化建立固定截止 timer；没有待写变化、已有 timer、已停止自动提交或
- * 停机已关库时不重复装。AI 上下文的普通快照、事务失败后的退避与重放区间都走这条定时提交。
- */
+/** 执行定时到点的共享 SQLite 事务提交。 */
+function runScheduledStorageCommit(): void {
+  if (!hasPendingStorageWrites() || storageDatabaseClosed.current) return;
+  if (storageFlushHold.current) {
+    scheduleStorageCommit();
+    return;
+  }
+  const reply: IdentityPersistenceReply | null = storagePersistenceReplyHolder.current;
+  if (reply === null) {
+    console.error("[diskIOWorker] storage database flush reply channel is unavailable.");
+    scheduleStorageCommit();
+    return;
+  }
+  flushStorageDatabase(reply);
+}
+
+/** 按需注册共享 SQLite 事务的定时提交 timer，到点后经统一操作队列合并执行。 */
 export function scheduleStorageCommit(): void {
   if (
     !hasPendingStorageWrites() ||
@@ -76,27 +95,12 @@ export function scheduleStorageCommit(): void {
   ) return;
   storageWriteFlushTimer.current = setTimeout((): void => {
     storageWriteFlushTimer.current = null;
-    if (storageFlushHold.current) {
-      scheduleStorageCommit();
-      return;
-    }
-    const reply: IdentityPersistenceReply | null = storagePersistenceReplyHolder.current;
-    if (reply === null) {
-      console.error("[diskIOWorker] storage database flush reply channel is unavailable.");
-      scheduleStorageCommit();
-      return;
-    }
-    // 事务失败由 flushStorageDatabase 自己记日志并按退避重排。
-    flushStorageDatabase(reply);
+    queueTimedDiskIOOperation(runScheduledStorageCommit);
   }, Math.max(IDENTITY_WRITE_FLUSH_INTERVAL_MS, storageWriteRetry.retryAt - performance.now()));
   storageWriteFlushTimer.current.unref();
 }
 
-/**
- * AI 上下文删除与 purge 后首份快照的提交入口：立即提交全部表的待写值。镜像重放区间内、
- * 事务失败后的重试退避期内或回执通道未安装时只挂 timer：区间关闭时由 setStorageFlushHold
- * 立即提交，退避期由重试 timer 提交，不额外消耗连续失败预算。
- */
+/** 立即提交共享 SQLite 事务；处于重放暂挂、失败退避或无回执通道时改为注册定时提交。 */
 export function commitStorageUrgently(): void {
   const reply: IdentityPersistenceReply | null = storagePersistenceReplyHolder.current;
   if (storageFlushHold.current || storageWriteRetry.failures > 0 || reply === null) {
@@ -106,11 +110,7 @@ export function commitStorageUrgently(): void {
   flushStorageDatabase(reply);
 }
 
-/**
- * 任一领域达到批次阈值即提交全部领域，否则为首条变化建立固定截止 timer。
- * 事务失败后新输入仅合并最终值，由有界退避 timer 重试；条目和字节预算独立执行。
- * 镜像重放区间（storageFlushHold）内只挂 timer，不提交。
- */
+/** 任一领域达到批次阈值时立即提交共享事务，否则注册定时提交（重放暂挂或退避期仅挂 timer）。 */
 export function flushIfStorageFull(reply: IdentityPersistenceReply): void {
   if (storageWriteRetry.failures > 0 || storageFlushHold.current) { scheduleStorageCommit(); return; }
   if (
@@ -128,25 +128,16 @@ export function flushIfStorageFull(reply: IdentityPersistenceReply): void {
 }
 
 /**
- * 当前各表与 AI 上下文的待写值在一个显式事务中提交；成功后才清缓冲并回 ACK，AI 上下文
- * 另按 AI 记忆协议发出删除与即时写入回执。事务失败时记日志、累计失败并按退避重排提交，
- * 结束时都会为剩余变化重排 timer。拒收标记不影响返回值，由统一 flush 经
- * collectStorageDatabaseFailures 按领域回报。停机已关库（storageDatabaseClosed）时不再提交，
- * 有待写值即返回 false，不计入连续失败。
- * @returns true 表示本轮全部变化已 durable 或本来无变化。
+ * 在单个显式事务中提交全部共享 SQLite 业务表与 AI 上下文待写项，成功后清空缓冲并发出回执。
+ * 失败时累加退避计数并重排 timer；关库后存在待写项时直接返回 false。参见 docs/cn/04-invariants.md。
  */
 export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
-  // outbox 快照 revision 只与待写行一同挂起（没有行变化时当场确认，见 pendingRemoval.ts），
-  // 待写缓冲只在提交成功或整表复位时清空，两处都同时清掉 revision：无待写即无待确认的 revision。
   if (!hasPendingStorageWrites()) return true;
   if (storageDatabaseClosed.current) return false;
   if (storageWriteFlushTimer.current !== null) {
     clearTimeout(storageWriteFlushTimer.current);
     storageWriteFlushTimer.current = null;
   }
-  // Bun SQLite 事务同步执行；提交、清空与 ACK 回调之间不让出本 isolate，因此提交的
-  // 就是各缓冲的全部内容，成功后整表结算清空。
-  const removalRevision: number | null = pendingRemovalSnapshotRevision.current;
   try {
     commitStorageDatabaseChanges(storageDatabaseWriter(), {
       whitelist: pendingWhitelistWrites,
@@ -176,6 +167,7 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
   const temporaryAdBypassAcknowledgements: TemporaryAdBypassPersistedRevision[] = [];
   const chatStateAcknowledgements: ChatStatePersistedRevision[] = [];
   const chatQaAcknowledgements: ChatQaPersistedRevision[] = [];
+  const removalAcknowledgements: BlocklistRemovalPersistedRevision[] = [];
   for (const [id, change] of pendingWhitelistWrites) {
     acknowledgements.push({ table: "whitelist", id, revision: change.revision });
   }
@@ -188,6 +180,9 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
     temporaryAdBypassAcknowledgements.push({ id, revision: change.revision });
   }
   pendingTemporaryAdBypassWrites.clear();
+  for (const [removalId, change] of pendingRemovalWrites) {
+    removalAcknowledgements.push({ removalId, revision: change.revision });
+  }
   pendingRemovalWrites.clear();
   for (const [chatId, change] of pendingChatStateWrites) {
     chatStateAcknowledgements.push({ chatId, revision: change.revision });
@@ -204,29 +199,24 @@ export function flushStorageDatabase(reply: IdentityPersistenceReply): boolean {
     settleAiContextPersisted(chatId, change);
   }
   pendingAiContextWrites.clear();
-  pendingRemovalSnapshotRevision.current = null;
   reply({
     type: "identityStoragePersisted",
     writes: acknowledgements,
     temporaryAdBypassWrites: temporaryAdBypassAcknowledgements,
     chatStateWrites: chatStateAcknowledgements,
     chatQaWrites: chatQaAcknowledgements,
-    ...(removalRevision === null ? {} : { removalSnapshotRevision: removalRevision }),
+    removalWrites: removalAcknowledgements,
   });
   scheduleStorageCommit();
   return true;
 }
 
-/** 该领域在本轮 flush 后是否失败：仍有未提交的值，或取走了它的拒收标记。 */
+/** 取出领域的拒收标记并合并其 dirty 状态。 */
 function takeStorageDomainFailure(domain: StorageDatabaseDomain, dirty: boolean): boolean {
   return rejectedStorageDomains.delete(domain) || dirty;
 }
 
-/**
- * 在 flushStorageDatabase 之后调用，把共享 SQLite 的失败领域追加进统一 flush 的回执。
- * @param scope 单领域屏障只取走并回报该领域；null 表示 all/business，取走全部拒收标记
- *   并回报每个仍 dirty 或被拒收的领域。
- */
+/** 收集指定领域或全部共享 SQLite 领域的落盘失败与拒收状态。 */
 export function collectStorageDatabaseFailures(
   scope: StorageDatabaseDomain | null,
   failedDomains: DiskIODomain[]
@@ -240,7 +230,7 @@ export function collectStorageDatabaseFailures(
   }
 }
 
-/** 该领域的写缓冲里是否还有未提交的最终值。 */
+/** 判断指定领域的写缓冲是否仍有未提交项。 */
 function isStorageDomainDirty(domain: StorageDatabaseDomain): boolean {
   switch (domain) {
     case "whitelist": return pendingWhitelistWrites.size > 0;
@@ -253,16 +243,65 @@ function isStorageDomainDirty(domain: StorageDatabaseDomain): boolean {
   }
 }
 
+/** 丢弃群状态领域本轮全部待提交写入并归还其预算。 */
+function discardPendingChatStateWrites(): void {
+  pendingChatStateWrites.clear();
+  storagePendingBudgets.chatState.reset();
+}
+
+/** 丢弃群问答领域本轮全部待提交写入并归还其条数与预算。 */
+function discardPendingChatQaWrites(): void {
+  pendingChatQaWrites.clear();
+  pendingChatQaEntryCount.current = 0;
+  storagePendingBudgets.chatQa.reset();
+}
+
 /**
- * 开合镜像重放区间。关闭时有待回执的 AI 上下文删除或即时快照、且不在重试退避期，就立即以
- * 一个事务提交区间内的全部变化；否则按批次阈值补做一次判定，未达阈值保留定时提交。
+ * 解除暂挂时复核一个领域的跨行聚合约束。不满足时丢弃该领域本轮待提交写入（非法聚合状态不落盘）、
+ * 记领域拒收并返回 recoveryReplayFailed 回报；满足时返回 null。
  */
-export function setStorageFlushHold(active: boolean, reply: IdentityPersistenceReply): void {
+function rejectHeldDomainIfInvalid(
+  domain: "chatState" | "chatQa",
+  assertInvariants: () => void,
+  discardPending: () => void
+): RecoveryReplayFailedReply | null {
+  try {
+    assertInvariants();
+    return null;
+  } catch (error: unknown) {
+    discardPending();
+    rejectedStorageDomains.add(domain);
+    console.error(`[diskIOWorker] rejected replayed ${domain} writes on storage flush hold release:`, error);
+    return { type: "recoveryReplayFailed", domain, error: errorMessage(error) };
+  }
+}
+
+/**
+ * 设置或解除镜像重放暂挂状态。解除时先统一复核群状态与群问答聚合约束，复核失败的领域丢弃本轮
+ * 待提交写入，其余领域再按紧急写或批次阈值触发提交。
+ * @returns 首个复核失败的 recoveryReplayFailed 回报，由 Worker 入口投递给主线程按 fatal 停机；
+ *   开启暂挂或复核全部通过时为 null。
+ */
+export function setStorageFlushHold(
+  active: boolean,
+  reply: IdentityPersistenceReply
+): RecoveryReplayFailedReply | null {
   storageFlushHold.current = active;
-  if (active) return;
+  if (active) return null;
+  const chatStateFailure: RecoveryReplayFailedReply | null = rejectHeldDomainIfInvalid(
+    "chatState",
+    assertPendingChatStateInvariants,
+    discardPendingChatStateWrites
+  );
+  const chatQaFailure: RecoveryReplayFailedReply | null = rejectHeldDomainIfInvalid(
+    "chatQa",
+    assertPendingChatQaCapacity,
+    discardPendingChatQaWrites
+  );
   if (storageWriteRetry.failures === 0 && hasUrgentAiContextWrites()) {
     flushStorageDatabase(reply);
-    return;
+  } else {
+    flushIfStorageFull(reply);
   }
-  flushIfStorageFull(reply);
+  return chatStateFailure ?? chatQaFailure;
 }

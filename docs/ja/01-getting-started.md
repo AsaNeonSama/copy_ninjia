@@ -15,7 +15,7 @@
 ## 前提条件
 
 - **`/proc` にアクセス可能な Linux 環境**：インスタンスの二重起動防止ロックは、`/proc/<pid>/stat` とシステムの boot ID に依存しています。その他の OS では安全のため起動を拒否（fail-closed）します。
-- **Bun 1.4.3**：ソースコードからの実行およびローカル開発に必須です。次のコマンドでインストールできます：
+- **Bun**（バージョンは `package.json` の `packageManager` に準拠）：ソースコードからの実行およびローカル開発に必須です。次のコマンドでインストールできます：
   ```bash
   curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
   ```
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
   <tr>
     <td><nobr>⚙️ <b>依存要件</b></nobr></td>
     <td>ホストの Bun、git、ビルドツールは不要。展開に必要な基本コマンドが不足していればインストーラーが導入を試行</td>
-    <td>git および Bun 1.4.3 が必要。不足ツールはインストーラーが導入を試行しますが、Bun バージョンの不整合は手動解決が必要</td>
+    <td>git および対応バージョンの Bun（<code>package.json</code> の <code>packageManager</code> 参照）が必要。不足ツールはインストーラーが導入を試行しますが、Bun バージョンの不整合は手動解決が必要</td>
   </tr>
   <tr>
     <td><nobr>🚀 <b>ランタイム構成</b></nobr></td>
@@ -91,7 +91,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 > 3. **ツールチェーンと Bun の準備**：ソースモードでは必要に応じて指定バージョンの Bun（`package.json` の `packageManager` と一致）をセットアップします。バイナリモードでは内蔵バイナリを使用します。
 > 4. **依存関係のインストール**：ソースモードでは `bun install --frozen-lockfile` を実行し、バイナリモードではスキップします。
 > 5. **設定ディレクトリの構造化**：誤った位置にあるファイルや旧バージョンのグローバル状態・データベースを検知した場合は起動を阻止します。不足している設定テンプレートのみを展開し、`agent.json`、`g-auth.json`、`cron.json` は手動設定に委ねます（既存ファイルは上書きしません）。
-> 6. **対話型設定ウィザード**：端末上で `config/static/bot.json` の必須項目を案内し、`config/dynamic/agent.json` が未作成の場合は各 AI 機能の設定をステップ形式で入力します。既存設定を変更する場合はワークツリー外に自動バックアップを取り、厳格なバリデーションを通過した時点で安全にアトミック置換します。
+> 6. **対話型設定ウィザード**：端末上で `config/static/bot.json` の必須項目を案内し、`config/dynamic/agent.json` が未作成の場合は各 AI 機能の設定（カスタム `base_url` エンドポイントおよび `google` / `anthropic` のゲートウェイ `headers` を含む）をステップ形式で入力します。既存設定を変更する場合はワークツリー外に自動バックアップを取り、厳格なバリデーションを通過した時点で安全にアトミック置換します。
 > 7. **データベース初期化**：`database/storage.sqlite` を検証します。既存データベースが存在する場合は設定されたタイムゾーンが `bot.json` の `time_zone` と一致することを読み取り専用で照合します（不一致の場合はサービス登録前に停止）。新規の場合は現行スキーマでデータベースを初期化し、タイムゾーンマーカーを書き込みます。
 > 8. **サービス登録と稼働監視**：`copy-ninjia.service` を systemd に登録・起動します（systemd が利用できないコンテナ環境等ではフォアグラウンド実行）。起動直後のステータスを監視し、`active/running` 状態、再起動ループの非発生、およびログに異常終了がないことを確認した上で一時バックアップをクリーンアップします。
 
@@ -129,14 +129,14 @@ Bot の基本設定およびグローバルスーパー管理者は `config/stat
 - **`super_admin_user_id`**（必須、正の整数）
   - スーパー管理者の Telegram ユーザー ID（10進数値）。
   - **特権スコープ**：この ID はホワイトリストで管理される**すべての権限**を最初から保有しており、SQLite のホワイトリストテーブルには登録されません。
-  - **保護ポリシー**：リピートや画像生成などのクールダウン免除はこの ID のみに付与されます。常にホワイトリストの内側に保護されているため、自動リスク管理の対象外となり、`/block`、`/mute`、`/batch_kick` で処分することはできません。
-  - **専用コマンド**：`/init`、`/batch_kick`、`/permission` による権限変更、`/white disable`、`/send` の実行はスーパー管理者のみに許可されています。
+  - **保護ポリシー**：リピートや画像生成などのクールダウン免除はこの ID のみに付与されます。常にホワイトリストの内側に保護されているため、自動リスク管理の対象外となり、`/block`、`/mute`、`/delete_message`、`/batch_kick`、AI `abuse_mark` で処分することはできません。
+  - **専用コマンド**：`/init`、`/batch_kick`、`/delete_message`、`/permission` による権限変更、`/white disable`、`/send` の実行はスーパー管理者のみに許可されています。
 - **`atmosphere`**（任意、列挙型：`"mesugaki"` | `"normal"`）
   - システム通知やメニュー表示のトーンスタイル（メスガキ風 / 標準）。
   - 明示的に指定した値が最優先されます。省略時は `prompt/persona.md` が存在すれば標準、存在しなければメスガキ風が適用されます。前後の空白はトリムして検証され、不正な値は起動を拒否します。
 - **`time_zone`**（任意、IANA タイムゾーン名。省略時は `DEFAULT_BOT_TIME_ZONE`。ホストのローカルタイムゾーンは継承しません）
   - おみくじ日付境界、ログ出力、広告判定の発言カウント、AI 時刻認識、日次クリーンアップ、タイムゾーン省略時の cron スケジュール基準となるタイムゾーンです。
-  - 前後の空白をトリムして検証され、Temporal 仕様に基づいて正規化されます（例：`asia/tokyo` → `Asia/Tokyo`、`Japan` などのエイリアスも保持）。空文字列、不正な型、あるいは Temporal / Bun cron が認識できないタイムゾーンは起動を拒否します。
+  - 前後の空白をトリムして検証され、Temporal 仕様に基づいて大文字・小文字が正規化されます（エイリアスも保持）。空文字列、不正な型、あるいは Temporal / Bun cron が認識できないタイムゾーンは起動を拒否します。
   - 初回データベース初期化時に `storage_metadata` の `time-zone` に記録され、以降そのデータルートは該当タイムゾーンに固定されます。起動時およびインストーラーは常にこの値を検証し、タイムゾーンの変更は許可されません（変更検知時は `storage_metadata.time-zone` エラーで起動を阻止します）。既存データルートに対するタイムゾーンの事後変更はサポートしていません。
 
 ---
@@ -167,15 +167,13 @@ config/
 
 - **`prompt/persona.md`**（任意、プロジェクトルート。[例](../../prompt_example/persona.md)）
   - **役割**：カスタム AI 会話ペルソナ。
-  - **挙動**：ファイルが存在しない場合は、内蔵のペルソナ定義（[`persona.ts`](../../packages/consts/aiChat/prompts/persona.ts)）が使用されます。ファイルが存在する場合は、その全文がシステムプロンプトのペルソナとして適用されます。通知メッセージのトーン設定については上記の `atmosphere` を参照してください。
-  - **検証**：プレーンテキスト形式。ファイルが存在していても空ファイルや不正な UTF-8 である場合は起動を拒否します。変更の反映にはプロセスの再起動が必要です。
-  - **記述例**：[`prompt_example/persona.md`](../../prompt_example/persona.md) は、穏やかで頼れる「先輩」を想定したペルソナ構成例です。「自己定義 / 基本性格 / 優先順位 / 口調・スタイル / ハルシネーションの防止 / 言語規範」のセクションに分かれています。`mkdir -p prompt && cp -n prompt_example/persona.md prompt/` でコピーし、必要に応じて編集したのちプロセスを再起動してください。ファイル内の文章は前後の空白を除いてそのままモデルに送信されるため、管理者向けの内部メモ等は記述しないでください。
+  - **挙動**：ファイルが存在しない場合は、内蔵のペルソナ定義（[`persona.ts`](../../packages/consts/aiChat/prompts/persona.ts)）が使用されます。ファイルが存在する場合は、前後の空白を除いた全文がシステムプロンプトのペルソナとして適用されます。通知メッセージのトーン設定については上記の `atmosphere` を参照してください。
+  - **検証**：空でない有効な UTF-8 プレーンテキストである必要があります。変更の反映にはプロセスの再起動が必要です。
 
 - **`prompt/voice_tool.md`**（任意、プロジェクトルート。[例](../../prompt_example/voice_tool.md)）
   - **役割**：AI の音声送信ツール `send_voice` のカスタム説明文。
-  - **挙動**：ファイルが存在しない場合は、`agent.tts.bot_language` に応じた内蔵の `en` / `zh` / `ja` 説明（[`tools.ts`](../../packages/consts/aiChat/prompts/tools.ts) の `VOICE_LANGUAGE_PROMPTS`）が使用されます。ファイルが存在する場合は、`bot_language` の設定にかかわらず、ファイル本文がツールの説明全体を置き換えます。ただし、`text` / `tone` 引数の詳細仕様や、`send_message` および「行動と停止」ルールにおけるボイス重複制御は、引き続き `bot_language` の値に基づいて制御されます。内蔵プロンプトに含まれる実行契約（現在のターンにおける `send_voice` 残りクォータの確認、1 ターンあたりの送信上限件数、`text` / `tone` の最大文字数、受領・エラー時の対応指針）は、カスタムファイル内でも漏れなく記述する必要があります。
-  - **検証**：プレーンテキスト形式。ファイルが存在しながら空文字または不正な UTF-8 である場合は起動を拒否します（`agent.tts` が未設定の場合でも同様に検証されます）。変更反映には再起動が必要です。
-  - **記述例**：[`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md) は前述のペルソナ例と対になっており、自然な日本語のセリフ例とともに必要な制約事項をすべて網羅しています。例に記載されている 1 ターンあたりの上限件数や文字数制限はコード内の定数値と完全に一致させてあるため、編集時も定数値と整合させてください。このサンプルは `bot_language: "ja"`（[`agent.json` サンプル](../../config_example/dynamic/agent.json)）向けに作成されています。別の言語を使用する場合は、冒頭の言語指定、セリフ例、トーン指定、重複説明を該当言語に合わせて変更してください。配置手順は同様です：`mkdir -p prompt && cp -n prompt_example/voice_tool.md prompt/`。
+  - **挙動**：ファイルが存在しない場合は、`agent.tts.bot_language` に応じた内蔵の `en` / `zh` / `ja` 説明（[`tools.ts`](../../packages/consts/aiChat/prompts/tools.ts) の `VOICE_LANGUAGE_PROMPTS`）が使用されます。ファイルが存在する場合は、ファイル本文がツールの説明全体を置き換えます（`text` / `tone` 引数の仕様やボイス重複制御は引き続き `bot_language` に基づいて制御されます）。
+  - **検証**：空でない有効な UTF-8 プレーンテキストである必要があります（`agent.tts` が未設定の場合でも同様に検証されます）。変更の反映にはプロセスの再起動が必要です。
 
 - **`config/static/bot.json`**（[サンプル](../../config_example/static/bot.json)）
   - 設定項目は前述の「Telegram identity の設定」を参照してください。起動時に厳格な型検証が行われ、未知のキーや不正な型の値が含まれる場合は起動を拒否します。
@@ -196,7 +194,7 @@ config/
        - `summary`：短期・長期コンテキストの要約圧縮モデル。
        - `media`：画像・音声の文字起こしおよびマルチモーダル認識モデル。初回リクエストの自動プローブとエンドポイントの指数バックオフに対応。
     2. **拡張生成機能**（未設定時は該当ツールのみが無効化されます）：
-       - `image`：画像生成機能。OpenAI 互換プロトコルでは `image_protocol`（`openai` | `openai-standard` | `xai`）の明示指定が必要です（Google プロバイダではこのフィールドを指定できません）。
+       - `image`：画像生成機能。OpenAI 互換プロトコルでは `image_protocol`（`openai` | `openai-standard` | `xai`）の明示指定が必要です（Google プロバイダではこのフィールドを指定できません）。任意の `max_reference_images`（上限 `IMAGE_GENERATION_MAX_REFERENCE_IMAGES`、既定 `IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES`）で 1 回の画像生成でモデルに渡す参照画像の最大枚数を指定し、アルバムの画像がアルバム順に残りを埋めます。
        - `tts`：音声合成機能。`voice`（声色）の指定が必須です。OpenAI プロトコルでは `speech_protocol`（`openai` | `xai`）の指定が必要です（Google プロバイダでは指定不可）。任意の `style`（デフォルトの声質定義。省略時は `TTS_DEFAULT_STYLE`。`/send` や cron からも共用されるため、言語名ではなく声質のみを記述します）を指定できます。`xai` プロトコルはモデル名やスタイル指示をサポートしないため、`model` または `style` を指定するとエラーになります。また任意の `language` も指定可能です。
          - `bot_language`（`en` | `zh` | `ja`。省略時は `TTS_DEFAULT_BOT_LANGUAGE`）：AI 音声のセリフ言語を指定します。システムプロンプトが切り替わり、AI 返信の合成リクエスト時に基本スタイルの末尾へ言語指定が自動付与されます（`/send` や cron 経由の合成には付与されません）。なお、`style` および `prompt/voice_tool.md` は自動追従しないため、`bot_language` を変更する際は手動で対応言語の内容に書き換えてください。
          - `daily_limit`（省略時は `TTS_DEFAULT_DAILY_LIMIT`）および `daily_reserve_quota`（省略時は `TTS_DEFAULT_DAILY_RESERVE_QUOTA`。`daily_limit` 未満である必要があります）：1 日あたりの合成回数クォータを AI 返信用と `/send`・cron 共用の予約枠に分割し、それぞれ独立して消費をカウントします。
@@ -207,8 +205,8 @@ config/
        - `provider`：`google` | `openai` | `anthropic`（`image` と `tts` は Google と OpenAI のみ対応）。
        - `api_key`：アクセスキー。サンプル内のプレースホルダー文字列は拒否されます。
        - `model`：モデル識別子文字列。
-       - `base_url`：カスタムエンドポイント（`https` のみ。プレーン `http` は localhost / 127.0.0.1 / ::1 のみ許可。userinfo や `#` フラグメントは不可）。
-       - `headers`：`google` と `anthropic` プロバイダのみ、追加のリクエストヘッダー（1〜`AGENT_HEADERS_MAX_ENTRIES` 個。Cloudflare AI Gateway 等の認証用）を設定可能。
+       - `base_url`：カスタムエンドポイント（`https` のみ。プレーン `http` は `LOOPBACK_HOSTS` のみ許可。userinfo や `#` フラグメントは不可）。
+       - `headers`：`google` と `anthropic` プロバイダのみ、追加のリクエストヘッダー（最大 `AGENT_HEADERS_MAX_ENTRIES` 個。Cloudflare AI Gateway 等の認証用）を設定可能。
        - `fallback_model`：`anthropic` プロバイダのみ設定可能なフォールバックモデル（`model` と異なること）。`model` が拒否した場合は同じリクエストをこのモデルで再送し、フォールバックモデルも拒否した場合や未設定の場合は再試行せずにそのリクエストを失敗とします。
 
 ---
@@ -232,7 +230,7 @@ chmod 660 database/storage.sqlite
 ```
 
 > [!IMPORTANT]
-> `initializeStorageDatabase` の実行は必須です。この初期化処理により、`storage_metadata` にスキーマバージョンおよび `bot.json` の `time_zone`（データルートを束縛するタイムゾーンマーカー）が書き込まれます。そのため、必ず Telegram identity の設定完了後に実行してください。この手順をスキップすると、起動時のハイドレーション処理でメタデータが見つからず起動に失敗します。
+> `bootstrapStorageDatabase` の実行は必須です。この初期化処理により、スキーマ作成、`storage_metadata` へのスキーマバージョンおよび `bot.json` の `time_zone`（データルートを束縛するタイムゾーンマーカー）の書き込み、ならびに WAL モードの有効化が行われます。必ず Telegram identity の設定完了後に実行してください。この手順をスキップすると、起動時のハイドレーション処理でメタデータが見つからず起動に失敗します。
 
 ---
 
@@ -268,14 +266,11 @@ chmod 660 database/storage.sqlite
 
 [@BotFather](https://t.me/BotFather) で以下の初期設定を行います：
 
-1. **Privacy Mode を無効化**：`/setprivacy` を送信 -> 対象の Bot を選択 -> **Disable** に設定。
-   - *目的*：Bot がグループ内のすべての通常メッセージを受信できるようにします。リピート、会話認識、自動リスク管理に必須です。
+1. **Privacy Mode を無効化**：`/setprivacy` を送信 -> 対象の Bot を選択 -> **Disable** に設定（グループ内の通常メッセージを受信し、リピート、翻訳、AI 会話、グループ Q&A、自動リスク管理を動作させるために必須）。
 2. **グループ管理者権限の付与**：Bot を対象グループに追加し、管理者権限（メッセージ削除、ユーザーの BAN / 制限、グループ管理など）を付与します。
-3. **Inline Mode の有効化**：`/setinline` を送信 -> **Enable** に設定。
-   - *目的*：おみくじ機能（`@Bot 占いたい内容`）および gag 発言制限の入力処理にインラインモードを使用します。
-4. **Inline フィードバック率の設定**：`/setinlinefeedback` を送信 -> **100%** に設定。
-   - *目的*：おみくじ結果の確定と永続化のために、Telegram からの `chosen_inline_result` イベント通知が必要です。
-5. **Bot 間通信の有効化（任意）**：他の Bot による通常メッセージに対してもリピートや翻訳を動作させたい場合は、BotFather でこのモードを有効にします。受信したメッセージは [メインスレッドの受信境界](04-invariants.md) を通じて安全に処理されます。
+3. **Inline Mode の有効化**：`/setinline` を送信 -> **Enable** に設定（おみくじ機能 `@Bot 占いたい内容` および `/gag` 発言入口ボタンで使用）。
+4. **Inline フィードバック率の設定**：`/setinlinefeedback` を送信 -> **100%** に設定（`chosen_inline_result` イベントによるおみくじ結果の確定と永続化に使用）。
+5. **Bot 間通信の有効化（任意）**：他の Bot による通常メッセージに対してもリピートや翻訳を動作させたい場合は、BotFather でこのモードを有効にします。受信したメッセージは [メインスレッドの受信境界](04-invariants.md) を通じて処理されます。
 
 ---
 

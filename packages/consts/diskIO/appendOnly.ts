@@ -10,6 +10,8 @@ export const FLUSH_MAX_ENTRIES: number = 256;
 export const FLUSH_INTERVAL_MS: number = 30_000;
 /** appendOnlyDayFile 序列化与截断修复共同使用的 JSON 缩进宽度。 */
 export const DAY_FILE_JSON_INDENT: number = 2;
+/** 顶层对象中每个条目的行首缩进，宽度为 DAY_FILE_JSON_INDENT；serializeDayFileEntry 直接拼接。 */
+export const DAY_FILE_ENTRY_INDENT: string = " ".repeat(DAY_FILE_JSON_INDENT);
 
 /**
  * 日志追加失败之后重新打开日文件的退避间隔（见 workers/diskIO/logFiles.ts 的

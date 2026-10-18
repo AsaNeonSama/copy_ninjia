@@ -76,7 +76,8 @@ export interface VerificationEntry {
   /**
    * expelling 终态的机器人验证消息已全部清理完毕。Worker 本地幂等门，不进入状态机或持久化快照；
    * 条目构造时为 false，只由 workers/antiRaid/verificationEffects/terminal.ts 的 expelMember 在
-   * 仍是当前条目时置位，其余 kind 恒为 false。确证没有封禁权限时，「不再发请求」的短路以它与
+   * 仍是当前条目时置位，其余 kind 恒为 false。置位后同一状态对象的后续重试直接跳过
+   * deleteVerificationMessages；确证没有封禁权限时，「不再发请求」的短路也以它与
    * failureNoticeSent 同时成立为前提：清理未结清时不短路。
    */
   cleanupSettled: boolean;
@@ -110,7 +111,7 @@ export interface FloodWindowEntry {
    * 禁言后整条清空，队列长度恒不超过 FLOOD_MESSAGE_LIMIT。
    */
   timestamps: TimestampDeque;
-  /** 上一次观测到的时刻；系统校时回拨时用它保持队列单调，也用于空闲清扫。 */
+  /** 上一次观测到的发言时刻；用于乐观抑制起算与空闲清扫。 */
   lastObservedAt: number;
   /**
    * 在此之前到达的消息一律不计数（ms 绝对时刻，0 表示不抑制）。

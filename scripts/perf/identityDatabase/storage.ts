@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { IDENTITY_WRITE_BATCH_MAX_ENTRIES } from "../../../packages/consts/identityStorage";
 import { clearStorageBusinessTables, seedStorageDatabase } from "../../fixtures/storageDatabase";
@@ -11,6 +11,7 @@ import {
 } from "../../../packages/database/interact/connection";
 import { readStoredIdentityPolicies } from
   "../../../packages/database/interact/identityPolicy";
+import { prepareStorageDatabaseReader } from "../../../packages/database/interact/reader";
 import {
   commitStorageDatabaseChanges,
   prepareStorageDatabaseWriter,
@@ -18,6 +19,7 @@ import {
 import type {
   StorageDatabase,
   StorageDatabaseChange,
+  StorageDatabaseReader,
   StorageDatabaseWriter,
   StoredIdentityPolicyRow,
 } from "../../../packages/types/storageDatabase";
@@ -37,7 +39,7 @@ import {
   WHITE_DATA,
 } from "./fixtures";
 import { measuredResult } from "./measurement";
-import { assertMockRoot, isBenchmarkMockRoot } from "./roots";
+import { assertMockRoot, isBenchmarkMockRoot, removeMainBenchmarkRoot } from "./roots";
 import type { ChildResult } from "./types";
 import type { PendingTemporaryAdBypassWrite } from
   "../../../packages/types/temporaryAdBypass";
@@ -65,15 +67,16 @@ function createFixture(mockRoot: string): DatabaseFixture {
 function removeFixture(fixture: DatabaseFixture): void {
   const resolvedRoot: string = resolve(fixture.root);
   const resolvedPath: string = resolve(fixture.path);
+  const mockRoot: string = dirname(resolvedRoot);
   if (
     dirname(resolvedPath) !== resolvedRoot ||
     basename(resolvedPath) !== "storage.sqlite" ||
     !basename(resolvedRoot).startsWith(DATABASE_FIXTURE_ROOT_PREFIX) ||
-    !isBenchmarkMockRoot(dirname(resolvedRoot))
+    !isBenchmarkMockRoot(mockRoot)
   ) {
     throw new Error("Identity benchmark refused to remove an unexpected fixture root.");
   }
-  rmSync(fixture.root, { recursive: true, force: true });
+  removeMainBenchmarkRoot(fixture.root, mockRoot);
 }
 
 function closeFixture(fixture: DatabaseFixture): void {
@@ -109,9 +112,10 @@ function runReadBatches(
   batches: number
 ): number {
   let checksum: number = 0;
+  const reader: StorageDatabaseReader = prepareStorageDatabaseReader(database);
   for (let batch: number = 0; batch < batches; batch += 1) {
-    checksum += readStoredIdentityPolicies(database, "whitelist", ids).length;
-    checksum += readStoredIdentityPolicies(database, "blocklist", ids).length;
+    checksum += readStoredIdentityPolicies(reader, "whitelist", ids).length;
+    checksum += readStoredIdentityPolicies(reader, "blocklist", ids).length;
   }
   return checksum;
 }
@@ -132,8 +136,9 @@ function runColdReadBatches(
       readonly: true,
     });
     try {
-      checksum += readStoredIdentityPolicies(database, "whitelist", ids).length;
-      checksum += readStoredIdentityPolicies(database, "blocklist", ids).length;
+      const reader: StorageDatabaseReader = prepareStorageDatabaseReader(database);
+      checksum += readStoredIdentityPolicies(reader, "whitelist", ids).length;
+      checksum += readStoredIdentityPolicies(reader, "blocklist", ids).length;
     } finally {
       closeStorageDatabase(database);
     }

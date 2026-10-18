@@ -92,13 +92,19 @@ bun -e '
 bun -e '
   import { assertStateFilesMigrated } from "./scripts/install/runtime";
   await assertStateFilesMigrated();
-' || die "全局状态不是当前格式（文件与字段见上）：数据根仍有 state.json 或 state.json.bak，或 memory/global/state.json 仍是旧格式（例如总计数 ttsUsage）时，先升级到 16.3.2 并按其说明完成迁移，再安装本版。"
+' || die "全局状态不是当前格式（文件与字段见上）：数据根仍有 state.json 或 state.json.bak，或 memory/global/state.json 仍是旧格式（例如总计数 ttsUsage）时，先升级到 17.2.1 并按其说明完成迁移，再安装本版。"
 
-# 已有共享数据库只读核对 schema 版本：源 schema 的库由部署方停服冷迁移，不带着它注册和启动服务。
+# 已有共享数据库只读核对 schema 版本：不是当前 schema 的库不带着它注册和启动服务。
 bun -e '
   import { assertStorageDatabaseMigrated } from "./scripts/install/runtime";
   await assertStorageDatabaseMigrated();
-' || die "database/storage.sqlite 不是当前 schema（版本见上）：仍是 v11（16.3.2）时停服备份 database/（含 WAL/SHM），执行本版 migrate:chat-persona-removal 生成 v13 产物（带 Asia/Tokyo 时区标记）并按清单手工替换；更旧的库先升级到 16.3.2 并按其说明完成迁移。二进制包用 BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateChatPersonaRemoval.js --help 查看用法。"
+' || die "database/storage.sqlite 不是当前 schema（版本见上）：先升级到 17.2.1 并按其说明完成迁移，再安装本版。"
+
+# /wed 成员滑窗按启动恢复同一口径只读校验；未迁移的文件由部署方停服冷迁移，不带着它注册和启动服务。
+bun -e '
+  import { assertWedMemberFilesMigrated } from "./scripts/install/runtime";
+  await assertWedMemberFilesMigrated();
+' || die "memory/wed 不是当前格式（文件与字段见上）：仍是成员 ID 数组时停服备份 memory/wed/，执行本版 migrate:wed-member-window 生成 { id, enteredAt } 滑窗产物并按清单手工替换。二进制包用 BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js --help 查看用法。"
 
 mkdir -p config/static config/dynamic
 for example_file in config_example/static/*.json config_example/dynamic/*.json; do

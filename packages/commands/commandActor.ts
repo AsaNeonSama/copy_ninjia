@@ -45,7 +45,7 @@ export async function rejectUnlessPermitted(
 }
 
 /**
- * 只放行超级管理员本人的群命令（/batch_kick、/init）；拒绝回执的形态与
+ * 只放行超级管理员本人的群命令（/batch_kick、/init、/delete_message）；拒绝回执的形态与
  * rejectUnlessPermitted 相同。这类命令不对应白名单权限键。
  */
 export async function rejectUnlessSuperAdmin(

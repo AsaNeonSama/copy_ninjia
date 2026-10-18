@@ -4,11 +4,12 @@
  *
  * **模型名不在这里**：语音走 config/dynamic/agent.json 的 `agent.media`（与图片/贴纸/GIF
  * 的视觉理解共用一项能力），代码不持有任何模型默认值，见 config/agent.ts。
- * 输出 token 上限属于供应商实现，在 consts/aiChat/{gemini,openai}.ts。
- * 所属模块：packages/aiChat/ai/voiceTranscription.ts 与 workers/aiChat/mediaText.ts。
+ * 输出 token 上限属于供应商实现：Gemini 在 consts/aiChat/gemini.ts；OpenAI 的 audio.transcriptions
+ * 不设输出上限；Anthropic 实现包不提供 transcribeVoice。
+ * 所属模块：packages/aiChat/ai/voiceTranscription.ts、workers/aiChat/mediaText.ts、auto/message/voice.ts。
  */
 
-/** 语音转写请求在错误日志里的调用名；供应商中立。 */
+/** 语音转写请求在错误日志里的调用名；供应商中立。所属模块：aiChat/ai/voiceTranscription.ts。 */
 export const VOICE_TRANSCRIPTION_ERROR_LABEL: string = "AI voice transcription API";
 
 /** 语音转写尚未落定时进入转录的占位。 */

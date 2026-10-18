@@ -1,4 +1,4 @@
-import { diskIOFlushBarrier, diskIORuntime, pendingFlushFailedDomains } from "../../cache/main/diskIO";
+import { diskIOFlushBarrier, diskIORuntime } from "../../cache/main/diskIO";
 import { DISK_OPERATION_MAX_RETAINED_BYTES, DISK_BUSINESS_ACK_TIMEOUT_MS, DISK_BUSINESS_MAX_RETAINED_BYTES, DISK_OPERATION_CONTROL_RESERVE } from "../../consts/diskIO/business";
 import { diskIOMessageCost, isDiskBusinessMessage } from "../../libs/diskIOMessageCost";
 import { LinkedQueue } from "../../libs/linkedQueue";
@@ -78,23 +78,24 @@ export function safePostDiskIO(worker: Worker, message: DiskIOOperationMessage, 
 
 /**
  * 经 diskIOFlushBarrier 向 worker 发一次 scope 范围的 flush 并等回执；不核对可写状态，由调用方决定能否发起。
- * failedDomains 为本次回执里的失败领域名，取出后从 pendingFlushFailedDomains 移除；超时或 Worker 崩溃中途结算时
- * 没有本次回执，为 undefined。
+ * failedDomains 为本次回执里的失败领域名；超时或 Worker 崩溃中途结算时没有本次回执，为 undefined。
  */
 export async function beginDiskIOFlush(
   worker: Worker,
   scope: DiskFlushScope,
   timeoutMs: number
 ): Promise<DomainFlushOutcome> {
-  let flushId: number | null = null;
-  const result: FlushResult = await diskIOFlushBarrier.begin((id: number): boolean => {
-    flushId = id;
-    const request: DiskFlushRequest = { type: "flush", flushId: id, scope };
-    return safePostDiskIO(worker, request, `${scope} flush request`);
-  }, timeoutMs);
-  if (flushId === null) return { result };
-  const failedDomains: readonly DiskIODomain[] | undefined = pendingFlushFailedDomains.get(flushId);
-  pendingFlushFailedDomains.delete(flushId);
+  let failedDomains: readonly DiskIODomain[] | undefined;
+  const result: FlushResult = await diskIOFlushBarrier.begin(
+    (id: number): boolean => {
+      const request: DiskFlushRequest = { type: "flush", flushId: id, scope };
+      return safePostDiskIO(worker, request, `${scope} flush request`);
+    },
+    timeoutMs,
+    (detail: readonly DiskIODomain[] | undefined): void => {
+      failedDomains = detail;
+    }
+  );
   return failedDomains === undefined ? { result } : { result, failedDomains };
 }
 

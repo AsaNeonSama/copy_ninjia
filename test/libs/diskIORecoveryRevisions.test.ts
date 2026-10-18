@@ -11,7 +11,8 @@ const messages: readonly RevisionedMessage[] = [
   { type: "chatStateWrite", chatId: -7, data: null, revision: 2 },
   { type: "chatQaWrite", chatId: -7, q: "一", data: null, revision: 2 },
   { type: "chatQaWrite", chatId: -7, q: "二", data: null, revision: 2 },
-  { type: "blocklistRemovals", removals: [], revision: 2 },
+  { type: "blocklistRemovalWrite", removalId: 7, data: null, revision: 2 },
+  { type: "blocklistRemovalWrite", removalId: 8, data: null, revision: 2 },
 ];
 
 test("每个 SQLite 领域独立按主键覆盖旧 revision，保留镜像后的新值", (): void => {
@@ -26,6 +27,7 @@ test("每个 SQLite 领域独立按主键覆盖旧 revision，保留镜像后的
   }
   expect(revisions.covers({ type: "chatQaWrite", chatId: -7, q: "三", data: null, revision: 1 })).toBeFalse();
   expect(revisions.covers({ type: "chatStateWrite", chatId: -8, data: null, revision: 1 })).toBeFalse();
+  expect(revisions.covers({ type: "blocklistRemovalWrite", removalId: 9, data: null, revision: 1 })).toBeFalse();
 });
 
 test("无 revision 的贴纸只覆盖当前 FIFO 的同包快照，不按墙钟猜新旧", (): void => {

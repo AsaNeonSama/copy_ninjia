@@ -1,26 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { setBoundedMapValue } from "../../packages/libs/boundedMap";
+import { sweepExpiredSnapshots } from "../../packages/libs/boundedMap";
+import { FifoMap } from "../../packages/libs/fifoMap";
 
-describe("setBoundedMapValue", () => {
-  test("新增键越界时淘汰最早项", () => {
-    const map = new Map([["a", 1], ["b", 2]]);
-    setBoundedMapValue({ map, key: "c", value: 3, maxEntries: 2 });
-    expect([...map.entries()]).toEqual([["b", 2], ["c", 3]]);
-  });
-
-  test("更新已有键不淘汰其它项", () => {
-    const map = new Map([["a", 1], ["b", 2]]);
-    setBoundedMapValue({ map, key: "a", value: 9, maxEntries: 2 });
-    expect([...map.entries()]).toEqual([["a", 9], ["b", 2]]);
-  });
-
-  test("键为 undefined 时仍可正确淘汰", () => {
-    const map = new Map<string | undefined, number>([[undefined, 1]]);
-    setBoundedMapValue({ map, key: "a", value: 2, maxEntries: 1 });
-    expect([...map.entries()]).toEqual([["a", 2]]);
-  });
-
-  test("拒绝无效上限", () => {
-    expect(() => setBoundedMapValue({ map: new Map(), key: "a", value: 1, maxEntries: 0 })).toThrow(RangeError);
+describe("sweepExpiredSnapshots", () => {
+  test("按 TTL 淘汰过期快照，跳过仍在拉取的群，返回淘汰条数", () => {
+    const snapshots = new FifoMap<number, { readonly fetchedAt: number }>(10);
+    snapshots.set(-1, { fetchedAt: 0 });
+    snapshots.set(-2, { fetchedAt: 0 });
+    snapshots.set(-3, { fetchedAt: 900 });
+    const inFlight: ReadonlyMap<number, unknown> = new Map([[-2, Promise.resolve()]]);
+    expect(sweepExpiredSnapshots({ snapshots, inFlight, ttlMs: 500, now: 1_000 })).toBe(1);
+    expect([...snapshots.keys()]).toEqual([-2, -3]);
   });
 });

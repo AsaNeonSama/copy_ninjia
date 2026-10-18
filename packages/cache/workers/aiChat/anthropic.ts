@@ -1,15 +1,10 @@
-/** owner: workers/aiChat。 */
+/** owner: workers/aiChat。Anthropic 客户端按能力缓存（packages/aiChat/anthropic/client.ts）。 */
 
 import type { AnthropicClient } from "../../../types/aiChat/anthropic";
 import type { AgentCapability } from "../../../types/config";
 
 /**
- * Anthropic 底层客户端的线程内缓存。aiChat/anthropic/client.ts 按能力首次请求时填充；每项能力
- * 独立持有 api_key、base_url、headers 与 fallback_model，每项能力至多一个条目（image 与 tts 不会选
- * anthropic）。agent.json 热重载时由 aiChat/provider.ts 的 reloadAgentDeploymentConfig 整体清空，
- * 下一次请求按新配置重建；进程退出时随 isolate 释放，Worker 崩溃重建后从空 holder 重建。
- *
- * 归属 AI 闲聊 Worker：Anthropic 的全部调用方都在那条线程上。与
- * cache/workers/aiChat/{gemini,openai}.ts 可同时非空：供应商按能力分别选。
+ * 能力名（AgentCapability）到 Anthropic 客户端实例的映射 holder：首次按能力调用时填充，agent.json 热重载时由 reloadAgentDeploymentConfig 置为 null（下次请求重建），isolate 销毁时释放。
+ * 容量上限为支持 Anthropic 的 AgentCapability 枚举数，不淘汰；Worker 重建后从 null 重新创建。
  */
 export const anthropicClientCache: { current: Map<AgentCapability, AnthropicClient> | null } = { current: null };

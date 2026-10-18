@@ -2,6 +2,8 @@
  * 主线程群问答持久化边界：内存 Map 是唯一热读副本，SQLite 是权威落盘源。
  *
  * 写入在容量准入后发布内存最终值，再只保留 revision，正文不复制到第二张主线程表；
+ * 每次改动某群热表都同时失效 cache/main/qa.ts 的 chatQaTriggerJson 该群项（AI trigger
+ * 载荷按需重建）；
  * Disk I/O Worker 崩溃后从内存重编码并重放未 ACK 的 revision。语义与
  * infra/chatStateStorage.ts 一致，只是主键换成 (chatId, q) 复合键。
  */
@@ -12,6 +14,7 @@ import { postWithTransport } from "./diskIO/businessWrite";
 import { storageWriteCost } from "../libs/storageWriteBudget";
 import {
   chatQaEntries,
+  chatQaTriggerJson,
   nextChatQaRevision,
   unacknowledgedChatQaTotals,
   unacknowledgedChatQaWrites,
@@ -39,6 +42,7 @@ export function hydrateChatQaCache(
   entries: ReadonlyMap<number, ReadonlyMap<string, string>>
 ): void {
   chatQaEntries.clear();
+  chatQaTriggerJson.clear();
   unacknowledgedChatQaWrites.clear();
   unacknowledgedChatQaTotals.entries = 0;
   unacknowledgedChatQaTotals.bytes = 0;
@@ -109,6 +113,7 @@ export function setChatQa(chatId: number, q: string, a: string): "created" | "re
   const message: ChatQaWriteDiskMessage = prepareChatQaWrite(chatId, q, a);
   questions.set(q, a);
   if (existing === undefined) chatQaEntries.set(chatId, questions);
+  chatQaTriggerJson.delete(chatId);
   queueChatQaWrite(message);
   return replaced ? "replaced" : "created";
 }
@@ -119,6 +124,7 @@ export function removeChatQa(chatId: number, q: string): boolean {
   if (questions?.has(q) !== true) return false;
   const message: ChatQaWriteDiskMessage = prepareChatQaWrite(chatId, q, undefined);
   questions.delete(q);
+  chatQaTriggerJson.delete(chatId);
   // 空表不留存，直答路径第一步的 `get(chatId)` 靠 undefined 短路。
   if (questions.size === 0) chatQaEntries.delete(chatId);
   queueChatQaWrite(message);
@@ -126,15 +132,8 @@ export function removeChatQa(chatId: number, q: string): boolean {
 }
 
 /**
- * 群 teardown 的整群删除：删掉本群全部已登记问答。
- *
- * 逐条发墓碑，复用 setChatQa/removeChatQa 的准入、revision 与重放路径。
- *
- * 与 `/qa remove` 同样只排进事务缓冲、不在这里等 durable 回执：调用方
- * （commands/qa.ts 的 teardownQaInChat）所在的 `/init disable` 与离群路径在 teardown
- * 之后各自紧跟一次 persistChatState，两者共用同一个 SQLite 事务与 flush。
- *
- * @returns 实际删掉的条数；没有登记过问答的群为 0，且不产生任何投递。
+ * 群 teardown 的整群删除：逐条发布删除墓碑并排入事务缓冲。
+ * @returns 实际删掉的条数；未登记过问答的群不产生投递。
  */
 export function removeAllChatQa(chatId: number): number {
   const questions: Map<string, string> | undefined = chatQaEntries.get(chatId);
@@ -150,7 +149,8 @@ export function removeAllChatQa(chatId: number): number {
     }
   } finally {
     // 空表不留存，同 removeChatQa。放在 finally 中，中途抛错时按此刻的 size 判定：
-    // 已摘走的条目不回表，剩余条目保留。
+    // 已摘走的条目不回表，剩余条目保留；trigger JSON 同样在这里失效一次。
+    chatQaTriggerJson.delete(chatId);
     if (questions.size === 0) chatQaEntries.delete(chatId);
   }
   return removed;
@@ -172,17 +172,37 @@ function settleChatQaWrites(reply: IdentityStoragePersistedReply): void {
   }
 }
 
-/** Worker 重建后按内存最终值重放全部未确认写；正文从热表现编码。 */
+interface QueuedChatQaWrite {
+  readonly chatId: number;
+  readonly q: string;
+  readonly revision: number;
+}
+
+/** Worker 重建后按 revision 升序重放全部未确认写；正文从热表现编码。 */
 function replayChatQaWrites(transport: DiskIORecoveryTransport): boolean {
+  const writes: QueuedChatQaWrite[] = [];
   for (const [chatId, questions] of unacknowledgedChatQaWrites) {
     for (const [q, pending] of questions) {
-      const answer: string | undefined = chatQaEntries.get(chatId)?.get(q);
-      const data: string | null = answer === undefined
-        ? null
-        : encodeChatQaData(answer, `${IDENTITY_DATABASE_PATH}:chat_qa[${chatId}]`);
-      if (!postWithTransport({ type: "chatQaWrite", chatId, q, data, revision: pending.revision }, transport)) {
-        return false;
-      }
+      writes.push({ chatId, q, revision: pending.revision });
+    }
+  }
+  writes.sort((left: QueuedChatQaWrite, right: QueuedChatQaWrite): number =>
+    left.revision - right.revision);
+  for (const write of writes) {
+    const current: UnacknowledgedChatQaWrite | undefined =
+      unacknowledgedChatQaWrites.get(write.chatId)?.get(write.q);
+    if (current?.revision !== write.revision) continue;
+    const answer: string | undefined = chatQaEntries.get(write.chatId)?.get(write.q);
+    const data: string | null = answer === undefined
+      ? null
+      : encodeChatQaData(answer, `${IDENTITY_DATABASE_PATH}:chat_qa[${write.chatId}]`);
+    if (
+      !postWithTransport(
+        { type: "chatQaWrite", chatId: write.chatId, q: write.q, data, revision: write.revision },
+        transport
+      )
+    ) {
+      return false;
     }
   }
   return true;

@@ -297,7 +297,7 @@ describe("parseCronConfig", () => {
     rejects([task({ actions: [{ type: "send_file", payload: { content: "x".repeat(TELEGRAM_CAPTION_MAX_CHARS + 1), url: "https://e.com/f" } }] })], `$[0].actions[0].payload.content must be a non-empty string of at most ${TELEGRAM_CAPTION_MAX_CHARS} characters`);
   });
 
-  test("字符串字段按首尾空白规范化后校验并保存：名称、动作、会话标记、正文、路径、时区与表达式", () => {
+  test("字符串字段按首尾空白规范化后校验并保存：名称、动作、会话标记、正文、路径、地址、时区与表达式", () => {
     const config: CronConfig = parseCronConfig([task({
       name: " daily ",
       cron: " 0 9 * * * ",
@@ -306,6 +306,8 @@ describe("parseCronConfig", () => {
       actions: [
         { type: " send_message ", payload: { content: "\n hi \n" } },
         { type: "send_file", payload: { content: " caption ", path: " a.png " } },
+        { type: "send_file", payload: { url: "\u3000https://e.com/f.pdf\u3000" } },
+        { type: "send_image", payload: { url: ["\u00A0https://e.com/a.png\uFEFF"] } },
       ],
     })], PATH);
     expect(config[0]).toMatchObject({ name: "daily", cron: "0 9 * * *", timeZone: DEFAULT_BOT_TIME_ZONE });
@@ -315,9 +317,12 @@ describe("parseCronConfig", () => {
     expect(config[0]!.actions).toEqual([
       { type: "send_message", content: "hi" },
       { type: "send_file", content: "caption", source: { kind: "path", path: join(RUNTIME_DATA_ROOT, "a.png") } },
+      { type: "send_file", content: undefined, source: { kind: "url", url: "https://e.com/f.pdf" } },
+      { type: "send_image", content: undefined, source: { kind: "urls", urls: ["https://e.com/a.png"] }, isBlurred: false },
     ]);
     rejects([task({ time_zone: "   " })], "$[0].time_zone must be an IANA time zone name");
     rejects([task({ actions: [{ type: "send_file", payload: { path: "  " } }] })], "$[0].actions[0].payload.path must be");
+    rejects([task({ actions: [{ type: "send_file", payload: { url: "\u3000" } }] })], "$[0].actions[0].payload.url must be an absolute http(s) URL");
   });
 
   test("来源组合：恰好一个 url 或 path；rand_image 只用于图片且不配 url", () => {

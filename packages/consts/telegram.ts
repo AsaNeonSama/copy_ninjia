@@ -46,18 +46,15 @@ export const BOT_PROFILE_PHOTO_FILE_NAME: string = "avatar.jpg";
 /** 上传 MP4 动态头像时附带的文件名，仅出现在 multipart 的 filename 字段里。所属模块：infra/telegram/avatar/shared.ts。 */
 export const BOT_PROFILE_ANIMATION_FILE_NAME: string = "avatar.mp4";
 /**
- * Bot API 以 multipart 上传图片的上限（Bot API 文档 Sending Files：10 MB max size for photos），MB 按
- * Bot API 服务端的 2^20 字节计。JPEG/PNG 默认头像按此核对。所属模块：infra/telegram/avatar/photoType.ts。
+ * Bot API 以 multipart 上传图片的字节上限（JPEG/PNG 默认头像按此核对）。所属模块：infra/telegram/avatar/photoType.ts。
  */
 export const BOT_PROFILE_PHOTO_MAX_BYTES: number = 10 * 1024 * 1024;
 /**
- * Bot API 以 multipart 上传其他文件的上限（Bot API 文档 Sending Files：50 MB for other files），MB 按
- * Bot API 服务端的 2^20 字节计。MP4 动态默认头像按此核对。所属模块：infra/telegram/avatar/photoType.ts。
+ * Bot API 以 multipart 上传其他文件的字节上限（MP4 动态默认头像按此核对）。所属模块：infra/telegram/avatar/photoType.ts。
  */
 export const BOT_PROFILE_ANIMATION_MAX_BYTES: number = 50 * 1024 * 1024;
 /**
- * MP4 动态头像视频轨的最大边长（像素）；视频轨须为正方形且宽高不超过此值（MTProto 文档 Animated profile
- * pictures：square MPEG4 videos up to 1080x1080）。所属模块：infra/telegram/avatar/photoType.ts。
+ * MP4 动态头像视频轨的最大边长（像素）；视频轨须为正方形且宽高不超过此值。所属模块：infra/telegram/avatar/photoType.ts。
  */
 export const BOT_PROFILE_ANIMATION_MAX_SIDE: number = 1_080;
 /**
@@ -85,7 +82,7 @@ export const PUBLIC_PROFILE_PAGE_MAX_DOWNLOAD_BYTES: number = 1024 * 1024;
 /**
  * t.me / telegram.me 公开主页允许返回头像资源的 Telegram 自有域。后缀由
  * packages/libs/httpUrlPolicy.ts 按 DNS label 边界匹配；这里只限制轻量出站能力，
- * 不承担 DNS/IP 级 SSRF 防护。
+ * 不承担 DNS/IP 级 SSRF 防护。所属模块：infra/telegram/avatar/webProfile.ts。
  */
 export const TELEGRAM_PUBLIC_ASSET_HOST_SUFFIXES: readonly string[] = [
   "t.me",
@@ -234,7 +231,7 @@ export const TELEGRAM_SEND_CHAT_BURST: number = 3;
 /** 单聊天令牌桶补一个令牌的间隔。所属模块：infra/telegram/sendScheduler.ts。 */
 export const TELEGRAM_SEND_CHAT_REFILL_MS: number = 1_000;
 /**
- * 聊天收到 429 后，冻结结束起算的保守档时长：期间突发容量降为 1，再次 429 则顺延。
+ * 聊天收到 429 后，冻结结束起算的保守档时长：期间关闭突发容量，再次 429 则顺延。
  * 所属模块：infra/telegram/sendScheduler.ts。
  */
 export const TELEGRAM_SEND_CHAT_CAUTIOUS_MS: number = 60_000;
@@ -247,7 +244,7 @@ export const TELEGRAM_SEND_GROUP_LIMIT: number = 20;
 export const TELEGRAM_SEND_GROUP_WINDOW_MS: number = 60_000;
 /** 429 缺失合法 retry_after 时采用的保守短退避；后续响应仍以服务端值为准。 */
 export const TELEGRAM_429_FALLBACK_RETRY_MS: number = 1_000;
-/** 429 冷却后的单类别恢复并发上限；窗口从 1 起，仅在真实成功后逐步增长。 */
+/** 429 冷却后的单类别恢复并发上限；从单并发探测起步，仅在真实成功后逐步增长。 */
 export const TELEGRAM_429_RECOVERY_MAX_CONCURRENT: number = 32;
 /**
  * 单个 JavaScript timer 可安全表达的最大毫秒延迟，超长 retry_after 分段等待。
@@ -277,6 +274,7 @@ export const SELF_SENT_RENDEZVOUS_TIMEOUT_MS: number = 1_000;
  * 登记的发言身份淘汰，被淘汰身份的 inline 结果拿不到源文本、退回不判定。
  * 单条登记的正文以一次应答的全部结果内容为界（运势回执或至多 GAG_SESSION_MAX
  * 条、每条受 TELEGRAM_MESSAGE_MAX_CHARS 约束的 gag 文本），整表占用有界。
+ * 所属模块：cache/main/inlineResultSources.ts。
  */
 export const INLINE_RESULT_SOURCE_MAX_AUTHORS: number = 1_024;
 
@@ -315,7 +313,7 @@ export const CHAT_GONE_DESCRIPTION_PATTERN: RegExp = /\b(?:chat not found|group 
 export const BOT_DEPARTED_DESCRIPTION_PATTERN: RegExp = /\bbot (?:was kicked from|is not a member of) the (?:super)?group chat\b/i;
 
 /**
- * Bot API 限制成员时的永久分界：`until_date` 距当前超过 366 天按永久限制处理。`/mute` 的上限
- * consts/commands.ts 的 MUTE_MAX_DURATION_MS 须留在它之下，由 test/commands/mute.test.ts 核对。
+ * Bot API 限制成员时的永久分界（`until_date` 距当前超过此时长按永久限制处理；`/mute` 的上限
+ * consts/commands.ts 的 MUTE_MAX_DURATION_MS 须留在它之下）。
  */
 export const TELEGRAM_RESTRICTION_FOREVER_AFTER_MS: number = 366 * DAY_MS;

@@ -9,7 +9,7 @@ import {
   stickerFlushState,
 } from "../../cache/workers/diskIO/stickers";
 import { flushDirtyEntries } from "./dirtyFlush";
-import { cancelDiskIOFlushTimer } from "./timedFlush";
+import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 import { writeStickerCatalogFile } from "./snapshotFiles";
 import type { StickerCatalogFileDependencies } from "../../types/diskIO/snapshotOwners";
 import type { StickerCatalogRecoveryInspection } from "./snapshotFiles";
@@ -19,17 +19,9 @@ const STICKER_CATALOG_FILE_DEPENDENCIES: Readonly<StickerCatalogFileDependencies
   write: writeStickerCatalogFile,
 };
 
-/**
- * 按需装贴纸目录的重试/合并 timer。贴纸目录是同步覆盖写，到点直接在 timer 回调里写，
- * 不进统一操作队列（与 wedMemberFiles.ts 相同）。
- */
+/** 按需注册贴纸目录定时落盘 timer，到点后经统一操作队列合并执行。 */
 function scheduleStickerCatalogFlush(): void {
-  if (stickerFlushState.timer !== null) return;
-  stickerFlushState.timer = setTimeout((): void => {
-    stickerFlushState.timer = null;
-    flushStickerCatalogs();
-  }, SNAPSHOT_FLUSH_INTERVAL_MS);
-  stickerFlushState.timer.unref();
+  armDiskIOFlushTimer(stickerFlushState, SNAPSHOT_FLUSH_INTERVAL_MS, flushStickerCatalogs);
 }
 
 /** 跨域启动第二阶段：全部领域 inspect 成功后整体发布到 owner 缓存。 */

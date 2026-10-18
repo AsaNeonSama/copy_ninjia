@@ -11,6 +11,7 @@ import {
   collectConstantLocationProblems,
   collectDeclarationProblems,
   collectModuleCacheProblems,
+  collectIteratorHeadProblems,
   collectObjectFreezeProblems,
 } from "./conventions/sourceRules";
 import type { SourceFileRuleParams } from "./conventions/sourceRules";
@@ -43,6 +44,10 @@ import {
   collectMarkdownModuleListProblems,
   collectSourceDirectories,
 } from "./conventions/markdownModuleLists";
+import {
+  collectMarkdownPathProblems,
+  collectRepositoryPaths,
+} from "./conventions/markdownPaths";
 import { collectMarkdownAnchors } from "./conventions/markdownAnchors";
 import { withoutMarkdownCodeFences } from "./conventions/markdownSource";
 import {
@@ -217,6 +222,32 @@ const WORKER_TELEGRAM_FORBIDDEN_MODULES: readonly string[] = [
   join(PROJECT_ROOT, "packages", "infra", "telegram", "workerRequests.ts"),
 ];
 
+/** 把模块依赖链格式化为相对仓库根的 `a -> b -> c`。 */
+function formatModuleTrail(trail: readonly string[]): string {
+  return trail.map((step: string): string => relative(PROJECT_ROOT, step)).join(" -> ");
+}
+
+/** 收集非主线程闭包加载主线程 Telegram 模块或 grammY 运行时包的问题，按闭包顺序输出。 */
+async function collectWorkerTelegramClosureProblems(
+  thread: string,
+  closure: ReadonlyMap<string, readonly string[]>,
+  graph: ModuleGraphReader
+): Promise<readonly string[]> {
+  const problems: string[] = [];
+  for (const forbidden of WORKER_TELEGRAM_FORBIDDEN_MODULES) {
+    const trail: readonly string[] | undefined = closure.get(forbidden);
+    if (trail === undefined) continue;
+    problems.push(`${thread} Worker loads main-thread Telegram module: ${formatModuleTrail(trail)}`);
+  }
+  for (const [path, trail] of closure) {
+    for (const dependency of await graph.externalDependencies(path)) {
+      if (dependency !== "grammy" && !dependency.startsWith("@grammyjs/")) continue;
+      problems.push(`${thread} Worker loads Telegram runtime package ${dependency}: ${formatModuleTrail(trail)}`);
+    }
+  }
+  return problems;
+}
+
 const failures: string[] = [];
 /** 逐文件遍历时顺带记下的 Node 兼容 import；整趟结束后反向核对登记表。 */
 const nodeImportUsage: NodeImportUsage[] = [];
@@ -225,9 +256,7 @@ failures.push(...collectStaleNodeAllowanceProblems(PROJECT_ROOT));
 for (const problem of await collectColdMigrationProblems(PROJECT_ROOT)) {
   failures.push(`cold migration: ${problem}`);
 }
-for (const problem of await collectCoverageMetricProblems(PROJECT_ROOT)) {
-  failures.push(problem);
-}
+failures.push(...await collectCoverageMetricProblems(PROJECT_ROOT));
 for (const problem of await collectFaultInjectionSuiteProblems(PROJECT_ROOT)) {
   failures.push(`fault injection suite: ${problem}`);
 }
@@ -245,23 +274,31 @@ const sourceDirectories: readonly string[] = collectSourceDirectories([
   SCRIPTS_ROOT,
   TEST_ROOT,
 ]);
-const tracked: string[] = projectFiles();
+const tracked: string[] = [];
+for (const trackedPath of projectFiles()) {
+  // 允许尚未 stage 的正常删除；其它门禁会从最终工作树/索引确认变更范围。
+  if (await Bun.file(join(PROJECT_ROOT, trackedPath)).exists()) {
+    tracked.push(trackedPath);
+  }
+}
+const repositoryPaths: ReadonlySet<string> = collectRepositoryPaths(tracked);
 for (const trackedPath of tracked) {
   const path: string = join(PROJECT_ROOT, trackedPath);
-  // 允许尚未 stage 的正常删除；其它门禁会从最终工作树/索引确认变更范围。
-  if (!(await Bun.file(path).exists())) continue;
   if (/\.(?:[cm]?[jt]sx?|sh)$/.test(path)) {
     failures.push(...collectFileLengthProblems(trackedPath, await Bun.file(path).text()));
   }
   if (extname(path) === ".md") {
     await checkMarkdownLocalLinks(path, failures);
-    for (const problem of await collectMarkdownModuleListProblems(
+    failures.push(...await collectMarkdownModuleListProblems(
       PROJECT_ROOT,
       path,
       sourceDirectories
-    )) {
-      failures.push(problem);
-    }
+    ));
+    failures.push(...await collectMarkdownPathProblems(
+      PROJECT_ROOT,
+      path,
+      repositoryPaths
+    ));
   }
   const extension: string = extname(path);
   if (![".ts", ".json", ".md", ".yaml", ".yml"].includes(extension)) continue;
@@ -289,23 +326,7 @@ for (const [thread, entry] of Object.entries(THREAD_ENTRIES)) {
 
 for (const [thread, closure] of threadClosures) {
   if (thread === "main") continue;
-  for (const forbidden of WORKER_TELEGRAM_FORBIDDEN_MODULES) {
-    const trail: string[] | undefined = closure.get(forbidden);
-    if (trail === undefined) continue;
-    failures.push(
-      `${thread} Worker loads main-thread Telegram module: ` +
-      trail.map((step: string): string => relative(PROJECT_ROOT, step)).join(" -> ")
-    );
-  }
-  for (const [path, trail] of closure) {
-    for (const dependency of await moduleGraph.externalDependencies(path)) {
-      if (dependency !== "grammy" && !dependency.startsWith("@grammyjs/")) continue;
-      failures.push(
-        `${thread} Worker loads Telegram runtime package ${dependency}: ` +
-        trail.map((step: string): string => relative(PROJECT_ROOT, step)).join(" -> ")
-      );
-    }
-  }
+  failures.push(...await collectWorkerTelegramClosureProblems(thread, closure, moduleGraph));
 }
 
 const cacheFiles: readonly string[] = sourceFilesUnder(CACHE_ROOT);
@@ -320,16 +341,14 @@ failures.push(...collectStaleCacheExemptionProblems({
   threadClosures,
   exemptions: CACHE_OWNER_EXEMPTIONS,
 }));
-for (const problem of collectCacheOwnershipProblems({
+failures.push(...collectCacheOwnershipProblems({
   projectRoot: PROJECT_ROOT,
   cacheFiles,
   threadEntries: THREAD_ENTRIES,
   threadClosures,
   ownerByPrefix: CACHE_OWNER_BY_PREFIX,
   exemptions: CACHE_OWNER_EXEMPTIONS,
-})) {
-  failures.push(problem);
-}
+}));
 
 const cacheSourceFiles: ReadonlySet<string> = new Set(sourceFilesUnder(CACHE_ROOT));
 const constsSourceFiles: ReadonlySet<string> = new Set(sourceFilesUnder(CONSTS_ROOT));
@@ -348,34 +367,31 @@ const referenceResolutionFiles: readonly string[] = [
 ];
 // 逐文件的源码约定：每个文件只读一次、只解析一次，适用的规则全在这一趟里跑完。
 // cache/consts 规则按 sourceFilesUnder 的真实文件集合判定适用范围；模块级缓存规则由
-// collectModuleCacheProblems 判定。失败列表按文件汇总。
-//
-// 仓库根的 index.ts 是生产入口，AGENTS.md 多条规则的适用范围是「packages/ 与
-// index.ts」；它不在 sourceFilesUnder(SOURCE_ROOT) 里，显式并进同一趟判定。
+// collectModuleCacheProblems 判定。仓库根的 index.ts 不在 sourceFilesUnder(SOURCE_ROOT) 里，
+// 显式并进同一趟判定。
 for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
   const source: ts.SourceFile = await parseSourceFile(path);
   const params: SourceFileRuleParams = { projectRoot: PROJECT_ROOT, path, source };
   if (!cacheSourceFiles.has(path) && !constsSourceFiles.has(path)) {
     failures.push(...collectConstantLocationProblems(params));
   }
-  for (const problem of collectNodeCompatibilityProblems(PROJECT_ROOT, path, source)) {
-    failures.push(problem);
-  }
+  failures.push(...collectNodeCompatibilityProblems(PROJECT_ROOT, path, source));
   nodeImportUsage.push(...collectNodeImportUsage(PROJECT_ROOT, path, source));
   failures.push(...collectUndeclaredDependencyProblems({ projectRoot: PROJECT_ROOT, path, source, declaredPackages }));
   if (cacheSourceFiles.has(path)) {
-    for (const problem of collectCacheJsDocProblems(params)) failures.push(problem);
+    failures.push(...collectCacheJsDocProblems(params));
   }
   if (constsSourceFiles.has(path)) {
-    for (const problem of collectConstantProblems(params)) failures.push(problem);
+    failures.push(...collectConstantProblems(params));
     collectExportedStringConstants(source, exportedStringConstants);
     collectConstantTextFragments(source, constantTextFragments);
   }
-  for (const problem of collectObjectFreezeProblems(params)) failures.push(problem);
+  failures.push(...collectObjectFreezeProblems(params));
+  failures.push(...collectIteratorHeadProblems(params));
   if (!path.startsWith(CACHE_ROOT) && !path.startsWith(CONSTS_ROOT)) {
-    for (const problem of collectModuleCacheProblems(params)) failures.push(problem);
+    failures.push(...collectModuleCacheProblems(params));
   }
-  for (const problem of collectDeclarationProblems(params)) failures.push(problem);
+  failures.push(...collectDeclarationProblems(params));
   failures.push(...collectEnvironmentAccessProblems(params));
   if (path.startsWith(STATES_ROOT + "/")) {
     failures.push(...collectStatesPurityProblems({
@@ -389,18 +405,14 @@ for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
   if (path.startsWith(INFRA_ROOT + "/")) {
     failures.push(...collectInfraLayeringProblems(params));
   }
-  for (const problem of await collectCommentReferenceProblems({
+  failures.push(...await collectCommentReferenceProblems({
     projectRoot: PROJECT_ROOT,
     path,
     source,
     allSourceFiles: referenceResolutionFiles,
-  })) {
-    failures.push(problem);
-  }
+  }));
   if (path.startsWith(WORKERS_ROOT + "/")) {
-    for (const problem of collectWorkerTimerProblems(PROJECT_ROOT, path, source)) {
-      failures.push(problem);
-    }
+    failures.push(...collectWorkerTimerProblems(PROJECT_ROOT, path, source));
   }
 }
 
@@ -409,9 +421,7 @@ for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
 const constantTextCorpusText: string = constantTextCorpus(constantTextFragments);
 for (const path of [...sourceFilesUnder(SCRIPTS_ROOT), ...sourceFilesUnder(TEST_ROOT)]) {
   const source: ts.SourceFile = await parseSourceFile(path);
-  for (const problem of collectNodeCompatibilityProblems(PROJECT_ROOT, path, source)) {
-    failures.push(problem);
-  }
+  failures.push(...collectNodeCompatibilityProblems(PROJECT_ROOT, path, source));
   nodeImportUsage.push(...collectNodeImportUsage(PROJECT_ROOT, path, source));
   failures.push(...collectUndeclaredDependencyProblems({ projectRoot: PROJECT_ROOT, path, source, declaredPackages }));
   failures.push(...collectFullSuiteImportProblems({ projectRoot: PROJECT_ROOT, path, source }));
@@ -457,13 +467,11 @@ failures.push(...collectMockResetProblems({
   testFiles,
 }));
 
-for (const problem of await collectTelegramMessageProblems(
+failures.push(...await collectTelegramMessageProblems(
   PROJECT_ROOT,
   SOURCE_ROOT,
   COMMANDS_ROOT
-)) {
-  failures.push(problem);
-}
+));
 
 if (failures.length > 0) {
   console.error(`Project convention check failed with ${failures.length} issue(s):`);

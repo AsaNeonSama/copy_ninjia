@@ -1,7 +1,6 @@
 import type { AtmosphereTexts } from "../types/atmosphere";
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import type { ChatState } from "../types/chatState";
 import { deactivateJoinGuardChat } from "../antiRaid";
 
 import { runChatToggleCommand } from "./superAdminToggle";
@@ -32,10 +31,7 @@ export async function handleAntiRaidCommand(
     permission: "isCanControllAntiRaidPermission",
     persistReason: "antiraid toggled",
     runtimeLabel: "join guard runtime",
-    read: (state: ChatState): boolean => state.isAntiRaidEnabled === true,
-    write: (state: ChatState, isEnabled: boolean): void => {
-      state.isAntiRaidEnabled = isEnabled;
-    },
+    switchKey: "isAntiRaidEnabled",
     teardown: deactivateJoinGuardChat,
     teardownFailedText: atmosphere.ANTI_RAID_DISABLE_TEARDOWN_FAILED_TEXT,
   });

@@ -1,19 +1,27 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { CHAT_QA_MAX_PER_CHAT } from "../../../packages/consts/qa";
 import { encodeChatQaData } from "../../../packages/database/codec/chatQa";
+import { encodeChatStateData } from "../../../packages/database/codec/chatState";
 import { clearStorageBusinessTables } from
   "../../../scripts/fixtures/storageDatabase";
 import { CHAT_QA_WRITE_BATCH_MAX_ENTRIES } from "../../../packages/consts/identityStorage";
 import {
   pendingChatQaEntryCount,
   pendingChatQaWrites,
+  pendingChatStateWrites,
+  rejectedStorageDomains,
   resetStorageDatabaseCache,
 } from "../../../packages/cache/workers/diskIO/storageDatabase";
 import { hydrateStorageDatabase } from "../../helpers/storageDatabaseHydration";
+import { chatStateOf } from "../../helpers/chatState";
 import { handleChatQaWrite } from
   "../../../packages/workers/diskIO/storageDatabase/chatQa";
-import { flushStorageDatabase } from
-  "../../../packages/workers/diskIO/storageDatabase/flush";
+import { handleChatStateWrite } from
+  "../../../packages/workers/diskIO/storageDatabase/chatState";
+import {
+  flushStorageDatabase,
+  setStorageFlushHold,
+} from "../../../packages/workers/diskIO/storageDatabase/flush";
 import { requireStorageDatabase } from
   "../../../packages/workers/diskIO/storageDatabase/context";
 import type { ChatQaWriteDiskMessage } from "../../../packages/types/diskIO";
@@ -74,6 +82,79 @@ describe("Disk I/O Worker 的问答写入闸", () => {
 
     expect(() => handleChatQaWrite(write("问题0", null, 10), noReply)).not.toThrow();
     expect(() => handleChatQaWrite(write("新问题", "新答案", 11), noReply)).not.toThrow();
+  });
+
+  test("storageFlushHold 重放期间延后汇总校验：先到新增再到墓碑可通过，解除时仍超限则丢弃本领域写入、记拒收并回报 fatal", () => {
+    for (let index: number = 0; index < CHAT_QA_MAX_PER_CHAT; index++) {
+      handleChatQaWrite(write(`问题${index}`, "答案", index + 1), noReply);
+    }
+    flushStorageDatabase(noReply);
+
+    setStorageFlushHold(true, noReply);
+    handleChatQaWrite(write("新问题", "新答案", 100), noReply);
+    handleChatQaWrite(write("问题0", null, 101), noReply);
+    expect(setStorageFlushHold(false, noReply)).toBeNull();
+
+    setStorageFlushHold(true, noReply);
+    handleChatQaWrite(write("超限问题", "超限答案", 102), noReply);
+    handleChatStateWrite({
+      type: "chatStateWrite",
+      chatId: CHAT_ID,
+      data: encodeChatStateData(chatStateOf({ isInitEnabled: true })),
+      revision: 1,
+    }, noReply);
+    const error = spyOn(console, "error").mockImplementation((): void => {});
+    try {
+      expect(setStorageFlushHold(false, noReply)).toEqual({
+        type: "recoveryReplayFailed",
+        domain: "chatQa",
+        error: expect.stringContaining(`at most ${CHAT_QA_MAX_PER_CHAT} entries per chat`),
+      });
+      expect(error).toHaveBeenCalledTimes(1);
+    } finally {
+      error.mockRestore();
+    }
+    expect(pendingChatQaWrites.size).toBe(0);
+    expect(pendingChatQaEntryCount.current).toBe(0);
+    expect(rejectedStorageDomains.has("chatQa")).toBeTrue();
+    // 只丢弃复核失败的领域，其余领域的重放写入照常留待提交。
+    expect(pendingChatStateWrites.size).toBe(1);
+    expect(rejectedStorageDomains.has("chatState")).toBeFalse();
+  });
+
+  test("chatStateWrite 拒绝把本群自身写入 deleteMessageTargets，重放解除时对多代发目标丢弃本领域写入、记拒收并回报 fatal", () => {
+    expect(() => handleChatStateWrite({
+      type: "chatStateWrite",
+      chatId: CHAT_ID,
+      data: encodeChatStateData(chatStateOf({ isInitEnabled: true, deleteMessageTargets: [CHAT_ID] })),
+      revision: 1,
+    }, noReply)).toThrow("must be a user or channel ID other than the chat itself");
+
+    setStorageFlushHold(true, noReply);
+    handleChatStateWrite({
+      type: "chatStateWrite",
+      chatId: CHAT_ID,
+      data: encodeChatStateData(chatStateOf({ isProxySendEnabled: true })),
+      revision: 2,
+    }, noReply);
+    handleChatStateWrite({
+      type: "chatStateWrite",
+      chatId: CHAT_ID - 1,
+      data: encodeChatStateData(chatStateOf({ isProxySendEnabled: true })),
+      revision: 3,
+    }, noReply);
+    const error = spyOn(console, "error").mockImplementation((): void => {});
+    try {
+      expect(setStorageFlushHold(false, noReply)).toEqual({
+        type: "recoveryReplayFailed",
+        domain: "chatState",
+        error: expect.stringContaining("at most one active proxy send target"),
+      });
+    } finally {
+      error.mockRestore();
+    }
+    expect(pendingChatStateWrites.size).toBe(0);
+    expect(rejectedStorageDomains.has("chatState")).toBeTrue();
   });
 
   test("非法问题、非法答案与非法 revision 一律拒绝", () => {

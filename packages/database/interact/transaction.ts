@@ -27,23 +27,17 @@ export interface CommitStorageDatabaseChangesOptions {
   readonly aiContexts: ReadonlyMap<number, StorageAiContextChange>;
 }
 
-/** 占位符写成的 JSONB 列值：由 SQLite 把绑定的 JSON 文本编码为 JSONB（NULL 仍为 NULL）。 */
+/** 生成将命名占位符绑定值转为 SQLite JSONB 的 SQL 表达式。 */
 function jsonbPlaceholder(name: string): SQL {
   return sql`jsonb(${sql.placeholder(name)})`;
 }
 
-/** upsert 冲突分支取本次插入行的同名列值。 */
+/** 生成引用 upsert 冲突行同名列值的 SQL 表达式。 */
 function excluded(column: SQLiteColumn): SQL {
   return sql`excluded.${sql.identifier(column.name)}`;
 }
 
-/**
- * 为一条连接预编译统一事务提交用的全部写语句。
- *
- * 本函数只建不持有：Disk I/O Worker 把结果挂在
- * cache/workers/diskIO/storageDatabase.ts 的连接级 WeakMap 上，同一连接的每次提交复用。
- * 本文件是不接触任何线程独占缓存的叶子模块。
- */
+/** 为指定数据库连接预编译事务提交所需的全部 upsert、delete 与 update 语句。 */
 export function prepareStorageDatabaseWriter(database: StorageDatabase): StorageDatabaseWriter {
   return {
     database,
@@ -113,11 +107,7 @@ export function prepareStorageDatabaseWriter(database: StorageDatabase): Storage
   };
 }
 
-/**
- * 共享 SQLite 各业务表的最终值在一个 Drizzle 显式事务中提交，逐行只绑定参数执行预编译
- * 语句。群状态先于 AI 上下文写入：同批新建的群行先存在，同批删除的群行不会被迟到的上下文
- * 复活。
- */
+/** 在单个事务中按固定表顺序批量执行各业务表的增删改预编译语句（`chat_states` 先于 `ai_context` 更新）。 */
 export function commitStorageDatabaseChanges(
   writer: StorageDatabaseWriter,
   {

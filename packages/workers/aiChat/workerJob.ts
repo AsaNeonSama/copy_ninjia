@@ -1,8 +1,6 @@
 /**
- * AI Worker 侧执行主线程转交的可取消任务（语音合成 ./voiceSynthesis.ts、摘要组稿 ./webDigest.ts）
- * 的公共骨架：排空开始后到达的请求直接回「worker unavailable」；其余按 requestId 在调用方的在途表
- * 登记取消控制器，任务信号合入 Worker 统一生命周期信号（Worker 停止或进入排空时一并中止），执行
- * 结束后摘除自己的条目再回执。撤回消息由调用方按 requestId 中止在途表里的控制器。
+ * AI Worker 侧执行主线程可取消任务（语音合成、摘要组稿）的公共骨架：排空期间直接返回不可用失败，
+ * 否则登记 requestId 取消控制器并与 Worker 生命周期信号合并，结算后移除登记并发布回执。
  */
 
 import { aiChatWorkerAbortController, aiChatWorkerQuiescing } from "../../cache/workers/aiChat/worker";

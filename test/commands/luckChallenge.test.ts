@@ -328,7 +328,7 @@ describe("/luck_challenge 预览 -> 选中确认 -> 落盘 全链路", () => {
 
   test("落盘线程连续追加失败的诊断被转成一行 logger.error（Worker 侧只有 console.error）", () => {
     // onLuckAppendStalled 是「条目进了 dailyLuckCache 却写不进 memory/luck/」
-    // 唯一的可观测出口，见 docs/cn/04-invariants.md 运势追加停摆一节。
+    // 唯一的可观测出口，见 docs/cn/04-invariants.md 运势与 AI 记忆恢复一节。
     expect(onLuckAppendStalledMock).toHaveBeenCalledTimes(1);
     const notify = onLuckAppendStalledMock.mock.calls[0]![0] as (reply: {
       type: "luckAppendStalled";

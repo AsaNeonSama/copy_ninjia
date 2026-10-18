@@ -17,12 +17,12 @@
   - 恢复链在首个 `await` 之前同步读取当前群状态，每个处于锁定态的群仅触发一次恢复接管并在日志中打印一次。
   - 若某群的恢复任务已在册且 `phase` 与 `intentId` 相同，`startEmergencyLockdownRecovery` 直接返回；若锁定意图不同，则先注销旧任务再开启新恢复。
 - **群已不存在时放弃镜像**：
-  - teardown 起因为 `gone` 时，Anti-Raid Worker 以 `chatGone` 事件放弃本群私密模式：删除状态、撤掉恢复与重试 timer，只上报 `unlock`，不调 Telegram。主线程按 `unlock` 清除 `lockdown` 镜像并后台落盘；此前在途的 `lockdown` 上报先到、`unlock` 后到，镜像最终为空。
+  - teardown 起因为 `gone` 时，Anti-Raid Worker 以 `chatGone` 事件放弃本群私密模式：删除状态、撤掉恢复与重试 timer，只上报 `unlock`，不调 Telegram。主线程按 `unlock` 清除 `lockdown` 镜像并后台落盘；此前在途的 `lockdown` 上报先到、`unlock` 后到，镜像最终为空；若主线程已在紧急恢复接管本群私密模式，`abandonEmergencyLockdownRecovery` 同步撤掉恢复任务并清空 `lockdown` 镜像。
   - 放弃之后迟到的权限调用结果撞上空状态，不再推进；`departed` 等其它起因仍走落盘优先的恢复路径。
 - **镜像格式与严格校验**：
   - 运行时 lockdown 镜像必须包含 `phase` 与正整数 `intentId`；`announcementMessageId` 与 `announced === true` 同时成立或同时不成立。
-  - 验证快照必须包含 `phase` 与 `trackedMessageTimes`。选填字段 `reminderMessageId` 与 `announcementMessageId` 缺失仅表示提醒尚未成功发出或未检测到入群公告，恢复后各自独立执行补发或清理逻辑。
-  - 验证快照的回复提醒三字段交叉校验：`pending` 阶段 `replyReminderRequested`、`reminderSuperseded` 与「`welcomeAnchorMessageId` 已知」同真同假；其余阶段只能是 `false`、无锚点、`true`。`expelling` 的四个播报与确认标志只接受缺省或 `true`。
+  - 验证快照必须包含 `phase` 与 `trackedMessageTimes`（长度至多为 `ANTI_RAID_PER_MINUTE_LIMIT`）。选填字段 `reminderMessageId`、`replyReminderMessageId` 与 `announcementMessageId` 缺失仅表示提醒尚未成功发出或未检测到入群公告，恢复后各自独立执行补发或清理逻辑；`kickPending` 阶段严禁携带 `reminderMessageId` 与 `replyReminderMessageId`。
+  - 验证快照的回复提醒三字段与阶段交叉校验：`pending` 阶段 `replyReminderRequested`、`reminderSuperseded` 与「`welcomeAnchorMessageId` 已知」同真同假；其余阶段 `trackedMessageTimes` 必须为空、不得携带 `invitedBy`，且三字段只能是 `replyReminderRequested: false`、无 `welcomeAnchorMessageId`、`reminderSuperseded: true`。`expelling` 的四个播报与确认标志（`successNoticeSent`、`failureNoticeSent`、`unconfirmedNoticeSent`、`removalConfirmed`）只接受缺省或 `true`。
   - 其它字段缺失或格式不符时由解码器严格拒绝启动，必须在停机期间人工修复，生产读取路径不保留向前兼容降级。
 - **终态播报标志持久化**：
   - 终态提示的三个状态标志必须持久化落盘：
@@ -35,7 +35,7 @@
 - **权限缺失短路门禁（`cleanupSettled`）**：
   - 确证无封禁权限（`botCanRestrictIn === false`）时的提前短路，必须以**关联清理已全部完成**（`cleanupSettled === true`）为前提：仅当 `failureNoticeSent` 与 `cleanupSettled` 同时为真时才短路，此时每轮只发一次成员探测，成员已离群即结算，否则继续退避。
   - 私密模式秒踢（`kickPending`）在无封禁权限时同样先做成员探测：成员已离群即结算并释放该条记录；仍在群内则记日志并退避，不发踢人请求。
-  - 若仍有未完成的清理动作，照常推进处置流程：踢人被封禁权限短路、战报被已发送标志短路、删消息在无删除权限时短路，确保所有可执行且需重试的清理工作（如删除消息）均得到执行。
+  - `cleanupSettled === true` 后，同一终态条目后续重试直接跳过 `deleteVerificationMessages`；若仍为 `false`，照常推进清理动作（踢人被封禁权限短路、战报被已发送标志短路、删消息在无删除权限时短路），确保所有可执行且需重试的清理工作（如删除消息）均得到执行。
   - `cleanupSettled` 记在 Worker 运行态条目（`VerificationEntry`）上，`executionStarted` 记在终态对象上且只经状态机事件改写；两者都属于 **Worker 本地内存幂等控制标志，不进入持久化快照**，条目或状态换代时从初值重来。
 
 <p align="right"><a href="04-invariants.md#快速导航">↑ 返回快速导航</a></p>

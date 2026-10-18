@@ -1,4 +1,4 @@
-export type ChatRuntimeOwner = "copy" | "translate" | "gag" | "aiChat" | "antiRaid" | "qa" | "wed" | "joinLog";
+export type ChatRuntimeOwner = "copy" | "translate" | "gag" | "deleteMessage" | "aiChat" | "antiRaid" | "qa" | "wed" | "joinLog";
 /**
  * 一次群 teardown 的起因，决定 owner 是只停运行态还是连同本群持久化数据一并删除。
  *

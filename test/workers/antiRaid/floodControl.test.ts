@@ -218,6 +218,18 @@ describe("刷屏发言窗口", () => {
     expect(floodEntry(-1001, 7)?.timestamps.size).toBe(1);
   });
 
+  test("时钟大幅回拨时裁剪未来时间戳，不把后续正常发言堆积在旧时刻误触发禁言", () => {
+    const initialAt: number = 10_000_000;
+    observeMemberMessage(-1001, 7, initialAt);
+    const rolledBackStart: number = 1_000_000;
+    for (let i: number = 0; i < FLOOD_MESSAGE_LIMIT; i++) {
+      expect(observeMemberMessage(-1001, 7, rolledBackStart + i * FLOOD_WINDOW_MS)).toBeUndefined();
+    }
+    expect(floodEntry(-1001, 7)?.timestamps.size).toBe(1);
+    expect(floodEntry(-1001, 7)?.lastObservedAt)
+      .toBe(rolledBackStart + (FLOOD_MESSAGE_LIMIT - 1) * FLOOD_WINDOW_MS);
+  });
+
   test("抑制期内到达的消息既不计数也不重复触发", () => {
     observeMemberMessage(-1001, 7, 1_000);
     const entry: FloodWindowEntry | undefined = floodEntry(-1001, 7);

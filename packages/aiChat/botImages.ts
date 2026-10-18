@@ -6,23 +6,17 @@ import { activeCopyTargetIdIn } from "../infra/storage/stateStore";
 /** recordBotImage 的入参。 */
 export interface RecordBotImageParams {
   chatId: number;
-  /** 这张图片消息的 message_id。 */
+  /** 图片消息的 message_id。 */
   messageId: number;
-  /** 图注原文；没有图注传空串。 */
+  /** 图注原文；无图注时传空串。 */
   caption: string;
-  /** 同一条消息换了图（/wed 更换）时为 true，见 AiRecordBotImageMessage.edited。 */
+  /** 是否为原消息换图。 */
   edited: boolean;
 }
 
 /**
- * 命令与定时任务发出图片后的占位自录入口（/wed、/h_image、cron send_image）。
- *
- * 只在本群正跑 AI 闲聊且没有复读目标时投递，与内联结果自录同一门槛（见
- * auto/message/guards.ts）。Worker 写入占位态条目、不识图，有人回复这张图时
- * 才识图回填（见 workers/aiChat/botImages.ts）。
- *
- * 调用点都在图片已经发出之后（多在 runTelegramAction 的 map 里）；本函数
- * 不抛错：AI Worker 不可用时记一行错误日志并放弃这条自录。
+ * 在本群启用 AI 闲聊且未处于复读模式时，向 AI Worker 投递一条占位态机器人图片自录消息；
+ * 投递失败时记录错误日志并返回。
  */
 export function recordBotImage({ chatId, messageId, caption, edited }: RecordBotImageParams): void {
   if (activeCopyTargetIdIn(chatId) !== undefined || !isAiChatActiveIn(chatId)) return;

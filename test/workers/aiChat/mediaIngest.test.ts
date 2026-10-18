@@ -8,24 +8,27 @@ const getCatalogEntry = mock((_fileUniqueId: string): StickerCatalogEntry | unde
 const pushBufferedMessage = mock((..._args: unknown[]): void => {});
 const generateAndSendReply = mock((..._args: unknown[]): void => {});
 const trackReplyGenerationTask = mock((..._args: unknown[]): void => {});
+const replyGenerationSignal = mock((..._args: unknown[]): AbortSignal => new AbortController().signal);
 
 mock.module("../../../packages/aiChat/ai/imageDescription", () => ({ describeMedia }));
 mock.module("../../../packages/aiChat/ai/stickers/catalog", () => ({ getCatalogEntry }));
 mock.module("../../../packages/workers/aiChat/rollingMemory", () => ({ pushBufferedMessage }));
 mock.module("../../../packages/workers/aiChat/replyPipeline", () => ({ generateAndSendReply }));
 mock.module("../../../packages/workers/aiChat/replyGeneration", () => ({
-  replyGenerationSignal: (): AbortSignal => new AbortController().signal,
+  replyGenerationSignal,
   trackReplyGenerationTask,
 }));
 
 const { recordChatMedia } = await import("../../../packages/workers/aiChat/mediaIngest");
 const { dirtyMemoryChats } = await import("../../../packages/cache/workers/aiChat/memory");
-const { cachedReplyGeneration } = await import("../../../packages/cache/workers/aiChat/replies");
+const { cachedReplyGeneration, replyGenerations } = await import("../../../packages/cache/workers/aiChat/replies");
+const { imageReferenceAlbums, resetImageReferenceAlbumCache } = await import("../../../packages/cache/workers/aiChat/imageReferenceAlbums");
 
 function photoMessage(): AiRecordMediaMessage {
   return {
     type: "recordMedia",
     messageThreadId: undefined,
+    mediaGroupId: undefined,
     kind: "photo",
     chatId: -1001,
     senderId: 7,
@@ -60,6 +63,7 @@ function stickerMessage(): AiRecordMediaMessage {
 
 beforeEach(() => {
   dirtyMemoryChats.clear();
+  resetImageReferenceAlbumCache();
   // getCatalogEntry 默认返回 undefined，与 reset 后的空实现等价，无需装回。
   describeMedia.mockReset();
   describeMedia.mockResolvedValue("一只戴帽子的猫");
@@ -67,6 +71,7 @@ beforeEach(() => {
   pushBufferedMessage.mockClear();
   generateAndSendReply.mockClear();
   trackReplyGenerationTask.mockClear();
+  replyGenerationSignal.mockClear();
 });
 
 describe("AI 媒体触发的生图参考图", () => {
@@ -103,6 +108,25 @@ describe("AI 媒体触发的生图参考图", () => {
     expect(bufferedEntry.fileId).toBeUndefined();
     expect(bufferedEntry.fileUniqueId).toBeUndefined();
     expect(bufferedEntry.forwardedFrom).toBe("频道 [id:-100666] 东京日报");
+  });
+
+  test("相册里的图片带上相册 id 进入触发链，并在准入前记进生图参考相册缓存", async () => {
+    recordChatMedia({ ...photoMessage(), mediaGroupId: "album-9" });
+    await Promise.resolve();
+
+    expect(generateAndSendReply).toHaveBeenCalledWith(expect.objectContaining({
+      imageGenerationReference: {
+        fileId: "current-photo",
+        fileUniqueId: "current-photo-unique",
+        width: 1600,
+        height: 900,
+        mediaGroupId: "album-9",
+      },
+    }));
+    expect(imageReferenceAlbums.get("album-9")).toEqual({
+      chatId: -1001,
+      photos: [{ fileId: "current-photo", fileUniqueId: "current-photo-unique", width: 1600, height: 900, messageId: 10 }],
+    });
   });
 
   test("贴纸的可视素材会作为本轮生图参考", async () => {
@@ -176,6 +200,20 @@ describe("AI 媒体触发的 Telegram 背压快照", () => {
       expect(params).toMatchObject({ isRandomTrigger: false, telegramBackpressured: replyTelegramBackpressured });
     }
     expect(pushBufferedMessage).toHaveBeenCalledTimes(3);
+  });
+
+  test("不发起回复的贴纸目录命中只同步记进上下文，不分配回复代际与取消控制器", () => {
+    const chatId: number = -1002;
+    replyGenerations.delete(chatId);
+    getCatalogEntry.mockReturnValueOnce({ emoji: "🐱", description: "一只猫向前挥爪" });
+    recordChatMedia({ ...stickerMessage(), chatId, directTriggerReason: undefined, replyTelegramBackpressured: undefined });
+
+    expect(pushBufferedMessage).toHaveBeenCalledTimes(1);
+    expect(replyGenerations.has(chatId)).toBe(false);
+    expect(replyGenerationSignal).not.toHaveBeenCalled();
+    expect(describeMedia).not.toHaveBeenCalled();
+    expect(trackReplyGenerationTask).not.toHaveBeenCalled();
+    expect(generateAndSendReply).not.toHaveBeenCalled();
   });
 
   test("不发起回复的媒体只记进上下文并照常解析，不进入准入", async () => {

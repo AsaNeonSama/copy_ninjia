@@ -28,7 +28,7 @@ export interface DownloadTelegramFileParams {
 /**
  * 下载一个 Telegram 文件到有界内存。getFile 与下载各自的超时预算耗尽时分别报
  * metadataTimeout、downloadTimeout（下载段覆盖到读完响应体）；调用方取消或其自身预算
- * 耗尽与其它异常原样上抛，由调用方按自己的语义归类。非 2xx 响应不读错误页，并显式释放响应体。
+ * 耗尽与其它异常原样上抛，由调用方按自己的语义归类。非成功 HTTP 响应不读错误页，并显式释放响应体。
  */
 export async function downloadTelegramFileBytes({
   fileId,

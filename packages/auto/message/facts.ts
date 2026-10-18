@@ -59,15 +59,8 @@ export function resolveSpeaker(message: Message): AiSpeakerSnapshot {
  * consts/auto.ts 的共享只读常量之一（没有 entity 表时返回 NO_MENTION_FACTS），
  * 不分配对象；调用方只读字段，不比较对象身份。
  *
- * 逐个实体先用长度筛一道，筛掉的实体不物化子串：`toLowerCase` 只会让
- * 长度不变或变长（全 Unicode 里唯一会变长的是 U+0130，`test/auto/messageFacts.test.ts`
- * 逐码元锁住这一点），因此 `实体码元数 > @用户名码元数` 的实体折完大小写也不会
- * 与目标等长，不是本机器人。
- *
- * 长度筛选只在实体完整落在正文内时下结论：`substring` 会把越界实体夹短，
- * `entity.length` 不再等于参与比对的长度，越界实体一律走下面的物化比对。
- * 两条分支与「整串折小写后逐字比对 `@用户名`」同解，
- * 由 `test/auto/messageFacts.test.ts` 的参考实现穷举对拍。
+ * 完整落在正文内且 `entity.length > botMentionLength` 的实体直接记为提及他人，不物化子串；
+ * 其余实体切片折小写后与 `@` 加 `botUsernameLower` 比对（参考实现对拍见 `test/auto/messageFacts.test.ts`）。
  */
 export function resolveMentionFacts(
   message: Message,
@@ -87,11 +80,7 @@ export function resolveMentionFacts(
   }
   let isMentioned: boolean = false;
   let hasOtherMention: boolean = false;
-  // 只折用户名自己的大小写，不拼 `@用户名`；前导 `@` 由下面的首码元判定承担，
-  // 两者合起来与整串比对 `@用户名` 的小写形态等价（`@` 既非 cased 也非
-  // case-ignorable，不影响后续字符的折叠结果）。
-  // 没有用户名（含空串）时 botMentionLength 为 -1：两处长度判定都不成立，
-  // 任何 mention 记为他人。
+  // 没有用户名（含空串）时 botMentionLength 为 -1：两处长度判定都不成立，任何 mention 记为他人。
   const botUsernameLower: string = botUsername ? botUsername.toLowerCase() : "";
   const botMentionLength: number = botUsernameLower.length === 0 ? -1 : botUsernameLower.length + 1;
   for (const entity of entities) {
@@ -122,9 +111,15 @@ export function resolveMentionFacts(
   return hasOtherMention ? OTHER_MENTION_FACTS : NO_MENTION_FACTS;
 }
 
-/** 判断当前消息是否显式回复同一个可见发送者先前的消息（判定见 libs/forumTopic.ts 的 explicitReplyTo）。 */
-export function isReplyToSelf(message: Message): boolean {
-  const repliedTo: Message | undefined = explicitReplyTo(message);
+/**
+ * 判断当前消息是否显式回复同一个可见发送者先前的消息。repliedTo 是 libs/forumTopic.ts
+ * 的 explicitReplyTo 对 message 的解析结果；调用方已解析过时传入，省略或为 undefined
+ * 时在这里重新解析。
+ */
+export function isReplyToSelf(
+  message: Message,
+  repliedTo: Message | undefined = explicitReplyTo(message)
+): boolean {
   if (!repliedTo) return false;
   const senderId: number | undefined = visibleSenderId(message);
   return senderId !== undefined && senderId === visibleSenderId(repliedTo);
@@ -195,13 +190,16 @@ function repliedBotImage(repliedTo: Message, botId: number): RepliedBotImage | u
   };
 }
 
-/** 提取当前消息的显式回复关系。原消息取自 reply_to_message，
- * 不发额外 API 请求；论坛话题自动填入的话题创建消息不算回复（见
- * libs/forumTopic.ts 的 explicitReplyTo）；quote 则保留用户选中的精确引用片段。
+/** 提取当前消息的显式回复关系。原消息取自 reply_to_message，不发额外 API 请求；
+ * 论坛话题自动填入的话题创建消息不算回复（见 libs/forumTopic.ts 的 explicitReplyTo），
+ * repliedTo 的传法同 isReplyToSelf；quote 则保留用户选中的精确引用片段。
  * 被回复的是机器人自己的图片时附上 botImage，由 Worker 识图后回填（见
  * workers/aiChat/botImages.ts）。 */
-export function resolveReplyReference(message: Message, botId: number): AiReplyReference | undefined {
-  const repliedTo: Message | undefined = explicitReplyTo(message);
+export function resolveReplyReference(
+  message: Message,
+  botId: number,
+  repliedTo: Message | undefined = explicitReplyTo(message)
+): AiReplyReference | undefined {
   if (!repliedTo) return undefined;
   const speaker: AiSpeakerSnapshot = resolveSpeaker(repliedTo);
   // 可选字段都显式写出（缺省为 undefined），进入 Worker 与逐字缓存的引用保持

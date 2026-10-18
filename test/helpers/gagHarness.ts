@@ -391,3 +391,15 @@ export async function advanceGagTime(milliseconds: number): Promise<void> {
   jest.advanceTimersByTime(milliseconds);
   await settleGagBackgroundTasks();
 }
+
+/** 连续向 gag 消息入口投递普通可见群消息并排空每次衍生的后台任务。 */
+export async function sendVisibleMessages(count: number): Promise<void> {
+  const { handleGagMessageIngress } = await import("../../packages/commands/gag");
+  for (let index: number = 0; index < count; index++) {
+    await handleGagMessageIngress(normalMessage({
+      message_id: 200 + index,
+      from: { id: 8, is_bot: false, first_name: "Bob" },
+    }), 999);
+    await settleGagBackgroundTasks();
+  }
+}

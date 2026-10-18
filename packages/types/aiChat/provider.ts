@@ -20,7 +20,7 @@ export type AiProviderTaskPriority = "interactive" | "background";
 
 /**
  * 一个自定义函数工具的中立声明。参数用 JSON Schema 表达，Gemini 的
- * `parametersJsonSchema` 与 OpenAI 的 `parameters` 都直接使用这份对象。
+ * `parametersJsonSchema`、OpenAI 的 `parameters` 与 Anthropic 的 `input_schema` 都直接使用这份对象。
  */
 export interface AiToolDefinition {
   readonly name: string;
@@ -29,7 +29,7 @@ export interface AiToolDefinition {
 }
 
 /** 模型抛回的一次函数调用。id 供需要回填调用标识的供应商使用（OpenAI 的
- *  `call_id` 必填，Gemini 的 `id` 可选）。 */
+ *  `call_id` 与 Anthropic 的 `tool_use_id` 必填，Gemini 的 `id` 可选）。 */
 export interface AiFunctionCall {
   readonly id?: string;
   readonly name: string;
@@ -105,7 +105,7 @@ export interface AiReplyTurnRequest {
   readonly webSearchEnabled: boolean;
   /**
    * 本轮之前是否已经观测到服务端检索。采样参数不由调用方传入，由各实现包按自己的
-   * consts 决定，见 consts/aiChat/{gemini,openai}.ts。
+   * consts 决定，见 consts/aiChat/{gemini,openai,anthropic}.ts。
    */
   readonly grounded: boolean;
 }
@@ -135,7 +135,7 @@ export interface AiReplyTurn {
 
 /**
  * 一轮回复的多次工具往返会话。会话自己保管对话记录（Gemini 是带 thought
- * signature 的 Content 列表，OpenAI 是 Responses 的 input item 列表），
+ * signature 的 Content 列表，OpenAI 是 Responses 的 input item 列表，Anthropic 是 MessageParam 列表），
  * 调用方只按领域语义推进，不接触任何供应商结构。
  *
  * 生命周期：createReplySession 起、单轮回复结束即弃，不跨轮复用，也不进
@@ -201,7 +201,8 @@ export interface AiVoiceRequest {
 export interface AiImageRequest {
   readonly prompt: string;
   readonly aspectRatio: ImageGenerationAspectRatio;
-  readonly referenceImage?: VisionImage;
+  /** 按顺序交给图片模型的参考图；空数组表示按文字从零生成。 */
+  readonly referenceImages: readonly VisionImage[];
   readonly signal?: AbortSignal;
 }
 
@@ -276,7 +277,7 @@ export interface AiMeteredSpeechRequest extends AiSpeechRequest {
  */
 export interface AiReplySessionParams {
   /**
-   * 本轮回复所在的群。只有 Gemini 实现读取：按群记录上一次成功回复请求的发出时刻，决定第 1 次
+   * 本轮回复所在的群。只有 Gemini 实现读取：按群记录上一次成功回复请求的发出时刻，决定首轮
    * 请求是否引用显式缓存（见 aiChat/gemini/replySession.ts）；其余实现不读。
    */
   readonly chatId: number;

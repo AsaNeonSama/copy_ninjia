@@ -1,9 +1,13 @@
-import type { Message, MessageId } from "grammy/types";
+import type { MessageId } from "grammy/types";
 import type {
   TelegramPhotoSendResult,
   TelegramSendResult,
 } from "../../../types/telegram";
-import type { TelegramApi } from "../../../types/telegramWorker";
+import type {
+  TelegramApi,
+  TelegramSentMessage,
+  TelegramSentPhotoMessage,
+} from "../../../types/telegramWorker";
 import { markSelfSent } from "../../selfSentTracker";
 import { telegramApi } from "../client";
 import {
@@ -38,14 +42,14 @@ export async function sendSticker({
     action: "send sticker",
     execute: (
       requestSignal?: AbortSignal
-    ): Promise<Message.StickerMessage> =>
+    ): Promise<TelegramSentMessage> =>
       api.sendSticker(
         chatId,
         fileId,
         { message_thread_id: messageThreadId },
         telegramSignal(requestSignal)
       ),
-    map: (sent: Message.StickerMessage): number | undefined => {
+    map: (sent: TelegramSentMessage): number | undefined => {
       markSelfSent(chatId, sent.message_id);
       return sent.message_id;
     },
@@ -87,7 +91,7 @@ export async function sendPhotoWithResult({
     action: "send photo",
     execute: async (
       requestSignal?: AbortSignal
-    ): Promise<Message.PhotoMessage> => {
+    ): Promise<TelegramSentPhotoMessage> => {
       const extension: string = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp";
       // 定形一次初始化，同 actions/messages.ts 的 sendMessageWithResult。
       const other: Parameters<SendPhotoApi["sendPhoto"]>[2] = {
@@ -103,7 +107,7 @@ export async function sendPhotoWithResult({
         telegramSignal(requestSignal)
       );
     },
-    map: (sent: Message.PhotoMessage): TelegramPhotoSendResult => {
+    map: (sent: TelegramSentPhotoMessage): TelegramPhotoSendResult => {
       const result: TelegramSendResult = toTelegramSendResult(chatId, sent);
       return {
         messageId: result.messageId,
@@ -147,7 +151,7 @@ export async function sendVoiceWithResult({
     action: "send voice",
     execute: async (
       requestSignal?: AbortSignal
-    ): Promise<Message.VoiceMessage> => {
+    ): Promise<TelegramSentMessage> => {
       // 定形一次初始化，同 actions/messages.ts 的 sendMessageWithResult。
       const other: Parameters<SendVoiceApi["sendVoice"]>[2] = {
         message_thread_id: messageThreadId,
@@ -161,7 +165,7 @@ export async function sendVoiceWithResult({
         telegramSignal(requestSignal)
       );
     },
-    map: (sent: Message.VoiceMessage): TelegramSendResult | undefined =>
+    map: (sent: TelegramSentMessage): TelegramSendResult | undefined =>
       toTelegramSendResult(chatId, sent),
     fallback: undefined,
     signal,

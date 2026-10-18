@@ -19,7 +19,7 @@ flowchart TD
     classDef main stroke:#8e75ff,stroke-width:2.5px;
     classDef worker stroke:#3b82f6,stroke-width:2px;
 
-    MAIN["🧵 メインスレッド (Main Thread)<br/>• ACK 付き update runner（全体で 1 件ずつ直列処理）<br/>• 唯一の Telegram クライアント + 統合送信ゲート<br/>• state ファサード + StateStore（memory/global/state.json）"]:::main
+    MAIN["🧵 メインスレッド (Main Thread)<br/>• ACK 付き update runner（全体で直列処理）<br/>• 唯一の Telegram クライアント + 統合送信ゲート<br/>• state ファサード + StateStore（memory/global/state.json）"]:::main
     AI["🤖 AI Worker<br/>• 複数ターンのツール呼び出し（差し替え可能なプロバイダ）<br/>• ローリング逐字メモリ · 要約圧縮 · 感情ステートマシン"]:::worker
     RAID["🛡️ Anti-Raid Worker<br/>• 参加認証とロックダウンのステートマシン<br/>• ブラックリスト処置 · 広告判定モデル"]:::worker
     DISK["💾 Disk I/O Worker<br/>• storage.sqlite トランザクション永続化<br/>• ログ / メモリスナップショット / 運勢 / 認証 / wed メンバーの直列書き込み"]:::worker
@@ -67,8 +67,8 @@ flowchart TD
 
 ## 1 件のメッセージが通る経路
 
-すべてのメッセージミドルウェアは [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) で明示的に組み立てられます。下図の前置チェーンは 1 つの配列にまとめられ、`bot.use(...preamble)` で一括登録されます。実行順序と next() の伝播契約は grammY のミドルウェア仕様に従います。リアクション、メンバー増減、コールバック、インラインクエリなど、通常のメッセージ以外の update は個別の `bot.on` で登録されます。
-本パイプラインは `sequentialize` を使用せず、メッセージのグローバルな処理順序は取得側の ACK 付き runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）によって保証されます。一度に 1 件の update のみを取得し（`UPDATE_POLL_LIMIT`）、そのミドルウェアチェーンが完全に完了するまで次の `getUpdates` を呼び出さないことで、システム全体で厳格な 1 件ずつの直列処理を実現しています。
+すべてのメッセージミドルウェアは [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) で明示的に組み立てられ、チェーン全体は 1 つの `bot.use` だけで登録されます。この層で update_id の記録と Bot 発言の流量制限を済ませたあと、[`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) の前置チェーンに入ります。前置チェーンの各段は下図の順に次の段を同期的に呼び出し、実際に I/O に当たったとき（コールド身分のプリフェッチ、永続化やネットワークを待つ認領型 ingress、コマンドとメッセージのハンドラ）だけ Promise を返します。スラッシュコマンド、漢字アクションコマンド、およびリアクション、メンバー増減、コールバック、インラインクエリなど通常のメッセージ以外の update は、それぞれ grammY の `Composer` として組み立てられ、前置チェーンが該当位置で呼び出します。
+メッセージのグローバルな処理順序は取得側の ACK 付き runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）によって保証されます。`UPDATE_POLL_LIMIT` と `UPDATE_POLL_TIMEOUT_SECONDS` で update を取得し、そのミドルウェアチェーンが完全に完了するまで次の `getUpdates` を呼び出さないことで、システム全体で直列処理を実現しています。
 
 ```text
 [Telegram Update]
@@ -77,7 +77,7 @@ flowchart TD
  1. update_id 追跡       ── 最大処理済み update_id を記録し、終了時に offset を確定
        │
        ▼
- 2. Bot 発言レート制限    ── 他の Bot による発言を送信元 ID ごとに集計し、上限超過時はサイレントに破棄
+ 2. Bot 発言レート制限    ── 他の Bot による発言を送信元 ID ごとに集計し、上限超過時はサイレントに破棄。そのグループの削除対象は数えない
        │
        ▼
  3. おみくじ署名レシート確認 ── インラインおみくじ結果の確定レシートを優先精算（転送メッセージも有効）
@@ -95,28 +95,31 @@ flowchart TD
  7. 参加認証 Ingress     ── コマンド処理より前に配置。認証待ちメンバーの発言をすべて捕捉・追跡
        │
        ▼
- 8. gag 制限 Ingress     ── gag 規制中のユーザーの発言を捕捉して削除し、直ちにミドルウェアチェーンを終了
+ 8. 削除対象 Ingress     ── /delete_message 対象の発言を削除キューに入れ、直ちにチェーンを終了
        │
        ▼
- 9. /qa フォーム Ingress  ── 入力中の「问题:」「回答:」フォームメッセージを捕捉・受領
+ 9. gag 制限 Ingress     ── gag 規制中のユーザーの発言を捕捉して削除し、直ちにミドルウェアチェーンを終了
        │
        ▼
-10. コマンドサブチェーン (:entities:bot_command)
+10. /qa フォーム Ingress  ── 入力中の「问题:」「回答:」フォームメッセージを捕捉・受領
+       │
+       ▼
+11. コマンドサブチェーン (:entities:bot_command)
        │                 ── 外部ゲートでフィルタリング。コマンドエンティティを含まないメッセージは一括スキップ
        ├─ /permission, /white, /copy, /translate, /wed, /block, /ai_chat ...
        └─ /x (メニュー用プレースホルダー、漢字アクションコマンドの使い方を案内)
        │
        ▼
-11. 漢字アクションコマンド (hears) ── /咬、/贴贴 などの 1〜2 文字アクション語に一致。フォールバック直前で捕捉
+12. 漢字アクションコマンド (hears) ── CJK_ACTION_COMMAND_PATTERN（/咬、/贴贴 など）に一致。フォールバック直前で捕捉
        │
        ▼
-12. 自動メッセージパイプライン   ── auto/message/ がリピート、グループ Q&A 即答、AI 会話トリガーと文字起こしなどを処理
+13. 自動メッセージパイプライン   ── auto/message/ がリピート、グループ Q&A 即答、AI 会話トリガーと文字起こしなどを処理
 ```
 
 リアクション同期は `message_reaction` 専用のハンドラー（`auto/reactionSync.ts`）が処理し、上記のメッセージチェーンは通りません。
 
 > [!NOTE]
-> `bot.catch` はエラーログを記録したあと必ず例外を上位へ再スローし、失敗した update を勝手にコミット（確認済み）しません。例外を握りつぶしてしまうと、未処理の update が消費済みとして失われてしまうためです。
+> `bot.catch` はエラーログを記録したあと例外を上位へ再スローし、失敗した update を確認済み（ACK）としてコミットしません。
 
 ---
 
@@ -148,6 +151,7 @@ flowchart TD
     G --> A4["🎟️ send_sticker (スタンプ送信)"]:::action
     G --> A5["🎨 generate_image (画像生成)"]:::action
     G --> A6["🎙️ send_voice (音声送信)"]:::action
+    G --> A7["🚫 abuse_mark (拒答クールダウン)"]:::action
 ```
 
 ### 1. メディア分流とプレースホルダーパイプライン
@@ -178,11 +182,12 @@ AI の発火は 2 つの契機によって制御されます：
 | **`add_reaction`** | アクション | 許可された絵文字から選択してリアクションを追加。1 ターンあたりの受領回数上限は `MAX_REACTIONS_PER_REPLY`。 |
 | **`view_sticker_pack`** | 照会 | 指定スタンプパック内のスタンプ一覧を照会。可視アクション予算を消費しない。スタンプ送信前の閲覧が必須。 |
 | **`send_sticker`** | アクション | 指定スタンプを送信。1 ターンあたりの受領回数上限は `MAX_STICKERS_PER_REPLY`。 |
-| **`generate_image`** | アクション | 画像を生成して送信。直接トリガーの資格およびグループ単位のクールダウンは本ターンのツール状態に記録され、エグゼキューターが呼び出し時に検証。1 ターンあたりの受領回数上限は `MAX_GENERATED_IMAGES_PER_REPLY`。 |
+| **`generate_image`** | アクション | 画像を生成して送信。直接トリガーの資格およびグループ単位のクールダウンは本ターンのツール状態に記録され、エグゼキューターが呼び出し時に検証。1 ターンあたりの受領回数上限は `MAX_GENERATED_IMAGES_PER_REPLY`。直接トリガーに付随する参照画像（アルバムはアルバム順に補完、最大 `agent.image.max_reference_images` 枚）をリクエストとともに画像モデルへ渡す。 |
 | **`send_voice`** | アクション | `agent.tts.bot_language` の言語でセリフを音声合成。ツール説明文は `prompt/voice_tool.md` で全体置換が可能。バックグラウンドで非同期合成され、アクションチェーンで整列送信。1 ターンあたりの受領回数上限は `MAX_VOICES_PER_REPLY`。 |
 | **`web_search`** | 照会 | ローカル Web 検索ツール（`agent.web_search` 設定時に有効）。1 ターンあたりの呼び出し回数は `max_calls_per_use` で制限。 |
 | **`group_qa_query`** | 照会 | グループ内に登録された質問一覧を照会。アクション予算は消費しない。 |
 | **`group_qa_answer`** | 照会 | `group_qa_query` で得られた質問に対応する登録回答を取得。呼び出しの要否はモデルが文脈に応じて自律判断。 |
+| **`abuse_mark`** | アクション | 本ターンのトリガーユーザーが許可されない内容や嫌がる内容を執拗に要求した際、該当ユーザーを `ABUSE_MARK_DURATION_MS` の間 AI 雑談から除外し、スタイル別の通知を送信して直ちに本ターンのモデル対話を終了。 |
 | **`get_tokyo_weather`** | 照会 | 東京の当日の天気と気温を照会。設定タイムゾーンが `TOKYO_TIME_ZONE`（`bot.json` の `time_zone`、省略時を含む）の場合にのみツールセットへ追加。 |
 
 > [!TIP]
@@ -204,31 +209,31 @@ AI の発火は 2 つの契機によって制御されます：
    - 存在するすべての設定入力を事前検証。未設定の任意ファイルは機能単位の準備フラグで処理されますが、ファイルが存在しながら内容が不正な場合は直ちに起動を中止。
    - 検証済みの `assets.json` に基づき、ランダム画像ライブラリディレクトリを検査・準備（パーミッション、ファイル名、エントリ形式を確認）。
 3. **Disk I/O Worker の初期化とデータ復元**：
-   - Disk I/O Worker は全永続化領域（データベース、ログ、AI キャッシュ使用量、スタンプ目録、運勢、認証記録、参加ログ、wed メンバー等）をまず読み取り専用で検査・厳格デコードし、整合性を確認した後に所有権を確立（adopt）。レシート返却と起動時メンテナンスタスクを実行し、設定タイムゾーンに基づく午前 0 時の定期メンテナンス cron を登録。
-   - メインスレッドはグループ状態、グループ Q&A、wed メンバーのインメモリキャッシュを読み込み、Telegram クライアントを初期化し、スーパー管理者がブラックリストに登録されていないことを確認した上で、発言者キャッシュと翻訳ターゲットを初期投入（シード）。
+   - Disk I/O Worker は全永続化領域（データベース、ログ、AI キャッシュ使用量、スタンプ目録、運勢、認証記録、参加ログ、wed メンバー等）をまず読み取り専用で検査・厳格デコードし、整合性を確認した後に所有権を確立（adopt）。レシート返却と起動時メンテナンスタスクを実行し、設定タイムゾーンに基づく定期メンテナンス cron（`DISK_IO_MAINTENANCE_CRON`）を登録。
+   - メインスレッドはグループ状態、グループ Q&A、wed メンバーのインメモリキャッシュを読み込み、Telegram クライアントを初期化し、スーパー管理者がブラックリストおよび `/delete_message` の削除対象に登録されていないことを確認した上で、発言者キャッシュと翻訳ターゲットを初期投入（シード）。
 4. **ハンドラー登録とハンドシェイク**：グローバルミドルウェアの登録、コマンドメニューの登録を行い、`bot.init()` で Telegram とハンドシェイク。
 5. **業務 Worker の初期化とスケジューリング**：
-   - AI Worker を初期化（前提設定が有効な場合のみ）し、会話メモリ、スタンプ目録、運勢、認証待ち記録をハイドレーション。
-   - Anti-Raid Worker を初期化し、認証およびロックダウンのミラー状態を復元。
+   - AI Worker を初期化（前提設定が有効な場合のみ）し、会話メモリとスタンプ目録をハイドレーション。運勢状態はメインスレッドで復元。
+   - 認証待ち記録とブラックリストのキック待ち outbox を読み込んだ後に Anti-Raid Worker を初期化し、認証およびロックダウンのミラー状態を復元。
    - `cron.json` 定期タスクスケジューラと `config/dynamic/` のホットリロード監視を開始し、ブラックリスト再スキャンのスケジューラを準備。
    - runner が新たな update の受信を開始する前に、管理者権限が確認済みの全グループに対してブラックリスト再スキャンを 1 回先行実行。
-6. **Update Runner の開始**：1 件ずつ直列処理する update runner を起動し、wed メンバーの再確認をスケジュールし、最後に低優先度のグループタイトル非同期補完タスクを開始。
+6. **Update Runner の開始**：直列処理する update runner を起動し、wed メンバーの再確認をスケジュールし、最後に低優先度のグループタイトル非同期補完タスクを開始。
 
 ---
 
 ## 停止順序
 
-プロセスの停止処理は `ApplicationLifecycle`（`wait()` および `dispose()`）が一元的に統括し、正常終了・異常停止を問わず直列バリアに沿って安全にシャットダウンします。各コンポーネントの停止順序とゲートは `packages/app/lifecycle/shutdown.ts` の `SHUTDOWN_DRAIN_OWNERS` が厳密に定めています（詳細は [04 実行時の正式な不変条件](04-invariants.md) を参照）：
+プロセスの停止処理は `ApplicationLifecycle`（`wait()` および `dispose()`）が一元的に統括し、正常終了・異常停止を問わず直列バリアに沿って安全にシャットダウンします。各コンポーネントの停止順序とゲートは [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) の `SHUTDOWN_DRAIN_OWNERS` が厳密に定めています（詳細は [04 実行時の正式な不変条件](04-invariants.md) を参照）：
 
 1. **Quiesce（受付の遮断）**：
-   - グループタイトル補完、アバターキュー、翻訳、gag、wed 予約、遅延コマンド、定期タスクスケジューラ、ブラックリスト再スキャン、設定ホットリロード監視を順次停止。各コンポーネントは独立して完了処理され、いずれかで例外が発生した場合は最終 update offset のコミットが阻止されます。
+   - グループタイトル補完、アバターキュー、翻訳、gag、wed の対話とメンバー再確認、遅延コマンド、定期タスクスケジューラ、ブラックリスト再スキャン、設定ホットリロード監視を順次停止。各コンポーネントは独立して完了処理され、いずれかで例外が発生した場合は最終 update offset のコミットが阻止されます。
    - Telegram runner を停止し、新たな update の受信を遮断。
 2. **有界 Drain（インフライト処理の完了待機）**：
-   - 処理中の update ハンドラーにキャンセレーションシグナルを通知し、制限時間内で完了を待機。タイムアウトに達した場合は処理中の update を中断し、最終 offset のコミットを阻止（次回起動時に Telegram から再受信させるため）。
+   - 処理中の update ハンドラーにキャンセレーションシグナルを通知し、制限時間内で完了を待機（タイムアウト時は処理中の update を中断し、最終 offset のコミットを阻止）。
    - グループタイトルの非同期補完タスクの完了を待機。
 3. **永続化と offset コミット**：`flushAllToDisk` が `SHUTDOWN_DRAIN_OWNERS` の順序に従って各 owner および Worker のメッセージキューをドレインしてディスクへ flush。すべての書き込みが正常完了した場合にのみ、`getUpdates` で最後に処理した update の offset をコミット。途中でエラーが発生した場合は offset をコミットせず、プロセスは非ゼロのステータスで終了。
 4. **Dispose（リソースの解放と Worker 停止）**：
-   - 定められた順序で最終クリーンアップ：アバターキュー、翻訳（完了後 close）、Anti-Raid、gag 通知、`/qa set` フォーム、wed、遅延コマンド、定期タスク、統合遅延削除キュー、AI メモリの flush（完了後 AI Worker を終了）、Telegram 送信キュー（完了後送信ゲートを閉鎖）、Disk I/O の flush。
+   - 定められた順序で最終クリーンアップ：アバターキュー、翻訳（完了後 close）、Anti-Raid、gag 通知、`/qa set` フォーム、wed、遅延コマンド、定期タスク、対象メッセージ削除キュー（`/delete_message`）、統合遅延削除キュー、AI メモリの flush（完了後 AI Worker を終了）、Telegram 送信キュー（完了後送信ゲートを閉鎖）、Disk I/O の flush。
    - Anti-Raid および Disk I/O の Worker プロセスを終了し（Disk I/O Worker は終了前に残りの書き込みをコミットし、WAL checkpoint を実行して共有 SQLite を閉じる）、`StateStore` のグローバル状態を最終 flush。
    - シャットダウン結果は `clean`、`offsetWithheld`、`unsettled` の 3 状態に分類されます。`unsettled` ではプロセス終了まで `bot.lock` を保持し続け、それ以外ではインスタンスロックを正常に解放します。`clean` 以外の状態ではプロセスは必ず非ゼロコードで終了します。
 

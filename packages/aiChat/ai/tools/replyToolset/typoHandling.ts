@@ -34,6 +34,33 @@ export interface DecideMessageTypoParams {
   remainingActions: number;
 }
 
+/**
+ * 校验错字候选在当前轮次是否可用；返回首个拒绝原因，全部通过时返回 null。
+ * 错字版本须单独校验是否包含可渲染斜杠命令；命中时仅跳过本次手滑，原样发送正文。
+ */
+function typoRejection(
+  typoAlreadyUsed: boolean,
+  typoText: string | null,
+  remainingActions: number
+): string | null {
+  if (typoAlreadyUsed) {
+    return "already used the one allowed typo this round; this message will send as-is";
+  }
+  if (typoText === null) {
+    return "typo_original_char/typo_replacement_char were rejected: each must be exactly one character, differ from each other, not be emoji, and typo_original_char must actually appear in text";
+  }
+  if (isEmojiOnly(typoText)) {
+    return "typo candidate was rejected: the resulting message would be emoji-only";
+  }
+  if (containsRenderableCommand(typoText)) {
+    return "typo candidate was rejected: the resulting message would contain a slash command Telegram renders as tappable";
+  }
+  if (remainingActions < TYPO_MIN_REMAINING_ACTIONS) {
+    return "typo candidate was rejected: not enough remaining action budget this round";
+  }
+  return null;
+}
+
 /** 解析模型提交的两枚单字并决定本条消息是否采用本轮唯一一次手滑。 */
 export function decideMessageTypo({
   argumentsJson,
@@ -50,33 +77,20 @@ export function decideMessageTypo({
     ? buildCharacterTypo(text, originalChar, replacementChar)
     : null;
   const typoText: string | null = characterTypo?.typoText ?? null;
-  // 错字版本单独判一次可点击命令：send_message 的守卫校验替换前的正文，实际发出的是
-  // 错字版本；守卫与被守卫的值必须是同一个字符串。命中只作废这次手滑、正文照常发出。
-  const shouldUseTypo: boolean = roundHasTypo &&
-    !typoAlreadyUsed &&
-    characterTypo !== null &&
-    !isEmojiOnly(typoText!) &&
-    !containsRenderableCommand(typoText!) &&
-    remainingActions >= TYPO_MIN_REMAINING_ACTIONS;
+  const rejection: string | null = roundHasTypo
+    ? typoRejection(typoAlreadyUsed, typoText, remainingActions)
+    : null;
+  const typoToSend: string | null = roundHasTypo && rejection === null ? typoText : null;
+  const shouldUseTypo: boolean = typoToSend !== null;
   const typoAttempted: boolean = roundHasTypo &&
     !!originalChar &&
     !!replacementChar &&
     originalChar !== replacementChar;
-  const rejectedReason: string | null = typoAttempted && !shouldUseTypo
-    ? typoAlreadyUsed
-      ? "already used the one allowed typo this round; this message will send as-is"
-      : characterTypo === null
-      ? "typo_original_char/typo_replacement_char were rejected: each must be exactly one character, differ from each other, not be emoji, and typo_original_char must actually appear in text"
-      : isEmojiOnly(typoText!)
-      ? "typo candidate was rejected: the resulting message would be emoji-only"
-      : containsRenderableCommand(typoText!)
-      ? "typo candidate was rejected: the resulting message would contain a slash command Telegram renders as tappable"
-      : "typo candidate was rejected: not enough remaining action budget this round"
-    : null;
+  const rejectedReason: string | null = typoAttempted ? rejection : null;
 
   return {
     shouldUseTypo,
-    textToSend: shouldUseTypo ? typoText! : text,
+    textToSend: typoToSend ?? text,
     correctionText: characterTypo?.expected ?? null,
     mode: shouldUseTypo ? pickTypoCorrectionMode() : null,
     rejectedReason,
@@ -91,10 +105,7 @@ export interface ApplyQuickTypoCorrectionParams {
   correctionText: string;
 }
 
-/**
- * 错字消息落地后补发正确单字：先静默 TYPO_QUICK_CORRECTION_MIN_MS～MAX_MS，再模拟固定
- * TYPO_QUICK_CORRECTION_TYPING_MS 的「正在输入」，切 idle、等状态收敛后发送。返回补字是否送达。
- */
+/** 错字消息发出后经过静默与打字停顿补发正确单字，返回补字是否送达。 */
 export async function applyQuickTypoCorrection({
   ctx,
   chatAction,

@@ -1,17 +1,8 @@
 /**
  * 群类型在入群守卫线程侧的读写口。
  *
- * 观测发生在主线程（每条 update 都带 `chat.type`），执行发生在本线程（踢人走
- * telegramApi）。两边因此按变更镜像：主线程每次观测到新值就发一条
- * `chatKind`，Worker 重建与进程启动时整表重放（见 packages/antiRaid/workerBridge/replay.ts）。
- * 主线程只观测已 /init enable 的群；镜像缺席时本线程仍须按三态反查。
- *
- * 读出来的是三态，「没观测到」不等于「是普通群」：镜像到达之前、或这个群从未
- * 有过一条被本进程处理的 update 时都读不到值。终态处置按群类型分派
- * `banChatMember`/`unbanChatMember`，「只踢不封」不变量见 docs/cn/04-invariants.md。
- *
- * 冷启动时主线程镜像可能为空；终态执行前用 getChat 按群复用反查，查不出
- * 类型就保留终态退避，不按「未知」选择破坏性 API。
+ * 主线程按变更推送 `chatKind`，Worker 重建与进程启动时整表重放（见 packages/antiRaid/workerBridge/replay.ts）。
+ * 镜像缺失时由本线程通过 `getChat` 同群去重反查；查询未确证时返回 `undefined`（只踢不封约束见 docs/cn/04-invariants.md）。
  */
 
 import type { ChatFullInfo } from "grammy/types";

@@ -23,7 +23,7 @@
 | `bun run check:install-script-syntax` | 安装脚本语法检查 | `bash -n` 解析 `install.sh` 及其引用的所有 shell 模块，不执行实际逻辑 |
 | `bun run check:install-isolation` | 安装器隔离验证 | 在专属临时根跑真实 `install.sh` 夹具，核对回滚、中断续跑、备份保留、凭据隔离、服务保护与启动观察 |
 | `bun run check:conventions` | 仓库约定自检 | 运行 `scripts/checkProjectConventions.ts`，验证常量、缓存归属、文档链接与架构边界 |
-| `bun run check` | **全量集成门禁** | 语法 + 安装隔离 + 约定自检 + lint + typecheck + 随机顺序的覆盖率测试 + 热路径门禁（合入 `master` 必跑） |
+| `bun run check` | **全量集成门禁** | 语法 + 安装隔离 + 约定自检 + lint + typecheck + 随机顺序的覆盖率测试（阈值见 `bunfig.toml` 的 `coverageThreshold`）+ 热路径门禁（合入 `master` 必跑） |
 | `bun run check:coverage` | 覆盖率指标对账 | 校验三语 README、文档与 SVG 徽章指标与真实读数的一致性 |
 | `bun run test:fault-injection` | 确定性故障注入套件 | 由 `scripts/testFaultInjection.ts` 按 `FAULT_INJECTION_TESTS` 清单运行，验证进程崩溃、异常停机、数据库瞬断与 Worker 重生时的恢复一致性 |
 | `bun run perf:hot-paths -- <场景> [--profile]` | 热路径独立进程测量 | 在 `performance/` 下的隔离数据根与配置副本中，按 `HOT_PATH_PROFILE_REPEATS` 轮独立进程测量单个热路径场景（`--profile` 用于采样分析）；直接运行 `scripts/perf/hotPaths.ts` 会在加载场景前拒绝 |
@@ -49,7 +49,7 @@
   - 测试套件逐项断言替身正常加载、轮询链路畅通、收到 SIGTERM 信号后优雅排空，以及锁文件安全释放。
 - **源码文件行数限制（`MAX_SOURCE_LINES`）**：
   - 手写 TypeScript、JavaScript 与 Shell 文件若超过 `MAX_SOURCE_LINES`（定义于 `scripts/conventions/fileLength.ts`）将被门禁直接拒绝。
-  - 文件超过 512 行时应评估拆分，超过 1024 行时必须拆分。
+  - 文件超过 512 行时应评估拆分，达到 `MAX_SOURCE_LINES` 时必须拆分。
   - 检查范围覆盖所有受 Git 跟踪的文件及暂存区新文件，忽略的文件不纳入扫描。安装语法检查全面覆盖 `install.sh` 及其调用的所有独立 Shell 模块。
 - **全源码覆盖率考核**：
   - `test/productionModules.test.ts` 主动加载 `index.ts` 以及 `packages/` 下除 `packages/types/` 外的全部运行时模块；未被任何测试覆盖的模块直接按 0% 计入分母。
@@ -63,11 +63,11 @@
   - 生产代码中的变量、函数参数与解构赋值必须显式标注类型（由 `@typescript-eslint/typedef` 把守），函数和回调必须显式标注返回值类型（由 `@typescript-eslint/explicit-function-return-type` 把守），均不依赖上下文推导。
   - 语法层面不支持标注的 `for...of` / `for...in` 循环变量自动豁免；初始化器已是全标注箭头函数的 `const` 同样豁免。
 - **仓库约定自检（`check:conventions`）**：
-  - **结构与链接校验**：检查源码行数、文件归位、Markdown 文档的本地相对链接与锚点有效性；核对文档中提及的文件清单真实存在；校验可执行脚本的权限位与安装步骤编号的一致性。
+  - **结构与链接校验**：检查源码行数、文件归位、Markdown 文档的本地相对链接与锚点有效性；核对文档中提及的目录文件清单与行内反引号仓库路径真实存在；校验可执行脚本的权限位与安装步骤编号的一致性。
   - **模块与架构隔离**：核对常量与缓存归属（`packages/cache/<owner>/` 线程单属性边界），按真实模块导入图核验 Worker 与 Telegram 能力隔离；环境变量仅允许在 `consts/paths.ts` 与 `consts/environment.ts` 中读取；`consts/` 运行期只依赖 `consts`（其它 `packages/` 模块只能 `import type`）；`states/` 的直接与间接运行时依赖只能落在 `consts`、`libs`、`types` 与 `states`（间接依赖按真实模块图追踪，`config/time.ts` 时区快照是 `STATES_CLOSURE_OPAQUE_MODULES` 登记的唯一例外）；`infra/` 严禁反向依赖业务层；全量基准测试父进程仅允许引入纯常量与类型。
   - **常量表约束**：带对象元素的导出常量表（正则与函数值除外）必须在 `test/consts/immutability.test.ts` 中有一行紧跟 `@ts-expect-error` 注释的访问（`scripts/conventions/constImmutability.ts`）；元素为字面量联合的导出数组表必须写成 `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`），`U` 与声明的元素类型一致、实参逐项写字符串或数字字面量，类型新增或删除成员而表没跟上时编译失败。有意只列子集的表按 `<相对路径>#<表名>` 登记在 `scripts/conventions/constExhaustiveLists.ts` 的 `PARTIAL_LITERAL_TABLES`，登记失效同样报错。
-  - **运行时安全与 API 规范**：`packages/workers/` 中的定时器必须显式调用 `unref()`；Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用，未使用的登记同样报错；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
-  - **门禁与指标对账**：静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标，确保记录同源。
+  - **运行时安全与 API 规范**：`packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`，也禁止用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项，有界 FIFO / LRU 的最早项一律经 `libs/fifoMap.ts` 的 `FifoMap`（或继承它的 `LruCache`）取得；Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用，未使用的登记同样报错；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
+  - **门禁与指标对账**：静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；核对故障注入套件清单；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标，确保记录同源。注释中「`<模块>.ts` 的 `<符号>`」式的交叉引用必须指向现存的符号：以 `./`、`../` 开头的路径按注释所在源文件的目录解析，目标文件或符号缺失都会报错；其余写法只在能唯一确定目标文件时核对。
   - **测试断言规范**：测试用例中严禁将常量与原始字面量进行比对，禁止直接在断言中硬编码与 `packages/consts` 相同的长字符串或中文提示文案片段（必须引用常量或模板辅助函数 `test/helpers/templateText.ts`）。特殊断言豁免必须在 `scripts/conventions/testAssertionFragments.ts` 中显式登记。
   - **测试替身复位**：同一个替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 的回调及其可传递调用到的测试侧函数）里就必须用 `mockReset()` 再装回默认实现，不能只 `mockClear()`：`mockClear()` 不清排队中的 Once。门禁按 TypeScript checker 把替身解析到声明符号判定（`scripts/conventions/testMockReset.ts`），用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
 
@@ -75,11 +75,11 @@
 
 ### 依赖冷却期
 
-依赖安装严格执行 `bunfig.toml` 中配置的 7 天发布冷却期（`minimumReleaseAge = 604_800`）：
-- **紧急安全补丁豁免**：未满 7 天冷却期的紧急漏洞修复，仅允许将该单一包名加入 `install.minimumReleaseAgeExcludes`，完成安装后必须立即移除，禁止使用命令行参数 `--minimum-release-age` 全局绕过。
+依赖安装严格执行 `bunfig.toml` 中配置的 `minimumReleaseAge` 发布冷却期：
+- **紧急安全补丁豁免**：未满冷却期的紧急漏洞修复，仅允许将该单一包名加入 `install.minimumReleaseAgeExcludes`，完成安装后必须立即移除，禁止使用命令行参数 `--minimum-release-age` 全局绕过。
 - **安全核验要求**：被豁免的包版本必须交叉核对至少两个独立的安全受害清单，校验 npm registry 的 `integrity` 哈希，排查安装脚本与持久化后门，并在提交记录中注明包名、CVE 编号及移除时间。
 - **运行时版本锁定**：Bun 运行时及 `@types/bun` 严格固定为 `package.json` 声明的版本；`packageManager` 与 `install.sh` 共同锁定运行环境。
-- **TypeScript 编译器**：`bun run typecheck` 以 `bun --check` 调用 Bun 内置的类型检查器；`bun check` 执行的是仓库的 `check` 脚本。ESLint 与约定检查工具通过 `@typescript/old` 使用 TypeScript 6 编译器 API。
+- **TypeScript 编译器**：`bun run typecheck` 以 `bun --check` 调用 Bun 内置的类型检查器；`bun check` 执行的是仓库的 `check` 脚本。ESLint 与约定检查工具通过 `package.json` 中别名为 `@typescript/typescript6` 的 `typescript` 使用 TypeScript 6 编译器 API。
 
 ---
 
@@ -88,7 +88,7 @@
 - **执行模式**：项目在 `bunfig.toml` 中配置了 `run.bun = true`，所有依赖 CLI 的 Node shebang 脚本均由 Bun 直接运行。
 - **图片编解码**：使用 Bun 原生 `Bun.Image` 进行图片转码处理（`packages/infra/image.ts`）：
   - JPEG 与 PNG 图片原样透传；WebP 与 GIF 转码为 PNG 并完整保留 Alpha 透明通道；GIF 提取首帧，动图 WebP 提取首个 `ANMF` 帧重封装为静态 WebP 后解码。
-  - 单张图片解码像素上限为 `VISION_TRANSCODE_MAX_PIXELS`，超限在分配内存前立即拒绝。编解码能力由 Bun 内置提供，不依赖 `node_modules` 中的外部原生 C/C++ 扩展。
+  - 单张图片解码像素上限为 `VISION_TRANSCODE_MAX_PIXELS`，超限在分配内存前立即拒绝；解码后长边超过 `VISION_TRANSCODE_MAX_EDGE` 的图片按原比例降采样至该上限以内（小图不放大）。编解码能力由 Bun 内置提供，不依赖 `node_modules` 中的外部原生 C/C++ 扩展。
 - **原生文件 I/O 规范**：文件读取、写入和删除优先使用 `Bun.write` 与 `Bun.file`；异步上下文里的元数据读取使用 `Bun.file().stat()`，普通文件的存在判断使用 `Bun.file().exists()`；原子写入（`atomicWriteText`）通过 `Bun.write(Bun.file(handle.fd), content)` 配合 fsync 与原子 rename；目录的存在判断（`Bun.file().exists()` 对目录恒为 false）、允许目标缺失的删除（`force: true`；`Bun.file().delete()` 遇缺失文件抛 `ENOENT`）、同步文件 I/O、目录遍历、路径操作与硬链接等 Bun 原生未覆盖的功能统一按规范使用 `node:` 兼容模块。
 - **性能基准校准**：运行时版本升级后，所有性能基准数据必须在相同的 Bun 版本与提交修订上重新实测校准。
 
@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**6624 tests / 553 files / 446303 次 `expect()`**；全源码**函数覆盖率 98.35% / 行覆盖率 98.84%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**6792 tests / 560 files / 447983 次 `expect()`**；全源码**函数覆盖率 98.42% / 行覆盖率 98.96%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 
@@ -111,8 +111,8 @@
 
 ### 关键测试套件分布
 
-- **安装与升级测试**：`test/scripts/installStartup.test.ts` 与 `test/scripts/installMigration.test.ts` 验证安装脚本、新库初始化与完整启动流程，确保安装器在遇到非当前格式的配置或数据库时能提前拒绝并不修改数据。
-- **冷迁移测试**：`test/scripts/migrateChatPersonaRemoval.test.ts` 验证仅接受 16.3.2 产出的数据库 schema（`CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION`）向当前版本（`IDENTITY_DATABASE_SCHEMA_VERSION`）迁移的完整链路（含 Asia/Tokyo 时区校验），以及启动前后的版本判定。
+- **安装与升级测试**：`test/scripts/installStartup.test.ts` 与 `test/scripts/installMigration.test.ts` 验证安装脚本、新库初始化与完整启动流程，确保安装器在遇到非当前格式的配置、数据库或 `/wed` 成员文件时能提前拒绝并不修改数据。
+- **冷迁移测试**：`test/scripts/migrateWedMemberWindow.test.ts` 验证仅接受 17.2.1 的 `memory/wed` 成员 ID 数组，按顺序保留最后 `WED_MEMBER_LIMIT` 个 ID 并以同一进入时间写成 `{ id, enteredAt }` 滑窗、产物通过生产启动校验，以及已迁移或非法来源、符号链接、既有输出目录的拒绝与源备份不变。
 - **媒体与出站测试**：`test/aiChat/ai/mediaAdmission.test.ts`、`test/aiChat/ai/imageDescription.test.ts` 与 `test/infra/telegramWorkerCapabilities.test.ts` 验证多模态内容审查与 Telegram 双工出站闸门。
 - **统一出站集成测试**：`test/infra/telegramOutboundIntegration.test.ts` 使用真实客户端初始化、出站调度器与发送车道，仅在最内层替换网络响应，验证主线程与各 Worker 之间的同群 FIFO、分类 429 退避重试、下载限流及停机排空。
 - **安全与日志脱敏测试**：`test/infra/loggerSecurity.test.ts` 验证敏感凭据在各类异常展开下的脱敏完整性。

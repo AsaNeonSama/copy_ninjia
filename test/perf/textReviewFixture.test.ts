@@ -18,7 +18,7 @@ describe("文本清洗专项夹具", () => {
     expect(() => findTextReviewScenario(undefined)).toThrow("(missing)");
   });
 
-  test.each(TEXT_REVIEW_SCENARIOS.map((scenario: TextReviewScenario): [string] => [scenario.name]))(
+  test.each(TEXT_REVIEW_SCENARIOS.map((scenario: TextReviewScenario): string => scenario.name))(
     "%s：长度、排版与迭代次数符合声明，消息场景全部可构造",
     (name: string) => {
       const scenario: TextReviewScenario = findTextReviewScenario(name);

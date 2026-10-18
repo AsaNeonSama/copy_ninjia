@@ -54,7 +54,7 @@ function command(id: number): never {
 
 beforeEach(() => {
   initWedRuntime();
-  getOrCreateWedChat(chat.id)!.members.add(partner.id);
+  getOrCreateWedChat(chat.id)!.members.set(partner.id, 0);
   download = Promise.withResolvers<void>();
   upload = Promise.withResolvers<void>();
   nextMessageId = 100;

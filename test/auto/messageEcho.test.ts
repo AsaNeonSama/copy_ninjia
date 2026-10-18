@@ -13,10 +13,6 @@ const copyMessage = mock(async (..._args: unknown[]): Promise<number | undefined
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 78);
 
 mock.module("../../packages/infra/telegram", () => ({ copyMessage, sendMessage }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
-  activeCopyTargetIdIn: (): undefined => undefined,
-  activeCopyModeIn: (): undefined => undefined,
-}));
 
 const { echoMessage } = await import("../../packages/auto/message/echo");
 

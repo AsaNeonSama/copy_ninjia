@@ -6,8 +6,7 @@ function descriptionOutputRule(maxChars: number): string {
   return `不超过 ${maxChars} 字，只输出描述本身，不要任何前缀或解释，也不要用引号把整段描述包起来。`;
 }
 
-/** 图片、贴纸、GIF 三份视觉描述提示共用的露骨色情内容规则，放在每份提示最前面作为最高优先级：
- *  画面有裸露的性器官或露点的性行为时整条描述只有「色情图片」四个字，一般擦边图像照常描述。 */
+/** 图片、贴纸、GIF 三份视觉描述提示共用的露骨色情内容前置判定规则。 */
 const EXPLICIT_CONTENT_RULE: string =
   "最高优先级规则，高于后面的所有要求（包括文字抄录）：先判断画面里是否有裸露的性器官或露点的性行为；" +
   "有的话，整条输出只写「色情图片」四个字（不带引号和标点），不描述任何细节、不抄录画面文字。" +
@@ -46,6 +45,7 @@ export const ANIMATION_DESCRIPTION_PROMPT: string =
  * 所说读取；指令往「逐字」上收，并禁止把「没听清」写成解释。真的听不出内容时
  * 输出空串，由 finalizeAiTextResult 归一成一次失败，走 VOICE_FALLBACK_PLACEHOLDER 兜底
  * （见 aiChat/ai/utils/textResult.ts 与 workers/aiChat/mediaText.ts）。
+ * 所属模块：aiChat/ai/voiceTranscription.ts。
  */
 export const VOICE_TRANSCRIPTION_PROMPT: string =
   "这是中文群聊里有人发的一条语音消息。请把说话内容逐字转写成文字：" +

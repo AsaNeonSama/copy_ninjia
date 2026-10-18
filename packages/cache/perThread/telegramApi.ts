@@ -1,13 +1,8 @@
-/** owner: perThread。主线程填入真实 Bot API 适配器，AI/Anti-Raid Worker 填入
- * 双工代理；各 isolate 独立持有，不共享引用。
- */
+/** owner: perThread。当前线程安装的 Telegram API 适配器单例（packages/infra/telegram/client.ts）。 */
 
 import type { InstalledTelegramApi } from "../../types/telegramWorker";
 
-/**
- * 当前线程的 Telegram 能力实现。线程入口初始化时填充，进程或 Worker 退出时
- * 随 isolate 一并清理；容量恒为一个句柄，不需要淘汰或定时清扫。
- */
+/** 当前线程的 Telegram API 句柄（主线程安装真实客户端适配器，AI 与 Anti-Raid Worker 安装双工代理）：线程启动初始化时填充，停止或退出时随 isolate 释放；单例对象，不淘汰，线程重建后从 null 重新安装。 */
 export const telegramApiState: { current: InstalledTelegramApi | null } = {
   current: null,
 };

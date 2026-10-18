@@ -26,15 +26,8 @@ export interface MuteChatMemberParams {
   /** 禁言结束的绝对时刻（ms）；这里换算成 Bot API 的 until_date（秒）。 */
   mutedUntil: number;
   /**
-   * 从算好 `mutedUntil` 到请求真正发出的容忍上限；到期即放弃这次禁言。必填，不设缺省。
-   *
-   * `until_date` 是入队前算好的绝对时刻，restrict 请求命中 429 后在独立车道按
-   * `retry_after` 等待；派发截止限制这段排队时间，使发出时的 `until_date` 不会过于
-   * 接近当下（Bot API 对此类值按永久限制处理）。
-   *
-   * 具体预算按各自的最短时长由调用方给出：刷屏禁言用
-   * `FLOOD_MUTE_DISPATCH_TIMEOUT_MS`，`/mute` 用
-   * `时长 - MUTE_DISPATCH_MIN_REMAINING_MS`（两处常量各自写明取值）。
+   * 从计算 `mutedUntil` 到请求实际派发的等待超时上限（到期即放弃禁言）：
+   * 约束限流排队耗时，确保请求发出时 `until_date` 仍在 Bot API 合法临时禁言区间内。
    */
   dispatchTimeoutMs: number;
   api?: RestrictMemberApi;
@@ -47,15 +40,7 @@ export type MuteChatMemberOutcome =
   | "forbidden"
   | "failed";
 
-/**
- * 临时收走一名成员在本群的全部发言权限（到点由 Telegram 自动恢复）。
- *
- * `until_date` 向上取整到秒。Bot API 允许区间的下边界由 `dispatchTimeoutMs`
- * 约束排队时间，上边界由 MUTE_MAX_DURATION_MS 留出的余量覆盖取整、排队与往返耗时。
- *
- * 派发截止在本函数内与调用方 signal 合成（`signalWithTimeout`），由必填字段
- * `dispatchTimeoutMs` 强制，调用点不各自合成。
- */
+/** 临时限制成员在本群的全部发言权限（`until_date` 向上取整到秒，并与 `dispatchTimeoutMs` 合成取消信号）。 */
 export async function muteChatMemberWithOutcome({
   chatId,
   userId,

@@ -169,6 +169,16 @@ function hasMatchingProfileIdentity(tags: readonly ParsedHtmlTag[], expectedUser
   });
 }
 
+/** 按标签顺序返回第一个指定 meta 中合法 Telegram 资源地址的 href。 */
+function findMetaAssetUrl(tags: readonly ParsedHtmlTag[], metaKind: string): string | undefined {
+  for (const { name, attributes } of tags) {
+    if (name !== "meta" || !isMetaKind(attributes, metaKind)) continue;
+    const photoUrl: URL | undefined = parseTelegramAssetUrl(attributes.get("content"));
+    if (photoUrl) return photoUrl.href;
+  }
+  return undefined;
+}
+
 /**
  * 从 t.me 公开主页提取头像 HTTPS URL。优先使用头像 class；语义 meta 回退
  * 只有在页面身份与目标 username 完全匹配时才启用。
@@ -183,14 +193,7 @@ export function extractAvatarUrlFromProfileHtml(html: string, expectedUsername?:
 
   const normalizedUsername: string | undefined = normalizePublicUsername(expectedUsername);
   if (!normalizedUsername || !hasMatchingProfileIdentity(tags, normalizedUsername)) return undefined;
-  for (const metaKind of ["og:image", "twitter:image"] as const) {
-    for (const { name, attributes } of tags) {
-      if (name !== "meta" || !isMetaKind(attributes, metaKind)) continue;
-      const photoUrl: URL | undefined = parseTelegramAssetUrl(attributes.get("content"));
-      if (photoUrl) return photoUrl.href;
-    }
-  }
-  return undefined;
+  return findMetaAssetUrl(tags, "og:image") ?? findMetaAssetUrl(tags, "twitter:image");
 }
 
 /** 从 t.me 公开主页下载头像，页面或图片异常时返回 null。 */

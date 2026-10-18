@@ -64,6 +64,8 @@ const {
   setActiveVerificationSnapshot,
 } = await import("../../packages/cache/main/antiRaid/verificationMirror");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
+const { blockedSenderChatDeleteDeniedChats } = await import("../../packages/cache/main/antiRaid/blocklistGuard");
+const { emergencyLockdownRecoveries } = await import("../../packages/cache/main/antiRaid/lockdownMirror");
 
 registerAntiRaidBridgeObservers({ post, deactivateChat });
 
@@ -96,6 +98,8 @@ beforeEach(() => {
   pendingVerificationDeletes.clear();
   persistedVerificationRevisions.clear();
   chatIsSupergroupById.clear();
+  blockedSenderChatDeleteDeniedChats.clear();
+  emergencyLockdownRecoveries.clear();
 });
 
 describe("Anti-Raid 主线程观察者", () => {
@@ -123,9 +127,11 @@ describe("Anti-Raid 主线程观察者", () => {
 
   test("群 teardown 只有显式关闭才连带清理验证痕迹，只有群已不存在才放弃私密模式，且一律摘掉群类型镜像", () => {
     chatIsSupergroupById.set(-1001, true);
+    blockedSenderChatDeleteDeniedChats.add(-1001);
     captured.teardown?.(-1001, "explicitDisable");
     expect(deactivateChat).toHaveBeenCalledWith(-1001, true, false);
     expect(chatIsSupergroupById.has(-1001)).toBeFalse();
+    expect(blockedSenderChatDeleteDeniedChats.has(-1001)).toBeFalse();
 
     chatIsSupergroupById.set(-1002, true);
     captured.teardown?.(-1002, "lostAuthority");
@@ -138,9 +144,16 @@ describe("Anti-Raid 主线程观察者", () => {
     expect(chatIsSupergroupById.has(-1003)).toBeFalse();
 
     chatIsSupergroupById.set(-1004, true);
+    emergencyLockdownRecoveries.set(-1004, {
+      fingerprint: { phase: "active", intentId: 1 },
+      originalPermissions: { can_invite_users: true },
+      retryTimer: null,
+      inFlight: null,
+    });
     captured.teardown?.(-1004, "gone");
     expect(deactivateChat).toHaveBeenLastCalledWith(-1004, false, true);
     expect(chatIsSupergroupById.has(-1004)).toBeFalse();
+    expect(emergencyLockdownRecoveries.has(-1004)).toBeFalse();
   });
 
   test("Worker 重生重放把镜像与在途删除整份交出去", () => {

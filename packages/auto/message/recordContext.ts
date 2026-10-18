@@ -12,7 +12,7 @@ import type { MessageTriggerContext, RandomMediaTrigger } from "../../types/auto
  * builder 直接产出完整消息，不创建公共字段投影，也不让调用点用对象展开重建
  * 同构载荷。options 字面量不逃逸，字段按固定顺序一次写齐。
  *
- * 字段顺序即 hidden class 顺序，两个 builder 的公共段保持一致。
+ * 字段顺序即 hidden class 顺序，三个 builder 的公共段保持一致。
  */
 export interface BuildAiRecordMessageParams {
   context: MessageTriggerContext;
@@ -28,7 +28,7 @@ export function buildAiRecordMessage({
 }: BuildAiRecordMessageParams): AiRecordMessage {
   return {
     type: "record",
-    chatId: context.chatId,
+    chatId: context.message.chat.id,
     senderId: speaker.id,
     firstName: speaker.firstName,
     lastName: speaker.lastName,
@@ -36,6 +36,36 @@ export function buildAiRecordMessage({
     messageId: context.message.message_id,
     replyTo: context.replyReference,
     forwardedFrom: context.forwardedFrom,
+    persistImmediately: false,
+    text,
+  };
+}
+
+/** buildInlineSenderRecordMessage 的入参。 */
+export interface BuildInlineSenderRecordMessageParams {
+  readonly chatId: number;
+  readonly speaker: AiSpeakerSnapshot;
+  readonly messageId: number;
+  readonly text: string;
+}
+
+/** 不经完整触发上下文、按实际发言身份直接记入 AI 上下文的文字载荷（如 gag inline 发言）。 */
+export function buildInlineSenderRecordMessage({
+  chatId,
+  speaker,
+  messageId,
+  text,
+}: BuildInlineSenderRecordMessageParams): AiRecordMessage {
+  return {
+    type: "record",
+    chatId,
+    senderId: speaker.id,
+    firstName: speaker.firstName,
+    lastName: speaker.lastName,
+    username: speaker.username,
+    messageId,
+    replyTo: undefined,
+    forwardedFrom: undefined,
     persistImmediately: false,
     text,
   };
@@ -96,7 +126,7 @@ export function buildAiRecordMediaMessage({
 }: BuildAiRecordMediaMessageParams): AiRecordMediaMessage {
   return {
     type: "recordMedia",
-    chatId: context.chatId,
+    chatId: context.message.chat.id,
     senderId: speaker.id,
     firstName: speaker.firstName,
     lastName: speaker.lastName,
@@ -117,5 +147,6 @@ export function buildAiRecordMediaMessage({
     directTriggerReason: context.directTriggerReason,
     // Worker 按入站占位并异步解析媒体；话题落点随载荷保留到该轮实际发送。
     messageThreadId: context.messageThreadId,
+    mediaGroupId: context.message.media_group_id,
   };
 }

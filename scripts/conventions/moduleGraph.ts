@@ -27,11 +27,10 @@ interface ModuleEdges {
 /**
  * 一次约定检查内共用的模块图读取器。
  *
- * 同一个文件在整次检查里只解析一次，结果按路径记在读取器自己的表里；记下的是
- * 抽出来的说明符清单（内部与外部说明符数组），不是 SourceFile，AST 逐文件
- * 用完即弃。
+ * 每个文件经 parseSourceFile 取得 AST 后抽出说明符清单（内部与外部说明符数组），
+ * 按路径记在读取器自己的表里；AST 由 parseSourceFile 的进程内缓存持有。
  *
- * 读取器随一次检查生死；调用方各自 `createModuleGraphReader()`，不共享全局状态。
+ * 读取器随一次检查生死；调用方各自 `createModuleGraphReader()`，说明符表不跨读取器共享。
  */
 export interface ModuleGraphReader {
   /**

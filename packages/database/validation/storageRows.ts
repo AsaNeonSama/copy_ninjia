@@ -22,11 +22,7 @@ import type {
   StoredStorageMetadataRow,
 } from "../../types/storageDatabase";
 
-/**
- * 统一生成 SQLite 业务行的安全来源路径，不包含行内容。路径指向该表承载 JSONB 正文的列
- * （chat_states.status、permission_list.policy，其余为 data）；temporary_ad_bypass_entries
- * 全部是关系列，路径只写到行。
- */
+/** 构造 SQLite 业务行的校验错误来源路径（不包含行内容）。 */
 export function storageRowSource(
   source: string,
   table: string,
@@ -37,12 +33,12 @@ export function storageRowSource(
   return `${row}.${table === "chat_states" ? "status" : table === "permission_list" ? "policy" : "data"}`;
 }
 
-/** storage_metadata 解码只接收预先投影出的 metadata 行。 */
+/** `storage_metadata` 解码参数。 */
 export interface ReadStorageMetadataParams {
   readonly metadata: readonly StoredStorageMetadataRow[];
 }
 
-/** 按主键取恰好一行 metadata；缺失与重复都拒绝。 */
+/** 按主键查找唯一的 `storage_metadata` 行，缺失或重复时抛错。 */
 function readOnlyMetadataRow(
   rows: ReadStorageMetadataParams,
   key: string,
@@ -57,10 +53,7 @@ function readOnlyMetadataRow(
   return found;
 }
 
-/**
- * 严格读取 schema-version 行，版本范围由调用生命周期决定。只认该主键、不核对其余行，
- * 版本不符的库先得到版本诊断。
- */
+/** 读取并校验 `storage_metadata` 中的 schema 版本号。 */
 export function readStorageSchemaVersion(
   rows: ReadStorageMetadataParams,
   source: string
@@ -86,11 +79,7 @@ export function readStorageSchemaVersion(
   return value.version as number;
 }
 
-/**
- * 当前格式的数据根时区闸：主键集合恰为 IDENTITY_DATABASE_METADATA_KEYS，time-zone 行恰为
- * `{"timeZone":<规范 IANA 名>}`，且等于 timeZone（本进程已规范化的配置时区）。
- * 调用方须先用 readStorageSchemaVersion 确认当前版本，再在读取任何日历相关数据之前调用。
- */
+/** 校验 `storage_metadata` 主键集合与时区标记行跟当前配置时区一致。 */
 export function assertStorageTimeZone(
   rows: ReadStorageMetadataParams,
   source: string,
@@ -127,19 +116,17 @@ export function assertStorageTimeZone(
   }
 }
 
-/** 待踢行校验结果同时保留规范文本，供 Worker 快照 diff 避免重复编码。 */
+/** 待踢任务行的解码结果。 */
 export interface DecodedPendingRemovalRows {
   readonly values: ReadonlyMap<number, PendingBlockedRemoval>;
-  readonly encoded: ReadonlyMap<number, string>;
 }
 
-/** 严格解码待踢 outbox 自身；调用方随后用同一只读数据库核对名单引用。 */
+/** 严格解码待踢任务行并校验主键一致性。 */
 export function decodeStoredPendingRemovals(
   rows: readonly StoredPendingRemovalRow[],
   source: string
 ): DecodedPendingRemovalRows {
   const values: Map<number, PendingBlockedRemoval> = new Map();
-  const encoded: Map<number, string> = new Map();
   for (const row of rows) {
     const path: string = storageRowSource(
       source,
@@ -154,10 +141,8 @@ export function decodeStoredPendingRemovals(
       throw new Error(`${path}: params.removalId must equal the row primary key.`);
     }
     values.set(row.removalId, pending);
-    // pending 已由上面的严格 decoder 规范化；这里直接生成与 encoder 相同的稳定文本。
-    encoded.set(row.removalId, JSON.stringify(pending));
   }
-  return { values, encoded };
+  return { values };
 }
 
 /** 启动逐项核对 outbox 对黑名单的引用，不把完整黑名单复制进内存。 */
@@ -193,7 +178,9 @@ export function assertPendingRemovalBlocklistReferences(
   }
 }
 
-/** 严格解码群状态，并执行 STATE_MANAGED_CHAT_LIMIT 群上限与唯一代理目标约束。 */
+/**
+ * 严格解码群状态，并执行 STATE_MANAGED_CHAT_LIMIT 群上限、唯一代理目标与「删除目标不含本群自身」约束。
+ */
 export function decodeStoredChatStates(
   rows: readonly StoredChatStateRow[],
   source: string
@@ -212,7 +199,7 @@ export function decodeStoredChatStates(
     if (chatStates.has(row.chatId)) {
       throw new Error(`${path}: duplicate chat primary key.`);
     }
-    const state: ChatState = decodeChatStateData(row.data, path);
+    const state: ChatState = decodeChatStateData(row.data, path, row.chatId);
     if (state.isProxySendEnabled === true) {
       if (proxyTargetChatId !== undefined) {
         throw new Error(

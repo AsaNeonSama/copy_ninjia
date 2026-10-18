@@ -1,3 +1,5 @@
+import { STATE_MANAGED_CHAT_LIMIT } from "../../storage";
+
 /** /wed 单排按钮文字，确认后仍允许更换。 */
 export const WED_BUTTON_TEXTS: Readonly<{
   remove: string;
@@ -24,7 +26,7 @@ export const WED_TEXTS: Readonly<{
   "groupOnly": "请以个人身份在群里发送 /wed，频道身份无法使用。",
   "usage": "直接发送 /wed 即可，不接受额外参数。",
   "busy": "正在为你抽取，请稍等。",
-  "full": "本群抽取会话已满，请先移除不需要的结果。",
+  "full": `最多可管理 ${STATE_MANAGED_CHAT_LIMIT} 个群的抽取成员池，当前已满。请在不再管理的群执行 /init disable，或将机器人移出该群后再试。`,
   "queueFull": "抽取队列已满，请稍后再试。",
   "empty": "还没有其他可抽取的群友，请等成员发言后再试。",
   "unavailable": "本次未找到头像可用的群友，请稍后重新抽取。",

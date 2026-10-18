@@ -30,7 +30,7 @@
 | `bun run perf:hot-path-gate` | **ホットパス性能ゲート** | 厳選ホットパスシナリオのメモリ / GC / JIT ハードゲート（`check` に組み込み済み） |
 | `bun run perf:join-log` | 入室ログ性能ベンチマーク | 入室ログの容量境界 / スナップショット / 追記記帳の独立プロセスベンチマーク |
 | `bun run perf:identity-database` | ID データベースベンチマーク | データベースのコールド / ホット読み書き、メインスレッド LRU キャッシュ、ライトスルー経路のベンチマーク |
-| `bun run perf:full` | 全量性能ベンチマークスイート | 全セクションを規定ラウンド数で独立子プロセス実行（`--write-doc` で各言語の 10 ドキュメントと `performance-result.json` を更新） |
+| `bun run perf:full` | 全量性能ベンチマークスイート | 全セクションを `FULL_SUITE_ROUNDS` ラウンドの独立子プロセスで実行（`--write-doc` で各言語の 10 ドキュメントと `performance-result.json` を更新） |
 | `bun run perf:review` | 専門性能再検証 | ホットパス、AI 返信 / ペイロード / 音声エンコード、完全コマンドチェーン、Disk I/O 負荷を網羅 |
 | `bun run build -- --version <tag>` | バイナリパッケージ構築 | プレフィックスなしのバージョン指定が必須。現在のプラットフォーム向け `dist/` 配布物と SHA-256 を生成 |
 | `bun run release:check -- --version <tag>` | リリース前全量自検 | frozen lockfile + check + カバレッジ突合 + 障害注入 + バイナリビルド検証 |
@@ -48,24 +48,24 @@
 - **全ソースコードを分母とするカバレッジ計測**：`test/productionModules.test.ts` が `index.ts` および `packages/types/` を除く `packages/` 配下の全ランタイムモジュールをロードします。どのテストからも実行されなかったモジュールは 0% として分母に算入されます。関数・行カバレッジはともに `bunfig.toml` の `coverageThreshold` を満たす必要があります。テストを伴わない新規モジュールの追加は、全体カバレッジを直接低下させます。
 - **ESLint + 完全 strict な型検査**：`tsconfig.json` で `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals`、`noUnusedParameters` を有効化しています。本番コードでは `any` の使用を禁止し（テストコードのみ例外）、`Promise.all` は `no-restricted-syntax` で禁止されているため、安全な `Promise.allSettled` による有界並行処理を用います。
 - **型 import の明示的分離**：本番コード・スクリプト・テストのすべてで独立した `import type` を使用します。ESLint の `no-restricted-syntax` が `import { value, type Shape }` のようなインライン型指定を禁止しています。
-- **明示的な型注釈の強制**：本番コード（`index.ts`、`packages/`、`scripts/`）の変数・引数・分割代入は `@typescript-eslint/typedef`、関数・コールバックの戻り値型は `@typescript-eslint/explicit-function-return-type` で強制され、文脈からの暗黙推論は認められません。`for...of` / `for...in` のループ変数は TypeScript の構文上型注釈を記述できないためルール側で自動除外されます。また、初期化子が完全注釈付きアロー関数である const も除外されます。テストコードはこの制限を受けません。
+- **明示的な型注釈の強制**：本番コード（`index.ts`、`packages/`、`scripts/`）の変数・引数・分割代入は `@typescript-eslint/typedef`、関数・コールバックの戻り値型は `@typescript-eslint/explicit-function-return-type` で強制され、文脈からの暗黙推論は認められません。`for...of` / `for...in` のループ変数および初期化子が完全注釈付きアロー関数である `const` は除外されます。テストコードはこの制限を受けません。
 - **規約自己検査（`check:conventions`）**：
-  - **構造とリンク**：ファイル行数上限、コード配置ルール、Markdown のローカルリンクおよび同一文書内アンカー、ドキュメント内のファイル参照記述の存在性、実行権限、ワンショットインストーラーのモジュール一覧とステップ番号の整合性を検査。
+  - **構造とリンク**：ファイル行数上限、コード配置ルール、Markdown のローカルリンクおよび同一文書内アンカー、ドキュメント内のディレクトリ一覧およびインライン逆引用符のリポジトリパスの存在性、実行権限、ワンショットインストーラーのモジュール一覧とステップ番号の整合性を検査。
   - **境界とスレッド分離**：定数およびキャッシュのスレッド所有権（`packages/cache/<owner>/` の単一所有権境界）を照合し、モジュール依存グラフに基づいて Worker と Telegram クライアントの隔離を検証。環境変数の読み込みは `consts/paths.ts` と `consts/environment.ts` にのみ限定し、`consts/` は実行時に `consts` 以外へ依存せず（他の `packages/` モジュールは `import type` のみ）、`states/` は直接・間接の実行時依存を `consts`、`libs`、`types`、`states` に限り（間接依存は実際の import グラフで追跡し、`config/time.ts` のタイムゾーンスナップショットのみ `STATES_CLOSURE_OPAQUE_MODULES` に登録した例外）、`infra/` は上位の業務層に逆依存せず、ベンチマーク親プロセスは純粋定数と型のみを import します。
   - **定数テーブルの制約**：オブジェクト要素を持つエクスポート定数テーブル（正規表現と関数値を除く）は、`test/consts/immutability.test.ts` で `@ts-expect-error` コメントの直後の行から参照されていなければなりません（`scripts/conventions/constImmutability.ts`）。要素がリテラル union のエクスポート配列テーブルは `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`）の形で書き、`U` は宣言した要素型と一致させ、引数は各要素を文字列または数値リテラルで並べます。型のメンバーを追加・削除してテーブルが追従していなければコンパイルに失敗します。意図的に部分集合だけを列挙するテーブルは `<相対パス>#<テーブル名>` で `scripts/conventions/constExhaustiveLists.ts` の `PARTIAL_LITERAL_TABLES` に登録し、無効になった登録もエラーとなります。
-  - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
-  - **整合性突合**：Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。
+  - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。`packages/` では `Object.freeze` を禁止し、`.keys().next()`、`.values().next()`、`.entries().next()` で最古の項目を取ることも禁止します。有界 FIFO / LRU の最古の項目は必ず `libs/fifoMap.ts` の `FifoMap`（またはそれを継承する `LruCache`）から取得します。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
+  - **整合性突合**：Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。`./`・`../` で始まるパスはコメントのあるソースファイルのディレクトリを基準に解決し、対象ファイルまたはシンボルが存在しなければエラーになります。それ以外の書き方は対象ファイルを一意に特定できる場合にのみ検査します。
   - **テストアサーション規約**：テストコード内で大文字定数や数値リテラルを直接ハードコードして比較することを禁止します。matcher の引数に `packages/consts` の文字列定数（長さ `STRING_CONSTANT_MIN_LENGTH` 以上）と同一のリテラルを書くこと、および漢字・仮名を `CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上含む文言の断片を書き写すことも禁止されます（期待値は定数そのもの、または template 定数から描画された固定部分を使用。`test/helpers/templateText.ts` 参照）。プロンプトの文言を検証する契約テストは `scripts/conventions/testAssertionFragments.ts` の `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` に登録する必要があります。
-  - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません。`mockClear()` はキュー済みの Once を消さないためです。ゲートは TypeScript checker でモックを宣言シンボルまで解決して判定します（`scripts/conventions/testMockReset.ts`）。テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
+  - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません。ゲートは TypeScript checker でモックを宣言シンボルまで解決して判定します（`scripts/conventions/testMockReset.ts`）。テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
 
 ---
 
 ### 依存関係のリリース待機期間
 
-依存関係のインストールでは、`bunfig.toml` で規定された 7 日間のリリース待機期間（`minimumReleaseAge = 604_800`）を厳格に適用します：
-- 待機期間を満たしていない緊急セキュリティ修正を取り込む場合、該当するパッケージ名 1 件のみを `install.minimumReleaseAgeExcludes` に一時追加し、インストール完了後ただちに削除します。`--minimum-release-age` オプションによる全体緩和は禁止されています。除外対象のバージョンは少なくとも 2 つの独立したセキュリティ情報源と照合し、npm registry の `integrity` ハッシュやインストールスクリプト、バックドアの不在を確認した上で、パッケージ名、理由（CVE 番号等）、削除日時を記録します。
+依存関係のインストールでは、`bunfig.toml` の `install.minimumReleaseAge` で規定されたリリース待機期間を厳格に適用します：
+- `install.minimumReleaseAge` を満たしていない緊急セキュリティ修正を取り込む場合、該当するパッケージ名のみを `install.minimumReleaseAgeExcludes` に一時追加し、インストール完了後ただちに削除します。`--minimum-release-age` オプションによる全体緩和は禁止されています。除外対象のバージョンは複数の独立したセキュリティ情報源と照合し、npm registry の `integrity` ハッシュやインストールスクリプト、バックドアの不在を確認した上で、パッケージ名、理由（CVE 番号等）、削除日時を記録します。
 - 使用する Bun ランタイムと `@types/bun` は、`package.json` に宣言されたバージョンに固定されています。`packageManager` と `install.sh` がランタイムバージョンを共同でロックします。
-- `bun run typecheck` は Bun 内蔵の型検査器を `bun --check` で呼び出します。`bun check` はリポジトリの `check` スクリプトを実行します。また、ESLint および規約検査ツールに TypeScript 6 のコンパイラ API を提供するため、`npm:@typescript/typescript6@^6.0.2` が `@typescript/old` 経由で利用されます。
+- `bun run typecheck` は Bun 内蔵の型検査器を `bun --check` で呼び出します。`bun check` はリポジトリの `check` スクリプトを実行します。ESLint および規約検査ツールは `package.json` で `@typescript/typescript6` にエイリアスされた `typescript` を通じて TypeScript コンパイラ API を利用します。
 
 ---
 
@@ -74,7 +74,7 @@
 - **実行モード**：`bunfig.toml` で `run.bun = true` を指定しており、Node.js 向けの shebang を持つ依存 CLI もすべて現在の Bun ランタイム上で動作します。
 - **画像コーデック**：Bun 内蔵の `Bun.Image` で画像変換を実行します（`packages/infra/image.ts`）：
   - JPEG / PNG はそのまま透過し、WebP / GIF は透明度を維持したまま PNG にトランスコード。GIF は先頭フレームを取得し、アニメーション WebP は先頭の `ANMF` フレームを静的 WebP に再構成してからデコード。
-  - 1 枚あたりの最大デコード画素数は `VISION_TRANSCODE_MAX_PIXELS` で制限され、超過した場合はピクセルバッファ確保前に安全に拒否。コーデックは Bun ランタイムに内蔵されているため、ソースコード版・バイナリ配布版ともに `node_modules` のネイティブアドオンには依存しません。
+  - 1 枚あたりの最大デコード画素数は `VISION_TRANSCODE_MAX_PIXELS` で制限され、超過した場合はピクセルバッファ確保前に安全に拒否。デコード後の長辺が `VISION_TRANSCODE_MAX_EDGE` を超える画像はアスペクト比を維持したまま同上限以内に縮小（小さい画像は拡大しない）。コーデックは Bun ランタイムに内蔵されているため、ソースコード版・バイナリ配布版ともに `node_modules` のネイティブアドオンには依存しません。
 - **ネイティブファイル I/O**：ファイル内容の読み書き・削除には `Bun.write` と `Bun.file` を優先使用します。非同期コードでのメタデータ取得は `Bun.file().stat()`、通常ファイルの存在確認は `Bun.file().exists()` を使用します。`atomicWriteText` の排他的書き込みは `Bun.write(Bun.file(handle.fd), content)`、fsync、アトミック rename を組み合わせて実現しています。ディレクトリの存在確認（`Bun.file().exists()` はディレクトリに対して常に false）、対象の欠落を許容する削除（`force: true`。`Bun.file().delete()` は欠落ファイルで `ENOENT` を投げる）、Disk I/O Worker の同期アトミック書き込みなどの同期ファイル I/O、ディレクトリ走査、パス操作、パーミッション管理、ハードリンク作成など、Bun ネイティブ API が提供しない操作にのみ `node:` 互換モジュールを使用します。
 - **性能ベンチマークの再校正**：ランタイムのバージョン更新時は、同一の Bun バージョン / リビジョンを対象に性能キャリブレーションを再測定する必要があります。
 
@@ -82,7 +82,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**6624 tests / 553 files / 446303 `expect()` calls**。全ソースコードの**関数カバレッジは 98.35%、行カバレッジは 98.84%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**6792 tests / 560 files / 447983 `expect()` calls**。全ソースコードの**関数カバレッジは 98.42%、行カバレッジは 98.96%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 
@@ -97,8 +97,8 @@
 
 ### 主要テストスイートの分布
 
-- **インストール・更新テスト**：`test/scripts/installStartup.test.ts`、`test/scripts/installMigration.test.ts` が、インストーラースクリプト、空データベース初期化、起動シーケンス、ならびに旧形式のデプロイ入力・グローバル状態・データベースを起動前に安全に拒否しデータを改変しないことを検証。
-- **コールドマイグレーションテスト**：`test/scripts/migrateChatPersonaRemoval.test.ts` が、バージョン 16.3.2 由来のスキーマ（`CHAT_PERSONA_REMOVAL_SOURCE_SCHEMA_VERSION`）のみを受け付け、現行スキーマ（`IDENTITY_DATABASE_SCHEMA_VERSION`）へのデータベース移行（Asia/Tokyo タイムゾーンマーカー付与を含む）、および移行前後の起動検証を確認。
+- **インストール・更新テスト**：`test/scripts/installStartup.test.ts`、`test/scripts/installMigration.test.ts` が、インストーラースクリプト、空データベース初期化、起動シーケンス、ならびに旧形式のデプロイ入力・グローバル状態・データベース・`/wed` メンバーファイルを起動前に安全に拒否しデータを改変しないことを検証。
+- **コールドマイグレーションテスト**：`test/scripts/migrateWedMemberWindow.test.ts` が、17.2.1 の `memory/wed` メンバー ID 配列のみを受け付け、末尾 `WED_MEMBER_LIMIT` 件の ID を順序どおり保持して同一の参加時刻で `{ id, enteredAt }` ウィンドウへ書き換え、成果物が本番の起動検証を通過すること、ならびに移行済み・不正な移行元、シンボリックリンク、既存の出力ディレクトリを拒否し移行元バックアップを変更しないことを確認。
 - **メディア・外部送信ゲートテスト**：`test/aiChat/ai/mediaAdmission.test.ts`、`test/aiChat/ai/imageDescription.test.ts`、`test/infra/telegramWorkerCapabilities.test.ts` がマルチモーダル認識と Telegram 送信ゲートの双方向通信を検証。
 - **統一送信統合テスト**：`test/infra/telegramOutboundIntegration.test.ts` が、実体クライアント、送信ゲート、チャット別送信スケジューラを動作させ、最深層のネットワーク応答のみをモック化してテスト。メインスレッド、コンテキスト、両 Worker、cron からの同一チャット FIFO 順序、種別ごとの 429 リトライ、権限問い合わせ、アバターおよびファイル取得の共有バックオフ、キャンセル、シャットダウン時ドレインを検証。
 - **セキュリティ・ログテスト**：`test/infra/loggerSecurity.test.ts` が機密認証情報のマスキングを検証。
@@ -117,11 +117,11 @@
 
 ## ホットパスゲート
 
-`bun run perf:hot-path-gate` は `bun run check` に組み込まれたハードゲートです。`packages/consts/performance.ts` の `HOT_PATH_PROFILE_SCENARIOS` に基づき、シナリオごとに `HOT_PATH_PROFILE_REPEATS` 回ずつ 2 つの独立した子プロセスを起動して測定します：
-- `steadyProfile`：`BUN_JSC_logGC=1` の下で定常ループを実行し、GC 停止時間の比率および JIT コンパイル階層を測定。
+`bun run perf:hot-path-gate` は `bun run check` に組み込まれたハードゲートです。`packages/consts/performance.ts` の `HOT_PATH_PROFILE_SCENARIOS` に基づき、シナリオごとに `steadyProfile` と `retained` の独立した子プロセスを `HOT_PATH_PROFILE_REPEATS` 回ずつ起動して測定します：
+- `steadyProfile`：`JSC_GC_LOG_ENV=1`（`BUN_JSC_logGC=1`）の下で定常ループを実行し、GC 停止時間の比率および JIT コンパイル階層を測定。
 - `retained`：プロファイラーによる干渉を排除した状態で、実際の RSS ピーク、heapUsed ピーク、および full-GC 後のメモリ残存量を測定。
 
-ゲートの子プロセスと、フルスイート・`perf:review`・`perf:disk-transport`・`perf:identity-database`・`perf:join-log` の子プロセスは、いずれも `scripts/perf/childEnvironment.ts` の `perfChildEnvironment` から環境を取得します。親プロセスの環境を継承して分離ルートなどの変数を重ね、`BUN_INSPECTOR_ENVS` に列挙された Bun デバッガー接続用の変数（VS Code のターミナルが注入する `BUN_INSPECT_CONNECT_TO` など）を取り除くため、子プロセスの JSC ヒープはメインスレッドの 1 つだけになります。GC ログの `starting` ハンドシェイクはちょうど 1 行でなければならず、複数のヒープが現れた場合は GC の読み取り値を出しません。
+ゲートの子プロセスと、フルスイート・`perf:review`・`perf:disk-transport`・`perf:identity-database`・`perf:join-log` の子プロセスは、いずれも `scripts/perf/childEnvironment.ts` の `perfChildEnvironment` から環境を取得します。親プロセスの環境を継承して分離ルートなどの変数を重ね、`BUN_INSPECTOR_ENVS` に列挙された Bun デバッガー接続用の変数（VS Code のターミナルが注入する `BUN_INSPECT_CONNECT_TO` など）を取り除くため、子プロセスの JSC ヒープはメインスレッドのみになります。GC ログの `starting` ハンドシェイクは単一行でなければならず、複数のヒープが現れた場合は GC の読み取り値を出しません。
 
 ### ゲート指標と段階区分
 

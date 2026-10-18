@@ -1,5 +1,6 @@
 import { adoptPersona, getPersona } from "../../../packages/config/persona";
 import { personaCache } from "../../../packages/cache/perThread/config";
+import { replySystemPromptSlot } from "../../../packages/cache/workers/aiChat/replyPrefix";
 import { DEFAULT_AI_PERSONA } from "../../../packages/consts/aiChat/prompts/persona";
 /**
  * 回复循环的供应商中立行为：提示词分段、上下文区块顺序、整轮函数调用预算、
@@ -45,6 +46,7 @@ import {
 } from "../../../packages/consts/aiChat/prompts/transcript";
 import { VOICE_LANGUAGE_PROMPTS } from "../../../packages/consts/aiChat/prompts/tools";
 import {
+  ABUSE_MARK_TOOL,
   ADD_REACTION_TOOL,
   GENERATE_IMAGE_TOOL,
   SEND_MESSAGE_TOOL,
@@ -184,6 +186,7 @@ const PRELOADED_PERSONA: string | null = personaCache.current;
 
 beforeEach(() => {
   personaCache.current = PRELOADED_PERSONA;
+  replySystemPromptSlot.current = null;
   turns.length = 0;
   requests.length = 0;
   appendedOutputs.length = 0;
@@ -656,6 +659,35 @@ test("所有群共用 init 接管的本进程人设，系统前缀逐群逐字�
   expect(requests[1]!.systemPrompt).toBe(requests[0]!.systemPrompt);
 });
 
+test("系统提示词单槽：三项输入不变时跨轮复用，任一项变化即按当前输入重拼", async () => {
+  const searchWeb = async (): Promise<WebSearchToolOutcome> => ({ status: "ok", text: "" }) as unknown as WebSearchToolOutcome;
+  const steps: readonly { persona: string; ja: boolean; functionSearch: boolean }[] = [
+    { persona: "人设甲", ja: false, functionSearch: false },
+    { persona: "人设甲", ja: false, functionSearch: false },
+    { persona: "人设乙", ja: false, functionSearch: false },
+    { persona: "人设乙", ja: true, functionSearch: false },
+    { persona: "人设乙", ja: true, functionSearch: true },
+    { persona: "人设甲", ja: false, functionSearch: false },
+  ];
+  for (const step of steps) {
+    adoptPersona(step.persona);
+    turns.push(okTurn({ text: "response" }));
+    await generateReply(-1001, promptSections("context"), toolset({
+      replyActionInstruction: VOICE_LANGUAGE_PROMPTS[step.ja ? "ja" : "en"].replyActionInstruction,
+      searchWeb: step.functionSearch ? searchWeb : null,
+    }));
+  }
+  for (const [index, step] of steps.entries()) {
+    const prompt: string = requests[index]!.systemPrompt;
+    expect(prompt).toStartWith(`${step.persona}\n\n## Agent 身份与权限边界`);
+    expect(prompt).toContain(`## 行动与停止\n${VOICE_LANGUAGE_PROMPTS[step.ja ? "ja" : "en"].replyActionInstruction}\n\n`);
+    expect(prompt).toEndWith(step.functionSearch ? WEB_SEARCH_FUNCTION_INSTRUCTION : WEB_SEARCH_INSTRUCTION);
+  }
+  expect(requests[1]!.systemPrompt).toBe(requests[0]!.systemPrompt);
+  expect(requests[5]!.systemPrompt).toBe(requests[0]!.systemPrompt);
+  expect(new Set(requests.map((request: AiReplyTurnRequest): string => request.systemPrompt)).size).toBe(4);
+});
+
 test("工具往返复用本轮系统提示词，前缀恒定", async () => {
   turns.push(okTurn({ calls: [call(SEND_MESSAGE_TOOL)] }), okTurn({ text: "本轮完成" }));
   await expect(generateReply(-1001, promptSections("当前轮"), toolset({
@@ -709,4 +741,47 @@ test("等检索结果期间本轮作废时不再喂回结果", async () => {
     isActive: (): boolean => active,
   }))).resolves.toBeNull();
   expect(appendedOutputs).toHaveLength(0);
+});
+
+test("abuse_mark 被接纳后立即结束本轮会话，不执行同响应后续调用也不喂回结果", async () => {
+  turns.push(
+    okTurn({
+      calls: [
+        call(ABUSE_MARK_TOOL, { user_id: 1001 }),
+        call(SEND_MESSAGE_TOOL, { text: "这条不该再发" }),
+      ],
+      text: "这段尾随正文也不该返回",
+    }),
+    okTurn({ text: "不该进入第二轮" })
+  );
+  const execute = mock((): string => JSON.stringify({ success: true }));
+
+  await expect(generateReply(-1001, promptSections("拒答冷却"), toolset({
+    functions: [declaration(ABUSE_MARK_TOOL), declaration(SEND_MESSAGE_TOOL)],
+    has: (): boolean => true,
+    execute,
+  }))).resolves.toBeNull();
+
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(execute).toHaveBeenCalledWith(ABUSE_MARK_TOOL, JSON.stringify({ user_id: 1001 }));
+  expect(appendedOutputs).toHaveLength(0);
+  expect(requestMock).toHaveBeenCalledTimes(1);
+});
+
+test("abuse_mark 返回错误时不终止当前轮次，错误结果正常喂回模型", async () => {
+  turns.push(
+    okTurn({ calls: [call(ABUSE_MARK_TOOL, { user_id: 9999 })] }),
+    okTurn({ text: "改正常回复" })
+  );
+  const execute = mock((): string => JSON.stringify({ error: "invalid user_id" }));
+
+  await expect(generateReply(-1001, promptSections("误用恢复"), toolset({
+    functions: [declaration(ABUSE_MARK_TOOL)],
+    has: (): boolean => true,
+    execute,
+  }))).resolves.toBe("改正常回复");
+
+  expect(execute).toHaveBeenCalledTimes(1);
+  expect(appendedOutputs).toHaveLength(1);
+  expect(requestMock).toHaveBeenCalledTimes(2);
 });

@@ -38,8 +38,8 @@
 <p align="center">
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6624_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.84%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6792_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.96%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -104,7 +104,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：6624 项测试全部通过 / 553 个测试文件 / 446,303 次 expect() 调用 / 函数覆盖率 98.35% / 行覆盖率 98.84%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：6792 项测试全部通过 / 560 个测试文件 / 447,983 次 expect() 调用 / 函数覆盖率 98.42% / 行覆盖率 98.96%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -206,7 +206,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🫧 中文动作命令</b><br>
-  <sub>直接发送 /咬、/贴贴 等 1~2 个汉字动作，无需事先向系统注册。</sub></p>
+  <sub>直接发送 /咬、/贴贴 等中文动作（<code>CJK_ACTION_COMMAND_PATTERN</code>），无需事先向系统注册。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌊 刷屏防御控制</b><br>
@@ -238,7 +238,7 @@
 | Claude | 90%± |
 
 > [!TIP]
-> 谷歌模型缓存率较低的问题主要来自显式与隐式缓存互斥，以及隐式缓存过期时间不可控（最快观测到 20s 左右过期）。如果在意请使用其他模型，但是 Gemini 的模型在会话效果中是最好的。
+> Gemini 显式缓存与隐式缓存互斥且隐式缓存过期时间不可控；在意缓存命中率可选用其他厂商，注重会话效果可选用 Gemini。
 
 ### 语音、图片与记忆
 
@@ -265,8 +265,8 @@
 </tbody>
 </table>
 
-- **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 与 `headers` 接入反向代理或网关）。可选 `bot_language`（`en` / `zh` / `ja`，缺省为 `ja`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
-- **配额物理隔离**：每日总配额 `daily_limit`（默认 100 次）中切分出 `daily_reserve_quota`（默认 25 次）专供 `/send` 与定时任务使用，AI 闲聊仅使用剩余额度；两套额度独立统计、互不挤占。配额窗口（`TTS_USAGE_WINDOW_MS`）从窗口内首次请求开始计时，到期后的首个请求会自动清零计数开启新周期。
+- **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 与 `headers` 接入反向代理或网关）。可选 `bot_language`（`TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
+- **配额物理隔离**：每日总配额 `daily_limit`（缺省 `TTS_DEFAULT_DAILY_LIMIT`）中切分出 `daily_reserve_quota`（缺省 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）专供 `/send` 与定时任务使用，AI 闲聊仅使用剩余额度；两套额度独立统计、互不挤占。配额窗口（`TTS_USAGE_WINDOW_MS`）从窗口内首次请求开始计时，到期后的首个请求会自动清零计数开启新周期。
 - **记忆准入机制**：`/send` 转发消息与定时语音不录入 AI 对话上下文；群内图片的自动记录仅在群内已启用 AI 且当前未处于复读状态时生效。详见 [11 常见问题](docs/cn/11-faq.md)。
 
 每项功能的完整行为细节、配置指南与系统边界请参阅 **[📚 开发者文档](docs/cn/content-table.md)**。
@@ -279,7 +279,7 @@
 
 - **群成员基础权限**：复读、按群翻译、中文动作、`/info` 查资料、`/wed` 抽老婆、`/h_image` 看图等日常群聊交互命令，所有群成员均可直接使用。
 - **身份策略权限（`isCanXxx`）**：群组管理与运维命令，包括 `/bot_status` 查看系统状态、`/mute` / `/unmute` 禁言控制、`/gag` 限制发言、`/block` 黑名单控制、`/h_image add` 图库入库以及各项功能的启停开关。通过细粒度权限列表单独授权。
-- **超级管理员专属（`SUPER_ADMIN_USER_ID`）**：`/init` 初始化群接管、`/permission` 权限分配、`/white disable` 移除白名单身份、`/batch_kick` 批量清理新成员，以及私聊专属的 `/send` 跨群中转。拥有 `isCanWhiteOther` 权限的普通白名单用户可通过 `/white enable` 协助添加成员，但仅能赋予默认的基础权限。
+- **超级管理员专属（`SUPER_ADMIN_USER_ID`）**：`/init` 初始化群接管、`/permission` 权限分配、`/white disable` 移除白名单身份、`/batch_kick` 批量清理新成员、`/delete_message` 删除指定身份此后的发言，以及私聊专属的 `/send` 跨群中转。拥有 `isCanWhiteOther` 权限的普通白名单用户可通过 `/white enable` 协助添加成员，但仅能赋予默认的基础权限。
 
 图库与 cron 定时任务的配置和使用请参阅 [08 图库与定时任务](docs/cn/08-images-and-cron.md)，源码与二进制部署的离线冷迁移步骤请参阅 [运维手册](docs/cn/07-operations.md)。
 
@@ -293,7 +293,7 @@
 
 - **操作系统**：Linux 系统（必须具备标准可读的 `/proc` 文件系统；其他平台因缺乏实例锁将自动拒绝启动）。
 - **Telegram 凭据**：Bot Token 与超级管理员的 Telegram User ID。
-- **运行时环境**：源码运行需 [Bun](https://bun.sh/) 1.4.3；官方二进制发行包已静态内置运行时，无需在宿主机额外安装。
+- **运行时环境**：源码运行需按 `package.json` 的 `packageManager` 安装 [Bun](https://bun.sh/)；官方二进制发行包已静态内置运行时，无需在宿主机额外安装。
 - **外部依赖**：开启 AI 需准备对应服务商的 API Key；翻译功能需准备 Google Cloud 服务账号 JSON 凭据。硬件配置建议请参考 [07 运维手册](docs/cn/07-operations.md#硬件参考)。
 
 ### 一键安装
@@ -471,7 +471,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
 
 > [!WARNING]
 > **Bot-to-Bot 跨机器人通讯模式说明**：
-> 开启此模式后，机器人可以在具备管理员权限或已关闭群隐私模式的群组中接收其他第三方 Bot 的普通发言。接收到的其他 Bot 消息会经过全局入口防刷限流保护：同一个 Bot 在连续活跃期间的前 `BOT_MESSAGE_ACTIVITY_LIMIT` 条消息允许进入业务处理，超出后静默忽略；停止发言满 `BOT_MESSAGE_ACTIVITY_TTL_MS` 后重新计数。系统最多记录 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 个其他 Bot 的活跃状态，池满时暂不接收新 Bot；机器人自身的发言不计入该限额。详见 [消息分发约束](docs/cn/04-invariants.md)。
+> 开启此模式后，机器人可以在具备管理员权限或已关闭群隐私模式的群组中接收其他第三方 Bot 的普通发言。接收到的其他 Bot 消息会经过全局入口防刷限流保护：同一个 Bot 在连续活跃期间的前 `BOT_MESSAGE_ACTIVITY_LIMIT` 条消息允许进入业务处理，超出后静默忽略；停止发言满 `BOT_MESSAGE_ACTIVITY_TTL_MS` 后重新计数。系统最多记录 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 个其他 Bot 的活跃状态，池满时暂不接收新 Bot；机器人自身的发言与本群 `/delete_message` 目标的发言不计入该限额（后者每条都会被删除）。详见 [消息分发约束](docs/cn/04-invariants.md)。
 
 ### 群内管理员权限
 
@@ -487,7 +487,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
 <tbody>
   <tr>
     <td><nobr>🗑️ <b>删除消息</b></nobr></td>
-    <td><code>/gag</code> 发言管教拦截、广告检测自动撤回、自动清理黑名单频道身份发言。</td>
+    <td><code>/gag</code> 发言管教拦截、<code>/delete_message</code> 删除指定身份的新发言、广告检测自动撤回、自动清理黑名单频道身份发言。</td>
   </tr>
   <tr>
     <td><nobr>🚫 <b>限制与封禁成员</b></nobr></td>

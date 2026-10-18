@@ -100,7 +100,7 @@ export const BOT_CONFIG_PATH: string = join(STATIC_CONFIG_DIR, "bot.json");
 /**
  * AI 部署配置（可选、可热重载）；agent 下的各项能力分别配置 provider、api_key、model 与可选
  * base_url（google 与 anthropic provider 另可配置 headers），文件级加载见 packages/config/agent.ts，
- * 单项能力的字段解码见 packages/config/agentCapability.ts。
+ * 单项能力的字段解码见 packages/config/agentCapability.ts 与 packages/config/agentTts.ts。
  */
 export const AGENT_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "agent.json");
 /** 素材配置：随机图片目录、机器人默认头像来源与 inline 缩略图直链（可选、可热重载），见 packages/config/assets.ts。 */
@@ -111,13 +111,7 @@ export const CRON_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "cron.json");
 export const LOGS_DIR: string = join(RUNTIME_DATA_ROOT, LOGS_DIR_NAME);
 
 /**
- * memory/ 落盘目录：每日运势缓存（luck/ 下按配置时区的日期一个文件，只留当天）、白名单贴纸包的目录快照
- * （stickers/ 下按 pack short name 一个 <pack>.json，见 aiChat/ai/stickers/catalog.ts）、
- * 待验证当日增量（anti-raid/ 下只保留配置时区的当天），以及滚动窗口内的入群事实
- * （joinlog/）和每群已发言成员集合（wed/），均由 diskIOWorker 落盘，见
- * packages/workers/diskIOWorker.ts；ai-daily-usage/ 下是模型请求的缓存用量统计，同样由 diskIOWorker
- * 落盘；ad-detected/ 是广告命中样本旁路（见 AD_SAMPLE_MEMORY_DIR）；global/ 下的全局状态由主线程落盘。每一类数据各占
- * 一个子目录，顶层不放单个文件。不进 git，与 logs/ 同级对待；部署时应按敏感数据保护。
+ * memory/ 运行时领域数据根目录（各子目录分别由 Disk I/O Worker 或主线程 StateStore 落盘，顶层不放单个文件）。
  */
 export const MEMORY_DIR: string = join(RUNTIME_DATA_ROOT, MEMORY_DIR_NAME);
 /**
@@ -167,7 +161,7 @@ export const AD_SAMPLE_FILE_PATH: string = join(AD_SAMPLE_MEMORY_DIR, "sample.js
 export const AI_CACHE_MEMORY_DIR: string = join(MEMORY_DIR, "ai-daily-usage");
 /**
  * AI 缓存使用统计文件：顶部 `summary` 是最近一个已结束的配置时区自然日的汇总，其余键是尚未汇总的
- * 逐条用量记录。每日配置时区 0 点把前一天的记录并入汇总后删除。
+ * 逐条用量记录；按配置时区跨日维护时把前一天的记录并入汇总后删除。
  */
 export const AI_CACHE_FILE_PATH: string = join(AI_CACHE_MEMORY_DIR, "usage.json");
 
@@ -176,7 +170,7 @@ export const GOOGLE_AUTH_FILE_PATH: string = join(STATIC_CONFIG_DIR, "g-auth.jso
 
 /**
  * 原子重写（写 tmp、rename 覆盖目标路径）统一使用的临时后缀，全项目落盘复用，
- * 见 infra/storage/statePersistence.ts、workers/diskIO/snapshotFiles.ts 的快照
+ * 见 libs/atomicFile.ts、infra/storage/statePersistence.ts、workers/diskIO/snapshotFiles.ts 的快照
  * 恢复、workers/diskIO/appendOnlyDayFile.ts 经 atomicWriteTextSync 的整份重写。
  * 严格解析失败时原样保留文件并拒绝启动，见 docs/cn/04-invariants.md。
  */

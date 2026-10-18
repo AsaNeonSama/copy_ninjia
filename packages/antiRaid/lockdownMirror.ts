@@ -174,9 +174,6 @@ function runEmergencyLockdownRecovery(
         finishEmergencyLockdownRecovery(chatId, recovery);
         return;
       }
-      // 权限已还原且记录仍属本轮：公告 ID 只存在于这条记录里，清记录前先发起定向
-      // 删除，不等待结果。失败由统一 Telegram 错误日志记录（出站已关闭时同样只
-      // 结算为失败），不改变权限恢复的收尾。
       if (current.announcementMessageId !== undefined) {
         deleteEmergencyLockdownAnnouncement(chatId, current.announcementMessageId);
       }
@@ -211,7 +208,6 @@ function runEmergencyLockdownRecovery(
     }
   })();
   recovery.inFlight = task;
-  // 用 then(settle, settle) 同时接住兑现与拒绝，拒绝在此被处理，不会派生出无人处理的 Promise。
   const settle = (): void => {
     if (recovery.inFlight === task) recovery.inFlight = null;
   };
@@ -247,10 +243,21 @@ export function stopEmergencyLockdownRecoveries(): void {
       recovery.retryTimer = null;
     }
   }
-  // 停机不等待在途的 Telegram 请求：已关闸（stopped）并清空 owner；迟到的成功/失败
-  // 都会在 run 中停止，不再修改 state 或重新安排 timer。state 保留 lockdown，
-  // 下一进程可幂等恢复权限。
+  // 停机时标记 stopped 并清空恢复表；在途请求完成后不再修改群状态，保留 lockdown 记录供下次启动恢复。
   emergencyLockdownRecoveries.clear();
+}
+
+/** 群已不存在（teardown 起因 gone）且主线程紧急恢复已接管时，终止该群的紧急恢复并清除 lockdown 记录。 */
+export function abandonEmergencyLockdownRecovery(chatId: number): void {
+  const recovery: EmergencyLockdownRecovery | undefined =
+    emergencyLockdownRecoveries.get(chatId);
+  if (recovery === undefined) return;
+  finishEmergencyLockdownRecovery(chatId, recovery);
+  persistedLockdownFingerprints.delete(chatId);
+  if (clearChatStateField(chatId, "lockdown")) {
+    saveChatStateInBackground(chatId, "abandoned emergency anti-raid lockdown");
+    antiRaidRuntimeState.lockdownVersion++;
+  }
 }
 
 /** Worker 自愈放弃后，由主线程独立接管仍挂着的邀请权限恢复。 */

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Api } from "grammy";
 import { sendEphemeralMessage } from "../../packages/infra/telegram/actions/messages";
+import type { TelegramApi } from "../../packages/types/telegramWorker";
 
 test("真实 grammY 编码 Bot API 10.3 发送载荷并原生删除临时消息", async (): Promise<void> => {
   const api: Api = new Api("123456:mock-token");
@@ -14,7 +15,12 @@ test("真实 grammY 编码 Bot API 10.3 发送载荷并原生删除临时消息"
   });
   const signal: AbortSignal = new AbortController().signal;
   const keyboard = { inline_keyboard: [[{ text: "进入", callback_data: "entry" }]] };
-  expect(await sendEphemeralMessage({ chatId: -1001, receiverUserId: 7, callbackQueryId: "callback-id", text: "入口", keyboard, api, signal })).toBe(71);
+  // 与主线程适配器（infra/telegram/mainClient.ts）一样，独占入口直接转交 grammY 的 sendMessage。
+  const mainApi: Pick<TelegramApi, "sendEphemeralMessage"> = {
+    sendEphemeralMessage: (...args: Parameters<TelegramApi["sendEphemeralMessage"]>): ReturnType<TelegramApi["sendEphemeralMessage"]> =>
+      api.sendMessage(...args),
+  };
+  expect(await sendEphemeralMessage({ chatId: -1001, receiverUserId: 7, callbackQueryId: "callback-id", text: "入口", keyboard, api: mainApi, signal })).toBe(71);
   expect(calls[0]).toEqual({ method: "sendMessage", signal, payload: {
     chat_id: -1001, text: "入口", ephemeral_message_parameters: { receiver_user_id: 7, callback_query_id: "callback-id" }, reply_markup: keyboard,
   } });

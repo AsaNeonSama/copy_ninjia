@@ -10,6 +10,12 @@ import { AD_SAMPLE_CONTEXT_MAX_CHARS } from "../../../packages/consts/antiRaid/a
 import type { BotConfig } from "../../../packages/types/config";
 import { botPermissions } from "../../helpers/botPermissions";
 import { chatStateOf } from "../../helpers/chatState";
+import { identityFieldView } from "../../helpers/identityCacheView";
+import type { IdentityFieldView } from "../../helpers/identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 const chatStates = new Map<number, ChatState>();
 const getChatState = mock((chatId: number) => chatStates.get(chatId) ?? chatStateOf());
 const activeVerificationSnapshots = new Map<string, unknown>();
@@ -82,7 +88,8 @@ mock.module("../../../packages/infra/identityPolicy/temporaryAdBypass", () => ({
     if (!clearTemporaryAdBypassActivity(id)) throw new Error(`Temporary ad bypass reset for identity ${id} was rejected.`);
   },
   hasActiveTemporaryAdBypassAt: (id: number): boolean => temporaryAdBypassIds.has(id),
-  hydrateTemporaryAdBypassActivities: (): void => {},
+  storedTemporaryAdBypassActivities: (): ReadonlyMap<number, never> => new Map<number, never>(),
+  currentTemporaryAdBypassActivity: (): null => null,
 }));
 mock.module("../../../packages/infra/blocklist/outbox", () => ({
   trackBlockedRemoval,
@@ -107,10 +114,7 @@ const { inlineResultSources } = await import("../../../packages/cache/main/inlin
 const { recordInlineResultSources } = await import("../../../packages/infra/inlineResultSources");
 const { markSelfSent } = await import("../../../packages/infra/selfSentTracker");
 const { resetSelfSentTracker } = await import("../../../packages/cache/perThread/selfSentTracker");
-const { blocklistEntryCache, whitelistEntryCache } =
-  await import("../../../packages/cache/main/identityStorage");
-const { temporaryAdBypassActivityCache } =
-  await import("../../../packages/cache/main/temporaryAdBypass");
+
 function message(overrides: Partial<Message> = {}): Message {
   return {
     message_id: 10,
@@ -164,13 +168,13 @@ beforeEach(() => {
   }));
   blockedIds.clear();
   temporaryAdBypassIds.clear();
-  blocklistEntryCache.clear();
-  whitelistEntryCache.clear();
-  temporaryAdBypassActivityCache.clear();
+  blocklistField.clear();
+  whitelistField.clear();
+  temporaryAdBypassField.clear();
   for (const id of [7, -300, -1005]) {
-    blocklistEntryCache.set(id, null);
-    whitelistEntryCache.set(id, null);
-    temporaryAdBypassActivityCache.set(id, null);
+    blocklistField.set(id, null);
+    whitelistField.set(id, null);
+    temporaryAdBypassField.set(id, null);
   }
   blockUser.mockClear();
   clearTemporaryAdBypassActivity.mockClear();

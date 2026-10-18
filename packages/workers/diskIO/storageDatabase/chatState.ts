@@ -1,6 +1,7 @@
 import {
   storagePendingBudgets,
   pendingChatStateWrites,
+  storageFlushHold,
 } from "../../../cache/workers/diskIO/storageDatabase";
 import { storageWriteCost } from "../../../libs/storageWriteBudget";
 import { IDENTITY_DATABASE_PATH } from "../../../consts/paths";
@@ -22,13 +23,18 @@ import type {
 import type { ChatState } from "../../../types/chatState";
 import type { PendingChatStateWrite } from "../../../types/identityStorage";
 import type { StoredChatStateRow } from "../../../types/storageDatabase";
-import { assertPositiveRevision, requireStorageDatabase, storageSource } from "./context";
+import {
+  assertPositiveRevision,
+  requireStorageDatabase,
+  requireStorageDatabaseReader,
+  storageSource,
+} from "./context";
 import { flushIfStorageFull } from "./flush";
 
-/** 已提交主键叠加未提交最终值后的有效群集合；容量闸只需要这个，不碰 data。 */
+/** 读取已提交群主键并叠加待提交变更，返回有效群 ID 集合。 */
 function effectiveChatStateIds(): Set<number> {
   const rows: readonly Pick<StoredChatStateRow, "chatId">[] =
-    readStoredChatStateIds(requireStorageDatabase());
+    readStoredChatStateIds(requireStorageDatabaseReader());
   const chatIds: Set<number> = new Set();
   for (const row of rows) chatIds.add(row.chatId);
   for (const [chatId, pending] of pendingChatStateWrites) {
@@ -38,19 +44,45 @@ function effectiveChatStateIds(): Set<number> {
   return chatIds;
 }
 
-/** 同上但带 data，供唯一代理目标核对；只有「本次写打开了代理」那一条会走到。 */
+/** 读取已提交群状态并叠加待提交变更，返回有效群状态映射。 */
 function effectiveChatStateData(): Map<number, ChatState> {
   const rows: readonly StoredChatStateRow[] = readStoredChatStates(requireStorageDatabase());
   const values: Map<number, ChatState> = new Map();
-  for (const row of rows) values.set(row.chatId, decodeChatStateData(row.data, storageSource("chat_states", row.chatId)));
+  for (const row of rows) values.set(row.chatId, decodeChatStateData(row.data, storageSource("chat_states", row.chatId), row.chatId));
   for (const [chatId, pending] of pendingChatStateWrites) {
     if (pending.data === null) values.delete(chatId);
-    else values.set(chatId, decodeChatStateData(pending.data, storageSource("chat_states", chatId)));
+    else values.set(chatId, decodeChatStateData(pending.data, storageSource("chat_states", chatId), chatId));
   }
   return values;
 }
 
-/** 收下一群最终状态；容量和唯一代理目标在进入事务缓冲前严格验证。 */
+/** 校验有效群总数不超过 STATE_MANAGED_CHAT_LIMIT。 */
+function assertManagedChatLimit(effective: ReadonlySet<number>): void {
+  if (effective.size > STATE_MANAGED_CHAT_LIMIT) {
+    throw new Error(
+      `${IDENTITY_DATABASE_PATH}:chat_states must contain at most ` +
+      `${STATE_MANAGED_CHAT_LIMIT} chats; delete chats that are no longer managed before adding another chat.`
+    );
+  }
+}
+
+/** 镜像重放结束时统一复核待提交群状态的群数上限与唯一代理目标约束。 */
+export function assertPendingChatStateInvariants(): void {
+  if (pendingChatStateWrites.size === 0) return;
+  assertManagedChatLimit(effectiveChatStateIds());
+  let hasProxySend: boolean = false;
+  for (const data of effectiveChatStateData().values()) {
+    if (data.isProxySendEnabled !== true) continue;
+    if (hasProxySend) {
+      throw new Error(
+        `${IDENTITY_DATABASE_PATH}:chat_states must contain at most one active proxy send target.`
+      );
+    }
+    hasProxySend = true;
+  }
+}
+
+/** 校验并接收群状态写入，验证群数上限与唯一代理目标约束（镜像重放暂挂期间延后至重放结束统一复核）后排入事务缓冲。 */
 export function handleChatStateWrite(
   message: ChatStateWriteDiskMessage,
   reply: IdentityPersistenceReply
@@ -58,35 +90,29 @@ export function handleChatStateWrite(
   const rowSource: string = storageSource("chat_states", message.chatId);
   assertTelegramChatId(message.chatId, rowSource);
   assertPositiveRevision(message.revision, rowSource);
-  // 解码结果留给下面的唯一代理目标判定：只看这次写是否打开了 isProxySendEnabled。
   const incoming: ChatState | null = message.data === null
     ? null
-    : decodeChatStateData(message.data, rowSource);
+    : decodeChatStateData(message.data, rowSource, message.chatId);
   const current: PendingChatStateWrite | undefined = pendingChatStateWrites.get(
     message.chatId
   );
   if (current !== undefined && current.revision >= message.revision) return;
 
-  const effective: Set<number> = effectiveChatStateIds();
-  if (message.data === null) effective.delete(message.chatId);
-  else effective.add(message.chatId);
-  if (effective.size > STATE_MANAGED_CHAT_LIMIT) {
-    throw new Error(
-      `${IDENTITY_DATABASE_PATH}:chat_states must contain at most ` +
-      `${STATE_MANAGED_CHAT_LIMIT} chats; delete chats that are no longer managed before adding another chat.`
-    );
-  }
-  // 唯一代理目标是归纳不变量：启动整表恢复先验证已有行，此后每次写入都过此闸。
-  // 只有把 isProxySendEnabled 打开的写入可能破坏它，因此其它字段的更新不扫描整表。
-  if (incoming?.isProxySendEnabled === true) {
-    for (const [chatId, data] of effectiveChatStateData()) {
-      if (chatId === message.chatId) continue;
-      if (
-        data.isProxySendEnabled === true
-      ) {
-        throw new Error(
-          `${IDENTITY_DATABASE_PATH}:chat_states must contain at most one active proxy send target.`
-        );
+  if (!storageFlushHold.current) {
+    const effective: Set<number> = effectiveChatStateIds();
+    if (message.data === null) effective.delete(message.chatId);
+    else effective.add(message.chatId);
+    assertManagedChatLimit(effective);
+    if (incoming?.isProxySendEnabled === true) {
+      for (const [chatId, data] of effectiveChatStateData()) {
+        if (chatId === message.chatId) continue;
+        if (
+          data.isProxySendEnabled === true
+        ) {
+          throw new Error(
+            `${IDENTITY_DATABASE_PATH}:chat_states must contain at most one active proxy send target.`
+          );
+        }
       }
     }
   }

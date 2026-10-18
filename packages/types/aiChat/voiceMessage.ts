@@ -56,7 +56,7 @@ export type SpeechSynthesisAttempt =
   | { readonly ok: true; readonly speech: SynthesizedSpeech }
   | { readonly ok: false; readonly reason: "synthesis failed" | "daily limit reached" };
 
-/** 合成载荷不可用的具体原因，只用于错误日志定位（英文，见 AGENTS.md 的日志约定）。 */
+/** 合成载荷不可用的具体原因，只用于错误日志定位。 */
 export type SynthesizedSpeechDecodeFailure =
   | Base64PayloadDecodeFailure
   | "missing audio mime type"
@@ -114,10 +114,10 @@ export type VoiceEncodeFailure =
   | "unsupported speech mime type"
   | "opus encoder failed";
 
-/** 把合成语音编码成 Telegram 语音消息的结果。 */
+/** 把合成语音编码成 Telegram 语音消息的结果；`aborted` 是 WAV 分块编码期间调用方取消，不属于编码失败。 */
 export type VoiceEncodeResult =
   | { readonly ok: true; readonly voice: EncodedVoiceMessage }
-  | { readonly ok: false; readonly reason: VoiceEncodeFailure };
+  | { readonly ok: false; readonly reason: VoiceEncodeFailure | "aborted" };
 
 /**
  * 一次「文本 + 语气 → Telegram 语音消息」没有产出语音的原因，只用于错误日志与回执
@@ -160,11 +160,11 @@ export type SpeechSynthesizerLookup =
 /**
  * 随 `agent.tts.bot_language` 切换的一份语音相关文案（consts/aiChat/prompts/tools.ts 的
  * VOICE_LANGUAGE_PROMPTS 按 TtsBotLanguage 各注册一份）：回复模型可见的提示词，以及 AI 语音合成
- * 请求追加的朗读语言要求。replyToolset/orchestrator.ts 每轮取一份，工具声明、系统提示词与本轮
+ * 请求追加的朗读语言要求。aiChat/ai/tools/replyToolset/orchestrator.ts 每轮取一份，工具声明、系统提示词与本轮
  * send_voice 的合成请求同用这一份。
  */
 export interface VoiceLanguagePrompts {
-  /** send_voice 的内置工具说明；prompt/voice_tool.md 存在时由其正文整份替换（见 replyToolset/voiceMessage.ts）。 */
+  /** send_voice 的内置工具说明；prompt/voice_tool.md 存在时由其正文整份替换（见 aiChat/ai/tools/replyToolset/voiceMessage.ts）。 */
   readonly sendVoiceInstruction: string;
   /** send_voice 参数 text 的说明。 */
   readonly voiceTextDescription: string;

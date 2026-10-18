@@ -200,7 +200,7 @@ export const workerTelegramApi: TelegramWorkerApi = {
       payload: { chat_id: chatId, action, ...other },
     }, asSignal(signal));
   },
-  sendMessage: (...args: Parameters<Api["sendMessage"]>): ReturnType<Api["sendMessage"]> => {
+  sendMessage: (...args: Parameters<Api["sendMessage"]>): ReturnType<TelegramWorkerApi["sendMessage"]> => {
     const [chatId, text, other = {}, signal]: Parameters<Api["sendMessage"]> = args;
     return requestCall({
       method: "sendMessage",
@@ -227,7 +227,7 @@ export const workerTelegramApi: TelegramWorkerApi = {
       signal: asSignal(signal),
     });
   },
-  sendSticker: (...args: Parameters<Api["sendSticker"]>): ReturnType<Api["sendSticker"]> => {
+  sendSticker: (...args: Parameters<Api["sendSticker"]>): ReturnType<TelegramWorkerApi["sendSticker"]> => {
     const [chatId, sticker, other = {}, signal]: Parameters<Api["sendSticker"]> = args;
     if (typeof sticker !== "string") {
       return Promise.reject(new TypeError("Worker sendSticker requires a Telegram file_id."));

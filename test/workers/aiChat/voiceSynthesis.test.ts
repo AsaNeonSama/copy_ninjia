@@ -93,6 +93,19 @@ describe("公共实现", () => {
     expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai" }, "chat -1")).toEqual({ ok: false, reason: "unsupported speech mime type" });
     expect(loggerError).toHaveBeenCalledWith("Voice message encoding failed (chat -1): unsupported speech mime type.");
   });
+
+  test("合成返回后、编码期间 signal 中止时返回 aborted，不记编码失败", async () => {
+    const controller: AbortController = new AbortController();
+    synthesizeSpeech.mockImplementationOnce(async (): Promise<SpeechSynthesisAttempt> => {
+      // 合成返回时尚未中止；中止落在编码让出事件循环期间。
+      setImmediate((): void => controller.abort());
+      return { ok: true, speech: { bytes: sineWav(24_000, 3), mimeType: "audio/wav" } };
+    });
+    expect(await synthesizeVoiceMessage(synthesizeSpeech, { text: "hi", quota: "ai", signal: controller.signal }, "test"))
+      .toEqual({ ok: false, reason: "aborted" });
+    expect(controller.signal.aborted).toBeTrue();
+    expect(loggerError).not.toHaveBeenCalled();
+  });
 });
 
 describe("AI Worker 侧转交", () => {

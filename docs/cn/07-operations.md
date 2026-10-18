@@ -88,13 +88,13 @@ WantedBy=multi-user.target
   sudo install -d -o copy-ninjia -g copy-ninjia -m 0750 /var/lib/copy-ninjia
   ```
   在 Docker 等容器中部署时，需将数据根作为持久化 Volume 挂载，由宿主机或 init container 设置属主；注意 `memory/` 与 `database/` 切勿放在容器可写但易失的临时分层中。
-- **自动初始化与严格写保护**：服务启动时会自动补齐数据根、`logs/`、`memory/`、`memory/global/` 与初始的 `database/` 目录（前四者默认权限为 `0755`，`database/` 为 `0770`，实际生效值受 umask 限制），且所有路径**严禁使用符号链接**。
-  - 数据根、`logs/`、`memory/` 与 `memory/global/` 必须归属于当前运行用户的 UID，且权限不能比 `0755` 更宽松。一旦检测到所属组（group）或其它人（other）拥有写入权限（`w` 位），程序将**立即拒绝启动**（以防止同主机未授权写入）。读取权限最高允许开放至 `0755`。
+- **自动初始化与严格写保护**：服务启动时会自动补齐数据根、`logs/`、`memory/`、`memory/global/` 与初始的 `database/` 目录（前四者权限上限为 `RUNTIME_DATA_ROOT_MAX_MODE`，`database/` 为 `IDENTITY_DATABASE_DIRECTORY_MODE`，实际生效值受 umask 限制），且所有路径**严禁使用符号链接**。
+  - 数据根、`logs/`、`memory/` 与 `memory/global/` 必须归属于当前运行用户的 UID，且权限不能比 `RUNTIME_DATA_ROOT_MAX_MODE` 更宽松。一旦检测到所属组（group）或其它人（other）拥有写入权限（`w` 位），程序将**立即拒绝启动**。
 
 > [!WARNING]
 > **多租户环境的数据权限隔离**：
-> `memory/` 目录下新建文件的默认权限是 `0644`。如果上层目录保持 `0755`，同一台机器上的其他本地用户将能够直接读取群聊数据。在多用户共享的服务器上，建议将数据根与 `memory/` 权限收紧为 `0750`，已有文件收紧为 `0600` 或 `0640`（程序运行时会保留已有文件的权限，不会静默修改）。
-> `database/` 目录可设为 `02770`，主数据库及 WAL/SHM 临时文件默认创建权限为 `0660`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 属于只读输入，保持普通只读即可。
+> `memory/` 目录下新建文件的默认权限是 `0644`。如果上层目录开放了其他本地用户的读取权限，同一台机器上的其他本地用户将能够直接读取群聊数据。在多用户共享的服务器上，建议将数据根与 `memory/` 权限收紧为 `0750`，已有文件收紧为 `0600` 或 `0640`（程序运行时会保留已有文件的权限，不会静默修改）。
+> `database/` 目录权限上限为 `IDENTITY_DATABASE_DIRECTORY_MODE`（含 setgid 位时为 `02770`），主数据库及 WAL/SHM 临时文件创建权限为 `IDENTITY_DATABASE_FILE_MODE`。**切勿对整个数据根执行递归 `chmod 0750`**，因为 `database/` 必须保留属组写入权限。`config/` 属于只读输入，保持普通只读即可。
 
 - **崩溃自愈机制**：如果进程意外崩溃或以非零码退出，systemd 的 `Restart=on-failure` 会自动拉起实例。尚未完成的入群验证状态、锁定计时器、身份写入、AI 上下文记忆以及未确认的 Telegram update 将按照 [04 运行时权威约束](04-invariants.md#持久化) 的规则无缝恢复。
 
@@ -117,7 +117,7 @@ WantedBy=multi-user.target
 
 ### 日历时区
 
-时区在 `config/static/bot.json` 的 `time_zone` 字段中配置（启动时生效，缺省为 `Asia/Tokyo`），运行期间不会动态更新。定时任务可在 `cron.json` 中配置独立的 `time_zone` 覆盖全局设定。
+时区在 `config/static/bot.json` 的 `time_zone` 字段中配置（启动时生效，缺省为 `DEFAULT_BOT_TIME_ZONE`），运行期间不会动态更新。定时任务可在 `cron.json` 中配置独立的 `time_zone` 覆盖全局设定。
 
 **时区与数据根强绑定**：首次建库时，数据库 `database/storage.sqlite` 的 `storage_metadata` 表中会持久化记录 `time-zone` 标记。此后，日报文件按自然日划分的切分点、运势回执签名密钥、临时广告免检计数以及入群日志周期，均严格按此绑定时区计算。
 若启动时发现 `bot.json` 中的 `time_zone` 与数据库中的记录不一致，程序将直接终止启动，并在日志中明确打印 `storage_metadata.time-zone` 与期望值。安装器注册服务前也会做同样的检查。已有数据根不支持动态更改时区；若需启动，必须把 `time_zone` 改回库中记录的值。`database/` 与 `memory/` 必须来自同一个时间点的备份，备份与恢复必须整体处理。
@@ -127,23 +127,24 @@ WantedBy=multi-user.target
 - **格式约束**：顶层仅允许必填的 `copy` 字段与可选的 `ttsUsage` 字段。`copy.copiedUser` 必填（无复读目标时为 `null`），`copy.copyMode` 仅支持缺省、`reverse`、`nya`；若存在 `ttsUsage`，其三个子字段均为必填且非负，且至少有一项大于 0。若文件不存在，程序视作“全新初始状态”；若文件存在但格式非法，或出现了未知键，将**立即拒绝启动**。安装器在读取配置时也会以相同严格度校验该文件。
 - **写入机制**：由主线程独占写入（采用“写入临时文件 + fsync 刷盘 + 原子 rename 覆盖”机制），Disk I/O Worker 不介入此目录。`copy` 变更会立即同步刷盘；`ttsUsage` 则通过 `STATE_BACKGROUND_SAVE_DELAY_MS` 聚合合并后在后台定时刷盘。正常停机时会触发优雅 Flush 提交所有变更；若遭遇断电或被 `kill -9` 强杀，可能丢失未及合并窗口落盘的少量计数。
 - **手工编辑**：若需手动调整，必须先停止服务并确认进程完全退出，在项目目录外通过 `mktemp -d` 完整备份文件及元数据后再进行修改。严禁删除未知字段，核验 JSON 格式符合 Schema 后方可启动。
-- **根目录遗留检查**：如果数据根顶层存在遗留的旧版 `state.json` 或 `state.json.bak`，服务启动与安装器都会拒绝运行。请先参考[旧版本分阶段升级](#staged-upgrade)迁移至 16.3.2，完成数据迁移后再把这些旧文件移出数据根。
+- **根目录遗留检查**：如果数据根顶层存在遗留的旧版 `state.json` 或 `state.json.bak`，服务启动与安装器都会拒绝运行。请先参考[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移，再把这些旧文件移出数据根。
 
 ### 2. 色图专用图库：`random_h_image_dir`
-- **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（默认相对数据根目录下的 `./h_image`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令上传收录。
-- **命名规范**：文件名必须严格等于**图片二进制内容的 SHA-256 哈希**（64 位小写十六进制字符串），扩展名仅支持 `jpg`、`jpeg`、`png`、`webp`。严禁在此目录存放任何非色图文件或说明文档。
-- **启动检查**：若目录不存在，启动时会自动创建；启动阶段会逐项扫描该目录，一旦发现非法文件名、子目录、软链接或异常残留的 `.h_image-add-*` 临时文件，程序将**直接拒绝启动**。往该目录手动增删合规图片无需重启服务，即时生效；若在运行期间动态修改配置路径，程序会以同等规则严格校验新目录，若存在非法文件则拒绝切换。
+- **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（缺省为相对数据根目录的 `RANDOM_H_IMAGE_DIR`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令上传收录。
+- **命名规范**：文件名必须严格等于**图片二进制内容的 SHA-256 哈希**（匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN`），扩展名仅支持 `RANDOM_IMAGE_EXTENSIONS`。严禁在此目录存放任何非色图文件或说明文档。
+- **启动检查**：若目录不存在，启动时会自动创建；启动阶段会逐项扫描该目录，一旦发现非法文件名、子目录、软链接或异常残留的 `RANDOM_IMAGE_TEMP_PREFIX` 前缀临时文件，程序将**直接拒绝启动**。往该目录手动增删合规图片无需重启服务，即时生效；若在运行期间动态修改配置路径，程序会以同等规则严格校验新目录，若存在非法文件则拒绝切换。
 
 ### 3. 群友老婆候选库：`memory/wed/<chatId>.json`
-- **功能职责**：每群由已发言成员 Telegram ID 构成的纯数字数组（如 `[5974478892]`），主线程内部为每个活跃群维护一个复用的 `Set<number>`。系统管理的群数量上限为 `STATE_MANAGED_CHAT_LIMIT`，单个群的最大候选人数为 `WED_MEMBER_LIMIT`。
-- **校验规则**：文件名必须是以负安全整数格式命名的群组 ID，数组内元素必须是唯一的正安全整数。格式错误、出现重复 ID 或超出上限都会在启动时报错拒绝。
-- **落盘机制**：单群累计产生 `FLUSH_MAX_ENTRIES` 条增删变动，或自首条变动起已满 `FLUSH_INTERVAL_MS` 时，将变动提交给 Disk I/O Worker 进行全量原子替换落盘。在执行 `/init disable` 或机器人被移出群聊时，会自动彻底删除对应群的文件。
+- **功能职责**：每群一份已发言成员滑窗，文件是按进入顺序排列的对象数组（如 `[{"id":5974478892,"enteredAt":1791770134683}]`），`enteredAt` 为成员进入滑窗时的 Unix 毫秒时间戳；主线程为每个活跃群维护一个复用的 `Map<number, number>`（成员 ID → 进入时间）。系统管理的群数量上限为 `STATE_MANAGED_CHAT_LIMIT`，单群滑窗容量为 `WED_MEMBER_LIMIT`。
+- **滑窗规则**：不在窗口内的成员以个人身份发言时，以当前时间追加到末尾（不早于窗口已记录的最大进入时间）；窗口内成员再次发言不刷新进入时间；满额时先挤出进入时间最早的成员。
+- **校验规则**：文件名必须是以负安全整数格式命名的群组 ID；每项必须恰好包含 `id` 与 `enteredAt`，`id` 为不重复的正安全整数，`enteredAt` 为非负安全整数且按数组顺序不减，项数不超过 `WED_MEMBER_LIMIT`。任何不合规都会在启动时报错拒绝，安装器以同一口径校验；仍是成员 ID 数组的旧文件须先执行 [/wed 成员滑窗冷迁移](#upgrade-wed-member-window)。
+- **落盘机制**：单群累计产生 `FLUSH_MAX_ENTRIES` 条增删或挤出变动，或自首条变动起已满 `FLUSH_INTERVAL_MS` 时，将变动提交给 Disk I/O Worker 进行全量原子替换落盘。在执行 `/init disable` 或机器人被移出群聊时，会自动彻底删除对应群的文件。
 - **离群清理**：退群服务消息、`chat_member` 状态更新以及每日零点的成员巡检会自动清理已退群的用户（后两项需要机器人具备群管理员权限）。如果机器人没有管理员权限，在开启了“隐藏成员列表”的大群中可能无法感知成员离群，此时该成员仍可能保留在候选池中并被抽中，此属 Telegram API 权限限制下的正常现象。
 
 ### 4. 贴纸与运势：`memory/stickers/` 与 `memory/luck/`
-- **`memory/stickers/<pack>.json`**：白名单贴纸包的索引描述缓存（格式版本 `version=1`），记录贴纸的 `file_unique_id`、对应 emoji、提示描述以及整包摘要信息。若缺失可随时从 Telegram 重新同步对账；启动时会自动删除不在当前配置白名单中的贴纸包文件。
+- **`memory/stickers/<pack>.json`**：白名单贴纸包的索引描述缓存（包含格式版本 `version` 字段），记录贴纸的 `file_unique_id`、对应 emoji、提示描述以及整包摘要信息。若缺失可随时从 Telegram 重新同步对账；启动时会自动删除不在当前配置白名单中的贴纸包文件。
 - **`memory/luck/<YYYY-MM-DD>.json`**：在绑定时区下当天已抽取的运势结果，以用户 ID 为键，包含运势等级及用户所求事项的摘要。每天只保留当天的记录。
-- **`memory/luck/receipt-secret.json`**：用于校验当天运势回执真实性的 HMAC 密钥（格式版本 `version=1`，包含所属日期与 32 字节随机密钥）。**此文件必须与当天的运势文件作为整体一同备份与恢复**，严禁单方面删除或重新生成，否则会导致之前发放的运势回执全部失效。
+- **`memory/luck/receipt-secret.json`**：用于校验当天运势回执真实性的 HMAC 密钥（包含格式版本 `version` 字段、所属日期与匹配 `LUCK_RECEIPT_SECRET_PATTERN` 的十六进制随机密钥）。**此文件必须与当天的运势文件作为整体一同备份与恢复**，严禁单方面删除或重新生成，否则会导致之前发放的运势回执全部失效。
 
 ### 5. 待验证与入群日志：`memory/anti-raid/` 与 `memory/joinlog/`
 - **`memory/anti-raid/<YYYY-MM-DD>.json`**：当天入群验证挑战（Challenge）的状态日志，记录活跃状态、修订版本（revision）、已解决的墓碑记录（tombstone），以及写入但尚未确认执行完毕的剔除任务 `kickPending`（服务重启后会自动继续执行未完成的剔除操作）。稳定状态下只保留当天数据，追加日志条数或体积达到 `VERIFICATION_FILE_COMPACT_ENTRIES` 或 `VERIFICATION_FILE_COMPACT_BYTES` 门限时会自动触发整理压缩。整理时目录里若还留着更早的日文件，会为其中最新一份里仍为活跃、当前已终结的记录写入墓碑，旧日文件删除前进程退出也不会让已终结的记录在恢复时复活。同一份最新旧日文件连续 `VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS` 次解码失败（不是合法 UTF-8 或不是当前格式）时，运行中的整理把它改名为 `<YYYY-MM-DD>.json.corrupt` 原样保留供人工排查，新的一天直接按内存镜像写入；改名后的文件不再以 `.json` 结尾，启动恢复与旧日清理都不读也不删它。启动时最新旧日文件损坏仍拒绝启动。
@@ -189,7 +190,7 @@ WantedBy=multi-user.target
 
 ---
 
-## 身份存储迁移
+## 持久化数据迁移
 
 系统在运行时**绝不保留历史旧格式的兼容逻辑，启动时也不会自动变更或升级表结构**。所有数据结构的升级都必须在服务完全停止、进程完全退出后进行。如果迁移失败，必须保留外部备份现场，严禁强行启动新版，也严禁用示例模板 `config_example/` 覆盖现有真实配置。
 
@@ -199,23 +200,23 @@ WantedBy=multi-user.target
 
 服务启动时如果发现数据库文件缺失，不会私自猜测建库，而是直接报错。全新部署必须按照 [01 环境搭建的初始化身份数据库步骤](01-getting-started.md#初始化身份数据库) 创建符合当前 Schema 的空数据库；运行 `install.sh` 脚本在未发现数据库时也会自动执行该步骤。如果数据库已存在，该建库脚本会自动拒绝覆盖。
 
-<a id="upgrade-chat-persona"></a>
+<a id="upgrade-wed-member-window"></a>
 
-### 共享数据库冷迁移（删除群人设，schema v11 → v13）
+### /wed 成员滑窗冷迁移（成员 ID 数组 → `{ id, enteredAt }`）
 
-迁移入口脚本为 [`scripts/migrateChatPersonaRemoval.ts`](../../scripts/migrateChatPersonaRemoval.ts)。该脚本用于移除群状态中的独立人设列及对应权限，并自动写入 `Asia/Tokyo` 时区元数据，将数据库升级至 Schema v13（升级后 `bot.json` 的 `time_zone` 必须保持 `Asia/Tokyo`）。若某群处于“无任何状态且无 AI 上下文，仅遗留了旧人设”的空状态，迁移时会自动清理该行；若存在其他非预期的空状态行，迁移脚本将直接报错退出。本脚本仅接收由 16.3.2 版本产出的 Schema v11 源数据库；对于更早版本、未知分支或已经迁移过的数据库将直接拒绝处理。16.3.2 版本的其他持久化文件和 JSON 配置格式保持不变，可直接沿用。
+迁移入口脚本为 [`scripts/migrateWedMemberWindow.ts`](../../scripts/migrateWedMemberWindow.ts)。该脚本把 `memory/wed/<chatId>.json` 从 17.2.1 的成员 ID 数组改写为按进入顺序排列的 `{ id, enteredAt }` 滑窗数组：每群只保留数组末尾（最近进入）的 `WED_MEMBER_LIMIT` 个 ID，顺序不变，`enteredAt` 统一记为迁移开始时刻；超出部分从最早一端丢弃，丢弃数记入 `ready.json` 的 `truncatedMembers`。本脚本仅接收 17.2.1 格式的成员文件（每份至多 `WED_MEMBER_WINDOW_SOURCE_LIMIT` 个不重复的正安全整数 ID，群文件数不超过 `STATE_MANAGED_CHAT_LIMIT`）；已经迁移过的文件、非规范文件名与符号链接一律拒绝，`*.tmp` 等非 `.json` 残留不参与迁移。17.2.1 版本的其他持久化文件和 JSON 配置格式保持不变，可直接沿用。
 
-1. **停机与备份**：停止服务并确认状态为 inactive，确保没有任何进程仍持有数据库连接；按照规范将整个 `database/` 目录（主库及 `-wal`、`-shm`）完整备份到外部安全目录。
+1. **停机与备份**：停止服务并确认状态为 inactive；按照规范将整个 `memory/wed/` 目录连同属主、权限与 SHA-256 清单备份到外部安全目录，备份根下保持 `memory/wed/` 相对路径。
 2. **执行迁移脚本**：
    ```bash
-   bun run migrate:chat-persona-removal \
+   bun run migrate:wed-member-window \
      --source-root /absolute/cold-backup \
      --output-root /absolute/new-staging-directory
    ```
-3. **核对迁移产物**：检查产物目录下的 `ready.json`，核对源文件与目标文件的 SHA-256 哈希值，并确认 `removedPersonas`、`removedEmptyChats`、`removedPermissions` 等统计指标符合预期。
-4. **替换数据库文件**：将产物中的新数据库复制替换到 `database/storage.sqlite`，删除旧的 `-wal` 与 `-shm` 文件，并确保文件属主与权限正确。
-5. **清理遗留菜单**：如果此前曾为某些群配置过专属的人设命令菜单，可通过调用 Telegram Bot API 的 `deleteMyCommands` 接口，传入具体的 `chat_id` 清除群级残留菜单。
-6. **启动验证**：启动服务并观察，确认无异常退出后清理临时备份。
+   二进制发行包使用 `BUN_BE_BUN=1 ./copy-ninjia scripts/migrations/migrateWedMemberWindow.js`，参数相同。
+3. **核对迁移产物**：检查产物目录下的 `ready.json`，核对 `sourceFiles` 与 `outputFiles` 的 SHA-256 哈希值，并确认 `chatCount`、`keptMembers`、`truncatedMembers` 与 `enteredAt` 符合预期。产物文件仅当前账号可读写。
+4. **替换成员文件**：停机状态下用产物中的 `memory/wed/<chatId>.json` 逐个替换部署文件，按 `sourceFiles` 恢复原属主与权限，确保服务账号可写 `memory/wed/` 及其中文件。
+5. **启动验证**：启动服务并观察，确认无异常退出后清理临时备份。
 
 ---
 
@@ -223,7 +224,7 @@ WantedBy=multi-user.target
 
 ### 从旧版本分阶段升级流程
 
-- **针对落后于 16.3.2 的老旧版本**：当前版本仅提供从 16.3.2 升级的直达迁移脚本。若旧版本低于 16.3.2，必须先升级并安装 16.3.2，按照该版本的文档依次完成所有迁移（包括全局状态转换、图库文件名重命名和配置目录改造），确认 16.3.2 能正常稳定启动后，再执行本版的[共享数据库冷迁移](#upgrade-chat-persona)。
+- **针对落后于 17.2.1 的老旧版本**：当前版本仅提供从 17.2.1 升级的直达迁移脚本。若旧版本低于 17.2.1，必须先升级并安装 17.2.1，按照该版本的文档完成其迁移（16.3.2 需执行共享数据库冷迁移 `migrate:chat-persona-removal`，更早版本先按该版本指引升级至 16.3.2），确认 17.2.1 能正常稳定启动后，再执行本版的[/wed 成员滑窗冷迁移](#upgrade-wed-member-window)。
 - **11.0.9（Schema v8）跨大版本升级路径**：
   需要在独立目录中切出对应的历史 Git 标签，分步运行历史冷迁移链路：
   1. 切换至 `500e848fae` 提交：执行 `migrate:ai-context`（v8 → v9）
@@ -231,7 +232,8 @@ WantedBy=multi-user.target
   3. 切换至 `13.0.2` 标签：执行 `migrate:h-image-add-permission`（v10 → v11）与 `migrate:bot-config`
   4. 切换至 `14.0.0` 标签：执行 `migrate:translate-sessions`
   5. 切换至 `16.3.2` 标签：根据该版本指引执行 `migrate:global-state` 与 `migrate:random-image-names`
-  6. 切回当前最新版本：执行 `migrate:chat-persona-removal`（v11 → v13）
+  6. 切换至 `17.2.1` 标签：执行 `migrate:chat-persona-removal`（v11 → v13）
+  7. 切回当前最新版本：执行 `migrate:wed-member-window`
 
   *提示*：也可直接使用 12.0.0 Release 附带的中间源码归档包 `copy-ninjia-schema-v9-source-500e848f.tar.gz`（SHA-256: `df6502625512d8fde136dc66d8470e1d4c977856e8a0bd3909b9b6c763c820f8`）。
 
@@ -242,8 +244,8 @@ WantedBy=multi-user.target
 程序在启动时若检测到任何配置或数据异常，均会**主动快速失败（Fail-Fast）**终止进程，日志中会清晰输出失败的具体原因与出错的字段路径。请根据错误提示精确定位，切勿强行绕过检查：
 
 ### 1. 数据根预检失败
-- **原因**：数据根、`memory/`、`memory/global/`、`logs/` 或 `database/` 中包含软链接；相关目录的属主不是当前运行进程的 UID，或者目录权限过于宽松（包含了 group 或 other 的写权限）；`database/` 权限比 `0770` 更宽，或者运行用户对该目录缺乏所属组写入权限；底层挂载的文件系统不支持 fsync、硬链接（hard link）或原子 rename。
-- **解决方法**：停止服务，修正各目录的属主账号与权限模式。将数据根、`memory/`、`memory/global/`、`logs/` 设置为 `0750` 或 `0755`，`database/` 设置为 `0750` 或 `02770`。确保数据根位于标准本地 POSIX 文件系统上，避免使用不支持标准文件锁的特定网络文件系统。
+- **原因**：数据根、`memory/`、`memory/global/`、`logs/` 或 `database/` 中包含软链接；相关目录的属主不是当前运行进程的 UID，或者目录权限过于宽松（包含了 group 或 other 的写权限，超过 `RUNTIME_DATA_ROOT_MAX_MODE`）；`database/` 权限比 `IDENTITY_DATABASE_DIRECTORY_MODE` 更宽，或者运行用户对该目录缺乏所属组写入权限；底层挂载的文件系统不支持 fsync、硬链接（hard link）或原子 rename。
+- **解决方法**：停止服务，修正各目录的属主账号与权限模式。将数据根、`memory/`、`memory/global/`、`logs/` 收紧为 `0750`（不超过 `RUNTIME_DATA_ROOT_MAX_MODE`），`database/` 设置为 `0750` 或 `02770`（不超过 `IDENTITY_DATABASE_DIRECTORY_MODE`）。确保数据根位于标准本地 POSIX 文件系统上，避免使用不支持标准文件锁的特定网络文件系统。
 
 ### 2. `bot.lock` 拒绝启动
 - **原因**：检测到已有另一个活跃的进程实例正在使用当前数据根（即使使用不同 Token 也不允许并发占用），或者锁文件损坏、为旧版本遗留格式。
@@ -259,7 +261,7 @@ WantedBy=multi-user.target
 
 ### 5. 身份数据库校验失败
 - **原因**：`storage.sqlite` 数据库不可写；数据库物理损坏；数据库 Schema 版本未完成迁移（非当前版本）；`time_zone` 配置与数据根中绑定的时区不匹配（错误会直接指出 `storage_metadata.time-zone` 与期望值）；或者黑名单与免检名单中存在相同的 ID 导致冲突。
-- **解决方法**：若为时区不符，将 `bot.json` 中的 `time_zone` 改回库中记录的值；若为 16.3.2 版本的 v11 数据库，运行本次冷迁移脚本；若为更旧数据库，先逐级升级至 16.3.2；若文件物理损坏，从备份中同时恢复主库与附带的 `-wal`、`-shm` 文件。严禁私自建空库覆盖或手动在数据库中删改数据。
+- **解决方法**：若为时区不符，将 `bot.json` 中的 `time_zone` 改回库中记录的值；若数据库不是当前 schema（例如 16.3.2 的 v11 库），先按[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移；若文件物理损坏，从备份中同时恢复主库与附带的 `-wal`、`-shm` 文件。严禁私自建空库覆盖或手动在数据库中删改数据。
 
 ### 6. 运势结果与回执密钥不一致
 - **原因**：当天的运势文件与 `receipt-secret.json` 签名密钥并非来自同一时间点的备份，导致签名校验失效。
@@ -267,7 +269,11 @@ WantedBy=multi-user.target
 
 ### 7. 全局状态文件非法或残留旧 state.json
 - **原因**：`memory/global/state.json` 的格式不符合当前版本的 Schema 定义，或者数据根顶层残留了旧版本的 `state.json` 文件。
-- **解决方法**：备份后检查并修正非法字段；若是老旧格式，先升级到 16.3.2 完成状态迁移，再清理移出数据根顶层的旧文件。
+- **解决方法**：备份后检查并修正非法字段；若是老旧格式，先按[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移，再清理移出数据根顶层的旧文件。
+
+### 8. /wed 候选库格式非法
+- **原因**：`memory/wed/<chatId>.json` 不符合当前滑窗格式（例如仍是 17.2.1 的成员 ID 数组、缺少 `enteredAt`、进入时间倒序或项数超过 `WED_MEMBER_LIMIT`），或文件名不是规范群 ID。
+- **解决方法**：停机备份后，成员 ID 数组形式的旧文件执行 [/wed 成员滑窗冷迁移](#upgrade-wed-member-window)；其余情况按报错给出的文件与字段路径修正，或从备份恢复。
 
 ---
 
@@ -305,7 +311,7 @@ WantedBy=multi-user.target
 - **运行状态检查**：安装器在尝试对现有目录进行任何写操作前，会强制要求既有 systemd 服务处于 `inactive`（或 `dead`）状态。若服务仍在运行，或服务单元中配置了多条冲突的 `ExecStart`，脚本会立即拒绝执行。
 - **外部安全备份**：在覆盖或更新配置文件与 systemd unit 之前，安装器会在代码树外创建临时备份目录，记录文件清单并逐个校验 SHA-256 哈希、文件属主与权限。备份仅在启动后服务稳定性观察全部通过后才会自动清理；若任何一步校验未通过或选择在前台运行，备份与现场都会被完整保留。
 - **环境变量一致性**：若未设置 `COPY_NINJIA_DATA_ROOT`，默认解析为当前项目根目录；若显式设置，则要求现有 systemd unit 中的 `Environment` 与当前安装环境变量解析到同一个绝对路径。配置了非空的 `EnvironmentFiles`，或在 unit 中包含影响该变量的 `PassEnvironment` / `UnsetEnvironment`，均会被直接拦截拒绝。
-- **健康观察倒计时**：服务启动后，安装器会自动观察两倍的有效重启等待时长再加 2 秒。在此期间，如果 `NRestarts` 相对启动基线发生增长、进程意外终止、日志不可读或出现非零退出，安装器均会直接判定安装失败并提示回滚。
+- **健康观察倒计时**：服务启动后，安装器会按 `service_observation_seconds`（综合 `RestartUSec`、`RestartMaxDelayUSec` 与 `RestartRandomizedDelayUSec` 计算两倍有效重启等待时长再加 2 秒）自动观察。在此期间，如果 `NRestarts` 相对启动基线发生增长、进程意外终止、日志不可读或出现非零退出，安装器均会直接判定安装失败并提示回滚。
 
 ---
 
@@ -337,7 +343,7 @@ WantedBy=multi-user.target
   启动时标题刷新连续多次确证某群已不存在（`gone`）或机器人已不是成员（`departed`），已自动收尾。`departed` 的群若还有未恢复的私密模式记录会继续保留，机器人回到群里并拿回限制成员权限后自动还原。
 - `Chat <id> looked gone|departed at startup but lookup <n> disagreed; keeping it.`：
   首次查询像是不可达，但后续重查结论不一致（多为 Telegram 偶发错误），本次不收尾，下次启动重新确证。
-- `Gemini context cache API ... create rejected (n/3): 400`：
+- `Gemini context cache API ... create rejected (n/<max>): 400`：
   向 Gemini 创建上下文缓存请求时被接口返回 HTTP 400 拒绝。通常是因为当前上下文总 Token 数尚未达到官方要求的创建下限，或者请求参数不合法。系统在等待 `GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS` 冷却时间后会尝试重试，累计达到 `GEMINI_CONTEXT_CACHE_MAX_REJECTIONS` 次失败后将不再为当前内容尝试建立缓存；在此期间，常规的对话回复不受影响，将以不带缓存的方式正常调用。
 
 ---

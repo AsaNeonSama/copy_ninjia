@@ -6,7 +6,7 @@ import type {
   TelegramRetryLane,
 } from "../../types/telegramOutbound";
 
-/** 取一个 429 类别的唯一队列 owner。 */
+/** 取一个退避类别的唯一队列 owner。 */
 export function laneFor(category: TelegramRetryCategory): TelegramRetryLane {
   return telegramOutboundGateState.lanes[category];
 }
@@ -14,8 +14,8 @@ export function laneFor(category: TelegramRetryCategory): TelegramRetryLane {
 /**
  * 按接纳序号把任务插入侵入式 FIFO；等待数达到 TELEGRAM_429_RETRY_QUEUE_MAX 时返回 false 且不修改状态。
  *
- * 队列始终按 admissionSeq 升序。新接纳的任务序号最大，O(1) 接到尾部；在途任务
- * 收到 429 重排时插回第一个比它晚接纳的等待任务之前（队首取出的探测任务回到
+ * 队列始终按 admissionSeq 升序。新接纳的任务序号最大，直接接到尾部；在途任务
+ * 收到限流响应重排时插回第一个比它晚接纳的等待任务之前（队首取出的探测任务回到
  * 队首）。从队首向后扫描：排在它之前的只可能是与它同时在途、先一步重排的任务。
  */
 export function enqueueRetryJob(job: TelegramOutboundJob): boolean {
@@ -44,7 +44,7 @@ export function enqueueRetryJob(job: TelegramOutboundJob): boolean {
   return true;
 }
 
-/** 从侵入式 FIFO 中 O(1) 摘掉指定等待任务。 */
+/** 从侵入式 FIFO 中按双向指针摘掉指定等待任务。 */
 export function removeRetryJob(job: TelegramOutboundJob): boolean {
   if (job.state !== "retryQueued") return false;
   const lane: TelegramRetryLane = laneFor(job.category);

@@ -21,13 +21,8 @@ import type {
 import { chatStateOf } from "../helpers/chatState";
 
 /**
- * 共享 SQLite 业务行的启动期严格校验。
- *
- * schema 版本与群状态是 `AGENTS.md`「不为用户行为兜底」要求 fail closed 的边界；
- * 身份表、outbox 与 migration 谱系由 test/workers/diskIO/storageDatabaseSchemaGate.test.ts
- * 的真实 SQLite 启动检查覆盖。
- *
- * 错误文案也一起断言：写明来源路径与字段路径，不回显行内容。
+ * 共享 SQLite 业务行的启动期严格校验：核对 schema 版本、群状态及错误文案中的来源路径与字段路径，不回显行内容。
+ * 身份表、outbox 与 migration 谱系由 test/workers/diskIO/storageDatabaseSchemaGate.test.ts 的真实 SQLite 启动检查覆盖。
  */
 
 const SOURCE: string = "database/storage.sqlite";
@@ -230,6 +225,17 @@ describe("群状态严格解码", () => {
       chatStateRow(CHAT_ID, chatStateOf({ isProxySendEnabled: true })),
       chatStateRow(CHAT_ID - 1, chatStateOf({ isProxySendEnabled: true })),
     ], SOURCE)).toThrow(/at most one active proxy send target/);
+  });
+
+  test("删除目标含本群自身 id 时拒绝启动，并写明行路径与下标", () => {
+    expect(() => decodeStoredChatStates([
+      chatStateRow(CHAT_ID, chatStateOf({ isInitEnabled: true, deleteMessageTargets: [7, CHAT_ID] })),
+    ], SOURCE)).toThrow(
+      `${SOURCE}:chat_states[${CHAT_ID}].status: $.deleteMessageTargets[1] must be a user or channel ID other than the chat itself.`
+    );
+    expect(decodeStoredChatStates([
+      chatStateRow(CHAT_ID, chatStateOf({ isInitEnabled: true, deleteMessageTargets: [7, CHAT_ID - 1] })),
+    ], SOURCE).get(CHAT_ID)?.deleteMessageTargets).toEqual([7, CHAT_ID - 1]);
   });
 
   test("只有一个代发目标时正常解出", () => {

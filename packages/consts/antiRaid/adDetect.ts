@@ -7,42 +7,18 @@
 export const AD_DETECT_QUEUE_TICK_MS: number = 1_000;
 
 /**
- * 单个节拍最多并发送检的发言者数（一次 Promise.allSettled）。队列只排键，
- * 同一个键在一个节拍里只会被取走一次，因此这同时也是「每个发言者每个节拍最多
- * 判定一次」的上界。
- *
- * **这道闸是整条入群守卫线程的总量，不按群分配**：待检队列只有一条，键
- * （`chatId:senderId`）跨群混排走 FIFO，取键时不看 chatId。
- *
- * 本值是**派发速率而不是并发上限**：节拍不等上一批回来；在途并发另由
- * AD_DETECT_MAX_IN_FLIGHT 限制，吞吐受两者共同约束。
+ * 单个节拍最多并发送检的发言者数（入群守卫线程跨群 FIFO 总量；在途并发另受 AD_DETECT_MAX_IN_FLIGHT 约束）。
  */
 export const AD_DETECT_BATCH_SIZE: number = 35;
 
 /**
- * 同时在途的判定请求上限，整条入群守卫线程的总量闸，不按群分配。
- *
- * 在途请求数随「派发速率 × 单次耗时」增长，本闸给它封顶（单次耗时上限见
- * AD_DETECT_OPENAI_REQUEST_TIMEOUT_MS）。
- *
- * 长期撑满时队列变长，已接纳的 key 不设等待 TTL，必须保留到至少发生一次判定尝试；
- * 本闸保护同线程的验证状态与封禁业务调度，Telegram HTTP 仍只由主线程唯一客户端发起。
+ * 同时在途的判定请求上限（入群守卫线程跨群总量闸）。
  * 所属模块：workers/antiRaid/adDetect/queue.ts。
  */
 export const AD_DETECT_MAX_IN_FLIGHT: number = 95;
 
 /**
- * 处置抑制与已消费上下文的保留 TTL：判成广告的 key 从处置那一刻起独立计时，
- * 窗口内抢跑进来的消息不重判；等待派发期间新说的话只并进消息串，那一侧由
- * queuedAdDetectKeys 表达，不靠计时器。
- *
- * 只有已经判过（seq <= checkedSeq）的旧上下文能在窗口外裁掉；已接纳但尚未判定
- * 的条目没有时间 TTL，无论队列积压多久都保留。本窗口约束已消费上下文，
- * 不是判定任务的保鲜期。
- *
- * 本窗口**不是「同一个人多久判一次」**：待检位置在出队时释放、结算时有新内容即补排，
- * 持续发言者的判定间隔是一个 AD_DETECT_QUEUE_TICK_MS 节拍加一次分类往返。
- * provider 调用量由 AD_DETECT_MAX_IN_FLIGHT 与 AD_DETECT_BATCH_SIZE 封顶，与本窗口无关。
+ * 处置抑制与已消费上下文的保留 TTL（只裁剪已判定条目，未判定条目不设等待 TTL）。
  */
 export const AD_DETECT_JUDGED_RETENTION_WINDOW_MS: number = 90_000;
 
@@ -53,45 +29,18 @@ export const AD_DETECT_JUDGED_RETENTION_WINDOW_MS: number = 90_000;
 export const AD_REFERENCE_WARNING_WINDOW_MS: number = 300_000;
 
 /**
- * 已接纳的待检发送者 key 容量上限。达到上限后拒绝新的不同 key，不淘汰已经
- * 入队的旧 key；同一 key 的后续消息仍受单 key 条数/字符上限约束。
- *
- * 入群守卫线程 isolate 的常驻上界为本值乘以每个 key 的最大占用：每个 key 最多
- * AD_DETECT_MAX_MESSAGES_PER_SENDER 条，每条 AdCandidateEntry 同时持有送检
- * 文本 `text`（AD_DETECT_MESSAGE_MAX_CHARS 正文、两段 AD_DETECT_SENDER_NAME_MAX_CHARS
- * 姓名、AD_DETECT_MAX_LINK_URLS × AD_DETECT_LINK_URL_MAX_CHARS 的 URL 段与两段
- * AD_SAMPLE_CONTEXT_MAX_CHARS 引用上下文）、归因文本 `directText`（姓名与正文）以及
- * 单独保存的 `quote` / `replyTo`。入群验证、封锁、黑名单执行与判定同在一个 isolate，
- * 上限按撑满时该 isolate 仍存活来定；改动本值或 AD_DETECT_MAX_MESSAGES_PER_SENDER
- * 都要重算这个乘积。
- *
- * 同一个上限还约束 recentlyDisposedAdKeys（setBoundedMapValue）；待检
- * 位置由 queuedAdDetectKeys 表达，每键最多一个位置，长度被本值约束。
+ * 已接纳的待检发送者 key 容量上限（达到上限后拒绝新 key，不淘汰已入队 key；同时作为 recentlyDisposedAdKeys 容量）。
  */
 export const AD_DETECT_MAX_PENDING_SENDERS: number = 8_192;
 
 /**
- * 单个键最多保留的**完整**消息条数（正文 + 样本上下文）；越界时丢弃最早的一条，
- * 优先丢已经判过的旧上下文。
- *
- * 整串都还没判过时只能丢没判过的：不保留正文，消息 id 转存进
- * AdMessageBundle.pendingDeleteIds，判定命中后据此一并删除，并记一行错误日志
- * （每个发送者只记一次）。
- *
- * 本值乘以 AD_DETECT_MAX_PENDING_SENDERS 得到 isolate 常驻上界。正文丢失后的漏判
- * 边界由 AD_DETECT_MAX_PENDING_DELETE_IDS 约束：消息 id 仍在，命中后照样删除。
- *
- * 与 AD_DETECT_BUNDLE_MAX_CHARS 的关系：本值乘以 AD_DETECT_MESSAGE_MAX_CHARS 超出
- * 送检预算；预算装不下的部分仍是未判内容，由结算后的 requeueIfUnchecked 排进下一批，
- * 不记为判过。
+ * 单个键最多保留的完整消息条数（正文 + 样本上下文）；越界时优先丢弃已判定的旧上下文，
+ * 全为未判定时丢弃最早一条并将其消息 id 转存进 AdMessageBundle.pendingDeleteIds。
  */
 export const AD_DETECT_MAX_MESSAGES_PER_SENDER: number = 15;
 
 /**
- * 单个键最多转存多少条「已被挤出上下文、但仍要删」的消息 id。
- *
- * 只存 id，不存正文，因此比 AD_DETECT_MAX_MESSAGES_PER_SENDER 宽得多；删除是尽力而为的
- * 清理，不是安全边界。撑满时丢最旧的一条并记一行错误日志。
+ * 单个键最多转存的已挤出上下文待删消息 id 数量；超出时丢弃最旧一条并记错误日志。
  */
 export const AD_DETECT_MAX_PENDING_DELETE_IDS: number = 500;
 
@@ -105,20 +54,12 @@ export const AD_DETECT_MESSAGE_MAX_CHARS: number = 512;
 export const AD_DETECT_SENDER_NAME_MAX_CHARS: number = 128;
 
 /**
- * 一次送检的整串消息最大字符数。
- *
- * 装不下不等于跳过：未判定的内容从最旧一条起按序装，超预算的留到下一次判定，
- * 剩余预算再补已判过的上下文（见 workers/antiRaid/adDetect/bundle.ts 的
- * selectAdBundleEntries）。这个上限因此只决定「一拍判到哪里」，不决定「哪些
- * 消息会被判」。
+ * 一次送检的整串消息最大字符数（超出预算的未判条目留待下一批，见 workers/antiRaid/adDetect/bundle.ts 的 selectAdBundleEntries）。
  */
 export const AD_DETECT_BUNDLE_MAX_CHARS: number = 4_096;
 
 /**
- * 单条消息最多补进几个 text_link 实体里的 URL。
- *
- * 超链接的落地页只存在于实体的 url 字段里，不在 message.text 中；这些 URL 单独补进
- * 送检文本，本值限制补入个数。
+ * 单条消息最多补进送检文本的 text_link 实体 URL 个数。
  */
 export const AD_DETECT_MAX_LINK_URLS: number = 5;
 
@@ -126,16 +67,12 @@ export const AD_DETECT_MAX_LINK_URLS: number = 5;
 export const AD_DETECT_LINK_URL_MAX_CHARS: number = 256;
 
 /**
- * 判定输出的 token 上限。结果本身只有一小段 JSON，但这个额度由**推理与正文共用**
- * （广告检测模型可能是推理模型，见 config/dynamic/agent.json 的 agent.ad_detect.model）；
- * 推理耗尽额度时正文为空（finish_reason=length、content 为空），上层按「本次没判定」
- * 处理。额度因此按最坏情况给足，而不是按结果长度给。
+ * 广告判定请求的输出 token 上限（含推理 token）。
  */
 export const AD_DETECT_MAX_OUTPUT_TOKENS: number = 16_384;
 
 /**
- * 采样温度，取非零值：传输层的空正文重试靠重新采样得到不同结果
- * （见 AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS）。
+ * 广告判定请求的采样温度（供 AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 空正文重采样）。
  */
 export const AD_DETECT_TEMPERATURE: number = 0.5;
 
@@ -164,8 +101,7 @@ export const AD_DETECT_GOOGLE_REQUEST_ATTEMPTS: number = 3;
 export const AD_DETECT_GEMINI_CACHE_DISPLAY_NAME_PREFIX: string = "copy-ninjia:ad_detect:";
 
 /**
- * ad_detect 显式缓存同时登记的槽数上限。缓存内容只有「判定规则 + 部署示例」一份，
- * 示例热重载后新旧两份内容各占一槽；超出时删掉最久未用的槽。所属模块：workers/antiRaid/adDetect/ai/google.ts。
+ * ad_detect 显式缓存同时登记的槽数上限；超出时按最久未用删除。所属模块：workers/antiRaid/adDetect/ai/google.ts。
  */
 export const AD_DETECT_GEMINI_CACHE_MAX_SLOTS: number = 2;
 
@@ -198,13 +134,8 @@ export const AD_SAMPLE_MAX_CHARS: number = 1_024;
 export const AD_DETECT_REASON_MAX_CHARS: number = 80;
 
 /**
- * 随每条消息一起带的「被引用段」与「被回复原文」的最大字符数。
- *
- * 这两样**与正文一起送检**，各自独占这份配额、不占正文的
- * AD_DETECT_MESSAGE_MAX_CHARS（同 AD_DETECT_MAX_LINK_URLS）；
- * 见 docs/cn/04-invariants.md 与 workers/antiRaid/adDetect/bundle.ts 的 claimSampleContextParts。
- * 同一份内容原样留进命中样本，样本中可分辨哪一段是发送者自己写的、哪一段是引来的。
- * 上限比正文短，只用于还原上下文。
+ * 随每条消息一起送检并写入命中样本的「被引用段」与「被回复原文」各自的最大字符数
+ * （独立于 AD_DETECT_MESSAGE_MAX_CHARS，见 docs/cn/04-invariants.md 与 workers/antiRaid/adDetect/bundle.ts 的 claimSampleContextParts）。
  */
 export const AD_SAMPLE_CONTEXT_MAX_CHARS: number = 200;
 
@@ -215,19 +146,8 @@ export const AD_SAMPLE_CONTEXT_MAX_CHARS: number = 200;
 const AD_DETECT_FACT_LABEL: string = "【系统事实】";
 
 /**
- * 判定器的系统提示词，**只写判定规则**。
- *
- * 不列题材清单：题材口径由部署配置 config/dynamic/ad_samples.json 的示例承担
- * （拼装见 buildAdDetectInstructions）。规则按结构而非关键词来写，管「凭什么算广告」，
- * 示例管「本部署认的是哪几类」。
- *
- * 收紧任何一条规则前，须对照 config/dynamic/ad_samples.json 的正样本。
- *
- * 只要 JSON 结果，不产出面向群成员的文案；处置播报由代码拼装，模型输出不被当成指令执行。
- *
- * **提示词里必须出现「JSON」这个词**：请求带 `response_format: json_object`，
- * OpenAI 兼容 JSON 模式会校验提示词是否提到 json（错误文案：Prompt must contain the
- * word 'json' in some form）。改写这段文案时保留最后那句要求。
+ * 广告判定器的系统提示词（题材示例由 buildAdDetectInstructions 从 config/dynamic/ad_samples.json 拼入；
+ * 请求带 `response_format: json_object`，提示词须包含「JSON」字样）。
  */
 const AD_DETECT_SYSTEM_PROMPT: string =
   "你是 Telegram 中文群组的广告检测器。用户消息里给出的是同一个发言者最近一分半钟内的若干条消息，" +

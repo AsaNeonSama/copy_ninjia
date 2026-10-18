@@ -1,25 +1,5 @@
 /**
- * Anthropic 侧的一轮回复会话：把中立的 AiReplySession 契约落到 Messages API 的手动工具循环上。
- *
- * 多轮工具往返在本地累积 messages：模型这一轮的 assistant 内容原样接回，再挂一条 user 消息放
- * 各 `tool_result`（`tool_use_id` 是两者之间唯一的关联键）。联网查证走内建的
- * 检索工具（ANTHROPIC_WEB_SEARCH_TOOL_TYPE，`allowed_callers: ["direct"]`）；检索在服务端执行，次数按用量或成功的
- * 检索结果块统计。服务端工具循环到达迭代上限时返回 `pause_turn`，本会话把已得
- * 内容作为 assistant 续写前缀再发，最多 ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS 次，续出的内容与
- * 前缀合并成同一个 assistant 轮次。
- *
- * 缓存：Messages API 在区块边界处命中缓存，本会话按以下位置各打一个 `cache_control`：
- * - 系统提示词块末尾：「工具 + 系统提示词」这段跨群共用的静态前缀；
- * - 最后一个稳定区块末尾：同群跨轮回复不变的参考记忆；
- * - 当前会话按 conversationSettledOffsets 切开后的最后一个已定段末尾：转录里按消息序号对齐的那段前缀；
- * - 请求顶层的自动断点：落在本次请求的最后一个区块上。
- * 切分只改变区块边界，拼起来与原区块逐字相同。
- *
- * 请求不带采样温度：中立契约的 `grounded` 在本包不影响采样。
- *
- * 会话创建时固定 text 能力的模型与客户端，整轮的每次请求（含 `pause_turn` 续发）都用它们；
- * agent 配置热重载只影响之后新建的会话。会话另持一份 BetaFallbackState：某次请求拒答后由回退模型
- * 接手时，本会话之后的请求直接从回退模型起发。
+ * Anthropic 多轮工具回复会话：管理本地 `messages` 历史、缓存断点标记、服务端联网检索及 `pause_turn` 续写。
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -37,6 +17,7 @@ import { getAnthropicClient, requestAnthropicMessage } from "./client";
 import { countAnthropicWebSearches, messageText, toolUseCalls } from "./response";
 import type { AnthropicClient, AnthropicRequestResult } from "../../types/aiChat/anthropic";
 import type {
+  AiFunctionCall,
   AiReplySession,
   AiReplySessionParams,
   AiReplyTurn,
@@ -45,7 +26,7 @@ import type {
   AiToolOutput,
 } from "../../types/aiChat/provider";
 
-/** 中立工具声明转 Messages 的自定义工具；参数 JSON Schema 按引用透传。 */
+/** 将中立工具声明转换为 Anthropic Messages 自定义工具定义。 */
 function toCustomTool(definition: AiToolDefinition): Anthropic.Beta.BetaTool {
   return {
     name: definition.name,
@@ -54,7 +35,7 @@ function toCustomTool(definition: AiToolDefinition): Anthropic.Beta.BetaTool {
   };
 }
 
-/** 按本轮配置拼请求要挂的工具集合：内建检索在前，自定义工具在后。 */
+/** 构造本轮请求挂载的工具列表（内建联网检索与自定义工具）。 */
 function buildTools(request: AiReplyTurnRequest): Anthropic.Beta.BetaToolUnion[] {
   const tools: Anthropic.Beta.BetaToolUnion[] = [];
   if (request.webSearchEnabled) {
@@ -65,8 +46,7 @@ function buildTools(request: AiReplyTurnRequest): Anthropic.Beta.BetaToolUnion[]
 }
 
 /**
- * 把当前会话按已定切点切成多个文本块追加到 content；最后一个已定段带缓存断点，切点之后的
- * 余段不带。没有切点时整块原样追加。
+ * 按已定切点将当前会话切分为多个文本块追加到 `content`，并在最后一个已定段附加缓存断点。
  */
 function pushConversationSegments(
   content: Anthropic.Beta.BetaTextBlockParam[],
@@ -86,8 +66,7 @@ function pushConversationSegments(
 }
 
 /**
- * 建立一轮 Anthropic 回复会话。会话随本轮结束即弃，不跨轮复用。稳定区块与易变区块按顺序拼进
- * 同一个 user 轮次：最后一个稳定区块带缓存断点，易变组第一个区块（当前会话）按已定切点切开。
+ * 创建一轮 Anthropic 回复会话，固定当前 `text` 能力的模型、客户端与回退状态。
  */
 export function createAnthropicReplySession(
   { stableBlocks, volatileBlocks, conversationSettledOffsets = [], signal }: AiReplySessionParams
@@ -108,7 +87,6 @@ export function createAnthropicReplySession(
     else content.push({ type: "text", text });
   }
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content }];
-  // 上一次 request() 拿到的 assistant 内容，等 appendToolOutputs() 接回 messages。
   let pendingAssistant: Anthropic.Beta.BetaContentBlockParam[] | undefined;
 
   return {
@@ -138,7 +116,6 @@ export function createAnthropicReplySession(
           client,
           fallbackState,
         });
-        // 失败分支同样累计检索次数。
         const searches: number = result.message === undefined ? 0 : countAnthropicWebSearches(result.message);
         webSearchCalls += searches;
 
@@ -147,7 +124,8 @@ export function createAnthropicReplySession(
         const blocks: Anthropic.Beta.BetaContentBlockParam[] = prefix === null
           ? result.message.content
           : [...prefix, ...result.message.content];
-        if (result.message.stop_reason === "pause_turn") {
+        const functionCalls: readonly AiFunctionCall[] = toolUseCalls(result.message);
+        if (result.message.stop_reason === "pause_turn" && functionCalls.length === 0) {
           if (continuation >= ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS) return failedReplyTurn(webSearchCalls, "pause_turn", undefined);
           paused = blocks;
           continue;
@@ -156,7 +134,7 @@ export function createAnthropicReplySession(
         return {
           ok: true,
           text: text || null,
-          functionCalls: toolUseCalls(result.message),
+          functionCalls,
           webSearchCalls,
           finishReason: undefined,
           finishDetails: undefined,

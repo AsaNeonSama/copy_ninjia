@@ -98,7 +98,7 @@ export interface TelegramSendLane {
   readonly minuteWindow: TimestampDeque | null;
   /** 本聊天 429 冻结截止；0 表示未冻结。 */
   frozenUntil: number;
-  /** 保守档截止：429 冻结结束后的一段时间内突发容量降为 1；0 表示正常档。 */
+  /** 保守档截止：429 冻结结束后的一段时间内关闭突发容量；未处于保守档时为初值。 */
   cautiousUntil: number;
   /** 最近一次发出请求的时刻；空闲车道据此在窗口全部恢复后删除。 */
   lastSendAt: number;

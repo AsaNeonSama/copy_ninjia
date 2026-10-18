@@ -5,9 +5,6 @@ import { TRANSLATE_CHAT_USER_LIMIT, TRANSLATE_LANGUAGE_GLOSSARY, TRANSLATE_LANGU
 export const TRANSLATE_USAGE_TEXT: string =
   `仅支持文字消息。回复目标后使用 /translate ${TRANSLATE_LANGUAGE_SYNOPSIS}，或使用 /translate ${TRANSLATE_LANGUAGE_SYNOPSIS} @username；${TRANSLATE_LANGUAGE_GLOSSARY}。每群最多 ${TRANSLATE_CHAT_USER_LIMIT} 人；/translate list 查看清单；/translate stop 停止全群，回复目标或使用 /translate stop @username/id 停止单人；/translate enable|disable 开关功能。`;
 
-/** 翻译会话容量已满时拒绝新增，既有会话不受影响。 */
-export const TRANSLATE_CAPACITY_TEXT: string = "翻译群数已满，请先在不需要翻译的群执行 /translate stop。";
-
 /** 本群翻译人数已满时拒绝新增。 */
 export const TRANSLATE_CHAT_CAPACITY_TEXT: string = `本群已达到 ${TRANSLATE_CHAT_USER_LIMIT} 人的翻译上限，请回复目标并执行 /translate stop 释放名额。`;
 

@@ -38,8 +38,8 @@
 <p align="center">
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6624_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.84%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6792_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.96%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -106,7 +106,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 6624 件のテストが全て成功 / テストファイル 553 件 / expect() 呼び出し 446,303 回 / 関数カバレッジ 98.35% / 行カバレッジ 98.84%" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 6792 件のテストが全て成功 / テストファイル 560 件 / expect() 呼び出し 447,983 回 / 関数カバレッジ 98.42% / 行カバレッジ 98.96%" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -122,7 +122,7 @@
 <tr>
 <td align="left" valign="top" width="33%">
   <p><b>🪞 高精度な復唱</b><br>
-  <sub>特定の対象を固定し、発言を1件ずつ復唱しながらアバターもリアルタイム同期。</sub></p>
+  <sub>特定の対象を固定し、発言を復唱しながらアバターもリアルタイム同期。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌐 多言語翻訳</b><br>
@@ -210,7 +210,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🫧 CJK アクション</b><br>
-  <sub>返信で /咬 や /贴贴 など漢字 1〜2 文字のアクションを実行。事前登録は不要。</sub></p>
+  <sub>/咬 や /贴贴 などの漢字アクションコマンドを実行。事前登録は不要。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🌊 連投対策</b><br>
@@ -220,7 +220,7 @@
 <tr>
 <td align="left" valign="top" width="33%">
   <p><b>🔎 ID・プロフィールの照会</b><br>
-  <sub>/info でユーザーやチャンネルの公開情報、アイコン、グループ情報を照会（結果は30秒で自動削除）。</sub></p>
+  <sub>/info でユーザーやチャンネルの公開情報、アイコン、グループ情報を照会（結果は自動削除）。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🔐 きめ細かな権限管理</b><br>
@@ -242,7 +242,7 @@
 | Claude | 90%± |
 
 > [!TIP]
-> Google モデルのキャッシュ率が低い問題は、明示的キャッシュと暗黙的キャッシュの排他性、および暗黙的キャッシュの有効期限が制御不能である点（最短で約 20 秒での失効を観測）に起因します。キャッシュ率が気になる場合は他のモデルをご利用ください。ただし、実際の会話セッションにおける品質や応答効果は Gemini が最も優れています。
+> Google モデルのキャッシュ率が低い問題は、明示的キャッシュと暗黙的キャッシュの排他性、および暗黙的キャッシュの有効期限が制御不能である点に起因します。キャッシュ率が気になる場合は他のモデルをご利用ください。ただし、実際の会話セッションにおける品質や応答効果は Gemini が最も優れています。
 
 ### ボイス・画像・記憶
 
@@ -260,7 +260,7 @@
   </tr>
   <tr>
     <td><nobr>📢 <b>管理者・定時ボイス</b></nobr></td>
-    <td><code>/send</code> と cron で TTS リソースを共有し、セリフの長さの上限は <code>VOICE_OPERATOR_TEXT_MAX_CHARS</code>（UTF-16 コード単位）。定時ボイスは 1 ターンにつき 1 回だけ合成し、Telegram <code>file_id</code> を再利用。</td>
+    <td><code>/send</code> と cron で TTS リソースを共有し、セリフの長さの上限は <code>VOICE_OPERATOR_TEXT_MAX_CHARS</code>（UTF-16 コード単位）。複数グループへの定時ボイス配信は 1 回だけ合成し、Telegram <code>file_id</code> を再利用。</td>
   </tr>
   <tr>
     <td><nobr>🖼️ <b>画像の記憶</b></nobr></td>
@@ -269,8 +269,8 @@
 </tbody>
 </table>
 
-- **TTS 音声設定**：`config/dynamic/agent.json` で `agent.tts` の明示設定が必要です（Google、OpenAI 互換 `audio/speech`、xAI Grok `/tts` に対応。Google は `base_url` と `headers` によるゲートウェイ経由も可能）。任意の `bot_language`（`en` / `zh` / `ja`、既定 `ja`）で AI ボイスのセリフの言語を指定できます。プロジェクトルートの `prompt/voice_tool.md` で AI `send_voice` のツール説明全体を置き換えられます（再起動後に反映。例は [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)）。AI 返信の合成には `bot_language` に従って読み上げ言語指定が自動で追加されます。`style` は `/send`・cron と共用で声質だけを書きます。`bot_language` を変えるときは `style` と `voice_tool.md` も同じ言語に変えることを推奨します。
-- **枠の独立管理**：`daily_limit`（既定 100）のうち `daily_reserve_quota`（既定 25）を管理者と cron 用に予約し、残りを AI 音声に割り当てます。両方の回数は独立して数え、カウントウィンドウ（`TTS_USAGE_WINDOW_MS`）はその中の最初のリクエストから起算され、ウィンドウ終了後の次のリクエストで新しいウィンドウが始まり、まとめてゼロに戻ります。
+- **TTS 音声設定**：`config/dynamic/agent.json` で `agent.tts` の明示設定が必要です（Google、OpenAI 互換 `audio/speech`、xAI Grok `/tts` に対応。Google は `base_url` と `headers` によるゲートウェイ経由も可能）。任意の `bot_language`（`en` / `zh` / `ja`、既定 `TTS_DEFAULT_BOT_LANGUAGE`）で AI ボイスのセリフの言語を指定できます。プロジェクトルートの `prompt/voice_tool.md` で AI `send_voice` のツール説明全体を置き換えられます（再起動後に反映。例は [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)）。AI 返信の合成には `bot_language` に従って読み上げ言語指定が自動で追加されます。`style` は `/send`・cron と共用で声質だけを書きます。`bot_language` を変えるときは `style` と `voice_tool.md` も同じ言語に変えることを推奨します。
+- **枠の独立管理**：`daily_limit`（既定 `TTS_DEFAULT_DAILY_LIMIT`）のうち `daily_reserve_quota`（既定 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）を管理者と cron 用に予約し、残りを AI 音声に割り当てます。両方の回数は独立して数え、カウントウィンドウ（`TTS_USAGE_WINDOW_MS`）はその中の最初のリクエストから起算され、ウィンドウ終了後の次のリクエストで新しいウィンドウが始まり、まとめてゼロに戻ります。
 - **コンテキスト記録規則**：`/send` による中継メッセージや定時テキスト/音声は AI 記憶に自動記録されません。画像の自動記録は、グループで AI が有効かつ非復唱状態の場合に動作します。詳細は [11 よくある質問](11-faq.md)。
 
 各機能の挙動・設定・境界は **[📚 開発者ドキュメント](content-table.md)** を参照してください。
@@ -285,7 +285,7 @@
 
 - **一般グループメンバー**：復唱、翻訳、アクション、`/info` 照会、`/wed` 抽選、`/h_image` 閲覧などの基本チャット機能。
 - **身元権限キー（`isCanXxx`）**：グループ管理・運用コマンド。`/bot_status`、`/mute` / `/unmute`、`/gag`、`/block`、`/h_image add` および各機能スイッチ。
-- **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、個別チャットでの `/send` 中継。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
+- **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、指定身分の新しい発言を削除する `/delete_message`、個別チャットでの `/send` 中継。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
 
 画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
 
@@ -301,7 +301,7 @@
 
 - **OS**：Linux（`/proc` が読み取り可能であること。他の OS ではインスタンスロックが fail-closed になります）。
 - **Telegram 資格情報**：BotFather 発行の Bot Token と、スーパー管理者の Telegram User ID。
-- **ランタイム**：ソース実行には [Bun](https://bun.sh/) 1.4.3 が必要です。バイナリ配布パッケージにはランタイムが内蔵されています。
+- **ランタイム**：ソース実行には [Bun](https://bun.sh/)（バージョンは `package.json` の `packageManager` に準拠）が必要です。バイナリ配布パッケージにはランタイムが内蔵されています。
 - **外部サービス**：有効化する AI 各機能の API Key。`/translate` には Google Cloud サービスアカウント JSON が必要です。ハードウェア目安は [07 運用マニュアル](07-operations.md#ハードウェアの目安) を参照してください。
 
 ### ワンショットインストール
@@ -479,7 +479,7 @@ BotFather で `/setcommands` を手動設定する必要はありません。Bot
 
 > [!WARNING]
 > **Bot-to-Bot 通信モードの注意点**：
-> このモードを有効にすると、管理者権限を持つかプライバシーモードを無効にしたグループで他の Bot の通常メッセージを受信できます。他の Bot から届いたメッセージはグローバルな入口制限を通ります。継続して活動する各 Bot の最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件だけを業務処理へ渡し、それ以降は通知せずに無視します。発言が `BOT_MESSAGE_ACTIVITY_TTL_MS` なければカウントをリセットします。記録できる他の Bot は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 件で、満杯の間は新しい Bot のメッセージを無視します。この Bot 自身のメッセージは記録も遮断もしません。詳しくは [dispatch の不変条件](04-invariants.md) を参照してください。
+> このモードを有効にすると、管理者権限を持つかプライバシーモードを無効にしたグループで他の Bot の通常メッセージを受信できます。他の Bot から届いたメッセージはグローバルな入口制限を通ります。継続して活動する各 Bot の最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件だけを業務処理へ渡し、それ以降は通知せずに無視します。発言が `BOT_MESSAGE_ACTIVITY_TTL_MS` なければカウントをリセットします。記録できる他の Bot は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 件で、満杯の間は新しい Bot のメッセージを無視します。この Bot 自身のメッセージと、そのグループの `/delete_message` 対象の発言は記録も遮断もしません（後者はすべて削除します）。詳しくは [dispatch の不変条件](04-invariants.md) を参照してください。
 
 ### グループ内の管理者権限
 
@@ -495,7 +495,7 @@ Bot をグループ管理者に昇格させ、利用したい機能に応じて�
 <tbody>
   <tr>
     <td><nobr>🗑️ <b>メッセージの削除</b></nobr></td>
-    <td><code>/gag</code> 発言制限、広告検出による自動削除、ブロックリスト入りチャンネル identity の発言削除。</td>
+    <td><code>/gag</code> 発言制限、<code>/delete_message</code> による指定身分の新しい発言の削除、広告検出による自動削除、ブロックリスト入りチャンネル identity の発言削除。</td>
   </tr>
   <tr>
     <td><nobr>🚫 <b>メンバーの制限と BAN</b></nobr></td>

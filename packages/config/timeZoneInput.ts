@@ -3,8 +3,7 @@ import { TIME_ZONE_VALIDATION_CRON } from "../consts/time";
 
 /**
  * 严格解析 IANA 时区名，去掉首尾空白，并核对日历与 Bun cron 均支持该时区。
- * 返回 Temporal 规范化后的 timeZoneId（大小写折叠，如 asia/tokyo → Asia/Tokyo）；别名
- * （如 Japan、Asia/Calcutta）不折叠，按原名返回。
+ * 返回 Temporal 规范化后的 timeZoneId（大小写折叠；IANA 别名保持原名返回）。
  */
 export function parseTimeZone(value: unknown, source: string, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {

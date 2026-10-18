@@ -1,7 +1,4 @@
-/** owner: workers/diskIO。AI 记忆的 revision 水位线与回执出口；快照最终值排入共享 SQLite
- * 事务缓冲（cache/workers/diskIO/storageDatabase.ts 的 pendingAiContextWrites），由
- * aiMemoryStorage.ts 按 revision 接管。
- */
+/** owner: workers/diskIO。AI 记忆 revision 水位线与持久化回执出口（packages/workers/diskIO/aiMemoryStorage.ts）。 */
 
 import type {
   AiMemoryDeletedPersistedReply,
@@ -9,36 +6,17 @@ import type {
 } from "../../../types/diskIO/replies";
 
 /**
- * diskIOWorker 运行时按 chat 观察到的最新 revision（迟到消息的水位线）。
- *
- * 填充：hydrate 时按已存在的快照置 0，此后每次接受 upsert/delete 时更新。
- * 清理：`forgetAiMemoryChat`（主线程 teardown 后确认该群再无在途操作时发来的
- * forgetAiMemory 消息）、`hydrateAiMemoryCache`、`resetAiMemoryCache`。
- * 删除受理本身不清水位线，迟到的旧 revision 仍被拒。
- * Worker 崩溃重建：由 load 后的 hydrate 按磁盘现存快照整体重建；主线程的
- * tombstone 与最新快照另由 onDiskIORespawn 重放。
- * 容量：活跃 chat 数级别，由 forgetAiMemoryChat 随 teardown 回收。
+ * 群 ID 到已受理最新 AI 记忆 revision 的水位线映射：
+ * - 填充：hydrateAiMemoryCache 按磁盘现存快照初始化为零值，运行期由 markAiMemoryDirty 与 markAiMemoryDeleted 推进；
+ * - 清理与容量：收到 forgetAiMemory 消息（forgetAiMemoryChat）、hydrateAiMemoryCache 或 resetAiMemoryCache 时移除；容量与活跃群数同阶，Worker 重建后由 hydrate 与主线程 onDiskIORespawn 重放恢复。
  */
 export const aiMemoryRevisions: Map<number, number> = new Map();
-/**
- * 每群最新 revision 对应的操作种类，用来给同 revision 的 upsert/delete 定序。
- * 填充、清理、重建与容量策略同 aiMemoryRevisions，两张表始终成对增删。
- */
+/** 群 ID 到最新 revision 对应操作类型（upsert 或 delete）的映射：与 aiMemoryRevisions 成对写入、同步清理与重建。 */
 export const aiMemoryOperations: Map<number, "upsert" | "delete"> = new Map();
-/**
- * 欠一次即时写入回执的群。提交前被更新 revision 覆盖时，提交最新快照后以最新
- * revision 回执，同样证明这次 purge 后已有新记忆 durable。
- *
- * 填充：purge 之后要求即时写入的首份新快照入队时登记。清理：共享事务提交后的回执结算
- * （storageDatabase/aiContext.ts 的 settleAiContextPersisted）、markAiMemoryDeleted
- * 与 resetAiMemoryCache。Worker 崩溃重建：不重建，新实例没有待结算的即时写。容量：同时处于该状态的群数，上界为受管群数。
- */
+/** 需要在下次 SQLite 事务提交后发送即时持久化回执的群 ID 集合：purge 后首份新快照入队时登记，事务提交结算（settleAiContextPersisted）、markAiMemoryDeleted 或 resetAiMemoryCache 时移除；容量上限为受管群数，Worker 重建后从空集开始。 */
 export const aiMemoryImmediateChats: Set<number> = new Set();
 
-/**
- * AI 快照删除 durable 后的唯一回执出口。diskIOWorker 启动时配置，Worker
- * isolate 销毁时自然清除；测试未配置时使用 no-op，容量固定为一个回调。
- */
+/** AI 记忆删除 durable 回执发送回调单例：Disk I/O Worker 启动时注入，isolate 销毁时释放；单例函数。 */
 export const aiMemoryDeletePersistedNotifier: {
   current: (reply: AiMemoryDeletedPersistedReply) => void;
 } = {
@@ -47,7 +25,7 @@ export const aiMemoryDeletePersistedNotifier: {
   },
 };
 
-/** purge 后首份新快照 durable 后的唯一回执出口。 */
+/** AI 记忆即时快照 durable 回执发送回调单例：Disk I/O Worker 启动时注入，isolate 销毁时释放；单例函数。 */
 export const aiMemoryPersistedNotifier: {
   current: (reply: AiMemoryPersistedReply) => void;
 } = {
@@ -56,7 +34,7 @@ export const aiMemoryPersistedNotifier: {
   },
 };
 
-/** 启动恢复时按磁盘现存快照整体重建水位线，并清除旧 revision 与即时回执欠账。 */
+/** 按磁盘现存快照重建全部群的 revision 水位线，并清空旧水位与待回执集合。 */
 export function hydrateAiMemoryCache(snapshots: ReadonlyMap<number, string>): void {
   resetAiMemoryCache();
   for (const chatId of snapshots.keys()) {
@@ -65,7 +43,7 @@ export function hydrateAiMemoryCache(snapshots: ReadonlyMap<number, string>): vo
   }
 }
 
-/** 以 revision 判定一份 upsert；拒绝迟到更新，接受时推进水位线。 */
+/** 校验并记录指定群的 AI 记忆 upsert revision（拒绝过期或同 revision 已被 delete 覆盖的写入）。 */
 export function markAiMemoryDirty(chatId: number, revision: number): boolean {
   const currentRevision: number = aiMemoryRevisions.get(chatId) ?? -1;
   const currentOperation: "delete" | "upsert" | undefined = aiMemoryOperations.get(chatId);
@@ -75,7 +53,7 @@ export function markAiMemoryDirty(chatId: number, revision: number): boolean {
   return true;
 }
 
-/** 以 revision 判定一份删除；接受时推进水位线并撤销该群尚未结算的即时写入回执。 */
+/** 校验并记录指定群的 AI 记忆删除 revision，同时清除该群尚未结算的即时持久化回执标记。 */
 export function markAiMemoryDeleted(chatId: number, revision: number): boolean {
   const currentRevision: number = aiMemoryRevisions.get(chatId) ?? -1;
   const currentOperation: "delete" | "upsert" | undefined = aiMemoryOperations.get(chatId);
@@ -86,21 +64,13 @@ export function markAiMemoryDeleted(chatId: number, revision: number): boolean {
   return true;
 }
 
-/**
- * 丢弃某群的 revision 水位线；只由 forgetAiMemory 消息触发。
- *
- * 调用前提由主线程负责：该群已 durable 删除、AI Worker 失效，且没有在途快照、墓碑与
- * waiter（见 aiChat/memoryMirror.ts 的 forgetAiMemoryRevisionCounter）。水位线
- * 用于拒绝迟到 upsert，前提不成立时不得删除。
- *
- * 只清这两张水位线表；共享事务缓冲里的上下文最终值有自己的生命周期。
- */
+/** 移除指定群的 AI 记忆 revision 水位线记录（由 forgetAiMemory 消息触发）。 */
 export function forgetAiMemoryChat(chatId: number): void {
   aiMemoryRevisions.delete(chatId);
   aiMemoryOperations.delete(chatId);
 }
 
-/** Worker 停止或测试隔离时清空全部 AI 记忆水位线与即时回执欠账。 */
+/** 清空全部群的 AI 记忆 revision 水位线与待回执集合。 */
 export function resetAiMemoryCache(): void {
   aiMemoryRevisions.clear();
   aiMemoryOperations.clear();

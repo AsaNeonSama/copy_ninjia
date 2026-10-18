@@ -1,32 +1,11 @@
 /**
- * Gemini 显式缓存（cachedContent）的共用核心，与能力无关：槽登记、启动扫描、后台创建、
- * 续期、释放与淘汰。调用方传入自己的 scope（types/geminiContextCache.ts）：text 在
- * aiChat/gemini/contextCache.ts，ad_detect 在 workers/antiRaid/adDetect/ai/google.ts，各自的登记表放在
- * 所在线程的 cache 里。
- *
- * 按系统指令分槽：槽键是系统指令的指纹；槽里记着当前条目的内容键（模型、系统指令、
- * 工具声明、toolConfig 的指纹），同槽内容变了就新建条目并删除旧的服务端条目。
- *
- * 引用从不等待：acquireGeminiContextCache 同步返回可用条目的资源名，或返回 null 让本次
- * 走完整请求，同时在后台完成该做的事：登记表第一次被取用时触发启动扫描，按 displayName
- * 接管服务端已有的本 scope 条目；未命中时后台创建（同槽同时只创建一次）；命中且剩余存活
- * 不足 GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS 时后台续期。
- *
- * 失败口径：创建被端点以 400 拒绝时记下该槽
- * 的内容键与累计次数，只记 warn；未满 GEMINI_CONTEXT_CACHE_MAX_REJECTIONS 次时
- * GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS 后再试，满额后同一内容不再创建。其余创建失败、
- * 续期失败以及引用被拒后的释放，都在 GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS 内不再重发同一种
- * 请求（两种冷却遇墙钟回拨都按已结束处理，见 libs/clockWindow.ts）。删除或续期报本凭据已访问
- * 不到该条目（404 或 403，见 isGeminiContextCacheGone）时不记错误，续期还会静默摘掉本地登记。
- *
- * 服务端条目 TTL 为 GEMINI_CONTEXT_CACHE_TTL_SECONDS，到期由 Google 自动删除；本模块在换
- * 内容、新建后发现接管以来从未用过的条目、超出槽数上限时主动删除。创建时的输入 token
- * 经 reportAiCacheUsage 以 scope.capability、命中 0、写入等于输入上报。后台请求在发起时取
- * scope.signal()，停机时一并取消。
+ * Gemini 显式缓存（`cachedContent`）的共用核心：在 provider 启动或切换时探测模型是否支持显式缓存，
+ * 按系统指令指纹分槽管理启动扫描、后台创建、续期、释放与容量淘汰；模型不支持时标记为
+ * `"unsupported"` 并跳过显式缓存预热路径，通过 `GeminiContextCacheScope` 隔离不同能力的客户端与登记表。
  */
 
 import { ApiError } from "@google/genai";
-import type { CachedContent, GoogleGenAI, Pager, Tool, ToolConfig } from "@google/genai";
+import type { CachedContent, GoogleGenAI, Model, Pager, Tool, ToolConfig } from "@google/genai";
 import {
   GEMINI_CONTEXT_CACHE_KEY_PATTERN,
   GEMINI_CONTEXT_CACHE_LIST_PAGE_SIZE,
@@ -35,6 +14,7 @@ import {
   GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS,
   GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS,
   GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS,
+  GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION,
   GEMINI_CONTEXT_CACHE_TTL,
   GEMINI_CONTEXT_CACHE_TTL_SECONDS,
 } from "../consts/geminiContextCache";
@@ -98,10 +78,7 @@ export function geminiContextCacheContent({
   };
 }
 
-/**
- * 引用缓存的请求被端点拒绝时是否应释放登记并按完整请求补发：408/429 以外的 4xx
- * （条目不存在、已过期、无权访问或引用非法）。端点故障（无状态码、408/429/5xx）不算。
- */
+/** 判断引用缓存的请求错误是否属于缓存条目失效或无权访问（排除请求超时与限流的客户端拒绝）。 */
 export function isGeminiContextCacheRejection(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
   const status: number = error.status;
@@ -124,10 +101,7 @@ function parseDisplayName(prefix: string, displayName: string | undefined): Pars
   return { slotKey, contentKey };
 }
 
-/**
- * 删除或续期的报错是否表示本凭据已访问不到该条目：404，或 Gemini 对「不存在或无权访问」
- * 统一返回的 403（"CachedContent not found (or permission denied)"）。
- */
+/** 判断删除或续期错误是否表示服务端条目已不存在或当前凭据无权访问。 */
 function isGeminiContextCacheGone(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 404 || error.status === 403);
 }
@@ -166,11 +140,25 @@ function evictOverflowSlots(scope: Readonly<GeminiContextCacheScope>, registry: 
 }
 
 /**
- * 启动扫描：接管服务端已有的本 scope 条目（displayName 带本 scope 前缀、两段指纹合法）。
- * 同槽出现多份时留过期更晚的一份、删掉其余。接管的条目 lastUsedAt 为 0。
+ * 启动扫描：先探测当前模型是否支持显式缓存（`supportedActions` 含 `createCachedContent`），
+ * 不支持时将登记表标为 `"unsupported"` 并跳过扫描；探测请求失败时记错误日志后按支持处理，
+ * 由创建失败冷却与 400 拒绝计数处理。随后接管服务端已有的本 scope 条目（`displayName` 带本
+ * scope 前缀且两段指纹合法），同槽出现多份时保留过期更晚的一份并删除其余条目。
  */
 async function scanExistingCaches(scope: Readonly<GeminiContextCacheScope>, registry: GeminiContextCacheRegistry): Promise<void> {
   const signal: AbortSignal = scope.signal();
+  try {
+    const model: Model = await registry.client.models.get({
+      model: scope.model(),
+      config: { abortSignal: signal },
+    });
+    if (model.supportedActions?.includes(GEMINI_CONTEXT_CACHE_SUPPORTED_ACTION) !== true) {
+      registry.scan = "unsupported";
+      return;
+    }
+  } catch (error: unknown) {
+    if (!signal.aborted) logger.error(`${scope.errorLabel} model probe failed:`, error);
+  }
   try {
     const pager: Pager<CachedContent> = await registry.client.caches.list({
       config: { pageSize: GEMINI_CONTEXT_CACHE_LIST_PAGE_SIZE, abortSignal: signal },
@@ -205,8 +193,8 @@ async function scanExistingCaches(scope: Readonly<GeminiContextCacheScope>, regi
 }
 
 /**
- * 创建一槽的条目并登记。成功后删掉同槽的旧条目与接管以来从未用过的条目，再按槽数上限
- * 淘汰；被 400 拒绝时累计该内容的被拒次数与时刻，其余失败记下时刻。
+ * 创建一槽的条目并登记：成功后删掉同槽旧条目与接管以来未使用的条目并执行容量淘汰；
+ * 创建请求被客户端参数错误拒绝时累计该内容的被拒次数与时刻，其余失败记录冷却时刻。
  */
 async function createSlot(
   scope: Readonly<GeminiContextCacheScope>,
@@ -339,19 +327,34 @@ function renewSlot(
 }
 
 /**
- * 取本次请求可引用的显式缓存资源名；没有可用条目时返回 null，本次走完整请求，需要的
- * 扫描、创建或续期在后台进行。
+ * 在 provider 启动或切换后，后台探测当前模型是否支持显式缓存，并扫描接管服务端既有条目
+ * （判定见 scanExistingCaches）。
+ */
+export function probeGeminiContextCache(scope: Readonly<GeminiContextCacheScope>): void {
+  if (scope.signal().aborted) return;
+  const registry: GeminiContextCacheRegistry = scope.registry();
+  if (registry.scan !== "idle") return;
+  registry.scan = "running";
+  void scanExistingCaches(scope, registry);
+}
+
+/**
+ * 取本次请求可引用的显式缓存资源名；模型不支持显式缓存或没有可用条目时返回 null，
+ * 本次走完整请求（隐式缓存），需要的扫描、创建或续期在后台进行。
+ * contentOf 在扫描状态为 "unsupported" 或 "idle" 时不调用，其余状态调用一次取本次内容。
  */
 export function acquireGeminiContextCache(
   scope: Readonly<GeminiContextCacheScope>,
-  content: GeminiContextCacheContent
+  contentOf: () => GeminiContextCacheContent
 ): string | null {
   const registry: GeminiContextCacheRegistry = scope.registry();
+  if (registry.scan === "unsupported") return null;
   if (registry.scan === "idle") {
     registry.scan = "running";
     void scanExistingCaches(scope, registry);
     return null;
   }
+  const content: GeminiContextCacheContent = contentOf();
   const now: number = Date.now();
   const slot: GeminiContextCacheSlot | undefined = registry.slots.get(content.slotKey);
   if (slot?.contentKey === content.contentKey && slot.expireAt - now > GEMINI_CONTEXT_CACHE_MIN_REMAINING_MS) {

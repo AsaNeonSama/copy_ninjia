@@ -38,8 +38,13 @@ const {
   removeChatQa,
   setChatQa,
 } = await import("../../packages/infra/qaStore");
-const { chatQaEntries, unacknowledgedChatQaTotals, unacknowledgedChatQaWrites, resetChatQaCache } =
-  await import("../../packages/cache/main/qa");
+const {
+  chatQaEntries,
+  chatQaTriggerJson,
+  unacknowledgedChatQaTotals,
+  unacknowledgedChatQaWrites,
+  resetChatQaCache,
+} = await import("../../packages/cache/main/qa");
 
 const CHAT_ID: number = -1001;
 
@@ -124,7 +129,7 @@ describe("群问答主线程持久化边界", () => {
       temporaryAdBypassWrites: [],
       writes: [],
       chatStateWrites: [],
-      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first }],
+      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first }], removalWrites: [],
     });
 
     // 迟到的 ACK 对应的是已被更新值取代的那一版，不清未确认记录。
@@ -140,23 +145,26 @@ describe("群问答主线程持久化边界", () => {
       temporaryAdBypassWrites: [],
       writes: [],
       chatStateWrites: [],
-      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first + 1 }],
+      chatQaWrites: [{ chatId: CHAT_ID, q: "怎么入群？", revision: first + 1 }], removalWrites: [],
     });
     expect(unacknowledgedChatQaWrites.has(CHAT_ID)).toBeFalse();
     expect(unacknowledgedChatQaTotals).toEqual({ entries: 0, bytes: 0 });
   });
 
-  test("Worker 重建后按内存最终值重放未确认写", () => {
-    setChatQa(CHAT_ID, "怎么入群？", "点置顶");
+  test("Worker 重建后按内存最终值并按 revision 升序重放未确认写", () => {
+    setChatQa(CHAT_ID, "问题A", "答案A");
+    setChatQa(CHAT_ID, "问题B", "答案B");
+    // 先插入的问题A 被墓碑覆盖后拿到更大的 revision，Map 插入序仍是 问题A 在前、问题B 在后。
+    removeChatQa(CHAT_ID, "问题A");
     posted.length = 0;
-    const replayed: unknown[] = [];
+    const replayed: { readonly q: string; readonly revision: number; readonly data: string | null }[] = [];
 
     expect(respawnListener?.({ ensureLuckReceiptSecret: async (): Promise<never> => { throw new Error("Unexpected secret request."); }, post: (m: unknown): boolean => {
-      replayed.push(m);
+      replayed.push(m as { readonly q: string; readonly revision: number; readonly data: string | null });
       return true;
     } })).toBeTrue();
-    expect(replayed).toHaveLength(1);
-    expect(replayed[0]).toMatchObject({ type: "chatQaWrite", chatId: CHAT_ID });
+    expect(replayed.map((entry: { readonly q: string }): string => entry.q)).toEqual(["问题B", "问题A"]);
+    expect(replayed[0]!.revision).toBeLessThan(replayed[1]!.revision);
   });
 
   test("发布后投递失败不抛错：改动已生效，未确认 revision 留给重建重放", () => {
@@ -177,6 +185,35 @@ describe("群问答主线程持久化边界", () => {
 
     expect(chatQaEntries.has(CHAT_ID)).toBeFalse();
     expect(unacknowledgedChatQaWrites.get(CHAT_ID)?.size).toBe(2);
+  });
+
+  test("每次改动热表都失效该群的 trigger JSON，别的群不受影响；hydrate 整表清空", () => {
+    const OTHER_CHAT_ID: number = -1002;
+    chatQaTriggerJson.set(OTHER_CHAT_ID, "[]");
+
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    setChatQa(CHAT_ID, "怎么入群？", "点置顶");
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    setChatQa(CHAT_ID, "怎么入群？", "改答案");
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+
+    setChatQa(CHAT_ID, "几点开饭", "十一点半");
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    expect(removeChatQa(CHAT_ID, "几点开饭")).toBeTrue();
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+
+    chatQaTriggerJson.set(CHAT_ID, "stale");
+    expect(removeChatQa(CHAT_ID, "没登记过")).toBeFalse();
+    expect(chatQaTriggerJson.get(CHAT_ID)).toBe("stale");
+
+    expect(removeAllChatQa(CHAT_ID)).toBe(1);
+    expect(chatQaTriggerJson.has(CHAT_ID)).toBeFalse();
+    expect(chatQaTriggerJson.get(OTHER_CHAT_ID)).toBe("[]");
+
+    hydrateChatQaCache(new Map());
+    expect(chatQaTriggerJson.size).toBe(0);
   });
 
   test("hydrate 只搬持久化值，空群不进热表", () => {

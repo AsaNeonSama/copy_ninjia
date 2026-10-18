@@ -30,8 +30,8 @@ function sample(overrides: Partial<AdSampleDiskMessage> = {}): AdSampleDiskMessa
     detectedAt: "2026/07/28 11:44:01",
     reason: "引流加微信",
     messages: [
-      { messageId: 11, text: "加我", replyTo: "在吗" },
-      { messageId: 12, text: "微信 xxx", quote: "别人说过的话" },
+      { messageId: 11, text: "加我", replyTo: "在吗", quote: undefined },
+      { messageId: 12, text: "微信 xxx", quote: "别人说过的话", replyTo: undefined },
     ],
     ...overrides,
   };
@@ -66,7 +66,7 @@ describe("广告命中样本旁路", () => {
     expect(adSampleBuffer.timer?.hasRef()).toBeFalse();
 
     for (let index: number = 1; index < FLUSH_MAX_ENTRIES; index++) {
-      await handleAdSampleMessage(sample({ messages: [{ messageId: 1_000 + index, text: "批量" }] }));
+      await handleAdSampleMessage(sample({ messages: [{ messageId: 1_000 + index, text: "批量", quote: undefined, replyTo: undefined }] }));
     }
 
     expect(adSampleBuffer.chunks).toHaveLength(0);
@@ -87,8 +87,8 @@ describe("广告命中样本旁路", () => {
       reason: "引流加微信",
       // 样本按整串记录；引用/回复只出现在样本里，判定不读取。
       messages: [
-        { messageId: 11, text: "加我", replyTo: "在吗" },
-        { messageId: 12, text: "微信 xxx", quote: "别人说过的话" },
+        { messageId: 11, text: "加我", replyTo: "在吗", quote: undefined },
+        { messageId: 12, text: "微信 xxx", quote: "别人说过的话", replyTo: undefined },
       ],
     });
     expect((await Bun.file(AD_SAMPLE_FILE_PATH).stat()).mode & 0o777).toBe(PERSISTED_FILE_MODE);
@@ -99,7 +99,7 @@ describe("广告命中样本旁路", () => {
     await appendSample(sample({
       chatId: -1002,
       senderId: 8,
-      messages: [{ messageId: 21, text: "日入过千" }],
+      messages: [{ messageId: 21, text: "日入过千", quote: undefined, replyTo: undefined }],
     }));
 
     const samples = await readSamples();
@@ -123,7 +123,7 @@ describe("广告命中样本旁路", () => {
     adSampleFileState.current = { size: AD_SAMPLE_FILE_MAX_BYTES, empty: false };
     const archivedBytes: string = await Bun.file(AD_SAMPLE_FILE_PATH).text();
 
-    await appendSample(sample({ messages: [{ messageId: 99, text: "换个号继续" }] }));
+    await appendSample(sample({ messages: [{ messageId: 99, text: "换个号继续", quote: undefined, replyTo: undefined }] }));
 
     expect(Object.keys(await readSamples())).toEqual(["-1001:99"]);
     // 新归档落在 AD_SAMPLE_ARCHIVE_RETENTION_DAYS 的自然日保留窗口内（按配置时区），内容原样保留。
@@ -143,7 +143,7 @@ describe("广告命中样本旁路", () => {
     await sweepExpiredAdSampleArchives({ today });
     expect(adSampleArchiveCursor.current).toEqual({ day: today, nextIndex: 2 });
     adSampleFileState.current = { size: AD_SAMPLE_FILE_MAX_BYTES, empty: true };
-    await appendSample(sample({ messages: [{ messageId: 99, text: "gap" }] }));
+    await appendSample(sample({ messages: [{ messageId: 99, text: "gap", quote: undefined, replyTo: undefined }] }));
 
     expect(await Bun.file(join(AD_SAMPLE_MEMORY_DIR, `sample.${today}.2.json`)).exists()).toBeTrue();
   });

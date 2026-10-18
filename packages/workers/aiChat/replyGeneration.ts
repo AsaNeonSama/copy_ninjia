@@ -12,27 +12,18 @@ import { logger } from "../../infra/logger";
 import { settleWithinBudget } from "../../libs/inflight";
 
 /**
- * AI 回复 epoch 与其异步任务的统一生命周期边界。epoch 的读取与核对由各调用方直接
- * 使用 cache/workers/aiChat/replies.ts 的 cachedReplyGeneration 与
- * isCachedReplyGenerationCurrent。回复轮、限频提示、媒体描述和记忆压缩都必须在
- * 本模块登记；群失效时同步撤销旧 epoch，再等待该 epoch 的任务 settle。
- *
- * epoch 由 cachedReplyGeneration 在本 isolate 内单调分配、绝不复用，取消控制器与任务表因此
- * 直接以 epoch 为键，不拼群 id。
+ * AI 回复代际（generation）及其关联异步任务的生命周期管理。
+ * 代际在当前 isolate 内单调递增；群失效或停机时同步中止取消控制器并等待在途任务结算。
  */
 
-/** 记忆淘汰优先保护在途模型和当前代际尚未结算的任务，包含独立发送链。 */
+/** 判断目标群是否仍有在途模型调用或当前代际未结算任务。 */
 export function hasActiveAiChatTasks(chatId: number): boolean {
   if ((activeReplyCounts.get(chatId) ?? 0) > 0) return true;
   const generation: number | undefined = replyGenerations.get(chatId);
   return generation !== undefined && (replyGenerationTasks.get(generation)?.size ?? 0) > 0;
 }
 
-/**
- * 记忆淘汰的失效边界：同 invalidateChatRuntimeCache，不 abort 在途任务；当前代已无
- * 在途任务时一并回收它的取消控制器，有在途任务时由 trackReplyGenerationTask 在
- * 结算后回收（那时该代已不是当前代）。
- */
+/** 记忆淘汰时清理群运行时缓存，并在无在途任务时回收取消控制器。 */
 export function evictChatReplyGeneration(chatId: number): void {
   const generation: number | undefined = replyGenerations.get(chatId);
   invalidateChatRuntimeCache(chatId);
@@ -40,7 +31,7 @@ export function evictChatReplyGeneration(chatId: number): void {
   if (!replyGenerationTasks.has(generation)) replyAbortControllers.delete(generation);
 }
 
-/** 取得本轮 generation 的唯一取消信号。 */
+/** 获取或创建指定代际的取消信号。 */
 export function replyGenerationSignal(generation: number): AbortSignal {
   let controller: AbortController | undefined = replyAbortControllers.get(generation);
   if (controller === undefined) {
@@ -50,7 +41,7 @@ export function replyGenerationSignal(generation: number): AbortSignal {
   return controller.signal;
 }
 
-/** 登记需要被 invalidate 等待的 generation-sensitive 异步任务。 */
+/** 登记受代际生命周期约束的异步任务，任务结算后自动清理登记项与过期控制器。 */
 export function trackReplyGenerationTask(
   chatId: number,
   generation: number,
@@ -72,15 +63,11 @@ export function trackReplyGenerationTask(
       }
     }
   }).catch((): void => {
-    // 原 task 的 owner 负责记录错误；这里只维护任务集合。
+    // 任务拒绝由创建方自行处理，此处仅观测结算时机。
   });
 }
 
-/**
- * 停机时同步使全部回复 epoch 失效并取消可取消请求，再等待回复、提示、媒体描述
- * 与记忆压缩任务全部 settle。调用方已先关闭新任务入口；循环每轮重新取任务快照，
- * 覆盖在途任务结算过程中登记的子任务。本函数完成后 flush 才上报最后一份 dirty 记忆。
- */
+/** 停机时中止全部回复代际控制器、清理运行时缓存并等待所有已登记任务结算。 */
 export async function quiesceAiChatReplies(): Promise<void> {
   for (const controller of replyAbortControllers.values()) {
     controller.abort(new DOMException("AI chat Worker is quiescing.", "AbortError"));
@@ -100,12 +87,8 @@ export async function quiesceAiChatReplies(): Promise<void> {
 }
 
 /**
- * 同步使旧 generation 失效并 abort，返回的 Promise 在该代相关异步任务 settle
- * 后完成，最多等 AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS，到点放行。调用栈内
- * 先删除旧 epoch，后续 trigger 会分配全新的唯一 epoch。
- *
- * 放行时未结算的任务按 generation 自检，失效后不再写状态（见
- * compaction.ts 的 rotateCompaction 与 mediaIngest.ts 的回填守卫）。
+ * 同步中止目标群当前代际并清理运行时缓存，在 AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS
+ * 预算内等待该代际在途任务结算。
  */
 export function invalidateChatReplies(chatId: number): Promise<void> {
   const generation: number = cachedReplyGeneration(chatId);

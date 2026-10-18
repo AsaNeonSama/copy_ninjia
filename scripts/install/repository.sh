@@ -10,17 +10,8 @@ is_git_repository_root() {
   [ "$toplevel" = "$target" ]
 }
 
-# 工作树没有 git 仓库时就地补一个，使部署方此后能用 git 更新。
-#
-# 解压发布包（或整目录拷贝）得到的源码满足 is_repository_root 却没有 `.git`，
-# clone 那一步因此被跳过；这里补上仓库。
-#
-# 本函数不写工作树里的任何文件，也不把工作树里的文件收进对象库：init 只建 `.git`，
-# remote/fetch 只落 config 与远端对象，read-tree / update-index 只动索引，
-# diff-index / rev-parse / tag 只读，update-ref 只动 HEAD，`reset --mixed` 重置索引
-# 但不动工作树。
-#
-# 失败一律降级而不是中断安装：装不上 git、拉不到 tag 只影响此后能否用 git 更新。
+# 工作树没有 git 仓库时就地初始化 `.git`、拉取远端 tag 并按内容匹配当前 HEAD。
+# 只更新 `.git` 与索引，不改写工作树文件，也不把未跟踪部署数据写入对象库；失败时降级继续安装。
 ensure_git_repository() {
   is_git_repository_root "$PWD" && return 0
 

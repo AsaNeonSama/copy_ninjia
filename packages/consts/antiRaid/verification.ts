@@ -1,3 +1,4 @@
+import type { VerificationCleanupResult } from "../../types/antiRaid/verification";
 import type { JoinExemption, VerificationEffect } from "../../types/states/verification";
 
 /** 验证回调管理员查询等待上限；满载只回执稍后重试，不继续增加查询等待者。 */
@@ -18,6 +19,16 @@ export const NO_JOIN_EXEMPTION: Readonly<JoinExemption> = { exempt: false, viaCh
 export const IDENTITY_JOIN_EXEMPTION: Readonly<JoinExemption> = { exempt: true, viaChannelComment: false };
 /** 入群前已观察到关联频道评论时的结论；全局共享，只读。所属模块：states/verification/join.ts。 */
 export const CHANNEL_COMMENT_JOIN_EXEMPTION: Readonly<JoinExemption> = { exempt: true, viaChannelComment: true };
+
+/**
+ * 清理已结清时的验证消息清理结果；missed 为 0 时战报文案不读 total。
+ * 所属模块：workers/antiRaid/verificationEffects/terminal.ts。
+ */
+export const VERIFICATION_CLEANUP_SETTLED: Readonly<VerificationCleanupResult> = {
+  total: 0,
+  missed: 0,
+  permissionDenied: false,
+};
 
 /**
  * 本人验证按钮 callback_data 的前缀，后面拼上待验证成员的 userId。
@@ -61,27 +72,13 @@ export const VERIFICATION_TERMINAL_RETRY_MAX_MS: number = 30 * 60 * 1000;
  */
 export const VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS: number = 15;
 /**
- * 单进程允许同时保留的持久化验证记录 key 总数，覆盖 active、延后终态与尚待
- * 落盘确认的 tombstone。达到上限时主线程拒绝新 key 并触发受监督停机；启动恢复
- * 超过上限也直接拒绝，不淘汰、不截断安全状态。
- *
- * 主线程镜像与 Disk I/O Worker 的 Map 使用同一硬上限；Anti-Raid Worker 的
- * revision Map 另以 VERIFICATION_REVISION_CAPACITY 约束活跃与保留期终结键。
- * 所属模块：antiRaid/verificationMirror.ts、
- * antiRaid/workerBridge/controller.ts、workers/diskIO/verificationWrites.ts、
- * workers/diskIO/verificationRecovery.ts。
- *
- * pending、kickPending、checkingInviter 与 expelling 都计入本上限；kickPending
- * 必须先 write-ahead 落盘再执行秒踢。结算后的 kicked 与豁免后的 exempt 只在 Worker
- * 运行态保留短期去重，不进入持久化记录。
+ * 单进程允许同时保留的持久化验证记录 key 总数（覆盖 active、延后终态与尚待落盘确认的 tombstone；超出时拒绝新 key 并触发受监督停机）。
+ * 所属模块：antiRaid/verificationMirror.ts、antiRaid/workerBridge/controller.ts、workers/diskIO/verificationWrites.ts、workers/diskIO/verificationRecovery.ts。
  */
 export const VERIFICATION_RECORD_CAPACITY: number = 15_000;
 /**
- * Anti-Raid Worker 当前运行态共用的 key 硬顶，包含持久阶段及 exempt/kicked 去重。
+ * Anti-Raid Worker 当前运行态共用的 key 硬顶（包含持久阶段及 exempt/kicked 去重；跨模块约束见 docs/cn/04-invariants.md）。
  * 所属模块：workers/antiRaid/verificationAdmission.ts 与 verificationRuntime.ts。
- * 满额拒收新 join，不转移状态、不发送副作用，只报告一次 fatal；已有 key 继续更新
- * 和解除。恢复持久责任优先接管，必要时释放非持久去重，但保持拒收新 key 的闩锁，
- * 直到下一代 adopt 或 stop；不淘汰持久处置责任。跨模块约束见 docs/cn/04-invariants.md。
  */
 export const VERIFICATION_RUNTIME_CAPACITY: number = VERIFICATION_RECORD_CAPACITY;
 /** Worker 当前代际的活跃与保留期终结 revision 共用的硬上限；新键满额时请求主线程停机。 */
@@ -98,11 +95,7 @@ export const VERIFICATION_CHAT_KIND_FETCH_MAX: number = 100;
  */
 export const LOCKDOWN_KICK_DEDUPE_MS: number = 30 * 1000;
 /**
- * 私密模式秒踢占位遇到新 join 事件时，用来判断“这是同一次物理入群的另一条
- * 投递（chat_member 更新 + 服务消息）”还是“TA 真的重新
- * 申请了入群”（踢出动作只踢不封，本就能立刻重进）的分界线。
- * 与 kicked/exempt 的 LOCKDOWN_KICK_DEDUPE_MS 去重存活期独立，见
- * states/verification/join.ts 的 handleJoin。
+ * 私密模式秒踢占位区分同一次物理入群重复投递与重新申请入群的时间窗口（见 states/verification/join.ts 的 handleJoin）。
  */
 export const KICKED_REJOIN_GRACE_MS: number = 5 * 1000;
 /** 终结 revision 保留的时间，用于抵御重复 adopt；之后周期清理。 */

@@ -76,6 +76,12 @@ export interface DayFileState extends AppendOnlyFileState {
   day: string;
 }
 
+/** 一个 operationBatch 内延后的待验证关键写落盘目标：最近一条关键写的目录与日期。 */
+export interface VerificationFlushTarget {
+  readonly dir: string;
+  readonly day: string;
+}
+
 /** Disk I/O 定时 flush 的一次性 timer 槽；null 表示当前没有待触发的 timer。 */
 export interface FlushTimerSlot {
   timer: ReturnType<typeof setTimeout> | null;

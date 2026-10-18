@@ -1,17 +1,16 @@
 import type { AiToolDefinition } from "../../../../types/aiChat/provider";
-import { ADD_REACTION_TOOL_INSTRUCTION } from "../../../../consts/aiChat/prompts/tools";
 import {
+  ABUSE_MARK_TOOL_INSTRUCTION,
+  ABUSE_MARK_USER_ID_DESCRIPTION,
+  ADD_REACTION_TOOL_INSTRUCTION,
+} from "../../../../consts/aiChat/prompts/tools";
+import {
+  ABUSE_MARK_TOOL,
   ADD_REACTION_TOOL,
   SEND_MESSAGE_TOOL,
 } from "../../../../consts/tools";
 
-/**
- * send_message 的工具声明，同一台词语言下每轮逐字恒定。
- * @param instruction 本轮台词语言对应的说明（VOICE_LANGUAGE_PROMPTS 的 sendMessageInstruction）。
- *
- * 手滑的两个字段恒声明为可选：抽中与否只体现在回复任务的 TYPO_REQUIRED_INSTRUCTION 里。
- * 没抽中的轮次模型即使填了，执行侧也按原文发送（见 typoHandling.ts 的 decideMessageTypo）。
- */
+/** 构造 send_message 工具声明；instruction 为当前台词语言对应的工具说明。 */
 export function buildSendMessageToolDefinition(instruction: string): AiToolDefinition {
   return {
     name: SEND_MESSAGE_TOOL,
@@ -38,6 +37,7 @@ export function buildSendMessageToolDefinition(instruction: string): AiToolDefin
   };
 }
 
+/** 构造 add_reaction 工具声明。 */
 export function buildAddReactionToolDefinition(): AiToolDefinition {
   return {
     name: ADD_REACTION_TOOL,
@@ -48,6 +48,21 @@ export function buildAddReactionToolDefinition(): AiToolDefinition {
         emoji: { type: "string", description: "要扣的反应 emoji，必须是清单里列出的其中一个。" },
       },
       required: ["emoji"],
+    },
+  };
+}
+
+/** 构造 abuse_mark 工具声明。 */
+export function buildAbuseMarkToolDefinition(): AiToolDefinition {
+  return {
+    name: ABUSE_MARK_TOOL,
+    description: ABUSE_MARK_TOOL_INSTRUCTION,
+    parametersJsonSchema: {
+      type: "object",
+      properties: {
+        user_id: { type: "integer", description: ABUSE_MARK_USER_ID_DESCRIPTION },
+      },
+      required: ["user_id"],
     },
   };
 }

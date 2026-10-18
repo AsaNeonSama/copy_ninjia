@@ -224,6 +224,7 @@ describe("/bot_status", () => {
           headers: undefined,
           model: "google/imagen-status",
           imageProtocol: undefined,
+          maxReferenceImages: 1,
         },
         tts: undefined,
       },

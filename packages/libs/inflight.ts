@@ -11,7 +11,7 @@ export function trackInflight<T>(inflight: Set<Promise<unknown>>, request: Promi
 /**
  * 停机 / 排空预算必须是非负有限毫秒数，否则抛 RangeError。
  * @param timeoutMs 调用方收到的预算。
- * @param label 出现在报错里的英文预算名，例如 `Cron drain timeout`。
+ * @param label 出现在报错里的英文预算名。
  */
 export function assertTimeoutMs(timeoutMs: number, label: string): void {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {

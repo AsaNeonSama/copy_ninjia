@@ -1,6 +1,5 @@
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import type { ChatState } from "../types/chatState";
 import { invalidateAiChat } from "../aiChat";
 import { aiChatConfigReadiness } from "../config/readiness";
 
@@ -25,10 +24,7 @@ export async function handleAiChatCommand(ctx: CommandContext<Context>): Promise
     permission: "isCanControllAIPermission",
     persistReason: "ai_chat toggled",
     runtimeLabel: "AI chat runtime",
-    read: (state: ChatState): boolean => state.isAIChatEnabled === true,
-    write: (state: ChatState, isEnabled: boolean): void => {
-      state.isAIChatEnabled = isEnabled;
-    },
+    switchKey: "isAIChatEnabled",
     refuseEnable: (chatId: number, messageId: number | undefined): Promise<boolean> =>
       refuseIfConfigBroken({
         readiness: aiChatConfigReadiness(),

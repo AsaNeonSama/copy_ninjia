@@ -3,6 +3,7 @@
 /**
  * /copy 的子命令结构；只剥离完整的 stop、reverse 或 nya，目标参数交给共享身份解析器。
  * 子命令词不区分大小写；捕获组保留原样大小写，调用方取值时自己 `toLowerCase()`。
+ * 所属模块：commands/copy.ts。
  */
 export const COPY_SUBCOMMAND_PATTERN: RegExp = /^(stop|reverse|nya)(?:\s+([\s\S]+))?$/iu;
 

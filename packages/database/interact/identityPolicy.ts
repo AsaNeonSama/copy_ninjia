@@ -1,26 +1,17 @@
-import { asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { asc, eq, gt, sql } from "drizzle-orm";
 import { IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES } from "../../consts/identityStorage";
 import { blocklistEntries, permissionList } from "../schema/identityPolicy";
-import { jsonbTextProjection } from "../schema/jsonb";
 import { temporaryAdBypassEntries } from "../schema/temporaryAdBypass";
 import type { IdentityPolicyTable } from "../../types/identityPolicy";
 import type {
   StorageDatabase,
+  StorageDatabaseReader,
   StoredIdentityIdLookups,
   StoredIdentityIdRow,
   StoredIdentityPolicyRow,
 } from "../../types/storageDatabase";
 
-/**
- * 为一条连接建各名单（永久白名单、永久黑名单、临时广告免检）的「主键是否已持久化」预编译语句。
- *
- * 这个查询在写入路径上按条目调用（workers/diskIO/storageDatabase/identityPolicy.ts
- * 的 assertOppositePolicyAbsent），每条连接只构建一次并复用预编译语句。
- *
- * 本函数只建不持有：语句的归属与生命周期由调用侧决定（Disk I/O Worker 把
- * 它挂在 cache/workers/diskIO/storageDatabase.ts 的连接级 WeakMap 上）。本文件是
- * 不接触任何线程独占缓存的叶子模块。
- */
+/** 为指定数据库连接预编译白名单、黑名单与临时广告免检表的按主键存在性查询语句。 */
 export function prepareStoredIdentityIdLookups(
   database: StorageDatabase
 ): StoredIdentityIdLookups {
@@ -35,10 +26,7 @@ export function prepareStoredIdentityIdLookups(
   };
 }
 
-/**
- * 按唯一主键稳定顺序读取已提交黑名单的一段游标页。
- * limit 由上层固定上限；本函数不使用 offset。
- */
+/** 按主键升序游标读取一页黑名单 ID。 */
 export function readStoredBlocklistIdPage(
   database: StorageDatabase,
   afterId: number | null,
@@ -54,9 +42,9 @@ export function readStoredBlocklistIdPage(
   return rows.map((row: StoredIdentityIdRow): number => row.id);
 }
 
-/** 批量读取某名单的已提交行；JSONB 解码统一经过 schema 文本投影。 */
+/** 通过预编译语句按 ID 列表批量读取白名单或黑名单的已提交行（单批不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。 */
 export function readStoredIdentityPolicies(
-  database: StorageDatabase,
+  reader: StorageDatabaseReader,
   table: IdentityPolicyTable,
   ids: readonly number[]
 ): readonly StoredIdentityPolicyRow[] {
@@ -66,15 +54,6 @@ export function readStoredIdentityPolicies(
       `Identity policy reads accept at most ${IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES} IDs.`
     );
   }
-  return table === "whitelist"
-    ? database
-      .select({ id: permissionList.id, data: jsonbTextProjection(permissionList.data) })
-      .from(permissionList)
-      .where(inArray(permissionList.id, ids))
-      .all()
-    : database
-      .select({ id: blocklistEntries.id, data: jsonbTextProjection(blocklistEntries.data) })
-      .from(blocklistEntries)
-      .where(inArray(blocklistEntries.id, ids))
-      .all();
+  return (table === "whitelist" ? reader.whitelistPolicies : reader.blocklistPolicies)
+    .all({ ids: JSON.stringify(ids) });
 }

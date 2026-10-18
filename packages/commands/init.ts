@@ -21,7 +21,7 @@ import { observeChatKind } from "../antiRaid/chatKind";
 /**
  * 处理 /init enable|disable 指令：按群开关机器人是否处理这个群的更新（见
  * ChatState.isInitEnabled）。禁用/未初始化的群，其更新在 infra/updateGate.ts 的
- * shouldPassInitGate 处丢弃（接线见 app/registerHandlers.ts），不进入监听、复读、AI 等链路。
+ * shouldPassInitGate 处丢弃（接线见 app/updatePreamble.ts），不进入监听、复读、AI 等链路。
  * 只有超级管理员可以控制这个总开关。
  *
  * enable 落盘后调用 observeChatKind 补齐群类型镜像；未纳管的新群在已管群数达到

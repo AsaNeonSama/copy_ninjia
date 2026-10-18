@@ -104,6 +104,17 @@ export interface AtmosphereNotices {
   readonly gagExpired: string;
   readonly gagRemoved: string;
   readonly gagEndedNotice: (reasonText: string, targetLabel: string, tool: string) => string;
+  /** `/delete_message` 仅限超级管理员本人。 */
+  readonly deleteMessageRejected: string;
+  readonly deleteMessageMissingRights: (reason: string) => string;
+  /** 目标落在当前群自己的身份（匿名管理员）上。 */
+  readonly deleteMessageCurrentChat: string;
+  readonly deleteMessageSuperAdminTarget: string;
+  readonly deleteMessageCapacity: (capacity: number) => string;
+  readonly deleteMessageExists: (targetLabel: string) => string;
+  readonly deleteMessageStarted: (targetLabel: string) => string;
+  readonly deleteMessageStopped: (targetLabel: string) => string;
+  readonly deleteMessageAbsent: (targetLabel: string) => string;
   readonly iconRestoring: string;
   readonly iconRestored: string;
   readonly iconRestoreFailed: string;

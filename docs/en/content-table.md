@@ -92,7 +92,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 ## 📑 Page Index & Summary
 
 1. **[01 Environment Setup and First Run](01-getting-started.md)**
-   - System requirements: Linux `/proc` filesystem, Bun 1.4.3, Telegram Bot Token, and AI provider credentials.
+   - System requirements: Linux `/proc` filesystem, Bun, Telegram Bot Token, and AI provider credentials.
    - One-shot automated installation via `install.sh` (standalone binary package or source clone) and manual setup instructions.
    - Strict validation of static deployment files (`config/static/bot.json`) and dynamic configs.
    - @BotFather configuration: Privacy Mode, Admin permissions, Inline Mode, and Bot-to-Bot Communication.
@@ -117,7 +117,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 5. **[05 Development Workflow and Quality Gates](05-dev-workflow.md)**
    - Serial `bun run check` gate: convention checks, ESLint, TypeScript types, unit tests with coverage, and hot-path profile gates.
    - Temporary data root sandboxes and strict test isolation mechanisms.
-   - Commit rules, fault injection testing (`bun run test:fault-injection`), and the 8-step release workflow.
+   - Commit rules, fault injection testing (`bun run test:fault-injection`), and the release workflow.
 
 6. **[06 Common Modification Recipes](06-modification-guide.md)**
    - Implementing slash commands (including CJK Chinese action commands) and safe MarkdownV2 formatting.
@@ -128,7 +128,7 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 7. **[07 Operations and Troubleshooting](07-operations.md)**
    - Systemd unit setup, hardware planning reference, and binary release deployment.
    - Data root directory structure, filesystem compatibility checks (fsync, hard link, rename), and permission security.
-   - Database migrations: fresh database initialization, cold migration from v11 to v13, and staged historical upgrades.
+   - Persistent data migrations: fresh database initialization, the /wed member window cold migration, and staged historical upgrades.
    - Fast-fail startup diagnosis: handling `bot.lock` conflicts, schema mismatches, and receipt HMAC validation.
 
 8. **[08 Image Library and Scheduled Tasks](08-images-and-cron.md)**
@@ -138,8 +138,8 @@ Comprehensive multi-page developer documentation covering environment setup, sys
 
 9. **[09 Command and Behaviour Reference](09-commands.md)**
    - Global copying modes, avatar cloning, and parameter targeting semantics.
-   - Three-tier authorization matrix: Group Member, Identity Policy (`isCanXxx`), and Super Administrator.
-   - Deep-dive behavioral contracts for speech restrictions (`/gag`), global blocklists (`/block`), batch kicks, and anti-flood mutes.
+   - Authorization matrix: Group Member, Identity Policy (`isCanXxx`), and Super Administrator.
+   - Deep-dive behavioral contracts for speech restrictions (`/gag`), target message deletion (`/delete_message`), global blocklists (`/block`), batch kicks, and anti-flood mutes.
 
 10. **[10 Performance Benchmark](10-performance.md)**
     - Measurement scope of `bun run perf:full`: cold-start recovery, production hot paths, SQLite transaction chains, and data structures.

@@ -10,6 +10,12 @@ import { botPermissions } from "../../helpers/botPermissions";
 import { isManagedAdminChat } from "../../../packages/infra/blocklist/sweepEligibility";
 import type { ChatState } from "../../../packages/types/chatState";
 import { longestTemplatePart } from "../../helpers/templateText";
+import { identityFieldView } from "../../helpers/identityCacheView";
+import type { IdentityFieldView } from "../../helpers/identityCacheView";
+
+const whitelistField: IdentityFieldView<"whitelist"> = identityFieldView("whitelist");
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 const chatStates = new Map<number, Record<string, unknown>>();
 const activeVerificationSnapshots = new Map<string, unknown>();
 const dispatched: RemoveBlockedMembersParams[][] = [];
@@ -100,7 +106,8 @@ mock.module("../../../packages/infra/identityPolicy/temporaryAdBypass", () => ({
     if (!clearTemporaryAdBypassActivity(id)) throw new Error(`Temporary ad bypass reset for identity ${id} was rejected.`);
   },
   hasActiveTemporaryAdBypassAt: (id: number): boolean => temporaryAdBypassIds.has(id),
-  hydrateTemporaryAdBypassActivities: (): void => {},
+  storedTemporaryAdBypassActivities: (): ReadonlyMap<number, never> => new Map<number, never>(),
+  currentTemporaryAdBypassActivity: (): null => null,
 }));
 mock.module("../../../packages/infra/blocklist/outbox", () => ({
   trackBlockedRemoval,
@@ -134,10 +141,7 @@ const { blocklistIdentityMutationQueues } = await import("../../../packages/cach
 const { blocklistIdentityMutationRunner } = await import("../../../packages/cache/main/blocklist");
 const { inlineResultSources } = await import("../../../packages/cache/main/inlineResultSources");
 const { resetSelfSentTracker } = await import("../../../packages/cache/perThread/selfSentTracker");
-const { blocklistEntryCache, whitelistEntryCache } =
-  await import("../../../packages/cache/main/identityStorage");
-const { temporaryAdBypassActivityCache } =
-  await import("../../../packages/cache/main/temporaryAdBypass");
+
 function detected(overrides: Partial<AdDetectedEvent> = {}): AdDetectedEvent {
   return {
     type: "adDetected",
@@ -172,13 +176,13 @@ beforeEach(() => {
   }));
   blockedIds.clear();
   temporaryAdBypassIds.clear();
-  blocklistEntryCache.clear();
-  whitelistEntryCache.clear();
-  temporaryAdBypassActivityCache.clear();
+  blocklistField.clear();
+  whitelistField.clear();
+  temporaryAdBypassField.clear();
   for (const id of [7, -300, -1005]) {
-    blocklistEntryCache.set(id, null);
-    whitelistEntryCache.set(id, null);
-    temporaryAdBypassActivityCache.set(id, null);
+    blocklistField.set(id, null);
+    whitelistField.set(id, null);
+    temporaryAdBypassField.set(id, null);
   }
   blockUser.mockClear();
   clearTemporaryAdBypassActivity.mockClear();
@@ -248,10 +252,10 @@ describe("广告判定命中后的处置", () => {
   });
 
   test("身份策略冷读失败时放弃判定，并留下写明未拉黑的错误日志", async () => {
-    // 发送者在三份 LRU 里都是冷缺失，预热才会去读 Disk I/O。
-    blocklistEntryCache.delete(7);
-    whitelistEntryCache.delete(7);
-    temporaryAdBypassActivityCache.delete(7);
+    // 发送者在合并身份缓存里是冷缺失，预热才会去读 Disk I/O。
+    blocklistField.delete(7);
+    whitelistField.delete(7);
+    temporaryAdBypassField.delete(7);
     diskIOInitialized = true;
 
     handleAdDetected(detected());
@@ -449,8 +453,7 @@ describe("广告判定命中后的处置", () => {
   });
 
   test("远端已收下、返回值被停机 abort 吃掉时，删除 owner 仍已认领", async () => {
-    // runTelegramAction 先跑 map（onSent 在其中）再检查 update 取消，取消时抛错、返回值丢失；
-    // 删除 owner 在 onSent 中认领（固定延迟自删的约定见 AGENTS.md「Telegram 提示留存」）。
+    // runTelegramAction 先跑 map（onSent 在其中）再检查 update 取消，删除 owner 在 onSent 中认领。
     sendMessage.mockImplementation(async (params: SendMessageMockParams): Promise<number | undefined> => {
       params.onSent?.(NOTICE_MESSAGE_ID);
       throw new DOMException("Telegram update was aborted during shutdown.", "AbortError");

@@ -15,7 +15,7 @@ This guide walks you through the quickest path to take a clean server environmen
 ## Prerequisites
 
 - **Linux Operating System** (must have a readable `/proc` filesystem): The instance lock depends strictly on `/proc/<pid>/stat` and the system boot ID. Unsupported operating systems will fail closed and refuse to start.
-- **Bun 1.4.3**: Required for source installs and local development. Install via:
+- **Bun** (version per `package.json` `packageManager`): Required for source installs and local development. Install via:
   ```bash
   curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
   ```
@@ -64,12 +64,12 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
   <tr>
     <td><nobr>📦 <b>Distribution</b></nobr></td>
     <td>Pulls the latest precompiled release matching your host architecture from GitHub Releases</td>
-    <td>Performs a shallow <code>git clone</code> of the latest release tag</td>
+    <td>Clones the matching release tag via <code>git clone --branch</code> (detached HEAD)</td>
   </tr>
   <tr>
     <td><nobr>⚙️ <b>Dependencies</b></nobr></td>
     <td>Zero external tool requirements; no Bun, git, or compiler needed on the server</td>
-    <td>Requires git and Bun 1.4.3; the installer will attempt to install missing tools if permitted</td>
+    <td>Requires git and the Bun version specified in <code>package.json</code> <code>packageManager</code>; the installer will attempt to install missing tools if permitted</td>
   </tr>
   <tr>
     <td><nobr>🚀 <b>Runtime</b></nobr></td>
@@ -85,12 +85,15 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 </table>
 
 > [!TIP]
-> **Installer Flow & Safeguards**:
-> 1. **Environment Check**: Verifies Linux kernel version, readable `/proc`, and a valid controlling terminal (`/dev/tty`).
-> 2. **Target Repository Resolution**: Detects existing installations to prevent accidental overwrites, or downloads the latest release bundle into a dedicated directory.
-> 3. **Configuration Guard**: Copies missing configuration templates while strictly protecting existing deployment files. Prompts interactively for `config/static/bot.json` credentials and AI provider settings.
-> 4. **Database Initialization**: Sets up a clean SQLite schema (`database/storage.sqlite`) bound to the configured time zone.
-> 5. **Service Registration**: Configures and starts a systemd unit (`copy-ninjia.service`) or runs in the foreground if systemd is unavailable, monitoring initial service health.
+> **Installer Flow & Safeguards** (matches `install.sh` step indicators; see [07 Operations](07-operations.md)):
+> 1. **Platform Check**: Verifies a Linux environment, readable `/proc`, and a controlling terminal (`/dev/tty`).
+> 2. **Target Repository & Binary Resolution**: Checks the script directory, current directory, and target directory for an existing installation; otherwise clones the latest Release tag or downloads and verifies the platform-matched binary bundle (x64/arm64, glibc/musl).
+> 3. **Toolchain & Bun**: Ensures the pinned Bun version (`packageManager` in `package.json`) is installed in source mode, or uses the bundled binary in binary mode.
+> 4. **Dependencies**: Runs `bun install --frozen-lockfile` in source mode (skipped in binary mode).
+> 5. **Configuration Directory Layout**: Rejects misplaced files or legacy global state/database files, then copies only missing configuration templates (`agent.json`, `g-auth.json`, and `cron.json` are left for interactive/manual setup; existing files are never overwritten).
+> 6. **Interactive Configuration Wizard**: Prompts for required `config/static/bot.json` fields and, when `config/dynamic/agent.json` is absent, walks through each AI capability (including custom `base_url` endpoints and optional gateway `headers` for `google` and `anthropic`). Modifying existing configs takes an external backup first and atomically replaces files only after strict validation passes.
+> 7. **Database Initialization**: Verifies `database/storage.sqlite` in read-only mode against `bot.json`'s `time_zone` if it already exists, or initializes a fresh schema and writes the time-zone marker.
+> 8. **Service Registration & Health Check**: Configures and starts `copy-ninjia.service` under systemd (or runs in the foreground when systemd is unavailable), verifies `active/running` status without restart loops or abnormal exits, and cleans up the temporary backup.
 
 ### Manual Source Installation
 
@@ -126,14 +129,14 @@ Core bot credentials and administrator ownership are declared in `config/static/
 - **`super_admin_user_id`** (required, positive integer)
   - The Telegram numeric user ID of the primary operator.
   - **Privilege Boundary**: Holds all system permissions inherently. Does not need to be added to the SQLite allowlist table.
-  - **Exemption Protections**: Completely exempt from rate limits and cooldowns (copying, image generation, etc.). Cannot be targeted by `/block`, `/mute`, or `/batch_kick`.
-  - **Exclusive Authority**: Commands like `/init`, `/batch_kick`, `/permission` assignments, `/white disable`, and `/send` are strictly restricted to this user ID.
+  - **Exemption Protections**: Completely exempt from rate limits and cooldowns (copying, image generation, etc.). Cannot be targeted by `/block`, `/mute`, `/delete_message`, `/batch_kick`, or AI `abuse_mark`.
+  - **Exclusive Authority**: Commands like `/init`, `/batch_kick`, `/delete_message`, `/permission` assignments, `/white disable`, and `/send` are strictly restricted to this user ID.
 - **`atmosphere`** (optional, enum: `"mesugaki"` | `"normal"`)
   - Sets the communication tone for system notices, menus, and help messages (`mesugaki` for teasing tone, `normal` for clean/restrained tone).
   - Explicit configuration takes precedence. If omitted, custom personas use `normal` tone by default, while the built-in persona uses `mesugaki`.
-- **`time_zone`** (optional string, default `DEFAULT_BOT_TIME_ZONE`, e.g. `Asia/Tokyo`)
-  - Defines the authoritative calendar time zone for fortunes, rotation logs, daily maintenance crons, and ad quotas.
-  - Case-normalized via Temporal (e.g. `asia/tokyo` becomes `Asia/Tokyo`).
+- **`time_zone`** (optional IANA time zone string, default `DEFAULT_BOT_TIME_ZONE`)
+  - Defines the authoritative calendar time zone for fortunes, rotation logs, daily maintenance crons, AI time awareness, and ad quotas.
+  - Trimmed and case-normalized via Temporal (aliases are preserved).
   - **Data Root Binding**: The initial setup permanently stamps this time zone into `database/storage.sqlite`. Changing `time_zone` on an existing data root will be rejected at startup to prevent time-series corruption.
 
 ---
@@ -191,19 +194,19 @@ config/
        - `summary`: Memory condensation and rolling summarization model.
        - `media`: Multimodal vision and audio transcription model.
     2. **Extended Generation Tools** (absence automatically disables the corresponding tool):
-       - `image`: Image generation. OpenAI-compatible endpoints declare `image_protocol` (`openai` | `openai-standard` | `xai`).
-       - `tts`: Speech synthesis. Must declare a `voice` identifier; OpenAI-compatible endpoints set `speech_protocol` (`openai` | `xai`). Optional `style` provides baseline voice characteristics.
-         - `bot_language` (`en` | `zh` | `ja`, default `ja`) sets the speaking language for AI-generated voice lines.
-         - `daily_limit` (default 100) and `daily_reserve_quota` (default 25) partition daily synthesis volume between AI chatter and administrative `/send`/cron broadcasts.
+       - `image`: Image generation. OpenAI-compatible endpoints declare `image_protocol` (`openai` | `openai-standard` | `xai`). Optional `max_reference_images` (up to `IMAGE_GENERATION_MAX_REFERENCE_IMAGES`, default `IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES`) sets the maximum reference images passed to the model per generation; album images fill the remaining slots in album order.
+       - `tts`: Speech synthesis. Must declare a `voice` identifier; OpenAI-compatible endpoints set `speech_protocol` (`openai` | `xai`). Optional `style` (default `TTS_DEFAULT_STYLE`) provides baseline voice characteristics.
+         - `bot_language` (`en` | `zh` | `ja`, default `TTS_DEFAULT_BOT_LANGUAGE`) sets the speaking language for AI-generated voice lines.
+         - `daily_limit` (default `TTS_DEFAULT_DAILY_LIMIT`) and `daily_reserve_quota` (default `TTS_DEFAULT_DAILY_RESERVE_QUOTA`, must be less than `daily_limit`) partition daily synthesis volume between AI chatter and administrative `/send`/cron broadcasts.
     3. **Search & Moderation**:
-       - `web_search`: Function tool for real-time web search. If omitted, the text model's native search is used if supported.
+       - `web_search`: Function tool for real-time web search (`max_calls_per_use` limits calls per turn, default `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE`). If omitted, the text model's native search is used if supported.
        - `ad_detect`: Dedicated classifier model for inbound spam analysis.
     4. **Common Capability Attributes**:
        - `provider`: `google` | `openai` | `anthropic`.
        - `api_key`: API key string (placeholders trigger startup failure).
        - `model`: Provider model identifier.
        - `base_url`: Custom HTTPS proxy or API gateway endpoint.
-       - `headers`: Custom HTTP headers (allowed for `google` and `anthropic` providers, 1 to `AGENT_HEADERS_MAX_ENTRIES` entries, e.g. for Cloudflare AI Gateway authentication).
+       - `headers`: Custom HTTP headers (allowed for `google` and `anthropic` providers, up to `AGENT_HEADERS_MAX_ENTRIES` entries, e.g. for Cloudflare AI Gateway authentication).
        - `fallback_model`: Fallback model, allowed only for the `anthropic` provider (must differ from `model`). When `model` refuses, the same request is resent with it; if the fallback model also refuses, or none is configured, the request fails without retrying.
 
 ---
@@ -227,7 +230,7 @@ chmod 660 database/storage.sqlite
 ```
 
 > [!IMPORTANT]
-> Running `initializeStorageDatabase` writes the current schema version and the `bot.json` `time_zone` binding into `storage_metadata`. Skipping this initialization will cause the bot to abort during startup due to missing metadata.
+> Running `bootstrapStorageDatabase` creates the schema, writes the current schema version and the `bot.json` `time_zone` binding into `storage_metadata`, and enables WAL mode. Skipping this initialization will cause the bot to abort during startup due to missing metadata.
 
 ---
 
@@ -252,7 +255,7 @@ Customize visual assets and local image library paths in `config/dynamic/assets.
 ```
 
 - **`onlyPath`**: Local path (relative paths resolve against the data root). `random_h_image_dir` sets the dedicated image library directory used by `/h_image` and cron tasks.
-- **`pathOrUrl`**: Local filesystem path or HTTP(S) URL. `bot_default_avatar` provides the media used when restoring the bot's original avatar: a JPEG/PNG image (up to 10 MiB) becomes a static avatar, and an MP4 video (up to 50 MiB, with square video no larger than 1080×1080) becomes an animated avatar. Each URL download times out after 90 seconds.
+- **`pathOrUrl`**: Local filesystem path or HTTP(S) URL. `bot_default_avatar` provides the media used when restoring the bot's original avatar: a JPEG/PNG image (up to `BOT_PROFILE_PHOTO_MAX_BYTES`) becomes a static avatar, and an MP4 video (up to `BOT_PROFILE_ANIMATION_MAX_BYTES`, with square video no larger than `BOT_PROFILE_ANIMATION_MAX_SIDE`) becomes an animated avatar. Each URL download times out after `DEFAULT_AVATAR_FETCH_TIMEOUT_MS`.
 - **`onlyUrl`**: Direct HTTPS URLs providing thumbnail icons for fortunes, probability rolls, and `/gag` buttons.
 
 ---
@@ -261,13 +264,10 @@ Customize visual assets and local image library paths in `config/dynamic/assets.
 
 Configure the following settings in [@BotFather](https://t.me/BotFather):
 
-1. **Disable Privacy Mode**: Send `/setprivacy` -> Select your bot -> Choose **Disable**.
-   - *Reason*: Allows the bot to receive normal group messages; required for copying, translation, AI interjections, and group Q&A.
+1. **Disable Privacy Mode**: Send `/setprivacy` -> Select your bot -> Choose **Disable** (allows the bot to receive normal group messages for copying, translation, AI conversation, group Q&A, and moderation).
 2. **Grant Administrator Permissions**: Add the bot to your target group and grant administrative permissions (delete messages, restrict users, ban members).
-3. **Enable Inline Mode**: Send `/setinline` -> Choose **Enable**.
-   - *Reason*: Daily fortunes (`@bot query`) and `/gag` speech restriction buttons operate via Inline Mode.
-4. **Set Inline Feedback Rate**: Send `/setinlinefeedback` -> Set to **100%**.
-   - *Reason*: The `chosen_inline_result` event is the authoritative feedback pipeline for persisting fortune results.
+3. **Enable Inline Mode**: Send `/setinline` -> Choose **Enable** (used by `@bot` daily fortune queries and `/gag` speech entry buttons).
+4. **Set Inline Feedback Rate**: Send `/setinlinefeedback` -> Set to **100%** (delivers `chosen_inline_result` events used to confirm and persist fortune draws).
 5. **(Optional) Enable Bot-to-Bot Communication**: If you plan to copy or translate messages sent by other bots, enable this setting in BotFather. Inbound bot messages remain subject to global rate-limiting gates.
 
 ---

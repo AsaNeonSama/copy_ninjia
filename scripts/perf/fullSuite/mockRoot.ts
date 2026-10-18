@@ -28,6 +28,8 @@ import {
 } from "./constants";
 import { AGENT_API_KEY_PLACEHOLDERS } from
   "../../../packages/consts/agent";
+import { RUNTIME_DATA_ROOT_MAX_MODE } from
+  "../../../packages/consts/storage";
 import { TELEGRAM_BOT_TOKEN_PLACEHOLDER } from
   "../../../packages/consts/telegram";
 
@@ -42,9 +44,6 @@ export const PERFORMANCE_MOCK_ROOT: string = join(
 
 /** 受版本控制的配置示例只作为模板读取，基准子进程不直接加载其中的占位凭据。 */
 const CONFIG_EXAMPLE_ROOT: string = join(PROJECT_ROOT, "config_example");
-
-/** 运行时数据根允许的最宽权限；与 `RUNTIME_DATA_ROOT_MAX_MODE` 对齐，mock 根按生产预检的同一上限创建。 */
-const RUNTIME_ROOT_MODE: number = 0o755;
 
 /**
  * 纯词法形态判定：`resolve()` 只处理 `..` 和相对段，不读文件系统，不识别指向
@@ -91,7 +90,7 @@ export function assertInsidePerformanceMockRoot(path: string): void {
  */
 export function createRunRoot(): string {
   assertInsidePerformanceMockRoot(PERFORMANCE_MOCK_ROOT);
-  mkdirSync(PERFORMANCE_MOCK_ROOT, { recursive: true, mode: RUNTIME_ROOT_MODE });
+  mkdirSync(PERFORMANCE_MOCK_ROOT, { recursive: true, mode: RUNTIME_DATA_ROOT_MAX_MODE });
   return mkdtempSync(join(PERFORMANCE_MOCK_ROOT, RUN_ROOT_PREFIX));
 }
 

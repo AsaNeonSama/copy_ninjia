@@ -39,7 +39,7 @@ To add a new slash command (e.g. `/my_cmd`), follow this standard checklist:
    - Create a dedicated file under `packages/commands/` and export a strongly-typed `handleXxxCommand` function.
    - **Permission checks**: Guard permission-scoped commands with `rejectUnlessPermitted(ctx, key, rejection)`. For superadmin-only commands, use `rejectUnlessSuperAdmin(ctx, rejection)` (see `commands/commandActor.ts`).
    - **Copywriting**: Store command replies under `packages/consts/atmosphere/{teasing,plain}/` in matching domain files. Both teasing and plain styles must satisfy the same interface. The main thread retrieves the active copy via `chatAtmosphere()`.
-   - **Command replies**: Plain-text notices that reply to the triggering message (usage, rejection, failure, and action receipts) go through `replyCommandNotice(ctx, text)` (`infra/telegram/commandMessages.ts`), inheriting the 30-second auto-delete and topic fill-in of `sendCommandMessage`. Call `sendCommandMessage` directly when the reply needs formatting, long-term retention, or is sent outside the update scope.
+   - **Command replies**: Plain-text notices that reply to the triggering message (usage, rejection, failure, and action receipts) go through `replyCommandNotice(ctx, text)` (`infra/telegram/commandMessages.ts`), inheriting the auto-delete timer (`COMMAND_MESSAGE_AUTO_DELETE_MS` in `packages/consts/commands.ts`) and topic fill-in of `sendCommandMessage`. Call `sendCommandMessage` directly when the reply needs formatting, long-term retention, or is sent outside the update scope.
 2. **Export the handler**: Re-export the new handler function in `packages/commands/index.ts`.
 3. **Register the route**:
    - In [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts), mount the route via `commands.command("xxx", ...)` on the `commands` sub-chain.
@@ -52,15 +52,15 @@ To add a new slash command (e.g. `/my_cmd`), follow this standard checklist:
 
 ### Non-ASCII Command Names
 
-Telegram's API only generates `bot_command` entities for commands starting with ASCII characters. Chinese action commands (such as `/咬` or `/贴贴`, consisting of 1–2 characters) follow a specialized handling pipeline in [`cjkAction.ts`](../../packages/commands/cjkAction.ts):
+Telegram's API only generates `bot_command` entities for commands starting with ASCII characters. Chinese action commands (such as `/咬` or `/贴贴`) follow a dedicated handling pipeline in [`cjkAction.ts`](../../packages/commands/cjkAction.ts):
 
-- **Match message text using `bot.hears`**: Non-ASCII commands cannot be intercepted by `bot.command`. Instead, register a regular expression via `hears(regex, ...)` on the `cjkActions` child Composer (`^\/` prefix, see `CJK_ACTION_COMMAND_PATTERN`), placed before ordinary group message fallbacks.
+- **Match message text using `bot.hears`**: Non-ASCII commands cannot be intercepted by `bot.command`. Register a regular expression via `hears(regex, ...)` on the `cjkActions` child Composer (`^\/` prefix, see `CJK_ACTION_COMMAND_PATTERN`), placed before ordinary group message fallbacks.
 - **Target resolution and fallback**: Forward matches to `resolveCommandTarget`. If the text does not match expected action syntax, call `next()` explicitly to hand control over to downstream middleware rather than swallowing the update.
 - **Filter media captions**: Chinese action commands only accept `message.text`. Messages with media captions must immediately invoke `next()` to return to standard message processing.
-- **Manual prerequisite checks**: Because action commands register before the automated pipeline, handlers must explicitly call `isBotOwnMessage`, `needsBotOwnMessageWait`, and `waitForBotOwnMessage` to manage self-sent messages, and call `updateCachedIdentity` to refresh sender identity records in the local cache.
-- **Message retention and auto-deletion**: Successful action replies are retained permanently by passing `preserveInGroup: true` and the active topic ID `messageThreadId` to `sendCommandMessage`. Parameter errors and usage hints fall back to the standard 30-second auto-deletion.
-- **ASCII placeholder in menus**: Because Telegram's client menu strictly forbids non-ASCII command names, register an ASCII placeholder `/x` in the menu and wire up `handleCjkActionUsageCommand` to provide usage instructions.
-- **Sliding-window rate limiting**: Because Chinese action commands lack native menu rate limits, they are prone to rapid spamming. Restrict execution frequency per group using a sliding window via `libs/slidingWindowRateLimit.ts` configured with `CJK_ACTION_RATE_LIMIT_WINDOW_MS` and `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW`.
+- **Manual prerequisite checks**: Handlers explicitly call `isBotOwnMessage`, `needsBotOwnMessageWait`, and `waitForBotOwnMessage` to manage self-sent messages, and call `updateCachedIdentity` to refresh sender identity records in the local cache.
+- **Message retention and auto-deletion**: Successful action replies are retained permanently by passing `preserveInGroup: true` and the active topic ID `messageThreadId` to `sendCommandMessage`. Parameter errors and usage hints use the standard auto-deletion (`COMMAND_MESSAGE_AUTO_DELETE_MS`).
+- **ASCII placeholder in menus**: Telegram's client menu accepts only ASCII command names; register the ASCII placeholder `/x` in the menu and wire up `handleCjkActionUsageCommand` to provide usage instructions.
+- **Sliding-window rate limiting**: Restrict execution frequency per group using a sliding window via `libs/slidingWindowRateLimit.ts` configured with `CJK_ACTION_RATE_LIMIT_WINDOW_MS` and `CJK_ACTION_RATE_LIMIT_MAX_CALLS_PER_WINDOW`.
 
 ---
 
@@ -100,7 +100,7 @@ All operational constants are declared in `packages/consts/`. Tuning bot behavio
 | AI trigger rate, rate limits, concurrency limits, queue depth | `packages/consts/aiChat/rateLimit.ts` |
 | AI context memory limits, snapshot intervals, backpressure thresholds | `packages/consts/aiChat/memory.ts` |
 | Image analysis text length, execution slots, LRU cache sizes | `packages/consts/aiChat/media.ts` |
-| Image generation cooldowns and byte ceilings | `packages/consts/aiChat/imageGeneration.ts` |
+| Image generation cooldowns, byte ceilings, and reference image ceiling | `packages/consts/aiChat/imageGeneration.ts` |
 | Mood decay intervals and toggle cooldowns | `packages/consts/aiChat/mood.ts` |
 | Tool invocation limits, typing simulation, typo frequencies | `packages/consts/aiChat/tools.ts` |
 | Voice transcription duration/size limits, placeholder notices | `packages/consts/aiChat/voice.ts` |
@@ -108,6 +108,7 @@ All operational constants are declared in `packages/consts/`. Tuning bot behavio
 | AI API timeouts, retry attempts, sampling temperature, safety tiers | `packages/consts/aiChat/gemini.ts`, `openai.ts`, `anthropic.ts` |
 | **Model names, provider keys, endpoints** | **Not code constants**: configure per capability in `config/dynamic/agent.json` |
 | OpenAI-compatible image protocol format and supported dimensions | `config/dynamic/agent.json` via `agent.image.image_protocol` |
+| Reference images passed to the model per generation | `config/dynamic/agent.json` via `agent.image.max_reference_images` |
 | Join verification timeout, spam detection thresholds, mute extensions | `packages/consts/antiRaid/` |
 | Repeat cooldowns, `/quiet` duration ranges, action command rate limits | `packages/consts/commands.ts` |
 | Speaker cooldowns for autonomous random chat triggers | `packages/consts/auto.ts` |
@@ -204,7 +205,7 @@ The runtime does not run automatic database migrations; schema discrepancies wil
 
 1. Define table schemas in `packages/database/schema/<domain>.ts` and import them into `schema/storage.ts`.
 2. Generate migration SQL files at `schema/migrations/000N_<name>.sql` and update `migrations/meta/_journal.json`.
-3. Apply the migration against a local test database, read the generated `created_at` timestamp and `hash` from the `__drizzle_migrations` table, record them in `packages/consts/identityStorage.ts`, and increment `IDENTITY_DATABASE_SCHEMA_VERSION` by 1.
+3. Apply the migration against a local test database, read the generated `created_at` timestamp and `hash` from the `__drizzle_migrations` table, record them in `STORAGE_MIGRATION_LINEAGE` in `packages/consts/identityStorage.ts`, and update `IDENTITY_DATABASE_SCHEMA_VERSION`.
 4. Write a dedicated offline migration script, register the new migration edge in `scripts/migrations/active.ts`, and remove obsolete migration paths.
 5. The migration script must decode records using the specific historical schema version rather than modern types.
 6. Verify output consistency with bidirectional hash validation before writing the `ready.json` marker.

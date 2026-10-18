@@ -35,6 +35,7 @@ import {
   collectConstantLocationProblems,
   collectDeclarationProblems,
   collectModuleCacheProblems,
+  collectIteratorHeadProblems,
   collectObjectFreezeProblems,
 } from "../../scripts/conventions/sourceRules";
 import {
@@ -259,9 +260,12 @@ describe("project convention collectors", () => {
       "export function translateMessage() { return copyMessage({ chatId: 1, caption: translated }); }");
     await Bun.write(join(sourceRoot, "cron", "run.ts"),
       "export function runCronRound() { return bot.api.sendDocument(1, file); }");
+    await Bun.write(join(sourceRoot, "cron", "voice.ts"),
+      "export function runCronVoice() { sendVoiceWithResult({ chatId: 1, bytes }); return bot.api.sendVoice(1, voice); }");
     await Bun.write(
       join(commandsRoot, "luckChallenge", "inline.ts"),
-      'import { sendCommandMessage } from "../../infra/telegram";'
+      'import { sendCommandMessage } from "../../infra/telegram";\n' +
+      'import { sendCommandPhoto } from "../../infra/telegram/commandPhotos";'
     );
     await Bun.write(
       join(sourceRoot, "workers", "antiRaid", "verificationReminders.ts"),
@@ -269,6 +273,8 @@ describe("project convention collectors", () => {
     );
     await Bun.write(join(sourceRoot, "workers", "antiRaid", "badNotice.ts"),
       'import { sendMessage as send } from "../../../infra/telegram"; function notice() { return send({chatId: 1, text: "notice"}); }');
+    await Bun.write(join(sourceRoot, "workers", "antiRaid", "badResultNotice.ts"),
+      'import { sendMessageWithResult as sendResult } from "../../../infra/telegram"; function notice() { return sendResult({chatId: 1, text: "notice"}); }');
     const welcomePath: string = join(sourceRoot, "workers", "antiRaid", "verificationEffects.ts");
     await Bun.write(welcomePath,
       'import { sendMessage as send } from "../../../infra/telegram"; function runVerificationEffects() { return send({chatId: 1, text: "welcome"}); }');
@@ -282,14 +288,18 @@ describe("project convention collectors", () => {
       expect.stringContaining("bad.ts: state-owned command photos must use sendWedResult"),
       expect.stringContaining("bad.ts: long-lived command photos must use sendHImageResult"),
       expect.stringContaining("cron/run.ts: cron messages must be sent through cron/delivery.ts"),
+      expect.stringContaining("cron/voice.ts: cron messages must be sent through cron/delivery.ts"),
       expect.stringContaining("translate/message.ts: copies with a replaced caption must go through sendEchoPayload"),
       expect.stringContaining("command text must use sendCommandMessage"),
       expect.stringContaining("must also pass messageThreadId"),
-      expect.stringContaining("state-owned button messages"),
+      expect.stringContaining("luckChallenge/inline.ts:1 state-owned button messages"),
+      expect.stringContaining("luckChallenge/inline.ts:2 state-owned button messages"),
+      expect.stringContaining("badResultNotice.ts: ordinary Worker/group notices"),
     ]));
     expect(problems).toContainEqual(expect.stringContaining("ordinary Worker/group notices"));
     expect(problems).toContainEqual(expect.stringContaining("verificationEffects.ts: ordinary Worker/group notices"));
-    expect(problems).toHaveLength(10);
+    expect(problems.filter((problem: string): boolean => problem.includes("cron/voice.ts:"))).toHaveLength(2);
+    expect(problems).toHaveLength(14);
     expect(problems.some((problem: string): boolean => problem.includes("copy/echo.ts:") || problem.includes("proxySend.ts:"))).toBeFalse();
     expect(problems.some((problem: string): boolean => problem.includes("hImage/draw.ts"))).toBeFalse();
     expect(problems.some((problem: string): boolean => problem.includes("cron/delivery.ts:"))).toBeFalse();
@@ -411,6 +421,25 @@ describe("逐文件源码规则", () => {
       .toEqual([expect.stringContaining("packages/example.ts:1 Object.freeze is not allowed")]);
   });
 
+  test("packages/ 下不许用 keys/values/entries 的 .next() 取最早项", () => {
+    const path: string = "/project/packages/example.ts";
+    expect(collectIteratorHeadProblems(rule(path,
+      "const oldest = table.oldestKey();\n" +
+      "for (const key of table.keys()) void key;\n" +
+      "const step = iterator.next();\n" +
+      "const page = list.keys(1).next();\n"
+    ))).toEqual([]);
+    expect(collectIteratorHeadProblems(rule(path,
+      "const a = table.keys().next().value;\n" +
+      "const b = this.map.values().next();\n" +
+      "const c = set.entries().next().done;\n"
+    ))).toEqual([
+      expect.stringContaining("packages/example.ts:1 .keys().next() is not allowed"),
+      expect.stringContaining("packages/example.ts:2 .values().next() is not allowed"),
+      expect.stringContaining("packages/example.ts:3 .entries().next() is not allowed"),
+    ]);
+  });
+
   test("模块级 Map/Set/AsyncLocalStorage/holder 必须落在 packages/cache/<owner>/", () => {
     const path: string = "/project/packages/example.ts";
     expect(collectModuleCacheProblems(rule(path, "function f(): Map<string, number> { return new Map(); }\n")))
@@ -456,7 +485,7 @@ describe("逐文件源码规则", () => {
     ]));
   });
 
-  test("生产代码不得导入仅供测试的类型聚合入口；领域子模块照常", () => {
+  test("生产代码不得导入仅供测试的类型聚合入口；领域子模块照常", (): void => {
     const path: string = "/project/packages/example.ts";
     const problems: readonly string[] = collectDeclarationProblems(rule(
       path,
@@ -657,6 +686,41 @@ describe("注释交叉引用核对", () => {
       projectRoot,
       path: join(projectRoot, "packages", "caller.ts"),
       source: source("caller.ts", "/** 见 shared.ts 的 whatever。 */\nexport const x: number = 1;\n"),
+      allSourceFiles,
+    })).toEqual([]);
+  });
+
+  test("相对路径引用指向不存在的符号或文件时报告", async (): Promise<void> => {
+    const { projectRoot, allSourceFiles } = await fixture({
+      "states/join.ts": "export function joinAllowed(): boolean { return true; }\n",
+    });
+    const problems: readonly string[] = await collectCommentReferenceProblems({
+      projectRoot,
+      path: join(projectRoot, "packages", "states", "terminal.ts"),
+      source: source(
+        "terminal.ts",
+        "/** 见 ./join.ts 的 joinExempt 与 ../missing.ts 的 gone。 */\nexport const x: number = 1;\n"
+      ),
+      allSourceFiles,
+    });
+    expect(problems).toEqual([
+      expect.stringContaining("comment references joinExempt in ./join.ts, but that module no longer declares"),
+      expect.stringContaining("comment references gone in ../missing.ts, but that file does not exist"),
+    ]);
+  });
+
+  test("相对路径引用指向正确符号时不报告", async (): Promise<void> => {
+    const { projectRoot, allSourceFiles } = await fixture({
+      "states/join.ts": "export function joinExempt(): boolean { return true; }\n",
+      "shared.ts": "export const TOP_LEVEL: number = 1;\n",
+    });
+    expect(await collectCommentReferenceProblems({
+      projectRoot,
+      path: join(projectRoot, "packages", "states", "terminal.ts"),
+      source: source(
+        "terminal.ts",
+        "/** 见 ./join.ts 的 joinExempt 与 ../shared.ts 的 TOP_LEVEL。 */\nexport const x: number = 1;\n"
+      ),
       allSourceFiles,
     })).toEqual([]);
   });

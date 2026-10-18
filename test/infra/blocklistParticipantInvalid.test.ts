@@ -18,6 +18,10 @@ import { BLOCKLIST_PARTICIPANT_INVALID_LIMIT } from "../../packages/consts/antiR
 import type { PendingBlockedRemoval } from "../../packages/types/blocklist";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blocklist");
 
 /**
  * 黑名单销号计数规则：回执驱动的 JSONB 计数、清零、满额解除与失败路径。
@@ -36,7 +40,6 @@ const {
   pendingBlockedRemovals,
 } = await import("../../packages/cache/main/blocklist");
 const {
-  blocklistEntryCache,
   resetIdentityStorageCache,
 } = await import("../../packages/cache/main/identityStorage");
 const { diskIORuntime } = await import("../../packages/cache/main/diskIO");
@@ -103,9 +106,9 @@ describe("黑名单销号计数", () => {
       userIds: [8],
       removalId: 3,
     });
-    // 裁剪后的 outbox 快照先于 tombstone 投递。
+    // 裁剪后的 outbox 行先于 tombstone 投递。
     expect(participantInvalidHarness.diskMessages.slice(-2).map((message) => message.type))
-      .toEqual(["blocklistRemovals", "identityPolicyWrite"]);
+      .toEqual(["blocklistRemovalWrite", "identityPolicyWrite"]);
     // 计数只持久化到上限减 1；满额那次直接解除，不写出越界值。
     expect(writtenCounts()).toEqual([[7, 1], [7, 2], [7, 3], [7, 4], [7, null]]);
     expect(participantInvalidHarness.logged.some((message: string): boolean =>
@@ -143,14 +146,14 @@ describe("黑名单销号计数", () => {
     recordBlocklistParticipantReadability(receipt([], [7]));
     await drainParticipantInvalidWork();
     readIdentityPolicies.mockClear();
-    expect(blocklistEntryCache.peek(7)).not.toBeUndefined();
+    expect(blocklistField.peek(7)).not.toBeUndefined();
 
     recordBlocklistParticipantReadability(receipt([], [7, 8, 11]));
     await drainParticipantInvalidWork();
 
     expect(readIdentityPolicies.mock.calls.map((call) => call[0])).toEqual([[8, 11]]);
-    expect(blocklistEntryCache.peek(8)).toBeUndefined();
-    expect(blocklistEntryCache.peek(11)).toBeUndefined();
+    expect(blocklistField.peek(8)).toBeUndefined();
+    expect(blocklistField.peek(11)).toBeUndefined();
     expect(writtenCounts()).toEqual([[7, undefined]]);
   });
 
@@ -159,7 +162,7 @@ describe("黑名单销号计数", () => {
     recordBlocklistParticipantReadability(receipt([7]));
     await drainParticipantInvalidWork();
     // 本地已写出计数 1 但尚未 flush；数据库行仍没有计数。
-    blocklistEntryCache.delete(7);
+    blocklistField.delete(7);
 
     recordBlocklistParticipantReadability(receipt([], [7]));
     await drainParticipantInvalidWork();

@@ -92,7 +92,7 @@
 ## 📑 ページ一覧と概要
 
 1. **[01 環境構築と初回実行](01-getting-started.md)**
-   - 依存関係（Bun 1.4.3 / Linux / Bot Token / AI provider API Key）
+   - 依存関係（Bun / Linux / Bot Token / AI provider API Key）
    - `install.sh` によるワンショットインストール（ソースまたはバイナリ配布版）と手動ソースインストール
    - `config/static/bot.json` など deployment 設定のフィールドと厳格な検証
    - Telegram BotFather 設定（Privacy Mode / 管理者権限 / Inline Mode / Bot-to-Bot）
@@ -115,7 +115,7 @@
    - 永続化：永続化と snapshot の contract、グループ状態と `chat_states`、ブロックリストと広告検出、確認境界と停止、ファイル権限
 
 5. **[05 開発フローと品質ゲート](05-dev-workflow.md)**
-   - `bun run check` 直列パイプライン：install script 構文 + install 隔離 + 規約チェック + Lint + Typecheck + カバレッジ付き全テスト + 固定 seed のランダム順全テスト + hot path gate
+   - `bun run check` 直列パイプライン：install script 構文 + install 隔離 + 規約チェック + Lint + Typecheck + ランダム順のカバレッジ付き全テスト + hot path gate
    - テスト隔離機構と一時データサンドボックス
    - コミット手順、障害注入テスト `bun run test:fault-injection` とリリース手順
 
@@ -130,7 +130,7 @@
 7. **[07 運用と障害対応](07-operations.md)**
    - デプロイ形態、ハードウェアの目安表（デプロイ規模別）、systemd とバイナリデプロイ
    - データルートの各ディレクトリと `COPY_NINJIA_DATA_ROOT` ディレクトリ機能チェック（fsync / hard link / rename）
-   - ID ストレージの移行：新規データベース作成、共有データベースのコールド移行、段階的アップグレード
+   - 永続データの移行：新規データベース作成、/wed メンバーウィンドウのコールド移行、段階的アップグレード
    - よくある起動失敗（`bot.lock` 単一インスタンスロック、`memory/luck/receipt-secret.json` 鍵の一貫性を含む）の調査
    - アップグレードとリリース、日常の監視項目
 
@@ -142,7 +142,7 @@
 9. **[09 コマンドと挙動リファレンス](09-commands.md)**
    - Copy モードと対象の指定方法
    - 全コマンドの権限段階（権限キー / スーパー管理者 / グループメンバー）
-   - `/gag`、`/block`、`/batch_kick`、広告検出、参加認証などの挙動の詳細
+   - `/gag`、`/delete_message`、`/block`、`/batch_kick`、広告検出、参加認証などの挙動の詳細
 
 10. **[10 パフォーマンスベンチマーク](10-performance.md)**
     - `bun run perf:full` の各セクションの計測対象：コールドスタート、本番ホットパス、エンドツーエンドの永続化チェーン、SQLite とメインスレッドキャッシュ、コンテナとアルゴリズム、参加ログ容量線

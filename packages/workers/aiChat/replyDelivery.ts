@@ -22,21 +22,14 @@ function advanceDelivery(chatId: number, window: ReplyDeliveryWindow): void {
   if (replyDeliveryWindows.get(chatId) === window) replyDeliveryWindows.delete(chatId);
 }
 
-/**
- * 本群是否还有存活轮次（任一代际已预留发送占位、尚未按序回收）。每个存活轮次收尾时都会
- * 回调 onFinished，因此为 false 时不会再有收尾推力到来。
- */
+/** 本群是否仍有已预留发送占位、尚未按序回收的存活轮次。 */
 export function hasLiveReplyRounds(chatId: number): boolean {
   return replyDeliveryCounts.has(chatId);
 }
 
 /**
- * 同步按入站顺序追加发送占位；媒体解析和模型请求均在占位后进行。
- * 每个窗口用一个 FIFO 追加多轮；存活容量独立于模型并发计数。
- * 群里没有在途轮次（没有窗口）时本轮是直接轮：占位即就绪，ready 当即放行，动作接纳后立即由串行链执行、边生成边发送；
- * 它仍是发送链的队首，后续有序并行轮等它 finish 后才按入站顺位放行。直接轮在模型阶段独立占
- * 一个并发位，commit（模型阶段结束）时交还。有序并行轮的 commit 标记完整动作链就绪，finish
- * 标记发送完成并等待按序回收。生命周期约束见 docs/cn/04-invariants.md。
+ * 按入站顺序预留发送占位：群内无在途窗口时作为直接轮当即放行发送，否则作为有序并行轮排入 FIFO 等待前序轮次完成。
+ * 生命周期约束见 docs/cn/04-invariants.md。
  */
 export function reserveReplyDelivery(chatId: number): ReplyDeliveryTurn | undefined {
   if (!hasReplyDeliveryCapacity(chatId)) return undefined;

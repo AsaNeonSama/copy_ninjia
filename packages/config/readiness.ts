@@ -1,19 +1,8 @@
 /**
- * 按功能聚合部署配置的可用性判定。
+ * 按功能聚合部署配置的可用性判定（跨模块约束见 docs/cn/04-invariants.md）。
  *
- * 主进程启动总闸先校验全部已存在的部署输入；真正缺省的可选文件再由相关功能
- * （`/ai_chat enable`、`/ad_detect enable`、`/translate enable`）按需判定。
- *
- * 结论只在主线程判定（见 cache/main/configReadiness.ts）：判定挂在命令与
- * 投喂门禁上，全在主线程；Worker 不判定功能能否开启。
- *
- * 启动与热重载共用同一套判定：AI 闲聊与广告检测的结论都由 *ReadinessFromHolders 按
- * 已校验配置 holder 得出，不重新读盘。启动总闸严格解析每份已存在的文件后填充对应 holder
- * （config/dynamic/agent.json 同时填充对话与 ad_detect 两段快照），holder 为空即文件或所需
- * 的段缺省；之后 config/dynamic/ 热重载每轮改写 holder，由 app/configReload.ts 重算这两项结论并
- * 经 adopt* 发布。翻译结论（g-auth.json 不热重载）只在启动时按启动快照判定。Worker 的那份配置由
- * 初始化消息投递（见 config/agent.ts 的边界说明）。结论按功能缓存成功与缺省两侧，命中缓存只读
- * holder，每条群消息都要走的路上不分配。
+ * 启动总闸 validateExistingDeploymentInputs 严格校验全部已存在的部署输入并填充 holder 与可用性缓存；
+ * 热重载修改 config/dynamic/ 后由 *ReadinessFromHolders 基于当前 holder 重算 AI 闲聊与广告检测结论。
  */
 
 import { validateGoogleServiceAccountKey } from "./googleAuth";
@@ -87,13 +76,8 @@ function unavailable(file: string, message: string): ConfigReadiness {
 }
 
 /**
- * 按主线程当前 holder 判定 AI 闲聊的部署前提；只读 holder，不读盘，按顺序报第一份缺失的文件。
- *
- * 必检贴纸白名单、心情表与 agent.json 的对话核心能力段（text、summary、media）：前两份是回复
- * 流水线在 Worker 里同步取用的（aiChat/ai/tools/stickers.ts、aiChat/ai/mood.ts）；image/tts 缺省
- * 不阻塞，由工具装配单独摘挂；不看 ad_detect 段。prompt/ 下的提示词不在此列：缺省时由启动总闸
- * 接管内置人设与内置 send_voice 说明（见 ensurePromptFiles）。启动总闸之后 holder 为空只可能是
- * 文件或所需的段缺省（存在但非法的输入已拒绝启动或被热重载拒绝）。
+ * 按主线程当前 holder 判定 AI 闲聊的部署前提（stickers.json、mood.json 及 agent.json 的对话核心能力段）；
+ * 只读 holder，不读盘，按顺序报第一份缺失的文件。
  */
 export function aiChatReadinessFromHolders(): ConfigReadiness {
   if (defaultStickerConfigCache.current === null) {
@@ -141,10 +125,12 @@ export function adoptAdDetectConfigReadiness(readiness: ConfigReadiness): void {
   adDetectConfigReadinessCache.current = readiness;
 }
 
+/** 读取当前线程已发布的 AI 闲聊配置可用性结论。 */
 export function aiChatConfigReadiness(): ConfigReadiness {
   return cachedReadiness(aiChatConfigReadinessCache);
 }
 
+/** 读取当前线程已发布的广告检测配置可用性结论。 */
 export function adDetectConfigReadiness(): ConfigReadiness {
   return cachedReadiness(adDetectConfigReadinessCache);
 }
@@ -158,6 +144,7 @@ async function validateAndCacheGoogleServiceAccountKey(): Promise<void> {
   }
 }
 
+/** 读取当前线程已发布的 /translate 翻译配置可用性结论。 */
 export function translateConfigReadiness(): ConfigReadiness {
   return cachedReadiness(translateConfigReadinessCache);
 }

@@ -157,7 +157,7 @@ export function deriveLuckEntropy(secret: LuckReceiptSecret, cacheKey: string): 
  * 取 `text` 从 `lastLineStart` 到结尾的那一段，该偏移必须是最后一行的起点
  * （末个换行符的下一位，或整串没有换行时的 0）。判定按偏移在原串上比前缀，不先把
  * 末行切出来；`confirmLuckDraw` 在每条带换行的 update 上调用（见
- * app/registerHandlers.ts 的第二道 middleware）。
+ * app/updatePreamble.ts 前置链的链首，bot 发言外闸之后）。
  *
  * @param text 完整消息正文。
  * @param lastLineStart 末行在 `text` 中的起始下标。

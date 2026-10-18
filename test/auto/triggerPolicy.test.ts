@@ -18,12 +18,8 @@ import type { MessageTriggerContext } from "../../packages/types/auto";
 /** 只带随机掷骰与冷却判定所需字段的最小上下文；其余字段本组用例不读。 */
 function triggerContextAt(now: number, chatId: number = -1001): MessageTriggerContext {
   return {
-    chatId,
+    message: { chat: { id: chatId } },
     now,
-    isQuiet: false,
-    hasOtherMention: false,
-    repliesToSelf: false,
-    directTriggerReason: undefined,
     // 概率取 1，让掷骰必中，把用例聚焦在冷却判定本身。
     aiReplyProbability: 1,
   } as unknown as MessageTriggerContext;

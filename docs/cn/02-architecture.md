@@ -29,7 +29,7 @@ flowchart TD
     MAIN -->|单向/带回执写| DISK
 ```
 
-系统的核心设计原则是**状态单宿主（Single Ownership）**：任何一份运行时状态，在同一时刻只能由一个指定的线程独占持有。不同线程之间严格通过结构化消息通信，不共享可变内存，从而彻底消除竞态条件与多线程锁竞争。
+系统采用**状态单宿主（Single Ownership）**：每份运行时状态在同一时刻仅由一个指定线程独占持有，跨线程仅通过结构化消息通信，不共享可变内存。
 
 ### 四大线程职责分工
 
@@ -71,9 +71,9 @@ flowchart TD
 
 ## 一条消息的旅程
 
-系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配。前置处理链通过 `bot.use(...preamble)` 批量注册，由 grammY 统一调度；表情反应、成员变更、内联回调等非消息事件则通过独立的 `bot.on` 注册。
+系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配，整条链只经一个 `bot.use` 登记：这一层完成 update_id 记账与 Bot 发言限流后，进入 [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) 的前置链。前置链各段按下图顺序同步调用下一段，只有真正碰到 I/O（预热冷身份、认领型 ingress 等待落盘或网络、命令与消息处理器）时才返回 Promise。斜杠命令、中文动作命令，以及表情反应、成员变更、内联回调等非消息事件分别建成 grammY `Composer`，由前置链在对应位置调用。
 
-系统没有使用并发队列中间件，而是直接在拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）层面保证顺序：每次长轮询只拉取 1 条更新（`UPDATE_POLL_LIMIT`），必须等当前消息的整条处理链路完全执行完毕后，才会发起下一次 `getUpdates`。这种设计在根源上实现了全局逐条串行处理。
+拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）每次长轮询按 `UPDATE_POLL_LIMIT` 拉取更新，待当前消息的整条处理链路完全执行完毕后才发起下一次 `getUpdates`，全局逐条串行处理。
 
 ```text
 [Telegram Update]
@@ -82,7 +82,7 @@ flowchart TD
  1. update_id 追踪       ── 记录最大已处理 update_id，停机时确立 offset
        │
        ▼
- 2. Bot 发言限流         ── 其他 Bot 的 message 按 ID 跨群计数，超额的更新静默丢弃
+ 2. Bot 发言限流         ── 其他 Bot 的 message 按 ID 跨群计数，超额的更新静默丢弃；本群删除目标的发言不计数
        │
        ▼
  3. 运势签名回执确认    ── 优先结算内联抽签落地回执（转发副本同样有效）
@@ -100,30 +100,31 @@ flowchart TD
  7. 入群验证 Ingress     ── 早于命令处理，待验证成员的所有发言在此被捕获与追踪
        │
        ▼
- 8. gag 禁言 Ingress     ── 被 gag 用户的发言在此被捕获并删除，直接终止链路
+ 8. 删除目标 Ingress     ── /delete_message 目标的发言在此入队待删，直接终止链路
        │
        ▼
- 9. /qa 表单 Ingress    ── 捕获并认领正在填写的「问题:」「回答:」表单消息
+ 9. gag 禁言 Ingress     ── 被 gag 用户的发言在此被捕获并删除，直接终止链路
        │
        ▼
-10. 命令子链 (:entities:bot_command)
+10. /qa 表单 Ingress    ── 捕获并认领正在填写的「问题:」「回答:」表单消息
+       │
+       ▼
+11. 命令子链 (:entities:bot_command)
        │                 ── 外闸过滤，不含命令实体的消息单次跳过整组命令
        ├─ /permission, /white, /copy, /translate, /wed, /block, /ai_chat ...
        └─ /x (菜单占位项，引导中文动作命令用法)
        │
        ▼
-11. 中文动作命令 (hears) ── 匹配 /咬、/贴贴 等 1~2 字动作词；在消息兜底前截获
+12. 中文动作命令 (hears) ── 匹配 CJK_ACTION_COMMAND_PATTERN 动作词；在消息兜底前截获
        │
        ▼
-12. 自动消息流水线       ── auto/message/ 处理复读、群问答直答、AI 触发与转录等
+13. 自动消息流水线       ── auto/message/ 处理复读、群问答直答、AI 触发与转录等
 ```
 
 表情反应同步由 `message_reaction` 的独立 handler（`auto/reactionSync.ts`）处理，不经过上面的消息链。
 
 > [!NOTE]
 > `bot.catch` 记录错误日志后必须继续向上抛出异常，防止未成功处理的 update 被误认为已完成；如果静默吞掉异常，该消息的 offset 会被错误推进，导致消息丢失。
-
----
 
 ---
 
@@ -155,6 +156,7 @@ flowchart TD
     G --> A4["🎟️ send_sticker (发送贴纸)"]:::action
     G --> A5["🎨 generate_image (生成图片)"]:::action
     G --> A6["🎙️ send_voice (发送语音)"]:::action
+    G --> A7["🚫 abuse_mark (拒答冷却)"]:::action
 ```
 
 ### 1. 媒体分流与占位回填管线
@@ -169,11 +171,11 @@ AI 触发包含两种途径：
 - **直接唤醒**：群友 `@机器人`、直接回复机器人的消息，或发送指定媒体。
 - **随机主动插话**：根据群内近期的发言活跃度动态计算概率；冷群插话概率低，活跃群插话概率适度提升（设有人性化上限）；执行 `/quiet` 安静模式期间完全不主动插话。
 
-触发回复后，AI Worker 会组装**四段式模型输入**（系统提示词中包含预设人设）：
-1. **参考记忆**：机器人的基础身份设定，以及早期对话压缩得到的长程冷记忆摘要。
-2. **当前会话**：近期多模态滚动的逐字聊天记录与群友发言人名单。
-3. **本轮运行时状态**：今日心情、当前实际时间，以及本轮工具状态（可用性、生图冷却、语音剩余额度、已登记问答等）。
-4. **本轮任务**：触发回复的用户身份、针对不同触发类型的应答要求，以及偶尔模拟人类手滑打错字的拟人化指令。
+触发回复后，AI Worker 会组装**四段式模型输入**（各段落名见 `REPLY_CONTEXT_SECTION_NAMES`，系统提示词中包含预设人设）：
+1. **参考记忆**（`CURRENT_REFERENCE_MEMORY`）：机器人的基础身份设定，以及早期对话压缩得到的长程冷记忆摘要。
+2. **当前会话**（`CURRENT_CONVERSATION`）：近期多模态滚动的逐字聊天记录与群友发言人名单。
+3. **本轮运行时状态**（`CURRENT_RUNTIME_STATE`）：今日心情、当前实际时间，以及本轮工具状态（可用性、生图冷却、语音剩余额度、已登记问答等）。
+4. **本轮任务**（`CURRENT_REPLY_TASK`）：触发回复的用户身份、针对不同触发类型的应答要求，以及偶尔模拟人类手滑打错字的拟人化指令。
 
 ### 3. 工具调用体系与动作预算
 
@@ -185,17 +187,18 @@ AI 触发包含两种途径：
 | **`add_reaction`** | 动作 | 从白名单 emoji 中选取并为消息添加表情反应；单轮上限为 `MAX_REACTIONS_PER_REPLY`。 |
 | **`view_sticker_pack`** | 查询 | 查看指定贴纸包内的贴纸列表；不消耗动作额度，发送贴纸前模型必须先查询清单。 |
 | **`send_sticker`** | 动作 | 发送指定的贴纸；单轮上限为 `MAX_STICKERS_PER_REPLY`。 |
-| **`generate_image`** | 动作 | 生成并向群内发送图片。校验群冷却时间；单轮上限为 `MAX_GENERATED_IMAGES_PER_REPLY`。 |
+| **`generate_image`** | 动作 | 生成并向群内发送图片。校验群冷却时间；单轮上限为 `MAX_GENERATED_IMAGES_PER_REPLY`。直接触发附带的参考图（相册按顺序补齐，至多 `agent.image.max_reference_images` 张）随请求交给图片模型。 |
 | **`send_voice`** | 动作 | 按配置语言合成台词语音；后台异步合成并由动作链排队发送；单轮上限为 `MAX_VOICES_PER_REPLY`。 |
 | **`web_search`** | 查询 | 本地联网检索工具（配置了 `agent.web_search` 时挂载）；受单轮最大调用次数约束。 |
 | **`group_qa_query`** | 查询 | 查询本群预先登记的问题清单；不占用动作额度。 |
 | **`group_qa_answer`** | 查询 | 获取 `group_qa_query` 中特定问题的预置答案；由模型根据语义自行决定是否引用。 |
-| **`get_tokyo_weather`** | 查询 | 查询东京当日天气与温度；仅在时区为 `Asia/Tokyo` 时挂载。 |
+| **`abuse_mark`** | 动作 | 当触发本轮回复的当前用户反复要求生成违规或令模型厌烦的内容时，标记该用户在 `ABUSE_MARK_DURATION_MS` 内不再进入 AI 闲聊，发出对应风格提示后立即结束本轮模型会话。 |
+| **`get_tokyo_weather`** | 查询 | 查询东京当日天气与温度；仅在时区为 `TOKYO_TIME_ZONE` 时挂载。 |
 
 > [!TIP]
 > **动作链与拟人化聊天状态**：
 > - 模型调用发送类工具时，系统当场校验并预扣额度，随即向模型返回成功回执；而实际的拟人打字停顿、语音合成等待与真实的 Telegram API 发送，则由后台的**串行动作链**按调用顺序依次平滑执行。
-> - Telegram 顶部的状态提示（正在输入、正在录音、正在选贴纸、正在上传图片）由动作链当前执行的步骤实时驱动；上一段状态结束后会静默一段缓冲时间，再切换到下一个动作状态。
+> - Telegram 顶部的状态提示（正在输入、正在录音、正在选贴纸、正在上传图片）由动作链当前执行的步骤实时驱动；上一段状态结束后至少静默 `CHAT_ACTION_REST_MS`，再切换到下一个动作状态。
 
 ---
 
@@ -204,39 +207,40 @@ AI 触发包含两种途径：
 程序入口 [`index.ts`](../../index.ts) 仅负责装配 [`ApplicationLifecycle`](../../packages/app/lifecycle.ts)。模块在 import 时保证无副作用（不启动 Worker、不建定时器、不发起网络连接、不写磁盘）。真正的启动流程由 `ApplicationLifecycle.init()` 串行推进：
 
 0. **配置目录布局检查**：由 `layout.ts` 检查 `config/` 目录结构，禁止文件散落根目录，确认 `config/dynamic/` 目录存在，随后严格解析 `bot.json`。
-1. **数据根预检与排他锁**：检查运行时数据根目录的写权限、文件 fsync、hard link 与原子 rename 能力，随后获取 `bot.lock` 单实例文件锁（基于系统 `/proc/<pid>/stat` 与内核 boot ID）；任一步失败立即安全退出。接着初始化头像队列、群标题回填、翻译、口球及延迟命令的运行时环境。
+1. **数据根预检与排他锁**：检查运行时数据根目录的写权限、文件 fsync、hard link 与原子 rename 能力，随后获取 `bot.lock` 单实例文件锁（基于系统 `/proc/<pid>/stat` 与内核 boot ID）；任一步失败立即安全退出。接着注册 Worker 致命异常回调，并初始化头像队列、群标题回填、翻译、口球、老婆抽取（`wed`）及延迟命令的运行时环境。
 2. **全局状态与配置校验**：
    - 清理中断残留的临时文件。
    - 严格加载恢复 `memory/global/state.json`；若数据根根目录下遗留有未迁移的旧格式文件则报错退出。
    - 对所有已存在的部署配置文件进行严格校验；缺少可选配置由对应功能降级处理，存在但格式非法则直接报错退出。
    - 检查并确保专用图库目录就绪（核对权限与文件格式）。
 3. **启动 Disk I/O Worker 并恢复持久化数据**：
-   - Worker 启动时对所有持久化数据（SQLite 数据库、日志、AI 用量、贴纸、运势、入群日志等）进行只读检查与格式校验；校验全部通过后才接管状态并注册每日零点维护任务。
-   - 主线程同步填充群状态、群问答等热读缓存副本，初始化 Telegram 客户端，确认超级管理员未被拉黑。
+   - Worker 启动时对所有持久化数据（SQLite 数据库、日志、AI 用量、贴纸、运势、入群验证、入群日志、老婆抽取候选池等）进行只读检查与格式校验；校验全部通过后才接管状态、运行启动维护并注册每日零点维护任务（`DISK_IO_MAINTENANCE_CRON`）。
+   - 主线程同步填充群状态、群问答、老婆抽取成员等热读缓存副本，初始化 Telegram 客户端，确认超级管理员未被拉黑或列为 `/delete_message` 目标，并预填发言者身份与翻译目标缓存。
 4. **注册中间件与握手**：挂载全部消息中间件、注册命令菜单，并执行 `bot.init()` 与 Telegram 服务器完成连接握手。
 5. **初始化业务 Worker 与调度器**：
-   - 启动 AI Worker（若 AI 配置就绪），加载对话记忆快照与贴纸目录。
-   - 启动 Anti-Raid Worker，恢复入群验证与防冲群锁定镜像。
-   - 启动定时任务调度器（`cron.json`）与配置文件动态热重载监听，并对已有群组执行一轮黑名单补扫。
+   - 启动 AI Worker（若 AI 配置就绪），加载对话记忆快照与贴纸目录；主线程恢复运势状态。
+   - 载入待定入群验证记录与黑名单待踢 outbox 后启动 Anti-Raid Worker，恢复入群验证与防冲群锁定镜像。
+   - 启动定时任务调度器（`cron.json`）、配置文件动态热重载监听与黑名单补扫调度器，并在接收新 update 前对已确认管理员权限的群组先行执行一轮黑名单补扫。
 6. **启动消息拉取 Runner**：启动长轮询逐条串行 Runner 开始消费 updates，开启老婆抽取成员复核与群标题异步更新。
 
 ---
 
 ## 停机顺序
 
-停机统一由 `ApplicationLifecycle` 的 `dispose()` 收口，无论是收到 `SIGINT` / `SIGTERM` 正常退出还是发生未捕获异常退出，均按严格的串行屏障依序关停：
+停机统一由 `ApplicationLifecycle`（`wait()` 与 `dispose()`）按 [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) 中 `SHUTDOWN_DRAIN_OWNERS` 定义的串行屏障依序收口，无论是收到 `SIGINT` / `SIGTERM` 正常退出还是发生未捕获异常退出：
 
 1. **入口关闸（Quiesce）**：
-   - 停止群标题回填、头像队列、翻译、口球、定时任务与配置文件热重载监听；每个入口独立清理，任何错误均记录并阻止最终 offset 确认。
+   - 停止群标题回填、头像队列、翻译、口球、老婆抽取交互与成员复核、延迟命令、定时任务、黑名单补扫与配置文件热重载监听；每个入口独立清理，任何错误均记录并阻止最终 offset 确认。
    - 停止 Telegram 长轮询 Runner，不再拉取新的 update。
 2. **有界队列排空（Drain）**：
-   - 为正在处理的消息 handler 注入超时取消信号，在限定时间内等待其自然执行完毕；若超时则强制中止当前消息处理，并扣住该消息的 offset 不向 Telegram 提交，确保重启后 Telegram 能够重新推送重试。
+   - 为正在处理的消息 handler 注入超时取消信号，在限定时间内等待其自然执行完毕（若超时则强制中止当前消息处理并阻止最终 offset 确认），随后等待后台群标题回填任务收敛。
 3. **数据落盘与确认 Offset**：
-   - 按依赖顺序排空各 Worker 的等待队列并将所有脏数据刷新到磁盘（flush）。
-   - 全部数据确认安全落盘后，通过一次轻量 `getUpdates` 向 Telegram 正式提交最后处理完毕的 update_id 作为 offset。若前面的落盘步骤发生任何异常，则坚决不提交 offset，并以非零状态码退出。
+   - `flushAllToDisk` 按 `SHUTDOWN_DRAIN_OWNERS` 顺序排空各模块与 Worker 队列并将所有脏数据刷新到磁盘（flush）。
+   - 全部数据确认安全落盘后，通过一次轻量 `getUpdates` 向 Telegram 正式提交最后处理完毕的 `update_id` 作为 offset。若前面的落盘步骤发生任何异常，则坚决不提交 offset，并以非零状态码退出。
 4. **资源释放（Dispose）**：
-   - 依次释放各模块资源：AI Worker 退出、出站队列关闸、终止 Anti-Raid 与 Disk I/O Worker（Disk I/O Worker 终止前提交残余写、执行 WAL checkpoint 并关闭共享 SQLite）、保存最终全局状态。
-   - 最终释放 `bot.lock` 单实例锁（若退出过程发生异常未结算，则保持锁直至操作系统回收进程，防止故障态下被 supervisor 盲目秒级拉起）。
+   - 按 `SHUTDOWN_DRAIN_OWNERS` 顺序依次释放各模块资源：头像队列、翻译（排空后关闭客户端）、Anti-Raid、口球公告、`/qa set` 表单、老婆抽取、延迟命令、定时任务、目标消息删除队列（`/delete_message`）、统一延迟删除队列、AI 记忆刷盘（完成后终止 AI Worker）、Telegram 出站队列（排空后关闭出站闸门）、Disk I/O 刷盘。
+   - 终止 Anti-Raid 与 Disk I/O Worker（Disk I/O Worker 终止前提交残余写、执行 WAL checkpoint 并关闭共享 SQLite），并刷写最终 `StateStore` 全局状态。
+   - 停机结局分为 `clean`、`offsetWithheld` 与 `unsettled` 三态：仅 `unsettled` 保留 `bot.lock` 单实例锁直至操作系统回收进程（防止故障态下被 supervisor 盲目秒级拉起），其余状态正常释放实例锁；任何非 `clean` 结局均设置非零进程退出码。
 
 ---
 

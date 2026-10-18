@@ -329,7 +329,7 @@ async function deliverBatchKick({
 
 /**
  * `/batch_kick <Nm|Nh|Nd>`：只允许超级管理员在超级群中执行；初始化状态由
- * app/registerHandlers.ts 的统一前置网关保证，本 handler 不重复判断或提示。
+ * app/updatePreamble.ts 前置链的初始化网关保证，本 handler 不重复判断或提示。
  * 按需读取本群入群追写日志中回溯窗口覆盖的记录，并踢出窗口内仍在群的人。
  * 本命令不新增黑名单持久化；与并发 `/block` 冲突、或日志里的人本来就在黑名单上
  * 时，本命令不自己处置，而是在整批结束后请一次补扫，把他们真正交回封禁流程。

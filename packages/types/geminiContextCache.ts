@@ -31,8 +31,8 @@ export interface GeminiContextCacheRejection {
   readonly rejectedAt: number;
 }
 
-/** 一张登记表对服务端既有条目的启动扫描进度。 */
-export type GeminiContextCacheScanState = "idle" | "running" | "done";
+/** 一张登记表对模型显式缓存支持度探测与服务端既有条目启动扫描的状态。 */
+export type GeminiContextCacheScanState = "idle" | "running" | "done" | "unsupported";
 
 /**
  * 一个 scope 在本线程的本地登记表。创建时绑定当下的 Google 客户端，表内全部后台请求
@@ -52,7 +52,7 @@ export interface GeminiContextCacheRegistry {
   /**
    * 槽键 → 创建被端点以 400 拒绝的内容指纹、累计次数与时刻；未满
    * GEMINI_CONTEXT_CACHE_MAX_REJECTIONS 次时按 GEMINI_CONTEXT_CACHE_REJECTION_RETRY_AFTER_MS 冷却
-   * 后再试，满额后同一内容不再创建，被拒内容变了从 1 重新计。同一槽键之后创建成功、或该槽
+   * 后再试，满额后同一内容不再创建，被拒内容变化时重新计数。同一槽键之后创建成功、或该槽
    * 已有的旧缓存被淘汰时删除；登记表在 `config.text` / `agent.ad_detect` 变化时整表替换。
    * 容量为本表存续期间被拒的不同槽键数（每个槽键只记最近被拒的内容）；被拒的槽键不占
    * slots，不按 maxSlots 截断。
@@ -62,12 +62,14 @@ export interface GeminiContextCacheRegistry {
 }
 
 /**
- * 一个能力的显式缓存 scope：登记表、后台请求的取消信号与本能力的标识。text 与
+ * 一个能力的显式缓存 scope：登记表、当前模型名、后台请求的取消信号与本能力的标识。text 与
  * ad_detect 各一个，displayName 前缀互不相同，启动扫描互不接管。
  */
 export interface GeminiContextCacheScope {
   /** 本线程当前的登记表；表不存在时按当下配置的客户端新建。 */
   registry(): GeminiContextCacheRegistry;
+  /** 当前能力配置的模型名，供启动或切换时 `models.get` 探测显式缓存支持度。 */
+  model(): string;
   /** 后台扫描、创建、续期与删除使用的取消信号；停机后返回已 abort 的信号。 */
   signal(): AbortSignal;
   /** displayName 前缀，后接「槽指纹:内容指纹」。 */
@@ -93,4 +95,10 @@ export interface GeminiContextCacheContent {
   readonly slotKey: string;
   /** 内容键：模型、系统指令、工具声明与 toolConfig 的指纹。 */
   readonly contentKey: string;
+}
+
+/** AI 回复侧的内容单槽：上一份缓存内容及其工具声明 JSON（见 cache/workers/aiChat/geminiContextCache.ts）。 */
+export interface GeminiReplyCacheContentSlot {
+  readonly content: GeminiContextCacheContent;
+  readonly toolsJson: string;
 }

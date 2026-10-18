@@ -25,6 +25,8 @@ export function adoptTimeZone(timeZone: string): void {
     offsetStartMs: 1,
     offsetEndMs: 0,
     offsetMs: 0,
+    dateDay: Number.NaN,
+    datePrefix: "",
   };
 }
 

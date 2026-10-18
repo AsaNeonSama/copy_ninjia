@@ -5,7 +5,6 @@ import {
 } from "../../cache/workers/antiRaid/recentComments";
 import { COMMENT_JOIN_CORRELATE_MS, RECENT_COMMENT_CACHE_MAX } from "../../consts/antiRaid/cache";
 import type { RecentChannelComment } from "../../types/antiRaid/internal";
-import { setBoundedMapValue } from "../../libs/boundedMap";
 
 /**
  * 频道评论区留言的暂存：评论先到、入群更新后到时的关联缓冲，供
@@ -47,13 +46,8 @@ export function rememberRecentComment({
     sweepRecentComments(observedAt, false);
   }
   if (observedAt < recentCommentsMinObservedAt.current) recentCommentsMinObservedAt.current = observedAt;
-  // 清完仍触顶时由共享实现按插入序淘汰最早项。
-  setBoundedMapValue({
-    map: recentChannelComments,
-    key,
-    value: { messageId, observedAt },
-    maxEntries: RECENT_COMMENT_CACHE_MAX,
-  });
+  // 清完仍触顶时由 FifoMap 按插入序淘汰最早项。
+  recentChannelComments.set(key, { messageId, observedAt });
 }
 
 function isCommentInWindow(observedAt: number, now: number): boolean {

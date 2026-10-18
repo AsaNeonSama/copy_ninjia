@@ -26,12 +26,7 @@ export interface NotifyRateLimitedParams {
   messageThreadId: number | undefined;
 }
 
-/**
- * 触发被限频或队列溢出时发送明确反馈。提示按群冷却（RATE_LIMIT_NOTICE_COOLDOWN_MS）；
- * 发送成功后与普通 AI 回复一样登记自发消息并写入滚动记忆。
- *
- * 提示经 messageThreadId 落在触发消息所在的话题。
- */
+/** 按群冷却（RATE_LIMIT_NOTICE_COOLDOWN_MS）发送限频或队列溢出临时提示，并在发送成功后记入滚动记忆。 */
 export function notifyRateLimited({
   chatId,
   now,

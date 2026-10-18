@@ -1,4 +1,4 @@
-/** owner: main。Google 翻译客户端、进程级凭据快照与按群串行的后台译文链。 */
+/** owner: main。Google 翻译客户端、凭据快照与按群串行译文队列（packages/translate/）。 */
 
 import type { v3 as GoogleTranslate } from "@google-cloud/translate";
 import { createKeyedSerialTaskRunner } from "../../libs/keyedSerialTaskRunner";
@@ -6,10 +6,7 @@ import type { KeyedSerialTaskRunner } from "../../libs/keyedSerialTaskRunner";
 import type { GoogleServiceAccountKey } from "../../types/config";
 import type { TranslateMessageBacklog } from "../../types/translate";
 
-/**
- * 启动总闸严格解析后发布唯一凭据快照；缺省为 null，
- * closeTranslate 不清除，进程重启重新读取；Worker 不引入，容量为一份部署配置。
- */
+/** Google 翻译服务账号凭据快照单例：启动预检解析成功后填充，运行期不清除、不淘汰；进程重启后从 null 重新加载。 */
 export const googleServiceAccountKey: { current: GoogleServiceAccountKey | null } = { current: null };
 
 interface TranslateRuntime {
@@ -19,18 +16,10 @@ interface TranslateRuntime {
   tasks: Set<Promise<unknown>>;
 }
 
-/**
- * 服务账号解析出的 GCP project 路径前缀。首次翻译时填充，closeTranslate
- * 清空；重启后从服务账号重新查询，容量固定为一个字符串。
- */
+/** GCP project 路径前缀缓存单例：首次翻译请求时解析填充，closeTranslate 时清空为 null；进程重启后从 null 开始。 */
 export const translateParentCache: { parent: string | null } = { parent: null };
 
-/**
- * 翻译 owner 的客户端、接入闸、代际与在途任务。initTranslate 开放入口，
- * closeTranslate 关闭客户端并提升代际；进程重启后以初始空状态重建。在途集合同时登记
- * 翻译请求与按群串行的后台译文任务（translate/message.ts），供停机 drainTranslate 等待，
- * 在 Promise settle 时删除；条数受每群 TRANSLATE_CHAT_BACKLOG_MAX 约束。
- */
+/** 翻译运行时状态：initTranslate 开启 accepting，翻译请求与后台译文任务登记于 tasks 并在结算时移除，closeTranslate 关闭 client 并递增 generation；容量受并发请求与每群 TRANSLATE_CHAT_BACKLOG_MAX 约束，进程重启后从初始值开始。 */
 export const translateRuntime: TranslateRuntime = {
   client: null,
   accepting: false,
@@ -38,18 +27,10 @@ export const translateRuntime: TranslateRuntime = {
   tasks: new Set(),
 };
 
-/**
- * 按群串行的后台译文任务链尾（translate/message.ts 的 queueTranslateMessage）：同群译文按收到
- * 顺序发出。链排空即由执行器删除条目；容量为同时有译文在途的群数，上界为开着翻译会话的群数，
- * 不设淘汰。不落盘，进程重启后为空。
- */
+/** 群 ID 到后台译文串行任务链尾的映射：queueTranslateMessage 入队时写入，链排空时由执行器删除；容量与存在在途译文的受管群数同阶，不淘汰，进程重启后从空表开始。 */
 export const translateMessageChains: Map<number, Promise<void>> = new Map();
-/**
- * 每群后台译文积压：queueTranslateMessage 入队时 count +1、任务结束时 -1，归零即删除条目；
- * count 达到 TRANSLATE_CHAT_BACKLOG_MAX 时新消息不翻译。容量与 translateMessageChains 相同，
- * 不落盘，进程重启后为空。
- */
+/** 群 ID 到后台译文积压计数的映射：queueTranslateMessage 入队时递增、任务结算时递减并在归零时删除；单群上限为 TRANSLATE_CHAT_BACKLOG_MAX（满额跳过新消息），容量与 translateMessageChains 同阶，进程重启后从空表开始。 */
 export const translateMessageBacklogs: Map<number, TranslateMessageBacklog> = new Map();
-/** 后台译文的按群串行调度器，与 translateMessageChains 共享生命周期。 */
+/** 绑定 translateMessageChains 的按群串行任务调度器单例。 */
 export const translateMessageRunner: KeyedSerialTaskRunner<number> =
   createKeyedSerialTaskRunner(translateMessageChains);

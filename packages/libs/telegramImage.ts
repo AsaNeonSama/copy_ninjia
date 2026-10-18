@@ -26,7 +26,6 @@ export function messageImageCandidate(message: Message): MessageImageCandidate |
  * 这张图的尺寸是否过得了 `sendPhoto` 的两道门槛：宽高之和不超过
  * TELEGRAM_PHOTO_MAX_DIMENSION_SUM，长宽比不超过 TELEGRAM_PHOTO_MAX_ASPECT_RATIO（取长边
  * 除以短边）。两道门槛与字节上限相互独立。纯函数，只比较数字；零或负的边长按不合规处理。
- * @param dimensions 已读出的像素宽高。
  */
 export function isSendablePhotoDimensions({ width, height }: ImageDimensions): boolean {
   if (width <= 0 || height <= 0) return false;
@@ -37,15 +36,20 @@ export function isSendablePhotoDimensions({ width, height }: ImageDimensions): b
 
 /**
  * 从 Telegram 按分辨率升序返回的 photo 档位中挑最大且未声明超限的一档；
- * 全部超限时仍退回最小档，由下载侧的真实字节上限做最终防护。
+ * 全部超限时仍退回最小档，由下载侧的真实字节上限做最终防护。选档规则的唯一实现：
+ * pickPhotoFile 与 Worker 发送回执投影（infra/telegram/workerRequests.ts）都经它选档，
+ * 只剩选中那一档的单元素数组再选一次仍是同一档。
  */
-export function pickPhotoFile(sizes: PhotoSize[]): TelegramVisionSource {
+export function pickPhotoSize(sizes: readonly PhotoSize[]): PhotoSize {
   for (let i: number = sizes.length - 1; i >= 0; i--) {
     const size: PhotoSize = sizes[i]!;
-    if (!size.file_size || size.file_size <= MEDIA_MAX_DOWNLOAD_BYTES) {
-      return { fileId: size.file_id, fileUniqueId: size.file_unique_id, width: size.width, height: size.height };
-    }
+    if (!size.file_size || size.file_size <= MEDIA_MAX_DOWNLOAD_BYTES) return size;
   }
-  const smallest: PhotoSize = sizes[0]!;
-  return { fileId: smallest.file_id, fileUniqueId: smallest.file_unique_id, width: smallest.width, height: smallest.height };
+  return sizes[0]!;
+}
+
+/** 按 pickPhotoSize 选档并转成视觉源。 */
+export function pickPhotoFile(sizes: readonly PhotoSize[]): TelegramVisionSource {
+  const size: PhotoSize = pickPhotoSize(sizes);
+  return { fileId: size.file_id, fileUniqueId: size.file_unique_id, width: size.width, height: size.height };
 }

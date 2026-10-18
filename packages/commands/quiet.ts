@@ -8,7 +8,7 @@ import { isQuietUntilActive } from "../libs/chatState";
 
 /**
  * 处理 /quiet 指令：让机器人在本群安静一段时间——期间不触发 AI 随机插话、
- * 洗澡「看看」和随机复读这些主动行为；回复机器人 / @ 机器人的 AI 必回、
+ * 洗澡触发词回复和随机复读这些主动行为；回复机器人 / @ 机器人的 AI 必回、
  * 各类指令、以及 /copy 锁定目标的复读不受影响，对话缓存也照常累积。
  * 时长参数为十进制整数分钟数（QUIET_MINUTES_PATTERN），缺省 QUIET_DEFAULT_MINUTES，
  * 其它形态回用法提示；超出 QUIET_MIN_MINUTES ~ QUIET_MAX_MINUTES 的整数收敛到边界。

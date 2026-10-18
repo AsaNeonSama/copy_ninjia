@@ -124,7 +124,7 @@ describe("cron 一轮", () => {
     expect(loggerError.mock.calls[0]![0]).toContain("action #2 (send_message) failed after 1 attempt(s)");
   });
 
-  test("调度被撤销时在下一个动作前停下，不记错误", async () => {
+  test("调度被撤销时在下一个动作或下一次重试前停下，不记错误", async () => {
     const target: CronTaskSchedule = schedule(MESSAGES);
     deliverCronAction.mockImplementationOnce(async (): Promise<CronDeliveryOutcome> => {
       delivered.push("one");
@@ -132,6 +132,16 @@ describe("cron 一轮", () => {
       return { kind: "sent" };
     });
     await settle(runCronRound(target, new AbortController().signal));
+    expect(delivered).toEqual(["one"]);
+
+    delivered.length = 0;
+    const retryTarget: CronTaskSchedule = schedule(MESSAGES);
+    deliverCronAction.mockImplementationOnce(async (): Promise<CronDeliveryOutcome> => {
+      delivered.push("one");
+      retryTarget.cancelled = true;
+      return { kind: "retryable", detail: "network" };
+    });
+    await settle(runCronRound(retryTarget, new AbortController().signal));
     expect(delivered).toEqual(["one"]);
     expect(loggerError).not.toHaveBeenCalled();
   });

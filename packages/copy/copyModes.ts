@@ -13,7 +13,7 @@ function reverseText(text: string): string {
 }
 
 /**
- * 给尚未以 喵~ 结尾的文本追加 " 喵~"（前面带一个半角空格）。安全校验由调用方负责
+ * 给尚未以 NYA_SUFFIX 结尾的文本追加空格与 NYA_SUFFIX。安全校验由调用方负责
  * （见 auto/message/echo.ts 对变换前后两串的 containsRenderableCommand 守卫），结果以
  * 不带实体、不设 parse_mode 的字符串发出（正文或新图注）。
  * @param text 待追加后缀的文本。
@@ -39,8 +39,7 @@ export function applyCopyModeTransform(text: string, mode: CopyMode | undefined)
 }
 
 /**
- * 为 `/copy reverse`、`/copy nya` 的启动提示语描述该 copy mode 的效果，例如
- * "，之后 TA 说的纯文字都会被本天才倒过来念"。没有模式时返回 ""。
+ * 返回 `/copy` 启动提示语中对应 copy mode 的效果说明片段；没有模式时返回空串。
  * @param mode 即将启动的 copy mode。
  */
 export function describeCopyModeEffect(mode: CopyMode | undefined, atmosphere: AtmosphereTexts): string {

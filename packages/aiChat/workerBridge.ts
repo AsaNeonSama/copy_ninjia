@@ -58,6 +58,7 @@ import {
   telegramWorkerResponseTransfer,
 } from "../infra/telegram/workerRequests";
 import { activeStickerCatalogs, mirrorStickerCatalog, pruneStickerCatalogMirror } from "./stickerMirror";
+import { clearAbuseMarkedUsers, markAbuseUser } from "./abuseMark";
 import { requestVoiceSynthesis } from "./voiceSynthesis";
 import type { VoiceSynthesisRequest } from "./voiceSynthesis";
 import type { VoiceSynthesisResult } from "../types/aiChat/voiceMessage";
@@ -86,26 +87,8 @@ function failAllAiChatWaiters(moodReason: string, invalidateReason: string): voi
 }
 
 /**
- * AI 闲聊入口（主线程侧代理）。真正的回复流水线——滚动对话缓存、图片/
- * 贴纸/GIF 占位与异步描述、限频、拼装上下文、调模型（含 function
- * calling 往返与供应商内置的服务端联网检索）、工具化的发言/消息反应/两层应景贴纸
- * （见 packages/aiChat/ai/tools/replyToolset/）、白名单贴纸目录与整包简介生成——全部在独立
- * 的 Bun Worker（packages/workers/aiChatWorker.ts）里
- * 执行。主线程投递消息记录、回复触发、配置与生命周期消息，并接收快照、业务回执
- * 和 Telegram 能力请求；模型与其它外部 API 不经此边界。postMessage 按 FIFO 送达，
- * 同一群里「先记录、后触发」的先后顺序在 Worker 侧保持不变。
- *
- * Worker 的启动、崩溃自愈（含节流放弃）、日志转投见 infra/supervisedWorker.ts。
- *
- * AI 记忆持久化：aiChatWorker 定期把各群 dirty 的记忆快照（滚动缓存 + 中期
- * 摘要）、各白名单贴纸包 dirty 的目录快照上报到这里（memory / stickerCatalog
- * 事件），本模块各存一份镜像（latestAiMemories / latestStickerCatalogs）后
- * 转投 diskIOWorker 落盘。这份镜像与按 chat 单调递增的 revision、待确认删除
- * tombstone 一起构成双向崩溃重放来源：aiChatWorker 崩溃重启后凭镜像重放
- * hydrate（下方 onRespawn），diskIOWorker 崩溃重启后重放 tombstone 与最新快照。
- * revision 计数、tombstone 与删除回执 waiter 的维护函数都在
- * aiChat/memoryMirror.ts；本文件的 onEvent 负责在收到 memory/stickerCatalog
- * 事件时写入镜像并转投 diskIOWorker，另外保留 Worker 监督与对外 API。
+ * AI 闲聊主线程代理：监督 AI Worker 生命周期、转发配置与生命周期消息、接收记忆与贴纸目录快照并转投 Disk I/O。
+ * @see ../../docs/cn/04-invariants.md
  */
 
 const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: SupervisedWorkerHandle<WorkerDuplexInbound<AiChatWorkerMessage>> = superviseDuplexWorker<AiChatWorkerMessage, AiChatWorkerEvent, TelegramWorkerRequest>({
@@ -132,8 +115,6 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
           latestAiMemories.set(event.chatId, event.snapshot);
           latestAiMemoryRevisions.set(event.chatId, revision);
           aiMemoryUsages.set(event.chatId, event.usage);
-          // 字段一律发出，不用条件展开，与上一跳（workers/aiChat/rollingMemory.ts
-          // 的 memory 事件）一致；落盘侧判的是 `=== true`。
           postDiskIO({
             type: "aiMemory",
             chatId: event.chatId,
@@ -144,8 +125,6 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
         }
         break;
       case "memoryUsages":
-        // hydrate 播种的占用量（见 workers/aiChat/rollingMemory.ts 的
-        // hydrateMemories）；正在等待 purge 确认的群跳过，不写入镜像。
         for (const [chatId, usage] of event.usages) {
           if (purgedAiMemoryChats.has(chatId)) continue;
           aiMemoryUsages.set(chatId, usage);
@@ -185,8 +164,10 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
         adoptTtsUsage(event.usage);
         break;
       case "aiCacheUsage":
-        // 旁路统计：诊断通道未就绪时直接丢弃，不影响回复。
         relayAiCacheUsage(event.usage);
+        break;
+      case "abuseMark":
+        markAbuseUser(event.userId);
         break;
     }
   },
@@ -196,19 +177,11 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
       "AI Worker crashed before completing chat invalidation."
     );
     settleAiMemoryTeardownWorker();
-    // 新 Worker 重放身份注入与配置快照，FIFO 保证它先于任何 record/trigger 到达；
-    // 重放的 init 带着主线程当前生效的配置快照（热重载由 syncAiChatConfig 同步改写）。
-    // initAiChat 调用之前 lastInitState.current 为 null，没有可重放的内容。
     if (lastInitState.current && !postToNext(lastInitState.current)) return;
-    // 语音合成每日计数：新 Worker 从空值起步，凭主线程持有的最新回执恢复，
-    // 排在任何 trigger/synthesizeVoice 之前到达。
     if (lastInitState.current && !postToNext({ type: "hydrateTtsUsage", usage: getTtsUsage() })) return;
-    // 记忆镜像同样要重放：新 Worker 内存全空，凭上一实例上报过的最新快照
-    // 补齐（见模块头注）。
     if (latestAiMemories.size > 0) {
       if (!postToNext({ type: "hydrate", memories: latestAiMemories })) return;
     }
-    // 贴纸目录镜像同理：先灌回已生成的条目，再由 init 处理的 ensureStickerCatalogs 对账。
     if (latestStickerCatalogs.size > 0) {
       if (!postToNext({ type: "hydrateStickerCatalog", catalogs: activeStickerCatalogs() })) {
         logger.error("AI Worker sticker catalog replay was rejected.");
@@ -217,19 +190,12 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
   },
   onGiveUp: (): void => {
     aiChatWorkerState.available = false;
-    // lastInitState 一并清掉：flushAiMemory 以 `lastInitState.current === null`
-    // 判断这条线未启动并直接返回 flushed。
     lastInitState.current = null;
-    // 同 onRespawn/terminateAiChat：立即结算全部等待者。
     failAllAiChatWaiters(
       "AI Worker gave up restarting before acknowledging the mood request.",
       "AI Worker gave up before completing chat invalidation."
     );
-    // purged 只负责拒绝旧 Worker 快照；pendingAiMemoryDeletes 由 Disk I/O
-    // durable 回执拥有，这里不清空。
     purgedAiMemoryChats.clear();
-    // 尚未收到首份快照（null）的群不再有 Worker 回传，清掉；已经投给
-    // Disk I/O 的数字 revision 保留，供其重建时维持即时写盘语义。
     for (const [chatId, revision] of postPurgeAiMemoryPersistRevisions) {
       if (revision === null) postPurgeAiMemoryPersistRevisions.delete(chatId);
     }
@@ -245,12 +211,8 @@ export function postAiChatOrThrow(message: AiChatWorkerMessage): void {
 }
 
 /**
- * 启动 AI Worker 并注入身份、本进程人设、send_voice 说明与通知风格及主线程当前生效的配置快照，再补发语音合成每日计数。FIFO
- * 保证 init 先于一切 record/trigger 到达；Worker 靠它在转录里认出自己并自录自己
- * 发的消息。投递全部成功后才记 lastInitState 并发布可用标记：Worker 崩溃重启要
- * 重放这条消息，投递失败时两者都保持原值，并终止已经建好的 Worker 后上抛（启动与
- * 热重载恢复都不会再替它终止）。调用方负责确认 AI 前提的 holder 已齐
- * （启动走 readiness，热重载走 config/readiness.ts 的 aiChatReadinessFromHolders）。
+ * 启动 AI Worker 并依次投递 `init` 与 `hydrateTtsUsage`，成功后记录 `lastInitState` 并标记可用；
+ * 投递失败时终止已创建的 Worker 并抛错。
  */
 export function startAiChatWorker(botInfo: AiBotInfo): void {
   pruneStickerCatalogMirror(getStickerConfig().packs);
@@ -281,13 +243,7 @@ export function startAiChatWorker(botInfo: AiBotInfo): void {
 }
 
 /**
- * 记下机器人自己的账号身份，AI 前提可用时启动 AI Worker。须在 bot.init() 之后、
- * runner 开始投喂更新之前调用一次（见 app/lifecycle.ts）。
- *
- * 前提不可用时整条线不启动：连线程都不建，lastInitState 保持 null，停机路径上的
- * flushAiMemory 因此直接返回 flushed、terminateAiChat 面对空 worker 也是 no-op
- * （见 infra/supervisedWorker.ts）。身份照样记下，config/dynamic/ 热重载补齐前提时由
- * aiChat/hydration.ts 的 resumeAiChat 据此启动。
+ * 记录机器人账号身份，并在 AI 配置就绪时启动 AI Worker。
  */
 export function initAiChat(botInfo: AiBotInfo): void {
   const identity: AiBotInfo = { id: botInfo.id, username: botInfo.username, first_name: botInfo.first_name };
@@ -303,12 +259,7 @@ export function initAiChat(botInfo: AiBotInfo): void {
 export type AiConfigDomains = Pick<HotDeploymentConfigChanges, "aiAgent" | "mood" | "stickers">;
 
 /**
- * 把主线程已生效的 AI 配置投给 AI Worker（见 app/configReload.ts 与
- * aiChat/hydration.ts 的 resumeAiChat）。
- *
- * 先把 lastInitState 改写成当前快照再投递：投递被拒绝（Worker 正在重建）时，
- * 重建重放的 init 已经带着这一份。Worker 从未启动时 lastInitState 为 null，直接
- * 返回。调用方保证三份 holder 此刻都非空。
+ * 更新 `lastInitState` 中的配置快照并向运行中的 AI Worker 投递 `configReload`。
  */
 export function syncAiChatConfig(domains: AiConfigDomains): void {
   if (domains.stickers) pruneStickerCatalogMirror(getStickerConfig().packs);
@@ -332,10 +283,7 @@ export function syncAiChatConfig(domains: AiConfigDomains): void {
 }
 
 /**
- * 要求 aiChatWorker 立即把所有 dirty 群的记忆快照、dirty 的贴纸目录上报
- * （进而转投 diskIOWorker 落盘），并等待完成。用于进程退出前的最后一刷
- * （握手样式同 infra/diskIO.ts 的 flushDiskIO）。带超时：Worker 异常时
- * 停机流程最多等待 timeoutMs。
+ * 请求 AI Worker 立即上报全部 dirty 的群记忆与贴纸目录快照并等待完成。
  */
 export function flushAiMemory(timeoutMs: number = AI_MEMORY_FLUSH_TIMEOUT_MS): Promise<FlushResult> {
   if (lastInitState.current === null) return Promise.resolve("flushed");
@@ -345,13 +293,14 @@ export function flushAiMemory(timeoutMs: number = AI_MEMORY_FLUSH_TIMEOUT_MS): P
   );
 }
 
-/** 停机时强制终止 AI Worker，保证它不会在 Disk I/O flush 后继续发布旧快照。 */
+/** 终止 AI Worker 并清理在途等待表与临时状态。 */
 export async function terminateAiChat(): Promise<void> {
   failAllAiChatWaiters(
     "AI Worker is shutting down before acknowledging the mood request.",
     "AI Worker is shutting down before completing chat invalidation."
   );
   aiChatWorkerState.available = false;
+  clearAbuseMarkedUsers();
   purgedAiMemoryChats.clear();
   postPurgeAiMemoryPersistRevisions.clear();
   await terminateAiChatWorker();
@@ -359,19 +308,13 @@ export async function terminateAiChat(): Promise<void> {
 }
 
 /**
- * 向 aiChatWorker 查询或重抽全局唯一的心情，并等待带 requestId 的结果回执。两类
- * 请求共用等待表、编号空间与超时生命周期；Worker 不发 Telegram 消息。
- *
- * - `queryMood`（/mood query）：读取当前有效心情；自然到期仍由 Worker 的 currentMood
- *   统一处理，不强制切换尚未到期的心情。
- * - `switchMood`（/mood switch）：要求 Worker 无视剩余寿命立即重抽，并带回新心情名。
+ * 向 AI Worker 查询或重抽全局心情并等待结果回执。
  */
 export async function requestAiMood(requestType: "queryMood" | "switchMood"): Promise<string> {
   const deadlineAt: number = Date.now() + MOOD_REQUEST_TIMEOUT_MS;
   return unwrapWorkerRequestOutcome(await beginWorkerRequest<WorkerRequestOutcome<string>>({
     table: moodRequests,
     timeoutMs: MOOD_REQUEST_TIMEOUT_MS,
-    // 同 postAiChatOrThrow：同步拒绝时关闭可用标记。
     post: (requestId: number): boolean => {
       if (post({ type: requestType, requestId, deadlineAt })) return true;
       aiChatWorkerState.available = false;
@@ -386,9 +329,7 @@ export async function requestAiMood(requestType: "queryMood" | "switchMood"): Pr
 }
 
 /**
- * `/send` 代发 TTS 与 cron `send_voice` 的语音合成入口：把台词与语气交给 AI Worker 的
- * 公共实现，拿回编码好的语音；等待、取消与结算见 aiChat/voiceSynthesis.ts。AI Worker
- * 没在运行（AI 前提不齐或已放弃重启）时按「worker unavailable」返回。
+ * 向 AI Worker 请求合成一句语音。
  */
 export function synthesizeVoice(request: VoiceSynthesisRequest): Promise<VoiceSynthesisResult> {
   return requestVoiceSynthesis(request, {
@@ -398,8 +339,7 @@ export function synthesizeVoice(request: VoiceSynthesisRequest): Promise<VoiceSy
 }
 
 /**
- * cron `send_web_digest` 的摘要入口：把主题与组稿参数交给 AI Worker 生成摘要，拿回 MarkdownV2
- * 原文；等待、取消与结算见 aiChat/webDigest.ts。AI Worker 没在运行时按「worker unavailable」返回。
+ * 向 AI Worker 请求生成一份联网摘要。
  */
 export function composeWebDigest(request: WebDigestRequest, signal: AbortSignal): Promise<WebDigestCompositionResult> {
   return requestWebDigest(request, signal, {
@@ -409,9 +349,7 @@ export function composeWebDigest(request: WebDigestRequest, signal: AbortSignal)
 }
 
 /**
- * 使某群当前回复代数失效、清空等候队列并删除该群的 AI 记忆。/ai_chat disable、
- * /clear_context 与群级 teardown 共用这一条路；在途请求返回后也会因代数失配而
- * 停止发送和记忆回填。
+ * 使指定群聊在 AI Worker 中的运行时失效并持久化删除其 AI 记忆。
  */
 export async function invalidateAiChat(chatId: number): Promise<void> {
   if (aiChatWorkerState.available) purgedAiMemoryChats.add(chatId);

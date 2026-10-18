@@ -8,8 +8,7 @@ import { readBotChatPermissions } from "../../../packages/libs/chatMember";
 import { aiReplyActivityByChat } from "../../../packages/cache/main/auto";
 import { wedMemberStates, resetWedMemberStates } from "../../../packages/cache/main/wedMembers";
 import { aiChatConfigReadinessCache } from "../../../packages/cache/main/configReadiness";
-import { whitelistEntryCache, blocklistEntryCache } from "../../../packages/cache/main/identityStorage";
-import { temporaryAdBypassActivityCache } from "../../../packages/cache/main/temporaryAdBypass";
+import { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
 import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
 import { bot } from "../../../packages/infra/telegram/mainClient";
 import { cannedTelegramCalls, installCannedTelegramOutbound } from "../outboundGuard";
@@ -54,9 +53,7 @@ export function registeredMiddlewareScenario(): Scenario {
       getOrCreateChatState(BENCHMARK_CHAT_ID).quietUntil = Date.now() + QUIET_MAX_DURATION_MS;
       getOrCreateChatState(BENCHMARK_CHAT_ID).botPermissions =
         readBotChatPermissions(BENCHMARK_BOT_ADMIN_MEMBER);
-      whitelistEntryCache.set(BENCHMARK_SENDER_ID, null);
-      blocklistEntryCache.set(BENCHMARK_SENDER_ID, null);
-      temporaryAdBypassActivityCache.set(BENCHMARK_SENDER_ID, null);
+      identityPolicyCache.set(BENCHMARK_SENDER_ID, { whitelist: null, blocklist: null, temporaryAdBypass: null });
       aiChatConfigReadinessCache.current = { ok: true };
     },
     run: async (iterations: number): Promise<number> => {

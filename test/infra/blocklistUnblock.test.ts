@@ -12,6 +12,10 @@ import {
   seedMissingIdentity,
 } from "../helpers/identityStorage";
 import type { TelegramIdentityMetadata } from "../../packages/types/identityPolicy";
+import { identityFieldView } from "../helpers/identityCacheView";
+import type { IdentityFieldView } from "../helpers/identityCacheView";
+
+const temporaryAdBypassField: IdentityFieldView<"temporaryAdBypass"> = identityFieldView("temporaryAdBypass");
 
 /** 本文件不关心展示元数据；拉黑时统一带空字段。 */
 const NO_META: Readonly<TelegramIdentityMetadata> = { firstName: "", lastName: "", username: "" };
@@ -47,7 +51,6 @@ const {
   unacknowledgedBlocklistWrites,
 } = await import("../../packages/cache/main/identityStorage");
 const {
-  temporaryAdBypassActivityCache,
   unacknowledgedTemporaryAdBypassWrites,
 } = await import("../../packages/cache/main/temporaryAdBypass");
 const {
@@ -96,7 +99,7 @@ describe("SQLite 黑名单主线程最终值", () => {
   test("拉黑已有临时累计时先排 tombstone，再排永久黑名单", () => {
     const now: number = Date.now();
     seedMissingIdentity(8);
-    temporaryAdBypassActivityCache.set(8, {
+    temporaryAdBypassField.set(8, {
       adBypass: true,
       adBypassGrantedAt: now,
       qualifiedDays: 7,
@@ -146,7 +149,7 @@ describe("SQLite 黑名单主线程最终值", () => {
     expect(unblockUser(7)).toBeFalse();
   });
 
-  test("解除拉黑先投裁剪后的 outbox 快照，再投 tombstone", () => {
+  test("解除拉黑先投裁剪后的 outbox 行，再投 tombstone", () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     blockedUserIds.set(8, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     pendingBlockedRemovals.set(1, {
@@ -158,13 +161,16 @@ describe("SQLite 黑名单主线程最终值", () => {
 
     expect(unblockUser(7)).toBeTrue();
 
-    // Worker 可能在任一条消息后提交：快照在前，已提交的库里就不会出现引用 7 的冻结批次。
+    // Worker 可能在任一条消息后提交：行写入在前，已提交的库里就不会出现引用 7 的冻结批次。
     expect(diskMessages.map((message: DiskBusinessMessage) => message.type))
-      .toEqual(["blocklistRemovals", "identityPolicyWrite"]);
+      .toEqual(["blocklistRemovalWrite", "identityPolicyWrite"]);
+    const rowWrite: DiskBusinessMessage = diskMessages[0]!;
+    expect(rowWrite).toEqual(expect.objectContaining({ removalId: 1 }));
+    expect(JSON.parse((rowWrite as { data: string }).data).params.userIds).toEqual([8]);
     expect(diskMessages[1]).toEqual(expect.objectContaining({ table: "blocklist", id: 7, data: null }));
   });
 
-  test("名单清空时补扫任务随快照先于 tombstone 销账", () => {
+  test("名单清空时补扫任务的删除行先于 tombstone 投递", () => {
     blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/08/11 00:00:00" });
     pendingBlockedRemovals.set(2, {
       params: { chatId: -1001, probeMembership: true, removalId: 2 },
@@ -177,8 +183,8 @@ describe("SQLite 黑名单主线程最终值", () => {
 
     expect(pendingBlockedRemovals.size).toBe(0);
     expect(diskMessages.map((message: DiskBusinessMessage) => message.type))
-      .toEqual(["blocklistRemovals", "identityPolicyWrite"]);
-    expect(diskMessages[0]).toEqual(expect.objectContaining({ removals: [] }));
+      .toEqual(["blocklistRemovalWrite", "identityPolicyWrite"]);
+    expect(diskMessages[0]).toEqual(expect.objectContaining({ removalId: 2, data: null }));
   });
 
   test("删除入口先发布负缓存与计数，再执行回调，最后投递 tombstone", () => {
@@ -227,7 +233,7 @@ describe("SQLite 黑名单主线程最终值", () => {
         writes: [{ table: "blocklist", id: 9, revision }],
         temporaryAdBypassWrites: [],
         chatStateWrites: [],
-        chatQaWrites: [],
+        chatQaWrites: [], removalWrites: [],
       });
     }
     expect(requeueUnacknowledgedIdentityWrite("blocklist", 9)).toBeFalse();
@@ -243,7 +249,7 @@ describe("超管与黑名单互斥的启动断言", () => {
   test("超管在黑名单里时拒绝启动，并点名文件与两张表", async () => {
     seedMissingIdentity(1);
     blockUser(1, NO_META);
-    // isWhitelisted 对超管短路 true、isUserBlocked 不短路；超管出现在 blocklist_entries 时在启动阶段拒绝启动（见 AGENTS.md「不为用户行为兜底」）。
+    // isWhitelisted 对超管短路 true、isUserBlocked 不短路；超管出现在 blocklist_entries 时在启动阶段拒绝启动。
     await expect(assertSuperAdminNotBlocked(1)).rejects.toThrow(
       /blocklist_entries must not contain the configured super admin identity 1/
     );

@@ -57,6 +57,11 @@ async function tick(milliseconds: number = 0): Promise<void> {
   for (let turn: number = 0; turn < 20; turn++) await Promise.resolve();
 }
 
+/** 测试用成员滑窗：按给定顺序进入，进入时间均为 0。 */
+function memberWindow(...ids: number[]): Map<number, number> {
+  return new Map(ids.map((id: number): [number, number] => [id, 0]));
+}
+
 function speak(userId: number): void {
   const chat = { id: -1001, type: "supergroup" };
   observeWedMembers({ chat, message: { chat, from: { id: userId, is_bot: false }, text: "hi" } } as never);
@@ -67,7 +72,7 @@ beforeEach((): void => {
   now.mockImplementation((): number => Date.now());
   initWedRuntime();
   getOrCreateChatState(-1001).isInitEnabled = true;
-  hydrateWedMembers(new Map([[-1001, new Set([1, 2])]]));
+  hydrateWedMembers(new Map([[-1001, memberWindow(1, 2)]]));
   for (const fn of [post, errorLog]) fn.mockClear();
   probe.mockReset();
   probe.mockImplementation(async (_chatId: number, userId: number): Promise<ChatMember> => member(userId));
@@ -87,7 +92,7 @@ afterEach(async (): Promise<void> => {
 });
 
 test("统一午夜通知等待 Bot 就绪，同日去重，次日继续；无需交互缓存", async (): Promise<void> => {
-  hydrateWedMembers(new Map([[-1001, new Set([1])]]));
+  hydrateWedMembers(new Map([[-1001, memberWindow(1)]]));
   midnight();
   expect(wedChats.size).toBe(0);
   expect(probe).not.toHaveBeenCalled();
@@ -106,9 +111,9 @@ test("统一午夜通知等待 Bot 就绪，同日去重，次日继续；无需
   expect(probe).toHaveBeenCalledTimes(2);
 });
 
-test("所有群共用每秒五个 ID 的限速，只移除明确离群者并复用最终 Set 落盘", async (): Promise<void> => {
-  const first: Set<number> = new Set<number>([1, 2, 3, 4]);
-  const second: Set<number> = new Set<number>([5, 6, 7]);
+test("所有群共用每秒五个 ID 的限速，只移除明确离群者并复用最终滑窗落盘", async (): Promise<void> => {
+  const first: Map<number, number> = memberWindow(1, 2, 3, 4);
+  const second: Map<number, number> = memberWindow(5, 6, 7);
   hydrateWedMembers(new Map([[-1001, first], [-1002, second]]));
   const starts: number[] = [];
   probe.mockImplementation(async (_chatId: number, userId: number): Promise<ChatMember> => {
@@ -128,17 +133,16 @@ test("所有群共用每秒五个 ID 的限速，只移除明确离群者并复�
   expect(probe.mock.calls.map(([chatId, userId]) => [chatId, userId])).toEqual([
     [-1001, 1], [-1001, 2], [-1001, 3], [-1001, 4], [-1002, 5], [-1002, 6], [-1002, 7],
   ]);
-  expect(wedMemberStates.get(-1001)!.members).toBe(first);
-  expect([...first]).toEqual([1]);
-  expect([...second]).toEqual([5, 6, 7]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1]);
+  expect([...wedMemberStates.get(-1002)!.members.keys()]).toEqual([5, 6, 7]);
   expect(errorLog).toHaveBeenCalledTimes(1);
   expect(flushWedMembers()).toBeTrue();
   expect(post).toHaveBeenCalledTimes(1);
-  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 3, members: [1] });
+  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 3, entries: [1, 0] });
 });
 
 test("慢查询后不补发积压，跨日整轮不重叠", async (): Promise<void> => {
-  hydrateWedMembers(new Map([[-1001, new Set([1, 2, 3])]]));
+  hydrateWedMembers(new Map([[-1001, memberWindow(1, 2, 3)]]));
   const gate = heldProbe();
   enableWedMemberReview();
   midnight();
@@ -187,7 +191,7 @@ test("查询超时后的离群回包无效，继续查询其余成员", async ()
 });
 
 test("Telegram 以 PARTICIPANT_ID_INVALID 拒绝的 ID 按离群移除且不记错误，其它失败仍保留", async (): Promise<void> => {
-  const members: Set<number> = new Set<number>([1, 2, 3]);
+  const members: Map<number, number> = memberWindow(1, 2, 3);
   hydrateWedMembers(new Map([[-1001, members]]));
   probe.mockImplementation(async (_chatId: number, userId: number): Promise<ChatMember> => {
     if (userId === 2) throw participantInvalid();
@@ -199,10 +203,10 @@ test("Telegram 以 PARTICIPANT_ID_INVALID 拒绝的 ID 按离群移除且不记�
   await tick();
   for (let index: number = 0; index < 2; index++) await tick(WED_MEMBER_REVIEW_INTERVAL_MS);
   expect(probe).toHaveBeenCalledTimes(3);
-  expect([...members]).toEqual([1, 3]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1, 3]);
   expect(errorLog).toHaveBeenCalledTimes(1);
   expect(flushWedMembers()).toBeTrue();
-  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 1, members: [1, 3] });
+  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 1, entries: [1, 0, 3, 0] });
 });
 
 test("查询超时后的 PARTICIPANT_ID_INVALID 回包同样无效", async (): Promise<void> => {
@@ -219,7 +223,7 @@ test("查询超时后的 PARTICIPANT_ID_INVALID 回包同样无效", async (): P
   expect(post).not.toHaveBeenCalled();
 });
 
-test("停机取消限速等待，最终 Set 由原排空入口投递，迟到午夜通知不重启", async (): Promise<void> => {
+test("停机取消限速等待，最终滑窗由原排空入口投递，迟到午夜通知不重启", async (): Promise<void> => {
   probe.mockResolvedValueOnce(member(1, "left"));
   enableWedMemberReview();
   midnight();
@@ -227,7 +231,7 @@ test("停机取消限速等待，最终 Set 由原排空入口投递，迟到午
   expect(wedMemberStates.get(-1001)!.members.has(1)).toBeFalse();
   expect(await drainWedRuntime(1_000)).toBe("flushed");
   expect(post).toHaveBeenCalledTimes(1);
-  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 1, members: [2] });
+  expect(post).toHaveBeenCalledWith({ type: "wedMembers", chatId: -1001, revision: 1, entries: [2, 0] });
   midnight("2026-09-08");
   enableWedMemberReview();
   await tick(1_000);
@@ -235,7 +239,7 @@ test("停机取消限速等待，最终 Set 由原排空入口投递，迟到午
   expect(wedMemberReview.current).toBeNull();
 });
 
-test("停机在途查询必须结算后才能重建，取消后的离群回包不修改 Set", async (): Promise<void> => {
+test("停机在途查询必须结算后才能重建，取消后的离群回包不修改滑窗", async (): Promise<void> => {
   const gate = heldProbe();
   enableWedMemberReview();
   midnight();
@@ -246,39 +250,39 @@ test("停机在途查询必须结算后才能重建，取消后的离群回包�
   expect((): void => initWedRuntime()).toThrow("unsettled");
   gate.resolve(member(1, "left"));
   await tick();
-  expect([...wedMemberStates.get(-1001)!.members]).toEqual([1, 2]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1, 2]);
   expect(probe).toHaveBeenCalledTimes(1);
   expect(await drainWedRuntime(0)).toBe("flushed");
   initWedRuntime();
   expect(wedMemberReview.current!.ready).toBeFalse();
 });
 
-test("重新接管成员集合时结束旧集合的遍历，旧回包不能删除新集合的 ID，新集合按自己的快照复核", async (): Promise<void> => {
+test("重新接管成员滑窗时结束旧滑窗的遍历，旧回包不能删除新滑窗的 ID，新滑窗按自己的快照复核", async (): Promise<void> => {
   const gate = heldProbe();
   enableWedMemberReview();
   midnight();
-  const replacement: Set<number> = new Set<number>([1, 3]);
+  const replacement: Map<number, number> = memberWindow(1, 3);
   hydrateWedMembers(new Map([[-1001, replacement]]));
   gate.resolve(member(1, "left"));
   await tick();
-  expect([...replacement]).toEqual([1, 3]);
+  expect([...replacement.keys()]).toEqual([1, 3]);
   expect(probe).toHaveBeenCalledTimes(1);
   await tick(WED_MEMBER_REVIEW_INTERVAL_MS);
   await tick(WED_MEMBER_REVIEW_INTERVAL_MS);
   expect(probe.mock.calls.map(([chatId, userId]) => [chatId, userId])).toEqual([[-1001, 1], [-1001, 1], [-1001, 3]]);
-  expect([...replacement]).toEqual([1, 3]);
+  expect([...replacement.keys()]).toEqual([1, 3]);
   expect(wedRuntime.current!.tasks.size).toBe(0);
   expect(wedMemberReview.current!.chatId).toBeNull();
 });
 
 test("复核中某群被停管只跳过该群，其余群照常复核", async (): Promise<void> => {
-  hydrateWedMembers(new Map([[-1001, new Set([1, 2])], [-1002, new Set([5, 6])]]));
+  hydrateWedMembers(new Map([[-1001, memberWindow(1, 2)], [-1002, memberWindow(5, 6)]]));
   const gate = heldProbe();
   enableWedMemberReview();
   midnight();
   await tick();
   expect(wedMemberReview.current!.chatId).toBe(-1001);
-  // `/init disable` 与离群 teardown 摘除成员集合的同一边界。
+  // `/init disable` 与离群 teardown 摘除成员滑窗的同一边界。
   const flush = spyOn(diskIO, "flushDiskIODomain").mockResolvedValue({ result: "flushed" });
   await purgeWedMembers(-1001);
   flush.mockRestore();
@@ -294,7 +298,7 @@ test("复核中某群被停管只跳过该群，其余群照常复核", async ()
 });
 
 test.each(["speech", "chat_member", "service"])("查询期间的 %s 在群观察否决迟到离群结果", async (kind): Promise<void> => {
-  hydrateWedMembers(new Map([[-1001, new Set([1])]]));
+  hydrateWedMembers(new Map([[-1001, memberWindow(1)]]));
   const gate = heldProbe();
   enableWedMemberReview();
   midnight();
@@ -309,7 +313,7 @@ test.each(["speech", "chat_member", "service"])("查询期间的 %s 在群观察
 });
 
 test("每群快照有限，跳过已删除成员，新发言 ID 留到下一轮", async (): Promise<void> => {
-  hydrateWedMembers(new Map([[-1001, new Set([1, 2, 3])]]));
+  hydrateWedMembers(new Map([[-1001, memberWindow(1, 2, 3)]]));
   const gate = heldProbe();
   enableWedMemberReview();
   midnight();
@@ -319,12 +323,12 @@ test("每群快照有限，跳过已删除成员，新发言 ID 留到下一轮"
   await tick();
   await tick(WED_MEMBER_REVIEW_INTERVAL_MS);
   expect(probe.mock.calls.map((call) => call[1])).toEqual([1, 3]);
-  expect([...wedMemberStates.get(-1001)!.members]).toEqual([1, 3, 4]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1, 3, 4]);
 });
 
 test("本群拒绝成员查询时只查一次即结束该群本轮，成员全部保留，其余群照常复核", async (): Promise<void> => {
-  const denied: Set<number> = new Set<number>([1, 2, 3]);
-  const reviewed: Set<number> = new Set<number>([4, 5]);
+  const denied: Map<number, number> = memberWindow(1, 2, 3);
+  const reviewed: Map<number, number> = memberWindow(4, 5);
   hydrateWedMembers(new Map([[-1001, denied], [-1002, reviewed]]));
   probe.mockImplementation(async (chatId: number, userId: number): Promise<ChatMember> => {
     if (chatId === -1001) {
@@ -342,7 +346,7 @@ test("本群拒绝成员查询时只查一次即结束该群本轮，成员全�
   await tick();
   for (let index: number = 0; index < 2; index++) await tick(WED_MEMBER_REVIEW_INTERVAL_MS);
   expect(probe.mock.calls.map(([chatId, userId]) => [chatId, userId])).toEqual([[-1001, 1], [-1002, 4], [-1002, 5]]);
-  expect([...denied]).toEqual([1, 2, 3]);
-  expect([...reviewed]).toEqual([4]);
+  expect([...wedMemberStates.get(-1001)!.members.keys()]).toEqual([1, 2, 3]);
+  expect([...wedMemberStates.get(-1002)!.members.keys()]).toEqual([4]);
   expect(errorLog).toHaveBeenCalledTimes(1);
 });
