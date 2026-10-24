@@ -635,3 +635,33 @@ function assertStorageMigrationLineageReadonly(): void {
   STORAGE_MIGRATION_LINEAGE[0]!.hash = "mock";
 }
 void assertStorageMigrationLineageReadonly;
+
+import {
+  MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
+  MINI_APP_FEATURE_KEYS,
+  MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
+  MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
+  MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
+  MINI_APP_PICKER_SUBJECT_KINDS,
+  MINI_APP_PICKER_TARGET_LISTS,
+  MINI_APP_TOGGLEABLE_FEATURE_KEYS,
+} from "../../packages/consts/miniApp";
+function assertMiniAppConstantsReadonly(): void {
+  // @ts-expect-error Mini App 功能开关键闭集禁止调用方增删。
+  MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error Mini App 子功能开关键闭集禁止调用方增删。
+  MINI_APP_TOGGLEABLE_FEATURE_KEYS.push("aiChat");
+  // @ts-expect-error Mini App 选择器目标名单闭集禁止调用方增删。
+  MINI_APP_PICKER_TARGET_LISTS.push("whitelist");
+  // @ts-expect-error Mini App 选择器身份类型闭集禁止调用方增删。
+  MINI_APP_PICKER_SUBJECT_KINDS.push("users");
+  // @ts-expect-error 发言记录分页档位列表禁止调用方增删。
+  MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error 受管群分页档位列表禁止调用方增删。
+  MINI_APP_CHATS_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error 名单分页档位列表禁止调用方增删。
+  MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error 图库分页档位列表禁止调用方增删。
+  MINI_APP_GALLERY_PAGE_SIZE_OPTIONS.push(50);
+}
+void assertMiniAppConstantsReadonly;

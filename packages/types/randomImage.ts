@@ -26,6 +26,20 @@ export interface RandomImageLibrary {
   readonly size: number;
 }
 
+/** 图库目录内单张有效图片的文件元数据（infra/randomImage.ts 的 listRandomImageEntries 与 statRandomImageFile）。 */
+export interface RandomImageEntry {
+  /** 图库目录内的文件名（不含路径）。 */
+  readonly fileName: string;
+  /** 本机图片文件的绝对路径。 */
+  readonly filePath: string;
+  /** 扩展名映射得到的图片 MIME 类型。 */
+  readonly mimeType: RandomImageMimeType;
+  /** 文件字节大小。 */
+  readonly sizeBytes: number;
+  /** 最后修改毫秒时间戳。 */
+  readonly mtimeMs: number;
+}
+
 /**
  * 把一张图写进随机图库的结局（infra/randomImage.ts 的 storeRandomImage）：
  * - stored：已按 `<内容 SHA-256><扩展名>` 写入，扩展名由字节嗅探得出；

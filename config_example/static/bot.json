@@ -2,5 +2,11 @@
   "atmosphere": "mesugaki",
   "time_zone": "Asia/Tokyo",
   "bot_token": "replace-with-telegram-bot-token",
-  "super_admin_user_id": 123456789
+  "super_admin_user_id": 123456789,
+  "mini_app": {
+    "url": "https://miniapp.example.com",
+    "port": 3000,
+    "host": "127.0.0.1",
+    "password": "mini-app-example-password-908172"
+  }
 }

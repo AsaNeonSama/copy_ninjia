@@ -53,13 +53,13 @@ export function isBotCommandText(text: string, command: string, botUsername: str
 
 /**
  * 私聊指令前置网关，见 app/updatePreamble.ts。私聊里以 / 开头的文本一律
- * 拦下，唯一例外是超级管理员发给当前机器人的 /send。该判断与 init 网关在
+ * 拦下，仅放行超级管理员发给当前机器人的 `/send` 与 `/app`。该判断与 init 网关在
  * 全部命令与中文动作路由之前运行，/permission、/white 同样经过。
  * 判定同时看 text 与 caption：bot.command 只认 text，bot.hears（`/咬` 这类
  * 中文动作命令，见 commands/cjkAction.ts）两者都匹配；caption 以 / 开头的
  * 内容一律拦下。/send 中转会话运行期间，斜杠开头的内容也不作为中转消息接收。
  * @param ctx 当前 grammY 更新上下文。
- * @returns 非私聊、非斜杠开头消息或超管 `/send` 命令时返回 true，其余私聊斜杠指令返回 false。
+ * @returns 非私聊、非斜杠开头消息或超管 `/send`、`/app` 命令时返回 true，其余私聊斜杠指令返回 false。
  */
 export function shouldPassPrivateCommandGate(ctx: Context): boolean {
   if (ctx.chat?.type !== "private") return true;
@@ -67,19 +67,24 @@ export function shouldPassPrivateCommandGate(ctx: Context): boolean {
   const text: string | undefined = message?.text ?? message?.caption;
   if (!text?.startsWith("/")) return true;
   if (typeof message?.text !== "string") return false;
-  return ctx.from?.id === SUPER_ADMIN_USER_ID && isBotCommandText(text, "/send", ctx.me.username);
+  return (
+    ctx.from?.id === SUPER_ADMIN_USER_ID &&
+    (isBotCommandText(text, "/send", ctx.me.username) ||
+      isBotCommandText(text, "/app", ctx.me.username))
+  );
 }
 
 /**
  * 活动中的 /send 私聊消息必须在普通命令之前直接交给中转流水线。前置私聊
- * 网关已经拒绝全部斜杠内容，因此这里只路由普通消息；/send 本身仍留给命令
- * 处理器，供超管切换目标或结束会话。
+ * 网关已经拒绝全部斜杠内容，因此这里只路由普通消息；/send 与 /app 仍留给命令
+ * 处理器，Mini App 选择器回传的 `users_shared` / `chat_shared` 服务消息不进入中转。
  * @param ctx 当前 grammY 更新上下文。
- * @returns 存在活跃中转目标且当前为超管发送的非斜杠私聊消息时返回 true，否则返回 false。
+ * @returns 存在活跃中转目标且当前为超管发送的非斜杠、非选择器共享私聊消息时返回 true，否则返回 false。
  */
 export function shouldRoutePrivateProxyMessage(ctx: Context): boolean {
   const message: Message | undefined = ctx.message;
   if (!message || ctx.chat?.type !== "private" || ctx.from?.id !== SUPER_ADMIN_USER_ID) return false;
+  if (message.users_shared !== undefined || message.chat_shared !== undefined) return false;
   const text: string | undefined = message.text ?? message.caption;
   if (text?.startsWith("/")) return false;
   return getActiveProxySendTarget() !== undefined;

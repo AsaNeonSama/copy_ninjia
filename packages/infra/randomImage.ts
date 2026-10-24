@@ -8,7 +8,7 @@
 
 import { access, lstat, mkdir, readdir, rename } from "node:fs/promises";
 import { constants } from "node:fs";
-import type { Dirent } from "node:fs";
+import type { Dirent, Stats } from "node:fs";
 import { extname, join } from "node:path";
 import { ASSETS_CONFIG_PATH } from "../consts/paths";
 import {
@@ -25,6 +25,7 @@ import { pickRandom } from "../libs/random";
 import { logger } from "./logger";
 import { sniffImageFormat } from "./image";
 import type {
+  RandomImageEntry,
   RandomImageLibrary,
   RandomImageMimeType,
   RandomImagePick,
@@ -143,8 +144,81 @@ export async function pickRandomImage(directory: string): Promise<RandomImagePic
 export async function isRandomImageDirectory(directory: string): Promise<boolean> {
   try {
     return (await Bun.file(directory).stat()).isDirectory();
-  } catch {
+  } catch (_error: unknown) {
     return false;
+  }
+}
+
+/**
+ * 枚举图库目录内的全部有效普通图片文件并采集字节大小与修改时间；目录不存在时返回 `null`。
+ * @param directory 专用图库目录的绝对路径。
+ * @returns 有效图片元数据数组；目录不存在或非目录时返回 `null`。
+ */
+export async function listRandomImageEntries(
+  directory: string
+): Promise<readonly Readonly<RandomImageEntry>[] | null> {
+  if (!await isRandomImageDirectory(directory)) return null;
+  let entries: Dirent[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error: unknown) {
+    if (vanished(error)) return null;
+    throw error;
+  }
+  const records: Readonly<RandomImageEntry>[] = [];
+  for (const name of randomImageNames(entries)) {
+    const filePath: string = join(directory, name);
+    const mimeType: RandomImageMimeType | undefined = RANDOM_IMAGE_EXTENSIONS.get(
+      extname(name).toLowerCase()
+    );
+    if (mimeType === undefined) continue;
+    try {
+      const stat: Stats = await lstat(filePath);
+      if (!stat.isFile()) continue;
+      records.push({
+        fileName: name,
+        filePath,
+        mimeType,
+        sizeBytes: stat.size,
+        mtimeMs: stat.mtimeMs,
+      });
+    } catch (error: unknown) {
+      if (!vanished(error)) throw error;
+    }
+  }
+  return records;
+}
+
+/**
+ * 核对图库目录内指定文件名的普通图片文件（不跟随文件级符号链接）并返回其路径与元数据。
+ * @param directory 专用图库目录的绝对路径。
+ * @param fileName 已通过文件名形态校验的图片文件名。
+ * @returns 有效普通图片文件的元数据；目录或文件不存在、为符号链接或扩展名不支持时返回 `null`。
+ */
+export async function statRandomImageFile(
+  directory: string,
+  fileName: string
+): Promise<Readonly<RandomImageEntry> | null> {
+  if (fileName.startsWith(".")) return null;
+  const mimeType: RandomImageMimeType | undefined = RANDOM_IMAGE_EXTENSIONS.get(
+    extname(fileName).toLowerCase()
+  );
+  if (mimeType === undefined) return null;
+  if (!await isRandomImageDirectory(directory)) return null;
+  const filePath: string = join(directory, fileName);
+  try {
+    const stat: Stats = await lstat(filePath);
+    if (!stat.isFile()) return null;
+    return {
+      fileName,
+      filePath,
+      mimeType,
+      sizeBytes: stat.size,
+      mtimeMs: stat.mtimeMs,
+    };
+  } catch (error: unknown) {
+    if (vanished(error)) return null;
+    throw error;
   }
 }
 

@@ -70,17 +70,34 @@ describe("config_example 与解析器保持同步", () => {
     expect(parse).toThrow(
       `${path}: $.bot_token must be a configured non-placeholder string`
     );
-    // 拒绝理由只是占位 token：换成真值后同一份示例能解析通过，示例的其余字段（键集合、super_admin_user_id 形态）与解析器一致。
+    // 拒绝理由只是占位 token：换成真值后同一份示例能解析通过，示例的其余字段（键集合、super_admin_user_id 与 mini_app 形态）与解析器一致。
+    const rawRecord = raw as Readonly<{
+      time_zone: string;
+      atmosphere: BotAtmosphere;
+      super_admin_user_id: number;
+      mini_app: Readonly<{
+        url: string;
+        port: number;
+        host: string;
+        password: string;
+      }>;
+    }>;
     expect(
       parseBotConfig(
         { ...(raw as Readonly<Record<string, unknown>>), bot_token: "123456789:example" },
         path
       )
     ).toEqual({
-      timeZone: (raw as Readonly<{ time_zone: string }>).time_zone,
-      atmosphere: (raw as Readonly<{ atmosphere: BotAtmosphere }>).atmosphere,
+      timeZone: rawRecord.time_zone,
+      atmosphere: rawRecord.atmosphere,
       botToken: "123456789:example",
-      superAdminUserId: (raw as Readonly<{ super_admin_user_id: number }>).super_admin_user_id,
+      superAdminUserId: rawRecord.super_admin_user_id,
+      miniApp: {
+        url: new URL(rawRecord.mini_app.url).href,
+        port: rawRecord.mini_app.port,
+        host: rawRecord.mini_app.host,
+        password: rawRecord.mini_app.password,
+      },
     });
   });
 

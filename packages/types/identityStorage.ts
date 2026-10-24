@@ -42,6 +42,9 @@ export interface BlocklistIdPage {
   readonly done: boolean;
 }
 
+/** SQLite 按主键稳定顺序返回的一页白名单 ID；载荷受固定页大小硬顶。 */
+export type WhitelistIdPage = BlocklistIdPage;
+
 /** 主线程按表和主键保留到事务 ACK 的最终值。 */
 export interface UnacknowledgedIdentityWrite {
   readonly data: string | null;

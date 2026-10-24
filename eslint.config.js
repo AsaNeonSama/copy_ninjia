@@ -15,7 +15,7 @@ export default defineConfig(
     extends: [eslint.configs.recommended],
   },
   {
-    files: ["index.ts", "packages/**/*.ts", "scripts/**/*.ts"],
+    files: ["index.ts", "packages/**/*.ts", "packages/**/*.tsx", "scripts/**/*.ts"],
     extends: [
       eslint.configs.recommended,
       tseslint.configs.recommendedTypeChecked,
@@ -72,7 +72,7 @@ export default defineConfig(
     ],
   },
   {
-    files: ["**/*.ts"],
+    files: ["**/*.{ts,tsx}"],
     rules: {
       "@typescript-eslint/consistent-type-imports": [
         "error",
@@ -92,7 +92,7 @@ export default defineConfig(
     },
   },
   {
-    files: ["**/*.{js,ts}"],
+    files: ["**/*.{js,ts,tsx}"],
     plugins: {
       "@stylistic": stylistic,
     },

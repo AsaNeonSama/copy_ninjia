@@ -24,6 +24,7 @@ import {
   confirmLuckDraw,
   handleDeleteMessageIngress,
   handleGagMessageIngress,
+  handleMiniAppSharedMessage,
   handleQaMessageIngress,
 } from "../commands";
 import { handleAntiRaidMessageIngress } from "../antiRaid";
@@ -257,8 +258,14 @@ export function createUpdatePreamble({
    * @returns 已认领或短路处理的结果，否则转交下一阶段。
    */
   function afterIdentityPrefetch(ctx: Context, next: NextFunction, chatState: Readonly<ChatState>): unknown {
-    if (shouldRoutePrivateProxyMessage(ctx)) return handleIncomingMessageMiddleware(ctx, chatState);
     const message: Message | undefined = ctx.message;
+    if (
+      message !== undefined &&
+      (message.users_shared !== undefined || message.chat_shared !== undefined)
+    ) {
+      return handleMiniAppSharedMessage(message).then((): undefined => undefined);
+    }
+    if (shouldRoutePrivateProxyMessage(ctx)) return handleIncomingMessageMiddleware(ctx, chatState);
     if (message === undefined) return afterAntiRaidIngress(ctx, next, chatState);
     const claimed: boolean | Promise<boolean> = handleAntiRaidMessageIngress(message, ctx.me.id, chatState);
     if (typeof claimed === "boolean") return claimed ? undefined : afterAntiRaidIngress(ctx, next, chatState);

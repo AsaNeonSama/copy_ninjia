@@ -22,6 +22,7 @@ import {
   prepareStoredIdentityIdLookups,
   readStoredBlocklistIdPage,
   readStoredIdentityPolicies,
+  readStoredWhitelistIdPage,
 } from "../../../database/interact/identityPolicy";
 import { readStoredTemporaryAdBypassActivities } from
   "../../../database/interact/temporaryAdBypass";
@@ -29,14 +30,20 @@ import type {
   BlocklistIdPageReadReply,
   IdentityPersistenceReply,
   IdentityPoliciesReadReply,
+  WhitelistIdPageReadReply,
 } from "../../../types/diskIO/replies";
 import type {
   IdentityPolicyWriteDiskMessage,
   ReadBlocklistIdPageRequest,
   ReadIdentityPoliciesRequest,
+  ReadWhitelistIdPageRequest,
 } from "../../../types/diskIO/messages";
 import type { IdentityPolicyTable } from "../../../types/identityPolicy";
-import type { PendingIdentityPolicyWrite, BlocklistIdPage } from "../../../types/identityStorage";
+import type {
+  BlocklistIdPage,
+  PendingIdentityPolicyWrite,
+  WhitelistIdPage,
+} from "../../../types/identityStorage";
 import type {
   PendingTemporaryAdBypassWrite,
   StoredTemporaryAdBypassActivity,
@@ -335,6 +342,53 @@ export function readIdentityPolicies(
 }
 
 /**
+ * 读取一页有界白名单主键并叠加尚未提交的最终值。
+ * @param afterId 分页游标起点（不含），首屏传 null
+ * @returns 叠加未提交变更后的白名单主键分页结果
+ */
+function effectiveWhitelistIdPage(afterId: number | null): WhitelistIdPage {
+  if (
+    pendingWhitelistWrites.size >
+    BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES
+  ) {
+    throw new Error(
+      `Pending whitelist delta exceeds ${BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES} entries; ` +
+      "refusing to expand a sweep page."
+    );
+  }
+  const readLimit: number = BLOCKLIST_SWEEP_PAGE_SIZE +
+    pendingWhitelistWrites.size + 1;
+  const storedIds: readonly number[] = readStoredWhitelistIdPage(
+    requireStorageDatabase(),
+    afterId,
+    readLimit
+  );
+  const candidates: Set<number> = new Set<number>();
+  for (const id of storedIds) {
+    if (pendingWhitelistWrites.get(id)?.data !== null) candidates.add(id);
+  }
+  for (const [id, pending] of pendingWhitelistWrites) {
+    if (
+      pending.data !== null &&
+      (afterId === null || id > afterId)
+    ) {
+      candidates.add(id);
+    }
+  }
+  const ordered: number[] = [...candidates];
+  ordered.sort((left: number, right: number): number => left - right);
+  const done: boolean = ordered.length <= BLOCKLIST_SWEEP_PAGE_SIZE;
+  const ids: number[] = done
+    ? ordered
+    : ordered.slice(0, BLOCKLIST_SWEEP_PAGE_SIZE);
+  return {
+    ids,
+    nextCursor: ids.length === 0 ? afterId : ids[ids.length - 1]!,
+    done,
+  };
+}
+
+/**
  * 读取一页有界黑名单主键并叠加尚未提交的最终值；只在群级补扫边界调用。
  * @param message 黑名单主键分页读取请求消息
  * @returns 包含黑名单主键分页结果或错误信息的应答消息
@@ -357,6 +411,35 @@ export function readBlocklistIdPage(
   } catch (error: unknown) {
     return {
       type: "blocklistIdPageRead",
+      requestId: message.requestId,
+      error: errorMessage(error),
+    };
+  }
+}
+
+/**
+ * 读取一页有界白名单主键并叠加尚未提交的最终值。
+ * @param message 白名单主键分页读取请求消息
+ * @returns 包含白名单主键分页结果或错误信息的应答消息
+ */
+export function readWhitelistIdPage(
+  message: ReadWhitelistIdPageRequest
+): WhitelistIdPageReadReply {
+  try {
+    if (message.afterId !== null) {
+      assertTelegramIdentityId(
+        message.afterId,
+        `${IDENTITY_DATABASE_PATH}:readWhitelistIdPage.afterId`
+      );
+    }
+    return {
+      type: "whitelistIdPageRead",
+      requestId: message.requestId,
+      page: effectiveWhitelistIdPage(message.afterId),
+    };
+  } catch (error: unknown) {
+    return {
+      type: "whitelistIdPageRead",
       requestId: message.requestId,
       error: errorMessage(error),
     };

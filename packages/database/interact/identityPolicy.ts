@@ -53,6 +53,28 @@ export function readStoredBlocklistIdPage(
 }
 
 /**
+ * 按主键升序游标读取一页白名单 ID。
+ * @param database 共享存储数据库连接。
+ * @param afterId 上一页最后一个主键 ID；首页传 null。
+ * @param limit 单页最多读取的行数。
+ * @returns 按升序排列的白名单身份 ID 列表。
+ */
+export function readStoredWhitelistIdPage(
+  database: StorageDatabase,
+  afterId: number | null,
+  limit: number
+): readonly number[] {
+  const rows: StoredIdentityIdRow[] = database
+    .select({ id: permissionList.id })
+    .from(permissionList)
+    .where(afterId === null ? undefined : gt(permissionList.id, afterId))
+    .orderBy(asc(permissionList.id))
+    .limit(limit)
+    .all();
+  return rows.map((row: StoredIdentityIdRow): number => row.id);
+}
+
+/**
  * 通过预编译语句按 ID 列表批量读取白名单或黑名单的已提交行（单批不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
  * @param reader 共享存储数据库的预编译读取句柄。
  * @param table 目标身份策略表标识（白名单或黑名单）。

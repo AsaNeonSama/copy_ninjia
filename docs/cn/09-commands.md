@@ -140,6 +140,7 @@
 | `/init enable\|disable` | `SUPER_ADMIN_USER_ID` | 开启或关闭当前群组的机器人业务接管总开关 |
 | `/batch_kick <Nm\|Nh\|Nd>` | `SUPER_ADMIN_USER_ID` | 在超级群中批量剔除指定时间窗口内（不超过 `BATCH_KICK_MAX_DURATION_MS`）加入的新成员（只踢出，不拉黑） |
 | `/send <群组 ID>`<br>`/send finish` | `SUPER_ADMIN_USER_ID`（仅私聊） | 在私聊中开启或结束向目标群组的消息中转；支持以特定 JSON 代码块直接代发语音气泡 |
+| `/app` | `SUPER_ADMIN_USER_ID`（仅私聊） | 当 `config/static/bot.json` 配置了 `mini_app` 时，在超级管理员私聊中返回 `Dashboard` 内联按钮以打开 Telegram Mini App 管理面板 |
 
 > [!IMPORTANT]
 > **权限表格阅读说明**：
@@ -167,7 +168,7 @@
 - 人设提示词属于全实例级的部署配置，不支持在群内通过命令按群独立切换。
 - AI 的人设内容默认读取项目根目录下的 `prompt/persona.md`；若文件不存在，则回落至内置的调侃雌小鬼人设。命令提示、权限说明、按钮文本、定时播报及 Inline 运势文案风格优先读取 `config/static/bot.json` 中的 `atmosphere` 配置（`mesugaki` 为调侃风，`normal` 为克制风）；若未显式配置，自定义人设默认采用 `normal`（克制风），内置人设采用 `DEFAULT_BOT_ATMOSPHERE`（调侃风）。
 - 风格在服务启动时固定初始化，修改后需重启进程生效。
-- 启动时仅向 Telegram 注册群聊作用域的命令菜单，私聊窗口不显示菜单；私聊中仅响应超级管理员的 `/send` 中转命令。
+- 启动时仅向 Telegram 注册群聊作用域的命令菜单，私聊窗口不显示菜单；私聊中仅响应超级管理员的 `/send` 中转命令与（配置了 `mini_app` 时的）`/app` 面板入口命令。
 
 #### 2. `/bot_status` 指标采集
 - **各行文案随通知语气**：CPU、运行时长、内存占用、各模型能力名称与 Telegram 出站等行的标签取自当前通知语气的文案表（`packages/consts/atmosphere/{plain,teasing}/notices.ts`），克制风与调侃风各一套，数值与取舍规则相同。

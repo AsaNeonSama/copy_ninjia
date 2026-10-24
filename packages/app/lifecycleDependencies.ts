@@ -56,6 +56,7 @@ import { updateCachedIdentity } from "../users/senderIdentity";
 import { hydrateIdentityStorageCounts } from "../infra/identityStorage";
 import { validateExistingDeploymentInputs } from "../config/readiness";
 import { getAssetConfig } from "../config/assets";
+import { startMiniAppServer, stopMiniAppServer } from "../miniApp";
 import { quiesceConfigReload, startConfigReload } from "./configReload";
 import { registerCommandMenu } from "./commandMenu";
 import { registerHandlers } from "./registerHandlers";
@@ -142,6 +143,8 @@ export const lifecycleDependencies = {
   sleep,
   startConfigReload,
   startCronScheduler,
+  startMiniAppServer,
+  stopMiniAppServer,
   sweepManagedBlocklistChats,
   terminateAiChat,
   terminateAntiRaid,

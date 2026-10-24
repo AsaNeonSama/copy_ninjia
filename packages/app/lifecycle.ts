@@ -202,6 +202,7 @@ export class ApplicationLifecycle {
     this.dependencies.startCronScheduler();
     // 两条业务 Worker 都已持有初始配置快照，此后 config/dynamic/ 的改动才有分发对象。
     this.dependencies.startConfigReload();
+    this.dependencies.startMiniAppServer();
     this.dependencies.initBlocklistSweepScheduler();
     // 在 runner 接收新 update 前，对所有已初始化且已确证管理员的群补跑一轮黑名单清扫。
     await this.dependencies.sweepManagedBlocklistChats();
@@ -244,6 +245,9 @@ export class ApplicationLifecycle {
     }
     const deadline: number = this.startShutdownDeadline();
     const maintenanceQuiesceSucceeded: boolean = quiesceLifecycleMaintenance(this.dependencies);
+    await this.dependencies.stopMiniAppServer().catch((error: unknown): void => {
+      this.dependencies.logger.error("Error stopping Mini App server during wait:", error);
+    });
     const runnerDrained: boolean = await this.waitForRunnerDrain(runner);
 
     // 标题刷新可能排入 chatState SQLite 写缓冲，先等它完成，再做最终 flush。
@@ -304,6 +308,9 @@ export class ApplicationLifecycle {
       const deadline: number = this.startShutdownDeadline();
       const settler: OwnerSettler = createOwnerSettler(this.dependencies.logger);
       const maintenanceQuiesceSucceeded: boolean = quiesceLifecycleMaintenance(this.dependencies);
+      await this.dependencies.stopMiniAppServer().catch((error: unknown): void => {
+        this.dependencies.logger.error("Error stopping Mini App server during disposal:", error);
+      });
       const runner: AcknowledgedUpdateRunner | null = this.runner;
       if (runner !== null && !this.runnerTaskSettled) {
         await runner.stop().catch((error: unknown): void => {

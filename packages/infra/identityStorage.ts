@@ -6,6 +6,7 @@
 export {
   cachedBlocklistEntry,
   cachedWhitelistEntry,
+  getIdentityEntryCount,
   hydrateIdentityStorageCounts,
   identityMetadataFromCachedUser,
   isIdentityPolicyCached,
@@ -21,6 +22,7 @@ export {
 export {
   hasAnyBlockedIdentity,
   readBlocklistSweepPage,
+  readWhitelistSweepPage,
   retainCurrentlyBlockedIdentityIds,
   retainParticipantInvalidBlocklistIds,
 } from "./identityStorage/sweep";

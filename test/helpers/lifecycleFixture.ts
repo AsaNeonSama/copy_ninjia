@@ -94,6 +94,8 @@ const quiesceBlocklistSweepScheduler = mock((): void => { calls.push("quiesceBlo
 const sweepManagedBlocklistChats = mock(async (): Promise<void> => { calls.push("sweepBlocklist"); });
 const startConfigReload = mock((): void => { calls.push("startConfigReload"); });
 const quiesceConfigReload = mock((): void => { calls.push("quiesceConfigReload"); });
+const startMiniAppServer = mock((): null => null);
+const stopMiniAppServer = mock(async (): Promise<void> => {});
 const restoreLuckState = mock((..._args: unknown[]): void => { calls.push("restoreLuck"); });
 const seedSenderCache = mock((_value: unknown): void => { calls.push("seedSender"); });
 const registerCommandMenu = mock(async (): Promise<void> => { calls.push("registerMenu"); });
@@ -218,6 +220,8 @@ const testDependencies = {
   setStatePersistenceFatalHandler,
   sleep,
   startConfigReload,
+  startMiniAppServer,
+  stopMiniAppServer,
   sweepManagedBlocklistChats,
   terminateAiChat,
   terminateAntiRaid,
@@ -323,6 +327,8 @@ export function installLifecycleFixtureHooks(): void {
       sweepManagedBlocklistChats,
       startConfigReload,
       quiesceConfigReload,
+      startMiniAppServer,
+      stopMiniAppServer,
       restoreLuckState,
       seedSenderCache,
       setBusinessWorkerFatalHandler,

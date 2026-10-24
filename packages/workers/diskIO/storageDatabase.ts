@@ -17,6 +17,7 @@ export {
   handleIdentityPolicyWrite,
   readBlocklistIdPage,
   readIdentityPolicies,
+  readWhitelistIdPage,
 } from "./storageDatabase/identityPolicy";
 export { handleBlocklistRemovalWrite } from "./storageDatabase/pendingRemoval";
 export { closeStorageDatabaseForShutdown } from "./storageDatabase/shutdown";

@@ -22,6 +22,7 @@ import {
 import type { CachedUser } from "../../types/chatState";
 import type {
   BlocklistEntryData,
+  IdentityPolicyTable,
   TelegramIdentityMetadata,
   WhitelistEntryData,
 } from "../../types/identityPolicy";
@@ -72,6 +73,16 @@ export function hydrateIdentityStorageCounts(
   identityPolicyCache.clear();
   identityEntryCounts.whitelist = whitelistCount;
   identityEntryCounts.blocklist = blocklistCount;
+}
+
+/**
+ * 读取指定身份策略表在主线程维护的当前总条目数。
+ *
+ * @param table 目标身份策略表名（`"whitelist"` 或 `"blocklist"`）。
+ * @returns 当前表内的条目总数。
+ */
+export function getIdentityEntryCount(table: IdentityPolicyTable): number {
+  return identityEntryCounts[table];
 }
 
 /**

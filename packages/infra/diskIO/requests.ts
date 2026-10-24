@@ -8,6 +8,7 @@ import {
   joinLogReadRequests,
   luckSecretRequests,
   storageCloseRequests,
+  whitelistIdPageReadRequests,
 } from "../../cache/main/diskIO";
 import type { DiskIORequestChannel } from "../../cache/main/diskIO";
 import { beginWorkerRequest, failAllWorkerRequests, settleWorkerRequest } from "../../libs/workerRequestTable";
@@ -24,10 +25,15 @@ import type {
   ReadBlocklistIdPageRequest,
   ReadIdentityPoliciesRequest,
   ReadJoinLogRequest,
+  ReadWhitelistIdPageRequest,
 } from "../../types/diskIO/messages";
 import type { DiskIORequestOutcome, StorageCloseOutcome } from "../../types/diskIO/replies";
 import type { JoinLogRecord, LuckReceiptSecret } from "../../types/diskIO/storage";
-import type { BlocklistIdPage, IdentityPolicyRawReadResult } from "../../types/identityStorage";
+import type {
+  BlocklistIdPage,
+  IdentityPolicyRawReadResult,
+  WhitelistIdPage,
+} from "../../types/identityStorage";
 import { safePostDiskIO } from "./transport";
 import { writeDiskIODiagnostic } from "../../workers/diskIO/diagnosticSink";
 
@@ -311,6 +317,29 @@ export function readBlocklistIdPage(
       channel: blocklistIdPageReadRequests,
       timeoutMs,
       buildRequest: (requestId: number): ReadBlocklistIdPageRequest => ({ type: "readBlocklistIdPage", requestId, afterId }),
+    }),
+  });
+}
+
+/**
+ * 按稳定主键游标读取一页白名单 ID；供管理端分页列举，普通权限判定不得调用。
+ * @param afterId 分页起始游标 ID（不含）；首批次传 `null`。
+ * @param timeoutMs 请求超时毫秒数。
+ * @returns 下一页白名单身份 ID 列表与游标状态。
+ */
+export function readWhitelistIdPage(
+  afterId: number | null,
+  timeoutMs: number = LOAD_TIMEOUT_MS
+): Promise<WhitelistIdPage> {
+  return requestFromWritableWorker({
+    timeoutMs,
+    timeoutLabel: "Whitelist ID read timeout",
+    action: "read a whitelist ID page",
+    request: (worker: Worker): Promise<WhitelistIdPage> => requestDiskIO({
+      worker,
+      channel: whitelistIdPageReadRequests,
+      timeoutMs,
+      buildRequest: (requestId: number): ReadWhitelistIdPageRequest => ({ type: "readWhitelistIdPage", requestId, afterId }),
     }),
   });
 }

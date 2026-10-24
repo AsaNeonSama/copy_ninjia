@@ -30,7 +30,7 @@ import type {
 } from "../../types/diskIO/replies";
 import type { WorkerRequestTable } from "../../types/workerRequest";
 import type { JoinLogRecord, LuckReceiptSecret } from "../../types/diskIO/storage";
-import type { IdentityPolicyRawReadResult, BlocklistIdPage } from "../../types/identityStorage";
+import type { IdentityPolicyRawReadResult, BlocklistIdPage, WhitelistIdPage } from "../../types/identityStorage";
 
 /** 启动恢复回调槽：loadPersistedData 填充，收到 loaded 回执或 terminateDiskIO 时结算清空；单例固定字段，进程重启后从初始值开始。 */
 export const pendingLoad: {
@@ -78,6 +78,10 @@ export const identityPolicyReadRequests: DiskIORequestChannel<IdentityPolicyRawR
 export const blocklistIdPageReadRequests: DiskIORequestChannel<BlocklistIdPage> =
   createDiskIORequestChannel("blocklist ID page read", "Disk I/O Worker returned no blocklist ID page.");
 
+/** 白名单主键页读取通道：Mini App 分页查询请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
+export const whitelistIdPageReadRequests: DiskIORequestChannel<WhitelistIdPage> =
+  createDiskIORequestChannel("whitelist ID page read", "Disk I/O Worker returned no whitelist ID page.");
+
 /** 停机关库（closeStorage）请求通道：请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量至多一个在途请求，进程重启后从空表开始。 */
 export const storageCloseRequests: DiskIORequestChannel<StorageCloseOutcome> =
   createDiskIORequestChannel("storage close", "Disk I/O Worker returned no storage close outcome.");
@@ -88,6 +92,7 @@ export const DISK_IO_REQUEST_CHANNELS: readonly DiskIORequestChannel<never>[] = 
   joinLogReadRequests,
   identityPolicyReadRequests,
   blocklistIdPageReadRequests,
+  whitelistIdPageReadRequests,
   storageCloseRequests,
 ] as readonly DiskIORequestChannel<never>[];
 

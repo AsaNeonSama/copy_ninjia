@@ -24,7 +24,19 @@ export interface MoodConfig {
  */
 export type AdSampleConfig = readonly string[];
 
-/** Bot 身份、超级管理员身份、默认通知风格与时区的进程级部署配置。 */
+/** `config/static/bot.json` 中可选的 Mini App HTTP 服务与入口配置。 */
+export interface BotMiniAppConfig {
+  /** Telegram WebApp 打开的 HTTPS 入口地址。 */
+  readonly url: string;
+  /** 本地 HTTP 服务绑定的监听地址（缺省归一化为 `127.0.0.1`）。 */
+  readonly host: string;
+  /** 本地 HTTP 服务绑定的监听端口（`1..65535` 整数）。 */
+  readonly port: number;
+  /** 打开 Mini App 控制台首屏必须验证的访问密码（非空字符串）。 */
+  readonly password: string;
+}
+
+/** Bot 身份、超级管理员身份、默认通知风格、时区与可选 Mini App 的进程级部署配置。 */
 export interface BotConfig {
   /** BotFather 发放的 Bot API token。 */
   readonly botToken: string;
@@ -34,6 +46,8 @@ export interface BotConfig {
   readonly atmosphere?: BotAtmosphere;
   /** 默认 IANA 时区，用于报时、日界与未单独指定时区的任务。 */
   readonly timeZone: string;
+  /** 可选的 Mini App HTTP 服务与入口配置；缺省表示不启用 Mini App。 */
+  readonly miniApp?: Readonly<BotMiniAppConfig>;
 }
 
 /** Google 翻译 SDK 实际消费的服务账号字段；官方密钥的其它元数据由 SDK 保留。 */

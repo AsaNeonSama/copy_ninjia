@@ -237,6 +237,11 @@ mock.module("../../packages/workers/diskIO/storageDatabase", () => ({
     requestId: message.requestId,
     page: { ids: [], nextCursor: message.afterId, done: true },
   }),
+  readWhitelistIdPage: (message: { requestId: number; afterId: number | null }): unknown => ({
+    type: "whitelistIdPageRead",
+    requestId: message.requestId,
+    page: { entries: [], nextCursor: message.afterId, done: true },
+  }),
   setStorageFlushHold,
   readIdentityPolicies: (message: { requestId: number }): unknown => ({
     type: "identityPoliciesRead",

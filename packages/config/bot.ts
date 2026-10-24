@@ -4,7 +4,7 @@ import { botConfigCache } from "../cache/perThread/config";
 import { BOT_CONFIG_PATH } from "../consts/paths";
 import { loadBotConfig } from "./botInput";
 import { assertDeploymentConfigLayout } from "./layout";
-import type { BotConfig } from "../types/config";
+import type { BotConfig, BotMiniAppConfig } from "../types/config";
 import { adoptTimeZone } from "./time";
 
 await assertDeploymentConfigLayout();
@@ -22,6 +22,14 @@ export function getBotConfig(): BotConfig {
     throw new Error(`Telegram configuration was not initialized from ${BOT_CONFIG_PATH}.`);
   }
   return config;
+}
+
+/**
+ * 读取当前线程已接管的 Mini App 配置；未配置 `mini_app` 时返回 undefined。
+ * @returns Mini App 只读配置或 undefined。
+ */
+export function getBotMiniAppConfig(): Readonly<BotMiniAppConfig> | undefined {
+  return getBotConfig().miniApp;
 }
 
 /** Telegram Bot API token；来自 config/static/bot.json。 */

@@ -130,7 +130,7 @@ Core bot credentials and administrator ownership are declared in `config/static/
   - The Telegram numeric user ID of the primary operator.
   - **Privilege Boundary**: Holds all system permissions inherently. Does not need to be added to the SQLite allowlist table.
   - **Exemption Protections**: Completely exempt from rate limits and cooldowns (copying, image generation, etc.). Cannot be targeted by `/block`, `/mute`, `/delete_message`, `/batch_kick`, or AI `abuse_mark`.
-  - **Exclusive Authority**: Commands like `/init`, `/batch_kick`, `/delete_message`, `/permission` assignments, `/white disable`, and `/send` are strictly restricted to this user ID.
+  - **Exclusive Authority**: Commands like `/init`, `/batch_kick`, `/delete_message`, `/permission` assignments, `/white disable`, `/send`, and `/app` are strictly restricted to this user ID.
 - **`atmosphere`** (optional, enum: `"mesugaki"` | `"normal"`)
   - Sets the communication tone for system notices, menus, and help messages (`mesugaki` for teasing tone, `normal` for clean/restrained tone).
   - Explicit configuration takes precedence. If omitted, custom personas use `normal` tone by default, while the built-in persona uses `mesugaki`.
@@ -138,6 +138,9 @@ Core bot credentials and administrator ownership are declared in `config/static/
   - Defines the authoritative calendar time zone for fortunes, rotation logs, daily maintenance crons, AI time awareness, and ad quotas.
   - Trimmed and case-normalized via Temporal (aliases are preserved).
   - **Data Root Binding**: The initial setup permanently stamps this time zone into `database/storage.sqlite`. Changing `time_zone` on an existing data root will be rejected at startup to prevent time-series corruption.
+- **`mini_app`** (optional, object: `{ url: string, port?: number, host?: string, password: string }`)
+  - Configures the SuperAdmin-exclusive Telegram Mini App management console (Dashboard): `url` must be a valid public `https://` URL without a `#` fragment, `port` defaults to `3000`, `host` defaults to `"127.0.0.1"`, and `password` is the required first-screen access password (must contain at least 6 digits `0-9`; 90-minute session validity; 5 consecutive failed attempts lock out the SuperAdmin ID for 30 minutes; missing or invalid `password` refuses startup).
+  - When configured, starts a local `Bun.serve` HTTP server, attaches `MenuButtonWebApp` (`控制台`) to the SuperAdmin's private chat, and enables private `/app` (`Dashboard` button); when `mini_app` is omitted, no web server or routes are registered.
 
 ---
 

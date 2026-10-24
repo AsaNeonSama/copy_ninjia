@@ -4,6 +4,7 @@ import {
   identityPolicyCache,
   identityWriteRevision,
   unacknowledgedBlocklistWrites,
+  unacknowledgedWhitelistWrites,
 } from "../../cache/main/identityStorage";
 import { BLOCKLIST_SWEEP_PAGE_SIZE } from
   "../../consts/identityStorage";
@@ -17,8 +18,11 @@ import {
 } from "./shared";
 import type { DomainFlushOutcome } from "../../types/diskIO/replies";
 import type { BlocklistEntryData } from "../../types/identityPolicy";
-import type { BlocklistIdPage, IdentityPolicyRawReadResult } from
-  "../../types/identityStorage";
+import type {
+  BlocklistIdPage,
+  IdentityPolicyRawReadResult,
+  WhitelistIdPage,
+} from "../../types/identityStorage";
 
 /**
  * 是否至少存在一个黑名单身份；只读启动计数，不持有整表 ID。
@@ -102,6 +106,43 @@ export async function readBlocklistSweepPage(
     );
   }
   return validateBlocklistIdPage(await diskIO.readBlocklistIdPage(afterId), afterId);
+}
+
+/**
+ * revision 不晚于 coveredRevision、仍未收到 durable ACK 的白名单写入条数。
+ *
+ * @param coveredRevision 本次 flush 发起前捕获的白名单写入 revision 上界。
+ * @returns `revision <= coveredRevision` 且尚未收到落盘确认的白名单写入条数。
+ */
+function countUnacknowledgedWhitelistWritesThrough(coveredRevision: number): number {
+  let count: number = 0;
+  for (const write of unacknowledgedWhitelistWrites.values()) {
+    if (write.revision <= coveredRevision) count++;
+  }
+  return count;
+}
+
+/**
+ * 管理端按稳定主键游标读取一页白名单 ID；读取前提交白名单事务并确认本地写入已落盘。
+ *
+ * @param afterId 上一页末尾的白名单身份 ID 游标；读取首页时传 `null`。
+ * @returns 经事务落盘与契约校验后的白名单身份 ID 游标页。
+ */
+export async function readWhitelistSweepPage(
+  afterId: number | null
+): Promise<WhitelistIdPage> {
+  const coveredRevision: number = identityWriteRevision.current;
+  const outcome: DomainFlushOutcome = await diskIO.flushDiskIODomain("whitelist");
+  if (outcome.result !== "flushed") {
+    throw new Error(`Whitelist sweep flush ${outcome.result}.`);
+  }
+  const unacknowledged: number = countUnacknowledgedWhitelistWritesThrough(coveredRevision);
+  if (unacknowledged !== 0) {
+    throw new Error(
+      `Whitelist sweep flush left ${unacknowledged} unacknowledged write(s).`
+    );
+  }
+  return validateBlocklistIdPage(await diskIO.readWhitelistIdPage(afterId), afterId);
 }
 
 /**
