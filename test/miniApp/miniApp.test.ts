@@ -223,6 +223,21 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(diagBody.path).toBe("/api/auth/precheck");
     expect(diagBody.timestamp.endsWith(" UTC")).toBeTrue();
 
+    const multiHopRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-for": "127.0.0.1, 198.51.100.88",
+          "x-real-ip": "127.0.0.1",
+          host: "127.0.0.1:3000",
+        },
+      })
+    );
+    expect(multiHopRes.status).toBe(401);
+    const multiHopDiag: MiniAppAccessDiagnostics =
+      (await multiHopRes.json()) as MiniAppAccessDiagnostics;
+    expect(multiHopDiag.clientIp).toBe("198.51.100.88");
+    expect(multiHopDiag.host).toBe("localhost");
+
     const nonAdminInitData: string = buildSignedTestInitData({
       botToken: BOT_TOKEN,
       authDate: Math.floor(Date.now() / 1000),

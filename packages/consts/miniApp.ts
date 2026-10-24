@@ -62,6 +62,12 @@ export const MINI_APP_POSITIVE_INTEGER_PATTERN: RegExp = /^[1-9]\d*$/;
 export const MINI_APP_SIGNED_INTEGER_PATTERN: RegExp = /^-?\d+$/u;
 
 /**
+ * IPv4 字面量主机名的匹配规则（用于拦截 `Host` 请求头回显源站 IP 字面量）。
+ * 不变量：不带全局标志 `g`，供 `accessErrorResponse` 无状态复用。所属模块：`packages/miniApp/http/common.ts`。
+ */
+export const MINI_APP_IPV4_HOST_PATTERN: RegExp = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
+
+/**
  * Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则。
  * 不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局。所属模块：`packages/miniApp/identities/metadata.ts` 与 `packages/miniApp/ui/formatters.ts`。
  */

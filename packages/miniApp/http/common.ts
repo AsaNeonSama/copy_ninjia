@@ -7,6 +7,7 @@ import { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } from "../../confi
 import {
   MINI_APP_FALLBACK_TEST_PASSWORD,
   MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_IPV4_HOST_PATTERN,
   MINI_APP_MAX_JSON_BODY_BYTES,
   MINI_APP_NO_STORE_CACHE_CONTROL,
   MINI_APP_PASSWORD_LOCKOUT_MS,
@@ -32,6 +33,48 @@ import type {
 const BODY_TEXT_ENCODER: TextEncoder = new TextEncoder();
 
 /**
+ * 校验并归一化单个候选客户端 IP 字符串（过滤空串与回环地址）。
+ * @param raw 原始候选 IP 字符串。
+ * @returns 合法的非回环客户端 IP，或无效时返回 `null`。
+ */
+function extractValidClientIp(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+  let ip: string = raw.trim().toLowerCase();
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  if (
+    ip.length === 0 ||
+    ip.startsWith("127.") ||
+    ip === "::1" ||
+    ip === "0.0.0.0" ||
+    ip === "::" ||
+    ip === "localhost"
+  ) {
+    return null;
+  }
+  return ip;
+}
+
+/**
+ * 提取访问者客户端出口 IP（按 `cf-connecting-ip` -> `true-client-ip` -> `x-forwarded-for` -> `x-real-ip` 顺序读取并过滤回环地址，绝不读取源站网卡 IP）。
+ * @param request HTTP 请求对象。
+ * @returns 客户端出口 IP。
+ */
+function resolveSafeClientIp(request: Request): string {
+  const cfIp: string | null = extractValidClientIp(request.headers.get("cf-connecting-ip"));
+  if (cfIp !== null) return cfIp;
+  const trueClientIp: string | null = extractValidClientIp(request.headers.get("true-client-ip"));
+  if (trueClientIp !== null) return trueClientIp;
+  const xff: string | null = request.headers.get("x-forwarded-for");
+  if (xff !== null) {
+    for (const part of xff.split(",")) {
+      const forwardedIp: string | null = extractValidClientIp(part);
+      if (forwardedIp !== null) return forwardedIp;
+    }
+  }
+  return extractValidClientIp(request.headers.get("x-real-ip")) ?? "127.0.0.1";
+}
+
+/**
  * 生成统一的防缓存响应头（防止 Cloudflare Tunnel 边缘节点或浏览器缓存动态状态）。
  * @param contentType 可选的 `Content-Type` 响应头值。
  * @param requestId 可选的请求追踪 ID（写入 `X-Request-Id` 响应头）。
@@ -52,12 +95,8 @@ export function buildNoStoreHeaders(
     "X-Robots-Tag": "noindex, nofollow, noarchive",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
   };
-  if (contentType !== undefined) {
-    headers["Content-Type"] = contentType;
-  }
-  if (requestId !== undefined) {
-    headers["X-Request-Id"] = requestId;
-  }
+  if (contentType !== undefined) headers["Content-Type"] = contentType;
+  if (requestId !== undefined) headers["X-Request-Id"] = requestId;
   return headers;
 }
 
@@ -93,7 +132,7 @@ export function htmlResponse(html: string, headOnly: boolean): Response {
 }
 
 /**
- * 构造携带真实请求 ID、时间戳、IP 与 Host 的 401/403 JSON 响应。
+ * 构造携带真实请求 ID、时间戳、客户端出口 IP 与 Host 的 401/403 JSON 响应（严禁暴露源站服务器 IP）。
  * @param request HTTP 请求对象。
  * @param params 状态码、错误代号、原因标识与错误说明。
  * @returns 带 `X-Request-Id` 响应头的 JSON `Response`。
@@ -111,25 +150,22 @@ function accessErrorResponse(
   crypto.getRandomValues(randomBytes);
   const requestId: string = randomBytes.toHex();
   const timestamp: string = `${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`;
-  const firstForwardedIp: string | undefined = request.headers
-    .get("x-forwarded-for")
-    ?.split(",")[0]
-    ?.trim();
-  const clientIp: string =
-    request.headers.get("cf-connecting-ip")?.trim() ??
-    request.headers.get("x-real-ip")?.trim() ??
-    (firstForwardedIp !== undefined && firstForwardedIp.length > 0 ? firstForwardedIp : "127.0.0.1");
+  const clientIp: string = resolveSafeClientIp(request);
   let parsedUrl: URL | null;
   try {
     parsedUrl = new URL(request.url);
   } catch (_error: unknown) {
     parsedUrl = null;
   }
-  const host: string =
+  const rawHost: string =
     request.headers.get("x-forwarded-host")?.trim() ??
     request.headers.get("host")?.trim() ??
     parsedUrl?.host ??
     "localhost";
+  const hostNoPort: string = rawHost.split(":")[0]?.trim().toLowerCase() ?? "";
+  const isIpHost: boolean =
+    hostNoPort.startsWith("[") || MINI_APP_IPV4_HOST_PATTERN.test(hostNoPort);
+  const host: string = rawHost.length > 0 && !isIpHost ? rawHost : "localhost";
   const path: string = parsedUrl?.pathname ?? "/";
   const diag: Readonly<MiniAppAccessDiagnostics> = {
     requestId,
@@ -175,7 +211,7 @@ export function extractInitDataFromHeaders(
 }
 
 /**
- * 从请求中提取密码认证会话令牌（默认仅读取 `X-Mini-App-Session` 请求头；仅当 `allowQueryAuth` 为 `true` 且方法为 `GET`/`HEAD` 时允许回退读取 `session` 查询参数）。
+ * 从请求头（或 `GET`/`HEAD` 查询参数）中提取 64 位十六进制密码认证会话令牌。
  * @param request HTTP 请求对象。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中回退读取 `session` 查询参数。
  * @returns 提取出的 64 位十六进制会话令牌或空字符串。
@@ -203,9 +239,7 @@ function extractSessionToken(request: Request, allowQueryAuth: boolean = false):
  */
 function purgeExpiredAuthSessions(nowMs: number): void {
   for (const [token, session] of miniAppAuthSessions) {
-    if (session.expiresAt <= nowMs) {
-      miniAppAuthSessions.delete(token);
-    }
+    if (session.expiresAt <= nowMs) miniAppAuthSessions.delete(token);
   }
 }
 
@@ -219,19 +253,13 @@ function checkSuperAdminPasswordLockout(
   request: Request,
   nowMs: number = Date.now()
 ): Response | null {
-  const guard: Readonly<MiniAppPasswordGuardState> | null =
-    miniAppPasswordGuardHolder.current;
-  if (guard?.userId !== SUPER_ADMIN_USER_ID || guard.lockedUntil <= 0) {
-    return null;
-  }
+  const guard: Readonly<MiniAppPasswordGuardState> | null = miniAppPasswordGuardHolder.current;
+  if (guard?.userId !== SUPER_ADMIN_USER_ID || guard.lockedUntil <= 0) return null;
   if (guard.lockedUntil <= nowMs) {
     miniAppPasswordGuardHolder.current = null;
     return null;
   }
-  const remainingMinutes: number = Math.max(
-    1,
-    Math.ceil((guard.lockedUntil - nowMs) / 60_000)
-  );
+  const remainingMinutes: number = Math.max(1, Math.ceil((guard.lockedUntil - nowMs) / 60_000));
   return accessErrorResponse(request, {
     status: 403,
     code: "PASSWORD_LOCKED",
@@ -442,9 +470,7 @@ export function normalizeRoutePathname(
 ): { readonly redirectTo?: string; readonly routePath: string } {
   const basePath: string = configuredBasePathname();
   if (basePath !== "/") {
-    if (rawPathname === basePath) {
-      return { redirectTo: `${basePath}/`, routePath: "/" };
-    }
+    if (rawPathname === basePath) return { redirectTo: `${basePath}/`, routePath: "/" };
     if (rawPathname.startsWith(`${basePath}/`)) {
       const stripped: string = rawPathname.slice(basePath.length);
       return { routePath: stripped.length > 0 ? stripped : "/" };
@@ -463,9 +489,7 @@ export async function readJsonObjectBody(
 ): Promise<Record<string, unknown> | null> {
   try {
     const text: string = await request.text();
-    if (BODY_TEXT_ENCODER.encode(text).byteLength > MINI_APP_MAX_JSON_BODY_BYTES) {
-      return null;
-    }
+    if (BODY_TEXT_ENCODER.encode(text).byteLength > MINI_APP_MAX_JSON_BODY_BYTES) return null;
     const parsed: unknown = JSON.parse(text);
     return isPlainRecord(parsed) ? parsed : null;
   } catch (_error: unknown) {
