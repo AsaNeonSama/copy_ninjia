@@ -19,12 +19,19 @@ export interface ParsedToolResult {
 
 /**
  * 序列化一条工具失败结果 JSON，可选附带供模型读取的扩展字段。
+ * @param message 错误说明文本。
+ * @param extra 可选的附加键值字段。
+ * @returns 序列化后的工具错误 JSON 字符串。
  */
 export function toolError(message: string, extra?: Readonly<Record<string, unknown>>): string {
   return JSON.stringify({ error: message, ...extra });
 }
 
-/** 解析单条工具结果 JSON。 */
+/**
+ * 解析单条工具结果 JSON。
+ * @param result 工具执行器返回的 JSON 字符串。
+ * @returns 包含占用动作额度与可选错误信息的解析结果。
+ */
 export function parseToolResult(result: string): ParsedToolResult {
   const parsed: ToolResultWire = JSON.parse(result) as ToolResultWire;
   return {

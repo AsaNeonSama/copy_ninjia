@@ -18,7 +18,11 @@ import type {
   AiVisionRequest,
 } from "../../types/aiChat/provider";
 
-/** 使用 `summary` 能力生成摘要文本。 */
+/**
+ * 使用 `summary` 能力生成摘要文本。
+ * @param request 摘要文本生成请求参数。
+ * @returns 清洗后的摘要文本结果。
+ */
 export function generateAnthropicText(request: AiTextRequest): Promise<AiTextResult> {
   return requestAnthropicTextResult({
     capability: "summary",
@@ -36,7 +40,11 @@ export function generateAnthropicText(request: AiTextRequest): Promise<AiTextRes
   });
 }
 
-/** 使用 `text` 能力按给定 JSON Schema 生成结构化 JSON 文本。 */
+/**
+ * 使用 `text` 能力按给定 JSON Schema 生成结构化 JSON 文本。
+ * @param request 结构化 JSON 生成请求参数。
+ * @returns 去除首尾空白后的 JSON 文本结果。
+ */
 export function generateAnthropicJson(request: AiJsonRequest): Promise<AiTextResult> {
   return requestAnthropicTextResult({
     capability: "text",
@@ -53,7 +61,11 @@ export function generateAnthropicJson(request: AiJsonRequest): Promise<AiTextRes
   });
 }
 
-/** 使用 `media` 能力对内联 base64 图片生成视觉描述。 */
+/**
+ * 使用 `media` 能力对内联 base64 图片生成视觉描述。
+ * @param request 视觉描述生成请求参数。
+ * @returns 清洗后的图片描述文本结果。
+ */
 export function describeAnthropicVision(request: AiVisionRequest): Promise<AiTextResult> {
   return requestAnthropicTextResult({
     capability: "media",

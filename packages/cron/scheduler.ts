@@ -26,14 +26,23 @@ import { runCronRound } from "./run";
 import type { CronConfig, CronRuntime, CronTask, CronTaskSchedule } from "../types/cron";
 import type { FlushResult } from "../types/lifecycle";
 
-/** 停掉一个调度的 cron，并标记撤销。 */
+/**
+ * 停掉一个调度的 cron，并标记撤销。
+ *
+ * @param schedule 待撤销的任务调度项
+ */
 function cancelSchedule(schedule: CronTaskSchedule): void {
   schedule.cancelled = true;
   schedule.job?.stop();
   schedule.job = null;
 }
 
-/** 跑一轮并登记到在途集合，结算自摘除；轮内异常只记日志。 */
+/**
+ * 跑一轮并登记到在途集合，结算自摘除；轮内异常只记日志。
+ *
+ * @param runtime 定时任务调度运行态
+ * @param schedule 当前触发的任务调度项
+ */
 async function trackRound(runtime: CronRuntime, schedule: CronTaskSchedule): Promise<void> {
   const round: Promise<void> = runCronRound(schedule, runtime.controller.signal).catch((error: unknown): void => {
     logger.error(`Cron task "${schedule.task.name}" run failed unexpectedly:`, error);
@@ -50,6 +59,9 @@ async function trackRound(runtime: CronRuntime, schedule: CronTaskSchedule): Pro
  * 只在一个整分钟匹配的 cron 表达式：取 `instantMs` 所在或之后的第一个整分钟，按 UTC 写成
  * 「分 时 日 月 *」。表达式不含年份，调用方保证该时刻在一年之内（区间上限为
  * CRON_RANDOM_INTERVAL_MAX_MS），并在首次触发时停掉任务。
+ *
+ * @param instantMs 目标毫秒时间戳
+ * @returns 按 UTC 匹配的五段 cron 表达式
  */
 function cronExpressionAt(instantMs: number): string {
   const fireAt: Date = new Date(Math.ceil(instantMs / CRON_MINUTE_MS) * CRON_MINUTE_MS);
@@ -59,6 +71,9 @@ function cronExpressionAt(instantMs: number): string {
 /**
  * rand_cron：本轮结束后在区间内均匀随机取一个时刻，重新注册只在那一分钟触发的 Bun 原生
  * cron。实际间隔落在 [min, max + CRON_MINUTE_MS) 内。
+ *
+ * @param runtime 定时任务调度运行态
+ * @param schedule 当前任务调度项
  */
 function armRandomCron(runtime: CronRuntime, schedule: CronTaskSchedule): void {
   const interval: CronTask["randomInterval"] = schedule.task.randomInterval;
@@ -71,7 +86,11 @@ function armRandomCron(runtime: CronRuntime, schedule: CronTaskSchedule): void {
   ).unref();
 }
 
-/** 一次触发（按 `cron` 表达式或 rand_cron 的随机时刻）；不抛出。 */
+/**
+ * 一次触发（按 `cron` 表达式或 rand_cron 的随机时刻）；不抛出。
+ *
+ * @param schedule 当前触发的任务调度项
+ */
 async function fireCronTask(schedule: CronTaskSchedule): Promise<void> {
   const runtime: CronRuntime | null = cronRuntime.current;
   if (runtime === null || !runtime.accepting || schedule.cancelled) return;
@@ -85,7 +104,12 @@ async function fireCronTask(schedule: CronTaskSchedule): Promise<void> {
   armRandomCron(runtime, schedule);
 }
 
-/** 为一个任务注册 Bun 原生 cron。 */
+/**
+ * 为一个任务注册 Bun 原生 cron。
+ *
+ * @param task 定时任务配置
+ * @returns 已注册的任务调度项
+ */
 function registerSchedule(task: Readonly<CronTask>): CronTaskSchedule {
   const schedule: CronTaskSchedule = { task, job: null, cancelled: false };
   schedule.job = Bun.cron(task.cron, (): Promise<void> => fireCronTask(schedule), { tz: task.timeZone }).unref();
@@ -145,7 +169,12 @@ export function quiesceCronScheduler(): void {
   for (const schedule of runtime.schedules.values()) cancelSchedule(schedule);
 }
 
-/** 等待在途轮次结算；预算耗尽时取消在途请求与等待，零预算可用于紧急停机。 */
+/**
+ * 等待在途轮次结算；预算耗尽时取消在途请求与等待，零预算可用于紧急停机。
+ *
+ * @param timeoutMs 最大等待毫秒数
+ * @returns 排空结果（`flushed` 或 `timedOut`）
+ */
 export async function drainCronScheduler(timeoutMs: number): Promise<FlushResult> {
   assertTimeoutMs(timeoutMs, "Cron drain timeout");
   quiesceCronScheduler();

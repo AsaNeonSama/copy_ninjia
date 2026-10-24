@@ -42,20 +42,32 @@ import {
 } from "../../states/verification/shared";
 import { antiRaidDispatchAbort } from "../../cache/workers/antiRaid/tasks";
 
+/** 向主线程申请入群验证终态执行许可的异步请求函数类型。 */
 export type VerificationAttemptRequester = (
   key: string,
   generation: number,
   revision: number
 ) => Promise<VerificationAttemptPermitResult>;
 
+/** 执行一次入群验证状态转移产出的副作用所需的参数。 */
 export interface RunVerificationEffectsParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 目标成员 ID。 */
   userId: number;
+  /** 状态转移产出的副作用序列。 */
   effects: readonly VerificationEffect[];
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
+  /** 向主线程申请终态尝试许可的请求函数，默认使用双工桥实现。 */
   requestTerminalAttempt?: VerificationAttemptRequester;
 }
 
+/**
+ * 判断副作用列表中是否包含需要申请进程级终态执行许可的动作。
+ * @param effects 状态转移产出的副作用序列。
+ * @returns 含有 `kickMember`、`recheckInviter`、`expel` 或 `expelFlood` 时返回 true，否则返回 false。
+ */
 function includesTerminalAttempt(effects: readonly VerificationEffect[]): boolean {
   for (const effect of effects) {
     if (
@@ -72,12 +84,20 @@ function includesTerminalAttempt(effects: readonly VerificationEffect[]): boolea
 
 /** 发起许可申请那一刻的执行 token。 */
 interface TerminalAttemptToken {
+  /** 发起申请时的验证状态对象引用。 */
   readonly transitionState: VerificationState | undefined;
+  /** 发起申请时的 Worker 代际编号。 */
   readonly generation: number;
+  /** 发起申请时的验证记录修订号。 */
   readonly revision: number;
 }
 
-/** 申请许可时的执行 token 在 await 之后是否仍是当前这一份：状态对象、代际、revision 都没换，也没在停机。 */
+/**
+ * 申请许可时的执行 token 在 await 之后是否仍是当前这一份：状态对象、代际、revision 都没换，也没在停机。
+ * @param key 待验证键（`chatId:userId`）。
+ * @param token 申请许可前捕获的执行 token。
+ * @returns 状态对象、代际与修订号均未变化且 Worker 未进入停机取消时返回 true，否则返回 false。
+ */
 function isSameTransition(key: string, token: TerminalAttemptToken): boolean {
   return verificationEntries.get(key)?.state === token.transitionState &&
     verificationGeneration.current === token.generation &&
@@ -87,23 +107,33 @@ function isSameTransition(key: string, token: TerminalAttemptToken): boolean {
 
 /** acquireTerminalAttempt 的入参。 */
 interface AcquireTerminalAttemptParams {
+  /** 群组 ID。 */
   readonly chatId: number;
+  /** 目标成员 ID。 */
   readonly userId: number;
+  /** 待验证键（`chatId:userId`）。 */
   readonly key: string;
+  /** 触发本批副作用时的验证状态引用。 */
   readonly transitionState: VerificationState | undefined;
+  /** 验证状态机派发函数。 */
   readonly dispatchVerification: VerificationDispatcher;
+  /** 向主线程申请终态尝试许可的请求函数。 */
   readonly requestTerminalAttempt: VerificationAttemptRequester;
 }
 
 /** 一次已取得的终态许可：第几次尝试与申请时的 revision。 */
 interface GrantedTerminalAttempt {
+  /** 本进程内该验证键的第几次终态执行尝试。 */
   readonly attempt: number;
+  /** 申请许可时的验证记录修订号。 */
   readonly revision: number;
 }
 
 /**
  * 为本批终态副作用向主线程申请一次许可。token 已换代、申请抛错或未获批时返回 null，本批副作用
  * 一律不执行；抛错与未获批在 token 仍精确匹配时判耗尽，交给延后闩锁。
+ * @param params 终态许可申请参数。
+ * @returns 获批时返回尝试次数与修订号；未获批、抛错或状态已换代时返回 null。
  */
 async function acquireTerminalAttempt({
   chatId,
@@ -137,7 +167,11 @@ async function acquireTerminalAttempt({
   return { attempt: permit.attempt, revision };
 }
 
-/** 欢迎语按变体取本进程风格的文案。 */
+/**
+ * 欢迎语按变体取本进程风格的文案。
+ * @param effect 发送欢迎语副作用描述符。
+ * @returns 渲染后的欢迎提示文案。
+ */
 function welcomeTextFor(effect: Extract<VerificationEffect, { kind: "sendWelcome" }>): string {
   const texts: ReturnType<typeof workerAtmosphere>["NOTICE_TEXTS"] = workerAtmosphere().NOTICE_TEXTS;
   if (effect.variant === "channelComment") return texts.verificationCommentExempt(effect.targetLabel);
@@ -146,7 +180,10 @@ function welcomeTextFor(effect: Extract<VerificationEffect, { kind: "sendWelcome
   return texts.verificationSelfPassed(effect.fromLabel);
 }
 
-/** 按序执行一次转移返回的副作用；同一列表内先删后踢再通知的顺序有意义。 */
+/**
+ * 按序执行一次转移返回的副作用；同一列表内先删后踢再通知的顺序有意义。
+ * @param params 验证副作用执行参数。
+ */
 export async function runVerificationEffects({
   chatId,
   userId,
@@ -223,6 +260,7 @@ export async function runVerificationEffects({
             chatId,
             userId,
             label: effect.label,
+            isBot: effect.isBot,
             targetMessageId: effect.targetMessageId,
             dispatchVerification,
           });
@@ -290,14 +328,22 @@ export async function runVerificationEffects({
   }
 }
 
+/** 异步核查拉人者管理员身份所需的参数。 */
 interface StartAdminCheckParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 被拉入群的待验证成员 ID。 */
   userId: number;
+  /** 执行拉人操作的用户 ID。 */
   actorId: number;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
-/** 异步核查拉人者管理员身份；只向仍是同一对象的 pending 状态回投结果。 */
+/**
+ * 异步核查拉人者管理员身份；只向仍是同一对象的 pending 状态回投结果。
+ * @param params 管理员邀请豁免异步核查参数。
+ */
 function startAdminCheck({
   chatId,
   userId,

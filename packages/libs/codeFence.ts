@@ -13,7 +13,11 @@ import type { MessageEntity } from "grammy/types";
 import { CODE_FENCE, EMPTY_MESSAGE_ENTITIES } from "../consts/telegram";
 import type { RichTextMessage } from "../types/telegram";
 
-/** 可原样读回的语言标记；读不回的一律丢弃，退化成裸围栏。 */
+/**
+ * 可原样读回的语言标记；读不回的一律丢弃，退化成裸围栏。
+ * @param language Telegram `pre` 实体携带的可选语言标记。
+ * @returns 合法可往返的语言标记字符串；不合法或缺失时返回空字符串。
+ */
 function storableFenceLanguage(language: string | undefined): string {
   if (language === undefined || FENCE_LANGUAGE_REJECT.test(language)) return "";
   return language;
@@ -36,6 +40,8 @@ export interface CaptureFencedTextParams {
  *
  * 只认完整落在区间内的 `pre` 实体；跨越区间边界的实体按普通文本取出。区间内没有
  * `pre` 实体时返回的就是 `text.slice(start, end)`，不产生额外拼接。
+ * @param params 消息正文、实体表与截取起止区间。
+ * @returns 还原字面代码块围栏后的区间文本。
  */
 export function captureFencedText({
   text,
@@ -65,6 +71,8 @@ export function captureFencedText({
  * 一行如果是开栏，返回它声明的语言（无语言时为空串）；否则 undefined。
  *
  * 语言标记只接受不含空白与反引号的单词；CODE_FENCE 单独一行按无语言的开栏处理。
+ * @param line 单行文本。
+ * @returns 开栏行声明的语言字符串（无语言时为空串）；非开栏行返回 undefined。
  */
 function fenceLanguage(line: string): string | undefined {
   if (!line.startsWith(CODE_FENCE)) return undefined;
@@ -73,7 +81,12 @@ function fenceLanguage(line: string): string | undefined {
   return language;
 }
 
-/** 从 from 行开始找闭栏行的下标；没有闭栏时返回 -1。 */
+/**
+ * 从 from 行开始找闭栏行的下标；没有闭栏时返回 -1。
+ * @param lines 按换行符拆分后的行数组。
+ * @param from 搜索起始行下标（含）。
+ * @returns 首个匹配的闭栏行下标；未找到时返回 -1。
+ */
 function findFenceClose(lines: readonly string[], from: number): number {
   for (let index: number = from; index < lines.length; index++) {
     if (lines[index] === CODE_FENCE) return index;
@@ -88,6 +101,8 @@ function findFenceClose(lines: readonly string[], from: number): number {
  * 不进入按行扫描，也不分配中间对象。
  *
  * 未闭合的开栏行按普通文本原样保留。空代码块整组丢弃；拆完为空时整段退回原文。
+ * @param text 含或不含字面围栏的待渲染文本。
+ * @returns 剥离围栏后的正文与对应的 `pre` 实体列表。
  */
 export function renderFencedText(text: string): RichTextMessage {
   if (!text.includes(CODE_FENCE)) return { text, entities: EMPTY_MESSAGE_ENTITIES };

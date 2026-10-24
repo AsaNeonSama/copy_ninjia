@@ -6,7 +6,7 @@ import type { JoinWindow, LockdownEntry } from "../../../types/antiRaid/internal
 
 /**
  * chatId -> 最近入群时间戳滑窗与静默到期 timer。
- * 填充：recordJoinWindow 在新成员入群时写入；清理：静默超时、群停用或 Worker 停止时删除；重建：Worker 重启后从空表开始；容量：单群上限为 JOIN_WINDOW_CAPACITY 个时间戳与单个 timer，群数受 STATE_MANAGED_CHAT_LIMIT 约束。
+ * 填充：recordJoinWindow 在新成员入群时写入；清理：静默超时、私密模式解锁或抑制再次触发时调 clearJoinWindow、群停用或 Worker 停止时删除；重建：Worker 重启后从空表开始；容量：单群上限为 JOIN_WINDOW_CAPACITY 个时间戳与单个 timer，群数受 STATE_MANAGED_CHAT_LIMIT 约束。
  */
 export const joinWindows: Map<number, JoinWindow> = new Map();
 

@@ -15,7 +15,11 @@ import {
 import { telegramApi } from "../../infra/telegram";
 import { logger } from "../../infra/logger";
 
-/** 应用一条主线程镜像过来的群类型变化。 */
+/**
+ * 应用一条主线程镜像过来的群类型变化。
+ * @param chatId 群组 ID。
+ * @param isSupergroup 是否为超级群组（`supergroup`）。
+ */
 export function applyChatKindChange(chatId: number, isSupergroup: boolean): void {
   workerChatKindFetches.delete(chatId);
   workerChatIsSupergroup.set(chatId, isSupergroup);
@@ -23,6 +27,7 @@ export function applyChatKindChange(chatId: number, isSupergroup: boolean): void
 
 /**
  * 读取群类型；镜像缺失时由执行线程直接 getChat，并让同群终态复用在途请求。
+ * @param chatId 群组 ID。
  * @returns 只返回确证值；查询失败、非群聊或并发已满均返回 undefined。
  */
 export function resolveChatIsSupergroup(
@@ -65,7 +70,10 @@ export function resolveChatIsSupergroup(
   return task;
 }
 
-/** 停管/`/init disable`/群 teardown：丢掉这个群的群类型镜像。 */
+/**
+ * 停管/`/init disable`/群 teardown：丢掉这个群的群类型镜像。
+ * @param chatId 群组 ID。
+ */
 export function forgetWorkerChatKind(chatId: number): void {
   workerChatKindFetches.delete(chatId);
   workerChatIsSupergroup.delete(chatId);

@@ -8,7 +8,11 @@ import type { AiWebSearchResult } from "../types/aiChat/provider";
 /** 检索段交回的正文与来源元数据。 */
 export type WebDigestResearch = Pick<Extract<AiWebSearchResult, { readonly ok: true }>, "text" | "sources">;
 
-/** 括号、方括号或花括号任一先出现不配对的闭合时，截到该闭合字符之前。 */
+/**
+ * 括号、方括号或花括号任一先出现不配对的闭合时，截到该闭合字符之前。
+ * @param url 待检查括号配对的 URL 片段。
+ * @returns 在首个未配对闭合括号处截断后的 URL。
+ */
 function truncateAtUnbalancedClosing(url: string): string {
   let parentheses: number = 0;
   let brackets: number = 0;
@@ -29,6 +33,9 @@ function truncateAtUnbalancedClosing(url: string): string {
 /**
  * 按 {@link researchSourceUrls} 的截取规则清理正文里匹配到的一条链接；超长、非 https 或带凭据时
  * 返回 `undefined`。`preceding` 是匹配起点前一个字符。
+ * @param matched 正则匹配到的原始 URL 文本。
+ * @param preceding 匹配起点前一个字符。
+ * @returns 清理并校验通过的 HTTPS URL；不合法时返回 `undefined`。
  */
 function cleanResearchUrl(matched: string, preceding: string | undefined): string | undefined {
   let url: string = matched;
@@ -51,6 +58,8 @@ function cleanResearchUrl(matched: string, preceding: string | undefined): strin
  * 正文链接按以下规则截取：紧跟单引号的链接截到下一个单引号；括号、方括号或花括号
  * 先闭合不配对处截断；没有被括号、尖括号、引号或反引号包围的裸链接去掉末尾英文句读；超长、
  * 非 https 或带凭据的链接丢弃。
+ * @param research 联网检索返回的正文与来源列表。
+ * @returns 允许组稿引用的 HTTPS URL 只读集合。
  */
 export function researchSourceUrls(research: WebDigestResearch): ReadonlySet<string> {
   const urls: Set<string> = new Set<string>();

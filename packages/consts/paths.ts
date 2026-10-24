@@ -5,6 +5,7 @@ import { PERSONA_FILE_NAME, PROMPT_DIR_NAME, VOICE_TOOL_PROMPT_FILE_NAME } from 
 import {
   CONFIG_ROOT_ENV,
   RUNTIME_DATA_ROOT_ENV,
+  SDK_REQUEST_HEADER_ENVS,
 } from "./environment";
 
 /**
@@ -28,7 +29,11 @@ export const ANTI_RAID_WORKER_URL: string = Bun.isStandaloneExecutable
   ? new URL("./packages/workers/antiRaidWorker.ts", import.meta.url).href
   : new URL("../workers/antiRaidWorker.ts", import.meta.url).href;
 
-/** 可选进程环境路径真正缺省时返回 undefined，存在但空白时拒绝启动。 */
+/**
+ * 可选进程环境路径真正缺省时返回 undefined，存在但空白时拒绝启动。
+ * @param name 环境变量名称。
+ * @returns 去除首尾空白后的非空路径字符串；未设置该环境变量时返回 undefined。
+ */
 function optionalRootPath(name: string): string | undefined {
   const value: string | undefined = process.env[name];
   if (value === undefined) return undefined;
@@ -38,6 +43,15 @@ function optionalRootPath(name: string): string | undefined {
   }
   return trimmed;
 }
+
+/** 进程环境里出现 SDK_REQUEST_HEADER_ENVS 中的任一变量（含空串）时拒绝启动；本模块加载时执行一次。 */
+function assertSdkRequestHeaderEnvsUnset(): void {
+  for (const name of SDK_REQUEST_HEADER_ENVS) {
+    if (process.env[name] !== undefined) throw new Error(`environment: ${name} must not be set.`);
+  }
+}
+
+assertSdkRequestHeaderEnvsUnset();
 
 /** 环境变量解析出的可选数据根；仅真正缺省时使用项目根目录。 */
 const CONFIGURED_DATA_ROOT: string | undefined = optionalRootPath(RUNTIME_DATA_ROOT_ENV);
@@ -99,7 +113,7 @@ export const BOT_CONFIG_PATH: string = join(STATIC_CONFIG_DIR, "bot.json");
 
 /**
  * AI 部署配置（可选、可热重载）；agent 下的各项能力分别配置 provider、api_key、model 与可选
- * base_url（google 与 anthropic provider 另可配置 headers），文件级加载见 packages/config/agent.ts，
+ * base_url，文件级加载见 packages/config/agent.ts，
  * 单项能力的字段解码见 packages/config/agentCapability.ts 与 packages/config/agentTts.ts。
  */
 export const AGENT_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "agent.json");
@@ -127,7 +141,7 @@ export const GLOBAL_STATE_FILE_PATH: string = join(GLOBAL_STATE_DIR, "state.json
 export const DATABASE_DIR: string = join(RUNTIME_DATA_ROOT, DATABASE_DIR_NAME);
 /** 权限、封禁、群状态与 AI 上下文共用的 SQLite 数据库文件。 */
 export const IDENTITY_DATABASE_PATH: string = join(DATABASE_DIR, "storage.sqlite");
-/** /wed 已发言成员集合目录；Disk I/O Worker 按 <chatId>.json 原子替换数字数组。 */
+/** /wed 已发言成员滑窗目录；Disk I/O Worker 按 <chatId>.json 原子替换 `{ id, enteredAt }` 成员数组。 */
 export const WED_MEMORY_DIR: string = join(MEMORY_DIR, "wed");
 /** 当日运势追加文件与签名密钥目录。 */
 export const LUCK_MEMORY_DIR: string = join(MEMORY_DIR, "luck");

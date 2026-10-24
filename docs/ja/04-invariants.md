@@ -30,8 +30,16 @@
 
 ### 起動順序とリソース取得
 
-- **既定タイムゾーンはプロセス起動時のスナップショット**：`config/static/bot.json` の任意項目 `time_zone` は IANA 名を受け付け、省略時は `DEFAULT_BOT_TIME_ZONE` です。前後の空白を除去し、外部接続前に Intl・Temporal・Bun cron（`TIME_ZONE_VALIDATION_CRON`）の対応を検証した上で、Temporal で正規化された名前（大文字小文字を統一。`Japan` などの別名は統一しない）を保持します。空文字、不正な型、未知のタイムゾーンは起動を拒否します。メインスレッドが権威スナップショットを保持し、AI・Anti-Raid・Disk I/O Worker は `init`・`agentConfig`・`load` メッセージ経由でこれを受理し、クラッシュ再構築時にも同一の値を再生します。各 isolate の `cache/perThread/time.ts` はタイムゾーン、formatter、UTC オフセット区間をそれぞれ 1 つ保持します。オフセットは隣接する夏時間等の規則遷移の間で一定であるため、通算日数、日付文字列、ローカル時刻文字列、時は区間内では比較と整数演算のみで求め、区間外となった場合のみ Temporal がその時点のオフセットと前後の遷移点から区間を再構築します。日付・時刻文字列は `FORMAT_MIN_TIMESTAMP_MS` から `FORMAT_MAX_TIMESTAMP_MS` までの整数タイムスタンプのみを受け付けます。未初期化時の暦操作は拒否されます。ホットリロードやメッセージごとのスレッド間同期は行いません。運勢、ログ、広告の発言累計、入室ログ、AI の時刻、日次保守で共用され、cron の省略時にも継承されます。明示的に指定されたタスクのタイムゾーンは独立して機能します。各暦日の最初の実在時刻はネイティブ Temporal が算出します。東京天気ツール（`GET_TOKYO_WEATHER_TOOL`）は起動時のタイムゾーンが `TOKYO_TIME_ZONE` と一致する場合のみ登録されます。それ以外のタイムゾーンでは登録されず、呼び出し時には未知のツールとしてエラーを返します。
-- **データルートはタイムゾーンに固定**：`initializeStorageDatabase` は設定されたタイムゾーンを `storage_metadata` の `IDENTITY_DATABASE_TIME_ZONE_KEY`（`time-zone`）マーカー（`{"timeZone":"<正規 IANA 名>"}`）として書き込みます。Disk I/O の起動時はスキーマバージョン検査の直後、日付に基づく検証より前にこれを設定タイムゾーンと照合し、インストーラーもサービス登録前に同様の照合を行います。一致しない場合は起動を拒否し、`storage_metadata.time-zone` の期待値を示します。runtime はマーカーの自動補完や書き換えを行いません。既存データルートにおけるタイムゾーンの変更はサポートされません。
+- **既定タイムゾーンはプロセス起動時のスナップショット**：
+  - `config/static/bot.json` の任意項目 `time_zone` は IANA 名を受け付け、省略時は `DEFAULT_BOT_TIME_ZONE` です。
+  - 前後の空白を除去し、外部接続前に Intl・Temporal・Bun cron（`TIME_ZONE_VALIDATION_CRON`）の対応を検証した上で、Temporal で正規化された名前（大文字小文字を統一。`Japan` などの別名は統一しない）を保持します。空文字、不正な型、未知のタイムゾーンは起動を拒否します。
+  - メインスレッドが権威スナップショットを保持し、AI・Anti-Raid・Disk I/O Worker は `init`・`agentConfig`・`load` メッセージ経由でこれを受理し、クラッシュ再構築時にも同一の値を再生します。
+  - 各 isolate の `cache/perThread/time.ts` はタイムゾーン、formatter、UTC オフセット区間をそれぞれ 1 つ保持します。オフセットは隣接する夏時間等の規則遷移の間で一定であるため、通算日数、日付文字列、ローカル時刻文字列、時は区間内では比較と整数演算のみで求め、区間外となった場合のみ Temporal がその時点のオフセットと前後の遷移点から区間を再構築します。日付・時刻文字列は `FORMAT_MIN_TIMESTAMP_MS` から `FORMAT_MAX_TIMESTAMP_MS` までの整数タイムスタンプのみを受け付けます。未初期化時の暦操作は拒否されます。ホットリロードやメッセージごとのスレッド間同期は行いません。
+  - 運勢、ログ、広告の発言累計、入室ログ、AI の時刻、日次保守で共用され、cron の省略時にも継承されます。明示的に指定されたタスクのタイムゾーンは独立して機能します。各暦日の最初の実在時刻はネイティブ Temporal が算出します。
+  - 東京天気ツール（`GET_TOKYO_WEATHER_TOOL`）は起動時のタイムゾーンが `TOKYO_TIME_ZONE` と一致する場合のみ登録されます。それ以外のタイムゾーンでは登録されず、呼び出し時には未知のツールとしてエラーを返します。
+- **データルートはタイムゾーンに固定**：
+  - `initializeStorageDatabase` は設定されたタイムゾーンを `storage_metadata` の `IDENTITY_DATABASE_TIME_ZONE_KEY`（`time-zone`）マーカー（`{"timeZone":"<正規 IANA 名>"}`）として書き込みます。
+  - Disk I/O の起動時はスキーマバージョン検査の直後、日付に基づく検証より前にこれを設定タイムゾーンと照合し、インストーラーもサービス登録前に同様の照合を行います。一致しない場合は起動を拒否し、`storage_metadata.time-zone` の期待値を示します。runtime はマーカーの自動補完や書き換えを行いません。既存データルートにおけるタイムゾーンの変更はサポートされません。
 
 - **副作用のない Import**：本番モジュールの import 時に Worker の起動、タイマーの登録、ネットワークリクエストの発行、または共有ディレクトリへのデータ書き込みを行うことは禁止されます。
 - **データルート事前検査と排他ロック**：
@@ -68,7 +76,7 @@
   **スーパー管理者の権限は身分そのものに由来し、SQLite 行には記録されません。** `packages/infra/identityPolicy/whitelist.ts` の `getEffectiveWhitelistPermissions` は `SUPER_ADMIN_USER_ID` に対して全フラグが true の `SUPER_ADMIN_WHITELIST_PERMISSIONS` を返します。それ以外は恒久ホワイトリストを先に読み取り、ヒットしなかった場合のみ、設定タイムゾーン暦日の保持境界内にある一時メンバーシップから `TEMPORARY_AD_BYPASS_PERMISSIONS` を取得します。スーパー管理者オーバーライドは読み取り専用であり永続化されません。`/white` と `/permission` は現在のチャット自身を対象に指定できません。`isCanWhiteOther` は `/white enable` のみを委任し、他の身分を `DEFAULT_WHITELIST_PERMISSIONS` で追加できますが、メンバー削除と権限の変更はスーパー管理者のみが実行可能です。
 
   `/permission query` と `/permission help` は読み取り専用です。`query` は自身、返信先、明示対象を照会し、デフォルト補完済みのビューを返すのみで行を作成しません。どちらも描画された権限ボードを長期保持し、遅延削除は設定されません。対象解決の失敗、変更の拒否、使い方案内は共通の自動削除（`COMMAND_MESSAGE_AUTO_DELETE_MS`）に従います。
-- **プロセス全体の Telegram identity は `config/static/bot.json` のみから厳密に読み取ります**。`bot_token` と `super_admin_user_id` はネットワーク接続前に必須検証され、欠落、未知のフィールド、不正な値は起動を拒否します。AI キーはすべて `config/dynamic/agent.json` の能力設定内にプロバイダ、エンドポイント、モデルとともに配置されます。資格情報のデフォルト値、能力間のフォールバック、実行時の上書きは存在しません。`base_url` は `https` のみを受け付け、平文 `http` は `LOOPBACK_HOSTS` に限定され、userinfo や `#` フラグメントは許可されません。google・anthropic プロバイダの能力は `headers`（最大 `AGENT_HEADERS_MAX_ENTRIES` 個のリクエストヘッダー。名前は `AGENT_HEADER_NAME_PATTERN` に一致し大文字小文字を区別せず重複不可、`AGENT_CREDENTIAL_HEADER_NAMES` の認証ヘッダー名は不可。値はトリム後に `AGENT_HEADER_VALUE_PATTERN` に一致する非空文字列）を宣言できます。google ではそのまま `GoogleGenAI` の `httpOptions.headers` に渡され、generateContent と Interactions の双方のリクエスト経路に付与されます。anthropic では `Anthropic` クライアントの `defaultHeaders` に渡され、対話能力と広告検出の全リクエストに付与されます。openai プロバイダにこのフィールドが存在する場合は起動を拒否します。プロバイダは `AGENT_PROVIDERS`（`google`、`openai`、`anthropic`）のみで、`image` と `tts` は google・openai のみに実装が存在するため設定解析で anthropic を拒否します。プロバイダの資格情報は `api_key` のみを通し、サードパーティゲートウェイの認証は `headers` を通します。
+- **プロセス全体の Telegram identity は `config/static/bot.json` のみから厳密に読み取ります**。`bot_token` と `super_admin_user_id` はネットワーク接続前に必須検証され、欠落、未知のフィールド、不正な値は起動を拒否します。AI キーはすべて `config/dynamic/agent.json` の能力設定内にプロバイダ、エンドポイント、モデルとともに配置されます。資格情報のデフォルト値、能力間のフォールバック、実行時の上書きは存在しません。SDK クライアントは資格情報、エンドポイント（`base_url` 省略時は各プロバイダの公式エンドポイント定数）、および暗黙の環境変数フォールバックを無効化するオプションを明示的に渡して構築され、資格情報、エンドポイント、SDK のログレベルはいずれもプロセスの環境変数から取りません。構築オプションでは無効化できない `ANTHROPIC_CUSTOM_HEADERS`・`OPENAI_CUSTOM_HEADERS`（SDK が全リクエストのヘッダーに併合し、`Authorization` も上書きできます）は、プロセス環境にどちらかが存在すると `packages/consts/paths.ts` の読み込み時に起動を拒否します。`base_url` は `https` のみを受け付け、平文 `http` は `LOOPBACK_HOSTS` に限定され、userinfo や `#` フラグメントは許可されません。プロバイダは `AGENT_PROVIDERS`（`google`、`openai`、`anthropic`）のみで、`image` と `tts` は google・openai のみに実装が存在するため設定解析で anthropic を拒否します。プロバイダの資格情報は `api_key` のみを通します。
 
   **AI 設定をディスクから読み取るのはメインスレッドのみです。** `agent.json` は起動ゲートでメインスレッドが解析し、稼働中の編集は `config/dynamic/` ホットリロードによって厳密に再解析されます。AI 雑談 Worker は `init`/`configReload`、Anti-Raid Worker は `agentConfig` を通じて、メインスレッドから現在有効な読み取り専用スナップショットを受け取ります。双方の Worker はスレッドごとの holder を読み取るのみで、Worker 側のコードパスからディスクに直接アクセスすることはなく、再生成時もメインスレッドの現在のスナップショットをリプレイします。`ad_detect` 未設定時のスナップショットは明示的な `null` であり、判定側は旧インスタンスの値を流用せず fail-closed します。
 
@@ -105,7 +113,7 @@
 
   設定の配布は既存の Worker プロトコルのみを使用します。AI 雑談 Worker には `configReload`（変更のあった領域のみを含む）を送信し、メインスレッドは post の前に `lastInitState` を現在のスナップショットへ書き換えます。Anti-Raid Worker には `agentConfig` を送信します。post が拒否された分は Worker 再生成時のリプレイによって補填され、Worker が起動していない、または再起動を断念した場合はメインスレッドの holder のみを更新します。Worker 側はまず holder を丸ごと差し替え、その後に旧スナップショットから派生した状態を無効化します。実行中のリクエストは旧 facade と旧クライアントを保持したまま完了します。AI 雑談は能力 facade と各プロバイダの SDK クライアントを破棄し、プロトコル・エンドポイント・資格情報が新スナップショットから引き続き参照される quota lane は維持して他を除去し、`media` 能力が変更された際は入力モダリティの probe を再初期化し、「設定はあるが未実装」の診断ログを再出力します。グローバルで共有される単一の気分（mood）は新スナップショットの同名フェーズへ差し替えられ、該当フェーズが削除されている場合は次回読み取り時に再抽選されます。スタンプ許可リスト差し替え後は新たに追加されたパックのカタログ照合を開始し（シャットダウン時の drain 中は開始しません）、許可リストから除外されたパックはスタンプツールから非表示となり、そのカタログは Disk I/O 復旧時の許可リスト照合を待ちます。Anti-Raid は広告検出用の各プロバイダの SDK クライアントを破棄し、例文リストが差し替えられた際は system prompt キャッシュをクリアします。
 
-  各スレッドは `cache/perThread/logger.ts` の `current` holder に完全な読み取り専用の資格情報スナップショットを保持します。初回利用時、またはいずれかの設定オブジェクトの参照が変化した際、生テキスト一覧、JSON エスケープ済み断片、走査コールバックを一括構築し、スナップショット全体を差し替えます。各ログ出力は同一スナップショットを捕捉し、シリアライズの再入が外側のスナップショットを変更することはありません。現在の資格情報（Telegram token、各能力の api_key、google・anthropic プロバイダの各 `headers` 値）は旧資格情報より前に配置され、合計最大 `LOGGER_MAX_REDACTED_SECRETS` 件とし、上限超過時は最も古い資格情報から破棄されます。Worker 再構築後は該当スレッドの設定から補充されます。
+  各スレッドは `cache/perThread/logger.ts` の `current` holder に完全な読み取り専用の資格情報スナップショットを保持します。初回利用時、またはいずれかの設定オブジェクトの参照が変化した際、生テキスト一覧、JSON エスケープ済み断片、走査コールバックを一括構築し、スナップショット全体を差し替えます。各ログ出力は同一スナップショットを捕捉し、シリアライズの再入が外側のスナップショットを変更することはありません。現在の資格情報（Telegram token と各能力の api_key）は旧資格情報より前に配置され、合計最大 `LOGGER_MAX_REDACTED_SECRETS` 件とし、上限超過時は最も古い資格情報から破棄されます。Worker 再構築後は該当スレッドの設定から補充されます。
 
 ### データルートとバックグラウンドタスク
 
@@ -175,38 +183,62 @@
 
 ### スレッドと状態の帰属
 
-- メインスレッドは Telegram runner、Worker 監視ハンドル、`cache/main/storage.ts` の正式な `memory/global/state.json` メモリミラーを所有します。`infra/storage/stateStore.ts` はミラーの復元、snapshot 構築、domain accessor を担う業務 facade です。`infra/storage/statePersistence.ts` の `StateStore` は厳密 decode、latest-only atomic write、上限付き失敗 retry、終了時 flush だけを担当します。失敗 retry の予定がある間は、永続化を待つ書き込みと停止時以外の flush は retry timer のバックオフに従って最新値を書き出し、前倒しで送らず retry 回数も余分に消費しません。停止時の flush はバックオフを取り消して直ちに最後の書き込みを行います。retry 上限の超過は fatal durability failure であり、runner を停止して update の確認を続けてはいけません。
-- AI Worker はグループチャットメモリ、返信の受け入れ、メディア説明パイプライン、全グループ共通のムード、スタンプカタログ生成の実行時状態を排他的に所有します。
-- Anti-Raid Worker は認証およびロックダウンのステートマシンとタイマーを排他的に所有し、メインスレッドは復元可能なミラーのみを保持します。
-- Disk I/O Worker はログ、AI メモリ、スタンプカタログ、運勢、認証待ちデータの永続化を排他的に所有し、1 つの Worker スレッド内で共有ディレクトリへの読み書きを直列化します。`memory/global/` は明示的な例外で、メインスレッドが `stateStore.ts` facade 経由で `statePersistence.ts` の `StateStore` を呼び出して非同期に管理します。業務 Worker は共有ディレクトリへ直接書き込みません。
-- 長寿命の Map、Set、キュー、timer には、対応する `packages/cache/` モジュールと業務ライフサイクルモジュールが共同で容量、削除、Worker 再構築の意味を定義しなければなりません。
-- **キャッシュの所有スレッドはディレクトリ名で宣言し、実際のモジュールグラフで照合します。** `packages/cache/` の第 1 階層が所有者です。`main/` はメインスレッド専有、`workers/aiChat|antiRaid|diskIO/` は各 Worker スレッド専有、`perThread/` は各スレッドが個別に 1 つずつ持つ、互いに無関係な状態（Telegram capability holder、Worker duplex waiter、デプロイ設定 singleton、自己送信メッセージ登録、update 取消コンテキストの storage）です。各 cache ファイルの 1 行目は `/** owner: <main|perThread|workers/<スレッド>>。` で始まり、所在ディレクトリと一致することを `bun run check:conventions` が同じく検証します。
-
-  スレッド間はメッセージのみでやり取りしメモリは共有せず、**あるスレッド専有の状態を別スレッドが import してはいけません**。`bun run check:conventions` が各スレッドエントリ（`index.ts` と各 `*Worker.ts`）から実行時 import の閉包をたどって照合し（`import type` と `new Worker(new URL(...))` は辺として数えません）、違反時は import 連鎖を全て出力します。
-
-  スレッドをまたぐ import の適用除外は `CACHE_OWNER_EXEMPTIONS` にのみ登録でき、現在は空です。`infra/logger.ts` は `infra/diskIO.ts` に静的に依存しません。メインスレッドの error ログは `cache/perThread/logger.ts` の `logRelaySink`（`initDiskIO` が `relayLogMessage` を設定）を経て書き込みスレッドへ渡され、Worker スレッドの error ログはバッチでメインスレッドへ転送されてから同じ経路に渡されます。
-- **Worker から到達できるモジュールが main-thread state を必要とする場合、main thread が値を解決して最終 field だけを送ります。** たとえば AI Worker の super-admin ID は `init` message で注入し、Worker は `config/bot.ts` を import しません。Telegram action は Bot token、client、outbound queue を mirror せず、最小 allowlist payload を main thread へ送ります。自然に remote result が必要な Telegram call だけが duplex 境界を通り、group message の hot path 全体に request/reply を追加してはいけません。
-- 業務 Worker と独立 Disk I/O host は同期 `postMessage` 拒否を明示的な失敗に統一します。request の拒否は waiter/timer を即座に削除し、重要業務の拒否は fatal とします。受理済み error log は Worker → main、main → Disk I/O の 2 hop で ACK を待ちます。各 hop は batch を 1 つだけ in-flight にし（上限はそれぞれ `LOGGER_FORWARD_BATCH_MAX_MESSAGES`、`DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` 件）、ACK まで原 batch を保持して世代交代後に再送します。障害境界では重複を許容します。main 側は実際の flush 後だけ ACK し、書込失敗時の log-file reopen backoff を新着 log が迂回してはいけません。
-
-  各 hop は待機中と in-flight の件数・JSON payload byte 数を合わせて制限します。業務 Worker は 1 スレッドあたり `LOGGER_FORWARD_MAX_PENDING_MESSAGES` と `LOGGER_FORWARD_MAX_SERIALIZED_BYTES`、main → Disk I/O は `DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES` と `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES` を上限とします。超過分の object は保持せず、破棄件数と byte 数の counter だけを残し、空きができたら要約を送ります。Worker の error は同スレッドの stderr にも出力します。受理済み batch は同期拒否や再構築で捨てません。process 終了や isolate 強制終了では未永続化 log が失われ得ます。Disk I/O 初期化前は journal のみに出力します。
-
-  並行 batch で `Promise.all` を直接使ってはいけません。独立した固定 task は `Promise.allSettled` ですべての settlement を待ち、項目ごとに failure を集約します。動的 input は固定 worker 数の `runBoundedSettledBatch` を通し、各項目を 1 回だけ実行し、結果に `item/index` を保持します。Telegram outbound gate など下位 owner が既に retry する場合、呼び出し側は副作用を重ねて実行してはいけません。owner に登録済みの task だけを待つ drain は snapshot を直接 `allSettled` できますが、各 task が既に error の帰属先を持つ必要があり、settlement をエラーの捨て場所にしてはいけません。Disk I/O の runtime recovery は不可分な 1 つの handshake です。
-
-  load 成功後、各 domain は登録順に現世代の scoped transport だけを使って mirror を replay し、非同期処理をすべて await します。その後で復旧窓の上限付き business FIFO を排出し、最後にだけ writable を公開できます。mirror replay の前後には `storageFlushHold` の開始・終了マークを送り、区間内の Worker は満杯 batch と定時 commit の timer だけを設定し、群状態（管理群上限と代送先の一意性）および群 QA（群ごとの上限）の集約検証を終了マークまで遅延させ、終了マークで集約制約を検証します。検証に失敗した domain は区間内の書き込みを破棄し（不正な集約状態は commit しない）、`recoveryReplayFailed` を返してメインスレッドを fatal 停止させ、残りの domain は閾値に従って 1 回のトランザクションで commit します。明示的な flush はこのマークの影響を受けません。AI context の削除と purge 後の最初の snapshot は区間内では queue に入るだけで、マークを閉じた時点で即座に commit します。listener の `false`、throw、reject、timeout、または scoped post の拒否は現世代を終了させる fatal failure です。
-
-  旧世代 listener の遅延 settlement が新しい世代へ書き込んだり、activate したりしてはいけません。処理または永続化の確認が必要な caller は `false` を失敗として扱い、対応する Telegram update を確認してはいけません。
-
-  復旧 FIFO の排出前後には、別に `recoveryReplay` の開始・終了マーク（`RecoveryReplayRequest`）を 1 対送ります。共有 SQLite への書き込みメッセージがオンラインで拒否された場合、Worker は domain の拒否マークを記録し、呼び出し側が直後に発行する domain barrier が失敗 receipt を受け取るため、update を確認せずに再配信させられます。復旧 FIFO 内のメッセージにはそれを問う後続の barrier がないため、区間内の拒否は追加で `recoveryReplayFailed` を返し、メインスレッドはそれを受けて統一 fatal 停止を行い、Telegram に最後の確認点から再配信させます。
-
-- **main thread から Disk I/O への業務 transport は常に有界です。** 待機中と送信中の payload は `DEFAULT_MAX_PENDING_BUSINESS_MESSAGES` message と `DISK_BUSINESS_MAX_RETAINED_BYTES` の推定予算を共有し、control 用に別途 `DISK_OPERATION_CONTROL_RESERVE` slot を確保します。送信中は最大 `DISK_BUSINESS_BATCH_MAX_MESSAGES` message の 1 batch のみで、Worker の直列 operation queue は最大 `DISK_WORKER_MAX_QUEUED_OPERATIONS` operation です。投入元も有界です。main thread の業務 batch と診断 batch はそれぞれ最大 1 batch が送信中、load と毎日の保守 cron はそれぞれ 1 operation、Worker 自身が予約する各 domain の定時 flush は期限到来後に `workers/diskIO/timedFlush.ts` が 1 operation にまとめます（実行前に同じ投入元が再び期限を迎えても 1 回だけ実行します）。ほかのモジュールは直接投入しません。batch 消費 ACK は transport 容量を解放し、domain 永続化 ACK は durable を表します。`DISK_BUSINESS_ACK_TIMEOUT_MS` 以内に batch ACK が届かない場合または容量拒否は fatal を通知し、最終 flush の経路は保持します。Worker 再生成は業務 FIFO を保持し、read waiter は失敗で完了させます。同世代の mirror replay、FIFO 排出、writable 公開の順に進みます。復元中だけの revision 水位、およびスタンプ snapshot とメンバー操作の object marker は mirror が覆う古い write だけを除外し、後続 update は保持します。
-
-- **Worker の非機能的なグループ内通知はメインスレッドの送信・クリーンアップ境界へ集約します。** AI のレート制限・トピックエラー通知、ロックダウン解除、認証の歓迎メッセージ・終端通知、連投ミュート通知は送信成功後に `COMMAND_MESSAGE_AUTO_DELETE_MS` で自動削除されます。`sendTemporaryMessageFromMain` の `notice` 要求は共通のグループ内通知期限を使用し、任意の `replyToMessageId` で元の返信先を渡します。メインスレッドは送信成功時の `onSent` 内で削除を登録してから Worker にメッセージ ID を返し、応答消失・キャンセル・Worker 再生成後も削除責任を保持します。送信失敗時は削除タスクを作成しません。歓迎メッセージの送信・通信エラーは共通の Telegram action 境界で処理し、後続の認証副作用を順に実行します。削除タイマーは `unref()` され、削除失敗は統一 Telegram エラーログへ送られます。認証ボタンと `/qa set` フォームはステートマシンが削除し、inline おみくじは inline API を使用します。
-
-- **他の Bot から届くメッセージはメインスレッドの入口で制限します。** `app/registerHandlers.ts` は update ID の追跡後、受領確認と業務 dispatch の前に `shouldPassBotMessage`（`infra/botMessageGate.ts`）を呼び出します。`sender_chat` を持たない `message.from.is_bot` のみをカウントします。チャンネル名義、メッセージ以外の update、本 Bot 自身の ID は記録せずに通過させます。そのグループの `/delete_message` 対象の発言はカウントより先に判定し、数えず・期限も延長せずに通過させて前置チェーンの削除 ingress に任せます。他の Bot はチャットをまたいで ID ごとにカウントされ、最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件を通過させ、以降は通知することなく破棄します。遮断されたものを含む受信メッセージごとに、該当 Bot 専用のタイムアウトを最終発言から `BOT_MESSAGE_ACTIVITY_TTL_MS` 後まで延長します。メインスレッドの Map は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 個の Bot ID を保持し、満杯の間は新しい ID をタイマーを作成せずに拒否します。既存の ID は引き続き件数で判定され、記録を追い出すことはありません。各記録のタイマーは最大 1 個で、`unref()` されます。プロセス再起動でカウントは消去されますが、Worker 再生成では消去されません。
-
-- **1 件の update あたりの dispatch 構造は必須の制約です。** すべてのスラッシュコマンドは共有の `:entities:bot_command` ゲート（`matchFilter(":entities:bot_command")`）の後ろの子 Composer に収め、`bot` へ個別に登録してはなりません。更新チェーン全体は `app/registerHandlers.ts` の単一の `bot.use` で登録し、この層で update_id の記録と Bot 発言の流量制限を済ませてから `app/updatePreamble.ts` の継続関数チェーン（運勢レシート → 初期化ゲート → グループ移行 → 身分プリフェッチ → 私聊中継 → Anti-Raid・`/delete_message` 対象・gag・`/qa set` の認領型 ingress → コマンドゲート → 漢字アクションコマンドのゲート → メッセージの最終処理 → メッセージ以外の update ルーター）に入ります。各段は固定順で次の段を同期的に呼び出し、実際に I/O に当たったときだけ Promise を返します。前置段を追加するときはこの継続チェーンに挿入し、別の `bot.use` や `bot.on` を設けてはなりません。スラッシュコマンド、漢字アクションコマンド、メッセージ以外の update はそれぞれの grammY `Composer` が受け持ち、前置チェーンが該当位置で呼び出し、どれにも認領されなければ外側の `next` をちょうど 1 回呼びます。`test/app/registerHandlers.test.ts` は `bot.use` が 1 回だけ登録され `bot.on` が直接呼ばれないことを検証し、ホットパスゲートの `registered-middleware` シナリオがチェーン全体を計測します。`message` / `channel_post` 上の ingress とメッセージの最終処理は `bot.on` では登録せず、`ctx.msg`（`message ?? channelPost`）を直接判定します。漢字アクションコマンドの `hears` は原文の先頭文字コードが `SLASH_CHAR_CODE` であることを確認するゲートの後ろの子 Composer に配置され、このゲートは `CJK_ACTION_COMMAND_PATTERN` の上位集合です。グループメッセージごとに前置される各 ingress と、それらが共有する Bot 自身の管理者判定は、いずれも `boolean | Promise<boolean>` を返します。定常状態では同期的に boolean を返し、権限照会・メッセージ削除・durable な書き込みのときだけ Promise を返します。`/delete_message` 対象の ingress はキューに入れるだけで削除を待たないため、常に同期的に boolean を返します。メッセージ系 ingress の結果は `app/updatePreamble.ts` の継続関数がその場で判定し、boolean ならそのまま次の段へ進むかを決め、Promise なら結果を待ってから決めます。ボタンコールバックの認領は `app/registerHandlers.ts` の `claimOrContinue` が受け取ります。`callback_query:data` 上の `/wed` と `/qa query` のページ送りも同じ戻り値型で、プレフィックスが一致しないときは同期的に `false` を返します。`dispatchCallbackQuery` は `async` ではなく、両方が同期的に不一致のときはそのまま `next()` を呼び、どちらかが Promise を返したときだけその結果を待ってから参加認証へ続けるかを決めます。
-
-  **Promise を返すか否かは semantics の一部です**：durability barrier を待機する経路（参加/退出のサービスメッセージ、認証ボタンのコールバック）は必ず Promise を返し、書き込み確定前に Telegram が update を確認済みにしないようにします。常に false の同期判定を `async` にしてはなりません。定常状態の同期返却と durable 経路の `toBeInstanceOf(Promise)` はテストで検証されます。
+- **各スレッドは状態の所有範囲を明確に分担し、スレッド間でメモリを共有しません**：
+  - **メインスレッド**：Telegram runner、Worker 監視ハンドル、`cache/main/storage.ts` の正式な `memory/global/state.json` メモリミラーを所有します。
+    - `infra/storage/stateStore.ts` はミラーの復元、snapshot 構築、domain accessor を担う業務 facade です。
+    - `infra/storage/statePersistence.ts` の `StateStore` は厳密 decode、latest-only atomic write、上限付き失敗 retry、終了時 flush だけを担当します。
+    - 失敗 retry の予定がある間は、永続化を待つ書き込みと停止時以外の flush は retry timer のバックオフに従って最新値を書き出し、前倒しで送らず retry 回数も余分に消費しません。停止時の flush はバックオフを取り消して直ちに最後の書き込みを行います。
+    - retry 上限の超過は fatal durability failure であり、runner を停止して update の確認を続けてはいけません。
+  - **AI Worker**：グループチャットメモリ、返信の受け入れ、メディア説明パイプライン、全グループ共通のムード、スタンプカタログ生成の実行時状態を排他的に所有します。
+  - **Anti-Raid Worker**：認証およびロックダウンのステートマシンとタイマーを排他的に所有し、メインスレッドは復元可能なミラーのみを保持します。
+  - **Disk I/O Worker**：ログ、AI メモリ、スタンプカタログ、運勢、認証待ちデータの永続化を排他的に所有し、1 つの Worker スレッド内で共有ディレクトリへの読み書きを直列化します。
+    - `memory/global/` は明示的な例外で、メインスレッドが `stateStore.ts` facade 経由で `statePersistence.ts` の `StateStore` を呼び出して非同期に管理します。業務 Worker は共有ディレクトリへ直接書き込みません。
+  - **長寿命コンテナの管理**：長寿命の Map、Set、キュー、timer には、対応する `packages/cache/` モジュールと業務ライフサイクルモジュールが共同で容量、削除、Worker 再構築の意味を定義しなければなりません。
+- **キャッシュの所有スレッドはディレクトリ名で宣言し、実際のモジュールグラフで照合します**：
+  - `packages/cache/` の第 1 階層が所有者です。`main/` はメインスレッド専有、`workers/aiChat|antiRaid|diskIO/` は各 Worker スレッド専有、`perThread/` は各スレッドが個別に 1 つずつ持つ、互いに無関係な状態（Telegram capability holder、Worker duplex waiter、デプロイ設定 singleton、自己送信メッセージ登録、update 取消コンテキストの storage）です。
+  - 各 cache ファイルの 1 行目は `/** owner: <main|perThread|workers/<スレッド>>。` で始まり、所在ディレクトリと一致することを `bun run check:conventions` が同じく検証します。
+  - スレッド間はメッセージのみでやり取りしメモリは共有せず、**あるスレッド専有の状態を別スレッドが import してはいけません**。`bun run check:conventions` が各スレッドエントリ（`index.ts` と各 `*Worker.ts`）から実行時 import の閉包をたどって照合し（`import type` と `new Worker(new URL(...))` は辺として数えません）、違反時は import 連鎖を全て出力します。
+  - スレッドをまたぐ import の適用除外は `CACHE_OWNER_EXEMPTIONS` にのみ登録でき、現在は空です。`infra/logger.ts` は `infra/diskIO.ts` に静的に依存しません。メインスレッドの error ログは `cache/perThread/logger.ts` の `logRelaySink`（`initDiskIO` が `relayLogMessage` を設定）を経て書き込みスレッドへ渡され、Worker スレッドの error ログはバッチでメインスレッドへ転送されてから同じ経路に渡されます。
+- **Worker から到達できるモジュールが main-thread state を必要とする場合、main thread が値を解決して最終 field だけを送ります**：
+  - たとえば AI Worker の super-admin ID は `init` message で注入し、Worker は `config/bot.ts` を import しません。
+  - Telegram action は Bot token、client、outbound queue を mirror せず、最小 allowlist payload を main thread へ送ります。
+  - 自然に remote result が必要な Telegram call だけが duplex 境界を通り、group message の hot path 全体に request/reply を追加してはいけません。
+- **IPC 障害処理とエラーログ転送（2-hop ACK）**：
+  - 業務 Worker と独立 Disk I/O host は同期 `postMessage` 拒否を明示的な失敗に統一します。request の拒否は waiter/timer を即座に削除し、重要業務の拒否は fatal とします。
+  - 受理済み error log は Worker → main、main → Disk I/O の 2 hop で ACK を待ちます。各 hop は batch を 1 つだけ in-flight にし（上限はそれぞれ `LOGGER_FORWARD_BATCH_MAX_MESSAGES`、`DISK_DIAGNOSTIC_BATCH_MAX_MESSAGES` 件）、ACK まで原 batch を保持して世代交代後に再送します。障害境界では重複を許容します。main 側は実際の flush 後だけ ACK し、書込失敗時の log-file reopen backoff を新着 log が迂回してはいけません。
+  - 各 hop は待機中と in-flight の件数・JSON payload byte 数を合わせて制限します。業務 Worker は 1 スレッドあたり `LOGGER_FORWARD_MAX_PENDING_MESSAGES` と `LOGGER_FORWARD_MAX_SERIALIZED_BYTES`、main → Disk I/O は `DISK_DIAGNOSTIC_MAX_PENDING_MESSAGES` と `DISK_DIAGNOSTIC_MAX_SERIALIZED_BYTES` を上限とします。超過分の object は保持せず、破棄件数と byte 数の counter だけを残し、空きができたら要約を送ります。Worker の error は同スレッドの stderr にも出力します。受理済み batch は同期拒否や再構築で捨てません。process 終了や isolate 強制終了では未永続化 log が失われ得ます。Disk I/O 初期化前は journal のみに出力します。
+- **並行バッチ処理の原則**：
+  - 並行 batch で `Promise.all` を直接使ってはいけません。独立した固定 task は `Promise.allSettled` ですべての settlement を待ち、項目ごとに failure を集約します。
+  - 動的 input は固定 worker 数の `runBoundedSettledBatch` を通し、各項目を 1 回だけ実行し、結果に `item/index` を保持します。
+  - Telegram outbound gate など下位 owner が既に retry する場合、呼び出し側は副作用を重ねて実行してはいけません。
+  - owner に登録済みの task だけを待つ drain は snapshot を直接 `allSettled` できますが、各 task が既に error の帰属先を持つ必要があり、settlement をエラーの捨て場所にしてはいけません。
+- **Disk I/O の runtime recovery ハンドシェイク**：
+  - Disk I/O の runtime recovery は不可分な 1 つの handshake です。load 成功後、各 domain は登録順に現世代の scoped transport だけを使って mirror を replay し、非同期処理をすべて await します。その後で復旧窓の上限付き business FIFO を排出し、最後にだけ writable を公開できます。
+  - mirror replay の前後には `storageFlushHold` の開始・終了マークを送り、区間内の Worker は満杯 batch と定時 commit の timer だけを設定し、群状態（管理群上限と代送先の一意性）および群 QA（群ごとの上限）の集約検証を終了マークまで遅延させ、終了マークで集約制約を検証します。検証に失敗した domain は区間内の書き込みを破棄し（不正な集約状態は commit しない）、`recoveryReplayFailed` を返してメインスレッドを fatal 停止させ、残りの domain は閾値に従って 1 回のトランザクションで commit します。明示的な flush はこのマークの影響を受けません。AI context の削除と purge 後の最初の snapshot は区間内では queue に入るだけで、マークを閉じた時点で即座に commit します。
+  - listener の `false`、throw、reject、timeout、または scoped post の拒否は現世代を終了させる fatal failure です。旧世代 listener の遅延 settlement が新しい世代へ書き込んだり、activate したりしてはいけません。処理または永続化の確認が必要な caller は `false` を失敗として扱い、対応する Telegram update を確認してはいけません。
+  - 復旧 FIFO の排出前後には、別に `recoveryReplay` の開始・終了マーク（`RecoveryReplayRequest`）を 1 対送ります。共有 SQLite への書き込みメッセージがオンラインで拒否された場合、Worker は domain の拒否マークを記録し、呼び出し側が直後に発行する domain barrier が失敗 receipt を受け取るため、update を確認せずに再配信させられます。復旧 FIFO 内のメッセージにはそれを問う後続の barrier がないため、区間内の拒否は追加で `recoveryReplayFailed` を返し、メインスレッドはそれを受けて統一 fatal 停止を行い、Telegram に最後の確認点から再配信させます。
+- **main thread から Disk I/O への業務 transport の有界制約**：
+  - 待機中と送信中の payload は `DEFAULT_MAX_PENDING_BUSINESS_MESSAGES` message と `DISK_BUSINESS_MAX_RETAINED_BYTES` の推定予算を共有し、control 用に別途 `DISK_OPERATION_CONTROL_RESERVE` slot を確保します。
+  - 送信中は最大 `DISK_BUSINESS_BATCH_MAX_MESSAGES` message の 1 batch のみで、Worker の直列 operation queue は最大 `DISK_WORKER_MAX_QUEUED_OPERATIONS` operation です。投入元も有界です：main thread の業務 batch と診断 batch はそれぞれ最大 1 batch が送信中、load と毎日の保守 cron はそれぞれ 1 operation、Worker 自身が予約する各 domain の定時 flush は期限到来後に `workers/diskIO/timedFlush.ts` が 1 operation にまとめます（実行前に同じ投入元が再び期限を迎えても 1 回だけ実行します）。ほかのモジュールは直接投入しません。
+  - batch 消費 ACK は transport 容量を解放し、domain 永続化 ACK は durable を表します。`DISK_BUSINESS_ACK_TIMEOUT_MS` 以内に batch ACK が届かない場合または容量拒否は fatal を通知し、最終 flush の経路は保持します。
+  - Worker 再生成は業務 FIFO を保持し、read waiter は失敗で完了させます。同世代の mirror replay、FIFO 排出、writable 公開の順に進みます。復元中だけの revision 水位、およびスタンプ snapshot とメンバー操作の object marker は mirror が覆う古い write だけを除外し、後続 update は保持します。
+- **Worker の非機能的なグループ内通知の集約とクリーンアップ**：
+  - AI のレート制限・トピックエラー通知、ロックダウン解除、認証の歓迎メッセージ・終端通知、連投ミュート通知は送信成功後に `COMMAND_MESSAGE_AUTO_DELETE_MS` で自動削除されます。
+  - `sendTemporaryMessageFromMain` の `notice` 要求は共通のグループ内通知期限を使用し、任意の `replyToMessageId` で元の返信先を渡します。
+  - メインスレッドは送信成功時の `onSent` 内で削除を登録してから Worker にメッセージ ID を返し、応答消失・キャンセル・Worker 再生成後も削除責任を保持します。送信失敗時は削除タスクを作成しません。歓迎メッセージの送信・通信エラーは共通の Telegram action 境界で処理し、後続の認証副作用を順に実行します。削除タイマーは `unref()` され、削除失敗は統一 Telegram エラーログへ送られます。
+  - 認証ボタンと `/qa set` フォームはステートマシンが削除し、inline おみくじは inline API を使用します。
+- **他の Bot から届くメッセージのメインスレッド入口制限**：
+  - `app/registerHandlers.ts` は update ID の追跡後、受領確認と業務 dispatch の前に `shouldPassBotMessage`（`infra/botMessageGate.ts`）を呼び出します。
+  - `sender_chat` を持たない `message.from.is_bot` のみをカウントします。チャンネル名義、メッセージ以外の update、本 Bot 自身の ID は記録せずに通過させます。
+  - そのグループの `/delete_message` 対象の発言はカウントより先に判定し、数えず・期限も延長せずに通過させて前置チェーンの削除 ingress に任せます。
+  - 他の Bot はチャットをまたいで ID ごとにカウントされ、最初の `BOT_MESSAGE_ACTIVITY_LIMIT` 件を通過させ、以降は通知することなく破棄します。遮断されたものを含む受信メッセージごとに、該当 Bot 専用のタイムアウトを最終発言から `BOT_MESSAGE_ACTIVITY_TTL_MS` 後まで延長します。
+  - メインスレッドの Map は最大 `BOT_MESSAGE_ACTIVITY_MAX_ENTRIES` 個の Bot ID を保持し、満杯の間は新しい ID をタイマーを作成せずに拒否します。既存の ID は引き続き件数で判定され、記録を追い出すことはありません。各記録のタイマーは最大 1 個で、`unref()` されます。プロセス再起動でカウントは消去されますが、Worker 再生成では消去されません。
+- **Update dispatch チェーンと外ゲート設計**：
+  - **コマンド外ゲートの集約**：すべてのスラッシュコマンドは共有の `:entities:bot_command` ゲート（`matchFilter(":entities:bot_command")`）の後ろの子 Composer に収め、`bot` へ個別に登録してはなりません。
+  - **前置チェーンの単一登録**：更新チェーン全体は `app/registerHandlers.ts` の単一の `bot.use` で登録し、この層で update_id の記録と Bot 発言の流量制限を済ませてから `app/updatePreamble.ts` の継続関数チェーン（運勢レシート → 初期化ゲート → グループ移行 → 身分プリフェッチ → 私聊中継 → Anti-Raid・`/delete_message` 対象・gag・`/qa set` の認領型 ingress → コマンドゲート → 漢字アクションコマンドのゲート → メッセージの最終処理 → メッセージ以外の update ルーター）に入ります。各段は固定順で次の段を同期的に呼び出し、実際に I/O に当たったときだけ Promise を返します。グループ状態（`getChatState`）は初期化ゲートで 1 回だけ読み、`chatState` 引数として同期的な継続を通じて初期化ゲート、`/wed` メンバー観測、Anti-Raid と `/delete_message` 対象の ingress、メッセージパイプラインへ渡します。各 Promise の再開点（身分プリフェッチ、認領型 ingress、コマンドと漢字アクション `Composer` の `next`、自発メッセージの待機）では現在値を読み直し、待機前のオブジェクトを使い回しません。待機中に `/init` の無効化やグループの後片付けが起きると、キャッシュエントリーが削除または差し替えられます。前置段を追加するときはこの継続チェーンに挿入し、別の `bot.use` や `bot.on` を設けてはなりません。スラッシュコマンド、漢字アクションコマンド、メッセージ以外の update はそれぞれの grammY `Composer` が受け持ち、前置チェーンが該当位置で呼び出し、どれにも認領されなければ外側の `next` をちょうど 1 回呼びます。`test/app/registerHandlers.test.ts` は `bot.use` が 1 回だけ登録され `bot.on` が直接呼ばれないことを検証し、ホットパスゲートの `registered-middleware` シナリオがチェーン全体を計測します。
+  - **メッセージ入口判定の統一**：`message` / `channel_post` 上の ingress とメッセージの最終処理は `bot.on` では登録せず、`ctx.msg`（`message ?? channelPost`）を直接判定します。漢字アクションコマンドの `hears` は原文の先頭文字コードが `SLASH_CHAR_CODE` であることを確認するゲートの後ろの子 Composer に配置され、このゲートは `CJK_ACTION_COMMAND_PATTERN` の上位集合です。
+  - **同期 vs 非同期 Promise 契約**：グループメッセージごとに前置される各 ingress と、それらが共有する Bot 自身の管理者判定は、いずれも `boolean | Promise<boolean>` を返します。定常状態では同期的に boolean を返し、権限照会・メッセージ削除・durable な書き込みのときだけ Promise を返します。`/delete_message` 対象の ingress はキューに入れるだけで削除を待たないため、常に同期的に boolean を返します。メッセージ系 ingress の結果は `app/updatePreamble.ts` の継続関数がその場で判定し、boolean ならそのまま次の段へ進むかを決め、Promise なら結果を待ってから決めます。ボタンコールバックの認領は `app/registerHandlers.ts` の `claimOrContinue` が受け取ります。`callback_query:data` 上の `/wed` と `/qa query` のページ送りも同じ戻り値型で、プレフィックスが一致しないときは同期的に `false` を返します。`dispatchCallbackQuery` は `async` ではなく、両方が同期的に不一致のときはそのまま `next()` を呼び、どちらかが Promise を返したときだけその結果を待ってから参加認証へ続けるかを決めます。
+  - **Promise 返却セマンティクスの厳守**：durability barrier を待機する経路（参加/退出のサービスメッセージ、認証ボタンのコールバック）は必ず Promise を返し、書き込み確定前に Telegram が update を確認済みにしないようにします。常に false の同期判定を `async` にしてはなりません。定常状態の同期返却と durable 経路の `toBeInstanceOf(Promise)` はテストで検証されます。
 
 - **`packages/workers/` 内で独自に保持する各タイマーハンドルは必ず `unref()` します。** 独自のタイマーが単独で isolate のイベントループを維持してはなりません。順序付きシャットダウンは各 isolate の drain/flush が先に完了し、その後にメインスレッドが terminate します。Worker が使用する共有 libs の短命な待機タイマー（`libs/sleep.ts` のシグナル付き分岐、`libs/drainWaiter.ts`）は abort または `finally` の `clearTimeout` が寿命を決定するため `unref` しません。`check:conventions` は `packages/workers/` 配下をハンドル単位で検証し、各 `setTimeout`/`setInterval` の代入先に対し、同一関数本体内でその呼び出しより後かつ同一代入先への次の書き込みより前に `<同一代入先>.unref()` が 1 回現れることを要求します。代入先を持たないハンドル（`return setTimeout(...)` など）は拒否され、メインスレッド側は対象外です。
 
@@ -250,7 +282,7 @@
 
   **この待機時間には上限が必要です**（`AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS`。メインスレッド側の `AI_CHAT_INVALIDATE_TIMEOUT_MS` より短く設定すること）。
 
-  メモリ圧縮とメディア説明は双方とも該当世代の `AbortSignal` をモデルリクエストへ渡し、圧縮のリトライ待機も同一のシグナルを受理します。`Promise.race` 用の unref expiry タイマーは、タスク完了またはタイムアウトのいずれが先に発生しても `finally` で確実にクリアされます。タイムアウトは待機のみを終了させ、旧返信ラウンドの存続容量は実際の後処理が完了するまで保持されます。
+  メモリ圧縮とメディア説明は双方とも該当世代の `AbortSignal` をモデルリクエストへ渡し、圧縮のリトライ待機も同一のシグナルを受理します。期限付き待機用の unref expiry タイマーは全タスクが settle した時点でクリアされます。タイムアウトは待機のみを終了させ、旧返信ラウンドの存続容量は実際の後処理が完了するまで保持されます。
 
   時間切れとなった場合は安全に降格して処理を続行し、エラーログを 1 行記録します。登録されたタスクはすべて自身の世代を検証し、無効化後は一切の書き込みを行いません。
 
@@ -262,7 +294,7 @@
   `aiChat/openai/image.ts` も `OPENAI_IMAGE_REQUEST_TIMEOUT_MS` を各試行および画像生成処理全体に適用します。合成シグナルを SDK と外側の待機処理へ渡し、参照素材の準備、SDK リトライ、バックオフを包括します。呼び出し側のキャンセルは静かに終了し、全体 deadline の超過はリクエスト失敗として記録されます。
 - OpenAI Responses の `status` が `completed` であっても、message に `refusal` コンテンツブロックが含まれていれば拒否とみなし、`failureKind: "response"`、終了理由 `refusal` として返します。
 - 応答が利用不能な場合、各クライアントの `unusable response` ログにはプロバイダの終了詳細オブジェクトを併記します（Anthropic はその応答を生成した `model` も記録します）。Anthropic は `stop_details`、Gemini は candidate の `finishMessage` と `safetyRatings`（candidate がない場合は `promptFeedback`）、OpenAI は `error` と `refusal` テキストです。詳細は `aiChat/ai/utils/finishDetails.ts` が JSON に直列化して `AI_FINISH_DETAILS_MAX_CHARS` で切り詰め、同モジュールの `diagnosticWithDetails` が終了理由の後ろに `, details=<JSON>` として付けます（詳細がない場合はこの部分を省略します）。同じ文字列は `AiReplyTurn.finishDetails` を経て返信層へ渡り、`AI reply unusable response` ログも `diagnosticWithDetails` で `finish_reason` の後ろに `, details=<JSON>` として付けます。
-- AI モデル呼び出しは Telegram 送信ゲートには入りませんが、同一プロバイダ・`base_url`・API キーは 1 つのクォータレーンを共有し、モデル名や `headers` では分割されません。1 つのレーンはアクティブなモデルリクエスト上限を `AI_PROVIDER_MAX_CONCURRENT`、未開始タスク上限を `AI_PROVIDER_MAX_PENDING`、バックグラウンド待機枠上限を `AI_PROVIDER_BACKGROUND_MAX_PENDING` とします。対話リクエストを `AI_PROVIDER_INTERACTIVE_BURST` 件連続で開始した後は、待機中のバックグラウンドタスクを 1 件通過させます。SDK リトライは元のスロットを維持し、ローカルキューが満杯の場合はプロンプトやメディアバイトを保持することなくドメインエラーを返します。Telegram メッセージレーンの実行中リクエストが高水位（`AI_TELEGRAM_MESSAGE_ACTIVE_HIGH_WATER`）に達するか実際の 429 待機が発生した場合は、ランダムな自発割り込み発言を停止し、同一チャット内の直接トリガー並行数を 1 に引き下げるのみであり、プロバイダキューと Telegram キューは独立したまま保たれます。
+- AI モデル呼び出しは Telegram 送信ゲートには入りませんが、同一プロバイダ・`base_url`・API キーは 1 つのクォータレーンを共有し、モデル名では分割されません。1 つのレーンはアクティブなモデルリクエスト上限を `AI_PROVIDER_MAX_CONCURRENT`、未開始タスク上限を `AI_PROVIDER_MAX_PENDING`、バックグラウンド待機枠上限を `AI_PROVIDER_BACKGROUND_MAX_PENDING` とします。対話リクエストを `AI_PROVIDER_INTERACTIVE_BURST` 件連続で開始した後は、待機中のバックグラウンドタスクを 1 件通過させます。SDK リトライは元のスロットを維持し、ローカルキューが満杯の場合はプロンプトやメディアバイトを保持することなくドメインエラーを返します。Telegram メッセージレーンの実行中リクエストが高水位（`AI_TELEGRAM_MESSAGE_ACTIVE_HIGH_WATER`）に達するか実際の 429 待機が発生した場合は、ランダムな自発割り込み発言を停止し、同一チャット内の直接トリガー並行数を 1 に引き下げるのみであり、プロバイダキューと Telegram キューは独立したまま保たれます。
 - 返信アクションツールは呼び出しの中でバリデーション、クールダウンの確保、枠の予約を同期的に完了させ（`send_voice` は呼び出し時に日次枠を予約し、TTS 成功時に本登録します）、検証・資格・クールダウン・枠のいずれかを満たさない呼び出しには直ちにエラーを返します。どちらのラウンドでも呼び出し ID ごとに `success: true, queued: true, actions_used` を返却し、これは実際のメッセージ ID を含まない受理通知であり、この受理通知の時点で action budget を消費します。`toolset.execute` は同期的に返却されるため、モデルとの対話往復は自然な待機時間、音声合成、送信処理の完了をブロックしません。`send_voice` は呼び出し時にバックグラウンドで合成とエンコードを開始し、受理通知は合成完了を待ちません。各ラウンドの直列アクションチェーンは 1 本のみです（`aiChat/ai/tools/replyToolset/actionChains.ts`）。どちらのラウンドも受理したアクションをツール呼び出し順に整列させ、生成処理、自然な待機、ボイス合成待機、Telegram 送信待機とキュー側の再試行はチェーン内部で実行されます。順序付き並行ラウンドのチェーンは送信順が来るまで待機し、直接ラウンドのチェーンには関門が存在しません。チェーンの各ステップは完了するたびに idle 状態へ復帰します。バックグラウンドへ移行したボイスはチェーンを占有せず、合成成功時点のチェーン末尾に整列します。追送や自己記録は実際の結果を待機します。ラウンド全体は受信順に送信され、後続ラウンドが先行ラウンドの本文・訂正・キャプションの間へ割り込むことはありません。失敗の記録と後処理はチェーンが担当し、モデルが受理済みのアクションを再投入することは禁止されます。
 
   **チャット状態表示**（入力中・スタンプ選択中・録音中・写真送信中）はラウンドの heartbeat ハンドル（`aiChat/ai/chatActionHeartbeat.ts`）を経由してのみ切り替えられます。アクション実行時の状態表示はチェーン上で現在実行中のステップのみが切り替え、executor は呼び出し時には切り替えません。直接ラウンドはそれに加えて `replyToolset/pacing.ts` の `createDirectPacing` でリクエスト中の状態を表示します。アクションをまだ受理していないモデルリクエストの間は「入力中」を表示し、該当リクエストが返却した最初のアクションがテキスト（`send_message` または `abuse_mark`）であれば、その状態のまま追加待機なしで送信します。スタンプパックを新たに閲覧した直後のリクエストでは「スタンプ選択中」を表示し、それ以外のリクエストでは何も表示しません。リクエストの状態表示は直列チェーンが空いている間のみ点灯します。チェーンが空からステップ実行中へ変化した場合はチェーン側のステップに委譲し、チェーンが再び空いた際にリクエスト側がまだ状態表示を必要としていれば改めて点灯させます。アクションは受理時に呼び出し順でリクエストの状態を引き継ぎ、バックグラウンドから補送されるボイスステップは引き継ぎません。その他のアクションはチェーン上で独自の状態へ切り替えて自然な待機を行い、完了時に idle へ復帰します。モデルフェーズの終了時（`toolset.afterModel`）には、リクエスト側が点灯させたままアクションに引き継がれなかった状態を取り下げます。`view_sticker_pack` 自体は状態表示を変更しません。送信前に idle へ切り替えて settle し、着地後にもう一度 idle へ切り替えます。idle への切り替えは状態の区切りであり、同一チャットは直前の idle から `CHAT_ACTION_REST_MS` の間は非表示を維持します。その間は状態表示リクエストを一切送信せず、途中の切り替えは非表示期間の満了時に点灯し、自然な待機時間は残りの非表示時間分だけ延長されます。現在の状態を保持していないラウンドの idle は、該当状態を取り下げることも非表示期間を開始することもありません。誤字メッセージが着地した後の訂正メッセージは、`TYPO_QUICK_CORRECTION_MIN_MS`〜`TYPO_QUICK_CORRECTION_MAX_MS` の非表示待機を経てから `TYPO_QUICK_CORRECTION_TYPING_MS` の「入力中」を表示して送信されます。
@@ -355,7 +387,7 @@
   - Worker 側では合成ごとのシグナルを Worker のライフサイクルシグナルと合成し、drain 開始後に到着したリクエストにはそのまま「worker unavailable」を返却します。
   - `/send` と `cron.json` の設定解析は、それぞれセリフを `VOICE_OPERATOR_TEXT_MAX_CHARS` 以下、口調を `VOICE_TONE_MAX_CHARS` 以下に厳格制限します。
 
-  **運用側入口の 1 日あたりの回数は tts facade で記録されます**（`packages/aiChat/provider.ts` の `createSpeechFacade`。カウント関数は `aiChat/ai/ttsUsage.ts`）：
+  **運用側入口の 1 日あたりの回数は tts facade で記録されます**（`packages/aiChat/providerFacades.ts` の `createSpeechFacade`。カウント関数は `aiChat/ai/ttsUsage.ts`）：
   - リクエストはすべて quota gate で順序を待ち、`quota: "operator"` のリクエストは実行順が回ってきてプロバイダリクエストを発行する直前に `claimOperatorTtsUsage` を呼び出します。待機中にキャンセルされたリクエストや満杯キューに拒否されたリクエストはカウントせず、`operator` の上限に達している場合はリクエストを発行せず `daily limit reached` として終了します。
   - 登録処理は claim（所属するウィンドウの起点時刻）を返却します。プロバイダが音声を返却しなかった場合（null 返却または例外スロー）、facade は該当 claim で `refundOperatorTtsUsage` を呼び出して 1 回分を返還し、登録後にウィンドウが切り替わっていた場合は返還しません。
   - AI ボイスツールは前述の通り自ら予約と本登録を実行し、`quota: "ai"` を渡すため、facade はそのまま合成を実行し本登録は行いません。
@@ -378,7 +410,7 @@
 - **トークンと利用量の算定**：
   - 利用量統計はプロバイダ SDK が返却する正規の `usage` を基準とし、`packages/infra/aiCacheUsage.ts` が集中的に検証・報告します。`packages/infra/aiCacheUsageRelay.ts` がメインスレッドから Disk I/O へ送信する診断エンベロープを統一します。
   - キャンセルや中断が発生した場合でも、SDK が有効な利用量を返却していれば集計に含め、SDK が返却しなかった場合は推定を行いません。
-  - Gemini の本文トークンと思考トークンは検証後に合算し、OpenAI の出力トークンには推論トークンを重複加算しません。再生時間のみの文字起こしはトークン換算しません。
+  - Gemini の入力トークンは `promptTokenCount` と個別に報告される `toolUsePromptTokenCount` の和とし、本文トークンと思考トークンは検証後に合算します。OpenAI の出力トークンには推論トークンを重複加算しません。再生時間のみの文字起こしはトークン換算しません。
   - キャッシュ読み取りとキャッシュ書き込みはいずれも入力総量に含まれ、互いに重複しません。Anthropic の `input_tokens` はキャッシュ分を含まないため、入力総量は `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`、読み取りは `cache_read_input_tokens`、書き込みは `cache_creation_input_tokens` から取得します。OpenAI の書き込みは Responses の `input_tokens_details.cache_write_tokens` または Chat Completions の `prompt_tokens_details.cache_write_tokens` から取得します。Gemini はリクエスト単位の書き込みを返さないため、明示キャッシュの作成時のみ書き込みを入力と同数として記録します。読み取りと書き込みの合計が入力を超える場合はトークン記録を不正として破棄し（検索回数は保持）、プロバイダが書き込みを返さない場合は記録せず、日次集約は書き込みを返したリクエストのみを合算します。
   - 費用のみを返却するモデル（xAI 画像生成の `cost_in_usd_ticks` など）は費用メトリクスとして個別に記録し、トークン換算は行いません。OpenAI audio/speech および xAI `/tts` の音声合成応答は usage を返却しないため、応答ごとに `missing` として診断し、利用量は記録しません。同一の応答を両方で記録することはありません。
   - Web 検索回数はモデルトークンと併せて記録し、日次集約では 1 回のリクエストとしてカウントします。独立した検索呼び出しは search usage として記録し、リクエスト数には加えません。Anthropic は `server_tool_use.web_search_requests` を基準とし、OpenAI は `action.type === "search"` かつ完了状態のアクションのみを集計します。
@@ -555,7 +587,7 @@
 
 - **終端キックとグループタイプの適合**：
   - `kickChatMember` を呼び出す前に、必ず `probeChatMembership` で現在のメンバー状態を確認します。在室を確認できた場合のみキックを実行し、既に退出していることが確認された場合は処置レポートを出さずに完了します。照会失敗時は終端状態を保持してバックオフ再試行に回します。
-  - ボットに `can_restrict_members` がないと確定している場合（`botCanRestrictIn === false`）も在室照会は行い、キック要求だけを送りません。退出済みならその場で精算し、在室なら終端状態を保持してバックオフします。`expelling` はクリーンアップ完了（`cleanupSettled === true`）後の再試行でメッセージ削除を再送せず、失敗通知も送信済みであれば再試行ごとに在室照会を 1 回だけ送ります。
+  - ボットに `can_restrict_members` がないと確定している場合（`botCanRestrictIn === false`）も在室照会は行い、キック要求だけを送りません。退出済みならその場で精算し、在室なら終端状態を保持してバックオフします。`expelling` はクリーンアップ完了（`cleanupSettled === true`）後の再試行でメッセージ削除を再送せず、失敗通知も送信済みであれば再試行ごとに在室照会を 1 回だけ送ります。前回のラウンドでキックが確認済み（`removalConfirmed`）の場合も在室照会は 1 回だけで、権限不足のエラーログは記録せず、退出済みなら成功報告を補送します。
   - **初回リクエストも在室確認を実施**：スーパーグループの「BAN せずキック」は `only_if_banned` を指定しない `unbanChatMember` に対応し、既存の BAN を解除するため、メインスレッドは実行前に必ず `getChatMember` で在室を確認し、既に `left` または `kicked` であれば即座に中止します。明示的な解除操作は `only_if_banned: true` を伴うため、この制限を受けません。
   - **グループタイプの厳格な振り分け**：通常グループには `banChatMember`（通常グループでは退出のみ）、スーパーグループには `unbanChatMember` を使用します。グループタイプはメインスレッドが管理対象グループの update から監視・ミラーリングし、コールドスタート時はグループをキーに `getChat` を呼び出します（`VERIFICATION_CHAT_KIND_FETCH_MAX` で流量制限）。
 
@@ -750,7 +782,7 @@
 
 ### `cron.json` 定時タスク
 
-- **設定解析とソースファイル検証**（`packages/config/cron.ts`）：
+- **設定解析とソースファイル検証**（`packages/config/cron.ts` / `packages/config/cronAction.ts`）：
   - ファイルが存在しない場合は定時タスクなしとみなします。1 箇所でも不正なフィールドがあれば全体を拒否し、診断にはファイルパス、フィールドパス、期待される形態のみを出力します。
   - `parseCronConfig` は構文・形態・値の検証のみを行い、ディスク I/O は行いません。`loadCronConfig` は読み込み後にローカルファイルが実在し型が適合していることを確認します（シンボリックリンクを追跡）：固定画像やファイルの `path` は通常ファイル、ランダム画像ディレクトリは実ディレクトリでなければなりません。
   - **タスクテーブル仕様**：
@@ -836,7 +868,7 @@
   - フィールドの欠落はコード内の定数（`consts/ui/assets.ts`）へ一律にフォールバックし、前回の実行状態を引き継ぐことはありません。Bot がこのファイルを書き換えることはなく、未知のグループや未宣言フィールドが存在した場合はファイル全体を拒否します。
   - サムネイルは `https` のみを許可します。ローカルで取得する既定アバターは平文 `http` またはローカルファイルパス（絶対パス、または `./` / `../` で始まる相対パス）を許可します。既定アバターの素材はバイトシグネチャ、サイズ、動画トラック寸法で判定します（`defaultAvatarPhotoType`）：`BOT_PROFILE_PHOTO_MAX_BYTES` 以下の JPEG/PNG は静止アバター、`BOT_PROFILE_ANIMATION_MAX_BYTES` 以下で動画トラック（`hdlr` が `vide`）を 1 本以上持ち、各動画トラックの `tkhd` 表示サイズがすべて一辺 `BOT_PROFILE_ANIMATION_MAX_SIDE` 以下のゼロでない正方形である MP4 は動くアバターとしてアップロードします。MP4 は先頭 box が MP4 ブランドを宣言する `ftyp` であり、続くトップレベル box がファイル全体を過不足なく埋め、`moov` をちょうど 1 つ含む必要があります。`moov`、`trak`、`mdia` の子 box も各ペイロードを過不足なく埋め、全階層で読む box は合計 `MP4_MAX_SCANNED_BOXES` 個までです。長さフィールドの範囲外や途中切れはすべて不合格です。ローカルファイルは読み込み時に検証し復元時にも同じ規則で再検証、URL は復元時にのみ検証し、読み取り上限は `DEFAULT_AVATAR_MAX_READ_BYTES`、URL の 1 回のダウンロードのタイムアウトは `DEFAULT_AVATAR_FETCH_TIMEOUT_MS` です。
 - **統一ログ秘匿化（Redaction）境界**：
-  - journal、Worker エンベロープ、または `logs/` への出力前に、読み込み済み設定に含まれるすべての機密資格情報（トークン、API キー、秘密鍵、Google および Anthropic プロバイダのヘッダー値など）を自動的に秘匿化します。
+  - journal、Worker エンベロープ、または `logs/` への出力前に、読み込み済み設定に含まれるすべての機密資格情報（トークン、API キー、秘密鍵など）を自動的に秘匿化します。
   - ログ内の HTTP(S) URL は `origin + pathname` のみに正規化し、クエリパラメータ、フラグメント、userinfo を除去します。
   - エラーオブジェクトは `cause` や `AggregateError` を最大深度 `LOGGER_NESTED_ERROR_MAX_DEPTH`、最大ノード数 `LOGGER_MAX_ERROR_NODES` まで展開します。引数のシリアライズ上限は `LOGGER_MAX_SERIALIZED_BYTES` および `LOGGER_MAX_SERIALIZED_ITEMS` であり、循環参照は静的プレースホルダーで置き換えます。
 - **グループ状態の正準形状と Normalizer**：
@@ -1034,6 +1066,8 @@
   - 停止処理は固定順序（`packages/app/lifecycle/maintenance.ts` および `packages/app/lifecycle/shutdown.ts` の `SHUTDOWN_DRAIN_OWNERS` と `SHUTDOWN_TERMINATION_OWNERS`）で同期・非同期の収尾を実行します：設定ホットリロードと update ポーリングの停止 → 各業務入口の quiesce → runner 排出 → `SHUTDOWN_DRAIN_OWNERS`（`avatar` → `translate` → `antiRaid` → `gag` → `qa form` → `wed` → `deferred commands` → `cron` → `target message deletion` → `Telegram delayed deletion` → `ai`（AI 記憶のフラッシュ）→ `telegram`（Telegram 出線ゲートの排出）→ `disk`（Disk I/O のフラッシュ））の順次 drain/flush と StateStore のフラッシュ（`flushAllToDisk`）→ これと前提条件がすべて成功した場合のみ最終 offset の確認 → `dispose()` による同順序の drain と終局処理（翻訳クライアントのクローズ、AI Worker の終了、Telegram 出線ゲートの閉鎖）→ `SHUTDOWN_TERMINATION_OWNERS`（`terminateAntiRaid` → `terminateDiskIO`）の順次実行 → `flushStateToDisk` → 停止結果に応じたインスタンスロックの解放または保持。
   - **共有 SQLite のクローズ**：現在の Disk I/O 世代が復旧ハンドシェイクを終え、書き込み可能で、致命シグナルを出していない場合、`terminateDiskIO` はまず `writable` を偽にしてから `closeStorage` を 1 回送ります（予算 `DISK_IO_STORAGE_CLOSE_TIMEOUT_MS`）。Disk I/O Worker は残りの書き込みを 1 トランザクションでコミットし、`PRAGMA wal_checkpoint(TRUNCATE)` を実行して接続を閉じ、以降の身分書き込みメッセージは無視します。応答が残り書き込みの未コミットを報告した場合、またはクローズ要求がタイムアウト・拒否・エラー応答となりコミットを確認できない場合も Worker は終了させますが、ディスク終了のステップは失敗として記録され、停止結果は `unsettled` になります。他の読み取り接続による checkpoint の阻害は診断を残すだけです（残り書き込みはコミット済みで、WAL はデータベースの横に残ります）。`closeStorage` は業務メッセージではなく、Worker 再構築時に再送されません。
   - プロセス内の経過時間予算は `packages/libs/monotonicDeadline.ts` が `performance.now()` に基づいて計算します。
+  - **停止時間予算**：各 owner は `FlushTimeouts` の対応する予算で待機します。`antiRaid` の排出は `antiRaidMs`（通常停止では `ANTI_RAID_DRAIN_TIMEOUT_MS`。`DISK_IO_FLUSH_TIMEOUT_MS` 以上で、排出内部で待つ Disk I/O と StateStore のフラッシュを含む）、`translate` の排出とクローズは `translateMs`（通常停止では単発 RPC の上限 `TRANSLATE_REQUEST_TIMEOUT_MS`）、その他の保守系 owner は `maintenanceMs` を使います。異常終了経路の `EMERGENCY_FLUSH_TIMEOUTS` ではこの 3 つはいずれも 0 です。
+  - **停止全体の締め切り**：停止全体は `SHUTDOWN_TOTAL_BUDGET_MS` に収まります。起点は停止要求（シグナルまたは致命エラー）で、停止要求なしに収尾へ入った場合は `wait()` または `dispose()` の開始時点です。2 回の排出の各ステップ、後台維持の待機、最終 offset の確認、StateStore のフラッシュは、自身の予算と締め切りまでの残り時間の小さい方で待機し、締め切り後のステップは予算 0 で実行されます。runner の排出、Worker の終了、データベースのクローズ、インスタンスロックの処理は締め切りで短縮されません。
 
 ### ファイル権限と schema
 

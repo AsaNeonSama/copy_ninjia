@@ -15,7 +15,4 @@ export {
   recordChatMedia,
   recordChatMessage,
 } from "./messageIngress";
-export type { GenerateAndSendReplyParams } from "./messageIngress";
 export { recordBotImage } from "./botImages";
-export type { RecordBotImageParams } from "./botImages";
-export type { VoiceSynthesisRequest } from "./voiceSynthesis";

@@ -11,6 +11,8 @@ import { CHAT_PERMISSION_KEYS } from "../consts/storage";
  * 只用于要存下来的那份快照（LockdownRecord.originalPermissions，恢复时只读它的
  * `can_invite_users`）。写回 Telegram 的读改写路径传原始对象：`setChatPermissions`
  * 把省略字段一律当 false（见 consts/telegram.ts 的 INDEPENDENT_CHAT_PERMISSIONS_OTHER）。
+ * @param permissions Telegram 返回的原始群默认权限对象。
+ * @returns 仅保留持久化 schema 已知布尔权限字段的新对象。
  */
 export function normalizeChatPermissions(
   permissions: Readonly<ChatPermissions>

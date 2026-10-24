@@ -7,13 +7,23 @@ import { MAX_EPOCH_MILLISECONDS } from "../../consts/time";
 import { getDayIndex } from "../../libs/time";
 import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBypass";
 
+/**
+ * 校验时间戳为日历 API 支持范围内的非负安全整数毫秒值。
+ * @param value 待校验的毫秒时间戳。
+ * @param source 来源标识，用于构造致命错误诊断。
+ * @param path 字段 JSONPath，用于构造致命错误诊断。
+ */
 function assertTimestamp(value: number, source: string, path: string): void {
   if (!Number.isSafeInteger(value) || value < 0 || value > MAX_EPOCH_MILLISECONDS) {
     return invalidInput(source, path, "a non-negative safe integer epoch-millisecond timestamp within the calendar API range");
   }
 }
 
-/** 严格校验临时广告免检关系列；存在但不一致的计数或时间一律拒绝。 */
+/**
+ * 严格校验临时广告免检关系列；存在但不一致的计数或时间一律拒绝。
+ * @param value 待校验的临时广告免检活跃度记录。
+ * @param source 来源标识，用于构造致命错误诊断。
+ */
 export function assertTemporaryAdBypassActivity(
   value: Readonly<TemporaryAdBypassActivity>,
   source: string

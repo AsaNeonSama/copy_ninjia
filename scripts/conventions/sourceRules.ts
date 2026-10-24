@@ -7,7 +7,9 @@ import {
   isExported,
   isLiteralConstant,
   isObjectFreezeCall,
+  isVoidOrNeverReturnType,
   moduleCacheInitializerKind,
+  unwrapParamInterfaceName,
 } from "./sourceAnalysis";
 
 /**
@@ -25,7 +27,11 @@ export interface SourceFileRuleParams {
   readonly source: ts.SourceFile;
 }
 
-/** 普通生产模块的纯字面量常量统一归入 consts；调用方排除缓存 owner 与常量模块。 */
+/**
+ * 普通生产模块的纯字面量常量统一归入 consts；调用方排除缓存 owner 与常量模块。
+ * @param params 被检查文件及 AST。
+ * @returns 字面量常量位置违规列表。
+ */
 export function collectConstantLocationProblems({
   projectRoot,
   path,
@@ -45,7 +51,12 @@ export function collectConstantLocationProblems({
   return problems;
 }
 
-/** 节点所在行号（1 起）。 */
+/**
+ * 节点所在行号（1 起）。
+ * @param source 源文件 AST。
+ * @param node 目标语法节点。
+ * @returns 1 起始的行号。
+ */
 function lineOf(source: ts.SourceFile, node: ts.Node): number {
   return source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
 }
@@ -66,7 +77,11 @@ const CACHE_LIFECYCLE_FIELDS: readonly Readonly<CacheLifecycleField>[] = [
   { name: "eviction", pattern: /淘汰|清理策略|到期|删除|清空|清除|移除|释放|结算|摘除|销毁|作废|归零|清零|排空|重写|覆盖|关闭|结束|不淘汰|不设 TTL|不设超时|无需额外.*清理/ },
 ];
 
-/** 提取文件中全部 JSDoc 正文；普通块注释不能替代生命周期契约。 */
+/**
+ * 提取文件中全部 JSDoc 正文；普通块注释不能替代生命周期契约。
+ * @param source 源文件 AST。
+ * @returns 拼接后的全部 JSDoc 文本。
+ */
 function allJsDocText(source: ts.SourceFile): string {
   const comments: string[] = [];
   for (const match of source.text.matchAll(/\/\*\*[\s\S]*?\*\//g)) {
@@ -76,7 +91,11 @@ function allJsDocText(source: ts.SourceFile): string {
   return comments.join("\n");
 }
 
-/** `packages/cache/` 下每个导出都要有 JSDoc，状态模块还须覆盖完整生命周期字段。 */
+/**
+ * `packages/cache/` 下每个导出都要有 JSDoc，状态模块还须覆盖完整生命周期字段。
+ * @param params 被检查文件及 AST。
+ * @returns 缓存模块 JSDoc 违规列表。
+ */
 export function collectCacheJsDocProblems({
   projectRoot,
   path,
@@ -118,7 +137,11 @@ export function collectCacheJsDocProblems({
   return problems;
 }
 
-/** `packages/consts/` 下的常量要求 SCREAMING_SNAKE_CASE、显式类型、JSDoc 与编译期只读。 */
+/**
+ * `packages/consts/` 下的常量要求 SCREAMING_SNAKE_CASE、显式类型、JSDoc 与编译期只读。
+ * @param params 被检查文件及 AST。
+ * @returns 常量命名、类型、JSDoc 与只读约定违规列表。
+ */
 export function collectConstantProblems({
   projectRoot,
   path,
@@ -163,6 +186,8 @@ export function collectConstantProblems({
  *
  * 这条独立于 collectConstantProblems：解析结果和句柄对象不是 SCREAMING_SNAKE 常量，
  * 不经过那一条，同样不许冻结。
+ * @param params 被检查文件及 AST。
+ * @returns `Object.freeze` 调用违规列表。
  */
 export function collectObjectFreezeProblems({
   projectRoot,
@@ -192,6 +217,8 @@ const ITERATOR_HEAD_METHODS: ReadonlySet<string> = new Set(["keys", "values", "e
  *
  * 有界 FIFO / LRU 的最早项一律经 libs/fifoMap.ts 的 FifoMap（或继承它的 LruCache）取得：
  * 它的 `oldestKey()` 与满载淘汰都是 O(1)。规则按语法判定，不区分接收者类型。
+ * @param params 被检查文件及 AST。
+ * @returns 迭代器取头调用违规列表。
  */
 export function collectIteratorHeadProblems({
   projectRoot,
@@ -222,7 +249,11 @@ export function collectIteratorHeadProblems({
   return problems;
 }
 
-/** 模块级 Map/Set/AsyncLocalStorage/holder 必须声明在带 owner 的 `packages/cache/<owner>/` 下。 */
+/**
+ * 模块级 Map/Set/AsyncLocalStorage/holder 必须声明在带 owner 的 `packages/cache/<owner>/` 下。
+ * @param params 被检查文件及 AST。
+ * @returns 非缓存目录下的模块级可变状态违规列表。
+ */
 export function collectModuleCacheProblems({
   projectRoot,
   path,
@@ -256,6 +287,8 @@ const TEST_ONLY_TYPE_BARREL_PATTERN: RegExp = /(^|\/)types(\/index|\/antiRaid|\/
 /**
  * `packages/` 通用的 AST 判定：领域类型入口、`console.error` 边界、导出函数
  * 返回类型、内联对象参数类型与 catch 绑定标注。
+ * @param params 被检查文件及 AST。
+ * @returns 声明约定违规列表。
  */
 export function collectDeclarationProblems({
   projectRoot,
@@ -327,5 +360,127 @@ export function collectDeclarationProblems({
     ts.forEachChild(node, visit);
   }
   visit(source);
+  return problems;
+}
+
+/**
+ * 检查顶层函数与类方法的 JSDoc、`@param`、`@returns` 以及解构参数接口属性的 JSDoc。
+ * @param params 被检查文件及 AST。
+ * @returns 函数与参数接口 JSDoc 缺失问题列表。
+ */
+export function collectFunctionJsDocProblems({
+  projectRoot,
+  path,
+  source,
+}: SourceFileRuleParams): readonly string[] {
+  const problems: string[] = [];
+  const relativePath: string = relative(projectRoot, path);
+  const interfacesByName: Map<string, ts.InterfaceDeclaration> = new Map();
+  const checkedInterfaces: Set<string> = new Set();
+  for (const statement of source.statements) {
+    if (ts.isInterfaceDeclaration(statement)) {
+      interfacesByName.set(statement.name.text, statement);
+    }
+  }
+
+  function checkInterfaceProperties(iface: ts.InterfaceDeclaration): void {
+    if (checkedInterfaces.has(iface.name.text)) return;
+    checkedInterfaces.add(iface.name.text);
+    for (const member of iface.members) {
+      if (ts.isPropertySignature(member) && !hasJsDoc(member)) {
+        problems.push(
+          `${relativePath}:${lineOf(source, member)} interface ${iface.name.text} ` +
+          `property ${declarationName(member)} lacks JSDoc`
+        );
+      }
+    }
+  }
+
+  for (const iface of interfacesByName.values()) {
+    if (/(?:Params|Options)$/.test(iface.name.text)) {
+      checkInterfaceProperties(iface);
+    }
+  }
+
+  function checkCallable(
+    node: ts.FunctionDeclaration | ts.MethodDeclaration,
+    name: string,
+    docNodes: readonly (ts.FunctionDeclaration | ts.MethodDeclaration)[]
+  ): void {
+    const location: string = `${relativePath}:${lineOf(source, node)}`;
+    if (!docNodes.some(hasJsDoc)) {
+      problems.push(`${location} function ${name} lacks JSDoc`);
+    }
+    const paramTags: string[] = [];
+    let hasReturns: boolean = false;
+    for (const docNode of docNodes) {
+      for (const tag of ts.getJSDocTags(docNode)) {
+        const text: string | undefined = ts.getTextOfJSDocComment(tag.comment)?.trim();
+        if (text === undefined || text.length === 0) continue;
+        if (ts.isJSDocParameterTag(tag)) {
+          paramTags.push(tag.name.getText(source));
+        } else if (ts.isJSDocReturnTag(tag)) {
+          hasReturns = true;
+        }
+      }
+    }
+    const positionalNames: Set<string> = new Set();
+    for (const parameter of node.parameters) {
+      if (ts.isIdentifier(parameter.name)) positionalNames.add(parameter.name.text);
+    }
+    for (const parameter of node.parameters) {
+      if (ts.isIdentifier(parameter.name)) {
+        const paramName: string = parameter.name.text;
+        const matched: boolean = paramTags.some(
+          (tagName: string): boolean => tagName === paramName || tagName.startsWith(`${paramName}.`)
+        );
+        if (!matched) {
+          problems.push(`${location} function ${name} lacks @param JSDoc for ${paramName}`);
+        }
+      } else {
+        const hasDestructuredTag: boolean = paramTags.some((tagName: string): boolean => {
+          const dotIdx: number = tagName.indexOf(".");
+          return !positionalNames.has(dotIdx === -1 ? tagName : tagName.slice(0, dotIdx));
+        });
+        if (!hasDestructuredTag) {
+          problems.push(`${location} function ${name} lacks @param JSDoc for destructured parameter`);
+        }
+        if (ts.isObjectBindingPattern(parameter.name)) {
+          const ifaceName: string | undefined = unwrapParamInterfaceName(parameter.type);
+          const iface: ts.InterfaceDeclaration | undefined =
+            ifaceName === undefined ? undefined : interfacesByName.get(ifaceName);
+          if (iface !== undefined) checkInterfaceProperties(iface);
+        }
+      }
+    }
+    if (!isVoidOrNeverReturnType(node.type) && !hasReturns) {
+      problems.push(`${location} function ${name} lacks @returns JSDoc`);
+    }
+  }
+
+  function scanCallables(nodes: readonly ts.Node[]): void {
+    let pendingOverloads: (ts.FunctionDeclaration | ts.MethodDeclaration)[] = [];
+    for (const node of nodes) {
+      if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) {
+        if (node.body === undefined) {
+          pendingOverloads.push(node);
+          continue;
+        }
+        const name: string = declarationName(node);
+        const docNodes: (ts.FunctionDeclaration | ts.MethodDeclaration)[] = [];
+        for (const overload of pendingOverloads) {
+          if (declarationName(overload) === name) docNodes.push(overload);
+        }
+        docNodes.push(node);
+        pendingOverloads = [];
+        checkCallable(node, name, docNodes);
+      } else {
+        pendingOverloads = [];
+        if (ts.isClassDeclaration(node)) scanCallables(node.members);
+      }
+    }
+  }
+
+  scanCallables(source.statements);
   return problems;
 }

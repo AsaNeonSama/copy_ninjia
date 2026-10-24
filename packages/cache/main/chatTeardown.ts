@@ -6,6 +6,7 @@ import type {
   ChatTeardownReason,
 } from "../../types/chatTeardown";
 
+/** 群 teardown 未注册业务处理器时的默认空操作回调。 */
 const noChatTeardown: ChatTeardownCallback = (
   _chatId: number,
   _reason: ChatTeardownReason

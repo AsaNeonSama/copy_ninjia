@@ -46,7 +46,12 @@ import type { EncodedVoiceMessage, VoiceSynthesisFailure, VoiceSynthesisResult }
 import type { RandomImagePick } from "../types/randomImage";
 import { errorMessage } from "../libs/errorMessage";
 
-/** 一次发送失败的分类：TelegramSendQueueFullError（所属聊天或全局发送排队满）、服务端 5xx、仍被 429 挡住与 HttpError 网络错误可重试，其余 4xx 与本地错误不重试。 */
+/**
+ * 一次发送失败的分类：TelegramSendQueueFullError（所属聊天或全局发送排队满）、服务端 5xx、仍被 429 挡住与 HttpError 网络错误可重试，其余 4xx 与本地错误不重试。
+ *
+ * @param error 捕获到的发送异常
+ * @returns 投递结果分类（可重试或永久失败）
+ */
 function classifyFailure(error: unknown): CronDeliveryOutcome {
   if (error instanceof TelegramSendQueueFullError) return { kind: "retryable", detail: error.message };
   const details: Readonly<{ errorCode: number; description: string }> | undefined = telegramErrorDetails(error);
@@ -60,7 +65,12 @@ function classifyFailure(error: unknown): CronDeliveryOutcome {
   return error instanceof HttpError ? { kind: "retryable", detail: message } : { kind: "permanent", detail: message };
 }
 
-/** 登记一条已发出的 cron 消息；图片另写一条占位态自录（见 aiChat/botImages.ts）。 */
+/**
+ * 登记一条已发出的 cron 消息；图片另写一条占位态自录（见 aiChat/botImages.ts）。
+ *
+ * @param chatId 目标会话 ID
+ * @param message Telegram 已发出的消息
+ */
 function recordSentMessage(chatId: number, message: Message): void {
   toTelegramSendResult(chatId, message);
   if (message.photo !== undefined) {
@@ -68,7 +78,14 @@ function recordSentMessage(chatId: number, message: Message): void {
   }
 }
 
-/** 执行一次发送；成功登记自发消息，失败取回错误分类而不记日志。 */
+/**
+ * 执行一次发送；成功登记自发消息，失败取回错误分类而不记日志。
+ *
+ * @param chatId 目标会话 ID
+ * @param execute 实际发起 Telegram API 调用的回调
+ * @param signal 取消信号
+ * @returns 本次发送结果分类
+ */
 async function send(
   chatId: number,
   execute: (signal?: AbortSignal) => Promise<Message | Message[]>,
@@ -100,6 +117,10 @@ async function send(
 /**
  * 本地文件的上传源：先确认仍是不超过上限的普通文件；每次序列化都重新打开一条流，
  * 429 重放或重试不会拿到已读完的流。
+ *
+ * @param path 本地文件绝对路径
+ * @param maxBytes 允许上传的最大字节数
+ * @returns 可重开的文件上传源，或永久失败结果
  */
 async function localUpload(path: string, maxBytes: number): Promise<InputFile | CronDeliveryOutcome> {
   let size: number;
@@ -116,7 +137,12 @@ async function localUpload(path: string, maxBytes: number): Promise<InputFile | 
   return new InputFile((): ReadableStream<Uint8Array> => Bun.file(path).stream(), basename(path));
 }
 
-/** 异步抽取单张图片并归一化图库错误，缺省目录使用专用图库。 */
+/**
+ * 异步抽取单张图片并归一化图库错误，缺省目录使用专用图库。
+ *
+ * @param directory 随机图库目录路径；`null` 表示使用默认随机色图目录
+ * @returns 抽取出的图片上传源，或永久失败结果
+ */
 async function randomImageInput(directory: string | null): Promise<InputFile | CronDeliveryOutcome> {
   const pick: RandomImagePick = await pickRandomImage(directory ?? getAssetConfig().randomHImageDirectory);
   switch (pick.status) {
@@ -134,7 +160,13 @@ async function randomImageInput(directory: string | null): Promise<InputFile | C
   }
 }
 
-/** 整组预检后才提交请求；本地来源逐个异步 stat，只保留可重开的流 supplier。 */
+/**
+ * 整组预检后才提交请求；本地来源逐个异步 stat，只保留可重开的流 supplier。
+ *
+ * @param source 定时图片动作的数据源
+ * @param signal 取消信号
+ * @returns 预检通过的图片输入数组，或投递失败/取消结果
+ */
 async function imageInputs(
   source: CronImageSource,
   signal: AbortSignal
@@ -155,12 +187,22 @@ async function imageInputs(
   return photos;
 }
 
-/** 解析文件来源：地址原样交给 Telegram，本地文件转成上传源。 */
+/**
+ * 解析文件来源：地址原样交给 Telegram，本地文件转成上传源。
+ *
+ * @param source 定时文件动作的数据源
+ * @returns URL 字符串、本地文件上传源，或永久失败结果
+ */
 async function fileInput(source: CronFileSource): Promise<string | InputFile | CronDeliveryOutcome> {
   return source.kind === "url" ? source.url : localUpload(source.path, TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES);
 }
 
-/** 解析出的上传源是否其实是一个失败结果。 */
+/**
+ * 解析出的上传源是否其实是一个失败结果。
+ *
+ * @param value 待判定的上传源或投递结果
+ * @returns 是否为投递失败/取消结果
+ */
 function isOutcome(value: string | InputFile | CronDeliveryOutcome): value is CronDeliveryOutcome {
   return typeof value === "object" && !(value instanceof InputFile);
 }
@@ -168,6 +210,9 @@ function isOutcome(value: string | InputFile | CronDeliveryOutcome): value is Cr
 /**
  * 合成失败的分类：能力缺席、每日额度用尽与编码失败不重试；Worker 暂不可用（重建中）、
  * 供应商没交回音频与等待超时可重试。
+ *
+ * @param reason 语音合成失败原因
+ * @returns 投递结果分类
  */
 function classifySynthesisFailure(reason: VoiceSynthesisFailure): CronDeliveryOutcome {
   switch (reason) {
@@ -182,7 +227,14 @@ function classifySynthesisFailure(reason: VoiceSynthesisFailure): CronDeliveryOu
   }
 }
 
-/** 取本轮已合成的语音，没有时合成一次并登记；失败返回分类结果。 */
+/**
+ * 取本轮已合成的语音，没有时合成一次并登记；失败返回分类结果。
+ *
+ * @param action 定时语音动作配置
+ * @param voices 本轮已合成语音的缓存表
+ * @param signal 取消信号
+ * @returns 本轮语音缓存条目，或投递失败/取消结果
+ */
 async function roundVoice(
   action: Readonly<Extract<CronAction, { readonly type: "send_voice" }>>,
   voices: CronRoundVoices,
@@ -200,6 +252,9 @@ async function roundVoice(
 /**
  * 组稿失败的分类：Worker 暂不可用、等待超时、检索或组稿请求失败可重试；
  * 没有对话能力、Anthropic 模型拒答、没有来源与重试后仍不合格不重试。分类只依据失败原因，不读取搜索次数。
+ *
+ * @param reason 网页摘要组稿失败原因
+ * @returns 投递结果分类
  */
 function classifyDigestFailure(reason: WebDigestFailure): CronDeliveryOutcome {
   switch (reason) {
@@ -215,7 +270,14 @@ function classifyDigestFailure(reason: WebDigestFailure): CronDeliveryOutcome {
   }
 }
 
-/** 取本轮已生成的摘要，没有时生成一次并登记；失败返回分类结果。 */
+/**
+ * 取本轮已生成的摘要，没有时生成一次并登记；失败返回分类结果。
+ *
+ * @param action 定时网页摘要动作配置
+ * @param digests 本轮已生成摘要的缓存表
+ * @param signal 取消信号
+ * @returns MarkdownV2 摘要正文，或投递失败/取消结果
+ */
 async function roundDigest(
   action: Readonly<Extract<CronAction, { readonly type: "send_web_digest" }>>,
   digests: CronRoundDigests,
@@ -234,7 +296,14 @@ async function roundDigest(
   return result.text;
 }
 
-/** 发一条语音：已有本轮 file_id 时引用它，否则上传字节并在成功后记下交回的 file_id。 */
+/**
+ * 发一条语音：已有本轮 file_id 时引用它，否则上传字节并在成功后记下交回的 file_id。
+ *
+ * @param chatId 目标会话 ID
+ * @param entry 本轮语音缓存条目
+ * @param requestSignal 单次请求取消信号
+ * @returns Telegram 返回的已发送语音消息
+ */
 async function sendRoundVoice(
   chatId: number,
   entry: CronRoundVoice,
@@ -251,9 +320,11 @@ async function sendRoundVoice(
   return message;
 }
 
-/** deliverCronAction 的入参。 */
+/** 单次定时动作投递的目标会话、动作定义与轮内复用缓存。 */
 export interface DeliverCronActionOptions {
+  /** 目标会话 ID */
   readonly chatId: number;
+  /** 待投递的定时动作 */
   readonly action: Readonly<CronAction>;
   /** 取消在途请求与合成（停机超时）。 */
   readonly signal: AbortSignal;
@@ -267,6 +338,9 @@ export interface DeliverCronActionOptions {
  * 向一个会话投递一个动作一次。`rand_image` 每次调用都重新抽取；抽不出或本地文件不可用
  * 按不可重试失败返回。`send_voice` 本轮首次投递时合成，之后复用；首次发送成功后改用 file_id。
  * `send_web_digest` 本轮首次投递时生成摘要，之后复用同一段 MarkdownV2 原文。
+ *
+ * @param options 定时动作投递上下文（含目标会话 `chatId`、动作 `action`、取消信号 `signal` 及本轮语音/摘要缓存）。
+ * @returns 本次投递结果分类（`sent`、`aborted`、`transient` 或 `permanent`）。
  */
 export async function deliverCronAction({
   chatId,

@@ -28,7 +28,11 @@ export type DiskIOMaintenanceReplySink = (
 /** 一个领域的维护步骤：日志里的领域名与维护函数。 */
 type DiskIOMaintenanceTask = readonly [string, () => void | Promise<void>];
 
-/** 逐领域串行执行维护步骤；单个领域抛错只记录错误并继续后续领域。 */
+/**
+ * 逐领域串行执行维护步骤；单个领域抛错只记录错误并继续后续领域。
+ * @param phase 维护触发阶段标识（启动或午夜）。
+ * @param tasks 按顺序执行的 `[领域名, 维护回调]` 列表。
+ */
 export async function runDiskIOMaintenanceTasks(
   phase: "startup" | "midnight",
   tasks: readonly DiskIOMaintenanceTask[]
@@ -42,7 +46,11 @@ export async function runDiskIOMaintenanceTasks(
   }
 }
 
-/** 通知主线程触发日级维护后，依次执行各磁盘领域的午夜维护。 */
+/**
+ * 通知主线程触发日级维护后，依次执行各磁盘领域的午夜维护。
+ * @param reply 向主线程发送午夜维护通知与持久化回执的回调。
+ * @param day 目标维护日期键（`YYYY-MM-DD`）；缺省为当前时刻。
+ */
 export function runDiskIOMidnightMaintenance(
   reply: DiskIOMaintenanceReplySink,
   day: string = getDateKey()

@@ -43,6 +43,11 @@ interface ParsedStickerCatalog {
  * 白名单贴纸包的画面描述目录与整包简介管理（生命周期与持久化约束见 docs/cn/04-invariants.md）。
  */
 
+/**
+ * 获取或初始化指定贴纸包的常驻目录映射表。
+ * @param pack 贴纸包短名称。
+ * @returns 该包对应的贴纸条目映射表。
+ */
 function getPackMap(pack: string): Map<string, StickerCatalogEntry> {
   let map: Map<string, StickerCatalogEntry> | undefined = catalogs.get(pack);
   if (!map) {
@@ -52,7 +57,11 @@ function getPackMap(pack: string): Map<string, StickerCatalogEntry> {
   return map;
 }
 
-/** 将单枚贴纸记入所属包的失败负缓存。 */
+/**
+ * 将单枚贴纸记入所属包的失败负缓存。
+ * @param pack 贴纸包短名称。
+ * @param fileUniqueId 贴纸唯一标识（file_unique_id）。
+ */
 function markEntryFailed(pack: string, fileUniqueId: string): void {
   let failed: Map<string, number> | undefined = failedEntries.get(pack);
   if (!failed) {
@@ -64,6 +73,9 @@ function markEntryFailed(pack: string, fileUniqueId: string): void {
 
 /**
  * 判断单枚贴纸的失败负缓存是否仍在退避期内；已到期时清除记录。
+ * @param pack 贴纸包短名称。
+ * @param fileUniqueId 贴纸唯一标识（file_unique_id）。
+ * @returns 仍在失败退避期内时返回 true，否则返回 false。
  */
 function isEntryFailureActive(pack: string, fileUniqueId: string): boolean {
   const failed: Map<string, number> | undefined = failedEntries.get(pack);
@@ -78,6 +90,7 @@ function isEntryFailureActive(pack: string, fileUniqueId: string): boolean {
 
 /**
  * 启动或崩溃恢复时严格校验并灌入持久化的贴纸目录快照（仅填充内存中尚无目录的包）。
+ * @param snapshots 贴纸包短名称到序列化快照 JSON 的映射表。
  */
 export function hydrateStickerCatalogs(snapshots: Map<string, string>): void {
   const parsedCatalogs: ParsedStickerCatalog[] = [];
@@ -106,7 +119,11 @@ export function hydrateStickerCatalogs(snapshots: Map<string, string>): void {
   }
 }
 
-/** 按贴纸 file_unique_id 跨包查找已生成的常驻目录条目。 */
+/**
+ * 按贴纸 file_unique_id 跨包查找已生成的常驻目录条目。
+ * @param fileUniqueId 贴纸唯一标识（file_unique_id）。
+ * @returns 命中的常驻目录条目；未找到时返回 undefined。
+ */
 export function getCatalogEntry(fileUniqueId: string): StickerCatalogEntry | undefined {
   for (const map of catalogs.values()) {
     const entry: StickerCatalogEntry | undefined = map.get(fileUniqueId);
@@ -115,13 +132,20 @@ export function getCatalogEntry(fileUniqueId: string): StickerCatalogEntry | und
   return undefined;
 }
 
-/** 将单个包的贴纸目录与整包简介序列化为持久化快照 JSON 文本。 */
+/**
+ * 将单个包的贴纸目录与整包简介序列化为持久化快照 JSON 文本。
+ * @param pack 贴纸包短名称。
+ * @returns 格式化的持久化快照 JSON 字符串。
+ */
 function buildSnapshot(pack: string): string {
   const snapshot: StickerCatalogSnapshot = { version: 1, entries: Object.fromEntries(getPackMap(pack)), summary: packSummaries.get(pack) ?? null, savedAt: Date.now() };
   return JSON.stringify(snapshot, null, 2);
 }
 
-/** 上报所有 dirty 包的序列化快照，清空 dirty 标记并剪枝已退出白名单的目录。 */
+/**
+ * 上报所有 dirty 包的序列化快照，清空 dirty 标记并剪枝已退出白名单的目录。
+ * @param post 向主线程发送贴纸目录快照事件的回调。
+ */
 export function flushDirtyStickerCatalogs(post: (event: AiStickerCatalogEvent) => void): void {
   if (dirtyPacks.size === 0) return;
   for (const pack of dirtyPacks) {
@@ -133,6 +157,7 @@ export function flushDirtyStickerCatalogs(post: (event: AiStickerCatalogEvent) =
 
 /**
  * 为白名单各包后台启动贴纸目录对账与生成任务（同包已有在途任务时跳过）。
+ * @param packs 需要确保目录已生成的贴纸包短名称列表。
  */
 export function ensureStickerCatalogs(packs: readonly string[]): void {
   const signal: AbortSignal = aiChatWorkerAbortController.current.signal;
@@ -146,13 +171,19 @@ export function ensureStickerCatalogs(packs: readonly string[]): void {
   }
 }
 
-/** 判断包是否已退出白名单且无在途生成任务与待上报快照。 */
+/**
+ * 判断包是否已退出白名单且无在途生成任务与待上报快照。
+ * @param pack 贴纸包短名称。
+ * @param active 当前生效的白名单贴纸包集合。
+ * @returns 可安全回收该包缓存时返回 true，否则返回 false。
+ */
 function isStalePack(pack: string, active: ReadonlySet<string>): boolean {
   return !active.has(pack) && !generatingPacks.has(pack) && !dirtyPacks.has(pack);
 }
 
 /**
  * 按当前白名单剪除已下架且无在途任务与脏快照的包目录、简介及失败记录。
+ * @param activePacks 当前生效的白名单贴纸包短名称列表。
  */
 export function pruneStickerCatalogs(activePacks: readonly string[]): void {
   const active: ReadonlySet<string> = new Set(activePacks);
@@ -182,6 +213,8 @@ export async function drainStickerCatalogTasks(): Promise<void> {
 
 /**
  * 按 STICKER_CATALOG_RETRY_INTERVAL_MS 间隔筛选目录为空、简介缺失或失败负缓存已到期的包并触发对账。
+ * @param packs 当前白名单贴纸包短名称列表。
+ * @param now 当前毫秒时间戳。
  */
 export function retryIncompleteStickerCatalogs(packs: readonly string[], now: number = Date.now()): void {
   if (
@@ -207,6 +240,8 @@ export function retryIncompleteStickerCatalogs(packs: readonly string[], now: nu
 
 /**
  * 对账单个贴纸包：剪除线上已移除的条目，串行补齐缺失贴纸描述，并在条目变更或缺失简介时生成整包简介。
+ * @param pack 贴纸包短名称。
+ * @param signal 取消信号；默认绑定 AI Worker 生命周期信号。
  */
 export async function generatePackCatalog(pack: string, signal: AbortSignal = aiChatWorkerAbortController.current.signal): Promise<void> {
   let menuChanged: boolean = false;
@@ -284,13 +319,21 @@ export async function generatePackCatalog(pack: string, signal: AbortSignal = ai
   }
 }
 
-/** 将目录条目格式化为供整包简介模型读取的单行文本。 */
+/**
+ * 将目录条目格式化为供整包简介模型读取的单行文本。
+ * @param entry 单枚贴纸的目录条目。
+ * @returns 带可选 emoji 前缀的描述行。
+ */
 function formatEntryForSummary(entry: StickerCatalogEntry): string {
   return entry.emoji ? `${entry.emoji} ${entry.description}` : entry.description;
 }
 
 /**
  * 调用 summaryAiProvider 将包内全部贴纸描述压缩为整包简介。
+ * @param title 贴纸包显示标题。
+ * @param descriptions 包内各贴纸的格式化描述行列表。
+ * @param signal 取消信号。
+ * @returns 模型生成的整包简介 AI 文本结果。
  */
 async function summarizePack(
   title: string,

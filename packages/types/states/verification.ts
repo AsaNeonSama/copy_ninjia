@@ -290,7 +290,7 @@ export type VerificationEffect =
   | { kind: "deleteMessage"; messageId: number }
   | { kind: "kickMember" }
   | { kind: "sendReminder"; label: string; isBot: boolean }
-  | { kind: "sendReplyReminder"; label: string; targetMessageId: number }
+  | { kind: "sendReplyReminder"; label: string; isBot: boolean; targetMessageId: number }
   | { kind: "sendWelcome"; variant: "verified" | "approved" | "vouchedBot" | "channelComment"; targetLabel: string; fromLabel?: string; anchorMessageId?: number }
   | { kind: "answerCallback"; callbackQueryId: string; reply: "ok" | "invalid" | "notYourButton" | "useSelfButton" | "notApprover" | "approverUnknown" }
   | { kind: "deleteReminders"; reminderMessageId?: number; replyReminderMessageId?: number }

@@ -19,7 +19,9 @@ import { runBlocklistFanOut } from "./blocklistFanOut";
 
 /** 串行位内的名单解除结果。 */
 interface UnblockListOutcome {
+  /** 本次操作是否从黑名单中移除了该目标（目标此前处于黑名单中时为 `true`）。 */
   readonly removedFromList: boolean;
+  /** 黑名单移除操作是否已收到 Disk I/O Worker 的落盘确认。 */
   readonly persisted: boolean;
 }
 
@@ -27,6 +29,8 @@ interface UnblockListOutcome {
  * 先发布主线程 LRU 的解除结论，再投递 tombstone；后续入群更新立即读到新结论。随后等待
  * tombstone 的事务 ACK；名单里本就没有目标时，若上一次解除的 tombstone 尚未 ACK，先补投同一
  * 最终值再等待。名单里没有目标不代表各群没有封禁，跨群解封照常执行。
+ * @param targetUser 被解除黑名单的目标身份。
+ * @returns 名单移除结论与落盘确认状态。
  */
 async function removeFromBlocklist(targetUser: CachedUser): Promise<UnblockListOutcome> {
   const removedFromList: boolean = unblockUser(targetUser.id);
@@ -45,6 +49,7 @@ async function removeFromBlocklist(targetUser: CachedUser): Promise<UnblockListO
  *
  * 目标支持回复、用户名、用户 id 或频道的负数 id；回复与参数同时存在时必须
  * 指向同一身份。裸 id 不要求命中缓存；`/block enable` 不接受裸负数 id。
+ * @param ctx grammY 命令上下文。
  * @param targetArgument 去掉末位动作后的目标参数原文，可为空（此时只认回复目标）。
  */
 export async function handleBlockDisable(ctx: CommandContext<Context>, targetArgument: string): Promise<void> {
@@ -87,13 +92,20 @@ export async function handleBlockDisable(ctx: CommandContext<Context>, targetArg
 
 /** unbanEverywhereAndReport 的入参：handler 的校验结果与串行位内的名单解除结果。 */
 interface UnbanEverywhereParams {
+  /** 发起命令所在群聊 ID。 */
   readonly chatId: number;
+  /** 发起命令的消息 ID；用于挂回复引用。 */
   readonly messageId: number | undefined;
+  /** 被解封的目标身份。 */
   readonly targetUser: CachedUser;
+  /** 串行位内的黑名单移除与落盘结果。 */
   readonly listOutcome: UnblockListOutcome;
 }
 
-/** 跨群解封后在发起群回执名单结论与解封计数。 */
+/**
+ * 跨群解封后在发起群回执名单结论与解封计数。
+ * @param params 发起群上下文、被解封的目标身份与串行位内的黑名单移除结果。
+ */
 async function unbanEverywhereAndReport({
   chatId,
   messageId,
@@ -122,14 +134,20 @@ async function unbanEverywhereAndReport({
   await sendCommandMessage({ chatId, text, replyToMessageId: messageId });
 }
 
+/** 跨受管管理员群执行解封的成功与失败群数统计。 */
 interface UnbanOutcome {
+  /** 成功调用解封接口的受管群数量。 */
   unbannedCount: number;
+  /** 缺少封禁权限或解封请求失败的受管群数量。 */
   failedCount: number;
 }
 
 /**
  * 在机器人具有管理员身份的群中解除目标封禁。群清单与有界并发执行分别由
  * managedAdminChatIds、runManagedChatBatch 提供，结算结果按输入顺序计数。
+ * @param targetUser 被解封的目标身份。
+ * @param chatId 发起命令所在群聊 ID。
+ * @returns 解封成功与失败的受管群计数。
  */
 async function unbanEverywhereFor(targetUser: CachedUser, chatId: number): Promise<UnbanOutcome> {
   const isAdminHere: boolean = await resolveBotAdminStatus(chatId);

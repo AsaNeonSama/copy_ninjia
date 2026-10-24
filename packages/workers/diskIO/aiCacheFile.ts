@@ -37,12 +37,18 @@ import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
 /** 一次只读探测的结果：解码内容、需要原子发布的规范化文本与追加游标。 */
 export interface AiCacheInspection {
+  /** 解码并汇总后的 AI 缓存统计文档。 */
   readonly document: AiCacheDocument;
+  /** 需要原子重写发布的尾部修复或规范化文本；无需重写时为 `null`。 */
   readonly rewriteContent: string | null;
+  /** 追加写入游标状态。 */
   readonly state: AppendOnlyFileState;
 }
 
-/** 只读探测统计文件：裁掉撕裂尾部并严格解码，不写盘。 */
+/**
+ * 只读探测统计文件：裁掉撕裂尾部并严格解码，不写盘。
+ * @returns 包含解码文档、待重写文本与追加游标的探测结果。
+ */
 export async function inspectAiCacheFile(): Promise<AiCacheInspection> {
   const inspection: RepairableAppendOnlyInspection<AiCacheDocument> | null =
     await inspectRepairableAppendOnlyFile(AI_CACHE_FILE_PATH, (parsed: unknown): AiCacheDocument => decodeAiCacheDocument(AI_CACHE_FILE_PATH, parsed));
@@ -60,13 +66,20 @@ export async function inspectAiCacheFile(): Promise<AiCacheInspection> {
   };
 }
 
-/** 发布探测时预计算的规范化内容，并返回可追加的游标。 */
+/**
+ * 发布探测时预计算的规范化内容，并返回可追加的游标。
+ * @param inspection 只读探测产出的统计文件状态。
+ * @returns 写入修复内容后用于后续追加的文件游标。
+ */
 function publishInspection(inspection: AiCacheInspection): AppendOnlyFileState {
   if (inspection.rewriteContent !== null) atomicWriteTextSync(AI_CACHE_FILE_PATH, inspection.rewriteContent);
   return { size: inspection.state.size, empty: inspection.state.empty };
 }
 
-/** 跨域启动 inspect 全部成功后接管统计文件。 */
+/**
+ * 跨域启动 inspect 全部成功后接管统计文件。
+ * @param inspection 启动第一阶段只读探测产出的统计文件状态。
+ */
 export function adoptAiCacheFile(inspection: AiCacheInspection): void {
   resetAiCacheState();
   mkdirSync(AI_CACHE_MEMORY_DIR, { recursive: true });
@@ -83,7 +96,10 @@ export async function maintainAiCacheFile(): Promise<void> {
   await summarizeAiCache();
 }
 
-/** 收下一条用量：序列化进缓冲，达到阈值立即刷盘，否则按需排定时刷盘。 */
+/**
+ * 收下一条用量：序列化进缓冲，达到阈值立即刷盘，否则按需排定时刷盘。
+ * @param message 单条 AI 缓存用量落盘消息。
+ */
 export async function handleAiCacheUsageMessage(message: AiCacheUsageDiskMessage): Promise<void> {
   let row: AiCacheRow;
   switch (message.kind) {
@@ -128,6 +144,7 @@ export async function handleAiCacheUsageMessage(message: AiCacheUsageDiskMessage
  * 把缓冲里的记录一次追加到文件末尾。游标失效时先重新探测；上一次失败仍在退避窗口内
  * （按 libs/clockWindow.ts 的 isPendingWithin，时钟回拨超过窗口即视为结束）或本次失败时
  * 丢弃这一批并返回 false。
+ * @returns 缓冲为空或全部记录追加成功时返回 true，退避跳过或写盘失败时返回 false。
  */
 export async function flushAiCacheBuffer(): Promise<boolean> {
   cancelDiskIOFlushTimer(aiCacheBuffer);

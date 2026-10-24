@@ -10,8 +10,10 @@ import { tryConsumeSlidingWindow } from "./slidingWindowRateLimit";
  *
  * @param maxRestarts 窗口内允许的重启次数，必须为正整数——它同时是时间戳环形
  *   缓冲的容量，非正值在构造时即拒绝（见 libs/dequeCapacity.ts）。
+ * @param windowMs 统计重启次数的滑动时间窗口毫秒数。
+ * @returns 包含 `shouldGiveUp` 判定函数的重启节流器句柄。
  */
-export function createRestartThrottle(maxRestarts: number, windowMs: number): { shouldGiveUp: () => boolean } {
+export function createRestartThrottle(maxRestarts: number, windowMs: number): { readonly shouldGiveUp: () => boolean } {
   // 只在仍有配额时记账，长度恒不超过 maxRestarts；环形缓冲按这个数定容。
   const timestamps: TimestampDeque = new TimestampDeque(maxRestarts);
   return {

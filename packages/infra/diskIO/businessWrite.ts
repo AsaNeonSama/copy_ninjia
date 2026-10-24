@@ -6,6 +6,9 @@ import type { DomainFlushOutcome } from "../../types/diskIO/replies";
  * 主线程领域 owner 投递一条业务写：平时走 infra/diskIO.ts 的 postDiskIO；Worker
  * 重建期间的恢复镜像必须改走本代恢复 transport，不得回退到 postDiskIO（见
  * types/diskIO/messages.ts 的 DiskIORecoveryTransport）。
+ *
+ * @param message 待投递的 Disk I/O 业务写消息。
+ * @param transport Worker 重建期间的恢复传输通道；常规在线投递时省略。
  * @returns 投递是否被接受。
  */
 export function postWithTransport(
@@ -20,6 +23,9 @@ export function postWithTransport(
 /**
  * 领域 flush 未成功时附在报错里的领域说明：有回执时列出失败领域，超时或
  * Worker 崩溃没有回执时说明没有逐领域回执。
+ *
+ * @param outcome 领域 flush 的结算结果（含可选失败领域列表）。
+ * @returns 用于拼入错误消息的失败领域说明文本。
  */
 export function describeFlushFailure(outcome: DomainFlushOutcome): string {
   return outcome.failedDomains === undefined

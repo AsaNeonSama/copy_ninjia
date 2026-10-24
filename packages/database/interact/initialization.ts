@@ -16,7 +16,11 @@ type StorageDatabaseTransaction = Parameters<
   Parameters<StorageDatabase["transaction"]>[0]
 >[0];
 
-/** 构造 `storage_metadata` 表的初始行（当前 schema 版本与绑定时区标记）。 */
+/**
+ * 构造 `storage_metadata` 表的初始行（当前 schema 版本与绑定时区标记）。
+ * @param timeZone 绑定到该数据库的规范化 IANA 时区名称。
+ * @returns 待写入 `storage_metadata` 的初始键值对行列表。
+ */
 export function storageMetadataRows(
   timeZone: string
 ): readonly StoredStorageMetadataRow[] {
@@ -27,7 +31,11 @@ export function storageMetadataRows(
   ];
 }
 
-/** 在单个事务内向 `storage_metadata` 写入初始元数据行。 */
+/**
+ * 在单个事务内向 `storage_metadata` 写入初始元数据行。
+ * @param database 共享存储数据库连接。
+ * @param timeZone 绑定到该数据库的规范化 IANA 时区名称。
+ */
 export function initializeStorageDatabase(
   database: StorageDatabase,
   timeZone: string
@@ -38,7 +46,11 @@ export function initializeStorageDatabase(
   });
 }
 
-/** 创建新共享 SQLite 数据库、写入初始元数据并启用 WAL 模式。 */
+/**
+ * 创建新共享 SQLite 数据库、写入初始元数据并启用 WAL 模式。
+ * @param path 新数据库文件的目标路径。
+ * @param timeZone 绑定到该数据库的规范化 IANA 时区名称。
+ */
 export function bootstrapStorageDatabase(path: string, timeZone: string): void {
   createStorageDatabase(path);
   const database: StorageDatabase = openStorageDatabase({ path });

@@ -12,6 +12,9 @@ import type { CachedUser } from "../types/chatState";
  * 持久化目标身份（state.json 的复读目标、群状态的翻译目标）的严格解码：只接受 CACHED_USER_KEYS
  * 列出的键，id 为非零安全整数，可选字符串字段按 Telegram 给出的原样保留（名称与群名可以是空字符串）；
  * 按固定字段顺序构造。
+ * @param value 待校验的未知输入值。
+ * @param context 错误报告使用的文件路径与字段路径上下文。
+ * @returns 严格校验并按固定字段顺序构造的 CachedUser 对象。
  */
 export function decodeCachedUser(value: unknown, context: InputFieldContext): CachedUser {
   if (!isPlainRecord(value) || !hasOnlyKeys(value, CACHED_USER_KEYS)) {

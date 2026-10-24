@@ -12,7 +12,10 @@ import { claimCopyCooldownOrReject, releaseCopyCooldownClaim } from "./copyShare
 import { resolveCommandTarget } from "./targetResolution";
 import { resolveCommandActor } from "./commandActor";
 
-/** /icon steal 与 /icon reset 共用全局 copy 冷却，只更换头像，不修改复读会话。 */
+/**
+ * /icon steal 与 /icon reset 共用全局 copy 冷却，只更换头像，不修改复读会话。
+ * @param ctx grammY 命令上下文。
+ */
 export async function handleIconCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
   const messageId: number | undefined = ctx.msgId;

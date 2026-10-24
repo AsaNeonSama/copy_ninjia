@@ -18,7 +18,12 @@ export interface MigrationFileSnapshot {
   readonly gid: number;
 }
 
-/** 只有叶子真正缺省才返回 null；文件链接须指向可读普通文件。 */
+/**
+ * 只有叶子真正缺省才返回 null；文件链接须指向可读普通文件。
+ *
+ * @param path 待采集快照的文件绝对路径
+ * @returns 文件元数据与 SHA-256 快照，文件不存在时返回 null
+ */
 export async function readMigrationFileSnapshot(path: string): Promise<MigrationFileSnapshot | null> {
   let entry: Stats;
   try {

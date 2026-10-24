@@ -3,7 +3,11 @@ import { BOT_ATMOSPHERES, DEFAULT_BOT_ATMOSPHERE } from "../../consts/bot";
 import { ATMOSPHERE_TEXTS } from "../../consts/atmosphere";
 import type { AtmosphereTexts } from "../../types/atmosphere";
 
-/** 按 init 载荷注入的风格（atmosphereState）选择文案；未注入时取默认风格。 */
+/**
+ * 按 init 载荷注入的风格（atmosphereState）选择文案；未注入时取默认风格。
+ *
+ * @returns 当前风格对应的氛围文案表
+ */
 export function aiChatAtmosphere(): AtmosphereTexts {
   return ATMOSPHERE_TEXTS[atmosphereState.current ?? BOT_ATMOSPHERES[DEFAULT_BOT_ATMOSPHERE]];
 }

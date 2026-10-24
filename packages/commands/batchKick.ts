@@ -45,12 +45,19 @@ import { submitDeferredCommand } from "./deferredCommands";
 import type { CachedUser, ChatState } from "../types/chatState";
 import type { IdentityPolicyVerdicts } from "../types/identityStorage";
 
+/** `/batch_kick` 单次批次执行的各分类计数器与中断状态。 */
 interface BatchKickStats {
+  /** 成功踢出（unban 解除封禁）的成员数。 */
   kicked: number;
+  /** 探测或踢出时确认已不在群内的成员数。 */
   absent: number;
+  /** 命中白名单保护而跳过的成员数。 */
   protected: number;
+  /** 命中永久黑名单（跳过或补封成功）的成员数。 */
   blocked: number;
+  /** 因缺少管理员权限或目标为群管理员而被 Telegram 拒绝的成员数。 */
   forbidden: number;
+  /** 因探测/踢出/补封请求失败或未预期异常计入失败的成员数。 */
   failed: number;
   /**
    * blocked 中本命令未做任何处置、交还给黑名单流程的条数：processJoinRecord 里命中
@@ -66,7 +73,11 @@ interface BatchKickStats {
   unmanaged: boolean;
 }
 
-/** 把 `/batch_kick` 的单个 m/h/d 参数换算为毫秒数；须落在 BATCH_KICK_MIN_DURATION_MS 与 BATCH_KICK_MAX_DURATION_MS 之间，否则返回 undefined。 */
+/**
+ * 把 `/batch_kick` 的单个 m/h/d 参数换算为毫秒数；须落在 BATCH_KICK_MIN_DURATION_MS 与 BATCH_KICK_MAX_DURATION_MS 之间，否则返回 undefined。
+ * @param token 原始时长参数字符串（如 `"30m"`、`"2h"`）。
+ * @returns 合法区间内的毫秒数；形态非法或越界时返回 undefined。
+ */
 export function parseBatchKickDurationMs(token: string): number | undefined {
   const durationMs: number | undefined = parseDurationTokenMs(token);
   if (
@@ -83,15 +94,21 @@ export function parseBatchKickDurationMs(token: string): number | undefined {
  * 本群此刻是否仍归本命令处置：已初始化，且没有确证失去管理员身份。批次在后台与其它
  * update 交错执行，`/init disable`、机器人离群（purge 后不再是已初始化）与被撤管理员
  * 都会让它变为 false。
+ * @param chatId 目标群聊 ID。
+ * @returns 本群仍受管且未确证失去管理员身份时返回 true；否则返回 false。
  */
 function isBatchKickChatManaged(chatId: number): boolean {
   const state: Readonly<ChatState> = getChatState(chatId);
   return state.isInitEnabled === true && state.botPermissions?.isAdministrator !== false;
 }
 
+/** 单条入群日志记录的批踢处置参数。 */
 interface ProcessJoinRecordParams {
+  /** 目标超级群 ID。 */
   chatId: number;
+  /** 单条入群日志记录。 */
   record: JoinLogRecord;
+  /** 本批次共享的可变统计计数器。 */
   stats: BatchKickStats;
   /** 本块开始前直接冷读的永久策略结论；与实时缓存取并集判定是否跳过。 */
   verdicts: IdentityPolicyVerdicts;
@@ -100,6 +117,7 @@ interface ProcessJoinRecordParams {
 /**
  * 处理单条日志：先确认仍在群（probeChatMembership），再调用只踢不封接口；
  * 顺序固定，`unbanChatMember` 对已封禁身份有解除封禁语义。
+ * @param params 目标群 `chatId`、入群记录 `record`、可变统计 `stats` 与本块永久策略结论 `verdicts`。
  */
 async function processJoinRecord({
   chatId,
@@ -107,7 +125,7 @@ async function processJoinRecord({
   stats,
   verdicts,
 }: ProcessJoinRecordParams): Promise<void> {
-  // isWhitelisted 已经把超级管理员算进白名单边界（whitelist.ts）。
+  // isWhitelisted 已经把超级管理员算进白名单边界（infra/identityPolicy/whitelist.ts）。
   if (verdicts.whitelisted.has(record.userId) || isWhitelisted(record.userId)) {
     stats.protected++;
     return;
@@ -177,8 +195,11 @@ async function processJoinRecord({
   }
 }
 
+/** 分块并发执行 `/batch_kick` 入群记录处置的参数。 */
 interface RunBatchKickParams {
+  /** 目标超级群 ID。 */
   chatId: number;
+  /** 窗口内读取到的入群日志记录列表。 */
   records: readonly JoinLogRecord[];
 }
 
@@ -194,6 +215,8 @@ interface RunBatchKickParams {
  * 停机取消本条任务后，尚未开始的记录不再处理，在途记录因取消而失败的结果不计入
  * 战报也不记日志；每块开始前与结束后各检查一次，取消即向上解开整条任务。本群途中
  * 不再受管时同样不再处理尚未开始的记录，标记 `unmanaged` 后返回。
+ * @param params 目标超级群 `chatId` 与时间窗口内的入群日志记录列表 `records`。
+ * @returns 批次处置完成或中断时的统计结果。
  */
 async function runBatchKick({
   chatId,
@@ -263,10 +286,15 @@ async function runBatchKick({
   return stats;
 }
 
+/** 后台延迟命令执行器中运行 `/batch_kick` 批次处置与战报发送的参数。 */
 interface DeliverBatchKickParams {
+  /** 目标超级群 ID。 */
   readonly chatId: number;
+  /** 触发命令的消息 ID；用于挂回复引用。 */
   readonly messageId: number | undefined;
+  /** 回溯时间窗口时长（毫秒）。 */
   readonly durationMs: number;
+  /** 窗口内读取到的入群日志记录列表。 */
   readonly records: readonly JoinLogRecord[];
   /** 「已受理」回执发完（或发送结束）后兑现；批次在它之后开始，保证战报排在回执之后。 */
   readonly acknowledged: Promise<void>;
@@ -275,6 +303,7 @@ interface DeliverBatchKickParams {
 /**
  * 延迟命令执行器里的批次任务：逐条处置、交回黑名单、按 NOTICE_TEXTS.batchKickResult 发战报。
  * 本群途中不再受管时静默结束，不发战报；停机取消由执行器吞掉。结束时摘除单飞标记。
+ * @param params 目标群 `chatId`、触发消息 ID `messageId`、窗口时长 `durationMs`、入群记录 `records` 与受理回执完成信号 `acknowledged`。
  */
 async function deliverBatchKick({
   chatId,
@@ -336,6 +365,7 @@ async function deliverBatchKick({
  *
  * handler 只做校验与读日志：有记录时同群单飞，交给延迟命令执行器的 background 档后
  * 回「已受理」，批次与战报在后台任务里完成（见 deliverBatchKick）。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleBatchKickCommand(
   ctx: CommandContext<Context>

@@ -43,13 +43,6 @@ describe("/qa set 表单会话", () => {
     expect(qaFormSessions.size).toBe(1);
   });
 
-  test("查找只按群，不看发起人：匿名管理员开的表单也找得到", () => {
-    // 模拟命令侧 sender_chat 是本群的场景：openedById 等于群 id。
-    openQaFormSession({ chatId: CHAT_ID, openedById: CHAT_ID, onDiscard: noop });
-
-    expect(qaFormSessions.get(CHAT_ID)).toBeDefined();
-  });
-
   test("达到全局上限后拒绝新建，而不是踢掉别人正在填的那张", () => {
     for (let index: number = 0; index < QA_FORM_SESSION_MAX; index++) {
       expect(openQaFormSession({ chatId: -index - 1, openedById: 1, onDiscard: noop }))

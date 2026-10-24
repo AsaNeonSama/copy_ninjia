@@ -37,12 +37,23 @@ type XAiImageAspectRatio =
 /** OpenAI 原生生图协议档位。 */
 type OpenAiNativeImageProtocol = Exclude<OpenAiImageProtocol, "xai">;
 
-/** xAI generate 请求体。 */
-interface XAiImageGenerateParams extends OpenAI.Images.ImageGenerateParamsNonStreaming {
+/** xAI generate 与 edit 请求体的公共字段。 */
+interface XAiImageBaseParams {
+  /** 生图或改图模型名。 */
   readonly model: string;
-  readonly aspect_ratio: XAiImageAspectRatio;
+  /** 生图或改图文字提示词。 */
+  readonly prompt: string;
+  /** xAI 输出分辨率档位。 */
   readonly resolution: string;
+  /** 响应载荷编码格式（固定为 `"b64_json"`）。 */
   readonly response_format: "b64_json";
+}
+
+/** xAI generate 请求体。 */
+interface XAiImageGenerateParams extends XAiImageBaseParams {
+  /** xAI 支持的画幅比例。 */
+  readonly aspect_ratio: XAiImageAspectRatio;
+  /** 生成张数（固定为 `1`）。 */
   readonly n: 1;
 }
 
@@ -52,25 +63,24 @@ interface XAiImageInput {
   readonly url: string;
 }
 
-/** xAI edit 请求体的公共字段。 */
-interface XAiImageEditBaseParams {
-  readonly model: string;
-  readonly prompt: string;
-  readonly resolution: string;
-  readonly response_format: "b64_json";
-}
-
 /** 单张参考图的 xAI edit 请求体。 */
-interface XAiSingleImageEditParams extends XAiImageEditBaseParams {
+interface XAiSingleImageEditParams extends XAiImageBaseParams {
+  /** 单张参考图 data URI 输入。 */
   readonly image: XAiImageInput;
 }
 
 /** 多张参考图的 xAI edit 请求体。 */
-interface XAiMultiImageEditParams extends XAiImageEditBaseParams {
+interface XAiMultiImageEditParams extends XAiImageBaseParams {
+  /** 多张参考图 data URI 输入列表。 */
   readonly images: readonly XAiImageInput[];
 }
 
-/** 按 OpenAI 原生协议档位将领域画幅映射为尺寸字符串。 */
+/**
+ * 按 OpenAI 原生协议档位将领域画幅映射为尺寸字符串。
+ * @param protocol OpenAI 原生生图协议档位。
+ * @param aspectRatio 领域画幅比例。
+ * @returns 对应协议档位下的生图像素尺寸字符串。
+ */
 function pickOpenAiImageSize(
   protocol: OpenAiNativeImageProtocol,
   aspectRatio: ImageGenerationAspectRatio
@@ -85,7 +95,11 @@ function pickOpenAiImageSize(
   }
 }
 
-/** 将领域画幅比例映射为 xAI 支持的画幅比例。 */
+/**
+ * 将领域画幅比例映射为 xAI 支持的画幅比例。
+ * @param aspectRatio 领域画幅比例。
+ * @returns xAI 协议支持的画幅比例枚举值。
+ */
 function pickXAiAspectRatio(aspectRatio: ImageGenerationAspectRatio): XAiImageAspectRatio {
   switch (aspectRatio) {
     case "5:4": return "4:3";
@@ -95,18 +109,33 @@ function pickXAiAspectRatio(aspectRatio: ImageGenerationAspectRatio): XAiImageAs
   }
 }
 
-/** 将参考图包装为 SDK 可上传的文件句柄。 */
+/**
+ * 将参考图包装为 SDK 可上传的文件句柄。
+ * @param referenceImage 参考图字节与 MIME 信息。
+ * @param ordinal 从 1 开始的参考图序号。
+ * @returns OpenAI SDK 可上传的 `Uploadable` 文件对象。
+ */
 function toReferenceUpload(referenceImage: VisionImage, ordinal: number): Promise<Uploadable> {
   const extension: string = referenceImage.mime === "image/png" ? "png" : "jpg";
   return toFile(referenceImage.bytes, `reference-${ordinal}.${extension}`, { type: referenceImage.mime });
 }
 
-/** 将参考图编码为 xAI JSON edit 所需的 data URI 输入对象。 */
+/**
+ * 将参考图编码为 xAI JSON edit 所需的 data URI 输入对象。
+ * @param referenceImage 参考图字节与 MIME 信息。
+ * @returns 携带 base64 data URI 的 `XAiImageInput` 对象。
+ */
 function toXAiImageInput(referenceImage: VisionImage): XAiImageInput {
   return { type: "image_url", url: `data:${referenceImage.mime};base64,${referenceImage.bytes.toBase64()}` };
 }
 
-/** 按配置的生图线协议发起一次生图或改图请求。 */
+/**
+ * 按配置的生图线协议发起一次生图或改图请求。
+ * @param config OpenAI 供应商的 `image` 能力配置。
+ * @param request 生图请求参数，包含提示词、画幅比例与参考图列表。
+ * @param signal 请求取消与超时信号。
+ * @returns OpenAI Images 兼容接口返回的响应对象。
+ */
 async function requestOpenAiCompatibleImage(
   config: OpenAiAgentImageCapabilityConfig,
   {
@@ -198,7 +227,13 @@ async function requestOpenAiCompatibleImage(
   }
 }
 
-/** 生成用于错误日志的画幅描述字符串。 */
+/**
+ * 生成用于错误日志的画幅描述字符串。
+ * @param protocol 当前生图线协议。
+ * @param aspectRatio 请求的领域画幅比例。
+ * @param hasReferenceImage 本次请求是否附带参考图。
+ * @returns 用于诊断日志的画幅或尺寸描述字符串。
+ */
 function imageCanvasForLog(
   protocol: OpenAiImageProtocol,
   aspectRatio: ImageGenerationAspectRatio,
@@ -216,7 +251,9 @@ function imageCanvasForLog(
 }
 
 /**
- * 调用 OpenAI 兼容生图接口生成一张图片；请求失败或无可用载荷时记录日志并返回 null。
+ * 调用 OpenAI 兼容生图接口生成一张图片：调用方主动取消时静默返回 `null`，其他请求失败或无可用载荷时记录日志并返回 `null`。
+ * @param request 生图请求参数。
+ * @returns 解码并校验通过的图片载荷；取消、失败或无有效图片时返回 `null`。
  */
 export async function generateOpenAiImage(request: AiImageRequest): Promise<GeneratedChatImage | null> {
   const {

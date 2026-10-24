@@ -5,7 +5,11 @@ import {
   BOT_CHAT_PERMISSION_KEYS,
 } from "../consts/botAdmin";
 
-/** Telegram 管理员身份判定；普通 member 的在群判定语义不属于这里。 */
+/**
+ * Telegram 管理员身份判定；普通 member 的在群判定语义不属于这里。
+ * @param status Telegram 群成员的 status 字段。
+ * @returns 为群主（creator）或管理员（administrator）时返回 true，否则返回 false。
+ */
 export function isAdminStatus(status: ChatMember["status"]): boolean {
   return status === "administrator" || status === "creator";
 }
@@ -14,6 +18,8 @@ export function isAdminStatus(status: ChatMember["status"]): boolean {
  * 这份成员记录是否带着封禁成员的权限。
  *
  * 群主（creator）恒为真；普通管理员看 `can_restrict_members`。其余身份一律为假。
+ * @param member Telegram 群成员记录。
+ * @returns 具备限制/封禁成员权限时返回 true，否则返回 false。
  */
 function canRestrictMembers(member: ChatMember): boolean {
   if (member.status === "creator") return true;
@@ -26,6 +32,8 @@ function canRestrictMembers(member: ChatMember): boolean {
  * 群主按 Telegram 「拥有全部管理权限」的定义收敛为全权限 true；普通
  * 管理员逐项读 `grammy/types` 声明的字段，可选字段缺省明确收敛为 false；
  * 其余身份保留一份全 false 快照。调用方整体替换 State 中的旧快照，不就地修改字段。
+ * @param member 机器人在目标群的 Telegram 群成员记录。
+ * @returns 收敛后的完整机器人群权限快照。
  */
 export function readBotChatPermissions(member: ChatMember): BotChatPermissions {
   const isAdministrator: boolean = isAdminStatus(member.status);
@@ -56,7 +64,12 @@ export function readBotChatPermissions(member: ChatMember): BotChatPermissions {
   };
 }
 
-/** 逐位比较两份完整权限快照；用于去重 State 落盘。 */
+/**
+ * 逐位比较两份完整权限快照；用于去重 State 落盘。
+ * @param left 第一份完整权限快照。
+ * @param right 第二份完整权限快照。
+ * @returns 两份快照同时为 undefined 或全部权限位完全一致时返回 true，否则返回 false。
+ */
 export function botChatPermissionsEqual(
   left: Readonly<BotChatPermissions> | undefined,
   right: Readonly<BotChatPermissions> | undefined
@@ -68,7 +81,11 @@ export function botChatPermissionsEqual(
   return true;
 }
 
-/** 把完整快照收敛成投递给 Worker 的那两位（字段集见 consts/botAdmin.ts）。 */
+/**
+ * 把完整快照收敛成投递给 Worker 的那两位（字段集见 consts/botAdmin.ts）。
+ * @param permissions 机器人的完整群权限快照。
+ * @returns 仅包含封禁成员与删除消息两位权限的子集对象。
+ */
 export function projectBotActionPermissions(
   permissions: Readonly<BotChatPermissions>
 ): BotActionPermissions {
@@ -81,6 +98,9 @@ export function projectBotActionPermissions(
 /**
  * 只比 BOT_ACTION_PERMISSION_KEYS 投影后的位，其余权限位的变化不产生投递
  * （见 infra/botAdmin.ts 的 recordBotChatPermissions）。
+ * @param left 第一份完整权限快照。
+ * @param right 第二份完整权限快照。
+ * @returns 两份快照同时为 undefined 或动作权限位完全一致时返回 true，否则返回 false。
  */
 export function botActionPermissionsEqual(
   left: Readonly<BotChatPermissions> | undefined,
@@ -93,7 +113,11 @@ export function botActionPermissionsEqual(
   return true;
 }
 
-/** 当前成员状态判定：restricted 必须同时满足 is_member。 */
+/**
+ * 当前成员状态判定：restricted 必须同时满足 is_member。
+ * @param member Telegram 群成员记录。
+ * @returns 该成员当前仍在群内时返回 true，已退群或被踢出时返回 false。
+ */
 export function isPresentMember(member: ChatMember): boolean {
   if (member.status === "restricted") return member.is_member;
   return (

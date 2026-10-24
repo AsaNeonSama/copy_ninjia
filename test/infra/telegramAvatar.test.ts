@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { GrammyError } from "grammy";
-import { AVATAR_FETCH_MAX_ATTEMPTS } from "../../packages/consts/telegram";
+import {
+  AVATAR_FETCH_MAX_ATTEMPTS,
+  AVATAR_MAX_DOWNLOAD_BYTES,
+  PUBLIC_PROFILE_PAGE_MAX_DOWNLOAD_BYTES,
+} from "../../packages/consts/telegram";
+import { logger } from "../../packages/infra/logger";
 import { avatarFailureFor, runAvatarFetchAttempts } from "../../packages/infra/telegram/avatar/shared";
 import type {
   AvatarFetchAttemptsOutcome,
@@ -64,6 +69,14 @@ describe("Telegram 公开头像解析", () => {
     expect(extractAvatarUrlFromProfileHtml('<img class="tgme_page_photo_image" src="https://cdn4.cdn-telegram.org:444/avatar.jpg">')).toBeUndefined();
   });
 
+  test("属性值含 > 时不截断标签，且忽略 HTML 注释里的伪标签", () => {
+    const html: string = [
+      `<!-- <img class="tgme_page_photo_image" src="${telegramCdnUrl}/commented-out.jpg"> -->`,
+      `<img alt="A > B" class="tgme_page_photo_image" src="${telegramCdnUrl}/real-avatar.jpg">`,
+    ].join("\n");
+    expect(extractAvatarUrlFromProfileHtml(html)).toBe(`${telegramCdnUrl}/real-avatar.jpg`);
+  });
+
   test("头像 class 优先于页面 meta 图片", () => {
     const html = `
       <meta property="og:url" content="https://t.me/CopyNinjiaBot">
@@ -114,6 +127,15 @@ describe("Telegram 公开头像解析", () => {
     ).toBeUndefined();
   });
 
+  test("头像地址、页面身份与深链解析不了时一律不采用", () => {
+    const image = `<meta property="og:image" content="${telegramCdnUrl}/og.jpg">`;
+    expect(extractAvatarUrlFromProfileHtml('<img class="tgme_page_photo_image" src="not a url">')).toBeUndefined();
+    expect(extractAvatarUrlFromProfileHtml(`<meta property="og:url" content="https://[::1">${image}`, "CopyNinjiaBot"))
+      .toBeUndefined();
+    expect(extractAvatarUrlFromProfileHtml(`<meta property="al:ios:url" content="tg://[">${image}`, "CopyNinjiaBot"))
+      .toBeUndefined();
+  });
+
   test("meta 回退仍拒绝非 HTTPS 或带凭证的图片地址", () => {
     const identity = '<meta property="og:url" content="https://t.me/CopyNinjiaBot">';
     expect(
@@ -148,6 +170,49 @@ describe("Telegram 公开头像解析", () => {
     ]);
     expect(fetchCalls.every((call): boolean => call.init?.redirect === "error")).toBeTrue();
     expect(fetchCalls.every((call): boolean => call.init?.signal instanceof AbortSignal)).toBeTrue();
+  });
+
+  test("主页超限、没有头像、图片超限或请求意外抛错时返回 null：缺头像记 warn，其余记 error", async () => {
+    const page = (): Response => new Response(`<img class="tgme_page_photo_image" src="${telegramCdnUrl}/avatar.jpg">`);
+    const cases: readonly { readonly responses: readonly (() => Response)[]; readonly level: "warn" | "error" }[] = [
+      { responses: [(): Response => new Response("x".repeat(PUBLIC_PROFILE_PAGE_MAX_DOWNLOAD_BYTES + 1))], level: "error" },
+      { responses: [(): Response => new Response("<html><title>CopyNinjiaBot</title></html>")], level: "warn" },
+      { responses: [page, (): Response => new Response(new Uint8Array(AVATAR_MAX_DOWNLOAD_BYTES + 1))], level: "error" },
+      { responses: [(): Response => { throw new Error("network down"); }], level: "error" },
+    ];
+    const warnLog = spyOn(logger, "warn").mockImplementation((): void => {});
+    const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      for (const { responses, level } of cases) {
+        warnLog.mockClear();
+        errorLog.mockClear();
+        let index: number = 0;
+        const fetchMock = mock(async (): Promise<Response> => responses[index++]!());
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+        await expect(fetchAvatarFromWebProfile("CopyNinjiaBot")).resolves.toBeNull();
+        expect(fetchMock).toHaveBeenCalledTimes(responses.length);
+        expect(level === "warn" ? warnLog : errorLog).toHaveBeenCalledTimes(1);
+        expect(level === "warn" ? errorLog : warnLog).not.toHaveBeenCalled();
+      }
+    } finally {
+      warnLog.mockRestore();
+      errorLog.mockRestore();
+    }
+  });
+
+  test("调用方已取消时返回 null 且不记错误日志", async () => {
+    const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      const controller: AbortController = new AbortController();
+      controller.abort();
+      globalThis.fetch = mock(async (): Promise<Response> => new Response("")) as unknown as typeof fetch;
+
+      await expect(fetchAvatarFromWebProfile("CopyNinjiaBot", controller.signal)).resolves.toBeNull();
+      expect(errorLog).not.toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 
   test("头像下载为空或不是 JPEG/PNG（如 HTML 插页）时不交给上传", async () => {

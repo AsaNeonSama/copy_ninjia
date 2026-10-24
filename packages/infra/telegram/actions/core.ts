@@ -9,10 +9,15 @@ import { logApiError } from "../client";
 import { telegramErrorDetails } from "../errors";
 
 interface RunTelegramActionParams<T, R> {
+  /** 日志中记录的动作描述。 */
   action: string;
+  /** 接收合成取消信号并发起 Telegram 请求的函数。 */
   execute: (signal?: AbortSignal) => Promise<T>;
+  /** 将 API 原始响应转换为业务结果的函数。 */
   map: (result: T) => R;
+  /** 请求或转换失败时返回的兜底值。 */
   fallback: R;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /**
    * 是否把这次失败记成 API 错误；第二个参数是 runTelegramAction 已算好的复合信号，直接复用。
@@ -37,6 +42,8 @@ interface RunTelegramActionParams<T, R> {
  *
  * 失败本身是取消（isAbortError，例如 Worker 停机 drain 撤销的双工请求）时不记
  * API 错误；`shouldLogError` 仍会被调用，供调用方完成结局分类。
+ * @param params 动作执行、结果映射与错误处理参数。
+ * @returns 成功时返回映射后的结果，失败时返回 fallback。
  */
 export async function runTelegramAction<T, R>({
   action,
@@ -78,6 +85,9 @@ export async function runTelegramAction<T, R>({
  * 只对带调用方 signal 的动作有意义（update 取消在判据之前已由统一边界上抛，
  * 取消形状的失败由 runTelegramAction 统一不记）。各 Telegram 动作入口共用；
  * runPermissionAwareTelegramAction 在分类后同样经过本函数。
+ * @param _error 捕获到的异常值（本判据不读取）。
+ * @param actionSignal 动作合成后的取消信号。
+ * @returns 动作信号未中止时返回 true，已中止时返回 false。
  */
 export function logUnlessAborted(
   _error: unknown,
@@ -86,7 +96,13 @@ export function logUnlessAborted(
   return actionSignal?.aborted !== true;
 }
 
-/** 执行只关心是否成功的 Telegram 动作。 */
+/**
+ * 执行只关心是否成功的 Telegram 动作。
+ * @param action 日志中记录的动作描述。
+ * @param execute 发起 Telegram 请求的函数。
+ * @param signal 调用方的取消信号。
+ * @returns 请求成功返回 true，失败返回 false。
+ */
 export async function runBooleanTelegramAction(
   action: string,
   execute: (signal?: AbortSignal) => Promise<unknown>,
@@ -112,8 +128,11 @@ export type PermissionAwareOutcome =
   | "failed";
 
 export interface RunPermissionAwareTelegramActionParams {
+  /** 日志中记录的动作描述。 */
   action: string;
+  /** 发起 Telegram 请求的函数。 */
   execute: (signal?: AbortSignal) => Promise<unknown>;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /**
    * 领域先认领这次错误：返回 true 表示已经归类完毕，本函数不再按权限解释、
@@ -130,6 +149,8 @@ export interface RunPermissionAwareTelegramActionParams {
  * 权限拒绝（见 isPermissionDenied）归为 `forbidden`，不归入偶发的 `failed`。
  *
  * 取消造成的失败不记 API 错误，口径与 runBooleanTelegramAction 一致。
+ * @param params 权限敏感动作的执行与错误认领参数。
+ * @returns 区分成功、领域认领、权限拒绝、无效参与者与偶发失败的五态结局。
  */
 export async function runPermissionAwareTelegramAction({
   action,
@@ -167,14 +188,22 @@ export interface TelegramReplyParameters {
   readonly allow_sending_without_reply: true;
 }
 
-/** 将可选的目标消息 ID 转换为 Bot API 的 `reply_parameters`（`allow_sending_without_reply` 恒为 true）。 */
+/**
+ * 将可选的目标消息 ID 转换为 Bot API 的 `reply_parameters`（`allow_sending_without_reply` 恒为 true）。
+ * @param replyToMessageId 要回复的目标消息 ID。
+ * @returns 给定有效消息 ID 时返回 reply_parameters 对象，否则返回 undefined。
+ */
 export function replyParametersFor(
   replyToMessageId: number | undefined
 ): TelegramReplyParameters | undefined {
   return replyToMessageId ? { message_id: replyToMessageId, allow_sending_without_reply: true } : undefined;
 }
 
-/** 判断 Telegram 错误是否属于操作权限不足。 */
+/**
+ * 判断 Telegram 错误是否属于操作权限不足。
+ * @param error 待判定的异常值。
+ * @returns 属于 403 或 400 权限不足错误时返回 true，否则返回 false。
+ */
 export function isPermissionDenied(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);
@@ -186,7 +215,11 @@ export function isPermissionDenied(error: unknown): boolean {
   );
 }
 
-/** 判断 Telegram 错误是否属于本群成员查询本身被拒（机器人不在群或需管理员权限）。 */
+/**
+ * 判断 Telegram 错误是否属于本群成员查询本身被拒（机器人不在群或需管理员权限）。
+ * @param error 待判定的异常值。
+ * @returns 属于 403 或 CHAT_ADMIN_REQUIRED 错误时返回 true，否则返回 false。
+ */
 export function isChatMemberQueryDenied(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);
@@ -195,7 +228,11 @@ export function isChatMemberQueryDenied(error: unknown): boolean {
   return details.errorCode === 400 && /\bCHAT_ADMIN_REQUIRED\b/.test(details.description);
 }
 
-/** 判断 Telegram 错误是否以 `PARTICIPANT_ID_INVALID` 拒绝目标用户 ID。 */
+/**
+ * 判断 Telegram 错误是否以 `PARTICIPANT_ID_INVALID` 拒绝目标用户 ID。
+ * @param error 待判定的异常值。
+ * @returns 属于 400 PARTICIPANT_ID_INVALID 错误时返回 true，否则返回 false。
+ */
 export function isParticipantIdInvalid(error: unknown): boolean {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);

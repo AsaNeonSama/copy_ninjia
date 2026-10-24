@@ -114,7 +114,7 @@ describe("OpenAI 回复会话的热重载边界", () => {
     expect(session.appendToolOutputs([{ call: first.functionCalls[0]!, responseJson: DUPLICATE_REPLY_RESULT }])).toBeTrue();
 
     const pinnedModel: string = getAgentDeploymentConfig().text.model;
-    useOpenAiTextConfig({ provider: "openai", apiKey: "rotated-key", baseUrl: undefined, headers: undefined, model: "reloaded-model" });
+    useOpenAiTextConfig({ provider: "openai", apiKey: "rotated-key", baseUrl: undefined, model: "reloaded-model" });
     await session.request(baseRequest());
 
     expect(capturedBody(0).model).toBe(pinnedModel);
@@ -174,7 +174,6 @@ describe("OpenAI 回复会话的请求映射", () => {
       provider: "openai",
       apiKey: "test-key",
       baseUrl: undefined,
-      headers: undefined,
       model: OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX + "-sol",
     });
     const session: AiReplySession = createOpenAiReplySession({
@@ -207,14 +206,12 @@ describe("OpenAI 回复会话的请求映射", () => {
         provider: "openai",
         apiKey: "test-key",
         baseUrl: undefined,
-        headers: undefined,
         model: "gpt-5.5",
       },
       {
         provider: "openai",
         apiKey: "test-key",
         baseUrl: "https://compatible.example/v1",
-        headers: undefined,
         model: OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX,
       },
     ] as const) {
@@ -350,7 +347,7 @@ describe("OpenAI 回复会话的产出解析", () => {
 
 describe("OpenAI 回复会话的对话记录累积", () => {
   test("重复跳过回执只追加，稳定前缀、缓存键和模型历史保持不变", async () => {
-    useOpenAiTextConfig({ provider: "openai", apiKey: "test-key", baseUrl: undefined, headers: undefined, model: "gpt-5.6" });
+    useOpenAiTextConfig({ provider: "openai", apiKey: "test-key", baseUrl: undefined, model: "gpt-5.6" });
     requestOpenAiResult.mockResolvedValueOnce(okResult(modelOutput()));
     const session: AiReplySession = createOpenAiReplySession({ chatId: -1001, stableBlocks: ["参考记忆"], volatileBlocks: ["当前会话"] });
     const request: AiReplyTurnRequest = baseRequest({ webSearchEnabled: true });

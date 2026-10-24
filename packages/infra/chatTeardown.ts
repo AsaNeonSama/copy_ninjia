@@ -3,7 +3,11 @@ import { disableChatStateSwitch } from "./storage/stateStore";
 import { teardownRegisteredChat } from "./chatTeardownRegistry";
 import type { ChatTeardownReason } from "../types/chatTeardown";
 
-/** 配置去留由调用入口决定；这里只停止 owner、取消计时器并发起权限恢复。 */
+/**
+ * 配置去留由调用入口决定；这里只停止 owner、取消计时器并发起权限恢复。
+ * @param chatId 目标群 ID。
+ * @param reason 触发群运行时 teardown 的原因。
+ */
 export async function teardownChatRuntime(
   chatId: number,
   reason: ChatTeardownReason

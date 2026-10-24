@@ -13,7 +13,12 @@ import {
 } from "../../../consts/audio";
 import type { WavPcmDecodeResult } from "../../../types/aiChat/voiceMessage";
 
-/** 读取四字符 ASCII 块标识。 */
+/**
+ * 读取四字符 ASCII 块标识。
+ * @param view 绑定到 WAV 字节缓冲的 DataView。
+ * @param offset 起始字节偏移。
+ * @returns 4 字符 ASCII 块标识字符串。
+ */
 function fourCc(view: DataView, offset: number): string {
   return String.fromCharCode(
     view.getUint8(offset),
@@ -25,6 +30,8 @@ function fourCc(view: DataView, offset: number): string {
 
 /**
  * 解析单声道 PCM WAV 字节流，返回归一化样本与采样率或失败原因。
+ * @param bytes RIFF/WAVE 音频字节流。
+ * @returns 归一化浮点 PCM 样本与采样率，或带具体原因的失败结果。
  */
 export function decodeWavPcm(bytes: Uint8Array): WavPcmDecodeResult {
   const view: DataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

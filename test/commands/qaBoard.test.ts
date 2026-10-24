@@ -127,7 +127,14 @@ describe("看板装页", () => {
   });
 
   test("分页不得吞条目：各页拼起来与入参等长", () => {
-    for (const count of [1, 2, 3, 4, 5, 7]) {
+    for (const count of [
+      1,
+      QA_QUERY_PAGE_MAX_ENTRIES - 1,
+      QA_QUERY_PAGE_MAX_ENTRIES,
+      QA_QUERY_PAGE_MAX_ENTRIES + 1,
+      2 * QA_QUERY_PAGE_MAX_ENTRIES - 1,
+      2 * QA_QUERY_PAGE_MAX_ENTRIES + 1,
+    ]) {
       const entries = Array.from({ length: count }, (_unused: unknown, index: number) => ({
         q: `问题${index}`,
         a: "长".repeat(QA_QUERY_ANSWER_PREVIEW_MAX_CHARS),

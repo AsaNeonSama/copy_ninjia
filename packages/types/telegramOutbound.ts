@@ -110,17 +110,26 @@ export interface TelegramSendLane {
 
 /** 出站 job 唯一构造点的稳定字段集合。 */
 export interface CreateTelegramOutboundJobOptions {
+  /** 调用方取消与当前出站生命周期组合后的取消信号。 */
   readonly signal: AbortSignal;
+  /** 请求所属的 Telegram 429 退避域。 */
   readonly category: TelegramRetryCategory;
+  /** 仅破坏性请求使用；每次从 429 队列重放前重新验证授权前置条件。 */
   readonly beforeRetry: (() => Promise<void>) | undefined;
+  /** 实际发起单次网络请求的执行回调。 */
   readonly call: (signal: AbortSignal) => Promise<unknown>;
+  /** 请求成功完成时的 Promise resolve 回调。 */
   readonly resolve: (value: unknown) => void;
+  /** 请求失败或取消时的 Promise reject 回调。 */
   readonly reject: (reason?: unknown) => void;
 }
 
 /** 复用分类型 429 队列的一次外部请求。 */
 export interface TelegramCategorizedRequestOptions<T> {
+  /** 请求所属的 Telegram 429 退避域。 */
   readonly category: TelegramRetryCategory;
+  /** 接收组合取消信号并执行外部请求的回调。 */
   readonly execute: (signal: AbortSignal) => Promise<T>;
+  /** 调用方传入的可选取消信号。 */
   readonly signal?: AbortSignal;
 }

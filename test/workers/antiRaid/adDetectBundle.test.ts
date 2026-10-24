@@ -1,6 +1,15 @@
-import { describe, expect, test } from "bun:test";
-import { formatAdBundleText, selectAdBundleEntries } from "../../../packages/workers/antiRaid/adDetect/bundle";
-import { AD_DETECT_BUNDLE_MAX_CHARS } from "../../../packages/consts/antiRaid/adDetect";
+import { describe, expect, spyOn, test } from "bun:test";
+import {
+  claimSampleContextParts,
+  enforceBundleCapacity,
+  formatAdBundleText,
+  selectAdBundleEntries,
+} from "../../../packages/workers/antiRaid/adDetect/bundle";
+import {
+  AD_DETECT_BUNDLE_MAX_CHARS,
+  AD_DETECT_MAX_MESSAGES_PER_SENDER,
+} from "../../../packages/consts/antiRaid/adDetect";
+import { logger } from "../../../packages/infra/logger";
 import type { AdBundleSelection, AdCandidateEntry, AdMessageBundle } from "../../../packages/types/antiRaid/adDetect";
 
 function entry(seq: number, text: string): AdCandidateEntry {
@@ -89,5 +98,31 @@ describe("广告送检条目选取", () => {
   test("拼串按选取结果逐行编号，空清单给出空串", () => {
     expect(formatAdBundleText([entry(1, "第一条"), entry(2, "第二条")])).toBe("1. 第一条\n2. 第二条");
     expect(formatAdBundleText([])).toBe("");
+  });
+
+  test("超容量裁剪优先丢弃已判上下文，不置位 uncheckedEvicted 且不打错误日志", () => {
+    const errorSpy = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      const entries: AdCandidateEntry[] = Array.from(
+        { length: AD_DETECT_MAX_MESSAGES_PER_SENDER + 1 },
+        (_unused: unknown, index: number): AdCandidateEntry => entry(index + 1, `msg-${index + 1}`)
+      );
+      const target: AdMessageBundle = bundle(entries, 1);
+
+      enforceBundleCapacity(target);
+
+      expect(target.entries).toHaveLength(AD_DETECT_MAX_MESSAGES_PER_SENDER);
+      expect(target.entries[0]?.seq).toBe(2);
+      expect(target.uncheckedEvicted).toBeFalse();
+      expect(target.pendingDeleteIds).toEqual([]);
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("空正文同时带 quote 与 replyTo 时直接以空格拼接两者", () => {
+    expect(claimSampleContextParts("", { quote: "引文片段", replyTo: "被回复原文" }, []))
+      .toBe("引文片段 被回复原文");
   });
 });

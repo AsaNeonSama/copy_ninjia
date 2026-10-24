@@ -48,13 +48,20 @@ import { acceptRoundText, sendDirectMessage } from "./messageState";
 import { modelAuthoredTextPolicyResult } from "./modelAuthoredText";
 import { pauseThenSettle } from "./pacing";
 
-/** 省略 aspect_ratio 时的默认比例：有主参考图时取最接近其尺寸的官方比例，否则返回 DEFAULT_IMAGE_GENERATION_ASPECT_RATIO。 */
+/**
+ * 省略 aspect_ratio 时的默认比例：有主参考图时取最接近其尺寸的官方比例，否则返回 DEFAULT_IMAGE_GENERATION_ASPECT_RATIO。
+ * @param reference 首张参考图的视觉素材尺寸元数据；无参考图时为 undefined。
+ * @returns 默认生图宽高比。
+ */
 export function defaultAspectRatioFor(reference: TelegramVisionSource | undefined): ImageGenerationAspectRatio {
   if (!reference || reference.width <= 0 || reference.height <= 0) return DEFAULT_IMAGE_GENERATION_ASPECT_RATIO;
   return normalizeImageAspectRatio(`${reference.width}:${reference.height}`) ?? DEFAULT_IMAGE_GENERATION_ASPECT_RATIO;
 }
 
-/** 构造 generate_image 工具声明；前缀缓存与资格约束见 docs/cn/04-invariants.md。 */
+/**
+ * 构造 generate_image 工具声明；前缀缓存与资格约束见 docs/cn/04-invariants.md。
+ * @returns generate_image 工具定义对象。
+ */
 export function buildGenerateImageToolDefinition(): AiToolDefinition {
   return {
     name: GENERATE_IMAGE_TOOL,
@@ -96,6 +103,12 @@ interface ParsedImageArguments {
   caption: string | null;
 }
 
+/**
+ * 解析并校验 generate_image 工具参数。
+ * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * @param defaultAspectRatio 未指定比例时使用的默认宽高比。
+ * @returns 解析后的提示词、宽高比与可选清洗后图注；参数不合法时返回 null。
+ */
 function parseArguments(
   argumentsJson: string,
   defaultAspectRatio: ImageGenerationAspectRatio
@@ -114,12 +127,20 @@ function parseArguments(
   return aspectRatio ? { prompt, aspectRatio, caption } : null;
 }
 
-/** 将生图冷却剩余毫秒数向上取整为秒数。 */
+/**
+ * 将生图冷却剩余毫秒数向上取整为秒数。
+ * @param retryAfterMs 剩余冷却毫秒数。
+ * @returns 向上取整后的剩余冷却秒数。
+ */
 export function imageCooldownRetrySeconds(retryAfterMs: number): number {
   return Math.ceil(retryAfterMs / 1_000);
 }
 
-/** 构造生图冷却未过时的工具错误回执。 */
+/**
+ * 构造生图冷却未过时的工具错误回执。
+ * @param retryAfterMs 剩余冷却毫秒数。
+ * @returns 指示模型告知群友冷却剩余时间的工具错误 JSON。
+ */
 function coolingDownError(retryAfterMs: number): string {
   const retryAfterSeconds: number = imageCooldownRetrySeconds(retryAfterMs);
   return toolError("Image generation is cooling down in this chat", {
@@ -137,6 +158,9 @@ type ImageCaptionDelivery = "inline" | "separate_message" | "failed" | "no_actio
 /**
  * 下载本轮全部参考图（交互档并发，继承本轮取消信号）；任一张失败或总字节数超过
  * MEDIA_MAX_DOWNLOAD_BYTES 时返回 null。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param references 待下载的参考图素材列表。
+ * @returns 下载并规范化后的参考图数组；任一张失败或总大小超限时返回 null。
  */
 async function downloadReferenceImages(
   ctx: ReplyToolContext,
@@ -167,14 +191,23 @@ async function downloadReferenceImages(
   return images;
 }
 
+/** deliverSeparateCaption 的入参。 */
 interface SeparateCaptionParams {
+  /** 当前回复轮次的工具共享上下文。 */
   readonly ctx: ReplyToolContext;
+  /** 超出图注长度上限、需单独补发的图注文本。 */
   readonly caption: string;
+  /** 聊天状态控制器。 */
   readonly chatAction: ChatActionControl;
+  /** 拟人停顿控制函数。 */
   readonly pause: ReplyActionPause;
 }
 
-/** 图片发出后按打字节奏停顿并补发超长图注。 */
+/**
+ * 图片发出后按打字节奏停顿并补发超长图注。
+ * @param params 工具上下文、超长图注文本及聊天状态与停顿控制。
+ * @returns 补发成功时返回 `"separate_message"`，停顿作废或发送失败时返回 `"failed"`。
+ */
 async function deliverSeparateCaption({
   ctx,
   caption,
@@ -201,6 +234,10 @@ async function deliverSeparateCaption({
 /**
  * 创建 generate_image 执行器：接纳时校验资格、参数、图注策略并认领群冷却；串行步骤中下载参考图、
  * 调用生图模型并发送图片与图注，未发起模型请求时释放冷却认领。生命周期见 docs/cn/04-invariants.md。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param state 本轮消息去重与错字状态。
+ * @param getActionsUsed 读取本轮已占用动作额度的回调。
+ * @returns 接收参数 JSON 并返回生图工具执行计划的执行器函数。
  */
 export function createGenerateImageExecutor(
   ctx: ReplyToolContext,

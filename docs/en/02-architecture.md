@@ -67,7 +67,7 @@ The system strictly follows the principle of **Single Ownership**: every piece o
 
 ## The Journey of a Message
 
-All incoming update handlers are explicitly registered in [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts), and the whole chain is registered through a single `bot.use`: that layer records the update ID and applies the bot-message limit, then enters the preamble chain in [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts). Each preamble step calls the next one synchronously in the order shown below and returns a Promise only when it actually hits I/O (prefetching cold identities, a claiming ingress waiting on persistence or the network, command and message handlers). Slash commands, CJK action commands, and non-message updates such as reactions, member changes, and inline callbacks are built as grammY `Composer`s that the preamble calls at their positions. Global message ordering is enforced by the acknowledged update polling runner ([`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)): it fetches updates using `UPDATE_POLL_LIMIT` and `UPDATE_POLL_TIMEOUT_SECONDS` and awaits full middleware completion before requesting the next batch.
+All incoming update handlers are explicitly registered in [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts), and the whole chain is registered through a single `bot.use`: that layer records the update ID and applies the bot-message limit, then enters the preamble chain in [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts). Each preamble step calls the next one synchronously in the order shown below and returns a Promise only when it actually hits I/O (prefetching cold identities, a claiming ingress waiting on persistence or the network, command and message handlers). The chat state is read once at the init gate and passed down the synchronous steps; every Promise resume point re-reads the current value. Slash commands, CJK action commands, and non-message updates such as reactions, member changes, and inline callbacks are built as grammY `Composer`s that the preamble calls at their positions. Global message ordering is enforced by the acknowledged update polling runner ([`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)): it fetches updates using `UPDATE_POLL_LIMIT` and `UPDATE_POLL_TIMEOUT_SECONDS` and awaits full middleware completion before requesting the next batch.
 
 ```text
 [Telegram Update]
@@ -186,7 +186,7 @@ The model can execute multiple tool calls within a single round. All visible sid
 | **`web_search`** | Query | Local web search tool (mounted when `agent.web_search` is configured); bounded by `max_calls_per_use`. |
 | **`group_qa_query`** | Query | Lists registered Q&A questions in the current group; does not consume action budget. |
 | **`group_qa_answer`** | Query | Fetches pre-registered answers for specific questions discovered via `group_qa_query`. |
-| **`abuse_mark`** | Action | Marks the current trigger user to be ignored by AI chat for `ABUSE_MARK_DURATION_MS` when repeatedly requesting disallowed or pestering content, sends an atmosphere-specific notice, and immediately ends the model round. |
+| **`abuse_mark`** | Action | Marks the current trigger user to be ignored by AI chat for `ABUSE_MARK_DURATION_MS` when repeatedly requesting disallowed content or engaging in behavior that makes the model uncomfortable (scolding, humiliation, etc.), sends an atmosphere-specific notice, and immediately ends the model round. |
 | **`get_tokyo_weather`** | Query | Queries Tokyo daily weather and temperature; mounted only when configured time zone is `TOKYO_TIME_ZONE`. |
 
 > [!TIP]
@@ -210,11 +210,11 @@ The entry point [`index.ts`](../../index.ts) solely delegates to [`ApplicationLi
 3. **Disk I/O Worker Initialization & Data Recovery**:
    - Disk I/O Worker performs a read-only integrity scan across all persistence domains (database, logs, AI cache usage, sticker catalogs, fortune records, verification records, join logs, wed member pools).
    - Once all domains validate cleanly, it adopts ownership, runs startup maintenance, and schedules the daily maintenance cron (`DISK_IO_MAINTENANCE_CRON`) in the configured time zone.
-   - The main thread loads in-memory caches (chat states, Q&A pairs, wed members), initializes the Telegram client, verifies that `super_admin_user_id` is neither on the blocklist nor targeted by `/delete_message`, and seeds sender identity and translation target caches.
+   - The main thread loads in-memory caches (chat states, Q&A pairs, wed members), initializes the Telegram client, verifies that `super_admin_user_id` is neither on the blocklist nor targeted by `/delete_message`, seeds sender identity and translation target caches, and restores fortune state and pending verification records.
 4. **Handler Registration & Telegram Handshake**: Mounts global middlewares, registers command menus, and executes `bot.init()`.
 5. **Business Worker Initialization & Scheduling**:
-   - Launches AI Worker (when core AI config is ready) and hydrates conversation context and sticker catalogs; the main thread restores fortune state.
-   - Loads pending verification records and the blocklist kick outbox, then launches Anti-Raid Worker and restores verification and lockdown mirrors.
+   - Launches AI Worker (when core AI config is ready) and hydrates conversation context and sticker catalogs.
+   - Loads the blocklist kick outbox, then launches Anti-Raid Worker and restores verification and lockdown mirrors.
    - Starts the `cron.json` scheduler, `config/dynamic/` hot-reload file watchers, and the blocklist sweep scheduler.
    - Performs an initial blocklist sweep across groups where admin rights are confirmed before accepting new updates.
 6. **Start Update Runner**: Starts the serial update polling runner, schedules wed member review, and starts low-priority asynchronous group title hydration.
@@ -223,7 +223,7 @@ The entry point [`index.ts`](../../index.ts) solely delegates to [`ApplicationLi
 
 ## Shutdown Order
 
-Shutdown is managed centrally by `ApplicationLifecycle` (`wait()` and `dispose()`) along sequential barriers defined by `SHUTDOWN_DRAIN_OWNERS` in [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts):
+Shutdown is managed centrally by `ApplicationLifecycle` (`wait()` and `dispose()`) along sequential barriers defined by `SHUTDOWN_DRAIN_OWNERS` in [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) (guarded by the overall shutdown safety net `SHUTDOWN_TOTAL_BUDGET_MS` in `wait()`):
 
 1. **Quiesce (Close Ingress Gates)**:
    - Stops group title hydration, avatar queue, translation, gag, wed interactions and member review, deferred commands, scheduled cron tasks, blocklist sweeps, and configuration hot-reload watchers. Any exception withholds the final update offset acknowledgement.

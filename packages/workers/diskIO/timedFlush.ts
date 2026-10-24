@@ -1,5 +1,5 @@
 /**
- * Owner: Disk I/O Worker。领域定时 flush 的统一 timer 与合并入队边界。
+ * 领域定时 flush 的统一 timer 与合并入队边界（所属线程：Disk I/O Worker）。
  */
 
 import {
@@ -21,7 +21,10 @@ async function runDueTimedDiskIOOperations(): Promise<void> {
   }
 }
 
-/** 登记一项到点的定时操作；合并操作尚未排队时排进统一操作队列。 */
+/**
+ * 登记一项到点的定时操作；合并操作尚未排队时排进统一操作队列。
+ * @param operation 已到点的领域定时 flush 操作。
+ */
 export function queueTimedDiskIOOperation(operation: TimedDiskIOOperation): void {
   dueTimedDiskIOOperations.add(operation);
   if (timedDiskIOOperationState.queued) return;
@@ -29,7 +32,12 @@ export function queueTimedDiskIOOperation(operation: TimedDiskIOOperation): void
   void enqueueDiskIOOperation(runDueTimedDiskIOOperations);
 }
 
-/** 槽位空闲时注册 delayMs 后触发的 unref 定时器，触发后将操作排入定时合并队列。 */
+/**
+ * 槽位空闲时注册 delayMs 后触发的 unref 定时器，触发后将操作排入定时合并队列。
+ * @param slot 持有定时器句柄的槽位状态。
+ * @param delayMs 定时器触发前的延迟毫秒数。
+ * @param operation 定时器触发后入队执行的 flush 操作。
+ */
 export function armDiskIOFlushTimer(
   slot: FlushTimerSlot,
   delayMs: number,
@@ -43,7 +51,10 @@ export function armDiskIOFlushTimer(
   slot.timer.unref();
 }
 
-/** 取消槽位上尚未触发的 timer；直接 flush 前调用，槽位空闲时幂等。 */
+/**
+ * 取消槽位上尚未触发的 timer；直接 flush 前调用，槽位空闲时幂等。
+ * @param slot 持有待取消定时器句柄的槽位状态。
+ */
 export function cancelDiskIOFlushTimer(slot: FlushTimerSlot): void {
   if (slot.timer === null) return;
   clearTimeout(slot.timer);

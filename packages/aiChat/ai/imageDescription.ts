@@ -53,7 +53,11 @@ const MEDIA_BACKOFF_PROMISE: Promise<AiTextResult> = Promise.resolve(MEDIA_BACKO
 /** 跳过解析时复用的空描述 Promise。 */
 const SKIPPED_DESCRIPTION_PROMISE: Promise<string | null> = Promise.resolve(null);
 
-/** 按媒体类型选择视觉描述提示词。 */
+/**
+ * 按媒体类型选择视觉描述提示词。
+ * @param kind 媒体类型。
+ * @returns 对应媒体类型的视觉描述系统提示词。
+ */
 function promptFor(kind: MediaKind): string {
   switch (kind) {
     case "sticker":
@@ -65,7 +69,11 @@ function promptFor(kind: MediaKind): string {
   }
 }
 
-/** 按媒体类型选择视觉描述字符数上限。 */
+/**
+ * 按媒体类型选择视觉描述字符数上限。
+ * @param kind 媒体类型。
+ * @returns 对应媒体类型允许的最大描述字符数。
+ */
 function maxCharsFor(kind: MediaKind): number {
   return kind === "photo" ? IMAGE_DESCRIPTION_MAX_CHARS : SHORT_MEDIA_DESCRIPTION_MAX_CHARS;
 }
@@ -86,6 +94,8 @@ export interface DescribeMediaParams {
 
 /**
  * 下载并解析群聊媒体，复用 transientDescriptionCache 按 fileUniqueId 去重合并；失败时返回 null。
+ * @param params 媒体类型、文件标识与取消信号等入参。
+ * @returns 媒体文本描述；跳过、取消或失败时返回 null。
  */
 export function describeMedia(params: DescribeMediaParams): Promise<string | null> {
   if (params.signal?.aborted === true) return SKIPPED_DESCRIPTION_PROMISE;
@@ -133,6 +143,9 @@ export function describeMedia(params: DescribeMediaParams): Promise<string | nul
 
 /**
  * 为白名单贴纸目录生成单枚贴纸的常驻视觉描述（走后台优先级，不经临时缓存）。
+ * @param fileId 待描述贴纸或其缩略图的 Telegram file_id。
+ * @param signal 可选取消信号。
+ * @returns 模型生成的贴纸视觉描述结果。
  */
 export function describeMediaForStickerCatalog(
   fileId: string,
@@ -150,7 +163,11 @@ export function describeMediaForStickerCatalog(
   );
 }
 
-/** 按媒体类型分派到语音转写或视觉描述。 */
+/**
+ * 按媒体类型分派到语音转写或视觉描述。
+ * @param params 媒体解析入参。
+ * @returns 语音转写或视觉描述的 AI 文本结果。
+ */
 function resolveMedia({
   kind,
   fileId,
@@ -177,6 +194,10 @@ function resolveMedia({
 
 /**
  * 通过 mediaTaskRunner 执行单次媒体请求并将结果交由模态状态机归因。
+ * @param capability 媒体输入模态（视觉或语音）。
+ * @param task 实际发起媒体解析请求的异步任务函数。
+ * @param signal 可选取消信号。
+ * @returns 经过模态状态机记录后的 AI 文本结果。
  */
 function runTrackedMediaAttempt(
   capability: MediaInputCapability,
@@ -196,6 +217,10 @@ function runTrackedMediaAttempt(
 /**
  * 媒体请求准入控制：拦截已关闭或退避中的模态；未知支持度时仅放行单个探测请求，
  * 并发调用在共享等待额度内等待探测结果后再决定放行、共享失败或重入探测。
+ * @param capability 媒体输入模态（视觉或语音）。
+ * @param task 准入通过后执行的媒体解析任务函数。
+ * @param signal 可选取消信号。
+ * @returns 媒体解析结果或准入拦截结果。
  */
 function runMediaInputRequest(
   capability: MediaInputCapability,
@@ -230,13 +255,23 @@ function runMediaInputRequest(
   return probe.promise;
 }
 
+/** describeVisionUncached 的入参。 */
 interface DescribeVisionUncachedParams {
+  /** 视觉媒体类型。 */
   readonly kind: MediaKind;
+  /** Telegram 文件 ID。 */
   readonly fileId: string;
+  /** 模型任务调度优先级；默认 interactive。 */
   readonly priority?: AiProviderTaskPriority;
+  /** 可选取消信号。 */
   readonly signal?: AbortSignal;
 }
 
+/**
+ * 直接下载视觉媒体并调用模型生成单行截断描述（不读写缓存）。
+ * @param params 视觉媒体类型、文件 ID、优先级与取消信号。
+ * @returns 视觉描述 AI 文本结果。
+ */
 async function describeVisionUncached({
   kind,
   fileId,

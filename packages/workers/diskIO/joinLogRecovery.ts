@@ -35,11 +35,17 @@ import {
 
 /** 一份已通过领域 schema 校验的入群日志文件：原始字节与解析结果。 */
 export interface ValidatedJoinLogFile {
+  /** 文件原始 UTF-8 文本内容。 */
   readonly content: string;
+  /** 解析并校验通过的用户 ID 键到入群记录映射。 */
   readonly parsed: Record<string, JoinLogRecord>;
 }
 
-/** 计算入群日志保留的公历日期集合（至少覆盖 `JOIN_LOG_FILE_RETENTION_DAYS` 个日期及前一日零点起向前 `DAY_MS` 的窗口）。 */
+/**
+ * 计算入群日志保留的公历日期集合（至少覆盖 `JOIN_LOG_FILE_RETENTION_DAYS` 个日期及前一日零点起向前 `DAY_MS` 的窗口）。
+ * @param today 当前配置时区的 `YYYY-MM-DD` 日期键。
+ * @returns 保留窗口内的 `YYYY-MM-DD` 日期键只读集合。
+ */
 export function retainedJoinLogDayKeys(today: string): ReadonlySet<string> {
   const current: Temporal.PlainDate = Temporal.PlainDate.from(today);
   const previousStart: number = current.subtract({ days: 1 })
@@ -51,7 +57,11 @@ export function retainedJoinLogDayKeys(today: string): ReadonlySet<string> {
   ));
 }
 
-/** 读取并严格校验一份已存在的入群日志文件。 */
+/**
+ * 读取并严格校验一份已存在的入群日志文件。
+ * @param path 入群日志文件的绝对路径。
+ * @returns 包含原始 UTF-8 文本与已校验记录字典的结果。
+ */
 export async function readValidatedJoinLogFile(
   path: string
 ): Promise<ValidatedJoinLogFile> {
@@ -67,7 +77,11 @@ export async function readValidatedJoinLogFile(
   return { content, parsed: candidate };
 }
 
-/** 按文件名清理保留窗口外的入群日志文件与遗留临时文件。 */
+/**
+ * 按文件名清理保留窗口外的入群日志文件与遗留临时文件。
+ * @param today 当前配置时区的 `YYYY-MM-DD` 日期键。
+ * @param knownNames 已扫描的目录文件名列表；缺省时直接读取目录。
+ */
 export async function cleanupExpiredJoinLogDays(
   today: string,
   knownNames?: readonly string[]
@@ -92,7 +106,10 @@ export async function cleanupExpiredJoinLogDays(
   joinLogCleanupDay.current = today;
 }
 
-/** 删除指定群的全部入群日志文件并清除对应缓存与退避状态；全部删除成功后摘除 `joinLogDeletions` 标记。 */
+/**
+ * 删除指定群的全部入群日志文件并清除对应缓存与退避状态；全部删除成功后摘除 `joinLogDeletions` 标记。
+ * @param chatId 待清理入群日志的群 ID。
+ */
 export function purgeChatJoinLogFiles(chatId: number): void {
   let names: readonly string[];
   try {
@@ -120,19 +137,29 @@ export function purgeChatJoinLogFiles(chatId: number): void {
   if (purged) joinLogDeletions.delete(chatId);
 }
 
-/** 逐群重试 `joinLogDeletions` 中尚未删净的群日志，返回是否已全部删净。 */
+/**
+ * 逐群重试 `joinLogDeletions` 中尚未删净的群日志，返回是否已全部删净。
+ * @returns 待删集合已全部清空时返回 true，仍有残留失败时返回 false。
+ */
 export function purgeJoinLogDeletions(): boolean {
   if (joinLogDeletions.size === 0) return true;
   for (const chatId of [...joinLogDeletions]) purgeChatJoinLogFiles(chatId);
   return joinLogDeletions.size === 0;
 }
 
+/** 入群日志目录启动只读扫描结果。 */
 export interface JoinLogRecoveryInspection {
+  /** 当前配置时区的 `YYYY-MM-DD` 日期键。 */
   readonly today: string;
+  /** 入群日志目录下的全部文件名列表。 */
   readonly names: readonly string[];
 }
 
-/** 启动第一阶段：只读扫描保留窗口，不填充常驻 LRU 或删除文件。 */
+/**
+ * 启动第一阶段：只读扫描保留窗口，不填充常驻 LRU 或删除文件。
+ * @param today 当前配置时区的 `YYYY-MM-DD` 日期键；缺省为当前时刻。
+ * @returns 供维护阶段复用的今日日期键与目录文件名列表。
+ */
 export async function inspectJoinLogFiles(
   today: string = getDateKey()
 ): Promise<JoinLogRecoveryInspection> {
@@ -185,7 +212,10 @@ export async function inspectJoinLogFiles(
   return { today, names };
 }
 
-/** 全域启动成功后清理过期日与临时文件。 */
+/**
+ * 全域启动成功后清理过期日与临时文件。
+ * @param inspection 启动只读扫描阶段产出的目录快照。
+ */
 export async function maintainJoinLogFiles(
   inspection: JoinLogRecoveryInspection
 ): Promise<void> {

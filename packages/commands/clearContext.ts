@@ -22,6 +22,7 @@ import { rejectUnlessPermitted } from "./commandActor";
  *
  * 清理失败只回一句失败回执并记日志，不外抛（同 commands/superAdminToggle.ts 的
  * runChatToggleCommand 对拆除失败的处理）。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleClearContextCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;

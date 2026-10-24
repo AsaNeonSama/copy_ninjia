@@ -17,12 +17,12 @@ This guide walks you through the quickest path to take a clean server environmen
 - **Linux Operating System** (must have a readable `/proc` filesystem): The instance lock depends strictly on `/proc/<pid>/stat` and the system boot ID. Unsupported operating systems will fail closed and refuse to start.
 - **Bun** (version per `package.json` `packageManager`): Required for source installs and local development. Install via:
   ```bash
-  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
+  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4
   ```
   > [!NOTE]
   > Binary release packages bundle a standalone Bun runtime, requiring no pre-installed Bun or Node.js on the host. Node.js is not used anywhere in this project.
 - **Telegram Bot Token**: Message [@BotFather](https://t.me/BotFather) with `/newbot` to create your bot and obtain its API Token.
-- **API Keys for AI Capabilities**: Each capability configured in `config/dynamic/agent.json` (chat, vision, image generation, speech synthesis, web search) independently configures its provider, model, endpoint, and key. Obtain credentials from [Google AI Studio](https://aistudio.google.com/), [OpenAI Platform](https://platform.openai.com/), or compatible endpoints.
+- **API Keys for AI Capabilities**: Each capability configured in `config/dynamic/agent.json` (chat, vision, image generation, speech synthesis, web search, ad detection) independently configures its provider, model, endpoint, and key. Obtain credentials from [Google AI Studio](https://aistudio.google.com/), [OpenAI Platform](https://platform.openai.com/), [Anthropic Console](https://console.anthropic.com/), or compatible endpoints.
 - **(Optional) Google Cloud Service Account JSON**: Required only if you intend to enable the `/translate` command. Place the file at `config/static/g-auth.json` (structure matches [`config_example/static/g-auth.json`](../../config_example/static/g-auth.json)).
   - **Key Specifications**: Must contain `client_email` and an RSA PEM private key for RS256 signing (EC, Ed25519, and RSA-PSS keys are rejected); `type` must be `service_account` if present.
   - **Graceful Degradation**: Missing this file does not prevent the bot from running; `/translate` simply informs users that translation is unconfigured. If the file exists but contains invalid JSON or unsupported keys, the startup check will fail fast.
@@ -91,7 +91,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 > 3. **Toolchain & Bun**: Ensures the pinned Bun version (`packageManager` in `package.json`) is installed in source mode, or uses the bundled binary in binary mode.
 > 4. **Dependencies**: Runs `bun install --frozen-lockfile` in source mode (skipped in binary mode).
 > 5. **Configuration Directory Layout**: Rejects misplaced files or legacy global state/database files, then copies only missing configuration templates (`agent.json`, `g-auth.json`, and `cron.json` are left for interactive/manual setup; existing files are never overwritten).
-> 6. **Interactive Configuration Wizard**: Prompts for required `config/static/bot.json` fields and, when `config/dynamic/agent.json` is absent, walks through each AI capability (including custom `base_url` endpoints and optional gateway `headers` for `google` and `anthropic`). Modifying existing configs takes an external backup first and atomically replaces files only after strict validation passes.
+> 6. **Interactive Configuration Wizard**: Prompts for required `config/static/bot.json` fields and, when `config/dynamic/agent.json` is absent, walks through each AI capability (including custom `base_url` endpoints). Modifying existing configs takes an external backup first and atomically replaces files only after strict validation passes.
 > 7. **Database Initialization**: Verifies `database/storage.sqlite` in read-only mode against `bot.json`'s `time_zone` if it already exists, or initializes a fresh schema and writes the time-zone marker.
 > 8. **Service Registration & Health Check**: Configures and starts `copy-ninjia.service` under systemd (or runs in the foreground when systemd is unavailable), verifies `active/running` status without restart loops or abnormal exits, and cleans up the temporary backup.
 
@@ -206,7 +206,6 @@ config/
        - `api_key`: API key string (placeholders trigger startup failure).
        - `model`: Provider model identifier.
        - `base_url`: Custom HTTPS proxy or API gateway endpoint.
-       - `headers`: Custom HTTP headers (allowed for `google` and `anthropic` providers, up to `AGENT_HEADERS_MAX_ENTRIES` entries, e.g. for Cloudflare AI Gateway authentication).
        - `fallback_model`: Fallback model, allowed only for the `anthropic` provider (must differ from `model`). When `model` refuses, the same request is resent with it; if the fallback model also refuses, or none is configured, the request fails without retrying.
 
 ---

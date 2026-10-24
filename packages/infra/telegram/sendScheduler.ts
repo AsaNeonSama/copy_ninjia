@@ -29,21 +29,12 @@ import {
   TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX,
   TELEGRAM_MESSAGE_GROUP_PENDING_MAX,
   TELEGRAM_MESSAGE_PRIVATE_PENDING_MAX,
-  TELEGRAM_SEND_CHAT_BURST,
-  TELEGRAM_SEND_CHAT_CAUTIOUS_MS,
-  TELEGRAM_SEND_CHAT_REFILL_MS,
-  TELEGRAM_SEND_GLOBAL_LIMIT,
-  TELEGRAM_SEND_GLOBAL_WINDOW_MS,
-  TELEGRAM_SEND_GROUP_LIMIT,
   TELEGRAM_SEND_GROUP_WINDOW_MS,
   TELEGRAM_TIMER_MAX_DELAY_MS,
 } from "../../consts/telegram";
 import { toErrorOr } from "../../libs/errorMessage";
-import { TimestampDeque } from "../../libs/timestampDeque";
 import type {
   TelegramOutboundJob,
-  TelegramRetryLane,
-  TelegramSendChatKey,
   TelegramSendLane,
 } from "../../types/telegramOutbound";
 import {
@@ -53,140 +44,31 @@ import {
   settleDrainWaitersIfIdle,
 } from "./outboundSettle";
 import { telegramRetryAfterMilliseconds } from "./outboundRetryPolicy";
+import {
+  appendQueued,
+  chatReadyAt,
+  clearLaneTimer,
+  consumeQuota,
+  countActive,
+  countRetryPending,
+  freezeLane,
+  globalReadyAt,
+  isLaneLive,
+  laneForKey,
+  prependRetryQueued,
+  removeQueued,
+  sendChatKeyOf,
+  sendCostOf,
+  settleSendJob,
+  TelegramSendQueueFullError,
+} from "./sendLane";
 
-/** 发送排队已满：单个聊天或全部聊天合计的排队上限，新请求当即拒绝。 */
-export class TelegramSendQueueFullError extends Error {
-  constructor(scope: "chat" | "global") {
-    super(
-      scope === "chat"
-        ? "Telegram send queue for this chat is full."
-        : `Telegram send queue reached its ${TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX} request limit.`
-    );
-    this.name = "TelegramSendQueueFullError";
-  }
-}
+export { TelegramSendQueueFullError } from "./sendLane";
 
-function messageLane(): TelegramRetryLane {
-  return telegramOutboundGateState.lanes.message;
-}
-
-/** payload.chat_id 的聊天键：数字原样，`@username` 小写，数字字符串转成数字。 */
-function sendChatKeyOf(chatId: unknown): TelegramSendChatKey {
-  if (typeof chatId === "number") return chatId;
-  if (typeof chatId !== "string") return "";
-  const trimmed: string = chatId.trim();
-  if (trimmed.startsWith("@")) return trimmed.toLowerCase();
-  const numeric: number = Number(trimmed);
-  return trimmed.length > 0 && Number.isSafeInteger(numeric) ? numeric : trimmed;
-}
-
-/** 一次发送扣的额度条数：相册按张数、批量复制/转发按条数，其余按单条计。 */
-function sendCostOf(method: keyof RawApi, payload: unknown): number {
-  let units: unknown;
-  if (method === "sendMediaGroup") units = (payload as { media?: unknown }).media;
-  else if (method === "copyMessages" || method === "forwardMessages") {
-    units = (payload as { message_ids?: unknown }).message_ids;
-  } else return 1;
-  return Array.isArray(units) && units.length > 0 ? units.length : 1;
-}
-
-function laneForKey(key: TelegramSendChatKey, now: number): TelegramSendLane {
-  const existing: TelegramSendLane | undefined = sendChatLanes.get(key);
-  if (existing !== undefined) return existing;
-  const groupClass: boolean = typeof key === "string" || key < 0;
-  const lane: TelegramSendLane = {
-    key,
-    groupClass,
-    head: null,
-    tail: null,
-    queued: 0,
-    inFlight: null,
-    tokens: TELEGRAM_SEND_CHAT_BURST,
-    tokensAt: now,
-    minuteWindow: groupClass ? new TimestampDeque(TELEGRAM_SEND_GROUP_LIMIT) : null,
-    frozenUntil: 0,
-    cautiousUntil: 0,
-    lastSendAt: 0,
-    timer: null,
-    inGlobalRing: false,
-  };
-  sendChatLanes.set(key, lane);
-  return lane;
-}
-
-function isLaneLive(lane: TelegramSendLane): boolean {
-  return sendChatLanes.get(lane.key) === lane;
-}
-
-function appendQueued(lane: TelegramSendLane, job: TelegramOutboundJob): void {
-  job.previous = lane.tail;
-  job.next = null;
-  if (lane.tail === null) lane.head = job;
-  else lane.tail.next = job;
-  lane.tail = job;
-  job.state = "sendQueued";
-  lane.queued++;
-  sendSchedulerState.queuedTotal++;
-}
-
-/** 已接纳任务计入在途；退避等待中的任务改计退避等待。 */
-function countActive(delta: number): void {
-  telegramOutboundGateState.activeCount += delta;
-  messageLane().activeCount += delta;
-}
-
-function countRetryPending(delta: number): void {
-  telegramOutboundGateState.retryPendingCount += delta;
-  messageLane().pendingCount += delta;
-}
-
-/** 限流退避后放回队首并改计退避等待；不受排队上限约束（任务早已接纳）。 */
-function prependRetryQueued(lane: TelegramSendLane, job: TelegramOutboundJob): void {
-  job.previous = null;
-  job.next = lane.head;
-  if (lane.head === null) lane.tail = job;
-  else lane.head.previous = job;
-  lane.head = job;
-  job.state = "sendQueued";
-  lane.queued++;
-  sendSchedulerState.queuedTotal++;
-  job.fromRetryQueue = true;
-  countActive(-1);
-  countRetryPending(1);
-}
-
-function removeQueued(lane: TelegramSendLane, job: TelegramOutboundJob): void {
-  const previous: TelegramOutboundJob | null = job.previous;
-  const next: TelegramOutboundJob | null = job.next;
-  if (previous === null) lane.head = next;
-  else previous.next = next;
-  if (next === null) lane.tail = previous;
-  else next.previous = previous;
-  job.previous = null;
-  job.next = null;
-  lane.queued--;
-  sendSchedulerState.queuedTotal--;
-}
-
-/** 已接纳任务的结算记账（按它此刻计在哪一边扣减）；调用方随后 resolve 或 reject。 */
-function settleSendJob(job: TelegramOutboundJob): void {
-  if (job.fromRetryQueue) {
-    job.fromRetryQueue = false;
-    countRetryPending(-1);
-  } else {
-    countActive(-1);
-  }
-  telegramOutboundGateState.activeJobs.delete(job);
-  job.state = "settled";
-  detachAbortListener(job);
-}
-
-function clearLaneTimer(lane: TelegramSendLane): void {
-  if (lane.timer === null) return;
-  clearTimeout(lane.timer);
-  lane.timer = null;
-}
-
+/**
+ * 单聊天车道定时器到期回调：清空定时器槽位，并在车道仍存活时尝试推进发送。
+ * @param lane 定时器到期后若仍存活则推进发送的车道。
+ */
 function onLaneTimer(lane: TelegramSendLane): void {
   lane.timer = null;
   if (isLaneLive(lane)) pumpSendLane(lane, false);
@@ -195,6 +77,9 @@ function onLaneTimer(lane: TelegramSendLane): void {
 /**
  * 本车道唯一定时器改到 at；每次被挡下最多重挂一次。超过 TELEGRAM_TIMER_MAX_DELAY_MS 的等待
  * 分段：定时器提前到点后 pumpSendLane / retireIdleLane 按冻结与窗口复查并续挂。
+ * @param lane 目标发送车道。
+ * @param at 目标唤醒的单调时钟时刻（毫秒）。
+ * @param now 当前单调时钟毫秒数。
  */
 function armLaneTimer(lane: TelegramSendLane, at: number, now: number): void {
   clearLaneTimer(lane);
@@ -209,6 +94,8 @@ function armLaneTimer(lane: TelegramSendLane, at: number, now: number): void {
 /**
  * 空闲车道：分钟窗口、保守档与冻结都已结束时删除，否则挂一个到期复查的定时器。已有定时器
  * 时不重挂，它到点后复查并按新的到期时刻续挂。
+ * @param lane 待检查退役的空闲车道。
+ * @param now 当前单调时钟毫秒数。
  */
 function retireIdleLane(lane: TelegramSendLane, now: number): void {
   const expiresAt: number = Math.max(
@@ -224,57 +111,10 @@ function retireIdleLane(lane: TelegramSendLane, now: number): void {
   sendChatLanes.delete(lane.key);
 }
 
-/** 当前突发容量：保守档内降为单条。 */
-function chatBurst(lane: TelegramSendLane, now: number): number {
-  return now < lane.cautiousUntil ? 1 : TELEGRAM_SEND_CHAT_BURST;
-}
-
-/** 单聊天两层额度（令牌桶与群类分钟窗口）都满足的最早时刻；已满足时返回 now。 */
-function chatReadyAt(lane: TelegramSendLane, cost: number, now: number): number {
-  const burst: number = chatBurst(lane, now);
-  if (lane.tokens < burst) {
-    lane.tokens = Math.min(burst, lane.tokens + (now - lane.tokensAt) / TELEGRAM_SEND_CHAT_REFILL_MS);
-  } else if (lane.tokens > burst) {
-    lane.tokens = burst;
-  }
-  lane.tokensAt = now;
-  // 超过桶容量的单次请求等桶满即放行。
-  const needed: number = Math.min(cost, burst);
-  let readyAt: number = lane.tokens < needed
-    ? now + (needed - lane.tokens) * TELEGRAM_SEND_CHAT_REFILL_MS
-    : now;
-  const window: TimestampDeque | null = lane.minuteWindow;
-  if (window !== null) {
-    window.trim(TELEGRAM_SEND_GROUP_WINDOW_MS, now);
-    const excess: number = window.size + Math.min(cost, TELEGRAM_SEND_GROUP_LIMIT) - TELEGRAM_SEND_GROUP_LIMIT;
-    if (excess > 0) {
-      readyAt = Math.max(readyAt, (window.peekAt(excess - 1) ?? now) + TELEGRAM_SEND_GROUP_WINDOW_MS);
-    }
-  }
-  return readyAt;
-}
-
-/** 全局秒窗口容得下 cost 条的最早时刻；已满足时返回 now。 */
-function globalReadyAt(cost: number, now: number): number {
-  sendGlobalWindow.trim(TELEGRAM_SEND_GLOBAL_WINDOW_MS, now);
-  const excess: number = sendGlobalWindow.size + Math.min(cost, TELEGRAM_SEND_GLOBAL_LIMIT) - TELEGRAM_SEND_GLOBAL_LIMIT;
-  return excess > 0
-    ? (sendGlobalWindow.peekAt(excess - 1) ?? now) + TELEGRAM_SEND_GLOBAL_WINDOW_MS
-    : now;
-}
-
-function pushUnits(window: TimestampDeque, units: number, now: number): void {
-  for (let index: number = 0; index < units; index++) window.push(now);
-}
-
-/** 发出前扣三层额度；令牌可扣成负数，窗口按容量封顶记账。 */
-function consumeQuota(lane: TelegramSendLane, cost: number, now: number): void {
-  lane.tokens -= cost;
-  if (lane.minuteWindow !== null) pushUnits(lane.minuteWindow, Math.min(cost, TELEGRAM_SEND_GROUP_LIMIT), now);
-  pushUnits(sendGlobalWindow, Math.min(cost, TELEGRAM_SEND_GLOBAL_LIMIT), now);
-  lane.lastSendAt = now;
-}
-
+/**
+ * 按全局轮转队列队首任务的额度缺口挂起全局唤醒定时器（已有定时器时跳过）。
+ * @param now 当前单调时钟毫秒数。
+ */
 function armGlobalTimer(now: number): void {
   if (sendSchedulerState.globalTimer !== null) return;
   const lane: TelegramSendLane | undefined = sendGlobalRing.peek();
@@ -286,6 +126,11 @@ function armGlobalTimer(now: number): void {
   sendSchedulerState.globalTimer.unref();
 }
 
+/**
+ * 将仅等待全局额度的发送车道加入全局轮转队列并确保全局定时器已挂起。
+ * @param lane 仅等待全局额度、待加入全局轮转队列的发送车道。
+ * @param now 当前单调时钟毫秒数。
+ */
 function joinGlobalRing(lane: TelegramSendLane, now: number): void {
   clearLaneTimer(lane);
   if (!lane.inGlobalRing) {
@@ -295,7 +140,10 @@ function joinGlobalRing(lane: TelegramSendLane, now: number): void {
   armGlobalTimer(now);
 }
 
-/** 车道因排队任务全部取消而腾空时退出全局轮转环，并同步清理或重挂全局定时器。 */
+/**
+ * 车道因排队任务全部取消而腾空时退出全局轮转环，并同步清理或重挂全局定时器。
+ * @param lane 待移出全局轮转队列的发送车道。
+ */
 function leaveGlobalRing(lane: TelegramSendLane): void {
   if (!lane.inGlobalRing) return;
   const wasHead: boolean = sendGlobalRing.peek() === lane;
@@ -334,23 +182,30 @@ function onGlobalTimer(): void {
   }
 }
 
-/** 网络结算后释放车道的在途位；调用方取消过的任务也要等到这一刻。 */
+/**
+ * 网络结算后释放车道的在途位；调用方取消过的任务也要等到这一刻。
+ * @param lane 目标发送车道。
+ * @param job 已完成网络结算的任务。
+ */
 function releaseInFlight(lane: TelegramSendLane, job: TelegramOutboundJob): void {
   if (lane.inFlight === job) lane.inFlight = null;
 }
 
+/**
+ * 单次在途发送结算后的统一收尾：若车道仍存活则继续推进本车道，并检查全局排空等待者。
+ * @param lane 单次在途发送结算后待推进并检查排空的发送车道。
+ */
 function afterSendSettled(lane: TelegramSendLane): void {
   if (isLaneLive(lane)) pumpSendLane(lane, false);
   settleDrainWaitersIfIdle();
 }
 
-/** 收到限流响应：只冻结这个聊天，冻结结束后进入保守档；保守档内再命中限流则顺延。 */
-function freezeLane(lane: TelegramSendLane, retryAfterMs: number): void {
-  const frozenUntil: number = performance.now() + retryAfterMs;
-  if (frozenUntil > lane.frozenUntil) lane.frozenUntil = frozenUntil;
-  lane.cautiousUntil = lane.frozenUntil + TELEGRAM_SEND_CHAT_CAUTIOUS_MS;
-}
-
+/**
+ * 处理发送任务的响应：非限流则结算兑现，命中 429 则冻结本聊天并放回队首重发。
+ * @param lane 任务所属的发送车道。
+ * @param job 收到响应的发送任务。
+ * @param response 下游调用返回的响应对象。
+ */
 function handleSendResponse(lane: TelegramSendLane, job: TelegramOutboundJob, response: unknown): void {
   releaseInFlight(lane, job);
   const retryAfterMs: number | undefined = telegramRetryAfterMilliseconds(response);
@@ -368,6 +223,12 @@ function handleSendResponse(lane: TelegramSendLane, job: TelegramOutboundJob, re
   afterSendSettled(lane);
 }
 
+/**
+ * 处理发送任务抛出的异常：释放车道在途位、对仍处于 `active` 状态的任务结算拒绝，并推进后续调度。
+ * @param lane 任务所属的发送车道。
+ * @param job 发生异常、需释放车道在途位并结算的发送任务。
+ * @param error 捕获到的异常值。
+ */
 function handleSendFailure(lane: TelegramSendLane, job: TelegramOutboundJob, error: unknown): void {
   releaseInFlight(lane, job);
   if (job.state === "active") {
@@ -377,6 +238,11 @@ function handleSendFailure(lane: TelegramSendLane, job: TelegramOutboundJob, err
   afterSendSettled(lane);
 }
 
+/**
+ * 占用车道在途位并将任务置为 `active`，发起底层出站调用并挂载成功/失败结算回调。
+ * @param lane 任务所属的发送车道。
+ * @param job 占用车道在途位并发起实际调用的发送任务。
+ */
 function startSendJob(lane: TelegramSendLane, job: TelegramOutboundJob): void {
   lane.inFlight = job;
   job.state = "active";
@@ -396,6 +262,8 @@ function startSendJob(lane: TelegramSendLane, job: TelegramOutboundJob): void {
 /**
  * 推进一条车道：队首额度齐备就扣额度并发出，否则按最先解除的约束挂车道定时器或进全局轮转。
  * fromRing 为 true 时由全局轮转调用，不再让位给其它排队车道。
+ * @param lane 待推进的发送车道。
+ * @param fromRing 是否由全局轮转唤醒调用。
  */
 function pumpSendLane(lane: TelegramSendLane, fromRing: boolean): void {
   if (telegramOutboundGateState.aborting || lane.inFlight !== null || lane.inGlobalRing) return;
@@ -433,6 +301,9 @@ function pumpSendLane(lane: TelegramSendLane, fromRing: boolean): void {
  * 接纳一条发送类请求：按 payload.chat_id 归入聊天车道并计入出站计数，额度齐备时同步发出。
  * 单聊天或全局排队已满时以 TelegramSendQueueFullError 拒绝，不计数。调用方在构造任务的同一
  * 同步片段里已判过接纳状态与信号。
+ * @param job 待接纳的发送任务。
+ * @param method Bot API 方法名。
+ * @param payload 请求载荷。
  */
 export function admitSendJob(job: TelegramOutboundJob, method: keyof RawApi, payload: unknown): void {
   const lane: TelegramSendLane = laneForKey(
@@ -458,6 +329,7 @@ export function admitSendJob(job: TelegramOutboundJob, method: keyof RawApi, pay
 /**
  * 取消一条已接纳的发送任务（sendQueued 或 active）：排队中按双向指针直接出队、不扣额度；在途的立即
  * 结算给调用方，车道在途位保留到网络结算。全局取消进行中不推进车道。
+ * @param job 待取消的发送任务。
  */
 export function abortSendJob(job: TelegramOutboundJob): void {
   const lane: TelegramSendLane | null = job.sendLane;

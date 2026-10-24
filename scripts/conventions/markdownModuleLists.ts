@@ -21,7 +21,13 @@ const DIRECTORY_LIST_PATTERN: RegExp = /`([A-Za-z][A-Za-z0-9_.-]*)\/`\s*[（(]/g
 /** 括号内的候选条目；占位符与非 .ts 名字不会命中。 */
 const MEMBER_PATTERN: RegExp = /`([A-Za-z][A-Za-z0-9_.-]*\.ts)`/g;
 
-/** 从左括号起截到配对的右括号；不配对时返回 undefined，整段跳过。 */
+/**
+ * 从左括号起截到配对的右括号；不配对时返回 undefined，整段跳过。
+ *
+ * @param source Markdown 文本
+ * @param openIndex 左括号字符在 `source` 中的索引
+ * @returns 括号内部的文本片段，未配对时返回 undefined
+ */
 function balancedSegment(source: string, openIndex: number): string | undefined {
   const open: string | undefined = source[openIndex];
   if (open === undefined) return undefined;
@@ -38,7 +44,13 @@ function balancedSegment(source: string, openIndex: number): string | undefined 
   return undefined;
 }
 
-/** 仓库里以 `/<name>` 结尾的目录；恰好一处时才参与核对。 */
+/**
+ * 仓库里以 `/<name>` 结尾的目录；恰好一处时才参与核对。
+ *
+ * @param name 单段目录名
+ * @param directories 候选源码目录绝对路径列表
+ * @returns 唯一命中的目录绝对路径，零处或多处命中时返回 undefined
+ */
 function resolveDirectory(
   name: string,
   directories: readonly string[]
@@ -55,6 +67,9 @@ function resolveDirectory(
  *
  * 只遍历调用方传入的源码根（packages/、scripts/、test/），不扫仓库根下的部署方数据目录
  * `database/`、`logs/`、`memory/`。
+ *
+ * @param roots 待递归扫描的源码根目录绝对路径列表
+ * @returns 收集到的全部子目录绝对路径列表
  */
 export function collectSourceDirectories(
   roots: readonly string[]
@@ -72,7 +87,14 @@ export function collectSourceDirectories(
   return directories;
 }
 
-/** 核对一份 Markdown 里全部目录清单点名的文件是否仍然存在。 */
+/**
+ * 核对一份 Markdown 里全部目录清单点名的文件是否仍然存在。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param path 被检查 Markdown 文件的绝对路径
+ * @param directories 仓库源码目录绝对路径列表
+ * @returns 目录清单中缺失文件的违规信息列表
+ */
 export async function collectMarkdownModuleListProblems(
   projectRoot: string,
   path: string,

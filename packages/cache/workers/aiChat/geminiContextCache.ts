@@ -21,7 +21,11 @@ export const textGeminiContextCache: { current: GeminiContextCacheRegistry | nul
  */
 export const geminiReplyLastRequestAt: Map<number, number> = new Map();
 
-/** 清理距今已超过 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 的群回复请求时间记录。 */
+/**
+ * 清理距今已超过 GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS 的群回复请求时间记录。
+ *
+ * @param now 当前单调时钟毫秒数（`performance.now()`）
+ */
 export function sweepGeminiReplyRequestTimes(now: number): void {
   for (const [chatId, at] of geminiReplyLastRequestAt) {
     if (now - at > GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS) geminiReplyLastRequestAt.delete(chatId);

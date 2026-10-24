@@ -52,6 +52,9 @@ import type {
 
 /**
  * 核查发送者是否为本群管理员（频道身份直接返回 false，真人成员经 `isChatAdmin` 查询）。
+ *
+ * @param bundle 待检消息束。
+ * @returns 确认为管理员返回 `true`，非管理员返回 `false`，无法确认时返回 `undefined`。
  */
 async function isAdminSender(bundle: AdMessageBundle): Promise<boolean | undefined> {
   if (bundle.isChannel) return false;
@@ -66,6 +69,10 @@ type AdDetectionOutcome =
 
 /**
  * 对选中条目执行分类与引用归因，返回 `AdDetectionOutcome`。
+ *
+ * @param bundle 待检消息束。
+ * @param judged 本次送检入选的条目快照。
+ * @returns 广告分类与引用归因结果。
  */
 async function classifyAdBundle(
   bundle: AdMessageBundle,
@@ -121,6 +128,9 @@ async function classifyAdBundle(
 
 /**
  * 读取本次推进水位的最后一条消息在入队时冻结的警告窗口状态。
+ *
+ * @param selection 本次送检入选条目与水位快照。
+ * @returns 最后一条入选消息处于已公开警告窗口内时返回 `true`。
  */
 function selectedWithinReferencedWarning(selection: AdBundleSelection): boolean {
   return selection.entries.at(-1)?.withinReferencedWarning === true;
@@ -128,6 +138,9 @@ function selectedWithinReferencedWarning(selection: AdBundleSelection): boolean 
 
 /**
  * 保留 `messageId` 晚于公开警告的消息并更新其引用去重与警告窗口标记（`AD_REFERENCE_WARNING_WINDOW_MS`）。
+ *
+ * @param bundle 待检消息束。
+ * @param warning 公开警告消息的发送结果。
  */
 function retainPostWarningContent(
   bundle: AdMessageBundle,
@@ -167,6 +180,9 @@ function retainPostWarningContent(
 
 /**
  * 对单个队列键执行广告分类并根据归因结果推进水位、发送引用警告或执行封禁处置。
+ *
+ * @param key `chatId:userId` 格式的队列键。
+ * @param bundle 待检消息束。
  */
 export async function detectOne(
   key: string,
@@ -229,6 +245,10 @@ export async function detectOne(
 
 /**
  * 处理首次引用类广告命中：在 `inFlightAdDetectKeys` 保护下发送公开警告、删除警告前消息并保留警告后新消息重排。
+ *
+ * @param key `chatId:userId` 格式的队列键。
+ * @param bundle 待检消息束。
+ * @param judged 本次送检入选的条目快照。
  */
 async function warnReferencedOnlySender(
   key: string,

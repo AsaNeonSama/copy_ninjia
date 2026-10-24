@@ -19,14 +19,22 @@ import type {
   AiWebSearchSource,
 } from "../../types/aiChat/provider";
 
-/** 按出现顺序追加一段 output_text 中 `url_citation` 注解的来源。 */
+/**
+ * 按出现顺序追加一段 output_text 中 `url_citation` 注解的来源。
+ * @param content 单段 `output_text` 内容块。
+ * @param sources 待追加来源的目标数组。
+ */
 function appendUrlCitations(content: OpenAI.Responses.ResponseOutputText, sources: AiWebSearchSource[]): void {
   for (const annotation of content.annotations) {
     if (annotation.type === "url_citation") sources.push({ title: annotation.title, url: annotation.url });
   }
 }
 
-/** 按出现顺序提取响应正文 `url_citation` 注解中的来源。 */
+/**
+ * 按出现顺序提取响应正文 `url_citation` 注解中的来源。
+ * @param response OpenAI Responses 响应对象。
+ * @returns 汇总的联网检索引用来源只读数组。
+ */
 function citedSources(response: OpenAI.Responses.Response): readonly AiWebSearchSource[] {
   const sources: AiWebSearchSource[] = [];
   for (const item of responseOutputItems(response)) {
@@ -38,7 +46,12 @@ function citedSources(response: OpenAI.Responses.Response): readonly AiWebSearch
   return sources;
 }
 
-/** 按指定能力执行一次 OpenAI 联网检索。 */
+/**
+ * 按指定能力执行一次 OpenAI 联网检索。
+ * @param capability 执行联网检索的能力槽位（`"web_search"` 或 `"text"`）。
+ * @param request 联网检索请求参数。
+ * @returns 联网检索结果：成功时包含汇总正文、引用来源与检索次数；请求或响应异常时返回 `{ ok: false, searchCalls }`。
+ */
 export async function searchOpenAiWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest

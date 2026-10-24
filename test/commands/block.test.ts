@@ -341,7 +341,10 @@ describe("/block 跨群封禁与黑名单", () => {
 
     expect(banChatMember.mock.calls.map((call) => call[0])).toEqual([-2002]);
     const text: string = (sendMessage.mock.calls.at(-1)?.[0] as { text: string }).text;
-    expect(text).toContain("这个群本天才踢不动 TA（本天才一时没查清自己在这个群的权限");
+    expect(text).toBe(blockResultText({
+      bannedCount: 1,
+      hereGap: describeBotPermissionGap(undefined, "canRestrictMembers", NOTICES),
+    }));
     expect(text).not.toContain("不是管理员");
   });
 

@@ -55,7 +55,12 @@ function notifyDiskIOGiveUp(): void {
   settleDiskDiagnosticDrainWaiters("failed");
 }
 
-/** 终止已失效的实例；同步抛错只记诊断，不改变调用方已经收口的结论。 */
+/**
+ * 终止已失效的实例；同步抛错只记诊断，不改变调用方已经收口的结论。
+ *
+ * @param worker 待终止的已失效 Disk I/O Worker 实例。
+ * @param failure 终止调用抛出异常时写入诊断 sink 的前缀描述。
+ */
 function terminateUnusableWorker(worker: Worker, failure: string): void {
   try {
     worker.terminate();
@@ -66,6 +71,9 @@ function terminateUnusableWorker(worker: Worker, failure: string): void {
 
 /**
  * 恢复失败的统一收口：让存储保持不可写、结算所有等待方并终止该实例。
+ *
+ * @param worker 恢复失败的 Disk I/O Worker 实例。
+ * @param reason 恢复失败的原因说明。
  * @param fatal 是否升级为需要进程重启的致命失败（运行时恢复路径为 true）；
  *   为 true 时先经 notifyDiskIOGiveUp 结算放弃自愈的等待方，再发出致命信号。
  */
@@ -89,10 +97,22 @@ export function stopWorkerAfterLoadFailure(worker: Worker, reason: string, fatal
   signalDiskIOFatal(new Error(`[diskIO] runtime persistence recovery failed: ${reason}`));
 }
 
+/**
+ * 判断 `loaded` 回执是否表示存储加载成功且已返回运势回执密钥。
+ *
+ * @param reply Disk I/O Worker 返回的 `loaded` 回执载荷。
+ * @returns 无错误且包含非空运势密钥时返回 `true`，否则返回 `false`。
+ */
 export function isSuccessfulLoad(reply: LoadedReply): boolean {
   return reply.error === undefined && reply.luckReceiptSecret !== null;
 }
 
+/**
+ * 判断给定 Worker 是否仍为当前处于运行时恢复握手阶段且尚未进入可写状态的实例。
+ *
+ * @param worker 待检查的 Disk I/O Worker 实例。
+ * @returns 仍为当前恢复代际且尚未可写时返回 `true`，否则返回 `false`。
+ */
 function isCurrentRecoveryWorker(worker: Worker): boolean {
   return diskIORuntime.worker === worker &&
     diskIORuntime.runtimeRecoveryWorker === worker &&
@@ -105,6 +125,13 @@ interface RecoveryTransportScope {
   failed(): boolean;
 }
 
+/**
+ * 为单个领域的镜像重放创建受代际与生命周期约束的恢复传输作用域。
+ *
+ * @param worker 当前正在执行运行时恢复的 Disk I/O Worker 实例。
+ * @param revisions 记录重放已覆盖 revision 的去重跟踪器。
+ * @returns 含受限恢复 transport、失效开关与失败状态查询的作用域对象。
+ */
 function createRecoveryTransportScope(worker: Worker, revisions: DiskIORecoveryRevisions): RecoveryTransportScope {
   let active: boolean = true;
   let transportFailed: boolean = false;
@@ -160,7 +187,11 @@ function createRecoveryTransportScope(worker: Worker, revisions: DiskIORecoveryR
  * - storageFlushHold：镜像重放区间，区间内 Worker 暂缓共享 SQLite 的满批与定时提交，关标记后
  *   复核聚合约束并按批次阈值一次提交，复核失败回报 recoveryReplayFailed（见
  *   types/diskIO/messages.ts 的 StorageFlushHoldRequest）。
+ *
+ * @param worker 当前正在执行恢复的 Disk I/O Worker 实例。
+ * @param request 待投递的恢复区间开合控制请求。
  * @param noun 日志里的标记名（如 `recovery replay mark`）。
+ * @returns 标记成功投递时返回 `true`；被拒收并已触发恢复失败收口时返回 `false`。
  */
 function postRecoveryMarker(
   worker: Worker,
@@ -176,6 +207,12 @@ function postRecoveryMarker(
   return false;
 }
 
+/**
+ * 在 `loaded` 握手成功后激活 Disk I/O Worker：可选按序重放各领域主线程镜像、排空挂起的业务缓冲，最终开放可写状态与诊断通道。
+ *
+ * @param worker 已完成 `loaded` 握手的 Disk I/O Worker 实例。
+ * @param replayMirrors 运行时重建恢复时为 `true`（先重放主线程镜像），冷启动首次加载时为 `false`。
+ */
 export async function activateDiskIOWorker(worker: Worker, replayMirrors: boolean): Promise<void> {
   if (diskIORuntime.worker !== worker) return;
   // 镜像重放走运行期恢复的 owner 判定，首次加载只认当前 Worker。
@@ -242,6 +279,11 @@ export async function activateDiskIOWorker(worker: Worker, replayMirrors: boolea
   resumeDiskIODiagnosticChannel(worker);
 }
 
+/**
+ * 为新建的替补 Disk I/O Worker 启动运行时恢复超时定时器并发起 `load` 握手请求。
+ *
+ * @param worker 新创建的替补 Disk I/O Worker 实例。
+ */
 function beginRuntimeRecovery(worker: Worker): void {
   clearRuntimeRecoveryTimer();
   diskIORuntime.runtimeRecoveryWorker = worker;
@@ -264,17 +306,25 @@ function beginRuntimeRecovery(worker: Worker): void {
   }
 }
 
+/** `recoverDiskIOWorker` 的参数选项。 */
 interface RecoverDiskIOWorkerOptions {
+  /** 创建替补 Disk I/O Worker 实例的工厂函数。 */
   readonly createWorker: () => Worker;
+  /** 已失效的当前 Disk I/O Worker 实例。 */
   worker: Worker;
+  /** 触发恢复的故障或回收原因描述。 */
   reason: string;
+  /** 为 `true` 时显式调用 `worker.terminate()` 终止旧实例。 */
   terminateWorker: boolean;
+  /** 触发本次恢复的根因分类（未捕获崩溃或诊断写盘连续失败）。 */
   cause: "crash" | "diagnostic";
 }
 
 /**
  * 当前 DiskIO 代际失效后的唯一恢复入口。未捕获异常与诊断连续写盘失败共用同一套
  * 等待者结算、重启节流、load 握手和镜像重放。
+ *
+ * @param options 失效代际恢复与重建选项。
  */
 export function recoverDiskIOWorker({
   createWorker,
@@ -345,6 +395,9 @@ export function recoverDiskIOWorker({
 /**
  * 诊断故障触发受控重建前只刷业务领域（scope 为 business），不等待诊断批次；
  * 失败的日志批次仍由主线程 ACK 队列持有。
+ *
+ * @param worker 待回收的当前 Disk I/O Worker 实例。
+ * @returns 业务领域的 flush 结果。
  */
 async function flushBusinessBeforeDiagnosticRecycle(
   worker: Worker
@@ -352,7 +405,13 @@ async function flushBusinessBeforeDiagnosticRecycle(
   return (await beginDiskIOFlush(worker, "business", DISK_IO_FLUSH_TIMEOUT_MS)).result;
 }
 
-/** 日志连续失败达到阈值后先封住业务入口并确保非日志事实 durable，再替换 Worker。 */
+/**
+ * 日志连续失败达到阈值后先封住业务入口并确保非日志事实 durable，再替换 Worker。
+ *
+ * @param worker 发生诊断连续写盘失败的 Disk I/O Worker 实例。
+ * @param failureCount 已累计的连续诊断写盘失败次数。
+ * @param createWorker 创建替补 Disk I/O Worker 实例的工厂函数。
+ */
 export function beginDiagnosticWorkerRecycle(
   worker: Worker,
   failureCount: number,

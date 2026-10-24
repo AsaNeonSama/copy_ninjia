@@ -16,10 +16,15 @@ import type { PendingTemporaryAdBypassWrite } from
   "../../types/temporaryAdBypass";
 
 export interface CommitStorageDatabaseChangesOptions {
+  /** 白名单按身份主键的待提交增删改映射。 */
   readonly whitelist: ReadonlyMap<number, StorageDatabaseChange>;
+  /** 黑名单按身份主键的待提交增删改映射。 */
   readonly blocklist: ReadonlyMap<number, StorageDatabaseChange>;
+  /** 临时广告免检表按身份主键的待提交增删改映射。 */
   readonly temporaryAdBypass: ReadonlyMap<number, PendingTemporaryAdBypassWrite>;
+  /** 待踢任务按 `removalId` 的待提交增删改映射。 */
   readonly removals: ReadonlyMap<number, StorageDatabaseChange>;
+  /** 群状态按 `chatId` 的待提交增删改映射。 */
   readonly chatStates: ReadonlyMap<number, StorageDatabaseChange>;
   /** 群问答按 (chatId, q) 复合主键变更；外层键为 chatId，内层键为问题文本 q。 */
   readonly chatQa: ReadonlyMap<number, ReadonlyMap<string, StorageDatabaseChange>>;
@@ -27,17 +32,29 @@ export interface CommitStorageDatabaseChangesOptions {
   readonly aiContexts: ReadonlyMap<number, StorageAiContextChange>;
 }
 
-/** 生成将命名占位符绑定值转为 SQLite JSONB 的 SQL 表达式。 */
+/**
+ * 生成将命名占位符绑定值转为 SQLite JSONB 的 SQL 表达式。
+ * @param name SQL 命名占位符名称。
+ * @returns `jsonb(:name)` 的 SQL 片段。
+ */
 function jsonbPlaceholder(name: string): SQL {
   return sql`jsonb(${sql.placeholder(name)})`;
 }
 
-/** 生成引用 upsert 冲突行同名列值的 SQL 表达式。 */
+/**
+ * 生成引用 upsert 冲突行同名列值的 SQL 表达式。
+ * @param column 目标表的 SQLite 列定义。
+ * @returns `excluded.<column>` 的 SQL 片段。
+ */
 function excluded(column: SQLiteColumn): SQL {
   return sql`excluded.${sql.identifier(column.name)}`;
 }
 
-/** 为指定数据库连接预编译事务提交所需的全部 upsert、delete 与 update 语句。 */
+/**
+ * 为指定数据库连接预编译事务提交所需的全部 upsert、delete 与 update 语句。
+ * @param database 共享存储数据库连接。
+ * @returns 绑定到该连接的预编译写入语句句柄集合。
+ */
 export function prepareStorageDatabaseWriter(database: StorageDatabase): StorageDatabaseWriter {
   return {
     database,
@@ -107,7 +124,11 @@ export function prepareStorageDatabaseWriter(database: StorageDatabase): Storage
   };
 }
 
-/** 在单个事务中按固定表顺序批量执行各业务表的增删改预编译语句（`chat_states` 先于 `ai_context` 更新）。 */
+/**
+ * 在单个事务中按固定表顺序批量执行各业务表的增删改预编译语句（`chat_states` 先于 `ai_context` 更新）。
+ * @param writer 共享存储数据库的预编译写入句柄。
+ * @param options 各业务表待提交的变更映射集合。
+ */
 export function commitStorageDatabaseChanges(
   writer: StorageDatabaseWriter,
   {

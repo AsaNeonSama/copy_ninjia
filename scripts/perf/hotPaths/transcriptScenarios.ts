@@ -50,7 +50,11 @@ const RECORD_TEXTS: readonly string[] = [
   "今天天气不错", "在吗 有人吗", "哈哈哈哈哈", "这个功能怎么用",
 ];
 
-/** 一条 AI 记录进入逐字缓存时的构造成本（workers/aiChat/bufferedMessage.ts）；输入轮换 RECORD_SOURCES 的各组合。 */
+/**
+ * 一条 AI 记录进入逐字缓存时的构造成本（workers/aiChat/bufferedMessage.ts）；输入轮换 RECORD_SOURCES 的各组合。
+ *
+ * @returns 逐字缓存消息构造场景定义
+ */
 export function bufferedMessageBuildScenario(): Scenario {
   return {
     iterations: 500_000,
@@ -78,6 +82,8 @@ export function bufferedMessageBuildScenario(): Scenario {
  * 这是 BufferedMessage 形状稳定性的读取侧。缓存在场景构造时建好，采样只量渲染。
  * 场景显式展平最终字符串，覆盖转录渲染的完整成本；构造侧 shape 稳定性由
  * buffered-message-build 单独观测。
+ *
+ * @returns 分层逐字上下文转录渲染场景定义
  */
 export function transcriptRenderScenario(): Scenario {
   const messages: BufferedMessage[] = [];
@@ -117,7 +123,11 @@ export function transcriptRenderScenario(): Scenario {
   };
 }
 
-/** 带回复的消息每条都要解析一次回复引用（auto/message/facts.ts）。 */
+/**
+ * 带回复的消息每条都要解析一次回复引用（auto/message/facts.ts）。
+ *
+ * @returns 回复引用事实解析场景定义
+ */
 export function replyReferenceScenario(): Scenario {
   const chat: Message["chat"] = {
     id: BENCHMARK_CHAT_ID, type: "supergroup", title: "Performance fixture",
@@ -150,6 +160,9 @@ export function replyReferenceScenario(): Scenario {
 /**
  * 提及判定，分两个变体：`mention-facts` 混入带 entity 的消息（扫描实体表的路径），
  * `mention-facts-plain` 全是无 entity 的普通消息（量早退成本）。
+ *
+ * @param withEntities 是否混入包含 `@mention` 实体的消息
+ * @returns 提及事实解析场景定义
  */
 export function mentionFactsScenario(withEntities: boolean): Scenario {
   const chat: Message["chat"] = {

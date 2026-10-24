@@ -8,7 +8,11 @@ import type { ChatActionHeartbeatEntry } from "../../../types/aiChat/chatAction"
  */
 export const typingHeartbeats: Map<number, ChatActionHeartbeatEntry> = new Map();
 
-/** 停止指定群的聊天动作心跳定时器并移除条目。 */
+/**
+ * 停止指定群的聊天动作心跳定时器并移除条目。
+ *
+ * @param chatId 群聊 ID
+ */
 export function clearChatHeartbeatCache(chatId: number): void {
   const entry: ChatActionHeartbeatEntry | undefined = typingHeartbeats.get(chatId);
   if (!entry) return;

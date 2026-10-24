@@ -7,7 +7,12 @@ interface ProjectPackageJson {
   readonly scripts?: Readonly<Record<string, string>>;
 }
 
-/** 核对 package 只暴露 migrations/active.ts 声明的冷迁移边，一条不多、一条不少。 */
+/**
+ * 核对 package 只暴露 migrations/active.ts 声明的冷迁移边，一条不多、一条不少。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @returns 冷迁移脚本声明不一致或缺失入口的违规信息列表
+ */
 export async function collectColdMigrationProblems(
   projectRoot: string
 ): Promise<readonly string[]> {

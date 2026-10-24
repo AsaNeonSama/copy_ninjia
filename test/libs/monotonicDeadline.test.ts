@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  budgetWithinDeadline,
   createMonotonicDeadline,
   isMonotonicDeadlineExpired,
   remainingMonotonicTime,
@@ -31,5 +32,17 @@ describe("monotonic deadline", () => {
     expect(isMonotonicDeadlineExpired(negativeDeadline, clock)).toBeTrue();
     monotonicTime += 1_000;
     expect(remainingMonotonicTime(zeroDeadline, clock)).toBe(0);
+  });
+
+  test("分段预算取自身预算与总截止剩余时间的较小值，剩余时间向下取整", () => {
+    let monotonicTime: number = 1_000;
+    const clock = (): number => monotonicTime;
+    const deadline: number = createMonotonicDeadline(100, clock);
+
+    expect(budgetWithinDeadline(30, deadline, clock)).toBe(30);
+    monotonicTime += 79.5;
+    expect(budgetWithinDeadline(30, deadline, clock)).toBe(20);
+    monotonicTime += 50;
+    expect(budgetWithinDeadline(30, deadline, clock)).toBe(0);
   });
 });

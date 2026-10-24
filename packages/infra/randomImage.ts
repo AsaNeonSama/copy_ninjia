@@ -34,6 +34,7 @@ import type {
 /**
  * 准备 `/h_image` 专用图库并校验内容摘要文件名、扩展名与条目类型（见 `docs/cn/04-invariants.md`）：
  * 允许目录根为符号链接，拒绝子目录、符号链接文件及临时文件。
+ * @param directory 专用图库目录的绝对路径。
  */
 export async function ensureRandomImageDirectory(directory: string): Promise<void> {
   const invalid: InputValidationError = new InputValidationError(
@@ -71,6 +72,8 @@ export async function ensureRandomImageDirectory(directory: string): Promise<voi
 /**
  * 目录项里算作图库图片的文件名：扩展名命中 RANDOM_IMAGE_EXTENSIONS 的非隐藏普通文件
  * （符号链接、子目录与收图写到一半的点号临时文件都不算）。抽图与计数共用这一口径。
+ * @param entries `readdir` 返回的目录项列表。
+ * @returns 符合图库图片规则的文件名列表。
  */
 function randomImageNames(entries: readonly Dirent[]): string[] {
   const names: string[] = [];
@@ -81,12 +84,20 @@ function randomImageNames(entries: readonly Dirent[]): string[] {
   return names;
 }
 
-/** 列一次目录并统计有效图库图片张数；目录读取失败原样上抛。 */
+/**
+ * 列一次目录并统计有效图库图片张数；目录读取失败原样上抛。
+ * @param directory 专用图库目录的绝对路径。
+ * @returns 包含当前有效图片张数的图库摘要。
+ */
 export async function readRandomImageLibrary(directory: string): Promise<RandomImageLibrary> {
   return { size: randomImageNames(await readdir(directory, { withFileTypes: true })).length };
 }
 
-/** 列目录之后、读文件之前被删除、改名或换成目录的候选。 */
+/**
+ * 列目录之后、读文件之前被删除、改名或换成目录的候选。
+ * @param error 读取候选图片文件时抛出的异常。
+ * @returns 错误码属于 ENOENT、ENOTDIR 或 EISDIR 时返回 true，否则返回 false。
+ */
 function vanished(error: unknown): boolean {
   return isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR") || isErrno(error, "EISDIR");
 }
@@ -94,6 +105,8 @@ function vanished(error: unknown): boolean {
 /**
  * 从目录非递归地均匀抽取一张不超过 `RANDOM_IMAGE_MAX_BYTES` 的图片并读取字节；
  * 抽中超限或已消失的文件时从剩余候选中剔除并继续抽取。
+ * @param directory 专用图库目录的绝对路径。
+ * @returns 抽取结果（成功读取图片字节，或目录缺失、为空、全部超限）。
  */
 export async function pickRandomImage(directory: string): Promise<RandomImagePick> {
   let entries: Dirent[];
@@ -122,7 +135,11 @@ export async function pickRandomImage(directory: string): Promise<RandomImagePic
   return oversized === undefined ? { status: "empty" } : { status: "tooLarge", fileName: oversized };
 }
 
-/** 路径此刻是不是目录（跟随符号链接）；不存在或读不到都按不是处理。 */
+/**
+ * 路径此刻是不是目录（跟随符号链接）；不存在或读不到都按不是处理。
+ * @param directory 待探测的目录路径。
+ * @returns 路径存在且为目录时返回 true，否则返回 false。
+ */
 export async function isRandomImageDirectory(directory: string): Promise<boolean> {
   try {
     return (await Bun.file(directory).stat()).isDirectory();
@@ -134,6 +151,9 @@ export async function isRandomImageDirectory(directory: string): Promise<boolean
 /**
  * 将图片按魔数嗅探格式与内容 SHA-256 命名写入图库：目标已存在时返回 `existing`；
  * 新增时先写同目录隐藏临时文件再原子改名，失败时清理临时文件并上抛。
+ * @param directory 专用图库目录的绝对路径。
+ * @param bytes 待存入的图片原始字节。
+ * @returns 存储结果（已新增、已存在同名摘要文件或格式不支持）。
  */
 export async function storeRandomImage(
   directory: string,

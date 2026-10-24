@@ -58,19 +58,32 @@ import type { VerificationRecoveryInspection } from "./verificationRecovery";
 import type { StorageDatabaseInspection } from "../../types/identityStorage";
 import { errorMessage } from "../../libs/errorMessage";
 
+/** 启动加载及伴随维护流程向主线程发送回执的回调签名。 */
 export type DiskIOStartupReplySink = (
   reply: LoadedReply | VerificationPersistedReply | IdentityStoragePersistedReply | MidnightMaintenanceReply
 ) => void;
 
+/** 全域只读探测阶段产出的各领域快照汇总，供维护阶段统一消费。 */
 interface StartupMaintenanceInspections {
+  /** 日志目录与当日日志文件探测结果。 */
   readonly logs: LogFilesInspection;
+  /** 贴纸目录快照探测结果。 */
   readonly stickerCatalogs: StickerCatalogRecoveryInspection;
+  /** 入群日志目录探测结果。 */
   readonly joinLogs: JoinLogRecoveryInspection;
+  /** 当日运势文件与运势目录探测结果。 */
   readonly luck: LuckDayRecoveryInspection;
+  /** 待验证日文件恢复探测结果。 */
   readonly verifications: VerificationRecoveryInspection;
+  /** `/wed` 群成员名册探测结果。 */
   readonly wedMembers: WedMemberInspection;
 }
 
+/**
+ * 按固定顺序执行启动阶段各领域的维护清理任务。
+ * @param inspections 全域只读探测阶段收集的各领域快照。
+ * @param reply 向主线程发送持久化回执的回调。
+ */
 function runMaintenance(
   inspections: StartupMaintenanceInspections,
   reply: DiskIOStartupReplySink
@@ -91,6 +104,8 @@ function runMaintenance(
 /**
  * 执行 Disk I/O Worker 全域启动恢复：先只读 inspect 全部持久化领域，全部通过后统一 adopt，
  * 发送 loaded 回执后再执行维护任务并注册午夜维护 cron，参见 docs/cn/04-invariants.md。
+ * @param stickerPacks 当前配置的贴纸包白名单；为 null 时不清理孤儿贴纸目录。
+ * @param postReply 向主线程投递 `loaded` 与后续维护回执的出口。
  */
 export async function handleDiskIOStartupLoad(
   stickerPacks: readonly string[] | null,

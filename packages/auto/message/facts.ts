@@ -34,6 +34,9 @@ import type { MentionFacts } from "../../types/auto";
  * 解析发言人的稳定身份字段。sender_chat 优先于 from，使频道马甲和匿名管理
  * 身份与群内实际展示一致；频道帖没有 sender_chat 时退回频道自身（判定见
  * users/visibleSender.ts，与 users/senderIdentity.ts 共用）。
+ *
+ * @param message Telegram 入站或被引用消息
+ * @returns 发言人身份快照
  */
 export function resolveSpeaker(message: Message): AiSpeakerSnapshot {
   const fromUser: User | undefined = message.from;
@@ -61,6 +64,11 @@ export function resolveSpeaker(message: Message): AiSpeakerSnapshot {
  *
  * 完整落在正文内且 `entity.length > botMentionLength` 的实体直接记为提及他人，不物化子串；
  * 其余实体切片折小写后与 `@` 加 `botUsernameLower` 比对（参考实现对拍见 `test/auto/messageFacts.test.ts`）。
+ *
+ * @param message Telegram 入站消息
+ * @param botId 本机器人用户 ID
+ * @param botUsername 本机器人用户名（不含 `@`）
+ * @returns 提及本机器人与提及他人的组合事实
  */
 export function resolveMentionFacts(
   message: Message,
@@ -80,11 +88,15 @@ export function resolveMentionFacts(
   }
   let isMentioned: boolean = false;
   let hasOtherMention: boolean = false;
-  // 没有用户名（含空串）时 botMentionLength 为 -1：两处长度判定都不成立，任何 mention 记为他人。
-  const botUsernameLower: string = botUsername ? botUsername.toLowerCase() : "";
-  const botMentionLength: number = botUsernameLower.length === 0 ? -1 : botUsernameLower.length + 1;
+  let botUsernameLower: string | undefined;
+  let botMentionLength: number = 0;
   for (const entity of entities) {
     if (entity.type === "mention") {
+      if (botUsernameLower === undefined) {
+        botUsernameLower = botUsername ? botUsername.toLowerCase() : "";
+        // 没有用户名（含空串）时 botMentionLength 为 -1：两处长度判定都不成立，任何 mention 记为他人。
+        botMentionLength = botUsernameLower.length === 0 ? -1 : botUsernameLower.length + 1;
+      }
       const mentionEnd: number = entity.offset + entity.length;
       if (
         entity.length <= botMentionLength ||
@@ -115,6 +127,10 @@ export function resolveMentionFacts(
  * 判断当前消息是否显式回复同一个可见发送者先前的消息。repliedTo 是 libs/forumTopic.ts
  * 的 explicitReplyTo 对 message 的解析结果；调用方已解析过时传入，省略或为 undefined
  * 时在这里重新解析。
+ *
+ * @param message 当前入站消息
+ * @param repliedTo 显式回复的目标消息
+ * @returns 是否为对自身先前消息的回复
  */
 export function isReplyToSelf(
   message: Message,
@@ -125,8 +141,13 @@ export function isReplyToSelf(
   return senderId !== undefined && senderId === visibleSenderId(repliedTo);
 }
 
-/** 把 forward_origin 的各种来源统一整理成转录可读的身份标注，标记词汇与
- * 转录行一致（[id:]/[username:@]，缺失时省略）；隐藏账号的来源只有显示名。 */
+/**
+ * 把 forward_origin 的各种来源统一整理成转录可读的身份标注，标记词汇与
+ * 转录行一致（[id:]/[username:@]，缺失时省略）；隐藏账号的来源只有显示名。
+ *
+ * @param origin Telegram 转发来源元数据
+ * @returns 转录可读的转发来源身份标注
+ */
 function forwardOriginLabel(origin: MessageOrigin): string {
   switch (origin.type) {
     case "user": {
@@ -148,17 +169,27 @@ function forwardOriginLabel(origin: MessageOrigin): string {
   }
 }
 
-/** 提取当前消息的转发来源标注；非转发消息返回 undefined。关联频道帖自动
+/**
+ * 提取当前消息的转发来源标注；非转发消息返回 undefined。关联频道帖自动
  * 转进讨论组的副本（is_automatic_forward）也不标：其转录发言人已解析为频道
- * 本身（见 users/visibleSender.ts）。 */
+ * 本身（见 users/visibleSender.ts）。
+ *
+ * @param message Telegram 入站消息
+ * @returns 转发来源标注；非人工转发消息返回 `undefined`
+ */
 export function resolveForwardOrigin(message: Message): string | undefined {
   const origin: MessageOrigin | undefined = message.forward_origin;
   if (origin === undefined || message.is_automatic_forward === true) return undefined;
   return forwardOriginLabel(origin);
 }
 
-/** 把被回复的 Telegram 消息转换成模型可读的单行正文；视觉内容在原消息
- * 自己进入缓存时异步获得描述，这里的类型标签用于原消息已滑出缓存的情形。 */
+/**
+ * 把被回复的 Telegram 消息转换成模型可读的单行正文；视觉内容在原消息
+ * 自己进入缓存时异步获得描述，这里的类型标签用于原消息已滑出缓存的情形。
+ *
+ * @param message 被回复的 Telegram 消息
+ * @returns 模型可读的引用正文或媒体类型占位文本
+ */
 function replyReferenceText(message: Message): string {
   if (typeof message.text === "string") return message.text;
   const caption: string = typeof message.caption === "string" ? message.caption : "";
@@ -178,7 +209,13 @@ function replyReferenceText(message: Message): string {
   return NON_TEXT_PLACEHOLDER;
 }
 
-/** 被回复的是机器人自己发的图片时取出识图所需的那张图，其余返回 undefined。 */
+/**
+ * 被回复的是机器人自己发的图片时取出识图所需的那张图，其余返回 undefined。
+ *
+ * @param repliedTo 被回复的目标消息
+ * @param botId 本机器人用户 ID
+ * @returns 机器人图片引用元数据；非机器人图片消息返回 `undefined`
+ */
 function repliedBotImage(repliedTo: Message, botId: number): RepliedBotImage | undefined {
   const photo: PhotoSize[] | undefined = repliedTo.photo;
   if (repliedTo.from?.id !== botId || photo === undefined || photo.length === 0) return undefined;
@@ -190,11 +227,18 @@ function repliedBotImage(repliedTo: Message, botId: number): RepliedBotImage | u
   };
 }
 
-/** 提取当前消息的显式回复关系。原消息取自 reply_to_message，不发额外 API 请求；
+/**
+ * 提取当前消息的显式回复关系。原消息取自 reply_to_message，不发额外 API 请求；
  * 论坛话题自动填入的话题创建消息不算回复（见 libs/forumTopic.ts 的 explicitReplyTo），
  * repliedTo 的传法同 isReplyToSelf；quote 则保留用户选中的精确引用片段。
  * 被回复的是机器人自己的图片时附上 botImage，由 Worker 识图后回填（见
- * workers/aiChat/botImages.ts）。 */
+ * workers/aiChat/botImages.ts）。
+ *
+ * @param message 当前入站消息
+ * @param botId 本机器人用户 ID
+ * @param repliedTo 显式回复的目标消息
+ * @returns 显式回复引用信息；无显式回复时返回 `undefined`
+ */
 export function resolveReplyReference(
   message: Message,
   botId: number,
@@ -219,7 +263,12 @@ export function resolveReplyReference(
   };
 }
 
-/** GIF 只分析 Telegram 缩略图，缓存键仍使用 animation 自身的唯一 id。 */
+/**
+ * GIF 只分析 Telegram 缩略图，缓存键仍使用 animation 自身的唯一 id。
+ *
+ * @param animation Telegram 动图对象
+ * @returns 供视觉模型分析的缩略图源；无缩略图时返回 `null`
+ */
 export function pickAnimationVisionSource(animation: Animation): TelegramVisionSource | null {
   const thumbnail: PhotoSize | undefined = animation.thumbnail;
   if (!thumbnail) return null;
@@ -231,7 +280,12 @@ export function pickAnimationVisionSource(animation: Animation): TelegramVisionS
   };
 }
 
-/** 随机复读前过滤没有可复制载荷的服务消息。 */
+/**
+ * 随机复读前过滤没有可复制载荷的服务消息。
+ *
+ * @param message Telegram 入站消息
+ * @returns 是否包含可复制的消息载荷
+ */
 export function hasCopyableContent(message: Message): boolean {
   return !!(
     message.text || message.caption || message.photo || message.sticker ||

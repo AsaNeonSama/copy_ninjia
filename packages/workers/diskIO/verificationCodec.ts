@@ -21,23 +21,47 @@ import type {
 
 export type VerificationDayValue = VerificationSnapshot | null;
 
+/**
+ * 判断候选值是否为非负安全整数毫秒时间戳。
+ * @param value 待校验的候选值。
+ * @returns 非负安全整数时返回 true，否则返回 false。
+ */
 function isSafeTimestamp(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+/**
+ * 判断候选值是否为正安全整数 ID 或序号。
+ * @param value 待校验的候选值。
+ * @returns 正安全整数时返回 true，否则返回 false。
+ */
 function isPositiveId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
+/**
+ * 判断候选值是否为缺省或正安全整数 ID。
+ * @param value 待校验的候选值。
+ * @returns undefined 或正安全整数时返回 true，否则返回 false。
+ */
 function isOptionalPositiveId(value: unknown): value is number | undefined {
   return value === undefined || isPositiveId(value);
 }
 
+/**
+ * 判断候选值是否为缺省或非负安全整数时间戳。
+ * @param value 待校验的候选值。
+ * @returns undefined 或非负安全整数时返回 true，否则返回 false。
+ */
 function isOptionalSafeTimestamp(value: unknown): value is number | undefined {
   return value === undefined || isSafeTimestamp(value);
 }
 
-/** 按 phase 拒绝未知字段。 */
+/**
+ * 按 phase 拒绝未知字段。
+ * @param value 待校验的快照记录对象。
+ * @returns 对象自有属性全部属于当前阶段允许字段集合时返回 true，否则返回 false。
+ */
 function hasCurrentVerificationKeys(value: Record<string, unknown>): boolean {
   let allowed: ReadonlySet<string> = VERIFICATION_BASE_RECORD_KEYS;
   if (value.phase === "kickPending") {
@@ -53,12 +77,21 @@ function hasCurrentVerificationKeys(value: Record<string, unknown>): boolean {
   return true;
 }
 
-/** 判断值是否为缺省或布尔真。 */
+/**
+ * 判断值是否为缺省或布尔真。
+ * @param value 待校验的候选值。
+ * @returns undefined 或 true 时返回 true，否则返回 false。
+ */
 function isOptionalTrue(value: unknown): value is true | undefined {
   return value === undefined || value === true;
 }
 
-/** 校验各阶段共有字段与记录键，任一项非法返回 null。 */
+/**
+ * 校验各阶段共有字段与记录键，任一项非法返回 null。
+ * @param key 顶层 JSON 对象中的 `<chatId>:<userId>` 记录键。
+ * @param value 待校验的快照记录对象。
+ * @returns 校验通过的公共快照字段；任一项非法时返回 null。
+ */
 function decodeVerificationBase(
   key: string,
   value: Record<string, unknown>
@@ -108,7 +141,12 @@ function decodeVerificationBase(
   };
 }
 
-/** 解码 kickPending 阶段快照并校验时间戳与提醒字段约束。 */
+/**
+ * 解码 kickPending 阶段快照并校验时间戳与提醒字段约束。
+ * @param base 已校验的公共快照字段。
+ * @param value 原始快照记录对象。
+ * @returns `kickPending` 阶段快照；约束不满足时返回 null。
+ */
 function decodeKickPending(
   base: VerificationSnapshotBase,
   value: Record<string, unknown>
@@ -126,7 +164,12 @@ function decodeKickPending(
   return { ...base, phase: "kickPending", requestedAt, countedJoinAt };
 }
 
-/** 解码 checkingInviter 阶段快照。 */
+/**
+ * 解码 checkingInviter 阶段快照。
+ * @param base 已校验的公共快照字段。
+ * @param value 原始快照记录对象。
+ * @returns `checkingInviter` 阶段快照；`terminalInviterId` 非法时返回 null。
+ */
 function decodeCheckingInviter(
   base: VerificationSnapshotBase,
   value: Record<string, unknown>
@@ -136,7 +179,12 @@ function decodeCheckingInviter(
   return { ...base, phase: "checkingInviter", terminalInviterId };
 }
 
-/** 解码 expelling 阶段快照。 */
+/**
+ * 解码 expelling 阶段快照。
+ * @param base 已校验的公共快照字段。
+ * @param value 原始快照记录对象。
+ * @returns `expelling` 阶段快照；字段非法时返回 null。
+ */
 function decodeExpelling(
   base: VerificationSnapshotBase,
   value: Record<string, unknown>
@@ -164,7 +212,12 @@ function decodeExpelling(
   };
 }
 
-/** 校验 pending 专属字段与当前阶段的一致性。 */
+/**
+ * 校验 pending 专属字段与当前阶段的一致性。
+ * @param phase 记录声明的阶段值。
+ * @param base 已校验的公共快照字段。
+ * @returns 字段组合与阶段不变量一致时返回 true，否则返回 false。
+ */
 function hasConsistentPendingFacts(phase: unknown, base: VerificationSnapshotBase): boolean {
   const anchored: boolean = base.welcomeAnchorMessageId !== undefined;
   if (phase === "pending") return base.replyReminderRequested === anchored && base.reminderSuperseded === anchored;
@@ -175,7 +228,12 @@ function hasConsistentPendingFacts(phase: unknown, base: VerificationSnapshotBas
     base.reminderSuperseded;
 }
 
-/** 校验并解码单条待验证快照记录。 */
+/**
+ * 校验并解码单条待验证快照记录。
+ * @param key 顶层 JSON 对象中的记录键。
+ * @param value 待解码的记录原始值。
+ * @returns 校验通过的待验证快照；非法时返回 null。
+ */
 function decodeVerificationSnapshot(
   key: string,
   value: unknown
@@ -197,20 +255,33 @@ function decodeVerificationSnapshot(
   }
 }
 
-/** 将内存快照转换为带 VERIFICATION_FILE_VERSION 的持久化对象。 */
+/**
+ * 将内存快照转换为带 VERIFICATION_FILE_VERSION 的持久化对象。
+ * @param snapshot 内存中的待验证快照。
+ * @returns 附带当前文件版本号的可序列化记录对象。
+ */
 export function storedVerificationSnapshot(
   snapshot: VerificationSnapshot
 ): Record<string, unknown> {
   return { version: VERIFICATION_FILE_VERSION, ...snapshot };
 }
 
-/** 校验墓碑记录键是否为合法的群与用户复合键。 */
+/**
+ * 校验墓碑记录键是否为合法的群与用户复合键。
+ * @param key 待校验的顶层记录键。
+ * @returns `<负群ID>:<正用户ID>` 规范键时返回 true，否则返回 false。
+ */
 function isVerificationTombstoneKey(key: string): boolean {
   const parsed: ParsedVerificationKey | null = parseVerificationKey(key);
   return parsed !== null && isTelegramGroupChatId(parsed.chatId) && isPositiveId(parsed.userId);
 }
 
-/** 严格解码完整日文件；任一 active 记录或墓碑键畸形时整份拒绝。 */
+/**
+ * 严格解码完整日文件；任一 active 记录或墓碑键畸形时整份拒绝。
+ * @param path 待验证日文件路径（用于构造错误消息）。
+ * @param content 日文件的原始 UTF-8 文本。
+ * @returns 记录键到最新快照或 null 墓碑的映射。
+ */
 export function decodeVerificationDay(
   path: string,
   content: string

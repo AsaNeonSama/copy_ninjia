@@ -42,7 +42,7 @@ const { resetPendingMessageDeletions } = await import("../../packages/infra/tele
 const { wedAvatarProbes, wedChats } = await import("../../packages/cache/main/wed");
 const { getOrCreateWedChat } = await import("../../packages/commands/wed/chats");
 const { observeWedMembers } = await import("../../packages/commands/wed/members");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 const { handleWedCommand, handleWedCallback, teardownWedInChat } = await import("../../packages/commands/wed");
 const { WED_BUTTON_TEXTS, WED_TEXTS } = await import("../../packages/consts/atmosphere/teasing/wed");
 const { WED_DRAW_TRANSIENT_LIMIT, WED_MEMBER_LIMIT, WED_OPERATION_TIMEOUT_MS, WED_SESSION_LIMIT } = await import("../../packages/consts/wed");
@@ -509,7 +509,7 @@ describe("/wed 图片和按钮交互", () => {
     await handleWedCommand(command());
     expect(avatar).toHaveBeenCalledTimes(1);
     getOrCreateChatState(chat.id).isInitEnabled = true;
-    observeWedMembers({ chat, message: { chat, from: partner, text: "hi" } } as never);
+    observeWedMembers({ chat, message: { chat, from: partner, text: "hi" } } as never, chat, getChatState(chat.id));
     expect(state.members.has(partner.id)).toBeTrue();
     expect(otherState.members.has(partner.id)).toBeFalse();
     avatar.mockImplementation(async (target: User | number): Promise<CurrentAvatarResult> =>
@@ -530,7 +530,11 @@ describe("/wed 图片和按钮交互", () => {
     for (let i: number = 0; i < 50 && avatar.mock.calls.length === 0; i++) await Promise.resolve();
     expect(wedAvatarProbes.get(partner.id)?.size).toBe(1);
     getOrCreateChatState(otherChat.id).isInitEnabled = true;
-    observeWedMembers({ chat: otherChat, message: { chat: otherChat, from: partner, text: "hi" } } as never);
+    observeWedMembers(
+      { chat: otherChat, message: { chat: otherChat, from: partner, text: "hi" } } as never,
+      otherChat,
+      getChatState(otherChat.id)
+    );
     pending.resolve({ status: "chat-not-found" });
     await task;
     expect(state.members.has(partner.id)).toBeFalse();

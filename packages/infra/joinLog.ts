@@ -20,14 +20,18 @@ import { registerChatTeardown } from "./chatTeardownRegistry";
 import * as diskIO from "./diskIO";
 
 export interface RecordJoinLogParams {
+  /** 入群事件所属的群 ID。 */
   chatId: number;
+  /** 新入群成员的用户 ID。 */
   userId: number;
+  /** 入群事件的毫秒时间戳。 */
   joinedAt: number;
 }
 
 /**
  * 记录一条权威 `chat_member` 入群事实：投递给 Disk I/O Worker 并登记进未确认镜像后立即返回；
  * Worker 批量追写后通过 `joinLogPersisted` 回执释放镜像，崩溃重建时按序重放。
+ * @param params 入群事件的群 ID、用户 ID 与入群时间戳。
  * @returns 已受理为 true；镜像达到 `JOIN_LOG_MAX_BUFFERED_ENTRIES` 或 Disk I/O 拒收时为 false。
  */
 export function recordJoinLog({
@@ -50,7 +54,10 @@ export function recordJoinLog({
   return true;
 }
 
-/** 处置回执释放镜像：序号不超过 through 且不在 pending 里的事实已写入或丢弃。 */
+/**
+ * 处置回执释放镜像：序号不超过 through 且不在 pending 里的事实已写入或丢弃。
+ * @param reply Disk I/O Worker 返回的入群日志持久化回执。
+ */
 function settleJoinLogPersisted(reply: JoinLogPersistedReply): void {
   if (reply.pending.length === 0) {
     unacknowledgedJoinLogs.removeWhere(
@@ -65,7 +72,11 @@ function settleJoinLogPersisted(reply: JoinLogPersistedReply): void {
   );
 }
 
-/** Worker 重建后原序重放全部未确认事实；已写过的精确重投由磁盘索引在追加前跳过。 */
+/**
+ * Worker 重建后原序重放全部未确认事实；已写过的精确重投由磁盘索引在追加前跳过。
+ * @param transport 新一代 Disk I/O Worker 的恢复期投递通道。
+ * @returns 全部未确认入群事实均成功投递时返回 true，中途投递失败时返回 false。
+ */
 function replayJoinLogs(transport: DiskIORecoveryTransport): boolean {
   for (const message of unacknowledgedJoinLogs.values()) {
     if (!transport.post(message)) return false;
@@ -73,7 +84,10 @@ function replayJoinLogs(transport: DiskIORecoveryTransport): boolean {
   return true;
 }
 
-/** 整群删除接管该群的未确认事实：从镜像摘除，其余条目保持原有顺序。 */
+/**
+ * 整群删除接管该群的未确认事实：从镜像摘除，其余条目保持原有顺序。
+ * @param chatId 目标群 ID。
+ */
 function dropChatJoinLogs(chatId: number): void {
   unacknowledgedJoinLogs.removeWhere(
     (message: JoinLogDiskMessage): boolean => message.chatId === chatId
@@ -89,6 +103,7 @@ function dropChatJoinLogs(chatId: number): void {
  * 等 `joinLogPurge` 领域的 durable 回执后返回；该屏障只刷这一个领域，不牵动追写的
  * `joinLog` 领域（见 types/diskIO/replies.ts 的 DiskIODomain）。失败原样上抛，
  * 由 teardown 的组合边界汇总（见 infra/chatTeardown.ts）。
+ * @param chatId 目标群 ID。
  */
 export async function purgeChatJoinLog(chatId: number): Promise<void> {
   if (!diskIO.postDiskIO({ type: "deleteJoinLog", chatId })) {

@@ -45,6 +45,13 @@ export interface ChildProfileResult {
   readonly jit: Readonly<Record<string, JitProbeResult>>;
 }
 
+/**
+ * 读取并校验对象中的必填字符串字段。
+ *
+ * @param record 待读取的普通对象
+ * @param key 字段名
+ * @returns 校验通过的字符串值
+ */
 function requiredString(
   record: Readonly<Record<string, unknown>>,
   key: string
@@ -56,6 +63,13 @@ function requiredString(
   return value;
 }
 
+/**
+ * 读取并校验对象中的必填有限数值字段。
+ *
+ * @param record 待读取的普通对象
+ * @param key 字段名
+ * @returns 校验通过的有限数值
+ */
 function requiredNumber(
   record: Readonly<Record<string, unknown>>,
   key: string
@@ -67,6 +81,13 @@ function requiredNumber(
   return value;
 }
 
+/**
+ * 读取并校验对象中的必填布尔字段。
+ *
+ * @param record 待读取的普通对象
+ * @param key 字段名
+ * @returns 校验通过的布尔值
+ */
 function requiredBoolean(
   record: Readonly<Record<string, unknown>>,
   key: string
@@ -78,6 +99,13 @@ function requiredBoolean(
   return value;
 }
 
+/**
+ * 读取并校验对象中的可空有限数值字段。
+ *
+ * @param record 待读取的普通对象
+ * @param key 字段名
+ * @returns 校验通过的有限数值或 null
+ */
 function requiredNullableNumber(
   record: Readonly<Record<string, unknown>>,
   key: string
@@ -87,6 +115,12 @@ function requiredNullableNumber(
   return requiredNumber(record, key);
 }
 
+/**
+ * 解析并校验子进程返回的采样剖析结果。
+ *
+ * @param value 待解析的原始采样剖析字段值
+ * @returns 结构化的采样剖析结果
+ */
 function parseSamplingProfile(value: unknown): SamplingProfileResult {
   if (!isPlainRecord(value)) {
     throw new Error("Hot-path child result omitted its sampling profile.");
@@ -100,6 +134,12 @@ function parseSamplingProfile(value: unknown): SamplingProfileResult {
   };
 }
 
+/**
+ * 解析并校验子进程返回的 JIT 探针字典。
+ *
+ * @param value 待解析的原始 JIT 探针字段值
+ * @returns 探针名到探针结果的只读映射
+ */
 function parseJitProbes(value: unknown): Readonly<Record<string, JitProbeResult>> {
   if (!isPlainRecord(value)) {
     throw new Error("Hot-path child result omitted its JIT probes.");
@@ -118,6 +158,13 @@ function parseJitProbes(value: unknown): Readonly<Record<string, JitProbeResult>
   return probes;
 }
 
+/**
+ * 解析子进程标准输出的 JSON 报告及标准错误中的 GC 日志。
+ *
+ * @param text 子进程标准输出 JSON 文本
+ * @param stderr 子进程标准错误输出文本
+ * @returns 解析完成的子进程剖析结果
+ */
 function parseChildProfileResult(text: string, stderr: string): ChildProfileResult {
   let parsed: unknown;
   try {
@@ -149,7 +196,12 @@ function parseChildProfileResult(text: string, stderr: string): ChildProfileResu
   };
 }
 
-/** 只返回生产探针，不含 `scenario.run` 编排壳。 */
+/**
+ * 只返回生产探针，不含 `scenario.run` 编排壳。
+ *
+ * @param result 子进程剖析结果
+ * @returns 过滤掉编排壳后的生产探针结果列表
+ */
 export function productionJitProbes(
   result: ChildProfileResult
 ): readonly JitProbeResult[] {
@@ -163,6 +215,12 @@ export function productionJitProbes(
   return probes;
 }
 
+/**
+ * 断言子进程上报的 Bun 版本、revision、预热轮数与中位耗时合法且与校准记录一致。
+ *
+ * @param result 子进程剖析结果
+ * @param calibration 热路径门禁校准配置
+ */
 function assertRuntimeMatches(
   result: ChildProfileResult,
   calibration: HotPathGateCalibration
@@ -185,6 +243,13 @@ function assertRuntimeMatches(
   }
 }
 
+/**
+ * 断言稳态剖析子进程的采样数、GC 暂停占比与 JIT 探针满足门禁限制。
+ *
+ * @param result 子进程剖析结果
+ * @param calibration 热路径门禁校准配置
+ * @param maxGcPausePercent 允许的最大 GC 暂停占比百分比
+ */
 function assertProfileRunWithinLimits(
   result: ChildProfileResult,
   calibration: HotPathGateCalibration,
@@ -218,6 +283,12 @@ function assertProfileRunWithinLimits(
   }
 }
 
+/**
+ * 断言留存内存子进程的 RSS、采样堆增量及留存堆/对象增量满足门禁限制。
+ *
+ * @param result 子进程剖析结果
+ * @param calibration 热路径门禁校准配置
+ */
 function assertRetainedRunWithinLimits(
   result: ChildProfileResult,
   calibration: HotPathGateCalibration
@@ -256,16 +327,26 @@ function assertRetainedRunWithinLimits(
 }
 
 export interface RunHotPathGateChildOptions {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
+  /** 待运行的热路径场景名称。 */
   readonly scenario: string;
+  /** 子进程测量模式（留存内存或稳态剖析）。 */
   readonly measurementMode: "retained" | "steadyProfile";
+  /** 门禁共用的隔离配置与运行目录夹具。 */
   readonly fixture: HotPathGateFixture;
+  /** 热路径门禁校准配置。 */
   readonly calibration: HotPathGateCalibration;
   /** 稳态进程 GC 暂停占比的硬上限：CPU 分档预算加软超限余量。 */
   readonly maxGcPausePercent: number;
 }
 
-/** 运行一轮隔离子进程，严格解码并执行对应的 profile 或 retained 门禁。 */
+/**
+ * 运行一轮隔离子进程，严格解码并执行对应的 profile 或 retained 门禁。
+ *
+ * @param options 子进程运行与门禁校验选项
+ * @returns 通过门禁校验的子进程剖析结果
+ */
 export async function runHotPathGateChild({
   projectRoot,
   scenario,

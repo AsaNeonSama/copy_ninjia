@@ -7,6 +7,7 @@ import type { BufferedReplyReference } from "../../../types/aiChat/memory";
 
 /** buildSelfRecordMessage 的入参。 */
 export interface SelfRecordMessageParams {
+  /** 目标群聊 ID。 */
   chatId: number;
   /** 机器人账号身份。 */
   self: AiBotInfo;
@@ -18,7 +19,11 @@ export interface SelfRecordMessageParams {
   replyTo?: BufferedReplyReference | undefined;
 }
 
-/** 构造机器人将自身发出的消息写回滚动记忆时的 AiRecordMessage 载荷。 */
+/**
+ * 构造机器人将自身发出的消息写回滚动记忆时的 AiRecordMessage 载荷。
+ * @param params 群聊 ID、机器人身份、消息号、正文及可选回复引用。
+ * @returns 供写回群聊滚动记忆的自录消息载荷。
+ */
 export function buildSelfRecordMessage({
   chatId,
   self,

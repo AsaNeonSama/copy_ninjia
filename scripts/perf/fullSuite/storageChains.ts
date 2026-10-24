@@ -67,6 +67,12 @@ export interface StorageChainDependencies {
   Pick<typeof unacknowledgedTemporaryAdBypassWrites, "has">;
 }
 
+/**
+ * 按操作序号轮转映射到受管群上限内的基准群 ID。
+ * @param sequence 当前操作序号。
+ * @param dependencies 存储链路依赖集合。
+ * @returns 映射后的基准群 ID。
+ */
 function chatIdForSequence(
   sequence: number,
   dependencies: StorageChainDependencies
@@ -76,6 +82,11 @@ function chatIdForSequence(
   );
 }
 
+/**
+ * 构造入群日志追加并等待落盘回执的存储链路定义。
+ * @param dependencies 存储链路依赖集合。
+ * @returns `join-log-append` 链路定义。
+ */
 function joinLogChain(
   dependencies: StorageChainDependencies
 ): ChainDefinition {
@@ -101,6 +112,11 @@ function joinLogChain(
   };
 }
 
+/**
+ * 构造身份策略批量写透并等待落盘回执的存储链路定义。
+ * @param dependencies 存储链路依赖集合。
+ * @returns `identity-policy-write` 链路定义。
+ */
 function identityPolicyChain(
   dependencies: StorageChainDependencies
 ): ChainDefinition {
@@ -149,6 +165,11 @@ function identityPolicyChain(
   };
 }
 
+/**
+ * 构造临时广告免检活动记录并等待 SQLite 精确回执的存储链路定义。
+ * @param dependencies 存储链路依赖集合。
+ * @returns `temporary-whitelist-write` 链路定义。
+ */
 function temporaryAdBypassWriteChain(
   dependencies: StorageChainDependencies
 ): ChainDefinition {
@@ -227,6 +248,11 @@ function temporaryAdBypassWriteChain(
   };
 }
 
+/**
+ * 构造群状态写入并等待落盘回执的存储链路定义。
+ * @param dependencies 存储链路依赖集合。
+ * @returns `chat-state-write` 链路定义。
+ */
 function chatStateChain(
   dependencies: StorageChainDependencies
 ): ChainDefinition {
@@ -256,6 +282,11 @@ function chatStateChain(
   };
 }
 
+/**
+ * 构造群问答写入并等待落盘回执的存储链路定义。
+ * @param dependencies 存储链路依赖集合。
+ * @returns `chat-qa-write` 链路定义。
+ */
 function chatQaChain(
   dependencies: StorageChainDependencies
 ): ChainDefinition {
@@ -277,6 +308,11 @@ function chatQaChain(
   };
 }
 
+/**
+ * 构造 AI 记忆快照重写并等待落盘回执的存储链路定义。
+ * @param dependencies 存储链路依赖集合。
+ * @returns `ai-memory-snapshot` 链路定义。
+ */
 function aiMemoryChain(
   dependencies: StorageChainDependencies
 ): ChainDefinition {
@@ -326,6 +362,11 @@ function aiMemoryChain(
   };
 }
 
+/**
+ * 构造诊断日志追加并等待落盘回执的存储链路定义。
+ * @param dependencies 存储链路依赖集合。
+ * @returns `diagnostic-log` 链路定义。
+ */
 function diagnosticLogChain(
   dependencies: StorageChainDependencies
 ): ChainDefinition {
@@ -356,7 +397,12 @@ function diagnosticLogChain(
   };
 }
 
-/** 返回存储链路定义；命令链路与配置链路分别交给 commandChains、configChains。 */
+/**
+ * 返回存储链路定义；命令链路与配置链路分别交给 commandChains、configChains。
+ * @param chain 目标链路标识名。
+ * @param dependencies 存储链路依赖集合。
+ * @returns 若属于存储链路则返回对应定义，否则返回 `undefined`。
+ */
 export function createStorageChain(
   chain: ChainName,
   dependencies: StorageChainDependencies

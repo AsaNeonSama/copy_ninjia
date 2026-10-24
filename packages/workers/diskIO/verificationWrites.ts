@@ -1,4 +1,4 @@
-/** Owner: Disk I/O Worker。负责待验证增量缓冲、timer、append 与持久化回执。 */
+/** 待验证增量缓冲、timer、append 与持久化回执（所属线程：Disk I/O Worker）。 */
 
 import { mkdirSync } from "node:fs";
 import { PERSISTED_FILE_MODE } from "../../consts/diskIO/common";
@@ -37,8 +37,16 @@ import {
 } from "./verificationRecovery";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
+/** 向主线程发送入群验证持久化回执的回调签名。 */
 export type VerificationReplySink = (reply: VerificationPersistedReply) => void;
 
+/**
+ * 判断待写变更是否属于同一 generation 且版本号不低于目标 revision。
+ * @param change 当前挂起的待写变更。
+ * @param generation 消息携带的会话代次。
+ * @param revision 消息携带的单调递增版本号。
+ * @returns 已存在同代且不旧于目标版本的待写项时返回 true，否则返回 false。
+ */
 function sameOrNewer(
   change: VerificationFileChange | undefined,
   generation: number,
@@ -47,6 +55,11 @@ function sameOrNewer(
   return change?.generation === generation && change.revision >= revision;
 }
 
+/**
+ * 摘除未发生后续覆盖的待写变更并逐条发送 `verificationPersisted` 回执。
+ * @param changes 本批已成功落盘的 `[key, change]` 列表。
+ * @param reply 向主线程发送持久化回执的出口。
+ */
 function acknowledge(
   changes: [string, VerificationFileChange][],
   reply: VerificationReplySink
@@ -65,7 +78,12 @@ function acknowledge(
   }
 }
 
-/** 跨日先发布新日 active 快照与 tombstone，成功后删除旧日文件并确认待写变更。 */
+/**
+ * 跨日先发布新日 active 快照与 tombstone，成功后删除旧日文件并确认待写变更。
+ * @param day 目标 `YYYY-MM-DD` 日期键。
+ * @param reply 向主线程发送持久化回执的出口。
+ * @param dir 待验证目录路径。
+ */
 async function rolloverVerificationDay(
   day: string,
   reply: VerificationReplySink,
@@ -79,7 +97,11 @@ async function rolloverVerificationDay(
   acknowledge(changes, reply);
 }
 
-/** 注册跨日轮换失败后的重试定时器。 */
+/**
+ * 注册跨日轮换失败后的重试定时器。
+ * @param reply 向主线程发送持久化回执的出口。
+ * @param dir 待验证目录路径。
+ */
 function scheduleVerificationRolloverRetry(
   reply: VerificationReplySink,
   dir: string
@@ -91,7 +113,12 @@ function scheduleVerificationRolloverRetry(
   );
 }
 
-/** 发布目标日的 active 快照并清理旧日文件；失败时保留镜像并注册重试定时器。 */
+/**
+ * 发布目标日的 active 快照并清理旧日文件；失败时保留镜像并注册重试定时器。
+ * @param reply 向主线程发送持久化回执的出口。
+ * @param day 目标 `YYYY-MM-DD` 日期键；缺省为当前时刻。
+ * @param dir 待验证目录路径；缺省为 `VERIFICATION_MEMORY_DIR`。
+ */
 export async function maintainVerificationDayForToday(
   reply: VerificationReplySink,
   day: string = getDateKey(),
@@ -107,7 +134,11 @@ export async function maintainVerificationDayForToday(
   }
 }
 
-/** 按需注册待验证普通变更的定时落盘 timer。 */
+/**
+ * 按需注册待验证普通变更的定时落盘 timer。
+ * @param reply 向主线程发送持久化回执的出口。
+ * @param dir 待验证目录路径。
+ */
 function scheduleVerificationFlush(
   reply: VerificationReplySink,
   dir: string
@@ -119,7 +150,12 @@ function scheduleVerificationFlush(
   );
 }
 
-/** 关键变更落盘：在批处理期间仅登记目标，批外立即 flush。 */
+/**
+ * 关键变更落盘：在批处理期间仅登记目标，批外立即 flush。
+ * @param reply 向主线程发送持久化回执的出口。
+ * @param dir 待验证目录路径。
+ * @param day 目标 `YYYY-MM-DD` 日期键。
+ */
 async function flushCriticalVerificationChanges(
   reply: VerificationReplySink,
   dir: string,
@@ -132,7 +168,11 @@ async function flushCriticalVerificationChanges(
   await flushVerificationChanges(reply, dir, day);
 }
 
-/** 在 operationBatch 执行期间合并待验证关键变更的落盘，在 finally 中统一 flush 一次。 */
+/**
+ * 在 operationBatch 执行期间合并待验证关键变更的落盘，在 finally 中统一 flush 一次。
+ * @param reply 向主线程发送持久化回执的出口。
+ * @param run 批次内顺序处理各消息的异步回调。
+ */
 export async function withVerificationBatchFlush(
   reply: VerificationReplySink,
   run: () => Promise<void>
@@ -148,14 +188,22 @@ export async function withVerificationBatchFlush(
   }
 }
 
+/** 处理待验证 upsert 消息的参数。 */
 export interface HandleVerificationUpsertParams {
+  /** 待验证快照新增或更新消息。 */
   msg: VerificationUpsertDiskMessage;
+  /** 向主线程发送持久化回执的出口。 */
   reply: VerificationReplySink;
+  /** 待验证目录路径；缺省为 `VERIFICATION_MEMORY_DIR`。 */
   dir?: string;
+  /** 当前 `YYYY-MM-DD` 日期键；缺省为当前时刻。 */
   day?: string;
 }
 
-/** 处理待验证 upsert：按 generation/revision 去重后更新镜像，关键变更或满批立即落盘，否则定时落盘。 */
+/**
+ * 处理待验证 upsert：按 generation/revision 去重后更新镜像，关键变更或满批立即落盘，否则定时落盘。
+ * @param params upsert 消息、回执出口及可选目录与日期键。
+ */
 export async function handleVerificationUpsert({
   msg,
   reply,
@@ -198,14 +246,22 @@ export async function handleVerificationUpsert({
   }
 }
 
+/** 处理待验证删除消息的参数。 */
 export interface HandleVerificationDeleteParams {
+  /** 待验证快照删除消息。 */
   msg: VerificationDeleteDiskMessage;
+  /** 向主线程发送持久化回执的出口。 */
   reply: VerificationReplySink;
+  /** 待验证目录路径；缺省为 `VERIFICATION_MEMORY_DIR`。 */
   dir?: string;
+  /** 当前 `YYYY-MM-DD` 日期键；缺省为当前时刻。 */
   day?: string;
 }
 
-/** 处理待验证删除：从镜像移除并登记 null 墓碑，按关键变更立即落盘或批末落盘。 */
+/**
+ * 处理待验证删除：从镜像移除并登记 null 墓碑，按关键变更立即落盘或批末落盘。
+ * @param params 删除消息、回执出口及可选目录与日期键。
+ */
 export async function handleVerificationDelete({
   msg,
   reply,
@@ -233,7 +289,14 @@ export async function handleVerificationDelete({
   await flushCriticalVerificationChanges(reply, dir, day);
 }
 
-/** 批量追加本窗口最终变化；仅在历史越过阈值时原子收敛 active 镜像。 */
+/**
+ * 刷写待验证增量：跨日或尚未接管当日文件时先走 `rolloverVerificationDay` 轮换日文件，
+ * 否则批量追加本窗口最终变化，并在历史越过阈值时原子收敛 active 镜像。
+ * @param reply 向主线程发送持久化回执的出口。
+ * @param dir 待验证目录路径；缺省为 `VERIFICATION_MEMORY_DIR`。
+ * @param day 目标 `YYYY-MM-DD` 日期键；缺省为当前时刻。
+ * @returns 待写变更全部落盘成功或为空时返回 true，写盘失败时返回 false。
+ */
 export async function flushVerificationChanges(
   reply: VerificationReplySink,
   dir: string = VERIFICATION_MEMORY_DIR,

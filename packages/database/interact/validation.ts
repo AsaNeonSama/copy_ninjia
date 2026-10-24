@@ -36,10 +36,16 @@ import type {
 } from "../../types/storageDatabase";
 import type { StorageDatabaseInspection } from "../../types/identityStorage";
 
+/** 已确认存储类为 BLOB 且 JSON 文本非空的待踢任务启动行。 */
 type ValidatedPendingRemovalStartupRow =
   StoredPendingRemovalStartupRow & StoredPendingRemovalRow;
 
-/** 校验分页存储形态并把 nullable 投影收窄为领域解码器接受的规范文本。 */
+/**
+ * 校验分页存储形态并把 nullable 投影收窄为领域解码器接受的规范文本。
+ * @param rows 待核对的一页待踢任务原始行。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 无返回值，仅对 `rows` 做类型断言收窄。
+ */
 function assertPendingRemovalPage(
   rows: readonly StoredPendingRemovalStartupRow[],
   source: string
@@ -54,11 +60,18 @@ function assertPendingRemovalPage(
   }
 }
 
+/** 启动分页读取并解码全部待踢任务行的结果。 */
 interface PendingRemovalInspection {
+  /** 按 `removalId` 索引的已解码待踢任务映射。 */
   readonly values: Map<number, PendingBlockedRemoval>;
 }
 
-/** 按主键游标分页读取并解码全部待踢任务行，校验总行数不超过 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`。 */
+/**
+ * 按主键游标分页读取并解码全部待踢任务行，校验总行数不超过 `BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES`。
+ * @param database 共享存储数据库连接。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 解码后的全部待踢任务映射。
+ */
 function inspectPendingRemovalPages(
   database: StorageDatabase,
   source: string
@@ -91,7 +104,12 @@ function inspectPendingRemovalPages(
   }
 }
 
-/** 执行共享存储数据库的启动全量校验，返回恢复快照与 AI 上下文映射。 */
+/**
+ * 执行共享存储数据库的启动全量校验，返回恢复快照与 AI 上下文映射。
+ * @param database 共享存储数据库连接。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 通过全量校验的启动恢复快照与 AI 记忆上下文映射。
+ */
 export function validateStorageDatabase(database: StorageDatabase, source: string): StorageDatabaseInspection {
   assertStorageDatabaseStartupJsonbStorage(database, source);
   const metadata: readonly StoredStorageMetadataRow[] =

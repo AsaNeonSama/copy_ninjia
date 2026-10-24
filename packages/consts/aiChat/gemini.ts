@@ -12,6 +12,9 @@ import type { AgentCapability } from "../../types/config";
 /** 生图请求固定的分辨率档位。 */
 export const GEMINI_IMAGE_SIZE: string = "1K";
 
+/** `base_url` 缺省时传给 Google GenAI SDK 的官方默认端点根地址（与 SDK 内置缺省逐字相同，保留末尾斜杠）。所属模块：aiChat/gemini/client.ts、workers/antiRaid/adDetect/ai/google.ts。 */
+export const GEMINI_API_BASE_URL: string = "https://generativelanguage.googleapis.com/";
+
 /**
  * 闲聊回复生成温度，仅 Gemini 使用；OpenAI 侧不发送温度参数
  * （见 consts/aiChat/openai.ts 的模块头注）。

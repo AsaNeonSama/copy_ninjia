@@ -9,15 +9,19 @@ import type { VerificationDispatcher, VerificationEntry } from "../../../types/a
 import type { VerificationEvent, VerificationTerminalState } from "../../../types/states/verification";
 
 export interface RetryTerminalAttemptParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 目标成员 ID。 */
   userId: number;
   /** 发起这一轮尝试时捕获的执行 token；条目已换成别的状态对象时什么也不做。 */
   state: VerificationTerminalState;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
 /**
  * 终态动作本轮未结算时复位本地执行门，并按 `terminalRetries` 安排带上限的指数退避重试。
+ * @param params 终态重试调度参数。
  */
 export function retryTerminalAttempt({
   chatId,

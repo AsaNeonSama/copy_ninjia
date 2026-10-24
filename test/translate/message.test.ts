@@ -45,6 +45,7 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   persistChatState: async (): Promise<void> => {},
 }));
 const { activeTranslateStateIn, queueTranslateMessage } = await import("../../packages/translate/message");
+const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
 const { stopTranslation, setTranslateState } = await import("../../packages/translate/state");
 
 function params(text: string, language: TranslateLanguage = "ja"): {
@@ -271,7 +272,7 @@ describe("独立翻译消息", () => {
   });
 
   test("缺省开关或配置不可用不触发翻译，空会话不暴露目标", async () => {
-    expect(activeTranslateStateIn(-1001, 7)).toBeUndefined();
+    expect(activeTranslateStateIn(DEFAULT_CHAT_STATE, 7)).toBeUndefined();
     const input = params("你好");
     enabled = false;
     await translateNow(input);

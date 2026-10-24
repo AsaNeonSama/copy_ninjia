@@ -85,7 +85,7 @@ export interface JitTierStats extends JitTierCounts {
 
 export interface Scenario {
   iterations: number;
-  /** 异步或 I/O 场景可显式指定完整操作的预热次数；缺省沿用热点默认值。 */
+  /** 场景可显式指定预热迭代数；缺省沿用热点默认值。 */
   warmupIterations?: number;
   /** 完整 I/O 操作可只观察实际 JIT 层级；缺省要求生产探针进入 DFG 并稳定。 */
   profileRequiresOptimizedJit?: boolean;
@@ -97,7 +97,10 @@ export interface Scenario {
   /** reset 后、预热前建立不计时的场景前置状态。 */
   prepare?: () => void;
   reset?: () => void;
-  /** 每个正式样本前重新 reset + prepare；用于只量从空表增长的相变阶段。 */
+  /**
+   * 预热按 iterations 分片、每片与每个正式样本前都重新 reset + prepare，retained 模式另在
+   * 样本计时前做一次 full GC；用于只量从空表增长的相变阶段。
+   */
   resetBeforeSample?: boolean;
   /**
    * 本场景想观测分层的热函数；键名原样进入结果 JSON，便于逐个对照。

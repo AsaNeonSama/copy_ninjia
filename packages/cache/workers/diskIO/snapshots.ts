@@ -34,7 +34,11 @@ export const aiMemoryPersistedNotifier: {
   },
 };
 
-/** 按磁盘现存快照重建全部群的 revision 水位线，并清空旧水位与待回执集合。 */
+/**
+ * 按磁盘现存快照重建全部群的 revision 水位线，并清空旧水位与待回执集合。
+ *
+ * @param snapshots 磁盘现存的群 AI 记忆快照映射表
+ */
 export function hydrateAiMemoryCache(snapshots: ReadonlyMap<number, string>): void {
   resetAiMemoryCache();
   for (const chatId of snapshots.keys()) {
@@ -43,7 +47,13 @@ export function hydrateAiMemoryCache(snapshots: ReadonlyMap<number, string>): vo
   }
 }
 
-/** 校验并记录指定群的 AI 记忆 upsert revision（拒绝过期或同 revision 已被 delete 覆盖的写入）。 */
+/**
+ * 校验并记录指定群的 AI 记忆 upsert revision（拒绝过期或同 revision 已被 delete 覆盖的写入）。
+ *
+ * @param chatId 群聊 ID
+ * @param revision 本次写入的修订号
+ * @returns 该修订号是否为最新有效写入并被接纳
+ */
 export function markAiMemoryDirty(chatId: number, revision: number): boolean {
   const currentRevision: number = aiMemoryRevisions.get(chatId) ?? -1;
   const currentOperation: "delete" | "upsert" | undefined = aiMemoryOperations.get(chatId);
@@ -53,7 +63,13 @@ export function markAiMemoryDirty(chatId: number, revision: number): boolean {
   return true;
 }
 
-/** 校验并记录指定群的 AI 记忆删除 revision，同时清除该群尚未结算的即时持久化回执标记。 */
+/**
+ * 校验并记录指定群的 AI 记忆删除 revision，同时清除该群尚未结算的即时持久化回执标记。
+ *
+ * @param chatId 群聊 ID
+ * @param revision 本次删除的修订号
+ * @returns 该删除修订号是否为最新有效操作并被接纳
+ */
 export function markAiMemoryDeleted(chatId: number, revision: number): boolean {
   const currentRevision: number = aiMemoryRevisions.get(chatId) ?? -1;
   const currentOperation: "delete" | "upsert" | undefined = aiMemoryOperations.get(chatId);
@@ -64,7 +80,11 @@ export function markAiMemoryDeleted(chatId: number, revision: number): boolean {
   return true;
 }
 
-/** 移除指定群的 AI 记忆 revision 水位线记录（由 forgetAiMemory 消息触发）。 */
+/**
+ * 移除指定群的 AI 记忆 revision 水位线记录（由 forgetAiMemory 消息触发）。
+ *
+ * @param chatId 群聊 ID
+ */
 export function forgetAiMemoryChat(chatId: number): void {
   aiMemoryRevisions.delete(chatId);
   aiMemoryOperations.delete(chatId);

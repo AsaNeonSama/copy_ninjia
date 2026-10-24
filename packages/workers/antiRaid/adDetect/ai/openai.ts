@@ -18,10 +18,14 @@ import {
   AD_DETECT_OPENAI_REQUEST_MAX_RETRIES,
   AD_DETECT_OPENAI_REQUEST_TIMEOUT_MS,
 } from "../../../../consts/antiRaid/adDetect";
+import { OPENAI_API_BASE_URL, OPENAI_SDK_LOG_LEVEL } from "../../../../consts/aiChat/openai";
 import type { AdDetectAgentConfig } from "../../../../types/config";
 import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
 
-/** 取得线程内唯一 OpenAI 兼容广告检测客户端。 */
+/**
+ * 取得线程内唯一 OpenAI 兼容广告检测客户端。
+ * @returns OpenAI 兼容客户端实例。
+ */
 function getAdDetectOpenAiClient(): OpenAI {
   const config: AdDetectAgentConfig = getAdDetectAgentConfig();
   if (config.provider !== "openai") {
@@ -29,7 +33,11 @@ function getAdDetectOpenAiClient(): OpenAI {
   }
   adDetectOpenAiClientHolder.current ??= new OpenAI({
     apiKey: config.apiKey,
-    baseURL: config.baseUrl,
+    baseURL: config.baseUrl ?? OPENAI_API_BASE_URL,
+    organization: null,
+    project: null,
+    webhookSecret: null,
+    logLevel: OPENAI_SDK_LOG_LEVEL,
     timeout: AD_DETECT_OPENAI_REQUEST_TIMEOUT_MS,
     maxRetries: AD_DETECT_OPENAI_REQUEST_MAX_RETRIES,
   });
@@ -44,10 +52,15 @@ interface OpenAiAdDetectAttempt {
   readonly finishReason: string | undefined;
   /** `message.refusal` 的诊断串 `{ refusal }`（见 aiChat/ai/utils/finishDetails.ts）；没有拒答时为 undefined。 */
   readonly finishDetails: string | undefined;
+  /** 本次响应消耗的推理 token 数；兼容端点未返回时为 `"?"`。 */
   readonly reasoningTokens: number | "?";
 }
 
-/** 发一次请求并收窄结果；异常就地归一成 null。 */
+/**
+ * 发一次请求并收窄结果；异常就地归一成 null。
+ * @param params 结构化广告判定请求参数。
+ * @returns 单次尝试结果；请求异常时返回 null。
+ */
 async function attemptOpenAiAdDetectJson({
   model,
   systemPrompt,
@@ -61,6 +74,7 @@ async function attemptOpenAiAdDetectJson({
       await getAdDetectOpenAiClient().chat.completions.create({
         model,
         temperature,
+        // eslint-disable-next-line @typescript-eslint/no-deprecated -- OpenAI 兼容端点按 Chat Completions 的 max_tokens 读取输出上限
         max_tokens: maxOutputTokens,
         response_format: { type: "json_object" },
         messages: [
@@ -92,6 +106,8 @@ async function attemptOpenAiAdDetectJson({
 /**
  * 发送 JSON object 模式的 chat completion 请求；响应正文为空或被截断时按
  * AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 有界重采样。
+ * @param params 结构化广告判定请求参数。
+ * @returns 可用的模型 JSON 响应正文；重试耗尽或请求失败时返回 null。
  */
 export async function requestOpenAiAdDetectJson(
   params: AdDetectJsonRequestParams

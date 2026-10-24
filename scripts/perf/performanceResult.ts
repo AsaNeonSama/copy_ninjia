@@ -20,7 +20,11 @@ export const PERFORMANCE_RESULT_PATH: string = join(
   "performance-result.json"
 );
 
-/** 在基准父进程的模块隔离边界内判断非数组对象。 */
+/**
+ * 在基准父进程的模块隔离边界内判断非数组对象。
+ * @param value 待判断的未知值。
+ * @returns 若为非 null 且非数组的普通对象则返回 `true`。
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -41,6 +45,7 @@ export interface WritePerformanceResultEntryParams {
  * 替换记录文件中的指定字段，保留其他字段的值并统一序列化。
  *
  * 节不存在时创建；存在但不是对象则直接失败，不猜、不覆盖。
+ * @param params 记录文件路径、目标节名、键名与待写入的值。
  */
 export async function writePerformanceResultEntry({
   path,
@@ -50,7 +55,7 @@ export async function writePerformanceResultEntry({
 }: WritePerformanceResultEntryParams): Promise<void> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await Bun.file(path).text());
+    parsed = await Bun.file(path).json();
   } catch (error: unknown) {
     throw new Error(`${path}: could not be read as strict JSON.`, { cause: error });
   }

@@ -3,7 +3,7 @@
  * 模拟输入停顿与手滑概率。
  *
  * 采样温度与输出 token 上限**不在**这里，各自放在
- * consts/aiChat/{gemini,openai}.ts；模型名、超时、重试与内容过滤档位同理。
+ * consts/aiChat/{gemini,openai,anthropic}.ts；模型名、超时、重试与内容过滤档位同理。
  * 本文件只放与供应商无关的领域策略。
  */
 

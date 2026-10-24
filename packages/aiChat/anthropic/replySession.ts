@@ -11,7 +11,7 @@ import {
   ANTHROPIC_WEB_SEARCH_TOOL_NAME,
   ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
 } from "../../consts/aiChat/anthropic";
-import { failedReplyTurn } from "../ai/utils/replyTurn";
+import { failedReplyTurn, succeededReplyTurn } from "../ai/utils/replyTurn";
 import { getAgentDeploymentConfig } from "../../config/agent";
 import { getAnthropicClient, requestAnthropicMessage } from "./client";
 import { countAnthropicWebSearches, messageText, toolUseCalls } from "./response";
@@ -26,7 +26,11 @@ import type {
   AiToolOutput,
 } from "../../types/aiChat/provider";
 
-/** 将中立工具声明转换为 Anthropic Messages 自定义工具定义。 */
+/**
+ * 将中立工具声明转换为 Anthropic Messages 自定义工具定义。
+ * @param definition 厂商中立的函数工具声明。
+ * @returns Anthropic Beta Messages 自定义工具定义。
+ */
 function toCustomTool(definition: AiToolDefinition): Anthropic.Beta.BetaTool {
   return {
     name: definition.name,
@@ -35,7 +39,11 @@ function toCustomTool(definition: AiToolDefinition): Anthropic.Beta.BetaTool {
   };
 }
 
-/** 构造本轮请求挂载的工具列表（内建联网检索与自定义工具）。 */
+/**
+ * 构造本轮请求挂载的工具列表（内建联网检索与自定义工具）。
+ * @param request 单轮回复请求参数。
+ * @returns 传给 Anthropic Messages 接口的工具联合数组。
+ */
 function buildTools(request: AiReplyTurnRequest): Anthropic.Beta.BetaToolUnion[] {
   const tools: Anthropic.Beta.BetaToolUnion[] = [];
   if (request.webSearchEnabled) {
@@ -47,6 +55,9 @@ function buildTools(request: AiReplyTurnRequest): Anthropic.Beta.BetaToolUnion[]
 
 /**
  * 按已定切点将当前会话切分为多个文本块追加到 `content`，并在最后一个已定段附加缓存断点。
+ * @param content 待追加文本块的目标内容数组。
+ * @param text 当前会话消息块文本。
+ * @param settledOffsets 会话文本中已定边界的字符偏移升序列表。
  */
 function pushConversationSegments(
   content: Anthropic.Beta.BetaTextBlockParam[],
@@ -67,6 +78,8 @@ function pushConversationSegments(
 
 /**
  * 创建一轮 Anthropic 回复会话，固定当前 `text` 能力的模型、客户端与回退状态。
+ * @param params 回复会话初始化参数，包含稳定前缀块、易变上下文块、已定会话切点与取消信号。
+ * @returns 绑定当前会话历史与工具续写状态的回复会话句柄。
  */
 export function createAnthropicReplySession(
   { stableBlocks, volatileBlocks, conversationSettledOffsets = [], signal }: AiReplySessionParams
@@ -119,27 +132,27 @@ export function createAnthropicReplySession(
         const searches: number = result.message === undefined ? 0 : countAnthropicWebSearches(result.message);
         webSearchCalls += searches;
 
-        if (!result.ok) return failedReplyTurn(webSearchCalls, result.stopReason, result.stopDetails);
+        if (!result.ok) {
+          return failedReplyTurn({
+            webSearchCalls,
+            finishReason: result.stopReason,
+            finishDetails: result.stopDetails,
+          });
+        }
         text += messageText(result.message);
         const blocks: Anthropic.Beta.BetaContentBlockParam[] = prefix === null
           ? result.message.content
           : [...prefix, ...result.message.content];
         const functionCalls: readonly AiFunctionCall[] = toolUseCalls(result.message);
         if (result.message.stop_reason === "pause_turn" && functionCalls.length === 0) {
-          if (continuation >= ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS) return failedReplyTurn(webSearchCalls, "pause_turn", undefined);
+          if (continuation >= ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS) {
+            return failedReplyTurn({ webSearchCalls, finishReason: "pause_turn" });
+          }
           paused = blocks;
           continue;
         }
         pendingAssistant = blocks;
-        return {
-          ok: true,
-          text: text || null,
-          functionCalls,
-          webSearchCalls,
-          finishReason: undefined,
-          finishDetails: undefined,
-          toolCallLimitHit: false,
-        };
+        return succeededReplyTurn(text || null, functionCalls, webSearchCalls);
       }
     },
 

@@ -1,5 +1,7 @@
 /** 群问答（`/qa set`、`/qa query`、`/qa remove`）的字面量常量。 */
 
+import { STATE_MANAGED_CHAT_LIMIT } from "./storage";
+
 /**
  * 每群可登记的问答条数上限。
  *
@@ -52,12 +54,12 @@ export const QA_ANSWER_LABELS: readonly string[] = ["回答:", "回答：", "答
 export const QA_FORM_SESSION_TTL_MS: number = 15 * 60 * 1000;
 
 /**
- * 全局同时存在的 `/qa set` 表单会话上限。
+ * 全局同时存在的 `/qa set` 表单会话上限，等于受管群上限 STATE_MANAGED_CHAT_LIMIT。
  *
  * 会话按群唯一，同一个群重开表单替换旧会话；达到上限后新的 `/qa set` 被拒绝。
  * 所属模块：packages/cache/main/qa.ts。
  */
-export const QA_FORM_SESSION_MAX: number = 50;
+export const QA_FORM_SESSION_MAX: number = STATE_MANAGED_CHAT_LIMIT;
 
 /**
  * `/qa query` 看板上单条答案的展示上限（UTF-16 code unit，含省略号）。

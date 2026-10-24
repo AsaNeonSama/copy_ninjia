@@ -15,7 +15,12 @@ import type { LuckReceiptSecret } from "../../types/diskIO/storage";
 import type { SignedLuckResult } from "../../types/luckChallenge";
 import { currentLuckSecret, ensureLuckCacheFreshForToday, promotePendingDraw } from "./cache";
 
-/** 正文直接展示回执的定长 HMAC；自描述签名回执放在同范围的 text_link 元数据中。 */
+/**
+ * 正文直接展示回执的定长 HMAC；自描述签名回执放在同范围的 text_link 元数据中。
+ * @param bodyText 运势结果正文（不含末行回执）。
+ * @param cacheKey 当日运势缓存键。
+ * @returns 附加了签名回执末行的完整文本及链接实体元数据。
+ */
 export function signLuckResultText(bodyText: string, cacheKey: string): SignedLuckResult {
   const receipt: string = createLuckReceipt(currentLuckSecret(), cacheKey);
   const receiptHash: string | undefined = luckReceiptHmacHash(receipt);
@@ -29,6 +34,13 @@ export function signLuckResultText(bodyText: string, cacheKey: string): SignedLu
   };
 }
 
+/**
+ * 从消息实体列表中提取与末行回执摘要匹配的签名回执原文。
+ * @param receiptHash 末行解析出的定长 HMAC 摘要。
+ * @param receiptOffset 摘要在消息文本中的 UTF-16 起始偏移。
+ * @param entities 消息附带的实体列表。
+ * @returns 校验匹配的签名回执原文；不匹配或不存在时返回 undefined。
+ */
 function receiptFromLinkEntity(
   receiptHash: string,
   receiptOffset: number,
@@ -44,7 +56,10 @@ function receiptFromLinkEntity(
   return luckReceiptHmacHash(receipt) === receiptHash ? receipt : undefined;
 }
 
-/** 完成已通过同步格式校验的回执确认；只有真实候选回执才进入异步刷新。 */
+/**
+ * 完成已通过同步格式校验的回执确认；只有真实候选回执才进入异步刷新。
+ * @param receipt 待验签确认的运势回执原文。
+ */
 async function confirmLuckReceipt(receipt: string): Promise<void> {
   try {
     await ensureLuckCacheFreshForToday();
@@ -64,6 +79,9 @@ async function confirmLuckReceipt(receipt: string): Promise<void> {
 /**
  * 从消息末行与实体元数据验证 HMAC 回执，并把对应 pending 抽签转正。
  * 普通消息同步返回，不创建 Promise；只有携带完整候选回执时才进入异步刷新。
+ * @param messageText 消息文本；非文本消息时为 undefined。
+ * @param entities 消息附带的实体列表。
+ * @returns 命中候选回执时返回异步确认 Promise；普通消息同步返回 undefined。
  */
 export function confirmLuckDraw(
   messageText: string | undefined,

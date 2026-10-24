@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { copyFixtureTree } from "../fixtures/copyTree";
-import { runCapturedCommand } from "../fixtures/subprocess";
+import { runCapturedCommand, runCapturedTerminalCommand } from "../fixtures/subprocess";
 import type { CapturedCommandResult } from "../fixtures/subprocess";
 import { readInstallScripts } from "../installSources";
 
@@ -53,15 +53,30 @@ export interface InstallerRunResult {
 
 const fixtureRoots: string[] = [];
 
+/**
+ * 向目标路径写入文本内容，并在指定权限位时执行 chmod。
+ * @param path 目标文件路径。
+ * @param content 文本内容。
+ * @param mode 可选的文件权限位。
+ */
 export async function writeText(path: string, content: string, mode?: number): Promise<void> {
   await Bun.write(path, content);
   if (mode !== undefined) chmodSync(path, mode);
 }
 
+/**
+ * 将脚本行拼接写入目标路径并赋予 0700 可执行权限。
+ * @param path 目标脚本路径。
+ * @param lines 脚本内容行列表。
+ */
 async function executable(path: string, lines: readonly string[]): Promise<void> {
   await writeText(path, lines.join("\n") + "\n", 0o700);
 }
 
+/**
+ * 在测试夹具的 bin 目录下安装受控的 bun 替身脚本。
+ * @param fixture 安装器隔离测试夹具。
+ */
 async function installBunGuard(fixture: InstallerFixture): Promise<void> {
   await executable(join(fixture.binRoot, "bun"), [
     "#!/usr/bin/env bash",
@@ -163,6 +178,10 @@ async function installBunGuard(fixture: InstallerFixture): Promise<void> {
   ]);
 }
 
+/**
+ * 在测试夹具的 bin 目录下安装受控的 git 替身脚本。
+ * @param fixture 安装器隔离测试夹具。
+ */
 async function installGitGuard(fixture: InstallerFixture): Promise<void> {
   await executable(join(fixture.binRoot, "git"), [
     "#!/usr/bin/env bash",
@@ -177,6 +196,10 @@ async function installGitGuard(fixture: InstallerFixture): Promise<void> {
   ]);
 }
 
+/**
+ * 在测试夹具的 bin 目录下安装网络与系统管理命令（sudo、systemctl、journalctl 等）的拦截替身。
+ * @param fixture 安装器隔离测试夹具。
+ */
 async function installSystemGuards(fixture: InstallerFixture): Promise<void> {
   const blockedCommands: readonly string[] = [
     "curl", "apt-get", "dnf", "yum", "zypper", "pacman", "apk",
@@ -294,7 +317,15 @@ async function installSystemGuards(fixture: InstallerFixture): Promise<void> {
   ]);
 }
 
+let guardScriptsValidated: boolean = false;
+
+/**
+ * 使用 `bash -n` 校验测试夹具 bin 目录下所有替身脚本的语法。
+ * 替身脚本模板在进程生命周期内固定不变，首次创建夹具时完成全量校验即可。
+ * @param fixture 安装器隔离测试夹具。
+ */
 async function validateGuardScripts(fixture: InstallerFixture): Promise<void> {
+  if (guardScriptsValidated) return;
   for (const name of readdirSync(fixture.binRoot)) {
     const path: string = join(fixture.binRoot, name);
     const result: CapturedCommandResult = await runCapturedCommand({ cmd: ["/bin/bash", "-n", path] });
@@ -302,8 +333,14 @@ async function validateGuardScripts(fixture: InstallerFixture): Promise<void> {
       throw new Error(`invalid guard ${name}: ${result.stderr}`);
     }
   }
+  guardScriptsValidated = true;
 }
 
+/**
+ * 创建全新的安装器隔离测试夹具目录树及全部受控替身脚本。
+ * @param realRuntime 是否拷贝真实应用源码以在安装末尾启动真实运行时。
+ * @returns 已就绪的安装器隔离测试夹具。
+ */
 export async function createFixture(realRuntime: boolean = false): Promise<InstallerFixture> {
   const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-install-test-"));
   fixtureRoots.push(root);
@@ -354,7 +391,12 @@ export async function createFixture(realRuntime: boolean = false): Promise<Insta
   return fixture;
 }
 
-/** 夹具默认环境叠加用例覆盖项；覆盖值为 undefined 的变量从环境中移除。 */
+/**
+ * 夹具默认环境叠加用例覆盖项；覆盖值为 undefined 的变量从环境中移除。
+ * @param fixture 安装器隔离测试夹具。
+ * @param extra 用例附加或移除（值为 undefined）的环境变量表。
+ * @returns 合并后的子进程环境变量字典。
+ */
 function installerEnvironment(
   fixture: InstallerFixture,
   extra: Readonly<Record<string, string | undefined>> = {}
@@ -387,21 +429,28 @@ function installerEnvironment(
   return environment;
 }
 
+/**
+ * 在伪终端中执行安装器脚本并按序喂入交互输入，核对提示词出现顺序与脱敏输出。
+ * @param fixture 安装器隔离测试夹具。
+ * @param prompts 预期的交互提示词与应答序列。
+ * @param extraEnvironment 附加或覆盖的环境变量表。
+ * @returns 安装器退出码与脱敏后的完整终端输出。
+ */
 export async function runInstaller(
   fixture: InstallerFixture,
   prompts: readonly PromptReply[],
   extraEnvironment: Readonly<Record<string, string | undefined>> = {}
 ): Promise<InstallerRunResult> {
-  const inputLines: string[] = [];
+  let input: string = "";
   for (const prompt of prompts) {
     if (prompt.close === true) break;
-    inputLines.push(prompt.reply ?? "");
+    input += `${prompt.reply ?? ""}\n`;
   }
-  const result: CapturedCommandResult = await runCapturedCommand({
-    cmd: ["script", "-qefc", "umask 022; bash ./install.sh", "/dev/null"],
+  const result: CapturedCommandResult = await runCapturedTerminalCommand({
+    cmd: ["/bin/bash", "-c", "umask 022; bash ./install.sh"],
     cwd: fixture.worktree,
     env: installerEnvironment(fixture, extraEnvironment),
-    stdin: new TextEncoder().encode(inputLines.join("\n") + "\n"),
+    input,
     maxBuffer: 2 * 1024 * 1024,
     timeout: 30_000,
     killSignal: "SIGKILL",
@@ -431,6 +480,11 @@ export async function runInstaller(
   return { exitCode: result.exitCode, output };
 }
 
+/**
+ * 构造合法的最小 `bot.json` 文本。
+ * @param token Telegram Bot Token 字符串。
+ * @returns 格式化后的 JSON 文本（含末尾换行）。
+ */
 export function validTelegram(token: string = "123456789:existing_test_token"): string {
   return JSON.stringify({
     bot_token: token,
@@ -438,10 +492,17 @@ export function validTelegram(token: string = "123456789:existing_test_token"): 
   }, null, 2) + "\n";
 }
 
+/**
+ * 生成拒绝覆盖现有 systemd unit 的可选交互应答项。
+ * @returns 针对 `覆盖它？` 提示词回答 `n` 的可选应答配置。
+ */
 export function systemdPrompt(): PromptReply {
   return { prompt: "覆盖它？", reply: "n", optional: true };
 }
 
+/**
+ * 递归删除当前进程已创建的全部安装器隔离测试夹具临时目录。
+ */
 export function cleanupFixtures(): void {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 }

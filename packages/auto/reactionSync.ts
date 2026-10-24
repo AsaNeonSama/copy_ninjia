@@ -1,6 +1,6 @@
 import type { Context } from "grammy";
 import type { CopyableReaction } from "../types/telegram";
-import { activeCopyTargetIdIn } from "../infra/storage/stateStore";
+import { activeCopyTargetIdIn, getChatState } from "../infra/storage/stateStore";
 import { setMessageReactions } from "../infra/telegram";
 import { logger } from "../infra/logger";
 import type { MessageReactionUpdated } from "grammy/types";
@@ -16,6 +16,8 @@ import { activeTranslateStateIn } from "../translate/message";
  * 本 update 等待 Telegram 动作结算后才返回；严格串行的 acknowledged runner
  * 在此之前不会读取或确认下一条 update。429 由主线程 reaction 类别独立退避，
  * 网络与 5xx 由统一 Telegram 动作边界记录并结束本次同步。
+ *
+ * @param ctx grammY 上下文
  */
 export async function handleReaction(ctx: Context): Promise<void> {
   const reaction: MessageReactionUpdated | undefined = ctx.messageReaction;
@@ -24,7 +26,7 @@ export async function handleReaction(ctx: Context): Promise<void> {
   const copyTargetId: number | undefined = activeCopyTargetIdIn(reaction.chat.id);
   const reactorId: number | undefined = reaction.actor_chat ? reaction.actor_chat.id : reaction.user?.id;
   if (copyTargetId === undefined || reactorId !== copyTargetId) return;
-  if (activeTranslateStateIn(reaction.chat.id, reactorId) !== undefined) return;
+  if (activeTranslateStateIn(getChatState(reaction.chat.id), reactorId) !== undefined) return;
 
   // grammY 的 ctx.reactions() 已把 old/new 的差量按类型分组（付费反应单独归类，
   // 不在可复制范围，见 CopyableReaction 类型注释）。机器人一条消息只设一个反应：

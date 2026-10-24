@@ -10,7 +10,7 @@
 
 ---
 
-If the bot process is running but fails to respond as expected in chat, work through this checklist. For essential BotFather toggles and required Telegram administrator privileges, see the [project README](README.md#botfather-setup).
+If the bot process is running but fails to respond as expected in chat, work through this checklist. For essential BotFather toggles and required Telegram administrator privileges, see the [project README](../../README.md#botfather-setup).
 
 ## The Bot Is Running, Why Is There No Reply?
 
@@ -36,7 +36,7 @@ If the bot process is running but fails to respond as expected in chat, work thr
       • <b>Missing configuration</b>: Requires valid <code>text</code>, <code>summary</code>, and <code>media</code> providers in <code>agent.json</code>, plus <code>stickers.json</code> and <code>mood.json</code>; missing any of these disables AI chat entirely.<br>
       • <b>Trigger mechanics</b>: Direct replies to the bot or <code>@bot_username</code> mentions always trigger a reply; regular messages trigger probabilistically (no interjections during <code>/quiet</code>).<br>
       • <b>Repeat mode conflict</b>: If active repetition (<code>/copy</code>) is running in the group, AI chat pauses automatically.<br>
-      • <b>Rate limiting &amp; abuse cooldown</b>: Frequent triggers engage sliding-window rate limits (see <code>RATE_LIMIT_LONG_WINDOW_MS</code> and <code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>); users marked by <code>abuse_mark</code> for repeatedly requesting disallowed or pestering content are also ignored by AI chat for <code>ABUSE_MARK_DURATION_MS</code>.
+      • <b>Rate limiting &amp; abuse cooldown</b>: Frequent triggers engage sliding-window rate limits (see <code>RATE_LIMIT_LONG_WINDOW_MS</code> and <code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>); users marked by <code>abuse_mark</code> for repeatedly requesting disallowed content or engaging in behavior that makes the model uncomfortable (scolding, humiliation, etc.) are also ignored by AI chat for <code>ABUSE_MARK_DURATION_MS</code>.
     </td>
   </tr>
   <tr>
@@ -198,33 +198,20 @@ The payload is parsed as JSONC (supporting trailing commas and comments). If par
 
 ## How Do I Call Google Models via Third-Party Gateways (e.g., Cloudflare AI Gateway)?
 
-1. **Configure Endpoint**: Set `base_url` under the target capability to your gateway URL (or enter `base_url` and custom headers directly in the `install.sh` interactive wizard), for example:
+1. **Configure Endpoint**: Set `base_url` under the target capability to your gateway URL (or enter `base_url` directly in the `install.sh` interactive wizard), for example:
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
-2. **Add Custom Headers**: Add custom authentication headers under that capability, for example:
-   ```json
-   "headers": {
-     "cf-aig-authorization": "Bearer <token>"
-   }
-   ```
-3. **Retain Google API Key**: The `api_key` field remains mandatory; provide your valid Google AI Studio API key. With gateway-stored keys (BYOK / Unified Billing), set it to the Cloudflare token instead and omit `headers`. The `headers` option is supported for `provider: "google"` and `provider: "anthropic"` (not `openai`); sensitive credentials are redacted from logs automatically.
-4. **Endpoint routing**: Text chat, vision, and image generation automatically route through `generateContent`; voice synthesis routes through the `Interactions API`. Test connectivity using `/send` with a voice payload in private chat.
+2. **Set the API key**: Put your Google AI Studio API key in `api_key` (sent by the SDK as `x-goog-api-key`). Requests carry no other headers, so gateway authentication (Authenticated Gateway) must be disabled. With gateway-stored keys (BYOK / Unified Billing), set `api_key` to the Cloudflare token instead. `api_key` is redacted from logs automatically.
+3. **Endpoint routing**: Text chat, vision, and image generation automatically route through `generateContent`; voice synthesis routes through the `Interactions API`. Test connectivity using `/send` with a voice payload in private chat.
 
 ---
 
 ## How Do I Call Anthropic Models via Cloudflare AI Gateway?
 
-Capabilities with `provider: "anthropic"` (`text`, `summary`, `media`, `web_search`, `ad_detect`) attach `headers` to every request through the SDK's `defaultHeaders` (`base_url` and custom headers can also be entered directly in the `install.sh` interactive wizard). Set `base_url` to:
+Set `base_url` of capabilities with `provider: "anthropic"` (`text`, `summary`, `media`, `web_search`, `ad_detect`) to the following URL (it can also be entered directly in the `install.sh` interactive wizard):
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
-1. **Bring your own Anthropic key**: Put the Anthropic API key in `api_key` (sent by the SDK as `x-api-key`). If the gateway is an Authenticated Gateway, also add:
-   ```json
-   "headers": {
-     "cf-aig-authorization": "Bearer <CF_AIG_TOKEN>"
-   }
-   ```
-   No `headers` are needed when gateway authentication is disabled.
-2. **Gateway-stored keys (BYOK / Unified Billing)**: Set `api_key` to the Cloudflare token `<CF_AIG_TOKEN>`; no `headers` are needed. The gateway recognizes the Cloudflare token in `x-api-key` and switches to the stored Anthropic key or Unified Billing. A placeholder `api_key` is forwarded to Anthropic unchanged and fails authentication.
-3. **Field constraints**: `headers` cannot contain `x-api-key` (case-insensitive); the Anthropic credential is only passed through `api_key`. Other constraints match the Google provider. Every header value is added to the log redaction list.
+1. **Bring your own Anthropic key**: Put the Anthropic API key in `api_key` (sent by the SDK as `Authorization: Bearer`). Requests carry no other headers, so gateway authentication (Authenticated Gateway) must be disabled.
+2. **Gateway-stored keys (BYOK / Unified Billing)**: Set `api_key` to the Cloudflare token `<CF_AIG_TOKEN>`. The gateway recognizes the Cloudflare token in `Authorization` and switches to the stored Anthropic key or Unified Billing. A placeholder `api_key` is forwarded to Anthropic unchanged and fails authentication.
 
 ---
 

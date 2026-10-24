@@ -18,15 +18,21 @@ import {
 
 /** notifyRateLimited 的入参。 */
 export interface NotifyRateLimitedParams {
+  /** 群聊 ID。 */
   chatId: number;
+  /** 当前毫秒时间戳。 */
   now: number;
-  /** 缺省取当前代数（replyQueue.ts 的 flushOverflowNotice）；回复轮启动被限频时显式传入它捕获的代数。 */
+  /** 缺省取当前回复代际（`replyQueue.ts` 的 `flushOverflowNotice`）；回复轮启动被限频时显式传入其捕获的回复代际。 */
   generation?: number;
   /** 提示要落进的论坛话题；General、非论坛群为 undefined。 */
   messageThreadId: number | undefined;
 }
 
-/** 按群冷却（RATE_LIMIT_NOTICE_COOLDOWN_MS）发送限频或队列溢出临时提示，并在发送成功后记入滚动记忆。 */
+/**
+ * 按群冷却（RATE_LIMIT_NOTICE_COOLDOWN_MS）发送限频或队列溢出临时提示，并在发送成功后记入滚动记忆。
+ *
+ * @param params 群聊 ID、当前时间戳、回复代际与论坛话题 ID
+ */
 export function notifyRateLimited({
   chatId,
   now,

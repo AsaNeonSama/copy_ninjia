@@ -77,7 +77,15 @@ mock.module("../../packages/infra/selfSentTracker", () => ({
   waitForBotOwnMessage: async (): Promise<boolean> => false,
 }));
 
-const { handleIncomingMessageMiddleware } = await import("../../packages/auto/message");
+const { handleIncomingMessageMiddleware: handleIncomingMessageWithState } = await import("../../packages/auto/message");
+const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
+
+/** 与前置链一致：读一次本条消息所在群的状态快照，再交给自动流水线。 */
+function handleIncomingMessageMiddleware(ctx: any): Promise<void> | undefined {
+  const chatId: number | undefined = ctx.msg?.chat.id;
+  return handleIncomingMessageWithState(ctx, chatId === undefined ? DEFAULT_CHAT_STATE : getChatState(chatId));
+}
 const { SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { adoptAgentDeploymentConfig, getAgentDeploymentConfig } = await import("../../packages/config/agent");
 const { parseProxyTtsRequest } = await import("../../packages/auto/message/proxyTts");

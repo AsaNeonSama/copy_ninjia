@@ -15,7 +15,11 @@ export const blocklistRemovalEpochs: Map<number, number> = new Map();
  */
 export const blocklistRemovalTaskCounts: Map<number, number> = new Map();
 
-/** 群停管时递增该群的黑名单处置世代号（无在途任务时直接删键），使在途补扫批次放弃后续操作。 */
+/**
+ * 群停管时递增该群的黑名单处置世代号（无在途任务时直接删键），使在途补扫批次放弃后续操作。
+ *
+ * @param chatId 群聊 ID
+ */
 export function bumpBlocklistRemovalEpoch(chatId: number): void {
   if ((blocklistRemovalTaskCounts.get(chatId) ?? 0) === 0) {
     blocklistRemovalEpochs.delete(chatId);
@@ -24,7 +28,12 @@ export function bumpBlocklistRemovalEpoch(chatId: number): void {
   blocklistRemovalEpochs.set(chatId, (blocklistRemovalEpochs.get(chatId) ?? 0) + 1);
 }
 
-/** 读取指定群当前的黑名单处置世代号；无条目时返回零。 */
+/**
+ * 读取指定群当前的黑名单处置世代号；无条目时返回零。
+ *
+ * @param chatId 群聊 ID
+ * @returns 当前群的黑名单处置世代号
+ */
 export function currentBlocklistRemovalEpoch(chatId: number): number {
   return blocklistRemovalEpochs.get(chatId) ?? 0;
 }

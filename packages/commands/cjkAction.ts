@@ -23,13 +23,17 @@ import { resolveCommandTarget } from "./targetResolution";
 
 /** 一段待拼接的回复文本；带 url 的段会挂上 t.me 链接。 */
 interface ActionSegment {
+  /** 该片段的显示文本。 */
   text: string;
+  /** 可选的 `https://t.me/<username>` 个人主页链接；无公开用户名时为 undefined。 */
   url: string | undefined;
 }
 
 /** 拼好的动作回复：纯文本，外加逐段算好偏移的链接实体。 */
 interface ActionMessage {
+  /** 拼接完成后的完整消息正文。 */
   text: string;
+  /** 按 UTF-16 偏移量计算的 `text_link` 消息实体列表。 */
   entities: MessageEntity[];
 }
 
@@ -47,7 +51,8 @@ export interface CjkActionCommand {
  * 从消息原文解析 `/<动作词>` 动作命令，兼容 `@<BotUsername>` 定向后缀。
  * 与 bot.hears 用的是同一条正则（CJK_ACTION_COMMAND_PATTERN，见 consts/commands.ts），
  * 能匹配进 handler 的消息在这里必定也能解析出来。
- * @returns 不是中文动作命令时为 undefined。
+ * @param text 消息文本原文；没有文本时为 undefined。
+ * @returns 解析出的动作命令；不是中文动作命令时为 undefined。
  */
 export function parseCjkActionCommand(text: string | undefined): CjkActionCommand | undefined {
   if (text === undefined) return undefined;
@@ -80,6 +85,8 @@ export function tryConsumeCjkActionRateLimit(now: number = Date.now()): boolean 
  * 把各段文本拼成一条消息，并为带链接的段生成 text_link 实体。偏移按 Telegram
  * 的 UTF-16 code unit 口径累计，与 JS 的 String#length 同口径，昵称里的 emoji
  * （代理对）占 2 个单位。
+ * @param segments 按顺序拼接的文本与可选链接片段列表。
+ * @returns 拼接后的完整文本及对应的链接实体列表。
  */
 function buildActionMessage(segments: readonly ActionSegment[]): ActionMessage {
   const parts: string[] = [];
@@ -100,6 +107,7 @@ function buildActionMessage(segments: readonly ActionSegment[]): ActionMessage {
  * 菜单占位项 `/x` 的处理器。`/x` 本身不是动作命令，只用于在命令菜单里展示动作命令
  * 的用法（非 ASCII 命令名进不了菜单，见 consts/atmosphere/teasing/commands.ts 的
  * BOT_COMMANDS）。收到 `/x` 时回复 actionUsage，不放行到普通消息流水线。
+ * @param ctx grammY 上下文。
  */
 export async function handleCjkActionUsageCommand(ctx: Context): Promise<void> {
   const chatId: number | undefined = ctx.chat?.id;
@@ -122,6 +130,7 @@ export async function handleCjkActionUsageCommand(ctx: Context): Promise<void> {
  * 命令名只收 ASCII，动作命令拿不到 bot_command 实体，由 bot.hears 按原文匹配；
  * 菜单里的 `/x` 是占位说明项，见 handleCjkActionUsageCommand 与
  * consts/atmosphere/teasing/commands.ts 的 BOT_COMMANDS。
+ * @param ctx grammY 上下文。
  * @param next 命令并非发给本机器人或消息形态不符时放行，回到普通消息流水线。
  */
 export async function handleCjkActionCommand(ctx: Context, next: NextFunction): Promise<void> {
@@ -192,10 +201,9 @@ export async function handleCjkActionCommand(ctx: Context, next: NextFunction): 
     replyToMessageId: message.message_id,
     // 关闭链接预览，t.me 主页链接不展开预览卡片。
     disableLinkPreview: true,
-    // 获授权的长期保留例外：仅成功动作结果保留；目标校验提示仍自动清理。
+    // 获授权的长期保留例外：仅成功动作结果保留；目标校验提示仍走 30 秒自动清理。
     preserveInGroup: true,
-    // 长期保留的内容必须自己带话题（见 SendMessageParams.messageThreadId），
-    // 目标校验提示不适用。
+    // 显式带上触发消息所在论坛话题（见 SendMessageBaseParams.messageThreadId）。
     messageThreadId: forumTopicThreadId(message),
   });
 }

@@ -9,6 +9,9 @@ import type { LogRedactionReplacer } from "../../types/logger";
  *
  * 不依赖配置值级替换，按字段名精确匹配（大小写不敏感），覆盖 SDK 错误对象附带的
  * 上游响应头（如 `set-cookie`）；`output_tokens`、request id 等诊断字段不匹配。
+ *
+ * @param key 待判断的 JSON 属性名或 HTTP 头字段名。
+ * @returns 命中敏感凭据字段名列表时返回 `true`，否则返回 `false`。
  */
 function isSensitiveLogField(key: string): boolean {
   switch (key.toLowerCase()) {
@@ -39,7 +42,12 @@ function isSensitiveLogField(key: string): boolean {
   }
 }
 
-/** JSON/HTTP 字段名允许的 ASCII 字符；只用于向前界定冒号左侧的候选键。 */
+/**
+ * JSON/HTTP 字段名允许的 ASCII 字符；只用于向前界定冒号左侧的候选键。
+ *
+ * @param code 待检查字符的 UTF-16 码元值。
+ * @returns 属于英文字母、数字、连字符或下划线时返回 `true`，否则返回 `false`。
+ */
 function isLogFieldNameCharacter(code: number): boolean {
   return (
     (code >= 0x30 && code <= 0x39) ||
@@ -50,7 +58,13 @@ function isLogFieldNameCharacter(code: number): boolean {
   );
 }
 
-/** 跳过 JSON 与常见 HTTP 诊断格式在分隔符两侧使用的 ASCII 空白。 */
+/**
+ * 跳过 JSON 与常见 HTTP 诊断格式在分隔符两侧使用的 ASCII 空白。
+ *
+ * @param text 待扫描的原始文本。
+ * @param start 起始扫描下标。
+ * @returns 跳过连续空白后的首个非空白字符下标（或文本末尾 `text.length`）。
+ */
 function skipLogWhitespace(text: string, start: number): number {
   let index: number = start;
   while (index < text.length) {
@@ -64,6 +78,10 @@ function skipLogWhitespace(text: string, start: number): number {
 /**
  * 判断 `:`/`=` 左侧是否是完整的敏感字段名。先按字符边界筛选长度，只有候选键
  * 才切片并做大小写归一化。
+ *
+ * @param text 待扫描的原始文本。
+ * @param separator 分隔符（`:` 或 `=`）在 `text` 中的下标。
+ * @returns 分隔符左侧紧邻完整敏感字段名时返回 `true`，否则返回 `false`。
  */
 function hasSensitiveLogFieldBefore(text: string, separator: number): boolean {
   let end: number = separator;
@@ -88,6 +106,10 @@ function hasSensitiveLogFieldBefore(text: string, separator: number): boolean {
 /**
  * 找到字符串或容器形态字段值的末尾。引号内的逗号与括号不结束扫描；
  * 格式残缺时脱敏到文本结尾。
+ *
+ * @param text 待扫描的原始文本。
+ * @param start 字段值首个非空白字符的起始下标。
+ * @returns 该字段值结束位置的排他下标。
  */
 function findStructuredLogValueEnd(text: string, start: number): number {
   const opening: number = text.charCodeAt(start);
@@ -153,6 +175,9 @@ function findStructuredLogValueEnd(text: string, start: number): number {
  * `{"set-cookie":[...]}`。未命中时原样返回且不建立中间数组；命中后仅构造最终
  * 字符串。结构化对象仍由下方 stringify replacer 处理，两条路径共用字段名判定。
  * 带查询串、fragment 或 userinfo 的 HTTP(S) URL 统一保留 origin 与 pathname。
+ *
+ * @param text 待脱敏的原始日志文本。
+ * @returns 已将内嵌敏感字段值与 HTTP(S) URL 敏感部分脱敏后的文本。
  */
 export function redactSensitiveFieldsInText(text: string): string {
   let searchFrom: number = 0;
@@ -191,6 +216,9 @@ export function redactSensitiveFieldsInText(text: string): string {
  * 继续检查 SDK 已经预格式化进去的字段。全部复用既有序列化遍历，不深拷贝错误对象。
  * 已登记凭据在 URL 规范化前按原文替换；回调只捕获
  * 本份快照的名单，不读取后续替换的配置，也不捕获每次 emit 的展开状态。
+ *
+ * @param secrets 当前需要按字面量脱敏的凭据字符串只读列表。
+ * @returns 供 `JSON.stringify` 使用的字段与文本脱敏替换回调。
  */
 export function createLogRedactionReplacer(secrets: readonly string[]): LogRedactionReplacer {
   return function redactSensitiveLogField(this: unknown, key: string, value: unknown): unknown {
@@ -209,7 +237,13 @@ export function createLogRedactionReplacer(secrets: readonly string[]): LogRedac
   };
 }
 
-/** 使用本次 emit 的快照回调编码；原值编码失败时仍使用同一回调处理字符串兜底。 */
+/**
+ * 使用本次 emit 的快照回调编码；原值编码失败时仍使用同一回调处理字符串兜底。
+ *
+ * @param value 待 JSON 序列化的任意值。
+ * @param replacer 负责在序列化遍历中脱敏敏感字段与凭据的替换回调。
+ * @returns 经过脱敏的安全 JSON 字符串表示（永不抛出）。
+ */
 export function safeStringify(value: unknown, replacer: LogRedactionReplacer): string {
   try {
     return JSON.stringify(value, replacer) ?? "null";

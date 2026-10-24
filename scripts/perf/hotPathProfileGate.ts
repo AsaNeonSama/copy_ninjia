@@ -81,16 +81,27 @@ const shouldWriteResult: boolean = Bun.argv.includes("--write-result");
 const gateFixture: HotPathGateFixture = await createHotPathGateFixture();
 let gateFixturePresent: boolean = true;
 
+/** 幂等清理热路径门禁的临时夹具目录。 */
 function cleanupGateFixture(): void {
   if (!gateFixturePresent) return;
   removeHotPathGateFixture(gateFixture);
   gateFixturePresent = false;
 }
 
+/**
+ * 求数值列表的最大值。
+ * @param values 非空数值列表。
+ * @returns 列表中的最大数值。
+ */
 function maximum(values: readonly number[]): number {
   return Math.max(...values);
 }
 
+/**
+ * 求数值列表的最小值。
+ * @param values 非空数值列表。
+ * @returns 列表中的最小数值。
+ */
 function minimum(values: readonly number[]): number {
   return Math.min(...values);
 }

@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { waitUntil } from "../../helpers/waitUntil";
 
 import type { AntiRaidWorkerEvent } from "../../../packages/types/antiRaid/events";
+import type { Message } from "grammy/types";
 import type { AntiRaidWorkerMessage } from "../../../packages/types/antiRaid/protocol";
 
 const {
@@ -30,6 +31,12 @@ const {
 type FlushResult = "flushed" | "timedOut" | "failed";
 
 const antiRaid = await import("../../../packages/antiRaid");
+const { getChatState } = await import("../../../packages/infra/storage/stateStore");
+
+/** 与前置链一致：按消息所在群读一次群状态快照，再交给入群守卫 ingress。 */
+function handleAntiRaidMessageIngress(message: Message, botId: number): boolean | Promise<boolean> {
+  return antiRaid.handleAntiRaidMessageIngress(message, botId, getChatState(message.chat.id));
+}
 const { LOCKDOWN_PERSIST_RECONCILE_MAX_ROUNDS } = await import("../../../packages/consts/antiRaid/protocol");
 
 /** 对账轮数用尽时 events.ts 记下的那一行错误。 */
@@ -582,7 +589,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
     }
 
     await expectOwnBarrier(
-      () => antiRaid.handleAntiRaidMessageIngress({
+      () => handleAntiRaidMessageIngress({
         chat: { id: -5001 },
         from: { id: 20 },
         message_id: 60,
@@ -591,7 +598,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
       "join"
     );
     await expectOwnBarrier(
-      () => antiRaid.handleAntiRaidMessageIngress({
+      () => handleAntiRaidMessageIngress({
         chat: { id: -5002 },
         from: { id: 21 },
         message_id: 61,
@@ -615,7 +622,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
   test("入群事件晚到时仍转交直属评论与楼中楼线索；非待验证发送者只同步投递、不加投 barrier，普通消息不进入 Worker", async () => {
     workerPosts.length = 0;
     // 评论线索只进 Worker 内存，barrier 换不来持久性：同步返回 false，不分配 Promise。
-    expect(antiRaid.handleAntiRaidMessageIngress({
+    expect(handleAntiRaidMessageIngress({
       chat: { id: -4001 },
       from: { id: 88 },
       message_id: 55,
@@ -629,7 +636,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
     })]);
 
     workerPosts.length = 0;
-    expect(antiRaid.handleAntiRaidMessageIngress({
+    expect(handleAntiRaidMessageIngress({
       chat: { id: -4001 },
       from: { id: 89 },
       message_id: 56,
@@ -643,7 +650,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
     })]);
 
     workerPosts.length = 0;
-    await antiRaid.handleAntiRaidMessageIngress({
+    await handleAntiRaidMessageIngress({
       chat: { id: -4001 },
       from: { id: 90 },
       message_id: 57,
@@ -654,7 +661,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
   test("待验证发送者的评论区消息仍走 durable 投递：先投消息再加投 barrier", async () => {
     setActiveVerificationSnapshot("-4001:93", { ...record(1, 1), chatId: -4001, userId: 93 });
     workerPosts.length = 0;
-    const pending = antiRaid.handleAntiRaidMessageIngress({
+    const pending = handleAntiRaidMessageIngress({
       chat: { id: -4001 },
       from: { id: 93 },
       message_id: 60,
@@ -676,7 +683,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
     workerPosts.length = 0;
     // 开了 topics 的超级群里每条普通消息都带 message_thread_id；只有关联频道讨论组的评论线程是候选，
     // 论坛话题走普通非待验证语义。
-    await antiRaid.handleAntiRaidMessageIngress({
+    await handleAntiRaidMessageIngress({
       chat: { id: -4001 },
       from: { id: 91 },
       message_id: 58,
@@ -691,7 +698,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
     setActiveVerificationSnapshot("-4001:92", { ...record(1, 1), chatId: -4001, userId: 92 });
     workerPosts.length = 0;
 
-    const topicMessage = antiRaid.handleAntiRaidMessageIngress({
+    const topicMessage = handleAntiRaidMessageIngress({
       chat: { id: -4001 },
       from: { id: 92 },
       message_id: 59,

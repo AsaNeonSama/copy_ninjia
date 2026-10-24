@@ -1,6 +1,6 @@
 /**
- * Anthropic Messages（beta 端点）的底层收发：按能力缓存客户端、显式超时与重试、能力 headers 经
- * defaultHeaders 附加、fallback_model 经 betaRefusalFallbackMiddleware 挂到客户端、用量映射（输入含缓存
+ * Anthropic Messages（beta 端点）的底层收发：按能力缓存客户端、显式超时与重试、fallback_model 经
+ * betaRefusalFallbackMiddleware 挂到客户端、用量映射（输入含缓存
  * 两项、命中取 cache_read，改道后记配置的回退模型）、HTTP 错误归因、拒答归为 refused 与其余不可用收尾（截断、
  * 上下文超长）的分类；pause_turn 按成功交回由调用方续发。
  */
@@ -58,11 +58,12 @@ const { searchAnthropicWeb } = await import("../../../packages/aiChat/anthropic/
 const {
   ANTHROPIC_REQUEST_MAX_RETRIES,
   ANTHROPIC_REQUEST_TIMEOUTS_MS,
+  ANTHROPIC_SDK_LOG_LEVEL,
 } = await import("../../../packages/consts/aiChat/anthropic");
 
 const PRELOADED: AgentDeploymentConfig = getAgentDeploymentConfig();
 const CAPABILITY = {
-  provider: "anthropic", apiKey: "anthropic-key", baseUrl: "https://proxy.example/anthropic", headers: undefined,
+  provider: "anthropic", apiKey: "anthropic-key", baseUrl: "https://proxy.example/anthropic",
   model: "claude-test", fallbackModel: undefined,
 } as const;
 const reported: AiCacheUsage[] = [];
@@ -95,23 +96,17 @@ describe("requestAnthropicMessage", () => {
     await requestAnthropicMessage({ capability: "text", buildBody: body, errorLabel: "test" });
     await requestAnthropicMessage({ capability: "text", buildBody: body, errorLabel: "test" });
     await requestAnthropicMessage({ capability: "media", buildBody: body, errorLabel: "test" });
-    expect(constructions).toEqual([
-      { apiKey: "anthropic-key", baseURL: "https://proxy.example/anthropic", timeout: ANTHROPIC_REQUEST_TIMEOUTS_MS.text, maxRetries: ANTHROPIC_REQUEST_MAX_RETRIES },
-      { apiKey: "anthropic-key", baseURL: "https://proxy.example/anthropic", timeout: ANTHROPIC_REQUEST_TIMEOUTS_MS.media, maxRetries: ANTHROPIC_REQUEST_MAX_RETRIES },
+    expect(constructions).toStrictEqual([
+      {
+        apiKey: "anthropic-key", baseURL: "https://proxy.example/anthropic", logLevel: ANTHROPIC_SDK_LOG_LEVEL,
+        timeout: ANTHROPIC_REQUEST_TIMEOUTS_MS.text, maxRetries: ANTHROPIC_REQUEST_MAX_RETRIES, middleware: undefined,
+      },
+      {
+        apiKey: "anthropic-key", baseURL: "https://proxy.example/anthropic", logLevel: ANTHROPIC_SDK_LOG_LEVEL,
+        timeout: ANTHROPIC_REQUEST_TIMEOUTS_MS.media, maxRetries: ANTHROPIC_REQUEST_MAX_RETRIES, middleware: undefined,
+      },
     ]);
     expect(reported[0]).toMatchObject({ kind: "tokens", capability: "text", provider: "anthropic", model: "claude-test", inputTokens: 12, cachedInputTokens: 5, outputTokens: 3 });
-  });
-
-  test("能力配置的 headers 作为 defaultHeaders 交给 SDK，未配置的能力不带", async () => {
-    const headers: Readonly<Record<string, string>> = { "cf-aig-authorization": "Bearer gateway-token" };
-    adoptAgentDeploymentConfig({ ...PRELOADED, text: { ...CAPABILITY, headers }, media: CAPABILITY });
-    await requestAnthropicMessage({ capability: "text", buildBody: body, errorLabel: "test" });
-    await requestAnthropicMessage({ capability: "media", buildBody: body, errorLabel: "test" });
-    expect(constructions[0]).toStrictEqual({
-      apiKey: "anthropic-key", baseURL: "https://proxy.example/anthropic", defaultHeaders: headers,
-      timeout: ANTHROPIC_REQUEST_TIMEOUTS_MS.text, maxRetries: ANTHROPIC_REQUEST_MAX_RETRIES, middleware: undefined,
-    });
-    expect(constructions[1]).toHaveProperty("defaultHeaders", undefined);
   });
 
   test("配置了 fallback_model 的能力挂以它为唯一回退项的拒答回退中间件，未配置的能力不挂", async () => {

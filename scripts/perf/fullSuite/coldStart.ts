@@ -25,6 +25,11 @@ import type {
   ColdStartRound,
 } from "./types";
 
+/**
+ * 计算从指定纳秒起点到当前时刻经过的毫秒数。
+ * @param startedAtNs `Bun.nanoseconds()` 记录的起始时刻。
+ * @returns 经过的毫秒数。
+ */
 function elapsedMsSince(startedAtNs: number): number {
   return (Bun.nanoseconds() - startedAtNs) / 1_000_000;
 }
@@ -33,6 +38,7 @@ function elapsedMsSince(startedAtNs: number): number {
  * 跑一次冷启动并逐段计时。
  *
  * 各段之间不插入 GC、不清空缓存，与生产启动连续执行的方式一致。
+ * @returns 单轮冷启动各阶段耗时、恢复规模与 I/O 读数。
  */
 async function runColdStartChild(): Promise<ColdStartRound> {
   const io: ProcessIoSnapshot = readProcessIo();

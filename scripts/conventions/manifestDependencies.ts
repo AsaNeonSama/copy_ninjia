@@ -16,7 +16,12 @@ interface RootPackageManifest {
   readonly devDependencies?: Readonly<Record<string, string>>;
 }
 
-/** 读取根 manifest 直接声明的包名（`dependencies` 与 `devDependencies`）。 */
+/**
+ * 读取根 manifest 直接声明的包名（`dependencies` 与 `devDependencies`）。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @returns 已声明包名的只读集合
+ */
 export async function readDeclaredPackages(projectRoot: string): Promise<ReadonlySet<string>> {
   const manifest: RootPackageManifest = await Bun.file(join(projectRoot, "package.json")).json() as RootPackageManifest;
   return new Set<string>([
@@ -25,7 +30,12 @@ export async function readDeclaredPackages(projectRoot: string): Promise<Readonl
   ]);
 }
 
-/** 裸说明符所属的包名；相对或绝对路径与运行时内建模块返回 undefined。 */
+/**
+ * 裸说明符所属的包名；相对或绝对路径与运行时内建模块返回 undefined。
+ *
+ * @param specifier 模块导入说明符
+ * @returns 归属的 npm 包名，非外部 npm 包时返回 undefined
+ */
 export function packageNameOf(specifier: string): string | undefined {
   if (specifier.startsWith(".") || specifier.startsWith("/") || isRuntimeBuiltinModule(specifier)) {
     return undefined;
@@ -36,6 +46,7 @@ export function packageNameOf(specifier: string): string | undefined {
 
 /** 单文件依赖声明核对的入参。 */
 export interface CollectUndeclaredDependencyProblemsParams {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
   /** 被检查文件的绝对路径。 */
   readonly path: string;
@@ -45,7 +56,12 @@ export interface CollectUndeclaredDependencyProblemsParams {
   readonly declaredPackages: ReadonlySet<string>;
 }
 
-/** 列出一个文件里未由根 manifest 直接声明的运行期包引用。 */
+/**
+ * 列出一个文件里未由根 manifest 直接声明的运行期包引用。
+ *
+ * @param params 单文件依赖声明核对入参
+ * @returns 未声明依赖的违规信息列表
+ */
 export function collectUndeclaredDependencyProblems({
   projectRoot,
   path,

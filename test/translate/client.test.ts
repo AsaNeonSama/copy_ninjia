@@ -1,9 +1,9 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { TRANSLATE_REQUEST_TIMEOUT_MS } from "../../packages/consts/lifecycle";
 import { loggerStub } from "../helpers/loggerMock";
-import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { rsaPrivateKeyPemFixture } from "../../scripts/fixtures/googleAuth";
 import { TEST_DATA_ROOT } from "../preloadEnv";
 import type { TranslateLanguage } from "../../packages/types/translate";
 
@@ -12,11 +12,7 @@ const authFilePath: string = join(root, "g-auth.json");
 afterAll((): void => { rmSync(root, { recursive: true, force: true }); });
 const credentialInput = {
   client_email: "bot@example.iam.gserviceaccount.com",
-  private_key: generateKeyPairSync("rsa", {
-    modulusLength: 2_048,
-    privateKeyEncoding: { type: "pkcs8", format: "pem" },
-    publicKeyEncoding: { type: "spki", format: "pem" },
-  }).privateKey,
+  private_key: await rsaPrivateKeyPemFixture(),
   project_id: "project", quota_project_id: "quota", universe_domain: "googleapis.com",
   private_key_id: "key", client_id: "123", auth_uri: "https://accounts.google.com/o/oauth2/auth",
 };

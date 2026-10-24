@@ -7,6 +7,7 @@ import {
 import { createPrioritizedBoundedTaskRunner } from "../../../libs/prioritizedBoundedTaskRunner";
 import type { PrioritizedBoundedTaskRunner, TaskPriority } from "../../../libs/prioritizedBoundedTaskRunner";
 
+/** 媒体下载、转码与视觉解析底层有界任务执行器实例。 */
 const executor: PrioritizedBoundedTaskRunner = createPrioritizedBoundedTaskRunner({
   maxConcurrent: MEDIA_DESCRIPTION_MAX_CONCURRENCY,
   maxPending: MEDIA_DESCRIPTION_MAX_PENDING,
@@ -14,6 +15,7 @@ const executor: PrioritizedBoundedTaskRunner = createPrioritizedBoundedTaskRunne
   interactiveBurst: 1,
 });
 
+/** 当前在途的冷启动探测等待计数（计入 `MEDIA_DESCRIPTION_MAX_PENDING` 排队总配额）。 */
 const probeWaits: { current: number } = { current: 0 };
 
 /**
@@ -29,13 +31,22 @@ export const mediaTaskRunner: PrioritizedBoundedTaskRunner = {
   },
 };
 
-/** 检查当前媒体执行器是否仍有准入容量（waitOnly 为 true 时仅检查排队等待配额）。 */
+/**
+ * 检查当前媒体执行器是否仍有准入容量（waitOnly 为 true 时仅检查排队等待配额）。
+ *
+ * @param waitOnly 是否仅检查排队等待配额
+ * @returns 是否仍有准入容量
+ */
 export function hasMediaTaskCapacity(waitOnly: boolean): boolean {
   return (!waitOnly && executor.activeCount < MEDIA_DESCRIPTION_MAX_CONCURRENCY) ||
     executor.pendingCount + probeWaits.current < MEDIA_DESCRIPTION_MAX_PENDING;
 }
 
-/** 占用一个共享冷探测等待配额并返回幂等释放函数（满额时返回 undefined）。 */
+/**
+ * 占用一个共享冷探测等待配额并返回幂等释放函数（满额时返回 undefined）。
+ *
+ * @returns 幂等配额释放函数；排队等待配额已满时返回 `undefined`
+ */
 export function reserveMediaProbeWait(): (() => void) | undefined {
   if (!hasMediaTaskCapacity(true)) return undefined;
   probeWaits.current += 1;

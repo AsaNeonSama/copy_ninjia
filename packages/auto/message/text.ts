@@ -9,7 +9,12 @@ import type { AiSpeakerSnapshot } from "../../types/aiChat/speaker";
 import type { TelegramVisionSource } from "../../types/media";
 import type { ImageGenerationReference } from "../../types/aiChat/protocol";
 
-/** 记录普通文字并处理直接回复/@ 与随机搭话。true 表示终止后续主动行为。 */
+/**
+ * 记录普通文字并处理直接回复/@ 与随机搭话。
+ *
+ * @param context 消息触发上下文。
+ * @returns `true` 表示已触发 AI 直接/随机回复（或命中随机掷骰）并终止后续主动行为；`false` 表示交由后续主动行为继续处理。
+ */
 export function handleTextMessage(context: MessageTriggerContext): boolean {
   const { message }: MessageTriggerContext = context;
   if (typeof message.text !== "string" || message.text.startsWith("/")) return false;
@@ -40,7 +45,7 @@ export function handleTextMessage(context: MessageTriggerContext): boolean {
       };
     generateAndSendReply({
       // 字段写全（缺省显式 undefined），不用条件展开，各入口共用同一个 hidden class
-      // （messageIngress.ts 的解构与 Worker 侧读取）。口径同 auto/message/recordContext.ts。
+      // （aiChat/messageIngress.ts 的解构与 Worker 侧读取）。口径同 auto/message/recordContext.ts。
       chatId,
       triggerSenderId: speaker.id,
       replyToMessageId: message.message_id,

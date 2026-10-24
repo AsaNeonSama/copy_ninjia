@@ -9,6 +9,10 @@ import type { DiskIOReplyListenerMap } from "../../types/diskIO/replies";
  * 注册一个恢复 listener：diskIOWorker 崩溃重建后调用，用于把主线程侧的镜像
  * 重新投递给新实例。listener 必须等待本领域全部异步工作并明确返回成败；普通
  * postDiskIO 会进入恢复缓冲，镜像重放只能使用传入的 scoped transport。
+ *
+ * @param owner 领域唯一标识名（非空字符串，不能重复注册）。
+ * @param priority 重放优先级（安全整数，数值越小越先执行）。
+ * @param listener 执行本领域镜像重放并返回成败的回调。
  */
 export function onDiskIORespawn(
   owner: string,
@@ -40,6 +44,9 @@ export function onDiskIORespawn(
  * 模块初始化时登记某类 Disk I/O 回执的主线程 owner 回调；回调同步执行，只接纳
  * 结果或结算本 owner 的等待，不等待后续工作。回执语义见 types/diskIO/replies.ts
  * 的各回执类型。
+ *
+ * @param type 待订阅的 Disk I/O 回执类型键。
+ * @param listener 收到对应类型回执时同步调用的监听回调。
  */
 export function onDiskIOReply<K extends keyof DiskIOReplyListenerMap>(
   type: K,
@@ -51,6 +58,8 @@ export function onDiskIOReply<K extends keyof DiskIOReplyListenerMap>(
 /**
  * Disk I/O 放弃自愈（耗尽重启预算，或运行时恢复致命失败）后通知仍在等待 durable
  * 回执的 owner 立即按失败结算。
+ *
+ * @param callback 放弃自愈时触发的通知回调。
  */
 export function onDiskIOGiveUp(callback: () => void): void {
   diskIORuntime.giveUpListeners.push(callback);

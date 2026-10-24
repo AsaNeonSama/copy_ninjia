@@ -18,6 +18,8 @@ import { channelIdentity, userIdentity, visibleSenderChat } from "../users/visib
  * 会话身份取 users/visibleSender.ts 的 visibleSenderChat，两种身份的形状取自同一
  * 模块的 channelIdentity / userIdentity。`/qa set` 在命令侧用本函数记下 openedById，
  * 投递侧用同一个函数算发送者。命令上下文里 `ctx.from === ctx.msg.from`。
+ * @param ctx grammY 命令上下文。
+ * @returns 发起命令的可见身份；无法解析时返回 undefined。
  */
 export function resolveCommandActor(ctx: CommandContext<Context>): CachedUser | undefined {
   const senderChat: Chat | undefined = visibleSenderChat(ctx.msg);
@@ -32,6 +34,10 @@ export function resolveCommandActor(ctx: CommandContext<Context>): CachedUser | 
  * 否则（含解析不出发起身份）在本群回复命令消息发一条拒绝，文案由 rejection 按
  * 发起人标签与当前氛围文案拼出，走 sendCommandMessage 的默认自动清理，并返回
  * undefined。超级管理员恒持有全部权限键（见 whitelist.ts）。
+ * @param ctx grammY 命令上下文。
+ * @param permission 需要持有的白名单权限键。
+ * @param rejection 生成权限拒绝提示文本的回调。
+ * @returns 通过校验时返回发起人身份；被拒绝时返回 undefined。
  */
 export async function rejectUnlessPermitted(
   ctx: CommandContext<Context>,
@@ -47,6 +53,9 @@ export async function rejectUnlessPermitted(
 /**
  * 只放行超级管理员本人的群命令（/batch_kick、/init、/delete_message）；拒绝回执的形态与
  * rejectUnlessPermitted 相同。这类命令不对应白名单权限键。
+ * @param ctx grammY 命令上下文。
+ * @param rejection 生成权限拒绝提示文本的回调。
+ * @returns 发起人为超级管理员时返回其身份；否则返回 undefined。
  */
 export async function rejectUnlessSuperAdmin(
   ctx: CommandContext<Context>,
@@ -58,7 +67,12 @@ export async function rejectUnlessSuperAdmin(
   return undefined;
 }
 
-/** 两道权限闸共用的拒绝回执：回复命令消息，标签解析不出时退化为「未知发起人」。 */
+/**
+ * 两道权限闸共用的拒绝回执：回复命令消息，标签解析不出时退化为「未知发起人」。
+ * @param ctx grammY 命令上下文。
+ * @param actor 已解析出的发起身份；未能解析时为 undefined。
+ * @param rejection 生成权限拒绝提示文本的回调。
+ */
 async function replyCommandRejection(
   ctx: CommandContext<Context>,
   actor: CachedUser | undefined,

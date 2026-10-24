@@ -72,37 +72,67 @@ export const LOCATION_PLACEHOLDER: string = "[位置]";
 /** 以上类型都不匹配时的兜底标签。 */
 export const NON_TEXT_PLACEHOLDER: string = "[非文本消息]";
 
-/** 贴纸的类型标签；存在 emoji 时附带该 emoji。所属模块：auto/message/facts.ts。 */
+/**
+ * 贴纸的类型标签；存在 emoji 时附带该 emoji。所属模块：auto/message/facts.ts。
+ * @param emoji 贴纸关联的 emoji；无关联时为 undefined。
+ * @returns 格式化后的贴纸占位标签。
+ */
 export function stickerPlaceholder(emoji: string | undefined): string {
   return emoji ? `[贴纸：${emoji}]` : "[贴纸]";
 }
 
-/** 文件的类型标签；存在文件名时附带文件名。所属模块：auto/message/facts.ts。 */
+/**
+ * 文件的类型标签；存在文件名时附带文件名。所属模块：auto/message/facts.ts。
+ * @param fileName 文档原始文件名；未知时为 undefined。
+ * @returns 格式化后的文件占位标签。
+ */
 export function documentPlaceholder(fileName: string | undefined): string {
   return fileName ? `[文件：${fileName}]` : "[文件]";
 }
 
-/** 投票的类型标签，带题目。所属模块：auto/message/facts.ts。 */
+/**
+ * 投票的类型标签，带题目。所属模块：auto/message/facts.ts。
+ * @param question 投票题目文本。
+ * @returns 格式化后的投票占位标签。
+ */
 export function pollPlaceholder(question: string): string {
   return `[投票：${question}]`;
 }
 
-/** 骰子的类型标签，带表情与点数。所属模块：auto/message/facts.ts。 */
+/**
+ * 骰子的类型标签，带表情与点数。所属模块：auto/message/facts.ts。
+ * @param emoji 骰子消息的 emoji 图标。
+ * @param value 掷出的点数数值。
+ * @returns 格式化后的骰子占位标签。
+ */
 export function dicePlaceholder(emoji: string, value: number): string {
   return `[骰子：${emoji} ${value}]`;
 }
 
-/** 联系人的类型标签；姓氏存在时以空格接在名字后。所属模块：auto/message/facts.ts。 */
+/**
+ * 联系人的类型标签；姓氏存在时以空格接在名字后。所属模块：auto/message/facts.ts。
+ * @param firstName 联系人名字。
+ * @param lastName 联系人姓氏；无姓氏时为 undefined。
+ * @returns 格式化后的联系人占位标签。
+ */
 export function contactPlaceholder(firstName: string, lastName: string | undefined): string {
   return lastName ? `[联系人：${firstName} ${lastName}]` : `[联系人：${firstName}]`;
 }
 
-/** 地点的类型标签，带地点名。所属模块：auto/message/facts.ts。 */
+/**
+ * 地点的类型标签，带地点名。所属模块：auto/message/facts.ts。
+ * @param title 地点名称。
+ * @returns 格式化后的地点占位标签。
+ */
 export function venuePlaceholder(title: string): string {
   return `[地点：${title}]`;
 }
 
-/** 无法转写的语音在上下文里的标签，带时长秒数。所属模块：auto/message/voice.ts。 */
+/**
+ * 无法转写的语音在上下文里的标签，带时长秒数。所属模块：auto/message/voice.ts。
+ * @param durationSeconds 语音时长秒数。
+ * @returns 格式化后的带时长语音占位标签。
+ */
 export function voiceDurationPlaceholder(durationSeconds: number): string {
   return `[语音 ${durationSeconds} 秒]`;
 }

@@ -50,7 +50,12 @@ export const joinLogPersistedNotifier: { current: (reply: JoinLogPersistedReply)
   current: (): void => { /* 独立 owner 测试未安装 Worker 回执出口。 */ },
 };
 
-/** 向待刷入群日志缓冲追加一条记录并返回当前缓冲长度。 */
+/**
+ * 向待刷入群日志缓冲追加一条记录并返回当前缓冲长度。
+ *
+ * @param entry 待刷盘的入群日志缓冲条目
+ * @returns 追加后的待刷缓冲条目总数
+ */
 export function markJoinLogDirty(entry: BufferedJoinLogEntry): number {
   joinLogBuffer.entries.push(entry);
   return joinLogBuffer.entries.length;

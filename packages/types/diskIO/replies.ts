@@ -353,6 +353,7 @@ export type DiskIOReplyListeners = {
   readonly [K in keyof DiskIOReplyListenerMap]: ((reply: DiskIOReplyListenerMap[K]) => void)[];
 };
 
+/** Disk I/O Worker 发回主线程的全部回执消息联合类型。 */
 export type DiskIOReply =
   | JoinLogPersistedReply
   | StickerCatalogPersistedReply

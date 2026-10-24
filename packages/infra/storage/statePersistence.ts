@@ -25,16 +25,25 @@ import type { DecodedGlobalState, GlobalState } from "../../types/chatState";
 import { logger } from "../logger";
 import { toError } from "../../libs/errorMessage";
 
+/** 全局状态持久化存储构造选项。 */
 export interface StateStoreOptions {
+  /** 全局状态文件路径。 */
   stateFilePath?: string;
+  /** 读取状态文件文本的注入函数。 */
   readText?: (path: string) => Promise<string | null>;
+  /** 原子写出状态文件文本的注入函数。 */
   writeText?: (path: string, content: string) => Promise<void>;
+  /** 写入失败重试退避延迟序列（毫秒）。 */
   retryDelaysMs?: readonly number[];
+  /** 最大连续写入尝试次数。 */
   maxAttempts?: number;
   /** 后台写（waitForPersistence: false）的合并窗口，缺省 STATE_BACKGROUND_SAVE_DELAY_MS。 */
   backgroundDelayMs?: number;
+  /** 单次写入尝试失败进入重试时的回调。 */
   onRetryError?: (attempt: number, error: unknown) => void;
+  /** 停机或手动 flush 失败时的回调。 */
   onFlushError?: (error: unknown) => void;
+  /** 连续重试耗尽进入 fatal 态时的回调。 */
   onFatal?: (error: Error) => void;
 }
 
@@ -60,6 +69,9 @@ interface PersistenceWaiter {
 /**
  * 叶子路径本身是否不存在，以 `lstat` 报 ENOENT 为准（`BunFile.stat()` 跟随软链接，
  * 悬空链接同样报 ENOENT）。
+ *
+ * @param path 待检查的文件系统路径。
+ * @returns 叶子路径本身不存在时返回 `true`。
  */
 async function isMissingLeaf(path: string): Promise<boolean> {
   try {
@@ -79,6 +91,8 @@ async function isMissingLeaf(path: string): Promise<boolean> {
  *
  * 错误统一收敛为 InputValidationError，只带文件路径、字段路径和期望形态，不回显
  * 底层异常与状态内容（见 docs/cn/04-invariants.md 的严格解析约束）。
+ *
+ * @param path 状态文件路径。
  * @returns 文件文本；叶子路径真正缺失时为 null。
  */
 async function readExistingText(path: string): Promise<string | null> {
@@ -109,7 +123,12 @@ async function assertLegacyStateFilesAbsent(): Promise<void> {
   }
 }
 
-/** 默认写入边界：状态目录缺失时先按数据根权限上限建出，再原子写入。 */
+/**
+ * 默认写入边界：状态目录缺失时先按数据根权限上限建出，再原子写入。
+ *
+ * @param path 目标状态文件路径。
+ * @param content 待写入的 JSON 文本。
+ */
 async function writeStateText(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: RUNTIME_DATA_ROOT_MAX_MODE });
   await atomicWriteText(path, content);
@@ -118,6 +137,10 @@ async function writeStateText(path: string, content: string): Promise<void> {
 /**
  * 保留解析错误的文件路径、字段路径和期望形态；为解码错误补齐文件路径。
  * 两类错误均不携带状态值，见 docs/cn/04-invariants.md 的严格解析约束。
+ *
+ * @param path 状态文件路径。
+ * @param error 原始解析或解码异常。
+ * @returns 归一化后的错误对象。
  */
 function describeStateDecodeFailure(path: string, error: unknown): Error {
   if (error instanceof InputValidationError) return error;
@@ -157,6 +180,11 @@ export class StateStore {
   private quiescing: boolean = false;
   private fatalSignaled: boolean = false;
 
+  /**
+   * 构造全局状态持久化存储实例并校验退避与窗口参数。
+   *
+   * @param options 状态路径、读写函数、重试策略与回调选项。
+   */
   constructor({
     stateFilePath = GLOBAL_STATE_FILE_PATH,
     readText = readExistingText,
@@ -204,6 +232,8 @@ export class StateStore {
   /**
    * 读取并严格解码状态文件。文件真正不存在时返回 null（从未写过）；存在但不可读、
    * 不是普通文件或解码失败时原样保留并抛出，见 docs/cn/04-invariants.md。
+   *
+   * @returns 解码后的全局状态；文件真正不存在时返回 `null`。
    */
   async load(): Promise<DecodedGlobalState | null> {
     const content: string | null = await this.readText(this.stateFilePath);
@@ -215,6 +245,13 @@ export class StateStore {
     }
   }
 
+  /**
+   * 序列化并校验全局状态快照，按选项立即排队落盘或纳入后台合并窗口。
+   *
+   * @param schema 待持久化的全局状态快照。
+   * @param options 持久化等待模式选项。
+   * @returns 后台模式下立即兑现的 Promise，或对应 revision 落盘后兑现的 Promise。
+   */
   save(schema: GlobalState, options: StateSaveOptions = {}): Promise<void> {
     if (this.quiescing) {
       return Promise.reject(new Error("StateStore is quiescing and no longer accepts writes."));
@@ -242,7 +279,12 @@ export class StateStore {
     return persisted;
   }
 
-  /** 登记一个等待者，revision（或更新的 revision）落盘时 resolve，进入 fatal 或 quiesce 后的写失败时 reject。 */
+  /**
+   * 登记一个等待者，revision（或更新的 revision）落盘时 resolve，进入 fatal 或 quiesce 后的写失败时 reject。
+   *
+   * @param revision 需要等待落盘的目标版本号。
+   * @returns 在目标版本落盘后兑现的 Promise。
+   */
   private waitForRevision(revision: number): Promise<void> {
     return new Promise((resolve: (value: void | PromiseLike<void>) => void, reject: (reason?: unknown) => void): void => {
       this.persistenceWaiters.push({ revision, resolve, reject });
@@ -264,12 +306,19 @@ export class StateStore {
     this.backgroundTimer.unref();
   }
 
+  /** 取消当前挂起的后台合并写定时器。 */
   private clearBackgroundTimer(): void {
     if (this.backgroundTimer === null) return;
     clearTimeout(this.backgroundTimer);
     this.backgroundTimer = null;
   }
 
+  /**
+   * 将状态写任务推入单飞最新值执行器并挂载失败处理。
+   *
+   * @param write 待写出的序列化状态与版本号。
+   * @returns 当前执行器轮次的完成 Promise。
+   */
   private push(write: StateWrite): Promise<void> {
     this.pushedWrite = write;
     const run: Promise<void> = this.writer.push(write);
@@ -288,6 +337,11 @@ export class StateStore {
     return run;
   }
 
+  /**
+   * 处理单次底层写入失败：停机收口期间直接拒绝等待者，否则累加尝试次数并排期重试或触发 fatal。
+   *
+   * @param error 底层写入抛出的异常。
+   */
   private handleWriteFailure(error: unknown): void {
     if (this.quiescing) {
       this.rejectPersistenceWaiters(error);
@@ -312,6 +366,11 @@ export class StateStore {
     this.scheduleRetry();
   }
 
+  /**
+   * 唤醒所有版本号不高于已落盘 `revision` 的持久化等待者。
+   *
+   * @param revision 刚刚完成落盘的版本号。
+   */
   private resolvePersistedWaiters(revision: number): void {
     let settledCount: number = 0;
     while (
@@ -325,11 +384,17 @@ export class StateStore {
     if (settledCount > 0) this.persistenceWaiters.splice(0, settledCount);
   }
 
+  /**
+   * 拒绝当前挂起的全部持久化等待者并清空等待队列。
+   *
+   * @param error 导致写入终止的错误原因。
+   */
   private rejectPersistenceWaiters(error: unknown): void {
     const reason: Error = toError(error);
     for (const waiter of this.persistenceWaiters.splice(0)) waiter.reject(reason);
   }
 
+  /** 按当前重试次数对应的退避延迟排期下一次最新值写出。 */
   private scheduleRetry(): void {
     if (this.quiescing || this.dirtyWrite === null || this.retryTimer !== null) return;
     const delay: number = this.retryDelaysMs[Math.min(this.retryAttempt - 1, this.retryDelaysMs.length - 1)]!;
@@ -345,6 +410,10 @@ export class StateStore {
   /**
    * 在 timeoutMs 内等待最新值落盘。quiesce 为 true 时此后不再接受写入，并取消重试退避立即做最后一次写出；
    * 非 quiesce 时若失败重试已排期，等重试 timer 按退避写出，不提前投递、不额外消耗重试次数。
+   *
+   * @param timeoutMs 最大等待超时时间（毫秒）。
+   * @param quiesce 是否进入静默停机态并拒绝后续新写入。
+   * @returns 刷盘结算结果（`flushed`、`timedOut` 或 `failed`）。
    */
   flush(timeoutMs: number = STATE_FLUSH_TIMEOUT_MS, quiesce: boolean = false): Promise<FlushResult> {
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -387,6 +456,11 @@ export class StateStore {
     });
   }
 
+  /**
+   * 设置或替换连续重试耗尽时的 fatal 回调。
+   *
+   * @param handler 致命错误处理器。
+   */
   setFatalHandler(handler: ((error: Error) => void) | undefined): void {
     this.fatalHandler = handler;
   }
@@ -396,6 +470,9 @@ export class StateStore {
  * 启动恢复（stateStore.ts 的 loadState）与安装器共用的只读全局状态闸：先拒绝旧位置的状态
  * 文件，再经 store 按当前 schema 严格解码 memory/global/state.json。不写盘；文件真正缺失时
  * 返回 null，未迁移或非法的内容按 StateStore.load 的口径抛出。
+ *
+ * @param store 全局状态持久化存储实例。
+ * @returns 解码后的全局状态；状态文件不存在时返回 `null`。
  */
 export async function loadCurrentGlobalState(store: StateStore): Promise<DecodedGlobalState | null> {
   await assertLegacyStateFilesAbsent();

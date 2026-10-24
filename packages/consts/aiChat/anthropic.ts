@@ -1,7 +1,14 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { ClientOptions as AnthropicClientOptions } from "@anthropic-ai/sdk";
 import type { AgentCapability } from "../../types/config";
 
 /** Anthropic 实现包（packages/aiChat/anthropic/）的调参常量。 */
+
+/** `base_url` 缺省时传给 Anthropic SDK 的官方默认端点地址（与 SDK 内置缺省逐字相同）。所属模块：aiChat/anthropic/sdkClient.ts。 */
+export const ANTHROPIC_API_BASE_URL: string = "https://api.anthropic.com";
+
+/** 传给 Anthropic SDK 的日志级别（与 SDK 缺省相同），显式给出后 SDK 不读取 ANTHROPIC_LOG。所属模块：aiChat/anthropic/sdkClient.ts。 */
+export const ANTHROPIC_SDK_LOG_LEVEL: NonNullable<AnthropicClientOptions["logLevel"]> = "warn";
 
 /**
  * 按能力取 SDK 每次尝试的超时上限，requestAnthropicMessage 同时以它作整次调用的 deadline；与

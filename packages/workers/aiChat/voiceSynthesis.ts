@@ -16,7 +16,13 @@ import { runAiWorkerJob } from "./workerJob";
 
 declare const self: Worker;
 
-/** 查找语音合成入口并执行合成；能力缺席或异常时返回失败结果。 */
+/**
+ * 查找语音合成入口并执行合成；能力缺席或异常时返回失败结果。
+ *
+ * @param msg 主线程下发的语音合成请求消息
+ * @param signal 合并了单请求取消与 Worker 停机信号的 AbortSignal
+ * @returns 语音合成结果（成功时包含编码后的音频字节，失败时包含原因）
+ */
 async function synthesize(msg: AiSynthesizeVoiceMessage, signal: AbortSignal): Promise<VoiceSynthesisResult> {
   let synthesizer: SpeechSynthesizerLookup;
   try {
@@ -33,7 +39,11 @@ async function synthesize(msg: AiSynthesizeVoiceMessage, signal: AbortSignal): P
   );
 }
 
-/** 接纳一次合成请求；结算后回执，成功时转移语音字节的底层 buffer。 */
+/**
+ * 接纳一次合成请求；结算后回执，成功时转移语音字节的底层 buffer。
+ *
+ * @param msg 主线程下发的语音合成请求消息
+ */
 export function handleSynthesizeVoice(msg: AiSynthesizeVoiceMessage): void {
   runAiWorkerJob<VoiceSynthesisResult>({
     jobs: voiceSynthesisRequests,
@@ -47,7 +57,11 @@ export function handleSynthesizeVoice(msg: AiSynthesizeVoiceMessage): void {
   });
 }
 
-/** 撤回一次在途合成；已结算或未知的 requestId 不做任何事。 */
+/**
+ * 撤回一次在途合成；已结算或未知的 requestId 不做任何事。
+ *
+ * @param msg 主线程下发的取消语音合成消息
+ */
 export function handleCancelVoiceSynthesis(msg: AiCancelVoiceSynthesisMessage): void {
   voiceSynthesisRequests.get(msg.requestId)?.abort();
 }

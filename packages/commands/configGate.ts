@@ -9,9 +9,11 @@ import { logger } from "../infra/logger";
 import { sendCommandMessage } from "../infra/telegram";
 import type { ConfigReadiness } from "../types/config";
 
+/** 检查功能部署配置就绪度并在不可用时发送拒绝回执的参数。 */
 export interface RefuseIfConfigBrokenParams {
   /** 本次判定的结论，由各功能自己的 readiness 函数给出。 */
   readiness: ConfigReadiness;
+  /** 触发命令所在群或会话的 chatId。 */
   chatId: number;
   /** 触发这条命令的消息，用于挂回复引用；私聊/频道场景可能没有。 */
   messageId: number | undefined;
@@ -24,6 +26,7 @@ export interface RefuseIfConfigBrokenParams {
 /**
  * 配置可用就什么都不做；不可用则记一行诊断、回一条点名文件的拒绝，并告诉
  * 调用方已经拒绝。
+ * @param params 就绪度结论 `readiness`、目标会话 `chatId`、触发消息 `messageId`、日志功能名 `feature` 与拒绝文案构造函数 `text`。
  * @returns true 表示已经拒绝并回复，调用方必须立刻 return、不得改任何状态。
  */
 export async function refuseIfConfigBroken({

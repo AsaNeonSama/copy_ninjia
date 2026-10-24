@@ -552,7 +552,7 @@ describe("Lockdown write-ahead runtime", () => {
     try {
       await settleLockdownCalls();
       expect(permissionWrites).toHaveLength(1);
-      for (let index: number = 0; index < 60; index++) lockdownRuntime.recordJoin(chatId, Date.now());
+      for (let index: number = 0; index < ANTI_RAID_PER_MINUTE_LIMIT + 1; index++) lockdownRuntime.recordJoin(chatId, Date.now());
       expect(lockdownEntries.get(chatId)?.state.kind).toBe("restoring");
       restored.resolve();
       await settleLockdownCalls();
@@ -560,7 +560,7 @@ describe("Lockdown write-ahead runtime", () => {
       expect(lockdownEntries.has(chatId)).toBe(false);
       expect(joinWindows.has(chatId)).toBe(false);
       expect(deletedMessages).toEqual([{ chatId, messageId: 640 }]);
-      for (let index: number = 0; index < 45; index++) lockdownRuntime.recordJoin(chatId, Date.now());
+      for (let index: number = 0; index < ANTI_RAID_PER_MINUTE_LIMIT; index++) lockdownRuntime.recordJoin(chatId, Date.now());
       expect(lockdownEntries.has(chatId)).toBe(false);
       lockdownRuntime.recordJoin(chatId, Date.now());
       await settleLockdownCalls();

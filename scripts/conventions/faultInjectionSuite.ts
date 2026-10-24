@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { extname, join, relative } from "node:path";
 import type ts from "typescript";
+import { relativeModuleCandidates, resolveRelativeModule } from "./moduleGraph";
+import type { RelativeModuleCandidates } from "./moduleGraph";
 import { parseSourceFile, runtimeModuleReferences, sourceFilesUnder } from "./sourceAnalysis";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
 import type { ColdMigrationEdge } from "../migrations/active";
@@ -46,6 +48,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/app/lifecycleImageInput.test.ts",
   "test/app/lifecycleOffsetShutdown.test.ts",
   "test/app/lifecycleOptionalConfig.test.ts",
+  "test/app/lifecycleShutdownBudget.test.ts",
   "test/app/lifecycleStateInput.test.ts",
   "test/app/updateFetcher.test.ts",
   "test/app/updateRunner.test.ts",
@@ -321,7 +324,13 @@ export const FAULT_INJECTION_BOUNDARIES: readonly FaultInjectionBoundary[] = [
   { path: "packages/antiRaid/workerBridge/controller.ts", purpose: "Anti-Raid Worker initialization and rebuild replay" },
 ];
 
-/** 该引用是否触及边界：未限定导出的边界按整模块计，无法确定取用范围的引用同样计入。 */
+/**
+ * 该引用是否触及边界：未限定导出的边界按整模块计，无法确定取用范围的引用同样计入。
+ *
+ * @param reference 运行期模块引用记录
+ * @param boundary 故障注入边界声明
+ * @returns 引用触及该边界时返回 true
+ */
 function usesBoundary(reference: RuntimeModuleReference, boundary: FaultInjectionBoundary): boolean {
   if (boundary.exports === undefined || reference.names === null) return true;
   return reference.names.some((name: string): boolean => boundary.exports?.includes(name) === true);
@@ -333,17 +342,25 @@ function usesBoundary(reference: RuntimeModuleReference, boundary: FaultInjectio
  *
  * 按路径比对，同名不同目录的模块不计入。裸说明符（`bun:test`、`grammy/types`）
  * 返回 undefined，直接跳过。
+ *
+ * @param importerPath 发起引用的源文件绝对路径
+ * @param specifier 模块说明符
+ * @returns 解析后的 `.ts` 文件绝对路径，非相对说明符时返回 undefined
  */
 function resolvedSpecifierPath(importerPath: string, specifier: string): string | undefined {
-  if (!specifier.startsWith(".")) return undefined;
-  const resolved: string = resolve(dirname(importerPath), specifier);
-  if (extname(resolved) === ".ts") return resolved;
-  const file: string = `${resolved}.ts`;
-  const directoryEntry: string = join(resolved, "index.ts");
-  return !existsSync(file) && existsSync(directoryEntry) ? directoryEntry : file;
+  const resolved: RelativeModuleCandidates | undefined = relativeModuleCandidates(importerPath, specifier);
+  if (resolved === undefined) return undefined;
+  if (extname(resolved.base) === ".ts") return resolved.base;
+  return resolveRelativeModule(specifier, importerPath) ?? resolved.candidates[0];
 }
 
-/** 核对清单里的每条路径都真实存在且只出现一次。 */
+/**
+ * 核对清单里的每条路径都真实存在且只出现一次。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param listed 清单中的相对路径列表
+ * @returns 重复或缺失路径的问题列表
+ */
 function collectListedPathProblems(
   projectRoot: string,
   listed: readonly string[]
@@ -363,6 +380,10 @@ function collectListedPathProblems(
 /**
  * 核对 `test:fault-injection` 的清单：列出的路径都存在且不重复，且每个使用受约束
  * 恢复和生命周期边界的用例文件都已登记。listed 缺省为 FAULT_INJECTION_TESTS。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param listed 待核对的故障注入测试相对路径清单
+ * @returns 漏登记或路径失效的违规问题列表
  */
 export async function collectFaultInjectionSuiteProblems(
   projectRoot: string,

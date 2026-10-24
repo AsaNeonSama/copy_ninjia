@@ -28,6 +28,13 @@ interface AttemptCopyUserProfilePhotoResult {
   readonly chat: ChatFullInfo | undefined;
 }
 
+/**
+ * 通过 getChat 查询目标用户或频道的公开用户名。
+ * @param targetId 目标用户或频道 ID。
+ * @param isChannel 目标是否为频道。
+ * @param signal 调用方的取消信号。
+ * @returns 提取到的公开用户名与查询是否失败的标志。
+ */
 async function resolvePublicUsernameFromChat(
   targetId: number,
   isChannel: boolean,
@@ -51,6 +58,13 @@ async function resolvePublicUsernameFromChat(
   }
 }
 
+/**
+ * 单次尝试经 Bot API getChat 读取并复制目标头像。
+ * @param targetId 目标用户或频道 ID。
+ * @param isChannel 目标是否为频道。
+ * @param signal 调用方的取消信号。
+ * @returns 单次尝试结果分类与已获取的 ChatFullInfo（供兜底复用）。
+ */
 async function attemptCopyUserProfilePhoto(
   targetId: number,
   isChannel: boolean,
@@ -83,12 +97,17 @@ export interface CopyUserProfilePhotoOptions {
    * 调用方上下文里带的 username（回复目标、身份缓存），只作诊断线索，不作抓取目标。
    */
   username?: string;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
 }
 
 /**
  * 复制用户或频道的当前头像。优先通过 Bot API 读取并下载当前 ChatPhoto，失败后用
  * getChat 的公开 username（优先复用尝试阶段已取得的结果，未取得时现查一次）抓取 t.me 页面兜底。
+ * @param targetId 目标用户或频道 ID。
+ * @param isChannel 目标是否为频道。
+ * @param options 诊断用户名线索与取消信号。
+ * @returns 复制并设置头像成功返回 true，失败或取消返回 false。
  */
 export async function copyUserProfilePhoto(
   targetId: number,

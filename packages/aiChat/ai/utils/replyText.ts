@@ -4,6 +4,10 @@ import { TELEGRAM_MESSAGE_MAX_CHARS } from "../../../consts/telegram";
 
 /**
  * 判断首尾方向性引号是否为包裹整段文本的同一对引号。
+ * @param text 已确认首尾字符分别为 open 与 close 的文本。
+ * @param open 左引号字符。
+ * @param close 右引号字符。
+ * @returns 首尾引号在最外层配对闭合时返回 true，中间提前闭合时返回 false。
  */
 function isWrappedPair(text: string, open: string, close: string): boolean {
   let depth: number = 1;
@@ -18,6 +22,8 @@ function isWrappedPair(text: string, open: string, close: string): boolean {
 
 /**
  * 判断整段文本是否被同一对引号完整包裹。
+ * @param text 待检测的非空文本（长度至少为 2）。
+ * @returns 被外层成对引号完整包裹时返回 true，否则返回 false。
  */
 function isQuoteWrapped(text: string): boolean {
   const first: string = text[0]!;
@@ -31,6 +37,8 @@ function isQuoteWrapped(text: string): boolean {
 /**
  * 清洗模型输出的消息文本：剥离联网搜索行内引用标记、首尾空白、外层代码块围栏与外层成对引号，
  * 并按 TELEGRAM_MESSAGE_MAX_CHARS 截断；清洗后为空时返回 null。
+ * @param raw 模型输出的原始文本。
+ * @returns 清洗并截断后的消息文本；清洗后为空时返回 null。
  */
 export function cleanReply(raw: string): string | null {
   let text: string = raw.replace(/\[\[\d+\]\]\((?:[^\s()]|\([^\s()]*\))+\)/g, "").trim();
@@ -60,6 +68,8 @@ const EMOJI_ONLY_BODY: RegExp = new RegExp(
 
 /**
  * 判断文本是否为纯 emoji 消息（至少含一个图形 emoji 或 keycap 序列，且不含其它非空白字符）。
+ * @param text 待判定的文本。
+ * @returns 仅含 emoji 与空白时返回 true，否则返回 false。
  */
 export function isEmojiOnly(text: string): boolean {
   const withoutKeycaps: string = text.replace(KEYCAP_SEQUENCE, "");

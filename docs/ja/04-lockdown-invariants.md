@@ -45,7 +45,7 @@
   - `removalConfirmed` は処置報告の送信に失敗したときのみ永続化されます。
 
 - **BAN 権限不足時の短絡（ショートサーキット）**：
-  - `botCanRestrictIn` が `false` の場合、`failureNoticeSent` と `cleanupSettled` の両方が `true` のときにのみ短絡します。このときも各サイクルで在室照会を 1 回送り、退出済みなら精算し、在室ならバックオフを続けます。
+  - `botCanRestrictIn` が `false` の場合、`failureNoticeSent` と `cleanupSettled` の両方が `true` で、かつキックが未確認（`removalConfirmed` が `true` でない）のときにのみ短絡します。このときも各サイクルで在室照会を 1 回送り、退出済みなら精算し、在室ならバックオフを続けます。キック確認済みのエントリーは通常の終端経路に進み、そこでも在室照会は 1 回だけで、退出済みなら成功報告を補送します。
   - 私密モードの即時キック（`kickPending`）も BAN 権限がない場合はまず在室を照会します。退出済みなら精算してその記録を解放し、在室ならログを残してキック要求を送らずにバックオフします。
   - `cleanupSettled` が `true` になった後は、同一終端エントリーの後続リトライで `deleteVerificationMessages` を直接スキップします。`cleanupSettled` が `false` の間は、処置サイクル全体を通常通り実行します（キックは `canRestrict` により、処置報告は `failureNoticeSent` により、メッセージ削除は `can_delete_messages` 不足時にスキップされ、実行可能で再試行が必要な削除タスクのみがリクエストを発行します）。
   - `cleanupSettled` は Worker の実行時エントリー（`VerificationEntry`）に、`executionStarted` は終端状態オブジェクトに置かれ、後者は状態機械のイベントでのみ書き換えます。どちらも **Worker ローカルのインメモリ冪等ゲートであり、ディスクスナップショットには永続化せず**、エントリーや状態が入れ替わると初期値から始まります。

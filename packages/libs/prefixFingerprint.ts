@@ -25,7 +25,12 @@ export function stablePrefixFingerprint(parts: readonly string[]): string {
   return hasher.digest("base64url");
 }
 
-/** 两组前缀段逐段相等；同一字符串对象时 `===` 直接按引用判定。 */
+/**
+ * 两组前缀段逐段相等；同一字符串对象时 `===` 直接按引用判定。
+ * @param left 第一组前缀分段数组。
+ * @param right 第二组前缀分段数组。
+ * @returns 段数相同且对应位置字符串逐一全等时返回 true，否则返回 false。
+ */
 function samePrefixParts(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   for (let index: number = 0; index < left.length; index++) {
@@ -42,6 +47,7 @@ function samePrefixParts(left: readonly string[], right: readonly string[]): boo
  * @param holder 调用方线程独占的单槽（见 cache/workers/aiChat/replyPrefix.ts）。
  * @param head 跨调用通常不变的前几段（系统提示词、工具声明 JSON）。
  * @param tail 每次都重新喂入的后几段（按群变化的参考记忆等）。
+ * @returns base64url 摘要串，长度固定。
  */
 export function stablePrefixFingerprintWithSlot(
   holder: PrefixHasherSlotHolder,

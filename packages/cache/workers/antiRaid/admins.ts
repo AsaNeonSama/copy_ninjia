@@ -26,12 +26,24 @@ export const adminFetches: Map<number, Promise<Set<number>>> = new Map();
  */
 export const pendingAdminChangesDuringFetch: Map<number, Map<number, boolean>> = new Map();
 
-/** 写入指定群的非匿名管理员豁免快照。 */
+/**
+ * 写入指定群的非匿名管理员豁免快照。
+ *
+ * @param chatId 群聊 ID
+ * @param adminIds 非匿名管理员用户 ID 集合
+ * @param fetchedAt 拉取完成的毫秒时间戳
+ */
 export function cacheAdminIds(chatId: number, adminIds: Set<number>, fetchedAt: number = Date.now()): void {
   chatAdmins.set(chatId, { adminIds, fetchedAt });
 }
 
-/** 在全量拉取在途期间暂存成员的邀请豁免资格增量变更。 */
+/**
+ * 在全量拉取在途期间暂存成员的邀请豁免资格增量变更。
+ *
+ * @param chatId 群聊 ID
+ * @param userId 变更成员的用户 ID
+ * @param isInviterExempt 是否具备邀请豁免资格
+ */
 export function bufferAdminChangeDuringFetch(
   chatId: number,
   userId: number,
@@ -46,14 +58,24 @@ export function bufferAdminChangeDuringFetch(
   pending.set(userId, isInviterExempt);
 }
 
-/** 取出并删除指定群在全量拉取期间暂存的资格变更。 */
+/**
+ * 取出并删除指定群在全量拉取期间暂存的资格变更。
+ *
+ * @param chatId 群聊 ID
+ * @returns 暂存的成员资格变更表；无暂存变更时返回 `undefined`
+ */
 export function takePendingAdminChanges(chatId: number): Map<number, boolean> | undefined {
   const pending: Map<number, boolean> | undefined = pendingAdminChangesDuringFetch.get(chatId);
   pendingAdminChangesDuringFetch.delete(chatId);
   return pending;
 }
 
-/** 淘汰已过期的管理员快照，保留仍在拉取中的群快照。 */
+/**
+ * 淘汰已过期的管理员快照，保留仍在拉取中的群快照。
+ *
+ * @param now 当前毫秒时间戳
+ * @returns 本次淘汰的过期群快照数
+ */
 export function sweepAdminCache(now: number = Date.now()): number {
   return sweepExpiredSnapshots({
     snapshots: chatAdmins,
@@ -63,7 +85,11 @@ export function sweepAdminCache(now: number = Date.now()): number {
   });
 }
 
-/** 清除指定群的管理员快照、在途拉取槽位与暂存增量。 */
+/**
+ * 清除指定群的管理员快照、在途拉取槽位与暂存增量。
+ *
+ * @param chatId 群聊 ID
+ */
 export function clearChatAdminCache(chatId: number): void {
   chatAdmins.delete(chatId);
   adminFetches.delete(chatId);

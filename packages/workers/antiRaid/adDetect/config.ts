@@ -17,6 +17,7 @@ import type { AntiRaidAgentConfigMessage } from "../../../types/antiRaid/protoco
  * 显式缓存的登记表，并在新配置选用 Google 时启动显式缓存支持度探测与既有条目扫描。示例清单
  * 替换时清空提示词缓存，下一次判定按新快照重建；在途判定继续持有旧客户端直至结算。adSamples
  * 为 null 表示广告检测不可用，示例 holder 保持不动。
+ * @param msg 主线程发来的广告检测与群风格配置消息。
  */
 export function adoptAdDetectConfigMessage(msg: AntiRaidAgentConfigMessage): void {
   const adDetectChanged: boolean = !Bun.deepEquals(adDetectAgentConfigSnapshot(), msg.adDetect);

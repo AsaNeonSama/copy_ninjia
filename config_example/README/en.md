@@ -185,9 +185,6 @@ Dynamic configuration file located at `config/dynamic/agent.json`. The root cont
       "provider": "google",
       "api_key": "replace-with-google-api-key",
       "base_url": "https://gateway.ai.cloudflare.com/v1/your-account-id/your-gateway/google-ai-studio",
-      "headers": {
-        "cf-aig-authorization": "Bearer <replace-with-cloudflare-ai-gateway-token>"
-      },
       "model": "gemini-3.5-flash-lite"
     },
     "image": {
@@ -229,8 +226,7 @@ Applies to all capabilities (`text`, `summary`, `media`, `ad_detect`, `image`, `
 | `api_key` | `string` | **Required** | Non-empty string, not in `AGENT_API_KEY_PLACEHOLDERS` | Dedicated API key for this capability |
 | `base_url` | `string` | Optional | Absolute HTTPS URL (`http` only allowed for loopback hosts in `LOOPBACK_HOSTS`) | Custom endpoint URL. Must not contain userinfo credentials or `#` fragments |
 | `model` | `string` | **Required** (forbidden for xAI TTS) | Non-empty string | Actual model name accepted by the endpoint |
-| `headers` | `object` | Optional | `1` to `AGENT_HEADERS_MAX_ENTRIES` key-value pairs (**Only allowed when `provider` is `"google"` or `"anthropic"`**) | Custom HTTP request headers for third-party gateway authentication (e.g. Cloudflare AI Gateway `cf-aig-authorization`). Keys must match `AGENT_HEADER_NAME_PATTERN`, must be unique ignoring case, and cannot be the provider's credential header in `AGENT_CREDENTIAL_HEADER_NAMES`; values must match `AGENT_HEADER_VALUE_PATTERN` after trimming |
-| `fallback_model` | `string` | Optional | Non-empty string different from `model` (**Only allowed when `provider` is `"anthropic"`**) | When `model` refuses (`stop_reason: "refusal"`), the same request is resent with this model and the same `api_key`, `base_url`, and `headers`. The fallback credit is redeemed best-effort; a fallback model outside `model`'s `allowed_fallback_models` is billed at the normal rate. If the fallback model also refuses, or none is configured, the request fails without retrying |
+| `fallback_model` | `string` | Optional | Non-empty string different from `model` (**Only allowed when `provider` is `"anthropic"`**) | When `model` refuses (`stop_reason: "refusal"`), the same request is resent with this model and the same `api_key` and `base_url`. The fallback credit is redeemed best-effort; a fallback model outside `model`'s `allowed_fallback_models` is billed at the normal rate. If the fallback model also refuses, or none is configured, the request fails without retrying |
 
 ### Image Generation Keys (`agent.image`)
 
@@ -271,7 +267,7 @@ Dynamic configuration file located at `config/dynamic/assets.json`. Optional fil
     "random_h_image_dir": "./h_image"
   },
   "pathOrUrl": {
-    "bot_default_avatar": "https://drive.google.com/uc?export=download&id=1Wqxii-o6O36ZDWhM1L0BcZPGBFmpvalg"
+    "bot_default_avatar": "https://drive.google.com/uc?export=download&id=1i7WEjtcJz-kS550QXs_RKDtLVpb_4t64"
   },
   "onlyUrl": {
     "fortune_thumbnail_url": "https://drive.google.com/uc?export=view&id=1RMluRcTHBUTqYrkNISoVEZCI84ZQEosA",
@@ -552,7 +548,7 @@ The root array holds at most `CRON_MAX_TASKS` tasks, and task names must be uniq
 | --- | --- | --- | --- | --- |
 | `name` | `string` | **Required** | Non-empty, `≤ CRON_TASK_NAME_MAX_CHARS` characters, unique across file | Unique task name. Renaming a task is equivalent to deleting the old task and registering a new one |
 | `chat_id` | `array` | **Required** | See "Chat Target Delivery Modes" below | Target destination chat IDs |
-| `cron` | `string` | **Required** | Standard 5-field cron expression or `@daily` macro; must still have a future trigger time | Schedule trigger expression |
+| `cron` | `string` | **Required** | Standard 5-field cron expression, or one of the `@yearly`, `@annually`, `@monthly`, `@weekly`, `@daily`, `@midnight`, `@hourly` macros; must still have a future trigger time | Schedule trigger expression |
 | `time_zone` | `string` | Optional | IANA name; inherits `bot.json.time_zone` when omitted | Time zone used to evaluate trigger times (e.g. `"America/New_York"`) |
 | `rand_cron` | `string` | Optional | Format `"<min>-<max>"` or `"<max>"` in `m`/`h`/`d` within `[CRON_RANDOM_INTERVAL_MIN_MS, CRON_RANDOM_INTERVAL_MAX_MS]` | Random floating interval: the first run fires on `cron`; after each run, the next trigger time is drawn uniformly at random within the interval (rounded up to a whole minute) |
 | `just_once` | `boolean` | Optional | `true` or `false`, default `false` (**cannot be used with `rand_cron`**) | Whether to run only once. **Note: execution flag is memory-only and resets on restart** |

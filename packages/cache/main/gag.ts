@@ -16,14 +16,22 @@ export const gagRuntimeAccepting: { current: boolean } = { current: true };
 /** gag 到期清理、删除重试与入口换新的在途后台任务集合：任务发起时登记，结算时自摘除；容量与 GAG_SESSION_MAX 同阶，进程重启后从空集开始。 */
 export const gagBackgroundTasks: Set<Promise<void>> = new Set();
 
-/** 统计全部群的 gag 会话总数（含 starting、active 与 ending）。 */
+/**
+ * 统计全部群的 gag 会话总数（含 starting、active 与 ending）。
+ *
+ * @returns 全部群的 gag 会话总数
+ */
 export function gagSessionCount(): number {
   let count: number = 0;
   for (const sessions of gagSessionsByChat.values()) count += sessions.length;
   return count;
 }
 
-/** 统计全部群处于 active 阶段的 gag 会话总数。 */
+/**
+ * 统计全部群处于 active 阶段的 gag 会话总数。
+ *
+ * @returns 处于 active 阶段的 gag 会话总数
+ */
 export function activeGagSessionCount(): number {
   let count: number = 0;
   for (const sessions of gagSessionsByChat.values()) {

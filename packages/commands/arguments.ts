@@ -1,18 +1,18 @@
-import { COMMAND_ARGUMENT_SEPARATOR_PATTERN } from "../consts/commands";
-import type { ToggleAction } from "../types/commands";
-
 /**
  * 命令参数的统一分词。
  *
  * `/mute`、`/white`、`/block`、`/permission`、`/batch_kick` 与开关类命令把 `ctx.match`
  * 拆成位置参数或动作，分词口径统一在本模块。
  */
+import { COMMAND_ARGUMENT_SEPARATOR_PATTERN } from "../consts/commands";
+import type { ToggleAction } from "../types/commands";
 
 /**
  * 把命令参数原文拆成非空 token，保持原有相对顺序。
  *
  * 先 `trim` 再按 COMMAND_ARGUMENT_SEPARATOR_PATTERN 切分，并滤掉空串；空参数得到 `[]`。
  * @param match grammY 给出的命令参数原文（`ctx.match`），可以是空串。
+ * @returns 非空参数 token 数组。
  */
 export function commandArgumentTokens(match: string): string[] {
   return match
@@ -32,13 +32,19 @@ export interface TrailingTokenSplit {
 /**
  * 按「目标参数 + 末位动作或时长」的口径拆分命令参数（`/block`、`/white` 与 `/mute` 共用）；
  * 分词同 commandArgumentTokens。
+ * @param match grammY 给出的命令参数原文（`ctx.match`）。
+ * @returns 末位 token 与前置参数段。
  */
 export function splitTrailingToken(match: string): TrailingTokenSplit {
   const tokens: string[] = commandArgumentTokens(match);
   return { last: tokens.at(-1), rest: tokens.slice(0, -1).join(" ") };
 }
 
-/** 大小写不敏感地解析 enable/disable 动作，拒绝其它近似写法。 */
+/**
+ * 大小写不敏感地解析 enable/disable 动作，拒绝其它近似写法。
+ * @param raw 原始动作字符串。
+ * @returns 规范化后的 `"enable"` 或 `"disable"`；不匹配时返回 undefined。
+ */
 export function parseToggleAction(raw: string): ToggleAction | undefined {
   const normalized: string = raw.toLowerCase();
   if (normalized === "enable" || normalized === "disable") return normalized;

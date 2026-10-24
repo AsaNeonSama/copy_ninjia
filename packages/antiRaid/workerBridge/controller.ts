@@ -1,3 +1,7 @@
+/**
+ * Anti-Raid 主线程控制器：只负责 Worker 生命周期、代际切换和公开控制命令。
+ * 事件归并、重放数据构建及外部观察者注册分别位于同目录的叶子模块。
+ */
 import { emergencyLockdownRecoveryRuntime } from "../../cache/main/antiRaid/lockdownMirror";
 import { antiRaidBarrier, antiRaidRuntimeState } from "../../cache/main/antiRaid/proxy";
 import {
@@ -59,11 +63,12 @@ import {
 import { isTerminalVerificationPhase } from "../../states/verification/shared";
 
 /**
- * Anti-Raid 主线程控制器：只负责 Worker 生命周期、代际切换和公开控制命令。
- * 事件归并、重放数据构建及外部观察者注册分别位于同目录的叶子模块。
+ * Anti-Raid 专属进程级许可与 Telegram 能力共用既有双工边界。
+ *
+ * @param request Worker 发起的双工请求载荷
+ * @param signal 请求取消信号
+ * @returns 双工请求响应值
  */
-
-/** Anti-Raid 专属进程级许可与 Telegram 能力共用既有双工边界。 */
 async function handleAntiRaidWorkerRequest(
   request: AntiRaidWorkerRequest,
   signal: AbortSignal
@@ -83,6 +88,13 @@ async function handleAntiRaidWorkerRequest(
   return handleAntiRaidWorkerTelegramRequest(request, signal);
 }
 
+/**
+ * 提取 Anti-Raid 双工请求响应需零拷贝转移的底层缓冲区列表。
+ *
+ * @param request Worker 发起的双工请求载荷
+ * @param value 主线程生成的响应值
+ * @returns 需转移的 `Bun.Transferable` 列表；无需转移时返回 undefined
+ */
 function antiRaidWorkerResponseTransfer(
   request: AntiRaidWorkerRequest,
   value: unknown
@@ -179,6 +191,11 @@ export function syncAntiRaidAgentConfig(): void {
   }
 }
 
+/**
+ * 向当前代际 Anti-Raid Worker 投递消息；Worker 不可用时抛出 `WorkerUndeliveredError`。
+ *
+ * @param message 待投递的 Anti-Raid Worker 消息
+ */
 function postAntiRaidOrThrow(message: AntiRaidWorkerMessage): void {
   if (postAntiRaid(message)) return;
   throw new WorkerUndeliveredError("Anti-Raid Worker is unavailable.");
@@ -236,7 +253,13 @@ export function initAntiRaid(): void {
   }
 }
 
-/** 统一群 teardown：取消验证，并对 lockdown 发起可恢复解锁；群已不存在时改为放弃。 */
+/**
+ * 统一群 teardown：取消验证，并对 lockdown 发起可恢复解锁；群已不存在时改为放弃。
+ *
+ * @param chatId 群聊 ID
+ * @param cleanupVerificationMessages 是否删除群内的待验证按钮消息
+ * @param abandonLockdown 是否直接放弃私密模式恢复而不发起 Telegram 权限还原
+ */
 export function deactivateAntiRaidChat(
   chatId: number,
   cleanupVerificationMessages: boolean,
@@ -251,18 +274,30 @@ export function deactivateAntiRaidChat(
   });
 }
 
-/** `/antiraid disable` 只收掉入群验证与 lockdown 链路。 */
+/**
+ * `/antiraid disable` 只收掉入群验证与 lockdown 链路。
+ *
+ * @param chatId 群聊 ID
+ */
 export function deactivateJoinGuardChat(chatId: number): void {
   deleteDeferredVerificationsForChat(chatId);
   postAntiRaidOrThrow({ type: "deactivateJoinGuard", chatId });
 }
 
-/** `/ad_detect disable` 丢掉该群已经排进 Worker 的候选消息。 */
+/**
+ * `/ad_detect disable` 丢掉该群已经排进 Worker 的候选消息。
+ *
+ * @param chatId 群聊 ID
+ */
 export function clearAdDetection(chatId: number): void {
   postAntiRaidOrThrow({ type: "clearAdDetect", chatId });
 }
 
-/** `/flood_control disable` 丢掉该群全部发言窗口。 */
+/**
+ * `/flood_control disable` 丢掉该群全部发言窗口。
+ *
+ * @param chatId 群聊 ID
+ */
 export function clearFloodControl(chatId: number): void {
   postAntiRaidOrThrow({ type: "clearFloodControl", chatId });
 }
@@ -276,7 +311,11 @@ export async function terminateAntiRaid(): Promise<void> {
   resetVerificationAttemptRuntime();
 }
 
-/** Disk I/O 恢复完成后、Anti-Raid 初始化前灌入主线程验证镜像。 */
+/**
+ * Disk I/O 恢复完成后、Anti-Raid 初始化前灌入主线程验证镜像。
+ *
+ * @param records 从持久化存储恢复出的验证键到活动快照映射
+ */
 export function hydratePendingVerifications(
   records: Map<string, VerificationSnapshot>
 ): void {

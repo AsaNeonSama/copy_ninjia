@@ -8,7 +8,12 @@ import { hasOnlyKeys, isPlainRecord } from "../libs/record";
 import type { BotConfig } from "../types/config";
 import { parseTimeZone } from "./timeZoneInput";
 
-/** 解码 config/static/bot.json；风格缺省保持未配置，未知字段及非法身份、风格和时区一律拒绝。 */
+/**
+ * 解码 config/static/bot.json；风格缺省保持未配置，未知字段及非法身份、风格和时区一律拒绝。
+ * @param value 待校验的原始 JSON 值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的 Bot 配置。
+ */
 export function parseBotConfig(
   value: unknown,
   sourcePath: string = BOT_CONFIG_PATH
@@ -42,7 +47,11 @@ export function parseBotConfig(
   };
 }
 
-/** 按指定路径读取并严格解析，不改写运行时快照；目录布局由 config/layout.ts 另行检查。 */
+/**
+ * 按指定路径读取并严格解析，不改写运行时快照；目录布局由 config/layout.ts 另行检查。
+ * @param path Bot 配置文件路径。
+ * @returns 已通过校验的 Bot 配置。
+ */
 export async function loadBotConfig(
   path: string = BOT_CONFIG_PATH
 ): Promise<BotConfig> {

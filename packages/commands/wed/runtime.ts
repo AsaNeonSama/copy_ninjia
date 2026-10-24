@@ -34,6 +34,9 @@ export function initWedRuntime(): void {
  * 每项恢复自己接纳时的取消上下文，不继承释放槽位的另一条任务的上下文。
  * 群取消只撤销未开始任务；在途会话由 teardown 取消并沿原边界清理迟到图片。
  * @see ../../../docs/cn/04-invariants.md
+ * @param chat 所在群的 `/wed` 交互状态。
+ * @param task 待提交的交互异步任务。
+ * @returns 成功排入执行器时返回 true，拒绝接纳或队列已满时返回 false。
  */
 export function submitWedTask(chat: WedChat, task: () => Promise<unknown>): boolean {
   const runtime: CommandExecutorRuntime | null = wedRuntime.current;
@@ -54,7 +57,11 @@ export function quiesceWedRuntime(): void {
   stopWedMemberReview();
 }
 
-/** 等待交互与成员复核结算；预算耗尽时取消排队和在途请求，零预算可用于紧急停机。 */
+/**
+ * 等待交互与成员复核结算；预算耗尽时取消排队和在途请求，零预算可用于紧急停机。
+ * @param timeoutMs 最大等待毫秒数。
+ * @returns 排空与成员滑窗落盘结果。
+ */
 export async function drainWedRuntime(timeoutMs: number): Promise<FlushResult> {
   assertTimeoutMs(timeoutMs, "Wed drain timeout");
   quiesceWedRuntime();

@@ -202,3 +202,25 @@ test("群已不存在时放弃已生效的私密模式：撤掉 timer、只报 u
   expect(restoreAttempts).toBe(0);
   expect(deleted).toEqual([]);
 });
+
+test("提交在途时落盘失败排队恢复，但开跑前群已不存在（chatGone）：放弃排队恢复，不再调用恢复 API 且只上报一次 unlock", async (): Promise<void> => {
+  hold = "write";
+  acknowledge = false;
+  adoptLockdowns([{ chatId: CHAT_ID, phase: "applying", intentId: 7, originalPermissions: { can_invite_users: true }, announced: false, persisted: true, remainingMs: 0 }]);
+  await waitUntil((): boolean => entered);
+  const posted: Mock<typeof postMessage> = spyOn(globalThis, "postMessage");
+  posted.mockClear();
+
+  handleLockdownPersistFailed({ type: "lockdownPersistFailed", chatId: CHAT_ID, phase: "applying", intentId: 7 });
+  expect(lockdownEntries.get(CHAT_ID)?.state.kind).toBe("restoring");
+  abandonLockdownChat(CHAT_ID);
+  expect(lockdownEntries.has(CHAT_ID)).toBe(false);
+
+  gate.resolve();
+  await drain();
+
+  expect(queries).toBe(1);
+  expect(writes).toEqual([false]);
+  expect(restoreAttempts).toBe(0);
+  expect(posted.mock.calls).toEqual([[{ type: "unlock", chatId: CHAT_ID }]]);
+});

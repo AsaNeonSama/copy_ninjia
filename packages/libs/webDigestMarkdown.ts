@@ -23,19 +23,31 @@ import {
 } from "./telegramMarkdown";
 import type { RenderedWebDigest, WebDigest, WebDigestLanguage } from "../types/webDigest";
 
-/** 渲染一份已解码的摘要。 */
+/**
+ * 渲染一份已解码的摘要。
+ * @param digest 已通过严格校验的摘要对象。
+ * @param language 摘要配置语言，用于选取来源标签。
+ * @returns 渲染出的 MarkdownV2 文本与可见字符长度。
+ */
 export function renderWebDigestMarkdown(
   digest: Readonly<WebDigest>,
   language: WebDigestLanguage
 ): RenderedWebDigest {
   let text: string = "";
   let visible: string = "";
-  /** 追加一段：原文与它解析后的可见文字。 */
+  /**
+   * 追加一段：原文与它解析后的可见文字。
+   * @param markdown 已转义的 MarkdownV2 片段。
+   * @param plain Telegram 解析后的可见纯文本片段。
+   */
   function append(markdown: string, plain: string): void {
     text += markdown;
     visible += plain;
   }
-  /** 追加一段不带格式的文字。 */
+  /**
+   * 追加一段不带格式的文字。
+   * @param plain 待转义并追加的纯文本片段。
+   */
   function appendPlain(plain: string): void {
     append(escapeMarkdownV2(plain), plain);
   }

@@ -26,7 +26,11 @@ interface SpeechGenerationConfig {
   readonly temperature: number;
 }
 
-/** 构造携带指定音色与采样温度的 `generation_config`。 */
+/**
+ * 构造携带指定音色与采样温度的 `generation_config`。
+ * @param voice 部署配置指定的预置音色名称。
+ * @returns Interactions API 所需的 `GenerationConfig` 对象。
+ */
 function speechGenerationConfig(voice: string): Interactions.GenerationConfig {
   const config: SpeechGenerationConfig = {
     speech_config: [{ voice }],
@@ -41,12 +45,21 @@ interface SpeechInteractionOutput {
   readonly usage?: Interactions.Usage | undefined;
 }
 
-/** 构造携带台词与朗读风格注解的文本块。 */
+/**
+ * 构造携带台词与朗读风格注解的文本块。
+ * @param text 待朗读的台词正文。
+ * @param style 拼接后的朗读风格指令。
+ * @returns 带 `speech_metadata` 注解的 Interactions 文本块。
+ */
 function speechTextContent(text: string, style: string): Interactions.TextContent {
   return { type: "text", text, annotations: [{ type: "speech_metadata", style }] };
 }
 
-/** 将一句台词合成为语音；无可用音频载荷时返回 null。 */
+/**
+ * 将一句台词合成为语音；无可用音频载荷时返回 null。
+ * @param request 语音合成请求参数，包含台词正文、语言风格、语气与取消信号。
+ * @returns 合成并封装后的语音字节载荷；失败或无音频输出时返回 `null`。
+ */
 export async function synthesizeGeminiSpeech({
   text,
   languageStyle,

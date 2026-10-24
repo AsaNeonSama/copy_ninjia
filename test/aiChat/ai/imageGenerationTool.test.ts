@@ -68,6 +68,7 @@ const {
   IMAGE_REFERENCE_POINTER,
   IMAGE_TOOL_STATUS_UNAUTHORIZED,
   TOOL_STATUS_BLOCK_LABEL,
+  imageReferencePresent,
   imageToolStatusAvailable,
 } = await import("../../../packages/consts/aiChat/prompts/tools");
 const { acceptRoundText, createRoundMessageState } = await import("../../../packages/aiChat/ai/tools/replyToolset/messageState");
@@ -298,10 +299,12 @@ describe("generate_image 工具执行器", () => {
     const ctx: ReplyToolContext = { ...buildContext(), imageGenerationReferences: references };
 
     const status: string = buildToolStatusBlock({ ctx, imageEnabled: true, voiceEnabled: false });
-    expect(status).toContain("当前触发附带 3 张参考图片素材");
-    expect(status).toContain("（900×1600）");
-    expect(status).toContain("其余 2 张来自同一相册");
-    expect(status).toContain("默认使用最接近第 1 张素材的 9:16");
+    expect(status).toContain(imageToolStatusAvailable(imageReferencePresent({
+      count: 3,
+      width: 900,
+      height: 1600,
+      defaultAspectRatio: "9:16",
+    })));
 
     const result = JSON.parse(await buildExecutor(ctx)(JSON.stringify({ prompt: "把三张图拼成海报" })));
 

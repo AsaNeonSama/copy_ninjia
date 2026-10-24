@@ -7,24 +7,17 @@ import type {
 } from "../../types/states/lockdown";
 
 /**
- * 封锁公告的发送结果。结果比本轮活得更久时（加锁失败、期间被解除），
- * 拿到 ID 的此刻直接删除。
+ * 封锁公告的发送结果；未激活或当前不等待公告结果时无操作。轮次已结束时的公告由解释器
+ * （workers/antiRaid/lockdownApi.ts）沿串行链直接删除，不派发本事件。
+ * @param state 当前群聊的私密模式状态，未激活时为 undefined。
+ * @param event 封锁公告发送结果事件。
+ * @returns 记录公告消息 ID 并按需持久化，或保持无操作的状态转移结果。
  */
 export function handleAnnouncementResult(
   state: LockdownState | undefined,
   event: Extract<LockdownMachineEvent, { type: "announcementResult" }>
 ): LockdownTransition {
-  if (state === undefined) {
-    // 本轮在公告落地前已结束（加锁失败、或期间被解除）：没有状态记录这条消息，
-    // 拿到 ID 即删除。
-    return {
-      next: state,
-      effects: event.messageId !== undefined
-        ? [{ kind: "deleteLockdownAnnouncement", messageId: event.messageId }]
-        : NO_LOCKDOWN_EFFECTS,
-    };
-  }
-  if (!state.announcementPending) return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+  if (!state?.announcementPending) return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   if (event.messageId === undefined) return { next: { ...state, announcementPending: false }, effects: NO_LOCKDOWN_EFFECTS };
   const next: LockdownState = {
     ...state,

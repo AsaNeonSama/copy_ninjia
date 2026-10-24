@@ -39,17 +39,29 @@ export class FifoMap<K, V> {
     return this.map.size;
   }
 
-  /** 键是否存在，不影响顺序。 */
+  /**
+   * 键是否存在，不影响顺序。
+   * @param key 待查询的键。
+   * @returns 存在该键时返回 true，否则返回 false。
+   */
   has(key: K): boolean {
     return this.map.has(key);
   }
 
-  /** 读取一个键的值，不影响顺序；未命中返回 undefined（存了 undefined 值的键同样返回 undefined）。 */
+  /**
+   * 读取一个键的值，不影响顺序；未命中返回 undefined（存了 undefined 值的键同样返回 undefined）。
+   * @param key 待读取的键。
+   * @returns 键对应的值；未命中时返回 undefined。
+   */
   get(key: K): V | undefined {
     return this.map.get(key)?.value;
   }
 
-  /** 已有键只改值不移位；新键在达到容量时先淘汰最早项，再插到最新端。 */
+  /**
+   * 已有键只改值不移位；新键在达到容量时先淘汰最早项，再插到最新端。
+   * @param key 待写入的键。
+   * @param value 待关联的值。
+   */
   set(key: K, value: V): void {
     const existing: FifoNode<K, V> | undefined = this.map.get(key);
     if (existing !== undefined) {
@@ -59,6 +71,11 @@ export class FifoMap<K, V> {
     this.insertNewest(key, value);
   }
 
+  /**
+   * 从容器与顺序链中移除指定键。
+   * @param key 待删除的键。
+   * @returns 键原先存在并被移除时返回 true，否则返回 false。
+   */
   delete(key: K): boolean {
     const node: FifoNode<K, V> | undefined = this.map.get(key);
     if (node === undefined) return false;
@@ -74,12 +91,18 @@ export class FifoMap<K, V> {
     this.newest = null;
   }
 
-  /** 最早插入（下一个会被淘汰）的键；空表返回 undefined。O(1)。 */
+  /**
+   * 最早插入（下一个会被淘汰）的键；空表返回 undefined。O(1)。
+   * @returns 最早端节点的键；空表时返回 undefined。
+   */
   oldestKey(): K | undefined {
     return this.oldest?.key;
   }
 
-  /** 从最早到最新回调每一项；回调里只允许删除当前项。 */
+  /**
+   * 从最早到最新回调每一项；回调里只允许删除当前项。
+   * @param callback 对每个条目依次调用的回调，接收 `(value, key)`。
+   */
   forEach(callback: (value: V, key: K) => void): void {
     let node: FifoNode<K, V> | null = this.oldest;
     while (node !== null) {
@@ -89,7 +112,10 @@ export class FifoMap<K, V> {
     }
   }
 
-  /** 从最早到最新的键；迭代中只允许删除当前项。 */
+  /**
+   * 从最早到最新的键；迭代中只允许删除当前项。
+   * @returns 按从最早到最新顺序产出键的生成器。
+   */
   *keys(): Generator<K, void, undefined> {
     let node: FifoNode<K, V> | null = this.oldest;
     while (node !== null) {
@@ -99,7 +125,10 @@ export class FifoMap<K, V> {
     }
   }
 
-  /** 从最早到最新的值；迭代中只允许删除当前项。 */
+  /**
+   * 从最早到最新的值；迭代中只允许删除当前项。
+   * @returns 按从最早到最新顺序产出值的生成器。
+   */
   *values(): Generator<V, void, undefined> {
     let node: FifoNode<K, V> | null = this.oldest;
     while (node !== null) {
@@ -109,7 +138,10 @@ export class FifoMap<K, V> {
     }
   }
 
-  /** 从最早到最新的 `[键, 值]`；迭代中只允许删除当前项。 */
+  /**
+   * 从最早到最新的 `[键, 值]`；迭代中只允许删除当前项。
+   * @returns 按从最早到最新顺序产出 `[key, value]` 元组的生成器。
+   */
   *entries(): Generator<[K, V], void, undefined> {
     let node: FifoNode<K, V> | null = this.oldest;
     while (node !== null) {
@@ -119,11 +151,19 @@ export class FifoMap<K, V> {
     }
   }
 
+  /**
+   * 默认迭代器，等价于 `entries()`。
+   * @returns 按从最早到最新顺序产出 `[key, value]` 元组的生成器。
+   */
   [Symbol.iterator](): Generator<[K, V], void, undefined> {
     return this.entries();
   }
 
-  /** 插入一个新键到最新端；已达容量时先淘汰最早项。调用方保证键不存在。 */
+  /**
+   * 插入一个新键到最新端；已达容量时先淘汰最早项。调用方保证键不存在。
+   * @param key 尚不存在的新键。
+   * @param value 待关联的值。
+   */
   protected insertNewest(key: K, value: V): void {
     if (this.map.size >= this.maxEntries) {
       const oldest: FifoNode<K, V> | null = this.oldest;
@@ -143,6 +183,7 @@ export class FifoMap<K, V> {
    * 只能对仍在链上的节点调用：对已经摘过的节点再摘一次，会把 `newest` 与 `oldest`
    * 一起置空。调用点（`delete` 先查 Map、容量淘汰摘 `oldest`、LruCache 命中摘下立刻
    * 重新挂上）都保证这一点；新增调用点必须自己先确认节点还在链上，这里不加运行期断言。
+   * @param node 当前仍在双向链表中的节点。
    */
   protected unlink(node: FifoNode<K, V>): void {
     const newer: FifoNode<K, V> | null = node.newer;
@@ -155,6 +196,10 @@ export class FifoMap<K, V> {
     node.older = null;
   }
 
+  /**
+   * 将已摘下的游离节点挂到双向链表的最新端。
+   * @param node 待挂入最新端的节点。
+   */
   protected linkNewest(node: FifoNode<K, V>): void {
     const previousNewest: FifoNode<K, V> | null = this.newest;
     node.newer = null;

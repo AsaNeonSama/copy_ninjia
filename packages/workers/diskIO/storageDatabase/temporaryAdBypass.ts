@@ -24,7 +24,11 @@ import { hasEffectiveBlocklistIdentity } from "./identityPolicy";
 import { assertPositiveRevision, requireStorageDatabase, storageSource } from "./context";
 import { flushIfStorageFull, flushStorageDatabase } from "./flush";
 
-/** 收下一条临时广告免检累计最终值；同一主键的迟到 revision 不覆盖新值。 */
+/**
+ * 收下一条临时广告免检累计最终值；同一主键的迟到 revision 不覆盖新值。
+ * @param message 临时广告免检累计写入消息
+ * @param reply 持久化回执发送回调
+ */
 export function handleTemporaryAdBypassWrite(
   message: TemporaryAdBypassWriteDiskMessage,
   reply: IdentityPersistenceReply
@@ -57,7 +61,11 @@ export function handleTemporaryAdBypassWrite(
   flushIfStorageFull(reply);
 }
 
-/** 提交在途最终值后，清理未在刚结束的配置时区自然日达标的旧累计。 */
+/**
+ * 提交在途最终值后，清理未在刚结束的配置时区自然日达标的旧累计。
+ * @param reply 持久化回执发送回调
+ * @param now 当前毫秒时间戳
+ */
 export function maintainTemporaryAdBypassActivities(
   reply: IdentityPersistenceReply,
   now: number = Date.now()

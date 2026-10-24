@@ -5,6 +5,7 @@
  */
 
 import type OpenAI from "openai";
+import type { ClientOptions as OpenAiClientOptions } from "openai";
 import type { ImageGenerationAspectRatio } from "../../types/aiChat/imageGeneration";
 import type { AgentCapability } from "../../types/config";
 
@@ -151,10 +152,14 @@ export const OPENAI_SPEECH_REQUEST_TIMEOUT_MS: number = 60_000;
  */
 export const OPENAI_SPEECH_REQUEST_ATTEMPTS: number = 3;
 
-/**
- * openai 语音协议请求的音频响应格式（见 aiChat/ai/voiceEncoding.ts）。
- */
+/** openai 语音协议请求的音频响应格式（见 aiChat/ai/voiceEncoding.ts）。 */
 export const OPENAI_SPEECH_RESPONSE_FORMAT: NonNullable<OpenAI.Audio.SpeechCreateParams["response_format"]> = "opus";
+
+/** `base_url` 缺省时传给 OpenAI SDK 的官方默认端点地址（与 SDK 内置缺省逐字相同）。所属模块：aiChat/openai/client.ts、workers/antiRaid/adDetect/ai/openai.ts。 */
+export const OPENAI_API_BASE_URL: string = "https://api.openai.com/v1";
+
+/** 传给 OpenAI SDK 的日志级别（与 SDK 缺省相同），显式给出后 SDK 不读取 OPENAI_LOG。所属模块：aiChat/openai/client.ts、workers/antiRaid/adDetect/ai/openai.ts。 */
+export const OPENAI_SDK_LOG_LEVEL: NonNullable<OpenAiClientOptions["logLevel"]> = "warn";
 
 /** xai 语音协议未配置 base_url 时使用的 xAI 官方 API 根地址。 */
 export const XAI_API_BASE_URL: string = "https://api.x.ai/v1";

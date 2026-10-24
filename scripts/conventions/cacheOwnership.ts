@@ -1,4 +1,5 @@
 import { join, relative } from "node:path";
+import type { ModuleGraphReader } from "./moduleGraph";
 
 /** cache 顶层目录与 owner 线程的映射。 */
 export type CacheOwnerPrefix = readonly [prefix: string, owner: string];
@@ -30,15 +31,26 @@ export const CACHE_OWNER_BY_PREFIX: readonly CacheOwnerPrefix[] = [
 export const CACHE_OWNER_EXEMPTIONS: Readonly<Record<string, readonly string[]>> = {};
 
 export interface CollectCacheOwnershipProblemsParams {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
+  /** packages/cache/ 下的全部源码文件绝对路径列表。 */
   readonly cacheFiles: readonly string[];
+  /** 线程名到入口相对路径的映射表。 */
   readonly threadEntries: Readonly<Record<string, string>>;
+  /** 线程名到该线程模块闭包（目标文件绝对路径 → 引入链）的映射表。 */
   readonly threadClosures: ReadonlyMap<string, ReadonlyMap<string, readonly string[]>>;
+  /** cache 目录前缀到 owner 线程名的映射列表。 */
   readonly ownerByPrefix: readonly CacheOwnerPrefix[];
+  /** cache 模块相对路径到额外允许加载它的线程列表。 */
   readonly exemptions: Readonly<Record<string, readonly string[]>>;
 }
 
-/** 按真实线程模块闭包核对 cache owner、perThread 与显式豁免。 */
+/**
+ * 按真实线程模块闭包核对 cache owner、perThread 与显式豁免。
+ *
+ * @param params 缓存线程归属核对入参
+ * @returns 跨线程违规加载或目录归属问题列表
+ */
 export function collectCacheOwnershipProblems({
   projectRoot,
   cacheFiles,
@@ -88,6 +100,9 @@ export function collectCacheOwnershipProblems({
  *
  * 与 collectCacheOwnershipProblems 分开导出：那一个按调用方给的文件子集判定，
  * 整表核对需要 `packages/cache/` 的完整文件集合。
+ *
+ * @param params 豁免表反向核对入参
+ * @returns 过期或闲置豁免条目问题列表
  */
 export function collectStaleCacheExemptionProblems({
   projectRoot,
@@ -122,6 +137,9 @@ export function collectStaleCacheExemptionProblems({
  * cache 文件头注里声明的 owner：`packages/cache/` 下第一层目录名（`main`、`perThread`），
  * `workers/` 下再取一层（`workers/aiChat` 等）。不在这些目录下时为 null，由
  * collectCacheOwnershipProblems 报目录问题。
+ *
+ * @param relativePath 相对仓库根的 cache 文件路径
+ * @returns 期望的 owner 头注标识，路径不在合法 owner 目录下时返回 null
  */
 export function expectedCacheOwnerHeader(relativePath: string): string | null {
   const parts: readonly string[] = relativePath.split("/");
@@ -132,6 +150,7 @@ export function expectedCacheOwnerHeader(relativePath: string): string | null {
 }
 
 export interface CollectCacheOwnerHeaderProblemsParams {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
   /** cache 文件绝对路径 → 文件首行。 */
   readonly firstLines: ReadonlyMap<string, string>;
@@ -140,6 +159,9 @@ export interface CollectCacheOwnerHeaderProblemsParams {
 /**
  * 每个 cache 文件首行必须以 `/** owner: <owner>。` 起头（只有 owner 时写成
  * `/** owner: <owner>。 *\/`），owner 与所在目录一致；头注其余内容不做判定。
+ *
+ * @param params cache 文件首行头注核对入参
+ * @returns 头注缺失或不匹配的违规问题列表
  */
 export function collectCacheOwnerHeaderProblems({
   projectRoot,
@@ -152,6 +174,70 @@ export function collectCacheOwnerHeaderProblems({
     if (owner === null) continue;
     if (firstLine.startsWith(`/** owner: ${owner}。`)) continue;
     problems.push(`${relativePath} must start with the cache owner header "/** owner: ${owner}。"`);
+  }
+  return problems;
+}
+
+/**
+ * Telegram 凭据、真实客户端、网络分派与出站队列只属主线程。Worker 只能加载
+ * 项目自有协议和双工代理，连 grammY 运行时都不得进入其模块闭包。
+ */
+const WORKER_TELEGRAM_FORBIDDEN_RELATIVE_MODULES: readonly string[] = [
+  join("packages", "cache", "main", "telegram.ts"),
+  join("packages", "cache", "main", "telegramSend.ts"),
+  join("packages", "infra", "telegram", "mainClient.ts"),
+  join("packages", "infra", "telegram", "outboundGate.ts"),
+  join("packages", "infra", "telegram", "outboundRetryLane.ts"),
+  join("packages", "infra", "telegram", "sendLane.ts"),
+  join("packages", "infra", "telegram", "sendScheduler.ts"),
+  join("packages", "infra", "telegram", "workerRequests.ts"),
+];
+
+/**
+ * 把模块依赖链格式化为相对仓库根的 `a -> b -> c`。
+ * @param projectRoot 仓库根目录绝对路径。
+ * @param trail 模块绝对路径组成的引入链。
+ * @returns 相对路径以 ` -> ` 连接的字符串。
+ */
+function formatModuleTrail(projectRoot: string, trail: readonly string[]): string {
+  return trail.map((step: string): string => relative(projectRoot, step)).join(" -> ");
+}
+
+/** collectWorkerTelegramClosureProblems 的入参。 */
+export interface CollectWorkerTelegramClosureProblemsParams {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** Worker 线程标识。 */
+  readonly thread: string;
+  /** 该线程的模块引入闭包（模块路径 -> 最短引入链）。 */
+  readonly closure: ReadonlyMap<string, readonly string[]>;
+  /** 模块图读取器。 */
+  readonly graph: ModuleGraphReader;
+}
+
+/**
+ * 收集非主线程闭包加载主线程 Telegram 模块或 grammY 运行时包的问题，按闭包顺序输出。
+ * @param params Worker 线程闭包与模块图读取器参数。
+ * @returns 违规引入问题描述列表。
+ */
+export async function collectWorkerTelegramClosureProblems({
+  projectRoot,
+  thread,
+  closure,
+  graph,
+}: CollectWorkerTelegramClosureProblemsParams): Promise<readonly string[]> {
+  const problems: string[] = [];
+  for (const relativeForbidden of WORKER_TELEGRAM_FORBIDDEN_RELATIVE_MODULES) {
+    const forbidden: string = join(projectRoot, relativeForbidden);
+    const trail: readonly string[] | undefined = closure.get(forbidden);
+    if (trail === undefined) continue;
+    problems.push(`${thread} Worker loads main-thread Telegram module: ${formatModuleTrail(projectRoot, trail)}`);
+  }
+  for (const [path, trail] of closure) {
+    for (const dependency of await graph.externalDependencies(path)) {
+      if (dependency !== "grammy" && !dependency.startsWith("@grammyjs/")) continue;
+      problems.push(`${thread} Worker loads Telegram runtime package ${dependency}: ${formatModuleTrail(projectRoot, trail)}`);
+    }
   }
   return problems;
 }

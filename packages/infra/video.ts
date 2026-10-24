@@ -41,6 +41,10 @@ interface Mp4Track extends Mp4VideoTrack {
  * 读 offset 处、不越过 end 的 box 头：按标准紧凑长度或紧随其后的扩展长度解析载荷区间
  * （长度为零时延伸到 end）。头部不完整、长度短于头部或越过 end 时返回 null；返回的 box
  * 至少占一个头部，调用方据此前进不会原地打转。
+ * @param view MP4 文件字节的 DataView。
+ * @param offset 当前 box 头部的起始字节偏移。
+ * @param end 允许读取的区间上界字节偏移（不含）。
+ * @returns 解析出的 box 类型与载荷区间；头部不完整或长度越界时返回 null。
  */
 function readBox(view: DataView, offset: number, end: number): Mp4Box | null {
   const remaining: number = end - offset;
@@ -58,7 +62,13 @@ function readBox(view: DataView, offset: number, end: number): Mp4Box | null {
   return { type, start: offset + MP4_LARGE_BOX_HEADER_BYTES, end: offset + Number(large) };
 }
 
-/** 读 [start, end) 内首尾相接、恰好铺满区间的 box，每读一个消耗一份预算；长度不合法或预算耗尽时返回 null。 */
+/**
+ * 读 [start, end) 内首尾相接、恰好铺满区间的 box，每读一个消耗一份预算；长度不合法或预算耗尽时返回 null。
+ * @param scan 携带 DataView 与剩余可扫描 box 预算的遍历上下文。
+ * @param start 待解析区间的起始字节偏移。
+ * @param end 待解析区间的结束字节偏移（不含）。
+ * @returns 按序解析出的子 box 列表；区间未对齐、box 越界或预算耗尽时返回 null。
+ */
 function readBoxes(scan: Mp4Scan, start: number, end: number): Mp4Box[] | null {
   const boxes: Mp4Box[] = [];
   let offset: number = start;
@@ -73,7 +83,12 @@ function readBoxes(scan: Mp4Scan, start: number, end: number): Mp4Box[] | null {
   return boxes;
 }
 
-/** boxes 中类型为 type 的唯一一个；boxes 为 null、没有或不止一个时返回 null。 */
+/**
+ * boxes 中类型为 type 的唯一一个；boxes 为 null、没有或不止一个时返回 null。
+ * @param boxes 待检索的同层 box 列表。
+ * @param type 目标四字符码（大端 uint32）。
+ * @returns 唯一匹配的 `Mp4Box`；无匹配或出现多个匹配时返回 null。
+ */
 function onlyBox(boxes: readonly Mp4Box[] | null, type: number): Mp4Box | null {
   let found: Mp4Box | null = null;
   for (const box of boxes ?? []) {
@@ -84,7 +99,12 @@ function onlyBox(boxes: readonly Mp4Box[] | null, type: number): Mp4Box | null {
   return found;
 }
 
-/** ftyp 的主品牌或任一兼容品牌属于 MP4_FTYP_BRANDS；调用方已核对 ftypBytes 对齐且整段在输入范围内。 */
+/**
+ * ftyp 的主品牌或任一兼容品牌属于 MP4_FTYP_BRANDS；调用方已核对 ftypBytes 对齐且整段在输入范围内。
+ * @param view MP4 文件字节的 DataView。
+ * @param ftypBytes 首部 `ftyp` box 的总字节长度。
+ * @returns 主品牌或兼容品牌命中 `MP4_FTYP_BRANDS` 时返回 true，否则返回 false。
+ */
 function declaresMp4Brand(view: DataView, ftypBytes: number): boolean {
   if (MP4_FTYP_BRANDS.has(view.getUint32(MP4_BOX_HEADER_BYTES))) return true;
   for (let offset: number = MP4_FTYP_HEADER_BYTES; offset < ftypBytes; offset += MP4_BRAND_BYTES) {
@@ -96,6 +116,9 @@ function declaresMp4Brand(view: DataView, ftypBytes: number): boolean {
 /**
  * 读一条 trak：子 box 恰有一个 tkhd 与 mdia，mdia 的子 box 恰有一个 hdlr；tkhd 版本须在
  * MP4_TKHD_SIZE_OFFSETS 内且载荷容得下宽高，hdlr 载荷须容得下 handler_type。任一不满足返回 null。
+ * @param scan 携带 DataView 与剩余可扫描 box 预算的遍历上下文。
+ * @param trak 待解析的 `trak` box 区间。
+ * @returns 解析出的轨道处理类型与展示宽高；结构不合规时返回 null。
  */
 function readTrack(scan: Mp4Scan, trak: Mp4Box): Mp4Track | null {
   const view: DataView = scan.view;
@@ -124,6 +147,8 @@ function readTrack(scan: Mp4Scan, trak: Mp4Box): Mp4Track | null {
  * - ftyp 之后各层合计读取的 box 不超过 MP4_MAX_SCANNED_BOXES。
  * 任一长度不合法即判为否，不截断、不跳过，截断的下载因此也判否。不解析编码，素材能否作为头像由
  * Telegram 最终判定。
+ * @param bytes 待解析的 MP4 文件完整字节数组。
+ * @returns 全部视频轨道的展示宽高列表；容器结构不合法时返回 null。
  */
 export function readMp4VideoTracks(bytes: Uint8Array): readonly Mp4VideoTrack[] | null {
   if (bytes.byteLength < MP4_FTYP_HEADER_BYTES) return null;

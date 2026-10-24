@@ -27,8 +27,11 @@ import { invalidInput } from "../libs/inputValidation";
 
 /** 一份部署文件的文件名、所属子目录，以及它不得出现的另一子目录。 */
 interface ConfigFilePlacement {
+  /** 部署配置文件基名（如 `bot.json`、`agent.json`）。 */
   readonly name: string;
+  /** 该文件唯一合法的所属子目录名（`static` 或 `dynamic`）。 */
   readonly directory: string;
+  /** 该文件严禁出现的另一子目录名。 */
   readonly otherDirectory: string;
 }
 
@@ -56,6 +59,8 @@ const CONFIG_FILE_PLACEMENTS: readonly ConfigFilePlacement[] = [
 /**
  * 目录项存在即拒绝，包含悬空链接与目录；只有 ENOENT 与 ENOTDIR（上级不是目录，条目
  * 不可能存在）算不存在，其余读取失败按非法处理。
+ * @param path 待检查的目录项路径。
+ * @param expected 目录项意外存在时的期望形态描述。
  */
 async function assertEntryAbsent(path: string, expected: string): Promise<void> {
   try {
@@ -70,6 +75,7 @@ async function assertEntryAbsent(path: string, expected: string): Promise<void> 
  * 拒绝放错位置的部署文件：配置根顶层的 LEGACY_BOT_CONFIG_NAME 文件，以及每份部署文件在配置根顶层或
  * 另一子目录下的同名项。配置根或子目录不存在时视为没有放错；安装器在建立子目录与
  * 示例文件之前调用。
+ * @param root 部署配置根目录路径。
  */
 export async function assertNoMisplacedConfigFiles(root: string): Promise<void> {
   await assertEntryAbsent(join(root, LEGACY_BOT_CONFIG_NAME), "absent after explicit cold migration to bot.json");

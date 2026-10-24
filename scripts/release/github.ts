@@ -19,7 +19,11 @@ interface RemoteRelease {
   readonly html_url: string;
 }
 
-/** 远端返回值必须具有发布门禁消费的全部字段。 */
+/**
+ * 远端返回值必须具有发布门禁消费的全部字段。
+ * @param value GitHub API 返回的原始 JSON 对象。
+ * @returns 校验通过的远端 Release 结构。
+ */
 function parseRelease(value: unknown): RemoteRelease {
   if (value === null || typeof value !== "object" || !("tag_name" in value) || typeof value.tag_name !== "string" ||
     !("draft" in value) || typeof value.draft !== "boolean" || !("prerelease" in value) || typeof value.prerelease !== "boolean" ||
@@ -34,7 +38,12 @@ function parseRelease(value: unknown): RemoteRelease {
   return value as RemoteRelease;
 }
 
-/** 草稿通过完整分页列表读取；Latest 只有明确的 HTTP 404 才表示不存在。 */
+/**
+ * 草稿通过完整分页列表读取；Latest 只有明确的 HTTP 404 才表示不存在。
+ * @param command 外部命令执行器。
+ * @param selector Release 选择器（如 `latest` 或 `tags/<version>`）。
+ * @returns 匹配的远端 Release 对象；不存在时返回 null。
+ */
 function readRelease(command: ReleaseCommand, selector: string): RemoteRelease | null {
   if (selector.startsWith("tags/")) {
     const pages: unknown = JSON.parse(checked(command, ["gh", "api", "repos/AsaNeonSama/copy_ninjia/releases?per_page=100", "--hostname", "github.com", "--paginate", "--slurp"])) as unknown;
@@ -58,7 +67,11 @@ function readRelease(command: ReleaseCommand, selector: string): RemoteRelease |
   return parseRelease(JSON.parse(result.stdout.slice(header[0].length)) as unknown);
 }
 
-/** Latest 只允许前进；同版本仅用于恢复一次已公开但尚未完成确认的发布。 */
+/**
+ * Latest 只允许前进；同版本仅用于恢复一次已公开但尚未完成确认的发布。
+ * @param version 本次待发布的版本号。
+ * @param latest 当前 GitHub Latest Release 对象（不存在时为 null）。
+ */
 function assertVersionAdvances(version: string, latest: RemoteRelease | null): void {
   if (latest === null || latest.tag_name === version) return;
   if (!RELEASE_VERSION_PATTERN.test(latest.tag_name)) throw new Error("Latest Release must use MAJOR.MINOR.PATCH.");
@@ -71,7 +84,12 @@ function assertVersionAdvances(version: string, latest: RemoteRelease | null): v
   throw new Error("Release version must be newer than GitHub Latest.");
 }
 
-/** 下载到全新临时目录，逐文件核对实际内容；失败也清理验证副本，不改远端资产。 */
+/**
+ * 下载到全新临时目录，逐文件核对实际内容；失败也清理验证副本，不改远端资产。
+ * @param command 外部命令执行器。
+ * @param version 目标 Release 版本号。
+ * @param assets 待下载并校验 SHA-256 的本地资产列表。
+ */
 async function verifyRemoteAssets(command: ReleaseCommand, version: string, assets: readonly ReleaseAsset[]): Promise<void> {
   const directory: string = mkdtempSync(join(tmpdir(), "copy-ninjia-release-download-"));
   try {
@@ -87,13 +105,21 @@ async function verifyRemoteAssets(command: ReleaseCommand, version: string, asse
 }
 
 export interface PublishReleaseOptions {
+  /** 待发布的无前缀 MAJOR.MINOR.PATCH 版本号。 */
   readonly version: string;
+  /** 发布说明 Markdown 文件路径。 */
   readonly notesPath: string;
+  /** 已通过本地校验的发行资产列表。 */
   readonly assets: readonly ReleaseAsset[];
+  /** 外部命令执行器。 */
   readonly command: ReleaseCommand;
 }
 
-/** 先在草稿上补齐并验证资产，再公开为 Latest；已上传同名资产只验证，绝不覆盖。 */
+/**
+ * 先在草稿上补齐并验证资产，再公开为 Latest；已上传同名资产只验证，绝不覆盖。
+ * @param options 发布所需的版本号、发布说明路径、资产列表与命令执行器。
+ * @returns 已公开并确认的 GitHub Release 页面 URL。
+ */
 export async function publishRelease({ version, notesPath, assets, command }: PublishReleaseOptions): Promise<string> {
   if (!RELEASE_VERSION_PATTERN.test(version)) throw new Error("Release version must be MAJOR.MINOR.PATCH.");
   if (assets.length === 0) throw new Error("Release assets are required.");

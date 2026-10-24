@@ -166,8 +166,17 @@ export function expectLastRemoval(expected: Record<string, unknown>): void {
   ]);
 }
 
-/** Worker 回执：这批处置全部落定 / 没能落定。 */
-export function settleLast(complete: boolean, chatId: number = -1001): void {
+/**
+ * Worker 回执：这批处置全部落定 / 没能落定。
+ * @param complete 批次是否完成。
+ * @param chatId 群组 ID。
+ * @param targetIsAdmin 是否遇到管理员目标。
+ */
+export function settleLast(
+  complete: boolean,
+  chatId: number = -1001,
+  targetIsAdmin?: boolean
+): void {
   requireDeps().settleBlockedRemoval({
     type: "blockedMembersRemoved",
     participantInvalidUserIds: [],
@@ -175,6 +184,7 @@ export function settleLast(complete: boolean, chatId: number = -1001): void {
     chatId,
     removalId: lastRemovalId(),
     complete,
+    ...(targetIsAdmin === undefined ? {} : { targetIsAdmin }),
   } as never);
 }
 

@@ -7,6 +7,7 @@ import {
   CACHE_OWNER_BY_PREFIX,
   CACHE_OWNER_EXEMPTIONS,
   collectCacheOwnershipProblems,
+  collectWorkerTelegramClosureProblems,
   THREAD_ENTRY_PATHS,
 } from "../../scripts/conventions/cacheOwnership";
 import { createModuleGraphReader } from "../../scripts/conventions/moduleGraph";
@@ -34,6 +35,7 @@ import {
   collectConstantProblems,
   collectConstantLocationProblems,
   collectDeclarationProblems,
+  collectFunctionJsDocProblems,
   collectModuleCacheProblems,
   collectIteratorHeadProblems,
   collectObjectFreezeProblems,
@@ -87,6 +89,39 @@ describe("project convention collectors", () => {
       ...base,
       exemptions: { "packages/cache/main/value.ts": ["aiChat"] },
     })).toEqual([]);
+    expect(collectCacheOwnershipProblems({
+      ...base,
+      cacheFiles: ["/project/packages/cache/orphan.ts"],
+      exemptions: {},
+    })).toEqual([
+      "packages/cache/orphan.ts is not under a cache owner directory (expected packages/cache/{main,workers/<thread>,perThread}/)",
+    ]);
+  });
+
+  test("Worker Telegram 闭包检查同时报告主线程禁止模块与 grammY 运行时依赖", async () => {
+    const projectRoot: string = "/project";
+    const aiEntry: string = "/project/packages/workers/aiChatWorker.ts";
+    const forbiddenRelative: string = join("packages", "cache", "main", "telegram.ts");
+    const forbiddenPath: string = join(projectRoot, forbiddenRelative);
+    const closure: ReadonlyMap<string, readonly string[]> = new Map([
+      [forbiddenPath, [aiEntry, forbiddenPath]],
+    ]);
+    const graph: ModuleGraphReader = {
+      threadModuleClosure: async (): Promise<Map<string, string[]>> => new Map(),
+      boundedModuleClosure: async (): Promise<Map<string, string[]>> => new Map(),
+      externalDependencies: async (): Promise<readonly string[]> => ["grammy", "@grammyjs/types", "openai"],
+    };
+
+    expect(await collectWorkerTelegramClosureProblems({
+      projectRoot,
+      thread: "aiChat",
+      closure,
+      graph,
+    })).toEqual([
+      `aiChat Worker loads main-thread Telegram module: packages/workers/aiChatWorker.ts -> ${forbiddenRelative}`,
+      `aiChat Worker loads Telegram runtime package grammy: packages/workers/aiChatWorker.ts -> ${forbiddenRelative}`,
+      `aiChat Worker loads Telegram runtime package @grammyjs/types: packages/workers/aiChatWorker.ts -> ${forbiddenRelative}`,
+    ]);
   });
 
   test("update 上下文实例按真实模块图被三条线程加载，只能归 perThread", async () => {
@@ -166,6 +201,8 @@ describe("project convention collectors", () => {
     const pattern: ts.VariableDeclaration = first.declarationList.declarations[8]!;
 
     expect(collectSharedConstantProblems(values.initializer!, values.type, "constant VALUES"))
+      .toEqual([expect.stringContaining("must be declared with a readonly type")]);
+    expect(collectSharedConstantProblems(cache.initializer!, cache.type, "constant CACHE"))
       .toEqual([expect.stringContaining("must be declared with a readonly type")]);
     expect(collectSharedConstantProblems(safe.initializer!, safe.type, "constant SAFE"))
       .toEqual([]);
@@ -395,6 +432,9 @@ describe("逐文件源码规则", () => {
       "packages/consts/example.ts:1 constant badName lacks an explicit type",
       "packages/consts/example.ts:1 constant badName lacks JSDoc",
     ]);
+    expect(collectConstantProblems(rule(path, "/** 说明。 */\nexport const X: string[] = [];\n"))).toEqual([
+      expect.stringContaining("must be declared with a readonly type"),
+    ]);
   });
 
   test("模块级纯字面量归入 consts，函数装配与局部取值不误报", () => {
@@ -507,6 +547,40 @@ describe("逐文件源码规则", () => {
     const path: string = "/project/packages/workers/diskIO/files.ts";
     expect(collectDeclarationProblems(rule(path, "export function log(): void { console.error(\"x\"); }\n")))
       .toEqual([]);
+  });
+
+  test("函数与类方法要求 JSDoc、@param、@returns 以及参数接口字段说明", () => {
+    const path: string = "/project/packages/example.ts";
+    expect(collectFunctionJsDocProblems(rule(path, [
+      "export interface RunParams {\n  /** 群 id。 */\n  readonly chatId: number;\n}",
+      "export interface ExtraInput {\n  /** 附加值。 */\n  readonly extra: string;\n}",
+      "/**\n * @param params 入参。\n * @param input 额外入参。\n * @returns 结果。\n */",
+      "export function run({ chatId }: Readonly<RunParams>, { extra }: ExtraInput): number { return chatId + extra.length; }",
+      "/**\n * @param a 入参。\n * @returns 字符串。\n */",
+      "export function overloaded(a: number): string;",
+      "export function overloaded(a: number): string { return String(a); }",
+      "/** 无返回。 */",
+      "export function fire(): Promise<void> | void { return undefined; }",
+      "/** 永不返回。 */",
+      "export function fail(): never { throw new Error(\"x\"); }",
+      "export class Box {",
+      "  readonly value: number = 1;",
+      "  /**\n   * @param delta 增量。\n   * @returns 和。\n   */",
+      "  add(delta: number): number;",
+      "  add(delta: number): number { return this.value + delta; }",
+      "}",
+    ].join("\n")))).toEqual([]);
+
+    expect(collectFunctionJsDocProblems(rule(path, [
+      "export interface BadOptions { readonly flag: boolean; }",
+      "export function bare(x: number, { flag }: BadOptions): number { return flag ? x : 0; }",
+    ].join("\n")))).toEqual([
+      "packages/example.ts:1 interface BadOptions property flag lacks JSDoc",
+      "packages/example.ts:2 function bare lacks JSDoc",
+      "packages/example.ts:2 function bare lacks @param JSDoc for x",
+      "packages/example.ts:2 function bare lacks @param JSDoc for destructured parameter",
+      "packages/example.ts:2 function bare lacks @returns JSDoc",
+    ]);
   });
 
   test("Worker isolate 内的 timer 必须逐个句柄 unref", () => {
@@ -829,9 +903,10 @@ describe("测试断言不得抄写常量文案片段", () => {
   const CORPUS: string = corpusOf([
     'export const NOTICE: string = "本天才已经把这条消息删掉啦";',
     "export const TEXTS = { done: (label: string): string => `${label} 的权限本来就是全开的，笨蛋` };",
+    "export const REPORT = (failed: number): string => `查询或请求失败 ${failed}`;",
   ].join("\n"));
 
-  test("匹配器实参里含六个以上汉字的常量文案子串都算，模板静态片段与嵌套匹配器同样拦下", () => {
+  test("匹配器实参里含六个以上汉字的常量文案子串都算，插值渲染文案、模板静态片段与嵌套匹配器同样拦下", () => {
     const path: string = "/project/test/sample.test.ts";
     const problems: readonly string[] = collectConstantTextFragmentAssertionProblems({
       projectRoot: "/project",
@@ -843,6 +918,7 @@ describe("测试断言不得抄写常量文案片段", () => {
         '  expect(text).toContain("已经把这条消息删掉");',
         '  expect(send).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining("本来就是全开的") }));',
         "  expect(text).not.toContain(`${label} 的权限本来就是全开的`);",
+        '  expect(text).toContain("查询或请求失败 2");',
         "});",
       ].join("\n")),
     });
@@ -850,6 +926,7 @@ describe("测试断言不得抄写常量文案片段", () => {
       expect.stringContaining("test/sample.test.ts:2 asserts text copied from packages/consts"),
       expect.stringContaining("test/sample.test.ts:3 asserts text copied from packages/consts"),
       expect.stringContaining("test/sample.test.ts:4 asserts text copied from packages/consts"),
+      expect.stringContaining("test/sample.test.ts:5 asserts text copied from packages/consts"),
     ]);
   });
 
@@ -865,6 +942,8 @@ describe("测试断言不得抄写常量文案片段", () => {
         'test("回执", () => {',
         '  expect(echo(input)).toBe("本天才已经把这条消息删掉啦");',
         '  expect(text).toContain("本天才");',
+        '  expect(text).toContain("本天才 2 笨蛋");',
+        "  expect(text).toContain(`本天才 ${label} 笨蛋`);",
         '  expect(text).toContain("测试自己写的一整句夹具文字");',
         '  register("已经把这条消息删掉");',
         "});",

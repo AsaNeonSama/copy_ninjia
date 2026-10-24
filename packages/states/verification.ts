@@ -49,7 +49,8 @@ export { adoptVerificationState } from "./verification/adopt";
  *   EXPELLING ──处置完成──────────────────────────────────────> ABSENT
  *   EXPELLING（flood 且未开始执行）──权威评论区确认──────────> EXEMPT
  *   CHECKING_INVITER/EXPELLING ──新一次物理入群──> 按 ABSENT 重新判定
- *   KICK_PENDING/KICKED ──超出双路投递误差的重进──> KICK_PENDING（新 token）
+ *   KICK_PENDING/KICKED ──超出双路投递误差的重进──> KICK_PENDING / PENDING（新 token，按当前是否私密模式）
+ *   KICK_PENDING ──离群────────────────────────────────────────> ABSENT
  *   EXEMPT/KICKED ──去重窗口到期 / 离群────────────────────> ABSENT
  *   任意状态 ──主动关闭守卫（guardDisabled）────────────> ABSENT（清理机器人验证按钮）
  *
@@ -58,6 +59,9 @@ export { adoptVerificationState } from "./verification/adopt";
  * 终态的 Worker 本地执行门（effectStarted / executionStarted）同样只经这里的转移改写：
  * 解释器以 kickRequestSent、kickRequestFailed、terminalAttemptUnsettled 带上发起尝试时的
  * 状态对象回投，状态已换代时转移不生效。
+ * @param state 当前成员的验证状态，未记录（ABSENT）时为 undefined。
+ * @param event 驱动状态机转移的验证事件。
+ * @returns 转移后的下一状态、待执行副作用及持久化/计时器标志。
  */
 export function transitionVerification(
   state: VerificationState | undefined,

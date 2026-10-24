@@ -8,7 +8,11 @@ import {
 import { getTimeZone, getTimeZoneState } from "../config/time";
 import type { CurrentTimeResult, TimeZoneState } from "../types/time";
 
-/** 秒数向上取整的中文时长文案；用于倒计时与时限提示。 */
+/**
+ * 秒数向上取整的中文时长文案；用于倒计时与时限提示。
+ * @param ms 毫秒数。
+ * @returns 中文分秒时长文案。
+ */
 export function formatMinSec(ms: number): string {
   const totalSeconds: number = Math.ceil(ms / 1000);
   const minutes: number = Math.floor(totalSeconds / 60);
@@ -18,7 +22,11 @@ export function formatMinSec(ms: number): string {
   return `${minutes}分${seconds}秒`;
 }
 
-/** 严格判断 YYYY-MM-DD 是否为可往返的公历日期，拒绝被 Date 静默进位的非法公历日。 */
+/**
+ * 严格判断 YYYY-MM-DD 是否为可往返的公历日期，拒绝被 Date 静默进位的非法公历日。
+ * @param value 待校验的日期字符串。
+ * @returns 符合规范 YYYY-MM-DD 公历日期时返回 `true`。
+ */
 export function isCanonicalDateKey(value: string): boolean {
   if (!DATE_KEY_PATTERN.test(value)) return false;
   const parsed: Date = new Date(`${value}T00:00:00.000Z`);
@@ -28,6 +36,9 @@ export function isCanonicalDateKey(value: string): boolean {
 /**
  * 规范 YYYY-MM-DD 日期键按公历日前后平移 deltaDays。日期串映射到 UTC 后按 DAY_MS 计算，
  * 与配置时区的实际日长无关。规范日期键可直接按字典序比较先后。
+ * @param day 规范 YYYY-MM-DD 日期键。
+ * @param deltaDays 平移天数（正数向后，负数向前）。
+ * @returns 平移后的规范 YYYY-MM-DD 日期键。
  */
 export function shiftDateKey(day: string, deltaDays: number): string {
   return new Date(Date.parse(`${day}T00:00:00.000Z`) + deltaDays * DAY_MS).toISOString().slice(0, 10);
@@ -36,26 +47,37 @@ export function shiftDateKey(day: string, deltaDays: number): string {
 /**
  * 毫秒时间戳对应的配置时区日历；时区规则与夏令时由 Bun/JSC 原生 Temporal 处理。
  * 只服务偏移区段未命中时的重建与 getDayStartTimestamp，不在每次日历运算里调用。
+ * @param timestampMs Unix 毫秒时间戳。
+ * @returns 配置时区的 `Temporal.ZonedDateTime` 实例。
  */
 function localDateTime(timestampMs: number): Temporal.ZonedDateTime {
   return Temporal.Instant.fromEpochMilliseconds(timestampMs).toZonedDateTimeISO(getTimeZone());
 }
 
-/** 按日判定只接受非负、安全整数且处于原生时间 API 有效范围内的 epoch 毫秒。 */
+/**
+ * 按日判定只接受非负、安全整数且处于原生时间 API 有效范围内的 epoch 毫秒。
+ * @param timestampMs 待校验的 Unix 毫秒时间戳。
+ */
 function validateDayTimestamp(timestampMs: number): void {
   if (!Number.isSafeInteger(timestampMs) || timestampMs < 0 || timestampMs > MAX_EPOCH_MILLISECONDS) {
     throw new RangeError("Day timestamp must be a non-negative safe integer within the Temporal range.");
   }
 }
 
-/** getLocalHour 只做整数运算，接受原生时间 API 范围内的整数 epoch 毫秒（可为负）。 */
+/**
+ * getLocalHour 只做整数运算，接受原生时间 API 范围内的整数 epoch 毫秒（可为负）。
+ * @param timestampMs 待校验的 Unix 毫秒时间戳。
+ */
 function validateCalendarTimestamp(timestampMs: number): void {
   if (!Number.isInteger(timestampMs) || timestampMs < -MAX_EPOCH_MILLISECONDS || timestampMs > MAX_EPOCH_MILLISECONDS) {
     throw new RangeError("Calendar timestamp must be an integer within the Temporal range.");
   }
 }
 
-/** 文本格式化函数只接受 FORMAT_MIN_TIMESTAMP_MS 到 FORMAT_MAX_TIMESTAMP_MS 之间的整数 epoch 毫秒。 */
+/**
+ * 文本格式化函数只接受 FORMAT_MIN_TIMESTAMP_MS 到 FORMAT_MAX_TIMESTAMP_MS 之间的整数 epoch 毫秒。
+ * @param timestampMs 待校验的 Unix 毫秒时间戳。
+ */
 function validateFormatTimestamp(timestampMs: number): void {
   if (!Number.isInteger(timestampMs) || timestampMs < FORMAT_MIN_TIMESTAMP_MS || timestampMs > FORMAT_MAX_TIMESTAMP_MS) {
     throw new RangeError("Formatted timestamp must be an integer within years 1000 to 9999.");
@@ -66,6 +88,8 @@ function validateFormatTimestamp(timestampMs: number): void {
  * 配置时区在该时刻的 UTC 偏移（毫秒）。偏移在相邻两次时区规则转换之间恒定：命中本线程缓存的
  * 区段时只做两次比较；未命中时由 Temporal 取该时刻的偏移与前后转换点并替换区段。固定偏移时区
  * 的区段无界，夏令时时区的区段以转换点为界，日历运算因此不必逐次进入 Temporal。
+ * @param timestampMs Unix 毫秒时间戳。
+ * @returns 配置时区在该时刻的 UTC 偏移毫秒数。
  */
 function localOffsetMs(timestampMs: number): number {
   const state: TimeZoneState = getTimeZoneState();
@@ -99,6 +123,9 @@ const TWO_DIGIT_STRINGS: readonly string[] = ((): readonly string[] => {
  * Howard Hinnant 的 civil_from_days：纯整数运算，不建 Date 也不进 ICU。以 3 月为年首
  * （shiftedMonth 0=3 月 … 11=2 月），闰日落在年末，月份换回 1~12 时 1、2 月归入下一年。
  * era 与 shiftedDays 在 1970 之前可为负，用 Math.floor；其余商的被除数非负，用 `| 0` 截断。
+ * @param days 自 1970-01-01 起的本地日序号。
+ * @param separator 年月日之间的分隔符。
+ * @returns 格式化后的年月日字符串。
  */
 function formatCivilDate(days: number, separator: string): string {
   const shiftedDays: number = days + 719_468;
@@ -117,25 +144,41 @@ function formatCivilDate(days: number, separator: string): string {
   return `${year}${separator}${TWO_DIGIT_STRINGS[month]!}${separator}${TWO_DIGIT_STRINGS[day]!}`;
 }
 
-/** 当日已过的秒数 → `HH:mm:ss`。 */
+/**
+ * 当日已过的秒数 → `HH:mm:ss`。
+ * @param secondOfDay 当日已过的秒数（0~86399）。
+ * @returns `HH:mm:ss` 格式的时间字符串。
+ */
 function formatSecondOfDay(secondOfDay: number): string {
   return `${TWO_DIGIT_STRINGS[(secondOfDay / 3_600) | 0]!}:` +
     `${TWO_DIGIT_STRINGS[((secondOfDay / 60) | 0) % 60]!}:${TWO_DIGIT_STRINGS[secondOfDay % 60]!}`;
 }
 
-/** 配置时区的自然日序号；相邻公历日期相差一，与两日间的实际时长无关。 */
+/**
+ * 配置时区的自然日序号；相邻公历日期相差一，与两日间的实际时长无关。
+ * @param timestampMs Unix 毫秒时间戳。
+ * @returns 配置时区的自然日序号。
+ */
 export function getDayIndex(timestampMs: number): number {
   validateDayTimestamp(timestampMs);
   return Math.floor((timestampMs + localOffsetMs(timestampMs)) / DAY_MS);
 }
 
-/** 所在配置时区自然日的首个真实时刻；按时区规则处理零点偏移与夏令时。 */
+/**
+ * 所在配置时区自然日的首个真实时刻；按时区规则处理零点偏移与夏令时。
+ * @param timestampMs Unix 毫秒时间戳。
+ * @returns 当日配置时区零点的 Unix 毫秒时间戳。
+ */
 export function getDayStartTimestamp(timestampMs: number): number {
   validateDayTimestamp(timestampMs);
   return localDateTime(timestampMs).startOfDay().epochMilliseconds;
 }
 
-/** 配置时区日期串 YYYY-MM-DD；日志、运势、广告样本与验证恢复共用此日界。 */
+/**
+ * 配置时区日期串 YYYY-MM-DD；日志、运势、广告样本与验证恢复共用此日界。
+ * @param timestampMs Unix 毫秒时间戳，默认当前时刻。
+ * @returns 配置时区的 YYYY-MM-DD 日期字符串。
+ */
 export function getDateKey(timestampMs: number = Date.now()): string {
   validateFormatTimestamp(timestampMs);
   return formatCivilDate(Math.floor((timestampMs + localOffsetMs(timestampMs)) / DAY_MS), "-");
@@ -144,6 +187,8 @@ export function getDateKey(timestampMs: number = Date.now()): string {
 /**
  * 配置时区的 YYYY/MM/DD HH:mm:ss；记录时格式化，供 AI 转录与持久化条目使用。
  * 日期段按本线程 TimeZoneState 的 dateDay / datePrefix 单槽复用，只在日序号变化时重算。
+ * @param timestampMs Unix 毫秒时间戳。
+ * @returns `YYYY/MM/DD HH:mm:ss` 格式的本地时间字符串。
  */
 export function formatLocalTime(timestampMs: number): string {
   validateFormatTimestamp(timestampMs);
@@ -157,7 +202,11 @@ export function formatLocalTime(timestampMs: number): string {
   return `${state.datePrefix}${formatSecondOfDay(((shifted - days * DAY_MS) / 1_000) | 0)}`;
 }
 
-/** 配置时区的 YYYY-MM-DD HH:mm:ss.SSS；用于落盘日志条目的 key 前缀。 */
+/**
+ * 配置时区的 YYYY-MM-DD HH:mm:ss.SSS；用于落盘日志条目的 key 前缀。
+ * @param timestampMs Unix 毫秒时间戳。
+ * @returns `YYYY-MM-DD HH:mm:ss.SSS` 格式的日志时间戳字符串。
+ */
 export function formatLogTimestamp(timestampMs: number): string {
   validateFormatTimestamp(timestampMs);
   const shifted: number = timestampMs + localOffsetMs(timestampMs);
@@ -170,7 +219,11 @@ export function formatLogTimestamp(timestampMs: number): string {
   return `${formatCivilDate(days, "-")} ${formatSecondOfDay((millisecondOfDay / 1_000) | 0)}.${millisecondText}`;
 }
 
-/** 配置时区的整点小时数；供心情系统按时段分档。 */
+/**
+ * 配置时区的整点小时数；供心情系统按时段分档。
+ * @param timestampMs Unix 毫秒时间戳，默认当前时刻。
+ * @returns 配置时区的整点小时数（0~23）。
+ */
 export function getLocalHour(timestampMs: number = Date.now()): number {
   validateCalendarTimestamp(timestampMs);
   return Math.floor(((timestampMs + localOffsetMs(timestampMs)) % DAY_MS + DAY_MS) % DAY_MS / 3_600_000);
@@ -179,6 +232,7 @@ export function getLocalHour(timestampMs: number = Date.now()): number {
 /**
  * 取当前时刻并用本线程配置时区格式化；AI 回复、冷历史压缩与联网检索共用。
  * 动态时间只拼入 user 内容或检索 query；提示词顺序见 docs/cn/04-invariants.md。
+ * @returns 当前时刻的 ISO 串、时区名与完整格式化串。
  */
 export function getCurrentTime(): CurrentTimeResult {
   const now: Date = new Date();

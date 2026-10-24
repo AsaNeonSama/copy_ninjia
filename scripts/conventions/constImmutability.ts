@@ -4,6 +4,7 @@ import type { ExportedConstDeclaration } from "./constsProgram";
 
 /** collectConstImmutabilityAssertionProblems 的入参。 */
 export interface ConstImmutabilityParams {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
   /** 以 packages/consts/ 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
   readonly checker: ts.TypeChecker;
@@ -16,6 +17,9 @@ export interface ConstImmutabilityParams {
 /**
  * 字符串、数字、布尔、null、undefined、函数值与正则不算对象元素（正则的 lastIndex 在类型上
  * 无法只读，单独的正则常量由断言文件按 lastIndex 覆盖）。
+ *
+ * @param type 待判断的 TypeScript 类型
+ * @returns 为需要不可变断言的对象类型时返回 true
  */
 function isObjectLike(type: ts.Type): boolean {
   if (type.isUnion()) return type.types.some(isObjectLike);
@@ -27,7 +31,13 @@ function isObjectLike(type: ts.Type): boolean {
   return (type.flags & ts.TypeFlags.Object) !== 0;
 }
 
-/** 容器的元素类型：数组/元组的元素、Map 的值、Set 的元素，普通对象的索引签名值与属性值。 */
+/**
+ * 容器的元素类型：数组/元组的元素、Map 的值、Set 的元素，普通对象的索引签名值与属性值。
+ *
+ * @param checker TypeScript 类型检查器
+ * @param type 容器的 TypeScript 类型
+ * @returns 容器包含的元素或属性类型列表
+ */
 function elementTypes(checker: ts.TypeChecker, type: ts.Type): ts.Type[] {
   if (checker.isArrayType(type) || checker.isTupleType(type)) {
     return [...checker.getTypeArguments(type as ts.TypeReference)];
@@ -47,7 +57,13 @@ function elementTypes(checker: ts.TypeChecker, type: ts.Type): ts.Type[] {
   return checker.getPropertiesOfType(type).map((property: ts.Symbol): ts.Type => checker.getTypeOfSymbol(property));
 }
 
-/** 第 index 行正上方连续的 `//` 注释行里有没有 `@ts-expect-error`（多行说明的首行带指令）。 */
+/**
+ * 第 index 行正上方连续的 `//` 注释行里有没有 `@ts-expect-error`（多行说明的首行带指令）。
+ *
+ * @param lines 断言文件按行切分后的文本列表
+ * @param index 待检查代码行的 0-based 行号
+ * @returns 正上方连续单行注释中包含 `@ts-expect-error` 时返回 true
+ */
 function followsExpectError(lines: readonly string[], index: number): boolean {
   for (let line: number = index - 1; line >= 0; line--) {
     const text: string = lines[line]!.trim();
@@ -61,6 +77,9 @@ function followsExpectError(lines: readonly string[], index: number): boolean {
  * 带对象元素的导出常量表必须在 test/consts/immutability.test.ts 里有 `@ts-expect-error` 改写断言。
  * 用类型检查器读 packages/consts/ 下导出常量的声明类型，元素里有对象（函数值与正则除外）即要求
  * 断言文件里有一行按 `NAME.` 或 `NAME[` 访问它，且紧跟在带 `@ts-expect-error` 的注释之后。
+ *
+ * @param params 常量不可变断言检查入参
+ * @returns 缺少不可变断言的违规信息列表
  */
 export function collectConstImmutabilityAssertionProblems({
   projectRoot,

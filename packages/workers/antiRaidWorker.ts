@@ -1,3 +1,6 @@
+/**
+ * 入群守卫线程（Bun Worker）：承载入群验证、反刷群私密模式、黑名单移除、广告检测与刷屏禁言的消息路由及定时缓存清理（跨模块不变量见 docs/cn/04-invariants.md）。
+ */
 import {
   dispatchVerification,
   adoptVerifications,
@@ -88,13 +91,12 @@ import { atmosphereState } from "../cache/workers/antiRaid/atmosphere";
 import { adoptTimeZone } from "../config/time";
 import { installBusinessWorkerPort } from "./businessWorkerPort";
 
-/**
- * 入群守卫线程（Bun Worker）：承载入群验证、反刷群私密模式、黑名单移除、广告检测与刷屏禁言的消息路由及定时缓存清理（跨模块不变量见 docs/cn/04-invariants.md）。
- */
-
 declare const self: Worker;
 
-/** 路由一条主线程消息。 */
+/**
+ * 路由一条主线程消息。
+ * @param msg 主线程发往入群守卫线程的业务消息。
+ */
 export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
   switch (msg.type) {
     case "agentConfig":
@@ -210,7 +212,10 @@ export function handleAntiRaidWorkerMessage(msg: AntiRaidWorkerMessage): void {
   }
 }
 
-/** 按各缓存的 TTL 删除过期条目。 */
+/**
+ * 按各缓存的 TTL 删除过期条目。
+ * @param now 当前毫秒时间戳，默认取 `Date.now()`。
+ */
 export function sweepAntiRaidWorkerCaches(now: number = Date.now()): void {
   sweepAdminCache(now);
   sweepLinkedChannelCache(now);

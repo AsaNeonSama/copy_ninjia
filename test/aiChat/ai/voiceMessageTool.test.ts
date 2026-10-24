@@ -69,7 +69,7 @@ const { encodeVoiceMessage } = await import("../../../packages/aiChat/ai/voiceEn
 const { createSimulatedPause } = await import("../../../packages/aiChat/ai/tools/replyToolset/pacing");
 const { OGG_OPUS_MIME_TYPE } = await import("../../../packages/consts/audio");
 
-const CAPABILITY = { provider: "google", apiKey: "key", baseUrl: undefined, headers: undefined, model: "m" } as const;
+const CAPABILITY = { provider: "google", apiKey: "key", baseUrl: undefined, model: "m" } as const;
 
 /** 只有 tts 段参与本文件的余量计算；其余能力只为满足配置形态。 */
 function adoptTtsQuota(dailyLimit: number, dailyReserveQuota: number): void {
@@ -428,11 +428,11 @@ describe("send_voice 投递", () => {
   });
 
   test("tone 清洗成单行后随台词交给合成；null 与空白按未给出处理", async () => {
-    await runVoice(buildContext(), { text: "バカ", tone: " 鼻で笑うように\n小声で " });
+    await runVoice(buildContext(), { text: "バカ", tone: " 眠そうな声で\n小声で " });
     expect(synthesizeSpeech.mock.calls[0]![0]).toStrictEqual({
       text: "バカ",
       languageStyle: LANGUAGE_STYLE,
-      tone: "鼻で笑うように 小声で",
+      tone: "眠そうな声で 小声で",
       quota: "ai",
       signal: undefined,
     });

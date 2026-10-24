@@ -1,6 +1,11 @@
 import { DISK_BUSINESS_MESSAGE_BASE_BYTES, STORAGE_PENDING_MAX_BYTES, STORAGE_PENDING_MAX_ENTRIES } from "../consts/diskIO/business";
 
-/** 待写文本的保守 UTF-16 与记录开销预算；null 墓碑仍占一个条目。 */
+/**
+ * 待写文本的保守 UTF-16 与记录开销预算；null 墓碑仍占一个条目。
+ * @param data 待写入的序列化数据字符串；删除墓碑时为 null。
+ * @param key 附加的子键字符串（如问答题目），默认为空串。
+ * @returns 该条待写记录占用的字节预算。
+ */
 export function storageWriteCost(data: string | null, key: string = ""): number {
   return DISK_BUSINESS_MESSAGE_BASE_BYTES + ((data?.length ?? 0) + key.length) * 2;
 }
@@ -15,7 +20,11 @@ export class StorageWriteBudget {
   private entries: number = 0;
   private bytes: number = 0;
 
-  /** 在一个同步片段中预约行变化；拒绝时不改变已有预算。 */
+  /**
+   * 在一个同步片段中预约行变化；拒绝时不改变已有预算。
+   * @param entryDelta 条目数净增减量。
+   * @param byteDelta 字节预算净增减量。
+   */
   reserve(entryDelta: number, byteDelta: number): void {
     if (this.entries + entryDelta > STORAGE_PENDING_MAX_ENTRIES ||
       this.bytes + byteDelta > STORAGE_PENDING_MAX_BYTES) throw new StorageWriteCapacityError();

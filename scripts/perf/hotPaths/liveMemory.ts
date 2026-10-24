@@ -11,6 +11,9 @@ interface MemoryUsageSystemError extends Error {
  *
  * 判定只看 EINTR 本身（`code === "EINTR"` 或 `errno` 为 4/-4），不要求特定的
  * `syscall` 字段值。
+ *
+ * @param read 执行单次进程内存读取的回调
+ * @returns 读取回调返回的内存指标结果
  */
 export function readInterruptibleMemory<T>(read: () => T): T {
   let failedAttempts: number = 0;
@@ -29,6 +32,12 @@ export function readInterruptibleMemory<T>(read: () => T): T {
   }
 }
 
+/**
+ * 判断捕获到的异常是否为系统调用被信号中断（EINTR）。
+ *
+ * @param error 待判定的未知异常
+ * @returns 属于 EINTR 中断错误时返回 true
+ */
 function isInterruptedMemoryError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const systemError: MemoryUsageSystemError = error;

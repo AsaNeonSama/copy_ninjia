@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from "bun:test";
+import type { Context } from "grammy";
 import { installTokyoFixtureTimeZone } from "../helpers/fixtureTimeZone";
 import { GrammyError } from "grammy";
-import type { ChatMember } from "grammy/types";
+import type { Chat, ChatMember } from "grammy/types";
 import { diskIORuntime } from "../../packages/cache/main/diskIO";
 import { wedChats, wedRuntime } from "../../packages/cache/main/wed";
 import { wedMemberReview } from "../../packages/cache/main/wedMemberReview";
@@ -15,7 +16,7 @@ import { WED_MEMBER_REVIEW_INTERVAL_MS, WED_OPERATION_TIMEOUT_MS } from "../../p
 import { DAY_MS } from "../../packages/consts/time";
 import * as diskIO from "../../packages/infra/diskIO";
 import { logger } from "../../packages/infra/logger";
-import { getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../packages/infra/storage/stateStore";
 
 installTokyoFixtureTimeZone();
 
@@ -62,9 +63,15 @@ function memberWindow(...ids: number[]): Map<number, number> {
   return new Map(ids.map((id: number): [number, number] => [id, 0]));
 }
 
+/** 与前置链一致：先各读一次 `ctx.chat` 与群状态快照，再交给 observeWedMembers。 */
+function observeLikePreamble(ctx: Context): void {
+  const chat: Chat | undefined = ctx.chat;
+  observeWedMembers(ctx, chat, getChatState(chat!.id));
+}
+
 function speak(userId: number): void {
   const chat = { id: -1001, type: "supergroup" };
-  observeWedMembers({ chat, message: { chat, from: { id: userId, is_bot: false }, text: "hi" } } as never);
+  observeLikePreamble({ chat, message: { chat, from: { id: userId, is_bot: false }, text: "hi" } } as never);
 }
 
 beforeEach((): void => {
@@ -304,8 +311,8 @@ test.each(["speech", "chat_member", "service"])("查询期间的 %s 在群观察
   midnight();
   const chat = { id: -1001, type: "supergroup" };
   if (kind === "speech") speak(1);
-  else if (kind === "chat_member") observeWedMembers({ chat, chatMember: { new_chat_member: member(1) } } as never);
-  else observeWedMembers({ chat, message: { chat, new_chat_members: [member(1).user] } } as never);
+  else if (kind === "chat_member") observeLikePreamble({ chat, chatMember: { new_chat_member: member(1) } } as never);
+  else observeLikePreamble({ chat, message: { chat, new_chat_members: [member(1).user] } } as never);
   gate.resolve(member(1, "left"));
   await tick();
   expect(wedMemberStates.get(-1001)!.members.has(1)).toBeTrue();

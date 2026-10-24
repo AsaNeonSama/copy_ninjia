@@ -3,9 +3,11 @@ import { buildAiRecordMessage } from "./recordContext";
 import type { AiSpeakerSnapshot } from "../../types/aiChat/speaker";
 import type { MessageTriggerContext } from "../../types/auto";
 
-/** replyToUnresolvableMedia 的入参。 */
+/** 无法提取视觉或音频素材时记入占位文本并按需触发直接回复的参数。 */
 export interface ReplyToUnresolvableMediaParams {
+  /** 消息触发上下文 */
   context: MessageTriggerContext;
+  /** 发言人身份快照 */
   speaker: AiSpeakerSnapshot;
   /** 记进上下文的占位文本，由各 handler 按自己的载荷类型给出。 */
   text: string;
@@ -14,6 +16,8 @@ export interface ReplyToUnresolvableMediaParams {
 /**
  * 媒体解析不出视觉素材时的统一兜底，sticker.ts、animation.ts 与 voice.ts 共用：先把一行
  * 纯文本占位记进 AI 上下文；只有直接唤起（回复机器人或 @ 机器人）才再发起一次回复。
+ *
+ * @param params 不可解析媒体的触发上下文、发言人身份与上下文占位文本。
  * @returns true 表示本条消息已被接管，调用方应停止后续主动行为。
  */
 export function replyToUnresolvableMedia({

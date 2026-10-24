@@ -5,17 +5,19 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { transitionVerification } from "../../packages/states/verification";
-import { checkingInviterOf, expellingOf, kickPendingOf } from "../../packages/states/verification/shared";
+import { cartesianProduct } from "../../packages/libs/cartesianProduct";
+import { joinCreatesNewRecord, transitionVerification } from "../../packages/states/verification";
+import { checkingInviterOf, exemptOf, expellingOf, kickedOf, kickPendingOf } from "../../packages/states/verification/shared";
 import type {
   ExpelSnapshot,
+  JoinEvent,
   KickPendingState,
   VerificationEffect,
   VerificationEvent,
   VerificationState,
   VerificationTransition,
 } from "../../packages/types/states/verification";
-import { VERIFICATION_TIMEOUT_MS } from "../../packages/consts/antiRaid/verification";
+import { KICKED_REJOIN_GRACE_MS, VERIFICATION_TIMEOUT_MS } from "../../packages/consts/antiRaid/verification";
 
 type VerificationRowLabel =
   | "absent"
@@ -300,5 +302,64 @@ describe("入群验证状态 × 事件矩阵", () => {
     const inviterCheck: VerificationState | undefined = VERIFICATION_ROWS.checkingInviter();
     expect(transitionVerification(inviterCheck, { type: "expelSettled" }))
       .toEqual({ next: inviterCheck, effects: [] });
+  });
+
+  test("joinCreatesNewRecord 与 handleJoin 在 5184 种入群参数组合下对拍一致", () => {
+    const combinations = cartesianProduct({
+      makeState: [
+        VERIFICATION_ROWS.absent,
+        VERIFICATION_ROWS.pending,
+        (): VerificationState => exemptOf(LABEL, false),
+        VERIFICATION_ROWS.kickPending,
+        (): VerificationState => {
+          const state: KickPendingState = kickPendingOf({
+            label: LABEL,
+            isBot: false,
+            requestedAt: JOINED_AT,
+            countedJoinAt: JOINED_AT,
+            announcementMessageId: 10,
+          });
+          state.executionStarted = true;
+          state.effectStarted = true;
+          return state;
+        },
+        (): VerificationState => kickedOf(LABEL, false, JOINED_AT),
+        VERIFICATION_ROWS.checkingInviter,
+        VERIFICATION_ROWS["expelling:timeout"],
+        VERIFICATION_ROWS["expelling:flood"],
+      ],
+      identityExempt: [false, true],
+      actorSyncExempt: [false, true],
+      comment: [false, true],
+      lockdownActive: [false, true],
+      dt: [500, KICKED_REJOIN_GRACE_MS + 1],
+      announcementMessageId: [undefined, 10, 99],
+      actorId: [undefined, 100, 7],
+      adminCacheFresh: [false, true],
+    });
+    expect(combinations).toHaveLength(5_184);
+    for (const item of combinations) {
+      const state: VerificationState | undefined = item.makeState();
+      const event: JoinEvent = {
+        type: "join",
+        memberId: 100,
+        label: LABEL,
+        isBot: false,
+        announcementMessageId: item.announcementMessageId,
+        actorId: item.actorId,
+        identityExempt: item.identityExempt,
+        actorSyncExempt: item.actorSyncExempt,
+        adminCacheFresh: item.adminCacheFresh,
+        lockdownActive: item.lockdownActive,
+        recentComment: item.comment ? { messageId: 3 } : undefined,
+        now: JOINED_AT + item.dt,
+      };
+      const creates: boolean = joinCreatesNewRecord(state, event);
+      const transition: VerificationTransition = transitionVerification(state, event);
+      const createdNew: boolean =
+        (transition.next?.kind === "pending" || transition.next?.kind === "kickPending") &&
+        transition.next !== state;
+      expect(creates).toBe(createdNew);
+    }
   });
 });

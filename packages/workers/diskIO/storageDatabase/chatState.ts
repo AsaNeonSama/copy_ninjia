@@ -31,7 +31,10 @@ import {
 } from "./context";
 import { flushIfStorageFull } from "./flush";
 
-/** 读取已提交群主键并叠加待提交变更，返回有效群 ID 集合。 */
+/**
+ * 读取已提交群主键并叠加待提交变更，返回有效群 ID 集合。
+ * @returns 叠加未提交事务缓冲后的有效受管群 ID 集合。
+ */
 function effectiveChatStateIds(): Set<number> {
   const rows: readonly Pick<StoredChatStateRow, "chatId">[] =
     readStoredChatStateIds(requireStorageDatabaseReader());
@@ -44,7 +47,10 @@ function effectiveChatStateIds(): Set<number> {
   return chatIds;
 }
 
-/** 读取已提交群状态并叠加待提交变更，返回有效群状态映射。 */
+/**
+ * 读取已提交群状态并叠加待提交变更，返回有效群状态映射。
+ * @returns 叠加未提交事务缓冲后的 `chatId -> ChatState` 映射。
+ */
 function effectiveChatStateData(): Map<number, ChatState> {
   const rows: readonly StoredChatStateRow[] = readStoredChatStates(requireStorageDatabase());
   const values: Map<number, ChatState> = new Map();
@@ -56,7 +62,10 @@ function effectiveChatStateData(): Map<number, ChatState> {
   return values;
 }
 
-/** 校验有效群总数不超过 STATE_MANAGED_CHAT_LIMIT。 */
+/**
+ * 校验有效群总数不超过 STATE_MANAGED_CHAT_LIMIT。
+ * @param effective 叠加未提交变更后的有效受管群 ID 集合。
+ */
 function assertManagedChatLimit(effective: ReadonlySet<number>): void {
   if (effective.size > STATE_MANAGED_CHAT_LIMIT) {
     throw new Error(
@@ -82,7 +91,11 @@ export function assertPendingChatStateInvariants(): void {
   }
 }
 
-/** 校验并接收群状态写入，验证群数上限与唯一代理目标约束（镜像重放暂挂期间延后至重放结束统一复核）后排入事务缓冲。 */
+/**
+ * 校验并接收群状态写入，验证群数上限与唯一代理目标约束（镜像重放暂挂期间延后至重放结束统一复核）后排入事务缓冲。
+ * @param message 群状态写入或删除请求消息。
+ * @param reply 向主线程发送持久化回执的出口。
+ */
 export function handleChatStateWrite(
   message: ChatStateWriteDiskMessage,
   reply: IdentityPersistenceReply

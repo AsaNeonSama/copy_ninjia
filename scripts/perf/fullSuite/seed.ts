@@ -50,11 +50,20 @@ const EMPTY_COUNTS: SeededFixtureCounts = {
   joinLogEvents: 0,
 };
 
+/**
+ * 解析并校验播种子进程的模式参数。
+ * @param value 命令行传入的播种模式字符串。
+ * @returns 合法的播种模式标识。
+ */
 function parseSeedMode(value: string | undefined): SeedMode {
   if (value === "cold-start" || value === "chain") return value;
   throw new Error("Seed child mode must be cold-start or chain.");
 }
 
+/**
+ * 通过真实 Disk I/O Worker 写出全局状态文件及冷启动所需的 AI 快照与入群日志。
+ * @param mode 当前播种模式。
+ */
 async function seedWorkerOwnedFiles(mode: SeedMode): Promise<void> {
   await loadPersistedData();
   // 写出全局状态文件，供冷启动的 loadState 读取。
@@ -84,7 +93,11 @@ async function seedWorkerOwnedFiles(mode: SeedMode): Promise<void> {
   }
 }
 
-/** 把 fixture 写进本进程的运行时数据根；数据根不是本基准建的就直接拒绝。 */
+/**
+ * 把 fixture 写进本进程的运行时数据根；数据根不是本基准建的就直接拒绝。
+ * @param mode 当前播种模式。
+ * @returns 播种阶段写出的各业务表与事件条数摘要。
+ */
 async function runSeedChild(mode: SeedMode): Promise<SeededFixtureCounts> {
   assertBenchmarkRuntimeRoot(RUNTIME_DATA_ROOT);
   installOutboundGuards();
@@ -110,7 +123,10 @@ async function runSeedChild(mode: SeedMode): Promise<SeededFixtureCounts> {
   return mode === "chain" ? EMPTY_COUNTS : fixtureCounts();
 }
 
-/** `--child seed <mode>` 的入口；结果按 JSON 打到 stdout。 */
+/**
+ * `--child seed <mode>` 的入口；结果按 JSON 打到 stdout。
+ * @param argument 命令行传入的播种模式参数。
+ */
 export async function main(argument: string | undefined): Promise<void> {
   const counts: SeededFixtureCounts = await runSeedChild(parseSeedMode(argument));
   await Bun.write(Bun.stdout, `${JSON.stringify(counts)}\n`);

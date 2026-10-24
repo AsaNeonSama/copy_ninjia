@@ -11,6 +11,7 @@ import type { AiWorkerJobFailure } from "../../types/aiChat/workerJob";
 export interface RunAiWorkerJobOptions<T> {
   /** 调用方 owner 的在途表（requestId → 取消控制器）。 */
   readonly jobs: Map<number, AbortController>;
+  /** 主线程分配的任务请求序号。 */
   readonly requestId: number;
   /** 执行任务；必须自行把意外异常折算成结果，返回的 Promise 不得 reject。 */
   readonly run: (signal: AbortSignal) => Promise<T>;
@@ -18,7 +19,12 @@ export interface RunAiWorkerJobOptions<T> {
   readonly publish: (result: T | AiWorkerJobFailure) => void;
 }
 
-/** 接纳一次任务；结算后摘除在途条目并回执。 */
+/**
+ * 接纳一次可取消的后台任务：若 Worker 已进入停机排空阶段则立即回执 `AI_WORKER_JOB_UNAVAILABLE`，
+ * 否则登记 `AbortController` 并启动任务，结算后摘除在途条目并回执结果。
+ *
+ * @param options 任务在途登记表、请求序号、执行回调与回执回调
+ */
 export function runAiWorkerJob<T>({ jobs, requestId, run, publish }: RunAiWorkerJobOptions<T>): void {
   if (aiChatWorkerQuiescing.current) {
     publish(AI_WORKER_JOB_UNAVAILABLE);

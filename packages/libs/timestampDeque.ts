@@ -35,6 +35,7 @@ export class TimestampDeque {
   /**
    * 队尾槽位。`head + count - 1` 恒小于 `2 * values.length`，一次条件减即可
    * 折回环内。
+   * @returns 队尾元素在环形数组中的下标。
    */
   private tailIndex(): number {
     const length: number = this.values.length;
@@ -42,7 +43,10 @@ export class TimestampDeque {
     return index >= length ? index - length : index;
   }
 
-  /** 追加一个时间戳；已达构造时的硬上限时抛 RangeError。 */
+  /**
+   * 追加一个时间戳；已达构造时的硬上限时抛 RangeError。
+   * @param value 待追加的时间戳。
+   */
   push(value: number): void {
     if (this.count === this.values.length) {
       if (this.count === this.maxCapacity) {
@@ -61,6 +65,8 @@ export class TimestampDeque {
    * 追加时间戳；达到硬上限时原地覆盖最早一项并返回被覆盖值。
    *
    * 仅供已经定义饱和语义的窗口使用；普通配额窗口调用 push，违反容量不变量的写入抛错。
+   * @param value 待追加的时间戳。
+   * @returns 满容量时被覆盖的最早时间戳；未满时返回 `undefined`。
    */
   pushReplacingOldest(value: number): number | undefined {
     if (this.count < this.maxCapacity) {
@@ -74,12 +80,19 @@ export class TimestampDeque {
     return replaced;
   }
 
-  /** 查看最早时间戳但不移除。 */
+  /**
+   * 查看最早时间戳但不移除。
+   * @returns 队首时间戳；队列为空时返回 `undefined`。
+   */
   peek(): number | undefined {
     return this.count === 0 ? undefined : this.values[this.head];
   }
 
-  /** 查看从最早算起第 offset 个时间戳（0 为最早）但不移除；越界返回 undefined。 */
+  /**
+   * 查看从最早算起第 offset 个时间戳（0 为最早）但不移除；越界返回 undefined。
+   * @param offset 距离队首的偏移量（0 起算）。
+   * @returns 对应位置的时间戳；越界时返回 `undefined`。
+   */
   peekAt(offset: number): number | undefined {
     if (offset < 0 || offset >= this.count) return undefined;
     const length: number = this.values.length;
@@ -90,6 +103,8 @@ export class TimestampDeque {
 
   /**
    * 移除第一个与 value 全等的时间戳；原地移动后续数字，不分配链表节点或临时数组。
+   * @param value 待移除的时间戳。
+   * @returns 找到并移除时返回 `true`，未找到返回 `false`。
    */
   removeValue(value: number): boolean {
     const length: number = this.values.length;
@@ -128,6 +143,8 @@ export class TimestampDeque {
    * 1. 系统时钟回拨后队尾会落在「未来」，只丢这些越界项，保留仍然合法的历史记录，
    *    不整窗清空；
    * 2. 丢掉已滑出窗口的队首（`ts <= now - windowMs`）。
+   * @param windowMs 滑动窗口宽度（毫秒）。
+   * @param now 当前时刻毫秒时间戳。
    */
   trim(windowMs: number, now: number): void {
     while (this.count > 0) {
@@ -153,6 +170,7 @@ export class TimestampDeque {
     this.count = 0;
   }
 
+  /** 将底层环形数组按 2 倍扩容（不超过 `maxCapacity`）并重排元素到数组头部。 */
   private grow(): void {
     const previous: number[] = this.values;
     const nextCapacity: number = Math.min(

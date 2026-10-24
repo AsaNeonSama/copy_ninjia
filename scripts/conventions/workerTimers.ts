@@ -34,7 +34,13 @@ interface UnrefCall {
   readonly target: string;
 }
 
-/** 取 timer 调用的赋值目标文本；没有可 unref 的落点时返回 null。 */
+/**
+ * 取 timer 调用的赋值目标文本；没有可 unref 的落点时返回 null。
+ *
+ * @param call `setTimeout` 或 `setInterval` 调用表达式节点
+ * @param source 源文件 AST
+ * @returns 句柄赋值目标的源码文本，无合法赋值目标时返回 null
+ */
 function installTarget(call: ts.CallExpression, source: ts.SourceFile): string | null {
   const parent: ts.Node = call.parent;
   if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
@@ -51,7 +57,13 @@ function installTarget(call: ts.CallExpression, source: ts.SourceFile): string |
   return null;
 }
 
-/** 找到包住节点的最近函数体范围（行号闭区间）。 */
+/**
+ * 找到包住节点的最近函数体范围（行号闭区间）。
+ *
+ * @param node 待查找外层函数的 AST 节点
+ * @param source 源文件 AST
+ * @returns 最近函数或源文件范围的起止行号（1-based 闭区间）
+ */
 function enclosingScope(node: ts.Node, source: ts.SourceFile): { from: number; to: number } {
   let scope: ts.Node = node;
   while (
@@ -67,6 +79,14 @@ function enclosingScope(node: ts.Node, source: ts.SourceFile): { from: number; t
   };
 }
 
+/**
+ * 核对 Worker 模块内的全部 `setTimeout`/`setInterval` 句柄是否在同一作用域内紧随调用 `.unref()`。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param path 被检查 Worker 源文件的绝对路径
+ * @param source 已解析的源文件 AST
+ * @returns 未保存句柄或缺少 `.unref()` 的违规问题列表
+ */
 export function collectWorkerTimerProblems(
   projectRoot: string,
   path: string,

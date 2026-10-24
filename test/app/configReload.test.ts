@@ -356,7 +356,10 @@ describe("config/dynamic/ 监听的失效与关闸", () => {
     await rename(DYNAMIC_CONFIG_DIR, movedRoot);
     try {
       expect(await waitUntil((): boolean => configReloadRuntime.rewatchAttempts === TEST_REWATCH_RETRY_DELAYS_MS.length - 1)).toBe(true);
-      await Bun.sleep(TEST_REWATCH_RETRY_DELAYS_MS.at(-1)! * 3);
+      const timerAtCap: ReturnType<typeof setTimeout> | null = configReloadRuntime.rewatchTimer;
+      expect(await waitUntil(
+        (): boolean => configReloadRuntime.rewatchTimer !== null && configReloadRuntime.rewatchTimer !== timerAtCap
+      )).toBe(true);
       expect(configReloadRuntime.watcher).toBeNull();
     } finally {
       await rename(movedRoot, DYNAMIC_CONFIG_DIR);

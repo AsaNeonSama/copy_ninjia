@@ -14,6 +14,7 @@ import { runTelegramCategorizedRequest } from "./outboundGate";
 
 /** downloadTelegramFileBytes 的入参。 */
 export interface DownloadTelegramFileParams {
+  /** Telegram 文件标识（file_id）。 */
   readonly fileId: string;
   /** 读到超过这个字节数即停下并报 tooLarge。 */
   readonly maxBytes: number;
@@ -29,6 +30,8 @@ export interface DownloadTelegramFileParams {
  * 下载一个 Telegram 文件到有界内存。getFile 与下载各自的超时预算耗尽时分别报
  * metadataTimeout、downloadTimeout（下载段覆盖到读完响应体）；调用方取消或其自身预算
  * 耗尽与其它异常原样上抛，由调用方按自己的语义归类。非成功 HTTP 响应不读错误页，并显式释放响应体。
+ * @param params 文件下载参数与超时配置。
+ * @returns 有界内存下载结果，按状态区分成功字节或各类失败原因。
  */
 export async function downloadTelegramFileBytes({
   fileId,
@@ -71,7 +74,12 @@ export async function downloadTelegramFileBytes({
   }
 }
 
-/** 失败归于本段超时：本段信号因超时中止，且调用方信号未中止。 */
+/**
+ * 失败归于本段超时：本段信号因超时中止，且调用方信号未中止。
+ * @param signal 调用方传入的外部取消信号。
+ * @param stageSignal 本阶段合成超时后的取消信号。
+ * @returns 由本阶段超时引起且外部信号未取消时返回 true，否则返回 false。
+ */
 function isStageTimeout(signal: AbortSignal | undefined, stageSignal: AbortSignal): boolean {
   return signal?.aborted !== true && isTimeoutAbort(stageSignal);
 }

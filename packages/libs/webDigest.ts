@@ -32,11 +32,22 @@ import type {
 /** 解码过程中的一处不合格；在 decodeWebDigest 里收成失败结果。 */
 class WebDigestProblem extends Error {}
 
+/**
+ * 抛出携带字段路径与期望形态的 `WebDigestProblem`。
+ * @param path 字段路径。
+ * @param expected 期望形态说明。
+ */
 function reject(path: string, expected: string): never {
   throw new WebDigestProblem(`${path} must be ${expected}`);
 }
 
-/** 必填单行字符串：去掉首尾空白后非空且不超过 maxChars 字符、不含换行与可渲染命令。 */
+/**
+ * 必填单行字符串：去掉首尾空白后非空且不超过 maxChars 字符、不含换行与可渲染命令。
+ * @param value 待校验的字段值。
+ * @param path 字段路径。
+ * @param maxChars 最大字符数上限。
+ * @returns 去除首尾空白后的合法单行字符串。
+ */
 function requiredLine(value: unknown, path: string, maxChars: number): string {
   const expected: string = `a single-line string of 1 to ${maxChars} characters without bot commands`;
   if (typeof value !== "string") return reject(path, expected);
@@ -53,13 +64,24 @@ function requiredLine(value: unknown, path: string, maxChars: number): string {
   return text;
 }
 
-/** 可选单行字符串；缺省或 null 为 undefined，出现时规则同 requiredLine。 */
+/**
+ * 可选单行字符串；缺省或 null 为 undefined，出现时规则同 requiredLine。
+ * @param value 待校验的字段值。
+ * @param path 字段路径。
+ * @param maxChars 最大字符数上限。
+ * @returns 去除首尾空白后的合法单行字符串，或缺省时的 `undefined`。
+ */
 function optionalLine(value: unknown, path: string, maxChars: number): string | undefined {
   if (value === undefined || value === null) return undefined;
   return requiredLine(value, path, maxChars);
 }
 
-/** 条目正文允许换行分段；每行非空，不接受回车或可渲染命令。 */
+/**
+ * 条目正文允许换行分段；每行非空，不接受回车或可渲染命令。
+ * @param value 待校验的字段值。
+ * @param path 字段路径。
+ * @returns 去除首尾空白后的合法条目正文。
+ */
 function requiredBody(value: unknown, path: string): string {
   const expected: string = `a string of 1 to ${WEB_DIGEST_ITEM_BODY_MAX_CHARS} characters with non-empty lines and no bot commands`;
   if (typeof value !== "string") return reject(path, expected);
@@ -73,7 +95,12 @@ function requiredBody(value: unknown, path: string): string {
   return text;
 }
 
-/** 来源地址：https、无 userinfo、无空白，不超过 WEB_DIGEST_URL_MAX_CHARS。 */
+/**
+ * 来源地址：https、无 userinfo、无空白，不超过 WEB_DIGEST_URL_MAX_CHARS。
+ * @param value 待校验的字段值。
+ * @param path 字段路径。
+ * @returns 合法的 HTTPS URL 字符串。
+ */
 function requiredUrl(value: unknown, path: string): string {
   const expected: string = `an https URL of at most ${WEB_DIGEST_URL_MAX_CHARS} characters without credentials or whitespace`;
   if (typeof value !== "string") return reject(path, expected);
@@ -88,6 +115,12 @@ function requiredUrl(value: unknown, path: string): string {
   return url;
 }
 
+/**
+ * 严格解码单条摘要条目。
+ * @param value 待解码的条目值。
+ * @param path 条目的字段路径。
+ * @returns 合法的 `WebDigestItem`。
+ */
 function decodeItem(value: unknown, path: string): WebDigestItem {
   if (!isPlainRecord(value) || !hasOnlyKeys(value, ["title", "body", "source", "url", "time"])) {
     return reject(path, "an object with exactly { title, body, source, url, time? }");
@@ -101,6 +134,12 @@ function decodeItem(value: unknown, path: string): WebDigestItem {
   };
 }
 
+/**
+ * 严格解码单个摘要小节。
+ * @param value 待解码的小节值。
+ * @param path 小节的字段路径。
+ * @returns 合法的 `WebDigestSection`。
+ */
 function decodeSection(value: unknown, path: string): WebDigestSection {
   if (!isPlainRecord(value) || !hasOnlyKeys(value, ["heading", "items"])) {
     return reject(path, "an object with exactly { heading, items }");
@@ -120,6 +159,7 @@ function decodeSection(value: unknown, path: string): WebDigestSection {
  * 严格解码一份摘要。
  * @param value 组稿模型交回的 JSON（已 JSON.parse）。
  * @param maxItems 本任务的条目总数上限（cron.json 的 max_items）。
+ * @returns 解码成功时返回 `{ ok: true, digest }`，失败时返回带诊断文案的 `{ ok: false, problem }`。
  */
 export function decodeWebDigest(value: unknown, maxItems: number): WebDigestDecodeResult {
   try {

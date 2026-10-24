@@ -40,6 +40,9 @@ import { acceptVerificationDeferred } from "../verificationAttempts";
  *
  * 指纹排除 expiresAt（见 types/antiRaid/internal.ts）；对账轮次仅在恢复语义
  * 真正推进时重跑。期间收到的新事件通过 queued 集合在当前轮结束后续跑。
+ *
+ * @param chatId 群聊 ID
+ * @param postToWorker 向 Anti-Raid Worker 发送回执消息的回调
  */
 function persistCurrentLockdown(
   chatId: number,
@@ -112,6 +115,10 @@ function persistCurrentLockdown(
  * 落盘失败时保留已通过 schema 校验的恢复记录，并通知 Worker fail-safe 打开。
  * Worker 发布恢复意图后继续对账，只有恢复完成的 unlock 才清记录。
  * 跨线程恢复约束见 docs/cn/04-invariants.md。
+ *
+ * @param chatId 群聊 ID
+ * @param fingerprint 本轮落盘尝试对应的封锁意图指纹
+ * @param postToWorker 向 Anti-Raid Worker 发送落盘失败回执的回调
  */
 function abandonLockdownPersistence(
   chatId: number,
@@ -131,7 +138,12 @@ function abandonLockdownPersistence(
   });
 }
 
-/** 把 Worker 业务事件归并到主线程镜像、持久化边界或 Telegram 行为入口。 */
+/**
+ * 把 Worker 业务事件归并到主线程镜像、持久化边界或 Telegram 行为入口。
+ *
+ * @param event Anti-Raid Worker 上报的业务事件
+ * @param postToWorker 向 Anti-Raid Worker 发送回执消息的回调
+ */
 export function handleAntiRaidWorkerEvent(
   event: AntiRaidWorkerEvent,
   postToWorker: (message: AntiRaidWorkerMessage) => void

@@ -17,12 +17,12 @@
 - **`/proc` にアクセス可能な Linux 環境**：インスタンスの二重起動防止ロックは、`/proc/<pid>/stat` とシステムの boot ID に依存しています。その他の OS では安全のため起動を拒否（fail-closed）します。
 - **Bun**（バージョンは `package.json` の `packageManager` に準拠）：ソースコードからの実行およびローカル開発に必須です。次のコマンドでインストールできます：
   ```bash
-  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
+  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4
   ```
   > [!NOTE]
   > バイナリ配布版には内蔵ランタイムが同梱されているため、ホストマシンへの Bun のインストールは不要です。なお、プロジェクト全体を通じて Node.js は一切使用しません。
 - **Telegram Bot Token**：[@BotFather](https://t.me/BotFather) で `/newbot` を実行して Bot を作成し、Token を取得します。
-- **各 AI 機能の API キー**：`config/dynamic/agent.json` で有効化する機能（会話、メディア認識、画像生成、音声合成、Web 検索など）ごとに、API キー、プロバイダ、エンドポイント、モデル名を設定します。[Google AI Studio](https://aistudio.google.com/)、[OpenAI Platform](https://platform.openai.com/) などの互換プロバイダから取得してください。機能間での自動フォールバックは行われません。
+- **各 AI 機能の API キー**：`config/dynamic/agent.json` で有効化する機能（会話、メディア認識、画像生成、音声合成、Web 検索、広告検出）ごとに、API キー、プロバイダ、エンドポイント、モデル名を設定します。[Google AI Studio](https://aistudio.google.com/)、[OpenAI Platform](https://platform.openai.com/)、[Anthropic Console](https://console.anthropic.com/) などの互換プロバイダから取得してください。機能間での自動フォールバックは行われません。
 - **Google Cloud サービスアカウント JSON（任意）**：`/translate` 翻訳機能を利用する場合にのみ必要です。`config/static/g-auth.json` として配置します（フォーマットは [サンプル](../../config_example/static/g-auth.json) を参照してください。サンプルのプレースホルダー秘密鍵のままではパーサーによって拒否されます）。
   - **認証情報仕様**：`packages/config/googleAuth.ts` が厳格に検証します。`client_email` と、RS256 署名用の空でない RSA PEM 秘密鍵（EC、Ed25519、RSA-PSS 鍵は拒否）が必須です。`type` は省略可能ですが、指定する場合は `service_account` のみ受け付けます。
   - **省略時の動作**：認証ファイルが存在しなくてもプロセスの起動自体は妨げられません。`/translate` コマンドが実行された際にのみ、ファイルが見つからない旨を返して実行を拒否します。ただし、ファイルが存在するにもかかわらずフォーマットが不正な場合は、起動時の全体検証ゲートにより直ちに終了します。
@@ -91,7 +91,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 > 3. **ツールチェーンと Bun の準備**：ソースモードでは必要に応じて指定バージョンの Bun（`package.json` の `packageManager` と一致）をセットアップします。バイナリモードでは内蔵バイナリを使用します。
 > 4. **依存関係のインストール**：ソースモードでは `bun install --frozen-lockfile` を実行し、バイナリモードではスキップします。
 > 5. **設定ディレクトリの構造化**：誤った位置にあるファイルや旧バージョンのグローバル状態・データベースを検知した場合は起動を阻止します。不足している設定テンプレートのみを展開し、`agent.json`、`g-auth.json`、`cron.json` は手動設定に委ねます（既存ファイルは上書きしません）。
-> 6. **対話型設定ウィザード**：端末上で `config/static/bot.json` の必須項目を案内し、`config/dynamic/agent.json` が未作成の場合は各 AI 機能の設定（カスタム `base_url` エンドポイントおよび `google` / `anthropic` のゲートウェイ `headers` を含む）をステップ形式で入力します。既存設定を変更する場合はワークツリー外に自動バックアップを取り、厳格なバリデーションを通過した時点で安全にアトミック置換します。
+> 6. **対話型設定ウィザード**：端末上で `config/static/bot.json` の必須項目を案内し、`config/dynamic/agent.json` が未作成の場合は各 AI 機能の設定（カスタム `base_url` エンドポイントを含む）をステップ形式で入力します。既存設定を変更する場合はワークツリー外に自動バックアップを取り、厳格なバリデーションを通過した時点で安全にアトミック置換します。
 > 7. **データベース初期化**：`database/storage.sqlite` を検証します。既存データベースが存在する場合は設定されたタイムゾーンが `bot.json` の `time_zone` と一致することを読み取り専用で照合します（不一致の場合はサービス登録前に停止）。新規の場合は現行スキーマでデータベースを初期化し、タイムゾーンマーカーを書き込みます。
 > 8. **サービス登録と稼働監視**：`copy-ninjia.service` を systemd に登録・起動します（systemd が利用できないコンテナ環境等ではフォアグラウンド実行）。起動直後のステータスを監視し、`active/running` 状態、再起動ループの非発生、およびログに異常終了がないことを確認した上で一時バックアップをクリーンアップします。
 
@@ -200,13 +200,12 @@ config/
          - `daily_limit`（省略時は `TTS_DEFAULT_DAILY_LIMIT`）および `daily_reserve_quota`（省略時は `TTS_DEFAULT_DAILY_RESERVE_QUOTA`。`daily_limit` 未満である必要があります）：1 日あたりの合成回数クォータを AI 返信用と `/send`・cron 共用の予約枠に分割し、それぞれ独立して消費をカウントします。
     3. **検索および安全管理機能**：
        - `web_search`：ローカル Web 検索ツール機能。`max_calls_per_use`（正の整数。省略時は `WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE`）で 1 ターンあたりの最大呼び出し回数を制限できます。未設定時は `text` モデル内蔵のグラウンディング検索が使用されます。
-       - `ad_detect`：新規メンバー参加時のスパム・広告検出機能。未設定時は広告検出が無効化されます。
+       - `ad_detect`：グループチャット内の発言に対するスパム・広告検出機能。未設定時は広告検出が無効化されます。
     4. **各機能の共通フィールド**：
        - `provider`：`google` | `openai` | `anthropic`（`image` と `tts` は Google と OpenAI のみ対応）。
        - `api_key`：アクセスキー。サンプル内のプレースホルダー文字列は拒否されます。
        - `model`：モデル識別子文字列。
        - `base_url`：カスタムエンドポイント（`https` のみ。プレーン `http` は `LOOPBACK_HOSTS` のみ許可。userinfo や `#` フラグメントは不可）。
-       - `headers`：`google` と `anthropic` プロバイダのみ、追加のリクエストヘッダー（最大 `AGENT_HEADERS_MAX_ENTRIES` 個。Cloudflare AI Gateway 等の認証用）を設定可能。
        - `fallback_model`：`anthropic` プロバイダのみ設定可能なフォールバックモデル（`model` と異なること）。`model` が拒否した場合は同じリクエストをこのモデルで再送し、フォールバックモデルも拒否した場合や未設定の場合は再試行せずにそのリクエストを失敗とします。
 
 ---

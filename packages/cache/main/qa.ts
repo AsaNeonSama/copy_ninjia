@@ -18,7 +18,7 @@ export const chatQaTriggerJson: Map<number, string> = new Map();
 
 /**
  * 群 ID 到 `/qa set` 未完成表单会话的映射（每群至多一个）：`/qa set` 创建或由同一发起人重开覆盖，两项填齐结算、TTL 到期或群 teardown 时清除。
- * 容量上限为 QA_FORM_SESSION_MAX（且受 STATE_MANAGED_CHAT_LIMIT 约束），满额拒绝新建且不淘汰现有会话；进程重启后从空表开始。
+ * 容量上限为 QA_FORM_SESSION_MAX（等于 STATE_MANAGED_CHAT_LIMIT），满额拒绝新建且不淘汰现有会话；进程重启后从空表开始。
  */
 export const qaFormSessions: Map<number, QaFormSession> = new Map();
 

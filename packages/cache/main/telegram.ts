@@ -7,7 +7,11 @@ import type {
   TelegramRetryLane,
 } from "../../types/telegramOutbound";
 
-/** 构造初始状态的 Telegram 限流退避车道。 */
+/**
+ * 构造初始状态的 Telegram 限流退避车道。
+ *
+ * @returns 初始空闲状态的限流退避车道
+ */
 export function createRetryLane(): TelegramRetryLane {
   return {
     head: null,

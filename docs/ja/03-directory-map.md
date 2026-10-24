@@ -15,25 +15,25 @@
 ## ディレクトリの責務
 
 - **`LICENSES/`**
-  - **内容**：プロジェクトの MIT [`LICENSE`](../../LICENSES/LICENSE)、漢字異体字データの [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt)、および Opus 音声エンコード関連の [`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) と [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)。
+  - **内容**：プロジェクトの MIT [`LICENSE`](../../LICENSES/LICENSE)、漢字異体字データの [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt)、ポリフェーズ音声リサンプリングの [`audio-resample-polyphase-MIT.txt`](../../LICENSES/audio-resample-polyphase-MIT.txt)、および Opus 音声エンコード関連の [`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) と [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)。
 - **`packages/app/`**
   - **責務**：起動・停止ライフサイクル、既存デプロイ設定の起動時バリデーション、`config/` ホットリロードの監視と伝播、ハンドラー登録、コマンドメニュー初期化、update runner、各種ライフサイクルの依存注入（composition）。
   - **代表ファイル**：`lifecycle.ts`、`lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updatePreamble.ts`、`updateRunner.ts` / `updateFetcher.ts`。`ApplicationLifecycleDependencies` は composition オブジェクトから型推論して同階層に配置。
 - **`packages/commands/`**
   - **責務**：明示的なコマンドハンドラーを機能単位で集約。同一コマンドのサブコマンドはその内部で分岐。トグル系コマンドで共有される権限・設定ゲートは共通モジュールに分離。
-  - **代表ファイル**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts`、`block.ts`、`hImage.ts` と `hImage/`（抽選・追加）、`info.ts`、`deferredCommands.ts`（`/h_image`、`/info`、`/send` の非同期音声合成、`/batch_kick`、`/block enable` の横断 BAN で共用される遅延コマンドエグゼキューター）、`blocklistFanOut.ts`（全グループ横断 BAN のファンアウト）、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`。インラインおみくじ機能も同様に `luckChallenge/`（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`。`index.ts` は薄い公開ファサード）に分割。規模の大きい gag 機能はコマンド受付を `gag.ts` に残し、ライフサイクル、インライン、純粋描画を `gag/runtime.ts`、`gag/inline.ts`、`gag/rendering.ts` に分離。`/delete_message` はコマンドとメッセージ ingress を `deleteMessage.ts`、削除キューと停止時の排空を `deleteMessage/queue.ts` が担う。
+  - **代表ファイル**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts` と `qa/`（`board.ts`、`ingress.ts`、`notices.ts`、`rendering.ts`、`session.ts`）、`wed.ts` と `wed/`（`memberReview.ts`、`messages.ts`、`persistence.ts`、`rendering.ts`）、`block.ts`、`hImage.ts` と `hImage/`（抽選・追加）、`info.ts`、`deferredCommands.ts`（`/h_image`、`/info`、`/send` の非同期音声合成、`/batch_kick`、`/block enable` の横断 BAN で共用される遅延コマンドエグゼキューター）、`blocklistFanOut.ts`（全グループ横断 BAN のファンアウト）、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`。インラインおみくじ機能も同様に `luckChallenge/`（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`。`index.ts` は薄い公開ファサード）に分割。規模の大きい gag 機能はコマンド受付を `gag.ts` に残し、ライフサイクル、インライン、通知、更新、純粋描画を `gag/runtime.ts`、`gag/inline.ts`、`gag/notices.ts`、`gag/refresh.ts`、`gag/rendering.ts` に分離。`/delete_message` はコマンドとメッセージ ingress を `deleteMessage.ts`、削除キューと停止時の排空を `deleteMessage/queue.ts` が担う。
 - **`packages/auto/`**
   - **責務**：リピート、AI トリガーおよび文字起こし、リアクション同期など、明示的なスラッシュコマンド以外の自動応答パイプライン。
   - **代表ファイル**：`message/`（発火ポリシーの `triggerPolicy.ts` を含む）、`reactionSync.ts`。
 - **`packages/aiChat/`**
   - **責務**：メインスレッド側の AI 会話プロキシおよびモデル機能の抽象化。Worker 監視、メモリミラー、起動時・ホットリロード時のステート投入、利用可能判定、プロバイダ実装（`gemini/`、`openai/`、`anthropic/`）のルーティング、スタンプ、ツール、メディア処理。
-  - **代表ファイル**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`（Bot 自身の送信画像のプレースホルダー自己記録）、`voiceSynthesis.ts`（`/send` や cron からの音声合成ジョブ待機・解決）、`webDigest.ts`（cron による Web ダイジェスト生成待機・解決）、`memoryMirror.ts`、`stickerMirror.ts`（スタンプ目録スナップショットのメインスレッドミラー）、`workerJob.ts`（AI Worker へのキャンセル可能ジョブ発行基盤）、`availability.ts`、`provider.ts`（機能ごとのプロバイダファサード）、`providerLanes.ts`（プロトコル・エンドポイント別のクォータレーン管理）、`capabilityClient.ts`（共通クライアント基盤）、`gemini/`、`openai/`、`anthropic/`、`ai/`。`index.ts` は薄い公開エクスポートのみ提供。
+  - **代表ファイル**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`（Bot 自身の送信画像のプレースホルダー自己記録）、`voiceSynthesis.ts`（`/send` や cron からの音声合成ジョブ待機・解決）、`webDigest.ts`（cron による Web ダイジェスト生成待機・解決）、`memoryMirror.ts`、`stickerMirror.ts`（スタンプ目録スナップショットのメインスレッドミラー）、`workerJob.ts`（AI Worker へのキャンセル可能ジョブ発行基盤）、`availability.ts`、`provider.ts`、`providerFacades.ts`（機能ごとのプロバイダファサード）、`providerLanes.ts`（プロトコル・エンドポイント別のクォータレーン管理）、`capabilityClient.ts`（共通クライアント基盤）、`gemini/`、`openai/`、`anthropic/`、`ai/`。`index.ts` は薄い公開エクスポートのみ提供。
 - **`packages/antiRaid/`**
   - **責務**：メインスレッド側の Anti-Raid プロキシ。Worker 監視、確実なメッセージ配信（durable delivery）、update 受付、広告候補の収集・判定・処分、ブラックリスト／認証／スパム（flood）防御のオーケストレーション。
   - **代表ファイル**：`workerBridge/`（`controller.ts`、`events.ts`、`observers.ts`、`replay.ts`）、`durableDelivery.ts`、`updateIngress.ts`、`adCandidate.ts`、`adDetect.ts`。`index.ts` は薄い公開エクスポートのみ提供。
 - **`packages/cron/`**
   - **責務**：`cron.json` による定期タスクのメインスレッドスケジューリング（Bun ネイティブ cron、1 回限り実行、ランダム間隔の再スケジュール）、タスクの順次実行と再試行、単一 Telegram 送信境界へのディスパッチ。
-  - **代表ファイル**：`scheduler.ts`、`run.ts`、`delivery.ts`、`targets.ts`（`chat_id: ["all"]` や `["except", ...]` の権限検証）。設定パーサーは `packages/config/cron.ts`、実行時状態は `packages/cache/main/cron.ts`。
+  - **代表ファイル**：`scheduler.ts`、`run.ts`、`delivery.ts`、`targets.ts`（`chat_id: ["all"]` や `["except", ...]` の権限検証）。設定パーサーは `packages/config/cron.ts` / `packages/config/cronAction.ts`、実行時状態は `packages/cache/main/cron.ts`。
 - **`packages/copy/`**
   - **責務**：メッセージリピート、テキスト変換、アバター同期キュー。
   - **代表ファイル**：`echo.ts`、`copyModes.ts`、`avatarQueue.ts`。
@@ -48,7 +48,7 @@
   - **代表ファイル**：`verification.ts` と `verification/`（`join` / `pending` / `terminal` / `disable` フェーズ、永続化スナップショットから状態を再構築する `adopt.ts`）、`lockdown.ts` と `lockdown/`（`apply` / `persistence` / `restore` / `announcement` / `adopt` フェーズ）、`replyAdmission.ts`、`adDetectAdmission.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
 - **`packages/config/`**
   - **責務**：デプロイ設定 `config/{static,dynamic}/*.json` の厳格なスキーマ検証、プロセススナップショット作成、ホットリロード判定、機能ごとの readiness（利用可能）判定。ID ポリシーの永続化データは扱いません。
-  - **代表ファイル**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`mood.ts`、`stickers.ts`、`adSamples.ts`、`googleAuth.ts`、`readiness.ts`、`reload.ts`。
+  - **代表ファイル**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`adSamples.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`readiness.ts`、`reload.ts`。
 - **`packages/database/`**
   - **責務**：共有 SQLite（identity ポリシーとグループ状態）のスキーマ定義、codec、行バリデーション、Drizzle 接続境界。ランタイムハンドルは Disk I/O Worker のみが排他的に所有。
   - **代表ディレクトリ・ファイル**：`schema/`（`migrations/` を含む）、`codec/identity.ts`、`codec/chatState.ts`、`codec/chatQa.ts`、`codec/temporaryAdBypass.ts`、`interact/`（`connection.ts`、`transaction.ts`、`identityPolicy.ts`、`chatState.ts`、`chatQa.ts`、`temporaryAdBypass.ts`、`aiContext.ts`、`migration.ts`、`initialization.ts`、`inspection.ts`）、`validation/storageRows.ts`。
@@ -57,7 +57,7 @@
   - **代表ファイル**：`flushBarrier.ts`、`linkedQueue.ts`、`fifoMap.ts` と `lruCache.ts`（挿入順 FIFO と、それを継承する LRU）、`acknowledgedBatchQueue.ts`、`boundedResponse.ts`、`boundedSettledBatch.ts`、`monotonicDeadline.ts`、`text.ts`、`errorMessage.ts`（catch した `unknown` を文面または Error に正規化する唯一の境界）、`telegramMarkdown.ts`（Telegram MarkdownV2 エスケープの唯一の境界）、`webDigest.ts` と `webDigestMarkdown.ts`（Web ダイジェスト JSON のデコードと MarkdownV2 整形）、`webDigestUrls.ts`（ダイジェスト用 URL 許可リスト）、`workerRequestTable.ts`（メインスレッドから Worker へのリクエスト管理テーブル：リクエスト ID、待機プロミス、タイムアウト、キャンセル、Worker 異常終了時の解決）。
 - **`packages/workers/`**
   - **責務**：3 つの Worker スレッド内部の実装ロジック。
-  - **代表ファイル**：`aiChatWorker.ts`、`antiRaidWorker.ts`、`diskIOWorker.ts`、`businessWorkerPort.ts`（業務 Worker 共通のスレッド通信ポート：Telegram プロキシ、双方向出站、受信ルーティング）、`aiChat/`、`antiRaid/verificationEffects/`、`diskIO/storageDatabase.ts` と `diskIO/storageDatabase/`、`diskIO/verification{Codec,Recovery,Writes}.ts`。
+  - **代表ファイル**：`aiChatWorker.ts`、`antiRaidWorker.ts`、`diskIOWorker.ts`、`businessWorkerPort.ts`（業務 Worker 共通のスレッド通信ポート：Telegram プロキシ、双方向出站、受信ルーティング）、`aiChat/`、`antiRaid/verificationEffects/`、`diskIO/storageDatabase.ts` と `diskIO/storageDatabase/`（`flushHold.ts` を含む）、`diskIO/verification{Codec,Recovery,Writes}.ts`。
 - **`packages/aiChat/ai/`**
   - **責務**：各機能に帰属するモデルとツールの実装。
   - **代表ファイル**：`tools/replyToolset/`、`tools/webSearch.ts`（`web_search` 関数ツールのエグゼキューター）、`webDigest.ts`（cron ダイジェスト生成）、`utils/`、`stickers/`、`voiceSynthesis.ts`（音声合成の実装）、`ttsUsage.ts`（音声合成の日次利用カウント）。各モデルベンダーの直接通信はここではなく、`packages/aiChat/{gemini,openai,anthropic}/` に配置。
@@ -67,7 +67,7 @@
 - **`packages/infra/`**
   - **責務**：メインスレッド側の唯一の Telegram クライアントと送信ゲート、Worker 監視ホスト、ロガー、メインスレッド I/O プロキシ、画像ライブラリ・ファイル管理。
   - **代表ディレクトリ・ファイル**：
-    - `telegram/`（`telegram/avatar/`、`telegram/actions/` を含む）
+    - `telegram/`（`telegram/outboundGate.ts`、`telegram/outboundRetryLane.ts`、`telegram/sendLane.ts`、`telegram/sendScheduler.ts`、`telegram/avatar/`、`telegram/actions/` を含む）
     - `diskIO.ts` と `diskIO/`（`businessWrite.ts`、`diagnosticChannel.ts`、`fatal.ts`、`host.ts`、`observers.ts`、`recovery.ts`、`requests.ts`、`storageAdmission.ts`、`transport.ts`）
     - `identityStorage.ts` と `identityStorage/`（`read.ts`、`shared.ts`、`sweep.ts`、`write.ts`）
     - `logger.ts` と `logger/`（`forwarding.ts`、`redaction.ts`、`serialization.ts`）

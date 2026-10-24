@@ -12,14 +12,21 @@
 import type { CooldownAvailability, CooldownClaim, CooldownClaimStore } from "../types/cooldown";
 
 export interface CooldownClaimParams {
+  /** 调用方领域持有的按群冷却状态存储表。 */
   readonly store: CooldownClaimStore;
+  /** 触发检查或占位的目标群 chatId。 */
   readonly chatId: number;
   /** 旁路身份既不读取也不更新普通用户冷却。 */
   readonly bypassCooldown: boolean;
+  /** 本次判定与记录使用的当前毫秒时间戳。 */
   readonly now: number;
 }
 
-/** 只读检查当前冷却，不建立占位。 */
+/**
+ * 只读检查当前冷却，不建立占位。
+ * @param params 冷却存储表、群 ID、旁路标记与当前时间戳。
+ * @returns 允许通过或带剩余冷却时长的拒绝结果。
+ */
 export function cooldownAvailability({
   store,
   chatId,
@@ -35,7 +42,11 @@ export function cooldownAvailability({
     : { allowed: true };
 }
 
-/** 在发起请求前同步占位，保证同群并发轮次不能同时穿透。 */
+/**
+ * 在发起请求前同步占位，保证同群并发轮次不能同时穿透。
+ * @param params 冷却存储表、群 ID、旁路标记与当前时间戳。
+ * @returns 占位成功（含普通用户撤销 token 或旁路 null）或带剩余时长的拒绝结果。
+ */
 export function claimCooldown(params: CooldownClaimParams): CooldownClaim {
   const availability: CooldownAvailability = cooldownAvailability(params);
   if (!availability.allowed) return availability;
@@ -46,7 +57,13 @@ export function claimCooldown(params: CooldownClaimParams): CooldownClaim {
   return { allowed: true, token };
 }
 
-/** 只允许原占位者撤销；旧异步请求不能误删同群后来建立的新冷却。 */
+/**
+ * 只允许原占位者撤销；旧异步请求不能误删同群后来建立的新冷却。
+ * @param store 调用方领域持有的按群冷却状态存储表。
+ * @param chatId 目标群 chatId。
+ * @param token 本次请求在 `claimCooldown` 时领到的占位凭证；旁路时为 null。
+ * @returns 匹配当前群的活动占位并成功撤销时返回 true，否则返回 false。
+ */
 export function releaseCooldownClaim(
   store: CooldownClaimStore,
   chatId: number,
@@ -58,7 +75,11 @@ export function releaseCooldownClaim(
   return true;
 }
 
-/** 删除已过期或因时钟回拨落到未来的冷却。 */
+/**
+ * 删除已过期或因时钟回拨落到未来的冷却。
+ * @param store 调用方领域持有的按群冷却状态存储表。
+ * @param now 清扫判定的当前毫秒时间戳。
+ */
 export function sweepCooldownClaims(store: CooldownClaimStore, now: number): void {
   for (const [chatId, claimedAt] of store.claimedAt) {
     if (claimedAt > now || now - claimedAt >= store.cooldownMs) {

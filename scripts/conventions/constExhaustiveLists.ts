@@ -12,15 +12,22 @@ export const PARTIAL_LITERAL_TABLES: ReadonlyMap<string, string> = new Map<strin
 
 /** collectConstExhaustiveListProblems 的入参。 */
 export interface ConstExhaustiveListParams {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
   /** 以 packages/consts/ 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
   readonly checker: ts.TypeChecker;
   /** packages/consts/ 的全部导出常量声明（exportedConstDeclarations）；废弃登记按这批声明判定。 */
   readonly declarations: readonly ExportedConstDeclaration[];
+  /** 有意只列字面量联合子集的导出数组表白名单。 */
   readonly partialTables: ReadonlyMap<string, string>;
 }
 
-/** 字符串/数字字面量（或它们的联合）的取值集合；含其它成员时为 null。 */
+/**
+ * 字符串/数字字面量（或它们的联合）的取值集合；含其它成员时为 null。
+ *
+ * @param type 待提取取值的 TypeScript 类型
+ * @returns 字面量取值集合，包含非字面量成员时返回 null
+ */
 function literalValues(type: ts.Type): Set<string | number> | null {
   const values: Set<string | number> = new Set<string | number>();
   for (const member of type.isUnion() ? type.types : [type]) {
@@ -30,7 +37,13 @@ function literalValues(type: ts.Type): Set<string | number> | null {
   return values;
 }
 
-/** 声明类型是数组（不含元组）且元素是至少两个字符串/数字字面量组成的联合时，返回元素的取值集合。 */
+/**
+ * 声明类型是数组（不含元组）且元素是至少两个字符串/数字字面量组成的联合时，返回元素的取值集合。
+ *
+ * @param checker TypeScript 类型检查器
+ * @param type 待判断的数组声明类型
+ * @returns 元素字面量联合取值集合，不满足条件时返回 undefined
+ */
 function literalUnionValues(checker: ts.TypeChecker, type: ts.Type): Set<string | number> | undefined {
   if (!checker.isArrayType(type)) return undefined;
   const element: ts.Type | undefined = checker.getTypeArguments(type as ts.TypeReference)[0];
@@ -42,6 +55,11 @@ function literalUnionValues(checker: ts.TypeChecker, type: ts.Type): Set<string 
  * 初始化器形如 `exhaustiveList<U>()([...])`：恰好一个类型实参且与声明的元素类型取值集合相同，
  * 唯一的实参是逐项写出字符串/数字字面量的数组字面量（展开、类型断言或变量都会让 T[number]
  * 退化成整个 U，穷尽检查随之失效）。
+ *
+ * @param checker TypeScript 类型检查器
+ * @param declared 声明的字面量联合取值集合
+ * @param initializer 常量声明的初始化表达式
+ * @returns 符合 `exhaustiveList<U>()([...])` 形态时返回 true
  */
 function builtByExhaustiveList(
   checker: ts.TypeChecker,
@@ -68,6 +86,9 @@ function builtByExhaustiveList(
  * packages/consts/ 里元素为字面量联合的导出数组表必须经 packages/consts/exhaustiveList.ts 的
  * exhaustiveList 构造，联合类型增删成员而表没跟上时编译失败；有意只列子集的表登记在
  * partialTables。元组类型本身已固定全部元素，不在检查范围内。
+ *
+ * @param params 字面量联合全集表检查入参
+ * @returns 未经 exhaustiveList 构造或废弃白名单登记的违规信息列表
  */
 export function collectConstExhaustiveListProblems({
   projectRoot,

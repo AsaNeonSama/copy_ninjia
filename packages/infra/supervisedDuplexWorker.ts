@@ -14,6 +14,11 @@ import type {
 } from "./supervisedWorker";
 import { toErrorOr } from "../libs/errorMessage";
 
+/**
+ * 判定 Worker 发来的消息是否为反向能力请求信封。
+ * @param value 待判定的未知消息载荷。
+ * @returns 为合法的 `WorkerDuplexRequest` 时返回 true，否则返回 false。
+ */
 function isWorkerDuplexRequest<TRequest>(
   value: unknown
 ): value is WorkerDuplexRequest<TRequest> {
@@ -23,6 +28,11 @@ function isWorkerDuplexRequest<TRequest>(
     "request" in value;
 }
 
+/**
+ * 判定 Worker 发来的消息是否为单请求取消信封。
+ * @param value 待判定的未知消息载荷。
+ * @returns 为合法的 `WorkerDuplexCancel` 时返回 true，否则返回 false。
+ */
 function isWorkerDuplexCancel(value: unknown): value is WorkerDuplexCancel {
   return value !== null && typeof value === "object" &&
     "__duplex" in value && value.__duplex === "cancel" &&
@@ -40,8 +50,11 @@ export interface SupervisedDuplexWorkerOptions<TMessage, TEvent, TRequest>
     SupervisedWorkerOptions<WorkerDuplexInbound<TMessage>, WorkerDuplexOutbound<TRequest> | TEvent>,
     "onEvent" | "onRespawn"
   > {
+  /** 接收 Worker 回传的非双工业务事件回调。 */
   readonly onEvent?: (event: TEvent) => void;
+  /** 新一代 Worker 实例创建后重放业务初始状态的回调。 */
   readonly onRespawn?: (post: (message: TMessage) => boolean) => void;
+  /** 处理 Worker 发来的反向能力请求的处理器。 */
   readonly handleRequest: WorkerCapabilityHandler<TRequest>;
   /** 成功回执中可转移的大缓冲；只允许返回 value 自身拥有且主线程不再使用的 buffer。 */
   readonly responseTransfer?: (
@@ -50,7 +63,11 @@ export interface SupervisedDuplexWorkerOptions<TMessage, TEvent, TRequest>
   ) => Bun.Transferable[] | undefined;
 }
 
-/** 把 Worker 业务事件与反向能力请求收敛进同一个主线程受监督双工边界。 */
+/**
+ * 把 Worker 业务事件与反向能力请求收敛进同一个主线程受监督双工边界。
+ * @param options 双工受监督 Worker 的脚本路径、事件回调与能力请求处理器配置。
+ * @returns 绑定了双工入站消息类型的受监督 Worker 句柄。
+ */
 export function superviseDuplexWorker<TMessage, TEvent, TRequest>(
   options: SupervisedDuplexWorkerOptions<TMessage, TEvent, TRequest>
 ): SupervisedWorkerHandle<WorkerDuplexInbound<TMessage>> {

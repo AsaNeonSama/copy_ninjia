@@ -11,7 +11,10 @@ import type { UpdateScope, UpdateTopic } from "../types/lifecycle";
 
 /**
  * 在指定取消上下文中执行 middleware 或已经接纳的异步交互。
+ * @param signal 当前 update 或后台任务绑定的取消信号。
+ * @param run 在该作用域内执行的异步回调。
  * @param topic 触发消息所在的论坛话题；不在话题里时省略。
+ * @returns `run` 回调的异步返回值。
  */
 export function runWithUpdateAbortSignal<T>(
   signal: AbortSignal,
@@ -21,7 +24,10 @@ export function runWithUpdateAbortSignal<T>(
   return updateScopeStorage.run({ signal, now: null, topic }, run);
 }
 
-/** 当前异步调用链所属 update 的触发话题；不在 update 作用域或不在话题里时为 undefined。 */
+/**
+ * 当前异步调用链所属 update 的触发话题；不在 update 作用域或不在话题里时为 undefined。
+ * @returns 当前 update 关联的论坛话题信息；无话题或不在作用域内时返回 `undefined`。
+ */
 export function currentUpdateTopic(): UpdateTopic | undefined {
   return updateScopeStorage.getStore()?.topic;
 }
@@ -29,13 +35,18 @@ export function currentUpdateTopic(): UpdateTopic | undefined {
 /**
  * 发往 chatId 的临时提示应落的论坛话题：只有与触发消息同群时才沿用触发话题，
  * 发往别的群一律不带（话题 id 只在所属群内有效）。
+ * @param chatId 即将发送消息的目标群 ID。
+ * @returns 同群触发话题的 `message_thread_id`；跨群或无话题时返回 `undefined`。
  */
 export function updateTopicThreadIdFor(chatId: number): number | undefined {
   const topic: UpdateTopic | undefined = updateScopeStorage.getStore()?.topic;
   return topic?.chatId === chatId ? topic.threadId : undefined;
 }
 
-/** 当前异步调用链所属 update 的取消信号；非 update owner 返回 undefined。 */
+/**
+ * 当前异步调用链所属 update 的取消信号；非 update owner 返回 undefined。
+ * @returns 当前 update 作用域的 `AbortSignal`；不在作用域内时返回 `undefined`。
+ */
 export function currentUpdateAbortSignal(): AbortSignal | undefined {
   return updateScopeStorage.getStore()?.signal;
 }
@@ -50,6 +61,7 @@ export function currentUpdateAbortSignal(): AbortSignal | undefined {
  *
  * 不在 update 作用域内（Worker、启动路径、单测直调）时返回当刻墙钟，
  * 等同 `Date.now()`。
+ * @returns 当前 update 冻结的毫秒时间戳，或作用域外的当前墙钟毫秒时间戳。
  */
 export function updateNow(): number {
   const scope: UpdateScope | undefined = updateScopeStorage.getStore();
@@ -62,6 +74,7 @@ export function updateNow(): number {
  *
  * 调用点是自动流水线在频道帖自发消息 rendezvous
  * （最长 SELF_SENT_RENDEZVOUS_TIMEOUT_MS）之后恢复处理。
+ * @returns 刷新后的当前墙钟毫秒时间戳。
  */
 export function refreshUpdateNow(): number {
   const scope: UpdateScope | undefined = updateScopeStorage.getStore();
@@ -70,7 +83,11 @@ export function refreshUpdateNow(): number {
   return now;
 }
 
-/** 将调用方自己的取消边界与当前 update 生命周期合并。 */
+/**
+ * 将调用方自己的取消边界与当前 update 生命周期合并。
+ * @param signal 调用方附加的取消信号；缺省时仅返回当前 update 的取消信号。
+ * @returns 合并后的 `AbortSignal`；两侧均无信号时返回 `undefined`。
+ */
 export function combineWithUpdateAbortSignal(
   signal?: AbortSignal
 ): AbortSignal | undefined {
@@ -80,7 +97,10 @@ export function combineWithUpdateAbortSignal(
   return AbortSignal.any([signal, updateSignal]);
 }
 
-/** update 已被停机流程取消时向上解开 handler，禁止按普通业务失败继续执行。 */
+/**
+ * update 已被停机流程取消时向上解开 handler，禁止按普通业务失败继续执行。
+ * @param signal 待检查的取消信号；缺省读取当前 update 作用域的信号。
+ */
 export function throwIfUpdateAborted(
   signal: AbortSignal | undefined = currentUpdateAbortSignal()
 ): void {

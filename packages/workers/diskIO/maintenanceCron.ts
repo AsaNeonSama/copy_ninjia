@@ -17,7 +17,10 @@ export function stopDiskIOMaintenanceCron(): void {
   diskIOMaintenanceCron.current = null;
 }
 
-/** 注册或替换配置时区午夜维护 cron（已 unref）。 */
+/**
+ * 注册或替换配置时区午夜维护 cron（已 unref）。
+ * @param reply 午夜维护向主线程发送回执的回调。
+ */
 export function registerDiskIOMaintenanceCron(
   reply: DiskIOMaintenanceReplySink
 ): void {

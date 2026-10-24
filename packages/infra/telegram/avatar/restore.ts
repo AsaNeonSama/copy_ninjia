@@ -33,6 +33,9 @@ type DefaultAvatarRead = DefaultAvatarMedia | "transient-failure" | "permanent-f
  * 按配置来源（`url` 或本地 `path`）恢复机器人默认头像：
  * 经 `DEFAULT_AVATAR_MAX_READ_BYTES` 有界读取与 `defaultAvatarPhotoType` 校验签名及尺寸后上传，
  * 仅对瞬时失败按 `runAvatarFetchAttempts` 有界重试（见 `docs/cn/04-invariants.md`）。
+ * @param source 默认头像配置来源（URL 或本地路径）。
+ * @param signal 调用方的取消信号。
+ * @returns 恢复成功返回 true，失败或取消返回 false。
  */
 export async function restoreDefaultProfilePhoto(
   source: Readonly<DefaultAvatarSource>,
@@ -46,7 +49,13 @@ export async function restoreDefaultProfilePhoto(
   return outcome === "ok";
 }
 
-/** 单次「取默认头像并换上」的尝试；失败按可否重试分类，日志已在各分支记过。 */
+/**
+ * 单次「取默认头像并换上」的尝试；失败按可否重试分类，日志已在各分支记过。
+ * @param source 默认头像配置来源。
+ * @param attempt 当前重试次号（从 1 开始）。
+ * @param signal 调用方的取消信号。
+ * @returns 单次恢复尝试结果分类。
+ */
 async function attemptRestoreDefaultProfilePhoto(
   source: Readonly<DefaultAvatarSource>,
   attempt: number,
@@ -67,7 +76,13 @@ async function attemptRestoreDefaultProfilePhoto(
   }
 }
 
-/** 下载 `url` 来源：经 `externalFetch` 出站闸请求，非成功响应归为瞬时失败，超限与格式不符归为确定性失败。 */
+/**
+ * 下载 `url` 来源：经 `externalFetch` 出站闸请求，非成功响应归为瞬时失败，超限与格式不符归为确定性失败。
+ * @param url 默认头像的远程 URL。
+ * @param attempt 当前重试次号（从 1 开始）。
+ * @param signal 调用方的取消信号。
+ * @returns 校验通过的素材对象，或失败分类。
+ */
 async function downloadDefaultAvatar(url: string, attempt: number, signal?: AbortSignal): Promise<DefaultAvatarRead> {
   const response: Response = await runTelegramCategorizedRequest({
     category: "externalFetch",
@@ -102,6 +117,8 @@ async function downloadDefaultAvatar(url: string, attempt: number, signal?: Abor
 /**
  * 读 `path` 来源：最多读 DEFAULT_AVATAR_MAX_READ_BYTES 加一个字节。读不到、超限与不符合
  * DEFAULT_AVATAR_EXPECTED_FORM 都属确定性失败。
+ * @param path 默认头像的本地文件路径。
+ * @returns 校验通过的素材对象，或确定性失败分类。
  */
 async function readDefaultAvatarFile(path: string): Promise<DefaultAvatarRead> {
   let bytes: Uint8Array;

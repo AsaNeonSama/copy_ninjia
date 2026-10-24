@@ -25,7 +25,13 @@ import {
 } from "../../../consts/audio";
 import type { VoiceContainerProbeResult } from "../../../types/aiChat/voiceMessage";
 
-/** 判断 bytes 在 offset 处是否匹配给定 ASCII 串；越界时返回 false。 */
+/**
+ * 判断 bytes 在 offset 处是否匹配给定 ASCII 串；越界时返回 false。
+ * @param bytes 待检测的字节流。
+ * @param offset 起始字节偏移。
+ * @param text 期望匹配的 ASCII 字符串。
+ * @returns 匹配时返回 true，越界或字节不符时返回 false。
+ */
 function hasAscii(bytes: Uint8Array, offset: number, text: string): boolean {
   if (offset + text.length > bytes.byteLength) return false;
   for (let index: number = 0; index < text.length; index++) {
@@ -36,6 +42,8 @@ function hasAscii(bytes: Uint8Array, offset: number, text: string): boolean {
 
 /**
  * 校验单路 OGG/Opus 页序列与 OpusHead 头，并按末个有效 granule position 与 pre-skip 计算向上取整的秒数。
+ * @param bytes OGG/Opus 音频容器字节流。
+ * @returns 探测成功时返回向上取整的秒数，结构非法时返回失败原因。
  */
 export function probeOggOpus(bytes: Uint8Array): VoiceContainerProbeResult {
   const view: DataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -70,7 +78,11 @@ export function probeOggOpus(bytes: Uint8Array): VoiceContainerProbeResult {
   return { ok: true, durationSeconds: Math.ceil((granule - preSkip) / OPUS_GRANULE_RATE) };
 }
 
-/** 计算开头可选 ID3v2 标签之后的首字节偏移；标签长度字段非法时返回负值。 */
+/**
+ * 计算开头可选 ID3v2 标签之后的首字节偏移；标签长度字段非法时返回负值。
+ * @param bytes MP3 音频字节流。
+ * @returns ID3v2 标签结束后的首字节偏移（无标签时为 0）；标签头部或 synchsafe 长度非法时返回 -1。
+ */
 function id3v2End(bytes: Uint8Array): number {
   if (!hasAscii(bytes, 0, ID3V2_MAGIC)) return 0;
   if (bytes.byteLength < ID3V2_HEADER_BYTES) return -1;
@@ -86,6 +98,8 @@ function id3v2End(bytes: Uint8Array): number {
 
 /**
  * 校验 MPEG Layer III 帧序列并按总样本数与采样率计算向上取整的秒数。
+ * @param bytes MP3 音频容器字节流。
+ * @returns 探测成功时返回向上取整的秒数，结构非法时返回失败原因。
  */
 export function probeMp3(bytes: Uint8Array): VoiceContainerProbeResult {
   let offset: number = id3v2End(bytes);

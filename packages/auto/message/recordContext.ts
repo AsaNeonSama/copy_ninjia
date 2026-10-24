@@ -15,12 +15,20 @@ import type { MessageTriggerContext, RandomMediaTrigger } from "../../types/auto
  * 字段顺序即 hidden class 顺序，三个 builder 的公共段保持一致。
  */
 export interface BuildAiRecordMessageParams {
+  /** 消息触发上下文 */
   context: MessageTriggerContext;
+  /** 发言人身份快照 */
   speaker: AiSpeakerSnapshot;
+  /** 记入 AI 上下文的正文 */
   text: string;
 }
 
-/** 一条文字记录的完整 Worker 载荷。 */
+/**
+ * 一条文字记录的完整 Worker 载荷。
+ *
+ * @param params 触发上下文、发言人身份快照与记入 AI 上下文的正文。
+ * @returns 投递给 AI Worker 的文字记录载荷。
+ */
 export function buildAiRecordMessage({
   context,
   speaker,
@@ -41,15 +49,24 @@ export function buildAiRecordMessage({
   };
 }
 
-/** buildInlineSenderRecordMessage 的入参。 */
+/** 按实际发言身份直接构造 AI 文字记录载荷的参数。 */
 export interface BuildInlineSenderRecordMessageParams {
+  /** 所在群聊 ID */
   readonly chatId: number;
+  /** 实际发言人身份快照 */
   readonly speaker: AiSpeakerSnapshot;
+  /** Telegram 消息 ID */
   readonly messageId: number;
+  /** 记入 AI 上下文的正文 */
   readonly text: string;
 }
 
-/** 不经完整触发上下文、按实际发言身份直接记入 AI 上下文的文字载荷（如 gag inline 发言）。 */
+/**
+ * 不经完整触发上下文、按实际发言身份直接记入 AI 上下文的文字载荷（如 gag inline 发言）。
+ *
+ * @param params 群聊 ID、实际发言人身份、消息 ID 与正文文本。
+ * @returns 投递给 AI Worker 的文字记录载荷。
+ */
 export function buildInlineSenderRecordMessage({
   chatId,
   speaker,
@@ -77,6 +94,10 @@ export function buildInlineSenderRecordMessage({
  * 实时快照；不发起回复为 undefined。
  *
  * 判定在 handler 侧算好再作为 options 字段传入，buildAiRecordMediaMessage 只做直接取值。
+ *
+ * @param context 消息触发上下文
+ * @param randomTrigger 随机媒体触发结果
+ * @returns 背压字段初始占位值（发起回复时为 `false`，否则为 `undefined`）
  */
 export function mediaReplyBackpressurePlaceholder(
   context: MessageTriggerContext,
@@ -106,11 +127,18 @@ export interface BuildAiRecordMediaMessageParams extends Pick<
   | "stickerFallbackText"
   | "voiceMime"
 > {
+  /** 消息触发上下文 */
   context: MessageTriggerContext;
+  /** 发言人身份快照 */
   speaker: AiSpeakerSnapshot;
 }
 
-/** 一条媒体记录的完整 Worker 载荷。 */
+/**
+ * 一条媒体记录的完整 Worker 载荷。
+ *
+ * @param params 触发上下文、发言人身份及媒体文件元信息与背压占位字段。
+ * @returns 投递给 AI Worker 的媒体记录载荷。
+ */
 export function buildAiRecordMediaMessage({
   context,
   speaker,

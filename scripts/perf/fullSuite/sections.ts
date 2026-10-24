@@ -117,7 +117,11 @@ const COLD_START_PHASES: readonly (readonly [
   ["ready-total", (round: ColdStartRound): number => round.phases.readyMs],
 ];
 
-/** 冷启动分区：满库 fixture 上跑真实启动恢复，逐段计时。 */
+/**
+ * 冷启动分区：满库 fixture 上跑真实启动恢复，逐段计时。
+ * @param context 分区运行上下文。
+ * @returns 冷启动分区表格数据与恢复规模摘要。
+ */
 export async function runColdStartSection(
   context: SectionContext
 ): Promise<ColdStartSectionResult> {
@@ -190,7 +194,13 @@ const HOT_PATH_METRICS: readonly MetricDefinition<HotPathRound>[] = [
   },
 ];
 
-/** 热路径分区：直接复用 `scripts/perf/hotPaths.ts` 的场景实现与迭代规模。 */
+/**
+ * 热路径分区：直接复用 `scripts/perf/hotPaths.ts` 的场景实现与迭代规模。
+ * @param context 分区运行上下文。
+ * @param sectionId 目标分区 ID（`hot-path` 或 `container-algorithm`）。
+ * @param scenarios 待按序测量的热路径场景名列表。
+ * @returns 聚合后的基准分区结果。
+ */
 export async function runHotPathSection(
   context: SectionContext,
   sectionId: "hot-path" | "container-algorithm",
@@ -238,7 +248,11 @@ const STORAGE_METRICS: readonly MetricDefinition<StorageRound>[] = [
   },
 ];
 
-/** 存储分区：主线程 LRU、写透 ACK 与 SQLite 冷热读写。 */
+/**
+ * 存储分区：主线程 LRU、写透 ACK 与 SQLite 冷热读写。
+ * @param context 分区运行上下文。
+ * @returns 存储分区的聚合基准结果。
+ */
 export async function runStorageSection(
   context: SectionContext
 ): Promise<BenchmarkSection> {
@@ -301,7 +315,11 @@ const CHAIN_METRICS: readonly MetricDefinition<ChainRound>[] = [
   },
 ];
 
-/** 完整流程分区：durable 动作、本地命令流程与 cron.json 中途变更的单次耗时及吞吐。 */
+/**
+ * 完整流程分区：durable 动作、本地命令流程与 cron.json 中途变更的单次耗时及吞吐。
+ * @param context 分区运行上下文。
+ * @returns 完整流程分区的聚合基准结果。
+ */
 export async function runChainSection(
   context: SectionContext
 ): Promise<BenchmarkSection> {
@@ -351,7 +369,11 @@ const JOIN_LOG_METRICS: readonly MetricDefinition<JoinLogRound>[] = [
   },
 ];
 
-/** 入群日志容量线：复用 scripts/perf/joinLog.ts 的子进程，只跑当前实现。 */
+/**
+ * 入群日志容量线：复用 scripts/perf/joinLog.ts 的子进程，只跑当前实现。
+ * @param context 分区运行上下文。
+ * @returns 入群日志容量线分区的聚合基准结果。
+ */
 export async function runJoinLogSection(
   context: SectionContext
 ): Promise<BenchmarkSection> {

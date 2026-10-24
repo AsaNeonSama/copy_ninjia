@@ -6,7 +6,11 @@ export interface CommandResult {
 
 export type ReleaseCommand = (arguments_: readonly string[]) => CommandResult;
 
-/** 固定工作目录，参数按 argv 传递，不经过 shell 展开。 */
+/**
+ * 固定工作目录，参数按 argv 传递，不经过 shell 展开。
+ * @param cwd 子进程工作目录。
+ * @returns 绑定了工作目录的同步命令执行器。
+ */
 export function createReleaseCommand(cwd: string): ReleaseCommand {
   return (arguments_: readonly string[]): CommandResult => {
     const result: Bun.SyncSubprocess<"pipe", "inherit"> = Bun.spawnSync({
@@ -16,14 +20,23 @@ export function createReleaseCommand(cwd: string): ReleaseCommand {
   };
 }
 
-/** 任一步失败立即停止，由调用者保留已推送 tag 和 Release 草稿以便续跑。 */
+/**
+ * 任一步失败立即停止，由调用者保留已推送 tag 和 Release 草稿以便续跑。
+ * @param command 外部命令执行器。
+ * @param arguments_ 命令行参数数组。
+ * @returns 退出码为 0 时去除首尾空白的标准输出。
+ */
 export function checked(command: ReleaseCommand, arguments_: readonly string[]): string {
   const result: CommandResult = command(arguments_);
   if (result.exitCode !== 0) throw new Error(`Release command failed: ${arguments_.slice(0, 3).join(" ")}`);
   return result.stdout.trim();
 }
 
-/** 只为干净 Git 工作树记录谱系；本地开发包和无 Git 源码包不具备发布谱系。 */
+/**
+ * 只为干净 Git 工作树记录谱系；本地开发包和无 Git 源码包不具备发布谱系。
+ * @param command 外部命令执行器。
+ * @returns 工作树干净时返回 HEAD tree 的 40 位十六进制哈希，否则返回 null。
+ */
 export function readBuildSourceTree(command: ReleaseCommand): string | null {
   const status: CommandResult = command(["git", "status", "--porcelain", "--untracked-files=all"]);
   if (status.exitCode !== 0 || status.stdout.trim() !== "") return null;
@@ -31,7 +44,11 @@ export function readBuildSourceTree(command: ReleaseCommand): string | null {
   return tree.exitCode === 0 && /^[a-f0-9]{40}$/.test(tree.stdout.trim()) ? tree.stdout.trim() : null;
 }
 
-/** 发布前后都核对 master、annotated tag 及其远端对象；本函数不创建或推送引用。 */
+/**
+ * 发布前后都核对 master、annotated tag 及其远端对象；本函数不创建或推送引用。
+ * @param command 外部命令执行器。
+ * @param version 待核对的发布版本号。
+ */
 export function verifyReleaseReferences(command: ReleaseCommand, version: string): void {
   if (checked(command, ["git", "branch", "--show-current"]) !== "master") throw new Error("Publish requires master.");
   const origin: string = checked(command, ["git", "remote", "get-url", "origin"]);

@@ -25,9 +25,13 @@ type ArgumentTarget =
   /** 是合法 @username，但缓存里没有这个人。 */
   | { readonly kind: "unknownUsername"; readonly username: string };
 
+/** 解析命令参数文本中的目标身份时使用的选项。 */
 interface ResolveArgumentTargetParams {
+  /** 已去掉首尾空白的目标参数文本。 */
   trimmedArgument: string;
+  /** 是否允许将参数按裸正整数用户 ID 解析。 */
   acceptUserId: boolean;
+  /** 是否允许将参数按裸负数群/频道 ID 解析。 */
   acceptChatId: boolean;
 }
 
@@ -96,6 +100,8 @@ export interface ResolveCommandTargetParams {
 /**
  * 把参数原文解析成目标。不发送任何提示、不看回复目标；调用方用这个结果与
  * 回复目标比对，判断两个目标是否冲突。
+ * @param params 去首尾空白后的参数原文（`trimmedArgument`）以及是否放行裸用户 ID（`acceptUserId`）和裸群/频道 ID（`acceptChatId`）。
+ * @returns 参数解析结果（命中身份、形态非法或未知用户名）。
  */
 function resolveArgumentTarget({
   trimmedArgument,
@@ -121,6 +127,8 @@ function resolveArgumentTarget({
  *
  * 只处理回显片段；命令回执整条不套 containsRenderableCommand 判定，
  * `/unquiet`、`/batch_kick`、`/x` 这些用法提示保持可点。
+ * @param trimmedArgument 已去掉首尾空白的参数原文。
+ * @returns 清理并截断后的安全回显字符串。
  */
 function echoArgument(trimmedArgument: string): string {
   return truncateInline(sanitizeDisplayName(trimmedArgument), INVALID_USERNAME_ECHO_MAX_CHARS);
@@ -132,6 +140,9 @@ function echoArgument(trimmedArgument: string): string {
  *
  * 用在命令已确定被拒绝、只需知道目标是谁来挑文案的分支上；这类分支不调用
  * resolveCommandTarget，它在解析失败时会自行发送提示。
+ * @param message 触发命令的消息对象。
+ * @param rawArgument 命令词之后的参数原文。
+ * @returns 解析出的目标身份；未能解析时返回 undefined。
  */
 export function peekCommandTarget(message: Message, rawArgument: string): CachedUser | undefined {
   const replyTarget: CachedUser | undefined = resolveReplyTarget(message);
@@ -147,6 +158,7 @@ export function peekCommandTarget(message: Message, rawArgument: string): Cached
  * 否则发送目标冲突提示。各命令通过 options 指定准入条件与当前氛围的失败文案。
  *
  * 目标确定后预热它的黑白名单；开启 requireIdentityPolicies 时预热失败按解析失败处理。
+ * @param params 所在群 ID、触发消息、机器人自身 ID、参数原文、失败提示文案表及裸 ID / 自我目标 / 名单预热准入开关。
  * @returns 解析出的目标；失败时为 undefined（提示已发送，调用方应直接返回）。
  */
 export async function resolveCommandTarget({

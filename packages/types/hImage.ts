@@ -33,7 +33,9 @@ export type HImageAddOutcome = "added" | "existing" | "invalidDimensions" | "fai
 
 /** 一张图的像素尺寸（infra/image.ts 的 readImageDimensions）。 */
 export interface ImageDimensions {
+  /** 图片像素宽度。 */
   readonly width: number;
+  /** 图片像素高度。 */
   readonly height: number;
 }
 

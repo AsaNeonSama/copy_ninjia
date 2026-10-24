@@ -6,6 +6,7 @@ import { logger } from "../infra/logger";
  * 向 Telegram 注册所有群聊作用域的命令菜单（文案取自 infra/atmosphere.ts），
  * 注册成功后清除默认作用域；注册失败记录错误日志并保留已有默认作用域，不阻断启动。
  * 私聊不注册菜单，私聊命令准入由 infra/updateGate.ts 控制。
+ * @param bot 待注册命令菜单的 grammY Bot 实例。
  */
 export async function registerCommandMenu(bot: Bot): Promise<void> {
   try {

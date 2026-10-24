@@ -20,13 +20,21 @@ export interface PrioritizedBoundedTaskRunner {
 
 /** 创建优先级执行器的容量与公平参数。 */
 export interface PrioritizedBoundedTaskRunnerOptions {
+  /** 同时在途执行的最大任务数（正安全整数）。 */
   readonly maxConcurrent: number;
+  /** 交互与后台两档队列合计允许排队等待的最大任务数（非负安全整数）。 */
   readonly maxPending: number;
+  /** 后台队列单独允许排队等待的最大任务数（不超过 maxPending 的非负安全整数）。 */
   readonly maxBackgroundPending: number;
+  /** 后台有待执行任务时，连续让行给交互任务的最大突发次数（正安全整数）。 */
   readonly interactiveBurst: number;
 }
 
-/** 创建带交互优先级、公平突发和总等待硬顶的异步执行器。 */
+/**
+ * 创建带交互优先级、公平突发和总等待硬顶的异步执行器。
+ * @param options 并发上限、排队总上限、后台排队上限与交互突发配额。
+ * @returns 新建的优先级有界异步任务执行器。
+ */
 export function createPrioritizedBoundedTaskRunner({
   maxConcurrent,
   maxPending,

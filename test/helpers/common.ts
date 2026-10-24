@@ -60,6 +60,38 @@ export function replyCommandNoticeVia(
     sendCommandMessage({ chatId: ctx.chat.id, text, replyToMessageId: ctx.msgId });
 }
 
+/**
+ * 在临时改写的进程环境变量下执行 run，结束后（含抛错）逐项还原原值；取值为 undefined 表示执行期间删除该变量。
+ * @param overrides 变量名到临时取值的映射。
+ * @param run 在改写后的环境下执行的闭包。
+ * @returns run 的返回值。
+ */
+export async function withProcessEnv<T>(
+  overrides: Readonly<Record<string, string | undefined>>,
+  run: () => T | Promise<T>
+): Promise<T> {
+  const saved: Map<string, string | undefined> = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(overrides)) {
+    saved.set(name, process.env[name]);
+    assignProcessEnv(name, value);
+  }
+  try {
+    return await run();
+  } finally {
+    for (const [name, value] of saved) assignProcessEnv(name, value);
+  }
+}
+
+/**
+ * 写入或删除单个进程环境变量。
+ * @param name 变量名。
+ * @param value 新取值；undefined 时删除该变量。
+ */
+function assignProcessEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 /** 返回将任意 JSON 记录写入 scratchRoot 下独立临时文件并返回路径的写入函数。 */
 export function jsonDocumentWriter(
   scratchRoot: string

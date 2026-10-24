@@ -17,7 +17,11 @@ import { trackAntiRaidTask } from "./taskTracker";
 import { isRecordedWithin } from "../../libs/clockWindow";
 import { getOrCreateKeyedTask } from "../../libs/keyedTask";
 
-/** 只读取未过期缓存。undefined 表示必须异步确认，不能据此豁免。 */
+/**
+ * 只读取未过期缓存。undefined 表示必须异步确认，不能据此豁免。
+ * @param chatId 群组 ID。
+ * @returns 已缓存时返回是否绑定关联频道；未缓存或已过期时返回 undefined。
+ */
 export function cachedChatHasLinkedChannel(chatId: number): boolean | undefined {
   const cached: LinkedChannelCache | undefined = linkedChannels.get(chatId);
   if (cached && isRecordedWithin(cached.fetchedAt, Date.now(), LINKED_CHANNEL_TTL_MS)) return cached.hasLinked;
@@ -27,6 +31,8 @@ export function cachedChatHasLinkedChannel(chatId: number): boolean | undefined 
 /**
  * 拉取本群是否有关联频道，同群请求复用在途 Promise。查询失败不写缓存并返回
  * undefined，让本次消息保持普通待验证语义；下一条消息仍可重新查询。
+ * @param chatId 群组 ID。
+ * @returns 查询成功时返回是否绑定关联频道；查询失败或缓存世代已切换时返回 undefined。
  */
 export function fetchChatHasLinkedChannel(chatId: number): Promise<boolean | undefined> {
   const generation: number = linkedChannelCacheGeneration.current;

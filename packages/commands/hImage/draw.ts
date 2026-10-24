@@ -15,8 +15,9 @@ import type { HImageRequest } from "../../types/hImage";
 import type { RandomImagePick } from "../../types/randomImage";
 import type { TelegramPhotoSendResult } from "../../types/telegram";
 
-/** sendHImageResult 的入参。 */
+/** 发送 `/h_image` 抽图结果图片所需的上下文与图片载荷。 */
 interface SendHImageResultParams extends HImageRequest {
+  /** 已成功抽取出的随机图片字节与 MIME 类型。 */
   readonly pick: Extract<RandomImagePick, { status: "ok" }>;
 }
 
@@ -26,6 +27,7 @@ interface SendHImageResultParams extends HImageRequest {
  * 回复触发消息。图片固定以 Telegram 剧透遮罩发送。经共享的
  * sendPhotoWithResult 发送，自发登记与出站闸（发送调度器、429 分类）都在那一层；
  * 发送成功后写一条占位态自录（见 aiChat/botImages.ts）。
+ * @param params 目标群 ID（`chatId`）、触发消息 ID（`messageId`）、话题 ID（`messageThreadId`）及抽出的图片载荷（`pick`）。
  */
 async function sendHImageResult({ chatId, messageId, messageThreadId, pick }: SendHImageResultParams): Promise<void> {
   const sent: TelegramPhotoSendResult | undefined = await sendPhotoWithResult({
@@ -39,7 +41,10 @@ async function sendHImageResult({ chatId, messageId, messageThreadId, pick }: Se
   if (sent !== undefined) recordBotImage({ chatId, messageId: sent.messageId, caption: "", edited: false });
 }
 
-/** 抽取并发送；抽取失败按结果回一句提示。 */
+/**
+ * 抽取并发送；抽取失败按结果回一句提示。
+ * @param request 抽图命令请求的目标群与话题上下文。
+ */
 export async function deliverRandomImage(request: HImageRequest): Promise<void> {
   const pick: RandomImagePick = await pickRandomImage(getAssetConfig().randomHImageDirectory);
   if (pick.status === "ok") {

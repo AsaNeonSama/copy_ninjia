@@ -9,7 +9,11 @@ import { handleWedCallback, handleWedCommand } from "../wed";
 import { getOrCreateWedChat } from "./chats";
 import { submitWedTask } from "./runtime";
 
-/** 纯内存 /wed 在接纳后释放 update；完整交互由主线程执行器及其停机边界持有。 */
+/**
+ * 纯内存 /wed 在接纳后释放 update；完整交互由主线程执行器及其停机边界持有。
+ * @param ctx 命令上下文。
+ * @returns 已入队执行时同步返回 undefined，拒绝或同步处理时返回 Promise。
+ */
 export function dispatchWedCommand(ctx: CommandContext<Context>): void | Promise<void> {
   if (wedRuntime.current?.accepting !== true) return;
   if ((ctx.chat.type !== "group" && ctx.chat.type !== "supergroup") || ctx.msg.sender_chat !== undefined) return handleWedCommand(ctx);
@@ -18,7 +22,11 @@ export function dispatchWedCommand(ctx: CommandContext<Context>): void | Promise
   return replyCommandNotice(ctx, chat === undefined ? chatAtmosphere().WED_TEXTS.full : chatAtmosphere().WED_TEXTS.queueFull).then((): void => undefined);
 }
 
-/** /wed 按钮与命令共享执行槽；出队后重新核对消息、目标及发起人身份。 */
+/**
+ * /wed 按钮与命令共享执行槽；出队后重新核对消息、目标及发起人身份。
+ * @param ctx 回调上下文。
+ * @returns 回调是否带有 `/wed` 前缀并由本领域接管。
+ */
 export function dispatchWedCallback(ctx: Context): boolean | Promise<boolean> {
   const query: Context["callbackQuery"] = ctx.callbackQuery;
   if (!query?.data?.startsWith(WED_CALLBACK_PREFIX)) return false;

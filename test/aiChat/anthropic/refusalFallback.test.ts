@@ -106,7 +106,7 @@ const PRELOADED: AgentDeploymentConfig = getAgentDeploymentConfig();
 
 function capability(fallbackModel: string | undefined): AnthropicAgentCapabilityConfig {
   return {
-    provider: "anthropic", apiKey: "test-key", baseUrl: `http://127.0.0.1:${server.port}`, headers: undefined,
+    provider: "anthropic", apiKey: "test-key", baseUrl: `http://127.0.0.1:${server.port}`,
     model: PRIMARY, fallbackModel,
   };
 }

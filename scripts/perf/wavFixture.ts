@@ -12,6 +12,7 @@ const WAV_HEADER_BYTES: number = 44;
 /**
  * 生成指定 PCM 字节数的 WAV 容器（向下取整到整样本）。
  * @param pcmBytes data 子块的目标字节数。
+ * @returns 含完整 RIFF/WAVE 头与合成 PCM 波形的字节数组。
  */
 export function benchmarkWav(pcmBytes: number): Uint8Array<ArrayBuffer> {
   const samples: number = Math.floor(pcmBytes / 2);

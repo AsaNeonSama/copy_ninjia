@@ -4,6 +4,9 @@ import type { GagSession } from "../../types/gag";
 /**
  * 给本群所有未到期的活动入口原地计数，并只在命中阈值时返回待换新列表。
  * 常态及已有换新在途时不分配数组；调用方完成换新后负责把对应计数归零。
+ * @param sessions 本群的 gag 会话列表。
+ * @param now 当前毫秒时间戳。
+ * @returns 达到换新阈值的会话列表；无会话到达阈值时返回 null。
  */
 export function collectDueGagSpeakNotices(
   sessions: readonly GagSession[],

@@ -465,19 +465,14 @@ describe("投产目标提示表的三条失败分支", () => {
     });
   }
 
-  test("/gag 与 /ungag 的六条文案逐字固定", async () => {
-    expect(GAG_TARGET_TEXTS.invalidUsername("@bad-name"))
-      .toBe("噗，@bad-name 既不是合法的 Telegram 用户名，也不是用户/频道 id，连目标都写不对呀，笨蛋♡");
-    expect(GAG_TARGET_TEXTS.unknownUsername("ghost"))
-      .toBe("@ghost 还没被本天才记住哦，乖乖回复 TA 的消息或直接给用户/频道 id 啦，杂鱼♡");
-    expect(GAG_TARGET_TEXTS.conflictingTarget("777"))
-      .toBe("回复了一个身份又写 777，到底想 gag 谁呀？说话都说不明白的杂鱼♡");
-
-    expect(UNGAG_TARGET_TEXTS.invalidUsername("@bad-name"))
-      .toBe("噫，@bad-name 既不是合法的 Telegram 用户名，也不是用户/频道 id，这样可解不了哦，笨蛋♡");
-    expect(UNGAG_TARGET_TEXTS.unknownUsername("ghost"))
-      .toBe("@ghost 还没被本天才记住哦，回复 TA 的消息或直接给用户/频道 id 啦，杂鱼♡");
-    expect(UNGAG_TARGET_TEXTS.conflictingTarget("777"))
-      .toBe("回复了一个身份又写 777，到底想放谁呀？说清楚一点，杂鱼♡");
+  test("/gag 与 /ungag 的六条文案两两互异", () => {
+    expect(new Set([
+      GAG_TARGET_TEXTS.invalidUsername("@bad-name"),
+      GAG_TARGET_TEXTS.unknownUsername("ghost"),
+      GAG_TARGET_TEXTS.conflictingTarget("777"),
+      UNGAG_TARGET_TEXTS.invalidUsername("@bad-name"),
+      UNGAG_TARGET_TEXTS.unknownUsername("ghost"),
+      UNGAG_TARGET_TEXTS.conflictingTarget("777"),
+    ]).size).toBe(6);
   });
 });

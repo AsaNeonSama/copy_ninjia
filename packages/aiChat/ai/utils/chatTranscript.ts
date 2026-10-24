@@ -28,6 +28,8 @@ import { stripLeadingAtSigns } from "../../../libs/text";
 
 /**
  * 拼接发言人的显示名；首末名均为空白时回退到 FALLBACK_SPEAKER_NAME。
+ * @param speaker 发言人身份快照。
+ * @returns 发言人显示名称。
  */
 export function displaySpeakerName(speaker: AiSpeakerSnapshot): string {
   const first: string = speaker.firstName;
@@ -38,6 +40,9 @@ export function displaySpeakerName(speaker: AiSpeakerSnapshot): string {
 
 /**
  * 格式化发言人身份段：selfId 对应账号使用 SELF_SPEAKER_NAME 并省略 username，其余账号带 ID、可选 username 与显示名。
+ * @param speaker 发言人身份快照。
+ * @param selfId 机器人自身账号 ID。
+ * @returns 格式化后的发言人身份标签文本。
  */
 export function formatSpeakerIdentity(speaker: AiSpeakerSnapshot, selfId?: number): string {
   if (speaker.id === selfId) return `[id:${speaker.id}] ${SELF_SPEAKER_NAME}`;
@@ -45,12 +50,21 @@ export function formatSpeakerIdentity(speaker: AiSpeakerSnapshot, selfId?: numbe
   return `[id:${speaker.id}]${usernameTag} ${displaySpeakerName(speaker)}`;
 }
 
-/** 格式化转发来源标注。 */
+/**
+ * 格式化转发来源标注。
+ * @param forwardedFrom 转发来源显示文本；非转发消息为 undefined。
+ * @returns 转发来源标签字符串；非转发消息返回空串。
+ */
 function formatForwardTag(forwardedFrom: string | undefined): string {
   return forwardedFrom ? forwardTagTemplate(forwardedFrom) : "";
 }
 
-/** 格式化内嵌回复引用标注。 */
+/**
+ * 格式化内嵌回复引用标注。
+ * @param reference 被回复消息的引用快照。
+ * @param selfId 机器人自身账号 ID。
+ * @returns 内嵌完整被回复信息的回复标签字符串。
+ */
 function formatReplyReference(reference: BufferedReplyReference, selfId: number | undefined): string {
   const quote: string = reference.quote ? replyQuoteInlineTemplate(reference.quote) : "";
   return replyTagTemplate({
@@ -63,6 +77,9 @@ function formatReplyReference(reference: BufferedReplyReference, selfId: number 
 
 /**
  * 将单条缓存消息格式化为包含时间、消息号、完整身份、转发来源与被回复原文的自包含行，供冷历史压缩使用。
+ * @param message 缓存的单条群聊消息。
+ * @param selfId 机器人自身账号 ID。
+ * @returns 自包含的单行转录文本。
  */
 export function formatBufferedMessageLine(message: BufferedMessage, selfId?: number): string {
   const isSelf: boolean = message.id === selfId;
@@ -91,7 +108,9 @@ interface TranscriptContext {
 
 /** renderRange 的渲染半开区间与切点记录参数。 */
 interface TranscriptRange {
+  /** 渲染起始下标（含）。 */
   readonly start: number;
+  /** 渲染结束下标（不含）。 */
   readonly end: number;
   /** 本区间渲染结果首字符在整段转录中的偏移。 */
   readonly offset: number;
@@ -105,6 +124,7 @@ interface TranscriptRange {
  * 分层逐字转录的渲染结果。
  */
 export interface RenderedTranscript {
+  /** 完整渲染后的分层逐字转录文本。 */
   readonly text: string;
   /** 发送者 ID 到行内短编号的只读映射。 */
   readonly codeOf: ReadonlyMap<number, string>;
@@ -116,6 +136,7 @@ export interface RenderedTranscript {
   readonly settledOffsets: readonly number[];
 }
 
+/** buildTieredVerbatimTranscript 的选项。 */
 export interface TieredTranscriptOptions {
   /** 机器人自身账号 ID。 */
   readonly selfId: number;
@@ -125,6 +146,9 @@ export interface TieredTranscriptOptions {
 
 /**
  * 扫描消息窗口，建立发言人编号表、转发来源编号表及需标注消息号的集合。
+ * @param messages 逐字窗口内的缓存消息列表。
+ * @param options 机器人自身 ID 与触发消息 ID。
+ * @returns 供渲染与去重使用的转录上下文。
  */
 function buildTranscriptContext(
   messages: BufferedMessage[],
@@ -159,7 +183,11 @@ function buildTranscriptContext(
   return { selfId, speakers, speakerSnapshots, origins, numbered, present, duplicates: messages.length - present.size };
 }
 
-/** 构造末尾的发言人名册与可选的转发来源名册区块。 */
+/**
+ * 构造末尾的发言人名册与可选的转发来源名册区块。
+ * @param context 转录渲染上下文。
+ * @returns 发言人名册与转发来源名册拼接文本。
+ */
 function buildRosterBlock(context: TranscriptContext): string {
   const speakerLines: string[] = [];
   for (const [id, snapshot] of context.speakerSnapshots) {
@@ -179,6 +207,10 @@ function buildRosterBlock(context: TranscriptContext): string {
 
 /**
  * 将指定区间渲染为紧凑转录行，跨日期时插入日期分隔行，并在分格边界记录稳定切点。
+ * @param messages 去重后的缓存消息数组。
+ * @param context 转录渲染上下文。
+ * @param range 渲染半开区间及切点记录参数。
+ * @returns 区间对应的多行转录文本。
  */
 function renderRange(
   messages: BufferedMessage[],
@@ -216,6 +248,9 @@ function renderRange(
 
 /**
  * 格式化紧凑回复标注：目标仍在窗口内时输出消息号指针，已滑出窗口时退回内嵌快照。
+ * @param reference 被回复消息引用；非回复消息为 undefined。
+ * @param context 转录渲染上下文。
+ * @returns 紧凑回复标注字符串；非回复消息返回空串。
  */
 function formatCompactReplyTag(
   reference: BufferedReplyReference | undefined,
@@ -239,6 +274,9 @@ function formatCompactReplyTag(
 
 /**
  * 将逐字缓存渲染为分层紧凑转录（次要背景区、最热记忆区与末尾名册）并计算稳定切点。
+ * @param messages 逐字窗口内的缓存消息列表。
+ * @param options 机器人自身 ID 与触发消息 ID。
+ * @returns 包含转录全文、编号映射、回复引用格式化器及稳定切点的渲染结果。
  */
 export function buildTieredVerbatimTranscript(
   messages: BufferedMessage[],
@@ -292,6 +330,9 @@ export function buildTieredVerbatimTranscript(
 
 /**
  * 按 message_id 去重并保留每个 message_id 的最后一条记录。
+ * @param messages 含重复 message_id 的原始消息列表。
+ * @param duplicates 已知的重复条数。
+ * @returns 去重后的消息数组。
  */
 function dedupeByMessageId(messages: BufferedMessage[], duplicates: number): BufferedMessage[] {
   const kept: BufferedMessage[] = new Array<BufferedMessage>(messages.length - duplicates);
@@ -307,7 +348,11 @@ function dedupeByMessageId(messages: BufferedMessage[], duplicates: number): Buf
   return kept;
 }
 
-/** 将已滑出逐字区的压缩摘要拼装为冷记忆区块。 */
+/**
+ * 将已滑出逐字区的压缩摘要拼装为冷记忆区块。
+ * @param summaries 按时间顺序排列的冷历史摘要列表。
+ * @returns 格式化后的冷记忆区块文本；无摘要时返回空串。
+ */
 export function buildColdMemoryBlock(summaries: string[]): string {
   if (summaries.length === 0) return "";
   return (

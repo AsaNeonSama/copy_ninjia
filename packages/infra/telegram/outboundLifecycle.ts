@@ -49,6 +49,7 @@ function quiesceTelegramOutbound(): void {
   telegramOutboundAccepting.current = false;
 }
 
+/** 清理所有无排队且无在途任务的退避车道的恢复冷却状态。 */
 function clearIdleRetryCooldowns(): void {
   for (const lane of Object.values(telegramOutboundGateState.lanes)) {
     if (lane.head !== null || lane.activeCount !== 0) continue;
@@ -86,7 +87,10 @@ function abortTelegramOutbound(): void {
   settleAllDrainWaiters(false);
 }
 
-/** 当前 Telegram 出站闸门的轻量状态快照。 */
+/**
+ * 当前 Telegram 出站闸门的轻量状态快照。
+ * @returns 当前活跃数、退避等待数、队列容量与消息车道统计快照。
+ */
 export function telegramOutboundStats(): Readonly<{
   active: number;
   pending: number;
@@ -109,7 +113,12 @@ interface DrainTelegramOutboundOptions {
   readonly quiesce?: boolean;
 }
 
-/** 在生命周期预算内等待所有已接纳的 Telegram 出站请求结算。 */
+/**
+ * 在生命周期预算内等待所有已接纳的 Telegram 出站请求结算。
+ * @param timeoutMs 排空等待超时预算（毫秒）。
+ * @param options 排空选项。
+ * @returns 全部结算返回 "flushed"，超时触发全局取消返回 "timedOut"。
+ */
 export function drainTelegramOutbound(
   timeoutMs: number,
   { quiesce = true }: DrainTelegramOutboundOptions = {}

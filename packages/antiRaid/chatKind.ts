@@ -14,6 +14,8 @@ import type { Chat } from "grammy/types";
 
 /**
  * 记录并在取值变化时向 Worker 镜像群类型（仅接受已启用 `/init` 的 `group` 或 `supergroup`）。
+ *
+ * @param chat 包含 `id` 与 `type` 的 Telegram 会话对象
  */
 export function observeChatKind(chat: Pick<Chat, "id" | "type">): void {
   if (chat.type !== "group" && chat.type !== "supergroup") return;

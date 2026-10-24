@@ -56,11 +56,19 @@ import type {
 } from "./fullSuite/types";
 
 export interface SuiteOptions {
+  /** 每个基准分区在独立子进程中重复运行的轮数。 */
   readonly rounds: number;
+  /** 是否以 Markdown 格式向标准输出打印完整基准报告。 */
   readonly markdown: boolean;
+  /** 是否将基准报告同步写回三语性能文档与 `performance-result.json`。 */
   readonly writeDoc: boolean;
 }
 
+/**
+ * 解析并校验 `--rounds` 选项值。
+ * @param value 命令行紧随 `--rounds` 传入的字符串。
+ * @returns 正整数轮数。
+ */
 function parseRounds(value: string | undefined): number {
   const rounds: number = Number(value);
   if (!Number.isSafeInteger(rounds) || rounds < 1) {
@@ -74,6 +82,8 @@ function parseRounds(value: string | undefined): number {
  *
  * `--rounds` 只用于本地排查；发布使用默认的 `FULL_SUITE_ROUNDS`，非默认轮数的读数
  * 不写进性能文档与结构化报告（见 docs/cn/05-dev-workflow.md 的发布流程）。
+ * @param argv 剥离可执行文件与脚本路径后的命令行参数列表。
+ * @returns 解析后的运行选项。
  */
 export function parseOptions(argv: readonly string[]): SuiteOptions {
   let rounds: number = FULL_SUITE_ROUNDS;
@@ -98,6 +108,10 @@ export function parseOptions(argv: readonly string[]): SuiteOptions {
   return { rounds, markdown, writeDoc };
 }
 
+/**
+ * 采集当前宿主与 Bun 运行时的环境摘要。
+ * @returns 写入报告的运行时与硬件环境信息。
+ */
 function suiteEnvironment(): SuiteEnvironment {
   return {
     bunVersion: Bun.version,
@@ -110,11 +124,19 @@ function suiteEnvironment(): SuiteEnvironment {
   };
 }
 
-/** 基准报告使用精确到秒的 ISO 时间戳。 */
+/**
+ * 基准报告使用精确到秒的 ISO 时间戳。
+ * @returns 去掉毫秒部分的 UTC ISO-8601 时间字符串。
+ */
 function generatedAt(): string {
   return `${new Date().toISOString().slice(0, 19)}Z`;
 }
 
+/**
+ * 依次运行全量基准的所有分区并汇总报告。
+ * @param options 命令行解析得到的轮数与输出选项。
+ * @returns 完整的全量性能基准报告。
+ */
 async function runSuite(options: SuiteOptions): Promise<FullSuiteReport> {
   const startedAtNs: number = Bun.nanoseconds();
   const runRoot: string = createRunRoot();
@@ -198,9 +220,15 @@ async function runSuite(options: SuiteOptions): Promise<FullSuiteReport> {
  * 本文件用这个结构类型接住动态 import 的结果，不静态 import 它们的实现。
  */
 interface ChildModule {
+  /** 子进程执行入口。 */
   readonly main: (argument: string | undefined) => Promise<void>;
 }
 
+/**
+ * 按子进程类别动态加载并执行对应的子进程入口。
+ * @param kind 子进程类别（`seed`、`cold-start`、`chain` 或 `storage`）。
+ * @param argument 传给子进程入口的附加参数（链路名或算子名）。
+ */
 async function runChild(
   kind: string | undefined,
   argument: string | undefined
@@ -240,7 +268,12 @@ const DEFAULT_SUITE_DOCUMENT_WRITERS: SuiteDocumentWriters = {
   writePerformanceResultEntry,
 };
 
-/** 同一次报告同步各语言页面和结构化结果，并返回被更新的页面路径。 */
+/**
+ * 同一次报告同步各语言页面和结构化结果，并返回被更新的页面路径。
+ * @param report 全量基准运行产出的完整报告。
+ * @param writers 文档与结构化结果写入器，默认使用真实文件写入实现。
+ * @returns 已写回的各语言性能文档路径列表。
+ */
 export async function writeSuiteDocuments(
   report: FullSuiteReport,
   writers: SuiteDocumentWriters = DEFAULT_SUITE_DOCUMENT_WRITERS
@@ -255,7 +288,10 @@ export async function writeSuiteDocuments(
   return paths;
 }
 
-/** 父进程与子进程共用的 CLI 入口；模块导入不执行基准。 */
+/**
+ * 父进程与子进程共用的 CLI 入口；模块导入不执行基准。
+ * @param argv 剥离可执行文件与脚本路径后的命令行参数列表。
+ */
 export async function main(argv: readonly string[]): Promise<void> {
   if (argv[0] === "--child") {
     await runChild(argv[1], argv[2]);

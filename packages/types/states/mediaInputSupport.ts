@@ -53,6 +53,7 @@ export interface MediaInputTransition {
 
 /** 一次真实媒体调用的归因输入。 */
 export interface MediaInputResultEvent {
+  /** 本次调用所属的媒体输入模态（vision 或 voice）。 */
   readonly capability: MediaInputCapability;
   /** 本次调用的业务结果；只有带 mediaFailure 的失败才对整条模态下结论。 */
   readonly result: AiTextResult;

@@ -12,13 +12,22 @@ import type { IdentityStoragePersistedReply } from "../../../packages/types/disk
 import { assertInsidePerformanceMockRoot } from "../fullSuite/mockRoot";
 import type { Scenario } from "./types";
 
-/** 真正的 SQLite 批量写入和精确 ACK；库按生产建库入口建立（WAL），每次迭代提交一个生产容量的事务。 */
+/**
+ * 真正的 SQLite 批量写入和精确 ACK；库按生产建库入口建立（WAL），每次迭代提交一个生产容量的事务。
+ *
+ * @returns SQLite 身份库批量刷盘与确认场景定义
+ */
 export function storageFlushScenario(): Scenario {
   assertInsidePerformanceMockRoot(IDENTITY_DATABASE_PATH);
   mkdirSync(dirname(IDENTITY_DATABASE_PATH), { recursive: true });
   if (!existsSync(IDENTITY_DATABASE_PATH)) bootstrapStorageDatabase(IDENTITY_DATABASE_PATH, DEFAULT_BOT_TIME_ZONE);
   let confirmed: number = 0;
   let revision: number = 0;
+  /**
+   * 累加已落盘的临时广告免检写入回执条数。
+   *
+   * @param value Disk I/O Worker 发出的持久化确认回执
+   */
   function reply(value: IdentityStoragePersistedReply): void { confirmed += value.temporaryAdBypassWrites.length; }
   return {
     iterations: 1_000,

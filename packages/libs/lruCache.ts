@@ -10,9 +10,13 @@ import { FifoMap } from "./fifoMap";
 import type { FifoNode } from "./fifoMap";
 
 export class LruCache<K, V> extends FifoMap<K, V> {
-  /** 读取一个键；命中时顺带把它标记为最近使用。未命中返回 undefined。
-   *  命中判据是「有没有这个 node」，不看取值是否为 undefined：存了 undefined 值的键
-   *  同样命中并刷新热度。 */
+  /**
+   * 读取一个键；命中时顺带把它标记为最近使用。未命中返回 undefined。
+   * 命中判据是「有没有这个 node」，不看取值是否为 undefined：存了 undefined 值的键
+   * 同样命中并刷新热度。
+   * @param key 待读取的键。
+   * @returns 键对应的值；未命中时返回 undefined。
+   */
   override get(key: K): V | undefined {
     const node: FifoNode<K, V> | undefined = this.map.get(key);
     if (node === undefined) return undefined;
@@ -20,12 +24,20 @@ export class LruCache<K, V> extends FifoMap<K, V> {
     return node.value;
   }
 
-  /** 读取一个键的当前值，不影响使用顺序。 */
+  /**
+   * 读取一个键的当前值，不影响使用顺序。
+   * @param key 待只读查看的键。
+   * @returns 键对应的值；未命中时返回 undefined。
+   */
   peek(key: K): V | undefined {
     return this.map.get(key)?.value;
   }
 
-  /** 写入一个键（新增或覆盖），视为一次最近使用；超容量时淘汰最久未使用的一项。 */
+  /**
+   * 写入一个键（新增或覆盖），视为一次最近使用；超容量时淘汰最久未使用的一项。
+   * @param key 待写入的键。
+   * @param value 待关联的值。
+   */
   override set(key: K, value: V): void {
     const existing: FifoNode<K, V> | undefined = this.map.get(key);
     if (existing !== undefined) {
@@ -36,7 +48,10 @@ export class LruCache<K, V> extends FifoMap<K, V> {
     this.insertNewest(key, value);
   }
 
-  /** 命中续命：已经在最新端时不做无效指针写入。 */
+  /**
+   * 命中续命：已经在最新端时不做无效指针写入。
+   * @param node 命中的缓存链表节点。
+   */
   private touch(node: FifoNode<K, V>): void {
     if (this.newest === node) return;
     this.unlink(node);

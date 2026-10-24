@@ -3,6 +3,8 @@ import { RENDERABLE_COMMAND_PATTERN, RENDERABLE_COMMAND_NEUTRALIZE_PATTERN, NEUT
 /**
  * 判定的对象是真正发出去的那一串，不是它的上游原文；复读的模式变换、AI 的错字替换
  * 等改写文本的步骤必须在判定之前完成。
+ * @param text 待发送的最终消息文本。
+ * @returns 文本中包含会被 Telegram 客户端渲染为可点击命令的片段时返回 true，否则返回 false。
  */
 export function containsRenderableCommand(text: string): boolean {
   return RENDERABLE_COMMAND_PATTERN.test(text);
@@ -16,6 +18,8 @@ export function containsRenderableCommand(text: string): boolean {
  * 参数回显这些片段由用户控制，在片段边界上中和，机器人自己写的命令名保持可点。
  *
  * 不含可渲染命令的串原样返回（同一个字符串对象，不重建）。
+ * @param text 待中和的用户可控文本片段。
+ * @returns 将可渲染命令前导 `/` 替换为全角斜杠后的安全文本。
  */
 export function neutralizeRenderableCommands(text: string): string {
   // 不含斜杠时跳过正则与字符串重建。

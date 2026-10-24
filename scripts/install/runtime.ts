@@ -40,7 +40,12 @@ export async function assertWedMemberFilesMigrated(): Promise<void> {
   await inspectWedMemberFiles();
 }
 
-/** 只读读出已有共享数据库的 metadata，并先确认 schema 版本是当前版本。 */
+/**
+ * 只读读出已有共享数据库的 metadata，并先确认 schema 版本是当前版本。
+ *
+ * @param database 已只读打开的共享存储数据库
+ * @returns 数据库 `storage_metadata` 表行列表
+ */
 function readCurrentStorageMetadata(database: StorageDatabase): readonly StoredStorageMetadataRow[] {
   const metadata: readonly StoredStorageMetadataRow[] = readStorageDatabaseSchemaMetadata(database);
   const version: number = readStorageSchemaVersion({ metadata }, IDENTITY_DATABASE_PATH);
@@ -67,6 +72,8 @@ export async function assertStorageDatabaseMigrated(): Promise<void> {
 /**
  * 配置写定后、注册服务前只读核对已有共享数据库绑定的时区：time-zone 标记必须等于 bot.json
  * 的规范化时区，与启动闸同一口径；不改写数据库。
+ *
+ * @param timeZone `bot.json` 解析出的规范化 IANA 时区名称
  */
 export function assertStorageDatabaseTimeZone(timeZone: string): void {
   const database: StorageDatabase = openStorageDatabase({ path: IDENTITY_DATABASE_PATH, readonly: true });
@@ -77,7 +84,11 @@ export function assertStorageDatabaseTimeZone(timeZone: string): void {
   }
 }
 
-/** 只严格校验候选文件内容；配置目录布局由安装准备（runtime.sh）与启动总闸检查。 */
+/**
+ * 只严格校验候选文件内容；配置目录布局由安装准备（runtime.sh）与启动总闸检查。
+ *
+ * @param path 候选 `bot.json` 文件路径
+ */
 export async function validateStagedBotConfig(path: string): Promise<void> {
   parseBotConfig(await readJsonInput(path), path);
 }
@@ -85,6 +96,9 @@ export async function validateStagedBotConfig(path: string): Promise<void> {
 /**
  * 问卷开始前校验既有 Bot 字段；仅示例 token 允许等待本次填写，风格与时区原样保留。配置目录
  * 布局已由安装准备（runtime.sh）检查。
+ *
+ * @param path 既有 `bot.json` 配置文件路径
+ * @returns 解析并规范化后的 Bot 配置对象
  */
 export async function loadInstallerBotConfig(path: string): Promise<BotConfig> {
   const value: unknown = await readJsonInput(path);

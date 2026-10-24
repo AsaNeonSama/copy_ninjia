@@ -14,7 +14,10 @@ import type {
   VoiceSynthesisResult,
 } from "../../types/aiChat/voiceMessage";
 
-/** 解析当前配置的语音合成入口；未配置或所选供应商不支持时返回对应原因。 */
+/**
+ * 解析当前配置的语音合成入口；未配置或所选供应商不支持时返回对应原因。
+ * @returns 包含合成函数的查找成功结果，或带原因与供应商名的失败结果。
+ */
 export function resolveSpeechSynthesizer(): SpeechSynthesizerLookup {
   const provider: AiSpeechFacade | null = ttsAiProvider();
   if (provider === null) return { ok: false, reason: "tts unconfigured", providerName: undefined };
@@ -26,6 +29,10 @@ export function resolveSpeechSynthesizer(): SpeechSynthesizerLookup {
 /**
  * 调用语音合成入口并将返回的音频编码为 Telegram 语音消息载荷。合成返回后 request.signal 已中止时
  * 返回 aborted；编码期间的中止由 encodeVoiceMessage 返回 aborted，不记编码失败。
+ * @param synthesize 供应商语音合成函数。
+ * @param request 计量后的语音合成请求参数。
+ * @param logContext 错误日志诊断上下文标识。
+ * @returns 编码完成的可发送语音结果或带原因的失败结果。
  */
 export async function synthesizeVoiceMessage(
   synthesize: SpeechSynthesizer,

@@ -1,4 +1,9 @@
-/** 把 Promise 按本体登记到 Set，成功或失败后再移除；多个并发请求不会覆盖。 */
+/**
+ * 把 Promise 按本体登记到 Set，成功或失败后再移除；多个并发请求不会覆盖。
+ * @param inflight 存放当前在途 Promise 的可变集合。
+ * @param request 待登记并追踪生命周期的 Promise。
+ * @returns 原样返回传入的 `request` Promise。
+ */
 export function trackInflight<T>(inflight: Set<Promise<unknown>>, request: Promise<T>): Promise<T> {
   inflight.add(request);
   void request.then(
@@ -22,6 +27,9 @@ export function assertTimeoutMs(timeoutMs: number, label: string): void {
 /**
  * 在预算内等待调用时的一批在途任务全部结算；失败同样算结算，不中断底层任务。
  * 调用方负责关闭新任务入口、处理任务错误和零预算策略；计时器不阻止进程退出。
+ * @param tasks 待等待结算的在途任务可迭代集合。
+ * @param timeoutMs 最大等待毫秒预算。
+ * @returns 预算内全部结算完成时兑现为 true，超时先触发时兑现为 false。
  */
 export function settleWithinBudget(
   tasks: Iterable<Promise<unknown>>,
@@ -30,7 +38,6 @@ export function settleWithinBudget(
   return new Promise((resolve: (settled: boolean) => void): void => {
     const timer: ReturnType<typeof setTimeout> = setTimeout(
       (): void => {
-        clearTimeout(timer);
         resolve(false);
       },
       timeoutMs
@@ -47,6 +54,10 @@ export function settleWithinBudget(
  * 按预算排空一组已接纳的在途任务：集合为空，或预算内全部结算（失败同样算结算）
  * 时返回 "flushed"；零预算或预算耗尽时先 abort controller 取消排队与在途任务，
  * 再返回 "timedOut"。调用方负责先用 assertTimeoutMs 校验预算并关闭新任务入口。
+ * @param tasks 已接纳的在途任务只读集合。
+ * @param controller 超时或零预算时用于中止在途任务的控制器。
+ * @param timeoutMs 非负有限排空毫秒预算。
+ * @returns 排空完成返回 `"flushed"`，零预算或超时中止后返回 `"timedOut"`。
  */
 export async function drainTrackedTasks(
   tasks: ReadonlySet<Promise<unknown>>,

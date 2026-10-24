@@ -53,13 +53,22 @@ const BLOCKLIST_ENTRY: Readonly<BlocklistEntryData> = {
   meta: BENCHMARK_META,
 };
 
-/** 超级管理员在两个读口都会短路，序列里的 id 避开它。 */
+/**
+ * 超级管理员在两个读口都会短路，序列里的 id 避开它。
+ *
+ * @param index 身份缓存槽位下标
+ * @returns 避开超级管理员的基准用户 ID
+ */
 function benchmarkIdentityId(index: number): number {
   const id: number = IDENTITY_BASE + index;
   return id === SUPER_ADMIN_USER_ID ? id + IDENTITY_READ_CACHE_MAX_ENTRIES : id;
 }
 
-/** 确定性伪随机取键：偏斜到工作集，其余散落全表。 */
+/**
+ * 确定性伪随机取键：偏斜到工作集，其余散落全表。
+ *
+ * @returns 固定长度的缓存槽位下标序列
+ */
 function buildKeySequence(): Int32Array {
   const keys: Int32Array = new Int32Array(KEY_SEQUENCE_MASK + 1);
   let state: number = 123_456_789;
@@ -73,6 +82,11 @@ function buildKeySequence(): Int32Array {
   return keys;
 }
 
+/**
+ * 构建身份策略 LRU 缓存的每消息热读场景。
+ *
+ * @returns 身份策略权限热读场景定义
+ */
 export function createIdentityPermissionReadScenario(): Scenario {
   // Int32Array 装不下 Telegram id，序列里存的是下标，取用时换算成 id。
   const keys: Int32Array = buildKeySequence();

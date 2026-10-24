@@ -1,5 +1,6 @@
 /** owner: workers/diskIO。`/wed` 成员快照落盘待写状态（packages/workers/diskIO/wedMemberFiles.ts），跨线程边界见 docs/cn/04-invariants.md。 */
 import type { WedMembersDeletedPersistedReply } from "../../../types/diskIO/replies";
+import type { FlushTimerSlot } from "../../../types/diskIO/storage";
 
 /**
  * 群 ID 到待写入磁盘的 `[id, enteredAt, ...]` 成员快照的持久化镜像：
@@ -20,12 +21,12 @@ export const wedMemberDeletePersistedNotifier: { current: (reply: WedMembersDele
 };
 
 /** `/wed` 成员文件写入失败后的重试 timer 单例：写失败时创建，重试成功或 resetWedFileWrites 时清除；Worker 重建后从 null 开始。 */
-export const wedFileFlushTimer: { current: ReturnType<typeof setTimeout> | null } = { current: null };
+export const wedFileFlushTimer: FlushTimerSlot = { timer: null };
 
 /** 取消重试 timer 并清空 `/wed` 待写快照、待刷群集合与待删群映射。 */
 export function resetWedFileWrites(): void {
-  if (wedFileFlushTimer.current !== null) clearTimeout(wedFileFlushTimer.current);
-  wedFileFlushTimer.current = null;
+  if (wedFileFlushTimer.timer !== null) clearTimeout(wedFileFlushTimer.timer);
+  wedFileFlushTimer.timer = null;
   pendingWedMembers.clear();
   dirtyWedChats.clear();
   deletedWedChats.clear();

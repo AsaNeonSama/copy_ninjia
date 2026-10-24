@@ -6,11 +6,17 @@ import { isErrno } from "../../libs/errno";
 import { logger } from "../logger";
 import { isRecordedLockOwnerInactive, readLinuxProcessIdentity } from "./instanceLock";
 
+/** 孤儿临时文件清扫选项。 */
 export interface StorageCleanupOptions {
+  /** 全局状态文件路径。 */
   stateFilePath?: string;
+  /** 单实例锁文件路径。 */
   lockFilePath?: string;
+  /** 读取目录条目列表的注入函数。 */
   readDirectory?: (path: string) => Promise<string[]>;
+  /** 删除单个文件的注入函数。 */
   removeFile?: (path: string) => Promise<void>;
+  /** 判定锁辅助文件属主是否已不活跃的注入函数。 */
   isInactiveLockOwner?: (path: string) => Promise<boolean>;
 }
 
@@ -18,6 +24,9 @@ export interface StorageCleanupOptions {
  * 按 guard candidate 文件名里的 PID 判定属主是否已死：只有 /proc 下查不到这个
  * PID 才返回 true；PID 仍存在（包括被别的进程复用）返回 false。
  * candidate 不是已发布的 guard，cleanupOrphanedTempFiles 不扫 `<lock>.guard`。
+ *
+ * @param path 候选文件完整路径。
+ * @returns 属主 PID 在 `/proc` 下已不存在时返回 `true`。
  */
 async function hasDeadCandidateFilenameOwner(path: string): Promise<boolean> {
   const named: RegExpExecArray | null = CANDIDATE_OWNER_PID_PATTERN.exec(basename(path));
@@ -27,6 +36,12 @@ async function hasDeadCandidateFilenameOwner(path: string): Promise<boolean> {
   return await readLinuxProcessIdentity(pid) === null;
 }
 
+/**
+ * 判定当前格式锁辅助文件的属主是否已不在运行；空 candidate 文件退回按文件名中的 PID 判定。
+ *
+ * @param path 锁辅助文件完整路径。
+ * @returns 确认属主已不在运行时返回 `true`。
+ */
 async function hasInactiveCurrentFormatOwner(path: string): Promise<boolean> {
   const content: string = await Bun.file(path).text();
   const inactive: boolean | undefined = await isRecordedLockOwnerInactive(content);
@@ -45,7 +60,13 @@ interface CleanupDirectory {
   readonly lockFileName: string | null;
 }
 
-/** 按目录归并状态文件与锁文件；两者同目录时合成一项。 */
+/**
+ * 按目录归并状态文件与锁文件；两者同目录时合成一项。
+ *
+ * @param stateFilePath 全局状态文件路径。
+ * @param lockFilePath 单实例锁文件路径。
+ * @returns 去重归并后的待清扫目录描述列表。
+ */
 function cleanupDirectories(stateFilePath: string, lockFilePath: string): readonly CleanupDirectory[] {
   const lockDirectory: CleanupDirectory = {
     directory: dirname(lockFilePath),
@@ -65,6 +86,8 @@ function cleanupDirectories(stateFilePath: string, lockFilePath: string): readon
 /**
  * 持锁后清扫全局状态文件（memory/global/）与 bot.lock（数据根）原子写中断留下的临时文件，
  * 以及锁的孤儿辅助文件。目录尚不存在时跳过。
+ *
+ * @param options 清扫路径与文件系统依赖注入选项。
  */
 export async function cleanupOrphanedTempFiles({
   stateFilePath = GLOBAL_STATE_FILE_PATH,

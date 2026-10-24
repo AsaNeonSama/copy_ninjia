@@ -100,12 +100,18 @@ import { adoptTimeZone } from "../config/time";
 
 declare const self: Worker;
 
-/** 向主线程发送 Worker 回执。 */
+/**
+ * 向主线程发送 Worker 回执。
+ * @param reply 待投递给主线程的 Disk I/O 回执消息。
+ */
 function postReply(reply: DiskIOReply): void {
   self.postMessage(reply);
 }
 
-/** 处理诊断批次：先缓冲并落盘日志（失败回退避重试），再依次处理广告样本与 AI 缓存用量并回执。 */
+/**
+ * 处理诊断批次：先缓冲并落盘日志（失败时发回执退避重试），再依次处理广告样本与 AI 缓存用量并回执。
+ * @param msg 主线程发来的诊断消息批次请求。
+ */
 async function handleDiagnosticBatch(msg: DiskDiagnosticBatchRequest): Promise<void> {
   let containsLog: boolean = false;
   for (const diagnostic of msg.messages) {
@@ -140,7 +146,10 @@ async function handleDiagnosticBatch(msg: DiskDiagnosticBatchRequest): Promise<v
   postReply(reply);
 }
 
-/** 按请求日期恢复或轮换运势回执密钥；跨日时先刷旧日缓冲并切换日期缓存，回执后重放滞留抽签。 */
+/**
+ * 按请求日期恢复或轮换运势回执密钥；跨日时先刷旧日缓冲并切换日期缓存，回执后重放滞留抽签。
+ * @param msg 确保指定日期运势回执密钥就绪的请求。
+ */
 async function handleEnsureLuckSecret(msg: EnsureLuckSecretRequest): Promise<void> {
   let reply: LuckSecretReply;
   let deferredDraws: LuckDrawDiskMessage[] | null = null;
@@ -176,7 +185,10 @@ async function handleEnsureLuckSecret(msg: EnsureLuckSecretRequest): Promise<voi
   await replayDeferredLuckDraws(deferredDraws);
 }
 
-/** 读取入群日志窗口并回执结果或错误。 */
+/**
+ * 读取入群日志窗口并回执结果或错误。
+ * @param msg 入群日志时间窗口读取请求。
+ */
 async function handleReadJoinLog(msg: ReadJoinLogRequest): Promise<void> {
   let reply: JoinLogReadReply;
   try {
@@ -196,7 +208,10 @@ async function handleReadJoinLog(msg: ReadJoinLogRequest): Promise<void> {
   postReply(reply);
 }
 
-/** 执行停机前的共享数据库刷盘、WAL checkpoint 与关库并回执。 */
+/**
+ * 执行停机前的共享数据库刷盘、WAL checkpoint 与关库并回执。
+ * @param msg 停机关库请求。
+ */
 function handleCloseStorage(msg: CloseStorageRequest): void {
   let reply: StorageClosedReply;
   try {
@@ -215,7 +230,10 @@ function handleCloseStorage(msg: CloseStorageRequest): void {
   postReply(reply);
 }
 
-/** 按消息类型分发并处理单条主线程请求。 */
+/**
+ * 按消息类型分发并处理单条主线程请求。
+ * @param msg 主线程发往 Disk I/O Worker 的请求消息。
+ */
 export async function handleDiskIOWorkerMessage(
   msg: DiskIOMessage
 ): Promise<void> {
@@ -348,12 +366,19 @@ export async function handleDiskIOWorkerMessage(
   }
 }
 
-/** 将一条主线程消息排入统一串行操作队列。 */
+/**
+ * 将一条主线程消息排入统一串行操作队列。
+ * @param message 待串行处理的 Disk I/O 消息。
+ * @returns 当前消息处理结算后的 Promise。
+ */
 export function queueDiskIOWorkerMessage(message: DiskIOMessage): Promise<void> {
   return enqueueDiskIOOperation((): Promise<void> => handleDiskIOWorkerMessage(message));
 }
 
-/** 执行入群验证写操作；抛错时记录 verification 领域拒收并在重放窗口内回报失败。 */
+/**
+ * 执行入群验证写操作；抛错时记录 verification 领域拒收并在重放窗口内回报失败。
+ * @param apply 具体的入群验证写入或删除闭包。
+ */
 async function handleVerificationMessage(apply: () => Promise<void>): Promise<void> {
   try {
     await apply();
@@ -364,7 +389,11 @@ async function handleVerificationMessage(apply: () => Promise<void>): Promise<vo
   }
 }
 
-/** 重放窗口处于激活态时，将写入拒收回报为 recoveryReplayFailed。 */
+/**
+ * 重放窗口处于激活态时，将写入拒收回报为 recoveryReplayFailed。
+ * @param domain 发生重放写入拒收的持久化领域。
+ * @param error 捕获到的异常对象。
+ */
 function replyReplayFailureIfActive(domain: RecoveryReplayFailedReply["domain"], error: unknown): void {
   if (!diskIOReplayWindow.current) return;
   const reply: RecoveryReplayFailedReply = {
@@ -375,7 +404,11 @@ function replyReplayFailureIfActive(domain: RecoveryReplayFailedReply["domain"],
   postReply(reply);
 }
 
-/** 执行共享 SQLite 领域写操作；关库后忽略，抛错时记录领域拒收、容量告警与重放失败。 */
+/**
+ * 执行共享 SQLite 领域写操作；关库后忽略，抛错时记录领域拒收、容量告警与重放失败。
+ * @param domain 目标共享 SQLite 子领域名称。
+ * @param apply 具体的领域写库闭包。
+ */
 function handleIdentityMessage(
   domain: Exclude<StorageDatabaseDomain, "aiMemory">,
   apply: () => void

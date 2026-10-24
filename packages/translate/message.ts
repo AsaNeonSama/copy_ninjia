@@ -9,23 +9,31 @@ import { logger } from "../infra/logger";
 import { isAbortError } from "../libs/abortSignal";
 import { trackInflight } from "../libs/inflight";
 import { containsRenderableCommand } from "../libs/renderableCommand";
+import type { ChatState } from "../types/chatState";
 import type { TranslateMessageBacklog, TranslateState } from "../types/translate";
 import { translateText } from "./client";
 import { needsNoTranslation } from "./language";
-import { getTranslateState } from "./state";
+import { translateStateIn } from "./state";
 
-/** 本群开关和配置前提齐备时返回指定目标的现有会话；无会话时不查询其它状态。 */
-export function activeTranslateStateIn(chatId: number, userId: number): TranslateState | undefined {
-  const state: TranslateState | undefined = getTranslateState(chatId, userId);
-  if (state === undefined || getChatState(chatId).isTranslationEnabled !== true) return undefined;
+/**
+ * 本群开关和配置前提齐备时返回指定目标的现有会话；无会话时不查询其它状态。
+ * @param chatState 当前群聊的状态快照。
+ * @param userId 待查询的发送者用户 ID。
+ * @returns 翻译功能已启用且配置就绪时返回该用户的翻译会话，否则返回 undefined。
+ */
+export function activeTranslateStateIn(chatState: Readonly<ChatState>, userId: number): TranslateState | undefined {
+  const state: TranslateState | undefined = translateStateIn(chatState, userId);
+  if (state === undefined || chatState.isTranslationEnabled !== true) return undefined;
   return translateConfigReadiness().ok ? state : undefined;
 }
 
 /** queueTranslateMessage 的入参；当前会话对象同时是取消凭据，不依赖全局 copy 目标。 */
 export interface TranslateMessageParams {
+  /** 消息所属的群聊 ID。 */
   readonly chatId: number;
   /** 翻译目标发出的原消息；只读取正文或图注，以及正文消息的链接预览设置。 */
   readonly message: Message;
+  /** 入队时命中的翻译会话对象（同时作为会话有效性的引用凭据）。 */
   readonly state: TranslateState;
   /** 论坛话题；翻译不挂回复，必须显式带上。 */
   readonly messageThreadId?: number;
@@ -37,12 +45,14 @@ export interface TranslateMessageParams {
  * 图片、文件等媒体。翻译 API 失败、译文与原文逐字相同、译文含可渲染命令（见
  * libs/renderableCommand.ts）或超过正文长度上限时整条不发送，对发送者静默；只有 API 异常由
  * client.ts 记错误日志。开始前与异步完成后各复核一次会话，停止或重开后的迟到结果不发送。
+ * @param params 翻译消息所属群聊、原消息、会话与话题参数。
+ * @param source 入队前提取出的原文正文或图注字符串。
  */
 async function translateMessage(params: TranslateMessageParams, source: string): Promise<void> {
   const { chatId, message, state, messageThreadId }: TranslateMessageParams = params;
-  if (activeTranslateStateIn(chatId, state.translatedUser.id) !== state) return;
+  if (activeTranslateStateIn(getChatState(chatId), state.translatedUser.id) !== state) return;
   const translated: string | null = await translateText(source, state.language);
-  if (activeTranslateStateIn(chatId, state.translatedUser.id) !== state) return;
+  if (activeTranslateStateIn(getChatState(chatId), state.translatedUser.id) !== state) return;
   if (translated === null || translated === source || translated.length > TELEGRAM_MESSAGE_MAX_CHARS) return;
   if (containsRenderableCommand(translated)) return;
   await sendMessage({ chatId, text: translated, messageThreadId, linkPreviewOptions: message.link_preview_options });
@@ -58,6 +68,7 @@ async function translateMessage(params: TranslateMessageParams, source: string):
  * （含正在执行的那条）已达 TRANSLATE_CHAT_BACKLOG_MAX 时本条不翻译，同一段积压只记一次日志。
  * 任务登记在 translateRuntime.tasks，由停机 drainTranslate 等待；失败只记日志，update 取消导致的
  * 中止不记。
+ * @param params 翻译消息所属群聊、原消息、会话与话题参数。
  */
 export function queueTranslateMessage(params: TranslateMessageParams): void {
   const source: string | undefined = params.message.text ?? params.message.caption;

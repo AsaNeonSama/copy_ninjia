@@ -18,7 +18,11 @@ export const STORAGE_OPERATIONS: readonly BenchmarkOperation[] = [
   "storage-write-cold-connection",
 ];
 
-/** 命令行参数到操作名的严格解析；未知值直接失败，不落到某个默认操作。 */
+/**
+ * 命令行参数到操作名的严格解析；未知值直接失败，不落到某个默认操作。
+ * @param value 命令行传入的存储算子名称字符串。
+ * @returns 合法的存储基准算子名称。
+ */
 export function parseStorageOperation(
   value: string | undefined
 ): BenchmarkOperation {

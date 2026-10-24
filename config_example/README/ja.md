@@ -185,9 +185,6 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
       "provider": "google",
       "api_key": "replace-with-google-api-key",
       "base_url": "https://gateway.ai.cloudflare.com/v1/your-account-id/your-gateway/google-ai-studio",
-      "headers": {
-        "cf-aig-authorization": "Bearer <replace-with-cloudflare-ai-gateway-token>"
-      },
       "model": "gemini-3.5-flash-lite"
     },
     "image": {
@@ -229,8 +226,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `api_key` | `string` | **必須** | 非空文字列、`AGENT_API_KEY_PLACEHOLDERS` 不可 | 当該能力専用の API キー |
 | `base_url` | `string` | 任意 | 絶対 HTTPS URL（`LOOPBACK_HOSTS` のループバックのみ HTTP 許可） | カスタムエンドポイント。ユーザー名/パスワードや `#` フラグメントを含めることはできません。省略時は公式エンドポイントに接続 |
 | `model` | `string` | **必須**（xAI TTS は設定不可） | 非空文字列 | エンドポイントが実際に受け付けるモデル名 |
-| `headers` | `object` | 任意 | `1`〜`AGENT_HEADERS_MAX_ENTRIES` 個のキーバリューペア（**`provider` が `"google"` または `"anthropic"` の場合のみ許可**） | サードパーティゲートウェイ認証用 HTTP ヘッダー（Cloudflare AI Gateway の `cf-aig-authorization` 等）。キー名は `AGENT_HEADER_NAME_PATTERN` に一致し、大文字小文字を区別せず重複不可、当該 provider の資格情報ヘッダー（`AGENT_CREDENTIAL_HEADER_NAMES`）は不可。値は前後の空白を除いて `AGENT_HEADER_VALUE_PATTERN` に一致すること |
-| `fallback_model` | `string` | 任意 | `model` と異なる非空文字列（**`provider` が `"anthropic"` の場合のみ許可**） | `model` が拒否（`stop_reason: "refusal"`）したとき、このモデルと同じ `api_key`・`base_url`・`headers` で同じリクエストを再送します。フォールバッククレジットはベストエフォートで引き換え、`model` の `allowed_fallback_models` に含まれないモデルは通常料金になります。フォールバックモデルも拒否した場合や未設定の場合は、再試行せずにそのリクエストを失敗とします |
+| `fallback_model` | `string` | 任意 | `model` と異なる非空文字列（**`provider` が `"anthropic"` の場合のみ許可**） | `model` が拒否（`stop_reason: "refusal"`）したとき、このモデルと同じ `api_key`・`base_url` で同じリクエストを再送します。フォールバッククレジットはベストエフォートで引き換え、`model` の `allowed_fallback_models` に含まれないモデルは通常料金になります。フォールバックモデルも拒否した場合や未設定の場合は、再試行せずにそのリクエストを失敗とします |
 
 ### 画像生成専用フィールド（`agent.image`）
 
@@ -271,7 +267,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
     "random_h_image_dir": "./h_image"
   },
   "pathOrUrl": {
-    "bot_default_avatar": "https://drive.google.com/uc?export=download&id=1Wqxii-o6O36ZDWhM1L0BcZPGBFmpvalg"
+    "bot_default_avatar": "https://drive.google.com/uc?export=download&id=1i7WEjtcJz-kS550QXs_RKDtLVpb_4t64"
   },
   "onlyUrl": {
     "fortune_thumbnail_url": "https://drive.google.com/uc?export=view&id=1RMluRcTHBUTqYrkNISoVEZCI84ZQEosA",
@@ -552,7 +548,7 @@ Google Cloud からダウンロードしたサービスアカウントの JSON �
 | --- | --- | --- | --- | --- |
 | `name` | `string` | **必須** | 非空、`≤ CRON_TASK_NAME_MAX_CHARS` 文字、ファイル内で一意 | タスクの一意識別名。名前の変更は旧タスクの削除と新タスクの登録とみなされます |
 | `chat_id` | `array` | **必須** | 下記「配信先グループモード」参照 | 送信先グループ ID 一覧 |
-| `cron` | `string` | **必須** | 標準 5 フィールド Cron 式または `@daily` マクロ。将来のトリガー時刻が存在すること | スケジュール実行式 |
+| `cron` | `string` | **必須** | 標準 5 フィールド Cron 式、または `@yearly`・`@annually`・`@monthly`・`@weekly`・`@daily`・`@midnight`・`@hourly` マクロ。将来のトリガー時刻が存在すること | スケジュール実行式 |
 | `time_zone` | `string` | 任意 | IANA 名、省略時は `bot.json.time_zone` を継承 | 実行時刻計算のタイムゾーン |
 | `rand_cron` | `string` | 任意 | `"<min>-<max>"` または `"<max>"`、単位 `m`/`h`/`d`、範囲 `[CRON_RANDOM_INTERVAL_MIN_MS, CRON_RANDOM_INTERVAL_MAX_MS]` | ランダム実行モード：最初は `cron` でトリガーされ、以後は各回の終了時に区間内から一様ランダムに次のトリガー時刻を選ぶ（分単位に切り上げ） |
 | `just_once` | `boolean` | 任意 | `true` または `false`、既定 `false`（**`rand_cron` との併用不可**） | 1 回のみ実行するかどうか。**注意：実行フラグはメモリ内のみに保持され、再起動でリセットされます** |

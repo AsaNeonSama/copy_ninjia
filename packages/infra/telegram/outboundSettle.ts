@@ -1,7 +1,7 @@
 /**
- * 主线程出站闸（./outboundGate.ts）与发送调度器（./sendScheduler.ts）共用的结算原语：取消与超时原因、
- * 摘除 abort 监听、排空等待者结算与未外交响应体的释放。只读写 cache/main/telegram.ts 的
- * 计数与等待者，不持有状态。
+ * 主线程出站闸与发送调度子模块（`outboundGate.ts`、`outboundRetryLane.ts`、`outboundLifecycle.ts`、
+ * `sendLane.ts`、`sendScheduler.ts`）共用的结算原语：取消与超时原因、摘除 abort 监听、排空等待者结算
+ * 与未向调用方交付的响应体释放。只读写 `cache/main/telegram.ts` 的计数与等待者，不持有状态。
  */
 
 import { telegramOutboundGateState } from "../../cache/main/telegram";
@@ -10,7 +10,10 @@ import { discardResponseBody } from "../../libs/boundedResponse";
 import { settleFlushWaiters } from "../../libs/drainWaiter";
 import type { TelegramOutboundJob } from "../../types/telegramOutbound";
 
-/** 出站请求被调用方或生命周期取消时交给调用方的错误。 */
+/**
+ * 出站请求被调用方或生命周期取消时交给调用方的错误。
+ * @returns 表示出站请求被取消的 AbortError。
+ */
 export function abortReason(): Error {
   return new DOMException("Telegram outbound request was aborted.", "AbortError");
 }
@@ -19,6 +22,8 @@ export function abortReason(): Error {
  * 任务因自身信号中止而结算时交给调用方的错误：信号的中止原因是调用方超时预算耗尽
  * （`isTimeoutAbort`）时给 TimeoutError，生命周期撤销与调用方主动取消给 abortReason。
  * 不持有该信号的消费方（跨线程能力、合并等待）据此区分超时与取消。
+ * @param signal 已中止的任务信号。
+ * @returns 超时中止返回 TimeoutError，其余取消返回 AbortError。
  */
 export function jobAbortReason(signal: AbortSignal): Error {
   return isTimeoutAbort(signal)
@@ -26,7 +31,10 @@ export function jobAbortReason(signal: AbortSignal): Error {
     : abortReason();
 }
 
-/** 摘除任务的一次性 abort 监听；任务结算时调用。 */
+/**
+ * 摘除任务的一次性 abort 监听；任务结算时调用。
+ * @param job 待摘除 abort 监听的出站任务。
+ */
 export function detachAbortListener(job: TelegramOutboundJob): void {
   if (job.abortListener === undefined) return;
   job.signal.removeEventListener("abort", job.abortListener);
@@ -43,7 +51,10 @@ export function settleDrainWaitersIfIdle(): void {
   settleAllDrainWaiters(true);
 }
 
-/** drained 为 true 时以 flushed、为 false 时以 timedOut 结算并清空全部排空等待者，各自的超时 timer 一并取消。 */
+/**
+ * drained 为 true 时以 flushed、为 false 时以 timedOut 结算并清空全部排空等待者，各自的超时 timer 一并取消。
+ * @param drained 为 true 时以 "flushed" 结算，为 false 时以 "timedOut" 结算。
+ */
 export function settleAllDrainWaiters(drained: boolean): void {
   settleFlushWaiters(telegramOutboundGateState.drainWaiters, drained ? "flushed" : "timedOut");
 }
@@ -51,10 +62,11 @@ export function settleAllDrainWaiters(drained: boolean): void {
 /**
  * 释放不再交给调用方的响应体。
  *
- * `telegramRetryAfterMilliseconds` 只读 header、不消费 body，判成限流退避后不外交的响应
+ * `telegramRetryAfterMilliseconds` 只读 header、不消费 body，判成限流退避后未向调用方交付的响应
  * 由这里显式释放（同 telegram/fileDownload.ts 对非成功 HTTP 响应的处理）。
  * 只有 fetch 路径（媒体下载、头像抓取）拿到真正的 Response；grammY transformer 路径返回
  * 已解析的 Bot API 对象，此时为 no-op。
+ * @param response 待释放响应体的返回对象。
  */
 export function releaseResponseBody(response: unknown): void {
   if (response instanceof Response) {

@@ -15,6 +15,8 @@ import type { Mp4VideoTrack } from "../../../types/media";
  * BOT_PROFILE_ANIMATION_MAX_SIDE 的非零正方形的 MP4 是动态头像。其余返回 null，期望形态见
  * DEFAULT_AVATAR_EXPECTED_FORM；超限的输入不做 MP4 结构解析。
  * 默认头像的本机文件核对（config/assets.ts）与复原上传（restore.ts）共用；本模块不接触 Bot API 客户端。
+ * @param bytes 待判定的默认头像文件字节。
+ * @returns 静态图片返回 "static"，合规 MP4 返回 "animated"，不符合要求返回 null。
  */
 export function defaultAvatarPhotoType(bytes: Uint8Array): InputProfilePhoto["type"] | null {
   const format: SniffedImageFormat = sniffImageFormat(bytes);
@@ -31,6 +33,8 @@ export function defaultAvatarPhotoType(bytes: Uint8Array): InputProfilePhoto["ty
 /**
  * 默认头像素材的诊断描述，只写进复原失败日志：可识别的图片格式名；合法 MP4 写出各视频轨宽高（没有视频轨时
  * 写 none）；其余为 unknown。
+ * @param bytes 待描述的默认头像文件字节。
+ * @returns 用于错误日志的格式与视频轨尺寸描述字符串。
  */
 export function describeDefaultAvatar(bytes: Uint8Array): string {
   const format: SniffedImageFormat = sniffImageFormat(bytes);

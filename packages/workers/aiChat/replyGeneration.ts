@@ -1,3 +1,8 @@
+/**
+ * AI 回复代际（generation）及其关联异步任务的生命周期管理。
+ * 代际在当前 isolate 内单调递增；群失效或停机时同步中止取消控制器并等待在途任务结算。
+ */
+
 import {
   cachedReplyGeneration,
   isCachedReplyGenerationCurrent,
@@ -12,18 +17,22 @@ import { logger } from "../../infra/logger";
 import { settleWithinBudget } from "../../libs/inflight";
 
 /**
- * AI 回复代际（generation）及其关联异步任务的生命周期管理。
- * 代际在当前 isolate 内单调递增；群失效或停机时同步中止取消控制器并等待在途任务结算。
+ * 判断目标群是否仍有在途模型调用或当前代际未结算任务。
+ *
+ * @param chatId 群聊 ID
+ * @returns 仍有在途模型调用或当前代际任务未结算时返回 true，否则返回 false
  */
-
-/** 判断目标群是否仍有在途模型调用或当前代际未结算任务。 */
 export function hasActiveAiChatTasks(chatId: number): boolean {
   if ((activeReplyCounts.get(chatId) ?? 0) > 0) return true;
   const generation: number | undefined = replyGenerations.get(chatId);
   return generation !== undefined && (replyGenerationTasks.get(generation)?.size ?? 0) > 0;
 }
 
-/** 记忆淘汰时清理群运行时缓存，并在无在途任务时回收取消控制器。 */
+/**
+ * 记忆淘汰时清理群运行时缓存，并在无在途任务时回收取消控制器。
+ *
+ * @param chatId 群聊 ID
+ */
 export function evictChatReplyGeneration(chatId: number): void {
   const generation: number | undefined = replyGenerations.get(chatId);
   invalidateChatRuntimeCache(chatId);
@@ -31,7 +40,12 @@ export function evictChatReplyGeneration(chatId: number): void {
   if (!replyGenerationTasks.has(generation)) replyAbortControllers.delete(generation);
 }
 
-/** 获取或创建指定代际的取消信号。 */
+/**
+ * 获取或创建指定代际的取消信号。
+ *
+ * @param generation 回复代际编号
+ * @returns 绑定该回复代际生命周期的 AbortSignal
+ */
 export function replyGenerationSignal(generation: number): AbortSignal {
   let controller: AbortController | undefined = replyAbortControllers.get(generation);
   if (controller === undefined) {
@@ -41,7 +55,13 @@ export function replyGenerationSignal(generation: number): AbortSignal {
   return controller.signal;
 }
 
-/** 登记受代际生命周期约束的异步任务，任务结算后自动清理登记项与过期控制器。 */
+/**
+ * 登记受代际生命周期约束的异步任务，任务结算后自动清理登记项与过期控制器。
+ *
+ * @param chatId 群聊 ID
+ * @param generation 所属回复代际编号
+ * @param task 待追踪的异步任务 Promise
+ */
 export function trackReplyGenerationTask(
   chatId: number,
   generation: number,
@@ -72,7 +92,7 @@ export async function quiesceAiChatReplies(): Promise<void> {
   for (const controller of replyAbortControllers.values()) {
     controller.abort(new DOMException("AI chat Worker is quiescing.", "AbortError"));
   }
-  for (const chatId of [...replyGenerations.keys()]) {
+  for (const chatId of replyGenerations.keys()) {
     invalidateChatRuntimeCache(chatId);
   }
   while (replyGenerationTasks.size > 0) {
@@ -89,6 +109,9 @@ export async function quiesceAiChatReplies(): Promise<void> {
 /**
  * 同步中止目标群当前代际并清理运行时缓存，在 AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS
  * 预算内等待该代际在途任务结算。
+ *
+ * @param chatId 群聊 ID
+ * @returns 在途任务排空或等待超时后 resolve 的 Promise
  */
 export function invalidateChatReplies(chatId: number): Promise<void> {
   const generation: number = cachedReplyGeneration(chatId);

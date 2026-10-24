@@ -33,7 +33,12 @@ import {
   stopWorkerAfterLoadFailure,
 } from "./recovery";
 
-/** 把一条可订阅回执交给登记在该类型下的全部主线程 owner。 */
+/**
+ * 把一条可订阅回执交给登记在该类型下的全部主线程 owner。
+ *
+ * @param type 回执消息类型键。
+ * @param reply 对应类型的 Disk I/O 回执载荷。
+ */
 function notifyReplyListeners<K extends keyof DiskIOReplyListenerMap>(
   type: K,
   reply: DiskIOReplyListenerMap[K]
@@ -44,6 +49,9 @@ function notifyReplyListeners<K extends keyof DiskIOReplyListenerMap>(
 /**
  * 恢复握手的 loaded 回执：启动和运行时重建都先验证完整恢复结果，任何领域失败
  * 时都不进入 writable，也不重放镜像。
+ *
+ * @param w 发出 `loaded` 回执的 Disk I/O Worker 实例。
+ * @param data Worker 返回的启动/恢复加载回执载荷。
  */
 function handleLoadedReply(w: Worker, data: LoadedReply): void {
   const resolve: ((reply: LoadedReply) => void) | null = pendingLoad.resolve;
@@ -65,7 +73,13 @@ function handleLoadedReply(w: Worker, data: LoadedReply): void {
   void activateDiskIOWorker(w, true);
 }
 
-/** 诊断批次写失败：按连续失败数决定重排还是回收整个 Worker。 */
+/**
+ * 诊断批次写失败：按连续失败数决定重排还是回收整个 Worker。
+ *
+ * @param w 上报诊断写盘失败的 Disk I/O Worker 实例。
+ * @param batchId 写盘失败的诊断批次编号。
+ * @param retryAfterMs Worker 建议的退避重试等待毫秒数。
+ */
 function handleDiagnosticBatchRetry(w: Worker, batchId: number, retryAfterMs: number): void {
   const nextFailureCount: number =
     diskIORuntime.consecutiveDiagnosticWriteFailures + 1;
@@ -87,6 +101,8 @@ function handleDiagnosticBatchRetry(w: Worker, batchId: number, retryAfterMs: nu
  * 创建一个落盘 Worker 实例并挂上回执路由与崩溃自愈；不改变 diskIORuntime.worker。
  * 运势追加停摆（luckAppendStalled）与其它可订阅回执一样转交 owner；本文件自身的
  * 错误只走诊断 sink（见 types/diskIO/replies.ts 的 LuckAppendStalledReply）。
+ *
+ * @returns 已绑定消息路由与异常恢复回调的新建 Disk I/O Worker 实例。
  */
 export function createDiskIOWorker(): Worker {
   const w: Worker = new Worker(DISK_IO_WORKER_URL);

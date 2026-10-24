@@ -3,35 +3,40 @@
  * 容器与执行留在 packages/workers/antiRaid/adDetect/queue.ts）。
  */
 
+/** 广告检测候选消息的投递准入判定输入。 */
 export interface AdCandidateAdmissionInput {
-  /** 清洗、截断并接上隐藏 URL 之后的正文长度；0 表示这条没有可判定内容。 */
+  /** 清洗、截断并接上隐藏 URL 之后的正文长度；0 表示这条消息没有可判定内容。 */
   readonly textLength: number;
-  /** 发送者是频道马甲（没有「群成员」身份，处置走 banChatSenderChat）。 */
+  /** 发送者是否为频道或匿名管理员身份（无群成员身份，处置走 banChatSenderChat）。 */
   readonly isChannel: boolean;
-  /** 自己的去重 TTL 内这个键刚被判成广告并已发出处置。 */
+  /** 去重 TTL 窗口内该发送者键是否已被判为广告并发出处置。 */
   readonly recentlyDisposed: boolean;
-  /** 主线程投递时这个发送者已经在永久黑名单里（封禁多半还没落地）。 */
+  /** 主线程投递时该发送者是否已在永久黑名单中。 */
   readonly blocked: boolean;
 }
 
+/** 广告检测候选消息的投递准入决策。 */
 export type AdCandidateDecision =
-  /** 并进这个发送者的消息串。 */
+  /** 并入该发送者的待检消息串。 */
   | "accept"
-  /** 不参与判定，也不必再做别的。 */
+  /** 忽略该消息，不参与检测且不单独删除。 */
   | "ignore"
-  /** 不参与判定，但要删掉这条：见 states/adDetectAdmission.ts 的说明。 */
+  /** 不参与检测，但单独删除该频道残余消息（见 states/adDetectAdmission.ts）。 */
   | "deleteStraggler";
 
+/** 发送者待检消息串的入队准入判定输入。 */
 export interface AdRequeueInput {
-  /** 这一串里还有序号大于 checkedSeq 的消息，即还有没判过的内容。 */
+  /** 消息串中是否存在序号大于 checkedSeq 的未检测消息。 */
   readonly hasUncheckedContent: boolean;
-  /** 这个键此刻排在队列里。 */
+  /** 该发送者键当前是否已在待检队列中排队。 */
   readonly queued: boolean;
-  /** 这个键此刻正在等广告检测 provider 回话。 */
+  /** 该发送者键当前是否有在途的广告检测模型请求。 */
   readonly inFlight: boolean;
 }
 
+/** 发送者待检消息串的入队准入决策。 */
 export type AdRequeueDecision =
+  /** 将该发送者键加入待检队列。 */
   | "enqueue"
-  /** 无需排队：没有新内容，或这个键已经排着、在途。 */
+  /** 跳过入队：无新内容，或该发送者键已在队列中或在途。 */
   | "skip";

@@ -29,6 +29,10 @@ export const DOC_PAGE_TARGETS: readonly DocPageTarget[] = [
 
 /**
  * 返回按标记替换后的整页内容；错误信息携带目标路径和所需标记。
+ * @param source 文档页原始全文。
+ * @param block 含起止标记的新渲染基准区块。
+ * @param path 用于错误提示的目标文档相对路径。
+ * @returns 替换基准区块后的完整文档文本。
  */
 export function replaceBlock(source: string, block: string, path: string): string {
   const start: number = source.indexOf(README_BLOCK_START);
@@ -45,7 +49,11 @@ export function replaceBlock(source: string, block: string, path: string): strin
     source.slice(end + README_BLOCK_END.length);
 }
 
-/** 把报告写进各语言性能基准页；返回实际改写的路径，供 CLI 回显。 */
+/**
+ * 把报告写进各语言性能基准页；返回实际改写的路径，供 CLI 回显。
+ * @param report 全量基准运行产出的完整报告。
+ * @returns 实际更新的各语言性能文档相对路径列表。
+ */
 export async function writeBenchmarkDocPages(
   report: FullSuiteReport
 ): Promise<readonly string[]> {

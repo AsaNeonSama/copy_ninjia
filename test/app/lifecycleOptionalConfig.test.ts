@@ -1,7 +1,7 @@
 import { getTimeZone } from "../../packages/config/time";
 import { expect, mock, test } from "bun:test";
 import { join } from "node:path";
-import { generateKeyPairSync } from "node:crypto";
+import { rsaPrivateKeyPemFixture } from "../../scripts/fixtures/googleAuth";
 import type * as Paths from "../../packages/consts/paths";
 import { TEST_DATA_ROOT } from "../preloadEnv";
 import { lifecycleFixture as fixture, installLifecycleFixtureHooks } from "../helpers/lifecycleFixture";
@@ -21,7 +21,7 @@ mock.module("../../packages/consts/paths", (): typeof Paths => ({
 installLifecycleFixtureHooks();
 
 test("可选贴纸文件缺省时真实预检与恢复握手通过，生命周期正常完成并清理等待器", async (): Promise<void> => {
-  expect(STICKERS_CONFIG_PATH.startsWith("/tmp/")).toBeTrue();
+  expect(STICKERS_CONFIG_PATH.startsWith(TEST_DATA_ROOT)).toBeTrue();
   const content: string = await Bun.file(STICKERS_CONFIG_PATH).text();
   const config: typeof defaultStickerConfigCache.current = defaultStickerConfigCache.current;
   const restoreWorker: () => void = installFakeDiskIOWorker();
@@ -60,7 +60,7 @@ test("可选贴纸文件缺省时真实预检与恢复握手通过，生命周�
 });
 
 test("贴纸文件存在但格式非法时，生命周期在创建 Worker 和 Telegram 客户端前拒绝启动", async (): Promise<void> => {
-  expect(STICKERS_CONFIG_PATH.startsWith("/tmp/")).toBeTrue();
+  expect(STICKERS_CONFIG_PATH.startsWith(TEST_DATA_ROOT)).toBeTrue();
   const content: string = await Bun.file(STICKERS_CONFIG_PATH).text();
   const config: typeof defaultStickerConfigCache.current = defaultStickerConfigCache.current;
   try {
@@ -82,14 +82,10 @@ test("贴纸文件存在但格式非法时，生命周期在创建 Worker 和 Te
 
 test("显式错误 Google 凭据类型在外部连接前拒绝，保留原文件", async (): Promise<void> => {
   const { GOOGLE_AUTH_FILE_PATH }: typeof Paths = await import("../../packages/consts/paths");
-  expect(GOOGLE_AUTH_FILE_PATH.startsWith("/tmp/")).toBeTrue();
+  expect(GOOGLE_AUTH_FILE_PATH.startsWith(TEST_DATA_ROOT)).toBeTrue();
   const authFile: Bun.BunFile = Bun.file(GOOGLE_AUTH_FILE_PATH);
   const original: string | undefined = await authFile.exists() ? await authFile.text() : undefined;
-  const privateKey: string = generateKeyPairSync("rsa", {
-    modulusLength: 2_048,
-    privateKeyEncoding: { type: "pkcs8", format: "pem" },
-    publicKeyEncoding: { type: "spki", format: "pem" },
-  }).privateKey;
+  const privateKey: string = await rsaPrivateKeyPemFixture();
   const content: string = JSON.stringify({ type: "authorized_user", client_email: "bot@example.com", private_key: privateKey });
   try {
     await Bun.write(authFile, content);

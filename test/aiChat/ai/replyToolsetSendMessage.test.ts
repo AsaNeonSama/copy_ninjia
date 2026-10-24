@@ -14,19 +14,41 @@ import {
 } from "../../helpers/replyToolsetMocks";
 import { executeAndSettle } from "../../helpers/replyToolExecution";
 import { replyToolContextFixture } from "../../helpers/replyToolContext";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
-const { SEND_MESSAGE_TOOL } = await import("../../../packages/consts/tools");
+const { REPLY_INVALIDATED_TOOL_ERROR, SEND_MESSAGE_TOOL } = await import("../../../packages/consts/tools");
 const {
+  HARD_MAX_ACTIONS_PER_REPLY,
+  TYPO_MIN_REMAINING_ACTIONS,
   TYPO_QUICK_CORRECTION_MIN_MS,
   TYPO_QUICK_CORRECTION_PROBABILITY,
   TYPO_QUICK_CORRECTION_TYPING_MS,
 } = await import("../../../packages/consts/aiChat/tools");
+const { logger } = await import("../../../packages/infra/logger");
 const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
+const { createSendMessageExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/sendMessage");
+const { createRoundMessageState } = await import("../../../packages/aiChat/ai/tools/replyToolset/messageState");
 
 beforeEach(resetReplyToolsetMocks);
 
 describe("send_message typo correction", () => {
+  test("本轮已作废或正文只有 emoji 时返回错误且不入链、不发送", async () => {
+    const inactiveExecute = createSendMessageExecutor(
+      replyToolContextFixture({ isActive: () => false }),
+      createRoundMessageState(),
+      (): number => 0
+    );
+    expect(inactiveExecute(JSON.stringify({ text: "不该入链" }))).toBe(
+      JSON.stringify({ error: REPLY_INVALIDATED_TOOL_ERROR })
+    );
+
+    const toolset = await createReplyToolset(replyToolContextFixture({ mediaToolsRequested: true }));
+    expect(JSON.parse(toolset.execute(SEND_MESSAGE_TOOL, JSON.stringify({ text: "😀🎉" }))).error)
+      .toContain("Emoji-only messages are not allowed");
+    expect(toolset.actionsUsed()).toBe(0);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
   test("禁用发生在输入停顿期间时不再发出消息", async () => {
     let active: boolean = true;
     sleepMock.mockImplementationOnce(async (): Promise<void> => {
@@ -141,6 +163,77 @@ describe("send_message typo correction", () => {
       expect(second.typo).toBeUndefined();
       expect(sendMessageMock).toHaveBeenNthCalledWith(3, { chatId: -100800, text: "还好吧", replyToMessageId: undefined });
     } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test.each([
+    { name: "原字不在正文里", text: "你好", original: "气", replacement: "汽", reason: "must actually appear in text" },
+    { name: "替换后整条只剩 emoji", text: "😀a", original: "a", replacement: "\u200D", reason: "emoji-only" },
+  ])("$name时作废这次手滑、正文照发，并把拒绝原因交给模型", async ({ text, original, replacement, reason }) => {
+    const toolset = await createReplyToolset(replyToolContextFixture({ mediaToolsRequested: true, roundHasTypo: true }));
+
+    const result = JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({
+      text,
+      typo_original_char: original,
+      typo_replacement_char: replacement,
+    })));
+
+    expect(result.success).toBe(true);
+    expect(result.typo).toBeUndefined();
+    expect(result.typo_rejected).toContain(reason);
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenCalledWith({ chatId: -100800, text, replyToMessageId: undefined });
+  });
+
+  test("本轮动作余量不足以容纳补字时作废这次手滑，正文照发", async () => {
+    const toolset = await createReplyToolset(replyToolContextFixture({ mediaToolsRequested: true, roundHasTypo: true }));
+    const fillerCount: number = HARD_MAX_ACTIONS_PER_REPLY - TYPO_MIN_REMAINING_ACTIONS + 1;
+    for (let index: number = 0; index < fillerCount; index++) {
+      await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({ text: `第${index}句` }));
+    }
+
+    const result = JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({
+      text: "天气",
+      typo_original_char: "气",
+      typo_replacement_char: "汽",
+    })));
+
+    expect(result.typo).toBeUndefined();
+    expect(result.typo_rejected).toContain("not enough remaining action budget");
+    expect(sendMessageMock).toHaveBeenCalledTimes(fillerCount + 1);
+    expect(sendMessageMock).toHaveBeenLastCalledWith({ chatId: -100800, text: "天气", replyToMessageId: undefined });
+  });
+
+  test("快速补字的静默期间本轮被中止时不补字，也不记错误日志", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    const controller: AbortController = new AbortController();
+    sleepMock
+      .mockImplementationOnce(async (): Promise<void> => {})
+      .mockImplementationOnce(async (): Promise<void> => {
+        controller.abort();
+        throw new DOMException("aborted", "AbortError");
+      });
+    const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      const toolset = await createReplyToolset(replyToolContextFixture({
+        mediaToolsRequested: true,
+        roundHasTypo: true,
+        signal: controller.signal,
+      }));
+
+      await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({
+        text: "天气",
+        typo_original_char: "气",
+        typo_replacement_char: "汽",
+      }));
+
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+      expect(sendMessageMock.mock.calls[0]?.[0]).toMatchObject({ chatId: -100800, text: "天汽" });
+      expect(errorLog).not.toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
       Math.random = originalRandom;
     }
   });

@@ -10,7 +10,11 @@ import {
   SEND_MESSAGE_TOOL,
 } from "../../../../consts/tools";
 
-/** 构造 send_message 工具声明；instruction 为当前台词语言对应的工具说明。 */
+/**
+ * 构造 send_message 工具声明；instruction 为当前台词语言对应的工具说明。
+ * @param instruction 当前台词语言对应的 send_message 工具说明文本。
+ * @returns send_message 工具定义对象。
+ */
 export function buildSendMessageToolDefinition(instruction: string): AiToolDefinition {
   return {
     name: SEND_MESSAGE_TOOL,
@@ -37,7 +41,10 @@ export function buildSendMessageToolDefinition(instruction: string): AiToolDefin
   };
 }
 
-/** 构造 add_reaction 工具声明。 */
+/**
+ * 构造 add_reaction 工具声明。
+ * @returns add_reaction 工具定义对象。
+ */
 export function buildAddReactionToolDefinition(): AiToolDefinition {
   return {
     name: ADD_REACTION_TOOL,
@@ -52,7 +59,10 @@ export function buildAddReactionToolDefinition(): AiToolDefinition {
   };
 }
 
-/** 构造 abuse_mark 工具声明。 */
+/**
+ * 构造 abuse_mark 工具声明。
+ * @returns abuse_mark 工具定义对象。
+ */
 export function buildAbuseMarkToolDefinition(): AiToolDefinition {
   return {
     name: ABUSE_MARK_TOOL,

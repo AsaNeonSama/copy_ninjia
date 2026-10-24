@@ -65,6 +65,8 @@ export interface SupervisedWorkerHandle<TMessage> {
  * 建立业务 Worker 的监督句柄，但不在模块导入时创建线程。入口完成单实例锁和
  * 必要的持久化恢复后，由领域 init 显式启动；永久不可用后拒绝投递并通知
  * 应用生命周期交给进程管理器重启。
+ * @param options 受监督 Worker 的脚本 URL、日志名称与生命周期回调配置。
+ * @returns 控制 Worker 初始化、消息投递与终止的监督句柄。
  */
 export function superviseWorker<TMessage, TEvent = never>(
   options: SupervisedWorkerOptions<TMessage, TEvent>

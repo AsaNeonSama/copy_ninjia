@@ -20,6 +20,8 @@ import type { Scenario } from "./types";
  * 阈值时 observeMemberMessage 自己清空时间队列，下一轮仍是同一个既有成员。
  * now 在所有预热和正式样本间单调递增，量级与生产 Date.now() 一致，样本边界无
  * 时钟回拨。
+ *
+ * @returns 防刷屏单成员窗口命中场景定义
  */
 export function floodWindowHitScenario(): Scenario {
   let nextNow: number = BENCHMARK_EPOCH_MS;
@@ -49,12 +51,15 @@ export function floodWindowHitScenario(): Scenario {
  *
  * 每个正式样本计时前清空，读数不含满载淘汰；与 steady 场景分开观测建表分配期和
  * 稳定 LRU 淘汰期的 JIT/GC 行为。
+ *
+ * @returns 防刷屏窗口建表增长场景定义
  */
 export function floodWindowGrowthScenario(): Scenario {
   let nextUserId: number = 1;
   let nextNow: number = BENCHMARK_EPOCH_MS;
   return {
     iterations: FLOOD_WINDOW_MAX_MEMBERS,
+    warmupIterations: FLOOD_WINDOW_MAX_MEMBERS * 6,
     run: (iterations: number): number => {
       for (let index: number = 0; index < iterations; index += 1) {
         observeMemberMessage(BENCHMARK_CHAT_ID, nextUserId, nextNow);
@@ -73,7 +78,11 @@ export function floodWindowGrowthScenario(): Scenario {
   };
 }
 
-/** 满载后只执行稳定 LRU 淘汰；预填充不进入预热或正式样本计时。 */
+/**
+ * 满载后只执行稳定 LRU 淘汰；预填充不进入预热或正式样本计时。
+ *
+ * @returns 防刷屏窗口满载稳定淘汰场景定义
+ */
 export function floodWindowSteadyScenario(): Scenario {
   let nextUserId: number = FLOOD_WINDOW_MAX_MEMBERS + 1;
   let nextNow: number = BENCHMARK_EPOCH_MS + FLOOD_WINDOW_MAX_MEMBERS;

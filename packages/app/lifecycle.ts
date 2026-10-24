@@ -3,6 +3,7 @@ import {
   EMERGENCY_REUSED_DISPOSE_DEADLINE_MS,
   FINAL_OFFSET_CONFIRM_TIMEOUT_MS,
   NORMAL_FLUSH_TIMEOUTS,
+  SHUTDOWN_TOTAL_BUDGET_MS,
 } from "../consts/lifecycle";
 import { TELEGRAM_ALLOWED_UPDATES } from "../consts/telegram";
 import type { CachedUser } from "../types/chatState";
@@ -18,6 +19,7 @@ import type {
   ShutdownOutcome,
   ShutdownResults,
 } from "../types/lifecycle";
+import { budgetWithinDeadline, createMonotonicDeadline } from "../libs/monotonicDeadline";
 import { telegramSignal } from "../libs/telegramSignal";
 import { lifecycleDependencies } from "./lifecycleDependencies";
 import type { ApplicationLifecycleDependencies } from "./lifecycleDependencies";
@@ -34,6 +36,7 @@ import {
   waitForLifecycleBackgroundMaintenance,
 } from "./lifecycle/maintenance";
 
+/** 触发应用优雅关停的进程信号名称。 */
 type ShutdownSignal = "SIGINT" | "SIGTERM";
 
 /**
@@ -69,14 +72,17 @@ export class ApplicationLifecycle {
    * wait() 一旦发现确认失败/超时或关键前置未完成，就永久置 false，后续 dispose 读取它。
    */
   private finalOffsetGateSucceeded: boolean = true;
+  /** 整段停机的单调总截止（SHUTDOWN_TOTAL_BUDGET_MS）；首次停机请求或开始收尾时创建，此后不再改动。 */
+  private shutdownDeadline: number | null = null;
 
   /**
    * 三条停机入口（信号、Disk I/O fatal、业务 Worker fatal）共用的停止动作：
-   * 置位 stopRequested、静默维护任务，再请求 runner 停止取 update。runner 停止
-   * 失败只记一行日志，不上抛。
+   * 启动整段停机总截止、置位 stopRequested、静默维护任务，再请求 runner 停止取 update。
+   * runner 停止失败只记一行日志，不上抛。
    * @param stopErrorMessage runner 停止失败时的日志前缀，按入口区分。
    */
   private stopForShutdown(stopErrorMessage: string): void {
+    this.startShutdownDeadline();
     this.stopRequested = true;
     quiesceLifecycleMaintenance(this.dependencies);
     this.runner?.stop().catch((error: unknown): void => {
@@ -84,6 +90,19 @@ export class ApplicationLifecycle {
     });
   }
 
+  /**
+   * 创建整段停机的单调总截止（SHUTDOWN_TOTAL_BUDGET_MS）；已创建时沿用首次的截止。
+   * @returns 整段停机的单调总截止时间点。
+   */
+  private startShutdownDeadline(): number {
+    this.shutdownDeadline ??= createMonotonicDeadline(SHUTDOWN_TOTAL_BUDGET_MS, this.dependencies.monotonicNow);
+    return this.shutdownDeadline;
+  }
+
+  /**
+   * 响应进程退出信号（`SIGINT` / `SIGTERM`），首次收到时打印日志并启动优雅关停。
+   * @param signal 触发关停的信号名。
+   */
   private stopOnSignal(signal: ShutdownSignal): void {
     if (!this.stopRequested) {
       this.dependencies.logger.log(`Received ${signal}; beginning graceful shutdown.`);
@@ -164,6 +183,8 @@ export class ApplicationLifecycle {
     const restoredCopiedUser: CachedUser | null = this.dependencies.getGlobalCopyState().copiedUser;
     if (restoredCopiedUser) this.dependencies.seedSenderCache(restoredCopiedUser);
     this.dependencies.seedTranslateTargets();
+    this.dependencies.restoreLuckState(loaded.luckReceiptSecret, loaded.luckDay);
+    this.dependencies.hydratePendingVerifications(loaded.verifications);
 
     this.handlers = this.dependencies.registerHandlers(this.dependencies.bot);
     await this.dependencies.registerCommandMenu(this.dependencies.bot);
@@ -173,8 +194,6 @@ export class ApplicationLifecycle {
     this.flags.aiChatInitialized = true;
     this.dependencies.hydrateAiMemory(loaded.aiMemories);
     this.dependencies.hydrateStickerCatalog(loaded.stickerCatalogs);
-    this.dependencies.restoreLuckState(loaded.luckReceiptSecret, loaded.luckDay);
-    this.dependencies.hydratePendingVerifications(loaded.verifications);
     // 早于 runner 开始投喂更新。
     this.dependencies.hydrateBlocklist(loaded.pendingBlockedRemovals);
     this.dependencies.initAntiRaid();
@@ -208,7 +227,7 @@ export class ApplicationLifecycle {
       .finally((): void => { this.chatTitleRefreshSettled = true; });
   }
 
-  /** 等待轮询停止、在途 update 排空、后台维护结束，并确认最终 update offset。 */
+  /** 等待轮询停止、在途 update 排空、后台维护结束，并确认最终 update offset；各步等待受整段停机总截止约束。 */
   async wait(): Promise<void> {
     const runner: AcknowledgedUpdateRunner | null = this.runner;
     if (runner === null) throw new Error("Application lifecycle has not been initialized");
@@ -223,14 +242,15 @@ export class ApplicationLifecycle {
     } finally {
       this.runnerTaskSettled = true;
     }
+    const deadline: number = this.startShutdownDeadline();
     const maintenanceQuiesceSucceeded: boolean = quiesceLifecycleMaintenance(this.dependencies);
     const runnerDrained: boolean = await this.waitForRunnerDrain(runner);
 
     // 标题刷新可能排入 chatState SQLite 写缓冲，先等它完成，再做最终 flush。
     const maintenanceSettled: boolean = await this.waitForBackgroundMaintenance(
-      NORMAL_FLUSH_TIMEOUTS.maintenanceMs
+      budgetWithinDeadline(NORMAL_FLUSH_TIMEOUTS.maintenanceMs, deadline, this.dependencies.monotonicNow)
     );
-    const persistenceFlushed: boolean = await this.flushAllToDisk(NORMAL_FLUSH_TIMEOUTS);
+    const persistenceFlushed: boolean = await this.flushAllToDisk(NORMAL_FLUSH_TIMEOUTS, deadline);
     if (!maintenanceQuiesceSucceeded || !runnerDrained || !maintenanceSettled) process.exitCode = 1;
 
     // 停机时取数循环放弃在途 update、不再 await 它的结算，之后发生的失败由
@@ -253,10 +273,12 @@ export class ApplicationLifecycle {
       persistenceFlushed &&
       !failedUpdateWithheld;
     if (lastSeenUpdateId > 0 && confirmationPrerequisitesMet) {
+      const offsetConfirmBudgetMs: number =
+        budgetWithinDeadline(FINAL_OFFSET_CONFIRM_TIMEOUT_MS, deadline, this.dependencies.monotonicNow);
       try {
         await this.dependencies.bot.api.getUpdates(
           { offset: lastSeenUpdateId + 1, limit: 1, timeout: 0 },
-          telegramSignal(AbortSignal.timeout(FINAL_OFFSET_CONFIRM_TIMEOUT_MS))
+          telegramSignal(AbortSignal.timeout(offsetConfirmBudgetMs))
         );
       } catch (error: unknown) {
         this.finalOffsetGateSucceeded = false;
@@ -272,9 +294,14 @@ export class ApplicationLifecycle {
     }
   }
 
-  /** 停止活动 runner，等待后台任务完成，排空持久化并释放单实例锁。 */
+  /**
+   * 停止活动 runner，等待后台任务完成，排空持久化并释放单实例锁；各步等待受整段停机总截止约束。
+   * @param timeouts 各停机阶段的超时预算，默认使用常规关停预算。
+   * @returns 停机排空与锁释放流程完成的 Promise（重复调用复用首次 Promise）。
+   */
   dispose(timeouts: FlushTimeouts = NORMAL_FLUSH_TIMEOUTS): Promise<void> {
     this.disposePromise ??= (async (): Promise<void> => {
+      const deadline: number = this.startShutdownDeadline();
       const settler: OwnerSettler = createOwnerSettler(this.dependencies.logger);
       const maintenanceQuiesceSucceeded: boolean = quiesceLifecycleMaintenance(this.dependencies);
       const runner: AcknowledgedUpdateRunner | null = this.runner;
@@ -288,7 +315,9 @@ export class ApplicationLifecycle {
         : await settler.gate("runner drain", (): Promise<boolean> => this.waitForRunnerDrain(runner));
       const backgroundMaintenanceSettled: boolean = await settler.gate(
         "background maintenance",
-        (): Promise<boolean> => this.waitForBackgroundMaintenance(timeouts.maintenanceMs)
+        (): Promise<boolean> => this.waitForBackgroundMaintenance(
+          budgetWithinDeadline(timeouts.maintenanceMs, deadline, this.dependencies.monotonicNow)
+        )
       );
       const results: ShutdownResults = {
         runnerDrained,
@@ -299,6 +328,7 @@ export class ApplicationLifecycle {
           flags: this.flags,
           settler,
           timeouts,
+          deadline,
           lockAcquired: this.lockAcquired,
         }),
       };
@@ -346,6 +376,7 @@ export class ApplicationLifecycle {
   /**
    * 执行 init/wait 并保证 dispose。main 模式额外接管进程 handler
    * 与退出码；test 模式把运行异常原样交还调用方。
+   * @param mode 运行模式（`"main"` 接管进程信号与退出码，`"test"` 原样向上抛错）。
    */
   async run(mode: ApplicationRunMode): Promise<void> {
     const managesProcess: boolean = mode === "main";
@@ -366,11 +397,13 @@ export class ApplicationLifecycle {
     }
   }
 
+  /** 依次完成启动初始化与主循环阻塞等待。 */
   private async runMain(): Promise<void> {
     await this.init();
     await this.wait();
   }
 
+  /** 注册进程信号与未捕获异常/拒绝监听器（幂等）。 */
   private installProcessHandlers(): void {
     if (this.processHandlersInstalled) return;
     // 信号 handler 在第一个 await 之前安装；信号在 runner 创建前到达时，
@@ -383,6 +416,7 @@ export class ApplicationLifecycle {
     this.processHandlersInstalled = true;
   }
 
+  /** 移除已注册的进程信号与未捕获异常/拒绝监听器（幂等）。 */
   private removeProcessHandlers(): void {
     if (!this.processHandlersInstalled) return;
     process.removeListener("SIGINT", this.stopOnSigint);
@@ -392,6 +426,7 @@ export class ApplicationLifecycle {
     this.processHandlersInstalled = false;
   }
 
+  /** 在未捕获异常或未处理拒绝发生时触发紧急落盘，并在完成或硬截止超时后以退出码 1 退出进程。 */
   private exitAfterEmergencyDispose(): void {
     if (this.fatalExitStarted) return;
     this.fatalExitStarted = true;
@@ -421,6 +456,11 @@ export class ApplicationLifecycle {
     });
   }
 
+  /**
+   * 等待 runner 在途更新排空，若取消后仍未结算则标记 `runnerCancellationUnsettled`。
+   * @param runner 已确认更新批处理 runner。
+   * @returns 在预算内自然排空返回 `true`，超时取消或未结算返回 `false`。
+   */
   private async waitForRunnerDrain(
     runner: AcknowledgedUpdateRunner
   ): Promise<boolean> {
@@ -430,19 +470,31 @@ export class ApplicationLifecycle {
     return result === "drained";
   }
 
+  /**
+   * 等待启动期挂出的群标题维护任务在预算内完成。
+   * @param timeoutMs 等待预算毫秒数。
+   * @returns 未启动、已完成或在预算内结算返回 `true`，超时取消返回 `false`。
+   */
   private async waitForBackgroundMaintenance(timeoutMs: number): Promise<boolean> {
     const task: Promise<void> | null = this.chatTitleRefreshTask;
     if (task === null || this.chatTitleRefreshSettled) return true;
     return waitForLifecycleBackgroundMaintenance(task, timeoutMs, this.dependencies);
   }
 
-  private flushAllToDisk(timeouts: FlushTimeouts): Promise<boolean> {
+  /**
+   * 持锁时执行确认最终 offset 前的全量排空与落盘。
+   * @param timeouts 各阶段的排空与落盘时间预算。
+   * @param deadline 整段停机的单调总截止。
+   * @returns 已持锁且全部阶段干净落盘返回 `true`，未持锁或任一阶段未完成返回 `false`。
+   */
+  private flushAllToDisk(timeouts: FlushTimeouts, deadline: number): Promise<boolean> {
     if (!this.lockAcquired) return Promise.resolve(false);
     return flushAllToDisk({
       dependencies: this.dependencies,
       flags: this.flags,
       settler: createOwnerSettler(this.dependencies.logger),
       timeouts,
+      deadline,
     });
   }
 }

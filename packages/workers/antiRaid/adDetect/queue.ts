@@ -76,14 +76,19 @@ import type {
   AdSampleContext,
 } from "../../../types/antiRaid/adDetect";
 import {
-  parseVerificationKey,
   verificationKey,
   verificationKeyPrefix,
+  verificationKeySuffix,
 } from "../../../libs/verificationKey";
 import type { AdCandidateDecision } from "../../../types/states/adDetectAdmission";
 import type { TelegramIdentityMetadata } from "../../../types/identityPolicy";
 
-/** 提取候选消息携带的发送者身份元数据。 */
+/**
+ * 提取候选消息携带的发送者身份元数据。
+ *
+ * @param message 待检候选消息。
+ * @returns 只读的发送者身份元数据。
+ */
 function candidateIdentityMetadata(
   message: AdCandidateMessage
 ): Readonly<TelegramIdentityMetadata> {
@@ -96,6 +101,8 @@ function candidateIdentityMetadata(
 
 /**
  * 接收并合并一条待判定候选消息，按准入策略入队或触发频道尾随广告删除。
+ *
+ * @param message 待检候选消息。
  * @param now 观测时刻，默认取 `message.observedAt`。
  */
 export function enqueueAdCandidate(
@@ -115,6 +122,7 @@ export function enqueueAdCandidate(
   if (
     existing === undefined &&
     !message.blocked &&
+    message.isChannel &&
     !recentlyDisposed &&
     rejectNewAdBundleAtCapacity()
   ) return;
@@ -199,6 +207,8 @@ export function enqueueAdCandidate(
 
 /**
  * 执行一拍批量派发：从队首取出至多 AD_DETECT_BATCH_SIZE 个键并发调用 detectOne。
+ *
+ * @param now 当前墙钟毫秒时间戳，默认取 `Date.now()`。
  */
 export function runAdDetectBatch(now: number = Date.now()): Promise<void> {
   const tasks: Promise<void>[] = [];
@@ -241,6 +251,8 @@ export function quiesceAdDetectQueue(): void {
 
 /**
  * 清理指定群的待检队列、消息束、处置抑制记录与引用警告状态。
+ *
+ * @param chatId 目标群 ID。
  */
 export function clearChatAdDetect(chatId: number): void {
   const prefix: string = verificationKeyPrefix(chatId);
@@ -257,10 +269,12 @@ export function clearChatAdDetect(chatId: number): void {
 
 /**
  * 清理指定身份在各群尚未结算的广告检测状态。
+ *
+ * @param identityId 目标身份 ID。
  */
 export function clearIdentityAdDetect(identityId: number): void {
-  const belongsToIdentity = (key: string): boolean =>
-    parseVerificationKey(key)?.userId === identityId;
+  const suffix: string = verificationKeySuffix(identityId);
+  const belongsToIdentity = (key: string): boolean => key.endsWith(suffix);
   adDetectQueue.removeWhere(belongsToIdentity);
   for (const key of queuedAdDetectKeys) {
     if (belongsToIdentity(key)) queuedAdDetectKeys.delete(key);
@@ -274,6 +288,8 @@ export function clearIdentityAdDetect(identityId: number): void {
 
 /**
  * 周期性维护回收：清理过期的处置抑制记录、已判上下文与引用警告状态，回收空消息束并补排含未判内容的键。
+ *
+ * @param now 当前墙钟毫秒时间戳，默认取 `Date.now()`。
  */
 export function sweepAdDetect(now: number = Date.now()): void {
   expireAdDetectDisposalMarkers();
@@ -294,7 +310,12 @@ export function sweepAdDetect(now: number = Date.now()): void {
   sweepReferencedAdWarnings(now);
 }
 
-/** Worker 启动入口：登记回投通道并挂上唯一批处理节拍。 */
+/**
+ * Worker 启动入口：登记回投通道并挂上唯一批处理节拍。
+ *
+ * @param publish 广告命中处置事件的回投回调。
+ * @param publishVerdictTrue 广告分类阳性事件的回投回调。
+ */
 export function startAdDetectQueue(
   publish: (event: AdDetectedEvent) => void,
   publishVerdictTrue: (event: AdVerdictTrueEvent) => void
@@ -309,7 +330,7 @@ export function startAdDetectQueue(
   adDetectTickTimer.current.unref();
 }
 
-/** 协作式停止：清掉 timer 与全部队列状态；强制 terminate 时随 isolate 一起没。 */
+/** 协作式停止：清掉 timer 与全部队列状态；强制 terminate 时随 Worker isolate 一并销毁。 */
 export function stopAdDetectQueue(): void {
   quiesceAdDetectQueue();
   adDetectPublishHolder.current = null;

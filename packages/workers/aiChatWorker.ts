@@ -1,3 +1,8 @@
+/**
+ * AI 闲聊 Worker 入口：负责主线程消息路由、初始化与配置热重载接管、群失效与停机排空，
+ * 以及周期性缓存清扫、排队触发补跑和脏记忆/贴纸目录快照上报。
+ */
+
 import {
   drainStickerCatalogTasks,
   ensureStickerCatalogs,
@@ -67,13 +72,13 @@ import type { TelegramWorkerRequest } from "../types/telegramWorker";
 import { logger } from "../infra/logger";
 import { installBusinessWorkerPort } from "./businessWorkerPort";
 
-/**
- * AI 闲聊 Worker 入口：负责主线程消息路由、初始化与配置热重载接管、群失效与停机排空，
- * 以及周期性缓存清扫、排队触发补跑和脏记忆/贴纸目录快照上报。
- */
-
 declare const self: Worker;
 
+/**
+ * 失效指定群的在途回复代际、清空群滚动记忆缓存，并依次上报 memoryDeleted 与 chatInvalidated 事件。
+ *
+ * @param msg 群失效指令载荷，包含目标群 ID 与请求序号
+ */
 function handleInvalidateChat(msg: AiInvalidateChatMessage): void {
   const drained: Promise<void> = invalidateChatReplies(msg.chatId);
   clearChatMemoryCache(msg.chatId);
@@ -87,7 +92,10 @@ function handleInvalidateChat(msg: AiInvalidateChatMessage): void {
   });
 }
 
-/** 封闭新任务入口、停止维护定时器与天气刷新，并并行排空在途回复代际与贴纸目录任务。 */
+/**
+ * 封闭新任务入口、停止维护定时器与天气刷新，并并行排空在途回复代际与贴纸目录任务。
+ * @returns 所有在途回复代际与贴纸目录任务排空完成后的 Promise（幂等复用同一排空句柄）。
+ */
 function beginAiChatWorkerQuiesce(): Promise<void> {
   aiChatWorkerQuiescing.current = true;
   aiChatWorkerAbortController.current.abort(
@@ -119,7 +127,11 @@ function beginAiChatWorkerQuiesce(): Promise<void> {
   return aiChatWorkerDrain.current;
 }
 
-/** 排空所有在途任务后上报最终脏记忆与贴纸目录快照，并回执 memoryFlushed。 */
+/**
+ * 排空所有在途任务后上报最终脏记忆与贴纸目录快照，并回执 memoryFlushed。
+ *
+ * @param flushId 本次停机刷盘流水号，原样写入 memoryFlushed 回执
+ */
 async function flushAiChatWorker(flushId: number): Promise<void> {
   await beginAiChatWorkerQuiesce();
   flushDirtyMemories();
@@ -127,7 +139,11 @@ async function flushAiChatWorker(flushId: number): Promise<void> {
   self.postMessage({ type: "memoryFlushed", flushId } satisfies AiMemoryFlushedEvent);
 }
 
-/** 路由一条主线程消息。 */
+/**
+ * 路由一条主线程发往 AI 闲聊 Worker 的消息。
+ *
+ * @param msg 主线程下发的 AI 闲聊 Worker 消息载荷
+ */
 export function handleAiChatWorkerMessage(msg: AiChatWorkerMessage): void {
   switch (msg.type) {
     case "init":
@@ -218,7 +234,11 @@ export function handleAiChatWorkerMessage(msg: AiChatWorkerMessage): void {
   }
 }
 
-/** 周期性维护：清扫过期缓存、补跑排队触发、对账贴纸目录并上报脏记忆与脏贴纸目录快照。 */
+/**
+ * 周期性维护：清扫过期缓存、补跑排队触发、对账贴纸目录并上报脏记忆与脏贴纸目录快照。
+ *
+ * @param now 当前毫秒时间戳，默认取 `Date.now()`
+ */
 export function runAiChatWorkerMaintenance(now: number = Date.now()): void {
   if (aiChatWorkerQuiescing.current) return;
   sweepAiChatReplyCache(now);

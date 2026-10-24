@@ -14,6 +14,9 @@ import { updateTopicOf } from "../libs/forumTopic";
  * 每次只取一条更新，middleware 成功完成后才发起下一次取数。
  * stop 取消取数与退避并唤醒当前等待；在途 middleware 由生命周期按 size() 排空。
  * @see ../../docs/cn/04-invariants.md
+ * @param bot 负责处理更新的 grammY Bot 实例。
+ * @param allowedUpdates 允许接收的 Telegram 更新类型列表。
+ * @returns 已启动的更新拉取与处理 runner 控制句柄。
  */
 export function runAcknowledgedUpdateBatches(
   bot: Bot,
@@ -29,12 +32,21 @@ export function runAcknowledgedUpdateBatches(
   let currentAbortController: AbortController | null = null;
   let resolveStop: (() => void) | undefined;
 
+  /**
+   * 中止当前在途的 update，并返回本次实际触发中止的在途条数（0 或 1）。
+   * @param reason 中止在途 update 的异常原因。
+   * @returns 实际中止的在途 update 数量。
+   */
   const abortActiveUpdate = (reason: DOMException): number => {
     if (activeUpdateController === null || activeUpdateController.signal.aborted) return 0;
     activeUpdateController.abort(reason);
     return 1;
   };
 
+  /**
+   * 在独立取消信号与触发话题作用域内执行单条 Telegram update，并处理取消与错误传播。
+   * @param update 待处理的 Telegram Update 对象。
+   */
   const handleUpdate = async (update: Update): Promise<void> => {
     const updateController: AbortController = new AbortController();
     activeUpdateController = updateController;

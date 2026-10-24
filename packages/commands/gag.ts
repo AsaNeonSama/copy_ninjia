@@ -44,7 +44,12 @@ import {
 import type { GagReservationOutcome } from "./gag/runtime";
 import { resolveCommandTarget } from "./targetResolution";
 
-/** `/gag`、`/ungag` 共用的身份、群类型与机器人删除权限门禁。 */
+/**
+ * `/gag`、`/ungag` 共用的身份、群类型与机器人删除权限门禁。
+ * @param ctx 命令上下文。
+ * @param command 触发门禁的命令名。
+ * @returns 校验全部通过时返回 true，拒绝并已回执时返回 false。
+ */
 async function passesGagCommandGate(
   ctx: CommandContext<Context>,
   command: "gag" | "ungag"
@@ -77,13 +82,24 @@ async function passesGagCommandGate(
   return true;
 }
 
-/** 目标在本群已有会话时的回执：会话在收尾中提示稍后再试，否则提示已在管教中。 */
+/**
+ * 目标在本群已有会话时的回执：会话在收尾中提示稍后再试，否则提示已在管教中。
+ * @param existing 目标在本群已有的会话。
+ * @param targetLabel 目标显示标签。
+ * @returns 冲突提示文本。
+ */
 function gagConflictText(existing: GagSession | undefined, targetLabel: string): string {
   const texts: AtmosphereTexts["NOTICE_TEXTS"] = chatAtmosphere().NOTICE_TEXTS;
   return existing?.phase === "ending" ? texts.gagEnding(targetLabel) : texts.gagExists(targetLabel);
 }
 
-/** 构造一次容量预约；字段一次初始化，进入 active 后不再增删字段。 */
+/**
+ * 构造一次容量预约；字段一次初始化，进入 active 后不再增删字段。
+ * @param ctx 命令上下文。
+ * @param target 目标身份。
+ * @param parsed 解析后的 `/gag` 命令参数。
+ * @returns 初始化为 starting 阶段的会话对象。
+ */
 function createGagReservation(
   ctx: CommandContext<Context>,
   target: CachedUser,
@@ -118,7 +134,10 @@ function createGagReservation(
   };
 }
 
-/** 处理 `/gag`：预约容量、按目标身份发开始提示，成功后才开始删目标消息。 */
+/**
+ * 处理 `/gag`：预约容量、按目标身份发开始提示，成功后才开始删目标消息。
+ * @param ctx 命令上下文。
+ */
 export async function handleGagCommand(ctx: CommandContext<Context>): Promise<void> {
   if (!await passesGagCommandGate(ctx, "gag")) return;
   const parsed: ParsedGagCommand | undefined = parseGagCommand(
@@ -244,13 +263,16 @@ export async function handleGagCommand(ctx: CommandContext<Context>): Promise<vo
     await commitGagNotices(session);
   } catch (error: unknown) {
     // 判据是整段发送流程是否仍未提交（session.noticePending）。failGagNotice 删除
-    // 所有已同步登记的提示；删除失败时保留 ending owner 重试，已登记的 id 不丢弃。
+    // 所有已同步登记的提示；删除失败时保留处于 ending 阶段的会话实例继续重试，已登记的 id 不丢弃。
     if (session.noticePending) await failGagNotice(session);
     throw error;
   }
 }
 
-/** 处理 `/ungag`：必须用回复、@username 或用户/频道 id 定位本群的唯一目标。 */
+/**
+ * 处理 `/ungag`：必须用回复、@username 或用户/频道 id 定位本群的唯一目标。
+ * @param ctx 命令上下文。
+ */
 export async function handleUngagCommand(ctx: CommandContext<Context>): Promise<void> {
   if (!await passesGagCommandGate(ctx, "ungag")) return;
   const target: CachedUser | undefined = await resolveCommandTarget({

@@ -26,7 +26,12 @@ export const activeVerificationSnapshots: ReadonlyMap<string, VerificationSnapsh
 /** activeVerificationSnapshots 的按群二级索引（chatId -> userId 集合），随写入函数同步增删。 */
 const activeUsersByChat: Map<number, Set<number>> = new Map();
 
-/** 写入或替换一条活动快照，并同步更新按群二级索引。 */
+/**
+ * 写入或替换一条活动快照，并同步更新按群二级索引。
+ *
+ * @param key 验证记录键（`chatId:userId`）
+ * @param snapshot 待写入的活动验证快照
+ */
 export function setActiveVerificationSnapshot(key: string, snapshot: VerificationSnapshot): void {
   activeSnapshots.set(key, snapshot);
   let users: Set<number> | undefined = activeUsersByChat.get(snapshot.chatId);
@@ -37,7 +42,11 @@ export function setActiveVerificationSnapshot(key: string, snapshot: Verificatio
   users.add(snapshot.userId);
 }
 
-/** 删除一条活动快照及其按群二级索引。 */
+/**
+ * 删除一条活动快照及其按群二级索引。
+ *
+ * @param key 验证记录键（`chatId:userId`）
+ */
 export function deleteActiveVerificationSnapshot(key: string): void {
   const snapshot: VerificationSnapshot | undefined = activeSnapshots.get(key);
   if (snapshot === undefined) return;
@@ -54,7 +63,13 @@ export function clearActiveVerificationSnapshots(): void {
   activeUsersByChat.clear();
 }
 
-/** 查询 userId 是否在 chatId 群的活动验证镜像中。 */
+/**
+ * 查询 userId 是否在 chatId 群的活动验证镜像中。
+ *
+ * @param chatId 群聊 ID
+ * @param userId 成员用户 ID
+ * @returns 该成员当前是否处于活动入群验证中
+ */
 export function isActiveVerificationUser(chatId: number, userId: number): boolean {
   if (activeUsersByChat.size === 0) return false;
   return activeUsersByChat.get(chatId)?.has(userId) === true;

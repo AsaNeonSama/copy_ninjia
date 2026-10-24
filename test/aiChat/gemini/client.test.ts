@@ -91,6 +91,7 @@ describe("Gemini request safety settings", () => {
     expect(result?.candidates?.[0]?.content?.parts?.[0]?.text).toBe("ok");
     expect(createdClientOptions).toHaveLength(1);
     expect(createdClientOptions[0]?.apiKey).toBe("summary-key");
+    expect(createdClientOptions[0]?.enterprise).toBe(false);
     expect(createdClientOptions[0]?.httpOptions).toEqual({
       baseUrl: "https://google.example",
       timeout: GEMINI_REQUEST_TIMEOUTS_MS.text,

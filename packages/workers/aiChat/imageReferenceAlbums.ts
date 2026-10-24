@@ -11,6 +11,8 @@ import type { TelegramVisionSource } from "../../types/media";
 /**
  * 记录相册中的图片：按 messageId 升序插入对应 mediaGroupId 的相册列表，
  * 超出 IMAGE_GENERATION_MAX_REFERENCE_IMAGES 时移除末尾项。
+ *
+ * @param msg 主线程下发的入站媒体记录消息
  */
 export function observeImageReferenceAlbumPhoto(msg: AiRecordMediaMessage): void {
   const mediaGroupId: string | undefined = msg.mediaGroupId;
@@ -33,7 +35,12 @@ export function observeImageReferenceAlbumPhoto(msg: AiRecordMediaMessage): void
   if (photos.length > IMAGE_GENERATION_MAX_REFERENCE_IMAGES) photos.pop();
 }
 
-/** 提取相册缓存项所需的视觉源与 message_id。 */
+/**
+ * 提取相册缓存项所需的视觉源与 message_id。
+ *
+ * @param msg 入站媒体记录消息
+ * @returns 相册缓存中的图片条目
+ */
 function albumPhotoOf(msg: AiRecordMediaMessage): ImageReferenceAlbumPhoto {
   return {
     fileId: msg.fileId,
@@ -47,6 +54,10 @@ function albumPhotoOf(msg: AiRecordMediaMessage): ImageReferenceAlbumPhoto {
 /**
  * 组装本轮生图参考图列表：主参考图排首位，再按相册顺序补齐同相册其余图片，
  * 总数不超过 `agent.image.max_reference_images`。
+ *
+ * @param chatId 群聊 ID
+ * @param reference 触发本轮生图的主参考图片源
+ * @returns 按顺位排列的生图参考视觉源只读数组
  */
 export function imageGenerationReferencesFor(
   chatId: number,

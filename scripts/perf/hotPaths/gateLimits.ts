@@ -5,7 +5,12 @@ import {
   HOT_PATH_GC_SOFT_OVERRUN_PERCENT,
 } from "../../../packages/consts/performance";
 
-/** 可用 CPU 数必须为正整数；按降序下界选择所有场景共同的暂停预算。 */
+/**
+ * 可用 CPU 数必须为正整数；按降序下界选择所有场景共同的暂停预算。
+ *
+ * @param cpuCount 宿主机器可用逻辑 CPU 数量
+ * @returns 选定的 GC 暂停占比预算百分比
+ */
 export function selectHotPathGcPausePercentLimit(cpuCount: number): number {
   if (!Number.isSafeInteger(cpuCount) || cpuCount < 1) {
     throw new Error("Hot-path GC policy requires a positive integer CPU count.");
@@ -17,6 +22,7 @@ export function selectHotPathGcPausePercentLimit(cpuCount: number): number {
 }
 
 export interface HotPathGcSoftReportInput {
+  /** 热路径场景名称。 */
   readonly scenario: string;
   /** 场景各稳态进程中最大的 GC 暂停占比。 */
   readonly gcPercent: number;
@@ -32,12 +38,22 @@ export interface HotPathGcSoftReport {
   readonly failPercent: number;
 }
 
-/** CPU 分档预算加软超限余量，单个稳态进程超过即判失败。 */
+/**
+ * CPU 分档预算加软超限余量，单个稳态进程超过即判失败。
+ *
+ * @param budgetPercent CPU 分档 GC 暂停占比预算
+ * @returns 触发门禁失败的 GC 暂停占比硬上限
+ */
 export function hotPathGcPauseFailPercent(budgetPercent: number): number {
   return budgetPercent + HOT_PATH_GC_SOFT_OVERRUN_PERCENT;
 }
 
-/** 占比超过预算时返回软上报内容，否则为 null；超过硬上限的进程已由子进程门禁判失败。 */
+/**
+ * 占比超过预算时返回软上报内容，否则为 null；超过硬上限的进程已由子进程门禁判失败。
+ *
+ * @param options 场景 GC 暂停占比与预算参数
+ * @returns 超出软预算时的上报对象，未超出时返回 null
+ */
 export function createHotPathGcSoftReport({
   scenario,
   gcPercent,
@@ -48,8 +64,11 @@ export function createHotPathGcSoftReport({
 }
 
 export interface HotPathMedianReportInput {
+  /** 热路径场景名称。 */
   readonly scenario: string;
+  /** 实测中位单次操作耗时（纳秒）。 */
   readonly medianNsPerOp: number;
+  /** 当前 Bun 运行时 revision。 */
   readonly bunRevision: string;
   /** 已经过 assertHotPathMedianPolicyCoverage 校验的正数阈值。 */
   readonly reportThresholdNsPerOp: number;
@@ -68,6 +87,9 @@ export interface HotPathMedianLatencyReport {
  * 超过校准值时返回软上报内容。
  *
  * 阈值合法性不在这里判：由调用方先跑 assertHotPathMedianPolicyCoverage 校验。
+ *
+ * @param options 场景中位耗时与软上报阈值参数
+ * @returns 超出阈值时的软上报对象，未超出时返回 null
  */
 export function createHotPathMedianLatencyReport({
   scenario,
@@ -98,6 +120,9 @@ export interface HotPathCalibrationStaleReport {
 /**
  * 本次最慢中位数乘以 HOT_PATH_CALIBRATION_STALE_RATIO 仍小于软阈值时返回校准过松
  * 提示，否则为 null。阈值合法性由调用方先经 assertHotPathMedianPolicyCoverage 校验。
+ *
+ * @param options 场景中位耗时与软上报阈值参数
+ * @returns 校准阈值过松时的提示对象，否则返回 null
  */
 export function createHotPathCalibrationStaleReport({
   scenario,
@@ -116,6 +141,8 @@ export function createHotPathCalibrationStaleReport({
 /**
  * 默认场景与阈值表必须一一对应，禁止新场景漏报或死阈值滞留。
  *
+ * @param scenarios 默认剖析场景名列表
+ * @param thresholds 校准文件中配置的场景软阈值字典
  * @returns 场景 -> 已校验阈值，按场景声明顺序；门禁直接遍历该表。
  */
 export function assertHotPathMedianPolicyCoverage(

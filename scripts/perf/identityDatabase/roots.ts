@@ -41,6 +41,8 @@ import {
  *
  * 本函数只做纯词法形态判定：看根的父目录和前缀，不读文件系统。真正会建目录或
  * 删除的入口必须再走 `assertMockRoot`，由它补上真实路径分量的核对。
+ * @param root 待检查的目录路径。
+ * @returns 词法上是否属于本基准允许的临时 mock 根。
  */
 export function isBenchmarkMockRoot(root: string): boolean {
   const resolvedRoot: string = resolve(root);
@@ -59,6 +61,8 @@ const IDENTITY_SUBJECT: string = "Identity benchmark";
  * 取这一个 mock 根对应的文件系统边界：允许根就是它自己，锚点按形态选——全量
  * 基准形态锚在仓库根（于是 `performance/` 与 `run-*` 两段都要核对），独立运行
  * 形态锚在系统临时目录。
+ * @param mockRoot 待构造路径边界的 mock 根目录路径。
+ * @returns 供软链接与越界检查使用的路径边界描述。
  */
 function boundaryFor(mockRoot: string): FixturePathBoundary {
   const resolved: string = resolve(mockRoot);
@@ -69,7 +73,10 @@ function boundaryFor(mockRoot: string): FixturePathBoundary {
   };
 }
 
-/** 形态与真实路径分量都要成立；词法判定不识别指向根外的软链接。 */
+/**
+ * 形态与真实路径分量都要成立；词法判定不识别指向根外的软链接。
+ * @param root 待校验的临时 mock 根目录路径。
+ */
 export function assertMockRoot(root: string): void {
   if (!isBenchmarkMockRoot(root)) {
     throw new Error("Identity benchmark requires its isolated temporary mock root.");
@@ -80,6 +87,8 @@ export function assertMockRoot(root: string): void {
 /**
  * 删除本基准在 mock 根内建出的一棵子树；失败清理分支也走这里，不留直接 `rmSync`
  * 的旁路。只核对父链：末端本身是软链接时只摘链接、不动目标。
+ * @param path 待删除的子树路径。
+ * @param mockRoot 所属的临时 mock 根目录路径。
  */
 export function removeMainBenchmarkRoot(path: string, mockRoot: string): void {
   assertMockRoot(mockRoot);
@@ -87,16 +96,28 @@ export function removeMainBenchmarkRoot(path: string, mockRoot: string): void {
   rmSync(path, { recursive: true, force: true });
 }
 
+/**
+ * 在系统临时目录下创建独立运行模式使用的顶层 mock 根。
+ * @returns 新建的临时 mock 根目录绝对路径。
+ */
 export function createMockRoot(): string {
   return mkdtempSync(join(tmpdir(), MOCK_ROOT_PREFIX));
 }
 
+/**
+ * 校验并递归删除顶层临时 mock 根。
+ * @param root 待删除的顶层临时 mock 根目录路径。
+ */
 export function removeMockRoot(root: string): void {
   assertMockRoot(root);
   rmSync(root, { recursive: true, force: true });
 }
 
-/** 建出主线程写透子进程的数据根；时区标记取默认时区，子进程接管同一时区后加载。 */
+/**
+ * 建出主线程写透子进程的数据根；时区标记取默认时区，子进程接管同一时区后加载。
+ * @param mockRoot 父级临时 mock 根目录路径。
+ * @returns 已初始化空 SQLite 库的运行时数据根路径。
+ */
 export function createMainBenchmarkRoot(mockRoot: string): string {
   assertMockRoot(mockRoot);
   const temporaryRoot: string = mkdtempSync(
@@ -114,6 +135,10 @@ export function createMainBenchmarkRoot(mockRoot: string): string {
   }
 }
 
+/**
+ * 以只读模式打开主线程基准数据库并断言其 JSONB 存储完整性。
+ * @param temporaryRoot 主线程写透子进程使用的数据根路径。
+ */
 export function assertMainBenchmarkDatabase(temporaryRoot: string): void {
   const path: string = join(temporaryRoot, "database", "storage.sqlite");
   const database: StorageDatabase = openStorageDatabase({ path, readonly: true });
@@ -124,6 +149,11 @@ export function assertMainBenchmarkDatabase(temporaryRoot: string): void {
   }
 }
 
+/**
+ * 构造指向临时数据根与示例配置根的主线程基准子进程环境变量表。
+ * @param temporaryRoot 主线程写透子进程使用的数据根路径。
+ * @returns 子进程环境变量映射。
+ */
 export function mainBenchmarkEnvironment(
   temporaryRoot: string
 ): Readonly<Record<string, string | undefined>> {

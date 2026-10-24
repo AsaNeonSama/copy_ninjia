@@ -1,5 +1,6 @@
 /** 进程停机排空、轮询与落盘的统一时间预算。 */
 
+import { ANTI_RAID_DRAIN_TIMEOUT_MS } from "./antiRaid/protocol";
 import { TELEGRAM_REPEATED_OFFSET_MIN_WAIT_MS } from "./telegram";
 import type { FlushTimeouts } from "../types/lifecycle";
 
@@ -42,7 +43,7 @@ export const AI_CHAT_INVALIDATE_TIMEOUT_MS: number = 10_000;
  */
 export const AI_CHAT_INVALIDATE_DRAIN_TIMEOUT_MS: number = 7_000;
 /** 正常停机等待 Disk I/O Worker flush 的预算。 */
-export const DISK_IO_FLUSH_TIMEOUT_MS: number = 3_000;
+export const DISK_IO_FLUSH_TIMEOUT_MS: number = 15_000;
 /**
  * terminateDiskIO 等待 Worker 关闭共享 SQLite（提交残余写、TRUNCATE checkpoint、关库）回执的预算，
  * 独立于 DISK_IO_FLUSH_TIMEOUT_MS，也不随 FlushTimeouts（含 EMERGENCY_FLUSH_TIMEOUTS）缩放；超时时
@@ -51,11 +52,20 @@ export const DISK_IO_FLUSH_TIMEOUT_MS: number = 3_000;
 export const DISK_IO_STORAGE_CLOSE_TIMEOUT_MS: number = 1_500;
 /** 正常停机等待全局状态文件写入的预算。 */
 export const STATE_FLUSH_TIMEOUT_MS: number = 3_000;
-/** 正常停机时头像、翻译、Anti-Raid、gag、/wed、延迟命令、cron、延迟删除与 Telegram 出站各 owner 的排空预算，也是等待后台维护收尾的预算（见 app/lifecycle/shutdown.ts 的 SHUTDOWN_DRAIN_OWNERS）。 */
+/** 正常停机时头像、gag、问答表单、/wed、延迟命令、cron、目标消息待删、延迟删除与 Telegram 出站各 owner 的排空预算，也是等待后台维护收尾的预算（见 app/lifecycle/shutdown.ts 的 SHUTDOWN_DRAIN_OWNERS）。 */
 const BACKGROUND_MAINTENANCE_TIMEOUT_MS: number = 3_000;
 
-/** 单次 Google Translation RPC 的上限。 */
-export const TRANSLATE_REQUEST_TIMEOUT_MS: number = 2_500;
+/** 单次 Google Translation RPC 的上限；也是正常停机时翻译排空与关闭客户端各自的预算（NORMAL_FLUSH_TIMEOUTS.translateMs）。 */
+export const TRANSLATE_REQUEST_TIMEOUT_MS: number = 5_000;
+
+/**
+ * 整段停机的总预算：从停机请求（信号或致命错误经 stopForShutdown）起算，未经停机请求而进入收尾时
+ * 从 wait() 或 dispose() 开始收尾时起算。wait() 与 dispose() 两遍排空中每一步的等待都取自身预算与
+ * 本截止剩余时间的较小值（见 app/lifecycle/shutdown.ts）；runner 排空、Worker 终止、关库与实例锁
+ * 处置不按本截止缩短。须小于 systemd 缺省 TimeoutStopSec（90 s）减去截止后仍执行的这些步骤与进程
+ * 退出的耗时。所属模块：app/lifecycle.ts。
+ */
+export const SHUTDOWN_TOTAL_BUDGET_MS: number = 80_000;
 
 /** 未捕获异常路径的尽力落盘预算。 */
 const EMERGENCY_FLUSH_TIMEOUT_MS: number = 1_000;
@@ -68,15 +78,19 @@ export const EMERGENCY_REUSED_DISPOSE_DEADLINE_MS: number = 15_000;
 /** 正常停机与异常退出路径各自采用一组完整、不可拆散的时间预算。 */
 export const NORMAL_FLUSH_TIMEOUTS: Readonly<FlushTimeouts> = {
   aiMemoryMs: AI_MEMORY_FLUSH_TIMEOUT_MS,
+  antiRaidMs: ANTI_RAID_DRAIN_TIMEOUT_MS,
   diskIOMs: DISK_IO_FLUSH_TIMEOUT_MS,
   stateMs: STATE_FLUSH_TIMEOUT_MS,
+  translateMs: TRANSLATE_REQUEST_TIMEOUT_MS,
   maintenanceMs: BACKGROUND_MAINTENANCE_TIMEOUT_MS,
 };
 
 /** 未捕获异常路径采用的完整、短预算组合；terminateDiskIO 的关库另按 DISK_IO_STORAGE_CLOSE_TIMEOUT_MS 等待。 */
 export const EMERGENCY_FLUSH_TIMEOUTS: Readonly<FlushTimeouts> = {
   aiMemoryMs: EMERGENCY_FLUSH_TIMEOUT_MS,
+  antiRaidMs: 0,
   diskIOMs: EMERGENCY_FLUSH_TIMEOUT_MS,
   stateMs: EMERGENCY_FLUSH_TIMEOUT_MS,
+  translateMs: 0,
   maintenanceMs: 0,
 };

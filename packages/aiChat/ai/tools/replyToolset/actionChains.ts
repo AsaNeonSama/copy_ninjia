@@ -17,6 +17,10 @@ import type {
  * 本轮串行动作链：按工具调用顺序串行执行已接纳动作并切换 ctx.chatAction，每步结束后复位为 idle。
  * 转入后台的动作（defer）在结算得到执行函数后排入链尾；直接轮通过 pacing 协调请求期间与链执行期间的状态。
  * 生命周期约束见 docs/cn/04-invariants.md。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param ready 串行链首个动作启动前需等待的就绪 Promise。
+ * @param pacing 直接轮的拟人节拍协调器；工具循环轮为 null。
+ * @returns 控制动作入链、后台推迟、等待排空与查询完成动作数的句柄。
  */
 export function createReplyActionChains(
   ctx: ReplyToolContext,

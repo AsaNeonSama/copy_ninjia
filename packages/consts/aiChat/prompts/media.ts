@@ -2,6 +2,11 @@ import { IMAGE_DESCRIPTION_MAX_CHARS, SHORT_MEDIA_DESCRIPTION_MAX_CHARS } from "
 import { STICKER_PACK_SUMMARY_MAX_CHARS } from "../stickers";
 import { VOICE_TRANSCRIPT_MAX_CHARS } from "../voice";
 
+/**
+ * 生成视觉描述提示词末尾的字数上限与纯文本输出格式约束。
+ * @param maxChars 允许的最大字符数。
+ * @returns 字数与输出格式约束文本。
+ */
 function descriptionOutputRule(maxChars: number): string {
   return `不超过 ${maxChars} 字，只输出描述本身，不要任何前缀或解释，也不要用引号把整段描述包起来。`;
 }

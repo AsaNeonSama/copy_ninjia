@@ -141,7 +141,11 @@ export const UNMUTE_TARGET_TEXTS: Readonly<CommandTargetMessages> = {
 /** 共用同一套目标提示文案的命令名。 */
 type SharedTargetTextCommand = "copy" | "copy reverse" | "copy nya" | "icon steal";
 
-/** 为一条命令创建模块级目标提示。 */
+/**
+ * 为一条命令创建模块级目标提示。
+ * @param command 不带前导斜杠的命令名称。
+ * @returns 该命令的目标解析提示文案集合。
+ */
 function createSharedTargetTexts(command: SharedTargetTextCommand): Readonly<CommandTargetMessages> {
   const commandName: string = `/${command}`;
   return {

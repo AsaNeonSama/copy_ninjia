@@ -18,6 +18,8 @@ export interface EarliestExpirySweeper {
  * 已有排程时直接返回；否则按全表最早到期时刻挂一个 unref 的 timer，延迟按调用方的 now
  * 计算并收正。到点先按当时的墙钟清扫，再按清扫后的表重排；空表不排程。
  * 每条消息都可能调到这里，已有排程时只读一次 timer 位。
+ * @param sweeper 包含 timer 状态位、最早到期查询与清扫回调的描述对象。
+ * @param now 当前毫秒时间戳。
  */
 export function scheduleEarliestExpirySweep(sweeper: EarliestExpirySweeper, now: number): void {
   if (sweeper.state.timer !== null) return;

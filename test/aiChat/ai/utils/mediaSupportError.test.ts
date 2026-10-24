@@ -1,11 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   classifyProviderApiFailure,
+  logAndClassifyProviderApiError,
   numericErrorStatus,
   providerApiFailureResult,
 } from "../../../../packages/aiChat/ai/utils/mediaSupportError";
 import type { ProviderApiFailureKind } from
   "../../../../packages/aiChat/ai/utils/mediaSupportError";
+import { logger } from "../../../../packages/infra/logger";
 
 /**
  * 归因级联的顺序（见 mediaSupportError.ts 的头注），不经由任何 SDK 替身，
@@ -89,5 +91,32 @@ describe("归因档位到失败结果的映射", () => {
   test("endpointFailure 不映射成结果，交由调用点走自己的兜底路径", () => {
     const kind: ProviderApiFailureKind = "endpointFailure";
     expect(providerApiFailureResult(kind)).toBeUndefined();
+  });
+
+  test("logAndClassifyProviderApiError 记录错误日志并返回分类档位，支持拼入 status", () => {
+    const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      expect(
+        logAndClassifyProviderApiError({
+          error: { status: 404, message: "not found" },
+          errorLabel: "OpenAI text",
+          isMediaCapability: false,
+        })
+      ).toBe("misconfigured");
+      expect(
+        logAndClassifyProviderApiError({
+          error: { status: 415, message: UNSUPPORTED_MEDIA_MESSAGE },
+          errorLabel: "Gemini media",
+          isMediaCapability: true,
+          includeStatusInLog: true,
+        })
+      ).toBe("unsupported");
+      expect(errorLog.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+        "OpenAI text error: not found",
+        `Gemini media error: 415 ${UNSUPPORTED_MEDIA_MESSAGE}`,
+      ]);
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });

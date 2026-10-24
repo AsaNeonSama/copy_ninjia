@@ -29,11 +29,17 @@ type AnswerCallbackQueryApi = Pick<TelegramApi, "answerCallbackQuery">;
 
 /** 文本消息除正文格式以外的发送参数；正文格式由 SendMessageFormat 二选一给出。 */
 export interface SendMessageBaseParams {
+  /** 目标聊天 ID。 */
   chatId: number;
+  /** 消息文本内容。 */
   text: string;
+  /** 要回复的目标消息 ID。 */
   replyToMessageId?: number;
+  /** 执行文本发送的 Telegram API 接口。 */
   api?: SendMessageApi;
+  /** 内联按钮键盘。 */
   keyboard?: InlineKeyboardMarkup;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /** 是否关闭 Telegram 为正文中第一个 URL 自动生成的预览卡片。 */
   disableLinkPreview?: boolean;
@@ -73,6 +79,8 @@ export type SendMessageParams = SendMessageBaseParams & SendMessageFormat;
 /**
  * 发送文本消息并返回 Telegram 实际建立的回复关系。只有显式给出 parseMode 时才设置
  * parse_mode，否则正文按纯文本发出、富文本只由 entities 表达。
+ * @param params 文本消息发送参数。
+ * @returns 发送成功时返回消息 ID 与实际回复关系，失败时返回 undefined。
  */
 export async function sendMessageWithResult({
   chatId,
@@ -124,7 +132,11 @@ export async function sendMessageWithResult({
   });
 }
 
-/** 发送文本消息，只返回 Telegram message_id。 */
+/**
+ * 发送文本消息，只返回 Telegram message_id。
+ * @param params 文本消息发送参数。
+ * @returns 发送成功时返回 message_id，失败时返回 undefined。
+ */
 export async function sendMessage(
   params: SendMessageParams
 ): Promise<number | undefined> {
@@ -132,13 +144,19 @@ export async function sendMessage(
 }
 
 export interface SendEphemeralMessageParams {
+  /** 目标群聊 ID。 */
   chatId: number;
+  /** 仅可看见该专属消息的目标用户 ID。 */
   receiverUserId: number;
+  /** 触发该专属消息的回调查询 ID。 */
   callbackQueryId?: string;
+  /** 消息文本内容。 */
   text: string;
+  /** 内联按钮键盘。 */
   keyboard: InlineKeyboardMarkup;
   /** 主线程独占的发送入口；回执要读 chat、receiver_user 与 ephemeral_message_id。 */
   api?: SendEphemeralMessageApi;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /**
    * 论坛（topics）群里这条目标专属提示要亮在哪个话题；语义见 SendMessageParams
@@ -158,6 +176,8 @@ export interface SendEphemeralMessageParams {
 /**
  * 使用 SDK 的 ephemeral_message_parameters 发送目标专属消息，只在主线程可用。
  * 响应身份校验后交给业务状态机定向删除。
+ * @param params 目标专属消息发送参数。
+ * @returns 发送并校验成功时返回 ephemeral_message_id，失败时返回 undefined。
  */
 export async function sendEphemeralMessage({
   chatId,
@@ -209,10 +229,13 @@ export async function sendEphemeralMessage({
 }
 
 export interface SendChatActionParams {
+  /** 目标聊天 ID。 */
   chatId: number;
   /** 要显示的状态；取值由 TelegramChatAction 单点定义。 */
   action: TelegramChatAction;
+  /** 执行聊天状态发送的 Telegram API 接口。 */
   api?: SendChatActionApi;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /**
    * 论坛（topics）群里这次状态要亮在哪个话题；语义见 SendMessageParams
@@ -221,7 +244,11 @@ export interface SendChatActionParams {
   messageThreadId?: number;
 }
 
-/** 发一次聊天状态（「正在输入…」这类）。 */
+/**
+ * 发一次聊天状态（「正在输入…」这类）。
+ * @param params 聊天状态发送参数。
+ * @returns 发送成功返回 true，失败返回 false。
+ */
 export async function sendChatAction({
   chatId,
   action,
@@ -242,26 +269,36 @@ export async function sendChatAction({
   );
 }
 
-/** 这次拒绝是否就是「内容本就相同」。 */
+/**
+ * 这次拒绝是否就是「内容本就相同」。
+ * @param error 待判定的异常值。
+ * @returns 错误描述包含 MESSAGE_NOT_MODIFIED 时返回 true，否则返回 false。
+ */
 export function isMessageNotModified(error: unknown): boolean {
   return telegramErrorDetails(error)?.description.includes(MESSAGE_NOT_MODIFIED) === true;
 }
 
 export interface EditMessageTextParams {
+  /** 目标聊天 ID。 */
   chatId: number;
+  /** 要编辑的目标消息 ID。 */
   messageId: number;
+  /** 替换后的新文本内容。 */
   text: string;
+  /** 执行消息编辑的 Telegram API 接口。 */
   api?: EditMessageTextApi;
   /** 由调用方自行算好偏移的富文本实体，语义同 SendMessageFormat.entities。 */
   entities?: readonly MessageEntity[];
   /** 新的按钮；不传即清空原有按钮。 */
   keyboard?: InlineKeyboardMarkup;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
 }
 
 /**
  * 就地改写一条已发出的文本消息；富文本只由 entities 表达，不设置 parse_mode。
  *
+ * @param params 消息文本编辑参数。
  * @returns 是否已让远端处于目标状态。内容本就相同时同样为 true。
  */
 export async function editMessageText({
@@ -300,12 +337,20 @@ export async function editMessageText({
 }
 
 export interface AnswerCallbackQueryParams {
+  /** 待应答的回调查询 ID。 */
   callbackQueryId: string;
+  /** 提示文本内容。 */
   text?: string;
+  /** 为 true 时以弹窗形式展示提示，否则显示顶部轻提示。 */
   showAlert?: boolean;
+  /** 执行回调查询应答的 Telegram API 接口。 */
   api?: AnswerCallbackQueryApi;
 }
 
+/**
+ * 应答一次内联按钮的 callback query。
+ * @param params 回调查询应答参数。
+ */
 export async function answerCallbackQuery({
   callbackQueryId,
   text,

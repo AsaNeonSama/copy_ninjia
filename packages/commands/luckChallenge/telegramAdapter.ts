@@ -26,7 +26,10 @@ import {
   buildRateLimitedResult,
 } from "./rendering";
 
-/** Telegram chosen_inline_result 是抽签真正被选中的主确认信号。 */
+/**
+ * Telegram chosen_inline_result 是抽签真正被选中的主确认信号。
+ * @param ctx grammY 上下文。
+ */
 export async function handleLuckChosenInlineResult(ctx: Context): Promise<void> {
   const chosen: ChosenInlineResult | undefined = ctx.chosenInlineResult;
   if (!chosen || !LUCK_RESULT_IDS.has(chosen.result_id)) return;
@@ -48,6 +51,8 @@ export async function handleLuckChosenInlineResult(ctx: Context): Promise<void> 
 /**
  * 不抽签时的应答（限流占位或空结果），客户端缓存 LUCK_INLINE_NO_DRAW_CACHE_SECONDS 秒；应答失败只记 API 错误，
  * update 取消照常上抛。
+ * @param ctx grammY 上下文。
+ * @param results 待应答的内联结果数组（限流占位或空数组）。
  * @param action 应答失败时日志里的动作名。
  */
 async function answerLuckInlineQueryWithoutDraw(
@@ -70,6 +75,7 @@ async function answerLuckInlineQueryWithoutDraw(
 /**
  * Telegram 内联查询适配层：负责输入输出，抽签、缓存与渲染由各领域模块完成。限流时应答占位结果；
  * 当天密钥刷新失败时记错误并应答空结果，面板不等到超时。
+ * @param ctx grammY 上下文。
  */
 export async function handleLuckChallengeInlineQuery(ctx: Context): Promise<void> {
   const inlineQuery: InlineQuery | undefined = ctx.inlineQuery;

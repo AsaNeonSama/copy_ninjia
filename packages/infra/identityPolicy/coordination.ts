@@ -4,6 +4,9 @@ import { protectedIdentityMutationQueue } from "../../cache/main/blocklist";
  * 串行执行会改变「白名单成员 / 动态黑名单成员」互斥关系的主线程操作。
  * 调用方只把身份检查与权威内存变更放进临界区；Telegram 副作用和后续落盘确认
  * 留在外面。
+ *
+ * @param mutation 在互斥串行临界区内执行的同步或异步操作。
+ * @returns `mutation` 执行完成的返回值 Promise。
  */
 export function runProtectedIdentityMutation<T>(
   mutation: () => T | Promise<T>

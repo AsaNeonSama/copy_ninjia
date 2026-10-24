@@ -68,6 +68,9 @@ import type { VoiceLanguagePrompts } from "../../../../types/aiChat/voiceMessage
 /**
  * 组装单轮回复的工具声明、领域执行器、本轮工具状态快照与共享动作预算。
  * 工具清单与前缀缓存约束见 docs/cn/04-invariants.md。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param deliveryReady 串行动作链首个出站动作启动前需等待的就绪 Promise。
+ * @returns 供单轮回复模型循环使用的工具集句柄。
  */
 export async function createReplyToolset(ctx: ReplyToolContext, deliveryReady?: Promise<void>): Promise<ReplyToolset> {
   const menu: readonly StickerPackCandidate[] = await buildStickerPackMenu(ctx.signal);

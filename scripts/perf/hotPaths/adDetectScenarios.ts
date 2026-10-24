@@ -44,6 +44,9 @@ const EMPTY_AD_ENTRIES: readonly AdCandidateEntry[] = [];
  *
  * 每个 sender 各自拥有 bundle、元数据、entry 与数组，保留一条已接纳但尚未判定的
  * 消息，只模拟 sender 容量边界。
+ *
+ * @param index 发送者序号（从 0 开始）
+ * @returns 初始化完成的广告消息聚合包
  */
 function createCapacityBundle(index: number): AdMessageBundle {
   const senderId: number = index + 1;
@@ -127,7 +130,11 @@ function prepareAdCapacityScenario(): void {
   }
 }
 
-/** 满载新 key 应在正文/URL/上下文整形之前以 O(1) 返回。 */
+/**
+ * 满载新 key 应在正文/URL/上下文整形之前以 O(1) 返回。
+ *
+ * @returns 广告容量满载拒绝热路径场景定义
+ */
 export function createAdCapacityRejectScenario(): Scenario {
   return {
     iterations: 500_000,
@@ -153,6 +160,11 @@ export function createAdCapacityRejectScenario(): Scenario {
   };
 }
 
+/**
+ * 构建无链接与引用上下文时的广告样本正文拼接场景。
+ *
+ * @returns 无元数据广告样本拼接场景定义
+ */
 export function adEmptyMetadataScenario(): Scenario {
   return {
     iterations: 1_000_000,
@@ -178,6 +190,8 @@ export function adEmptyMetadataScenario(): Scenario {
 /**
  * 一条普通群消息的广告候选跨线程复制成本。字面量按 antiRaid/adCandidate.ts 的
  * buildAdCandidate 的键序写全。
+ *
+ * @returns 广告候选跨线程结构化克隆场景定义
  */
 export function adWireCloneScenario(): Scenario {
   const message: AdCandidateMessage = {

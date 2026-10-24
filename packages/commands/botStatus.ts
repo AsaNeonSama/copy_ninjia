@@ -33,44 +33,73 @@ import { rejectUnlessPermitted } from "./commandActor";
 
 /** `/bot_status` 的完整回执：一段 MarkdownV2 正文。 */
 export interface BotStatusMessage {
+  /** 渲染完成的 MarkdownV2 状态看板正文。 */
   readonly text: string;
 }
 
+/** 渲染 `/bot_status` 看板所需的只读运行态与配置快照。 */
 export interface BotStatusSnapshot {
   /** 命令所在会话的 id，展示在本群一组的第一行。 */
   readonly chatId: number;
+  /** AI 闲聊部署配置是否就绪。 */
   readonly aiReady: boolean;
+  /** 当前生效的 AI 闲聊部署配置快照；未配置时为 null。 */
   readonly aiConfig: AgentDeploymentConfig | null;
+  /** 广告检测部署配置是否就绪。 */
   readonly adDetectReady: boolean;
+  /** 当前生效的广告检测模型配置快照；未配置时为 null。 */
   readonly adDetectConfig: AdDetectAgentConfig | null;
+  /** 当前会话的只读状态快照。 */
   readonly chatState: Readonly<ChatState>;
+  /** Telegram 出站闸当前在途请求数。 */
   readonly telegramActive: number;
+  /** Telegram 出站闸当前排队等待请求数。 */
   readonly telegramPending: number;
+  /** Telegram 出站闸并发与排队总容量上限。 */
   readonly telegramCapacity: number;
+  /** 全局活动中的 gag 会话总数。 */
   readonly activeGagSessions: number;
+  /** 全局活动中的自动翻译目标总数。 */
   readonly activeTranslateSessions: number;
   /** 本群 AI 上下文占用量镜像；无条目表示此刻没有可展示的上下文。 */
   readonly aiContextUsage: Readonly<AiMemoryUsage> | undefined;
+  /** 本进程 CPU、内存与运行时长采样快照。 */
   readonly processStatus: Readonly<BotProcessStatus>;
 }
 
+/**
+ * 清理并截断单行模型或能力名称。
+ * @param value 原始名称字符串。
+ * @returns 单行清理并按上限截断后的展示标签。
+ */
 function statusLabel(value: string): string {
   return truncateWithEllipsis(sanitizeInline(value), BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS);
 }
 
 /**
  * 只展示模型名：不带 provider，并去掉模型 id 里最后一个 `/` 之前的厂商命名空间。
+ * @param model 完整模型标识符。
+ * @returns 剥离命名空间并截断后的模型展示名。
  */
 function modelName(model: string): string {
   return statusLabel(model.slice(model.lastIndexOf("/") + 1));
 }
 
-/** 语音合成行展示的名字：xai 协议没有模型名，展示音色。 */
+/**
+ * 语音合成行展示的名字：xai 协议没有模型名，展示音色。
+ * @param tts 语音合成能力配置。
+ * @returns 用于状态展示的模型名或音色名。
+ */
 function ttsStatusName(tts: AgentTtsCapabilityConfig): string {
   return tts.speechProtocol === "xai" ? tts.voice : tts.model;
 }
 
-/** 把进程 uptime 格式化为不会随本地时区变化的天与时分秒；满一天时按氛围文案带上天数。 */
+/**
+ * 把进程 uptime 格式化为不会随本地时区变化的天与时分秒；满一天时按氛围文案带上天数。
+ * @param uptimeSeconds 进程已运行秒数。
+ * @param atmosphere 当前活跃的文案氛围。
+ * @returns 格式化后的运行时长文本。
+ */
 export function formatBotUptime(uptimeSeconds: number, atmosphere: AtmosphereTexts): string {
   const totalSeconds: number = Number.isFinite(uptimeSeconds) && uptimeSeconds > 0
     ? Math.floor(uptimeSeconds)
@@ -86,7 +115,11 @@ export function formatBotUptime(uptimeSeconds: number, atmosphere: AtmosphereTex
   return days === 0 ? clock : atmosphere.NOTICE_TEXTS.statusUptimeWithDays(days, clock);
 }
 
-/** 以最短的二进制单位展示本机内存字节数。 */
+/**
+ * 以最短的二进制单位展示本机内存字节数。
+ * @param bytes 内存占用或上限字节数。
+ * @returns 带二进制单位（B/KiB/MiB/GiB）的格式化字符串。
+ */
 export function formatBotMemory(bytes: number): string {
   const safeBytes: number = Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
   if (safeBytes >= BOT_STATUS_BYTES_PER_GIB) {
@@ -101,7 +134,11 @@ export function formatBotMemory(bytes: number): string {
   return `${Math.floor(safeBytes)} B`;
 }
 
-/** 百分比只在展示边界按 BOT_STATUS_DECIMAL_PLACES 取小数，采样快照保留完整精度。 */
+/**
+ * 百分比只在展示边界按 BOT_STATUS_DECIMAL_PLACES 取小数，采样快照保留完整精度。
+ * @param value 百分比数值（0~100）。
+ * @returns 带百分号的小数格式化字符串。
+ */
 function formatPercent(value: number): string {
   const safeValue: number = Number.isFinite(value) && value > 0 ? value : 0;
   return `${safeValue.toFixed(BOT_STATUS_DECIMAL_PLACES)}%`;
@@ -116,6 +153,9 @@ function formatPercent(value: number): string {
  * （见 docs/cn/04-invariants.md）。
  *
  * 没有镜像条目时按 0 展示（见 cache/main/aiChat.ts 的 aiMemoryUsages）。
+ * @param usage 本群 AI 记忆占用量镜像快照；无条目时为 undefined。
+ * @param atmosphere 当前活跃的文案氛围。
+ * @returns 本群 AI 上下文容量占用行文本。
  */
 function contextCapacityLine(usage: Readonly<AiMemoryUsage> | undefined, atmosphere: AtmosphereTexts): string {
   const percent: number = (
@@ -131,6 +171,8 @@ function contextCapacityLine(usage: Readonly<AiMemoryUsage> | undefined, atmosph
  *
  * 字段与顺序取自 BOT_CHAT_PERMISSION_KEYS（见 consts/botAdmin.ts）；缺省的可选权限
  * 在快照里已经收敛成布尔值，这里不区分「没返回」与「确认没有」。
+ * @param permissions 机器人在本群的管理员权限快照。
+ * @returns 缩进格式化后的 JSON 字符串。
  */
 function permissionsJson(permissions: Readonly<BotChatPermissions>): string {
   const display: Record<string, string> = {};
@@ -146,6 +188,8 @@ function permissionsJson(permissions: Readonly<BotChatPermissions>): string {
  *
  * 字段与顺序取自 BOT_STATUS_FEATURE_KEYS（见 consts/botStatus.ts）。缺省（从没设过）与
  * 显式关闭都给 false，展示的是此刻的生效状态。
+ * @param chatState 本群状态快照。
+ * @returns 缩进格式化后的 JSON 字符串。
  */
 function featuresJson(chatState: Readonly<ChatState>): string {
   const display: Record<string, boolean> = {};
@@ -159,6 +203,8 @@ function featuresJson(chatState: Readonly<ChatState>): string {
  *
  * 正文按 MarkdownV2 拼装（见 libs/telegramMarkdown.ts）：本群 id 是内联代码，权限块与功能块
  * 是 json 代码块，其余各段整段转义。
+ * @param snapshot 机器人运行状态与本群状态的聚合快照。
+ * @returns 拼装好的 MarkdownV2 状态回执消息。
  */
 export function buildBotStatusMessage(snapshot: BotStatusSnapshot): BotStatusMessage {
   const atmosphere: AtmosphereTexts = chatAtmosphere();
@@ -232,7 +278,10 @@ export function buildBotStatusMessage(snapshot: BotStatusSnapshot): BotStatusMes
   return { text };
 }
 
-/** 处理群内 `/bot_status`：仅持有 isCanViewBotStatus 的身份可用，回执走 sendCommandMessage 的默认自动清理。 */
+/**
+ * 处理群内 `/bot_status`：仅持有 isCanViewBotStatus 的身份可用，回执走 sendCommandMessage 的默认自动清理。
+ * @param ctx grammY 命令上下文。
+ */
 export async function handleBotStatusCommand(
   ctx: CommandContext<Context>
 ): Promise<void> {

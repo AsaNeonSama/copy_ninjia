@@ -8,6 +8,10 @@ import type { BotChatPermissions } from "../types/telegram";
  *
  * 快照缺失只表示未确证（见 infra/botAdmin.ts 的 `botChatPermissionsIn`），不得说成
  * 不是管理员；是管理员但缺权限位时也不得笼统说成不是管理员。
+ * @param permissions 机器人在该群的管理员权限快照；未确证时为 undefined。
+ * @param permission 待检查的具体管理员权限键。
+ * @param notices 当前群氛围对应的提示文案集合。
+ * @returns 缺失权限或未确证时的提示短语；已具备该权限时返回 undefined。
  */
 export function describeBotPermissionGap(
   permissions: Readonly<BotChatPermissions> | undefined,

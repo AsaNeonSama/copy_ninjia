@@ -22,6 +22,7 @@ export interface FlushBarrier<TDetail = undefined> {
 }
 
 export interface CreateFlushBarrierParams {
+  /** 单次 flush 握手的默认超时毫秒预算。 */
   timeoutMs: number;
 }
 
@@ -29,6 +30,8 @@ export interface CreateFlushBarrierParams {
  * Worker flush / mailbox barrier 的统一握手原语。等待项在 post 之前登记，
  * 同步回执同样可结算；所有完成路径都先从 Map 删除并清 timer，再向等待方转交可选
  * 回执细节并 resolve，超时、迟到回执与崩溃结算之间只结算一次。
+ * @param options 屏障实例的默认超时配置。
+ * @returns 新建的 FlushBarrier 握手控制器。
  */
 export function createFlushBarrier<TDetail = undefined>(options: CreateFlushBarrierParams): FlushBarrier<TDetail> {
   const pending: Map<number, PendingFlush<TDetail>> = new Map();
@@ -65,6 +68,7 @@ export function createFlushBarrier<TDetail = undefined>(options: CreateFlushBarr
     },
     settle,
     settleAll: (result: FlushResult): void => {
+      // 按进入时的在途 id 快照逐个结算；onDetail 回调期间新登记的等待不在本次结算范围内。
       for (const id of [...pending.keys()]) settle(id, result);
     },
     pendingCount: (): number => pending.size,

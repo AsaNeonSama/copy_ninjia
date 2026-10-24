@@ -5,7 +5,12 @@ import { hasExactKeys, isPlainRecord } from "./record";
 import { isTelegramGroupChatId } from "./telegramId";
 import type { WedMemberEntry } from "../types/wed";
 
-/** 解码以 `.json` 结尾的目录项名：前缀必须是规范十进制的负安全整数群 ID，返回该群 ID。 */
+/**
+ * 解码以 `.json` 结尾的目录项名：前缀必须是规范十进制的负安全整数群 ID，返回该群 ID。
+ * @param name 目录项文件名（含 `.json` 后缀）。
+ * @param path 文件路径（用于报错定位）。
+ * @returns 解析出的负安全整数群聊 ID。
+ */
 export function parseWedMemberFileName(name: string, path: string): number {
   const chatIdText: string = name.slice(0, -".json".length);
   const chatId: number = Number(chatIdText);
@@ -18,6 +23,9 @@ export function parseWedMemberFileName(name: string, path: string): number {
 /**
  * 解码一份成员滑窗文件：至多 WED_MEMBER_LIMIT 项，每项恰为 `{ id, enteredAt }`；id 为不重复的正安全
  * 整数，enteredAt 为非负安全整数毫秒且按数组顺序不减。返回按数组顺序插入的 ID → 进入时间。
+ * @param parsed `JSON.parse` 后的原始值。
+ * @param path 文件路径（用于报错定位）。
+ * @returns 按进入顺序排列的用户 ID 到进入时间戳映射。
  */
 export function parseWedMemberFile(parsed: unknown, path: string): Map<number, number> {
   if (!Array.isArray(parsed) || parsed.length > WED_MEMBER_LIMIT) {
@@ -48,7 +56,11 @@ export function parseWedMemberFile(parsed: unknown, path: string): Map<number, n
   return members;
 }
 
-/** 把按进入顺序交替排列的 `[id0, enteredAt0, id1, enteredAt1, ...]` 写成文件正文。 */
+/**
+ * 把按进入顺序交替排列的 `[id0, enteredAt0, id1, enteredAt1, ...]` 写成文件正文。
+ * @param entries 交替排列的用户 ID 与进入时间戳数组。
+ * @returns 序列化后的 JSON 字符串。
+ */
 export function serializeWedMemberEntries(entries: readonly number[]): string {
   const members: WedMemberEntry[] = [];
   for (let index: number = 0; index < entries.length; index += 2) {

@@ -27,14 +27,20 @@ import {
 } from "./refresh";
 import { DURATION_UNIT_MS } from "../../consts/commands";
 
+/** gag 会话结束的触发原因（到期超时、显式 `/ungag` 解除或群 teardown）。 */
 export type GagEndReason = "timeout" | "ungag" | "teardown";
+
+/** 尝试登记新 gag 会话的准入结果（成功占槽、同目标重复、全局容量已满或正在停机排空）。 */
 export type GagReservationOutcome =
   | "reserved"
   | "duplicate"
   | "full"
   | "quiescing";
 
-/** 按对象身份删除会话，同目标的新会话不受影响。 */
+/**
+ * 按对象身份删除会话，同目标的新会话不受影响。
+ * @param session 待移除的 gag 会话。
+ */
 function removeGagSession(session: GagSession): void {
   const sessions: GagSession[] | undefined =
     gagSessionsByChat.get(session.chatId);
@@ -46,7 +52,11 @@ function removeGagSession(session: GagSession): void {
   if (sessions.length === 0) gagSessionsByChat.delete(session.chatId);
 }
 
-/** 跨群 update 完成异步解析后，在主线程同步预约全局容量。 */
+/**
+ * 跨群 update 完成异步解析后，在主线程同步预约全局容量。
+ * @param session 待登记的 gag 会话预约。
+ * @returns 预约结果状态。
+ */
 export function reserveGagSession(
   session: GagSession
 ): GagReservationOutcome {
@@ -62,13 +72,20 @@ export function reserveGagSession(
   return "reserved";
 }
 
+/**
+ * 清除会话的提示清理重试定时器。
+ * @param session 当前 gag 会话。
+ */
 function clearCleanupTimer(session: GagSession): void {
   if (session.cleanupTimer === null) return;
   clearTimeout(session.cleanupTimer);
   session.cleanupTimer = null;
 }
 
-/** 清掉会话的到期、提示清理重试与入口换新三个 timer，并把对应字段置空。 */
+/**
+ * 清掉会话的到期、提示清理重试与入口换新三个 timer，并把对应字段置空。
+ * @param session 当前 gag 会话。
+ */
 function clearGagSessionTimers(session: GagSession): void {
   clearGagSpeakNoticeRefreshTimer(session);
   if (session.timer !== null) clearTimeout(session.timer);
@@ -76,7 +93,11 @@ function clearGagSessionTimers(session: GagSession): void {
   clearCleanupTimer(session);
 }
 
-/** 认领结束：phase 置 ending 并清掉各 timer；ending 在 Telegram 收尾完成前继续占位。 */
+/**
+ * 认领结束：phase 置 ending 并清掉各 timer；ending 在 Telegram 收尾完成前继续占位。
+ * @param session 待结束的 gag 会话。
+ * @returns 成功将当前登记会话切入 ending 时返回 true。
+ */
 function claimGagEnd(session: GagSession): boolean {
   if (
     findGagSession(session.chatId, session.targetId) !== session ||
@@ -87,6 +108,11 @@ function claimGagEnd(session: GagSession): boolean {
   return true;
 }
 
+/**
+ * 等待可能存在的入口换新任务结束后，删除会话各槽位已登记的公开状态与发言入口提示。
+ * @param session 当前 gag 会话。
+ * @returns 所有槽位的提示均已删除或不存在时返回 true。
+ */
 async function deleteGagNotices(session: GagSession): Promise<boolean> {
   if (session.noticePending) return false;
   const refreshTask: Promise<void> | null = session.speakNoticeRefreshTask;
@@ -138,7 +164,11 @@ async function deleteGagNotices(session: GagSession): Promise<boolean> {
   return publicFinished && speakFinished;
 }
 
-/** 同一会话的命令、timer、teardown 与停机只能共享一条实际删除请求。 */
+/**
+ * 同一会话的命令、timer、teardown 与停机只能共享一条实际删除请求。
+ * @param session 当前 gag 会话。
+ * @returns 提示消息是否已全部清理完毕。
+ */
 async function runExclusiveEndingTask(
   session: GagSession
 ): Promise<boolean> {
@@ -156,11 +186,16 @@ async function runExclusiveEndingTask(
 /**
  * 把收尾任务纳入 gag 后台任务集合，调用方不等待 Telegram 往返；停机由 drainGagRuntime 排空，
  * 生命周期边界见 docs/cn/04-invariants.md。
+ * @param task 待追踪的收尾异步任务。
  */
 function observeGagTask(task: Promise<boolean>): void {
   trackBackgroundTask(gagBackgroundTasks, task, "Unexpected error while finishing a gag session:");
 }
 
+/**
+ * 按退避阶梯为清理失败的 ending 会话安排下一次重试定时器。
+ * @param session 处于 ending 阶段的 gag 会话。
+ */
 function scheduleCleanupRetry(session: GagSession): void {
   if (
     !gagRuntimeAccepting.current ||
@@ -183,12 +218,20 @@ function scheduleCleanupRetry(session: GagSession): void {
   session.cleanupTimer = timer;
 }
 
+/**
+ * 清理重试定时器到期回调。
+ * @param session 待重试清理的 gag 会话。
+ */
 function retryGagCleanupFromTimer(session: GagSession): void {
   if (session.cleanupTimer !== null) session.cleanupTimer = null;
   observeGagTask(retryGagCleanup(session));
 }
 
-/** ending 会话的显式重试入口；成功或消息已不存在时才释放 owner。 */
+/**
+ * ending 会话的显式重试入口；成功或消息已不存在时才释放 owner。
+ * @param session 处于 ending 阶段的 gag 会话。
+ * @returns 提示消息是否已全部清理并释放会话。
+ */
 async function retryGagCleanup(
   session: GagSession
 ): Promise<boolean> {
@@ -206,12 +249,21 @@ async function retryGagCleanup(
   return cleaned;
 }
 
-/** 命令旁路触发一次清理重试，并纳入停机可观测的后台任务集合。 */
+/**
+ * 命令旁路触发一次清理重试，并纳入停机可观测的后台任务集合。
+ * @param session 处于 ending 阶段的 gag 会话。
+ */
 export function requestGagCleanupRetry(session: GagSession): void {
   observeGagTask(retryGagCleanup(session));
 }
 
-/** 删除开始提示，并按结束原因决定是否发送解除提示（teardown 不发送）。 */
+/**
+ * 删除开始提示，并按结束原因决定是否发送解除提示（teardown 不发送）。
+ * @param session 待结束的 gag 会话。
+ * @param reason 结束原因。
+ * @param replyToMessageId 触发解除的命令消息 ID。
+ * @returns 成功认领本次结束流程时返回 true。
+ */
 export async function finishGag(
   session: GagSession,
   reason: GagEndReason,
@@ -259,12 +311,18 @@ export async function finishGag(
   return true;
 }
 
-/** active 会话到点时同步认领，再把 Telegram 收尾登记为后台任务。 */
+/**
+ * active 会话到点时同步认领，再把 Telegram 收尾登记为后台任务。
+ * @param session 到期的 gag 会话。
+ */
 export function expireGag(session: GagSession): void {
   observeGagTask(finishGag(session, "timeout"));
 }
 
-/** 激活预约并安装不会阻止进程退出的到期 timer。 */
+/**
+ * 激活预约并安装不会阻止进程退出的到期 timer。
+ * @param session 待激活的 gag 会话。
+ */
 function activateGag(session: GagSession): void {
   const now: number = Date.now();
   session.expiresAt = now + session.durationMinutes * DURATION_UNIT_MS.m;
@@ -279,7 +337,10 @@ function activateGag(session: GagSession): void {
   scheduleGagSpeakNoticeRefresh(session);
 }
 
-/** 开始提示发送失败；已发出的公开/临时提示仍必须沿同一收尾边界删除。 */
+/**
+ * 开始提示发送失败；已发出的公开/临时提示仍必须沿同一收尾边界删除。
+ * @param session 发送提示失败的 gag 会话。
+ */
 export async function failGagNotice(session: GagSession): Promise<void> {
   session.noticePending = false;
   const isCurrent: boolean =
@@ -309,6 +370,8 @@ export async function failGagNotice(session: GagSession): Promise<void> {
  * 由排空按 ending 路径删除。
  *
  * 幂等：正常路径上拿到发送返回值后会再调一次。
+ * @param session 当前 gag 会话。
+ * @param noticeMessageId 已发出的公开状态提示消息 ID。
  */
 export function recordGagPublicNotice(
   session: GagSession,
@@ -317,7 +380,11 @@ export function recordGagPublicNotice(
   session.publicNoticeMessageId = noticeMessageId;
 }
 
-/** 用户专属或频道公开开始入口的同步登记点；语义同 recordGagPublicNotice。 */
+/**
+ * 用户专属或频道公开开始入口的同步登记点；语义同 recordGagPublicNotice。
+ * @param session 当前 gag 会话。
+ * @param speakNoticeMessageId 已发出的发言入口提示消息 ID。
+ */
 export function recordGagSpeakNotice(
   session: GagSession,
   speakNoticeMessageId: number
@@ -329,6 +396,7 @@ export function recordGagSpeakNotice(
  * 开始提示发送成功后的唯一提交点：noticePending 置 false；会话已不是当前会话时删除
  * 已登记的提示；仍为 starting 则激活；已被 teardown 认领为 ending 则沿同一清理状态机
  * 重试清理。
+ * @param session 已完成提示发送的 gag 会话。
  */
 export async function commitGagNotices(session: GagSession): Promise<void> {
   session.noticePending = false;
@@ -348,6 +416,8 @@ export async function commitGagNotices(session: GagSession): Promise<void> {
  *
  * 机器人已无法访问本群（isChatUnreachable：被移出或群已不存在）时直接释放会话与 timer，
  * 不发起提示删除，也不留给停机排空。
+ * @param chatId 目标群 ID。
+ * @param reason 清理触发原因。
  */
 export async function teardownGagInChat(
   chatId: number,
@@ -379,6 +449,10 @@ export function quiesceGagRuntime(): void {
   }
 }
 
+/**
+ * 等待所有后台任务结算并清理全部剩余 gag 会话。
+ * @returns 全部清理完成时返回 `"flushed"`，仍有残留时返回 `"failed"`。
+ */
 async function settleGagRuntime(): Promise<FlushResult> {
   if (gagBackgroundTasks.size > 0) {
     await Promise.allSettled(gagBackgroundTasks);
@@ -392,7 +466,11 @@ async function settleGagRuntime(): Promise<FlushResult> {
   return gagSessionsByChat.size === 0 ? "flushed" : "failed";
 }
 
-/** 在 Telegram 总闸关闭前，有界清理全部 gag 功能提示。 */
+/**
+ * 在 Telegram 总闸关闭前，有界清理全部 gag 功能提示。
+ * @param timeoutMs 最大等待毫秒数。
+ * @returns 排空完成、失败或超时结果。
+ */
 export function drainGagRuntime(timeoutMs: number): Promise<FlushResult> {
   quiesceGagRuntime();
   if (gagSessionsByChat.size === 0 && gagBackgroundTasks.size === 0) {

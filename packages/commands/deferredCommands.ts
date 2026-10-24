@@ -21,9 +21,11 @@ import type { TaskPriority } from "../libs/prioritizedBoundedTaskRunner";
 import type { CommandExecutorRuntime } from "../types/commandExecutor";
 import type { FlushResult } from "../types/lifecycle";
 
-/** submitDeferredCommand 的入参。 */
+/** 向延迟命令执行器提交异步命令任务的参数。 */
 export interface SubmitDeferredCommandOptions {
+  /** 任务调度档位（交互优先或后台低优）。 */
   readonly priority: TaskPriority;
+  /** 延迟执行的异步命令任务闭包。 */
   readonly task: () => Promise<void>;
   /** 任务意外抛错时写进错误日志的英文前缀。 */
   readonly errorLabel: string;
@@ -35,6 +37,8 @@ export interface SubmitDeferredCommandOptions {
  * 同步接纳一个命令任务；执行器未启动、已停止接纳或该档等待位已满时返回 false，调用方
  * 回「稍后再试」或就地执行（commands/blocklistFanOut.ts）。任务在自己的 update 取消上下文里
  * 运行，停机取消后的异常不再上报。
+ * @param options 调度优先级 `priority`、异步任务闭包 `task`、错误日志前缀 `errorLabel` 与未开跑撤销回调 `onSkipped`。
+ * @returns 已成功接纳时返回 true；未接纳时返回 false。
  */
 export function submitDeferredCommand({
   priority,
@@ -68,7 +72,11 @@ export function quiesceDeferredCommandRuntime(): void {
   if (deferredCommandRuntime.current !== null) deferredCommandRuntime.current.accepting = false;
 }
 
-/** 等待已接纳的任务结算；预算耗尽时取消排队与在途任务，零预算可用于紧急停机。 */
+/**
+ * 等待已接纳的任务结算；预算耗尽时取消排队与在途任务，零预算可用于紧急停机。
+ * @param timeoutMs 最大等待排空预算（毫秒）。
+ * @returns 排空完成返回 `"flushed"`，超时取消返回 `"timedOut"`。
+ */
 export async function drainDeferredCommandRuntime(timeoutMs: number): Promise<FlushResult> {
   assertTimeoutMs(timeoutMs, "Deferred command drain timeout");
   quiesceDeferredCommandRuntime();

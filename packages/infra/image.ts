@@ -25,7 +25,11 @@ import type { ImageDimensions } from "../types/hImage";
 /** 魔数嗅探得到的图片格式；unknown 表示不属于 jpeg、png、webp、gif 中任何一种。 */
 export type SniffedImageFormat = "jpeg" | "png" | "webp" | "gif" | "unknown";
 
-/** 按文件头魔数嗅探格式，不依赖 Telegram 的 file_path 扩展名。 */
+/**
+ * 按文件头魔数嗅探格式，不依赖 Telegram 的 file_path 扩展名。
+ * @param bytes 待嗅探的图片原始字节。
+ * @returns 识别出的图片格式；不匹配已知魔数时返回 `"unknown"`。
+ */
 export function sniffImageFormat(bytes: Uint8Array): SniffedImageFormat {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "jpeg";
   if (
@@ -63,6 +67,10 @@ interface RiffSpan {
  * 在 span 内按 RIFF 规则顺序查找第一个四字符码属于 accept 的块。只读块头、不收集块列表，
  * 最多检查 WEBP_MAX_SCANNED_CHUNKS 个块；某个块的载荷越过 span.end、超过块数上限或扫到末尾
  * 仍未找到时返回 null。
+ * @param bytes RIFF 容器的完整字节数组。
+ * @param span 待扫描的半开字节区间 `[start, end)`。
+ * @param accept 允许命中的四字符码（小端 uint32）列表。
+ * @returns 第一个匹配的 RIFF 块信息；未找到或结构越界时返回 null。
  */
 function findRiffChunk(bytes: Uint8Array, span: RiffSpan, accept: readonly number[]): RiffChunk | null {
   const view: DataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -79,7 +87,11 @@ function findRiffChunk(bytes: Uint8Array, span: RiffSpan, accept: readonly numbe
   return null;
 }
 
-/** 把若干 `[四字符码, 载荷]` 依次写成 RIFF 块（奇数长度按偶数字节对齐补齐），外层封装 `RIFF…WEBP` 头。 */
+/**
+ * 把若干 `[四字符码, 载荷]` 依次写成 RIFF 块（奇数长度按偶数字节对齐补齐），外层封装 `RIFF…WEBP` 头。
+ * @param chunks 按序写入的 `[fourcc, payload]` 块列表。
+ * @returns 封装好的完整 WebP 容器字节数组。
+ */
 function writeWebpContainer(chunks: readonly (readonly [number, Uint8Array])[]): Uint8Array {
   let body: number = WEBP_CONTAINER_HEADER_BYTES - RIFF_CHUNK_HEADER_BYTES;
   for (const [, payload] of chunks) body += RIFF_CHUNK_HEADER_BYTES + payload.length + (payload.length & 1);
@@ -103,6 +115,8 @@ function writeWebpContainer(chunks: readonly (readonly [number, Uint8Array])[]):
  * WebP，按该帧自身宽高输出、不合成到画布偏移。不是动态 WebP 或容器结构不合法时返回
  * null，调用方按原字节解码。只做容器层的切片与拼接，不解码像素；帧尺寸与码流内容由
  * `Bun.Image` 解码时校验。
+ * @param bytes 原始 WebP 字节数组。
+ * @returns 重新封装的首帧静态 WebP 字节数组；非动态 WebP 或结构不合法时返回 null。
  */
 export function firstAnimatedWebpFrame(bytes: Uint8Array): Uint8Array | null {
   const frame: RiffChunk | null = findRiffChunk(
@@ -134,6 +148,8 @@ export function firstAnimatedWebpFrame(bytes: Uint8Array): Uint8Array | null {
  * `jpeg`/`png` 原样直通；`webp`/`gif`（含动态首帧）经 `Bun.Image` 限制在 `VISION_TRANSCODE_MAX_PIXELS` 内解码，
  * 超过 `VISION_TRANSCODE_MAX_EDGE` 时等比降采样（不放大）后转为 `png`；
  * 不支持的格式、超限或转码失败返回 null。
+ * @param bytes 原始图片字节数组。
+ * @returns 可供视觉模型消费的图片字节与 MIME 类型；不支持或转码失败时返回 null。
  */
 export async function prepareVisionImage(bytes: Uint8Array): Promise<VisionImage | null> {
   const format: SniffedImageFormat = sniffImageFormat(bytes);
@@ -158,7 +174,7 @@ export async function prepareVisionImage(bytes: Uint8Array): Promise<VisionImage
  * 只读一张图的像素尺寸，不解码像素、不转码。`Bun.Image` 的 `metadata()` 只解码到
  * 能读出宽高与格式为止。
  *
- * 任何解码失败（不认识的格式、截断的头、超出 maxPixels）都返回 null，不抛出、不记日志；
+ * 任何解码失败（不认识的格式、截断的头等）都返回 null，不抛出、不记日志；
  * 调用方把「读不出尺寸」与「读出来不合规」分开处置。
  * @param bytes 完整的图片字节。
  * @returns 像素宽高；读不出时为 null。

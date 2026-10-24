@@ -2,7 +2,14 @@ import { join, relative } from "node:path";
 import ts from "typescript";
 import { parseSourceFile, sourceFilesUnder } from "./sourceAnalysis";
 
-/** 核对命令提示清理、状态消息豁免与长期留存话题归属。 */
+/**
+ * 核对命令提示清理、状态消息豁免与长期留存话题归属。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param sourceRoot `packages/` 源码根目录绝对路径
+ * @param commandsRoot `packages/commands/` 目录绝对路径
+ * @returns Telegram 消息发送与留存边界违规问题列表
+ */
 export async function collectTelegramMessageProblems(
   projectRoot: string,
   sourceRoot: string,

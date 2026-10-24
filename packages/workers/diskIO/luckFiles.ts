@@ -36,7 +36,10 @@ export async function retryLuckFlush(): Promise<void> {
   if (await flushLuckAppends()) await replayDeferredLuckDraws(takeDeferredLuckDraws());
 }
 
-/** 将旧日尚未刷出时到达的新日抽签暂存到有界滞留队列，参见 docs/cn/04-invariants.md。 */
+/**
+ * 将旧日尚未刷出时到达的新日抽签暂存到有界滞留队列，参见 docs/cn/04-invariants.md。
+ * @param msg 跨日到达的运势抽签落盘消息。
+ */
 function deferLuckDraw(msg: LuckDrawDiskMessage): void {
   if (luckDeferredDraws.length >= LUCK_DEFERRED_DRAW_MAX) {
     const dropped: LuckDrawDiskMessage | undefined = luckDeferredDraws.shift();
@@ -48,12 +51,18 @@ function deferLuckDraw(msg: LuckDrawDiskMessage): void {
   luckDeferredDraws.push(msg);
 }
 
-/** 取走全部滞留抽签；队列为空时返回 null。 */
+/**
+ * 取走全部滞留抽签；队列为空时返回 null。
+ * @returns 已取出的滞留抽签消息数组；无滞留项时返回 null。
+ */
 function takeDeferredLuckDraws(): LuckDrawDiskMessage[] | null {
   return luckDeferredDraws.length > 0 ? luckDeferredDraws.splice(0, luckDeferredDraws.length) : null;
 }
 
-/** 逐条补录已取走的滞留抽签。 */
+/**
+ * 逐条补录已取走的滞留抽签。
+ * @param deferred 待重放的滞留抽签列表；为 null 时不执行操作。
+ */
 export async function replayDeferredLuckDraws(
   deferred: readonly LuckDrawDiskMessage[] | null
 ): Promise<void> {
@@ -64,6 +73,9 @@ export async function replayDeferredLuckDraws(
 /**
  * 切换运势日期 owner：先取出滞留抽签，再按 recoverFromDisk 从磁盘恢复或新建空 owner；
  * 磁盘恢复失败时放回滞留抽签并保持原 owner。
+ * @param day 目标 `YYYY-MM-DD` 日期键。
+ * @param recoverFromDisk 为 true 时从磁盘恢复当日已有运势记录，为 false 时直接初始化空缓存。
+ * @returns 切换前取出的滞留抽签列表；无滞留项时返回 null。
  */
 export async function switchLuckDay(
   day: string,
@@ -84,8 +96,9 @@ export async function switchLuckDay(
 }
 
 /**
- * 将运势待写缓冲追加落盘并清理过期日文件；失败时保留缓冲、重置文件状态并重排定时器，
- * 连续失败达 LUCK_APPEND_STALL_ALERT_FAILURES 时发出边沿告警。
+ * 存在运势待写项时追加落盘并顺带清理过期日文件（待写缓冲为空时直接返回 true）；
+ * 失败时保留缓冲、重置文件状态并重排定时器，连续失败达 `LUCK_APPEND_STALL_ALERT_FAILURES` 时发出边沿告警。
+ * @returns 无待写项或追加落盘成功时返回 true，未初始化日期缓存或写盘失败时返回 false。
  */
 export async function flushLuckAppends(): Promise<boolean> {
   cancelDiskIOFlushTimer(luckFlushTimer);
@@ -130,7 +143,10 @@ export async function flushLuckAppends(): Promise<boolean> {
   return true;
 }
 
-/** 处理单条运势抽签消息：处理跨日切换与滞留重放，按键值去重后写入缓冲并调度落盘。 */
+/**
+ * 处理单条运势抽签消息：处理跨日切换与滞留重放，按键值去重后写入缓冲并调度落盘。
+ * @param msg 运势抽签落盘消息。
+ */
 export async function handleLuckDrawMessage(
   msg: LuckDrawDiskMessage
 ): Promise<void> {
@@ -168,7 +184,10 @@ export async function handleLuckDrawMessage(
   }
 }
 
-/** 从磁盘严格恢复目标日运势结果并替换内存 owner 与追加游标。 */
+/**
+ * 从磁盘严格恢复目标日运势结果并替换内存 owner 与追加游标。
+ * @param day 目标 `YYYY-MM-DD` 日期键。
+ */
 export async function hydrateLuckDay(day: string): Promise<void> {
   const recoveredFileState: { current: DayFileState | null } = { current: null };
   const recovered: LuckDayCache | null = await recoverLuckDay(day, recoveredFileState);
@@ -176,7 +195,10 @@ export async function hydrateLuckDay(day: string): Promise<void> {
   luckFileState.current = recoveredFileState.current;
 }
 
-/** 启动恢复阶段将已校验的运势结果与文件游标发布到 owner 缓存。 */
+/**
+ * 启动恢复阶段将已校验的运势结果与文件游标发布到 owner 缓存。
+ * @param inspection 启动只读扫描阶段产出的运势探测结果。
+ */
 export function adoptLuckDay(
   inspection: LuckDayRecoveryInspection
 ): void {
@@ -184,7 +206,10 @@ export function adoptLuckDay(
   luckFileState.current = inspection.fileState;
 }
 
-/** 每日维护：刷出旧日与滞留抽签后切换到目标日并清理过期文件。 */
+/**
+ * 每日维护：刷出旧日与滞留抽签后切换到目标日并清理过期文件。
+ * @param day 目标维护日期键（`YYYY-MM-DD`）。
+ */
 export async function maintainLuckForDay(day: string): Promise<void> {
   const currentDay: string | undefined = luckWorkerCache.current?.day;
   if (currentDay !== undefined && day < currentDay) return;

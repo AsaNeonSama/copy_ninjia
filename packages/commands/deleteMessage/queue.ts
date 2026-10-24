@@ -61,6 +61,8 @@ async function consumeTargetMessageDeletions(): Promise<void> {
 /**
  * 把目标的一条消息排进待删队列，消费循环空闲时同步启动它。队列已达 DELETE_MESSAGE_QUEUE_MAX
  * 时不入队，本轮满队的第一条记一行 warn，队列排空时再汇总丢弃条数；停机排空中止后不再入队。
+ * @param chatId 待删消息所在群聊 ID。
+ * @param messageId 待删消息的 ID。
  */
 export function enqueueTargetMessageDeletion(chatId: number, messageId: number): void {
   if (deleteMessageQueueRuntime.controller.signal.aborted) return;
@@ -79,7 +81,10 @@ export function enqueueTargetMessageDeletion(chatId: number, messageId: number):
   void runWithUpdateAbortSignal(deleteMessageQueueRuntime.controller.signal, consumeTargetMessageDeletions);
 }
 
-/** 群 teardown：按原顺序摘掉本群尚未发出的条目；已在途的那一批照常结算，消费循环随后自行收尾。 */
+/**
+ * 群 teardown：按原顺序摘掉本群尚未发出的条目；已在途的那一批照常结算，消费循环随后自行收尾。
+ * @param chatId 被清理的群聊 ID。
+ */
 export function dropQueuedTargetMessageDeletions(chatId: number): void {
   for (let remaining: number = deleteMessageQueue.size; remaining > 0; remaining -= 1) {
     const entry: QueuedTargetMessageDeletion = deleteMessageQueue.shift()!;
@@ -100,7 +105,11 @@ function abortTargetMessageDeletions(): void {
   deleteMessageQueueRuntime.controller.abort();
 }
 
-/** 生命周期边界：等待待删队列与消费循环归零；超出预算时丢弃剩余条目并返回 `"timedOut"`。 */
+/**
+ * 生命周期边界：等待待删队列与消费循环归零；超出预算时丢弃剩余条目并返回 `"timedOut"`。
+ * @param timeoutMs 最大等待排空预算（毫秒）。
+ * @returns 排空完成返回 `"flushed"`，超时取消返回 `"timedOut"`。
+ */
 export function drainTargetMessageDeletions(timeoutMs: number): Promise<FlushResult> {
   return drainWithWaiter({
     owner: "Target message deletion",

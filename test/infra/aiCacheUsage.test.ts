@@ -84,13 +84,20 @@ describe("AI 缓存用量上报边界", () => {
     }
   });
 
-  test("Gemini 用量：缺 usageMetadata 不上报，缺命中数按 0，输出计入思考", () => {
+  test("Gemini 用量：缺 usageMetadata 不上报，缺命中数按 0，输入计入工具回灌、输出计入思考", () => {
     install();
     reportGeminiUsage({ capability: "ad_detect", model: "g", usage: undefined });
     reportGeminiUsage({ capability: "ad_detect", model: "g", usage: { candidatesTokenCount: 3 } });
     reportGeminiUsage({ capability: "ad_detect", model: "g", usage: { promptTokenCount: 50, candidatesTokenCount: 3, thoughtsTokenCount: 4 } });
+    reportGeminiUsage({
+      capability: "web_search",
+      model: "g",
+      usage: { promptTokenCount: 37, toolUsePromptTokenCount: 202, cachedContentTokenCount: 20, candidatesTokenCount: 112, thoughtsTokenCount: 526 },
+      searchCalls: 2,
+    });
     expect(reported.map(({ timestamp: _timestamp, ...rest }: AiCacheUsage) => rest)).toEqual([
       { kind: "tokens", capability: "ad_detect", provider: "google", model: "g", inputTokens: 50, cachedInputTokens: 0, outputTokens: 7 },
+      { kind: "tokens", capability: "web_search", provider: "google", model: "g", inputTokens: 239, cachedInputTokens: 20, outputTokens: 638, searchCalls: 2 },
     ]);
   });
 });
@@ -111,6 +118,10 @@ test("Interactions 独立思考 token 计入输出，未给缓存数保持未知
 test("Gemini 非法分量不能相加后掩盖，缺输出保持未知，畸形 usage 不影响业务", () => {
   install();
   for (const usage of [null, "invalid", [], { promptTokenCount: 4 },
+    { promptTokenCount: -1, toolUsePromptTokenCount: 5, candidatesTokenCount: 1 },
+    { promptTokenCount: 4, toolUsePromptTokenCount: -1, candidatesTokenCount: 1 },
+    { promptTokenCount: 4, toolUsePromptTokenCount: null, candidatesTokenCount: 1 },
+    { toolUsePromptTokenCount: 5, candidatesTokenCount: 1 },
     { promptTokenCount: 4, candidatesTokenCount: -1, thoughtsTokenCount: 2 },
     { promptTokenCount: 4, candidatesTokenCount: 1, cachedContentTokenCount: null }]) {
     expect(() => reportGeminiUsage({ capability: "text", model: "fixture", usage: usage as any })).not.toThrow();

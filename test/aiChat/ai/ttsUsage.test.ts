@@ -24,7 +24,7 @@ const NOW: number = 1_800_000_000_000;
 const FULL_LIMIT: number = 100;
 const RESERVE_LIMIT: number = 15;
 const AI_LIMIT: number = FULL_LIMIT - RESERVE_LIMIT;
-const CAPABILITY = { provider: "google", apiKey: "key", baseUrl: undefined, headers: undefined, model: "m" } as const;
+const CAPABILITY = { provider: "google", apiKey: "key", baseUrl: undefined, model: "m" } as const;
 
 function ttsConfig(dailyLimit: number, dailyReserveQuota: number): AgentTtsCapabilityConfig {
   return { ...CAPABILITY, voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit, dailyReserveQuota };

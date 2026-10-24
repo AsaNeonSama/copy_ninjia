@@ -7,12 +7,20 @@ import type { SQL } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { StorageDatabase, StorageDatabaseReader } from "../../types/storageDatabase";
 
-/** 生成列值属于 `ids` JSON 数组占位符展开集合的 SQL 条件。 */
+/**
+ * 生成列值属于 `ids` JSON 数组占位符展开集合的 SQL 条件。
+ * @param column 待匹配的主键列定义。
+ * @returns `column IN (SELECT value FROM json_each(:ids))` 的 SQL 片段。
+ */
 function idInPlaceholderList(column: SQLiteColumn): SQL {
   return sql`${column} IN (SELECT value FROM json_each(${sql.placeholder("ids")}))`;
 }
 
-/** 为指定数据库连接预编译名单批量读取、临时广告免检批量读取与群状态主键读取语句。 */
+/**
+ * 为指定数据库连接预编译名单批量读取、临时广告免检批量读取与群状态主键读取语句。
+ * @param database 共享存储数据库连接。
+ * @returns 绑定到该连接的预编译读取语句句柄集合。
+ */
 export function prepareStorageDatabaseReader(database: StorageDatabase): StorageDatabaseReader {
   return {
     whitelistPolicies: database

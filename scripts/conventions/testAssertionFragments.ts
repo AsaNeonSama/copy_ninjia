@@ -4,12 +4,12 @@ import { fixtureLiterals, isMatcherCall, isStringLiteralNode } from "./testAsser
 import type { TestAssertionRuleParams } from "./testAssertions";
 
 /**
- * 测试断言的常量文案子串规则：匹配器实参里的字符串字面量或模板静态片段，
- * 含至少 CONSTANT_TEXT_FRAGMENT_MIN_CJK 个汉字或假名、又是 packages/consts 某段文案的子串时，
- * 视为把常量文案的一部分抄进了测试；期望值从常量（或模板常量渲染出的固定片段，见
- * test/helpers/templateText.ts）取得。
+ * 测试断言的常量文案子串规则：匹配器实参里的字符串字面量或模板静态片段，按连续汉字、假名
+ * 及夹在其间的全角标点切分后，任一连续段含至少 CONSTANT_TEXT_FRAGMENT_MIN_CJK 个汉字或假名、
+ * 又是 packages/consts 某段文案的子串时，视为把常量文案的一部分抄进了测试；期望值从常量
+ * （或模板常量渲染出的固定片段，见 test/helpers/templateText.ts）取得。
  *
- * 同一字面量在本文件匹配器实参之外出现过（测试自造的夹具输入）时不算。断言对象就是提示词常量
+ * 同一字面量在本文件匹配器实参之外整段出现过（测试自造的夹具输入）时不算。断言对象就是提示词常量
  * 必须写明哪些话的「提示词契约」用例，按文件与用例名列在 CONSTANT_TEXT_CONTRACT_EXEMPTIONS；
  * 豁免表里没被任何命中用到的条目同样报错。
  */
@@ -19,6 +19,9 @@ const CONSTANT_TEXT_FRAGMENT_MIN_CJK: number = 6;
 
 /** 计数用的字符范围：平假名、片假名与 CJK 统一汉字（含扩展 A）。 */
 const CJK_CHARACTER_PATTERN: RegExp = /[\u3040-\u30ff\u3400-\u9fff]/g;
+
+/** 字面量按连续汉字、假名、全角字符与 ♡♪…— 等文案符号切出的中文/日文段；段内插值数字或拉丁字符会在边界处断开。 */
+const CJK_RUN_PATTERN: RegExp = /[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef\u3000-\u303f♡♪…—]+/g;
 
 /** 语料里分隔各片段的字符；子串查找不会跨越它。 */
 const FRAGMENT_SEPARATOR: string = "\u0000";
@@ -102,7 +105,12 @@ export const CONSTANT_TEXT_CONTRACT_EXEMPTIONS: readonly Readonly<ConstantTextCo
   },
 ];
 
-/** packages/consts 一个文件里全部字符串字面量与模板静态片段，追加进调用方的片段表。 */
+/**
+ * packages/consts 一个文件里全部字符串字面量与模板静态片段，追加进调用方的片段表。
+ *
+ * @param source packages/consts 下的源文件 AST
+ * @param fragments 收集静态文本片段的数组
+ */
 export function collectConstantTextFragments(source: ts.SourceFile, fragments: string[]): void {
   const visit = (node: ts.Node): void => {
     if (isStringLiteralNode(node)) fragments.push(node.text);
@@ -115,23 +123,40 @@ export function collectConstantTextFragments(source: ts.SourceFile, fragments: s
   visit(source);
 }
 
-/** 把片段表连成一段语料，供子串查找。 */
+/**
+ * 把片段表连成一段语料，供子串查找。
+ *
+ * @param fragments 常量静态文本片段列表
+ * @returns 以分隔符拼接后的完整语料字符串
+ */
 export function constantTextCorpus(fragments: readonly string[]): string {
   return fragments.join(FRAGMENT_SEPARATOR);
 }
 
 /** 子串规则的入参：逐文件入参外加常量文案语料与豁免命中记录。 */
 export interface ConstantTextFragmentRuleParams extends TestAssertionRuleParams {
+  /** 拼接后的常量静态文本语料。 */
   readonly corpus: string;
   /** 本次检查用到的豁免键（`路径::用例名`），供 collectUnusedConstantTextExemptionProblems 核对。 */
   readonly usedExemptions: Set<string>;
 }
 
+/**
+ * 统计文本中汉字与假名的字符数量。
+ *
+ * @param text 待统计的文本片段
+ * @returns 汉字与假名字符个数
+ */
 function cjkCount(text: string): number {
   return text.match(CJK_CHARACTER_PATTERN)?.length ?? 0;
 }
 
-/** 节点所在的最内层 `test(...)`/`it(...)`（含 `test.each(...)(...)`）用例名；不在用例里为 undefined。 */
+/**
+ * 节点所在的最内层 `test(...)`/`it(...)`（含 `test.each(...)(...)`）用例名；不在用例里为 undefined。
+ *
+ * @param node 待查找所属用例的 AST 节点
+ * @returns 最内层测试用例标题，未位于用例内时返回 undefined
+ */
 function enclosingTestTitle(node: ts.Node): string | undefined {
   for (let current: ts.Node | undefined = node.parent; current !== undefined; current = current.parent) {
     if (!ts.isCallExpression(current)) continue;
@@ -145,7 +170,12 @@ function enclosingTestTitle(node: ts.Node): string | undefined {
   return undefined;
 }
 
-/** 字面量节点里参与比对的静态片段。 */
+/**
+ * 字面量节点里参与比对的静态片段。
+ *
+ * @param node 待提取的 AST 节点
+ * @returns 静态字符串片段列表
+ */
 function literalChunks(node: ts.Node): readonly string[] {
   if (isStringLiteralNode(node)) return [node.text];
   if (ts.isTemplateExpression(node)) {
@@ -154,7 +184,12 @@ function literalChunks(node: ts.Node): readonly string[] {
   return [];
 }
 
-/** 找出匹配器实参里抄写了常量文案片段、又不是本文件夹具也不在豁免用例里的字面量。 */
+/**
+ * 找出匹配器实参里抄写了常量文案片段、又不是本文件夹具也不在豁免用例里的字面量。
+ *
+ * @param params 常量文案子串断言检查入参
+ * @returns 违规抄写常量文案片段的问题列表
+ */
 export function collectConstantTextFragmentAssertionProblems({
   projectRoot,
   path,
@@ -172,17 +207,20 @@ export function collectConstantTextFragmentAssertionProblems({
   const problems: string[] = [];
   const inspectArgument = (node: ts.Node): void => {
     for (const chunk of literalChunks(node)) {
-      if (cjkCount(chunk) < CONSTANT_TEXT_FRAGMENT_MIN_CJK || fixtures.has(chunk) || !corpus.includes(chunk)) continue;
-      const title: string | undefined = enclosingTestTitle(node);
-      if (title !== undefined && exemptTests.has(title)) {
-        usedExemptions.add(`${relativePath}::${title}`);
-        continue;
+      if (fixtures.has(chunk)) continue;
+      for (const run of chunk.match(CJK_RUN_PATTERN) ?? []) {
+        if (cjkCount(run) < CONSTANT_TEXT_FRAGMENT_MIN_CJK || !corpus.includes(run)) continue;
+        const title: string | undefined = enclosingTestTitle(node);
+        if (title !== undefined && exemptTests.has(title)) {
+          usedExemptions.add(`${relativePath}::${title}`);
+          continue;
+        }
+        const line: number = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+        problems.push(
+          `${relativePath}:${line} asserts text copied from packages/consts (${JSON.stringify(run.slice(0, 24))}); ` +
+          "read the constant or its template parts instead"
+        );
       }
-      const line: number = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-      problems.push(
-        `${relativePath}:${line} asserts text copied from packages/consts (${JSON.stringify(chunk.slice(0, 24))}); ` +
-        "read the constant or its template parts instead"
-      );
     }
     ts.forEachChild(node, inspectArgument);
   };
@@ -196,7 +234,12 @@ export function collectConstantTextFragmentAssertionProblems({
   return problems;
 }
 
-/** 豁免表里没有被任何命中用到的用例：测试已改名、删除或已改成读常量，豁免须同步删掉。 */
+/**
+ * 豁免表里没有被任何命中用到的用例：测试已改名、删除或已改成读常量，豁免须同步删掉。
+ *
+ * @param usedExemptions 本轮检查实际命中的豁免键集合
+ * @returns 闲置豁免条目问题列表
+ */
 export function collectUnusedConstantTextExemptionProblems(usedExemptions: ReadonlySet<string>): readonly string[] {
   const problems: string[] = [];
   for (const exemption of CONSTANT_TEXT_CONTRACT_EXEMPTIONS) {

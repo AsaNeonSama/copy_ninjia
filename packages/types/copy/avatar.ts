@@ -22,8 +22,12 @@ export interface AvatarUpdateTask {
 
 /** 提交给 queueAvatarUpdate 的请求；`silent` 缺省为 false。 */
 export interface AvatarUpdateRequest {
+  /** 发起头像更新请求的群聊 ID。 */
   readonly chatId: number;
+  /** 头像更新目标（指定用户/频道公开头像或机器人默认头像）。 */
   readonly target: AvatarUpdateTarget;
+  /** 触发本次头像更新的命令来源（copy 或 icon）。 */
   readonly source: AvatarNoticeSource;
+  /** 为 true 时只更新头像而不发送群内回执；缺省为 false。 */
   readonly silent?: boolean;
 }

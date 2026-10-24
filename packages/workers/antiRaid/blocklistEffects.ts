@@ -37,9 +37,13 @@ import { sleepUnlessAborted } from "../../libs/sleep";
  */
 type RemovalOutcome = "removed" | "absent" | "failed" | "forbidden" | "targetIsAdmin" | "participantInvalid";
 
+/** 处置单个黑名单目标所需的参数。 */
 export interface RemoveOneParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 目标用户或频道身份 ID（负值为频道身份）。 */
   userId: number;
+  /** 是否在封禁前探测目标当前成员与管理员状态。 */
   probeMembership: boolean;
   /** 本批开始时取得的停机取消信号（antiRaidDispatchSignal）。 */
   signal: AbortSignal;
@@ -47,6 +51,8 @@ export interface RemoveOneParams {
 
 /**
  * 处置单个目标，失败按线性退避重试；停机取消后不再进入下一次退避。
+ * @param params 单个目标处置参数。
+ * @returns 单个目标的移除结局。
  */
 async function removeOne({ chatId, userId, probeMembership, signal }: RemoveOneParams): Promise<RemovalOutcome> {
   let participantInvalid: boolean = probeMembership && userId > 0;
@@ -96,15 +102,21 @@ interface RemoveBatchResult {
   readonly settledUserIds: number[];
 }
 
+/** 将单个黑名单目标的处置结局并入批次结果所需的参数。 */
 interface ApplyRemovalOutcomeParams {
+  /** 群组 ID。 */
   readonly chatId: number;
+  /** 目标用户或频道身份 ID。 */
   readonly userId: number;
+  /** 单个目标的移除结局。 */
   readonly outcome: RemovalOutcome;
+  /** 当前批次的累加结果对象。 */
   readonly result: RemoveBatchResult;
 }
 
 /**
  * 将单个目标的处置结局并入批次结果。
+ * @param params 结局归并参数。
  * @returns false 表示机器人缺少封禁权限，终止剩余批次。
  */
 function applyRemovalOutcome({ chatId, userId, outcome, result }: ApplyRemovalOutcomeParams): boolean {
@@ -133,15 +145,22 @@ function applyRemovalOutcome({ chatId, userId, outcome, result }: ApplyRemovalOu
   return true;
 }
 
+/** 黑名单移除批次收尾所需的参数。 */
 interface FinishRemovalBatchParams {
+  /** 群组 ID。 */
   readonly chatId: number;
   /** 批次开始时的处置世代；群在这期间被停管时不再删公告。 */
   readonly epoch: number;
+  /** 入群服务消息 ID；无须删除公告时为 undefined。 */
   readonly announcementMessageId: number | undefined;
+  /** 本批成功移除的人数。 */
   readonly removed: number;
 }
 
-/** 批次收尾：删除入群公告并记录移除人数。 */
+/**
+ * 批次收尾：删除入群公告并记录移除人数。
+ * @param params 批次收尾参数。
+ */
 async function finishRemovalBatch({
   chatId,
   epoch,
@@ -158,7 +177,11 @@ async function finishRemovalBatch({
   if (removed > 0) logger.log(`Removed ${removed} blocklisted member(s) from chat ${chatId}.`);
 }
 
-/** 逐个处置一批黑名单目标并返回汇总结果。 */
+/**
+ * 逐个处置一批黑名单目标并返回汇总结果。
+ * @param params 批量移除黑名单成员参数。
+ * @returns 批次汇总结局。
+ */
 async function removeBlockedMembers({
   chatId,
   userIds,
@@ -213,13 +236,19 @@ async function removeBlockedMembers({
   return result;
 }
 
+/** 启动黑名单成员移除后台任务所需的消息与回执回调。 */
 export interface HandleRemoveBlockedMembersParams {
+  /** 主线程发来的黑名单成员移除请求消息。 */
   msg: RemoveBlockedMembersMessage;
   /** 回执通道（Worker -> 主线程）；由 antiRaidWorker.ts 注入 self.postMessage。 */
   publish: (event: BlockedMembersRemovedEvent) => void;
 }
 
-/** 启动黑名单移除后台任务并在结束时回执主线程。 */
+/**
+ * 启动黑名单移除后台任务并在结束时回执主线程。
+ * @param params 黑名单移除请求与回执发布函数。
+ * @returns 已登记到在途任务跟踪器的后台移除任务 Promise。
+ */
 export function handleRemoveBlockedMembers({ msg, publish }: HandleRemoveBlockedMembersParams): Promise<void> {
   const task: Promise<void> = removeBlockedMembers(msg)
     .then((result: RemoveBatchResult): void => {

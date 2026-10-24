@@ -467,7 +467,7 @@ describe("Telegram 主线程出站总闸", () => {
         ok: false,
         error_code: 429,
         description: "Too Many Requests",
-        parameters: { retry_after: 0 },
+        parameters: { retry_after: 0.001 },
       });
     }) as PreviousCall;
     const transform: Transformer<RawApi> = telegramOutboundGate();
@@ -502,8 +502,8 @@ describe("Telegram 主线程出站总闸", () => {
       return Promise.resolve({ ok: true, result: true });
     }) as PreviousCall;
     const transform: Transformer<RawApi> = telegramOutboundGate();
-    const first: Promise<unknown> = transform(previous, "sendMessage", { chat_id: -1001, text: "A" }) as Promise<unknown>;
-    const second: Promise<unknown> = transform(previous, "sendMessage", { chat_id: -1001, text: "B" }) as Promise<unknown>;
+    const first: Promise<unknown> = transform(previous, "getChat", { chat_id: -1001, text: "A" } as never) as Promise<unknown>;
+    const second: Promise<unknown> = transform(previous, "getChat", { chat_id: -1001, text: "B" } as never) as Promise<unknown>;
 
     await settleTestBatch([first, second]);
     expect(delivered).toEqual(["A", "B"]);
@@ -634,7 +634,7 @@ describe("Telegram 主线程出站总闸", () => {
             ok: false,
             error_code: 429,
             description: "Too Many Requests",
-            parameters: { retry_after: 0 },
+            parameters: { retry_after: 0.001 },
           });
         }
       }
@@ -677,7 +677,7 @@ describe("Telegram 主线程出站总闸", () => {
             ok: false,
             error_code: 429,
             description: "Too Many Requests",
-            parameters: { retry_after: 0 },
+            parameters: { retry_after: 0.001 },
           });
         }
       }
@@ -713,7 +713,7 @@ describe("Telegram 主线程出站总闸", () => {
             ok: false,
             error_code: 429,
             description: "Too Many Requests",
-            parameters: { retry_after: 0 },
+            parameters: { retry_after: 0.001 },
           });
         }
       }
@@ -833,7 +833,7 @@ describe("Telegram 主线程出站总闸", () => {
           ok: false,
           error_code: 429,
           description: "Too Many Requests",
-          parameters: { retry_after: 0 },
+          parameters: { retry_after: 0.001 },
         }
         : { ok: true, result: true });
     }) as PreviousCall;

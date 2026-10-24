@@ -14,6 +14,7 @@ import { toErrorOr } from "./errorMessage";
  *
  * @param signal 调用方的取消源；缺省表示只受超时约束。
  * @param timeoutMs 本次调用独占的超时预算。
+ * @returns 合成后的取消信号。
  */
 export function signalWithTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
   const timeout: AbortSignal = AbortSignal.timeout(timeoutMs);
@@ -28,6 +29,8 @@ export function signalWithTimeout(signal: AbortSignal | undefined, timeoutMs: nu
  * name 是 `"TimeoutError"` 的 `DOMException`，而 `AbortController.abort()` 无参时给
  * 的是 `AbortError`。`AbortSignal.any` 原样透传首个触发源的 reason，signalWithTimeout
  * 合成出来的信号因此同样可判；未中止的 signal 一律为 false。
+ * @param signal 待判定的取消信号。
+ * @returns 因超时预算耗尽中止时返回 true，未中止或因其他原因中止时返回 false。
  */
 export function isTimeoutAbort(signal: AbortSignal): boolean {
   const reason: unknown = signal.reason as unknown;
@@ -39,17 +42,27 @@ export function isTimeoutAbort(signal: AbortSignal): boolean {
  *
  * 覆盖 Worker 停机 drain 时 libs/workerDuplex.ts 本地结算的等待者、出站总闸撤销的
  * 排队请求等不经调用方 signal 的取消；超时给的是 `TimeoutError`，不在此列。
+ * @param error 捕获到的未知异常值。
+ * @returns 为取消本身时返回 true，否则返回 false。
  */
 export function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-/** 取消原因必须以 Error 传播；标准 AbortController 的 DOMException 原样保留。 */
+/**
+ * 取消原因必须以 Error 传播；标准 AbortController 的 DOMException 原样保留。
+ * @param signal 已中止的信号。
+ * @returns 归一化后的 Error 实例。
+ */
 function abortSignalError(signal: AbortSignal): Error {
   return toErrorOr(signal.reason as unknown, "AbortSignal was aborted with a non-Error reason.");
 }
 
-/** Promise 违反 Error rejection 约定时在本边界归一化，原值保留为 cause。 */
+/**
+ * Promise 违反 Error rejection 约定时在本边界归一化，原值保留为 cause。
+ * @param reason 下游 Promise 的原始拒绝原因。
+ * @returns 归一化后的 Error 实例。
+ */
 function taskRejectionError(reason: unknown): Error {
   return toErrorOr(reason, "Abortable task rejected with a non-Error value.");
 }
@@ -64,6 +77,7 @@ function taskRejectionError(reason: unknown): Error {
  *
  * @param promise 独占于本次调用、不会被其他等待者复用的下游任务。
  * @param signal 本次调用的取消源；缺省时原样返回 promise，不额外分配包装 Promise。
+ * @returns 跟随下游任务兑现或在 signal 中止时立即拒绝的 Promise。
  */
 export function raceAbortOrThrow<T>(
   promise: Promise<T>,
@@ -125,8 +139,11 @@ export interface RaceAbortOptions<T> {
  * 动作链对前一步的等待都走这里：任一调用方失效时只结束它自己的等待并拿到既定
  * 回退值，底层工作是否随之中止由其自身的取消信号决定。
  *
- * 与 libs/withTimeout.ts 的区别同本文件模块头：那边加的是等待上限，这边等的是别人
+ * 与 libs/withTimeout.ts 的区别同本文件模块头：那边加的是等待上限，这边等的是当前等待者自己
  * 的取消信号。
+ * @param promise 被等待的共享在途任务。
+ * @param options 当前等待者的取消信号与失败回退值。
+ * @returns 任务兑现值，或取消、拒绝时对应的回退值。
  */
 export function raceAbort<T>(promise: Promise<T>, options: RaceAbortOptions<T>): Promise<T> {
   const signal: AbortSignal | undefined = options.signal;

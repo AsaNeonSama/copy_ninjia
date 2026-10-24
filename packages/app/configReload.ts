@@ -2,7 +2,7 @@
  * config/dynamic/ 部署配置热重载的主线程 owner（状态见 cache/main/configReload.ts）。
  *
  * 只监听 config/dynamic/（config/static/ 下的文件修改后须重启）。目录级 `fs.watch` 覆盖原地写入、临时文件改名替换、删除与重建；
- * 按目录名的改名事件关闭旧 watcher 并重新监听，目录暂缺时有界退避重试、只记一次错误日志。任何事件只重新
+ * 按目录名的改名事件关闭旧 watcher 并重新监听，目录暂缺时按退避表延迟持续重试（至最高档间隔）、只记一次错误日志。任何事件只重新
  * 武装一次防抖 timer，到期后由最新值执行器串行跑一轮：config/reload.ts 读取并
  * 严格解析各可热重载文件（assets.json 切换随机图片目录时先准备新目录）→ 同步替换
  * 主线程 holder → 按 holder 重算广告检测与 AI 闲聊的可用性 → 把变化投给持有副本的
@@ -40,13 +40,21 @@ import { logger } from "../infra/logger";
 import { createLatestValueRunner } from "../libs/latestValueRunner";
 import type { ConfigReadiness, HotDeploymentConfigChanges, HotDeploymentConfigReads } from "../types/config";
 
-/** 两份结论是否等价：可用性相同，不可用时失败的文件也相同。 */
+/**
+ * 两份结论是否等价：可用性相同，不可用时失败的文件也相同。
+ * @param next 最新计算的可用性结论。
+ * @param current 当前已发布的可用性结论。
+ * @returns 两份结论等价时返回 `true`，否则返回 `false`。
+ */
 function sameReadiness(next: ConfigReadiness, current: ConfigReadiness): boolean {
   if (next.ok || current.ok) return next.ok === current.ok;
   return next.failure.file === current.failure.file;
 }
 
-/** 按 holder 重算广告检测可用性；结论变化时发布，配置或可用性有变就重投 Anti-Raid。 */
+/**
+ * 按 holder 重算广告检测可用性；结论变化时发布，配置或可用性有变就重投 Anti-Raid。
+ * @param changes 本轮热重载应用后的配置变更摘要。
+ */
 function reconcileAdDetectAvailability(changes: HotDeploymentConfigChanges): void {
   const next: ConfigReadiness = adDetectReadinessFromHolders();
   const current: ConfigReadiness = adDetectConfigReadiness();
@@ -60,7 +68,10 @@ function reconcileAdDetectAvailability(changes: HotDeploymentConfigChanges): voi
   if (availabilityChanged || changes.adDetect || changes.adSamples) syncAntiRaidAgentConfig();
 }
 
-/** 按 holder 重算 AI 闲聊可用性；转为可用先恢复 Worker 再发布，其余按内容变化同步。 */
+/**
+ * 按 holder 重算 AI 闲聊可用性；转为可用先恢复 Worker 再发布，其余按内容变化同步。
+ * @param changes 本轮热重载应用后的配置变更摘要。
+ */
 function reconcileAiChatAvailability(changes: HotDeploymentConfigChanges): void {
   const next: ConfigReadiness = aiChatReadinessFromHolders();
   const current: ConfigReadiness = aiChatConfigReadiness();
@@ -125,6 +136,8 @@ function scheduleConfigReload(): void {
 
 /**
  * 目录事件入口。事件文件名等于被监听目录自身的名字时，另排一次重建监听。
+ * @param event 文件系统事件类型。
+ * @param filename 触发事件的文件或目录名（未知时为 `null`）。
  */
 function handleConfigDirectoryEvent(event: WatchEventType, filename: string | null): void {
   if (event === "rename" && filename === basename(DYNAMIC_CONFIG_DIR)) {
@@ -133,7 +146,10 @@ function handleConfigDirectoryEvent(event: WatchEventType, filename: string | nu
   scheduleConfigReload();
 }
 
-/** 排一次重建监听；已有待执行的重建时不重复排。 */
+/**
+ * 排一次重建监听；已有待执行的重建时不重复排。
+ * @param delayMs 触发重建监听前的等待毫秒数。
+ */
 function scheduleConfigRewatch(delayMs: number): void {
   if (!configReloadRuntime.accepting || configReloadRuntime.rewatchTimer !== null) return;
   const timer: ReturnType<typeof setTimeout> = setTimeout(rewatchConfigDirectory, delayMs);
@@ -168,7 +184,10 @@ function rewatchConfigDirectory(): void {
   runConfigReload();
 }
 
-/** watcher 自身失效后关闭它；本进程余下时间不再热重载，重启后恢复。 */
+/**
+ * watcher 自身失效后关闭它；本进程余下时间不再热重载，重启后恢复。
+ * @param error watcher 抛出的错误对象。
+ */
 function handleWatcherError(error: unknown): void {
   logger.error("Deployment config watcher failed; runtime config reload stays off until restart:", error);
   clearConfigRewatch();
@@ -185,7 +204,10 @@ function clearConfigRewatch(): void {
   configReloadRuntime.rewatchAttempts = 0;
 }
 
-/** 新 watcher 统一挂错误处理并 unref 后登记。 */
+/**
+ * 新 watcher 统一挂错误处理并 unref 后登记。
+ * @param watcher 新建立的目录监视器实例。
+ */
 function installConfigWatcher(watcher: FSWatcher): void {
   watcher.on("error", handleWatcherError);
   watcher.unref();

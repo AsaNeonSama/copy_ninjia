@@ -12,6 +12,11 @@ import type { BoundedResponseResult } from "../libs/boundedResponse";
 /** 所有 JSON 响应共用一个非 fatal UTF-8 解码器。 */
 const UTF8_DECODER: TextDecoder = new TextDecoder();
 
+/**
+ * 截断错误响应体文本至 `JSON_API_ERROR_LOG_MAX_CHARS` 字符以内供日志打印。
+ * @param text 原始响应体文本。
+ * @returns 未超限时返回原文，超限时返回截断后附加省略号的字符串。
+ */
 function boundedErrorPreview(text: string): string {
   if (text.length <= JSON_API_ERROR_LOG_MAX_CHARS) return text;
   return `${text.slice(0, JSON_API_ERROR_LOG_MAX_CHARS)}…`;
@@ -19,8 +24,11 @@ function boundedErrorPreview(text: string): string {
 
 /** fetchJsonWithTimeout 的入参。 */
 export interface FetchJsonWithTimeoutParams {
+  /** 请求的完整 URL 字符串或 URL 对象。 */
   input: string | URL;
+  /** fetch 请求配置项。 */
   init: RequestInit;
+  /** 单次请求的超时毫秒数。 */
   timeoutMs: number;
   /** 出现在错误日志里的接口名（如「Open-Meteo API」）。 */
   errorLabel: string;
@@ -30,6 +38,8 @@ export interface FetchJsonWithTimeoutParams {
  * 带超时和响应体上限（`JSON_API_MAX_RESPONSE_BYTES`）的 JSON API 请求：
  * 请求地址必须命中 `JSON_API_ALLOWED_ORIGINS` 且不跟随重定向；请求失败、取消、超时、超限、
  * 非法 JSON 或非成功响应时返回 null。
+ * @param params JSON API 请求的地址、配置、超时与错误标签参数。
+ * @returns 解析后的 JSON 值；请求失败或响应不合法时返回 null。
  */
 export async function fetchJsonWithTimeout({
   input,

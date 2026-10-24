@@ -11,6 +11,7 @@ import { QUIET_CLOCK_SKEW_TOLERANCE_MS, QUIET_MAX_DURATION_MS } from "../consts/
  *
  * 持久化时状态编码器只写入已设置的字段与为 true 的开关（见
  * database/codec/chatState.ts）。
+ * @returns 按固定字段顺序初始化的空白群状态对象。
  */
 export function createChatState(): ChatState {
   return {
@@ -40,6 +41,8 @@ export const DEFAULT_CHAT_STATE: Readonly<ChatState> = createChatState();
 /**
  * 把解码出来的一份群状态按固定字段顺序逐字段抄进规范形状，结果与
  * createChatState() 同一个隐藏类。
+ * @param decoded 解码得到的只读群状态。
+ * @returns 具备规范字段顺序与隐藏类的可变群状态对象。
  */
 export function adoptChatState(decoded: Readonly<ChatState>): ChatState {
   const chatState: ChatState = createChatState();
@@ -65,6 +68,9 @@ export function adoptChatState(decoded: Readonly<ChatState>): ChatState {
  * 上限带容差（QUIET_CLOCK_SKEW_TOLERANCE_MS）：`quietUntil - now` 不超过
  * QUIET_MAX_DURATION_MS 加容差即有效。超出容差的大幅回拨由 normalizeChatState
  * 收敛到上限，保留静默、缩短时长。
+ * @param quietUntil 静默截止毫秒时间戳；未开启静默时为 undefined。
+ * @param now 判定使用的当前毫秒时间戳，默认为 `Date.now()`。
+ * @returns 当前处于有效静默期内时返回 true，否则返回 false。
  */
 export function isQuietUntilActive(quietUntil: number | undefined, now: number = Date.now()): boolean {
   if (quietUntil === undefined || quietUntil <= now) return false;
@@ -76,6 +82,9 @@ export function isQuietUntilActive(quietUntil: number | undefined, now: number =
  * QUIET_MAX_DURATION_MS 的静默收敛到当前时刻加上限，静默继续有效。lockdown 即使
  * 已到期也保留，反刷群恢复流程仍需用其 originalPermissions 解锁。只赋值不
  * `delete`，形状契约见 createChatState。
+ * @param chatState 待就地收敛的群状态对象。
+ * @param now 判定使用的当前毫秒时间戳，默认为 `Date.now()`。
+ * @returns 收敛后的同一个群状态对象引用。
  */
 export function normalizeChatState(chatState: ChatState, now: number = Date.now()): ChatState {
   if (chatState.quietUntil !== undefined) {
@@ -91,6 +100,8 @@ export function normalizeChatState(chatState: ChatState, now: number = Date.now(
  * 是否所有字段都还是缺省值：开关全为 false，其余字段全为 undefined。
  * `botPermissions` 只要存在就不算缺省：其中全 false 是「已确认不是管理员」，与
  * 「没查过」不同（见 types/chatState.ts）。
+ * @param chatState 待检查的群状态对象。
+ * @returns 所有字段均为初始缺省值时返回 true，否则返回 false。
  */
 export function isEmptyChatState(chatState: ChatState): boolean {
   return chatState.quietUntil === undefined &&

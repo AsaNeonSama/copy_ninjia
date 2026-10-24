@@ -42,7 +42,10 @@ export class AppendOnlyFileFormatError extends Error {
 
 /**
  * 打开或接管一个追加型 JSON 对象文件并返回追加游标。
+ * @param path 目标追加型 JSON 文件路径。
+ * @param mode 原子重写文件时使用的 POSIX 权限位。
  * @param repair 为 true 时允许裁掉撕裂尾部并原子重写规范排版；为 false 时遇到损坏或非规范结尾直接抛错。
+ * @returns 目标文件的物理大小与空对象状态游标。
  */
 export async function openAppendOnlyFile(
   path: string,
@@ -100,7 +103,12 @@ export interface RepairableAppendOnlyInspection<T> {
   readonly state: AppendOnlyFileState;
 }
 
-/** 只读探测允许自愈的追加型 JSON 对象文件：内存中修复截断尾部、执行领域解码并计算追加游标；文件不存在时返回 null。 */
+/**
+ * 只读探测允许自愈的追加型 JSON 对象文件：内存中修复截断尾部、执行领域解码并计算追加游标；文件不存在时返回 null。
+ * @param path 目标追加型 JSON 文件路径。
+ * @param decode 校验并转换 JSON.parse 结果的领域解码器。
+ * @returns 包含解码结果、待重写文本与游标的探测结果；文件不存在时返回 null。
+ */
 export async function inspectRepairableAppendOnlyFile<T>(
   path: string,
   decode: (parsed: unknown) => T
@@ -137,7 +145,11 @@ export async function inspectRepairableAppendOnlyFile<T>(
   };
 }
 
-/** 接管已由领域解码器校验过的追加型文件，复核规范结尾并返回物理大小游标。 */
+/**
+ * 接管已由领域解码器校验过的追加型文件，复核规范结尾并返回物理大小游标。
+ * @param options 已校验文件的路径、原始文本与空对象标记。
+ * @returns 目标文件的物理大小与空对象状态游标。
+ */
 export function openValidatedAppendOnlyFile({
   path,
   content,
@@ -157,7 +169,13 @@ export function openValidatedAppendOnlyFile({
   return state;
 }
 
-/** 打开 `<dir>/<day>.json` 追加型日文件并返回带日期键的游标。 */
+/**
+ * 打开 `<dir>/<day>.json` 追加型日文件并返回带日期键的游标。
+ * @param dir 日文件所在目录路径。
+ * @param day `YYYY-MM-DD` 日期键。
+ * @param mode 原子重写文件时使用的 POSIX 权限位。
+ * @returns 绑定日期键的文件追加游标。
+ */
 export async function openDayFile(
   dir: string,
   day: string,
@@ -166,7 +184,13 @@ export async function openDayFile(
   return { day, ...await openAppendOnlyFile(join(dir, `${day}.json`), mode) };
 }
 
-/** 构造并验证指定顶层成员逗号边界处的截断修复候选文本。 */
+/**
+ * 构造并验证指定顶层成员逗号边界处的截断修复候选文本。
+ * @param content 原始被截断的文件文本。
+ * @param boundaries 顶层成员间逗号的字符偏移列表。
+ * @param boundaryIndex 待尝试的逗号边界下标。
+ * @returns 可成功解析为 JSON 的修复后文本；解析失败时返回 null。
+ */
 function repairCandidateAt(
   content: string,
   boundaries: readonly number[],
@@ -184,6 +208,8 @@ function repairCandidateAt(
 /**
  * 修复被截断的追加型 JSON 对象文本：先尝试直接补齐闭合花括号，失败时扫描顶层成员逗号边界并二分查找最长可解析前缀。
  * @see ../../../docs/cn/04-invariants.md
+ * @param content 原始损坏或尾部截断的 JSON 文本。
+ * @returns 恢复出的最长合法 JSON 对象文本；无法修复时返回 null。
  */
 export function repairTruncatedAppendOnlyContent(content: string): string | null {
   const withClosingBrace: string = `${content}\n}`;
@@ -244,10 +270,15 @@ export function repairTruncatedAppendOnlyContent(content: string): string | null
   return best;
 }
 
+/** 按位置追加写入追加型 JSON 对象文件的参数。 */
 export interface AppendToAppendOnlyFileParams {
+  /** 目标追加型 JSON 文件路径。 */
   path: string;
+  /** 当前文件的大小与空状态游标（成功后原地更新）。 */
   state: AppendOnlyFileState;
+  /** 已序列化的一个或多个顶层对象成员片段（不含外层花括号）。 */
   chunk: string;
+  /** 首次写入或原子修复时使用的文件权限位。 */
   mode?: number;
   /** 追加失败后重新探测文件时是否允许自愈；语义同 openAppendOnlyFile。 */
   repair?: boolean;
@@ -257,12 +288,18 @@ export interface AppendToAppendOnlyFileParams {
   sync?: SyncFile;
 }
 
+/** 按位置追加写入 `<dir>/<state.day>.json` 日文件的参数。 */
 export interface AppendToDayFileParams extends Omit<AppendToAppendOnlyFileParams, "path" | "state"> {
+  /** 日文件所在目录路径。 */
   dir: string;
+  /** 绑定日期键的日文件游标。 */
   state: DayFileState;
 }
 
-/** 将已序列化的条目片段追加到文件末尾（空文件走原子写入，非空文件按偏移覆写闭合花括号并 fsync，失败时原位回滚或重探测）。 */
+/**
+ * 将已序列化的条目片段追加到文件末尾（空文件走原子写入，非空文件按偏移覆写闭合花括号并 fsync，失败时原位回滚或重探测）。
+ * @param params 追加目标路径、游标状态、成员文本片段与可注入 I/O 钩子。
+ */
 export async function appendToAppendOnlyFile({
   path,
   state,
@@ -316,11 +353,19 @@ export async function appendToAppendOnlyFile({
 }
 
 interface RestoreAppendTailOptions {
+  /** 可选的同步写入替换钩子。 */
   write: SyncBufferWriter | undefined;
+  /** 同步落盘的 fsync 钩子。 */
   sync: SyncFile;
 }
 
-/** 将打开的文件描述符截断回追加前大小，原位写回闭合花括号并 fsync。 */
+/**
+ * 将打开的文件描述符截断回追加前大小，原位写回闭合花括号并 fsync。
+ * @param fd 已按读写模式打开的目标文件描述符。
+ * @param size 追加前的原始文件字节大小。
+ * @param options 写入与同步钩子。
+ * @returns 原位截断并恢复闭合结尾成功时返回 true，否则返回 false。
+ */
 function restoreAppendTail(fd: number, size: number, { write, sync }: RestoreAppendTailOptions): boolean {
   try {
     ftruncateSync(fd, size);
@@ -332,7 +377,10 @@ function restoreAppendTail(fd: number, size: number, { write, sync }: RestoreApp
   }
 }
 
-/** 将已序列化的条目片段追加到 `<dir>/<state.day>.json` 日文件末尾。 */
+/**
+ * 将已序列化的条目片段追加到 `<dir>/<state.day>.json` 日文件末尾。
+ * @param params 日文件目录、带日期键的游标与追加参数。
+ */
 export async function appendToDayFile({
   dir,
   state,
@@ -341,7 +389,12 @@ export async function appendToDayFile({
   await appendToAppendOnlyFile({ path: join(dir, `${state.day}.json`), state, ...rest });
 }
 
-/** 将单个键值对序列化为带 `DAY_FILE_JSON_INDENT` 缩进的顶层 JSON 对象成员文本（不含外层花括号与尾随逗号）。 */
+/**
+ * 将单个键值对序列化为带 `DAY_FILE_JSON_INDENT` 缩进的顶层 JSON 对象成员文本（不含外层花括号与尾随逗号）。
+ * @param key 顶层 JSON 对象的属性键。
+ * @param value 待序列化的属性值。
+ * @returns 缩进对齐后的 `"key": value` 文本片段。
+ */
 export function serializeDayFileEntry(key: string, value: unknown): string {
   const valueText: string = JSON.stringify([value], null, DAY_FILE_JSON_INDENT);
   return `${DAY_FILE_ENTRY_INDENT}${JSON.stringify(key)}: ${valueText.slice(2 + DAY_FILE_JSON_INDENT, -2)}`;

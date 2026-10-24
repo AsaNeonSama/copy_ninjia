@@ -67,19 +67,18 @@ beforeEach((): void => {
   geminiClientCache.current = null;
   openAiClientCache.current = null;
   agentConfig = {
-    text: { provider: "google", apiKey: "google-text-key", baseUrl: undefined, headers: undefined, model: "gemini-text" },
-    summary: { provider: "openai", apiKey: "openai-summary-key", baseUrl: "https://openai.example/v1", headers: undefined, model: "gpt-summary" },
-    media: { provider: "google", apiKey: "google-media-key", baseUrl: "https://google.example", headers: undefined, model: "gemini-media" },
+    text: { provider: "google", apiKey: "google-text-key", baseUrl: undefined, model: "gemini-text" },
+    summary: { provider: "openai", apiKey: "openai-summary-key", baseUrl: "https://openai.example/v1", model: "gpt-summary" },
+    media: { provider: "google", apiKey: "google-media-key", baseUrl: "https://google.example", model: "gemini-media" },
     image: {
       provider: "openai",
       apiKey: "xai-image-key",
       baseUrl: "https://xai.example/v1",
-      headers: undefined,
       model: "grok-image",
       imageProtocol: "xai",
       maxReferenceImages: 1,
     },
-    tts: { provider: "google", apiKey: "google-tts-key", baseUrl: undefined, headers: undefined, model: "tts-model", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
+    tts: { provider: "google", apiKey: "google-tts-key", baseUrl: undefined, model: "tts-model", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
   };
   loggerError.mockClear();
   loggerWarn.mockClear();
@@ -97,7 +96,7 @@ test("每项能力按 agent 配置独立选择 provider", () => {
 test("修改一项只影响该能力", () => {
   agentConfig = {
     ...agentConfig,
-    media: { provider: "openai", apiKey: "openai-media-key", baseUrl: undefined, headers: undefined, model: "vision-model" },
+    media: { provider: "openai", apiKey: "openai-media-key", baseUrl: undefined, model: "vision-model" },
   };
   expect(mediaAiProvider().name).toBe("openai");
   expect(textAiProvider().name).toBe("google");
@@ -137,7 +136,7 @@ test("web_search 缺省时明确不提供检索执行器；配置时按它自己
   expect(webSearchAiProvider()).toBeNull();
   agentConfig = {
     ...agentConfig,
-    webSearch: { provider: "openai", apiKey: "openai-summary-key", baseUrl: "https://openai.example/v1", headers: undefined, model: "gpt-search", maxCallsPerUse: 7 },
+    webSearch: { provider: "openai", apiKey: "openai-summary-key", baseUrl: "https://openai.example/v1", model: "gpt-search", maxCallsPerUse: 7 },
   };
   resetAiProviderSchedulerCache();
   summaryAiProvider();
@@ -178,7 +177,7 @@ test("cron 摘要的 text 检索与结构化 JSON 门面都按 text 配置路由
 test("检索门面排队期间被取消时按一次都没检索的失败结算，不发起请求", async () => {
   agentConfig = {
     ...agentConfig,
-    webSearch: { provider: "google", apiKey: "google-text-key", baseUrl: undefined, headers: undefined, model: "gemini-search", maxCallsPerUse: 7 },
+    webSearch: { provider: "google", apiKey: "google-text-key", baseUrl: undefined, model: "gemini-search", maxCallsPerUse: 7 },
   };
   const searchWeb = spyOn(geminiProvider, "searchWeb");
   try {
@@ -207,8 +206,8 @@ test("每项路由只暴露自己那一项能力", () => {
 test("相同协议、端点和凭据的不同能力共享一个配额闸门", () => {
   agentConfig = {
     ...agentConfig,
-    text: { provider: "openai", apiKey: "shared-key", baseUrl: "https://shared.example/v1", headers: undefined, model: "chat" },
-    summary: { provider: "openai", apiKey: "shared-key", baseUrl: "https://shared.example/v1", headers: undefined, model: "summary" },
+    text: { provider: "openai", apiKey: "shared-key", baseUrl: "https://shared.example/v1", model: "chat" },
+    summary: { provider: "openai", apiKey: "shared-key", baseUrl: "https://shared.example/v1", model: "summary" },
   };
 
   textAiProvider();
@@ -235,7 +234,7 @@ test("anthropic 没有生图能力：generateImage 缺席", () => {
 
 test("media 选 anthropic 时语音转写缺席，只在启动时记一次诊断；正文、检索与结构化 JSON 照常路由到它", () => {
   const anthropic = {
-    provider: "anthropic", apiKey: "anthropic-key", baseUrl: undefined, headers: undefined, model: "claude-test", fallbackModel: undefined,
+    provider: "anthropic", apiKey: "anthropic-key", baseUrl: undefined, model: "claude-test", fallbackModel: undefined,
   } as const;
   agentConfig = { ...agentConfig, text: anthropic, media: anthropic, webSearch: { ...anthropic, maxCallsPerUse: 7 } };
   expect(anthropicProvider.transcribeVoice).toBeUndefined();
@@ -253,7 +252,7 @@ test("media 选 anthropic 时语音转写缺席，只在启动时记一次诊断
 test("配了但这一家没实现的可选能力，只在启动时记一次诊断", () => {
   agentConfig = {
     ...agentConfig,
-    tts: { provider: "openai", apiKey: "openai-tts-key", baseUrl: undefined, headers: undefined, model: "tts-model", voice: "Leda", speechProtocol: "openai", style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
+    tts: { provider: "openai", apiKey: "openai-tts-key", baseUrl: undefined, model: "tts-model", voice: "Leda", speechProtocol: "openai", style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
   };
   withoutOpenAiSpeech((): void => {
     expect(ttsAiProvider()).toEqual({ name: "openai" });
@@ -275,7 +274,7 @@ test("OpenAI 两种语音协议都经 tts 门面进入 OpenAI 实现包，xai �
     agentConfig = {
       ...agentConfig,
       tts: {
-        provider: "openai", apiKey: "xai-image-key", baseUrl: "https://xai.example/v1", headers: undefined, model: undefined,
+        provider: "openai", apiKey: "xai-image-key", baseUrl: "https://xai.example/v1", model: undefined,
         speechProtocol: "xai", voice: "ara", style: undefined, language: "auto", botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25,
       },
     };
@@ -647,7 +646,7 @@ test("只有 text 能力变化时才丢弃 Gemini 回复共用显式缓存的登
   probeGeminiContextCache.mockClear();
   reloadAgentDeploymentConfig({
     ...agentConfig,
-    text: { provider: "openai", apiKey: "openai-text-key", baseUrl: undefined, headers: undefined, model: "gpt-text" },
+    text: { provider: "openai", apiKey: "openai-text-key", baseUrl: undefined, model: "gpt-text" },
   });
   expect(probeGeminiContextCache).not.toHaveBeenCalled();
 });
@@ -656,7 +655,7 @@ test("agent 热重载后按新快照重记「配了但没实现」的诊断", ()
   withoutOpenAiSpeech((): void => {
     reloadAgentDeploymentConfig({
       ...agentConfig,
-      tts: { provider: "openai", apiKey: "openai-tts-key", baseUrl: undefined, headers: undefined, model: "tts-model", voice: "Leda", speechProtocol: "openai", style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
+      tts: { provider: "openai", apiKey: "openai-tts-key", baseUrl: undefined, model: "tts-model", voice: "Leda", speechProtocol: "openai", style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
     });
   });
   expect(loggerWarn).toHaveBeenCalledTimes(1);

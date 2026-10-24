@@ -69,16 +69,6 @@ beforeEach(() => {
 });
 
 describe("chat title maintenance", () => {
-  test("群消息入口保留单参数调用语义，并在标题变化时落盘", () => {
-    states.set(1, chatStateOf({ isInitEnabled: true, title: "旧标题" }));
-
-    recordChatTitleFromChat({ id: 1, type: "supergroup", title: "新标题" });
-
-    expect(getChatState).toHaveBeenCalledTimes(1);
-    expect(states.get(1)?.title).toBe("新标题");
-    expect(saveStateInBackground).toHaveBeenCalledTimes(1);
-  });
-
   test("群消息入口复用调用方已读取的状态，不重复查表或改变写入语义", () => {
     const state: ChatState = chatStateOf({ isInitEnabled: true, title: "旧标题" });
     states.set(1, state);

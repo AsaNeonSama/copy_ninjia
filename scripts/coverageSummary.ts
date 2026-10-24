@@ -10,6 +10,8 @@ const ALL_FILES_PATTERN: RegExp =
 
 /**
  * 从 Bun 文本测试报告中解析公开指标；任何字段缺失都显式拒绝。
+ * @param output `bun test --coverage` 的标准输出与标准错误拼接文本。
+ * @returns 解析出的测试数、文件数、断言数、函数覆盖率与行覆盖率指标。
  */
 export function parseCoverageSummary(output: string): CoverageMetrics {
   const ran: RegExpExecArray | null = RAN_PATTERN.exec(output);

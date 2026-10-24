@@ -17,6 +17,7 @@ export interface SweepExpiredSnapshotsParams<TSnapshot extends { readonly fetche
  *
  * 仍在拉取的群不淘汰，其旧快照供同步快路径在拉取完成前使用。两个 owner
  * （cache/workers/antiRaid/admins.ts、linkedChannels.ts）共用这一淘汰口径。
+ * @param params 快照表、在途拉取表、存活时长与当前时间戳。
  * @returns 本轮淘汰的条数。
  */
 export function sweepExpiredSnapshots<TSnapshot extends { readonly fetchedAt: number }>({

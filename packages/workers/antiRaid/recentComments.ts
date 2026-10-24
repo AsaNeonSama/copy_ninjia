@@ -1,3 +1,7 @@
+/**
+ * 频道评论区留言的暂存：评论先到、入群更新后到时的关联缓冲，供
+ * verificationEvents.ts 的 handleJoinEvent/handleTrackedMessageEvent 消费。
+ */
 import { verificationKey } from "../../libs/verificationKey";
 import {
   recentChannelComments,
@@ -6,15 +10,15 @@ import {
 import { COMMENT_JOIN_CORRELATE_MS, RECENT_COMMENT_CACHE_MAX } from "../../consts/antiRaid/cache";
 import type { RecentChannelComment } from "../../types/antiRaid/internal";
 
-/**
- * 频道评论区留言的暂存：评论先到、入群更新后到时的关联缓冲，供
- * verificationEvents.ts 的 handleJoinEvent/handleTrackedMessageEvent 消费。
- */
-
+/** 暂存评论区留言或线程回复所需的参数。 */
 export interface RememberRecentCommentParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 发言成员 ID。 */
   userId: number;
+  /** 评论区留言或线程回复的消息 ID。 */
   messageId: number;
+  /** 消息观察毫秒时间戳。 */
   observedAt: number;
 }
 
@@ -23,6 +27,7 @@ export interface RememberRecentCommentParams {
  * 触发的自动拉群（chat_member 更新可能后到）来消费。同一人连发多条只留
  * 最新的；缓存不区分直属评论与楼中楼回复，不携带来源标记。不为每个成员创建
  * timer：统一由 Worker sweeper 清理，读取路径自身也拒绝过期项。
+ * @param params 评论区留言暂存参数。
  */
 export function rememberRecentComment({
   chatId,
@@ -50,12 +55,24 @@ export function rememberRecentComment({
   recentChannelComments.set(key, { messageId, observedAt });
 }
 
+/**
+ * 判断评论观察时刻是否仍在关联窗口 `[0, COMMENT_JOIN_CORRELATE_MS)` 内。
+ * @param observedAt 评论观察毫秒时间戳。
+ * @param now 基准毫秒时间戳。
+ * @returns 在关联窗口内时返回 true，否则返回 false。
+ */
 function isCommentInWindow(observedAt: number, now: number): boolean {
   const age: number = now - observedAt;
   return age >= 0 && age < COMMENT_JOIN_CORRELATE_MS;
 }
 
-/** 消费（取出并删除）某人最近暂存的评论区留言，没有则返回 undefined。 */
+/**
+ * 消费（取出并删除）某人最近暂存的评论区留言，没有则返回 undefined。
+ * @param chatId 群组 ID。
+ * @param userId 成员 ID。
+ * @param now 当前毫秒时间戳，默认取 `Date.now()`。
+ * @returns 关联窗口内的暂存评论记录；未暂存或已过期时返回 undefined。
+ */
 export function takeRecentComment(chatId: number, userId: number, now: number = Date.now()): RecentChannelComment | undefined {
   const key: string = verificationKey(chatId, userId);
   const entry: RecentChannelComment | undefined = recentChannelComments.get(key);
@@ -69,6 +86,9 @@ export function takeRecentComment(chatId: number, userId: number, now: number = 
  * 由 Anti-Raid Worker 的唯一周期 sweeper 调用；删除到期项并把 observedAt 下界重算为
  * 剩余条目的精确最小值。墙钟调用同时删除未来记录；容量清理以观察时刻调用时
  * discardFuture 为 false，以容许异步乱序。返回删除数便于测试和观测。
+ * @param now 基准毫秒时间戳，默认取 `Date.now()`。
+ * @param discardFuture 是否一并删除 `observedAt > now` 的未来记录，默认为 true。
+ * @returns 本次清理删除的条目数。
  */
 export function sweepRecentComments(now: number = Date.now(), discardFuture: boolean = true): number {
   let deleted: number = 0;

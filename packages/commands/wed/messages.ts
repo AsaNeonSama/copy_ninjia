@@ -1,11 +1,11 @@
-import type { AtmosphereTexts } from "../../types/atmosphere";
-import { chatAtmosphere } from "../../infra/atmosphere";
 /**
  * /wed 状态消息的唯一发送边界。可操作的图片结果只由移除、
  * 重开和群 teardown 清理，不挂固定延迟删除；豁免登记见 scripts/conventions/telegramMessages.ts。
  * 结果图发出与换图后都写一条占位态自录（见 aiChat/botImages.ts）。
  * 发送、取消和自发消息登记遵守 docs/cn/04-invariants.md 的 Telegram 出站约束。
  */
+import type { AtmosphereTexts } from "../../types/atmosphere";
+import { chatAtmosphere } from "../../infra/atmosphere";
 import { InputFile } from "grammy";
 import type { Message } from "grammy/types";
 import { BOT_PROFILE_PHOTO_FILE_NAME } from "../../consts/telegram";
@@ -24,14 +24,23 @@ import type { RichTextMessage } from "../../types/telegram";
 import type { WedCandidate, WedSession } from "../../types/wed";
 import { buildWedKeyboard, renderWedCaption } from "./rendering";
 
+/** 发送 `/wed` 结果图片消息的参数。 */
 export interface SendWedResultOptions {
+  /** 当前 `/wed` 会话。 */
   readonly session: WedSession;
+  /** 抽中的候选人及其头像。 */
   readonly candidate: WedCandidate;
+  /** 回复的触发命令消息 ID。 */
   readonly replyToMessageId: number;
+  /** 投递阶段中止信号。 */
   readonly signal: AbortSignal;
 }
 
-/** 按 file_id 复用头像或上传下载字节；远端成功时先同步登记消息 ID，再传播取消。 */
+/**
+ * 按 file_id 复用头像或上传下载字节；远端成功时先同步登记消息 ID，再传播取消。
+ * @param options 当前会话（`session`）、抽中的候选人（`candidate`）、回复的命令消息 ID（`replyToMessageId`）与中止信号（`signal`）。
+ * @returns 发送成功并登记消息 ID 时返回 true。
+ */
 export function sendWedResult({ session, candidate, replyToMessageId, signal }: SendWedResultOptions): Promise<boolean> {
   return runTelegramAction({
     action: "send wed result",
@@ -64,7 +73,13 @@ export function sendWedResult({ session, candidate, replyToMessageId, signal }: 
   });
 }
 
-/** 在同一条消息中同时换头像、图注和按钮；失败时保留原抽取。 */
+/**
+ * 在同一条消息中同时换头像、图注和按钮；失败时保留原抽取。
+ * @param session 当前 `/wed` 会话。
+ * @param candidate 新抽中的候选人及其头像。
+ * @param signal 编辑阶段中止信号。
+ * @returns 编辑成功并更新会话目标时返回 true。
+ */
 export function replaceWedResult(session: WedSession, candidate: WedCandidate, signal: AbortSignal): Promise<boolean> {
   return runTelegramAction({
     action: "replace wed result",
@@ -97,7 +112,12 @@ export function replaceWedResult(session: WedSession, candidate: WedCandidate, s
   });
 }
 
-/** 确认只改变中间按钮，仍保留移除和更换入口。 */
+/**
+ * 确认只改变中间按钮，仍保留移除和更换入口。
+ * @param session 当前 `/wed` 会话。
+ * @param signal 确认阶段中止信号。
+ * @returns 确认按钮更新成功时返回 true。
+ */
 export function confirmWedResult(session: WedSession, signal: AbortSignal): Promise<boolean> {
   return runTelegramAction({
     action: "confirm wed result",
@@ -119,7 +139,11 @@ export function confirmWedResult(session: WedSession, signal: AbortSignal): Prom
   });
 }
 
-/** 删除成功或消息已不在时清空消息 ID；失败保留，移除按钮据此保留会话，允许原发起人再次点击移除。 */
+/**
+ * 删除成功或消息已不在时清空消息 ID；失败保留，移除按钮据此保留会话，允许原发起人再次点击移除。
+ * @param session 待移除结果图片的 `/wed` 会话。
+ * @returns 结果消息已删除或不存在时返回 true。
+ */
 export async function removeWedResult(session: WedSession): Promise<boolean> {
   if (session.messageId === undefined) return true;
   if (!isMessageDeletionSettled(await deleteMessageWithOutcome(session.chatId, session.messageId))) return false;

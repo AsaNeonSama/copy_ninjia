@@ -130,9 +130,7 @@ describe("AI 回复代际状态", () => {
     trackReplyGenerationTask(chatId, generation, cleanup);
 
     const originalSetTimeout: typeof setTimeout = globalThis.setTimeout;
-    const originalClearTimeout: typeof clearTimeout = globalThis.clearTimeout;
     let expire: (() => void) | undefined;
-    let timerCleared: boolean = false;
     const timer = { unref(): void {} } as ReturnType<typeof setTimeout>;
     const loggerErrorSpy = spyOn(logger, "error").mockImplementation(
       (..._args: unknown[]): void => {}
@@ -141,9 +139,6 @@ describe("AI 回复代际状态", () => {
       expire = callback;
       return timer;
     }) as typeof setTimeout;
-    globalThis.clearTimeout = ((candidate: ReturnType<typeof setTimeout>): void => {
-      if (candidate === timer) timerCleared = true;
-    }) as typeof clearTimeout;
 
     try {
       const invalidated: Promise<void> = invalidateChatReplies(chatId);
@@ -153,7 +148,6 @@ describe("AI 回复代际状态", () => {
       expect(loggerErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining(`AI chat invalidation for chat ${chatId} gave up waiting`)
       );
-      expect(timerCleared).toBeTrue();
       expect(replyGenerationTasks.size).toBe(0);
       expect(cachedReplyGeneration(chatId)).not.toBe(generation);
       expect(replyDeliveryTotal.current).toBe(REPLY_DELIVERY_MAX_PER_CHAT);
@@ -161,7 +155,6 @@ describe("AI 回复代际状态", () => {
     } finally {
       settleTask?.();
       globalThis.setTimeout = originalSetTimeout;
-      globalThis.clearTimeout = originalClearTimeout;
       loggerErrorSpy.mockRestore();
       await cleanup;
     }

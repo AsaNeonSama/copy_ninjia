@@ -11,12 +11,21 @@ import { COMPACT_BATCH_SIZE } from "../memory";
 /** 回复标注模板。target 是被回复者的完整身份段（[message_id:]/[id:] 等标记
  * 加显示名）；forwardTag/quote 传空串表示省略对应段。 */
 export interface ReplyTagTemplateParams {
+  /** 被回复者的完整身份段（含标记与显示名）。 */
   target: string;
+  /** 被回复消息的正文摘要或占位文本。 */
   text: string;
+  /** 被回复消息的转发来源标注；非转发时为空串。 */
   forwardTag: string;
+  /** 精确引用片段的内嵌标注；无引用片段时为空串。 */
   quote: string;
 }
 
+/**
+ * 拼装内嵌完整被回复快照的回复标注。
+ * @param parts 被回复目标身份、正文、转发标注与引用片段参数。
+ * @returns 格式化后的回复标注字符串。
+ */
 export function replyTagTemplate(parts: ReplyTagTemplateParams): string {
   return `（回复 ${parts.target} 的消息${parts.forwardTag}：「${parts.text}」${parts.quote}）`;
 }
@@ -24,23 +33,37 @@ export function replyTagTemplate(parts: ReplyTagTemplateParams): string {
 /** 转发来源标注模板。origin 在压缩摘要那条路上是预格式化的来源身份（见
  * auto/message/facts.ts 的 resolveForwardOrigin），在回复转录里是来源名册
  * 里的编号（f1、f2……，见 aiChat/ai/utils/chatTranscript.ts 的
- * buildTieredVerbatimTranscript）——两侧共用同一个外壳，模型只需认一种形状。 */
+ * buildTieredVerbatimTranscript）——两侧共用同一个外壳，模型只需认一种形状。
+ * @param origin 转发来源身份或来源名册编号。
+ * @returns 格式化后的转发来源标注字符串。
+ */
 export function forwardTagTemplate(origin: string): string {
   return `（转发自 ${origin}）`;
 }
 
 /** 紧凑转录的日期分隔行：其后的行都属于这一天，行内因此只留时分秒。
- *  每个分层区块开头都重发一次当前日期。 */
+ *  每个分层区块开头都重发一次当前日期。
+ * @param date 年/月/日格式的日期字符串。
+ * @returns 日期分隔行字符串。
+ */
 export function transcriptDateHeader(date: string): string {
   return `── ${date} ──`;
 }
 
-/** 名册条目：`编号=完整身份`。转录行内只写编号，身份只在名册里出现一次。 */
+/** 名册条目：`编号=完整身份`。转录行内只写编号，身份只在名册里出现一次。
+ * @param code 名册短编号（如 u1、f1、me）。
+ * @param identity 对应的完整身份文本。
+ * @returns 格式化后的名册条目行。
+ */
 export function rosterEntryTemplate(code: string, identity: string): string {
   return `${code}=${identity}`;
 }
 
-/** 区块名的方括号外壳：`【名称】`，带说明时为 `【名称（说明）】`。 */
+/** 区块名的方括号外壳：`【名称】`，带说明时为 `【名称（说明）】`。
+ * @param name 区块名称。
+ * @param note 可选的括号附注说明。
+ * @returns 带方括号外壳的区块标题字符串。
+ */
 function blockTitle(name: string, note?: string): string {
   return note === undefined ? `【${name}】` : `【${name}（${note}）】`;
 }
@@ -90,23 +113,35 @@ export const SELF_ROSTER_CODE: string = "me";
 /** AI 上下文中本机器人发言的唯一代称；仅按自身账号 ID 使用，转录身份不展示 Telegram 姓名或用户名。 */
 export const SELF_SPEAKER_NAME: string = "自己（也就是你）";
 
-/** 转录行上的消息号，只出现在「本段里被别人回复过」和本轮触发消息这两类行上。 */
+/** 转录行上的消息号，只出现在「本段里被别人回复过」和本轮触发消息这两类行上。
+ * @param messageId Telegram 消息 ID 或占位文本。
+ * @returns 带 `#` 前缀的消息号标记。
+ */
 export function messageNumberTag(messageId: number | string): string {
   return `#${messageId}`;
 }
 
 /** 紧凑转录里的回复指针：被回复的消息就在同一段转录里，作者与原文见那一行，
- *  不内嵌副本。 */
+ *  不内嵌副本。
+ * @param messageId 被回复消息的 Telegram 消息 ID 或占位文本。
+ * @returns 格式化后的回复指针标注。
+ */
 export function replyPointerTemplate(messageId: number | string): string {
   return `（回复 ${messageNumberTag(messageId)}）`;
 }
 
-/** 精确引用片段的正文：用户手选的那一段。 */
+/** 精确引用片段的正文：用户手选的那一段。
+ * @param quote 被引用的原文片段。
+ * @returns 不带外层括号的精确引用片段描述。
+ */
 function replyQuoteBody(quote: string): string {
   return `精确引用片段：「${quote}」`;
 }
 
-/** 指针后附的独立标注，自带括号；说明文案（REPLY_QUOTE_HINT）引用的也是这一形态。 */
+/** 指针后附的独立标注，自带括号；说明文案（REPLY_QUOTE_HINT）引用的也是这一形态。
+ * @param quote 被引用的原文片段。
+ * @returns 带括号的独立精确引用片段标注。
+ */
 export function replyQuoteTemplate(quote: string): string {
   return `（${replyQuoteBody(quote)}）`;
 }
@@ -115,6 +150,8 @@ export function replyQuoteTemplate(quote: string): string {
  * 内嵌进 replyTagTemplate 的形态：外层已经有一对括号，这里只补分隔符。
  *
  * 与上面那条共用同一份正文。
+ * @param quote 被引用的原文片段。
+ * @returns 带分号前缀的内嵌精确引用片段标注。
  */
 export function replyQuoteInlineTemplate(quote: string): string {
   return `；${replyQuoteBody(quote)}`;
@@ -127,7 +164,11 @@ export const REPLY_QUOTE_HINT: string = replyQuoteTemplate("…");
 export const REPLY_TARGET_EVICTED_TAG: string = "[已滑出]";
 
 /** 本轮回复任务使用的完整转发路径。origin 是原始来源，forwarder 是把内容
- * 带进当前群的发送者；箭头方向固定为「来源 → 转发者」。 */
+ * 带进当前群的发送者；箭头方向固定为「来源 → 转发者」。
+ * @param origin 原始转发来源身份。
+ * @param forwarder 将内容转发进当前群的发送者身份。
+ * @returns 格式化后的完整转发路径说明。
+ */
 export function forwardPathTemplate(origin: string, forwarder: string): string {
   return `转发路径：「${origin} → ${forwarder}」`;
 }
@@ -172,22 +213,34 @@ export const FORWARD_TAG_HINT: string = forwardTagTemplate("…");
  * 这些模板与下面的 SELF_ACTION_TAG_MARKERS 必须共用同一份字面量：记号是
  * 「这个动作确实发生过」的唯一凭据，拦截侧（send_message 正文校验，见
  * SELF_ACTION_TAG_PATTERNS）按同一批词判定伪造。
+ * @param detail 贴纸的画面描述或情绪 emoji 详情；未知时为空串。
+ * @returns 贴纸发送自录记号字符串。
  */
 export function stickerSentTagTemplate(detail: string): string {
   return detail ? `（${SELF_STICKER_TAG_MARKER}：${detail}）` : `（${SELF_STICKER_TAG_MARKER}）`;
 }
 
-/** 同上，生图动作的记号。reference 为真时说明本次带了参考素材。 */
+/** 同上，生图动作的记号。reference 为真时说明本次带了参考素材。
+ * @param prompt 生图提示词或识图后的画面描述。
+ * @param reference 本次生图是否附带了参考图片素材。
+ * @returns 生图自录记号字符串。
+ */
 export function imageSentTagTemplate(prompt: string, reference: boolean): string {
   return `（${reference ? "参考素材" : ""}${SELF_IMAGE_TAG_MARKER}：${prompt}）`;
 }
 
-/** 同上，语音动作的记号；text 是念出来的台词原文。 */
+/** 同上，语音动作的记号；text 是念出来的台词原文。
+ * @param text 语音合成念出的台词原文。
+ * @returns 语音发送自录记号字符串。
+ */
 export function voiceSentTagTemplate(text: string): string {
   return `（${SELF_VOICE_TAG_MARKER}：${text}）`;
 }
 
-/** 同上，命令与定时任务发图的记号；description 为空串时是尚未识图的占位态。 */
+/** 同上，命令与定时任务发图的记号；description 为空串时是尚未识图的占位态。
+ * @param description 识图后的画面描述；尚未识图时为空串。
+ * @returns 命令发图自录记号字符串。
+ */
 function commandImageSentTagTemplate(description: string): string {
   return description ? `（${SELF_COMMAND_IMAGE_TAG_MARKER}：${description}）` : `（${SELF_COMMAND_IMAGE_TAG_MARKER}）`;
 }
@@ -195,6 +248,9 @@ function commandImageSentTagTemplate(description: string): string {
 /**
  * 机器人自发图片按来源选记号：命令图用 commandImageSentTagTemplate，两种生图用
  * imageSentTagTemplate。detail 在占位态是生图提示词（命令图为空串），内容态是识图描述。
+ * @param origin 机器人自发图片的来源分类。
+ * @param detail 占位态提示词或识图完成后的画面描述。
+ * @returns 对应来源的机器人发图自录记号字符串。
  */
 export function botImageTagTemplate(origin: BotImageOrigin, detail: string): string {
   return origin === "command"

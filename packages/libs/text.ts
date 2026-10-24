@@ -22,9 +22,11 @@ import { neutralizeRenderableCommands } from "./renderableCommand";
  *
  * 未命中 INLINE_SANITIZE_REQUIRED_PATTERN 的规范输入原样返回；命中时折叠空白并去掉首尾空白。
  * 本函数在每条进滚动记忆的消息上调用多次（见 workers/aiChat/bufferedMessage.ts）。
+ * @param raw 原始文本。
+ * @returns 压成单行后的文本。
  */
 export function sanitizeInline(raw: string): string {
-  if (!INLINE_SANITIZE_REQUIRED_PATTERN.test(raw)) return raw;
+  if (raw.length === 0 || !INLINE_SANITIZE_REQUIRED_PATTERN.test(raw)) return raw;
   return raw.replace(INLINE_WHITESPACE_PATTERN, " ").trim();
 }
 
@@ -36,6 +38,8 @@ export function sanitizeInline(raw: string): string {
  * 统一处理：双向控制符一律剥掉，形如命令的片段由 neutralizeRenderableCommands 中和。
  *
  * 空白折叠的规则与 sanitizeInline 共用。
+ * @param raw 原始显示名文本。
+ * @returns 清洗后的单行显示名。
  */
 export function sanitizeDisplayName(raw: string): string {
   return sanitizeInline(neutralizeRenderableCommands(raw.replace(BIDI_CONTROL_PATTERN, "")));
@@ -50,6 +54,8 @@ export function sanitizeDisplayName(raw: string): string {
  * （aiChat/ai/utils/chatTranscript.ts）上。
  *
  * 空串的 `charCodeAt(0)` 是 NaN，比较为假，原样返回。
+ * @param username 待处理的用户名字符串。
+ * @returns 剥离前导 `@` 后的用户名。
  */
 export function stripLeadingAtSigns(username: string): string {
   // 0x40 是 `@`。
@@ -66,6 +72,9 @@ export function stripLeadingAtSigns(username: string): string {
  *
  * 直接分支拼接，不创建字面量数组、filter 结果数组或一次性闭包；转发来源标注
  * （auto/message/facts.ts 的 forwardOriginLabel）在每条带 forward_origin 的消息上调用。
+ * @param firstName Telegram 名字字段。
+ * @param lastName Telegram 姓氏字段。
+ * @returns 拼接后的展示名；两段均为空或缺省时返回空串。
  */
 export function joinPersonName(
   firstName: string | undefined,
@@ -78,7 +87,11 @@ export function joinPersonName(
 /** 字形簇 Segmenter：模块加载时构造一次，各线程复用自己加载的那份。 */
 const GRAPHEME_SEGMENTER: Intl.Segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-/** 按 Unicode 扩展字形簇切分。 */
+/**
+ * 按 Unicode 扩展字形簇切分。
+ * @param text 待切分的文本。
+ * @returns 字形簇字符串数组。
+ */
 export function splitGraphemes(text: string): string[] {
   return Array.from(GRAPHEME_SEGMENTER.segment(text), (segment: Intl.SegmentData): string => segment.segment);
 }
@@ -86,6 +99,9 @@ export function splitGraphemes(text: string): string[] {
 /**
  * 把文本截断到 maxChars 个 UTF-16 码元以内。slice 恰好切在代理对中间（emoji 等）时，
  * 去掉孤立的高位代理。
+ * @param text 待截断的文本。
+ * @param maxChars 最大 UTF-16 码元数。
+ * @returns 截断后的文本。
  */
 export function truncateInline(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -100,6 +116,10 @@ export function truncateInline(text: string, maxChars: number): string {
 /**
  * 超过 maxChars 个 UTF-16 码元时截断并补上 mark，结果总长不超过 maxChars；截断点规则同
  * truncateInline。未超出时原样返回。
+ * @param text 待截断的文本。
+ * @param maxChars 包含省略号在内的最大 UTF-16 码元数。
+ * @param mark 追加在截断末尾的标记串。
+ * @returns 截断并补标记后的文本，或未超限时的原文。
  */
 export function truncateWithEllipsis(text: string, maxChars: number, mark: string = TRUNCATION_ELLIPSIS): string {
   if (text.length <= maxChars) return text;
@@ -108,13 +128,19 @@ export function truncateWithEllipsis(text: string, maxChars: number, mark: strin
 
 /**
  * 句末标点的 UTF-16 码元判定；取值集合与 test/libs/text.test.ts 的对拍用例一致。
+ * @param code UTF-16 码元值。
+ * @returns 属于句末标点时返回 `true`。
  */
 function isSentenceEndCode(code: number): boolean {
   return code === 0x3002 || code === 0xff01 || code === 0xff1f ||
     code === 0x2026 || code === 0xff5e || code === 0x2661;
 }
 
-/** 子句分隔符的 UTF-16 码元判定；语义同 isSentenceEndCode。 */
+/**
+ * 子句分隔符的 UTF-16 码元判定；语义同 isSentenceEndCode。
+ * @param code UTF-16 码元值。
+ * @returns 属于子句分隔符时返回 `true`。
+ */
 function isClauseBreakCode(code: number): boolean {
   return code === 0xff0c || code === 0x3001 || code === 0xff1b || code === 0xff1a;
 }
@@ -124,6 +150,9 @@ function isClauseBreakCode(code: number): boolean {
  * 规则：先硬切到 maxChars；若切点内能找到句末标点（isSentenceEndCode），收到
  * 最后一个句末标点为止（含标点）；否则找最后一个子句分隔符（isClauseBreakCode），
  * 收到它之前（丢掉悬空的分隔符）。边界位置不足上限一半时放弃找边界，退回硬切。
+ * @param text 待截断的文本。
+ * @param maxChars 最大 UTF-16 码元数。
+ * @returns 收在子句边界或硬切后的文本。
  */
 export function truncateAtClauseBoundary(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -150,6 +179,9 @@ export function truncateAtClauseBoundary(text: string, maxChars: number): string
  * 媒体转录行：描述或占位标签在前，媒体自带的 caption 以一个空格接在后面；
  * caption 为空串时直接返回标签本身。主线程的回复引用与兜底占位、AI Worker 的
  * 媒体转录共用这一处拼法。
+ * @param tag 媒体描述或占位标签。
+ * @param caption 媒体附带的说明文字。
+ * @returns 拼接后的媒体转录文本。
  */
 export function composeMediaText(tag: string, caption: string): string {
   return caption ? `${tag} ${caption}` : tag;

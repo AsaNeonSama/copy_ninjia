@@ -45,7 +45,12 @@ import type { TelegramFileDownloadResult } from "../../types/telegram";
 import { rejectUnlessPermitted } from "../commandActor";
 import { submitDeferredCommand } from "../deferredCommands";
 
-/** 被回复的那张图在前，再补上同一相册里已见过的其余几张；按 file_unique_id 去重。 */
+/**
+ * 被回复的那张图在前，再补上同一相册里已见过的其余几张；按 file_unique_id 去重。
+ * @param chatId 所在群聊 ID。
+ * @param replied 被回复的消息对象。
+ * @returns 去重后的待收录图片候选列表。
+ */
 function collectCandidates(chatId: number, replied: Message): MessageImageCandidate[] {
   const candidates: MessageImageCandidate[] = [];
   const own: MessageImageCandidate | undefined = messageImageCandidate(replied);
@@ -70,6 +75,9 @@ type DownloadedImage = Uint8Array | "invalidDimensions" | "failed";
  * 去重排在下载之后：图库文件名是内容的 SHA-256（见 infra/randomImage.ts 的
  * storeRandomImage）。已收录的图同样会被下载一次；同一张图换个人转发
  * （`file_unique_id` 不同）也判成重复。
+ * @param candidate 待下载的图片候选元数据。
+ * @param signal 整批收图任务的取消与超时信号。
+ * @returns 待写盘的图片字节数组，或 `"invalidDimensions"` / `"failed"` 结局。
  */
 async function downloadImage(candidate: MessageImageCandidate, signal: AbortSignal): Promise<DownloadedImage> {
   try {
@@ -101,6 +109,9 @@ async function downloadImage(candidate: MessageImageCandidate, signal: AbortSign
 /**
  * 把一张已下载的图写进图库；写盘失败只记日志并计为 failed。同一页按候选顺序逐张调用，
  * 同批内容相同的后一张因此报 existing。
+ * @param directory 随机图库目录绝对路径。
+ * @param bytes 已下载并通过尺寸校验的图片字节数组。
+ * @returns 单张图片的入库结局（`"added"`、`"existing"` 或 `"failed"`）。
  */
 async function storeImage(directory: string, bytes: Uint8Array): Promise<HImageAddOutcome> {
   try {
@@ -113,7 +124,10 @@ async function storeImage(directory: string, bytes: Uint8Array): Promise<HImageA
   }
 }
 
-/** 先列一遍图库目录，再在总预算内按页收图，最后回一句汇总。 */
+/**
+ * 先列一遍图库目录，再在总预算内按页收图，最后回一句汇总。
+ * @param request 收图任务请求上下文与候选图片列表。
+ */
 async function addRandomImages(request: HImageAddRequest): Promise<void> {
   const texts: AtmosphereTexts["H_IMAGE_TEXTS"] = chatAtmosphere().H_IMAGE_TEXTS;
   const directory: string = getAssetConfig().randomHImageDirectory;
@@ -167,7 +181,10 @@ async function addRandomImages(request: HImageAddRequest): Promise<void> {
   });
 }
 
-/** 处理 `/h_image add`：校验权限与回复目标，接纳后立即返回，满额时回「稍后再试」。 */
+/**
+ * 处理 `/h_image add`：校验权限与回复目标，接纳后立即返回，满额时回「稍后再试」。
+ * @param ctx grammY 命令上下文。
+ */
 export async function handleHImageAddCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
   const messageId: number | undefined = ctx.msgId;

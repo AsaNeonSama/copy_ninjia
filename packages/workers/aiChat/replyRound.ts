@@ -46,45 +46,66 @@ import type { ChatActionHeartbeatControl } from "../../types/aiChat/chatAction";
 
 declare const self: Worker;
 
+/** 单轮 AI 群聊回复的启动请求载荷。 */
 export interface ReplyRoundRequest {
+  /** 群聊 ID。 */
   chatId: number;
+  /** 触发用户的 Telegram ID。 */
   triggerSenderId: number;
+  /** 触发消息的 message_id。 */
   replyToMessageId: number;
+  /** 本次触发是否请求开放生图与语音等媒体工具。 */
   imageGenerationRequested: boolean;
+  /** 直接触发图片或贴纸时附带的短期生图参考源。 */
   imageGenerationReference?: ImageGenerationReference;
   /** 轮次开始前捕获的触发消息快照；生成或排队期间滑出热区时用于自录兜底。 */
   triggerReference?: BufferedReplyReference;
+  /** 是否为概率触发的随机插话轮。 */
   isRandomTrigger: boolean;
   /** 触发时刻的本群问答 JSON 文本与条数；缺省时问答执行器返回空清单，本轮工具状态写明没有登记。 */
   chatQaJson?: string;
+  /** 触发时刻的本群问答条目总数。 */
   chatQaCount?: number;
   /** 本轮全部发送要落进的论坛话题；General、非论坛群为 undefined。 */
   messageThreadId: number | undefined;
+  /** 媒体评价或媒体直接触发的上下文。 */
   mediaComment?: MediaCommentContext;
+  /** 后台媒体识图准备 Promise；解析失败或取消时兑现为 null。 */
   mediaPreparation?: Promise<MediaCommentContext | null>;
+  /** 排队后补跑的触发快照；直接进入执行时为 undefined。 */
   queuedTrigger?: QueuedReplyTrigger;
-  /** 直接触发在准入时捕获代数；排队补跑省略并使用出队时的当前代数。 */
+  /** 直接触发在准入时捕获的回复代际；排队补跑省略并使用出队时的当前回复代际。 */
   generation?: number;
 }
 
 /** buildReplyToolContext 的输入：本轮请求与已解析的媒体、身份和生命周期句柄。 */
 interface ReplyToolContextParams {
+  /** 本轮回复请求载荷。 */
   readonly request: ReplyRoundRequest;
+  /** 机器人自身身份信息。 */
   readonly selfInfo: AiBotInfo;
   /** 本轮已解析的媒体上下文；非媒体轮为 undefined。 */
   readonly resolvedMedia: MediaCommentContext | undefined;
+  /** 本轮是否允许暴露生图与语音等媒体工具。 */
   readonly mediaToolsAllowed: boolean;
+  /** 群聊 typing/动作心跳控制器。 */
   readonly heartbeat: ChatActionHeartbeatControl;
   /** 本轮是否为直接轮（见 replyDelivery.ts）。 */
   readonly direct: boolean;
+  /** 本轮是否命中错别字彩蛋概率。 */
   readonly roundHasTypo: boolean;
+  /** 判断本轮回复代际是否仍然存活的回调。 */
   readonly isActive: () => boolean;
+  /** 绑定本轮回复代际的取消信号。 */
   readonly signal: AbortSignal;
 }
 
 /**
  * 构造单轮回复的工具上下文与自录回调：消息、贴纸、语音和生图发送成功后在本轮仍有效时
  * 将自录条目写入滚动记忆。
+ *
+ * @param params 本轮回复请求、已解析媒体、机器人身份与生命周期控制句柄
+ * @returns 供 `createReplyToolset` 使用的单轮回复工具上下文
  */
 function buildReplyToolContext({
   request,
@@ -166,13 +187,23 @@ function buildReplyToolContext({
   };
 }
 
-/** 处理模型触发的 abuse_mark：清理该用户在 Worker 内的排队触发并通知主线程启动冷却。 */
+/**
+ * 处理模型触发的 abuse_mark：清理该用户在 Worker 内的排队触发并通知主线程启动冷却。
+ *
+ * @param userId 被标记滥用的用户 Telegram ID
+ */
 function handleAbuseMark(userId: number): void {
   dropQueuedReplyTriggersForUser(userId);
   self.postMessage({ type: "abuseMark", userId } satisfies AiAbuseMarkEvent);
 }
 
-/** 将模型最终正文经 send_message 兜底发送（随机触发不挂回复）。 */
+/**
+ * 将模型最终正文经 send_message 兜底发送（随机触发不挂回复）。
+ *
+ * @param toolset 本轮回复的工具集执行器
+ * @param request 本轮回复请求载荷
+ * @param finalText 模型最终轮输出的正文文本
+ */
 function sendFallbackText(toolset: ReplyToolset, request: ReplyRoundRequest, finalText: string): void {
   const result: string = toolset.execute(
     SEND_MESSAGE_TOOL,
@@ -182,7 +213,12 @@ function sendFallbackText(toolset: ReplyToolset, request: ReplyRoundRequest, fin
   if (error !== null) logger.error(`AI reply fallback send failed (chat ${request.chatId}): ${error}`);
 }
 
-/** 零动作诊断日志里的触发类型。 */
+/**
+ * 零动作诊断日志里的触发类型。
+ *
+ * @param request 本轮回复请求载荷
+ * @returns 触发类型标识字符串（`queued`、`media-direct`、`media-comment`、`random` 或 `direct`）
+ */
 function triggerKindOf({ queuedTrigger, mediaComment, isRandomTrigger }: ReplyRoundRequest): string {
   if (queuedTrigger) return "queued";
   if (mediaComment?.directTriggerReason) return "media-direct";
@@ -191,7 +227,13 @@ function triggerKindOf({ queuedTrigger, mediaComment, isRandomTrigger }: ReplyRo
 }
 
 /**
- * 校验滑动窗口限频与发送容量并启动一轮异步回复；成功启动返回 true，被代际失效、限频或容量拒绝返回 false。
+ * 校验代际有效性、机器人身份、长窗口限频（直接触发被限频时发送冷却提示）与发送占位容量并启动一轮异步回复；
+ * 成功启动返回 true，被代际失效、未初始化、限频或容量拒绝返回 false。
+ *
+ * @param request 本轮回复请求载荷
+ * @param onFinished 本轮发送占位彻底释放后的回调
+ * @param onModelFinished 本轮模型阶段结束、提交发送顺位后的可选回调
+ * @returns 成功预留占位并启动回复任务时返回 true，否则返回 false
  */
 export function startReplyRound(
   request: ReplyRoundRequest,

@@ -7,8 +7,11 @@ import type { TelegramIdentityMetadata } from "../identityPolicy";
  * antiRaid/adCandidate.ts 的 adDetectionSenderId 前置判定的消息构造。
  */
 export interface AdDetectionMessageContext {
+  /** 当前处理的 Telegram 群聊消息。 */
   readonly message: Message;
+  /** 当前运行机器人的 Telegram 用户 ID。 */
   readonly botId: number;
+  /** 本次 update 统一读取的观测时间戳（毫秒）。 */
   readonly now: number;
   /** adDetectionSenderId 判出的展示身份 id（频道马甲优先，否则 from.id）。 */
   readonly senderId: number;
@@ -34,7 +37,9 @@ export interface AdDetectJsonRequestParams {
   readonly systemPrompt: string;
   /** 本次待处理的用户内容；一律当数据，不承担指令语义。 */
   readonly userContent: string;
+  /** 模型采样温度。 */
   readonly temperature: number;
+  /** 单次响应允许生成的最大输出 token 数。 */
   readonly maxOutputTokens: number;
   /** 出现在错误日志里的调用名（英文）。 */
   readonly errorLabel: string;

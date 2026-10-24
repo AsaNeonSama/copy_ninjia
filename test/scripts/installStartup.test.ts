@@ -2,11 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { lstatSync, mkdirSync, symlinkSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { join } from "node:path";
-import {
-  AGENT_CAPABILITY_NAMES,
-  AGENT_CREDENTIAL_HEADER_NAMES,
-  AGENT_HEADERS_MAX_ENTRIES,
-} from "../../packages/consts/agent";
+import { AGENT_CAPABILITY_NAMES } from "../../packages/consts/agent";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
 import { Database } from "bun:sqlite";
 import { openStorageDatabase } from "../../packages/database/interact/connection";
@@ -156,11 +152,10 @@ describe("install.sh 到真实应用启动", () => {
     expect(await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).text()).toBe(telegram);
   }, 60_000);
 
-  test("google 网关鉴权请求头与 anthropic 网关 BYOK 经问卷落盘且不回显秘密值，真实启动通过", async (): Promise<void> => {
+  test("google 自定义端点与 anthropic 网关 BYOK 经问卷落盘，真实启动通过", async (): Promise<void> => {
     const fixture: InstallerFixture = await createFixture(true);
     const googleGatewayUrl: string = "https://gateway.ai.cloudflare.com/v1/account/gateway/google-ai-studio";
     const anthropicGatewayUrl: string = "https://gateway.ai.cloudflare.com/v1/account/gateway/anthropic";
-    const gatewayHeaderValue: string = "Bearer cf-aig-secret-installation-token";
     const prompts: PromptReply[] = [
       { prompt: "Telegram bot token", reply: "123456789:installation_test_token", secret: true },
       { prompt: "超级管理员用户 ID", reply: "123456789" },
@@ -171,16 +166,11 @@ describe("install.sh 到真实应用启动", () => {
       { prompt: "text 的 api_key", reply: "installation-test-api-key", secret: true },
       { prompt: "text 的 model", reply: "gemini-3-flash-preview" },
       { prompt: "text 的 base_url", reply: googleGatewayUrl },
-      { prompt: "为 text 添加附加请求头", reply: "y" },
-      { prompt: "请求头名（直接回车结束）", reply: "cf-aig-authorization" },
-      { prompt: "cf-aig-authorization 的值", reply: gatewayHeaderValue, secret: true },
-      { prompt: "请求头名（直接回车结束）", reply: "" },
       { prompt: "配置 summary？", reply: "y" },
       { prompt: "summary 的 provider", reply: "anthropic" },
       { prompt: "summary 的 api_key", reply: "installation-test-cf-byok-token", secret: true },
       { prompt: "summary 的 model", reply: "claude-haiku-4-5" },
       { prompt: "summary 的 base_url", reply: anthropicGatewayUrl },
-      { prompt: "为 summary 添加附加请求头", reply: "n" },
       { prompt: "配置 media？", reply: "y" },
       { prompt: "media 的 provider", reply: "google" },
       { prompt: "media 的 api_key", reply: "installation-test-api-key", secret: true },
@@ -198,8 +188,6 @@ describe("install.sh 到真实应用启动", () => {
     ];
     const result: InstallerRunResult = await runInstaller(fixture, prompts);
     expect(result.exitCode, result.output).toBe(0);
-    expect(result.output).not.toContain(gatewayHeaderValue);
-    expect(result.output).not.toContain("cf-aig-secret-installation-token");
     await assertInstalledStartup(fixture, result.output, true);
     const agent: { readonly agent: Readonly<Record<string, Readonly<Record<string, unknown>>>> } =
       await Bun.file(join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, "agent.json")).json();
@@ -207,7 +195,6 @@ describe("install.sh 到真实应用启动", () => {
       provider: "google",
       api_key: "installation-test-api-key",
       base_url: googleGatewayUrl,
-      headers: { "cf-aig-authorization": gatewayHeaderValue },
       model: "gemini-3-flash-preview",
     });
     expect(agent.agent.summary).toEqual({
@@ -216,71 +203,6 @@ describe("install.sh 到真实应用启动", () => {
       base_url: anthropicGatewayUrl,
       model: "claude-haiku-4-5",
     });
-    expect(Object.hasOwn(agent.agent.summary ?? {}, "headers")).toBe(false);
-  }, 30_000);
-
-  test.each([
-    [
-      "凭据请求头名",
-      [
-        { prompt: "请求头名（直接回车结束）", reply: AGENT_CREDENTIAL_HEADER_NAMES.google },
-        { prompt: `${AGENT_CREDENTIAL_HEADER_NAMES.google} 的值`, reply: "secret-credential-header-value", secret: true },
-        { prompt: "请求头名（直接回车结束）", reply: "" },
-      ],
-    ],
-    [
-      "重复请求头名",
-      [
-        { prompt: "请求头名（直接回车结束）", reply: "cf-aig-authorization" },
-        { prompt: "cf-aig-authorization 的值", reply: "secret-header-value-1", secret: true },
-        { prompt: "请求头名（直接回车结束）", reply: "cf-aig-authorization" },
-        { prompt: "cf-aig-authorization 的值", reply: "secret-header-value-2", secret: true },
-        { prompt: "请求头名（直接回车结束）", reply: "" },
-      ],
-    ],
-    [
-      "超过条数上限",
-      [
-        ...Array.from({ length: AGENT_HEADERS_MAX_ENTRIES + 1 }, (_unused: unknown, index: number): readonly PromptReply[] => {
-          const name: string = `x-custom-header-${index + 1}`;
-          return [
-            { prompt: "请求头名（直接回车结束）", reply: name },
-            { prompt: `${name} 的值`, reply: `secret-header-value-${index + 1}`, secret: true },
-          ];
-        }).flat(),
-        { prompt: "请求头名（直接回车结束）", reply: "" },
-      ],
-    ],
-  ])("网关请求头非法（%s）时严格校验拒绝，不建立 agent.json 且不回显请求头值", async (
-    _label: string,
-    headerPrompts: readonly PromptReply[]
-  ): Promise<void> => {
-    const fixture: InstallerFixture = await createFixture();
-    const prompts: PromptReply[] = [
-      { prompt: "Telegram bot token", reply: "123456789:installation_test_token", secret: true },
-      { prompt: "超级管理员用户 ID", reply: "123456789" },
-      { prompt: "现在配置 AI 能力", reply: "y" },
-      { prompt: "配置 ad_detect？", reply: "y" },
-      { prompt: "ad_detect 的 provider", reply: "google" },
-      { prompt: "ad_detect 的 api_key", reply: "installation-test-api-key", secret: true },
-      { prompt: "ad_detect 的 model", reply: "gemini-3-flash-preview" },
-      { prompt: "ad_detect 的 base_url", reply: "https://gateway.ai.cloudflare.com/v1/account/gateway/google-ai-studio" },
-      { prompt: "为 ad_detect 添加附加请求头", reply: "y" },
-      ...headerPrompts,
-      { prompt: "配置 text？", reply: "n" },
-      { prompt: "配置 summary？", reply: "n" },
-      { prompt: "配置 media？", reply: "n" },
-      { prompt: "配置 image？", reply: "n" },
-      { prompt: "配置 tts？", reply: "n" },
-      { prompt: "配置 web_search？", reply: "n" },
-    ];
-    const result: InstallerRunResult = await runInstaller(fixture, prompts);
-    expect(result.exitCode).not.toBe(0);
-    expect(result.output).toContain("$.agent.ad_detect.headers");
-    expect(result.output).not.toContain("secret-credential-header-value");
-    expect(result.output).not.toContain("secret-header-value-");
-    expect(await Bun.file(join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, "agent.json")).exists()).toBe(false);
-    expect(await Bun.file(fixture.callLog).text()).toContain("validate:agent\n");
   }, 30_000);
 
   test("存在但非法的可选配置在启动之前拒绝", async (): Promise<void> => {

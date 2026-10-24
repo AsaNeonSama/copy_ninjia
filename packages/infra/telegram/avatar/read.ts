@@ -24,7 +24,11 @@ const AVATAR_PROBE_FAILED: CurrentAvatarProbe = { photo: undefined, transient: t
 /** 裸 ID 对应的私聊无法访问；/wed 可从所有已管理群的候选集合移除该 ID。 */
 const AVATAR_PROBE_CHAT_NOT_FOUND: CurrentAvatarProbe = { photo: undefined, transient: false, chatNotFound: true };
 
-/** 没拿到发送源时按本轮探测结论归一化对外结果。 */
+/**
+ * 没拿到发送源时按本轮探测结论归一化对外结果。
+ * @param probe 本轮头像探测的中间结论。
+ * @returns 归一化后的失败或私聊不可达结果。
+ */
 function missingAvatar(probe: CurrentAvatarProbe): CurrentAvatarResult {
   if (probe.chatNotFound === true) return { status: "chat-not-found" };
   return { status: probe.transient ? "transient-failure" : "permanent-failure" };
@@ -39,7 +43,12 @@ interface ProfilePhotosRequest {
   readonly settled: Promise<unknown>;
 }
 
-/** 发出用户头像列表查询并立即挂上 rejection 监听，查询沿用调用方的请求信号。 */
+/**
+ * 发出用户头像列表查询并立即挂上 rejection 监听，查询沿用调用方的请求信号。
+ * @param targetId 目标用户 ID。
+ * @param signal 请求取消信号。
+ * @returns 包含原始响应 Promise 与异常兜底 settled Promise 的请求句柄。
+ */
 function startProfilePhotosRequest(targetId: number, signal?: AbortSignal): ProfilePhotosRequest {
   const response: Promise<UserProfilePhotos> = bot.api.getUserProfilePhotos(
     targetId,
@@ -49,7 +58,13 @@ function startProfilePhotosRequest(targetId: number, signal?: AbortSignal): Prof
   return { targetId, response, settled: response.catch((): undefined => undefined) };
 }
 
-/** 只复用与当前 ChatPhoto 匹配的用户头像；查询失败或历史未匹配时交回下载路径。 */
+/**
+ * 只复用与当前 ChatPhoto 匹配的用户头像；查询失败或历史未匹配时交回下载路径。
+ * @param request 已并发启动的用户头像列表请求。
+ * @param current getChat 返回的当前头像标识。
+ * @param signal 请求取消信号。
+ * @returns 匹配当前头像的 PhotoSize.file_id；未匹配或查询失败时返回 undefined。
+ */
 function readReusableUserAvatar(
   request: ProfilePhotosRequest,
   current: ChatPhoto,
@@ -80,6 +95,9 @@ function readReusableUserAvatar(
  * 等它结算后返回，失败也不记录。ChatPhoto ID 只用于下载，网页兜底复用抓取边界。
  * 结果区分「确认没有可用头像」「这次没查成」与裸 ID 的「私聊无法访问」，见
  * types/telegram.ts 的 CurrentAvatarResult。
+ * @param target 已持有的用户身份对象，或用户/频道的数字 ID。
+ * @param signal 请求取消信号。
+ * @returns 读取到的当前头像发送源与身份信息，或分类后的失败结果。
  */
 export async function readCurrentAvatar(target: User | number, signal: AbortSignal): Promise<CurrentAvatarResult> {
   if (signal.aborted) return missingAvatar(AVATAR_PROBE_FAILED);

@@ -3,7 +3,10 @@ import { logger } from "../logger";
 import { telegramErrorDetails } from "./errors";
 import type { TelegramApi, InstalledTelegramApi } from "../../types/telegramWorker";
 
-/** 读取当前线程已经安装的 Telegram 能力实现；未初始化时拒绝旁路联网。 */
+/**
+ * 读取当前线程已经安装的 Telegram 能力实现；未初始化时拒绝旁路联网。
+ * @returns 当前线程已安装的 Telegram API 实现。
+ */
 function currentTelegramApi(): InstalledTelegramApi {
   const current: InstalledTelegramApi | null = telegramApiState.current;
   if (current === null) {
@@ -12,7 +15,10 @@ function currentTelegramApi(): InstalledTelegramApi {
   return current;
 }
 
-/** 主线程独占方法只接受完整主线程接口；Worker 线程在本地拒绝，不发送不可达代理请求。 */
+/**
+ * 主线程独占方法只接受完整主线程接口；Worker 线程在本地拒绝，不发送不可达代理请求。
+ * @returns 主线程完整的 Telegram API 实现。
+ */
 function currentMainTelegramApi(): TelegramApi {
   const current: InstalledTelegramApi = currentTelegramApi();
   if (!("copyMessage" in current)) throw new Error("Telegram capability is only available on the main thread.");
@@ -22,6 +28,7 @@ function currentMainTelegramApi(): TelegramApi {
 /**
  * 由线程入口安装唯一能力实现。主线程安装真实客户端适配器，业务 Worker 安装
  * 双工代理；重复安装不同实现属于生命周期错误并立即拒绝。
+ * @param api 当前线程要安装的 Telegram API 实现。
  */
 export function installTelegramApi(api: InstalledTelegramApi): void {
   const current: InstalledTelegramApi | null = telegramApiState.current;
@@ -84,7 +91,11 @@ export const telegramApi: TelegramApi = {
     currentMainTelegramApi().unbanChatSenderChat(...args),
 };
 
-/** 统一展开 Telegram API 错误，保留 Bot API 的状态码和 description。 */
+/**
+ * 统一展开 Telegram API 错误，保留 Bot API 的状态码和 description。
+ * @param action 发生错误的动作描述。
+ * @param error 捕获到的异常值。
+ */
 export function logApiError(action: string, error: unknown): void {
   const details: Readonly<{ errorCode: number; description: string }> | undefined =
     telegramErrorDetails(error);

@@ -82,6 +82,10 @@ export const cannedTelegramCalls: Map<string, number> = new Map<string, number>(
  */
 export const cannedTelegramCallTimes: Map<string, number> = new Map<string, number>();
 
+/**
+ * 记录一次罐头 Telegram API 方法调用的次数与纳秒时间戳。
+ * @param method 被调用的 Telegram Bot API 方法名。
+ */
 function noteCannedCall(method: string): void {
   cannedTelegramCalls.set(method, (cannedTelegramCalls.get(method) ?? 0) + 1);
   cannedTelegramCallTimes.set(method, Bun.nanoseconds());
@@ -90,6 +94,11 @@ function noteCannedCall(method: string): void {
 /** 单调递增的消息号，区分各次发出的消息。 */
 const cannedMessageId: { current: number } = { current: 0 };
 
+/**
+ * 构造发送类 Telegram API 的最小成功消息响应。
+ * @param payload 调用方传入的请求参数对象。
+ * @returns 带递增 `message_id` 与目标 `chat` 的最小消息对象。
+ */
 function cannedMessage(payload: Record<string, unknown>): unknown {
   cannedMessageId.current += 1;
   return {

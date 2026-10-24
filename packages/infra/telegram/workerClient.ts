@@ -11,8 +11,11 @@ import type {
 } from "../../types/telegramWorker";
 
 export interface DownloadTelegramFileFromMainParams {
+  /** Telegram 文件标识（file_id）。 */
   readonly fileId: string;
+  /** 下载用途（决定最大允许下载字节数）。 */
   readonly purpose: "vision" | "voice";
+  /** 调用方的取消信号。 */
   readonly signal?: AbortSignal;
 }
 
@@ -24,6 +27,8 @@ export type SendTemporaryMessageFromMainParams = Omit<TelegramWorkerTemporaryMes
 /**
  * 把「发群提示 + 登记固定延迟删除」作为一次主线程能力调用。返回成功时，提示
  * 已经进入主线程统一删除 owner，Worker 随后崩溃也不会丢失清理责任。
+ * @param params 临时群提示请求参数与取消信号。
+ * @returns 发送并登记延迟删除成功时返回消息回执，发送失败时返回 undefined。
  */
 export function sendTemporaryMessageFromMain({
   signal,
@@ -35,7 +40,11 @@ export function sendTemporaryMessageFromMain({
   }, signal);
 }
 
-/** Worker 的 Telegram 文件下载也经主线程执行，资源 URL 与网络响应不进入 isolate。 */
+/**
+ * Worker 的 Telegram 文件下载也经主线程执行，资源 URL 与网络响应不进入 isolate。
+ * @param params 文件下载参数。
+ * @returns 主线程文件下载结果。
+ */
 export function downloadTelegramFileFromMain({
   fileId,
   purpose,
@@ -48,6 +57,12 @@ export function downloadTelegramFileFromMain({
   }, signal);
 }
 
+/**
+ * 向主线程发送结构化 Telegram JSON 方法调用请求。
+ * @param call JSON 方法名与载荷。
+ * @param signal 调用方的取消信号。
+ * @returns 主线程执行并投影后的 API 响应。
+ */
 function requestCall<TResult>(
   call: TelegramWorkerJsonCall,
   signal?: AbortSignal
@@ -60,6 +75,8 @@ function requestCall<TResult>(
  * grammY 方法签名里的 signal 是 abort-controller shim 的类型，交给双工请求前转成全局
  * AbortSignal。入参取 grammY 自己的 signal 类型：位置参数解构错位（例如把 `other`
  * 当成 signal）在编译期报错。
+ * @param value grammY 方法签名中的取消信号参数。
+ * @returns 转换为全局 AbortSignal 的信号；未提供时为 undefined。
  */
 function asSignal(value: Parameters<Api["getChat"]>[1]): AbortSignal | undefined {
   return value as AbortSignal | undefined;
@@ -72,6 +89,9 @@ type TransferableTelegramMemoryFile = TelegramMemoryFile & {
 /**
  * Worker 上传文件的完整普通 ArrayBuffer 直接移交，不复制字节；调用方发送后不得复用 bytes。
  * SharedArrayBuffer 与子视图不独占 backing store，这两类输入建立精确副本后再移交。
+ * @param value 待校验的内存文件对象。
+ * @param label 错误诊断中显示的调用方标签。
+ * @returns 拥有独立 ArrayBuffer 的可转移内存文件对象。
  */
 function checkedMemoryFile(value: unknown, label: string): TransferableTelegramMemoryFile {
   if (
@@ -103,12 +123,15 @@ interface RequestMemoryFileSendParams {
   readonly label: string;
   /** 用校验后的字节与文件名构造完整请求。 */
   readonly buildRequest: (bytes: Uint8Array<ArrayBuffer>, fileName: string) => TelegramWorkerRequest;
+  /** 调用方的取消信号。 */
   readonly signal: AbortSignal | undefined;
 }
 
 /**
  * 上传类请求的共用边界：校验内存文件后把字节 buffer 随请求转移给主线程。
  * 校验失败与投递异常都以 rejected Promise 返回。
+ * @param params 内存文件上传请求构造参数。
+ * @returns 主线程上传成功后的发送回执。
  */
 async function requestMemoryFileSend<TResult>({
   file,

@@ -9,7 +9,10 @@ import type {
   StorageDatabaseMigrationJournalEntry,
 } from "../../types/storageDatabase";
 
-/** 创建新库并交给 Drizzle 内建 migrator 建表；目标目录项已存在（含悬空软链接）时拒绝覆盖。 */
+/**
+ * 创建新库并交给 Drizzle 内建 migrator 建表；目标目录项已存在（含悬空软链接）时拒绝覆盖。
+ * @param path 新数据库文件的目标路径。
+ */
 export function createStorageDatabase(path: string): void {
   if (lstatSync(path, { throwIfNoEntry: false }) !== undefined) {
     throw new Error(`${path}: target already exists; refusing to overwrite it.`);
@@ -30,12 +33,18 @@ export function createStorageDatabase(path: string): void {
 
 /**
  * 给刚建出来的空库应用当前 schema；只有 createStorageDatabase 调用，生产启动不得调用。
+ * @param database 刚创建的空共享存储数据库实例。
  */
 function migrateStorageDatabaseSchema(database: StorageDatabase): void {
   migrate(database, { migrationsFolder: IDENTITY_DATABASE_MIGRATIONS_DIR });
 }
 
-/** 读取并严格校验 Drizzle 迁移谱系；启动据此拒绝未知历史。 */
+/**
+ * 读取并严格校验 Drizzle 迁移谱系；启动据此拒绝未知历史。
+ * @param database 共享存储数据库连接。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 按 `created_at` 升序排列的迁移日志条目列表。
+ */
 export function readStorageDatabaseMigrationJournal(
   database: StorageDatabase,
   source: string

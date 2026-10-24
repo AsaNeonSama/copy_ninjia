@@ -5,6 +5,7 @@
  * 用它等「某个可观测状态出现」，不用固定时长的 sleep 加断言。
  *
  * 负向断言（「这段时间内不该发生」）不适用本助手，那类等待仍用固定时长。
+ * fake timers 下不可用（时钟被冻结，不会超时；`Bun.sleep` 也不会解决）。
  */
 export async function waitUntil(
   condition: () => boolean,

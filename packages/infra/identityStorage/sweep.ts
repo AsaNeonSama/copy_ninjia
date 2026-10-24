@@ -20,12 +20,22 @@ import type { BlocklistEntryData } from "../../types/identityPolicy";
 import type { BlocklistIdPage, IdentityPolicyRawReadResult } from
   "../../types/identityStorage";
 
-/** 是否至少存在一个黑名单身份；只读启动计数，不持有整表 ID。 */
+/**
+ * 是否至少存在一个黑名单身份；只读启动计数，不持有整表 ID。
+ *
+ * @returns 当前黑名单条目总数大于 `0` 时返回 `true`，否则返回 `false`。
+ */
 export function hasAnyBlockedIdentity(): boolean {
   return identityEntryCounts.blocklist > 0;
 }
 
-/** 校验 Disk I/O 回传的游标页仍满足固定大小、严格升序与续读游标契约。 */
+/**
+ * 校验 Disk I/O 回传的游标页仍满足固定大小、严格升序与续读游标契约。
+ *
+ * @param page Disk I/O Worker 返回的黑名单 ID 游标页。
+ * @param afterId 本次分页读取传入的起始游标 ID（首页为 `null`）。
+ * @returns 校验通过的原游标页对象。
+ */
 function validateBlocklistIdPage(
   page: BlocklistIdPage,
   afterId: number | null
@@ -55,7 +65,12 @@ function validateBlocklistIdPage(
   return page;
 }
 
-/** revision 不晚于 coveredRevision、仍未收到 durable ACK 的黑名单写入条数。 */
+/**
+ * revision 不晚于 coveredRevision、仍未收到 durable ACK 的黑名单写入条数。
+ *
+ * @param coveredRevision 本次 flush 发起前捕获的黑名单写入 revision 上界。
+ * @returns `revision <= coveredRevision` 且尚未收到落盘确认的黑名单写入条数。
+ */
 function countUnacknowledgedBlocklistWritesThrough(coveredRevision: number): number {
   let count: number = 0;
   for (const write of unacknowledgedBlocklistWrites.values()) {
@@ -68,6 +83,9 @@ function countUnacknowledgedBlocklistWritesThrough(coveredRevision: number): num
  * 群级补扫读取一页稳定主键；读取前提交黑名单事务，并确认 flush 发出前已登记的
  * 本地 revision 均已 ACK。flush 期间新排入的写（如并发 `/block`、回执驱动的销号计数）
  * 不属于这一批、不参与核对，由之后的读取叠加本地最终值覆盖。
+ *
+ * @param afterId 上一页末尾的黑名单身份 ID 游标；读取首页时传 `null`。
+ * @returns 经事务落盘与契约校验后的黑名单身份 ID 游标页。
  */
 export async function readBlocklistSweepPage(
   afterId: number | null
@@ -88,6 +106,9 @@ export async function readBlocklistSweepPage(
 
 /**
  * durable outbox flush 后复核一个有界处置页；迟到的本地最终值覆盖数据库旧值。
+ *
+ * @param ids 待复核是否仍在黑名单中的身份 ID 列表（最多 `BLOCKLIST_SWEEP_PAGE_SIZE` 条）。
+ * @returns 当前仍处于黑名单中的身份 ID 只读列表。
  */
 export async function retainCurrentlyBlockedIdentityIds(
   ids: readonly number[]
@@ -117,6 +138,9 @@ export async function retainCurrentlyBlockedIdentityIds(
 /**
  * 挑出当前黑名单条目带 participantInvalidCount 的身份，不回填 LRU。
  * 已缓存的只 peek，不改变淘汰顺序；冷缺失按页读库并叠加本地未 ACK 最终值。
+ *
+ * @param ids 待检查是否带有非空 `participantInvalidCount` 的身份 ID 列表。
+ * @returns 当前仍在黑名单且 `participantInvalidCount !== undefined` 的身份 ID 只读列表。
  */
 export async function retainParticipantInvalidBlocklistIds(
   ids: readonly number[]

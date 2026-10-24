@@ -87,16 +87,29 @@ const BENCHMARK_BLOCKLIST_ID_BASE: number = COLD_START_IDENTITY_ROWS + 1;
 /** fixture 时间戳起点；固定值使各轮输入一致。 */
 const FIXTURE_EPOCH_MS: number = 1_767_225_600_000;
 
-/** 第 index 个基准群的 id。 */
+/**
+ * 第 index 个基准群的 id。
+ * @param index 群在夹具中的从零起始序号。
+ * @returns 负整数形式的基准群 ID。
+ */
 export function benchmarkChatId(index: number): number {
   return BENCHMARK_CHAT_ID_BASE - index;
 }
 
-/** 第 index 个基准成员的 id。 */
+/**
+ * 第 index 个基准成员的 id。
+ * @param index 成员在夹具中的从零起始序号。
+ * @returns 正整数形式的基准成员 ID。
+ */
 export function benchmarkUserId(index: number): number {
   return BENCHMARK_USER_ID_BASE + index;
 }
 
+/**
+ * 构造第 index 个基准群的初始群状态对象。
+ * @param index 群在夹具中的从零起始序号。
+ * @returns 初始化好功能开关与标题的群状态对象。
+ */
 function buildChatState(index: number): ChatState {
   const state: ChatState = createChatState();
   state.isInitEnabled = true;
@@ -108,7 +121,11 @@ function buildChatState(index: number): ChatState {
   return state;
 }
 
-/** 一份撑满生产恢复上限的 AI 记忆快照；正文长度随下标变化。 */
+/**
+ * 一份撑满生产恢复上限的 AI 记忆快照；正文长度随下标变化。
+ * @param chatIndex 群在夹具中的从零起始序号。
+ * @returns 序列化后的 AI 记忆快照 JSON 字符串。
+ */
 export function buildAiMemorySnapshot(chatIndex: number): string {
   const at: string = formatLocalTime(FIXTURE_EPOCH_MS);
   const buffer: BufferedMessage[] = new Array<BufferedMessage>(
@@ -144,6 +161,12 @@ export function buildAiMemorySnapshot(chatIndex: number): string {
   return JSON.stringify(snapshot);
 }
 
+/**
+ * 构造固定行数的身份策略（白名单或黑名单）预置行列表。
+ * @param data 预先编码好的身份策略载荷文本。
+ * @param firstId 起始身份 ID。
+ * @returns 供 `seedStorageDatabase` 写入的身份策略行数组。
+ */
 function identityRows(
   data: string,
   firstId: number
@@ -157,6 +180,10 @@ function identityRows(
   return rows;
 }
 
+/**
+ * 构造冷启动满库规模的群状态预置行列表。
+ * @returns 供 `seedStorageDatabase` 写入的群状态行数组。
+ */
 function chatStateRows(): readonly StoredChatStateRow[] {
   const rows: StoredChatStateRow[] = new Array<StoredChatStateRow>(
     COLD_START_CHAT_STATE_ROWS
@@ -170,6 +197,10 @@ function chatStateRows(): readonly StoredChatStateRow[] {
   return rows;
 }
 
+/**
+ * 构造冷启动满库规模的群问答预置行列表。
+ * @returns 供 `seedStorageDatabase` 写入的群问答行数组。
+ */
 function chatQaRows(): readonly StoredChatQaRow[] {
   const rows: StoredChatQaRow[] = new Array<StoredChatQaRow>(
     COLD_START_CHAT_QA_ROWS
@@ -189,6 +220,10 @@ function chatQaRows(): readonly StoredChatQaRow[] {
   return rows;
 }
 
+/**
+ * 构造冷启动满库规模的待踢移除任务预置行列表。
+ * @returns 供 `seedStorageDatabase` 写入的待踢移除行数组。
+ */
 function removalRows(): readonly StoredPendingRemovalRow[] {
   const rows: StoredPendingRemovalRow[] = new Array<StoredPendingRemovalRow>(
     COLD_START_REMOVAL_ROWS
@@ -221,6 +256,7 @@ function removalRows(): readonly StoredPendingRemovalRow[] {
  *
  * 目录与文件权限按 `packages/consts/identityStorage.ts` 的生产口径设置，满足数据根
  * 预检对 `database/` 的权限判据。
+ * @param rows 待写入新数据库的各业务表预置行集合。
  */
 function createDatabase(rows: SeedStorageDatabaseOptions): void {
   mkdirSync(DATABASE_DIR, {
@@ -260,7 +296,10 @@ export function createEmptyBenchmarkDatabase(): void {
   });
 }
 
-/** 计时结束后从独立只读连接恢复 AI 快照，核对 Worker 实际提交的内容。 */
+/**
+ * 计时结束后从独立只读连接恢复 AI 快照，核对 Worker 实际提交的内容。
+ * @returns 按群 ID 索引的已存储 AI 记忆快照 JSON 字符串映射。
+ */
 export function readBenchmarkAiMemories(): ReadonlyMap<number, string> {
   const database: StorageDatabase = openStorageDatabase({
     path: IDENTITY_DATABASE_PATH,
@@ -275,6 +314,8 @@ export function readBenchmarkAiMemories(): ReadonlyMap<number, string> {
 
 /**
  * 一条入群日志事件，直接给出生产 wire 形态；返回 `JoinLogDiskMessage`，调用点原样 post。
+ * @param index 入群事件在序列中的从零起始序号。
+ * @returns 供直接投递给 Disk I/O Worker 的入群日志消息。
  */
 export function joinLogEvent(index: number): JoinLogDiskMessage {
   const joinedAt: number = Date.now();
@@ -288,7 +329,10 @@ export function joinLogEvent(index: number): JoinLogDiskMessage {
   };
 }
 
-/** fixture 的规模摘要；播种子进程按 JSON 打到 stdout。 */
+/**
+ * fixture 的规模摘要；播种子进程按 JSON 打到 stdout。
+ * @returns 播种阶段写出的各业务表与事件条数摘要。
+ */
 export function fixtureCounts(): SeededFixtureCounts {
   return {
     permissionList: COLD_START_IDENTITY_ROWS,

@@ -36,7 +36,13 @@ declare const self: Worker;
 
 /** 群滚动消息缓存的写入、块边界轮换触发、LRU 淘汰及快照序列化与恢复。 */
 
-/** 将缓存条目推入目标群滚动缓存、登记 message_id 索引，并在块边界触发轮换。 */
+/**
+ * 将缓存条目推入目标群滚动缓存、登记 message_id 索引，并在块边界触发轮换。
+ *
+ * @param chatId 群聊 ID
+ * @param entry 待推入热区的缓冲消息条目
+ * @param now 当前毫秒时间戳
+ */
 export function pushBufferedMessage(chatId: number, entry: BufferedMessage, now: number): void {
   if (!hasChatMemory(chatId)) ensureMemoryCapacity(chatId);
   chatLastActivityTimes.set(chatId, now);
@@ -59,7 +65,12 @@ export function pushBufferedMessage(chatId: number, entry: BufferedMessage, now:
   }
 }
 
-/** 清洗并记录一条群文字消息到滚动缓存；清洗后无正文时返回 null。 */
+/**
+ * 清洗并记录一条群文字消息到滚动缓存；清洗后无正文时返回 null。
+ *
+ * @param message 主线程或自录路径构造的群文字消息载荷
+ * @returns 已推入滚动缓存的消息条目；清洗后正文为空时返回 null
+ */
 export function recordChatMessage(message: AiRecordMessage): BufferedMessage | null {
   const now: number = Date.now();
   const entry: BufferedMessage | null = buildBufferedMessage(message, message.text, now);
@@ -67,9 +78,15 @@ export function recordChatMessage(message: AiRecordMessage): BufferedMessage | n
   return entry;
 }
 
-/** 在群数量达到 AI_MEMORY_MAX_CHATS 时按 LRU 淘汰最久未活跃的群（优先跳过仍有在途任务的群）。 */
+/**
+ * 在群数量达到 AI_MEMORY_MAX_CHATS 时按 LRU 淘汰最久未活跃的群（优先跳过仍有在途任务的群）。
+ *
+ * @param excludeChatId 本次正在写入、不得被淘汰的目标群聊 ID
+ */
 function ensureMemoryCapacity(excludeChatId: number): void {
   for (;;) {
+    // 三表 size 之和是去重群数的上界；未达上限时不必构造去重集合。
+    if (chatBuffers.size + chatSummaries.size + pendingSummaries.size < AI_MEMORY_MAX_CHATS) return;
     const memoryIds: Set<number> = chatMemoryIds();
     if (memoryIds.size < AI_MEMORY_MAX_CHATS) return;
     const findOldest = (excludeActiveReplies: boolean): number | undefined => {
@@ -95,7 +112,12 @@ function ensureMemoryCapacity(excludeChatId: number): void {
   }
 }
 
-/** 将目标群的滚动缓存、中期摘要与待晋升摘要序列化为快照 JSON。 */
+/**
+ * 将目标群的滚动缓存、中期摘要与待晋升摘要序列化为快照 JSON。
+ *
+ * @param chatId 群聊 ID
+ * @returns 序列化后的 `AiMemorySnapshot` JSON 字符串
+ */
 function buildMemorySnapshot(chatId: number): string {
   const buf: BoundedDeque<BufferedMessage> | undefined = chatBuffers.get(chatId);
   const summaryQueue: BoundedDeque<string> | undefined = chatSummaries.get(chatId);
@@ -109,7 +131,12 @@ function buildMemorySnapshot(chatId: number): string {
   return JSON.stringify(snapshot);
 }
 
-/** 读取目标群当前的逐字缓存与中期摘要条数。 */
+/**
+ * 读取目标群当前的逐字缓存与中期摘要条数。
+ *
+ * @param chatId 群聊 ID
+ * @returns 包含 `bufferedCount` 与 `summaryCount` 的群记忆占用快照
+ */
 function buildMemoryUsage(chatId: number): AiMemoryUsage {
   return {
     bufferedCount: chatBuffers.get(chatId)?.size ?? 0,
@@ -117,7 +144,12 @@ function buildMemoryUsage(chatId: number): AiMemoryUsage {
   };
 }
 
-/** 目标群存在未上报变更时向主线程发送记忆快照并清除 dirty 标记。 */
+/**
+ * 目标群存在未上报变更时向主线程发送记忆快照并清除 dirty 标记。
+ *
+ * @param chatId 群聊 ID
+ * @param persistImmediately 是否要求主线程立即转发落盘而不等待聚合周期
+ */
 export function flushMemorySnapshot(chatId: number, persistImmediately: boolean = false): void {
   if (!dirtyMemoryChats.has(chatId)) return;
   self.postMessage({
@@ -139,6 +171,8 @@ export function flushDirtyMemories(): void {
 /**
  * 启动恢复持久化的群记忆快照：按 savedAt 降序恢复内存中尚无数据的群（buffer 最多恢复
  * AI_MEMORY_HYDRATE_BUFFER_MAX 条），并向主线程上报各群占用量或空快照删除事件。
+ *
+ * @param memories 群聊 ID 到持久化快照 JSON 字符串的映射
  */
 export function hydrateMemories(memories: Map<number, string>): void {
   const parsedMemories: ParsedChatMemory[] = [];

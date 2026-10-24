@@ -1,5 +1,7 @@
 /** Anti-Raid 的管理员、关联频道与评论关联缓存边界。 */
 
+import { STATE_MANAGED_CHAT_LIMIT } from "../storage";
+
 /**
  * 非匿名管理员邀请豁免表的过期时长。管理员任免及匿名模式切换会实时增删；
  * 匿名管理员仍有管理权限，但因操作者身份不可可靠归因，故意不进入此表。
@@ -8,8 +10,8 @@
 export const ADMIN_CACHE_TTL_MS: number = 60 * 60 * 1000;
 /** “本群是否有关联频道”缓存的过期时长。 */
 export const LINKED_CHANNEL_TTL_MS: number = 60 * 60 * 1000;
-/** 管理员邀请豁免表/关联频道缓存最多保留的群数；过期条目还会被周期清理。 */
-export const ANTI_RAID_CHAT_CACHE_MAX: number = 500;
+/** 管理员邀请豁免表/关联频道缓存最多保留的群数，等于受管群上限 STATE_MANAGED_CHAT_LIMIT；过期条目还会被周期清理。 */
+export const ANTI_RAID_CHAT_CACHE_MAX: number = STATE_MANAGED_CHAT_LIMIT;
 /** 清理已过期管理员邀请豁免表与关联频道缓存的周期。 */
 export const ANTI_RAID_CACHE_SWEEP_INTERVAL_MS: number = 5 * 60 * 1000;
 /**

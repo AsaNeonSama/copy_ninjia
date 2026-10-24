@@ -11,6 +11,7 @@ export type CartesianCombination<T extends CartesianDimensions> = {
  * 第一个维度变化最慢，最后一个维度变化最快；每个组合是新对象，字段按维度声明顺序写入。
  * 任一维度为空时没有组合。只用于冷路径的穷举与夹具构造，热路径不得调用。
  * @param dimensions 维度表；类型参数按 const 推断，字面量取值保持字面量类型。
+ * @returns 穷举出的全部维度取值组合数组。
  */
 export function cartesianProduct<const T extends CartesianDimensions>(dimensions: T): CartesianCombination<T>[] {
   let combinations: Record<string, unknown>[] = [{}];

@@ -57,6 +57,8 @@ import type {
  * 读取一条功能的已缓存结论：命中时只有一次 holder 读取加一次分支，不分配。
  * 结论由启动总闸 validateExistingDeploymentInputs 填充、热重载经 adopt* 替换；
  * 启动总闸完成前返回 `startup` 的不可用结论。
+ * @param cache 目标功能的可用性缓存 holder。
+ * @returns 该功能的配置可用性结论。
  */
 function cachedReadiness(cache: ConfigReadinessCache): ConfigReadiness {
   const cached: ConfigReadiness | null = cache.current;
@@ -70,7 +72,12 @@ function cachedReadiness(cache: ConfigReadinessCache): ConfigReadiness {
   };
 }
 
-/** 一份缺失部署输入的不可用结论；诊断口径同 InputValidationError。 */
+/**
+ * 一份缺失部署输入的不可用结论；诊断口径同 InputValidationError。
+ * @param file 缺失或未配置的部署文件相对标识。
+ * @param message 失败诊断文案。
+ * @returns `ok: false` 的不可用结论对象。
+ */
 function unavailable(file: string, message: string): ConfigReadiness {
   return { ok: false, failure: { file, reason: message } };
 }
@@ -78,6 +85,7 @@ function unavailable(file: string, message: string): ConfigReadiness {
 /**
  * 按主线程当前 holder 判定 AI 闲聊的部署前提（stickers.json、mood.json 及 agent.json 的对话核心能力段）；
  * 只读 holder，不读盘，按顺序报第一份缺失的文件。
+ * @returns AI 闲聊功能的配置可用性结论。
  */
 export function aiChatReadinessFromHolders(): ConfigReadiness {
   if (defaultStickerConfigCache.current === null) {
@@ -98,6 +106,7 @@ export function aiChatReadinessFromHolders(): ConfigReadiness {
 /**
  * 按主线程当前 holder 判定广告检测的部署前提：判定口径的示例清单与 agent.json 的 ad_detect 段
  * （开启时必填 provider、api_key 与 model，由 agent 配置解析器严格校验）；只看这一段，其余同上。
+ * @returns 广告检测功能的配置可用性结论。
  */
 export function adDetectReadinessFromHolders(): ConfigReadiness {
   if (defaultAdSampleConfigCache.current === null) {
@@ -115,22 +124,32 @@ export function adDetectReadinessFromHolders(): ConfigReadiness {
 /**
  * 热重载发布 AI 闲聊可用性结论（app/configReload.ts 在一轮对账里调用）。整体替换
  * holder，每条群消息的门禁仍只读一次 holder、不分配。
+ * @param readiness 重算得到的 AI 闲聊配置可用性结论。
  */
 export function adoptAiChatConfigReadiness(readiness: ConfigReadiness): void {
   aiChatConfigReadinessCache.current = readiness;
 }
 
-/** 热重载发布广告检测可用性结论；语义同 adoptAiChatConfigReadiness。 */
+/**
+ * 热重载发布广告检测可用性结论；语义同 adoptAiChatConfigReadiness。
+ * @param readiness 重算得到的广告检测配置可用性结论。
+ */
 export function adoptAdDetectConfigReadiness(readiness: ConfigReadiness): void {
   adDetectConfigReadinessCache.current = readiness;
 }
 
-/** 读取当前线程已发布的 AI 闲聊配置可用性结论。 */
+/**
+ * 读取当前线程已发布的 AI 闲聊配置可用性结论。
+ * @returns AI 闲聊功能的配置可用性结论。
+ */
 export function aiChatConfigReadiness(): ConfigReadiness {
   return cachedReadiness(aiChatConfigReadinessCache);
 }
 
-/** 读取当前线程已发布的广告检测配置可用性结论。 */
+/**
+ * 读取当前线程已发布的广告检测配置可用性结论。
+ * @returns 广告检测功能的配置可用性结论。
+ */
 export function adDetectConfigReadiness(): ConfigReadiness {
   return cachedReadiness(adDetectConfigReadinessCache);
 }
@@ -144,12 +163,19 @@ async function validateAndCacheGoogleServiceAccountKey(): Promise<void> {
   }
 }
 
-/** 读取当前线程已发布的 /translate 翻译配置可用性结论。 */
+/**
+ * 读取当前线程已发布的 /translate 翻译配置可用性结论。
+ * @returns 翻译功能的配置可用性结论。
+ */
 export function translateConfigReadiness(): ConfigReadiness {
   return cachedReadiness(translateConfigReadinessCache);
 }
 
-/** 只把路径真正不存在视为缺省；断链软链接和无权访问都是已配置但非法。 */
+/**
+ * 只把路径真正不存在视为缺省；断链软链接和无权访问都是已配置但非法。
+ * @param path 部署输入文件的路径。
+ * @returns 文件存在时返回 true；ENOENT 时返回 false。
+ */
 export async function deploymentInputExists(path: string): Promise<boolean> {
   try {
     await lstat(path);

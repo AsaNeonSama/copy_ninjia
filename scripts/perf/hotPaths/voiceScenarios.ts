@@ -26,7 +26,11 @@ import type { Scenario } from "./types";
 /** 合成上限 `VOICE_SPEECH_MAX_BYTES` 的固定分数，对应一两句台词的量级。 */
 const VOICE_ENCODE_PCM_BYTES: number = VOICE_SPEECH_MAX_BYTES / 64;
 
-/** 固定 WAV 替身交给公共实现，逐次核对产出的是 OGG 容器。 */
+/**
+ * 固定 WAV 替身交给公共实现，逐次核对产出的是 OGG 容器。
+ *
+ * @returns 语音消息 WAV 解码与 Opus 编码场景定义
+ */
 export function voiceMessageEncodeScenario(): Scenario {
   const speech: SynthesizedSpeech = { bytes: benchmarkWav(VOICE_ENCODE_PCM_BYTES), mimeType: "audio/wav" };
   const attempt: SpeechSynthesisAttempt = { ok: true, speech };
@@ -49,7 +53,13 @@ export function voiceMessageEncodeScenario(): Scenario {
   };
 }
 
-/** 构造一条超管私聊消息；给出 entities 时表示整条是代码块。 */
+/**
+ * 构造一条超管私聊消息；给出 entities 时表示整条是代码块。
+ *
+ * @param text 私聊消息文本内容
+ * @param codeBlock 是否附加覆盖全文本的 JSON 代码块实体
+ * @returns 构造完成的私聊消息夹具
+ */
 function privateMessage(text: string, codeBlock: boolean): Message {
   return {
     message_id: 1,
@@ -61,7 +71,11 @@ function privateMessage(text: string, codeBlock: boolean): Message {
   };
 }
 
-/** 各类消息轮转；逐次核对判定结果。 */
+/**
+ * 各类消息轮转；逐次核对判定结果。
+ *
+ * @returns `/send` 代发会话 TTS 请求识别场景定义
+ */
 export function proxyTtsDetectScenario(): Scenario {
   const request: string = `{
   "type": "tts",

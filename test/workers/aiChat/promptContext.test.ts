@@ -78,7 +78,7 @@ test("直接唤起在回复任务开头声明唤起者完整身份，不再另�
   // 身份段与转录行、回复标注里同一个人的写法逐字同形（[id:]、[username:@]、显示名）。
   expect(sections.replyTask).toStartWith(
     `[BEGIN ${REPLY_CONTEXT_SECTION_NAMES.replyTask}]\n${REPLY_CONTEXT_SECTION_TEXT.replyTask.header}\n` +
-    `本轮由 [id:${invokerId}] [username:@alice] Alice Wong（转录里的编号是 u1）明确 @ 或回复你而唤起。\n`
+    `${directInvokerSentence(`[id:${invokerId}] [username:@alice] Alice Wong`, "u1")}\n`
   );
   // 唤起者的发言只在完整转录里出现一次，回复任务不再复制一份。
   expect(sections.replyTask).not.toContain(`最热区里的唤起者消息 ${total}`);
@@ -148,7 +148,7 @@ test("触发消息已不在热区索引时，唤起者身份从逐字缓存里�
   )!;
 
   // 身份段之外还带上行内编号，与转录行的编号对应。
-  expect(sections.replyTask).toContain("本轮由 [id:7] [username:@alice] アリス（转录里的编号是 u1）明确 @ 或回复你而唤起");
+  expect(sections.replyTask).toContain(directInvokerSentence("[id:7] [username:@alice] アリス", "u1"));
   expect(sections.replyTask).not.toContain("old_alice");
   // 名册登记的是改名后的身份，与回复任务里的写法一致。
   expect(sections.currentConversation).toContain("u1=[id:7] [username:@alice] アリス");
@@ -176,7 +176,7 @@ test("唤起者整段逐字缓存里都没有时只报 id，不拿别人的名�
     { triggerMessageId: 1, directInvokerId: 7, isRandomTrigger: false, roundHasTypo: false }
   )!;
 
-  expect(sections.replyTask).toContain("本轮由 [id:7] 明确 @ 或回复你而唤起");
+  expect(sections.replyTask).toContain(directInvokerSentence("[id:7]", ""));
   expect(sections.replyTask).not.toContain("Bob");
 });
 

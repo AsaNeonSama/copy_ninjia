@@ -53,6 +53,11 @@ for (const input of inputs) averageLength += input.text.length / inputs.length;
 const retainedWindow: (BufferedMessage | null)[] = new Array<BufferedMessage | null>(COMPACT_BATCH_SIZE).fill(null);
 let checksum: number = 0;
 
+/**
+ * 在输入集上循环执行 `sanitizeInline` 并累加校验和。
+ * @param count 循环调用次数。
+ * @returns 累加更新后的整数校验和。
+ */
 function runSanitize(count: number): number {
   for (let index: number = 0; index < count; index++) {
     const value: string = sanitizeInline(inputs[index % inputs.length]!.text);
@@ -61,6 +66,11 @@ function runSanitize(count: number): number {
   return checksum;
 }
 
+/**
+ * 在输入集上循环执行 `buildBufferedMessage` 并写入环形留存窗口。
+ * @param count 循环调用次数。
+ * @returns 累加更新后的整数校验和。
+ */
 function runMessage(count: number): number {
   for (let index: number = 0; index < count; index++) {
     const input: TextReviewInput = inputs[index % inputs.length]!;
@@ -79,12 +89,22 @@ const scenario: Scenario = definition.kind === "sanitize"
   ? { iterations, run, probes: { sanitizeInline } }
   : { iterations, run, probes: { sanitizeInline, buildBufferedMessage } };
 
+/**
+ * 执行一个样本批次并返回单次操作的平均纳秒耗时。
+ * @returns 本样本的单操作耗时（ns/op）。
+ */
 function sampleNsPerOp(): number {
   const startedAt: number = Bun.nanoseconds();
   run(iterations);
   return (Bun.nanoseconds() - startedAt) / iterations;
 }
 
+/**
+ * 检查所有探针函数是否均已进入 DFG 且前后编译与重优化计数未发生变化。
+ * @param before 本样本前的探针分层计数表。
+ * @param after 本样本后的探针分层计数表。
+ * @returns 全部探针的 JIT 编译计数是否稳定。
+ */
 function tiersAreStable(
   before: Readonly<Record<string, JitTierCounts>>,
   after: Readonly<Record<string, JitTierCounts>>

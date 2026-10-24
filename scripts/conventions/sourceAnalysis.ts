@@ -2,7 +2,12 @@ import { readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import ts from "typescript";
 
-/** import/export 是否在运行时求值目标模块；空声明仍保留副作用，纯类型引用被擦除。 */
+/**
+ * import/export 是否在运行时求值目标模块；空声明仍保留副作用，纯类型引用被擦除。
+ *
+ * @param node 导入或导出声明节点
+ * @returns 会在运行期产生模块依赖边时返回 true
+ */
 export function isRuntimeModuleEdge(node: ts.ImportDeclaration | ts.ExportDeclaration): boolean {
   if (ts.isExportDeclaration(node)) {
     if (node.isTypeOnly) return false;
@@ -31,14 +36,24 @@ export interface RuntimeModuleReference {
   readonly start: number;
 }
 
-/** 静态字符串字面量说明符；模板插值与动态表达式不参与判定。 */
+/**
+ * 静态字符串字面量说明符；模板插值与动态表达式不参与判定。
+ *
+ * @param node 待提取的表达式节点
+ * @returns 字符串字面量文本，否则返回 undefined
+ */
 function literalSpecifier(node: ts.Expression | undefined): string | undefined {
   if (node === undefined) return undefined;
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   return undefined;
 }
 
-/** 标识符是否只出现在类型位置（如 `typeof ns`），这类引用在运行期被擦除。 */
+/**
+ * 标识符是否只出现在类型位置（如 `typeof ns`），这类引用在运行期被擦除。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 位于类型位置时返回 true
+ */
 function isInTypePosition(node: ts.Node): boolean {
   for (let parent: ts.Node | undefined = node.parent; parent !== undefined; parent = parent.parent) {
     if (ts.isTypeNode(parent)) return true;
@@ -47,7 +62,12 @@ function isInTypePosition(node: ts.Node): boolean {
   return false;
 }
 
-/** 标识符是否只是属性访问、对象字面量或类成员里的成员名。 */
+/**
+ * 标识符是否只是属性访问、对象字面量或类成员里的成员名。
+ *
+ * @param node 待检查的标识符节点
+ * @returns 作为属性或方法成员名时返回 true
+ */
 function isMemberName(node: ts.Identifier): boolean {
   const parent: ts.Node = node.parent;
   return (ts.isPropertyAccessExpression(parent) || ts.isPropertyAssignment(parent) ||
@@ -59,6 +79,10 @@ function isMemberName(node: ts.Identifier): boolean {
  * 命名空间绑定在本文件里取用的属性名：`ns.x` 与 `ns["x"]` 记名，展开进对象字面量
  * （`{ ...ns }`）只是转交替身、不记名；被整体传出或以其它方式使用时返回 null。
  * 按标识符文本匹配，不区分同名遮蔽。
+ *
+ * @param source 源文件 AST
+ * @param binding 命名空间绑定的标识符节点
+ * @returns 被访问的导出属性名列表，存在不透明用法时返回 null
  */
 function namespaceMemberNames(source: ts.SourceFile, binding: ts.Identifier): readonly string[] | null {
   const names: string[] = [];
@@ -86,7 +110,13 @@ function namespaceMemberNames(source: ts.SourceFile, binding: ts.Identifier): re
   return opaque ? null : names;
 }
 
-/** `import()` / `require()` 的结果被解构时取出属性名，绑定为命名空间时取其属性访问；其余用法按整模块计。 */
+/**
+ * `import()` / `require()` 的结果被解构时取出属性名，绑定为命名空间时取其属性访问；其余用法按整模块计。
+ *
+ * @param source 源文件 AST
+ * @param call `import()` 或 `require()` 调用表达式节点
+ * @returns 静态确定的导出名列表，无法静态确定时返回 null
+ */
 function loadedBindingNames(source: ts.SourceFile, call: ts.CallExpression): readonly string[] | null {
   let node: ts.Node = call;
   while (
@@ -116,6 +146,9 @@ function loadedBindingNames(source: ts.SourceFile, call: ts.CallExpression): rea
  * 取出一个模块的全部运行期模块引用：静态 `import`/`export … from`、`import()` 与
  * `require()`。纯类型引用被擦除，不进入结果；只认 AST 节点，字符串夹具里的路径
  * 不会被误判成引用。`source` 必须带父节点指针解析（`setParentNodes: true`）。
+ *
+ * @param source 带父节点指针的源文件 AST
+ * @returns 运行期模块引用列表
  */
 export function runtimeModuleReferences(source: ts.SourceFile): readonly RuntimeModuleReference[] {
   const references: RuntimeModuleReference[] = [];
@@ -170,6 +203,10 @@ export function runtimeModuleReferences(source: ts.SourceFile): readonly Runtime
 /**
  * 按仓库 tsconfig 为给定入口文件建一个只做类型检查的 program。常量不可变性断言与字面量
  * 联合全集表两道门禁以 packages/consts/ 为入口共用一个，测试替身复位门禁以 test/ 为入口另建一个。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param rootFiles Program 根文件绝对路径列表
+ * @returns 仅用于类型检查的 TypeScript Program
  */
 export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly string[]): ts.Program {
   const config: { config?: unknown } = ts.readConfigFile(
@@ -180,7 +217,12 @@ export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly 
   return ts.createProgram({ rootNames: [...rootFiles], options: { ...options, noEmit: true } });
 }
 
-/** 递归读取目录下的 TypeScript 源文件。 */
+/**
+ * 递归读取目录下的 TypeScript 源文件。
+ *
+ * @param root 起始目录路径
+ * @returns 目录下全部 `.ts` 文件路径列表
+ */
 export function sourceFilesUnder(root: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -198,7 +240,9 @@ const parsedSourceFiles: Map<string, ts.SourceFile> = new Map<string, ts.SourceF
  * 读入一个源文件并解析成 AST，各约定检查共用这一份：`setParentNodes` 为 true
  * （规则沿 `node.parent` 上行），`ScriptKind.TS` 固定按 TypeScript 解析。
  * 文件内容与上次解析时相同则复用 parsedSourceFiles 里的 AST。
- * @param path 源文件路径。
+ *
+ * @param path 源文件路径
+ * @returns 解析得到的 TypeScript SourceFile AST
  */
 export async function parseSourceFile(path: string): Promise<ts.SourceFile> {
   const text: string = await Bun.file(path).text();
@@ -215,18 +259,33 @@ export async function parseSourceFile(path: string): Promise<ts.SourceFile> {
   return source;
 }
 
-/** 判断声明是否带有 export 修饰符。 */
+/**
+ * 判断声明是否带有 export 修饰符。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 带有 `export` 修饰符时返回 true
+ */
 export function isExported(node: ts.Node): boolean {
   return ts.canHaveModifiers(node) &&
     ts.getModifiers(node)?.some((modifier: ts.ModifierLike): boolean => modifier.kind === ts.SyntaxKind.ExportKeyword) === true;
 }
 
-/** 判断声明是否带有 JSDoc。 */
+/**
+ * 判断声明是否带有 JSDoc。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 存在 JSDoc 注释或标签时返回 true
+ */
 export function hasJsDoc(node: ts.Node): boolean {
   return ts.getJSDocCommentsAndTags(node).length > 0;
 }
 
-/** 剥掉 `as const` / `satisfies T` / 多余括号，拿到真正的初始化表达式。 */
+/**
+ * 剥掉 `as const` / `satisfies T` / 多余括号，拿到真正的初始化表达式。
+ *
+ * @param expression 待剥离的表达式节点
+ * @returns 剥离外层类型包装与括号后的表达式
+ */
 function unwrapTypeWrappers(expression: ts.Expression): ts.Expression {
   let current: ts.Expression = expression;
   while (
@@ -239,7 +298,12 @@ function unwrapTypeWrappers(expression: ts.Expression): ts.Expression {
   return current;
 }
 
-/** 模块级纯字面量及其组合；含函数、句柄、变量引用或展开的装配表达式不属于此类。 */
+/**
+ * 模块级纯字面量及其组合；含函数、句柄、变量引用或展开的装配表达式不属于此类。
+ *
+ * @param expression 待检查的初始化表达式节点
+ * @returns 为纯字面量常量表达式时返回 true
+ */
 export function isLiteralConstant(expression: ts.Expression): boolean {
   const value: ts.Expression = unwrapTypeWrappers(expression);
   if (ts.isLiteralExpression(value) ||
@@ -258,7 +322,12 @@ export function isLiteralConstant(expression: ts.Expression): boolean {
   return false;
 }
 
-/** 判断表达式是否为 `Object.freeze(...)` 调用。 */
+/**
+ * 判断表达式是否为 `Object.freeze(...)` 调用。
+ *
+ * @param expression 待检查的表达式节点
+ * @returns 为 `Object.freeze` 调用时返回 true
+ */
 export function isObjectFreezeCall(expression: ts.Expression): boolean {
   return ts.isCallExpression(expression) &&
     ts.isPropertyAccessExpression(expression.expression) &&
@@ -274,6 +343,9 @@ const MODULE_CACHE_CONSTRUCTORS: readonly string[] = [
 /**
  * 模块顶层 Map/Set、AsyncLocalStorage 与 holder 都是跨调用长期存活的状态，必须进入
  * 带 owner 的 packages/cache/。consts 下的 ReadonlySet 是静态查找表，不属于运行时缓存。
+ *
+ * @param expression 变量声明的初始化表达式
+ * @returns 命中的缓存构造类型名称（如 `"Map"` 或 `"holder"`），非模块级缓存时返回 null
  */
 export function moduleCacheInitializerKind(expression: ts.Expression): string | null {
   const initializer: ts.Expression = unwrapTypeWrappers(expression);
@@ -296,7 +368,12 @@ export function moduleCacheInitializerKind(expression: ts.Expression): string | 
   return hasCurrent ? "holder" : null;
 }
 
-/** 判断声明类型是不是只读容器。 */
+/**
+ * 判断声明类型是不是只读容器。
+ *
+ * @param type 变量声明的类型标注节点
+ * @returns 为只读容器类型节点时返回 true
+ */
 function isReadonlyContainerTypeNode(type: ts.TypeNode | undefined): boolean {
   if (type === undefined) return false;
   if (ts.isTypeOperatorNode(type) && type.operator === ts.SyntaxKind.ReadonlyKeyword) return true;
@@ -309,7 +386,12 @@ function isReadonlyContainerTypeNode(type: ts.TypeNode | undefined): boolean {
   return false;
 }
 
-/** 判断声明类型是不是裸的可变容器。 */
+/**
+ * 判断声明类型是不是裸的可变容器。
+ *
+ * @param type 变量声明的类型标注节点
+ * @returns 为可变容器类型节点时返回 true
+ */
 function isMutableContainerTypeNode(type: ts.TypeNode | undefined): boolean {
   if (type === undefined) return false;
   if (ts.isArrayTypeNode(type) || ts.isTupleTypeNode(type)) return true;
@@ -322,7 +404,11 @@ function isMutableContainerTypeNode(type: ts.TypeNode | undefined): boolean {
 
 /**
  * 检查共享常量容器是否使用编译期 readonly，且没有运行期 `Object.freeze`。
- * @returns 需要报告的问题描述；没问题则为空数组。
+ *
+ * @param expression 常量初始化表达式
+ * @param type 常量声明的类型标注节点
+ * @param path 用于构造报错信息的源码位置标识
+ * @returns 需要报告的问题描述；没问题则为空数组
  */
 export function collectSharedConstantProblems(
   expression: ts.Expression,
@@ -354,10 +440,57 @@ export function collectSharedConstantProblems(
   return [];
 }
 
-/** 返回声明名称；匿名声明回退为语法节点名称。 */
+/**
+ * 返回声明名称；匿名声明回退为语法节点名称。
+ *
+ * @param node 声明节点
+ * @returns 声明标识符文本或语法节点类型名
+ */
 export function declarationName(node: ts.Node): string {
   if ("name" in node && node.name !== undefined) {
     return (node.name as ts.Node).getText();
   }
   return ts.SyntaxKind[node.kind];
+}
+
+/**
+ * 判断函数或方法的声明返回类型是否仅为 `void`/`never`（含 `Promise<void>`、`Promise<never>` 及其联合）。
+ *
+ * @param typeNode 返回类型语法节点
+ * @returns 不需要 `@returns` 说明时返回 true
+ */
+export function isVoidOrNeverReturnType(typeNode: ts.TypeNode | undefined): boolean {
+  if (typeNode === undefined) return true;
+  if (
+    typeNode.kind === ts.SyntaxKind.VoidKeyword ||
+    typeNode.kind === ts.SyntaxKind.NeverKeyword
+  ) {
+    return true;
+  }
+  if (
+    ts.isTypeReferenceNode(typeNode) &&
+    typeNode.typeName.getText() === "Promise" &&
+    typeNode.typeArguments?.length === 1
+  ) {
+    return isVoidOrNeverReturnType(typeNode.typeArguments[0]);
+  }
+  if (ts.isUnionTypeNode(typeNode)) {
+    return typeNode.types.every(isVoidOrNeverReturnType);
+  }
+  return false;
+}
+
+/**
+ * 拆解解构对象参数的类型引用名称，剥离外层 `Readonly<T>`。
+ *
+ * @param typeNode 参数类型语法节点
+ * @returns 接口名称；非简单类型引用时返回 undefined
+ */
+export function unwrapParamInterfaceName(typeNode: ts.TypeNode | undefined): string | undefined {
+  if (typeNode === undefined || !ts.isTypeReferenceNode(typeNode)) return undefined;
+  const name: string = typeNode.typeName.getText();
+  if (name === "Readonly" && typeNode.typeArguments?.length === 1) {
+    return unwrapParamInterfaceName(typeNode.typeArguments[0]);
+  }
+  return name;
 }

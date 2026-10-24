@@ -20,7 +20,7 @@ import { logger } from "../infra/logger";
 import { currentUpdateAbortSignal } from "../infra/updateContext";
 import { submitDeferredCommand } from "./deferredCommands";
 
-/** runBlocklistFanOut 的入参。 */
+/** 在单身份黑名单串行槽内依次执行名单持久化与跨群扇出操作的参数。 */
 export interface RunBlocklistFanOutParams<T extends object> {
   /** 被拉黑或解除的身份；整条处置在它的黑名单串行区里执行。 */
   readonly identityId: number;
@@ -35,6 +35,7 @@ export interface RunBlocklistFanOutParams<T extends object> {
 /**
  * 占好串行位后依次执行 prepare 与 fanOut。串行位空闲时 prepare 在调用方的 update 内执行完；
  * 扇出交给执行器时立即返回，执行器拒收时就地等到串行位并执行到结束。
+ * @param params 目标身份 ID `identityId`、命令标识 `command`、名单写入回调 `prepare` 与跨群扇出回调 `fanOut`。
  */
 export async function runBlocklistFanOut<T extends object>({
   identityId,

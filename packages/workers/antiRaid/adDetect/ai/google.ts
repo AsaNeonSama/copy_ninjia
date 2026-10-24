@@ -24,6 +24,7 @@ import {
   AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
   AD_DETECT_JSON_SCHEMA,
 } from "../../../../consts/antiRaid/adDetect";
+import { GEMINI_API_BASE_URL } from "../../../../consts/aiChat/gemini";
 import { logger } from "../../../../infra/logger";
 import { reportGeminiUsage } from "../../../../infra/aiCacheUsage";
 import { abnormalFinishDiagnostic, geminiFinishDetails } from "../../../../aiChat/gemini/response";
@@ -43,7 +44,10 @@ import type {
   GeminiContextCacheScope,
 } from "../../../../types/geminiContextCache";
 
-/** 取得 Anti-Raid Worker 内唯一的 Google 广告检测客户端。 */
+/**
+ * 取得 Anti-Raid Worker 内唯一的 Google 广告检测客户端。
+ * @returns Google GenAI 客户端实例。
+ */
 function getAdDetectGoogleClient(): GoogleGenAI {
   const config: AdDetectAgentConfig = getAdDetectAgentConfig();
   if (config.provider !== "google") {
@@ -51,9 +55,9 @@ function getAdDetectGoogleClient(): GoogleGenAI {
   }
   adDetectGoogleClientHolder.current ??= new GoogleGenAI({
     apiKey: config.apiKey,
+    enterprise: false,
     httpOptions: {
-      baseUrl: config.baseUrl,
-      headers: config.headers,
+      baseUrl: config.baseUrl ?? GEMINI_API_BASE_URL,
       timeout: AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,
       retryOptions: { attempts: AD_DETECT_GOOGLE_REQUEST_ATTEMPTS },
     },
@@ -81,7 +85,12 @@ export const AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE: Readonly<GeminiContextCacheSc
   errorLabel: AD_DETECT_GEMINI_CACHE_ERROR_LABEL,
 };
 
-/** 本次要缓存的内容；模型与系统指令都没变时直接复用已算好的指纹。 */
+/**
+ * 本次要缓存的内容；模型与系统指令都没变时直接复用已算好的指纹。
+ * @param model Gemini 模型名。
+ * @param instructions 系统指令文本（判定规则 + 部署示例）。
+ * @returns 带指纹的显式上下文缓存内容描述符。
+ */
 function cacheContentOf(model: string, instructions: string): GeminiContextCacheContent {
   const cached: GeminiContextCacheContent | null = adDetectGeminiCacheContent.current;
   if (cached !== null && cached.model === model && cached.systemInstruction === instructions) return cached;
@@ -90,7 +99,12 @@ function cacheContentOf(model: string, instructions: string): GeminiContextCache
   return content;
 }
 
-/** 发一次 generateContent；cachedContent 非空时引用显式缓存、不带系统指令。 */
+/**
+ * 发一次 generateContent；cachedContent 非空时引用显式缓存、不带系统指令。
+ * @param params 结构化广告判定请求参数。
+ * @param cachedContent 显式上下文缓存资源名；未使用缓存时为 null。
+ * @returns Gemini `generateContent` 响应 Promise。
+ */
 function generateAdDetectContent(
   { model, instructions, fact, userContent, maxOutputTokens }: AdDetectJsonRequestParams,
   cachedContent: string | null
@@ -108,6 +122,11 @@ function generateAdDetectContent(
   });
 }
 
+/**
+ * 记录 Google 广告检测调用异常日志。
+ * @param errorLabel 日志错误标签。
+ * @param error 捕获到的异常对象。
+ */
 function logGoogleFailure(errorLabel: string, error: unknown): void {
   if (error instanceof ApiError) {
     logger.error(`${errorLabel} failed: ${error.status} ${error.message}`);
@@ -127,7 +146,11 @@ interface GoogleAdDetectAttempt {
   readonly abnormal: string | null;
 }
 
-/** 发一次结构化 JSON 请求；undefined 表示请求失败且已经记日志。 */
+/**
+ * 发一次结构化 JSON 请求；undefined 表示请求失败且已经记日志。
+ * @param params 结构化广告判定请求参数。
+ * @returns 单次尝试结果；请求失败时返回 undefined。
+ */
 async function attemptGoogleJson(params: AdDetectJsonRequestParams): Promise<GoogleAdDetectAttempt | undefined> {
   let cachedContent: string | null = null;
   let response: GenerateContentResponse;
@@ -157,6 +180,8 @@ async function attemptGoogleJson(params: AdDetectJsonRequestParams): Promise<Goo
 /**
  * 收尾异常或空正文时有界重试，耗尽后连同最后一次的收尾原因与详情记一条日志；请求异常已经由
  * SDK 按配置重试，不在这里叠加。
+ * @param params 结构化广告判定请求参数。
+ * @returns 可用的模型 JSON 响应正文；重试耗尽或请求失败时返回 null。
  */
 export async function requestGoogleAdDetectJson(
   params: AdDetectJsonRequestParams

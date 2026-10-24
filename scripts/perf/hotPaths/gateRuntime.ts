@@ -5,11 +5,18 @@ import type { HotPathGateRuntimeCalibration } from "./gateResult";
 
 /** 运行时一致性检查的可注入输入，测试不修改宿主 Bun 属性。 */
 export interface RuntimeCalibrationCheckOptions {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
+  /** 待核对的 Bun 运行时版本与 revision，默认取当前宿主进程。 */
   readonly runtime?: HotPathGateRuntimeCalibration;
 }
 
-/** 在创建夹具和昂贵子进程之前核对 manifest、当前 Bun 与校准构建。 */
+/**
+ * 在创建夹具和昂贵子进程之前核对 manifest、当前 Bun 与校准构建。
+ *
+ * @param options 运行时一致性检查选项
+ * @returns 发现的不一致问题列表，全部一致时为空数组
+ */
 export async function collectRuntimeCalibrationProblems({
   projectRoot,
   runtime = { bunVersion: Bun.version, bunRevision: Bun.revision },

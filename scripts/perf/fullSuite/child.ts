@@ -25,6 +25,8 @@ export interface SpawnChildOptions {
  * 跑一个子进程并把 stdout 解析成 JSON。
  *
  * 以下情形都会抛出而不是返回部分结果：非零退出、超时、stdout 不是合法 JSON。
+ * @param options 子进程参数、环境变量覆盖、诊断标签、超时时间与 stderr 回调。
+ * @returns 从子进程 stdout 解析出的结构化结果。
  */
 export async function spawnJsonChild<TResult>({
   args,

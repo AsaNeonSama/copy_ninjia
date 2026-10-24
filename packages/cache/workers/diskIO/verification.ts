@@ -48,7 +48,11 @@ export function noteVerificationWriteRejected(): void {
   verificationWriteRejected.current = true;
 }
 
-/** 取走并清除待验证写入拒收标记。 */
+/**
+ * 取走并清除待验证写入拒收标记。
+ *
+ * @returns 本轮是否发生过待验证写入拒收
+ */
 export function takeVerificationWriteRejection(): boolean {
   const rejected: boolean = verificationWriteRejected.current;
   verificationWriteRejected.current = false;

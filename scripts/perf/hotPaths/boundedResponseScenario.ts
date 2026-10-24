@@ -4,7 +4,12 @@ import { readBoundedResponseBytes } from "../../../packages/libs/boundedResponse
 import type { BoundedResponseResult } from "../../../packages/libs/boundedResponse";
 import type { Scenario } from "./types";
 
-/** 按固定输入分别测量空块、细碎块及正常响应，逐响应核对内容及锁释放。 */
+/**
+ * 按固定输入分别测量空块、细碎块及正常响应，逐响应核对内容及锁释放。
+ *
+ * @param shape 响应流分块形态
+ * @returns 有界响应字节读取热路径场景定义
+ */
 export function boundedResponseScenario(shape: "empty" | "tiny" | "small" | "normal" | "large"): Scenario {
   const chunkBytes: number = shape === "empty" ? 0 : shape === "tiny" ? 1 : shape === "small" ? 1_024 : 65_536;
   const bytes: number = shape === "empty" ? 0 : shape === "tiny" ? PUBLIC_PROFILE_PAGE_MAX_DOWNLOAD_BYTES / 8 : shape === "small" ? chunkBytes : shape === "large" ? MEDIA_MAX_DOWNLOAD_BYTES : PUBLIC_PROFILE_PAGE_MAX_DOWNLOAD_BYTES;
@@ -18,6 +23,11 @@ export function boundedResponseScenario(shape: "empty" | "tiny" | "small" | "nor
       for (let index: number = 0; index < iterations; index++) {
         let remaining: number = chunkCount;
         const response: Response = new Response(new ReadableStream<Uint8Array>({
+          /**
+           * 按剩余块数向可读流推入固定大小的字节块，耗尽时关闭流。
+           *
+           * @param controller 可读流默认控制器
+           */
           pull(controller: ReadableStreamDefaultController<Uint8Array>): void {
             if (remaining === 0) { controller.close(); return; }
             remaining--;

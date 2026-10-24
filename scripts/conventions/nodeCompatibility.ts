@@ -18,6 +18,13 @@ import {
 import type { NodeImportAllowance, BufferGlobalAllowance } from "./nodeAllowances";
 import { globalPropertyName, isGlobalReference, isInsideTypeNode, staticPropertyName } from "./staticAccess";
 
+/**
+ * 判断登记项是否允许导入指定符号。
+ *
+ * @param allowance 模块的导入白名单登记项
+ * @param imported 被导入的符号名
+ * @returns 允许导入时返回 true
+ */
 function allowsImport(
   allowance: NodeImportAllowance | undefined,
   imported: string
@@ -25,18 +32,34 @@ function allowsImport(
   return allowance?.symbols === "*" || allowance?.symbols.includes(imported) === true;
 }
 
-/** Bun 自有模块直接放行；Node 内建模块无论是否带前缀都进入同一白名单。 */
+/**
+ * Bun 自有模块直接放行；Node 内建模块无论是否带前缀都进入同一白名单。
+ *
+ * @param name 模块说明符名称
+ * @returns 规范化为 `node:` 前缀的模块名，非 Node 内建模块时返回 undefined
+ */
 function nodeModuleName(name: string): string | undefined {
   if (name.startsWith("node:")) return name;
   if (name === "bun" || name.startsWith("bun:")) return undefined;
   return isBuiltin(name) ? `node:${name}` : undefined;
 }
 
-/** Bun 自有模块与 Node 内建模块（含不带前缀的形态）由运行时提供，不属于 npm 依赖。 */
+/**
+ * Bun 自有模块与 Node 内建模块（含不带前缀的形态）由运行时提供，不属于 npm 依赖。
+ *
+ * @param name 模块说明符名称
+ * @returns 属于运行时内建模块时返回 true
+ */
 export function isRuntimeBuiltinModule(name: string): boolean {
   return name === "bun" || name.startsWith("bun:") || nodeModuleName(name) !== undefined;
 }
 
+/**
+ * 识别运行期动态加载 Node 内建模块的调用表达式。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 命中时返回加载方式与规范化模块名，否则返回 undefined
+ */
 function runtimeNodeLoad(node: ts.Node): { readonly kind: string; readonly moduleName: string } | undefined {
   if (!ts.isCallExpression(node) || node.arguments.length === 0) return undefined;
   const argument: ts.Expression | undefined = node.arguments[0];
@@ -61,6 +84,12 @@ function runtimeNodeLoad(node: ts.Node): { readonly kind: string; readonly modul
   return undefined;
 }
 
+/**
+ * 判断 AST 节点是否为运行期对全局 `Buffer` 的引用。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 为运行期全局 `Buffer` 引用时返回 true
+ */
 function isBufferGlobalUse(node: ts.Node): boolean {
   if (isInsideTypeNode(node)) return false;
   if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
@@ -83,6 +112,12 @@ function isBufferGlobalUse(node: ts.Node): boolean {
   return !isPropertyName;
 }
 
+/**
+ * 提取全局 `Buffer` 节点上被静态访问的方法或属性名。
+ *
+ * @param node 全局 `Buffer` 引用节点
+ * @returns 被访问的静态属性名，无法静态确定时返回 undefined
+ */
 function bufferGlobalMethod(node: ts.Node): string | undefined {
   const parent: ts.Node = node.parent;
   if (
@@ -94,6 +129,12 @@ function bufferGlobalMethod(node: ts.Node): string | undefined {
   return undefined;
 }
 
+/**
+ * 识别应改用 Bun 原生接口或先核对调度语义的 `process` 属性访问。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 命中受限属性时返回属性名，否则返回 undefined
+ */
 function discouragedProcessProperty(node: ts.Node): string | undefined {
   const property: string | undefined = globalPropertyName(node, "process");
   return property !== undefined && Object.hasOwn(PROCESS_REPLACEMENTS, property) ? property : undefined;
@@ -112,6 +153,11 @@ const PROCESS_REPLACEMENTS: Readonly<Record<string, string>> = {
  * default import 与未登记符号都拒绝）、动态 import/require/process.getBuiltinModule 与
  * 再导出、`Buffer` 全局方法白名单，以及 process.argv/execPath/hrtime/nextTick 的
  * 替换提示；属性访问和具名直接解构共用静态识别，类型位置不参与；第三方依赖不进入本检查。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param path 被检查源码文件的绝对路径
+ * @param source 已解析的 TypeScript 源文件 AST
+ * @returns 违规问题列表
  */
 export function collectNodeCompatibilityProblems(
   projectRoot: string,
@@ -260,6 +306,9 @@ export function collectNodeCompatibilityProblems(
  *
  * 本函数在 `collectNodeCompatibilityProblems` 的逐文件遍历之外，对 `tables` 列出的
  * 每张逐文件登记表整表核对路径存在性。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @returns 指向不存在文件的过期白名单条目问题列表
  */
 export function collectStaleNodeAllowanceProblems(
   projectRoot: string
@@ -299,6 +348,11 @@ export interface NodeImportUsage {
  *
  * 与 collectNodeCompatibilityProblems 共用同一份 AST：前者判「用到的是否登记过」，
  * 本函数供 collectUnusedNodeAllowanceProblems 判反方向的「登记的是否还在用」。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param path 被检查文件的绝对路径
+ * @param source 已解析的源文件 AST
+ * @returns 该文件内的运行期 Node 兼容导入列表
  */
 export function collectNodeImportUsage(
   projectRoot: string,
@@ -331,6 +385,13 @@ export function collectNodeImportUsage(
 /** 反向核对的作用域：登记条目只在这一类文件里才可能被用到。 */
 type AllowanceScope = "script" | "test" | "any" | "production";
 
+/**
+ * 判断相对路径是否属于指定的白名单作用域。
+ *
+ * @param relativePath 相对仓库根的文件路径
+ * @param scope 白名单作用域类型
+ * @returns 落在该作用域内时返回 true
+ */
 function inScope(relativePath: string, scope: AllowanceScope): boolean {
   const isScript: boolean = relativePath.startsWith("scripts/");
   const isTest: boolean = relativePath.startsWith("test/");
@@ -341,16 +402,23 @@ function inScope(relativePath: string, scope: AllowanceScope): boolean {
 }
 
 interface UnusedAllowanceSymbolCheckOptions {
+  /** 待核对的模块导入白名单登记项。 */
   readonly allowance: NodeImportAllowance;
+  /** 实际匹配到的模块导入记录列表。 */
   readonly used: readonly NodeImportUsage[];
   /** 通配登记闲置时的完整问题文案。 */
   readonly wildcardProblem: string;
   /** 逐符号问题文案的前缀，后接符号名。 */
   readonly symbolProblemPrefix: string;
+  /** 收集违规信息的数组。 */
   readonly problems: string[];
 }
 
-/** 按登记形态核对闲置：通配登记要求至少一个使用者，逐符号登记要求每个符号都有使用者。 */
+/**
+ * 按登记形态核对闲置：通配登记要求至少一个使用者，逐符号登记要求每个符号都有使用者。
+ *
+ * @param options 闲置白名单符号核对选项
+ */
 function collectUnusedAllowanceSymbolProblems({
   allowance,
   used,
@@ -375,6 +443,9 @@ function collectUnusedAllowanceSymbolProblems({
  * 逐文件表核对该文件是否仍 import 这个模块与这些符号。
  *
  * 路径已经消失的条目由 collectStaleNodeAllowanceProblems 报，这里不重复。
+ *
+ * @param usage 全仓收集到的运行期 Node 兼容导入记录
+ * @returns 闲置白名单条目问题列表
  */
 export function collectUnusedNodeAllowanceProblems(
   usage: readonly NodeImportUsage[]

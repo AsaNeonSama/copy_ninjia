@@ -1,8 +1,9 @@
 import type { Message } from "grammy/types";
 import { copyMessage, sendMessage } from "../infra/telegram";
 
-/** sendEchoPayload 的入参。 */
+/** 复读或复制发送消息载荷的上下文参数。 */
 export interface SendEchoPayloadParams {
+  /** 目标聊天 ID。 */
   readonly chatId: number;
   /** 原消息；决定按哪种载荷发送，并提供复制源与原样沿用的展示参数。 */
   readonly message: Message;
@@ -11,7 +12,7 @@ export interface SendEchoPayloadParams {
    * 可渲染命令守卫与长度上限都由调用方在交来之前判定。
    */
   readonly text: string | undefined;
-  /** 论坛话题；复读不挂回复，必须显式带上。 */
+  /** 论坛话题 ID；复读不挂回复，必须显式带上。 */
   readonly messageThreadId?: number;
 }
 
@@ -23,7 +24,8 @@ export interface SendEchoPayloadParams {
  * - 其余消息一律 `copyMessage`：有文字时用 `caption` 换成处理后的文字，并照原消息传
  *   show_caption_above_media 与视频起播时间；文件、缩略图、剧透与封面由 Telegram 在服务端
  *   原样复制。没有文字的媒体与投票、骰子这类消息原样复制。
- * @returns 是否发送成功。
+ * @param params 复读发送上下文（含目标会话 `chatId`、源消息 `message`、处理后文本 `text` 与可选话题 `messageThreadId`）。
+ * @returns 成功发出消息时返回 true；纯文字/付费媒体缺少可发文本或 Telegram API 发送失败时返回 false。
  */
 export async function sendEchoPayload({ chatId, message, text, messageThreadId }: SendEchoPayloadParams): Promise<boolean> {
   if (typeof message.text === "string") {

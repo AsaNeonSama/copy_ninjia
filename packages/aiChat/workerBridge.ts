@@ -1,3 +1,8 @@
+/**
+ * AI 闲聊主线程代理：监督 AI Worker 生命周期、转发配置与生命周期消息、接收记忆与贴纸目录快照并转投 Disk I/O。
+ * @see ../../docs/cn/04-invariants.md
+ */
+
 import { superviseDuplexWorker } from "../infra/supervisedDuplexWorker";
 import { AI_CHAT_WORKER_URL } from "../consts/paths";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
@@ -65,7 +70,11 @@ import type { VoiceSynthesisResult } from "../types/aiChat/voiceMessage";
 import { requestWebDigest } from "./webDigest";
 import type { WebDigestCompositionResult, WebDigestRequest } from "../types/webDigest";
 
-/** 心情与群失效请求的结局：成功交回值，失败把 Error 抛给调用方。 */
+/**
+ * 解包心情与群失效等 Worker 请求的结算结果：`ok` 为真时返回响应值，否则抛出携带的 `Error`。
+ * @param outcome Worker 请求结算结果。
+ * @returns 成功时的响应值 `T`。
+ */
 function unwrapWorkerRequestOutcome<T>(outcome: WorkerRequestOutcome<T>): T {
   if (outcome.ok) return outcome.value;
   throw outcome.error;
@@ -74,6 +83,8 @@ function unwrapWorkerRequestOutcome<T>(outcome: WorkerRequestOutcome<T>): T {
 /**
  * 旧实例的回执不可能再到达（崩溃重建、放弃自愈或停机）时统一失败结算全部在途等待者：
  * 记忆 flush、心情查询/重抽、群失效、语音合成与摘要组稿。
+ * @param moodReason 心情请求失败结算的错误消息。
+ * @param invalidateReason 群失效请求失败结算的错误消息。
  */
 function failAllAiChatWaiters(moodReason: string, invalidateReason: string): void {
   aiMemoryFlushBarrier.settleAll("failed");
@@ -85,11 +96,6 @@ function failAllAiChatWaiters(moodReason: string, invalidateReason: string): voi
   failAllWorkerRequests<VoiceSynthesisResult>(voiceSynthesisRequests, AI_WORKER_JOB_UNAVAILABLE);
   failAllWorkerRequests<WebDigestCompositionResult>(webDigestRequests, AI_WORKER_JOB_UNAVAILABLE);
 }
-
-/**
- * AI 闲聊主线程代理：监督 AI Worker 生命周期、转发配置与生命周期消息、接收记忆与贴纸目录快照并转投 Disk I/O。
- * @see ../../docs/cn/04-invariants.md
- */
 
 const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: SupervisedWorkerHandle<WorkerDuplexInbound<AiChatWorkerMessage>> = superviseDuplexWorker<AiChatWorkerMessage, AiChatWorkerEvent, TelegramWorkerRequest>({
   url: AI_CHAT_WORKER_URL,
@@ -203,7 +209,10 @@ const { init: initAiChatWorker, post, terminate: terminateAiChatWorker }: Superv
   },
 });
 
-/** 向当前 AI Worker 投递协议消息；同步拒绝时关闭可用标记并抛错。 */
+/**
+ * 向当前 AI Worker 投递协议消息；同步拒绝时关闭可用标记并抛错。
+ * @param message 待投递给 AI Worker 的协议消息。
+ */
 export function postAiChatOrThrow(message: AiChatWorkerMessage): void {
   if (post(message)) return;
   aiChatWorkerState.available = false;
@@ -213,6 +222,7 @@ export function postAiChatOrThrow(message: AiChatWorkerMessage): void {
 /**
  * 启动 AI Worker 并依次投递 `init` 与 `hydrateTtsUsage`，成功后记录 `lastInitState` 并标记可用；
  * 投递失败时终止已创建的 Worker 并抛错。
+ * @param botInfo 机器人自身账号身份信息。
  */
 export function startAiChatWorker(botInfo: AiBotInfo): void {
   pruneStickerCatalogMirror(getStickerConfig().packs);
@@ -244,6 +254,7 @@ export function startAiChatWorker(botInfo: AiBotInfo): void {
 
 /**
  * 记录机器人账号身份，并在 AI 配置就绪时启动 AI Worker。
+ * @param botInfo 机器人自身账号身份信息。
  */
 export function initAiChat(botInfo: AiBotInfo): void {
   const identity: AiBotInfo = { id: botInfo.id, username: botInfo.username, first_name: botInfo.first_name };
@@ -260,6 +271,7 @@ export type AiConfigDomains = Pick<HotDeploymentConfigChanges, "aiAgent" | "mood
 
 /**
  * 更新 `lastInitState` 中的配置快照并向运行中的 AI Worker 投递 `configReload`。
+ * @param domains 发生变更并需同步给 AI Worker 的配置领域标记。
  */
 export function syncAiChatConfig(domains: AiConfigDomains): void {
   if (domains.stickers) pruneStickerCatalogMirror(getStickerConfig().packs);
@@ -283,7 +295,9 @@ export function syncAiChatConfig(domains: AiConfigDomains): void {
 }
 
 /**
- * 请求 AI Worker 立即上报全部 dirty 的群记忆与贴纸目录快照并等待完成。
+ * 请求 AI Worker 立即上报全部 dirty 的群记忆与贴纸目录快照并等待完成；Worker 尚未初始化时直接兑现 `"flushed"`。
+ * @param timeoutMs 等待刷盘回执的超时毫秒数，默认 `AI_MEMORY_FLUSH_TIMEOUT_MS`。
+ * @returns 刷盘屏障结算状态（`"flushed"`、`"timedOut"` 或 `"failed"`）。
  */
 export function flushAiMemory(timeoutMs: number = AI_MEMORY_FLUSH_TIMEOUT_MS): Promise<FlushResult> {
   if (lastInitState.current === null) return Promise.resolve("flushed");
@@ -309,6 +323,8 @@ export async function terminateAiChat(): Promise<void> {
 
 /**
  * 向 AI Worker 查询或重抽全局心情并等待结果回执。
+ * @param requestType 心情操作类型（查询当前心情或重抽心情）。
+ * @returns 当前生效或新抽出的心情名称。
  */
 export async function requestAiMood(requestType: "queryMood" | "switchMood"): Promise<string> {
   const deadlineAt: number = Date.now() + MOOD_REQUEST_TIMEOUT_MS;
@@ -330,6 +346,8 @@ export async function requestAiMood(requestType: "queryMood" | "switchMood"): Pr
 
 /**
  * 向 AI Worker 请求合成一句语音。
+ * @param request 语音合成请求参数，包含待合成文本、配额口径与取消信号。
+ * @returns 语音合成结果或失败原因。
  */
 export function synthesizeVoice(request: VoiceSynthesisRequest): Promise<VoiceSynthesisResult> {
   return requestVoiceSynthesis(request, {
@@ -340,6 +358,9 @@ export function synthesizeVoice(request: VoiceSynthesisRequest): Promise<VoiceSy
 
 /**
  * 向 AI Worker 请求生成一份联网摘要。
+ * @param request 联网摘要检索与组稿参数。
+ * @param signal 调用方取消信号。
+ * @returns 联网摘要组稿结果或失败原因。
  */
 export function composeWebDigest(request: WebDigestRequest, signal: AbortSignal): Promise<WebDigestCompositionResult> {
   return requestWebDigest(request, signal, {
@@ -350,6 +371,7 @@ export function composeWebDigest(request: WebDigestRequest, signal: AbortSignal)
 
 /**
  * 使指定群聊在 AI Worker 中的运行时失效并持久化删除其 AI 记忆。
+ * @param chatId 群聊 ID。
  */
 export async function invalidateAiChat(chatId: number): Promise<void> {
   if (aiChatWorkerState.available) purgedAiMemoryChats.add(chatId);

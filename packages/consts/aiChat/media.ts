@@ -24,7 +24,7 @@ export const ANIMATION_PENDING_PLACEHOLDER: string = "[GIF：识别中]";
 /** GIF 视觉描述最终失败时替换进转录的占位。 */
 export const ANIMATION_FALLBACK_PLACEHOLDER: string = "[GIF：解析失败，请无视此消息]";
 
-/** 图片视觉描述的最大字符数；输出 token 上限见 consts/aiChat/{gemini,openai}.ts。 */
+/** 图片视觉描述的最大字符数；输出 token 上限见 consts/aiChat/{gemini,openai,anthropic}.ts。 */
 export const IMAGE_DESCRIPTION_MAX_CHARS: number = 125;
 /** 贴纸和 GIF 短描述的最大字符数。 */
 export const SHORT_MEDIA_DESCRIPTION_MAX_CHARS: number = 100;

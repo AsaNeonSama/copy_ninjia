@@ -15,7 +15,12 @@ import type { LockdownAbandonReason } from "../../types/states/lockdown";
 import { logger } from "../../infra/logger";
 import { MINUTE_MS, SECOND_MS } from "../../consts/time";
 
-/** 生成超过入群阈值时的封锁公告。 */
+/**
+ * 生成超过入群阈值时的封锁公告。
+ * @param joinCount 窗口内统计到的入群人数；恢复场景未知时为 undefined。
+ * @param atmosphere 当前群风格文案表。
+ * @returns 私密模式开启公告正文。
+ */
 export function lockdownAnnouncementText(joinCount: number | undefined, atmosphere: AtmosphereTexts): string {
   const influx: string = joinCount === undefined
     ? atmosphere.NOTICE_TEXTS.lockdownInfluxUnknown
@@ -23,7 +28,10 @@ export function lockdownAnnouncementText(joinCount: number | undefined, atmosphe
   return atmosphere.NOTICE_TEXTS.lockdownStarted(influx, LOCKDOWN_MS / MINUTE_MS);
 }
 
-/** 丢弃某群的入群滑窗与静默清理计时器；重新计数从零开始。 */
+/**
+ * 丢弃某群的入群滑窗与静默清理计时器；重新计数从零开始。
+ * @param chatId 群组 ID。
+ */
 export function clearJoinWindow(chatId: number): void {
   const window: JoinWindow | undefined = joinWindows.get(chatId);
   if (window === undefined) return;
@@ -34,6 +42,9 @@ export function clearJoinWindow(chatId: number): void {
 /**
  * 每群保留单颗静默清理 timer：持续入群只更新 expiresAt，旧 timer 到点后若
  * 仍未静默，再按剩余时间续排。
+ * @param chatId 群组 ID。
+ * @param window 该群的入群滑动窗口条目。
+ * @param delayMs 距离下次检查的等待毫秒数。
  */
 function scheduleJoinWindowCleanup(
   chatId: number,
@@ -53,7 +64,12 @@ function scheduleJoinWindowCleanup(
   window.resetTimeout.unref();
 }
 
-/** 冷却是否仍然生效；到期条目就地删除。 */
+/**
+ * 冷却是否仍然生效；到期条目就地删除。
+ * @param chatId 群组 ID。
+ * @param now 当前毫秒时间戳。
+ * @returns 仍处于重触发冷却期内时返回 true；未设冷却或已过期时返回 false。
+ */
 function joinWindowCoolingDown(chatId: number, now: number): boolean {
   const until: number | undefined = lockdownRetriggerCooldowns.get(chatId);
   if (until === undefined) return false;
@@ -64,6 +80,8 @@ function joinWindowCoolingDown(chatId: number, now: number): boolean {
 
 /**
  * 开始某群的重触发冷却：立即释放该群的计数窗口；写入时顺带清理其余过期冷却项。
+ * @param chatId 群组 ID。
+ * @param durationMs 重触发冷却持续毫秒数。
  */
 function suppressJoinWindowRetrigger(chatId: number, durationMs: number): void {
   const now: number = Date.now();
@@ -74,7 +92,12 @@ function suppressJoinWindowRetrigger(chatId: number, durationMs: number): void {
   lockdownRetriggerCooldowns.set(chatId, now + durationMs);
 }
 
-/** 作废私密模式意图，并在冷却期内阻止相同系统故障反复触发。 */
+/**
+ * 作废私密模式意图，并在冷却期内阻止相同系统故障反复触发。
+ * @param chatId 群组 ID。
+ * @param reason 作废私密模式意图的原因。
+ * @param durationMs 重触发冷却持续毫秒数。
+ */
 export function beginLockdownRetriggerCooldown(
   chatId: number,
   reason: LockdownAbandonReason,
@@ -95,6 +118,9 @@ export function beginLockdownRetriggerCooldown(
  * 每群最多保留 JOIN_WINDOW_CAPACITY 个时间戳。超出时覆盖最早项，并用
  * overflowThrough 记住被覆盖数据尚未全部过期；异步撤销无法确认被覆盖项身份时
  * 保持 fail-safe 饱和，直到该时间段退出窗口。
+ * @param chatId 群组 ID。
+ * @param now 入群观察毫秒时间戳。
+ * @returns 超过每分钟入群阈值时返回保守入群人数；未超过阈值或处于冷却期时返回 undefined。
  */
 export function recordJoinWindow(chatId: number, now: number): number | undefined {
   if (joinWindowCoolingDown(chatId, now)) return undefined;
@@ -132,6 +158,8 @@ export function recordJoinWindow(chatId: number, now: number): number | undefine
 
 /**
  * 按入群时压进窗口的 `joinedAt` 时间戳精确移除一次已计入的入群记录；若已被硬顶覆盖则保留 `overflowThrough` 饱和判定直至窗口滑过。
+ * @param chatId 群组 ID。
+ * @param joinedAt 入群时记录的毫秒时间戳。
  */
 export function retractJoinWindow(chatId: number, joinedAt: number): void {
   joinWindows.get(chatId)?.timestamps.removeValue(joinedAt);

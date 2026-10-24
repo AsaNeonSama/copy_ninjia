@@ -33,6 +33,8 @@ import type { Scenario } from "./types";
  * false；`isAdDetectEnabled` 与 `isFloodControlEnabled` 保持缺省关闭，两个候选都是
  * `undefined`（不触发跨线程投递）；待验证镜像为空表，键都不拼。改 fixture 前必须
  * 重新确认这几条。
+ *
+ * @returns 完整已注册中间件链热路径场景定义
  */
 export function registeredMiddlewareScenario(): Scenario {
   installCannedTelegramOutbound();

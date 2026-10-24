@@ -16,14 +16,18 @@ import type { VoiceClip } from "../../types/media";
 
 /** transcribeVoiceUncached 的入参。 */
 export interface TranscribeVoiceParams {
+  /** 待转写语音的 Telegram file_id。 */
   fileId: string;
   /** Telegram 声明的 mime_type。 */
   declaredMime: string | undefined;
+  /** 可选取消信号。 */
   signal?: AbortSignal;
 }
 
 /**
  * 下载并转写单条语音（不经缓存）；下载失败返回可重采样失败，供应商不支持时返回 unsupported。
+ * @param params 语音文件 ID、声明 MIME 与取消信号。
+ * @returns 语音转写后的 AI 文本结果。
  */
 export async function transcribeVoiceUncached({
   fileId,

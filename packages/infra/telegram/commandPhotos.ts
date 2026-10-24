@@ -18,12 +18,15 @@ import { updateTopicThreadIdFor } from "../updateContext";
 
 /** sendCommandPhoto 的入参。 */
 export interface SendCommandPhotoParams {
+  /** 目标聊天 ID。 */
   readonly chatId: number;
   /** 可复用的 file_id，或本次下载到的图片字节（上传后不得再读）。 */
   readonly photo: string | Uint8Array;
   /** 调用方须限制在 Telegram 图注上限内；不设 parse_mode。 */
   readonly caption: string;
+  /** 图注的富文本实体列表。 */
   readonly captionEntities: readonly MessageEntity[];
+  /** 要回复的目标消息 ID。 */
   readonly replyToMessageId?: number;
   /**
    * 论坛群的话题标识；参数里没有这个键时沿用当前 update 触发消息所在的话题（仅限同群，见
@@ -36,6 +39,7 @@ export interface SendCommandPhotoParams {
 /**
  * 发送一张带图注的命令回执。拿到 message id 的同一时刻登记自发消息与（群聊的）延迟删除：
  * 远端成功后 update 即使随即被取消，已发出的回执也不会漏删；发送失败不创建删除任务。
+ * @param params 带图命令回执的发送参数。
  * @returns 已发送的 message id；失败时为 undefined（错误由统一动作边界记录）。
  */
 export function sendCommandPhoto(params: SendCommandPhotoParams): Promise<number | undefined> {

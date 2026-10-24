@@ -24,29 +24,51 @@ import type { AiSpeechRequest } from "../../types/aiChat/provider";
 import type { SynthesizedSpeech, SynthesizedSpeechDecodeResult } from "../../types/aiChat/voiceMessage";
 import type { XAiAgentTtsCapabilityConfig } from "../../types/config";
 
-/** 根据 `baseUrl`（缺省取 `XAI_API_BASE_URL`）解析 `/tts` 端点 URL。 */
+/**
+ * 根据 `baseUrl`（缺省取 `XAI_API_BASE_URL`）解析 `/tts` 端点 URL。
+ * @param baseUrl 部署配置中的可选自定义基础 URL。
+ * @returns 解析后的 xAI `/tts` 完整端点 `URL` 对象。
+ */
 function xAiSpeechUrl(baseUrl: string | undefined): URL {
   const base: string = baseUrl ?? XAI_API_BASE_URL;
   return new URL(XAI_SPEECH_ENDPOINT_PATH, base.endsWith("/") ? base : `${base}/`);
 }
 
-/** 判断 HTTP 状态码是否属于可重试的瞬时故障。 */
+/**
+ * 判断 HTTP 状态码是否属于可重试的瞬时故障。
+ * @param status HTTP 响应状态码。
+ * @returns 为 `408`、`429` 或 `5xx` 时返回 `true`，否则返回 `false`。
+ */
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
-/** 计算第 `attempt` 次失败后的指数退避时长。 */
+/**
+ * 计算第 `attempt` 次失败后的指数退避时长。
+ * @param attempt 从 1 开始的当前失败尝试序号。
+ * @returns 下一次重试前需等待的毫秒数。
+ */
 function retryDelayMs(attempt: number): number {
   return XAI_SPEECH_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
 }
 
-/** 将非成功 HTTP 响应封装为带状态码与有界响应体的 Error。 */
+/**
+ * 将非成功 HTTP 响应封装为带状态码与有界响应体的 Error。
+ * @param response 非 `2xx` 的 HTTP 响应对象。
+ * @returns 包含 HTTP 状态码与截断错误正文的 `Error` 实例。
+ */
 async function httpStatusError(response: Response): Promise<Error> {
   const detail: string | null = await readBoundedResponseText(response, XAI_SPEECH_ERROR_BODY_MAX_BYTES);
   return new Error(`HTTP ${response.status}: ${detail ?? `error body exceeds ${XAI_SPEECH_ERROR_BODY_MAX_BYTES} bytes`}`);
 }
 
-/** 发送 `/tts` 请求并在可重试故障下按指数退避重试，直至返回成功响应或抛错。 */
+/**
+ * 发送 `/tts` 请求并在可重试故障下按指数退避重试，直至返回成功响应或抛错。
+ * @param tts xAI 语音合成能力配置。
+ * @param text 待合成的台词文本。
+ * @param signal 请求超时与取消信号。
+ * @returns 状态码为 `2xx` 的 HTTP 响应对象。
+ */
 async function requestXAiSpeech(
   tts: XAiAgentTtsCapabilityConfig,
   text: string,
@@ -84,7 +106,12 @@ async function requestXAiSpeech(
   }
 }
 
-/** 按 `xai` 协议将一句台词合成为语音；请求失败或响应体无效时返回 null。 */
+/**
+ * 按 `xai` 协议将一句台词合成为语音；请求失败或响应体无效时返回 null。
+ * @param tts xAI 语音合成能力配置。
+ * @param request 语音合成请求参数，包含台词文本与取消信号。
+ * @returns 解码并封装后的语音字节载荷；失败或无有效音频时返回 `null`。
+ */
 export async function synthesizeXAiSpeech(
   tts: XAiAgentTtsCapabilityConfig,
   { text, signal }: AiSpeechRequest

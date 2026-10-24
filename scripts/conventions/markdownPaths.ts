@@ -18,7 +18,12 @@ const INLINE_CODE_PATTERN: RegExp = /`([^`\n]+)`/g;
 const REPOSITORY_PATH_PATTERN: RegExp =
   /^(?:packages|scripts|test|docs|config_example|prompt_example|public|LICENSES)(?:\/[A-Za-z0-9_.-]+)*\/?$/;
 
-/** 由现存受跟踪文件列表构建包含文件自身与全部祖先目录的仓库路径集合。 */
+/**
+ * 由现存受跟踪文件列表构建包含文件自身与全部祖先目录的仓库路径集合。
+ *
+ * @param files 现存受跟踪文件的相对路径列表
+ * @returns 包含文件及祖先目录的相对路径只读集合
+ */
 export function collectRepositoryPaths(
   files: readonly string[]
 ): ReadonlySet<string> {
@@ -34,7 +39,14 @@ export function collectRepositoryPaths(
   return paths;
 }
 
-/** 核对一份 Markdown 里反引号包裹的仓库文件与目录路径是否仍在受跟踪集合中。 */
+/**
+ * 核对一份 Markdown 里反引号包裹的仓库文件与目录路径是否仍在受跟踪集合中。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param path 被检查 Markdown 文件的绝对路径
+ * @param repositoryPaths 有效仓库路径集合
+ * @returns 缺失仓库路径的违规信息列表
+ */
 export async function collectMarkdownPathProblems(
   projectRoot: string,
   path: string,

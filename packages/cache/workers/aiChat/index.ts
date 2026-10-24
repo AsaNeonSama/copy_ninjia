@@ -13,7 +13,11 @@ import { resetAiProviderSchedulerCache } from "./providerScheduler";
 import { invalidateChatReplyCache, resetAiChatReplyCache } from "./replies";
 import { resetReplyPrefixCache } from "./replyPrefix";
 
-/** 清理指定群的回复轮、聊天动作心跳、识图回填等待与 Gemini 最近回复请求时间缓存。 */
+/**
+ * 清理指定群的回复轮、聊天动作心跳、识图回填等待与 Gemini 最近回复请求时间缓存。
+ *
+ * @param chatId 群聊 ID
+ */
 export function invalidateChatRuntimeCache(chatId: number): void {
   invalidateChatReplyCache(chatId);
   clearChatHeartbeatCache(chatId);

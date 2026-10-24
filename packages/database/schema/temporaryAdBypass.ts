@@ -4,12 +4,19 @@ import type { CheckBuilder, SQLiteColumn } from "drizzle-orm/sqlite-core";
 
 /** Drizzle 表级约束回调使用的临时广告免检列集合。 */
 interface TemporaryAdBypassTableParams {
+  /** 用户 Telegram 数值 ID 主键列。 */
   readonly id: SQLiteColumn;
+  /** 临时广告免检状态列（0 或 1）。 */
   readonly adBypass: SQLiteColumn;
+  /** 授予临时广告免检时的毫秒时间戳列，未免检时为 NULL。 */
   readonly adBypassGrantedAt: SQLiteColumn;
+  /** 已达标的连续活跃天数累计列（0..7）。 */
   readonly qualifiedDays: SQLiteColumn;
+  /** 当前统计日窗口内的发言计数列。 */
   readonly sendCount: SQLiteColumn;
+  /** 最近一次发言计入统计时的毫秒时间戳列。 */
   readonly countedAt: SQLiteColumn;
+  /** 最近一次达标并累加活跃天数时的毫秒时间戳列，未达标时为 NULL。 */
   readonly qualifiedAt: SQLiteColumn;
 }
 

@@ -11,6 +11,11 @@ import { saturatingSafeIntegerAdd } from "../../libs/saturatingNumber";
 import { writeDiskIODiagnostic } from "../../workers/diskIO/diagnosticSink";
 import { safePostDiskIO } from "./transport";
 
+/**
+ * 记录因主线程诊断队列满而丢弃的诊断消息计数与字节数，并在本轮首次丢弃时输出告警。
+ *
+ * @param serializedBytes 被丢弃诊断消息的 JSON 序列化字节数。
+ */
 function recordDroppedDiskIODiagnostic(serializedBytes: number): void {
   if (diskIORuntime.diagnosticDroppedMessages === 0) {
     writeDiskIODiagnostic(
@@ -57,12 +62,21 @@ function clearDiskDiagnosticRetryTimer(): void {
   diskIORuntime.diagnosticRetryTimer = null;
 }
 
-/** 结算等待诊断 FIFO 清空的全局 flush；领域级 flush 不登记到这里。 */
+/**
+ * 结算等待诊断 FIFO 清空的全局 flush；领域级 flush 不登记到这里。
+ *
+ * @param result 诊断队列排空的最终 flush 结果。
+ */
 export function settleDiskDiagnosticDrainWaiters(result: FlushResult): void {
   settleFlushWaiters(diskIORuntime.diagnosticDrainWaiters, result);
 }
 
-/** 在不阻止进程退出的 timer 后重投当前原批；只允许一个重试 timer。 */
+/**
+ * 在不阻止进程退出的 timer 后重投当前原批；只允许一个重试 timer。
+ *
+ * @param worker 当前活跃的 Disk I/O Worker 实例。
+ * @param retryAfterMs 触发重投前的退避等待毫秒数。
+ */
 function scheduleDiskDiagnosticRetry(worker: Worker, retryAfterMs: number): void {
   clearDiskDiagnosticRetryTimer();
   diskIORuntime.diagnosticRetryTimer = setTimeout((): void => {
@@ -72,7 +86,11 @@ function scheduleDiskDiagnosticRetry(worker: Worker, retryAfterMs: number): void
   diskIORuntime.diagnosticRetryTimer.unref();
 }
 
-/** 把下一批诊断交给指定代际；同一时刻最多存在一个尚未确认的批次。 */
+/**
+ * 把下一批诊断交给指定代际；同一时刻最多存在一个尚未确认的批次。
+ *
+ * @param worker 目标 Disk I/O Worker 实例。
+ */
 function pumpDiskIODiagnostics(worker: Worker): void {
   if (diskIORuntime.worker !== worker || !diskIORuntime.writable) return;
   // 已设置重试 timer 时，新日志只入本地 FIFO，不绕过 timer 重新投递。
@@ -95,6 +113,9 @@ function pumpDiskIODiagnostics(worker: Worker): void {
 /**
  * 把诊断收入主线程有界 FIFO。DiskIO 尚未可写时仍保留；单批 ACK 窗口使 Worker
  * mailbox 中同一时刻只有一个批次。越界消息释放引用并合并为后续一条汇总日志。
+ *
+ * @param message 待入队的诊断日志消息。
+ * @returns 恒返回 `true`，表示消息已被此边界接管（入队或计入有界丢弃统计）。
  */
 export function enqueueDiskIODiagnostic(message: DiskDiagnosticMessage): boolean {
   enqueueDiskIODiagnosticDropSummary();
@@ -109,7 +130,13 @@ export function enqueueDiskIODiagnostic(message: DiskDiagnosticMessage): boolean
   return true;
 }
 
-/** 当前 DiskIO 代际确认一批诊断后推进发送窗口；迟到 ACK 不影响新代际。 */
+/**
+ * 当前 DiskIO 代际确认一批诊断后推进发送窗口；迟到 ACK 不影响新代际。
+ *
+ * @param worker 发出确认回执的 Disk I/O Worker 实例。
+ * @param batchId 被确认落盘的诊断批次编号。
+ * @returns 当前代际有效且批次确认成功时返回 `true`，否则返回 `false`。
+ */
 export function acceptDiskIODiagnosticBatch(worker: Worker, batchId: number): boolean {
   if (diskIORuntime.worker !== worker || !diskIORuntime.writable) return false;
   if (!diskIORuntime.diagnosticQueue.acknowledge(batchId)) return false;
@@ -124,6 +151,9 @@ export function acceptDiskIODiagnosticBatch(worker: Worker, batchId: number): bo
 /**
  * 等待当前全部诊断获得 durable ACK。只供进程级 flush 使用；调用方在真正
  * 发出 flush 请求前会再次检查新入队的诊断。
+ *
+ * @param timeoutMs 最大等待超时毫秒数。
+ * @returns 诊断队列排空结果（`"flushed"`、`"timedOut"` 或 `"failed"`）。
  */
 export function waitForDiskIODiagnostics(timeoutMs: number): Promise<FlushResult> {
   enqueueDiskIODiagnosticDropSummary();
@@ -134,16 +164,24 @@ export function waitForDiskIODiagnostics(timeoutMs: number): Promise<FlushResult
   return waitForFlush({ waiters: diskIORuntime.diagnosticDrainWaiters, timeoutMs });
 }
 
+/** `retryDiskIODiagnosticBatch` 的参数选项。 */
 export interface RetryDiskIODiagnosticBatchOptions {
+  /** 上报写盘失败的 Disk I/O Worker 实例。 */
   worker: Worker;
+  /** 需重新开放重投的诊断批次编号。 */
   batchId: number;
+  /** 退避重投延迟毫秒数。 */
   retryAfterMs: number;
+  /** 为 `true` 时安排退避重试定时器；为 `false` 时仅重新开放批次而不排定时器。 */
   schedule: boolean;
 }
 
 /**
  * Worker 明确表示日志刷盘失败时重新开放原批；schedule 为 true 时按退避窗口重发，
  * 为 false 时只开放原批、不安排重试 timer。
+ *
+ * @param options 诊断批次重投选项。
+ * @returns 当前代际匹配且原批次已成功重新开放为待重发时返回 `true`，否则返回 `false`。
  */
 export function retryDiskIODiagnosticBatch({
   worker,
@@ -157,7 +195,11 @@ export function retryDiskIODiagnosticBatch({
   return true;
 }
 
-/** 新 DiskIO 代际完成恢复后重发未确认批次并继续排空 FIFO。 */
+/**
+ * 新 DiskIO 代际完成恢复后重发未确认批次并继续排空 FIFO。
+ *
+ * @param worker 已完成恢复并进入可写状态的 Disk I/O Worker 实例。
+ */
 export function resumeDiskIODiagnosticChannel(worker: Worker): void {
   if (diskIORuntime.worker !== worker || !diskIORuntime.writable) return;
   pumpDiskIODiagnostics(worker);

@@ -27,13 +27,24 @@ import type {
 import type { BotChatPermissions } from "../../types/telegram";
 import { deleteDeferredVerificationsForChat } from "../verificationAttempts";
 
-/** 提升主线程代理代际；Worker 重生与进程冷启动共用同一入口。 */
+/**
+ * 提升主线程代理代际；Worker 重生与进程冷启动共用同一入口。
+ *
+ * @returns 递增后的当前 Anti-Raid Worker 代际编号
+ */
 export function nextAntiRaidGeneration(): number {
   antiRaidRuntimeState.generation++;
   return antiRaidRuntimeState.generation;
 }
 
-/** 构建当前代际的验证接管快照，不把等待延迟落盘的记录重复列入活动集合。 */
+/**
+ * 构建当前代际的验证接管快照；已请求延后、尚在等待终态快照落盘回执的记录
+ * （`pendingVerificationDeferrals`）直接归入延后列表，不重复列入活动集合。
+ *
+ * @param generation 将要接管快照的 Anti-Raid Worker 代际编号
+ * @param resumePersistedTerminals 是否立即恢复已落盘的终态验证执行
+ * @returns 发送给 Anti-Raid Worker 的验证接管消息载荷
+ */
 export function buildAdoptVerificationsMessage(
   generation: number,
   resumePersistedTerminals: boolean = false
@@ -55,7 +66,13 @@ export function buildAdoptVerificationsMessage(
   };
 }
 
-/** 把主线程当前生效的广告检测配置投给 Worker；重建时排在新 Worker 的业务消息之前。 */
+/**
+ * 把主线程当前生效的时区、氛围词表、广告检测配置与广告样本配置投给 Worker；
+ * 重建时排在新 Worker 的业务消息之前。
+ *
+ * @param postTo 向目标 Anti-Raid Worker 投递消息的函数
+ * @returns 配置消息成功投出时返回 true，否则返回 false
+ */
 export function replayAdDetectAgentConfig(
   postTo: (message: AntiRaidWorkerMessage) => boolean
 ): boolean {
@@ -68,7 +85,12 @@ export function replayAdDetectAgentConfig(
   });
 }
 
-/** 把机器人权限快照整表交给新 Worker；从未确证的群保持无条目。 */
+/**
+ * 把机器人权限快照整表交给新 Worker；从未确证的群保持无条目。
+ *
+ * @param postTo 向目标 Anti-Raid Worker 投递消息的函数
+ * @returns 全部已确证群的权限快照均成功投出时返回 true，否则返回 false
+ */
 export function replayBotPermissions(
   postTo: (message: AntiRaidWorkerMessage) => boolean
 ): boolean {
@@ -84,7 +106,12 @@ export function replayBotPermissions(
   return true;
 }
 
-/** 把主线程已观测到的群类型整表交给新 Worker。 */
+/**
+ * 把主线程已观测到的群类型整表交给新 Worker。
+ *
+ * @param postTo 向目标 Anti-Raid Worker 投递消息的函数
+ * @returns 全部已观测群类型均成功投出时返回 true，否则返回 false
+ */
 export function replayChatKinds(
   postTo: (message: AntiRaidWorkerMessage) => boolean
 ): boolean {
@@ -98,6 +125,8 @@ export function replayChatKinds(
  * adopt 完成后清理开关已关群的残留入群守卫。
  *
  * Worker 先接管再收到 deactivate，按原 revision 协议产生 tombstone。
+ *
+ * @param postTo 向目标 Anti-Raid Worker 投递消息的函数
  */
 export function purgeDisabledJoinGuards(
   postTo: (message: AntiRaidWorkerMessage) => boolean

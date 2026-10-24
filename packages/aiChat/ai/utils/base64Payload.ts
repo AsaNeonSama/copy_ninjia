@@ -7,7 +7,11 @@ import type {
 } from "../../../types/aiChat/payload";
 import { BASE64_NON_ALPHABET_PATTERN } from "../../../consts/aiChat/payload";
 
-/** 校验无换行标准 base64 的长度对齐与末尾填充规范。 */
+/**
+ * 校验无换行标准 base64 的长度对齐与末尾填充规范。
+ * @param encoded 待校验的 base64 字符串。
+ * @returns 符合无换行标准 base64 格式时返回 true，否则返回 false。
+ */
 function isCanonicalBase64(encoded: string): boolean {
   if (encoded.length === 0 || encoded.length % 4 !== 0) return false;
   const padding: number = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
@@ -15,6 +19,7 @@ function isCanonicalBase64(encoded: string): boolean {
   return firstNonAlphabet === (padding === 0 ? -1 : encoded.length - padding);
 }
 
+/** decodeBase64Payload 的选项。 */
 export interface DecodeBase64PayloadOptions {
   /** 待解码的无换行标准 base64 字符串。 */
   readonly encoded: string;
@@ -26,6 +31,8 @@ export interface DecodeBase64PayloadOptions {
 
 /**
  * 校验编码态长度、base64 规范性与解码态字节上限，通过后返回解码字节。
+ * @param options 待解码 base64 字符串及大小上限配置。
+ * @returns 解码后的字节数组，或带具体原因的失败结果。
  */
 export function decodeBase64Payload({
   encoded,

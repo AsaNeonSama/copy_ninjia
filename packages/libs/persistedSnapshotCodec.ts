@@ -1,3 +1,8 @@
+/**
+ * AI 记忆与贴纸目录当前持久化 schema 的无状态严格 decoder。
+ * Disk I/O 启动恢复和 AI Worker 协议 hydrate 共用本模块。
+ */
+
 import { AI_MEMORY_NON_SPACE_WHITESPACE_PATTERN, BOT_IMAGE_ORIGINS, BUFFERED_REPLY_REFERENCE_KEYS, BUFFERED_MESSAGE_KEYS, AI_MEMORY_SNAPSHOT_KEYS, PENDING_BOT_IMAGE_KEYS } from "../consts/aiChat/persistence";
 import {
   AI_MEMORY_HYDRATE_BUFFER_MAX,
@@ -18,16 +23,24 @@ import type {
 } from "../types/stickers/catalog";
 
 /**
- * AI 记忆与贴纸目录当前持久化 schema 的无状态严格 decoder。
- * Disk I/O 启动恢复和 AI Worker 协议 hydrate 共用本模块。
+ * 断言字段值为仅包含普通空格作为空白符的单行字符串。
+ * @param value 待校验的未知字段值。
+ * @param source 输入来源标识。
+ * @param field 字段路径。
+ * @returns 类型收窄为 `string`；校验失败时直接抛出致命格式错误。
  */
-
 function validateInline(value: unknown, source: string, field: string): asserts value is string {
   if (typeof value !== "string" || AI_MEMORY_NON_SPACE_WHITESPACE_PATTERN.test(value)) {
     invalidInput(source, field, "a single-line string containing only ordinary spaces as whitespace");
   }
 }
 
+/**
+ * 校验缓冲消息或回复引用中的发言者与单行正文公共字段。
+ * @param value 已确认为普通对象的记录。
+ * @param source 输入来源标识。
+ * @param field 对象所在的字段路径前缀。
+ */
 function validateSpeaker(value: Record<string, unknown>, source: string, field: string): void {
   if (typeof value.id !== "number" || !Number.isSafeInteger(value.id) || value.id === 0) {
     invalidInput(source, `${field}.id`, "a nonzero safe integer");
@@ -43,6 +56,12 @@ function validateSpeaker(value: Record<string, unknown>, source: string, field: 
   if (value.text.length === 0) invalidInput(source, `${field}.text`, "a non-empty single-line string");
 }
 
+/**
+ * 校验缓冲消息中的回复引用对象。
+ * @param value 待校验的未知值。
+ * @param source 输入来源标识。
+ * @param field 字段路径。
+ */
 function validateReplyReference(value: unknown, source: string, field: string): void {
   if (!isPlainRecord(value) || !hasOnlyKeys(value, BUFFERED_REPLY_REFERENCE_KEYS)) {
     invalidInput(source, field, "the current buffered reply reference object");
@@ -59,6 +78,12 @@ function validateReplyReference(value: unknown, source: string, field: string): 
   }
 }
 
+/**
+ * 校验缓冲消息中的待回填机器人图片元数据对象。
+ * @param value 待校验的未知值。
+ * @param source 输入来源标识。
+ * @param field 字段路径。
+ */
 function validatePendingBotImage(value: unknown, source: string, field: string): void {
   if (
     !isPlainRecord(value) ||
@@ -70,6 +95,12 @@ function validatePendingBotImage(value: unknown, source: string, field: string):
   validateInline(value.caption, source, `${field}.caption`);
 }
 
+/**
+ * 校验单条 AI 记忆缓冲消息对象及本地日历时间格式。
+ * @param value 待校验的未知数组元素。
+ * @param source 输入来源标识。
+ * @param field 数组元素的字段路径。
+ */
 function validateBufferedMessage(value: unknown, source: string, field: string): void {
   if (!isPlainRecord(value) || !hasOnlyKeys(value, BUFFERED_MESSAGE_KEYS)) {
     invalidInput(source, field, "the current buffered message object");
@@ -91,7 +122,12 @@ function validateBufferedMessage(value: unknown, source: string, field: string):
   }
 }
 
-/** 解码已经解析的当前 version=1 AI 记忆快照；非法输入只报告来源与期望。 */
+/**
+ * 解码已经解析的当前 version=1 AI 记忆快照；非法输入只报告来源与期望。
+ * @param parsed JSON.parse 产出的未知根值。
+ * @param source 输入来源标识。
+ * @returns 严格校验通过的 AI 记忆快照对象。
+ */
 function decodeAiMemorySnapshot(
   parsed: unknown,
   source: string
@@ -133,7 +169,12 @@ function decodeAiMemorySnapshot(
   return { version: 1, buffer, summaries, pendingSummary, savedAt };
 }
 
-/** 解析并严格解码一份协议中的 AI 记忆 JSON 文本。 */
+/**
+ * 解析并严格解码一份协议中的 AI 记忆 JSON 文本。
+ * @param content 待解析的 AI 记忆 JSON 字符串。
+ * @param source 输入来源标识。
+ * @returns 严格校验通过的 AI 记忆快照对象。
+ */
 export function parseAiMemorySnapshot(
   content: string,
   source: string
@@ -141,6 +182,11 @@ export function parseAiMemorySnapshot(
   return decodeAiMemorySnapshot(parseJsonInput(content, source), source);
 }
 
+/**
+ * 判断未知值是否为合法的贴纸目录单条记录。
+ * @param value 待检查的未知属性值。
+ * @returns 仅含字符串类型 `emoji` 与 `description` 字段时返回 true，否则返回 false。
+ */
 function isStickerCatalogEntry(value: unknown): value is StickerCatalogEntry {
   return isPlainRecord(value) &&
     hasExactKeys(value, ["emoji", "description"]) &&
@@ -148,7 +194,12 @@ function isStickerCatalogEntry(value: unknown): value is StickerCatalogEntry {
     typeof value.description === "string";
 }
 
-/** 解码已经解析的当前 version=1 贴纸目录，并保留 __proto__ 等合法自有键。 */
+/**
+ * 解码已经解析的当前 version=1 贴纸目录，并保留 __proto__ 等合法自有键。
+ * @param parsed JSON.parse 产出的未知根值。
+ * @param source 输入来源标识。
+ * @returns 严格校验通过的贴纸目录快照对象。
+ */
 export function decodeStickerCatalogSnapshot(
   parsed: unknown,
   source: string
@@ -178,7 +229,12 @@ export function decodeStickerCatalogSnapshot(
   return { version: 1, entries, summary, savedAt };
 }
 
-/** 解析并严格解码一份协议中的贴纸目录 JSON 文本。 */
+/**
+ * 解析并严格解码一份协议中的贴纸目录 JSON 文本。
+ * @param content 待解析的贴纸目录 JSON 字符串。
+ * @param source 输入来源标识。
+ * @returns 严格校验通过的贴纸目录快照对象。
+ */
 export function parseStickerCatalogSnapshot(
   content: string,
   source: string

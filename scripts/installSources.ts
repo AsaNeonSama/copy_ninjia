@@ -6,7 +6,11 @@ export interface InstallScriptSource {
   readonly source: string;
 }
 
-/** 按入口声明顺序读取模块；缺文件直接失败，不从其它版本补取。 */
+/**
+ * 按入口声明顺序读取模块；缺文件直接失败，不从其它版本补取。
+ * @param projectRoot 仓库根目录绝对路径。
+ * @returns 按加载顺序排列的安装脚本源文件列表。
+ */
 export async function readInstallScripts(projectRoot: string): Promise<readonly InstallScriptSource[]> {
   const entry: InstallScriptSource = { path: "install.sh", source: await Bun.file(join(projectRoot, "install.sh")).text() };
   const sources: InstallScriptSource[] = [entry];
@@ -17,7 +21,11 @@ export async function readInstallScripts(projectRoot: string): Promise<readonly 
   return sources;
 }
 
-/** 静态测试按 source 位置把各模块正文就地展开进入口，展开后步骤与函数的相对顺序与执行顺序一致。 */
+/**
+ * 静态测试按 source 位置把各模块正文就地展开进入口，展开后步骤与函数的相对顺序与执行顺序一致。
+ * @param projectRoot 仓库根目录绝对路径。
+ * @returns 内联展开全部子模块后的完整 shell 脚本文本。
+ */
 export async function expandedInstallSource(projectRoot: string): Promise<string> {
   const sources: readonly InstallScriptSource[] = await readInstallScripts(projectRoot);
   let expanded: string = sources[0]!.source;

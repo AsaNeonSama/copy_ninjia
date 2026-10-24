@@ -30,7 +30,10 @@ import type { AnthropicClient } from "../../../../types/aiChat/anthropic";
 import type { AdDetectAgentConfig } from "../../../../types/config";
 import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
 
-/** 取得线程内唯一 Anthropic 广告检测客户端（构造见 createAnthropicClient）。 */
+/**
+ * 取得线程内唯一 Anthropic 广告检测客户端（构造见 createAnthropicClient）。
+ * @returns Anthropic 广告检测客户端包装实例。
+ */
 function getAdDetectAnthropicClient(): AnthropicClient {
   const config: AdDetectAgentConfig = getAdDetectAgentConfig();
   if (config.provider !== "anthropic") {
@@ -51,13 +54,19 @@ interface AnthropicAdDetectAttempt {
   readonly refused: boolean;
   /** 额度用尽或上下文超长收尾，正文不可用。 */
   readonly unusable: boolean;
+  /** 实际服务本次响应的模型 ID。 */
   readonly model: string;
+  /** 响应结束原因（`stop_reason`）；缺失时为 `"?"`。 */
   readonly stopReason: string;
   /** `stop_details` 去掉回退额度令牌后的诊断串（见 aiChat/anthropic/response.ts 的 anthropicStopDetailsJson）；没有详情时为 undefined。 */
   readonly stopDetails: string | undefined;
 }
 
-/** 发一次请求并收窄结果；异常就地归一成 null。本次请求改道到回退模型时按 logAnthropicFallback 记一条 warn。 */
+/**
+ * 发一次请求并收窄结果；异常就地归一成 null。本次请求改道到回退模型时按 logAnthropicFallback 记一条 warn。
+ * @param params 结构化广告判定请求参数。
+ * @returns 单次尝试结果；请求异常时返回 null。
+ */
 async function attemptAnthropicAdDetectJson({
   model,
   instructions,
@@ -112,6 +121,8 @@ async function attemptAnthropicAdDetectJson({
 /**
  * 发一次要求 JSON 输出的 Messages 请求。拒答立即放弃，不重采样；成功响应正文为空、被截断或上下文超长时按
  * AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 有界重采样；请求异常已经由 SDK 重试过，不在业务层叠加。
+ * @param params 结构化广告判定请求参数。
+ * @returns 可用的模型 JSON 响应正文；拒答、重试耗尽或请求失败时返回 null。
  */
 export async function requestAnthropicAdDetectJson(
   params: AdDetectJsonRequestParams

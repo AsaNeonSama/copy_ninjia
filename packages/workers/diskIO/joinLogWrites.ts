@@ -48,19 +48,40 @@ import {
 import { readValidatedJoinLogFile } from "./joinLogRecovery";
 import type { ValidatedJoinLogFile } from "./joinLogRecovery";
 
+/**
+ * 构造群日入群日志文件的绝对路径。
+ * @param chatId 目标群 ID。
+ * @param day `YYYY-MM-DD` 日期键。
+ * @returns `<JOIN_LOG_MEMORY_DIR>/<chatId>.<day>.json` 路径。
+ */
 export function joinLogPath(chatId: number, day: string): string {
   return join(JOIN_LOG_MEMORY_DIR, `${chatId}.${day}.json`);
 }
 
+/**
+ * 构造群日入群日志在内存缓存与退避表中的复合键。
+ * @param chatId 目标群 ID。
+ * @param day `YYYY-MM-DD` 日期键。
+ * @returns `<chatId>:<day>` 复合键字符串。
+ */
 export function fileKey(chatId: number, day: string): string {
   return `${chatId}:${day}`;
 }
 
-/** 提取 fileKey 中的日期段。 */
+/**
+ * 提取 fileKey 中的日期段。
+ * @param key `<chatId>:<day>` 格式的复合键。
+ * @returns 冒号后的 `YYYY-MM-DD` 日期键。
+ */
 export function dayOfFileKey(key: string): string {
   return key.slice(key.lastIndexOf(":") + 1);
 }
 
+/**
+ * 将缓存中的去重快照原子重写到目标入群日志文件并重置压缩计数器。
+ * @param path 目标入群日志文件路径。
+ * @param cache 持有最新用户记录与预期字节数的群日缓存。
+ */
 function rewriteJoinLogFile(path: string, cache: JoinLogFileCache): void {
   const size: number = atomicWriteTextChunksSync(
     path,
@@ -80,12 +101,21 @@ function rewriteJoinLogFile(path: string, cache: JoinLogFileCache): void {
   cache.redundantEntries = 0;
 }
 
-/** 读取目标路径当前文件元数据；不存在时返回 undefined。 */
+/**
+ * 读取目标路径当前文件元数据；不存在时返回 undefined。
+ * @param path 目标入群日志文件路径。
+ * @returns BigInt 文件元数据；文件不存在时返回 undefined。
+ */
 function statJoinLogFile(path: string): BigIntStats | undefined {
   return statSync(path, { bigint: true, throwIfNoEntry: false });
 }
 
-/** 判断重写失败后目标路径是否已替换为新文件（stat 失败按已替换处理）。 */
+/**
+ * 判断重写失败后目标路径是否已替换为新文件（stat 失败按已替换处理）。
+ * @param path 目标入群日志文件路径。
+ * @param before 重写前采样的文件元数据。
+ * @returns 目标路径对应的底层 inode 已变更或无法再次 stat 时返回 true，否则返回 false。
+ */
 function joinLogFileReplaced(path: string, before: BigIntStats | undefined): boolean {
   let after: BigIntStats | undefined;
   try {
@@ -99,6 +129,8 @@ function joinLogFileReplaced(path: string, before: BigIntStats | undefined): boo
 
 /**
  * 按累计计数与可回收字节数评估并执行快照重写压缩。
+ * @param path 目标入群日志文件路径。
+ * @param cache 当前群日入群日志的内存缓存。
  * @returns cache 是否仍与磁盘文件一致；为 false 时调用方须丢弃缓存重新接管。
  */
 function maybeCompactJoinLogFile(
@@ -141,7 +173,11 @@ function maybeCompactJoinLogFile(
   }
 }
 
-/** 严格校验文件格式与容量上限并构建 JoinLogFileCache。 */
+/**
+ * 严格校验文件格式与容量上限并构建 JoinLogFileCache。
+ * @param path 目标入群日志文件路径。
+ * @returns 初始化完成的群日入群日志缓存。
+ */
 async function takeOverJoinLogFile(path: string): Promise<JoinLogFileCache> {
   const existing: ValidatedJoinLogFile | null = await Bun.file(path).exists()
     ? await readValidatedJoinLogFile(path)
@@ -180,7 +216,12 @@ async function takeOverJoinLogFile(path: string): Promise<JoinLogFileCache> {
   return cache;
 }
 
-/** 首次接管群日入群日志文件并按当前大小评估一次压缩。 */
+/**
+ * 首次接管群日入群日志文件并按当前大小评估一次压缩。
+ * @param chatId 目标群 ID。
+ * @param day `YYYY-MM-DD` 日期键。
+ * @returns 与磁盘文件一致的群日入群日志缓存。
+ */
 async function openJoinLogFile(
   chatId: number,
   day: string
@@ -191,7 +232,12 @@ async function openJoinLogFile(
   return takeOverJoinLogFile(path);
 }
 
-/** 获取或从磁盘重建指定群日的接管缓存。 */
+/**
+ * 获取或从磁盘重建指定群日的接管缓存。
+ * @param chatId 目标群 ID。
+ * @param day `YYYY-MM-DD` 日期键。
+ * @returns 命中 LRU 或新接管的群日入群日志缓存。
+ */
 export async function getJoinLogFileCache(
   chatId: number,
   day: string
@@ -204,7 +250,13 @@ export async function getJoinLogFileCache(
   return cache;
 }
 
-/** 将单个 `chatId:day` 分组的待写条目写入目标文件，返回是否落盘成功。 */
+/**
+ * 将单个 `chatId:day` 分组的待写条目写入目标文件，返回是否落盘成功。
+ * @param chatId 目标群 ID。
+ * @param day `YYYY-MM-DD` 日期键。
+ * @param entries 待写入该群日文件的缓冲条目列表。
+ * @returns 条目为空或落盘成功时返回 true，处于退避窗口或写盘失败时返回 false。
+ */
 export async function writeFileEntries(
   chatId: number,
   day: string,
@@ -277,11 +329,11 @@ export async function writeFileEntries(
       mode: PERSISTED_FILE_MODE,
     });
     cache.appendedBytesSinceCompaction += Buffer.byteLength(chunk);
-    for (let index: number = 0; index < newest.length; index += 1) {
-      const record: JoinLogRecord = newest[index]!.record;
+    for (const entry of newest) {
+      const record: JoinLogRecord = entry.record;
       const current: JoinLogRecord | undefined =
         cache.latestByUser.get(record.userId);
-      const nextBytes: number = Buffer.byteLength(texts[index]!);
+      const nextBytes: number = joinLogSnapshotEntryBytes(record);
       if (current !== undefined) {
         cache.redundantEntries++;
         cache.snapshotBytes +=

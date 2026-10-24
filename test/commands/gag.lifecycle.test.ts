@@ -1,7 +1,12 @@
 /** `/gag` 与 `/ungag` 的容量预约、提示收尾与停机排空状态机。 */
 
 import { describe, expect, jest, test } from "bun:test";
-import { GAG_CLEANUP_RETRY_DELAYS_MS, GAG_INLINE_QUERY_PREFIX, GAG_SESSION_MAX } from "../../packages/consts/gag";
+import {
+  GAG_CLEANUP_RETRY_DELAYS_MS,
+  GAG_DEFAULT_DURATION_MINUTES,
+  GAG_INLINE_QUERY_PREFIX,
+  GAG_SESSION_MAX,
+} from "../../packages/consts/gag";
 import { GAG_TARGET_TEXTS, UNGAG_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/gag";
 import {
   GAG_TARGET_TEXTS as PLAIN_GAG_TARGET_TEXTS,
@@ -256,7 +261,7 @@ describe("/gag 与 /ungag 状态机", () => {
     }));
 
     const session: GagSession | undefined = sessionFor(-1001);
-    expect(session?.durationMinutes).toBe(5);
+    expect(session?.durationMinutes).toBe(GAG_DEFAULT_DURATION_MINUTES);
     expect(session?.tool).toBe("丝带");
     expect(resolveCommandTarget.mock.calls[0]?.[0]).toMatchObject({ rawArgument: "" });
   });

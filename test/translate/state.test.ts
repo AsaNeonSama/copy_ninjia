@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { TRANSLATE_CHAT_USER_LIMIT } from "../../packages/consts/translate";
 import { decodeChatStateData, encodeChatStateData } from "../../packages/database/codec/chatState";
 import { decodeGlobalStateFile } from "../../packages/libs/stateFileCodec";
 import type { TranslateState } from "../../packages/types/translate";
@@ -14,10 +15,11 @@ function decodeSessions(translate: unknown): readonly TranslateState[] | undefin
 describe("chat_states 里的翻译会话", () => {
   test("每群允许五个不同目标，空数组、六人、单会话对象和重复身份拒绝", () => {
     const sessions: TranslateState[] = [];
-    for (let id: number = 1; id <= 5; id++) sessions.push({ translatedUser: { id }, language: "uk" });
-    expect(decodeSessions(sessions)).toHaveLength(5);
-    for (const invalid of [[], [...sessions, { translatedUser: { id: 6 }, language: "ru" }], sessions[0]]) {
-      expect(() => decodeSessions(invalid)).toThrow("$.translate must be an array containing 1 to 5 translation sessions");
+    for (let id: number = 1; id <= TRANSLATE_CHAT_USER_LIMIT; id++) sessions.push({ translatedUser: { id }, language: "uk" });
+    expect(decodeSessions(sessions)).toHaveLength(TRANSLATE_CHAT_USER_LIMIT);
+    for (const invalid of [[], [...sessions, { translatedUser: { id: TRANSLATE_CHAT_USER_LIMIT + 1 }, language: "ru" }], sessions[0]]) {
+      expect(() => decodeSessions(invalid))
+        .toThrow(`$.translate must be an array containing 1 to ${TRANSLATE_CHAT_USER_LIMIT} translation sessions`);
     }
     expect(() => decodeSessions([sessions[0], sessions[0]])).toThrow("$.translate[1].translatedUser.id must be unique within the chat");
   });

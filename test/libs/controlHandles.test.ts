@@ -3,6 +3,7 @@ import type { createFlushBarrier } from "../../packages/libs/flushBarrier";
 import type { createKeyedSerialTaskRunner } from "../../packages/libs/keyedSerialTaskRunner";
 import type { createLatestValueRunner } from "../../packages/libs/latestValueRunner";
 import type { createPrioritizedBoundedTaskRunner } from "../../packages/libs/prioritizedBoundedTaskRunner";
+import type { createRestartThrottle } from "../../packages/libs/restartThrottle";
 import type { getChatStateCache } from "../../packages/infra/storage/stateStore";
 import type { superviseWorker } from "../../packages/infra/supervisedWorker";
 import type { registerHandlers } from "../../packages/app/registerHandlers";
@@ -48,6 +49,7 @@ test("异步队列与 flush 句柄的方法不可替换", (): void => {
 test("Worker 与应用生命周期句柄的方法不可替换", (): void => {
   const check = (handles: {
     readonly worker: ReturnType<typeof superviseWorker>;
+    readonly throttle: ReturnType<typeof createRestartThrottle>;
     readonly registration: ReturnType<typeof registerHandlers>;
     readonly runner: ReturnType<typeof runAcknowledgedUpdateBatches>;
     readonly settler: ReturnType<typeof createOwnerSettler>;
@@ -58,6 +60,8 @@ test("Worker 与应用生命周期句柄的方法不可替换", (): void => {
     handles.worker.post = (): boolean => false;
     // @ts-expect-error Worker 终止入口只读。
     handles.worker.terminate = (): Promise<void> => Promise.resolve();
+    // @ts-expect-error 重启节流判定入口只读。
+    handles.throttle.shouldGiveUp = (): boolean => false;
     // @ts-expect-error update 确认边界读取入口只读。
     handles.registration.getLastSeenUpdateId = (): number => 0;
     // @ts-expect-error runner 停止入口只读。

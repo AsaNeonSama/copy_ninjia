@@ -31,25 +31,36 @@ import {
   RANDOM_H_IMAGE_DIR_FIELD,
 } from "../consts/ui/assets";
 import { defaultAvatarPhotoType } from "../infra/telegram/avatar/photoType";
-import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { invalidInput, readJsonInput, requiredString } from "../libs/inputValidation";
 import { isPlainRecord } from "../libs/record";
 import type { AssetConfig, DefaultAvatarSource } from "../types/config";
 
 /** 通过形态校验的一个顶层分组：分组名、组内字段与报错文件路径。 */
 interface AssetGroup {
+  /** 顶层分组名称（`onlyPath`、`pathOrUrl` 或 `onlyUrl`）。 */
   readonly name: string;
+  /** 该分组内待解码的字段键值记录。 */
   readonly entries: Readonly<Record<string, unknown>>;
+  /** 配置文件路径，用于构造致命错误诊断。 */
   readonly sourcePath: string;
 }
 
 /** readAssetGroup 的入参：分组名、组内允许的字段与报错文件路径。 */
 interface AssetGroupOptions {
+  /** 顶层分组名。 */
   readonly name: string;
+  /** 该分组内允许出现的字段名集合。 */
   readonly keys: ReadonlySet<string>;
+  /** 配置文件路径，用于构造致命错误诊断。 */
   readonly sourcePath: string;
 }
 
-/** 顶层分组：缺省按空组处理（组内字段全取缺省）；不是对象或含组外字段时拒绝整份文件。 */
+/**
+ * 顶层分组：缺省按空组处理（组内字段全取缺省）；不是对象或含组外字段时拒绝整份文件。
+ * @param raw 顶层配置对象记录。
+ * @param options 分组名、允许字段集合与错误诊断路径。
+ * @returns 已通过结构校验的分组描述符。
+ */
 function readAssetGroup(
   raw: Readonly<Record<string, unknown>>,
   { name, keys, sourcePath }: AssetGroupOptions
@@ -65,16 +76,24 @@ function readAssetGroup(
   return { name, entries: value, sourcePath };
 }
 
-/** 组内字符串字段：缺省返回 undefined；去掉首尾空白后收下，不是字符串或去掉后为空时拒绝。 */
+/**
+ * 组内字符串字段：缺省返回 undefined；去掉首尾空白后收下，不是字符串或去掉后为空时拒绝。
+ * @param group 所属顶层分组描述符。
+ * @param key 组内字段名。
+ * @returns 去空白后的非空字符串；字段缺省时返回 undefined。
+ */
 function trimmedField(group: AssetGroup, key: string): string | undefined {
   const value: unknown = group.entries[key];
   if (value === undefined) return undefined;
-  const text: string = typeof value === "string" ? value.trim() : "";
-  if (text.length === 0) return invalidInput(group.sourcePath, `$.${group.name}.${key}`, "a non-empty string");
-  return text;
+  return requiredString(value, `$.${group.name}.${key}`, group.sourcePath);
 }
 
-/** 绝对 https URL（allowHttp 时也接受 http）归一化后的 href；形态不符时返回 null。 */
+/**
+ * 绝对 https URL（allowHttp 时也接受 http）归一化后的 href；形态不符时返回 null。
+ * @param text 待解析的 URL 字符串。
+ * @param allowHttp 为 true 时同时允许 `http:` 协议。
+ * @returns 归一化后的 URL href；非合法 http(s) URL 时返回 null。
+ */
 function assetUrlHref(text: string, allowHttp: boolean): string | null {
   const parsed: URL | null = URL.parse(text);
   if (parsed === null) return null;
@@ -85,13 +104,21 @@ function assetUrlHref(text: string, allowHttp: boolean): string | null {
 /**
  * 本机路径的词法判定：只收绝对路径或以 `./`、`../` 开头的显式相对路径，不含 NUL；裸名与
  * `~` 开头的写法都不算。命中时返回按运行时数据根解析后的绝对路径，否则返回 null。
+ * @param text 待判定的路径字符串。
+ * @returns 解析后的绝对路径；不符合本机路径形态时返回 null。
  */
 function localPath(text: string): string | null {
   if (text.includes("\0") || (!isAbsolute(text) && !text.startsWith("./") && !text.startsWith("../"))) return null;
   return resolve(RUNTIME_DATA_ROOT, text);
 }
 
-/** `onlyUrl` 组的缩略图直链：由 Telegram 拉取，必须是绝对 https URL，收下 URL 归一化后的 href。 */
+/**
+ * `onlyUrl` 组的缩略图直链：由 Telegram 拉取，必须是绝对 https URL，收下 URL 归一化后的 href。
+ * @param group `onlyUrl` 分组描述符。
+ * @param key 缩略图字段名。
+ * @param fallback 字段缺省时使用的内置默认 URL。
+ * @returns 归一化后的 https URL。
+ */
 function thumbnailUrl(group: AssetGroup, key: string, fallback: string): string {
   const text: string | undefined = trimmedField(group, key);
   if (text === undefined) return fallback;
@@ -103,6 +130,8 @@ function thumbnailUrl(group: AssetGroup, key: string, fallback: string): string 
 /**
  * `pathOrUrl` 组的机器人默认头像来源：本机路径形态（见 localPath）收为本机文件，其余必须是
  * 绝对 http 或 https URL，收下 URL 归一化后的 href。
+ * @param group `pathOrUrl` 分组描述符。
+ * @returns 机器人默认头像的本机路径或直链来源。
  */
 function defaultAvatarSource(group: AssetGroup): DefaultAvatarSource {
   const text: string | undefined = trimmedField(group, "bot_default_avatar");
@@ -120,7 +149,11 @@ function defaultAvatarSource(group: AssetGroup): DefaultAvatarSource {
   return { kind: "url", url };
 }
 
-/** `onlyPath` 组的随机图片目录：只收本机路径形态（见 localPath），按运行时数据根解析为绝对路径。 */
+/**
+ * `onlyPath` 组的随机图片目录：只收本机路径形态（见 localPath），按运行时数据根解析为绝对路径。
+ * @param group `onlyPath` 分组描述符。
+ * @returns 随机图片目录的绝对路径。
+ */
 function assetDirectory(group: AssetGroup): string {
   const text: string | undefined = trimmedField(group, "random_h_image_dir");
   if (text === undefined) return DEFAULT_ASSET_CONFIG.randomHImageDirectory;
@@ -139,6 +172,8 @@ function assetDirectory(group: AssetGroup): string {
  * 核对默认头像的本机文件：存在且是普通文件（跟随符号链接），且字节签名、大小与 MP4 视频轨尺寸符合
  * DEFAULT_AVATAR_EXPECTED_FORM（判定见 defaultAvatarPhotoType）。最多读 DEFAULT_AVATAR_MAX_READ_BYTES
  * 加一个字节，超出的文件必然超过所属形态的上限；读不到一律按不存在处理。
+ * @param path 本机默认头像文件的绝对路径。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
  */
 async function verifyDefaultAvatarFile(path: string, sourcePath: string): Promise<void> {
   let bytes: Uint8Array | null;
@@ -154,7 +189,12 @@ async function verifyDefaultAvatarFile(path: string, sourcePath: string): Promis
   }
 }
 
-/** 严格解码 assets.json 并按内置常量补齐缺省字段。 */
+/**
+ * 严格解码 assets.json 并按内置常量补齐缺省字段。
+ * @param value 待校验的原始 JSON 值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过形态校验并补齐缺省值的素材配置。
+ */
 export function parseAssetConfig(value: unknown, sourcePath: string = ASSETS_CONFIG_PATH): AssetConfig {
   if (!isPlainRecord(value)) return invalidInput(sourcePath, "$", "an object");
   for (const key of Object.keys(value)) {
@@ -190,14 +230,21 @@ export function parseAssetConfig(value: unknown, sourcePath: string = ASSETS_CON
   };
 }
 
-/** 从指定文件加载并严格解析，默认头像是本机文件时再核对该文件；模块 import 本身不访问文件系统。 */
+/**
+ * 从指定文件加载并严格解析，默认头像是本机文件时再核对该文件；模块 import 本身不访问文件系统。
+ * @param path 素材配置文件路径。
+ * @returns 已通过完整校验的素材配置。
+ */
 export async function loadAssetConfig(path: string = ASSETS_CONFIG_PATH): Promise<AssetConfig> {
   const config: AssetConfig = parseAssetConfig(await readJsonInput(path), path);
   if (config.botDefaultAvatar.kind === "path") await verifyDefaultAvatarFile(config.botDefaultAvatar.path, path);
   return config;
 }
 
-/** 接管已经严格校验的素材快照：启动总闸或 config/dynamic/ 热重载（文件删除时传入内置缺省）。 */
+/**
+ * 接管已经严格校验的素材快照：启动总闸或 config/dynamic/ 热重载（文件删除时传入内置缺省）。
+ * @param config 已校验的素材配置快照。
+ */
 export function adoptAssetConfig(config: Readonly<AssetConfig>): void {
   assetConfigCache.current = config;
 }
@@ -207,7 +254,10 @@ export async function ensureAssetConfig(): Promise<void> {
   adoptAssetConfig(await loadAssetConfig());
 }
 
-/** 主线程当前生效的素材配置。 */
+/**
+ * 主线程当前生效的素材配置。
+ * @returns 当前线程持有的只读素材配置快照。
+ */
 export function getAssetConfig(): Readonly<AssetConfig> {
   return assetConfigCache.current;
 }

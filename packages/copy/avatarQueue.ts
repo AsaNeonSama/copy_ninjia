@@ -12,6 +12,13 @@ import { formatUserLabel } from "../users/userLabel";
 import type { AtmosphereTexts } from "../types/atmosphere";
 import type { AvatarUpdateRequest, AvatarUpdateTask } from "../types/copy/avatar";
 
+/**
+ * 渲染头像更新或复原后的群内操作回执文案。
+ *
+ * @param task 头像更新任务
+ * @param updated 头像是否更新成功
+ * @returns 对应氛围下的操作回执文本
+ */
 function renderAvatarNotice(task: AvatarUpdateTask, updated: boolean): string {
   const atmosphere: AtmosphereTexts = chatAtmosphere();
   if (task.target.kind === "default") {
@@ -27,11 +34,13 @@ function renderAvatarNotice(task: AvatarUpdateTask, updated: boolean): string {
   return updated ? atmosphere.NOTICE_TEXTS.iconChanged(label) : atmosphere.NOTICE_TEXTS.iconFailed(label);
 }
 
+/** 执行槽与待执行槽均空闲时唤醒所有排空等待者。 */
 function notifyAvatarDrainIfIdle(): void {
   if (avatarUpdateState.running || avatarUpdateState.pending !== null) return;
   settleFlushWaiters(avatarDrainWaiters, "flushed");
 }
 
+/** 串行消费 latest-only 头像更新槽中的待执行任务。 */
 async function consumeAvatarUpdates(): Promise<void> {
   if (avatarUpdateState.running) return;
   avatarUpdateState.running = true;
@@ -42,8 +51,8 @@ async function consumeAvatarUpdates(): Promise<void> {
       const signal: AbortSignal = avatarUpdateRuntime.controller.signal;
       if (signal.aborted) break;
       try {
-        // 偷脸与复原共用这一个执行槽，latest-only 语义对两类目标通用——连点
-        // /icon steal 再 /icon reset，最终生效的是最后那个。
+        // 复制头像与复原默认头像共用同一执行槽，latest-only 语义对两类目标通用：
+        // 连续执行 /icon steal 与 /icon reset 时，最终生效的是最后提交的目标。
         // 默认头像的来源在这里从主线程素材快照取好再传入；avatar/restore.ts 不读取
         // 素材快照（见 config/assets.ts 的 getAssetConfig）。
         const updated: boolean = task.target.kind === "default"
@@ -53,8 +62,8 @@ async function consumeAvatarUpdates(): Promise<void> {
             !!task.target.user.isChannel,
             { username: task.target.user.username, signal }
           );
-        // 在途任务不能取消，但新目标到达后旧战报已经过期；最终只让最新目标
-        // 报告结果，随后单一执行槽继续处理最新 pending。
+        // 新目标入队时不打断已在途的请求，但已被新代际取代的旧请求不再发送回执；
+        // 停机取消则由 signal 终止在途请求。最终仅最新代际报告结果，随后继续消费 pending。
         if (!task.silent && !signal.aborted && task.generation === avatarUpdateState.latestGeneration) {
           await sendCommandMessage({
             chatId: task.chatId,
@@ -78,8 +87,10 @@ async function consumeAvatarUpdates(): Promise<void> {
 }
 
 /**
- * 提交头像目标；运行中只保留最新一份，历史请求不会形成 Promise 链。回执在执行槽里
- * 发出、已不在提交它的 update 作用域内，因此在提交时记下触发话题。
+ * 提交头像更新目标；运行中仅保留最新一份请求，历史请求不会形成 Promise 链。
+ * 回执在异步执行槽里发出时已脱离触发它的 update 作用域，因此在提交时捕获触发话题。
+ *
+ * @param params 头像更新请求（含目标群聊 `chatId`、头像目标 `target`、触发来源 `source` 与是否静默 `silent`）。
  */
 export function queueAvatarUpdate({ chatId, target, source, silent = false }: AvatarUpdateRequest): void {
   if (!avatarUpdateRuntime.accepting) return;
@@ -96,7 +107,12 @@ export function queueAvatarUpdate({ chatId, target, source, silent = false }: Av
   void consumeAvatarUpdates();
 }
 
-/** 生命周期边界：等待当前执行槽和 latest-only 待执行槽归零。 */
+/**
+ * 生命周期边界：等待当前执行槽和 latest-only 待执行槽归零。
+ *
+ * @param timeoutMs 最大等待毫秒数
+ * @returns 排空结果（`flushed` 或 `timedOut`）
+ */
 export function drainAvatarUpdates(timeoutMs: number): Promise<FlushResult> {
   return drainWithWaiter({
     owner: "Avatar",
@@ -108,6 +124,7 @@ export function drainAvatarUpdates(timeoutMs: number): Promise<FlushResult> {
   });
 }
 
+/** 初始化头像更新队列运行态并开放任务接纳。 */
 export function initAvatarUpdates(): void {
   if (avatarUpdateState.running) throw new Error("Cannot initialize avatar updates while a task is active.");
   avatarUpdateState.pending = null;
@@ -115,10 +132,12 @@ export function initAvatarUpdates(): void {
   avatarUpdateRuntime.accepting = true;
 }
 
+/** 停止接纳新的头像更新请求。 */
 export function quiesceAvatarUpdates(): void {
   avatarUpdateRuntime.accepting = false;
 }
 
+/** 取消在途头像更新请求并清空待执行槽。 */
 function abortAvatarUpdates(): void {
   avatarUpdateRuntime.accepting = false;
   avatarUpdateState.pending = null;

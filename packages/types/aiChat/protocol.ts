@@ -28,6 +28,7 @@ export interface ImageGenerationReference extends TelegramVisionSource {
   /** 这张图所在相册的 media_group_id；贴纸与不在相册里的图为 undefined。键恒发。 */
   mediaGroupId: string | undefined;
 }
+/** AI 群聊直接触发的成因（回复机器人消息或 `@` 提及机器人）。 */
 export type AiDirectTriggerReason = "reply" | "mention";
 
 /**
@@ -115,11 +116,13 @@ export interface AiRecordContext {
   persistImmediately: boolean;
 }
 
+/** 主线程 -> AI Worker：将一条纯文本群消息记入滚动记忆。 */
 export interface AiRecordMessage extends AiRecordContext {
   type: "record";
   text: string;
 }
 
+/** 主线程 -> AI Worker：将一条群媒体消息（图片、贴纸、GIF、语音）记入滚动记忆并在需要时触发解析与回复。 */
 export interface AiRecordMediaMessage extends AiRecordContext {
   type: "recordMedia";
   kind: MediaKind;
@@ -189,6 +192,7 @@ export interface AiRecordBotImageMessage {
   persistImmediately: boolean;
 }
 
+/** 主线程 -> AI Worker：请求对当前群消息发起一轮 AI 回复（直接触发或随机插话）。 */
 export interface AiTriggerMessage {
   type: "trigger";
   chatId: number;
@@ -228,16 +232,19 @@ export interface AiTriggerMessage {
   messageThreadId: number | undefined;
 }
 
+/** 主线程 -> AI Worker：启动或崩溃重建时批量注入各群的持久化 AI 记忆快照 JSON 文本。 */
 export interface AiHydrateMessage {
   type: "hydrate";
   memories: Map<number, string>;
 }
 
+/** 主线程 -> AI Worker：请求立即上报全部 dirty 群记忆与贴纸目录快照并回执 `memoryFlushed`。 */
 export interface AiFlushMemoryMessage {
   type: "flushMemory";
   flushId: number;
 }
 
+/** 主线程 -> AI Worker：中止指定群的在途回复代际并清空其滚动记忆缓存。 */
 export interface AiInvalidateChatMessage {
   type: "invalidateChat";
   chatId: number;
@@ -315,6 +322,7 @@ export interface AiHydrateTtsUsageMessage {
   usage: TtsDailyUsage | null;
 }
 
+/** 主线程发往 AI Worker 的全部协议消息联合类型。 */
 export type AiChatWorkerMessage =
   | AiInitMessage
   | AiConfigReloadMessage
@@ -334,6 +342,7 @@ export type AiChatWorkerMessage =
   | AiCancelWebDigestMessage
   | AiHydrateTtsUsageMessage;
 
+/** AI Worker -> 主线程：上报单群最新 AI 记忆快照 JSON 文本及当前上下文占用量。 */
 export interface AiMemoryEvent {
   type: "memory";
   chatId: number;
@@ -359,11 +368,13 @@ export interface AiMemoryUsagesEvent {
   usages: Map<number, AiMemoryUsage>;
 }
 
+/** AI Worker -> 主线程：确认指定群的滚动记忆已清空，请求主线程投递持久化删除墓碑。 */
 export interface AiMemoryDeletedEvent {
   type: "memoryDeleted";
   chatId: number;
 }
 
+/** AI Worker -> 主线程：`flushMemory` 请求对应的全部在途任务与脏快照已排空上报完毕。 */
 export interface AiMemoryFlushedEvent {
   type: "memoryFlushed";
   flushId: number;
@@ -431,6 +442,7 @@ export interface AiAbuseMarkEvent {
   userId: number;
 }
 
+/** AI Worker 发回主线程的全部事件与回执联合类型。 */
 export type AiChatWorkerEvent =
   | AiMemoryEvent
   | AiMemoryUsagesEvent

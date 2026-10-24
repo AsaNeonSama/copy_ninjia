@@ -9,6 +9,8 @@ import { removeWedMemberFromAllChats } from "./persistence";
 /**
  * getChat 以私聊资料核实过的候选转成图注与提及实体要用的 User；其它身份返回 undefined。
  * 候选 ID 只来自以个人身份发言的非机器人用户（commands/wed/members.ts），is_bot 恒为 false。
+ * @param identity 读取头像时获取到的身份资料。
+ * @returns 私聊用户对象；非私聊身份时返回 undefined。
  */
 function privateChatUser(identity: AvatarIdentity): User | undefined {
   if (!("type" in identity) || identity.type !== "private") return undefined;
@@ -35,6 +37,10 @@ function privateChatUser(identity: AvatarIdentity): User | undefined {
  * signal 是抽取阶段自己的预算，与投递阶段各算各的，见 commands/wed.ts 的
  * operationSignal。预算耗尽、群 teardown 和停机取消同样返回 undefined，调用方按
  * signal 的取消来源决定回执还是静默。
+ * @param session 当前 `/wed` 会话。
+ * @param chat 所在群的 `/wed` 交互状态。
+ * @param signal 抽取阶段中止信号。
+ * @returns 抽中的带头像候选；未命中或被取消时返回 undefined。
  */
 export async function drawWedCandidate(
   session: WedSession,

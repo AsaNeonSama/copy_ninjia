@@ -21,10 +21,7 @@ import {
 import { AGENT_CONFIG_PATH, CONFIG_ROOT } from "../../packages/consts/paths";
 import {
   AGENT_CAPABILITY_NAMES,
-  AGENT_CREDENTIAL_HEADER_NAMES,
-  AGENT_HEADERS_MAX_ENTRIES,
   EXPECTED_AGENT_FALLBACK_MODEL,
-  EXPECTED_AGENT_HEADERS,
   WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE,
 } from "../../packages/consts/agent";
 import {
@@ -109,19 +106,18 @@ describe("agent capability config", () => {
   test("按能力保留 provider、api_key、model 与各自 base_url", () => {
     const parsed: AgentDeploymentConfig = parseAgentDeploymentConfig(AGENT, "agent.json");
     expect(parsed).toEqual({
-      text: { provider: "google", apiKey: "google-text-key", baseUrl: undefined, headers: undefined, model: "gemini-text" },
-      summary: { provider: "openai", apiKey: "openai-summary-key", baseUrl: "https://openai.example/v1", headers: undefined, model: "gpt-summary" },
-      media: { provider: "google", apiKey: "google-media-key", baseUrl: "https://google.example", headers: undefined, model: "gemini-media" },
+      text: { provider: "google", apiKey: "google-text-key", baseUrl: undefined, model: "gemini-text" },
+      summary: { provider: "openai", apiKey: "openai-summary-key", baseUrl: "https://openai.example/v1", model: "gpt-summary" },
+      media: { provider: "google", apiKey: "google-media-key", baseUrl: "https://google.example", model: "gemini-media" },
       image: {
         provider: "openai",
         apiKey: "xai-image-key",
         baseUrl: "https://xai.example/v1",
-        headers: undefined,
         model: "grok-image",
         imageProtocol: "xai",
         maxReferenceImages: IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
       },
-      tts: { provider: "google", apiKey: "google-tts-key", baseUrl: undefined, headers: undefined, model: "tts-test", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: 100, dailyReserveQuota: 25 },
+      tts: { provider: "google", apiKey: "google-tts-key", baseUrl: undefined, model: "tts-test", voice: "Leda", speechProtocol: undefined, style: TTS_DEFAULT_STYLE, language: undefined, botLanguage: TTS_DEFAULT_BOT_LANGUAGE, dailyLimit: TTS_DEFAULT_DAILY_LIMIT, dailyReserveQuota: TTS_DEFAULT_DAILY_RESERVE_QUOTA },
     });
   });
 
@@ -134,14 +130,14 @@ describe("agent capability config", () => {
     }
   });
 
-  test("anthropic 按通用字段解码，headers 缺省为 undefined；image 与 tts 不受理 anthropic", () => {
+  test("anthropic 按通用字段解码；image 与 tts 不受理 anthropic", () => {
     const anthropic = { provider: "anthropic", api_key: "anthropic-key", base_url: "https://proxy.example/anthropic", model: "claude-test" };
     expect(parseAgentDeploymentConfig({ ...AGENT, text: anthropic, web_search: anthropic }, "agent.json")).toMatchObject({
-      text: { provider: "anthropic", apiKey: "anthropic-key", baseUrl: "https://proxy.example/anthropic", headers: undefined, model: "claude-test" },
+      text: { provider: "anthropic", apiKey: "anthropic-key", baseUrl: "https://proxy.example/anthropic", model: "claude-test" },
       webSearch: { provider: "anthropic", model: "claude-test" },
     });
     expect(() => parseAgentDeploymentConfig({ ...AGENT, text: { ...anthropic, extra: "x" } }, "agent.json"))
-      .toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, headers\?, model, fallback_model\? \} when provider is anthropic/);
+      .toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, model, fallback_model\? \} when provider is anthropic/);
     expect(() => parseAgentDeploymentConfig({ ...AGENT, image: { ...anthropic, image_protocol: "openai" } }, "agent.json"))
       .toThrow(/agent\.image\.provider must be "google" or "openai"/);
     expect(() => parseAgentDeploymentConfig({ ...AGENT, tts: { ...anthropic, voice: "v" } }, "agent.json"))
@@ -171,7 +167,6 @@ describe("agent capability config", () => {
       provider: "openai",
       apiKey: "search-key",
       baseUrl: "https://search.example/v1",
-      headers: undefined,
       model: "search-model",
       maxCallsPerUse: WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE,
     });
@@ -197,7 +192,7 @@ describe("agent capability config", () => {
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       text: { provider: "google", api_key: "key", model: "m", baseURL: "https://wrong.example" },
-    }, "agent.json")).toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, headers\?, model \} when provider is google/);
+    }, "agent.json")).toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, model \} when provider is google/);
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       text: { provider: "google", api_key: "  ", model: "m" },
@@ -286,7 +281,6 @@ describe("agent capability config", () => {
       provider: "google",
       apiKey: "key",
       baseUrl: undefined,
-      headers: undefined,
       model: "gemini-image",
       imageProtocol: undefined,
       maxReferenceImages: IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
@@ -325,7 +319,6 @@ describe("agent capability config", () => {
       provider: "openai",
       apiKey: "key",
       baseUrl: undefined,
-      headers: undefined,
       model: "tts-model",
       speechProtocol: "openai",
       voice: "Leda",
@@ -345,57 +338,7 @@ describe("agent capability config", () => {
   });
 });
 
-describe("agent capability headers", () => {
-  const GATEWAY_TOKEN: string = "Bearer cf-aig-secret-token";
-
-  test("google provider 的 headers 原样生效，各能力都可声明", () => {
-    const parsed: AgentDeploymentConfig = parseAgentDeploymentConfig({
-      ...AGENT,
-      text: { provider: "google", api_key: "key", model: "m", headers: { "cf-aig-authorization": GATEWAY_TOKEN } },
-      image: { provider: "google", api_key: "key", model: "img", headers: { "X-Trace": " trace-1 " } },
-      tts: {
-        provider: "google",
-        api_key: "key",
-        base_url: "https://gateway.ai.cloudflare.com/v1/acc/gw/google-ai-studio",
-        model: "tts-test",
-        voice: "Leda",
-        headers: { "cf-aig-authorization": GATEWAY_TOKEN },
-      },
-    }, "agent.json");
-    expect(parsed.text.headers).toStrictEqual({ "cf-aig-authorization": GATEWAY_TOKEN });
-    expect(parsed.image?.headers).toStrictEqual({ "X-Trace": "trace-1" });
-    expect(parsed.tts?.headers).toStrictEqual({ "cf-aig-authorization": GATEWAY_TOKEN });
-    expect(parsed.summary.headers).toBeUndefined();
-    const adDetect: AdDetectAgentConfig = parseAdDetectAgentConfig(
-      { provider: "google", api_key: "key", model: "m", headers: { "cf-aig-authorization": GATEWAY_TOKEN } },
-      "agent.json"
-    );
-    expect(adDetect.headers).toStrictEqual({ "cf-aig-authorization": GATEWAY_TOKEN });
-  });
-
-  test("anthropic provider 的 headers 原样生效，各通用能力与 ad_detect 都可声明", () => {
-    const baseUrl: string = "https://gateway.ai.cloudflare.com/v1/acc/gw/anthropic";
-    const parsed: AgentDeploymentConfig = parseAgentDeploymentConfig({
-      ...AGENT,
-      text: { provider: "anthropic", api_key: "key", base_url: baseUrl, model: "m", headers: { "cf-aig-authorization": GATEWAY_TOKEN } },
-      summary: { provider: "anthropic", api_key: "key", base_url: baseUrl, model: "m", headers: { "X-Trace": " trace-1 " } },
-      media: { provider: "anthropic", api_key: "key", base_url: baseUrl, model: "m" },
-      web_search: { provider: "anthropic", api_key: "key", base_url: baseUrl, model: "m", headers: { "cf-aig-authorization": GATEWAY_TOKEN } },
-    }, "agent.json");
-    expect(parsed.text).toStrictEqual({
-      provider: "anthropic", apiKey: "key", baseUrl, headers: { "cf-aig-authorization": GATEWAY_TOKEN }, model: "m",
-      fallbackModel: undefined,
-    });
-    expect(parsed.summary.headers).toStrictEqual({ "X-Trace": "trace-1" });
-    expect(parsed.media.headers).toBeUndefined();
-    expect(parsed.webSearch?.headers).toStrictEqual({ "cf-aig-authorization": GATEWAY_TOKEN });
-    const adDetect: AdDetectAgentConfig = parseAdDetectAgentConfig(
-      { provider: "anthropic", api_key: "key", base_url: baseUrl, model: "m", headers: { "cf-aig-authorization": GATEWAY_TOKEN } },
-      "agent.json"
-    );
-    expect(adDetect.headers).toStrictEqual({ "cf-aig-authorization": GATEWAY_TOKEN });
-  });
-
+describe("agent capability provider fields", () => {
   test("anthropic provider 的 fallback_model 去掉首尾空白后生效，各通用能力与 ad_detect 都可声明，缺省为 undefined", () => {
     const parsed: AgentDeploymentConfig = parseAgentDeploymentConfig({
       ...AGENT,
@@ -405,7 +348,7 @@ describe("agent capability headers", () => {
       web_search: { provider: "anthropic", api_key: "key", model: "m", fallback_model: "fb", max_calls_per_use: 2 },
     }, "agent.json");
     expect(parsed.text).toStrictEqual({
-      provider: "anthropic", apiKey: "key", baseUrl: undefined, headers: undefined, model: "m", fallbackModel: "fb",
+      provider: "anthropic", apiKey: "key", baseUrl: undefined, model: "m", fallbackModel: "fb",
     });
     expect(parsed.summary).toHaveProperty("fallbackModel", "fb");
     expect(parsed.media).toHaveProperty("fallbackModel", undefined);
@@ -429,7 +372,7 @@ describe("agent capability headers", () => {
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       text: { provider: "google", api_key: "key", model: "m", fallback_model: "fb" },
-    }, "agent.json")).toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, headers\?, model \} when provider is google/);
+    }, "agent.json")).toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, model \} when provider is google/);
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       web_search: { provider: "openai", api_key: "key", model: "m", fallback_model: "fb" },
@@ -437,30 +380,28 @@ describe("agent capability headers", () => {
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       media: { provider: "anthropic", api_key: "key", model: "m", fallback: "fb" },
-    }, "agent.json")).toThrow(/agent\.media must be exactly \{ provider, api_key, base_url\?, headers\?, model, fallback_model\? \} when provider is anthropic/);
+    }, "agent.json")).toThrow(/agent\.media must be exactly \{ provider, api_key, base_url\?, model, fallback_model\? \} when provider is anthropic/);
   });
 
-  test("凭据头按 provider 区分：各自的凭据头不论大小写都拒绝，另一家的凭据头照常放行", () => {
-    for (const [provider, other] of [["google", "anthropic"], ["anthropic", "google"]] as const) {
-      const name: string = AGENT_CREDENTIAL_HEADER_NAMES[provider];
-      for (const variant of [name, name.toUpperCase()]) {
-        expect(() => parseAgentDeploymentConfig({
-          ...AGENT,
-          text: { provider, api_key: "key", model: "m", headers: { [variant]: "v" } },
-        }, "agent.json")).toThrow(`$.agent.text.headers must be ${EXPECTED_AGENT_HEADERS[provider]}`);
-      }
-      expect(parseAgentDeploymentConfig({
-        ...AGENT,
-        text: { provider: other, api_key: "key", model: "m", headers: { [name]: "v" } },
-      }, "agent.json").text.headers).toStrictEqual({ [name]: "v" });
-    }
-  });
-
-  test("openai provider 不接受 headers", () => {
+  test("任一 provider 都不接受 headers", () => {
+    expect(() => parseAgentDeploymentConfig({
+      ...AGENT,
+      text: { provider: "google", api_key: "key", model: "m", headers: { "x-a": "b" } },
+    }, "agent.json")).toThrow(/agent\.text must be exactly \{ provider, api_key, base_url\?, model \} when provider is google/);
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       summary: { provider: "openai", api_key: "key", model: "m", headers: { "x-a": "b" } },
     }, "agent.json")).toThrow(/agent\.summary must be exactly \{ provider, api_key, base_url\?, model \} when provider is openai/);
+    expect(() => parseAgentDeploymentConfig({
+      ...AGENT,
+      web_search: { provider: "anthropic", api_key: "key", model: "m", headers: { "x-a": "b" } },
+    }, "agent.json")).toThrow(/agent\.web_search must be exactly \{ provider, api_key, base_url\?, model, fallback_model\?, max_calls_per_use\? \} when provider is anthropic/);
+    expect(() => parseAgentDeploymentConfig({
+      ...AGENT,
+      tts: { provider: "google", api_key: "key", model: "m", voice: "Leda", headers: { "x-a": "b" } },
+    }, "agent.json")).toThrow(/agent\.tts must be exactly \{ provider, api_key, base_url\?, model, voice, style\?, bot_language\?, daily_limit\?, daily_reserve_quota\? \} when provider is google/);
+    expect(() => parseAdDetectAgentConfig({ provider: "google", api_key: "key", model: "m", headers: { "x-a": "b" } }, "agent.json"))
+      .toThrow(/agent\.ad_detect must be exactly \{ provider, api_key, base_url\?, model \} when provider is google/);
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       tts: { provider: "openai", api_key: "key", model: "m", speech_protocol: "openai", voice: "Leda", headers: { "x-a": "b" } },
@@ -475,36 +416,6 @@ describe("agent capability headers", () => {
     }, "agent.json")).toThrow(/agent\.image must be exactly \{ provider, api_key, base_url\?, model, image_protocol, max_reference_images\? \} when provider is openai/);
   });
 
-  test("headers 对象与请求头名非法时拒绝在 headers 路径上", () => {
-    const tooMany: Record<string, string> = {};
-    for (let index: number = 0; index <= AGENT_HEADERS_MAX_ENTRIES; index++) tooMany[`x-h${index}`] = "v";
-    for (const headers of [
-      {},
-      [],
-      "cf-aig-authorization: token",
-      tooMany,
-      { "bad name": "v" },
-      { "": "v" },
-      { "X-Goog-Api-Key": "v" },
-      { "x-a": "1", "X-A": "2" },
-    ] as const) {
-      expect(() => parseAgentDeploymentConfig({
-        ...AGENT,
-        text: { provider: "google", api_key: "key", model: "m", headers },
-      }, "agent.json")).toThrow(/agent\.text\.headers must be an object of 1 to \d+ HTTP header names/);
-    }
-  });
-
-  test("请求头值非法时拒绝在该请求头路径上，且不回显值", () => {
-    for (const value of [1, null, "   ", `${GATEWAY_TOKEN}\r\nx-injected: 1`, "令牌"] as const) {
-      const run = (): AgentDeploymentConfig => parseAgentDeploymentConfig({
-        ...AGENT,
-        media: { provider: "google", api_key: "key", model: "m", headers: { "cf-aig-authorization": value } },
-      }, "agent.json");
-      expect(run).toThrow(/agent\.media\.headers\.cf-aig-authorization must be a non-empty string/);
-      if (typeof value === "string" && value.trim().length > 0) expect(run).not.toThrow(value);
-    }
-  });
 });
 
 describe("agent tts capability", () => {
@@ -521,7 +432,7 @@ describe("agent tts capability", () => {
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       tts: { provider: "google", api_key: "key", model: "m", voice: "Leda", unknown: "value" },
-    }, "agent.json")).toThrow(/agent\.tts must be exactly \{ provider, api_key, base_url\?, headers\?, model, voice, style\?, bot_language\?, daily_limit\?, daily_reserve_quota\? \} when provider is google/);
+    }, "agent.json")).toThrow(/agent\.tts must be exactly \{ provider, api_key, base_url\?, model, voice, style\?, bot_language\?, daily_limit\?, daily_reserve_quota\? \} when provider is google/);
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       tts: { provider: "google", api_key: "key", model: "m" },
@@ -553,7 +464,7 @@ describe("agent tts capability", () => {
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       tts: { provider: "google", api_key: "key", model: "m", voice: "Leda", speech_protocol: "openai" },
-    }, "agent.json")).toThrow(/agent\.tts must be exactly \{ provider, api_key, base_url\?, headers\?, model, voice, style\?, bot_language\?, daily_limit\?, daily_reserve_quota\? \} when provider is google/);
+    }, "agent.json")).toThrow(/agent\.tts must be exactly \{ provider, api_key, base_url\?, model, voice, style\?, bot_language\?, daily_limit\?, daily_reserve_quota\? \} when provider is google/);
     expect(() => parseAgentDeploymentConfig({
       ...AGENT,
       tts: { ...openai, speech_protocol: "openai", language: "ja" },
@@ -575,7 +486,6 @@ describe("agent tts capability", () => {
       provider: "openai",
       apiKey: "xai-key",
       baseUrl: undefined,
-      headers: undefined,
       model: undefined,
       speechProtocol: "xai",
       voice: "ara",
@@ -679,7 +589,7 @@ describe("agent tts capability", () => {
 describe("unified agent.json loading", () => {
   test("广告端点缺省时跟随 provider SDK 的官方地址", () => {
     expect(parseAdDetectAgentConfig({ provider: "openai", api_key: "deepseek-key", model: "deepseek-test" }, "agent.json"))
-      .toEqual({ provider: "openai", apiKey: "deepseek-key", baseUrl: undefined, headers: undefined, model: "deepseek-test" });
+      .toEqual({ provider: "openai", apiKey: "deepseek-key", baseUrl: undefined, model: "deepseek-test" });
     expect(parseAdDetectAgentConfig({
       provider: "google",
       api_key: "google-key",
@@ -688,7 +598,6 @@ describe("unified agent.json loading", () => {
       provider: "google",
       apiKey: "google-key",
       baseUrl: undefined,
-      headers: undefined,
       model: "gemini-ad",
     });
   });
@@ -736,7 +645,6 @@ describe("unified agent.json loading", () => {
       provider: "openai",
       apiKey: "deepseek-key",
       baseUrl: "https://deepseek.example/v1",
-      headers: undefined,
       model: "deepseek-test",
     };
     adoptAdDetectAgentConfig(adValue);
@@ -775,10 +683,6 @@ describe("unified agent.json loading", () => {
       config.text = adDetect;
       // @ts-expect-error 能力内部字段为只读，不得改写凭据或模型。
       config.text.apiKey = "replacement";
-      if (config.text.headers !== undefined) {
-        // @ts-expect-error 网关请求头表为只读，不得改写单条值。
-        config.text.headers["cf-aig-authorization"] = "replacement";
-      }
       if (config.image !== undefined) {
         // @ts-expect-error 生图能力字段为只读。
         config.image.maxReferenceImages = 1;

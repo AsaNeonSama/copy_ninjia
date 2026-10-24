@@ -38,8 +38,8 @@
 <p align="center">
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6792_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.96%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6829_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.78%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -104,7 +104,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：6792 项测试全部通过 / 560 个测试文件 / 447,983 次 expect() 调用 / 函数覆盖率 98.42% / 行覆盖率 98.96%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：6829 项测试全部通过 / 566 个测试文件 / 453,211 次 expect() 调用 / 函数覆盖率 98.53% / 行覆盖率 98.78%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -265,7 +265,7 @@
 </tbody>
 </table>
 
-- **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 与 `headers` 接入反向代理或网关）。可选 `bot_language`（`TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
+- **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 接入反向代理或网关）。可选 `bot_language`（`TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
 - **配额物理隔离**：每日总配额 `daily_limit`（缺省 `TTS_DEFAULT_DAILY_LIMIT`）中切分出 `daily_reserve_quota`（缺省 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）专供 `/send` 与定时任务使用，AI 闲聊仅使用剩余额度；两套额度独立统计、互不挤占。配额窗口（`TTS_USAGE_WINDOW_MS`）从窗口内首次请求开始计时，到期后的首个请求会自动清零计数开启新周期。
 - **记忆准入机制**：`/send` 转发消息与定时语音不录入 AI 对话上下文；群内图片的自动记录仅在群内已启用 AI 且当前未处于复读状态时生效。详见 [11 常见问题](docs/cn/11-faq.md)。
 

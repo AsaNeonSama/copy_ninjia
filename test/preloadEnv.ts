@@ -1,4 +1,5 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import type { StatsFs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../packages/consts/configLayout";
@@ -19,12 +20,40 @@ import {
  * Bun 会等那一层续体跑完再开始跑测试文件。
  */
 
-/** 进程原有的两个根目录设置；preload 的 afterAll 负责还原。 */
+/** `os.tmpdir()` 读取的环境变量名；preload 的 afterAll 按它还原。 */
+export const TMPDIR_ENV: string = "TMPDIR";
+/** Linux tmpfs 的 statfs 文件系统类型魔数。 */
+const TMPFS_MAGIC: number = 0x01021994;
+/** 内存文件系统临时目录的候选位置。 */
+const TMPFS_CANDIDATE_DIR: string = "/dev/shm";
+/** 选用内存文件系统临时目录所需的最小可用字节数。 */
+const TMPFS_MIN_AVAILABLE_BYTES: number = 512 * 1_024 * 1_024;
+
+/** 进程原有的两个根目录与 TMPDIR 设置；preload 的 afterAll 负责还原。 */
 export const PREVIOUS_DATA_ROOT: string | undefined = process.env[RUNTIME_DATA_ROOT_ENV];
 export const PREVIOUS_CONFIG_ROOT: string | undefined = process.env[CONFIG_ROOT_ENV];
+export const PREVIOUS_TMPDIR: string | undefined = process.env[TMPDIR_ENV];
+
+/**
+ * 测试临时目录的父目录：TMPFS_CANDIDATE_DIR 是 tmpfs 且可用空间不少于 TMPFS_MIN_AVAILABLE_BYTES 时
+ * 取它，否则取进程原有的 `os.tmpdir()`。
+ * @returns 测试数据根与测试 TMPDIR 的父目录。
+ */
+function testTempParentDir(): string {
+  if (!existsSync(TMPFS_CANDIDATE_DIR)) return tmpdir();
+  const stats: StatsFs = statfsSync(TMPFS_CANDIDATE_DIR);
+  return stats.type === TMPFS_MAGIC && stats.bavail * stats.bsize >= TMPFS_MIN_AVAILABLE_BYTES
+    ? TMPFS_CANDIDATE_DIR
+    : tmpdir();
+}
+
+const TEST_TEMP_PARENT_DIR: string = testTempParentDir();
 
 /** 测试进程独占的数据根；模块加载时创建的临时目录放在其下，由 preload 的全局 afterAll 整棵删除。 */
-export const TEST_DATA_ROOT: string = mkdtempSync(join(tmpdir(), "copy-ninjia-test-data-"));
+export const TEST_DATA_ROOT: string = mkdtempSync(join(TEST_TEMP_PARENT_DIR, "copy-ninjia-test-data-"));
+
+/** 测试进程的 `os.tmpdir()`：用例经 tmpdir() 自建的临时目录都在其下，由 preload 的全局 afterAll 整棵删除。 */
+export const TEST_TMPDIR: string = mkdtempSync(join(TEST_TEMP_PARENT_DIR, "copy-ninjia-test-tmp-"));
 
 /** 本次测试进程独占的部署配置根；示例占位凭据只在这份副本里替换。 */
 export const TEST_CONFIG_ROOT: string = join(TEST_DATA_ROOT, "config");
@@ -56,3 +85,5 @@ writeFileSync(TEST_BOT_CONFIG_PATH, TEST_BOT_CONFIG, { mode: 0o600 });
 process.env[RUNTIME_DATA_ROOT_ENV] = TEST_DATA_ROOT;
 // 部署 config/ 不受版本控制；测试和测试 Worker 统一读取独占临时副本，不读也不改开发机上的真实部署配置。
 process.env[CONFIG_ROOT_ENV] = TEST_CONFIG_ROOT;
+// 用例与被测代码经 os.tmpdir() 创建的临时文件落在测试独占目录（与数据根同在 TEST_TEMP_PARENT_DIR 下）。
+process.env[TMPDIR_ENV] = TEST_TMPDIR;

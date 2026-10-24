@@ -15,6 +15,12 @@ import { scheduleEarliestExpirySweep } from "../../libs/earliestExpirySweep";
 import type { EarliestExpirySweeper } from "../../libs/earliestExpirySweep";
 import type { AiReplyActivityEntry } from "../../types/auto";
 
+/**
+ * 修剪单群活跃度队列中已滑出时间窗口的时间戳。
+ *
+ * @param entry 群聊活跃度条目
+ * @param now 当前毫秒时间戳
+ */
 function pruneEntry(entry: AiReplyActivityEntry, now: number): void {
   entry.timestamps.trim(AI_REPLY_ACTIVITY_WINDOW_MS, now);
 }
@@ -31,7 +37,12 @@ function evictLeastRecentlyUsedActivityEntry(): void {
   if (oldestChatId !== undefined) aiReplyActivityByChat.delete(oldestChatId);
 }
 
-/** chatId 已不在表中时写回，并在硬上限处按严格访问次序淘汰 LRU。 */
+/**
+ * chatId 已不在表中时写回，并在硬上限处按严格访问次序淘汰 LRU。
+ *
+ * @param chatId 群聊 ID
+ * @param entry 群聊活跃度条目
+ */
 function storeActivityEntry(
   chatId: number,
   entry: AiReplyActivityEntry
@@ -42,7 +53,11 @@ function storeActivityEntry(
   aiReplyActivityByChat.set(chatId, entry);
 }
 
-/** 修剪各群队列并删除窗口内已无时间戳的群；仅由全局单 timer 调用，消息热路径只修剪自己群的队列。导出供边界测试。 */
+/**
+ * 修剪各群队列并删除窗口内已无时间戳的群；仅由全局单 timer 调用，消息热路径只修剪自己群的队列。导出供边界测试。
+ *
+ * @param now 当前毫秒时间戳
+ */
 export function sweepAiReplyActivity(now: number = Date.now()): void {
   for (const [chatId, entry] of aiReplyActivityByChat) {
     pruneEntry(entry, now);
@@ -64,6 +79,12 @@ const activitySweeper: EarliestExpirySweeper = {
   sweep: sweepAiReplyActivity,
 };
 
+/**
+ * 根据时间窗口内的消息数换算 AI 随机搭话概率。
+ *
+ * @param recentMessageCount 滑动窗口内的近期消息数量
+ * @returns 当前消息的 AI 随机搭话概率
+ */
 function probabilityFromCount(recentMessageCount: number): number {
   const base: number = Math.max(
     AI_REPLY_PROBABILITY_BASE_MIN,
@@ -76,6 +97,10 @@ function probabilityFromCount(recentMessageCount: number): number {
  * 记录当前群消息并返回这一条应使用的 AI 随机搭话概率。当前消息先进滑动
  * 窗口；同群近期消息越多，概率越高，但不会越过热群下限。队列饱和追加
  * 和访问序号刷新都是 O(1)，到期修剪为均摊 O(1)。
+ *
+ * @param chatId 群聊 ID
+ * @param now 当前毫秒时间戳
+ * @returns 当前消息的 AI 随机搭话概率
  */
 export function observeGroupMessageForAiReply(chatId: number, now: number = Date.now()): number {
   let entry: AiReplyActivityEntry | undefined = aiReplyActivityByChat.get(chatId);

@@ -66,11 +66,22 @@ const TOP_LEVEL_SECTIONS: readonly string[] = ["hotPathProfileGate", "fullSuite"
 
 /**
  * 抛出点名字段路径的解析失败；只写字段路径，文件路径由 read/write 入口统一补在前面。
+ *
+ * @param path 失败字段的 JSON 路径
+ * @param expectation 期望形态描述
  */
 function fail(path: string, expectation: string): never {
   throw new Error(`$.${path} ${expectation}; fix the calibration record before running the gate.`);
 }
 
+/**
+ * 读取并校验父对象中的必填普通对象字段。
+ *
+ * @param parent 父级普通对象
+ * @param key 字段名
+ * @param path 字段的完整 JSON 路径
+ * @returns 校验通过的子对象
+ */
 function requiredRecord(
   parent: Readonly<Record<string, unknown>>,
   key: string,
@@ -81,6 +92,14 @@ function requiredRecord(
   return value;
 }
 
+/**
+ * 读取并校验父对象中的必填非空字符串字段。
+ *
+ * @param parent 父级普通对象
+ * @param key 字段名
+ * @param path 字段的完整 JSON 路径
+ * @returns 校验通过的非空字符串
+ */
 function requiredNonEmptyString(
   parent: Readonly<Record<string, unknown>>,
   key: string,
@@ -93,6 +112,14 @@ function requiredNonEmptyString(
   return value;
 }
 
+/**
+ * 读取并校验父对象中的必填正有限数值字段。
+ *
+ * @param parent 父级普通对象
+ * @param key 字段名
+ * @param path 字段的完整 JSON 路径
+ * @returns 校验通过的正数
+ */
 function requiredPositiveNumber(
   parent: Readonly<Record<string, unknown>>,
   key: string,
@@ -105,7 +132,13 @@ function requiredPositiveNumber(
   return value;
 }
 
-/** 键集合必须与声明精确一致；未知键与缺键都拒绝。 */
+/**
+ * 键集合必须与声明精确一致；未知键与缺键都拒绝。
+ *
+ * @param value 待校验的普通对象
+ * @param keys 期望精确匹配的键名列表
+ * @param path 对象的完整 JSON 路径
+ */
 function assertExactKeys(
   value: Readonly<Record<string, unknown>>,
   keys: readonly string[],
@@ -116,6 +149,12 @@ function assertExactKeys(
   }
 }
 
+/**
+ * 解析并校验校准记录中的 Bun 运行时信息。
+ *
+ * @param gate 校准配置根对象
+ * @returns 校验通过的 Bun 运行时校准信息
+ */
 function parseRuntime(
   gate: Readonly<Record<string, unknown>>
 ): HotPathGateRuntimeCalibration {
@@ -143,6 +182,12 @@ function parseRuntime(
   };
 }
 
+/**
+ * 解析并校验校准记录中的硬上限阈值集合。
+ *
+ * @param gate 校准配置根对象
+ * @returns 校验通过的热路径门禁硬上限
+ */
 function parseLimits(gate: Readonly<Record<string, unknown>>): HotPathGateLimits {
   const limits: Record<string, unknown> = requiredRecord(
     gate,
@@ -185,7 +230,12 @@ function parseLimits(gate: Readonly<Record<string, unknown>>): HotPathGateLimits
   };
 }
 
-/** 每个场景保留至少 `HOT_PATH_PROFILE_REPEATS` 次独立进程的完整 GC 暂停读数，不参与 CPU 预算选择。 */
+/**
+ * 每个场景保留至少 `HOT_PATH_PROFILE_REPEATS` 次独立进程的完整 GC 暂停读数，不参与 CPU 预算选择。
+ *
+ * @param value 待校验的 GC 校准记录字段值
+ * @param path GC 校准记录的 JSON 路径
+ */
 function validateGcCalibration(value: unknown, path: string): void {
   if (!isPlainRecord(value)) fail(path, "must be an object");
   assertExactKeys(value, ["samples", "note"], path);
@@ -219,6 +269,10 @@ function validateGcCalibration(value: unknown, path: string): void {
 /**
  * 校验单个场景的软上报阈值及其来源读数，返回阈值。`measured` 只用于在解析期核对
  * 阈值不低于它自己的来源读数，不进入解析结果。
+ *
+ * @param value 单个场景的校准配置对象
+ * @param path 场景校准节点的 JSON 路径
+ * @returns 校验通过的纳秒每操作软上报阈值
  */
 function parseScenario(
   value: unknown,
@@ -275,6 +329,9 @@ function parseScenario(
  *
  * 只校验结构与取值形态；「场景表是否与默认场景一一对应」由
  * assertHotPathMedianPolicyCoverage 判定。
+ *
+ * @param path `performance-result.json` 文件路径
+ * @returns 校验通过的热路径门禁校准配置
  */
 export async function readHotPathGateCalibration(
   path: string
@@ -287,15 +344,26 @@ export async function readHotPathGateCalibration(
   }
 }
 
-/** 严格 JSON 读取；解析失败即致命，不退回默认值也不尝试修复。 */
+/**
+ * 严格 JSON 读取；解析失败即致命，不退回默认值也不尝试修复。
+ *
+ * @param path JSON 文件路径
+ * @returns 解析后的原始 JSON 值
+ */
 async function readDocument(path: string): Promise<unknown> {
   try {
-    return JSON.parse(await Bun.file(path).text());
+    return await Bun.file(path).json();
   } catch (error: unknown) {
     throw new Error("could not be read as strict JSON.", { cause: error });
   }
 }
 
+/**
+ * 解析并校验整个 `performance-result.json` 文档中的热路径门禁校准节。
+ *
+ * @param parsed 已解析的顶层 JSON 值
+ * @returns 结构化的热路径门禁校准配置
+ */
 function parseCalibrationDocument(parsed: unknown): HotPathGateCalibration {
   if (!isPlainRecord(parsed)) fail("", "must be a JSON object");
   if (!hasOnlyKeys(parsed, TOP_LEVEL_SECTIONS)) {
@@ -344,6 +412,9 @@ function parseCalibrationDocument(parsed: unknown): HotPathGateCalibration {
  *
  * 实际写盘在 `scripts/perf/performanceResult.ts`（同一份文件还有全量基准那一节，
  * 两边共用「只换自己那一格」的语义）；这层只固定本侧的节名与键名。
+ *
+ * @param path `performance-result.json` 文件路径
+ * @param lastRun 待写入的最近一次门禁运行报告
  */
 export async function writeHotPathGateLastRun(
   path: string,

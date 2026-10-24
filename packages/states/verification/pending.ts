@@ -26,7 +26,12 @@ import {
   snapshotOf,
 } from "./shared";
 
-/** 处理待验证成员发言、评论区豁免与刷屏终态切换。 */
+/**
+ * 处理待验证成员发言、评论区豁免与刷屏终态切换。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @param event 待验证成员发言事件载荷。
+ * @returns 状态转移结果及所需的提醒、豁免或驱逐副作用。
+ */
 export function handleTrackedMessage(
   state: VerificationState | undefined,
   event: TrackedMessageEvent
@@ -51,6 +56,7 @@ export function handleTrackedMessage(
   const effects: VerificationEffect[] = [{
     kind: "sendReplyReminder",
     label: state.label,
+    isBot: state.isBot,
     targetMessageId: event.messageId,
   }];
   if (state.reminderMessageId !== undefined) {
@@ -60,7 +66,12 @@ export function handleTrackedMessage(
   return pendingUpdated(state, effects);
 }
 
-/** 处理冷缓存核查返回的权威评论区确认。 */
+/**
+ * 处理冷缓存核查返回的权威评论区确认。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @param event 权威评论区确认事件载荷。
+ * @returns 状态转移结果；命中豁免条件时转入 exempt 并清理提醒。
+ */
 export function handleConfirmedThreadComment(
   state: VerificationState | undefined,
   event: ConfirmedThreadCommentEvent
@@ -79,6 +90,8 @@ export function handleConfirmedThreadComment(
 
 /**
  * 计算「通过」按钮的驳回理由；返回 undefined 表示放行。
+ * @param event 验证按钮回调事件载荷。
+ * @returns 驳回原因枚举值；允许放行时返回 undefined。
  */
 function approveDenial(
   event: VerificationCallbackEvent
@@ -91,6 +104,9 @@ function approveDenial(
 /**
  * 处理验证按钮回调：本人验证仅接受待验证真人本人，「通过」仅接受群管理员代点；
  * 记录非 pending 时应答失效。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @param event 验证按钮回调事件载荷。
+ * @returns 状态转移结果及回调应答、删除提醒、发送欢迎等副作用。
  */
 export function handleCallback(
   state: VerificationState | undefined,
@@ -132,7 +148,12 @@ export function handleCallback(
   };
 }
 
-/** 处理验证到期：提醒尚未送达且在重试窗口内时续期重发，否则进入处置终态。 */
+/**
+ * 处理验证到期：提醒尚未送达且在重试窗口内时续期重发，否则进入处置终态。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @param event 验证超时事件载荷。
+ * @returns 续期重发提醒或进入 checkingInviter / expelling 终态的转移结果。
+ */
 export function handleVerifyTimeout(
   state: VerificationState | undefined,
   event: VerifyTimeoutEvent
@@ -150,6 +171,7 @@ export function handleVerifyTimeout(
       ? [{
         kind: "sendReplyReminder",
         label: state.label,
+        isBot: state.isBot,
         targetMessageId: anchorMessageId,
       }]
       : [{ kind: "sendReminder", label: state.label, isBot: state.isBot }];
@@ -166,7 +188,12 @@ export function handleVerifyTimeout(
   return { next: expellingOf("timeout", snapshot), effects: NO_VERIFICATION_EFFECTS };
 }
 
-/** 回填已落地的提醒消息 ID，并重置验证到期时间。 */
+/**
+ * 回填已落地的提醒消息 ID，并重置验证到期时间。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @param event 提醒消息发送落地事件载荷。
+ * @returns 状态转移结果；非 pending 或已被替代时返回删除该提醒消息的副作用。
+ */
 export function handleReminderLanded(
   state: VerificationState | undefined,
   event: ReminderLandedEvent
@@ -186,6 +213,8 @@ export function handleReminderLanded(
 /**
  * 处理异步管理员核查返回的通过结论：仅对 pending 状态切换至 exempt，
  * 删除验证提醒并撤回入群滑动窗口计数。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @returns 状态转移结果；pending 时转入 exempt 并附带清理提醒与撤回计数副作用。
  */
 export function handleAdminCheckResolved(
   state: VerificationState | undefined

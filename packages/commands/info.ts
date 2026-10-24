@@ -33,16 +33,26 @@ import { resolveCommandTarget } from "./targetResolution";
 
 /** 回执正文与其中 id 的 code 实体。 */
 interface InfoMessage {
+  /** 组装完成的用户或频道资料文本。 */
   readonly text: string;
+  /** 标记身份 ID 字段的 `code` 格式实体列表。 */
   readonly entities: readonly MessageEntity[];
 }
 
-/** 用户资料与头像读取目标。 */
+/**
+ * 用户资料与头像读取目标。
+ * @param user Telegram 用户资料。
+ * @returns 归一化后的资料与头像读取目标。
+ */
 function userLookup(user: User): InfoLookup {
   return { profile: { id: user.id, name: joinPersonName(user.first_name, user.last_name), username: user.username }, avatarTarget: user };
 }
 
-/** 现查失败时退回目标解析得到的身份；连名称和用户名都没有时为 undefined。 */
+/**
+ * 现查失败时退回目标解析得到的身份；连名称和用户名都没有时为 undefined。
+ * @param target 缓存的目标身份。
+ * @returns 由缓存身份构造的资料与头像读取目标；名称与用户名都缺失时返回 undefined。
+ */
 function cachedLookup(target: CachedUser): InfoLookup | undefined {
   const name: string = target.isChannel === true ? target.title ?? "" : joinPersonName(target.first_name, target.last_name);
   if (name.length === 0 && target.username === undefined) return undefined;
@@ -52,7 +62,11 @@ function cachedLookup(target: CachedUser): InfoLookup | undefined {
   return { profile: { id: target.id, name, username: target.username }, avatarTarget };
 }
 
-/** 频道或群的资料；只有频道能读头像。 */
+/**
+ * 频道或群的资料；只有频道能读头像。
+ * @param chat Telegram getChat 返回的完整会话资料。
+ * @returns 归一化后的会话资料与可选头像读取目标。
+ */
 function chatLookup(chat: ChatFullInfo): InfoLookup {
   const name: string = "title" in chat && chat.title !== undefined ? chat.title : joinPersonName(chat.first_name, chat.last_name);
   return {
@@ -61,7 +75,12 @@ function chatLookup(chat: ChatFullInfo): InfoLookup {
   };
 }
 
-/** 本轮现查资料；查不到时退回缓存身份。 */
+/**
+ * 本轮现查资料；查不到时退回缓存身份。
+ * @param request `/info` 请求上下文。
+ * @param signal 任务取消与超时信号。
+ * @returns 查询或回退得到的目标资料；无可用资料时返回 undefined。
+ */
 async function lookUp(request: InfoRequest, signal: AbortSignal): Promise<InfoLookup | undefined> {
   if (request.selfUser !== undefined) return userLookup(request.selfUser);
   const target: CachedUser = request.target;
@@ -82,6 +101,10 @@ async function lookUp(request: InfoRequest, signal: AbortSignal): Promise<InfoLo
 /**
  * 回执正文：名称与用户名是用户可控片段，经 sanitizeDisplayName 中和命令与双向控制字符；
  * id 用 code 实体标出，偏移按 UTF-16 计。没有头像时多一行「头像：无」。
+ * @param profile 目标身份的名称、用户名与 ID。
+ * @param texts 当前氛围的 `/info` 展示文案。
+ * @param hasAvatar 是否已成功读取并准备附带头像发送。
+ * @returns 拼好的回执正文及 code 实体列表。
  */
 function buildInfoMessage(profile: InfoProfile, texts: AtmosphereTexts["INFO_TEXTS"], hasAvatar: boolean): InfoMessage {
   const name: string = sanitizeDisplayName(profile.name) || texts.noUsername;
@@ -92,7 +115,10 @@ function buildInfoMessage(profile: InfoProfile, texts: AtmosphereTexts["INFO_TEX
   return { text, entities: [{ type: "code", offset: head.length, length: id.length }] };
 }
 
-/** 出队后查资料与头像并回执。 */
+/**
+ * 出队后查资料与头像并回执。
+ * @param request `/info` 请求上下文。
+ */
 async function deliverInfo(request: InfoRequest): Promise<void> {
   const texts: AtmosphereTexts["INFO_TEXTS"] = chatAtmosphere().INFO_TEXTS;
   const signal: AbortSignal = signalWithTimeout(currentUpdateAbortSignal(), INFO_TASK_BUDGET_MS);
@@ -134,7 +160,10 @@ async function deliverInfo(request: InfoRequest): Promise<void> {
   });
 }
 
-/** 处理 `/info`：解析目标后交给延迟命令执行器，满额时回「稍后再试」。 */
+/**
+ * 处理 `/info`：解析目标后交给延迟命令执行器，满额时回「稍后再试」。
+ * @param ctx grammY 命令上下文。
+ */
 export async function handleInfoCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
   const messageId: number | undefined = ctx.msgId;

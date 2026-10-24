@@ -15,19 +15,19 @@
 ## 目录职责
 
 - **`LICENSES/`**
-  - **内容**：存放项目主许可证 [`LICENSE`](../../LICENSES/LICENSE)（MIT），以及第三方字符数据与音频编解码库的许可证：汉字变体表使用的 [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt)、Opus 编码依赖的 [`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) 与 [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)。
+  - **内容**：存放项目主许可证 [`LICENSE`](../../LICENSES/LICENSE)（MIT），以及第三方字符数据与音频编解码库的许可证：汉字变体表使用的 [`Unicode-3.0.txt`](../../LICENSES/Unicode-3.0.txt)、多相滤波器音频重采样的 [`audio-resample-polyphase-MIT.txt`](../../LICENSES/audio-resample-polyphase-MIT.txt)、Opus 编码依赖的 [`audio-encode-opus-MIT.txt`](../../LICENSES/audio-encode-opus-MIT.txt) 与 [`libopus-BSD.txt`](../../LICENSES/libopus-BSD.txt)。
 - **`packages/app/`**
   - **职责**：整个应用的启动与停机生命周期编排、启动前配置文件校验、`config/dynamic/` 动态热重载分发、中间件注册、命令菜单装配，以及 Telegram update 消费 Runner。
   - **代表文件**：`lifecycle.ts` 与 `lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updatePreamble.ts`、`updateRunner.ts` / `updateFetcher.ts`。
 - **`packages/commands/`**
   - **职责**：所有用户显式触发的 Telegram 斜杠命令实现，按命令领域组织；子命令在各自领域内分发，公用的权限门禁独立抽离。
-  - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts`、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts` 与 `gag/rendering.ts` 承接；`/delete_message` 由 `deleteMessage.ts`（命令与消息 ingress）与 `deleteMessage/queue.ts`（待删队列与停机排空）承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
+  - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts` 与 `qa/`（`board.ts`、`ingress.ts`、`notices.ts`、`rendering.ts`、`session.ts`）、`wed.ts` 与 `wed/`（`memberReview.ts`、`messages.ts`、`persistence.ts`、`rendering.ts`）、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts`、`gag/notices.ts`、`gag/refresh.ts` 与 `gag/rendering.ts` 承接；`/delete_message` 由 `deleteMessage.ts`（命令与消息 ingress）与 `deleteMessage/queue.ts`（待删队列与停机排空）承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
 - **`packages/auto/`**
   - **职责**：非命令形式的自动响应行为，包括自动复读、AI 聊天转录与智能触发、群表情反应同步。
   - **代表文件**：`message/`（含 `triggerPolicy.ts`）、`reactionSync.ts`。
 - **`packages/aiChat/`**
   - **职责**：AI 闲聊模块在主线程侧的代理组件与模型能力集成，包括 Worker 监督管理、记忆镜像、启动与热重载状态注入、可用性检查，以及各模型供应商（`gemini/`、`openai/`、`anthropic/`）的具体客户端与工具实现。
-  - **代表文件**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`、`voiceSynthesis.ts`、`webDigest.ts`、`memoryMirror.ts`、`stickerMirror.ts`、`workerJob.ts`、`availability.ts`、`provider.ts`、`providerLanes.ts`、`capabilityClient.ts`、`gemini/`、`openai/`、`anthropic/`、`ai/`；`index.ts` 仅提供统一的薄接口导出。
+  - **代表文件**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`、`voiceSynthesis.ts`、`webDigest.ts`、`memoryMirror.ts`、`stickerMirror.ts`、`workerJob.ts`、`availability.ts`、`provider.ts`、`providerFacades.ts`、`providerLanes.ts`、`capabilityClient.ts`、`gemini/`、`openai/`、`anthropic/`、`ai/`；`index.ts` 仅提供统一的薄接口导出。
 - **`packages/antiRaid/`**
   - **职责**：Anti-Raid（防冲群与风控）在主线程侧的代理组件，包括 Worker 监督、数据持久化同步、进群消息流转、广告候选排队送检，以及黑名单处置与成员验证调度。
   - **代表文件**：`workerBridge/`（`controller.ts`、`events.ts`、`observers.ts`、`replay.ts`）、`durableDelivery.ts`、`updateIngress.ts`、`adCandidate.ts`、`adDetect.ts`；`index.ts` 仅提供统一的薄接口导出。
@@ -48,7 +48,7 @@
   - **代表文件**：`verification.ts` 与 `verification/`（`join`/`pending`/`terminal`/`disable` 各阶段与 `adopt.ts` 恢复）、`lockdown.ts` 与 `lockdown/`（`apply`/`persistence`/`restore`/`announcement`/`adopt` 各阶段）、`replyAdmission.ts`、`adDetectAdmission.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
 - **`packages/config/`**
   - **职责**：`config/{static,dynamic}/*.json` 配置文件的严格 schema 校验、内存快照封装、热重载差异判定与功能可用性检查。
-  - **代表文件**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`mood.ts`、`stickers.ts`、`adSamples.ts`、`googleAuth.ts`、`readiness.ts`、`reload.ts`。
+  - **代表文件**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`adSamples.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`readiness.ts`、`reload.ts`。
 - **`packages/database/`**
   - **职责**：本地共享 SQLite 数据库的 schema、编解码器（codec）、数据行校验及 Drizzle ORM 交互边界；运行时数据库句柄仅归 Disk I/O Worker 独占。
   - **代表目录**：`schema/`（含 `migrations/`）、`codec/identity.ts`、`codec/chatState.ts`、`codec/chatQa.ts`、`codec/temporaryAdBypass.ts`、`interact/`（`connection.ts`、`transaction.ts`、`identityPolicy.ts`、`chatState.ts`、`chatQa.ts`、`temporaryAdBypass.ts`、`aiContext.ts`、`migration.ts`、`initialization.ts`、`inspection.ts`）、`validation/storageRows.ts`。
@@ -57,7 +57,7 @@
   - **代表文件**：`flushBarrier.ts`、`linkedQueue.ts`、`fifoMap.ts` 与 `lruCache.ts`、`acknowledgedBatchQueue.ts`、`boundedResponse.ts`、`boundedSettledBatch.ts`、`monotonicDeadline.ts`、`text.ts`、`errorMessage.ts`、`telegramMarkdown.ts`、`webDigest.ts` 与 `webDigestMarkdown.ts`、`webDigestUrls.ts`、`workerRequestTable.ts`。
 - **`packages/workers/`**
   - **职责**：三个 Worker 线程内部的实现逻辑。
-  - **代表文件**：`aiChatWorker.ts`、`antiRaidWorker.ts`、`diskIOWorker.ts`、`businessWorkerPort.ts`、`aiChat/`、`antiRaid/verificationEffects/`、`diskIO/storageDatabase.ts` 与 `diskIO/storageDatabase/`、`diskIO/verification{Codec,Recovery,Writes}.ts`。
+  - **代表文件**：`aiChatWorker.ts`、`antiRaidWorker.ts`、`diskIOWorker.ts`、`businessWorkerPort.ts`、`aiChat/`、`antiRaid/verificationEffects/`、`diskIO/storageDatabase.ts` 与 `diskIO/storageDatabase/`（含 `flushHold.ts` 等）、`diskIO/verification{Codec,Recovery,Writes}.ts`。
 - **`packages/aiChat/ai/`**
   - **职责**：AI 模型具体功能的工具与提示词实现。
   - **代表文件**：`tools/replyToolset/`、`tools/webSearch.ts`、`webDigest.ts`、`utils/`、`stickers/`、`voiceSynthesis.ts`、`ttsUsage.ts`。
@@ -67,7 +67,7 @@
 - **`packages/infra/`**
   - **职责**：主线程唯一的 Telegram 客户端连接与出站闸门、Worker 双工通信宿主、系统日志输出、主线程 I/O 代理与专用图库文件管理。
   - **代表文件与目录**：
-    - `telegram/`（含 `telegram/avatar/`、`telegram/actions/`）
+    - `telegram/`（含 `telegram/outboundGate.ts`、`telegram/outboundRetryLane.ts`、`telegram/sendLane.ts`、`telegram/sendScheduler.ts`、`telegram/avatar/`、`telegram/actions/`）
     - `diskIO.ts` 与 `diskIO/`（`businessWrite.ts`、`diagnosticChannel.ts`、`fatal.ts`、`host.ts`、`observers.ts`、`recovery.ts`、`requests.ts`、`storageAdmission.ts`、`transport.ts`）
     - `identityStorage.ts` 与 `identityStorage/`（`read.ts`、`shared.ts`、`sweep.ts`、`write.ts`）
     - `logger.ts` 与 `logger/`（`forwarding.ts`、`redaction.ts`、`serialization.ts`）

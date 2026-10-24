@@ -23,7 +23,12 @@ import type {
   AiWebSearchSource,
 } from "../../types/aiChat/provider";
 
-/** 按指定能力执行一次 Anthropic 联网检索。 */
+/**
+ * 按指定能力执行一次 Anthropic 联网检索。
+ * @param capability 执行联网检索的能力槽位（`"web_search"` 或 `"text"`）。
+ * @param request 联网检索请求参数。
+ * @returns 联网检索结果：成功时包含汇总正文、引用来源与检索次数；请求失败、工具报错或超过 `pause_turn` 续写上限时返回 `ok: false`（模型拒答时附带 `refused: true`）。
+ */
 export async function searchAnthropicWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest

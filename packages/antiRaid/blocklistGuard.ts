@@ -1,3 +1,6 @@
+/**
+ * 黑名单入群守卫主线程侧：黑名单判定、频道身份消息删除与封禁批次登记（见 docs/cn/04-invariants.md）。
+ */
 import type { Chat, Message } from "grammy/types";
 import { isUserBlocked } from "../infra/blocklist/membership";
 import {
@@ -19,16 +22,15 @@ import type { AntiRaidWorkerMessage } from "../types/antiRaid/protocol";
 import type { RemoveBlockedMembersParams } from "../types/blocklist";
 import type { DeleteMessageOutcome } from "../types/telegram";
 
-/**
- * 黑名单入群守卫主线程侧：黑名单判定、频道身份消息删除与封禁批次登记（见 docs/cn/04-invariants.md）。
- */
-
 /** 向 Worker 持久化投递处置消息的函数签名。 */
 export type DurableAntiRaidPost = (messages: readonly AntiRaidWorkerMessage[]) => Promise<number>;
 
 /**
  * 拦截并删除已拉黑频道身份发出的群消息。返回 true 表示消息已由黑名单门禁接管，
  * 调用方不得继续向后续流水线分发；未命中时同步返回 false。
+ *
+ * @param message 入站 Telegram 群消息
+ * @returns 命中黑名单频道身份时返回 true（或兑现为 true 的 Promise），未命中时返回 false
  */
 export function deleteBlockedSenderChatMessage(message: Message): boolean | Promise<boolean> {
   const senderChat: Chat | undefined = visibleSenderChat(message);
@@ -66,8 +68,11 @@ export function deleteBlockedSenderChatMessage(message: Message): boolean | Prom
   );
 }
 
+/** 拦截黑名单成员入群并登记移除批次所需的上下文参数。 */
 export interface ClaimBlockedJoinerParams {
+  /** 群聊 ID。 */
   chatId: number;
+  /** 新入群用户的 Telegram ID。 */
   userId: number;
   /** 待投递给 Worker 的消息列表；命中黑名单时追加 removeBlockedMembers。 */
   messages: AntiRaidWorkerMessage[];
@@ -85,7 +90,11 @@ export interface ClaimBlockedJoinerParams {
   joinGuardEnabled: boolean;
 }
 
-/** 从队首淘汰超出 JOIN_WINDOW_MS 的入群计数去重项。 */
+/**
+ * 从队首淘汰超出 JOIN_WINDOW_MS 的入群计数去重项。
+ *
+ * @param now 当前毫秒时间戳
+ */
 function pruneRecentBlockedJoins(now: number): void {
   for (;;) {
     const oldestKey: string | undefined = recentBlockedJoinCounts.oldestKey();
@@ -96,14 +105,25 @@ function pruneRecentBlockedJoins(now: number): void {
   }
 }
 
-/** 判定本次黑名单成员入群是否需要计入反刷群窗口（跨投递路径按 JOIN_WINDOW_MS 去重）。 */
+/**
+ * 判定本次黑名单成员入群是否需要计入反刷群窗口（跨投递路径按 JOIN_WINDOW_MS 去重）。
+ *
+ * @param key `chatId:userId` 复合验证键
+ * @param now 当前毫秒时间戳
+ * @returns 当前窗口内尚未对该成员入群计数时返回 true，否则返回 false
+ */
 function owesBlockedJoinCount(key: string, now: number): boolean {
   pruneRecentBlockedJoins(now);
   const countedAt: number | undefined = recentBlockedJoinCounts.get(key);
   return countedAt === undefined || now - countedAt >= JOIN_WINDOW_MS;
 }
 
-/** 在处置批次成功登记进 outbox 后记录本次入群已完成反刷群计数。 */
+/**
+ * 在处置批次成功登记进 outbox 后记录本次入群已完成反刷群计数。
+ *
+ * @param key `chatId:userId` 复合验证键
+ * @param now 当前毫秒时间戳
+ */
 function commitBlockedJoinCount(key: string, now: number): void {
   recentBlockedJoinCounts.delete(key);
   recentBlockedJoinCounts.set(key, now);
@@ -112,6 +132,8 @@ function commitBlockedJoinCount(key: string, now: number): void {
 /**
  * 拦截黑名单成员入群：登记 removeBlockedMembers 批次并追加至待投消息列表；
  * 登记失败时记日志并标记补扫（requestBlocklistResweep）。
+ *
+ * @param params 入群群聊、用户 ID、待投递消息队列及被取代 join 消息上下文
  * @returns 命中黑名单并已接管处置时返回 true。
  */
 export function claimBlockedJoiner({
@@ -150,6 +172,8 @@ export function claimBlockedJoiner({
 
 /**
  * 向 infra/blocklist 注册黑名单成员移除执行器。
+ *
+ * @param postDurably 向 Anti-Raid Worker 持久化投递消息批次的函数
  */
 export function registerBlocklistRemoval(postDurably: DurableAntiRaidPost): void {
   registerBlockedMemberRemover(

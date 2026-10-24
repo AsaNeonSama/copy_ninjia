@@ -17,15 +17,20 @@ import { resolveChatIsSupergroup } from "../chatKind";
 import { retryTerminalAttempt } from "./retry";
 
 interface RunKickMemberEffectParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 待踢出成员 ID。 */
   userId: number;
+  /** 触发本批副作用时捕获的验证状态引用。 */
   transitionState: VerificationState | undefined;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
 /**
  * 执行私密模式踢人。transitionState 是整批 effect 捕获的执行 token，任何豁免、
  * 停管或新一代记录都会让不可逆调用在同步复核处失效。
+ * @param params 私密模式踢人副作用执行参数。
  */
 export async function runKickMemberEffect({
   chatId,

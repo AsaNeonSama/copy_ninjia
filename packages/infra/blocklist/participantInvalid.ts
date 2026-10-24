@@ -23,6 +23,12 @@ import { unblockUser } from "./membership";
 import type { BlockedMembersRemovedEvent } from "../../types/antiRaid/events";
 import type { BlocklistEntryData } from "../../types/identityPolicy";
 
+/**
+ * 检查给定的全部身份 ID 是否均已命中主线程身份策略缓存。
+ *
+ * @param ids 待检查的身份 ID 只读列表。
+ * @returns 全部身份均已在缓存中时返回 `true`，任一身份未命中缓存时返回 `false`。
+ */
 function allIdentityPoliciesCached(ids: readonly number[]): boolean {
   for (const id of ids) {
     if (!isIdentityPolicyCached(id)) return false;
@@ -30,7 +36,12 @@ function allIdentityPoliciesCached(ids: readonly number[]): boolean {
   return true;
 }
 
-/** 校验缓存条目未变化后解除已判定销号用户的黑名单记录。 */
+/**
+ * 校验缓存条目未变化后解除已判定销号用户的黑名单记录。
+ *
+ * @param userId 已达到连续 `PARTICIPANT_ID_INVALID` 阈值的用户 ID。
+ * @param expected 触发自动解除拉黑时观测到的黑名单条目快照。
+ */
 async function unblockDeletedAccount(
   userId: number,
   expected: Readonly<BlocklistEntryData>
@@ -44,7 +55,12 @@ async function unblockDeletedAccount(
   );
 }
 
-/** 同步写出单条回执对应的销号计数递增、清零或解除拉黑操作。 */
+/**
+ * 同步写出单条回执对应的销号计数递增、清零或解除拉黑操作。
+ *
+ * @param participantInvalidUserIds 本次补扫返回 `PARTICIPANT_ID_INVALID` 的身份 ID 列表。
+ * @param resettableUserIds 本次补扫确认账号仍可解析且需清零连续无效计数的身份 ID 列表。
+ */
 function applyParticipantReadability(
   participantInvalidUserIds: readonly number[],
   resettableUserIds: readonly number[]
@@ -78,7 +94,11 @@ function applyParticipantReadability(
   }
 }
 
-/** 预热需改写的黑名单条目并在全部命中缓存后应用销号计数更新（最多重试 BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS 次）。 */
+/**
+ * 预热需改写的黑名单条目并在全部命中缓存后应用销号计数更新（最多重试 BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS 次）。
+ *
+ * @param event Anti-Raid Worker 上报的黑名单成员处置完成事件。
+ */
 async function settleParticipantReadability(
   event: BlockedMembersRemovedEvent
 ): Promise<void> {
@@ -101,7 +121,11 @@ async function settleParticipantReadability(
   );
 }
 
-/** 将处置回执中的销号观测排入主线程串行更新队列。 */
+/**
+ * 将处置回执中的销号观测排入主线程串行更新队列。
+ *
+ * @param event Anti-Raid Worker 上报的黑名单成员处置完成事件。
+ */
 export function recordBlocklistParticipantReadability(
   event: BlockedMembersRemovedEvent
 ): void {

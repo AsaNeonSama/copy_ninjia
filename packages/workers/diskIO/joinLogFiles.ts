@@ -47,6 +47,10 @@ import {
 } from "./joinLogWrites";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
+/**
+ * 确保当日入群日志清理已完成；跨日时先刷出待写缓冲并在无保留期内失败键时清理过期日文件。
+ * @param today 当前配置时区的 `YYYY-MM-DD` 日期键。
+ */
 async function ensureCurrentDayPrepared(today: string): Promise<void> {
   if (joinLogCleanupDay.current === today) return;
   const failedKeys: ReadonlySet<string> = await flushJoinLogEntries();
@@ -60,7 +64,10 @@ async function ensureCurrentDayPrepared(today: string): Promise<void> {
   await cleanupExpiredJoinLogDays(today);
 }
 
-/** 每日维护：刷出缓冲中待过期的入群事实后清理保留窗口外的文件。 */
+/**
+ * 每日维护：刷出缓冲中待过期的入群事实后清理保留窗口外的文件。
+ * @param today 当前配置时区的 `YYYY-MM-DD` 日期键；缺省为当前时刻。
+ */
 export async function maintainJoinLogRetention(
   today: string = getDateKey()
 ): Promise<void> {
@@ -150,13 +157,19 @@ async function flushJoinLogEntries(): Promise<ReadonlySet<string>> {
   return failedKeys;
 }
 
-/** 刷出缓冲并返回是否已清空全部待写与超前日期条目。 */
+/**
+ * 刷出缓冲并返回是否已清空全部待写与超前日期条目。
+ * @returns 缓冲已全部落盘清空时返回 true，仍有失败或超前日期条目滞留时返回 false。
+ */
 export async function flushJoinLogBuffer(): Promise<boolean> {
   await flushJoinLogEntries();
   return joinLogBuffer.entries.length === 0;
 }
 
-/** 丢弃目标群在缓冲中的待写条目，登记待删标记并立即清理该群全部入群日志文件。 */
+/**
+ * 丢弃目标群在缓冲中的待写条目，登记待删标记并立即清理该群全部入群日志文件。
+ * @param msg 群入群日志删除请求消息。
+ */
 export function handleJoinLogDeleteMessage(msg: JoinLogDeleteDiskMessage): void {
   joinLogBuffer.entries = joinLogBuffer.entries.filter(
     (entry: BufferedJoinLogEntry): boolean => entry.chatId !== msg.chatId
@@ -166,7 +179,10 @@ export function handleJoinLogDeleteMessage(msg: JoinLogDeleteDiskMessage): void 
   publishJoinLogPersisted();
 }
 
-/** 接收一条入群事实：早于保留窗口的旧事件直接确认丢弃，其余写入缓冲并按阈值或定时器触发落盘。 */
+/**
+ * 接收一条入群事实：早于入群事实接收窗口（`JOIN_LOG_ACCEPTED_EVENT_DAYS`）且早于过去 24 小时滚动窗口的旧事件直接确认丢弃，其余写入缓冲并按阈值或定时器触发落盘。
+ * @param msg 单条入群事实落盘消息。
+ */
 export async function handleJoinLogMessage(
   msg: JoinLogDiskMessage
 ): Promise<void> {
@@ -203,7 +219,11 @@ export async function handleJoinLogMessage(
   armDiskIOFlushTimer(joinLogBuffer, FLUSH_INTERVAL_MS, flushJoinLogBuffer);
 }
 
-/** 刷出待写缓冲后，读取指定群在 `[since, now]` 滚动窗口（跨度不超过 `DAY_MS`）内每名用户的最新入群记录并按入群时间升序返回。 */
+/**
+ * 刷出待写缓冲后，读取指定群在 `[since, now]` 滚动窗口（跨度不超过 `DAY_MS`）内每名用户的最新入群记录并按入群时间升序返回。
+ * @param request 包含目标群 ID 与滚动时间窗口边界的读取请求。
+ * @returns 窗口内按 `joinedAt` 升序排列的去重入群记录列表。
+ */
 export async function readJoinLog(
   request: ReadJoinLogRequest
 ): Promise<readonly JoinLogRecord[]> {

@@ -29,7 +29,12 @@ import type {
  */
 export type ForwardedLogSink = (batch: ForwardedLogBatch) => void;
 
-/** 没有在途批次时发送下一批；同步拒绝保留原批且不抛出。 */
+/**
+ * 没有在途批次时发送下一批；同步拒绝保留原批且不抛出。
+ *
+ * @param post 负责将转发日志批次发送到主线程的投递回调。
+ * @returns 无待发批次或当前批次已成功投递时返回 `true`；投递抛出异常被捕获并保留原批时返回 `false`。
+ */
 export function pumpForwardedLogs(post: ForwardedLogSink): boolean {
   const batch: AcknowledgedBatch<LogMessage> | null = forwardedLogQueue.nextDelivery();
   if (batch === null) return true;
@@ -53,7 +58,7 @@ export function pumpForwardedLogs(post: ForwardedLogSink): boolean {
  * 主线程重新消费后，把 Worker 侧整段溢出收敛为一条可落盘的普通日志。
  * 只有汇总入队成功才清零，否则计数保留到下一次。
  *
- * `now` 是测试缝，生产调用点用缺省值 `Date.now()`。
+ * @param now 汇总日志的时间戳毫秒数（测试缝，生产调用点用缺省值 `Date.now()`）。
  */
 export function enqueueForwardedLogDropSummary(now: number = Date.now()): void {
   const dropState: typeof forwardedLogDropState.current =
@@ -74,7 +79,12 @@ export function enqueueForwardedLogDropSummary(now: number = Date.now()): void {
   dropState.droppedSerializedBytes = 0;
 }
 
-/** Worker error 日志进入有界转发队列；主线程不调用这条路径。 */
+/**
+ * Worker error 日志进入有界转发队列；主线程不调用这条路径。
+ *
+ * @param message 待转发给主线程落盘的 Worker 错误日志消息。
+ * @param post 负责将转发日志批次发送到主线程的投递回调。
+ */
 export function forwardWorkerLog(message: LogMessage, post: ForwardedLogSink): void {
   enqueueForwardedLogDropSummary();
   const serializedBytes: number = jsonSerializedBytes(message);
@@ -96,6 +106,10 @@ export function forwardWorkerLog(message: LogMessage, post: ForwardedLogSink): v
 /**
  * 消费主线程发回的日志批次 ACK。返回 true 表示该消息属于 logger 协议，Worker
  * 入口不得再把它交给业务路由；迟到/重复 ACK 也视为已消费但不会推进错误批次。
+ *
+ * @param message Worker `onmessage` 收到的原始入站消息。
+ * @param post 负责将下一批转发日志发送到主线程的投递回调。
+ * @returns 消息为 `__logBatchAccepted` 协议消息并已由本函数消费时返回 `true`，否则返回 `false`。
  */
 export function acceptForwardedLogBatch(message: unknown, post: ForwardedLogSink): boolean {
   if (message === null || typeof message !== "object" || !("__logBatchAccepted" in message)) {

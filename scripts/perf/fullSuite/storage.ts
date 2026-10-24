@@ -31,6 +31,12 @@ import type {
 } from "../identityDatabase/types";
 import type { StorageRound } from "./types";
 
+/**
+ * 分派并执行指定的存储基准算子。
+ * @param operation 待测量的存储基准算子名称。
+ * @param mockRoot 本轮所属的运行根目录路径。
+ * @returns 算子单次子进程样本的测量结果。
+ */
 function runOperation(
   operation: BenchmarkOperation,
   mockRoot: string
@@ -51,7 +57,11 @@ function runOperation(
   }
 }
 
-/** 在本进程的 mock 数据根上跑一项存储操作。 */
+/**
+ * 在本进程的 mock 数据根上跑一项存储操作。
+ * @param operation 待测量的存储基准算子名称。
+ * @returns 含算子结果与进程 I/O 增量的单轮读数。
+ */
 async function runStorageChild(
   operation: BenchmarkOperation
 ): Promise<StorageRound> {
@@ -65,7 +75,10 @@ async function runStorageChild(
   return { result, io: diffProcessIo(before, readProcessIo()) };
 }
 
-/** `--child storage <operation>` 的入口；结果按 JSON 打到 stdout。 */
+/**
+ * `--child storage <operation>` 的入口；结果按 JSON 打到 stdout。
+ * @param argument 命令行传入的存储算子名称参数。
+ */
 export async function main(argument: string | undefined): Promise<void> {
   const round: StorageRound = await runStorageChild(
     parseStorageOperation(argument)

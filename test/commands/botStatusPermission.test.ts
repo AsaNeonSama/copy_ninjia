@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { TranslateState } from "../../packages/types/translate";
+import { GAG_SESSION_MAX } from "../../packages/consts/gag";
 import { TELEGRAM_429_RETRY_QUEUE_MAX } from "../../packages/consts/telegram";
+import { TRANSLATE_CHAT_USER_LIMIT } from "../../packages/consts/translate";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { replyCommandNoticeVia } from "../helpers/common";
 
@@ -105,7 +107,7 @@ describe("/bot_status 白名单权限", () => {
     expect(hasWhitelistPermission).toHaveBeenCalledWith(100, "isCanViewBotStatus");
     expect(sendCommandMessage).toHaveBeenCalledWith({
       chatId: -1001,
-      text: "就 @viewer 也想看本天才的全局状态？哪来的资格呀，笨蛋♡",
+      text: ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.statusRejected("@viewer"),
       replyToMessageId: 10,
     });
     expect(aiChatConfigReadiness).not.toHaveBeenCalled();
@@ -123,7 +125,8 @@ describe("/bot_status 白名单权限", () => {
     ]);
     translateStates.set(-2002, [{ translatedUser: { id: 9 }, language: "ja" }]);
     await handleBotStatusCommand(context());
-    expect(sendCommandMessage.mock.calls[0]?.[0].text).toContain("本群正赖着本天才翻译的杂鱼：2/5♡");
+    expect(sendCommandMessage.mock.calls[0]?.[0].text)
+      .toContain(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.statusTranslate(2, TRANSLATE_CHAT_USER_LIMIT));
 
     expect(aiChatConfigReadiness).toHaveBeenCalledTimes(1);
     expect(adDetectConfigReadiness).toHaveBeenCalledTimes(1);
@@ -134,6 +137,6 @@ describe("/bot_status 白名单权限", () => {
     expect(sendCommandMessage.mock.calls[0]?.[0].text)
       .toContain(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.statusTitle);
     expect(sendCommandMessage.mock.calls[0]?.[0].text)
-      .toContain("正在被本天才调教的杂鱼：3/5");
+      .toContain(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.statusGag(3, GAG_SESSION_MAX));
   });
 });

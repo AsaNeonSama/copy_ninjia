@@ -11,6 +11,8 @@ import type { AiConfigReloadMessage } from "../../types/aiChat/protocol";
 /**
  * 应用主线程热重载投递的部署配置：按变更领域替换本线程配置快照，刷新心情状态，
  * 失效并剪枝贴纸缓存，非停机排空期间启动白名单目录对账。跨线程保留与清理约束见 docs/cn/04-invariants.md。
+ *
+ * @param msg 主线程下发的配置热重载消息载荷
  */
 export function applyAiChatConfigReload(msg: AiConfigReloadMessage): void {
   if (msg.agent !== undefined) reloadAgentDeploymentConfig(msg.agent);

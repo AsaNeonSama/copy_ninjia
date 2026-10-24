@@ -3,11 +3,42 @@ import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
 import { isRuntimeModuleEdge, parseSourceFile } from "./sourceAnalysis";
 
-/** 把相对说明符解析成仓库内的 .ts 文件；解析不到（npm 包等）返回 undefined。 */
-function resolveRelativeModule(specifier: string, fromFile: string): string | undefined {
+/** 相对说明符解析出的基路径与候选 `.ts` 路径列表。 */
+export interface RelativeModuleCandidates {
+  /** 说明符相对发起文件目录解析出的绝对基路径。 */
+  readonly base: string;
+  /** 按优先级排列的探测候选：`<base>.ts`、`<base>/index.ts`、`<base>`。 */
+  readonly candidates: readonly [string, string, string];
+}
+
+/**
+ * 相对说明符的解析基路径及优先探测的候选路径（`<base>.ts`、`<base>/index.ts`、`<base>`）。
+ * 非相对说明符返回 undefined。
+ *
+ * @param fromFile 发起引用的源文件绝对路径
+ * @param specifier 模块说明符
+ * @returns 解析基路径与候选 `.ts` 路径列表，非相对说明符时返回 undefined
+ */
+export function relativeModuleCandidates(
+  fromFile: string,
+  specifier: string
+): RelativeModuleCandidates | undefined {
   if (!specifier.startsWith(".")) return undefined;
   const base: string = resolve(dirname(fromFile), specifier);
-  for (const candidate of [`${base}.ts`, join(base, "index.ts"), base]) {
+  return { base, candidates: [`${base}.ts`, join(base, "index.ts"), base] };
+}
+
+/**
+ * 把相对说明符解析成仓库内的 .ts 文件；解析不到（npm 包等）返回 undefined。
+ *
+ * @param specifier 相对模块说明符
+ * @param fromFile 发起引用的源文件绝对路径
+ * @returns 解析到的 .ts 文件绝对路径，未命中时返回 undefined
+ */
+export function resolveRelativeModule(specifier: string, fromFile: string): string | undefined {
+  const resolved: RelativeModuleCandidates | undefined = relativeModuleCandidates(fromFile, specifier);
+  if (resolved === undefined) return undefined;
+  for (const candidate of resolved.candidates) {
     if (candidate.endsWith(".ts") && existsSync(candidate)) return candidate;
   }
   return undefined;
@@ -48,7 +79,11 @@ export interface ModuleGraphReader {
   externalDependencies(path: string): Promise<readonly string[]>;
 }
 
-/** 创建一个带解析结果记忆的模块图读取器。 */
+/**
+ * 创建一个带解析结果记忆的模块图读取器。
+ *
+ * @returns 模块图读取器实例
+ */
 export function createModuleGraphReader(): ModuleGraphReader {
   const edgesByPath: Map<string, ModuleEdges> = new Map();
 

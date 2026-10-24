@@ -11,13 +11,21 @@ export interface GcPauseProfile {
   readonly gcPercent: number;
 }
 
-/** 测量边界仅用于独立性能子进程，返回本窗口的单调计时起点。 */
+/**
+ * 测量边界仅用于独立性能子进程，返回本窗口的单调计时起点。
+ *
+ * @returns 窗口开启时的单调时钟毫秒读数
+ */
 export function beginGcProfileWindow(): number {
   console.error(HOT_PATH_GC_WINDOW_START);
   return performance.now();
 }
 
-/** 正式循环结束后立即输出耗时，预热和 retained 模式的强制 GC 均在窗口外。 */
+/**
+ * 正式循环结束后立即输出耗时，预热和 retained 模式的强制 GC 均在窗口外。
+ *
+ * @param startedAt 由 `beginGcProfileWindow` 返回的起点毫秒读数
+ */
 export function endGcProfileWindow(startedAt: number): void {
   const elapsedMs: number = performance.now() - startedAt;
   console.error(`${HOT_PATH_GC_WINDOW_END} ${elapsedMs}`);
@@ -28,6 +36,9 @@ export function endGcProfileWindow(startedAt: number): void {
  * 日志只来自主线程一个堆。未启用日志、多个堆、窗口不完整或暂停格式变化时拒绝
  * 给出读数。并发收集周期可以跨窗口，每段暂停在恢复 mutator 前输出 p=；mutator
  * 写下的边界因此能按暂停段精确切开周期。
+ *
+ * @param stderr 子进程标准错误输出的完整文本
+ * @returns 测量窗口内的 GC 暂停统计摘要
  */
 export function summarizeGcPauseProfile(stderr: string): GcPauseProfile {
   const heaps: number = [...stderr.matchAll(/\[GC<0x[\da-f]+>: starting [\d.]+ms\]/gi)].length;

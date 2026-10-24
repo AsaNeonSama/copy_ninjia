@@ -13,7 +13,12 @@ export interface MigrationFileRecord {
   readonly gid: number;
 }
 
-/** 读取 root 下一个普通文件的清单项；符号链接与非普通文件一律拒绝。 */
+/**
+ * 读取 root 下一个普通文件的清单项；符号链接与非普通文件一律拒绝。
+ * @param root 根目录路径。
+ * @param path 相对文件路径。
+ * @returns 文件的相对路径、SHA-256 哈希与权限元数据记录。
+ */
 async function readMigrationFileRecord(root: string, path: string): Promise<MigrationFileRecord> {
   const fullPath: string = join(root, path);
   const stats: Stats = await lstat(fullPath);
@@ -27,7 +32,12 @@ async function readMigrationFileRecord(root: string, path: string): Promise<Migr
   };
 }
 
-/** 按顺序读取 root 下的清单项；缺失、悬空链接、类型不符与读取失败一律拒绝。 */
+/**
+ * 按顺序读取 root 下的清单项；缺失、悬空链接、类型不符与读取失败一律拒绝。
+ * @param root 根目录路径。
+ * @param paths 相对文件路径列表。
+ * @returns 按输入顺序排列的迁移文件清单记录列表。
+ */
 export async function readMigrationFileRecords(
   root: string,
   paths: readonly string[]
@@ -37,7 +47,12 @@ export async function readMigrationFileRecords(
   return records;
 }
 
-/** 解析后的祖先关系：child 等于 parent 或位于其下时为 true。 */
+/**
+ * 解析后的祖先关系：child 等于 parent 或位于其下时为 true。
+ * @param parent 父目录路径。
+ * @param child 待检查的子路径。
+ * @returns child 等于 parent 或位于其内部时返回 true。
+ */
 export function migrationPathContains(parent: string, child: string): boolean {
   const path: string = relative(parent, child);
   return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith("../"));

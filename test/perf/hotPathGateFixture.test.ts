@@ -13,6 +13,9 @@ import {
 import type { HotPathGateFixture } from
   "../../scripts/perf/hotPaths/gateFixture";
 import { removeMockPath } from "../../scripts/perf/fullSuite/mockRoot";
+import { removeCreatedPerformanceMockRootAfterAll } from "../helpers/performanceMockRoot";
+
+removeCreatedPerformanceMockRootAfterAll();
 
 describe("热路径门禁隔离根", () => {
   test("子进程读取严格配置与独占数据根，清理后不留痕", async (): Promise<void> => {

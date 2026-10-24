@@ -9,21 +9,27 @@ import {
 } from "../consts/aiChat/mood";
 import { MOOD_CONFIG_PATH } from "../consts/paths";
 import { cartesianProduct } from "../libs/cartesianProduct";
-import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { invalidInput, readJsonInput, requiredString } from "../libs/inputValidation";
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../libs/record";
 import type { MoodOption, TimeBucket, WeatherBucket } from "../types/aiChat/mood";
 import type { MoodConfig } from "../types/config";
 
 /** parseMultipliers 的入参：允许的桶名全集，以及报错要点名的字段路径与文件路径。 */
 interface MultiplierParseOptions<Bucket extends string> {
+  /** 该维度允许的合法桶名全集。 */
   readonly allowedBuckets: readonly Bucket[];
+  /** 倍率表字段的 JSONPath，用于构造致命错误诊断。 */
   readonly fieldPath: string;
+  /** 配置文件路径，用于构造致命错误诊断。 */
   readonly sourcePath: string;
 }
 
 /**
  * 解码倍率表：键必须是对应维度的合法桶名，倍率必须是不超过 MOOD_MULTIPLIER_MAX 的正有限数。
  * 非法键与非法值分别以 `<fieldPath>.<key>`、`<fieldPath>.<value>` 报出。
+ * @param value 待校验的倍率表字段值。
+ * @param options 允许桶名集合与错误诊断路径。
+ * @returns 按合法桶名索引的倍率映射表。
  */
 function parseMultipliers<Bucket extends string>(
   value: unknown,
@@ -58,6 +64,10 @@ function parseMultipliers<Bucket extends string>(
 /**
  * 解码单个心情档位；name 与 instruction 去掉首尾空白后返回。必填字段缺失、未知字段和
  * 非法取值都在启动阶段直接报错。
+ * @param value 待校验的心情档位条目值。
+ * @param index 条目在 `moods` 数组中的下标。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的心情档位定义。
  */
 function parseMoodOption(value: unknown, index: number, sourcePath: string): MoodOption {
   const fieldPath: string = `$.moods[${index}]`;
@@ -67,17 +77,11 @@ function parseMoodOption(value: unknown, index: number, sourcePath: string): Moo
   if (!hasOnlyKeys(value, [...MOOD_ENTRY_REQUIRED_KEYS, ...MOOD_ENTRY_OPTIONAL_KEYS])) {
     return invalidInput(sourcePath, `${fieldPath}.<key>`, "a current mood schema field");
   }
-  const name: string = typeof value.name === "string" ? value.name.trim() : "";
-  if (name.length === 0) {
-    return invalidInput(sourcePath, `${fieldPath}.name`, "a non-empty string");
-  }
+  const name: string = requiredString(value.name, `${fieldPath}.name`, sourcePath);
   if (typeof value.weight !== "number" || !Number.isInteger(value.weight) || value.weight <= 0) {
     return invalidInput(sourcePath, `${fieldPath}.weight`, "a positive integer");
   }
-  const instruction: string = typeof value.instruction === "string" ? value.instruction.trim() : "";
-  if (instruction.length === 0) {
-    return invalidInput(sourcePath, `${fieldPath}.instruction`, "a non-empty string");
-  }
+  const instruction: string = requiredString(value.instruction, `${fieldPath}.instruction`, sourcePath);
 
   const mood: MoodOption = {
     name,
@@ -101,7 +105,11 @@ function parseMoodOption(value: unknown, index: number, sourcePath: string): Moo
   return mood;
 }
 
-/** 穷举全部天气/时段组合，校验每个调整权重为有限正数且累计总权重为有限数。 */
+/**
+ * 穷举全部天气/时段组合，校验每个调整权重为有限正数且累计总权重为有限数。
+ * @param moods 已解码的心情档位列表。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ */
 function validateAdjustedWeights(moods: readonly MoodOption[], sourcePath: string): void {
   const weatherBuckets: readonly (WeatherBucket | null)[] =
     [null, ...WEATHER_BUCKETS];
@@ -124,7 +132,12 @@ function validateAdjustedWeights(moods: readonly MoodOption[], sourcePath: strin
   }
 }
 
-/** 严格解码 mood.json；base weight 必须是正整数且总和恰好为 MOOD_WEIGHT_TOTAL。 */
+/**
+ * 严格解码 mood.json；base weight 必须是正整数且总和恰好为 MOOD_WEIGHT_TOTAL。
+ * @param value 待校验的原始 JSON 值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的心情配置。
+ */
 export function parseMoodConfig(
   value: unknown,
   sourcePath: string = MOOD_CONFIG_PATH
@@ -150,7 +163,10 @@ export function parseMoodConfig(
   return { moods };
 }
 
-/** 从 MOOD_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。 */
+/**
+ * 从 MOOD_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。
+ * @returns 已通过校验的心情配置。
+ */
 export async function loadMoodConfig(): Promise<MoodConfig> {
   return parseMoodConfig(await readJsonInput(MOOD_CONFIG_PATH), MOOD_CONFIG_PATH);
 }
@@ -158,6 +174,7 @@ export async function loadMoodConfig(): Promise<MoodConfig> {
 /**
  * 接管已经严格校验的心情配置快照：启动预检、Worker 初始化消息或 config/dynamic/ 热重载。
  * null 只来自主线程热重载，表示部署方删除了该文件。
+ * @param config 已校验的心情配置，或表示文件已移除的 null。
  */
 export function adoptMoodConfig(config: MoodConfig | null): void {
   defaultMoodConfigCache.current = config;
@@ -169,7 +186,10 @@ export async function ensureMoodConfig(): Promise<void> {
   adoptMoodConfig(await loadMoodConfig());
 }
 
-/** 默认心情配置只读当前线程已校验的快照，不在运行期回退读盘。 */
+/**
+ * 默认心情配置只读当前线程已校验的快照，不在运行期回退读盘。
+ * @returns 当前线程已接管的心情配置。
+ */
 export function getMoodConfig(): MoodConfig {
   const config: MoodConfig | null = defaultMoodConfigCache.current;
   if (config === null) {

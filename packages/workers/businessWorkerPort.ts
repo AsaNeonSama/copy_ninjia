@@ -13,6 +13,8 @@ declare const self: Worker;
 /**
  * 业务 Worker（AI 闲聊、Anti-Raid）共用的线程端口：安装经主线程代理的 Telegram
  * 能力面，以 `self.postMessage` 作为双工出口，并按固定顺序路由入站消息（日志回执、双工回包、领域消息）。
+ *
+ * @param handleMessage 处理非日志、非双工回包的领域入站消息回调
  */
 export function installBusinessWorkerPort<TRequest, TMessage>(
   handleMessage: (message: TMessage) => void

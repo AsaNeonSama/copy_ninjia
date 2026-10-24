@@ -23,8 +23,11 @@ export type BoundedBatchResult<T, R> =
 
 /** 有界并发批处理的参数。 */
 export interface RunBoundedSettledBatchOptions<T, R> {
+  /** 待按序消费的输入项只读数组。 */
   readonly items: readonly T[];
+  /** 同时在途的最大 worker 并发数（正安全整数）。 */
   readonly maxConcurrent: number;
+  /** 单项任务执行器，接收输入项及其原始下标。 */
   readonly execute: (execution: BoundedBatchExecution<T>) => Promise<R>;
 }
 
@@ -34,6 +37,8 @@ export interface RunBoundedSettledBatchOptions<T, R> {
  * 动态输入不得直接 `map` 成整批 Promise：本函数只启动 maxConcurrent 个 worker，
  * 每项只执行一次；`execute` 同步抛出或 reject 都只把该项结算为失败，不截断其它输入。
  * worker 汇合等待全部结算。
+ * @param options 待处理项列表、最大并发数与单项执行函数。
+ * @returns 与输入数组同序的逐项成功或失败结算结果数组。
  */
 export async function runBoundedSettledBatch<T, R>({
   items,

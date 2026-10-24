@@ -5,8 +5,11 @@ import { INDEPENDENT_CHAT_PERMISSIONS_OTHER } from "../../consts/telegram";
 type LockdownPermissionsApi = Pick<TelegramApi, "getChat" | "setChatPermissions">;
 
 export interface RestoreLockdownInvitePermissionParams {
+  /** 目标群聊 ID。 */
   chatId: number;
+  /** 进入私密模式前保存的原群权限。 */
   originalPermissions: ChatPermissions;
+  /** 执行权限读取与设置的 Telegram API 接口。 */
   api: LockdownPermissionsApi;
 }
 
@@ -19,6 +22,7 @@ export interface RestoreLockdownInvitePermissionParams {
  * （见 consts/telegram.ts 的 INDEPENDENT_CHAT_PERMISSIONS_OTHER）。
  *
  * 该边界同时供 Worker 正常恢复和主线程 onGiveUp 紧急恢复使用。
+ * @param params 恢复私密模式邀请权限的参数。
  */
 export async function restoreLockdownInvitePermission({
   chatId,

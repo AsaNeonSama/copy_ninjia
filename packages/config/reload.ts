@@ -49,7 +49,12 @@ import type {
 } from "../types/config";
 import { errorMessage } from "../libs/errorMessage";
 
-/** 读取一份可热重载文件；只把 ENOENT 当作缺省，其余失败一律转成拒绝诊断。 */
+/**
+ * 读取一份可热重载文件；只把 ENOENT 当作缺省，其余失败一律转成拒绝诊断。
+ * @param path 可热重载配置文件路径，用于探测文件存在性并在 `load` 接收路径参数时传入。
+ * @param load 解析并校验该文件的加载函数（部分加载器直接使用内置默认路径常量而忽略此参数）。
+ * @returns 表示缺省、已加载或校验失败的热重载读取结果。
+ */
 async function readHotConfig<T>(
   path: string,
   load: (path: string) => Promise<T>
@@ -65,6 +70,7 @@ async function readHotConfig<T>(
 /**
  * 读取 assets.json；随机图片目录与当前快照不同时，接管之前先准备并严格检查新目录，
  * 失败按拒绝处理。
+ * @returns 素材配置的热重载读取结果。
  */
 async function readHotAssetConfig(): Promise<HotConfigRead<AssetConfig>> {
   const read: HotConfigRead<AssetConfig> = await readHotConfig(ASSETS_CONFIG_PATH, loadAssetConfig);
@@ -81,7 +87,10 @@ async function readHotAssetConfig(): Promise<HotConfigRead<AssetConfig>> {
   return read;
 }
 
-/** 按固定顺序逐份读取可热重载部署文件；不改写任何 holder。 */
+/**
+ * 按固定顺序逐份读取可热重载部署文件；不改写任何 holder。
+ * @returns 全部可热重载部署文件的本轮读取结果集合。
+ */
 export async function readHotDeploymentConfigs(): Promise<HotDeploymentConfigReads> {
   const assets: HotConfigRead<AssetConfig> = await readHotAssetConfig();
   const adSamples: HotConfigRead<AdSampleConfig> = await readHotConfig(AD_SAMPLES_CONFIG_PATH, loadAdSampleConfig);
@@ -94,14 +103,19 @@ export async function readHotDeploymentConfigs(): Promise<HotDeploymentConfigRea
 
 /** nextFileSnapshot 的入参：本轮读取结果、当前快照与拒绝诊断收集表。 */
 interface FileSnapshotOptions<T> {
+  /** 本轮对该文件的读取与校验结果。 */
   readonly read: HotConfigRead<T>;
+  /** 主线程当前生效的快照；文件未配置时为 null。 */
   readonly current: T | null;
+  /** 用于追加拒绝原因的可变诊断列表。 */
   readonly rejections: string[];
 }
 
 /**
  * 判定单份文件要换成的快照：`undefined` 表示保持不变（内容相同、仍然缺省或被拒绝），
  * `null` 表示文件已被删除，其余为新内容。拒绝诊断写入 rejections。
+ * @param options 本轮读取结果、当前快照与拒绝诊断收集表。
+ * @returns 待接管的新快照、表示已删除的 null，或表示保持现状的 undefined。
  */
 function nextFileSnapshot<T>({ read, current, rejections }: FileSnapshotOptions<T>): T | null | undefined {
   switch (read.kind) {
@@ -121,16 +135,24 @@ interface AgentDependencyOptions {
   readonly agent: AgentConfigSnapshots | undefined;
   /** cron.json 的候选；undefined 保持不变，null 表示文件已删除。 */
   readonly cron: CronConfig | null | undefined;
+  /** 用于追加跨文件依赖拒绝原因的可变诊断列表。 */
   readonly rejections: string[];
 }
 
 /** 交叉核对后真正生效的两份候选；语义同 AgentDependencyOptions 的同名字段。 */
 interface AgentDependencyDecision {
+  /** 准予接管的 `agent.json` 两段快照；`undefined` 表示本轮保持当前快照。 */
   readonly agent: AgentConfigSnapshots | undefined;
+  /** 准予接管的 `cron.json` 快照；`undefined` 表示保持当前快照，`null` 表示文件已删除。 */
   readonly cron: CronConfig | null | undefined;
 }
 
-/** 候选任务表与给定 agent 配置同时生效时的拒绝原因；没有候选（不变或已删除）或可以生效时为 null。 */
+/**
+ * 候选任务表与给定 agent 配置同时生效时的拒绝原因；没有候选（不变或已删除）或可以生效时为 null。
+ * @param cron 候选定时任务列表；undefined 表示不变，null 表示已删除。
+ * @param agent 用于核对能力依赖的 AI 对话配置；null 表示未配置。
+ * @returns 能力依赖不满足时的错误原因文本；满足或无需核对时返回 null。
+ */
 function cronAgentRejection(
   cron: CronConfig | null | undefined,
   agent: AgentDeploymentConfig | null
@@ -147,6 +169,8 @@ function cronAgentRejection(
 /**
  * 对账 cron.json 与 agent.json 的跨文件能力依赖：新任务表缺少依赖时拒绝 cron.json 变更；
  * 生效任务表仍在使用的能力在新 agent.json 中缺失时拒绝 agent.json 变更并改按现行 agent 配置核对新任务表。
+ * @param options agent.json 与 cron.json 的候选快照及拒绝诊断收集表。
+ * @returns 交叉核对后准予生效的 agent 与 cron 候选快照。
  */
 function reconcileAgentDependency({ agent, cron, rejections }: AgentDependencyOptions): AgentDependencyDecision {
   const currentAgent: AgentDeploymentConfig | null = agentDeploymentConfigCache.current;
@@ -183,11 +207,18 @@ function reconcileAgentDependency({ agent, cron, rejections }: AgentDependencyOp
 
 /** 一轮热重载里已生效与已删除的文件路径收集表。 */
 interface FileOutcomePaths {
+  /** 本轮成功重载并替换快照的配置文件路径列表。 */
   readonly reloadedPaths: string[];
+  /** 本轮因文件被移除而清空快照的配置文件路径列表。 */
   readonly removedPaths: string[];
 }
 
-/** 把一份文件的判定结果记进生效或删除清单；保持不变时不记。 */
+/**
+ * 把一份文件的判定结果记进生效或删除清单；保持不变时不记。
+ * @param next 判定后的目标快照；undefined 表示不变，null 表示已删除。
+ * @param path 该配置文件的路径。
+ * @param paths 已重载与已删除文件路径的收集表。
+ */
 function recordFileOutcome<T>(next: T | null | undefined, path: string, paths: FileOutcomePaths): void {
   if (next === undefined) return;
   if (next === null) paths.removedPaths.push(path);
@@ -197,6 +228,8 @@ function recordFileOutcome<T>(next: T | null | undefined, path: string, paths: F
 /**
  * 把一轮读取结果应用到主线程 holder，返回实际替换了哪些快照。同步执行：判定与
  * 替换之间不让出事件循环，调用方可以紧接着按返回值重算可用性并分发给 Worker。
+ * @param reads 本轮各可热重载部署文件的读取结果。
+ * @returns 各配置项是否发生变更以及生效、删除与拒绝的汇总结果。
  */
 export function applyHotDeploymentConfigs(reads: HotDeploymentConfigReads): HotDeploymentConfigChanges {
   const rejections: string[] = [];

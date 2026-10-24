@@ -30,8 +30,8 @@ export const rateLimitNoticeTimes: Map<number, number> = new Map();
 export const longTriggerTimes: Map<number, TimestampDeque> = new Map();
 
 /**
- * chatId -> 当前处于模型阶段的回复轮数（上限见 states/replyAdmission.ts 的 replyRoundConcurrencyLimit）。
- * 填充：回复轮启动时递增；清理：模型阶段结束时递减并在归零时删键；重建：Worker 重启后为空。
+ * chatId -> 当前处于模型阶段的回复轮数。
+ * 填充：回复轮启动时递增；清理：模型阶段结束时递减并在归零时删键，或由 resetAiChatReplyCache 清空；重建：Worker 重启后为空；容量：单群上限见 states/replyAdmission.ts 的 replyRoundConcurrencyLimit，群数受 STATE_MANAGED_CHAT_LIMIT 约束。
  */
 export const activeReplyCounts: Map<number, number> = new Map();
 
@@ -67,7 +67,7 @@ export const pendingOverflowNotices: Map<number, number | undefined> = new Map()
 
 /**
  * generation -> 该代际的取消控制器。
- * 填充：replyGenerationSignal 首次获取该代际信号时创建（回复轮、限频提示、mediaIngest.ts 的后台识图、botImages.ts、compaction.ts）；清理：invalidateChatReplies 或 evictChatReplyGeneration 时 abort 旧代际，无在途任务时立即删除或在 trackReplyGenerationTask 结算后删除，resetAiChatReplyCache 时全部 abort 并清空；重建：Worker 重启后为空；容量：当前存活群代际数（不超过 AI_MEMORY_MAX_CHATS）加尚未排空的已失效旧代际。
+ * 填充：replyGenerationSignal 首次获取该代际信号时创建（回复轮、限频提示、mediaIngest.ts 的后台识图、botImages.ts、compaction.ts）；清理：invalidateChatReplies 中止当前代际，无在途任务时立即删除，否则在等待预算结束后删除；evictChatReplyGeneration（记忆 LRU 淘汰）不中止，无在途任务时立即删除，否则由 trackReplyGenerationTask 在任务集合排空且代际已非当前时删除；quiesceAiChatReplies 与 resetAiChatReplyCache 全部中止并清空；重建：Worker 重启后为空；容量：当前存活群代际数（不超过 AI_MEMORY_MAX_CHATS）加尚未排空的已失效旧代际。
  */
 export const replyAbortControllers: Map<number, AbortController> = new Map();
 
@@ -77,7 +77,12 @@ export const replyAbortControllers: Map<number, AbortController> = new Map();
  */
 export const replyGenerationTasks: Map<number, Set<Promise<void>>> = new Map();
 
-/** 读取指定群当前回复代际编号；未登记时分配新代际。 */
+/**
+ * 读取指定群当前回复代际编号；未登记时分配新代际。
+ *
+ * @param chatId 群聊 ID
+ * @returns 该群当前的回复代际编号
+ */
 export function cachedReplyGeneration(chatId: number): number {
   const cached: number | undefined = replyGenerations.get(chatId);
   if (cached !== undefined) return cached;
@@ -90,12 +95,22 @@ export function cachedReplyGeneration(chatId: number): number {
   return generation;
 }
 
-/** 核对指定代际是否仍为该群当前有效代际。 */
+/**
+ * 核对指定代际是否仍为该群当前有效代际。
+ *
+ * @param chatId 群聊 ID
+ * @param generation 待核对的回复代际编号
+ * @returns 该代际是否仍为当前有效代际
+ */
 export function isCachedReplyGenerationCurrent(chatId: number, generation: number): boolean {
   return replyGenerations.get(chatId) === generation;
 }
 
-/** 使指定群当前代际失效，并清理排队触发、投递窗口与限频记录。 */
+/**
+ * 使指定群当前代际失效，并清理排队触发、投递窗口与限频记录。
+ *
+ * @param chatId 群聊 ID
+ */
 export function invalidateChatReplyCache(chatId: number): void {
   replyGenerations.delete(chatId);
   replyDeliveryWindows.delete(chatId);
@@ -105,7 +120,11 @@ export function invalidateChatReplyCache(chatId: number): void {
   rateLimitNoticeTimes.delete(chatId);
 }
 
-/** 清理已过期的长窗口触发记录与限频提示冷却时间戳。 */
+/**
+ * 清理已过期的长窗口触发记录与限频提示冷却时间戳。
+ *
+ * @param now 当前毫秒时间戳
+ */
 export function sweepAiChatReplyCache(now: number = Date.now()): void {
   for (const [chatId, times] of longTriggerTimes) {
     times.trim(RATE_LIMIT_LONG_WINDOW_MS, now);
@@ -116,7 +135,7 @@ export function sweepAiChatReplyCache(now: number = Date.now()): void {
   }
 }
 
-/** 清空回复调度缓存并中止所有在途代际控制器。 */
+/** 清空回复调度缓存并中止所有在途代际控制器（保留跨代际发送槽位计数 `replyDeliveryCounts` 与 `replyDeliveryTotal` 供在途发送窗口自然排空）。 */
 export function resetAiChatReplyCache(): void {
   replyGenerations.clear();
   rateLimitNoticeTimes.clear();

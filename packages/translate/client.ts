@@ -40,7 +40,10 @@ export function quiesceTranslate(): void {
   translateRuntime.accepting = false;
 }
 
-/** 世代闸：owner 已被 close/重开时，在途请求必须就地失败而不是继续用旧世代。 */
+/**
+ * 世代闸：owner 已被 close/重开时，在途请求必须就地失败而不是继续用旧世代。
+ * @param expectedGeneration 发起请求时捕获的翻译运行时世代号。
+ */
 function ensureTranslateGeneration(expectedGeneration: number): void {
   if (expectedGeneration !== translateRuntime.generation) {
     throw new Error("Google Translation owner was closed while the request was in flight");
@@ -59,6 +62,8 @@ function ensureTranslateGeneration(expectedGeneration: number): void {
  *
  * `await import(...)` 期间 `closeTranslate` 可能把 client 置空并推进 generation；
  * await 之后先复核 generation，不属于当前 owner 就直接抛，不构造客户端。
+ * @param expectedGeneration 发起请求时捕获的翻译运行时世代号。
+ * @returns 当前世代复用的 Google Cloud Translation v3 客户端实例。
  */
 async function getTranslateClient(expectedGeneration: number): Promise<GoogleTranslate.TranslationServiceClient> {
   if (translateRuntime.client !== null) return translateRuntime.client;
@@ -73,8 +78,11 @@ async function getTranslateClient(expectedGeneration: number): Promise<GoogleTra
   return translateRuntime.client;
 }
 
-// v3 请求作用域限定在 "projects/{project}/locations/{location}" 下；project
-// 解析与缓存见下方（缓存见 cache/main/translate.ts）。
+/**
+ * 解析并缓存 Google Cloud Translation v3 请求所需的父资源路径（`projects/{project}/locations/global`）。
+ * @param expectedGeneration 发起请求时捕获的翻译运行时世代号。
+ * @returns 供 v3 API 使用的 parent 资源路径字符串。
+ */
 async function getTranslateParent(expectedGeneration: number): Promise<string> {
   ensureTranslateGeneration(expectedGeneration);
   if (!translateParentCache.parent) {
@@ -95,6 +103,9 @@ async function getTranslateParent(expectedGeneration: number): Promise<string> {
  * 通过 Google Cloud Translation API 将文本翻译成指定语言。
  * 失败时返回 null，调用方整条不发送。
  * @param text 待翻译的文本。
+ * @param language 目标翻译语言方向。
+ * @param expectedGeneration 发起请求时捕获的翻译运行时世代号。
+ * @returns 译文字符串；请求失败或译文为空时返回 null。
  */
 async function runTranslation(text: string, language: TranslateLanguage, expectedGeneration: number): Promise<string | null> {
   try {
@@ -122,6 +133,12 @@ async function runTranslation(text: string, language: TranslateLanguage, expecte
   }
 }
 
+/**
+ * 在翻译运行期开启状态下将文本翻译为指定语言，并纳入在途任务追踪。
+ * @param text 待翻译的文本。
+ * @param language 目标翻译语言方向。
+ * @returns 译文字符串；未开启接收、请求失败或译文为空时返回 null。
+ */
 export function translateText(text: string, language: TranslateLanguage): Promise<string | null> {
   if (!translateRuntime.accepting) return Promise.resolve(null);
   return trackInflight(
@@ -130,7 +147,11 @@ export function translateText(text: string, language: TranslateLanguage): Promis
   );
 }
 
-/** 等待所有已接收翻译结束；超时只报告，closeTranslate 仍会尝试关闭通道。 */
+/**
+ * 等待所有已接收翻译结束；超时只报告，closeTranslate 仍会尝试关闭通道。
+ * @param timeoutMs 最大等待毫秒数。
+ * @returns 全部在途任务在预算内完成时返回 flushed，否则返回 timedOut。
+ */
 export async function drainTranslate(timeoutMs: number): Promise<FlushResult> {
   assertTimeoutMs(timeoutMs, "translate drain timeout");
   if (translateRuntime.tasks.size === 0) return "flushed";
@@ -140,7 +161,11 @@ export async function drainTranslate(timeoutMs: number): Promise<FlushResult> {
   return drained ? "flushed" : "timedOut";
 }
 
-/** 释放 gRPC 客户端与 project parent；重新 init 后会构造全新客户端。 */
+/**
+ * 释放 gRPC 客户端与 project parent；重新 init 后会构造全新客户端。
+ * @param timeoutMs 关闭客户端的最大等待毫秒数，默认 TRANSLATE_REQUEST_TIMEOUT_MS。
+ * @returns 关闭成功或无客户端时返回 flushed，关闭异常或超时时返回 failed。
+ */
 export async function closeTranslate(timeoutMs: number = TRANSLATE_REQUEST_TIMEOUT_MS): Promise<FlushResult> {
   assertTimeoutMs(timeoutMs, "translate close timeout");
   translateRuntime.accepting = false;

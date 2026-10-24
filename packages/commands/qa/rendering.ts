@@ -1,10 +1,10 @@
-import type { AtmosphereTexts } from "../../types/atmosphere";
 /**
  * 群问答的文本解析与渲染：表单投递消息的字段解析，以及表单提示正文。
  *
  * `/qa query` 看板的分页渲染在同目录的 board.ts。
  */
 
+import type { AtmosphereTexts } from "../../types/atmosphere";
 import type { Message, MessageEntity } from "grammy/types";
 import { captureFencedText } from "../../libs/codeFence";
 import { QA_ANSWER_LABELS, QA_QUESTION_LABELS, QA_TRUNCATION_MARK } from "../../consts/qa";
@@ -15,13 +15,19 @@ import type { QaFieldInput } from "../../types/qa";
 
 /** 一次行首标签命中：哪个字段、标签从哪开始、取值从哪开始。 */
 interface QaLabelHit {
+  /** 命中的问答字段类别（`"q"` 问题或 `"a"` 回答）。 */
   readonly field: "q" | "a";
+  /** 标签在消息正文中的起始 UTF-16 字符偏移量。 */
   readonly labelStart: number;
+  /** 标签后字段值在消息正文中的起始 UTF-16 字符偏移量。 */
   readonly valueStart: number;
 }
 
 /**
  * 某个偏移是否落在代码块（`pre` 或 `code` 实体）内部；块内以标签开头的行不当作字段标签。
+ * @param entities 消息实体数组。
+ * @param offset 待判断的 UTF-16 字符偏移量。
+ * @returns 位于代码块实体内部时返回 true。
  */
 function isInsideCodeEntity(
   entities: readonly MessageEntity[] | undefined,
@@ -35,7 +41,13 @@ function isInsideCodeEntity(
   return false;
 }
 
-/** 某个字段的标签是否正好起始于 lineStart；命中时返回取值起点。 */
+/**
+ * 某个字段的标签是否正好起始于 lineStart；命中时返回取值起点。
+ * @param text 消息文本。
+ * @param lineStart 当前行起始偏移量。
+ * @param labels 候选标签前缀列表。
+ * @returns 命中时返回标签之后的取值起始偏移量，未命中时返回 undefined。
+ */
 function matchLabel(
   text: string,
   lineStart: number,
@@ -51,6 +63,9 @@ function matchLabel(
  * 逐行找出全部字段标签。
  *
  * 标签只在行首生效，且不在代码块内。
+ * @param text 消息文本。
+ * @param entities 消息实体数组。
+ * @returns 命中的行首字段标签列表。
  */
 function findQaLabels(
   text: string,
@@ -85,6 +100,7 @@ function findQaLabels(
  * （auto/message/qaDirectAnswer.ts）比对的 `message.text`、`/qa remove`、
  * `/qa query <问题>` 读到的 `ctx.match` 同一口径。
  *
+ * @param message 入站消息对象。
  * @returns 一个字段都解析不出（含取值为空）时为 undefined，调用方把消息放回消息流水线。
  */
 export function parseQaFieldMessage(message: Message): QaFieldInput | undefined {
@@ -120,8 +136,10 @@ export function parseQaFieldMessage(message: Message): QaFieldInput | undefined 
  * 回答回显按剩余预算（TELEGRAM_MESSAGE_MAX_CHARS 减去前缀）截断，问题不截断；
  * 被截掉的只是回显，落库用的是会话里的完整值。
  *
- * @param q 必须已受 CHAT_QA_QUESTION_MAX_CHARS 约束：会话里这一项只由
- *   qa/ingress.ts 按该上限写入，剩余预算恒为正。
+ * @param q 已收到的问题文本（未填时为 undefined；已由 `./ingress.ts` 限制在 `CHAT_QA_QUESTION_MAX_CHARS` 以内，剩余预算恒为正）。
+ * @param a 已收到的回答文本（未填时为 undefined）。
+ * @param atmosphere 语气词表。
+ * @returns 渲染后的表单提示正文。
  */
 export function renderQaFormPrompt(
   q: string | undefined,

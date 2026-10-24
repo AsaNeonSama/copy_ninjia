@@ -20,6 +20,9 @@ import type { DiskIODomain, DiskIOReply } from "../../types/diskIO/replies";
 /**
  * 立即落盘指定领域的待写缓冲，失败时将领域追加到 failedDomains。
  * 共享 SQLite 各领域共用同一事务提交，仅收集当前请求领域的失败标记。
+ * @param domain 待立即刷盘的持久化领域。
+ * @param failedDomains 收集刷盘失败领域的输出数组。
+ * @param reply 向主线程发送持久化回执的回调。
  */
 async function flushDomain(
   domain: DiskIODomain,
@@ -70,6 +73,9 @@ async function flushDomain(
 /**
  * 按 scope 刷出对应领域缓冲并返回失败领域列表（范围定义见 types/diskIO/messages.ts 的 DiskFlushScope）。
  * `all` 与 `business` 额外刷出 AI 用量与广告样本旁路缓冲。
+ * @param scope 请求刷盘的范围（单领域、`business` 或 `all`）。
+ * @param reply 向主线程发送持久化回执的回调。
+ * @returns 本轮刷盘失败的领域列表；全部成功时为空数组。
  */
 export async function flushScope(
   scope: DiskFlushScope,

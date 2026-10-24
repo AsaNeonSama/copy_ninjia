@@ -11,7 +11,11 @@ import type {
   StoredIdentityPolicyRow,
 } from "../../types/storageDatabase";
 
-/** 为指定数据库连接预编译白名单、黑名单与临时广告免检表的按主键存在性查询语句。 */
+/**
+ * 为指定数据库连接预编译白名单、黑名单与临时广告免检表的按主键存在性查询语句。
+ * @param database 共享存储数据库连接。
+ * @returns 三张身份表的按主键查询预编译句柄集合。
+ */
 export function prepareStoredIdentityIdLookups(
   database: StorageDatabase
 ): StoredIdentityIdLookups {
@@ -26,7 +30,13 @@ export function prepareStoredIdentityIdLookups(
   };
 }
 
-/** 按主键升序游标读取一页黑名单 ID。 */
+/**
+ * 按主键升序游标读取一页黑名单 ID。
+ * @param database 共享存储数据库连接。
+ * @param afterId 上一页最后一个主键 ID；首页传 null。
+ * @param limit 单页最多读取的行数。
+ * @returns 按升序排列的黑名单身份 ID 列表。
+ */
 export function readStoredBlocklistIdPage(
   database: StorageDatabase,
   afterId: number | null,
@@ -42,7 +52,13 @@ export function readStoredBlocklistIdPage(
   return rows.map((row: StoredIdentityIdRow): number => row.id);
 }
 
-/** 通过预编译语句按 ID 列表批量读取白名单或黑名单的已提交行（单批不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。 */
+/**
+ * 通过预编译语句按 ID 列表批量读取白名单或黑名单的已提交行（单批不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
+ * @param reader 共享存储数据库的预编译读取句柄。
+ * @param table 目标身份策略表标识（白名单或黑名单）。
+ * @param ids 待读取的身份主键 ID 列表。
+ * @returns 命中行的主键与 JSON 文本列表。
+ */
 export function readStoredIdentityPolicies(
   reader: StorageDatabaseReader,
   table: IdentityPolicyTable,

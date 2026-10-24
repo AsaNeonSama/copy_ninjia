@@ -26,12 +26,23 @@ export const linkedChannelFetches: Map<number, Promise<void>> = new Map();
  */
 export const linkedChannelCacheGeneration: { current: number } = { current: 0 };
 
-/** 写入指定群的关联频道缓存快照。 */
+/**
+ * 写入指定群的关联频道缓存快照。
+ *
+ * @param chatId 群聊 ID
+ * @param hasLinked 是否存在关联频道
+ * @param fetchedAt 查询完成的毫秒时间戳
+ */
 export function cacheLinkedChannel(chatId: number, hasLinked: boolean, fetchedAt: number = Date.now()): void {
   linkedChannels.set(chatId, { hasLinked, fetchedAt });
 }
 
-/** 淘汰已过期的关联频道快照，保留仍在拉取中的群快照。 */
+/**
+ * 淘汰已过期的关联频道快照，保留仍在拉取中的群快照。
+ *
+ * @param now 当前毫秒时间戳
+ * @returns 本次淘汰的过期群快照数
+ */
 export function sweepLinkedChannelCache(now: number = Date.now()): number {
   return sweepExpiredSnapshots({
     snapshots: linkedChannels,

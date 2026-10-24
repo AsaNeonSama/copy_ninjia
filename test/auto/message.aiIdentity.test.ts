@@ -12,7 +12,15 @@ import {
   waitForBotOwnMessageMock,
 } from "../helpers/autoMessageMocks";
 
-const { handleIncomingMessageMiddleware } = await import("../../packages/auto/message");
+const { handleIncomingMessageMiddleware: handleIncomingMessageWithState } = await import("../../packages/auto/message");
+const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
+
+/** 与前置链一致：读一次本条消息所在群的状态快照，再交给自动流水线。 */
+function handleIncomingMessageMiddleware(ctx: any): Promise<void> | undefined {
+  const chatId: number | undefined = ctx.msg?.chat.id;
+  return handleIncomingMessageWithState(ctx, chatId === undefined ? DEFAULT_CHAT_STATE : getChatState(chatId));
+}
 
 const botInfo = { id: 999999, username: "test_bot", first_name: "TestBot" };
 

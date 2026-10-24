@@ -61,6 +61,9 @@ import type { HandlerRegistration } from "../types/lifecycle";
  *
  * 「返回不返回 Promise 是语义的一部分」这条跨模块约束见 @see ../../docs/cn/04-invariants.md
  * 的「线程与状态归属」。
+ * @param claimed 前置认领结论（布尔值或解析为布尔值的 Promise）。
+ * @param next 下游 grammY 中间件续接函数。
+ * @returns 已认领时返回 `undefined`（或解析为 `undefined` 的 Promise），未认领时返回 `next()` 的结果。
  */
 function claimOrContinue(
   claimed: boolean | Promise<boolean>,
@@ -81,6 +84,9 @@ function claimOrContinue(
  * 函数本身不是 `async`。两条前缀判定同步返回 false 时不分配 Promise，直接调用
  * `next()`；只有返回 Promise 时才等待后再决定是否继续。
  * 见 @see ../../docs/cn/04-invariants.md 的「线程与状态归属」。
+ * @param ctx 带 `callback_query:data` 过滤的 grammY 上下文。
+ * @param next 下游 grammY 中间件续接函数。
+ * @returns 已认领时返回 `undefined`（或解析为 `undefined` 的 Promise），未认领时返回 `next()` 的结果。
  */
 function dispatchCallbackQuery(
   ctx: Filter<Context, "callback_query:data">,
@@ -102,6 +108,8 @@ function dispatchCallbackQuery(
  * app/updatePreamble.ts 的前置链；斜杠命令、中文动作和非消息 update 在这里建成三个 Composer
  * 交给前置链在对应位置调用。不得再直接挂 `bot.use` / `bot.on` / `bot.command` / `bot.hears`
  * （test/app/registerHandlers.test.ts 断言）。
+ * @param bot 待安装更新链的 grammY Bot 实例。
+ * @returns 已处理最大 `update_id` 的读取句柄。
  */
 export function registerHandlers(bot: Bot): HandlerRegistration {
   let lastSeenUpdateId: number = 0;

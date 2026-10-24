@@ -42,7 +42,10 @@ export function tryConsumeHImageRateLimit(now: number = Date.now()): boolean {
   });
 }
 
-/** 处理 `/h_image` 与 `/h_image add`；其它参数回用法提示。抽图接纳后立即返回，满额时回「稍后再试」。 */
+/**
+ * 处理 `/h_image` 与 `/h_image add`；其它参数回用法提示。抽图接纳后立即返回，满额时回「稍后再试」。
+ * @param ctx grammY 命令上下文。
+ */
 export async function handleHImageCommand(ctx: CommandContext<Context>): Promise<void> {
   if (!tryConsumeHImageRateLimit()) return;
   const chatId: number = ctx.chat.id;

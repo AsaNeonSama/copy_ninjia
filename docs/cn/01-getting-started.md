@@ -17,12 +17,12 @@
 - **Linux 系统**（必须具备可读的 `/proc` 目录）：单实例锁依赖 `/proc/<pid>/stat` 与内核 boot ID，非 Linux 平台在启动时直接拒绝退出。
 - **Bun**（版本按 `package.json` 的 `packageManager`）：源码安装与本地开发所需，可通过官方安装脚本安装指定版本：
   ```bash
-  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.3
+  curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4
   ```
   > [!NOTE]
   > 二进制发行包已内置 Bun 运行时，无需宿主机预先安装 Bun。整个项目都不需要 Node.js。
 - **Telegram Bot Token**：向官方 [@BotFather](https://t.me/BotFather) 发送 `/newbot` 创建机器人并取得 API Token。
-- **AI 模型 API Key**：若需要使用 AI 闲聊、图像理解、AI 生图、语音合成（TTS）或联网检索功能，需准备对应提供商的 API 密钥（支持 [Google AI Studio](https://aistudio.google.com/)、[OpenAI Platform](https://platform.openai.com/) 或兼容服务）。在 `config/dynamic/agent.json` 中按需配置，各项能力独立生效，互不回退。
+- **AI 模型 API Key**：若需要使用 AI 闲聊、图像理解、AI 生图、语音合成（TTS）、联网检索或广告检测功能，需准备对应提供商的 API 密钥（支持 [Google AI Studio](https://aistudio.google.com/)、[OpenAI Platform](https://platform.openai.com/)、[Anthropic Console](https://console.anthropic.com/) 或兼容服务）。在 `config/dynamic/agent.json` 中按需配置，各项能力独立生效，互不回退。
 - **（可选）Google Cloud 服务账号凭据**：仅在启用 `/translate` 翻译功能时需要，保存为 `config/static/g-auth.json`（格式参考 [示例](../../config_example/static/g-auth.json)；示例中的占位私钥会被解析器直接拒绝）。
   - **凭据规格**：由 `packages/config/googleAuth.ts` 解析，必须包含 `client_email` 与用于 RS256 签名的非空 RSA PEM 私钥（不支持 EC、Ed25519 或 RSA-PSS 密钥）；`type` 只能为 `service_account`（可缺省）。
   - **默认行为**：若未配置该凭据，不会影响机器人启动，仅在群内使用 `/translate` 时提示缺少该文件；但若文件存在且格式错误，启动时的配置校验会直接报错退出。
@@ -91,7 +91,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 > 3. **工具与环境**：源码模式按需安装指定版本的 Bun；二进制模式直接使用包内自带的可执行文件。
 > 4. **安装依赖**：源码模式执行 `bun install --frozen-lockfile`；二进制模式直接跳过。
 > 5. **准备配置目录**：检查配置目录结构；自动补充缺失的基础配置模板，但跳过可选的 `agent.json`、`g-auth.json` 与 `cron.json`，且绝不覆盖已有文件。
-> 6. **交互式填写配置**：在终端引导填写 `config/static/bot.json`；若 `agent.json` 尚不存在，则逐项询问并配置 AI 能力（含自定义 `base_url` 端点及 `google` / `anthropic` 的网关请求头 `headers`）。覆盖已有配置文件前会自动在临时目录外部备份，经严格格式校验通过后原子替换。
+> 6. **交互式填写配置**：在终端引导填写 `config/static/bot.json`；若 `agent.json` 尚不存在，则逐项询问并配置 AI 能力（含自定义 `base_url` 端点）。覆盖已有配置文件前会自动在临时目录外部备份，经严格格式校验通过后原子替换。
 > 7. **初始化身份数据库**：检查 `database/storage.sqlite`。若数据库已存在，核对其记录的时区与 `bot.json` 的 `time_zone` 是否一致（不一致时拒绝注册服务）；若不存在，则以当前配置的时区初始化全新的空数据库。随后对所有已存在的配置文件执行全面校验。
 > 8. **注册服务并观测**：注册或更新 systemd 服务 `copy-ninjia.service`（无可用 systemd 时提示在前台运行）。启动后持续观察服务状态，确认进程正常运行、无异常重启且日志无报错后，清理临时配置备份。
 
@@ -205,7 +205,6 @@ config/
        - `api_key`：访问密钥；占位字符串会被校验拦截。
        - `model`：具体的模型名称。
        - `base_url`：可选的自定义 API 端点（用于代理或内网网关）。
-       - `headers`：仅 `google` 与 `anthropic` provider 可配置的附加请求头（`1`～`AGENT_HEADERS_MAX_ENTRIES` 个，用于 Cloudflare AI Gateway 等三方网关鉴权）。
        - `fallback_model`：仅 `anthropic` provider 可配置的回退模型（不能与 `model` 相同）。`model` 拒答时用它重发同一请求；回退模型也拒答或未配置时，该请求直接失败、不重试。
 
 ---

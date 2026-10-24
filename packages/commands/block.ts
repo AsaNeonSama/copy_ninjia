@@ -34,8 +34,18 @@ import { runBlocklistFanOut } from "./blocklistFanOut";
 
 /** 串行位内的名单写入结果：受保护目标不写名单。 */
 type BlockAdmission =
-  | { readonly protected: true }
-  | { readonly protected: false; readonly newlyBlocked: boolean; readonly persisted: boolean };
+  | {
+    /** 目标处于白名单保护范围内，拒绝拉黑。 */
+    readonly protected: true;
+  }
+  | {
+    /** 目标未受白名单保护，已执行黑名单写入与落盘确认。 */
+    readonly protected: false;
+    /** 目标是否为本次新写入黑名单（已在黑名单中时为 false）。 */
+    readonly newlyBlocked: boolean;
+    /** 黑名单写入是否已收到 Disk I/O Worker 的落盘确认。 */
+    readonly persisted: boolean;
+  };
 
 /**
  * `/block <目标> enable`：把目标写进持久化黑名单，并在所有机器人是管理员的群里
@@ -59,6 +69,7 @@ type BlockAdmission =
  * 必须指向同一身份。裸 id 只接受正整数；频道目标由回复或用户名解析，随后走
  * banChatSenderChat 限制该频道身份的发言。仅限持有 isCanBlock 的用户或频道身份
  * 使用，权限与目标保护约束见 docs/cn/04-invariants.md。
+ * @param ctx grammY 命令上下文。
  * @param targetArgument 去掉末位动作后的目标参数原文，可为空（此时只认回复目标）。
  */
 async function blockTarget(ctx: CommandContext<Context>, targetArgument: string): Promise<void> {
@@ -82,9 +93,9 @@ async function blockTarget(ctx: CommandContext<Context>, targetArgument: string)
     botUserId: ctx.me.id,
     rawArgument: targetArgument,
     acceptUserId: true,
-    // 自己人闸与 blockUser 都读目标的名单结论，预热失败时拒绝执行。
+    // 白名单保护检查与 blockUser 均读取目标的名单结论，预热失败时拒绝执行。
     requireIdentityPolicies: true,
-    // 拒绝目标为当前群自己的 identity（匿名管理员皮套）：Telegram 只提供
+    // 拒绝目标为当前群自己的 identity（匿名管理员群身份）：Telegram 只提供
     // sender_chat=当前群，不暴露真实用户，封禁只会落在群组身份上。
     currentChatTargetText: chatAtmosphere().NOTICE_TEXTS.blockCurrentChat,
     messages: chatAtmosphere().BLOCK_TARGET_TEXTS,
@@ -111,9 +122,11 @@ async function blockTarget(ctx: CommandContext<Context>, targetArgument: string)
  * 与封禁结果无关：先发布 LRU 最终值，再把 revision 投给 DiskIO Worker；重复 /block 同一个人时
  * blockUser 返回 false，不创建新 revision。随后等待该 id 最新 revision 的事务 ACK；重复
  * /block 时若最新 revision 尚未 ACK，先把同一最终值重投给当前 Worker（不创建新 revision）再等待。
+ * @param targetUser 待拉黑的目标身份。
+ * @returns 名单准入结论（是否受保护、是否本次新写入以及是否已确认落盘）。
  */
 async function admitBlockTarget(targetUser: CachedUser): Promise<BlockAdmission> {
-  // isWhitelisted 已经把超级管理员算进白名单边界（whitelist.ts）；受保护时返回 undefined。
+  // isWhitelisted 已经把超级管理员算进白名单边界（infra/identityPolicy/whitelist.ts）；受保护时返回 undefined。
   const newlyBlocked: boolean | undefined = await runProtectedIdentityMutation(
     (): boolean | undefined => isWhitelisted(targetUser.id)
       ? undefined
@@ -126,15 +139,24 @@ async function admitBlockTarget(targetUser: CachedUser): Promise<BlockAdmission>
 
 /** reportBlockAdmission 的入参：handler 的校验结果与串行位内的名单写入结果。 */
 interface ReportBlockAdmissionParams {
+  /** 发起命令所在群聊 ID。 */
   readonly chatId: number;
+  /** 发起命令的消息 ID；用于挂回复引用。 */
   readonly messageId: number | undefined;
+  /** 被拉黑的目标身份。 */
   readonly targetUser: CachedUser;
+  /** 机器人在发起群的管理员权限快照；未知时为 undefined。 */
   readonly herePermissions: BotChatPermissions | undefined;
+  /** 机器人在发起群是否具有管理员身份。 */
   readonly isAdminHere: boolean;
+  /** 串行位内的黑名单准入与落盘结果。 */
   readonly admission: BlockAdmission;
 }
 
-/** 受保护目标与无受管群时直接回执；否则跨群封禁并发战报。 */
+/**
+ * 受保护目标与无受管群时直接回执；否则跨群封禁并发战报。
+ * @param params 发起群上下文、目标身份、机器人在本群的管理员权限快照与黑名单准入结果。
+ */
 async function reportBlockAdmission({
   chatId,
   messageId,
@@ -177,17 +199,28 @@ async function reportBlockAdmission({
 
 /** banEverywhereAndReport 的入参：handler 已完成校验与名单落盘后的全部事实。 */
 interface BanEverywhereParams {
+  /** 发起命令所在群聊 ID。 */
   readonly chatId: number;
+  /** 发起命令的消息 ID；用于挂回复引用。 */
   readonly messageId: number | undefined;
+  /** 被拉黑的目标身份。 */
   readonly targetUser: CachedUser;
+  /** 需要执行封禁的受管管理员群 ID 清单。 */
   readonly targetChatIds: readonly number[];
+  /** 机器人在发起群的管理员权限快照；未知时为 undefined。 */
   readonly herePermissions: BotChatPermissions | undefined;
+  /** 机器人在发起群是否具有管理员身份。 */
   readonly isAdminHere: boolean;
+  /** 目标是否为本次新加入黑名单。 */
   readonly newlyBlocked: boolean;
+  /** 黑名单写入是否已收到落盘确认。 */
   readonly persisted: boolean;
 }
 
-/** 在全部受管群封禁目标，失败群重新欠一次补扫，最后在发起群发战报。 */
+/**
+ * 在全部受管群封禁目标，失败群重新欠一次补扫，最后在发起群发战报。
+ * @param params 发起群上下文、目标身份、受管群清单及黑名单写入与落盘状态。
+ */
 async function banEverywhereAndReport({
   chatId,
   messageId,
@@ -259,6 +292,7 @@ async function banEverywhereAndReport({
  * `/block <目标> disable` 解除（commands/unblock.ts），回复目标时只写动作。动作缺省
  * 或不是 enable/disable 时回用法提示；两个动作各自校验权限
  * （isCanBlock / isCanUnBlock）。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleBlockCommand(ctx: CommandContext<Context>): Promise<void> {
   const { last: rawAction, rest: targetArgument }: TrailingTokenSplit = splitTrailingToken(ctx.match);

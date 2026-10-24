@@ -52,12 +52,19 @@ import type {
 import type { TelegramSendResult } from "../../../../types/telegram";
 import type { AgentTtsCapabilityConfig } from "../../../../types/config";
 
-/** 本轮是否挂载 send_voice：`agent.tts` 已配置且所选实现具备语音合成。 */
+/**
+ * 本轮是否挂载 send_voice：`agent.tts` 已配置且所选实现具备语音合成。
+ * @returns 当前可挂载 send_voice 工具时返回 true，否则返回 false。
+ */
 export function isSendVoiceAvailable(): boolean {
   return ttsAiProvider()?.synthesizeSpeech !== undefined;
 }
 
-/** 构造 send_voice 工具声明；说明优先取本线程 `prompt/voice_tool.md` 缓存，未放置时取 prompts.sendVoiceInstruction。 */
+/**
+ * 构造 send_voice 工具声明；说明优先取本线程 `prompt/voice_tool.md` 缓存，未放置时取 prompts.sendVoiceInstruction。
+ * @param prompts 当前台词语言对应的语音工具说明与字段描述。
+ * @returns send_voice 工具定义对象。
+ */
 export function buildSendVoiceToolDefinition(prompts: Readonly<VoiceLanguagePrompts>): AiToolDefinition {
   return {
     name: SEND_VOICE_TOOL,
@@ -92,6 +99,11 @@ interface ParsedVoiceArguments {
   replyToTrigger: boolean;
 }
 
+/**
+ * 解析并校验 send_voice 工具参数。
+ * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * @returns 清洗后的语音文本、可选语气与是否回复触发消息；参数不合法时返回 null。
+ */
 function parseArguments(argumentsJson: string): ParsedVoiceArguments | null {
   const parsed: Record<string, unknown> | null = parseToolArguments(argumentsJson);
   if (parsed === null || typeof parsed.text !== "string") return null;
@@ -118,7 +130,11 @@ interface VoiceProduction {
   windowClosed: boolean;
 }
 
-/** 包装 TTS 调用，在调用结束时按成功与否结清一次准入预留。 */
+/**
+ * 包装 TTS 调用，在调用结束时按成功与否结清一次准入预留。
+ * @param synthesize 底层语音合成函数。
+ * @returns 自动结清 AI TTS 预留的包装合成函数。
+ */
 function settlingReservation(synthesize: SpeechSynthesizer): SpeechSynthesizer {
   return async (request: AiMeteredSpeechRequest): Promise<SpeechSynthesisAttempt> => {
     let attempt: SpeechSynthesisAttempt;
@@ -133,7 +149,13 @@ function settlingReservation(synthesize: SpeechSynthesizer): SpeechSynthesizer {
   };
 }
 
-/** 启动后台语音合成与前台等待窗口计时器。 */
+/**
+ * 启动后台语音合成与前台等待窗口计时器。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param synthesize 底层语音合成函数。
+ * @param request 计量后的语音合成请求参数。
+ * @returns 跟踪合成结果与前台等待窗口的语音生产状态。
+ */
 function startVoiceProduction(
   ctx: ReplyToolContext,
   synthesize: SpeechSynthesizer,
@@ -168,7 +190,12 @@ interface AcceptedVoice {
   readonly production: VoiceProduction;
 }
 
-/** 按语音时长模拟录音停顿并发送已编码语音消息。 */
+/**
+ * 按语音时长模拟录音停顿并发送已编码语音消息。
+ * @param accepted 已接纳语音的上下文与解析参数。
+ * @param voice 编码完成的语音消息载荷。
+ * @returns 串行动作链步骤执行函数。
+ */
 function voiceDelivery(accepted: AcceptedVoice, voice: EncodedVoiceMessage): ReplyActionRun {
   const { ctx, parsed }: AcceptedVoice = accepted;
   return async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
@@ -196,7 +223,10 @@ function voiceDelivery(accepted: AcceptedVoice, voice: EncodedVoiceMessage): Rep
   };
 }
 
-/** 接纳回执：带预留后的今日余量并预占一个动作。 */
+/**
+ * 接纳回执：带预留后的今日余量并预占一个动作。
+ * @returns 序列化后的语音接纳回执 JSON 字符串。
+ */
 function acceptanceReceipt(): string {
   return JSON.stringify({
     success: true,
@@ -206,12 +236,19 @@ function acceptanceReceipt(): string {
   });
 }
 
-/** 合成失败且本轮仍有效时记录错误日志。 */
+/**
+ * 合成失败且本轮仍有效时记录错误日志。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param reason 语音未发出的失败原因。
+ */
 function reportVoiceNotSent(ctx: ReplyToolContext, reason: string): void {
   if (ctx.isActive()) logger.error(`AI reply voice was not sent (chat ${ctx.chatId}): ${reason}.`);
 }
 
-/** 前台窗口超时后转入后台等待，合成成功且本轮仍有效时排入链尾补发。 */
+/**
+ * 前台窗口超时后转入后台等待，合成成功且本轮仍有效时排入链尾补发。
+ * @param accepted 已接纳语音的上下文与生产状态。
+ */
 function deferVoiceDelivery(accepted: AcceptedVoice): void {
   const { ctx, chains, production }: AcceptedVoice = accepted;
   chains.defer(SEND_VOICE_TOOL, production.result.then((late: VoiceSynthesisResult): ReplyActionRun | null => {
@@ -223,7 +260,11 @@ function deferVoiceDelivery(accepted: AcceptedVoice): void {
   }));
 }
 
-/** 串行链投递步骤：等待前台窗口结果，超时则转后台，成功则投递语音。 */
+/**
+ * 串行链投递步骤：等待前台窗口结果，超时则转后台，成功则投递语音。
+ * @param accepted 已接纳语音的上下文与生产状态。
+ * @returns 串行动作链步骤执行函数。
+ */
 function voiceStep(accepted: AcceptedVoice): ReplyActionRun {
   const { ctx, production }: AcceptedVoice = accepted;
   return async (chatAction: ChatActionControl, pause: ReplyActionPause): Promise<string> => {
@@ -244,7 +285,13 @@ function voiceStep(accepted: AcceptedVoice): ReplyActionRun {
   };
 }
 
-/** 创建 send_voice 执行器：同步完成准入与配额预留，启动后台合成并返回串行投递步骤。 */
+/**
+ * 创建 send_voice 执行器：同步完成准入与配额预留，启动后台合成并返回串行投递步骤。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param chains 本轮串行动作链控制器。
+ * @param languageStyle 当前台词语言对应的朗读风格要求。
+ * @returns 接收参数 JSON 并返回发语音工具执行计划的执行器函数。
+ */
 export function createSendVoiceExecutor(
   ctx: ReplyToolContext,
   chains: ReplyActionChains,

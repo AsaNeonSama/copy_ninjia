@@ -2,9 +2,10 @@
 export const ANTI_RAID_BARRIER_TIMEOUT_MS: number = 3_000;
 
 /**
- * 停机时 Anti-Raid 完成业务取消、持久化对账与收尾删除的总预算。
+ * 正常停机时 Anti-Raid 完成业务取消、持久化对账与收尾删除的总预算（NORMAL_FLUSH_TIMEOUTS.antiRaidMs）。
  * 不跟随 SDK 的网络超时；业务请求由 Worker 双工生命周期信号主动取消。
- * 所属模块：antiRaid/durableDelivery.ts。
+ * 须不小于 DISK_IO_FLUSH_TIMEOUT_MS：排空内部的持久化步骤在本预算内等待同一次 Disk I/O flush。
+ * 所属模块：consts/lifecycle.ts（由 antiRaid/durableDelivery.ts 的 drainAntiRaid 消费）。
  */
 export const ANTI_RAID_DRAIN_TIMEOUT_MS: number = 15_000;
 

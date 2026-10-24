@@ -31,6 +31,8 @@ import { resolveCommandTarget } from "./targetResolution";
 /**
  * 把权限键与说明渲染为 MarkdownV2：转义后的开场白、可复制的 JSON 代码块与用法清单。
  * 开场白、用法清单与 JSON 各按所在上下文转义（见 libs/telegramMarkdown.ts）。
+ * @param atmosphere 当前活跃的文案氛围。
+ * @returns 渲染好的 MarkdownV2 权限帮助报文。
  */
 function formatPermissionHelpMessage(atmosphere: AtmosphereTexts): string {
   return escapeMarkdownV2(atmosphere.PERMISSION_COMMAND_TEXTS.helpPrefix) +
@@ -44,6 +46,10 @@ function formatPermissionHelpMessage(atmosphere: AtmosphereTexts): string {
  *
  * 与 `help` 一样长期保留：这份权限看板属获授权的长期保留例外，调用点显式传
  * `preserveInGroup: true`（见 docs/cn/04-invariants.md）。
+ * @param permissions 目标身份当前的白名单权限表。
+ * @param targetLabel 已格式化的目标展示标签。
+ * @param atmosphere 当前活跃的文案氛围。
+ * @returns 渲染好的 MarkdownV2 权限查询看板报文。
  */
 function formatPermissionQueryMessage(
   permissions: Readonly<WhitelistPermissions>,
@@ -54,7 +60,11 @@ function formatPermissionQueryMessage(
     markdownV2Pre(JSON.stringify(permissions, null, WHITELIST_PERMISSION_JSON_INDENT), WHITELIST_PERMISSION_JSON_LANGUAGE);
 }
 
-/** 大小写不敏感地还原为配置中的规范权限键。 */
+/**
+ * 大小写不敏感地还原为配置中的规范权限键。
+ * @param raw 原始权限键参数字符串。
+ * @returns 规范化的白名单权限键；未知键名时返回 undefined。
+ */
 export function parseWhitelistPermissionKey(
   raw: string
 ): WhitelistPermissionKey | undefined {
@@ -62,7 +72,11 @@ export function parseWhitelistPermissionKey(
   return WHITELIST_PERMISSION_KEY_BY_LOWERCASE.get(normalized);
 }
 
-/** 只接受字面量 true/false（大小写不敏感）。 */
+/**
+ * 只接受字面量 true/false（大小写不敏感）。
+ * @param raw 原始布尔值参数字符串。
+ * @returns 解析出的布尔值；不匹配时返回 undefined。
+ */
 export function parsePermissionBoolean(raw: string): boolean | undefined {
   const normalized: string = raw.toLowerCase();
   if (normalized === "true") return true;
@@ -76,6 +90,9 @@ export function parsePermissionBoolean(raw: string): boolean | undefined {
  * 失败可能发生在投递、事务 flush 或精确 ACK 边界，最终值都已作为未 ACK revision 留在
  * 主线程 LRU 里，幂等重试与 Worker 重建都会重放；回执只说「没写进硬盘」。降级语义与
  * antiRaid/blocklistGuard.ts 的 claimBlockedJoiner、commands/white.ts 一致。
+ * @param ctx grammY 命令上下文。
+ * @param targetId 被修改的白名单目标身份 ID。
+ * @param error 持久化过程中捕获的异常。
  */
 async function reportWhitelistMutationFailure(
   ctx: CommandContext<Context>,
@@ -89,7 +106,10 @@ async function reportWhitelistMutationFailure(
   await replyCommandNotice(ctx, chatAtmosphere().PERMISSION_COMMAND_TEXTS.mutationFailed);
 }
 
-/** `/permission help`：长期保留的权限说明看板。 */
+/**
+ * `/permission help`：长期保留的权限说明看板。
+ * @param ctx grammY 命令上下文。
+ */
 async function sendPermissionHelp(ctx: CommandContext<Context>): Promise<void> {
   await sendCommandMessage({
     chatId: ctx.chat.id,
@@ -97,12 +117,17 @@ async function sendPermissionHelp(ctx: CommandContext<Context>): Promise<void> {
     parseMode: MARKDOWN_V2_PARSE_MODE,
     replyToMessageId: ctx.msgId,
     preserveInGroup: true,
-    // 长期保留的看板必须自己带话题，见 SendMessageParams.messageThreadId。
+    // 显式带上触发消息所在论坛话题（见 SendMessageBaseParams.messageThreadId）。
     messageThreadId: forumTopicThreadId(ctx.msg),
   });
 }
 
-/** `/permission query [目标]`：查询自身或指定身份的权限，渲染长期保留的权限看板。 */
+/**
+ * `/permission query [目标]`：查询自身或指定身份的权限，渲染长期保留的权限看板。
+ * @param ctx grammY 命令上下文。
+ * @param tokens 已分词的命令参数列表。
+ * @param actor 命令发起身份；未指定目标参数且未回复消息时作为默认查询对象。
+ */
 async function handlePermissionQuery(
   ctx: CommandContext<Context>,
   tokens: readonly string[],
@@ -156,6 +181,8 @@ type PermissionMutation =
 /**
  * 超级管理员修改已在白名单里的身份：`/permission [目标] all` 全部开启，
  * `/permission [目标] <权限名> <true|false>` 设置单项。
+ * @param ctx grammY 命令上下文。
+ * @param tokens 已分词的命令参数列表。
  */
 async function handlePermissionMutation(
   ctx: CommandContext<Context>,
@@ -249,8 +276,9 @@ async function handlePermissionMutation(
  * 默认权限条目，删除和本命令的逐项授权仍仅限超级管理员。
  *
  * 超级管理员在这条命令里出现在两个位置，语义相反：作为发起人他是唯一能改
- * 权限的人；作为目标则一律被拒（他的权限来自身份、恒为全开，见 whitelist.ts 的
+ * 权限的人；作为目标则一律被拒（他的权限来自身份、恒为全开，见 infra/identityPolicy/whitelist.ts 的
  * getEffectiveWhitelistPermissions）。
+ * @param ctx grammY 命令上下文。
  */
 export async function handlePermissionCommand(
   ctx: CommandContext<Context>

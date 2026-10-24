@@ -215,6 +215,11 @@ const CANNED_OUTBOUND_CHAINS: ReadonlySet<ChainName> = new Set<ChainName>([
   "cron-config-reload",
 ]);
 
+/**
+ * 按链路名称从存储、命令或配置链路工厂构造链路定义。
+ * @param chain 目标链路标识名。
+ * @returns 已装配好生产依赖的链路定义对象。
+ */
 function createChain(chain: ChainName): ChainDefinition {
   const storage: ChainDefinition | undefined = createStorageChain(
     chain,
@@ -234,6 +239,11 @@ function createChain(chain: ChainName): ChainDefinition {
   throw new Error(`Chain ${chain} has no definition.`);
 }
 
+/**
+ * 解析并校验命令行传入的链路名称。
+ * @param value 命令行传入的链路名称字符串。
+ * @returns 合法的链路名称。
+ */
 function parseChainName(value: string | undefined): ChainName {
   switch (value) {
     case "join-log-append":
@@ -254,6 +264,11 @@ function parseChainName(value: string | undefined): ChainName {
   }
 }
 
+/**
+ * 执行单条链路的准备、测量与清理钩子。
+ * @param definition 待测量的链路定义对象。
+ * @returns 单轮链路的完整读数。
+ */
 async function measureChain(definition: ChainDefinition): Promise<ChainRound> {
   try {
     return await measurePreparedChain(definition);
@@ -262,6 +277,11 @@ async function measureChain(definition: ChainDefinition): Promise<ChainRound> {
   }
 }
 
+/**
+ * 完成链路准备、预热、逐次计时采样、I/O 差值与结果校验。
+ * @param definition 待测量的链路定义对象。
+ * @returns 单轮链路的完整读数。
+ */
 async function measurePreparedChain(definition: ChainDefinition): Promise<ChainRound> {
   await definition.prepare?.();
   const warmups: number =
@@ -319,12 +339,18 @@ async function measurePreparedChain(definition: ChainDefinition): Promise<ChainR
   };
 }
 
+/** 将标准输出上的业务日志重定向到标准错误，保持 stdout 只输出协议 JSON。 */
 function routeBusinessLogsToStderr(): void {
   console.log = console.error;
   console.info = console.error;
   console.warn = console.error;
 }
 
+/**
+ * 在隔离数据根与出站护栏下初始化 Disk I/O 并运行指定链路测量。
+ * @param chain 目标链路标识名。
+ * @returns 单轮链路的完整读数。
+ */
 async function runChainChild(chain: ChainName): Promise<ChainRound> {
   assertBenchmarkRuntimeRoot(RUNTIME_DATA_ROOT);
   routeBusinessLogsToStderr();
@@ -343,7 +369,10 @@ async function runChainChild(chain: ChainName): Promise<ChainRound> {
   }
 }
 
-/** --child chain 的严格入口；结果按 JSON 写入 stdout 协议通道。 */
+/**
+ * --child chain 的严格入口；结果按 JSON 写入 stdout 协议通道。
+ * @param argument 命令行传入的链路名称参数。
+ */
 export async function main(argument: string | undefined): Promise<void> {
   const round: ChainRound = await runChainChild(parseChainName(argument));
   await Bun.write(Bun.stdout, `${JSON.stringify(round)}\n`);

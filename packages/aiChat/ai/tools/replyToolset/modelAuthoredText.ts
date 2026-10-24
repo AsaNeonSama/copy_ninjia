@@ -10,6 +10,12 @@ import { isDuplicateOfAcceptedText } from "./messageState";
 
 type ModelAuthoredTextSurface = "message" | "picture";
 
+/**
+ * 构造模型在文本或图注中伪造执行侧动作记号时的工具错误 JSON。
+ * @param surface 文本所在载体（普通消息或图片图注）。
+ * @param marker 命中的伪造动作记号文本。
+ * @returns 不可重试的工具错误 JSON。
+ */
 function forgedActionError(surface: ModelAuthoredTextSurface, marker: string): string {
   if (surface === "message") {
     return toolError(
@@ -25,6 +31,11 @@ function forgedActionError(surface: ModelAuthoredTextSurface, marker: string): s
   );
 }
 
+/**
+ * 构造模型在文本或图注中包含可点击斜杠命令时的工具错误 JSON。
+ * @param surface 文本所在载体（普通消息或图片图注）。
+ * @returns 提示去掉前导斜杠的工具错误 JSON。
+ */
 function renderableCommandError(surface: ModelAuthoredTextSurface): string {
   const fieldName: string = surface === "message" ? "Text" : "caption";
   return toolError(
@@ -36,6 +47,10 @@ function renderableCommandError(surface: ModelAuthoredTextSurface): string {
 /**
  * 校验模型即将发送的正文或图注：同轮重复文本返回 DUPLICATE_REPLY_RESULT，含执行侧转录记号或可渲染斜杠命令时返回工具错误，
  * 通过时返回 null。
+ * @param text 清洗后的消息正文或图注文本。
+ * @param state 本轮消息去重与错字状态。
+ * @param surface 文本所在载体（`"message"` 或 `"picture"`）。
+ * @returns 命中策略拦截时返回工具回执 JSON，校验通过时返回 null。
  */
 export function modelAuthoredTextPolicyResult(
   text: string,

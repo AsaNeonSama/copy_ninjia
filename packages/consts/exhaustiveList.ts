@@ -6,6 +6,7 @@
  *
  * `bun run check:conventions` 要求 consts 里元素为字面量联合的导出数组表都经它构造，
  * 有意只列子集的表登记在 scripts/conventions/constExhaustiveLists.ts。
+ * @returns 校验并原样返回完整联合类型数组字面量的构造函数。
  */
 export function exhaustiveList<U>(): <const T extends readonly U[]>(
   items: T & ([U] extends [T[number]] ? unknown : never)
@@ -13,6 +14,11 @@ export function exhaustiveList<U>(): <const T extends readonly U[]>(
   return returnItems;
 }
 
+/**
+ * 原样返回传入的数组表。
+ * @param items 经编译期穷尽性校验的只读数组。
+ * @returns 原样返回的同一份数组引用。
+ */
 function returnItems<T>(items: T): T {
   return items;
 }

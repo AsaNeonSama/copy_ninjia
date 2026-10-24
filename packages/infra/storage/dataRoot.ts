@@ -29,24 +29,47 @@ const DEFAULT_DEPENDENCIES: DataRootProbeDependencies = {
   unlink: (path: string): Promise<void> => Bun.file(path).delete(),
 };
 
+/** 运行时数据根目录预检选项。 */
 export interface PrepareRuntimeDataRootOptions {
+  /** 文件系统探针依赖覆盖项。 */
   dependencies?: Partial<DataRootProbeDependencies>;
+  /** 是否强制校验目录私有权限与属主。 */
   enforcePrivatePermissions?: boolean;
+  /** 允许的部署协作组 GID 列表。 */
   expectedGroupGids?: readonly number[];
+  /** 期望的运行时属主 UID。 */
   expectedOwnerUid?: number;
 }
 
+/** 私有目录权限与属主校验选项。 */
 interface AssertPrivateDirectoryOptions {
+  /** 是否允许部署协作组具备可写权限。 */
   readonly allowCollaborativeGroup: boolean;
+  /** 当前进程所属的允许协作组 GID 列表。 */
   readonly expectedGroupGids: readonly number[];
+  /** 期望的目录属主 UID。 */
   readonly expectedOwnerUid: number;
+  /** 允许的最大 Unix 权限位掩码。 */
   readonly maximumMode: number;
 }
 
+/**
+ * 将 Unix 权限位格式化为固定 4 位八进制字符串。
+ *
+ * @param mode 原始权限数值。
+ * @returns 形如 `0700` 的八进制权限字符串。
+ */
 function formatUnixMode(mode: number): string {
   return (mode & 0o777).toString(8).padStart(4, "0");
 }
 
+/**
+ * 校验目录为真实目录且属主、协作组及权限掩码符合私有数据目录约束。
+ *
+ * @param path 目录路径。
+ * @param stats 目录的 `lstat` 统计信息。
+ * @param options 属主、协作组与权限上限校验选项。
+ */
 function assertPrivateDirectory(
   path: string,
   stats: Stats,
@@ -86,6 +109,9 @@ function assertPrivateDirectory(
  * 在实例锁和任何联网/Worker 初始化之前验证数据根真正支持本仓库依赖的
  * durability 原语：可创建/写入、同目录 hard link、原子 rename 与目录 fsync。
  * 权限校验规则见 docs/cn/04-invariants.md；已有目录只校验、不自动 chmod。
+ *
+ * @param dataRoot 运行时数据根目录路径。
+ * @param options 探针依赖与权限校验选项。
  */
 export async function prepareRuntimeDataRoot(
   dataRoot: string,

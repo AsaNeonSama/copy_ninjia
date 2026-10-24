@@ -71,7 +71,7 @@ flowchart TD
 
 ## 一条消息的旅程
 
-系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配，整条链只经一个 `bot.use` 登记：这一层完成 update_id 记账与 Bot 发言限流后，进入 [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) 的前置链。前置链各段按下图顺序同步调用下一段，只有真正碰到 I/O（预热冷身份、认领型 ingress 等待落盘或网络、命令与消息处理器）时才返回 Promise。斜杠命令、中文动作命令，以及表情反应、成员变更、内联回调等非消息事件分别建成 grammY `Composer`，由前置链在对应位置调用。
+系统所有消息中间件在 [`packages/app/registerHandlers.ts`](../../packages/app/registerHandlers.ts) 中显式装配，整条链只经一个 `bot.use` 登记：这一层完成 update_id 记账与 Bot 发言限流后，进入 [`packages/app/updatePreamble.ts`](../../packages/app/updatePreamble.ts) 的前置链。前置链各段按下图顺序同步调用下一段，只有真正碰到 I/O（预热冷身份、认领型 ingress 等待落盘或网络、命令与消息处理器）时才返回 Promise。本群状态在初始化网关处读一次并沿同步段传给下游，每个 Promise 恢复点重读现值。斜杠命令、中文动作命令，以及表情反应、成员变更、内联回调等非消息事件分别建成 grammY `Composer`，由前置链在对应位置调用。
 
 拉取消息的 Runner（[`packages/app/updateRunner.ts`](../../packages/app/updateRunner.ts)）每次长轮询按 `UPDATE_POLL_LIMIT` 拉取更新，待当前消息的整条处理链路完全执行完毕后才发起下一次 `getUpdates`，全局逐条串行处理。
 
@@ -192,7 +192,7 @@ AI 触发包含两种途径：
 | **`web_search`** | 查询 | 本地联网检索工具（配置了 `agent.web_search` 时挂载）；受单轮最大调用次数约束。 |
 | **`group_qa_query`** | 查询 | 查询本群预先登记的问题清单；不占用动作额度。 |
 | **`group_qa_answer`** | 查询 | 获取 `group_qa_query` 中特定问题的预置答案；由模型根据语义自行决定是否引用。 |
-| **`abuse_mark`** | 动作 | 当触发本轮回复的当前用户反复要求生成违规或令模型厌烦的内容时，标记该用户在 `ABUSE_MARK_DURATION_MS` 内不再进入 AI 闲聊，发出对应风格提示后立即结束本轮模型会话。 |
+| **`abuse_mark`** | 动作 | 当触发本轮回复的当前用户反复要求生成违规内容或反复进行令模型不适的行为（如责骂、羞辱等）时，标记该用户在 `ABUSE_MARK_DURATION_MS` 内不再进入 AI 闲聊，发出对应风格提示后立即结束本轮模型会话。 |
 | **`get_tokyo_weather`** | 查询 | 查询东京当日天气与温度；仅在时区为 `TOKYO_TIME_ZONE` 时挂载。 |
 
 > [!TIP]
@@ -215,11 +215,11 @@ AI 触发包含两种途径：
    - 检查并确保专用图库目录就绪（核对权限与文件格式）。
 3. **启动 Disk I/O Worker 并恢复持久化数据**：
    - Worker 启动时对所有持久化数据（SQLite 数据库、日志、AI 用量、贴纸、运势、入群验证、入群日志、老婆抽取候选池等）进行只读检查与格式校验；校验全部通过后才接管状态、运行启动维护并注册每日零点维护任务（`DISK_IO_MAINTENANCE_CRON`）。
-   - 主线程同步填充群状态、群问答、老婆抽取成员等热读缓存副本，初始化 Telegram 客户端，确认超级管理员未被拉黑或列为 `/delete_message` 目标，并预填发言者身份与翻译目标缓存。
+   - 主线程同步填充群状态、群问答、老婆抽取成员等热读缓存副本，初始化 Telegram 客户端，确认超级管理员未被拉黑或列为 `/delete_message` 目标，预填发言者身份与翻译目标缓存，并恢复运势状态与待定入群验证记录。
 4. **注册中间件与握手**：挂载全部消息中间件、注册命令菜单，并执行 `bot.init()` 与 Telegram 服务器完成连接握手。
 5. **初始化业务 Worker 与调度器**：
-   - 启动 AI Worker（若 AI 配置就绪），加载对话记忆快照与贴纸目录；主线程恢复运势状态。
-   - 载入待定入群验证记录与黑名单待踢 outbox 后启动 Anti-Raid Worker，恢复入群验证与防冲群锁定镜像。
+   - 启动 AI Worker（若 AI 配置就绪），加载对话记忆快照与贴纸目录。
+   - 载入黑名单待踢 outbox 后启动 Anti-Raid Worker，恢复入群验证与防冲群锁定镜像。
    - 启动定时任务调度器（`cron.json`）、配置文件动态热重载监听与黑名单补扫调度器，并在接收新 update 前对已确认管理员权限的群组先行执行一轮黑名单补扫。
 6. **启动消息拉取 Runner**：启动长轮询逐条串行 Runner 开始消费 updates，开启老婆抽取成员复核与群标题异步更新。
 
@@ -227,7 +227,7 @@ AI 触发包含两种途径：
 
 ## 停机顺序
 
-停机统一由 `ApplicationLifecycle`（`wait()` 与 `dispose()`）按 [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) 中 `SHUTDOWN_DRAIN_OWNERS` 定义的串行屏障依序收口，无论是收到 `SIGINT` / `SIGTERM` 正常退出还是发生未捕获异常退出：
+停机统一由 `ApplicationLifecycle`（`wait()` 与 `dispose()`）按 [`packages/app/lifecycle/shutdown.ts`](../../packages/app/lifecycle/shutdown.ts) 中 `SHUTDOWN_DRAIN_OWNERS` 定义的串行屏障依序收口（`wait()` 期间由总预算安全网 `SHUTDOWN_TOTAL_BUDGET_MS` 兜底），无论是收到 `SIGINT` / `SIGTERM` 正常退出还是发生未捕获异常退出：
 
 1. **入口关闸（Quiesce）**：
    - 停止群标题回填、头像队列、翻译、口球、老婆抽取交互与成员复核、延迟命令、定时任务、黑名单补扫与配置文件热重载监听；每个入口独立清理，任何错误均记录并阻止最终 offset 确认。

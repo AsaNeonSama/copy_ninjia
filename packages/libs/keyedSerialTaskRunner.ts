@@ -22,11 +22,19 @@ export interface KeyedSerialTaskRunner<K> {
   readonly isIdle: (key: K) => boolean;
 }
 
-/** 链尾吸收任务结果与异常的共用回调，每次 run 不另建闭包。 */
+/**
+ * 链尾吸收任务结果与异常的共用回调，每次 run 不另建闭包。
+ * @returns 恒返回 undefined，使链尾 Promise 以成功状态结算。
+ */
 function ignoreSettled(): undefined {
   return undefined;
 }
 
+/**
+ * 基于调用方提供的按 key 链尾表构造串行任务执行器。
+ * @param chains 调用方 cache 持有的按 key 串行链尾 Promise 映射表。
+ * @returns 绑定在该映射表上的按键串行异步任务执行器。
+ */
 export function createKeyedSerialTaskRunner<K>(chains: Map<K, Promise<void>>): KeyedSerialTaskRunner<K> {
   return {
     run<T>(key: K, task: () => T | Promise<T>): Promise<T> {

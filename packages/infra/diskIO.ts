@@ -6,23 +6,19 @@
  */
 
 import {
-  blocklistIdPageReadRequests,
   diskIOFlushBarrier,
   diskIORuntime,
-  identityPolicyReadRequests,
-  joinLogReadRequests,
   pendingLoad,
-  storageCloseRequests,
 } from "../cache/main/diskIO";
 import { logRelaySink } from "../cache/perThread/logger";
 import { DEFAULT_MAX_PENDING_BUSINESS_MESSAGES, LOAD_TIMEOUT_MS } from "../consts/diskIO/common";
-import { DISK_IO_FLUSH_TIMEOUT_MS, DISK_IO_STORAGE_CLOSE_TIMEOUT_MS } from "../consts/lifecycle";
+import { DISK_IO_FLUSH_TIMEOUT_MS } from "../consts/lifecycle";
 import { createDiskIOWorker } from "./diskIO/host";
 import { clearRuntimeRecoveryTimer, stopWorkerAfterLoadFailure } from "./diskIO/recovery";
 import {
+  closeDiskIOStorage,
   rejectAllPendingDiskIORequests,
-  requestDiskIO,
-  requestLuckSecretFromWorker,
+  requirePositiveFinite,
 } from "./diskIO/requests";
 import {
   enqueueDiskIODiagnostic,
@@ -46,9 +42,15 @@ export {
   onDiskIOReply,
   onDiskIORespawn,
 } from "./diskIO/observers";
+export {
+  ensureLuckReceiptSecret,
+  readBlocklistIdPage,
+  readIdentityPolicies,
+  readJoinLog,
+} from "./diskIO/requests";
+export type { ReadJoinLogParams } from "./diskIO/requests";
 import type { FlushResult } from "../types/lifecycle";
 import type {
-  CloseStorageRequest,
   DiskBusinessMessage,
   DiskFlushScope,
   LoadRequest,
@@ -56,24 +58,14 @@ import type {
   AdSampleDiskMessage,
   AiCacheUsageDiskMessage,
   LogMessage,
-  ReadBlocklistIdPageRequest,
-  ReadIdentityPoliciesRequest,
-  ReadJoinLogRequest,
 } from "../types/diskIO/messages";
 import type {
   DiskIODomain,
   DomainFlushOutcome,
   LoadedData,
   LoadedReply,
-  StorageCloseOutcome,
 } from "../types/diskIO/replies";
-import type {
-  JoinLogRecord,
-  LuckReceiptSecret,
-} from "../types/diskIO/storage";
-import type { BlocklistIdPage, IdentityPolicyRawReadResult } from "../types/identityStorage";
 import { toErrorOr } from "../libs/errorMessage";
-import { writeDiskIODiagnostic } from "../workers/diskIO/diagnosticSink";
 
 const isMainThread: boolean = Bun.isMainThread;
 export interface DiskIOInitOptions {
@@ -85,15 +77,11 @@ export interface DiskIOInitOptions {
   maxPendingBusinessMessages?: number;
 }
 
-function requirePositiveFinite(value: number, label: string): number {
-  if (!Number.isFinite(value) || value <= 0) throw new RangeError(`${label} must be a positive finite number.`);
-  return value;
-}
-
 /**
  * 在主线程显式启动唯一的落盘 Worker，并把 relayLogMessage 装成 logger 的落盘出口。调用方必须
  * 已经取得数据目录的 bot.lock；重复调用幂等，不重置崩溃自愈的放弃阈值。
  * 模块导入本身不创建线程；Worker 线程不初始化本宿主，只使用 logger.ts 的转发模式。
+ * @param options Disk I/O 宿主的初始化选项。
  */
 export function initDiskIO({
   onFatal,
@@ -129,7 +117,10 @@ export function initDiskIO({
   logRelaySink.current = relayLogMessage;
 }
 
-/** 供入口生命周期守卫和无副作用 import 测试查询，不代表 Worker 当前可用。 */
+/**
+ * 供入口生命周期守卫和无副作用 import 测试查询，不代表 Worker 当前可用。
+ * @returns 已完成宿主初始化时返回 true，未初始化或已终止时返回 false。
+ */
 export function isDiskIOInitialized(): boolean {
   return diskIORuntime.initialized;
 }
@@ -139,6 +130,8 @@ export function isDiskIOInitialized(): boolean {
  * 线程转发来的日志由 infra/supervisedWorker.ts 调用（logger.ts 的转发模式）。
  * DiskIO Worker 不可写、崩溃或同步拒收时延后重投；容量越界时释放原消息引用并
  * 记入后续汇总，本函数仍返回已接管，来源 Worker 随即释放原批。
+ * @param message 已序列化的错误日志消息。
+ * @returns 已由诊断通道接管时返回 true，Disk I/O 尚未初始化时返回 false。
  */
 export function relayLogMessage(message: LogMessage): boolean {
   // DiskIO owner 未初始化时返回 false，不建立积压。业务 Worker 在 DiskIO
@@ -154,14 +147,19 @@ export function relayLogMessage(message: LogMessage): boolean {
  * 恢复预算，也不触发业务 fatal；Worker 代际失败后原批重发，容量越界则记入
  * 一条后续汇总。样本文件与用量统计是尽力投递的旁路数据，
  * 见 workers/diskIO/adSampleFile.ts 与 workers/diskIO/aiCacheFile.ts。
- * @returns 已由有界诊断通道接管；调用方无需自行重试。
+ * @param message 广告样本或 AI 缓存用量旁路诊断消息。
+ * @returns 已由有界诊断通道接管时返回 `true`（调用方无需自行重试）；Disk I/O 尚未初始化时返回 `false`。
  */
 export function postDiskIODiagnostic(message: AdSampleDiskMessage | AiCacheUsageDiskMessage): boolean {
   if (!diskIORuntime.initialized) return false;
   return enqueueDiskIODiagnostic(message);
 }
 
-/** 主线程 -> diskIOWorker：统一的快照或增量写入；载荷成本只算一次，准入与排队共用。 */
+/**
+ * 主线程 -> diskIOWorker：统一的快照或增量写入；载荷成本只算一次，准入与排队共用。
+ * @param message 待投递的业务持久化消息。
+ * @returns 已排入恢复缓冲或操作队列时返回 true，无活跃 Worker、超出容量或投递失败时返回 false。
+ */
 export function postDiskIO(
   message: DiskBusinessMessage
 ): boolean {
@@ -183,6 +181,8 @@ export function postDiskIO(
  * 启动恢复：向 diskIOWorker 请求上一次成功落盘的全部状态，带超时。
  * 必须在 runner 开始投喂更新之前调用并等待完成（见 app/lifecycle.ts）。
  * 超时、Worker 不存在或恢复回执带 error 时 reject，调用方不得以空状态继续启动。
+ * @param timeoutMs 启动加载握手的超时毫秒数。
+ * @returns 从持久化存储恢复的全部数据快照。
  */
 export function loadPersistedData(timeoutMs: number = LOAD_TIMEOUT_MS): Promise<LoadedData> {
   requirePositiveFinite(timeoutMs, "Disk I/O load timeout");
@@ -237,123 +237,13 @@ export function loadPersistedData(timeoutMs: number = LOAD_TIMEOUT_MS): Promise<
   });
 }
 
-/** requestFromWritableWorker 的入参。 */
-interface WritableWorkerRequestParams<T> {
-  readonly timeoutMs: number;
-  /** 超时预算非法时报错用的名字。 */
-  readonly timeoutLabel: string;
-  /** 代际不可写时拒绝文案里的动作（`cannot <action>`）。 */
-  readonly action: string;
-  readonly request: (worker: Worker) => Promise<T>;
-}
-
 /**
- * 公开读取入口共用的前置：同步校验超时预算，只向当前可写代际发请求；不可写时以
- * `Persistence Worker is unavailable; cannot <action>.` 拒绝。
- */
-function requestFromWritableWorker<T>({
-  timeoutMs,
-  timeoutLabel,
-  action,
-  request,
-}: WritableWorkerRequestParams<T>): Promise<T> {
-  requirePositiveFinite(timeoutMs, timeoutLabel);
-  const worker: Worker | null = diskIORuntime.worker;
-  if (!worker || !diskIORuntime.writable) {
-    return Promise.reject(new Error(`Persistence Worker is unavailable; cannot ${action}.`));
-  }
-  return request(worker);
-}
-
-/** 配置时区的日期切换后，经唯一 Disk I/O Worker 原子加载或轮换日级运势密钥。 */
-export function ensureLuckReceiptSecret(
-  day: string,
-  timeoutMs: number = LOAD_TIMEOUT_MS
-): Promise<LuckReceiptSecret> {
-  return requestFromWritableWorker({
-    timeoutMs,
-    timeoutLabel: "Luck receipt secret timeout",
-    action: "rotate luck receipt secret",
-    request: (worker: Worker): Promise<LuckReceiptSecret> => requestLuckSecretFromWorker({
-      worker,
-      day,
-      timeoutMs,
-      context: "luck receipt secret request",
-    }),
-  });
-}
-
-export interface ReadJoinLogParams {
-  chatId: number;
-  since: number;
-  now: number;
-  timeoutMs?: number;
-}
-
-/**
- * 仅供 `/batch_kick` 按需读取本群入群日志；Worker 先提交更早到达的
- * 追写缓冲，返回值覆盖请求之前已处理的全部入群事件。
- */
-export function readJoinLog({
-  chatId,
-  since,
-  now,
-  timeoutMs = LOAD_TIMEOUT_MS,
-}: ReadJoinLogParams): Promise<readonly JoinLogRecord[]> {
-  return requestFromWritableWorker({
-    timeoutMs,
-    timeoutLabel: "Join log read timeout",
-    action: "read join logs",
-    request: (worker: Worker): Promise<readonly JoinLogRecord[]> => requestDiskIO({
-      worker,
-      channel: joinLogReadRequests,
-      timeoutMs,
-      buildRequest: (requestId: number): ReadJoinLogRequest => ({ type: "readJoinLog", requestId, chatId, since, now }),
-    }),
-  });
-}
-
-/** 黑白名单与临时广告免检累计 LRU 冷缺失的唯一跨线程批量读取边界。 */
-export function readIdentityPolicies(
-  ids: readonly number[],
-  timeoutMs: number = LOAD_TIMEOUT_MS
-): Promise<IdentityPolicyRawReadResult> {
-  return requestFromWritableWorker({
-    timeoutMs,
-    timeoutLabel: "Identity policy read timeout",
-    action: "read identity policies",
-    request: (worker: Worker): Promise<IdentityPolicyRawReadResult> => requestDiskIO({
-      worker,
-      channel: identityPolicyReadRequests,
-      timeoutMs,
-      buildRequest: (requestId: number): ReadIdentityPoliciesRequest => ({ type: "readIdentityPolicies", requestId, ids }),
-    }),
-  });
-}
-
-/** 群级补扫按稳定主键游标读取一页黑名单；普通成员判定不得调用。 */
-export function readBlocklistIdPage(
-  afterId: number | null,
-  timeoutMs: number = LOAD_TIMEOUT_MS
-): Promise<BlocklistIdPage> {
-  return requestFromWritableWorker({
-    timeoutMs,
-    timeoutLabel: "Blocklist ID read timeout",
-    action: "read a blocklist ID page",
-    request: (worker: Worker): Promise<BlocklistIdPage> => requestDiskIO({
-      worker,
-      channel: blocklistIdPageReadRequests,
-      timeoutMs,
-      buildRequest: (requestId: number): ReadBlocklistIdPageRequest => ({ type: "readBlocklistIdPage", requestId, afterId }),
-    }),
-  });
-}
-
-/**
- * 要求 diskIOWorker 立即把所有 dirty 数据（含待验证增量）全部落盘，
+ * 先排空主线程 `diagnosticQueue` 旁路诊断队列，再要求 `diskIOWorker` 立即把所有 dirty 数据（含待验证增量）全部落盘，
  * 并等待完成，用于进程退出前的最后一刷。等待最长 timeoutMs；resolve 只代表
  * 等待已结束，返回值区分 flushed、timedOut 与 failed。Worker 在这次
  * flush 期间崩溃时，onerror 立即以 failed 结算。
+ * @param timeoutMs 刷盘等待的总超时毫秒数。
+ * @returns 刷盘结算状态（`"flushed"`、`"timedOut"` 或 `"failed"`）。
  */
 export async function flushDiskIO(timeoutMs: number = DISK_IO_FLUSH_TIMEOUT_MS): Promise<FlushResult> {
   requirePositiveFinite(timeoutMs, "Disk I/O flush timeout");
@@ -374,7 +264,12 @@ export async function flushDiskIO(timeoutMs: number = DISK_IO_FLUSH_TIMEOUT_MS):
   return (await flushWritableScope("all", remaining)).result;
 }
 
-/** 当前代际可写时经 beginDiskIOFlush 发起 scope 范围的 flush；没有 Worker 或已不可写时直接按 failed 结算。 */
+/**
+ * 当前代际可写时经 beginDiskIOFlush 发起 scope 范围的 flush；没有 Worker 或已不可写时直接按 failed 结算。
+ * @param scope 刷盘的目标范围（全部领域或单个领域）。
+ * @param timeoutMs 刷盘等待的超时毫秒数。
+ * @returns 包含刷盘结果与失败领域列表的结构化回执。
+ */
 async function flushWritableScope(scope: DiskFlushScope, timeoutMs: number): Promise<DomainFlushOutcome> {
   requirePositiveFinite(timeoutMs, "Disk I/O flush timeout");
   const worker: Worker | null = diskIORuntime.worker;
@@ -386,6 +281,8 @@ async function flushWritableScope(scope: DiskFlushScope, timeoutMs: number): Pro
  * 单个领域的落盘屏障：Worker 只刷这一个领域（共享 SQLite 的各领域共用一个事务，见
  * types/diskIO/messages.ts 的 DiskFlushScope），回执只带该领域自己的失败
  * （见 workers/diskIO/domainFlush.ts）。
+ * @param domain 待刷盘的单个持久化领域名。
+ * @param timeoutMs 刷盘等待的超时毫秒数。
  * @returns result 为 "flushed" 表示该领域已 durable，"timedOut"/"failed" 表示没写进去；failedDomains 为本次
  *   回执里的失败领域名，超时或 Worker 崩溃中途结算时没有本次回执，为 undefined。
  */
@@ -394,43 +291,6 @@ export function flushDiskIODomain(
   timeoutMs: number = DISK_IO_FLUSH_TIMEOUT_MS
 ): Promise<DomainFlushOutcome> {
   return flushWritableScope(domain, timeoutMs);
-}
-
-/**
- * 停机关库：每条 terminateDiskIO 路径（含未捕获异常的紧急释放）都在当前代际已完成恢复握手、
- * 可写且未发出致命信号时发送一次 closeStorage。先把 writable 置假，此后的业务写在源头进恢复
- * 缓冲、随 terminate 丢弃；Worker 按 FIFO 处理完更早的操作后提交残余写、TRUNCATE checkpoint 并关库。
- * checkpoint 被其它读连接挡住只写诊断（残余写已提交，WAL 留在库旁）。
- * @returns 不满足发送条件或回执确认残余写已提交时为 null；回执报残余写未提交，或请求超时、
- *   被拒、回执报错而无法确认时为描述原因的错误。
- */
-async function closeDiskIOStorage(): Promise<Error | null> {
-  const worker: Worker | null = diskIORuntime.worker;
-  if (worker === null || !diskIORuntime.initialized || !diskIORuntime.writable || diskIORuntime.fatalSignaled) return null;
-  diskIORuntime.writable = false;
-  let outcome: StorageCloseOutcome;
-  try {
-    outcome = await requestDiskIO({
-      worker,
-      channel: storageCloseRequests,
-      timeoutMs: DISK_IO_STORAGE_CLOSE_TIMEOUT_MS,
-      buildRequest: (requestId: number): CloseStorageRequest => ({ type: "closeStorage", requestId }),
-    });
-  } catch (error: unknown) {
-    return new Error(
-      "[diskIO] could not confirm that residual storage writes were committed before the database closed.",
-      { cause: error }
-    );
-  }
-  if (outcome.checkpointBusy) {
-    writeDiskIODiagnostic(
-      "[diskIO] WAL checkpoint was blocked by another database reader at shutdown; " +
-      "the -wal file stays next to the database and must be backed up with it."
-    );
-  }
-  return outcome.committed
-    ? null
-    : new Error("[diskIO] residual storage writes were not committed before the database closed.");
 }
 
 /**

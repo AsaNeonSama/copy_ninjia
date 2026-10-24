@@ -138,7 +138,6 @@ const injectedAdDetectConfig: AdDetectAgentConfig = {
   provider: "openai",
   apiKey: "injected-ad-key",
   baseUrl: undefined,
-  headers: undefined,
   model: "injected-ad-model",
 };
 

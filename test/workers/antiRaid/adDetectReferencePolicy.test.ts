@@ -158,6 +158,29 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
   });
 
+  test("公开警告结算后裁剪 pendingDeleteIds，仅保留晚于警告的消息 id 且条目为空时保留消息束", async () => {
+    classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
+      isAd: text.includes("日入过千"),
+      reason: "引用内容引流",
+    }));
+    warnReferencedAdSender.mockImplementationOnce(async (): Promise<TelegramWorkerTemporaryMessageResult> => {
+      pendingAdBundle(-1001, 7)!.pendingDeleteIds.push(10, 557);
+      return { messageId: 555, sentAt: 3_000 };
+    });
+    enqueueAdCandidate(candidate({
+      messageId: 100,
+      text: "第一次",
+      sampleQuote: "日入过千 加V same",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    const remainingBundle = pendingAdBundle(-1001, 7);
+    expect(remainingBundle).toBeDefined();
+    expect(remainingBundle?.entries).toEqual([]);
+    expect(remainingBundle?.pendingDeleteIds).toEqual([557]);
+  });
+
   test("五分钟内再次命中引用类广告时走现有 block 路径", async () => {
     classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
       isAd: text.includes("日入过千"),

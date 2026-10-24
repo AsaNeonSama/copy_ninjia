@@ -30,7 +30,11 @@ export interface TextReviewResult {
   };
 }
 
-/** 依次运行全部文本专项场景；任一轮失败即整体失败。 */
+/**
+ * 依次运行全部文本专项场景；任一轮失败即整体失败。
+ * @param context 分区运行上下文。
+ * @returns 全部文本专项场景的逐轮读数与汇总列表。
+ */
 export async function runTextReview(context: SectionContext): Promise<readonly TextReviewResult[]> {
   const results: TextReviewResult[] = [];
   for (const scenario of TEXT_REVIEW_SCENARIOS) {
@@ -39,6 +43,12 @@ export async function runTextReview(context: SectionContext): Promise<readonly T
   return results;
 }
 
+/**
+ * 按指定轮数在独立子进程中运行单个文本专项场景并汇总读数。
+ * @param context 分区运行上下文。
+ * @param scenario 待测量的文本专项场景定义。
+ * @returns 单个场景的多轮结果与统计摘要。
+ */
 async function runTextScenario(
   context: SectionContext,
   scenario: TextReviewScenario

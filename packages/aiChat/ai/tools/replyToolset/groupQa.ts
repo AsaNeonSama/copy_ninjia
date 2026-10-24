@@ -13,7 +13,10 @@ interface GroupQaAnswerArguments {
   readonly question?: unknown;
 }
 
-/** 构造群问答两个查询工具的声明。 */
+/**
+ * 构造群问答两个查询工具的声明。
+ * @returns `group_qa_query` 与 `group_qa_answer` 工具定义列表。
+ */
 export function buildGroupQaToolDefinitions(): readonly AiToolDefinition[] {
   return [
     {
@@ -43,7 +46,11 @@ export function buildGroupQaToolDefinitions(): readonly AiToolDefinition[] {
   ];
 }
 
-/** 解析 trigger 随附的问答对数组 JSON；缺省时返回空数组，形态不符时抛错。 */
+/**
+ * 解析 trigger 随附的问答对数组 JSON；缺省时返回空数组，形态不符时抛错。
+ * @param chatQaJson 触发消息随附的本群问答对数组 JSON 字符串。
+ * @returns 解析后的 `[question, answer]` 二元组只读列表。
+ */
 export function parseChatQaJson(chatQaJson: string | undefined): readonly (readonly [string, string])[] {
   if (chatQaJson === undefined) return [];
   const parsed: unknown = JSON.parse(chatQaJson);
@@ -58,14 +65,23 @@ export function parseChatQaJson(chatQaJson: string | undefined): readonly (reado
   return pairs;
 }
 
-/** 列出已登记的问题清单（不含答案）。 */
+/**
+ * 列出已登记的问题清单（不含答案）。
+ * @param chatQaJson 触发消息随附的本群问答对数组 JSON 字符串。
+ * @returns 包含 `questions` 数组的 JSON 字符串。
+ */
 export function executeGroupQaQuery(chatQaJson: string | undefined): string {
   const questions: string[] = [];
   for (const [question] of parseChatQaJson(chatQaJson)) questions.push(question);
   return JSON.stringify({ questions });
 }
 
-/** 按问题原文精确匹配并返回登记的答案。 */
+/**
+ * 按问题原文精确匹配并返回登记的答案。
+ * @param chatQaJson 触发消息随附的本群问答对数组 JSON 字符串。
+ * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * @returns 包含匹配状态、问题原文与答案（命中时）的 JSON 字符串，或工具错误 JSON。
+ */
 export function executeGroupQaAnswer(
   chatQaJson: string | undefined,
   argumentsJson: string

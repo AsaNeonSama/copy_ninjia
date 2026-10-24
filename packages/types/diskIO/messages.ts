@@ -1,11 +1,3 @@
-import type { AiCacheUsage } from "../aiCache";
-import type { AdSampleMessage } from "../antiRaid/adDetect";
-import type { VerificationSnapshot } from "../antiRaid/verification";
-import type { IdentityPolicyTable } from "../identityPolicy";
-import type { TemporaryAdBypassActivity } from "../states/temporaryAdBypass";
-import type { LuckReceiptSecret } from "./storage";
-import type { DiskIODomain } from "./replies";
-
 /**
  * 磁盘 IO 线程（packages/workers/diskIOWorker.ts）统一的消息协议与快照类型：
  * 日志、AI/贴纸快照、每日运势、待验证当日增量与身份 SQLite 共用同一个 Worker。
@@ -14,6 +6,15 @@ import type { DiskIODomain } from "./replies";
  * JSON 文本。
  */
 
+import type { AiCacheUsage } from "../aiCache";
+import type { AdSampleMessage } from "../antiRaid/adDetect";
+import type { VerificationSnapshot } from "../antiRaid/verification";
+import type { IdentityPolicyTable } from "../identityPolicy";
+import type { TemporaryAdBypassActivity } from "../states/temporaryAdBypass";
+import type { LuckReceiptSecret } from "./storage";
+import type { DiskIODomain } from "./replies";
+
+/** 统一日志门面支持的日志级别。 */
 export type LogLevel = "log" | "info" | "warn" | "error";
 
 /** 一条日志的内容（不含 type 标；也是 Worker 日志转发批次的元素形状）。 */

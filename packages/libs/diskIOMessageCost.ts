@@ -62,7 +62,11 @@ const VERIFICATION_UPSERT_TEMPLATE: Readonly<Record<keyof VerificationUpsertDisk
  */
 const VERIFICATION_UPSERT_MAX_BYTES: number = JSON.stringify(VERIFICATION_UPSERT_TEMPLATE).length;
 
-/** verificationUpsert 的 JSON 字节上界。 */
+/**
+ * verificationUpsert 的 JSON 字节上界。
+ * @param message 入群验证状态落盘消息。
+ * @returns 该消息序列化为 JSON 时的保守最大字节数。
+ */
 function verificationUpsertMaxBytes(message: VerificationUpsertDiskMessage): number {
   return VERIFICATION_UPSERT_MAX_BYTES +
     message.record.label.length * DISK_JSON_STRING_UNIT_MAX_BYTES +
@@ -72,6 +76,8 @@ function verificationUpsertMaxBytes(message: VerificationUpsertDiskMessage): num
 /**
  * 操作 FIFO 中字符串与消息对象的保守成本；高频固定字段不重新序列化。验证快照按结构算
  * JSON 字节上界。启动 load 与诊断批次不进 FIFO，不在计价范围内。
+ * @param message 待排入磁盘 I/O 操作 FIFO 的消息。
+ * @returns 封顶在 `Number.MAX_SAFE_INTEGER` 内的正安全整数成本字节估算值。
  */
 export function diskIOMessageCost(message: QueuedDiskIOOperationMessage): number {
   let payloadBytes: number = 0;
@@ -133,7 +139,11 @@ export function diskIOMessageCost(message: QueuedDiskIOOperationMessage): number
   return Math.min(Number.MAX_SAFE_INTEGER, DISK_BUSINESS_MESSAGE_BASE_BYTES + payloadBytes);
 }
 
-/** 代际失效时只把业务事实交给恢复 FIFO，逐请求等待者由宿主拒绝。 */
+/**
+ * 代际失效时只把业务事实交给恢复 FIFO，逐请求等待者由宿主拒绝。
+ * @param message 磁盘 I/O 操作队列中的消息。
+ * @returns 为需要跨代保留重放的业务事实写消息时返回 true，控制或读取请求返回 false。
+ */
 export function isDiskBusinessMessage(message: QueuedDiskIOOperationMessage): message is DiskBusinessMessage {
   switch (message.type) {
     case "recoveryReplay":

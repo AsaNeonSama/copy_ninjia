@@ -48,6 +48,13 @@ export interface DiskIORequestChannel<TResult> {
   readonly table: WorkerRequestTable<DiskIORequestOutcome<TResult>>;
 }
 
+/**
+ * 创建一条空的 Disk I/O 请求/回复通道描述符与等待表。
+ *
+ * @param label 通道领域名称
+ * @param missingPayload 回执缺少载荷时的错误文案
+ * @returns 初始化后的 Disk I/O 请求通道对象
+ */
 function createDiskIORequestChannel<TResult>(
   label: string,
   missingPayload: string

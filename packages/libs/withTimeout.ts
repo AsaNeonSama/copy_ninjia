@@ -9,6 +9,7 @@
  * @param task 已经在途的任务；本函数不负责取消它。
  * @param timeoutMs 上限毫秒数，必须是非负有限值。
  * @param operation 出现在超时错误文案里的操作名（英文，见 AGENTS.md 日志约定）。
+ * @returns 在超时前完成时兑现 `task` 的结果，超时则以 `Error` 拒绝。
  */
 export function withTimeout<T>(task: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;

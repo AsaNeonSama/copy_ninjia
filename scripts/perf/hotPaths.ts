@@ -83,12 +83,29 @@ interface BenchmarkResult {
 const SAMPLE_COUNT: number = 7;
 /** 正式采样前的预热占比：预热迭代数为场景迭代数除以该值。 */
 const WARMUP_DIVISOR: number = 5;
+/** 分段预热第一段的总迭代数：先让被调函数进入 DFG。 */
+const WARMUP_STAGE1_ITERATIONS: number = 2_000;
+/** 分段预热第一段的单次切片：外层循环不先于被调函数触发 OSR 编译。 */
+const WARMUP_STAGE1_SLICE_ITERATIONS: number = 100;
+/** 分段预热第二段的总迭代数：被调函数进入 FTL、外层循环进入 DFG。 */
+const WARMUP_STAGE2_ITERATIONS: number = 50_000;
+/** 分段预热第一段之后各段，以及不分段的非重置场景预热的单次切片。 */
+const WARMUP_SLICE_ITERATIONS: number = 1_000;
+/** 分段预热每段之后、重置型场景预热之后让出的毫秒数，供后台并发 JIT 线程完成编译。 */
+const WARMUP_JIT_SETTLE_MS: number = 3;
 
-/** 峰值 RSS 读取器放在模块级，按样本调用时不创建闭包。单位是 KiB，换算由调用方完成。 */
+/**
+ * 峰值 RSS 读取器放在模块级，按样本调用时不创建闭包。单位是 KiB，换算由调用方完成。
+ * @returns 操作系统记录的进程峰值 RSS（KiB）。
+ */
 function readProcessPeakRssKb(): number {
   return process.resourceUsage().maxRSS;
 }
 
+/**
+ * 读取当前进程的实时堆用量、RSS 与历史峰值 RSS。
+ * @returns 当前时刻的实时内存快照。
+ */
 function snapshotLiveMemory(): LiveMemorySnapshot {
   // 三次读取都经 readInterruptibleMemory 包装。
   const processMemory: NodeJS.MemoryUsage = readInterruptibleMemory(process.memoryUsage);
@@ -110,6 +127,9 @@ function snapshotLiveMemory(): LiveMemorySnapshot {
 /**
  * 只检查场景显式登记的生产探针，不检查 `scenario.run`（async 编排壳可能不进 DFG）。
  * 一次稳定表示所有探针已经进入 DFG，且完整场景轮次前后的编译与重试计数都没有变化。
+ * @param before 本轮执行前的探针分层计数表。
+ * @param after 本轮执行后的探针分层计数表。
+ * @returns 所有生产探针是否均已进入 DFG 且编译计数保持稳定。
  */
 function productionJitTiersAreStable(
   before: Readonly<Record<string, JitTierCounts>>,
@@ -196,6 +216,11 @@ const SCENARIO_NAMES: Readonly<Record<ScenarioName, true>> = {
   "luck-tier-table": true,
 };
 
+/**
+ * 校验并返回命令行传入的热路径场景名。
+ * @param value 命令行第一个参数。
+ * @returns 合法的热路径场景名称。
+ */
 function parseScenarioName(value: string | undefined): ScenarioName {
   if (value !== undefined && Object.hasOwn(SCENARIO_NAMES, value)) return value as ScenarioName;
   throw new Error(`Usage: bun run perf:hot-paths -- <${Object.keys(SCENARIO_NAMES).join("|")}>`);
@@ -203,6 +228,9 @@ function parseScenarioName(value: string | undefined): ScenarioName {
 
 /**
  * 跑一轮并收敛成数字。同步场景就地返回；只有异步场景进入 Promise 调度。
+ * @param scenario 待运行的热路径场景实例。
+ * @param iterations 本轮迭代次数。
+ * @returns 场景本轮返回的校验和。
  */
 async function runOnce(scenario: Scenario, iterations: number): Promise<number> {
   if (scenario.resetBeforeSample === true) {
@@ -213,6 +241,12 @@ async function runOnce(scenario: Scenario, iterations: number): Promise<number> 
   return typeof result === "number" ? result : await result;
 }
 
+/**
+ * 执行指定热路径场景的预热、JIT 稳定化与正式采样。
+ * @param name 待运行的热路径场景名称。
+ * @param steadyProfile 是否以开启 sampling profiler 与 GC 窗口的稳态剖析模式运行。
+ * @returns 场景单次运行的完整基准结果。
+ */
 async function runBenchmark(
   name: ScenarioName,
   steadyProfile: boolean
@@ -229,17 +263,63 @@ async function runBenchmark(
     name === "mention-facts-plain"
     ? scenario.iterations * HOT_PATH_PROFILE_FAST_SCENARIO_ITERATION_MULTIPLIER
     : scenario.iterations;
-  scenario.reset?.();
-  scenario.prepare?.();
-  const warmupResult: number | Promise<number> = scenario.run(warmupIterations);
+  if (scenario.resetBeforeSample !== true) {
+    scenario.reset?.();
+    scenario.prepare?.();
+  }
   /**
-   * 本场景是否同步：由第一次预热的返回值判定，选择采样驱动；`Scenario.run` 的
+   * 本场景是否同步：由预热的返回值判定，选择采样驱动；`Scenario.run` 的
    * 同步/异步是场景的固定属性，正式采样不再探测。
    */
-  const scenarioIsSynchronous: boolean = typeof warmupResult === "number";
-  let checksum: number = typeof warmupResult === "number"
-    ? warmupResult
-    : await warmupResult;
+  let scenarioIsSynchronous: boolean = true;
+  let checksum: number = 0;
+  /**
+   * 以不超过 sliceLimit 的切片推进一段预热并累加校验和；重置型场景每片先重建相变起点。
+   * @param totalIterations 本段需要执行的迭代总数。
+   * @param sliceLimit 单次调用 scenario.run 的最大迭代数。
+   */
+  async function runWarmupStage(
+    totalIterations: number,
+    sliceLimit: number
+  ): Promise<void> {
+    for (
+      let remaining: number = totalIterations;
+      remaining > 0;
+      remaining -= sliceLimit
+    ) {
+      if (scenario.resetBeforeSample === true) {
+        scenario.reset?.();
+        scenario.prepare?.();
+      }
+      const warmupResult: number | Promise<number> =
+        scenario.run(Math.min(remaining, sliceLimit));
+      scenarioIsSynchronous = typeof warmupResult === "number";
+      checksum += typeof warmupResult === "number"
+        ? warmupResult
+        : await warmupResult;
+    }
+  }
+  if (scenario.resetBeforeSample === true) {
+    await runWarmupStage(warmupIterations, scenario.iterations);
+    await Bun.sleep(WARMUP_JIT_SETTLE_MS);
+  } else if (
+    warmupIterations > WARMUP_STAGE1_ITERATIONS + WARMUP_STAGE2_ITERATIONS
+  ) {
+    await runWarmupStage(
+      WARMUP_STAGE1_ITERATIONS,
+      WARMUP_STAGE1_SLICE_ITERATIONS
+    );
+    await Bun.sleep(WARMUP_JIT_SETTLE_MS);
+    await runWarmupStage(WARMUP_STAGE2_ITERATIONS, WARMUP_SLICE_ITERATIONS);
+    await Bun.sleep(WARMUP_JIT_SETTLE_MS);
+    await runWarmupStage(
+      warmupIterations - WARMUP_STAGE1_ITERATIONS - WARMUP_STAGE2_ITERATIONS,
+      WARMUP_SLICE_ITERATIONS
+    );
+    await Bun.sleep(WARMUP_JIT_SETTLE_MS);
+  } else {
+    await runWarmupStage(warmupIterations, WARMUP_SLICE_ITERATIONS);
+  }
   let tiersAfterWarmup: Record<string, JitTierCounts> = collectJitTiers(scenario);
   if (steadyProfile && scenario.profileRequiresOptimizedJit !== false) {
     let stableRounds: number = 0;
@@ -276,11 +356,12 @@ async function runBenchmark(
   let processPeakRssBytes: number = liveBefore.processPeakRssBytes;
   const samplesNsPerOp: number[] = [];
 
-  /** 一个样本的计时起点；`resetBeforeSample` 的相变准备不计入本样本耗时。 */
+  /** 一个样本的计时起点；`resetBeforeSample` 的相变准备与 retained 模式的样本前 full GC 不计入本样本耗时。 */
   function beginSample(): number {
     if (scenario.resetBeforeSample === true) {
       scenario.reset?.();
       scenario.prepare?.();
+      if (!steadyProfile) Bun.gc(true);
     }
     return Bun.nanoseconds();
   }

@@ -41,6 +41,12 @@ import {
 import { prototypeProbes } from "./jitTiers";
 import type { Scenario } from "./types";
 
+/**
+ * 构建单一普通用户身份下的 `cacheSender` 稳态读取场景。
+ *
+ * @param username 可选的固定用户名
+ * @returns 发送者身份缓存读取场景定义
+ */
 export function senderScenario(username?: string): Scenario {
   const message: Message = messageFixture(username);
   return {
@@ -73,6 +79,8 @@ export function senderScenario(username?: string): Scenario {
  *
  * 两种形态交替喂入，发送者 id 各不相同且资料保持不变：命中「发送者资料没变、
  * 逐字段比对后提前返回」的稳态热路径，不是写入路径。
+ *
+ * @returns 混合身份发送者缓存读取场景定义
  */
 export function senderMixedIdentityScenario(): Scenario {
   const messages: readonly Message[] = [
@@ -99,6 +107,11 @@ export function senderMixedIdentityScenario(): Scenario {
   };
 }
 
+/**
+ * 构建单群内 AI 回复活跃度滑动窗口的稳态记账场景。
+ *
+ * @returns AI 回复活跃度窗口记账场景定义
+ */
 export function aiActivityScenario(): Scenario {
   let now: number = BENCHMARK_EPOCH_MS;
   return {
@@ -119,6 +132,11 @@ export function aiActivityScenario(): Scenario {
   };
 }
 
+/**
+ * 构建不同群聊持续未命中并触发 AI 活跃度表 LRU 淘汰的场景。
+ *
+ * @returns AI 回复活跃度 LRU 未命中与淘汰场景定义
+ */
 export function aiActivityLruMissScenario(): Scenario {
   let now: number = BENCHMARK_EPOCH_MS;
   let chatId: number = BENCHMARK_CHAT_ID;
@@ -145,6 +163,8 @@ export function aiActivityLruMissScenario(): Scenario {
 /**
  * 反刷群入群窗口的完整热路径：Map owner、固定容量 TimestampDeque、饱和
  * fail-safe 与每群唯一 timer 均走生产入口。
+ *
+ * @returns 反刷群入群时间戳窗口场景定义
  */
 export function joinTimestampWindowScenario(): Scenario {
   let now: number = BENCHMARK_EPOCH_MS;
@@ -180,6 +200,8 @@ export function joinTimestampWindowScenario(): Scenario {
  *
  * 每次迭代时钟前进 1 ms；窗口长度为场景内的固定值，与入群窗口（生产 `JOIN_WINDOW_MS`）
  * 不同。
+ *
+ * @returns 配额型滑动时间窗口场景定义
  */
 export function quotaTimestampWindowScenario(): Scenario {
   const timestamps: TimestampDeque =
@@ -217,6 +239,8 @@ export function quotaTimestampWindowScenario(): Scenario {
  *
  * 容量与批量取生产常量：满 `VERBATIM_CONTEXT_MAX` 后压缩一块
  * `COMPACT_BATCH_SIZE` 再继续推入，复刻摘要触发前后的进出形状。
+ *
+ * @returns 有界滚动双端队列场景定义
  */
 export function boundedRollingBufferScenario(): Scenario {
   const buffer: BoundedDeque<number> = new BoundedDeque<number>(VERBATIM_CONTEXT_MAX);
@@ -264,6 +288,8 @@ const BENCHMARK_LOG_LINES: readonly string[] = [
 
 /**
  * 日志脱敏在正文不含任何密钥的早退路径上的成本；每条日志的每个参数都经过这条判定。
+ *
+ * @returns 无敏感信息日志脱敏早退场景定义
  */
 export function redactCleanLogScenario(): Scenario {
   return {
@@ -282,7 +308,11 @@ export function redactCleanLogScenario(): Scenario {
   };
 }
 
-/** 固定 roll 输入直接调用生产抽签查表函数，校验和与 JIT 探针均覆盖该入口。 */
+/**
+ * 固定 roll 输入直接调用生产抽签查表函数，校验和与 JIT 探针均覆盖该入口。
+ *
+ * @returns 运势抽签档位查表场景定义
+ */
 export function luckTierTableScenario(): Scenario {
   return {
     iterations: 1_000_000,
@@ -302,6 +332,8 @@ export function luckTierTableScenario(): Scenario {
  * gag 活动群的每消息入口计数：会话数量取生产容量上限 `GAG_SESSION_MAX`，计数达到
  * `GAG_SPEAK_NOTICE_MESSAGE_INTERVAL` 才分配 due 数组；场景在返回的会话上同样把
  * 计数归零。
+ *
+ * @returns 口塞会话发言入口计数场景定义
  */
 export function gagSpeakCounterScenario(): Scenario {
   const sessions: GagSession[] = [];
@@ -369,6 +401,8 @@ export function gagSpeakCounterScenario(): Scenario {
  *
  * fixture 只复刻各 writer 对应的生产形状，不含字段删除造成的隐藏类迁移；报告仅用于
  * 本场景固定输入下的纵向门禁。
+ *
+ * @returns 群状态对象属性读取与隐藏类稳定性场景定义
  */
 export function chatStateReadScenario(): Scenario {
   const writers: readonly ((state: ChatState) => void)[] = [
@@ -418,7 +452,11 @@ export function chatStateReadScenario(): Scenario {
   };
 }
 
-/** 单独量群状态 Map accessor；探针与计时循环实际调用保持一致。 */
+/**
+ * 单独量群状态 Map accessor；探针与计时循环实际调用保持一致。
+ *
+ * @returns 群状态 Map 查找与读取场景定义
+ */
 export function chatStateMapReadScenario(): Scenario {
   const chatIds: readonly number[] = [
     BENCHMARK_CHAT_ID,

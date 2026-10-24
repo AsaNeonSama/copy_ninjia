@@ -22,7 +22,13 @@ import type {
   StoredStorageMetadataRow,
 } from "../../types/storageDatabase";
 
-/** 构造 SQLite 业务行的校验错误来源路径（不包含行内容）。 */
+/**
+ * 构造 SQLite 业务行的校验错误来源路径（不包含行内容）。
+ * @param source 数据库来源路径标识。
+ * @param table 业务表名称。
+ * @param id 行主键值或复合主键字符串。
+ * @returns 指向该行数据列的错误来源路径字符串。
+ */
 export function storageRowSource(
   source: string,
   table: string,
@@ -35,10 +41,17 @@ export function storageRowSource(
 
 /** `storage_metadata` 解码参数。 */
 export interface ReadStorageMetadataParams {
+  /** 从 `storage_metadata` 表读取的全部原始行。 */
   readonly metadata: readonly StoredStorageMetadataRow[];
 }
 
-/** 按主键查找唯一的 `storage_metadata` 行，缺失或重复时抛错。 */
+/**
+ * 按主键查找唯一的 `storage_metadata` 行，缺失或重复时抛错。
+ * @param rows 包含 `storage_metadata` 原始行列表的参数对象。
+ * @param key 待查找的元数据主键名。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 唯一匹配的元数据行。
+ */
 function readOnlyMetadataRow(
   rows: ReadStorageMetadataParams,
   key: string,
@@ -53,7 +66,12 @@ function readOnlyMetadataRow(
   return found;
 }
 
-/** 读取并校验 `storage_metadata` 中的 schema 版本号。 */
+/**
+ * 读取并校验 `storage_metadata` 中的 schema 版本号。
+ * @param rows 包含 `storage_metadata` 原始行列表的参数对象。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 已校验的整数 schema 版本号。
+ */
 export function readStorageSchemaVersion(
   rows: ReadStorageMetadataParams,
   source: string
@@ -79,7 +97,12 @@ export function readStorageSchemaVersion(
   return value.version as number;
 }
 
-/** 校验 `storage_metadata` 主键集合与时区标记行跟当前配置时区一致。 */
+/**
+ * 校验 `storage_metadata` 主键集合与时区标记行跟当前配置时区一致。
+ * @param rows 包含 `storage_metadata` 原始行列表的参数对象。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @param timeZone 当前配置生效的规范化 IANA 时区名称。
+ */
 export function assertStorageTimeZone(
   rows: ReadStorageMetadataParams,
   source: string,
@@ -118,10 +141,16 @@ export function assertStorageTimeZone(
 
 /** 待踢任务行的解码结果。 */
 export interface DecodedPendingRemovalRows {
+  /** 按 `removalId` 索引的已校验待踢任务只读映射。 */
   readonly values: ReadonlyMap<number, PendingBlockedRemoval>;
 }
 
-/** 严格解码待踢任务行并校验主键一致性。 */
+/**
+ * 严格解码待踢任务行并校验主键一致性。
+ * @param rows 待解码的待踢任务原始行列表。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 按 `removalId` 索引的待踢任务映射结果。
+ */
 export function decodeStoredPendingRemovals(
   rows: readonly StoredPendingRemovalRow[],
   source: string
@@ -145,7 +174,12 @@ export function decodeStoredPendingRemovals(
   return { values };
 }
 
-/** 启动逐项核对 outbox 对黑名单的引用，不把完整黑名单复制进内存。 */
+/**
+ * 启动逐项核对 outbox 对黑名单的引用，不把完整黑名单复制进内存。
+ * @param database 共享存储数据库连接。
+ * @param removals 已解码的待踢任务映射。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ */
 export function assertPendingRemovalBlocklistReferences(
   database: StorageDatabase,
   removals: ReadonlyMap<number, PendingBlockedRemoval>,
@@ -180,6 +214,9 @@ export function assertPendingRemovalBlocklistReferences(
 
 /**
  * 严格解码群状态，并执行 STATE_MANAGED_CHAT_LIMIT 群上限、唯一代理目标与「删除目标不含本群自身」约束。
+ * @param rows `chat_states` 表的原始行列表。
+ * @param source 数据库来源路径标识，用于构造错误消息。
+ * @returns 按群会话 ID 索引的群状态映射。
  */
 export function decodeStoredChatStates(
   rows: readonly StoredChatStateRow[],
@@ -215,7 +252,8 @@ export function decodeStoredChatStates(
 
 /**
  * 严格解码全部问答行，并核对每群条数不超过 CHAT_QA_MAX_PER_CHAT。
- *
+ * @param rows `chat_qa` 表的原始行列表。
+ * @param source 数据库来源路径标识，用于构造错误消息。
  * @returns 群 -> 问题 -> 答案；调用方据此重建热缓存。
  */
 export function decodeStoredChatQa(

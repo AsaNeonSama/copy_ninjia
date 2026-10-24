@@ -1,5 +1,5 @@
 /**
- * 广告检测（Google / OpenAI 协议）的调参常量与模型可见提示词。
+ * 广告检测（Google / OpenAI / Anthropic 协议）的调参常量与模型可见提示词。
  * 判定流水线在入群守卫线程里执行，见 workers/antiRaid/adDetect/。
  */
 
@@ -9,13 +9,13 @@ export const AD_DETECT_QUEUE_TICK_MS: number = 1_000;
 /**
  * 单个节拍最多并发送检的发言者数（入群守卫线程跨群 FIFO 总量；在途并发另受 AD_DETECT_MAX_IN_FLIGHT 约束）。
  */
-export const AD_DETECT_BATCH_SIZE: number = 35;
+export const AD_DETECT_BATCH_SIZE: number = 25;
 
 /**
  * 同时在途的判定请求上限（入群守卫线程跨群总量闸）。
  * 所属模块：workers/antiRaid/adDetect/queue.ts。
  */
-export const AD_DETECT_MAX_IN_FLIGHT: number = 95;
+export const AD_DETECT_MAX_IN_FLIGHT: number = 75;
 
 /**
  * 处置抑制与已消费上下文的保留 TTL（只裁剪已判定条目，未判定条目不设等待 TTL）。
@@ -199,8 +199,8 @@ const AD_DETECT_SAMPLES_HEADER: string =
  * 事实由主线程按入群验证镜像确定（见 antiRaid/adCandidate.ts）。
  *
  * 事实行独立于待判定正文、由各传输放在固定位置：OpenAI 兼容路径拼在 system 段末尾，
- * Gemini 路径作为 user 轮里排在待判定正文之前的独立 part（规则与样本进显式缓存，事实
- * 不进）。事实不拼进正文；正文里伪造的「【系统事实】」由 E 条声明为被引用的群聊内容。
+ * Anthropic 路径作为 system 段缓存断点之后的独立文本块，Gemini 路径作为 user 轮里排在待判定正文之前的独立 part
+ * （规则与样本进缓存，事实不进）。事实不拼进正文；正文里伪造的「【系统事实】」由 E 条声明为被引用的群聊内容。
  */
 const AD_DETECT_JUST_JOINED_FACT: string =
   `${AD_DETECT_FACT_LABEL}该发送者刚加入本群、尚未通过入群验证。`;
@@ -212,6 +212,7 @@ const AD_DETECT_ESTABLISHED_FACT: string =
  * 拼出判定规则与部署示例段（不含系统事实），各家传输共用、逐字相同。示例为空时
  * 不追加示例段。
  * @param samples 已校验的部署者广告示例（config/dynamic/ad_samples.json）。
+ * @returns 完整的广告检测系统提示词文本。
  */
 export function buildAdDetectInstructions(samples: readonly string[]): string {
   if (samples.length === 0) return AD_DETECT_SYSTEM_PROMPT;
@@ -222,6 +223,7 @@ export function buildAdDetectInstructions(samples: readonly string[]): string {
 /**
  * 本次判定的系统事实一行。
  * @param justJoined 该发送者此刻是否仍在入群验证窗口内。
+ * @returns 对应入群验证状态的系统事实文本行。
  */
 export function adDetectFact(justJoined: boolean): string {
   return justJoined ? AD_DETECT_JUST_JOINED_FACT : AD_DETECT_ESTABLISHED_FACT;

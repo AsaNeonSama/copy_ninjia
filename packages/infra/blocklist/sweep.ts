@@ -50,6 +50,7 @@ export { replayPendingBlockedRemovals } from "./sweepReplay";
 
 export { quiesceBlocklistSweepScheduler } from "./sweepScheduler";
 
+/** 以当前墙钟时间触发一次受管群黑名单补扫的调度回调。 */
 const runScheduledBlocklistSweep: () => Promise<void> = (): Promise<void> =>
   sweepManagedBlocklistChats(Date.now());
 
@@ -58,7 +59,12 @@ export function initBlocklistSweepScheduler(): void {
   initSweepScheduler(runScheduledBlocklistSweep);
 }
 
-/** 记录群缺少封禁权限并置位权限闩锁；指名批次直接销账，补扫批次标记为 missing-permission。 */
+/**
+ * 记录群缺少封禁权限并置位权限闩锁；指名批次直接销账，补扫批次标记为 missing-permission。
+ *
+ * @param chatId 缺少封禁权限的群 ID。
+ * @param removalId 触发权限拒绝回执的待踢任务编号。
+ */
 function notePermissionBlocked(chatId: number, removalId: number): void {
   const progress: BlocklistSweepRecord | undefined = blocklistSweepState.get(chatId);
   if (progress?.permissionBlocked !== true) {
@@ -88,7 +94,12 @@ function notePermissionBlocked(chatId: number, removalId: number): void {
   armBlocklistSweepScheduler();
 }
 
-/** 观测到封禁权限恢复时解除群权限闩锁、重排补扫调度并重投冻结批次。 */
+/**
+ * 观测到封禁权限恢复时解除群权限闩锁、重排补扫调度并重投冻结批次。
+ *
+ * @param chatId 被观测到权限变更的群 ID。
+ * @param canRestrict 机器人当前是否具备封禁/限制成员权限。
+ */
 export function noteBanPermissionObserved(chatId: number, canRestrict: boolean): void {
   if (!canRestrict) return;
   const progress: BlocklistSweepRecord | undefined = blocklistSweepState.get(chatId);
@@ -113,7 +124,14 @@ interface PreparedBlocklistSweep {
   now: number;
 }
 
-/** 为指定群建立补扫 claim 并登记首张游标页状态；不满足资格或登记失败时返回 null。 */
+/**
+ * 为指定群建立补扫 claim 并登记首张游标页状态；不满足资格或登记失败时返回 null。
+ *
+ * @param chatId 目标受管群 ID。
+ * @param now 当前毫秒时间戳。
+ * @param page 首张黑名单 ID 游标页。
+ * @returns 已登记 claim 的补扫准备上下文；不满足 claim 资格或登记失败时返回 `null`。
+ */
 function prepareBlocklistSweep(
   chatId: number,
   now: number,
@@ -150,7 +168,11 @@ function prepareBlocklistSweep(
   return { chatId, params, failedSweeps, now };
 }
 
-/** 补扫批次投递失败时作废当前 claim、记录诊断并推进退避。 */
+/**
+ * 补扫批次投递失败时作废当前 claim、记录诊断并推进退避。
+ *
+ * @param sweeps 本轮已建立 claim 但投递失败的补扫批次列表。
+ */
 function abandonPreparedSweeps(sweeps: readonly PreparedBlocklistSweep[]): void {
   for (const sweep of sweeps) {
     if (
@@ -172,7 +194,11 @@ function abandonPreparedSweeps(sweeps: readonly PreparedBlocklistSweep[]): void 
   }
 }
 
-/** 将已准备好的补扫批次统一交给执行回调投递；投递失败或未投出任何任务时回退 claim 并推进退避。 */
+/**
+ * 将已准备好的补扫批次统一交给执行回调投递；投递失败或未投出任何任务时回退 claim 并推进退避。
+ *
+ * @param sweeps 待投递给 Anti-Raid Worker 的补扫批次列表。
+ */
 async function deliverPreparedSweeps(
   sweeps: readonly PreparedBlocklistSweep[]
 ): Promise<void> {
@@ -196,7 +222,12 @@ async function deliverPreparedSweeps(
   );
 }
 
-/** 对单个受管群触发一次黑名单补扫。 */
+/**
+ * 对单个受管群触发一次黑名单补扫。
+ *
+ * @param chatId 目标受管群 ID。
+ * @param now 当前毫秒时间戳，默认取 `Date.now()`。
+ */
 export async function sweepBlockedMembers(
   chatId: number,
   now: number = Date.now()
@@ -223,7 +254,11 @@ export async function sweepBlockedMembers(
   }
 }
 
-/** 黑名单页读取失败时，将本轮满足补扫资格的受管群统一推进一次失败退避。 */
+/**
+ * 黑名单页读取失败时，将本轮满足补扫资格的受管群统一推进一次失败退避。
+ *
+ * @param now 当前毫秒时间戳。
+ */
 function deferManagedBlocklistSweeps(now: number): void {
   for (const [chatId, state] of getChatStateCache()) {
     const chatState: ChatState = state;
@@ -234,7 +269,12 @@ function deferManagedBlocklistSweeps(now: number): void {
   }
 }
 
-/** 判断当前是否至少存在一个可建立补扫 claim 的受管群。 */
+/**
+ * 判断当前是否至少存在一个可建立补扫 claim 的受管群。
+ *
+ * @param now 当前毫秒时间戳。
+ * @returns 存在至少一个可建立补扫 claim 的受管群时返回 `true`，否则返回 `false`。
+ */
 function hasClaimableManagedChat(now: number): boolean {
   for (const [chatId, state] of getChatStateCache()) {
     const chatState: ChatState = state;
@@ -244,7 +284,11 @@ function hasClaimableManagedChat(now: number): boolean {
   return false;
 }
 
-/** 对全部满足资格的受管群合并发起一轮黑名单补扫。 */
+/**
+ * 对全部满足资格的受管群合并发起一轮黑名单补扫。
+ *
+ * @param now 当前毫秒时间戳，默认取 `Date.now()`。
+ */
 export async function sweepManagedBlocklistChats(
   now: number = Date.now()
 ): Promise<void> {
@@ -274,7 +318,13 @@ export async function sweepManagedBlocklistChats(
   }
 }
 
-/** 读取并投递同一补扫任务的下一张游标页；失败时释放 claim 并推进退避。 */
+/**
+ * 读取并投递同一补扫任务的下一张游标页；失败时释放 claim 并推进退避。
+ *
+ * @param chatId 目标受管群 ID。
+ * @param removalId 当前补扫任务编号。
+ * @param afterId 上一页末尾的黑名单身份 ID 游标。
+ */
 async function continueBlocklistSweep(
   chatId: number,
   removalId: number,
@@ -339,13 +389,22 @@ async function continueBlocklistSweep(
   }
 }
 
-/** 处理 Anti-Raid Worker 的黑名单处置回执：推进分页补扫或结算整批任务。 */
+/**
+ * 处理 Anti-Raid Worker 的黑名单处置回执：推进分页补扫或结算整批任务。
+ *
+ * @param event Anti-Raid Worker 上报的黑名单成员处置完成事件。
+ */
 export function settleBlockedRemoval(event: BlockedMembersRemovedEvent): void {
   if (advanceSweepPage(event)) return;
   settleRemovalOutcome(event);
 }
 
-/** 处理分页补扫的非末页回执并触发下一页拉取；无需继续分页时返回 false。 */
+/**
+ * 处理分页补扫的非末页回执并触发下一页拉取；无需继续分页时返回 false。
+ *
+ * @param event Anti-Raid Worker 上报的黑名单成员处置完成事件。
+ * @returns 已作为非末页补扫回执消费（或因重复/缺游标终止）时返回 `true`；需进入整批终局结算时返回 `false`。
+ */
 function advanceSweepPage(event: BlockedMembersRemovedEvent): boolean {
   const page: BlocklistSweepPageState | undefined =
     blocklistSweepPages.get(event.removalId);
@@ -392,7 +451,11 @@ function advanceSweepPage(event: BlockedMembersRemovedEvent): boolean {
   return true;
 }
 
-/** 结算整批处置结果：销账、置位权限闩锁或记录失败，并更新群补扫状态与调度器。 */
+/**
+ * 结算整批处置结果：销账、置位权限闩锁或记录失败，并更新群补扫状态与调度器。
+ *
+ * @param event Anti-Raid Worker 上报的黑名单成员处置完成事件。
+ */
 function settleRemovalOutcome(event: BlockedMembersRemovedEvent): void {
   if (
     !pendingBlockedRemovals.has(event.removalId) &&

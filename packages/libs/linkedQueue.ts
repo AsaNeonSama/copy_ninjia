@@ -17,7 +17,10 @@ export class LinkedQueue<T> {
     return this.count;
   }
 
-  /** 入队（追加到队尾）。 */
+  /**
+   * 入队（追加到队尾）。
+   * @param value 待入队的元素。
+   */
   push(value: T): void {
     const node: QueueNode<T> = { value, next: null };
     if (this.tail) {
@@ -29,7 +32,10 @@ export class LinkedQueue<T> {
     this.count += 1;
   }
 
-  /** 出队（移除并返回队首）；队列为空时返回 undefined。 */
+  /**
+   * 出队（移除并返回队首）；队列为空时返回 undefined。
+   * @returns 队首元素；队列为空时返回 undefined。
+   */
   shift(): T | undefined {
     const node: QueueNode<T> | null = this.head;
     if (!node) return undefined;
@@ -41,12 +47,18 @@ export class LinkedQueue<T> {
     return node.value;
   }
 
-  /** 查看队首元素但不出队；队列为空时返回 undefined。 */
+  /**
+   * 查看队首元素但不出队；队列为空时返回 undefined。
+   * @returns 队首元素；队列为空时返回 undefined。
+   */
   peek(): T | undefined {
     return this.head ? this.head.value : undefined;
   }
 
-  /** 只读遍历当前 FIFO；遍历期间调用方不得修改队列，用于恢复时核对已有事实。 */
+  /**
+   * 只读遍历当前 FIFO；遍历期间调用方不得修改队列，用于恢复时核对已有事实。
+   * @returns 按从队首到队尾顺序产出元素的迭代器。
+   */
   *values(): IterableIterator<T> {
     for (let node: QueueNode<T> | null = this.head; node !== null; node = node.next) yield node.value;
   }
@@ -58,8 +70,12 @@ export class LinkedQueue<T> {
     this.count = 0;
   }
 
-  /** 移除队列中第一个与 value 全等（===）的节点，不影响其余元素的相对顺序；
-   *  找不到则什么都不做并返回 false。O(n) 线性扫描。用于取消仍在排队的任务。 */
+  /**
+   * 移除队列中第一个与 value 全等（===）的节点，不影响其余元素的相对顺序；
+   * 找不到则什么都不做并返回 false。O(n) 线性扫描。用于取消仍在排队的任务。
+   * @param value 待按全等比较移除的目标值。
+   * @returns 找到并移除首个匹配节点时返回 true，未找到时返回 false。
+   */
   removeValue(value: T): boolean {
     let prev: QueueNode<T> | null = null;
     for (let node: QueueNode<T> | null = this.head; node; node = node.next) {
@@ -84,6 +100,7 @@ export class LinkedQueue<T> {
    * 一次线性扫描移除所有满足条件的节点，并保持其余元素的相对顺序。
    *
    * 用于 teardown 这类低频的批量撤销；每次调用线性扫描整条链，不用于高频容量淘汰路径。
+   * @param predicate 判断节点元素是否需要被移除的断言函数。
    * @returns 实际移除的节点数。
    */
   removeWhere(predicate: (value: T) => boolean): number {

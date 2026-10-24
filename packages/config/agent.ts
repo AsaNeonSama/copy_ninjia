@@ -31,7 +31,12 @@ import type {
   AgentWebSearchCapabilityConfig,
 } from "../types/config";
 
-/** 解码广告检测能力；base_url 缺省时跟随所选 SDK 的官方端点。 */
+/**
+ * 解码广告检测能力；base_url 缺省时在客户端构造处使用所选供应商的官方端点常量（OPENAI_API_BASE_URL / GEMINI_API_BASE_URL / ANTHROPIC_API_BASE_URL）。
+ * @param value 待校验的 `$.agent.ad_detect` 字段值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的广告检测能力配置。
+ */
 export function parseAdDetectAgentConfig(
   value: unknown,
   sourcePath: string = AGENT_CONFIG_PATH
@@ -39,7 +44,12 @@ export function parseAdDetectAgentConfig(
   return parseCapability(value, "$.agent.ad_detect", sourcePath);
 }
 
-/** 严格解码 agent 段；对话必备能力不能缺，其余能力可显式缺省。 */
+/**
+ * 严格解码 agent 段；对话必备能力不能缺，其余能力可显式缺省。
+ * @param value 待校验的 `$.agent` 字段值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的 AI 对话能力配置。
+ */
 export function parseAgentDeploymentConfig(
   value: unknown,
   sourcePath: string = AGENT_CONFIG_PATH
@@ -79,7 +89,12 @@ export function parseAgentDeploymentConfig(
   };
 }
 
-/** 顶层只允许 agent；能力 getter 在它下面各自消费。 */
+/**
+ * 顶层只允许 agent；能力 getter 在它下面各自消费。
+ * @param value 待校验的顶层 JSON 值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 顶层 `agent` 字段对应的只读对象记录。
+ */
 function requireAgentRecord(
   value: unknown,
   sourcePath: string
@@ -93,14 +108,22 @@ function requireAgentRecord(
   return value.agent;
 }
 
-/** 读入统一配置并只校验顶层，具体能力由消费方严格解析。 */
+/**
+ * 读入统一配置并只校验顶层，具体能力由消费方严格解析。
+ * @param path 配置文件路径。
+ * @returns 顶层 `agent` 字段对应的只读对象记录。
+ */
 async function readAgentConfigRecord(
   path: string
 ): Promise<Readonly<Record<string, unknown>>> {
   return requireAgentRecord(await readJsonInput(path), path);
 }
 
-/** 严格解析整份已存在的 agent.json：已出现的每项能力都必须合法，缺省的段返回 null。 */
+/**
+ * 严格解析整份已存在的 agent.json：已出现的每项能力都必须合法，缺省的段返回 null。
+ * @param path 配置文件路径。
+ * @returns 广告检测与 AI 对话能力的分段配置快照，未配置的段为 null。
+ */
 export async function loadAgentConfigSnapshots(
   path: string = AGENT_CONFIG_PATH
 ): Promise<AgentConfigSnapshots> {
@@ -133,7 +156,10 @@ export async function loadAgentConfigSnapshots(
   return { adDetect: adDetectConfig ?? null, agent: null };
 }
 
-/** 启动总闸严格校验整份已存在的 agent.json，并填充默认路径缓存。 */
+/**
+ * 启动总闸严格校验整份已存在的 agent.json，并填充默认路径缓存。
+ * @param path 配置文件路径；等于默认路径时同步更新当前线程缓存。
+ */
 export async function validateAgentDeploymentConfig(
   path: string = AGENT_CONFIG_PATH
 ): Promise<void> {
@@ -144,27 +170,42 @@ export async function validateAgentDeploymentConfig(
   }
 }
 
-/** 本 isolate 当前的 ad_detect 快照；null 表示文件或 ad_detect 段明确缺省。 */
+/**
+ * 本 isolate 当前的 ad_detect 快照；null 表示文件或 ad_detect 段明确缺省。
+ * @returns 当前线程持有的广告检测配置快照，未配置时返回 null。
+ */
 export function adDetectAgentConfigSnapshot(): AdDetectAgentConfig | null {
   return adDetectAgentConfigCache.current;
 }
 
-/** 本 isolate 当前的对话能力快照；null 表示文件或对话核心能力段明确缺省。 */
+/**
+ * 本 isolate 当前的对话能力快照；null 表示文件或对话核心能力段明确缺省。
+ * @returns 当前线程持有的 AI 对话能力配置快照，未配置时返回 null。
+ */
 export function agentDeploymentConfigSnapshot(): AgentDeploymentConfig | null {
   return agentDeploymentConfigCache.current;
 }
 
-/** 接管已严格校验的 ad_detect 快照（含显式 null），整体替换 holder。 */
+/**
+ * 接管已严格校验的 ad_detect 快照（含显式 null），整体替换 holder。
+ * @param config 已校验的广告检测配置，或表示未配置的 null。
+ */
 export function adoptAdDetectAgentConfig(config: AdDetectAgentConfig | null): void {
   adDetectAgentConfigCache.current = config;
 }
 
-/** 接管已严格校验的 AI 对话能力快照（含显式 null），整体替换 holder。 */
+/**
+ * 接管已严格校验的 AI 对话能力快照（含显式 null），整体替换 holder。
+ * @param config 已校验的 AI 对话能力配置，或表示未配置的 null。
+ */
 export function adoptAgentDeploymentConfig(config: AgentDeploymentConfig | null): void {
   agentDeploymentConfigCache.current = config;
 }
 
-/** 读取本 isolate 的 ad_detect 配置；只读 holder，未填充时抛错。 */
+/**
+ * 读取本 isolate 的 ad_detect 配置；只读 holder，未填充时抛错。
+ * @returns 当前线程已接管的广告检测配置。
+ */
 export function getAdDetectAgentConfig(): AdDetectAgentConfig {
   const config: AdDetectAgentConfig | null = adDetectAgentConfigCache.current;
   if (config === null) {
@@ -175,7 +216,10 @@ export function getAdDetectAgentConfig(): AdDetectAgentConfig {
   return config;
 }
 
-/** 读取本 isolate 的 AI 对话能力配置；语义同 getAdDetectAgentConfig。 */
+/**
+ * 读取本 isolate 的 AI 对话能力配置；语义同 getAdDetectAgentConfig。
+ * @returns 当前线程已接管的 AI 对话能力配置。
+ */
 export function getAgentDeploymentConfig(): AgentDeploymentConfig {
   const config: AgentDeploymentConfig | null = agentDeploymentConfigCache.current;
   if (config === null) {
@@ -190,6 +234,8 @@ export function getAgentDeploymentConfig(): AgentDeploymentConfig {
  * 按能力名读取本 isolate 的能力配置；`web_search` 对应 AgentDeploymentConfig.webSearch，其余
  * 能力名与字段名相同。可缺省的能力没配时为 undefined。只读 holder，不读盘；各家 SDK 客户端
  * 缓存据此按能力取凭据与端点。
+ * @param capability 目标 AI 能力名称。
+ * @returns 对应的能力配置；可选能力未配置时返回 undefined。
  */
 export function agentCapabilityConfig(capability: AgentCapability): AgentDeploymentCapabilityConfig | undefined {
   const config: AgentDeploymentConfig = getAgentDeploymentConfig();
@@ -199,6 +245,8 @@ export function agentCapabilityConfig(capability: AgentCapability): AgentDeploym
 /**
  * 按能力名读取三项对话核心能力或独立检索 `web_search` 的配置；未配置时抛错，不做凭据或故障
  * 回退。只读 holder，不读盘；回复、摘要、视觉与检索的请求体据此取模型。
+ * @param capability 通用对话或检索能力名称。
+ * @returns 已配置的通用能力配置。
  */
 export function requireAgentCapabilityConfig(capability: AgentGeneralCapability): AgentCapabilityConfig {
   const deployment: AgentDeploymentConfig = getAgentDeploymentConfig();
@@ -214,6 +262,7 @@ export function requireAgentCapabilityConfig(capability: AgentGeneralCapability)
  * 只读 holder，不读盘。主线程的 `/send` 代发 TTS、cron `send_voice` 与 cron.json 的
  * 交叉校验据此判定语音合成是否已配置，`/send` 的额度提示读它的 dailyReserveQuota；AI Worker 的
  * 语音余量与余量行读它的 dailyLimit 与 dailyReserveQuota。
+ * @returns 当前线程的语音合成能力配置，未配置时返回 undefined。
  */
 export function agentTtsConfig(): AgentTtsCapabilityConfig | undefined {
   return agentDeploymentConfigCache.current?.tts;

@@ -10,6 +10,9 @@ import type { TemporaryAdBypassActivity } from "../types/states/temporaryAdBypas
  *
  * `now` 由调用方一次取好传入（见 infra/identityPolicy/temporaryAdBypass.ts），
  * 本模块不读时钟，同一条消息的多次判定使用同一个时刻。
+ * @param activity 当前成员的临时广告检测豁免活动记录。
+ * @param now 当前判定时刻的时间戳（毫秒，非负安全整数）。
+ * @returns 记录仍在保留窗口内时返回 true，否则返回 false。
  */
 export function isTemporaryAdBypassActivityRetained(
   activity: Readonly<TemporaryAdBypassActivity>,
@@ -26,7 +29,12 @@ export function isTemporaryAdBypassActivityRetained(
     getDayIndex(activity.qualifiedAt) === countedDay;
 }
 
-/** 判断当前记录在 now 时刻是否仍持有临时广告检测豁免。 */
+/**
+ * 判断当前记录在 now 时刻是否仍持有临时广告检测豁免。
+ * @param activity 当前成员的临时广告检测豁免活动记录。
+ * @param now 当前判定时刻的时间戳（毫秒）。
+ * @returns 已授予临时免检且记录未越过保留边界时返回 true，否则返回 false。
+ */
 export function isTemporaryAdBypassActive(
   activity: Readonly<TemporaryAdBypassActivity>,
   now: number
@@ -39,6 +47,8 @@ export function isTemporaryAdBypassActive(
  * 记录是否已到自动永久免检门槛：连续合格日数等于
  * TEMPORARY_AD_BYPASS_REQUIRED_DAYS（`advanceTemporaryAdBypassActivity` 把连续
  * 日数封顶在该门槛）。调用方据此晋升永久白名单并清除临时累计。
+ * @param activity 当前成员的临时广告检测豁免活动记录。
+ * @returns 连续合格日数达到晋升永久免检门槛时返回 true，否则返回 false。
  */
 export function shouldPromoteToPermanentBypass(
   activity: Readonly<TemporaryAdBypassActivity>
@@ -46,6 +56,11 @@ export function shouldPromoteToPermanentBypass(
   return activity.qualifiedDays === TEMPORARY_AD_BYPASS_REQUIRED_DAYS;
 }
 
+/**
+ * 构造首条发言时的初始临时免检活动记录。
+ * @param now 首条发言的时间戳（毫秒）。
+ * @returns 初始发言计数为 1、尚未获得临时免检的活动记录。
+ */
 function firstActivity(now: number): Readonly<TemporaryAdBypassActivity> {
   return {
     adBypass: false,
@@ -57,7 +72,12 @@ function firstActivity(now: number): Readonly<TemporaryAdBypassActivity> {
   };
 }
 
-/** 墙钟回拨时从当前消息重建计数时间轴，同时保留已经授予的临时资格。 */
+/**
+ * 墙钟回拨时从当前消息重建计数时间轴，同时保留已经授予的临时资格。
+ * @param current 回拨前的活动记录。
+ * @param now 回拨后的当前发言时间戳（毫秒）。
+ * @returns 重建计数时间轴后的活动记录。
+ */
 function restartActivityAfterClockRollback(
   current: Readonly<TemporaryAdBypassActivity>,
   now: number
@@ -86,6 +106,9 @@ function restartActivityAfterClockRollback(
  * 回拨到该时刻之前重建计数时间轴，回拨到该时刻之后按同日继续，成员关系两侧都保留。
  *
  * @see ../../docs/cn/04-invariants.md
+ * @param current 当前已有的活动记录，无记录时为 null。
+ * @param now 本次发言的时间戳（毫秒，非负安全整数）。
+ * @returns 推进后的活动记录；当天已达标且无需变更时原样返回 current。
  */
 export function advanceTemporaryAdBypassActivity(
   current: Readonly<TemporaryAdBypassActivity> | null,

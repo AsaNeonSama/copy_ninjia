@@ -18,7 +18,13 @@ import {
   hasEffectiveBlocklistIdentity,
 } from "./identityPolicy";
 
-/** 解码待踢任务行并校验 removalId 一致性与黑名单引用有效性。 */
+/**
+ * 解码待踢任务行并校验 removalId 一致性与黑名单引用有效性。
+ * @param removalId 待踢任务行主键
+ * @param data 序列化的待踢任务载荷
+ * @param source 错误定位上下文标识
+ * @returns 校验通过的目标集合摘要
+ */
 function acceptedRemovalTargets(removalId: number, data: string, source: string): RemovalRowTargets {
   const pending: PendingBlockedRemoval = decodePendingBlockedRemovalData(data, source);
   if (pending.params.removalId !== removalId) {
@@ -42,7 +48,11 @@ function acceptedRemovalTargets(removalId: number, data: string, source: string)
   return { probeMembership: false, userIds: pending.params.userIds };
 }
 
-/** 校验并接收待踢 outbox 写入或删除，同步更新 removalRowTargets 并排入事务缓冲。 */
+/**
+ * 校验并接收待踢 outbox 写入或删除，同步更新 removalRowTargets 并排入事务缓冲。
+ * @param message 待踢任务写入或删除消息
+ * @param reply 持久化回执发送回调
+ */
 export function handleBlocklistRemovalWrite(
   message: BlocklistRemovalWriteDiskMessage,
   reply: IdentityPersistenceReply

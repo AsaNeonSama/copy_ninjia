@@ -49,6 +49,8 @@ const CONFIG_EXAMPLE_ROOT: string = join(PROJECT_ROOT, "config_example");
  * 纯词法形态判定：`resolve()` 只处理 `..` 和相对段，不读文件系统，不识别指向
  * mock 根之外的软链接。建目录、复制或删除的入口必须再过
  * `assertInsidePerformanceMockRoot`，由它补上分量核对。
+ * @param path 待检查的文件或目录路径。
+ * @returns 词法上是否位于 `performance/` mock 根目录内。
  */
 export function isInsidePerformanceMockRoot(path: string): boolean {
   const resolved: string = resolve(path);
@@ -63,7 +65,10 @@ const MOCK_ROOT_BOUNDARY: FixturePathBoundary = {
   subject: "Full performance suite",
 };
 
-/** 形态闸：只做词法判定；文件系统核对按操作分别由下面两个入口补上。 */
+/**
+ * 形态闸：只做词法判定；文件系统核对按操作分别由下面两个入口补上。
+ * @param path 待检查的文件或目录路径。
+ */
 function assertMockRootShape(path: string): void {
   if (!isInsidePerformanceMockRoot(path)) {
     throw new Error(
@@ -78,6 +83,7 @@ function assertMockRootShape(path: string): void {
  *
  * 先判形态再核对真实分量：形态不合的路径直接报「必须落在 mock 根下」，形态合
  * 但中途经过软链接的报出具体那一段（见 scripts/fixtures/pathBoundary.ts）。
+ * @param path 待校验的文件或目录路径。
  */
 export function assertInsidePerformanceMockRoot(path: string): void {
   assertMockRootShape(path);
@@ -87,6 +93,7 @@ export function assertInsidePerformanceMockRoot(path: string): void {
 /**
  * 建立本次运行独占的目录；同一 mock 根下可以并存多次运行的目录。
  * mkdir 之前先对 `performance/` 自身做分量核对。
+ * @returns 新建的单次运行目录绝对路径。
  */
 export function createRunRoot(): string {
   assertInsidePerformanceMockRoot(PERFORMANCE_MOCK_ROOT);
@@ -100,6 +107,8 @@ export function createRunRoot(): string {
  * 示例文件保留面向部署者的占位值，只在 mock 根内的副本里替换凭据。出站由
  * `scripts/perf/outboundGuard.ts` 截断；这份配置让基准走过与生产一致的启动
  * 校验和客户端装配路径。
+ * @param runRoot 本次运行独占的根目录路径。
+ * @returns 已替换非占位凭据的隔离配置根目录路径。
  */
 export async function createBenchmarkConfigRoot(runRoot: string): Promise<string> {
   assertInsidePerformanceMockRoot(runRoot);
@@ -151,6 +160,8 @@ export async function createBenchmarkConfigRoot(runRoot: string): Promise<string
  *
  * 只建空目录，不建库：SQLite fixture 由 seed 子进程用生产建库/播种入口写，
  * 本文件不碰任何生产模块。
+ * @param runRoot 本次运行独占的根目录路径。
+ * @returns 新建的单轮运行时数据根路径。
  */
 export function createRuntimeRoot(runRoot: string): string {
   assertInsidePerformanceMockRoot(runRoot);
@@ -161,6 +172,8 @@ export function createRuntimeRoot(runRoot: string): string {
 /**
  * 纯词法形态判定：路径必须长成 `run-<x>` 目录下的 `runtime-<y>`。同样不读文件
  * 系统，真正据此写入的入口要走 `assertBenchmarkRuntimeRoot`。
+ * @param path 待检查的目录路径。
+ * @returns 词法上是否属于本基准创建的单轮运行时数据根。
  */
 export function isBenchmarkRuntimeRoot(path: string): boolean {
   const resolved: string = resolve(path);
@@ -169,7 +182,10 @@ export function isBenchmarkRuntimeRoot(path: string): boolean {
     basename(dirname(resolved)).startsWith(RUN_ROOT_PREFIX);
 }
 
-/** 子进程入口的自检：数据根不是本基准建的就立刻失败。 */
+/**
+ * 子进程入口的自检：数据根不是本基准建的就立刻失败。
+ * @param path 待校验的运行时数据根路径。
+ */
 export function assertBenchmarkRuntimeRoot(path: string): void {
   if (!isBenchmarkRuntimeRoot(path)) {
     throw new Error(
@@ -185,6 +201,7 @@ export function assertBenchmarkRuntimeRoot(path: string): void {
  *
  * 只核对父链：末端本身是软链接时 `rmSync` 只摘链接、不动目标；中间任何一段是
  * 软链接即拒绝。
+ * @param path 待删除的 mock 根内子树路径。
  */
 export function removeMockPath(path: string): void {
   assertMockRootShape(path);

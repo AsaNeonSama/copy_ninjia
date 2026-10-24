@@ -14,16 +14,9 @@ mock.module("../../../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
 
-// aiChat/ai/tools/stickers.ts 从领域入口 `../stickers` 取 getStickerSet，而那个入口是
-// `export *`：只替换 sets.ts 会让入口少掉其余导出，因此连同入口一起透传。
 const realSets = { ...(await import("../../../../packages/aiChat/ai/stickers/sets")) };
-const realStickers = { ...(await import("../../../../packages/aiChat/ai/stickers")) };
 mock.module("../../../../packages/aiChat/ai/stickers/sets", () => ({
   ...realSets,
-  getStickerSet: getStickerSetMock,
-}));
-mock.module("../../../../packages/aiChat/ai/stickers", () => ({
-  ...realStickers,
   getStickerSet: getStickerSetMock,
 }));
 mock.module("../../../../packages/config/stickers", () => ({

@@ -53,7 +53,12 @@ import type { Scenario, ScenarioName } from "./types";
 import { base64PayloadScenario, replyAdmissionScenario, replyDeliveryScenario } from "./replyScenarios";
 import { proxyTtsDetectScenario, voiceMessageEncodeScenario } from "./voiceScenarios";
 
-/** 按稳定名称建立一份独立场景；每个子进程只调用一次。 */
+/**
+ * 按稳定名称建立一份独立场景；每个子进程只调用一次。
+ *
+ * @param name 热路径场景名称
+ * @returns 对应名称的热路径场景定义
+ */
 export function createScenario(name: ScenarioName): Scenario {
   switch (name) {
     case "cooldown-hit": return cooldownScenario("hit");

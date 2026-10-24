@@ -21,6 +21,8 @@ interface ByteStreamReader {
 /**
  * 丢弃不再读取的响应体并释放连接与缓冲；取消失败（流已锁定或已结束）静默忽略。返回的
  * Promise 恒兑现：调用方可以 await 等释放完成，也可以不等。
+ * @param response 待丢弃响应体的 HTTP Response 对象。
+ * @returns 响应体取消流程结束时兑现的 Promise。
  */
 export function discardResponseBody(response: Response): Promise<void> {
   return response.body?.cancel().catch((): undefined => undefined) ?? Promise.resolve();
@@ -30,6 +32,9 @@ export function discardResponseBody(response: Response): Promise<void> {
  * 在读取过程中强制限制响应体大小。Content-Length 只用于提前拒绝，真正的上限在
  * 接纳每个非空块之前按累计字节数检查；跳过空块并按字节预算限制暂存块引用。
  * 细碎输入由原生缓冲聚合，成功结果独占输出字节；输入生产者自身的分配不受本函数控制。
+ * @param response 待读取的 HTTP Response 对象。
+ * @param maxBytes 允许读取的最大非负安全整数字节数。
+ * @returns 响应体字节切片结果，或超出上限时的失败判据与已观察字节数。
  */
 export async function readBoundedResponseBytes(response: Response, maxBytes: number): Promise<BoundedResponseResult> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
@@ -90,7 +95,12 @@ export async function readBoundedResponseBytes(response: Response, maxBytes: num
   return { ok: true, bytes };
 }
 
-/** 按 UTF-8 解码有界响应；超过上限时返回 null。 */
+/**
+ * 按 UTF-8 解码有界响应；超过上限时返回 null。
+ * @param response 待读取的 HTTP Response 对象。
+ * @param maxBytes 允许读取的最大非负安全整数字节数。
+ * @returns 解码后的 UTF-8 文本；响应体超出字节上限时返回 null。
+ */
 export async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string | null> {
   const result: BoundedResponseResult = await readBoundedResponseBytes(response, maxBytes);
   return result.ok ? UTF8_DECODER.decode(result.bytes) : null;

@@ -32,13 +32,18 @@ import { assertFileReadableWritable, bestEffortUnlink, inspectOptionalFile, list
 
 /** 贴纸目录快照的 inspect 结果：待载入的快照、孤儿快照路径与供清理 *.tmp 残留的目录项。 */
 export interface StickerCatalogRecoveryInspection {
+  /** 待载入的白名单贴纸包名称到格式化 JSON 文本的映射。 */
   readonly snapshots: Map<string, string>;
+  /** 不在当前白名单内、待清理的孤儿贴纸包快照绝对路径列表。 */
   readonly orphanPaths: readonly string[];
+  /** 贴纸快照目录下的全部文件名列表。 */
   readonly names: readonly string[];
 }
 
 /**
  * 只读扫描并严格校验贴纸目录快照，按 activePacks 拆分为待载入快照与孤儿文件路径（activePacks 为 null 时不判孤儿）。
+ * @param activePacks 当前配置的白名单贴纸包名称列表；为 null 时保留全部已校验快照。
+ * @returns 包含待载入快照映射、孤儿文件路径与目录项列表的探测结果。
  */
 export async function inspectStickerCatalogs(
   activePacks: readonly string[] | null
@@ -66,7 +71,10 @@ export async function inspectStickerCatalogs(
   return { snapshots: result, orphanPaths, names };
 }
 
-/** 全域校验成功后清理临时文件与已退出白名单的孤儿快照。 */
+/**
+ * 全域校验成功后清理临时文件与已退出白名单的孤儿快照。
+ * @param inspection 启动只读扫描阶段产出的贴纸目录探测结果。
+ */
 export async function maintainStickerCatalogFiles(
   inspection: StickerCatalogRecoveryInspection
 ): Promise<void> {
@@ -75,13 +83,22 @@ export async function maintainStickerCatalogFiles(
   for (const path of inspection.orphanPaths) await bestEffortUnlink(path);
 }
 
-/** 原子覆盖写入单个贴纸包的目录快照 JSON。 */
+/**
+ * 原子覆盖写入单个贴纸包的目录快照 JSON。
+ * @param pack 贴纸包短名称。
+ * @param snapshotJson 已序列化的贴纸目录快照 JSON 文本。
+ */
 export function writeStickerCatalogFile(pack: string, snapshotJson: string): void {
   mkdirSync(STICKER_MEMORY_DIR, { recursive: true });
   atomicWriteTextSync(join(STICKER_MEMORY_DIR, `${pack}.json`), snapshotJson, PERSISTED_FILE_MODE);
 }
 
-/** 校验运势目录下的按日文件名，返回早于 todayKey 的过期文件路径列表。 */
+/**
+ * 校验运势目录下的按日文件名，返回早于 todayKey 的过期文件路径列表。
+ * @param todayKey 当前配置时区的 `YYYY-MM-DD` 日期键。
+ * @param names 运势目录下的文件名列表。
+ * @returns 早于 `todayKey` 的过期运势日文件绝对路径列表。
+ */
 function inspectStaleLuckFiles(
   todayKey: string,
   names: readonly string[]
@@ -113,6 +130,11 @@ function inspectStaleLuckFiles(
   return stalePaths;
 }
 
+/**
+ * 清理运势目录中早于 todayKey 的过期按日运势文件。
+ * @param todayKey 当前配置时区的 `YYYY-MM-DD` 日期键。
+ * @param names 运势目录下的文件名列表；缺省时直接读取 `LUCK_MEMORY_DIR`。
+ */
 export async function cleanupStaleLuckFiles(
   todayKey: string,
   names: readonly string[] = readdirSync(LUCK_MEMORY_DIR)
@@ -120,18 +142,29 @@ export async function cleanupStaleLuckFiles(
   for (const path of inspectStaleLuckFiles(todayKey, names)) await bestEffortUnlink(path);
 }
 
+/** 运势日文件追加游标的可变持有者接口。 */
 export interface LuckFileStateHolder {
+  /** 当前运势日文件的追加游标；未打开时为 `null`。 */
   current: DayFileState | null;
 }
 
+/** 运势目录与当日运势文件的启动只读探测结果。 */
 export interface LuckDayRecoveryInspection {
+  /** 当日日期键（`YYYY-MM-DD`）。 */
   readonly day: string;
+  /** 从当日文件恢复出的内存运势缓存；当日文件不存在时为 `null`。 */
   readonly cache: LuckDayCache | null;
+  /** 当日运势文件的追加游标；当日文件不存在时为 `null`。 */
   readonly fileState: DayFileState | null;
+  /** 运势目录下的全部文件名列表。 */
   readonly names: readonly string[];
 }
 
-/** 只读校验运势目录文件名并恢复 todayKey 当天的运势结果与追加游标。 */
+/**
+ * 只读校验运势目录文件名并恢复 todayKey 当天的运势结果与追加游标。
+ * @param todayKey 当前配置时区的 `YYYY-MM-DD` 日期键。
+ * @returns 包含当日运势缓存、文件追加游标与目录项列表的只读探测结果。
+ */
 export async function inspectLuckDay(
   todayKey: string
 ): Promise<LuckDayRecoveryInspection> {
@@ -212,7 +245,11 @@ export async function inspectLuckDay(
   };
 }
 
-/** 全域校验成功后创建目录，并清理临时文件与过期日文件。 */
+/**
+ * 全域校验成功后创建目录，并清理临时文件与过期日文件。
+ * @param todayKey 当前配置时区的 `YYYY-MM-DD` 日期键。
+ * @param inspection 只读扫描阶段产出的当日运势探测结果。
+ */
 export async function maintainLuckDay(
   todayKey: string,
   inspection: LuckDayRecoveryInspection
@@ -222,7 +259,12 @@ export async function maintainLuckDay(
   await cleanupStaleLuckFiles(todayKey, inspection.names);
 }
 
-/** 单领域恢复入口；跨域启动编排使用 inspect/adopt/maintenance 三阶段 API。 */
+/**
+ * 单领域恢复入口；跨域启动编排使用 inspect/adopt/maintenance 三阶段 API。
+ * @param todayKey 目标恢复日期键（`YYYY-MM-DD`）。
+ * @param fileState 可选的文件游标接收槽位。
+ * @returns 恢复出的当日运势缓存；当日文件不存在时返回 null。
+ */
 export async function recoverLuckDay(
   todayKey: string,
   fileState?: LuckFileStateHolder
@@ -233,7 +275,12 @@ export async function recoverLuckDay(
   return inspection.cache;
 }
 
-/** 将一批确认的运势条目按位置追加到当日文件末尾。 */
+/**
+ * 将一批确认的运势条目按位置追加到当日文件末尾。
+ * @param day 目标 `YYYY-MM-DD` 日期键。
+ * @param fileState 持有当日文件追加游标的槽位。
+ * @param pending 待追加的运势抽签记录列表。
+ */
 export async function appendLuckEntries(
   day: string,
   fileState: LuckFileStateHolder,

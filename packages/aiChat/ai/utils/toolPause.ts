@@ -17,6 +17,7 @@ export interface PauseForToolActionParams {
 
 /**
  * 等待一次可中止的拟人停顿。
+ * @param params 停顿毫秒数与可选取消信号。
  * @returns 停顿期间轮次被作废时交给调用链结算的工具错误 JSON；正常走完返回 null。
  *   非 abort 原因的 reject 照常上抛。
  */

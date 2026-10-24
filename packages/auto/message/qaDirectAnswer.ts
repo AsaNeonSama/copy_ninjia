@@ -22,6 +22,10 @@ import type { RichTextMessage } from "../../types/telegram";
  * 只认 offset 为 0 的首个实体，句中的提及不剥离。
  * 用户名比对折大小写，口径同 infra/updateGate.ts、auto/message/facts.ts、
  * commands/cjkAction.ts；问题文本不折大小写，仍要求一字不差。
+ *
+ * @param message Telegram 入站消息
+ * @param botUsername 本机器人用户名（不含 `@`）
+ * @returns 前导机器人提及实体的字符长度；不匹配时返回 `0`
  */
 function leadingBotMentionLength(message: Message, botUsername: string): number {
   const entities: readonly MessageEntity[] | undefined = message.entities;
@@ -37,6 +41,9 @@ function leadingBotMentionLength(message: Message, botUsername: string): number 
 /**
  * 查出这条消息应当直答的答案。
  *
+ * @param chatId 群聊 ID
+ * @param message Telegram 入站消息
+ * @param botUsername 本机器人用户名（不含 `@`）
  * @returns 命中时是答案文本；未命中（含本群没有问答）时是 undefined，调用方
  *   照常继续原有流水线。
  */
@@ -62,12 +69,15 @@ export function resolveQaDirectAnswer(
 
 /** sendQaDirectAnswer 的入参。 */
 export interface SendQaDirectAnswerParams {
+  /** 群聊 ID */
   readonly chatId: number;
+  /** 提问消息 ID */
   readonly replyToMessageId: number;
+  /** 命中的问答答案文本 */
   readonly answer: string;
   /**
    * 提问所在的论坛话题；调用方用 forumTopicThreadId 从原消息取。
-   * 发送时同时带 reply_parameters 与该话题（见 SendMessageParams.messageThreadId），
+   * 发送时同时带 reply_parameters 与该话题（见 SendMessageBaseParams.messageThreadId），
    * 提问被删而降级成普通发送时仍留在话题内。
    */
   readonly messageThreadId: number | undefined;
@@ -83,6 +93,9 @@ export interface SendQaDirectAnswerParams {
  *
  * 回答用 sendMessage（不用 sendCommandMessage）：它是本群登记的功能性内容，
  * 不挂固定延迟删除。
+ *
+ * @param params 群问答直答发送上下文（含目标群 `chatId`、提问消息 ID `replyToMessageId`、答案原文 `answer` 与话题 `messageThreadId`）。
+ * @returns 已发送消息 ID；发送失败时返回 `undefined`。
  */
 export function sendQaDirectAnswer({
   chatId,

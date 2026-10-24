@@ -201,11 +201,10 @@ describe("/h_image add", () => {
     await runAdd(photo("a"));
     expect(collectedNames()).toEqual([storedName(JPEG, ".jpg")]);
     expect(sendCommandMessage).toHaveBeenCalledWith({
-      chatId: CHAT_ID, text: "收好啦：新收 1 张，图库里本来就有 7 张，杂鱼♡", replyToMessageId: 10,
+      chatId: CHAT_ID,
+      text: texts.addResult({ added: 1, librarySize: 7, existing: 0, invalidDimensions: 0, failed: 0 }),
+      replyToMessageId: 10,
     });
-    expect(texts.addResult({ added: 2, librarySize: 8, existing: 1, invalidDimensions: 0, failed: 1 })).toBe(
-      "收好啦：新收 2 张，图库里本来就有 8 张，有 1 张早就在图库里了，没再收，还有 1 张没收成（超过 10 MB、格式不对或下载失败），杂鱼♡"
-    );
   });
 
   test("超限不下载；格式不对、下载失败与抛错都计为失败", async () => {

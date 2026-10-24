@@ -7,7 +7,13 @@ export interface ExportedConstDeclaration {
   readonly declaration: ts.VariableDeclaration;
 }
 
-/** 按文件与声明顺序列出 constFiles 里顶层带 export 的变量声明。 */
+/**
+ * 按文件与声明顺序列出 constFiles 里顶层带 export 的变量声明。
+ *
+ * @param program 包含常量文件的 TypeScript Program
+ * @param constFiles 待扫描的常量文件绝对路径列表
+ * @returns 导出常量声明列表
+ */
 export function exportedConstDeclarations(
   program: ts.Program,
   constFiles: readonly string[]

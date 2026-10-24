@@ -13,6 +13,7 @@ import { isQuietUntilActive } from "../libs/chatState";
  * 时长参数为十进制整数分钟数（QUIET_MINUTES_PATTERN），缺省 QUIET_DEFAULT_MINUTES，
  * 其它形态回用法提示；超出 QUIET_MIN_MINUTES ~ QUIET_MAX_MINUTES 的整数收敛到边界。
  * 静默期内重复使用只回执剩余分钟数，不续时、不重新计时；提前解除或重设时长要先 /unquiet。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleQuietCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
@@ -43,6 +44,7 @@ export async function handleQuietCommand(ctx: CommandContext<Context>): Promise<
 
 /**
  * 处理 /unquiet 指令：提前解除 /quiet 静默。本群没在静默中时只回执，不改任何状态。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleUnquietCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;

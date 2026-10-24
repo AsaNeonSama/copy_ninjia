@@ -8,8 +8,8 @@ import { getTimeZone } from "../../packages/config/time";
 
 import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
-import { generateKeyPairSync } from "node:crypto";
 import { join } from "node:path";
+import { rsaPrivateKeyPemFixture } from "../../scripts/fixtures/googleAuth";
 import { TEST_CONFIG_ROOT, TEST_DATA_ROOT } from "../preloadEnv";
 import { DYNAMIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
 import { DEFAULT_AI_PERSONA } from "../../packages/consts/aiChat/prompts/persona";
@@ -29,11 +29,7 @@ const PERSONA_FILE_PATH: string = join(testRoot, "persona.md");
 const VOICE_TOOL_PROMPT_FILE_PATH: string = join(testRoot, "voice_tool.md");
 const CRON_PATH: string = join(testRoot, "cron.json");
 
-const TEST_PRIVATE_KEY: string = generateKeyPairSync("rsa", {
-  modulusLength: 2_048,
-  privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  publicKeyEncoding: { type: "spki", format: "pem" },
-}).privateKey;
+const TEST_PRIVATE_KEY: string = await rsaPrivateKeyPemFixture();
 
 mock.module("../../packages/consts/paths", () => ({
   PROJECT_ROOT: testRoot,

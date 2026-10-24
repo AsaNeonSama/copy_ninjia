@@ -14,6 +14,9 @@ import { composeMediaText } from "../../libs/text";
  * 语音消息进入转写管线的准入判定：按 update 里携带的 duration 与 file_size 在下载之前判定
  * （上限见 VOICE_MAX_DURATION_SECONDS 与 VOICE_MAX_DOWNLOAD_BYTES）。
  * file_size 是可选字段，缺失时只按时长判，下载侧另有字节闸。
+ *
+ * @param voice Telegram 语音对象
+ * @returns 是否满足转写时长与大小上限
  */
 function isTranscribable(voice: Voice): boolean {
   if (voice.duration > VOICE_MAX_DURATION_SECONDS) return false;
@@ -25,6 +28,9 @@ function isTranscribable(voice: Voice): boolean {
  *
  * 结构与 animation.ts 一致：能解析就走「占位入缓存 -> 异步转写 -> 原位回填」的媒体
  * 管线，解析不了就退回一行纯文本上下文，直接触发时仍回一句（见 mediaFallback.ts）。
+ *
+ * @param context 消息触发上下文
+ * @returns 该语音消息是否已被接管处理
  */
 export function handleVoiceMessage(context: MessageTriggerContext): boolean {
   const { message }: MessageTriggerContext = context;

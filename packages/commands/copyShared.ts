@@ -1,3 +1,5 @@
+/** copy 类命令（`/copy` 系与 `/icon`）共用的全局冷却占用与撤回。 */
+
 import { chatAtmosphere } from "../infra/atmosphere";
 import type {
   CopyCooldownClaim,
@@ -14,10 +16,9 @@ import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import { COPY_COOLDOWN_MS } from "../consts/commands";
 import { formatMinSec } from "../libs/time";
 
-/** copy 类命令（/copy 系与 /icon）共用的全局冷却占用与撤回。 */
-
 /** 冷却检查只读取发起人的 id，用于判定超级管理员豁免。 */
 interface CopyCommandUser {
+  /** 发起人 Telegram 身份 ID。 */
   id: number;
 }
 
@@ -25,11 +26,14 @@ interface CopyCommandUser {
  * copy 类命令的公共冷却检查 + 原子占用。全局共享一份 lastCopyTime 冷却时钟，
  * 跨所有群共用，不按群分别计时。
  *
- * 检查通过后在同一个同步执行栈里经 stateStore.ts 的 claimCopyCooldown 占住冷却槽，
+ * 检查通过后在同一个同步执行栈里经 infra/storage/stateStore.ts 的 claimCopyCooldown 占住冷却槽，
  * 检查与占用之间不经过 await，这份原子性不依赖调用入口。调用方发现这次尝试不会
  * 触发复制（解析目标失败等）时，必须调用 releaseCopyCooldownClaim 撤销占用。
  *
  * 占用之后才等待权威落盘（persistGlobalState）。
+ * @param fromUser 发起命令的身份；未能解析时为 undefined。
+ * @param chatId 触发命令所在群聊 ID。
+ * @param messageId 触发命令的消息 ID；用于挂回复引用。
  * @returns rejected 为 true 时提示已发送，调用方应直接返回；否则调用方可以
  * 继续，并需要在放弃这次尝试时把返回值传给 releaseCopyCooldownClaim 回滚。
  */
@@ -64,6 +68,7 @@ export async function claimCopyCooldownOrReject(
  * 撤销 claimCopyCooldownOrReject 占用的冷却槽，用于这次尝试最终不会触发复制的场合
  * （解析目标失败等）。只在冷却槽仍是本次占用写入的值时才回滚（restoreCopyCooldown 按
  * claimedAt 比对）；发生回滚时同步落盘。
+ * @param claim 本次已授予的冷却占用凭据。
  */
 export async function releaseCopyCooldownClaim(
   claim: GrantedCopyCooldownClaim

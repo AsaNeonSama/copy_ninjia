@@ -23,7 +23,11 @@ import {
   updatePendingRemovalFailure,
 } from "./sweepRetryState";
 
-/** 权限恢复后只重投该群冻结的秒踢/广告批次，补扫由新一轮重新登记。 */
+/**
+ * 权限恢复后只重投该群冻结的秒踢/广告批次，补扫由新一轮重新登记。
+ *
+ * @param chatId 封禁权限已恢复的受管群 ID。
+ */
 export function replayPendingBlockedRemovalsForChat(chatId: number): void {
   const removals: RemoveBlockedMembersParams[] = [];
   for (const pending of pendingBlockedRemovals.values()) {
@@ -49,7 +53,12 @@ export function replayPendingBlockedRemovalsForChat(chatId: number): void {
   );
 }
 
-/** durable 重投交接失败后，让涉及的群重新欠一次全名单补扫。 */
+/**
+ * durable 重投交接失败后，让涉及的群重新欠一次全名单补扫。
+ *
+ * @param chatIds 重投失败涉及的受管群 ID 可迭代集合。
+ * @param sweepRemovalIds 各群在本次重投中关联的补扫任务编号映射（键为 `chatId`，值为 `removalId`）。
+ */
 function rearmSweepAfterFailedReplay(
   chatIds: Iterable<number>,
   sweepRemovalIds: ReadonlyMap<number, number> = new Map()
@@ -78,13 +87,22 @@ function rearmSweepAfterFailedReplay(
   }
 }
 
-/** Anti-Raid Worker 重建后重投全部未销账任务。 */
+/**
+ * Anti-Raid Worker 重建后重投全部未销账任务。
+ *
+ * @param countPreviousAttempt 为 `true` 时将重投前的一轮计入任务失败尝试次数（记为 `worker-restarted`）。
+ */
 export function replayPendingBlockedRemovals(
   countPreviousAttempt: boolean = true
 ): void {
   void replayPendingBlockedRemovalsAsync(countPreviousAttempt);
 }
 
+/**
+ * 异步执行全部未销账黑名单处置任务的重投。
+ *
+ * @param countPreviousAttempt 为 `true` 时将重投前的一轮计入任务失败尝试次数。
+ */
 async function replayPendingBlockedRemovalsAsync(
   countPreviousAttempt: boolean
 ): Promise<void> {

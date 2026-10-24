@@ -15,7 +15,11 @@ export class DiskIORecoveryRevisions {
   private readonly coveredStickers: WeakSet<DiskBusinessMessage> = new WeakSet();
   private readonly coveredWedOperations: WeakSet<DiskBusinessMessage> = new WeakSet();
 
-  /** 只在镜像成功进入有序通道后登记；消费 ACK 不会清除此恢复水位。 */
+  /**
+   * 只在镜像成功进入有序通道后登记；消费 ACK 不会清除此恢复水位。
+   * @param message 本轮恢复已排入有序通道的镜像业务消息。
+   * @param buffered 当前已在恢复 FIFO 中的旧代业务消息队列。
+   */
   record(message: DiskBusinessMessage, buffered: LinkedQueue<DiskBusinessMessage>): void {
     switch (message.type) {
       case "identityPolicyWrite": this.policies[message.table].set(message.id, message.revision); break;
@@ -55,7 +59,11 @@ export class DiskIORecoveryRevisions {
     }
   }
 
-  /** 已被本轮镜像覆盖的旧 FIFO 操作不再执行；后续新操作继续按序投递。 */
+  /**
+   * 已被本轮镜像覆盖的旧 FIFO 操作不再执行；后续新操作继续按序投递。
+   * @param message 待判定的恢复 FIFO 业务消息。
+   * @returns 已被本轮恢复镜像水位或实体集合覆盖时返回 true，否则返回 false。
+   */
   covers(message: DiskBusinessMessage): boolean {
     switch (message.type) {
       case "identityPolicyWrite": return (this.policies[message.table].get(message.id) ?? 0) >= message.revision;

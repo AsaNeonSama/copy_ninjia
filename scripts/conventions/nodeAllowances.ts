@@ -205,10 +205,6 @@ export const PRODUCTION_BUFFER_GLOBALS: Readonly<Record<string, BufferGlobalAllo
     methods: ["byteLength"],
     purpose: "join-log byte-capacity accounting",
   },
-  "packages/workers/diskIO/joinLogRecords.ts": {
-    methods: ["byteLength"],
-    purpose: "join-log serialized byte accounting",
-  },
   "packages/workers/diskIO/aiCacheFile.ts": {
     methods: ["byteLength"],
     purpose: "AI cache statistics serialized byte accounting",
@@ -264,12 +260,8 @@ export const SCRIPT_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowance>> 
   },
 };
 
-/** 测试夹具、隔离临时根与密钥样本可用的 Node 兼容接口；只在 test/ 下生效。 */
+/** 测试夹具与隔离临时根可用的 Node 兼容接口；只在 test/ 下生效。 */
 export const TEST_SHARED_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowance>> = {
-  "node:crypto": {
-    symbols: ["generateKeyPairSync"],
-    purpose: "throwaway private-key fixtures for credential parsing",
-  },
   "node:fs": {
     symbols: [
       "chmodSync",
@@ -281,11 +273,12 @@ export const TEST_SHARED_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowan
       "readdirSync",
       "rmSync",
       "rmdirSync",
+      "statfsSync",
       "symlinkSync",
       "writeSync",
     ],
     // 同步内容 I/O 只由 TEST_SYNC_CONTENT_IO_EXEMPTIONS 按调用点放行。
-    purpose: "isolated temporary-root lifecycle, config fixture copies, metadata and permission fixtures, and filesystem topology fixtures",
+    purpose: "isolated temporary-root lifecycle and filesystem selection, config fixture copies, metadata and permission fixtures, and filesystem topology fixtures",
   },
   "node:fs/promises": {
     symbols: ["lstat", "mkdir", "mkdtemp", "rename", "rm"],

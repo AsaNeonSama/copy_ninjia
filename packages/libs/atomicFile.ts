@@ -18,11 +18,16 @@ import type { FileHandle } from "node:fs/promises";
 
 /** 一次同步写请求；position 为 null 时从文件当前偏移写起并推进偏移。 */
 export interface SyncWriteRequest {
-  fd: number;
-  buffer: Uint8Array;
-  offset: number;
-  length: number;
-  position: number | null;
+  /** 已打开的可写文件描述符。 */
+  readonly fd: number;
+  /** 待写入的完整字节缓冲。 */
+  readonly buffer: Uint8Array;
+  /** 本次写入在 buffer 中的起始字节偏移。 */
+  readonly offset: number;
+  /** 本次期望写入的字节长度。 */
+  readonly length: number;
+  /** 目标文件中的写入偏移；null 表示从文件当前偏移写起。 */
+  readonly position: number | null;
 }
 
 /** 同步写入一段字节并返回本次实际写入的字节数；形状同 node:fs 的 writeSync。 */
@@ -36,12 +41,16 @@ export interface WriteBufferFullyOptions {
   write?: SyncBufferWriter;
 }
 
+/** 使用 `node:fs` 的 `writeSync` 执行单次同步字节写入的默认实现。 */
 const nodeWriteBuffer: SyncBufferWriter = ({ fd, buffer, offset, length, position }: SyncWriteRequest): number =>
   writeSync(fd, buffer, offset, length, position);
 
 /**
  * write(2) 允许成功但只写一部分：循环到整段字节落下为止；任一次没有有效进展时抛错。
  * 追加日文件与原子分块写共用。
+ * @param fd 已打开的可写文件描述符。
+ * @param buffer 待完整写入的字节切片。
+ * @param options 写入起始偏移及可选的底层写函数。
  */
 export function writeBufferFullySync(
   fd: number,
@@ -71,7 +80,11 @@ export function writeBufferFullySync(
 
 const UTF8_ENCODER: TextEncoder = new TextEncoder();
 
-/** path 同目录下的唯一临时文件路径：`.<basename>.<pid>.<uuid><TMP_FILE_SUFFIX>`。 */
+/**
+ * path 同目录下的唯一临时文件路径：`.<basename>.<pid>.<uuid><TMP_FILE_SUFFIX>`。
+ * @param path 目标文件绝对路径。
+ * @returns 同目录下的唯一临时文件路径。
+ */
 function temporaryPath(path: string): string {
   return join(
     dirname(path),
@@ -82,6 +95,7 @@ function temporaryPath(path: string): string {
 /**
  * 同步 path 所在目录的目录项，让此前的 rename/link/unlink 在掉电后仍可见。
  * 导出供 hard link 协议（infra/storage/instanceLock.ts）复用。
+ * @param path 目标文件路径（将同步其父目录）。
  */
 export async function syncDirectory(path: string): Promise<void> {
   const handle: FileHandle = await open(dirname(path), "r");
@@ -92,7 +106,10 @@ export async function syncDirectory(path: string): Promise<void> {
   }
 }
 
-/** 同步 path 所在目录的目录项，供唯一的磁盘 I/O Worker 使用。 */
+/**
+ * 同步 path 所在目录的目录项，供唯一的磁盘 I/O Worker 使用。
+ * @param path 目标文件路径（将同步其父目录）。
+ */
 export function syncDirectorySync(path: string): void {
   const fd: number = openSync(dirname(path), "r");
   try {
@@ -110,6 +127,10 @@ type AtomicSyncWriter = (fd: number) => number;
  *
  * 权限接管与 atomicWriteText 同口径：已有目标始终沿用部署方当前权限，`mode`
  * 只作为首次创建的默认值。
+ * @param path 目标文件路径。
+ * @param writer 向临时文件描述符写入内容并返回已写字节数的回调。
+ * @param mode 目标文件首次创建时的权限位；目标已存在时忽略。
+ * @returns 本次实际写入并持久化的字节数。
  */
 function atomicWriteSync(
   path: string,
@@ -166,7 +187,11 @@ function atomicWriteSync(
   return writtenBytes;
 }
 
-/** currentFileMode 的同步版本，语义完全一致；供唯一的磁盘 I/O Worker 使用。 */
+/**
+ * currentFileMode 的同步版本，语义完全一致；供唯一的磁盘 I/O Worker 使用。
+ * @param path 目标文件路径。
+ * @returns 文件当前的低 9 位权限位；文件不存在时返回 undefined。
+ */
 function currentFileModeSync(path: string): number | undefined {
   try {
     return statSync(path).mode & 0o777;
@@ -179,6 +204,8 @@ function currentFileModeSync(path: string): number | undefined {
 /**
  * 读出目标文件当前的权限位；文件还不存在时返回 undefined（首次创建没有可
  * 沿用的权限，交给 open 的默认值）。ENOENT 之外的失败原样抛出。
+ * @param path 目标文件路径。
+ * @returns 文件当前的低 9 位权限位；文件不存在时返回 undefined。
  */
 async function currentFileMode(path: string): Promise<number | undefined> {
   try {
@@ -194,6 +221,9 @@ async function currentFileMode(path: string): Promise<number | undefined> {
  *
  * 权限显式接管：已有目标始终沿用当前权限，`mode` 只给首次创建指定默认值。
  * 同步版 atomicWriteSync 口径一致。
+ * @param path 目标文件路径。
+ * @param content 待写入的完整 UTF-8 文本内容。
+ * @param mode 首次创建文件时的默认权限位；目标已存在时沿用原权限。
  */
 export async function atomicWriteText(path: string, content: string, mode?: number): Promise<void> {
   const targetMode: number | undefined = (await currentFileMode(path)) ?? mode;
@@ -228,7 +258,12 @@ export async function atomicWriteText(path: string, content: string, mode?: numb
   }
 }
 
-/** atomicWriteText 的同步版本，供唯一的磁盘 IO Worker 使用。 */
+/**
+ * atomicWriteText 的同步版本，供唯一的磁盘 IO Worker 使用。
+ * @param path 目标文件路径。
+ * @param content 待写入的完整 UTF-8 文本内容。
+ * @param mode 首次创建文件时的默认权限位；目标已存在时沿用原权限。
+ */
 export function atomicWriteTextSync(path: string, content: string, mode?: number): void {
   atomicWriteSync(path, (fd: number): number => {
     writeFileSync(fd, content);
@@ -239,6 +274,10 @@ export function atomicWriteTextSync(path: string, content: string, mode?: number
 /**
  * 逐块原子替换文本文件，并返回最终字节数。调用方必须让 iterable 可完整重放
  * 一次；本函数不把所有 chunk 汇总成一个大字符串，单次只保留当前块的字节数组。
+ * @param path 目标文件路径。
+ * @param chunks 按序产出的 UTF-8 文本片段可迭代对象。
+ * @param mode 首次创建文件时的默认权限位；目标已存在时沿用原权限。
+ * @returns 写入并持久化的总字节数。
  */
 export function atomicWriteTextChunksSync(
   path: string,
@@ -260,7 +299,9 @@ export function atomicWriteTextChunksSync(
 /**
  * 尽力删除目录里原子写中断留下的孤儿临时文件：名字以 TMP_FILE_SUFFIX 结尾，prefix 非空时
  * 还须以它开头（`.<目标文件名>.`，见 temporaryPath）。删除失败留给下一次清理，不抛错。
+ * @param dir 待清理的目录路径。
  * @param names 调用方已列出的目录项。
+ * @param prefix 临时文件名前缀过滤条件；默认为空字符串表示不过滤前缀。
  */
 export async function removeOrphanedTempFiles(
   dir: string,
@@ -272,7 +313,10 @@ export async function removeOrphanedTempFiles(
   }
 }
 
-/** 删除文件并同步父目录；文件已不存在视为成功。 */
+/**
+ * 删除文件并同步父目录；文件已不存在视为成功。
+ * @param path 待删除文件的路径。
+ */
 export function durableUnlinkSync(path: string): void {
   try {
     unlinkSync(path);

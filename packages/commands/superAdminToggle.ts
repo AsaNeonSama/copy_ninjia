@@ -11,7 +11,7 @@ import type { ToggleAction, ToggleCommandTexts } from "../types/commands";
 import { rejectUnlessPermitted, rejectUnlessSuperAdmin } from "./commandActor";
 import { parseToggleAction } from "./arguments";
 
-/** resolveSuperAdminToggleArg 的入参。 */
+/** `resolveSuperAdminToggleArg` 校验命令权限与参数所用的选项。 */
 interface SuperAdminToggleOptions {
   /** 本命令的文案表，取自 consts/atmosphere/（经 chatAtmosphere() 读取）。 */
   readonly texts: ToggleCommandTexts;
@@ -19,7 +19,7 @@ interface SuperAdminToggleOptions {
   readonly permission?: WhitelistPermissionKey;
 }
 
-/** toggleReplyText 的入参。 */
+/** `toggleReplyText` 选择开关命令回执文案的入参。 */
 interface ToggleReplyTextParams {
   /** 本次命令写入的目标状态。 */
   readonly isEnabled: boolean;
@@ -34,6 +34,8 @@ interface ToggleReplyTextParams {
  *
  * 判定只看这两个布尔值，不看落盘或运行时清理是否执行过：同状态重复执行仍会
  * 落盘并重跑清理，回执说明状态未改变。
+ * @param params 目标状态（`isEnabled`）、原状态（`wasEnabled`）与文案表（`texts`）。
+ * @returns 对应的开关操作回执文案。
  */
 export function toggleReplyText({
   isEnabled,
@@ -48,6 +50,7 @@ export function toggleReplyText({
 
 /** runChatToggleCommand 的入参；按群开关命令的完整编排都由它描述。 */
 export interface ChatToggleCommandParams {
+  /** grammY 命令上下文。 */
   readonly ctx: CommandContext<Context>;
   /** 本命令的文案表，取自 consts/atmosphere/（经 chatAtmosphere() 读取）。 */
   readonly texts: ToggleCommandTexts;
@@ -83,6 +86,7 @@ export interface ChatToggleCommandParams {
  * 其中两处顺序是语义，调用方不得改动：
  * - 落盘先于运行时拆除。
  * - 拆除异常只记日志、不外抛；开关此时已落盘。
+ * @param params 命令上下文、权限键、开关字段名、持久化原因及可选的开启闸门/关闭前置与运行时拆除钩子。
  */
 export async function runChatToggleCommand({
   ctx,
@@ -139,9 +143,12 @@ export async function runChatToggleCommand({
  * runChatToggleCommand 的各调用方与 /init 共用的权限与参数校验。
  *
  * 提供 permission 时按该权限键授权，超级管理员恒持有全部权限键（见
- * whitelist.ts）；省略 permission 时只认超级管理员身份（/init），走
+ * infra/identityPolicy/whitelist.ts）；省略 permission 时只认超级管理员身份（/init），走
  * rejectUnlessSuperAdmin。ctx.match 还必须是 enable/disable 之一，否则回复
  * texts.usage。
+ * @param ctx grammY 命令上下文。
+ * @param options 开关文案表与可选白名单权限键。
+ * @returns 校验通过时返回 `"enable"` 或 `"disable"`；被拒绝或参数非法时返回 undefined。
  */
 export async function resolveSuperAdminToggleArg(
   ctx: CommandContext<Context>,

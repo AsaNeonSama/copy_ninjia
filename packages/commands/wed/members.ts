@@ -4,14 +4,16 @@ import { wedAvatarProbes } from "../../cache/main/wed";
 import { noteWedMemberPresence } from "../../cache/main/wedMemberReview";
 import { isPresentMember } from "../../libs/chatMember";
 import { getOrCreateWedMemberState, markWedMembersDirty, removeWedMember } from "./persistence";
-import { getChatState } from "../../infra/storage/stateStore";
+import type { ChatState } from "../../types/chatState";
 import type { WedAvatarProbe, WedMemberState } from "../../types/wed";
 
 /**
  * 退群清理已有集合，在群更新保护在途复核；初始化网关也可调用，不建立群状态。
  * `chat_member` 更新只推送给群管理员机器人，`left_chat_member` 服务消息在较大的超级群里
  * 可能缺失，离群信号因此可能不全，见 docs/cn/04-invariants.md。
+ * @param ctx Update 上下文。
  * @param chat 调用方已解析好的 `ctx.chat`；`ctx.chat` 每次读取都重新求值，由参数传入。
+ * @returns 识别出离群成员并处理时返回 true。
  */
 export function observeWedMemberDeparture(ctx: Context, chat: Chat | undefined): boolean {
   const member: ChatMember | undefined = ctx.chatMember?.new_chat_member;
@@ -30,10 +32,15 @@ export function observeWedMemberDeparture(ctx: Context, chat: Chat | undefined):
 /**
  * 只记录以个人身份实际发言的用户 ID；离群摘除用户，不从引用和自动转发扩充候选。
  * 不在窗口内的发言者以进入时间追加到末尾，满额先挤出首项（进入时间最早）；窗口内成员再次发言不改动。
+ * @param ctx Update 上下文。
+ * @param chat 前置链已读好的 `ctx.chat`（getter 链每次求值，由调用方只读一次后传入）。
+ * @param chatState 前置链在同一同步段读到的本群状态快照。
  */
-export function observeWedMembers(ctx: Context): void {
-  // `ctx.chat` 每次读取都重新求值，这里取一次交给下面全部判定与退群分支。
-  const chat: Chat | undefined = ctx.chat;
+export function observeWedMembers(
+  ctx: Context,
+  chat: Chat | undefined,
+  chatState: Readonly<ChatState>
+): void {
   if (chat?.type !== "group" && chat?.type !== "supergroup") return;
   if (observeWedMemberDeparture(ctx, chat)) return;
   const message: Message | undefined = ctx.message;
@@ -44,7 +51,7 @@ export function observeWedMembers(ctx: Context): void {
     message.from === undefined || message.from.is_bot) return;
   if (message.new_chat_members !== undefined || message.pinned_message !== undefined) return;
   // 首次 /init 也能通过前置网关，但必须等实际启用后才开始记录发言成员。
-  if (getChatState(chat.id).isInitEnabled !== true) return;
+  if (chatState.isInitEnabled !== true) return;
   noteWedMemberPresence(chat.id, message.from.id);
   const probes: Set<WedAvatarProbe> | undefined = wedAvatarProbes.get(message.from.id);
   if (probes !== undefined) for (const probe of probes) probe.observedChats.add(chat.id);

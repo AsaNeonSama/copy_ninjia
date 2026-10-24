@@ -27,7 +27,11 @@ export const luckAppendStalledNotifier: {
   current: ((reply: LuckAppendStalledReply) => void) | null;
 } = { current: null };
 
-/** 整体替换当日运势缓存，并清空待刷批次、暂缓队列、文件游标、刷盘定时器与失败计数。 */
+/**
+ * 整体替换当日运势缓存，并清空待刷批次、暂缓队列、文件游标、刷盘定时器与失败计数。
+ *
+ * @param day 当日运势缓存对象；无当日缓存时为 `null`
+ */
 export function hydrateLuckCache(day: LuckDayCache | null): void {
   if (luckFlushTimer.timer !== null) clearTimeout(luckFlushTimer.timer);
   luckFlushTimer.timer = null;
@@ -39,14 +43,24 @@ export function hydrateLuckCache(day: LuckDayCache | null): void {
   luckAppendFailures.alerted = false;
 }
 
-/** 创建并切换到指定配置时区自然日的空运势缓存，同时清除旧日期运行态。 */
+/**
+ * 创建并切换到指定配置时区自然日的空运势缓存，同时清除旧日期运行态。
+ *
+ * @param day 配置时区自然日字符串（`YYYY-MM-DD`）
+ * @returns 新创建的当日空运势缓存
+ */
 export function startLuckDay(day: string): LuckDayCache {
   const next: LuckDayCache = { day, entries: new Map() };
   hydrateLuckCache(next);
   return next;
 }
 
-/** 追加一条待刷运势记录并返回当前待刷列表长度。 */
+/**
+ * 追加一条待刷运势记录并返回当前待刷列表长度。
+ *
+ * @param entry 待追加落盘的运势记录
+ * @returns 追加后的待刷列表长度
+ */
 export function markLuckDirty(entry: LuckPendingEntry): number {
   luckPendingAppends.push(entry);
   return luckPendingAppends.length;

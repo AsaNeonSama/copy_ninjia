@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
 const {
   isBotCommandText,
   shouldPassInitGate,
@@ -10,6 +11,12 @@ const {
 const { SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 
 const ME = { id: 999, username: "test_bot", first_name: "TestBot" };
+
+/** 与前置链一致：先各读一次 `ctx.chat` 与群状态快照，再交给初始化网关。 */
+function passesInitGate(ctx: any): boolean {
+  const chat = ctx.chat;
+  return shouldPassInitGate(ctx, chat, chat === undefined ? DEFAULT_CHAT_STATE : getChatState(chat.id));
+}
 
 /** 与 grammY 的 Context 一致：未单独指定 msg 时，`ctx.msg` 由 `message` 派生。 */
 function fakeCtx(overrides: Record<string, unknown>): any {
@@ -26,19 +33,19 @@ function fakeCtx(overrides: Record<string, unknown>): any {
 describe("shouldPassInitGate", () => {
   test("私聊：无条件放行", () => {
     const ctx = fakeCtx({ chat: { id: 1, type: "private" } });
-    expect(shouldPassInitGate(ctx)).toBe(true);
+    expect(passesInitGate(ctx)).toBe(true);
   });
 
   test("my_chat_member 更新：无条件放行", () => {
     const ctx = fakeCtx({ myChatMember: {}, chat: { id: -1, type: "supergroup" } });
-    expect(shouldPassInitGate(ctx)).toBe(true);
+    expect(passesInitGate(ctx)).toBe(true);
   });
 
   test("未初始化的群拦下普通消息和除 /init 外的各类命令入口", () => {
     const chatId = -1001111111111;
     for (const text of ["随便说点什么", "/copy", "/permission", "/white", "/send", "/wed", "/咬 @someone"]) {
       const ctx = fakeCtx({ chat: { id: chatId, type: "supergroup" }, message: { text } });
-      expect(shouldPassInitGate(ctx)).toBe(false);
+      expect(passesInitGate(ctx)).toBe(false);
     }
   });
 
@@ -50,20 +57,20 @@ describe("shouldPassInitGate", () => {
       chat, msg: message, from: { id: SUPER_ADMIN_USER_ID },
       callbackQuery: { data: `wed:${SUPER_ADMIN_USER_ID}:2:change`, message },
     });
-    expect(shouldPassInitGate(ctx)).toBeFalse();
+    expect(passesInitGate(ctx)).toBeFalse();
     getOrCreateChatState(chatId).isInitEnabled = true;
-    expect(shouldPassInitGate(ctx)).toBeTrue();
+    expect(passesInitGate(ctx)).toBeTrue();
     getOrCreateChatState(chatId).isInitEnabled = false;
-    expect(shouldPassInitGate(ctx)).toBeFalse();
+    expect(passesInitGate(ctx)).toBeFalse();
   });
 
   test("未初始化群里超管的 /delete_message（含 stop）同样拦下：删除目标只能在 /init enable 之后登记", () => {
     const chat = { id: -1001111111130, type: "supergroup" };
     for (const text of ["/delete_message 7", "/delete_message stop 7", `/delete_message@${ME.username} 7`]) {
-      expect(shouldPassInitGate(fakeCtx({ chat, from: { id: SUPER_ADMIN_USER_ID }, message: { text } }))).toBe(false);
+      expect(passesInitGate(fakeCtx({ chat, from: { id: SUPER_ADMIN_USER_ID }, message: { text } }))).toBe(false);
     }
     getOrCreateChatState(chat.id).isInitEnabled = true;
-    expect(shouldPassInitGate(fakeCtx({
+    expect(passesInitGate(fakeCtx({
       chat,
       from: { id: SUPER_ADMIN_USER_ID },
       message: { text: "/delete_message 7" },
@@ -77,15 +84,15 @@ describe("shouldPassInitGate", () => {
       from: { id: SUPER_ADMIN_USER_ID },
       message: { text: "/init enable" },
     });
-    expect(shouldPassInitGate(ctx)).toBe(true);
+    expect(passesInitGate(ctx)).toBe(true);
   });
 
   test("未初始化群只放行超管发给当前机器人的 /init，外部用户和其它 bot 后缀都拦下", () => {
     const chatId = -1001111111116;
     const base = { chat: { id: chatId, type: "supergroup" }, from: { id: SUPER_ADMIN_USER_ID } };
-    expect(shouldPassInitGate(fakeCtx({ ...base, message: { text: "/init@Test_Bot enable" } }))).toBe(true);
-    expect(shouldPassInitGate(fakeCtx({ ...base, message: { text: "/init@other_bot enable" } }))).toBe(false);
-    expect(shouldPassInitGate(fakeCtx({
+    expect(passesInitGate(fakeCtx({ ...base, message: { text: "/init@Test_Bot enable" } }))).toBe(true);
+    expect(passesInitGate(fakeCtx({ ...base, message: { text: "/init@other_bot enable" } }))).toBe(false);
+    expect(passesInitGate(fakeCtx({
       chat: base.chat,
       from: { id: SUPER_ADMIN_USER_ID + 1 },
       message: { text: "/init enable" },
@@ -105,7 +112,7 @@ describe("shouldPassInitGate", () => {
       message,
       msg: message,
     });
-    expect(shouldPassInitGate(ctx)).toBe(false);
+    expect(passesInitGate(ctx)).toBe(false);
   });
 
   test("已 /init 过的群 + 普通消息：放行", () => {
@@ -114,7 +121,7 @@ describe("shouldPassInitGate", () => {
     // 测完把该字段复位，不留给同进程里的其它测试文件。
     try {
       const ctx = fakeCtx({ chat: { id: chatId, type: "supergroup" }, message: { text: "随便说点什么" } });
-      expect(shouldPassInitGate(ctx)).toBe(true);
+      expect(passesInitGate(ctx)).toBe(true);
     } finally {
       getOrCreateChatState(chatId).isInitEnabled = false;
     }
@@ -129,7 +136,7 @@ describe("shouldPassInitGate", () => {
     });
     ctx.msg = ctx.message;
     // 运势回执不受影响：confirmLuckDraw 是 registerHandlers.ts 里排在本网关之前的一道 bot.use（转发副本也要认），不经这条豁免。
-    expect(shouldPassInitGate(ctx)).toBe(false);
+    expect(passesInitGate(ctx)).toBe(false);
   });
 
   test("未初始化的群里，别的机器人发的 via_bot 消息（不是自己）：仍然拦下", () => {
@@ -139,7 +146,7 @@ describe("shouldPassInitGate", () => {
       message: { text: "别的机器人的内联结果", via_bot: { id: ME.id + 1 } },
     });
     ctx.msg = ctx.message;
-    expect(shouldPassInitGate(ctx)).toBe(false);
+    expect(passesInitGate(ctx)).toBe(false);
   });
 
   test("已 /init 过的群里，指向自己的 via_bot 内联结果照常放行（走的是 isInitEnabled 那一行）", () => {
@@ -151,7 +158,7 @@ describe("shouldPassInitGate", () => {
         message: { text: "内联结果", via_bot: { id: ME.id } },
       });
       ctx.msg = ctx.message;
-      expect(shouldPassInitGate(ctx)).toBe(true);
+      expect(passesInitGate(ctx)).toBe(true);
     } finally {
       getOrCreateChatState(chatId).isInitEnabled = false;
     }

@@ -9,8 +9,11 @@ import type { TelegramApi } from "../../../types/telegramWorker";
 type ChatMemberApi = Pick<TelegramApi, "getChatMember">;
 
 interface GetChatMemberOptions {
+  /** 执行成员查询的 Telegram API 接口。 */
   readonly api: ChatMemberApi;
+  /** 目标群或频道 ID。 */
   readonly chatId: number;
+  /** 目标用户 ID。 */
   readonly userId: number;
   /** 缺省表示本次调用不参与取消。 */
   readonly signal?: AbortSignal;
@@ -19,6 +22,8 @@ interface GetChatMemberOptions {
 /**
  * 本模块经 TelegramApi 调用 getChatMember 的唯一入口。grammY 把 signal 放在第三个位置；
  * signal 经 telegramSignal 在类型边界适配后原样传入，缺省时传 undefined，即本次调用不参与取消。
+ * @param options 成员查询参数。
+ * @returns 查询到的群成员记录。
  */
 function getChatMember({
   api,
@@ -44,12 +49,23 @@ export type ChatMembershipProbeOutcome =
 /** 查询成功时由成员记录得出的探测结局。 */
 type ChatMembershipStatusOutcome = Exclude<ChatMembershipProbeOutcome, "participantInvalid" | "failed">;
 
+/**
+ * 将群成员记录映射为探测状态结局。
+ * @param member Telegram 返回的群成员记录。
+ * @returns 管理员返回 "admin"，在群普通成员返回 "present"，其余返回 "absent"。
+ */
 function membershipStatusOutcome(member: ChatMember): ChatMembershipStatusOutcome {
   if (isAdminStatus(member.status)) return "admin";
   return isPresentMember(member) ? "present" : "absent";
 }
 
-/** 探测成员身份并保留管理员与 PARTICIPANT_ID_INVALID 分类；取消以外的查询失败照常记 API 错误。 */
+/**
+ * 探测成员身份并保留管理员与 PARTICIPANT_ID_INVALID 分类；取消以外的查询失败照常记 API 错误。
+ * @param chatId 目标群或频道 ID。
+ * @param userId 目标用户 ID。
+ * @param api 执行成员查询的 Telegram API 接口。
+ * @returns 成员探测的五态结局。
+ */
 export async function probeChatMembershipWithOutcome(
   chatId: number,
   userId: number,
@@ -74,6 +90,9 @@ export async function probeChatMembershipWithOutcome(
 
 /**
  * 把「确认不在群」与「查询失败」分开。
+ * @param chatId 目标群或频道 ID。
+ * @param userId 目标用户 ID。
+ * @param api 执行成员查询的 Telegram API 接口。
  * @returns 在群（含管理员）true、确认不在群 false、查询失败 undefined。
  */
 export async function probeChatMembership(
@@ -89,14 +108,19 @@ export async function probeChatMembership(
 
 /** 管理员探测共用客户端与请求取消边界。 */
 export interface ProbeChatAdminOptions {
+  /** 目标群或频道 ID。 */
   readonly chatId: number;
+  /** 目标用户 ID。 */
   readonly userId: number;
+  /** 执行成员查询的 Telegram API 接口。 */
   readonly api?: ChatMemberApi;
+  /** 调用方的取消信号。 */
   readonly signal?: AbortSignal;
 }
 
 /**
  * 目标此刻是不是这个群或频道的管理员/所有者。
+ * @param options 管理员探测参数。
  * @returns 确认是管理员 true、确认不是 false、查询失败 undefined。
  */
 export async function probeChatAdmin(
@@ -115,8 +139,11 @@ export async function probeChatAdmin(
 
 /** 取成员身份的两条路共用的查询边界：是否解释成员状态由各自的 map 决定。 */
 export interface ChatMemberUserOptions {
+  /** 目标群或频道 ID。 */
   readonly chatId: number;
+  /** 目标用户 ID。 */
   readonly userId: number;
+  /** 调用方的取消信号。 */
   readonly signal?: AbortSignal;
 }
 
@@ -124,6 +151,7 @@ export interface ChatMemberUserOptions {
  * 取本轮查询到的成员身份，不解释成员状态，离群与被踢同样返回身份。
  * 供 `/info` 现查目标资料（commands/info.ts 的 lookUp）与破坏性命令核对 @username 目标
  * （commands/liveTargetIdentity.ts）：要的是名称与用户名，不判断在不在群。
+ * @param options 成员身份查询参数。
  * @returns 查询成功返回身份，查询失败返回 undefined。
  */
 export function readChatMemberUser({ chatId, userId, signal }: ChatMemberUserOptions): Promise<User | undefined> {
@@ -141,6 +169,8 @@ export function readChatMemberUser({ chatId, userId, signal }: ChatMemberUserOpt
  * 查询目标此刻是否在群，结局语义见 types/telegram.ts 的 ChatMemberPresence。
  * PARTICIPANT_ID_INVALID 按离群处理且不记 API 错误；本群拒绝查询与其它失败除停机
  * 取消外照常记一行 API 错误。
+ * @param options 成员在群查询参数。
+ * @returns 区分在群用户资料、确认不在群、群拒绝查询与查询失败的结果。
  */
 export async function readPresentChatUser({ chatId, userId, signal }: ChatMemberUserOptions): Promise<ChatMemberPresence> {
   let participantInvalid: boolean = false;

@@ -11,8 +11,11 @@ import type { WorkerRequestTable } from "../types/workerRequest";
 
 /** requestAiWorkerJob 的入参。 */
 export interface RequestAiWorkerJobOptions<T> {
+  /** 存放本类在途请求的等待表。 */
   readonly table: WorkerRequestTable<T | AiWorkerJobFailure>;
+  /** 请求超时时间（毫秒）。 */
   readonly timeoutMs: number;
+  /** 向 AI Worker 投递消息的传输通道与可用性状态。 */
   readonly transport: AiWorkerJobTransport;
   /** 调用方取消信号。 */
   readonly signal: AbortSignal | undefined;
@@ -22,7 +25,11 @@ export interface RequestAiWorkerJobOptions<T> {
   readonly cancel: (requestId: number) => AiChatWorkerMessage;
 }
 
-/** 发起一次可取消任务并等待结果。 */
+/**
+ * 发起一次可取消任务并等待结果。
+ * @param options 可取消 Worker 任务请求配置参数。
+ * @returns Worker 任务成功结果或统一失败原因。
+ */
 export function requestAiWorkerJob<T>({
   table,
   timeoutMs,

@@ -121,8 +121,8 @@
 | `/mute … <时长>`<br>`/unmute` | `isCanMute`<br>`isCanUnMute` | 在超级群中临时禁言指定用户或提前解除禁言；支持回复、`@username` 或数字 ID，时长支持 `m/h/d` 单位 |
 | `/gag … [<分钟数>] [用具]`<br>`/ungag …` | `isCanGag` | 限制指定用户或频道身份只能通过机器人提供的专属 Inline 入口发言（分钟数取值于 `GAG_DURATION_MINUTES`，缺省 `GAG_DEFAULT_DURATION_MINUTES`，默认用具 `GAG_DEFAULT_TOOL`），或提前解除限制 |
 | `/delete_message …`<br>`/delete_message stop …` | `SUPER_ADMIN_USER_ID` | 删除目标此后在本群发送的每条消息（命令之前的消息不受影响），或停止删除；支持回复、`@username`、用户 ID 或频道负数 ID |
-| `/block … enable` | `isCanBlock` | 拉黑目标：写入 SQLite 永久黑名单，并在所有已纳管的超级群中执行封禁踢出 |
-| `/block … disable` | `isCanUnBlock` | 解除黑名单：从权威数据库中移出，并在所有纳管群中解除封禁（支持用户 ID 与频道负数 ID，拒绝群自身） |
+| `/block … enable` | `isCanBlock` | 拉黑目标：写入 SQLite 永久黑名单，并在所有已纳管的超级群中执行封禁踢出（支持回复、`@username` 或正整数用户 ID） |
+| `/block … disable` | `isCanUnBlock` | 解除黑名单：从权威数据库中移出，并在所有纳管群中解除封禁（除上述指定方式外，还支持直接传入频道负数 ID；拒绝群自身） |
 | `/ai_chat enable\|disable` | `isCanControllAIPermission` | 开启或关闭本群的 AI 对话闲聊能力 |
 | `/clear_context` | `isCanClearContext` | 清空本群的 AI 上下文记忆（重置滚动逐字缓存与摘要，并将持久化字段置空）；使在途回复立即失效 |
 | `/mood query` | 群成员 | 查看当前 AI 的全局心情状态（不触发重抽；需已开启 AI 且模型配置正常） |
@@ -221,7 +221,7 @@
 - **容量与持久化**：每群同时最多 `DELETE_MESSAGE_CHAT_TARGET_MAX` 个目标；目标以用户/频道 ID 列表保存在 SQLite `chat_states` 表对应群的 `deleteMessageTargets` JSONB 字段中，进程重启后继续生效。登记与 `stop` 都在落盘确认后才回执。`stop` 只撤销目标，已排队的条目照常删除；群被 `/init disable`、机器人离群或被撤管理员时撤销本群全部目标并落盘，同时丢弃本群尚未发出的条目。启动时若持久化的目标含本群自身 ID 或配置的超级管理员，拒绝启动；待删队列本身只在内存中。正常停机时待删队列在 Telegram 出站总闸关闭前排空，超出预算则丢弃剩余条目并记错误日志。开始、停止与各类拒绝回执按普通命令提示在 `COMMAND_MESSAGE_AUTO_DELETE_MS` 后自删。
 
 #### 7. 黑名单：`/block`
-- **命令语法**：使用 `/block <目标> enable` 执行拉黑，使用 `/block <目标> disable` 解除拉黑。目标参数支持回复消息、`@username`、纯数字用户 ID 以及频道的负数 ID（仅解封支持频道 ID）。
+- **命令语法**：使用 `/block <目标> enable` 执行拉黑，使用 `/block <目标> disable` 解除拉黑。目标参数支持回复消息（含频道马甲消息）、`@username`、纯数字用户 ID，以及直接传入频道的负数 ID（裸传负数 ID 仅支持 `disable` 解封）。
 - **影响范围**：执行拉黑后，目标会被写入本地 SQLite 权威黑名单表，并在机器人所管理的所有活跃群组中同步执行踢出与封禁。当机器人新加入群组或获得管理员权限时，会自动扫描并清理群内的黑名单成员。
 - **异步批量处置**：执行拉黑确认持久化后，跨群封禁任务由后台异步并发推进，稍后在群内汇总播报成功与失败的群数统计；若已确证机器人在某些群内缺乏封禁权限，则不会向这些群发送无意义的 API 请求，直接计入失败群数。执行解除拉黑时同样先移出名单并确认持久化，跨群解封在后台推进，完成后发送最终回执；已确证缺乏封禁权限的群同样不发请求、计入失败。同一目标的先后拉黑、解除与广告处置按到达顺序依次执行。
 - **销号清理机制**：在后台巡检封禁过程中，若对某一目标的封禁探测连续 `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 次均被 Telegram 官方返回 `PARTICIPANT_ID_INVALID`（账号已注销），系统会自动将其判定为“已销号账号”，并从黑名单数据库中彻底注销该 ID。

@@ -1,3 +1,7 @@
+/**
+ * Anti-Raid Worker 入站消息到纯验证状态机事件的翻译层。
+ * 这里预计算管理员、lockdown 与评论区线索，状态转移仍由 dispatcher 统一执行。
+ */
 import { workerAtmosphere } from "./atmosphere";
 import { lockdownEntries } from "../../cache/workers/antiRaid/lockdown";
 import {
@@ -36,10 +40,10 @@ import {
 } from "./recentComments";
 
 /**
- * Anti-Raid Worker 入站消息到纯验证状态机事件的翻译层。
- * 这里预计算管理员、lockdown 与评论区线索，状态转移仍由 dispatcher 统一执行。
+ * 按当前群风格格式化新入群成员的展示名称。
+ * @param member 入群成员简要信息。
+ * @returns 格式化后的成员展示标签。
  */
-
 function memberLabel(member: AntiRaidMember): string {
   return formatUserLabel({
     id: member.id,
@@ -48,7 +52,11 @@ function memberLabel(member: AntiRaidMember): string {
   }, workerAtmosphere());
 }
 
-/** 仅处理主线程已通过守卫开关的入群；容量拒收先于刷群计数与豁免线索消费。 */
+/**
+ * 仅处理主线程已通过守卫开关的入群；容量拒收先于刷群计数与豁免线索消费。
+ * @param message 主线程发来的新成员入群消息。
+ * @param dispatchVerification 验证状态机派发函数。
+ */
 export function handleJoinEvent(
   message: NewMemberMessage,
   dispatchVerification: VerificationDispatcher
@@ -106,17 +114,28 @@ export function handleJoinEvent(
   }
 }
 
+/** 处理已确认属于频道评论区的留言所需的参数。 */
 interface ConfirmedCommentParams {
+  /** 主线程发来的受跟踪群消息。 */
   message: TrackedChatMessage;
+  /** 消息观察毫秒时间戳。 */
   observedAt: number;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
+/** 异步确认楼中楼评论是否属于关联频道所需的参数。 */
 interface ConfirmThreadCommentParams extends ConfirmedCommentParams {
+  /** 待验证键（`chatId:userId`）。 */
   key: string;
+  /** 异步确认前若该条消息恰好触发刷屏踢出终态，确认后是否允许豁免撤销该终态。 */
   allowFloodTerminalExemption: boolean;
 }
 
+/**
+ * 处理已确认属于频道评论区的留言：尚无验证状态记录时暂存以备后到 join 关联，已有记录时直接派发评论区发言事件。
+ * @param params 已确认频道评论处理参数。
+ */
 function rememberOrDispatchConfirmedComment({
   message,
   observedAt,
@@ -140,6 +159,10 @@ function rememberOrDispatchConfirmedComment({
   });
 }
 
+/**
+ * 在关联频道缓存冷缺失时登记楼中楼回复确认 owner，并异步拉取本群是否绑定关联频道；确认为真且状态对象未换代时补发豁免。
+ * @param params 楼中楼评论异步确认参数。
+ */
 function confirmThreadComment({
   message,
   observedAt,
@@ -213,6 +236,11 @@ function confirmThreadComment({
   });
 }
 
+/**
+ * 处理一条受入群验证跟踪的群消息：区分直属频道评论、楼中楼回复与普通消息并派发给验证状态机。
+ * @param message 主线程发来的受跟踪群消息。
+ * @param dispatchVerification 验证状态机派发函数。
+ */
 export function handleTrackedMessageEvent(
   message: TrackedChatMessage,
   dispatchVerification: VerificationDispatcher

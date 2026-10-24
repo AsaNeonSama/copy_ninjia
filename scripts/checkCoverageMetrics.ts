@@ -16,6 +16,11 @@ import { parseCoverageSummary } from "./coverageSummary";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..");
 
+/**
+ * 在仓库根目录执行 `bun test --isolate --coverage` 并解析覆盖率摘要。
+ *
+ * @returns 实测得到的覆盖率指标
+ */
 function measuredCoverageMetrics(): CoverageMetrics {
   const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
     cmd: ["bun", "test", "--isolate", "--coverage", "--coverage-reporter=text"],
@@ -34,6 +39,12 @@ function measuredCoverageMetrics(): CoverageMetrics {
   return parseCoverageSummary(output);
 }
 
+/**
+ * 将覆盖率指标格式化为便于对照的单行文本。
+ *
+ * @param metrics 覆盖率指标对象
+ * @returns 格式化后的覆盖率摘要字符串
+ */
 function describe(metrics: CoverageMetrics): string {
   return `${metrics.tests} tests / ${metrics.files} files / ` +
     `${metrics.expectCalls} expect() calls / ` +

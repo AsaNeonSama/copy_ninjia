@@ -14,14 +14,23 @@ export interface ReleaseAsset {
 }
 
 export interface VerifyAssetsOptions {
+  /** 存放待校验发行包与校验和文件的目录路径。 */
   readonly directory: string;
+  /** 期望的无前缀 MAJOR.MINOR.PATCH 发行版本号。 */
   readonly version: string;
+  /** 本次发布声明的目标平台列表。 */
   readonly platforms: readonly string[];
+  /** 期望的 40 位十六进制 Git tree 哈希。 */
   readonly sourceTree: string;
+  /** 用于执行 tar 等外部命令的执行器。 */
   readonly command: ReleaseCommand;
 }
 
-/** 核对哈希、两份清单版本、必需普通文件、主程序执行位、依赖隔离及构建谱系。 */
+/**
+ * 核对哈希、两份清单版本、必需普通文件、主程序执行位、依赖隔离及构建谱系。
+ * @param options 发行包校验所需的目录、版本、平台、Git tree 与命令执行器。
+ * @returns 通过全部门禁校验的发行包与校验和资产记录列表。
+ */
 export async function verifyReleaseAssets({ directory, version, platforms, sourceTree, command }: VerifyAssetsOptions): Promise<readonly ReleaseAsset[]> {
   if (!RELEASE_VERSION_PATTERN.test(version) || !/^[a-f0-9]{40}$/.test(sourceTree)) throw new Error("Release version and source tree must be explicit.");
   if (platforms.length === 0 || new Set(platforms).size !== platforms.length || platforms.some((value: string): boolean => !RELEASE_PLATFORMS.includes(value))) {

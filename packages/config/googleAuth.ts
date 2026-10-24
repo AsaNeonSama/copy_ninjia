@@ -1,25 +1,28 @@
 import { createPrivateKey } from "node:crypto";
 import { GOOGLE_AUTH_FILE_PATH } from "../consts/paths";
-import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { invalidInput, readJsonInput, requiredString } from "../libs/inputValidation";
 import { isPlainRecord } from "../libs/record";
 import type { GoogleServiceAccountKey } from "../types/config";
 
 /**
  * SDK 消费的可选字符串字段：缺省不影响其它存在字段的严格校验；存在时按去掉首尾空白后
  * 非空校验，并把 key 里的值换成去空白后的值。
+ * @param key 服务账号 JSON 对象副本。
+ * @param path 配置文件路径，用于构造致命错误诊断。
+ * @param field 待规范化与校验的字段名。
  */
 function normalizeOptionalString(key: Record<string, unknown>, path: string, field: string): void {
   if (!Object.hasOwn(key, field)) return;
-  const value: unknown = key[field];
-  const text: string = typeof value === "string" ? value.trim() : "";
-  if (text.length === 0) invalidInput(path, `$.${field}`, "a non-empty string");
-  key[field] = text;
+  key[field] = requiredString(key[field], `$.${field}`, path);
 }
 
 /**
  * 解析翻译 SDK 的服务账号凭据；已知字符串字段去掉首尾空白后校验并返回去空白后的值。
  * private_key 的首尾换行属于 PEM 格式本身，按原文交给 SDK；其余字段原样保留。只报告字段
  * 期望，不回显密钥或底层解析错误。
+ * @param value 待校验的原始 JSON 值。
+ * @param path 服务账号文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验与空白规范化的 Google 服务账号密钥对象。
  */
 export function parseGoogleServiceAccountKey(
   value: unknown,
@@ -33,9 +36,7 @@ export function parseGoogleServiceAccountKey(
     }
     key.type = "service_account";
   }
-  const clientEmail: string = typeof key.client_email === "string" ? key.client_email.trim() : "";
-  if (clientEmail.length === 0) invalidInput(path, "$.client_email", "a non-empty string");
-  key.client_email = clientEmail;
+  key.client_email = requiredString(key.client_email, "$.client_email", path);
   if (typeof key.private_key !== "string" || key.private_key.trim().length === 0) {
     invalidInput(path, "$.private_key", "a parseable non-empty PEM private key");
   }
@@ -53,7 +54,10 @@ export function parseGoogleServiceAccountKey(
   return key as unknown as GoogleServiceAccountKey;
 }
 
-/** 启动阶段读取并严格解析服务账号文件；外部连接时序见 docs/cn/04-invariants.md。 */
+/**
+ * 启动阶段读取并严格解析服务账号文件；外部连接时序见 docs/cn/04-invariants.md。
+ * @returns 已通过校验的 Google 服务账号密钥对象。
+ */
 export async function validateGoogleServiceAccountKey(): Promise<GoogleServiceAccountKey> {
   return parseGoogleServiceAccountKey(await readJsonInput(GOOGLE_AUTH_FILE_PATH), GOOGLE_AUTH_FILE_PATH);
 }

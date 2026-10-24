@@ -2,6 +2,10 @@
  * 按键去重的在途任务：同键已有在途 Promise 时直接复用，否则用 create 新建并登记。
  * 结算后只释放自己登记的槽位（按 Promise 身份比对），整表清空后同键登记的新任务不受影响。
  * 登记表由调用方的 cache owner 持有，本模块不持有状态。
+ * @param tasks 调用方持有的在途任务映射表。
+ * @param key 任务去重键。
+ * @param create 未命中在途任务时用于启动新异步任务的工厂函数。
+ * @returns 复用或新建的在途任务 Promise。
  */
 export function getOrCreateKeyedTask<K, T>(
   tasks: Map<K, Promise<T>>,

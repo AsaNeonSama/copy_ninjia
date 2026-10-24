@@ -16,6 +16,11 @@ import type { LuckReceiptSecret } from "../types/diskIO/storage";
 const CACHE_KEY_ENCODER: TextEncoder = new TextEncoder();
 const CACHE_KEY_DECODER: TextDecoder = new TextDecoder("utf-8", { fatal: true });
 
+/**
+ * 校验并解码内存中的日级运势回执密钥。
+ * @param secret 内存中的日级运势回执密钥对象。
+ * @returns 32 字节原始 HMAC 密钥字节数组。
+ */
 function secretKey(secret: LuckReceiptSecret): Uint8Array {
   const key: Uint8Array = Uint8Array.fromBase64(secret.key, { alphabet: "base64url" });
   if (
@@ -37,6 +42,8 @@ function secretKey(secret: LuckReceiptSecret): Uint8Array {
  * （见 app/registerHandlers.ts 的 bot.catch）。
  *
  * 只服务校验路径。部署密钥的解码留在 secretKey 里，按致命错误处理。
+ * @param value 待解码的 base64url 字符串。
+ * @returns 解码后的字节数组；格式非法抛错时返回 undefined。
  */
 function decodeBase64UrlOrUndefined(value: string): Uint8Array | undefined {
   try {
@@ -52,12 +59,17 @@ function decodeBase64UrlOrUndefined(value: string): Uint8Array | undefined {
  *
  * 只用在 key 由本进程给出的路径（签发与抽签派生）。校验路径不得调用它
  * （见 decodeBase64UrlOrUndefined 的头注）。
+ * @param cacheKey 待校验形态的抽签缓存键。
  */
 function assertValidCacheKey(cacheKey: string): void {
   if (!LUCK_CACHE_KEY_PATTERN.test(cacheKey)) throw new Error(`Invalid luck cache key: ${cacheKey}`);
 }
 
-/** 把已经校验过的 cache key 编成无 padding base64url；不自带校验。 */
+/**
+ * 把已经校验过的 cache key 编成无 padding base64url；不自带校验。
+ * @param cacheKey 已通过格式校验的抽签缓存键。
+ * @returns 无填充的 base64url 编码字符串。
+ */
 function encodeCacheKey(cacheKey: string): string {
   return CACHE_KEY_ENCODER.encode(cacheKey).toBase64({
     alphabet: "base64url",
@@ -65,13 +77,24 @@ function encodeCacheKey(cacheKey: string): string {
   });
 }
 
+/**
+ * 计算无签名回执前缀的 HMAC-SHA256 摘要。
+ * @param secret 当日运势回执密钥。
+ * @param unsignedReceipt 不含签名段的回执前缀文本。
+ * @returns 32 字节 HMAC-SHA256 签名字节数组。
+ */
 function signature(secret: LuckReceiptSecret, unsignedReceipt: string): Uint8Array {
   return new Bun.CryptoHasher("sha256", secretKey(secret))
     .update(unsignedReceipt, "utf8")
     .digest();
 }
 
-/** 自描述签名回执：版本、配置时区的日期、cache key 与完整 HMAC。 */
+/**
+ * 自描述签名回执：版本、配置时区的日期、cache key 与完整 HMAC。
+ * @param secret 当日运势回执密钥。
+ * @param cacheKey 本次抽签的缓存键。
+ * @returns 完整签名的自描述运势回执字符串。
+ */
 export function createLuckReceipt(secret: LuckReceiptSecret, cacheKey: string): string {
   assertValidCacheKey(cacheKey);
   const unsigned: string = `luck:v1:${secret.day}:${encodeCacheKey(cacheKey)}`;
@@ -87,6 +110,8 @@ export function createLuckReceipt(secret: LuckReceiptSecret, cacheKey: string): 
 /**
  * 最终消息直接展示回执里已有的 HMAC-SHA256（转成十六进制）；原回执仍由
  * Telegram 实体元数据携带。
+ * @param receipt 完整签名回执字符串。
+ * @returns 64 位小写十六进制 HMAC 摘要；回执格式或签名段非法时返回 undefined。
  */
 export function luckReceiptHmacHash(receipt: string): string | undefined {
   const match: RegExpExecArray | null = LUCK_RECEIPT_PATTERN.exec(receipt);
@@ -99,6 +124,11 @@ export function luckReceiptHmacHash(receipt: string): string | undefined {
   return hmac.toHex();
 }
 
+/**
+ * 判断字符串是否为合法的 64 位小写十六进制运势回执摘要。
+ * @param value 待判定的字符串。
+ * @returns 匹配摘要格式时返回 true，否则返回 false。
+ */
 export function isLuckReceiptHash(value: string): boolean {
   return LUCK_RECEIPT_HASH_PATTERN.test(value);
 }
@@ -106,6 +136,10 @@ export function isLuckReceiptHash(value: string): boolean {
 /**
  * 常量时间验证回执并直接还原 cache key；错误版本、日期、长度、编码或签名
  * 一律返回 undefined；验证只依赖回执自身与当日密钥。
+ * @param receipt 待验证的完整回执字符串。
+ * @param expectedDay 期望匹配的当日日期字符串（`YYYY-MM-DD`）。
+ * @param secret 当日运势回执密钥。
+ * @returns 验证通过并还原出的 cacheKey；任何环节不匹配时返回 undefined。
  */
 export function verifyLuckReceipt(
   receipt: string,
@@ -139,7 +173,12 @@ export function verifyLuckReceipt(
   return cacheKey;
 }
 
-/** 以日级密钥、日期和 cache key 派生稳定的抽签熵（SHA-256 摘要）。 */
+/**
+ * 以日级密钥、日期和 cache key 派生稳定的抽签熵（SHA-256 摘要）。
+ * @param secret 当日运势回执密钥。
+ * @param cacheKey 本次抽签的缓存键。
+ * @returns 32 字节确定性抽签熵字节数组。
+ */
 export function deriveLuckEntropy(secret: LuckReceiptSecret, cacheKey: string): Uint8Array {
   assertValidCacheKey(cacheKey);
   return new Bun.CryptoHasher("sha256", secretKey(secret))
@@ -172,7 +211,11 @@ export function luckReceiptHashFromLine(
   return isLuckReceiptHash(hash) ? hash : undefined;
 }
 
-/** AI 记忆只保留用户可读正文，不把内部签名协议混进群聊转录。 */
+/**
+ * AI 记忆只保留用户可读正文，不把内部签名协议混进群聊转录。
+ * @param text 可能在末行带有运势回执展示标签的消息正文。
+ * @returns 剥离末行运势回执后的正文；末行不是运势回执时原样返回。
+ */
 export function stripLuckReceipt(text: string): string {
   const lastLineBreak: number = text.lastIndexOf("\n");
   if (lastLineBreak < 0) return text;

@@ -22,6 +22,8 @@ import { getAdDetectAgentConfig } from "../../../config/agent";
 
 /**
  * 解析模型返回的 JSON 文本为 AdVerdict；格式或字段类型非法时返回 null。
+ * @param raw 模型返回的原始字符串。
+ * @returns 解析出的广告判定结果；输入非合法判定 JSON 时返回 null。
  */
 export function parseAdVerdict(raw: string | null | undefined): AdVerdict | null {
   if (typeof raw !== "string") return null;
@@ -59,6 +61,7 @@ export interface ClassifyAdTextParams {
 
 /**
  * 获取或构建当前示例快照对应的判定提示词缓存（见 cache/workers/antiRaid/adDetect.ts）。
+ * @returns 当前生效的广告判定提示词集合。
  */
 function currentAdDetectPrompts(): AdDetectPrompts {
   if (adDetectPrompts.current !== null) return adDetectPrompts.current;
@@ -74,6 +77,7 @@ function currentAdDetectPrompts(): AdDetectPrompts {
 
 /**
  * 判定一串消息是不是广告。
+ * @param params 待判定消息串及新入群标记。
  * @returns 判定结果；请求或解析失败时为 null，调用方应视为「本次没判定」。
  */
 export async function classifyAdText({ text, justJoined }: ClassifyAdTextParams): Promise<AdVerdict | null> {

@@ -20,11 +20,17 @@ import { trackAntiRaidTask } from "./taskTracker";
 type VerificationCallbackReply = Extract<VerificationEffect, { kind: "answerCallback" }>["reply"];
 
 export interface AnswerVerificationCallbackOptions {
+  /** Telegram 回调查询 ID。 */
   readonly callbackQueryId: string;
+  /** 验证状态机决定的回调应答类型；缺省时仅静默消除加载状态。 */
   readonly reply?: VerificationCallbackReply;
 }
 
-/** 将验证回调应答类型映射为当前气氛下的提示文案。 */
+/**
+ * 将验证回调应答类型映射为当前气氛下的提示文案。
+ * @param reply 验证回调应答类型；无提示文案时为 undefined。
+ * @returns 对应的提示文案；`reply` 为 undefined 时返回 undefined。
+ */
 function verificationCallbackText(
   reply: VerificationCallbackReply | undefined
 ): string | undefined {
@@ -51,6 +57,8 @@ function verificationCallbackText(
 /**
  * 验证按钮的唯一回执边界；文案沿用状态机结果，发送和过载回执共用在途硬顶。
  * 满载时不创建请求或等待者；已受理的请求保持排空责任，遵循 docs/cn/04-invariants.md。
+ * @param options 回调应答选项。
+ * @returns 已受理应答请求的 Promise；在途应答已满载时返回 undefined。
  */
 export function answerVerificationCallback({
   callbackQueryId,
@@ -77,6 +85,8 @@ export function answerVerificationCallback({
 /**
  * 本人点击同步转移；代点查询有界受理，回投前同时核验 Worker 代际与验证实例。
  * 普通 pending 字段原地更新保持实例有效；leave/rejoin、adopt、停管或 stop 使旧结果失效。
+ * @param message 主线程转发的验证内联按钮点击消息。
+ * @param dispatchVerification 验证状态机派发函数。
  */
 export function handleVerificationCallbackEvent(
   message: VerifyCallbackMessage,

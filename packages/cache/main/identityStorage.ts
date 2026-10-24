@@ -60,7 +60,12 @@ export const unacknowledgedRemovalBytes: { current: number } = { current: 0 };
 /** 待踢 outbox 写入的单调递增 revision 发号器：每次写入自增，进程重启或 resetIdentityStorageCache 时归零。 */
 export const removalWriteRevision: { current: number } = { current: 0 };
 
-/** 按表名返回对应的未确认身份策略写入 Map。 */
+/**
+ * 按表名返回对应的未确认身份策略写入 Map。
+ *
+ * @param table 身份策略表名（`whitelist` 或 `blocklist`）
+ * @returns 对应表的未确认写入映射表
+ */
 export function unacknowledgedIdentityWrites(
   table: IdentityPolicyTable
 ): Map<number, UnacknowledgedIdentityWrite> {

@@ -8,6 +8,8 @@ import type { TelegramVisionSource } from "../types/media";
 /**
  * 取出一条消息里能收进随机图库的那张图：图片取最大尺寸；以文件发送的图片只收
  * RANDOM_IMAGE_DOCUMENT_MIME_TYPES 里的格式。其余消息返回 undefined。纯函数，不接触缓存。
+ * @param message 待提取图片候选的 Telegram 消息。
+ * @returns 可入库的图片文件标识与大小；不含受支持图片时返回 undefined。
  */
 export function messageImageCandidate(message: Message): MessageImageCandidate | undefined {
   const photo: Message["photo"] = message.photo;
@@ -26,6 +28,8 @@ export function messageImageCandidate(message: Message): MessageImageCandidate |
  * 这张图的尺寸是否过得了 `sendPhoto` 的两道门槛：宽高之和不超过
  * TELEGRAM_PHOTO_MAX_DIMENSION_SUM，长宽比不超过 TELEGRAM_PHOTO_MAX_ASPECT_RATIO（取长边
  * 除以短边）。两道门槛与字节上限相互独立。纯函数，只比较数字；零或负的边长按不合规处理。
+ * @param params 图片的像素宽高尺寸。
+ * @returns 满足 Telegram `sendPhoto` 尺寸与比例门槛时返回 true，否则返回 false。
  */
 export function isSendablePhotoDimensions({ width, height }: ImageDimensions): boolean {
   if (width <= 0 || height <= 0) return false;
@@ -39,6 +43,8 @@ export function isSendablePhotoDimensions({ width, height }: ImageDimensions): b
  * 全部超限时仍退回最小档，由下载侧的真实字节上限做最终防护。选档规则的唯一实现：
  * pickPhotoFile 与 Worker 发送回执投影（infra/telegram/workerRequests.ts）都经它选档，
  * 只剩选中那一档的单元素数组再选一次仍是同一档。
+ * @param sizes 按分辨率升序排列的非空 Telegram PhotoSize 数组。
+ * @returns 选中的 PhotoSize 档位。
  */
 export function pickPhotoSize(sizes: readonly PhotoSize[]): PhotoSize {
   for (let i: number = sizes.length - 1; i >= 0; i--) {
@@ -48,7 +54,11 @@ export function pickPhotoSize(sizes: readonly PhotoSize[]): PhotoSize {
   return sizes[0]!;
 }
 
-/** 按 pickPhotoSize 选档并转成视觉源。 */
+/**
+ * 按 pickPhotoSize 选档并转成视觉源。
+ * @param sizes 按分辨率升序排列的非空 Telegram PhotoSize 数组。
+ * @returns 选中档位对应的视觉媒体源描述对象。
+ */
 export function pickPhotoFile(sizes: readonly PhotoSize[]): TelegramVisionSource {
   const size: PhotoSize = pickPhotoSize(sizes);
   return { fileId: size.file_id, fileUniqueId: size.file_unique_id, width: size.width, height: size.height };

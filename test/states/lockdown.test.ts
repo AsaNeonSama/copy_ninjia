@@ -175,15 +175,16 @@ describe("封锁公告", () => {
     expect(effects).toEqual([]);
   });
 
-  test("本轮已经结束后才拿到公告 ID → 直接删掉这条没有主人的公告", () => {
-    const { next, effects } = transitionLockdown(undefined, {
-      type: "announcementResult",
-      messageId: ANNOUNCEMENT_MESSAGE_ID,
+  test("未激活状态下收到 announcementResult 无操作", () => {
+    expect(
+      transitionLockdown(undefined, {
+        type: "announcementResult",
+        messageId: ANNOUNCEMENT_MESSAGE_ID,
+      })
+    ).toEqual({
+      next: undefined,
+      effects: [],
     });
-    expect(next).toBeUndefined();
-    expect(effects).toEqual([
-      { kind: "deleteLockdownAnnouncement", messageId: ANNOUNCEMENT_MESSAGE_ID },
-    ]);
 
     expect(transitionLockdown(undefined, { type: "announcementResult", messageId: undefined })).toEqual({
       next: undefined,

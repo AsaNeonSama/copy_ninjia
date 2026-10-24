@@ -63,6 +63,7 @@ import type { AiCacheUsage } from "../../../packages/types/aiCache";
 const {
   OPENAI_REQUEST_MAX_RETRIES,
   OPENAI_REQUEST_TIMEOUTS_MS,
+  OPENAI_SDK_LOG_LEVEL,
 } = await import("../../../packages/consts/aiChat/openai");
 
 const BODY = { model: "test-model", input: "hi" } as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming;
@@ -102,12 +103,20 @@ describe("客户端构造", () => {
     expect(createdOptions[0]).toEqual({
       apiKey: "summary-key",
       baseURL: "https://gateway.invalid/v1",
+      organization: null,
+      project: null,
+      webhookSecret: null,
+      logLevel: OPENAI_SDK_LOG_LEVEL,
       timeout: OPENAI_REQUEST_TIMEOUTS_MS.summary,
       maxRetries: OPENAI_REQUEST_MAX_RETRIES,
     });
     expect(createdOptions[1]).toEqual({
       apiKey: "media-key",
       baseURL: "https://gateway.invalid/v1",
+      organization: null,
+      project: null,
+      webhookSecret: null,
+      logLevel: OPENAI_SDK_LOG_LEVEL,
       timeout: OPENAI_REQUEST_TIMEOUTS_MS.media,
       maxRetries: OPENAI_REQUEST_MAX_RETRIES,
     });

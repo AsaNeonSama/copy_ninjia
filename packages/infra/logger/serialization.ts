@@ -20,13 +20,7 @@ import {
 import { createLogRedactionReplacer, redactSensitiveFieldsInText, safeStringify } from "./redaction";
 import { redactSecretsInText } from "../../libs/redaction";
 import { jsonSerializedBytes } from "../../libs/jsonBytes";
-import type {
-  AdDetectAgentConfig,
-  AgentCapabilityConfig,
-  AgentDeploymentConfig,
-  AgentTtsCapabilityConfig,
-  BotConfig,
-} from "../../types/config";
+import type { AdDetectAgentConfig, AgentDeploymentConfig, BotConfig } from "../../types/config";
 import type { LogRedactionSecrets, LoggerSecretsSnapshot } from "../../types/logger";
 
 /** 一次 emit 内共享的展开预算，调用结束即丢弃，不保存到线程缓存。 */
@@ -34,13 +28,6 @@ interface SerializationBudget {
   errors: number;
   items: number;
   readonly secrets: LogRedactionSecrets;
-}
-
-/** 一项能力的凭据：api_key，以及 google 与 anthropic provider headers 的每个值。 */
-function pushCapabilitySecrets(secrets: string[], config: AgentCapabilityConfig | AgentTtsCapabilityConfig): void {
-  secrets.push(config.apiKey);
-  if (config.headers === undefined) return;
-  for (const value of Object.values(config.headers)) secrets.push(value);
 }
 
 /**
@@ -52,6 +39,8 @@ function pushCapabilitySecrets(secrets: string[], config: AgentCapabilityConfig 
  * 配置身份未变时复用只读快照；身份变化（热重载替换快照）
  * 时，上一份名单里不再生效的旧凭据排在当前凭据之后继续脱敏。总量受
  * LOGGER_MAX_REDACTED_SECRETS 限制，封顶时丢弃最早退役的。
+ *
+ * @returns 当前线程生效的日志脱敏凭据快照（含原文列表、JSON 转义列表与 replacer 回调）。
  */
 function currentSecrets(): LogRedactionSecrets {
   const telegram: BotConfig | null = botConfigCache.current;
@@ -66,14 +55,12 @@ function currentSecrets(): LogRedactionSecrets {
   const secrets: string[] = [];
   const telegramToken: string | undefined = telegram?.botToken;
   if (telegramToken !== undefined) secrets.push(telegramToken);
-  if (adDetect !== null) pushCapabilitySecrets(secrets, adDetect);
+  if (adDetect !== null) secrets.push(adDetect.apiKey);
   if (agent !== null) {
-    pushCapabilitySecrets(secrets, agent.text);
-    pushCapabilitySecrets(secrets, agent.summary);
-    pushCapabilitySecrets(secrets, agent.media);
-    if (agent.image !== undefined) pushCapabilitySecrets(secrets, agent.image);
-    if (agent.tts !== undefined) pushCapabilitySecrets(secrets, agent.tts);
-    if (agent.webSearch !== undefined) pushCapabilitySecrets(secrets, agent.webSearch);
+    secrets.push(agent.text.apiKey, agent.summary.apiKey, agent.media.apiKey);
+    if (agent.image !== undefined) secrets.push(agent.image.apiKey);
+    if (agent.tts !== undefined) secrets.push(agent.tts.apiKey);
+    if (agent.webSearch !== undefined) secrets.push(agent.webSearch.apiKey);
   }
   if (previous !== null) {
     for (const secret of previous.text) {
@@ -97,6 +84,10 @@ function currentSecrets(): LogRedactionSecrets {
  *
  * 展开后的整棵结构整体序列化成 JSON，字段名、原文凭据及 URL 脱敏由快照回调覆盖
  * 每一层，再用 JSON 转义后的凭据片段匹配整份 JSON，覆盖对象键中的已登记凭据。
+ *
+ * @param arg 单个待序列化并脱敏的原始日志参数。
+ * @param budget 本次日志调用共享的节点/条目展开预算与脱敏凭据。
+ * @returns 已完成脱敏且可安全 JSON 序列化的值。
  */
 function serializeArg(arg: unknown, budget: SerializationBudget): unknown {
   const secrets: LogRedactionSecrets = budget.secrets;
@@ -118,7 +109,12 @@ function serializeArg(arg: unknown, budget: SerializationBudget): unknown {
   }
 }
 
-/** `instanceof` 也可能触发 Proxy trap；失败时交给普通不可序列化对象路径。 */
+/**
+ * `instanceof` 也可能触发 Proxy trap；失败时交给普通不可序列化对象路径。
+ *
+ * @param value 待判断是否为 `Error` 实例的任意值。
+ * @returns 为 `Error` 实例且未抛出异常时返回该 `Error`，否则返回 `null`。
+ */
 function asError(value: unknown): Error | null {
   try {
     return value instanceof Error ? value : null;
@@ -127,7 +123,14 @@ function asError(value: unknown): Error | null {
   }
 }
 
-/** Error 的核心字段也允许被子类或 Proxy 改成访问器；读取失败只降级该字段。 */
+/**
+ * Error 的核心字段也允许被子类或 Proxy 改成访问器；读取失败只降级该字段。
+ *
+ * @param error 待读取属性的 `Error` 实例。
+ * @param key 待读取的核心字符串字段名（`"name"`、`"message"` 或 `"stack"`）。
+ * @param fallback 属性非字符串或读取抛出异常时的回退值。
+ * @returns 读取到的字符串字段值或 `fallback`。
+ */
 function readErrorString(
   error: Error,
   key: "name" | "message" | "stack",
@@ -141,7 +144,12 @@ function readErrorString(
   }
 }
 
-/** `instanceof AggregateError` 同样可能触发 Proxy trap；失败时按普通 Error 处理。 */
+/**
+ * `instanceof AggregateError` 同样可能触发 Proxy trap；失败时按普通 Error 处理。
+ *
+ * @param error 待检查的 `Error` 实例。
+ * @returns 确认为 `AggregateError` 实例时返回 `true`，否则返回 `false`。
+ */
 function isAggregateError(error: Error): boolean {
   try {
     return error instanceof AggregateError;
@@ -160,6 +168,11 @@ interface ErrorExpansionFrame {
 /**
  * 把一个 Error 展开为 name/message/stack 加 ownErrorProperties 的结果。
  * `parent` 是它的展开链父节点，顶层 Error 传 null。
+ *
+ * @param error 待展开的 `Error` 实例。
+ * @param parent 外层 `Error` 展开栈帧；顶层 `Error` 为 `null`。
+ * @param budget 本次日志调用共享的展开预算与脱敏凭据。
+ * @returns 展开后的普通对象字典；预算耗尽时返回截断占位字符串。
  */
 function serializeError(
   error: Error,
@@ -184,6 +197,11 @@ function serializeError(
  * 自己退化成字符串，不连累整条记录；降级结果作为该属性的值保存，不展开进对象。
  *
  * 累加对象用 `Object.create(null)`（无原型），键名 `__proto__` 作为普通字段保留。
+ *
+ * @param error 待提取自有属性的 `Error` 实例。
+ * @param parent 外层 `Error` 展开栈帧；顶层 `Error` 为 `null`。
+ * @param budget 本次日志调用共享的展开预算与脱敏凭据。
+ * @returns 包含已序列化自有属性的无原型字典对象。
  */
 function ownErrorProperties(
   error: Error,
@@ -235,6 +253,11 @@ function ownErrorProperties(
 /**
  * 展开 `owner` 的一个嵌套 Error。超过 LOGGER_NESTED_ERROR_MAX_DEPTH，或它已经在
  * 展开链上（循环引用）时返回静态占位符。
+ *
+ * @param nested 待展开的嵌套 `Error` 实例。
+ * @param owner 持有该嵌套 `Error` 的外层展开栈帧。
+ * @param budget 本次日志调用共享的展开预算与脱敏凭据。
+ * @returns 展开后的嵌套错误对象，或深度越界/循环引用静态占位符。
  */
 function serializeNestedError(nested: Error, owner: ErrorExpansionFrame, budget: SerializationBudget): unknown {
   if (owner.depth >= LOGGER_NESTED_ERROR_MAX_DEPTH) {
@@ -254,6 +277,11 @@ function serializeNestedError(nested: Error, owner: ErrorExpansionFrame, budget:
  * AggregateError 的 `errors`：数组按下标逐个读取数据描述符，Error 元素递归展开，
  * 其余元素按 JSON 语义降级（空洞与 undefined 为 null，访问器为占位符）；
  * 非数组值按普通字段处理。读取失败只降级这一个字段。
+ *
+ * @param value `AggregateError.errors` 字段的原始值。
+ * @param owner 当前 `AggregateError` 的展开栈帧。
+ * @param budget 本次日志调用共享的展开预算与脱敏凭据。
+ * @returns 逐元素安全展开后的数组或降级值。
  */
 function serializeAggregateErrors(value: unknown, owner: ErrorExpansionFrame, budget: SerializationBudget): unknown {
   try {
@@ -288,7 +316,13 @@ function serializeAggregateErrors(value: unknown, owner: ErrorExpansionFrame, bu
   }
 }
 
-/** 单个参数的任何意外失败只降级该参数。 */
+/**
+ * 单个参数的任何意外失败只降级该参数。
+ *
+ * @param arg 单个待序列化的日志参数。
+ * @param budget 本次日志调用共享的展开预算与脱敏凭据。
+ * @returns 序列化并脱敏后的值；发生异常时返回 `LOGGER_UNSERIALIZABLE_VALUE`。
+ */
 function serializeArgSafely(
   arg: unknown,
   budget: SerializationBudget
@@ -300,7 +334,12 @@ function serializeArgSafely(
   }
 }
 
-/** 每次 emit 共用配置快照与展开预算，输出只包含已脱敏值及显式截断标记。 */
+/**
+ * 每次 emit 共用配置快照与展开预算，输出只包含已脱敏值及显式截断标记。
+ *
+ * @param args 传给日志接口的原始参数列表。
+ * @returns 经严格脱敏、错误展开与字节/条目预算截断后的可序列化参数数组。
+ */
 export function serializeLogArgs(args: readonly unknown[]): unknown[] {
   const secrets: LogRedactionSecrets = currentSecrets();
   const budget: SerializationBudget = { errors: LOGGER_MAX_ERROR_NODES, items: LOGGER_MAX_SERIALIZED_ITEMS, secrets };

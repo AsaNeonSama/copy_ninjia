@@ -9,7 +9,12 @@ import type { TelegramVisionSource } from "../../types/media";
 import { ANIMATION_PLACEHOLDER } from "../../consts/auto";
 import { composeMediaText } from "../../libs/text";
 
-/** 记录 GIF 缩略图描述；无缩略图时退回纯文本上下文。 */
+/**
+ * 记录 GIF 缩略图描述；无缩略图时退回纯文本上下文。
+ *
+ * @param context 消息触发上下文
+ * @returns 该动图消息是否已被接管处理
+ */
 export function handleAnimationMessage(context: MessageTriggerContext): boolean {
   const { message }: MessageTriggerContext = context;
   if (!message.animation) return false;

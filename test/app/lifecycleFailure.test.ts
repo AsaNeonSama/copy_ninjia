@@ -14,6 +14,7 @@ const {
   ApplicationLifecycle,
   abortChatTitleRefresh,
   acquireSingleInstanceLock,
+  assertSuperAdminNotDeleteMessageTarget,
   botInit,
   calls,
   cleanupOrphanedTempFiles,
@@ -31,6 +32,7 @@ const {
   hydrateBlocklist,
   hydratePendingVerifications,
   hydrateStickerCatalog,
+  hydrateWedMembers,
   initAiChat,
   initDiskIO,
   initTelegramClients,
@@ -47,6 +49,7 @@ const {
   realDrainDependencies,
   refreshAllChatTitles,
   releaseSingleInstanceLock,
+  restoreLuckState,
   runnerStop,
   runnerTask,
   seedSenderCache,
@@ -88,36 +91,57 @@ describe("应用启动失败与退出清理", () => {
   });
 
   test("wed 集合必须在 Telegram 客户端初始化前恢复，门禁失败以非零码退出", async () => {
-    const hydrate = spyOn(testDependencies, "hydrateWedMembers").mockImplementationOnce((): never => {
+    hydrateWedMembers.mockImplementationOnce((): never => {
       throw new Error("memory/wed/-1001.json: $ must be an array of unique user IDs.");
     });
-    try {
-      const lifecycle = new ApplicationLifecycle(testDependencies);
-      await lifecycle.run("main");
-      expect(hydrate).toHaveBeenCalledTimes(1);
-      expect(initTelegramClients).not.toHaveBeenCalled();
-      expect(botInit).not.toHaveBeenCalled();
-      expect(testDependencies.enableWedMemberReview).not.toHaveBeenCalled();
-      expect(process.exitCode).toBe(1);
-    } finally {
-      hydrate.mockRestore();
-    }
+    const lifecycle = new ApplicationLifecycle(testDependencies);
+    await lifecycle.run("main");
+    expect(hydrateWedMembers).toHaveBeenCalledTimes(1);
+    expect(initTelegramClients).not.toHaveBeenCalled();
+    expect(botInit).not.toHaveBeenCalled();
+    expect(testDependencies.enableWedMemberReview).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
   });
 
   test("群状态里的删除目标含超管时，在 Bot 握手前以非零码拒绝启动", async () => {
-    const assertTargets = spyOn(testDependencies, "assertSuperAdminNotDeleteMessageTarget").mockImplementationOnce((): never => {
+    assertSuperAdminNotDeleteMessageTarget.mockImplementationOnce((): never => {
       throw new Error("database/storage.sqlite:chat_states[-1001].status: $.deleteMessageTargets[0] must not be the configured super admin identity.");
     });
-    try {
-      const lifecycle = new ApplicationLifecycle(testDependencies);
-      await lifecycle.run("main");
-      expect(assertTargets).toHaveBeenCalledWith(testDependencies.SUPER_ADMIN_USER_ID);
-      expect(calls).toContain("hydrateChatStates");
-      expect(botInit).not.toHaveBeenCalled();
-      expect(process.exitCode).toBe(1);
-    } finally {
-      assertTargets.mockRestore();
-    }
+    const lifecycle = new ApplicationLifecycle(testDependencies);
+    await lifecycle.run("main");
+    expect(assertSuperAdminNotDeleteMessageTarget).toHaveBeenCalledWith(testDependencies.SUPER_ADMIN_USER_ID);
+    expect(calls).toContain("hydrateChatStates");
+    expect(botInit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  test("restoreLuckState 与 hydratePendingVerifications 早于命令菜单注册和 Bot 握手", async () => {
+    const lifecycle = new ApplicationLifecycle(testDependencies);
+    await lifecycle.init();
+    await lifecycle.dispose();
+    const restoreLuckIndex: number = calls.indexOf("restoreLuck");
+    const hydrateVerificationsIndex: number = calls.indexOf("hydrateVerifications");
+    const registerMenuIndex: number = calls.indexOf("registerMenu");
+    const botInitIndex: number = calls.indexOf("botInit");
+    expect(restoreLuckIndex).toBeGreaterThanOrEqual(0);
+    expect(hydrateVerificationsIndex).toBeGreaterThanOrEqual(0);
+    expect(restoreLuckIndex).toBeLessThan(registerMenuIndex);
+    expect(restoreLuckIndex).toBeLessThan(botInitIndex);
+    expect(hydrateVerificationsIndex).toBeLessThan(registerMenuIndex);
+    expect(hydrateVerificationsIndex).toBeLessThan(botInitIndex);
+  });
+
+  test("restoreLuckState 抛错时不调用 registerCommandMenu 或 bot.init", async () => {
+    restoreLuckState.mockImplementationOnce((): never => {
+      throw new Error("memory/luck/receipt-secret.json: $.secret must be a non-empty string.");
+    });
+    const lifecycle = new ApplicationLifecycle(testDependencies);
+    await lifecycle.run("main");
+    await lifecycle.dispose();
+    expect(restoreLuckState).toHaveBeenCalledTimes(1);
+    expect(calls).not.toContain("registerMenu");
+    expect(botInit).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
   });
 
   // 在取得实例锁后、初始化 Disk I/O Worker 前让临时文件清理失败，验证资源收尾。
@@ -744,7 +768,7 @@ describe("应用启动失败与退出清理", () => {
     const lifecycle = new ApplicationLifecycle(testDependencies);
     await lifecycle.init();
 
-    await lifecycle.dispose({ aiMemoryMs: 10, diskIOMs: 10, stateMs: 10, maintenanceMs: 1 });
+    await lifecycle.dispose({ aiMemoryMs: 10, antiRaidMs: 10, diskIOMs: 10, stateMs: 10, translateMs: 10, maintenanceMs: 1 });
 
     expect(process.exitCode).toBe(1);
     expect(terminateAiChat).toHaveBeenCalledTimes(1);
@@ -761,7 +785,7 @@ describe("应用启动失败与退出清理", () => {
     const lifecycle = new ApplicationLifecycle(testDependencies);
     await lifecycle.init();
 
-    await lifecycle.dispose({ aiMemoryMs: 10, diskIOMs: 10, stateMs: 1, maintenanceMs: 10 });
+    await lifecycle.dispose({ aiMemoryMs: 10, antiRaidMs: 10, diskIOMs: 10, stateMs: 1, translateMs: 10, maintenanceMs: 10 });
 
     expect(flushStateToDisk).toHaveBeenCalledTimes(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
@@ -773,7 +797,7 @@ describe("应用启动失败与退出清理", () => {
     const lifecycle = new ApplicationLifecycle(testDependencies);
     await lifecycle.init();
 
-    await lifecycle.dispose({ aiMemoryMs: 10, diskIOMs: 10, stateMs: 1, maintenanceMs: 10 });
+    await lifecycle.dispose({ aiMemoryMs: 10, antiRaidMs: 10, diskIOMs: 10, stateMs: 1, translateMs: 10, maintenanceMs: 10 });
 
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();
     expect(loggerError).toHaveBeenCalledWith(expect.stringContaining("state=failed"));
@@ -784,7 +808,7 @@ describe("应用启动失败与退出清理", () => {
     const lifecycle = new ApplicationLifecycle(testDependencies);
     await lifecycle.init();
 
-    await lifecycle.dispose({ aiMemoryMs: 10, diskIOMs: 10, stateMs: 10, maintenanceMs: 10 });
+    await lifecycle.dispose({ aiMemoryMs: 10, antiRaidMs: 10, diskIOMs: 10, stateMs: 10, translateMs: 10, maintenanceMs: 10 });
 
     expect(process.exitCode).toBe(1);
     expect(releaseSingleInstanceLock).not.toHaveBeenCalled();

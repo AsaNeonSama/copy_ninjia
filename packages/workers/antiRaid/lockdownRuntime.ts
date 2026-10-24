@@ -52,8 +52,9 @@ declare const self: Worker;
 
 /**
  * 反刷群私密模式状态机（packages/states/lockdown.ts）解释器：同步推进状态机、管理到期与重试计时器，并按序执行返回的副作用（不变量见 docs/cn/04-invariants.md 与 docs/cn/04-lockdown-invariants.md）。
+ * @param chatId 群组 ID。
+ * @param event 私密模式状态机事件。
  */
-
 function dispatchLockdown(chatId: number, event: LockdownMachineEvent): void {
   const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
   const previousState: LockdownState | undefined = entry?.state;
@@ -80,18 +81,31 @@ function dispatchLockdown(chatId: number, event: LockdownMachineEvent): void {
   runLockdownEffects(chatId, effects);
 }
 
+/**
+ * 清除私密模式条目的到期恢复计时器与到期时间戳。
+ * @param entry 私密模式运行态条目。
+ */
 function clearRestoreTimer(entry: LockdownEntry): void {
   if (entry.restoreTimer !== undefined) clearTimeout(entry.restoreTimer);
   entry.restoreTimer = undefined;
   entry.restoreAt = undefined;
 }
 
+/**
+ * 清除私密模式条目的重试计时器。
+ * @param entry 私密模式运行态条目。
+ */
 function clearRetryTimer(entry: LockdownEntry): void {
   if (entry.retryTimer !== undefined) clearTimeout(entry.retryTimer);
   entry.retryTimer = undefined;
 }
 
-/** 替换该群的 `retryTimer`，到期后向状态机派发 `event`。 */
+/**
+ * 替换该群的 `retryTimer`，到期后向状态机派发 `event`。
+ * @param chatId 群组 ID。
+ * @param delayMs 重试等待毫秒数。
+ * @param event 计时器触发时向状态机派发的事件。
+ */
 function scheduleLockdownRetry(
   chatId: number,
   delayMs: number,
@@ -110,6 +124,9 @@ function scheduleLockdownRetry(
 /**
  * 解除重试的实际等待：连续权限被拒超过 RESTORE_PERMANENT_FAILURE_LOG_LIMIT 次后，从状态机给的
  * 间隔起按超出次数翻倍，以 RESTORE_PERMANENT_RETRY_MAX_MS 封顶；其余情况沿用状态机的间隔。
+ * @param chatId 群组 ID。
+ * @param delayMs 状态机给出的基础重试延迟毫秒数。
+ * @returns 实际重试等待毫秒数。
  */
 function restoreRetryDelayMs(chatId: number, delayMs: number): number {
   const failures: number = lockdownEntries.get(chatId)?.restorePermanentFailures ?? 0;
@@ -120,6 +137,7 @@ function restoreRetryDelayMs(chatId: number, delayMs: number): number {
 /**
  * 机器人在这个群重新确证能限制成员时，把因权限被拒而拉长的解除重试提前到现在。
  * 只在条目仍处于 restoring 且正等着重试时生效；状态机按 restoreRetryFired 照常推进。
+ * @param chatId 群组 ID。
  */
 export function retryDeniedLockdownRestore(chatId: number): void {
   const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
@@ -131,12 +149,21 @@ export function retryDeniedLockdownRestore(chatId: number): void {
   scheduleLockdownRetry(chatId, 0, { type: "restoreRetryFired" });
 }
 
+/**
+ * 清除私密模式条目上的全部计时器（到期恢复与重试）。
+ * @param entry 私密模式运行态条目。
+ */
 function clearLockdownEntryTimers(entry: LockdownEntry): void {
   clearRestoreTimer(entry);
   clearRetryTimer(entry);
 }
 
-/** 状态换代时只保留新阶段仍然拥有的 timer，纠偏与到期 timer 彼此独立。 */
+/**
+ * 状态换代时只保留新阶段仍然拥有的 timer，纠偏与到期 timer 彼此独立。
+ * @param entry 私密模式运行态条目。
+ * @param previous 转移前的私密模式状态；新建条目时为 undefined。
+ * @param next 转移后的私密模式状态。
+ */
 function reconcileLockdownEntryTimers(
   entry: LockdownEntry,
   previous: LockdownState | undefined,
@@ -154,7 +181,11 @@ function reconcileLockdownEntryTimers(
   }
 }
 
-/** 执行一次私密模式转移返回的副作用（主线程网络能力请求不阻塞 mailbox，结果以事件回投）。 */
+/**
+ * 执行一次私密模式转移返回的副作用（主线程网络能力请求不阻塞 mailbox，结果以事件回投）。
+ * @param chatId 群组 ID。
+ * @param effects 状态转移产出的副作用序列。
+ */
 function runLockdownEffects(chatId: number, effects: readonly LockdownEffect[]): void {
   for (const effect of effects) {
     switch (effect.kind) {
@@ -236,6 +267,7 @@ function runLockdownEffects(chatId: number, effects: readonly LockdownEffect[]):
  *
  * 未派发的提交撤销占位；可能在途的权限写入沿原串行链补偿，恢复失败仍保留
  * 状态与重试计时器。阶段转移见 states/lockdown/persistence.ts。
+ * @param msg 主线程发来的私密模式持久化失败通知。
  */
 export function handleLockdownPersistFailed(msg: LockdownPersistFailedMessage): void {
   dispatchLockdown(msg.chatId, {
@@ -245,7 +277,10 @@ export function handleLockdownPersistFailed(msg: LockdownPersistFailedMessage): 
   });
 }
 
-/** 主线程确认 write-ahead 阶段已落盘后，继续对应权限副作用。 */
+/**
+ * 主线程确认 write-ahead 阶段已落盘后，继续对应权限副作用。
+ * @param msg 主线程发来的私密模式持久化成功通知。
+ */
 export function handleLockdownPersisted(msg: LockdownPersistedMessage): void {
   dispatchLockdown(msg.chatId, {
     type: "statePersisted",
@@ -254,7 +289,10 @@ export function handleLockdownPersisted(msg: LockdownPersistedMessage): void {
   });
 }
 
-/** 群被禁用/离开/撤管理员时，先持久化 restoring 再尝试恢复权限。 */
+/**
+ * 群被禁用/离开/撤管理员时，先持久化 restoring 再尝试恢复权限。
+ * @param chatId 群组 ID。
+ */
 export function deactivateLockdownChat(chatId: number): void {
   clearJoinWindow(chatId);
   // 守卫关闭时丢弃重触发冷却。
@@ -262,7 +300,10 @@ export function deactivateLockdownChat(chatId: number): void {
   dispatchLockdown(chatId, { type: "deactivate", intentId: nextLockdownIntentId() });
 }
 
-/** 群已不存在时放弃本群私密模式：撤掉 timer 并报 unlock，不调 Telegram。 */
+/**
+ * 群已不存在时放弃本群私密模式：撤掉 timer 并报 unlock，不调 Telegram。
+ * @param chatId 群组 ID。
+ */
 export function abandonLockdownChat(chatId: number): void {
   clearJoinWindow(chatId);
   lockdownRetriggerCooldowns.delete(chatId);
@@ -273,6 +314,8 @@ export function abandonLockdownChat(chatId: number): void {
  * 记录一次已确认的新成员加入（由 verificationEvents.ts 的 handleJoinEvent 按
  * joinCreatesNewRecord 去重后调用，另由 blocklistEffects.ts 为黑名单秒踢补记）。
  * 滑动窗口：最近 JOIN_WINDOW_MS 内的入群人数超过阈值即触发临时私密模式。
+ * @param chatId 群组 ID。
+ * @param now 当前毫秒时间戳。
  */
 export function recordJoin(chatId: number, now: number): void {
   const joinCount: number | undefined = recordJoinWindow(chatId, now);
@@ -292,7 +335,10 @@ export function stopLockdownRuntime(): void {
   lastLockdownIntentId.current = 0;
 }
 
-/** 接管上一个（已崩溃的）Worker / 上一个进程留下的私密模式（背景见 antiRaid/workerBridge/controller.ts）。 */
+/**
+ * 接管上一个（已崩溃的）Worker / 上一个进程留下的私密模式（背景见 antiRaid/workerBridge/controller.ts）。
+ * @param lockdowns 待接管的私密模式恢复快照列表。
+ */
 export function adoptLockdowns(lockdowns: AdoptableLockdown[]): void {
   for (
     const {

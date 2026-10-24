@@ -27,6 +27,7 @@ import { observeChatKind } from "../antiRaid/chatKind";
  * enable 落盘后调用 observeChatKind 补齐群类型镜像；未纳管的新群在已管群数达到
  * STATE_MANAGED_CHAT_LIMIT 时拒绝启用。disable 先落盘总开关，再经 teardownChatRuntime
  * 拆除运行时并删除该群的 chat_states 条目（lockdown 除外）。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleInitCommand(ctx: CommandContext<Context>): Promise<void> {
   const arg: "enable" | "disable" | undefined = await resolveSuperAdminToggleArg(ctx, {
@@ -89,14 +90,14 @@ export async function handleInitCommand(ctx: CommandContext<Context>): Promise<v
     }
   }
 
-  // enable 之后若 botPermissions 为空，重新判定一次管理员身份：现查经
-  // recordBotChatPermissions 回填，「是管理员 && 已初始化」这个合取因本次 enable
-  // 成立时触发一次黑名单清扫（见 infra/botAdmin.ts）。
+  // enable 之后若 botPermissions 为空，重新查询一次管理员身份：查询结果经
+  // recordBotChatPermissions 回填，使本群首次同时满足「机器人为管理员」与「群已初始化」时
+  // 触发一次黑名单清扫（见 infra/botAdmin.ts）。
   //
   // 条件取「botPermissions 此刻为空」而不是 !wasEnabled；这次调用可能上抛
   // （getChatMember 之后的状态落盘失败，见 infra/botAdmin.ts 与
   // docs/cn/04-invariants.md），重投时 wasEnabled 已为 true，权限记录仍为空。
-  // 记录已知的重复 enable 跳过。
+  // 若 botPermissions 已有记录且属于重复 enable，则跳过本次查询。
   if (isEnabled && getChatState(chatId).botPermissions === undefined) await resolveBotAdminStatus(chatId);
 
   const replyText: string = teardownFailed

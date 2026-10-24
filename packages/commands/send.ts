@@ -16,6 +16,7 @@ import type { ChatFullInfo } from "grammy/types";
  * 隐藏的超管私聊中转命令；群聊和非超管调用静默返回。只接受可达、且已经在
  * chat_states 里被纳管的 group/supergroup（本命令不新建群状态，见下方判定），
  * 会话状态存于 ChatState.isProxySendEnabled；`finish` 关闭当前中转会话。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleSendCommand(ctx: CommandContext<Context>): Promise<void> {
   if (ctx.chat.type !== "private") return;

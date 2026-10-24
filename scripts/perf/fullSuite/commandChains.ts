@@ -81,6 +81,11 @@ export interface CommandChainDependencies {
   readonly deliverCronAction: typeof deliverCronAction;
 }
 
+/**
+ * 构造广告检测命令链路的端到端测量定义。
+ * @param dependencies 命令链路所需的生产实现与罐头桩依赖。
+ * @returns 广告检测命令链路定义。
+ */
 function adDetectCommandChain(
   dependencies: CommandChainDependencies
 ): ChainDefinition {
@@ -159,13 +164,22 @@ function adDetectCommandChain(
   };
 }
 
+/** 写入单条基准群聊上下文消息的参数。 */
 interface RecordBenchmarkMessageOptions {
+  /** 目标群 ID。 */
   readonly chatId: number;
+  /** 当前操作或种子消息序号。 */
   readonly sequence: number;
+  /** 群内消息 ID。 */
   readonly messageId: number;
+  /** 命令链路依赖集合。 */
   readonly dependencies: CommandChainDependencies;
 }
 
+/**
+ * 向 AI 滚动记忆缓冲写入一条基准群聊消息。
+ * @param options 群 ID、消息序号、消息 ID 与命令链路依赖。
+ */
 function recordBenchmarkMessage({
   chatId,
   sequence,
@@ -187,6 +201,11 @@ function recordBenchmarkMessage({
   });
 }
 
+/**
+ * 等待当前轮次所有正在执行的 AI 回复生成任务全部排空。
+ * @param sequence 当前操作序号，用于超时报错提示。
+ * @param dependencies 命令链路依赖集合。
+ */
 async function settleReplyRound(
   sequence: number,
   dependencies: CommandChainDependencies
@@ -209,6 +228,11 @@ async function settleReplyRound(
   }
 }
 
+/**
+ * 构造 AI 闲聊回复命令链路的端到端测量定义。
+ * @param dependencies 命令链路所需的生产实现与罐头桩依赖。
+ * @returns AI 闲聊回复命令链路定义。
+ */
 function aiReplyCommandChain(
   dependencies: CommandChainDependencies
 ): ChainDefinition {
@@ -298,6 +322,8 @@ function aiReplyCommandChain(
  * 语音适配层 → Base64 解码 → WAV 解析 → Opus 编码）交回语音后登记进本轮语音表，再经
  * cron 发送边界发出语音气泡。生产中合成位于 AI Worker、结果随回执转移给主线程；这里在
  * 同一进程内串起两侧，不含线程间传递。模型与 Telegram 都是罐头应答。
+ * @param dependencies 命令链路所需的生产实现与罐头桩依赖。
+ * @returns 定时语音发送命令链路定义。
  */
 function cronSendVoiceChain(
   dependencies: CommandChainDependencies
@@ -359,7 +385,12 @@ function cronSendVoiceChain(
   };
 }
 
-/** 返回命令链路定义；存储链路与配置链路分别交给 storageChains、configChains。 */
+/**
+ * 返回命令链路定义；存储链路与配置链路分别交给 storageChains、configChains。
+ * @param chain 目标链路标识名。
+ * @param dependencies 命令链路所需的生产实现与罐头桩依赖。
+ * @returns 若属于命令链路则返回对应定义，否则返回 `undefined`。
+ */
 export function createCommandChain(
   chain: ChainName,
   dependencies: CommandChainDependencies

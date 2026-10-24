@@ -5,7 +5,12 @@ import { invalidInput } from "../../../packages/libs/inputValidation";
 /** 源格式每份文件的成员 ID 数上限。 */
 export const WED_MEMBER_WINDOW_SOURCE_LIMIT: number = 150_000;
 
-/** 源格式的一份文件：按进入顺序排列、互不重复的正安全整数成员 ID 数组。 */
+/**
+ * 源格式的一份文件：按进入顺序排列、互不重复的正安全整数成员 ID 数组。
+ * @param parsed JSON.parse 产出的原始值。
+ * @param path 用于报错定位的相对文件路径。
+ * @returns 校验通过的正安全整数成员 ID 数组。
+ */
 export function parseWedMemberSourceFile(parsed: unknown, path: string): readonly number[] {
   if (!Array.isArray(parsed) || parsed.length > WED_MEMBER_WINDOW_SOURCE_LIMIT) {
     return invalidInput(path, "$", `the 17.2.1 array of at most ${WED_MEMBER_WINDOW_SOURCE_LIMIT} unique positive safe integer user IDs`);
@@ -24,6 +29,9 @@ export function parseWedMemberSourceFile(parsed: unknown, path: string): readonl
 /**
  * 只保留末尾 WED_MEMBER_LIMIT 个 ID（最近进入的成员），顺序不变，全部记为同一进入时间；
  * 返回交替排列的 `[id0, enteredAt, id1, enteredAt, ...]`。
+ * @param ids 按进入顺序排列的成员 ID 数组。
+ * @param enteredAt 统一赋予的进入时间戳（毫秒）。
+ * @returns 截断并附带进入时间戳的交替整数数组。
  */
 export function windowWedMemberEntries(ids: readonly number[], enteredAt: number): number[] {
   const entries: number[] = [];

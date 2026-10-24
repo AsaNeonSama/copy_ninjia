@@ -1,3 +1,7 @@
+/**
+ * 入群验证状态机（`packages/states/verification.ts`）的核心解释器：负责同步状态更替、
+ * 计时器、代际与修订号（`generation/revision`）镜像发布及崩溃恢复（跨模块约束见 `docs/cn/04-invariants.md`）。
+ */
 import { logger } from "../../infra/logger";
 import {
   LOCKDOWN_KICK_DEDUPE_MS,
@@ -62,45 +66,54 @@ import {
 declare const self: Worker;
 
 /**
- * 入群验证状态机（packages/states/verification.ts）的核心解释器。
- *
- * 本模块只负责同步状态更替、timer、generation/revision 镜像与恢复；Telegram
- * 副作用、提醒投递、入站事件翻译分别位于 verificationEffects.ts、
- * verificationReminders.ts、verificationEvents.ts。异步结果都通过本模块的
- * dispatcher 回投，保持状态对象同一性和单一 revision 发布入口。
+ * 为 `pending` 阶段启动验证超时计时器，为 `exempt`/`kicked` 阶段启动去重窗口计时器；
+ * 终态阶段（`kickPending`、`checkingInviter`、`expelling`）由落盘回执与重试计时器驱动，不在此处挂计时器。
+ * @param chatId 群组 ID。
+ * @param userId 成员 ID。
+ * @param state 当前验证状态。
+ * @returns 启动的计时器句柄；终态阶段返回 undefined。
  */
-
-/** pending 起验证超时计时，exempt/kicked 起去重窗口；kickPending 等调用结算。 */
 function startVerificationTimer(
   chatId: number,
   userId: number,
   state: VerificationState
 ): ReturnType<typeof setTimeout> | undefined {
-  if (state.kind === "pending") {
-    const expiryTimer: ReturnType<typeof setTimeout> = setTimeout(
-      (): void => dispatchVerification(
-        chatId,
-        userId,
-        { type: "verifyTimeout", now: Date.now() }
-      ),
-      Math.max(0, state.expiresAt - Date.now())
-    );
-    expiryTimer.unref();
-    return expiryTimer;
+  switch (state.kind) {
+    case "pending": {
+      const expiryTimer: ReturnType<typeof setTimeout> = setTimeout(
+        (): void => dispatchVerification(
+          chatId,
+          userId,
+          { type: "verifyTimeout", now: Date.now() }
+        ),
+        Math.max(0, state.expiresAt - Date.now())
+      );
+      expiryTimer.unref();
+      return expiryTimer;
+    }
+    case "kickPending":
+    case "checkingInviter":
+    case "expelling":
+      return undefined;
+    case "exempt":
+    case "kicked": {
+      const dedupeTimer: ReturnType<typeof setTimeout> = setTimeout(
+        (): void => dispatchVerification(chatId, userId, { type: "dedupeExpired" }),
+        LOCKDOWN_KICK_DEDUPE_MS
+      );
+      dedupeTimer.unref();
+      return dedupeTimer;
+    }
   }
-  if (isTerminalVerificationPhase(state.kind)) return undefined;
-  const dedupeTimer: ReturnType<typeof setTimeout> = setTimeout(
-    (): void => dispatchVerification(chatId, userId, { type: "dedupeExpired" }),
-    LOCKDOWN_KICK_DEDUPE_MS
-  );
-  dedupeTimer.unref();
-  return dedupeTimer;
 }
 
 /**
  * 把事件喂给某成员的状态机并同步落地结果；网络副作用异步执行，不阻塞
  * Worker mailbox 中后续投递。join 事件只由 verificationEvents.ts 的 handleJoinEvent
  * 在 admitVerificationJoin 准入之后派发，运行态与 revision 容量满额时不会到达这里。
+ * @param chatId 群组 ID。
+ * @param userId 成员 ID。
+ * @param event 验证状态机事件。
  */
 export function dispatchVerification(
   chatId: number,
@@ -156,7 +169,11 @@ export function dispatchVerification(
   }
 }
 
-/** 预算耗尽或许可无法确认时只发布最小延后索引，不递增 revision 或写删除墓碑。 */
+/**
+ * 预算耗尽或许可无法确认时只发布最小延后索引，不递增 revision 或写删除墓碑。
+ * @param chatId 群组 ID。
+ * @param userId 成员 ID。
+ */
 function publishVerificationDeferred(chatId: number, userId: number): void {
   if (verificationGeneration.current <= 0) return;
   const key: string = verificationKey(chatId, userId);
@@ -176,7 +193,12 @@ function publishVerificationDeferred(chatId: number, userId: number): void {
   } satisfies VerificationDeferredEvent);
 }
 
-/** 离群或显式关闭时把本进程延后的磁盘终态转成正常 tombstone。 */
+/**
+ * 离群或显式关闭时把本进程延后的磁盘终态转成正常 tombstone。
+ * @param chatId 群组 ID。
+ * @param userId 成员 ID。
+ * @returns 存在延后记录并已转换为删除事件时返回 true，否则返回 false。
+ */
 export function deleteDeferredVerification(
   chatId: number,
   userId: number
@@ -198,7 +220,12 @@ export function deleteDeferredVerification(
   return true;
 }
 
-/** pending/终态发布 upsert，只在彻底收尾后发布 delete。 */
+/**
+ * pending/终态发布 upsert，只在彻底收尾后发布 delete。
+ * @param chatId 群组 ID。
+ * @param userId 成员 ID。
+ * @param previousWasPersisted 转移前的状态是否曾发布过持久化快照。
+ */
 function publishVerificationChange(
   chatId: number,
   userId: number,
@@ -231,6 +258,8 @@ function publishVerificationChange(
 /**
  * 为主线程已有持久责任保留恢复槽；满额时只释放非持久去重。
  * 释放前经 reportVerificationRuntimeCapacity 锁住新 key（见 verificationAdmission.ts）。
+ * @param key 待验证键（`chatId:userId`）。
+ * @returns 已在表中或成功腾出恢复槽位时返回 true；全部槽位均为持久阶段无法腾出时返回 false。
  */
 function reserveVerificationRecoverySlot(key: string): boolean {
   if (verificationEntries.has(key) || verificationEntries.size < VERIFICATION_RUNTIME_CAPACITY) return true;
@@ -248,6 +277,7 @@ function reserveVerificationRecoverySlot(key: string): boolean {
 /**
  * Worker 重建时先清上一代运行态，再接管主线程持久镜像；重复 adopt 按 revision 幂等。
  * 同代增量恢复优先接管已有持久责任，运行态满额时不淘汰持久阶段。
+ * @param message 主线程发来的验证恢复快照消息。
  */
 export function adoptVerifications(message: AdoptVerificationsMessage): void {
   if (message.generation < verificationGeneration.current) return;
@@ -321,19 +351,15 @@ export function adoptVerifications(message: AdoptVerificationsMessage): void {
       isTerminalVerificationPhase(state.kind) &&
       message.resumePersistedTerminals === true
     ) {
-      dispatchVerification(record.chatId, record.userId, terminalResumeEvent(state));
+      dispatchVerification(record.chatId, record.userId, { type: "terminalPersisted" });
     }
   }
 }
 
-/** 终态落盘后续跑的事件：成功播报已发出的 expelling 直接收尾，其余重新执行终态动作。 */
-function terminalResumeEvent(state: VerificationState): VerificationEvent {
-  return state.kind === "expelling" && state.successNoticeSent === true
-    ? { type: "expelSettled" }
-    : { type: "terminalPersisted" };
-}
-
-/** 只有精确匹配当前终态 revision 的落盘回执才能启动副作用。 */
+/**
+ * 只有精确匹配当前终态 revision 的落盘回执才能启动副作用。
+ * @param message 主线程发来的验证快照落盘确认消息。
+ */
 export function handleVerificationPersisted(
   message: VerificationPersistedMessage
 ): void {
@@ -350,19 +376,26 @@ export function handleVerificationPersisted(
   if (state === undefined || !isTerminalVerificationPhase(state.kind)) return;
   // 成功播报的落盘回执立即收尾；其它重复回执不得绕过当前终态的退避 timer。
   if (!(state.kind === "expelling" && state.successNoticeSent === true) && entry?.timer !== undefined) return;
-  dispatchVerification(chatId, userId, terminalResumeEvent(state));
+  dispatchVerification(chatId, userId, { type: "terminalPersisted" });
 }
 
-/** 删除本群（key 以 prefix 开头）的全部 thread comment 确认 owner。 */
+/**
+ * 删除本群（key 以 prefix 开头）的全部 thread comment 确认 owner。
+ * @param prefix 群组验证键前缀（`chatId:`）。
+ */
 function forgetChatThreadCommentConfirmations(prefix: string): void {
   for (const key of threadCommentConfirmations.keys()) {
     if (key.startsWith(prefix)) threadCommentConfirmations.delete(key);
   }
 }
 
-/** 删除本群（key 以 prefix 开头）的全部延后验证记录。 */
+/**
+ * 删除本群（key 以 prefix 开头）的全部延后验证记录。
+ * @param chatId 群组 ID。
+ * @param prefix 群组验证键前缀（`chatId:`）。
+ */
 function deleteChatDeferredVerifications(chatId: number, prefix: string): void {
-  for (const key of [...deferredVerificationRecords.keys()]) {
+  for (const key of deferredVerificationRecords.keys()) {
     if (!key.startsWith(prefix)) continue;
     deleteDeferredVerification(chatId, requireVerificationKey(key).userId);
   }
@@ -370,10 +403,12 @@ function deleteChatDeferredVerifications(chatId: number, prefix: string): void {
 
 /**
  * 关闭入群守卫（`/antiraid disable`）：清理本群频道评论确认 owner，将每条验证记录经 `guardDisabled` 状态机转移收尾，并将延后记录转为删除墓碑。
+ * @param chatId 群组 ID。
  */
 export function disableJoinGuardChat(chatId: number): void {
   const prefix: string = verificationKeyPrefix(chatId);
   forgetChatThreadCommentConfirmations(prefix);
+  // 按进入时的键快照逐个派发；状态机转移与副作用期间写入的键不在本次处理范围内。
   for (const key of [...verificationEntries.keys()]) {
     if (!key.startsWith(prefix)) continue;
     dispatchVerification(chatId, requireVerificationKey(key).userId, { type: "guardDisabled" });
@@ -381,11 +416,14 @@ export function disableJoinGuardChat(chatId: number): void {
   deleteChatDeferredVerifications(chatId, prefix);
 }
 
-/** 取消某群所有验证 owner，并为每条持久化记录发布 tombstone。 */
+/**
+ * 取消某群所有验证 owner，并为每条持久化记录发布 tombstone。
+ * @param chatId 群组 ID。
+ */
 export function deactivateVerificationChat(chatId: number): void {
   const prefix: string = verificationKeyPrefix(chatId);
   forgetChatThreadCommentConfirmations(prefix);
-  for (const [key, entry] of [...verificationEntries]) {
+  for (const [key, entry] of verificationEntries) {
     if (!key.startsWith(prefix)) continue;
     const userId: number = requireVerificationKey(key).userId;
     cancelReminderDelivery(key);

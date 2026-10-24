@@ -9,6 +9,10 @@ import { downloadTelegramFileBytes } from "../fileDownload";
 /**
  * 下载头像到有界内存（复用共享 Telegram 文件下载边界，`getFile` 与文件下载各自按 `AVATAR_FETCH_TIMEOUT_MS` 计时）：
  * 两段超时与文件服务器非成功响应按可重试处理，其余失败按确定性失败处理。
+ * @param fileId 头像的 Telegram file_id。
+ * @param targetId 仅用于错误日志诊断的目标用户或频道 ID。
+ * @param signal 调用方的取消信号。
+ * @returns 下载成功返回字节结果，失败返回按可否重试分类的状态对象。
  */
 export async function downloadAvatarFile(
   fileId: string,

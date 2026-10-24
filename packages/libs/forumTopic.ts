@@ -20,6 +20,7 @@ import type { UpdateTopic } from "../types/lifecycle";
  * Worker 重建后由 ensurePendingReminder 用快照里的 welcomeAnchorMessageId 重发，
  * 同样不带话题。
  *
+ * @param message 待提取论坛话题 ID 的 Telegram 消息。
  * @returns 论坛话题内的消息返回该话题 id；General、非论坛群、讨论组评论一律
  *   返回 undefined，调用方据此不设置 `message_thread_id`。
  */
@@ -31,6 +32,8 @@ export function forumTopicThreadId(message: Message): number | undefined {
  * 一条 update 的触发消息所在的论坛话题：触发消息取 message、channel_post 或按钮
  * 所在的那条消息（已不可访问的除外）。触发消息不在论坛话题里、或 update 没有
  * 触发消息（成员变动、反应、inline）时返回 undefined，不分配对象。
+ * @param update 当前正在处理的 Telegram Update 对象。
+ * @returns 包含群 ID 与话题 ID 的对象；不在论坛非 General 话题中时返回 undefined。
  */
 export function updateTopicOf(update: Update): UpdateTopic | undefined {
   let message: Message | undefined = update.message ?? update.channel_post;
@@ -58,6 +61,8 @@ export function updateTopicOf(update: Update): UpdateTopic | undefined {
  *
  * 命令目标解析、`/permission query`、`/gag`、`/translate stop` 与 AI 触发事实里
  * 「用户回复了某条消息」的判定统一走这里。
+ * @param message 待提取显式回复目标的 Telegram 消息。
+ * @returns 用户显式回复的目标消息；未显式回复或仅指向论坛话题创建消息时返回 undefined。
  */
 export function explicitReplyTo(message: Message): Message | undefined {
   const repliedTo: Message | undefined = message.reply_to_message;

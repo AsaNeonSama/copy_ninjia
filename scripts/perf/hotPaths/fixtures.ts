@@ -27,6 +27,10 @@ export const BENCHMARK_SENDER_ID: number = 7_123_456_789;
 /**
  * 一条普通用户消息。`senderId` 在同一场景要喂多个不同发送者时传入；
  * 同 id 换 username 会被 cacheSender 判成改名并走写入路径。
+ *
+ * @param username 可选的发送者用户名
+ * @param senderId 发送者用户 ID
+ * @returns 构造完成的群普通用户消息夹具
  */
 export function messageFixture(
   username?: string,
@@ -56,6 +60,10 @@ export function messageFixture(
  * 与 `messageFixture` 配对使用，两种身份形态混着到达同一个调用点；两种形态在
  * `users/senderIdentity.ts` 的 `resolveSenderIdentity` 里各产出一个 `CachedUser`
  * shape。`index` 区分不同频道。
+ *
+ * @param index 频道序号
+ * @param username 可选的频道用户名
+ * @returns 构造完成的频道马甲群消息夹具
  */
 export function channelMessageFixture(index: number, username?: string): Message {
   return {

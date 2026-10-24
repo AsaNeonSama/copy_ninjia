@@ -24,15 +24,24 @@ import { pushBufferedMessage } from "./rollingMemory";
 
 /** 机器人图片的识图目标与热区条目的占位引用。 */
 interface BotImageTarget {
+  /** 群聊 ID。 */
   readonly chatId: number;
+  /** 机器人图片消息的 message_id。 */
   readonly messageId: number;
+  /** Telegram 文件 file_id。 */
   readonly fileId: string;
+  /** Telegram 文件唯一标识 file_unique_id。 */
   readonly fileUniqueId: string;
   /** 识图启动时条目持有的 pendingImage 引用；仅在引用一致时原位回填。 */
   readonly pending: PendingBotImage | undefined;
 }
 
-/** 条目仍在热区且持有同一份占位状态时，将其更新为内容态并标记脏记忆。 */
+/**
+ * 条目仍在热区且持有同一份占位状态时，将其更新为内容态并标记脏记忆。
+ *
+ * @param target 机器人图片识图目标与占位引用
+ * @param description 识图得到的图片文本描述
+ */
 function fillBotImage({ chatId, messageId, pending }: BotImageTarget, description: string): void {
   if (pending === undefined) return;
   const entry: BufferedMessage | undefined = lookupBufferedMessage(chatId, messageId);
@@ -42,7 +51,13 @@ function fillBotImage({ chatId, messageId, pending }: BotImageTarget, descriptio
   dirtyMemoryChats.add(chatId);
 }
 
-/** 识别机器人图片并在当前回复代际有效时回填占位态条目、触发回调。 */
+/**
+ * 识别机器人图片并在当前回复代际有效时回填占位态条目、触发回调。
+ *
+ * @param target 机器人图片识图目标与占位引用
+ * @param onDescribed 识图成功且代际仍有效时的可选回调
+ * @returns 纳入当前群回复代际追踪的异步任务 Promise
+ */
 function describeBotImage(
   target: BotImageTarget,
   onDescribed: ((description: string) => void) | undefined
@@ -67,6 +82,8 @@ function describeBotImage(
 /**
  * 记录命令与定时任务发出的图片（占位态，不立即识图）；
  * edited 为 true 时将热区内原条目重置为占位态。
+ *
+ * @param msg 主线程下发的机器人图片记录消息
  */
 export function recordBotImage(msg: AiRecordBotImageMessage): void {
   const self: AiBotInfo | null = botInfoState.current;
@@ -94,9 +111,11 @@ export function recordBotImage(msg: AiRecordBotImageMessage): void {
 
 /** trackGeneratedImage 的入参。 */
 export interface TrackGeneratedImageParams {
+  /** 群聊 ID。 */
   chatId: number;
   /** 刚写入热区、带生图记号与提示词的自录条目。 */
   entry: BufferedMessage;
+  /** 生图来源（生图工具或修图工具）。 */
   origin: Exclude<BotImageOrigin, "command">;
   /** 随图发出的图注；没有图注为空串。 */
   caption: string;
@@ -104,7 +123,11 @@ export interface TrackGeneratedImageParams {
   photo: TelegramVisionSource;
 }
 
-/** 将生图自录条目标记为占位态并立即启动识图回填。 */
+/**
+ * 将生图自录条目标记为占位态并立即启动识图回填。
+ *
+ * @param params 群聊 ID、自录缓冲条目、生图来源、图注与视觉源
+ */
 export function trackGeneratedImage({ chatId, entry, origin, caption, photo }: TrackGeneratedImageParams): void {
   const pending: PendingBotImage = { origin, caption: sanitizeInline(caption) };
   entry.pendingImage = pending;
@@ -114,7 +137,13 @@ export function trackGeneratedImage({ chatId, entry, origin, caption, photo }: T
   );
 }
 
-/** 从 repliedBotImageBackfills 移除已完成的任务，内层表为空时删除外层键。 */
+/**
+ * 从 repliedBotImageBackfills 移除已完成的任务，内层表为空时删除外层键。
+ *
+ * @param chatId 群聊 ID
+ * @param messageId 触发回填的回复消息 message_id
+ * @param task 已完成的识图回填任务引用
+ */
 function forgetRepliedBotImage(chatId: number, messageId: number, task: Promise<void>): void {
   const byMessage: Map<number, Promise<void>> | undefined = repliedBotImageBackfills.get(chatId);
   if (byMessage?.get(messageId) !== task) return;
@@ -125,6 +154,10 @@ function forgetRepliedBotImage(chatId: number, messageId: number, task: Promise<
 /**
  * 解析被回复的机器人图片并回填回复引用正文：目标条目已在热区且为内容态时直接复用，
  * 否则启动识图并登记到 repliedBotImageBackfills 供回复轮等待。
+ *
+ * @param chatId 群聊 ID
+ * @param entry 回复该机器人图片的入站消息缓冲条目
+ * @param image 被回复的机器人图片视觉源与图注
  */
 export function resolveRepliedBotImage(chatId: number, entry: BufferedMessage, image: RepliedBotImage): void {
   const replyTo: BufferedReplyReference | undefined = entry.replyTo;
@@ -163,7 +196,13 @@ export function resolveRepliedBotImage(chatId: number, entry: BufferedMessage, i
   void task.then(forget, forget);
 }
 
-/** 读取触发消息对应的在途机器人图片回填任务。 */
+/**
+ * 读取触发消息对应的在途机器人图片回填任务。
+ *
+ * @param chatId 群聊 ID
+ * @param messageId 触发消息的 message_id
+ * @returns 在途回填任务 Promise；无在途回填时返回 undefined
+ */
 export function repliedBotImageBackfill(chatId: number, messageId: number): Promise<void> | undefined {
   return repliedBotImageBackfills.get(chatId)?.get(messageId);
 }

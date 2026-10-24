@@ -6,7 +6,12 @@ import type { Scenario } from "./types";
 
 type CooldownMode = "hit" | "renew" | "growth" | "saturated" | "expiry";
 
-/** 按生产群数分布固定容量，测量冷却命中、续期、建表、满载拒绝和整批到期。 */
+/**
+ * 按生产群数分布固定容量，测量冷却命中、续期、建表、满载拒绝和整批到期。
+ *
+ * @param mode 冷却窗口基准模式
+ * @returns 用户回复冷却触发场景定义
+ */
 export function cooldownScenario(mode: CooldownMode): Scenario {
   let now: number = BENCHMARK_EPOCH_MS;
   let offset: number = 0;

@@ -24,7 +24,13 @@ import type { ChatDepartureReason } from "../types/chatTeardown";
  * 启动时通过 `refreshAllChatTitles` 全量刷新并收尾确证不可达的群，运行期随群消息通过 `recordChatTitleFromChat` 原地更新。
  */
 
-/** 将确证的群名称写入已启用 `/init` 的内存 `ChatState`；未启用或名称未变时返回 false。 */
+/**
+ * 将确证的群名称写入已启用 `/init` 的内存 `ChatState`；未启用或名称未变时返回 false。
+ * @param chatId 目标群 ID。
+ * @param title 确证的最新群名称。
+ * @param currentState 已读取的当前群状态只读视图。
+ * @returns 群名称发生变更并写入内存时返回 true，否则返回 false。
+ */
 function applyChatTitle(
   chatId: number,
   title: string,
@@ -36,7 +42,12 @@ function applyChatTitle(
   return true;
 }
 
-/** 名称有变化才后台落盘。 */
+/**
+ * 名称有变化才后台落盘。
+ * @param chatId 目标群 ID。
+ * @param title 确证的最新群名称。
+ * @param currentState 已读取的当前群状态只读视图。
+ */
 function recordChatTitle(
   chatId: number,
   title: string,
@@ -49,14 +60,15 @@ function recordChatTitle(
 
 /**
  * 从群消息更新中记录 `chat.title`（仅处理群组与超级群组）。
- * @param currentState 同一同步消息入口已读取的当前群状态；缺省时自行读取。
+ * @param chat 消息所属的 Telegram 会话对象。
+ * @param currentState 同一同步消息入口已读取的当前群状态。
  */
 export function recordChatTitleFromChat(
   chat: Chat,
-  currentState?: Readonly<ChatState>
+  currentState: Readonly<ChatState>
 ): void {
   if (chat.type !== "group" && chat.type !== "supergroup") return;
-  recordChatTitle(chat.id, chat.title, currentState ?? getChatState(chat.id));
+  recordChatTitle(chat.id, chat.title, currentState);
 }
 
 /** 一次 `getChat` 的结论：查到群资料、确证群不可达，或单次请求失败。 */
@@ -65,6 +77,12 @@ type ChatLookup =
   | { readonly kind: "absent"; readonly reason: ChatDepartureReason }
   | { readonly kind: "failed"; readonly error: unknown };
 
+/**
+ * 调用 Telegram `getChat` 并归类为查到群资料、群不可达或请求失败。
+ * @param chatId 目标群 ID。
+ * @param signal 控制本次请求取消的 AbortSignal。
+ * @returns 归类后的 `ChatLookup` 结果。
+ */
 async function lookUpChat(chatId: number, signal: AbortSignal): Promise<ChatLookup> {
   try {
     return { kind: "found", chat: await bot.api.getChat(chatId, telegramSignal(signal)) };
@@ -77,6 +95,9 @@ async function lookUpChat(chatId: number, signal: AbortSignal): Promise<ChatLook
 /**
  * 首次 `getChat` 判定群不可达后，按 `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` 间隔重查至
  * `CHAT_ABSENCE_CONFIRM_ATTEMPTS` 次；每次均得到同一结论才调用 `completeChatDeparture` 收尾。
+ * @param chatId 目标群 ID。
+ * @param reason 首次探测判定的群不可达原因。
+ * @param signal 控制刷新流程取消的 AbortSignal。
  */
 async function confirmChatAbsence(
   chatId: number,
@@ -104,6 +125,7 @@ async function confirmChatAbsence(
 /**
  * 启动后台刷新：按 `STATE_MANAGED_CHAT_LIMIT` 并发上限查询已知受管群的当前名称并回填；
  * 确证群不可达时转入 `confirmChatAbsence` 收尾。
+ * @param signal 控制全量刷新取消的 AbortSignal；缺省使用运行时自身的 controller.signal。
  */
 export async function refreshAllChatTitles(
   signal: AbortSignal = chatTitleRefreshRuntime.controller.signal
@@ -146,6 +168,7 @@ export async function refreshAllChatTitles(
   );
 }
 
+/** 重置群名称刷新的取消控制器并打开接纳开关。 */
 export function initChatTitleRefresh(): void {
   chatTitleRefreshRuntime.controller = new AbortController();
   chatTitleRefreshRuntime.absenceConfirmation = new AbortController();
@@ -158,6 +181,7 @@ export function quiesceChatTitleRefresh(): void {
   chatTitleRefreshRuntime.absenceConfirmation.abort();
 }
 
+/** 停止接纳并立即中断所有在途的群名称刷新与不可达确证请求。 */
 export function abortChatTitleRefresh(): void {
   chatTitleRefreshRuntime.accepting = false;
   chatTitleRefreshRuntime.absenceConfirmation.abort();

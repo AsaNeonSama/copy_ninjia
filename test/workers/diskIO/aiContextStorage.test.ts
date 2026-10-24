@@ -30,8 +30,8 @@ import { handleChatStateWrite } from "../../../packages/workers/diskIO/storageDa
 import {
   flushStorageDatabase,
   collectStorageDatabaseFailures,
-  setStorageFlushHold,
 } from "../../../packages/workers/diskIO/storageDatabase/flush";
+import { setStorageFlushHold } from "../../../packages/workers/diskIO/storageDatabase/flushHold";
 import type { DiskIODomain } from "../../../packages/types/diskIO/replies";
 import type {
   AiMemoryDeletedPersistedReply,

@@ -37,7 +37,10 @@ import type { UnacknowledgedChatQaWrite } from "../types/qa";
 /** 问答条数达到上限；命令回执只把这一类失败解释为业务容量已满。 */
 export class ChatQaCapacityError extends Error {}
 
-/** 启动恢复把 SQLite 持久化值载入内存。 */
+/**
+ * 启动恢复把 SQLite 持久化值载入内存。
+ * @param entries 从 SQLite 读取的各群问答映射。
+ */
 export function hydrateChatQaCache(
   entries: ReadonlyMap<number, ReadonlyMap<string, string>>
 ): void {
@@ -52,7 +55,10 @@ export function hydrateChatQaCache(
   }
 }
 
-/** 登记一条未 ACK 写入并按差额更新总条数与字节。 */
+/**
+ * 登记一条未 ACK 写入并按差额更新总条数与字节。
+ * @param message 已编码并分配 revision 的群问答写入消息。
+ */
 function trackUnacknowledged(message: ChatQaWriteDiskMessage): void {
   const existing: Map<string, UnacknowledgedChatQaWrite> | undefined =
     unacknowledgedChatQaWrites.get(message.chatId);
@@ -65,7 +71,13 @@ function trackUnacknowledged(message: ChatQaWriteDiskMessage): void {
   unacknowledgedChatQaTotals.bytes += bytes - (previous?.bytes ?? 0);
 }
 
-/** 发布前按差额核对未 ACK 的问题、墓碑和正文预算。 */
+/**
+ * 发布前按差额核对未 ACK 的问题、墓碑和正文预算。
+ * @param chatId 目标群 ID。
+ * @param q 问题文本。
+ * @param answer 答案文本；删除该问题时传入 `undefined`。
+ * @returns 通过准入检查的群问答落盘消息。
+ */
 function prepareChatQaWrite(chatId: number, q: string, answer: string | undefined): ChatQaWriteDiskMessage {
   const revision: number = nextChatQaRevision.current + 1;
   if (!Number.isSafeInteger(revision)) throw new Error("Chat-qa revision space is exhausted.");
@@ -83,6 +95,7 @@ function prepareChatQaWrite(chatId: number, q: string, answer: string | undefine
 /**
  * 登记 revision 并投递；热表此时已发布最终值。投递失败只记日志，未 ACK 的
  * revision 留给 Worker 重建时重放，口径同 chatStateStorage.ts 的 queueChatStateWrite。
+ * @param message 待投递的群问答落盘消息。
  */
 function queueChatQaWrite(message: ChatQaWriteDiskMessage): void {
   nextChatQaRevision.current = message.revision;
@@ -97,6 +110,9 @@ function queueChatQaWrite(message: ChatQaWriteDiskMessage): void {
 /**
  * 写入一条问答的最终值。
  *
+ * @param chatId 目标群 ID。
+ * @param q 问题文本。
+ * @param a 答案文本。
  * @returns 已存在同一问题时为 `"replaced"`，新增为 `"created"`；容量已满则抛错。
  *   回执按这个结果措辞（见 docs/cn/04-invariants.md 的回执口径）。
  */
@@ -118,7 +134,12 @@ export function setChatQa(chatId: number, q: string, a: string): "created" | "re
   return replaced ? "replaced" : "created";
 }
 
-/** 删除一条问答；返回是否真的删掉了，用于让回执如实措辞。 */
+/**
+ * 删除一条问答；返回是否真的删掉了，用于让回执如实措辞。
+ * @param chatId 目标群 ID。
+ * @param q 待删除的问题文本。
+ * @returns 该问题原本存在并已删除时返回 true，原本不存在时返回 false。
+ */
 export function removeChatQa(chatId: number, q: string): boolean {
   const questions: Map<string, string> | undefined = chatQaEntries.get(chatId);
   if (questions?.has(q) !== true) return false;
@@ -133,6 +154,7 @@ export function removeChatQa(chatId: number, q: string): boolean {
 
 /**
  * 群 teardown 的整群删除：逐条发布删除墓碑并排入事务缓冲。
+ * @param chatId 目标群 ID。
  * @returns 实际删掉的条数；未登记过问答的群不产生投递。
  */
 export function removeAllChatQa(chatId: number): number {
@@ -156,7 +178,10 @@ export function removeAllChatQa(chatId: number): number {
   return removed;
 }
 
-/** 收到精确 ACK 后清掉对应未确认 revision；迟到的 ACK 不得清掉更新的写。 */
+/**
+ * 收到精确 ACK 后清掉对应未确认 revision；迟到的 ACK 不得清掉更新的写。
+ * @param reply Disk I/O Worker 返回的身份存储持久化回执。
+ */
 function settleChatQaWrites(reply: IdentityStoragePersistedReply): void {
   for (const write of reply.chatQaWrites) {
     const questions: Map<string, UnacknowledgedChatQaWrite> | undefined =
@@ -178,7 +203,11 @@ interface QueuedChatQaWrite {
   readonly revision: number;
 }
 
-/** Worker 重建后按 revision 升序重放全部未确认写；正文从热表现编码。 */
+/**
+ * Worker 重建后按 revision 升序重放全部未确认写；正文从热表现编码。
+ * @param transport 新一代 Disk I/O Worker 的恢复期投递通道。
+ * @returns 全部未确认写入均成功投递时返回 true，中途投递失败时返回 false。
+ */
 function replayChatQaWrites(transport: DiskIORecoveryTransport): boolean {
   const writes: QueuedChatQaWrite[] = [];
   for (const [chatId, questions] of unacknowledgedChatQaWrites) {

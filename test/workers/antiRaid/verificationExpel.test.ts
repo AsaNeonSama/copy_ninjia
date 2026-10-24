@@ -340,7 +340,7 @@ describe("踢人失败时的权限告警", () => {
     }
   });
 
-  test("确证没有限制成员权限、告警已闩住且上一轮已踢掉时，探测到离群即补发成功战报并等落盘回执", async () => {
+  test("确证没有限制成员权限、告警已闩住且上一轮已踢掉时，只探测一次、不记缺权告警，离群即补发成功战报并等落盘回执", async () => {
     const delays: number[] = [];
     const restoreTimeouts: () => void = recordScheduledDelays(delays);
     try {
@@ -354,6 +354,8 @@ describe("踢人失败时的权限告警", () => {
 
       await run([{ kind: "expel", snapshot: state.snapshot }]);
 
+      expect(probeChatMembership).toHaveBeenCalledTimes(1);
+      expect(loggedErrors.some((line: string): boolean => line.includes("can_restrict_members"))).toBeFalse();
       expect(kickedUserIds).toEqual([]);
       expect(sentTexts).toHaveLength(1);
       const timeout: string = formatMinSec(VERIFICATION_TIMEOUT_MS);

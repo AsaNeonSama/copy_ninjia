@@ -26,17 +26,27 @@ import { parseStringField } from "../../utils/toolArgs";
 import { sendDirectMessage } from "./messageState";
 import { pauseThenSettle } from "./pacing";
 
+/** decideMessageTypo 的入参。 */
 export interface DecideMessageTypoParams {
+  /** 模型传入的工具参数 JSON 字符串。 */
   argumentsJson: string;
+  /** 清洗后的原始消息文本。 */
   text: string;
+  /** 本轮回复是否被抽中允许出现错别字。 */
   roundHasTypo: boolean;
+  /** 本轮是否已用过唯一一次错别字机会。 */
   typoAlreadyUsed: boolean;
+  /** 本轮剩余可用的动作额度。 */
   remainingActions: number;
 }
 
 /**
  * 校验错字候选在当前轮次是否可用；返回首个拒绝原因，全部通过时返回 null。
  * 错字版本须单独校验是否包含可渲染斜杠命令；命中时仅跳过本次手滑，原样发送正文。
+ * @param typoAlreadyUsed 本轮是否已用过错别字。
+ * @param typoText 替换单字后生成的错字版消息文本；未生成时为 null。
+ * @param remainingActions 本轮剩余动作额度。
+ * @returns 首个拒绝原因说明；校验通过时返回 null。
  */
 function typoRejection(
   typoAlreadyUsed: boolean,
@@ -61,7 +71,11 @@ function typoRejection(
   return null;
 }
 
-/** 解析模型提交的两枚单字并决定本条消息是否采用本轮唯一一次手滑。 */
+/**
+ * 解析模型提交的两枚单字并决定本条消息是否采用本轮唯一一次手滑。
+ * @param params 工具参数 JSON、原始文本、本轮错字资格与剩余动作额度。
+ * @returns 包含待发送文本、可选纠正字、修正模式及拒绝原因的决策结果。
+ */
 export function decideMessageTypo({
   argumentsJson,
   text,
@@ -97,15 +111,23 @@ export function decideMessageTypo({
   };
 }
 
+/** applyQuickTypoCorrection 的入参。 */
 export interface ApplyQuickTypoCorrectionParams {
+  /** 当前回复轮次的工具共享上下文。 */
   ctx: ReplyToolContext;
-  /** 本步动作的心跳句柄与拟人停顿，与错字消息同一步。 */
+  /** 与错字消息共用的本步动作心跳控制句柄。 */
   chatAction: ChatActionControl;
+  /** 拟人停顿控制函数。 */
   pause: ReplyActionPause;
+  /** 待补发的正确单字文本。 */
   correctionText: string;
 }
 
-/** 错字消息发出后经过静默与打字停顿补发正确单字，返回补字是否送达。 */
+/**
+ * 错字消息发出后经过静默与打字停顿补发正确单字，返回补字是否送达。
+ * @param params 工具上下文、状态控制器、停顿函数与正确单字文本。
+ * @returns 正确单字补发成功时返回 true，取消或失败时返回 false。
+ */
 export async function applyQuickTypoCorrection({
   ctx,
   chatAction,

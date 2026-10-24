@@ -51,17 +51,30 @@ export const chatLastActivityTimes: Map<number, number> = new Map();
  */
 export const chatMessageIndexes: Map<number, Map<number, BufferedMessage>> = new Map();
 
-/** 判断指定群是否存在可持久化记忆。 */
+/**
+ * 判断指定群是否存在可持久化记忆。
+ *
+ * @param chatId 群聊 ID
+ * @returns 是否存在逐字缓冲、历史摘要或待合并摘要
+ */
 export function hasChatMemory(chatId: number): boolean {
   return chatBuffers.has(chatId) || chatSummaries.has(chatId) || pendingSummaries.has(chatId);
 }
 
-/** 返回当前持有可持久化记忆的群 ID 集合快照。 */
+/**
+ * 返回当前持有可持久化记忆的群 ID 集合快照。
+ *
+ * @returns 持有可持久化记忆的群聊 ID 集合
+ */
 export function chatMemoryIds(): Set<number> {
   return new Set([...chatBuffers.keys(), ...chatSummaries.keys(), ...pendingSummaries.keys()]);
 }
 
-/** 删除指定群的全部记忆与消息索引缓存。 */
+/**
+ * 删除指定群的全部记忆与消息索引缓存。
+ *
+ * @param chatId 群聊 ID
+ */
 export function clearChatMemoryCache(chatId: number): void {
   chatBuffers.delete(chatId);
   chatSummaries.delete(chatId);

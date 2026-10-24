@@ -25,6 +25,8 @@ import type {
 
 /**
  * 淘汰超出 AD_DETECT_JUDGED_RETENTION_WINDOW_MS 且已判定（seq <= checkedSeq）的旧上下文条目。
+ * @param bundle 待裁剪的发送者消息束。
+ * @param now 当前毫秒时间戳。
  */
 export function pruneConsumedContext(bundle: AdMessageBundle, now: number): void {
   while (bundle.entries.length > 0) {
@@ -41,6 +43,7 @@ export function pruneConsumedContext(bundle: AdMessageBundle, now: number): void
 /**
  * 将消息束裁剪至 AD_DETECT_MAX_MESSAGES_PER_SENDER 上限：先淘汰已判定的旧上下文，
  * 仍超限时淘汰最旧未判定条目并将其 messageId 移入 pendingDeleteIds（上限 AD_DETECT_MAX_PENDING_DELETE_IDS）。
+ * @param bundle 待裁剪的发送者消息束。
  */
 export function enforceBundleCapacity(bundle: AdMessageBundle): void {
   while (
@@ -74,13 +77,20 @@ export function enforceBundleCapacity(bundle: AdMessageBundle): void {
   }
 }
 
-/** 返回消息束中最新一条消息的序号；消息束为空时返回无待判水位基线。 */
+/**
+ * 返回消息束中最新一条消息的序号；消息束为空时返回无待判水位基线。
+ * @param bundle 发送者消息束。
+ * @returns 最新条目的单调序号；消息束为空时返回 0。
+ */
 export function latestSeq(bundle: AdMessageBundle): number {
   return bundle.entries[bundle.entries.length - 1]?.seq ?? 0;
 }
 
 /**
  * 将隐藏的 text_link URL 拼接在已截断的正文之后（受 AD_DETECT_MAX_LINK_URLS 与 AD_DETECT_LINK_URL_MAX_CHARS 约束）。
+ * @param text 已截断的消息正文。
+ * @param linkUrls 消息实体中提取的隐藏链接 URL 列表。
+ * @returns 拼接去重后隐藏链接的送检文本。
  */
 export function appendLinkUrls(
   text: string,
@@ -98,7 +108,12 @@ export function appendLinkUrls(
   return text.length === 0 ? urls.join(" ") : `${text} ${urls.join(" ")}`;
 }
 
-/** 判断消息束现有条目是否已包含指定引文片段。 */
+/**
+ * 判断消息束现有条目是否已包含指定引文片段。
+ * @param entries 消息束现有的条目列表。
+ * @param needle 待检查的引文片段。
+ * @returns 任一条目正文已包含该片段时返回 true，否则返回 false。
+ */
 function entriesClaimContextPart(
   entries: readonly AdCandidateEntry[],
   needle: string
@@ -111,6 +126,10 @@ function entriesClaimContextPart(
 
 /**
  * 将尚未被当前正文或同束更早条目包含的被引用段（quote）与被回复原文（replyTo）拼接到送检正文末尾。
+ * @param text 当前条目的发送者姓名与正文。
+ * @param context 裁剪后的被引用段与被回复原文。
+ * @param entries 同束内更早的条目列表。
+ * @returns 追加未重复引用内容后的完整送检文本。
  */
 export function claimSampleContextParts(
   text: string,
@@ -148,6 +167,9 @@ export function claimSampleContextParts(
 
 /**
  * 裁剪候选携带的 sampleQuote 与 sampleReplyTo（上限 AD_SAMPLE_CONTEXT_MAX_CHARS），构造样本记录用的 AdSampleContext。
+ * @param rawQuote 原始被引用段文本。
+ * @param rawReplyTo 原始被回复消息文本。
+ * @returns 裁剪后的样本引用上下文；两者均为空或未提供时返回 undefined。
  */
 export function boundSampleContext(
   rawQuote: string | undefined,
@@ -166,6 +188,8 @@ export function boundSampleContext(
 /**
  * 在 AD_DETECT_BUNDLE_MAX_CHARS 字符预算内，从最旧的未判定条目（seq > checkedSeq）起依次选入待判条目并推进 checkedToSeq，
  * 剩余预算再逆序向前补入紧邻的已判上下文条目。
+ * @param bundle 待切片的发送者消息束。
+ * @returns 选入本次送检的条目序列及推进后的已检水位 `checkedToSeq`。
  */
 export function selectAdBundleEntries(bundle: AdMessageBundle): AdBundleSelection {
   let budget: number = AD_DETECT_BUNDLE_MAX_CHARS;
@@ -194,7 +218,11 @@ export function selectAdBundleEntries(bundle: AdMessageBundle): AdBundleSelectio
   return { entries: context, checkedToSeq };
 }
 
-/** 将选中的消息条目拼接为按行连续编号的送检文本。 */
+/**
+ * 将选中的消息条目拼接为按行连续编号的送检文本。
+ * @param entries 选入本次送检的条目序列。
+ * @returns 按行连续编号的完整送检文本。
+ */
 export function formatAdBundleText(entries: readonly AdCandidateEntry[]): string {
   return entries
     .map((entry: AdCandidateEntry, index: number): string => `${index + 1}. ${entry.text}`)
@@ -203,6 +231,8 @@ export function formatAdBundleText(entries: readonly AdCandidateEntry[]): string
 
 /**
  * 拼出只含当前发送者本人姓名与正文的清单；空行跳过后重新连续编号。
+ * @param entries 选入本次送检的条目序列。
+ * @returns 仅含发送者本人直发内容的按行编号文本。
  */
 export function formatDirectAdBundleText(entries: readonly AdCandidateEntry[]): string {
   const lines: string[] = [];
@@ -213,7 +243,11 @@ export function formatDirectAdBundleText(entries: readonly AdCandidateEntry[]): 
   return lines.join("\n");
 }
 
-/** 是否有引用、回复或转发内容实际进入了本次模型清单。 */
+/**
+ * 是否有引用、回复或转发内容实际进入了本次模型清单。
+ * @param entries 选入本次送检的条目序列。
+ * @returns 任一条目的完整送检文本与本人直发文本不同时返回 true，否则返回 false。
+ */
 export function containsReferencedAdContent(entries: readonly AdCandidateEntry[]): boolean {
   for (const entry of entries) {
     if (entry.text !== entry.directText) return true;

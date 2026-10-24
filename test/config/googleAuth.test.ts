@@ -1,13 +1,9 @@
 import { expect, test } from "bun:test";
-import { generateKeyPairSync } from "node:crypto";
 import { parseGoogleServiceAccountKey } from "../../packages/config/googleAuth";
 import type { GoogleServiceAccountKey } from "../../packages/types/config";
+import { pkcs8PrivateKeyPem, rsaPrivateKeyPemFixture } from "../../scripts/fixtures/googleAuth";
 
-const privateKey: string = generateKeyPairSync("rsa", {
-  modulusLength: 2_048,
-  privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  publicKeyEncoding: { type: "spki", format: "pem" },
-}).privateKey;
+const privateKey: string = await rsaPrivateKeyPemFixture();
 const minimal: Readonly<{ client_email: string; private_key: string }> = {
   client_email: "bot@example.iam.gserviceaccount.com",
   private_key: privateKey,
@@ -33,13 +29,13 @@ test("已知字符串字段按首尾空白规范化返回；PEM 私钥按原文�
   });
 });
 
-test("可解析的 EC 与 Ed25519 密钥不满足 RS256", (): void => {
-  const keys = [
-    generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey,
-    generateKeyPairSync("ed25519").privateKey,
+test("可解析的 EC 与 Ed25519 密钥不满足 RS256", async (): Promise<void> => {
+  const keys: readonly CryptoKeyPair[] = [
+    await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]),
+    await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair,
   ];
   for (const key of keys) {
-    const pem: string = key.export({ type: "pkcs8", format: "pem" }).toString();
+    const pem: string = await pkcs8PrivateKeyPem(key.privateKey);
     expect(() => parseGoogleServiceAccountKey({ ...minimal, private_key: pem }, source))
       .toThrow(`${source}: $.private_key must be an RSA PEM private key for RS256.`);
   }

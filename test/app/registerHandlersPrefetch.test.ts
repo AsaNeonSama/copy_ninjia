@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Bot, Context } from "grammy";
+import type { ChatState } from "../../packages/types/chatState";
 
 /**
  * 前置链里身份预热那一段的两条路径（app/updatePreamble.ts）：全热 update 同步进入下一段，
- * 有冷身份时先等预热完成再进入下游。经 registerHandlers 唯一登记的中间件驱动整条链。
+ * 有冷身份时先等预热完成再进入下游；下游收到的群状态快照在同步段内复用、跨过预热后重读。
+ * 经 registerHandlers 唯一登记的中间件驱动整条链。
  */
 
 /** 调用顺序流水：预热与下游各记一笔，用来钉住两者的先后。 */
 const calls: string[] = [];
+/** 消息流水线收到的群状态快照，按调用顺序记录。 */
+const receivedChatStates: Readonly<ChatState>[] = [];
 let allCached: boolean = true;
 
 const prefetchIdentityPolicies = mock(
@@ -43,10 +47,15 @@ mock.module("../../packages/infra/updateGate", () => ({
 const actualAuto = await import("../../packages/auto");
 mock.module("../../packages/auto", () => ({
   ...actualAuto,
-  handleIncomingMessageMiddleware: (): undefined => undefined,
+  handleIncomingMessageMiddleware: (_ctx: Context, chatState: Readonly<ChatState>): undefined => {
+    receivedChatStates.push(chatState);
+    return undefined;
+  },
 }));
 
 const { registerHandlers } = await import("../../packages/app/registerHandlers");
+const { chatStateCache } = await import("../../packages/cache/main/chatState");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 
 type TestMiddleware = (ctx: Context, next: () => Promise<void>) => unknown;
 
@@ -88,8 +97,10 @@ const next = (): Promise<void> => {
 
 beforeEach((): void => {
   calls.length = 0;
+  receivedChatStates.length = 0;
   allCached = true;
   prefetchIdentityPolicies.mockClear();
+  chatStateCache.clear();
 });
 
 describe("前置链的身份预热段", () => {
@@ -120,5 +131,35 @@ describe("前置链的身份预热段", () => {
 
     expect(prefetchIdentityPolicies).toHaveBeenCalledTimes(1);
     expect(calls).toEqual(["prefetch:123,-1009,456", "downstream"]);
+  });
+});
+
+describe("前置链的群状态快照", () => {
+  test("同步段内下游拿到的就是初始化网关处读到的本群状态对象", (): void => {
+    const state: ChatState = getOrCreateChatState(-1001);
+    state.isInitEnabled = true;
+
+    registeredMiddleware()(updateContext({}), next);
+
+    expect(receivedChatStates).toHaveLength(1);
+    expect(receivedChatStates[0]).toBe(state);
+  });
+
+  test("预热期间本群状态被收尾删除时，恢复后重读现值而不沿用等待前的对象", async (): Promise<void> => {
+    allCached = false;
+    const before: ChatState = getOrCreateChatState(-1001);
+    before.isInitEnabled = true;
+    before.isAIChatEnabled = true;
+
+    const pending: unknown = registeredMiddleware()(updateContext({}), next);
+    // 预热仍在途：模拟别的 update 在这期间执行 `/init off` 收尾，群状态条目被删除。
+    chatStateCache.delete(-1001);
+    await pending;
+
+    expect(calls).toEqual(["prefetch:123", "downstream"]);
+    expect(receivedChatStates).toHaveLength(1);
+    expect(receivedChatStates[0]).not.toBe(before);
+    expect(receivedChatStates[0]).toBe(getChatState(-1001));
+    expect(receivedChatStates[0]?.isAIChatEnabled).toBeFalse();
   });
 });

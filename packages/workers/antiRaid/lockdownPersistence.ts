@@ -6,7 +6,10 @@ import type { LockdownState } from "../../types/states/lockdown";
 
 declare const self: Worker;
 
-/** 把当前私密模式状态投影成主线程持久化事件。 */
+/**
+ * 把当前私密模式状态投影成主线程持久化事件。
+ * @param chatId 群组 ID。
+ */
 export function publishLockdownState(chatId: number): void {
   const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
   if (entry === undefined) return;

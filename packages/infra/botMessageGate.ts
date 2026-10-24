@@ -8,7 +8,12 @@ import type { BotMessageActivity } from "../types/botMessage";
 import { getChatState } from "./storage/stateStore";
 import type { Message, User } from "grammy/types";
 
-/** 为一条机器人发言记录设置或续期独立的过期计时器（BOT_MESSAGE_ACTIVITY_TTL_MS）。 */
+/**
+ * 为一条机器人发言记录设置或续期独立的过期计时器（BOT_MESSAGE_ACTIVITY_TTL_MS）。
+ * @param botId 发言机器人的用户 ID。
+ * @param activity 该机器人当前的活跃度计数条目。
+ * @param now 当前毫秒时间戳。
+ */
 function refreshActivity(botId: number, activity: BotMessageActivity, now: number): void {
   activity.expiresAt = now + BOT_MESSAGE_ACTIVITY_TTL_MS;
   if (activity.timer === null) {
@@ -25,6 +30,9 @@ function refreshActivity(botId: number, activity: BotMessageActivity, now: numbe
  * 计数按 bot id 跨群共享，收到发言后把过期时间续到 BOT_MESSAGE_ACTIVITY_TTL_MS 之后。容量满时拒绝
  * 尚未记录的机器人，不为它分配计时器。频道身份、自身回投与非 message 更新不计入。本群
  * `/delete_message` 目标的发言先于计数判定，直接放行且不计数、不续期，交给前置链的删除 ingress。
+ * @param message 当前更新携带的消息对象；非 message 更新时为 `undefined`。
+ * @param ownBotId 当前机器人自身的用户 ID。
+ * @returns 允许继续分发时返回 true，因活跃度超限或容量满而丢弃时返回 false。
  */
 export function shouldPassBotMessage(message: Message | undefined, ownBotId: number): boolean {
   if (message === undefined) return true;

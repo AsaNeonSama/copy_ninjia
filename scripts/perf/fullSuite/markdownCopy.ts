@@ -363,7 +363,11 @@ const JA: BenchmarkCopy = {
   footer: "再現方法：`bun run perf:full`。",
 };
 
-/** 取某种语言的文案表。 */
+/**
+ * 取某种语言的文案表。
+ * @param language 目标文档语言标识。
+ * @returns 对应语言的基准区块文案表。
+ */
 export function benchmarkCopy(language: Language): BenchmarkCopy {
   switch (language) {
     case "zh":

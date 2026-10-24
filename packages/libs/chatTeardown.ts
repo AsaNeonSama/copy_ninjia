@@ -12,6 +12,8 @@ import type { ChatTeardownReason } from "../types/chatTeardown";
  *
  * 各 owner 经本函数判定是否删除数据，不手写 `reason === "..."`（见
  * docs/cn/04-invariants.md 的群 teardown）。
+ * @param reason 触发群 teardown 的原因。
+ * @returns 需要一并删除该群持久化数据时返回 true，仅停运行态时返回 false。
  */
 export function purgesChatData(reason: ChatTeardownReason): boolean {
   return reason !== "lostAuthority";
@@ -20,6 +22,8 @@ export function purgesChatData(reason: ChatTeardownReason): boolean {
 /**
  * 本次 teardown 时机器人是否已无法在本群调用 Bot API：`departed`（被移出）与 `gone`（群已不存在）
  * 为 true。此时各 owner 不再删除群里的残留消息，只作废本地记的消息 id。
+ * @param reason 触发群 teardown 的原因。
+ * @returns 机器人已无法访问该群时返回 true，否则返回 false。
  */
 export function isChatUnreachable(reason: ChatTeardownReason): boolean {
   return reason === "departed" || reason === "gone";
@@ -29,6 +33,8 @@ export function isChatUnreachable(reason: ChatTeardownReason): boolean {
  * 本次 teardown 是否连私密模式记录一起放弃：只有 `gone`（群已不存在）为 true。其余起因下
  * Anti-Raid Worker 照常落盘「要恢复」并重试还原权限（见 consts/antiRaid/lockdown.ts 的
  * RESTORE_PERMANENT_FAILURE_LOG_LIMIT）。
+ * @param reason 触发群 teardown 的原因。
+ * @returns 需要直接放弃私密模式恢复记录时返回 true，否则返回 false。
  */
 export function abandonsLockdown(reason: ChatTeardownReason): boolean {
   return reason === "gone";

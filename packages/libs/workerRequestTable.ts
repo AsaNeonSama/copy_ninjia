@@ -7,7 +7,12 @@
 
 import type { WorkerRequestTable, WorkerRequestWaiter } from "../types/workerRequest";
 
-/** 摘除并收尾一个等待者；已结算或未知的 requestId 返回 undefined。 */
+/**
+ * 摘除并收尾一个等待者；已结算或未知的 requestId 返回 undefined。
+ * @param table 请求等待表。
+ * @param requestId 请求序号。
+ * @returns 被摘除的等待者；未命中时返回 `undefined`。
+ */
 function takeWorkerRequest<T>(table: WorkerRequestTable<T>, requestId: number): WorkerRequestWaiter<T> | undefined {
   const waiter: WorkerRequestWaiter<T> | undefined = table.waiters.get(requestId);
   if (waiter === undefined) return undefined;
@@ -21,12 +26,15 @@ function takeWorkerRequest<T>(table: WorkerRequestTable<T>, requestId: number): 
 export interface WorkerRequestAbort<T> {
   /** 调用前已中止由调用方先行判定，这里只监听之后的中止。 */
   readonly signal: AbortSignal | undefined;
+  /** 取消触发时交回给调用方的兜底结果。 */
   readonly result: T;
 }
 
 /** beginWorkerRequest 的入参。 */
 export interface BeginWorkerRequestOptions<T> {
+  /** 持有单调递增序号与在途等待者映射的请求表。 */
   readonly table: WorkerRequestTable<T>;
+  /** 单次请求的超时毫秒数。 */
   readonly timeoutMs: number;
   /** 投递带 requestId 的请求；返回 false 或同步抛错表示投递被拒，按 rejected 结算。 */
   readonly post: (requestId: number) => boolean;
@@ -36,11 +44,17 @@ export interface BeginWorkerRequestOptions<T> {
   readonly cancel?: (requestId: number) => void;
   /** 调用方取消；请求不可取消时省略。 */
   readonly abort?: WorkerRequestAbort<T>;
+  /** 超时到期时交回的结果。 */
   readonly timedOut: T;
+  /** 投递被拒或同步抛错时交回的结果。 */
   readonly rejected: T;
 }
 
-/** 登记一个等待者并投递请求，返回在任一结算路径兑现的 Promise。 */
+/**
+ * 登记一个等待者并投递请求，返回在任一结算路径兑现的 Promise。
+ * @param options 请求登记、投递、超时与取消配置。
+ * @returns 在回执、超时、取消、拒投或全表失败时兑现的结果。
+ */
 export function beginWorkerRequest<T>({
   table,
   timeoutMs,
@@ -81,12 +95,21 @@ export function beginWorkerRequest<T>({
   });
 }
 
-/** 回执：按 requestId 结算；已超时、已取消或未知的回执直接丢弃。 */
+/**
+ * 回执：按 requestId 结算；已超时、已取消或未知的回执直接丢弃。
+ * @param table 请求等待表。
+ * @param requestId 回执对应的请求序号。
+ * @param result Worker 交回的结算结果。
+ */
 export function settleWorkerRequest<T>(table: WorkerRequestTable<T>, requestId: number, result: T): void {
   takeWorkerRequest(table, requestId)?.resolve(result);
 }
 
-/** Worker 崩溃重建、放弃或终止：旧实例的回执不可能再到达，全部按同一结果结算。 */
+/**
+ * Worker 崩溃重建、放弃或终止：旧实例的回执不可能再到达，全部按同一结果结算。
+ * @param table 请求等待表。
+ * @param result 统一交回给所有在途等待者的兜底结果。
+ */
 export function failAllWorkerRequests<T>(table: WorkerRequestTable<T>, result: T): void {
   for (const requestId of [...table.waiters.keys()]) {
     takeWorkerRequest(table, requestId)?.resolve(result);

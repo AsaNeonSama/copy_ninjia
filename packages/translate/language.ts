@@ -15,7 +15,11 @@ import {
 import type { TranslateLanguage } from "../types/translate";
 import { TRANSLATE_TRADITIONAL_HAN } from "../consts/translateHan";
 
-/** 参数里的语言代码是否是支持的翻译方向（TRANSLATE_LANGUAGE_LABELS 的键）。 */
+/**
+ * 参数里的语言代码是否是支持的翻译方向（TRANSLATE_LANGUAGE_LABELS 的键）。
+ * @param code 待校验的语言代码字符串。
+ * @returns 属于受支持的翻译方向时返回 true，否则返回 false。
+ */
 export function isTranslateLanguage(code: string): code is TranslateLanguage {
   return Object.hasOwn(TRANSLATE_LANGUAGE_LABELS, code);
 }
@@ -23,6 +27,9 @@ export function isTranslateLanguage(code: string): code is TranslateLanguage {
 /**
  * 符合目标文字形态或完全中性的文本不需要翻译，调用方整条不发送；不创建中间数组。
  * 正则按字形启发式识别，共用汉字词、无重音拉丁短句和共用西里尔字母短句仍可能有语种歧义。
+ * @param text 待判定的原文字符串。
+ * @param language 目标翻译语言方向。
+ * @returns 文本无需翻译时返回 true，需要翻译时返回 false。
  */
 export function needsNoTranslation(text: string, language: TranslateLanguage): boolean {
   if (TRANSLATE_NEUTRAL_TEXT.test(text)) return true;

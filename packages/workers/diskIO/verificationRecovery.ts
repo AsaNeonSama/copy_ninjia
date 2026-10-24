@@ -1,4 +1,4 @@
-/** Owner: Disk I/O Worker。负责待验证日文件的恢复、跨日合并与 compact。 */
+/** 待验证日文件的恢复、跨日合并与 compact（所属线程：Disk I/O Worker）。 */
 
 import { inspectOptionalFile, inspectOptionalDirectory } from "../../libs/fileAccess";
 import { mkdirSync, readdirSync, renameSync } from "node:fs";
@@ -33,28 +33,50 @@ import {
 } from "./verificationCodec";
 import type { VerificationDayValue } from "./verificationCodec";
 
+/** 待验证目录扫描得出的旧日恢复与清理计划。 */
 interface VerificationDirectoryRecoveryPlan {
+  /** 早于今日的最新旧日日期键（`YYYY-MM-DD`）；无旧日文件时为 `undefined`。 */
   readonly latestPriorDay: string | undefined;
+  /** 早于今日的全部旧日文件名列表（含 `latestPriorDay`）。 */
   readonly oldDayNames: string[];
+  /** 晚于今日的未来日期文件数量。 */
   readonly futureDayCount: number;
 }
 
+/** 待验证日文件启动只读探测的快照结果。 */
 export interface VerificationRecoveryInspection {
+  /** 当前目标日期键（`YYYY-MM-DD`）。 */
   readonly day: string;
+  /** 待验证目录绝对路径。 */
   readonly dir: string;
+  /** 从旧日与当日文件合并恢复出的活跃待验证快照映射。 */
   readonly recovered: Map<string, VerificationSnapshot>;
+  /** 当日文件的初始追加游标状态。 */
   readonly fileState: {
+    /** 当日日期键（`YYYY-MM-DD`）。 */
     readonly day: string;
+    /** 当日文件当前字节大小。 */
     readonly size: number;
+    /** 当日文件是否为空对象 `{}`。 */
     readonly empty: boolean;
   };
+  /** 当日文件已累积的顶层追加条目数。 */
   readonly appendedEntries: number;
+  /** 当日文件已累积的字节数。 */
   readonly appendedBytes: number;
+  /** 目录扫描得出的旧日合并与清理计划。 */
   readonly directoryPlan: VerificationDirectoryRecoveryPlan;
+  /** 恢复完成后是否需要立即原子重写并 compact 当日文件。 */
   readonly shouldCompact: boolean;
 }
 
-/** 校验目录内 JSON 文件名，提取最新旧日与待清理旧日列表。 */
+/**
+ * 校验目录内 JSON 文件名，提取最新旧日与待清理旧日列表。
+ * @param day 当前配置时区的 `YYYY-MM-DD` 日期键。
+ * @param dir 待验证目录路径。
+ * @param entries 目录下的 `Dirent` 条目列表。
+ * @returns 包含最新旧日、待删除旧日文件名列表与未来日文件计数的恢复计划。
+ */
 function inspectVerificationDirectory(
   day: string,
   dir: string,
@@ -88,6 +110,11 @@ function inspectVerificationDirectory(
   return { latestPriorDay, oldDayNames, futureDayCount };
 }
 
+/**
+ * 校验恢复出的 active 待验证记录总数不超过 `VERIFICATION_RECORD_CAPACITY`。
+ * @param records 合并后的 active 待验证快照映射。
+ * @param sourcePath 用于构造错误消息的来源文件路径。
+ */
 function assertRecoveredVerificationCapacity(
   records: ReadonlyMap<string, VerificationSnapshot>,
   sourcePath: string
@@ -100,7 +127,11 @@ function assertRecoveredVerificationCapacity(
   );
 }
 
-/** 按日期由旧到新删除严格早于 day 的待验证日文件，保留晚于 day 的文件。 */
+/**
+ * 按日期由旧到新删除严格早于 day 的待验证日文件，保留晚于 day 的文件。
+ * @param day 当前基准 `YYYY-MM-DD` 日期键。
+ * @param dir 待验证目录路径；缺省为 `VERIFICATION_MEMORY_DIR`。
+ */
 export async function removeOldVerificationDays(
   day: string,
   dir: string = VERIFICATION_MEMORY_DIR
@@ -108,7 +139,12 @@ export async function removeOldVerificationDays(
   await applyVerificationDirectoryRecoveryPlan(day, dir, scanVerificationDayFiles(day, dir));
 }
 
-/** 扫描目录中的日期命名普通文件，按 day 划分旧日列表、最新旧日与晚于 day 的文件数。 */
+/**
+ * 扫描目录中的日期命名普通文件，按 day 划分旧日列表、最新旧日与晚于 day 的文件数。
+ * @param day 当前基准 `YYYY-MM-DD` 日期键。
+ * @param dir 待验证目录路径。
+ * @returns 目录中旧日文件与未来日文件的分类计划。
+ */
 function scanVerificationDayFiles(day: string, dir: string): VerificationDirectoryRecoveryPlan {
   let latestPriorDay: string | undefined;
   const oldDayNames: string[] = [];
@@ -127,7 +163,12 @@ function scanVerificationDayFiles(day: string, dir: string): VerificationDirecto
   return { latestPriorDay, oldDayNames, futureDayCount };
 }
 
-/** 按计划从旧到新删除早于 day 的日文件；存在晚于 day 的文件时输出告警并保留。 */
+/**
+ * 按计划从旧到新删除早于 day 的日文件；存在晚于 day 的文件时输出告警并保留。
+ * @param day 当前基准 `YYYY-MM-DD` 日期键。
+ * @param dir 待验证目录路径。
+ * @param plan 包含待删除旧日文件名列表与未来日文件计数的计划。
+ */
 async function applyVerificationDirectoryRecoveryPlan(
   day: string,
   dir: string,
@@ -147,6 +188,8 @@ async function applyVerificationDirectoryRecoveryPlan(
 /**
  * 读取并解码旧日文件；编码或格式错误连续达 VERIFICATION_PRIOR_DAY_DECODE_MAX_ATTEMPTS 时
  * 追加 VERIFICATION_CORRUPT_DAY_FILE_SUFFIX 隔离并返回 null。
+ * @param priorPath 旧日待验证文件的绝对路径。
+ * @returns 解码后的记录映射；达到连续失败上限并隔离文件后返回 null。
  */
 async function decodePriorDayOrQuarantine(priorPath: string): Promise<Map<string, VerificationDayValue> | null> {
   let values: Map<string, VerificationDayValue>;
@@ -175,7 +218,12 @@ async function decodePriorDayOrQuarantine(priorPath: string): Promise<Map<string
   return values;
 }
 
-/** 提取早于 day 的最新可用旧日文件中仍为 active 但当前内存镜像已删除的键列表。 */
+/**
+ * 提取早于 day 的最新可用旧日文件中仍为 active 但当前内存镜像已删除的键列表。
+ * @param day 当前基准 `YYYY-MM-DD` 日期键。
+ * @param dir 待验证目录路径。
+ * @returns 需要在新日文件中写入 null 墓碑以遮蔽旧日 active 记录的键列表。
+ */
 async function priorDayTombstoneKeys(day: string, dir: string): Promise<string[]> {
   for (;;) {
     const latestPriorDay: string | undefined = scanVerificationDayFiles(day, dir).latestPriorDay;
@@ -191,7 +239,11 @@ async function priorDayTombstoneKeys(day: string, dir: string): Promise<string[]
   }
 }
 
-/** 将当前 active 镜像及覆盖旧日所需的 null 墓碑原子重写为指定日期文件。 */
+/**
+ * 将当前 active 镜像及覆盖旧日所需的 null 墓碑原子重写为指定日期文件。
+ * @param day 目标 `YYYY-MM-DD` 日期键。
+ * @param dir 待验证目录路径；缺省为 `VERIFICATION_MEMORY_DIR`。
+ */
 export async function compactVerificationDay(
   day: string,
   dir: string = VERIFICATION_MEMORY_DIR
@@ -215,7 +267,12 @@ export async function compactVerificationDay(
   verificationFileState.appendedBytes = 0;
 }
 
-/** 启动第一阶段：只读校验配置时区的当天及最新旧日，构造接管与维护计划。 */
+/**
+ * 启动第一阶段：只读校验配置时区的当天及最新旧日，构造接管与维护计划。
+ * @param day 当前配置时区的 `YYYY-MM-DD` 日期键；缺省为当前时刻。
+ * @param dir 待验证目录路径；缺省为 `VERIFICATION_MEMORY_DIR`。
+ * @returns 包含恢复快照、文件游标、追加统计与目录清理计划的只读探测结果。
+ */
 export async function inspectVerificationDay(
   day: string = getDateKey(),
   dir: string = VERIFICATION_MEMORY_DIR
@@ -296,7 +353,11 @@ export async function inspectVerificationDay(
   };
 }
 
-/** 全域 inspect 成功后整体发布 verification owner 与追加游标。 */
+/**
+ * 全域 inspect 成功后整体发布 verification owner 与追加游标。
+ * @param inspection 启动只读扫描阶段产出的待验证探测结果。
+ * @returns 已填充完成的待验证内存镜像映射。
+ */
 export function adoptVerificationDay(
   inspection: VerificationRecoveryInspection
 ): Map<string, VerificationSnapshot> {
@@ -310,7 +371,10 @@ export function adoptVerificationDay(
   return verificationWorkerCache;
 }
 
-/** 启动成功后执行 compact 与旧日清理；compact 失败时不删除恢复基线。 */
+/**
+ * 启动成功后执行 compact 与旧日清理；compact 失败时不删除恢复基线。
+ * @param inspection 启动只读扫描阶段产出的待验证探测结果。
+ */
 export async function maintainVerificationDay(
   inspection: VerificationRecoveryInspection
 ): Promise<void> {

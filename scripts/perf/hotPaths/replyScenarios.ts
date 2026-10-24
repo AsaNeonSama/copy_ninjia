@@ -11,7 +11,11 @@ import type { AdmitTriggerInput } from "../../../packages/types/states/replyAdmi
 import type { ReplyDeliveryTurn } from "../../../packages/types/aiChat/replies";
 import type { Scenario } from "./types";
 
-/** 覆盖模型、直接轮、存活容量、队列、触发种类和出站压力的准入组合，计时内仅传既有输入。 */
+/**
+ * 覆盖模型、直接轮、存活容量、队列、触发种类和出站压力的准入组合，计时内仅传既有输入。
+ *
+ * @returns AI 回复触发准入与限流判定场景定义
+ */
 export function replyAdmissionScenario(): Scenario {
   const inputs: AdmitTriggerInput[] = cartesianProduct({
     kind: ["direct", "random"],
@@ -40,7 +44,12 @@ export function replyAdmissionScenario(): Scenario {
   };
 }
 
-/** 固定字节分布与大小，独立测量有效媒体和异常首尾；解码结果逐次校验。 */
+/**
+ * 固定字节分布与大小，独立测量有效媒体和异常首尾；解码结果逐次校验。
+ *
+ * @param shape Base64 载荷形态（正常、大体积、头部非法或尾部非法）
+ * @returns Base64 载荷解码校验场景定义
+ */
 export function base64PayloadScenario(shape: "normal" | "large" | "head" | "tail"): Scenario {
   const size: number = shape === "large" ? VOICE_SPEECH_MAX_BYTES : IMAGE_GENERATION_MAX_BYTES / 10;
   const payload: Uint8Array = new Uint8Array(size);
@@ -77,7 +86,12 @@ export function base64PayloadScenario(shape: "normal" | "large" | "head" | "tail
   };
 }
 
-/** 正常发送及阻塞/重开压力均调用生产顺位边界，按真实存活数核对容量与清理。 */
+/**
+ * 正常发送及阻塞/重开压力均调用生产顺位边界，按真实存活数核对容量与清理。
+ *
+ * @param blocked 是否模拟打满全局并发上限与失效重开的阻塞场景
+ * @returns 回复投递顺位预留与释放场景定义
+ */
 export function replyDeliveryScenario(blocked: boolean): Scenario {
   return {
     iterations: blocked ? 40 : 10_000,

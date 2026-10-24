@@ -15,8 +15,8 @@ import {
 } from "./rendering";
 
 /** 主线程 gag 发言入口的 Telegram 动作边界；不持有会话缓存。 */
-
 export interface SendGagSpeakNoticeOptions {
+  /** 当前 gag 会话。 */
   readonly session: GagSession;
   /**
    * 这条入口要发进哪个论坛话题；General、非论坛群为 undefined。
@@ -31,7 +31,11 @@ export interface SendGagSpeakNoticeOptions {
   readonly onSent?: (messageId: number) => void;
 }
 
-/** 按目标身份发送用户专属临时入口或频道公开入口。 */
+/**
+ * 按目标身份发送用户专属临时入口或频道公开入口。
+ * @param options 发言入口发送参数（含目标会话 `session`、目标论坛话题 `messageThreadId`、可选回复消息 ID `replyToMessageId` 与发送成功回调 `onSent`）。
+ * @returns 发送成功时返回消息 ID，失败时返回 undefined。
+ */
 export async function sendGagSpeakNotice({
   session,
   messageThreadId,
@@ -62,7 +66,12 @@ export async function sendGagSpeakNotice({
   });
 }
 
-/** 按入口身份精确删除：用户入口按 receiverUserId 删除临时消息，频道入口按群消息 id 删除。 */
+/**
+ * 按入口身份精确删除：用户入口按 receiverUserId 删除临时消息，频道入口按群消息 id 删除。
+ * @param session 当前 gag 会话。
+ * @param noticeMessageId 待删除的发言入口消息 ID。
+ * @returns 删除消息的结果状态。
+ */
 function deleteGagSpeakNotice(
   session: GagSession,
   noticeMessageId: number
@@ -87,6 +96,9 @@ export type GagNoticeSlot =
 /**
  * 删除某个槽位记着的那一条提示：群内公开状态走普通删除，发言入口按入口身份删除。删掉或
  * 已不存在、且槽位此刻仍是这条时清零；删除期间槽位被换成别的 id 时原样保留。
+ * @param session 当前 gag 会话。
+ * @param slot 提示消息所在的会话槽位字段名。
+ * @param noticeMessageId 待删除的提示消息 ID。
  * @returns 这条提示是否已不在群里。
  */
 export async function releaseGagNoticeSlot(

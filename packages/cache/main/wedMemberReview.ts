@@ -7,7 +7,12 @@ import type { WedMemberReview } from "../../types/wed";
  */
 export const wedMemberReview: { current: WedMemberReview | null } = { current: null };
 
-/** 群消息或成员状态更新命中当前正在探测的群成员时标记为仍在群。 */
+/**
+ * 群消息或成员状态更新命中当前正在探测的群成员时标记为仍在群。
+ *
+ * @param chatId 群聊 ID
+ * @param userId 成员用户 ID
+ */
 export function noteWedMemberPresence(chatId: number, userId: number): void {
   const review: WedMemberReview | null = wedMemberReview.current;
   if (review?.chatId === chatId && review.userId === userId) review.observed = true;

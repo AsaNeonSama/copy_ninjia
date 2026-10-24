@@ -4,7 +4,6 @@ import {
 } from "../infra/storage/stateStore";
 import {
   ANTI_RAID_BARRIER_TIMEOUT_MS,
-  ANTI_RAID_DRAIN_TIMEOUT_MS,
   ANTI_RAID_DRAIN_MAX_ROUNDS,
 } from "../consts/antiRaid/protocol";
 import { flushDiskIO, flushDiskIODomain } from "../infra/diskIO";
@@ -22,7 +21,12 @@ import type { FlushResult } from "../types/lifecycle";
 import type { DomainFlushOutcome } from "../types/diskIO/replies";
 import type { AntiRaidWorkerMessage } from "../types/antiRaid/protocol";
 
-/** FIFO mailbox barrier：只证明此前消息已同步路由，不等待后台网络副作用。 */
+/**
+ * FIFO mailbox barrier：只证明此前消息已同步路由，不等待后台网络副作用。
+ *
+ * @param timeoutMs 最大等待超时预算（毫秒），默认取 `ANTI_RAID_BARRIER_TIMEOUT_MS`
+ * @returns 屏障结算状态（`flushed`、`timedOut` 或 `failed`）
+ */
 function barrierAntiRaidMailbox(
   timeoutMs: number = ANTI_RAID_BARRIER_TIMEOUT_MS
 ): Promise<FlushResult> {
@@ -33,7 +37,13 @@ function barrierAntiRaidMailbox(
   );
 }
 
-/** 等待 Worker 此前启动的异步副作用全部结算，不处理跨线程持久化握手。 */
+/**
+ * 排空 Anti-Raid Worker 的广告检测队列、停止出站调度并刷空延迟删帖队列，
+ * 随后等待此前启动的异步副作用全部结算（不处理跨线程持久化握手）。
+ *
+ * @param timeoutMs 最大等待超时预算（毫秒）
+ * @returns 排空结算状态（`flushed`、`timedOut` 或 `failed`）
+ */
 function drainAntiRaidWorkerTasks(timeoutMs: number): Promise<FlushResult> {
   if (!antiRaidRuntimeState.initialized) return Promise.resolve("flushed");
   return antiRaidBarrier.begin(
@@ -45,10 +55,11 @@ function drainAntiRaidWorkerTasks(timeoutMs: number): Promise<FlushResult> {
 /**
  * 停机排空：先排空 Worker 在途任务并停止广告判定节拍，再循环排空主线程广告处置、
  * 邮箱屏障、磁盘与群状态落盘及回执触发的后续 Worker 任务，直至镜像版本收敛或达到 ANTI_RAID_DRAIN_MAX_ROUNDS。
+ *
+ * @param timeoutMs 最大等待超时预算（毫秒），停机时取 FlushTimeouts 的 `antiRaidMs`
+ * @returns 排空结算状态（`flushed`、`timedOut` 或 `failed`）
  */
-export async function drainAntiRaid(
-  timeoutMs: number = ANTI_RAID_DRAIN_TIMEOUT_MS
-): Promise<FlushResult> {
+export async function drainAntiRaid(timeoutMs: number): Promise<FlushResult> {
   if (!antiRaidRuntimeState.initialized) return "flushed";
   const deadline: number = createMonotonicDeadline(timeoutMs);
   const quiesceResult: FlushResult =
@@ -110,7 +121,12 @@ export async function drainAntiRaid(
   return "failed";
 }
 
-/** 判断消息批次是否包含黑名单处置消息（removeBlockedMembers）。 */
+/**
+ * 判断消息批次是否包含黑名单处置消息（removeBlockedMembers）。
+ *
+ * @param messages 待投递的 Anti-Raid Worker 消息批次
+ * @returns 包含至少一条 `removeBlockedMembers` 消息时返回 true，否则返回 false
+ */
 function containsBlockedRemoval(messages: readonly AntiRaidWorkerMessage[]): boolean {
   for (const message of messages) {
     if (message.type === "removeBlockedMembers") return true;
@@ -120,17 +136,28 @@ function containsBlockedRemoval(messages: readonly AntiRaidWorkerMessage[]): boo
 
 /** 标识本次 durable 投递期间发生变化的 Anti-Raid 镜像领域。 */
 interface ChangedAntiRaidMirrors {
+  /** 入群验证镜像在本轮投递中是否发生变更。 */
   readonly verification: boolean;
+  /** 反刷群私密模式镜像在本轮投递中是否发生变更。 */
   readonly lockdown: boolean;
 }
 
-/** 提取领域屏障回执的落盘结果。 */
+/**
+ * 提取领域屏障回执的落盘结果。
+ *
+ * @param outcome DiskIO 领域屏障回执
+ * @returns 领域落盘状态（`flushed`、`timedOut` 或 `failed`）
+ */
 function flushOutcomeResult(outcome: DomainFlushOutcome): FlushResult {
   return outcome.result;
 }
 
 /**
  * 刷新发生变化的 Anti-Raid 镜像领域（`verification` 与 `chatState`）。
+ *
+ * @param changed 本次投递期间发生变更的镜像领域标记
+ * @param timeoutMs 最大等待超时预算（毫秒）
+ * @returns 验证镜像与群状态镜像各自落盘结算结果的元组 Promise
  */
 function flushAntiRaidMirrors(
   changed: ChangedAntiRaidMirrors,
@@ -144,6 +171,9 @@ function flushAntiRaidMirrors(
 
 /**
  * 向 Worker 投递消息并等待邮箱屏障与已变更镜像的领域落盘屏障。
+ *
+ * @param messages 待投递给 Anti-Raid Worker 的消息批次
+ * @param replacedJoins 黑名单移除批次取消时需回退的 `removalId -> join` 消息映射
  * @returns 实际投递给 Worker 的消息条数（见 prepareDurableAntiRaidMessages 与 types/blocklist.ts 的 BlockedMemberRemover）。
  */
 export async function postAntiRaidDurably(

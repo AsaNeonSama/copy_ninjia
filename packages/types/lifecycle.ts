@@ -21,8 +21,10 @@ export type ApplicationRunMode = "test" | "main";
 /** 正常或异常停机时各持久化 owner 的完整时间预算。 */
 export interface FlushTimeouts {
   aiMemoryMs: number;
+  antiRaidMs: number;
   diskIOMs: number;
   stateMs: number;
+  translateMs: number;
   maintenanceMs: number;
 }
 

@@ -17,7 +17,11 @@ import type { SelfSentWaiter } from "../types/telegram";
  * @see ../../docs/cn/04-invariants.md
  */
 
-/** TTL 到期：摘掉这一条，并在该群最后一条消失时把内层表一并删除。 */
+/**
+ * TTL 到期：摘掉这一条，并在该群最后一条消失时把内层表一并删除。
+ * @param chatId 目标会话或频道 ID。
+ * @param messageId 自发消息 ID。
+ */
 function forgetSelfSent(chatId: number, messageId: number): void {
   const byMessage: Map<number, ReturnType<typeof setTimeout>> | undefined =
     sentMessages.get(chatId);
@@ -26,7 +30,11 @@ function forgetSelfSent(chatId: number, messageId: number): void {
   if (byMessage.size === 0) sentMessages.delete(chatId);
 }
 
-/** 标记到达时一次唤醒同一原帖的频道帖与关联讨论组副本。 */
+/**
+ * 标记到达时一次唤醒同一原帖的频道帖与关联讨论组副本。
+ * @param chatId 目标会话或频道 ID。
+ * @param messageId 自发消息 ID。
+ */
 function settleSelfSentWaiters(chatId: number, messageId: number): void {
   const byMessage: Map<number, Set<SelfSentWaiter>> | undefined =
     pendingSelfSentWaiters.get(chatId);
@@ -41,7 +49,10 @@ function settleSelfSentWaiters(chatId: number, messageId: number): void {
   }
 }
 
-/** 该 chat 的在途发送全部结算后，仍未等到登记的 waiter 一律判为外部消息。 */
+/**
+ * 该 chat 的在途发送全部结算后，仍未等到登记的 waiter 一律判为外部消息。
+ * @param chatId 目标会话或频道 ID。
+ */
 function settleUnmatchedSelfSentWaiters(chatId: number): void {
   const byMessage: Map<number, Set<SelfSentWaiter>> | undefined =
     pendingSelfSentWaiters.get(chatId);
@@ -55,7 +66,12 @@ function settleUnmatchedSelfSentWaiters(chatId: number): void {
   }
 }
 
-/** 超时或结算后摘掉自己那一个 waiter，空 Set 与空内层表同步删除。 */
+/**
+ * 超时或结算后摘掉自己那一个 waiter，空 Set 与空内层表同步删除。
+ * @param chatId 目标会话或频道 ID。
+ * @param messageId 等待匹配的消息 ID。
+ * @param waiter 待移除的等待项。
+ */
 function removeSelfSentWaiter(
   chatId: number,
   messageId: number,
@@ -77,13 +93,19 @@ function removeSelfSentWaiter(
  *
  * 普通群聊和私聊不会回投机器人自己发送的消息，调用方可据此保留同步快速路径；
  * 频道帖及频道自动转发仍必须进入有界 rendezvous，不能只做一次即时查询。
+ * @param message 入站 Telegram 消息对象。
+ * @returns 属于频道帖或频道自动转发时返回 true，否则返回 false。
  */
 export function needsBotOwnMessageWait(message: Message): boolean {
   if (message.chat.type === "channel") return true;
   return message.is_automatic_forward === true && message.forward_origin?.type === "channel";
 }
 
-/** 登记一条刚发出的消息；TTL 到期自动清理。 */
+/**
+ * 登记一条刚发出的消息；TTL 到期自动清理。
+ * @param chatId 消息发往的会话或频道 ID。
+ * @param messageId 发送成功返回的消息 ID。
+ */
 export function markSelfSent(chatId: number, messageId: number): void {
   let byMessage: Map<number, ReturnType<typeof setTimeout>> | undefined =
     sentMessages.get(chatId);
@@ -103,7 +125,10 @@ export function markSelfSent(chatId: number, messageId: number): void {
   settleSelfSentWaiters(chatId, messageId);
 }
 
-/** 一次会登记自发消息的出站请求即将发往 chatId；必须与 endSelfSentSend 成对。 */
+/**
+ * 一次会登记自发消息的出站请求即将发往 chatId；必须与 endSelfSentSend 成对。
+ * @param chatId 出站请求发往的会话或频道 ID。
+ */
 export function beginSelfSentSend(chatId: number): void {
   inFlightSelfSends.set(chatId, (inFlightSelfSends.get(chatId) ?? 0) + 1);
 }
@@ -111,6 +136,7 @@ export function beginSelfSentSend(chatId: number): void {
 /**
  * 结算一次 beginSelfSentSend。成功时必须在 `markSelfSent` 之后的同一同步段调用；
  * 该 chat 最后一次在途发送结算时，仍在等待的频道回投以 false 放行。
+ * @param chatId 出站请求发往的会话或频道 ID。
  */
 export function endSelfSentSend(chatId: number): void {
   const count: number | undefined = inFlightSelfSends.get(chatId);
@@ -123,7 +149,12 @@ export function endSelfSentSend(chatId: number): void {
   settleUnmatchedSelfSentWaiters(chatId);
 }
 
-/** 某条消息是否是机器人自己刚发出的。 */
+/**
+ * 某条消息是否是机器人自己刚发出的。
+ * @param chatId 目标会话或频道 ID。
+ * @param messageId 待判定的消息 ID。
+ * @returns 在本线程 TTL 窗口内登记为自发消息时返回 true，否则返回 false。
+ */
 export function isSelfSent(chatId: number, messageId: number): boolean {
   // 本线程没有登记过任何消息时直接返回 false。
   if (sentMessages.size === 0) return false;
@@ -134,6 +165,8 @@ export function isSelfSent(chatId: number, messageId: number): boolean {
  * 识别机器人自己发送内容的频道/关联讨论组回弹。任何会对消息产生输出的入口
  * 都必须先过这一关（见本文件头注）。自动流水线与注册在其前面的 `/<中文字>`
  * 动作命令共用此边界。
+ * @param message 入站 Telegram 消息对象。
+ * @returns 确认为机器人自发消息或其频道自动转发副本时返回 true，否则返回 false。
  */
 export function isBotOwnMessage(message: Message): boolean {
   if (isSelfSent(message.chat.id, message.message_id)) return true;
@@ -147,6 +180,9 @@ export function isBotOwnMessage(message: Message): boolean {
  * 跨线程发送专用门禁：标记已到则立即返回；可能回投的频道消息只在目标 chat 有
  * 在途发送时等待，最多等 timeoutMs：`markSelfSent` 立即以 true 唤醒，该 chat 的
  * 在途发送全部结算时以 false 唤醒。普通群/私聊与无在途发送的频道不创建 timer。
+ * @param message 入站 Telegram 消息对象。
+ * @param timeoutMs 有界汇合等待的最大毫秒数。
+ * @returns 确认为机器人自发消息时解析为 true，确认为外部消息或超时时解析为 false。
  */
 export function waitForBotOwnMessage(
   message: Message,

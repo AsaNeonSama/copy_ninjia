@@ -11,7 +11,10 @@ import { aiChatWorkerAbortController } from "../../../cache/workers/aiChat/worke
 import { getStickerConfig } from "../../../config/stickers";
 import { isPendingWithin } from "../../../libs/clockWindow";
 
-/** 配置轮换时释放退出白名单的正负缓存；在途请求仍服务已有等待者。 */
+/**
+ * 配置轮换时释放退出白名单的正负缓存；在途请求仍服务已有等待者。
+ * @param activePacks 当前生效的白名单贴纸包短名称列表。
+ */
 export function pruneStickerSets(activePacks: readonly string[]): void {
   for (const pack of stickerSetCache.keys()) {
     if (!activePacks.includes(pack)) stickerSetCache.delete(pack);
@@ -27,6 +30,10 @@ type StickerSetApi = Pick<TelegramApi, "getStickerSet">;
 /**
  * 拉取或复用缓存的单个白名单贴纸集合（同包并发请求合并，底层请求绑定 Worker 生命周期信号，
  * 调用方 signal 仅取消自身等待）；失败时记录负缓存并返回 null。
+ * @param packName 贴纸包短名称。
+ * @param api Telegram getStickerSet 接口实现。
+ * @param signal 调用方可选取消信号。
+ * @returns 贴纸集合对象；拉取失败、退避中或已取消时返回 null。
  */
 export async function getStickerSet(
   packName: string,
@@ -75,7 +82,12 @@ export async function getStickerSet(
   return waitForStickerSet(request, signal);
 }
 
-/** 按调用方 signal 等待共享贴纸集合请求。 */
+/**
+ * 按调用方 signal 等待共享贴纸集合请求。
+ * @param request 底层共享的贴纸集合拉取 Promise。
+ * @param signal 调用方可选取消信号。
+ * @returns 贴纸集合对象；取消或失败时返回 null。
+ */
 function waitForStickerSet(
   request: Promise<StickerSet | null>,
   signal?: AbortSignal

@@ -22,4 +22,14 @@ describe("HTTPS URL allowlist", () => {
     expect(parseAllowedHttpsUrl({ input: "https://telesco.pe.evil.test/file/avatar.jpg", policy })).toBeNull();
     expect(parseAllowedHttpsUrl({ input: "https://cdn1.telesco.pe:444/file/avatar.jpg", policy })).toBeNull();
   });
+
+  test("解析不了的地址返回 null；传入 URL 对象时返回同址的新对象", () => {
+    const policy: AllowedHttpsUrlPolicy = { allowedOrigins: ["https://api.example.com"] };
+    expect(parseAllowedHttpsUrl({ input: "not a url", policy })).toBeNull();
+    expect(parseAllowedHttpsUrl({ input: "https://[::1", policy })).toBeNull();
+    const input: URL = new URL("https://api.example.com/data?q=1");
+    const parsed: URL | null = parseAllowedHttpsUrl({ input, policy });
+    expect(parsed?.href).toBe(input.href);
+    expect(parsed).not.toBe(input);
+  });
 });

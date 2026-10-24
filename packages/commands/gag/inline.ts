@@ -50,13 +50,23 @@ import {
   hasGagInlineMarker,
 } from "./identity";
 
-/** 只把纯文本或带 caption 的媒体视作 gag 应删除的文字消息。 */
+/**
+ * 只把纯文本或带 caption 的媒体视作 gag 应删除的文字消息。
+ * @param message 入站消息对象。
+ * @returns 含文本或媒体说明文字时返回 true。
+ */
 function hasGagDeletableText(message: Message): boolean {
   return typeof message.text === "string" ||
     typeof message.caption === "string";
 }
 
-/** 当前 bot inline 文本是否匹配用具，且隐藏主页链接匹配当前目标与所在群。 */
+/**
+ * 当前 bot inline 文本是否匹配用具，且隐藏主页链接匹配当前目标与所在群。
+ * @param message 入站消息对象。
+ * @param botId 当前机器人用户 ID。
+ * @param session 当前 gag 会话。
+ * @returns 匹配当前会话的合法 inline 发言时返回 true。
+ */
 function isCurrentGagInlineMessage(
   message: Message,
   botId: number,
@@ -77,7 +87,13 @@ function isCurrentGagInlineMessage(
   ) === true;
 }
 
-/** 当前 bot 消息是否看起来在使用本群 gag 入口，但尚未通过完整身份校验。 */
+/**
+ * 当前 bot 消息是否看起来在使用本群 gag 入口，但尚未通过完整身份校验。
+ * @param message 入站消息对象。
+ * @param botId 当前机器人用户 ID。
+ * @param sessions 本群的 gag 会话列表。
+ * @returns 匹配本群任一活动会话用具前缀时返回 true。
+ */
 function isGagInlineCandidate(
   message: Message,
   botId: number,
@@ -94,7 +110,12 @@ function isGagInlineCandidate(
   return false;
 }
 
-/** 在本群小列表中定位当前发送身份的活动会话，不为每条消息创建 find 回调。 */
+/**
+ * 在本群小列表中定位当前发送身份的活动会话，不为每条消息创建 find 回调。
+ * @param sessions 本群的 gag 会话列表。
+ * @param senderId 当前消息发送者的用户或频道 ID。
+ * @returns 命中的活动会话；未命中时返回 undefined。
+ */
 function findActiveGagSenderSession(
   sessions: readonly GagSession[],
   senderId: number | undefined
@@ -110,14 +131,19 @@ function findActiveGagSenderSession(
 }
 
 /**
- * 命令前的消息入口：活动目标的任何消息都被认领。频道 inline 结果必须由主页
- * 标记与 sender_chat.id 同时绑定发言频道，并由 fragment 与 message.chat.id
- * 同时绑定超级群；用户分支对应核对主页标记、群 ID 与 from.id。
+ * 命令前的消息入口：被 gag 的活动目标发出的普通带文本/图注消息，以及失效或冒用的
+ * gag inline 结果消息均在此认领并删除；活动目标通过本 bot 发出的合法 gag inline 消息
+ * 与不含可删文本的纯媒体消息则放行（但仍更新话题与消息计数）。
+ * 频道 inline 结果必须由主页标记与 `sender_chat.id` 同时绑定发言频道，并由 fragment 与
+ * `message.chat.id` 同时绑定超级群；用户分支对应核对主页标记、群 ID 与 `from.id`。
  *
  * 认领判定全部同步完成，只有真要删消息或结束过期会话时才返回 Promise：本群没有会话、
  * 这条也不是本 bot 发出的旧 gag inline 结果时，判定只有一次 Map 查询与一次 via_bot/entity
  * 检查；本群有会话时，不认领的消息（非目标发言人等）同样同步返回 false。本 handler 挂在
  * 每条群消息之前（见 app/updatePreamble.ts 的前置链）。
+ * @param message 入站消息对象。
+ * @param botId 当前机器人用户 ID。
+ * @returns 消息被 gag 认领并删除时返回 true，放行时返回 false（含异步收尾后的结果）。
  */
 export function handleGagMessageIngress(
   message: Message,
@@ -132,13 +158,23 @@ export function handleGagMessageIngress(
   return claimGagMessage(message, botId, sessions);
 }
 
-/** 删除一条已认领的消息；删除结局不影响认领。 */
+/**
+ * 删除一条已认领的消息；删除结局不影响认领。
+ * @param message 待删除的入站消息对象。
+ * @returns 恒返回 true 表示消息已被认领。
+ */
 async function deleteClaimedGagMessage(message: Message): Promise<boolean> {
   await deleteMessageWithOutcome(message.chat.id, message.message_id);
   return true;
 }
 
-/** 结束到期会话；这条消息是带文字的 gag 入口候选时一并删除并认领。 */
+/**
+ * 结束到期会话；这条消息是带文字的 gag 入口候选时一并删除并认领。
+ * @param session 已到期的 gag 会话。
+ * @param message 触发到期检查的入站消息。
+ * @param deleteCandidate 是否需要一并删除该消息。
+ * @returns 消息是否被删除并认领。
+ */
 async function finishExpiredGagOnMessage(
   session: GagSession,
   message: Message,
@@ -148,7 +184,15 @@ async function finishExpiredGagOnMessage(
   return deleteCandidate ? deleteClaimedGagMessage(message) : false;
 }
 
-/** 本群有会话时的认领判定（见 handleGagMessageIngress）。 */
+/**
+ * 本群存在 gag 会话时的消息认领与放行判定（见 handleGagMessageIngress）：
+ * 对活动目标的普通带文本/图注消息及无效 gag inline 候选执行删除并认领；
+ * 对合法 gag inline 发言及无文本纯媒体消息放行并返回 false。
+ * @param message 入站消息对象。
+ * @param botId 当前机器人用户 ID。
+ * @param sessions 本群的 gag 会话列表。
+ * @returns 消息被认领并删除时返回 true，放行时返回 false。
+ */
 function claimGagMessage(
   message: Message,
   botId: number,
@@ -204,7 +248,12 @@ function claimGagMessage(
   return deleteClaimedGagMessage(message);
 }
 
-/** 为一条活动会话建立身份专属 inline article。 */
+/**
+ * 为一条活动会话建立身份专属 inline article。
+ * @param session 活动 gag 会话。
+ * @param query 用户输入的发言正文。
+ * @returns 构造好的 inline 查询结果文章条目。
+ */
 function buildGagInlineResult(
   session: GagSession,
   query: string
@@ -258,8 +307,10 @@ function buildGagInlineResult(
  * 绑定目标、fragment 绑定会话群，再与 Telegram 实际给出的 from.id/sender_chat.id、
  * message.chat.id 核验。频道候选使用不含群标题的通用标题。
  *
- * 不做分页：结果数受 GAG_SESSION_MAX（跨全部群的全局上限，见 gag/runtime.ts 的
+ * 不做分页：结果数受 GAG_SESSION_MAX（跨全部群的全局上限，见 ./runtime.ts 的
  * reserveGagSession）约束；频道可在多个群有同一目标，具体群由结果的隐藏标记绑定。
+ * @param ctx InlineQuery 上下文。
+ * @returns 查询是否带有 `gag:` 前缀并由本领域处理。
  */
 export async function handleGagInlineQuery(ctx: Context): Promise<boolean> {
   const inlineQuery: InlineQuery | undefined = ctx.inlineQuery;

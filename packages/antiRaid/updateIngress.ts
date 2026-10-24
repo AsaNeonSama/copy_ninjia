@@ -53,6 +53,8 @@ import { TELEGRAM_DATE_UNIT_MS } from "../consts/telegram";
 /**
  * 处理 `chat_member` 更新：记录群类型与管理员身份观测，同步邀请者豁免缓存，
  * 并将入群/离群事件与黑名单秒踢批次经 durable 边界投递给 Worker。
+ *
+ * @param ctx grammY 更新上下文
  */
 export async function handleChatMemberUpdate(ctx: Context): Promise<void> {
   const update: ChatMemberUpdated | undefined = ctx.chatMember;
@@ -126,11 +128,16 @@ export async function handleChatMemberUpdate(ctx: Context): Promise<void> {
 /**
  * 群消息的入群守卫入口（位于 app/updatePreamble.ts 命令处理之前）：拦截黑名单频道消息、
  * 吞并 `new_chat_members` 入群公告，并向 Worker 投递入群/离群服务消息、广告候选、刷屏候选与待验证成员发言。
+ *
+ * @param message 入站 Telegram 群消息
+ * @param botId 本机器人的 Telegram 用户 ID
+ * @param chatState 前置链在同一同步段读到的本群状态快照；现查管理员身份后改用重读的现值。
  * @returns 若消息已被接管或属于入群公告、调用方应跳过后续处理时返回 true，否则返回 false。
  */
 export function handleAntiRaidMessageIngress(
   message: Message,
-  botId: number
+  botId: number,
+  chatState: Readonly<ChatState>
 ): boolean | Promise<boolean> {
   if (message.chat?.type === "private") return false;
 
@@ -139,23 +146,31 @@ export function handleAntiRaidMessageIngress(
   const knownAdmin: boolean | undefined = cachedBotAdminStatus(message.chat.id);
   if (knownAdmin !== undefined) {
     return knownAdmin
-      ? ingestAdminChatMessage(message, botId)
+      ? ingestAdminChatMessage(message, botId, chatState)
       : isSwallowedJoinAnnouncement(message);
   }
   return resolveBotAdminStatus(message.chat.id).then(
     (isAdmin: boolean): boolean | Promise<boolean> => isAdmin
-      ? ingestAdminChatMessage(message, botId)
+      ? ingestAdminChatMessage(message, botId, getChatState(message.chat.id))
       : isSwallowedJoinAnnouncement(message)
   );
 }
 
-/** 判断消息是否为需吞并的 `new_chat_members` 入群服务消息。 */
+/**
+ * 判断消息是否为需吞并的 `new_chat_members` 入群服务消息。
+ *
+ * @param message 入站 Telegram 消息
+ * @returns 包含非空 `new_chat_members` 时返回 true，否则返回 false
+ */
 function isSwallowedJoinAnnouncement(message: Message): boolean {
   return !!(message.new_chat_members && message.new_chat_members.length > 0);
 }
 
 /**
  * 记录广告候选投递的边沿状态变化日志（见 adCandidatePostRejected）。
+ *
+ * @param chatId 群聊 ID
+ * @param posted 本次向 Anti-Raid Worker 投递广告候选是否成功
  */
 function noteAdCandidatePost(chatId: number, posted: boolean): void {
   if (posted) {
@@ -175,28 +190,39 @@ function noteAdCandidatePost(chatId: number, posted: boolean): void {
 
 /**
  * 在已确证机器人具备群管理员身份后，先执行黑名单频道消息门禁，未命中时进入 ingestAdmittedMessage。
+ *
+ * @param message 入站 Telegram 群消息
+ * @param botId 本机器人的 Telegram 用户 ID
+ * @param chatState 当前群状态快照
+ * @returns 消息已被拦截或属于入群公告时返回 true（或兑现为 true 的 Promise），否则返回 false
  */
 function ingestAdminChatMessage(
   message: Message,
-  botId: number
+  botId: number,
+  chatState: Readonly<ChatState>
 ): boolean | Promise<boolean> {
   const blocked: boolean | Promise<boolean> =
     deleteBlockedSenderChatMessage(message);
   if (typeof blocked !== "boolean") {
     return blocked.then((claimed: boolean): boolean | Promise<boolean> =>
-      claimed ? true : ingestAdmittedMessage(message, botId));
+      claimed ? true : ingestAdmittedMessage(message, botId, getChatState(message.chat.id)));
   }
-  return blocked ? true : ingestAdmittedMessage(message, botId);
+  return blocked ? true : ingestAdmittedMessage(message, botId, chatState);
 }
 
 /**
  * 处理通过黑名单门禁的群消息：分发入群/离群服务消息、广告候选、刷屏计数与验证/评论线索。
+ *
+ * @param message 入站 Telegram 群消息
+ * @param botId 本机器人的 Telegram 用户 ID
+ * @param chatState 本同步段的群状态快照（跨过等待的调用方传入重读的现值）。
+ * @returns 属于入群服务消息且应由上层跳过后续处理时返回 true，否则返回 false
  */
 function ingestAdmittedMessage(
   message: Message,
-  botId: number
+  botId: number,
+  chatState: Readonly<ChatState>
 ): boolean | Promise<boolean> {
-  const chatState: Readonly<ChatState> = getChatState(message.chat.id);
   if (
     message.new_chat_members &&
     message.new_chat_members.length > 0
@@ -245,6 +271,7 @@ function ingestAdmittedMessage(
     return false;
   }
 
+  const now: number = updateNow();
   let adCandidate: AdCandidateMessage | undefined;
   if (chatState.isAdDetectEnabled === true) {
     const senderChat: Chat | undefined = visibleSenderChat(message);
@@ -253,7 +280,7 @@ function ingestAdmittedMessage(
       const adContext: AdDetectionMessageContext = {
         message,
         botId,
-        now: updateNow(),
+        now,
         senderId: adSenderId,
         senderChat,
       };
@@ -265,7 +292,6 @@ function ingestAdmittedMessage(
   }
   if (adCandidate !== undefined) noteAdCandidatePost(message.chat.id, postAntiRaid(adCandidate));
 
-  const now: number = updateNow();
   const floodCandidate: FloodCandidateMessage | undefined =
     message.chat.type === "supergroup" && chatState.isFloodControlEnabled === true
       ? buildFloodCandidate({ message, botId, now, chatState })
@@ -306,6 +332,8 @@ function ingestAdmittedMessage(
 /**
  * 处理入群验证按钮回调（callback_query）：按前缀解析本人验证或管理员代点「通过」，
  * 校验目标用户 ID 后经 durable 边界投递给 Worker。
+ *
+ * @param ctx grammY 更新上下文
  */
 export async function handleVerificationCallback(
   ctx: Context

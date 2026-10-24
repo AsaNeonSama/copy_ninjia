@@ -1,6 +1,3 @@
-import { chatQaEntries, qaFormSessions } from "../cache/main/qa";
-import type { AtmosphereTexts } from "../types/atmosphere";
-import { chatAtmosphere } from "../infra/atmosphere";
 /**
  * 群问答的子命令：`/qa set`、`/qa query`、`/qa remove`。
  *
@@ -10,8 +7,12 @@ import { chatAtmosphere } from "../infra/atmosphere";
  *
  * 频道身份可用：表单靠「问题:」「回答:」两条格式消息收文本，频道马甲与匿名管理员
  * 在命令侧和投递侧是同一个 `sender_chat` id。写入资格由是否为开表单的身份判定，
- * 权限只在开表单那一步查（见 qa/ingress.ts 的文件头注）。
+ * 权限只在开表单那一步查（见 ./qa/ingress.ts 的文件头注）。
  */
+
+import { chatQaEntries, qaFormSessions } from "../cache/main/qa";
+import type { AtmosphereTexts } from "../types/atmosphere";
+import { chatAtmosphere } from "../infra/atmosphere";
 
 import type { CommandContext, Context } from "grammy";
 import type { Message } from "grammy/types";
@@ -48,7 +49,10 @@ import {
 
 export { handleQaBoardCallback } from "./qa/board";
 
-/** /qa 统一入口；按子命令分派表单、查询或删除。 */
+/**
+ * /qa 统一入口；按子命令分派表单、查询或删除。
+ * @param ctx 命令上下文。
+ */
 export async function handleQaCommand(ctx: CommandContext<Context>): Promise<void> {
   const match: RegExpExecArray | null = QA_SUBCOMMAND_PATTERN.exec(ctx.match.trim());
   // 子命令词不区分大小写；第二组是用户写的问题文本，保持原样。
@@ -65,7 +69,11 @@ export async function handleQaCommand(ctx: CommandContext<Context>): Promise<voi
   }
 }
 
-/** 维护类命令的权限闸；`/qa query` 不走这里。放行时返回发起身份，拒绝时已回执并返回 undefined。 */
+/**
+ * 维护类命令的权限闸；`/qa query` 不走这里。放行时返回发起身份，拒绝时已回执并返回 undefined。
+ * @param ctx 命令上下文。
+ * @returns 校验通过时返回命令发起身份，拒绝时返回 undefined。
+ */
 function requiresQaPermission(ctx: CommandContext<Context>): Promise<CachedUser | undefined> {
   return rejectUnlessPermitted(
     ctx,
@@ -74,14 +82,20 @@ function requiresQaPermission(ctx: CommandContext<Context>): Promise<CachedUser 
   );
 }
 
-/** 表单被结算（填齐、到期或 teardown）时统一收走那条提示消息。 */
+/**
+ * 表单被结算（填齐、到期或 teardown）时统一收走那条提示消息。
+ * @param session 待清理提示消息的表单会话。
+ */
 function discardQaForm(session: QaFormSession): void {
   void deleteQaForm(session).catch((error: unknown): void => {
     logger.error(`Failed to delete the qa form in chat ${session.chatId}:`, error);
   });
 }
 
-/** 处理 `/qa set`：开一张表单，等发起者按格式把问题和回答发进来。 */
+/**
+ * 处理 `/qa set`：开一张表单，等发起者按格式把问题和回答发进来。
+ * @param ctx 命令上下文。
+ */
 async function setQa(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
   const messageId: number | undefined = ctx.msgId;
@@ -131,7 +145,12 @@ async function setQa(ctx: CommandContext<Context>): Promise<void> {
   }
 }
 
-/** 两项填齐后落库并回执；表单在回执之后才删。 */
+/**
+ * 两项填齐后落库并回执；表单在回执之后才删。
+ * @param session 填齐的表单会话。
+ * @param q 问题文本。
+ * @param a 回答文本。
+ */
 async function settleQaForm(session: QaFormSession, q: string, a: string): Promise<void> {
   const chatId: number = session.chatId;
   const formMessageId: number | undefined = session.formMessageId;
@@ -164,13 +183,19 @@ async function settleQaForm(session: QaFormSession, q: string, a: string): Promi
 /**
  * 消息流水线前置认领入口：无会话或不是发起者投递的字段时同步返回 false，不分配 Promise。
  * 进入删除流程后返回 true，禁止下游再次处理该消息；见 docs/cn/04-invariants.md。
+ * @param message 入站消息对象。
+ * @returns 是否被问答表单认领并消费。
  */
 export function handleQaMessageIngress(message: Message): boolean | Promise<boolean> {
   const claiming: Promise<QaFormIngressResult | null> | null = claimQaFieldMessage(message);
   return claiming === null ? false : claimQaFormDelivery(claiming);
 }
 
-/** 认领与回执的异步段；只有发起者投递的字段才走到。 */
+/**
+ * 认领与回执的异步段；只有发起者投递的字段才走到。
+ * @param claiming 异步字段认领 Promise。
+ * @returns 是否被问答表单认领并消费。
+ */
 async function claimQaFormDelivery(claiming: Promise<QaFormIngressResult | null>): Promise<boolean> {
   const claimed: QaFormIngressResult | null = await claiming;
   if (claimed === null) return false;
@@ -215,7 +240,11 @@ async function claimQaFormDelivery(claiming: Promise<QaFormIngressResult | null>
   return true;
 }
 
-/** 处理 `/qa query`：不带参数列全部，带参数查一条；渲染出的看板长期保留，空列表与查无此条的提示走默认清理。 */
+/**
+ * 处理 `/qa query`：不带参数列全部，带参数查一条；渲染出的看板长期保留，空列表与查无此条的提示走默认清理。
+ * @param ctx 命令上下文。
+ * @param wanted 待查询的问题文本（空串表示查询全部）。
+ */
 async function queryQa(ctx: CommandContext<Context>, wanted: string): Promise<void> {
   const chatId: number = ctx.chat.id;
   const messageId: number | undefined = ctx.msgId;
@@ -247,12 +276,16 @@ async function queryQa(ctx: CommandContext<Context>, wanted: string): Promise<vo
     replyToMessageId: messageId,
     // 与 /permission query 同一口径的长期保留例外；查不到那条的提示仍走默认清理。
     preserveInGroup: true,
-    // 长期保留 ⇒ 自己带话题，见 SendMessageParams.messageThreadId。
+    // 显式带上触发消息所在论坛话题（见 SendMessageBaseParams.messageThreadId）。
     messageThreadId: forumTopicThreadId(ctx.msg),
   });
 }
 
-/** 处理 `/qa remove <问题文本>`：删掉本群指定问答。 */
+/**
+ * 处理 `/qa remove <问题文本>`：删掉本群指定问答。
+ * @param ctx 命令上下文。
+ * @param wanted 待删除的问题文本。
+ */
 async function removeQa(ctx: CommandContext<Context>, wanted: string): Promise<void> {
   const chatId: number = ctx.chat.id;
   if (await requiresQaPermission(ctx) === undefined) return;
@@ -276,7 +309,10 @@ async function removeQa(ctx: CommandContext<Context>, wanted: string): Promise<v
   );
 }
 
-/** 机器人已离群：表单消息删不掉，关闭会话后直接作废消息 id，不发删除请求。 */
+/**
+ * 机器人已离群：表单消息删不掉，关闭会话后直接作废消息 id，不发删除请求。
+ * @param session 待放弃提示消息的表单会话。
+ */
 function abandonQaForm(session: QaFormSession): void {
   session.formMessageId = undefined;
 }
@@ -286,6 +322,8 @@ function abandonQaForm(session: QaFormSession): void {
  *
  * 表单一律收走，表单消息只在机器人仍能访问本群时删除（isChatUnreachable 为假）；问答只在
  * purgesChatData(reason) 为真时删除（见 libs/chatTeardown.ts），`lostAuthority` 保留问答。
+ * @param chatId 目标群 ID。
+ * @param reason 清理触发原因。
  */
 export function teardownQaInChat(chatId: number, reason: ChatTeardownReason): void {
   closeQaFormSessionsInChat(chatId, isChatUnreachable(reason) ? abandonQaForm : discardQaForm);
@@ -297,6 +335,8 @@ export function teardownQaInChat(chatId: number, reason: ChatTeardownReason): vo
  *
  * 表单不挂固定延迟删除，TTL timer 不阻止进程退出。零预算不发起新请求；发送仍在途的
  * 表单由迟到的 onSent 回调接手删除。
+ * @param timeoutMs 最大等待毫秒数。
+ * @returns 排空完成或超时结果。
  */
 export async function drainQaForms(timeoutMs: number): Promise<FlushResult> {
   if (qaFormSessions.size === 0) return "flushed";

@@ -2,7 +2,11 @@
 
 import { BUN_INSPECTOR_ENVS } from "../../packages/consts/environment";
 
-/** 继承父进程环境并叠加调用方变量，再去掉 `BUN_INSPECTOR_ENVS`；子进程只有主线程一个 JSC 堆。 */
+/**
+ * 继承父进程环境并叠加调用方变量，再去掉 `BUN_INSPECTOR_ENVS`；子进程只有主线程一个 JSC 堆。
+ * @param overrides 调用方需要覆盖或新增的环境变量表。
+ * @returns 清理掉调试器环境变量后的子进程环境变量表。
+ */
 export function perfChildEnvironment(
   overrides: Readonly<Record<string, string>> = {}
 ): Readonly<Record<string, string | undefined>> {

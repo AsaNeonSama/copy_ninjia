@@ -11,6 +11,8 @@ import type { CachedUser } from "../types/chatState";
  * 当前用户名。用户经命令所在群的 getChatMember（离群或从未入群同样返回身份，见
  * infra/telegram/actions/membership.ts 的 readChatMemberUser），频道与群身份经 getChat。
  * 失败记 API 错误日志；update 被取消时向上抛出。
+ * @param chatId 命令所在群聊 ID，用于普通成员的 getChatMember 查询。
+ * @param target 缓存中匹配到的目标身份。
  * @returns 当前身份；查询失败为 undefined。
  */
 export async function readLiveTargetIdentity(chatId: number, target: CachedUser): Promise<CachedUser | undefined> {

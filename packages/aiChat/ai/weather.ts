@@ -20,12 +20,18 @@ import { TOKYO_TIME_ZONE } from "../../consts/time";
  * 东京天气定时拉取与缓存更新（写入 weatherCache，供天气查询工具与心情系统读取）。
  */
 
+/**
+ * 将 WMO 天气代码转换为中文天气描述。
+ * @param code WMO 天气代码。
+ * @returns 对应的中文天气描述文本。
+ */
 function describeWeatherCode(code: number): string {
   return WEATHER_CODE_DESCRIPTIONS[code] ?? `未知天气现象（代码 ${code}）`;
 }
 
 /**
  * 请求 WEATHER_API_URL 并更新 weatherCache；失败、超时、非当前世代或响应结构不符时保留原缓存。
+ * @param controller 当前天气刷新世代的中止控制器。
  */
 async function refreshTokyoWeather(controller: AbortController): Promise<void> {
   if (weatherRefreshController.current !== controller) return;

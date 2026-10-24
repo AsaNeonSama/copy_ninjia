@@ -44,6 +44,10 @@ const {
 } = await import("../../packages/consts/antiRaid/blocklist");
 
 const {
+  BLOCKLIST_SWEEP_PAGE_SIZE,
+} = await import("../../packages/consts/identityStorage");
+
+const {
   handleMyChatMemberUpdate,
   markBotAdminObserved,
   resolveBotAdminStatus,
@@ -620,6 +624,44 @@ describe("「是管理员 && 已初始化」成立的那一刻触发清扫", () 
     remover.mockClear();
     await sweepBlockedMembers(-1001, 2_000);
     expect(remover).toHaveBeenCalledTimes(1);
+  });
+
+  test("targetIsAdmin 回执在末页、非末页与非当前补扫批次下均保持欠扫状态", async () => {
+    blockedUserIds.set(7, { isBlocked: true, blockedAt: "2026/07/26 00:00:00" });
+    await sweepBlockedMembers(-1001, 1_000);
+    settleLast(true, -1001, true);
+    expect(blocklistSweepState.get(-1001)?.sweptAt).toBeNull();
+    expect(blocklistSweepState.get(-1001)?.failedSweeps).toBe(1);
+
+    for (let id: number = 1; id <= BLOCKLIST_SWEEP_PAGE_SIZE + 1; id++) {
+      blockedUserIds.set(id, { isBlocked: true, blockedAt: "2026/07/26 00:00:00" });
+    }
+    const retryAfterSinglePage: number = blocklistSweepState.get(-1001)!.nextRetryAt;
+    await sweepBlockedMembers(-1001, retryAfterSinglePage);
+    settleLast(true, -1001, true);
+    expect(blocklistSweepState.get(-1001)?.resweepRequested).toBeTrue();
+    await settleBackgroundWork();
+    settleLast(true);
+    expect(blocklistSweepState.get(-1001)?.sweptAt).toBeNull();
+
+    const retryAfterMultiPage: number = blocklistSweepState.get(-1001)!.nextRetryAt;
+    await sweepBlockedMembers(-1001, retryAfterMultiPage);
+    settleLast(true);
+    await settleBackgroundWork();
+    settleLast(true);
+    expect(blocklistSweepState.get(-1001)?.sweptAt).toEqual(expect.any(Number));
+
+    const kick = trackBlockedRemoval({ chatId: -1001, userIds: [7], probeMembership: false, joinedAt: 4_000 });
+    settleBlockedRemoval({
+      type: "blockedMembersRemoved",
+      participantInvalidUserIds: [],
+      settledUserIds: [],
+      chatId: -1001,
+      removalId: kick.removalId,
+      complete: true,
+      targetIsAdmin: true,
+    });
+    expect(blocklistSweepState.get(-1001)?.sweptAt).toBeNull();
   });
 
   test("从没扫过的群显式记下补扫截止时间，不能只等下一条成员事件", () => {

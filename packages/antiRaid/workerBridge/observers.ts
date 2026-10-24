@@ -36,7 +36,9 @@ import {
 
 /** Anti-Raid 主线程观察者注册所需的代理能力。 */
 export interface RegisterAntiRaidBridgeObserversOptions {
+  /** 向当前代际 Anti-Raid Worker 尽力投递消息的入口。 */
   readonly post: (message: AntiRaidWorkerMessage) => boolean;
+  /** 停用指定群的入群验证与封锁链路的回调。 */
   readonly deactivateChat: (
     chatId: number,
     cleanupVerificationMessages: boolean,
@@ -49,6 +51,8 @@ export interface RegisterAntiRaidBridgeObserversOptions {
  *
  * 调用一次后由各上游长期持有回调；Worker 重建只替换 post 背后的当前代际，
  * 不重复注册观察者。
+ *
+ * @param options 消息投递入口与群停用回调
  */
 export function registerAntiRaidBridgeObservers({
   post,

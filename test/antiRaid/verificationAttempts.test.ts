@@ -152,4 +152,65 @@ describe("verification terminal process budget", () => {
       revision: 4,
     }]);
   });
+
+  test("终态许可与延后接纳对缺失快照、非终态、修订号不匹配及已延后记录保持拒绝且不改计数", () => {
+    expect(grantVerificationAttempt({
+      operation: "verificationAttemptPermit",
+      key: KEY,
+      generation: 1,
+      revision: 3,
+    })).toEqual({ status: "stale", attempt: 0 });
+    expect(terminalVerificationAttempts.has(KEY)).toBeFalse();
+
+    setActiveVerificationSnapshot(KEY, {
+      chatId: -1001,
+      userId: 42,
+      generation: 1,
+      revision: 3,
+      phase: "pending",
+      label: "待验证成员",
+      isBot: false,
+      trackedMessageTimes: [],
+      replyReminderRequested: false,
+      reminderSuperseded: false,
+      joinedAt: 1_000,
+      expiresAt: 2_000,
+    });
+    expect(grantVerificationAttempt({
+      operation: "verificationAttemptPermit",
+      key: KEY,
+      generation: 1,
+      revision: 3,
+    })).toEqual({ status: "stale", attempt: 0 });
+    expect(terminalVerificationAttempts.has(KEY)).toBeFalse();
+
+    setActiveVerificationSnapshot(KEY, terminalRecord(1, 3));
+    expect(grantVerificationAttempt({
+      operation: "verificationAttemptPermit",
+      key: KEY,
+      generation: 1,
+      revision: 2,
+    })).toEqual({ status: "stale", attempt: 0 });
+    expect(terminalVerificationAttempts.has(KEY)).toBeFalse();
+
+    expect(acceptVerificationDeferred({
+      type: "verificationDeferred",
+      record: { chatId: -1001, userId: 42, generation: 1, revision: 2 },
+    })).toBeFalse();
+    expect(terminalVerificationAttempts.has(KEY)).toBeFalse();
+
+    deferredVerificationRecords.set(KEY, {
+      chatId: -1001,
+      userId: 42,
+      generation: 1,
+      revision: 3,
+    });
+    expect(grantVerificationAttempt({
+      operation: "verificationAttemptPermit",
+      key: KEY,
+      generation: 1,
+      revision: 3,
+    })).toEqual({ status: "exhausted", attempt: 0 });
+    expect(terminalVerificationAttempts.has(KEY)).toBeFalse();
+  });
 });

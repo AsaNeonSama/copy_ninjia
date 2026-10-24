@@ -1,8 +1,15 @@
 import { afterAll } from "bun:test";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 // 必须排在下面那条生产 import 之前：它负责在 consts/paths 求值之前注入两个
-// 根目录（见 test/preloadEnv.ts 的说明）。
-import { PREVIOUS_CONFIG_ROOT, PREVIOUS_DATA_ROOT, TEST_DATA_ROOT } from "./preloadEnv";
+// 根目录与 TMPDIR（见 test/preloadEnv.ts 的说明）。
+import {
+  PREVIOUS_CONFIG_ROOT,
+  PREVIOUS_DATA_ROOT,
+  PREVIOUS_TMPDIR,
+  TEST_DATA_ROOT,
+  TEST_TMPDIR,
+  TMPDIR_ENV,
+} from "./preloadEnv";
 import {
   CONFIG_ROOT_ENV,
   RUNTIME_DATA_ROOT_ENV,
@@ -102,8 +109,11 @@ translateConfigReadinessCache.current = { ok: true };
 
 afterAll(() => {
   rmSync(TEST_DATA_ROOT, { recursive: true, force: true });
+  rmSync(TEST_TMPDIR, { recursive: true, force: true });
   if (PREVIOUS_DATA_ROOT === undefined) delete process.env[RUNTIME_DATA_ROOT_ENV];
   else process.env[RUNTIME_DATA_ROOT_ENV] = PREVIOUS_DATA_ROOT;
   if (PREVIOUS_CONFIG_ROOT === undefined) delete process.env[CONFIG_ROOT_ENV];
   else process.env[CONFIG_ROOT_ENV] = PREVIOUS_CONFIG_ROOT;
+  if (PREVIOUS_TMPDIR === undefined) delete process.env[TMPDIR_ENV];
+  else process.env[TMPDIR_ENV] = PREVIOUS_TMPDIR;
 });

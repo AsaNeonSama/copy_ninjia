@@ -3,18 +3,13 @@
  *
  * 父进程交替启动 baseline/current 子进程，确保每个样本有独立 JSC 堆与预热；
  * baseline 是固定参照算法：整表复制加排序加整串 JSON（snapshot/capacity），
- * 或按记录重新序列化一次只为量字节数（append-accounting）。
+ * 或按记录调用字节数计算函数（append-accounting）。
  */
 
 import { snapshotHeap } from "./heapSnapshot";
-import { median } from "./statistics";
 import { cartesianProduct } from "../../packages/libs/cartesianProduct";
-import { DAY_FILE_JSON_INDENT, FLUSH_MAX_ENTRIES } from "../../packages/consts/diskIO/appendOnly";
-import {
-  JOIN_LOG_ENTRY_SEPARATOR_BYTES,
-  JOIN_LOG_MAX_BUFFERED_ENTRIES,
-  JOIN_LOG_MAX_USERS_PER_CHAT_DAY,
-} from "../../packages/consts/diskIO/joinLog";
+import { DAY_FILE_JSON_INDENT } from "../../packages/consts/diskIO/appendOnly";
+import { JOIN_LOG_ENTRY_SEPARATOR_BYTES } from "../../packages/consts/diskIO/joinLog";
 import {
   joinLogSnapshotChunks,
   joinLogSnapshotEntryBytes,
@@ -22,118 +17,38 @@ import {
   trimJoinLogRecordsToCapacity,
 } from "../../packages/workers/diskIO/joinLogRecords";
 import { perfChildEnvironment } from "./childEnvironment";
+import {
+  aggregate,
+  CAPACITY_WARMUP_ROUNDS,
+  capacityChecksum,
+  createAppendFixture,
+  createCapacityFixture,
+  createRecords,
+  OVERFLOW,
+  parseOperation,
+  parseVariant,
+  PROCESS_SAMPLE_COUNT,
+  RECORD_COUNT,
+  WARMUP_RECORD_COUNT,
+  WARMUP_ROUNDS,
+} from "./joinLogSupport";
+import type {
+  AggregateResult,
+  AppendFixture,
+  BenchmarkReport,
+  CapacityFixture,
+  ChildResult,
+  Operation,
+  Variant,
+} from "./joinLogSupport";
 import type { HeapSnapshot } from "./heapSnapshot";
 import type { JoinLogRecord } from "../../packages/types/diskIO/storage";
 
-type Operation = "snapshot" | "capacity" | "append-accounting";
-type Variant = "baseline" | "current";
-
-interface CapacityFixture {
-  capacity: number;
-  records: Map<number, JoinLogRecord>;
-  incoming: readonly JoinLogRecord[];
-}
-
-/** 一次 flush 的记录批次，按批重复以达到与其它算子同量级的输入规模。 */
-interface AppendFixture {
-  batch: readonly JoinLogRecord[];
-  batchCount: number;
-}
-
-interface ChildResult {
-  operation: Operation;
-  variant: Variant;
-  bunVersion: string;
-  bunRevision: string;
-  recordCount: number;
-  overflow: number;
-  warmupRecordCount: number;
-  elapsedMs: number;
-  heapDeltaBeforeGc: number;
-  extraMemoryDeltaBeforeGc: number;
-  objectDeltaBeforeGc: number;
-  retainedHeapDelta: number;
-  retainedExtraMemoryDelta: number;
-  retainedObjectDelta: number;
-  checksum: number;
-}
-
-interface AggregateResult {
-  operation: Operation;
-  variant: Variant;
-  samples: number;
-  medianElapsedMs: number;
-  minElapsedMs: number;
-  maxElapsedMs: number;
-  medianHeapDeltaBeforeGc: number;
-  medianExtraMemoryDeltaBeforeGc: number;
-  medianObjectDeltaBeforeGc: number;
-  medianRetainedHeapDelta: number;
-  medianRetainedExtraMemoryDelta: number;
-  medianRetainedObjectDelta: number;
-}
-
-interface BenchmarkReport {
-  bunVersion: string;
-  bunRevision: string;
-  recordCount: number;
-  overflow: number;
-  warmupRecordCount: number;
-  independentProcessSamples: number;
-  results: AggregateResult[];
-}
-
-/** 生产容量线；夹具规模取生产常量，输入固定。 */
-const RECORD_COUNT: number = JOIN_LOG_MAX_USERS_PER_CHAT_DAY;
-/** 单次正常 flush 最多引入的高基数溢出量。 */
-const OVERFLOW: number = FLUSH_MAX_ENTRIES;
-/** 子进程正式采样前的小规模预热输入。 */
-const WARMUP_RECORD_COUNT: number = 10_000;
-/** 每个变体使用的独立进程样本数。 */
-const PROCESS_SAMPLE_COUNT: number = 5;
-/** 单批规模取生产的待刷上限，对应一次 flush 能携带的最大事实数。 */
-const APPEND_BATCH_SIZE: number = JOIN_LOG_MAX_BUFFERED_ENTRIES;
-/** 批次数使总输入与 snapshot/capacity 同量级。 */
-const APPEND_BATCH_COUNT: number =
-  Math.floor(RECORD_COUNT / APPEND_BATCH_SIZE);
-
-function createRecords(count: number): Map<number, JoinLogRecord> {
-  const records: Map<number, JoinLogRecord> = new Map();
-  for (let userId: number = 1; userId <= count; userId += 1) {
-    records.set(userId, {
-      userId,
-      joinedAt: 1_800_000_000_000 + userId,
-    });
-  }
-  return records;
-}
-
-function createAppendFixture(): AppendFixture {
-  const batch: JoinLogRecord[] = new Array<JoinLogRecord>(APPEND_BATCH_SIZE);
-  for (let index: number = 0; index < APPEND_BATCH_SIZE; index += 1) {
-    const userId: number = index + 1;
-    batch[index] = { userId, joinedAt: 1_800_000_000_000 + userId };
-  }
-  return { batch, batchCount: APPEND_BATCH_COUNT };
-}
-
-function createCapacityFixture(
-  capacity: number,
-  overflow: number
-): CapacityFixture {
-  const records: Map<number, JoinLogRecord> = createRecords(capacity);
-  const incoming: JoinLogRecord[] = new Array<JoinLogRecord>(overflow);
-  for (let index: number = 0; index < overflow; index += 1) {
-    const userId: number = capacity + index + 1;
-    incoming[index] = {
-      userId,
-      joinedAt: 1_800_000_000_000 + userId,
-    };
-  }
-  return { capacity, records, incoming };
-}
-
-/** 固定参照快照：values 数组 + 排序 + 投影对象 + 完整 JSON 字符串。 */
+/**
+ * 固定参照快照：values 数组 + 排序 + 投影对象 + 完整 JSON 字符串。
+ * @param records 待序列化的入群记录表。
+ * @returns 完整快照 JSON 的 UTF-8 字节数。
+ */
 function baselineSnapshot(records: ReadonlyMap<number, JoinLogRecord>): number {
   const ordered: JoinLogRecord[] = [...records.values()];
   ordered.sort((
@@ -149,7 +64,11 @@ function baselineSnapshot(records: ReadonlyMap<number, JoinLogRecord>): number {
   );
 }
 
-/** 当前快照：直接按生产分块迭代器流式消费；准确字节数由文件缓存增量维护。 */
+/**
+ * 当前快照：直接按生产分块迭代器流式消费；准确字节数由文件缓存增量维护。
+ * @param records 待序列化的入群记录表。
+ * @returns 流式分块输出累计的 UTF-8 字节数。
+ */
 function currentSnapshot(records: ReadonlyMap<number, JoinLogRecord>): number {
   let streamedBytes: number = 0;
   for (const chunk of joinLogSnapshotChunks(records)) {
@@ -158,7 +77,11 @@ function currentSnapshot(records: ReadonlyMap<number, JoinLogRecord>): number {
   return streamedBytes;
 }
 
-/** 固定参照容量路径：复制整张 Map，再展开和排序全部 entry。 */
+/**
+ * 固定参照容量路径：复制整张 Map，再展开和排序全部 entry。
+ * @param fixture 容量裁剪夹具。
+ * @returns 裁剪后记录表的校验和。
+ */
 function baselineCapacity(fixture: CapacityFixture): number {
   const next: Map<number, JoinLogRecord> = new Map(fixture.records);
   for (const record of fixture.incoming) next.set(record.userId, record);
@@ -176,7 +99,11 @@ function baselineCapacity(fixture: CapacityFixture): number {
   return capacityChecksum(next, fixture.capacity);
 }
 
-/** 当前容量路径：直接更新可重建索引，只分配 overflow 个淘汰 id。 */
+/**
+ * 当前容量路径：直接更新可重建索引，只分配 overflow 条待淘汰记录引用。
+ * @param fixture 容量裁剪夹具。
+ * @returns 裁剪后记录表的校验和。
+ */
 function currentCapacity(fixture: CapacityFixture): number {
   for (const record of fixture.incoming) {
     fixture.records.set(record.userId, record);
@@ -186,8 +113,9 @@ function currentCapacity(fixture: CapacityFixture): number {
 }
 
 /**
- * 固定参照记账：追加落盘后按记录再调用一次 joinLogSnapshotEntryBytes，而它
- * 内部会把同一条记录重新序列化一遍，只为量出它的字节数。
+ * 固定参照记账：追加落盘后按记录重新序列化并测量 UTF-8 字节数。
+ * @param fixture 追加记账夹具。
+ * @returns 累计计算的字节数校验和。
  */
 function baselineAppendAccounting(fixture: AppendFixture): number {
   let bytes: number = 0;
@@ -198,14 +126,19 @@ function baselineAppendAccounting(fixture: AppendFixture): number {
     }
     bytes += Buffer.byteLength(texts.join(",\n"));
     for (const record of fixture.batch) {
-      bytes += JOIN_LOG_ENTRY_SEPARATOR_BYTES +
-        joinLogSnapshotEntryBytes(record);
+      bytes +=
+        JOIN_LOG_ENTRY_SEPARATOR_BYTES +
+        Buffer.byteLength(serializeJoinLogSnapshotEntry(record));
     }
   }
   return bytes;
 }
 
-/** 当前记账：复用同一轮已经序列化好的分段文本，整批只序列化一次。 */
+/**
+ * 当前记账：整批只序列化一次，单条增量字节数直接由整数十进制位数算出。
+ * @param fixture 追加记账夹具。
+ * @returns 累计计算的字节数校验和。
+ */
 function currentAppendAccounting(fixture: AppendFixture): number {
   let bytes: number = 0;
   for (let batch: number = 0; batch < fixture.batchCount; batch += 1) {
@@ -214,26 +147,24 @@ function currentAppendAccounting(fixture: AppendFixture): number {
       texts[index] = serializeJoinLogSnapshotEntry(fixture.batch[index]!);
     }
     bytes += Buffer.byteLength(texts.join(",\n"));
-    for (const text of texts) {
-      bytes += JOIN_LOG_ENTRY_SEPARATOR_BYTES + Buffer.byteLength(text);
+    for (const record of fixture.batch) {
+      bytes +=
+        JOIN_LOG_ENTRY_SEPARATOR_BYTES +
+        joinLogSnapshotEntryBytes(record);
     }
   }
   return bytes;
 }
 
-function capacityChecksum(
-  records: ReadonlyMap<number, JoinLogRecord>,
-  capacity: number
-): number {
-  return records.size +
-    (records.has(1) ? 1 : 0) +
-    (records.has(OVERFLOW) ? 2 : 0) +
-    (records.has(OVERFLOW + 1) ? 4 : 0) +
-    (records.has(capacity + OVERFLOW) ? 8 : 0);
-}
-
+/**
+ * 在正式测量前对目标算子与变体执行小规模预热。
+ * @param operation 待测算子类型。
+ * @param variant 参照实现或当前实现变体。
+ */
 function warmUp(operation: Operation, variant: Variant): void {
-  for (let iteration: number = 0; iteration < 3; iteration += 1) {
+  const rounds: number =
+    operation === "capacity" ? CAPACITY_WARMUP_ROUNDS : WARMUP_ROUNDS;
+  for (let iteration: number = 0; iteration < rounds; iteration += 1) {
     if (operation === "snapshot") {
       const records: Map<number, JoinLogRecord> =
         createRecords(WARMUP_RECORD_COUNT);
@@ -254,6 +185,12 @@ function warmUp(operation: Operation, variant: Variant): void {
   }
 }
 
+/**
+ * 在子进程内完成指定算子与变体的预热、GC、计时与堆快照采集。
+ * @param operation 待测算子类型。
+ * @param variant 参照实现或当前实现变体。
+ * @returns 子进程单次采样结果。
+ */
 function runChild(operation: Operation, variant: Variant): ChildResult {
   warmUp(operation, variant);
   let input: Map<number, JoinLogRecord> | CapacityFixture | AppendFixture;
@@ -302,57 +239,12 @@ function runChild(operation: Operation, variant: Variant): ChildResult {
   };
 }
 
-function aggregate(results: readonly ChildResult[]): AggregateResult {
-  const first: ChildResult = results[0]!;
-  const elapsed: number[] = results.map(
-    (result: ChildResult): number => result.elapsedMs
-  );
-  return {
-    operation: first.operation,
-    variant: first.variant,
-    samples: results.length,
-    medianElapsedMs: median(elapsed),
-    minElapsedMs: Math.min(...elapsed),
-    maxElapsedMs: Math.max(...elapsed),
-    medianHeapDeltaBeforeGc: median(results.map(
-      (result: ChildResult): number => result.heapDeltaBeforeGc
-    )),
-    medianExtraMemoryDeltaBeforeGc: median(results.map(
-      (result: ChildResult): number => result.extraMemoryDeltaBeforeGc
-    )),
-    medianObjectDeltaBeforeGc: median(results.map(
-      (result: ChildResult): number => result.objectDeltaBeforeGc
-    )),
-    medianRetainedHeapDelta: median(results.map(
-      (result: ChildResult): number => result.retainedHeapDelta
-    )),
-    medianRetainedExtraMemoryDelta: median(results.map(
-      (result: ChildResult): number => result.retainedExtraMemoryDelta
-    )),
-    medianRetainedObjectDelta: median(results.map(
-      (result: ChildResult): number => result.retainedObjectDelta
-    )),
-  };
-}
-
-function parseOperation(value: string | undefined): Operation {
-  if (
-    value === "snapshot" ||
-    value === "capacity" ||
-    value === "append-accounting"
-  ) {
-    return value;
-  }
-  throw new Error(
-    "Child operation must be snapshot, capacity or append-accounting."
-  );
-}
-
-function parseVariant(value: string | undefined): Variant {
-  if (value === "baseline" || value === "current") return value;
-  throw new Error("Child variant must be baseline or current.");
-}
-
+/**
+ * 启动独立子进程执行一次指定算子与变体的测量。
+ * @param operation 待测算子类型。
+ * @param variant 参照实现或当前实现变体。
+ * @returns 子进程输出的单次测量结果。
+ */
 function runIndependentChild(
   operation: Operation,
   variant: Variant
@@ -373,6 +265,10 @@ function runIndependentChild(
   return JSON.parse(decoder.decode(result.stdout)) as ChildResult;
 }
 
+/**
+ * 交替运行各算子与变体的独立子进程样本，核对校验和并汇总基准报告。
+ * @returns 入群日志容量线对照基准报告。
+ */
 function runParent(): BenchmarkReport {
   const grouped: Map<string, ChildResult[]> = new Map();
   const operations: readonly Operation[] = [

@@ -285,6 +285,7 @@ describe("同步副作用的逐条执行", () => {
     await run([{
       kind: "sendReplyReminder",
       label: "话多杂鱼",
+      isBot: false,
       targetMessageId: 7,
     }]);
     expect(sentTexts[2]).toContain(`${formatMinSec(VERIFICATION_TIMEOUT_MS)}内`);

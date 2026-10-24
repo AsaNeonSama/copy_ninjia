@@ -90,21 +90,36 @@ interface ResultStats {
   readonly recordCount: number;
   readonly scanned: number;
   readonly kicked?: number;
+  readonly absent?: number;
+  readonly protected?: number;
+  readonly blocked?: number;
+  readonly forbidden?: number;
+  readonly failed?: number;
   readonly aborted?: boolean;
 }
 
 /** 按本用例的实际统计用常量渲染完整战报，窗口与 context() 缺省值一致。 */
-function resultText({ recordCount, scanned, kicked = 0, aborted = false }: ResultStats): string {
+function resultText({
+  recordCount,
+  scanned,
+  kicked = 0,
+  absent = 0,
+  protected: protectedCount = 0,
+  blocked = 0,
+  forbidden = 0,
+  failed = 0,
+  aborted = false,
+}: ResultStats): string {
   return NOTICES.batchKickResult({
     duration: formatDurationCn(30 * 60_000),
     recordCount,
     scanned,
     kicked,
-    absent: 0,
-    protected: 0,
-    blocked: 0,
-    forbidden: 0,
-    failed: 0,
+    absent,
+    protected: protectedCount,
+    blocked,
+    forbidden,
+    failed,
     abortedNotice: aborted ? NOTICES.batchKickAborted : "",
   });
 }
@@ -296,12 +311,15 @@ describe("/batch_kick", () => {
       .toEqual([2, 3, 4, 5, 6]);
     expect(kickChatMemberWithOutcome.mock.calls.map((call) => call[0]?.userId))
       .toEqual([4, 5, 6]);
-    expect(lastReplyText(sendMessage)).toContain("踢出 1");
-    expect(lastReplyText(sendMessage)).toContain("已不在群 1");
-    expect(lastReplyText(sendMessage)).toContain("自己人跳过 2");
-    expect(lastReplyText(sendMessage)).toContain("权限不足 1");
-    expect(lastReplyText(sendMessage)).toContain("查询或请求失败 2");
-    expect(lastReplyText(sendMessage)).toContain("只踢未拉黑");
+    expect(lastReplyText(sendMessage)).toBe(resultText({
+      recordCount: 7,
+      scanned: 7,
+      kicked: 1,
+      absent: 1,
+      protected: 2,
+      forbidden: 1,
+      failed: 2,
+    }));
   });
 
   test("单条意外 rejection 带记录身份落日志，并继续结算同批其它成员", async () => {
@@ -328,8 +346,12 @@ describe("/batch_kick", () => {
       expect.stringMatching(/chat -1001, user 7, record 0:/),
       expect.any(Error)
     );
-    expect(lastReplyText(sendMessage)).toContain("踢出 1");
-    expect(lastReplyText(sendMessage)).toContain("查询或请求失败 1");
+    expect(lastReplyText(sendMessage)).toBe(resultText({
+      recordCount: 2,
+      scanned: 2,
+      kicked: 1,
+      failed: 1,
+    }));
   });
 
   test("停机取消后不再处理剩余记录，在途失败不记日志，也不发战报", async () => {
@@ -482,8 +504,7 @@ describe("/batch_kick", () => {
 
     await runCommand(context());
 
-    expect(lastReplyText(sendMessage)).toContain("已不在群 1");
-    expect(lastReplyText(sendMessage)).toContain("查询或请求失败 0");
+    expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, absent: 1 }));
   });
 
   test("已有黑名单成员不执行只踢，并单独计入交回封禁；补扫派发失败只记日志且战报照发", async () => {
@@ -499,7 +520,7 @@ describe("/batch_kick", () => {
     expect(probeChatMembership).not.toHaveBeenCalled();
     expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(banChatMemberWithOutcome).not.toHaveBeenCalled();
-    expect(lastReplyText(sendMessage)).toContain("黑名单交回封禁 1");
+    expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, blocked: 1 }));
     // 「交回」必须真的交出去：请求一次补扫，派发抛错只记日志。
     expect(requestBlocklistResweep).toHaveBeenCalledWith(-1001);
     expect(sweepBlockedMembers).toHaveBeenCalledWith(-1001);
@@ -526,8 +547,7 @@ describe("/batch_kick", () => {
 
     expect(banChatMemberWithOutcome).toHaveBeenCalledWith(-1001, 42);
     expect(requestBlocklistResweep).not.toHaveBeenCalled();
-    expect(lastReplyText(sendMessage)).toContain("踢出 0");
-    expect(lastReplyText(sendMessage)).toContain("黑名单交回封禁 1");
+    expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, blocked: 1 }));
   });
 
   test("只踢返回不确定失败但名单已并发拉黑时仍补回永久封禁", async () => {
@@ -546,8 +566,7 @@ describe("/batch_kick", () => {
     await runCommand(context());
 
     expect(banChatMemberWithOutcome).toHaveBeenCalledWith(-1001, 42);
-    expect(lastReplyText(sendMessage)).toContain("黑名单交回封禁 1");
-    expect(lastReplyText(sendMessage)).toContain("查询或请求失败 0");
+    expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, blocked: 1 }));
   });
 
   test("成员查询期间并发拉黑：不执行只踢，交回封禁并只请求一次补扫", async () => {
@@ -567,7 +586,7 @@ describe("/batch_kick", () => {
     expect(banChatMemberWithOutcome).not.toHaveBeenCalled();
     expect(requestBlocklistResweep).toHaveBeenCalledTimes(1);
     expect(sweepBlockedMembers).toHaveBeenCalledTimes(1);
-    expect(lastReplyText(sendMessage)).toContain("黑名单交回封禁 1");
+    expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, blocked: 1 }));
   });
 
   test("补封失败且补扫派发也抛错时记日志、命令不抛，战报按失败结算", async () => {
@@ -591,8 +610,7 @@ describe("/batch_kick", () => {
       expect.stringContaining("Failed to dispatch the blocklist repair after /batch_kick in chat -1001"),
       expect.any(Error)
     );
-    expect(lastReplyText(sendMessage)).toContain("踢出 0");
-    expect(lastReplyText(sendMessage)).toContain("查询或请求失败 1");
+    expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, failed: 1 }));
   });
 
   test("并发拉黑的补封失败时请求补扫且不报告踢出成功", async () => {
@@ -613,8 +631,7 @@ describe("/batch_kick", () => {
 
     expect(requestBlocklistResweep).toHaveBeenCalledWith(-1001);
     expect(sweepBlockedMembers).toHaveBeenCalledWith(-1001);
-    expect(lastReplyText(sendMessage)).toContain("踢出 0");
-    expect(lastReplyText(sendMessage)).toContain("查询或请求失败 1");
+    expect(lastReplyText(sendMessage)).toBe(resultText({ recordCount: 1, scanned: 1, failed: 1 }));
   });
 });
 

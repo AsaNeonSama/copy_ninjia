@@ -112,10 +112,16 @@ mock.module("../../packages/antiRaid/temporaryAdBypass", () => ({
 }));
 
 const {
-  handleAntiRaidMessageIngress,
+  handleAntiRaidMessageIngress: handleAntiRaidMessageIngressWithState,
   handleChatMemberUpdate,
   handleVerificationCallback,
 } = await import("../../packages/antiRaid");
+const { getChatState } = await import("../../packages/infra/storage/stateStore");
+
+/** 与前置链一致：按消息所在群读一次群状态快照，再交给入群守卫 ingress。 */
+function handleAntiRaidMessageIngress(message: Message, botId: number): boolean | Promise<boolean> {
+  return handleAntiRaidMessageIngressWithState(message, botId, getChatState(message.chat.id));
+}
 
 const { runWithUpdateAbortSignal, updateNow } = await import("../../packages/infra/updateContext");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");

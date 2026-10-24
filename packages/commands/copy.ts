@@ -18,7 +18,12 @@ import { claimCopyCooldownOrReject, releaseCopyCooldownClaim } from "./copyShare
 import { peekCommandTarget, resolveCommandTarget } from "./targetResolution";
 import { resolveCommandActor } from "./commandActor";
 
-/** 按复读模式选取包含对应 /copy 参数的目标提示。 */
+/**
+ * 按复读模式选取包含对应 /copy 参数的目标提示。
+ * @param mode 复读变体模式；普通复读时为 undefined。
+ * @param atmosphere 当前活跃的文案氛围。
+ * @returns 对应复读模式的目标解析提示文案集合。
+ */
 function copyTargetTextsForMode(mode: CopyMode | undefined, atmosphere: AtmosphereTexts): Readonly<CommandTargetMessages> {
   if (mode === "reverse") return atmosphere.REVERSE_COPY_TARGET_TEXTS;
   if (mode === "nya") return atmosphere.NYA_COPY_TARGET_TEXTS;
@@ -32,6 +37,7 @@ function copyTargetTextsForMode(mode: CopyMode | undefined, atmosphere: Atmosphe
  *
  * 复读目标全局唯一：任一群正在复读时，其他群的 /copy 被拒绝，需先 /copy stop
  * （任何群都能停）。复读行为只发生在发起 /copy 的群里。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleCopyCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
@@ -104,6 +110,7 @@ export async function handleCopyCommand(ctx: CommandContext<Context>): Promise<v
 /**
  * 处理 /copy stop。复读目标是全局的，在任何群都可以停——不限于当初
  * 发起 /copy 的那个群。
+ * @param ctx grammY 命令上下文。
  */
 async function stopCopy(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
@@ -126,6 +133,8 @@ async function stopCopy(ctx: CommandContext<Context>): Promise<void> {
 /**
  * teardown 专用：只停止由指定源群持有的全局 copy。与 /copy stop 一样清状态、等落盘、
  * 再复原默认头像，但复原静默进行：群已不再受管，不在群里发任何消息。
+ * @param chatId 被清理的群聊 ID。
+ * @param reason 触发群 teardown 的原因。
  */
 async function stopCopyOwnedByChat(chatId: number, reason: ChatTeardownReason): Promise<void> {
   const globalCopy: Readonly<GlobalCopyState> = getGlobalCopyState();

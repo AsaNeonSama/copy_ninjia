@@ -1,9 +1,10 @@
-import { qaFormSessions } from "../../cache/main/qa";
 /**
  * 收集当前表单发起者投递的问题与回答；字段消息进入删除流程后由本领域认领。
  * 异步等待后复核会话身份，关闭的会话不再接收字段；超长或含可点命令的字段不写进会话。
  * 跨模块约束见 docs/cn/04-invariants.md。
  */
+
+import { qaFormSessions } from "../../cache/main/qa";
 
 import type { Message } from "grammy/types";
 import { CHAT_QA_ANSWER_MAX_CHARS, CHAT_QA_QUESTION_MAX_CHARS } from "../../consts/qa";
@@ -26,6 +27,7 @@ import { parseQaFieldMessage } from "./rendering";
  *
  * 不是本群表单发起者投递的字段时同步返回 null，不分配 Promise；只有字段投递才进入
  * 异步段（频道自发标记等待、删除投递消息、写回会话）。
+ * @param message 入站消息对象。
  * @returns 未认领时为 null（同步，或异步段里判定为频道自发帖、会话已换）；进入删除流程后
  *   始终返回认领结果，调用方复核会话后处理回执。
  */
@@ -45,7 +47,13 @@ export function claimQaFieldMessage(
   return claimParsedQaField(message, session, parsed);
 }
 
-/** claimQaFieldMessage 的异步段：已确认是发起者投递的字段。 */
+/**
+ * claimQaFieldMessage 的异步段：已确认是发起者投递的字段。
+ * @param message 入站消息对象。
+ * @param session 当前表单会话。
+ * @param parsed 解析出的字段内容。
+ * @returns 认领结果，若异步复核发现会话已变或为自发消息则返回 null。
+ */
 async function claimParsedQaField(
   message: Message,
   session: QaFormSession,
@@ -79,7 +87,11 @@ async function claimParsedQaField(
   };
 }
 
-/** 问题超长或整条含可点命令时挡下。 */
+/**
+ * 问题超长或整条含可点命令时挡下。
+ * @param question 问题文本。
+ * @returns 拒绝原因；合规时返回 null。
+ */
 function questionRejectionOf(question: string): QaFieldRejection | null {
   if (question.length > CHAT_QA_QUESTION_MAX_CHARS) return "questionTooLong";
   return containsRenderableCommand(question) ? "questionHasCommand" : null;
@@ -88,6 +100,8 @@ function questionRejectionOf(question: string): QaFieldRejection | null {
 /**
  * 答案超长，或按直答出口同一套围栏拆分（auto/message/qaDirectAnswer.ts 的 sendQaDirectAnswer）
  * 后代码块之外的文字含可点命令时挡下；代码块内的命令示例照常收下。
+ * @param answer 回答文本。
+ * @returns 拒绝原因；合规时返回 null。
  */
 function answerRejectionOf(answer: string): QaFieldRejection | null {
   if (answer.length > CHAT_QA_ANSWER_MAX_CHARS) return "answerTooLong";

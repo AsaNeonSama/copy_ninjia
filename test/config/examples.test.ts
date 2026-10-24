@@ -14,8 +14,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { generateKeyPairSync } from "node:crypto";
 import { join, relative, sep } from "node:path";
+import { rsaPrivateKeyPemFixture } from "../../scripts/fixtures/googleAuth";
 import { loadAdSampleConfig } from "../../packages/config/adSamples";
 import { parseCronConfig } from "../../packages/config/cron";
 import { parseGoogleServiceAccountKey } from "../../packages/config/googleAuth";
@@ -91,11 +91,7 @@ describe("config_example 与解析器保持同步", () => {
     expect((): unknown => parseGoogleServiceAccountKey(raw, path)).toThrow(
       `${path}: $.private_key must be a parseable non-empty PEM private key.`
     );
-    const privateKey: string = generateKeyPairSync("rsa", {
-      modulusLength: 2_048,
-      privateKeyEncoding: { type: "pkcs8", format: "pem" },
-      publicKeyEncoding: { type: "spki", format: "pem" },
-    }).privateKey;
+    const privateKey: string = await rsaPrivateKeyPemFixture();
     expect(parseGoogleServiceAccountKey({ ...raw, private_key: privateKey }, path)).toBeDefined();
   });
 

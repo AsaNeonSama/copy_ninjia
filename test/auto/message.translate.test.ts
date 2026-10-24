@@ -12,7 +12,15 @@ import {
 
 const translateText = mock(async (..._args: unknown[]): Promise<string> => "こんにちは");
 mock.module("../../packages/translate/client", () => ({ translateText }));
-const { handleIncomingMessageMiddleware } = await import("../../packages/auto/message");
+const { handleIncomingMessageMiddleware: handleIncomingMessageWithState } = await import("../../packages/auto/message");
+const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
+
+/** 与前置链一致：读一次本条消息所在群的状态快照，再交给自动流水线。 */
+function handleIncomingMessageMiddleware(ctx: any): Promise<void> | undefined {
+  const chatId: number | undefined = ctx.msg?.chat.id;
+  return handleIncomingMessageWithState(ctx, chatId === undefined ? DEFAULT_CHAT_STATE : getChatState(chatId));
+}
 const { translateMessageBacklogs, translateMessageChains, translateRuntime } = await import("../../packages/cache/main/translate");
 const { TRANSLATE_CHAT_BACKLOG_MAX } = await import("../../packages/consts/translate");
 const { logger } = await import("../../packages/infra/logger");

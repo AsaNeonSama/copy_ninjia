@@ -23,20 +23,27 @@ import type {
 
 /** /permission 持久化一项授权时的入参。 */
 export interface SetWhitelistPermissionParams {
+  /** 目标白名单身份 ID。 */
   id: number;
+  /** 待修改的白名单权限项键名。 */
   key: WhitelistPermissionKey;
+  /** 目标权限项的新布尔值。 */
   value: boolean;
 }
 
 /** /permission 持久化的结果；changed=false 表示最终值原本就是该值。 */
 export interface SetWhitelistPermissionResult {
+  /** 权限值是否实际发生变化并触发持久化写入。 */
   changed: boolean;
+  /** 更新后的完整白名单权限快照。 */
   permissions: Readonly<WhitelistPermissions>;
 }
 
 /** /white 新增或删除白名单身份时的入参。 */
 export interface SetWhitelistMembershipParams {
+  /** 目标用户或频道身份 ID。 */
   id: number;
+  /** 为 `true` 时加入白名单，为 `false` 时从白名单移除。 */
   enabled: boolean;
   /** 新增成员时必须提供；删除时忽略。 */
   meta?: Readonly<TelegramIdentityMetadata>;
@@ -47,19 +54,27 @@ export interface SetWhitelistMembershipParams {
  * 重复 enable 返回原有权限，不重置已单独授权的字段。
  */
 export interface SetWhitelistMembershipResult {
+  /** 白名单成员关系是否实际发生变化并触发持久化写入。 */
   changed: boolean;
+  /** 操作后的白名单权限快照；移除成员后为 `undefined`。 */
   permissions: Readonly<WhitelistPermissions> | undefined;
 }
 
 /** 连续合格日晋升为永久广告免检时的 write-through 结果。 */
 export interface PromoteAdBypassWhitelistResult {
+  /** 是否实际新建了永久白名单记录（原本已在白名单中时为 `false`）。 */
   readonly changed: boolean;
+  /** 写入消息是否已被 Disk I/O Worker 立即接受（原本已在白名单中时恒为 `true`）。 */
   readonly queued: boolean;
 }
 
 /**
  * 取得某身份在指定墙钟时刻的完整权限；未传时刻则读取当前值，且只在确有临时免检记录时才读
  * 墙钟。普通身份只读主线程合并身份缓存的白名单项，超级管理员由身份直授。
+ *
+ * @param id 待查询的用户或频道身份 ID。
+ * @param now 可选的墙钟毫秒时间戳；未传时在需要判定临时免检时取 `Date.now()`。
+ * @returns 身份当前生效的白名单权限只读对象；既不在永久白名单也无有效临时免检时返回 `undefined`。
  */
 export function getEffectiveWhitelistPermissions(
   id: number,
@@ -81,6 +96,9 @@ export function getEffectiveWhitelistPermissions(
  *
  * 本函数只读主线程缓存；非白名单或冷缺失身份直接返回逐项 false 的共享常量，
  * 不为查询创建或写入 SQLite 记录。update 前置预热仍负责需要确证的目标身份。
+ *
+ * @param id 待查询权限看板的用户或频道身份 ID。
+ * @returns 该身份的完整权限视图（非白名单身份返回全 `false` 的 `NON_WHITELIST_PERMISSIONS`）。
  */
 export function getWhitelistPermissionQueryView(
   id: number
@@ -88,13 +106,25 @@ export function getWhitelistPermissionQueryView(
   return getEffectiveWhitelistPermissions(id) ?? NON_WHITELIST_PERMISSIONS;
 }
 
-/** 身份是否处于永久白名单边界；临时成员只通过广告豁免权限参与广告门禁。 */
+/**
+ * 身份是否处于永久白名单边界；临时成员只通过广告豁免权限参与广告门禁。
+ *
+ * @param id 待判断的用户或频道身份 ID。
+ * @returns 为超级管理员或命中永久白名单缓存时返回 `true`，否则返回 `false`。
+ */
 export function isWhitelisted(id: number): boolean {
   return id === SUPER_ADMIN_USER_ID ||
     cachedWhitelistEntry(id) !== undefined;
 }
 
-/** 身份在指定墙钟时刻是否拥有单项权限；未传时刻读取当前值。 */
+/**
+ * 身份在指定墙钟时刻是否拥有单项权限；未传时刻读取当前值。
+ *
+ * @param id 待检查的用户或频道身份 ID。
+ * @param key 待检查的白名单权限键名。
+ * @param now 可选的墙钟毫秒时间戳。
+ * @returns 拥有该项生效权限时返回 `true`，否则返回 `false`。
+ */
 export function hasWhitelistPermission(
   id: number,
   key: WhitelistPermissionKey,
@@ -106,6 +136,10 @@ export function hasWhitelistPermission(
 /**
  * 永久白名单身份是否持有单项权限；超级管理员按身份直授，临时广告免检不进入本边界。
  * 一次缓存读取同时完成成员关系与权限判断，供明确排除临时授权的消息热路径使用。
+ *
+ * @param id 待检查的用户或频道身份 ID。
+ * @param key 待检查的白名单权限键名。
+ * @returns 超级管理员或永久白名单条目持有该权限时返回 `true`，否则返回 `false`。
  */
 export function hasPermanentWhitelistPermission(
   id: number,
@@ -123,6 +157,9 @@ export function hasPermanentWhitelistPermission(
  * `queueIdentityPolicyWrite` 返回 false 表示 postDiskIO 拒收（见
  * infra/identityStorage/write.ts）。拒收时在这里抛出，由 commands/permission.ts、
  * commands/white.ts 的 mutationFailed 分支回执。
+ *
+ * @param id 目标白名单身份 ID。
+ * @param value 待发布的白名单条目数据，`null` 表示删除该白名单成员。
  */
 function publishWhitelistEntry(
   id: number,
@@ -137,6 +174,10 @@ function publishWhitelistEntry(
 /**
  * 已有白名单身份的权限修改骨架：查条目、判幂等、克隆、投递走同一条路径。
  * mutate 返回 null 表示「本来就是这样」，此时不产生任何数据库写入。
+ *
+ * @param id 目标白名单身份 ID。
+ * @param mutate 根据当前权限计算新权限的纯变换函数；无需变更时返回 `null`。
+ * @returns 包含是否变更标志与最新权限对象的修改结果。
  */
 function updateWhitelistPermissions(
   id: number,
@@ -155,7 +196,12 @@ function updateWhitelistPermissions(
   return { changed: true, permissions };
 }
 
-/** 修改一项已有白名单权限；最终值先发布 LRU，再由 DiskIO Worker 批量提交。 */
+/**
+ * 修改一项已有白名单权限；最终值先发布 LRU，再由 DiskIO Worker 批量提交。
+ *
+ * @param params 包含目标身份 ID、权限键名与目标布尔值的入参。
+ * @returns 权限变更结果（含 `changed` 与更新后的 `permissions`）。
+ */
 export function setWhitelistPermission({
   id,
   key,
@@ -168,7 +214,12 @@ export function setWhitelistPermission({
   );
 }
 
-/** 把已有白名单身份的全部权限设为 true；幂等命中不产生数据库写入。 */
+/**
+ * 把已有白名单身份的全部权限设为 true；幂等命中不产生数据库写入。
+ *
+ * @param id 目标白名单身份 ID。
+ * @returns 权限变更结果（全部原本即为 `true` 时 `changed` 为 `false`）。
+ */
 export function enableAllWhitelistPermissions(
   id: number
 ): SetWhitelistPermissionResult {
@@ -187,7 +238,12 @@ export function enableAllWhitelistPermissions(
   );
 }
 
-/** 新增或删除白名单身份；新增必须携带 Telegram meta，已有权限不会被重置。 */
+/**
+ * 新增或删除白名单身份；新增必须携带 Telegram meta，已有权限不会被重置。
+ *
+ * @param params 白名单成员关系增删参数（含身份 ID、启用开关与可选元数据）。
+ * @returns 成员关系变更结果及最新权限快照（删除后 `permissions` 为 `undefined`）。
+ */
 export function setWhitelistMembership({
   id,
   enabled,
@@ -221,6 +277,10 @@ export function setWhitelistMembership({
 
 /**
  * 把连续合格日达标的成员写入永久白名单，只授予广告检测豁免；已有人工白名单原样保留。
+ *
+ * @param id 达标晋升的用户或频道身份 ID。
+ * @param meta 该身份的 Telegram 展示元数据。
+ * @returns 晋升结果（含是否新增白名单记录及是否已成功投递落盘队列）。
  */
 export function promoteAdBypassWhitelistMembership(
   id: number,

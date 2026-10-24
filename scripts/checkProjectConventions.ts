@@ -1,6 +1,5 @@
-import { existsSync } from "node:fs";
 import type { Stats } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { extname, join } from "node:path";
 import type ts from "typescript";
 import { createModuleGraphReader } from "./conventions/moduleGraph";
 import type { ModuleGraphReader } from "./conventions/moduleGraph";
@@ -10,6 +9,7 @@ import {
   collectConstantProblems,
   collectConstantLocationProblems,
   collectDeclarationProblems,
+  collectFunctionJsDocProblems,
   collectModuleCacheProblems,
   collectIteratorHeadProblems,
   collectObjectFreezeProblems,
@@ -36,6 +36,7 @@ import {
   collectCacheOwnerHeaderProblems,
   collectCacheOwnershipProblems,
   collectStaleCacheExemptionProblems,
+  collectWorkerTelegramClosureProblems,
   THREAD_ENTRY_PATHS,
 } from "./conventions/cacheOwnership";
 import { collectWorkerTimerProblems } from "./conventions/workerTimers";
@@ -48,8 +49,7 @@ import {
   collectMarkdownPathProblems,
   collectRepositoryPaths,
 } from "./conventions/markdownPaths";
-import { collectMarkdownAnchors } from "./conventions/markdownAnchors";
-import { withoutMarkdownCodeFences } from "./conventions/markdownSource";
+import { checkMarkdownLocalLinks } from "./conventions/markdownAnchors";
 import {
   collectNodeCompatibilityProblems,
   collectNodeImportUsage,
@@ -90,7 +90,10 @@ const INFRA_ROOT: string = join(SOURCE_ROOT, "infra");
 const STATES_ROOT: string = join(SOURCE_ROOT, "states");
 const WORKERS_ROOT: string = join(SOURCE_ROOT, "workers");
 
-/** 检查受跟踪与尚未加入索引的源码；Git 忽略的部署数据不进入清单。 */
+/**
+ * 检查受跟踪与尚未加入索引的源码；Git 忽略的部署数据不进入清单。
+ * @returns 相对仓库根的项目文件路径列表。
+ */
 function projectFiles(): string[] {
   const result: ReturnType<typeof Bun.spawnSync> = Bun.spawnSync({
     cmd: [
@@ -123,130 +126,12 @@ function projectFiles(): string[] {
   );
 }
 
-/** 每份文档的锚点集合只算一次，按文档路径缓存。 */
-const markdownAnchorCache: Map<string, ReadonlySet<string> | null> = new Map();
-
-/** 读取并缓存一份文档的锚点；文件读不到时返回 null（路径那一半另有报错）。 */
-async function anchorsOf(path: string): Promise<ReadonlySet<string> | null> {
-  const cached: ReadonlySet<string> | null | undefined = markdownAnchorCache.get(path);
-  if (cached !== undefined) return cached;
-  let anchors: ReadonlySet<string> | null;
-  try {
-    anchors = collectMarkdownAnchors(await Bun.file(path).text());
-  } catch {
-    anchors = null;
-  }
-  markdownAnchorCache.set(path, anchors);
-  return anchors;
-}
-
-/** 检查 Markdown inline/reference link 与 HTML href/src 的本地目标。 */
-async function checkMarkdownLocalLinks(
-  path: string,
-  failures: string[]
-): Promise<void> {
-  const source: string = await Bun.file(path).text();
-  const searchable: string = withoutMarkdownCodeFences(source);
-  const patterns: readonly RegExp[] = [
-    /!?\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^)]*["'])?\s*\)/g,
-    /(?:href|src)=["']([^"']+)["']/g,
-    /^\s*\[[^\]\n]+\]:\s*<?(\S+?)>?(?:\s+["'(].*)?$/gm,
-  ];
-  for (const pattern of patterns) {
-    for (const match of searchable.matchAll(pattern)) {
-      const target: string | undefined = match[1];
-      if (
-        target === undefined ||
-        target.startsWith("/") ||
-        target.startsWith("//") ||
-        /^[a-z][a-z0-9+.-]*:/i.test(target)
-      ) {
-        continue;
-      }
-      const line: number =
-        searchable.slice(0, match.index).split("\n").length;
-      const fragmentIndex: number = target.indexOf("#");
-      const fragment: string = fragmentIndex < 0 ? "" : target.slice(fragmentIndex + 1);
-      const targetWithoutFragment: string = target.split(/[?#]/, 1)[0] ?? "";
-      // 纯 `#片段` 指向当前文档自己的标题。
-      let linkedPath: string = path;
-      if (targetWithoutFragment.length > 0) {
-        let decodedTarget: string;
-        try {
-          decodedTarget = decodeURIComponent(targetWithoutFragment);
-        } catch {
-          decodedTarget = targetWithoutFragment;
-        }
-        linkedPath = resolve(dirname(path), decodedTarget);
-        if (!existsSync(linkedPath)) {
-          failures.push(
-            `${relative(PROJECT_ROOT, path)}:${line} local link target does not exist: ${target}`
-          );
-          continue;
-        }
-      }
-      if (fragment.length === 0 || extname(linkedPath) !== ".md") continue;
-      let decodedFragment: string;
-      try {
-        decodedFragment = decodeURIComponent(fragment);
-      } catch {
-        decodedFragment = fragment;
-      }
-      const anchors: ReadonlySet<string> | null = await anchorsOf(linkedPath);
-      if (anchors === null || anchors.has(decodedFragment.toLowerCase())) continue;
-      failures.push(
-        `${relative(PROJECT_ROOT, path)}:${line} link fragment has no matching heading in ` +
-        `${relative(PROJECT_ROOT, linkedPath)}: #${decodedFragment}`
-      );
-    }
-  }
-}
-
 /** 各线程入口的绝对路径；从入口出发构建同线程模块闭包（含最短引入路径）。 */
 const THREAD_ENTRIES: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(THREAD_ENTRY_PATHS).map(
     ([thread, path]: [string, string]): [string, string] => [thread, join(PROJECT_ROOT, path)]
   )
 );
-
-/**
- * Telegram 凭据、真实客户端、网络分派与出站队列只属主线程。Worker 只能加载
- * 项目自有协议和双工代理，连 grammY 运行时都不得进入其模块闭包。
- */
-const WORKER_TELEGRAM_FORBIDDEN_MODULES: readonly string[] = [
-  join(PROJECT_ROOT, "packages", "cache", "main", "telegram.ts"),
-  join(PROJECT_ROOT, "packages", "cache", "main", "telegramSend.ts"),
-  join(PROJECT_ROOT, "packages", "infra", "telegram", "mainClient.ts"),
-  join(PROJECT_ROOT, "packages", "infra", "telegram", "outboundGate.ts"),
-  join(PROJECT_ROOT, "packages", "infra", "telegram", "sendScheduler.ts"),
-  join(PROJECT_ROOT, "packages", "infra", "telegram", "workerRequests.ts"),
-];
-
-/** 把模块依赖链格式化为相对仓库根的 `a -> b -> c`。 */
-function formatModuleTrail(trail: readonly string[]): string {
-  return trail.map((step: string): string => relative(PROJECT_ROOT, step)).join(" -> ");
-}
-
-/** 收集非主线程闭包加载主线程 Telegram 模块或 grammY 运行时包的问题，按闭包顺序输出。 */
-async function collectWorkerTelegramClosureProblems(
-  thread: string,
-  closure: ReadonlyMap<string, readonly string[]>,
-  graph: ModuleGraphReader
-): Promise<readonly string[]> {
-  const problems: string[] = [];
-  for (const forbidden of WORKER_TELEGRAM_FORBIDDEN_MODULES) {
-    const trail: readonly string[] | undefined = closure.get(forbidden);
-    if (trail === undefined) continue;
-    problems.push(`${thread} Worker loads main-thread Telegram module: ${formatModuleTrail(trail)}`);
-  }
-  for (const [path, trail] of closure) {
-    for (const dependency of await graph.externalDependencies(path)) {
-      if (dependency !== "grammy" && !dependency.startsWith("@grammyjs/")) continue;
-      problems.push(`${thread} Worker loads Telegram runtime package ${dependency}: ${formatModuleTrail(trail)}`);
-    }
-  }
-  return problems;
-}
 
 const failures: string[] = [];
 /** 逐文件遍历时顺带记下的 Node 兼容 import；整趟结束后反向核对登记表。 */
@@ -288,7 +173,7 @@ for (const trackedPath of tracked) {
     failures.push(...collectFileLengthProblems(trackedPath, await Bun.file(path).text()));
   }
   if (extname(path) === ".md") {
-    await checkMarkdownLocalLinks(path, failures);
+    await checkMarkdownLocalLinks(PROJECT_ROOT, path, failures);
     failures.push(...await collectMarkdownModuleListProblems(
       PROJECT_ROOT,
       path,
@@ -326,10 +211,24 @@ for (const [thread, entry] of Object.entries(THREAD_ENTRIES)) {
 
 for (const [thread, closure] of threadClosures) {
   if (thread === "main") continue;
-  failures.push(...await collectWorkerTelegramClosureProblems(thread, closure, moduleGraph));
+  failures.push(...await collectWorkerTelegramClosureProblems({
+    projectRoot: PROJECT_ROOT,
+    thread,
+    closure,
+    graph: moduleGraph,
+  }));
 }
 
-const cacheFiles: readonly string[] = sourceFilesUnder(CACHE_ROOT);
+const sourceFiles: readonly string[] = sourceFilesUnder(SOURCE_ROOT);
+const cacheFiles: readonly string[] = sourceFiles.filter(
+  (path: string): boolean => path.startsWith(CACHE_ROOT + "/")
+);
+const constFiles: readonly string[] = sourceFiles.filter(
+  (path: string): boolean => path.startsWith(CONSTS_ROOT + "/")
+);
+const scriptFiles: readonly string[] = sourceFilesUnder(SCRIPTS_ROOT);
+const testFiles: readonly string[] = sourceFilesUnder(TEST_ROOT);
+
 const cacheFirstLines: Map<string, string> = new Map();
 for (const path of cacheFiles) {
   cacheFirstLines.set(path, (await Bun.file(path).text()).split("\n", 1)[0] ?? "");
@@ -350,8 +249,8 @@ failures.push(...collectCacheOwnershipProblems({
   exemptions: CACHE_OWNER_EXEMPTIONS,
 }));
 
-const cacheSourceFiles: ReadonlySet<string> = new Set(sourceFilesUnder(CACHE_ROOT));
-const constsSourceFiles: ReadonlySet<string> = new Set(sourceFilesUnder(CONSTS_ROOT));
+const cacheSourceFiles: ReadonlySet<string> = new Set(cacheFiles);
+const constsSourceFiles: ReadonlySet<string> = new Set(constFiles);
 /** 根 manifest 直接声明的包；逐文件核对运行期裸导入时共用。 */
 const declaredPackages: ReadonlySet<string> = await readDeclaredPackages(PROJECT_ROOT);
 /** packages/consts 导出的字符串常量表（取值 → 常量名），逐文件判定时顺带收集，供测试断言规则比对。 */
@@ -362,14 +261,14 @@ const constantTextFragments: string[] = [];
 const usedConstantTextExemptions: Set<string> = new Set<string>();
 /** 注释交叉引用按 basename 解析时的候选集合：生产源码与主线程入口。 */
 const referenceResolutionFiles: readonly string[] = [
-  ...sourceFilesUnder(SOURCE_ROOT),
+  ...sourceFiles,
   THREAD_ENTRIES.main!,
 ];
 // 逐文件的源码约定：每个文件只读一次、只解析一次，适用的规则全在这一趟里跑完。
 // cache/consts 规则按 sourceFilesUnder 的真实文件集合判定适用范围；模块级缓存规则由
 // collectModuleCacheProblems 判定。仓库根的 index.ts 不在 sourceFilesUnder(SOURCE_ROOT) 里，
 // 显式并进同一趟判定。
-for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
+for (const path of referenceResolutionFiles) {
   const source: ts.SourceFile = await parseSourceFile(path);
   const params: SourceFileRuleParams = { projectRoot: PROJECT_ROOT, path, source };
   if (!cacheSourceFiles.has(path) && !constsSourceFiles.has(path)) {
@@ -392,6 +291,7 @@ for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
     failures.push(...collectModuleCacheProblems(params));
   }
   failures.push(...collectDeclarationProblems(params));
+  failures.push(...collectFunctionJsDocProblems(params));
   failures.push(...collectEnvironmentAccessProblems(params));
   if (path.startsWith(STATES_ROOT + "/")) {
     failures.push(...collectStatesPurityProblems({
@@ -416,15 +316,18 @@ for (const path of [...sourceFilesUnder(SOURCE_ROOT), THREAD_ENTRIES.main!]) {
   }
 }
 
-// Node 兼容 import、依赖声明与全量基准 import 边界同时约束 scripts/ 与 test/，测试断言
-// 取值口径只约束 test/，其余判定只针对 packages/。
+// Node 兼容 import、依赖声明与全量基准 import 边界同时约束 scripts/ 与 test/，函数 JSDoc
+// 同时约束 scripts/，测试断言取值口径只约束 test/，其余判定只针对 packages/。
 const constantTextCorpusText: string = constantTextCorpus(constantTextFragments);
-for (const path of [...sourceFilesUnder(SCRIPTS_ROOT), ...sourceFilesUnder(TEST_ROOT)]) {
+for (const path of [...scriptFiles, ...testFiles]) {
   const source: ts.SourceFile = await parseSourceFile(path);
   failures.push(...collectNodeCompatibilityProblems(PROJECT_ROOT, path, source));
   nodeImportUsage.push(...collectNodeImportUsage(PROJECT_ROOT, path, source));
   failures.push(...collectUndeclaredDependencyProblems({ projectRoot: PROJECT_ROOT, path, source, declaredPackages }));
   failures.push(...collectFullSuiteImportProblems({ projectRoot: PROJECT_ROOT, path, source }));
+  if (path.startsWith(SCRIPTS_ROOT + "/")) {
+    failures.push(...collectFunctionJsDocProblems({ projectRoot: PROJECT_ROOT, path, source }));
+  }
   if (path.startsWith(TEST_ROOT + "/")) {
     failures.push(...collectConstantValueAssertionProblems({ projectRoot: PROJECT_ROOT, path, source }));
     failures.push(...collectStringConstantAssertionProblems({
@@ -443,7 +346,6 @@ for (const path of [...sourceFilesUnder(SCRIPTS_ROOT), ...sourceFilesUnder(TEST_
   }
 }
 failures.push(...collectUnusedConstantTextExemptionProblems(usedConstantTextExemptions));
-const constFiles: readonly string[] = [...constsSourceFiles];
 const constsProgram: ts.Program = createTypeCheckProgram(PROJECT_ROOT, constFiles);
 const constsChecker: ts.TypeChecker = constsProgram.getTypeChecker();
 const constDeclarations: readonly ExportedConstDeclaration[] = exportedConstDeclarations(constsProgram, constFiles);
@@ -460,7 +362,6 @@ failures.push(...collectConstExhaustiveListProblems({
   partialTables: PARTIAL_LITERAL_TABLES,
 }));
 failures.push(...collectUnusedNodeAllowanceProblems(nodeImportUsage));
-const testFiles: readonly string[] = sourceFilesUnder(TEST_ROOT);
 failures.push(...collectMockResetProblems({
   projectRoot: PROJECT_ROOT,
   program: createTypeCheckProgram(PROJECT_ROOT, testFiles),

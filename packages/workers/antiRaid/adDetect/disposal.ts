@@ -32,27 +32,41 @@ import type {
 import type { TelegramWorkerTemporaryMessageResult } from "../../../types/telegramWorker";
 
 export interface DisposeAdSenderParams {
+  /** 待处置发送者的待检消息束。 */
   bundle: AdMessageBundle;
+  /** 分类器给出的广告判定结果与命中原因。 */
   verdict: AdVerdict;
   /** 本次送检时入选的条目快照（见 bundle.ts 的 selectAdBundleEntries）。 */
   judged: readonly AdCandidateEntry[];
 }
 
 export interface DeleteReferencedAdMessagesParams {
+  /** 待清理发送者的待检消息束。 */
   readonly bundle: AdMessageBundle;
+  /** 本次送检时入选的条目快照。 */
   readonly judged: readonly AdCandidateEntry[];
   /** 仅清理 message_id 不大于该上界的消息。 */
   readonly messageIdThrough: number;
 }
 
 interface DisposalMessageIdsParams {
+  /** 本次送检时入选的条目快照。 */
   readonly judged: readonly AdCandidateEntry[];
+  /** 消息束内当前保留的候选条目列表。 */
   readonly current: readonly AdCandidateEntry[];
+  /** 因束内容量淘汰转存的待删消息 ID 列表。 */
   readonly evictedIds: readonly number[];
+  /** 消息 ID 上界；缺省不限制上界。 */
   readonly messageIdThrough?: number;
 }
 
-/** 生成处置播报使用的发送者展示标签（见 users/userLabel.ts 的 formatUserLabel）。 */
+/**
+ * 生成处置播报使用的发送者展示标签（见 users/userLabel.ts 的 formatUserLabel）。
+ *
+ * @param bundle 待检消息束。
+ * @param atmosphere 当前 Worker 语言包。
+ * @returns 格式化后的发送者展示标签。
+ */
 function adSenderLabel(bundle: AdMessageBundle, atmosphere: AtmosphereTexts): string {
   return formatUserLabel({
     id: bundle.senderId,
@@ -65,6 +79,9 @@ function adSenderLabel(bundle: AdMessageBundle, atmosphere: AtmosphereTexts): st
 
 /**
  * 经主线程临时消息边界发送引用类广告公开警告并挂延迟删除。
+ *
+ * @param bundle 触发引用警告的待检消息束。
+ * @returns 主线程临时消息发送结果；发送失败时返回 `undefined`。
  */
 export function warnReferencedAdSender(
   bundle: AdMessageBundle
@@ -80,6 +97,8 @@ export function warnReferencedAdSender(
 
 /**
  * 异步清理首次引用警告覆盖的广告消息（受 AD_DETECT_MAX_IN_FLIGHT 上限约束）。
+ *
+ * @param params 消息束、送检条目与消息 ID 上界参数。
  */
 export function deleteReferencedAdMessages({
   bundle,
@@ -126,6 +145,9 @@ export function deleteReferencedAdMessages({
 
 /**
  * 汇总本次处置需删除的消息 ID 集合（送检条目 ∪ 当前束内条目 ∪ 淘汰转存的 pendingDeleteIds）。
+ *
+ * @param params 送检条目、当前束内条目、淘汰待删 ID 与可选消息 ID 上界。
+ * @returns 去重后的待删除消息 ID 列表。
  */
 function disposalMessageIds({
   judged,
@@ -151,6 +173,9 @@ function disposalMessageIds({
 
 /**
  * 删除已拉黑或刚处置频道身份在封禁落地前发出的尾随广告消息（见 docs/cn/04-invariants.md）。
+ *
+ * @param chatId 目标群 ID。
+ * @param messageId 待删除的尾随消息 ID。
  */
 export function deleteStragglerAdMessage(chatId: number, messageId: number): void {
   if (botCanDeleteIn(chatId) === false) return;
@@ -159,6 +184,8 @@ export function deleteStragglerAdMessage(chatId: number, messageId: number): voi
 
 /**
  * 执行广告命中处置：向主线程发布 adDetected 事件并批量删除涉事消息。
+ *
+ * @param params 待处置消息束、判定结果与送检条目快照。
  */
 export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSenderParams): Promise<void> {
   const messageIds: number[] = disposalMessageIds({
@@ -201,6 +228,9 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
 
 /**
  * 按 TELEGRAM_DELETE_MESSAGES_BATCH_MAX 分批删除消息列表。
+ *
+ * @param chatId 目标群 ID。
+ * @param messageIds 待删除的消息 ID 列表。
  */
 async function deleteAdMessages(chatId: number, messageIds: readonly number[]): Promise<void> {
   if (botCanDeleteIn(chatId) === false) {

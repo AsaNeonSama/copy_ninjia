@@ -26,6 +26,7 @@ import type {
 import { assertCondition, assertContains, assertEqual } from "./installIsolation/assertions";
 import { checkServiceDataRoot, checkServiceObservation, checkServiceProtection } from "./installIsolation/serviceChecks";
 
+/** 校验 Telegram 候选配置校验失败时的回滚与外部备份保留行为。 */
 async function checkTelegramRollback(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
@@ -66,6 +67,7 @@ async function checkTelegramRollback(): Promise<void> {
   );
 }
 
+/** 校验候选文件权限收紧失败时 EXIT trap 对候选文件的清理行为。 */
 async function checkStagingPermissionFailureCleanup(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   const result: InstallerRunResult = await runInstaller(
@@ -80,6 +82,7 @@ async function checkStagingPermissionFailureCleanup(): Promise<void> {
   );
 }
 
+/** 校验交互中断后重跑安装器并跳过 AI 配置的恢复行为。 */
 async function checkInterruptedResume(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
@@ -115,6 +118,11 @@ async function checkInterruptedResume(): Promise<void> {
   );
 }
 
+/**
+ * 校验重新填写 Telegram 配置时的原子替换、权限保留、建库与备份清理行为。
+ *
+ * @param atmosphere 初始配置的回复风格字段（可选）
+ */
 async function checkSuccessfulReplacement(atmosphere?: string): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
@@ -175,6 +183,7 @@ async function checkSuccessfulReplacement(atmosphere?: string): Promise<void> {
   assertEqual(readdirSync(fixture.backupRoot).length, 0, "稳定性核验通过后必须清理外部备份");
 }
 
+/** 校验首次填写 Telegram 配置（无文件或存在占位配置）时的交互与 0600 权限。 */
 async function checkFirstFillMode(): Promise<void> {
   for (const placeholderMode of [undefined, 0o644]) {
     const fixture: InstallerFixture = await createFixture();
@@ -199,6 +208,7 @@ async function checkFirstFillMode(): Promise<void> {
   }
 }
 
+/** 校验配置文件为软链接时原子替换保持软链接拓扑并更新真实目标文件。 */
 async function checkSymlinkTopologyPreserved(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
@@ -227,6 +237,7 @@ async function checkSymlinkTopologyPreserved(): Promise<void> {
   );
 }
 
+/** 校验 journal 不可读导致稳定性无法确认时拒绝完成并保留外部备份。 */
 async function checkUnverifiedJournalBackupRetention(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
@@ -247,6 +258,7 @@ async function checkUnverifiedJournalBackupRetention(): Promise<void> {
   assertEqual(readdirSync(fixture.backupRoot).length, 1, "journal 未确认时必须保留外部备份");
 }
 
+/** 校验 AI 凭据写入与后续子进程环境变量隔离、终端无回显及外部命令拦截。 */
 async function checkCredentialIsolation(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
@@ -284,6 +296,7 @@ async function checkCredentialIsolation(): Promise<void> {
   );
 }
 
+/** 校验安装测试夹具的所有子路径均位于独立专属临时根目录内。 */
 async function checkFixtureRoots(): Promise<void> {
   const fixture: InstallerFixture = await createFixture();
   for (const path of [

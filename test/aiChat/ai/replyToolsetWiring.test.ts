@@ -31,6 +31,7 @@ const {
   ADD_REACTION_TOOL,
   GROUP_QA_ANSWER_TOOL,
   GROUP_QA_QUERY_TOOL,
+  REPLY_INVALIDATED_TOOL_ERROR,
   SEND_MESSAGE_TOOL,
   SEND_STICKER_TOOL,
   SEND_VOICE_TOOL,
@@ -52,6 +53,7 @@ const {
 } = await import("../../../packages/consts/aiChat/prompts/tools");
 const { TTS_BOT_LANGUAGES, TTS_DEFAULT_BOT_LANGUAGE } = await import("../../../packages/consts/aiChat/voiceMessage");
 const { createReplyToolset } = await import("../../../packages/aiChat/ai/tools/replyToolset/orchestrator");
+const { createAddReactionExecutor } = await import("../../../packages/aiChat/ai/tools/replyToolset/reaction");
 const providerModule: typeof AiProviderModule = await import("../../../packages/aiChat/provider");
 const { stickerMenuCache, stickerMenuRevision } =
   await import("../../../packages/cache/workers/aiChat/stickers/menu");
@@ -136,6 +138,21 @@ describe("add_reaction 成功动作计数", () => {
     const retried = JSON.parse(await executeAndSettle(toolset, ADD_REACTION_TOOL, JSON.stringify({ emoji: "👍" })));
     expect(retried.error).toContain("Reaction limit reached");
     expect(setMessageReactionMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("本轮已作废或 emoji 参数缺失/不在白名单时返回错误且不入链、不调用 setMessageReaction", async () => {
+    const inactiveExecute = createAddReactionExecutor(replyToolContextFixture({ isActive: () => false }));
+    expect(inactiveExecute(JSON.stringify({ emoji: "👍" }))).toBe(
+      JSON.stringify({ error: REPLY_INVALIDATED_TOOL_ERROR })
+    );
+
+    const toolset = await createReplyToolset(replyToolContextFixture({ mediaToolsRequested: true }));
+    for (const badArgs of ["{}", JSON.stringify({ emoji: "🚀" })]) {
+      const parsed = JSON.parse(toolset.execute(ADD_REACTION_TOOL, badArgs));
+      expect(parsed.error).toContain("Invalid reaction emoji");
+    }
+    expect(toolset.actionsUsed()).toBe(0);
+    expect(setMessageReactionMock).not.toHaveBeenCalled();
   });
 });
 

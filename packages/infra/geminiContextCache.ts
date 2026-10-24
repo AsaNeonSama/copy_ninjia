@@ -32,9 +32,13 @@ import type {
 
 /** 一份要缓存的内容；工具声明与 toolConfig 只有 text 使用。 */
 export interface GeminiContextCacheContentParams {
+  /** 请求使用的 Gemini 模型标识。 */
   readonly model: string;
+  /** 要缓存的系统指令文本。 */
   readonly systemInstruction: string;
+  /** 可选的工具声明列表。 */
   readonly tools?: Tool[];
+  /** 可选的工具调用配置。 */
   readonly toolConfig?: Readonly<ToolConfig>;
 }
 
@@ -44,7 +48,11 @@ interface ParsedDisplayName {
   readonly contentKey: string;
 }
 
-/** 新建一张空登记表，绑定给定的客户端；扫描从 "idle" 起步。 */
+/**
+ * 新建一张空登记表，绑定给定的客户端；扫描从 "idle" 起步。
+ * @param client 绑定的 GoogleGenAI 客户端实例。
+ * @returns 新建的显式上下文缓存登记表。
+ */
 export function createGeminiContextCacheRegistry(client: GoogleGenAI): GeminiContextCacheRegistry {
   return {
     client,
@@ -56,7 +64,11 @@ export function createGeminiContextCacheRegistry(client: GoogleGenAI): GeminiCon
   };
 }
 
-/** 算出一份内容的槽键与内容键；调用方可以把结果随内容一起缓存，免去每次重算。 */
+/**
+ * 算出一份内容的槽键与内容键；调用方可以把结果随内容一起缓存，免去每次重算。
+ * @param params 要缓存的模型、系统指令与工具配置。
+ * @returns 附带槽键与内容指纹的缓存内容描述对象。
+ */
 export function geminiContextCacheContent({
   model,
   systemInstruction,
@@ -78,19 +90,34 @@ export function geminiContextCacheContent({
   };
 }
 
-/** 判断引用缓存的请求错误是否属于缓存条目失效或无权访问（排除请求超时与限流的客户端拒绝）。 */
+/**
+ * 判断引用缓存的请求错误是否属于缓存条目失效或无权访问（排除请求超时与限流的客户端拒绝）。
+ * @param error 请求抛出的异常对象。
+ * @returns 为非 408/429 的 4xx ApiError 时返回 true，否则返回 false。
+ */
 export function isGeminiContextCacheRejection(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
   const status: number = error.status;
   return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
-/** 服务端给的过期时刻；缺失或无法解析时用 fallback。 */
+/**
+ * 服务端给的过期时刻；缺失或无法解析时用 fallback。
+ * @param cache 服务端返回的缓存内容对象。
+ * @param fallback 无法解析 expireTime 时回退的毫秒时间戳。
+ * @returns 解析出的过期毫秒时间戳或 fallback。
+ */
 function expireAtOf(cache: CachedContent, fallback: number): number {
   const parsed: number = cache.expireTime === undefined ? Number.NaN : Date.parse(cache.expireTime);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * 解析服务端缓存条目的 displayName，提取符合本 scope 前缀与格式要求的两段指纹。
+ * @param prefix 本 scope 使用的 displayName 前缀。
+ * @param displayName 服务端缓存条目的 displayName。
+ * @returns 解析出的槽键与内容键；不匹配前缀或格式非法时返回 null。
+ */
 function parseDisplayName(prefix: string, displayName: string | undefined): ParsedDisplayName | null {
   if (displayName?.startsWith(prefix) !== true) return null;
   const keys: string[] = displayName.slice(prefix.length).split(":");
@@ -101,12 +128,21 @@ function parseDisplayName(prefix: string, displayName: string | undefined): Pars
   return { slotKey, contentKey };
 }
 
-/** 判断删除或续期错误是否表示服务端条目已不存在或当前凭据无权访问。 */
+/**
+ * 判断删除或续期错误是否表示服务端条目已不存在或当前凭据无权访问。
+ * @param error 请求抛出的异常对象。
+ * @returns 为状态码 404 或 403 的 ApiError 时返回 true，否则返回 false。
+ */
 function isGeminiContextCacheGone(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 404 || error.status === 403);
 }
 
-/** 后台删除一个服务端条目；本凭据已访问不到该条目（见 isGeminiContextCacheGone）或停机取消时静默。 */
+/**
+ * 后台删除一个服务端条目；本凭据已访问不到该条目（见 isGeminiContextCacheGone）或停机取消时静默。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param registry 当前作用域的缓存登记表。
+ * @param name 待删除的服务端缓存资源名。
+ */
 function deleteRemote(scope: Readonly<GeminiContextCacheScope>, registry: GeminiContextCacheRegistry, name: string): void {
   const signal: AbortSignal = scope.signal();
   void (async (): Promise<void> => {
@@ -119,7 +155,11 @@ function deleteRemote(scope: Readonly<GeminiContextCacheScope>, registry: Gemini
   })();
 }
 
-/** 超过槽数上限时按 lastUsedAt 删掉最久未用的槽。 */
+/**
+ * 超过槽数上限时按 lastUsedAt 删掉最久未用的槽。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param registry 当前作用域的缓存登记表。
+ */
 function evictOverflowSlots(scope: Readonly<GeminiContextCacheScope>, registry: GeminiContextCacheRegistry): void {
   while (registry.slots.size > scope.maxSlots) {
     let oldestKey: string | undefined;
@@ -144,6 +184,8 @@ function evictOverflowSlots(scope: Readonly<GeminiContextCacheScope>, registry: 
  * 不支持时将登记表标为 `"unsupported"` 并跳过扫描；探测请求失败时记错误日志后按支持处理，
  * 由创建失败冷却与 400 拒绝计数处理。随后接管服务端已有的本 scope 条目（`displayName` 带本
  * scope 前缀且两段指纹合法），同槽出现多份时保留过期更晚的一份并删除其余条目。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param registry 当前作用域的缓存登记表。
  */
 async function scanExistingCaches(scope: Readonly<GeminiContextCacheScope>, registry: GeminiContextCacheRegistry): Promise<void> {
   const signal: AbortSignal = scope.signal();
@@ -195,6 +237,9 @@ async function scanExistingCaches(scope: Readonly<GeminiContextCacheScope>, regi
 /**
  * 创建一槽的条目并登记：成功后删掉同槽旧条目与接管以来未使用的条目并执行容量淘汰；
  * 创建请求被客户端参数错误拒绝时累计该内容的被拒次数与时刻，其余失败记录冷却时刻。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param registry 当前作用域的缓存登记表。
+ * @param content 待创建显式缓存的内容描述。
  */
 async function createSlot(
   scope: Readonly<GeminiContextCacheScope>,
@@ -264,6 +309,9 @@ async function createSlot(
 /**
  * 记下该槽一次失败的时刻，并顺带摘掉已过 GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS 冷却期的
  * 旧记录：过期记录不再影响任何判定。
+ * @param registry 当前作用域的缓存登记表。
+ * @param slotKey 发生失败的槽键。
+ * @param now 当前毫秒时间戳。
  */
 function recordSlotFailure(registry: GeminiContextCacheRegistry, slotKey: string, now: number): void {
   for (const [key, failedAt] of registry.failures) {
@@ -272,7 +320,12 @@ function recordSlotFailure(registry: GeminiContextCacheRegistry, slotKey: string
   registry.failures.set(slotKey, now);
 }
 
-/** 登记一次后台创建；结束后只摘除自己那一项。 */
+/**
+ * 登记一次后台创建；结束后只摘除自己那一项。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param registry 当前作用域的缓存登记表。
+ * @param content 待创建显式缓存的内容描述。
+ */
 function startCreation(
   scope: Readonly<GeminiContextCacheScope>,
   registry: GeminiContextCacheRegistry,
@@ -284,7 +337,11 @@ function startCreation(
   registry.creations.set(content.slotKey, task);
 }
 
-/** 从登记表里摘掉这一条目（若仍在）。 */
+/**
+ * 从登记表里摘掉这一条目（若仍在）。
+ * @param registry 当前作用域的缓存登记表。
+ * @param slot 待摘除的槽位对象引用。
+ */
 function forgetSlot(registry: GeminiContextCacheRegistry, slot: GeminiContextCacheSlot): void {
   for (const [key, entry] of registry.slots) {
     if (entry !== slot) continue;
@@ -296,6 +353,9 @@ function forgetSlot(registry: GeminiContextCacheRegistry, slot: GeminiContextCac
 /**
  * 后台把条目续期回完整 TTL；同一条目同时只续一次。失败记下时刻；本凭据已访问不到该条目（见
  * isGeminiContextCacheGone）时直接摘掉本地登记，下一次按未命中重建。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param registry 当前作用域的缓存登记表。
+ * @param slot 待续期的本地缓存槽位。
  */
 function renewSlot(
   scope: Readonly<GeminiContextCacheScope>,
@@ -329,6 +389,7 @@ function renewSlot(
 /**
  * 在 provider 启动或切换后，后台探测当前模型是否支持显式缓存，并扫描接管服务端既有条目
  * （判定见 scanExistingCaches）。
+ * @param scope 当前能力的显式缓存作用域。
  */
 export function probeGeminiContextCache(scope: Readonly<GeminiContextCacheScope>): void {
   if (scope.signal().aborted) return;
@@ -342,6 +403,9 @@ export function probeGeminiContextCache(scope: Readonly<GeminiContextCacheScope>
  * 取本次请求可引用的显式缓存资源名；模型不支持显式缓存或没有可用条目时返回 null，
  * 本次走完整请求（隐式缓存），需要的扫描、创建或续期在后台进行。
  * contentOf 在扫描状态为 "unsupported" 或 "idle" 时不调用，其余状态调用一次取本次内容。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param contentOf 按需计算本次请求缓存内容描述的回调。
+ * @returns 可直接引用的服务端缓存资源名；未命中或不支持时返回 null。
  */
 export function acquireGeminiContextCache(
   scope: Readonly<GeminiContextCacheScope>,
@@ -386,6 +450,8 @@ export function acquireGeminiContextCache(
  * 引用缓存的请求被端点拒绝（条目不存在、已过期或无权访问）后调用：摘掉引用该资源名的
  * 本地登记并尝试删除服务端条目，该槽按创建失败记下时刻，GEMINI_CONTEXT_CACHE_RETRY_AFTER_MS
  * 后再按未命中重建。资源名不在当前登记表里（例如热重载已换表）时什么都不做。
+ * @param scope 当前能力的显式缓存作用域。
+ * @param name 被服务端拒绝的缓存资源名。
  */
 export function releaseGeminiContextCache(scope: Readonly<GeminiContextCacheScope>, name: string): void {
   const registry: GeminiContextCacheRegistry = scope.registry();

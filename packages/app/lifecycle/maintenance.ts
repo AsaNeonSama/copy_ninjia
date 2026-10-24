@@ -16,6 +16,7 @@ import type { ApplicationLifecycleDependencies } from "../lifecycleDependencies"
  *
  * 每次调用都完整执行全部入口（均为幂等赋值）；app/lifecycle.ts 的 init() 会把各 owner 的
  * 接纳重新置真。
+ * @param dependencies 应用生命周期依赖集合。
  * @returns 全部入口都未抛错时为 true。
  */
 export function quiesceLifecycleMaintenance(
@@ -50,6 +51,9 @@ export function quiesceLifecycleMaintenance(
 
 /**
  * 在 RUNNER_DRAIN_TIMEOUT_MS 内等待 runner 排空；超时后取消在途 update，并区分取消是否真正结算。
+ * @param runner 已确认更新批处理 runner。
+ * @param dependencies 应用生命周期依赖集合。
+ * @returns 自然排空返回 `"drained"`，超时后取消并结算返回 `"aborted"`，取消仍未结算返回 `"unsettled"`。
  */
 export async function drainAcknowledgedUpdateRunner(
   runner: AcknowledgedUpdateRunner,
@@ -98,6 +102,10 @@ export async function drainAcknowledgedUpdateRunner(
 /**
  * 等待已启动的群标题维护任务；预算耗尽时先取消任务，再向停机门禁报告失败。
  * task 由 app/lifecycle.ts 在启动时接上 catch，结算即视为完成。
+ * @param task 启动期挂出的群标题维护任务 Promise。
+ * @param timeoutMs 等待结算的预算毫秒数（不大于 0 时直接取消）。
+ * @param dependencies 应用生命周期依赖集合。
+ * @returns 在预算内结算返回 `true`，超时或预算非正并已取消返回 `false`。
  */
 export async function waitForLifecycleBackgroundMaintenance(
   task: Promise<void>,

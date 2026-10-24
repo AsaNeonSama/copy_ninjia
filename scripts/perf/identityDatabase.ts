@@ -57,6 +57,12 @@ const BENCHMARK_OPERATIONS: readonly BenchmarkOperation[] = [
   "storage-write-cold-connection",
 ];
 
+/**
+ * 在当前进程内分派并执行单个身份基准算子。
+ * @param operation 待测量的身份基准算子名称。
+ * @param mockRoot 临时 mock 数据根目录路径。
+ * @returns 单次子进程样本的测量结果。
+ */
 async function runOperation(
   operation: BenchmarkOperation,
   mockRoot: string
@@ -77,6 +83,13 @@ async function runOperation(
   return runMainWriteThroughChild(mockRoot);
 }
 
+/**
+ * 组装身份基准的顶层报告结构。
+ * @param aggregates 各算子聚合后的统计结果列表。
+ * @param samplingMode 采样模式（独立子进程或单进程）。
+ * @param samplesPerOperation 每个算子的样本数。
+ * @returns 完整的身份数据库基准报告。
+ */
 function report(
   aggregates: readonly AggregateResult[],
   samplingMode: BenchmarkReport["samplingMode"],
@@ -98,6 +111,12 @@ function report(
   };
 }
 
+/**
+ * 启动独立子进程运行一次指定身份基准算子并校验落盘状态。
+ * @param operation 待测量的身份基准算子名称。
+ * @param mockRoot 父进程管理的临时 mock 根目录路径。
+ * @returns 子进程输出的单个样本结果。
+ */
 function runIndependentChild(
   operation: BenchmarkOperation,
   mockRoot: string
@@ -133,6 +152,11 @@ function runIndependentChild(
   }
 }
 
+/**
+ * 以独立子进程模式依次采样全部算子并生成报告。
+ * @param mockRoot 父进程创建的临时 mock 根目录路径。
+ * @returns 独立子进程模式的基准报告。
+ */
 function runParent(mockRoot: string): BenchmarkReport {
   const aggregates: AggregateResult[] = [];
   for (const operation of BENCHMARK_OPERATIONS) {
@@ -153,6 +177,11 @@ function runParent(mockRoot: string): BenchmarkReport {
   );
 }
 
+/**
+ * 在同一子进程内连续采样全部算子并生成报告。
+ * @param mockRoot 临时 mock 根目录路径。
+ * @returns 单进程模式的基准报告。
+ */
 async function runSingleProcess(mockRoot: string): Promise<BenchmarkReport> {
   const aggregates: AggregateResult[] = [];
   for (const operation of BENCHMARK_OPERATIONS) {
@@ -169,6 +198,11 @@ async function runSingleProcess(mockRoot: string): Promise<BenchmarkReport> {
   return report(aggregates, "single-process", SINGLE_PROCESS_SAMPLE_COUNT);
 }
 
+/**
+ * 为单进程模式准备隔离环境并启动单进程基准子进程。
+ * @param mockRoot 父进程创建的临时 mock 根目录路径。
+ * @returns 单进程子进程返回的完整基准报告。
+ */
 function runSingleProcessParent(mockRoot: string): BenchmarkReport {
   const temporaryRoot: string = createMainBenchmarkRoot(mockRoot);
   try {

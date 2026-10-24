@@ -32,7 +32,12 @@ import type {
 } from "../../types/identityStorage";
 import type { TemporaryAdBypassActivity } from "../../types/states/temporaryAdBypass";
 
-/** CachedUser 的 Telegram 字段稳定映射到 SQLite meta。 */
+/**
+ * CachedUser 的 Telegram 字段稳定映射到 SQLite meta。
+ *
+ * @param user 群状态缓存中的用户或频道身份对象。
+ * @returns 可写入 SQLite 的标准化 Telegram 身份展示元数据。
+ */
 export function identityMetadataFromCachedUser(
   user: CachedUser
 ): Readonly<TelegramIdentityMetadata> {
@@ -50,6 +55,9 @@ export function identityMetadataFromCachedUser(
  *
  * 两个计数都通过校验后才清空合并身份缓存并写入计数；三类未 ACK 最终值与
  * revision 发号器不在这里改动。
+ *
+ * @param whitelistCount 启动时从 SQLite 统计出的白名单条目总数。
+ * @param blocklistCount 启动时从 SQLite 统计出的黑名单条目总数。
  */
 export function hydrateIdentityStorageCounts(
   whitelistCount: number,
@@ -66,7 +74,12 @@ export function hydrateIdentityStorageCounts(
   identityEntryCounts.blocklist = blocklistCount;
 }
 
-/** 合并身份缓存是否已有该主键三项的正/负结论；不刷新热度。 */
+/**
+ * 合并身份缓存是否已有该主键三项的正/负结论；不刷新热度。
+ *
+ * @param id 待检查的用户或频道身份 ID。
+ * @returns 白名单、黑名单与临时免检三项均已在缓存中加载完毕时返回 `true`，否则返回 `false`。
+ */
 export function isIdentityPolicyCached(id: number): boolean {
   const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.peek(id);
   return entry?.whitelist !== undefined &&
@@ -74,14 +87,24 @@ export function isIdentityPolicyCached(id: number): boolean {
     entry.temporaryAdBypass !== undefined;
 }
 
-/** 同步读取已预热的白名单并刷新条目热度；冷缺失按 fail-closed 解释为不存在。 */
+/**
+ * 同步读取已预热的白名单并刷新条目热度；冷缺失按 fail-closed 解释为不存在。
+ *
+ * @param id 待读取的用户或频道身份 ID。
+ * @returns 命中白名单缓存时返回只读白名单条目数据；未在白名单或冷缺失时返回 `undefined`。
+ */
 export function cachedWhitelistEntry(
   id: number
 ): Readonly<WhitelistEntryData> | undefined {
   return identityPolicyCache.get(id)?.whitelist ?? undefined;
 }
 
-/** 同步读取已预热的黑名单并刷新条目热度；冷缺失按 fail-closed 解释为不存在。 */
+/**
+ * 同步读取已预热的黑名单并刷新条目热度；冷缺失按 fail-closed 解释为不存在。
+ *
+ * @param id 待读取的用户或频道身份 ID。
+ * @returns 命中黑名单缓存时返回只读黑名单条目数据；未在黑名单或冷缺失时返回 `undefined`。
+ */
 export function cachedBlocklistEntry(
   id: number
 ): Readonly<BlocklistEntryData> | undefined {
@@ -97,6 +120,9 @@ interface IdentityPolicyVerdictSets {
 /**
  * 读取一块主键，每个 id 对合并身份缓存做一次整条写入（三项一起）；传入 verdicts 时同时把本块
  * 结论记进调用方的局部集合。本地未 ACK 最终值覆盖数据库迟到结果。
+ *
+ * @param ids 本次分块读取的身份 ID 只读列表。
+ * @param verdicts 可选的永久白名单/黑名单命中集合累加器。
  */
 async function readIdentityPolicyChunk(
   ids: readonly number[],
@@ -159,6 +185,8 @@ async function readIdentityPolicyChunk(
  * （单块小于 LRU 容量，见 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
  * Disk I/O 未初始化时直接返回 true，同步读取保持 fail-closed。
  * 冷读失败只记日志并返回 false，对应主键保持冷缺失。
+ *
+ * @param candidateIds 待预热身份策略缓存的候选身份 ID 列表。
  * @returns true 表示没有冷读失败；破坏性批量路径必须在 false 时放弃执行。
  */
 export async function prefetchIdentityPolicies(
@@ -209,6 +237,8 @@ export async function prefetchIdentityPolicies(
  * 结论由调用方局部持有，不受处置期间 LRU 淘汰影响；读取同时整条写入合并身份缓存，
  * 供处置中的实时复核继续命中。
  * 本地未 ACK 最终值覆盖数据库迟到结果；Disk I/O 不可用时按读取失败处理。
+ *
+ * @param candidateIds 待查询永久白名单与黑名单结论的候选身份 ID 列表。
  * @returns 读取失败时为 null，调用方必须放弃本批处置。
  */
 export async function readIdentityPolicyVerdicts(

@@ -178,7 +178,7 @@ test("原子替换失败保留旧文件和最新待写快照，重试成功后�
     expect(await Bun.file(path).json()).toEqual([{ id: 3, enteredAt: 0 }]);
     expect(dirtyWedChats.size).toBe(0);
     expect(pendingWedMembers.size).toBe(0);
-    expect(wedFileFlushTimer.current).toBeNull();
+    expect(wedFileFlushTimer.timer).toBeNull();
   } finally {
     diagnostic.mockRestore();
   }
@@ -241,7 +241,7 @@ test("删除失败保留待删标记并让本领域回报失败，重试成功�
     expect(await Bun.file(path).exists()).toBeTrue();
     // 领域 flush 照实回报失败。
     expect(flushWedMemberFiles(writeWedMemberFile, (): never => { throw new Error("permission denied"); })).toBeFalse();
-    expect(wedFileFlushTimer.current).not.toBeNull();
+    expect(wedFileFlushTimer.timer).not.toBeNull();
 
     jest.advanceTimersByTime(FLUSH_INTERVAL_MS);
     await diskIOOperationTail.current;

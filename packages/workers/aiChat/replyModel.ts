@@ -40,12 +40,23 @@ import { buildRuntimeStateBlock } from "./runtimeState";
  * 预算核算与检索超限降级重试。前缀缓存与预算约束见 docs/cn/04-invariants.md。
  */
 
+/**
+ * 将按函数名累计的调用次数格式化为有序诊断字符串。
+ *
+ * @param counts 工具函数名到调用次数的只读映射
+ * @returns 形如 `name:count,...` 的诊断文本；映射为空时返回 `"none"`
+ */
 function toolCountsDiagnostic(counts: ReadonlyMap<string, number>): string {
   return [...counts.entries()].sort(([left]: [string, number], [right]: [string, number]): number => left.localeCompare(right))
     .map(([name, count]: [string, number]): string => `${name}:${count}`).join(",") || "none";
 }
 
-/** 组装或复用单槽缓存中的回复系统提示词（状态见 cache/workers/aiChat/replyPrefix.ts）。 */
+/**
+ * 组装或复用单槽缓存中的回复系统提示词（状态见 cache/workers/aiChat/replyPrefix.ts）。
+ *
+ * @param toolset 本轮回复的工具集与提示词能力边界
+ * @returns 完整的静态回复系统提示词文本
+ */
 function buildReplySystemPrompt(toolset: ReplyToolset): string {
   const persona: string = getPersona();
   const actionInstruction: string = toolset.replyActionInstruction;
@@ -64,7 +75,14 @@ function buildReplySystemPrompt(toolset: ReplyToolset): string {
   return prompt;
 }
 
-/** 按固定顺序拼接回复系统提示词全文。 */
+/**
+ * 按固定顺序拼接回复系统提示词全文。
+ *
+ * @param persona 角色设定提示词正文
+ * @param actionInstruction 本轮可用行动工具与停止规则说明
+ * @param functionSearch 是否通过本地 `web_search` 函数暴露联网检索能力
+ * @returns 拼接完成的回复系统提示词全文
+ */
 function composeReplySystemPrompt(persona: string, actionInstruction: string, functionSearch: boolean): string {
   return `${persona}\n\n## Agent 身份与权限边界\n${AI_CHAT_AGENT_ROLE_INSTRUCTION}\n\n` +
     `${CHAT_INTERACTION_INSTRUCTION}\n\n` +
@@ -85,7 +103,14 @@ interface ReplyCallCounters {
   readonly customToolCallsByName: Map<string, number>;
 }
 
-/** 按模型调用顺序执行或接纳一轮函数调用，返回喂回模型的工具输出列表；本轮作废或 abuse_mark 已接纳并终止本轮时返回 null。 */
+/**
+ * 按模型调用顺序执行或接纳一轮函数调用，返回喂回模型的工具输出列表；本轮作废或 abuse_mark 已接纳并终止本轮时返回 null。
+ *
+ * @param functionCalls 模型在当前轮产出的函数调用列表
+ * @param toolset 本轮回复的工具集执行器
+ * @param counters 跨工具轮累积的调用计数器
+ * @returns 供下一轮模型消费的工具输出列表；本轮已作废或被 `abuse_mark` 终止时返回 null
+ */
 async function runFunctionCalls(
   functionCalls: readonly AiFunctionCall[],
   toolset: ReplyToolset,
@@ -121,6 +146,11 @@ async function runFunctionCalls(
 
 /**
  * 执行一轮完整的模型回复对话，返回模型最终轮正文；请求失败、异常结束、工具无法续接、本轮作废或 abuse_mark 被接纳时返回 null。
+ *
+ * @param chatId 群聊 ID
+ * @param promptSections 本轮组装好的参考记忆、当前对话与回复任务分段
+ * @param toolset 本轮回复的工具集与生命周期句柄
+ * @returns 模型最终轮输出的正文文本；无正文或本轮提前终止时返回 null
  */
 export async function generateReply(
   chatId: number,

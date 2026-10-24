@@ -1,18 +1,32 @@
 import { Context } from "grammy";
 import type { FifoMap } from "../../../packages/libs/fifoMap";
-import type { Update, User } from "grammy/types";
+import type { Chat, Update, User } from "grammy/types";
 import { resetWedMemberStates, wedMemberStates } from "../../../packages/cache/main/wedMembers";
 import { WED_MEMBER_LIMIT } from "../../../packages/consts/wed";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 import { observeWedMembers } from "../../../packages/commands/wed/members";
-import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
 import { bot } from "../../../packages/infra/telegram/mainClient";
 import { BENCHMARK_BOT_INFO, BENCHMARK_CHAT_ID, BENCHMARK_SENDER_ID } from "./fixtures";
 import type { Scenario } from "./types";
 
 /**
+ * 按前置链的同步段调用成员观察：先各读一次 `ctx.chat` 与群状态快照，再交给 observeWedMembers，
+ * 每次观察的工作量与生产路径相同。
+ *
+ * @param ctx 群消息上下文
+ */
+function observeLikePreamble(ctx: Context): void {
+  const chat: Chat | undefined = ctx.chat;
+  observeWedMembers(ctx, chat, getChatState(chat!.id));
+}
+
+/**
  * 成员观察实际入口；预热与采样均使用生产量级用户 ID，新增 ID 位于预热区间之后。hit 命中满窗成员，
  * growth 从空窗增长到满，churn 在满窗上每次挤出进入最早的成员再追加新 ID。
+ *
+ * @param mode 娶群友成员池观察模式（命中、增长或满窗轮替）
+ * @returns 娶群友成员池单群观察场景定义
  */
 export function wedMemberScenario(mode: "hit" | "growth" | "churn"): Scenario {
   const user: User = { id: BENCHMARK_SENDER_ID, is_bot: false, first_name: "member" };
@@ -30,7 +44,7 @@ export function wedMemberScenario(mode: "hit" | "growth" | "churn"): Scenario {
       if (mode !== "growth") {
         for (let index: number = 0; index < WED_MEMBER_LIMIT; index++) {
           user.id = BENCHMARK_SENDER_ID + index;
-          observeWedMembers(ctx);
+          observeLikePreamble(ctx);
         }
       }
     },
@@ -39,7 +53,7 @@ export function wedMemberScenario(mode: "hit" | "growth" | "churn"): Scenario {
       const previousRevision: number = wedMemberStates.get(BENCHMARK_CHAT_ID)?.revision ?? 0;
       for (let index: number = 0; index < iterations; index++) {
         user.id = mode === "hit" ? BENCHMARK_SENDER_ID + (index % WED_MEMBER_LIMIT) : nextId++;
-        observeWedMembers(ctx);
+        observeLikePreamble(ctx);
       }
       const members: FifoMap<number, number> | undefined = wedMemberStates.get(BENCHMARK_CHAT_ID)?.members;
       const size: number = members?.size ?? 0;
@@ -58,7 +72,11 @@ export function wedMemberScenario(mode: "hit" | "growth" | "churn"): Scenario {
   };
 }
 
-/** 按生产群容量轮换实际上下文，覆盖跨群观察和各群成员缓存命中。 */
+/**
+ * 按生产群容量轮换实际上下文，覆盖跨群观察和各群成员缓存命中。
+ *
+ * @returns 娶群友成员池跨群切换观察场景定义
+ */
 export function wedMemberChatSwitchScenario(): Scenario {
   const contexts: Context[] = [];
   for (let index: number = 0; index < STATE_MANAGED_CHAT_LIMIT; index++) {
@@ -74,11 +92,11 @@ export function wedMemberChatSwitchScenario(): Scenario {
     prepare: (): void => {
       for (const ctx of contexts) {
         getOrCreateChatState(ctx.chat!.id).isInitEnabled = true;
-        observeWedMembers(ctx);
+        observeLikePreamble(ctx);
       }
     },
     run: (iterations: number): number => {
-      for (let index: number = 0; index < iterations; index++) observeWedMembers(contexts[index % contexts.length]!);
+      for (let index: number = 0; index < iterations; index++) observeLikePreamble(contexts[index % contexts.length]!);
       if (wedMemberStates.size !== STATE_MANAGED_CHAT_LIMIT) throw new Error("Wed observer omitted a managed chat.");
       for (const ctx of contexts) {
         if (wedMemberStates.get(ctx.chat!.id)?.members.size !== 1) throw new Error("Wed observer mixed members across chats.");

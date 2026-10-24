@@ -8,7 +8,7 @@ import { runChatToggleCommand } from "./superAdminToggle";
 /**
  * 处理 /antiraid enable|disable 指令：按群开关入群守卫（见 ChatState.isAntiRaidEnabled）。
  * 仅持有 isCanControllAntiRaidPermission 的身份可用；超级管理员恒持有该权限
- * （见 whitelist.ts），白名单身份可由 /permission 单独获权。
+ * （见 infra/identityPolicy/whitelist.ts），白名单身份可由 /permission 单独获权。
  *
  * 一个开关同时管两条链路：入群验证（按钮 + 提醒 + 超时踢出）和防冲群
  * 私密模式（短时间大量入群时关闭邀请权限），两者共用同一批入群事件。
@@ -20,6 +20,7 @@ import { runChatToggleCommand } from "./superAdminToggle";
  * （后者恢复邀请权限）。拆除失败时回执 teardownFailedText 而不是按开关结果回执：
  * 验证窗口活在主线程镜像里，Worker 重建后会被 adopt 重放，管理员需再关一次
  * （adopt 之后由 antiRaid/workerBridge/replay.ts 的 purgeDisabledJoinGuards 清理已关闭群的残留）。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleAntiRaidCommand(
   ctx: CommandContext<Context>

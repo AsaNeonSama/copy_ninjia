@@ -40,6 +40,7 @@ import {
 } from "../../infra/geminiContextCache";
 import { TEXT_GEMINI_CONTEXT_CACHE_SCOPE } from "./contextCache";
 import { countGoogleSearchCalls, responseText } from "./response";
+import { failedReplyTurn, succeededReplyTurn } from "../ai/utils/replyTurn";
 import type { GeminiRequestResult } from "../../types/aiChat/gemini";
 import type {
   AiFunctionCall,
@@ -51,7 +52,11 @@ import type {
 } from "../../types/aiChat/provider";
 import type { AgentCapabilityConfig } from "../../types/config";
 
-/** 构造本轮请求挂载的工具集合（`googleSearch` 与自定义函数声明）。 */
+/**
+ * 构造本轮请求挂载的工具集合（`googleSearch` 与自定义函数声明）。
+ * @param request 单轮回复请求参数。
+ * @returns 传给 Gemini `generateContent` 的工具声明列表。
+ */
 function buildTools(request: AiReplyTurnRequest): Tool[] {
   const tools: Tool[] = [];
   if (request.webSearchEnabled) tools.push({ googleSearch: {} });
@@ -61,7 +66,11 @@ function buildTools(request: AiReplyTurnRequest): Tool[] {
   return tools;
 }
 
-/** 提取响应中的函数调用列表；无调用时返回 `EMPTY_FUNCTION_CALLS`。 */
+/**
+ * 提取响应中的函数调用列表；无调用时返回 `EMPTY_FUNCTION_CALLS`。
+ * @param data Gemini `generateContent` 响应对象。
+ * @returns 转换后的中立函数调用只读数组。
+ */
 function extractFunctionCalls(data: GenerateContentResponse): readonly AiFunctionCall[] {
   const calls: AiFunctionCall[] = [];
   for (const call of data.functionCalls ?? []) {
@@ -76,20 +85,33 @@ function extractFunctionCalls(data: GenerateContentResponse): readonly AiFunctio
   return calls.length === 0 ? EMPTY_FUNCTION_CALLS : calls;
 }
 
-/** 判断该群上一次成功请求是否仍在 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` 隐式缓存窗口内。 */
+/**
+ * 判断该群上一次成功请求是否仍在 `GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS` 隐式缓存窗口内。
+ * @param chatId 群聊 ID。
+ * @param now 当前单调时钟毫秒数。
+ * @returns 仍在隐式缓存温热窗口内时返回 `true`，否则返回 `false`。
+ */
 function implicitCacheStillWarm(chatId: number, now: number): boolean {
   const lastRequestAt: number | undefined = geminiReplyLastRequestAt.get(chatId);
   return lastRequestAt !== undefined && now - lastRequestAt <= GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS;
 }
 
-/** 记录该群最近一次成功请求的发出时刻（单调递增，不回退）。 */
+/**
+ * 记录该群最近一次成功请求的发出时刻（单调递增，不回退）。
+ * @param chatId 群聊 ID。
+ * @param sentAt 本次请求的发出时刻（单调时钟毫秒数）。
+ */
 function noteGeminiReplyRequest(chatId: number, sentAt: number): void {
   const recordedAt: number | undefined = geminiReplyLastRequestAt.get(chatId);
   if (recordedAt !== undefined && sentAt <= recordedAt) return;
   geminiReplyLastRequestAt.set(chatId, sentAt);
 }
 
-/** 创建一轮 Gemini 回复会话，固定当前 `text` 能力的配置与客户端。 */
+/**
+ * 创建一轮 Gemini 回复会话，固定当前 `text` 能力的配置与客户端。
+ * @param params 回复会话初始化参数，包含群聊 ID、稳定前缀块、易变上下文块与取消信号。
+ * @returns 绑定当前会话历史与显式/隐式缓存切换状态的回复会话句柄。
+ */
 export function createGeminiReplySession(
   { chatId, stableBlocks, volatileBlocks, signal }: AiReplySessionParams
 ): AiReplySession {
@@ -102,7 +124,13 @@ export function createGeminiReplySession(
   let pendingModelContent: Content | undefined;
   let firstRequest: boolean = true;
 
-  /** 构造请求体：`cachedContent` 非空时使用显式缓存结构，否则发送完整系统指令与工具声明。 */
+  /**
+   * 构造请求体：`cachedContent` 非空时使用显式缓存结构，否则发送完整系统指令与工具声明。
+   * @param request 当前回复轮次请求参数。
+   * @param tools 当前轮次挂载的 Gemini 工具声明列表。
+   * @param cachedContent 显式上下文缓存资源名；不使用显式缓存时为 `null`。
+   * @returns 组装好的 `GenerateContentParameters` 请求体。
+   */
   function buildBody(
     request: AiReplyTurnRequest,
     tools: Tool[],
@@ -131,7 +159,12 @@ export function createGeminiReplySession(
     };
   }
 
-  /** 发送一次 `generateContent` 请求，并在成功时记录发出时刻 `sentAt`。 */
+  /**
+   * 发送一次 `generateContent` 请求，并在成功时记录发出时刻 `sentAt`。
+   * @param buildRequestBody 构造请求体的回调。
+   * @param sentAt 本次请求的发出时刻（单调时钟毫秒数）。
+   * @returns Gemini 请求分类结果。
+   */
   async function send(
     buildRequestBody: () => GenerateContentParameters,
     sentAt: number
@@ -146,7 +179,13 @@ export function createGeminiReplySession(
     return result;
   }
 
-  /** 获取或计算当前请求对应的显式缓存内容描述与指纹；只在 acquireGeminiContextCache 需要内容时回调。 */
+  /**
+   * 获取或计算当前请求对应的显式缓存内容描述与指纹；只在 `acquireGeminiContextCache` 需要内容时回调。
+   * @param model 当前 `text` 能力模型名。
+   * @param request 当前回复轮次请求参数。
+   * @param tools 当前轮次挂载的 Gemini 工具声明列表。
+   * @returns 显式上下文缓存的内容描述与指纹。
+   */
   function replyCacheContent(model: string, request: AiReplyTurnRequest, tools: Tool[]): GeminiContextCacheContent {
     const toolsJson: string = JSON.stringify(tools);
     const toolConfig: Readonly<ToolConfig> | undefined = request.webSearchEnabled ? GEMINI_SERVER_TOOL_CONFIG : undefined;
@@ -170,13 +209,24 @@ export function createGeminiReplySession(
     return content;
   }
 
-  /** 按完整结构发送一次请求。 */
+  /**
+   * 按完整结构（不引用显式缓存）发送一次请求。
+   * @param request 当前回复轮次请求参数。
+   * @param tools 当前轮次挂载的 Gemini 工具声明列表。
+   * @param sentAt 本次请求的发出时刻（单调时钟毫秒数）。
+   * @returns Gemini 请求分类结果。
+   */
   function requestFull(request: AiReplyTurnRequest, tools: Tool[], sentAt: number): Promise<GeminiRequestResult> {
     return send((): GenerateContentParameters => buildBody(request, tools, null), sentAt);
   }
 
   /**
-   * 发送首轮请求：优先尝试引用共用显式缓存；若缓存因客户端请求错误被拒则释放该缓存并改发完整请求。
+   * 发送首轮请求：若 `text` 部署配置已在会话创建后热重载则直接走完整请求，否则优先尝试引用共用显式缓存；
+   * 显式缓存因 `misconfigured` 或 `rejected` 失败时释放该缓存并改发完整请求。
+   * @param request 当前回复轮次请求参数。
+   * @param tools 当前轮次挂载的 Gemini 工具声明列表。
+   * @param sentAt 本次请求的发出时刻（单调时钟毫秒数）。
+   * @returns Gemini 请求分类结果。
    */
   async function requestFirst(request: AiReplyTurnRequest, tools: Tool[], sentAt: number): Promise<GeminiRequestResult> {
     if (getAgentDeploymentConfig().text !== textConfig) return requestFull(request, tools, sentAt);
@@ -215,26 +265,19 @@ export function createGeminiReplySession(
       const webSearchCalls: number = response === undefined ? 0 : countGoogleSearchCalls(response);
 
       if (!result.ok) {
-        return {
-          ok: false,
-          text: null,
-          functionCalls: EMPTY_FUNCTION_CALLS,
+        return failedReplyTurn({
           webSearchCalls,
           finishReason: result.finishReason,
           finishDetails: result.finishDetails,
           toolCallLimitHit: result.finishReason === "TOO_MANY_TOOL_CALLS",
-        };
+        });
       }
       pendingModelContent = result.response.candidates?.[0]?.content;
-      return {
-        ok: true,
-        text: responseText(result.response) || null,
-        functionCalls: extractFunctionCalls(result.response),
-        webSearchCalls,
-        finishReason: undefined,
-        finishDetails: undefined,
-        toolCallLimitHit: false,
-      };
+      return succeededReplyTurn(
+        responseText(result.response) || null,
+        extractFunctionCalls(result.response),
+        webSearchCalls
+      );
     },
 
     appendToolOutputs(outputs: readonly AiToolOutput[]): boolean {

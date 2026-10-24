@@ -13,6 +13,9 @@ import type { EarliestExpirySweeper } from "../../libs/earliestExpirySweep";
 /**
  * 文本和各媒体 handler（photo/sticker/animation/voice）共用的随机搭话/评价掷骰条件。
  * 直接唤起、安静期、提及他人与自回复已由 triggerContext.ts 折算为概率 0，此时不掷骰。
+ *
+ * @param context 消息触发上下文
+ * @returns 是否命中随机触发概率
  */
 export function shouldAttemptRandomTrigger(context: MessageTriggerContext): boolean {
   return context.aiReplyProbability > 0 && Math.random() < context.aiReplyProbability;
@@ -25,6 +28,10 @@ export function shouldAttemptRandomTrigger(context: MessageTriggerContext): bool
  * 返回值的两级用法：`!== "none"` 决定 handler 的返回值（是否已接管这条消息），
  * `=== "claimed"` 经 recordContext.ts 的 mediaReplyBackpressurePlaceholder 决定媒体
  * 是否发起回复轮。取值见 types/auto.ts 的 RandomMediaTrigger。
+ *
+ * @param context 消息触发上下文
+ * @param speakerId 发言人 ID
+ * @returns 随机媒体触发结果（`none`、`candidate` 或 `claimed`）
  */
 export function claimRandomMediaTrigger(
   context: MessageTriggerContext,
@@ -41,6 +48,10 @@ export function claimRandomMediaTrigger(
  * 直接回复或 @ 机器人一定接管；否则只有随机触发成立（`claimed` 或
  * `candidate`，见 claimRandomMediaTrigger）才算接管。
  * 解析不出可用媒体而走 replyToUnresolvableMedia 的分支不经过本函数。
+ *
+ * @param context 消息触发上下文
+ * @param randomTrigger 随机媒体触发结果
+ * @returns 该媒体消息是否已被 AI 媒体管线接管
  */
 export function mediaTriggerHandled(
   context: MessageTriggerContext,
@@ -52,6 +63,8 @@ export function mediaTriggerHandled(
 /**
  * 删除已到期或因系统时钟回拨落到未来的冷却，并重算满表有效区间。统一 timer 与容量边界共用；
  * 导出供边界测试。
+ *
+ * @param now 当前毫秒时间戳
  */
 export function sweepUserReplyTriggerTimes(now: number = Date.now()): void {
   let earliest: number = Number.POSITIVE_INFINITY;
@@ -93,6 +106,11 @@ const userReplyTriggerSweeper: EarliestExpirySweeper = {
 /**
  * 按「群 × 发言人」占用一次随机回复冷却名额。明确回复或 @ 机器人的直接
  * 交互不经过这里，由 Worker 侧的直接触发队列承接。
+ *
+ * @param chatId 群聊 ID
+ * @param speakerId 发言人 ID
+ * @param now 当前毫秒时间戳
+ * @returns 是否成功占用冷却名额
  */
 export function tryClaimUserReplyTrigger(chatId: number, speakerId: number, now: number = Date.now()): boolean {
   let users: Map<number, number> | undefined = userReplyTriggerTimes.get(chatId);

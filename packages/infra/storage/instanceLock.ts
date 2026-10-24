@@ -12,8 +12,11 @@ interface BotLockRecord extends ProcessIdentity {
   tokenFingerprint: string;
 }
 
+/** 单实例锁获取与释放的依赖注入选项。 */
 export interface InstanceLockOptions {
+  /** 显式注入的当前进程身份记录。 */
   currentIdentity?: ProcessIdentity;
+  /** 按 PID 查询系统进程身份的注入函数。 */
   readProcessIdentity?: (pid: number) => Promise<ProcessIdentity | null>;
 }
 
@@ -28,6 +31,13 @@ interface ProcessIdentityContext {
   readProcessIdentity: (pid: number) => Promise<ProcessIdentity | null>;
 }
 
+/**
+ * 校验 Linux 进程身份三元组格式与期望 PID 一致。
+ *
+ * @param identity 待校验的进程身份记录。
+ * @param expectedPid 期望匹配的进程 PID（可选）。
+ * @returns 校验通过的原进程身份记录。
+ */
 function validateProcessIdentity(identity: ProcessIdentity, expectedPid?: number): ProcessIdentity {
   if (
     !Number.isSafeInteger(identity.pid) || identity.pid <= 0 ||
@@ -40,7 +50,12 @@ function validateProcessIdentity(identity: ProcessIdentity, expectedPid?: number
   return identity;
 }
 
-/** 解析 /proc/<pid>/stat，comm 可包含空格和右括号，不能按普通空格字段切分整行。 */
+/**
+ * 解析 /proc/<pid>/stat，comm 可包含空格和右括号，不能按普通空格字段切分整行。
+ *
+ * @param content `/proc/<pid>/stat` 文件的原始文本内容。
+ * @returns 解析出的 PID、进程状态与启动时钟滴答数。
+ */
 export function parseLinuxProcessStat(content: string): LinuxProcessStat {
   const openParen: number = content.indexOf("(");
   const closeParen: number = content.lastIndexOf(")");
@@ -61,7 +76,12 @@ export function parseLinuxProcessStat(content: string): LinuxProcessStat {
   return { pid, state, startTimeTicks };
 }
 
-/** Linux PID 的稳定身份；进程不存在返回 null，其它读取/格式错误一律 fail-closed。 */
+/**
+ * Linux PID 的稳定身份；进程不存在返回 null，其它读取/格式错误一律 fail-closed。
+ *
+ * @param pid 目标进程 PID。
+ * @returns 进程的稳定身份记录；进程不存在时返回 `null`。
+ */
 export async function readLinuxProcessIdentity(pid: number): Promise<ProcessIdentity | null> {
   if (process.platform !== "linux") {
     throw new Error("The instance lock requires Linux /proc process identity support.");
@@ -81,35 +101,73 @@ export async function readLinuxProcessIdentity(pid: number): Promise<ProcessIden
   return validateProcessIdentity({ pid, startTimeTicks: stat.startTimeTicks, bootId }, pid);
 }
 
+/**
+ * 计算 Bot Token 的 SHA-256 十六进制指纹，用于锁文件中的归属标识。
+ *
+ * @param botToken Telegram Bot Token 明文。
+ * @returns 64 位小写十六进制 SHA-256 摘要。
+ */
 export function getBotTokenFingerprint(botToken: string): string {
   if (botToken.length === 0) throw new Error("Cannot derive a bot instance lock from an empty token");
   return Bun.SHA256.hash(botToken, "hex");
 }
 
+/**
+ * 将校验后的进程身份序列化为 `v2:<pid>:<starttime>:<bootId>` 文本格式。
+ *
+ * @param identity 进程身份记录。
+ * @returns 序列化后的当前版本身份字符串。
+ */
 function serializeProcessIdentity(identity: ProcessIdentity): string {
   const valid: ProcessIdentity = validateProcessIdentity(identity);
   return `v2:${valid.pid}:${valid.startTimeTicks}:${valid.bootId}`;
 }
 
-/** 按当前格式认出身份行；认不出时返回 null，字段取值不在这里校验。 */
+/**
+ * 按当前格式认出身份行；认不出时返回 null，字段取值不在这里校验。
+ *
+ * @param content 锁或辅助文件的原始文本内容。
+ * @returns 初步提取的进程身份记录；格式不匹配时返回 `null`。
+ */
 function matchProcessIdentity(content: string): ProcessIdentity | null {
   const match: RegExpExecArray | null = PROCESS_IDENTITY_PATTERN.exec(content);
   if (!match) return null;
   return { pid: Number(match[1]), startTimeTicks: match[2]!, bootId: match[3]! };
 }
 
+/**
+ * 解析并校验锁辅助文件中的进程身份，格式不符时抛出要求人工修复的错误。
+ *
+ * @param content 锁辅助文件的原始文本内容。
+ * @param path 文件路径（用于构造诊断错误消息）。
+ * @returns 校验通过的进程身份记录。
+ */
 function parseProcessIdentity(content: string, path: string): ProcessIdentity {
   const identity: ProcessIdentity | null = matchProcessIdentity(content);
   if (identity === null) throw new Error(`${path} has an obsolete or invalid lock owner format; repair it manually.`);
   return validateProcessIdentity(identity);
 }
 
+/**
+ * 判断两份进程身份记录是否指向同一启动周期下的同一个进程。
+ *
+ * @param left 左侧进程身份记录。
+ * @param right 右侧进程身份记录。
+ * @returns 三元组完全一致时返回 `true`。
+ */
 function sameProcessIdentity(left: ProcessIdentity, right: ProcessIdentity): boolean {
   return left.pid === right.pid &&
     left.startTimeTicks === right.startTimeTicks &&
     left.bootId === right.bootId;
 }
 
+/**
+ * 查验给定进程身份在当前系统上是否仍然存活且未被 PID 复用。
+ *
+ * @param identity 待查验的进程身份记录。
+ * @param readProcessIdentity 按 PID 读取当前系统进程身份的函数。
+ * @returns 进程存活且身份三元组完全一致时返回 `true`。
+ */
 async function isProcessIdentityActive(
   identity: ProcessIdentity,
   readProcessIdentity: (pid: number) => Promise<ProcessIdentity | null>
@@ -122,6 +180,9 @@ async function isProcessIdentityActive(
  * 锁或其辅助文件记录的属主此刻是否已不在：内容认不出当前格式的身份行时返回 undefined，
  * 由调用方决定如何处理；认得出时按 PID 现查 /proc，进程不存在或启动时刻、boot id 与
  * 记录不同即为 true。PID 本身非法时按「不能确定」返回 false。
+ *
+ * @param content 锁或辅助文件的原始文本内容。
+ * @returns 属主已不在时返回 `true`，仍存活或 PID 非法时返回 `false`，非当前格式时返回 `undefined`。
  */
 export async function isRecordedLockOwnerInactive(content: string): Promise<boolean | undefined> {
   const owner: ProcessIdentity | null = matchProcessIdentity(content);
@@ -130,6 +191,13 @@ export async function isRecordedLockOwnerInactive(content: string): Promise<bool
   return !await isProcessIdentityActive(owner, readLinuxProcessIdentity);
 }
 
+/**
+ * 解析并校验当前进程自身的进程身份（优先使用注入值，否则按 `process.pid` 读取）。
+ *
+ * @param currentIdentity 调用方显式注入的当前进程身份（可选）。
+ * @param readProcessIdentity 按 PID 读取当前系统进程身份的函数。
+ * @returns 校验通过的当前进程身份记录。
+ */
 async function resolveCurrentIdentity(
   currentIdentity: ProcessIdentity | undefined,
   readProcessIdentity: (pid: number) => Promise<ProcessIdentity | null>
@@ -146,6 +214,9 @@ async function resolveCurrentIdentity(
  * 严格读取 bot.lock：内容必须恰好是一行当前格式的属主记录加换行。文件不存在返回 null；
  * 空文件、缺行尾换行、多于一行（含逐行都合法的多行）、旧格式或字段非法一律抛错，
  * 抛错前不查任何记录的 PID 生死，文件原样保留，须人工处理。
+ *
+ * @param lockFilePath 单实例锁文件路径。
+ * @returns 解析出的锁属主与 Token 指纹记录；文件不存在时返回 `null`。
  */
 async function readBotLockRecord(lockFilePath: string): Promise<BotLockRecord | null> {
   let content: string;
@@ -169,6 +240,11 @@ async function readBotLockRecord(lockFilePath: string): Promise<BotLockRecord | 
   return { ...identity, tokenFingerprint: match[4]! };
 }
 
+/**
+ * 删除单实例锁文件，文件已不存在时忽略 `ENOENT`。
+ *
+ * @param lockFilePath 单实例锁文件路径。
+ */
 async function deleteBotLock(lockFilePath: string): Promise<void> {
   try {
     await Bun.file(lockFilePath).delete();
@@ -180,6 +256,10 @@ async function deleteBotLock(lockFilePath: string): Promise<void> {
 /**
  * 用 hard link 原子发布完整进程身份 guard，并回收当前格式的 stale guard。
  * 协议的非原子回收边界见 docs/cn/04-invariants.md。
+ *
+ * @param lockFilePath guard 锁文件路径。
+ * @param currentIdentity 当前进程身份记录。
+ * @param readProcessIdentity 按 PID 读取进程身份的函数。
  */
 async function acquirePidFileLock(
   lockFilePath: string,
@@ -268,6 +348,12 @@ async function acquirePidFileLock(
   }
 }
 
+/**
+ * 释放当前进程持有的 PID guard 锁文件；仅在文件内容仍归属当前进程时删除。
+ *
+ * @param lockFilePath guard 锁文件路径。
+ * @param currentIdentity 当前进程身份记录。
+ */
 async function releasePidFileLock(lockFilePath: string, currentIdentity: ProcessIdentity): Promise<void> {
   try {
     const owner: ProcessIdentity = parseProcessIdentity(await Bun.file(lockFilePath).text(), lockFilePath);
@@ -277,6 +363,14 @@ async function releasePidFileLock(lockFilePath: string, currentIdentity: Process
   }
 }
 
+/**
+ * 在 `<lockFilePath>.guard` 互斥保护下执行临界区动作。
+ *
+ * @param lockFilePath 主锁文件路径。
+ * @param context 当前进程身份与进程探针上下文。
+ * @param action 持有 guard 期间执行的异步动作。
+ * @returns `action` 的返回值。
+ */
 async function withBotLockGuard<T>(
   lockFilePath: string,
   context: ProcessIdentityContext,
@@ -296,6 +390,10 @@ async function withBotLockGuard<T>(
  * readBotLockRecord，格式不符时抛错并原样保留文件）；属主进程仍在时不论 token 是否相同
  * 一律抛错；无属主或属主已不在时，用原子写把文件整体换成当前进程这一行。
  * 抛错由启动流程以非零码退出。
+ *
+ * @param botToken Telegram Bot Token 明文。
+ * @param lockFilePath 单实例锁文件路径。
+ * @param options 进程身份与探针注入选项。
  */
 export async function acquireSingleInstanceLock(
   botToken: string,
@@ -324,6 +422,10 @@ export async function acquireSingleInstanceLock(
 /**
  * 停机时释放单实例锁（在 `bot.lock.guard` 互斥下执行）：文件不存在时直接返回；
  * 属主是本进程且 token 相同，或属主进程已不在时删除文件；属主为其它运行中进程时原样保留。
+ *
+ * @param botToken Telegram Bot Token 明文。
+ * @param lockFilePath 单实例锁文件路径。
+ * @param options 进程身份与探针注入选项。
  */
 export async function releaseSingleInstanceLock(
   botToken: string,

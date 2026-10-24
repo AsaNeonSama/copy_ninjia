@@ -14,7 +14,13 @@ export interface MetricDefinition<TRound> {
   readonly select: (round: TRound) => number;
 }
 
-/** 把一项指标在各轮上的取值聚合成一行读数。 */
+/**
+ * 把一项指标在各轮上的取值聚合成一行读数。
+ * @param metric 指标标识名。
+ * @param unit 指标量纲单位。
+ * @param values 各轮采集到的样本数值列表。
+ * @returns 含平均值、极值与变异系数的指标统计对象。
+ */
 export function aggregateMetric(
   metric: string,
   unit: MetricUnit,
@@ -42,7 +48,12 @@ export function aggregateMetric(
   };
 }
 
-/** 按定义表把同一被测对象的各轮读数聚合成整行指标。 */
+/**
+ * 按定义表把同一被测对象的各轮读数聚合成整行指标。
+ * @param rounds 多轮运行产出的原始读数列表。
+ * @param definitions 待提取并聚合的指标定义表。
+ * @returns 与定义表顺序一致的指标统计列表。
+ */
 export function aggregateRounds<TRound>(
   rounds: readonly TRound[],
   definitions: readonly MetricDefinition<TRound>[]

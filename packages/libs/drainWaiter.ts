@@ -15,6 +15,8 @@ export interface WaitForFlushParams {
  * 登记一个带预算的排空等待者并返回它的结论。owner 排空或放弃时经 settleFlushWaiters
  * 结算。预算先耗尽时先调用 onTimeout：它同步引起的结算对本等待者同样生效；仍未结算才
  * 出队并按 `"timedOut"` 结算。已被结算的等待者的 timer 已取消，不会再触发。
+ * @param params 等待者集合、超时毫秒预算与可选的超时前钩子。
+ * @returns 排空完成或超时结算结论。
  */
 export function waitForFlush({ waiters, timeoutMs, onTimeout }: WaitForFlushParams): Promise<FlushResult> {
   return new Promise<FlushResult>((resolve: (result: FlushResult) => void): void => {
@@ -30,7 +32,11 @@ export function waitForFlush({ waiters, timeoutMs, onTimeout }: WaitForFlushPara
   });
 }
 
-/** 以同一结论结算并清空全部等待者，各自的预算 timer 一并取消。 */
+/**
+ * 以同一结论结算并清空全部等待者，各自的预算 timer 一并取消。
+ * @param waiters 待统一结算并清空的等待者集合。
+ * @param result 交付给所有等待者的排空结论。
+ */
 export function settleFlushWaiters(waiters: Set<FlushWaiter>, result: FlushResult): void {
   for (const waiter of waiters) {
     clearTimeout(waiter.timer);
@@ -63,6 +69,7 @@ export interface DrainWaiterParams {
  * 预算为 0 时不抛校验错，立刻 abort 并按 timedOut 结算；登记 waiter 之后再触发一次
  * 空闲检查。
  * @see ../../docs/cn/04-invariants.md
+ * @param params owner 标识、超时预算、空闲判定、等待者集合与中止回调。
  * @returns 归零返回 `"flushed"`；预算耗尽时先 abort 再返回 `"timedOut"`。
  */
 export function drainWithWaiter({

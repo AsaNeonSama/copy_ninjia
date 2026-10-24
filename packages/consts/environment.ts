@@ -4,6 +4,15 @@ export const RUNTIME_DATA_ROOT_ENV: string = "COPY_NINJIA_DATA_ROOT";
 /** 可选的部署配置目录环境变量名；未设置时使用项目根目录下的 config/（其下分 static/ 与 dynamic/）。 */
 export const CONFIG_ROOT_ENV: string = "COPY_NINJIA_CONFIG_ROOT";
 
+/**
+ * AI SDK 会并入每个请求头、且构造参数关不掉的环境变量名（可追加或覆盖同名头，包括 Authorization）。
+ * 进程环境里出现任一（含空串）即在 consts/paths.ts 加载时拒绝启动。
+ */
+export const SDK_REQUEST_HEADER_ENVS: readonly string[] = [
+  "ANTHROPIC_CUSTOM_HEADERS",
+  "OPENAI_CUSTOM_HEADERS",
+];
+
 /** 性能子进程启用 JSC GC 暂停日志的环境变量名。 */
 export const JSC_GC_LOG_ENV: string = "BUN_JSC_logGC";
 

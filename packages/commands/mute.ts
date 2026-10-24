@@ -30,6 +30,8 @@ import { rejectUnlessPermitted } from "./commandActor";
  * consts/commands.ts 的 MUTE_MIN_DURATION_MS / MUTE_MAX_DURATION_MS。数值超出
  * 安全整数时同样落进最大值收敛。
  * 导出仅为可测试性。
+ * @param token 原始时长 token 字符串（如 `"10m"`、`"2h"`）。
+ * @returns 收敛到合法区间的毫秒数；形态非法时返回 undefined。
  */
 export function parseMuteDurationMs(token: string): number | undefined {
   const durationMs: number | undefined = parseDurationTokenMs(token);
@@ -41,6 +43,10 @@ export function parseMuteDurationMs(token: string): number | undefined {
  * `forbidden` 结局的回执。按机器人自己的权限快照分辨：确证不是管理员或缺
  * 「限制与封禁成员」时点名原因；快照缺失或该位齐全时两种成因都说明。
  * 具体错误已由统一错误边界记进日志。
+ * @param chatId 目标群聊 ID。
+ * @param targetLabel 已格式化的目标展示标签。
+ * @param command 触发的操作类型（`"mute"` 或 `"unmute"`）。
+ * @returns 拼装好的权限不足回执文案。
  */
 async function forbiddenReplyText(
   chatId: number,
@@ -67,6 +73,9 @@ async function forbiddenReplyText(
  * 任一不满足时回复嘲讽/说明并返回 false，调用方直接 return。
  * `restrictChatMember` 只对超级群有效，非超级群回执 muteSupergroupOnly，不解析目标
  * （同 antiRaid/floodControl.ts 只在超级群计数的口径）。
+ * @param ctx grammY 命令上下文。
+ * @param command 触发的操作类型（`"mute"` 或 `"unmute"`）。
+ * @returns 校验通过时返回 true；已发送拒绝回执时返回 false。
  */
 async function passesMuteCommandGate(ctx: CommandContext<Context>, command: "mute" | "unmute"): Promise<boolean> {
   const permission: "isCanMute" | "isCanUnMute" =
@@ -89,6 +98,9 @@ async function passesMuteCommandGate(ctx: CommandContext<Context>, command: "mut
 /**
  * 目标是频道身份（频道马甲/匿名管理员）时回复 muteChannelTarget 并返回 true：
  * restrictChatMember 只认真实用户（同 antiRaid/floodControl.ts 不计数的口径）。
+ * @param ctx grammY 命令上下文。
+ * @param targetUser 已解析出的目标身份。
+ * @returns 目标为不可限制的频道身份且已发送拒绝回执时返回 true；真实用户返回 false。
  */
 async function rejectUnrestrictableTarget(
   ctx: CommandContext<Context>,
@@ -111,11 +123,12 @@ async function rejectUnrestrictableTarget(
  * 参数形态：时长必填且必须是最后一个 token（`数字+m/h/d`，见
  * parseMuteDurationMs），目标用回复消息、@username 或用户 id 指定（时长带
  * 单位字母、id 是纯数字，形态互斥）。仅持有 isCanMute 的身份可用（超级管理员
- * 恒持有，见 whitelist.ts）；目标是自己人（isWhitelisted 边界内的身份，含超级
+ * 恒持有，见 infra/identityPolicy/whitelist.ts）；目标在白名单保护范围内（`isWhitelisted`，含超级
  * 管理员）时拒绝，与自动处置的排除边界一致（见 antiRaid/adDetect.ts）。
  *
  * 成功战报与失败提示一样走 sendCommandMessage 的默认路径，自动清理（见
  * docs/cn/04-invariants.md）；`/mute` 不属于长期保留例外。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;
@@ -138,14 +151,14 @@ export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<v
     rawArgument: targetArgument,
     // 接受裸用户 id；时长 token 带单位字母，纯数字 id 不会被当成时长。
     acceptUserId: true,
-    // 下面的自己人闸读 isWhitelisted，预热失败时拒绝执行。
+    // 下方的白名单保护检查读取 isWhitelisted，预热失败时拒绝执行。
     requireIdentityPolicies: true,
     messages: chatAtmosphere().MUTE_TARGET_TEXTS,
   });
   if (!targetUser) return;
   if (await rejectUnrestrictableTarget(ctx, targetUser)) return;
 
-  // 自己人不可禁言（口径同自动处置的 isWhitelisted 边界，超级管理员已含在内）。
+  // 白名单身份不可禁言（口径同自动处置的 isWhitelisted 边界，超级管理员已含在内）。
   if (isWhitelisted(targetUser.id)) {
     const atmosphere: AtmosphereTexts = chatAtmosphere();
     await replyCommandNotice(ctx, atmosphere.NOTICE_TEXTS.muteProtected(formatTargetLabel(targetUser, atmosphere)));
@@ -176,8 +189,9 @@ export async function handleMuteCommand(ctx: CommandContext<Context>): Promise<v
 /**
  * 处理 /unmute 指令：立刻恢复目标在本群的发言权限（全权限置真，实际能力仍
  * 与群默认权限取交集，见 consts/telegram.ts 的 UNMUTED_CHAT_PERMISSIONS）。
- * 不带时长参数；目标指定方式与权限门槛同 /mute。目标本来就没被禁言时
- * Telegram 同样返回成功，不事先区分。不设自己人闸。
+ * 不带时长参数；仅持有 `isCanUnMute` 的身份可用，目标同样支持回复消息、`@username` 或裸用户 ID。
+ * 目标本来就没被禁言时 Telegram 同样返回成功，不事先区分；无需白名单保护检查，也不强制预热身份策略。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleUnmuteCommand(ctx: CommandContext<Context>): Promise<void> {
   const chatId: number = ctx.chat.id;

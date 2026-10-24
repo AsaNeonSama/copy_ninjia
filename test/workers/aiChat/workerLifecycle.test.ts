@@ -123,9 +123,9 @@ const { hasChatMemory, pendingSummaries, resetAiChatMemoryCache } = await import
 
 /** 主线程投递的那一代快照；断言 Worker 原样收进 holder。 */
 const injectedAgentConfig: AgentDeploymentConfig = {
-  text: { provider: "google", apiKey: "injected-text-key", baseUrl: undefined, headers: undefined, model: "injected-text" },
-  summary: { provider: "openai", apiKey: "injected-summary-key", baseUrl: undefined, headers: undefined, model: "injected-summary" },
-  media: { provider: "google", apiKey: "injected-media-key", baseUrl: undefined, headers: undefined, model: "injected-media" },
+  text: { provider: "google", apiKey: "injected-text-key", baseUrl: undefined, model: "injected-text" },
+  summary: { provider: "openai", apiKey: "injected-summary-key", baseUrl: undefined, model: "injected-summary" },
+  media: { provider: "google", apiKey: "injected-media-key", baseUrl: undefined, model: "injected-media" },
 };
 const { aiChatWorkerAbortController, aiChatWorkerDrain, aiChatWorkerQuiescing } =
   await import("../../../packages/cache/workers/aiChat/worker");

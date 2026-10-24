@@ -46,7 +46,11 @@ export const TTS_DEFAULT_BOT_LANGUAGE: TtsBotLanguage = "ja";
 /** `agent.tts.bot_language` 严格校验的期望形态，列出 TTS_BOT_LANGUAGES 的全部取值，不含用户配置值。 */
 export const EXPECTED_TTS_BOT_LANGUAGE: string = '"en", "zh" or "ja"';
 
-/** 判断字符串是否属于 TTS_BOT_LANGUAGES；调用方先完成首尾空白规范化。 */
+/**
+ * 判断字符串是否属于 TTS_BOT_LANGUAGES；调用方先完成首尾空白规范化。
+ * @param value 待判断的规范化字符串。
+ * @returns 属于合法 TTS 台词语言枚举时返回 true，否则返回 false。
+ */
 export function isTtsBotLanguage(value: string): value is TtsBotLanguage {
   return (TTS_BOT_LANGUAGES as readonly string[]).includes(value);
 }

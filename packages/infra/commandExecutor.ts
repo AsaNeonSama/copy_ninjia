@@ -14,7 +14,11 @@ import type {
 import type { CommandExecutorRuntime } from "../types/commandExecutor";
 import type { UpdateTopic } from "../types/lifecycle";
 
-/** 按给定的并发与等待上限建一代接纳中的运行状态。 */
+/**
+ * 按给定的并发与等待上限建一代接纳中的运行状态。
+ * @param options 优先级有界任务执行器的并发与队列上限配置。
+ * @returns 新建的处于接纳状态的命令执行器运行时。
+ */
 export function createCommandExecutorRuntime(
   options: PrioritizedBoundedTaskRunnerOptions
 ): CommandExecutorRuntime {
@@ -28,8 +32,11 @@ export function createCommandExecutorRuntime(
 
 /** submitCommandExecutorTask 的入参。 */
 export interface SubmitCommandExecutorTaskOptions {
+  /** 目标命令执行器运行时实例。 */
   readonly runtime: CommandExecutorRuntime;
+  /** 任务调度优先级。 */
   readonly priority: TaskPriority;
+  /** 实际执行的异步任务闭包。 */
   readonly task: () => Promise<unknown>;
   /** 任务意外抛错时写进错误日志的英文前缀。 */
   readonly errorLabel: string;
@@ -43,6 +50,8 @@ export interface SubmitCommandExecutorTaskOptions {
  * 同步提交一个任务：合入运行时停止信号与接纳时的 update 取消上下文，任务在自己的取消上下文与
  * 触发话题里运行；停机取消后的异常不再上报。接纳时
  * update 已取消则返回 false。接纳后没有开跑就被撤销的任务在结算时调用 onSkipped。
+ * @param options 任务提交选项。
+ * @returns 成功排入执行器时返回 true，接纳时取消信号已触发时返回 false。
  * @see ../../docs/cn/04-invariants.md
  */
 export function submitCommandExecutorTask({

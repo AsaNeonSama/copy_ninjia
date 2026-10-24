@@ -40,6 +40,9 @@ import { handleVoiceMessage } from "./voice";
 /**
  * 判定这条消息交给哪个 AI handler；没有对应 handler（视频、文件、以 `/` 开头的
  * 文本等）返回 undefined。按「一条消息只可能是其中一种载荷」逐项判定，命中即返回。
+ *
+ * @param message Telegram 入站消息
+ * @returns AI 载荷类型；无对应 handler 时返回 `undefined`
  */
 function aiTriggerPayloadOf(message: Message): AiTriggerPayload | undefined {
   if (typeof message.text === "string") {
@@ -53,22 +56,27 @@ function aiTriggerPayloadOf(message: Message): AiTriggerPayload | undefined {
 }
 
 /**
- * 消息自动流水线的编排层。各载荷 handler 只负责自己的记录与触发语义；这里
- * 保留跨领域的固定顺序：标题/自回弹门禁 → 活跃度 → 翻译目标 → 复制目标 → 私聊中转 →
+ * 消息自动流水线的编排层（群标题更新与自发消息回弹门禁已在入口 `handleIncomingMessageMiddleware` 完成）。
+ * 各载荷 handler 只负责自己的记录与触发语义；这里保留跨领域的固定顺序：
+ * 发送者缓存 → 相册收图 → 群活跃度入窗 → 翻译目标 → 复制目标 → 私聊 `/send` 中转 →
  * 问答直答 → AI 文本或媒体 → 群聊主动行为。
  *
  * AI 分支先由 aiTriggerPayloadOf 判定载荷，只有存在对应 handler 时才构造触发上下文。
+ *
+ * @param message 已通过门禁的入站消息。
+ * @param botIdentity 本机器人身份信息。
+ * @param state 当前聊天状态快照。
+ * @returns 进入异步分支（如复读、问答直答或命中主动发送）时的 Promise；纯同步完成时返回 `undefined`。
  */
 function handleAcceptedIncomingMessage(
   message: Message,
   botIdentity: AiBotInfo,
-  groupState: Readonly<ChatState> | undefined
+  state: Readonly<ChatState>
 ): Promise<void> | undefined {
   const chatId: number = message.chat.id;
   const senderId: number | undefined = cacheSender(message);
   // 相册里的图记进缓存，供 `/h_image add` 收齐整组；排在复读、翻译等提前返回的分支之前。
   if (message.media_group_id !== undefined) observeMediaGroupImage(message);
-  const state: Readonly<ChatState> = groupState ?? getChatState(chatId);
   /**
    * 本条消息统一的「现在」，传给活跃度入窗与安静期判定。
    * 取值经 updateNow：已确证机器人是管理员的群消息在入群守卫入口已先取本条 update 的
@@ -84,7 +92,7 @@ function handleAcceptedIncomingMessage(
       : 1 / AI_REPLY_PROBABILITY_BASE_INITIAL;
 
   const copyTargetId: number | undefined = activeCopyTargetIdIn(chatId);
-  const translation: TranslateState | undefined = senderId === undefined ? undefined : activeTranslateStateIn(chatId, senderId);
+  const translation: TranslateState | undefined = senderId === undefined ? undefined : activeTranslateStateIn(state, senderId);
   // 生效的翻译目标只走翻译：同时是 copy 目标也不复读、不复制媒体；翻译整条不发送时
   // （同语种、没有文字等）这条消息同样不再往下处理。译文在按群串行的后台链里生成并发出，
   // 本条 update 不等它。
@@ -108,6 +116,7 @@ function handleAcceptedIncomingMessage(
   }
 
   if (message.chat.type === "private") {
+    // 是否进入 /send 中转只由 handlePrivateProxySend 开头判定，这里不预先重复该条件。
     return handlePrivateProxySend(message);
   }
 
@@ -179,17 +188,19 @@ function handleAcceptedIncomingMessage(
 /**
  * 消息自动流水线的同步入口。普通消息只执行同步判定；只有真正命中 Telegram I/O
  * 或自发消息等待时才返回 Promise，供 grammY 的 MaybePromise middleware 边界接管。
+ *
+ * @param ctx grammY 上下文
+ * @param chatState 前置链在同一同步段读到的本群状态快照；自发消息等待之后改用重读的现值。
+ * @returns 命中异步处理时的 Promise；仅同步完成时返回 `undefined`
  */
-export function handleIncomingMessageMiddleware(ctx: Context): Promise<void> | undefined {
+export function handleIncomingMessageMiddleware(
+  ctx: Context,
+  chatState: Readonly<ChatState>
+): Promise<void> | undefined {
   const message: Message | undefined = ctx.msg;
   if (!message) return undefined;
 
-  const chatId: number = message.chat.id;
-  const groupState: Readonly<ChatState> | undefined =
-    message.chat.type === "group" || message.chat.type === "supergroup"
-      ? getChatState(chatId)
-      : undefined;
-  recordChatTitleFromChat(message.chat, groupState);
+  recordChatTitleFromChat(message.chat, chatState);
   const botIdentity: AiBotInfo = ctx.me;
 
   // 本机器人内联结果只记入 AI 上下文（gag 发言记为本人，其余记为机器人自身）、不触发主动行为；普通自发消息回弹则完全忽略。
@@ -206,10 +217,10 @@ export function handleIncomingMessageMiddleware(ctx: Context): Promise<void> | u
         // 状态。时刻同理：rendezvous 最长等 SELF_SENT_RENDEZVOUS_TIMEOUT_MS，
         // 这里经 refreshUpdateNow 重新取一次，后续调用点使用新值。
         refreshUpdateNow();
-        return handleAcceptedIncomingMessage(message, botIdentity, undefined);
+        return handleAcceptedIncomingMessage(message, botIdentity, getChatState(message.chat.id));
       }
     );
   }
 
-  return handleAcceptedIncomingMessage(message, botIdentity, groupState);
+  return handleAcceptedIncomingMessage(message, botIdentity, chatState);
 }

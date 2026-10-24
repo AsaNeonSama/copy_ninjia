@@ -15,6 +15,7 @@ import { globalPropertyName } from "./staticAccess";
 
 /** 逐文件边界规则的公共入参。 */
 export interface ModuleBoundaryParams {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
   /** 被检查文件的绝对路径。 */
   readonly path: string;
@@ -22,7 +23,13 @@ export interface ModuleBoundaryParams {
   readonly source: ts.SourceFile;
 }
 
-/** 节点所在行号（1 起）。 */
+/**
+ * 节点所在行号（1 起）。
+ *
+ * @param source 源文件 AST
+ * @param position 字符偏移位置
+ * @returns 1-based 行号
+ */
 function lineOf(source: ts.SourceFile, position: number): number {
   return source.getLineAndCharacterOfPosition(position).line + 1;
 }
@@ -40,6 +47,9 @@ const ENVIRONMENT_BOUNDARY_FILES: readonly string[] = [
  * packages/ 与 index.ts 的其余文件读取即报错，scripts/ 与 test/ 不在判定范围内。
  * `Bun.env` 与 `process.env` 指向同一份环境，属性访问与具名直接解构
  * 使用相同的静态识别，类型位置不参与。
+ *
+ * @param params 逐文件模块边界检查入参
+ * @returns 越界读取环境变量的问题列表
  */
 export function collectEnvironmentAccessProblems({
   projectRoot,
@@ -69,6 +79,9 @@ export function collectEnvironmentAccessProblems({
  * `packages/consts/` 运行期只依赖本目录：其余 `packages/` 模块只能 `import type`，npm 包与 `node:`
  * 内置模块不在此列。全量基准 import 边界与 `states/` 纯度规则放行的 consts，因此不会间接带入其它
  * `packages/` 实现模块。
+ *
+ * @param params 逐文件模块边界检查入参
+ * @returns `packages/consts/` 越界运行期依赖的问题列表
  */
 export function collectConstsPurityProblems({
   projectRoot,
@@ -114,6 +127,12 @@ export const STATES_CLOSURE_OPAQUE_MODULES: readonly string[] = [
   "packages/config/time.ts",
 ];
 
+/**
+ * 判断相对路径是否属于 `packages/states/` 允许依赖的纯模块前缀。
+ *
+ * @param target 相对仓库根的目标模块路径
+ * @returns 属于允许前缀时返回 true
+ */
 function isStatesDependencyAllowed(target: string): boolean {
   return STATES_ALLOWED_PREFIXES.some((prefix: string): boolean => target.startsWith(prefix));
 }
@@ -130,6 +149,9 @@ export interface StatesPurityParams extends ModuleBoundaryParams {
 /**
  * 直接 import 按 AST 逐条判定（含解析不到 .ts 的相对路径），只放行 STATES_ALLOWED_PREFIXES；
  * 经直接依赖再往外引入的模块按闭包判定，另放行 STATES_CLOSURE_OPAQUE_MODULES。
+ *
+ * @param params 状态机模块纯度检查入参
+ * @returns `packages/states/` 直接或间接越界依赖的问题列表
  */
 export function collectStatesPurityProblems({
   projectRoot,
@@ -190,6 +212,12 @@ const INFRA_LAYERING_EXEMPTIONS: readonly string[] = [
   "packages/workers/diskIO/diagnosticSink.ts",
 ];
 
+/**
+ * 核对 `packages/infra/` 模块未在运行期静态依赖业务层模块。
+ *
+ * @param params 逐文件模块边界检查入参
+ * @returns `packages/infra/` 反向依赖业务层的问题列表
+ */
 export function collectInfraLayeringProblems({
   projectRoot,
   path,
@@ -227,6 +255,12 @@ const FULL_SUITE_FIXTURE_FILES: readonly string[] = [
   "scripts/perf/fullSuite/storage.ts",
 ];
 
+/**
+ * 核对全量基准父进程与非夹具模块只运行期导入 `packages/consts/`。
+ *
+ * @param params 逐文件模块边界检查入参
+ * @returns 全量基准越界导入实现模块的问题列表
+ */
 export function collectFullSuiteImportProblems({
   projectRoot,
   path,

@@ -41,17 +41,35 @@ import type {
 } from "../../types/aiChat/replies";
 import type { MediaKind } from "../../types/media";
 
-/** 生成提示词中展示的媒体标签示例。 */
+/**
+ * 生成提示词中展示的媒体标签示例。
+ *
+ * @param kind 媒体类型
+ * @returns 形如 `[图片：…]` 的媒体标签示例文本
+ */
 function mediaTagHintFor(kind: MediaKind): string {
   return resolvedTagFor(kind, "…");
 }
 
-/** 格式化转发路径（「原始来源 → 当前群发送者」）。 */
+/**
+ * 格式化转发路径（「原始来源 → 当前群发送者」）。
+ *
+ * @param origin 原始转发来源描述；非转发消息为 undefined
+ * @param senderId 当前群转发者的 Telegram ID
+ * @param senderName 当前群转发者的显示名
+ * @returns 转发路径文本；非转发消息时返回空串
+ */
 function forwardPathFor(origin: string | undefined, senderId: number, senderName: string): string {
   return origin ? forwardPathTemplate(origin, `[id:${senderId}] ${senderName}`) : "";
 }
 
-/** 格式化排队补跑触发消息的快照描述。 */
+/**
+ * 格式化排队补跑触发消息的快照描述。
+ *
+ * @param queuedTrigger 排队补跑的直接触发快照
+ * @param rendered 当前群逐字转录的渲染结果与发言人代号表
+ * @returns 供排队补跑指令嵌入的触发消息描述文本
+ */
 function describeQueuedTrigger(queuedTrigger: QueuedReplyTrigger, rendered: RenderedTranscript): string {
   const senderName: string = queuedTrigger.senderName || QUEUED_TRIGGER_FALLBACK_SENDER_NAME;
   return queuedTriggerDescription({
@@ -62,7 +80,14 @@ function describeQueuedTrigger(queuedTrigger: QueuedReplyTrigger, rendered: Rend
   });
 }
 
-/** 从触发消息或逐字缓存尾部查找唤起者的最近身份快照。 */
+/**
+ * 从触发消息或逐字缓存尾部查找唤起者的最近身份快照。
+ *
+ * @param recent 当前群最近的逐字缓冲消息列表
+ * @param triggerMessage 触发本轮回复的热区消息；已滑出热区时为 undefined
+ * @param invokerId 直接唤起者的 Telegram userId
+ * @returns 匹配到的发言人身份快照；未在热区中找到时返回 undefined
+ */
 function resolveInvoker(
   recent: BufferedMessage[],
   triggerMessage: BufferedMessage | undefined,
@@ -92,7 +117,13 @@ export interface UserContentOptions {
   roundHasTypo: boolean;
 }
 
-/** 根据本轮触发类型选择对应的回复指令文案。 */
+/**
+ * 根据本轮触发类型选择对应的回复指令文案。
+ *
+ * @param options 本轮触发类型、媒体评价与排队补跑选项
+ * @param rendered 当前群逐字转录的渲染结果
+ * @returns 对应本轮触发方式的回复指令文本
+ */
 function replyInstructionFor(
   { mediaComment, queuedTrigger, isRandomTrigger }: UserContentOptions,
   rendered: RenderedTranscript
@@ -119,6 +150,11 @@ function replyInstructionFor(
 /**
  * 组装单轮回复的三个对话上下文区块（参考记忆、当前会话及转录已定切点、本轮回复任务）；
  * 群消息缓存为空时返回 null。
+ *
+ * @param chatId 群聊 ID
+ * @param selfInfo 机器人自身身份信息
+ * @param options 本轮触发消息、唤起者、媒体与排队补跑选项
+ * @returns 组装好的三段上下文与转录切点偏移；群消息缓存为空时返回 null
  */
 export function buildReplyPromptSections(
   chatId: number,

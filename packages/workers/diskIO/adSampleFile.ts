@@ -31,32 +31,53 @@ import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
 /** 广告样本的持久化记录结构。 */
 interface AdSampleRecord {
+  /** 命中广告检测的时间戳字符串。 */
   detectedAt: string;
+  /** 触发检测的群聊 ID。 */
   chatId: number;
+  /** 发送者 ID。 */
   senderId: number;
+  /** 发送者显示标签。 */
   label: string;
+  /** 模型给出的广告判定理由。 */
   reason: string;
+  /** 送检的窗口消息快照列表。 */
   messages: AdSampleDiskMessage["messages"];
 }
 
+/** 广告样本按日分卷归档的目标文件定位。 */
 interface AdSampleArchiveTarget {
+  /** 归档所属日期键（`YYYY-MM-DD`）。 */
   readonly day: string;
+  /** 当日分卷序号（从 1 递增）。 */
   readonly index: number;
+  /** 归档文件绝对路径。 */
   readonly path: string;
 }
 
+/** 广告样本目录下的条目最小描述。 */
 export interface AdSampleArchiveEntry {
+  /** 条目文件名。 */
   name: string;
+  /** 是否为普通文件。 */
   isFile: boolean;
 }
 
+/** 清理过期广告样本归档的参数。 */
 export interface SweepExpiredAdSampleArchivesParams {
+  /** 当前配置时区的 `YYYY-MM-DD` 日期键。 */
   today: string;
+  /** 列出样本目录条目的钩子；缺省读取真实目录。 */
   listEntries?: () => AdSampleArchiveEntry[];
+  /** 删除单个过期归档文件的钩子；缺省调用 `Bun.file(path).delete()`。 */
   removeFile?: (path: string) => Promise<void>;
 }
 
-/** 构造样本在顶层 JSON 对象中的键：`<chatId>:<首条消息 messageId>`。 */
+/**
+ * 构造样本在顶层 JSON 对象中的键：`<chatId>:<首条消息 messageId>`。
+ * @param msg 广告样本落盘消息。
+ * @returns 顶层 JSON 对象中的唯一样本键。
+ */
 function sampleKey(msg: AdSampleDiskMessage): string {
   return `${msg.chatId}:${msg.messages[0]?.messageId ?? 0}`;
 }
@@ -76,7 +97,10 @@ async function sweepOrphanedTemps(): Promise<void> {
   }
 }
 
-/** 列出样本目录项及其是否为普通文件。 */
+/**
+ * 列出样本目录项及其是否为普通文件。
+ * @returns 样本目录下的文件名与文件类型标记列表。
+ */
 function listAdSampleArchiveEntries(): AdSampleArchiveEntry[] {
   return readdirSync(AD_SAMPLE_MEMORY_DIR, { withFileTypes: true }).map(
     (entry: Dirent<string>): AdSampleArchiveEntry => ({
@@ -86,14 +110,21 @@ function listAdSampleArchiveEntries(): AdSampleArchiveEntry[] {
   );
 }
 
-/** 提取归档文件名中的有效公历日期；不匹配时返回 null。 */
+/**
+ * 提取归档文件名中的有效公历日期；不匹配时返回 null。
+ * @param name 目录项文件名。
+ * @returns 归档文件名对应的 `YYYY-MM-DD` 日期键；非归档文件名或日期非法时返回 null。
+ */
 function archiveDayFromName(name: string): string | null {
   const matched: RegExpExecArray | null = AD_SAMPLE_ARCHIVE_FILENAME_PATTERN.exec(name);
   const day: string | undefined = matched?.[1];
   return day !== undefined && isCanonicalDateKey(day) ? day : null;
 }
 
-/** 清理超出保留期的样本归档文件并更新当日归档序号游标；同一自然日只执行一次。 */
+/**
+ * 清理超出保留期的样本归档文件并更新当日归档序号游标；同一自然日只执行一次。
+ * @param params 清理日期与可注入的目录读取、文件删除钩子。
+ */
 export async function sweepExpiredAdSampleArchives({
   today,
   listEntries = listAdSampleArchiveEntries,
@@ -142,7 +173,10 @@ export async function sweepExpiredAdSampleArchives({
   }
 }
 
-/** 样本目录已存在时清理孤儿临时文件与过期归档。 */
+/**
+ * 样本目录已存在时清理孤儿临时文件与过期归档。
+ * @param today 当前配置时区的 `YYYY-MM-DD` 日期键；缺省为当前时刻。
+ */
 export async function maintainAdSampleFiles(
   today: string = getDateKey()
 ): Promise<void> {
@@ -151,7 +185,10 @@ export async function maintainAdSampleFiles(
   await sweepExpiredAdSampleArchives({ today });
 }
 
-/** 选择当前自然日下一个未被占用的归档文件路径。 */
+/**
+ * 选择当前自然日下一个未被占用的归档文件路径。
+ * @returns 包含日期键、序号与目标绝对路径的归档位置。
+ */
 function nextArchiveTarget(): AdSampleArchiveTarget {
   const day: string = getDateKey();
   const base: string = join(AD_SAMPLE_MEMORY_DIR, `sample.${day}`);
@@ -169,7 +206,11 @@ function nextArchiveTarget(): AdSampleArchiveTarget {
   }
 }
 
-/** 样本文件大小达到 AD_SAMPLE_FILE_MAX_BYTES 时重命名归档并重置追加游标。 */
+/**
+ * 样本文件大小达到 AD_SAMPLE_FILE_MAX_BYTES 时重命名归档并重置追加游标。
+ * @param state 当前活动样本文件的追加游标。
+ * @returns 轮转后的空文件游标或未达阈值时的原游标。
+ */
 function rotateIfOversized(state: AppendOnlyFileState): AppendOnlyFileState {
   if (state.size < AD_SAMPLE_FILE_MAX_BYTES) return state;
   const archive: AdSampleArchiveTarget = nextArchiveTarget();
@@ -211,7 +252,10 @@ export async function flushAdSampleBuffer(): Promise<void> {
   }
 }
 
-/** 序列化一条命中样本并写入缓冲；达到 FLUSH_MAX_ENTRIES 时立即刷盘，否则启动定时刷盘。 */
+/**
+ * 序列化一条命中样本并写入缓冲；达到 FLUSH_MAX_ENTRIES 时立即刷盘，否则启动定时刷盘。
+ * @param msg 广告检测命中样本落盘消息。
+ */
 export async function handleAdSampleMessage(
   msg: AdSampleDiskMessage
 ): Promise<void> {

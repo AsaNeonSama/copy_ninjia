@@ -27,9 +27,9 @@ mock.module("../../../packages/config/agent", () => ({
   getAgentDeploymentConfig: (): AgentDeploymentConfig => {
     if (configError !== null) throw configError;
     return {
-      text: { provider: "openai", apiKey: "text-key", baseUrl: undefined, headers: undefined, model: "t" },
-      summary: { provider: "openai", apiKey: "summary-key", baseUrl: undefined, headers: undefined, model: "s" },
-      media: { provider: "openai", apiKey: "media-key", baseUrl: undefined, headers: undefined, model: "m" },
+      text: { provider: "openai", apiKey: "text-key", baseUrl: undefined, model: "t" },
+      summary: { provider: "openai", apiKey: "summary-key", baseUrl: undefined, model: "s" },
+      media: { provider: "openai", apiKey: "media-key", baseUrl: undefined, model: "m" },
       tts,
     };
   },

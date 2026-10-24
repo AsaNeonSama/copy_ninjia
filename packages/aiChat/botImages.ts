@@ -5,6 +5,7 @@ import { activeCopyTargetIdIn } from "../infra/storage/stateStore";
 
 /** recordBotImage 的入参。 */
 export interface RecordBotImageParams {
+  /** 群聊 ID。 */
   chatId: number;
   /** 图片消息的 message_id。 */
   messageId: number;
@@ -17,6 +18,7 @@ export interface RecordBotImageParams {
 /**
  * 在本群启用 AI 闲聊且未处于复读模式时，向 AI Worker 投递一条占位态机器人图片自录消息；
  * 投递失败时记录错误日志并返回。
+ * @param params 机器人图片自录参数。
  */
 export function recordBotImage({ chatId, messageId, caption, edited }: RecordBotImageParams): void {
   if (activeCopyTargetIdIn(chatId) !== undefined || !isAiChatActiveIn(chatId)) return;

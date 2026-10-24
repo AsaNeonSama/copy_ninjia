@@ -16,7 +16,10 @@ export interface HeapSnapshot {
   readonly objectCount: number;
 }
 
-/** 读一次当前 JSC 堆计数；语义见 `HeapSnapshot`。 */
+/**
+ * 读一次当前 JSC 堆计数；语义见 `HeapSnapshot`。
+ * @returns 当前 JSC 堆大小、额外内存与对象计数快照。
+ */
 export function snapshotHeap(): HeapSnapshot {
   const stats: ReturnType<typeof heapStats> = heapStats();
   return {

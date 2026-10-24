@@ -7,10 +7,12 @@ const setMessageReactions = mock(async (..._args: unknown[]): Promise<boolean> =
 const loggerLog = mock((..._args: unknown[]): void => {});
 /** 本群生效的翻译目标；缺省没有。 */
 let translatedUserId: number | undefined;
-const activeTranslateStateIn = mock((_chatId: number, userId: number): TranslateState | undefined =>
+const activeTranslateStateIn = mock((_chatState: { chatId: number }, userId: number): TranslateState | undefined =>
   userId === translatedUserId ? { translatedUser: { id: userId }, language: "ja" } : undefined);
+/** 群状态替身：只带群 id，供断言翻译判定读的是本群状态。 */
+const getChatState = (chatId: number): { chatId: number } => ({ chatId });
 
-mock.module("../../packages/infra/storage/stateStore", () => ({ activeCopyTargetIdIn }));
+mock.module("../../packages/infra/storage/stateStore", () => ({ activeCopyTargetIdIn, getChatState }));
 mock.module("../../packages/infra/telegram", () => ({ setMessageReactions }));
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ log: loggerLog }) }));
 mock.module("../../packages/translate/message", () => ({ activeTranslateStateIn }));
@@ -99,7 +101,7 @@ describe("reaction sync update entry", () => {
     translatedUserId = 42;
     await handleReaction(context({ emojiAdded: ["👍"] }));
     await handleReaction(context({ emojiAdded: ["👍"] }, { actorChatId: 42 }));
-    expect(activeTranslateStateIn).toHaveBeenCalledWith(-1001, 42);
+    expect(activeTranslateStateIn).toHaveBeenCalledWith({ chatId: -1001 }, 42);
     expect(setMessageReactions).not.toHaveBeenCalled();
 
     translatedUserId = 8;

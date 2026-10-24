@@ -1,8 +1,8 @@
 import { getTimeZone } from "../../packages/config/time";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { rsaPrivateKeyPemFixture } from "../../scripts/fixtures/googleAuth";
 import { TEST_DATA_ROOT } from "../preloadEnv";
 import type {
   ConfigReadiness,
@@ -14,11 +14,7 @@ const authFilePath: string = join(testRoot, "g-auth.json");
 afterAll((): void => { rmSync(testRoot, { recursive: true, force: true }); });
 const personaPath: string = join(testRoot, "unused-persona.md");
 const voiceToolPromptPath: string = join(testRoot, "unused-voice-tool.md");
-const testPrivateKey: string = generateKeyPairSync("rsa", {
-  modulusLength: 2_048,
-  privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  publicKeyEncoding: { type: "spki", format: "pem" },
-}).privateKey;
+const testPrivateKey: string = await rsaPrivateKeyPemFixture();
 
 let telegramFailure: string | null = null;
 

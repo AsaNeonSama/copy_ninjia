@@ -55,6 +55,11 @@ interface DatabaseFixture {
   readonly database: StorageDatabase;
 }
 
+/**
+ * 在 mock 根下创建并打开一个新的 SQLite 数据库夹具。
+ * @param mockRoot 父级临时 mock 根目录路径。
+ * @returns 包含夹具目录、数据库文件路径与已打开连接的夹具对象。
+ */
 function createFixture(mockRoot: string): DatabaseFixture {
   assertMockRoot(mockRoot);
   const root: string = mkdtempSync(join(mockRoot, DATABASE_FIXTURE_ROOT_PREFIX));
@@ -64,6 +69,10 @@ function createFixture(mockRoot: string): DatabaseFixture {
   return { root, path, database };
 }
 
+/**
+ * 校验路径边界后删除数据库夹具目录。
+ * @param fixture 待清理的数据库夹具。
+ */
 function removeFixture(fixture: DatabaseFixture): void {
   const resolvedRoot: string = resolve(fixture.root);
   const resolvedPath: string = resolve(fixture.path);
@@ -79,11 +88,19 @@ function removeFixture(fixture: DatabaseFixture): void {
   removeMainBenchmarkRoot(fixture.root, mockRoot);
 }
 
+/**
+ * 关闭数据库连接并删除夹具目录。
+ * @param fixture 待关闭并清理的数据库夹具。
+ */
 function closeFixture(fixture: DatabaseFixture): void {
   closeStorageDatabase(fixture.database);
   removeFixture(fixture);
 }
 
+/**
+ * 构造单批读取使用的连续身份 ID 列表。
+ * @returns 长度为 `READ_BATCH_SIZE` 的升序 ID 数组。
+ */
 function readIds(): readonly number[] {
   const ids: number[] = new Array<number>(READ_BATCH_SIZE);
   for (let index: number = 0; index < READ_BATCH_SIZE; index += 1) {
@@ -92,6 +109,10 @@ function readIds(): readonly number[] {
   return ids;
 }
 
+/**
+ * 向数据库夹具写入固定规模的白名单与黑名单初始数据。
+ * @param database 已打开的存储数据库连接。
+ */
 function seedReadFixture(database: StorageDatabase): void {
   const whitelist: StoredIdentityPolicyRow[] = [];
   const blocklist: StoredIdentityPolicyRow[] = [];
@@ -106,6 +127,13 @@ function seedReadFixture(database: StorageDatabase): void {
   });
 }
 
+/**
+ * 在同一热连接上复用读取器连续执行指定批次的身份策略查询。
+ * @param database 已打开的存储数据库连接。
+ * @param ids 每批查询的目标身份 ID 列表。
+ * @param batches 连续执行的读取批次数。
+ * @returns 累计读出的记录条数校验和。
+ */
 function runReadBatches(
   database: StorageDatabase,
   ids: readonly number[],
@@ -123,6 +151,10 @@ function runReadBatches(
 /**
  * 每批使用新连接，SQLite 连接页缓存和 Bun 语句缓存从空状态开始。
  * 操作系统页缓存在 fixture 建立后不做全局清理，报告显式标注这一口径。
+ * @param path SQLite 数据库文件路径。
+ * @param ids 每批查询的目标身份 ID 列表。
+ * @param batches 连续执行的冷连接读取批次数。
+ * @returns 累计读出的记录条数校验和。
  */
 function runColdReadBatches(
   path: string,
@@ -146,6 +178,10 @@ function runColdReadBatches(
   return checksum;
 }
 
+/**
+ * 构造写入基准使用的全部白名单变更批次。
+ * @returns 每个元素对应一个事务批次的变更映射列表。
+ */
 function createWriteBatches(): readonly ReadonlyMap<
   number,
   StorageDatabaseChange
@@ -167,6 +203,12 @@ function createWriteBatches(): readonly ReadonlyMap<
   return batches;
 }
 
+/**
+ * 在同一热连接上依次提交全部写入事务批次。
+ * @param database 已打开的存储数据库连接。
+ * @param batches 待提交的白名单变更批次列表。
+ * @returns 累计写入的条目数校验和。
+ */
 function runWriteBatches(
   database: StorageDatabase,
   batches: readonly ReadonlyMap<number, StorageDatabaseChange>[]
@@ -188,7 +230,12 @@ function runWriteBatches(
   return checksum;
 }
 
-/** 每个事务都在新连接上提交并关闭，覆盖生产重连后的首写路径。 */
+/**
+ * 每个事务都在新连接上提交并关闭，覆盖生产重连后的首写路径。
+ * @param path SQLite 数据库文件路径。
+ * @param batches 待提交的白名单变更批次列表。
+ * @returns 累计写入的条目数校验和。
+ */
 function runColdWriteBatches(
   path: string,
   batches: readonly ReadonlyMap<number, StorageDatabaseChange>[]
@@ -214,6 +261,11 @@ function runColdWriteBatches(
   return checksum;
 }
 
+/**
+ * 运行存储层热连接批量读取子进程样本。
+ * @param mockRoot 父级临时 mock 根目录路径。
+ * @returns 热连接读取算子的单次测量结果。
+ */
 export function runHotReadChild(mockRoot: string): ChildResult {
   const fixture: DatabaseFixture = createFixture(mockRoot);
   try {
@@ -236,6 +288,11 @@ export function runHotReadChild(mockRoot: string): ChildResult {
   }
 }
 
+/**
+ * 运行存储层冷连接批量读取子进程样本。
+ * @param mockRoot 父级临时 mock 根目录路径。
+ * @returns 冷连接读取算子的单次测量结果。
+ */
 export function runColdReadChild(mockRoot: string): ChildResult {
   const fixture: DatabaseFixture = createFixture(mockRoot);
   seedReadFixture(fixture.database);
@@ -263,6 +320,11 @@ export function runColdReadChild(mockRoot: string): ChildResult {
   }
 }
 
+/**
+ * 运行存储层热连接事务写入子进程样本。
+ * @param mockRoot 父级临时 mock 根目录路径。
+ * @returns 热连接写入算子的单次测量结果。
+ */
 export function runHotWriteChild(mockRoot: string): ChildResult {
   const fixture: DatabaseFixture = createFixture(mockRoot);
   try {
@@ -289,6 +351,11 @@ export function runHotWriteChild(mockRoot: string): ChildResult {
   }
 }
 
+/**
+ * 运行存储层冷连接事务写入子进程样本。
+ * @param mockRoot 父级临时 mock 根目录路径。
+ * @returns 冷连接写入算子的单次测量结果。
+ */
 export function runColdWriteChild(mockRoot: string): ChildResult {
   const fixture: DatabaseFixture = createFixture(mockRoot);
   closeStorageDatabase(fixture.database);

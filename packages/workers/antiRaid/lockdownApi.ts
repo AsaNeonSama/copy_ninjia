@@ -13,18 +13,29 @@ import { logger } from "../../infra/logger";
 import { trackAntiRaidTask } from "./taskTracker";
 import { lockdownAnnouncementText } from "./lockdownJoinWindow";
 
-/** Worker 停机 drain 撤销的请求不是远端故障，不记错误日志（口径同 runTelegramAction）。 */
+/**
+ * Worker 停机 drain 撤销的请求不是远端故障，不记错误日志（口径同 runTelegramAction）。
+ * @param message 错误日志前缀文本。
+ * @param error 捕获到的异常对象。
+ */
 function logLockdownApiError(message: string, error: unknown): void {
   if (!isAbortError(error)) logger.error(message, error);
 }
 
-/** 在当前 Worker 内分配单调 intent；持久化与恢复约束见 docs/cn/04-invariants.md。 */
+/**
+ * 在当前 Worker 内分配单调 intent；持久化与恢复约束见 docs/cn/04-invariants.md。
+ * @returns 新分配的单调递增意图 ID。
+ */
 export function nextLockdownIntentId(): number {
   lastLockdownIntentId.current = Math.max(Date.now(), lastLockdownIntentId.current + 1);
   return lastLockdownIntentId.current;
 }
 
-/** 私密模式加锁/纠偏共用：在给定权限上关闭 can_invite_users，其余字段原样保留。 */
+/**
+ * 私密模式加锁/纠偏共用：在给定权限上关闭 can_invite_users，其余字段原样保留。
+ * @param permissions 群组当前的默认权限对象。
+ * @returns 将 `can_invite_users` 置为 `false` 后的权限对象。
+ */
 function restrictedPermissions(permissions: ChatPermissions): ChatPermissions {
   return { ...permissions, can_invite_users: false };
 }
@@ -32,6 +43,8 @@ function restrictedPermissions(permissions: ChatPermissions): ChatPermissions {
 /**
  * 按群串行执行权限与公告操作，并登记到 Worker 生命周期。
  * 每项自行记录异常，失败不截断后续任务；串行与恢复约束见 docs/cn/04-invariants.md。
+ * @param chatId 群组 ID。
+ * @param task 待串行执行的异步任务闭包。
  */
 function runLockdownApiCall(chatId: number, task: () => Promise<void>): void {
   void trackAntiRaidTask({ task: lockdownApiRunner.run(chatId, task) });
@@ -41,6 +54,9 @@ function runLockdownApiCall(chatId: number, task: () => Promise<void>): void {
  * 为当前占位发送公告，onSent 同步登记远端消息 ID，随后才处理发送返回或取消。
  * 结果只回投仍持有同一条目的状态；轮次已结束时沿串行链清理自身消息。
  * 发送与状态机清理边界见 docs/cn/04-invariants.md。
+ * @param chatId 群组 ID。
+ * @param joinCount 触发私密模式的入群人数；未知时为 undefined。
+ * @param dispatchLockdown 私密模式状态机派发函数。
  */
 export function beginLockdownAnnouncement(chatId: number, joinCount: number | undefined, dispatchLockdown: LockdownDispatcher): void {
   const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
@@ -69,6 +85,8 @@ export function beginLockdownAnnouncement(chatId: number, joinCount: number | un
 
 /**
  * 沿群级串行链清理本轮公告；失败记录日志，不改变权限恢复状态。
+ * @param chatId 群组 ID。
+ * @param messageId 待删除的私密模式公告消息 ID。
  */
 export function deleteLockdownAnnouncement(chatId: number, messageId: number): void {
   runLockdownApiCall(chatId, async (): Promise<void> => {
@@ -86,6 +104,8 @@ export function deleteLockdownAnnouncement(chatId: number, messageId: number): v
 /**
  * 读取当前权限，按本轮身份回投 applyPrepared；权限提交由 durable 回执触发。
  * preparing 占位阻止重复触发，取消或换轮后丢弃旧查询结果。
+ * @param chatId 群组 ID。
+ * @param dispatchLockdown 私密模式状态机派发函数。
  */
 export function prepareApplyLockdown(chatId: number, dispatchLockdown: LockdownDispatcher): void {
   const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
@@ -120,6 +140,8 @@ export function prepareApplyLockdown(chatId: number, dispatchLockdown: LockdownD
  * applying intent 已落盘后才真正修改 Telegram。先重新读取最新权限，只合并
  * invite 限制；读取失败发生在写操作之前，撤销 intent；set 失败的远端结果不确定，
  * 进入恢复协调。
+ * @param chatId 群组 ID。
+ * @param dispatchLockdown 私密模式状态机派发函数。
  */
 export function commitApplyLockdown(chatId: number, dispatchLockdown: LockdownDispatcher): void {
   const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
@@ -164,33 +186,39 @@ export function commitApplyLockdown(chatId: number, dispatchLockdown: LockdownDi
 }
 
 /**
- * 异步恢复群组原本的默认权限，结果以 restoreResult 回投（失败由状态机安排重试）。
+ * 异步恢复群组原本的默认权限，结果以 restoreResult 回投（失败由状态机安排重试）；
+ * 开跑前条目已删除（含 chatGone）或已被新一轮替换时直接放弃，不调 Telegram。
  *
  * 权限被拒的失败计入条目的 restorePermanentFailures，超过 RESTORE_PERMANENT_FAILURE_LOG_LIMIT
  * 后降为 warn（重试退避见 lockdownRuntime.ts 的 restoreRetryDelayMs）；Worker 停机撤销的请求
  * 不改计数、不记日志，其它结局清零。
+ * @param chatId 群组 ID。
+ * @param originalPermissions 进入私密模式前保存的群组默认权限。
+ * @param dispatchLockdown 私密模式状态机派发函数。
  */
 export function beginRestoreLockdown(chatId: number, originalPermissions: ChatPermissions, dispatchLockdown: LockdownDispatcher): void {
+  const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
   runLockdownApiCall(chatId, async (): Promise<void> => {
+    if (entry === undefined || lockdownEntries.get(chatId) !== entry || entry.state.kind !== "restoring") return;
     try {
       await restoreLockdownInvitePermission({
         chatId,
         originalPermissions,
         api: telegramApi,
       });
-      const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
-      if (entry !== undefined) entry.restorePermanentFailures = 0;
+      const currentEntry: LockdownEntry | undefined = lockdownEntries.get(chatId);
+      if (currentEntry !== undefined) currentEntry.restorePermanentFailures = 0;
       dispatchLockdown(chatId, { type: "restoreResult", ok: true });
     } catch (error: unknown) {
       if (isAbortError(error)) {
         dispatchLockdown(chatId, { type: "restoreResult", ok: false });
         return;
       }
-      const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);
+      const currentEntry: LockdownEntry | undefined = lockdownEntries.get(chatId);
       let failures: number = 0;
-      if (entry !== undefined) {
-        entry.restorePermanentFailures = isPermissionDenied(error) ? entry.restorePermanentFailures + 1 : 0;
-        failures = entry.restorePermanentFailures;
+      if (currentEntry !== undefined) {
+        currentEntry.restorePermanentFailures = isPermissionDenied(error) ? currentEntry.restorePermanentFailures + 1 : 0;
+        failures = currentEntry.restorePermanentFailures;
       }
       if (failures <= RESTORE_PERMANENT_FAILURE_LOG_LIMIT) {
         logger.error(`Failed to restore chat permissions for ${chatId}, retrying shortly:`, error);
@@ -209,6 +237,8 @@ export function beginRestoreLockdown(chatId: number, originalPermissions: ChatPe
 /**
  * 当前 owner 仍处于 RECONCILING 时重新读取权限并关闭 invite，保留其它字段。
  * 成功或失败回投状态机，由其安排后续阶段与重试；顺序见 docs/cn/04-invariants.md。
+ * @param chatId 群组 ID。
+ * @param dispatchLockdown 私密模式状态机派发函数。
  */
 export function reapplyLockdownRestriction(chatId: number, dispatchLockdown: LockdownDispatcher): void {
   const entry: LockdownEntry | undefined = lockdownEntries.get(chatId);

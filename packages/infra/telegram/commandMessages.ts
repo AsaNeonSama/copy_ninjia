@@ -20,7 +20,9 @@ import { updateTopicThreadIdFor } from "../updateContext";
  * 不收 `onSent` 与 `linkPreviewOptions`：群聊里 onSent 由本边界用来登记自动删除。
  */
 export interface SendCommandMessageBaseParams extends Omit<SendMessageBaseParams, "api" | "onSent" | "linkPreviewOptions"> {
+  /** 执行消息发送与删除的 Telegram API 接口。 */
   api?: Pick<TelegramApi, "sendMessage" | "deleteMessage" | "deleteMessages">;
+  /** 为 true 时在群聊中长期保留，不挂自动删除。 */
   preserveInGroup?: boolean;
 }
 
@@ -31,6 +33,8 @@ export type SendCommandMessageParams = SendCommandMessageBaseParams & SendMessag
  * 发送命令相关文本。Telegram 群组、超级群和频道的 chat id 都是负数；在这些
  * 会话里发送成功后统一安排 COMMAND_MESSAGE_AUTO_DELETE_MS 后清理，私聊消息保持原样。提示落在触发消息
  * 所在的论坛话题，见 SendCommandMessageParams。
+ * @param params 命令消息发送参数。
+ * @returns 发送成功时返回 message_id，失败时返回 undefined。
  */
 export async function sendCommandMessage({
   preserveInGroup = false,
@@ -54,11 +58,18 @@ export async function sendCommandMessage({
 
 /** replyCommandNotice 读取的命令上下文：触发命令所在的聊天与触发消息 id。 */
 export interface CommandNoticeContext {
+  /** 触发命令所在的聊天对象。 */
   readonly chat: { readonly id: number };
+  /** 触发命令的消息 ID。 */
   readonly msgId: number | undefined;
 }
 
-/** 在触发命令的聊天里回复触发消息，发送一条纯文本命令提示；清理与话题规则同 sendCommandMessage。 */
+/**
+ * 在触发命令的聊天里回复触发消息，发送一条纯文本命令提示；清理与话题规则同 sendCommandMessage。
+ * @param ctx 触发命令的上下文。
+ * @param text 纯文本提示内容。
+ * @returns 发送成功时返回 message_id，失败时返回 undefined。
+ */
 export function replyCommandNotice(
   ctx: CommandNoticeContext,
   text: string

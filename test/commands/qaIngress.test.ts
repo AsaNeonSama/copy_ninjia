@@ -152,6 +152,17 @@ describe("表单投递的认领判据", () => {
     expect(await claimQaFieldMessage(delivered("回答:\n点置顶"))).toBeNull();
   });
 
+  test("匿名管理员开的表单认领同一群 sender_chat 的按格式投递", async () => {
+    openForm(CHAT_ID);
+
+    const claimed = await claimQaFieldMessage(
+      delivered("问题:\n怎么入群？", { senderChatId: CHAT_ID })
+    );
+
+    expect(claimed?.accepted).toEqual({ q: "怎么入群？", a: undefined });
+    expect(qaFormSessions.get(CHAT_ID)?.q).toBe("怎么入群？");
+  });
+
   test("本天才自己发的帖回投时不认领——否则表单会拿示例把自己填满", async () => {
     openForm(OWNER);
     botOwnMessage = true;

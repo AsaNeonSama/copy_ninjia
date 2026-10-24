@@ -9,6 +9,8 @@ export interface SourceOutputRoots {
 /**
  * 解析 `--source-root <cold-backup> --output-root <new-directory>`，不默认选取部署路径。
  * 未知选项、重复选项、缺值、空白值或以 `--` 开头的值一律拒绝；值去掉首尾空白。
+ * @param args 命令行参数列表。
+ * @returns 解析出的停机备份根与独立产物目录。
  */
 export function parseSourceOutputRoots(args: readonly string[]): SourceOutputRoots {
   const values: Map<string, string> = new Map();

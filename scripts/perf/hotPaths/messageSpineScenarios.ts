@@ -37,12 +37,16 @@ import {
   sentMessages,
 } from "../../../packages/cache/perThread/selfSentTracker";
 import { isSelfSent } from "../../../packages/infra/selfSentTracker";
-import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
 import { cacheSender } from "../../../packages/users/senderIdentity";
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS, BENCHMARK_SENDER_ID } from "./fixtures";
 import type { Scenario } from "./types";
 
-/** 空闲机器人：`sentMessages` 为空，isSelfSent 在外层就落空。 */
+/**
+ * 空闲机器人：`sentMessages` 为空，isSelfSent 在外层就落空。
+ *
+ * @returns 空自发消息表下的回环判定场景定义
+ */
 export function selfSentEmptyScenario(): Scenario {
   return {
     iterations: 2_000_000,
@@ -72,6 +76,8 @@ const ACTIVE_SELF_SENT_PER_CHAT: number = 4;
  *
  * 表由 reset 直接填充，不经 markSelfSent（它挂 `SELF_SENT_MESSAGE_TTL_MS` 的真 timer）。
  * 占位值是一个已 clearTimeout 的 Timeout；被测的 isSelfSent 只做 has()，不读它。
+ *
+ * @returns 活跃自发消息表下的回环判定场景定义
  */
 export function selfSentActiveScenario(): Scenario {
   const chatIds: number[] = [];
@@ -125,6 +131,8 @@ export function selfSentActiveScenario(): Scenario {
  *
  * AI 关闭时不进各载荷 handler，本场景只含所有消息共担的那段，不含 AI 开启后的
  * 文本/贴纸分支。
+ *
+ * @returns 入站群消息编排主干场景定义
  */
 export function incomingMessageSpineScenario(): Scenario {
   const chat: Message["chat"] = {
@@ -153,7 +161,9 @@ export function incomingMessageSpineScenario(): Scenario {
     },
     run: (iterations: number): number => {
       for (let index: number = 0; index < iterations; index += 1) {
-        const pending: Promise<void> | undefined = handleIncomingMessageMiddleware(ctx);
+        // 群状态快照由前置链读一次后传入；这里同样每条读一次，工作量与生产路径相同。
+        const pending: Promise<void> | undefined =
+          handleIncomingMessageMiddleware(ctx, getChatState(BENCHMARK_CHAT_ID));
         if (pending !== undefined) {
           throw new Error("Incoming message spine unexpectedly produced async work");
         }
@@ -189,6 +199,8 @@ export function incomingMessageSpineScenario(): Scenario {
  * - 本场景不访问随机触发的冷却缓存；triggerContext.ts / recordContext.ts 及 facts.ts
  *   只计算输入事实与载荷。
  *   不调 recordChatMedia（它会 postAiChatOrThrow 到 AI Worker，基准进程不启动该 Worker）。
+ *
+ * @returns AI 媒体消息直接唤起纯计算场景定义
  */
 export function aiMediaDirectTriggerScenario(): Scenario {
   const bot: AiBotInfo = { id: 4242, first_name: "Tensai", username: "tensai_bot" };

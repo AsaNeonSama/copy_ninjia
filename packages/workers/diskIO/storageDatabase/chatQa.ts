@@ -21,7 +21,11 @@ import type { StoredChatQaRow } from "../../../types/storageDatabase";
 import { assertPositiveRevision, requireStorageDatabase, storageSource } from "./context";
 import { flushIfStorageFull } from "./flush";
 
-/** 读取指定群已提交问题并叠加待提交变更，返回有效问题集合。 */
+/**
+ * 读取指定群已提交问题并叠加待提交变更，返回有效问题集合。
+ * @param chatId 目标群 ID。
+ * @returns 叠加未提交事务缓冲后的有效问答问题集合。
+ */
 function effectiveChatQaQuestions(chatId: number): Set<string> {
   const rows: readonly Pick<StoredChatQaRow, "q">[] = readStoredChatQaQuestions(
     requireStorageDatabase(),
@@ -40,7 +44,10 @@ function effectiveChatQaQuestions(chatId: number): Set<string> {
   return questions;
 }
 
-/** 校验指定群的有效问题集合不超过单群条数上限。 */
+/**
+ * 校验指定群的有效问题集合不超过单群条数上限。
+ * @param effective 叠加未提交变更后的有效问题集合。
+ */
 function assertChatQaCapacity(effective: ReadonlySet<string>): void {
   if (effective.size > CHAT_QA_MAX_PER_CHAT) {
     throw new Error(
@@ -57,7 +64,11 @@ export function assertPendingChatQaCapacity(): void {
   }
 }
 
-/** 校验并接收一条群问答写入，验证单群条数上限（镜像重放暂挂期间延后至重放结束统一复核）后排入事务缓冲。 */
+/**
+ * 校验并接收一条群问答写入，验证单群条数上限（镜像重放暂挂期间延后至重放结束统一复核）后排入事务缓冲。
+ * @param message 群问答写入或删除请求消息。
+ * @param reply 向主线程发送持久化回执的出口。
+ */
 export function handleChatQaWrite(
   message: ChatQaWriteDiskMessage,
   reply: IdentityPersistenceReply

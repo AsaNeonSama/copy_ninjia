@@ -35,7 +35,12 @@ const stagingRoot: string = mkdtempSync(join(outputRoot, ".build-"));
 const packageRoot: string = join(stagingRoot, "copy-ninjia");
 mkdirSync(packageRoot);
 
-/** 同步子命令只处理发行暂存目录；失败不产出可上传的包。 */
+/**
+ * 同步子命令只处理发行暂存目录；失败不产出可上传的包。
+ *
+ * @param command 待执行的命令行参数列表
+ * @param cwd 子命令的工作目录
+ */
 function run(command: string[], cwd: string): void {
   const result: Bun.SyncSubprocess<"inherit", "inherit"> = Bun.spawnSync({
     cmd: command, cwd, stdout: "inherit", stderr: "inherit",

@@ -13,6 +13,11 @@ import { splitGraphemes } from "../../libs/text";
 import { luckCacheKey } from "./key";
 import { signLuckResultText } from "./receipt";
 
+/**
+ * 根据抽签的好运百分比选出占优的运势方向（行大运或倒大霉）及其对应百分比。
+ * @param draw 运势抽签结果。
+ * @returns 占优方向的标签与对应百分比。
+ */
 function pickDominantProbability(draw: LuckDraw): { label: string; percent: number } {
   const misfortunePercent: number = Math.round((100 - draw.fortunePercent) * 100) / 100;
   return draw.fortunePercent >= misfortunePercent
@@ -20,7 +25,11 @@ function pickDominantProbability(draw: LuckDraw): { label: string; percent: numb
     : { label: "倒大霉", percent: misfortunePercent };
 }
 
-/** 原地重试、复用同款问题或转发到其他聊天。 */
+/**
+ * 原地重试、复用同款问题或转发到其他聊天。
+ * @param text 所求事项文本；纯运势查询时为 undefined。
+ * @returns 附带内联切换按钮的键盘。
+ */
 function buildRetryKeyboard(text: string | undefined): InlineKeyboard {
   const keyboard: InlineKeyboard = new InlineKeyboard().switchInlineCurrent("我也试试", "");
   if (text) {
@@ -34,13 +43,23 @@ function buildRetryKeyboard(text: string | undefined): InlineKeyboard {
   return keyboard;
 }
 
+/** 构造「未卜先知」运势内联结果卡片所需的入参。 */
 export interface BuildFortuneResultParams {
+  /** 本次运势抽签结果。 */
   draw: LuckDraw;
+  /** 查询用户的 ID。 */
   userId: number;
+  /** 查询用户的展示标签。 */
   userLabel: string;
+  /** 用户输入的所求事项；未填写时为 undefined。 */
   text: string | undefined;
 }
 
+/**
+ * 构造「未卜先知」运势内联查询结果卡片。
+ * @param params 抽签结果（`draw`）、查询用户 ID（`userId`）、展示标签（`userLabel`）与所求事项文本（`text`）。
+ * @returns 带剧透签名回执与重试按钮的 Article 内联结果。
+ */
 export function buildFortuneResult({
   draw,
   userId,
@@ -65,6 +84,13 @@ export function buildFortuneResult({
   });
 }
 
+/**
+ * 构造「概率论！」内联查询结果卡片。
+ * @param draw 运势抽签结果。
+ * @param userId 查询用户的 ID。
+ * @param userLabel 查询用户的展示标签。
+ * @returns 带剧透签名回执与重试按钮的 Article 内联结果。
+ */
 export function buildProbabilityResult(
   draw: LuckDraw,
   userId: number,
@@ -86,6 +112,10 @@ export function buildProbabilityResult(
   });
 }
 
+/**
+ * 构造内联查询超额时的限流占位结果卡片。
+ * @returns 限流提示的 Article 内联结果。
+ */
 export function buildRateLimitedResult(): InlineQueryResultArticle {
   // inline 查询没有目标群上下文，使用本进程生效的 Bot 配置。
   const atmosphere: AtmosphereTexts = chatAtmosphere();

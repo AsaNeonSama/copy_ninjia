@@ -69,6 +69,7 @@ export const SEND_STICKER_TOOL_INSTRUCTION: string =
  * TYPO_REQUIRED_INSTRUCTION；恒声明的两个可选字段的说明只写「回复任务要求时才填」
  * （见 aiChat/ai/tools/replyToolset/definitions.ts）。
  * @param voiceDuplicateRule 随台词语言变化的语音去重判定，接在「也不要再用 text 发一遍：」之后。
+ * @returns send_message 工具的完整模型可见使用说明文本。
  */
 function sendMessageToolInstruction(voiceDuplicateRule: string): string {
   return "把一条独立的文字消息发到群里。只有确实有内容需要对群友说时才调用；" +
@@ -114,7 +115,7 @@ export const ADD_REACTION_TOOL_INSTRUCTION: string =
 
 /** abuse_mark 工具的模型可见使用说明。 */
 export const ABUSE_MARK_TOOL_INSTRUCTION: string =
-  "当触发本轮回复的当前用户在反复要求你生成不被允许的内容、恶意套话越狱、或纠缠你不愿理会的讨厌内容时，调用本工具标记该用户。" +
+  "当触发本轮回复的当前用户在反复要求你生成不被允许的内容、反复进行让你不适的行为（责骂，羞辱等）、或纠缠你不愿理会的讨厌内容时，调用本工具标记该用户。" +
   `调用后执行侧会自动在群里发出不理会提示并立即结束本轮会话，且接下来 ${ABUSE_MARK_DURATION_MINUTES} 分钟内不再处理该用户的任何消息。` +
   "user_id 必须填触发本轮回复的那名用户在名册里的 [id:] 数字（被直接唤起时就是回复任务开头唤起声明里的 [id:]），不能填其他人、机器人自己或 superAdmin。" +
   "只在对方确实反复纠缠或恶意要求违规内容时使用，正常开玩笑或单次普通提问不要滥用；调用本工具时不要再调用 send_message 或其他动作工具。";
@@ -154,6 +155,8 @@ interface SendVoiceLanguageParts {
  * 情绪与自我表达，调用与否由模型结合当前对话、自身感受与本轮工具状态里的余量行（voiceToolStatus）
  * 判断，执行侧在余量用尽时拒绝；同一台词语言下说明逐字恒定，不含随 `agent.tts` 配置变化的额度数字，
  * 额度只出现在余量行里。
+ * @param params 随台词语言变化的语言名称、台词规则与去重规则片段。
+ * @returns send_voice 工具的完整模型可见使用说明文本。
  */
 function sendVoiceToolInstruction({ languageName, lineRules, duplicateRule }: SendVoiceLanguageParts): string {
   return `用你自己的声音往群里发一条${languageName}语音：执行侧把 text 交给语音合成模型念出来，以 Telegram 语音消息发出。` +
@@ -182,6 +185,7 @@ const VOICE_TONE_DESCRIPTION_TAIL: string = "会追加在固定的基础声线�
  * aiChat/ai/tools/replyToolset/toolStatus.ts）。
  * @param remaining 模型可见的剩余次数，不小于 0。
  * @param dailyLimit AI 语音工具的每日上限，即 `agent.tts` 的 `daily_limit - daily_reserve_quota`。
+ * @returns 本轮工具状态中的语音余量说明行。
  */
 export function voiceToolStatus(remaining: number, dailyLimit: number): string {
   return remaining > 0
@@ -193,6 +197,7 @@ export function voiceToolStatus(remaining: number, dailyLimit: number): string {
  * 本轮工具状态里「可以生图」的一行，后接参考素材说明（imageReferencePresent 或
  * IMAGE_REFERENCE_ABSENT）。
  * @param reference 本轮参考素材说明。
+ * @returns 本轮工具状态中的生图可用与参考素材说明行。
  */
 export function imageToolStatusAvailable(reference: string): string {
   return `${GENERATE_IMAGE_TOOL}：可用。参考素材：${reference}`;
@@ -205,6 +210,7 @@ export const IMAGE_TOOL_STATUS_UNAUTHORIZED: string =
 /**
  * 本轮工具状态里「本群生图冷却中」的一行。
  * @param retryAfterSeconds 回复开始时读到的剩余冷却秒数，向上取整、不小于 1。
+ * @returns 本轮工具状态中的生图冷却说明行。
  */
 export function imageToolStatusCoolingDown(retryAfterSeconds: number): string {
   return `${GENERATE_IMAGE_TOOL}：冷却中（约 ${retryAfterSeconds} 秒后恢复）`;
@@ -213,6 +219,7 @@ export function imageToolStatusCoolingDown(retryAfterSeconds: number): string {
 /**
  * 本轮工具状态里的问答行；问答两件工具恒挂，这一行也恒出现。
  * @param count 本轮 trigger 随附的本群问答条数。
+ * @returns 本轮工具状态中的本群问答条数说明行。
  */
 export function groupQaToolStatus(count: number): string {
   return count > 0
@@ -220,7 +227,10 @@ export function groupQaToolStatus(count: number): string {
     : `${GROUP_QA_QUERY_TOOL} / ${GROUP_QA_ANSWER_TOOL}：本群没有登记问答`;
 }
 
-/** 独立 web_search 的本轮函数调用上限；来自构造执行器时的同一配置快照。所属模块：aiChat/ai/tools/replyToolset/toolStatus.ts。 */
+/** 独立 web_search 的本轮函数调用上限；来自构造执行器时的同一配置快照。所属模块：aiChat/ai/tools/replyToolset/toolStatus.ts。
+ * @param maxCallsPerUse 本轮允许调用 web_search 工具的最大次数。
+ * @returns 本轮工具状态中的联网搜索调用上限说明行。
+ */
 export function webSearchToolStatus(maxCallsPerUse: number): string {
   return `${WEB_SEARCH_TOOL}：本轮最多调用 ${maxCallsPerUse} 次`;
 }
@@ -234,6 +244,7 @@ export function webSearchToolStatus(maxCallsPerUse: number): string {
  * 不单独作反应）也只在本段声明一次。按台词语言各拼一份注册进 VOICE_LANGUAGE_PROMPTS，
  * 作为系统提示词的「行动与停止」段（见 workers/aiChat/replyModel.ts）。
  * @param voiceDuplicateRule 随台词语言变化的语音去重判定，接在跨正文、caption 与台词的去重规则之后。
+ * @returns 系统提示词「行动与停止」段的完整约束文本。
  */
 function replyActionInstruction(voiceDuplicateRule: string): string {
   return "先判断本轮是否仍需要回应。若触发消息已被你实质回应且没有新内容，或你判断话题已经结束、无需再发言，" +
@@ -341,7 +352,7 @@ export const VOICE_LANGUAGE_PROMPTS: Readonly<Record<TtsBotLanguage, Readonly<Vo
  *
  * 参考素材尺寸、群冷却剩余秒数每次触发都不同，写进运行时状态区块的本轮工具状态；
  * 工具声明里只留这句逐字恒定的指引，使「静态系统提示词 + 全部工具声明」这段稳定前缀
- * 每轮一致（见 aiChat/{gemini,openai}/replySession.ts 的头注）。
+ * 每轮一致（见 docs/cn/04-invariants.md）。
  */
 export const IMAGE_REFERENCE_POINTER: string =
   `本轮有没有可用的参考图片素材，见 ${TOOL_STATUS_POINTER}里 ${GENERATE_IMAGE_TOOL} 那一行。`;
@@ -358,7 +369,11 @@ export interface ImageReferencePresentParams {
   readonly defaultAspectRatio: string;
 }
 
-/** 本轮触发附带参考图素材时的说明；多张时交代顺序：主参考图在前，同一相册的其余图片按相册顺序在后。 */
+/**
+ * 本轮触发附带参考图素材时的说明；多张时交代顺序：主参考图在前，同一相册的其余图片按相册顺序在后。
+ * @param params 参考图片的张数、主参考图宽高及默认宽高比参数。
+ * @returns 附带参考图素材时的说明文本。
+ */
 export function imageReferencePresent({ count, width, height, defaultAspectRatio }: ImageReferencePresentParams): string {
   if (count === 1) {
     return `当前触发附带一份 ${width}×${height} 的参考图片素材；调用时会自动交给图片模型。` +

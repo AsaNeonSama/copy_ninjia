@@ -4,6 +4,10 @@ import { TIME_ZONE_VALIDATION_CRON } from "../consts/time";
 /**
  * 严格解析 IANA 时区名，去掉首尾空白，并核对日历与 Bun cron 均支持该时区。
  * 返回 Temporal 规范化后的 timeZoneId（大小写折叠；IANA 别名保持原名返回）。
+ * @param value 待校验的时区字段值。
+ * @param source 来源文件或数据表路径，用于构造致命错误诊断。
+ * @param field 字段 JSONPath，用于构造致命错误诊断。
+ * @returns 规范化后的 IANA 时区标识。
  */
 export function parseTimeZone(value: unknown, source: string, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {

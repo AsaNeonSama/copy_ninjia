@@ -12,7 +12,10 @@ const INITIAL_BOT_CONFIG: BotConfig = await loadBotConfig();
 botConfigCache.current = INITIAL_BOT_CONFIG;
 adoptTimeZone(INITIAL_BOT_CONFIG.timeZone);
 
-/** 读取异步模块初始化已经严格校验的 Bot 配置。 */
+/**
+ * 读取异步模块初始化已经严格校验的 Bot 配置。
+ * @returns 当前线程已接管的 Bot 配置。
+ */
 export function getBotConfig(): BotConfig {
   const config: BotConfig | null = botConfigCache.current;
   if (config === null) {

@@ -16,6 +16,7 @@ import { isSelfSent, waitForBotOwnMessage } from "../../packages/infra/selfSentT
 import type { Message, PhotoSize } from "grammy/types";
 import { MEDIA_MAX_DOWNLOAD_BYTES } from "../../packages/consts/aiChat/media";
 import { pickPhotoFile } from "../../packages/libs/telegramImage";
+import { waitUntil } from "../helpers/waitUntil";
 
 const calls: { readonly method: string; readonly payload: any; readonly signal: AbortSignal | undefined }[] = [];
 let owner: "ai" | "antiRaid" = "ai";
@@ -44,14 +45,18 @@ const transport: Transformer<RawApi> = async (...args: Parameters<Transformer<Ra
   if (hold !== null) await hold;
   if (retry) {
     retry = false;
-    return { ok: false, error_code: 429, description: "retry", parameters: { retry_after: 0 } };
+    return { ok: false, error_code: 429, description: "retry", parameters: { retry_after: 0.001 } };
   }
   if (method === "getFile") return { ok: true, result: { file_id: "file", file_unique_id: "unique", file_path: "files/test.bin" } };
   if (method === "getChat") return { ok: true, result: CHAT_INFO };
   const sent: Record<string, unknown> = {
     message_id: ++messageSequence,
     date: 1,
-    chat: { id: -1001, type: "supergroup", title: "mock" },
+    chat: {
+      id: "chat_id" in payload && typeof payload.chat_id === "number" ? payload.chat_id : -1001,
+      type: "supergroup",
+      title: "mock",
+    },
     from: { id: 999, is_bot: true, first_name: "bot" },
     text: "mock",
   };
@@ -172,9 +177,9 @@ test("发送回执只回传消息 id、回复关系与选中的那一档图片�
   expect(reply).toStrictEqual({ message_id: messageSequence, reply_to_message: { message_id: 42 } });
   const sticker: TelegramSentMessage = await workerTelegramApi.sendSticker(-1001, "sticker-file-id");
   expect(sticker).toStrictEqual({ message_id: messageSequence, reply_to_message: { message_id: 42 } });
-  const voice: TelegramSentMessage = await workerTelegramApi.sendVoice(-1001, { bytes: new Uint8Array([2]), fileName: "v.ogg" });
+  const voice: TelegramSentMessage = await workerTelegramApi.sendVoice(-1002, { bytes: new Uint8Array([2]), fileName: "v.ogg" });
   expect(voice).toStrictEqual({ message_id: messageSequence, reply_to_message: { message_id: 42 } });
-  const photo: TelegramSentPhotoMessage = await workerTelegramApi.sendPhoto(-1001, { bytes: new Uint8Array([1]), fileName: "p.png" });
+  const photo: TelegramSentPhotoMessage = await workerTelegramApi.sendPhoto(-1002, { bytes: new Uint8Array([1]), fileName: "p.png" });
   expect(photo).toStrictEqual({
     message_id: messageSequence,
     reply_to_message: { message_id: 42 },
@@ -226,7 +231,8 @@ test("自发消息在途计数由主线程按方法与操作判定：产消息�
   hold = new Promise<void>((resolve: () => void): void => { release = resolve; });
   owner = "antiRaid";
   const query: Promise<unknown> = workerTelegramApi.getChat(-1001);
-  while (calls.length < 1) await Bun.sleep(1);
+  await waitUntil((): boolean => calls.length >= 1);
+  expect(calls.length).toBeGreaterThanOrEqual(1);
   expect(await waitForBotOwnMessage(channelPost(messageSequence + 1), 1_000)).toBeFalse();
   release();
   await query;
@@ -234,7 +240,8 @@ test("自发消息在途计数由主线程按方法与操作判定：产消息�
   hold = new Promise<void>((resolve: () => void): void => { release = resolve; });
   owner = "ai";
   const sent: Promise<unknown> = workerTelegramApi.sendMessage(-1001, "hello");
-  while (calls.length < 2) await Bun.sleep(1);
+  await waitUntil((): boolean => calls.length >= 2);
+  expect(calls.length).toBeGreaterThanOrEqual(2);
   const waiting: Promise<boolean> = waitForBotOwnMessage(channelPost(messageSequence + 1), 1_000);
   release();
   await sent;

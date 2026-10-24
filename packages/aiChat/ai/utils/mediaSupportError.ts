@@ -1,24 +1,38 @@
 /**
- * 供应商 API 失败的错误分类：区分端点配置错误、输入模态不受支持、单次输入被拒与端点故障。
+ * 供应商 API 失败的错误分类：区分端点配置错误、输入模态不受支持、单次输入被拒与端点故障；
+ * 各模型客户端捕获的 SDK APIError 经 logAndClassifyProviderApiError 统一记录日志后分类。
  */
 
 import {
   MEDIA_INPUT_CAPABILITY_PATTERN,
   MEDIA_INPUT_FILE_ERROR_PATTERN,
 } from "../../../consts/aiChat/media";
+import { logger } from "../../../infra/logger";
 
-/** 从供应商错误对象读取数值 HTTP 状态码；非数值时返回 undefined。 */
+/**
+ * 从供应商错误对象读取数值 HTTP 状态码；非数值时返回 undefined。
+ * @param error 捕获到的未知错误对象。
+ * @returns 数值 HTTP 状态码；缺失或非数值时返回 undefined。
+ */
 export function numericErrorStatus(error: unknown): number | undefined {
   const candidate: { readonly status?: unknown } = error as { readonly status?: unknown };
   return typeof candidate.status === "number" ? candidate.status : undefined;
 }
 
-/** 判断状态码是否表示当前配置的 API 路径或模型不可调用。 */
+/**
+ * 判断状态码是否表示当前配置的 API 路径或模型不可调用。
+ * @param status HTTP 状态码。
+ * @returns 状态码为 404 或 405 时返回 true，否则返回 false。
+ */
 function isEndpointMisconfiguredError(status: number | undefined): boolean {
   return status === 404 || status === 405;
 }
 
-/** 判断状态码是否表示网络、超时、限流或服务端故障等端点级异常。 */
+/**
+ * 判断状态码是否表示网络、超时、限流或服务端故障等端点级异常。
+ * @param status HTTP 状态码。
+ * @returns 无状态码、408、429 或 5xx 时返回 true，否则返回 false。
+ */
 function isEndpointFailureStatus(status: number | undefined): boolean {
   if (status === undefined) return true;
   if (status === 408 || status === 429) return true;
@@ -27,6 +41,9 @@ function isEndpointFailureStatus(status: number | undefined): boolean {
 
 /**
  * 判断媒体请求错误是否明确表示模型不支持该输入模态（排除单份文件格式或损坏错误）。
+ * @param status HTTP 状态码。
+ * @param message 错误消息文本。
+ * @returns 明确表示模态不受支持时返回 true，否则返回 false。
  */
 function isExplicitUnsupportedMediaError(
   status: number | undefined,
@@ -64,6 +81,10 @@ export type ProviderApiFailureKind =
 /**
  * 按固定优先级对供应商 API 错误做级联归因：
  * 依次判定路径配置错误、媒体模态不支持、单次输入被拒与端点故障。
+ * @param status HTTP 状态码。
+ * @param message 错误消息文本。
+ * @param isMediaCapability 当前请求是否为媒体输入模态请求。
+ * @returns 归因后的失败档位。
  */
 export function classifyProviderApiFailure(
   status: number | undefined,
@@ -78,14 +99,53 @@ export function classifyProviderApiFailure(
   return "endpointFailure";
 }
 
+/** logAndClassifyProviderApiError 的入参。 */
+export interface ProviderApiErrorClassificationOptions {
+  /** 捕获到的供应商 SDK API 错误对象。 */
+  readonly error: { readonly message: string; readonly status?: unknown };
+  /** 日志前缀使用的调用点标识。 */
+  readonly errorLabel: string;
+  /** 当前请求是否为媒体输入模态请求。 */
+  readonly isMediaCapability: boolean;
+  /** 是否在错误消息前拼入 HTTP 状态码（Gemini SDK 的错误日志格式）。 */
+  readonly includeStatusInLog?: boolean;
+}
+
+/**
+ * 记录供应商 SDK API 错误日志并返回归因后的失败档位。
+ * @param options 供应商 API 错误对象、日志标签与模态归因选项。
+ * @returns 归因后的供应商 API 失败档位。
+ */
+export function logAndClassifyProviderApiError({
+  error,
+  errorLabel,
+  isMediaCapability,
+  includeStatusInLog = false,
+}: ProviderApiErrorClassificationOptions): ProviderApiFailureKind {
+  logger.error(
+    includeStatusInLog
+      ? `${errorLabel} error: ${String(error.status)} ${error.message}`
+      : `${errorLabel} error: ${error.message}`
+  );
+  return classifyProviderApiFailure(
+    numericErrorStatus(error),
+    error.message,
+    isMediaCapability
+  );
+}
+
 /** 各模型客户端共用的非端点故障失败结果。 */
 export interface ProviderApiFailureResult {
+  /** 固定为 false，表示请求失败。 */
   readonly ok: false;
+  /** 非端点故障的具体失败归因档位。 */
   readonly failureKind: Exclude<ProviderApiFailureKind, "endpointFailure">;
 }
 
 /**
  * 将非端点故障的归因档位映射为客户端失败结果；endpointFailure 返回 undefined 交由调用方记日志兜底。
+ * @param kind 供应商 API 失败归因档位。
+ * @returns 非端点故障的客户端失败结果；为 endpointFailure 时返回 undefined。
  */
 export function providerApiFailureResult(
   kind: ProviderApiFailureKind

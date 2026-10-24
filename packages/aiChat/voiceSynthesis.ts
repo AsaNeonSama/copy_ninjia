@@ -12,6 +12,7 @@ import { requestAiWorkerJob } from "./workerJob";
 
 /** 交给 AI Worker 合成的一句台词。 */
 export interface VoiceSynthesisRequest {
+  /** 待合成的台词正文。 */
   readonly text: string;
   /** 附加在基础朗读风格后的本句语气；未指定时为 undefined。 */
   readonly tone: string | undefined;
@@ -21,6 +22,9 @@ export interface VoiceSynthesisRequest {
 
 /**
  * 请求 AI Worker 合成一句语音；未配置 `agent.tts` 或 Worker 不可用时直接返回对应失败原因。
+ * @param request 语音合成请求参数。
+ * @param transport 向 AI Worker 投递消息的传输通道与可用性状态。
+ * @returns 语音合成结果或失败原因。
  */
 export function requestVoiceSynthesis(
   request: VoiceSynthesisRequest,

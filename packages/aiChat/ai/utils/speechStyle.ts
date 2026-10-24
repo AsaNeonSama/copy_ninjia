@@ -6,6 +6,10 @@ import { TTS_LANGUAGE_SEPARATOR, TTS_TONE_SEPARATOR } from "../../../consts/aiCh
 
 /**
  * 拼接单句语音合成的风格说明。
+ * @param baseStyle 角色基础声线与说话风格描述。
+ * @param languageStyle 可选的朗读语种风格补充说明。
+ * @param tone 可选的单句语气提示。
+ * @returns 拼接后的完整语音合成风格说明。
  */
 export function composeSpeechStyle(
   baseStyle: string,

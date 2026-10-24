@@ -30,10 +30,10 @@ mock.module("../../../packages/aiChat/openai/client", () => ({
 }));
 mock.module("../../../packages/config/agent", () => ({
   getAgentDeploymentConfig: (): AgentDeploymentConfig => ({
-    text: { provider: "openai", apiKey: "text-key", baseUrl: undefined, headers: undefined, model: "r" },
-    summary: { provider: "openai", apiKey: "summary-key", baseUrl: undefined, headers: undefined, model: "s" },
-    media: { provider: "openai", apiKey: "media-key", baseUrl: undefined, headers: undefined, model: "m" },
-    image: { provider: "openai", apiKey: "image-key", baseUrl: undefined, headers: undefined, model: IMAGE_MODEL, imageProtocol, maxReferenceImages: 1 },
+    text: { provider: "openai", apiKey: "text-key", baseUrl: undefined, model: "r" },
+    summary: { provider: "openai", apiKey: "summary-key", baseUrl: undefined, model: "s" },
+    media: { provider: "openai", apiKey: "media-key", baseUrl: undefined, model: "m" },
+    image: { provider: "openai", apiKey: "image-key", baseUrl: undefined, model: IMAGE_MODEL, imageProtocol, maxReferenceImages: 1 },
   }),
 }));
 mock.module("../../../packages/infra/logger", () => ({

@@ -23,14 +23,23 @@ type SendPhotoApi = Pick<TelegramApi, "sendPhoto">;
 type SendVoiceApi = Pick<TelegramApi, "sendVoice">;
 
 export interface SendStickerParams {
+  /** 目标聊天 ID。 */
   chatId: number;
+  /** 贴纸的 Telegram file_id。 */
   fileId: string;
+  /** 执行贴纸发送的 Telegram API 接口。 */
   api?: SendStickerApi;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /** 论坛群的话题标识；不传时 Telegram 将消息发送到 General。 */
   messageThreadId?: number;
 }
 
+/**
+ * 发送贴纸消息并登记自发消息标识。
+ * @param params 贴纸发送参数。
+ * @returns 发送成功时返回 message_id，失败时返回 undefined。
+ */
 export async function sendSticker({
   chatId,
   fileId,
@@ -60,12 +69,17 @@ export async function sendSticker({
 }
 
 export interface SendPhotoParams {
+  /** 目标聊天 ID。 */
   chatId: number;
   /** Worker 调用会转移底层 ArrayBuffer；函数返回 Promise 后不得再读取。 */
   bytes: Uint8Array;
+  /** 图片的 MIME 类型（决定上传文件扩展名）。 */
   mimeType: "image/jpeg" | "image/png" | "image/webp";
+  /** 要回复的目标消息 ID。 */
   replyToMessageId?: number;
+  /** 执行图片发送的 Telegram API 接口。 */
   api?: SendPhotoApi;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /** 图注须由调用方限制在 Telegram caption 长度上限内。 */
   caption?: string;
@@ -75,7 +89,11 @@ export interface SendPhotoParams {
   hasSpoiler?: boolean;
 }
 
-/** 从内存上传图片，登记自发消息并返回实际回复关系与这张图的视觉源。 */
+/**
+ * 从内存上传图片，登记自发消息并返回实际回复关系与这张图的视觉源。
+ * @param params 图片发送参数。
+ * @returns 发送成功时返回消息 ID、实际回复关系与选中的图片文件标识，失败时返回 undefined。
+ */
 export async function sendPhotoWithResult({
   chatId,
   bytes,
@@ -122,13 +140,17 @@ export async function sendPhotoWithResult({
 }
 
 export interface SendVoiceParams {
+  /** 目标聊天 ID。 */
   chatId: number;
   /** OGG/Opus 或 MP3 语音字节；Worker 调用会转移底层 ArrayBuffer，函数返回 Promise 后不得再读取。 */
   bytes: Uint8Array;
   /** 扩展名与容器一致的上传文件名（`.ogg` 或 `.mp3`）。 */
   fileName: string;
+  /** 要回复的目标消息 ID。 */
   replyToMessageId?: number;
+  /** 执行语音发送的 Telegram API 接口。 */
   api?: SendVoiceApi;
+  /** 调用方的取消信号。 */
   signal?: AbortSignal;
   /** 整秒时长。 */
   duration?: number;
@@ -136,7 +158,11 @@ export interface SendVoiceParams {
   messageThreadId?: number;
 }
 
-/** 从内存上传语音消息，登记自发消息并返回实际回复关系。 */
+/**
+ * 从内存上传语音消息，登记自发消息并返回实际回复关系。
+ * @param params 语音发送参数。
+ * @returns 发送成功时返回消息 ID 与实际回复关系，失败时返回 undefined。
+ */
 export async function sendVoiceWithResult({
   chatId,
   bytes,
@@ -174,8 +200,11 @@ export async function sendVoiceWithResult({
 }
 
 export interface CopyMessageParams {
+  /** 目标聊天 ID。 */
   chatId: number;
+  /** 源消息所在的聊天 ID。 */
   fromChatId: number;
+  /** 源消息 ID。 */
   messageId: number;
   /** 论坛群的话题标识；不传时 Telegram 将消息发送到 General。 */
   messageThreadId?: number;
@@ -187,7 +216,11 @@ export interface CopyMessageParams {
   videoStartTimestamp?: number;
 }
 
-/** 复制消息并登记其自发消息标识。 */
+/**
+ * 复制消息并登记其自发消息标识。
+ * @param params 消息复制参数。
+ * @returns 复制成功时返回新消息的 message_id，失败时返回 undefined。
+ */
 export async function copyMessage({
   chatId,
   fromChatId,

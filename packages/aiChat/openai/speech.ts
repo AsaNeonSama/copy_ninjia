@@ -26,7 +26,12 @@ import type {
   XAiAgentTtsCapabilityConfig,
 } from "../../types/config";
 
-/** 按 `openai` 协议调用 `audio/speech` 将台词合成为语音。 */
+/**
+ * 按 `openai` 协议调用 `audio/speech` 将台词合成为语音。
+ * @param tts OpenAI 原生语音合成能力配置。
+ * @param request 语音合成请求参数，包含台词正文、语言风格、语气与取消信号。
+ * @returns 解码并封装后的语音字节载荷；失败或无有效音频时返回 `null`。
+ */
 async function synthesizeAudioSpeech(
   tts: OpenAiAgentTtsCapabilityConfig,
   { text, languageStyle, tone, signal }: AiSpeechRequest
@@ -62,7 +67,10 @@ async function synthesizeAudioSpeech(
   return speechFromDecoded(OPENAI_SPEECH_ERROR_LABEL, decoded);
 }
 
-/** 读取当前 `tts` 配置快照；未配置为 `openai` 供应商时记录错误日志并返回 null。 */
+/**
+ * 读取当前 `tts` 配置快照；未配置为 `openai` 供应商时记录错误日志并返回 null。
+ * @returns OpenAI 或 xAI 协议的 `tts` 能力配置；未配置或非 `openai` 供应商时返回 `null`。
+ */
 function openAiTtsConfig(): OpenAiAgentTtsCapabilityConfig | XAiAgentTtsCapabilityConfig | null {
   let config: AgentTtsCapabilityConfig | undefined;
   try {
@@ -76,7 +84,11 @@ function openAiTtsConfig(): OpenAiAgentTtsCapabilityConfig | XAiAgentTtsCapabili
   return null;
 }
 
-/** 将一句台词合成为语音；配置不可用、请求失败或无可用载荷时返回 null。 */
+/**
+ * 将一句台词合成为语音；配置不可用、请求失败或无可用载荷时返回 null。
+ * @param request 语音合成请求参数。
+ * @returns 合成后的语音字节载荷；失败或不可用时返回 `null`。
+ */
 export async function synthesizeOpenAiSpeech(request: AiSpeechRequest): Promise<SynthesizedSpeech | null> {
   const tts: OpenAiAgentTtsCapabilityConfig | XAiAgentTtsCapabilityConfig | null = openAiTtsConfig();
   if (tts === null) return null;

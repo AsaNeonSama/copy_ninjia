@@ -1,3 +1,9 @@
+/**
+ * Anti-Raid Worker 的异步副作用登记与停机排空。
+ *
+ * mailbox handler 仍保持同步，不让网络往返阻塞后续状态转移；每个后台
+ * Promise 同时登记到这里，真正停机时才等待它们结算。
+ */
 import {
   antiRaidDispatchAbort,
   antiRaidInFlightTasks,
@@ -8,20 +14,19 @@ import {
   blocklistRemovalTaskCounts,
 } from "../../cache/workers/antiRaid/blocklist";
 
-/**
- * Anti-Raid Worker 的异步副作用登记与停机排空。
- *
- * mailbox handler 仍保持同步，不让网络往返阻塞后续状态转移；每个后台
- * Promise 同时登记到这里，真正停机时才等待它们结算。
- */
-
+/** 登记 Anti-Raid Worker 后台异步任务所需的参数。 */
 export interface TrackAntiRaidTaskParams<T> {
+  /** 待登记的后台异步任务 Promise。 */
   task: Promise<T>;
   /** 仅黑名单处置填写；用于在最后一项 settle 后安全回收取消世代。 */
   blocklistChatId?: number;
 }
 
-/** 登记一项异步副作用，并原样返回调用方的 Promise。 */
+/**
+ * 登记一项异步副作用，并原样返回调用方的 Promise。
+ * @param params 任务登记参数。
+ * @returns 原样返回的 `task` Promise。
+ */
 export function trackAntiRaidTask<T>({
   task,
   blocklistChatId,

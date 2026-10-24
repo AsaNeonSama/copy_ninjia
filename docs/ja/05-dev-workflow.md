@@ -54,7 +54,7 @@
   - **境界とスレッド分離**：定数およびキャッシュのスレッド所有権（`packages/cache/<owner>/` の単一所有権境界）を照合し、モジュール依存グラフに基づいて Worker と Telegram クライアントの隔離を検証。環境変数の読み込みは `consts/paths.ts` と `consts/environment.ts` にのみ限定し、`consts/` は実行時に `consts` 以外へ依存せず（他の `packages/` モジュールは `import type` のみ）、`states/` は直接・間接の実行時依存を `consts`、`libs`、`types`、`states` に限り（間接依存は実際の import グラフで追跡し、`config/time.ts` のタイムゾーンスナップショットのみ `STATES_CLOSURE_OPAQUE_MODULES` に登録した例外）、`infra/` は上位の業務層に逆依存せず、ベンチマーク親プロセスは純粋定数と型のみを import します。
   - **定数テーブルの制約**：オブジェクト要素を持つエクスポート定数テーブル（正規表現と関数値を除く）は、`test/consts/immutability.test.ts` で `@ts-expect-error` コメントの直後の行から参照されていなければなりません（`scripts/conventions/constImmutability.ts`）。要素がリテラル union のエクスポート配列テーブルは `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`）の形で書き、`U` は宣言した要素型と一致させ、引数は各要素を文字列または数値リテラルで並べます。型のメンバーを追加・削除してテーブルが追従していなければコンパイルに失敗します。意図的に部分集合だけを列挙するテーブルは `<相対パス>#<テーブル名>` で `scripts/conventions/constExhaustiveLists.ts` の `PARTIAL_LITERAL_TABLES` に登録し、無効になった登録もエラーとなります。
   - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。`packages/` では `Object.freeze` を禁止し、`.keys().next()`、`.values().next()`、`.entries().next()` で最古の項目を取ることも禁止します。有界 FIFO / LRU の最古の項目は必ず `libs/fifoMap.ts` の `FifoMap`（またはそれを継承する `LruCache`）から取得します。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
-  - **整合性突合**：Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。`./`・`../` で始まるパスはコメントのあるソースファイルのディレクトリを基準に解決し、対象ファイルまたはシンボルが存在しなければエラーになります。それ以外の書き方は対象ファイルを一意に特定できる場合にのみ検査します。
+  - **整合性突合**：`index.ts`、`packages/`、`scripts/` におけるトップレベル関数、クラスメソッド、および `*Params`/`*Options` 引数インターフェースのプロパティの JSDoc（`@param` と `void`/`never` 以外の戻り値に対する `@returns` を含む。`scripts/conventions/sourceRules.ts` の `collectFunctionJsDocProblems`）、Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。`./`・`../` で始まるパスはコメントのあるソースファイルのディレクトリを基準に解決し、対象ファイルまたはシンボルが存在しなければエラーになります。それ以外の書き方は対象ファイルを一意に特定できる場合にのみ検査します。
   - **テストアサーション規約**：テストコード内で大文字定数や数値リテラルを直接ハードコードして比較することを禁止します。matcher の引数に `packages/consts` の文字列定数（長さ `STRING_CONSTANT_MIN_LENGTH` 以上）と同一のリテラルを書くこと、および漢字・仮名を `CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上含む文言の断片を書き写すことも禁止されます（期待値は定数そのもの、または template 定数から描画された固定部分を使用。`test/helpers/templateText.ts` 参照）。プロンプトの文言を検証する契約テストは `scripts/conventions/testAssertionFragments.ts` の `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` に登録する必要があります。
   - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません。ゲートは TypeScript checker でモックを宣言シンボルまで解決して判定します（`scripts/conventions/testMockReset.ts`）。テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
 
@@ -82,7 +82,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**6792 tests / 560 files / 447983 `expect()` calls**。全ソースコードの**関数カバレッジは 98.42%、行カバレッジは 98.96%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**6829 tests / 566 files / 453211 `expect()` calls**。全ソースコードの**関数カバレッジは 98.53%、行カバレッジは 98.78%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 
@@ -91,7 +91,7 @@
 テストは必ず `bun run test`（すなわち `bun test --isolate`）で実行され、完全自動の環境分離が行われます：
 
 1. **ファイルコンテキスト分離**：Bun はテストファイルごとに独立したグローバルコンテキストを生成し、`mock.module` やモジュールスコープの可変状態が他のテストファイルへ波及・汚染することはありません。
-2. **一時データルートの注入**：`test/preloadEnv.ts` は本番モジュールがロードされる前に、テストプロセス専用の独立した一時データルート（`mkdtempSync`）を作成して環境変数 `COPY_NINJIA_DATA_ROOT` に設定します。実際のファイル I/O は本番用ディレクトリ（`memory/`、`logs/`、`database/`、`bot.lock`）には一切触れず、テスト終了時にディレクトリツリーごと安全に削除されます。
+2. **一時データルートの注入**：`test/preloadEnv.ts` は本番モジュールがロードされる前に、テストプロセス専用の独立した一時データルート（`mkdtempSync`）を作成して環境変数 `COPY_NINJIA_DATA_ROOT` に設定し、さらにテスト専用の一時ディレクトリを作成して `TMPDIR` に設定します（テストと被テストコードが `os.tmpdir()` 経由で作る一時ファイルはここに置かれます）。`/dev/shm` が tmpfs で空き容量が `TMPFS_MIN_AVAILABLE_BYTES` 以上なら両方を `/dev/shm` の下に、そうでなければプロセス本来の `os.tmpdir()` の下に作成します。実際のファイル I/O は本番用ディレクトリ（`memory/`、`logs/`、`database/`、`bot.lock`）には一切触れず、テスト終了時に 2 つの一時ディレクトリを削除して `TMPDIR` を元に戻します。
 3. **独立した設定ルート**：`config_example/` が一時データルート配下の `config/` へ自動複製され、`COPY_NINJIA_CONFIG_ROOT` によりテスト用コピーが読み込まれます。コピー内のプレースホルダー認証情報はテスト専用ダミー値に置換され、`g-auth.json` は除外され、`cron.json` は空のタスク配列に初期化されます。
 4. **設定スナップショット同期と空データベース**：`test/preload.ts` はテスト用コピー内の `agent.json`、`ad_samples.json`、`mood.json`、`stickers.json`、`cron.json`、Bot のトーンスタイル、タイムゾーン、組み込みペルソナを一括してテストアイソレートの holder に adopt し、メインスレッドからの設定注入をシミュレートします。さらに一時データルート内にタイムゾーンマーカー付きの空の SQLite データベースを初期化し、各機能の readiness を有効化します。
 
@@ -107,7 +107,7 @@
 
 ## 障害注入スイート
 
-`bun run test:fault-injection` は、アプリケーションおよび Worker のライフサイクル、ロック復元、返信キューの容量上限とキャンセル、認証情報スナップショット、Telegram 送信と遅延削除の停止時ドレイン、グループ teardown、入室ログ未コミットミラーと処分レシート、Anti-Raid タスクドレインと認証復旧、双方向 Worker 再構築キャンセル、SQLite 起動時バリデーションと停止時クローズ（残り書き込みのコミット、WAL checkpoint）、コールドマイグレーション、Disk I/O の整合性検査・アトミック書き込み・復旧時例外処理を網羅します。完全な一覧は [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts) の `FAULT_INJECTION_TESTS`（辞書順に 1 行 1 パス）を参照してください。
+`bun run test:fault-injection` は、アプリケーションおよび Worker のライフサイクル（停止時間予算と停止全体の締め切りを含む）、ロック復元、返信キューの容量上限とキャンセル、認証情報スナップショット、Telegram 送信と遅延削除の停止時ドレイン、グループ teardown、入室ログ未コミットミラーと処分レシート、Anti-Raid タスクドレインと認証復旧、双方向 Worker 再構築キャンセル、SQLite 起動時バリデーションと停止時クローズ（残り書き込みのコミット、WAL checkpoint）、コールドマイグレーション、Disk I/O の整合性検査・アトミック書き込み・復旧時例外処理を網羅します。完全な一覧は [`scripts/conventions/faultInjectionSuite.ts`](../../scripts/conventions/faultInjectionSuite.ts) の `FAULT_INJECTION_TESTS`（辞書順に 1 行 1 パス）を参照してください。
 
 - **規約検証**：`check:conventions` が、登録済みテストハーネスと本番の復旧・ライフサイクル境界の実パスを突合し、登録漏れがないことを検証。
 - **入室歓迎メッセージと通知**：`test/workers/antiRaid/verificationWelcome.test.ts` が、双方向プロトコル、メインスレッド一時メッセージ、自動削除境界の貫通動作を検証。

@@ -17,6 +17,7 @@ import ts from "typescript";
 
 /** 逐文件规则的入参。 */
 export interface TestAssertionRuleParams {
+  /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
   /** 被检查文件的绝对路径。 */
   readonly path: string;
@@ -38,7 +39,12 @@ const VALUE_MATCHERS: ReadonlySet<string> = new Set(["toBe", "toEqual", "toStric
  */
 const STRING_CONSTANT_MIN_LENGTH: number = 8;
 
-/** 文件内经静态 import 或 `await import(...)` 解构引入的本地绑定名。 */
+/**
+ * 文件内经静态 import 或 `await import(...)` 解构引入的本地绑定名。
+ *
+ * @param source 已解析的源文件 AST
+ * @returns 导入绑定名称的只读集合
+ */
 function importedBindings(source: ts.SourceFile): ReadonlySet<string> {
   const names: Set<string> = new Set();
   const visit = (node: ts.Node): void => {
@@ -66,7 +72,12 @@ function importedBindings(source: ts.SourceFile): ReadonlySet<string> {
   return names;
 }
 
-/** 表达式是否只由数字字面量与四则运算组成。 */
+/**
+ * 表达式是否只由数字字面量与四则运算组成。
+ *
+ * @param node 待检查的表达式节点
+ * @returns 仅由数字字面量与四则运算组成时返回 true
+ */
 function isNumericLiteralExpression(node: ts.Expression): boolean {
   if (ts.isNumericLiteral(node)) return true;
   if (ts.isParenthesizedExpression(node)) return isNumericLiteralExpression(node.expression);
@@ -85,7 +96,12 @@ function isNumericLiteralExpression(node: ts.Expression): boolean {
   return false;
 }
 
-/** 找出把导入常量直接与数字字面量比对的断言。 */
+/**
+ * 找出把导入常量直接与数字字面量比对的断言。
+ *
+ * @param params 逐文件测试断言规则入参
+ * @returns 违规断言问题列表
+ */
 export function collectConstantValueAssertionProblems({
   projectRoot,
   path,
@@ -128,7 +144,12 @@ export function collectConstantValueAssertionProblems({
   return problems;
 }
 
-/** 字符串字面量、无插值模板或它们的 `+` 拼接在编译期的取值；其余表达式为 undefined。 */
+/**
+ * 字符串字面量、无插值模板或它们的 `+` 拼接在编译期的取值；其余表达式为 undefined。
+ *
+ * @param node 待求值的表达式节点
+ * @returns 编译期静态字符串值，非常量字符串表达式时返回 undefined
+ */
 function staticStringValue(node: ts.Expression): string | undefined {
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (ts.isParenthesizedExpression(node)) return staticStringValue(node.expression);
@@ -143,6 +164,9 @@ function staticStringValue(node: ts.Expression): string | undefined {
 /**
  * 收集一个 packages/consts 文件导出的字符串常量（取值不短于 STRING_CONSTANT_MIN_LENGTH），
  * 并入调用方的「取值 → 常量名」表；同值的多个常量都记下。
+ *
+ * @param source packages/consts 下的源文件 AST
+ * @param constants 字符串取值到导出常量名列表的映射表
  */
 export function collectExportedStringConstants(
   source: ts.SourceFile,
@@ -164,26 +188,46 @@ export function collectExportedStringConstants(
   }
 }
 
-/** 表达式是否是以 `expect(...)` 起头的属性链（`expect(a).not`、`expect(a).resolves` 等）。 */
+/**
+ * 表达式是否是以 `expect(...)` 起头的属性链（`expect(a).not`、`expect(a).resolves` 等）。
+ *
+ * @param node 待检查的表达式节点
+ * @returns 以 `expect(...)` 起头时返回 true
+ */
 function isExpectChain(node: ts.Expression): boolean {
   let current: ts.Expression = node;
   while (ts.isPropertyAccessExpression(current)) current = current.expression;
   return ts.isCallExpression(current) && ts.isIdentifier(current.expression) && current.expression.text === "expect";
 }
 
-/** 调用是否是匹配器调用：被调者是 `expect(...)` 属性链上的一个方法。 */
+/**
+ * 调用是否是匹配器调用：被调者是 `expect(...)` 属性链上的一个方法。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 为 `expect` 匹配器调用时返回 true
+ */
 export function isMatcherCall(node: ts.Node): node is ts.CallExpression & { readonly expression: ts.PropertyAccessExpression } {
   return ts.isCallExpression(node) &&
     ts.isPropertyAccessExpression(node.expression) &&
     isExpectChain(node.expression.expression);
 }
 
-/** 节点是否是字符串字面量或无插值模板字面量。 */
+/**
+ * 节点是否是字符串字面量或无插值模板字面量。
+ *
+ * @param node 待检查的 AST 节点
+ * @returns 为字符串字面量或无插值模板字面量时返回 true
+ */
 export function isStringLiteralNode(node: ts.Node): node is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral {
   return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
 }
 
-/** 匹配器实参之外出现的全部字符串字面量取值：测试自造的夹具输入。 */
+/**
+ * 匹配器实参之外出现的全部字符串字面量取值：测试自造的夹具输入。
+ *
+ * @param source 测试源文件 AST
+ * @returns 夹具字符串字面量取值的只读集合
+ */
 export function fixtureLiterals(source: ts.SourceFile): ReadonlySet<string> {
   const literals: Set<string> = new Set();
   const visit = (node: ts.Node): void => {
@@ -198,7 +242,12 @@ export function fixtureLiterals(source: ts.SourceFile): ReadonlySet<string> {
   return literals;
 }
 
-/** 找出匹配器实参里与 packages/consts 字符串常量逐字相同、又不是本文件夹具的字面量。 */
+/**
+ * 找出匹配器实参里与 packages/consts 字符串常量逐字相同、又不是本文件夹具的字面量。
+ *
+ * @param params 字符串常量断言规则入参
+ * @returns 违规断言问题列表
+ */
 export function collectStringConstantAssertionProblems({
   projectRoot,
   path,

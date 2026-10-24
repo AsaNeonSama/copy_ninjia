@@ -38,6 +38,8 @@ export function reportVerificationRuntimeCapacity(): void {
  * 已有实例始终继续，无 revision 的去重实例也不受 revision 满额影响。
  * 新 key 满额时不建立去重、不发送欢迎或告警，也不改判为待验证。
  * 持久恢复由 verificationRuntime.ts 独立接管；约束见 docs/cn/04-invariants.md。
+ * @param key 待验证键（`chatId:userId`）。
+ * @returns 允许接纳本次入群事件时返回 true；运行态或 revision 容量满额拒绝时返回 false。
  */
 export function admitVerificationJoin(key: string): boolean {
   if (verificationEntries.has(key)) return true;

@@ -86,7 +86,10 @@ export interface GagSession {
 
 /** renderGagSpeech 的入参；随机源可注入以精确测试概率区间。 */
 export interface RenderGagSpeechOptions {
+  /** 待转换为失真发言的原文本。 */
   readonly text: string;
+  /** 当前 gag 会话使用的用具名称。 */
   readonly tool: string;
+  /** 可选的 [0, 1) 随机数生成函数；缺省使用 Math.random。 */
   readonly random?: () => number;
 }

@@ -9,6 +9,8 @@ import type { TelegramRetryCategory } from "../../types/telegramOutbound";
  * 识别官方明确会由机器人向目标聊天产生消息、媒体或文件的 Bot API 方法；这些请求归 message 类，
  * 由每聊天发送调度器（./sendScheduler.ts）控速。chat action、inline query 应答、编辑、删除和
  * 管理请求都不属于此集合。
+ * @param method Bot API 方法名。
+ * @returns 属于产生消息或媒体的发送类方法时返回 true，否则返回 false。
  */
 export function isTelegramMessageRequest(method: keyof RawApi): boolean {
   switch (method) {
@@ -47,6 +49,7 @@ export function isTelegramMessageRequest(method: keyof RawApi): boolean {
 
 /** 退避队列拒绝错误；安全动作的 durable owner 收到后保留原任务并重投。 */
 export class TelegramRetryQueueFullError extends Error {
+  /** 构造退避队列已满错误。 */
   constructor() {
     super(`Telegram 429 retry queue reached its ${TELEGRAM_429_RETRY_QUEUE_MAX} request limit.`);
     this.name = "TelegramRetryQueueFullError";
@@ -56,6 +59,8 @@ export class TelegramRetryQueueFullError extends Error {
 /**
  * 按业务语义选择独立的退避域。高频调用都走 switch 的稳定分支；前缀兜底只
  * 服务未在项目调用面出现的 Bot API。
+ * @param method Bot API 方法名。
+ * @returns 该方法所属的限流退避类别。
  */
 export function telegramRetryCategoryFor(
   method: keyof RawApi
@@ -122,7 +127,11 @@ export function telegramRetryCategoryFor(
   return "other";
 }
 
-/** 退避延迟的下限；非正数一律回落到统一兜底值。 */
+/**
+ * 退避延迟的下限；非正数一律回落到统一兜底值。
+ * @param delayMs 原始退避毫秒数。
+ * @returns 大于 0 时原样返回，否则返回兜底退避毫秒数。
+ */
 function clampRetryDelay(delayMs: number): number {
   return delayMs > 0 ? delayMs : TELEGRAM_429_FALLBACK_RETRY_MS;
 }
@@ -130,6 +139,8 @@ function clampRetryDelay(delayMs: number): number {
 /**
  * 从 fetch Response 或 Bot API 原始响应提取限流退避毫秒数；非限流响应返回 undefined。
  * 空白、非法、非正或已经过去的 Retry-After 都回落到 TELEGRAM_429_FALLBACK_RETRY_MS。
+ * @param response HTTP Response 或 Bot API 原始响应对象。
+ * @returns 429 限流时返回退避毫秒数，非 429 响应返回 undefined。
  */
 export function telegramRetryAfterMilliseconds(
   response: unknown

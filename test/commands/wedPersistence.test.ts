@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, jest, setSystemTime, spyOn, test } from "bun:test";
+import type { Context } from "grammy";
+import type { Chat } from "grammy/types";
 import { pendingWedMemberDeletes, resetWedMemberStates, wedMemberFlushState, wedMemberStates } from "../../packages/cache/main/wedMembers";
 import { diskIORuntime } from "../../packages/cache/main/diskIO";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
@@ -8,7 +10,7 @@ import { observeWedMembers } from "../../packages/commands/wed/members";
 import { flushWedMembers, getOrCreateWedMemberState, hydrateWedMembers, purgeWedMembers, removeWedMember, replayWedMembers } from "../../packages/commands/wed/persistence";
 import { drainWedRuntime, initWedRuntime } from "../../packages/commands/wed/runtime";
 import { teardownWedInChat } from "../../packages/commands/wed";
-import { getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../packages/infra/storage/stateStore";
 import { wedChats } from "../../packages/cache/main/wed";
 import * as diskIO from "../../packages/infra/diskIO";
 import type {
@@ -22,9 +24,15 @@ import type { DomainFlushOutcome } from "../../packages/types/diskIO/replies";
 const post = spyOn(diskIO, "postDiskIO");
 const flush = spyOn(diskIO, "flushDiskIODomain");
 
+/** 与前置链一致：先各读一次 `ctx.chat` 与群状态快照，再交给 observeWedMembers。 */
+function observeLikePreamble(ctx: Context): void {
+  const chat: Chat | undefined = ctx.chat;
+  observeWedMembers(ctx, chat, getChatState(chat!.id));
+}
+
 function speak(id: number): void {
   const chat = { id: -1001, type: "supergroup" };
-  observeWedMembers({ chat, message: { chat, from: { id, is_bot: false }, text: "hi" } } as never);
+  observeLikePreamble({ chat, message: { chat, from: { id, is_bot: false }, text: "hi" } } as never);
 }
 
 beforeEach(() => {

@@ -1,5 +1,5 @@
 /**
- * Anthropic 广告检测的客户端构造（含 headers 经 defaultHeaders 附加、fallback_model 挂拒答回退中间件）、
+ * Anthropic 广告检测的客户端构造（fallback_model 挂拒答回退中间件）、
  * 结构化请求、用量（改道后记回退模型）、拒答立即放弃、其余不可用收尾与有界重采样。
  */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
@@ -13,6 +13,7 @@ import {
   AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
   AD_DETECT_JSON_SCHEMA,
 } from "../../../packages/consts/antiRaid/adDetect";
+import { ANTHROPIC_SDK_LOG_LEVEL } from "../../../packages/consts/aiChat/anthropic";
 
 const create = mock(async (..._args: unknown[]): Promise<unknown> => response("end_turn"));
 const constructions: unknown[] = [];
@@ -38,10 +39,9 @@ mock.module("../../../packages/infra/logger", () => ({
     warn(message: unknown): void { warnings.push(String(message)); },
   }),
 }));
-const GATEWAY_HEADERS: Readonly<Record<string, string>> = { "cf-aig-authorization": "Bearer gateway-token" };
 mock.module("../../../packages/config/agent", () => ({
   getAdDetectAgentConfig: () => ({
-    provider, apiKey: "test-key", baseUrl: "https://test.invalid", headers: GATEWAY_HEADERS, model: "claude-test", fallbackModel,
+    provider, apiKey: "test-key", baseUrl: "https://test.invalid", model: "claude-test", fallbackModel,
   }),
 }));
 mock.module("@anthropic-ai/sdk", () => ({
@@ -84,7 +84,8 @@ test("规则缓存与系统事实独立，Schema 直接透传；复用客户端�
   expect(await requestAnthropicAdDetectJson(REQUEST)).toBe('{"ad":false,"reason":"闲聊"}');
   await requestAnthropicAdDetectJson(REQUEST);
   expect(constructions).toStrictEqual([{
-    apiKey: "test-key", baseURL: "https://test.invalid", defaultHeaders: GATEWAY_HEADERS, timeout: AD_DETECT_ANTHROPIC_REQUEST_TIMEOUT_MS,
+    apiKey: "test-key", baseURL: "https://test.invalid", logLevel: ANTHROPIC_SDK_LOG_LEVEL,
+    timeout: AD_DETECT_ANTHROPIC_REQUEST_TIMEOUT_MS,
     maxRetries: AD_DETECT_ANTHROPIC_REQUEST_MAX_RETRIES, middleware: undefined,
   }]);
   const body: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming =

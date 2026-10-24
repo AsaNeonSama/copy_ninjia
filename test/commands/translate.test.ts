@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CachedUser, GlobalCopyState } from "../../packages/types/chatState";
 import type { TranslateLanguage, TranslateState } from "../../packages/types/translate";
 import type { SendCommandMessageParams } from "../../packages/infra/telegram/commandMessages";
-import { TRANSLATE_LANGUAGE_LABELS } from "../../packages/consts/translate";
+import { TRANSLATE_CHAT_USER_LIMIT, TRANSLATE_LANGUAGE_LABELS } from "../../packages/consts/translate";
 import { formatUserLabel } from "../../packages/users/userLabel";
 import { TRANSLATE_CHAT_CAPACITY_TEXT, TRANSLATE_DISABLED_TEXT, TRANSLATE_TARGET_TEXTS } from "../../packages/consts/atmosphere/teasing/translate";
 import {
@@ -120,17 +120,17 @@ describe("/translate 独立命令", () => {
     expect(translateStates.get(-1001)?.[0]?.translatedUser).toBe(target);
   });
   test("每群最多五个目标，第六人拒绝且不影响既有会话", async () => {
-    for (let id: number = 1; id <= 5; id++) {
+    for (let id: number = 1; id <= TRANSLATE_CHAT_USER_LIMIT; id++) {
       target = { id };
       await handleTranslateCommand(context("uk"));
     }
     const previous: readonly TranslateState[] | undefined = translateStates.get(-1001);
-    target = { id: 6 };
+    target = { id: TRANSLATE_CHAT_USER_LIMIT + 1 };
     await handleTranslateCommand(context("ru"));
     expect(translateStates.get(-1001)).toBe(previous);
-    expect(previous).toHaveLength(5);
+    expect(previous).toHaveLength(TRANSLATE_CHAT_USER_LIMIT);
     expect(sendCommandMessage.mock.calls.at(-1)?.[0]).toMatchObject({ text: TRANSLATE_CHAT_CAPACITY_TEXT });
-    expect(persistChatState).toHaveBeenCalledTimes(5);
+    expect(persistChatState).toHaveBeenCalledTimes(TRANSLATE_CHAT_USER_LIMIT);
     await handleTranslateCommand(context("ru", -2002));
     expect(translateStates.get(-2002)).toHaveLength(1);
   });

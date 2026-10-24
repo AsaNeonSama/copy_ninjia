@@ -1,10 +1,9 @@
-import type { AtmosphereTexts } from "../types/atmosphere";
-import { chatAtmosphere } from "../infra/atmosphere";
 /**
  * 广告命中后的主线程处置：写入永久黑名单并落盘，再把跨群封禁登记进 durable
  * outbox 交回 Anti-Raid Worker。候选消息构建位于 adCandidate.ts。
  */
-
+import type { AtmosphereTexts } from "../types/atmosphere";
+import { chatAtmosphere } from "../infra/atmosphere";
 import { logger } from "../infra/logger";
 import { prefetchIdentityPolicies } from "../infra/identityStorage";
 import {
@@ -42,6 +41,8 @@ import type { FlushResult } from "../types/lifecycle";
 
 /**
  * 将命中广告的原始样本经 postDiskIODiagnostic 异步投递至落盘线程（见 infra/diskIO.ts）。
+ *
+ * @param event Worker 上报的广告命中事件
  */
 function recordAdSample(event: AdDetectedEvent): void {
   if (event.messages.length === 0) return;
@@ -62,6 +63,8 @@ function recordAdSample(event: AdDetectedEvent): void {
 /**
  * 执行广告命中处置：写入永久黑名单并落盘，随后为受管群登记封禁批次并交回 Worker。
  * 同一身份重复命中（blockUser 返回 false）时仅补登记触发群的封禁批次。
+ *
+ * @param event Worker 上报的广告命中事件
  */
 async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
   if (!await prefetchIdentityPolicies([event.senderId])) {
@@ -151,6 +154,9 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
 
 /**
  * 按身份串行执行广告封禁与 `/block` 名单写入及跨群扇出（见 cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）。
+ *
+ * @param event Worker 上报的广告命中事件
+ * @returns 广告封禁与跨群扇出处置完成后的 Promise
  */
 function disposeDetectedAd(event: AdDetectedEvent): Promise<void> {
   return blocklistIdentityMutationRunner.run(
@@ -159,6 +165,7 @@ function disposeDetectedAd(event: AdDetectedEvent): Promise<void> {
   );
 }
 
+/** 生成广告处置群内播报文案所需的参数。 */
 export interface FormatAdNoticeParams {
   /** 发送者的展示标签（见 users/userLabel.ts 的 formatUserLabel）。 */
   label: string;
@@ -168,11 +175,15 @@ export interface FormatAdNoticeParams {
   enforcedChats: number;
   /** 登记失败、交由补扫接手的群数。 */
   failedChats: number;
+  /** 当前机器人的群氛围文案表。 */
   readonly atmosphere: AtmosphereTexts;
 }
 
 /**
  * 生成广告处置群内播报文案，仅包含展示标签、判定理由及封禁群统计，不回显广告原文。
+ *
+ * @param params 发送者展示标签、判定理由、封禁群统计与氛围文案表
+ * @returns 组装完成的广告处置播报 HTML/纯文本文案
  */
 export function formatAdNotice({ label, reason, enforcedChats, failedChats, atmosphere }: FormatAdNoticeParams): string {
   const head: string = atmosphere.NOTICE_TEXTS.adDetected(label, reason || atmosphere.NOTICE_TEXTS.adDefaultReason);
@@ -187,6 +198,10 @@ export function formatAdNotice({ label, reason, enforcedChats, failedChats, atmo
 
 /**
  * 经统一临时消息边界发送广告处置播报并登记延迟删除（见 infra/telegram/temporaryMessage.ts）。
+ *
+ * @param event Worker 上报的广告命中事件
+ * @param enforcedChats 成功登记封禁批次的群数
+ * @param failedChats 登记封禁批次失败的群数
  */
 async function announceAdDisposal(
   event: AdDetectedEvent,
@@ -201,6 +216,8 @@ async function announceAdDisposal(
 
 /**
  * 接收 Worker 回投的广告命中事件，将处置任务登记入 cache/main/antiRaid/adDisposal.ts 的 inFlightAdDisposals。
+ *
+ * @param event Worker 上报的广告命中事件
  */
 export function handleAdDetected(event: AdDetectedEvent): void {
   trackBackgroundTask(
@@ -210,6 +227,11 @@ export function handleAdDetected(event: AdDetectedEvent): void {
   );
 }
 
+/**
+ * 预取身份策略并在未持有广告检测豁免时清空发送者的临时免检累计。
+ *
+ * @param event Worker 上报的模型判定为广告事件
+ */
 async function clearAdVerdictActivity(event: AdVerdictTrueEvent): Promise<void> {
   if (!await prefetchIdentityPolicies([event.senderId])) return;
   await runProtectedIdentityMutation((): void => {
@@ -218,7 +240,11 @@ async function clearAdVerdictActivity(event: AdVerdictTrueEvent): Promise<void> 
   });
 }
 
-/** 模型返回广告命中时清空发送者的临时免检累计。 */
+/**
+ * 模型返回广告命中时清空发送者的临时免检累计。
+ *
+ * @param event Worker 上报的模型判定为广告事件
+ */
 export function handleAdVerdictTrue(event: AdVerdictTrueEvent): void {
   trackBackgroundTask(
     inFlightAdDisposals,
@@ -229,6 +255,8 @@ export function handleAdVerdictTrue(event: AdVerdictTrueEvent): void {
 
 /**
  * 停机排空：在 timeoutMs 预算内等待全部在途广告处置任务结算（含结算期间新派生的任务，见 docs/cn/04-invariants.md）。
+ *
+ * @param timeoutMs 最大等待超时预算（毫秒）
  * @returns 全部结算返回 flushed；预算耗尽仍有在途任务返回 timedOut。
  */
 export async function drainAdDisposals(timeoutMs: number): Promise<FlushResult> {

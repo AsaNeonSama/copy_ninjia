@@ -35,9 +35,13 @@ export interface SectionDependencies {
   readonly removeMockPath: (runtimeRoot: string) => void;
 }
 
+/** 按轮运行被测子进程的编排参数。 */
 export interface RoundsOptions {
+  /** 进度日志与报错信息中标识当前测量项的标签。 */
   readonly label: string;
+  /** 每轮运行前对隔离数据根执行的播种模式。 */
   readonly seedMode: "cold-start" | "chain" | "none";
+  /** 传给测量子进程的命令行参数表。 */
   readonly args: readonly string[];
   /** 追加到测量子进程的环境变量；各根目录变量始终以本轮隔离根为准。 */
   readonly env?: Readonly<Record<string, string>>;
@@ -71,6 +75,12 @@ export const JOIN_LOG_ENTRY: string = join(
   "joinLog.ts"
 );
 
+/**
+ * 构造指向本轮隔离运行时数据根与配置根的环境变量表。
+ * @param runtimeRoot 本轮独占的运行时数据根路径。
+ * @param configRoot 本次运行共享的隔离配置根路径。
+ * @returns 包含数据根与配置根环境变量的映射表。
+ */
 function childEnv(
   runtimeRoot: string,
   configRoot: string
@@ -81,7 +91,12 @@ function childEnv(
   };
 }
 
-/** 拒绝把不同 Bun/JSC 构建的轮次聚合成一份报告。 */
+/**
+ * 拒绝把不同 Bun/JSC 构建的轮次聚合成一份报告。
+ * @param version 子进程报告的 Bun 版本号。
+ * @param revision 子进程报告的 Bun 构建修订号。
+ * @param label 当前测量项标签。
+ */
 export function assertSameRuntime(
   version: string,
   revision: string,
@@ -95,14 +110,24 @@ export function assertSameRuntime(
   }
 }
 
+/** 启动播种子进程初始化单轮运行时数据根的参数。 */
 interface SeedRuntimeRootOptions {
+  /** 分区外部动作依赖集合。 */
   readonly dependencies: SectionDependencies;
+  /** 本轮独占的运行时数据根路径。 */
   readonly runtimeRoot: string;
+  /** 本次运行共享的隔离配置根路径。 */
   readonly configRoot: string;
+  /** 播种模式（满库冷启动或空库链路）。 */
   readonly mode: "cold-start" | "chain";
+  /** 当前测量项标签。 */
   readonly label: string;
 }
 
+/**
+ * 启动播种子进程将本轮运行时数据根初始化为指定模式的生产格式。
+ * @param options 依赖集合、数据根路径、配置根路径、播种模式与诊断标签。
+ */
 async function seedRuntimeRoot({
   dependencies,
   runtimeRoot,
@@ -117,7 +142,12 @@ async function seedRuntimeRoot({
   });
 }
 
-/** 每轮使用新数据根，记录删除前足迹，并在成功或失败后统一清理。 */
+/**
+ * 每轮使用新数据根，记录删除前足迹，并在成功或失败后统一清理。
+ * @param context 分区运行上下文。
+ * @param options 测量项标签、播种模式、子进程参数与环境变量选项。
+ * @returns 各轮子进程返回的读数列表。
+ */
 export async function runRounds<TRound>(
   context: SectionContext,
   { label, seedMode, args, env = {}, onStderr }: RoundsOptions

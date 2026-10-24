@@ -18,6 +18,8 @@ import { pauseThenSettle } from "./pacing";
 /**
  * 校验 abuse_mark 的 user_id 入参（只接受本轮非零触发者，排除机器人自身与 superAdmin），
  * 接纳时同步触发 ctx.onAbuseMark 并在动作链上以当前通知风格发送长期保留的提示消息。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @returns 接收参数 JSON 并返回工具执行计划的执行器函数。
  */
 export function createAbuseMarkExecutor(
   ctx: ReplyToolContext

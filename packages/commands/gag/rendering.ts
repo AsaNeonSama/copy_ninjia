@@ -19,7 +19,11 @@ import type {
 import { sanitizeDisplayName, sanitizeInline, splitGraphemes } from "../../libs/text";
 import { parseChatIdArgument, parseUserIdArgument } from "../../libs/telegramId";
 
-/** inline 文本开头的唯一格式；消息落群时复用它核对当前用具。 */
+/**
+ * inline 文本开头的唯一格式；消息落群时复用它核对当前用具。
+ * @param tool 用具名称。
+ * @returns 带全角括号的用具前缀字符串。
+ */
 export function gagSpeechPrefix(tool: string): string {
   return `（透过${tool}）`;
 }
@@ -28,6 +32,9 @@ export function gagSpeechPrefix(tool: string): string {
  * 构造开始提示的发言入口。查询 scope 的唯一语法是 `gag:<目标 ID>`；用户与
  * 频道都不得追加摘要、随机 token、群 ID 或其它载荷。群绑定由隐藏 marker
  * 和落群后的 from.id/sender_chat.id、message.chat.id 校验承担。无前缀查询进入运势。
+ * @param session 当前 gag 会话。
+ * @param atmosphere 语气词表。
+ * @returns 带当前聊天 inline 切换按钮的键盘。
  */
 export function buildGagSpeakKeyboard(session: GagSession, atmosphere: AtmosphereTexts = chatAtmosphere()): InlineKeyboard {
   return new InlineKeyboard().switchInlineCurrent(
@@ -40,6 +47,8 @@ export function buildGagSpeakKeyboard(session: GagSession, atmosphere: Atmospher
  * 解析 gag 按钮预填查询。首个空格前只接受规范的安全整数 ID；ID 后的摘要、
  * token、群 ID 或任意其它 scope 后缀必须拒绝。形态错误的保留前缀由 gag
  * 静默认领为空结果，不能退回运势。
+ * @param query 原始 inline 查询字符串。
+ * @returns 解析出的目标 ID 与正文；格式不合法时返回 undefined。
  */
 export function parseGagInlineQuery(
   query: string
@@ -55,7 +64,11 @@ export function parseGagInlineQuery(
   return { targetId, text };
 }
 
-/** 从 GAG_REPLACEMENT_CHARACTERS 中均匀抽取一个字符。 */
+/**
+ * 从 GAG_REPLACEMENT_CHARACTERS 中均匀抽取一个字符。
+ * @param random `[0, 1)` 随机数生成函数。
+ * @returns 抽取的替换字符。
+ */
 function randomGagReplacement(random: () => number): string {
   const roll: number = random();
   const index: number = Math.min(
@@ -65,7 +78,11 @@ function randomGagReplacement(random: () => number): string {
   return GAG_REPLACEMENT_CHARACTERS[index]!;
 }
 
-/** 随机生成 GAG_FILLER_MIN_DOTS 到 GAG_FILLER_MAX_DOTS 个点，每个点间空隙独立按 GAG_FILLER_GAP_SPACE_PROBABILITY 插入空格。 */
+/**
+ * 随机生成 GAG_FILLER_MIN_DOTS 到 GAG_FILLER_MAX_DOTS 个点，每个点间空隙独立按 GAG_FILLER_GAP_SPACE_PROBABILITY 插入空格。
+ * @param random `[0, 1)` 随机数生成函数。
+ * @returns 生成的点状填充串。
+ */
 function randomGagFiller(random: () => number): string {
   const range: number = GAG_FILLER_MAX_DOTS - GAG_FILLER_MIN_DOTS + 1;
   const offset: number = Math.min(
@@ -81,7 +98,11 @@ function randomGagFiller(random: () => number): string {
   return filler;
 }
 
-/** 按扩展字形数返回短文本操作保底（GAG_MIN_OPERATION_TIERS）；单字操作一次，超出最后一档不设保底。 */
+/**
+ * 按扩展字形数返回短文本操作保底（GAG_MIN_OPERATION_TIERS）；单字操作一次，超出最后一档不设保底。
+ * @param graphemeCount 扩展字形簇数量。
+ * @returns 最少需要执行的变形操作次数。
+ */
 export function gagMinimumOperationCount(graphemeCount: number): number {
   if (graphemeCount <= 0) return 0;
   if (graphemeCount === 1) return 1;
@@ -91,6 +112,7 @@ export function gagMinimumOperationCount(graphemeCount: number): number {
   return 0;
 }
 
+/** gag 发言变形过程中对单个字形簇采取的操作类型（插入拟声填充或替换为乱码符号）。 */
 type GagSpeechOperation = "fill" | "replace";
 
 /**
@@ -98,6 +120,8 @@ type GagSpeechOperation = "fill" | "replace";
  * 每个字形先按 GAG_FILL_OPERATION_PROBABILITY 抽取填充或替换；同类操作连续达到
  * GAG_MAX_CONSECUTIVE_SAME_OPERATIONS 次后，下一个同类候选保留原字形并重置连续计数；
  * 只有跳过后无法达到短文本保底时才强制改走另一类。填充形态见 randomGagFiller。
+ * @param options 变形发言渲染参数（含原始发言正文 `text`、用具类型 `tool` 与可选随机数生成器 `random`）。
+ * @returns 带用具前缀的变形发言文本。
  */
 export function renderGagSpeech({
   text,
@@ -153,28 +177,46 @@ export function renderGagSpeech({
   return rendered;
 }
 
-/** 群内公开状态文案；普通用户无按钮，频道入口直接附在这条消息上。 */
+/**
+ * 群内公开状态文案；普通用户无按钮，频道入口直接附在这条消息上。
+ * @param session 当前 gag 会话。
+ * @param atmosphere 语气词表。
+ * @returns 群内公开状态提示文本。
+ */
 export function renderGagPublicNotice(session: GagSession, atmosphere: AtmosphereTexts = chatAtmosphere()): string {
   return atmosphere.NOTICE_TEXTS.gagPublicNotice({ targetLabel: session.targetLabel, tool: session.tool, durationMinutes: session.durationMinutes, channelEntry: (session.targetId < 0
       ? atmosphere.NOTICE_TEXTS.gagChannelEntry
       : "") });
 }
 
-/** 发言入口随目标身份选择公开频道文案或仅用户可见的短提示。 */
+/**
+ * 发言入口随目标身份选择公开频道文案或仅用户可见的短提示。
+ * @param session 当前 gag 会话。
+ * @param atmosphere 语气词表。
+ * @returns 发言入口提示文本。
+ */
 export function renderGagSpeakNotice(session: GagSession, atmosphere: AtmosphereTexts = chatAtmosphere()): string {
   return session.targetId < 0
     ? renderGagPublicNotice(session, atmosphere)
     : atmosphere.NOTICE_TEXTS.gagSpeakNotice(session.targetLabel);
 }
 
-/** 只接受 GAG_DURATION_MINUTES 中的离散分钟值，其它时长不就近取档。 */
+/**
+ * 只接受 GAG_DURATION_MINUTES 中的离散分钟值，其它时长不就近取档。
+ * @param token 候选时长词元。
+ * @returns 匹配的合法时长分钟数；不匹配时返回 undefined。
+ */
 function parseGagDuration(token: string | undefined): GagDurationMinutes | undefined {
   return GAG_DURATION_MINUTES.find(
     (minutes: GagDurationMinutes): boolean => String(minutes) === token
   );
 }
 
-/** 识别命令参数里明确写出的目标；用户名必须按对外语法携带 `@`。 */
+/**
+ * 识别命令参数里明确写出的目标；用户名必须按对外语法携带 `@`。
+ * @param token 候选目标词元。
+ * @returns 是显式用户 ID、群/频道 ID 或 `@username` 时返回 true。
+ */
 function isExplicitGagTarget(token: string): boolean {
   return USER_ID_ARG_PATTERN.test(token) || CHAT_ID_ARG_PATTERN.test(token) ||
     (token.startsWith("@") && USERNAME_ARG_PATTERN.test(token));
@@ -183,6 +225,9 @@ function isExplicitGagTarget(token: string): boolean {
 /**
  * 把命令参数拆成目标、可选时长与任意自由文本用具。回复模式下首项直接作为
  * 时长/用具；非回复模式必须先给显式目标。省略时长取 GAG_DEFAULT_DURATION_MINUTES。
+ * @param raw 命令参数原始字符串。
+ * @param hasReplyTarget 命令消息是否带显式回复目标。
+ * @returns 解析出的命令结构；语法非法时返回 undefined。
  */
 export function parseGagCommand(
   raw: string,
@@ -234,6 +279,8 @@ export function parseGagCommand(
 /**
  * 用 Telegram 的官方长度上限（TELEGRAM_MESSAGE_MAX_CHARS）与 GAG_INLINE_QUERY_MAX_CHARS
  * 推导当前用具是否能容纳最坏情形的查询；只拒绝必然无法发出的载荷。
+ * @param tool 用具名称。
+ * @returns 最坏情形渲染结果不超过 Telegram 消息字符上限时返回 true。
  */
 export function canRenderMaximumInlineQuery(tool: string): boolean {
   const prefixLength: number = gagSpeechPrefix(tool).length;

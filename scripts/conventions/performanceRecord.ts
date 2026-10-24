@@ -20,7 +20,12 @@ interface PerformanceResultFile {
   readonly fullSuite?: unknown;
 }
 
-/** 取一份文档页基准区块里的时间戳；区块缺失或没有时间戳时返回 null。 */
+/**
+ * 取一份文档页基准区块里的时间戳；区块缺失或没有时间戳时返回 null。
+ *
+ * @param source 文档全文
+ * @returns 唯一的 ISO-8601 时间戳字符串，缺失或不唯一时返回 null
+ */
 function blockTimestamp(source: string): string | null {
   const start: number = source.indexOf(README_BLOCK_START);
   const end: number = source.indexOf(README_BLOCK_END);
@@ -33,7 +38,12 @@ function blockTimestamp(source: string): string | null {
   return unique.size === 1 ? matches[0] ?? null : null;
 }
 
-/** 核对全量基准的文档区块与 `performance-result.json` 描述同一次运行。 */
+/**
+ * 核对全量基准的文档区块与 `performance-result.json` 描述同一次运行。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @returns 基准时间戳不一致或记录缺失的违规问题列表
+ */
 export async function collectPerformanceRecordProblems(
   projectRoot: string
 ): Promise<readonly string[]> {

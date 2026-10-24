@@ -36,7 +36,7 @@
       • <b>核心配置缺失</b>：需要 <code>agent.json</code> 中的 <code>text</code>、<code>summary</code>、<code>media</code> 三项能力以及 <code>stickers.json</code> 和 <code>mood.json</code> 配置完整；缺失任何一项，AI 闲聊都会自动停用。<br>
       • <b>触发条件机制</b>：仅在用户显式回复机器人或 <code>@机器人</code> 时才会百分之百必回；常规群消息只按概率随机插话（群处于 <code>/quiet</code> 静音期时不插话）。<br>
       • <b>与复读互斥</b>：群内若正在执行 <code>/copy</code> 复读，AI 闲聊与主动插话会自动暂停。<br>
-      • <b>限频与拒答冷却</b>：短时间内发言过于频繁会触发滑动窗口限频保护（相关窗口与上限见 <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>）；反复要求生成违规或令模型厌烦的内容被 <code>abuse_mark</code> 标记后，该用户在 <code>ABUSE_MARK_DURATION_MS</code> 内也不会进入 AI 闲聊。
+      • <b>限频与拒答冷却</b>：短时间内发言过于频繁会触发滑动窗口限频保护（相关窗口与上限见 <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code>）；反复要求生成违规内容或反复进行令模型不适的行为（如责骂、羞辱等）被 <code>abuse_mark</code> 标记后，该用户在 <code>ABUSE_MARK_DURATION_MS</code> 内也不会进入 AI 闲聊。
     </td>
   </tr>
   <tr>
@@ -198,33 +198,20 @@
 
 ## 如何经三方网关（如 Cloudflare AI Gateway）调用 Google 模型？
 
-1. **修改请求端点（Endpoint）**：将对应模型能力中的 `base_url` 替换为网关地址（也可在 `install.sh` 安装问卷中直接填写 `base_url` 与附加请求头），例如：
+1. **修改请求端点（Endpoint）**：将对应模型能力中的 `base_url` 替换为网关地址（也可在 `install.sh` 安装问卷中直接填写 `base_url`），例如：
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
-2. **配置自定义请求头（Headers）**：在该能力的配置下增加 `headers` 字段，例如：
-   ```json
-   "headers": {
-     "cf-aig-authorization": "Bearer <token>"
-   }
-   ```
-3. **保留 Google API Key**：`api_key` 仍然是必填项，填写原生的 Google AI API 密钥；使用网关托管密钥（BYOK / Unified Billing）时改为填写 Cloudflare 令牌，此时不需要 `headers`。`headers` 选项对 `provider: "google"` 与 `provider: "anthropic"` 有效（openai 不接受），日志输出时敏感信息会自动脱敏。
-4. **接口路由适配**：文本对话、图像理解与图片生成路由自动走 `generateContent` 端点；语音合成走 `Interactions API`。配置完成后，超级管理员可在私聊中使用 `/send` 发送一条测试语音验证网关转发是否通畅。
+2. **填写 API Key**：`api_key` 填写原生的 Google AI API 密钥（SDK 以 `x-goog-api-key` 发送）；请求不附加其他请求头，网关须关闭鉴权（Authenticated Gateway）。使用网关托管密钥（BYOK / Unified Billing）时改为填写 Cloudflare 令牌。`api_key` 在日志输出时会自动脱敏。
+3. **接口路由适配**：文本对话、图像理解与图片生成路由自动走 `generateContent` 端点；语音合成走 `Interactions API`。配置完成后，超级管理员可在私聊中使用 `/send` 发送一条测试语音验证网关转发是否通畅。
 
 ---
 
 ## 如何经 Cloudflare AI Gateway 调用 Anthropic 模型？
 
-`provider: "anthropic"` 的能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）把 `headers` 经 SDK 的 `defaultHeaders` 附加到每个请求上（也可在 `install.sh` 安装问卷中直接填写 `base_url` 与附加请求头）。`base_url` 统一填写：
+`provider: "anthropic"` 的能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）的 `base_url` 统一填写如下地址（也可在 `install.sh` 安装问卷中直接填写）：
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
-1. **自带 Anthropic 密钥**：`api_key` 填写 Anthropic API Key（SDK 以 `x-api-key` 发送）。网关开启鉴权（Authenticated Gateway）时再加：
-   ```json
-   "headers": {
-     "cf-aig-authorization": "Bearer <CF_AIG_TOKEN>"
-   }
-   ```
-   网关未开启鉴权时不需要 `headers`。
-2. **网关托管密钥（BYOK / Unified Billing）**：`api_key` 直接填写 Cloudflare 令牌 `<CF_AIG_TOKEN>`，不需要 `headers`。网关识别 `x-api-key` 中的 Cloudflare 令牌后，改用已存储的 Anthropic 密钥或 Unified Billing。`api_key` 填占位串时，占位串会被原样转发给 Anthropic 并返回鉴权失败。
-3. **字段约束**：`headers` 不能包含 `x-api-key`（忽略大小写），Anthropic 凭据只经 `api_key` 传递；其余约束与 Google 一致。每个请求头值都会进入日志脱敏名单。
+1. **自带 Anthropic 密钥**：`api_key` 填写 Anthropic API Key（SDK 以 `Authorization: Bearer` 发送）；请求不附加其他请求头，网关须关闭鉴权（Authenticated Gateway）。
+2. **网关托管密钥（BYOK / Unified Billing）**：`api_key` 直接填写 Cloudflare 令牌 `<CF_AIG_TOKEN>`。网关识别 `Authorization` 中的 Cloudflare 令牌后，改用已存储的 Anthropic 密钥或 Unified Billing。`api_key` 填占位串时，占位串会被原样转发给 Anthropic 并返回鉴权失败。
 
 ---
 

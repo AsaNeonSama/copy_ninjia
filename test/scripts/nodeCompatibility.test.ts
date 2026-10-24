@@ -138,12 +138,12 @@ describe("Node 兼容约定", () => {
     const fixtureImports: string =
       'import { cpSync, lstatSync, mkdtempSync, rmSync } from "node:fs";\n' +
       'import { mkdtemp, lstat } from "node:fs/promises";\n' +
-      'import { tmpdir } from "node:os";\nimport { generateKeyPairSync } from "node:crypto";';
+      'import { tmpdir } from "node:os";';
     expect(collectNodeCompatibilityProblems(projectRoot, testPath, source(testPath, fixtureImports))).toEqual([]);
     // 测试里的异步 stat 走 BunFile.stat()，statSync 不在测试共享登记里。
     expect(collectNodeCompatibilityProblems(projectRoot, testPath, source(testPath, 'import { statSync } from "node:fs";')))
       .toEqual([expect.stringContaining("unreviewed node:fs export statSync")]);
-    expect(collectNodeCompatibilityProblems(projectRoot, packagePath, source(packagePath, fixtureImports))).toHaveLength(4);
+    expect(collectNodeCompatibilityProblems(projectRoot, packagePath, source(packagePath, fixtureImports))).toHaveLength(3);
     expect(collectNodeCompatibilityProblems(
       projectRoot,
       testPath,

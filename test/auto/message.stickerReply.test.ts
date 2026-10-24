@@ -27,7 +27,15 @@ const { userReplyTriggerTimes } = await import("../../packages/cache/main/auto")
 const { clearUserReplyTriggerTimes } =
   await import("../../packages/auto/message/triggerPolicy");
 
-const { handleIncomingMessageMiddleware } = await import("../../packages/auto/message");
+const { handleIncomingMessageMiddleware: handleIncomingMessageWithState } = await import("../../packages/auto/message");
+const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
+
+/** 与前置链一致：读一次本条消息所在群的状态快照，再交给自动流水线。 */
+function handleIncomingMessageMiddleware(ctx: any): Promise<void> | undefined {
+  const chatId: number | undefined = ctx.msg?.chat.id;
+  return handleIncomingMessageWithState(ctx, chatId === undefined ? DEFAULT_CHAT_STATE : getChatState(chatId));
+}
 const { clearAiReplyActivity } = await import("../../packages/auto/message/aiReplyActivity");
 const { AI_REPLY_PROBABILITY_BASE_INITIAL } =
   await import("../../packages/consts/aiChat/rateLimit");

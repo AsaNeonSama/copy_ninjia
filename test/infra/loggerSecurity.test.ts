@@ -9,11 +9,10 @@ import { REDACTED_SECRET } from "../../packages/consts/redaction";
 import type { AgentDeploymentConfig } from "../../packages/types/config";
 import type { LoggerSecretsSnapshot } from "../../packages/types/logger";
 
-/** 严格解析含自定义鉴权头的测试配置；只替换线程内 holder，不写部署文件。 */
+/** 严格解析以 secret 为 api_key 的测试配置；只替换线程内 holder，不写部署文件。 */
 function credentialConfig(secret: string): AgentDeploymentConfig {
-  const capability: Readonly<{
-    provider: string; model: string; api_key: string; headers: Readonly<Record<string, string>>;
-  }> = { provider: "google", model: "mock", api_key: "test-security-api-key", headers: { "x-upstream-auth": secret } };
+  const capability: Readonly<{ provider: string; model: string; api_key: string }> =
+    { provider: "google", model: "mock", api_key: secret };
   return parseAgentDeploymentConfig({ text: capability, summary: capability, media: capability });
 }
 
@@ -43,11 +42,10 @@ test("头像下载异常的 path、message、stack、cause 与重定向 URL 均�
 
 test("JSON 转义凭据覆盖真实 logger 的文本、Error、嵌套 cause、对象值与键", (): void => {
   const original: AgentDeploymentConfig | null = agentDeploymentConfigCache.current;
-  const secret: string = 'test-"quoted"\\header-secret';
+  const secret: string = 'test-"quoted"\\api-key-secret';
   const consoleError = spyOn(console, "error").mockImplementation((): void => {});
   agentDeploymentConfigCache.current = credentialConfig(secret);
   try {
-    expect(new Headers({ "x-upstream-auth": secret }).get("x-upstream-auth")).toBe(secret);
     logger.error(`echo ${secret}`);
     logger.error(new Error(`echo ${secret}`, { cause: new Error(`cause ${secret}`) }));
     logger.error({ [secret]: secret, nested: { diagnostic: secret } });
@@ -75,12 +73,11 @@ test("JSON 转义凭据覆盖真实 logger 的文本、Error、嵌套 cause、�
 
 test("已登记凭据在 URL 规范化前脱敏，原文与百分号编码均不进入输出", (): void => {
   const original: AgentDeploymentConfig | null = agentDeploymentConfigCache.current;
-  const secret: string = "test-header-{credential}";
+  const secret: string = "test-api-key-{credential}";
   const url: string = `https://bucket.example/${secret}?trace=mock`;
   const consoleError = spyOn(console, "error").mockImplementation((): void => {});
   agentDeploymentConfigCache.current = credentialConfig(secret);
   try {
-    expect(new Headers({ "x-upstream-auth": secret }).get("x-upstream-auth")).toBe(secret);
     logger.error(url);
     logger.error({ diagnostic: url });
     logger.error(Object.assign(new Error(`fetch ${url}`), { path: url }));

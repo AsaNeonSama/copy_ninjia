@@ -11,7 +11,13 @@ import { BLOCKLIST_REMOVAL_RECONCILE_MAX_ROUNDS } from "../consts/antiRaid/block
 import type { AntiRaidWorkerMessage } from "../types/antiRaid/protocol";
 import type { RemoveBlockedMembersParams } from "../types/blocklist";
 
-/** 判断两份补扫页或处置名单是否包含相同顺序的主键序列。 */
+/**
+ * 判断两份补扫页或处置名单是否包含相同顺序的主键序列。
+ *
+ * @param left 第一份身份 ID 序列
+ * @param right 第二份身份 ID 序列
+ * @returns 长度与逐项顺序均一致时返回 true，否则返回 false
+ */
 function blocklistPagesMatch(
   left: readonly number[],
   right: readonly number[]
@@ -25,7 +31,11 @@ function blocklistPagesMatch(
 
 /**
  * 按主线程权威镜像对账处置消息：移除已取消的批次，并在批次取消时补回被其取代的 join 消息。
+ *
+ * @param messages 待对账的 Anti-Raid Worker 消息列表
  * @param replacedJoins removalId -> 被取代的 join 消息（由 claimBlockedJoiner 登记）。
+ * @param filterProbeIds 是否对 `probeMembership` 批次重读当前黑名单身份集合过滤已解封项
+ * @returns 与当前权威黑名单镜像一致的待投递消息列表
  */
 async function reconcileBlockedRemovalMessages(
   messages: readonly AntiRaidWorkerMessage[],
@@ -65,7 +75,13 @@ async function reconcileBlockedRemovalMessages(
   return reconciled;
 }
 
-/** 判断对账前后的消息列表是否描述同一批权威任务。 */
+/**
+ * 判断对账前后的消息列表是否描述同一批权威任务。
+ *
+ * @param left 对账或落盘前的消息列表
+ * @param right 落盘后重读对账的消息列表
+ * @returns 两份列表长度与每项权威任务语义一致时返回 true，否则返回 false
+ */
 function durableAntiRaidMessagesMatch(
   left: readonly AntiRaidWorkerMessage[],
   right: readonly AntiRaidWorkerMessage[]
@@ -100,7 +116,10 @@ function durableAntiRaidMessagesMatch(
 /**
  * 持久化并复核待投递的黑名单处置消息，最多迭代 BLOCKLIST_REMOVAL_RECONCILE_MAX_ROUNDS 轮，
  * 直至已落盘内容与当前权威镜像一致。超出轮次上限时剥离处置批次并为受影响群标记补扫（requestBlocklistResweep）。
+ *
+ * @param messages 待投递的原始 Anti-Raid Worker 消息批次
  * @param replacedJoins removalId -> 被取代的 join 消息（由 claimBlockedJoiner 登记）。
+ * @returns 已完成持久化与对账、可安全投递给 Worker 的消息列表
  */
 export async function prepareDurableAntiRaidMessages(
   messages: readonly AntiRaidWorkerMessage[],

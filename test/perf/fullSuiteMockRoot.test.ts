@@ -1,5 +1,5 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, rmdirSync, symlinkSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
@@ -23,6 +23,7 @@ import {
 } from "../../scripts/perf/identityDatabase/roots";
 import { MOCK_ROOT_PREFIX } from "../../scripts/perf/identityDatabase/constants";
 import { BENCHMARK_CONFIG_ROOT_NAME } from "../../scripts/perf/fullSuite/constants";
+import { removeCreatedPerformanceMockRootAfterAll } from "../helpers/performanceMockRoot";
 import {
   parseAdDetectAgentConfig,
   parseAgentDeploymentConfig,
@@ -68,21 +69,8 @@ describe("全量基准的 mock 根边界", () => {
   });
 });
 
-/**
- * 下面两条用例调用会真建目录的入口，落点固定为仓库根的 `performance/`
- * （assertInsidePerformanceMockRoot 钉死这一常量，见 scripts/perf/fullSuite/mockRoot.ts，
- * 不接受注入根路径）。这里记录运行前 mock 根是否已存在，跑完在 afterAll 里按现场清理。
- */
-const mockRootExistedBeforeTests: boolean = existsSync(PERFORMANCE_MOCK_ROOT);
-
-afterAll((): void => {
-  // removeMockPath 拒绝删除 mock 根本身，这里直接调 node:fs 的 rmdirSync（非递归）：
-  // 每条用例都在 finally 里撤掉自己的 run-* 子树，这层应已为空；另有基准在写时，非空目录让 rmdirSync 抛错，不删对方的运行目录。
-  if (mockRootExistedBeforeTests || !existsSync(PERFORMANCE_MOCK_ROOT)) return;
-  if (readdirSync(PERFORMANCE_MOCK_ROOT).length === 0) {
-    rmdirSync(PERFORMANCE_MOCK_ROOT);
-  }
-});
+// 下面两条用例调用会真建 `performance/` 下目录的入口。
+removeCreatedPerformanceMockRootAfterAll();
 
 describe("mock 根的建立与清理", () => {
   test("隔离配置副本替换占位凭据并通过生产严格解析", async (): Promise<void> => {

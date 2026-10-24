@@ -14,7 +14,7 @@ import {
   isTtsBotLanguage,
 } from "../consts/aiChat/voiceMessage";
 import { XAI_SPEECH_DEFAULT_LANGUAGE } from "../consts/aiChat/openai";
-import { invalidInput } from "../libs/inputValidation";
+import { invalidInput, requiredString } from "../libs/inputValidation";
 import { hasOnlyKeys } from "../libs/record";
 import type {
   AgentCapabilityConfig,
@@ -31,10 +31,15 @@ import {
   parseCapabilityFields,
   requiredApiKey,
   requiredMediaProvider,
-  requiredString,
 } from "./agentCapability";
 
-/** 解码 OpenAI 协议下的语音合成线协议。 */
+/**
+ * 解码 OpenAI 协议下的语音合成线协议。
+ * @param value 待校验的 `speech_protocol` 字段值。
+ * @param context 字段 JSONPath，用于构造致命错误诊断。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已校验的 OpenAI 语音合成协议标识。
+ */
 function requiredSpeechProtocol(
   value: unknown,
   context: string,
@@ -45,7 +50,13 @@ function requiredSpeechProtocol(
   return invalidInput(sourcePath, context, '"openai" or "xai"');
 }
 
-/** 解码可选的 bot_language：缺省为 TTS_DEFAULT_BOT_LANGUAGE；存在时去掉首尾空白后必须是 TTS_BOT_LANGUAGES 之一。 */
+/**
+ * 解码可选的 bot_language：缺省为 TTS_DEFAULT_BOT_LANGUAGE；存在时去掉首尾空白后必须是 TTS_BOT_LANGUAGES 之一。
+ * @param value 待校验的 `bot_language` 字段值。
+ * @param context 字段 JSONPath，用于构造致命错误诊断。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已校验的机器人语音提示词语言标识。
+ */
 function optionalBotLanguage(value: unknown, context: string, sourcePath: string): TtsBotLanguage {
   if (value === undefined) return TTS_DEFAULT_BOT_LANGUAGE;
   const language: string = typeof value === "string" ? value.trim() : "";
@@ -55,7 +66,9 @@ function optionalBotLanguage(value: unknown, context: string, sourcePath: string
 
 /** 语音合成每日额度的两个解码结果。 */
 interface TtsDailyQuota {
+  /** 每日允许合成的总次数上限（含预留额度）。 */
   readonly dailyLimit: number;
+  /** 每日为管理员与定时任务预留的专属额度。 */
   readonly dailyReserveQuota: number;
 }
 
@@ -63,6 +76,10 @@ interface TtsDailyQuota {
  * 解码可选的 daily_limit 与 daily_reserve_quota。daily_limit 是正整数；daily_reserve_quota 是
  * 小于 daily_limit 的非负整数。缺省值（TTS_DEFAULT_DAILY_LIMIT、TTS_DEFAULT_DAILY_RESERVE_QUOTA）
  * 同样按这一关系核对。
+ * @param record 语音合成能力配置对象记录。
+ * @param context 语音合成能力字段的 JSONPath。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 校验通过的每日总上限与预留额度。
  */
 function parseTtsDailyQuota(
   record: Readonly<Record<string, unknown>>,
@@ -94,6 +111,10 @@ function parseTtsDailyQuota(
  * 解码 xai 语音协议（`POST /tts`）的配置：端点没有模型名与风格指令，model 与 style 出现即
  * 拒绝；language 是随请求发送的合成语言，缺省为 XAI_SPEECH_DEFAULT_LANGUAGE，与只决定提示词的
  * bot_language 各自独立。调用方已解出 provider 与 speech_protocol。
+ * @param record 语音合成能力配置对象记录。
+ * @param context 语音合成能力字段的 JSONPath。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的 xAI 语音合成能力配置。
  */
 function parseXAiTtsCapability(
   record: Readonly<Record<string, unknown>>,
@@ -124,7 +145,6 @@ function parseXAiTtsCapability(
     provider: "openai",
     apiKey,
     baseUrl,
-    headers: undefined,
     model: undefined,
     speechProtocol: "xai",
     voice,
@@ -139,13 +159,16 @@ function parseXAiTtsCapability(
 /**
  * 解码语音合成能力，字段集随协议而定：
  *
- * - google：通用字段（含 headers）之外必填 voice，可选 style。
- * - openai：必填 speech_protocol。取 `openai`（audio/speech）时字段同 google 但无 headers；
+ * - google：通用字段之外必填 voice，可选 style。
+ * - openai：必填 speech_protocol。取 `openai`（audio/speech）时字段同 google；
  *   取 `xai` 时见 parseXAiTtsCapability。
  *
  * style 缺省使用 TTS_DEFAULT_STYLE；各协议都接受可选的 bot_language（见 optionalBotLanguage）
  * 与 daily_limit、daily_reserve_quota（见 parseTtsDailyQuota）。字段集之外的键一律拒绝；
  * anthropic 不受理。
+ * @param value 待校验的 `$.agent.tts` 字段值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 已通过校验的语音合成能力配置。
  */
 export function parseTtsCapability(
   value: unknown,
@@ -188,7 +211,6 @@ export function parseTtsCapability(
       provider: "google",
       apiKey: fields.apiKey,
       baseUrl: fields.baseUrl,
-      headers: fields.headers,
       model: fields.model,
       speechProtocol: undefined,
       voice,
@@ -203,7 +225,6 @@ export function parseTtsCapability(
     provider: "openai",
     apiKey: fields.apiKey,
     baseUrl: fields.baseUrl,
-    headers: undefined,
     model: fields.model,
     speechProtocol: "openai",
     voice,

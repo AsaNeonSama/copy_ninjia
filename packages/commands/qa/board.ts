@@ -1,5 +1,3 @@
-import type { AtmosphereTexts } from "../../types/atmosphere";
-import { chatAtmosphere } from "../../infra/atmosphere";
 /**
  * `/qa query` 看板：把本群已登记的问答铺成可复制的 JSON 代码块，并按条数分页。
  *
@@ -10,6 +8,9 @@ import { chatAtmosphere } from "../../infra/atmosphere";
  * 答案在看板上截断到 QA_QUERY_ANSWER_PREVIEW_MAX_CHARS，完整答案按问题原样查询。
  * 问题从不截断，它是 `/qa remove` 的入参。
  */
+
+import type { AtmosphereTexts } from "../../types/atmosphere";
+import { chatAtmosphere } from "../../infra/atmosphere";
 
 import { InlineKeyboard } from "grammy";
 import type { Context } from "grammy";
@@ -22,12 +23,21 @@ import { truncateWithEllipsis } from "../../libs/text";
 import type { QaEntry } from "../../types/qa";
 import type { RichTextMessage } from "../../types/telegram";
 
-/** 看板上的一条答案：超出展示上限时截断并补省略号，总长仍在上限之内。 */
+/**
+ * 看板上的一条答案：超出展示上限时截断并补省略号，总长仍在上限之内。
+ * @param answer 原始答案文本。
+ * @returns 截断后的答案预览文本。
+ */
 function answerPreview(answer: string): string {
   return truncateWithEllipsis(answer, QA_QUERY_ANSWER_PREVIEW_MAX_CHARS, QA_TRUNCATION_MARK);
 }
 
-/** 把一页条目渲染成「前缀 + json 代码块」；实体偏移按 UTF-16 code unit 计。 */
+/**
+ * 把一页条目渲染成「前缀 + json 代码块」；实体偏移按 UTF-16 code unit 计。
+ * @param entries 单页问答条目列表。
+ * @param atmosphere 语气词表。
+ * @returns 带代码块实体的富文本消息。
+ */
 function renderQaBoardPage(entries: readonly QaEntry[], atmosphere: AtmosphereTexts): RichTextMessage {
   const prefix: string = atmosphere.QA_COMMAND_TEXTS.queryPrefix;
   // 单条与多条都用数组，看板结构一致。
@@ -48,6 +58,9 @@ function renderQaBoardPage(entries: readonly QaEntry[], atmosphere: AtmosphereTe
  *
  * 每页条数与条目长短无关。单页不超出 Telegram 上限的依据见 QA_QUERY_PAGE_MAX_ENTRIES
  * 的 JSDoc。
+ * @param entries 问答条目列表。
+ * @param atmosphere 语气词表。
+ * @returns 分页渲染后的富文本页面数组。
  */
 export function buildQaBoardPages(entries: readonly QaEntry[], atmosphere: AtmosphereTexts): readonly RichTextMessage[] {
   const pages: RichTextMessage[] = [];
@@ -69,6 +82,10 @@ export function buildQaBoardPages(entries: readonly QaEntry[], atmosphere: Atmos
  *
  * 首页不给「上一页」，末页不给「下一页」；中间是页码指示按钮（QA_QUERY_PAGE_NOOP_DATA），
  * 点击不做任何事。
+ * @param page 当前页索引（0 起）。
+ * @param total 总页数。
+ * @param atmosphere 语气词表。
+ * @returns 多页时返回内联键盘，单页或无页时返回 undefined。
  */
 export function buildQaBoardKeyboard(page: number, total: number, atmosphere: AtmosphereTexts): InlineKeyboard | undefined {
   if (total <= 1) return undefined;
@@ -89,6 +106,7 @@ export function buildQaBoardKeyboard(page: number, total: number, atmosphere: At
  * 没有 callback，或 data 不是本领域前缀时同步返回 false，不分配 Promise。
  * 带本领域前缀的 callback 一律认领并应答；页号解析失败、页码指示按钮或条目已被删光时同样如此。
  *
+ * @param ctx 回调上下文。
  * @returns 是否由本领域认领。
  */
 export function handleQaBoardCallback(ctx: Context): boolean | Promise<boolean> {
@@ -99,7 +117,12 @@ export function handleQaBoardCallback(ctx: Context): boolean | Promise<boolean> 
   return answerClaimedQaBoardCallback(query, data);
 }
 
-/** 已认领的翻页：先应答 callback，再按页号改写同一条看板消息。 */
+/**
+ * 已认领的翻页：先应答 callback，再按页号改写同一条看板消息。
+ * @param query Telegram 回调查询对象。
+ * @param data 回调载荷字符串。
+ * @returns 恒返回 true 表示已认领。
+ */
 async function answerClaimedQaBoardCallback(query: CallbackQuery, data: string): Promise<boolean> {
   await answerCallbackQuery({ callbackQueryId: query.id });
   // 页码指示按钮：不发编辑请求。

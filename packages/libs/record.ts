@@ -3,12 +3,19 @@
  *
  * 本守卫只负责 JSON/SDK 输入的第一层结构收窄；字段集合与字段类型仍由各领域
  * codec 严格校验，不在通用层猜测或修复。
+ * @param value 待判定的未知值。
+ * @returns 为非 null 且非数组的对象时返回 true，否则返回 false。
  */
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** 要求对象键集合与调用方 schema 完全一致。 */
+/**
+ * 要求对象键集合与调用方 schema 完全一致。
+ * @param value 待校验键集合的对象。
+ * @param keys 期望具备的完整自有属性名列表。
+ * @returns 自有键数量与名称集合同 `keys` 完全一致时返回 true，否则返回 false。
+ */
 export function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const actualKeys: string[] = Object.keys(value);
   if (actualKeys.length !== keys.length) return false;
@@ -20,7 +27,12 @@ export function hasExactKeys(value: Record<string, unknown>, keys: readonly stri
   return true;
 }
 
-/** 要求对象不包含调用方 schema 之外的键，但允许可选键缺省。 */
+/**
+ * 要求对象不包含调用方 schema 之外的键，但允许可选键缺省。
+ * @param value 待校验键集合的对象。
+ * @param keys 允许出现的自有属性名白名单。
+ * @returns 所有自有键均属于 `keys` 时返回 true，出现未知键时返回 false。
+ */
 export function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const actualKeys: string[] = Object.keys(value);
   let index: number = 0;

@@ -106,7 +106,7 @@ const {
 } = await import("../../packages/config/agent");
 
 const initialAgentConfig = getAgentDeploymentConfig();
-adoptAdDetectAgentConfig({ provider: "google", apiKey: "fixture-key", baseUrl: undefined, headers: undefined, model: "gemini-test" });
+adoptAdDetectAgentConfig({ provider: "google", apiKey: "fixture-key", baseUrl: undefined, model: "gemini-test" });
 
 /** 一个被测 scope：真实 scope 对象，外加模型切换、换表与停机的测试操作。 */
 interface ScopeFixture {
@@ -154,7 +154,6 @@ const SCOPES: readonly ScopeFixture[] = [
         provider: "google",
         apiKey: "fixture-key",
         baseUrl: undefined,
-        headers: undefined,
         model,
       });
     },

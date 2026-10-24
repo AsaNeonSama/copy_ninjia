@@ -20,6 +20,8 @@ const QUERIED_USERS_PER_CHAT: number = 64;
  * 每条群消息的「发送者是否待验证」判定（antiRaid/updateIngress.ts 与 antiRaid/adCandidate.ts 调用的
  * isActiveVerificationUser）。主线程验证镜像里有 PENDING_CHAT_COUNT 个群、每群 PENDING_USERS_PER_CHAT 条
  * 待验证快照；查询轮流落在这些群与同样数量的无待验证群上，发送者在 QUERIED_USERS_PER_CHAT 人之间轮换。
+ *
+ * @returns 待验证成员主线程镜像查询场景定义
  */
 export function pendingVerificationLookupScenario(): Scenario {
   const queriedChatIds: number[] = [];

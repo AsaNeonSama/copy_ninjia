@@ -53,6 +53,10 @@ interface QueuedChatStateWrite {
   readonly revision: number;
 }
 
+/**
+ * 构造受管群数量超过 `STATE_MANAGED_CHAT_LIMIT` 时的容量超限错误。
+ * @returns 描述受管群容量上限的 Error 实例。
+ */
 function capacityError(): Error {
   return new Error(
     `${IDENTITY_DATABASE_PATH}:chat_states must contain at most ${STATE_MANAGED_CHAT_LIMIT} chats; ` +
@@ -60,7 +64,10 @@ function capacityError(): Error {
   );
 }
 
-/** 启动恢复把 SQLite 持久化值载入固定 shape 的热读副本。 */
+/**
+ * 启动恢复把 SQLite 持久化值载入固定 shape 的热读副本。
+ * @param states 从 SQLite 读取并解码的群状态映射。
+ */
 export function hydrateChatStateCache(states: ReadonlyMap<number, ChatState>): void {
   resetChatStateCache();
   for (const [chatId, decoded] of states) {
@@ -70,7 +77,10 @@ export function hydrateChatStateCache(states: ReadonlyMap<number, ChatState>): v
   }
 }
 
-/** 新建群状态前执行容量闸；超过 STATE_MANAGED_CHAT_LIMIT 直接拒绝，热读副本不淘汰权威记录。 */
+/**
+ * 新建群状态前执行容量闸；超过 STATE_MANAGED_CHAT_LIMIT 直接拒绝，热读副本不淘汰权威记录。
+ * @param chatId 待写入或创建的群 ID。
+ */
 export function assertChatStateCapacity(chatId: number): void {
   assertTelegramChatId(chatId, "chat state cache");
   if (!chatStateCache.has(chatId) && chatStateCache.size >= STATE_MANAGED_CHAT_LIMIT) {
@@ -78,6 +88,11 @@ export function assertChatStateCapacity(chatId: number): void {
   }
 }
 
+/**
+ * 从热读副本读取指定群的当前状态并编码为 SQLite 写入载荷。
+ * @param chatId 目标群 ID。
+ * @returns 编码后的 JSON 字符串与是否应删除该群记录的标记。
+ */
 function encodeCurrentChatState(chatId: number): EncodedChatStateWrite {
   const state: ChatState | undefined = chatStateCache.get(chatId);
   if (state === undefined) return { data: null, deleted: true };
@@ -86,7 +101,11 @@ function encodeCurrentChatState(chatId: number): EncodedChatStateWrite {
   return { data: encodeChatStateData(state, `chat state ${chatId}`), deleted: false };
 }
 
-/** 把一群当前最终值排进 SQLite；返回本次 revision 供 durability barrier 核对。 */
+/**
+ * 把一群当前最终值排进 SQLite；返回本次 revision 供 durability barrier 核对。
+ * @param chatId 目标群 ID。
+ * @returns 本次写入分配的单调递增 revision。
+ */
 export function queueChatStateWrite(chatId: number): number {
   assertTelegramChatId(chatId, "chat state write");
   if (!Number.isSafeInteger(chatStateWriteRevision.current + 1)) {
@@ -118,7 +137,11 @@ export function queueChatStateWrite(chatId: number): number {
   return revision;
 }
 
-/** 一群权威更新的 durable 屏障；目标 revision 收到精确事务 ACK 后才返回。 */
+/**
+ * 一群权威更新的 durable 屏障；目标 revision 收到精确事务 ACK 后才返回。
+ * @param chatId 目标群 ID。
+ * @param context 用于错误诊断的调用上下文说明。
+ */
 export async function persistChatState(chatId: number, context: string): Promise<void> {
   throwIfUpdateAborted();
   const revision: number = queueChatStateWrite(chatId);
@@ -138,7 +161,11 @@ export async function persistChatState(chatId: number, context: string): Promise
   }
 }
 
-/** 低优先级群状态变化：入事务缓冲后立即返回，失败由统一重放与 flush 负责。 */
+/**
+ * 低优先级群状态变化：入事务缓冲后立即返回，失败由统一重放与 flush 负责。
+ * @param chatId 目标群 ID。
+ * @param context 用于错误日志的调用上下文说明。
+ */
 export function saveChatStateInBackground(chatId: number, context: string): void {
   throwIfUpdateAborted();
   try {
@@ -148,6 +175,10 @@ export function saveChatStateInBackground(chatId: number, context: string): void
   }
 }
 
+/**
+ * 根据 Disk I/O Worker 的持久化回执消掉对应 revision 的未确认群状态写入记账。
+ * @param reply Disk I/O Worker 返回的身份存储持久化回执。
+ */
 function settleChatStateWrites(reply: IdentityStoragePersistedReply): void {
   for (const persisted of reply.chatStateWrites) {
     const pending: UnacknowledgedChatStateWrite | undefined =
@@ -158,6 +189,11 @@ function settleChatStateWrites(reply: IdentityStoragePersistedReply): void {
   }
 }
 
+/**
+ * Disk I/O Worker 重生后按 revision 升序重放所有未确认的群状态写入。
+ * @param transport 新一代 Disk I/O Worker 的恢复期投递通道。
+ * @returns 全部未确认写入均成功投递时返回 true，中途投递失败时返回 false。
+ */
 function replayChatStateWrites(transport: DiskIORecoveryTransport): boolean {
   const writes: QueuedChatStateWrite[] = [];
   for (const [chatId, pending] of unacknowledgedChatStateWrites) {

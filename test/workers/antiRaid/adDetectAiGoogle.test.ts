@@ -166,6 +166,7 @@ describe("Google 广告检测请求入口", () => {
     await expect(requestGoogleAdDetectJson(params)).resolves.toContain("闲聊");
     expect(constructions[0]).toEqual({
       apiKey: "google-ad-key",
+      enterprise: false,
       httpOptions: {
         baseUrl: "https://google.example",
         timeout: AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,

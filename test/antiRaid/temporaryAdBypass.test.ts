@@ -15,6 +15,7 @@ const promotions: {
 let readinessOk: boolean = true;
 let grantOnRecord: boolean = false;
 let promoteOnRecord: boolean = false;
+let throwOnPromote: boolean = false;
 /** 永久晋升写入与临时累计删除各自是否被持久化 Worker 收下；false 模拟入队被拒。 */
 const persistence: { promotionQueued: boolean; temporaryCleared: boolean } = {
   promotionQueued: true,
@@ -50,6 +51,9 @@ mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
     id: number,
     meta: { readonly firstName: string; readonly lastName: string; readonly username: string }
   ): { readonly changed: boolean; readonly queued: boolean } => {
+    if (throwOnPromote) {
+      throw new Error("promotion failed");
+    }
     promotions.push({ id, meta });
     permanentIds.add(id);
     return { changed: true, queued: persistence.promotionQueued };
@@ -101,6 +105,7 @@ beforeEach((): void => {
   readinessOk = true;
   grantOnRecord = false;
   promoteOnRecord = false;
+  throwOnPromote = false;
   persistence.promotionQueued = true;
   persistence.temporaryCleared = true;
   loggerError.mockClear();
@@ -155,6 +160,25 @@ describe("临时广告免检发言入口", () => {
     expect(temporaryIds.has(promotedId)).toBeFalse();
     expect(loggerError).toHaveBeenCalledTimes(1);
     expect(loggerError.mock.calls[0]).toEqual([expect.stringContaining(String(promotedId))]);
+  });
+
+  test("达标发言晋升抛错时，同日后续发言仍重试晋升", () => {
+    grantOnRecord = true;
+    promoteOnRecord = true;
+    throwOnPromote = true;
+
+    expect(() => record(message(), 7_000)).toThrow("promotion failed");
+    expect(permanentIds.has(7)).toBeFalse();
+    expect(temporaryIds.has(7)).toBeTrue();
+
+    throwOnPromote = false;
+    expect(record(message(), 8_000)).toBeTrue();
+    expect(promotions).toEqual([{
+      id: 7,
+      meta: { firstName: "Alice", lastName: "", username: "" },
+    }]);
+    expect(permanentIds.has(7)).toBeTrue();
+    expect(temporaryIds.has(7)).toBeFalse();
   });
 
   test("刚进入临时广告免检时只推一次 Worker 旧状态清理", () => {

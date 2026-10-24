@@ -33,6 +33,8 @@ export interface TrimSlidingWindowArrayParams {
  *
  * 入群验证窗口挂在随记录一起快照并落盘的 `trackedMessageTimes` 上，保持数组形状；
  * 同时裁掉过期队首和时钟回拨后落在未来的队尾。
+ * @param params 原时间戳数组、滑动窗口时长与当前时间戳。
+ * @returns 仅保留当前滑动窗口内合法时间戳的新数组。
  */
 export function trimSlidingWindowArray({
   timestamps,
@@ -58,6 +60,8 @@ export function trimSlidingWindowArray({
  * 需要一份新数组的冷路径（恢复与接管）使用 `trimSlidingWindowArray`。
  *
  * @param timestamps 就地修剪的时间戳数组；长度可能变短，元素相对顺序不变。
+ * @param windowMs 滑动窗口时长（ms）。
+ * @param now 当前毫秒时间戳。
  */
 export function trimSlidingWindowArrayInPlace(
   timestamps: number[],
@@ -94,6 +98,8 @@ export interface TryConsumeSlidingWindowParams {
  *
  * 只在 `size < maxCalls` 时 push，队列长度恒不超过 maxCalls，调用方按
  * 这个数构造 `TimestampDeque`。
+ * @param params 时间戳双端队列、滑动窗口时长、窗口最大次数与当前时刻。
+ * @returns 配额充足并记入本次调用时返回 true，已达配额上限被拒绝时返回 false。
  */
 export function tryConsumeSlidingWindow({
   timestamps,

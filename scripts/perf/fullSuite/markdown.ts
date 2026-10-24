@@ -21,6 +21,11 @@ import type {
 
 const BYTE_UNITS: readonly string[] = ["B", "KiB", "MiB", "GiB"];
 
+/**
+ * 为数字字符串的整数部分添加千分位逗号。
+ * @param text 十进制数字字符串。
+ * @returns 带千分位分隔符的数字字符串。
+ */
 function group(text: string): string {
   const [whole, fraction]: string[] = text.split(".");
   const grouped: string = (whole ?? "0").replace(
@@ -30,10 +35,20 @@ function group(text: string): string {
   return fraction === undefined ? grouped : `${grouped}.${fraction}`;
 }
 
+/**
+ * 将计数值四舍五入为整数并格式化为千分位字符串。
+ * @param value 待格式化的计数值。
+ * @returns 四舍五入并带千分位分隔符的整数字符串。
+ */
 function formatCount(value: number): string {
   return group(Math.round(value).toString());
 }
 
+/**
+ * 将字节数按 1024 进制自适应格式化为带二进制单位的字符串。
+ * @param value 字节数（允许正负值）。
+ * @returns 附带 `B`/`KiB`/`MiB`/`GiB` 单位的格式化字符串。
+ */
 function formatBytes(value: number): string {
   const sign: string = value < 0 ? "-" : "";
   let magnitude: number = Math.abs(value);
@@ -46,7 +61,11 @@ function formatBytes(value: number): string {
   return `${sign}${group(magnitude.toFixed(digits))} ${BYTE_UNITS[unit]}`;
 }
 
-/** 耗时按量级选 ns、µs 或 ms 单位。 */
+/**
+ * 耗时按量级选 ns、µs 或 ms 单位。
+ * @param value 纳秒为单位的耗时数值。
+ * @returns 带自适应时间单位的格式化字符串。
+ */
 function formatNanoseconds(value: number): string {
   if (value < 1_000) return `${value.toFixed(1)} ns`;
   if (value < 1_000_000) {
@@ -59,10 +78,21 @@ function formatNanoseconds(value: number): string {
   return `${group(milliseconds.toFixed(1))} ms`;
 }
 
+/**
+ * 将毫秒值换算为纳秒后按自适应时间单位格式化。
+ * @param value 毫秒为单位的耗时数值。
+ * @returns 带自适应时间单位的格式化字符串。
+ */
 function formatMilliseconds(value: number): string {
   return formatNanoseconds(value * 1_000_000);
 }
 
+/**
+ * 按指标的量纲单位将平均值格式化为表格单元格文本。
+ * @param metric 待格式化的聚合指标对象。
+ * @param entryCopy 当前语言的条目与单位文案表。
+ * @returns 格式化后的指标读数字符串。
+ */
 function formatMetric(
   metric: MetricStats,
   entryCopy: BenchmarkEntryCopy
@@ -85,19 +115,39 @@ function formatMetric(
   }
 }
 
+/**
+ * 将指标的变异系数格式化为 `±x.x%` 文本。
+ * @param metric 待格式化的聚合指标对象。
+ * @returns 变异系数百分比字符串。
+ */
 function formatVariation(metric: MetricStats): string {
   return `±${metric.coefficientOfVariationPercent.toFixed(1)}%`;
 }
 
+/**
+ * 将单元格列表拼接为一行 Markdown 表格行。
+ * @param cells 单行各列的内容列表。
+ * @returns Markdown 表格行文本。
+ */
 function tableRow(cells: readonly string[]): string {
   return `| ${cells.join(" | ")} |`;
 }
 
+/**
+ * 生成指定列数的 Markdown 表格分隔行。
+ * @param columns 表格总列数。
+ * @returns Markdown 表格分隔行文本。
+ */
 function tableSeparator(columns: number): string {
   return `|${" --- |".repeat(columns)}`;
 }
 
-/** 表头只写指标名，单位跟着每个单元格走。 */
+/**
+ * 表头只写指标名，单位跟着每个单元格走。
+ * @param metric 指标统计对象。
+ * @param copy 当前语言的区块文案表。
+ * @returns 本地化后的表头列名。
+ */
 function metricHeader(metric: MetricStats, copy: BenchmarkCopy): string {
   return copy.metricLabels[metric.metric] ?? metric.metric;
 }
@@ -106,6 +156,10 @@ function metricHeader(metric: MetricStats, copy: BenchmarkCopy): string {
  * 一个分区渲染成一张表。
  *
  * 列由第一行的指标表决定，其余行按名字对齐；对不上即抛错。
+ * @param section 待渲染的基准分区数据。
+ * @param copy 当前语言的区块文案表。
+ * @param entryCopy 当前语言的条目与单位文案表。
+ * @returns 该分区的 Markdown 行列表。
  */
 function renderSection(
   section: BenchmarkSection,
@@ -151,6 +205,12 @@ function renderSection(
   return lines;
 }
 
+/**
+ * 渲染每轮总吞吐与总 I/O 汇总表。
+ * @param totals 全量基准的单轮汇总统计。
+ * @param copy 当前语言的区块文案表。
+ * @returns 汇总表的 Markdown 行列表。
+ */
 function renderTotals(
   totals: SuiteTotals,
   copy: BenchmarkCopy
@@ -179,6 +239,12 @@ function renderTotals(
   return lines;
 }
 
+/**
+ * 渲染运行环境与硬件摘要表。
+ * @param report 全量性能基准报告。
+ * @param copy 当前语言的区块文案表。
+ * @returns 运行环境表的 Markdown 行列表。
+ */
 function renderEnvironment(
   report: FullSuiteReport,
   copy: BenchmarkCopy
@@ -211,11 +277,20 @@ function renderEnvironment(
 
 /** 摘要行要取的那一格读数。 */
 interface MetricLocator {
+  /** 目标分区 ID。 */
   readonly sectionId: BenchmarkSection["id"];
+  /** 分区内目标条目 ID。 */
   readonly entryId: string;
+  /** 条目内目标指标名。 */
   readonly metricName: string;
 }
 
+/**
+ * 按分区、条目与指标名从报告中精确查找一格聚合读数。
+ * @param report 全量性能基准报告。
+ * @param options 目标分区 ID、条目 ID 与指标名。
+ * @returns 匹配到的指标统计对象。
+ */
 function findMetric(
   report: FullSuiteReport,
   { sectionId, entryId, metricName }: MetricLocator
@@ -238,6 +313,13 @@ function findMetric(
   return metric;
 }
 
+/**
+ * 渲染基准区块顶部的单行关键指标摘要。
+ * @param report 全量性能基准报告。
+ * @param copy 当前语言的区块文案表。
+ * @param entryCopy 当前语言的条目与单位文案表。
+ * @returns 单行 Markdown 摘要文本。
+ */
 function renderSummaryLine(
   report: FullSuiteReport,
   copy: BenchmarkCopy,
@@ -285,6 +367,12 @@ function renderSummaryLine(
     `${formatMetric(adLatency, entryCopy)} / ${formatMetric(adThroughput, entryCopy)}`;
 }
 
+/**
+ * 渲染冷启动分区下方的恢复规模与峰值 RSS 引用行。
+ * @param report 全量性能基准报告。
+ * @param copy 当前语言的区块文案表。
+ * @returns 替换占位符后的冷启动注记行。
+ */
 function renderColdStartCaption(
   report: FullSuiteReport,
   copy: BenchmarkCopy
@@ -303,6 +391,9 @@ function renderColdStartCaption(
  *
  * 区块嵌进 `docs/<lang>/10-performance.md`：页标题、语言切换和上下页导航是那一页
  * 手写的部分，生成块只含标记之间的读数，重跑基准时按标记整块替换。
+ * @param report 全量性能基准报告。
+ * @param language 目标文档语言。
+ * @returns 含起止注释标记的完整 Markdown 区块。
  */
 export function renderBenchmarkBlock(
   report: FullSuiteReport,

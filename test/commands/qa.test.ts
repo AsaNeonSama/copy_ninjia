@@ -449,6 +449,12 @@ describe("表单填齐后的结算", () => {
     // 还差一项，会话必须留着。
     expect(qaFormSessions.get(CHAT_ID)).toBeDefined();
     expect(chatQaEntries.has(CHAT_ID)).toBeFalse();
+
+    await handleQaCommand(context(OWNER, "set"));
+    sendCommandMessage.mockClear();
+    expect(await handleQaMessageIngress(delivered("回答:\n点置顶"))).toBeTrue();
+    expect(lastText()).toBe(QA_COMMAND_TEXTS.answerSaved);
+    expect(qaFormSessions.get(CHAT_ID)?.a).toBe("点置顶");
   });
 
   test("收下一项后表单就地改写成当前状态，而不是永远显示两项皆空", async () => {

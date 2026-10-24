@@ -8,7 +8,12 @@ import { claimRandomMediaTrigger, mediaTriggerHandled } from "./triggerPolicy";
 import type { AiSpeakerSnapshot } from "../../types/aiChat/speaker";
 import type { TelegramVisionSource } from "../../types/media";
 
-/** 记录贴纸元数据/视觉描述并调度直接回复或随机评价。 */
+/**
+ * 记录贴纸元数据/视觉描述并调度直接回复或随机评价。
+ *
+ * @param context 消息触发上下文
+ * @returns 该贴纸消息是否已被接管处理
+ */
 export function handleStickerMessage(context: MessageTriggerContext): boolean {
   const { message }: MessageTriggerContext = context;
   if (!message.sticker) return false;

@@ -24,7 +24,12 @@ import type { VerificationDeferredEvent } from
   "../types/antiRaid/events";
 import { isTerminalVerificationPhase } from "../states/verification/shared";
 
-/** 主线程原子批准一轮终态执行；批准发生即计数，Worker 崩溃也不退还。 */
+/**
+ * 主线程原子批准一轮终态执行；批准发生即计数，Worker 崩溃也不退还。
+ *
+ * @param request Worker 发起的终态验证尝试许可请求
+ * @returns 终态验证尝试许可裁决结果（`granted`、`exhausted` 或 `stale`）及当前累计次数
+ */
 export function grantVerificationAttempt(
   request: VerificationAttemptPermitRequest
 ): VerificationAttemptPermitResult {
@@ -58,6 +63,9 @@ export function grantVerificationAttempt(
 
 /**
  * 接收 Worker 的精确延后事件：预算耗尽或许可无法确认时移出活动镜像，不写 tombstone。
+ *
+ * @param event Worker 上报的验证终态延后事件
+ * @returns 事件代际与修订号匹配当前活动终态镜像并已接纳时返回 true，否则返回 false
  */
 export function acceptVerificationDeferred(
   event: VerificationDeferredEvent
@@ -92,6 +100,12 @@ export function acceptVerificationDeferred(
   return true;
 }
 
+/**
+ * 在终态快照已确证落盘后移除活动镜像并登记延后记录。
+ *
+ * @param key `chatId:userId` 复合验证键
+ * @param record 延后验证记录
+ */
 function finalizeVerificationDeferral(
   key: string,
   record: DeferredVerificationRecord
@@ -103,7 +117,14 @@ function finalizeVerificationDeferral(
   deferredVerificationRecords.set(key, { ...record });
 }
 
-/** 最新 revision 落盘后才丢弃完整活动镜像（DiskIO 重建以活动镜像为重放源）。 */
+/**
+ * 最新 revision 落盘后才丢弃完整活动镜像（DiskIO 重建以活动镜像为重放源）。
+ *
+ * @param key `chatId:userId` 复合验证键
+ * @param generation 已落盘的 Worker 代际编号
+ * @param revision 已落盘的验证快照修订号
+ * @returns 命中待结算延后记录并完成收尾时返回 true，否则返回 false
+ */
 export function settlePersistedVerificationDeferral(
   key: string,
   generation: number,
@@ -125,7 +146,11 @@ export function settlePersistedVerificationDeferral(
   return true;
 }
 
-/** Anti-Raid Worker 重建时把延后闩锁提升到新代际，供新 isolate 精确接管。 */
+/**
+ * Anti-Raid Worker 重建时把延后闩锁提升到新代际，供新 isolate 精确接管。
+ *
+ * @param generation 新启动的 Anti-Raid Worker 代际编号
+ */
 export function advanceDeferredVerificationGeneration(generation: number): void {
   for (const [key, record] of deferredVerificationRecords) {
     deferredVerificationRecords.set(key, { ...record, generation });
@@ -137,6 +162,9 @@ export function advanceDeferredVerificationGeneration(generation: number): void 
 
 /**
  * 显式关闭守卫或群 teardown 时删除延后记录，并落 tombstone（取消是权威意图）。
+ *
+ * @param chatId 群聊 ID
+ * @returns 本次清理并投递删除 tombstone 的延后记录条数
  */
 export function deleteDeferredVerificationsForChat(chatId: number): number {
   const prefix: string = verificationKeyPrefix(chatId);

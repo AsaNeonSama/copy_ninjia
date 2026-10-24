@@ -3,7 +3,11 @@ import type { Stats } from "node:fs";
 import { dirname } from "node:path";
 import { invalidInput } from "./inputValidation";
 
-/** 不跟随链接地检查路径；只有真正 ENOENT 返回 undefined，其它系统错误统一为输入错误。 */
+/**
+ * 不跟随链接地检查路径；只有真正 ENOENT 返回 undefined，其它系统错误统一为输入错误。
+ * @param path 待检查的文件系统路径。
+ * @returns 路径的 lstat 元数据；路径不存在时返回 undefined。
+ */
 function optionalEntry(path: string): Stats | undefined {
   try {
     return lstatSync(path, { throwIfNoEntry: false });
@@ -16,6 +20,8 @@ function optionalEntry(path: string): Stats | undefined {
  * 只读检查可选领域目录；缺省返回 false，存在时要求可读写、可进入的目录。
  * 允许指向有效目录的链接；缺省分支继续核对父目录，祖先不可访问时按输入错误拒绝。
  * 同步实现，供追加游标接管复用，用 `node:fs` 的 lstat 检查，不跟随链接。
+ * @param path 待检查的目录路径。
+ * @returns 目录存在且满足可读写可进入要求时返回 true；目录缺省且祖先合法时返回 false。
  */
 export function inspectOptionalDirectory(path: string): boolean {
   const entry: Stats | undefined = optionalEntry(path);
@@ -38,6 +44,8 @@ export function inspectOptionalDirectory(path: string): boolean {
 /**
  * 列出可选领域目录的条目名：缺省返回空数组；存在时先经 inspectOptionalDirectory 校验，
  * 读取失败按输入错误拒绝。
+ * @param path 待列举的可选目录路径。
+ * @returns 目录下的文件名数组；目录缺省时返回空数组。
  */
 export function listOptionalDirectory(path: string): string[] {
   if (!inspectOptionalDirectory(path)) return [];
@@ -51,6 +59,8 @@ export function listOptionalDirectory(path: string): string[] {
 /**
  * 可选持久化文件只在所属目录有效且叶子真正缺省时返回 false；
  * 现有文件必须为可读写普通文件，不允许文件链接，不创建或修复路径。
+ * @param path 待检查的可选文件路径。
+ * @returns 文件存在且为可读写普通文件时返回 true；文件或父目录缺省时返回 false。
  */
 export function inspectOptionalFile(path: string): boolean {
   if (!inspectOptionalDirectory(dirname(path))) return false;
@@ -59,7 +69,10 @@ export function inspectOptionalFile(path: string): boolean {
   return true;
 }
 
-/** 只读启动检查：已有持久化文件必须允许运行账号读取和写入，不自动 chmod。 */
+/**
+ * 只读启动检查：已有持久化文件必须允许运行账号读取和写入，不自动 chmod。
+ * @param path 待校验的现有文件路径。
+ */
 export function assertFileReadableWritable(path: string): void {
   try {
     accessSync(path, constants.R_OK | constants.W_OK);
@@ -75,7 +88,10 @@ export function assertFileReadableWritable(path: string): void {
   }
 }
 
-/** SQLite 写连接还要求父目录可进入并可写，以维护 WAL/SHM sidecar。 */
+/**
+ * SQLite 写连接还要求父目录可进入并可写，以维护 WAL/SHM sidecar。
+ * @param path 待校验的现有目录路径。
+ */
 export function assertDirectoryReadableWritable(path: string): void {
   try {
     accessSync(path, constants.R_OK | constants.W_OK | constants.X_OK);
@@ -92,6 +108,8 @@ export function assertDirectoryReadableWritable(path: string): void {
  * 尽力删除一个已确认无用的文件（`Bun.file(path).delete()`）。删除成功返回 true；
  * 任何失败（不存在、权限、路径是目录等）都静默返回 false，不记日志也不抛出，
  * 现场留给调用方的下一轮清理重试。
+ * @param path 待尽力删除的文件路径。
+ * @returns 删除成功返回 true，任何原因失败时返回 false。
  */
 export async function bestEffortUnlink(path: string): Promise<boolean> {
   try {

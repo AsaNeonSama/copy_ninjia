@@ -21,6 +21,7 @@ import { formatActorLabel, formatTargetLabel } from "../users/userLabel";
 import { rejectUnlessPermitted } from "./commandActor";
 import { resolveCommandTarget } from "./targetResolution";
 
+/** 白名单成员变更临界区内的同步判定与写入结果。 */
 type WhiteMutationOutcome =
   | { readonly kind: "blocked" }
   | { readonly kind: "unauthorized" }
@@ -40,6 +41,7 @@ type WhiteMutationOutcome =
  *
  * 目标是当前群自己的 identity（匿名管理员皮套）时拒绝，见 resolveCommandTarget
  * 的 currentChatTargetText。
+ * @param ctx grammY 命令上下文。
  */
 export async function handleWhiteCommand(
   ctx: CommandContext<Context>
@@ -85,7 +87,7 @@ export async function handleWhiteCommand(
   if (target === undefined) return;
 
   const enabled: boolean = action === "enable";
-  // 超级管理员恒在白名单边界内、且恒持有全部权限（见 whitelist.ts），
+  // 超级管理员恒在白名单边界内、且恒持有全部权限（见 infra/identityPolicy/whitelist.ts），
   // 对其 enable 直接拒绝；disable 放行，只清掉表里的残留条目，不影响其权限，
   // 回执见下面的 superAdminDisable*。
   const isSuperAdminTarget: boolean = target.id === SUPER_ADMIN_USER_ID;
@@ -141,7 +143,7 @@ export async function handleWhiteCommand(
   const targetLabel: string = formatTargetLabel(target, chatAtmosphere());
   // 超级管理员只可能走到 disable 这一支（enable 上面已经拒绝）。删掉的只是表里的
   // 残留条目：isWhitelisted 与 getEffectiveWhitelistPermissions 对
-  // SUPER_ADMIN_USER_ID 无条件成立（见 whitelist.ts），这一支使用自己的回执。
+  // SUPER_ADMIN_USER_ID 无条件成立（见 infra/identityPolicy/whitelist.ts），这一支使用自己的回执。
   const replyText: string = isSuperAdminTarget
     ? result.changed
       ? chatAtmosphere().WHITE_COMMAND_TEXTS.superAdminDisableCleared

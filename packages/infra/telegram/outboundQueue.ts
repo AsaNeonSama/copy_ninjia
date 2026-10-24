@@ -6,7 +6,11 @@ import type {
   TelegramRetryLane,
 } from "../../types/telegramOutbound";
 
-/** 取一个退避类别的唯一队列 owner。 */
+/**
+ * 取一个退避类别的唯一队列 owner。
+ * @param category 退避类别。
+ * @returns 该类别对应的退避队列车道。
+ */
 export function laneFor(category: TelegramRetryCategory): TelegramRetryLane {
   return telegramOutboundGateState.lanes[category];
 }
@@ -17,6 +21,8 @@ export function laneFor(category: TelegramRetryCategory): TelegramRetryLane {
  * 队列始终按 admissionSeq 升序。新接纳的任务序号最大，直接接到尾部；在途任务
  * 收到限流响应重排时插回第一个比它晚接纳的等待任务之前（队首取出的探测任务回到
  * 队首）。从队首向后扫描：排在它之前的只可能是与它同时在途、先一步重排的任务。
+ * @param job 待入队的出站任务。
+ * @returns 成功入队返回 true，全局退避队列已满返回 false。
  */
 export function enqueueRetryJob(job: TelegramOutboundJob): boolean {
   if (
@@ -44,7 +50,11 @@ export function enqueueRetryJob(job: TelegramOutboundJob): boolean {
   return true;
 }
 
-/** 从侵入式 FIFO 中按双向指针摘掉指定等待任务。 */
+/**
+ * 从侵入式 FIFO 中按双向指针摘掉指定等待任务。
+ * @param job 待摘除的出站任务。
+ * @returns 任务原本在退避队列中并成功摘除时返回 true，否则返回 false。
+ */
 export function removeRetryJob(job: TelegramOutboundJob): boolean {
   if (job.state !== "retryQueued") return false;
   const lane: TelegramRetryLane = laneFor(job.category);
@@ -62,7 +72,11 @@ export function removeRetryJob(job: TelegramOutboundJob): boolean {
   return true;
 }
 
-/** 取出一个类别的 FIFO 队首并切换成 active。 */
+/**
+ * 取出一个类别的 FIFO 队首并切换成 active。
+ * @param lane 目标退避车道。
+ * @returns 取出的队首任务；队列为空时返回 null。
+ */
 export function takeRetryHead(
   lane: TelegramRetryLane
 ): TelegramOutboundJob | null {

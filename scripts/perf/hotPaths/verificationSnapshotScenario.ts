@@ -7,7 +7,12 @@ import type { VerificationSnapshot } from "../../../packages/types/antiRaid/veri
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS, BENCHMARK_SENDER_ID } from "./fixtures";
 import type { Scenario } from "./types";
 
-/** 待验证消息窗口从空到容量边界的快照投影；可连同 structuredClone 成本一起测量。 */
+/**
+ * 待验证消息窗口从空到容量边界的快照投影；可连同 structuredClone 成本一起测量。
+ *
+ * @param clone 是否对生成的快照执行 `structuredClone`
+ * @returns 待验证快照投影场景定义
+ */
 export function verificationSnapshotScenario(clone: boolean): Scenario {
   const requests: readonly Parameters<typeof verificationSnapshot>[0][] = Array.from(
     { length: JOIN_WINDOW_CAPACITY },

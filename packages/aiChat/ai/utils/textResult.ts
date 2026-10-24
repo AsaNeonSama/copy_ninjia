@@ -15,7 +15,11 @@ export type AiRequestFailureKind =
 
 /**
  * 将单次请求失败映射为 AiTextResult：
- * response 允许重采样；refused 标记拒答且不重采样；媒体能力下将 unsupported、misconfigured 与瞬时端点故障映射为对应的 mediaFailure。
+ * `response` 允许重采样；`refused` 标记拒答且不重采样；非媒体能力或 `rejected`（客户端参数错误）直接返回无 `mediaFailure` 的不可重试失败；
+ * 媒体能力下将 `unsupported`、`misconfigured` 与 `request`（瞬时端点故障）映射为对应的 `mediaFailure`。
+ * @param failureKind 供应商请求失败归因档位。
+ * @param capability 发起请求的模型能力分类。
+ * @returns 带有重试与媒体故障标记的 AI 文本失败结果。
  */
 export function classifyAiTextFailure(
   failureKind: AiRequestFailureKind,
@@ -31,6 +35,8 @@ export function classifyAiTextFailure(
 
 /**
  * 将清洗后的文本收敛为 AiTextResult：非空为成功，空串视为可重采样失败。
+ * @param normalizedText 经过规范化清洗后的输出文本。
+ * @returns 非空时返回成功结果，空字符串时返回可重采样失败结果。
  */
 export function finalizeAiTextResult(normalizedText: string): AiTextResult {
   return normalizedText.length > 0

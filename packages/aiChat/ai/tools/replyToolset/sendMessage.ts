@@ -20,13 +20,23 @@ import {
 } from "./typoHandling";
 import type { TypoDecision } from "../../../../types/aiChat/typo";
 
-/** 解析并清洗 send_message 的 text 入参；清洗后为空返回 null。 */
+/**
+ * 解析并清洗 send_message 的 text 入参；清洗后为空返回 null。
+ * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * @returns 清洗后的非空消息文本；缺失或清洗后为空时返回 null。
+ */
 function parseCleanMessageText(argumentsJson: string): string | null {
   const raw: string | null = parseStringField(argumentsJson, "text");
   return raw === null ? null : cleanReply(raw);
 }
 
-/** 校验并预占正文与错字额度，返回接纳回执与执行函数；执行函数先发送正文，再按需补发正确单字。 */
+/**
+ * 校验并预占正文与错字额度，返回接纳回执与执行函数；执行函数先发送正文，再按需补发正确单字。
+ * @param ctx 当前回复轮次的工具共享上下文。
+ * @param state 本轮消息去重与错字状态。
+ * @param getActionsUsed 读取本轮已占用动作额度的回调。
+ * @returns 接收参数 JSON 并返回发消息工具执行计划的执行器函数。
+ */
 export function createSendMessageExecutor(
   ctx: ReplyToolContext,
   state: RoundMessageState,

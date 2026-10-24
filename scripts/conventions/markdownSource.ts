@@ -5,6 +5,9 @@
  *
  * 代码块里的示例 `](./foo)`、示例文件名与示例仓库路径不参与核对。代码块内容
  * 用等长空格替换，调用方按 `match.index` 反算出的行号与原文对齐。
+ *
+ * @param source Markdown 原始全文
+ * @returns 替换代码块内容为空格后的等长文本
  */
 export function withoutMarkdownCodeFences(source: string): string {
   return source.replace(

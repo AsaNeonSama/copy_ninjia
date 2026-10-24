@@ -12,7 +12,9 @@ import type { AiToolDefinition } from "../../../types/aiChat/provider";
 import { getStickerConfig } from "../../../config/stickers";
 import { sendSticker } from "../../../infra/telegram";
 import { logger } from "../../../infra/logger";
-import { describeStickerForContext, getCatalogEntry, getStickerSet } from "../stickers";
+import { getCatalogEntry } from "../stickers/catalog";
+import { getStickerSet } from "../stickers/sets";
+import { describeStickerForContext } from "../stickers/describe";
 import { parseIndexField, parseToolArguments } from "../utils/toolArgs";
 import { raceAbort } from "../../../libs/abortSignal";
 import { sanitizeInline } from "../../../libs/text";
@@ -44,6 +46,10 @@ import type { StickerCandidate, StickerPackCandidate, StickerRoundState } from "
  * 工具声明与执行器共享同一轮 buildStickerPackMenu() 产出的菜单。
  */
 
+/**
+ * 创建单轮回复的贴纸工具状态（跟踪已查看包意图与已接纳贴纸唯一 ID）。
+ * @returns 初始化为空的贴纸轮次状态。
+ */
 export function createStickerRoundState(): StickerRoundState {
   return { viewedPackIntents: new Map(), acceptedStickerUids: new Set() };
 }
@@ -51,6 +57,8 @@ export function createStickerRoundState(): StickerRoundState {
 /**
  * 组装当前可选的贴纸包菜单：收录白名单包中已有画面描述的贴纸与整包简介（未生成简介时使用占位文案）；
  * 拉取失败或无可用贴纸的包跳过。
+ * @param signal 调用方可选取消信号。
+ * @returns 可选贴纸包候选列表；已取消或无可用包时返回空数组。
  */
 export function buildStickerPackMenu(
   signal?: AbortSignal
@@ -71,7 +79,12 @@ export function buildStickerPackMenu(
   return waitForStickerMenu(promise, signal);
 }
 
-/** 重建贴纸包菜单，构建期间目录版本未变时写回缓存。 */
+/**
+ * 重建贴纸包菜单，构建期间目录版本未变时写回缓存。
+ * @param revision 构建启动时的贴纸目录版本号。
+ * @param signal AI Worker 生命周期取消信号。
+ * @returns 构建完成的贴纸包候选列表。
+ */
 async function rebuildStickerPackMenu(
   revision: number,
   signal: AbortSignal
@@ -87,6 +100,11 @@ async function rebuildStickerPackMenu(
   }
 }
 
+/**
+ * 并行拉取白名单贴纸集合并过滤出已有常驻目录描述的候选包列表。
+ * @param signal 取消信号。
+ * @returns 包含可用贴纸的贴纸包候选列表。
+ */
 async function collectStickerPackMenu(signal: AbortSignal): Promise<StickerPackCandidate[]> {
   const packs: readonly string[] = getStickerConfig().packs;
   const results: PromiseSettledResult<StickerSet | null>[] = await Promise.allSettled(
@@ -114,7 +132,12 @@ async function collectStickerPackMenu(signal: AbortSignal): Promise<StickerPackC
   return menu;
 }
 
-/** 等待共享菜单构建完成；当前回复取消时只中止自身等待。 */
+/**
+ * 等待共享菜单构建完成；当前回复取消时只中止自身等待。
+ * @param request 共享的贴纸包菜单构建 Promise。
+ * @param signal 调用方可选取消信号。
+ * @returns 贴纸包候选列表；取消或失败时返回空菜单。
+ */
 function waitForStickerMenu(
   request: Promise<readonly StickerPackCandidate[]>,
   signal?: AbortSignal
@@ -126,12 +149,20 @@ function waitForStickerMenu(
   });
 }
 
-/** 格式化包内贴纸的编号清单文本。 */
+/**
+ * 格式化包内贴纸的编号清单文本。
+ * @param candidate 单个贴纸包候选项。
+ * @returns 按 1 起始编号排列的多行贴纸描述清单。
+ */
 function formatPackStickerList(candidate: StickerPackCandidate): string {
   return candidate.stickers.map((c: StickerCandidate, i: number): string => `${i + 1}. ${c.emoji || "（无 emoji）"} ${c.description}`).join("\n");
 }
 
-/** 构造 view_sticker_pack 工具定义；菜单为空时返回 null。 */
+/**
+ * 构造 view_sticker_pack 工具定义；菜单为空时返回 null。
+ * @param menu 当前轮次可用的贴纸包菜单。
+ * @returns 工具定义对象；菜单为空时返回 null。
+ */
 export function buildViewStickerPackToolDefinition(menu: readonly StickerPackCandidate[]): AiToolDefinition | null {
   if (menu.length === 0) return null;
 
@@ -154,7 +185,11 @@ export function buildViewStickerPackToolDefinition(menu: readonly StickerPackCan
   };
 }
 
-/** 构造 send_sticker 工具定义；菜单为空时返回 null。 */
+/**
+ * 构造 send_sticker 工具定义；菜单为空时返回 null。
+ * @param menu 当前轮次可用的贴纸包菜单。
+ * @returns 工具定义对象；菜单为空时返回 null。
+ */
 export function buildSendStickerToolDefinition(menu: readonly StickerPackCandidate[]): AiToolDefinition | null {
   if (menu.length === 0) return null;
 
@@ -172,7 +207,11 @@ export function buildSendStickerToolDefinition(menu: readonly StickerPackCandida
   };
 }
 
-/** 解析并清洗查看贴纸包时必填的表达意图；为空或超过 STICKER_INTENT_MAX_CHARS 时返回 null。 */
+/**
+ * 解析并清洗查看贴纸包时必填的表达意图；为空或超过 STICKER_INTENT_MAX_CHARS 时返回 null。
+ * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * @returns 清洗后的非空意图短句；缺失、空白或超长时返回 null。
+ */
 export function parseStickerIntent(argumentsJson: string): string | null {
   const value: unknown = parseToolArguments(argumentsJson)?.intent;
   if (typeof value !== "string") return null;
@@ -185,12 +224,19 @@ export function parseStickerIntent(argumentsJson: string): string | null {
 export interface ViewStickerPackToolParams {
   /** 同一轮回复里 buildStickerPackMenu 产出的菜单。 */
   menu: readonly StickerPackCandidate[];
+  /** 模型传入的工具参数 JSON 字符串。 */
   argumentsJson: string;
+  /** 本轮贴纸工具状态。 */
   state: StickerRoundState;
+  /** 可选取消信号。 */
   signal?: AbortSignal;
 }
 
-/** 校验查看额度并同步返回目标贴纸包的编号清单。 */
+/**
+ * 校验查看额度并同步返回目标贴纸包的编号清单。
+ * @param params 贴纸包菜单、工具参数 JSON、轮次状态与取消信号。
+ * @returns 包含包名、意图、选片说明与贴纸清单的 JSON 字符串，或工具错误 JSON。
+ */
 export function viewStickerPackTool({
   menu,
   argumentsJson,
@@ -225,21 +271,29 @@ export function viewStickerPackTool({
 
 /** sendStickerTool 的入参。 */
 export interface SendStickerToolParams {
+  /** 目标群聊 ID。 */
   chatId: number;
   /** 本轮所在的论坛话题；General、非论坛群为 undefined。 */
   messageThreadId: number | undefined;
   /** 同一轮回复里 buildStickerPackMenu 产出的菜单。 */
   menu: readonly StickerPackCandidate[];
+  /** 模型传入的工具参数 JSON 字符串。 */
   argumentsJson: string;
+  /** 本轮贴纸工具状态。 */
   state: StickerRoundState;
   /** 发送成功后的回调（描述行 + 消息 ID）。 */
   onSent: (stickerDescription: string, messageId: number) => void;
   /** 本轮回复是否仍属当前代际。 */
   isActive: () => boolean;
+  /** 可选取消信号。 */
   signal?: AbortSignal;
 }
 
-/** 校验已查看清单与贴纸限额，预占贴纸并返回串行发送步骤。 */
+/**
+ * 校验已查看清单与贴纸限额，预占贴纸并返回串行发送步骤。
+ * @param params 发送贴纸所需的群聊上下文、贴纸菜单、工具参数与轮次状态。
+ * @returns 排入串行动作链的工具执行计划或立即失败的错误 JSON。
+ */
 export function sendStickerTool({
   chatId,
   messageThreadId,

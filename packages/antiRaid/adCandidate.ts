@@ -26,12 +26,17 @@ import type {
 import { messageOriginIdentityId } from "../users/messageOrigin";
 import { visibleSenderId } from "../users/visibleSender";
 import { identityFirstName, identityLastName, identityUsername } from "../users/identityMetadata";
+import { hasActiveTemporaryAdBypassAt } from "../infra/identityPolicy/temporaryAdBypass";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
 import { canBypassAdDetection } from "./memberFacts";
 
 /**
  * 摘出正文不可见的 text_link URL；与正文分开限额（AD_DETECT_MAX_LINK_URLS、
  * AD_DETECT_LINK_URL_MAX_CHARS）。
+ *
+ * @param text 已清洗的消息或图注正文
+ * @param entities 消息或图注附带的实体列表
+ * @returns 去重并截断后的隐藏链接 URL 列表；无有效隐藏链接时返回 undefined
  */
 function collectHiddenLinkUrls(
   text: string,
@@ -56,6 +61,9 @@ function collectHiddenLinkUrls(
 /**
  * 被回复消息的来源身份：优先取 forward_origin 或 external_reply.origin 解析出的身份，
  * 否则取被回复消息的可见发送者；隐藏来源或没有被回复消息时为 undefined。
+ *
+ * @param message 入站 Telegram 群消息
+ * @returns 被回复消息或外部引用的来源身份 ID；无被回复消息或来源隐藏时返回 undefined
  */
 function replySourceIdentityId(message: Message): number | undefined {
   const replied: Message | undefined = message.reply_to_message;
@@ -69,6 +77,10 @@ function replySourceIdentityId(message: Message): number | undefined {
  * 引用来源的受保护身份三态：永久白名单成员或临时广告豁免返回 true；
  * 身份策略缓存已就绪（isIdentityPolicyCached）且不受保护返回 false；
  * 缓存冷缺失（update 前置预取失败）返回 undefined。
+ *
+ * @param sourceId 引用来源的身份 ID
+ * @param now 当前毫秒时间戳
+ * @returns 受保护时返回 true，确认不受保护时返回 false，策略缓存冷缺失时返回 undefined
  */
 function sourceWhitelistStatus(
   sourceId: number,
@@ -76,7 +88,7 @@ function sourceWhitelistStatus(
 ): boolean | undefined {
   if (
     isWhitelisted(sourceId) ||
-    canBypassAdDetection(sourceId, now)
+    hasActiveTemporaryAdBypassAt(sourceId, now)
   ) return true;
   return isIdentityPolicyCached(sourceId) ? false : undefined;
 }
@@ -84,6 +96,10 @@ function sourceWhitelistStatus(
 /**
  * 摘出非白名单来源的引用段与被回复原文；关联频道自动转发与白名单来源的回复上下文
  * 忽略（返回 undefined）。
+ *
+ * @param message 入站 Telegram 群消息
+ * @param now 当前毫秒时间戳
+ * @returns 截断后的引用片段与被回复原文上下文；无需附带或均为空时返回 undefined
  */
 function buildSampleContext(
   message: Message,
@@ -123,6 +139,10 @@ function buildSampleContext(
 /**
  * 广告累计与候选构建的共用前置判定。确认配置就绪、非自动转发或自身消息、
  * 具有展示身份且非机器人自身或本群群身份。
+ *
+ * @param message 入站 Telegram 群消息
+ * @param botId 本机器人的 Telegram 用户 ID
+ * @param senderChat 消息的可见频道发送者身份；普通用户发言时为 undefined
  * @returns 通过时返回展示身份 id（频道身份优先，否则 from.id），否则返回 undefined。
  */
 export function adDetectionSenderId(
@@ -140,6 +160,9 @@ export function adDetectionSenderId(
 /**
  * 构建已通过 adDetectionSenderId 前置判定的候选载荷。受保护身份返回 undefined；
  * 已拉黑频道身份仍构建载荷，交由 Worker 删除漏网消息。
+ *
+ * @param context 已通过前置判定的广告检测消息上下文
+ * @returns 投递给 Anti-Raid Worker 的广告检测候选消息；豁免或无有效可检内容时返回 undefined
  */
 export function buildAdCandidate(
   {

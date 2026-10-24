@@ -34,7 +34,10 @@ const IO_KEYS: Readonly<Record<string, keyof ProcessIoSnapshot>> = {
   write_bytes: "writeBytes",
 };
 
-/** 采样当前进程的 I/O 计数器；解析失败即抛错。 */
+/**
+ * 采样当前进程的 I/O 计数器；解析失败即抛错。
+ * @returns 当前进程的 `/proc/self/io` 计数快照。
+ */
 export function readProcessIo(): ProcessIoSnapshot {
   const content: string = readFileSync("/proc/self/io", "utf8");
   const values: Record<keyof ProcessIoSnapshot, number> = {
@@ -61,7 +64,12 @@ export function readProcessIo(): ProcessIoSnapshot {
   return values;
 }
 
-/** 两次采样之差；任一字段为负即抛错。 */
+/**
+ * 两次采样之差；任一字段为负即抛错。
+ * @param before 测量窗口起点的进程 I/O 快照。
+ * @param after 测量窗口终点的进程 I/O 快照。
+ * @returns 测量窗口内的进程 I/O 增量。
+ */
 export function diffProcessIo(
   before: ProcessIoSnapshot,
   after: ProcessIoSnapshot
@@ -82,7 +90,12 @@ export function diffProcessIo(
   return delta;
 }
 
-/** 逐项相加；父进程用它把各子进程的读写汇总成一轮的总量。 */
+/**
+ * 逐项相加；父进程用它把各子进程的读写汇总成一轮的总量。
+ * @param left 左侧进程 I/O 增量。
+ * @param right 右侧进程 I/O 增量。
+ * @returns 逐项累加后的进程 I/O 增量。
+ */
 export function addProcessIo(
   left: ProcessIoDelta,
   right: ProcessIoDelta
@@ -97,7 +110,10 @@ export function addProcessIo(
   };
 }
 
-/** 全零增量，作为求和起点。 */
+/**
+ * 全零增量，作为求和起点。
+ * @returns 所有字段均为 0 的进程 I/O 增量对象。
+ */
 export function emptyProcessIo(): ProcessIoDelta {
   return {
     rcharBytes: 0,
@@ -109,7 +125,11 @@ export function emptyProcessIo(): ProcessIoDelta {
   };
 }
 
-/** 递归统计目录足迹；忽略符号链接和已消失的条目，其余 I/O 错误使计量失败。 */
+/**
+ * 递归统计目录足迹；忽略符号链接和已消失的条目，其余 I/O 错误使计量失败。
+ * @param root 待统计的目录根路径。
+ * @returns 目录内普通文件的总字节数与总文件数。
+ */
 export function measureDirectoryFootprint(root: string): DirectoryFootprint {
   let bytes: number = 0;
   let files: number = 0;

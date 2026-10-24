@@ -24,8 +24,8 @@ import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types";
 /**
  * 待验证提醒的唯一投递 owner：发送失败时在验证期限内退避重试，状态换代
  * 后取消旧 owner，并删除已经迟到落地的 Telegram 消息。
+ * @param key 待验证键（`chatId:userId`）。
  */
-
 export function cancelReminderDelivery(key: string): void {
   const delivery: ReminderDelivery | undefined = reminderDeliveries.get(key);
   if (!delivery) return;
@@ -33,6 +33,7 @@ export function cancelReminderDelivery(key: string): void {
   reminderDeliveries.delete(key);
 }
 
+/** 清理全部验证提醒重试计时器并清空投递表。 */
 export function clearReminderDeliveries(): void {
   for (const delivery of reminderDeliveries.values()) {
     if (delivery.timer !== undefined) clearTimeout(delivery.timer);
@@ -40,7 +41,13 @@ export function clearReminderDeliveries(): void {
   reminderDeliveries.clear();
 }
 
-/** 构造验证提醒内联键盘：真人展示本人验证与管理员通过按钮，机器人仅展示管理员通过按钮。 */
+/**
+ * 构造验证提醒内联键盘：真人展示本人验证与管理员通过按钮，机器人仅展示管理员通过按钮。
+ * @param userId 待验证成员 ID。
+ * @param isBot 是否为机器人成员。
+ * @param atmosphere 当前群风格文案表。
+ * @returns 验证提醒内联键盘标记。
+ */
 function buildVerificationKeyboard(userId: number, isBot: boolean, atmosphere: AtmosphereTexts): InlineKeyboardMarkup {
   const approveButton: InlineKeyboardButton = {
     text: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT,
@@ -58,6 +65,11 @@ function buildVerificationKeyboard(userId: number, isBot: boolean, atmosphere: A
   };
 }
 
+/**
+ * 在当前验证期限剩余窗口内按指数退避安排下一次提醒重发。
+ * @param delivery 当前提醒投递条目。
+ * @param dispatchVerification 验证状态机派发函数。
+ */
 function scheduleReminderRetry(
   delivery: ReminderDelivery,
   dispatchVerification: VerificationDispatcher
@@ -84,6 +96,8 @@ function scheduleReminderRetry(
  * 发起一次验证提醒发送尝试。调用方保证 `delivery` 是 `reminderDeliveries` 中的当前
  * owner、当前未在途（`!delivery.inFlight`）且对应验证状态尚未换代（状态换代时由运行态
  * 同步取消旧 owner，见 docs/cn/04-invariants.md「验证提醒发送与成员发言保护」）。
+ * @param delivery 当前提醒投递条目。
+ * @param dispatchVerification 验证状态机派发函数。
  */
 function attemptReminderDelivery(
   delivery: ReminderDelivery,
@@ -97,10 +111,10 @@ function attemptReminderDelivery(
     atmosphere
   );
   // 每次发送尝试都按当前群风格渲染，重试队列不保存已经选定语气的正文。
-  const text: string = delivery.kind === "reply"
-    ? atmosphere.NOTICE_TEXTS.verificationReplyReminder(delivery.label, formatMinSec(VERIFICATION_TIMEOUT_MS), atmosphere.VERIFICATION_SELF_BUTTON_TEXT)
-    : delivery.isBot
-      ? atmosphere.NOTICE_TEXTS.verificationBotReminder(delivery.label, formatMinSec(VERIFICATION_TIMEOUT_MS), atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT)
+  const text: string = delivery.isBot
+    ? atmosphere.NOTICE_TEXTS.verificationBotReminder(delivery.label, formatMinSec(VERIFICATION_TIMEOUT_MS), atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT)
+    : delivery.kind === "reply"
+      ? atmosphere.NOTICE_TEXTS.verificationReplyReminder(delivery.label, formatMinSec(VERIFICATION_TIMEOUT_MS), atmosphere.VERIFICATION_SELF_BUTTON_TEXT)
       : atmosphere.NOTICE_TEXTS.verificationMemberReminder({ label: delivery.label, timeout: formatMinSec(VERIFICATION_TIMEOUT_MS), selfButton: atmosphere.VERIFICATION_SELF_BUTTON_TEXT, approveButton: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT });
   const task: Promise<void> = (async (): Promise<void> => {
     let reminderMessageId: number | undefined;
@@ -144,15 +158,26 @@ function attemptReminderDelivery(
 }
 
 interface SendReminderMessageParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 待验证成员 ID。 */
   userId: number;
+  /** 提醒类型（原始独立提醒或回复式提醒）。 */
   reminderKind: ReminderKind;
+  /** 待验证成员展示名称。 */
   label: string;
+  /** 是否为机器人成员。 */
   isBot: boolean;
+  /** 回复目标消息 ID；独立提醒时为 undefined。 */
   replyToMessageId: number | undefined;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
+/**
+ * 登记或复用待验证提醒投递 owner 并立即发起发送尝试。
+ * @param params 提醒发送参数。
+ */
 function sendReminderMessage({
   chatId,
   userId,
@@ -191,14 +216,22 @@ function sendReminderMessage({
 }
 
 interface SendVerificationReminderParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 待验证成员 ID。 */
   userId: number;
+  /** 待验证成员展示名称。 */
   label: string;
+  /** 是否为机器人成员。 */
   isBot: boolean;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
-/** 发送原始独立提醒；真人自己点本人验证，机器人只能由管理员点「通过」作保。 */
+/**
+ * 发送原始独立提醒；真人自己点本人验证，机器人只能由管理员点「通过」作保。
+ * @param params 原始独立验证提醒发送参数。
+ */
 export function sendVerificationReminder({
   chatId,
   userId,
@@ -218,18 +251,29 @@ export function sendVerificationReminder({
 }
 
 interface SendReplyReminderParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 待验证成员 ID。 */
   userId: number;
+  /** 待验证成员展示名称。 */
   label: string;
+  /** 是否为机器人成员。 */
+  isBot: boolean;
+  /** 待验证成员刚发出的目标群消息 ID。 */
   targetMessageId: number;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
-/** 把提醒回复到待验证成员刚发出的普通群消息，确保 TA 收到通知。 */
+/**
+ * 把提醒回复到待验证成员刚发出的普通群消息，确保 TA 收到通知；机器人成员改用机器人提醒文案与单按钮键盘。
+ * @param params 回复式验证提醒发送参数。
+ */
 export function sendReplyReminder({
   chatId,
   userId,
   label,
+  isBot,
   targetMessageId,
   dispatchVerification,
 }: SendReplyReminderParams): void {
@@ -238,20 +282,27 @@ export function sendReplyReminder({
     userId,
     reminderKind: "reply",
     label,
-    isBot: false,
+    isBot,
     replyToMessageId: targetMessageId,
     dispatchVerification,
   });
 }
 
 interface EnsurePendingReminderParams {
+  /** 群组 ID。 */
   chatId: number;
+  /** 待验证成员 ID。 */
   userId: number;
+  /** 当前待验证阶段状态。 */
   state: PendingState;
+  /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
 
-/** 恢复快照或 timeout 续窗时，按当前状态选择唯一有效的提醒形态。 */
+/**
+ * 恢复快照或 timeout 续窗时，按当前状态选择唯一有效的提醒形态。
+ * @param params 待验证提醒兜底补发参数。
+ */
 export function ensurePendingReminder({
   chatId,
   userId,
@@ -267,6 +318,7 @@ export function ensurePendingReminder({
       chatId,
       userId,
       label: state.label,
+      isBot: state.isBot,
       targetMessageId: state.welcomeAnchorMessageId,
       dispatchVerification,
     });

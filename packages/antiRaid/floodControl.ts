@@ -11,6 +11,7 @@ import type { Message, User } from "grammy/types";
 
 /** buildFloodCandidate 的入参。 */
 export interface BuildFloodCandidateParams {
+  /** 入站 Telegram 群消息。 */
   readonly message: Message;
   /** 本机器人的用户 id。 */
   readonly botId: number;
@@ -20,7 +21,12 @@ export interface BuildFloodCandidateParams {
   readonly chatState: Readonly<ChatState>;
 }
 
-/** 将群消息收敛为刷屏计数候选；不参与计数时返回 undefined。 */
+/**
+ * 将群消息收敛为刷屏计数候选；不参与计数时返回 undefined。
+ *
+ * @param params 入站群消息、机器人 ID、当前时间戳与群状态快照
+ * @returns 投递给 Anti-Raid Worker 的刷屏计数候选消息；被豁免或不满足条件时返回 undefined
+ */
 export function buildFloodCandidate({
   message,
   botId,

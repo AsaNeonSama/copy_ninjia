@@ -22,24 +22,49 @@ import { AppendOnlyFileFormatError } from "./appendOnlyDayFile";
 
 /** 可变累加合计；可选计数在计入首条对应记录前为 undefined。 */
 interface MutableTotals {
+  /** 累计请求次数。 */
   requests: number;
+  /** 累计归一化总输入 token 数。 */
   inputTokens: number;
+  /** 累计 SDK 原始上报输入 token 数。 */
   reportedInputTokens: number;
+  /** 累计命中缓存的输入 token 数。 */
   cachedInputTokens: number;
+  /** 累计写入缓存的输入 token 数（有缓存写入记录时才出现）。 */
   cacheWriteInputTokens: number | undefined;
+  /** 累计输出 token 数。 */
   outputTokens: number;
+  /** 累计美元微刻度费用（有费用记录时才出现）。 */
   costInUsdTicks: number | undefined;
+  /** 累计联网搜索工具调用次数（有搜索记录时才出现）。 */
   searchCalls: number | undefined;
 }
 
+/**
+ * 判断候选值是否为非负安全整数计数。
+ * @param value 待校验的候选计数值。
+ * @returns 非负安全整数时返回 true，否则返回 false。
+ */
 function isTokenCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+/**
+ * 抛出带文件路径与原因说明的追加文件格式错误。
+ * @param path 校验失败的统计文件路径。
+ * @param reason 具体字段与期望形态的错误原因。
+ */
 function invalid(path: string, reason: string): never {
   throw new AppendOnlyFileFormatError(path, reason);
 }
 
+/**
+ * 解码并严格校验单条 AI 用量记录（搜索次数、费用或 token 明细）。
+ * @param path 统计文件路径（用于构造错误消息）。
+ * @param index 条目在顶层对象中的 0 起始序号。
+ * @param value 待校验的原始条目值。
+ * @returns 规范化并校验通过的 AI 用量行记录。
+ */
 function decodeRow(path: string, index: number, value: unknown): AiCacheRow {
   if (!isPlainRecord(value)) return invalid(path, `contains an invalid usage record at entry[${index}]; expected a usage object.`);
   const capability: string = typeof value.capability === "string" ? value.capability.trim() : "";
@@ -98,14 +123,24 @@ function decodeRow(path: string, index: number, value: unknown): AiCacheRow {
   };
 }
 
-/** 计算缓存输入占上报输入的命中率（按 AI_CACHE_HIT_RATE_DIGITS 舍入）；无上报输入时返回 null。 */
+/**
+ * 计算缓存输入占上报输入的命中率（按 AI_CACHE_HIT_RATE_DIGITS 舍入）；无上报输入时返回 null。
+ * @param cachedInputTokens 命中缓存的输入 token 总数。
+ * @param reportedInputTokens 上报了缓存状态的请求输入 token 总数。
+ * @returns 舍入后的缓存命中率；`reportedInputTokens` 为 0 时返回 null。
+ */
 function hitRate(cachedInputTokens: number, reportedInputTokens: number): number | null {
   if (reportedInputTokens === 0) return null;
   const scale: number = 10 ** AI_CACHE_HIT_RATE_DIGITS;
   return Math.round(cachedInputTokens / reportedInputTokens * scale) / scale;
 }
 
-/** 检查必填字段齐全且仅包含必填与 AI_CACHE_TOTALS_OPTIONAL_FIELDS。 */
+/**
+ * 检查必填字段齐全且仅包含必填与 AI_CACHE_TOTALS_OPTIONAL_FIELDS。
+ * @param value 待校验的合计对象。
+ * @param required 必须全部存在的字段名列表。
+ * @returns 字段集合完全合法时返回 true，否则返回 false。
+ */
 function hasTotalsKeys(value: Record<string, unknown>, required: readonly string[]): boolean {
   for (const key of required) {
     if (!Object.hasOwn(value, key)) return false;
@@ -113,7 +148,13 @@ function hasTotalsKeys(value: Record<string, unknown>, required: readonly string
   return hasOnlyKeys(value, [...required, ...AI_CACHE_TOTALS_OPTIONAL_FIELDS]);
 }
 
-/** 解码一份合计记录并校验各计数器上界与命中率。 */
+/**
+ * 解码一份合计记录并校验各计数器上界与命中率。
+ * @param path 统计文件路径（用于构造错误消息）。
+ * @param value 待解码的合计对象候选值。
+ * @param field 当前合计对象在文档中的字段路径标识。
+ * @returns 校验通过的只读合计数据。
+ */
 function decodeTotals(path: string, value: unknown, field: string): AiCacheTotals {
   const keys: readonly string[] = field === AI_CACHE_SUMMARY_KEY ? AI_CACHE_SUMMARY_FIELDS : AI_CACHE_TOTALS_FIELDS;
   if (
@@ -148,11 +189,22 @@ function decodeTotals(path: string, value: unknown, field: string): AiCacheTotal
   };
 }
 
+/**
+ * 校验模型分组键是否符合 `<capability>/<provider>/<model>` 规范。
+ * @param group 待校验的模型分组键字符串。
+ * @returns 符合分组键格式且能力与非空模型名合法时返回 true，否则返回 false。
+ */
 function isGroupKey(group: string): boolean {
   const match: RegExpExecArray | null = AI_CACHE_GROUP_KEY_PATTERN.exec(group);
   return match !== null && AI_CACHE_CAPABILITIES.has(match[1]!) && match[3]!.trim().length > 0;
 }
 
+/**
+ * 解码并校验顶层 `summary` 汇总对象及其 `byModel` 分组累加一致性。
+ * @param path 统计文件路径（用于构造错误消息）。
+ * @param value 待解码的 `summary` 字段原始值。
+ * @returns 校验通过的每日汇总对象。
+ */
 function decodeSummary(path: string, value: unknown): AiCacheSummary {
   if (!isPlainRecord(value)) return invalid(path, `contains an invalid ${AI_CACHE_SUMMARY_KEY}; expected a summary object.`);
   const day: string = typeof value.day === "string" ? value.day.trim() : "";
@@ -184,7 +236,12 @@ function decodeSummary(path: string, value: unknown): AiCacheSummary {
   };
 }
 
-/** 严格解码当前用量文件；不读写文件，不接触线程缓存。 */
+/**
+ * 严格解码当前用量文件；不读写文件，不接触线程缓存。
+ * @param path 统计文件路径（用于构造错误消息）。
+ * @param parsed JSON.parse 产出的顶层未知值。
+ * @returns 包含可选 `summary` 与按时间键有序的 `rows` 映射的文档结构。
+ */
 export function decodeAiCacheDocument(path: string, parsed: unknown): AiCacheDocument {
   if (!isPlainRecord(parsed)) return invalid(path, "must contain a top-level JSON object.");
   let summary: AiCacheSummary | null = null;
@@ -204,6 +261,10 @@ export function decodeAiCacheDocument(path: string, parsed: unknown): AiCacheDoc
   return { summary, rows };
 }
 
+/**
+ * 创建全零初始状态的可变累加合计对象。
+ * @returns 计数器归零、可选指标为 undefined 的可变合计。
+ */
 function emptyTotals(): MutableTotals {
   return {
     requests: 0,
@@ -217,7 +278,11 @@ function emptyTotals(): MutableTotals {
   };
 }
 
-/** 将单条记录计入可变合计。 */
+/**
+ * 将单条记录计入可变合计。
+ * @param totals 待原地累加的可变合计对象。
+ * @param row 单条已校验的 AI 用量明细记录。
+ */
 function addRow(totals: MutableTotals, row: AiCacheRow): void {
   if ("searchCalls" in row && row.searchCalls !== undefined) totals.searchCalls = (totals.searchCalls ?? 0) + row.searchCalls;
   if (!("inputTokens" in row) && !("costInUsdTicks" in row)) return;
@@ -236,6 +301,11 @@ function addRow(totals: MutableTotals, row: AiCacheRow): void {
   totals.cachedInputTokens += row.cachedInputTokens;
 }
 
+/**
+ * 将另一份合计的各项计数器累加到目标可变合计中。
+ * @param totals 待原地累加的目标可变合计对象。
+ * @param other 已结算的来源合计对象。
+ */
 function addTotals(totals: MutableTotals, other: AiCacheTotals): void {
   totals.requests += other.requests;
   totals.inputTokens += other.inputTokens;
@@ -253,6 +323,11 @@ function addTotals(totals: MutableTotals, other: AiCacheTotals): void {
   }
 }
 
+/**
+ * 结算可变累加合计并计算缓存命中率。
+ * @param totals 已完成累加的可变合计对象。
+ * @returns 附带计算后 `cacheHitRate` 的不可变合计结果。
+ */
 function finishTotals(totals: MutableTotals): AiCacheTotals {
   return {
     requests: totals.requests,
@@ -267,7 +342,13 @@ function finishTotals(totals: MutableTotals): AiCacheTotals {
   };
 }
 
-/** 将指定日期的记录与已有汇总合并，生成按 `<capability>/<provider>/<model>` 排序的当日汇总。 */
+/**
+ * 将指定日期的记录与已有汇总合并，生成按 `<capability>/<provider>/<model>` 排序的当日汇总。
+ * @param day 汇总对应的 `YYYY-MM-DD` 日期键。
+ * @param rows 归属该日期的明细记录列表。
+ * @param previous 同日已有的汇总对象；无同日旧汇总时为 null。
+ * @returns 合并后的当日完整汇总对象。
+ */
 export function buildAiCacheSummary(
   day: string,
   rows: readonly AiCacheRow[],

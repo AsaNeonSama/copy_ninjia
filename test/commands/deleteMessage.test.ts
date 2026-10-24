@@ -66,7 +66,7 @@ mock.module("../../packages/infra/storage/stateStore", () => ({ ...realStateStor
 const {
   assertSuperAdminNotDeleteMessageTarget,
   handleDeleteMessageCommand,
-  handleDeleteMessageIngress,
+  handleDeleteMessageIngress: handleDeleteMessageIngressWithState,
   parseDeleteMessageCommand,
 } = await import("../../packages/commands/deleteMessage");
 const {
@@ -80,6 +80,11 @@ const {
 const { botAtmosphereState } = await import("../../packages/cache/main/atmosphere");
 const { chatStateCache } = await import("../../packages/cache/main/chatState");
 const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+
+/** 与前置链一致：按消息所在群读一次群状态快照，再交给删除 ingress。 */
+function handleDeleteMessageIngress(message: Message): boolean {
+  return handleDeleteMessageIngressWithState(message, getChatState(message.chat.id));
+}
 const { teardownRegisteredChat } = await import("../../packages/infra/chatTeardownRegistry");
 const { currentUpdateAbortSignal, runWithUpdateAbortSignal } = await import("../../packages/infra/updateContext");
 

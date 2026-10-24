@@ -20,6 +20,9 @@ import type { TelegramAllowedUpdates } from "../types/lifecycle";
  * 指数退避与 429 等待共用 UPDATE_POLL_RETRY_WINDOW_MS，等待达到或超过剩余预算时抛出最后错误。
  * 返回的 offset 只在下次调用时发送，调用方须先完成本条 middleware。
  * @see ../../docs/cn/04-invariants.md
+ * @param api 提供 `getUpdates` 方法的 Telegram API 客户端。
+ * @param allowedUpdates 允许接收的 Telegram 更新类型列表。
+ * @returns 接收取消信号并拉取下一批 Telegram 更新的异步函数。
  */
 export function createAcknowledgedUpdateFetcher(
   api: Pick<Api, "getUpdates">,

@@ -27,6 +27,13 @@ interface InstallStep {
   readonly title: string;
 }
 
+/**
+ * 按正则从脚本源码中提取安装步骤列表。
+ *
+ * @param source 待匹配的脚本源码文本
+ * @param pattern 含序号、总数与标题分组的全局正则
+ * @returns 提取出的安装步骤列表
+ */
 function parseSteps(source: string, pattern: RegExp): readonly InstallStep[] {
   const steps: InstallStep[] = [];
   for (const match of source.matchAll(pattern)) {
@@ -39,11 +46,22 @@ function parseSteps(source: string, pattern: RegExp): readonly InstallStep[] {
   return steps;
 }
 
+/**
+ * 将安装步骤列表格式化为逗号分隔的摘要文本。
+ *
+ * @param steps 安装步骤列表
+ * @returns 格式化后的步骤列表字符串
+ */
 function describe(steps: readonly InstallStep[]): string {
   return steps.map((step: InstallStep): string => `${step.index}/${step.total} ${step.title}`).join(", ");
 }
 
-/** 核对安装脚本的模块清单与步骤清单；全部一致时返回空数组。 */
+/**
+ * 核对安装脚本的模块清单与步骤清单；全部一致时返回空数组。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @returns 违规问题列表
+ */
 export async function collectInstallModuleProblems(projectRoot: string): Promise<readonly string[]> {
   const problems: string[] = [];
   const scripts: readonly InstallScriptSource[] = await readInstallScripts(projectRoot);

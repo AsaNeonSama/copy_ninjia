@@ -62,12 +62,19 @@ const FIXTURE_DIRECTORY: string = "cron-reload";
 /** 只在 2 月 29 日 0 点触发的表达式：Bun.cron.parse 认可、计时窗口内不会执行。 */
 const FIXTURE_CRON_EXPRESSION: string = "0 0 29 2 *";
 
-/** 夹具任务名；按下标唯一。 */
+/**
+ * 夹具任务名；按下标唯一。
+ * @param index 任务在满规格表中的下标。
+ * @returns 唯一任务名称字符串。
+ */
 function taskName(index: number): string {
   return `benchmark-task-${index}`;
 }
 
-/** 夹具里全部固定图片的相对路径。 */
+/**
+ * 夹具里全部固定图片的相对路径。
+ * @returns 相对运行时数据根的图片路径数组。
+ */
 function fixtureImagePaths(): readonly string[] {
   const paths: string[] = [];
   for (let index: number = 0; index < CRON_MAX_IMAGES; index += 1) {
@@ -76,7 +83,13 @@ function fixtureImagePaths(): readonly string[] {
   return paths;
 }
 
-/** 一个动作的原始 JSON 写法；按动作下标在各来源写法之间轮换。 */
+/**
+ * 一个动作的原始 JSON 写法；按动作下标在各来源写法之间轮换。
+ * @param taskIndex 所属任务的下标。
+ * @param actionIndex 动作在任务内的下标。
+ * @param revision 当前改写修订号。
+ * @returns 原始动作配置对象。
+ */
 function rawAction(
   taskIndex: number,
   actionIndex: number,
@@ -106,7 +119,13 @@ function rawAction(
   }
 }
 
-/** 一个任务的原始 JSON 写法；revision 只改变第一条文字动作的内容。 */
+/**
+ * 一个任务的原始 JSON 写法；revision 只改变第一条文字动作的内容。
+ * @param index 任务在表中的下标。
+ * @param revision 当前改写修订号。
+ * @param chatId 任务投递的目标群 ID。
+ * @returns 原始定时任务配置对象。
+ */
 function rawTask(
   index: number,
   revision: number,
@@ -119,7 +138,11 @@ function rawTask(
   return { name: taskName(index), chat_id: [chatId], cron: FIXTURE_CRON_EXPRESSION, actions };
 }
 
-/** 读取并应用一轮热重载；任何拒绝或 cron 未被接管都使基准失败。 */
+/**
+ * 读取并应用一轮热重载；任何拒绝或 cron 未被接管都使基准失败。
+ * @param dependencies 配置链路依赖集合。
+ * @param label 报错信息中标识当前阶段的标签。
+ */
 async function reloadCronConfig(
   dependencies: ConfigChainDependencies,
   label: string
@@ -132,14 +155,22 @@ async function reloadCronConfig(
   if (!changes.cron) throw new Error(`${label} did not adopt the changed cron task table.`);
 }
 
-/** 当前调度器；未启动时基准失败。 */
+/**
+ * 当前调度器；未启动时基准失败。
+ * @param dependencies 配置链路依赖集合。
+ * @returns 正在运行的定时任务调度器实例。
+ */
 function requireRuntime(dependencies: ConfigChainDependencies): CronRuntime {
   const runtime: CronRuntime | null = dependencies.cronRuntime.current;
   if (runtime === null) throw new Error("Benchmark cron scheduler is not running.");
   return runtime;
 }
 
-/** 本进程罐头 Telegram 收到的请求总数。 */
+/**
+ * 本进程罐头 Telegram 收到的请求总数。
+ * @param calls 按方法名累计的罐头调用计数表。
+ * @returns 全部方法调用次数的总和。
+ */
 function totalTelegramCalls(calls: ReadonlyMap<string, number>): number {
   let total: number = 0;
   for (const count of calls.values()) total += count;
@@ -149,6 +180,8 @@ function totalTelegramCalls(calls: ReadonlyMap<string, number>): number {
 /**
  * cron.json 中途变更：改写满规格任务表中的一个任务后跑一轮生产热重载，终点是调度器
  * 只替换了这一个任务的调度。
+ * @param dependencies 配置链路依赖集合。
+ * @returns `cron-config-reload` 链路定义。
  */
 function cronConfigReloadChain(dependencies: ConfigChainDependencies): ChainDefinition {
   const chatId: number = dependencies.benchmarkChatId(0);
@@ -212,7 +245,12 @@ function cronConfigReloadChain(dependencies: ConfigChainDependencies): ChainDefi
   };
 }
 
-/** 返回配置链路定义；其余链路交给 storageChains 与 commandChains。 */
+/**
+ * 返回配置链路定义；其余链路交给 storageChains 与 commandChains。
+ * @param chain 目标链路标识名。
+ * @param dependencies 配置链路依赖集合。
+ * @returns 若属于配置链路则返回对应定义，否则返回 `undefined`。
+ */
 export function createConfigChain(
   chain: ChainName,
   dependencies: ConfigChainDependencies

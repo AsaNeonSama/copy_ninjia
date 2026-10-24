@@ -6,7 +6,7 @@ import { TOOL_STATUS_POINTER } from "./tools";
 /**
  * 提示词里对联网检索工具的统一称呼。
  *
- * 内建检索时 Gemini 使用 `googleSearch`，OpenAI 使用 hosted `web_search`；配置了 `web_search`
+ * 内建检索时 Gemini 使用 `googleSearch`，OpenAI 与 Anthropic 使用服务端 `web_search`；配置了 `web_search`
  * 能力时是本地函数工具 `web_search`。模型提示只使用这份中立称呼，并按本轮实际挂载的工具执行。
  *
  * 所属模块：consts/aiChat/prompts/。

@@ -20,6 +20,8 @@ export const LUCK_TIERS: readonly LuckTier[] = [
 /**
  * 按持久化 label 取回当前运势档位，用分支查找；未知 label 返回 undefined，
  * 由调用方 fail closed。所属模块：commands/luckChallenge/cache.ts、workers/diskIO/snapshotFiles.ts。
+ * @param label 持久化的运势档位名称。
+ * @returns 匹配的运势档位常量；未知名称时返回 undefined。
  */
 export function luckTierByLabel(label: string): LuckTier | undefined {
   switch (label) {

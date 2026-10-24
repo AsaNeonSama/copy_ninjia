@@ -23,7 +23,10 @@ export const verificationEntries: Map<string, VerificationEntry> = new Map();
  */
 export const verificationRuntimeCapacityFatalState: { current: boolean } = { current: false };
 
-/** 当前主线程分配的验证代际编号；零表示尚未收到 adoptVerifications。 */
+/**
+ * 当前主线程分配的验证代际编号；零表示尚未收到 adoptVerifications。
+ * 填充：收到主线程 `adoptVerifications` 时覆写为最新代际号；清理：Worker 停止时随进程销毁；重建：Worker 崩溃重启后初始为 0 并由主线程重放恢复；容量：固定单个数值。
+ */
 export const verificationGeneration: { current: number } = { current: 0 };
 
 /**
@@ -38,7 +41,12 @@ export const verificationRevisions: Map<string, { revision: number; retiredAt?: 
 /** 修订号容量超限 fatal 闩锁；每代际至多触发一次，换代际或停止时复位。容量固定为单个布尔值。 */
 export const verificationRevisionCapacityFatalState: { current: boolean } = { current: false };
 
-/** 检查是否允许接纳新的验证修订号键；满载时先内联清理过期墓碑。 */
+/**
+ * 检查是否允许接纳新的验证修订号键；满载时先内联清理过期墓碑。
+ *
+ * @param key 验证记录键（`chatId:userId`）
+ * @returns 是否允许接纳该验证修订号键
+ */
 export function canAdmitVerificationRevision(key: string): boolean {
   if (verificationRevisions.size < VERIFICATION_REVISION_CAPACITY) return true;
   if (verificationRevisions.has(key)) return true;
@@ -49,7 +57,7 @@ export function canAdmitVerificationRevision(key: string): boolean {
 /**
  * `chatId:userId` -> 验证预算耗尽后的进程内延后记录镜像。
  * 权威线程为主线程；在 adoptVerifications 时全量推送或在本地预算耗尽时写入。
- * 清理：成员离群、功能关闭、群停管或 Worker 停止时删除。
+ * 清理：成员离群、功能关闭、群停管、adoptVerifications 推进代际或 Worker 停止时删除或清空。
  * 重建与重放：Worker 崩溃重启后由主线程全量重放；无条目表示未接管该延后闩锁，不沿用旧代际结论。
  * 容量：与主线程延后索引同界。
  */
@@ -69,7 +77,12 @@ export const threadCommentConfirmations: Map<string, ThreadCommentConfirmation> 
  */
 export const reminderDeliveries: Map<string, ReminderDelivery> = new Map();
 
-/** 清理已超过 VERIFICATION_REVISION_RETENTION_MS 保留期的终结修订号墓碑。 */
+/**
+ * 清理已超过 VERIFICATION_REVISION_RETENTION_MS 保留期的终结修订号墓碑。
+ *
+ * @param now 当前毫秒时间戳
+ * @returns 本次清理删除的过期墓碑条数
+ */
 export function sweepVerificationRevisionCache(now: number = Date.now()): number {
   let deleted: number = 0;
   for (const [key, revision] of verificationRevisions) {

@@ -10,7 +10,11 @@ import type { TokyoWeatherResult } from "../../../types/aiChat/weather";
  * 出错时返回错误 JSON。行动工具与群问答工具由 replyToolset/ 按轮组装。
  */
 
-/** 按名称执行静态查询；东京天气仅在启动时区为东京时可用，未挂载的名称返回未知工具错误。 */
+/**
+ * 按名称执行静态查询；东京天气仅在启动时区为东京时可用，未挂载的名称返回未知工具错误。
+ * @param name 静态查询工具名称。
+ * @returns 查询结果或错误信息的 JSON 字符串。
+ */
 export function callTool(name: string): string {
   switch (name) {
     case GET_TOKYO_WEATHER_TOOL: {

@@ -115,8 +115,11 @@ export interface TelegramSentPhotoMessage extends TelegramSentMessage {
 
 /** 删除目标专属临时消息所需的稳定参数。 */
 export interface TelegramDeleteEphemeralMessageParams {
+  /** 临时消息所在的群聊 ID 或频道用户名。 */
   readonly chatId: number | string;
+  /** 专属临时消息的目标接收用户 ID。 */
   readonly receiverUserId: number;
+  /** 待删除的专属临时消息 ID。 */
   readonly ephemeralMessageId: number;
 }
 

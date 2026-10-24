@@ -11,7 +11,10 @@ import { MEDIA_GROUP_ITEMS_MAX } from "../consts/hImage";
 import { messageImageCandidate } from "../libs/telegramImage";
 import type { MediaGroupImages, MessageImageCandidate } from "../types/hImage";
 
-/** 记录一条相册消息里能收的图；私聊、不是图、组已满或同一张图重复到达时不记。 */
+/**
+ * 记录一条相册消息里能收的图；私聊、不是图、组已满或同一张图重复到达时不记。
+ * @param message 带有 `media_group_id` 的 Telegram 消息对象。
+ */
 export function observeMediaGroupImage(message: Message): void {
   const mediaGroupId: string | undefined = message.media_group_id;
   if (mediaGroupId === undefined || message.chat.type === "private") return;
@@ -29,7 +32,12 @@ export function observeMediaGroupImage(message: Message): void {
   entry.items.push(candidate);
 }
 
-/** 某群某个相册里已见过的图；不属于这个群或从没见过时为空。只读，不刷新 LRU 位置。 */
+/**
+ * 某群某个相册里已见过的图；不属于这个群或从没见过时为空。只读，不刷新 LRU 位置。
+ * @param chatId 目标群 ID。
+ * @param mediaGroupId Telegram 相册的 `media_group_id`。
+ * @returns 该群该相册已缓存的图片候选列表；未命中或群不匹配时返回空数组。
+ */
 export function mediaGroupImagesIn(chatId: number, mediaGroupId: string): readonly MessageImageCandidate[] {
   const entry: MediaGroupImages | undefined = mediaGroupImages.peek(mediaGroupId);
   return entry?.chatId === chatId ? entry.items : [];

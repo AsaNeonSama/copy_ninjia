@@ -17,6 +17,10 @@ import { percentile } from "../statistics";
 import type { ChatState } from "../../../packages/types/chatState";
 import type { LoadedData } from "../../../packages/types/diskIO/replies";
 
+/**
+ * 提交一整批群状态写操作并等待 Disk I/O Worker 完整刷盘与回执确认。
+ * @param sequence 当前突发的批次序号，用于生成唯一群标题。
+ */
 async function burst(sequence: number): Promise<void> {
   for (let index: number = 0; index < DISK_BUSINESS_BATCH_MAX_MESSAGES; index++) {
     const chatId: number = benchmarkChatId(index % STATE_MANAGED_CHAT_LIMIT);
@@ -29,6 +33,11 @@ async function burst(sequence: number): Promise<void> {
   }
 }
 
+/**
+ * 校验 Worker 重启后重新加载的群状态是否完整保留了指定突发序号的最终修订。
+ * @param data 从持久化存储重新加载的数据快照。
+ * @param sequence 期望保留在落盘数据中的突发批次序号。
+ */
 function verifyRecovered(data: LoadedData, sequence: number): void {
   if (data.chatStates.size !== STATE_MANAGED_CHAT_LIMIT) throw new Error("Disk pressure recovery lost chats.");
   for (let index: number = 0; index < STATE_MANAGED_CHAT_LIMIT; index++) {

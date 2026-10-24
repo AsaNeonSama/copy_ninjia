@@ -41,12 +41,20 @@ import type {
   WebDigestRequest,
 } from "../../types/webDigest";
 
-/** 检索系统提示词只含固定查证规则与条目上限；任务规则放在检索问题里。 */
+/**
+ * 检索系统提示词只含固定查证规则与条目上限；任务规则放在检索问题里。
+ * @param request 联网摘要请求配置。
+ * @returns 带条目上限的检索系统提示词。
+ */
 function researchInstruction(request: WebDigestRequest): string {
   return `${WEB_DIGEST_RESEARCH_INSTRUCTION}最多整理 ${request.maxItems} 件事。`;
 }
 
-/** 来源按地址去重，最多 WEB_DIGEST_MAX_SOURCES 条。 */
+/**
+ * 来源按地址去重，最多 WEB_DIGEST_MAX_SOURCES 条。
+ * @param sources 检索返回的原始来源列表。
+ * @returns 按 URL 去重并截断到上限后的来源列表。
+ */
 function distinctSources(sources: readonly AiWebSearchSource[]): readonly AiWebSearchSource[] {
   const result: AiWebSearchSource[] = [];
   const seen: Set<string> = new Set<string>();
@@ -61,6 +69,7 @@ function distinctSources(sources: readonly AiWebSearchSource[]): readonly AiWebS
 
 /** composeContent 的入参。 */
 interface ComposeContentParams {
+  /** 联网摘要请求配置。 */
   readonly request: WebDigestRequest;
   /** 与检索段一致的配置时区基准时间。 */
   readonly referenceTime: string;
@@ -72,7 +81,11 @@ interface ComposeContentParams {
   readonly problem: string | null;
 }
 
-/** 组稿段的用户内容：任务参数、检索结果、来源列表，以及上一次不合格时的诊断。 */
+/**
+ * 组稿段的用户内容：任务参数、检索结果、来源列表，以及上一次不合格时的诊断。
+ * @param params 组稿内容拼装入参。
+ * @returns 交给结构化文本模型的完整用户提示文本。
+ */
 function composeContent({ request, referenceTime, research, sources, problem }: ComposeContentParams): string {
   const lines: string[] = [
     `主题：${request.topic}`,
@@ -89,7 +102,12 @@ function composeContent({ request, referenceTime, research, sources, problem }: 
   return lines.join("\n");
 }
 
-/** 第一个未在来源元数据或检索正文中出现的条目地址字段路径；全部命中时为 null。 */
+/**
+ * 第一个未在来源元数据或检索正文中出现的条目地址字段路径；全部命中时为 null。
+ * @param digest 解码后的摘要结构。
+ * @param urls 检索来源与正文中出现过的合法 URL 集合。
+ * @returns 首个未命中 URL 的 JSON 路径；全部合法时返回 null。
+ */
 function unlistedUrlPath(digest: Readonly<WebDigest>, urls: ReadonlySet<string>): string | null {
   for (let sectionIndex: number = 0; sectionIndex < digest.sections.length; sectionIndex++) {
     const items: readonly Readonly<WebDigestItem>[] = digest.sections[sectionIndex]!.items;
@@ -105,7 +123,13 @@ type ComposeAttempt =
   | { readonly kind: "done"; readonly text: string }
   | { readonly kind: "retry"; readonly reason: WebDigestFailure; readonly problem: string };
 
-/** 解析、解码、核对来源并渲染一次组稿产出。 */
+/**
+ * 解析、解码、核对来源并渲染一次组稿产出。
+ * @param text 结构化文本模型输出的原始 JSON 文本。
+ * @param request 联网摘要请求配置。
+ * @param urls 检索来源与正文中出现过的合法 URL 集合。
+ * @returns 校验通过并渲染好的 MarkdownV2 结果，或带失败原因与诊断信息的重试指示。
+ */
 function checkComposition(
   text: string,
   request: WebDigestRequest,
@@ -134,21 +158,36 @@ function checkComposition(
   return { kind: "done", text: rendered.text };
 }
 
-/** 记一行失败日志并交回失败结果；已取消时不记。 */
+/**
+ * 记一行失败日志并交回失败结果；已取消时不记。
+ * @param reason 联网摘要失败原因分类。
+ * @param detail 诊断日志详情。
+ * @param signal 当前任务取消信号。
+ * @returns 联网摘要失败结果；若信号已中止则返回 aborted。
+ */
 function failed(reason: WebDigestFailure, detail: string, signal: AbortSignal): WebDigestCompositionResult {
   if (signal.aborted) return { ok: false, reason: "aborted" };
   logger.error(`Web digest composition failed (${reason}): ${detail}.`);
   return { ok: false, reason };
 }
 
-/** 未执行搜索的正文诊断；最多记录固定长度，保留原文长度与来源数量。 */
+/**
+ * 未执行搜索的正文诊断；最多记录固定长度，保留原文长度与来源数量。
+ * @param research 成功的联网检索结果。
+ * @returns 供告警日志输出的响应预览与统计摘要字符串。
+ */
 function noSearchDetail(research: Extract<AiWebSearchResult, { readonly ok: true }>): string {
   const responsePreview: string = research.text.slice(0, WEB_DIGEST_NO_SEARCH_LOG_MAX_CHARS);
   return `response=${JSON.stringify(responsePreview)}; responseLength=${research.text.length}; ` +
     `truncated=${research.text.length > WEB_DIGEST_NO_SEARCH_LOG_MAX_CHARS}; sourceCount=${research.sources.length}`;
 }
 
-/** 生成一份摘要：有搜索时组稿，无搜索时给模型正文加警示；不抛出。 */
+/**
+ * 生成一份摘要：有搜索时组稿，无搜索时给模型正文加警示；不抛出。
+ * @param request 联网摘要请求配置。
+ * @param signal 当前任务取消信号。
+ * @returns 渲染好的 MarkdownV2 摘要文本或带失败原因的结果。
+ */
 export async function composeWebDigest(
   request: WebDigestRequest,
   signal: AbortSignal

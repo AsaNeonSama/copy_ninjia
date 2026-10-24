@@ -16,7 +16,11 @@ const AD_DETECT_PROVIDERS: Readonly<Record<AgentProvider, AdDetectRequest>> = {
   anthropic: requestAnthropicAdDetectJson,
 };
 
-/** 按 ad_detect.provider 发起一次结构化判定请求。 */
+/**
+ * 按 ad_detect.provider 发起一次结构化判定请求。
+ * @param params 结构化广告判定请求参数。
+ * @returns 模型返回的 JSON 文本；请求失败或无有效正文时返回 null。
+ */
 export function requestAdDetectJson(
   params: AdDetectJsonRequestParams
 ): Promise<string | null> {

@@ -23,7 +23,12 @@ const environment: Record<string, string> = {
   COPY_NINJIA_CONFIG_ROOT: join(root, "config"),
 };
 
-/** 所有子进程仅使用测试数据根，环境不继承部署配置。 */
+/**
+ * 所有子进程仅使用测试数据根，环境不继承部署配置。
+ * @param arguments_ 传给被测二进制文件的命令行参数列表。
+ * @param extra 附加或覆盖的环境变量键值表。
+ * @returns 子进程标准输出与标准错误拼接文本。
+ */
 function run(arguments_: string[], extra: Readonly<Record<string, string>> = {}): string {
   const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
     cmd: [executable, ...arguments_], cwd: root, env: { ...environment, ...extra },

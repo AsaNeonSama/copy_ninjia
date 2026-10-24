@@ -3,8 +3,11 @@ import { check, integer, sqliteTable } from "drizzle-orm/sqlite-core";
 import { jsonbText } from "./jsonb";
 import type { CheckBuilder, SQLiteColumn } from "drizzle-orm/sqlite-core";
 
+/** `chat_states` 表参与 JSONB CHECK 约束的列集合。 */
 interface ChatStateColumns {
+  /** 群状态 JSONB 列。 */
   readonly status: SQLiteColumn;
+  /** 可空的群 AI 上下文 JSONB 列。 */
   readonly aiContext: SQLiteColumn;
 }
 

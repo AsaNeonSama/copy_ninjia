@@ -186,7 +186,7 @@ const LOCKDOWN_MATRIX: Readonly<Record<LockdownRowLabel, Readonly<Record<Lockdow
     "restoreResult:failed": GONE,
     "reapplyResult:ok": GONE,
     "reapplyResult:failed": GONE,
-    announcementResult: ["inactive", ["deleteLockdownAnnouncement"]],
+    announcementResult: GONE,
     adopt: ["active", ["prefetchAdmins", "scheduleRestore"]],
   },
   "applying:preparing": lockdownRow({

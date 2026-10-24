@@ -6,7 +6,9 @@ export interface SharedResult<T> {
 }
 
 export interface CreateSharedResultOptions<T> {
+  /** 等待者因自身 signal 中止而提前离场时交付的回退值。 */
   readonly cancelled: T;
+  /** 底层源 Promise reject 时交付给所有等待者的回退值。 */
   readonly rejected: T;
   /** 最后一个可取消等待者离开且没有无信号等待者时调用；正常结算不调用。 */
   readonly onUnused?: () => void;
@@ -15,6 +17,9 @@ export interface CreateSharedResultOptions<T> {
 /**
  * 为共享任务建立可取消订阅。取消同步摘除等待者和 abort 监听，不向源 Promise
  * 追加每个消费者的回调；源任务是否中止由 onUnused 的领域 owner 决定。
+ * @param source 被多个消费者共享等待的底层任务 Promise。
+ * @param options 取消回退值、拒绝回退值与无剩余等待者时的通知回调。
+ * @returns 支持按等待者独立取消订阅的 SharedResult 句柄。
  */
 export function createSharedResult<T>(
   source: Promise<T>,

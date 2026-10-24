@@ -36,6 +36,12 @@ export interface TextReviewInput {
   readonly source: AiRecordContext;
 }
 
+/**
+ * 组装单个文本专项场景定义。
+ * @param name 场景唯一名称。
+ * @param fields 除名称外的场景属性。
+ * @returns 完整的文本专项场景对象。
+ */
 function scenario(
   name: string,
   fields: Omit<TextReviewScenario, "name">
@@ -43,6 +49,10 @@ function scenario(
   return { name, ...fields };
 }
 
+/**
+ * 生成文本清洗专项的全部固定场景矩阵。
+ * @returns 按运行顺序排列的场景定义列表。
+ */
 function buildScenarios(): readonly TextReviewScenario[] {
   const result: TextReviewScenario[] = [];
   for (const [alphabet, length, layout] of [
@@ -88,7 +98,11 @@ function buildScenarios(): readonly TextReviewScenario[] {
 /** 全部专项场景；名称唯一，顺序即运行顺序。 */
 export const TEXT_REVIEW_SCENARIOS: readonly TextReviewScenario[] = buildScenarios();
 
-/** 按名称取场景；未知名称抛错。 */
+/**
+ * 按名称取场景；未知名称抛错。
+ * @param name 待查找的场景名称。
+ * @returns 匹配的文本专项场景定义。
+ */
 export function findTextReviewScenario(name: string | undefined): TextReviewScenario {
   const found: TextReviewScenario | undefined = TEXT_REVIEW_SCENARIOS.find(
     (candidate: TextReviewScenario): boolean => candidate.name === name
@@ -114,6 +128,12 @@ const EMOJI_PATTERNS: readonly string[] = [
   "群聊消息👨‍👩‍👧‍👦 mixed text 确认结果 ",
 ];
 
+/**
+ * 按语言类别与样本序号选择基底短语模板组。
+ * @param alphabet 语言字符集类别。
+ * @param index 当前样本序号。
+ * @returns 对应的短语模板数组。
+ */
 function patternsFor(alphabet: TextReviewAlphabet, index: number): readonly string[] {
   if (alphabet === "cjk") return CJK_PATTERNS;
   if (alphabet === "latin") return LATIN_PATTERNS;
@@ -121,13 +141,23 @@ function patternsFor(alphabet: TextReviewAlphabet, index: number): readonly stri
   return slot < 6 ? CJK_PATTERNS : slot < 9 ? LATIN_PATTERNS : EMOJI_PATTERNS;
 }
 
+/** 单条夹具文本生成的参数。 */
 interface TextOfOptions {
+  /** 目标 UTF-16 码元长度。 */
   readonly length: number;
+  /** 正文字符集类别。 */
   readonly alphabet: TextReviewAlphabet;
+  /** 空白与换行排版方式。 */
   readonly layout: TextReviewLayout;
+  /** 当前样本在序列中的序号。 */
   readonly index: number;
 }
 
+/**
+ * 生成指定长度、字符集与空白排版的展平字符串。
+ * @param options 长度、字符集、排版与样本序号。
+ * @returns 经 JSON 往返展平后的夹具文本。
+ */
 function textOf({ length, alphabet, layout, index }: TextOfOptions): string {
   const resolved: TextReviewLayout = layout === "varied"
     ? VARIED_LAYOUTS[Math.floor(index / 10) % VARIED_LAYOUTS.length]!
@@ -149,7 +179,11 @@ function textOf({ length, alphabet, layout, index }: TextOfOptions): string {
   return JSON.parse(JSON.stringify(text)) as string;
 }
 
-/** 场景的全部输入；全长正文场景与长短混合场景的输入条数各自固定。 */
+/**
+ * 场景的全部输入；全长正文场景与长短混合场景的输入条数各自固定。
+ * @param scenario 目标文本专项场景定义。
+ * @returns 预生成的输入列表。
+ */
 export function textReviewInputs(scenario: TextReviewScenario): readonly TextReviewInput[] {
   const result: TextReviewInput[] = [];
   const count: number = scenario.longPercent === null ? 100 : 1_000;
@@ -191,6 +225,9 @@ export function textReviewInputs(scenario: TextReviewScenario): readonly TextRev
 /**
  * 单个计时样本的迭代次数：按平均正文长度折算，使单样本耗时处于同一量级；长短混合
  * 场景取输入条数的整数倍，每个样本覆盖完整的输入序列。
+ * @param scenario 目标文本专项场景定义。
+ * @param inputs 该场景预生成的输入列表。
+ * @returns 单个计时样本应执行的迭代次数。
  */
 export function textReviewIterations(
   scenario: TextReviewScenario,

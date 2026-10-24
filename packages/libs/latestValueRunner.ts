@@ -7,8 +7,14 @@ export interface LatestValueRunner<T> {
   readonly push: (value: T) => Promise<void>;
 }
 
+/**
+ * 构造只保留在途值与最新待处理值的合并异步执行器。
+ * @param consume 消费单份最新快照值的异步处理函数。
+ * @returns 具备合并排队能力的 LatestValueRunner 实例。
+ */
 export function createLatestValueRunner<T>(consume: (value: T) => Promise<void>): LatestValueRunner<T> {
-  let pending: { value: T } | null = null;
+  let pendingValue: T | undefined;
+  let hasPendingValue: boolean = false;
   let running: Promise<void> | null = null;
   // drain 尚未自行收尾的标记；push 据此判断 drain 是否一路同步跑完。
   let draining: boolean = false;
@@ -16,11 +22,12 @@ export function createLatestValueRunner<T>(consume: (value: T) => Promise<void>)
   const drain = async (): Promise<void> => {
     let latestError: unknown;
     let latestFailed: boolean = false;
-    while (pending !== null) {
-      const current: { value: T } = pending;
-      pending = null;
+    while (hasPendingValue) {
+      const current: T = pendingValue as T;
+      pendingValue = undefined;
+      hasPendingValue = false;
       try {
-        await consume(current.value);
+        await consume(current);
         // 中间旧值失败、更新的值成功时，最新状态已经持久化，整批结算为成功。
         latestError = undefined;
         latestFailed = false;
@@ -38,7 +45,8 @@ export function createLatestValueRunner<T>(consume: (value: T) => Promise<void>)
 
   return {
     push(value: T): Promise<void> {
-      pending = { value };
+      pendingValue = value;
+      hasPendingValue = true;
       if (running !== null) return running;
       draining = true;
       const started: Promise<void> = drain();

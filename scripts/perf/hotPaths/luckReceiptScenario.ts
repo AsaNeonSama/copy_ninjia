@@ -9,7 +9,11 @@ const LUCK_RECEIPT_FAST_PATH_TEXTS: readonly string[] = [
   "short",
 ];
 
-/** 每条带正文 update 都会经过的运势回执同步拒绝路径。 */
+/**
+ * 每条带正文 update 都会经过的运势回执同步拒绝路径。
+ *
+ * @returns 运势回执快路径拒绝场景定义
+ */
 export function createLuckReceiptFastPathScenario(): Scenario {
   return {
     iterations: 2_000_000,

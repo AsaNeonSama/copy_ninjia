@@ -22,14 +22,24 @@ import type {
   WhitelistPermissions,
 } from "../../types/identityPolicy";
 
-/** 严格校验 SQLite 主键可直接表示 Telegram 用户或频道 ID。 */
+/**
+ * 严格校验 SQLite 主键可直接表示 Telegram 用户或频道 ID。
+ * @param id 待校验的身份 ID。
+ * @param source 来源标识，用于构造致命错误诊断。
+ */
 export function assertTelegramIdentityId(id: number, source: string): void {
   if (!Number.isSafeInteger(id) || id === 0) {
     return invalidInput(source, "$.id", "a non-zero safe integer Telegram identity ID");
   }
 }
 
-/** 严格解析身份 metadata；白名单与黑名单 decoder 共用。 */
+/**
+ * 严格解析身份 metadata；白名单与黑名单 decoder 共用。
+ * @param value 待校验的 `meta` 字段值。
+ * @param source 来源标识，用于构造致命错误诊断。
+ * @param path 字段 JSONPath，用于构造致命错误诊断。
+ * @returns 已通过校验的 Telegram 身份元数据对象。
+ */
 function parseIdentityMetadata(
   value: unknown,
   source: string,
@@ -54,6 +64,12 @@ function parseIdentityMetadata(
   };
 }
 
+/**
+ * 严格解析白名单条目的布尔权限对象。
+ * @param value 待校验的 `permissions` 字段值。
+ * @param source 来源标识，用于构造致命错误诊断。
+ * @returns 已通过校验的白名单权限对象。
+ */
 function parseStoredPermissions(
   value: unknown,
   source: string
@@ -72,7 +88,12 @@ function parseStoredPermissions(
   return permissions;
 }
 
-/** 严格解码 permission_list.policy；存在但非法的字段不会被默认值掩盖。 */
+/**
+ * 严格解码 permission_list.policy；存在但非法的字段不会被默认值掩盖。
+ * @param text 数据库列读出的 JSON 文本。
+ * @param source 来源标识，用于构造致命错误诊断。
+ * @returns 已通过校验的白名单条目数据。
+ */
 export function decodeWhitelistEntryData(
   text: string,
   source: string
@@ -87,7 +108,12 @@ export function decodeWhitelistEntryData(
   };
 }
 
-/** 严格解码 blocklist_entries.data。 */
+/**
+ * 严格解码 blocklist_entries.data。
+ * @param text 数据库列读出的 JSON 文本。
+ * @param source 来源标识，用于构造致命错误诊断。
+ * @returns 已通过校验的黑名单条目数据。
+ */
 export function decodeBlocklistEntryData(
   text: string,
   source: string
@@ -132,11 +158,22 @@ export function decodeBlocklistEntryData(
   };
 }
 
+/**
+ * 判断未知值是否为受支持的待踢任务失败原因枚举。
+ * @param value 待判定的值。
+ * @returns 属于 `BlocklistRemovalFailure` 时返回 true。
+ */
 function isFailureType(value: unknown): value is BlocklistRemovalFailure {
   return typeof value === "string" &&
     BLOCKLIST_REMOVAL_FAILURE_TYPES.includes(value as BlocklistRemovalFailure);
 }
 
+/**
+ * 解码并校验待踢任务的参数载荷。
+ * @param value 待校验的 `params` 字段值。
+ * @param source 来源标识，用于构造致命错误诊断。
+ * @returns 已通过校验的待踢任务参数。
+ */
 function decodePendingParams(
   value: unknown,
   source: string
@@ -205,7 +242,12 @@ function decodePendingParams(
   };
 }
 
-/** 严格解码 `pending_blocked_removals.data` JSON 文本。 */
+/**
+ * 严格解码 `pending_blocked_removals.data` JSON 文本。
+ * @param text 数据库列读出的 JSON 文本。
+ * @param source 来源标识，用于构造致命错误诊断。
+ * @returns 已通过校验的待踢任务记录。
+ */
 export function decodePendingBlockedRemovalData(
   text: string,
   source: string
@@ -231,21 +273,34 @@ export function decodePendingBlockedRemovalData(
   };
 }
 
-/** 将白名单条目编码为 JSON 文本并经 decodeWhitelistEntryData 复核。 */
+/**
+ * 将白名单条目编码为 JSON 文本并经 decodeWhitelistEntryData 复核。
+ * @param value 待编码的白名单条目数据。
+ * @returns 序列化并通过复核的 JSON 字符串。
+ */
 export function encodeWhitelistEntryData(value: Readonly<WhitelistEntryData>): string {
   const text: string = JSON.stringify(value);
   decodeWhitelistEntryData(text, "whitelist entry");
   return text;
 }
 
-/** 将黑名单条目编码为 JSON 文本并经 decodeBlocklistEntryData 复核。 */
+/**
+ * 将黑名单条目编码为 JSON 文本并经 decodeBlocklistEntryData 复核。
+ * @param value 待编码的黑名单条目数据。
+ * @returns 序列化并通过复核的 JSON 字符串。
+ */
 export function encodeBlocklistEntryData(value: Readonly<BlocklistEntryData>): string {
   const text: string = JSON.stringify(value);
   decodeBlocklistEntryData(text, "blocklist entry");
   return text;
 }
 
-/** 将待踢任务条目编码为 JSON 文本并经 decodePendingBlockedRemovalData 复核。 */
+/**
+ * 将待踢任务条目编码为 JSON 文本并经 decodePendingBlockedRemovalData 复核。
+ * @param value 待编码的待踢任务记录。
+ * @param source 来源标识，用于复核失败时的错误诊断。
+ * @returns 序列化并通过复核的 JSON 字符串。
+ */
 export function encodePendingBlockedRemovalData(
   value: PendingBlockedRemoval,
   source: string = "pending blocked removal"

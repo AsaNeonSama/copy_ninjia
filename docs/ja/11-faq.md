@@ -10,7 +10,7 @@
 
 ---
 
-Bot プロセスは稼働しているのにグループで応答がないときは、以下のチェックリストを順に確認してください。BotFather の設定および各機能に必要なグループ管理者権限については [README](README.md#botfather-setup) を参照してください。
+Bot プロセスは稼働しているのにグループで応答がないときは、以下のチェックリストを順に確認してください。BotFather の設定および各機能に必要なグループ管理者権限については [README](../../README.md#botfather-setup) を参照してください。
 
 ## Bot は動いているのに、なぜ返答がないのか？
 
@@ -36,7 +36,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
       • <b>設定の不備</b>：<code>agent.json</code> 内の <code>text</code>、<code>summary</code>、<code>media</code> の 3 項目と、<code>stickers.json</code>、<code>mood.json</code> が必要です。いずれかが欠けると AI 雑談は動作しません。<br>
       • <b>トリガー条件</b>：Bot への返信または <code>@Bot</code> メンションでのみ確実にトリガーされます。その他の通常発言はランダムな確率で割り込みます（<code>/quiet</code> による静寂中は割り込みません）。<br>
       • <b>モードの排他</b>：<code>/copy</code> 復唱中は AI 雑談および自発的な割り込み動作が一時停止します。<br>
-      • <b>レート制限と拒答クールダウン</b>：発言頻度が高い場合、スライディングウィンドウ制限が適用されます（ウィンドウと上限値は <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code> を参照）。また、許可されない内容や嫌がる内容を執拗に要求して <code>abuse_mark</code> で記録されたユーザーは、<code>ABUSE_MARK_DURATION_MS</code> の間 AI 雑談から除外されます。
+      • <b>レート制限と拒答クールダウン</b>：発言頻度が高い場合、スライディングウィンドウ制限が適用されます（ウィンドウと上限値は <code>RATE_LIMIT_LONG_WINDOW_MS</code>、<code>RATE_LIMIT_LONG_MAX_TRIGGERS</code> を参照）。また、許可されない内容を執拗に要求したり、モデルを不快にさせる行為（罵倒や侮辱など）を繰り返して <code>abuse_mark</code> で記録されたユーザーは、<code>ABUSE_MARK_DURATION_MS</code> の間 AI 雑談から除外されます。
     </td>
   </tr>
   <tr>
@@ -195,33 +195,20 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 
 ## サードパーティゲートウェイ（Cloudflare AI Gateway 等）経由で Google モデルを呼び出すには？
 
-1. **エンドポイントの設定**：該当する能力の `base_url` をゲートウェイのアドレスに変更します（`install.sh` の対話型ウィザードでも `base_url` と追加ヘッダーを直接入力できます）。例：
+1. **エンドポイントの設定**：該当する能力の `base_url` をゲートウェイのアドレスに変更します（`install.sh` の対話型ウィザードでも `base_url` を直接入力できます）。例：
    `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/google-ai-studio`
-2. **認証ヘッダーの付加**：同一能力の下に `headers` を設定します。例：
-   ```json
-   "headers": {
-     "cf-aig-authorization": "Bearer <token>"
-   }
-   ```
-3. **API Key の保持**：`api_key` には引き続き必須の Google API キーを設定します。ゲートウェイ保管キー（BYOK / Unified Billing）を使う場合は代わりに Cloudflare トークンを設定し、`headers` は不要です。`headers` は `provider: "google"` と `provider: "anthropic"` の場合にのみ有効であり（openai は不可）、機密値はログ出力時に自動的にマスキングされます。
-4. **ルーティングの網羅**：テキスト、画像認識、画像生成は generateContent ルーティングを通過し、音声合成は Interactions API を通過します。設定完了後、`/send` 経由で音声を 1 回送信してゲートウェイの疎通を確認できます。
+2. **API Key の設定**：`api_key` に Google API キーを設定します（SDK が `x-goog-api-key` として送信）。リクエストには他のヘッダーを付加しないため、ゲートウェイ認証（Authenticated Gateway）は無効にしておく必要があります。ゲートウェイ保管キー（BYOK / Unified Billing）を使う場合は代わりに Cloudflare トークンを設定します。`api_key` はログ出力時に自動的にマスキングされます。
+3. **ルーティングの網羅**：テキスト、画像認識、画像生成は generateContent ルーティングを通過し、音声合成は Interactions API を通過します。設定完了後、`/send` 経由で音声を 1 回送信してゲートウェイの疎通を確認できます。
 
 ---
 
 ## Cloudflare AI Gateway 経由で Anthropic モデルを呼び出すには？
 
-`provider: "anthropic"` の能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）は、`headers` を SDK の `defaultHeaders` としてすべてのリクエストに付加します（`install.sh` の対話型ウィザードでも `base_url` と追加ヘッダーを直接入力できます）。`base_url` は次のとおり設定します：
+`provider: "anthropic"` の能力（`text`、`summary`、`media`、`web_search`、`ad_detect`）の `base_url` は次のとおり設定します（`install.sh` の対話型ウィザードでも直接入力できます）：
 `https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/anthropic`
 
-1. **自前の Anthropic キーを使う場合**：`api_key` に Anthropic API キーを設定します（SDK が `x-api-key` として送信）。ゲートウェイ認証（Authenticated Gateway）が有効な場合は次を追加します：
-   ```json
-   "headers": {
-     "cf-aig-authorization": "Bearer <CF_AIG_TOKEN>"
-   }
-   ```
-   ゲートウェイ認証が無効な場合は `headers` は不要です。
-2. **ゲートウェイ保管キー（BYOK / Unified Billing）**：`api_key` に Cloudflare トークン `<CF_AIG_TOKEN>` をそのまま設定します。`headers` は不要です。ゲートウェイは `x-api-key` 内の Cloudflare トークンを認識し、保管済みの Anthropic キーまたは Unified Billing に切り替えます。`api_key` にプレースホルダーを設定すると、そのまま Anthropic に転送されて認証エラーになります。
-3. **フィールド制約**：`headers` に `x-api-key`（大文字小文字を区別しない）は含められず、Anthropic の資格情報は `api_key` のみで渡します。その他の制約は Google プロバイダと同一です。各ヘッダー値はログのマスキング対象に登録されます。
+1. **自前の Anthropic キーを使う場合**：`api_key` に Anthropic API キーを設定します（SDK が `Authorization: Bearer` として送信）。リクエストには他のヘッダーを付加しないため、ゲートウェイ認証（Authenticated Gateway）は無効にしておく必要があります。
+2. **ゲートウェイ保管キー（BYOK / Unified Billing）**：`api_key` に Cloudflare トークン `<CF_AIG_TOKEN>` をそのまま設定します。ゲートウェイは `Authorization` 内の Cloudflare トークンを認識し、保管済みの Anthropic キーまたは Unified Billing に切り替えます。`api_key` にプレースホルダーを設定すると、そのまま Anthropic に転送されて認証エラーになります。
 
 ---
 

@@ -27,11 +27,17 @@ type StorageDatabaseTransaction = Parameters<
 export interface SeedStorageDatabaseOptions {
   /** storage_metadata 行；库已由 bootstrapStorageDatabase 写好 metadata 时省略。 */
   readonly metadata?: readonly StoredStorageMetadataRow[];
+  /** 权限白名单行列表。 */
   readonly whitelist: readonly StoredIdentityPolicyRow[];
+  /** 封禁黑名单行列表。 */
   readonly blocklist: readonly StoredIdentityPolicyRow[];
+  /** 待重试移除封禁成员的发件箱行列表。 */
   readonly removals: readonly StoredPendingRemovalRow[];
+  /** 群运行状态与 AI 上下文行列表。 */
   readonly chatStates?: readonly StoredChatStateRow[];
+  /** 群自定义问答行列表。 */
   readonly chatQa?: readonly StoredChatQaRow[];
+  /** 临时广告豁免活动记录列表。 */
   readonly temporaryAdBypass?: readonly StoredTemporaryAdBypassActivity[];
 }
 
@@ -39,6 +45,9 @@ export interface SeedStorageDatabaseOptions {
  * 测试与性能夹具在一个 Drizzle 事务内写入全部初始行。当前格式的 metadata 用
  * packages/database/interact/initialization.ts 的 storageMetadataRows 构造（与安装器建库同源），
  * 其时区必须等于读这份库的进程所接管的配置时区。
+ *
+ * @param database 已打开的共享存储数据库实例
+ * @param options 待写入各表的初始行数据
  */
 export function seedStorageDatabase(
   database: StorageDatabase,
@@ -77,7 +86,11 @@ export function seedStorageDatabase(
   });
 }
 
-/** 清空夹具数据库的全部业务表。 */
+/**
+ * 清空夹具数据库的全部业务表。
+ *
+ * @param database 已打开的共享存储数据库实例
+ */
 export function clearStorageBusinessTables(database: StorageDatabase): void {
   database.transaction((transaction: StorageDatabaseTransaction): void => {
     transaction.delete(chatQa).run();

@@ -22,7 +22,11 @@ const WEATHER_DESCRIPTION_TO_BUCKET: Readonly<Record<string, WeatherBucket>> = O
   Object.entries(WEATHER_CODE_DESCRIPTIONS).map(([code, description]: [string, string]): [string, WeatherBucket] => [description, classifyWeatherCodeBucket(Number(code))])
 );
 
-/** 将 WMO 天气代码归类到粗粒度天气桶。 */
+/**
+ * 将 WMO 天气代码归类到粗粒度天气桶。
+ * @param code WMO 天气代码。
+ * @returns 归类后的粗粒度天气桶。
+ */
 export function classifyWeatherCodeBucket(code: number): WeatherBucket {
   if (code === 0 || code === 1) return "clear";
   if (code === 2 || code === 3) return "cloudy";
@@ -32,7 +36,11 @@ export function classifyWeatherCodeBucket(code: number): WeatherBucket {
   return "storm";
 }
 
-/** 按配置时区的小时数归类到粗粒度时段桶。 */
+/**
+ * 按配置时区的小时数归类到粗粒度时段桶。
+ * @param hour 本地小时数（0–23）。
+ * @returns 归类后的粗粒度时段桶。
+ */
 export function classifyTimeBucket(hour: number): TimeBucket {
   if (hour < 5) return "lateNight";
   if (hour < 9) return "morning";
@@ -41,20 +49,32 @@ export function classifyTimeBucket(hour: number): TimeBucket {
   return "night";
 }
 
-/** 从 weatherCache 读取当前天气桶；无缓存时返回 null。 */
+/**
+ * 从 weatherCache 读取当前天气桶；无缓存时返回 null。
+ * @returns 当前缓存对应的天气桶；未命中时返回 null。
+ */
 function currentWeatherBucket(): WeatherBucket | null {
   const condition: string | undefined = weatherCache.current?.currentCondition;
   return condition ? WEATHER_DESCRIPTION_TO_BUCKET[condition] ?? null : null;
 }
 
-/** 计算给定天气与时段倍率调整后的心情权重（带正数下限）。 */
+/**
+ * 计算给定天气与时段倍率调整后的心情权重（带正数下限）。
+ * @param mood 候选心情配置项。
+ * @param weather 当前天气桶；未知时为 null。
+ * @param time 当前时段桶。
+ * @returns 调整后的正数抽样权重（最小 0.01）。
+ */
 export function computeAdjustedWeight(mood: MoodOption, weather: WeatherBucket | null, time: TimeBucket): number {
   const weatherMultiplier: number = weather ? mood.weatherMultipliers?.[weather] ?? 1 : 1;
   const timeMultiplier: number = mood.timeMultipliers?.[time] ?? 1;
   return Math.max(mood.weight * weatherMultiplier * timeMultiplier, 0.01);
 }
 
-/** 按当前天气与时段调整后的权重随机抽取一个心情档位。 */
+/**
+ * 按当前天气与时段调整后的权重随机抽取一个心情档位。
+ * @returns 抽中的心情配置项。
+ */
 function pickMood(): MoodOption {
   const weather: WeatherBucket | null = currentWeatherBucket();
   const time: TimeBucket = classifyTimeBucket(getLocalHour());
@@ -72,7 +92,10 @@ function pickMood(): MoodOption {
   return weighted[weighted.length - 1]!.mood;
 }
 
-/** 立即重抽心情并更新 currentMoodState 及到期时间。 */
+/**
+ * 立即重抽心情并更新 currentMoodState 及到期时间。
+ * @returns 新抽中的心情配置项。
+ */
 export function switchMood(): MoodOption {
   const mood: MoodOption = pickMood();
   currentMoodState.current = {
@@ -82,14 +105,20 @@ export function switchMood(): MoodOption {
   return mood;
 }
 
-/** 读取当前有效心情；缺失或已过期时重抽。 */
+/**
+ * 读取当前有效心情；缺失或已过期时重抽。
+ * @returns 当前生效的心情配置项。
+ */
 export function currentMood(): MoodOption {
   const current: CurrentMood | null = currentMoodState.current;
   if (current === null || Date.now() >= current.expiresAt) return switchMood();
   return current.mood;
 }
 
-/** 拼装写入运行时状态区块的当前心情指令。 */
+/**
+ * 拼装写入运行时状态区块的当前心情指令。
+ * @returns 带心情名称标签的完整指令文本。
+ */
 export function currentMoodInstruction(): string {
   const mood: MoodOption = currentMood();
   return `【${MOOD_LABEL_NAME}：${mood.name}】${mood.instruction}`;

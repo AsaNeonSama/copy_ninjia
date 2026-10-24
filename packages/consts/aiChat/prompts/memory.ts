@@ -82,6 +82,9 @@ export const TRANSCRIPT_FORMAT_INSTRUCTION: string =
 
 /**
  * 直接唤起者的身份声明，由 promptContext.ts 拼在回复任务正文的第一行（句式同时被 REPLY_CONTEXT_STRUCTURE_INSTRUCTION 引用）。
+ * @param invoker 唤起者的完整身份显示段。
+ * @param rosterCode 唤起者在发言人名册中的编号；不在名册中时为空串。
+ * @returns 直接唤起者的身份声明文本。
  */
 export function directInvokerSentence(invoker: string, rosterCode: string): string {
   return rosterCode
@@ -147,6 +150,8 @@ export const SUMMARY_SYSTEM_PROMPT: string =
 /**
  * 压缩摘要 userContent 开头的自我说明：哪个 id 是机器人本人，摘要里统一怎么称呼它。
  * 机器人身份尚未就绪时调用方整段省略。所属模块：workers/aiChat/compaction.ts。
+ * @param selfId 机器人自身的 Telegram 账号 ID。
+ * @returns 压缩摘要请求开头的自我身份说明文本。
  */
 export function summarySelfNote(selfId: number): string {
   return `注意：[id:${selfId}] 是群里聊天机器人本人的发言，摘要里统一以「${SELF_SPEAKER_NAME}」称呼它。\n\n`;

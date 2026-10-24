@@ -18,7 +18,11 @@ export const antiRaidTaskTrackerGeneration: { current: number } = { current: 0 }
  */
 export const antiRaidDispatchAbort: { current: AbortController | null } = { current: null };
 
-/** 获取尽力而为请求共用的停机取消信号；控制器未创建时懒初始化。 */
+/**
+ * 获取尽力而为请求共用的停机取消信号；控制器未创建时懒初始化。
+ *
+ * @returns 当前代际尽力而为请求的取消信号
+ */
 export function antiRaidDispatchSignal(): AbortSignal {
   antiRaidDispatchAbort.current ??= new AbortController();
   return antiRaidDispatchAbort.current.signal;

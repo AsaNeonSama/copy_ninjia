@@ -33,6 +33,10 @@ export interface FixturePathBoundary {
  *
  * 首个 ENOENT 之后的分量按「尚不存在」处理并结束核对：那一段不存在时它下面也
  * 不可能存在。ENOTDIR、EACCES、ELOOP 等其它错误一律拒绝，不猜测是不是缺省。
+ *
+ * @param from 起始锚点或父目录路径（不含在核对段内）
+ * @param to 终点目标路径（含在核对段内）
+ * @param boundary 受控写入边界配置
  */
 function assertUnlinkedComponents(
   from: string,
@@ -67,6 +71,9 @@ function assertUnlinkedComponents(
 /**
  * 核对一条目标路径：先是词法落在根内，再是锚点到根、根到目标的现存分量都不是
  * 软链接。建目录、复制和写文件前一律先过这里。
+ *
+ * @param path 待核对的目标路径
+ * @param boundary 受控写入边界配置
  */
 export function assertUnlinkedFixturePath(
   path: string,
@@ -86,6 +93,9 @@ export function assertUnlinkedFixturePath(
 /**
  * 删除前只核对父链。末端本身是软链接时只摘链接、不碰目标，不纳入核对；
  * 中间任何一段是链接都拒绝。
+ *
+ * @param path 待删除的目标路径
+ * @param boundary 受控写入边界配置
  */
 export function assertUnlinkedFixtureParent(
   path: string,

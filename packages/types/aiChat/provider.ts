@@ -199,10 +199,13 @@ export interface AiVoiceRequest {
 
 /** 生图请求。 */
 export interface AiImageRequest {
+  /** 生图提示词正文。 */
   readonly prompt: string;
+  /** 目标图片画幅比例。 */
   readonly aspectRatio: ImageGenerationAspectRatio;
   /** 按顺序交给图片模型的参考图；空数组表示按文字从零生成。 */
   readonly referenceImages: readonly VisionImage[];
+  /** 终止排队与生图请求的信号。 */
   readonly signal?: AbortSignal;
 }
 
@@ -212,10 +215,13 @@ export interface AiImageRequest {
  * aiChat/ai/utils/speechStyle.ts）；没有风格指令字段的线协议（xai）两者都不发送。
  */
 export interface AiSpeechRequest {
+  /** 待合成朗读的台词文本。 */
   readonly text: string;
   /** 按 `agent.tts.bot_language` 取的朗读语言要求；只有 AI 回复的 send_voice 带，`/send` 与 cron 不带。 */
   readonly languageStyle?: string;
+  /** 本句附加的说话语气指令。 */
   readonly tone?: string;
+  /** 终止排队与语音合成请求的信号。 */
   readonly signal?: AbortSignal;
 }
 
@@ -296,6 +302,7 @@ export interface AiReplySessionParams {
    * （Anthropic）据此把该区块切成多个文本块，其余实现不读，请求内容不变。缺省按没有切点处理。
    */
   readonly conversationSettledOffsets?: readonly number[];
+  /** 终止本轮回复会话内供应商请求的取消信号。 */
   readonly signal?: AbortSignal;
 }
 

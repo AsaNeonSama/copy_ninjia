@@ -19,10 +19,7 @@ import { reportAiCacheUsage, warnAiUsageUnavailable } from "../../infra/aiCacheU
 import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
 import { classifyAiTextFailure, finalizeAiTextResult } from "../ai/utils/textResult";
 import type { AiRequestFailureKind } from "../ai/utils/textResult";
-import {
-  classifyProviderApiFailure,
-  numericErrorStatus,
-} from "../ai/utils/mediaSupportError";
+import { logAndClassifyProviderApiError } from "../ai/utils/mediaSupportError";
 import type { ProviderApiFailureKind } from "../ai/utils/mediaSupportError";
 import { getOpenAiClient, requestOpenAiTextResult } from "./client";
 import type {
@@ -33,7 +30,11 @@ import type {
   AiVoiceRequest,
 } from "../../types/aiChat/provider";
 
-/** 使用 `summary` 能力生成摘要文本。 */
+/**
+ * 使用 `summary` 能力生成摘要文本。
+ * @param request 摘要文本生成请求参数。
+ * @returns 清洗后的摘要文本结果。
+ */
 export function generateOpenAiText(request: AiTextRequest): Promise<AiTextResult> {
   return requestOpenAiTextResult({
     capability: "summary",
@@ -52,7 +53,11 @@ export function generateOpenAiText(request: AiTextRequest): Promise<AiTextResult
   });
 }
 
-/** 使用 `text` 能力生成 JSON 对象格式的结构化文本。 */
+/**
+ * 使用 `text` 能力生成 JSON 对象格式的结构化文本。
+ * @param request 结构化 JSON 生成请求参数。
+ * @returns 去除首尾空白后的 JSON 文本结果。
+ */
 export function generateOpenAiJson(request: AiJsonRequest): Promise<AiTextResult> {
   return requestOpenAiTextResult({
     capability: "text",
@@ -70,7 +75,11 @@ export function generateOpenAiJson(request: AiJsonRequest): Promise<AiTextResult
   });
 }
 
-/** 使用 `media` 能力对 data URI 内联图片生成视觉描述。 */
+/**
+ * 使用 `media` 能力对 data URI 内联图片生成视觉描述。
+ * @param request 视觉描述生成请求参数。
+ * @returns 清洗后的图片描述文本结果。
+ */
 export function describeOpenAiVision(request: AiVisionRequest): Promise<AiTextResult> {
   return requestOpenAiTextResult({
     capability: "media",
@@ -98,11 +107,20 @@ export function describeOpenAiVision(request: AiVisionRequest): Promise<AiTextRe
   });
 }
 
+/**
+ * 检查语音转写请求的取消信号是否已触发。
+ * @param request 语音转写请求参数。
+ * @returns 已取消时返回 `true`，否则返回 `false`。
+ */
 function isVoiceRequestAborted(request: AiVoiceRequest): boolean {
   return request.signal?.aborted === true;
 }
 
-/** 使用 `media` 能力调用 `audio.transcriptions` 进行语音转写并分类错误。 */
+/**
+ * 使用 `media` 能力调用 `audio.transcriptions` 进行语音转写并分类错误。
+ * @param request 语音转写请求参数。
+ * @returns 清洗后的语音转写文本结果及失败可重试标记。
+ */
 export async function transcribeOpenAiVoice(request: AiVoiceRequest): Promise<AiTextResult> {
   if (isVoiceRequestAborted(request)) return { ok: false, retryable: false };
   try {
@@ -146,10 +164,11 @@ export async function transcribeOpenAiVoice(request: AiVoiceRequest): Promise<Ai
     if (isVoiceRequestAborted(request)) return { ok: false, retryable: false };
     let failureKind: AiRequestFailureKind = "request";
     if (error instanceof OpenAI.APIError) {
-      const status: number | undefined = numericErrorStatus(error);
-      logger.error(`${request.errorLabel} error: ${error.message}`);
-      const providerFailure: ProviderApiFailureKind =
-        classifyProviderApiFailure(status, error.message, true);
+      const providerFailure: ProviderApiFailureKind = logAndClassifyProviderApiError({
+        error,
+        errorLabel: request.errorLabel,
+        isMediaCapability: true,
+      });
       if (providerFailure !== "endpointFailure") failureKind = providerFailure;
     } else {
       logger.error(`Error calling ${request.errorLabel}:`, error);

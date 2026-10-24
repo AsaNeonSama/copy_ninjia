@@ -87,8 +87,9 @@ export interface ExpellingVerificationSnapshot
 
 /**
  * pending 验证的纯数据快照。主线程持有镜像、Disk I/O Worker 按日落盘；
- * 计时器、Promise 和 API 在途状态由业务 Worker 按 expiresAt 重建。phase
- * 同时约束每类终态的必填/禁用字段，非法恢复组合不能在类型层构造。
+ * 计时器、Promise 和 API 在途状态由业务 Worker 按 expiresAt 重建。类型只约束终态专属字段；
+ * 基础字段（`trackedMessageTimes`、`invitedBy`、`replyReminderRequested` 等）跨 phase 的一致性由
+ * `workers/diskIO/verificationCodec.ts`（`hasConsistentPendingFacts`）运行时校验。
  */
 export type VerificationSnapshot =
   | PendingVerificationSnapshot

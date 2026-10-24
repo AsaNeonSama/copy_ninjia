@@ -29,6 +29,8 @@ export class BoundedDeque<T> {
   /**
    * 从队首偏移 offset 的槽位。`head + offset` 恒小于 `2 * values.length`，
    * 一次条件减即可折回环内。
+   * @param offset 相对于队首的偏移量（0 起算）。
+   * @returns 环形数组中的物理下标。
    */
   private slotAt(offset: number): number {
     const length: number = this.values.length;
@@ -36,7 +38,10 @@ export class BoundedDeque<T> {
     return index >= length ? index - length : index;
   }
 
-  /** 追加一个引用；已达构造时的硬上限时抛 RangeError。 */
+  /**
+   * 追加一个引用；已达构造时的硬上限时抛 RangeError。
+   * @param value 待追加到队尾的元素引用。
+   */
   push(value: T): void {
     if (this.count === this.values.length) {
       if (this.count === this.maxCapacity) {
@@ -48,12 +53,18 @@ export class BoundedDeque<T> {
     this.count += 1;
   }
 
-  /** 返回队首但不移除；队列为空时返回 undefined。 */
+  /**
+   * 返回队首但不移除；队列为空时返回 undefined。
+   * @returns 队首元素；队列为空时返回 undefined。
+   */
   peek(): T | undefined {
     return this.count === 0 ? undefined : this.values[this.head];
   }
 
-  /** 移除并返回队首，同时立即解除 backing array 对该值的引用。 */
+  /**
+   * 移除并返回队首，同时立即解除 backing array 对该值的引用。
+   * @returns 被移除的队首元素；队列为空时返回 undefined。
+   */
   shift(): T | undefined {
     if (this.count === 0) return undefined;
     const value: T | undefined = this.values[this.head];
@@ -65,7 +76,11 @@ export class BoundedDeque<T> {
     return value;
   }
 
-  /** 返回队尾最近的 n 项快照，保持入队顺序。 */
+  /**
+   * 返回队尾最近的 n 项快照，保持入队顺序。
+   * @param n 需要读取的队尾元素最大数量。
+   * @returns 按入队顺序排列的队尾最多 n 项元素副本数组。
+   */
   last(n: number): T[] {
     const length: number = Math.max(0, Math.min(this.count, n));
     const output: T[] = new Array<T>(length);
@@ -85,6 +100,7 @@ export class BoundedDeque<T> {
     this.count = 0;
   }
 
+  /** 将底层环形数组容量翻倍（不超过 maxCapacity）并按队首顺序重排现有元素。 */
   private grow(): void {
     const previous: (T | undefined)[] = this.values;
     const nextCapacity: number = Math.min(

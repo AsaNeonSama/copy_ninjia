@@ -16,14 +16,23 @@ import type { CommandExecutorRuntime } from "../../types/commandExecutor";
 import type { WedMemberReview, WedMemberState } from "../../types/wed";
 import { removeWedMember } from "./persistence";
 
+/** 复核单个群 `/wed` 成员集合的参数。 */
 interface ReviewChatWedMembersOptions {
+  /** 成员复核运行时状态。 */
   readonly review: WedMemberReview;
+  /** 目标群 ID。 */
   readonly chatId: number;
+  /** 群成员集合持久化状态。 */
   readonly state: WedMemberState;
+  /** 下一次允许发起查询的单调时钟毫秒数。 */
   readonly nextCheckAt: number;
 }
 
-/** 复核一个群快照里的成员，返回更新后的全局下一次允许查询时刻。 */
+/**
+ * 复核一个群快照里的成员，返回更新后的全局下一次允许查询时刻。
+ * @param options 复核运行时状态（`review`）、目标群 ID（`chatId`）、群成员集合状态（`state`）与初始下一次允许查询时刻（`nextCheckAt`）。
+ * @returns 更新后的全局下一次允许查询时刻。
+ */
 async function reviewChatWedMembers({
   review,
   chatId,
@@ -61,13 +70,13 @@ async function reviewChatWedMembers({
 }
 
 /**
- * 逐群快照，串行查询并限制全局起始频率；只删除确认离群（含 Telegram 以
- * PARTICIPANT_ID_INVALID 拒绝该用户 ID）且没有新在群观察的成员。
- * 某群集合在复核期间被替换或清除时只结束该群，继续下一个群；整轮只因
- * `review.controller` 取消而提前结束。
- * 查询用 getChatMember，只对群管理员机器人保证可用；查询失败即保留成员，见
- * docs/cn/04-invariants.md。本群拒绝成员查询本身（机器人不在群、或只允许管理员查询
- * 他人）时同群其余查询必然同样失败，只查这一次即结束该群本轮，成员全部保留。
+ * 按群遍历当前记录的 `/wed` 成员快照，串行调用 `getChatMember` 复核在群状态并限制全局查询间隔；
+ * 仅移除确认已不在群（含 Telegram 以 `PARTICIPANT_ID_INVALID` 拒绝该用户 ID）且查询期间未在群内重新发言的成员。
+ *
+ * 某个群的成员集合在复核期间被替换或清除时，仅终止该群本轮复核并继续处理下一个群；
+ * 整轮任务只在 `review.controller` 取消时提前结束。查询失败或群拒绝成员查询（机器人不在群或权限不足）时
+ * 结束该群本轮复核并保留原有成员（见 docs/cn/04-invariants.md）。
+ * @param review 成员复核运行时状态。
  */
 async function reviewWedMembers(review: WedMemberReview): Promise<void> {
   let nextCheckAt: number = 0;
@@ -83,7 +92,11 @@ async function reviewWedMembers(review: WedMemberReview): Promise<void> {
   }
 }
 
-/** 接纳统一午夜通知；启动未就绪时暂存，整轮运行中不叠加任务。 */
+/**
+ * 接收 Disk I/O 午夜维护通知并触发 `/wed` 成员在群复核；
+ * 启动尚未就绪时先暂存日期键，等待 `enableWedMemberReview` 补跑，且同一自然日或正在运行期间不重复叠加任务。
+ * @param day 午夜通知对应的日期键（`YYYY-MM-DD`）。
+ */
 function requestWedMemberReview(day: string): void {
   const runtime: CommandExecutorRuntime | null = wedRuntime.current;
   const review: WedMemberReview | null = wedMemberReview.current;

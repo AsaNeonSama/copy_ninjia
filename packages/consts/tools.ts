@@ -137,7 +137,11 @@ export const TOOL_BUDGET_EXHAUSTED_RESULT: string = JSON.stringify({
   unavailable: "Tool budget exhausted for this reply; stop calling tools and finish now",
 });
 
-/** 模型调用了本轮工具集之外的名字时的统一错误文案（静态与按次组装的两个 dispatch 共用）。 */
+/**
+ * 模型调用了本轮工具集之外的名字时的统一错误文案（静态与按次组装的两个 dispatch 共用）。
+ * @param name 模型请求调用的未知工具名称。
+ * @returns 未知工具错误提示字符串。
+ */
 export function unknownToolError(name: string): string {
   return `Unknown tool: ${name}`;
 }

@@ -1,7 +1,11 @@
 import { diskIORuntime } from "../../cache/main/diskIO";
 import { writeDiskIODiagnostic } from "../../workers/diskIO/diagnosticSink";
 
-/** 每代宿主只通知一次致命存储故障；已接收事实保留到生命周期最终 flush。 */
+/**
+ * 每代宿主只通知一次致命存储故障；已接收事实保留到生命周期最终 flush。
+ *
+ * @param error 触发致命存储故障的错误实例。
+ */
 export function signalDiskIOFatal(error: Error): void {
   if (diskIORuntime.fatalSignaled) return;
   diskIORuntime.fatalSignaled = true;

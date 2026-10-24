@@ -32,7 +32,6 @@ const reloadedAdDetect: AdDetectAgentConfig = {
   provider: "openai",
   apiKey: "reloaded-ad-key",
   baseUrl: "https://ad.example/v1",
-  headers: undefined,
   model: "reloaded-ad-model",
 };
 
@@ -87,7 +86,6 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       provider: "google",
       apiKey: "google-ad-key",
       baseUrl: undefined,
-      headers: undefined,
       model: "gemini-4-argon",
     };
     adDetectAgentConfigCache.current = { ...reloadedAdDetect };

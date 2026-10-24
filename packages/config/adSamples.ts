@@ -5,7 +5,12 @@ import { invalidInput, readJsonInput } from "../libs/inputValidation";
 import { sanitizeInline } from "../libs/text";
 import type { AdSampleConfig } from "../types/config";
 
-/** 严格解码 ad_samples.json：顶层必须是字符串数组，拒绝空串、超长与重复。 */
+/**
+ * 严格解码 ad_samples.json：顶层必须是字符串数组，拒绝空串、超长与重复。
+ * @param value 待校验的原始 JSON 值。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 规范化并去重后的广告示例数组。
+ */
 export function parseAdSampleConfig(
   value: unknown,
   sourcePath: string = AD_SAMPLES_CONFIG_PATH
@@ -41,7 +46,10 @@ export function parseAdSampleConfig(
   return samples;
 }
 
-/** 从 AD_SAMPLES_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。 */
+/**
+ * 从 AD_SAMPLES_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。
+ * @returns 已通过校验的广告示例配置。
+ */
 export async function loadAdSampleConfig(): Promise<AdSampleConfig> {
   return parseAdSampleConfig(await readJsonInput(AD_SAMPLES_CONFIG_PATH), AD_SAMPLES_CONFIG_PATH);
 }
@@ -49,6 +57,7 @@ export async function loadAdSampleConfig(): Promise<AdSampleConfig> {
 /**
  * 接管已经严格校验的广告示例快照：启动预检、Worker 初始化消息或 config/dynamic/ 热重载。
  * null 只来自主线程热重载，表示部署方删除了该文件。
+ * @param config 已校验的广告示例配置，或表示文件已移除的 null。
  */
 export function adoptAdSampleConfig(config: AdSampleConfig | null): void {
   defaultAdSampleConfigCache.current = config;
@@ -60,7 +69,10 @@ export async function ensureAdSampleConfig(): Promise<void> {
   adoptAdSampleConfig(await loadAdSampleConfig());
 }
 
-/** 默认广告示例只读当前线程已校验的快照，不在运行期回退读盘。 */
+/**
+ * 默认广告示例只读当前线程已校验的快照，不在运行期回退读盘。
+ * @returns 当前线程已接管的广告示例配置。
+ */
 export function getAdSampleConfig(): AdSampleConfig {
   const config: AdSampleConfig | null = defaultAdSampleConfigCache.current;
   if (config === null) {

@@ -4,43 +4,35 @@ import {
   telegramOutboundAccepting,
   telegramOutboundGateState,
 } from "../../cache/main/telegram";
-import {
-  TELEGRAM_429_RECOVERY_MAX_CONCURRENT,
-  TELEGRAM_TIMER_MAX_DELAY_MS,
-} from "../../consts/telegram";
 import type {
   CreateTelegramOutboundJobOptions,
   TelegramCategorizedRequestOptions,
   TelegramOutboundJob,
   TelegramRetryCategory,
-  TelegramRetryLane,
 } from "../../types/telegramOutbound";
 import { TelegramRetryPreconditionChangedError } from "./errors";
 import {
-  telegramRetryAfterMilliseconds,
-  telegramRetryCategoryFor,
-  TelegramRetryQueueFullError,
-} from "./outboundRetryPolicy";
-import {
-  enqueueRetryJob,
-  laneFor,
-  removeRetryJob,
-  takeRetryHead,
-} from "./outboundQueue";
+  abortJob,
+  enqueueOrStart,
+  resetRecoveryIfIdle,
+} from "./outboundRetryLane";
+import { telegramRetryCategoryFor } from "./outboundRetryPolicy";
 import {
   abortReason,
-  detachAbortListener,
   jobAbortReason,
-  releaseResponseBody,
-  settleDrainWaitersIfIdle,
 } from "./outboundSettle";
-import { abortSendJob, admitSendJob } from "./sendScheduler";
-import { toErrorOr } from "../../libs/errorMessage";
+import { admitSendJob } from "./sendScheduler";
 import { telegramSignal } from "../../libs/telegramSignal";
-import { logger } from "../logger";
+
+export { abortJob, resetRecoveryIfIdle };
 
 type PreviousCall = Parameters<Transformer<RawApi>>[0];
 type UnbanChatMemberPayload = Parameters<RawApi["unbanChatMember"]>[0];
+/**
+ * 判断 Bot API 原始响应是否为携带成员状态字段的成功对象。
+ * @param response 待检查的原始响应。
+ * @returns 满足成功结构且含字符串 status 时返回 true，否则返回 false。
+ */
 function isRawSuccess(response: unknown): response is Readonly<{
   ok: true;
   result: Readonly<{ status: string }>;
@@ -56,6 +48,9 @@ function isRawSuccess(response: unknown): response is Readonly<{
  * 超级群的纯踢出由不带 only_if_banned 的 unbanChatMember 实现；每次重放前先经
  * getChatMember 确认目标仍在群，目标已是 left 或 kicked 时抛
  * TelegramRetryPreconditionChangedError。
+ * @param previous grammY 下游调用函数。
+ * @param payload unbanChatMember 的调用参数。
+ * @param signal 任务取消信号。
  */
 async function revalidateUnbanKickRetry(
   previous: PreviousCall,
@@ -87,7 +82,11 @@ async function revalidateUnbanKickRetry(
   }
 }
 
-/** 把调用方取消与当前出站 owner 代际合并，并把生命周期信号传到真实网络层。 */
+/**
+ * 把调用方取消与当前出站 owner 代际合并，并把生命周期信号传到真实网络层。
+ * @param signal 调用方传入的取消信号。
+ * @returns 合并当前出站生命周期后的取消信号。
+ */
 function outboundSignal(signal: AbortSignal | undefined): AbortSignal {
   const lifecycleSignal: AbortSignal =
     telegramOutboundAbortController.current.signal;
@@ -95,272 +94,12 @@ function outboundSignal(signal: AbortSignal | undefined): AbortSignal {
   return AbortSignal.any([signal, lifecycleSignal]);
 }
 
-function scheduleRetryTimer(
-  category: TelegramRetryCategory,
-  lane: TelegramRetryLane
-): void {
-  const remainingMs: number = Math.max(
-    0,
-    Math.ceil(lane.retryAt - performance.now())
-  );
-  const delayMs: number = Math.min(remainingMs, TELEGRAM_TIMER_MAX_DELAY_MS);
-  const timer: ReturnType<typeof setTimeout> = setTimeout(
-    onRetryTimer,
-    delayMs,
-    category
-  );
-  timer.unref();
-  lane.retryTimer = timer;
-}
-
-function onRetryTimer(category: TelegramRetryCategory): void {
-  const lane: TelegramRetryLane = laneFor(category);
-  lane.retryTimer = null;
-  if (telegramOutboundAbortController.current.signal.aborted) {
-    lane.retryAt = 0;
-    lane.recovering = false;
-    lane.recoveryLimit = 1;
-    settleDrainWaitersIfIdle();
-    return;
-  }
-  if (lane.retryAt > performance.now()) {
-    scheduleRetryTimer(category, lane);
-    return;
-  }
-  lane.retryAt = 0;
-  lane.recovering = true;
-  pumpRetryLane(lane);
-}
-
-/**
- * 按真实限流响应设定或延长类别的退避截止；不晚于已排期截止的响应不改状态。开始一段新的
- * 等待（此前没有排期中的退避 timer）时记一条 warn，等待期间的后续限流响应不重复记录。
- */
-function extendRetry(
-  category: TelegramRetryCategory,
-  retryAfterMs: number
-): void {
-  const lane: TelegramRetryLane = laneFor(category);
-  const retryAt: number = performance.now() + retryAfterMs;
-  if (
-    lane.retryTimer !== null &&
-    retryAt <= lane.retryAt
-  ) return;
-  if (lane.retryTimer === null) {
-    logger.warn(`Telegram ${category} requests hit 429; backing off for ${retryAfterMs} ms.`);
-  }
-  lane.retryAt = retryAt;
-  lane.recovering = true;
-  lane.recoveryLimit = 1;
-  if (lane.retryTimer !== null) {
-    clearTimeout(lane.retryTimer);
-    lane.retryTimer = null;
-  }
-  scheduleRetryTimer(category, lane);
-}
-
-function releaseActiveJob(job: TelegramOutboundJob): TelegramRetryLane {
-  const lane: TelegramRetryLane = laneFor(job.category);
-  telegramOutboundGateState.activeJobs.delete(job);
-  telegramOutboundGateState.activeCount--;
-  lane.activeCount--;
-  if (job.fromRetryQueue) {
-    lane.recoveryActive--;
-    job.fromRetryQueue = false;
-  }
-  return lane;
-}
-
-export function resetRecoveryIfIdle(lane: TelegramRetryLane): void {
-  if (
-    lane.head !== null ||
-    lane.recoveryActive !== 0
-  ) return;
-  if (lane.retryTimer !== null) {
-    if (
-      telegramOutboundAccepting.current &&
-      !telegramOutboundAbortController.current.signal.aborted
-    ) return;
-    clearTimeout(lane.retryTimer);
-    lane.retryTimer = null;
-  }
-  lane.retryAt = 0;
-  lane.recovering = false;
-  lane.recoveryLimit = 1;
-}
-
-/**
- * 结算一个仍然 active 的任务。调用方 handleActiveResponse 已在同一个同步
- * 片段里确认过状态，这里不再复判；非 active 的响应由 handleActiveResponse
- * 统一释放 body。
- */
-function resolveActiveJob(job: TelegramOutboundJob, response: unknown): void {
-  const wasRecovery: boolean = job.fromRetryQueue;
-  const lane: TelegramRetryLane = releaseActiveJob(job);
-  job.state = "settled";
-  detachAbortListener(job);
-  job.resolve(response);
-  if (
-    wasRecovery &&
-    lane.retryTimer === null &&
-    lane.recoveryLimit < TELEGRAM_429_RECOVERY_MAX_CONCURRENT
-  ) lane.recoveryLimit++;
-  pumpRetryLane(lane);
-  resetRecoveryIfIdle(lane);
-  settleDrainWaitersIfIdle();
-}
-
-function rejectActiveJob(job: TelegramOutboundJob, error: unknown): void {
-  if (job.state !== "active") return;
-  const lane: TelegramRetryLane = releaseActiveJob(job);
-  job.state = "settled";
-  detachAbortListener(job);
-  job.reject(error);
-  pumpRetryLane(lane);
-  resetRecoveryIfIdle(lane);
-  settleDrainWaitersIfIdle();
-}
-
-/**
- * 从任一阶段只结算一次取消；非发送类只有 active/retryQueued 占着队列或并发计数，已接纳的
- * 发送类交给发送调度器。交给调用方的错误按 jobAbortReason 区分超时与取消。
- */
-export function abortJob(job: TelegramOutboundJob): void {
-  if (job.sendLane !== null) {
-    abortSendJob(job);
-    return;
-  }
-  if (job.state === "settled") return;
-  const lane: TelegramRetryLane = laneFor(job.category);
-  if (job.state === "retryQueued") removeRetryJob(job);
-  else if (job.state === "active") releaseActiveJob(job);
-  job.state = "settled";
-  detachAbortListener(job);
-  job.reject(jobAbortReason(job.signal));
-  if (!telegramOutboundGateState.aborting) pumpRetryLane(lane);
-  resetRecoveryIfIdle(lane);
-  settleDrainWaitersIfIdle();
-}
-
-function handleActiveResponse(job: TelegramOutboundJob, response: unknown): void {
-  if (job.state !== "active") {
-    releaseResponseBody(response);
-    return;
-  }
-  const retryAfterMs: number | undefined = telegramRetryAfterMilliseconds(response);
-  if (retryAfterMs === undefined) {
-    resolveActiveJob(job, response);
-    return;
-  }
-  const lane: TelegramRetryLane = releaseActiveJob(job);
-  if (job.signal.aborted) {
-    // 调用方在限流响应返回的同时取消：不重排也不交给调用方，在此释放 body。
-    releaseResponseBody(response);
-    job.state = "settled";
-    detachAbortListener(job);
-    job.reject(jobAbortReason(job.signal));
-  } else if (enqueueRetryJob(job)) {
-    // 按接纳序号回到原有 FIFO 位置，下一次尝试取新响应，本次响应丢弃。
-    releaseResponseBody(response);
-  } else {
-    // 队列已满：原样把限流响应交给调用方，body 所有权随之转移，这里不释放。
-    job.state = "settled";
-    detachAbortListener(job);
-    job.resolve(response);
-  }
-  extendRetry(job.category, retryAfterMs);
-  pumpRetryLane(lane);
-  resetRecoveryIfIdle(lane);
-  settleDrainWaitersIfIdle();
-}
-
-function executeActiveJob(job: TelegramOutboundJob): void {
-  if (job.state !== "active") return;
-  let request: Promise<unknown>;
-  try {
-    request = job.call(job.signal);
-  } catch (error: unknown) {
-    rejectActiveJob(job, toErrorOr(error, "Telegram outbound call threw."));
-    return;
-  }
-  void request.then(
-    (response: unknown): void => handleActiveResponse(job, response),
-    (error: unknown): void => rejectActiveJob(job, error)
-  );
-}
-
-/**
- * 把任务切成 active 并发起尝试。两个调用方（enqueueOrStart、pumpRetryLane）都在同一个
- * 同步片段里确认过 job 信号未取消，这里不复判；之后的取消由 abort 监听结算。
- */
-function startJob(job: TelegramOutboundJob, fromRetryQueue: boolean): void {
-  const lane: TelegramRetryLane = laneFor(job.category);
-  job.state = "active";
-  job.fromRetryQueue = fromRetryQueue;
-  telegramOutboundGateState.activeCount++;
-  lane.activeCount++;
-  telegramOutboundGateState.activeJobs.add(job);
-  if (fromRetryQueue) lane.recoveryActive++;
-  if (fromRetryQueue && job.beforeRetry !== undefined) {
-    let precondition: Promise<void>;
-    try {
-      precondition = job.beforeRetry();
-    } catch (error: unknown) {
-      rejectActiveJob(job, error);
-      return;
-    }
-    void precondition.then(
-      (): void => executeActiveJob(job),
-      (error: unknown): void => rejectActiveJob(job, error)
-    );
-    return;
-  }
-  executeActiveJob(job);
-}
-
-function pumpRetryLane(lane: TelegramRetryLane): void {
-  if (telegramOutboundGateState.aborting) return;
-  if (lane.retryTimer !== null || !lane.recovering) return;
-  while (lane.recoveryActive < lane.recoveryLimit) {
-    const job: TelegramOutboundJob | null = takeRetryHead(lane);
-    if (job === null) break;
-    if (job.signal.aborted) {
-      job.state = "settled";
-      detachAbortListener(job);
-      job.reject(jobAbortReason(job.signal));
-      continue;
-    }
-    startJob(job, true);
-  }
-  resetRecoveryIfIdle(lane);
-  settleDrainWaitersIfIdle();
-}
-
-/**
- * 新接纳的任务：所在类别正在退避或已有积压时按接纳序号排进退避 FIFO，否则直接开始。
- * 调用方（runTelegramCategorizedRequestInternal、telegramOutboundGate）在构造 job 前的
- * 同一个同步片段里已判过接纳状态与信号，这里不复判。
- */
-function enqueueOrStart(job: TelegramOutboundJob): void {
-  const lane: TelegramRetryLane = laneFor(job.category);
-  if (
-    lane.retryTimer !== null ||
-    lane.recovering ||
-    lane.head !== null
-  ) {
-    if (enqueueRetryJob(job)) return;
-    detachAbortListener(job);
-    job.state = "settled";
-    job.reject(new TelegramRetryQueueFullError());
-    return;
-  }
-  startJob(job, false);
-}
-
 /**
  * 出站 job 的唯一构造点：按固定顺序一次初始化全部字段（含递增的接纳序号），
  * 再挂上一次性 abort 监听。每条出站请求都经过这里，字段集合与顺序不得在调用点
  * 各自展开。
+ * @param options 出站任务构造选项。
+ * @returns 初始化并挂载 abort 监听后的出站任务。
  */
 function createOutboundJob({
   signal,
@@ -391,7 +130,12 @@ function createOutboundJob({
   return job;
 }
 
-/** 分类请求的唯一构造点；quiesce 例外只供本文件内已接纳请求的前置复核。 */
+/**
+ * 分类请求的唯一构造点；quiesce 例外只供本文件内已接纳请求的前置复核。
+ * @param options 分类请求选项。
+ * @param allowDuringQuiesce 是否允许在静默排空阶段接纳。
+ * @returns 请求兑现结果。
+ */
 function runTelegramCategorizedRequestInternal<T>({
   category,
   execute,
@@ -421,6 +165,8 @@ function runTelegramCategorizedRequestInternal<T>({
  * 让 Telegram 文件下载（download）与外部抓取（externalFetch）等非 Bot API HTTP 请求
  * 复用同一组分类型退避队列与出站生命周期。execute 只能发起一次尝试；返回限流响应时
  * 调度器会在对应域内重新调用它。
+ * @param options 分类请求选项。
+ * @returns 请求兑现结果。
  */
 export function runTelegramCategorizedRequest<T>(
   options: TelegramCategorizedRequestOptions<T>
@@ -429,9 +175,10 @@ export function runTelegramCategorizedRequest<T>(
 }
 
 /**
- * 主线程唯一 Telegram 出站闸门。发送类（isTelegramMessageRequest）交给每聊天发送调度器
- * （./sendScheduler.ts）按 Telegram 公开限额主动控速、按聊天冻结限流退避；其余请求直接执行，
- * 某一类别真实收到限流响应后，仅该类别按 retry_after 排队并渐进恢复。
+ * 主线程唯一 Telegram 出站闸门：经 `telegramRetryCategoryFor(method)` 分类后，`message` 类别交给每聊天发送调度器
+ * （`./sendScheduler.ts` 的 `admitSendJob`）按公开限额控速与按聊天冻结退避；其余类别交给分类型退避车道
+ * （`./outboundRetryLane.ts` 的 `enqueueOrStart`），收到限流响应后仅在该类别内按 `retry_after` 排队并渐进恢复。
+ * @returns 安装到 grammY 客户端的出站闸门 transformer。
  */
 export function telegramOutboundGate(): Transformer<RawApi> {
   // grammY 的 transformer 固定为四参数泛型回调，参数类型由 Transformer 完整约束。

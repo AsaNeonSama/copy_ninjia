@@ -46,7 +46,7 @@ async function fixture(options: BinaryFixtureOptions = {}): Promise<{
     cmd: ["tar", "-czf", archive, "copy-ninjia"], cwd: join(root, "assets"),
   });
   expect(tar.exitCode).toBe(0);
-  const hash: string = new Bun.CryptoHasher("sha256").update(await Bun.file(archive).arrayBuffer()).digest("hex");
+  const hash: string = Bun.SHA256.hash(await Bun.file(archive).bytes(), "hex");
   await Bun.write(`${archive}.sha256`, `${options.corrupt ? "0".repeat(64) : hash}  ${assetName}\n${options.malformedChecksum ? "unexpected line\n" : ""}`);
   await executable(join(bin, "curl"), `
 printf 'curl:%s\n' "$*" >> "$CALL_LOG"

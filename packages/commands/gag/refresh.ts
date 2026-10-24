@@ -8,7 +8,11 @@ import type { GagSession } from "../../types/gag";
 import { releaseGagNoticeSlot, sendGagSpeakNotice } from "./notices";
 import { findGagSession } from "./owner";
 
-/** 发送与每个异步结算点都核对 owner、停机闸门与绝对到期时间。 */
+/**
+ * 发送与每个异步结算点都核对当前登记的会话实例、停机闸门与绝对到期时间。
+ * @param session 待核对的 gag 会话。
+ * @returns 会话仍处于可刷新发言入口的活动状态时返回 true。
+ */
 function canRefreshGagSpeakNotice(session: GagSession): boolean {
   return gagRuntimeAccepting.current &&
     findGagSession(session.chatId, session.targetId) === session &&
@@ -16,20 +20,29 @@ function canRefreshGagSpeakNotice(session: GagSession): boolean {
     session.expiresAt > Date.now();
 }
 
-/** 撤销当前入口的定时换新；结束与停机边界见 docs/cn/04-invariants.md。 */
+/**
+ * 撤销当前入口的定时换新；结束与停机边界见 docs/cn/04-invariants.md。
+ * @param session 当前 gag 会话。
+ */
 export function clearGagSpeakNoticeRefreshTimer(session: GagSession): void {
   if (session.speakNoticeRefreshTimer === null) return;
   clearTimeout(session.speakNoticeRefreshTimer);
   session.speakNoticeRefreshTimer = null;
 }
 
-/** 用户专属入口定时补发；与群消息换新共用单一在途任务及入口槽位。 */
+/**
+ * 用户专属入口定时补发；与群消息换新共用单一在途任务及入口槽位。
+ * @param session 触发定时补发的 gag 会话。
+ */
 function refreshGagSpeakNoticeFromTimer(session: GagSession): void {
   session.speakNoticeRefreshTimer = null;
   refreshGagSpeakNotice(session, session.speakNoticeThreadId);
 }
 
-/** 激活及换新结算后安装唯一 unref timer；频道公开入口只按消息数换新。 */
+/**
+ * 激活及换新结算后安装唯一 unref timer；频道公开入口只按消息数换新。
+ * @param session 当前 gag 会话。
+ */
 export function scheduleGagSpeakNoticeRefresh(session: GagSession): void {
   clearGagSpeakNoticeRefreshTimer(session);
   if (
@@ -46,7 +59,11 @@ export function scheduleGagSpeakNoticeRefresh(session: GagSession): void {
   session.speakNoticeRefreshTimer.unref();
 }
 
-/** 删除上一次换新遗留的旧入口；失败时保留在 retired 槽位。 */
+/**
+ * 删除上一次换新遗留的旧入口；失败时保留在 retired 槽位。
+ * @param session 当前 gag 会话。
+ * @returns 旧入口已不在群里时返回 true。
+ */
 async function retryRetiredGagSpeakNotice(
   session: GagSession
 ): Promise<boolean> {
@@ -64,6 +81,8 @@ async function retryRetiredGagSpeakNotice(
  * 换话题说话时传新话题（搬家），两者同一套「发新的 → 切槽位 → 删旧的」。
  * `speakNoticeThreadId` 只在切槽位那一步更新，发送失败时仍指向旧话题，下一条
  * 消息再判一次是否搬家。
+ * @param session 当前 gag 会话。
+ * @param targetThreadId 新入口目标论坛话题 ID。
  */
 async function replaceGagSpeakNotice(
   session: GagSession,
@@ -111,6 +130,8 @@ async function replaceGagSpeakNotice(
  *
  * 已有任务在途时同步跳过，不登记等待者；它若发往旧话题，下一条目标消息会
  * 再次触发搬家。不同会话独立启动，出站并发和背压由统一 Telegram 边界管理。
+ * @param session 当前 gag 会话。
+ * @param targetThreadId 新入口目标论坛话题 ID。
  */
 function refreshGagSpeakNotice(
   session: GagSession,
@@ -137,6 +158,9 @@ function refreshGagSpeakNotice(
  *
  * 与滚动换新共用 replaceGagSpeakNotice，retired 槽位、单条在途任务与
  * ending 的接管语义沿用；旧入口重试由同一个在途任务持有。
+ * @param session 当前 gag 会话。
+ * @param targetThreadId 目标发言所在的论坛话题 ID。
+ * @param now 当前毫秒时间戳。
  */
 export function refreshGagSpeakNoticeOnSpeech(
   session: GagSession,
@@ -155,7 +179,10 @@ export function refreshGagSpeakNoticeOnSpeech(
   refreshGagSpeakNotice(session, targetThreadId);
 }
 
-/** 为已命中阈值的会话同步认领各自任务；重复触发不登记等待者。 */
+/**
+ * 为已命中阈值的会话同步认领各自任务；重复触发不登记等待者。
+ * @param due 达到消息数换新阈值的会话列表。
+ */
 export function refreshDueGagSpeakNotices(
   due: readonly GagSession[]
 ): void {

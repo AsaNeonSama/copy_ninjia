@@ -44,6 +44,9 @@ import type {
  *   任一阶段 ──群已不存在（chatGone）──> INACTIVE
  *
  * 恢复或重新收紧失败时保留对应阶段并重试；持久化失败按当前阶段发出补偿效果。
+ * @param state 当前群聊的私密模式状态，未激活（INACTIVE）时为 undefined。
+ * @param event 驱动私密模式状态转移的事件。
+ * @returns 转移后的下一私密模式状态及待执行副作用。
  */
 export function transitionLockdown(
   state: LockdownState | undefined,

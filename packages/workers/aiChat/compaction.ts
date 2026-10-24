@@ -29,6 +29,10 @@ import { replyGenerationSignal, trackReplyGenerationTask } from "./replyGenerati
 /**
  * 将一轮「晋升旧摘要 + 压缩新镜像」排入该群的轮换串行链；积压达到 COMPACTION_MAX_PENDING_PER_CHAT
  * 时丢弃当前批次并记录错误日志。
+ *
+ * @param chatId 群聊 ID
+ * @param mirrorBatch 本轮需要压缩为单行摘要的镜像消息批次
+ * @param promoteFirst 压缩前是否先将上一轮待晋升摘要推入中期记忆队列
  */
 export function scheduleRotation(chatId: number, mirrorBatch: BufferedMessage[], promoteFirst: boolean): void {
   const generation: number = cachedReplyGeneration(chatId);
@@ -57,7 +61,11 @@ export function scheduleRotation(chatId: number, mirrorBatch: BufferedMessage[],
   );
 }
 
-/** 轮换任务结束后递减该群待处理计数。 */
+/**
+ * 轮换任务结束后递减该群待处理计数。
+ *
+ * @param chatId 群聊 ID
+ */
 function finishCompactionTask(chatId: number): void {
   const remaining: number = Math.max(0, (compactionPendingCounts.get(chatId) ?? 1) - 1);
   if (remaining === 0) compactionPendingCounts.delete(chatId);
@@ -65,14 +73,23 @@ function finishCompactionTask(chatId: number): void {
 }
 
 export interface RotateCompactionParams {
+  /** 群聊 ID。 */
   chatId: number;
+  /** 本轮待压缩的镜像消息批次。 */
   mirrorBatch: BufferedMessage[];
+  /** 是否在压缩前先晋升上一轮待晋升摘要。 */
   promoteFirst: boolean;
+  /** 排入轮换时捕获的群回复代际编号。 */
   generation: number;
+  /** 绑定该回复代际的取消信号。 */
   signal: AbortSignal;
 }
 
-/** 执行单轮轮换：按需晋升上一轮待晋升摘要，再调用模型压缩新镜像批次并存入 pendingSummaries。 */
+/**
+ * 执行单轮轮换：按需晋升上一轮待晋升摘要，再调用模型压缩新镜像批次并存入 pendingSummaries。
+ *
+ * @param params 群聊 ID、待压缩镜像批次、晋升标志、回复代际与取消信号
+ */
 async function rotateCompaction({
   chatId,
   mirrorBatch,
@@ -104,7 +121,11 @@ async function rotateCompaction({
   }
 }
 
-/** 将上一轮待晋升摘要推入该群的中期记忆队列（上限 MAX_SUMMARY_ROUNDS）。 */
+/**
+ * 将上一轮待晋升摘要推入该群的中期记忆队列（上限 MAX_SUMMARY_ROUNDS）。
+ *
+ * @param chatId 群聊 ID
+ */
 function promotePendingSummary(chatId: number): void {
   const pending: string | undefined = pendingSummaries.get(chatId);
   pendingSummaries.delete(chatId);
@@ -119,7 +140,13 @@ function promotePendingSummary(chatId: number): void {
   dirtyMemoryChats.add(chatId);
 }
 
-/** 调用 summary 能力模型将一批消息压缩为单行摘要，按子句边界截断到 SUMMARY_MAX_CHARS。 */
+/**
+ * 调用 summary 能力模型将一批消息压缩为单行摘要，按子句边界截断到 SUMMARY_MAX_CHARS。
+ *
+ * @param batch 待压缩的缓冲消息批次
+ * @param signal 取消信号
+ * @returns 模型生成并归一化后的文本结果
+ */
 async function summarizeBatch(batch: BufferedMessage[], signal: AbortSignal): Promise<AiTextResult> {
   const selfId: number | undefined = botInfoState.current?.id;
   const selfNote: string = selfId !== undefined ? summarySelfNote(selfId) : "";

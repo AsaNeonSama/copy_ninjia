@@ -47,6 +47,7 @@ function postMirroredStickerCatalogs(): void {
 
 /**
  * 启动时将恢复出的 AI 记忆快照写入主线程镜像，并在 AI 配置就绪时投递给 Worker。
+ * @param memories 按群聊 ID 索引的记忆快照 JSON 映射。
  */
 export function hydrateAiMemory(memories: Map<number, string>): void {
   for (const [chatId, snapshot] of memories) {
@@ -59,6 +60,7 @@ export function hydrateAiMemory(memories: Map<number, string>): void {
 
 /**
  * 启动时将恢复出的贴纸目录写入主线程镜像，并在 AI 配置就绪时投递给 Worker。
+ * @param catalogs 按贴纸包名称索引的目录快照 JSON 映射。
  */
 export function hydrateStickerCatalog(catalogs: Map<string, string>): void {
   for (const [pack, snapshot] of catalogs) {

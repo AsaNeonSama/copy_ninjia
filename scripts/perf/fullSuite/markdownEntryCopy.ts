@@ -212,7 +212,11 @@ const JA: BenchmarkEntryCopy = {
   recordsPerSecond: "レコード/s",
 };
 
-/** 文档语言对应的人类可读被测对象名称。 */
+/**
+ * 文档语言对应的人类可读被测对象名称。
+ * @param language 目标文档语言标识。
+ * @returns 对应语言的被测条目名称与速率单位文案表。
+ */
 export function benchmarkEntryCopy(language: Language): BenchmarkEntryCopy {
   switch (language) {
     case "zh":

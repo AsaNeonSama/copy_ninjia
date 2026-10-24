@@ -16,6 +16,7 @@ import { isManagedAdminChat, isSweepSlotFree } from "./sweepEligibility";
 import type { ChatState } from "../../types/chatState";
 import type { BlocklistSweepRunner } from "../../types/blocklist";
 
+/** 清理当前已武装的黑名单补扫定时器与计划触发时间戳。 */
 function clearBlocklistSweepTimer(): void {
   if (blocklistSweepSchedulerState.timer !== null) {
     clearTimeout(blocklistSweepSchedulerState.timer);
@@ -24,6 +25,11 @@ function clearBlocklistSweepTimer(): void {
   blocklistSweepSchedulerState.scheduledAt = null;
 }
 
+/**
+ * 计算所有满足受管与空闲槽位条件的群中最早的补扫重试截止时间戳。
+ *
+ * @returns 存在待调度补扫群时返回最早的毫秒时间戳；无黑名单条目或无待补扫群时返回 `null`。
+ */
 function nextBlocklistSweepAt(): number | null {
   if (!hasAnyBlockedIdentity()) return null;
   let earliest: number | null = null;
@@ -72,7 +78,11 @@ export function armBlocklistSweepScheduler(): void {
   blocklistSweepSchedulerState.timer = timer;
 }
 
-/** 启动恢复完成后武装补扫时钟；重复初始化只重算最近截止时间。 */
+/**
+ * 启动恢复完成后武装补扫时钟；重复初始化只重算最近截止时间。
+ *
+ * @param runSweep 定时器到期时触发受管群黑名单补扫的执行回调。
+ */
 export function initBlocklistSweepScheduler(runSweep: BlocklistSweepRunner): void {
   blocklistSweepSchedulerState.runSweep = runSweep;
   blocklistSweepSchedulerState.accepting = true;

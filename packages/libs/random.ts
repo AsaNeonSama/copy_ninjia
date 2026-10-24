@@ -1,4 +1,8 @@
-/** 从数组中均匀随机挑一项；数组为空时返回 undefined。 */
+/**
+ * 从数组中均匀随机挑一项；数组为空时返回 undefined。
+ * @param items 候选元素只读数组。
+ * @returns 随机选中的单个元素；数组为空时返回 undefined。
+ */
 export function pickRandom<T>(items: readonly T[]): T | undefined {
   if (items.length === 0) return undefined;
   return items[Math.floor(Math.random() * items.length)];

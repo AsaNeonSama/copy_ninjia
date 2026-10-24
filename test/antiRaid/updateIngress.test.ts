@@ -60,7 +60,7 @@ mock.module("../../packages/antiRaid/temporaryAdBypass", () => ({
 
 const { handleAntiRaidMessageIngress } = await import("../../packages/antiRaid/updateIngress");
 const { adCandidatePostRejected } = await import("../../packages/cache/main/antiRaid/proxy");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 
 /** 一条开着广告检测的超级群里的普通文本消息；只有 message_id 逐条不同。 */
 function ingest(messageId: number, chatId: number = CHAT_ID): boolean | Promise<boolean> {
@@ -70,7 +70,7 @@ function ingest(messageId: number, chatId: number = CHAT_ID): boolean | Promise<
     date: 1,
     from: { id: 42, is_bot: false, first_name: "Zako" },
     text: "普通群消息",
-  } as Message, BOT_ID);
+  } as Message, BOT_ID, getChatState(chatId));
 }
 
 /** 已尝试投递的广告候选 message_id，按投递顺序。 */

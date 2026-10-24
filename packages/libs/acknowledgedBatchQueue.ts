@@ -8,8 +8,11 @@ export interface AcknowledgedBatch<T> {
 
 /** ACK 队列的批次、总条数与累计成本硬边界。 */
 export interface AcknowledgedBatchQueueOptions {
+  /** 单次出队批次可容纳的最大消息条数。 */
   readonly maxBatchMessages: number;
+  /** 排队与在途消息合计的最大条数上限。 */
   readonly maxMessages: number;
+  /** 排队与在途消息合计的最大领域成本上限。 */
   readonly maxCost: number;
 }
 
@@ -72,7 +75,12 @@ export class AcknowledgedBatchQueue<T> {
     return this.inFlight !== null && this.delivered;
   }
 
-  /** 在条数与成本均有余量时追加；越界不改变 FIFO。 */
+  /**
+   * 在条数与成本均有余量时追加；越界不改变 FIFO。
+   * @param value 待入队的消息载荷。
+   * @param cost 本条消息占用的正安全整数领域成本。
+   * @returns 成功入队返回 true，超出条数或成本上限时返回 false。
+   */
   enqueue(value: T, cost: number): boolean {
     if (!Number.isSafeInteger(cost) || cost <= 0) {
       throw new RangeError("cost must be a positive safe integer");
@@ -91,6 +99,7 @@ export class AcknowledgedBatchQueue<T> {
   /**
    * 返回下一批需要投递的值。同步拒绝或代际崩溃后返回同一批；成功提交且尚未
    * ACK 时返回 null，保证 mailbox 里最多只有一个本通道批次。
+   * @returns 待投递批次；无可发消息或已有在途批次等待确认时返回 null。
    */
   nextDelivery(): AcknowledgedBatch<T> | null {
     if (this.inFlight !== null) return this.delivered ? null : this.inFlight;
@@ -112,7 +121,11 @@ export class AcknowledgedBatchQueue<T> {
     return this.inFlight;
   }
 
-  /** 指定批次已成功进入对端 mailbox，ACK 前不得再次提交。 */
+  /**
+   * 指定批次已成功进入对端 mailbox，ACK 前不得再次提交。
+   * @param batchId 已提交批次的序号。
+   * @returns 匹配当前在途批次时标记成功并返回 true，否则返回 false。
+   */
   markDelivered(batchId: number): boolean {
     if (this.inFlight?.batchId !== batchId) return false;
     this.delivered = true;
@@ -124,14 +137,22 @@ export class AcknowledgedBatchQueue<T> {
     if (this.inFlight !== null) this.delivered = false;
   }
 
-  /** 对端明确拒绝当前批次时按 id 重新开放投递；错误批次 id 不改变窗口。 */
+  /**
+   * 对端明确拒绝当前批次时按 id 重新开放投递；错误批次 id 不改变窗口。
+   * @param batchId 被对端拒绝的批次序号。
+   * @returns 匹配当前已投递批次时重新开放投递并返回 true，否则返回 false。
+   */
   requestRedelivery(batchId: number): boolean {
     if (this.inFlight?.batchId !== batchId || !this.delivered) return false;
     this.delivered = false;
     return true;
   }
 
-  /** 只接受当前且已投递批次的确认；迟到或重复确认不释放另一批。 */
+  /**
+   * 只接受当前且已投递批次的确认；迟到或重复确认不释放另一批。
+   * @param batchId 对端确认完成的批次序号。
+   * @returns 匹配当前已投递批次并释放成功时返回 true，否则返回 false。
+   */
   acknowledge(batchId: number): boolean {
     if (this.inFlight?.batchId !== batchId || !this.delivered) return false;
     this.inFlight = null;
@@ -140,7 +161,10 @@ export class AcknowledgedBatchQueue<T> {
     return true;
   }
 
-  /** 代际失效时按原序交出全部未确认值；领域 owner 决定恢复与请求取消。 */
+  /**
+   * 代际失效时按原序交出全部未确认值；领域 owner 决定恢复与请求取消。
+   * @returns 按原入队顺序排列的全部在途与排队值只读数组。
+   */
   takeAll(): readonly T[] {
     const values: T[] = [];
     if (this.inFlight !== null) {

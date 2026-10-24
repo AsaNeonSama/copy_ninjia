@@ -22,8 +22,11 @@ import type { CapturedCommandResult } from "./subprocess";
 import type { WedMemberWindowMigrationResult } from "../migrateWedMemberWindow";
 
 export interface MigrationDeploymentOptions {
+  /** 源码仓库根或发行包根目录绝对路径。 */
   readonly packageRoot: string;
+  /** 本次验证专属的独立临时根目录路径。 */
   readonly root: string;
+  /** 是否以二进制发行包模式运行冷迁移命令。 */
   readonly binary?: boolean;
 }
 
@@ -57,7 +60,13 @@ export const PRESERVED_MIGRATION_CONFIG_FILES: readonly string[] = [
   ),
 ];
 
-/** 每条冷迁移边在源备份上的参数；产物目录参数由调用处补上。 */
+/**
+ * 每条冷迁移边在源备份上的参数；产物目录参数由调用处补上。
+ *
+ * @param command 冷迁移脚本命令名称
+ * @param data 源数据备份目录路径
+ * @returns 传给冷迁移 CLI 的源目录参数数组
+ */
 function migrationArguments(command: string, data: string): readonly string[] {
   if (command === "migrate:wed-member-window") return ["--source-root", data];
   throw new Error(`No 17.2.1 fixture arguments for cold migration ${command}.`);
@@ -66,6 +75,8 @@ function migrationArguments(command: string, data: string): readonly string[] {
 /**
  * 上一次迁移产出格式的非空共享数据库：当前 schema 与默认时区标记，一个群状态（翻译目标及群名含空字符串）
  * 与一条群问答。冷迁移不触碰数据库，部署时原样沿用；关闭连接后 WAL 已并入主库。
+ *
+ * @param data 源数据备份目录路径
  */
 function createDeploymentDatabase(data: string): void {
   const path: string = join(data, "database/storage.sqlite");
@@ -89,6 +100,9 @@ function createDeploymentDatabase(data: string): void {
  * 建立上一次迁移产出格式的完整 mock 停机备份（当前配置布局、当前全局状态、内容摘要命名的图库、当前
  * schema 库与成员 ID 数组形式的 /wed 文件），执行实际 CLI，核对拒绝覆盖与源哈希，再按清单组装部署目录：
  * 只替换 memory/wed/ 下的文件，其余文件原样沿用。
+ *
+ * @param options 冷迁移端到端验证部署夹具选项
+ * @returns 组装完成的迁移后部署路径与源文件快照
  */
 export async function prepareMigratedDeployment({
   packageRoot, root, binary = false,
@@ -122,7 +136,7 @@ export async function prepareMigratedDeployment({
     [ASSET_ONLY_URL_GROUP]: { fortune_thumbnail_url: "https://example.com/fortune.png" },
   }));
   const image: Uint8Array<ArrayBuffer> = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  await Bun.write(join(images, `${new Bun.CryptoHasher("sha256").update(image).digest("hex")}.png`), image);
+  await Bun.write(join(images, `${Bun.SHA256.hash(image, "hex")}.png`), image);
   const copy: Readonly<Record<string, unknown>> = {
     copiedUser: { id: 42, first_name: "", last_name: "" }, copyChatId: -1001, lastCopyTime: 12,
   };
@@ -190,7 +204,13 @@ export async function prepareMigratedDeployment({
   return { config: deployedConfig, data: deployedData, sources, wedMembers };
 }
 
-/** 模拟运维按清单替换后的目录，显式恢复 SQLite 协作权限，再交给真实安装器。 */
+/**
+ * 模拟运维按清单替换后的目录，显式恢复 SQLite 协作权限，再交给真实安装器。
+ *
+ * @param migrated 准备好的迁移后部署夹具
+ * @param config 目标配置目录路径
+ * @param data 目标运行时数据目录路径
+ */
 export async function deployMigratedFixture(migrated: MigratedDeployment, config: string, data: string): Promise<void> {
   await copyFixtureTree(migrated.config, config);
   await copyFixtureTree(migrated.data, data);
@@ -199,7 +219,11 @@ export async function deployMigratedFixture(migrated: MigratedDeployment, config
   chmodSync(join(data, "database/storage.sqlite"), 0o660);
 }
 
-/** 校验备份正文、权限、属主与链接拓扑；冷迁移只读取 memory/wed/，其余源文件同样不得改动。 */
+/**
+ * 校验备份正文、权限、属主与链接拓扑；冷迁移只读取 memory/wed/，其余源文件同样不得改动。
+ *
+ * @param sources 迁移前采集的源文件快照列表
+ */
 export async function assertMigrationSourcesUnchanged(sources: readonly MigrationFileSnapshot[]): Promise<void> {
   for (const source of sources) expect(await readMigrationFileSnapshot(source.path)).toEqual(source);
 }

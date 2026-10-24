@@ -59,6 +59,12 @@ const SVG_VALUE_PATTERN: RegExp = /class="val"[^>]*>([^<]+)</g;
 const TESTS_BADGE_PATTERN: RegExp = /badge\/Tests-(\d+)_Passed/;
 const COVERAGE_BADGE_PATTERN: RegExp = /badge\/Coverage-(\d+(?:\.\d+)?)%25/;
 
+/**
+ * 去掉千位分隔符并将数字字符串转为数值。
+ *
+ * @param raw 原始数字文本
+ * @returns 解析出的数值
+ */
 function parseNumber(raw: string): number {
   return Number(raw.replace(/,/g, ""));
 }
@@ -66,6 +72,9 @@ function parseNumber(raw: string): number {
 /**
  * 从一句指标文案里取出完整指标组：从 `test:coverage` 之后开始收，读满第二个
  * 百分数就停；两端之间各语言的写法落在同一段上。
+ *
+ * @param line 包含覆盖率指标的单行文本
+ * @returns 解析出的覆盖率指标，格式不匹配时返回 null
  */
 function metricsFromSentence(line: string): CoverageMetrics | null {
   const start: number = line.indexOf(COMMAND_MARKER);
@@ -93,13 +102,25 @@ function metricsFromSentence(line: string): CoverageMetrics | null {
   };
 }
 
-/** 一行是否是指标文案：提到 test:coverage，且带至少两个百分数。 */
+/**
+ * 一行是否是指标文案：提到 test:coverage，且带至少两个百分数。
+ *
+ * @param line 待判断的单行文本
+ * @returns 为覆盖率指标文案行时返回 true
+ */
 function isMetricSentence(line: string): boolean {
   if (!line.includes(COMMAND_MARKER)) return false;
   return (line.match(/\d(?:[\d,]*(?:\.\d+)?)%/g)?.length ?? 0) >= 2;
 }
 
-/** 收集一个文件里全部指标文案的解析结果。 */
+/**
+ * 收集一个文件里全部指标文案的解析结果。
+ *
+ * @param path 相对仓库根的文件路径
+ * @param source 文件文本内容
+ * @param problems 收集格式违规信息的数组
+ * @returns 文件内解析成功的覆盖率指标列表
+ */
 function sentenceMetrics(
   path: string,
   source: string,
@@ -124,6 +145,12 @@ function sentenceMetrics(
   return found;
 }
 
+/**
+ * 将覆盖率指标格式化为统一的对照键字符串。
+ *
+ * @param metrics 覆盖率指标对象
+ * @returns 格式化后的指标键文本
+ */
 function formatMetrics(metrics: CoverageMetrics): string {
   return `${metrics.tests} tests / ${metrics.files} files / ` +
     `${metrics.expectCalls} expect() / ${metrics.functionPercent}% funcs / ` +
@@ -133,6 +160,10 @@ function formatMetrics(metrics: CoverageMetrics): string {
 /**
  * 读出仓库当前声明的覆盖率指标；各位置不一致时返回 null 并记下问题。
  * `bun run check:coverage` 复用它。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @param problems 收集不一致或缺失问题的数组
+ * @returns 全仓一致的覆盖率指标，存在冲突或缺失时返回 null
  */
 export async function declaredCoverageMetrics(
   projectRoot: string,
@@ -214,7 +245,12 @@ export async function declaredCoverageMetrics(
   return null;
 }
 
-/** 核对全部覆盖率指标位置描述同一次运行。 */
+/**
+ * 核对全部覆盖率指标位置描述同一次运行。
+ *
+ * @param projectRoot 仓库根目录绝对路径
+ * @returns 覆盖率指标不一致或格式错误的问题列表
+ */
 export async function collectCoverageMetricProblems(
   projectRoot: string
 ): Promise<readonly string[]> {

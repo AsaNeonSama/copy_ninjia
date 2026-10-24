@@ -33,7 +33,7 @@
   - 三个标志各自独立防止对应消息在 Worker 重建或服务重启后重复发送，不可相互替代。标志经状态机事件（`expelNoticeSent`、`removalConfirmed`）写入，只作用于播报 await 结束后仍是当前终态的条目，随后发布新 revision 并等待持久化确认。
   - **踢人成功未播报时的断点保护**：若踢人已成功但战报发送失败，严禁直接结算。先将 `removalConfirmed` 写入快照并进入退避重试；下一轮探测确认目标已离群时，据此认定为已被本 bot 踢出并补发战报。`removalConfirmed` 仅在战报失败时持久化写入。
 - **权限缺失短路门禁（`cleanupSettled`）**：
-  - 确证无封禁权限（`botCanRestrictIn === false`）时的提前短路，必须以**关联清理已全部完成**（`cleanupSettled === true`）为前提：仅当 `failureNoticeSent` 与 `cleanupSettled` 同时为真时才短路，此时每轮只发一次成员探测，成员已离群即结算，否则继续退避。
+  - 确证无封禁权限（`botCanRestrictIn === false`）时的提前短路，必须以**关联清理已全部完成**（`cleanupSettled === true`）为前提：仅当 `failureNoticeSent` 与 `cleanupSettled` 同时为真、且尚未确认踢出（`removalConfirmed` 不为真）时才短路，此时每轮只发一次成员探测，成员已离群即结算，否则继续退避；已确认踢出的条目走常规终态路径，同样只发一次成员探测，成员已离群即补发战报。
   - 私密模式秒踢（`kickPending`）在无封禁权限时同样先做成员探测：成员已离群即结算并释放该条记录；仍在群内则记日志并退避，不发踢人请求。
   - `cleanupSettled === true` 后，同一终态条目后续重试直接跳过 `deleteVerificationMessages`；若仍为 `false`，照常推进清理动作（踢人被封禁权限短路、战报被已发送标志短路、删消息在无删除权限时短路），确保所有可执行且需重试的清理工作（如删除消息）均得到执行。
   - `cleanupSettled` 记在 Worker 运行态条目（`VerificationEntry`）上，`executionStarted` 记在终态对象上且只经状态机事件改写；两者都属于 **Worker 本地内存幂等控制标志，不进入持久化快照**，条目或状态换代时从初值重来。

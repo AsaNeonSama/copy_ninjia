@@ -7,8 +7,9 @@ import type * as DuplexCacheModule from "../../../packages/cache/perThread/worke
 import type * as LinkedChannelModule from "../../../packages/workers/antiRaid/linkedChannel";
 import type * as LinkedChannelCacheModule from "../../../packages/cache/workers/antiRaid/linkedChannels";
 import type * as TasksModule from "../../../packages/cache/workers/antiRaid/tasks";
+import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 const root: string = new URL("../../../packages/", import.meta.url).pathname.slice(0, -1);
-mock.module(root + "/consts/antiRaid/cache.ts", () => ({ LINKED_CHANNEL_FETCH_TIMEOUT_MS: 5, LINKED_CHANNEL_TTL_MS: 300_000, ANTI_RAID_CHAT_CACHE_MAX: 500 }));
+mock.module(root + "/consts/antiRaid/cache.ts", () => ({ LINKED_CHANNEL_FETCH_TIMEOUT_MS: 5, LINKED_CHANNEL_TTL_MS: 300_000, ANTI_RAID_CHAT_CACHE_MAX: STATE_MANAGED_CHAT_LIMIT }));
 mock.module(root + "/infra/logger.ts", () => ({ logger: loggerStub() }));
 const { workerTelegramApi }: typeof WorkerClientModule = await import(root + "/infra/telegram/workerClient.ts");
 mock.module(root + "/infra/telegram/index.ts", () => ({ telegramApi: workerTelegramApi }));

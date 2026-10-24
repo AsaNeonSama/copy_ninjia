@@ -25,6 +25,7 @@ import {
   MEMORY_MECHANISM_SILENCE_INSTRUCTION,
   REPLY_CONTEXT_STRUCTURE_INSTRUCTION,
   TRANSCRIPT_FORMAT_INSTRUCTION,
+  directInvokerSentence,
 } from "../../../packages/consts/aiChat/prompts/memory";
 import { MOOD_STATE_PRECEDENCE_INSTRUCTION } from "../../../packages/consts/aiChat/prompts/mood";
 import {
@@ -93,7 +94,7 @@ const session: AiReplySession = {
   },
 };
 
-const callToolMock = mock(async (..._args: unknown[]): Promise<string> => JSON.stringify({ success: true }));
+const callToolMock = mock((name: string): string => JSON.stringify({ error: `Unknown tool: ${name}` }));
 const loggerErrorMock = mock((..._args: unknown[]): void => {});
 
 mock.module("../../../packages/aiChat/provider", () => ({
@@ -240,9 +241,8 @@ test("直接触发按序传四个上下文区块，工具结果回喂后续跑",
   expect(first.systemPrompt).toContain(WEB_SEARCH_DECISION_INSTRUCTION);
   expect(first.systemPrompt).toContain(REPLY_CONTEXT_STRUCTURE_INSTRUCTION);
   expect(first.systemPrompt).not.toContain("DIRECT_INVOKER_HOT_MESSAGES");
-  // 唤起者身份的唯一来源是回复任务开头那一句，措辞与
-  // promptContext.ts 拼出的那句一致（见 directInvokerSentence）。
-  expect(first.systemPrompt).toContain("本轮唤起者只认 [BEGIN CURRENT_REPLY_TASK] 开头那句「本轮由 … 明确 @ 或回复你而唤起」");
+  // 唤起者身份的唯一来源是回复任务开头那一句：结构说明里引用的句式与 directInvokerSentence 拼出的那句同形。
+  expect(first.systemPrompt).toContain(`「${directInvokerSentence("…", "").replace(/。$/u, "")}」`);
   expect(first.systemPrompt).toContain(CHAT_MEMORY_PRIORITY_INSTRUCTION);
   expect(first.systemPrompt).toContain(DIRECT_INVOCATION_READING_INSTRUCTION);
   // 转录行格式说明位于系统提示词，不在转录区块里。
@@ -728,6 +728,20 @@ test("配置了 web_search：系统提示词换函数工具口径，调用由回
   ]);
   expect(requests[0]!.grounded).toBe(false);
   expect(requests[1]!.grounded).toBe(true);
+});
+
+test("调用未在工具集登记的工具名称时经 callTool 返回 Unknown tool 错误", async () => {
+  turns.push(
+    okTurn({ calls: [call("nonexistent_tool", {})] }),
+    okTurn({})
+  );
+  await expect(generateReply(-1001, promptSections("未知工具"), toolset({
+    has: (): boolean => false,
+  }))).resolves.toBeNull();
+  expect(callToolMock).toHaveBeenCalledWith("nonexistent_tool");
+  expect(appendedOutputs[0]?.[0]?.responseJson).toBe(
+    JSON.stringify({ error: "Unknown tool: nonexistent_tool" })
+  );
 });
 
 test("等检索结果期间本轮作废时不再喂回结果", async () => {

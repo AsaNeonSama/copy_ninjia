@@ -38,8 +38,8 @@
 <p align="center">
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6792_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.96%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6829_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.78%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -104,7 +104,7 @@ From commit-by-commit human/AI co-review to repeated full-repository audits and 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 6792 tests passed, 560 test files, 447,983 expect() calls, 98.42% function coverage, 98.96% line coverage" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 6829 tests passed, 566 test files, 453,211 expect() calls, 98.53% function coverage, 98.78% line coverage" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -265,7 +265,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 </tbody>
 </table>
 
-- **TTS Configuration**: Configured under `agent.tts` in `config/dynamic/agent.json` (supports native Google, OpenAI-compatible `audio/speech`, and xAI Grok `/tts`; Google supports custom `base_url` and `headers` for third-party gateways). Optional `bot_language` (`en` / `zh` / `ja`, default `TTS_DEFAULT_BOT_LANGUAGE`) sets the language of AI voice lines; placing `prompt/voice_tool.md` in the project root overrides the entire `send_voice` tool instruction (takes effect after a restart; see [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)). The AI reply pipeline automatically appends target language guidance based on `bot_language`; `style` is shared with `/send` and cron and describes only the acoustic timbre. When changing `bot_language`, remember to align `style` and `voice_tool.md` accordingly.
+- **TTS Configuration**: Configured under `agent.tts` in `config/dynamic/agent.json` (supports native Google, OpenAI-compatible `audio/speech`, and xAI Grok `/tts`; Google supports a custom `base_url` for third-party gateways). Optional `bot_language` (`en` / `zh` / `ja`, default `TTS_DEFAULT_BOT_LANGUAGE`) sets the language of AI voice lines; placing `prompt/voice_tool.md` in the project root overrides the entire `send_voice` tool instruction (takes effect after a restart; see [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)). The AI reply pipeline automatically appends target language guidance based on `bot_language`; `style` is shared with `/send` and cron and describes only the acoustic timbre. When changing `bot_language`, remember to align `style` and `voice_tool.md` accordingly.
 - **Quota Isolation**: The daily quota `daily_limit` (default `TTS_DEFAULT_DAILY_LIMIT`) reserves `daily_reserve_quota` (default `TTS_DEFAULT_DAILY_RESERVE_QUOTA`) exclusively for `/send` and scheduled cron tasks, leaving the remainder for spontaneous AI chatter; both pools track counts independently. The tracking window (`TTS_USAGE_WINDOW_MS`) begins on the first request and resets both counters upon window expiry.
 - **Memory Ingestion Boundaries**: Messages forwarded via `/send` and scheduled cron tasks are excluded from AI conversation context. Automatic image logging requires AI chat to be enabled in the group and not suppressed by active copying mode. See [11 FAQ](11-faq.md).
 
