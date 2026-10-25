@@ -447,7 +447,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       },
     },
     gallery: {
-      sectionTitle: (total: number): string => `Gallery (${total})♡`,
+      sectionTitle: (_total: number): string => "Gallery♡",
       refreshButton: "Refresh",
       uploadingButton: "Storing♡…",
       uploadButton: "Upload Image",

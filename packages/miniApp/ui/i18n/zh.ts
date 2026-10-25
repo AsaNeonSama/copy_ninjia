@@ -330,7 +330,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       },
     },
     gallery: {
-      sectionTitle: (total: number): string => `色图图库 (${total} 张)♡`,
+      sectionTitle: (_total: number): string => "色图图库♡",
       refreshButton: "刷新",
       uploadingButton: "入库中♡…",
       uploadButton: "上传新图",

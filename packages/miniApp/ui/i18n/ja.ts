@@ -447,7 +447,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       },
     },
     gallery: {
-      sectionTitle: (total: number): string => `えっち図鑑 (${total} 枚)♡`,
+      sectionTitle: (_total: number): string => "えっち図鑑♡",
       refreshButton: "更新",
       uploadingButton: "登録中♡…",
       uploadButton: "画像を追加",
