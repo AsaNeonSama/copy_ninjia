@@ -439,7 +439,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             }}
           >
             <IdentitiesSvgIcon size={14} />
-            <span>{t.identities.whitelistTab(whitelistTotal)}</span>
+            <span>{t.identities.whitelistTab}</span>
           </button>
           <button
             type="button"
@@ -450,7 +450,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
               setDuplicateAlertText(null);
             }}
           >
-            <span>{t.identities.blocklistTab(blocklistTotal)}</span>
+            <span>{t.identities.blocklistTab}</span>
           </button>
         </div>
         <button

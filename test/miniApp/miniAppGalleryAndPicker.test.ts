@@ -332,6 +332,9 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
         dict.gate.deniedPolicyReason("MISSING_INIT_DATA", "fallback").length
       ).toBeGreaterThan(0);
       expect(dict.gate.deniedNodeGatewayState(403).length).toBeGreaterThan(0);
+      expect(dict.identities.whitelistTab.length).toBeGreaterThan(0);
+      expect(dict.identities.blocklistTab.length).toBeGreaterThan(0);
+      expect(dict.gallery.sectionTitle.length).toBeGreaterThan(0);
       expect(dict.gallery.downloadButton.length).toBeGreaterThan(0);
       expect(dict.gallery.downloadingButton.length).toBeGreaterThan(0);
       expect(dict.gallery.downloadedToast("abc.png").length).toBeGreaterThan(0);

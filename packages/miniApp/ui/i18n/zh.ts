@@ -251,8 +251,8 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       emptyMediaPlaceholder: "(无文本媒体消息)",
     },
     identities: {
-      whitelistTab: (_count: number): string => "权限",
-      blocklistTab: (_count: number): string => "黑名单",
+      whitelistTab: "权限",
+      blocklistTab: "黑名单",
       searchPlaceholder: (subTab: MiniAppIdentitySubTabKey): string =>
         subTab === "whitelist"
           ? "搜索白名单名称 / @用户名 / ID♡"
@@ -330,7 +330,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       },
     },
     gallery: {
-      sectionTitle: (_total: number): string => "色图图库♡",
+      sectionTitle: "色图图库♡",
       refreshButton: "刷新",
       uploadingButton: "入库中♡…",
       uploadButton: "上传新图",

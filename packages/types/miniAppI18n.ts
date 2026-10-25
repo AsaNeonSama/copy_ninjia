@@ -153,8 +153,8 @@ export interface MiniAppTranslations {
   }>;
 
   readonly identities: Readonly<{
-    readonly whitelistTab: (count: number) => string;
-    readonly blocklistTab: (count: number) => string;
+    readonly whitelistTab: string;
+    readonly blocklistTab: string;
     readonly searchPlaceholder: (subTab: MiniAppIdentitySubTabKey) => string;
     readonly searchClearAria: string;
     readonly searchDebounceHint: string;
@@ -194,7 +194,7 @@ export interface MiniAppTranslations {
   }>;
 
   readonly gallery: Readonly<{
-    readonly sectionTitle: (total: number) => string;
+    readonly sectionTitle: string;
     readonly refreshButton: string;
     readonly uploadingButton: string;
     readonly uploadButton: string;

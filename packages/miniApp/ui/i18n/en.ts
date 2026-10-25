@@ -368,8 +368,8 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       emptyMediaPlaceholder: "(Media message without text)",
     },
     identities: {
-      whitelistTab: (_count: number): string => "Permissions",
-      blocklistTab: (_count: number): string => "Blocklist",
+      whitelistTab: "Permissions",
+      blocklistTab: "Blocklist",
       searchPlaceholder: (subTab: MiniAppIdentitySubTabKey): string =>
         subTab === "whitelist"
           ? "Search whitelist name / @username / ID♡"
@@ -447,7 +447,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       },
     },
     gallery: {
-      sectionTitle: (_total: number): string => "Gallery♡",
+      sectionTitle: "Gallery♡",
       refreshButton: "Refresh",
       uploadingButton: "Storing♡…",
       uploadButton: "Upload Image",

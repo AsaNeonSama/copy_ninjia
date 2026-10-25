@@ -262,7 +262,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
             <span className="toolbar-icon-badge">
               <GallerySvgIcon size={15} />
             </span>
-            <span>{t.gallery.sectionTitle(galleryPage?.total ?? 0)}</span>
+            <span>{t.gallery.sectionTitle}</span>
           </span>
           <div className="toolbar-actions">
             <label

@@ -368,8 +368,8 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       emptyMediaPlaceholder: "(テキストなしメディア)",
     },
     identities: {
-      whitelistTab: (_count: number): string => "権限",
-      blocklistTab: (_count: number): string => "ブラックリスト",
+      whitelistTab: "権限",
+      blocklistTab: "ブラックリスト",
       searchPlaceholder: (subTab: MiniAppIdentitySubTabKey): string =>
         subTab === "whitelist"
           ? "名前 / @ユーザー名 / ID で白リスト検索♡"
@@ -447,7 +447,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       },
     },
     gallery: {
-      sectionTitle: (_total: number): string => "えっち図鑑♡",
+      sectionTitle: "えっち図鑑♡",
       refreshButton: "更新",
       uploadingButton: "登録中♡…",
       uploadButton: "画像を追加",
