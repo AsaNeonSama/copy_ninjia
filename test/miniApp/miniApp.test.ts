@@ -521,6 +521,11 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(body.managedChatCount).toBe(1);
     expect(body.whitelistCount).toBe(0);
     expect(body.blocklistCount).toBe(0);
+    expect(body.memoryTotalBytes).toBeGreaterThan(0);
+    expect(body.memoryOtherBytes).toBeGreaterThanOrEqual(0);
+    expect(body.memoryCurrentRssBytes + body.memoryOtherBytes).toBeLessThanOrEqual(
+      body.memoryTotalBytes
+    );
     expect(Array.isArray(body.capabilities)).toBeTrue();
     expect(body.capabilities.length).toBe(7);
     expect(Array.isArray(body.capabilities[0]?.items)).toBeTrue();

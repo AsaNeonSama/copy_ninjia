@@ -23,7 +23,7 @@ import {
   fetchMiniAppChats,
   toggleMiniAppChatFeature,
 } from "../api";
-import { getFeatureDisplayMeta } from "../formatters";
+import { getFeatureDisplayMeta, truncateDisplayText } from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -219,6 +219,10 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
             <div className="card loading-box">
               <div className="spinner-ring" />
               <div className="loading-text">{t.chats.loadingChatsText}</div>
+              <div className="skeleton-stack">
+                <div className="skeleton-line wide" />
+                <div className="skeleton-line medium" />
+              </div>
             </div>
           )
           : null}
@@ -228,9 +232,11 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
             <>
               <div className="card">
                 <div className="card-title">
-                  <span>{chatDetail.title}</span>
+                  <span className="chat-title-ellipsis" title={chatDetail.title}>
+                    {truncateDisplayText(chatDetail.title, 20)}
+                  </span>
                   <span className={`badge ${chatDetail.features.init ? "ok" : "warn"}`}>
-                    {chatDetail.features.init ? "/init ON♡" : "/init OFF"}
+                    {chatDetail.features.init ? "/init ON" : "/init OFF"}
                   </span>
                 </div>
                 <div className="row-sub" style={{ marginBottom: "10px" }}>
@@ -349,6 +355,10 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
           <div className="card loading-box">
             <div className="spinner-ring" />
             <div className="loading-text">{t.chats.loadingChatsText}</div>
+            <div className="skeleton-stack">
+              <div className="skeleton-line wide" />
+              <div className="skeleton-line medium" />
+            </div>
           </div>
         )
         : null}
@@ -361,14 +371,16 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
         <div key={chat.chatId} className="card interactive-card">
           <div className="row" style={{ padding: 0 }}>
             <div className="row-main">
-              <div className="row-title">{chat.title}</div>
+              <div className="row-title chat-title-ellipsis" title={chat.title}>
+                {truncateDisplayText(chat.title, 20)}
+              </div>
               <div className="row-sub">
                 {t.chats.chatCardMeta(chat.chatId, chat.hotMessageCount, chat.qaPairCount)}
               </div>
               {chat.isLockdownActive || chat.features.proxySend
                 ? (
                   <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "6px" }}>
-                    {chat.features.proxySend ? <span className="badge ok">/send♡</span> : null}
+                    {chat.features.proxySend ? <span className="badge ok">/send</span> : null}
                     {chat.isLockdownActive ? <span className="badge warn">{t.chats.lockdownBadge}</span> : null}
                   </div>
                 )

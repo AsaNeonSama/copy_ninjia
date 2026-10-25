@@ -7,7 +7,7 @@ import { TRANSLATE_CHAT_USER_LIMIT } from "../consts/translate";
 import { getAdDetectAgentConfig, getAgentDeploymentConfig } from "../config/agent";
 import { adDetectConfigReadiness, aiChatConfigReadiness } from "../config/readiness";
 import { BOT_CHAT_PERMISSION_KEYS, BOT_CHAT_PERMISSION_LABELS } from "../consts/botAdmin";
-import { BOT_STATUS_BYTES_PER_GIB, BOT_STATUS_BYTES_PER_KIB, BOT_STATUS_BYTES_PER_MIB, BOT_STATUS_COLD_MEMORY_WEIGHT, BOT_STATUS_DECIMAL_PLACES, BOT_STATUS_FEATURE_KEYS, BOT_STATUS_HOT_MEMORY_WEIGHT, BOT_STATUS_JSON_INDENT, BOT_STATUS_JSON_LANGUAGE, BOT_STATUS_PERCENT_SCALE, BOT_STATUS_SECONDS_PER_DAY, BOT_STATUS_SECONDS_PER_HOUR, BOT_STATUS_SECONDS_PER_MINUTE } from "../consts/botStatus";
+import { BOT_STATUS_BYTES_PER_GIB, BOT_STATUS_BYTES_PER_KIB, BOT_STATUS_BYTES_PER_MIB, BOT_STATUS_COLD_MEMORY_WEIGHT, BOT_STATUS_DECIMAL_PLACES, BOT_STATUS_FEATURE_KEYS, BOT_STATUS_FEATURE_LABELS, BOT_STATUS_HOT_MEMORY_WEIGHT, BOT_STATUS_JSON_INDENT, BOT_STATUS_JSON_LANGUAGE, BOT_STATUS_PERCENT_SCALE, BOT_STATUS_SECONDS_PER_DAY, BOT_STATUS_SECONDS_PER_HOUR, BOT_STATUS_SECONDS_PER_MINUTE } from "../consts/botStatus";
 
 import { BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS } from "../consts/commands";
 import { MARKDOWN_V2_PARSE_MODE } from "../consts/telegramMarkdown";
@@ -183,8 +183,8 @@ function permissionsJson(permissions: Readonly<BotChatPermissions>): string {
 }
 
 /**
- * 群功能开关的展示体：逐项列出本群全部可切换能力此刻是否开启，键沿用 state 里的
- * 开关字段名，值是布尔。
+ * 群功能开关的展示体：逐项列出本群全部可切换能力此刻是否开启，键为中文能力名称
+ * （见 consts/botStatus.ts 的 BOT_STATUS_FEATURE_LABELS），值是布尔。
  *
  * 字段与顺序取自 BOT_STATUS_FEATURE_KEYS（见 consts/botStatus.ts）。缺省（从没设过）与
  * 显式关闭都给 false，展示的是此刻的生效状态。
@@ -193,7 +193,9 @@ function permissionsJson(permissions: Readonly<BotChatPermissions>): string {
  */
 function featuresJson(chatState: Readonly<ChatState>): string {
   const display: Record<string, boolean> = {};
-  for (const key of BOT_STATUS_FEATURE_KEYS) display[key] = chatState[key] === true;
+  for (const key of BOT_STATUS_FEATURE_KEYS) {
+    display[BOT_STATUS_FEATURE_LABELS[key]] = chatState[key] === true;
+  }
   return JSON.stringify(display, null, BOT_STATUS_JSON_INDENT);
 }
 

@@ -12,6 +12,7 @@ import {
   BOT_STATUS_COLD_MEMORY_WEIGHT,
   BOT_STATUS_DECIMAL_PLACES,
   BOT_STATUS_FEATURE_KEYS,
+  BOT_STATUS_FEATURE_LABELS,
   BOT_STATUS_HOT_MEMORY_WEIGHT,
   BOT_STATUS_PERCENT_SCALE,
 } from "../../packages/consts/botStatus";
@@ -158,9 +159,9 @@ describe("/bot_status", () => {
     expect(text).toContain(PLAIN.statusCpu("12.35%", 6));
     expect(text).not.toContain("运行期平均");
     expect(text).toContain(PLAIN.statusMemory("512.00 MiB", "8.00 GiB", "6.25%"));
-    expect(text).toContain('"isAIChatEnabled": true');
-    expect(text).toContain('"isAntiRaidEnabled": true');
-    expect(text).toContain('"isTranslationEnabled": false');
+    expect(text).toContain(`"${BOT_STATUS_FEATURE_LABELS.isAIChatEnabled}": true`);
+    expect(text).toContain(`"${BOT_STATUS_FEATURE_LABELS.isAntiRaidEnabled}": true`);
+    expect(text).toContain(`"${BOT_STATUS_FEATURE_LABELS.isTranslationEnabled}": false`);
     expect(text).not.toContain("secret-");
     expect(text).not.toContain("example/v1");
     // 上下文容量按两段记忆的占用加权折算成百分比；只给百分比，两段记忆的原始条数不对群友外露。
@@ -283,13 +284,13 @@ describe("/bot_status", () => {
     expect(text).toEndWith(
       `${TEASING.statusFeatures}\n` +
       "{\n" +
-      '  "isInitEnabled": false,\n' +
-      '  "isAIChatEnabled": false,\n' +
-      '  "isTranslationEnabled": false,\n' +
-      '  "isAdDetectEnabled": false,\n' +
-      '  "isFloodControlEnabled": false,\n' +
-      '  "isAntiRaidEnabled": false,\n' +
-      '  "isProxySendEnabled": false\n' +
+      `  "${BOT_STATUS_FEATURE_LABELS.isInitEnabled}": false,\n` +
+      `  "${BOT_STATUS_FEATURE_LABELS.isAIChatEnabled}": false,\n` +
+      `  "${BOT_STATUS_FEATURE_LABELS.isTranslationEnabled}": false,\n` +
+      `  "${BOT_STATUS_FEATURE_LABELS.isAdDetectEnabled}": false,\n` +
+      `  "${BOT_STATUS_FEATURE_LABELS.isFloodControlEnabled}": false,\n` +
+      `  "${BOT_STATUS_FEATURE_LABELS.isAntiRaidEnabled}": false,\n` +
+      `  "${BOT_STATUS_FEATURE_LABELS.isProxySendEnabled}": false\n` +
       "}"
     );
   });
@@ -363,7 +364,7 @@ describe("/bot_status", () => {
     expect(message.text).toContain(`${PLAIN.statusPermissions}\n${PLAIN.statusPermissionsUnknown}`);
   });
 
-  test("功能块逐项给出本群开关的真假，键与顺序随 BOT_STATUS_FEATURE_KEYS", () => {
+  test("功能块逐项给出本群开关的真假，中文名称与顺序随 BOT_STATUS_FEATURE_KEYS", () => {
     const message: ParsedMarkdownV2 = renderStatus(statusSnapshot());
     const entity = message.entities[2]!;
     expect(entity.type).toBe("pre");
@@ -371,16 +372,18 @@ describe("/bot_status", () => {
     const json: string = message.text.slice(entity.offset, entity.offset + entity.length);
     expect(message.text).toContain(`${PLAIN.statusFeatures}\n${json}`);
     const parsed = JSON.parse(json) as Record<string, boolean>;
-    expect(Object.keys(parsed)).toEqual([...BOT_STATUS_FEATURE_KEYS]);
+    expect(Object.keys(parsed)).toEqual(
+      BOT_STATUS_FEATURE_KEYS.map((key) => BOT_STATUS_FEATURE_LABELS[key])
+    );
     // 快照开着监听、AI 闲聊、广告检测与入群验证；没设过的开关照样列出来，给 false。
     expect(parsed).toEqual({
-      isInitEnabled: true,
-      isAIChatEnabled: true,
-      isTranslationEnabled: false,
-      isAdDetectEnabled: true,
-      isFloodControlEnabled: false,
-      isAntiRaidEnabled: true,
-      isProxySendEnabled: false,
+      [BOT_STATUS_FEATURE_LABELS.isInitEnabled]: true,
+      [BOT_STATUS_FEATURE_LABELS.isAIChatEnabled]: true,
+      [BOT_STATUS_FEATURE_LABELS.isTranslationEnabled]: false,
+      [BOT_STATUS_FEATURE_LABELS.isAdDetectEnabled]: true,
+      [BOT_STATUS_FEATURE_LABELS.isFloodControlEnabled]: false,
+      [BOT_STATUS_FEATURE_LABELS.isAntiRaidEnabled]: true,
+      [BOT_STATUS_FEATURE_LABELS.isProxySendEnabled]: false,
     });
   });
 

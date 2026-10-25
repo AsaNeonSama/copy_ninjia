@@ -10,7 +10,11 @@ import type {
 } from "../../../types/miniApp";
 import { CloseSvgIcon } from "../../miniAppResoures";
 import { updateMiniAppWhitelistPermission } from "../api";
-import { getPermissionDisplayLabel, sanitizeBidiText } from "../formatters";
+import {
+  getPermissionDisplayLabel,
+  sanitizeBidiText,
+  truncateDisplayText,
+} from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -78,8 +82,13 @@ export function PermissionDrawer({
       <div className="card-title">
         <div>
           <div className="identity-title-row">
-            <bdi className="identity-name">
-              {t.permissionDrawer.title(sanitizeBidiText(entry.displayName))}
+            <bdi
+              className="identity-name"
+              title={sanitizeBidiText(entry.displayName)}
+            >
+              {t.permissionDrawer.title(
+                truncateDisplayText(entry.displayName, 16)
+              )}
             </bdi>
             <span
               className={`badge ${

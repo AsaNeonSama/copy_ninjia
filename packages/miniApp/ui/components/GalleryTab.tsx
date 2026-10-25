@@ -20,13 +20,18 @@ import {
   UploadSvgIcon,
 } from "../../miniAppResoures";
 import {
+  buildMiniAppGalleryDownloadFileName,
   buildMiniAppGalleryImageUrl,
   deleteMiniAppGalleryImageByName,
   downloadMiniAppGalleryImageByName,
   fetchMiniAppGallery,
   uploadMiniAppGalleryImageBytes,
 } from "../api";
-import { formatGalleryFileSize, shortenGalleryFileName } from "../formatters";
+import {
+  formatGalleryFileSize,
+  shortenGalleryFileName,
+  truncateDisplayText,
+} from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -192,9 +197,10 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     setSuppressedHoverFileName(fileName);
     setDownloadingFileName(fileName);
     try {
+      const downloadFileName: string = buildMiniAppGalleryDownloadFileName(fileName);
       const accepted: boolean = await downloadMiniAppGalleryImageByName(fileName);
       if (accepted) {
-        onToast(t.gallery.downloadedToast(shortenGalleryFileName(fileName)));
+        onToast(t.gallery.downloadedToast(downloadFileName));
       }
     } catch (error: unknown) {
       const message: string =
@@ -207,7 +213,8 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
 
   const handleDeleteImage = async (fileName: string): Promise<void> => {
     setSuppressedHoverFileName(fileName);
-    if (!(await requestConfirm(t.gallery.confirmDeleteImage(fileName), "danger"))) {
+    const shortName: string = shortenGalleryFileName(fileName);
+    if (!(await requestConfirm(t.gallery.confirmDeleteImage(shortName), "danger"))) {
       return;
     }
     setDeletingFileName(fileName);
@@ -215,7 +222,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
       const result: MiniAppGalleryDeleteResult =
         await deleteMiniAppGalleryImageByName(fileName);
       if (result.ok) {
-        onToast(t.gallery.deletedToast(fileName));
+        onToast(t.gallery.deletedToast(shortName));
         if (previewItem?.fileName === fileName) {
           setPreviewItem(null);
         }
@@ -255,7 +262,9 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
       for (let i: number = 0; i < files.length; i++) {
         const file: File | undefined = files[i];
         if (file === undefined) continue;
-        setUploadStatusText(`(${i + 1}/${files.length}) ${file.name}…`);
+        setUploadStatusText(
+          `(${i + 1}/${files.length}) ${truncateDisplayText(shortenGalleryFileName(file.name), 20)}…`
+        );
         try {
           const buffer: ArrayBuffer = await file.arrayBuffer();
           const bytes: Uint8Array = new Uint8Array(buffer);
@@ -280,7 +289,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
         onToast(lastSingleMessage);
       } else {
         onToast(
-          `+${added} · =${existing} · !${invalidDimensions + failed}♡`
+          `+${added} · =${existing} · !${invalidDimensions + failed}`
         );
       }
       await loadGallery(1, pageSize);
@@ -363,7 +372,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
             className="card gallery-preview-card animate-fade-in"
           >
             <div className="card-title">
-              <span>
+              <span className="gallery-preview-title" title={previewItem.fileName}>
                 {t.gallery.previewTitle(shortenGalleryFileName(previewItem.fileName))}
               </span>
               <div className="toolbar-actions">
@@ -426,7 +435,12 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                     {previewItem.mimeType} · {formatGalleryFileSize(previewItem.sizeBytes)}
                   </span>
                 </div>
-                <div className="cap-val">{previewItem.fileName}</div>
+                <div
+                  className="cap-val gallery-hash-val"
+                  title={previewItem.fileName}
+                >
+                  {previewItem.fileName}
+                </div>
                 <div className="cap-sub">{previewItem.updatedAt}</div>
               </div>
             </div>
@@ -440,6 +454,10 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
             <div className="loading-box">
               <div className="spinner-ring" />
               <div className="loading-text">{t.gallery.loadingText}</div>
+              <div className="skeleton-stack">
+                <div className="skeleton-line wide" />
+                <div className="skeleton-line medium" />
+              </div>
             </div>
           )
           : !galleryPage.exists

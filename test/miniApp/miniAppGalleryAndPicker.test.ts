@@ -117,14 +117,17 @@ const {
 const {
   formatBytes,
   formatGalleryFileSize,
+  formatMemoryMb,
   formatTime,
   formatUptime,
   getFeatureDisplayMeta,
   getPermissionDisplayLabel,
   sanitizeBidiText,
   shortenGalleryFileName,
+  truncateDisplayText,
 } = await import("../../packages/miniApp/ui/formatters");
 const {
+  buildMiniAppGalleryDownloadFileName,
   buildMiniAppGalleryDownloadUrl,
   buildMiniAppGalleryImageUrl,
   buildMiniAppSvgResourceUrl,
@@ -309,12 +312,23 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(formatUptime(3_661_000)).toBe("1h 1m 1s");
     expect(formatUptime(65_000)).toBe("1m 5s");
     expect(formatBytes(10 * 1024 * 1024)).toBe("10.0 MiB");
+    expect(formatMemoryMb(128.456 * 1024 * 1024)).toBe("128.46 MB");
+    expect(
+      buildMiniAppGalleryDownloadFileName(`${"a".repeat(64)}.PNG`, 1_792_934_567_890)
+    ).toBe("1792934567.png");
     expect(formatTime(0)).toBe("-");
     expect(formatTime(1_700_000_000_000).length).toBeGreaterThan(0);
 
     for (const lang of MINI_APP_LANGUAGES) {
       const dict = getMiniAppTranslations(lang);
       expect(dict.appTitle).toContain("♡");
+      expect(dict.status.memoryCurrentLabel.length).toBeGreaterThan(0);
+      expect(dict.status.memoryPeakLabel.length).toBeGreaterThan(0);
+      expect(dict.status.memoryHeapLabel.length).toBeGreaterThan(0);
+      expect(dict.status.memoryProcessUsedLabel.length).toBeGreaterThan(0);
+      expect(dict.status.memoryOtherUsedLabel.length).toBeGreaterThan(0);
+      expect(dict.status.memoryTotalUsedLabel.length).toBeGreaterThan(0);
+      expect(dict.status.memoryHeapSub("64.00 MB")).toContain("64.00 MB");
       expect(dict.identities.duplicateBannerTitle.length).toBeGreaterThan(0);
       for (const tabKey of MINI_APP_TAB_KEYS) {
         expect(dict.tabs[tabKey].length).toBeGreaterThan(0);
@@ -384,6 +398,13 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(readMiniAppInitData()).toBe("");
     expect(confirmMiniAppAction("确认测试？")).toBeTrue();
     expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
+    expect(truncateDisplayText("短名称", 20)).toBe("短名称");
+    expect(
+      truncateDisplayText(
+        "念云｜工单是不回的｜片是必须看的｜有问题找群you｜群主天天摆烂｜群里充斥大量萝莉控｜空调开放｜群主个臭乐乐",
+        20
+      )
+    ).toBe("念云｜工单是不回的｜片是必须看的｜有问题…");
     expect(formatGalleryFileSize(2_048)).toBe("2.0 KiB");
     expect(formatGalleryFileSize(2 * 1024 * 1024)).toBe("2.00 MiB");
     expect(
@@ -754,8 +775,8 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     expect(downloadRes.status).toBe(200);
     expect(downloadRes.headers.get("Content-Type")).toBe("image/png");
-    expect(downloadRes.headers.get("Content-Disposition")).toBe(
-      `attachment; filename="${expectedFileName}"`
+    expect(downloadRes.headers.get("Content-Disposition")).toMatch(
+      /^attachment; filename="\d+\.png"$/u
     );
     expect(await downloadRes.bytes()).toEqual(validPng);
 
@@ -765,8 +786,8 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       )
     );
     expect(queryDownloadRes.status).toBe(200);
-    expect(queryDownloadRes.headers.get("Content-Disposition")).toBe(
-      `attachment; filename="${expectedFileName}"`
+    expect(queryDownloadRes.headers.get("Content-Disposition")).toMatch(
+      /^attachment; filename="\d+\.png"$/u
     );
     expect(await queryDownloadRes.bytes()).toEqual(validPng);
 
@@ -777,8 +798,8 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       )
     );
     expect(headDownloadRes.status).toBe(200);
-    expect(headDownloadRes.headers.get("Content-Disposition")).toBe(
-      `attachment; filename="${expectedFileName}"`
+    expect(headDownloadRes.headers.get("Content-Disposition")).toMatch(
+      /^attachment; filename="\d+\.png"$/u
     );
     expect(await headDownloadRes.bytes()).toEqual(new Uint8Array(0));
 

@@ -103,8 +103,14 @@ export interface MiniAppTranslations {
     readonly updatedAtSub: (timeText: string) => string;
     readonly cpuLoadLabel: string;
     readonly cpuLoadSub: string;
+    readonly memoryCurrentLabel: string;
     readonly memoryPeakLabel: string;
+    readonly memoryHeapLabel: string;
+    readonly memoryProcessUsedLabel: string;
+    readonly memoryOtherUsedLabel: string;
+    readonly memoryTotalUsedLabel: string;
     readonly memorySub: (currentRss: string, heapUsed: string) => string;
+    readonly memoryHeapSub: (heapUsed: string) => string;
     readonly managedChatsLabel: string;
     readonly managedChatsSub: (whitelistCount: number, blocklistCount: number) => string;
     readonly activeSessionsLabel: string;

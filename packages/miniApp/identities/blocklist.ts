@@ -280,6 +280,6 @@ export async function setBlocklistEntryMembership({
   return {
     ok: true,
     changed: removedFromList,
-    message: `${removedFromList ? `哼，已把 ID ${id} 从黑名单放出来啦` : `杂鱼♡，ID ${id} 原本就不在黑名单里`}${fanOutNote}${persistNote}♡`,
+    message: `${removedFromList ? `哼，已把 ID ${id} 从黑名单放出来啦` : `杂鱼，ID ${id} 原本就不在黑名单里`}${fanOutNote}${persistNote}♡`,
   };
 }

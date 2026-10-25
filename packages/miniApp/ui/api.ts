@@ -16,6 +16,9 @@ import type {
   MiniAppTotpStatusView,
 } from "../../types/miniAppTotp";
 import type { PrepareMiniAppPickerResult } from "../picker";
+import { buildMiniAppGalleryDownloadFileName } from "./formatters";
+
+export { buildMiniAppGalleryDownloadFileName };
 
 /**
  * 读取浏览器全局注入的 `Telegram.WebApp` 实例。
@@ -529,7 +532,7 @@ export function buildMiniAppGalleryDownloadUrl(fileName: string): string {
 }
 
 /**
- * 先通过完整双层鉴权 `HEAD /api/gallery/download/:fileName` 校验 90 分钟会话与文件存在性，随后优先调用 Telegram 原生 `WebApp.downloadFile({ url, file_name })`（或浏览器原生 `Content-Disposition: attachment` 直连下载）将图片保存至系统默认下载目录。
+ * 先通过完整双层鉴权 `HEAD /api/gallery/download/:fileName` 校验 90 分钟会话与文件存在性，随后优先调用 Telegram 原生 `WebApp.downloadFile({ url, file_name })`（或浏览器原生 `Content-Disposition: attachment` 直连下载）并以秒级时间戳文件名将图片保存至系统默认下载目录。
  * @param fileName 待下载的图库图片文件名
  * @returns 用户确认或触发原生下载时返回 `true`，在 Telegram 原生弹窗中取消时返回 `false`
  */
@@ -557,6 +560,7 @@ export async function downloadMiniAppGalleryImageByName(fileName: string): Promi
           : `HTTP ${String(response.status)}`;
     throw new Error(errText);
   }
+  const downloadFileName: string = buildMiniAppGalleryDownloadFileName(fileName);
   const tgWindow: TelegramWindow = globalThis;
   const baseHref: string | undefined = tgWindow.location?.href;
   const absoluteUrl: string =
@@ -570,7 +574,7 @@ export async function downloadMiniAppGalleryImageByName(fileName: string): Promi
   if (canUseTelegramNativeDownload && webApp?.downloadFile !== undefined) {
     return await new Promise<boolean>((resolve: (accepted: boolean) => void): void => {
       webApp.downloadFile!(
-        { url: absoluteUrl, file_name: fileName },
+        { url: absoluteUrl, file_name: downloadFileName },
         (accepted: boolean): void => {
           resolve(accepted);
         }
@@ -580,7 +584,7 @@ export async function downloadMiniAppGalleryImageByName(fileName: string): Promi
   if (typeof tgWindow.document?.createElement === "function") {
     const anchor: MiniAppDownloadAnchorElement = tgWindow.document.createElement("a");
     anchor.href = absoluteUrl;
-    anchor.download = fileName;
+    anchor.download = downloadFileName;
     anchor.rel = "noopener";
     anchor.style.display = "none";
     tgWindow.document.body?.appendChild?.(anchor);

@@ -16,6 +16,7 @@ import {
   readMiniAppSvgResource,
   uploadMiniAppGalleryImage,
 } from "../galleryView";
+import { buildMiniAppGalleryDownloadFileName } from "../ui/formatters";
 import {
   buildAssetCacheHeaders,
   buildNoStoreHeaders,
@@ -87,7 +88,7 @@ export async function handleGetGalleryFileByName(
 }
 
 /**
- * 处理 `GET|HEAD /api/gallery/download/:fileName`：在前置下载中间件链完成完整双层鉴权（跨站拦截 + 超管 `initData` 签名或资源令牌 + 90 分钟 `session` 会话令牌）后，经文件名安全校验返回带 `Content-Disposition: attachment` 下载头与 `no-store` 防缓存策略的图片原始二进制流。
+ * 处理 `GET|HEAD /api/gallery/download/:fileName`：在前置下载中间件链完成完整双层鉴权（跨站拦截 + 超管 `initData` 签名或资源令牌 + 90 分钟 `session` 会话令牌）后，经文件名安全校验返回带秒级时间戳文件名 `Content-Disposition: attachment` 下载头与 `no-store` 防缓存策略的图片原始二进制流。
  * @param request HTTP 请求对象。
  * @param rawFileName URL 中的文件名参数。
  * @returns 附件下载图片文件响应或 `404` JSON 响应。
@@ -101,9 +102,12 @@ export async function handleDownloadGalleryFileByName(
   if (resolved === null) {
     return jsonResponse({ error: "Image not found" }, 404);
   }
+  const downloadFileName: string = buildMiniAppGalleryDownloadFileName(
+    resolved.fileName
+  );
   const headers: Record<string, string> = buildNoStoreHeaders(resolved.mimeType);
   headers["Content-Length"] = String(resolved.sizeBytes);
-  headers["Content-Disposition"] = `attachment; filename="${resolved.fileName}"`;
+  headers["Content-Disposition"] = `attachment; filename="${downloadFileName}"`;
   return new Response(
     request.method.toUpperCase() === "HEAD" ? null : Bun.file(resolved.filePath),
     {

@@ -24,6 +24,7 @@ import {
   LockSvgIcon,
   MenuSvgIcon,
   MoonSvgIcon,
+  StatusSvgIcon,
   SunSvgIcon,
   TabSvgIcon,
 } from "../miniAppResoures";
@@ -363,7 +364,7 @@ export function App(): React.JSX.Element {
   const renderPrefsBar = (): React.JSX.Element => (
     <div className="prefs-bar">
       <div className="lang-pill-group" role="group" aria-label="Language">
-        <GlobeSvgIcon size={13} className="lang-globe-icon" />
+        <GlobeSvgIcon size={15} className="lang-globe-icon" />
         {MINI_APP_LANGUAGES.map((lang: MiniAppLanguage): React.JSX.Element => {
           const label: string = getMiniAppTranslations(lang).languageLabel;
           return (
@@ -394,9 +395,16 @@ export function App(): React.JSX.Element {
 
   const renderToast = (): React.JSX.Element | null => {
     if (toastText.length === 0) return null;
+    const isWarnOrDanger: boolean =
+      toastTone === "warning" || toastTone === "danger";
     return (
       <div className={`toast show toast-${toastTone}`} role="status">
-        <span>{toastText}</span>
+        <span className="toast-badge" aria-hidden="true">
+          {isWarnOrDanger
+            ? <AlertSvgIcon size={14} />
+            : <StatusSvgIcon size={14} />}
+        </span>
+        <span className="toast-text">{toastText}</span>
         <button
           type="button"
           className="toast-close"

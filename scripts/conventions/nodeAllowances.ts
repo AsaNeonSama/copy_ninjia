@@ -65,8 +65,8 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
   },
   "packages/infra/processStatus.ts": {
     "node:os": {
-      symbols: ["availableParallelism", "totalmem"],
-      purpose: "runtime capacity limits derived from host resources",
+      symbols: ["availableParallelism", "freemem", "totalmem"],
+      purpose: "runtime capacity limits and host memory telemetry derived from host resources",
     },
   },
   "packages/infra/randomImage.ts": {

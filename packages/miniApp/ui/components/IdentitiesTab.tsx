@@ -46,7 +46,7 @@ import {
   setMiniAppBlocklistMembership,
   setMiniAppWhitelistMembership,
 } from "../api";
-import { sanitizeBidiText } from "../formatters";
+import { sanitizeBidiText, truncateDisplayText } from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -372,7 +372,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
     if (
       !(await requestConfirm(
         t.identities.confirmRemoveWhitelist(
-          sanitizeBidiText(entry.displayName),
+          truncateDisplayText(entry.displayName, 20),
           entry.id
         ),
         "danger"
@@ -401,7 +401,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
     if (
       !(await requestConfirm(
         t.identities.confirmRemoveBlocklist(
-          sanitizeBidiText(entry.displayName),
+          truncateDisplayText(entry.displayName, 20),
           entry.id
         ),
         "danger"
@@ -625,6 +625,10 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                 <div className="loading-box">
                   <div className="spinner-ring" />
                   <div className="loading-text">{t.identities.loadingText}</div>
+                  <div className="skeleton-stack">
+                    <div className="skeleton-line wide" />
+                    <div className="skeleton-line medium" />
+                  </div>
                 </div>
               )
               : null}
@@ -649,13 +653,20 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                   <div className="row">
                     <div className="row-main">
                       <div className="identity-title-row">
-                        <bdi className="identity-name">
-                          {sanitizeBidiText(entry.displayName)}
+                        <bdi
+                          className="identity-name"
+                          title={sanitizeBidiText(entry.displayName)}
+                        >
+                          {truncateDisplayText(entry.displayName, 18)}
                         </bdi>
                         {entry.username !== undefined
                           ? (
-                            <span className="identity-username" dir="ltr">
-                              @{sanitizeBidiText(entry.username)}
+                            <span
+                              className="identity-username"
+                              dir="ltr"
+                              title={`@${sanitizeBidiText(entry.username)}`}
+                            >
+                              @{truncateDisplayText(entry.username, 16)}
                             </span>
                           )
                           : null}
@@ -745,6 +756,10 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                 <div className="loading-box">
                   <div className="spinner-ring" />
                   <div className="loading-text">{t.identities.loadingText}</div>
+                  <div className="skeleton-stack">
+                    <div className="skeleton-line wide" />
+                    <div className="skeleton-line medium" />
+                  </div>
                 </div>
               )
               : null}
@@ -763,13 +778,20 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
               <div key={entry.id} className="row">
                 <div className="row-main">
                   <div className="identity-title-row">
-                    <bdi className="identity-name">
-                      {sanitizeBidiText(entry.displayName)}
+                    <bdi
+                      className="identity-name"
+                      title={sanitizeBidiText(entry.displayName)}
+                    >
+                      {truncateDisplayText(entry.displayName, 18)}
                     </bdi>
                     {entry.username !== undefined
                       ? (
-                        <span className="identity-username" dir="ltr">
-                          @{sanitizeBidiText(entry.username)}
+                        <span
+                          className="identity-username"
+                          dir="ltr"
+                          title={`@${sanitizeBidiText(entry.username)}`}
+                        >
+                          @{truncateDisplayText(entry.username, 16)}
                         </span>
                       )
                       : null}

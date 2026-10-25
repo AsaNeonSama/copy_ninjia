@@ -18,6 +18,39 @@ export function sanitizeBidiText(raw: string): string {
 }
 
 /**
+ * 对过长的群聊名称、用户昵称或文件名进行安全字符级截断（先剥离双向控制字符再按码点截断，避免拆碎代理对）。
+ *
+ * @param raw 原始文本
+ * @param maxChars 最大保留字符数（默认 `20`）
+ * @returns 截断后的安全展示文本
+ */
+export function truncateDisplayText(raw: string, maxChars: number = 20): string {
+  const clean: string = sanitizeBidiText(raw).trim();
+  if (clean.length <= maxChars) return clean;
+  const chars: string[] = Array.from(clean);
+  if (chars.length <= maxChars) return clean;
+  return `${chars.slice(0, Math.max(1, maxChars)).join("")}…`;
+}
+
+/**
+ * 构造以秒级 Unix 时间戳命名的图库图片下载文件名（保留原文件扩展名，如 `1792934000.png`）。
+ *
+ * @param fileName 图库图片原始 SHA-256 文件名
+ * @param nowMs 可选当前毫秒时间戳（默认 `Date.now()`）
+ * @returns 秒级时间戳加扩展名的下载文件名
+ */
+export function buildMiniAppGalleryDownloadFileName(
+  fileName: string,
+  nowMs: number = Date.now()
+): string {
+  const dotIndex: number = fileName.lastIndexOf(".");
+  const ext: string =
+    dotIndex >= 0 ? fileName.slice(dotIndex).toLowerCase() : ".jpg";
+  const timestampSec: number = Math.max(0, Math.floor(nowMs / 1000));
+  return `${timestampSec}${ext}`;
+}
+
+/**
  * 将运行时长毫秒数格式化为易读的中文天/时/分/秒文本。
  *
  * @param uptimeMs 运行时长毫秒数
@@ -42,6 +75,17 @@ export function formatUptime(uptimeMs: number): string {
  */
 export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+/**
+ * 将内存字节数格式化为保留 2 位小数的 MB 文本（如 `128.45 MB`）。
+ *
+ * @param bytes 内存字节数
+ * @returns 以 MB 为单位且保留 2 位小数的格式化文本
+ */
+export function formatMemoryMb(bytes: number): string {
+  const safeBytes: number = Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+  return `${(safeBytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 /**

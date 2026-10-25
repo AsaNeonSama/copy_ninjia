@@ -15,7 +15,10 @@ import {
 } from "../config/readiness";
 import { TELEGRAM_429_RETRY_QUEUE_MAX } from "../consts/telegram";
 import { getIdentityEntryCount } from "../infra/identityStorage";
-import { readBotProcessStatus } from "../infra/processStatus";
+import {
+  readBotProcessStatus,
+  readHostOtherMemoryBytes,
+} from "../infra/processStatus";
 import { getChatStateCache } from "../infra/storage/stateStore";
 import { telegramOutboundStats } from "../infra/telegram/outboundLifecycle";
 import { isTerminalVerificationPhase } from "../states/verification/shared";
@@ -271,6 +274,11 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
   const memoryPeakRssBytes: number = maxRssKb * 1024;
   const memoryCurrentRssBytes: number =
     processStatus.memoryFootprintBytes ?? memoryUsage.rss;
+  const memoryTotalBytes: number = processStatus.memoryLimitBytes;
+  const memoryOtherBytes: number = readHostOtherMemoryBytes(
+    memoryCurrentRssBytes,
+    memoryTotalBytes
+  );
 
   let managedChatCount: number = 0;
   for (const state of getChatStateCache().values()) {
@@ -381,6 +389,8 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
     cpuAveragePercent: Number(processStatus.averageCpuPercent.toFixed(2)),
     memoryPeakRssBytes,
     memoryCurrentRssBytes,
+    memoryOtherBytes,
+    memoryTotalBytes,
     memoryHeapUsedBytes: memoryUsage.heapUsed,
     memoryHeapTotalBytes: memoryUsage.heapTotal,
     managedChatCount,

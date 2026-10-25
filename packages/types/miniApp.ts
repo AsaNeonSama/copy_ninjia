@@ -150,6 +150,8 @@ export interface MiniAppStatusView {
   readonly cpuAveragePercent: number;
   readonly memoryPeakRssBytes: number;
   readonly memoryCurrentRssBytes: number;
+  readonly memoryOtherBytes: number;
+  readonly memoryTotalBytes: number;
   readonly memoryHeapUsedBytes: number;
   readonly memoryHeapTotalBytes: number;
   readonly managedChatCount: number;

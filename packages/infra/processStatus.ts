@@ -1,4 +1,4 @@
-import { availableParallelism, totalmem } from "node:os";
+import { availableParallelism, freemem, totalmem } from "node:os";
 import {
   BOT_STATUS_MICROSECONDS_PER_SECOND,
   BOT_STATUS_PERCENT_SCALE,
@@ -94,4 +94,27 @@ export function readBotProcessStatus(): BotProcessStatus {
     constrainedMemoryBytes: process.constrainedMemory(),
     totalMemoryBytes: totalmem(),
   });
+}
+
+/**
+ * 同步计算当前机器除本 Bot 进程外的其他进程已用物理内存字节数。
+ * @param currentProcessBytes 当前 Bot 进程已占用的物理内存字节数。
+ * @param memoryLimitBytes 当前生效的机器或容器内存总上限字节数。
+ * @returns 归一化后的其他进程内存占用字节数（保证非负且与当前进程之和不超过总上限）。
+ */
+export function readHostOtherMemoryBytes(
+  currentProcessBytes: number,
+  memoryLimitBytes: number
+): number {
+  const hostTotalBytes: number = finiteNonNegative(totalmem());
+  const hostFreeBytes: number = finiteNonNegative(freemem());
+  const hostUsedBytes: number = Math.max(0, hostTotalBytes - hostFreeBytes);
+  const safeLimitBytes: number =
+    memoryLimitBytes > 0 ? memoryLimitBytes : hostTotalBytes;
+  const safeCurrentBytes: number = finiteNonNegative(currentProcessBytes);
+  const clampedSystemUsedBytes: number = Math.min(
+    safeLimitBytes,
+    Math.max(safeCurrentBytes, hostUsedBytes)
+  );
+  return Math.max(0, clampedSystemUsedBytes - safeCurrentBytes);
 }

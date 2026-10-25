@@ -12,6 +12,7 @@ import type {
 } from "../../../types/miniApp";
 import { ArrowLeftSvgIcon, RefreshSvgIcon } from "../../miniAppResoures";
 import { fetchMiniAppChatMessages } from "../api";
+import { truncateDisplayText } from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -112,9 +113,12 @@ export function MessagesView({
 
       <div className="card">
         <div className="card-title">
-          <span>
+          <span
+            className="chat-title-ellipsis"
+            title={pageData?.title ?? `${chatId}`}
+          >
             {t.messages.headerTitle(
-              pageData?.title ?? `${chatId}`,
+              truncateDisplayText(pageData?.title ?? `${chatId}`, 18),
               pageData?.total ?? 0,
               pageData?.maxCapacity ?? VERBATIM_CONTEXT_MAX
             )}
@@ -141,9 +145,21 @@ export function MessagesView({
           ? pageData.items.map((item: Readonly<MiniAppMessageItem>): React.JSX.Element => (
             <div key={`${item.index}-${item.messageId}`} className="msg-item">
               <div className="msg-head">
-                <span>
-                  #{item.index + 1} · <strong>{item.name}</strong>
-                  {item.username !== undefined ? ` @${item.username}` : ""}
+                <span
+                  className="msg-author-wrap"
+                  title={`${item.name}${item.username !== undefined ? ` @${item.username}` : ""} (${item.userId})`}
+                >
+                  #{item.index + 1} ·{" "}
+                  <strong className="msg-author-name">
+                    {truncateDisplayText(item.name, 16)}
+                  </strong>
+                  {item.username !== undefined
+                    ? (
+                      <span className="msg-author-handle">
+                        {` @${truncateDisplayText(item.username, 14)}`}
+                      </span>
+                    )
+                    : null}
                   {` (${item.userId})`}
                 </span>
                 <span>
@@ -152,8 +168,10 @@ export function MessagesView({
               </div>
               {item.forwardedFrom !== undefined
                 ? (
-                  <div className="msg-quote">
-                    {t.messages.forwardBadge(item.forwardedFrom)}
+                  <div className="msg-quote" title={item.forwardedFrom}>
+                    {t.messages.forwardBadge(
+                      truncateDisplayText(item.forwardedFrom, 18)
+                    )}
                   </div>
                 )
                 : null}
@@ -161,7 +179,10 @@ export function MessagesView({
                 ? (
                   <div className="msg-quote">
                     {t.messages.replyBadge(
-                      item.replyToName ?? `#${item.replyToMessageId ?? ""}`,
+                      truncateDisplayText(
+                        item.replyToName ?? `#${item.replyToMessageId ?? ""}`,
+                        14
+                      ),
                       item.replyToPreview
                     )}
                   </div>
