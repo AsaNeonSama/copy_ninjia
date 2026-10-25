@@ -1380,6 +1380,7 @@ input:disabled + .slider {
   position: absolute;
   top: 6px;
   appearance: none;
+  outline: none;
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: rgba(15, 23, 42, 0.78);
   width: 28px;
@@ -1395,8 +1396,10 @@ input:disabled + .slider {
 }
 .gallery-card-download-btn { right: 38px; color: var(--accent); }
 .gallery-card-delete-btn { right: 6px; color: #f87171; }
-.gallery-card-download-btn:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); transform: scale(1.06); }
-.gallery-card-delete-btn:hover:not(:disabled) { background: var(--danger); color: #ffffff; transform: scale(1.06); }
+@media (hover: hover) and (pointer: fine) {
+  .gallery-card-download-btn:hover:not(:disabled):not(.hover-suppressed) { background: var(--accent); color: var(--accent-text); transform: scale(1.06); }
+  .gallery-card-delete-btn:hover:not(:disabled):not(.hover-suppressed) { background: var(--danger); color: #ffffff; transform: scale(1.06); }
+}
 .gallery-card-download-btn:disabled,
 .gallery-card-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 

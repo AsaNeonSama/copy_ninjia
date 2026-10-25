@@ -56,6 +56,12 @@ interface ScrollablePreviewElement extends HTMLDivElement {
   }) => void;
 }
 
+/** 支持主动失焦（`blur`）的按钮事件目标接口。 */
+interface BlurTargetElement {
+  /** 移除当前按钮焦点，防止原生弹窗关闭后残留悬停或焦点态。 */
+  readonly blur?: () => void;
+}
+
 /**
  * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理组件。
  *
@@ -103,6 +109,12 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
   ] = useState<string | null>(null);
+  const [suppressedHoverFileName, setSuppressedHoverFileName]: [
+    string | null,
+    React.Dispatch<React.SetStateAction<string | null>>
+  ] = useState<string | null>(null);
+  const clickCoordsRef: React.RefObject<{ readonly x: number; readonly y: number }> =
+    useRef<{ readonly x: number; readonly y: number }>({ x: -1, y: -1 });
   const [uploadStatusText, setUploadStatusText]: [
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
@@ -151,7 +163,33 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     void loadGallery(1, pageSize);
   }, [pageSize]);
 
+  const clearHoverSuppressionOnLeave = (fileName: string): void => {
+    if (
+      downloadingFileName === null &&
+      deletingFileName === null &&
+      suppressedHoverFileName === fileName
+    ) {
+      setSuppressedHoverFileName(null);
+    }
+  };
+
+  const clearHoverSuppressionOnMove = (
+    fileName: string,
+    event: React.MouseEvent<HTMLButtonElement>
+  ): void => {
+    if (
+      downloadingFileName === null &&
+      deletingFileName === null &&
+      suppressedHoverFileName === fileName &&
+      (Math.abs(event.clientX - clickCoordsRef.current.x) > 4 ||
+        Math.abs(event.clientY - clickCoordsRef.current.y) > 4)
+    ) {
+      setSuppressedHoverFileName(null);
+    }
+  };
+
   const handleDownloadImage = async (fileName: string): Promise<void> => {
+    setSuppressedHoverFileName(fileName);
     setDownloadingFileName(fileName);
     try {
       const accepted: boolean = await downloadMiniAppGalleryImageByName(fileName);
@@ -168,6 +206,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
   };
 
   const handleDeleteImage = async (fileName: string): Promise<void> => {
+    setSuppressedHoverFileName(fileName);
     if (!(await requestConfirm(t.gallery.confirmDeleteImage(fileName), "danger"))) {
       return;
     }
@@ -332,7 +371,8 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                   type="button"
                   className="btn primary icon-btn"
                   disabled={downloadingFileName !== null || deletingFileName !== null}
-                  onClick={(): void => {
+                  onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                    (event.currentTarget as unknown as BlurTargetElement).blur?.();
                     void handleDownloadImage(previewItem.fileName);
                   }}
                 >
@@ -347,7 +387,8 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                   type="button"
                   className="btn danger icon-btn"
                   disabled={deletingFileName !== null || downloadingFileName !== null}
-                  onClick={(): void => {
+                  onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                    (event.currentTarget as unknown as BlurTargetElement).blur?.();
                     void handleDeleteImage(previewItem.fileName);
                   }}
                 >
@@ -431,12 +472,20 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                           />
                           <button
                             type="button"
-                            className="gallery-card-download-btn"
+                            className={`gallery-card-download-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
                             title={t.gallery.downloadButton}
                             aria-label={t.gallery.downloadButton}
                             disabled={downloadingFileName !== null || deletingFileName !== null}
+                            onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                              clearHoverSuppressionOnMove(item.fileName, event);
+                            }}
+                            onMouseLeave={(): void => {
+                              clearHoverSuppressionOnLeave(item.fileName);
+                            }}
                             onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
                               event.stopPropagation();
+                              clickCoordsRef.current = { x: event.clientX, y: event.clientY };
+                              (event.currentTarget as unknown as BlurTargetElement).blur?.();
                               void handleDownloadImage(item.fileName);
                             }}
                           >
@@ -444,12 +493,20 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                           </button>
                           <button
                             type="button"
-                            className="gallery-card-delete-btn"
+                            className={`gallery-card-delete-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
                             title={t.gallery.deleteButton}
                             aria-label={t.gallery.deleteButton}
                             disabled={deletingFileName !== null || downloadingFileName !== null}
+                            onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                              clearHoverSuppressionOnMove(item.fileName, event);
+                            }}
+                            onMouseLeave={(): void => {
+                              clearHoverSuppressionOnLeave(item.fileName);
+                            }}
                             onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
                               event.stopPropagation();
+                              clickCoordsRef.current = { x: event.clientX, y: event.clientY };
+                              (event.currentTarget as unknown as BlurTargetElement).blur?.();
                               void handleDeleteImage(item.fileName);
                             }}
                           >
