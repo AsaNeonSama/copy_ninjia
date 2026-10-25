@@ -16,7 +16,6 @@ import {
 } from "../chatsView";
 import { readManagedChatMessages } from "../messagesView";
 import {
-  authenticateMiniAppRequest,
   jsonResponse,
   parseOptionalSafeInt,
   readJsonObjectBody,
@@ -37,27 +36,18 @@ function parseGroupChatIdParam(rawChatId: string): number | null {
 
 /**
  * 处理 `GET /api/chats`：列出所有已开启 `/init` 的群聊摘要。
- * @param request HTTP 请求。
  * @returns JSON 响应。
  */
-export function handleGetChatsRoute(request: Request): Response {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
+export function handleGetChatsRoute(): Response {
   return jsonResponse({ items: listManagedChats() });
 }
 
 /**
  * 处理 `GET /api/chats/:chatId`：读取指定已 `/init` 群的详细状态。
- * @param request HTTP 请求。
  * @param rawChatId 路径中的群聊 ID 字符串。
  * @returns JSON 响应。
  */
-export function handleGetChatDetailById(
-  request: Request,
-  rawChatId: string
-): Response {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
+export function handleGetChatDetailById(rawChatId: string): Response {
   const chatId: number | null = parseGroupChatIdParam(rawChatId);
   if (chatId === null) {
     return jsonResponse({ error: "无效的群聊 ID。" }, 400);
@@ -81,8 +71,6 @@ export function handleGetChatMessagesById(
   rawChatId: string,
   parsedUrl?: URL
 ): Response {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const chatId: number | null = parseGroupChatIdParam(rawChatId);
   if (chatId === null) {
     return jsonResponse({ error: "无效的群聊 ID。" }, 400);
@@ -111,8 +99,6 @@ export async function handlePostChatFeatureById(
   request: Request,
   rawChatId: string
 ): Promise<Response> {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const chatId: number | null = parseGroupChatIdParam(rawChatId);
   if (chatId === null) {
     return jsonResponse({ error: "无效的群聊 ID。" }, 400);
@@ -154,7 +140,7 @@ export async function handleChatsApiRoute(
   request: Request
 ): Promise<Response | null> {
   if (method === "GET" && routePath === "/api/chats") {
-    return handleGetChatsRoute(request);
+    return handleGetChatsRoute();
   }
   const chatMatch: RegExpExecArray | null =
     MINI_APP_CHAT_ROUTE_PATTERN.exec(routePath);
@@ -163,7 +149,7 @@ export async function handleChatsApiRoute(
   const rawChatId: string = chatMatch[1] ?? "";
   const subResource: string | undefined = chatMatch[2];
   if (subResource === undefined && method === "GET") {
-    return handleGetChatDetailById(request, rawChatId);
+    return handleGetChatDetailById(rawChatId);
   }
   if (subResource === "messages" && method === "GET") {
     return handleGetChatMessagesById(request, rawChatId);

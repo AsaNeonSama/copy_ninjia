@@ -5,16 +5,30 @@ import {
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
 } from "../../../consts/miniApp";
 import type {
+  MiniAppGalleryDeleteResult,
   MiniAppGalleryItem,
   MiniAppGalleryPage,
   MiniAppGalleryUploadResult,
+  MiniAppLanguage,
 } from "../../../types/miniApp";
 import {
+  CloseSvgIcon,
+  GallerySvgIcon,
+  RefreshSvgIcon,
+  TrashSvgIcon,
+  UploadSvgIcon,
+} from "../../miniAppResoures";
+import {
   buildMiniAppGalleryImageUrl,
+  deleteMiniAppGalleryImageByName,
   fetchMiniAppGallery,
   uploadMiniAppGalleryImageBytes,
 } from "../api";
 import { formatGalleryFileSize, shortenGalleryFileName } from "../formatters";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useMiniAppStore } from "../store";
+import type { MiniAppUiStoreState } from "../store";
 import { PaginationBar } from "./PaginationBar";
 
 /** `GalleryTab` 组件的属性参数。 */
@@ -32,12 +46,24 @@ interface FileInputEventTarget {
 }
 
 /**
- * 图库分页预览与 SHA-256 协议上传管理组件。
+ * 图库分页预览、SHA-256 协议上传与单张图片删除管理组件。
  *
  * @param props 组件属性
  * @returns React 节点
  */
 export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (state: MiniAppUiStoreState): MiniAppLanguage => state.language
+  );
+  const requestConfirm: (
+    message: string,
+    tone?: "danger" | "primary"
+  ) => Promise<boolean> = useMiniAppStore(
+    (state: MiniAppUiStoreState): ((message: string, tone?: "danger" | "primary") => Promise<boolean>) =>
+      state.requestConfirm
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+
   const [galleryPage, setGalleryPage]: [
     MiniAppGalleryPage | null,
     React.Dispatch<React.SetStateAction<MiniAppGalleryPage | null>>
@@ -58,6 +84,10 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
   ] = useState<boolean>(false);
+  const [deletingFileName, setDeletingFileName]: [
+    string | null,
+    React.Dispatch<React.SetStateAction<string | null>>
+  ] = useState<string | null>(null);
   const [uploadStatusText, setUploadStatusText]: [
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
@@ -83,7 +113,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
         } catch (error: unknown) {
           const message: string =
             error instanceof Error ? error.message : String(error);
-          onToast(`读取图库失败：${message}`);
+          onToast(message);
         } finally {
           setLoading(false);
         }
@@ -94,6 +124,32 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
   useEffect((): void => {
     void loadGallery(1, pageSize);
   }, [pageSize]);
+
+  const handleDeleteImage = async (fileName: string): Promise<void> => {
+    if (!(await requestConfirm(t.gallery.confirmDeleteImage(fileName), "danger"))) {
+      return;
+    }
+    setDeletingFileName(fileName);
+    try {
+      const result: MiniAppGalleryDeleteResult =
+        await deleteMiniAppGalleryImageByName(fileName);
+      if (result.ok) {
+        onToast(t.gallery.deletedToast(fileName));
+        if (previewItem?.fileName === fileName) {
+          setPreviewItem(null);
+        }
+        await loadGallery(page, pageSize);
+      } else {
+        onToast(result.message);
+      }
+    } catch (error: unknown) {
+      const message: string =
+        error instanceof Error ? error.message : String(error);
+      onToast(message);
+    } finally {
+      setDeletingFileName(null);
+    }
+  };
 
   const handleFilesSelected = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -118,7 +174,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
       for (let i: number = 0; i < files.length; i++) {
         const file: File | undefined = files[i];
         if (file === undefined) continue;
-        setUploadStatusText(`正在校验并入库 (${i + 1}/${files.length})：${file.name}`);
+        setUploadStatusText(`(${i + 1}/${files.length}) ${file.name}…`);
         try {
           const buffer: ArrayBuffer = await file.arrayBuffer();
           const bytes: Uint8Array = new Uint8Array(buffer);
@@ -143,7 +199,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
         onToast(lastSingleMessage);
       } else {
         onToast(
-          `上传完成：新增 ${added} 张 · 已存在 ${existing} 张 · 尺寸不符 ${invalidDimensions} 张 · 失败 ${failed} 张`
+          `+${added} · =${existing} · !${invalidDimensions + failed}♡`
         );
       }
       await loadGallery(1, pageSize);
@@ -154,55 +210,29 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
   };
 
   const uploadDisabled: boolean =
-    uploading || loading || galleryPage?.exists === false;
+    uploading || loading || deletingFileName !== null || galleryPage?.exists === false;
 
   return (
-    <div>
+    <div className="animate-fade-in">
       <div className="card">
         <div className="card-title">
-          <span>随机图库 (/h_image)</span>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <span
-              className={`badge ${
-                galleryPage === null
-                  ? ""
-                  : galleryPage.exists
-                    ? "ok"
-                    : "warn"
-              }`}
-            >
-              {galleryPage === null
-                ? "加载中"
-                : galleryPage.exists
-                  ? `共 ${galleryPage.total} 张`
-                  : "目录不存在"}
+          <span className="toolbar-hint">
+            <span className="toolbar-icon-badge">
+              <GallerySvgIcon size={15} />
             </span>
-          </div>
-        </div>
-
-        <div className="cap-items" style={{ marginBottom: "10px" }}>
-          <div className="cap-item">
-            <div className="cap-item-top">
-              <span className="cap-tag">配置图库目录</span>
-              <span className="cap-sub">assets.json · onlyPath.random_h_image_dir</span>
-            </div>
-            <div className="cap-val">
-              {galleryPage !== null ? galleryPage.directory : "正在读取配置路径…"}
-            </div>
-          </div>
-        </div>
-
-        <div className="toolbar" style={{ marginBottom: "6px" }}>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+            <span>{t.gallery.sectionTitle(galleryPage?.total ?? 0)}</span>
+          </span>
+          <div className="toolbar-actions">
             <label
-              className="btn primary"
+              className="btn primary icon-btn"
               style={
                 uploadDisabled
                   ? { opacity: 0.45, cursor: "not-allowed", pointerEvents: "none" }
                   : undefined
               }
             >
-              {uploading ? "正在上传…" : "＋ 上传图片"}
+              <UploadSvgIcon size={14} />
+              <span>{uploading ? t.gallery.uploadingButton : t.gallery.uploadButton}</span>
               <input
                 type="file"
                 accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
@@ -216,19 +246,24 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
             </label>
             <button
               type="button"
-              className="btn"
-              disabled={loading || uploading}
+              className="btn icon-btn"
+              disabled={loading || uploading || deletingFileName !== null}
               onClick={(): void => {
                 void loadGallery(page, pageSize);
               }}
             >
-              {loading ? "读取中…" : "刷新"}
+              <RefreshSvgIcon size={14} className={loading ? "spin-icon" : ""} />
+              <span>{t.gallery.refreshButton}</span>
             </button>
           </div>
         </div>
 
         <div className="row-sub">
-          协议：支持 JPEG / PNG / WebP（单张 ≤ 10 MiB，宽高之和 ≤ 10000，长宽比 ≤ 20），按内容 SHA-256 命名并自动去重。
+          {galleryPage === null
+            ? t.gallery.loadingText
+            : galleryPage.exists
+              ? t.gallery.directoryReadyText(galleryPage.directory)
+              : t.gallery.directoryMissingText(galleryPage.directory)}
         </div>
 
         {uploadStatusText !== null
@@ -242,18 +277,38 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
 
       {previewItem !== null
         ? (
-          <div className="card gallery-preview-card">
+          <div className="card gallery-preview-card animate-fade-in">
             <div className="card-title">
-              <span>图片大图预览</span>
-              <button
-                type="button"
-                className="btn"
-                onClick={(): void => {
-                  setPreviewItem(null);
-                }}
-              >
-                关闭预览
-              </button>
+              <span>
+                {t.gallery.previewTitle(shortenGalleryFileName(previewItem.fileName))}
+              </span>
+              <div className="toolbar-actions">
+                <button
+                  type="button"
+                  className="btn danger icon-btn"
+                  disabled={deletingFileName !== null}
+                  onClick={(): void => {
+                    void handleDeleteImage(previewItem.fileName);
+                  }}
+                >
+                  <TrashSvgIcon size={14} />
+                  <span>
+                    {deletingFileName === previewItem.fileName
+                      ? t.gallery.deletingButton
+                      : t.gallery.deleteButton}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="btn icon-btn"
+                  onClick={(): void => {
+                    setPreviewItem(null);
+                  }}
+                >
+                  <CloseSvgIcon size={14} />
+                  <span>{t.gallery.closePreviewButton}</span>
+                </button>
+              </div>
             </div>
             <div className="gallery-preview-img-wrap">
               <img
@@ -265,13 +320,13 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
             <div className="cap-items" style={{ marginTop: "8px" }}>
               <div className="cap-item">
                 <div className="cap-item-top">
-                  <span className="cap-tag">SHA-256 文件名</span>
+                  <span className="cap-tag">SHA-256</span>
                   <span className="cap-sub">
                     {previewItem.mimeType} · {formatGalleryFileSize(previewItem.sizeBytes)}
                   </span>
                 </div>
                 <div className="cap-val">{previewItem.fileName}</div>
-                <div className="cap-sub">修改时间：{previewItem.updatedAt}</div>
+                <div className="cap-sub">{previewItem.updatedAt}</div>
               </div>
             </div>
           </div>
@@ -279,28 +334,24 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
         : null}
 
       <div className="card">
-        <div className="card-title">
-          <span>图库分页预览</span>
-          {galleryPage?.exists === true
-            ? (
-              <span className="badge">
-                第 {galleryPage.page} / {galleryPage.totalPages} 页
-              </span>
-            )
-            : null}
-        </div>
-
         {galleryPage === null
-          ? <div className="empty">正在读取图库目录…</div>
+          ? (
+            <div className="loading-box">
+              <div className="spinner-ring" />
+              <div className="loading-text">{t.gallery.loadingText}</div>
+            </div>
+          )
           : !galleryPage.exists
-            ? <div className="empty">当前配置的图库目录不存在（没有就是没有）</div>
+            ? <div className="empty">{t.gallery.emptyMissingDirHint}</div>
             : galleryPage.items.length === 0
-              ? <div className="empty">当前图库目录暂无图片，可点击上方「＋ 上传图片」添加</div>
+              ? <div className="empty">{t.gallery.emptyGalleryHint}</div>
               : (
                 <div className="gallery-grid">
                   {galleryPage.items.map((item: Readonly<MiniAppGalleryItem>): React.JSX.Element => {
                     const isSelected: boolean =
                       previewItem?.fileName === item.fileName;
+                    const isDeleting: boolean =
+                      deletingFileName === item.fileName;
                     return (
                       <div
                         key={item.fileName}
@@ -316,10 +367,25 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                             alt={item.fileName}
                             loading="lazy"
                           />
+                          <button
+                            type="button"
+                            className="gallery-card-delete-btn"
+                            title={t.gallery.deleteButton}
+                            aria-label={t.gallery.deleteButton}
+                            disabled={deletingFileName !== null}
+                            onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                              event.stopPropagation();
+                              void handleDeleteImage(item.fileName);
+                            }}
+                          >
+                            <TrashSvgIcon size={13} />
+                          </button>
                         </div>
                         <div className="gallery-meta">
                           <div className="gallery-name" title={item.fileName}>
-                            {shortenGalleryFileName(item.fileName)}
+                            {isDeleting
+                              ? t.gallery.deletingButton
+                              : shortenGalleryFileName(item.fileName)}
                           </div>
                           <div className="gallery-sub">
                             <span>{formatGalleryFileSize(item.sizeBytes)}</span>
@@ -340,8 +406,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
               total={galleryPage.total}
               pageSize={pageSize}
               pageSizeOptions={MINI_APP_GALLERY_PAGE_SIZE_OPTIONS}
-              unitLabel="张"
-              disabled={loading || uploading}
+              disabled={loading || uploading || deletingFileName !== null}
               onPageChange={(nextPage: number): void => {
                 setPreviewItem(null);
                 setPage(nextPage);
@@ -349,8 +414,8 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
               }}
               onPageSizeChange={(nextPageSize: number): void => {
                 setPreviewItem(null);
-                setPageSize(nextPageSize);
                 setPage(1);
+                setPageSize(nextPageSize);
               }}
             />
           )

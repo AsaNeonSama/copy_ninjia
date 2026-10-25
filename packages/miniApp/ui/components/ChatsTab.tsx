@@ -11,14 +11,23 @@ import type {
   MiniAppFeatureDisplayMeta,
   MiniAppFeatureKey,
   MiniAppFeatureToggleResult,
+  MiniAppLanguage,
 } from "../../../types/miniApp";
 import {
-  confirmMiniAppAction,
+  ArrowLeftSvgIcon,
+  ChatsSvgIcon,
+  RefreshSvgIcon,
+} from "../../miniAppResoures";
+import {
   fetchMiniAppChatDetail,
   fetchMiniAppChats,
   toggleMiniAppChatFeature,
 } from "../api";
-import { formatUptime, getFeatureDisplayMeta } from "../formatters";
+import { getFeatureDisplayMeta } from "../formatters";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useMiniAppStore } from "../store";
+import type { MiniAppUiStoreState } from "../store";
 import { MessagesView } from "./MessagesView";
 import { PaginationBar } from "./PaginationBar";
 
@@ -35,6 +44,18 @@ export interface ChatsTabProps {
  * @returns React 节点
  */
 export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (state: MiniAppUiStoreState): MiniAppLanguage => state.language
+  );
+  const requestConfirm: (
+    message: string,
+    tone?: "danger" | "primary"
+  ) => Promise<boolean> = useMiniAppStore(
+    (state: MiniAppUiStoreState): ((message: string, tone?: "danger" | "primary") => Promise<boolean>) =>
+      state.requestConfirm
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+
   const [chats, setChats]: [
     readonly Readonly<MiniAppChatSummary>[],
     React.Dispatch<React.SetStateAction<readonly Readonly<MiniAppChatSummary>[]>>
@@ -79,7 +100,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
       setChats(items);
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`加载群列表失败: ${message}`);
+      onToast(message);
     } finally {
       setLoadingList(false);
     }
@@ -93,7 +114,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
         setChatDetail(detail);
       } catch (error: unknown) {
         const message: string = error instanceof Error ? error.message : String(error);
-        onToast(`加载群详情失败: ${message}`);
+        onToast(message);
       } finally {
         setLoadingDetail(false);
       }
@@ -120,9 +141,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
     if (
       feature === "init" &&
       !enabled &&
-      !confirmMiniAppAction(
-        "关闭 /init 将清空该群的开关、问答、上下文记忆并从已初始化列表移除，确定继续？"
-      )
+      !(await requestConfirm(t.chats.confirmDisableInit, "danger"))
     ) {
       return;
     }
@@ -143,7 +162,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
       }
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`开关操作失败: ${message}`);
+      onToast(message);
     } finally {
       setTogglingFeature(null);
     }
@@ -164,32 +183,44 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
 
   if (selectedChatId !== null) {
     return (
-      <section>
+      <section className="animate-fade-in">
         <div className="toolbar">
           <button
             type="button"
-            className="btn"
+            className="btn icon-btn"
             onClick={(): void => {
               setSelectedChatId(null);
               setChatDetail(null);
               void loadChatList();
             }}
           >
-            ← 返回群列表
+            <ArrowLeftSvgIcon size={14} />
+            <span>{t.chats.closeDetailButton}</span>
           </button>
           <button
             type="button"
-            className="btn primary"
+            className="btn primary icon-btn"
             onClick={(): void => {
               setViewingMessages(true);
             }}
           >
-            查看热 256 条发言记录
+            <ChatsSvgIcon size={14} />
+            <span>
+              {t.chats.viewMessagesButton(
+                chatDetail?.hotMessageCount ?? 0,
+                chatDetail?.hotMessageMax ?? 256
+              )}
+            </span>
           </button>
         </div>
 
         {loadingDetail && chatDetail === null
-          ? <div className="card"><div className="empty">正在加载群详细状态…</div></div>
+          ? (
+            <div className="card loading-box">
+              <div className="spinner-ring" />
+              <div className="loading-text">{t.chats.loadingChatsText}</div>
+            </div>
+          )
           : null}
 
         {chatDetail !== null
@@ -199,57 +230,30 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
                 <div className="card-title">
                   <span>{chatDetail.title}</span>
                   <span className={`badge ${chatDetail.features.init ? "ok" : "warn"}`}>
-                    {chatDetail.features.init ? "已 /init" : "已关闭 /init"}
+                    {chatDetail.features.init ? "/init ON♡" : "/init OFF"}
                   </span>
                 </div>
-                <div className="row-sub" style={{ marginBottom: "10px" }}>
-                  Chat ID: {chatDetail.chatId}
-                  {chatDetail.botPermissions !== null &&
-                  chatDetail.botPermissions.missingLabels.length > 0
-                    ? ` · 缺失管理员权限: ${chatDetail.botPermissions.missingLabels.join("、")}`
-                    : ""}
+                <div className="row-sub" style={{ marginBottom: "8px" }}>
+                  {t.chats.detailStatsLine(chatDetail)}
                 </div>
-                <div className="grid-2">
-                  <div className="stat-box">
-                    <div className="stat-label">热发言记录 (上限 {chatDetail.hotMessageMax})</div>
-                    <div className="stat-value">
-                      {chatDetail.hotMessageCount} / {chatDetail.hotMessageMax}
-                    </div>
-                  </div>
-                  <div className="stat-box">
-                    <div className="stat-label">问答词条 / 翻译目标</div>
-                    <div className="stat-value">
-                      {chatDetail.qaPairCount} 条 / {chatDetail.translateTargetCount} 人
-                    </div>
-                  </div>
-                  <div className="stat-box">
-                    <div className="stat-label">防突袭封锁 / 入群待验</div>
-                    <div className="stat-value">
-                      {chatDetail.isLockdownActive
-                        ? `封锁中 (${formatUptime(chatDetail.lockdownRemainingMs)})`
-                        : "正常"}{" "}
-                      · 待验 {chatDetail.activeSessions.verify}
-                    </div>
-                  </div>
-                  <div className="stat-box">
-                    <div className="stat-label">静默剩余 / 删消息目标</div>
-                    <div className="stat-value">
-                      {chatDetail.quietRemainingMs > 0
-                        ? formatUptime(chatDetail.quietRemainingMs)
-                        : "未静默"}{" "}
-                      · 删消息 {chatDetail.deleteMessageTargetCount}
-                    </div>
-                  </div>
+                <div className="row-sub">
+                  {chatDetail.botPermissions === null
+                    ? t.chats.botPermProbing
+                    : chatDetail.botPermissions.missingLabels.length === 0
+                      ? t.chats.botPermAllReady
+                      : t.chats.botPermMissing(
+                        chatDetail.botPermissions.missingLabels.join(" / ")
+                      )}
                 </div>
               </div>
 
               <div className="card">
                 <div className="card-title">
-                  <span>群功能开关控制 (含 /init)</span>
+                  <span>{t.chats.featuresSectionTitle}</span>
                 </div>
                 {MINI_APP_FEATURE_KEYS.map((key: MiniAppFeatureKey): React.JSX.Element => {
                   const enabled: boolean = chatDetail.features[key];
-                  const meta: MiniAppFeatureDisplayMeta = getFeatureDisplayMeta(key);
+                  const meta: MiniAppFeatureDisplayMeta = getFeatureDisplayMeta(key, language);
                   return (
                     <div key={key} className="row">
                       <div className="row-main">
@@ -293,79 +297,89 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
   );
 
   return (
-    <section>
+    <section className="animate-fade-in">
       <div className="toolbar">
-        <span style={{ fontSize: "12px", color: "var(--hint)" }}>
-          仅列出已执行 /init 的受管群 ({totalChats}) · 第 {safeChatPage} / {totalChatPages} 页
+        <span className="toolbar-hint">
+          <span className="toolbar-icon-badge">
+            <ChatsSvgIcon size={15} />
+          </span>
+          <span>{t.chats.sectionTitle(totalChats)}</span>
         </span>
         <button
           type="button"
-          className="btn"
+          className="btn icon-btn"
+          disabled={loadingList}
           onClick={(): void => {
             void loadChatList();
           }}
         >
-          刷新群列表
+          <RefreshSvgIcon size={14} className={loadingList ? "spin-icon" : ""} />
+          <span>{t.chats.refreshButton}</span>
         </button>
       </div>
 
       {loadingList && chats.length === 0
-        ? <div className="card"><div className="empty">正在读取已初始化群列表…</div></div>
+        ? (
+          <div className="card loading-box">
+            <div className="spinner-ring" />
+            <div className="loading-text">{t.chats.loadingChatsText}</div>
+          </div>
+        )
         : null}
 
       {!loadingList && chats.length === 0
-        ? <div className="card"><div className="empty">当前没有已启用 /init 的群组</div></div>
+        ? <div className="card"><div className="empty">{t.chats.emptyChatsHint}</div></div>
         : null}
 
-      {pagedChats.map((chat: Readonly<MiniAppChatSummary>): React.JSX.Element => {
-        const enabledFeatureCount: number = MINI_APP_FEATURE_KEYS.filter(
-          (key: MiniAppFeatureKey): boolean => chat.features[key]
-        ).length;
-        return (
-          <div key={chat.chatId} className="card">
-            <div className="row" style={{ padding: 0 }}>
-              <div className="row-main">
-                <div className="row-title">{chat.title}</div>
-                <div className="row-sub">
-                  ID: {chat.chatId} · 热发言: {chat.hotMessageCount}/256 · 问答: {chat.qaPairCount} · 已开功能: {enabledFeatureCount}/7
-                </div>
-                <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "6px" }}>
-                  {chat.features.proxySend ? <span className="badge ok">代理 /send 中</span> : null}
-                  {chat.isLockdownActive ? <span className="badge warn">紧急封锁中</span> : null}
-                </div>
+      {pagedChats.map((chat: Readonly<MiniAppChatSummary>): React.JSX.Element => (
+        <div key={chat.chatId} className="card interactive-card">
+          <div className="row" style={{ padding: 0 }}>
+            <div className="row-main">
+              <div className="row-title">{chat.title}</div>
+              <div className="row-sub">
+                {t.chats.chatCardMeta(chat.chatId, chat.hotMessageCount, chat.qaPairCount)}
               </div>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={(): void => {
-                  handleSelectChat(chat.chatId);
-                }}
-              >
-                详细状态
-              </button>
+              {chat.isLockdownActive || chat.features.proxySend
+                ? (
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "6px" }}>
+                    {chat.features.proxySend ? <span className="badge ok">/send♡</span> : null}
+                    {chat.isLockdownActive ? <span className="badge warn">{t.chats.lockdownBadge}</span> : null}
+                  </div>
+                )
+                : null}
             </div>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={(): void => {
+                handleSelectChat(chat.chatId);
+              }}
+            >
+              {t.chats.detailSectionTitle}
+            </button>
           </div>
-        );
-      })}
+        </div>
+      ))}
 
       {totalChats > 0
         ? (
-          <PaginationBar
-            page={safeChatPage}
-            totalPages={totalChatPages}
-            total={totalChats}
-            pageSize={chatPageSize}
-            pageSizeOptions={MINI_APP_CHATS_PAGE_SIZE_OPTIONS}
-            unitLabel="个群"
-            disabled={loadingList}
-            onPageChange={(nextPage: number): void => {
-              setChatPage(nextPage);
-            }}
-            onPageSizeChange={(nextPageSize: number): void => {
-              setChatPage(1);
-              setChatPageSize(nextPageSize);
-            }}
-          />
+          <div className="card">
+            <PaginationBar
+              page={safeChatPage}
+              totalPages={totalChatPages}
+              total={totalChats}
+              pageSize={chatPageSize}
+              pageSizeOptions={MINI_APP_CHATS_PAGE_SIZE_OPTIONS}
+              disabled={loadingList}
+              onPageChange={(nextPage: number): void => {
+                setChatPage(nextPage);
+              }}
+              onPageSizeChange={(nextPageSize: number): void => {
+                setChatPage(1);
+                setChatPageSize(nextPageSize);
+              }}
+            />
+          </div>
         )
         : null}
     </section>

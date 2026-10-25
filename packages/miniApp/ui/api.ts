@@ -1,30 +1,13 @@
 import {
-  MINI_APP_INIT_DATA_HEADER,
-  MINI_APP_SESSION_HEADER,
-  MINI_APP_SESSION_TTL_MS,
-  MINI_APP_TMA_AUTH_PREFIX,
+  MINI_APP_INIT_DATA_HEADER, MINI_APP_SESSION_HEADER, MINI_APP_SESSION_TTL_MS, MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
 import type { WhitelistPermissionKey } from "../../types/identityPolicy";
 import type {
-  MiniAppAccessDiagnostics,
-  MiniAppBlocklistPage,
-  MiniAppChatDetail,
-  MiniAppChatSummary,
-  MiniAppFeatureKey,
-  MiniAppFeatureToggleResult,
-  MiniAppGalleryPage,
-  MiniAppGalleryUploadResult,
-  MiniAppIdentityMutationResult,
-  MiniAppLoginSuccessResponse,
-  MiniAppMessagePage,
-  MiniAppPickerResultEvent,
-  MiniAppPickerSubjectKind,
-  MiniAppPickerTargetList,
-  MiniAppPrecheckResult,
-  MiniAppStatusView,
-  MiniAppWhitelistPage,
-  TelegramWebApp,
-  TelegramWindow,
+  MiniAppAccessDiagnostics, MiniAppBlocklistPage, MiniAppChatDetail, MiniAppChatSummary,
+  MiniAppFeatureKey, MiniAppFeatureToggleResult, MiniAppGalleryDeleteResult, MiniAppGalleryPage,
+  MiniAppGalleryUploadResult, MiniAppIdentityMutationResult, MiniAppLoginSuccessResponse,
+  MiniAppMessagePage, MiniAppPickerResultEvent, MiniAppPickerSubjectKind, MiniAppPickerTargetList,
+  MiniAppPrecheckResult, MiniAppStatusView, MiniAppWhitelistPage, TelegramWebApp, TelegramWindow,
 } from "../../types/miniApp";
 import type { PrepareMiniAppPickerResult } from "../picker";
 
@@ -98,6 +81,45 @@ export function readMiniAppInitData(): string {
 }
 
 /**
+ * 将未知响应体安全收窄为键值字典。
+ * @param payload 原始 JSON 响应值
+ * @returns 对象字典（非对象时返回空字典）
+ */
+function asPayloadRecord(payload: unknown): Record<string, unknown> {
+  return typeof payload === "object" && payload !== null
+    ? (payload as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * 组装携带当前会话 `initData` 与 90 分钟令牌的认证请求头。
+ * @param includeSession 是否附加 90 分钟会话令牌头
+ * @param contentType 可选的 `Content-Type`
+ * @returns 组装好的请求头字典
+ */
+function buildMiniAppAuthHeaders(
+  includeSession: boolean,
+  contentType?: string
+): Record<string, string> {
+  const initData: string = readMiniAppInitData();
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (initData.length > 0) {
+    headers[MINI_APP_INIT_DATA_HEADER] = initData;
+    headers.Authorization = `${MINI_APP_TMA_AUTH_PREFIX}${initData}`;
+  }
+  if (includeSession) {
+    const sessionToken: string = readMiniAppSessionToken();
+    if (sessionToken.length > 0) {
+      headers[MINI_APP_SESSION_HEADER] = sessionToken;
+    }
+  }
+  if (contentType !== undefined) {
+    headers["Content-Type"] = contentType;
+  }
+  return headers;
+}
+
+/**
  * 从后端 401/403 JSON 载荷与响应头提取真实访问诊断元数据。
  * @param payload 响应 JSON 对象
  * @param response 原始 `Response`
@@ -109,10 +131,7 @@ function parseAccessDiagnostics(
   response: Response,
   fallbackError: string
 ): Readonly<MiniAppAccessDiagnostics> {
-  const record: Record<string, unknown> =
-    typeof payload === "object" && payload !== null
-      ? (payload as Record<string, unknown>)
-      : {};
+  const record: Record<string, unknown> = asPayloadRecord(payload);
   const str = (key: string, fallback: string): string => {
     const val: unknown = record[key];
     return typeof val === "string" && val.length > 0 ? val : fallback;
@@ -134,13 +153,10 @@ function parseAccessDiagnostics(
  * @returns 预检结果
  */
 export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
-  const initData: string = readMiniAppInitData();
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (initData.length > 0) {
-    headers[MINI_APP_INIT_DATA_HEADER] = initData;
-    headers.Authorization = `${MINI_APP_TMA_AUTH_PREFIX}${initData}`;
-  }
-  const response: Response = await fetch("./api/auth/precheck", { method: "GET", headers });
+  const response: Response = await fetch("./api/auth/precheck", {
+    method: "GET",
+    headers: buildMiniAppAuthHeaders(false),
+  });
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
     return {
@@ -152,13 +168,9 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
       ),
     };
   }
+  const record: Record<string, unknown> = asPayloadRecord(payload);
   const ttlMs: number =
-    typeof payload === "object" &&
-    payload !== null &&
-    "ttlMs" in payload &&
-    typeof (payload as { readonly ttlMs?: unknown }).ttlMs === "number"
-      ? (payload as { readonly ttlMs: number }).ttlMs
-      : MINI_APP_SESSION_TTL_MS;
+    typeof record.ttlMs === "number" ? record.ttlMs : MINI_APP_SESSION_TTL_MS;
   return { ok: true, ttlMs };
 }
 
@@ -189,19 +201,10 @@ export async function miniAppFetchJson<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
-  const initData: string = readMiniAppInitData();
-  const sessionToken: string = readMiniAppSessionToken();
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (initData.length > 0) {
-    headers[MINI_APP_INIT_DATA_HEADER] = initData;
-    headers.Authorization = `${MINI_APP_TMA_AUTH_PREFIX}${initData}`;
-  }
-  if (sessionToken.length > 0) {
-    headers[MINI_APP_SESSION_HEADER] = sessionToken;
-  }
-  if (init?.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
+  const headers: Record<string, string> = buildMiniAppAuthHeaders(
+    true,
+    init?.body !== undefined ? "application/json" : undefined
+  );
   const response: Response = await fetch(path, {
     ...init,
     headers: {
@@ -211,27 +214,16 @@ export async function miniAppFetchJson<T>(
   });
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
-    const code: string =
-      typeof payload === "object" &&
-      payload !== null &&
-      "code" in payload &&
-      typeof (payload as { readonly code?: unknown }).code === "string"
-        ? (payload as { readonly code: string }).code
-        : "";
+    const record: Record<string, unknown> = asPayloadRecord(payload);
+    const code: string = typeof record.code === "string" ? record.code : "";
     if (code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED") {
       clearMiniAppSessionToken();
     }
     const errorMessage: string =
-      typeof payload === "object" &&
-      payload !== null &&
-      "error" in payload &&
-      typeof (payload as { readonly error?: unknown }).error === "string"
-        ? (payload as { readonly error: string }).error
-        : typeof payload === "object" &&
-            payload !== null &&
-            "message" in payload &&
-            typeof (payload as { readonly message?: unknown }).message === "string"
-          ? (payload as { readonly message: string }).message
+      typeof record.error === "string"
+        ? record.error
+        : typeof record.message === "string"
+          ? record.message
           : `HTTP ${response.status}`;
     const prefix: string =
       code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED" ? `[${code}] ` : "";
@@ -254,9 +246,7 @@ export async function fetchMiniAppStatus(): Promise<MiniAppStatusView> {
  */
 export async function fetchMiniAppChats(): Promise<readonly Readonly<MiniAppChatSummary>[]> {
   const response: { readonly items: readonly Readonly<MiniAppChatSummary>[] } =
-    await miniAppFetchJson<{ readonly items: readonly Readonly<MiniAppChatSummary>[] }>(
-      "./api/chats"
-    );
+    await miniAppFetchJson("./api/chats");
   return response.items;
 }
 
@@ -266,10 +256,9 @@ export async function fetchMiniAppChats(): Promise<readonly Readonly<MiniAppChat
  * @returns 群详细状态视图
  */
 export async function fetchMiniAppChatDetail(chatId: number): Promise<MiniAppChatDetail> {
-  const response: { readonly detail: MiniAppChatDetail } =
-    await miniAppFetchJson<{ readonly detail: MiniAppChatDetail }>(
-      `./api/chats/${encodeURIComponent(String(chatId))}`
-    );
+  const response: { readonly detail: MiniAppChatDetail } = await miniAppFetchJson(
+    `./api/chats/${encodeURIComponent(String(chatId))}`
+  );
   return response.detail;
 }
 
@@ -285,13 +274,10 @@ export async function toggleMiniAppChatFeature(
   feature: MiniAppFeatureKey,
   enabled: boolean
 ): Promise<MiniAppFeatureToggleResult> {
-  return miniAppFetchJson<MiniAppFeatureToggleResult>(
-    `./api/chats/${encodeURIComponent(String(chatId))}/feature`,
-    {
-      method: "POST",
-      body: JSON.stringify({ feature, enabled }),
-    }
-  );
+  return miniAppFetchJson(`./api/chats/${encodeURIComponent(String(chatId))}/feature`, {
+    method: "POST",
+    body: JSON.stringify({ feature, enabled }),
+  });
 }
 
 /**
@@ -306,24 +292,26 @@ export async function fetchMiniAppChatMessages(
   page: number,
   pageSize: number
 ): Promise<MiniAppMessagePage> {
-  return miniAppFetchJson<MiniAppMessagePage>(
+  return miniAppFetchJson(
     `./api/chats/${encodeURIComponent(String(chatId))}/messages?page=${page}&pageSize=${pageSize}`
   );
 }
 
 /**
- * 按页码拉取白名单与权限矩阵列表（含当前页、总页数及黑白名单总条数）。
+ * 按页码拉取白名单与权限矩阵列表（含当前页、总页数及黑白名单总条数，支持按名称/用户名/ID 搜索）。
  * @param page 页码（从 1 开始）
  * @param pageSize 每页条数
+ * @param query 可选搜索关键字
  * @returns 白名单分页结果
  */
 export async function fetchMiniAppWhitelist(
   page: number,
-  pageSize: number
+  pageSize: number,
+  query: string = ""
 ): Promise<MiniAppWhitelistPage> {
-  return miniAppFetchJson<MiniAppWhitelistPage>(
-    `./api/identities/whitelist?page=${page}&pageSize=${pageSize}`
-  );
+  const trimmed: string = query.trim();
+  const suffix: string = trimmed.length > 0 ? `&query=${encodeURIComponent(trimmed)}` : "";
+  return miniAppFetchJson(`./api/identities/whitelist?page=${page}&pageSize=${pageSize}${suffix}`);
 }
 
 /**
@@ -336,7 +324,7 @@ export async function setMiniAppWhitelistMembership(
   id: number,
   enabled: boolean
 ): Promise<MiniAppIdentityMutationResult> {
-  return miniAppFetchJson<MiniAppIdentityMutationResult>("./api/identities/whitelist", {
+  return miniAppFetchJson("./api/identities/whitelist", {
     method: "POST",
     body: JSON.stringify({ id, enabled }),
   });
@@ -355,28 +343,28 @@ export async function updateMiniAppWhitelistPermission(
   enabled: boolean
 ): Promise<MiniAppIdentityMutationResult> {
   const body: Record<string, unknown> =
-    permission === "all"
-      ? { id, enableAll: true }
-      : { id, key: permission, value: enabled };
-  return miniAppFetchJson<MiniAppIdentityMutationResult>("./api/identities/permission", {
+    permission === "all" ? { id, enableAll: true } : { id, key: permission, value: enabled };
+  return miniAppFetchJson("./api/identities/permission", {
     method: "POST",
     body: JSON.stringify(body),
   });
 }
 
 /**
- * 按页码拉取黑名单列表（含当前页、总页数及黑白名单总条数）。
+ * 按页码拉取黑名单列表（含当前页、总页数及黑白名单总条数，支持按名称/用户名/ID 搜索）。
  * @param page 页码（从 1 开始）
  * @param pageSize 每页条数
+ * @param query 可选搜索关键字
  * @returns 黑名单分页结果
  */
 export async function fetchMiniAppBlocklist(
   page: number,
-  pageSize: number
+  pageSize: number,
+  query: string = ""
 ): Promise<MiniAppBlocklistPage> {
-  return miniAppFetchJson<MiniAppBlocklistPage>(
-    `./api/identities/blocklist?page=${page}&pageSize=${pageSize}`
-  );
+  const trimmed: string = query.trim();
+  const suffix: string = trimmed.length > 0 ? `&query=${encodeURIComponent(trimmed)}` : "";
+  return miniAppFetchJson(`./api/identities/blocklist?page=${page}&pageSize=${pageSize}${suffix}`);
 }
 
 /**
@@ -389,7 +377,7 @@ export async function setMiniAppBlocklistMembership(
   id: number,
   enabled: boolean
 ): Promise<MiniAppIdentityMutationResult> {
-  return miniAppFetchJson<MiniAppIdentityMutationResult>("./api/identities/blocklist", {
+  return miniAppFetchJson("./api/identities/blocklist", {
     method: "POST",
     body: JSON.stringify({ id, enabled }),
   });
@@ -405,13 +393,10 @@ export async function requestMiniAppPreparedPicker(
   targetList: MiniAppPickerTargetList,
   subjectKind: MiniAppPickerSubjectKind
 ): Promise<Extract<PrepareMiniAppPickerResult, { readonly ok: true }>> {
-  return miniAppFetchJson<Extract<PrepareMiniAppPickerResult, { readonly ok: true }>>(
-    "./api/picker/prepare",
-    {
-      method: "POST",
-      body: JSON.stringify({ targetList, subjectKind }),
-    }
-  );
+  return miniAppFetchJson("./api/picker/prepare", {
+    method: "POST",
+    body: JSON.stringify({ targetList, subjectKind }),
+  });
 }
 
 /**
@@ -423,9 +408,7 @@ export async function pollMiniAppPickerResult(
   requestId: number
 ): Promise<Readonly<MiniAppPickerResultEvent> | null> {
   const response: { readonly result: Readonly<MiniAppPickerResultEvent> | null } =
-    await miniAppFetchJson<{ readonly result: Readonly<MiniAppPickerResultEvent> | null }>(
-      `./api/picker/result?requestId=${encodeURIComponent(String(requestId))}`
-    );
+    await miniAppFetchJson(`./api/picker/result?requestId=${encodeURIComponent(String(requestId))}`);
   return response.result;
 }
 
@@ -439,9 +422,25 @@ export async function fetchMiniAppGallery(
   page: number,
   pageSize: number
 ): Promise<MiniAppGalleryPage> {
-  return miniAppFetchJson<MiniAppGalleryPage>(
-    `./api/gallery?page=${page}&pageSize=${pageSize}`
-  );
+  return miniAppFetchJson(`./api/gallery?page=${page}&pageSize=${pageSize}`);
+}
+
+/**
+ * 为图片或 SVG 资源路径附加当前会话的 `initData` 与可选 `session` 查询参数。
+ * @param basePrefix 资源路由前缀（如 `"./api/gallery/file"`）
+ * @param fileName 资源文件名
+ * @returns 带鉴权查询参数的受保护资源 URL
+ */
+function buildProtectedAssetUrl(basePrefix: string, fileName: string): string {
+  const initData: string = readMiniAppInitData();
+  const sessionToken: string = readMiniAppSessionToken();
+  const encodedName: string = encodeURIComponent(fileName);
+  if (initData.length === 0) {
+    return `${basePrefix}/${encodedName}`;
+  }
+  const sessionQuery: string =
+    sessionToken.length > 0 ? `&session=${encodeURIComponent(sessionToken)}` : "";
+  return `${basePrefix}/${encodedName}?initData=${encodeURIComponent(initData)}${sessionQuery}`;
 }
 
 /**
@@ -450,15 +449,16 @@ export async function fetchMiniAppGallery(
  * @returns 供 `<img>` 使用的受保护预览 URL
  */
 export function buildMiniAppGalleryImageUrl(fileName: string): string {
-  const initData: string = readMiniAppInitData();
-  const sessionToken: string = readMiniAppSessionToken();
-  const encodedName: string = encodeURIComponent(fileName);
-  if (initData.length === 0) {
-    return `./api/gallery/file/${encodedName}`;
-  }
-  const sessionQuery: string =
-    sessionToken.length > 0 ? `&session=${encodeURIComponent(sessionToken)}` : "";
-  return `./api/gallery/file/${encodedName}?initData=${encodeURIComponent(initData)}${sessionQuery}`;
+  return buildProtectedAssetUrl("./api/gallery/file", fileName);
+}
+
+/**
+ * 构造携带当前 SuperAdmin `initData` 签名的受保护 SVG 图标资源地址。
+ * @param fileName `miniAppResoures` 下的 SVG 文件名（如 `"status.svg"`）
+ * @returns 供受保护访问的 SVG 资源 URL
+ */
+export function buildMiniAppSvgResourceUrl(fileName: string): string {
+  return buildProtectedAssetUrl("./api/resources/svg", fileName);
 }
 
 /**
@@ -469,33 +469,14 @@ export function buildMiniAppGalleryImageUrl(fileName: string): string {
 export async function uploadMiniAppGalleryImageBytes(
   bytes: Uint8Array
 ): Promise<MiniAppGalleryUploadResult> {
-  const initData: string = readMiniAppInitData();
-  const sessionToken: string = readMiniAppSessionToken();
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/octet-stream",
-  };
-  if (initData.length > 0) {
-    headers[MINI_APP_INIT_DATA_HEADER] = initData;
-    headers.Authorization = `${MINI_APP_TMA_AUTH_PREFIX}${initData}`;
-  }
-  if (sessionToken.length > 0) {
-    headers[MINI_APP_SESSION_HEADER] = sessionToken;
-  }
   const response: Response = await fetch("./api/gallery/upload", {
     method: "POST",
-    headers,
+    headers: buildMiniAppAuthHeaders(true, "application/octet-stream"),
     body: bytes,
   });
   const payload: unknown = await response.json().catch((): null => null);
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    "outcome" in payload &&
-    "message" in payload &&
-    typeof (payload as { readonly outcome?: unknown }).outcome === "string" &&
-    typeof (payload as { readonly message?: unknown }).message === "string"
-  ) {
+  const record: Record<string, unknown> = asPayloadRecord(payload);
+  if (typeof record.outcome === "string" && typeof record.message === "string") {
     return payload as MiniAppGalleryUploadResult;
   }
   if (!response.ok) {
@@ -506,4 +487,20 @@ export async function uploadMiniAppGalleryImageBytes(
     outcome: "failed",
     message: "未收到有效的上传回执。",
   };
+}
+
+/**
+ * 从图库目录删除指定文件名的单张图片。
+ * @param fileName 待删除的图库图片文件名
+ * @returns 结构化的删除结果
+ */
+export async function deleteMiniAppGalleryImageByName(
+  fileName: string
+): Promise<MiniAppGalleryDeleteResult> {
+  return miniAppFetchJson<MiniAppGalleryDeleteResult>(
+    `./api/gallery/file/${encodeURIComponent(fileName)}`,
+    {
+      method: "DELETE",
+    }
+  );
 }

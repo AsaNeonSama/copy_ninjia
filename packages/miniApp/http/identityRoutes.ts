@@ -23,7 +23,6 @@ import {
 } from "../picker";
 import type { PrepareMiniAppPickerResult } from "../picker";
 import {
-  authenticateMiniAppRequest,
   jsonResponse,
   parseOptionalSafeInt,
   readJsonObjectBody,
@@ -39,8 +38,6 @@ export async function handleGetWhitelistRoute(
   request: Request,
   parsedUrl?: URL
 ): Promise<Response> {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const url: URL = parsedUrl ?? new URL(request.url);
   const page: number | undefined = parseOptionalSafeInt(url.searchParams.get("page"));
   const pageSize: number | undefined = parseOptionalSafeInt(
@@ -48,12 +45,15 @@ export async function handleGetWhitelistRoute(
   );
   const afterId: number | undefined = parseOptionalSafeInt(url.searchParams.get("afterId"));
   const limit: number | undefined = parseOptionalSafeInt(url.searchParams.get("limit"));
+  const query: string | undefined =
+    url.searchParams.get("query")?.trim() ?? url.searchParams.get("q")?.trim();
   return jsonResponse(
     await listWhitelistEntries({
       page,
       pageSize,
       afterId: afterId ?? null,
       limit,
+      query,
     })
   );
 }
@@ -64,8 +64,6 @@ export async function handleGetWhitelistRoute(
  * @returns JSON 响应。
  */
 export async function handlePostWhitelistRoute(request: Request): Promise<Response> {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
   if (
     body === null ||
@@ -97,8 +95,6 @@ export async function handleGetBlocklistRoute(
   request: Request,
   parsedUrl?: URL
 ): Promise<Response> {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const url: URL = parsedUrl ?? new URL(request.url);
   const page: number | undefined = parseOptionalSafeInt(url.searchParams.get("page"));
   const pageSize: number | undefined = parseOptionalSafeInt(
@@ -106,12 +102,15 @@ export async function handleGetBlocklistRoute(
   );
   const afterId: number | undefined = parseOptionalSafeInt(url.searchParams.get("afterId"));
   const limit: number | undefined = parseOptionalSafeInt(url.searchParams.get("limit"));
+  const query: string | undefined =
+    url.searchParams.get("query")?.trim() ?? url.searchParams.get("q")?.trim();
   return jsonResponse(
     await listBlocklistEntries({
       page,
       pageSize,
       afterId: afterId ?? null,
       limit,
+      query,
     })
   );
 }
@@ -122,8 +121,6 @@ export async function handleGetBlocklistRoute(
  * @returns JSON 响应。
  */
 export async function handlePostBlocklistRoute(request: Request): Promise<Response> {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
   if (
     body === null ||
@@ -151,8 +148,6 @@ export async function handlePostBlocklistRoute(request: Request): Promise<Respon
  * @returns JSON 响应。
  */
 export async function handlePostPermissionRoute(request: Request): Promise<Response> {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
   if (
     body === null ||
@@ -190,8 +185,6 @@ export async function handlePostPermissionRoute(request: Request): Promise<Respo
  * @returns JSON 响应。
  */
 export async function handlePostPickerPrepareRoute(request: Request): Promise<Response> {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
   if (
     body === null ||
@@ -223,8 +216,6 @@ export function handleGetPickerResultRoute(
   request: Request,
   parsedUrl?: URL
 ): Response {
-  const rejected: Response | null = authenticateMiniAppRequest(request);
-  if (rejected !== null) return rejected;
   const url: URL = parsedUrl ?? new URL(request.url);
   const requestId: number | undefined = parseOptionalSafeInt(url.searchParams.get("requestId"));
   if (requestId === undefined || requestId <= 0) {

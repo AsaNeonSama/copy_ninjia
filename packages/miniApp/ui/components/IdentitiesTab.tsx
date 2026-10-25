@@ -1,27 +1,43 @@
 import { useCallback, useEffect, useState } from "react";
 import type React from "react";
-import { WHITELIST_PERMISSION_KEYS } from "../../../consts/whitelist";
 import {
+  MINI_APP_IDENTITY_ADD_MODES,
   MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
   MINI_APP_PICKER_POLL_INTERVAL_MS,
   MINI_APP_PICKER_POLL_MAX_ATTEMPTS,
+  MINI_APP_SEARCH_DEBOUNCE_MS,
 } from "../../../consts/miniApp";
+import { WHITELIST_PERMISSION_KEYS } from "../../../consts/whitelist";
 import type { WhitelistPermissionKey } from "../../../types/identityPolicy";
 import type {
   MiniAppBlocklistEntryView,
   MiniAppBlocklistPage,
+  MiniAppIdentityAddMode,
   MiniAppIdentityMutationResult,
   MiniAppIdentitySubTabKey,
+  MiniAppLanguage,
   MiniAppPickerResultEvent,
   MiniAppPickerSubjectKind,
   MiniAppWhitelistEntryView,
   MiniAppWhitelistPage,
   TelegramWebApp,
 } from "../../../types/miniApp";
+import {
+  AlertSvgIcon,
+  ChannelSvgIcon,
+  ChevronDownSvgIcon,
+  CloseSvgIcon,
+  HashtagSvgIcon,
+  IdentitiesSvgIcon,
+  PlusSvgIcon,
+  RefreshSvgIcon,
+  SearchSvgIcon,
+  TrashSvgIcon,
+  UserSvgIcon,
+} from "../../miniAppResoures";
 import type { PrepareMiniAppPickerResult } from "../../picker";
 import {
-  confirmMiniAppAction,
   fetchMiniAppBlocklist,
   fetchMiniAppWhitelist,
   getTelegramWebApp,
@@ -31,6 +47,10 @@ import {
   setMiniAppWhitelistMembership,
 } from "../api";
 import { sanitizeBidiText } from "../formatters";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useMiniAppStore } from "../store";
+import type { MiniAppUiStoreState } from "../store";
 import { PaginationBar } from "./PaginationBar";
 import { PermissionDrawer } from "./PermissionDrawer";
 
@@ -41,20 +61,72 @@ export interface IdentitiesTabProps {
 }
 
 /**
- * 黑白名单与权限矩阵管理组件（支持页码分页、总量统计、数字 ID 添加及 `requestChat` 原生好友/联系人/频道选择器添加）。
+ * 根据添加模式键渲染对应的 SVG 图标。
+ *
+ * @param mode 添加模式键
+ * @returns SVG 图标元素
+ */
+function renderAddModeIcon(mode: MiniAppIdentityAddMode): React.JSX.Element {
+  if (mode === "id") return <HashtagSvgIcon size={15} />;
+  if (mode === "users") return <UserSvgIcon size={15} />;
+  return <ChannelSvgIcon size={15} />;
+}
+
+/**
+ * 黑白名单与权限矩阵管理组件（支持 0.5s 防抖按名称搜索、折叠式三合一添加菜单、重复添加拦截提示与权限抽屉）。
  *
  * @param props 组件属性
  * @returns React 节点
  */
 export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Element {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (state: MiniAppUiStoreState): MiniAppLanguage => state.language
+  );
+  const showStoreToast: (text: string, tone?: "info" | "warning" | "danger") => void =
+    useMiniAppStore(
+      (state: MiniAppUiStoreState): ((text: string, tone?: "info" | "warning" | "danger") => void) =>
+        state.showToast
+    );
+  const requestConfirm: (
+    message: string,
+    tone?: "danger" | "primary"
+  ) => Promise<boolean> = useMiniAppStore(
+    (state: MiniAppUiStoreState): ((message: string, tone?: "danger" | "primary") => Promise<boolean>) =>
+      state.requestConfirm
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+
   const [subTab, setSubTab]: [
     MiniAppIdentitySubTabKey,
     React.Dispatch<React.SetStateAction<MiniAppIdentitySubTabKey>>
   ] = useState<MiniAppIdentitySubTabKey>("whitelist");
+
+  const [searchInput, setSearchInput]: [
+    string,
+    React.Dispatch<React.SetStateAction<string>>
+  ] = useState<string>("");
+  const [debouncedQuery, setDebouncedQuery]: [
+    string,
+    React.Dispatch<React.SetStateAction<string>>
+  ] = useState<string>("");
+
+  const [addMenuOpen, setAddMenuOpen]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(false);
+  const [idFormOpen, setIdFormOpen]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(false);
   const [idInput, setIdInput]: [
     string,
     React.Dispatch<React.SetStateAction<string>>
   ] = useState<string>("");
+  const [duplicateAlertText, setDuplicateAlertText]: [
+    string | null,
+    React.Dispatch<React.SetStateAction<string | null>>
+  ] = useState<string | null>(null);
+
   const [busyAction, setBusyAction]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
@@ -103,13 +175,30 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
     React.Dispatch<React.SetStateAction<number>>
   ] = useState<number>(0);
 
+  useEffect((): (() => void) => {
+    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+      const nextTrimmed: string = searchInput.trim();
+      setDebouncedQuery((prev: string): string => {
+        if (prev !== nextTrimmed) {
+          setWhitelistPageNumber(1);
+          setBlocklistPageNumber(1);
+        }
+        return nextTrimmed;
+      });
+    }, MINI_APP_SEARCH_DEBOUNCE_MS);
+    return (): void => {
+      clearTimeout(timer);
+    };
+  }, [searchInput]);
+
   const loadCurrentList: () => Promise<void> = useCallback(async (): Promise<void> => {
     setLoadingList(true);
     try {
       if (subTab === "whitelist") {
         const page: MiniAppWhitelistPage = await fetchMiniAppWhitelist(
           whitelistPageNumber,
-          whitelistPageSize
+          whitelistPageSize,
+          debouncedQuery
         );
         setWhitelistPage(page);
         setWhitelistTotal(page.whitelistTotal);
@@ -120,7 +209,8 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
       } else {
         const page: MiniAppBlocklistPage = await fetchMiniAppBlocklist(
           blocklistPageNumber,
-          blocklistPageSize
+          blocklistPageSize,
+          debouncedQuery
         );
         setBlocklistPage(page);
         setWhitelistTotal(page.whitelistTotal);
@@ -131,40 +221,83 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
       }
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`加载名单失败: ${message}`);
+      onToast(message);
     } finally {
       setLoadingList(false);
     }
-  }, [blocklistPageNumber, blocklistPageSize, onToast, subTab, whitelistPageNumber, whitelistPageSize]);
+  }, [
+    blocklistPageNumber,
+    blocklistPageSize,
+    debouncedQuery,
+    onToast,
+    subTab,
+    whitelistPageNumber,
+    whitelistPageSize,
+  ]);
 
   useEffect((): void => {
     void loadCurrentList();
   }, [loadCurrentList]);
 
+  const triggerDuplicateNotice = (idText: string): void => {
+    const text: string = t.identities.duplicateToast(idText, subTab);
+    setDuplicateAlertText(text);
+    onToast(text);
+    showStoreToast(text, "warning");
+  };
+
   const handleAddById = async (): Promise<void> => {
     const trimmed: string = idInput.trim();
     const id: number = Number(trimmed);
     if (trimmed.length === 0 || !Number.isSafeInteger(id) || id === 0) {
-      onToast("请输入有效的用户正整数 ID 或 -100 开头的频道 ID");
+      onToast(t.identities.invalidIdToast);
+      showStoreToast(t.identities.invalidIdToast, "warning");
       return;
     }
+
+    const alreadyInCurrentPage: boolean =
+      subTab === "whitelist"
+        ? (whitelistPage?.items.some(
+          (item: Readonly<MiniAppWhitelistEntryView>): boolean => item.id === id
+        ) ?? false)
+        : (blocklistPage?.items.some(
+          (item: Readonly<MiniAppBlocklistEntryView>): boolean => item.id === id
+        ) ?? false);
+    if (alreadyInCurrentPage) {
+      triggerDuplicateNotice(`ID ${id}`);
+      return;
+    }
+
     setBusyAction(true);
     try {
+      const result: MiniAppIdentityMutationResult =
+        subTab === "whitelist"
+          ? await setMiniAppWhitelistMembership(id, true)
+          : await setMiniAppBlocklistMembership(id, true);
+
+      if (result.duplicate === true || (result.ok && !result.changed)) {
+        triggerDuplicateNotice(`ID ${id}`);
+        return;
+      }
+
+      if (!result.ok) {
+        onToast(result.message);
+        showStoreToast(result.message, "danger");
+        return;
+      }
+
+      setDuplicateAlertText(null);
+      onToast(result.message);
       if (subTab === "whitelist") {
-        const result: MiniAppIdentityMutationResult =
-          await setMiniAppWhitelistMembership(id, true);
-        onToast(result.message);
         setSelectedEntryId(id);
-      } else {
-        const result: MiniAppIdentityMutationResult =
-          await setMiniAppBlocklistMembership(id, true);
-        onToast(result.message);
       }
       setIdInput("");
+      setIdFormOpen(false);
+      setAddMenuOpen(false);
       await loadCurrentList();
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`添加失败: ${message}`);
+      onToast(message);
     } finally {
       setBusyAction(false);
     }
@@ -179,7 +312,13 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
         const result: Readonly<MiniAppPickerResultEvent> | null =
           await pollMiniAppPickerResult(requestId);
         if (result !== null) {
-          onToast(result.summary);
+          if (result.duplicateIds !== undefined && result.duplicateIds.length > 0) {
+            triggerDuplicateNotice(
+              result.duplicateIds.map((dupId: number): string => `ID ${dupId}`).join(", ")
+            );
+          } else {
+            onToast(result.summary);
+          }
           await loadCurrentList();
           return;
         }
@@ -187,69 +326,107 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
         return;
       }
     }
+    onToast(t.identities.pickerTimeoutToast);
   };
 
   const handleOpenPicker = async (subjectKind: MiniAppPickerSubjectKind): Promise<void> => {
     const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
     if (typeof webApp?.requestChat !== "function") {
-      onToast("当前 Telegram 客户端版本不支持 requestChat 原生选择器，请升级客户端或使用 ID 添加");
+      onToast(t.identities.pickerUnsupportedHint);
+      showStoreToast(t.identities.pickerUnsupportedHint, "warning");
       return;
     }
     setBusyAction(true);
     try {
       const prepared: Extract<PrepareMiniAppPickerResult, { readonly ok: true }> =
         await requestMiniAppPreparedPicker(subTab, subjectKind);
+      setAddMenuOpen(false);
+      setIdFormOpen(false);
       webApp.requestChat(prepared.preparedButtonId, (accepted: boolean): void => {
         if (!accepted) {
-          onToast("已取消选择");
+          onToast(t.identities.pickerCancelledToast);
           return;
         }
-        onToast("正在同步所选身份…");
+        onToast(t.identities.pickerWaitingToast);
         void pollPickerSession(prepared.requestId);
       });
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`唤起选择器失败: ${message}`);
+      onToast(message);
     } finally {
       setBusyAction(false);
     }
   };
 
-  const handleRemoveWhitelist = async (id: number): Promise<void> => {
-    if (!confirmMiniAppAction(`确认从白名单移除 ${id} 吗？`)) return;
+  const handleSelectAddMode = (mode: MiniAppIdentityAddMode): void => {
+    if (mode === "id") {
+      setIdFormOpen((prev: boolean): boolean => !prev);
+      return;
+    }
+    void handleOpenPicker(mode);
+  };
+
+  const handleRemoveWhitelist = async (
+    entry: Readonly<MiniAppWhitelistEntryView>
+  ): Promise<void> => {
+    if (
+      !(await requestConfirm(
+        t.identities.confirmRemoveWhitelist(
+          sanitizeBidiText(entry.displayName),
+          entry.id
+        ),
+        "danger"
+      ))
+    ) {
+      return;
+    }
     setBusyAction(true);
     try {
       const result: MiniAppIdentityMutationResult =
-        await setMiniAppWhitelistMembership(id, false);
-      if (selectedEntryId === id) setSelectedEntryId(null);
+        await setMiniAppWhitelistMembership(entry.id, false);
+      if (selectedEntryId === entry.id) setSelectedEntryId(null);
       onToast(result.message);
       await loadCurrentList();
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`移除失败: ${message}`);
+      onToast(message);
     } finally {
       setBusyAction(false);
     }
   };
 
-  const handleRemoveBlocklist = async (id: number): Promise<void> => {
-    if (!confirmMiniAppAction(`确认从黑名单解封 ${id} 吗？`)) return;
+  const handleRemoveBlocklist = async (
+    entry: Readonly<MiniAppBlocklistEntryView>
+  ): Promise<void> => {
+    if (
+      !(await requestConfirm(
+        t.identities.confirmRemoveBlocklist(
+          sanitizeBidiText(entry.displayName),
+          entry.id
+        ),
+        "danger"
+      ))
+    ) {
+      return;
+    }
     setBusyAction(true);
     try {
       const result: MiniAppIdentityMutationResult =
-        await setMiniAppBlocklistMembership(id, false);
+        await setMiniAppBlocklistMembership(entry.id, false);
       onToast(result.message);
       await loadCurrentList();
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`解封失败: ${message}`);
+      onToast(message);
     } finally {
       setBusyAction(false);
     }
   };
+
+  const isDebouncing: boolean = searchInput.trim() !== debouncedQuery;
 
   return (
-    <section>
+    <section className="animate-fade-in">
       <div className="subtabs-bar">
         <div className="subtabs-group">
           <button
@@ -258,10 +435,11 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             onClick={(): void => {
               setSubTab("whitelist");
               setSelectedEntryId(null);
+              setDuplicateAlertText(null);
             }}
           >
-            <span>白名单与权限</span>
-            <span className="subtab-count">{whitelistTotal}</span>
+            <IdentitiesSvgIcon size={14} />
+            <span>{t.identities.whitelistTab(whitelistTotal)}</span>
           </button>
           <button
             type="button"
@@ -269,82 +447,196 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             onClick={(): void => {
               setSubTab("blocklist");
               setSelectedEntryId(null);
+              setDuplicateAlertText(null);
             }}
           >
-            <span>黑名单</span>
-            <span className="subtab-count">{blocklistTotal}</span>
+            <span>{t.identities.blocklistTab(blocklistTotal)}</span>
           </button>
         </div>
         <button
           type="button"
-          className="btn"
+          className="btn icon-btn"
           disabled={loadingList}
           onClick={(): void => {
             void loadCurrentList();
           }}
         >
-          刷新
+          <RefreshSvgIcon size={14} className={loadingList ? "spin-icon" : ""} />
+          <span>{t.chats.refreshButton}</span>
         </button>
       </div>
 
+      {duplicateAlertText !== null
+        ? (
+          <div className="duplicate-alert-banner animate-fade-in" role="alert">
+            <div className="duplicate-alert-content">
+              <AlertSvgIcon size={18} />
+              <div>
+                <div className="duplicate-alert-title">
+                  {t.identities.duplicateBannerTitle}
+                </div>
+                <div className="duplicate-alert-desc">{duplicateAlertText}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn icon-btn"
+              onClick={(): void => {
+                setDuplicateAlertText(null);
+              }}
+            >
+              <CloseSvgIcon size={14} />
+            </button>
+          </div>
+        )
+        : null}
+
       <div className="card">
-        <div className="input-group" style={{ marginTop: 0 }}>
-          <input
-            type="text"
-            value={idInput}
-            onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-              const nextValue: string = (
-                event.currentTarget as unknown as { readonly value: string }
-              ).value;
-              setIdInput(nextValue);
-            }}
-            placeholder={`输入用户 ID 或 -100 频道 ID 添加至${subTab === "whitelist" ? "白名单" : "黑名单"}`}
-          />
+        <div className="search-and-add-bar">
+          <div className="search-input-wrap">
+            <SearchSvgIcon size={16} className="search-input-icon" />
+            <input
+              type="search"
+              className="search-input"
+              value={searchInput}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+                const nextValue: string = (
+                  event.currentTarget as unknown as { readonly value: string }
+                ).value;
+                setSearchInput(nextValue);
+              }}
+              placeholder={t.identities.searchPlaceholder(subTab)}
+            />
+            {searchInput.length > 0
+              ? (
+                <button
+                  type="button"
+                  className="search-clear-btn"
+                  aria-label={t.identities.searchClearAria}
+                  onClick={(): void => {
+                    setSearchInput("");
+                    setDebouncedQuery("");
+                  }}
+                >
+                  <CloseSvgIcon size={13} />
+                </button>
+              )
+              : null}
+          </div>
+
           <button
             type="button"
-            className="btn primary"
+            className={`btn primary icon-btn add-fold-trigger ${addMenuOpen ? "open" : ""}`}
             disabled={busyAction}
             onClick={(): void => {
-              void handleAddById();
+              setAddMenuOpen((prev: boolean): boolean => !prev);
             }}
           >
-            + ID 添加
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={busyAction}
-            onClick={(): void => {
-              void handleOpenPicker("users");
-            }}
-          >
-            👤 选好友/联系人
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={busyAction}
-            onClick={(): void => {
-              void handleOpenPicker("channel");
-            }}
-          >
-            📢 选频道
+            <PlusSvgIcon size={15} />
+            <span>{t.identities.addFoldButton}</span>
+            <ChevronDownSvgIcon
+              size={14}
+              className={`chevron-icon ${addMenuOpen ? "rotated" : ""}`}
+            />
           </button>
         </div>
+
+        {isDebouncing
+          ? (
+            <div className="debounce-status-hint">
+              {t.identities.searchDebounceHint}
+            </div>
+          )
+          : null}
+
+        {addMenuOpen
+          ? (
+            <div className="add-fold-panel animate-fade-in">
+              <div className="add-mode-grid">
+                {MINI_APP_IDENTITY_ADD_MODES.map(
+                  (mode: MiniAppIdentityAddMode): React.JSX.Element => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`add-mode-card ${mode === "id" && idFormOpen ? "active" : ""}`}
+                      disabled={busyAction}
+                      onClick={(): void => {
+                        handleSelectAddMode(mode);
+                      }}
+                    >
+                      <div className="add-mode-head">
+                        {renderAddModeIcon(mode)}
+                        <span>{t.identities.addModes[mode]}</span>
+                      </div>
+                      <div className="add-mode-desc">
+                        {t.identities.addModeDescriptions[mode]}
+                      </div>
+                    </button>
+                  )
+                )}
+              </div>
+
+              {idFormOpen
+                ? (
+                  <div className="id-add-inline-row animate-fade-in">
+                    <input
+                      type="text"
+                      value={idInput}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+                        const nextValue: string = (
+                          event.currentTarget as unknown as { readonly value: string }
+                        ).value;
+                        setIdInput(nextValue);
+                      }}
+                      placeholder={t.identities.idInputPlaceholder}
+                    />
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={busyAction}
+                      onClick={(): void => {
+                        void handleAddById();
+                      }}
+                    >
+                      {t.identities.idConfirmButton}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={(): void => {
+                        setIdFormOpen(false);
+                      }}
+                    >
+                      {t.identities.idCancelButton}
+                    </button>
+                  </div>
+                )
+                : null}
+            </div>
+          )
+          : null}
       </div>
 
       {subTab === "whitelist"
         ? (
           <div className="card">
-            <div className="card-title">
-              <span>白名单条目列表</span>
-              <span className="badge ok">
-                共 {whitelistPage?.total ?? whitelistTotal} 条 · 第 {whitelistPage?.page ?? whitelistPageNumber} / {whitelistPage?.totalPages ?? 1} 页
-              </span>
-            </div>
+            {loadingList && whitelistPage === null
+              ? (
+                <div className="loading-box">
+                  <div className="spinner-ring" />
+                  <div className="loading-text">{t.identities.loadingText}</div>
+                </div>
+              )
+              : null}
 
             {whitelistPage !== null && whitelistPage.items.length === 0
-              ? <div className="empty">白名单为空</div>
+              ? (
+                <div className="empty">
+                  {debouncedQuery.length > 0
+                    ? t.identities.emptySearchHint(debouncedQuery)
+                    : t.identities.emptyListHint("whitelist")}
+                </div>
+              )
               : null}
 
             {whitelistPage?.items.map((entry: Readonly<MiniAppWhitelistEntryView>): React.JSX.Element => {
@@ -368,14 +660,20 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                           )
                           : null}
                         <span className="badge">
-                          {entry.isChannel ? "频道" : "用户"}
+                          {entry.isChannel
+                            ? t.identities.channelBadge
+                            : t.identities.userBadge}
                         </span>
                       </div>
                       <div className="row-sub">
-                        ID: {entry.id} · 已开启权限: {enabledCount} / {WHITELIST_PERMISSION_KEYS.length}
+                        ID: {entry.id} ·{" "}
+                        {t.identities.enabledPermCountText(
+                          enabledCount,
+                          WHITELIST_PERMISSION_KEYS.length
+                        )}
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                    <div className="toolbar-actions">
                       <button
                         type="button"
                         className={`btn ${isExpanded ? "primary" : ""}`}
@@ -383,17 +681,18 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                           setSelectedEntryId(isExpanded ? null : entry.id);
                         }}
                       >
-                        {isExpanded ? "收起权限" : "权限开关"}
+                        {t.identities.configurePermButton}
                       </button>
                       <button
                         type="button"
-                        className="btn danger"
+                        className="btn danger icon-btn"
                         disabled={busyAction}
                         onClick={(): void => {
-                          void handleRemoveWhitelist(entry.id);
+                          void handleRemoveWhitelist(entry);
                         }}
                       >
-                        移除
+                        <TrashSvgIcon size={13} />
+                        <span>{t.identities.removeWhitelistButton}</span>
                       </button>
                     </div>
                   </div>
@@ -435,15 +734,23 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
         )
         : (
           <div className="card">
-            <div className="card-title">
-              <span>黑名单条目列表</span>
-              <span className="badge warn">
-                共 {blocklistPage?.total ?? blocklistTotal} 条 · 第 {blocklistPage?.page ?? blocklistPageNumber} / {blocklistPage?.totalPages ?? 1} 页
-              </span>
-            </div>
+            {loadingList && blocklistPage === null
+              ? (
+                <div className="loading-box">
+                  <div className="spinner-ring" />
+                  <div className="loading-text">{t.identities.loadingText}</div>
+                </div>
+              )
+              : null}
 
             {blocklistPage !== null && blocklistPage.items.length === 0
-              ? <div className="empty">黑名单为空</div>
+              ? (
+                <div className="empty">
+                  {debouncedQuery.length > 0
+                    ? t.identities.emptySearchHint(debouncedQuery)
+                    : t.identities.emptyListHint("blocklist")}
+                </div>
+              )
               : null}
 
             {blocklistPage?.items.map((entry: Readonly<MiniAppBlocklistEntryView>): React.JSX.Element => (
@@ -461,22 +768,25 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                       )
                       : null}
                     <span className="badge warn">
-                      {entry.isChannel ? "频道" : "用户"}
+                      {entry.isChannel
+                        ? t.identities.channelBadge
+                        : t.identities.userBadge}
                     </span>
                   </div>
                   <div className="row-sub">
-                    ID: {entry.id} · 封禁时间: {entry.blockedAt}
+                    ID: {entry.id} · {t.identities.blockedAtText(entry.blockedAt)}
                   </div>
                 </div>
                 <button
                   type="button"
-                  className="btn danger"
+                  className="btn danger icon-btn"
                   disabled={busyAction}
                   onClick={(): void => {
-                    void handleRemoveBlocklist(entry.id);
+                    void handleRemoveBlocklist(entry);
                   }}
                 >
-                  解封
+                  <TrashSvgIcon size={13} />
+                  <span>{t.identities.removeBlocklistButton}</span>
                 </button>
               </div>
             ))}

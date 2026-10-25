@@ -6,10 +6,16 @@ import {
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
 } from "../../../consts/miniApp";
 import type {
+  MiniAppLanguage,
   MiniAppMessageItem,
   MiniAppMessagePage,
 } from "../../../types/miniApp";
+import { ArrowLeftSvgIcon, RefreshSvgIcon } from "../../miniAppResoures";
 import { fetchMiniAppChatMessages } from "../api";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useMiniAppStore } from "../store";
+import type { MiniAppUiStoreState } from "../store";
 import { PaginationBar } from "./PaginationBar";
 
 /** `MessagesView` 组件的属性参数。 */
@@ -33,6 +39,11 @@ export function MessagesView({
   onBack,
   onToast,
 }: MessagesViewProps): React.JSX.Element {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (state: MiniAppUiStoreState): MiniAppLanguage => state.language
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+
   const [pageSize, setPageSize]: [
     number,
     React.Dispatch<React.SetStateAction<number>>
@@ -67,7 +78,7 @@ export function MessagesView({
         } catch (error: unknown) {
           const message: string =
             error instanceof Error ? error.message : String(error);
-          onToast(`读取发言记录失败: ${message}`);
+          onToast(message);
         } finally {
           setLoading(false);
         }
@@ -80,39 +91,50 @@ export function MessagesView({
   }, [loadMessages, pageNumber, pageSize]);
 
   return (
-    <div>
+    <div className="animate-fade-in">
       <div className="toolbar">
-        <button type="button" className="btn" onClick={onBack}>
-          ← 返回群状态
+        <button type="button" className="btn icon-btn" onClick={onBack}>
+          <ArrowLeftSvgIcon size={14} />
+          <span>{t.messages.backButton}</span>
         </button>
         <button
           type="button"
-          className="btn"
+          className="btn icon-btn"
           disabled={loading}
           onClick={(): void => {
             void loadMessages(pageNumber, pageSize);
           }}
         >
-          刷新记录
+          <RefreshSvgIcon size={14} className={loading ? "spin-icon" : ""} />
+          <span>{t.messages.refreshButton}</span>
         </button>
       </div>
 
       <div className="card">
         <div className="card-title">
           <span>
-            {pageData?.title ?? `群 ${chatId}`} · 热发言记录
+            {t.messages.headerTitle(
+              pageData?.title ?? `${chatId}`,
+              pageData?.total ?? 0,
+              pageData?.maxCapacity ?? VERBATIM_CONTEXT_MAX
+            )}
           </span>
-          <span className="badge">
-            共 {pageData?.total ?? 0} / {pageData?.maxCapacity ?? VERBATIM_CONTEXT_MAX} 条 · 第 {pageData?.page ?? pageNumber} / {pageData?.totalPages ?? 1} 页
-          </span>
+        </div>
+        <div className="row-sub" style={{ marginBottom: "10px" }}>
+          {t.messages.headerMeta(chatId)}
         </div>
 
         {loading && pageData === null
-          ? <div className="empty">正在读取热发言记录…</div>
+          ? (
+            <div className="loading-box">
+              <div className="spinner-ring" />
+              <div className="loading-text">{t.messages.loadingText}</div>
+            </div>
+          )
           : null}
 
         {pageData !== null && pageData.items.length === 0
-          ? <div className="empty">当前群暂无热发言记录</div>
+          ? <div className="empty">{t.messages.emptyHint}</div>
           : null}
 
         {pageData !== null
@@ -129,16 +151,25 @@ export function MessagesView({
                 </span>
               </div>
               {item.forwardedFrom !== undefined
-                ? <div className="msg-quote">转发自: {item.forwardedFrom}</div>
+                ? (
+                  <div className="msg-quote">
+                    {t.messages.forwardBadge(item.forwardedFrom)}
+                  </div>
+                )
                 : null}
               {item.replyToPreview !== undefined
                 ? (
                   <div className="msg-quote">
-                    回复 {item.replyToName ?? `#${item.replyToMessageId ?? ""}`}: {item.replyToPreview}
+                    {t.messages.replyBadge(
+                      item.replyToName ?? `#${item.replyToMessageId ?? ""}`,
+                      item.replyToPreview
+                    )}
                   </div>
                 )
                 : null}
-              <div className="msg-body">{item.text}</div>
+              <div className="msg-body">
+                {item.text.length > 0 ? item.text : t.messages.emptyMediaPlaceholder}
+              </div>
             </div>
           ))
           : null}

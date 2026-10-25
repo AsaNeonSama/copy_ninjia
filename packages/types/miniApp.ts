@@ -83,6 +83,31 @@ export type MiniAppPrecheckResult =
     readonly diagnostics: Readonly<MiniAppAccessDiagnostics>;
   };
 
+/** Mini App HTTP 路由中间件链与处理器共享的请求上下文。 */
+export interface MiniAppRouteContext {
+  /** 原始 HTTP 请求对象。 */
+  readonly request: Request;
+  /** 已解析的请求 URL。 */
+  readonly url: URL;
+  /** 大写 HTTP 方法（如 `"GET"`、`"POST"`、`"DELETE"`、`"HEAD"`）。 */
+  readonly method: string;
+  /** 剥离基础路径前缀后的内部标准路由路径（如 `"/api/status"`）。 */
+  readonly routePath: string;
+  /** 动态路由路径参数映射（如 `{ chatId: "-100123", fileName: "abc.png" }`）。 */
+  readonly params: Readonly<Record<string, string>>;
+}
+
+/** Mini App 标准路由处理器函数签名。 */
+export type MiniAppRouteHandler = (
+  ctx: Readonly<MiniAppRouteContext>
+) => Response | Promise<Response>;
+
+/** Mini App HTTP 中间件函数签名（可短路返回拦截响应，或调用 `next()` 进入下一环）。 */
+export type MiniAppMiddleware = (
+  ctx: Readonly<MiniAppRouteContext>,
+  next: () => Response | Promise<Response>
+) => Response | Promise<Response>;
+
 /** 单项模型子能力或已加载任务的结构化明细项（供前端竖向样式化展示）。 */
 export interface MiniAppCapabilityDetailItem {
   readonly label: string;
@@ -99,6 +124,15 @@ export interface MiniAppCapabilityStatus {
   readonly items: readonly Readonly<MiniAppCapabilityDetailItem>[];
 }
 
+/** Mini App 首页展示的活跃交互会话计数。 */
+export interface MiniAppActiveSessionCounts {
+  readonly total: number;
+  readonly gag: number;
+  readonly wed: number;
+  readonly verify: number;
+  readonly qaSet: number;
+}
+
 /** Mini App 首页展示的实时运行状态快照。 */
 export interface MiniAppStatusView {
   readonly generatedAt: number;
@@ -111,13 +145,7 @@ export interface MiniAppStatusView {
   readonly managedChatCount: number;
   readonly whitelistCount: number;
   readonly blocklistCount: number;
-  readonly activeSessions: Readonly<{
-    readonly total: number;
-    readonly gag: number;
-    readonly wed: number;
-    readonly verify: number;
-    readonly qaSet: number;
-  }>;
+  readonly activeSessions: Readonly<MiniAppActiveSessionCounts>;
   readonly telegramOutbound: Readonly<{
     readonly inFlight: number;
     readonly maxConcurrency: number;
@@ -286,6 +314,8 @@ export interface MiniAppBlocklistPage {
 export interface MiniAppIdentityMutationResult {
   readonly ok: boolean;
   readonly changed: boolean;
+  /** 是否因目标已存在于名单中而触发重复添加提示。 */
+  readonly duplicate?: boolean;
   readonly message: string;
 }
 
@@ -294,6 +324,15 @@ export type MiniAppPickerTargetList = "whitelist" | "blocklist";
 
 /** Mini App 原生选择器挑选的身份种类（好友/联系人用户 vs 频道）。 */
 export type MiniAppPickerSubjectKind = "users" | "channel";
+
+/** Mini App 名单添加折叠菜单的添加方式（按 ID、按联系人、按频道）。 */
+export type MiniAppIdentityAddMode = "id" | "users" | "channel";
+
+/** Mini App 界面支持的语言键（中文、日文、英文）。 */
+export type MiniAppLanguage = "zh" | "ja" | "en";
+
+/** Mini App 界面支持的主题模式（暗色、亮色）。 */
+export type MiniAppThemeMode = "dark" | "light";
 
 /** 已向 Telegram Bot API 预注册的 `savePreparedKeyboardButton` 选择器会话记录。 */
 export interface MiniAppPreparedPickerSession {
@@ -312,10 +351,12 @@ export interface MiniAppPickerResultEvent {
   readonly completedAt: number;
   readonly addedIds: readonly number[];
   readonly skippedIds: readonly number[];
+  /** 因已在目标名单中而跳过重复添加的目标 ID 列表。 */
+  readonly duplicateIds?: readonly number[];
   readonly summary: string;
 }
 
-/** Mini App 顶部主导航标签键。 */
+/** Mini App 主导航标签键。 */
 export type MiniAppTabKey = "status" | "chats" | "identities" | "gallery";
 
 /** 图库分页列表中的单张图片元数据视图。 */
@@ -356,6 +397,21 @@ export interface MiniAppGalleryUploadResult {
   readonly message: string;
 }
 
+/** Mini App 图库单张图片删除的结局分类。 */
+export type MiniAppGalleryDeleteOutcome =
+  | "deleted"
+  | "notFound"
+  | "invalidFileName"
+  | "failed";
+
+/** Mini App 图库删除单张图片的响应结果。 */
+export interface MiniAppGalleryDeleteResult {
+  readonly ok: boolean;
+  readonly outcome: MiniAppGalleryDeleteOutcome;
+  readonly fileName?: string;
+  readonly message: string;
+}
+
 /** 名单管理子标签键。 */
 export type MiniAppIdentitySubTabKey = "whitelist" | "blocklist";
 
@@ -365,16 +421,21 @@ export interface TelegramWebAppUser {
   readonly first_name?: string;
   readonly last_name?: string;
   readonly username?: string;
+  readonly language_code?: string;
 }
 
 /** Telegram WebApp 注入浏览器的宿主对象接口。 */
 export interface TelegramWebApp {
   readonly initData?: string;
+  readonly colorScheme?: "light" | "dark";
+  readonly themeParams?: Readonly<Record<string, string | undefined>>;
   readonly initDataUnsafe?: Readonly<{
     readonly user?: Readonly<TelegramWebAppUser>;
   }>;
   readonly ready?: () => void;
   readonly expand?: () => void;
+  readonly setHeaderColor?: (color: string) => void;
+  readonly setBackgroundColor?: (color: string) => void;
   /**
    * 唤起 `savePreparedKeyboardButton` 创建的原生好友/联系人/群组/频道选择器（Bot API 9.6+）。
    *
@@ -397,8 +458,15 @@ export interface TelegramWindow {
     readonly hash: string;
   }>;
   readonly confirm?: (message?: string) => boolean;
+  readonly navigator?: Readonly<{
+    readonly language?: string;
+    readonly languages?: readonly string[];
+  }>;
   readonly document?: Readonly<{
     readonly getElementById: (elementId: string) => Element | null;
+    readonly documentElement?: Readonly<{
+      readonly setAttribute?: (qualifiedName: string, value: string) => void;
+    }>;
   }>;
 }
 

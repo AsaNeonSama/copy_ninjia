@@ -139,8 +139,8 @@ done
   - 配置时会自动去除首尾空白并规范化名称（例如 `asia/tokyo` 会标准化为 `Asia/Tokyo`）。
   - **时区绑定**：数据库初始化时会将此时区写入 `storage_metadata` 表中。此后机器人启动或安装脚本均会核对此时区；若中途修改 `time_zone` 将导致启动报错退出。已有数据不支持直接更换时区。
 - **`mini_app`**（可选，对象：`{ url: string, port?: number, host?: string, password: string }`）
-  - 配置超级管理员专属 Telegram Mini App 管理面板（Dashboard）：`url` 必须为合法的公网 `https://` 地址（不含 `#` fragment），`port` 缺省 `3000`，`host` 缺省 `"127.0.0.1"`，`password` 为必填的首屏访问密码（必须至少包含 6 位数字 `0-9`；单次认证有效期 90 分钟，连续输错 5 次将锁定超级管理员 ID 30 分钟；未配置 `password` 或数字不足 6 位拒绝启动）。
-  - 配置后启动本地 `Bun.serve` HTTP 服务，向超级管理员私聊挂载 `MenuButtonWebApp`（`控制台`）并开放私聊 `/app`（`Dashboard` 按钮）；不配置 `mini_app` 时直接不注册 Web 服务器与路由。
+  - 配置超级管理员专属 Telegram Mini App 管理面板（Dashboard）：`url` 必须为合法的公网 `https://` 地址（不含 `#` fragment），`port` 缺省 `3000`，`host` 缺省 `"127.0.0.1"`，`password` 为必填的首屏访问密码（必须至少包含 6 位数字 `0-9`；`initData` 签名与单次密码认证有效期均为 90 分钟，连续输错 5 次将锁定超级管理员 ID 30 分钟；未配置 `password` 或数字不足 6 位拒绝启动）。
+  - 配置后启动本地 `Bun.serve` HTTP 服务（所有业务 API、图库图片与 SVG 资源均由统一前置中间件链校验 Telegram WebApp `initData` 签名与 `SUPER_ADMIN_USER_ID`，并附带严格 `Content-Security-Policy` 与 `X-Frame-Options: DENY`），向超级管理员私聊挂载 `MenuButtonWebApp`（`Dashboard`）并开放私聊 `/app`（`Dashboard` 按钮）；不配置 `mini_app` 时直接不注册 Web 服务器与路由。
 
 ---
 

@@ -90,9 +90,13 @@ const { resetIdentityStorageCache } = await import(
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { getAssetConfig } = await import("../../packages/config/assets");
 const {
+  MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_LANGUAGES,
   MINI_APP_SESSION_HEADER,
+  MINI_APP_TAB_KEYS,
+  MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
 const { WHITELIST_PERMISSION_KEYS } = await import("../../packages/consts/whitelist");
 const {
@@ -120,6 +124,7 @@ const {
 } = await import("../../packages/miniApp/ui/formatters");
 const {
   buildMiniAppGalleryImageUrl,
+  buildMiniAppSvgResourceUrl,
   clearMiniAppSessionToken,
   confirmMiniAppAction,
   getTelegramWebApp,
@@ -127,7 +132,29 @@ const {
   readMiniAppSessionToken,
   setMiniAppSessionToken,
 } = await import("../../packages/miniApp/ui/api");
+const {
+  detectBrowserDefaultLanguage,
+  detectInitialMiniAppLanguage,
+  getMiniAppTranslations,
+} = await import("../../packages/miniApp/ui/i18n");
+const {
+  applyMiniAppThemeToDocument,
+  detectInitialMiniAppTheme,
+  resetMiniAppStoreForTest,
+  useMiniAppStore,
+} = await import("../../packages/miniApp/ui/store");
+const {
+  ChatsSvgIcon,
+  GallerySvgIcon,
+  IdentitiesSvgIcon,
+  MenuSvgIcon,
+  SearchSvgIcon,
+  StatusSvgIcon,
+  TabSvgIcon,
+  TrashSvgIcon,
+} = await import("../../packages/miniApp/miniAppResoures");
 import type {
+  MiniAppGalleryDeleteResult,
   MiniAppGalleryPage,
   MiniAppGalleryUploadResult,
   MiniAppPickerResultEvent,
@@ -194,7 +221,29 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     const eventUsers: Readonly<MiniAppPickerResultEvent> | null =
       await handleMiniAppSharedMessage(sharedUsersMsg);
     expect(eventUsers?.addedIds).toEqual([77001]);
+    expect(eventUsers?.duplicateIds).toEqual([]);
     expect(getMiniAppPickerResult(prepUsers.requestId)?.addedIds).toEqual([77001]);
+
+    const prepUsersDup = await prepareMiniAppPicker({
+      targetList: "whitelist",
+      subjectKind: "users",
+      api: {
+        savePreparedKeyboardButton: async () => ({ id: "prep-btn-users-dup" }),
+      },
+    });
+    expect(prepUsersDup.ok).toBeTrue();
+    if (!prepUsersDup.ok) throw new Error("expected prepared duplicate picker");
+    const dupUsersEvent: Readonly<MiniAppPickerResultEvent> | null =
+      await handleMiniAppSharedMessage({
+        ...sharedUsersMsg,
+        message_id: 14,
+        users_shared: {
+          request_id: prepUsersDup.requestId,
+          users: [{ user_id: 77001, first_name: "Naruto" }],
+        },
+      });
+    expect(dupUsersEvent?.addedIds).toEqual([]);
+    expect(dupUsersEvent?.duplicateIds).toEqual([77001]);
 
     const prepChannel = await prepareMiniAppPicker({
       targetList: "blocklist",
@@ -247,7 +296,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(eventChannel?.addedIds).toEqual([-10077002]);
   });
 
-  test("UI 格式化与辅助纯函数覆盖全枚举分支", () => {
+  test("UI 格式化与辅助纯函数覆盖全枚举分支", async () => {
     expect(formatUptime(90_061_000)).toBe("1d 1h 1m");
     expect(formatUptime(3_661_000)).toBe("1h 1m 1s");
     expect(formatUptime(65_000)).toBe("1m 5s");
@@ -255,14 +304,66 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(formatTime(0)).toBe("-");
     expect(formatTime(1_700_000_000_000).length).toBeGreaterThan(0);
 
-    for (const featureKey of MINI_APP_FEATURE_KEYS) {
-      const meta = getFeatureDisplayMeta(featureKey);
-      expect(meta.label.length).toBeGreaterThan(0);
-      expect(meta.command.startsWith("/")).toBeTrue();
+    for (const lang of MINI_APP_LANGUAGES) {
+      const dict = getMiniAppTranslations(lang);
+      expect(dict.appTitle).toContain("♡");
+      expect(dict.identities.duplicateBannerTitle.length).toBeGreaterThan(0);
+      for (const tabKey of MINI_APP_TAB_KEYS) {
+        expect(dict.tabs[tabKey].length).toBeGreaterThan(0);
+        expect(TabSvgIcon({ tabKey })).toBeDefined();
+      }
+      for (const featureKey of MINI_APP_FEATURE_KEYS) {
+        const meta = getFeatureDisplayMeta(featureKey, lang);
+        expect(meta.label.length).toBeGreaterThan(0);
+        expect(meta.command.startsWith("/")).toBeTrue();
+      }
+      for (const permKey of WHITELIST_PERMISSION_KEYS) {
+        expect(getPermissionDisplayLabel(permKey, lang).length).toBeGreaterThan(0);
+      }
+      expect(
+        dict.gate.deniedPolicyReason("MISSING_INIT_DATA", "fallback").length
+      ).toBeGreaterThan(0);
+      expect(dict.gate.deniedNodeGatewayState(403).length).toBeGreaterThan(0);
     }
-    for (const permKey of WHITELIST_PERMISSION_KEYS) {
-      expect(getPermissionDisplayLabel(permKey).length).toBeGreaterThan(0);
-    }
+
+    expect(["zh", "ja", "en"]).toContain(detectBrowserDefaultLanguage());
+    expect(["zh", "ja", "en"]).toContain(detectInitialMiniAppLanguage());
+    expect(detectInitialMiniAppTheme()).toBe("light");
+    applyMiniAppThemeToDocument("light");
+
+    resetMiniAppStoreForTest();
+    expect(useMiniAppStore.getState().theme).toBe("light");
+    expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
+    useMiniAppStore.getState().toggleSidebar();
+    expect(useMiniAppStore.getState().sidebarOpen).toBeTrue();
+    useMiniAppStore.getState().setActiveTab("identities");
+    expect(useMiniAppStore.getState().activeTab).toBe("identities");
+    expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
+    useMiniAppStore.getState().toggleTheme();
+    expect(useMiniAppStore.getState().theme).toBe("dark");
+    useMiniAppStore.getState().setLanguage("ja");
+    expect(useMiniAppStore.getState().language).toBe("ja");
+    useMiniAppStore.getState().showToast("笨蛋杂鱼♡", "danger");
+    expect(useMiniAppStore.getState().toastText).toBe("笨蛋杂鱼♡");
+    expect(useMiniAppStore.getState().toastTone).toBe("danger");
+    useMiniAppStore.getState().clearToast();
+    expect(useMiniAppStore.getState().toastText).toBe("");
+    const confirmPromise: Promise<boolean> = useMiniAppStore
+      .getState()
+      .requestConfirm("确认删除？", "danger");
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe("确认删除？");
+    useMiniAppStore.getState().resolveConfirm(true);
+    expect(await confirmPromise).toBeTrue();
+    expect(useMiniAppStore.getState().confirmModal).toBeNull();
+    resetMiniAppStoreForTest();
+
+    expect(MenuSvgIcon({})).toBeDefined();
+    expect(StatusSvgIcon({})).toBeDefined();
+    expect(ChatsSvgIcon({})).toBeDefined();
+    expect(IdentitiesSvgIcon({})).toBeDefined();
+    expect(GallerySvgIcon({})).toBeDefined();
+    expect(SearchSvgIcon({})).toBeDefined();
+    expect(TrashSvgIcon({})).toBeDefined();
 
     expect(getTelegramWebApp()).toBeUndefined();
     expect(readMiniAppInitData()).toBe("");
@@ -277,6 +378,9 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     ).toBe("00493093…a112c2.jpg");
     expect(shortenGalleryFileName("short.png")).toBe("short.png");
     expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe("./api/gallery/file/abc.jpg");
+    expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
+      "./api/resources/svg/status.svg"
+    );
     expect(readMiniAppSessionToken()).toBe("");
     setMiniAppSessionToken("a".repeat(64));
     expect(readMiniAppSessionToken()).toBe("a".repeat(64));
@@ -429,6 +533,82 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     const fetchedBytes: Uint8Array = await fileRes.bytes();
     expect(fetchedBytes).toEqual(validPng);
 
+    const unauthImageRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`)
+    );
+    expect(unauthImageRes.status).toBe(401);
+
+    const nonAdminInitData: string = buildSignedTestInitData({
+      botToken: BOT_TOKEN,
+      authDate: Math.floor(Date.now() / 1000),
+      user: {
+        id: SUPER_ADMIN_USER_ID + 777,
+        first_name: "NonAdmin",
+      },
+    });
+    const nonAdminImageRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?initData=${encodeURIComponent(nonAdminInitData)}`
+      )
+    );
+    expect(nonAdminImageRes.status).toBe(403);
+
+    const unauthSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/resources/svg/status.svg")
+    );
+    expect(unauthSvgRes.status).toBe(401);
+
+    const unauthStaticSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/miniAppResoures/status.svg")
+    );
+    expect(unauthStaticSvgRes.status).toBe(401);
+
+    const nonAdminSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(nonAdminInitData)}`
+      )
+    );
+    expect(nonAdminSvgRes.status).toBe(403);
+
+    const navigateSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(initData)}`,
+        {
+          headers: {
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+          },
+        }
+      )
+    );
+    expect(navigateSvgRes.status).toBe(403);
+
+    const okSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(initData)}`
+      )
+    );
+    expect(okSvgRes.status).toBe(200);
+    expect(okSvgRes.headers.get("Content-Type")).toBe(
+      "image/svg+xml; charset=utf-8"
+    );
+    expect(await okSvgRes.text()).toContain("<svg");
+
+    const okLegacySvgRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/miniAppResoures/chats.svg?initData=${encodeURIComponent(initData)}`
+      )
+    );
+    expect(okLegacySvgRes.status).toBe(200);
+    expect(await okLegacySvgRes.text()).toContain("<svg");
+
+    const traversalSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/resources/svg/..%2Fsecret.svg", {
+        headers: superAdminHeaders(),
+      })
+    );
+    expect(traversalSvgRes.status).toBe(404);
+
     const traversalRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/gallery/file/..%2Fsecret.png", {
         headers: superAdminHeaders(),
@@ -436,10 +616,49 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     expect(traversalRes.status).toBe(404);
 
+    const invalidDeleteRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/gallery/delete", {
+        method: "POST",
+        headers: {
+          ...superAdminHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fileName: "../evil.png" }),
+      })
+    );
+    expect(invalidDeleteRes.status).toBe(400);
+    expect(
+      ((await invalidDeleteRes.json()) as MiniAppGalleryDeleteResult).outcome
+    ).toBe("invalidFileName");
+
+    const deleteRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
+        method: "DELETE",
+        headers: superAdminHeaders(),
+      })
+    );
+    expect(deleteRes.status).toBe(200);
+    const deleteBody: MiniAppGalleryDeleteResult =
+      (await deleteRes.json()) as MiniAppGalleryDeleteResult;
+    expect(deleteBody.ok).toBeTrue();
+    expect(deleteBody.outcome).toBe("deleted");
+    expect(deleteBody.fileName).toBe(expectedFileName);
+
+    const deleteAgainRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
+        method: "DELETE",
+        headers: superAdminHeaders(),
+      })
+    );
+    expect(deleteAgainRes.status).toBe(404);
+    expect(
+      ((await deleteAgainRes.json()) as MiniAppGalleryDeleteResult).outcome
+    ).toBe("notFound");
+
     rmSync(galleryDir, { recursive: true, force: true });
   });
 
-  test("Bun.serve 原生路由服务可启动并响应 /healthz 与 /", async () => {
+  test("Bun.serve 原生路由服务可启动并响应 /healthz 与 /（携带严格 CSP 与 X-Frame-Options）", async () => {
     const server = startMiniAppServer({
       url: "https://miniapp.example.com",
       host: "127.0.0.1",
@@ -456,6 +675,12 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
 
     const htmlRes: Response = await fetch(`http://127.0.0.1:${port}/`);
     expect(htmlRes.status).toBe(200);
+    expect(htmlRes.headers.get("Content-Security-Policy")).toBe(
+      MINI_APP_CSP_HEADER_VALUE
+    );
+    expect(htmlRes.headers.get("X-Frame-Options")).toBe(
+      MINI_APP_X_FRAME_OPTIONS_VALUE
+    );
     const htmlText: string = await htmlRes.text();
     expect(htmlText).toContain("id=\"root\"");
 

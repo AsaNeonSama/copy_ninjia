@@ -1,7 +1,12 @@
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
 import {
+  MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
+  MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+} from "../../consts/miniApp";
+import {
   blockUser,
   confirmBlocklistPersisted,
+  isUserBlocked,
   managedAdminChatIds,
   runManagedChatBatch,
   unblockUser,
@@ -33,8 +38,10 @@ import type {
   MiniAppIdentityMutationResult,
 } from "../../types/miniApp";
 import {
+  collectAllIdentityIds,
   collectIdentityPageIds,
   formatIdentityDisplayName,
+  matchesIdentitySearchQuery,
   resolveIdentityMetadataForMiniApp,
 } from "./metadata";
 import type {
@@ -44,13 +51,65 @@ import type {
 } from "./metadata";
 
 /**
- * 分页列出持久化的黑名单成员。
- * @param params 页码 `page`、每页条数 `pageSize`（或游标 `afterId` 与 `limit`）。
+ * 分页列出持久化的黑名单成员（支持按名称、用户名或 ID 模糊搜索）。
+ * @param params 页码 `page`、每页条数 `pageSize`、游标 `afterId` 或搜索关键字 `query`。
  * @returns 黑名单分页视图（含当前页、总页数、黑名单总数、白名单总数）。
  */
 export async function listBlocklistEntries(
   params: ListIdentityPageParams = {}
 ): Promise<Readonly<MiniAppBlocklistPage>> {
+  const normalizedQuery: string = params.query?.trim().toLowerCase() ?? "";
+  if (normalizedQuery.length > 0) {
+    const rawPageSize: number =
+      params.pageSize ?? params.limit ?? MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE;
+    const pageSize: number = Math.min(
+      MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+      Math.max(1, Math.trunc(rawPageSize))
+    );
+    const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
+    const allIds: readonly number[] = await collectAllIdentityIds(readBlocklistSweepPage);
+    const blocklistTotal: number = Math.max(
+      getIdentityEntryCount("blocklist"),
+      allIds.length
+    );
+    const whitelistTotal: number = getIdentityEntryCount("whitelist");
+    if (allIds.length > 0) {
+      await prefetchIdentityPolicies(allIds);
+    }
+    const matchedItems: Readonly<MiniAppBlocklistEntryView>[] = [];
+    for (const id of allIds) {
+      const entry: Readonly<BlocklistEntryData> | undefined = cachedBlocklistEntry(id);
+      if (entry === undefined) continue;
+      const displayName: string = formatIdentityDisplayName(id, entry.meta);
+      const username: string | undefined =
+        entry.meta.username.length > 0 ? entry.meta.username : undefined;
+      if (!matchesIdentitySearchQuery(id, displayName, username)(normalizedQuery)) {
+        continue;
+      }
+      matchedItems.push({
+        id,
+        isChannel: id < 0,
+        displayName,
+        username,
+        blockedAt: entry.blockedAt,
+      });
+    }
+    const total: number = matchedItems.length;
+    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
+    const page: number = Math.min(requestedPage, totalPages);
+    const offset: number = (page - 1) * pageSize;
+    return {
+      items: matchedItems.slice(offset, offset + pageSize),
+      page,
+      pageSize,
+      total,
+      totalPages,
+      whitelistTotal,
+      blocklistTotal,
+      nextAfterId: null,
+    };
+  }
+
   const slice: Readonly<CollectedIdentityPageSlice> = await collectIdentityPageIds(
     "blocklist",
     params,
@@ -110,21 +169,21 @@ export async function setBlocklistEntryMembership({
     return {
       ok: false,
       changed: false,
-      message: "无效的身份 ID（必须为非零安全整数）。",
+      message: "笨蛋杂鱼♡，连身份 ID 都填错啦（必须是非零安全整数）！",
     };
   }
   if (id === SUPER_ADMIN_USER_ID) {
     return {
       ok: false,
       changed: false,
-      message: "不能将超级管理员加入黑名单。",
+      message: "笨蛋杂鱼♡，居然想把超级管理员关进黑名单？做梦去吧！",
     };
   }
   if (!await prefetchIdentityPolicies([id])) {
     return {
       ok: false,
       changed: false,
-      message: "身份策略存储暂不可用，请稍后重试。",
+      message: "啧，身份策略存储暂时没空理你，杂鱼稍后再试♡",
     };
   }
 
@@ -134,18 +193,31 @@ export async function setBlocklistEntryMembership({
   if (enabled) {
     const resolvedMeta: Readonly<TelegramIdentityMetadata> =
       await resolveIdentityMetadataForMiniApp(id, meta);
-    const newlyBlocked: boolean | undefined = await runProtectedIdentityMutation(
-      (): boolean | undefined =>
-        isWhitelisted(id) ? undefined : blockUser(id, resolvedMeta)
-    );
-    if (newlyBlocked === undefined) {
+    const mutationKind: "whitelisted" | "duplicate" | "blocked" =
+      await runProtectedIdentityMutation(
+        (): "whitelisted" | "duplicate" | "blocked" => {
+          if (isWhitelisted(id)) return "whitelisted";
+          if (isUserBlocked(id)) return "duplicate";
+          blockUser(id, resolvedMeta);
+          return "blocked";
+        }
+      );
+    if (mutationKind === "whitelisted") {
       return {
         ok: false,
         changed: false,
-        message: `ID ${id} 处于白名单保护范围内，拒绝加入黑名单。`,
+        message: `笨蛋杂鱼♡，ID ${id} 受白名单保护呢，不许直接塞进黑名单！`,
       };
     }
-    const persisted: boolean = await confirmBlocklistPersisted(id, !newlyBlocked);
+    if (mutationKind === "duplicate") {
+      return {
+        ok: true,
+        changed: false,
+        duplicate: true,
+        message: `笨蛋杂鱼♡，ID ${id} 早就已经在黑名单里啦，不许重复添加！`,
+      };
+    }
+    const persisted: boolean = await confirmBlocklistPersisted(id, false);
     let bannedCount: number = 0;
     if (targetChatIds.length > 0) {
       const outcomes: readonly ManagedChatOutcome<boolean>[] =
@@ -173,8 +245,9 @@ export async function setBlocklistEntryMembership({
       : "";
     return {
       ok: true,
-      changed: newlyBlocked,
-      message: `${newlyBlocked ? `已将 ID ${id} 加入黑名单` : `ID ${id} 已在黑名单中`}${fanOutNote}${persistNote}。`,
+      changed: true,
+      duplicate: false,
+      message: `哼，已帮杂鱼把 ID ${id} 关进黑名单啦${fanOutNote}${persistNote}♡`,
     };
   }
 
@@ -207,6 +280,6 @@ export async function setBlocklistEntryMembership({
   return {
     ok: true,
     changed: removedFromList,
-    message: `${removedFromList ? `已将 ID ${id} 移出黑名单` : `ID ${id} 原本不在黑名单中`}${fanOutNote}${persistNote}。`,
+    message: `${removedFromList ? `哼，已把 ID ${id} 从黑名单放出来啦` : `杂鱼♡，ID ${id} 原本就不在黑名单里`}${fanOutNote}${persistNote}♡`,
   };
 }

@@ -1,7 +1,11 @@
 import type {
   MiniAppFeatureKey,
+  MiniAppIdentityAddMode,
+  MiniAppLanguage,
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
+  MiniAppTabKey,
+  MiniAppThemeMode,
   MiniAppToggleableFeatureKey,
 } from "../types/miniApp";
 import { exhaustiveList } from "./exhaustiveList";
@@ -32,10 +36,10 @@ export const MINI_APP_PORT_MAX: number = 65_535;
 export const MINI_APP_WEB_APP_DATA_SECRET_SEED: string = "WebAppData";
 
 /**
- * Telegram WebApp `initData` 中 `auth_date` 允许的最大有效秒数（24 小时）。
+ * Telegram WebApp `initData` 中 `auth_date` 允许的最大有效秒数（90 分钟，与密码认证会话窗口对齐）。
  * 不变量：正整数秒数，超出视为过期凭据拒绝访问。所属模块：`packages/libs/miniAppAuth.ts`。
  */
-export const MINI_APP_AUTH_MAX_AGE_SECONDS: number = 86_400;
+export const MINI_APP_AUTH_MAX_AGE_SECONDS: number = 5_400;
 
 /**
  * Telegram WebApp `initData` 校验 `auth_date` 时允许的未来时钟偏移容差秒数（5 分钟）。
@@ -151,6 +155,25 @@ export const MINI_APP_NO_STORE_CACHE_CONTROL: string =
   "no-store, no-cache, must-revalidate, max-age=0";
 
 /**
+ * Mini App 响应的 `Content-Security-Policy` 安全策略头取值。
+ * 不变量：仅允许同源脚本与 `https://telegram.org` 官方脚本，彻底封死外联 XSS 与页面嵌套。所属模块：`packages/miniApp/http/common.ts`。
+ */
+export const MINI_APP_CSP_HEADER_VALUE: string =
+  "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
+/**
+ * Mini App 响应的 `X-Frame-Options` 安全头取值。
+ * 不变量：恒为 `"DENY"`，禁止任何恶意外层页面嵌套（Clickjacking）。所属模块：`packages/miniApp/http/common.ts`。
+ */
+export const MINI_APP_X_FRAME_OPTIONS_VALUE: string = "DENY";
+
+/**
+ * 名单搜索输入框触发按名称过滤请求的防抖等待毫秒数（0.5 秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/miniApp/ui/components/IdentitiesTab.tsx`。
+ */
+export const MINI_APP_SEARCH_DEBOUNCE_MS: number = 500;
+
+/**
  * Mini App JSON 写接口允许的最大请求体字节数（32 KiB）。
  * 不变量：用于 JSON 请求体解析边界。所属模块：`packages/miniApp/http/common.ts`。
  */
@@ -186,6 +209,27 @@ export const MINI_APP_GALLERY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20
  */
 export const MINI_APP_GALLERY_FILE_ROUTE_PATTERN: RegExp =
   /^\/api\/gallery\/file\/([^/]+)$/u;
+
+/**
+ * `/api/resources/svg/:fileName` 与 `/miniAppResoures/:fileName` 受保护 SVG 资源读取路由的匹配规则。
+ * 不变量：不带全局标志 `g`，供 HTTP 路由与资源鉴权中间件无状态复用。所属模块：`packages/miniApp/http/galleryRoutes.ts` 与 `packages/miniApp/http/middleware.ts`。
+ */
+export const MINI_APP_SVG_RESOURCE_ROUTE_PATTERN: RegExp =
+  /^\/(?:api\/resources\/svg|miniAppResoures)\/([^/]+)$/u;
+
+/**
+ * 允许通过受保护 HTTP 路由读取的 SVG 图标安全文件名匹配规则（非点号开头、仅含字母数字与 `._-`、以 `.svg` 结尾）。
+ * 不变量：不含路径分隔符或空字符，防止目录穿越。所属模块：`packages/miniApp/galleryView.ts`。
+ */
+export const MINI_APP_SVG_SAFE_FILE_NAME_PATTERN: RegExp =
+  /^[A-Za-z0-9][A-Za-z0-9._-]*\.svg$/iu;
+
+/**
+ * 静态图片与 SVG 资源路径后缀的匹配规则（用于统一纳入受保护资源鉴权中间件链）。
+ * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/miniApp/http/middleware.ts`。
+ */
+export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: RegExp =
+  /\.(?:svg|png|jpe?g|webp|gif|ico|avif)$/iu;
 
 /**
  * 图库允许通过 HTTP 读取的单张图片安全文件名匹配规则（非点号开头、仅含字母数字与 `._-`、以受支持图片扩展名结尾）。
@@ -363,4 +407,48 @@ export const MINI_APP_PICKER_SUBJECT_KINDS: readonly MiniAppPickerSubjectKind[] 
   exhaustiveList<MiniAppPickerSubjectKind>()([
     "users",
     "channel",
+  ]);
+
+/**
+ * Mini App 界面支持的语言键闭集（中文、日文、英文）。
+ * 不变量：与 `MiniAppLanguage` 联合类型一一对应。所属模块：`packages/miniApp/ui/store.ts`。
+ */
+export const MINI_APP_LANGUAGES: readonly MiniAppLanguage[] =
+  exhaustiveList<MiniAppLanguage>()([
+    "zh",
+    "ja",
+    "en",
+  ]);
+
+/**
+ * Mini App 界面支持的主题模式闭集（暗色、亮色）。
+ * 不变量：与 `MiniAppThemeMode` 联合类型一一对应。所属模块：`packages/miniApp/ui/store.ts`。
+ */
+export const MINI_APP_THEME_MODES: readonly MiniAppThemeMode[] =
+  exhaustiveList<MiniAppThemeMode>()([
+    "dark",
+    "light",
+  ]);
+
+/**
+ * Mini App 名单添加折叠按钮支持的添加模式闭集（按 ID、按联系人、按频道）。
+ * 不变量：与 `MiniAppIdentityAddMode` 联合类型一一对应。所属模块：`packages/miniApp/ui/components/IdentitiesTab.tsx`。
+ */
+export const MINI_APP_IDENTITY_ADD_MODES: readonly MiniAppIdentityAddMode[] =
+  exhaustiveList<MiniAppIdentityAddMode>()([
+    "id",
+    "users",
+    "channel",
+  ]);
+
+/**
+ * Mini App 侧边栏主导航标签键闭集。
+ * 不变量：与 `MiniAppTabKey` 联合类型一一对应。所属模块：`packages/miniApp/ui/App.tsx`。
+ */
+export const MINI_APP_TAB_KEYS: readonly MiniAppTabKey[] =
+  exhaustiveList<MiniAppTabKey>()([
+    "status",
+    "chats",
+    "identities",
+    "gallery",
   ]);

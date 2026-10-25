@@ -8,7 +8,6 @@ import {
   defaultStickerConfigCache,
 } from "../cache/perThread/config";
 import { getAdDetectAgentConfig, getAgentDeploymentConfig } from "../config/agent";
-import { getAssetConfig } from "../config/assets";
 import {
   adDetectConfigReadiness,
   aiChatConfigReadiness,
@@ -63,13 +62,12 @@ function buildCapabilityStatus({
   activeItems,
 }: BuildCapabilityStatusParams): Readonly<MiniAppCapabilityStatus> {
   if (!readiness.ok) {
-    const failureText: string = `未就绪 (${readiness.failure.file})`;
     return {
       key,
       label,
       ready: false,
-      detail: failureText,
-      items: [{ label: "配置文件", value: readiness.failure.file, sub: "未就绪" }],
+      detail: "未就绪",
+      items: [{ label: "运行状态", value: "未就绪", sub: "缺少必要配置" }],
     };
   }
   return {
@@ -199,7 +197,7 @@ function buildStickerDetailItems(
   stickerConfig: Readonly<StickerConfig> | null
 ): readonly Readonly<MiniAppCapabilityDetailItem>[] {
   if (stickerConfig === null) {
-    return [{ label: "配置文件", value: "未加载 stickers.json" }];
+    return [{ label: "贴纸包", value: "未加载" }];
   }
   return stickerConfig.packs.map(
     (pack: string, idx: number): Readonly<MiniAppCapabilityDetailItem> => ({
@@ -218,7 +216,7 @@ function buildMoodDetailItems(
   moodConfig: Readonly<MoodConfig> | null
 ): readonly Readonly<MiniAppCapabilityDetailItem>[] {
   if (moodConfig === null) {
-    return [{ label: "配置文件", value: "未加载 mood.json" }];
+    return [{ label: "情绪池", value: "未加载" }];
   }
   return moodConfig.moods.map(
     (mood: Readonly<MoodOption>): Readonly<MiniAppCapabilityDetailItem> => ({
@@ -237,7 +235,7 @@ function buildCronDetailItems(
   cronConfig: CronConfig | null
 ): readonly Readonly<MiniAppCapabilityDetailItem>[] {
   if (cronConfig === null) {
-    return [{ label: "配置文件", value: "未加载 cron.json" }];
+    return [{ label: "定时任务", value: "未加载" }];
   }
   if (cronConfig.length === 0) {
     return [{ label: "定时任务", value: "当前无已配置任务" }];
@@ -303,7 +301,6 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
   const stickerConfig: Readonly<StickerConfig> | null = defaultStickerConfigCache.current;
   const moodConfig: Readonly<MoodConfig> | null = defaultMoodConfigCache.current;
   const cronConfig: CronConfig | null = cronConfigCache.current;
-  const hImageDir: string = getAssetConfig().randomHImageDirectory;
 
   const capabilities: readonly Readonly<MiniAppCapabilityStatus>[] = [
     buildCapabilityStatus({
@@ -322,7 +319,7 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
         {
           label: "翻译服务",
           value: "Google Cloud Translation",
-          sub: "g-auth.json",
+          sub: "已启用",
         },
       ],
     }),
@@ -340,7 +337,7 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
       detail:
         stickerConfig !== null
           ? `已加载 ${stickerConfig.packs.length} 个贴纸包`
-          : "未配置 stickers.json",
+          : "未配置",
       items: buildStickerDetailItems(stickerConfig),
     },
     {
@@ -350,7 +347,7 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
       detail:
         moodConfig !== null
           ? `已加载 ${moodConfig.moods.length} 档情绪`
-          : "未配置 mood.json",
+          : "未配置",
       items: buildMoodDetailItems(moodConfig),
     },
     {
@@ -360,19 +357,19 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
       detail:
         cronConfig !== null
           ? `已加载 ${cronConfig.length} 项任务`
-          : "未配置 cron.json",
+          : "未配置",
       items: buildCronDetailItems(cronConfig),
     },
     {
       key: "hImage",
       label: "随机图库 (/h_image)",
       ready: true,
-      detail: hImageDir,
+      detail: "已配置",
       items: [
         {
-          label: "图库路径",
-          value: hImageDir,
-          sub: "assets.json",
+          label: "图库服务",
+          value: "支持 /h_image 抽图与面板管理",
+          sub: "SHA-256 去重存储",
         },
       ],
     },

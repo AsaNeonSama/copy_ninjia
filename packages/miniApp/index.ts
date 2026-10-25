@@ -6,8 +6,10 @@ export {
   setManagedChatFeature,
 } from "./chatsView";
 export {
+  deleteMiniAppGalleryImage,
   listMiniAppGalleryPage,
   readMiniAppGalleryFile,
+  readMiniAppSvgResource,
   uploadMiniAppGalleryImage,
 } from "./galleryView";
 export {
@@ -29,6 +31,21 @@ export {
   resetMiniAppPickerState,
 } from "./picker";
 export { issueMiniAppAuthSession } from "./http/common";
+export {
+  authenticateMiniAppInitData,
+  authenticateMiniAppRequest,
+  createMiniAppInitDataMiddleware,
+  createMiniAppSessionMiddleware,
+  executeMiniAppMiddlewareChain,
+  getMiniAppApiAuthMiddlewareChain,
+  getMiniAppInitDataMiddlewareChain,
+  getMiniAppProtectedAssetMiddlewareChain,
+  getMiniAppPublicMiddlewareChain,
+  isProtectedMiniAppAssetPath,
+  miniAppAssetNavigationGuardMiddleware,
+  miniAppCrossSiteGuardMiddleware,
+  withMiniAppMiddlewareChain,
+} from "./http/middleware";
 export { createMiniAppBunRoutes, handleMiniAppHttpRequest } from "./routes";
 export { startMiniAppServer, stopMiniAppServer } from "./server";
 export { buildMiniAppStatusView } from "./statusView";

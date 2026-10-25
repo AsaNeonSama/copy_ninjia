@@ -139,8 +139,8 @@ Bot の基本設定およびグローバルスーパー管理者は `config/stat
   - 前後の空白をトリムして検証され、Temporal 仕様に基づいて大文字・小文字が正規化されます（エイリアスも保持）。空文字列、不正な型、あるいは Temporal / Bun cron が認識できないタイムゾーンは起動を拒否します。
   - 初回データベース初期化時に `storage_metadata` の `time-zone` に記録され、以降そのデータルートは該当タイムゾーンに固定されます。起動時およびインストーラーは常にこの値を検証し、タイムゾーンの変更は許可されません（変更検知時は `storage_metadata.time-zone` エラーで起動を阻止します）。既存データルートに対するタイムゾーンの事後変更はサポートしていません。
 - **`mini_app`**（任意、オブジェクト：`{ url: string, port?: number, host?: string, password: string }`）
-  - スーパー管理者専用の Telegram Mini App 管理コンソール（Dashboard）を設定します。`url` は `#` フラグメントを含まない有効な公開 `https://` URL、`port` の既定値は `3000`、`host` の既定値は `"127.0.0.1"`、`password` は初回画面で要求される必須のアクセスパスワードです（6 桁以上の数字 `0-9` を含む必要があり、未設定または条件未満の場合は起動を拒否。1 回の認証は 90 分間有効、5 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック）。
-  - 設定時はローカル `Bun.serve` HTTP サーバーを起動し、スーパー管理者の個人チャットに `MenuButtonWebApp`（`控制台`）を設定するとともに `/app`（`Dashboard` ボタン）を有効化します。`mini_app` を省略した場合は Web サーバーとルートを一切登録しません。
+  - スーパー管理者専用の Telegram Mini App 管理コンソール（Dashboard）を設定します。`url` は `#` フラグメントを含まない有効な公開 `https://` URL、`port` の既定値は `3000`、`host` の既定値は `"127.0.0.1"`、`password` は初回画面で要求される必須のアクセスパスワードです（6 桁以上の数字 `0-9` を含む必要があり、未設定または条件未満の場合は起動を拒否。`initData` 署名と 1 回のパスワード認証はいずれも 90 分間有効、5 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック）。
+  - 設定時はローカル `Bun.serve` HTTP サーバーを起動し（全 API・画像庫画像・SVG リソースは統一ミドルウェアチェーンで Telegram WebApp `initData` 署名と `SUPER_ADMIN_USER_ID` を検証し、厳格な `Content-Security-Policy` と `X-Frame-Options: DENY` を付与）、スーパー管理者の個人チャットに `MenuButtonWebApp`（`Dashboard`）を設定するとともに `/app`（`Dashboard` ボタン）を有効化します。`mini_app` を省略した場合は Web サーバーとルートを一切登録しません。
 
 ---
 

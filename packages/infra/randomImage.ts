@@ -223,6 +223,30 @@ export async function statRandomImageFile(
 }
 
 /**
+ * 安全删除图库目录内指定文件名的普通图片文件（不跟随文件级符号链接）。
+ * @param directory 专用图库目录的绝对路径。
+ * @param fileName 已通过文件名形态校验的图片文件名。
+ * @returns 删除成功时返回 `true`；文件不存在、非普通图片文件或已消失时返回 `false`。
+ */
+export async function deleteRandomImageFile(
+  directory: string,
+  fileName: string
+): Promise<boolean> {
+  const entry: Readonly<RandomImageEntry> | null = await statRandomImageFile(
+    directory,
+    fileName
+  );
+  if (entry === null) return false;
+  try {
+    await Bun.file(entry.filePath).delete();
+    return true;
+  } catch (error: unknown) {
+    if (vanished(error)) return false;
+    throw error;
+  }
+}
+
+/**
  * 将图片按魔数嗅探格式与内容 SHA-256 命名写入图库：目标已存在时返回 `existing`；
  * 新增时先写同目录隐藏临时文件再原子改名，失败时清理临时文件并上抛。
  * @param directory 专用图库目录的绝对路径。

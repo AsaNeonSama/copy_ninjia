@@ -31,6 +31,60 @@ export interface ListIdentityPageParams {
   readonly afterId?: number | null;
   /** 单页返回条数上限（`1..MINI_APP_IDENTITY_MAX_PAGE_SIZE`）。 */
   readonly limit?: number;
+  /** 按名称、用户名或 ID 模糊搜索的关键字。 */
+  readonly query?: string;
+}
+
+/**
+ * 读取指定身份策略表的全部身份 ID（供按名称搜索过滤时遍历）。
+ *
+ * @param readSweepPage 底层游标页读取函数。
+ * @returns 表中全部身份 ID 列表。
+ */
+export async function collectAllIdentityIds(
+  readSweepPage: (afterId: number | null) => Promise<BlocklistIdPage>
+): Promise<readonly number[]> {
+  const allIds: number[] = [];
+  let cursor: number | null = null;
+  while (true) {
+    const sweep: BlocklistIdPage = await readSweepPage(cursor);
+    for (const id of sweep.ids) {
+      allIds.push(id);
+    }
+    if (sweep.done || sweep.nextCursor === null || sweep.ids.length === 0) {
+      break;
+    }
+    cursor = sweep.nextCursor;
+  }
+  return allIds;
+}
+
+/**
+ * 判断单个名单条目的展示名称、用户名或数字 ID 是否命中搜索关键字（忽略大小写）。
+ *
+ * @param id 身份数字 ID。
+ * @param displayName 格式化后的展示名称。
+ * @param username 可选的用户名（不含 `@`）。
+ * @returns 构造匹配判定函数。
+ */
+export function matchesIdentitySearchQuery(
+  id: number,
+  displayName: string,
+  username: string | undefined
+): (normalizedQuery: string) => boolean {
+  return (normalizedQuery: string): boolean => {
+    const cleanQuery: string = normalizedQuery.replace(/^@+/u, "");
+    if (displayName.toLowerCase().includes(normalizedQuery)) return true;
+    if (cleanQuery.length > 0 && displayName.toLowerCase().includes(cleanQuery)) return true;
+    if (
+      username !== undefined &&
+      cleanQuery.length > 0 &&
+      username.toLowerCase().includes(cleanQuery)
+    ) {
+      return true;
+    }
+    return String(id).includes(normalizedQuery);
+  };
 }
 
 /** 身份名单分页切片与总量统计结果。 */

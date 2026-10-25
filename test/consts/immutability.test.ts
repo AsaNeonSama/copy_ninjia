@@ -640,10 +640,14 @@ import {
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
+  MINI_APP_IDENTITY_ADD_MODES,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
+  MINI_APP_LANGUAGES,
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
   MINI_APP_PICKER_SUBJECT_KINDS,
   MINI_APP_PICKER_TARGET_LISTS,
+  MINI_APP_TAB_KEYS,
+  MINI_APP_THEME_MODES,
   MINI_APP_TOGGLEABLE_FEATURE_KEYS,
 } from "../../packages/consts/miniApp";
 function assertMiniAppConstantsReadonly(): void {
@@ -655,6 +659,14 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_PICKER_TARGET_LISTS.push("whitelist");
   // @ts-expect-error Mini App 选择器身份类型闭集禁止调用方增删。
   MINI_APP_PICKER_SUBJECT_KINDS.push("users");
+  // @ts-expect-error Mini App 支持语言闭集禁止调用方增删。
+  MINI_APP_LANGUAGES.push("zh");
+  // @ts-expect-error Mini App 主题模式闭集禁止调用方增删。
+  MINI_APP_THEME_MODES.push("dark");
+  // @ts-expect-error Mini App 添加名单方式闭集禁止调用方增删。
+  MINI_APP_IDENTITY_ADD_MODES.push("id");
+  // @ts-expect-error Mini App 侧边栏菜单项闭集禁止调用方增删。
+  MINI_APP_TAB_KEYS.push("status");
   // @ts-expect-error 发言记录分页档位列表禁止调用方增删。
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 受管群分页档位列表禁止调用方增删。

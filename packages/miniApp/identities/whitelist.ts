@@ -1,4 +1,8 @@
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
+import {
+  MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
+  MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+} from "../../consts/miniApp";
 import { isUserBlocked } from "../../infra/blocklist/membership";
 import { runProtectedIdentityMutation } from "../../infra/identityPolicy/coordination";
 import {
@@ -31,8 +35,10 @@ import type {
 } from "../../types/miniApp";
 import {
   buildPermissionDescriptors,
+  collectAllIdentityIds,
   collectIdentityPageIds,
   formatIdentityDisplayName,
+  matchesIdentitySearchQuery,
   resolveIdentityMetadataForMiniApp,
 } from "./metadata";
 import type {
@@ -45,11 +51,12 @@ import type {
 /** 白名单成员变更临界区返回结果。 */
 type WhitelistMembershipOutcome =
   | { readonly kind: "blocked" }
+  | { readonly kind: "duplicate" }
   | { readonly kind: "updated"; readonly result: SetWhitelistMembershipResult };
 
 /**
- * 分页列出持久化的白名单成员及其十八项细粒度权限。
- * @param params 页码 `page`、每页条数 `pageSize`（或游标 `afterId` 与 `limit`）。
+ * 分页列出持久化的白名单成员及其十八项细粒度权限（支持按名称、用户名或 ID 模糊搜索）。
+ * @param params 页码 `page`、每页条数 `pageSize`、游标 `afterId` 或搜索关键字 `query`。
  * @returns 白名单分页视图（含当前页、总页数、白名单总数、黑名单总数）及权限说明列表。
  */
 export async function listWhitelistEntries(
@@ -57,6 +64,59 @@ export async function listWhitelistEntries(
 ): Promise<Readonly<MiniAppWhitelistPage>> {
   const permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[] =
     buildPermissionDescriptors();
+  const normalizedQuery: string = params.query?.trim().toLowerCase() ?? "";
+  if (normalizedQuery.length > 0) {
+    const rawPageSize: number =
+      params.pageSize ?? params.limit ?? MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE;
+    const pageSize: number = Math.min(
+      MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+      Math.max(1, Math.trunc(rawPageSize))
+    );
+    const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
+    const allIds: readonly number[] = await collectAllIdentityIds(readWhitelistSweepPage);
+    const whitelistTotal: number = Math.max(
+      getIdentityEntryCount("whitelist"),
+      allIds.length
+    );
+    const blocklistTotal: number = getIdentityEntryCount("blocklist");
+    if (allIds.length > 0) {
+      await prefetchIdentityPolicies(allIds);
+    }
+    const matchedItems: Readonly<MiniAppWhitelistEntryView>[] = [];
+    for (const id of allIds) {
+      const entry: Readonly<WhitelistEntryData> | undefined = cachedWhitelistEntry(id);
+      if (entry === undefined) continue;
+      const displayName: string = formatIdentityDisplayName(id, entry.meta);
+      const username: string | undefined =
+        entry.meta.username.length > 0 ? entry.meta.username : undefined;
+      if (!matchesIdentitySearchQuery(id, displayName, username)(normalizedQuery)) {
+        continue;
+      }
+      matchedItems.push({
+        id,
+        isChannel: id < 0,
+        displayName,
+        username,
+        permissions: { ...entry.permissions },
+      });
+    }
+    const total: number = matchedItems.length;
+    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
+    const page: number = Math.min(requestedPage, totalPages);
+    const offset: number = (page - 1) * pageSize;
+    return {
+      items: matchedItems.slice(offset, offset + pageSize),
+      page,
+      pageSize,
+      total,
+      totalPages,
+      whitelistTotal,
+      blocklistTotal,
+      nextAfterId: null,
+      permissionDescriptors,
+    };
+  }
+
   const slice: Readonly<CollectedIdentityPageSlice> = await collectIdentityPageIds(
     "whitelist",
     params,
@@ -118,21 +178,21 @@ export async function setWhitelistEntryMembership({
     return {
       ok: false,
       changed: false,
-      message: "无效的身份 ID（必须为非零安全整数）。",
+      message: "笨蛋杂鱼♡，连身份 ID 都填错啦（必须是非零安全整数）！",
     };
   }
   if (enabled && id === SUPER_ADMIN_USER_ID) {
     return {
       ok: false,
       changed: false,
-      message: "超级管理员由身份直接授予全部权限，无需加入白名单表。",
+      message: "杂鱼♡，超级管理员天生就拥有全部最高权限，才不需要塞进白名单表呢！",
     };
   }
   if (!await prefetchIdentityPolicies([id])) {
     return {
       ok: false,
       changed: false,
-      message: "身份策略存储暂不可用，请稍后重试。",
+      message: "啧，身份策略存储暂时没空理你，杂鱼稍后再试♡",
     };
   }
 
@@ -145,6 +205,9 @@ export async function setWhitelistEntryMembership({
       (): WhitelistMembershipOutcome => {
         if (enabled && isUserBlocked(id)) {
           return { kind: "blocked" };
+        }
+        if (enabled && isWhitelisted(id)) {
+          return { kind: "duplicate" };
         }
         return {
           kind: "updated",
@@ -160,7 +223,15 @@ export async function setWhitelistEntryMembership({
       return {
         ok: false,
         changed: false,
-        message: `ID ${id} 当前在黑名单中，请先解除黑名单后再加入白名单。`,
+        message: `笨蛋杂鱼♡，ID ${id} 现在正关在黑名单里呢，想放进白名单就先去解封！`,
+      };
+    }
+    if (outcome.kind === "duplicate") {
+      return {
+        ok: true,
+        changed: false,
+        duplicate: true,
+        message: `笨蛋杂鱼♡，ID ${id} 早就已经在白名单里啦，不许重复添加！`,
       };
     }
     await confirmIdentityPolicyPersisted("whitelist", id, !outcome.result.changed);
@@ -168,13 +239,14 @@ export async function setWhitelistEntryMembership({
     return {
       ok: true,
       changed,
+      duplicate: enabled ? !changed : false,
       message: enabled
         ? changed
-          ? `已将 ID ${id} 加入白名单并授予默认权限。`
-          : `ID ${id} 原本已在白名单中。`
+          ? `哼，已帮杂鱼把 ID ${id} 放进白名单并授予默认权限啦♡`
+          : `笨蛋杂鱼♡，ID ${id} 早就已经在白名单里啦！`
         : changed
-          ? `已将 ID ${id} 移出白名单。`
-          : `ID ${id} 原本不在白名单中。`,
+          ? `哼，已经把 ID ${id} 从白名单里踢出去啦♡`
+          : `杂鱼♡，ID ${id} 原本就不在白名单里哦。`,
     };
   } catch (error: unknown) {
     logger.error(
@@ -184,7 +256,7 @@ export async function setWhitelistEntryMembership({
     return {
       ok: false,
       changed: false,
-      message: "白名单变更落盘失败，请检查数据库写入状态。",
+      message: "啧，白名单变更落盘失败了，杂鱼快去检查数据库写入状态♡",
     };
   }
 }

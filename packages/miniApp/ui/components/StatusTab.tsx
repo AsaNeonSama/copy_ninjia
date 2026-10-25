@@ -4,10 +4,16 @@ import { MINI_APP_STATUS_POLL_INTERVAL_MS } from "../../../consts/miniApp";
 import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
+  MiniAppLanguage,
   MiniAppStatusView,
 } from "../../../types/miniApp";
+import { RefreshSvgIcon, StatusSvgIcon } from "../../miniAppResoures";
 import { fetchMiniAppStatus } from "../api";
 import { formatBytes, formatTime, formatUptime } from "../formatters";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useMiniAppStore } from "../store";
+import type { MiniAppUiStoreState } from "../store";
 
 /** `StatusTab` 组件的属性参数。 */
 export interface StatusTabProps {
@@ -30,6 +36,11 @@ export function StatusTab({
   onStatusLoaded,
   onToast,
 }: StatusTabProps): React.JSX.Element {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (state: MiniAppUiStoreState): MiniAppLanguage => state.language
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+
   const [status, setStatus]: [
     MiniAppStatusView | null,
     React.Dispatch<React.SetStateAction<MiniAppStatusView | null>>
@@ -54,7 +65,7 @@ export function StatusTab({
         const message: string = error instanceof Error ? error.message : String(error);
         setErrorText(message);
         if (showErrorToast) {
-          onToast(`状态刷新失败: ${message}`);
+          onToast(message);
         }
       } finally {
         setLoading(false);
@@ -74,32 +85,47 @@ export function StatusTab({
   }, [loadStatus]);
 
   return (
-    <section>
+    <section className="animate-fade-in">
       <div className="toolbar">
-        <span style={{ fontSize: "12px", color: "var(--hint)" }}>
-          每 3 秒自动同步运行状态
+        <span className="toolbar-hint">
+          <span className="toolbar-icon-badge">
+            <StatusSvgIcon size={15} className="pulse-icon" />
+          </span>
+          <span>
+            {status !== null
+              ? t.status.updatedAtSub(formatTime(status.generatedAt))
+              : t.status.loadingText}
+          </span>
         </span>
         <button
           type="button"
-          className="btn"
+          className="btn icon-btn"
           onClick={(): void => {
             void loadStatus(true);
           }}
         >
-          立即刷新
+          <RefreshSvgIcon size={14} />
+          <span>{t.chats.refreshButton}</span>
         </button>
       </div>
 
       {loading && status === null
-        ? <div className="card"><div className="empty">正在加载实时状态…</div></div>
+        ? (
+          <div className="card loading-box">
+            <div className="spinner-ring" />
+            <div className="loading-text">{t.status.loadingText}</div>
+            <div className="skeleton-stack">
+              <div className="skeleton-line wide" />
+              <div className="skeleton-line medium" />
+            </div>
+          </div>
+        )
         : null}
 
       {errorText !== null && status === null
         ? (
           <div className="card">
-            <div className="empty" style={{ color: "var(--danger)" }}>
-              鉴权或请求失败：{errorText}
-            </div>
+            <div className="empty danger-text">{errorText}</div>
           </div>
         )
         : null}
@@ -109,80 +135,57 @@ export function StatusTab({
           <>
             <div className="card">
               <div className="card-title">
-                <span>进程与资源</span>
-                <span className="badge">{formatTime(status.generatedAt)}</span>
-              </div>
-              <div className="grid-2">
-                <div className="stat-box">
-                  <div className="stat-label">运行时长</div>
-                  <div className="stat-value">{formatUptime(status.uptimeMs)}</div>
-                </div>
-                <div className="stat-box">
-                  <div className="stat-label">平均 CPU 使用率</div>
-                  <div className="stat-value">{status.cpuAveragePercent.toFixed(2)}%</div>
-                </div>
-                <div className="stat-box">
-                  <div className="stat-label">当前 / 峰值 RSS</div>
-                  <div className="stat-value">
-                    {formatBytes(status.memoryCurrentRssBytes)} / {formatBytes(status.memoryPeakRssBytes)}
-                  </div>
-                </div>
-                <div className="stat-box">
-                  <div className="stat-label">JS 堆已用 / 总量</div>
-                  <div className="stat-value">
-                    {formatBytes(status.memoryHeapUsedBytes)} / {formatBytes(status.memoryHeapTotalBytes)}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-title">
-                <span>群状态、名单与活跃会话</span>
-                <span className="badge ok">已 /init 群: {status.managedChatCount}</span>
-              </div>
-              <div className="grid-2">
-                <div className="stat-box">
-                  <div className="stat-label">白名单 / 黑名单总数</div>
-                  <div className="stat-value">
-                    {status.whitelistCount} / {status.blocklistCount}
-                  </div>
-                </div>
-                <div className="stat-box">
-                  <div className="stat-label">活跃会话总数</div>
-                  <div className="stat-value">{status.activeSessions.total}</div>
-                </div>
-                <div className="stat-box">
-                  <div className="stat-label">入群验证 / /qa 表单</div>
-                  <div className="stat-value">
-                    {status.activeSessions.verify} / {status.activeSessions.qaSet}
-                  </div>
-                </div>
-                <div className="stat-box">
-                  <div className="stat-label">/gag 互动 / /wed 娶群友</div>
-                  <div className="stat-value">
-                    {status.activeSessions.gag} / {status.activeSessions.wed}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-title">
-                <span>Telegram 出站网关</span>
-                <span className="badge">
-                  在途: {status.telegramOutbound.inFlight} / {status.telegramOutbound.maxConcurrency}
+                <span>{t.tabs.status}</span>
+                <span className="badge ok">
+                  {t.status.updatedAtSub(formatTime(status.generatedAt))}
                 </span>
               </div>
               <div className="grid-2">
                 <div className="stat-box">
-                  <div className="stat-label">并发等待队列</div>
-                  <div className="stat-value">{status.telegramOutbound.waiting}</div>
+                  <div className="stat-label">{t.status.uptimeLabel}</div>
+                  <div className="stat-value">{formatUptime(status.uptimeMs)}</div>
+                  <div className="stat-sub">{t.status.updatedAtSub(formatTime(status.generatedAt))}</div>
                 </div>
                 <div className="stat-box">
-                  <div className="stat-label">重试队列占用</div>
+                  <div className="stat-label">{t.status.cpuLoadLabel}</div>
+                  <div className="stat-value">{status.cpuAveragePercent.toFixed(2)}%</div>
+                  <div className="stat-sub">{t.status.cpuLoadSub}</div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">{t.status.memoryPeakLabel}</div>
+                  <div className="stat-value">{formatBytes(status.memoryPeakRssBytes)}</div>
+                  <div className="stat-sub">
+                    {t.status.memorySub(
+                      formatBytes(status.memoryCurrentRssBytes),
+                      formatBytes(status.memoryHeapUsedBytes)
+                    )}
+                  </div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">{t.status.managedChatsLabel}</div>
+                  <div className="stat-value">{status.managedChatCount}</div>
+                  <div className="stat-sub">
+                    {t.status.managedChatsSub(status.whitelistCount, status.blocklistCount)}
+                  </div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">{t.status.activeSessionsLabel}</div>
+                  <div className="stat-value">{status.activeSessions.total}</div>
+                  <div className="stat-sub">
+                    {t.status.activeSessionsSub(status.activeSessions)}
+                  </div>
+                </div>
+                <div className="stat-box">
+                  <div className="stat-label">{t.status.outboundGateLabel}</div>
                   <div className="stat-value">
-                    {status.telegramOutbound.retryQueueSize} / {status.telegramOutbound.retryQueueMax}
+                    {status.telegramOutbound.inFlight} / {status.telegramOutbound.maxConcurrency}
+                  </div>
+                  <div className="stat-sub">
+                    {t.status.outboundGateSub(
+                      status.telegramOutbound.waiting,
+                      status.telegramOutbound.retryQueueSize,
+                      status.telegramOutbound.retryQueueMax
+                    )}
                   </div>
                 </div>
               </div>
@@ -190,16 +193,18 @@ export function StatusTab({
 
             <div className="card">
               <div className="card-title">
-                <span>能力就绪与模型/任务配置</span>
+                <span>{t.status.capabilitiesSectionTitle}</span>
               </div>
               <div className="cap-list">
                 {status.capabilities.map(
                   (capability: Readonly<MiniAppCapabilityStatus>): React.JSX.Element => (
                     <div key={capability.key} className="cap-block">
                       <div className="cap-header">
-                        <span className="cap-title">{capability.label}</span>
+                        <span className="cap-title">{t.status.capabilityLabel(capability)}</span>
                         <span className={`badge ${capability.ready ? "ok" : "warn"}`}>
-                          {capability.ready ? "已就绪" : "不可用"}
+                          {capability.ready
+                            ? t.status.capabilityReadyBadge
+                            : t.status.capabilityMissingBadge}
                         </span>
                       </div>
                       <div className="cap-items">
@@ -208,17 +213,21 @@ export function StatusTab({
                             (
                               item: Readonly<MiniAppCapabilityDetailItem>,
                               idx: number
-                            ): React.JSX.Element => (
-                              <div key={`${item.label}-${idx}`} className="cap-item">
-                                <div className="cap-item-top">
-                                  <span className="cap-tag">{item.label}</span>
-                                  {item.sub !== undefined
-                                    ? <span className="cap-sub">{item.sub}</span>
-                                    : null}
+                            ): React.JSX.Element => {
+                              const displayItem: Readonly<MiniAppCapabilityDetailItem> =
+                                t.status.capabilityItem(item);
+                              return (
+                                <div key={`${item.label}-${idx}`} className="cap-item">
+                                  <div className="cap-item-top">
+                                    <span className="cap-tag">{displayItem.label}</span>
+                                    {displayItem.sub !== undefined
+                                      ? <span className="cap-sub">{displayItem.sub}</span>
+                                      : null}
+                                  </div>
+                                  <div className="cap-val">{displayItem.value}</div>
                                 </div>
-                                <div className="cap-val">{item.value}</div>
-                              </div>
-                            )
+                              );
+                            }
                           )
                           : (
                             <div className="cap-item">

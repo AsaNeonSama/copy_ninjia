@@ -4,11 +4,17 @@ import { WHITELIST_PERMISSION_KEYS } from "../../../consts/whitelist";
 import type { WhitelistPermissionKey } from "../../../types/identityPolicy";
 import type {
   MiniAppIdentityMutationResult,
+  MiniAppLanguage,
   MiniAppPermissionDescriptor,
   MiniAppWhitelistEntryView,
 } from "../../../types/miniApp";
+import { CloseSvgIcon } from "../../miniAppResoures";
 import { updateMiniAppWhitelistPermission } from "../api";
 import { getPermissionDisplayLabel, sanitizeBidiText } from "../formatters";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useMiniAppStore } from "../store";
+import type { MiniAppUiStoreState } from "../store";
 
 /** `PermissionDrawer` 组件的属性参数。 */
 export interface PermissionDrawerProps {
@@ -37,6 +43,10 @@ export function PermissionDrawer({
   onClose,
   onToast,
 }: PermissionDrawerProps): React.JSX.Element {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (state: MiniAppUiStoreState): MiniAppLanguage => state.language
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
   const [busyKey, setBusyKey]: [
     WhitelistPermissionKey | "all" | null,
     React.Dispatch<React.SetStateAction<WhitelistPermissionKey | "all" | null>>
@@ -57,31 +67,39 @@ export function PermissionDrawer({
       onUpdated();
     } catch (error: unknown) {
       const message: string = error instanceof Error ? error.message : String(error);
-      onToast(`权限修改失败: ${message}`);
+      onToast(message);
     } finally {
       setBusyKey(null);
     }
   };
 
   return (
-    <div className="perm-drawer-inline">
+    <div className="perm-drawer-inline animate-fade-in">
       <div className="card-title">
-        <span>
-          权限面板：<bdi className="identity-name">{sanitizeBidiText(entry.displayName)}</bdi> ({entry.id})
-        </span>
-        <div style={{ display: "flex", gap: "6px" }}>
+        <div>
+          <div>
+            <bdi className="identity-name">
+              {t.permissionDrawer.title(sanitizeBidiText(entry.displayName))}
+            </bdi>
+          </div>
+          <div className="row-sub">
+            {t.permissionDrawer.subtitle(entry.id, entry.isChannel)}
+          </div>
+        </div>
+        <div className="toolbar-actions">
           <button
             type="button"
-            className="btn"
+            className="btn primary"
             disabled={busyKey !== null}
             onClick={(): void => {
               void handleTogglePermission("all", true);
             }}
           >
-            全部开启
+            {t.permissionDrawer.enableAllButton}
           </button>
-          <button type="button" className="btn" onClick={onClose}>
-            收起
+          <button type="button" className="btn icon-btn" onClick={onClose}>
+            <CloseSvgIcon size={14} />
+            <span>{t.permissionDrawer.closeButton}</span>
           </button>
         </div>
       </div>
@@ -95,7 +113,7 @@ export function PermissionDrawer({
             );
           return (
             <div key={key} className="perm-chip" title={descriptor?.description ?? ""}>
-              <span>{getPermissionDisplayLabel(key)}</span>
+              <span>{getPermissionDisplayLabel(key, language)}</span>
               <label className="switch">
                 <input
                   type="checkbox"

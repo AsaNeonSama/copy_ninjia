@@ -231,6 +231,7 @@ export async function handleMiniAppSharedMessage(
 
   const addedIds: number[] = [];
   const skippedIds: number[] = [];
+  const duplicateIds: number[] = [];
   for (const candidate of candidates) {
     const mutation: Readonly<MiniAppIdentityMutationResult> =
       session.targetList === "whitelist"
@@ -244,18 +245,25 @@ export async function handleMiniAppSharedMessage(
           enabled: true,
           meta: candidate.meta,
         });
-    if (mutation.ok) {
+    if (mutation.ok && mutation.changed) {
       addedIds.push(candidate.id);
+    } else if (mutation.duplicate === true || (mutation.ok && !mutation.changed)) {
+      duplicateIds.push(candidate.id);
+      skippedIds.push(candidate.id);
     } else {
       skippedIds.push(candidate.id);
     }
   }
 
   const listLabel: string = session.targetList === "whitelist" ? "白名单" : "黑名单";
+  const duplicateSuffix: string =
+    duplicateIds.length > 0 ? `，其中 ${duplicateIds.length} 个已在${listLabel}中（已去重拦截）` : "";
   const summary: string =
     addedIds.length > 0
-      ? `已将 ${addedIds.length} 个身份加入${listLabel}${skippedIds.length > 0 ? `（跳过 ${skippedIds.length} 个）` : ""}。`
-      : `未能将所选身份加入${listLabel}（共跳过 ${skippedIds.length} 个）。`;
+      ? `哼，已帮杂鱼把 ${addedIds.length} 个身份加入${listLabel}${skippedIds.length > 0 ? `（跳过 ${skippedIds.length} 个${duplicateSuffix}）` : ""}♡`
+      : duplicateIds.length > 0
+        ? `笨蛋杂鱼♡，选中的 ${duplicateIds.length} 个目标早就已经在${listLabel}里啦，不许重复添加！`
+        : `杂鱼♡，未能将所选身份加入${listLabel}（共跳过 ${skippedIds.length} 个）。`;
 
   const resultEvent: Readonly<MiniAppPickerResultEvent> = {
     requestId,
@@ -263,6 +271,7 @@ export async function handleMiniAppSharedMessage(
     completedAt: Date.now(),
     addedIds,
     skippedIds,
+    duplicateIds,
     summary,
   };
   miniAppCompletedPickerResults.set(requestId, resultEvent);

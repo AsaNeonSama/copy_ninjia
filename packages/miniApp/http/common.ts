@@ -3,8 +3,9 @@ import {
   miniAppAuthSessions,
   miniAppPasswordGuardHolder,
 } from "../../cache/main/miniApp";
-import { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } from "../../config/bot";
+import { SUPER_ADMIN_USER_ID, getBotMiniAppConfig } from "../../config/bot";
 import {
+  MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_FALLBACK_TEST_PASSWORD,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_IPV4_HOST_PATTERN,
@@ -14,16 +15,15 @@ import {
   MINI_APP_PASSWORD_MAX_ATTEMPTS,
   MINI_APP_SESSION_HEADER,
   MINI_APP_SESSION_TTL_MS,
-  MINI_APP_SHA256_HEX_PATTERN,
   MINI_APP_SIGNED_INTEGER_PATTERN,
   MINI_APP_TMA_AUTH_PREFIX,
+  MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
-import { verifyMiniAppInitData, verifyMiniAppPassword } from "../../libs/miniAppAuth";
+import { verifyMiniAppPassword } from "../../libs/miniAppAuth";
 import { isPlainRecord } from "../../libs/record";
 import type { BotMiniAppConfig } from "../../types/config";
 import type {
   MiniAppAccessDiagnostics,
-  MiniAppAuthResult,
   MiniAppAuthSession,
   MiniAppLoginSuccessResponse,
   MiniAppPasswordGuardState,
@@ -91,6 +91,8 @@ export function buildNoStoreHeaders(
     "Pragma": "no-cache",
     "Expires": "0",
     "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": MINI_APP_X_FRAME_OPTIONS_VALUE,
+    "Content-Security-Policy": MINI_APP_CSP_HEADER_VALUE,
     "Referrer-Policy": "no-referrer",
     "X-Robots-Tag": "noindex, nofollow, noarchive",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
@@ -137,7 +139,7 @@ export function htmlResponse(html: string, headOnly: boolean): Response {
  * @param params 状态码、错误代号、原因标识与错误说明。
  * @returns 带 `X-Request-Id` 响应头的 JSON `Response`。
  */
-function accessErrorResponse(
+export function accessErrorResponse(
   request: Request,
   params: Readonly<{
     readonly status: number;
@@ -181,7 +183,7 @@ function accessErrorResponse(
 }
 
 /**
- * 从请求中提取 Telegram WebApp `initData`（默认仅接受请求头；仅当 `allowQueryAuth` 显式为 `true` 且方法为 `GET`/`HEAD` 时允许从 `initData` 查询参数提取以供 `<img>` 标签加载受保护图库资源）。
+ * 从请求中提取 Telegram WebApp `initData`（默认仅接受请求头；仅当 `allowQueryAuth` 显式为 `true` 且方法为 `GET`/`HEAD` 时允许从 `initData` 查询参数提取以供 `<img>` 标签加载受保护图库与 SVG 资源）。
  * @param request HTTP 请求对象。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中回退读取查询参数。
  * @returns 提取出的 `initData` 原始查询串。
@@ -216,7 +218,10 @@ export function extractInitDataFromHeaders(
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中回退读取 `session` 查询参数。
  * @returns 提取出的 64 位十六进制会话令牌或空字符串。
  */
-function extractSessionToken(request: Request, allowQueryAuth: boolean = false): string {
+export function extractSessionToken(
+  request: Request,
+  allowQueryAuth: boolean = false
+): string {
   const headerToken: string | null = request.headers.get(MINI_APP_SESSION_HEADER);
   if (headerToken !== null && headerToken.trim().length > 0) return headerToken.trim();
   if (allowQueryAuth) {
@@ -237,7 +242,7 @@ function extractSessionToken(request: Request, allowQueryAuth: boolean = false):
  * 清理已超过 90 分钟有效期的密码认证会话。
  * @param nowMs 当前毫秒时间戳。
  */
-function purgeExpiredAuthSessions(nowMs: number): void {
+export function purgeExpiredAuthSessions(nowMs: number): void {
   for (const [token, session] of miniAppAuthSessions) {
     if (session.expiresAt <= nowMs) miniAppAuthSessions.delete(token);
   }
@@ -249,7 +254,7 @@ function purgeExpiredAuthSessions(nowMs: number): void {
  * @param nowMs 当前毫秒时间戳。
  * @returns 处于锁定期时返回 403 `Response`，未锁定或已过锁定期时返回 `null`。
  */
-function checkSuperAdminPasswordLockout(
+export function checkSuperAdminPasswordLockout(
   request: Request,
   nowMs: number = Date.now()
 ): Response | null {
@@ -266,85 +271,6 @@ function checkSuperAdminPasswordLockout(
     reason: "password_locked",
     error: `密码连续输错已达 ${MINI_APP_PASSWORD_MAX_ATTEMPTS} 次，当前超级管理员 ID (#${SUPER_ADMIN_USER_ID}) 已被锁定，30 分钟内无法访问（剩余约 ${remainingMinutes} 分钟）。`,
   });
-}
-
-/**
- * 校验请求携带的 Telegram WebApp `initData` 签名、时效、超级管理员身份与 30 分钟密码锁定状态（第一层网关校验）。
- * @param request HTTP 请求对象。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取 `initData`。
- * @returns 验证通过时返回 `null`，失败时返回带真实请求诊断的 `401` 或 `403` `Response`。
- */
-export function authenticateMiniAppInitData(
-  request: Request,
-  allowQueryAuth: boolean = false
-): Response | null {
-  if (request.headers.get("sec-fetch-site") === "cross-site") {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "CROSS_SITE_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "Cross-site request to Telegram Mini App endpoint is forbidden.",
-    });
-  }
-  const initData: string = extractInitDataFromHeaders(request, allowQueryAuth);
-  const authResult: MiniAppAuthResult = verifyMiniAppInitData({
-    initData,
-    botToken: BOT_TOKEN,
-    superAdminUserId: SUPER_ADMIN_USER_ID,
-  });
-  if (authResult.ok) {
-    return checkSuperAdminPasswordLockout(request);
-  }
-  const status: number = authResult.reason === "forbidden_user" ? 403 : 401;
-  return accessErrorResponse(request, {
-    status,
-    code: authResult.reason.toUpperCase(),
-    reason: authResult.reason,
-    error:
-      authResult.reason === "forbidden_user"
-        ? "Only the configured SuperAdmin user ID is permitted to access this Mini App."
-        : `Telegram WebApp initData verification failed (${authResult.reason}). Direct external browser access is denied.`,
-  });
-}
-
-/**
- * 校验请求的 `initData` 签名与 90 分钟有效期的访问密码认证会话（双层完整鉴权）。
- * @param request HTTP 请求对象。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据（仅用于图库图片流）。
- * @returns 验证通过时返回 `null`，失败时返回对应的 `401` 或 `403` JSON `Response`。
- */
-export function authenticateMiniAppRequest(
-  request: Request,
-  allowQueryAuth: boolean = false
-): Response | null {
-  const initRejected: Response | null = authenticateMiniAppInitData(
-    request,
-    allowQueryAuth
-  );
-  if (initRejected !== null) return initRejected;
-
-  const nowMs: number = Date.now();
-  purgeExpiredAuthSessions(nowMs);
-  const sessionToken: string = extractSessionToken(request, allowQueryAuth);
-  if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) {
-    return accessErrorResponse(request, {
-      status: 401,
-      code: "PASSWORD_REQUIRED",
-      reason: "password_required",
-      error: "Mini App 访问密码尚未验证，请先输入访问密码解锁控制台。",
-    });
-  }
-  const session: Readonly<MiniAppAuthSession> | undefined =
-    miniAppAuthSessions.get(sessionToken);
-  if (session === undefined || session.expiresAt <= nowMs) {
-    return accessErrorResponse(request, {
-      status: 401,
-      code: "PASSWORD_REQUIRED",
-      reason: "password_required",
-      error: "Mini App 访问认证已满 90 分钟过期或无效，请重新输入访问密码。",
-    });
-  }
-  return null;
 }
 
 /**
@@ -369,13 +295,10 @@ export function issueMiniAppAuthSession(
 }
 
 /**
- * 处理 `GET /api/auth/precheck`：核验调用方是否具备合法的 SuperAdmin `initData` 签名且未处于 30 分钟密码锁定期。
- * @param request HTTP 请求对象。
+ * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL 元数据。
  * @returns JSON 响应。
  */
-export function handleGetAuthPrecheckRoute(request: Request): Response {
-  const initRejected: Response | null = authenticateMiniAppInitData(request, false);
-  if (initRejected !== null) return initRejected;
+export function handleGetAuthPrecheckRoute(): Response {
   return jsonResponse({
     ok: true,
     ttlMs: MINI_APP_SESSION_TTL_MS,
@@ -383,14 +306,11 @@ export function handleGetAuthPrecheckRoute(request: Request): Response {
 }
 
 /**
- * 处理 `POST /api/auth/login`：校验 `mini_app.password`（连续输错 5 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
+ * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，校验 `mini_app.password`（连续输错 5 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
  * @param request HTTP 请求对象。
  * @returns JSON 响应。
  */
 export async function handlePostAuthLoginRoute(request: Request): Promise<Response> {
-  const initRejected: Response | null = authenticateMiniAppInitData(request, false);
-  if (initRejected !== null) return initRejected;
-
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
   const inputPassword: string =
     typeof body?.password === "string" ? body.password.trim() : "";

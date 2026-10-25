@@ -144,6 +144,7 @@ const { AI_MEMORY_HYDRATE_BUFFER_MAX, VERBATIM_CONTEXT_MAX } = await import(
   "../../packages/consts/aiChat/memory"
 );
 const {
+  MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_FALLBACK_TEST_PASSWORD,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
@@ -151,6 +152,7 @@ const {
   MINI_APP_PASSWORD_MAX_ATTEMPTS,
   MINI_APP_SESSION_HEADER,
   MINI_APP_SESSION_TTL_MS,
+  MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
 const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 const {
@@ -536,7 +538,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(page1.items[0]?.text).toBe(`hot message #${AI_MEMORY_HYDRATE_BUFFER_MAX - 1}`);
   });
 
-  test("白名单、权限列表与黑名单 API 支持增删与开关控制", async () => {
+  test("白名单、权限列表与黑名单 API 支持增删、重复添加拦截、按名称/ID 搜索与开关控制", async () => {
     const addWhiteRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/identities/whitelist", {
         method: "POST",
@@ -548,10 +550,34 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       })
     );
     expect(addWhiteRes.status).toBe(200);
+    expect(addWhiteRes.headers.get("Content-Security-Policy")).toBe(
+      MINI_APP_CSP_HEADER_VALUE
+    );
+    expect(addWhiteRes.headers.get("X-Frame-Options")).toBe(
+      MINI_APP_X_FRAME_OPTIONS_VALUE
+    );
     const addWhiteBody: MiniAppIdentityMutationResult =
       (await addWhiteRes.json()) as MiniAppIdentityMutationResult;
     expect(addWhiteBody.ok).toBeTrue();
     expect(addWhiteBody.changed).toBeTrue();
+    expect(addWhiteBody.duplicate).toBeFalse();
+
+    const dupWhiteRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/identities/whitelist", {
+        method: "POST",
+        headers: {
+          ...superAdminHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id: 88001, enabled: true }),
+      })
+    );
+    expect(dupWhiteRes.status).toBe(200);
+    const dupWhiteBody: MiniAppIdentityMutationResult =
+      (await dupWhiteRes.json()) as MiniAppIdentityMutationResult;
+    expect(dupWhiteBody.ok).toBeTrue();
+    expect(dupWhiteBody.changed).toBeFalse();
+    expect(dupWhiteBody.duplicate).toBeTrue();
 
     const listWhiteRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20", {
@@ -567,6 +593,29 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(listWhiteBody.totalPages).toBe(1);
     expect(listWhiteBody.whitelistTotal).toBe(1);
     expect(listWhiteBody.blocklistTotal).toBe(0);
+
+    const searchWhiteHitRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        "http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20&query=88001",
+        { headers: superAdminHeaders() }
+      )
+    );
+    expect(searchWhiteHitRes.status).toBe(200);
+    const searchWhiteHitBody: MiniAppWhitelistPage =
+      (await searchWhiteHitRes.json()) as MiniAppWhitelistPage;
+    expect(searchWhiteHitBody.items.map((item) => item.id)).toEqual([88001]);
+
+    const searchWhiteMissRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        "http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20&query=nonexistent_zako",
+        { headers: superAdminHeaders() }
+      )
+    );
+    expect(searchWhiteMissRes.status).toBe(200);
+    const searchWhiteMissBody: MiniAppWhitelistPage =
+      (await searchWhiteMissRes.json()) as MiniAppWhitelistPage;
+    expect(searchWhiteMissBody.items).toEqual([]);
+    expect(searchWhiteMissBody.total).toBe(0);
 
     const permRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/identities/permission", {
@@ -617,7 +666,28 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       })
     );
     expect(addBlockRes.status).toBe(200);
-    expect(((await addBlockRes.json()) as MiniAppIdentityMutationResult).ok).toBeTrue();
+    const addBlockBody: MiniAppIdentityMutationResult =
+      (await addBlockRes.json()) as MiniAppIdentityMutationResult;
+    expect(addBlockBody.ok).toBeTrue();
+    expect(addBlockBody.changed).toBeTrue();
+    expect(addBlockBody.duplicate).toBeFalse();
+
+    const dupBlockRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/identities/blocklist", {
+        method: "POST",
+        headers: {
+          ...superAdminHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id: 99002, enabled: true }),
+      })
+    );
+    expect(dupBlockRes.status).toBe(200);
+    const dupBlockBody: MiniAppIdentityMutationResult =
+      (await dupBlockRes.json()) as MiniAppIdentityMutationResult;
+    expect(dupBlockBody.ok).toBeTrue();
+    expect(dupBlockBody.changed).toBeFalse();
+    expect(dupBlockBody.duplicate).toBeTrue();
 
     const listBlockRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=20", {
@@ -633,6 +703,17 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(listBlockBody.totalPages).toBe(1);
     expect(listBlockBody.whitelistTotal).toBe(0);
     expect(listBlockBody.blocklistTotal).toBe(1);
+
+    const searchBlockHitRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        "http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=20&query=99002",
+        { headers: superAdminHeaders() }
+      )
+    );
+    expect(searchBlockHitRes.status).toBe(200);
+    const searchBlockHitBody: MiniAppBlocklistPage =
+      (await searchBlockHitRes.json()) as MiniAppBlocklistPage;
+    expect(searchBlockHitBody.items.map((item) => item.id)).toEqual([99002]);
 
     const removeBlockRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/identities/blocklist", {
