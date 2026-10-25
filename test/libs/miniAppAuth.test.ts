@@ -5,6 +5,7 @@ import {
   MINI_APP_SESSION_TTL_MS,
   MINI_APP_WEB_APP_DATA_SECRET_SEED,
 } from "../../packages/consts/miniApp";
+import { MINI_APP_TOTP_STEP_SECONDS } from "../../packages/consts/miniAppTotp";
 import {
   deriveMiniAppAssetToken,
   verifyMiniAppAssetToken,
@@ -238,7 +239,7 @@ describe("verifyMiniAppInitData", () => {
     expect(verifyMiniAppAssetToken(null, botToken, superAdminUserId)).toBeFalse();
   });
 
-  test("RFC 6238 TOTP 生成、±1 步长验证与内联 QR Code SVG 渲染", () => {
+  test("RFC 6238 TOTP 生成、仅当前时间步验证与内联 QR Code SVG 渲染", () => {
     const secret: string = generateMiniAppTotpSecret();
     expect(secret).toMatch(/^[A-Z2-7]{32}$/);
     const decoded: Uint8Array | null = decodeTotpBase32(secret);
@@ -251,17 +252,22 @@ describe("verifyMiniAppInitData", () => {
     const currentCode: string = generateMiniAppTotpCodeAt(secret, fixedMs);
     expect(currentCode).toMatch(/^\d{6}$/);
     expect(verifyMiniAppTotpCode(currentCode, secret, fixedMs)).toBeTrue();
-    expect(
-      verifyMiniAppTotpCode(currentCode, secret, fixedMs + 30_000)
-    ).toBeTrue();
-    expect(
-      verifyMiniAppTotpCode(currentCode, secret, fixedMs - 30_000)
-    ).toBeTrue();
-    expect(
-      verifyMiniAppTotpCode(currentCode, secret, fixedMs + 90_000)
-    ).toBeFalse();
     expect(verifyMiniAppTotpCode("abc123", secret, fixedMs)).toBeFalse();
+    expect(verifyMiniAppTotpCode(currentCode, "bad", fixedMs)).toBeFalse();
     expect(computeMiniAppTotpCode("bad", 1)).toBe("");
+
+    // RFC 6238 附录 B 的 SHA-1 测试向量（ASCII 密钥 "12345678901234567890"，取 8 位码末 6 位），
+    // 1111111109 s 与 1111111111 s 分属相邻时间步。
+    const rfcSecret: string = encodeTotpBase32(new TextEncoder().encode("12345678901234567890"));
+    const earlierStepMs: number = 1_111_111_109_000;
+    const laterStepMs: number = 1_111_111_111_000;
+    const stepMs: number = MINI_APP_TOTP_STEP_SECONDS * 1000;
+    const laterStepStartMs: number = Math.floor(laterStepMs / stepMs) * stepMs;
+    expect(generateMiniAppTotpCodeAt(rfcSecret, earlierStepMs)).toBe("081804");
+    expect(generateMiniAppTotpCodeAt(rfcSecret, laterStepMs)).toBe("050471");
+    expect(verifyMiniAppTotpCode("081804", rfcSecret, laterStepStartMs - 1)).toBeTrue();
+    expect(verifyMiniAppTotpCode("081804", rfcSecret, laterStepStartMs)).toBeFalse();
+    expect(verifyMiniAppTotpCode("050471", rfcSecret, earlierStepMs)).toBeFalse();
 
     const uri: string = buildMiniAppTotpUri(secret, superAdminUserId);
     expect(uri).toContain("otpauth://totp/");

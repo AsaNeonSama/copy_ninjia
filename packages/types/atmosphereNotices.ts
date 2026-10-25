@@ -13,6 +13,8 @@ export interface AtmosphereNotices {
   readonly adPartialBan: (head: string, enforcedChats: number, failedChats: number) => string;
   readonly adBanned: (head: string) => string;
   readonly proxyFailed: (targetChatId: number) => string;
+  /** Mini App 登录连续失败触发锁定时发给超级管理员私聊的告警；`lockedUntil` 为部署时区的本地时间。 */
+  readonly miniAppLoginLocked: (attempts: number, lockedUntil: string, clientIp: string) => string;
   readonly adConfigInvalid: (file: string) => string;
   readonly aiConfigInvalid: (file: string) => string;
   readonly batchKickRejected: string;

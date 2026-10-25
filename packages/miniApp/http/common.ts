@@ -9,9 +9,12 @@ import {
   MINI_APP_SESSION_HEADER, MINI_APP_SESSION_TTL_MS, MINI_APP_SIGNED_INTEGER_PATTERN,
   MINI_APP_TMA_AUTH_PREFIX, MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
+import { chatAtmosphere } from "../../infra/atmosphere";
+import { sendMessage } from "../../infra/telegram/actions/messages";
 import { deriveMiniAppAssetToken, verifyMiniAppPassword } from "../../libs/miniAppAuth";
 import { verifyMiniAppTotpCode } from "../../libs/miniAppTotp";
 import { isPlainRecord } from "../../libs/record";
+import { formatLocalTime } from "../../libs/time";
 import type { BotMiniAppConfig } from "../../types/config";
 import type {
   MiniAppAccessDiagnostics, MiniAppAuthSession, MiniAppLoginSuccessResponse, MiniAppPasswordGuardState,
@@ -350,6 +353,7 @@ export async function handleGetAuthPrecheckRoute(): Promise<Response> {
 /**
  * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 5 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
  * 读取请求体与 TOTP 记录后若锁定已生效（由并发登录在等待期间触发），不比对凭据，按失败计数并将锁定顺延至当前时刻起 30 分钟。
+ * 由未锁定转入锁定时向超级管理员私聊发送一条告警（不等待发送结果，失败走统一 Telegram 错误日志）；锁定顺延不重复告警。
  * @param request HTTP 请求对象。
  * @returns JSON 响应。
  */
@@ -392,12 +396,23 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
         : 0;
     const nextAttempts: number = prevAttempts + 1;
     if (nextAttempts >= MINI_APP_PASSWORD_MAX_ATTEMPTS) {
+      const lockedUntil: number = nowMs + MINI_APP_PASSWORD_LOCKOUT_MS;
       miniAppPasswordGuardHolder.current = {
         userId: SUPER_ADMIN_USER_ID,
         failedAttempts: nextAttempts,
-        lockedUntil: nowMs + MINI_APP_PASSWORD_LOCKOUT_MS,
+        lockedUntil,
       };
       miniAppAuthSessions.clear();
+      if (!locked) {
+        void sendMessage({
+          chatId: SUPER_ADMIN_USER_ID,
+          text: chatAtmosphere().NOTICE_TEXTS.miniAppLoginLocked(
+            nextAttempts,
+            formatLocalTime(lockedUntil),
+            resolveSafeClientIp(request)
+          ),
+        });
+      }
       return checkSuperAdminPasswordLockout(request, nowMs)!;
     }
     miniAppPasswordGuardHolder.current = {

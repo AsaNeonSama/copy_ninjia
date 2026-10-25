@@ -139,7 +139,7 @@ done
   - 配置时会自动去除首尾空白并规范化名称（例如 `asia/tokyo` 会标准化为 `Asia/Tokyo`）。
   - **时区绑定**：数据库初始化时会将此时区写入 `storage_metadata` 表中。此后机器人启动或安装脚本均会核对此时区；若中途修改 `time_zone` 将导致启动报错退出。已有数据不支持直接更换时区。
 - **`mini_app`**（可选，对象：`{ url: string, port?: number, host?: string, password: string }`）
-  - 配置超级管理员专属 Telegram Mini App 管理控制台：`url` 必须为合法的公网 `https://` 地址（不含 `#` fragment），`port` 缺省 `3000`，`host` 缺省 `"127.0.0.1"`，`password` 为必填的首屏访问密码（必须至少包含 6 位数字 `0-9`；`initData` 签名与单次会话认证有效期均为 90 分钟，连续输错 5 次将锁定超级管理员 ID 30 分钟，锁定生效时仍在处理中的并发登录请求不再比对凭据，一律按失败计数并将锁定从当时起顺延 30 分钟；未配置 `password` 或数字不足 6 位拒绝启动；支持在前端「验证器」页面绑定唯一 Google Authenticator TOTP 动态码并持久化于 `memory/mini-app-totp/totp.json`，启用后登录优先校验 6 位动态码）。
+  - 配置超级管理员专属 Telegram Mini App 管理控制台：`url` 必须为合法的公网 `https://` 地址（不含 `#` fragment），`port` 缺省 `3000`，`host` 缺省 `"127.0.0.1"`，`password` 为必填的首屏访问密码（必须至少包含 6 位数字 `0-9`；`initData` 签名与单次会话认证有效期均为 90 分钟，连续输错 5 次将锁定超级管理员 ID 30 分钟，锁定生效时仍在处理中的并发登录请求不再比对凭据，一律按失败计数并将锁定从当时起顺延 30 分钟；由未锁定转入锁定时向超级管理员私聊发送一条含解锁时间与来源 IP 的告警，锁定顺延不重复发送；未配置 `password` 或数字不足 6 位拒绝启动；支持在前端「验证器」页面绑定唯一 Google Authenticator TOTP 动态码并持久化于 `memory/mini-app-totp/totp.json`，启用后登录优先校验 6 位动态码，且只接受当前 30 秒时间步的动态码）。
   - 配置后启动本地 `Bun.serve` HTTP 服务（所有业务 API、图库图片下载与管理接口均由统一前置中间件链校验 Telegram WebApp `initData` 签名、`SUPER_ADMIN_USER_ID` 与 90 分钟会话令牌；受保护图库预览与 SVG 资源通过确定性 `assetToken` 鉴权并支持 7 天 `Cache-Control: public, max-age=604800, s-maxage=604800, immutable` 与 `ETag` 304 协商，同时提供基于机器人头像生成的 `/favicon.ico`；全响应附带严格 `Content-Security-Policy` 与 `X-Frame-Options: DENY`），并在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮）；不配置 `mini_app` 时直接不注册 Web 服务器与路由。
 
 ---

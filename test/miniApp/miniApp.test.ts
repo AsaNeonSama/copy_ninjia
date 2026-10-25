@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { rmSync } from "node:fs";
 import type {
   AiMemoryDeletedPersistedReply,
@@ -161,6 +161,10 @@ const {
 } = await import("../../packages/consts/paths");
 const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const { generateMiniAppTotpCodeAt } = await import("../../packages/libs/miniAppTotp");
+const { formatLocalTime } = await import("../../packages/libs/time");
+const { MINI_APP_TOTP_STEP_SECONDS } = await import("../../packages/consts/miniAppTotp");
+const { chatAtmosphere } = await import("../../packages/infra/atmosphere");
+const { telegramApiState } = await import("../../packages/cache/perThread/telegramApi");
 const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 const {
   handleMiniAppHttpRequest,
@@ -184,6 +188,17 @@ import type {
   MiniAppTotpSetupResponse,
   MiniAppTotpStatusView,
 } from "../../packages/types/miniAppTotp";
+import type { InstalledTelegramApi, TelegramSentMessage } from "../../packages/types/telegramWorker";
+
+/** 锁定告警私聊的 Telegram `sendMessage` 替身；由 `installTelegramSendMessageStub` 装入当前线程。 */
+const sendMessageStub = mock(
+  async (..._args: unknown[]): Promise<TelegramSentMessage> => ({ message_id: 1 })
+);
+
+/** 把只含 `sendMessage` 的 Telegram 能力装入当前线程，供锁定告警断言调用次数与正文。 */
+function installTelegramSendMessageStub(): void {
+  telegramApiState.current = { sendMessage: sendMessageStub } as unknown as InstalledTelegramApi;
+}
 
 /**
  * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 90 分钟有效密码会话的测试请求头。
@@ -216,6 +231,9 @@ afterEach(async (): Promise<void> => {
   resetChatStateCache();
   latestAiMemories.clear();
   miniAppAuthSessions.clear();
+  telegramApiState.current = null;
+  sendMessageStub.mockClear();
+  setSystemTime();
 });
 
 describe("Mini App HTTP routes & Bun.serve integration", () => {
@@ -350,6 +368,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       "PASSWORD_REQUIRED"
     );
 
+    installTelegramSendMessageStub();
     for (let attempt: number = 1; attempt <= MINI_APP_PASSWORD_MAX_ATTEMPTS; attempt++) {
       const failRes: Response = await handleMiniAppHttpRequest(
         new Request("http://127.0.0.1:3000/api/auth/login", {
@@ -357,6 +376,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
           headers: {
             [MINI_APP_INIT_DATA_HEADER]: adminInitData,
             "Content-Type": "application/json",
+            "cf-connecting-ip": "203.0.113.42",
           },
           body: JSON.stringify({ password: `bad-password-${attempt}` }),
         })
@@ -370,6 +390,15 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
         expect(failDiag.code).toBe("PASSWORD_LOCKED");
       }
     }
+    expect(sendMessageStub).toHaveBeenCalledTimes(1);
+    expect(sendMessageStub.mock.calls[0]?.slice(0, 2)).toEqual([
+      SUPER_ADMIN_USER_ID,
+      chatAtmosphere().NOTICE_TEXTS.miniAppLoginLocked(
+        MINI_APP_PASSWORD_MAX_ATTEMPTS,
+        formatLocalTime(miniAppPasswordGuardHolder.current?.lockedUntil ?? 0),
+        "203.0.113.42"
+      ),
+    ]);
 
     const lockedPrecheckRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/precheck", {
@@ -395,6 +424,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(
       ((await lockedCorrectLoginRes.json()) as MiniAppAccessDiagnostics).code
     ).toBe("PASSWORD_LOCKED");
+    expect(sendMessageStub).toHaveBeenCalledTimes(1);
 
     miniAppPasswordGuardHolder.current = {
       userId: SUPER_ADMIN_USER_ID,
@@ -410,7 +440,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(miniAppPasswordGuardHolder.current).toBeNull();
   });
 
-  test("同一 initData 并发登录在锁定后不再比对凭据，正确密码同样按失败计数并顺延锁定", async () => {
+  test("同一 initData 并发登录在锁定后不再比对凭据，正确密码同样按失败计数并顺延锁定，锁定告警只发一次", async () => {
     const adminInitData: string = buildSignedTestInitData({
       botToken: BOT_TOKEN,
       authDate: Math.floor(Date.now() / 1000),
@@ -418,10 +448,12 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     });
     const burstSize: number = MINI_APP_PASSWORD_MAX_ATTEMPTS * 8;
     const burstStartMs: number = Date.now();
+    const bodyEncoder: TextEncoder = new TextEncoder();
+    const bodyControllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+    installTelegramSendMessageStub();
+    // 全部请求在调用时同步越过中间件锁定闸门、停在读取请求体处；请求体由测试按序放行。
     const pending: Promise<Response>[] = [];
     for (let index: number = 0; index < burstSize; index++) {
-      const password: string =
-        index === burstSize - 1 ? MINI_APP_FALLBACK_TEST_PASSWORD : `bad-password-${index}`;
       pending.push(
         handleMiniAppHttpRequest(
           new Request("http://127.0.0.1:3000/api/auth/login", {
@@ -430,11 +462,27 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
               [MINI_APP_INIT_DATA_HEADER]: adminInitData,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ password }),
+            body: new ReadableStream<Uint8Array>({
+              start(controller: ReadableStreamDefaultController<Uint8Array>): void {
+                bodyControllers.push(controller);
+              },
+            }),
           })
         )
       );
     }
+    for (let index: number = 0; index < burstSize - 1; index++) {
+      bodyControllers[index]?.enqueue(
+        bodyEncoder.encode(JSON.stringify({ password: `bad-password-${index}` }))
+      );
+      bodyControllers[index]?.close();
+    }
+    await Promise.allSettled(pending.slice(0, burstSize - 1));
+    // 错误密码全部结算、锁定已生效后才放行最后一个请求的正确密码。
+    bodyControllers[burstSize - 1]?.enqueue(
+      bodyEncoder.encode(JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }))
+    );
+    bodyControllers[burstSize - 1]?.close();
     const settled: PromiseSettledResult<Response>[] = await Promise.allSettled(pending);
     const codes: string[] = [];
     for (const result of settled) {
@@ -455,6 +503,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(miniAppPasswordGuardHolder.current?.lockedUntil ?? 0).toBeGreaterThanOrEqual(
       burstStartMs + MINI_APP_PASSWORD_LOCKOUT_MS
     );
+    expect(sendMessageStub).toHaveBeenCalledTimes(1);
   });
 
   test("GET /api/status 返回实时状态快照", async () => {
@@ -792,6 +841,9 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
   });
 
   test("TOTP 验证器支持在控制台生成二维码添加、修改、删除，并在启用时优先于密码登录", async () => {
+    // 冻结时钟，生成与校验动态码不会跨越时间步边界。
+    const stepMs: number = MINI_APP_TOTP_STEP_SECONDS * 1000;
+    setSystemTime(new Date(Math.floor(Date.now() / stepMs) * stepMs + 1000));
     rmSync(MINI_APP_TOTP_MEMORY_DIR, { recursive: true, force: true });
     const headers: Record<string, string> = superAdminHeaders();
     const adminInitData: string = headers[MINI_APP_INIT_DATA_HEADER]!;

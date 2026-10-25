@@ -17,6 +17,7 @@ export const NOTICE_TEXTS: Readonly<AtmosphereNotices> = {
   adPartialBan: (head: string, enforcedChats: number, failedChats: number): string => `${head}人已经记进小本本、在 ${enforcedChats} 个群封掉了，还有 ${failedChats} 个群没封动，杂鱼管理员快来看看本天才在那边的权限♡`,
   adBanned: (head: string): string => `${head}人已经记进小本本、在所有盯着的群里一起封掉了♡`,
   proxyFailed: (targetChatId: number): string => `啧，转发到 ${targetChatId} 失败了，本天才先把这轮中转掐掉啦，检查好了再 /send 重新开，笨蛋♡`,
+  miniAppLoginLocked: (attempts: number, lockedUntil: string, clientIp: string): string => `哼，Mini App 登录已经连错 ${attempts} 次，本天才先锁到 ${lockedUntil} 啦（来源 IP：${clientIp}）。不是你自己手滑的话，Bot Token 八成漏了，快去 BotFather 重新签发，笨蛋♡`,
   adConfigInvalid: (file: string): string => `本天才的 ${file} 写坏了，判定口径都读不出来还抓什么广告？修好再重启，笨蛋♡`,
   aiConfigInvalid: (file: string): string => `本天才的 ${file} 写坏了，读都读不动还闲什么聊？修好再重启，笨蛋♡`,
   batchKickRejected: "就你也想批量踢人？/batch_kick 只听超级管理员本人的，杂鱼退散啦♡",

@@ -7,7 +7,6 @@ import {
   MINI_APP_TOTP_SECRET_BYTES,
   MINI_APP_TOTP_SECRET_PATTERN,
   MINI_APP_TOTP_STEP_SECONDS,
-  MINI_APP_TOTP_WINDOW_STEPS,
 } from "../consts/miniAppTotp";
 
 /**
@@ -126,7 +125,8 @@ export function generateMiniAppTotpCodeAt(
 }
 
 /**
- * 以常量时间校验用户输入的 6 位 TOTP 验证码是否在当前时间窗口（`±1` 步长）内匹配。
+ * 以常量时间校验用户输入的 6 位 TOTP 验证码是否等于当前时间步的验证码（相邻时间步的验证码不予接受）。
+ * 密钥或时间戳非法时期望码为空串，比对必然失败。
  * @param inputCode 用户输入的 6 位数字验证码。
  * @param secret 32 位 Base32 密钥字符串。
  * @param nowMs 当前毫秒时间戳（缺省取 `Date.now()`）。
@@ -141,36 +141,13 @@ export function verifyMiniAppTotpCode(
   if (!MINI_APP_TOTP_CODE_PATTERN.test(normalizedCode)) {
     return false;
   }
-  if (decodeTotpBase32(secret) === null) {
-    return false;
-  }
-  const currentCounter: number = Math.floor(
-    nowMs / 1000 / MINI_APP_TOTP_STEP_SECONDS
-  );
   const inputDigest: Uint8Array = new Bun.CryptoHasher("sha256")
     .update(normalizedCode, "utf8")
     .digest();
-  let matched: boolean = false;
-  for (
-    let delta: number = -MINI_APP_TOTP_WINDOW_STEPS;
-    delta <= MINI_APP_TOTP_WINDOW_STEPS;
-    delta += 1
-  ) {
-    const candidateCounter: number = currentCounter + delta;
-    if (candidateCounter < 0) continue;
-    const candidateCode: string = computeMiniAppTotpCode(
-      secret,
-      candidateCounter
-    );
-    if (candidateCode.length !== MINI_APP_TOTP_DIGITS) continue;
-    const candidateDigest: Uint8Array = new Bun.CryptoHasher("sha256")
-      .update(candidateCode, "utf8")
-      .digest();
-    if (crypto.timingSafeEqual(inputDigest, candidateDigest)) {
-      matched = true;
-    }
-  }
-  return matched;
+  const expectedDigest: Uint8Array = new Bun.CryptoHasher("sha256")
+    .update(generateMiniAppTotpCodeAt(secret, nowMs), "utf8")
+    .digest();
+  return crypto.timingSafeEqual(inputDigest, expectedDigest);
 }
 
 /**

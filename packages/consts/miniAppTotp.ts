@@ -25,12 +25,6 @@ export const MINI_APP_TOTP_DIGITS: number = 6;
 export const MINI_APP_TOTP_STEP_SECONDS: number = 30;
 
 /**
- * TOTP 验证时允许的前后时间步偏移容差（`±1` 个步长，即前后各 30 秒容差以吸收轻微时钟漂移）。
- * 不变量：非负整数 `1`。所属模块：`packages/libs/miniAppTotp.ts`。
- */
-export const MINI_APP_TOTP_WINDOW_STEPS: number = 1;
-
-/**
  * 前端控制台生成待绑定 TOTP 密钥与二维码后，在主线程内存中的待确认有效期毫秒数（10 分钟）。
  * 不变量：到期未完成 6 位动态码核验的待绑定密钥自动失效。所属模块：`packages/miniApp/totpStorage.ts`。
  */
