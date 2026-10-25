@@ -212,7 +212,7 @@ describe("shouldPassPrivateCommandGate", () => {
   });
 
   test("私聊里 /send 以外的所有已注册命令入口都拦下", () => {
-    for (const text of ["/copy", "/permission", "/white", "/init enable", "/batch_kick 1h", "/app", "/咬 @someone"]) {
+    for (const text of ["/copy", "/permission", "/white", "/init enable", "/batch_kick 1h", "/咬 @someone"]) {
       const ctx = fakeCtx({
         chat: { id: SUPER_ADMIN_USER_ID, type: "private" },
         from: { id: SUPER_ADMIN_USER_ID },

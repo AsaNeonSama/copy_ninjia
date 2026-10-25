@@ -157,7 +157,6 @@ describe("application handler registration", () => {
       "ungag",
       "delete_message",
       "send",
-      "app",
       "qa",
       "x",
     ]);
