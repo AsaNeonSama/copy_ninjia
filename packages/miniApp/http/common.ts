@@ -349,6 +349,7 @@ export async function handleGetAuthPrecheckRoute(): Promise<Response> {
 
 /**
  * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 5 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
+ * 读取请求体与 TOTP 记录后若锁定已生效（由并发登录在等待期间触发），不比对凭据，按失败计数并将锁定顺延至当前时刻起 30 分钟。
  * @param request HTTP 请求对象。
  * @returns JSON 响应。
  */
@@ -357,9 +358,16 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
   const totpRecord: Readonly<MiniAppTotpRecord> | null =
     await loadMiniAppTotpRecord();
   const nowMs: number = Date.now();
+  // 自此读取锁定状态到失败计数更新为止不得插入 await。
+  const guard: Readonly<MiniAppPasswordGuardState> | null =
+    miniAppPasswordGuardHolder.current;
+  const locked: boolean =
+    guard?.userId === SUPER_ADMIN_USER_ID && guard.lockedUntil > nowMs;
 
   let verified: boolean;
-  if (totpRecord !== null) {
+  if (locked) {
+    verified = false;
+  } else if (totpRecord !== null) {
     const inputCode: string =
       typeof body?.totpCode === "string"
         ? body.totpCode.trim()
@@ -378,13 +386,9 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
   }
 
   if (!verified) {
-    const currentGuard: Readonly<MiniAppPasswordGuardState> | null =
-      miniAppPasswordGuardHolder.current;
     const prevAttempts: number =
-      currentGuard !== null &&
-      currentGuard.userId === SUPER_ADMIN_USER_ID &&
-      (currentGuard.lockedUntil === 0 || currentGuard.lockedUntil > nowMs)
-        ? currentGuard.failedAttempts
+      guard?.userId === SUPER_ADMIN_USER_ID && (guard.lockedUntil === 0 || locked)
+        ? guard.failedAttempts
         : 0;
     const nextAttempts: number = prevAttempts + 1;
     if (nextAttempts >= MINI_APP_PASSWORD_MAX_ATTEMPTS) {

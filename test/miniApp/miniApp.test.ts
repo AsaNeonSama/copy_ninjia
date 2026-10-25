@@ -410,6 +410,53 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(miniAppPasswordGuardHolder.current).toBeNull();
   });
 
+  test("同一 initData 并发登录在锁定后不再比对凭据，正确密码同样按失败计数并顺延锁定", async () => {
+    const adminInitData: string = buildSignedTestInitData({
+      botToken: BOT_TOKEN,
+      authDate: Math.floor(Date.now() / 1000),
+      user: { id: SUPER_ADMIN_USER_ID, first_name: "SuperAdmin" },
+    });
+    const burstSize: number = MINI_APP_PASSWORD_MAX_ATTEMPTS * 8;
+    const burstStartMs: number = Date.now();
+    const pending: Promise<Response>[] = [];
+    for (let index: number = 0; index < burstSize; index++) {
+      const password: string =
+        index === burstSize - 1 ? MINI_APP_FALLBACK_TEST_PASSWORD : `bad-password-${index}`;
+      pending.push(
+        handleMiniAppHttpRequest(
+          new Request("http://127.0.0.1:3000/api/auth/login", {
+            method: "POST",
+            headers: {
+              [MINI_APP_INIT_DATA_HEADER]: adminInitData,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ password }),
+          })
+        )
+      );
+    }
+    const settled: PromiseSettledResult<Response>[] = await Promise.allSettled(pending);
+    const codes: string[] = [];
+    for (const result of settled) {
+      if (result.status !== "fulfilled") throw result.reason;
+      expect(result.value.status).toBe(403);
+      codes.push(((await result.value.json()) as MiniAppAccessDiagnostics).code);
+    }
+
+    expect(codes.filter((code: string): boolean => code === "INVALID_PASSWORD").length).toBe(
+      MINI_APP_PASSWORD_MAX_ATTEMPTS - 1
+    );
+    expect(codes.filter((code: string): boolean => code === "PASSWORD_LOCKED").length).toBe(
+      burstSize - (MINI_APP_PASSWORD_MAX_ATTEMPTS - 1)
+    );
+    expect(codes[burstSize - 1]).toBe("PASSWORD_LOCKED");
+    expect(miniAppAuthSessions.size).toBe(0);
+    expect(miniAppPasswordGuardHolder.current?.failedAttempts).toBe(burstSize);
+    expect(miniAppPasswordGuardHolder.current?.lockedUntil ?? 0).toBeGreaterThanOrEqual(
+      burstStartMs + MINI_APP_PASSWORD_LOCKOUT_MS
+    );
+  });
+
   test("GET /api/status 返回实时状态快照", async () => {
     const state = getOrCreateChatState(-1001001);
     state.isInitEnabled = true;
