@@ -201,7 +201,7 @@ function installTelegramSendMessageStub(): void {
 }
 
 /**
- * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 90 分钟有效密码会话的测试请求头。
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟有效密码会话的测试请求头。
  * @returns 包含 `X-Telegram-Init-Data` 与 `X-Mini-App-Session` 的请求头。
  */
 function superAdminHeaders(): Record<string, string> {
@@ -237,7 +237,7 @@ afterEach(async (): Promise<void> => {
 });
 
 describe("Mini App HTTP routes & Bun.serve integration", () => {
-  test("未鉴权或非 SuperAdmin 访问 API 一律返回 401/403 真实诊断，且强制执行密码登录与 90 分钟会话过期", async () => {
+  test("未鉴权或非 SuperAdmin 访问 API 一律返回 401/403 真实诊断，且强制执行密码登录与 45 分钟会话过期", async () => {
     const unauthPrecheckRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/precheck", {
         headers: {
@@ -351,6 +351,25 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(loginBody.ok).toBeTrue();
     expect(loginBody.sessionToken).toMatch(/^[0-9a-f]{64}$/);
     expect(loginBody.ttlMs).toBe(MINI_APP_SESSION_TTL_MS);
+
+    const resumedPrecheckRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: adminInitData,
+          [MINI_APP_SESSION_HEADER]: loginBody.sessionToken,
+        },
+      })
+    );
+    expect(resumedPrecheckRes.status).toBe(200);
+    expect(await resumedPrecheckRes.json()).toEqual({
+      ok: true,
+      ttlMs: MINI_APP_SESSION_TTL_MS,
+      totpEnabled: false,
+      authMode: "password",
+      assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
+      sessionValid: true,
+      sessionExpiresAt: loginBody.expiresAt,
+    });
 
     const expiredSession = issueMiniAppAuthSession(
       Date.now() - MINI_APP_SESSION_TTL_MS - 1_000
@@ -527,8 +546,31 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       body.memoryTotalBytes
     );
     expect(Array.isArray(body.capabilities)).toBeTrue();
-    expect(body.capabilities.length).toBe(7);
+    expect(body.capabilities.length).toBe(6);
+    expect(body.capabilities[0]?.key).toBe("agent");
+    expect(body.capabilities[0]?.label).toBe("Agent 能力");
     expect(Array.isArray(body.capabilities[0]?.items)).toBeTrue();
+
+    const moodRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/mood", {
+        headers: superAdminHeaders(),
+      })
+    );
+    expect(moodRes.status).toBe(200);
+    const moodBody = (await moodRes.json()) as {
+      readonly ok: boolean;
+      readonly available: boolean;
+      readonly currentMood: string | null;
+    };
+    expect(moodBody.ok).toBeTrue();
+
+    const switchRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/mood/switch", {
+        method: "POST",
+        headers: superAdminHeaders(),
+      })
+    );
+    expect([200, 400, 503]).toContain(switchRes.status);
   });
 
   test("GET /api/chats 仅列出已执行 /init 的群，支持详细状态查看与各项功能开关切换（含关闭 /init）", async () => {
@@ -857,19 +899,14 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       new Request("http://127.0.0.1:3000/api/totp", { headers })
     );
     expect(initialStatusRes.status).toBe(200);
-    const initialStatus: MiniAppTotpStatusView =
-      (await initialStatusRes.json()) as MiniAppTotpStatusView;
+    const initialStatus: MiniAppTotpStatusView = (await initialStatusRes.json()) as MiniAppTotpStatusView;
     expect(initialStatus.enabled).toBeFalse();
 
     const setup1Res: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/totp/setup", {
-        method: "POST",
-        headers,
-      })
+      new Request("http://127.0.0.1:3000/api/totp/setup", { method: "POST", headers })
     );
     expect(setup1Res.status).toBe(200);
-    const setup1: MiniAppTotpSetupResponse =
-      (await setup1Res.json()) as MiniAppTotpSetupResponse;
+    const setup1: MiniAppTotpSetupResponse = (await setup1Res.json()) as MiniAppTotpSetupResponse;
     expect(setup1.ok).toBeTrue();
     expect(setup1.secret).toMatch(/^[A-Z2-7]{32}$/);
     expect(setup1.otpauthUri).toContain("otpauth://totp/");
@@ -896,8 +933,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       })
     );
     expect(enable1Res.status).toBe(200);
-    const enable1Body: MiniAppTotpMutationResponse =
-      (await enable1Res.json()) as MiniAppTotpMutationResponse;
+    const enable1Body: MiniAppTotpMutationResponse = (await enable1Res.json()) as MiniAppTotpMutationResponse;
     expect(enable1Body.ok).toBeTrue();
     expect(enable1Body.status.enabled).toBeTrue();
     expect(await Bun.file(MINI_APP_TOTP_FILE_PATH).exists()).toBeTrue();
@@ -915,46 +951,31 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
     });
 
-    const passwordRejectedWhenTotpEnabled: Response =
-      await handleMiniAppHttpRequest(
-        new Request("http://127.0.0.1:3000/api/auth/login", {
-          method: "POST",
-          headers: {
-            [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }),
-        })
-      );
+    const passwordRejectedWhenTotpEnabled: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/login", {
+        method: "POST",
+        headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
+        body: JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }),
+      })
+    );
     expect(passwordRejectedWhenTotpEnabled.status).toBe(403);
-    expect(
-      ((await passwordRejectedWhenTotpEnabled.json()) as MiniAppAccessDiagnostics)
-        .code
-    ).toBe("INVALID_TOTP_CODE");
+    expect(((await passwordRejectedWhenTotpEnabled.json()) as MiniAppAccessDiagnostics).code).toBe("INVALID_TOTP_CODE");
 
     const totpLoginRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/login", {
         method: "POST",
-        headers: {
-          [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-          "Content-Type": "application/json",
-        },
+        headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
         body: JSON.stringify({ totpCode: generateMiniAppTotpCodeAt(setup1.secret) }),
       })
     );
     expect(totpLoginRes.status).toBe(200);
-    const totpLoginBody: MiniAppLoginSuccessResponse =
-      (await totpLoginRes.json()) as MiniAppLoginSuccessResponse;
+    const totpLoginBody: MiniAppLoginSuccessResponse = (await totpLoginRes.json()) as MiniAppLoginSuccessResponse;
     expect(totpLoginBody.ok).toBeTrue();
 
     const setup2Res: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/totp/setup", {
-        method: "POST",
-        headers,
-      })
+      new Request("http://127.0.0.1:3000/api/totp/setup", { method: "POST", headers })
     );
-    const setup2: MiniAppTotpSetupResponse =
-      (await setup2Res.json()) as MiniAppTotpSetupResponse;
+    const setup2: MiniAppTotpSetupResponse = (await setup2Res.json()) as MiniAppTotpSetupResponse;
     expect(setup2.secret).not.toBe(setup1.secret);
 
     const enable2Res: Response = await handleMiniAppHttpRequest(
@@ -965,22 +986,15 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       })
     );
     expect(enable2Res.status).toBe(200);
-    const enable2Body: MiniAppTotpMutationResponse =
-      (await enable2Res.json()) as MiniAppTotpMutationResponse;
+    const enable2Body: MiniAppTotpMutationResponse = (await enable2Res.json()) as MiniAppTotpMutationResponse;
     expect(enable2Body.status.enabled).toBeTrue();
-    expect(enable2Body.status.createdAt).toBeGreaterThanOrEqual(
-      enable1Body.status.createdAt ?? 0
-    );
+    expect(enable2Body.status.createdAt).toBeGreaterThanOrEqual(enable1Body.status.createdAt ?? 0);
 
     const deleteRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/totp", {
-        method: "DELETE",
-        headers,
-      })
+      new Request("http://127.0.0.1:3000/api/totp", { method: "DELETE", headers })
     );
     expect(deleteRes.status).toBe(200);
-    const deleteBody: MiniAppTotpMutationResponse =
-      (await deleteRes.json()) as MiniAppTotpMutationResponse;
+    const deleteBody: MiniAppTotpMutationResponse = (await deleteRes.json()) as MiniAppTotpMutationResponse;
     expect(deleteBody.ok).toBeTrue();
     expect(deleteBody.status.enabled).toBeFalse();
     expect(await Bun.file(MINI_APP_TOTP_FILE_PATH).exists()).toBeFalse();
@@ -988,10 +1002,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     const passwordRestoredLoginRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/login", {
         method: "POST",
-        headers: {
-          [MINI_APP_INIT_DATA_HEADER]: adminInitData,
-          "Content-Type": "application/json",
-        },
+        headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
         body: JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }),
       })
     );

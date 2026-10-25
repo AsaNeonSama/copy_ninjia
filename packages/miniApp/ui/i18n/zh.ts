@@ -14,6 +14,7 @@ import type { MiniAppTranslations } from "../../../types/miniAppI18n";
  */
 export function getZhTranslations(): Readonly<MiniAppTranslations> {
   const capabilityLabels: Readonly<Record<string, string>> = {
+    agent: "Agent 能力",
     aiChat: "AI 群聊与多模态",
     translate: "自动翻译引擎",
     adDetect: "AI 广告检测",
@@ -30,7 +31,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
     superAdminBadge: "SuperAdmin",
     lockButton: "锁定",
     lockSessionToast: "哼，已经帮粗心的杂鱼把会话锁上啦♡",
-    sessionExpiredToast: "杂鱼，90 分钟会话早就过期啦，快乖乖重输密码！",
+    sessionExpiredToast: "杂鱼，45 分钟会话早就过期啦，快乖乖重输密码！",
     themeLightLabel: "亮色",
     themeDarkLabel: "暗色",
     sidebarTitle: "导航菜单",
@@ -99,7 +100,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       passwordBadge: "二次密码门禁",
       passwordTitle: "交出访问密码，杂鱼♡",
       passwordSubtitle:
-        "Telegram 签名倒是勉强过关了，再输入控制台访问密码解锁 90 分钟会话吧（连续输错 3 次直接锁你 30 分钟哦）。",
+        "Telegram 签名倒是勉强过关了，再输入控制台访问密码解锁 45 分钟会话吧（连续输错 3 次直接锁你 30 分钟哦）。",
       passwordPlaceholder: "快输入访问密码，别输错哦杂鱼…",
       passwordEmptyHint: "笨蛋杂鱼，密码框还是空的就想蒙混过关？",
       passwordSubmitting: "本天才核验中…",
@@ -107,11 +108,11 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       totpBadge: "谷歌验证器门禁",
       totpTitle: "交出 6 位动态码，杂鱼♡",
       totpSubtitle:
-        "已启用 Google Authenticator 验证器优先保护，请输入当前 6 位动态验证码解锁 90 分钟会话（连续输错 3 次锁定 30 分钟哦）。",
+        "已启用 Google Authenticator 验证器优先保护，请输入当前 6 位动态验证码解锁 45 分钟会话（连续输错 3 次锁定 30 分钟哦）。",
       totpPlaceholder: "输入 6 位谷歌验证器动态码…",
       totpEmptyHint: "笨蛋杂鱼，先填满 6 位数字动态验证码再点解锁啦！",
       totpSubmitButton: "验证动态码并解锁",
-      unlockedToast: "哼，算你识相，90 分钟会话给你解锁啦♡",
+      unlockedToast: "哼，算你识相，45 分钟会话给你解锁啦♡",
     },
     totp: {
       sectionTitle: "Google Authenticator 验证器",
@@ -175,6 +176,12 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       capabilitiesSectionTitle: "功能配置与子系统就绪度",
       capabilityReadyBadge: "已就绪",
       capabilityMissingBadge: "未配置",
+      capabilityItemCount: (count: number): string => `${count} 项`,
+      moodCurrentLabel: "当前情绪",
+      moodCurrentActiveBadge: "当前生效",
+      moodUnavailableText: "未激活 (AI Worker 未运行)",
+      moodSwitchButton: "切换情绪",
+      moodSwitchingButton: "切换中…",
       capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>): string =>
         capabilityLabels[capability.key] ?? capability.label,
       capabilityItem: (

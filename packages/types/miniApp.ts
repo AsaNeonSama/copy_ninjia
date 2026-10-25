@@ -13,26 +13,15 @@ export interface MiniAppInitDataUser {
 
 /** `initData` 验签失败的原因分类。 */
 export type MiniAppAuthFailureReason =
-  | "missing_init_data"
-  | "malformed_init_data"
-  | "invalid_signature"
-  | "expired_auth_date"
-  | "missing_user"
-  | "forbidden_user";
+  | "missing_init_data" | "malformed_init_data" | "invalid_signature"
+  | "expired_auth_date" | "missing_user" | "forbidden_user";
 
 /** `initData` 验签与超级管理员身份核验结果。 */
 export type MiniAppAuthResult =
-  | {
-    readonly ok: true;
-    readonly authDate: number;
-    readonly user: Readonly<MiniAppInitDataUser>;
-  }
-  | {
-    readonly ok: false;
-    readonly reason: MiniAppAuthFailureReason;
-  };
+  | { readonly ok: true; readonly authDate: number; readonly user: Readonly<MiniAppInitDataUser> }
+  | { readonly ok: false; readonly reason: MiniAppAuthFailureReason };
 
-/** 主线程内存中保存的 Mini App 密码认证会话记录（有效期 90 分钟）。 */
+/** 主线程内存中保存的 Mini App 密码认证会话记录（有效期 45 分钟）。 */
 export interface MiniAppAuthSession {
   /** 64 位十六进制随机会话令牌。 */
   readonly token: string;
@@ -70,7 +59,7 @@ export interface MiniAppLoginSuccessResponse {
   /** 签发的 64 位十六进制会话令牌。 */
   readonly sessionToken: string;
   readonly expiresAt: number;
-  /** 会话总有效时长毫秒数（90 分钟 = 5,400,000 ms）。 */
+  /** 会话总有效时长毫秒数（45 分钟 = 2,700,000 ms）。 */
   readonly ttlMs: number;
   /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
   readonly assetToken?: string;
@@ -87,6 +76,10 @@ export type MiniAppPrecheckResult =
     readonly authMode?: MiniAppAuthMode;
     /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
     readonly assetToken?: string;
+    /** 客户端持久化的会话令牌在服务端是否仍在 45 分钟有效期内。 */
+    readonly sessionValid?: boolean;
+    /** 客户端持久化会话在服务端的到期毫秒时间戳（无效或未携带时为 `0`）。 */
+    readonly sessionExpiresAt?: number;
   }
   | {
     readonly ok: false;
@@ -134,6 +127,21 @@ export interface MiniAppCapabilityStatus {
   readonly items: readonly Readonly<MiniAppCapabilityDetailItem>[];
 }
 
+/** `GET /api/mood` 返回的 AI 全局情绪实时状态视图。 */
+export interface MiniAppMoodView {
+  readonly ok: boolean;
+  readonly available: boolean;
+  readonly currentMood: string | null;
+}
+
+/** `POST /api/mood/switch` 触发重抽 AI 全局情绪后的响应结果。 */
+export interface MiniAppMoodMutationResult {
+  readonly ok: boolean;
+  readonly available: boolean;
+  readonly currentMood: string | null;
+  readonly message: string;
+}
+
 /** Mini App 首页展示的活跃交互会话计数。 */
 export interface MiniAppActiveSessionCounts {
   readonly total: number;
@@ -170,12 +178,7 @@ export interface MiniAppStatusView {
 
 /** 已 `/init` 群内可独立开关的子功能键。 */
 export type MiniAppToggleableFeatureKey =
-  | "aiChat"
-  | "translation"
-  | "adDetect"
-  | "floodControl"
-  | "antiRaid"
-  | "proxySend";
+  | "aiChat" | "translation" | "adDetect" | "floodControl" | "antiRaid" | "proxySend";
 
 /** Mini App 群详情页可操作的功能开关全集（含 `/init` 总开关）。 */
 export type MiniAppFeatureKey = "init" | MiniAppToggleableFeatureKey;
@@ -222,10 +225,7 @@ export interface MiniAppChatDetail extends MiniAppChatSummary {
   readonly translateTargetCount: number;
   readonly deleteMessageTargetCount: number;
   readonly activeSessions: Readonly<{
-    readonly gag: number;
-    readonly wed: boolean;
-    readonly verify: number;
-    readonly qaSet: boolean;
+    readonly gag: number; readonly wed: boolean; readonly verify: number; readonly qaSet: boolean;
   }>;
 }
 
@@ -456,19 +456,25 @@ export interface MiniAppDownloadAnchorElement {
   readonly remove: () => void;
 }
 
+/** 浏览器 Web Storage（`localStorage` / `sessionStorage`）最小读写接口。 */
+export interface MiniAppWebStorage {
+  readonly getItem: (key: string) => string | null;
+  readonly setItem: (key: string, value: string) => void;
+  readonly removeItem: (key: string) => void;
+}
+
 /** 带有可选 `Telegram.WebApp` 与标准浏览器宿主能力的全局窗口视图。 */
 export interface TelegramWindow {
   readonly Telegram?: Readonly<{ readonly WebApp?: Readonly<TelegramWebApp> }>;
-  /** 当前浏览器会话已解锁的 Mini App 90 分钟认证令牌。 */
+  /** 当前浏览器会话已解锁的 Mini App 45 分钟认证令牌。 */
   __copyNinjaSessionToken?: string;
+  /** 当前浏览器会话已解锁的认证令牌到期毫秒时间戳。 */
+  __copyNinjaSessionExpiresAt?: number;
   /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
   __copyNinjaAssetToken?: string;
-  readonly location?: Readonly<{
-    readonly href?: string;
-    readonly host?: string;
-    readonly search: string;
-    readonly hash: string;
-  }>;
+  readonly localStorage?: Readonly<MiniAppWebStorage>;
+  readonly sessionStorage?: Readonly<MiniAppWebStorage>;
+  readonly location?: Readonly<{ readonly href?: string; readonly host?: string; readonly search: string; readonly hash: string }>;
   readonly confirm?: (message?: string) => boolean;
   readonly navigator?: Readonly<{ readonly language?: string; readonly languages?: readonly string[] }>;
   readonly document?: Readonly<{

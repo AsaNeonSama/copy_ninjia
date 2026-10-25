@@ -6,8 +6,8 @@ import {
   MINI_APP_ASSET_CACHE_CONTROL, MINI_APP_CSP_HEADER_VALUE, MINI_APP_FALLBACK_TEST_PASSWORD,
   MINI_APP_INIT_DATA_HEADER, MINI_APP_IPV4_HOST_PATTERN, MINI_APP_MAX_JSON_BODY_BYTES,
   MINI_APP_NO_STORE_CACHE_CONTROL, MINI_APP_PASSWORD_LOCKOUT_MS, MINI_APP_PASSWORD_MAX_ATTEMPTS,
-  MINI_APP_SESSION_HEADER, MINI_APP_SESSION_TTL_MS, MINI_APP_SIGNED_INTEGER_PATTERN,
-  MINI_APP_TMA_AUTH_PREFIX, MINI_APP_X_FRAME_OPTIONS_VALUE,
+  MINI_APP_SESSION_HEADER, MINI_APP_SESSION_TTL_MS, MINI_APP_SHA256_HEX_PATTERN,
+  MINI_APP_SIGNED_INTEGER_PATTERN, MINI_APP_TMA_AUTH_PREFIX, MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
 import { chatAtmosphere } from "../../infra/atmosphere";
 import { sendMessage } from "../../infra/telegram/actions/messages";
@@ -242,9 +242,7 @@ export function extractAssetTokenFromQuery(request: Request): string {
   const method: string = request.method.toUpperCase();
   if (method !== "GET" && method !== "HEAD") return "";
   try {
-    const queryToken: string | null = new URL(request.url).searchParams.get(
-      "token"
-    );
+    const queryToken: string | null = new URL(request.url).searchParams.get("token");
     return queryToken !== null ? queryToken.trim() : "";
   } catch (_error: unknown) {
     return "";
@@ -278,7 +276,7 @@ export function extractSessionToken(
 }
 
 /**
- * 清理已超过 90 分钟有效期的密码认证会话。
+ * 清理已超过 45 分钟有效期的密码认证会话。
  * @param nowMs 当前毫秒时间戳。
  */
 export function purgeExpiredAuthSessions(nowMs: number): void {
@@ -313,7 +311,7 @@ export function checkSuperAdminPasswordLockout(
 }
 
 /**
- * 签发一条新的 90 分钟密码认证会话令牌并存入主线程缓存。
+ * 签发一条新的 45 分钟密码认证会话令牌并存入主线程缓存。
  * @param nowMs 当前毫秒时间戳。
  * @returns 新签发的会话对象。
  */
@@ -334,24 +332,32 @@ export function issueMiniAppAuthSession(
 }
 
 /**
- * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态与受保护资源缓存令牌。
+ * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态、持久化会话是否有效及受保护资源缓存令牌。
+ * @param request 可选 HTTP 请求对象（用于核验客户端持久化的 45 分钟会话令牌）。
  * @returns JSON 响应。
  */
-export async function handleGetAuthPrecheckRoute(): Promise<Response> {
-  const totpRecord: Readonly<MiniAppTotpRecord> | null =
-    await loadMiniAppTotpRecord();
+export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Response> {
+  const totpRecord: Readonly<MiniAppTotpRecord> | null = await loadMiniAppTotpRecord();
   const totpEnabled: boolean = totpRecord !== null;
+  const nowMs: number = Date.now();
+  purgeExpiredAuthSessions(nowMs);
+  const sessionToken: string = request !== undefined ? extractSessionToken(request) : "";
+  const activeSession: Readonly<MiniAppAuthSession> | undefined =
+    MINI_APP_SHA256_HEX_PATTERN.test(sessionToken) ? miniAppAuthSessions.get(sessionToken) : undefined;
   return jsonResponse({
     ok: true,
     ttlMs: MINI_APP_SESSION_TTL_MS,
     totpEnabled,
     authMode: totpEnabled ? "totp" : "password",
     assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
+    ...(activeSession !== undefined && activeSession.expiresAt > nowMs
+      ? { sessionValid: true, sessionExpiresAt: activeSession.expiresAt }
+      : {}),
   });
 }
 
 /**
- * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 3 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
+ * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 3 次锁定该超级管理员 ID 30 分钟），通过后签发 45 分钟会话令牌。
  * 读取请求体与 TOTP 记录后若锁定已生效（由并发登录在等待期间触发），不比对凭据，按失败计数并将锁定顺延至当前时刻起 30 分钟。
  * 由未锁定转入锁定时向超级管理员私聊发送一条告警（不等待发送结果，失败走统一 Telegram 错误日志）；锁定顺延不重复告警。
  * @param request HTTP 请求对象。
@@ -359,14 +365,11 @@ export async function handleGetAuthPrecheckRoute(): Promise<Response> {
  */
 export async function handlePostAuthLoginRoute(request: Request): Promise<Response> {
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
-  const totpRecord: Readonly<MiniAppTotpRecord> | null =
-    await loadMiniAppTotpRecord();
+  const totpRecord: Readonly<MiniAppTotpRecord> | null = await loadMiniAppTotpRecord();
   const nowMs: number = Date.now();
   // 自此读取锁定状态到失败计数更新为止不得插入 await。
-  const guard: Readonly<MiniAppPasswordGuardState> | null =
-    miniAppPasswordGuardHolder.current;
-  const locked: boolean =
-    guard?.userId === SUPER_ADMIN_USER_ID && guard.lockedUntil > nowMs;
+  const guard: Readonly<MiniAppPasswordGuardState> | null = miniAppPasswordGuardHolder.current;
+  const locked: boolean = guard?.userId === SUPER_ADMIN_USER_ID && guard.lockedUntil > nowMs;
 
   let verified: boolean;
   if (locked) {
@@ -449,8 +452,7 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
  * @returns 归一化后的基础路径。
  */
 function configuredBasePathname(): string {
-  const config: Readonly<BotMiniAppConfig> | undefined =
-    miniAppActiveConfigHolder.current ?? getBotMiniAppConfig();
+  const config: Readonly<BotMiniAppConfig> | undefined = miniAppActiveConfigHolder.current ?? getBotMiniAppConfig();
   if (config === undefined) return "/";
   try {
     const pathname: string = new URL(config.url).pathname.replace(/\/+$/u, "");
@@ -465,9 +467,7 @@ function configuredBasePathname(): string {
  * @param rawPathname 原始 `url.pathname`。
  * @returns 归一化后的内部路由路径，或需重定向补齐末尾斜杠的指示。
  */
-export function normalizeRoutePathname(
-  rawPathname: string
-): { readonly redirectTo?: string; readonly routePath: string } {
+export function normalizeRoutePathname(rawPathname: string): { readonly redirectTo?: string; readonly routePath: string } {
   const basePath: string = configuredBasePathname();
   if (basePath !== "/") {
     if (rawPathname === basePath) return { redirectTo: `${basePath}/`, routePath: "/" };
@@ -484,9 +484,7 @@ export function normalizeRoutePathname(
  * @param request HTTP 请求。
  * @returns 解析成功时返回普通对象，超出体积上限或非对象 JSON 时返回 `null`。
  */
-export async function readJsonObjectBody(
-  request: Request
-): Promise<Record<string, unknown> | null> {
+export async function readJsonObjectBody(request: Request): Promise<Record<string, unknown> | null> {
   try {
     const text: string = await request.text();
     if (BODY_TEXT_ENCODER.encode(text).byteLength > MINI_APP_MAX_JSON_BODY_BYTES) return null;

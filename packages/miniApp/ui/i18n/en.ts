@@ -14,6 +14,7 @@ import type { MiniAppTranslations } from "../../../types/miniAppI18n";
  */
 export function getEnTranslations(): Readonly<MiniAppTranslations> {
   const capabilityLabels: Readonly<Record<string, string>> = {
+    agent: "Agent Capabilities",
     aiChat: "AI Chat & Multimodal",
     translate: "Auto Translation Engine",
     adDetect: "AI Ad Detection",
@@ -30,7 +31,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
     superAdminBadge: "SuperAdmin",
     lockButton: "Lock",
     lockSessionToast: "Hmph, locked the session for you, careless Zaako♡",
-    sessionExpiredToast: "Zaako, your 90-minute session expired! Be a good kid and re-enter the password!",
+    sessionExpiredToast: "Zaako, your 45-minute session expired! Be a good kid and re-enter the password!",
     themeLightLabel: "Light",
     themeDarkLabel: "Dark",
     sidebarTitle: "Navigation",
@@ -99,7 +100,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       passwordBadge: "2nd-Factor Gate",
       passwordTitle: "Hand Over the Password, Zaako",
       passwordSubtitle:
-        "Your Telegram signature barely passed. Now enter the console access password to unlock a 90-minute session (3 wrong tries locks you out for 30 minutes).",
+        "Your Telegram signature barely passed. Now enter the console access password to unlock a 45-minute session (3 wrong tries locks you out for 30 minutes).",
       passwordPlaceholder: "Type the access password carefully, Zaako…",
       passwordEmptyHint: "Clueless Zaako, trying to sneak in with an empty password box?",
       passwordSubmitting: "Checking for you…",
@@ -107,11 +108,11 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       totpBadge: "Authenticator Gate",
       totpTitle: "Hand Over the 6-Digit Code, Zaako",
       totpSubtitle:
-        "Google Authenticator is enabled and prioritized. Enter your current 6-digit TOTP code to unlock a 90-minute session (3 wrong tries locks you out for 30 minutes).",
+        "Google Authenticator is enabled and prioritized. Enter your current 6-digit TOTP code to unlock a 45-minute session (3 wrong tries locks you out for 30 minutes).",
       totpPlaceholder: "Enter 6-digit Google Authenticator code…",
       totpEmptyHint: "Clueless Zaako, enter all 6 digits of your TOTP code first!",
       totpSubmitButton: "Verify Code & Unlock",
-      unlockedToast: "Hmph, good job. Unlocked for 90 minutes, Zaako♡",
+      unlockedToast: "Hmph, good job. Unlocked for 45 minutes, Zaako♡",
     },
     totp: {
       sectionTitle: "Google Authenticator",
@@ -175,11 +176,20 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       capabilitiesSectionTitle: "Subsystem Readiness & Configs",
       capabilityReadyBadge: "Ready",
       capabilityMissingBadge: "Unconfigured",
+      capabilityItemCount: (count: number): string => `${count} items`,
+      moodCurrentLabel: "Current Mood",
+      moodCurrentActiveBadge: "Active",
+      moodUnavailableText: "Inactive (AI Worker Down)",
+      moodSwitchButton: "Switch Mood",
+      moodSwitchingButton: "Switching…",
       capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>): string =>
         capabilityLabels[capability.key] ?? capability.label,
       capabilityItem: (
         item: Readonly<MiniAppCapabilityDetailItem>
       ): Readonly<MiniAppCapabilityDetailItem> => {
+        if (item.label === "广告检测 ad_detect") {
+          return { label: "Ad Detect ad_detect", value: item.value, sub: item.sub };
+        }
         if (item.label === "图库服务") {
           return {
             label: "Gallery Service",

@@ -120,6 +120,12 @@ export interface MiniAppTranslations {
     readonly capabilitiesSectionTitle: string;
     readonly capabilityReadyBadge: string;
     readonly capabilityMissingBadge: string;
+    readonly capabilityItemCount: (count: number) => string;
+    readonly moodCurrentLabel: string;
+    readonly moodCurrentActiveBadge: string;
+    readonly moodUnavailableText: string;
+    readonly moodSwitchButton: string;
+    readonly moodSwitchingButton: string;
     readonly capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>) => string;
     readonly capabilityItem: (
       item: Readonly<MiniAppCapabilityDetailItem>

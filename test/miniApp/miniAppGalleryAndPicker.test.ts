@@ -96,6 +96,7 @@ const {
   MINI_APP_FEATURE_KEYS,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_LANGUAGES,
+  MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_HEADER,
   MINI_APP_TAB_KEYS,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
@@ -125,6 +126,7 @@ const {
   sanitizeBidiText,
   shortenGalleryFileName,
   truncateDisplayText,
+  waitMinimumLoadingDuration,
 } = await import("../../packages/miniApp/ui/formatters");
 const {
   buildMiniAppGalleryDownloadFileName,
@@ -137,6 +139,7 @@ const {
   getTelegramWebApp,
   readMiniAppAssetToken,
   readMiniAppInitData,
+  readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
   setMiniAppAssetToken,
   setMiniAppSessionToken,
@@ -172,7 +175,7 @@ import type {
 } from "../../packages/types/miniApp";
 
 /**
- * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 90 分钟密码会话的测试请求头。
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟密码会话的测试请求头。
  * @returns 包含 `X-Telegram-Init-Data` 与 `X-Mini-App-Session` 的请求头。
  */
 function superAdminHeaders(): Record<string, string> {
@@ -399,6 +402,11 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(confirmMiniAppAction("确认测试？")).toBeTrue();
     expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
     expect(truncateDisplayText("短名称", 20)).toBe("短名称");
+    expect(MINI_APP_MIN_LOADING_MS).toBeGreaterThanOrEqual(150);
+    await waitMinimumLoadingDuration(Date.now() - MINI_APP_MIN_LOADING_MS - 10);
+    const minWaitStart: number = Date.now();
+    await waitMinimumLoadingDuration(minWaitStart, 20);
+    expect(Date.now() - minWaitStart).toBeGreaterThanOrEqual(15);
     expect(
       truncateDisplayText(
         "念云｜工单是不回的｜片是必须看的｜有问题找群you｜群主天天摆烂｜群里充斥大量萝莉控｜空调开放｜群主个臭乐乐",
@@ -426,15 +434,36 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
       `./api/resources/svg/status.svg?token=${"b".repeat(64)}`
     );
-    setMiniAppSessionToken("a".repeat(64));
+    const storageMap: Map<string, string> = new Map<string, string>();
+    const prevLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: (key: string): string | null => storageMap.get(key) ?? null,
+      setItem: (key: string, val: string): void => {
+        storageMap.set(key, val);
+      },
+      removeItem: (key: string): void => {
+        storageMap.delete(key);
+      },
+    };
+    const futureExp: number = Date.now() + 60_000;
+    setMiniAppSessionToken("a".repeat(64), futureExp);
     expect(buildMiniAppGalleryDownloadUrl("abc.jpg")).toBe(
       `./api/gallery/download/abc.jpg?token=${"b".repeat(64)}&session=${"a".repeat(64)}`
     );
     clearMiniAppAssetToken();
     expect(readMiniAppAssetToken()).toBe("");
+    (globalThis as { __copyNinjaSessionToken?: string }).__copyNinjaSessionToken = undefined;
+    (globalThis as { __copyNinjaSessionExpiresAt?: number }).__copyNinjaSessionExpiresAt = undefined;
     expect(readMiniAppSessionToken()).toBe("a".repeat(64));
+    expect(readMiniAppSessionExpiresAt()).toBe(futureExp);
+    expect(readMiniAppAssetToken()).toBe("b".repeat(64));
+    setMiniAppSessionToken("c".repeat(64), Date.now() - 1_000);
+    expect(readMiniAppSessionToken()).toBe("");
+    expect(readMiniAppSessionExpiresAt()).toBe(0);
+    clearMiniAppAssetToken();
     clearMiniAppSessionToken();
     expect(readMiniAppSessionToken()).toBe("");
+    (globalThis as { localStorage?: unknown }).localStorage = prevLocalStorage;
   });
 
   test("图库 API 支持目录缺失处理、按 SHA-256 与图片协议上传入库及受保护预览读取", async () => {

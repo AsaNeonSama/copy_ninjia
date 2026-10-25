@@ -1,15 +1,30 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import { MINI_APP_STATUS_POLL_INTERVAL_MS } from "../../../consts/miniApp";
 import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
   MiniAppLanguage,
+  MiniAppMoodMutationResult,
+  MiniAppMoodView,
   MiniAppStatusView,
 } from "../../../types/miniApp";
-import { RefreshSvgIcon, StatusSvgIcon } from "../../miniAppResoures";
-import { fetchMiniAppStatus } from "../api";
-import { formatMemoryMb, formatTime, formatUptime } from "../formatters";
+import {
+  ChevronDownSvgIcon,
+  RefreshSvgIcon,
+  StatusSvgIcon,
+} from "../../miniAppResoures";
+import {
+  fetchMiniAppMood,
+  fetchMiniAppStatus,
+  switchMiniAppMood,
+} from "../api";
+import {
+  formatMemoryMb,
+  formatTime,
+  formatUptime,
+  waitMinimumLoadingDuration,
+} from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -25,17 +40,329 @@ export interface StatusTabProps {
   readonly onToast: (message: string) => void;
 }
 
+/** `renderStatusSnapshot` 渲染函数的参数。 */
+export interface RenderStatusSnapshotOptions {
+  /** 实时运行状态快照。 */
+  readonly status: Readonly<MiniAppStatusView>;
+  /** 当前语言翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+  /** 各子系统折叠面板的展开状态表（默认全部收起）。 */
+  readonly expandedCapKeys: Readonly<Record<string, boolean>>;
+  /** 切换指定子系统面板展开/收起的回调。 */
+  readonly onToggleCapability: (capKey: string) => void;
+  /** 当前全局生效的 AI 情绪名（未激活或不可用时为 `null`）。 */
+  readonly currentMood: string | null;
+  /** 是否正在请求切换全局 AI 情绪。 */
+  readonly switchingMood: boolean;
+  /** 点击「切换情绪」按钮的回调。 */
+  readonly onSwitchMood: () => void;
+}
+
+/** 支持读取内容总高度的折叠面板 DOM 节点最小类型接口。 */
+interface MeasurableCollapseElement {
+  /** 元素内容的完整像素高度（不受外层 `height: 0` 裁切影响）。 */
+  readonly scrollHeight?: number;
+}
+
+/** `CapabilityCollapseBody` 折叠动画容器的属性参数。 */
+interface CapabilityCollapseBodyProps {
+  /** 当前面板是否处于展开状态。 */
+  readonly expanded: boolean;
+  /** 面板内部渲染内容。 */
+  readonly children: React.ReactNode;
+}
+
 /**
- * 渲染已加载完成的实时状态卡片与子系统就绪看板。
+ * 基于真实像素高度（`0px <-> scrollHeight`）平滑过渡的子系统折叠面板容器。
  *
- * @param status 实时运行状态快照
- * @param t 当前语言翻译字典
+ * @param props 展开状态与子节点
  * @returns React 节点
  */
-function renderStatusSnapshot(
-  status: Readonly<MiniAppStatusView>,
-  t: Readonly<MiniAppTranslations>
-): React.JSX.Element {
+function CapabilityCollapseBody({
+  expanded,
+  children,
+}: CapabilityCollapseBodyProps): React.JSX.Element {
+  const bodyRef: React.RefObject<MeasurableCollapseElement | null> =
+    useRef<MeasurableCollapseElement | null>(null);
+  const [measuredHeight, setMeasuredHeight]: [
+    number,
+    React.Dispatch<React.SetStateAction<number>>
+  ] = useState<number>(0);
+
+  useEffect((): void => {
+    const nextHeight: number = bodyRef.current?.scrollHeight ?? 0;
+    if (nextHeight > 0 && nextHeight !== measuredHeight) {
+      setMeasuredHeight(nextHeight);
+    }
+  });
+
+  const liveHeight: number = bodyRef.current?.scrollHeight ?? measuredHeight;
+  const targetHeightCss: string =
+    expanded ? (liveHeight > 0 ? `${liveHeight}px` : "auto") : "0px";
+
+  return (
+    <div
+      className={`cap-collapse-wrap ${expanded ? "expanded" : ""}`}
+      style={{ height: targetHeightCss }}
+      aria-hidden={!expanded}
+    >
+      <div
+        ref={(el: MeasurableCollapseElement | null): void => {
+          bodyRef.current = el;
+          const h: number = el?.scrollHeight ?? 0;
+          if (h > 0 && h !== measuredHeight) {
+            setMeasuredHeight(h);
+          }
+        }}
+        className="cap-body"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const SKELETON_CAPABILITY_INDICES: readonly number[] = [0, 1, 2, 3, 4, 5];
+const SKELETON_MEMORY_INDICES: readonly number[] = [0, 1, 2];
+
+/**
+ * 渲染实时状态页专属骨架屏（1:1 对应顶部 5 项指标卡、CPU 环形图、全宽三栏内存进度卡与 6 项默认收起的能力折叠行）。
+ *
+ * @returns React 节点
+ */
+function renderStatusSkeleton(): React.JSX.Element {
+  return (
+    <div className="skeleton-detail-wrap" aria-busy="true">
+      <div className="card">
+        <div className="skeleton-row-between">
+          <div
+            className="skeleton-line skeleton-title-bar"
+            style={{ width: "36%" }}
+          />
+          <div
+            className="skeleton-line skeleton-badge-pill"
+            style={{ width: "86px" }}
+          />
+        </div>
+        <div className="grid-2">
+          <div className="stat-box">
+            <div
+              className="skeleton-line"
+              style={{ width: "52%", height: "11px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "68%", height: "20px", borderRadius: "6px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "60%", height: "10px" }}
+            />
+          </div>
+          <div className="stat-box stat-box-cpu">
+            <div className="stat-cpu-row">
+              <div className="stat-cpu-main">
+                <div
+                  className="skeleton-line"
+                  style={{ width: "58%", height: "11px" }}
+                />
+                <div
+                  className="skeleton-line"
+                  style={{ width: "64%", height: "20px", borderRadius: "6px" }}
+                />
+                <div
+                  className="skeleton-line"
+                  style={{ width: "74%", height: "10px" }}
+                />
+              </div>
+              <div className="skeleton-line skeleton-cpu-ring" />
+            </div>
+          </div>
+          <div className="stat-box">
+            <div
+              className="skeleton-line"
+              style={{ width: "56%", height: "11px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "42%", height: "20px", borderRadius: "6px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "72%", height: "10px" }}
+            />
+          </div>
+          <div className="stat-box">
+            <div
+              className="skeleton-line"
+              style={{ width: "54%", height: "11px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "38%", height: "20px", borderRadius: "6px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "82%", height: "10px" }}
+            />
+          </div>
+          <div className="stat-box stat-box-outbound">
+            <div className="stat-outbound-head">
+              <div
+                className="skeleton-line"
+                style={{ width: "58%", height: "11px" }}
+              />
+              <div
+                className="skeleton-line skeleton-cmd-pill"
+                style={{ width: "36px" }}
+              />
+            </div>
+            <div
+              className="skeleton-line"
+              style={{ width: "48%", height: "20px", borderRadius: "6px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "100%", height: "6px" }}
+            />
+            <div
+              className="skeleton-line"
+              style={{ width: "76%", height: "10px" }}
+            />
+          </div>
+          <div className="stat-box stat-box-memory">
+            <div className="memory-metrics-row">
+              {SKELETON_MEMORY_INDICES.map(
+                (idx: number): React.JSX.Element => (
+                  <div key={idx} className="memory-metric-card">
+                    <div
+                      className="skeleton-line"
+                      style={{ width: "56%", height: "10px" }}
+                    />
+                    <div
+                      className="skeleton-line"
+                      style={{
+                        width: "74%",
+                        height: "15px",
+                        borderRadius: "5px",
+                      }}
+                    />
+                  </div>
+                )
+              )}
+            </div>
+            <div className="memory-bar-section">
+              <div
+                className="skeleton-line"
+                style={{ width: "100%", height: "10px" }}
+              />
+              <div className="memory-legend-grid">
+                {SKELETON_MEMORY_INDICES.map(
+                  (idx: number): React.JSX.Element => (
+                    <div key={idx} className="memory-legend-item">
+                      <div
+                        className="skeleton-line"
+                        style={{
+                          width: "7px",
+                          height: "7px",
+                          borderRadius: "50%",
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div
+                        className="skeleton-line"
+                        style={{ width: "44%", height: "10px" }}
+                      />
+                      <div
+                        className="skeleton-line"
+                        style={{
+                          width: "36%",
+                          height: "10px",
+                          marginLeft: "auto",
+                        }}
+                      />
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">
+          <div
+            className="skeleton-line skeleton-section-bar"
+            style={{ width: "46%", marginBottom: 0 }}
+          />
+        </div>
+        <div className="cap-list">
+          {SKELETON_CAPABILITY_INDICES.map(
+            (idx: number): React.JSX.Element => (
+              <div key={idx} className="cap-block skeleton-cap-row">
+                <div className="cap-header-main">
+                  <div
+                    className="skeleton-line"
+                    style={{
+                      width: "8px",
+                      height: "8px",
+                      borderRadius: "50%",
+                      flexShrink: 0,
+                    }}
+                  />
+                  <div
+                    className="skeleton-line"
+                    style={{
+                      width: `${idx % 2 === 0 ? 44 : 54}%`,
+                      height: "13px",
+                      borderRadius: "5px",
+                    }}
+                  />
+                  <div
+                    className="skeleton-line skeleton-cmd-pill"
+                    style={{ width: "42px" }}
+                  />
+                </div>
+                <div className="cap-header-right">
+                  <div
+                    className="skeleton-line skeleton-badge-pill"
+                    style={{ width: "52px", height: "20px" }}
+                  />
+                  <div
+                    className="skeleton-line"
+                    style={{
+                      width: "24px",
+                      height: "24px",
+                      borderRadius: "7px",
+                      flexShrink: 0,
+                    }}
+                  />
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 渲染已加载完成的实时状态卡片与可折叠子系统就绪看板。
+ *
+ * @param options 状态快照、翻译字典、折叠状态与情绪切换参数
+ * @returns React 节点
+ */
+function renderStatusSnapshot({
+  status,
+  t,
+  expandedCapKeys,
+  onToggleCapability,
+  currentMood,
+  switchingMood,
+  onSwitchMood,
+}: RenderStatusSnapshotOptions): React.JSX.Element {
   const cpuClampedPercent: number = Math.min(
     100,
     Math.max(
@@ -293,48 +620,143 @@ function renderStatusSnapshot(
         </div>
         <div className="cap-list">
           {status.capabilities.map(
-            (capability: Readonly<MiniAppCapabilityStatus>): React.JSX.Element => (
-              <div key={capability.key} className="cap-block">
-                <div className="cap-header">
-                  <span className="cap-title">
-                    {t.status.capabilityLabel(capability)}
-                  </span>
-                  <span className={`badge ${capability.ready ? "ok" : "warn"}`}>
-                    {capability.ready
-                      ? t.status.capabilityReadyBadge
-                      : t.status.capabilityMissingBadge}
-                  </span>
-                </div>
-                <div className="cap-items">
-                  {capability.items.length > 0
-                    ? capability.items.map(
-                      (
-                        item: Readonly<MiniAppCapabilityDetailItem>,
-                        idx: number
-                      ): React.JSX.Element => {
-                        const displayItem: Readonly<MiniAppCapabilityDetailItem> =
-                          t.status.capabilityItem(item);
-                        return (
-                          <div key={`${item.label}-${idx}`} className="cap-item">
-                            <div className="cap-item-top">
-                              <span className="cap-tag">{displayItem.label}</span>
-                              {displayItem.sub !== undefined
-                                ? <span className="cap-sub">{displayItem.sub}</span>
-                                : null}
+            (capability: Readonly<MiniAppCapabilityStatus>): React.JSX.Element => {
+              const isExpanded: boolean = expandedCapKeys[capability.key] === true;
+              const isMoodCap: boolean = capability.key === "mood";
+              return (
+                <div
+                  key={capability.key}
+                  className={`cap-block ${isExpanded ? "expanded" : ""}`}
+                >
+                  <button
+                    type="button"
+                    className="cap-header-btn"
+                    aria-expanded={isExpanded}
+                    onClick={(): void => {
+                      onToggleCapability(capability.key);
+                    }}
+                  >
+                    <div className="cap-header-main">
+                      <span
+                        className={`cap-status-dot ${capability.ready ? "ok" : "warn"}`}
+                        aria-hidden="true"
+                      />
+                      <span className="cap-title">
+                        {t.status.capabilityLabel(capability)}
+                      </span>
+                      {isMoodCap && currentMood !== null
+                        ? (
+                          <span className="cap-summary-pill mood-pill">
+                            {currentMood}
+                          </span>
+                        )
+                        : capability.ready && capability.items.length > 0
+                          ? (
+                            <span className="cap-summary-pill">
+                              {t.status.capabilityItemCount(capability.items.length)}
+                            </span>
+                          )
+                          : null}
+                    </div>
+                    <div className="cap-header-right">
+                      <span className={`badge ${capability.ready ? "ok" : "warn"}`}>
+                        {capability.ready
+                          ? t.status.capabilityReadyBadge
+                          : t.status.capabilityMissingBadge}
+                      </span>
+                      <span
+                        className={`cap-chevron-pill ${isExpanded ? "expanded" : ""}`}
+                        aria-hidden="true"
+                      >
+                        <ChevronDownSvgIcon
+                          size={14}
+                          className={`chevron-icon ${isExpanded ? "rotated" : ""}`}
+                        />
+                      </span>
+                    </div>
+                  </button>
+                  <CapabilityCollapseBody expanded={isExpanded}>
+                    {isMoodCap
+                      ? (
+                        <div className="mood-current-panel">
+                          <div className="mood-current-info">
+                            <span className="mood-current-label">
+                              {t.status.moodCurrentLabel}
+                            </span>
+                            <div className="mood-current-val-row">
+                              <span
+                                className={`mood-live-dot ${currentMood !== null ? "active" : ""}`}
+                                aria-hidden="true"
+                              />
+                              <span className="mood-current-name">
+                                {currentMood ?? t.status.moodUnavailableText}
+                              </span>
                             </div>
-                            <div className="cap-val">{displayItem.value}</div>
                           </div>
-                        );
-                      }
-                    )
-                    : (
-                      <div className="cap-item">
-                        <div className="cap-val">{capability.detail}</div>
-                      </div>
-                    )}
+                          <button
+                            type="button"
+                            className="btn primary mood-switch-btn"
+                            disabled={switchingMood || !capability.ready}
+                            onClick={onSwitchMood}
+                          >
+                            <RefreshSvgIcon
+                              size={13}
+                              className={switchingMood ? "spin-icon" : ""}
+                            />
+                            <span>
+                              {switchingMood
+                                ? t.status.moodSwitchingButton
+                                : t.status.moodSwitchButton}
+                            </span>
+                          </button>
+                        </div>
+                      )
+                      : null}
+                    <div className={`cap-items ${isMoodCap ? "mood-pool-grid" : ""}`}>
+                      {capability.items.length > 0
+                        ? capability.items.map(
+                          (
+                            item: Readonly<MiniAppCapabilityDetailItem>,
+                            idx: number
+                          ): React.JSX.Element => {
+                            const displayItem: Readonly<MiniAppCapabilityDetailItem> =
+                              t.status.capabilityItem(item);
+                            const isActiveMood: boolean =
+                              isMoodCap &&
+                              currentMood !== null &&
+                              item.label === currentMood;
+                            return (
+                              <div
+                                key={`${item.label}-${idx}`}
+                                className={`cap-item ${isActiveMood ? "active-mood" : ""}`}
+                              >
+                                <div className="cap-item-top">
+                                  <span className="cap-tag">{displayItem.label}</span>
+                                  {isActiveMood
+                                    ? (
+                                      <span className="cap-active-pill">
+                                        {t.status.moodCurrentActiveBadge}
+                                      </span>
+                                    )
+                                    : displayItem.sub !== undefined
+                                      ? <span className="cap-sub">{displayItem.sub}</span>
+                                      : null}
+                                </div>
+                                <div className="cap-val">{displayItem.value}</div>
+                              </div>
+                            );
+                          }
+                        )
+                        : (
+                          <div className="cap-item">
+                            <div className="cap-val">{capability.detail}</div>
+                          </div>
+                        )}
+                    </div>
+                  </CapabilityCollapseBody>
                 </div>
-              </div>
-            )
+              );
+            }
           )}
         </div>
       </div>
@@ -365,7 +787,7 @@ export function StatusTab({
   const [loading, setLoading]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(initialStatus === null);
+  ] = useState<boolean>(true);
   const [refreshing, setRefreshing]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
@@ -374,40 +796,115 @@ export function StatusTab({
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
   ] = useState<string | null>(null);
+  const [expandedCapKeys, setExpandedCapKeys]: [
+    Readonly<Record<string, boolean>>,
+    React.Dispatch<React.SetStateAction<Readonly<Record<string, boolean>>>>
+  ] = useState<Readonly<Record<string, boolean>>>({});
+  const [currentMood, setCurrentMood]: [
+    string | null,
+    React.Dispatch<React.SetStateAction<string | null>>
+  ] = useState<string | null>(null);
+  const [switchingMood, setSwitchingMood]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(false);
+  const hasSnapshotRef: React.RefObject<boolean> = useRef<boolean>(false);
+  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
+
+  const loadMood: () => Promise<void> = useCallback(async (): Promise<void> => {
+    try {
+      const moodView: MiniAppMoodView = await fetchMiniAppMood();
+      if (moodView.available && moodView.currentMood !== null) {
+        setCurrentMood(moodView.currentMood);
+      } else {
+        setCurrentMood(null);
+      }
+    } catch (_error: unknown) {
+      // 情绪查询异常不阻塞主状态看板
+    }
+  }, []);
 
   const loadStatus: (showErrorToast: boolean) => Promise<void> = useCallback(
     async (showErrorToast: boolean): Promise<void> => {
+      const reqId: number = ++requestSeqRef.current;
+      const startedAt: number = Date.now();
+      const shouldWaitMin: boolean = showErrorToast || !hasSnapshotRef.current;
       if (showErrorToast) {
         setRefreshing(true);
+        void loadMood();
       }
       try {
         const next: MiniAppStatusView = await fetchMiniAppStatus();
+        if (shouldWaitMin) {
+          await waitMinimumLoadingDuration(startedAt);
+        }
+        if (reqId !== requestSeqRef.current) {
+          return;
+        }
+        hasSnapshotRef.current = true;
         setStatus(next);
         setErrorText(null);
         onStatusLoaded(next);
       } catch (error: unknown) {
+        if (shouldWaitMin) {
+          await waitMinimumLoadingDuration(startedAt);
+        }
+        if (reqId !== requestSeqRef.current) {
+          return;
+        }
         const message: string = error instanceof Error ? error.message : String(error);
         setErrorText(message);
         if (showErrorToast) {
           onToast(message);
         }
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (reqId === requestSeqRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
-    [onStatusLoaded, onToast]
+    [loadMood, onStatusLoaded, onToast]
   );
+
+  const handleToggleCapability: (capKey: string) => void = useCallback(
+    (capKey: string): void => {
+      setExpandedCapKeys(
+        (prev: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>> => ({
+          ...prev,
+          [capKey]: prev[capKey] !== true,
+        })
+      );
+    },
+    []
+  );
+
+  const handleSwitchMood: () => Promise<void> = useCallback(async (): Promise<void> => {
+    setSwitchingMood(true);
+    try {
+      const result: MiniAppMoodMutationResult = await switchMiniAppMood();
+      if (result.ok && result.currentMood !== null) {
+        setCurrentMood(result.currentMood);
+      }
+      onToast(result.message);
+    } catch (error: unknown) {
+      const message: string = error instanceof Error ? error.message : String(error);
+      onToast(message);
+    } finally {
+      setSwitchingMood(false);
+    }
+  }, [onToast]);
 
   useEffect((): (() => void) => {
     void loadStatus(false);
+    void loadMood();
     const timer: ReturnType<typeof setInterval> = setInterval((): void => {
       void loadStatus(false);
     }, MINI_APP_STATUS_POLL_INTERVAL_MS);
     return (): void => {
       clearInterval(timer);
     };
-  }, [loadStatus]);
+  }, [loadMood, loadStatus]);
 
   return (
     <section className="animate-fade-in">
@@ -417,7 +914,7 @@ export function StatusTab({
             <StatusSvgIcon size={15} className="pulse-icon" />
           </span>
           <span>
-            {status !== null
+            {!loading && !refreshing && status !== null
               ? t.status.updatedAtSub(formatTime(status.generatedAt))
               : t.status.loadingText}
           </span>
@@ -425,32 +922,22 @@ export function StatusTab({
         <button
           type="button"
           className="btn icon-btn"
-          disabled={refreshing}
+          disabled={loading || refreshing}
           onClick={(): void => {
             void loadStatus(true);
           }}
         >
-          <RefreshSvgIcon size={14} className={refreshing ? "spin-icon" : ""} />
+          <RefreshSvgIcon
+            size={14}
+            className={loading || refreshing ? "spin-icon" : ""}
+          />
           <span>{t.chats.refreshButton}</span>
         </button>
       </div>
 
-      {loading && status === null
-        ? (
-          <div className="card loading-box">
-            <div className="spinner-ring" />
-            <div className="loading-text">{t.status.loadingText}</div>
-            <div className="skeleton-grid">
-              <div className="skeleton-card"><div className="skeleton-line medium" /><div className="skeleton-line wide" /></div>
-              <div className="skeleton-card"><div className="skeleton-line medium" /><div className="skeleton-line wide" /></div>
-              <div className="skeleton-card"><div className="skeleton-line medium" /><div className="skeleton-line wide" /></div>
-              <div className="skeleton-card"><div className="skeleton-line medium" /><div className="skeleton-line wide" /></div>
-            </div>
-          </div>
-        )
-        : null}
+      {loading || refreshing ? renderStatusSkeleton() : null}
 
-      {errorText !== null && status === null
+      {!loading && !refreshing && errorText !== null && status === null
         ? (
           <div className="card">
             <div className="empty danger-text">{errorText}</div>
@@ -458,7 +945,23 @@ export function StatusTab({
         )
         : null}
 
-      {status !== null ? renderStatusSnapshot(status, t) : null}
+      {!loading && !refreshing && status !== null
+        ? (
+          <div className="animate-fade-in">
+            {renderStatusSnapshot({
+              status,
+              t,
+              expandedCapKeys,
+              onToggleCapability: handleToggleCapability,
+              currentMood,
+              switchingMood,
+              onSwitchMood: (): void => {
+                void handleSwitchMood();
+              },
+            })}
+          </div>
+        )
+        : null}
     </section>
   );
 }

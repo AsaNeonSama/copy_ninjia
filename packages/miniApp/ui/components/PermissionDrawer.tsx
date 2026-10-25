@@ -79,15 +79,15 @@ export function PermissionDrawer({
 
   return (
     <div className="perm-drawer-inline animate-fade-in">
-      <div className="card-title">
-        <div>
+      <div className="card-title perm-drawer-head">
+        <div className="perm-drawer-title-wrap">
           <div className="identity-title-row">
             <bdi
               className="identity-name"
               title={sanitizeBidiText(entry.displayName)}
             >
               {t.permissionDrawer.title(
-                truncateDisplayText(entry.displayName, 16)
+                truncateDisplayText(entry.displayName, 12)
               )}
             </bdi>
             <span
@@ -100,11 +100,11 @@ export function PermissionDrawer({
                 : t.identities.userBadge}
             </span>
           </div>
-          <div className="row-sub">
+          <div className="row-sub identity-sub-row">
             {t.permissionDrawer.subtitle(entry.id, entry.isChannel)}
           </div>
         </div>
-        <div className="toolbar-actions">
+        <div className="toolbar-actions identity-row-actions">
           <button
             type="button"
             className="btn primary"
@@ -129,9 +129,10 @@ export function PermissionDrawer({
             descriptors.find(
               (item: Readonly<MiniAppPermissionDescriptor>): boolean => item.key === key
             );
+          const permLabel: string = getPermissionDisplayLabel(key, language);
           return (
-            <div key={key} className="perm-chip" title={descriptor?.description ?? ""}>
-              <span>{getPermissionDisplayLabel(key, language)}</span>
+            <div key={key} className="perm-chip" title={descriptor?.description ?? permLabel}>
+              <span className="perm-chip-label">{permLabel}</span>
               <label className="switch">
                 <input
                   type="checkbox"

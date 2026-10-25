@@ -36,10 +36,10 @@ export const MINI_APP_PORT_MAX: number = 65_535;
 export const MINI_APP_WEB_APP_DATA_SECRET_SEED: string = "WebAppData";
 
 /**
- * Telegram WebApp `initData` 中 `auth_date` 允许的最大有效秒数（90 分钟，与密码认证会话窗口对齐）。
+ * Telegram WebApp `initData` 中 `auth_date` 允许的最大有效秒数（45 分钟，与密码认证会话窗口对齐）。
  * 不变量：正整数秒数，超出视为过期凭据拒绝访问。所属模块：`packages/libs/miniAppAuth.ts`。
  */
-export const MINI_APP_AUTH_MAX_AGE_SECONDS: number = 5_400;
+export const MINI_APP_AUTH_MAX_AGE_SECONDS: number = 2_700;
 
 /**
  * Telegram WebApp `initData` 校验 `auth_date` 时允许的未来时钟偏移容差秒数（5 分钟）。
@@ -98,10 +98,17 @@ export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
 /**
- * Mini App 访问密码认证会话的有效期毫秒数（90 分钟）。
+ * Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。
  * 不变量：到期后必须重新输入密码完成认证。所属模块：`packages/miniApp/http/common.ts`。
  */
-export const MINI_APP_SESSION_TTL_MS: number = 90 * MINUTE_MS;
+export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
+
+/**
+ * Mini App 在浏览器 `localStorage` / `sessionStorage` 中持久化 45 分钟认证会话凭据的存储键名。
+ * 不变量：仅在 Mini App 客户端 WebView 环境内持久化 `{ token, expiresAt, assetToken }`，过期或主动锁定时立即清除。所属模块：`packages/miniApp/ui/api.ts`。
+ */
+export const MINI_APP_SESSION_STORAGE_KEY: string =
+  "copy_ninja_mini_app_session_v1";
 
 /**
  * 超级管理员 ID 连续输错 Mini App 访问密码允许的最大次数（3 次机会）。
@@ -360,6 +367,12 @@ export const MINI_APP_PICKER_POLL_MAX_ATTEMPTS: number = 25;
  * 不变量：正整数毫秒数。所属模块：`packages/miniApp/ui/App.tsx`。
  */
 export const MINI_APP_TOAST_DURATION_MS: number = 2_600;
+
+/**
+ * Mini App 页面加载、列表刷新与图库骨架屏的最短动画展示毫秒数（0.26 秒，保证闪光骨架与过渡动画完整平滑呈现）。
+ * 不变量：正整数毫秒数。所属模块：`packages/miniApp/ui/formatters.ts`。
+ */
+export const MINI_APP_MIN_LOADING_MS: number = 260;
 
 /**
  * 超级管理员私聊左下角 `MenuButtonWebApp` 的显示文字。

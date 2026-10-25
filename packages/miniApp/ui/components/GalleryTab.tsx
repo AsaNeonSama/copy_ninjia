@@ -31,6 +31,7 @@ import {
   formatGalleryFileSize,
   shortenGalleryFileName,
   truncateDisplayText,
+  waitMinimumLoadingDuration,
 } from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -67,6 +68,14 @@ interface BlurTargetElement {
   readonly blur?: () => void;
 }
 
+/** 支持缓存完成态探测的 `<img>` DOM 节点最小类型接口。 */
+interface ProbeableImageElement {
+  /** 浏览器是否已完成该图片加载或解码（含内存缓存命中）。 */
+  readonly complete?: boolean;
+  /** 当前绑定的图片资源地址。 */
+  readonly src?: string;
+}
+
 /**
  * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理组件。
  *
@@ -101,7 +110,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
   const [loading, setLoading]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
+  ] = useState<boolean>(true);
   const [uploading, setUploading]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
@@ -128,11 +137,34 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     Readonly<MiniAppGalleryItem> | null,
     React.Dispatch<React.SetStateAction<Readonly<MiniAppGalleryItem> | null>>
   ] = useState<Readonly<MiniAppGalleryItem> | null>(null);
+  const [loadedImages, setLoadedImages]: [
+    Readonly<Record<string, boolean>>,
+    React.Dispatch<React.SetStateAction<Readonly<Record<string, boolean>>>>
+  ] = useState<Readonly<Record<string, boolean>>>({});
+  const [batchEpoch, setBatchEpoch]: [
+    number,
+    React.Dispatch<React.SetStateAction<number>>
+  ] = useState<number>(0);
+  const [previewLoaded, setPreviewLoaded]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(false);
+  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
+  const batchEpochRef: React.RefObject<number> = useRef<number>(0);
+  const pendingThumbKeysRef: React.RefObject<Set<string>> = useRef<Set<string>>(
+    new Set<string>()
+  );
+  const previewEpochRef: React.RefObject<number> = useRef<number>(0);
+  const pageRenderAtRef: React.RefObject<number> = useRef<number>(Date.now());
+  const previewRenderAtRef: React.RefObject<number> = useRef<number>(Date.now());
   const previewCardRef: React.RefObject<ScrollablePreviewElement | null> =
     useRef<ScrollablePreviewElement | null>(null);
 
   useEffect((): void => {
     if (previewItem !== null) {
+      previewEpochRef.current += 1;
+      previewRenderAtRef.current = Date.now();
+      setPreviewLoaded(false);
       previewCardRef.current?.scrollIntoView?.({
         behavior: "smooth",
         block: "start",
@@ -140,25 +172,74 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     }
   }, [previewItem]);
 
+  const markThumbLoaded = (fileName: string, epoch: number): void => {
+    if (batchEpochRef.current !== epoch) {
+      return;
+    }
+    const pendingKey: string = `${epoch}:${fileName}`;
+    if (pendingThumbKeysRef.current.has(pendingKey)) {
+      return;
+    }
+    pendingThumbKeysRef.current.add(pendingKey);
+    void (async (): Promise<void> => {
+      await waitMinimumLoadingDuration(pageRenderAtRef.current);
+      if (batchEpochRef.current !== epoch) {
+        return;
+      }
+      setLoadedImages(
+        (prev: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>> =>
+          prev[fileName] === true ? prev : { ...prev, [fileName]: true }
+      );
+    })();
+  };
+
+  const markPreviewLoaded = (epoch: number): void => {
+    if (previewEpochRef.current !== epoch) {
+      return;
+    }
+    void (async (): Promise<void> => {
+      await waitMinimumLoadingDuration(previewRenderAtRef.current);
+      if (previewEpochRef.current !== epoch) {
+        return;
+      }
+      setPreviewLoaded(true);
+    })();
+  };
+
   const loadGallery: (targetPage?: number, targetPageSize?: number) => Promise<void> =
     useCallback(
       async (targetPage?: number, targetPageSize?: number): Promise<void> => {
         const reqPage: number = targetPage ?? page;
         const reqSize: number = targetPageSize ?? pageSize;
+        const reqId: number = ++requestSeqRef.current;
         setLoading(true);
         try {
           const result: MiniAppGalleryPage = await fetchMiniAppGallery(
             reqPage,
             reqSize
           );
+          if (reqId !== requestSeqRef.current) {
+            return;
+          }
+          const nextEpoch: number = batchEpochRef.current + 1;
+          batchEpochRef.current = nextEpoch;
+          pendingThumbKeysRef.current.clear();
+          pageRenderAtRef.current = Date.now();
+          setBatchEpoch(nextEpoch);
+          setLoadedImages({});
           setGalleryPage(result);
           setPage(result.page);
         } catch (error: unknown) {
+          if (reqId !== requestSeqRef.current) {
+            return;
+          }
           const message: string =
             error instanceof Error ? error.message : String(error);
           onToast(message);
         } finally {
-          setLoading(false);
+          if (reqId === requestSeqRef.current) {
+            setLoading(false);
+          }
         }
       },
       [onToast, page, pageSize]
@@ -372,59 +453,51 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
             className="card gallery-preview-card animate-fade-in"
           >
             <div className="card-title">
-              <span className="gallery-preview-title" title={previewItem.fileName}>
-                {t.gallery.previewTitle(shortenGalleryFileName(previewItem.fileName))}
+              <span className="toolbar-hint" style={{ minWidth: 0, flex: 1 }}>
+                <span className="toolbar-icon-badge">
+                  <GallerySvgIcon size={15} />
+                </span>
+                <span className="gallery-preview-title" title={previewItem.fileName}>
+                  {t.gallery.previewTitle(shortenGalleryFileName(previewItem.fileName))}
+                </span>
               </span>
-              <div className="toolbar-actions">
-                <button
-                  type="button"
-                  className="btn primary icon-btn"
-                  disabled={downloadingFileName !== null || deletingFileName !== null}
-                  onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                    (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                    void handleDownloadImage(previewItem.fileName);
-                  }}
-                >
-                  <DownloadSvgIcon size={14} />
-                  <span>
-                    {downloadingFileName === previewItem.fileName
-                      ? t.gallery.downloadingButton
-                      : t.gallery.downloadButton}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="btn danger icon-btn"
-                  disabled={deletingFileName !== null || downloadingFileName !== null}
-                  onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                    (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                    void handleDeleteImage(previewItem.fileName);
-                  }}
-                >
-                  <TrashSvgIcon size={14} />
-                  <span>
-                    {deletingFileName === previewItem.fileName
-                      ? t.gallery.deletingButton
-                      : t.gallery.deleteButton}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="btn icon-btn"
-                  onClick={(): void => {
-                    setPreviewItem(null);
-                  }}
-                >
-                  <CloseSvgIcon size={14} />
-                  <span>{t.gallery.closePreviewButton}</span>
-                </button>
-              </div>
+              <span className="badge">{formatGalleryFileSize(previewItem.sizeBytes)}</span>
             </div>
-            <div className="gallery-preview-img-wrap">
+            <div
+              className={`gallery-preview-img-wrap ${previewLoaded ? "loaded" : "loading"}`}
+            >
+              {!previewLoaded
+                ? (
+                  <div
+                    className="gallery-img-skeleton preview-skeleton"
+                    aria-hidden="true"
+                  >
+                    <GallerySvgIcon size={28} className="gallery-skeleton-icon" />
+                  </div>
+                )
+                : null}
               <img
-                className="gallery-preview-img"
+                key={previewItem.fileName}
+                ref={(imgEl: ProbeableImageElement | null): void => {
+                  if (
+                    imgEl !== null &&
+                    typeof imgEl.src === "string" &&
+                    imgEl.src.length > 0 &&
+                    imgEl.complete === true
+                  ) {
+                    markPreviewLoaded(previewEpochRef.current);
+                  }
+                }}
+                className={`gallery-preview-img ${previewLoaded ? "loaded" : "loading"}`}
                 src={buildMiniAppGalleryImageUrl(previewItem.fileName)}
                 alt={previewItem.fileName}
+                decoding="async"
+                onLoad={(): void => {
+                  markPreviewLoaded(previewEpochRef.current);
+                }}
+                onError={(): void => {
+                  markPreviewLoaded(previewEpochRef.current);
+                }}
               />
             </div>
             <div className="cap-items" style={{ marginTop: "8px" }}>
@@ -444,114 +517,174 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                 <div className="cap-sub">{previewItem.updatedAt}</div>
               </div>
             </div>
+            <div className="gallery-preview-actions">
+              <button
+                type="button"
+                className="btn primary icon-btn"
+                disabled={downloadingFileName !== null || deletingFileName !== null}
+                onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                  (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                  void handleDownloadImage(previewItem.fileName);
+                }}
+              >
+                <DownloadSvgIcon size={14} />
+                <span>
+                  {downloadingFileName === previewItem.fileName
+                    ? t.gallery.downloadingButton
+                    : t.gallery.downloadButton}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn danger icon-btn"
+                disabled={deletingFileName !== null || downloadingFileName !== null}
+                onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                  (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                  void handleDeleteImage(previewItem.fileName);
+                }}
+              >
+                <TrashSvgIcon size={14} />
+                <span>
+                  {deletingFileName === previewItem.fileName
+                    ? t.gallery.deletingButton
+                    : t.gallery.deleteButton}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn icon-btn"
+                onClick={(): void => {
+                  setPreviewItem(null);
+                }}
+              >
+                <CloseSvgIcon size={14} />
+                <span>{t.gallery.closePreviewButton}</span>
+              </button>
+            </div>
           </div>
         )
         : null}
 
-      <div className="card">
-        {galleryPage === null
-          ? (
-            <div className="loading-box">
-              <div className="spinner-ring" />
-              <div className="loading-text">{t.gallery.loadingText}</div>
-              <div className="skeleton-stack">
-                <div className="skeleton-line wide" />
-                <div className="skeleton-line medium" />
-              </div>
-            </div>
-          )
-          : !galleryPage.exists
-            ? <div className="empty">{t.gallery.emptyMissingDirHint}</div>
-            : galleryPage.items.length === 0
-              ? <div className="empty">{t.gallery.emptyGalleryHint}</div>
-              : (
-                <div className="gallery-grid">
-                  {galleryPage.items.map((item: Readonly<MiniAppGalleryItem>): React.JSX.Element => {
-                    const isSelected: boolean =
-                      previewItem?.fileName === item.fileName;
-                    const isDeleting: boolean =
-                      deletingFileName === item.fileName;
-                    const isDownloading: boolean =
-                      downloadingFileName === item.fileName;
-                    return (
-                      <div
-                        key={item.fileName}
-                        className={`gallery-card ${isSelected ? "selected" : ""}`}
-                        onClick={(): void => {
-                          setPreviewItem(isSelected ? null : item);
-                        }}
-                      >
-                        <div className="gallery-thumb-wrap">
-                          <img
-                            className="gallery-thumb"
-                            src={buildMiniAppGalleryImageUrl(item.fileName)}
-                            alt={item.fileName}
-                            loading="lazy"
-                          />
-                          <button
-                            type="button"
-                            className={`gallery-card-download-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
-                            title={t.gallery.downloadButton}
-                            aria-label={t.gallery.downloadButton}
-                            disabled={downloadingFileName !== null || deletingFileName !== null}
-                            onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                              clearHoverSuppressionOnMove(item.fileName, event);
-                            }}
-                            onMouseLeave={(): void => {
-                              clearHoverSuppressionOnLeave(item.fileName);
-                            }}
-                            onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                              event.stopPropagation();
-                              clickCoordsRef.current = { x: event.clientX, y: event.clientY };
-                              (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                              void handleDownloadImage(item.fileName);
-                            }}
+      {galleryPage !== null
+        ? (
+          <div className="card animate-fade-in">
+            {!galleryPage.exists
+              ? <div className="empty">{t.gallery.emptyMissingDirHint}</div>
+              : galleryPage.items.length === 0
+                ? <div className="empty">{t.gallery.emptyGalleryHint}</div>
+                : (
+                  <div className="gallery-grid">
+                    {galleryPage.items.map((item: Readonly<MiniAppGalleryItem>): React.JSX.Element => {
+                      const isSelected: boolean =
+                        previewItem?.fileName === item.fileName;
+                      const isDeleting: boolean =
+                        deletingFileName === item.fileName;
+                      const isDownloading: boolean =
+                        downloadingFileName === item.fileName;
+                      const isImgLoaded: boolean =
+                        loadedImages[item.fileName] === true;
+                      return (
+                        <div
+                          key={`${batchEpoch}:${item.fileName}`}
+                          className={`gallery-card ${isSelected ? "selected" : ""}`}
+                          onClick={(): void => {
+                            setPreviewItem(isSelected ? null : item);
+                          }}
+                        >
+                          <div
+                            className={`gallery-thumb-wrap ${isImgLoaded ? "loaded" : "loading"}`}
                           >
-                            <DownloadSvgIcon size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            className={`gallery-card-delete-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
-                            title={t.gallery.deleteButton}
-                            aria-label={t.gallery.deleteButton}
-                            disabled={deletingFileName !== null || downloadingFileName !== null}
-                            onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                              clearHoverSuppressionOnMove(item.fileName, event);
-                            }}
-                            onMouseLeave={(): void => {
-                              clearHoverSuppressionOnLeave(item.fileName);
-                            }}
-                            onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                              event.stopPropagation();
-                              clickCoordsRef.current = { x: event.clientX, y: event.clientY };
-                              (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                              void handleDeleteImage(item.fileName);
-                            }}
-                          >
-                            <TrashSvgIcon size={13} />
-                          </button>
-                        </div>
-                        <div className="gallery-meta">
-                          <div className="gallery-name" title={item.fileName}>
-                            {isDeleting
-                              ? t.gallery.deletingButton
-                              : isDownloading
-                                ? t.gallery.downloadingButton
-                                : shortenGalleryFileName(item.fileName)}
+                            {!isImgLoaded
+                              ? (
+                                <div className="gallery-img-skeleton" aria-hidden="true">
+                                  <GallerySvgIcon size={22} className="gallery-skeleton-icon" />
+                                </div>
+                              )
+                              : null}
+                            <img
+                              ref={(imgEl: ProbeableImageElement | null): void => {
+                                if (
+                                  imgEl !== null &&
+                                  typeof imgEl.src === "string" &&
+                                  imgEl.src.length > 0 &&
+                                  imgEl.complete === true
+                                ) {
+                                  markThumbLoaded(item.fileName, batchEpoch);
+                                }
+                              }}
+                              className={`gallery-thumb ${isImgLoaded ? "loaded" : "loading"}`}
+                              src={buildMiniAppGalleryImageUrl(item.fileName)}
+                              alt={item.fileName}
+                              decoding="async"
+                              onLoad={(): void => {
+                                markThumbLoaded(item.fileName, batchEpoch);
+                              }}
+                              onError={(): void => {
+                                markThumbLoaded(item.fileName, batchEpoch);
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className={`gallery-card-download-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
+                              title={t.gallery.downloadButton}
+                              aria-label={t.gallery.downloadButton}
+                              disabled={downloadingFileName !== null || deletingFileName !== null}
+                              onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                                clearHoverSuppressionOnMove(item.fileName, event);
+                              }}
+                              onMouseLeave={(): void => {
+                                clearHoverSuppressionOnLeave(item.fileName);
+                              }}
+                              onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                                event.stopPropagation();
+                                clickCoordsRef.current = { x: event.clientX, y: event.clientY };
+                                (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                                void handleDownloadImage(item.fileName);
+                              }}
+                            >
+                              <DownloadSvgIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className={`gallery-card-delete-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
+                              title={t.gallery.deleteButton}
+                              aria-label={t.gallery.deleteButton}
+                              disabled={deletingFileName !== null || downloadingFileName !== null}
+                              onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                                clearHoverSuppressionOnMove(item.fileName, event);
+                              }}
+                              onMouseLeave={(): void => {
+                                clearHoverSuppressionOnLeave(item.fileName);
+                              }}
+                              onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                                event.stopPropagation();
+                                clickCoordsRef.current = { x: event.clientX, y: event.clientY };
+                                (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                                void handleDeleteImage(item.fileName);
+                              }}
+                            >
+                              <TrashSvgIcon size={13} />
+                            </button>
                           </div>
-                          <div className="gallery-sub">
-                            <span>{formatGalleryFileSize(item.sizeBytes)}</span>
-                            <span>{item.updatedAt.slice(5, 16)}</span>
+                          <div className="gallery-meta">
+                            <div className="gallery-name" title={item.fileName}>
+                              {isDeleting
+                                ? t.gallery.deletingButton
+                                : isDownloading
+                                  ? t.gallery.downloadingButton
+                                  : shortenGalleryFileName(item.fileName)}
+                            </div>
+                            <div className="gallery-sub">
+                              <span>{formatGalleryFileSize(item.sizeBytes)}</span>
+                              <span>{item.updatedAt.slice(5, 16)}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                )}
 
-        {galleryPage !== null
-          ? (
             <PaginationBar
               page={galleryPage.page}
               totalPages={galleryPage.totalPages}
@@ -570,9 +703,9 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                 setPageSize(nextPageSize);
               }}
             />
-          )
-          : null}
-      </div>
+          </div>
+        )
+        : null}
     </div>
   );
 }

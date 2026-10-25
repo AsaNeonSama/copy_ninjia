@@ -88,7 +88,7 @@ export async function handleGetGalleryFileByName(
 }
 
 /**
- * 处理 `GET|HEAD /api/gallery/download/:fileName`：在前置下载中间件链完成完整双层鉴权（跨站拦截 + 超管 `initData` 签名或资源令牌 + 90 分钟 `session` 会话令牌）后，经文件名安全校验返回带秒级时间戳文件名 `Content-Disposition: attachment` 下载头与 `no-store` 防缓存策略的图片原始二进制流。
+ * 处理 `GET|HEAD /api/gallery/download/:fileName`：在前置下载中间件链完成完整双层鉴权（跨站拦截 + 超管 `initData` 签名或资源令牌 + 45 分钟 `session` 会话令牌）后，经文件名安全校验返回带秒级时间戳文件名 `Content-Disposition: attachment` 下载头与 `no-store` 防缓存策略的图片原始二进制流。
  * @param request HTTP 请求对象。
  * @param rawFileName URL 中的文件名参数。
  * @returns 附件下载图片文件响应或 `404` JSON 响应。

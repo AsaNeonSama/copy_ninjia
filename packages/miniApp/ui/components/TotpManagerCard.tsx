@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import type { MiniAppLanguage } from "../../../types/miniApp";
 import type {
@@ -13,7 +13,7 @@ import {
   fetchMiniAppTotpStatus,
   setupMiniAppTotp,
 } from "../api";
-import { formatTime } from "../formatters";
+import { formatTime, waitMinimumLoadingDuration } from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -56,17 +56,34 @@ export function TotpManagerCard({
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
   ] = useState<boolean>(false);
+  const [loadingStatus, setLoadingStatus]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(true);
+  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
 
   const loadTotpStatus: () => Promise<void> = useCallback(async (): Promise<void> => {
+    const reqId: number = ++requestSeqRef.current;
+    const startedAt: number = Date.now();
+    setLoadingStatus(true);
     try {
       const next: Readonly<MiniAppTotpStatusView> =
         await fetchMiniAppTotpStatus();
+      await waitMinimumLoadingDuration(startedAt);
+      if (reqId !== requestSeqRef.current) {
+        return;
+      }
       setTotpStatus(next);
       useMiniAppStore
         .getState()
         .setAuthMode(next.enabled ? "totp" : "password");
     } catch (_error: unknown) {
+      await waitMinimumLoadingDuration(startedAt);
       // 保持静默，由主状态轮询统一处理网络或会话错误
+    } finally {
+      if (reqId === requestSeqRef.current) {
+        setLoadingStatus(false);
+      }
     }
   }, []);
 
@@ -149,115 +166,137 @@ export function TotpManagerCard({
         <button
           type="button"
           className="btn icon-btn"
-          disabled={busy}
+          disabled={busy || loadingStatus}
           onClick={(): void => {
             void loadTotpStatus();
           }}
         >
-          <RefreshSvgIcon size={14} />
+          <RefreshSvgIcon
+            size={14}
+            className={loadingStatus ? "spin-icon" : ""}
+          />
           <span>{t.chats.refreshButton}</span>
         </button>
       </div>
 
-      <div className="card">
-        <div className="card-title">
-          <span>{t.totp.sectionTitle}</span>
-          <span className={`badge ${enabled ? "ok" : "warn"}`}>
-            {enabled ? t.totp.enabledBadge : t.totp.disabledBadge}
-          </span>
-        </div>
-        <div className="stat-sub" style={{ marginBottom: "10px" }}>
-          {enabled
-            ? t.totp.statusDescEnabled(
-              totpStatus?.maskedSecret ?? "••••",
-              formatTime(totpStatus?.createdAt ?? 0)
-            )
-            : t.totp.statusDescDisabled}
-        </div>
-
-        {setupData === null ? (
+      {loadingStatus && totpStatus === null ? (
+        <div className="card auth-gate-skeleton" aria-busy="true">
+          <div className="skeleton-row-between">
+            <div className="skeleton-line skeleton-title-bar" />
+            <div className="skeleton-line skeleton-badge-pill" />
+          </div>
+          <div className="skeleton-auth-desc">
+            <div className="skeleton-line" style={{ width: "88%" }} />
+            <div className="skeleton-line" style={{ width: "62%" }} />
+          </div>
           <div className="totp-actions-row">
-            <button
-              type="button"
-              className="btn primary icon-btn"
-              disabled={busy}
-              onClick={(): void => {
-                void handleStartSetup();
-              }}
-            >
-              <LockSvgIcon size={14} />
-              <span>{enabled ? t.totp.modifyButton : t.totp.addButton}</span>
-            </button>
-            {enabled ? (
+            <div className="skeleton-line skeleton-totp-btn" />
+          </div>
+        </div>
+      ) : (
+        <div className={`card ${loadingStatus ? "content-refreshing" : ""}`}>
+          <div className="card-title">
+            <span>{t.totp.sectionTitle}</span>
+            <span className={`badge ${enabled ? "ok" : "warn"}`}>
+              {enabled ? t.totp.enabledBadge : t.totp.disabledBadge}
+            </span>
+          </div>
+          <div className="stat-sub" style={{ marginBottom: "10px" }}>
+            {enabled
+              ? t.totp.statusDescEnabled(
+                totpStatus?.maskedSecret ?? "••••",
+                formatTime(totpStatus?.createdAt ?? 0)
+              )
+              : t.totp.statusDescDisabled}
+          </div>
+
+          {setupData === null ? (
+            <div className="totp-actions-row">
               <button
                 type="button"
-                className="btn danger icon-btn"
-                disabled={busy}
-                onClick={(): void => {
-                  void handleDeleteTotp();
-                }}
-              >
-                <TrashSvgIcon size={14} />
-                <span>{t.totp.deleteButton}</span>
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <form
-            className="totp-setup-panel"
-            onSubmit={(e: React.SyntheticEvent<HTMLFormElement>): void => {
-              void handleVerifyEnable(e);
-            }}
-          >
-            <div className="stat-sub">{t.totp.qrGuideText}</div>
-            <div
-              className="totp-qr-box"
-              dangerouslySetInnerHTML={{ __html: setupData.qrSvg }}
-            />
-            <div className="totp-secret-line">
-              <span>{t.totp.secretLabel}</span>
-              <code>{setupData.secret}</code>
-            </div>
-            <div className="id-add-inline-row totp-verify-row">
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder={t.totp.codePlaceholder}
-                value={codeInput}
-                disabled={busy}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>): void => {
-                  const rawVal: string = (
-                    e.currentTarget as unknown as { readonly value: string }
-                  ).value;
-                  setCodeInput(rawVal.replace(/\D+/gu, "").slice(0, 6));
-                }}
-              />
-              <button
-                type="submit"
                 className="btn primary icon-btn"
                 disabled={busy}
-              >
-                <LockSvgIcon size={14} />
-                <span>
-                  {busy ? t.totp.verifyingButton : t.totp.verifyEnableButton}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="btn"
-                disabled={busy}
                 onClick={(): void => {
-                  setSetupData(null);
-                  setCodeInput("");
+                  void handleStartSetup();
                 }}
               >
-                {t.totp.cancelSetupButton}
+                <LockSvgIcon size={14} />
+                <span>{enabled ? t.totp.modifyButton : t.totp.addButton}</span>
               </button>
+              {enabled ? (
+                <button
+                  type="button"
+                  className="btn danger icon-btn"
+                  disabled={busy}
+                  onClick={(): void => {
+                    void handleDeleteTotp();
+                  }}
+                >
+                  <TrashSvgIcon size={14} />
+                  <span>{t.totp.deleteButton}</span>
+                </button>
+              ) : null}
             </div>
-          </form>
-        )}
-      </div>
+          ) : (
+            <form
+              className="totp-setup-panel"
+              onSubmit={(e: React.SyntheticEvent<HTMLFormElement>): void => {
+                void handleVerifyEnable(e);
+              }}
+            >
+              <div className="stat-sub">{t.totp.qrGuideText}</div>
+              <div
+                className="totp-qr-box"
+                dangerouslySetInnerHTML={{ __html: setupData.qrSvg }}
+              />
+              <div className="totp-secret-line">
+                <span>{t.totp.secretLabel}</span>
+                <code>{setupData.secret}</code>
+              </div>
+              <div className="totp-verify-stack">
+                <input
+                  type="text"
+                  className="totp-verify-input"
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder={t.totp.codePlaceholder}
+                  value={codeInput}
+                  disabled={busy}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>): void => {
+                    const rawVal: string = (
+                      e.currentTarget as unknown as { readonly value: string }
+                    ).value;
+                    setCodeInput(rawVal.replace(/\D+/gu, "").slice(0, 6));
+                  }}
+                />
+                <div className="totp-verify-actions">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    onClick={(): void => {
+                      setSetupData(null);
+                      setCodeInput("");
+                    }}
+                  >
+                    {t.totp.cancelSetupButton}
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn primary icon-btn"
+                    disabled={busy}
+                  >
+                    <LockSvgIcon size={14} />
+                    <span>
+                      {busy ? t.totp.verifyingButton : t.totp.verifyEnableButton}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
     </section>
   );
 }

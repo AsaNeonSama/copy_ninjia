@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import {
   MINI_APP_CHATS_DEFAULT_PAGE_SIZE,
@@ -23,7 +23,11 @@ import {
   fetchMiniAppChats,
   toggleMiniAppChatFeature,
 } from "../api";
-import { getFeatureDisplayMeta, truncateDisplayText } from "../formatters";
+import {
+  getFeatureDisplayMeta,
+  truncateDisplayText,
+  waitMinimumLoadingDuration,
+} from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -35,6 +39,60 @@ import { PaginationBar } from "./PaginationBar";
 export interface ChatsTabProps {
   /** 全局提示回调。 */
   readonly onToast: (message: string) => void;
+}
+
+/**
+ * 按指定行数生成列表骨架占位卡片数组。
+ *
+ * @param count 骨架卡片行数
+ * @returns React 节点数组
+ */
+function renderChatSkeletonRows(count: number): React.JSX.Element[] {
+  const rows: React.JSX.Element[] = [];
+  for (let i: number = 0; i < count; i += 1) {
+    rows.push(
+      <div key={i} className="skeleton-card">
+        <div className="skeleton-line medium" />
+        <div className="skeleton-line wide" />
+      </div>
+    );
+  }
+  return rows;
+}
+
+/**
+ * 渲染受管群详细状态与功能开关面板的专属双卡片骨架（群状态诊断卡 + 7 项带拨杆胶囊的功能开关行）。
+ *
+ * @returns React 节点
+ */
+function renderChatDetailSkeleton(): React.JSX.Element {
+  return (
+    <div className="skeleton-detail-wrap animate-fade-in" aria-hidden="true">
+      <div className="card">
+        <div className="skeleton-row-between">
+          <div className="skeleton-line skeleton-title-bar" />
+          <div className="skeleton-line skeleton-badge-pill" />
+        </div>
+        <div className="skeleton-line skeleton-sub-bar" />
+        <div className="skeleton-line skeleton-perm-banner" />
+      </div>
+      <div className="card">
+        <div className="skeleton-line skeleton-section-bar" />
+        {MINI_APP_FEATURE_KEYS.map((key: MiniAppFeatureKey): React.JSX.Element => (
+          <div key={key} className="row skeleton-switch-row">
+            <div className="row-main">
+              <div className="skeleton-title-with-badge">
+                <div className="skeleton-line skeleton-switch-label" />
+                <div className="skeleton-line skeleton-cmd-pill" />
+              </div>
+              <div className="skeleton-line skeleton-switch-desc" />
+            </div>
+            <div className="skeleton-line skeleton-switch-pill" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -92,31 +150,57 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
     number,
     React.Dispatch<React.SetStateAction<number>>
   ] = useState<number>(MINI_APP_CHATS_DEFAULT_PAGE_SIZE);
+  const listReqSeqRef: React.RefObject<number> = useRef<number>(0);
+  const detailReqSeqRef: React.RefObject<number> = useRef<number>(0);
 
   const loadChatList: () => Promise<void> = useCallback(async (): Promise<void> => {
+    const reqId: number = ++listReqSeqRef.current;
+    const startedAt: number = Date.now();
     setLoadingList(true);
     try {
       const items: readonly Readonly<MiniAppChatSummary>[] = await fetchMiniAppChats();
+      await waitMinimumLoadingDuration(startedAt);
+      if (reqId !== listReqSeqRef.current) {
+        return;
+      }
       setChats(items);
     } catch (error: unknown) {
+      await waitMinimumLoadingDuration(startedAt);
+      if (reqId !== listReqSeqRef.current) {
+        return;
+      }
       const message: string = error instanceof Error ? error.message : String(error);
       onToast(message);
     } finally {
-      setLoadingList(false);
+      if (reqId === listReqSeqRef.current) {
+        setLoadingList(false);
+      }
     }
   }, [onToast]);
 
   const loadDetail: (chatId: number) => Promise<void> = useCallback(
     async (chatId: number): Promise<void> => {
+      const reqId: number = ++detailReqSeqRef.current;
+      const startedAt: number = Date.now();
       setLoadingDetail(true);
       try {
         const detail: MiniAppChatDetail = await fetchMiniAppChatDetail(chatId);
+        await waitMinimumLoadingDuration(startedAt);
+        if (reqId !== detailReqSeqRef.current) {
+          return;
+        }
         setChatDetail(detail);
       } catch (error: unknown) {
+        await waitMinimumLoadingDuration(startedAt);
+        if (reqId !== detailReqSeqRef.current) {
+          return;
+        }
         const message: string = error instanceof Error ? error.message : String(error);
         onToast(message);
       } finally {
-        setLoadingDetail(false);
+        if (reqId === detailReqSeqRef.current) {
+          setLoadingDetail(false);
+        }
       }
     },
     [onToast]
@@ -215,16 +299,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
         </div>
 
         {loadingDetail && chatDetail === null
-          ? (
-            <div className="card loading-box">
-              <div className="spinner-ring" />
-              <div className="loading-text">{t.chats.loadingChatsText}</div>
-              <div className="skeleton-stack">
-                <div className="skeleton-line wide" />
-                <div className="skeleton-line medium" />
-              </div>
-            </div>
-          )
+          ? renderChatDetailSkeleton()
           : null}
 
         {chatDetail !== null
@@ -353,11 +428,9 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
       {loadingList && chats.length === 0
         ? (
           <div className="card loading-box">
-            <div className="spinner-ring" />
             <div className="loading-text">{t.chats.loadingChatsText}</div>
             <div className="skeleton-stack">
-              <div className="skeleton-line wide" />
-              <div className="skeleton-line medium" />
+              {renderChatSkeletonRows(MINI_APP_CHATS_DEFAULT_PAGE_SIZE)}
             </div>
           </div>
         )
@@ -367,37 +440,47 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
         ? <div className="card"><div className="empty">{t.chats.emptyChatsHint}</div></div>
         : null}
 
-      {pagedChats.map((chat: Readonly<MiniAppChatSummary>): React.JSX.Element => (
-        <div key={chat.chatId} className="card interactive-card">
-          <div className="row" style={{ padding: 0 }}>
-            <div className="row-main">
-              <div className="row-title chat-title-ellipsis" title={chat.title}>
-                {truncateDisplayText(chat.title, 20)}
+      {pagedChats.map((chat: Readonly<MiniAppChatSummary>): React.JSX.Element => {
+        const metaText: string = t.chats.chatCardMeta(
+          chat.chatId,
+          chat.hotMessageCount,
+          chat.qaPairCount
+        );
+        return (
+          <div
+            key={chat.chatId}
+            className={`card interactive-card ${loadingList ? "content-refreshing" : ""}`}
+          >
+            <div className="row" style={{ padding: 0 }}>
+              <div className="row-main">
+                <div className="row-title chat-title-ellipsis" title={chat.title}>
+                  {truncateDisplayText(chat.title, 18)}
+                </div>
+                <div className="row-sub identity-sub-row" title={metaText}>
+                  {metaText}
+                </div>
+                {chat.isLockdownActive || chat.features.proxySend
+                  ? (
+                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "6px" }}>
+                      {chat.features.proxySend ? <span className="badge ok">/send</span> : null}
+                      {chat.isLockdownActive ? <span className="badge warn">{t.chats.lockdownBadge}</span> : null}
+                    </div>
+                  )
+                  : null}
               </div>
-              <div className="row-sub">
-                {t.chats.chatCardMeta(chat.chatId, chat.hotMessageCount, chat.qaPairCount)}
-              </div>
-              {chat.isLockdownActive || chat.features.proxySend
-                ? (
-                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "6px" }}>
-                    {chat.features.proxySend ? <span className="badge ok">/send</span> : null}
-                    {chat.isLockdownActive ? <span className="badge warn">{t.chats.lockdownBadge}</span> : null}
-                  </div>
-                )
-                : null}
+              <button
+                type="button"
+                className="btn primary"
+                onClick={(): void => {
+                  handleSelectChat(chat.chatId);
+                }}
+              >
+                {t.chats.detailSectionTitle}
+              </button>
             </div>
-            <button
-              type="button"
-              className="btn primary"
-              onClick={(): void => {
-                handleSelectChat(chat.chatId);
-              }}
-            >
-              {t.chats.detailSectionTitle}
-            </button>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {totalChats > 0
         ? (

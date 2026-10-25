@@ -30,16 +30,17 @@ import {
 } from "../miniAppResoures";
 import {
   clearMiniAppSessionToken,
-  fetchMiniAppStatus,
   getTelegramWebApp,
   loginMiniAppWithPassword,
   precheckMiniAppAccess,
+  readMiniAppSessionToken,
 } from "./api";
 import { ChatsTab } from "./components/ChatsTab";
 import { GalleryTab } from "./components/GalleryTab";
 import { IdentitiesTab } from "./components/IdentitiesTab";
 import { StatusTab } from "./components/StatusTab";
 import { TotpManagerCard } from "./components/TotpManagerCard";
+import { waitMinimumLoadingDuration } from "./formatters";
 import {
   detectBrowserDefaultLanguage,
   getMiniAppTranslations,
@@ -254,11 +255,13 @@ export function App(): React.JSX.Element {
 
   useEffect((): void => {
     if (gateState !== "checking") return;
+    const startedAt: number = Date.now();
     void (async (): Promise<void> => {
       try {
-        clearMiniAppSessionToken();
         const result: MiniAppPrecheckResult = await precheckMiniAppAccess();
+        await waitMinimumLoadingDuration(startedAt);
         if (!result.ok) {
+          clearMiniAppSessionToken();
           setDeniedDiag(result.diagnostics);
           setGateState("denied");
           return;
@@ -267,15 +270,48 @@ export function App(): React.JSX.Element {
           result.authMode ?? (result.totpEnabled === true ? "totp" : "password")
         );
         setPasswordError(null);
+        if (
+          result.sessionValid === true &&
+          typeof result.sessionExpiresAt === "number" &&
+          result.sessionExpiresAt > Date.now() &&
+          readMiniAppSessionToken().length > 0
+        ) {
+          if (sessionTimerRef.current !== null) {
+            clearTimeout(sessionTimerRef.current);
+          }
+          const remainingMs: number = Math.max(
+            1_000,
+            result.sessionExpiresAt - Date.now()
+          );
+          sessionTimerRef.current = setTimeout((): void => {
+            lockForExpiredSession(
+              getMiniAppTranslations(useMiniAppStore.getState().language)
+                .sessionExpiredToast
+            );
+          }, remainingMs);
+          setSessionExpiresAt(result.sessionExpiresAt);
+          setGateState("unlocked");
+          return;
+        }
+        clearMiniAppSessionToken();
         setGateState("password");
       } catch (error: unknown) {
+        await waitMinimumLoadingDuration(startedAt);
+        clearMiniAppSessionToken();
         const message: string =
           error instanceof Error ? error.message : String(error);
         setDeniedDiag(buildFallbackDiagnostics(message));
         setGateState("denied");
       }
     })();
-  }, [gateState, setAuthMode, setDeniedDiag, setGateState]);
+  }, [
+    gateState,
+    lockForExpiredSession,
+    setAuthMode,
+    setDeniedDiag,
+    setGateState,
+    setSessionExpiresAt,
+  ]);
 
   const handlePasswordSubmit: (
     event: React.SyntheticEvent<HTMLFormElement>
@@ -298,7 +334,6 @@ export function App(): React.JSX.Element {
         try {
           const loginRes: MiniAppLoginSuccessResponse =
             await loginMiniAppWithPassword(trimmed, authMode);
-          const status: MiniAppStatusView = await fetchMiniAppStatus();
           if (sessionTimerRef.current !== null) {
             clearTimeout(sessionTimerRef.current);
           }
@@ -310,8 +345,8 @@ export function App(): React.JSX.Element {
             lockForExpiredSession(t.sessionExpiredToast);
           }, remainingMs);
           setSessionExpiresAt(loginRes.expiresAt);
-          setInitialStatus(status);
-          setStatusReady(true);
+          setInitialStatus(null);
+          setStatusReady(false);
           setPasswordInput("");
           setGateState("unlocked");
           showToast(t.gate.unlockedToast);
@@ -486,10 +521,28 @@ export function App(): React.JSX.Element {
     const ct: Readonly<MiniAppTranslations> =
       getMiniAppTranslations(checkingLang);
     return (
-      <div className="app-shell">
-        <div className="card loading-box" style={{ marginTop: "24px" }}>
-          <div className="spinner-ring" />
-          <div className="loading-text">{ct.gate.checkingText}</div>
+      <div className="auth-gate-wrap animate-fade-in">
+        <div className="gate-top-prefs">{renderPrefsBar()}</div>
+        <div
+          className="card auth-gate-card auth-gate-skeleton"
+          aria-busy="true"
+          aria-label={ct.gate.checkingText}
+        >
+          <div className="card-title">
+            <span className="toolbar-hint" style={{ flex: 1, minWidth: 0 }}>
+              <span className="skeleton-line skeleton-icon-badge" />
+              <span className="skeleton-line skeleton-title-bar" />
+            </span>
+            <span className="skeleton-line skeleton-badge-pill" />
+          </div>
+          <div className="skeleton-auth-desc">
+            <div className="skeleton-line" style={{ width: "92%" }} />
+            <div className="skeleton-line" style={{ width: "66%" }} />
+          </div>
+          <div className="auth-gate-form">
+            <div className="skeleton-line skeleton-auth-input" />
+            <div className="skeleton-line skeleton-auth-btn" />
+          </div>
         </div>
       </div>
     );

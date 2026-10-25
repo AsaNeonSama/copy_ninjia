@@ -1,13 +1,15 @@
 import {
-  MINI_APP_INIT_DATA_HEADER, MINI_APP_SESSION_HEADER, MINI_APP_SESSION_TTL_MS, MINI_APP_TMA_AUTH_PREFIX,
+  MINI_APP_INIT_DATA_HEADER, MINI_APP_SESSION_HEADER, MINI_APP_SESSION_STORAGE_KEY,
+  MINI_APP_SESSION_TTL_MS, MINI_APP_SHA256_HEX_PATTERN, MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
 import type { WhitelistPermissionKey } from "../../types/identityPolicy";
 import type {
   MiniAppAccessDiagnostics, MiniAppBlocklistPage, MiniAppChatDetail, MiniAppChatSummary,
   MiniAppDownloadAnchorElement, MiniAppFeatureKey, MiniAppFeatureToggleResult, MiniAppGalleryDeleteResult,
   MiniAppGalleryPage, MiniAppGalleryUploadResult, MiniAppIdentityMutationResult, MiniAppLoginSuccessResponse,
-  MiniAppMessagePage, MiniAppPickerResultEvent, MiniAppPickerSubjectKind, MiniAppPickerTargetList,
-  MiniAppPrecheckResult, MiniAppStatusView, MiniAppWhitelistPage, TelegramWebApp, TelegramWindow,
+  MiniAppMessagePage, MiniAppMoodMutationResult, MiniAppMoodView, MiniAppPickerResultEvent,
+  MiniAppPickerSubjectKind, MiniAppPickerTargetList, MiniAppPrecheckResult, MiniAppStatusView,
+  MiniAppWhitelistPage, TelegramWebApp, TelegramWindow,
 } from "../../types/miniApp";
 import type {
   MiniAppAuthMode,
@@ -30,29 +32,133 @@ export function getTelegramWebApp(): Readonly<TelegramWebApp> | undefined {
 }
 
 /**
- * 读取当前浏览器会话已解锁的 Mini App 90 分钟认证令牌。
- * @returns 64 位十六进制会话令牌；未解锁时返回空字符串
+ * 读取当前浏览器会话已解锁的 Mini App 45 分钟认证令牌（若内存未命中则从 Mini App 环境 Web Storage 恢复未过期凭据）。
+ * @returns 64 位十六进制会话令牌；未解锁或已过期时返回空字符串
  */
 export function readMiniAppSessionToken(): string {
   const tgWindow: TelegramWindow = globalThis;
-  return tgWindow.__copyNinjaSessionToken ?? "";
+  const nowMs: number = Date.now();
+  if (
+    typeof tgWindow.__copyNinjaSessionToken === "string" &&
+    tgWindow.__copyNinjaSessionToken.length > 0
+  ) {
+    if (
+      typeof tgWindow.__copyNinjaSessionExpiresAt === "number" &&
+      tgWindow.__copyNinjaSessionExpiresAt <= nowMs
+    ) {
+      clearMiniAppSessionToken();
+      return "";
+    }
+    return tgWindow.__copyNinjaSessionToken;
+  }
+  let raw: string | null;
+  try {
+    raw =
+      tgWindow.localStorage?.getItem(MINI_APP_SESSION_STORAGE_KEY) ??
+      tgWindow.sessionStorage?.getItem(MINI_APP_SESSION_STORAGE_KEY) ??
+      null;
+  } catch (_error: unknown) {
+    raw = null;
+  }
+  if (raw === null || raw.length === 0) return "";
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const record: Record<string, unknown> = asPayloadRecord(parsed);
+    const token: unknown = record.token;
+    const expiresAt: unknown = record.expiresAt;
+    const assetToken: unknown = record.assetToken;
+    if (
+      typeof token === "string" &&
+      MINI_APP_SHA256_HEX_PATTERN.test(token) &&
+      typeof expiresAt === "number" &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > nowMs
+    ) {
+      tgWindow.__copyNinjaSessionToken = token;
+      tgWindow.__copyNinjaSessionExpiresAt = expiresAt;
+      if (
+        typeof assetToken === "string" &&
+        assetToken.length > 0 &&
+        (tgWindow.__copyNinjaAssetToken === undefined ||
+          tgWindow.__copyNinjaAssetToken.length === 0)
+      ) {
+        tgWindow.__copyNinjaAssetToken = assetToken;
+      }
+      return token;
+    }
+  } catch (_error: unknown) {
+    // 忽略损坏的持久化 JSON
+  }
+  clearMiniAppSessionToken();
+  return "";
 }
 
 /**
- * 保存当前浏览器会话已解锁的 Mini App 90 分钟认证令牌。
- * @param token 服务端签发的 64 位十六进制会话令牌
+ * 读取当前浏览器会话已解锁的 Mini App 45 分钟认证令牌到期毫秒时间戳。
+ * @returns 到期毫秒时间戳；未解锁或已过期时返回 `0`
  */
-export function setMiniAppSessionToken(token: string): void {
+export function readMiniAppSessionExpiresAt(): number {
+  const token: string = readMiniAppSessionToken();
+  if (token.length === 0) return 0;
   const tgWindow: TelegramWindow = globalThis;
-  tgWindow.__copyNinjaSessionToken = token;
+  return tgWindow.__copyNinjaSessionExpiresAt ?? 0;
 }
 
 /**
- * 清除当前浏览器会话的 Mini App 认证令牌（会话满 90 分钟过期或主动锁定时调用）。
+ * 保存当前浏览器会话已解锁的 Mini App 45 分钟认证令牌，并同步持久化至 Mini App 环境 Web Storage。
+ * @param token 服务端签发的 64 位十六进制会话令牌
+ * @param expiresAt 会话到期毫秒时间戳（缺省按当前时刻加 `MINI_APP_SESSION_TTL_MS` 计算）
+ */
+export function setMiniAppSessionToken(token: string, expiresAt?: number): void {
+  const trimmed: string = token.trim();
+  if (trimmed.length === 0) {
+    clearMiniAppSessionToken();
+    return;
+  }
+  const tgWindow: TelegramWindow = globalThis;
+  const resolvedExpiresAt: number =
+    typeof expiresAt === "number" && Number.isFinite(expiresAt) && expiresAt > 0
+      ? expiresAt
+      : Date.now() + MINI_APP_SESSION_TTL_MS;
+  tgWindow.__copyNinjaSessionToken = trimmed;
+  tgWindow.__copyNinjaSessionExpiresAt = resolvedExpiresAt;
+  const serialized: string = JSON.stringify({
+    token: trimmed,
+    expiresAt: resolvedExpiresAt,
+    ...(typeof tgWindow.__copyNinjaAssetToken === "string" &&
+    tgWindow.__copyNinjaAssetToken.length > 0
+      ? { assetToken: tgWindow.__copyNinjaAssetToken }
+      : {}),
+  });
+  try {
+    tgWindow.localStorage?.setItem(MINI_APP_SESSION_STORAGE_KEY, serialized);
+  } catch (_error: unknown) {
+    // 忽略受限 WebView 禁用 localStorage 的异常
+  }
+  try {
+    tgWindow.sessionStorage?.setItem(MINI_APP_SESSION_STORAGE_KEY, serialized);
+  } catch (_error: unknown) {
+    // 忽略受限 WebView 禁用 sessionStorage 的异常
+  }
+}
+
+/**
+ * 清除当前浏览器会话及 Mini App 环境持久化的认证令牌（会话满 45 分钟过期或主动锁定时调用）。
  */
 export function clearMiniAppSessionToken(): void {
   const tgWindow: TelegramWindow = globalThis;
   tgWindow.__copyNinjaSessionToken = undefined;
+  tgWindow.__copyNinjaSessionExpiresAt = undefined;
+  try {
+    tgWindow.localStorage?.removeItem(MINI_APP_SESSION_STORAGE_KEY);
+  } catch (_error: unknown) {
+    // 忽略受限 WebView 禁用 localStorage 的异常
+  }
+  try {
+    tgWindow.sessionStorage?.removeItem(MINI_APP_SESSION_STORAGE_KEY);
+  } catch (_error: unknown) {
+    // 忽略受限 WebView 禁用 sessionStorage 的异常
+  }
 }
 
 /**
@@ -124,8 +230,8 @@ function asPayloadRecord(payload: unknown): Record<string, unknown> {
 }
 
 /**
- * 组装携带当前会话 `initData` 与 90 分钟令牌的认证请求头。
- * @param includeSession 是否附加 90 分钟会话令牌头
+ * 组装携带当前会话 `initData` 与 45 分钟令牌的认证请求头。
+ * @param includeSession 是否附加 45 分钟会话令牌头
  * @param contentType 可选的 `Content-Type`
  * @returns 组装好的请求头字典
  */
@@ -172,15 +278,16 @@ function parseAccessDiagnostics(
 }
 
 /**
- * 调用 `GET ./api/auth/precheck` 核验当前客户端是否持有合法的 SuperAdmin `initData` 签名。
+ * 调用 `GET ./api/auth/precheck` 核验当前客户端是否持有合法的 SuperAdmin `initData` 签名，并验证持久化的 45 分钟会话凭据是否仍有效。
  * @returns 预检结果
  */
 export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   const response: Response = await fetch("./api/auth/precheck", {
-    method: "GET", headers: buildMiniAppAuthHeaders(false),
+    method: "GET", headers: buildMiniAppAuthHeaders(true),
   });
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
+    clearMiniAppSessionToken();
     return {
       ok: false,
       diagnostics: parseAccessDiagnostics(
@@ -198,14 +305,30 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   const assetToken: string | undefined =
     typeof record.assetToken === "string" && record.assetToken.length > 0 ? record.assetToken : undefined;
   if (assetToken !== undefined) setMiniAppAssetToken(assetToken);
+  const existingToken: string = readMiniAppSessionToken();
+  const sessionValid: boolean =
+    record.sessionValid === true &&
+    typeof record.sessionExpiresAt === "number" &&
+    record.sessionExpiresAt > Date.now() &&
+    existingToken.length > 0;
+  const sessionExpiresAt: number =
+    sessionValid && typeof record.sessionExpiresAt === "number"
+      ? record.sessionExpiresAt
+      : 0;
+  if (sessionValid) {
+    setMiniAppSessionToken(existingToken, sessionExpiresAt);
+  } else if (existingToken.length > 0) {
+    clearMiniAppSessionToken();
+  }
   return {
     ok: true, ttlMs, totpEnabled, authMode,
     ...(assetToken === undefined ? {} : { assetToken }),
+    ...(sessionValid ? { sessionValid: true, sessionExpiresAt } : {}),
   };
 }
 
 /**
- * 调用 `POST ./api/auth/login` 提交 6 位 TOTP 动态码（优先）或访问密码并获取 90 分钟有效期的认证会话令牌。
+ * 调用 `POST ./api/auth/login` 提交 6 位 TOTP 动态码（优先）或访问密码并获取 45 分钟有效期的认证会话令牌。
  * @param credential 用户输入的 6 位 TOTP 验证码或访问密码
  * @param mode 当前登录校验模式（`"totp"` 或 `"password"`）
  * @returns 登录成功响应（含 `sessionToken` 与 `expiresAt`）
@@ -220,15 +343,15 @@ export async function loginMiniAppWithPassword(
         mode === "totp" ? { totpCode: credential, password: credential } : { password: credential }
       ),
     });
-  setMiniAppSessionToken(response.sessionToken);
   if (typeof response.assetToken === "string" && response.assetToken.length > 0) {
     setMiniAppAssetToken(response.assetToken);
   }
+  setMiniAppSessionToken(response.sessionToken, response.expiresAt);
   return response;
 }
 
 /**
- * 调用 Mini App 后端 JSON 接口并附带 SuperAdmin `initData` 与 90 分钟密码会话令牌请求头。
+ * 调用 Mini App 后端 JSON 接口并附带 SuperAdmin `initData` 与 45 分钟密码会话令牌请求头。
  * @param path 相对路径（如 `./api/status`）
  * @param init 可选 `RequestInit` 配置
  * @returns 解析后的 JSON 响应对象
@@ -265,6 +388,24 @@ export async function miniAppFetchJson<T>(path: string, init?: RequestInit): Pro
  */
 export async function fetchMiniAppStatus(): Promise<MiniAppStatusView> {
   return miniAppFetchJson<MiniAppStatusView>("./api/status");
+}
+
+/**
+ * 查询当前全局生效的 AI 情绪。
+ * @returns AI 情绪状态视图
+ */
+export async function fetchMiniAppMood(): Promise<MiniAppMoodView> {
+  return miniAppFetchJson<MiniAppMoodView>("./api/mood");
+}
+
+/**
+ * 触发重抽 AI 全局情绪并返回新抽出的情绪名。
+ * @returns 情绪切换响应结果
+ */
+export async function switchMiniAppMood(): Promise<MiniAppMoodMutationResult> {
+  return miniAppFetchJson<MiniAppMoodMutationResult>("./api/mood/switch", {
+    method: "POST",
+  });
 }
 
 /**
@@ -454,7 +595,7 @@ function buildProtectedAssetUrl(basePrefix: string, fileName: string): string {
 }
 
 /**
- * 构造携带当前 SuperAdmin `initData` 签名与 90 分钟会话令牌的图库单张图片预览地址。
+ * 构造携带当前 SuperAdmin `initData` 签名与 45 分钟会话令牌的图库单张图片预览地址。
  * @param fileName 图库图片文件名
  * @returns 供 `<img>` 使用的受保护预览 URL
  */
@@ -508,7 +649,7 @@ export async function deleteMiniAppGalleryImageByName(
 }
 
 /**
- * 构造携带受保护资源令牌（或 `initData`）与 90 分钟 `session` 会话令牌的图库单张图片附件下载 URL。
+ * 构造携带受保护资源令牌（或 `initData`）与 45 分钟 `session` 会话令牌的图库单张图片附件下载 URL。
  * @param fileName 图库图片文件名
  * @returns 带完整双层鉴权查询参数的下载 URL
  */
@@ -532,7 +673,7 @@ export function buildMiniAppGalleryDownloadUrl(fileName: string): string {
 }
 
 /**
- * 先通过完整双层鉴权 `HEAD /api/gallery/download/:fileName` 校验 90 分钟会话与文件存在性，随后优先调用 Telegram 原生 `WebApp.downloadFile({ url, file_name })`（或浏览器原生 `Content-Disposition: attachment` 直连下载）并以秒级时间戳文件名将图片保存至系统默认下载目录。
+ * 先通过完整双层鉴权 `HEAD /api/gallery/download/:fileName` 校验 45 分钟会话与文件存在性，随后优先调用 Telegram 原生 `WebApp.downloadFile({ url, file_name })`（或浏览器原生 `Content-Disposition: attachment` 直连下载）并以秒级时间戳文件名将图片保存至系统默认下载目录。
  * @param fileName 待下载的图库图片文件名
  * @returns 用户确认或触发原生下载时返回 `true`，在 Telegram 原生弹窗中取消时返回 `false`
  */

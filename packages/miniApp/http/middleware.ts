@@ -77,7 +77,7 @@ export function authenticateMiniAppInitData(
 }
 
 /**
- * 校验请求的 `initData` 签名与 90 分钟有效期的访问密码认证会话（双层完整鉴权）。
+ * 校验请求的 `initData` 签名与 45 分钟有效期的访问密码认证会话（双层完整鉴权）。
  * @param request HTTP 请求对象。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
  * @returns 验证通过时返回 `null`，失败时返回对应的 `401` 或 `403` JSON `Response`。
@@ -95,7 +95,7 @@ export function authenticateMiniAppRequest(
 }
 
 /**
- * 校验请求携带的 90 分钟有效期访问密码认证会话令牌。
+ * 校验请求携带的 45 分钟有效期访问密码认证会话令牌。
  * @param request HTTP 请求对象。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取 `session`。
  * @returns 验证通过时返回 `null`，缺失或过期时返回 `401` JSON `Response`。
@@ -122,7 +122,7 @@ function verifyMiniAppSessionToken(
       status: 401,
       code: "PASSWORD_REQUIRED",
       reason: "password_required",
-      error: "Mini App 访问认证已满 90 分钟过期或无效，请重新输入访问密码。",
+      error: "Mini App 访问认证已满 45 分钟过期或无效，请重新输入访问密码。",
     });
   }
   return null;
@@ -195,7 +195,7 @@ export function createMiniAppInitDataMiddleware(
 }
 
 /**
- * 创建校验 90 分钟密码认证会话令牌（`X-Mini-App-Session`）的中间件。
+ * 创建校验 45 分钟密码认证会话令牌（`X-Mini-App-Session`）的中间件。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从 `session` 查询参数提取凭据。
  * @returns 构造好的 `MiniAppMiddleware`。
  */
@@ -228,14 +228,14 @@ const protectedAssetMiddlewareChain: readonly MiniAppMiddleware[] = [
   createMiniAppInitDataMiddleware(true),
 ];
 
-/** 业务 JSON 与写操作 API 的完整双层鉴权中间件链（防跨站 + Telegram WebApp 超管签名 + 90 分钟密码会话）。 */
+/** 业务 JSON 与写操作 API 的完整双层鉴权中间件链（防跨站 + Telegram WebApp 超管签名 + 45 分钟密码会话）。 */
 const apiAuthMiddlewareChain: readonly MiniAppMiddleware[] = [
   miniAppCrossSiteGuardMiddleware,
   createMiniAppInitDataMiddleware(false),
   createMiniAppSessionMiddleware(false),
 ];
 
-/** 图库原图附件下载路由的完整双层鉴权中间件链（防跨站 + Telegram WebApp 超管签名或资源令牌 + 90 分钟密码会话，允许 GET/HEAD 查询参数传凭据以供 Telegram 原生下载器直连保存至系统默认下载目录）。 */
+/** 图库原图附件下载路由的完整双层鉴权中间件链（防跨站 + Telegram WebApp 超管签名或资源令牌 + 45 分钟密码会话，允许 GET/HEAD 查询参数传凭据以供 Telegram 原生下载器直连保存至系统默认下载目录）。 */
 const galleryDownloadMiddlewareChain: readonly MiniAppMiddleware[] = [
   miniAppCrossSiteGuardMiddleware,
   createMiniAppInitDataMiddleware(true),

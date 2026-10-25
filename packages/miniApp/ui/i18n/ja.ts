@@ -14,6 +14,7 @@ import type { MiniAppTranslations } from "../../../types/miniAppI18n";
  */
 export function getJaTranslations(): Readonly<MiniAppTranslations> {
   const capabilityLabels: Readonly<Record<string, string>> = {
+    agent: "Agent 能力",
     aiChat: "AI チャット＆マルチモーダル",
     translate: "自動翻訳エンジン",
     adDetect: "AI 広告検知",
@@ -30,7 +31,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
     superAdminBadge: "SuperAdmin",
     lockButton: "ロック",
     lockSessionToast: "ふん、うっかり屋の雑魚のためにセッションをロックしてあげたわよ♡",
-    sessionExpiredToast: "雑魚、90分のセッションが切れたわよ。大人しくパスワードを入れ直しなさい！",
+    sessionExpiredToast: "雑魚、45分のセッションが切れたわよ。大人しくパスワードを入れ直しなさい！",
     themeLightLabel: "ライト",
     themeDarkLabel: "ダーク",
     sidebarTitle: "ナビメニュー",
@@ -99,7 +100,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       passwordBadge: "二次パスワード認証",
       passwordTitle: "合言葉を出せ、雑魚",
       passwordSubtitle:
-        "Telegram の署名はギリギリ合格ね。次はコンソール用アクセスパスワードを入れて90分セッションを解除しなさい（3回間違えたら30分ロックよ）。",
+        "Telegram の署名はギリギリ合格ね。次はコンソール用アクセスパスワードを入れて45分セッションを解除しなさい（3回間違えたら30分ロックよ）。",
       passwordPlaceholder: "ほら、間違えずにパスワードを入力しなさい雑魚…",
       passwordEmptyHint: "マヌケな雑魚、空欄のまま突破できると思ったの？",
       passwordSubmitting: "アタシが照合中…",
@@ -107,11 +108,11 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       totpBadge: "Google 認証システム",
       totpTitle: "6桁コードを出せ、雑魚",
       totpSubtitle:
-        "Google Authenticator が優先有効化されているわ。現在の6桁ワンタイムコードを入力して90分セッションを解除しなさい（3回失敗で30分ロックよ）。",
+        "Google Authenticator が優先有効化されているわ。現在の6桁ワンタイムコードを入力して45分セッションを解除しなさい（3回失敗で30分ロックよ）。",
       totpPlaceholder: "6桁の認証コードを入力しなさい雑魚…",
       totpEmptyHint: "マヌケな雑魚、6桁の数字コードをちゃんと入力しなさい！",
       totpSubmitButton: "コード照合して解除",
-      unlockedToast: "ふん、まあ合格ね。90分間だけ使わせてあげるわ♡",
+      unlockedToast: "ふん、まあ合格ね。45分間だけ使わせてあげるわ♡",
     },
     totp: {
       sectionTitle: "Google Authenticator 認証",
@@ -175,11 +176,20 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       capabilitiesSectionTitle: "機能設定とサブシステム準備状態",
       capabilityReadyBadge: "準備完了",
       capabilityMissingBadge: "未設定",
+      capabilityItemCount: (count: number): string => `${count} 項目`,
+      moodCurrentLabel: "現在の感情",
+      moodCurrentActiveBadge: "現在有効",
+      moodUnavailableText: "未稼働 (AI Worker 停止中)",
+      moodSwitchButton: "感情切替",
+      moodSwitchingButton: "切替中…",
       capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>): string =>
         capabilityLabels[capability.key] ?? capability.label,
       capabilityItem: (
         item: Readonly<MiniAppCapabilityDetailItem>
       ): Readonly<MiniAppCapabilityDetailItem> => {
+        if (item.label === "广告检测 ad_detect") {
+          return { label: "広告検知 ad_detect", value: item.value, sub: item.sub };
+        }
         if (item.label === "图库服务") {
           return {
             label: "図鑑サービス",

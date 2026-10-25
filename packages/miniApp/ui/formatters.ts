@@ -1,4 +1,7 @@
-import { MINI_APP_BIDI_CONTROL_CHARS_PATTERN } from "../../consts/miniApp";
+import {
+  MINI_APP_BIDI_CONTROL_CHARS_PATTERN,
+  MINI_APP_MIN_LOADING_MS,
+} from "../../consts/miniApp";
 import type { WhitelistPermissionKey } from "../../types/identityPolicy";
 import type {
   MiniAppFeatureDisplayMeta,
@@ -6,6 +9,24 @@ import type {
   MiniAppLanguage,
 } from "../../types/miniApp";
 import { getMiniAppTranslations } from "./i18n";
+
+/**
+ * 等待异步加载或骨架屏动画达到最短展示时长（若实际耗时已达标则立即返回），确保加载与闪光动画完整平滑播放。
+ *
+ * @param startedAtMs 加载起始毫秒时间戳（`Date.now()`）
+ * @param minDurationMs 最短展示毫秒数（默认 `MINI_APP_MIN_LOADING_MS`）
+ * @returns 无返回值 Promise
+ */
+export async function waitMinimumLoadingDuration(
+  startedAtMs: number,
+  minDurationMs: number = MINI_APP_MIN_LOADING_MS
+): Promise<void> {
+  const remainingMs: number = minDurationMs - (Date.now() - startedAtMs);
+  if (remainingMs <= 0) return;
+  await new Promise<void>((resolve: () => void): void => {
+    setTimeout(resolve, remainingMs);
+  });
+}
 
 /**
  * 清除昵称或用户名中的 Unicode 双向文本控制字符（RLO/LRO/PDF 等），防止单条昵称反转整行 UI 布局。

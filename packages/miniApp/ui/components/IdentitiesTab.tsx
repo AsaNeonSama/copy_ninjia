@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import {
   MINI_APP_IDENTITY_ADD_MODES,
@@ -46,7 +46,11 @@ import {
   setMiniAppBlocklistMembership,
   setMiniAppWhitelistMembership,
 } from "../api";
-import { sanitizeBidiText, truncateDisplayText } from "../formatters";
+import {
+  sanitizeBidiText,
+  truncateDisplayText,
+  waitMinimumLoadingDuration,
+} from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store";
@@ -70,6 +74,25 @@ function renderAddModeIcon(mode: MiniAppIdentityAddMode): React.JSX.Element {
   if (mode === "id") return <HashtagSvgIcon size={15} />;
   if (mode === "users") return <UserSvgIcon size={15} />;
   return <ChannelSvgIcon size={15} />;
+}
+
+/**
+ * 按指定行数生成权限控制列表骨架占位卡片数组。
+ *
+ * @param count 骨架卡片行数
+ * @returns React 节点数组
+ */
+function renderIdentitySkeletonRows(count: number): React.JSX.Element[] {
+  const rows: React.JSX.Element[] = [];
+  for (let i: number = 0; i < count; i += 1) {
+    rows.push(
+      <div key={i} className="skeleton-card">
+        <div className="skeleton-line medium" />
+        <div className="skeleton-line wide" />
+      </div>
+    );
+  }
+  return rows;
 }
 
 /**
@@ -134,7 +157,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
   const [loadingList, setLoadingList]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
+  ] = useState<boolean>(true);
 
   const [whitelistPageNumber, setWhitelistPageNumber]: [
     number,
@@ -174,6 +197,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
     number,
     React.Dispatch<React.SetStateAction<number>>
   ] = useState<number>(0);
+  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
 
   useEffect((): (() => void) => {
     const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
@@ -192,6 +216,8 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
   }, [searchInput]);
 
   const loadCurrentList: () => Promise<void> = useCallback(async (): Promise<void> => {
+    const reqId: number = ++requestSeqRef.current;
+    const startedAt: number = Date.now();
     setLoadingList(true);
     try {
       if (subTab === "whitelist") {
@@ -200,6 +226,10 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
           whitelistPageSize,
           debouncedQuery
         );
+        await waitMinimumLoadingDuration(startedAt);
+        if (reqId !== requestSeqRef.current) {
+          return;
+        }
         setWhitelistPage(page);
         setWhitelistTotal(page.whitelistTotal);
         setBlocklistTotal(page.blocklistTotal);
@@ -212,6 +242,10 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
           blocklistPageSize,
           debouncedQuery
         );
+        await waitMinimumLoadingDuration(startedAt);
+        if (reqId !== requestSeqRef.current) {
+          return;
+        }
         setBlocklistPage(page);
         setWhitelistTotal(page.whitelistTotal);
         setBlocklistTotal(page.blocklistTotal);
@@ -220,10 +254,16 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
         }
       }
     } catch (error: unknown) {
+      await waitMinimumLoadingDuration(startedAt);
+      if (reqId !== requestSeqRef.current) {
+        return;
+      }
       const message: string = error instanceof Error ? error.message : String(error);
       onToast(message);
     } finally {
-      setLoadingList(false);
+      if (reqId === requestSeqRef.current) {
+        setLoadingList(false);
+      }
     }
   }, [
     blocklistPageNumber,
@@ -623,11 +663,9 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             {loadingList && whitelistPage === null
               ? (
                 <div className="loading-box">
-                  <div className="spinner-ring" />
                   <div className="loading-text">{t.identities.loadingText}</div>
                   <div className="skeleton-stack">
-                    <div className="skeleton-line wide" />
-                    <div className="skeleton-line medium" />
+                    {renderIdentitySkeletonRows(MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE)}
                   </div>
                 </div>
               )
@@ -648,16 +686,26 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                 (key: WhitelistPermissionKey): boolean => entry.permissions[key]
               ).length;
               const isExpanded: boolean = selectedEntryId === entry.id;
+              const permSubText: string = `ID: ${entry.id} · ${t.identities.enabledPermCountText(
+                enabledCount,
+                WHITELIST_PERMISSION_KEYS.length
+              )}`;
               return (
-                <div key={entry.id} className="identity-row-group">
-                  <div className="row">
+                <div
+                  key={entry.id}
+                  className={`identity-row-group ${loadingList ? "content-refreshing" : ""}`}
+                >
+                  <div className="row identity-row">
                     <div className="row-main">
                       <div className="identity-title-row">
                         <bdi
                           className="identity-name"
                           title={sanitizeBidiText(entry.displayName)}
                         >
-                          {truncateDisplayText(entry.displayName, 18)}
+                          {truncateDisplayText(
+                            entry.displayName,
+                            entry.username !== undefined ? 8 : 13
+                          )}
                         </bdi>
                         {entry.username !== undefined
                           ? (
@@ -666,7 +714,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                               dir="ltr"
                               title={`@${sanitizeBidiText(entry.username)}`}
                             >
-                              @{truncateDisplayText(entry.username, 16)}
+                              @{truncateDisplayText(entry.username, 9)}
                             </span>
                           )
                           : null}
@@ -682,15 +730,11 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                             : t.identities.userBadge}
                         </span>
                       </div>
-                      <div className="row-sub">
-                        ID: {entry.id} ·{" "}
-                        {t.identities.enabledPermCountText(
-                          enabledCount,
-                          WHITELIST_PERMISSION_KEYS.length
-                        )}
+                      <div className="row-sub identity-sub-row" title={permSubText}>
+                        {permSubText}
                       </div>
                     </div>
-                    <div className="toolbar-actions">
+                    <div className="toolbar-actions identity-row-actions">
                       <button
                         type="button"
                         className={`btn ${isExpanded ? "primary" : ""}`}
@@ -754,11 +798,9 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             {loadingList && blocklistPage === null
               ? (
                 <div className="loading-box">
-                  <div className="spinner-ring" />
                   <div className="loading-text">{t.identities.loadingText}</div>
                   <div className="skeleton-stack">
-                    <div className="skeleton-line wide" />
-                    <div className="skeleton-line medium" />
+                    {renderIdentitySkeletonRows(MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE)}
                   </div>
                 </div>
               )
@@ -774,56 +816,67 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
               )
               : null}
 
-            {blocklistPage?.items.map((entry: Readonly<MiniAppBlocklistEntryView>): React.JSX.Element => (
-              <div key={entry.id} className="row">
-                <div className="row-main">
-                  <div className="identity-title-row">
-                    <bdi
-                      className="identity-name"
-                      title={sanitizeBidiText(entry.displayName)}
-                    >
-                      {truncateDisplayText(entry.displayName, 18)}
-                    </bdi>
-                    {entry.username !== undefined
-                      ? (
-                        <span
-                          className="identity-username"
-                          dir="ltr"
-                          title={`@${sanitizeBidiText(entry.username)}`}
-                        >
-                          @{truncateDisplayText(entry.username, 16)}
-                        </span>
-                      )
-                      : null}
-                    <span
-                      className={`badge ${
-                        entry.isChannel
-                          ? "identity-channel-badge"
-                          : "identity-user-badge"
-                      }`}
-                    >
-                      {entry.isChannel
-                        ? t.identities.channelBadge
-                        : t.identities.userBadge}
-                    </span>
+            {blocklistPage?.items.map((entry: Readonly<MiniAppBlocklistEntryView>): React.JSX.Element => {
+              const blockSubText: string = `ID: ${entry.id} · ${t.identities.blockedAtText(entry.blockedAt)}`;
+              return (
+                <div
+                  key={entry.id}
+                  className={`row identity-row ${loadingList ? "content-refreshing" : ""}`}
+                >
+                  <div className="row-main">
+                    <div className="identity-title-row">
+                      <bdi
+                        className="identity-name"
+                        title={sanitizeBidiText(entry.displayName)}
+                      >
+                        {truncateDisplayText(
+                          entry.displayName,
+                          entry.username !== undefined ? 11 : 16
+                        )}
+                      </bdi>
+                      {entry.username !== undefined
+                        ? (
+                          <span
+                            className="identity-username"
+                            dir="ltr"
+                            title={`@${sanitizeBidiText(entry.username)}`}
+                          >
+                            @{truncateDisplayText(entry.username, 11)}
+                          </span>
+                        )
+                        : null}
+                      <span
+                        className={`badge ${
+                          entry.isChannel
+                            ? "identity-channel-badge"
+                            : "identity-user-badge"
+                        }`}
+                      >
+                        {entry.isChannel
+                          ? t.identities.channelBadge
+                          : t.identities.userBadge}
+                      </span>
+                    </div>
+                    <div className="row-sub identity-sub-row" title={blockSubText}>
+                      {blockSubText}
+                    </div>
                   </div>
-                  <div className="row-sub">
-                    ID: {entry.id} · {t.identities.blockedAtText(entry.blockedAt)}
+                  <div className="toolbar-actions identity-row-actions">
+                    <button
+                      type="button"
+                      className="btn danger icon-btn"
+                      disabled={busyAction}
+                      onClick={(): void => {
+                        void handleRemoveBlocklist(entry);
+                      }}
+                    >
+                      <TrashSvgIcon size={13} />
+                      <span>{t.identities.removeBlocklistButton}</span>
+                    </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="btn danger icon-btn"
-                  disabled={busyAction}
-                  onClick={(): void => {
-                    void handleRemoveBlocklist(entry);
-                  }}
-                >
-                  <TrashSvgIcon size={13} />
-                  <span>{t.identities.removeBlocklistButton}</span>
-                </button>
-              </div>
-            ))}
+              );
+            })}
 
             <PaginationBar
               page={blocklistPage?.page ?? blocklistPageNumber}

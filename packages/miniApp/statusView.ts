@@ -83,112 +83,104 @@ function buildCapabilityStatus({
 }
 
 /**
- * 构建 AI 对话配置槽位的模型摘要文本。
- * @param ready AI 闲聊配置是否已就绪。
- * @returns 已配置的 AI 模型摘要字符串。
+ * 构建 Agent 能力配置槽位（含群聊与多模态及广告检测）的模型摘要文本。
+ * @param aiReady AI 闲聊与多模态配置是否已就绪。
+ * @param adReady AI 广告检测配置是否已就绪。
+ * @returns 已配置的 Agent 模型摘要字符串。
  */
-function describeAiChatModels(ready: boolean): string {
-  if (!ready) return "未配置";
-  const aiConfig: Readonly<AgentDeploymentConfig> = getAgentDeploymentConfig();
-  const parts: string[] = [
-    `text:${aiConfig.text.model}`,
-    `summary:${aiConfig.summary.model}`,
-    `media:${aiConfig.media.model}`,
-  ];
-  if (aiConfig.image !== undefined) parts.push(`image:${aiConfig.image.model}`);
-  if (aiConfig.tts !== undefined) {
+function describeAgentModels(aiReady: boolean, adReady: boolean): string {
+  const parts: string[] = [];
+  if (aiReady) {
+    const aiConfig: Readonly<AgentDeploymentConfig> = getAgentDeploymentConfig();
     parts.push(
-      `tts:${aiConfig.tts.speechProtocol === "xai" ? aiConfig.tts.voice : aiConfig.tts.model}`
+      `text:${aiConfig.text.model}`,
+      `summary:${aiConfig.summary.model}`,
+      `media:${aiConfig.media.model}`
     );
+    if (aiConfig.image !== undefined) parts.push(`image:${aiConfig.image.model}`);
+    if (aiConfig.tts !== undefined) {
+      parts.push(
+        `tts:${aiConfig.tts.speechProtocol === "xai" ? aiConfig.tts.voice : aiConfig.tts.model}`
+      );
+    }
+    if (aiConfig.webSearch !== undefined) parts.push(`search:${aiConfig.webSearch.model}`);
   }
-  if (aiConfig.webSearch !== undefined) parts.push(`search:${aiConfig.webSearch.model}`);
-  return parts.join(" · ");
+  if (adReady) {
+    const adConfig: Readonly<AdDetectAgentConfig> | null = getAdDetectAgentConfig();
+    if (adConfig !== null) {
+      parts.push(`ad_detect:${adConfig.model}`);
+    }
+  }
+  return parts.length > 0 ? parts.join(" · ") : "未配置";
 }
 
 /**
- * 构建 AI 对话各子能力槽位的竖向结构化明细列表。
- * @param ready AI 闲聊配置是否已就绪。
- * @returns 竖向展示的 AI 模型明细项只读数组。
+ * 构建 Agent 能力（合并 AI 群聊与多模态及 AI 广告检测）各子能力槽位的竖向结构化明细列表。
+ * @param aiReady AI 闲聊与多模态配置是否已就绪。
+ * @param adReady AI 广告检测配置是否已就绪。
+ * @returns 竖向展示的 Agent 模型明细项只读数组。
  */
-function buildAiChatDetailItems(
-  ready: boolean
+function buildAgentDetailItems(
+  aiReady: boolean,
+  adReady: boolean
 ): readonly Readonly<MiniAppCapabilityDetailItem>[] {
-  if (!ready) return [];
-  const aiConfig: Readonly<AgentDeploymentConfig> = getAgentDeploymentConfig();
-  const items: Readonly<MiniAppCapabilityDetailItem>[] = [
-    {
-      label: "对话 text",
-      value: aiConfig.text.model,
-      sub: aiConfig.text.provider,
-    },
-    {
-      label: "摘要 summary",
-      value: aiConfig.summary.model,
-      sub: aiConfig.summary.provider,
-    },
-    {
-      label: "多模态 media",
-      value: aiConfig.media.model,
-      sub: aiConfig.media.provider,
-    },
-  ];
-  if (aiConfig.image !== undefined) {
-    items.push({
-      label: "生图 image",
-      value: aiConfig.image.model,
-      sub: aiConfig.image.provider,
-    });
+  const items: Readonly<MiniAppCapabilityDetailItem>[] = [];
+  if (aiReady) {
+    const aiConfig: Readonly<AgentDeploymentConfig> = getAgentDeploymentConfig();
+    items.push(
+      {
+        label: "对话 text",
+        value: aiConfig.text.model,
+        sub: aiConfig.text.provider,
+      },
+      {
+        label: "摘要 summary",
+        value: aiConfig.summary.model,
+        sub: aiConfig.summary.provider,
+      },
+      {
+        label: "多模态 media",
+        value: aiConfig.media.model,
+        sub: aiConfig.media.provider,
+      }
+    );
+    if (aiConfig.image !== undefined) {
+      items.push({
+        label: "生图 image",
+        value: aiConfig.image.model,
+        sub: aiConfig.image.provider,
+      });
+    }
+    if (aiConfig.tts !== undefined) {
+      const ttsModel: string =
+        aiConfig.tts.speechProtocol === "xai"
+          ? aiConfig.tts.voice
+          : aiConfig.tts.model;
+      items.push({
+        label: "语音 tts",
+        value: ttsModel,
+        sub: `${aiConfig.tts.provider} · 音色 ${aiConfig.tts.voice}`,
+      });
+    }
+    if (aiConfig.webSearch !== undefined) {
+      items.push({
+        label: "搜索 search",
+        value: aiConfig.webSearch.model,
+        sub: `${aiConfig.webSearch.provider} · 限 ${aiConfig.webSearch.maxCallsPerUse} 次/轮`,
+      });
+    }
   }
-  if (aiConfig.tts !== undefined) {
-    const ttsModel: string =
-      aiConfig.tts.speechProtocol === "xai"
-        ? aiConfig.tts.voice
-        : aiConfig.tts.model;
-    items.push({
-      label: "语音 tts",
-      value: ttsModel,
-      sub: `${aiConfig.tts.provider} · 音色 ${aiConfig.tts.voice}`,
-    });
-  }
-  if (aiConfig.webSearch !== undefined) {
-    items.push({
-      label: "搜索 search",
-      value: aiConfig.webSearch.model,
-      sub: `${aiConfig.webSearch.provider} · 限 ${aiConfig.webSearch.maxCallsPerUse} 次/轮`,
-    });
+  if (adReady) {
+    const adConfig: Readonly<AdDetectAgentConfig> | null = getAdDetectAgentConfig();
+    if (adConfig !== null) {
+      items.push({
+        label: "广告检测 ad_detect",
+        value: adConfig.model,
+        sub: adConfig.provider,
+      });
+    }
   }
   return items;
-}
-
-/**
- * 构建广告检测配置槽位的模型摘要文本。
- * @param ready 广告检测配置是否已就绪。
- * @returns 已配置的广告检测模型摘要字符串。
- */
-function describeAdDetectModel(ready: boolean): string {
-  if (!ready) return "未配置";
-  const adConfig: Readonly<AdDetectAgentConfig> | null = getAdDetectAgentConfig();
-  return adConfig === null ? "未配置" : `${adConfig.provider}:${adConfig.model}`;
-}
-
-/**
- * 构建广告检测配置槽位的竖向结构化明细列表。
- * @param ready 广告检测配置是否已就绪。
- * @returns 竖向展示的广告检测模型明细项只读数组。
- */
-function buildAdDetectDetailItems(
-  ready: boolean
-): readonly Readonly<MiniAppCapabilityDetailItem>[] {
-  if (!ready) return [];
-  const adConfig: Readonly<AdDetectAgentConfig> | null = getAdDetectAgentConfig();
-  if (adConfig === null) return [];
-  return [
-    {
-      label: "检测模型",
-      value: adConfig.model,
-      sub: adConfig.provider,
-    },
-  ];
 }
 
 /**
@@ -265,7 +257,7 @@ function buildCronDetailItems(
 
 /**
  * 采集主线程实时运行状态快照（供 Mini App 首页展示）。
- * @returns 包含进程资源、出站网关、活跃会话与七项配置槽位状态的只读视图。
+ * @returns 包含进程资源、出站网关、活跃会话与六项配置槽位状态的只读视图。
  */
 export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
   const processStatus: Readonly<BotProcessStatus> = readBotProcessStatus();
@@ -306,18 +298,23 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
     telegramOutboundStats();
   const aiReadiness: ConfigReadiness = aiChatConfigReadiness();
   const adReadiness: ConfigReadiness = adDetectConfigReadiness();
+  const agentReady: boolean = aiReadiness.ok || adReadiness.ok;
   const stickerConfig: Readonly<StickerConfig> | null = defaultStickerConfigCache.current;
   const moodConfig: Readonly<MoodConfig> | null = defaultMoodConfigCache.current;
   const cronConfig: CronConfig | null = cronConfigCache.current;
 
   const capabilities: readonly Readonly<MiniAppCapabilityStatus>[] = [
-    buildCapabilityStatus({
-      key: "aiChat",
-      label: "AI 群聊与多模态",
-      readiness: aiReadiness,
-      activeDetail: describeAiChatModels(aiReadiness.ok),
-      activeItems: buildAiChatDetailItems(aiReadiness.ok),
-    }),
+    {
+      key: "agent",
+      label: "Agent 能力",
+      ready: agentReady,
+      detail: agentReady
+        ? describeAgentModels(aiReadiness.ok, adReadiness.ok)
+        : "未就绪",
+      items: agentReady
+        ? buildAgentDetailItems(aiReadiness.ok, adReadiness.ok)
+        : [{ label: "运行状态", value: "未就绪", sub: "缺少必要配置" }],
+    },
     buildCapabilityStatus({
       key: "translate",
       label: "Google 自动翻译",
@@ -330,13 +327,6 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
           sub: "已启用",
         },
       ],
-    }),
-    buildCapabilityStatus({
-      key: "adDetect",
-      label: "AI 广告检测",
-      readiness: adReadiness,
-      activeDetail: describeAdDetectModel(adReadiness.ok),
-      activeItems: buildAdDetectDetailItems(adReadiness.ok),
     }),
     {
       key: "stickers",

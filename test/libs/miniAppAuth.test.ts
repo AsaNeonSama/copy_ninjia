@@ -152,7 +152,7 @@ describe("verifyMiniAppInitData", () => {
     });
   });
 
-  test("过期或超出时钟偏移上限的 auth_date 返回 expired_auth_date，且有效窗口与 90 分钟会话对齐", () => {
+  test("过期或超出时钟偏移上限的 auth_date 返回 expired_auth_date，且有效窗口与 45 分钟会话对齐", () => {
     expect(MINI_APP_AUTH_MAX_AGE_SECONDS).toBe(MINI_APP_SESSION_TTL_MS / 1_000);
     const expiredInitData: string = buildSignedTestInitData({
       botToken,

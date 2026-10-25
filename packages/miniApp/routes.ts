@@ -29,16 +29,11 @@ import {
   handleDeleteTotpRoute, handleGetTotpRoute, handlePostTotpEnableRoute,
   handlePostTotpSetupRoute, handleTotpApiRoute,
 } from "./http/totpRoutes";
-import { buildMiniAppStatusView } from "./statusView";
+import {
+  handleGetMoodRoute, handleGetStatusRoute,
+  handlePostMoodSwitchRoute, handleStatusAndMoodApiRoute,
+} from "./http/statusRoutes";
 import indexHtml from "./ui/index.html";
-
-/**
- * 处理 `GET /api/status`：返回实时运行状态快照。
- * @returns JSON 响应。
- */
-function handleGetStatusRoute(): Response {
-  return jsonResponse(buildMiniAppStatusView());
-}
 
 /**
  * 读取 Mini App 入口 HTML 文本（当 `Bun.serve` 已启动时从内部 `/_bundle` 路由获取注入了打包产物路径的 HTML；直接单元测试调用时读取源文件），并附带完整的 CSP 与 `X-Frame-Options` 响应头返回。
@@ -127,7 +122,8 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
     "/api/auth/precheck": {
       GET: withMiniAppMiddlewareChain(
         initDataChain,
-        (): Promise<Response> => handleGetAuthPrecheckRoute()
+        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+          handleGetAuthPrecheckRoute(ctx.request)
       ),
     },
     "/api/auth/login": {
@@ -138,45 +134,32 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
       ),
     },
     "/api/totp": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (): Promise<Response> => handleGetTotpRoute()
-      ),
-      DELETE: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (): Promise<Response> => handleDeleteTotpRoute()
-      ),
+      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleGetTotpRoute()),
+      DELETE: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleDeleteTotpRoute()),
     },
     "/api/totp/setup": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (): Response => handlePostTotpSetupRoute()
-      ),
+      POST: withMiniAppMiddlewareChain(apiAuthChain, (): Response => handlePostTotpSetupRoute()),
     },
     "/api/totp/enable": {
       POST: withMiniAppMiddlewareChain(
         apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostTotpEnableRoute(ctx.request)
+        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> => handlePostTotpEnableRoute(ctx.request)
       ),
     },
     "/api/totp/delete": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (): Promise<Response> => handleDeleteTotpRoute()
-      ),
+      POST: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleDeleteTotpRoute()),
     },
     "/api/status": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (): Response => handleGetStatusRoute()
-      ),
+      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Response => handleGetStatusRoute()),
+    },
+    "/api/mood": {
+      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleGetMoodRoute()),
+    },
+    "/api/mood/switch": {
+      POST: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handlePostMoodSwitchRoute()),
     },
     "/api/chats": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (): Response => handleGetChatsRoute()
-      ),
+      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Response => handleGetChatsRoute()),
     },
     "/api/chats/:chatId": {
       GET: withMiniAppMiddlewareChain(
@@ -425,7 +408,8 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     return executeMiniAppMiddlewareChain(
       ctx,
       getMiniAppInitDataMiddlewareChain(),
-      (): Promise<Response> => handleGetAuthPrecheckRoute()
+      (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+        handleGetAuthPrecheckRoute(routeCtx.request)
     );
   }
 
@@ -473,9 +457,9 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     ctx,
     getMiniAppApiAuthMiddlewareChain(),
     async (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> => {
-      if (routeCtx.method === "GET" && routeCtx.routePath === "/api/status") {
-        return handleGetStatusRoute();
-      }
+      const statusOrMoodResponse: Response | null =
+        await handleStatusAndMoodApiRoute(routeCtx.method, routeCtx.routePath);
+      if (statusOrMoodResponse !== null) return statusOrMoodResponse;
       const totpResponse: Response | null = await handleTotpApiRoute(
         routeCtx.method,
         routeCtx.routePath,
