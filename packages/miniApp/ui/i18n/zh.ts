@@ -43,12 +43,14 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       chats: "受管群聊",
       identities: "黑白名单",
       gallery: "色图图库",
+      totp: "验证器",
     },
     tabDescriptions: {
       status: "CPU、内存、出站门控与子系统状态♡",
       chats: "已 /init 群开关与热 256 条发言♡",
       identities: "白名单 18 项权限与黑名单管理♡",
       gallery: "/h_image 图库预览、上传与删除♡",
+      totp: "谷歌验证器 (TOTP) 绑定、替换与删除♡",
     },
     gate: {
       checkingText: "本天才正在核验杂鱼的 SuperAdmin 签名，老实等着♡…",
@@ -93,7 +95,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       },
       deniedWhatCanIDoTitle: "杂鱼现在该怎么办？♡",
       deniedWhatCanIDoDesc:
-        "严禁在 Telegram 之外直接通过 HTTP 访问哦。如果你真是超级管理员本尊，就乖乖去 Telegram 打开与 Bot 的私聊，点击 Dashboard 按钮并输入访问密码吧，杂鱼♡",
+        "严禁在 Telegram 之外直接通过 HTTP 访问哦。如果你真是超级管理员本尊，就乖乖去 Telegram 打开与 Bot 的私聊，点击 App 按钮并输入访问密码吧，杂鱼♡",
       passwordBadge: "二次密码门禁♡",
       passwordTitle: "交出访问密码，杂鱼♡",
       passwordSubtitle:
@@ -102,7 +104,35 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       passwordEmptyHint: "笨蛋杂鱼♡，密码框还是空的就想蒙混过关？",
       passwordSubmitting: "本天才核验中♡…",
       passwordSubmitButton: "乖乖解锁控制台♡",
+      totpBadge: "谷歌验证器门禁♡",
+      totpTitle: "交出 6 位动态码，杂鱼♡",
+      totpSubtitle:
+        "已启用 Google Authenticator 验证器优先保护，请输入当前 6 位动态验证码解锁 90 分钟会话（连续输错 5 次锁定 30 分钟哦♡）。",
+      totpPlaceholder: "输入 6 位谷歌验证器动态码♡…",
+      totpEmptyHint: "笨蛋杂鱼♡，先填满 6 位数字动态验证码再点解锁啦！",
+      totpSubmitButton: "验证动态码并解锁♡",
       unlockedToast: "哼，算你识相，90 分钟会话给你解锁啦♡",
+    },
+    totp: {
+      sectionTitle: "Google Authenticator 验证器",
+      enabledBadge: "已启用优先验证♡",
+      disabledBadge: "未启用 (使用密码)",
+      statusDescEnabled: (maskedSecret: string, updatedAtText: string): string =>
+        `当前唯一验证器密钥：${maskedSecret} · 更新于 ${updatedAtText}（登录时优先使用验证器）♡`,
+      statusDescDisabled:
+        "尚未绑定谷歌验证器，当前使用 bot.json 访问密码登录。仅限在本控制台生成二维码绑定唯一验证器♡",
+      addButton: "添加验证器",
+      modifyButton: "修改验证器",
+      deleteButton: "删除验证器",
+      qrGuideText:
+        "请用 Google Authenticator 扫描下方二维码（或手动输入 Base32 密钥），然后输入显示的 6 位动态码完成激活♡：",
+      secretLabel: "Base32 密钥：",
+      codePlaceholder: "输入 6 位动态验证码♡…",
+      verifyEnableButton: "验证并保存",
+      verifyingButton: "验证中…",
+      cancelSetupButton: "取消",
+      confirmDeleteTotp:
+        "杂鱼♡，确定要删除当前的 Google Authenticator 验证器吗？删除后将恢复使用访问密码验证哦！",
     },
     pagination: {
       summary: (total: number, page: number, totalPages: number): string =>
@@ -160,8 +190,9 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       closeDetailButton: "收起",
       botPermProbing: "Bot 管理员权限：本天才还没探测过呢，去群里发条命令吧♡",
       botPermAllReady: "Bot 管理员权限：删消息 / 禁言封禁 / 改群资料 全都齐活啦♡",
-      botPermMissing: (labels: string): string =>
-        `Bot 缺少这些管理员权限啦杂鱼♡：${labels}`,
+      botPermMissingTitle: (count: number): string =>
+        `Bot 缺少以下 ${count} 项管理员权限♡`,
+      botPermLabel: (rawLabel: string): string => rawLabel,
       detailStatsLine: (detail: Readonly<MiniAppChatDetail>): string =>
         `群 ID: ${detail.chatId} · 问答对: ${detail.qaPairCount} · 追着删目标: ${detail.deleteMessageTargetCount} · 追着翻目标: ${detail.translateTargetCount}`,
       featuresSectionTitle: "群功能实时开关♡",
@@ -308,6 +339,10 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       directoryReadyText: (_directory: string): string =>
         "图库存储已就绪 · 支持 JPEG / PNG / WebP (≤ 10 MiB)♡",
       previewTitle: (shortName: string): string => `大图预览 · ${shortName}♡`,
+      downloadButton: "下载图片",
+      downloadingButton: "下载中…",
+      downloadedToast: (fileName: string): string =>
+        `已经帮杂鱼把 ${fileName} 下载好啦♡`,
       deleteButton: "删除图片",
       deletingButton: "删除中…",
       closePreviewButton: "关闭预览",

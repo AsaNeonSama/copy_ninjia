@@ -39,16 +39,18 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
     sidebarCloseAria: "サイドバーメニューを閉じる",
     sidebarFooterHint: "天才のアタシが24時間システムを監視してあげてるんだから感謝しなさい♡",
     tabs: {
-      status: "稼働ステータス",
+      status: "ステータス",
       chats: "管理グループ",
       identities: "リストと権限",
       gallery: "えっち図鑑",
+      totp: "認証システム",
     },
     tabDescriptions: {
       status: "CPU・メモリ・送信制御と稼働状態♡",
       chats: "/init 群スイッチと直近256件発言♡",
       identities: "白黒リストと18項目の権限管理♡",
       gallery: "/h_image プレビュー・追加・削除♡",
+      totp: "Google 認証システム (TOTP) の登録・変更・削除♡",
     },
     gate: {
       checkingText: "雑魚の SuperAdmin 署名を検査してあげてるから大人しく待ちなさい♡…",
@@ -93,7 +95,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       },
       deniedWhatCanIDoTitle: "雑魚はどうすればいいの？♡",
       deniedWhatCanIDoDesc:
-        "Telegram 以外からの直接 HTTP アクセスは禁止よ。もし本当にスーパー管理者なら、大人しく Telegram で Bot との個別チャットを開いて Dashboard ボタンからアクセスパスワードを入力しなさい、雑魚♡",
+        "Telegram 以外からの直接 HTTP アクセスは禁止よ。もし本当にスーパー管理者なら、大人しく Telegram で Bot との個別チャットを開いて App ボタンからアクセスパスワードを入力しなさい、雑魚♡",
       passwordBadge: "二次パスワード認証♡",
       passwordTitle: "合言葉を出せ、雑魚♡",
       passwordSubtitle:
@@ -102,7 +104,35 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       passwordEmptyHint: "マヌケな雑魚♡、空欄のまま突破できると思ったの？",
       passwordSubmitting: "アタシが照合中♡…",
       passwordSubmitButton: "いい子でロック解除♡",
+      totpBadge: "Google 認証システム♡",
+      totpTitle: "6桁コードを出せ、雑魚♡",
+      totpSubtitle:
+        "Google Authenticator が優先有効化されているわ。現在の6桁ワンタイムコードを入力して90分セッションを解除しなさい（5回失敗で30分ロックよ♡）。",
+      totpPlaceholder: "6桁の認証コードを入力しなさい雑魚♡…",
+      totpEmptyHint: "マヌケな雑魚♡、6桁の数字コードをちゃんと入力しなさい！",
+      totpSubmitButton: "コード照合して解除♡",
       unlockedToast: "ふん、まあ合格ね。90分間だけ使わせてあげるわ♡",
+    },
+    totp: {
+      sectionTitle: "Google Authenticator 認証",
+      enabledBadge: "優先認証 ON♡",
+      disabledBadge: "未設定 (パスワード認証)",
+      statusDescEnabled: (maskedSecret: string, updatedAtText: string): string =>
+        `現在の認証シークレット：${maskedSecret} · ${updatedAtText} 更新（ログイン時は認証器を優先）♡`,
+      statusDescDisabled:
+        "Google 認証システムは未登録よ（現在はパスワード認証）。このコンソールからのみQRコードを生成して1つだけ登録できるわ♡",
+      addButton: "認証器を追加",
+      modifyButton: "認証器を変更",
+      deleteButton: "認証器を削除",
+      qrGuideText:
+        "Google Authenticator で下のQRコードをスキャン（または Base32 キーを手入力）し、6桁コードを入力して有効化しなさい♡：",
+      secretLabel: "Base32 キー：",
+      codePlaceholder: "6桁の確認コードを入力♡…",
+      verifyEnableButton: "確認して保存",
+      verifyingButton: "確認中…",
+      cancelSetupButton: "キャンセル",
+      confirmDeleteTotp:
+        "雑魚♡、本当に Google Authenticator 認証器を削除するの？削除後はアクセスパスワード認証に戻るわよ！",
     },
     pagination: {
       summary: (total: number, page: number, totalPages: number): string =>
@@ -255,8 +285,31 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       closeDetailButton: "閉じる",
       botPermProbing: "Bot 管理者権限：まだ未検出よ。グループで何かコマンドを撃ちなさい♡",
       botPermAllReady: "Bot 管理者権限：メッセージ削除 / 制限 / 情報変更 全部バッチリよ♡",
-      botPermMissing: (labels: string): string =>
-        `雑魚♡、Bot にこの管理者権限が足りないわよ：${labels}`,
+      botPermMissingTitle: (count: number): string =>
+        `不足している Bot 管理者権限 (${count} 項目)♡`,
+      botPermLabel: (rawLabel: string): string => {
+        const map: Readonly<Record<string, string>> = {
+          管理员身份: "管理者権限",
+          匿名身份: "匿名管理者",
+          管理聊天: "チャット管理",
+          删除消息: "メッセージ削除",
+          管理视频聊天: "ビデオチャット管理",
+          限制与封禁成员: "メンバー制限・BAN",
+          任免管理员: "管理者の追加",
+          修改聊天资料: "グループ情報変更",
+          邀请用户: "ユーザー招待",
+          管理成员标签: "メンバータグ管理",
+          发布故事: "ストーリー投稿",
+          编辑故事: "ストーリー編集",
+          删除故事: "ストーリー削除",
+          频道发布消息: "チャンネル投稿",
+          编辑频道消息: "チャンネル編集",
+          置顶消息: "メッセージ固定",
+          管理论坛话题: "トピック管理",
+          管理频道私信: "チャンネルDM管理",
+        };
+        return map[rawLabel] ?? rawLabel;
+      },
       detailStatsLine: (detail: Readonly<MiniAppChatDetail>): string =>
         `群 ID: ${detail.chatId} · QAペア: ${detail.qaPairCount} · 自動削除対象: ${detail.deleteMessageTargetCount} · 自動翻訳対象: ${detail.translateTargetCount}`,
       featuresSectionTitle: "グループ機能スイッチ（即時同期）♡",
@@ -403,6 +456,10 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       directoryReadyText: (_directory: string): string =>
         "図鑑ストレージ準備完了 · JPEG / PNG / WebP (≤ 10 MiB)♡",
       previewTitle: (shortName: string): string => `プレビュー · ${shortName}♡`,
+      downloadButton: "ダウンロード",
+      downloadingButton: "保存中…",
+      downloadedToast: (fileName: string): string =>
+        `雑魚のために ${fileName} をダウンロードしてあげたわよ♡`,
       deleteButton: "画像を削除",
       deletingButton: "削除中…",
       closePreviewButton: "プレビューを閉じる",

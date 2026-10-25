@@ -5,6 +5,7 @@ export {
   ChatsSvgIcon,
   ChevronDownSvgIcon,
   CloseSvgIcon,
+  DownloadSvgIcon,
   GallerySvgIcon,
   GlobeSvgIcon,
   HashtagSvgIcon,

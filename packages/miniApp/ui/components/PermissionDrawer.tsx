@@ -77,10 +77,19 @@ export function PermissionDrawer({
     <div className="perm-drawer-inline animate-fade-in">
       <div className="card-title">
         <div>
-          <div>
+          <div className="identity-title-row">
             <bdi className="identity-name">
               {t.permissionDrawer.title(sanitizeBidiText(entry.displayName))}
             </bdi>
+            <span
+              className={`badge ${
+                entry.isChannel ? "identity-channel-badge" : "identity-user-badge"
+              }`}
+            >
+              {entry.isChannel
+                ? t.identities.channelBadge
+                : t.identities.userBadge}
+            </span>
           </div>
           <div className="row-sub">
             {t.permissionDrawer.subtitle(entry.id, entry.isChannel)}

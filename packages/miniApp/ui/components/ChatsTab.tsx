@@ -233,18 +233,44 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
                     {chatDetail.features.init ? "/init ON♡" : "/init OFF"}
                   </span>
                 </div>
-                <div className="row-sub" style={{ marginBottom: "8px" }}>
+                <div className="row-sub" style={{ marginBottom: "10px" }}>
                   {t.chats.detailStatsLine(chatDetail)}
                 </div>
-                <div className="row-sub">
-                  {chatDetail.botPermissions === null
-                    ? t.chats.botPermProbing
-                    : chatDetail.botPermissions.missingLabels.length === 0
-                      ? t.chats.botPermAllReady
-                      : t.chats.botPermMissing(
-                        chatDetail.botPermissions.missingLabels.join(" / ")
-                      )}
-                </div>
+                {chatDetail.botPermissions === null
+                  ? (
+                    <div className="bot-perm-status-box">
+                      <span>{t.chats.botPermProbing}</span>
+                    </div>
+                  )
+                  : chatDetail.botPermissions.missingLabels.length === 0
+                    ? (
+                      <div className="bot-perm-status-box ready">
+                        <span>{t.chats.botPermAllReady}</span>
+                      </div>
+                    )
+                    : (
+                      <div className="bot-perm-missing-box">
+                        <div className="bot-perm-missing-head">
+                          <span className="bot-perm-missing-title">
+                            {t.chats.botPermMissingTitle(
+                              chatDetail.botPermissions.missingLabels.length
+                            )}
+                          </span>
+                        </div>
+                        <div className="bot-perm-tag-grid">
+                          {chatDetail.botPermissions.missingLabels.map(
+                            (rawLabel: string): React.JSX.Element => (
+                              <span key={rawLabel} className="bot-perm-tag">
+                                <span className="bot-perm-tag-dot" />
+                                <span className="bot-perm-tag-text">
+                                  {t.chats.botPermLabel(rawLabel)}
+                                </span>
+                              </span>
+                            )
+                          )}
+                        </div>
+                      </div>
+                    )}
               </div>
 
               <div className="card">

@@ -131,6 +131,7 @@ export async function readMiniAppGalleryFile(
   );
   if (entry === null) return null;
   return {
+    fileName: entry.fileName,
     filePath: entry.filePath,
     mimeType: entry.mimeType,
     sizeBytes: entry.sizeBytes,

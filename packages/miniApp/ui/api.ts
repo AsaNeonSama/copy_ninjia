@@ -4,11 +4,17 @@ import {
 import type { WhitelistPermissionKey } from "../../types/identityPolicy";
 import type {
   MiniAppAccessDiagnostics, MiniAppBlocklistPage, MiniAppChatDetail, MiniAppChatSummary,
-  MiniAppFeatureKey, MiniAppFeatureToggleResult, MiniAppGalleryDeleteResult, MiniAppGalleryPage,
-  MiniAppGalleryUploadResult, MiniAppIdentityMutationResult, MiniAppLoginSuccessResponse,
+  MiniAppDownloadAnchorElement, MiniAppFeatureKey, MiniAppFeatureToggleResult, MiniAppGalleryDeleteResult,
+  MiniAppGalleryPage, MiniAppGalleryUploadResult, MiniAppIdentityMutationResult, MiniAppLoginSuccessResponse,
   MiniAppMessagePage, MiniAppPickerResultEvent, MiniAppPickerSubjectKind, MiniAppPickerTargetList,
   MiniAppPrecheckResult, MiniAppStatusView, MiniAppWhitelistPage, TelegramWebApp, TelegramWindow,
 } from "../../types/miniApp";
+import type {
+  MiniAppAuthMode,
+  MiniAppTotpMutationResponse,
+  MiniAppTotpSetupResponse,
+  MiniAppTotpStatusView,
+} from "../../types/miniAppTotp";
 import type { PrepareMiniAppPickerResult } from "../picker";
 
 /**
@@ -47,6 +53,32 @@ export function clearMiniAppSessionToken(): void {
 }
 
 /**
+ * 读取当前浏览器会话缓存的受保护静态/图库资源稳定访问令牌。
+ * @returns 64 位十六进制资源令牌；未预检时返回空字符串
+ */
+export function readMiniAppAssetToken(): string {
+  const tgWindow: TelegramWindow = globalThis;
+  return tgWindow.__copyNinjaAssetToken ?? "";
+}
+
+/**
+ * 保存服务端在预检或登录成功后下发的受保护静态/图库资源稳定访问令牌。
+ * @param token 64 位十六进制资源令牌
+ */
+export function setMiniAppAssetToken(token: string): void {
+  const tgWindow: TelegramWindow = globalThis;
+  tgWindow.__copyNinjaAssetToken = token;
+}
+
+/**
+ * 清除当前浏览器会话的受保护资源令牌（仅供测试重置使用）。
+ */
+export function clearMiniAppAssetToken(): void {
+  const tgWindow: TelegramWindow = globalThis;
+  tgWindow.__copyNinjaAssetToken = undefined;
+}
+
+/**
  * 调用宿主环境确认对话框；无弹窗宿主时默认确认通过。
  * @param message 确认提示文本
  * @returns 用户是否确认继续
@@ -65,9 +97,7 @@ export function confirmMiniAppAction(message: string): boolean {
  */
 export function readMiniAppInitData(): string {
   const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
-  if (webApp?.initData !== undefined && webApp.initData.length > 0) {
-    return webApp.initData;
-  }
+  if (webApp?.initData !== undefined && webApp.initData.length > 0) return webApp.initData;
   const tgWindow: TelegramWindow = globalThis;
   if (tgWindow.location === undefined) return "";
   const queryParams: URLSearchParams = new URLSearchParams(tgWindow.location.search);
@@ -76,8 +106,7 @@ export function readMiniAppInitData(): string {
   const hashRaw: string = tgWindow.location.hash.startsWith("#")
     ? tgWindow.location.hash.slice(1)
     : tgWindow.location.hash;
-  const hashParams: URLSearchParams = new URLSearchParams(hashRaw);
-  return hashParams.get("tgWebAppData") ?? "";
+  return new URLSearchParams(hashRaw).get("tgWebAppData") ?? "";
 }
 
 /**
@@ -97,10 +126,7 @@ function asPayloadRecord(payload: unknown): Record<string, unknown> {
  * @param contentType 可选的 `Content-Type`
  * @returns 组装好的请求头字典
  */
-function buildMiniAppAuthHeaders(
-  includeSession: boolean,
-  contentType?: string
-): Record<string, string> {
+function buildMiniAppAuthHeaders(includeSession: boolean, contentType?: string): Record<string, string> {
   const initData: string = readMiniAppInitData();
   const headers: Record<string, string> = { Accept: "application/json" };
   if (initData.length > 0) {
@@ -109,13 +135,9 @@ function buildMiniAppAuthHeaders(
   }
   if (includeSession) {
     const sessionToken: string = readMiniAppSessionToken();
-    if (sessionToken.length > 0) {
-      headers[MINI_APP_SESSION_HEADER] = sessionToken;
-    }
+    if (sessionToken.length > 0) headers[MINI_APP_SESSION_HEADER] = sessionToken;
   }
-  if (contentType !== undefined) {
-    headers["Content-Type"] = contentType;
-  }
+  if (contentType !== undefined) headers["Content-Type"] = contentType;
   return headers;
 }
 
@@ -127,9 +149,7 @@ function buildMiniAppAuthHeaders(
  * @returns 归一化后的真实访问诊断对象
  */
 function parseAccessDiagnostics(
-  payload: unknown,
-  response: Response,
-  fallbackError: string
+  payload: unknown, response: Response, fallbackError: string
 ): Readonly<MiniAppAccessDiagnostics> {
   const record: Record<string, unknown> = asPayloadRecord(payload);
   const str = (key: string, fallback: string): string => {
@@ -149,13 +169,12 @@ function parseAccessDiagnostics(
 }
 
 /**
- * 调用 `GET ./api/auth/precheck` 核验当前客户端是否持有合法的 SuperAdmin `initData` 签名；未通过时返回服务端生成的真实请求 ID、UTC 时间与客户端 IP 供 403 页面展示。
+ * 调用 `GET ./api/auth/precheck` 核验当前客户端是否持有合法的 SuperAdmin `initData` 签名。
  * @returns 预检结果
  */
 export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   const response: Response = await fetch("./api/auth/precheck", {
-    method: "GET",
-    headers: buildMiniAppAuthHeaders(false),
+    method: "GET", headers: buildMiniAppAuthHeaders(false),
   });
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
@@ -169,25 +188,39 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
     };
   }
   const record: Record<string, unknown> = asPayloadRecord(payload);
-  const ttlMs: number =
-    typeof record.ttlMs === "number" ? record.ttlMs : MINI_APP_SESSION_TTL_MS;
-  return { ok: true, ttlMs };
+  const ttlMs: number = typeof record.ttlMs === "number" ? record.ttlMs : MINI_APP_SESSION_TTL_MS;
+  const totpEnabled: boolean = record.totpEnabled === true;
+  const authMode: MiniAppAuthMode =
+    record.authMode === "totp" || totpEnabled ? "totp" : "password";
+  const assetToken: string | undefined =
+    typeof record.assetToken === "string" && record.assetToken.length > 0 ? record.assetToken : undefined;
+  if (assetToken !== undefined) setMiniAppAssetToken(assetToken);
+  return {
+    ok: true, ttlMs, totpEnabled, authMode,
+    ...(assetToken === undefined ? {} : { assetToken }),
+  };
 }
 
 /**
- * 调用 `POST ./api/auth/login` 提交访问密码并获取 90 分钟有效期的认证会话令牌。
- * @param password 用户输入的访问密码
+ * 调用 `POST ./api/auth/login` 提交 6 位 TOTP 动态码（优先）或访问密码并获取 90 分钟有效期的认证会话令牌。
+ * @param credential 用户输入的 6 位 TOTP 验证码或访问密码
+ * @param mode 当前登录校验模式（`"totp"` 或 `"password"`）
  * @returns 登录成功响应（含 `sessionToken` 与 `expiresAt`）
  */
 export async function loginMiniAppWithPassword(
-  password: string
+  credential: string, mode: MiniAppAuthMode = "password"
 ): Promise<MiniAppLoginSuccessResponse> {
   const response: MiniAppLoginSuccessResponse =
     await miniAppFetchJson<MiniAppLoginSuccessResponse>("./api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ password }),
+      body: JSON.stringify(
+        mode === "totp" ? { totpCode: credential, password: credential } : { password: credential }
+      ),
     });
   setMiniAppSessionToken(response.sessionToken);
+  if (typeof response.assetToken === "string" && response.assetToken.length > 0) {
+    setMiniAppAssetToken(response.assetToken);
+  }
   return response;
 }
 
@@ -197,28 +230,19 @@ export async function loginMiniAppWithPassword(
  * @param init 可选 `RequestInit` 配置
  * @returns 解析后的 JSON 响应对象
  */
-export async function miniAppFetchJson<T>(
-  path: string,
-  init?: RequestInit
-): Promise<T> {
+export async function miniAppFetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = buildMiniAppAuthHeaders(
-    true,
-    init?.body !== undefined ? "application/json" : undefined
+    true, init?.body !== undefined ? "application/json" : undefined
   );
   const response: Response = await fetch(path, {
     ...init,
-    headers: {
-      ...headers,
-      ...(init?.headers as Record<string, string> | undefined),
-    },
+    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
     const record: Record<string, unknown> = asPayloadRecord(payload);
     const code: string = typeof record.code === "string" ? record.code : "";
-    if (code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED") {
-      clearMiniAppSessionToken();
-    }
+    if (code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED") clearMiniAppSessionToken();
     const errorMessage: string =
       typeof record.error === "string"
         ? record.error
@@ -270,13 +294,10 @@ export async function fetchMiniAppChatDetail(chatId: number): Promise<MiniAppCha
  * @returns 开关变更结果
  */
 export async function toggleMiniAppChatFeature(
-  chatId: number,
-  feature: MiniAppFeatureKey,
-  enabled: boolean
+  chatId: number, feature: MiniAppFeatureKey, enabled: boolean
 ): Promise<MiniAppFeatureToggleResult> {
   return miniAppFetchJson(`./api/chats/${encodeURIComponent(String(chatId))}/feature`, {
-    method: "POST",
-    body: JSON.stringify({ feature, enabled }),
+    method: "POST", body: JSON.stringify({ feature, enabled }),
   });
 }
 
@@ -288,9 +309,7 @@ export async function toggleMiniAppChatFeature(
  * @returns 热发言记录分页结果
  */
 export async function fetchMiniAppChatMessages(
-  chatId: number,
-  page: number,
-  pageSize: number
+  chatId: number, page: number, pageSize: number
 ): Promise<MiniAppMessagePage> {
   return miniAppFetchJson(
     `./api/chats/${encodeURIComponent(String(chatId))}/messages?page=${page}&pageSize=${pageSize}`
@@ -305,9 +324,7 @@ export async function fetchMiniAppChatMessages(
  * @returns 白名单分页结果
  */
 export async function fetchMiniAppWhitelist(
-  page: number,
-  pageSize: number,
-  query: string = ""
+  page: number, pageSize: number, query: string = ""
 ): Promise<MiniAppWhitelistPage> {
   const trimmed: string = query.trim();
   const suffix: string = trimmed.length > 0 ? `&query=${encodeURIComponent(trimmed)}` : "";
@@ -321,12 +338,10 @@ export async function fetchMiniAppWhitelist(
  * @returns 名单变更结果
  */
 export async function setMiniAppWhitelistMembership(
-  id: number,
-  enabled: boolean
+  id: number, enabled: boolean
 ): Promise<MiniAppIdentityMutationResult> {
   return miniAppFetchJson("./api/identities/whitelist", {
-    method: "POST",
-    body: JSON.stringify({ id, enabled }),
+    method: "POST", body: JSON.stringify({ id, enabled }),
   });
 }
 
@@ -338,15 +353,12 @@ export async function setMiniAppWhitelistMembership(
  * @returns 权限变更结果
  */
 export async function updateMiniAppWhitelistPermission(
-  id: number,
-  permission: WhitelistPermissionKey | "all",
-  enabled: boolean
+  id: number, permission: WhitelistPermissionKey | "all", enabled: boolean
 ): Promise<MiniAppIdentityMutationResult> {
   const body: Record<string, unknown> =
     permission === "all" ? { id, enableAll: true } : { id, key: permission, value: enabled };
   return miniAppFetchJson("./api/identities/permission", {
-    method: "POST",
-    body: JSON.stringify(body),
+    method: "POST", body: JSON.stringify(body),
   });
 }
 
@@ -358,9 +370,7 @@ export async function updateMiniAppWhitelistPermission(
  * @returns 黑名单分页结果
  */
 export async function fetchMiniAppBlocklist(
-  page: number,
-  pageSize: number,
-  query: string = ""
+  page: number, pageSize: number, query: string = ""
 ): Promise<MiniAppBlocklistPage> {
   const trimmed: string = query.trim();
   const suffix: string = trimmed.length > 0 ? `&query=${encodeURIComponent(trimmed)}` : "";
@@ -374,12 +384,10 @@ export async function fetchMiniAppBlocklist(
  * @returns 名单变更结果
  */
 export async function setMiniAppBlocklistMembership(
-  id: number,
-  enabled: boolean
+  id: number, enabled: boolean
 ): Promise<MiniAppIdentityMutationResult> {
   return miniAppFetchJson("./api/identities/blocklist", {
-    method: "POST",
-    body: JSON.stringify({ id, enabled }),
+    method: "POST", body: JSON.stringify({ id, enabled }),
   });
 }
 
@@ -390,12 +398,10 @@ export async function setMiniAppBlocklistMembership(
  * @returns 预备选择器会话信息
  */
 export async function requestMiniAppPreparedPicker(
-  targetList: MiniAppPickerTargetList,
-  subjectKind: MiniAppPickerSubjectKind
+  targetList: MiniAppPickerTargetList, subjectKind: MiniAppPickerSubjectKind
 ): Promise<Extract<PrepareMiniAppPickerResult, { readonly ok: true }>> {
   return miniAppFetchJson("./api/picker/prepare", {
-    method: "POST",
-    body: JSON.stringify({ targetList, subjectKind }),
+    method: "POST", body: JSON.stringify({ targetList, subjectKind }),
   });
 }
 
@@ -419,25 +425,26 @@ export async function pollMiniAppPickerResult(
  * @returns 图库分页结果
  */
 export async function fetchMiniAppGallery(
-  page: number,
-  pageSize: number
+  page: number, pageSize: number
 ): Promise<MiniAppGalleryPage> {
   return miniAppFetchJson(`./api/gallery?page=${page}&pageSize=${pageSize}`);
 }
 
 /**
- * 为图片或 SVG 资源路径附加当前会话的 `initData` 与可选 `session` 查询参数。
+ * 为图片或 SVG 资源路径附加跨重开稳定的受保护资源令牌 `?token=`（未下发稳定令牌时回退附加 `initData` 与可选 `session` 查询参数）。
  * @param basePrefix 资源路由前缀（如 `"./api/gallery/file"`）
  * @param fileName 资源文件名
  * @returns 带鉴权查询参数的受保护资源 URL
  */
 function buildProtectedAssetUrl(basePrefix: string, fileName: string): string {
+  const encodedName: string = encodeURIComponent(fileName);
+  const assetToken: string = readMiniAppAssetToken();
+  if (assetToken.length > 0) {
+    return `${basePrefix}/${encodedName}?token=${encodeURIComponent(assetToken)}`;
+  }
   const initData: string = readMiniAppInitData();
   const sessionToken: string = readMiniAppSessionToken();
-  const encodedName: string = encodeURIComponent(fileName);
-  if (initData.length === 0) {
-    return `${basePrefix}/${encodedName}`;
-  }
+  if (initData.length === 0) return `${basePrefix}/${encodedName}`;
   const sessionQuery: string =
     sessionToken.length > 0 ? `&session=${encodeURIComponent(sessionToken)}` : "";
   return `${basePrefix}/${encodedName}?initData=${encodeURIComponent(initData)}${sessionQuery}`;
@@ -479,14 +486,8 @@ export async function uploadMiniAppGalleryImageBytes(
   if (typeof record.outcome === "string" && typeof record.message === "string") {
     return payload as MiniAppGalleryUploadResult;
   }
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
-  }
-  return {
-    ok: false,
-    outcome: "failed",
-    message: "未收到有效的上传回执。",
-  };
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return { ok: false, outcome: "failed", message: "未收到有效的上传回执。" };
 }
 
 /**
@@ -499,8 +500,127 @@ export async function deleteMiniAppGalleryImageByName(
 ): Promise<MiniAppGalleryDeleteResult> {
   return miniAppFetchJson<MiniAppGalleryDeleteResult>(
     `./api/gallery/file/${encodeURIComponent(fileName)}`,
-    {
-      method: "DELETE",
-    }
+    { method: "DELETE" }
   );
+}
+
+/**
+ * 构造携带受保护资源令牌（或 `initData`）与 90 分钟 `session` 会话令牌的图库单张图片附件下载 URL。
+ * @param fileName 图库图片文件名
+ * @returns 带完整双层鉴权查询参数的下载 URL
+ */
+export function buildMiniAppGalleryDownloadUrl(fileName: string): string {
+  const encodedName: string = encodeURIComponent(fileName);
+  const basePath: string = `./api/gallery/download/${encodedName}`;
+  const assetToken: string = readMiniAppAssetToken();
+  const initData: string = readMiniAppInitData();
+  const sessionToken: string = readMiniAppSessionToken();
+  const params: URLSearchParams = new URLSearchParams();
+  if (assetToken.length > 0) {
+    params.set("token", assetToken);
+  } else if (initData.length > 0) {
+    params.set("initData", initData);
+  }
+  if (sessionToken.length > 0) {
+    params.set("session", sessionToken);
+  }
+  const query: string = params.toString();
+  return query.length > 0 ? `${basePath}?${query}` : basePath;
+}
+
+/**
+ * 先通过完整双层鉴权 `HEAD /api/gallery/download/:fileName` 校验 90 分钟会话与文件存在性，随后优先调用 Telegram 原生 `WebApp.downloadFile({ url, file_name })`（或浏览器原生 `Content-Disposition: attachment` 直连下载）将图片保存至系统默认下载目录。
+ * @param fileName 待下载的图库图片文件名
+ * @returns 用户确认或触发原生下载时返回 `true`，在 Telegram 原生弹窗中取消时返回 `false`
+ */
+export async function downloadMiniAppGalleryImageByName(fileName: string): Promise<boolean> {
+  const relativeUrl: string = buildMiniAppGalleryDownloadUrl(fileName);
+  const response: Response = await fetch(relativeUrl, {
+    method: "HEAD",
+    headers: buildMiniAppAuthHeaders(true),
+  });
+  if (!response.ok) {
+    const getRes: Response = await fetch(
+      `./api/gallery/download/${encodeURIComponent(fileName)}`,
+      { method: "GET", headers: buildMiniAppAuthHeaders(true) }
+    );
+    const payload: unknown = await getRes.json().catch((): null => null);
+    const record: Record<string, unknown> = asPayloadRecord(payload);
+    if (record.code === "PASSWORD_REQUIRED" || record.code === "PASSWORD_LOCKED") {
+      clearMiniAppSessionToken();
+    }
+    const errText: string =
+      typeof record.message === "string"
+        ? record.message
+        : typeof record.error === "string"
+          ? record.error
+          : `HTTP ${String(response.status)}`;
+    throw new Error(errText);
+  }
+  const tgWindow: TelegramWindow = globalThis;
+  const baseHref: string | undefined = tgWindow.location?.href;
+  const absoluteUrl: string =
+    typeof baseHref === "string" && baseHref.length > 0
+      ? new URL(relativeUrl, baseHref).href
+      : relativeUrl;
+  const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
+  const canUseTelegramNativeDownload: boolean =
+    typeof webApp?.downloadFile === "function" &&
+    (typeof webApp.isVersionAtLeast !== "function" || webApp.isVersionAtLeast("8.0"));
+  if (canUseTelegramNativeDownload && webApp?.downloadFile !== undefined) {
+    return await new Promise<boolean>((resolve: (accepted: boolean) => void): void => {
+      webApp.downloadFile!(
+        { url: absoluteUrl, file_name: fileName },
+        (accepted: boolean): void => {
+          resolve(accepted);
+        }
+      );
+    });
+  }
+  if (typeof tgWindow.document?.createElement === "function") {
+    const anchor: MiniAppDownloadAnchorElement = tgWindow.document.createElement("a");
+    anchor.href = absoluteUrl;
+    anchor.download = fileName;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    tgWindow.document.body?.appendChild?.(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+  return true;
+}
+
+/**
+ * 查询当前 Google Authenticator 验证器的启用状态与脱敏摘要。
+ * @returns 验证器状态视图
+ */
+export async function fetchMiniAppTotpStatus(): Promise<MiniAppTotpStatusView> {
+  return miniAppFetchJson<MiniAppTotpStatusView>("./api/totp");
+}
+
+/**
+ * 在前端控制台生成新的待确认 TOTP 密钥、标准 `otpauth://` URI 与内联二维码 SVG。
+ * @returns 待绑定密钥与二维码响应
+ */
+export async function setupMiniAppTotp(): Promise<MiniAppTotpSetupResponse> {
+  return miniAppFetchJson<MiniAppTotpSetupResponse>("./api/totp/setup", { method: "POST" });
+}
+
+/**
+ * 提交 6 位 Google Authenticator 动态码以激活或修改唯一验证器。
+ * @param code 6 位十进制验证码
+ * @returns 绑定或修改结果
+ */
+export async function enableMiniAppTotp(code: string): Promise<MiniAppTotpMutationResponse> {
+  return miniAppFetchJson<MiniAppTotpMutationResponse>("./api/totp/enable", {
+    method: "POST", body: JSON.stringify({ code }),
+  });
+}
+
+/**
+ * 删除当前唯一的 Google Authenticator 验证器并恢复密码登录。
+ * @returns 删除结果
+ */
+export async function deleteMiniAppTotp(): Promise<MiniAppTotpMutationResponse> {
+  return miniAppFetchJson<MiniAppTotpMutationResponse>("./api/totp", { method: "DELETE" });
 }

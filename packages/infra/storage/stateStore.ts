@@ -23,6 +23,7 @@ import { logger } from "../logger";
 import { throwIfUpdateAborted } from "../updateContext";
 import { assertChatStateCapacity } from "../chatStateStorage";
 import { StateStore, loadCurrentGlobalState } from "./statePersistence";
+import { loadMiniAppTotpRecord } from "../../miniApp/totpStorage";
 import { toError } from "../../libs/errorMessage";
 
 export {
@@ -155,9 +156,10 @@ export function restoreCopyCooldown(claimedAt: number, previousLastCopyTime: num
   return true;
 }
 
-/** 启动恢复：经 loadCurrentGlobalState 拒绝未迁移的状态文件，再从 memory/global/state.json 恢复全局状态。 */
+/** 启动恢复：经 loadCurrentGlobalState 拒绝未迁移的状态文件，再从 memory/global/state.json 与 memory/mini-app-totp/totp.json 恢复主线程状态。 */
 export async function loadState(): Promise<void> {
   try {
+    await loadMiniAppTotpRecord();
     const decoded: DecodedGlobalState | null = await loadCurrentGlobalState(sharedStateStore());
     if (decoded === null) return;
     if (decoded.copy.lastCopyTime !== undefined) {

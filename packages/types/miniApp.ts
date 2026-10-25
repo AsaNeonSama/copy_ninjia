@@ -1,4 +1,5 @@
 import type { WhitelistPermissionKey, WhitelistPermissions } from "./identityPolicy";
+import type { MiniAppAuthMode } from "./miniAppTotp";
 import type { RandomImageMimeType } from "./randomImage";
 
 /** Telegram WebApp `initData` 中解析出的用户身份摘要。 */
@@ -63,7 +64,7 @@ export interface MiniAppAccessDiagnostics {
   readonly error: string;
 }
 
-/** `POST /api/auth/login` 密码认证成功响应。 */
+/** `POST /api/auth/login` 密码或 TOTP 认证成功响应。 */
 export interface MiniAppLoginSuccessResponse {
   readonly ok: true;
   /** 签发的 64 位十六进制会话令牌。 */
@@ -71,6 +72,8 @@ export interface MiniAppLoginSuccessResponse {
   readonly expiresAt: number;
   /** 会话总有效时长毫秒数（90 分钟 = 5,400,000 ms）。 */
   readonly ttlMs: number;
+  /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
+  readonly assetToken?: string;
 }
 
 /** `GET /api/auth/precheck` 首屏签名预检结果。 */
@@ -78,6 +81,12 @@ export type MiniAppPrecheckResult =
   | {
     readonly ok: true;
     readonly ttlMs: number;
+    /** 当前是否已配置并启用谷歌验证器（TOTP）。 */
+    readonly totpEnabled?: boolean;
+    /** 当前登录门禁优先使用的认证方式（有验证器时为 `"totp"`，否则为 `"password"`）。 */
+    readonly authMode?: MiniAppAuthMode;
+    /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
+    readonly assetToken?: string;
   }
   | {
     readonly ok: false;
@@ -358,7 +367,7 @@ export interface MiniAppPickerResultEvent {
 }
 
 /** Mini App 主导航标签键。 */
-export type MiniAppTabKey = "status" | "chats" | "identities" | "gallery";
+export type MiniAppTabKey = "status" | "chats" | "identities" | "gallery" | "totp";
 
 /** 图库分页列表中的单张图片元数据视图。 */
 export interface MiniAppGalleryItem {
@@ -381,14 +390,8 @@ export interface MiniAppGalleryPage {
 
 /** Mini App 图库单张图片上传入库的结局分类。 */
 export type MiniAppGalleryUploadOutcome =
-  | "added"
-  | "existing"
-  | "missingDirectory"
-  | "empty"
-  | "tooLarge"
-  | "unsupportedFormat"
-  | "invalidDimensions"
-  | "failed";
+  | "added" | "existing" | "missingDirectory" | "empty"
+  | "tooLarge" | "unsupportedFormat" | "invalidDimensions" | "failed";
 
 /** Mini App 图库上传单张图片的响应结果。 */
 export interface MiniAppGalleryUploadResult {
@@ -399,11 +402,7 @@ export interface MiniAppGalleryUploadResult {
 }
 
 /** Mini App 图库单张图片删除的结局分类。 */
-export type MiniAppGalleryDeleteOutcome =
-  | "deleted"
-  | "notFound"
-  | "invalidFileName"
-  | "failed";
+export type MiniAppGalleryDeleteOutcome = "deleted" | "notFound" | "invalidFileName" | "failed";
 
 /** Mini App 图库删除单张图片的响应结果。 */
 export interface MiniAppGalleryDeleteResult {
@@ -430,44 +429,51 @@ export interface TelegramWebApp {
   readonly initData?: string;
   readonly colorScheme?: "light" | "dark";
   readonly themeParams?: Readonly<Record<string, string | undefined>>;
-  readonly initDataUnsafe?: Readonly<{
-    readonly user?: Readonly<TelegramWebAppUser>;
-  }>;
+  readonly initDataUnsafe?: Readonly<{ readonly user?: Readonly<TelegramWebAppUser> }>;
   readonly ready?: () => void;
   readonly expand?: () => void;
   readonly setHeaderColor?: (color: string) => void;
   readonly setBackgroundColor?: (color: string) => void;
-  /**
-   * 唤起 `savePreparedKeyboardButton` 创建的原生好友/联系人/群组/频道选择器（Bot API 9.6+）。
-   *
-   * @param preparedButtonId 预备键盘按钮 ID
-   * @param callback 选择完成或取消时的回调
-   */
+  readonly isVersionAtLeast?: (version: string) => boolean;
+  /** 唤起 Telegram 客户端原生文件下载器将 HTTPS 资源保存至系统默认下载目录（Bot API 8.0+）。 */
+  readonly downloadFile?: (
+    params: Readonly<{ readonly url: string; readonly file_name: string }>,
+    callback?: (accepted: boolean) => void
+  ) => void;
+  /** 唤起 `savePreparedKeyboardButton` 创建的原生好友/联系人/群组/频道选择器（Bot API 9.6+）。 */
   readonly requestChat?: (preparedButtonId: string, callback?: (accepted: boolean) => void) => void;
+}
+
+/** 供浏览器触发附件保存的临时 `<a download>` 节点最小接口。 */
+export interface MiniAppDownloadAnchorElement {
+  href: string;
+  download: string;
+  rel: string;
+  readonly style: { display: string };
+  readonly click: () => void;
+  readonly remove: () => void;
 }
 
 /** 带有可选 `Telegram.WebApp` 与标准浏览器宿主能力的全局窗口视图。 */
 export interface TelegramWindow {
-  readonly Telegram?: Readonly<{
-    readonly WebApp?: Readonly<TelegramWebApp>;
-  }>;
+  readonly Telegram?: Readonly<{ readonly WebApp?: Readonly<TelegramWebApp> }>;
   /** 当前浏览器会话已解锁的 Mini App 90 分钟认证令牌。 */
   __copyNinjaSessionToken?: string;
+  /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
+  __copyNinjaAssetToken?: string;
   readonly location?: Readonly<{
+    readonly href?: string;
     readonly host?: string;
     readonly search: string;
     readonly hash: string;
   }>;
   readonly confirm?: (message?: string) => boolean;
-  readonly navigator?: Readonly<{
-    readonly language?: string;
-    readonly languages?: readonly string[];
-  }>;
+  readonly navigator?: Readonly<{ readonly language?: string; readonly languages?: readonly string[] }>;
   readonly document?: Readonly<{
     readonly getElementById: (elementId: string) => Element | null;
-    readonly documentElement?: Readonly<{
-      readonly setAttribute?: (qualifiedName: string, value: string) => void;
-    }>;
+    readonly createElement?: (tagName: "a") => MiniAppDownloadAnchorElement;
+    readonly body?: Readonly<{ readonly appendChild?: (node: MiniAppDownloadAnchorElement) => void }>;
+    readonly documentElement?: Readonly<{ readonly setAttribute?: (qualifiedName: string, value: string) => void }>;
   }>;
 }
 
@@ -480,24 +486,17 @@ export interface MiniAppFeatureDisplayMeta {
 
 /** 已解析并通过安全校验的图库单张图片文件句柄信息。 */
 export interface ResolvedMiniAppGalleryFile {
-  /** 本机图片文件的绝对路径。 */
+  readonly fileName: string;
   readonly filePath: string;
-  /** 图片 MIME 类型。 */
   readonly mimeType: RandomImageMimeType;
-  /** 文件字节大小。 */
   readonly sizeBytes: number;
-  /** 强校验 `ETag` 标头值。 */
   readonly etag: string;
 }
 
 /** 已解析并通过安全校验的受保护 SVG 资源文件句柄信息。 */
 export interface ResolvedMiniAppSvgResource {
-  /** SVG 文件的 `BunFile` 句柄。 */
   readonly file: Bun.BunFile;
-  /** SVG 响应 MIME 类型。 */
   readonly mimeType: string;
-  /** 文件字节大小。 */
   readonly sizeBytes: number;
-  /** 强校验 `ETag` 标头值。 */
   readonly etag: string;
 }

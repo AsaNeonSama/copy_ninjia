@@ -81,7 +81,6 @@ const COMMAND_HANDLERS: Readonly<Record<string, string>> = {
   ungag: "handleUngagCommand",
   delete_message: "handleDeleteMessageCommand",
   send: "handleSendCommand",
-  app: "handleAppCommand",
   qa: "handleQaCommand",
   x: "handleCjkActionUsageCommand",
 };

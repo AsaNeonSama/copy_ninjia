@@ -55,7 +55,31 @@ export interface MiniAppTranslations {
     readonly passwordEmptyHint: string;
     readonly passwordSubmitting: string;
     readonly passwordSubmitButton: string;
+    readonly totpBadge: string;
+    readonly totpTitle: string;
+    readonly totpSubtitle: string;
+    readonly totpPlaceholder: string;
+    readonly totpEmptyHint: string;
+    readonly totpSubmitButton: string;
     readonly unlockedToast: string;
+  }>;
+
+  readonly totp: Readonly<{
+    readonly sectionTitle: string;
+    readonly enabledBadge: string;
+    readonly disabledBadge: string;
+    readonly statusDescEnabled: (maskedSecret: string, updatedAtText: string) => string;
+    readonly statusDescDisabled: string;
+    readonly addButton: string;
+    readonly modifyButton: string;
+    readonly deleteButton: string;
+    readonly qrGuideText: string;
+    readonly secretLabel: string;
+    readonly codePlaceholder: string;
+    readonly verifyEnableButton: string;
+    readonly verifyingButton: string;
+    readonly cancelSetupButton: string;
+    readonly confirmDeleteTotp: string;
   }>;
 
   readonly pagination: Readonly<{
@@ -108,7 +132,8 @@ export interface MiniAppTranslations {
     readonly closeDetailButton: string;
     readonly botPermProbing: string;
     readonly botPermAllReady: string;
-    readonly botPermMissing: (labels: string) => string;
+    readonly botPermMissingTitle: (count: number) => string;
+    readonly botPermLabel: (rawLabel: string) => string;
     readonly detailStatsLine: (detail: Readonly<MiniAppChatDetail>) => string;
     readonly featuresSectionTitle: string;
     readonly confirmDisableInit: string;
@@ -176,6 +201,9 @@ export interface MiniAppTranslations {
     readonly directoryMissingText: (directory: string) => string;
     readonly directoryReadyText: (directory: string) => string;
     readonly previewTitle: (shortName: string) => string;
+    readonly downloadButton: string;
+    readonly downloadingButton: string;
+    readonly downloadedToast: (fileName: string) => string;
     readonly deleteButton: string;
     readonly deletingButton: string;
     readonly closePreviewButton: string;

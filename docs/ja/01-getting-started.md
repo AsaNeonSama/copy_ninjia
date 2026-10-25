@@ -130,7 +130,7 @@ Bot の基本設定およびグローバルスーパー管理者は `config/stat
   - スーパー管理者の Telegram ユーザー ID（10進数値）。
   - **特権スコープ**：この ID はホワイトリストで管理される**すべての権限**を最初から保有しており、SQLite のホワイトリストテーブルには登録されません。
   - **保護ポリシー**：リピートや画像生成などのクールダウン免除はこの ID のみに付与されます。常にホワイトリストの内側に保護されているため、自動リスク管理の対象外となり、`/block`、`/mute`、`/delete_message`、`/batch_kick`、AI `abuse_mark` で処分することはできません。
-  - **専用コマンド**：`/init`、`/batch_kick`、`/delete_message`、`/permission` による権限変更、`/white disable`、`/send`、`/app` の実行はスーパー管理者のみに許可されています。
+  - **専用コマンド**：`/init`、`/batch_kick`、`/delete_message`、`/permission` による権限変更、`/white disable`、`/send` の実行はスーパー管理者のみに許可されています。
 - **`atmosphere`**（任意、列挙型：`"mesugaki"` | `"normal"`）
   - システム通知やメニュー表示のトーンスタイル（メスガキ風 / 標準）。
   - 明示的に指定した値が最優先されます。省略時は `prompt/persona.md` が存在すれば標準、存在しなければメスガキ風が適用されます。前後の空白はトリムして検証され、不正な値は起動を拒否します。
@@ -139,8 +139,8 @@ Bot の基本設定およびグローバルスーパー管理者は `config/stat
   - 前後の空白をトリムして検証され、Temporal 仕様に基づいて大文字・小文字が正規化されます（エイリアスも保持）。空文字列、不正な型、あるいは Temporal / Bun cron が認識できないタイムゾーンは起動を拒否します。
   - 初回データベース初期化時に `storage_metadata` の `time-zone` に記録され、以降そのデータルートは該当タイムゾーンに固定されます。起動時およびインストーラーは常にこの値を検証し、タイムゾーンの変更は許可されません（変更検知時は `storage_metadata.time-zone` エラーで起動を阻止します）。既存データルートに対するタイムゾーンの事後変更はサポートしていません。
 - **`mini_app`**（任意、オブジェクト：`{ url: string, port?: number, host?: string, password: string }`）
-  - スーパー管理者専用の Telegram Mini App 管理コンソール（Dashboard）を設定します。`url` は `#` フラグメントを含まない有効な公開 `https://` URL、`port` の既定値は `3000`、`host` の既定値は `"127.0.0.1"`、`password` は初回画面で要求される必須のアクセスパスワードです（6 桁以上の数字 `0-9` を含む必要があり、未設定または条件未満の場合は起動を拒否。`initData` 署名と 1 回のパスワード認証はいずれも 90 分間有効、5 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック）。
-  - 設定時はローカル `Bun.serve` HTTP サーバーを起動し（全 API・画像庫画像・SVG リソースは統一ミドルウェアチェーンで Telegram WebApp `initData` 署名と `SUPER_ADMIN_USER_ID` を検証し、認証通過後の画像・SVG はクライアント専用キャッシュと `ETag` 304 再検証を許可しつつ公開 CDN の未認証キャッシュを禁止、全応答に厳格な `Content-Security-Policy` と `X-Frame-Options: DENY` を付与）、スーパー管理者の個人チャットに `MenuButtonWebApp`（`Dashboard`）を設定するとともに `/app`（`Dashboard` ボタン）を有効化します。`mini_app` を省略した場合は Web サーバーとルートを一切登録しません。
+  - スーパー管理者専用の Telegram Mini App 管理コンソールを設定します。`url` は `#` フラグメントを含まない有効な公開 `https://` URL、`port` の既定値は `3000`、`host` の既定値は `"127.0.0.1"`、`password` は初回画面で要求される必須のアクセスパスワードです（6 桁以上の数字 `0-9` を含む必要があり、未設定または条件未満の場合は起動を拒否。`initData` 署名と 1 回の認証セッションはいずれも 90 分間有効、5 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック。コンソール内の「認証器」タブから単一の Google Authenticator TOTP 2FA を `memory/mini-app-totp/totp.json` にバインド可能で、有効時はログイン時に 6 桁の TOTP コードが優先されます）。
+  - 設定時はローカル `Bun.serve` HTTP サーバーを起動し（全 API・画像庫ダウンロードおよび管理エンドポイントは統一ミドルウェアチェーンで Telegram WebApp `initData` 署名・`SUPER_ADMIN_USER_ID`・90 分セッションを検証し、画像プレビューと SVG リソースは決定論的 `assetToken` により 7 日間の `Cache-Control: public, max-age=604800, s-maxage=604800, immutable` と `ETag` 304 再検証をサポート、Bot アバターから生成した `/favicon.ico` を配信し、全応答に厳格な `Content-Security-Policy` と `X-Frame-Options: DENY` を付与）、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を設定します。`mini_app` を省略した場合は Web サーバーとルートを一切登録しません。
 
 ---
 

@@ -43,12 +43,14 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       chats: "Managed Chats",
       identities: "Identity Lists",
       gallery: "H-Image Gallery",
+      totp: "Authenticator",
     },
     tabDescriptions: {
       status: "CPU, RAM, outbound gate & readiness♡",
       chats: "/init switches & hot 256 messages♡",
       identities: "Whitelist 18 perms & blocklist♡",
       gallery: "/h_image preview, upload & delete♡",
+      totp: "Google Authenticator (TOTP) setup, replace & delete♡",
     },
     gate: {
       checkingText: "Verifying your SuperAdmin signature, sit tight Zaako♡…",
@@ -93,7 +95,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       },
       deniedWhatCanIDoTitle: "What can a Zaako do?♡",
       deniedWhatCanIDoDesc:
-        "Direct HTTP access outside Telegram is prohibited. If you're really the SuperAdmin, behave and open the private chat with the Bot in Telegram, launch the Dashboard button, and enter your access password, Zaako♡",
+        "Direct HTTP access outside Telegram is prohibited. If you're really the SuperAdmin, behave and open the private chat with the Bot in Telegram, launch the App button, and enter your access password, Zaako♡",
       passwordBadge: "2nd-Factor Gate♡",
       passwordTitle: "Hand Over the Password, Zaako♡",
       passwordSubtitle:
@@ -102,7 +104,35 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       passwordEmptyHint: "Clueless Zaako♡, trying to sneak in with an empty password box?",
       passwordSubmitting: "Checking for you♡…",
       passwordSubmitButton: "Unlock Console♡",
+      totpBadge: "Authenticator Gate♡",
+      totpTitle: "Hand Over the 6-Digit Code, Zaako♡",
+      totpSubtitle:
+        "Google Authenticator is enabled and prioritized. Enter your current 6-digit TOTP code to unlock a 90-minute session (5 wrong tries locks you out for 30 minutes♡).",
+      totpPlaceholder: "Enter 6-digit Google Authenticator code♡…",
+      totpEmptyHint: "Clueless Zaako♡, enter all 6 digits of your TOTP code first!",
+      totpSubmitButton: "Verify Code & Unlock♡",
       unlockedToast: "Hmph, good job. Unlocked for 90 minutes, Zaako♡",
+    },
+    totp: {
+      sectionTitle: "Google Authenticator",
+      enabledBadge: "Prioritized♡",
+      disabledBadge: "Disabled (Password Mode)",
+      statusDescEnabled: (maskedSecret: string, updatedAtText: string): string =>
+        `Active secret: ${maskedSecret} · Updated ${updatedAtText} (Prioritized at login)♡`,
+      statusDescDisabled:
+        "No Google Authenticator bound yet (using bot.json password). Generate a QR code right here to bind the single authenticator♡",
+      addButton: "Add TOTP",
+      modifyButton: "Modify TOTP",
+      deleteButton: "Delete TOTP",
+      qrGuideText:
+        "Scan the QR code below with Google Authenticator (or enter the Base32 secret manually), then enter the 6-digit code to activate♡:",
+      secretLabel: "Base32 Secret:",
+      codePlaceholder: "Enter 6-digit code♡…",
+      verifyEnableButton: "Verify & Save",
+      verifyingButton: "Verifying…",
+      cancelSetupButton: "Cancel",
+      confirmDeleteTotp:
+        "Zaako♡, delete the current Google Authenticator? Login will fall back to the access password!",
     },
     pagination: {
       summary: (total: number, page: number, totalPages: number): string =>
@@ -255,8 +285,31 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       closeDetailButton: "Close",
       botPermProbing: "Bot Admin Perms: Not probed yet, run a command in the group first♡",
       botPermAllReady: "Bot Admin Perms: Delete / Restrict / Pin Info all granted♡",
-      botPermMissing: (labels: string): string =>
-        `Zaako♡, Bot is missing these admin permissions: ${labels}`,
+      botPermMissingTitle: (count: number): string =>
+        `Missing Bot Admin Permissions (${count})♡`,
+      botPermLabel: (rawLabel: string): string => {
+        const map: Readonly<Record<string, string>> = {
+          管理员身份: "Administrator",
+          匿名身份: "Remain Anonymous",
+          管理聊天: "Manage Chat",
+          删除消息: "Delete Messages",
+          管理视频聊天: "Manage Video Chats",
+          限制与封禁成员: "Ban Users",
+          任免管理员: "Add New Admins",
+          修改聊天资料: "Change Chat Info",
+          邀请用户: "Invite Users",
+          管理成员标签: "Manage Member Tags",
+          发布故事: "Post Stories",
+          编辑故事: "Edit Stories",
+          删除故事: "Delete Stories",
+          频道发布消息: "Post Messages",
+          编辑频道消息: "Edit Messages",
+          置顶消息: "Pin Messages",
+          管理论坛话题: "Manage Topics",
+          管理频道私信: "Manage Direct Messages",
+        };
+        return map[rawLabel] ?? rawLabel;
+      },
       detailStatsLine: (detail: Readonly<MiniAppChatDetail>): string =>
         `Chat ID: ${detail.chatId} · QA Pairs: ${detail.qaPairCount} · Auto-Delete: ${detail.deleteMessageTargetCount} · Auto-Translate: ${detail.translateTargetCount}`,
       featuresSectionTitle: "Live Group Feature Switches♡",
@@ -403,6 +456,10 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       directoryReadyText: (_directory: string): string =>
         "Gallery storage ready · JPEG / PNG / WebP (≤ 10 MiB)♡",
       previewTitle: (shortName: string): string => `Preview · ${shortName}♡`,
+      downloadButton: "Download",
+      downloadingButton: "Saving…",
+      downloadedToast: (fileName: string): string =>
+        `Downloaded ${fileName} for you, Zaako♡`,
       deleteButton: "Delete Image",
       deletingButton: "Deleting…",
       closePreviewButton: "Close Preview",

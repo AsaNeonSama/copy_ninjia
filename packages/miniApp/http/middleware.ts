@@ -1,11 +1,15 @@
 import { BOT_TOKEN, SUPER_ADMIN_USER_ID } from "../../config/bot";
 import {
+  MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN,
   MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
   MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
   MINI_APP_SHA256_HEX_PATTERN,
   MINI_APP_SVG_RESOURCE_ROUTE_PATTERN,
 } from "../../consts/miniApp";
-import { verifyMiniAppInitData } from "../../libs/miniAppAuth";
+import {
+  verifyMiniAppAssetToken,
+  verifyMiniAppInitData,
+} from "../../libs/miniAppAuth";
 import type {
   MiniAppAuthResult,
   MiniAppAuthSession,
@@ -17,6 +21,7 @@ import { miniAppAuthSessions } from "../../cache/main/miniApp";
 import {
   accessErrorResponse,
   checkSuperAdminPasswordLockout,
+  extractAssetTokenFromQuery,
   extractInitDataFromHeaders,
   extractSessionToken,
   normalizeRoutePathname,
@@ -24,9 +29,9 @@ import {
 } from "./common";
 
 /**
- * 校验请求携带的 Telegram WebApp `initData` 签名、时效、超级管理员身份与 30 分钟密码锁定状态（第一层网关校验）。
+ * 校验请求携带的 Telegram WebApp `initData` 签名（或受保护静态/图库资源稳定令牌 `token`）、时效、超级管理员身份与 30 分钟密码锁定状态（第一层网关校验）。
  * @param request HTTP 请求对象。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取 `initData`。
+ * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取 `token` 或 `initData`。
  * @returns 验证通过时返回 `null`，失败时返回带真实请求诊断的 `401` 或 `403` `Response`。
  */
 export function authenticateMiniAppInitData(
@@ -40,6 +45,15 @@ export function authenticateMiniAppInitData(
       reason: "forbidden_user",
       error: "Cross-site request to Telegram Mini App endpoint is forbidden.",
     });
+  }
+  if (allowQueryAuth) {
+    const assetToken: string = extractAssetTokenFromQuery(request);
+    if (
+      assetToken.length > 0 &&
+      verifyMiniAppAssetToken(assetToken, BOT_TOKEN, SUPER_ADMIN_USER_ID)
+    ) {
+      return checkSuperAdminPasswordLockout(request);
+    }
   }
   const initData: string = extractInitDataFromHeaders(request, allowQueryAuth);
   const authResult: MiniAppAuthResult = verifyMiniAppInitData({
@@ -221,6 +235,13 @@ const apiAuthMiddlewareChain: readonly MiniAppMiddleware[] = [
   createMiniAppSessionMiddleware(false),
 ];
 
+/** 图库原图附件下载路由的完整双层鉴权中间件链（防跨站 + Telegram WebApp 超管签名或资源令牌 + 90 分钟密码会话，允许 GET/HEAD 查询参数传凭据以供 Telegram 原生下载器直连保存至系统默认下载目录）。 */
+const galleryDownloadMiddlewareChain: readonly MiniAppMiddleware[] = [
+  miniAppCrossSiteGuardMiddleware,
+  createMiniAppInitDataMiddleware(true),
+  createMiniAppSessionMiddleware(true),
+];
+
 /**
  * 获取公开路由（`/healthz`、`/`、`/index.html`）的中间件链。
  * @returns 只读中间件数组。
@@ -254,11 +275,22 @@ export function getMiniAppApiAuthMiddlewareChain(): readonly MiniAppMiddleware[]
 }
 
 /**
- * 判断归一化后的内部路由路径是否属于受保护的图片或 SVG 静态/动态资源路径。
+ * 获取图库原图附件下载路由（`/api/gallery/download/:fileName`）的完整双层鉴权中间件链。
+ * @returns 只读中间件数组。
+ */
+export function getMiniAppGalleryDownloadMiddlewareChain(): readonly MiniAppMiddleware[] {
+  return galleryDownloadMiddlewareChain;
+}
+
+/**
+ * 判断归一化后的内部路由路径是否属于受保护的图片或 SVG 静态/动态资源路径（排除走完整双层 API 鉴权的 `/api/gallery/download/:fileName`）。
  * @param routePath 归一化后的内部路由路径。
  * @returns 命中图片或 SVG 资源路径时返回 `true`。
  */
 export function isProtectedMiniAppAssetPath(routePath: string): boolean {
+  if (MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN.test(routePath)) {
+    return false;
+  }
   return (
     MINI_APP_GALLERY_FILE_ROUTE_PATTERN.test(routePath) ||
     MINI_APP_SVG_RESOURCE_ROUTE_PATTERN.test(routePath) ||

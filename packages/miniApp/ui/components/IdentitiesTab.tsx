@@ -659,7 +659,13 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                             </span>
                           )
                           : null}
-                        <span className="badge">
+                        <span
+                          className={`badge ${
+                            entry.isChannel
+                              ? "identity-channel-badge"
+                              : "identity-user-badge"
+                          }`}
+                        >
                           {entry.isChannel
                             ? t.identities.channelBadge
                             : t.identities.userBadge}
@@ -767,7 +773,13 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                         </span>
                       )
                       : null}
-                    <span className="badge warn">
+                    <span
+                      className={`badge ${
+                        entry.isChannel
+                          ? "identity-channel-badge"
+                          : "identity-user-badge"
+                      }`}
+                    >
                       {entry.isChannel
                         ? t.identities.channelBadge
                         : t.identities.userBadge}

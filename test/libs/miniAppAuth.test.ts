@@ -6,9 +6,22 @@ import {
   MINI_APP_WEB_APP_DATA_SECRET_SEED,
 } from "../../packages/consts/miniApp";
 import {
+  deriveMiniAppAssetToken,
+  verifyMiniAppAssetToken,
   verifyMiniAppInitData,
   verifyMiniAppPassword,
 } from "../../packages/libs/miniAppAuth";
+import {
+  buildMiniAppTotpUri,
+  computeMiniAppTotpCode,
+  decodeTotpBase32,
+  encodeTotpBase32,
+  generateMiniAppTotpCodeAt,
+  generateMiniAppTotpSecret,
+  maskMiniAppTotpSecret,
+  verifyMiniAppTotpCode,
+} from "../../packages/libs/miniAppTotp";
+import { renderQrCodeSvg } from "../../packages/libs/qrcodeSvg";
 import type { MiniAppAuthResult } from "../../packages/types/miniApp";
 
 /**
@@ -206,5 +219,60 @@ describe("verifyMiniAppInitData", () => {
     expect(verifyMiniAppPassword("wrong-pass", "s3cr3t-pass")).toBeFalse();
     expect(verifyMiniAppPassword("", "s3cr3t-pass")).toBeFalse();
     expect(verifyMiniAppPassword("s3cr3t-pass", "")).toBeFalse();
+  });
+
+  test("deriveMiniAppAssetToken 与 verifyMiniAppAssetToken 派生并恒定时间核验受保护资源稳定令牌", () => {
+    const token: string = deriveMiniAppAssetToken(botToken, superAdminUserId);
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    expect(verifyMiniAppAssetToken(token, botToken, superAdminUserId)).toBeTrue();
+    expect(
+      verifyMiniAppAssetToken(token.toUpperCase(), botToken, superAdminUserId)
+    ).toBeTrue();
+    expect(
+      verifyMiniAppAssetToken(token, `${botToken}-other`, superAdminUserId)
+    ).toBeFalse();
+    expect(
+      verifyMiniAppAssetToken(token, botToken, superAdminUserId + 1)
+    ).toBeFalse();
+    expect(verifyMiniAppAssetToken("", botToken, superAdminUserId)).toBeFalse();
+    expect(verifyMiniAppAssetToken(null, botToken, superAdminUserId)).toBeFalse();
+  });
+
+  test("RFC 6238 TOTP 生成、±1 步长验证与内联 QR Code SVG 渲染", () => {
+    const secret: string = generateMiniAppTotpSecret();
+    expect(secret).toMatch(/^[A-Z2-7]{32}$/);
+    const decoded: Uint8Array | null = decodeTotpBase32(secret);
+    expect(decoded).not.toBeNull();
+    expect(decoded?.byteLength).toBe(20);
+    expect(encodeTotpBase32(decoded!)).toBe(secret);
+    expect(decodeTotpBase32("INVALID-SECRET!")).toBeNull();
+
+    const fixedMs: number = 1_700_000_000_000;
+    const currentCode: string = generateMiniAppTotpCodeAt(secret, fixedMs);
+    expect(currentCode).toMatch(/^\d{6}$/);
+    expect(verifyMiniAppTotpCode(currentCode, secret, fixedMs)).toBeTrue();
+    expect(
+      verifyMiniAppTotpCode(currentCode, secret, fixedMs + 30_000)
+    ).toBeTrue();
+    expect(
+      verifyMiniAppTotpCode(currentCode, secret, fixedMs - 30_000)
+    ).toBeTrue();
+    expect(
+      verifyMiniAppTotpCode(currentCode, secret, fixedMs + 90_000)
+    ).toBeFalse();
+    expect(verifyMiniAppTotpCode("abc123", secret, fixedMs)).toBeFalse();
+    expect(computeMiniAppTotpCode("bad", 1)).toBe("");
+
+    const uri: string = buildMiniAppTotpUri(secret, superAdminUserId);
+    expect(uri).toContain("otpauth://totp/");
+    expect(uri).toContain(`secret=${secret}`);
+    expect(maskMiniAppTotpSecret(secret)).toBe(
+      `${secret.slice(0, 4)}••••${secret.slice(-4)}`
+    );
+
+    const svg: string = renderQrCodeSvg(uri);
+    expect(svg.startsWith("<svg")).toBeTrue();
+    expect(svg.endsWith("</svg>")).toBeTrue();
+    expect(svg).toContain("<path d=\"M");
   });
 });

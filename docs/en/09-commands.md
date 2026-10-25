@@ -139,7 +139,6 @@ Running `/translate list` returns the supported language dictionary (`TRANSLATE_
 | `/init enable\|disable` | `SUPER_ADMIN_USER_ID` | Master toggle to enable or disable bot operation in the current group |
 | `/batch_kick <Nm\|Nh\|Nd>` | `SUPER_ADMIN_USER_ID` | Batch kick members who joined within the given window (`BATCH_KICK_MIN_DURATION_MS`..`BATCH_KICK_MAX_DURATION_MS`) from a supergroup (kicks only, does not blacklist) |
 | `/send <group_id>`<br>`/send finish` | `SUPER_ADMIN_USER_ID` (DM only) | Start or stop message relay from private chat to target group; supports sending speech bubbles via specific JSON code blocks |
-| `/app` | `SUPER_ADMIN_USER_ID` (DM only) | When `mini_app` is configured in `config/static/bot.json`, replies in the superadmin's private chat with a `Dashboard` inline WebApp button |
 
 > [!IMPORTANT]
 > **Understanding the Permission Column**:
@@ -167,7 +166,7 @@ Running `/translate list` returns the supported language dictionary (`TRANSLATE_
 - System personas are configured globally and cannot be toggled per group via commands.
 - The AI persona prompt defaults to `prompt/persona.md` at the project root; if absent, it falls back to the built-in teasing persona. Prompt tone for notices, buttons, menus, and inline fortunes follows the `atmosphere` setting in `config/static/bot.json` (`mesugaki` for teasing, `normal` for reserved). When omitted, custom personas default to `normal` (reserved tone), while the built-in persona defaults to `DEFAULT_BOT_ATMOSPHERE`.
 - Atmosphere settings are initialized at startup; modifications require a process restart.
-- At startup, the bot registers command menus for group chats only. No menu is shown in private chat; private chat only responds to superadmin `/send` relay commands and (when `mini_app` is configured) `/app` Dashboard entry commands.
+- At startup, the bot registers command menus for group chats only. No command menu is shown in private chat; private chat only responds to superadmin `/send` relay commands and (when `mini_app` is configured) attaches a `MenuButtonWebApp` (`App` button) in the superadmin's private chat as the Mini App entry point.
 
 #### 2. `/bot_status` Metric Collection
 - **Wording follows the notice style**: the labels of the CPU, uptime, memory, model capability, and Telegram outbound lines come from the current notice style's text table (`packages/consts/atmosphere/{plain,teasing}/notices.ts`). The restrained and teasing styles each have their own set; values and inclusion rules are the same.

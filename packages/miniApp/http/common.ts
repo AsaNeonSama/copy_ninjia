@@ -1,35 +1,23 @@
 import {
-  miniAppActiveConfigHolder,
-  miniAppAuthSessions,
-  miniAppPasswordGuardHolder,
+  miniAppActiveConfigHolder, miniAppAuthSessions, miniAppPasswordGuardHolder,
 } from "../../cache/main/miniApp";
-import { SUPER_ADMIN_USER_ID, getBotMiniAppConfig } from "../../config/bot";
+import { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } from "../../config/bot";
 import {
-  MINI_APP_ASSET_CACHE_CONTROL,
-  MINI_APP_ASSET_VARY_HEADER_VALUE,
-  MINI_APP_CSP_HEADER_VALUE,
-  MINI_APP_FALLBACK_TEST_PASSWORD,
-  MINI_APP_INIT_DATA_HEADER,
-  MINI_APP_IPV4_HOST_PATTERN,
-  MINI_APP_MAX_JSON_BODY_BYTES,
-  MINI_APP_NO_STORE_CACHE_CONTROL,
-  MINI_APP_PASSWORD_LOCKOUT_MS,
-  MINI_APP_PASSWORD_MAX_ATTEMPTS,
-  MINI_APP_SESSION_HEADER,
-  MINI_APP_SESSION_TTL_MS,
-  MINI_APP_SIGNED_INTEGER_PATTERN,
-  MINI_APP_TMA_AUTH_PREFIX,
-  MINI_APP_X_FRAME_OPTIONS_VALUE,
+  MINI_APP_ASSET_CACHE_CONTROL, MINI_APP_CSP_HEADER_VALUE, MINI_APP_FALLBACK_TEST_PASSWORD,
+  MINI_APP_INIT_DATA_HEADER, MINI_APP_IPV4_HOST_PATTERN, MINI_APP_MAX_JSON_BODY_BYTES,
+  MINI_APP_NO_STORE_CACHE_CONTROL, MINI_APP_PASSWORD_LOCKOUT_MS, MINI_APP_PASSWORD_MAX_ATTEMPTS,
+  MINI_APP_SESSION_HEADER, MINI_APP_SESSION_TTL_MS, MINI_APP_SIGNED_INTEGER_PATTERN,
+  MINI_APP_TMA_AUTH_PREFIX, MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
-import { verifyMiniAppPassword } from "../../libs/miniAppAuth";
+import { deriveMiniAppAssetToken, verifyMiniAppPassword } from "../../libs/miniAppAuth";
+import { verifyMiniAppTotpCode } from "../../libs/miniAppTotp";
 import { isPlainRecord } from "../../libs/record";
 import type { BotMiniAppConfig } from "../../types/config";
 import type {
-  MiniAppAccessDiagnostics,
-  MiniAppAuthSession,
-  MiniAppLoginSuccessResponse,
-  MiniAppPasswordGuardState,
+  MiniAppAccessDiagnostics, MiniAppAuthSession, MiniAppLoginSuccessResponse, MiniAppPasswordGuardState,
 } from "../../types/miniApp";
+import type { MiniAppTotpRecord } from "../../types/miniAppTotp";
+import { loadMiniAppTotpRecord } from "../totpStorage";
 
 /** 模块级复用的无状态 UTF-8 编码器，用于计算请求体字节数。 */
 const BODY_TEXT_ENCODER: TextEncoder = new TextEncoder();
@@ -105,7 +93,7 @@ export function buildNoStoreHeaders(
 }
 
 /**
- * 生成允许已鉴权浏览器私有缓存（同时禁止公共 CDN 边缘节点未鉴权缓存）的受保护图片/SVG 资源响应头。
+ * 生成允许已鉴权 Telegram WebView 客户端与 Cloudflare CDN 边缘节点持久化缓存 7 天的图片/SVG/图标资源响应头。
  * @param contentType 资源的 `Content-Type` 响应头值。
  * @param contentLength 资源字节长度。
  * @param etag 资源强校验 `ETag` 响应头值。
@@ -118,9 +106,8 @@ export function buildAssetCacheHeaders(
 ): Record<string, string> {
   return {
     "Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
-    "CDN-Cache-Control": "no-store",
-    "Cloudflare-CDN-Cache-Control": "no-store",
-    "Vary": MINI_APP_ASSET_VARY_HEADER_VALUE,
+    "CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+    "Cloudflare-CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
     "ETag": etag,
     "Content-Type": contentType,
     "Content-Length": String(contentLength),
@@ -244,6 +231,24 @@ export function extractInitDataFromHeaders(
 }
 
 /**
+ * 从 `GET`/`HEAD` 请求查询参数中提取受保护静态/图库资源的稳定访问令牌（`?token=`）。
+ * @param request HTTP 请求对象。
+ * @returns 提取出的 64 位十六进制资源令牌或空字符串。
+ */
+export function extractAssetTokenFromQuery(request: Request): string {
+  const method: string = request.method.toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return "";
+  try {
+    const queryToken: string | null = new URL(request.url).searchParams.get(
+      "token"
+    );
+    return queryToken !== null ? queryToken.trim() : "";
+  } catch (_error: unknown) {
+    return "";
+  }
+}
+
+/**
  * 从请求头（或 `GET`/`HEAD` 查询参数）中提取 64 位十六进制密码认证会话令牌。
  * @param request HTTP 请求对象。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中回退读取 `session` 查询参数。
@@ -326,32 +331,53 @@ export function issueMiniAppAuthSession(
 }
 
 /**
- * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL 元数据。
+ * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态与受保护资源缓存令牌。
  * @returns JSON 响应。
  */
-export function handleGetAuthPrecheckRoute(): Response {
+export async function handleGetAuthPrecheckRoute(): Promise<Response> {
+  const totpRecord: Readonly<MiniAppTotpRecord> | null =
+    await loadMiniAppTotpRecord();
+  const totpEnabled: boolean = totpRecord !== null;
   return jsonResponse({
     ok: true,
     ttlMs: MINI_APP_SESSION_TTL_MS,
+    totpEnabled,
+    authMode: totpEnabled ? "totp" : "password",
+    assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
   });
 }
 
 /**
- * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，校验 `mini_app.password`（连续输错 5 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
+ * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 5 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
  * @param request HTTP 请求对象。
  * @returns JSON 响应。
  */
 export async function handlePostAuthLoginRoute(request: Request): Promise<Response> {
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
-  const inputPassword: string =
-    typeof body?.password === "string" ? body.password.trim() : "";
-  const activeConfig: Readonly<BotMiniAppConfig> | undefined =
-    miniAppActiveConfigHolder.current ?? getBotMiniAppConfig();
-  const expectedPassword: string =
-    activeConfig?.password ?? MINI_APP_FALLBACK_TEST_PASSWORD;
+  const totpRecord: Readonly<MiniAppTotpRecord> | null =
+    await loadMiniAppTotpRecord();
   const nowMs: number = Date.now();
 
-  if (!verifyMiniAppPassword(inputPassword, expectedPassword)) {
+  let verified: boolean;
+  if (totpRecord !== null) {
+    const inputCode: string =
+      typeof body?.totpCode === "string"
+        ? body.totpCode.trim()
+        : typeof body?.password === "string"
+          ? body.password.trim()
+          : "";
+    verified = verifyMiniAppTotpCode(inputCode, totpRecord.secret, nowMs);
+  } else {
+    const inputPassword: string =
+      typeof body?.password === "string" ? body.password.trim() : "";
+    const activeConfig: Readonly<BotMiniAppConfig> | undefined =
+      miniAppActiveConfigHolder.current ?? getBotMiniAppConfig();
+    const expectedPassword: string =
+      activeConfig?.password ?? MINI_APP_FALLBACK_TEST_PASSWORD;
+    verified = verifyMiniAppPassword(inputPassword, expectedPassword);
+  }
+
+  if (!verified) {
     const currentGuard: Readonly<MiniAppPasswordGuardState> | null =
       miniAppPasswordGuardHolder.current;
     const prevAttempts: number =
@@ -378,9 +404,12 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
     const remaining: number = MINI_APP_PASSWORD_MAX_ATTEMPTS - nextAttempts;
     return accessErrorResponse(request, {
       status: 403,
-      code: "INVALID_PASSWORD",
+      code: totpRecord !== null ? "INVALID_TOTP_CODE" : "INVALID_PASSWORD",
       reason: "invalid_password",
-      error: `访问密码错误，还剩 ${remaining} 次尝试机会（连续输错 ${MINI_APP_PASSWORD_MAX_ATTEMPTS} 次将锁定 30 分钟）。`,
+      error:
+        totpRecord !== null
+          ? `Google Authenticator 6 位动态验证码错误，还剩 ${remaining} 次尝试机会（连续输错 ${MINI_APP_PASSWORD_MAX_ATTEMPTS} 次将锁定 30 分钟）。`
+          : `访问密码错误，还剩 ${remaining} 次尝试机会（连续输错 ${MINI_APP_PASSWORD_MAX_ATTEMPTS} 次将锁定 30 分钟）。`,
     });
   }
 
@@ -391,6 +420,7 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
     sessionToken: session.token,
     expiresAt: session.expiresAt,
     ttlMs: MINI_APP_SESSION_TTL_MS,
+    assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
   };
   return jsonResponse(response);
 }

@@ -1,4 +1,5 @@
 import {
+  MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN,
   MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
   MINI_APP_SVG_RESOURCE_ROUTE_PATTERN,
 } from "../../consts/miniApp";
@@ -17,13 +18,14 @@ import {
 } from "../galleryView";
 import {
   buildAssetCacheHeaders,
+  buildNoStoreHeaders,
   jsonResponse,
   parseOptionalSafeInt,
   readJsonObjectBody,
 } from "./common";
 
 /**
- * 构造带浏览器私有缓存头与 `ETag` 强校验（命中 `If-None-Match` 返回 `304 Not Modified`）的受保护资源响应。
+ * 构造带浏览器与 CDN 缓存头及 `ETag` 强校验（命中 `If-None-Match` 返回 `304 Not Modified`）的受保护资源响应。
  * @param request HTTP 请求对象。
  * @param body 响应体（`Bun.BunFile`）。
  * @param meta 已解析资源的 MIME、字节长度与 `ETag`。
@@ -67,7 +69,7 @@ export async function handleGetGalleryRoute(request: Request): Promise<Response>
 }
 
 /**
- * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名、超管 ID 与防直接导航核验后，经文件名安全校验返回允许浏览器私有缓存的图片二进制流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
+ * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名或资源令牌、超管 ID 与防直接导航核验后，经文件名安全校验返回允许浏览器与 CDN 缓存的图片二进制流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
  * @param request HTTP 请求。
  * @param rawFileName URL 中的文件名参数。
  * @returns 图片文件响应、`304` 缓存命中响应或 `404` JSON 响应。
@@ -85,7 +87,34 @@ export async function handleGetGalleryFileByName(
 }
 
 /**
- * 处理 `GET /api/resources/svg/:fileName` 与 `GET /miniAppResoures/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名、超管 ID 与防直接导航核验后，返回允许浏览器私有缓存的 SVG 图标流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
+ * 处理 `GET|HEAD /api/gallery/download/:fileName`：在前置下载中间件链完成完整双层鉴权（跨站拦截 + 超管 `initData` 签名或资源令牌 + 90 分钟 `session` 会话令牌）后，经文件名安全校验返回带 `Content-Disposition: attachment` 下载头与 `no-store` 防缓存策略的图片原始二进制流。
+ * @param request HTTP 请求对象。
+ * @param rawFileName URL 中的文件名参数。
+ * @returns 附件下载图片文件响应或 `404` JSON 响应。
+ */
+export async function handleDownloadGalleryFileByName(
+  request: Request,
+  rawFileName: string
+): Promise<Response> {
+  const resolved: Readonly<ResolvedMiniAppGalleryFile> | null =
+    await readMiniAppGalleryFile(rawFileName);
+  if (resolved === null) {
+    return jsonResponse({ error: "Image not found" }, 404);
+  }
+  const headers: Record<string, string> = buildNoStoreHeaders(resolved.mimeType);
+  headers["Content-Length"] = String(resolved.sizeBytes);
+  headers["Content-Disposition"] = `attachment; filename="${resolved.fileName}"`;
+  return new Response(
+    request.method.toUpperCase() === "HEAD" ? null : Bun.file(resolved.filePath),
+    {
+      status: 200,
+      headers,
+    }
+  );
+}
+
+/**
+ * 处理 `GET /api/resources/svg/:fileName` 与 `GET /miniAppResoures/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名或资源令牌、超管 ID 与防直接导航核验后，返回允许浏览器与 CDN 缓存的 SVG 图标流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
  * @param request HTTP 请求。
  * @param rawFileName URL 中的 SVG 文件名参数。
  * @returns SVG 响应、`304` 缓存命中响应或 `404` JSON 响应。
@@ -187,7 +216,7 @@ export async function handleProtectedAssetRoute(
 }
 
 /**
- * 兜底匹配并处理 `/api/gallery` 列表、上传与删除路由（不含单张图片读取流）。
+ * 兜底匹配并处理 `/api/gallery` 列表、上传、下载与删除路由（不含单张图片内联预览读取流）。
  * @param method 大写 HTTP 方法。
  * @param routePath 归一化后的内部路由路径。
  * @param request HTTP 请求对象。
@@ -206,6 +235,11 @@ export async function handleGalleryApiRoute(
   }
   if (method === "POST" && routePath === "/api/gallery/delete") {
     return handlePostGalleryDeleteRoute(request);
+  }
+  const downloadMatch: RegExpExecArray | null =
+    MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN.exec(routePath);
+  if (downloadMatch !== null && (method === "GET" || method === "HEAD")) {
+    return handleDownloadGalleryFileByName(request, downloadMatch[1] ?? "");
   }
   const fileMatch: RegExpExecArray | null =
     MINI_APP_GALLERY_FILE_ROUTE_PATTERN.exec(routePath);

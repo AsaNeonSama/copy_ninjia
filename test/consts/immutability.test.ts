@@ -650,6 +650,15 @@ import {
   MINI_APP_THEME_MODES,
   MINI_APP_TOGGLEABLE_FEATURE_KEYS,
 } from "../../packages/consts/miniApp";
+import {
+  QR_ALIGNMENT_CENTERS_V4_TO_V8,
+  QR_L_DATA_CODEWORDS_PER_BLOCK,
+  QR_L_EC_CODEWORDS_PER_BLOCK,
+  QR_L_MAX_BYTES,
+  QR_L_NUM_BLOCKS,
+  QR_L_VERSIONS,
+  QR_PAD_BYTES,
+} from "../../packages/consts/miniAppTotp";
 function assertMiniAppConstantsReadonly(): void {
   // @ts-expect-error Mini App 功能开关键闭集禁止调用方增删。
   MINI_APP_FEATURE_KEYS.push("init");
@@ -675,5 +684,19 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 图库分页档位列表禁止调用方增删。
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error QR 版本列表禁止调用方增删。
+  QR_L_VERSIONS.push(9);
+  // @ts-expect-error QR 最大容量列表禁止调用方增删。
+  QR_L_MAX_BYTES.push(999);
+  // @ts-expect-error QR 分块数列表禁止调用方增删。
+  QR_L_NUM_BLOCKS.push(4);
+  // @ts-expect-error QR 每块数据码字列表禁止调用方增删。
+  QR_L_DATA_CODEWORDS_PER_BLOCK.push(100);
+  // @ts-expect-error QR 每块纠错码字列表禁止调用方增删。
+  QR_L_EC_CODEWORDS_PER_BLOCK.push(30);
+  // @ts-expect-error QR 校正图形坐标表外层与内层均禁止调用方改写。
+  QR_ALIGNMENT_CENTERS_V4_TO_V8[0]!.push(99);
+  // @ts-expect-error QR 填充字节表禁止调用方增删。
+  QR_PAD_BYTES.push(0);
 }
 void assertMiniAppConstantsReadonly;

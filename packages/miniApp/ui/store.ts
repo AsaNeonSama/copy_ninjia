@@ -10,7 +10,8 @@ import type {
   TelegramWebApp,
   TelegramWindow,
 } from "../../types/miniApp";
-import { clearMiniAppSessionToken } from "./api";
+import type { MiniAppAuthMode } from "../../types/miniAppTotp";
+import { clearMiniAppAssetToken, clearMiniAppSessionToken } from "./api";
 import { detectInitialMiniAppLanguage } from "./i18n";
 
 /** Mini App 门禁状态枚举。 */
@@ -35,6 +36,7 @@ export interface MiniAppUiStoreState {
   readonly theme: MiniAppThemeMode;
   readonly sidebarOpen: boolean;
   readonly gateState: MiniAppGateState;
+  readonly authMode: MiniAppAuthMode;
   readonly deniedDiag: Readonly<MiniAppAccessDiagnostics> | null;
   readonly sessionExpiresAt: number;
   readonly activeTab: MiniAppTabKey;
@@ -51,6 +53,7 @@ export interface MiniAppUiStoreState {
   readonly setSidebarOpen: (open: boolean) => void;
   readonly toggleSidebar: () => void;
   readonly setGateState: (gateState: MiniAppGateState) => void;
+  readonly setAuthMode: (authMode: MiniAppAuthMode) => void;
   readonly setDeniedDiag: (diag: Readonly<MiniAppAccessDiagnostics> | null) => void;
   readonly setSessionExpiresAt: (expiresAt: number) => void;
   readonly setActiveTab: (tab: MiniAppTabKey) => void;
@@ -111,6 +114,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
       theme: detectInitialMiniAppTheme(),
       sidebarOpen: false,
       gateState: "checking",
+      authMode: "password",
       deniedDiag: null,
       sessionExpiresAt: 0,
       activeTab: "status",
@@ -158,6 +162,10 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
 
       setGateState: (gateState: MiniAppGateState): void => {
         set({ gateState });
+      },
+
+      setAuthMode: (authMode: MiniAppAuthMode): void => {
+        set({ authMode });
       },
 
       setDeniedDiag: (diag: Readonly<MiniAppAccessDiagnostics> | null): void => {
@@ -239,6 +247,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
  * 重置 Mini App Zustand 状态仓库为默认初始状态（供单元测试使用）。
  */
 export function resetMiniAppStoreForTest(): void {
+  clearMiniAppAssetToken();
   const prev: Readonly<MiniAppConfirmModalState> | null =
     useMiniAppStore.getState().confirmModal;
   if (prev !== null) {
@@ -249,6 +258,7 @@ export function resetMiniAppStoreForTest(): void {
     theme: detectInitialMiniAppTheme(),
     sidebarOpen: false,
     gateState: "checking",
+    authMode: "password",
     deniedDiag: null,
     sessionExpiresAt: 0,
     activeTab: "status",

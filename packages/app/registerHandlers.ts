@@ -35,7 +35,6 @@ import {
   handleMoodCommand,
   handleQuietCommand,
   handleSendCommand,
-  handleAppCommand,
   handleIconCommand,
   dispatchWedCommand,
   dispatchWedCallback,
@@ -145,7 +144,6 @@ export function registerHandlers(bot: Bot): HandlerRegistration {
   commands.command("ungag", handleUngagCommand);
   commands.command("delete_message", handleDeleteMessageCommand);
   commands.command("send", handleSendCommand);
-  commands.command("app", handleAppCommand);
   commands.command("qa", handleQaCommand);
   // 菜单占位项：在命令菜单里展示「/<中文动作名>」用法（那类命令名注册不进菜单，
   // 见 consts/commands.ts）；handleCjkActionUsageCommand 回复用法并终止链路，

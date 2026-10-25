@@ -1,6 +1,12 @@
 import { join, resolve } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "./configLayout";
-import { DATABASE_DIR_NAME, GLOBAL_STATE_DIR_NAME, LOGS_DIR_NAME, MEMORY_DIR_NAME } from "./dataRootLayout";
+import {
+  DATABASE_DIR_NAME,
+  GLOBAL_STATE_DIR_NAME,
+  LOGS_DIR_NAME,
+  MEMORY_DIR_NAME,
+  MINI_APP_TOTP_DIR_NAME,
+} from "./dataRootLayout";
 import { PERSONA_FILE_NAME, PROMPT_DIR_NAME, VOICE_TOOL_PROMPT_FILE_NAME } from "./promptLayout";
 import {
   CONFIG_ROOT_ENV,
@@ -135,6 +141,13 @@ export const MEMORY_DIR: string = join(RUNTIME_DATA_ROOT, MEMORY_DIR_NAME);
 const GLOBAL_STATE_DIR: string = join(MEMORY_DIR, GLOBAL_STATE_DIR_NAME);
 /** 全局状态文件：复读状态、冷却时钟与语音合成每日计数。 */
 export const GLOBAL_STATE_FILE_PATH: string = join(GLOBAL_STATE_DIR, "state.json");
+/**
+ * Mini App 谷歌验证器（TOTP）单实例持久化目录；与 memory/ 下其余子目录并列，由主线程
+ * 独占原子写入（见 miniApp/totpStorage.ts）。
+ */
+export const MINI_APP_TOTP_MEMORY_DIR: string = join(MEMORY_DIR, MINI_APP_TOTP_DIR_NAME);
+/** Mini App 谷歌验证器（TOTP）单实例密钥持久化文件（仅允许在 Mini App 前端控制台生成、修改与删除）。 */
+export const MINI_APP_TOTP_FILE_PATH: string = join(MINI_APP_TOTP_MEMORY_DIR, "totp.json");
 /**
  * SQLite 运行时数据库目录；与 memory/ 平级，只由 Disk I/O Worker 和显式迁移脚本访问。
  */

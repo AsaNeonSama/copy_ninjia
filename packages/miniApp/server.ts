@@ -11,6 +11,7 @@ import type { BotMiniAppConfig } from "../types/config";
 import { jsonResponse } from "./http/common";
 import { resetMiniAppPickerState } from "./picker";
 import { createMiniAppBunRoutes, handleMiniAppHttpRequest } from "./routes";
+import { resetMiniAppTotpMemoryCache } from "./totpStorage";
 
 /**
  * 使用 `Bun.serve` 原生路由与 HTTP 服务启动本地 Mini App 源站（供 Cloudflare Tunnel 反向代理接入）；未配置 `mini_app` 时跳过并返回 `null`。
@@ -57,6 +58,7 @@ export async function stopMiniAppServer(): Promise<void> {
   miniAppAuthSessions.clear();
   miniAppPasswordGuardHolder.current = null;
   resetMiniAppPickerState();
+  resetMiniAppTotpMemoryCache();
   if (server !== null) {
     await server.stop(true);
   }

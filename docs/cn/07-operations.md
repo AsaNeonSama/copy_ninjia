@@ -128,6 +128,7 @@ WantedBy=multi-user.target
 - **写入机制**：由主线程独占写入（采用“写入临时文件 + fsync 刷盘 + 原子 rename 覆盖”机制），Disk I/O Worker 不介入此目录。`copy` 变更会立即同步刷盘；`ttsUsage` 则通过 `STATE_BACKGROUND_SAVE_DELAY_MS` 聚合合并后在后台定时刷盘。正常停机时会触发优雅 Flush 提交所有变更；若遭遇断电或被 `kill -9` 强杀，可能丢失未及合并窗口落盘的少量计数。
 - **手工编辑**：若需手动调整，必须先停止服务并确认进程完全退出，在项目目录外通过 `mktemp -d` 完整备份文件及元数据后再进行修改。严禁删除未知字段，核验 JSON 格式符合 Schema 后方可启动。
 - **根目录遗留检查**：如果数据根顶层存在遗留的旧版 `state.json` 或 `state.json.bak`，服务启动与安装器都会拒绝运行。请先参考[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移，再把这些旧文件移出数据根。
+- **Mini App 验证器：`memory/mini-app-totp/totp.json`**（可选）：当超级管理员在 Mini App「验证器」页面绑定唯一 Google Authenticator (TOTP) 时，由主线程以原子写（临时文件 + `fsync` + `rename`，权限 `0o600`）持久化 `{ version: 1, secret, createdAt }`；启动阶段在 `loadState()` 中一次性读入并严格校验后常驻主线程内存缓存，运行期间鉴权与查询零磁盘 I/O，仅在新增、修改或删除验证器时立即同步落盘。
 
 ### 2. 色图专用图库：`random_h_image_dir`
 - **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（缺省为相对数据根目录的 `RANDOM_H_IMAGE_DIR`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令上传收录。

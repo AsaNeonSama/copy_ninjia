@@ -1,49 +1,34 @@
+import { MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN } from "../consts/miniApp";
 import { miniAppServerHolder } from "../cache/main/miniApp";
 import type { MiniAppMiddleware, MiniAppRouteContext } from "../types/miniApp";
+import { handleGetFaviconRoute } from "./favicon";
 import {
-  handleChatsApiRoute,
-  handleGetChatDetailById,
-  handleGetChatMessagesById,
-  handleGetChatsRoute,
-  handlePostChatFeatureById,
+  handleChatsApiRoute, handleGetChatDetailById, handleGetChatMessagesById,
+  handleGetChatsRoute, handlePostChatFeatureById,
 } from "./http/chatRoutes";
 import {
-  buildNoStoreHeaders,
-  handleGetAuthPrecheckRoute,
-  handlePostAuthLoginRoute,
-  htmlResponse,
-  jsonResponse,
-  normalizeRoutePathname,
+  buildNoStoreHeaders, handleGetAuthPrecheckRoute, handlePostAuthLoginRoute,
+  htmlResponse, jsonResponse, normalizeRoutePathname,
 } from "./http/common";
 import {
-  handleDeleteGalleryFileByName,
-  handleGalleryApiRoute,
-  handleGetGalleryFileByName,
-  handleGetGalleryRoute,
-  handleGetSvgResourceByName,
-  handlePostGalleryDeleteRoute,
-  handlePostGalleryUploadRoute,
-  handleProtectedAssetRoute,
+  handleDeleteGalleryFileByName, handleDownloadGalleryFileByName, handleGalleryApiRoute,
+  handleGetGalleryFileByName, handleGetGalleryRoute, handleGetSvgResourceByName,
+  handlePostGalleryDeleteRoute, handlePostGalleryUploadRoute, handleProtectedAssetRoute,
 } from "./http/galleryRoutes";
 import {
-  handleGetBlocklistRoute,
-  handleGetPickerResultRoute,
-  handleGetWhitelistRoute,
-  handleIdentitiesAndPickerApiRoute,
-  handlePostBlocklistRoute,
-  handlePostPermissionRoute,
-  handlePostPickerPrepareRoute,
-  handlePostWhitelistRoute,
+  handleGetBlocklistRoute, handleGetPickerResultRoute, handleGetWhitelistRoute,
+  handleIdentitiesAndPickerApiRoute, handlePostBlocklistRoute, handlePostPermissionRoute,
+  handlePostPickerPrepareRoute, handlePostWhitelistRoute,
 } from "./http/identityRoutes";
 import {
-  executeMiniAppMiddlewareChain,
-  getMiniAppApiAuthMiddlewareChain,
-  getMiniAppInitDataMiddlewareChain,
-  getMiniAppProtectedAssetMiddlewareChain,
-  getMiniAppPublicMiddlewareChain,
-  isProtectedMiniAppAssetPath,
-  withMiniAppMiddlewareChain,
+  executeMiniAppMiddlewareChain, getMiniAppApiAuthMiddlewareChain, getMiniAppGalleryDownloadMiddlewareChain,
+  getMiniAppInitDataMiddlewareChain, getMiniAppProtectedAssetMiddlewareChain, getMiniAppPublicMiddlewareChain,
+  isProtectedMiniAppAssetPath, withMiniAppMiddlewareChain,
 } from "./http/middleware";
+import {
+  handleDeleteTotpRoute, handleGetTotpRoute, handlePostTotpEnableRoute,
+  handlePostTotpSetupRoute, handleTotpApiRoute,
+} from "./http/totpRoutes";
 import { buildMiniAppStatusView } from "./statusView";
 import indexHtml from "./ui/index.html";
 
@@ -89,6 +74,8 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
     getMiniAppInitDataMiddlewareChain();
   const protectedAssetChain: readonly MiniAppMiddleware[] =
     getMiniAppProtectedAssetMiddlewareChain();
+  const galleryDownloadChain: readonly MiniAppMiddleware[] =
+    getMiniAppGalleryDownloadMiddlewareChain();
   const apiAuthChain: readonly MiniAppMiddleware[] =
     getMiniAppApiAuthMiddlewareChain();
 
@@ -125,10 +112,22 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
         (): Promise<Response> => serveMiniAppIndexHtml(true)
       ),
     },
+    "/favicon.ico": {
+      GET: withMiniAppMiddlewareChain(
+        publicChain,
+        (ctx: Readonly<MiniAppRouteContext>): Response =>
+          handleGetFaviconRoute(ctx.request)
+      ),
+      HEAD: withMiniAppMiddlewareChain(
+        publicChain,
+        (ctx: Readonly<MiniAppRouteContext>): Response =>
+          handleGetFaviconRoute(ctx.request)
+      ),
+    },
     "/api/auth/precheck": {
       GET: withMiniAppMiddlewareChain(
         initDataChain,
-        (): Response => handleGetAuthPrecheckRoute()
+        (): Promise<Response> => handleGetAuthPrecheckRoute()
       ),
     },
     "/api/auth/login": {
@@ -136,6 +135,35 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
         initDataChain,
         (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
           handlePostAuthLoginRoute(ctx.request)
+      ),
+    },
+    "/api/totp": {
+      GET: withMiniAppMiddlewareChain(
+        apiAuthChain,
+        (): Promise<Response> => handleGetTotpRoute()
+      ),
+      DELETE: withMiniAppMiddlewareChain(
+        apiAuthChain,
+        (): Promise<Response> => handleDeleteTotpRoute()
+      ),
+    },
+    "/api/totp/setup": {
+      POST: withMiniAppMiddlewareChain(
+        apiAuthChain,
+        (): Response => handlePostTotpSetupRoute()
+      ),
+    },
+    "/api/totp/enable": {
+      POST: withMiniAppMiddlewareChain(
+        apiAuthChain,
+        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+          handlePostTotpEnableRoute(ctx.request)
+      ),
+    },
+    "/api/totp/delete": {
+      POST: withMiniAppMiddlewareChain(
+        apiAuthChain,
+        (): Promise<Response> => handleDeleteTotpRoute()
       ),
     },
     "/api/status": {
@@ -248,6 +276,24 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
         apiAuthChain,
         (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
           handlePostGalleryDeleteRoute(ctx.request)
+      ),
+    },
+    "/api/gallery/download/:fileName": {
+      GET: withMiniAppMiddlewareChain(
+        galleryDownloadChain,
+        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+          handleDownloadGalleryFileByName(ctx.request, ctx.params.fileName ?? ""),
+        (req: Request): Readonly<Record<string, string>> => ({
+          fileName: (req as Bun.BunRequest<"/api/gallery/download/:fileName">).params.fileName,
+        })
+      ),
+      HEAD: withMiniAppMiddlewareChain(
+        galleryDownloadChain,
+        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+          handleDownloadGalleryFileByName(ctx.request, ctx.params.fileName ?? ""),
+        (req: Request): Readonly<Record<string, string>> => ({
+          fileName: (req as Bun.BunRequest<"/api/gallery/download/:fileName">).params.fileName,
+        })
       ),
     },
     "/api/gallery/file/:fileName": {
@@ -366,11 +412,20 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     );
   }
 
+  if ((method === "GET" || method === "HEAD") && routePath === "/favicon.ico") {
+    return executeMiniAppMiddlewareChain(
+      ctx,
+      getMiniAppPublicMiddlewareChain(),
+      (routeCtx: Readonly<MiniAppRouteContext>): Response =>
+        handleGetFaviconRoute(routeCtx.request)
+    );
+  }
+
   if (method === "GET" && routePath === "/api/auth/precheck") {
     return executeMiniAppMiddlewareChain(
       ctx,
       getMiniAppInitDataMiddlewareChain(),
-      (): Response => handleGetAuthPrecheckRoute()
+      (): Promise<Response> => handleGetAuthPrecheckRoute()
     );
   }
 
@@ -380,6 +435,17 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
       getMiniAppInitDataMiddlewareChain(),
       (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> =>
         handlePostAuthLoginRoute(routeCtx.request)
+    );
+  }
+
+  const downloadMatch: RegExpExecArray | null =
+    MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN.exec(routePath);
+  if (downloadMatch !== null && (method === "GET" || method === "HEAD")) {
+    return executeMiniAppMiddlewareChain(
+      ctx,
+      getMiniAppGalleryDownloadMiddlewareChain(),
+      (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+        handleDownloadGalleryFileByName(routeCtx.request, downloadMatch[1] ?? "")
     );
   }
 
@@ -410,6 +476,13 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
       if (routeCtx.method === "GET" && routeCtx.routePath === "/api/status") {
         return handleGetStatusRoute();
       }
+      const totpResponse: Response | null = await handleTotpApiRoute(
+        routeCtx.method,
+        routeCtx.routePath,
+        routeCtx.request
+      );
+      if (totpResponse !== null) return totpResponse;
+
       const galleryResponse: Response | null = await handleGalleryApiRoute(
         routeCtx.method,
         routeCtx.routePath,

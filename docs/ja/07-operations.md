@@ -120,6 +120,7 @@ WantedBy=multi-user.target
 - **書き込みメカニズム**：メインスレッドが排他的にアトミック書き込みを行い（一時ファイル + fsync + アトミック rename）、Disk I/O Worker はこのディレクトリに直接触れません。`copy` の変更は即座にディスクへ反映され、`ttsUsage` は `STATE_BACKGROUND_SAVE_DELAY_MS` のマージウィンドウを経てバックグラウンドで flush されます。正常終了時は未書き込みの変更を安全にコミットしますが、突発的な SIGKILL 等ではウィンドウ内の未永続化カウントが失われる可能性があります。
 - **手動変更**：サービスを停止して inactive であることを確認し、ワークツリー外で `mktemp -d` を用いてファイルとメタデータを完全バックアップした上で編集してください。未変更のフィールドは保持し、厳格なパース検証を行い、問題がないことを確認してから起動します。
 - **データルート直下の残留ファイル**：データルート直下に `state.json` または `state.json.bak` が残存している場合、起動およびインストーラーはエラー終了します。先に[段階的アップグレード](#staged-upgrade)で 17.2.1 へ上げてその移行を完了し、このファイルをデータルート外へ移動してください。
+- **Mini App 認証器：`memory/mini-app-totp/totp.json`**（任意）：スーパー管理者が Mini App の「認証器」タブで単一の Google Authenticator (TOTP) シークレットを登録すると、メインスレッドが `{ version: 1, secret, createdAt }` をアトミック書き込み（一時ファイル + `fsync` + `rename`、パーミッション `0o600`）で永続化します。起動時の `loadState()` で 1 回だけ厳格に検証してメモリキャッシュへ読み込まれ、稼働中の認証や状態照会はディスク I/O ゼロで動作し、追加・変更・削除時のみ即座にディスクへ反映されます。
 
 ### 2. エロ画像専用ライブラリ：`random_h_image_dir`
 - **役割と内容**：`config/dynamic/assets.json` の `onlyPath.random_h_image_dir` で指定（デフォルトは `packages/consts/paths.ts` の `RANDOM_H_IMAGE_DIR`、データルート基準で解決）。`/h_image` およびディレクトリ未指定の cron `rand_image` はここから均等に抽選し、`/h_image add` で画像が収集されます。

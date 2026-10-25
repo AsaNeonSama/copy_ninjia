@@ -16,6 +16,7 @@ import type {
   TelegramWebApp,
   TelegramWindow,
 } from "../../types/miniApp";
+import type { MiniAppAuthMode } from "../../types/miniAppTotp";
 import {
   AlertSvgIcon,
   CloseSvgIcon,
@@ -37,6 +38,7 @@ import { ChatsTab } from "./components/ChatsTab";
 import { GalleryTab } from "./components/GalleryTab";
 import { IdentitiesTab } from "./components/IdentitiesTab";
 import { StatusTab } from "./components/StatusTab";
+import { TotpManagerCard } from "./components/TotpManagerCard";
 import {
   detectBrowserDefaultLanguage,
   getMiniAppTranslations,
@@ -96,6 +98,9 @@ export function App(): React.JSX.Element {
   const gateState: MiniAppGateState = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppGateState => state.gateState
   );
+  const authMode: MiniAppAuthMode = useMiniAppStore(
+    (state: MiniAppUiStoreState): MiniAppAuthMode => state.authMode
+  );
   const deniedDiag: Readonly<MiniAppAccessDiagnostics> | null = useMiniAppStore(
     (state: MiniAppUiStoreState): Readonly<MiniAppAccessDiagnostics> | null =>
       state.deniedDiag
@@ -138,6 +143,9 @@ export function App(): React.JSX.Element {
   );
   const setGateState: (next: MiniAppGateState) => void = useMiniAppStore(
     (state: MiniAppUiStoreState): ((next: MiniAppGateState) => void) => state.setGateState
+  );
+  const setAuthMode: (next: MiniAppAuthMode) => void = useMiniAppStore(
+    (state: MiniAppUiStoreState): ((next: MiniAppAuthMode) => void) => state.setAuthMode
   );
   const setDeniedDiag: (diag: Readonly<MiniAppAccessDiagnostics> | null) => void =
     useMiniAppStore(
@@ -254,6 +262,9 @@ export function App(): React.JSX.Element {
           setGateState("denied");
           return;
         }
+        setAuthMode(
+          result.authMode ?? (result.totpEnabled === true ? "totp" : "password")
+        );
         setPasswordError(null);
         setGateState("password");
       } catch (error: unknown) {
@@ -263,7 +274,7 @@ export function App(): React.JSX.Element {
         setGateState("denied");
       }
     })();
-  }, [gateState, setDeniedDiag, setGateState]);
+  }, [gateState, setAuthMode, setDeniedDiag, setGateState]);
 
   const handlePasswordSubmit: (
     event: React.SyntheticEvent<HTMLFormElement>
@@ -271,7 +282,12 @@ export function App(): React.JSX.Element {
     (event: React.SyntheticEvent<HTMLFormElement>): void => {
       event.preventDefault();
       const trimmed: string = passwordInput.trim();
-      if (trimmed.length === 0) {
+      if (authMode === "totp") {
+        if (!/^\d{6}$/u.test(trimmed)) {
+          setPasswordError(t.gate.totpEmptyHint);
+          return;
+        }
+      } else if (trimmed.length === 0) {
         setPasswordError(t.gate.passwordEmptyHint);
         return;
       }
@@ -280,7 +296,7 @@ export function App(): React.JSX.Element {
       void (async (): Promise<void> => {
         try {
           const loginRes: MiniAppLoginSuccessResponse =
-            await loginMiniAppWithPassword(trimmed);
+            await loginMiniAppWithPassword(trimmed, authMode);
           const status: MiniAppStatusView = await fetchMiniAppStatus();
           if (sessionTimerRef.current !== null) {
             clearTimeout(sessionTimerRef.current);
@@ -321,6 +337,7 @@ export function App(): React.JSX.Element {
       })();
     },
     [
+      authMode,
       lockForExpiredSession,
       passwordInput,
       setDeniedDiag,
@@ -330,6 +347,7 @@ export function App(): React.JSX.Element {
       setStatusReady,
       showToast,
       t.gate.passwordEmptyHint,
+      t.gate.totpEmptyHint,
       t.gate.unlockedToast,
       t.sessionExpiredToast,
     ]
@@ -570,6 +588,7 @@ export function App(): React.JSX.Element {
   }
 
   if (gateState === "password") {
+    const isTotpGate: boolean = authMode === "totp";
     return (
       <div className="auth-gate-wrap animate-fade-in">
         <div className="gate-top-prefs">{renderPrefsBar()}</div>
@@ -579,27 +598,37 @@ export function App(): React.JSX.Element {
               <span className="toolbar-icon-badge">
                 <LockSvgIcon size={15} />
               </span>
-              <span>{t.gate.passwordTitle}</span>
+              <span>{isTotpGate ? t.gate.totpTitle : t.gate.passwordTitle}</span>
             </span>
             <span className="badge ok">
               {unsafeUserId !== undefined
                 ? `SuperAdmin #${unsafeUserId}`
-                : t.gate.passwordBadge}
+                : isTotpGate
+                  ? t.gate.totpBadge
+                  : t.gate.passwordBadge}
             </span>
           </div>
-          <p className="auth-gate-desc">{t.gate.passwordSubtitle}</p>
+          <p className="auth-gate-desc">
+            {isTotpGate ? t.gate.totpSubtitle : t.gate.passwordSubtitle}
+          </p>
           <form onSubmit={handlePasswordSubmit} className="auth-gate-form">
             <input
-              type="password"
+              type={isTotpGate ? "text" : "password"}
+              inputMode={isTotpGate ? "numeric" : undefined}
+              maxLength={isTotpGate ? 6 : undefined}
               className="auth-gate-input"
-              placeholder={t.gate.passwordPlaceholder}
-              autoComplete="current-password"
+              placeholder={
+                isTotpGate ? t.gate.totpPlaceholder : t.gate.passwordPlaceholder
+              }
+              autoComplete={isTotpGate ? "one-time-code" : "current-password"}
               value={passwordInput}
               disabled={passwordBusy}
               onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+                const rawVal: string = (
+                  event.currentTarget as unknown as { readonly value: string }
+                ).value;
                 setPasswordInput(
-                  (event.currentTarget as unknown as { readonly value: string })
-                    .value
+                  isTotpGate ? rawVal.replace(/\D+/gu, "").slice(0, 6) : rawVal
                 );
               }}
             />
@@ -613,7 +642,9 @@ export function App(): React.JSX.Element {
             >
               {passwordBusy
                 ? t.gate.passwordSubmitting
-                : t.gate.passwordSubmitButton}
+                : isTotpGate
+                  ? t.gate.totpSubmitButton
+                  : t.gate.passwordSubmitButton}
             </button>
           </form>
         </div>
@@ -745,6 +776,8 @@ export function App(): React.JSX.Element {
           : null}
 
         {activeTab === "gallery" ? <GalleryTab onToast={showToast} /> : null}
+
+        {activeTab === "totp" ? <TotpManagerCard onToast={showToast} /> : null}
       </main>
 
       {renderConfirmModal()}

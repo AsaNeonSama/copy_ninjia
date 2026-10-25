@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import {
   MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
@@ -13,6 +13,7 @@ import type {
 } from "../../../types/miniApp";
 import {
   CloseSvgIcon,
+  DownloadSvgIcon,
   GallerySvgIcon,
   RefreshSvgIcon,
   TrashSvgIcon,
@@ -21,6 +22,7 @@ import {
 import {
   buildMiniAppGalleryImageUrl,
   deleteMiniAppGalleryImageByName,
+  downloadMiniAppGalleryImageByName,
   fetchMiniAppGallery,
   uploadMiniAppGalleryImageBytes,
 } from "../api";
@@ -45,8 +47,17 @@ interface FileInputEventTarget {
   value: string;
 }
 
+/** 具备平滑滚动能力的预览容器 DOM 节点接口。 */
+interface ScrollablePreviewElement extends HTMLDivElement {
+  /** 将当前元素平滑滚动至可视区域。 */
+  readonly scrollIntoView?: (options: {
+    readonly behavior: string;
+    readonly block: string;
+  }) => void;
+}
+
 /**
- * 图库分页预览、SHA-256 协议上传与单张图片删除管理组件。
+ * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理组件。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -88,6 +99,10 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
   ] = useState<string | null>(null);
+  const [downloadingFileName, setDownloadingFileName]: [
+    string | null,
+    React.Dispatch<React.SetStateAction<string | null>>
+  ] = useState<string | null>(null);
   const [uploadStatusText, setUploadStatusText]: [
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
@@ -96,6 +111,17 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     Readonly<MiniAppGalleryItem> | null,
     React.Dispatch<React.SetStateAction<Readonly<MiniAppGalleryItem> | null>>
   ] = useState<Readonly<MiniAppGalleryItem> | null>(null);
+  const previewCardRef: React.RefObject<ScrollablePreviewElement | null> =
+    useRef<ScrollablePreviewElement | null>(null);
+
+  useEffect((): void => {
+    if (previewItem !== null) {
+      previewCardRef.current?.scrollIntoView?.({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  }, [previewItem]);
 
   const loadGallery: (targetPage?: number, targetPageSize?: number) => Promise<void> =
     useCallback(
@@ -124,6 +150,22 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
   useEffect((): void => {
     void loadGallery(1, pageSize);
   }, [pageSize]);
+
+  const handleDownloadImage = async (fileName: string): Promise<void> => {
+    setDownloadingFileName(fileName);
+    try {
+      const accepted: boolean = await downloadMiniAppGalleryImageByName(fileName);
+      if (accepted) {
+        onToast(t.gallery.downloadedToast(shortenGalleryFileName(fileName)));
+      }
+    } catch (error: unknown) {
+      const message: string =
+        error instanceof Error ? error.message : String(error);
+      onToast(message);
+    } finally {
+      setDownloadingFileName(null);
+    }
+  };
 
   const handleDeleteImage = async (fileName: string): Promise<void> => {
     if (!(await requestConfirm(t.gallery.confirmDeleteImage(fileName), "danger"))) {
@@ -277,7 +319,10 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
 
       {previewItem !== null
         ? (
-          <div className="card gallery-preview-card animate-fade-in">
+          <div
+            ref={previewCardRef}
+            className="card gallery-preview-card animate-fade-in"
+          >
             <div className="card-title">
               <span>
                 {t.gallery.previewTitle(shortenGalleryFileName(previewItem.fileName))}
@@ -285,8 +330,23 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
               <div className="toolbar-actions">
                 <button
                   type="button"
+                  className="btn primary icon-btn"
+                  disabled={downloadingFileName !== null || deletingFileName !== null}
+                  onClick={(): void => {
+                    void handleDownloadImage(previewItem.fileName);
+                  }}
+                >
+                  <DownloadSvgIcon size={14} />
+                  <span>
+                    {downloadingFileName === previewItem.fileName
+                      ? t.gallery.downloadingButton
+                      : t.gallery.downloadButton}
+                  </span>
+                </button>
+                <button
+                  type="button"
                   className="btn danger icon-btn"
-                  disabled={deletingFileName !== null}
+                  disabled={deletingFileName !== null || downloadingFileName !== null}
                   onClick={(): void => {
                     void handleDeleteImage(previewItem.fileName);
                   }}
@@ -352,6 +412,8 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                       previewItem?.fileName === item.fileName;
                     const isDeleting: boolean =
                       deletingFileName === item.fileName;
+                    const isDownloading: boolean =
+                      downloadingFileName === item.fileName;
                     return (
                       <div
                         key={item.fileName}
@@ -369,10 +431,23 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                           />
                           <button
                             type="button"
+                            className="gallery-card-download-btn"
+                            title={t.gallery.downloadButton}
+                            aria-label={t.gallery.downloadButton}
+                            disabled={downloadingFileName !== null || deletingFileName !== null}
+                            onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                              event.stopPropagation();
+                              void handleDownloadImage(item.fileName);
+                            }}
+                          >
+                            <DownloadSvgIcon size={13} />
+                          </button>
+                          <button
+                            type="button"
                             className="gallery-card-delete-btn"
                             title={t.gallery.deleteButton}
                             aria-label={t.gallery.deleteButton}
-                            disabled={deletingFileName !== null}
+                            disabled={deletingFileName !== null || downloadingFileName !== null}
                             onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
                               event.stopPropagation();
                               void handleDeleteImage(item.fileName);
@@ -385,7 +460,9 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                           <div className="gallery-name" title={item.fileName}>
                             {isDeleting
                               ? t.gallery.deletingButton
-                              : shortenGalleryFileName(item.fileName)}
+                              : isDownloading
+                                ? t.gallery.downloadingButton
+                                : shortenGalleryFileName(item.fileName)}
                           </div>
                           <div className="gallery-sub">
                             <span>{formatGalleryFileSize(item.sizeBytes)}</span>

@@ -13,6 +13,10 @@ import type {
   MiniAppPickerResultEvent,
   MiniAppPreparedPickerSession,
 } from "../../types/miniApp";
+import type {
+  MiniAppPendingTotpSetup,
+  MiniAppTotpRecord,
+} from "../../types/miniAppTotp";
 
 /**
  * 主线程当前运行的 `Bun.serve` 实例句柄。
@@ -80,3 +84,23 @@ export const miniAppPendingPickers: FifoMap<number, Readonly<MiniAppPreparedPick
  */
 export const miniAppCompletedPickerResults: FifoMap<number, Readonly<MiniAppPickerResultEvent>> =
   new FifoMap<number, Readonly<MiniAppPickerResultEvent>>(MINI_APP_PICKER_MAX_RESULTS);
+
+/**
+ * 主线程内存中缓存的当前已启用谷歌验证器（TOTP）单实例记录镜像（`undefined` 表示尚未完成首次读盘加载，`null` 表示已确认未绑定验证器）。
+ * 填充：启动阶段 `loadState`（或首次调用 `loadMiniAppTotpRecord`）读取 `memory/mini-app-totp/totp.json` 后写入，或在前端控制台调用 `POST /api/totp/enable` 绑定成功后立即更新。
+ * 清理：在前端控制台调用 `DELETE /api/totp` 删除验证器时置为 `null`；`stopMiniAppServer` 或测试重置时置回 `undefined`。
+ * 容量恒为单个只读记录对象（最多 1 个验证器）；与 Worker 崩溃无关，进程重启后从磁盘文件重新加载。
+ */
+export const miniAppTotpRecordHolder: {
+  current: Readonly<MiniAppTotpRecord> | null | undefined;
+} = { current: undefined };
+
+/**
+ * 主线程在前端控制台发起“生成/修改验证器”后暂存的待扫码确认 TOTP 密钥句柄。
+ * 填充：`POST /api/totp/setup` 生成随机 Base32 密钥与二维码时写入。
+ * 清理：`POST /api/totp/enable` 验证通过落盘后、超过 10 分钟 `MINI_APP_TOTP_PENDING_TTL_MS` 过期淘汰时，或 `stopMiniAppServer` 停止服务时置回 `null`。
+ * 容量恒为单个待确认会话对象（新生成自动覆盖旧待确认项）；与 Worker 崩溃无关，进程重启后从 `null` 开始。
+ */
+export const miniAppPendingTotpSetupHolder: {
+  current: Readonly<MiniAppPendingTotpSetup> | null;
+} = { current: null };

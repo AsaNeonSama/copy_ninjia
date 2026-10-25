@@ -91,6 +91,7 @@ const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/b
 const { getAssetConfig } = await import("../../packages/config/assets");
 const {
   MINI_APP_ASSET_CACHE_CONTROL,
+  MINI_APP_BUTTON_TEXT,
   MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_INIT_DATA_HEADER,
@@ -124,15 +125,20 @@ const {
   shortenGalleryFileName,
 } = await import("../../packages/miniApp/ui/formatters");
 const {
+  buildMiniAppGalleryDownloadUrl,
   buildMiniAppGalleryImageUrl,
   buildMiniAppSvgResourceUrl,
+  clearMiniAppAssetToken,
   clearMiniAppSessionToken,
   confirmMiniAppAction,
   getTelegramWebApp,
+  readMiniAppAssetToken,
   readMiniAppInitData,
   readMiniAppSessionToken,
+  setMiniAppAssetToken,
   setMiniAppSessionToken,
 } = await import("../../packages/miniApp/ui/api");
+const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const {
   detectBrowserDefaultLanguage,
   detectInitialMiniAppLanguage,
@@ -146,6 +152,7 @@ const {
 } = await import("../../packages/miniApp/ui/store");
 const {
   ChatsSvgIcon,
+  DownloadSvgIcon,
   GallerySvgIcon,
   IdentitiesSvgIcon,
   MenuSvgIcon,
@@ -325,6 +332,9 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
         dict.gate.deniedPolicyReason("MISSING_INIT_DATA", "fallback").length
       ).toBeGreaterThan(0);
       expect(dict.gate.deniedNodeGatewayState(403).length).toBeGreaterThan(0);
+      expect(dict.gallery.downloadButton.length).toBeGreaterThan(0);
+      expect(dict.gallery.downloadingButton.length).toBeGreaterThan(0);
+      expect(dict.gallery.downloadedToast("abc.png").length).toBeGreaterThan(0);
     }
 
     expect(["zh", "ja", "en"]).toContain(detectBrowserDefaultLanguage());
@@ -363,6 +373,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(ChatsSvgIcon({})).toBeDefined();
     expect(IdentitiesSvgIcon({})).toBeDefined();
     expect(GallerySvgIcon({})).toBeDefined();
+    expect(DownloadSvgIcon({})).toBeDefined();
     expect(SearchSvgIcon({})).toBeDefined();
     expect(TrashSvgIcon({})).toBeDefined();
 
@@ -382,8 +393,21 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
       "./api/resources/svg/status.svg"
     );
-    expect(readMiniAppSessionToken()).toBe("");
+    expect(readMiniAppAssetToken()).toBe("");
+    setMiniAppAssetToken("b".repeat(64));
+    expect(readMiniAppAssetToken()).toBe("b".repeat(64));
+    expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe(
+      `./api/gallery/file/abc.jpg?token=${"b".repeat(64)}`
+    );
+    expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
+      `./api/resources/svg/status.svg?token=${"b".repeat(64)}`
+    );
     setMiniAppSessionToken("a".repeat(64));
+    expect(buildMiniAppGalleryDownloadUrl("abc.jpg")).toBe(
+      `./api/gallery/download/abc.jpg?token=${"b".repeat(64)}&session=${"a".repeat(64)}`
+    );
+    clearMiniAppAssetToken();
+    expect(readMiniAppAssetToken()).toBe("");
     expect(readMiniAppSessionToken()).toBe("a".repeat(64));
     clearMiniAppSessionToken();
     expect(readMiniAppSessionToken()).toBe("");
@@ -532,11 +556,25 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(fileRes.status).toBe(200);
     expect(fileRes.headers.get("Content-Type")).toBe("image/png");
     expect(fileRes.headers.get("Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
-    expect(fileRes.headers.get("CDN-Cache-Control")).toBe("no-store");
+    expect(fileRes.headers.get("CDN-Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
     const imageEtag: string | null = fileRes.headers.get("ETag");
     expect(imageEtag !== null && imageEtag.length > 0).toBeTrue();
     const fetchedBytes: Uint8Array = await fileRes.bytes();
     expect(fetchedBytes).toEqual(validPng);
+
+    const assetToken: string = deriveMiniAppAssetToken(
+      BOT_TOKEN,
+      SUPER_ADMIN_USER_ID
+    );
+    const tokenImageRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`
+      )
+    );
+    expect(tokenImageRes.status).toBe(200);
+    expect(tokenImageRes.headers.get("CDN-Cache-Control")).toBe(
+      MINI_APP_ASSET_CACHE_CONTROL
+    );
 
     const cachedImageRes: Response = await handleMiniAppHttpRequest(
       new Request(
@@ -613,10 +651,44 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       "image/svg+xml; charset=utf-8"
     );
     expect(okSvgRes.headers.get("Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
-    expect(okSvgRes.headers.get("CDN-Cache-Control")).toBe("no-store");
+    expect(okSvgRes.headers.get("CDN-Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
     const svgEtag: string | null = okSvgRes.headers.get("ETag");
     expect(svgEtag !== null && svgEtag.length > 0).toBeTrue();
     expect(await okSvgRes.text()).toContain("<svg");
+
+    const tokenSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/resources/svg/status.svg?token=${encodeURIComponent(assetToken)}`
+      )
+    );
+    expect(tokenSvgRes.status).toBe(200);
+    expect(await tokenSvgRes.text()).toContain("<svg");
+
+    const faviconRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/favicon.ico")
+    );
+    expect(faviconRes.status).toBe(200);
+    expect(faviconRes.headers.get("Content-Type")).toBe("image/x-icon");
+    expect(faviconRes.headers.get("Cache-Control")).toBe(
+      MINI_APP_ASSET_CACHE_CONTROL
+    );
+    expect(faviconRes.headers.get("CDN-Cache-Control")).toBe(
+      MINI_APP_ASSET_CACHE_CONTROL
+    );
+    const faviconEtag: string | null = faviconRes.headers.get("ETag");
+    expect(faviconEtag !== null && faviconEtag.length > 0).toBeTrue();
+    const faviconBytes: Uint8Array = await faviconRes.bytes();
+    expect(faviconBytes[0]).toBe(0);
+    expect(faviconBytes[1]).toBe(0);
+    expect(faviconBytes[2]).toBe(1);
+    expect(faviconBytes[3]).toBe(0);
+
+    const favicon304Res: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/favicon.ico", {
+        headers: { "if-none-match": faviconEtag! },
+      })
+    );
+    expect(favicon304Res.status).toBe(304);
 
     const cachedSvgRes: Response = await handleMiniAppHttpRequest(
       new Request(
@@ -654,6 +726,65 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       })
     );
     expect(traversalRes.status).toBe(404);
+
+    const unauthDownloadRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/download/${expectedFileName}`)
+    );
+    expect(unauthDownloadRes.status).toBe(401);
+
+    const noSessionDownloadRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
+        {
+          headers: {
+            [MINI_APP_INIT_DATA_HEADER]: initData,
+          },
+        }
+      )
+    );
+    expect(noSessionDownloadRes.status).toBe(401);
+
+    const downloadRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/download/${expectedFileName}`, {
+        headers: superAdminHeaders(),
+      })
+    );
+    expect(downloadRes.status).toBe(200);
+    expect(downloadRes.headers.get("Content-Type")).toBe("image/png");
+    expect(downloadRes.headers.get("Content-Disposition")).toBe(
+      `attachment; filename="${expectedFileName}"`
+    );
+    expect(await downloadRes.bytes()).toEqual(validPng);
+
+    const queryDownloadRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download/${expectedFileName}?token=${encodeURIComponent(assetToken)}&session=${encodeURIComponent(sessionToken)}`
+      )
+    );
+    expect(queryDownloadRes.status).toBe(200);
+    expect(queryDownloadRes.headers.get("Content-Disposition")).toBe(
+      `attachment; filename="${expectedFileName}"`
+    );
+    expect(await queryDownloadRes.bytes()).toEqual(validPng);
+
+    const headDownloadRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/download/${expectedFileName}?token=${encodeURIComponent(assetToken)}&session=${encodeURIComponent(sessionToken)}`,
+        { method: "HEAD" }
+      )
+    );
+    expect(headDownloadRes.status).toBe(200);
+    expect(headDownloadRes.headers.get("Content-Disposition")).toBe(
+      `attachment; filename="${expectedFileName}"`
+    );
+    expect(await headDownloadRes.bytes()).toEqual(new Uint8Array(0));
+
+    const missingDownloadRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/gallery/download/..%2Fsecret.png", {
+        headers: superAdminHeaders(),
+      })
+    );
+    expect(missingDownloadRes.status).toBe(404);
 
     const invalidDeleteRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/gallery/delete", {
@@ -722,16 +853,18 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     const htmlText: string = await htmlRes.text();
     expect(htmlText).toContain("id=\"root\"");
+    expect(htmlText).not.toContain("./main.tsx");
 
     const menuOk: boolean = await configureSuperAdminMenuButton({
       superAdminUserId: SUPER_ADMIN_USER_ID,
-      buttonText: "控制台",
+      buttonText: MINI_APP_BUTTON_TEXT,
       webAppUrl: "https://miniapp.example.com",
       api: {
         setChatMenuButton: async () => true,
       },
     });
     expect(menuOk).toBeTrue();
+    expect(MINI_APP_BUTTON_TEXT).toBe("App");
 
     const prepBtnId: string | undefined = await saveMiniAppPreparedKeyboardButton({
       userId: SUPER_ADMIN_USER_ID,

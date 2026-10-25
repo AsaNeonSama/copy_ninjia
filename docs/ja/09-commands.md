@@ -138,7 +138,6 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 | `/init enable\|disable` | `SUPER_ADMIN_USER_ID` | 本グループの主要業務処理ゲートの切り替え |
 | `/batch_kick <Nm\|Nh\|Nd>` | `SUPER_ADMIN_USER_ID` | スーパーグループにおいて、指定時間枠（`BATCH_KICK_MIN_DURATION_MS`〜`BATCH_KICK_MAX_DURATION_MS`）に参加し、現在も在籍しているメンバーをキック（BAN は行わない） |
 | `/send <グループ ID>`<br>`/send finish` | `SUPER_ADMIN_USER_ID`（個人チャット限定） | Bot との個人チャットから指定グループへの転送セッションを開始/終了。転送中に TTS リクエストをメッセージ全体のコードブロックとして送信すると、Bot がボイスメッセージとして発声 |
-| `/app` | `SUPER_ADMIN_USER_ID`（個人チャット限定） | `config/static/bot.json` に `mini_app` が設定されている場合、スーパー管理者の個人チャットに `Dashboard` インライン WebApp ボタンを返信 |
 
 > [!IMPORTANT]
 > **権限列の読み方**：
@@ -164,7 +163,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 - ペルソナはプロセスレベルのデプロイ入力であり、グループ単位で設定するコマンドはありません。
 - AI ペルソナはプロジェクトルートの `prompt/persona.md` の本文を使用し、ファイルが存在しない場合は内蔵のメスガキペルソナを使用します。コマンド通知、権限 help、ボタン文言、自動通知、コマンドメニュー、inline 運勢は `config/static/bot.json` で明示された `atmosphere`（`mesugaki` メスガキ版、`normal` 通常版）を優先します。省略時はカスタムペルソナなら `normal`（通常版）、内蔵ペルソナなら `DEFAULT_BOT_ATMOSPHERE` となります。
 - いずれも起動時に確定し、変更は再起動後に反映されます。AI スイッチのオン/オフは選択に影響しません。
-- 起動時は全グループチャットスコープ（`all_group_chats`）のメニューのみを登録し、デフォルトスコープを削除するため、個人チャットにはメニューが表示されません。個人チャットのコマンドはスーパー管理者の `/send` および（`mini_app` 設定時の）`/app` にのみ応答します。
+- 起動時は全グループチャットスコープ（`all_group_chats`）のメニューのみを登録し、デフォルトスコープを削除するため、個人チャットにはコマンドメニューが表示されません。個人チャットのコマンドはスーパー管理者の `/send` にのみ応答し、`mini_app` 設定時はスーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を配置します。
 
 #### 2. `/bot_status` 指標収集
 - **各行の文言は通知スタイルに従う**：CPU、稼働時間、メモリ使用量、各モデル能力名、Telegram 送信などの行のラベルは、現在の通知スタイルの文言表（`packages/consts/atmosphere/{plain,teasing}/notices.ts`）から取ります。控えめスタイルとからかいスタイルがそれぞれ 1 組を持ち、数値と表示の取捨は同じです。

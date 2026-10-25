@@ -155,18 +155,18 @@ export const MINI_APP_NO_STORE_CACHE_CONTROL: string =
   "no-store, no-cache, must-revalidate, max-age=0";
 
 /**
- * Mini App 受保护图库图片与 SVG 资源响应的 `Cache-Control` 缓存策略头取值（仅允许已通过鉴权的客户端浏览器私有缓存 7 天且标记内容不可变，禁止公共 CDN 边缘节点绕过鉴权缓存）。
- * 不变量：仅用于已通过鉴权中间件核验的 `200 OK` / `304 Not Modified` 图片与 SVG 资源响应。所属模块：`packages/miniApp/http/common.ts`。
+ * Mini App 受保护图库图片与 SVG 资源在通过鉴权后允许 Telegram WebView 客户端与 Cloudflare CDN 边缘节点持久化缓存 7 天的 `Cache-Control` 取值。
+ * 不变量：仅用于已通过鉴权中间件核验的 `200 OK` / `304 Not Modified` 图片、SVG 与图标资源响应；未通过鉴权的 `401`/`403` 响应固定使用 `no-store`。所属模块：`packages/miniApp/http/common.ts`。
  */
 export const MINI_APP_ASSET_CACHE_CONTROL: string =
-  "private, max-age=604800, immutable";
+  "public, max-age=604800, s-maxage=604800, immutable";
 
 /**
- * Mini App 受保护图库图片与 SVG 资源响应的 `Vary` 缓存区分头取值。
- * 不变量：按 Telegram `initData` 与密码会话请求头区分缓存。所属模块：`packages/miniApp/http/common.ts`。
+ * 派生 Mini App 受保护静态/图库资源稳定鉴权令牌（`assetToken`）的 HMAC-SHA256 种子字符串。
+ * 不变量：由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生，使关闭并重开 Mini App 后的图片/SVG URL 保持稳定以命中 WebView 与 CDN 缓存。所属模块：`packages/libs/miniAppAuth.ts`。
  */
-export const MINI_APP_ASSET_VARY_HEADER_VALUE: string =
-  "x-telegram-init-data, x-mini-app-session, authorization";
+export const MINI_APP_ASSET_TOKEN_SECRET_SEED: string =
+  "CopyNinjaMiniAppAssetTokenV1";
 
 /**
  * Mini App 响应的 `Content-Security-Policy` 安全策略头取值。
@@ -225,6 +225,13 @@ export const MINI_APP_GALLERY_FILE_ROUTE_PATTERN: RegExp =
   /^\/api\/gallery\/file\/([^/]+)$/u;
 
 /**
+ * `/api/gallery/download/:fileName` 图库单张图片附件下载路由的匹配规则。
+ * 不变量：不带全局标志 `g`，供 HTTP 路由与资源鉴权中间件无状态复用。所属模块：`packages/miniApp/http/galleryRoutes.ts` 与 `packages/miniApp/http/middleware.ts`。
+ */
+export const MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN: RegExp =
+  /^\/api\/gallery\/download\/([^/]+)$/u;
+
+/**
  * `/api/resources/svg/:fileName` 与 `/miniAppResoures/:fileName` 受保护 SVG 资源读取路由的匹配规则。
  * 不变量：不带全局标志 `g`，供 HTTP 路由与资源鉴权中间件无状态复用。所属模块：`packages/miniApp/http/galleryRoutes.ts` 与 `packages/miniApp/http/middleware.ts`。
  */
@@ -239,11 +246,11 @@ export const MINI_APP_SVG_SAFE_FILE_NAME_PATTERN: RegExp =
   /^[A-Za-z0-9][A-Za-z0-9._-]*\.svg$/iu;
 
 /**
- * 静态图片与 SVG 资源路径后缀的匹配规则（用于统一纳入受保护资源鉴权中间件链）。
+ * 静态图片与 SVG 资源路径后缀的匹配规则（用于统一纳入受保护资源鉴权中间件链，不含公开 `/favicon.ico`）。
  * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/miniApp/http/middleware.ts`。
  */
 export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: RegExp =
-  /\.(?:svg|png|jpe?g|webp|gif|ico|avif)$/iu;
+  /\.(?:svg|png|jpe?g|webp|gif|avif)$/iu;
 
 /**
  * 图库允许通过 HTTP 读取的单张图片安全文件名匹配规则（非点号开头、仅含字母数字与 `._-`、以受支持图片扩展名结尾）。
@@ -355,24 +362,10 @@ export const MINI_APP_PICKER_POLL_MAX_ATTEMPTS: number = 25;
 export const MINI_APP_TOAST_DURATION_MS: number = 2_600;
 
 /**
- * 超级管理员私聊左下角 `MenuButtonWebApp` 与 `/app` 内联按钮的显示文字。
- * 不变量：非空短文本。所属模块：`packages/app/commandMenu.ts` 与 `packages/commands/app.ts`。
+ * 超级管理员私聊左下角 `MenuButtonWebApp` 的显示文字。
+ * 不变量：非空短文本。所属模块：`packages/app/commandMenu.ts`。
  */
-export const MINI_APP_BUTTON_TEXT: string = "Dashboard";
-
-/**
- * `/app` 私聊命令在已配置 `mini_app` 时回复的说明文本。
- * 不变量：仅在超级管理员私聊发送。所属模块：`packages/commands/app.ts`。
- */
-export const MINI_APP_LAUNCH_PROMPT_TEXT: string =
-  "点击下方按钮打开超级管理员专属 Mini App 控制面板：";
-
-/**
- * `/app` 私聊命令在未配置 `mini_app` 时回复的提示文本。
- * 不变量：仅在超级管理员私聊发送。所属模块：`packages/commands/app.ts`。
- */
-export const MINI_APP_UNCONFIGURED_NOTICE_TEXT: string =
-  "当前未在 config/static/bot.json 中配置 mini_app，Mini App 服务未启用。";
+export const MINI_APP_BUTTON_TEXT: string = "App";
 
 /**
  * 已 `/init` 群内可独立开关的子功能键闭集。
@@ -465,4 +458,5 @@ export const MINI_APP_TAB_KEYS: readonly MiniAppTabKey[] =
     "chats",
     "identities",
     "gallery",
+    "totp",
   ]);
