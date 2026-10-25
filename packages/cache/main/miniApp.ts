@@ -49,7 +49,7 @@ export const miniAppAuthSessions: FifoMap<string, Readonly<MiniAppAuthSession>> 
 
 /**
  * 超级管理员 ID 连续输错 Mini App 访问密码的计数与 30 分钟锁定状态句柄。
- * 填充：`POST /api/auth/login` 密码校验失败时累加 `failedAttempts`，达到 `MINI_APP_PASSWORD_MAX_ATTEMPTS`（5 次）时写入 `lockedUntil`。
+ * 填充：`POST /api/auth/login` 密码校验失败时累加 `failedAttempts`，达到 `MINI_APP_PASSWORD_MAX_ATTEMPTS`（3 次）时写入 `lockedUntil`。
  * 清理：密码校验通过、锁定期满 30 分钟后自动归零，或 `stopMiniAppServer` 停止服务时置回 `null`。
  * 容量恒为单个只读状态对象（仅绑定 `SUPER_ADMIN_USER_ID`）；与 Worker 崩溃无关，进程重启后从 `null` 开始。
  */

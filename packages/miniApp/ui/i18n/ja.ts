@@ -99,7 +99,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       passwordBadge: "二次パスワード認証♡",
       passwordTitle: "合言葉を出せ、雑魚♡",
       passwordSubtitle:
-        "Telegram の署名はギリギリ合格ね。次はコンソール用アクセスパスワードを入れて90分セッションを解除しなさい（5回間違えたら30分ロックよ♡）。",
+        "Telegram の署名はギリギリ合格ね。次はコンソール用アクセスパスワードを入れて90分セッションを解除しなさい（3回間違えたら30分ロックよ♡）。",
       passwordPlaceholder: "ほら、間違えずにパスワードを入力しなさい雑魚♡…",
       passwordEmptyHint: "マヌケな雑魚♡、空欄のまま突破できると思ったの？",
       passwordSubmitting: "アタシが照合中♡…",
@@ -107,7 +107,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       totpBadge: "Google 認証システム♡",
       totpTitle: "6桁コードを出せ、雑魚♡",
       totpSubtitle:
-        "Google Authenticator が優先有効化されているわ。現在の6桁ワンタイムコードを入力して90分セッションを解除しなさい（5回失敗で30分ロックよ♡）。",
+        "Google Authenticator が優先有効化されているわ。現在の6桁ワンタイムコードを入力して90分セッションを解除しなさい（3回失敗で30分ロックよ♡）。",
       totpPlaceholder: "6桁の認証コードを入力しなさい雑魚♡…",
       totpEmptyHint: "マヌケな雑魚♡、6桁の数字コードをちゃんと入力しなさい！",
       totpSubmitButton: "コード照合して解除♡",

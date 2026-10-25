@@ -99,7 +99,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       passwordBadge: "2nd-Factor Gate♡",
       passwordTitle: "Hand Over the Password, Zaako♡",
       passwordSubtitle:
-        "Your Telegram signature barely passed. Now enter the console access password to unlock a 90-minute session (5 wrong tries locks you out for 30 minutes♡).",
+        "Your Telegram signature barely passed. Now enter the console access password to unlock a 90-minute session (3 wrong tries locks you out for 30 minutes♡).",
       passwordPlaceholder: "Type the access password carefully, Zaako♡…",
       passwordEmptyHint: "Clueless Zaako♡, trying to sneak in with an empty password box?",
       passwordSubmitting: "Checking for you♡…",
@@ -107,7 +107,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       totpBadge: "Authenticator Gate♡",
       totpTitle: "Hand Over the 6-Digit Code, Zaako♡",
       totpSubtitle:
-        "Google Authenticator is enabled and prioritized. Enter your current 6-digit TOTP code to unlock a 90-minute session (5 wrong tries locks you out for 30 minutes♡).",
+        "Google Authenticator is enabled and prioritized. Enter your current 6-digit TOTP code to unlock a 90-minute session (3 wrong tries locks you out for 30 minutes♡).",
       totpPlaceholder: "Enter 6-digit Google Authenticator code♡…",
       totpEmptyHint: "Clueless Zaako♡, enter all 6 digits of your TOTP code first!",
       totpSubmitButton: "Verify Code & Unlock♡",

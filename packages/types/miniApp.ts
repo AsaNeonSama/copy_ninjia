@@ -44,7 +44,7 @@ export interface MiniAppAuthSession {
 /** 超级管理员 ID 的 Mini App 密码连续错误计数与 30 分钟锁定状态。 */
 export interface MiniAppPasswordGuardState {
   readonly userId: number;
-  /** 当前连续输错密码次数（`0..5`）。 */
+  /** 当前连续输错次数；达到 `MINI_APP_PASSWORD_MAX_ATTEMPTS` 时锁定，锁定期内顺延的并发登录继续累加。 */
   readonly failedAttempts: number;
   /** 锁定截止毫秒时间戳（未锁定时为 `0`）。 */
   readonly lockedUntil: number;

@@ -99,7 +99,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       passwordBadge: "二次密码门禁♡",
       passwordTitle: "交出访问密码，杂鱼♡",
       passwordSubtitle:
-        "Telegram 签名倒是勉强过关了，再输入控制台访问密码解锁 90 分钟会话吧（连续输错 5 次直接锁你 30 分钟哦♡）。",
+        "Telegram 签名倒是勉强过关了，再输入控制台访问密码解锁 90 分钟会话吧（连续输错 3 次直接锁你 30 分钟哦♡）。",
       passwordPlaceholder: "快输入访问密码，别输错哦杂鱼♡…",
       passwordEmptyHint: "笨蛋杂鱼♡，密码框还是空的就想蒙混过关？",
       passwordSubmitting: "本天才核验中♡…",
@@ -107,7 +107,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       totpBadge: "谷歌验证器门禁♡",
       totpTitle: "交出 6 位动态码，杂鱼♡",
       totpSubtitle:
-        "已启用 Google Authenticator 验证器优先保护，请输入当前 6 位动态验证码解锁 90 分钟会话（连续输错 5 次锁定 30 分钟哦♡）。",
+        "已启用 Google Authenticator 验证器优先保护，请输入当前 6 位动态验证码解锁 90 分钟会话（连续输错 3 次锁定 30 分钟哦♡）。",
       totpPlaceholder: "输入 6 位谷歌验证器动态码♡…",
       totpEmptyHint: "笨蛋杂鱼♡，先填满 6 位数字动态验证码再点解锁啦！",
       totpSubmitButton: "验证动态码并解锁♡",

@@ -288,7 +288,7 @@ export function purgeExpiredAuthSessions(nowMs: number): void {
 }
 
 /**
- * 检查超级管理员 ID 当前是否因密码连续输错达到 5 次而处于 30 分钟禁止访问锁定期。
+ * 检查超级管理员 ID 当前是否因密码连续输错达到 3 次而处于 30 分钟禁止访问锁定期。
  * @param request HTTP 请求对象。
  * @param nowMs 当前毫秒时间戳。
  * @returns 处于锁定期时返回 403 `Response`，未锁定或已过锁定期时返回 `null`。
@@ -351,7 +351,7 @@ export async function handleGetAuthPrecheckRoute(): Promise<Response> {
 }
 
 /**
- * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 5 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
+ * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 3 次锁定该超级管理员 ID 30 分钟），通过后签发 90 分钟会话令牌。
  * 读取请求体与 TOTP 记录后若锁定已生效（由并发登录在等待期间触发），不比对凭据，按失败计数并将锁定顺延至当前时刻起 30 分钟。
  * 由未锁定转入锁定时向超级管理员私聊发送一条告警（不等待发送结果，失败走统一 Telegram 错误日志）；锁定顺延不重复告警。
  * @param request HTTP 请求对象。

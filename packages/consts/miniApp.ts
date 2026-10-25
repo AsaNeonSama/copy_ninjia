@@ -104,10 +104,10 @@ export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 export const MINI_APP_SESSION_TTL_MS: number = 90 * MINUTE_MS;
 
 /**
- * 超级管理员 ID 连续输错 Mini App 访问密码允许的最大次数（5 次机会）。
+ * 超级管理员 ID 连续输错 Mini App 访问密码允许的最大次数（3 次机会）。
  * 不变量：正整数，连续失败达到该次数后立即锁定该超级管理员 ID 30 分钟。所属模块：`packages/miniApp/http/common.ts`。
  */
-export const MINI_APP_PASSWORD_MAX_ATTEMPTS: number = 5;
+export const MINI_APP_PASSWORD_MAX_ATTEMPTS: number = 3;
 
 /**
  * 超级管理员 ID 连续输错 Mini App 访问密码达上限后的禁止访问锁定时长毫秒数（30 分钟）。
