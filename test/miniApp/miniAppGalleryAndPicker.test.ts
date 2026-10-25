@@ -90,6 +90,7 @@ const { resetIdentityStorageCache } = await import(
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { getAssetConfig } = await import("../../packages/config/assets");
 const {
+  MINI_APP_ASSET_CACHE_CONTROL,
   MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_INIT_DATA_HEADER,
@@ -530,8 +531,27 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     expect(fileRes.status).toBe(200);
     expect(fileRes.headers.get("Content-Type")).toBe("image/png");
+    expect(fileRes.headers.get("Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
+    expect(fileRes.headers.get("CDN-Cache-Control")).toBe("no-store");
+    const imageEtag: string | null = fileRes.headers.get("ETag");
+    expect(imageEtag !== null && imageEtag.length > 0).toBeTrue();
     const fetchedBytes: Uint8Array = await fileRes.bytes();
     expect(fetchedBytes).toEqual(validPng);
+
+    const cachedImageRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?initData=${encodeURIComponent(initData)}&session=${encodeURIComponent(sessionToken)}`,
+        { headers: { "if-none-match": imageEtag! } }
+      )
+    );
+    expect(cachedImageRes.status).toBe(304);
+
+    const unauthCachedImageRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
+        headers: { "if-none-match": imageEtag! },
+      })
+    );
+    expect(unauthCachedImageRes.status).toBe(401);
 
     const unauthImageRes: Response = await handleMiniAppHttpRequest(
       new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`)
@@ -592,7 +612,26 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(okSvgRes.headers.get("Content-Type")).toBe(
       "image/svg+xml; charset=utf-8"
     );
+    expect(okSvgRes.headers.get("Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
+    expect(okSvgRes.headers.get("CDN-Cache-Control")).toBe("no-store");
+    const svgEtag: string | null = okSvgRes.headers.get("ETag");
+    expect(svgEtag !== null && svgEtag.length > 0).toBeTrue();
     expect(await okSvgRes.text()).toContain("<svg");
+
+    const cachedSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(initData)}`,
+        { headers: { "if-none-match": svgEtag! } }
+      )
+    );
+    expect(cachedSvgRes.status).toBe(304);
+
+    const unauthCachedSvgRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/resources/svg/status.svg", {
+        headers: { "if-none-match": svgEtag! },
+      })
+    );
+    expect(unauthCachedSvgRes.status).toBe(401);
 
     const okLegacySvgRes: Response = await handleMiniAppHttpRequest(
       new Request(

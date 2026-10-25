@@ -5,6 +5,8 @@ import {
 import type {
   MiniAppGalleryDeleteResult,
   MiniAppGalleryUploadResult,
+  ResolvedMiniAppGalleryFile,
+  ResolvedMiniAppSvgResource,
 } from "../../types/miniApp";
 import {
   deleteMiniAppGalleryImage,
@@ -13,16 +15,42 @@ import {
   readMiniAppSvgResource,
   uploadMiniAppGalleryImage,
 } from "../galleryView";
-import type {
-  ResolvedMiniAppGalleryFile,
-  ResolvedMiniAppSvgResource,
-} from "../galleryView";
 import {
-  buildNoStoreHeaders,
+  buildAssetCacheHeaders,
   jsonResponse,
   parseOptionalSafeInt,
   readJsonObjectBody,
 } from "./common";
+
+/**
+ * 构造带浏览器私有缓存头与 `ETag` 强校验（命中 `If-None-Match` 返回 `304 Not Modified`）的受保护资源响应。
+ * @param request HTTP 请求对象。
+ * @param body 响应体（`Bun.BunFile`）。
+ * @param meta 已解析资源的 MIME、字节长度与 `ETag`。
+ * @returns `200 OK` 或 `304 Not Modified` 的 `Response` 实例。
+ */
+function serveCachedAssetResponse(
+  request: Request,
+  body: Bun.BunFile,
+  meta: Readonly<{
+    readonly mimeType: string;
+    readonly sizeBytes: number;
+    readonly etag: string;
+  }>
+): Response {
+  const headers: Record<string, string> = buildAssetCacheHeaders(
+    meta.mimeType,
+    meta.sizeBytes,
+    meta.etag
+  );
+  if (request.headers.get("if-none-match") === meta.etag) {
+    return new Response(null, { status: 304, headers });
+  }
+  return new Response(request.method.toUpperCase() === "HEAD" ? null : body, {
+    status: 200,
+    headers,
+  });
+}
 
 /**
  * 处理 `GET /api/gallery`：分页返回当前配置图库目录中的图片元数据列表。
@@ -39,10 +67,10 @@ export async function handleGetGalleryRoute(request: Request): Promise<Response>
 }
 
 /**
- * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名、超管 ID 与防直接导航核验后，经文件名安全校验返回图片二进制流。
+ * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名、超管 ID 与防直接导航核验后，经文件名安全校验返回允许浏览器私有缓存的图片二进制流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
  * @param request HTTP 请求。
  * @param rawFileName URL 中的文件名参数。
- * @returns 图片文件响应或 `404` JSON 响应。
+ * @returns 图片文件响应、`304` 缓存命中响应或 `404` JSON 响应。
  */
 export async function handleGetGalleryFileByName(
   request: Request,
@@ -53,22 +81,14 @@ export async function handleGetGalleryFileByName(
   if (resolved === null) {
     return jsonResponse({ error: "Image not found" }, 404);
   }
-  const headers: Record<string, string> = buildNoStoreHeaders(resolved.mimeType);
-  headers["Content-Length"] = String(resolved.sizeBytes);
-  return new Response(
-    request.method.toUpperCase() === "HEAD" ? null : Bun.file(resolved.filePath),
-    {
-      status: 200,
-      headers,
-    }
-  );
+  return serveCachedAssetResponse(request, Bun.file(resolved.filePath), resolved);
 }
 
 /**
- * 处理 `GET /api/resources/svg/:fileName` 与 `GET /miniAppResoures/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名、超管 ID 与防直接导航核验后，返回 SVG 图标流。
+ * 处理 `GET /api/resources/svg/:fileName` 与 `GET /miniAppResoures/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名、超管 ID 与防直接导航核验后，返回允许浏览器私有缓存的 SVG 图标流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
  * @param request HTTP 请求。
  * @param rawFileName URL 中的 SVG 文件名参数。
- * @returns SVG 响应或 `404` JSON 响应。
+ * @returns SVG 响应、`304` 缓存命中响应或 `404` JSON 响应。
  */
 export async function handleGetSvgResourceByName(
   request: Request,
@@ -79,15 +99,7 @@ export async function handleGetSvgResourceByName(
   if (resolved === null) {
     return jsonResponse({ error: "SVG resource not found" }, 404);
   }
-  const headers: Record<string, string> = buildNoStoreHeaders(resolved.mimeType);
-  headers["Content-Length"] = String(resolved.sizeBytes);
-  return new Response(
-    request.method.toUpperCase() === "HEAD" ? null : resolved.file,
-    {
-      status: 200,
-      headers,
-    }
-  );
+  return serveCachedAssetResponse(request, resolved.file, resolved);
 }
 
 /**

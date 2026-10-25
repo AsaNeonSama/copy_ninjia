@@ -149,10 +149,24 @@ export const MINI_APP_TMA_AUTH_PREFIX: string = "tma ";
 
 /**
  * Mini App 响应禁止 Cloudflare Tunnel 边缘节点与浏览器缓存的 `Cache-Control` 取值。
- * 不变量：所有页面与 API 响应均带上此防缓存头。所属模块：`packages/miniApp/http/common.ts`。
+ * 不变量：所有动态页面与业务 JSON API 响应均带上此防缓存头。所属模块：`packages/miniApp/http/common.ts`。
  */
 export const MINI_APP_NO_STORE_CACHE_CONTROL: string =
   "no-store, no-cache, must-revalidate, max-age=0";
+
+/**
+ * Mini App 受保护图库图片与 SVG 资源响应的 `Cache-Control` 缓存策略头取值（仅允许已通过鉴权的客户端浏览器私有缓存 7 天且标记内容不可变，禁止公共 CDN 边缘节点绕过鉴权缓存）。
+ * 不变量：仅用于已通过鉴权中间件核验的 `200 OK` / `304 Not Modified` 图片与 SVG 资源响应。所属模块：`packages/miniApp/http/common.ts`。
+ */
+export const MINI_APP_ASSET_CACHE_CONTROL: string =
+  "private, max-age=604800, immutable";
+
+/**
+ * Mini App 受保护图库图片与 SVG 资源响应的 `Vary` 缓存区分头取值。
+ * 不变量：按 Telegram `initData` 与密码会话请求头区分缓存。所属模块：`packages/miniApp/http/common.ts`。
+ */
+export const MINI_APP_ASSET_VARY_HEADER_VALUE: string =
+  "x-telegram-init-data, x-mini-app-session, authorization";
 
 /**
  * Mini App 响应的 `Content-Security-Policy` 安全策略头取值。

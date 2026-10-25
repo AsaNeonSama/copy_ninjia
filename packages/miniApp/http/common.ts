@@ -5,6 +5,8 @@ import {
 } from "../../cache/main/miniApp";
 import { SUPER_ADMIN_USER_ID, getBotMiniAppConfig } from "../../config/bot";
 import {
+  MINI_APP_ASSET_CACHE_CONTROL,
+  MINI_APP_ASSET_VARY_HEADER_VALUE,
   MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_FALLBACK_TEST_PASSWORD,
   MINI_APP_INIT_DATA_HEADER,
@@ -100,6 +102,35 @@ export function buildNoStoreHeaders(
   if (contentType !== undefined) headers["Content-Type"] = contentType;
   if (requestId !== undefined) headers["X-Request-Id"] = requestId;
   return headers;
+}
+
+/**
+ * 生成允许已鉴权浏览器私有缓存（同时禁止公共 CDN 边缘节点未鉴权缓存）的受保护图片/SVG 资源响应头。
+ * @param contentType 资源的 `Content-Type` 响应头值。
+ * @param contentLength 资源字节长度。
+ * @param etag 资源强校验 `ETag` 响应头值。
+ * @returns 响应头键值对。
+ */
+export function buildAssetCacheHeaders(
+  contentType: string,
+  contentLength: number,
+  etag: string
+): Record<string, string> {
+  return {
+    "Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+    "CDN-Cache-Control": "no-store",
+    "Cloudflare-CDN-Cache-Control": "no-store",
+    "Vary": MINI_APP_ASSET_VARY_HEADER_VALUE,
+    "ETag": etag,
+    "Content-Type": contentType,
+    "Content-Length": String(contentLength),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": MINI_APP_X_FRAME_OPTIONS_VALUE,
+    "Content-Security-Policy": MINI_APP_CSP_HEADER_VALUE,
+    "Referrer-Policy": "no-referrer",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  };
 }
 
 /**

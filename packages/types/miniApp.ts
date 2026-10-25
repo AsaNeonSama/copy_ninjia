@@ -1,4 +1,5 @@
 import type { WhitelistPermissionKey, WhitelistPermissions } from "./identityPolicy";
+import type { RandomImageMimeType } from "./randomImage";
 
 /** Telegram WebApp `initData` 中解析出的用户身份摘要。 */
 export interface MiniAppInitDataUser {
@@ -475,4 +476,28 @@ export interface MiniAppFeatureDisplayMeta {
   readonly label: string;
   readonly command: string;
   readonly description: string;
+}
+
+/** 已解析并通过安全校验的图库单张图片文件句柄信息。 */
+export interface ResolvedMiniAppGalleryFile {
+  /** 本机图片文件的绝对路径。 */
+  readonly filePath: string;
+  /** 图片 MIME 类型。 */
+  readonly mimeType: RandomImageMimeType;
+  /** 文件字节大小。 */
+  readonly sizeBytes: number;
+  /** 强校验 `ETag` 标头值。 */
+  readonly etag: string;
+}
+
+/** 已解析并通过安全校验的受保护 SVG 资源文件句柄信息。 */
+export interface ResolvedMiniAppSvgResource {
+  /** SVG 文件的 `BunFile` 句柄。 */
+  readonly file: Bun.BunFile;
+  /** SVG 响应 MIME 类型。 */
+  readonly mimeType: string;
+  /** 文件字节大小。 */
+  readonly sizeBytes: number;
+  /** 强校验 `ETag` 标头值。 */
+  readonly etag: string;
 }

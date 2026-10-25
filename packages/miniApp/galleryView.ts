@@ -26,32 +26,13 @@ import type {
   MiniAppGalleryItem,
   MiniAppGalleryPage,
   MiniAppGalleryUploadResult,
+  ResolvedMiniAppGalleryFile,
+  ResolvedMiniAppSvgResource,
 } from "../types/miniApp";
 import type {
   RandomImageEntry,
-  RandomImageMimeType,
   StoreRandomImageResult,
 } from "../types/randomImage";
-
-/** 已解析并通过安全校验的图库单张图片文件句柄信息。 */
-export interface ResolvedMiniAppGalleryFile {
-  /** 本机图片文件的绝对路径。 */
-  readonly filePath: string;
-  /** 图片 MIME 类型。 */
-  readonly mimeType: RandomImageMimeType;
-  /** 文件字节大小。 */
-  readonly sizeBytes: number;
-}
-
-/** 已解析并通过安全校验的受保护 SVG 资源文件句柄信息。 */
-export interface ResolvedMiniAppSvgResource {
-  /** SVG 文件的 `BunFile` 句柄。 */
-  readonly file: Bun.BunFile;
-  /** SVG 响应 MIME 类型。 */
-  readonly mimeType: string;
-  /** 文件字节大小。 */
-  readonly sizeBytes: number;
-}
 
 /**
  * 分页读取当前配置的图库目录（`getAssetConfig().randomHImageDirectory`）内的图片列表；目录不存在或为空时原样返回空列表，不自动创建目录。
@@ -153,13 +134,14 @@ export async function readMiniAppGalleryFile(
     filePath: entry.filePath,
     mimeType: entry.mimeType,
     sizeBytes: entry.sizeBytes,
+    etag: `"gallery-${decodedName}-${entry.sizeBytes}"`,
   };
 }
 
 /**
  * 校验并解析 `packages/miniApp/miniAppResoures/` 目录内的受保护 SVG 图标资源文件，防止路径穿越或非 `.svg` 读取。
  * @param rawFileName URL 路径参数中的原始 SVG 文件名。
- * @returns 通过安全校验的 `BunFile`、MIME 与字节大小；文件不存在或文件名不合法时返回 `null`。
+ * @returns 通过安全校验的 `BunFile`、MIME、字节大小与 `ETag`；文件不存在或文件名不合法时返回 `null`。
  */
 export async function readMiniAppSvgResource(
   rawFileName: string
@@ -186,6 +168,7 @@ export async function readMiniAppSvgResource(
     file,
     mimeType: "image/svg+xml; charset=utf-8",
     sizeBytes: file.size,
+    etag: `"svg-${decodedName}-${file.size}"`,
   };
 }
 
