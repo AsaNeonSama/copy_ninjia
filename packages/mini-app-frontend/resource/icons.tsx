@@ -3,7 +3,7 @@ import type { MiniAppTabKey } from "../types/miniApp";
 
 /** Mini App 通用 SVG 图标组件入参。 */
 export interface MiniAppIconProps {
-  /** 图标边长像素值（默认 18）。 */
+  /** 图标边长像素值（缺省按各图标默认尺寸渲染）。 */
   readonly size?: number;
   /** 附加的 CSS 类名。 */
   readonly className?: string;
@@ -22,7 +22,7 @@ export interface MiniAppTabIconProps extends MiniAppIconProps {
  * @returns SVG 节点
  */
 export function MenuSvgIcon({
-  size = 18,
+  size = 22,
   className = "",
 }: MiniAppIconProps): React.JSX.Element {
   return (

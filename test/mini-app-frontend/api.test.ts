@@ -242,6 +242,36 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(renderToStaticMarkup(createElement(Probe))).toBe(
       `<span>1/${createMessagesStore().getState().pageSize}/true</span>`
     );
+
+    resetMiniAppStoreForTest();
+    const zhDict = getMiniAppTranslations("zh");
+    const SidebarToggleProbe = (): ReturnType<typeof createElement> => {
+      const { sidebarOpen, language } = useMiniAppStore.getState();
+      const t = getMiniAppTranslations(language);
+      return createElement(
+        "button",
+        {
+          type: "button",
+          className: `sidebar-toggle-btn ${sidebarOpen ? "active" : ""}`,
+          "aria-label": sidebarOpen ? t.sidebarCloseAria : t.sidebarOpenAria,
+          "aria-expanded": sidebarOpen,
+        },
+        createElement(MenuSvgIcon, {})
+      );
+    };
+    const closedMarkup: string = renderToStaticMarkup(createElement(SidebarToggleProbe));
+    expect(closedMarkup).toContain('class="sidebar-toggle-btn "');
+    expect(closedMarkup).toContain(`aria-label="${zhDict.sidebarOpenAria}"`);
+    expect(closedMarkup).toContain('aria-expanded="false"');
+    expect(closedMarkup).toContain('width="22" height="22"');
+
+    useMiniAppStore.getState().toggleSidebar();
+    const openedMarkup: string = renderToStaticMarkup(createElement(SidebarToggleProbe));
+    expect(openedMarkup).toContain('class="sidebar-toggle-btn active"');
+    expect(openedMarkup).toContain(`aria-label="${zhDict.sidebarCloseAria}"`);
+    expect(openedMarkup).toContain('aria-expanded="true"');
+    expect(openedMarkup).toContain('width="22" height="22"');
+    resetMiniAppStoreForTest();
   });
 
   test("UI 格式化与辅助纯函数覆盖全枚举分支", async () => {

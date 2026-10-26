@@ -201,7 +201,7 @@ header,
 
 .sidebar-toggle-btn {
   appearance: none; border: 1px solid var(--accent-border); background: var(--accent-soft); color: var(--accent);
-  width: 36px; height: 36px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; flex-shrink: 0; transition: transform 0.16s ease, background-color 0.16s ease;
 }
 .sidebar-toggle-btn:hover { transform: translateY(-1px); }
@@ -278,14 +278,10 @@ header,
 }
 
 .sidebar-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 12px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 8px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--border);
 }
+.sidebar-header > .btn.icon-btn { width: 38px; height: 38px; padding: 0; border-radius: 10px; flex-shrink: 0; }
 
 .sidebar-title {
   font-size: 15px;
@@ -824,56 +820,19 @@ input:disabled + .slider {
 }
 
 .search-input {
-  width: 100%;
-  height: 38px;
-  background: var(--input-bg);
-  border: 1px solid var(--border-strong);
-  color: var(--text);
-  padding: 0 30px 0 34px;
-  border-radius: 10px;
-  font-size: 13.5px;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  width: 100%; height: 40px; background: var(--input-bg); border: 1px solid var(--border-strong); color: var(--text);
+  padding: 0 30px 0 34px; border-radius: 10px; font-size: 13.5px; transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
-
-.search-input::placeholder {
-  color: var(--hint);
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-
+.search-input::placeholder { color: var(--hint); }
+.search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .search-clear-btn {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--hint);
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); appearance: none; border: none;
+  background: transparent; color: var(--hint); width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
-
 .add-fold-trigger {
-  flex: 0 0 36%;
-  width: 36%;
-  max-width: 36%;
-  min-width: 0;
-  height: 38px;
-  padding: 0 8px;
-  border-radius: 10px;
-  justify-content: center;
-  white-space: nowrap;
-  overflow: hidden;
+  flex: 0 0 38%; width: 38%; max-width: 38%; min-width: 0; height: 40px; padding: 0 10px;
+  border-radius: 10px; font-size: 13px; justify-content: center; white-space: nowrap; overflow: hidden;
 }
 
 .add-fold-trigger > span {
@@ -1143,7 +1102,7 @@ input:disabled + .slider {
 .cap-summary-pill { font-size: 10.5px; font-weight: 600; color: var(--hint); background: var(--card); border: 1px solid var(--border); padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
 .cap-summary-pill.mood-pill { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border); font-weight: 700; }
 .cap-header-right { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; }
-.cap-chevron-pill { width: 24px; height: 24px; border-radius: 7px; background: var(--card); border: 1px solid var(--border); color: var(--hint); display: inline-flex; align-items: center; justify-content: center; transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease; }
+.cap-chevron-pill { width: 28px; height: 28px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); color: var(--hint); display: inline-flex; align-items: center; justify-content: center; transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease; }
 .cap-chevron-pill.expanded { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent); }
 .cap-collapse-wrap { height: 0px; opacity: 0; overflow: hidden; transition: height 0.25s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s cubic-bezier(0.32, 0.72, 0, 1); }
 .cap-collapse-wrap.expanded { opacity: 1; }

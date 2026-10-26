@@ -64,7 +64,7 @@ export function AppShell(): React.JSX.Element {
             aria-expanded={sidebarOpen}
             onClick={toggleSidebar}
           >
-            <MenuSvgIcon size={18} />
+            <MenuSvgIcon size={22} />
           </button>
           <div className="topbar-titles">
             <h1 className="topbar-title">{t.tabs[activeTab]}</h1>
@@ -123,7 +123,7 @@ export function AppShell(): React.JSX.Element {
               setSidebarOpen(false);
             }}
           >
-            <CloseSvgIcon size={15} />
+            <CloseSvgIcon size={17} />
           </button>
         </div>
 

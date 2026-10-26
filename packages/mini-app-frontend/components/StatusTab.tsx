@@ -429,7 +429,7 @@ function renderStatusSnapshot({
                         aria-hidden="true"
                       >
                         <ChevronDownSvgIcon
-                          size={14}
+                          size={15}
                           className={`chevron-icon ${isExpanded ? "rotated" : ""}`}
                         />
                       </span>

@@ -226,10 +226,10 @@ export function IdentitiesTab(): React.JSX.Element {
             disabled={busyAction}
             onClick={toggleAddMenu}
           >
-            <PlusSvgIcon size={15} />
+            <PlusSvgIcon size={16} />
             <span>{t.identities.addFoldButton}</span>
             <ChevronDownSvgIcon
-              size={14}
+              size={15}
               className={`chevron-icon ${addMenuOpen ? "rotated" : ""}`}
             />
           </button>
