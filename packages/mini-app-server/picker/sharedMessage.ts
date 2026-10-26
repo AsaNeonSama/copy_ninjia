@@ -124,24 +124,19 @@ async function importSharedCandidates(
 }
 
 /**
- * 生成导入结果回执的摘要文案：有新加入时报告加入与跳过数量，全部重复时提示不许重复添加，其余报告跳过数量。
- * @param targetList 目标名单。
+ * 生成导入结果回执的英文状态码：有新加入时返回 `"PICKER_IMPORT_ADDED"`，全部重复时返回 `"PICKER_IMPORT_DUPLICATE"`，其余返回 `"PICKER_IMPORT_EMPTY"`。
  * @param tally 逐项归类结果。
- * @returns 摘要文案。
+ * @returns 英文状态码字串。
  */
 function formatPickerImportSummary(
-  targetList: MiniAppPickerTargetList,
   tally: Readonly<PickerImportTally>
 ): string {
-  const { addedIds, skippedIds, duplicateIds }: Readonly<PickerImportTally> = tally;
-  const listLabel: string = targetList === "whitelist" ? "白名单" : "黑名单";
-  const duplicateSuffix: string =
-    duplicateIds.length > 0 ? `，其中 ${duplicateIds.length} 个已在${listLabel}中（已去重拦截）` : "";
+  const { addedIds, duplicateIds }: Readonly<PickerImportTally> = tally;
   return addedIds.length > 0
-    ? `哼，已帮杂鱼把 ${addedIds.length} 个身份加入${listLabel}${skippedIds.length > 0 ? `（跳过 ${skippedIds.length} 个${duplicateSuffix}）` : ""}♡`
+    ? "PICKER_IMPORT_ADDED"
     : duplicateIds.length > 0
-      ? `笨蛋杂鱼♡，选中的 ${duplicateIds.length} 个目标早就已经在${listLabel}里啦，不许重复添加！`
-      : `杂鱼♡，未能将所选身份加入${listLabel}（共跳过 ${skippedIds.length} 个）。`;
+      ? "PICKER_IMPORT_DUPLICATE"
+      : "PICKER_IMPORT_EMPTY";
 }
 
 /**
@@ -180,7 +175,7 @@ export async function handleMiniAppSharedMessage(
     addedIds: tally.addedIds,
     skippedIds: tally.skippedIds,
     duplicateIds: tally.duplicateIds,
-    summary: formatPickerImportSummary(session.targetList, tally),
+    summary: formatPickerImportSummary(tally),
   };
   miniAppCompletedPickerResults.set(requestId, resultEvent);
   return resultEvent;

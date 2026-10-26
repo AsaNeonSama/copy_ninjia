@@ -90,7 +90,7 @@ export async function handlePostGalleryUploadRoute(
       {
         ok: false,
         outcome: "failed",
-        message: "无法读取上传的图片请求体。",
+        message: "GALLERY_UPLOAD_READ_FAILED",
       },
       400
     );

@@ -102,7 +102,7 @@ export function createChatsStore(): MiniAppChatsStore {
               return;
             }
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "info", error);
           } finally {
             if (reqId === listReqSeq) {
               set({ loadingList: false });
@@ -127,7 +127,7 @@ export function createChatsStore(): MiniAppChatsStore {
               return;
             }
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "info", error);
           } finally {
             if (reqId === detailReqSeq) {
               set({ loadingDetail: false });
@@ -181,7 +181,7 @@ export function createChatsStore(): MiniAppChatsStore {
               feature,
               enabled
             );
-            useMiniAppStore.getState().notify(result.message);
+            useMiniAppStore.getState().notify(result.message, "info", result);
             if (result.removedFromList || result.detail === null) {
               set({ selectedChatId: null, chatDetail: null });
               void get().loadChatList();
@@ -190,7 +190,7 @@ export function createChatsStore(): MiniAppChatsStore {
             }
           } catch (error: unknown) {
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "info", error);
           } finally {
             set({ togglingFeature: null });
           }

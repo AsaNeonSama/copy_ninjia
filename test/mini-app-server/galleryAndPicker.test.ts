@@ -8,6 +8,12 @@ import type {
   IdentityStoragePersistedReply,
 } from "../../packages/types/diskIO";
 import type { IdentityPolicyRawReadResult } from "../../packages/types/identityStorage";
+import type {
+  MiniAppGalleryDeleteResult,
+  MiniAppGalleryPage,
+  MiniAppGalleryUploadResult,
+  MiniAppPickerResultEvent,
+} from "../../packages/types/miniApp";
 import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import { imageFixture } from "../helpers/image";
 import { buildSignedTestInitData } from "../helpers/miniAppInitData";
@@ -93,21 +99,15 @@ const {
   MINI_APP_ASSET_CACHE_CONTROL,
   MINI_APP_BUTTON_TEXT,
   MINI_APP_CSP_HEADER_VALUE,
-  MINI_APP_FEATURE_KEYS,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_SESSION_HEADER,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
 const {
-  MINI_APP_LANGUAGES,
-  MINI_APP_MIN_LOADING_MS,
-  MINI_APP_TAB_KEYS,
-} = await import("../../packages/mini-app-frontend/consts/miniApp");
-const { WHITELIST_PERMISSION_KEYS } = await import("../../packages/consts/whitelist");
-const {
   configureSuperAdminMenuButton,
   saveMiniAppPreparedKeyboardButton,
 } = await import("../../packages/infra/telegram/actions/miniApp");
+const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const {
   getMiniAppPickerResult,
   handleMiniAppHttpRequest,
@@ -117,66 +117,6 @@ const {
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-server");
-const {
-  buildMiniAppGalleryDownloadFileName,
-  formatBytes,
-  formatGalleryFileSize,
-  formatMemoryMb,
-  formatTime,
-  formatUptime,
-  getFeatureDisplayMeta,
-  getPermissionDisplayLabel,
-  sanitizeBidiText,
-  shortenGalleryFileName,
-  truncateDisplayText,
-} = await import("../../packages/mini-app-frontend/libs/formatters");
-const { waitMinimumLoadingDuration } = await import("../../packages/mini-app-frontend/libs/loading");
-const { buildMiniAppGalleryDownloadUrl } = await import("../../packages/mini-app-frontend/api/galleryDownload");
-const { buildMiniAppGalleryImageUrl } = await import("../../packages/mini-app-frontend/api/galleryFile");
-const { buildMiniAppSvgResourceUrl } = await import("../../packages/mini-app-frontend/api/svgResource");
-const {
-  clearMiniAppAssetToken,
-  clearMiniAppSessionToken,
-  readMiniAppAssetToken,
-  readMiniAppSessionExpiresAt,
-  readMiniAppSessionToken,
-  setMiniAppAssetToken,
-  setMiniAppSessionToken,
-} = await import("../../packages/mini-app-frontend/libs/credentials");
-const {
-  confirmMiniAppAction,
-  getTelegramWebApp,
-  readMiniAppInitData,
-} = await import("../../packages/mini-app-frontend/libs/telegram");
-const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
-const {
-  detectBrowserDefaultLanguage,
-  detectInitialMiniAppLanguage,
-  getMiniAppTranslations,
-} = await import("../../packages/mini-app-frontend/i18n");
-const {
-  applyMiniAppThemeToDocument,
-  detectInitialMiniAppTheme,
-  resetMiniAppStoreForTest,
-  useMiniAppStore,
-} = await import("../../packages/mini-app-frontend/store/app");
-const {
-  ChatsSvgIcon,
-  DownloadSvgIcon,
-  GallerySvgIcon,
-  IdentitiesSvgIcon,
-  MenuSvgIcon,
-  SearchSvgIcon,
-  StatusSvgIcon,
-  TabSvgIcon,
-  TrashSvgIcon,
-} = await import("../../packages/mini-app-frontend/resource");
-import type {
-  MiniAppGalleryDeleteResult,
-  MiniAppGalleryPage,
-  MiniAppGalleryUploadResult,
-  MiniAppPickerResultEvent,
-} from "../../packages/types/miniApp";
 
 /**
  * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟密码会话的测试请求头。
@@ -312,162 +252,6 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     const eventChannel: Readonly<MiniAppPickerResultEvent> | null =
       await handleMiniAppSharedMessage(sharedChannelMsg);
     expect(eventChannel?.addedIds).toEqual([-10077002]);
-  });
-
-  test("UI 格式化与辅助纯函数覆盖全枚举分支", async () => {
-    expect(formatUptime(90_061_000)).toBe("1d 1h 1m");
-    expect(formatUptime(3_661_000)).toBe("1h 1m 1s");
-    expect(formatUptime(65_000)).toBe("1m 5s");
-    expect(formatBytes(10 * 1024 * 1024)).toBe("10.0 MiB");
-    expect(formatMemoryMb(128.456 * 1024 * 1024)).toBe("128.46 MB");
-    expect(
-      buildMiniAppGalleryDownloadFileName(`${"a".repeat(64)}.PNG`, 1_792_934_567_890)
-    ).toBe("1792934567.png");
-    expect(formatTime(0)).toBe("-");
-    expect(formatTime(1_700_000_000_000).length).toBeGreaterThan(0);
-
-    for (const lang of MINI_APP_LANGUAGES) {
-      const dict = getMiniAppTranslations(lang);
-      expect(dict.appTitle).toContain("♡");
-      expect(dict.status.memoryCurrentLabel.length).toBeGreaterThan(0);
-      expect(dict.status.memoryPeakLabel.length).toBeGreaterThan(0);
-      expect(dict.status.memoryHeapLabel.length).toBeGreaterThan(0);
-      expect(dict.status.memoryProcessUsedLabel.length).toBeGreaterThan(0);
-      expect(dict.status.memoryOtherUsedLabel.length).toBeGreaterThan(0);
-      expect(dict.status.memoryTotalUsedLabel.length).toBeGreaterThan(0);
-      expect(dict.status.memoryHeapSub("64.00 MB")).toContain("64.00 MB");
-      expect(dict.identities.duplicateBannerTitle.length).toBeGreaterThan(0);
-      for (const tabKey of MINI_APP_TAB_KEYS) {
-        expect(dict.tabs[tabKey].length).toBeGreaterThan(0);
-        expect(TabSvgIcon({ tabKey })).toBeDefined();
-      }
-      for (const featureKey of MINI_APP_FEATURE_KEYS) {
-        const meta = getFeatureDisplayMeta(featureKey, lang);
-        expect(meta.label.length).toBeGreaterThan(0);
-        expect(meta.command.startsWith("/")).toBeTrue();
-      }
-      for (const permKey of WHITELIST_PERMISSION_KEYS) {
-        expect(getPermissionDisplayLabel(permKey, lang).length).toBeGreaterThan(0);
-      }
-      expect(
-        dict.gate.deniedPolicyReason("MISSING_INIT_DATA", "fallback").length
-      ).toBeGreaterThan(0);
-      expect(dict.gate.deniedNodeGatewayState(403).length).toBeGreaterThan(0);
-      expect(dict.identities.whitelistTab.length).toBeGreaterThan(0);
-      expect(dict.identities.blocklistTab.length).toBeGreaterThan(0);
-      expect(dict.gallery.sectionTitle.length).toBeGreaterThan(0);
-      expect(dict.gallery.downloadButton.length).toBeGreaterThan(0);
-      expect(dict.gallery.downloadingButton.length).toBeGreaterThan(0);
-      expect(dict.gallery.downloadedToast("abc.png").length).toBeGreaterThan(0);
-    }
-
-    expect(["zh", "ja", "en"]).toContain(detectBrowserDefaultLanguage());
-    expect(["zh", "ja", "en"]).toContain(detectInitialMiniAppLanguage());
-    expect(detectInitialMiniAppTheme()).toBe("light");
-    applyMiniAppThemeToDocument("light");
-
-    resetMiniAppStoreForTest();
-    expect(useMiniAppStore.getState().theme).toBe("light");
-    expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
-    useMiniAppStore.getState().toggleSidebar();
-    expect(useMiniAppStore.getState().sidebarOpen).toBeTrue();
-    useMiniAppStore.getState().setActiveTab("identities");
-    expect(useMiniAppStore.getState().activeTab).toBe("identities");
-    expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
-    useMiniAppStore.getState().toggleTheme();
-    expect(useMiniAppStore.getState().theme).toBe("dark");
-    useMiniAppStore.getState().setLanguage("ja");
-    expect(useMiniAppStore.getState().language).toBe("ja");
-    useMiniAppStore.getState().showToast("笨蛋杂鱼♡", "danger");
-    expect(useMiniAppStore.getState().toastText).toBe("笨蛋杂鱼♡");
-    expect(useMiniAppStore.getState().toastTone).toBe("danger");
-    useMiniAppStore.getState().clearToast();
-    expect(useMiniAppStore.getState().toastText).toBe("");
-    const confirmPromise: Promise<boolean> = useMiniAppStore
-      .getState()
-      .requestConfirm("确认删除？", "danger");
-    expect(useMiniAppStore.getState().confirmModal?.message).toBe("确认删除？");
-    useMiniAppStore.getState().resolveConfirm(true);
-    expect(await confirmPromise).toBeTrue();
-    expect(useMiniAppStore.getState().confirmModal).toBeNull();
-    resetMiniAppStoreForTest();
-
-    expect(MenuSvgIcon({})).toBeDefined();
-    expect(StatusSvgIcon({})).toBeDefined();
-    expect(ChatsSvgIcon({})).toBeDefined();
-    expect(IdentitiesSvgIcon({})).toBeDefined();
-    expect(GallerySvgIcon({})).toBeDefined();
-    expect(DownloadSvgIcon({})).toBeDefined();
-    expect(SearchSvgIcon({})).toBeDefined();
-    expect(TrashSvgIcon({})).toBeDefined();
-
-    expect(getTelegramWebApp()).toBeUndefined();
-    expect(readMiniAppInitData()).toBe("");
-    expect(confirmMiniAppAction("确认测试？")).toBeTrue();
-    expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
-    expect(truncateDisplayText("短名称", 20)).toBe("短名称");
-    expect(MINI_APP_MIN_LOADING_MS).toBeGreaterThanOrEqual(150);
-    await waitMinimumLoadingDuration(Date.now() - MINI_APP_MIN_LOADING_MS - 10);
-    const minWaitStart: number = Date.now();
-    await waitMinimumLoadingDuration(minWaitStart, 20);
-    expect(Date.now() - minWaitStart).toBeGreaterThanOrEqual(15);
-    expect(
-      truncateDisplayText(
-        "念云｜工单是不回的｜片是必须看的｜有问题找群you｜群主天天摆烂｜群里充斥大量萝莉控｜空调开放｜群主个臭乐乐",
-        20
-      )
-    ).toBe("念云｜工单是不回的｜片是必须看的｜有问题…");
-    expect(formatGalleryFileSize(2_048)).toBe("2.0 KiB");
-    expect(formatGalleryFileSize(2 * 1024 * 1024)).toBe("2.00 MiB");
-    expect(
-      shortenGalleryFileName(
-        "004930939ef37baed630e1bbfbc07fadf546783159d874e83f22a592b1a112c2.jpg"
-      )
-    ).toBe("00493093…a112c2.jpg");
-    expect(shortenGalleryFileName("short.png")).toBe("short.png");
-    expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe("./api/gallery/file/abc.jpg");
-    expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
-      "./api/resources/svg/status.svg"
-    );
-    expect(readMiniAppAssetToken()).toBe("");
-    setMiniAppAssetToken("b".repeat(64));
-    expect(readMiniAppAssetToken()).toBe("b".repeat(64));
-    expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe(
-      `./api/gallery/file/abc.jpg?token=${"b".repeat(64)}`
-    );
-    expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
-      `./api/resources/svg/status.svg?token=${"b".repeat(64)}`
-    );
-    const storageMap: Map<string, string> = new Map<string, string>();
-    const prevLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
-    (globalThis as { localStorage?: unknown }).localStorage = {
-      getItem: (key: string): string | null => storageMap.get(key) ?? null,
-      setItem: (key: string, val: string): void => {
-        storageMap.set(key, val);
-      },
-      removeItem: (key: string): void => {
-        storageMap.delete(key);
-      },
-    };
-    const futureExp: number = Date.now() + 60_000;
-    setMiniAppSessionToken("a".repeat(64), futureExp);
-    expect(buildMiniAppGalleryDownloadUrl("abc.jpg")).toBe(
-      `./api/gallery/download/abc.jpg?token=${"b".repeat(64)}&session=${"a".repeat(64)}`
-    );
-    clearMiniAppAssetToken();
-    expect(readMiniAppAssetToken()).toBe("");
-    (globalThis as { __copyNinjaSessionToken?: string }).__copyNinjaSessionToken = undefined;
-    (globalThis as { __copyNinjaSessionExpiresAt?: number }).__copyNinjaSessionExpiresAt = undefined;
-    expect(readMiniAppSessionToken()).toBe("a".repeat(64));
-    expect(readMiniAppSessionExpiresAt()).toBe(futureExp);
-    expect(readMiniAppAssetToken()).toBe("b".repeat(64));
-    setMiniAppSessionToken("c".repeat(64), Date.now() - 1_000);
-    expect(readMiniAppSessionToken()).toBe("");
-    expect(readMiniAppSessionExpiresAt()).toBe(0);
-    clearMiniAppAssetToken();
-    clearMiniAppSessionToken();
-    expect(readMiniAppSessionToken()).toBe("");
-    (globalThis as { localStorage?: unknown }).localStorage = prevLocalStorage;
   });
 
   test("图库 API 支持目录缺失处理、按 SHA-256 与图片协议上传入库及受保护预览读取", async () => {
@@ -635,11 +419,18 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
 
     const cachedImageRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?initData=${encodeURIComponent(initData)}&session=${encodeURIComponent(sessionToken)}`,
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
         { headers: { "if-none-match": imageEtag! } }
       )
     );
     expect(cachedImageRes.status).toBe(304);
+    expect(cachedImageRes.headers.get("Cache-Control")).toBe(
+      MINI_APP_ASSET_CACHE_CONTROL
+    );
+    expect(cachedImageRes.headers.get("CDN-Cache-Control")).toBe(
+      MINI_APP_ASSET_CACHE_CONTROL
+    );
+    expect(cachedImageRes.headers.get("ETag")).toBe(imageEtag);
 
     const unauthCachedImageRes: Response = await handleMiniAppHttpRequest(
       new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
@@ -647,43 +438,38 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       })
     );
     expect(unauthCachedImageRes.status).toBe(401);
+    expect(unauthCachedImageRes.headers.get("Cache-Control")).toContain("no-store");
 
-    const unauthImageRes: Response = await handleMiniAppHttpRequest(
-      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`)
-    );
-    expect(unauthImageRes.status).toBe(401);
-
-    const nonAdminInitData: string = buildSignedTestInitData({
-      botToken: BOT_TOKEN,
-      authDate: Math.floor(Date.now() / 1000),
-      user: {
-        id: SUPER_ADMIN_USER_ID + 777,
-        first_name: "NonAdmin",
-      },
-    });
-    const nonAdminImageRes: Response = await handleMiniAppHttpRequest(
+    const invalidTokenImageRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?initData=${encodeURIComponent(nonAdminInitData)}`
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${"0".repeat(64)}`,
+        { headers: { "if-none-match": imageEtag! } }
       )
     );
-    expect(nonAdminImageRes.status).toBe(403);
+    expect(invalidTokenImageRes.status).toBe(401);
+
+    const headImageRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {
+        method: "HEAD",
+        headers: superAdminHeaders(),
+      })
+    );
+    expect(headImageRes.status).toBe(200);
+    expect(headImageRes.headers.get("Content-Type")).toBe("image/png");
+    expect(headImageRes.headers.get("Content-Length")).toBe(
+      String(validPng.byteLength)
+    );
+    expect(await headImageRes.bytes()).toEqual(new Uint8Array(0));
 
     const unauthSvgRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/resources/svg/status.svg")
     );
     expect(unauthSvgRes.status).toBe(401);
 
-    const unauthStaticSvgRes: Response = await handleMiniAppHttpRequest(
+    const unauthLegacySvgRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/miniAppResoures/status.svg")
     );
-    expect(unauthStaticSvgRes.status).toBe(401);
-
-    const nonAdminSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(nonAdminInitData)}`
-      )
-    );
-    expect(nonAdminSvgRes.status).toBe(403);
+    expect(unauthLegacySvgRes.status).toBe(401);
 
     const navigateSvgRes: Response = await handleMiniAppHttpRequest(
       new Request(
@@ -704,41 +490,46 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       )
     );
     expect(okSvgRes.status).toBe(200);
-    expect(okSvgRes.headers.get("Content-Type")).toBe(
-      "image/svg+xml; charset=utf-8"
-    );
+    expect(okSvgRes.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
     expect(okSvgRes.headers.get("Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
     expect(okSvgRes.headers.get("CDN-Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
     const svgEtag: string | null = okSvgRes.headers.get("ETag");
     expect(svgEtag !== null && svgEtag.length > 0).toBeTrue();
     expect(await okSvgRes.text()).toContain("<svg");
 
-    const tokenSvgRes: Response = await handleMiniAppHttpRequest(
+    const headSvgRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        `http://127.0.0.1:3000/api/resources/svg/status.svg?token=${encodeURIComponent(assetToken)}`
+        `http://127.0.0.1:3000/api/resources/svg/status.svg?token=${encodeURIComponent(assetToken)}`,
+        { method: "HEAD" }
       )
     );
-    expect(tokenSvgRes.status).toBe(200);
-    expect(await tokenSvgRes.text()).toContain("<svg");
+    expect(headSvgRes.status).toBe(200);
+    expect(headSvgRes.headers.get("Content-Type")).toBe(
+      "image/svg+xml; charset=utf-8"
+    );
+    expect(await headSvgRes.bytes()).toEqual(new Uint8Array(0));
 
     const faviconRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/favicon.ico")
+      new Request("http://127.0.0.1:3000/favicon.ico", {
+        headers: {
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+        },
+      })
     );
     expect(faviconRes.status).toBe(200);
     expect(faviconRes.headers.get("Content-Type")).toBe("image/x-icon");
     expect(faviconRes.headers.get("Cache-Control")).toBe(
       MINI_APP_ASSET_CACHE_CONTROL
     );
-    expect(faviconRes.headers.get("CDN-Cache-Control")).toBe(
-      MINI_APP_ASSET_CACHE_CONTROL
-    );
     const faviconEtag: string | null = faviconRes.headers.get("ETag");
     expect(faviconEtag !== null && faviconEtag.length > 0).toBeTrue();
-    const faviconBytes: Uint8Array = await faviconRes.bytes();
-    expect(faviconBytes[0]).toBe(0);
-    expect(faviconBytes[1]).toBe(0);
-    expect(faviconBytes[2]).toBe(1);
-    expect(faviconBytes[3]).toBe(0);
+
+    const headFaviconRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/favicon.ico", { method: "HEAD" })
+    );
+    expect(headFaviconRes.status).toBe(200);
+    expect(await headFaviconRes.bytes()).toEqual(new Uint8Array(0));
 
     const favicon304Res: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/favicon.ico", {

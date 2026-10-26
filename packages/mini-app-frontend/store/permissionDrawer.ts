@@ -49,11 +49,11 @@ export function createPermissionDrawerStore(
             permission,
             enabled
           );
-          useMiniAppStore.getState().notify(result.message);
+          useMiniAppStore.getState().notify(result.message, "info", result);
           onUpdated();
         } catch (error: unknown) {
           const message: string = errorMessage(error);
-          useMiniAppStore.getState().notify(message);
+          useMiniAppStore.getState().notify(message, "danger", error);
         } finally {
           set({ busyKey: null });
         }

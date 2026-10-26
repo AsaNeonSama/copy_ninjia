@@ -204,7 +204,7 @@ export function IdentitiesTab(): React.JSX.Element {
                 ).value;
                 setSearchInput(nextValue);
               }}
-              placeholder={t.identities.searchPlaceholder(subTab)}
+              placeholder={t.identities.searchPlaceholder}
             />
             {searchInput.length > 0
               ? (

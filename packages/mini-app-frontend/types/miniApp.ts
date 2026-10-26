@@ -1,6 +1,6 @@
 /**
  * Mini App 前端类型。与 `packages/types/miniApp.ts` 同名的声明是 HTTP 接口契约副本，
- * 由 `test/miniApp/frontendParity.test.ts` 逐项核对与服务端一致；其余声明只属于前端。
+ * 由 `test/mini-app-frontend/frontendParity.test.ts` 逐项核对与服务端一致；其余声明只属于前端。
  */
 
 import type { WhitelistPermissionKey, WhitelistPermissions } from "./identityPolicy";
@@ -18,6 +18,10 @@ export interface MiniAppAccessDiagnostics {
   readonly status: number;
   readonly code: string;
   readonly error: string;
+  /** 凭据校验失败时剩余的可尝试次数（仅 `INVALID_PASSWORD` / `INVALID_TOTP_CODE` 携带）。 */
+  readonly remainingAttempts?: number;
+  /** 处于 30 分钟锁定期时剩余的锁定分钟数（仅 `PASSWORD_LOCKED` 携带）。 */
+  readonly remainingMinutes?: number;
 }
 
 /** `POST /api/auth/login` 密码或 TOTP 认证成功响应。 */
@@ -176,7 +180,12 @@ export interface MiniAppFeatureToggleResult {
   readonly ok: boolean;
   /** 变更是否使该群退出了已 `/init` 列表（关闭 `/init` 时为 true）。 */
   readonly removedFromList: boolean;
+  /** 服务端返回的英文状态码字串，由前端映射为多语言提示。 */
   readonly message: string;
+  /** 本次变更对应的功能键（用于前端多语言提示插值）。 */
+  readonly feature?: MiniAppFeatureKey;
+  /** 未就绪的功能配置文件名（如 `"ai.json"`，用于前端多语言提示插值）。 */
+  readonly configFile?: string;
   /** 群仍在已 `/init` 列表时返回最新群详情；已关闭 `/init` 时为 null。 */
   readonly detail: Readonly<MiniAppChatDetail> | null;
 }
@@ -270,7 +279,20 @@ export interface MiniAppIdentityMutationResult {
   readonly changed: boolean;
   /** 是否因目标已存在于名单中而触发重复添加提示。 */
   readonly duplicate?: boolean;
+  /** 服务端返回的英文状态码字串，由前端映射为多语言提示。 */
   readonly message: string;
+  /** 本次操作的目标身份 ID（用于前端多语言提示插值）。 */
+  readonly id?: number;
+  /** 本次操作的单个白名单权限键（用于前端多语言提示插值）。 */
+  readonly key?: WhitelistPermissionKey;
+  /** 本次操作的单个白名单权限目标布尔值（用于前端多语言提示插值）。 */
+  readonly value?: boolean;
+  /** 内存态已更新时，SQLite 落盘是否一并成功。 */
+  readonly persisted?: boolean;
+  /** 黑名单操作在受管管理员群中实际成功执行跨群封禁/解封的群数量。 */
+  readonly affectedChats?: number;
+  /** 黑名单操作尝试跨群封禁/解封的受管管理员群总数量。 */
+  readonly totalChats?: number;
 }
 
 /** Mini App 原生选择器目标名单类型。 */
@@ -332,7 +354,12 @@ export interface MiniAppGalleryUploadResult {
   readonly ok: boolean;
   readonly outcome: MiniAppGalleryUploadOutcome;
   readonly fileName?: string;
+  /** 服务端返回的英文状态码字串，由前端映射为多语言提示。 */
   readonly message: string;
+  /** 尺寸超限时检测到的图片像素宽度。 */
+  readonly width?: number;
+  /** 尺寸超限时检测到的图片像素高度。 */
+  readonly height?: number;
 }
 
 /** Mini App 图库单张图片删除的结局分类。 */

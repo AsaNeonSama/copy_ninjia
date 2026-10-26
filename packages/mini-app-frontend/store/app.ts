@@ -3,7 +3,11 @@ import type { UseBoundStore, StoreApi } from "zustand";
 import { loginMiniAppWithPassword } from "../api/authLogin";
 import { precheckMiniAppAccess } from "../api/authPrecheck";
 import { MINI_APP_LANGUAGES, MINI_APP_TOAST_DURATION_MS } from "../consts/miniApp";
-import { detectInitialMiniAppLanguage, getMiniAppTranslations } from "../i18n";
+import {
+  detectInitialMiniAppLanguage,
+  extractServerNoticeParams,
+  getMiniAppTranslations,
+} from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import {
   clearMiniAppAssetToken,
@@ -12,7 +16,6 @@ import {
 } from "../libs/credentials";
 import { buildFallbackDiagnostics } from "../libs/diagnostics";
 import { errorMessage } from "../libs/errorMessage";
-import { waitMinimumLoadingDuration } from "../libs/loading";
 import type {
   MiniAppAccessDiagnostics,
   MiniAppLanguage,
@@ -86,9 +89,13 @@ export interface MiniAppUiStoreState {
   readonly setPasswordInput: (value: string) => void;
   /**
    * 展示一条自动消失的 Toast（`MINI_APP_TOAST_DURATION_MS` 后清除，重复调用重新计时）；
-   * 文本含 `[PASSWORD_REQUIRED]` 时改为按会话过期锁定控制台。
+   * 服务端英文状态码自动按当前语言映射为对应提示文案，文本含 `[PASSWORD_REQUIRED]` 时改为按会话过期锁定控制台。
    */
-  readonly notify: (message: string, tone?: MiniAppToastTone) => void;
+  readonly notify: (
+    message: string,
+    tone?: MiniAppToastTone,
+    metaSource?: unknown
+  ) => void;
   /**
    * 锁定控制台：清除会话到期计时器与本地会话令牌，以取消结算待确认弹窗，收起侧栏，
    * 回到密码门禁并把原因同时写入门禁错误与警告 Toast。
@@ -267,12 +274,23 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           set({ passwordInput: value });
         },
 
-        notify: (message: string, tone: MiniAppToastTone = "info"): void => {
+        notify: (
+          message: string,
+          tone: MiniAppToastTone = "info",
+          metaSource?: unknown
+        ): void => {
+          const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(
+            get().language
+          );
+          const localized: string = t.serverNotice(
+            message,
+            extractServerNoticeParams(metaSource)
+          );
           if (message.includes("[PASSWORD_REQUIRED]")) {
-            get().lockSession(message.replace("[PASSWORD_REQUIRED]", "").trim());
+            get().lockSession(localized);
             return;
           }
-          get().showToast(message, tone);
+          get().showToast(localized, tone);
           if (toastTimer !== null) {
             clearTimeout(toastTimer);
           }
@@ -289,24 +307,25 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           if (current !== null) {
             current.resolve(false);
           }
+          const localizedReason: string = getMiniAppTranslations(
+            get().language
+          ).serverNotice(reason);
           set({
             passwordInput: "",
-            passwordError: reason,
+            passwordError: localizedReason,
             sessionExpiresAt: 0,
             statusReady: false,
             sidebarOpen: false,
             confirmModal: null,
             gateState: "password",
-            toastText: reason,
+            toastText: localizedReason,
             toastTone: "warning",
           });
         },
 
         runAccessPrecheck: async (): Promise<void> => {
-          const startedAt: number = Date.now();
           try {
             const result: MiniAppPrecheckResult = await precheckMiniAppAccess();
-            await waitMinimumLoadingDuration(startedAt);
             if (!result.ok) {
               clearMiniAppSessionToken();
               set({ deniedDiag: result.diagnostics, gateState: "denied" });
@@ -329,7 +348,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             clearMiniAppSessionToken();
             set({ gateState: "password" });
           } catch (error: unknown) {
-            await waitMinimumLoadingDuration(startedAt);
             clearMiniAppSessionToken();
             const message: string = errorMessage(error);
             set({ deniedDiag: buildFallbackDiagnostics(message), gateState: "denied" });
@@ -373,7 +391,12 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
               });
               return;
             }
-            set({ passwordError: message.replace("[PASSWORD_REQUIRED]", "").trim() });
+            set({
+              passwordError: t.serverNotice(
+                message.replace("[PASSWORD_REQUIRED]", "").trim(),
+                extractServerNoticeParams(error)
+              ),
+            });
           } finally {
             set({ passwordBusy: false });
           }

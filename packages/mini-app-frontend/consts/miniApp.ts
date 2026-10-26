@@ -10,32 +10,32 @@ import { MINUTE_MS } from "./time";
 
 /**
  * 十六进制 SHA-256 摘要字符串（固定 64 位十六进制字符）的匹配规则。
- * 不变量：不带全局标志 `g`，供持久化会话令牌格式校验无状态复用；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts`。
+ * 不变量：不带全局标志 `g`，供持久化会话令牌格式校验无状态复用；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts`。
  */
 export const MINI_APP_SHA256_HEX_PATTERN: RegExp = /^[0-9a-f]{64}$/i;
 
 /**
  * Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则。
- * 不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
+ * 不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
  */
 export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: RegExp =
   /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
 /**
  * Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。
- * 不变量：所有 `/api/*` 鉴权统一读取该请求头；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
+ * 不变量：所有 `/api/*` 鉴权统一读取该请求头；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
  */
 export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 
 /**
  * Mini App 密码认证通过后签发的会话令牌 HTTP 请求头名（小写）。
- * 不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
+ * 不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
  */
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
 /**
  * Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。
- * 不变量：到期后必须重新输入密码完成认证；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts` 与 `packages/mini-app-frontend/api/authPrecheck.ts`。
+ * 不变量：到期后必须重新输入密码完成认证；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts` 与 `packages/mini-app-frontend/api/authPrecheck.ts`。
  */
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
 
@@ -48,7 +48,7 @@ export const MINI_APP_SESSION_STORAGE_KEY: string =
 
 /**
  * `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。
- * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
+ * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
  */
 export const MINI_APP_TMA_AUTH_PREFIX: string = "tma ";
 
@@ -60,7 +60,7 @@ export const MINI_APP_SEARCH_DEBOUNCE_MS: number = 500;
 
 /**
  * 图库分页接口缺省每页返回的图片张数（10 张）。
- * 不变量：属于 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/gallery.ts`。
+ * 不变量：属于 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/gallery.ts`。
  */
 export const MINI_APP_GALLERY_DEFAULT_PAGE_SIZE: number = 10;
 
@@ -72,7 +72,7 @@ export const MINI_APP_GALLERY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20
 
 /**
  * 群热发言记录接口缺省每页返回的条数（10 条）。
- * 不变量：属于 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/messages.ts` 与 `packages/mini-app-frontend/components/MessagesView.tsx`。
+ * 不变量：属于 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/messages.ts` 与 `packages/mini-app-frontend/components/MessagesView.tsx`。
  */
 export const MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE: number = 10;
 
@@ -96,7 +96,7 @@ export const MINI_APP_CHATS_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
 /**
  * 白名单与黑名单列表接口缺省每页返回的条数（10 条）。
- * 不变量：属于 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/components/IdentitiesTab.tsx`。
+ * 不变量：属于 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/components/IdentitiesTab.tsx`。
  */
 export const MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE: number = 10;
 
@@ -162,7 +162,7 @@ export const MINI_APP_HTML_TITLE: string = "Copy Ninja 管理中心";
 
 /**
  * Mini App 群详情页可操作的功能开关全集（含 `/init` 总开关）。
- * 不变量：与 `MiniAppFeatureKey` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatsTab.tsx` 与 `packages/mini-app-frontend/components/skeletons/ChatDetailSkeleton.tsx`。
+ * 不变量：与 `MiniAppFeatureKey` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatsTab.tsx` 与 `packages/mini-app-frontend/components/skeletons/ChatDetailSkeleton.tsx`。
  */
 export const MINI_APP_FEATURE_KEYS: readonly MiniAppFeatureKey[] =
   exhaustiveList<MiniAppFeatureKey>()([

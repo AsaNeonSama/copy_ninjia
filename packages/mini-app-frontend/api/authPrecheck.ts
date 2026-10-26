@@ -34,6 +34,12 @@ function parseAccessDiagnostics(
     status: typeof record.status === "number" ? record.status : response.status,
     code: str("code", `HTTP_${response.status}`),
     error: str("error", fallbackError),
+    ...(typeof record.remainingAttempts === "number"
+      ? { remainingAttempts: record.remainingAttempts }
+      : {}),
+    ...(typeof record.remainingMinutes === "number"
+      ? { remainingMinutes: record.remainingMinutes }
+      : {}),
   };
 }
 
@@ -53,7 +59,7 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
       diagnostics: parseAccessDiagnostics(
         payload,
         response,
-        "禁止从外部浏览器直接访问。仅限 SuperAdmin 在与 Bot 的 Telegram 私聊中打开 Mini App。"
+        "MISSING_INIT_DATA"
       ),
     };
   }

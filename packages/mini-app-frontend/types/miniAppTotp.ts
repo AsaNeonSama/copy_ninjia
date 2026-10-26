@@ -1,6 +1,6 @@
 /**
  * Mini App 前端使用的 TOTP 接口契约副本：与 `packages/types/miniAppTotp.ts` 同名声明一致，
- * 由 `test/miniApp/frontendParity.test.ts` 逐项核对。
+ * 由 `test/mini-app-frontend/frontendParity.test.ts` 逐项核对。
  */
 
 /**

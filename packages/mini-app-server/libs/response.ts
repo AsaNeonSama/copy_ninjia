@@ -128,20 +128,31 @@ export function serveCachedAssetResponse(
   });
 }
 
+/** `accessErrorResponse` 所需的鉴权拒绝参数。 */
+export interface AccessErrorResponseParams {
+  /** HTTP 状态码（`401` 或 `403`）。 */
+  readonly status: number;
+  /** 英文错误状态码（如 `"PASSWORD_REQUIRED"`、`"INVALID_PASSWORD"`）。 */
+  readonly code: string;
+  /** 验签或鉴权失败原因分类标识。 */
+  readonly reason: string;
+  /** 英文错误状态码字串（与 `code` 对应，供前端统一映射多语言提示）。 */
+  readonly error: string;
+  /** 凭据校验失败时剩余的可尝试次数。 */
+  readonly remainingAttempts?: number;
+  /** 处于 30 分钟锁定期时剩余的锁定分钟数。 */
+  readonly remainingMinutes?: number;
+}
+
 /**
  * 构造携带真实请求 ID、时间戳、客户端出口 IP 与 Host 的 401/403 JSON 响应（严禁暴露源站服务器 IP）。
  * @param request HTTP 请求对象。
- * @param params 状态码、错误代号、原因标识与错误说明。
+ * @param params 状态码、错误代号、原因标识与可选锁定参数。
  * @returns 带 `X-Request-Id` 响应头的 JSON `Response`。
  */
 export function accessErrorResponse(
   request: Request,
-  params: Readonly<{
-    readonly status: number;
-    readonly code: string;
-    readonly reason: string;
-    readonly error: string;
-  }>
+  params: Readonly<AccessErrorResponseParams>
 ): Response {
   const randomBytes: Uint8Array = new Uint8Array(8);
   crypto.getRandomValues(randomBytes);
@@ -173,6 +184,12 @@ export function accessErrorResponse(
     status: params.status,
     code: params.code,
     error: params.error,
+    ...(params.remainingAttempts !== undefined
+      ? { remainingAttempts: params.remainingAttempts }
+      : {}),
+    ...(params.remainingMinutes !== undefined
+      ? { remainingMinutes: params.remainingMinutes }
+      : {}),
   };
   return jsonResponse({ ok: false, reason: params.reason, ...diag }, params.status, diag.requestId);
 }

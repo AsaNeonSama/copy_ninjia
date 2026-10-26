@@ -1,6 +1,6 @@
 import { miniAppAuthSessions, miniAppPasswordGuardHolder } from "../../cache/main/miniApp";
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
-import { MINI_APP_PASSWORD_MAX_ATTEMPTS, MINI_APP_SESSION_TTL_MS } from "../../consts/miniApp";
+import { MINI_APP_SESSION_TTL_MS } from "../../consts/miniApp";
 import type { MiniAppAuthSession, MiniAppPasswordGuardState } from "../../types/miniApp";
 import { accessErrorResponse } from "../libs/response";
 
@@ -35,7 +35,8 @@ export function checkSuperAdminPasswordLockout(
     status: 403,
     code: "PASSWORD_LOCKED",
     reason: "password_locked",
-    error: `密码连续输错已达 ${MINI_APP_PASSWORD_MAX_ATTEMPTS} 次，当前超级管理员 ID (#${SUPER_ADMIN_USER_ID}) 已被锁定，30 分钟内无法访问（剩余约 ${remainingMinutes} 分钟）。`,
+    error: "PASSWORD_LOCKED",
+    remainingMinutes,
   });
 }
 

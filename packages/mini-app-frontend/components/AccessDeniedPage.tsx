@@ -84,7 +84,7 @@ export function AccessDeniedPage(): React.JSX.Element {
             <p>{dt.gate.deniedWhatHappenedDesc}</p>
             <div className="cf-reason-box">
               <strong>{dt.gate.deniedPolicyDetailLabel(diag.code)}:</strong>{" "}
-              {dt.gate.deniedPolicyReason(diag.code, diag.error)}
+              {dt.gate.deniedPolicyReason(diag.code, diag.error, diag)}
             </div>
           </div>
           <div className="cf-detail-col">

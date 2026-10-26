@@ -128,8 +128,12 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
     ): MiniAppIdentitiesStoreState => {
       let requestSeq: number = 0;
 
-      const notify = (message: string, tone?: "warning" | "danger"): void => {
-        useMiniAppStore.getState().notify(message, tone);
+      const notify = (
+        message: string,
+        tone?: "warning" | "danger",
+        metaSource?: unknown
+      ): void => {
+        useMiniAppStore.getState().notify(message, tone, metaSource);
       };
 
       const triggerDuplicateNotice = (
@@ -143,7 +147,6 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
       };
 
       const pollPickerSession = async (
-        t: Readonly<MiniAppTranslations>,
         requestId: number,
         list: MiniAppIdentitySubTabKey
       ): Promise<void> => {
@@ -157,12 +160,12 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             if (result !== null) {
               if (result.duplicateIds !== undefined && result.duplicateIds.length > 0) {
                 triggerDuplicateNotice(
-                  t,
+                  getMiniAppTranslations(useMiniAppStore.getState().language),
                   result.duplicateIds.map((dupId: number): string => `ID ${dupId}`).join(", "),
                   list
                 );
               } else {
-                notify(result.summary);
+                notify(result.summary, undefined, result);
               }
               await get().loadCurrentList();
               return;
@@ -171,7 +174,10 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             return;
           }
         }
-        notify(t.identities.pickerTimeoutToast);
+        notify(
+          getMiniAppTranslations(useMiniAppStore.getState().language).identities
+            .pickerTimeoutToast
+        );
       };
 
       const openPicker = async (subjectKind: MiniAppPickerSubjectKind): Promise<void> => {
@@ -189,15 +195,17 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             await requestMiniAppPreparedPicker(list, subjectKind);
           set({ addMenuOpen: false, idFormOpen: false });
           webApp.requestChat(prepared.preparedButtonId, (accepted: boolean): void => {
+            const nextT: Readonly<MiniAppTranslations> =
+              getMiniAppTranslations(useMiniAppStore.getState().language);
             if (!accepted) {
-              notify(t.identities.pickerCancelledToast);
+              notify(nextT.identities.pickerCancelledToast);
               return;
             }
-            notify(t.identities.pickerWaitingToast);
-            void pollPickerSession(t, prepared.requestId, list);
+            notify(nextT.identities.pickerWaitingToast);
+            void pollPickerSession(prepared.requestId, list);
           });
         } catch (error: unknown) {
-          notify(errorMessage(error));
+          notify(errorMessage(error), undefined, error);
         } finally {
           set({ busyAction: false });
         }
@@ -278,7 +286,7 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             if (reqId !== requestSeq) {
               return;
             }
-            notify(errorMessage(error));
+            notify(errorMessage(error), undefined, error);
           } finally {
             if (reqId === requestSeq) {
               set({ loadingList: false });
@@ -366,19 +374,19 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             }
 
             if (!result.ok) {
-              notify(result.message, "danger");
+              notify(result.message, "danger", result);
               return;
             }
 
             set({ duplicateAlertText: null });
-            notify(result.message);
+            notify(result.message, undefined, result);
             if (subTab === "whitelist") {
               set({ selectedEntryId: id });
             }
             set({ idInput: "", idFormOpen: false, addMenuOpen: false });
             await get().loadCurrentList();
           } catch (error: unknown) {
-            notify(errorMessage(error));
+            notify(errorMessage(error), "danger", error);
           } finally {
             set({ busyAction: false });
           }
@@ -403,10 +411,10 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             const result: MiniAppIdentityMutationResult =
               await setMiniAppWhitelistMembership(entry.id, false);
             if (get().selectedEntryId === entry.id) set({ selectedEntryId: null });
-            notify(result.message);
+            notify(result.message, undefined, result);
             await get().loadCurrentList();
           } catch (error: unknown) {
-            notify(errorMessage(error));
+            notify(errorMessage(error), "danger", error);
           } finally {
             set({ busyAction: false });
           }
@@ -430,10 +438,10 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
           try {
             const result: MiniAppIdentityMutationResult =
               await setMiniAppBlocklistMembership(entry.id, false);
-            notify(result.message);
+            notify(result.message, undefined, result);
             await get().loadCurrentList();
           } catch (error: unknown) {
-            notify(errorMessage(error));
+            notify(errorMessage(error), "danger", error);
           } finally {
             set({ busyAction: false });
           }

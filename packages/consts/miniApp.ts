@@ -197,7 +197,7 @@ export const MINI_APP_GALLERY_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 图库分页接口单页允许的最大图片张数（20 张）。
- * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-server/view/gallery.ts`。
+ * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-server/view/gallery.ts`。
  */
 export const MINI_APP_GALLERY_MAX_PAGE_SIZE: number = 20;
 
@@ -251,7 +251,7 @@ export const MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 群热发言记录接口单页允许的最大条数（20 条）。
- * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-server/view/messages.ts`。
+ * 不变量：等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-server/view/messages.ts`。
  */
 export const MINI_APP_MESSAGES_MAX_PAGE_SIZE: number = 20;
 
@@ -263,7 +263,7 @@ export const MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 白名单与黑名单列表接口单页允许的最大条数（20 条）。
- * 不变量：不超过 `IDENTITY_POLICY_SWEEP_PAGE_SIZE`，等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-server/view/identities/whitelist.ts` 与 `packages/mini-app-server/view/identities/blocklist.ts`。
+ * 不变量：不超过 `IDENTITY_POLICY_SWEEP_PAGE_SIZE`，等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-server/view/identities/whitelist.ts` 与 `packages/mini-app-server/view/identities/blocklist.ts`。
  */
 export const MINI_APP_IDENTITY_MAX_PAGE_SIZE: number = 20;
 

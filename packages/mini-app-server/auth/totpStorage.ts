@@ -201,15 +201,14 @@ export async function enableMiniAppTotpFromPending(
     miniAppPendingTotpSetupHolder.current = null;
     return {
       ok: false,
-      message: "待绑定的验证器二维码已过期或不存在，请重新点击生成二维码。",
+      message: "TOTP_SETUP_EXPIRED",
       status: toMiniAppTotpStatusView(existing),
     };
   }
   if (!verifyMiniAppTotpCode(code, pending.secret, nowMs)) {
     return {
       ok: false,
-      message:
-        "6 位动态验证码不正确，请确认 Google Authenticator 当前显示的验证码。",
+      message: "INVALID_TOTP_CODE",
       status: toMiniAppTotpStatusView(existing),
     };
   }
@@ -231,10 +230,7 @@ export async function enableMiniAppTotpFromPending(
   miniAppPendingTotpSetupHolder.current = null;
   return {
     ok: true,
-    message:
-      existing === null
-        ? "已成功启用 Google Authenticator 验证器。"
-        : "已成功更新 Google Authenticator 验证器。",
+    message: existing === null ? "TOTP_ENABLED" : "TOTP_UPDATED",
     status: toMiniAppTotpStatusView(nextRecord),
   };
 }
@@ -256,7 +252,7 @@ export async function deleteMiniAppTotpRecord(): Promise<
   }
   return {
     ok: true,
-    message: "已删除 Google Authenticator 验证器，已恢复使用访问密码验证。",
+    message: "TOTP_DELETED",
     status: toMiniAppTotpStatusView(null),
   };
 }

@@ -2,7 +2,6 @@ import { requestAiMood } from "../../aiChat";
 import { aiChatWorkerState } from "../../cache/main/aiChat";
 import { defaultMoodConfigCache } from "../../cache/perThread/config";
 import { aiChatConfigReadiness } from "../../config/readiness";
-import { chatAtmosphere } from "../../infra/atmosphere";
 import type {
   MiniAppMoodMutationResult,
   MiniAppMoodView,
@@ -54,7 +53,7 @@ export async function handleGetMoodRoute(): Promise<Response> {
 }
 
 /**
- * 处理 `POST /api/mood/switch`：向 AI Worker 发起全局心情重抽并返回新心情名称。
+ * 处理 `POST /api/mood/switch`：向 AI Worker 发起全局心情重抽并返回新心情名称与英文状态码。
  * @returns JSON 响应。
  */
 export async function handlePostMoodSwitchRoute(): Promise<Response> {
@@ -66,7 +65,7 @@ export async function handlePostMoodSwitchRoute(): Promise<Response> {
       ok: false,
       available: false,
       currentMood: null,
-      message: chatAtmosphere().NOTICE_TEXTS.moodSwitchFailed,
+      message: "MOOD_SWITCH_FAILED",
     };
     return jsonResponse(brokenBody, 400);
   }
@@ -76,7 +75,7 @@ export async function handlePostMoodSwitchRoute(): Promise<Response> {
       ok: true,
       available: true,
       currentMood: moodName,
-      message: chatAtmosphere().NOTICE_TEXTS.moodSwitched(moodName),
+      message: "MOOD_SWITCHED",
     };
     return jsonResponse(okBody);
   } catch (_error: unknown) {
@@ -84,7 +83,7 @@ export async function handlePostMoodSwitchRoute(): Promise<Response> {
       ok: false,
       available: false,
       currentMood: null,
-      message: chatAtmosphere().NOTICE_TEXTS.moodSwitchFailed,
+      message: "MOOD_SWITCH_FAILED",
     };
     return jsonResponse(failBody, 503);
   }

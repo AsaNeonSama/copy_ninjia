@@ -8,8 +8,49 @@ import type {
   MiniAppFeatureKey,
   MiniAppIdentityAddMode,
   MiniAppIdentitySubTabKey,
+  MiniAppPickerTargetList,
   MiniAppTabKey,
 } from "./miniApp";
+
+/** 服务端英文状态码映射为多语言提示时的可选插值参数。 */
+export interface MiniAppServerNoticeParams {
+  /** 切换后的全局情绪名称（仅 `MOOD_SWITCHED` 使用）。 */
+  readonly mood?: string | null;
+  /** 群功能键（仅群功能开关状态码使用）。 */
+  readonly feature?: MiniAppFeatureKey;
+  /** 未就绪的配置文件名（仅 `FEATURE_CONFIG_NOT_READY` 使用）。 */
+  readonly configFile?: string;
+  /** 目标身份 ID（仅白名单/黑名单/权限状态码使用）。 */
+  readonly id?: number;
+  /** 单个白名单权限键（仅 `PERMISSION_UPDATED` / `PERMISSION_UNCHANGED` 使用）。 */
+  readonly key?: WhitelistPermissionKey;
+  /** 单个白名单权限布尔值（仅 `PERMISSION_UPDATED` / `PERMISSION_UNCHANGED` 使用）。 */
+  readonly value?: boolean;
+  /** 磁盘持久化是否已完成（仅黑名单状态码使用）。 */
+  readonly persisted?: boolean;
+  /** 跨群成功处置的受管群数量（仅黑名单状态码使用）。 */
+  readonly affectedChats?: number;
+  /** 受管管理员群总数量（仅黑名单状态码使用）。 */
+  readonly totalChats?: number;
+  /** 原生选择器目标名单类型（仅 `PICKER_IMPORT_*` 使用）。 */
+  readonly targetList?: MiniAppPickerTargetList;
+  /** 原生选择器新加入数量（仅 `PICKER_IMPORT_*` 使用）。 */
+  readonly addedCount?: number;
+  /** 原生选择器跳过数量（仅 `PICKER_IMPORT_*` 使用）。 */
+  readonly skippedCount?: number;
+  /** 原生选择器重复数量（仅 `PICKER_IMPORT_*` 使用）。 */
+  readonly duplicateCount?: number;
+  /** 图库图片文件名（仅 `GALLERY_*` 使用）。 */
+  readonly fileName?: string;
+  /** 图片像素宽度（仅 `GALLERY_INVALID_DIMENSIONS` 使用）。 */
+  readonly width?: number;
+  /** 图片像素高度（仅 `GALLERY_INVALID_DIMENSIONS` 使用）。 */
+  readonly height?: number;
+  /** 剩余可尝试次数（仅 `INVALID_PASSWORD` / `INVALID_TOTP_CODE` 使用）。 */
+  readonly remainingAttempts?: number;
+  /** 剩余锁定分钟数（仅 `PASSWORD_LOCKED` 使用）。 */
+  readonly remainingMinutes?: number;
+}
 
 /** Mini App 界面三语言（中/日/英）杂鱼语气文案结构定义。 */
 export interface MiniAppTranslations {
@@ -29,9 +70,13 @@ export interface MiniAppTranslations {
   readonly sidebarFooterHint: string;
   readonly tabs: Readonly<Record<MiniAppTabKey, string>>;
   readonly tabDescriptions: Readonly<Record<MiniAppTabKey, string>>;
+  /** 将后端返回的英文状态码字串映射为当前语言的提示文案；未知文本原样返回。 */
+  readonly serverNotice: (
+    code: string,
+    params?: Readonly<MiniAppServerNoticeParams>
+  ) => string;
 
   readonly gate: Readonly<{
-    readonly checkingText: string;
     readonly deniedTitle: string;
     readonly deniedDescription: string;
     readonly deniedNodeClientSub: string;
@@ -45,7 +90,11 @@ export interface MiniAppTranslations {
     readonly deniedWhatHappenedTitle: string;
     readonly deniedWhatHappenedDesc: string;
     readonly deniedPolicyDetailLabel: (code: string) => string;
-    readonly deniedPolicyReason: (code: string, fallbackError: string) => string;
+    readonly deniedPolicyReason: (
+      code: string,
+      fallbackError: string,
+      params?: Readonly<MiniAppServerNoticeParams>
+    ) => string;
     readonly deniedWhatCanIDoTitle: string;
     readonly deniedWhatCanIDoDesc: string;
     readonly passwordBadge: string;
@@ -167,7 +216,7 @@ export interface MiniAppTranslations {
   readonly identities: Readonly<{
     readonly whitelistTab: string;
     readonly blocklistTab: string;
-    readonly searchPlaceholder: (subTab: MiniAppIdentitySubTabKey) => string;
+    readonly searchPlaceholder: string;
     readonly searchClearAria: string;
     readonly searchDebounceHint: string;
     readonly addFoldButton: string;

@@ -38,14 +38,12 @@ function verifyInitDataRequest(request: Request, allowQueryAuth: boolean): Respo
     return checkSuperAdminPasswordLockout(request);
   }
   const status: number = authResult.reason === "forbidden_user" ? 403 : 401;
+  const code: string = authResult.reason.toUpperCase();
   return accessErrorResponse(request, {
     status,
-    code: authResult.reason.toUpperCase(),
+    code,
     reason: authResult.reason,
-    error:
-      authResult.reason === "forbidden_user"
-        ? "Only the configured SuperAdmin user ID is permitted to access this Mini App."
-        : `Telegram WebApp initData verification failed (${authResult.reason}). Direct external browser access is denied.`,
+    error: code,
   });
 }
 

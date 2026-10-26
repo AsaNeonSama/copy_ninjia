@@ -10,7 +10,7 @@
  * 把 catch 到的值压成日志和回执能直接拼接的一段文案。
  *
  * 非 Error 值取 `String()`。Mini App 前端在 `packages/mini-app-frontend/libs/errorMessage.ts` 持有副本，
- * 两者输出由 `test/miniApp/frontendParity.test.ts` 核对。
+ * 两者输出由 `test/mini-app-frontend/frontendParity.test.ts` 核对。
  * @param error catch 到的原值。
  * @returns Error 的 message，或原值的字符串形式。
  */

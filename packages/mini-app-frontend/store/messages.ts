@@ -75,7 +75,7 @@ export function createMessagesStore(): MiniAppMessagesStore {
               return;
             }
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "info", error);
           } finally {
             if (reqId === requestSeq) {
               set({ loading: false });

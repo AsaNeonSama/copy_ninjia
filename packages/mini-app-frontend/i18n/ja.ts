@@ -3,9 +3,13 @@ import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
   MiniAppChatDetail,
+  MiniAppFeatureKey,
   MiniAppIdentitySubTabKey,
 } from "../types/miniApp";
-import type { MiniAppTranslations } from "../types/miniAppI18n";
+import type {
+  MiniAppServerNoticeParams,
+  MiniAppTranslations,
+} from "../types/miniAppI18n";
 
 /**
  * 返回日文（雑魚♡语气）的 Mini App 界面文案字典。
@@ -23,6 +27,200 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
     cron: "定期配信タスク",
     hImage: "ランダムえっち図鑑 (/h_image)",
     randomHImage: "ランダムえっち図鑑 (/h_image)",
+  };
+  const featureShortNames: Readonly<Record<MiniAppFeatureKey, string>> = {
+    init: "グループ管理総スイッチ (/init)",
+    aiChat: "AI チャット (/ai_chat)",
+    translation: "自動翻訳 (/translate)",
+    adDetect: "広告検知 (/ad_detect)",
+    floodControl: "連投スパム規制 (/flood_control)",
+    antiRaid: "入群レイド防衛 (/antiraid)",
+    proxySend: "個別チャット代送先 (/send)",
+  };
+  const serverNotice = (
+    rawCode: string,
+    params?: Readonly<MiniAppServerNoticeParams>
+  ): string => {
+    const code: string = rawCode.replace(/^\[[A-Z0-9_]+\]\s*/u, "").trim();
+    const idText: string = params?.id !== undefined ? String(params.id) : "";
+    const featureLabel: string =
+      params?.feature !== undefined ? featureShortNames[params.feature] : "この機能";
+    const listLabel: string =
+      params?.targetList === "blocklist" ? "ブラックリスト" : "ホワイトリスト";
+    switch (code) {
+      case "MISSING_INIT_DATA":
+      case "MALFORMED_INIT_DATA":
+      case "MISSING_HASH":
+      case "MISSING_USER":
+        return `Telegram WebApp initData の検証に失敗したわ（${code}）。外部ブラウザからの直アクセスは禁止よ、雑魚。`;
+      case "INVALID_SIGNATURE":
+        return `Telegram WebApp 署名の検証に失敗したわ（${code}）。偽造なんて無駄よ、雑魚。`;
+      case "EXPIRED_AUTH_DATE":
+        return `Telegram WebApp 署名の有効期限が切れているわ（${code}）。Telegram からもう一度パネルを開き直しなさい、雑魚。`;
+      case "FORBIDDEN_USER":
+        return "設定されたスーパー管理者しかこの Mini App には入れないわ。雑魚は触っちゃダメよ。";
+      case "DIRECT_NAVIGATION_FORBIDDEN":
+        return "ブラウザのアドレスバーから保護された画像や SVG リソースへ直接アクセスするのは禁止よ。";
+      case "CROSS_SITE_FORBIDDEN":
+        return `クロスサイトリクエストはブロックされたわ（${code}）。変な場所から呼び出さないでよね、雑魚。`;
+      case "PASSWORD_REQUIRED":
+        return "Mini App アクセスパスワードが未認証よ。先にパスワードを入力してロック解除しなさい、雑魚。";
+      case "SESSION_EXPIRED":
+        return "45分の認証セッションが期限切れか無効よ。もう一度パスワードを入力しなさい、雑魚。";
+      case "PASSWORD_LOCKED":
+        return `3回連続で間違えたから、スーパー管理者 ID は30分間ロックされたわ${params?.remainingMinutes !== undefined ? `（残り約 ${params.remainingMinutes} 分）` : ""}、雑魚。`;
+      case "INVALID_PASSWORD":
+        return `アクセスパスワードが違うわよ${params?.remainingAttempts !== undefined ? `、残り試行回数は ${params.remainingAttempts} 回` : ""}（3回連続失敗で30分ロックよ）、雑魚！`;
+      case "INVALID_TOTP_CODE":
+        return params?.remainingAttempts !== undefined
+          ? `Google Authenticator の6桁コードが違うわよ、残り試行回数は ${params.remainingAttempts} 回（3回連続失敗で30分ロックよ）、雑魚！`
+          : "6桁のワンタイムコードが正しくないわ。Google Authenticator に表示されているコードを確認しなさい、雑魚！";
+      case "TOTP_SETUP_EXPIRED":
+        return "登録待ちの QR コードが期限切れか存在しないわ。もう一度 QR コードを生成しなさい、雑魚。";
+      case "TOTP_ENABLED":
+        return "Google Authenticator 認証器を有効化したわよ、雑魚♡";
+      case "TOTP_UPDATED":
+        return "Google Authenticator 認証器を更新したわよ、雑魚♡";
+      case "TOTP_DELETED":
+        return "Google Authenticator 認証器を削除して、アクセスパスワード認証に戻したわよ。";
+      case "MOOD_SWITCHED":
+        return params?.mood
+          ? `ふん、アタシの今の気分を「${params.mood}」に切り替えてあげたわよ♡`
+          : "ふん、全体感情を切り替えてあげたわよ♡";
+      case "MOOD_SWITCH_FAILED":
+        return "ちぇっ、感情の切り替えに失敗したわ。AI Worker か感情設定がまだ準備できてないわよ♡";
+      case "INVALID_CHAT_ID":
+        return "無効なグループチャット ID よ。";
+      case "CHAT_NOT_FOUND":
+        return "このグループは /init が有効でないか存在しないわ。";
+      case "INVALID_CHAT_FEATURE_PARAMS":
+        return "リクエストパラメータが不正よ：有効な feature と真偽値 enabled が必要よ。";
+      case "CHAT_NOT_INITIALIZED":
+        return "このグループは現在 /init が無効で、管理リストから外れているわ。";
+      case "CHAT_INIT_ALREADY_ENABLED":
+        return "このグループは既に /init が有効になっているわ。";
+      case "CHAT_INIT_DISABLED":
+        return "グループの /init 総スイッチをオフにして管理リストから外したわ。";
+      case "CHAT_INIT_DISABLED_TEARDOWN_FAILED":
+        return "/init 総スイッチをオフにしたけれど、一部の実行状態クリーンアップに失敗したわ。";
+      case "FEATURE_CONFIG_NOT_READY":
+        return `${featureLabel} の設定が未準備${params?.configFile !== undefined ? ` (${params.configFile})` : ""}のため有効化できないわ。`;
+      case "FEATURE_ENABLED":
+        return `${featureLabel} をオンにしたわ。`;
+      case "FEATURE_DISABLED":
+        return `${featureLabel} をオフにしたわ。`;
+      case "PROXY_SEND_ENABLED":
+        return "このグループを個別チャット代送先 (/send) に設定したわ。";
+      case "PROXY_SEND_DISABLED":
+        return "このグループの個別チャット代送 (/send finish) を停止したわ。";
+      case "INVALID_IDENTITY_PARAMS":
+        return "パラメータが不正よ：0以外の安全な整数 id と真偽値 enabled が必要よ。";
+      case "INVALID_IDENTITY_ID":
+        return "マヌケな雑魚♡、ID の形式が間違ってるわよ（0以外の整数にしなさい）！";
+      case "INVALID_PERMISSION_PARAMS":
+        return "パラメータが不正よ：有効な権限キー key と真偽値 value が必要よ。";
+      case "INVALID_PICKER_PARAMS":
+        return "パラメータが不正よ：有効な targetList と subjectKind が必要よ。";
+      case "INVALID_PICKER_REQUEST_ID":
+        return "パラメータが不正よ：正の整数 requestId が必要よ。";
+      case "SUPER_ADMIN_EXEMPT":
+        return "雑魚♡、スーパー管理者は最初から全権限を持ってるんだからホワイトリストなんか不要よ！";
+      case "BLOCKLIST_SUPER_ADMIN_FORBIDDEN":
+        return "マヌケな雑魚♡、スーパー管理者をブラックリストに入れようとするなんて100年早いわ！";
+      case "IDENTITY_STORAGE_UNAVAILABLE":
+        return "ちぇっ、権限ポリシーストレージが今忙しいみたい。あとでやり直しなさい、雑魚♡";
+      case "IDENTITY_IN_BLOCKLIST":
+        return `マヌケな雑魚♡、ID ${idText} は今ブラックリストに入ってるわよ。先にBAN解除しなさい！`;
+      case "IDENTITY_IN_WHITELIST":
+        return `マヌケな雑魚♡、ID ${idText} はホワイトリストで保護されてるから直接ブラックリストには入れられないわ！`;
+      case "WHITELIST_DUPLICATE":
+        return `マヌケな雑魚♡、ID ${idText} はとっくにホワイトリストに入ってるわよ！重複追加はダメ！`;
+      case "WHITELIST_ADDED":
+        return `ふん、ID ${idText} をホワイトリストに入れて初期権限を付与してあげたわよ♡`;
+      case "WHITELIST_REMOVED":
+        return `ふん、ID ${idText} をホワイトリストから追い出してあげたわよ♡`;
+      case "WHITELIST_NOT_FOUND":
+        return `雑魚♡、ID ${idText} は最初からホワイトリストにいないわよ。`;
+      case "WHITELIST_PERSIST_FAILED":
+        return "ちぇっ、ホワイトリスト変更のディスク保存に失敗したわ。DB書き込み状態を確認しなさい♡";
+      case "BLOCKLIST_DUPLICATE":
+        return `マヌケな雑魚♡、ID ${idText} はとっくにブラックリストに入ってるわよ！重複追加はダメ！`;
+      case "BLOCKLIST_ADDED": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `（${params.affectedChats ?? 0}/${params.totalChats} 個の管理群でBAN実行）`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? "（※ディスク保存確認が未完了）" : "";
+        return `ふん、ID ${idText} をブラックリストに叩き込んであげたわよ${fanOutNote}${persistNote}♡`;
+      }
+      case "BLOCKLIST_REMOVED":
+      case "BLOCKLIST_NOT_FOUND": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `（${params.affectedChats ?? 0}/${params.totalChats} 個の管理群でBAN解除）`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? "（※ディスク保存確認が未完了）" : "";
+        const base: string =
+          code === "BLOCKLIST_REMOVED"
+            ? `ふん、ID ${idText} をブラックリストから出してあげたわよ`
+            : `雑魚、ID ${idText} は最初からブラックリストにいないわよ`;
+        return `${base}${fanOutNote}${persistNote}♡`;
+      }
+      case "PERMISSION_UPDATED":
+        return `ID ${idText} の ${params?.key ?? ""} を ${String(params?.value ?? true)} に設定したわ。`;
+      case "PERMISSION_UNCHANGED":
+        return `ID ${idText} の ${params?.key ?? ""} は最初から ${String(params?.value ?? true)} よ。`;
+      case "ALL_PERMISSIONS_ENABLED":
+        return `ID ${idText} の全ホワイトリスト権限をオンにしたわ。`;
+      case "ALL_PERMISSIONS_UNCHANGED":
+        return `ID ${idText} の全権限は最初からオンになってるわ。`;
+      case "PERMISSION_PERSIST_FAILED":
+        return "権限変更のディスク保存に失敗したわ。DB書き込み状態を確認しなさい。";
+      case "PICKER_PREPARE_FAILED":
+        return "Telegram ネイティブ選択ボタンの準備に失敗したわ。savePreparedKeyboardButton 対応を確認するか ID 指定で追加しなさい。";
+      case "PICKER_IMPORT_ADDED": {
+        const added: number = params?.addedCount ?? 0;
+        const skipped: number = params?.skippedCount ?? 0;
+        const dup: number = params?.duplicateCount ?? 0;
+        const dupSuffix: string =
+          dup > 0 ? `、うち ${dup} 件は既に${listLabel}内` : "";
+        return `ふん、${added} 件を${listLabel}に追加してあげたわよ${skipped > 0 ? `（${skipped} 件スキップ${dupSuffix}）` : ""}♡`;
+      }
+      case "PICKER_IMPORT_DUPLICATE":
+        return `マヌケな雑魚♡、選択された ${params?.duplicateCount ?? 0} 件は全部とっくに${listLabel}に入ってるわよ！`;
+      case "PICKER_IMPORT_EMPTY":
+        return `雑魚♡、選択された対象を${listLabel}に追加できなかったわ（${params?.skippedCount ?? 0} 件スキップ）。`;
+      case "GALLERY_IMAGE_ADDED":
+        return `ふん、SHA-256 で図鑑に登録してあげたわよ：${params?.fileName ?? ""}♡`;
+      case "GALLERY_IMAGE_EXISTING":
+        return `マヌケな雑魚♡、同じ SHA-256 の画像が既に図鑑にあるわよ：${params?.fileName ?? ""}`;
+      case "GALLERY_DIRECTORY_MISSING":
+        return "ちぇっ、設定された図鑑ディレクトリが存在しないわよ。先にディレクトリを作りなさい♡";
+      case "GALLERY_IMAGE_EMPTY":
+        return "マヌケな雑魚♡、アップロードされた画像データが空っぽよ！";
+      case "GALLERY_IMAGE_TOO_LARGE":
+        return "雑魚♡、画像サイズが 10 MiB の上限を超えてるわよ！";
+      case "GALLERY_UNSUPPORTED_FORMAT":
+        return "マヌケな雑魚♡、対応しているのは JPEG・PNG・WebP だけよ！";
+      case "GALLERY_INVALID_DIMENSIONS":
+        return `雑魚♡、画像サイズ (${params?.width ?? 0}×${params?.height ?? 0}) が Telegram 送信基準（縦横合計 ≤ 10000 かつ比率 ≤ 20）を満たしてないわ！`;
+      case "GALLERY_UPLOAD_FAILED":
+        return "ちぇっ、画像サイズの解析か図鑑ディレクトリへの書き込みに失敗したわ、雑魚♡";
+      case "GALLERY_UPLOAD_READ_FAILED":
+        return "アップロードされた画像リクエストを読み取れなかったわ。";
+      case "GALLERY_IMAGE_DELETED":
+        return `ふん、${params?.fileName ?? ""} を図鑑から消してあげたわよ♡`;
+      case "GALLERY_IMAGE_NOT_FOUND":
+        return "雑魚♡、その画像は既に削除されたか存在しないわよ！";
+      case "GALLERY_INVALID_FILE_NAME":
+        return "マヌケな雑魚♡、画像ファイル名の形式が間違ってるわよ！";
+      case "GALLERY_DELETE_FAILED":
+        return "ちぇっ、図鑑からの画像削除に失敗したわ。ディスク権限を確認しなさい♡";
+      default:
+        return code;
+    }
   };
   return {
     languageLabel: "日",
@@ -53,8 +251,8 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       gallery: "/h_image プレビュー・追加・削除",
       totp: "Google 認証システム (TOTP) の登録・変更・削除",
     },
+    serverNotice,
     gate: {
-      checkingText: "雑魚の SuperAdmin 署名を検査してあげてるから大人しく待ちなさい…",
       deniedTitle: "アクセス拒否よ、雑魚♡",
       deniedDescription:
         "ふん、外部ブラウザや未承認クライアントからこのコンソールを覗く権限なんてないわよ、雑魚。",
@@ -70,29 +268,15 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       deniedWhatHappenedDesc:
         "このエンドポイントは厳格な Telegram WebApp 署名検証と管理者アクセス制御を強制しているわ。雑魚が送ったリクエストはポリシー検証を通らなかったから、そのまま蹴り返してあげたわよ。",
       deniedPolicyDetailLabel: (code: string): string => `ポリシー詳細 (${code})`,
-      deniedPolicyReason: (code: string, fallbackError: string): string => {
+      deniedPolicyReason: (
+        code: string,
+        fallbackError: string,
+        params?: Readonly<MiniAppServerNoticeParams>
+      ): string => {
         const upper: string = code.toUpperCase();
-        if (
-          upper === "MISSING_INIT_DATA" ||
-          upper === "MALFORMED_INIT_DATA" ||
-          upper === "MISSING_HASH" ||
-          upper === "MISSING_USER"
-        ) {
-          return `Telegram WebApp initData の検証に失敗したわ（${code}）。外部ブラウザからの直アクセスは禁止よ、雑魚。`;
-        }
-        if (upper === "INVALID_SIGNATURE") {
-          return `Telegram WebApp 署名の検証に失敗したわ（${code}）。偽造なんて無駄よ、雑魚。`;
-        }
-        if (upper === "EXPIRED_AUTH_DATE") {
-          return `Telegram WebApp 署名の有効期限が切れているわ（${code}）。Telegram からもう一度パネルを開き直しなさい、雑魚。`;
-        }
-        if (upper === "FORBIDDEN_USER") {
-          return "設定されたスーパー管理者しかこの Mini App には入れないわ。雑魚は触っちゃダメよ。";
-        }
-        if (upper === "CROSS_SITE_FORBIDDEN") {
-          return `クロスサイトリクエストはブロックされたわ（${code}）。変な場所から呼び出さないでよね、雑魚。`;
-        }
-        return fallbackError;
+        const byCode: string = serverNotice(upper, params);
+        if (byCode !== upper) return byCode;
+        return serverNotice(fallbackError || code, params);
       },
       deniedWhatCanIDoTitle: "雑魚はどうすればいいの？",
       deniedWhatCanIDoDesc:
@@ -386,10 +570,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
     identities: {
       whitelistTab: "権限",
       blocklistTab: "ブラックリスト",
-      searchPlaceholder: (subTab: MiniAppIdentitySubTabKey): string =>
-        subTab === "whitelist"
-          ? "名前 / @ユーザー名 / ID で白リスト検索"
-          : "名前 / @ユーザー名 / ID で黒リスト検索",
+      searchPlaceholder: "id/name",
       searchClearAria: "検索語をクリア",
       searchDebounceHint: "0.5s デバウンス検索中…",
       addFoldButton: "ユーザー追加",

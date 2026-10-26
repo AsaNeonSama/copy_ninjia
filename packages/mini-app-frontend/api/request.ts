@@ -60,7 +60,7 @@ export async function miniAppFetchJson<T>(path: string, init?: RequestInit): Pro
           : `HTTP ${response.status}`;
     const prefix: string =
       code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED" ? `[${code}] ` : "";
-    throw new Error(`${prefix}${errorMessage}`);
+    throw new Error(`${prefix}${errorMessage}`, { cause: record });
   }
   return payload as T;
 }

@@ -169,21 +169,24 @@ export async function setBlocklistEntryMembership({
     return {
       ok: false,
       changed: false,
-      message: "笨蛋杂鱼♡，连身份 ID 都填错啦（必须是非零安全整数）！",
+      id,
+      message: "INVALID_IDENTITY_ID",
     };
   }
   if (id === SUPER_ADMIN_USER_ID) {
     return {
       ok: false,
       changed: false,
-      message: "笨蛋杂鱼♡，居然想把超级管理员关进黑名单？做梦去吧！",
+      id,
+      message: "BLOCKLIST_SUPER_ADMIN_FORBIDDEN",
     };
   }
   if (!await prefetchIdentityPolicies([id])) {
     return {
       ok: false,
       changed: false,
-      message: "啧，身份策略存储暂时没空理你，杂鱼稍后再试♡",
+      id,
+      message: "IDENTITY_STORAGE_UNAVAILABLE",
     };
   }
 
@@ -206,7 +209,8 @@ export async function setBlocklistEntryMembership({
       return {
         ok: false,
         changed: false,
-        message: `笨蛋杂鱼♡，ID ${id} 受白名单保护呢，不许直接塞进黑名单！`,
+        id,
+        message: "IDENTITY_IN_WHITELIST",
       };
     }
     if (mutationKind === "duplicate") {
@@ -214,7 +218,8 @@ export async function setBlocklistEntryMembership({
         ok: true,
         changed: false,
         duplicate: true,
-        message: `笨蛋杂鱼♡，ID ${id} 早就已经在黑名单里啦，不许重复添加！`,
+        id,
+        message: "BLOCKLIST_DUPLICATE",
       };
     }
     const persisted: boolean = await confirmBlocklistPersisted(id, false);
@@ -239,15 +244,15 @@ export async function setBlocklistEntryMembership({
         else requestBlocklistResweep(outcome.chatId);
       }
     }
-    const persistNote: string = persisted ? "" : "（注意：磁盘持久化确认未完成）";
-    const fanOutNote: string = targetChatIds.length > 0
-      ? `，已在 ${bannedCount}/${targetChatIds.length} 个受管群执行封禁`
-      : "";
     return {
       ok: true,
       changed: true,
       duplicate: false,
-      message: `哼，已帮杂鱼把 ID ${id} 关进黑名单啦${fanOutNote}${persistNote}♡`,
+      id,
+      persisted,
+      affectedChats: bannedCount,
+      totalChats: targetChatIds.length,
+      message: "BLOCKLIST_ADDED",
     };
   }
 
@@ -273,13 +278,13 @@ export async function setBlocklistEntryMembership({
       if (outcome.value) unbannedCount++;
     }
   }
-  const persistNote: string = persisted ? "" : "（注意：磁盘持久化确认未完成）";
-  const fanOutNote: string = targetChatIds.length > 0
-    ? `，已在 ${unbannedCount}/${targetChatIds.length} 个受管群解除封禁`
-    : "";
   return {
     ok: true,
     changed: removedFromList,
-    message: `${removedFromList ? `哼，已把 ID ${id} 从黑名单放出来啦` : `杂鱼，ID ${id} 原本就不在黑名单里`}${fanOutNote}${persistNote}♡`,
+    id,
+    persisted,
+    affectedChats: unbannedCount,
+    totalChats: targetChatIds.length,
+    message: removedFromList ? "BLOCKLIST_REMOVED" : "BLOCKLIST_NOT_FOUND",
   };
 }

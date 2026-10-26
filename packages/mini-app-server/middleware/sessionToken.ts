@@ -24,7 +24,7 @@ function verifySessionTokenRequest(request: Request, allowQueryAuth: boolean): R
       status: 401,
       code: "PASSWORD_REQUIRED",
       reason: "password_required",
-      error: "Mini App 访问密码尚未验证，请先输入访问密码解锁控制台。",
+      error: "PASSWORD_REQUIRED",
     });
   }
   const session: Readonly<MiniAppAuthSession> | undefined =
@@ -34,7 +34,7 @@ function verifySessionTokenRequest(request: Request, allowQueryAuth: boolean): R
       status: 401,
       code: "PASSWORD_REQUIRED",
       reason: "password_required",
-      error: "Mini App 访问认证已满 45 分钟过期或无效，请重新输入访问密码。",
+      error: "SESSION_EXPIRED",
     });
   }
   return null;

@@ -152,7 +152,7 @@ export async function deleteMiniAppGalleryImage(
     return {
       ok: false,
       outcome: "invalidFileName",
-      message: "笨蛋杂鱼♡，连图片文件名格式都搞错了！",
+      message: "GALLERY_INVALID_FILE_NAME",
     };
   }
   if (
@@ -163,7 +163,7 @@ export async function deleteMiniAppGalleryImage(
     return {
       ok: false,
       outcome: "invalidFileName",
-      message: "笨蛋杂鱼♡，连图片文件名格式都搞错了！",
+      message: "GALLERY_INVALID_FILE_NAME",
     };
   }
 
@@ -174,20 +174,22 @@ export async function deleteMiniAppGalleryImage(
       return {
         ok: false,
         outcome: "notFound",
-        message: "杂鱼♡，这张图片早就已经被删掉或者不存在啦！",
+        fileName: decodedName,
+        message: "GALLERY_IMAGE_NOT_FOUND",
       };
     }
     return {
       ok: true,
       outcome: "deleted",
       fileName: decodedName,
-      message: `哼，本天才已经帮杂鱼把 ${decodedName} 删掉啦♡`,
+      message: "GALLERY_IMAGE_DELETED",
     };
   } catch (_error: unknown) {
     return {
       ok: false,
       outcome: "failed",
-      message: "啧，从图库目录删除图片失败了，杂鱼快去检查磁盘权限♡",
+      fileName: decodedName,
+      message: "GALLERY_DELETE_FAILED",
     };
   }
 }
@@ -204,14 +206,14 @@ export async function uploadMiniAppGalleryImage(
     return {
       ok: false,
       outcome: "empty",
-      message: "笨蛋杂鱼♡，上传的图片内容居然是空的！",
+      message: "GALLERY_IMAGE_EMPTY",
     };
   }
   if (bytes.byteLength > RANDOM_IMAGE_MAX_BYTES) {
     return {
       ok: false,
       outcome: "tooLarge",
-      message: "杂鱼♡，图片体积超过 10 MiB 上限啦，塞不进去！",
+      message: "GALLERY_IMAGE_TOO_LARGE",
     };
   }
 
@@ -220,7 +222,7 @@ export async function uploadMiniAppGalleryImage(
     return {
       ok: false,
       outcome: "missingDirectory",
-      message: "啧，当前配置的图库目录不存在，杂鱼还没创建好目录就没法入库♡",
+      message: "GALLERY_DIRECTORY_MISSING",
     };
   }
 
@@ -229,7 +231,7 @@ export async function uploadMiniAppGalleryImage(
     return {
       ok: false,
       outcome: "unsupportedFormat",
-      message: "笨蛋杂鱼♡，只支持 JPEG、PNG 或 WebP 格式的图片哦！",
+      message: "GALLERY_UNSUPPORTED_FORMAT",
     };
   }
 
@@ -238,14 +240,16 @@ export async function uploadMiniAppGalleryImage(
     return {
       ok: false,
       outcome: "failed",
-      message: "杂鱼♡，根本无法解析这张图片的像素尺寸，文件是不是坏掉啦？",
+      message: "GALLERY_UPLOAD_FAILED",
     };
   }
   if (!isSendablePhotoDimensions(dimensions)) {
     return {
       ok: false,
       outcome: "invalidDimensions",
-      message: `杂鱼♡，图片尺寸 (${dimensions.width}×${dimensions.height}) 不符合 Telegram 发送门槛（宽高之和 ≤ 10000 且长宽比 ≤ 20）！`,
+      width: dimensions.width,
+      height: dimensions.height,
+      message: "GALLERY_INVALID_DIMENSIONS",
     };
   }
 
@@ -256,7 +260,7 @@ export async function uploadMiniAppGalleryImage(
         ok: true,
         outcome: "added",
         fileName: stored.fileName,
-        message: `哼，本天才已按 SHA-256 帮杂鱼收录好啦：${stored.fileName}♡`,
+        message: "GALLERY_IMAGE_ADDED",
       };
     }
     if (stored.status === "existing") {
@@ -264,19 +268,19 @@ export async function uploadMiniAppGalleryImage(
         ok: true,
         outcome: "existing",
         fileName: stored.fileName,
-        message: `笨蛋杂鱼♡，图库里早就有一模一样的 SHA-256 图片啦：${stored.fileName}`,
+        message: "GALLERY_IMAGE_EXISTING",
       };
     }
     return {
       ok: false,
       outcome: "unsupportedFormat",
-      message: "笨蛋杂鱼♡，只支持 JPEG、PNG 或 WebP 格式的图片哦！",
+      message: "GALLERY_UNSUPPORTED_FORMAT",
     };
   } catch (_error: unknown) {
     return {
       ok: false,
       outcome: "failed",
-      message: "啧，写入图库目录失败了，杂鱼快去检查磁盘♡",
+      message: "GALLERY_UPLOAD_FAILED",
     };
   }
 }

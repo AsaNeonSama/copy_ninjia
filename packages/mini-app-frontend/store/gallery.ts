@@ -139,7 +139,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
               return;
             }
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "info", error);
           } finally {
             if (reqId === requestSeq) {
               set({ loading: false });
@@ -212,7 +212,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
             }
           } catch (error: unknown) {
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "info", error);
           } finally {
             set({ downloadingFileName: null });
           }
@@ -236,11 +236,11 @@ export function createGalleryStore(): MiniAppGalleryStore {
               }
               await get().loadGallery(get().page, get().pageSize);
             } else {
-              useMiniAppStore.getState().notify(result.message);
+              useMiniAppStore.getState().notify(result.message, "danger", result);
             }
           } catch (error: unknown) {
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "danger", error);
           } finally {
             set({ deletingFileName: null });
           }
@@ -252,7 +252,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
           let existing: number = 0;
           let invalidDimensions: number = 0;
           let failed: number = 0;
-          let lastSingleMessage: string = "";
+          let lastSingleResult: MiniAppGalleryUploadResult | null = null;
 
           try {
             for (let i: number = 0; i < files.length; i++) {
@@ -267,7 +267,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
                 const bytes: Uint8Array = new Uint8Array(buffer);
                 const result: MiniAppGalleryUploadResult =
                   await uploadMiniAppGalleryImageBytes(bytes);
-                lastSingleMessage = result.message;
+                lastSingleResult = result;
                 if (result.outcome === "added") {
                   added++;
                 } else if (result.outcome === "existing") {
@@ -282,8 +282,14 @@ export function createGalleryStore(): MiniAppGalleryStore {
               }
             }
 
-            if (files.length === 1 && lastSingleMessage.length > 0) {
-              useMiniAppStore.getState().notify(lastSingleMessage);
+            if (files.length === 1 && lastSingleResult !== null) {
+              useMiniAppStore
+                .getState()
+                .notify(
+                  lastSingleResult.message,
+                  lastSingleResult.ok ? "info" : "warning",
+                  lastSingleResult
+                );
             } else {
               useMiniAppStore.getState().notify(
                 `+${added} · =${existing} · !${invalidDimensions + failed}`

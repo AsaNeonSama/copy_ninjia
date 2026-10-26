@@ -21,5 +21,5 @@ export async function uploadMiniAppGalleryImageBytes(
     return payload as MiniAppGalleryUploadResult;
   }
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return { ok: false, outcome: "failed", message: "未收到有效的上传回执。" };
+  return { ok: false, outcome: "failed", message: "GALLERY_UPLOAD_FAILED" };
 }

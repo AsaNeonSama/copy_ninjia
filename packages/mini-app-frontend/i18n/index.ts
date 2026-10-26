@@ -1,9 +1,15 @@
+import { asPayloadRecord } from "../libs/record";
+import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type {
+  MiniAppFeatureKey,
   MiniAppLanguage,
   TelegramWebApp,
   TelegramWindow,
 } from "../types/miniApp";
-import type { MiniAppTranslations } from "../types/miniAppI18n";
+import type {
+  MiniAppServerNoticeParams,
+  MiniAppTranslations,
+} from "../types/miniAppI18n";
 import { getEnTranslations } from "./en";
 import { getJaTranslations } from "./ja";
 import { getZhTranslations } from "./zh";
@@ -68,4 +74,77 @@ export function detectInitialMiniAppLanguage(): MiniAppLanguage {
   return detectBrowserDefaultLanguage();
 }
 
-export type { MiniAppTranslations } from "../types/miniAppI18n";
+/**
+ * 从服务端响应对象、Error 实例（含 `cause`）或显式参数对象提取多语言提示插值字段。
+ *
+ * @param source 响应载荷、`Error` 实例或插值参数对象
+ * @returns 归一化后的插值参数对象
+ */
+export function extractServerNoticeParams(
+  source: unknown
+): Readonly<MiniAppServerNoticeParams> | undefined {
+  const raw: unknown = source instanceof Error ? source.cause : source;
+  const record: Record<string, unknown> = asPayloadRecord(raw);
+  if (Object.keys(record).length === 0) return undefined;
+  return {
+    mood:
+      typeof record.mood === "string"
+        ? record.mood
+        : typeof record.currentMood === "string"
+          ? record.currentMood
+          : undefined,
+    feature:
+      typeof record.feature === "string"
+        ? (record.feature as MiniAppFeatureKey)
+        : undefined,
+    configFile: typeof record.configFile === "string" ? record.configFile : undefined,
+    id: typeof record.id === "number" ? record.id : undefined,
+    key:
+      typeof record.key === "string"
+        ? (record.key as WhitelistPermissionKey)
+        : undefined,
+    value: typeof record.value === "boolean" ? record.value : undefined,
+    persisted: typeof record.persisted === "boolean" ? record.persisted : undefined,
+    affectedChats:
+      typeof record.affectedChats === "number" ? record.affectedChats : undefined,
+    totalChats: typeof record.totalChats === "number" ? record.totalChats : undefined,
+    targetList:
+      record.targetList === "whitelist" || record.targetList === "blocklist"
+        ? record.targetList
+        : undefined,
+    addedCount:
+      typeof record.addedCount === "number"
+        ? record.addedCount
+        : Array.isArray(record.addedIds)
+          ? record.addedIds.length
+          : undefined,
+    skippedCount:
+      typeof record.skippedCount === "number"
+        ? record.skippedCount
+        : Array.isArray(record.skippedIds)
+          ? record.skippedIds.length
+          : undefined,
+    duplicateCount:
+      typeof record.duplicateCount === "number"
+        ? record.duplicateCount
+        : Array.isArray(record.duplicateIds)
+          ? record.duplicateIds.length
+          : undefined,
+    fileName: typeof record.fileName === "string" ? record.fileName : undefined,
+    width: typeof record.width === "number" ? record.width : undefined,
+    height: typeof record.height === "number" ? record.height : undefined,
+    remainingAttempts:
+      typeof record.remainingAttempts === "number"
+        ? record.remainingAttempts
+        : undefined,
+    remainingMinutes:
+      typeof record.remainingMinutes === "number"
+        ? record.remainingMinutes
+        : undefined,
+  };
+}
+
+export type {
+  MiniAppServerNoticeParams,
+  MiniAppTranslations,
+} from "../types/miniAppI18n";

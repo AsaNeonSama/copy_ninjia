@@ -3,20 +3,17 @@ import type React from "react";
 import { AccessDeniedPage } from "./components/AccessDeniedPage";
 import { AppShell } from "./components/AppShell";
 import { AuthGate } from "./components/AuthGate";
-import { PrefsBar } from "./components/PrefsBar";
-import { AuthGateSkeleton } from "./components/skeletons/AuthGateSkeleton";
-import { detectBrowserDefaultLanguage, getMiniAppTranslations } from "./i18n";
 import { applyMiniAppThemeToDocument, useMiniAppStore } from "./store/app";
 import type { MiniAppGateState, MiniAppUiStoreState } from "./store/app";
 import type { MiniAppThemeMode } from "./types/miniApp";
 
 /**
- * Copy Ninja Mini App 根 React 应用组件：同步主题到宿主，在 `checking` 阶段发起访问预检，
- * 并按门禁状态渲染预检骨架、拦截页、密码 / TOTP 门禁或解锁后的控制台外壳。
+ * Copy Ninja Mini App 根 React 应用组件：同步主题到宿主，在 `checking` 阶段首先请求首个服务端预检接口校验请求头，
+ * 服务端完成校验前不渲染任何骨架，校验完成后按门禁状态渲染拦截页、密码 / TOTP 门禁或解锁后的控制台外壳。
  *
  * @returns React 根视图
  */
-export function App(): React.JSX.Element {
+export function App(): React.JSX.Element | null {
   const theme: MiniAppThemeMode = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppThemeMode => state.theme
   );
@@ -42,14 +39,7 @@ export function App(): React.JSX.Element {
   }, [gateState, runAccessPrecheck]);
 
   if (gateState === "checking") {
-    return (
-      <div className="auth-gate-wrap animate-fade-in">
-        <div className="gate-top-prefs"><PrefsBar /></div>
-        <AuthGateSkeleton
-          ariaLabel={getMiniAppTranslations(detectBrowserDefaultLanguage()).gate.checkingText}
-        />
-      </div>
-    );
+    return null;
   }
 
   if (gateState === "denied") {

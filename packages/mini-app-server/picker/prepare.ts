@@ -90,7 +90,7 @@ export async function prepareMiniAppPicker({
   if (preparedButtonId === undefined || preparedButtonId.trim().length === 0) {
     return {
       ok: false,
-      message: "无法创建 Telegram 原生选择器预备按钮，请确认 Bot API 支持 savePreparedKeyboardButton 或改用 ID 直接添加。",
+      message: "PICKER_PREPARE_FAILED",
     };
   }
 

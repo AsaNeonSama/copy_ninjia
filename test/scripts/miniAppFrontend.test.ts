@@ -30,7 +30,7 @@ const COMPLIANT_FILES: Readonly<Record<string, string>> = {
   "packages/mini-app-frontend/types/miniApp.ts": "export type T = number;\n",
   "packages/mini-app-server/server/register.ts": 'import indexHtml from "../../mini-app-frontend/index.html";\n',
   "packages/mini-app-server/libs/response.ts": 'import { MINI_APP_CSP_HEADER_VALUE } from "../../consts/miniApp";\n',
-  "test/miniApp/example.test.ts": 'import { App } from "../../packages/mini-app-frontend/App";\n',
+  "test/mini-app-frontend/example.test.ts": 'import { App } from "../../packages/mini-app-frontend/App";\n',
 };
 
 /**

@@ -3,9 +3,13 @@ import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
   MiniAppChatDetail,
+  MiniAppFeatureKey,
   MiniAppIdentitySubTabKey,
 } from "../types/miniApp";
-import type { MiniAppTranslations } from "../types/miniAppI18n";
+import type {
+  MiniAppServerNoticeParams,
+  MiniAppTranslations,
+} from "../types/miniAppI18n";
 
 /**
  * 返回英文（Zaako♡ 杂鱼语气）的 Mini App 界面文案字典。
@@ -23,6 +27,200 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
     cron: "Scheduled Cron Tasks",
     hImage: "Random H-Image Gallery (/h_image)",
     randomHImage: "Random H-Image Gallery (/h_image)",
+  };
+  const featureShortNames: Readonly<Record<MiniAppFeatureKey, string>> = {
+    init: "Master Group Switch (/init)",
+    aiChat: "AI Chat (/ai_chat)",
+    translation: "Auto Translation (/translate)",
+    adDetect: "Ad Detection (/ad_detect)",
+    floodControl: "Flood Mute Guard (/flood_control)",
+    antiRaid: "Anti-Raid Join Guard (/antiraid)",
+    proxySend: "Proxy Send Target (/send)",
+  };
+  const serverNotice = (
+    rawCode: string,
+    params?: Readonly<MiniAppServerNoticeParams>
+  ): string => {
+    const code: string = rawCode.replace(/^\[[A-Z0-9_]+\]\s*/u, "").trim();
+    const idText: string = params?.id !== undefined ? String(params.id) : "";
+    const featureLabel: string =
+      params?.feature !== undefined ? featureShortNames[params.feature] : "This feature";
+    const listLabel: string =
+      params?.targetList === "blocklist" ? "blocklist" : "whitelist";
+    switch (code) {
+      case "MISSING_INIT_DATA":
+      case "MALFORMED_INIT_DATA":
+      case "MISSING_HASH":
+      case "MISSING_USER":
+        return `Telegram WebApp initData verification failed (${code}). Direct peeking from an external browser is strictly denied, Zaako.`;
+      case "INVALID_SIGNATURE":
+        return `Telegram WebApp signature verification failed (${code}). Forging signatures won't work, Zaako.`;
+      case "EXPIRED_AUTH_DATE":
+        return `Telegram WebApp signature has expired (${code}). Reopen the panel from Telegram for a fresh signature, Zaako.`;
+      case "FORBIDDEN_USER":
+        return "Only the configured SuperAdmin user ID is allowed in this Mini App. Hands off, Zaako.";
+      case "DIRECT_NAVIGATION_FORBIDDEN":
+        return "Direct browser address bar navigation to protected image or SVG assets is forbidden.";
+      case "CROSS_SITE_FORBIDDEN":
+        return `Cross-site request to Telegram Mini App endpoint is forbidden (${code}), Zaako.`;
+      case "PASSWORD_REQUIRED":
+        return "Mini App access password is not verified yet. Enter your password to unlock the console, Zaako.";
+      case "SESSION_EXPIRED":
+        return "Your 45-minute Mini App session has expired or is invalid. Please re-enter the access password, Zaako.";
+      case "PASSWORD_LOCKED":
+        return `3 consecutive wrong tries! SuperAdmin ID is locked out for 30 minutes${params?.remainingMinutes !== undefined ? ` (~${params.remainingMinutes} min left)` : ""}, Zaako.`;
+      case "INVALID_PASSWORD":
+        return `Wrong access password${params?.remainingAttempts !== undefined ? `, ${params.remainingAttempts} attempt(s) left` : ""} (3 wrong tries locks you out for 30 minutes), Zaako!`;
+      case "INVALID_TOTP_CODE":
+        return params?.remainingAttempts !== undefined
+          ? `Wrong 6-digit Google Authenticator code, ${params.remainingAttempts} attempt(s) left (3 wrong tries locks you out for 30 minutes), Zaako!`
+          : "Invalid 6-digit TOTP code. Check the current code shown in Google Authenticator, Zaako!";
+      case "TOTP_SETUP_EXPIRED":
+        return "Pending authenticator QR setup expired or does not exist. Generate a new QR code first, Zaako.";
+      case "TOTP_ENABLED":
+        return "Google Authenticator has been enabled successfully, Zaako♡";
+      case "TOTP_UPDATED":
+        return "Google Authenticator has been updated successfully, Zaako♡";
+      case "TOTP_DELETED":
+        return "Google Authenticator deleted. Reverted to access password login, Zaako.";
+      case "MOOD_SWITCHED":
+        return params?.mood
+          ? `Hmph, switched this Genius's mood to "${params.mood}" for you, Zaako♡`
+          : "Hmph, switched the global mood for you, Zaako♡";
+      case "MOOD_SWITCH_FAILED":
+        return "Tsk, failed to switch mood. AI Worker or mood config isn't ready yet, Zaako♡";
+      case "INVALID_CHAT_ID":
+        return "Invalid group chat ID.";
+      case "CHAT_NOT_FOUND":
+        return "This group does not have /init enabled or does not exist.";
+      case "INVALID_CHAT_FEATURE_PARAMS":
+        return "Invalid request parameters: valid feature and boolean enabled are required.";
+      case "CHAT_NOT_INITIALIZED":
+        return "This group does not have /init enabled and is no longer in the managed list.";
+      case "CHAT_INIT_ALREADY_ENABLED":
+        return "This group already has /init enabled.";
+      case "CHAT_INIT_DISABLED":
+        return "Disabled /init master switch and removed this group from the managed list.";
+      case "CHAT_INIT_DISABLED_TEARDOWN_FAILED":
+        return "Disabled /init master switch, but some runtime state cleanup failed.";
+      case "FEATURE_CONFIG_NOT_READY":
+        return `${featureLabel} config is not ready${params?.configFile !== undefined ? ` (${params.configFile})` : ""}, cannot enable.`;
+      case "FEATURE_ENABLED":
+        return `Enabled ${featureLabel}.`;
+      case "FEATURE_DISABLED":
+        return `Disabled ${featureLabel}.`;
+      case "PROXY_SEND_ENABLED":
+        return "Set this group as the private chat proxy send target (/send).";
+      case "PROXY_SEND_DISABLED":
+        return "Stopped private chat proxy send for this group (/send finish).";
+      case "INVALID_IDENTITY_PARAMS":
+        return "Invalid request parameters: non-zero safe integer id and boolean enabled are required.";
+      case "INVALID_IDENTITY_ID":
+        return "Clueless Zaako♡, invalid identity ID (must be a non-zero safe integer)!";
+      case "INVALID_PERMISSION_PARAMS":
+        return "Invalid request parameters: valid permission key and boolean value are required.";
+      case "INVALID_PICKER_PARAMS":
+        return "Invalid request parameters: valid targetList and subjectKind are required.";
+      case "INVALID_PICKER_REQUEST_ID":
+        return "Invalid request parameters: positive integer requestId is required.";
+      case "SUPER_ADMIN_EXEMPT":
+        return "Zaako♡, SuperAdmin always holds all top permissions and doesn't need to be in the whitelist!";
+      case "BLOCKLIST_SUPER_ADMIN_FORBIDDEN":
+        return "Clueless Zaako♡, trying to put the SuperAdmin into the blocklist? Keep dreaming!";
+      case "IDENTITY_STORAGE_UNAVAILABLE":
+        return "Tsk, identity policy storage is busy right now. Try again later, Zaako♡";
+      case "IDENTITY_IN_BLOCKLIST":
+        return `Clueless Zaako♡, ID ${idText} is locked in the blocklist right now! Unblock it first before adding to the whitelist!`;
+      case "IDENTITY_IN_WHITELIST":
+        return `Clueless Zaako♡, ID ${idText} is protected by the whitelist! Remove it from the whitelist first!`;
+      case "WHITELIST_DUPLICATE":
+        return `Clueless Zaako♡, ID ${idText} is already in the whitelist! No duplicate additions!`;
+      case "WHITELIST_ADDED":
+        return `Hmph, added ID ${idText} to the whitelist with default permissions for you, Zaako♡`;
+      case "WHITELIST_REMOVED":
+        return `Hmph, kicked ID ${idText} out of the whitelist for you, Zaako♡`;
+      case "WHITELIST_NOT_FOUND":
+        return `Zaako♡, ID ${idText} wasn't in the whitelist in the first place.`;
+      case "WHITELIST_PERSIST_FAILED":
+        return "Tsk, failed to persist whitelist change to disk. Check database write status, Zaako♡";
+      case "BLOCKLIST_DUPLICATE":
+        return `Clueless Zaako♡, ID ${idText} is already in the blocklist! No duplicate additions!`;
+      case "BLOCKLIST_ADDED": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `, banned in ${params.affectedChats ?? 0}/${params.totalChats} managed group(s)`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? " (Note: disk persistence confirmation incomplete)" : "";
+        return `Hmph, locked ID ${idText} in the blocklist${fanOutNote}${persistNote}, Zaako♡`;
+      }
+      case "BLOCKLIST_REMOVED":
+      case "BLOCKLIST_NOT_FOUND": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `, unbanned in ${params.affectedChats ?? 0}/${params.totalChats} managed group(s)`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? " (Note: disk persistence confirmation incomplete)" : "";
+        const base: string =
+          code === "BLOCKLIST_REMOVED"
+            ? `Hmph, released ID ${idText} from the blocklist`
+            : `Zaako, ID ${idText} wasn't in the blocklist`;
+        return `${base}${fanOutNote}${persistNote}♡`;
+      }
+      case "PERMISSION_UPDATED":
+        return `Set ${params?.key ?? ""} for ID ${idText} to ${String(params?.value ?? true)}.`;
+      case "PERMISSION_UNCHANGED":
+        return `${params?.key ?? ""} for ID ${idText} was already ${String(params?.value ?? true)}.`;
+      case "ALL_PERMISSIONS_ENABLED":
+        return `Enabled all whitelist permissions for ID ${idText}.`;
+      case "ALL_PERMISSIONS_UNCHANGED":
+        return `All permissions for ID ${idText} were already enabled.`;
+      case "PERMISSION_PERSIST_FAILED":
+        return "Failed to persist permission changes to disk. Please check database write status.";
+      case "PICKER_PREPARE_FAILED":
+        return "Failed to prepare Telegram native picker button. Check savePreparedKeyboardButton support or add by numeric ID.";
+      case "PICKER_IMPORT_ADDED": {
+        const added: number = params?.addedCount ?? 0;
+        const skipped: number = params?.skippedCount ?? 0;
+        const dup: number = params?.duplicateCount ?? 0;
+        const dupSuffix: string =
+          dup > 0 ? `, ${dup} already in ${listLabel}` : "";
+        return `Hmph, added ${added} identity(s) to the ${listLabel}${skipped > 0 ? ` (skipped ${skipped}${dupSuffix})` : ""}, Zaako♡`;
+      }
+      case "PICKER_IMPORT_DUPLICATE":
+        return `Clueless Zaako♡, all ${params?.duplicateCount ?? 0} selected target(s) are already in the ${listLabel}!`;
+      case "PICKER_IMPORT_EMPTY":
+        return `Zaako♡, could not add the selected identity(s) to the ${listLabel} (skipped ${params?.skippedCount ?? 0}).`;
+      case "GALLERY_IMAGE_ADDED":
+        return `Hmph, stored image by SHA-256 for you: ${params?.fileName ?? ""}♡`;
+      case "GALLERY_IMAGE_EXISTING":
+        return `Clueless Zaako♡, an identical SHA-256 image already exists in the gallery: ${params?.fileName ?? ""}`;
+      case "GALLERY_DIRECTORY_MISSING":
+        return "Tsk, the configured gallery directory does not exist yet! Create it on the server first, Zaako♡";
+      case "GALLERY_IMAGE_EMPTY":
+        return "Clueless Zaako♡, the uploaded image payload is empty!";
+      case "GALLERY_IMAGE_TOO_LARGE":
+        return "Zaako♡, the image exceeds the 10 MiB size limit!";
+      case "GALLERY_UNSUPPORTED_FORMAT":
+        return "Clueless Zaako♡, only JPEG, PNG, or WebP images are supported!";
+      case "GALLERY_INVALID_DIMENSIONS":
+        return `Zaako♡, image dimensions (${params?.width ?? 0}×${params?.height ?? 0}) violate Telegram photo limits (width+height ≤ 10000 and aspect ratio ≤ 20)!`;
+      case "GALLERY_UPLOAD_FAILED":
+        return "Tsk, failed to parse image dimensions or write to the gallery directory, Zaako♡";
+      case "GALLERY_UPLOAD_READ_FAILED":
+        return "Failed to read the uploaded image request body.";
+      case "GALLERY_IMAGE_DELETED":
+        return `Hmph, deleted ${params?.fileName ?? ""} from the gallery for you, Zaako♡`;
+      case "GALLERY_IMAGE_NOT_FOUND":
+        return "Zaako♡, this image was already deleted or does not exist!";
+      case "GALLERY_INVALID_FILE_NAME":
+        return "Clueless Zaako♡, invalid image file name format!";
+      case "GALLERY_DELETE_FAILED":
+        return "Tsk, failed to delete the image from the gallery directory. Check disk permissions, Zaako♡";
+      default:
+        return code;
+    }
   };
   return {
     languageLabel: "EN",
@@ -53,8 +251,8 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       gallery: "/h_image preview, upload & delete",
       totp: "Google Authenticator (TOTP) setup, replace & delete",
     },
+    serverNotice,
     gate: {
-      checkingText: "Verifying your SuperAdmin signature, sit tight Zaako…",
       deniedTitle: "Access denied, Zaako♡",
       deniedDescription:
         "Hmph, a Zaako like you doesn't have permission to peek at this console from an external browser or unauthorized client.",
@@ -70,29 +268,15 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       deniedWhatHappenedDesc:
         "This endpoint enforces strict Telegram WebApp signature verification and administrator access control. The request a Zaako like you just sent failed policy validation and got kicked right out.",
       deniedPolicyDetailLabel: (code: string): string => `Policy Detail (${code})`,
-      deniedPolicyReason: (code: string, fallbackError: string): string => {
+      deniedPolicyReason: (
+        code: string,
+        fallbackError: string,
+        params?: Readonly<MiniAppServerNoticeParams>
+      ): string => {
         const upper: string = code.toUpperCase();
-        if (
-          upper === "MISSING_INIT_DATA" ||
-          upper === "MALFORMED_INIT_DATA" ||
-          upper === "MISSING_HASH" ||
-          upper === "MISSING_USER"
-        ) {
-          return `Telegram WebApp initData verification failed (${code}). Direct peeking from an external browser is strictly denied, Zaako.`;
-        }
-        if (upper === "INVALID_SIGNATURE") {
-          return `Telegram WebApp signature verification failed (${code}). Forging signatures won't work, Zaako.`;
-        }
-        if (upper === "EXPIRED_AUTH_DATE") {
-          return `Telegram WebApp signature has expired (${code}). Reopen the panel from Telegram for a fresh signature, Zaako.`;
-        }
-        if (upper === "FORBIDDEN_USER") {
-          return "Only the configured SuperAdmin user ID is allowed in this Mini App. Hands off, Zaako.";
-        }
-        if (upper === "CROSS_SITE_FORBIDDEN") {
-          return `Cross-site request to Telegram Mini App endpoint is forbidden (${code}), Zaako.`;
-        }
-        return fallbackError;
+        const byCode: string = serverNotice(upper, params);
+        if (byCode !== upper) return byCode;
+        return serverNotice(fallbackError || code, params);
       },
       deniedWhatCanIDoTitle: "What can a Zaako do?",
       deniedWhatCanIDoDesc:
@@ -386,10 +570,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
     identities: {
       whitelistTab: "Permissions",
       blocklistTab: "Blocklist",
-      searchPlaceholder: (subTab: MiniAppIdentitySubTabKey): string =>
-        subTab === "whitelist"
-          ? "Search whitelist name / @username / ID"
-          : "Search blocklist name / @username / ID",
+      searchPlaceholder: "id/name",
       searchClearAria: "Clear search query",
       searchDebounceHint: "0.5s debounced searching…",
       addFoldButton: "Add User",

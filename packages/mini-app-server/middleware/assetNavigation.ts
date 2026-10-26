@@ -19,7 +19,7 @@ export function miniAppAssetNavigationGuardMiddleware(
       status: 403,
       code: "DIRECT_NAVIGATION_FORBIDDEN",
       reason: "forbidden_user",
-      error: "禁止从浏览器地址栏直接导航访问受保护的图片或 SVG 资源。",
+      error: "DIRECT_NAVIGATION_FORBIDDEN",
     });
   }
   return next();

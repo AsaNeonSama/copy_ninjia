@@ -3,6 +3,7 @@ import type { StoreApi } from "zustand";
 import { fetchMiniAppMood } from "../api/mood";
 import { switchMiniAppMood } from "../api/moodSwitch";
 import { fetchMiniAppStatus } from "../api/status";
+import { extractServerNoticeParams, getMiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
 import type {
@@ -107,10 +108,13 @@ export function createStatusStore(): MiniAppStatusStore {
             if (reqId !== requestSeq) {
               return;
             }
-            const message: string = errorMessage(error);
-            set({ errorText: message });
+            const rawMessage: string = errorMessage(error);
+            const localized: string = getMiniAppTranslations(
+              useMiniAppStore.getState().language
+            ).serverNotice(rawMessage, extractServerNoticeParams(error));
+            set({ errorText: localized });
             if (showErrorToast) {
-              useMiniAppStore.getState().notify(message);
+              useMiniAppStore.getState().notify(rawMessage, "info", error);
             }
           } finally {
             if (reqId === requestSeq) {
@@ -131,10 +135,10 @@ export function createStatusStore(): MiniAppStatusStore {
             if (result.ok && result.currentMood !== null) {
               set({ currentMood: result.currentMood });
             }
-            useMiniAppStore.getState().notify(result.message);
+            useMiniAppStore.getState().notify(result.message, "info", result);
           } catch (error: unknown) {
             const message: string = errorMessage(error);
-            useMiniAppStore.getState().notify(message);
+            useMiniAppStore.getState().notify(message, "info", error);
           } finally {
             set({ switchingMood: false });
           }

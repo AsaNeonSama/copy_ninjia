@@ -55,16 +55,17 @@ export async function downloadMiniAppGalleryImageByName(fileName: string): Promi
     );
     const payload: unknown = await getRes.json().catch((): null => null);
     const record: Record<string, unknown> = asPayloadRecord(payload);
-    if (record.code === "PASSWORD_REQUIRED" || record.code === "PASSWORD_LOCKED") {
-      clearMiniAppSessionToken();
-    }
     const errText: string =
       typeof record.message === "string"
         ? record.message
         : typeof record.error === "string"
           ? record.error
           : `HTTP ${String(response.status)}`;
-    throw new Error(errText);
+    if (record.code === "PASSWORD_REQUIRED" || record.code === "PASSWORD_LOCKED") {
+      clearMiniAppSessionToken();
+      throw new Error(`[${record.code}] ${errText}`, { cause: record });
+    }
+    throw new Error(errText, { cause: record });
   }
   const downloadFileName: string = buildMiniAppGalleryDownloadFileName(fileName);
   const tgWindow: TelegramWindow = globalThis;

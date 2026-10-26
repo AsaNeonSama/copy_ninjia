@@ -68,9 +68,10 @@ async function disableChatInit(
   return {
     ok: true,
     removedFromList: true,
+    feature: "init",
     message: teardownFailed
-      ? "已关闭 /init 总开关，但部分运行时状态清理失败。"
-      : "已关闭该群 /init 总开关并从受管列表中移除。",
+      ? "CHAT_INIT_DISABLED_TEARDOWN_FAILED"
+      : "CHAT_INIT_DISABLED",
     detail: null,
   };
 }
@@ -78,20 +79,22 @@ async function disableChatInit(
 /**
  * 校验开启某项依赖外部配置的群功能时配置是否就绪。
  * @param chatId 目标群聊 ID。
- * @param label 功能中文名称。
+ * @param feature 功能键。
  * @param readiness 配置可用性结果。
  * @returns 配置未就绪时返回拒绝结果，已就绪时返回 `null`。
  */
 function checkFeatureReadiness(
   chatId: number,
-  label: string,
+  feature: MiniAppFeatureKey,
   readiness: ConfigReadiness
 ): Readonly<MiniAppFeatureToggleResult> | null {
   if (readiness.ok) return null;
   return {
     ok: false,
     removedFromList: false,
-    message: `${label}配置未就绪 (${readiness.failure.file})，无法开启。`,
+    feature,
+    configFile: readiness.failure.file,
+    message: "FEATURE_CONFIG_NOT_READY",
     detail: getManagedChatDetail(chatId),
   };
 }
@@ -111,7 +114,8 @@ export async function setManagedChatFeature({
     return {
       ok: false,
       removedFromList: true,
-      message: "该群当前未开启 /init，已不在受管群列表中。",
+      feature,
+      message: "CHAT_NOT_INITIALIZED",
       detail: null,
     };
   }
@@ -121,7 +125,8 @@ export async function setManagedChatFeature({
       return {
         ok: true,
         removedFromList: false,
-        message: "该群已处于 /init 开启状态。",
+        feature: "init",
+        message: "CHAT_INIT_ALREADY_ENABLED",
         detail: getManagedChatDetail(chatId),
       };
     }
@@ -131,7 +136,7 @@ export async function setManagedChatFeature({
   if (feature === "aiChat") {
     if (enabled) {
       const refused: Readonly<MiniAppFeatureToggleResult> | null =
-        checkFeatureReadiness(chatId, "AI 群聊", aiChatConfigReadiness());
+        checkFeatureReadiness(chatId, "aiChat", aiChatConfigReadiness());
       if (refused !== null) return refused;
     }
     const state: ChatState = getOrCreateChatState(chatId);
@@ -151,7 +156,8 @@ export async function setManagedChatFeature({
     return {
       ok: true,
       removedFromList: false,
-      message: enabled ? "已开启 AI 群聊 (/ai_chat)。" : "已关闭 AI 群聊 (/ai_chat)。",
+      feature: "aiChat",
+      message: enabled ? "FEATURE_ENABLED" : "FEATURE_DISABLED",
       detail: getManagedChatDetail(chatId),
     };
   }
@@ -159,7 +165,7 @@ export async function setManagedChatFeature({
   if (feature === "translation") {
     if (enabled) {
       const refused: Readonly<MiniAppFeatureToggleResult> | null =
-        checkFeatureReadiness(chatId, "自动翻译", translateConfigReadiness());
+        checkFeatureReadiness(chatId, "translation", translateConfigReadiness());
       if (refused !== null) return refused;
     } else {
       await stopTranslation(chatId);
@@ -170,7 +176,8 @@ export async function setManagedChatFeature({
     return {
       ok: true,
       removedFromList: false,
-      message: enabled ? "已开启自动翻译 (/translate)。" : "已关闭自动翻译 (/translate)。",
+      feature: "translation",
+      message: enabled ? "FEATURE_ENABLED" : "FEATURE_DISABLED",
       detail: getManagedChatDetail(chatId),
     };
   }
@@ -178,7 +185,7 @@ export async function setManagedChatFeature({
   if (feature === "adDetect") {
     if (enabled) {
       const refused: Readonly<MiniAppFeatureToggleResult> | null =
-        checkFeatureReadiness(chatId, "广告检测", adDetectConfigReadiness());
+        checkFeatureReadiness(chatId, "adDetect", adDetectConfigReadiness());
       if (refused !== null) return refused;
     }
     const state: ChatState = getOrCreateChatState(chatId);
@@ -198,7 +205,8 @@ export async function setManagedChatFeature({
     return {
       ok: true,
       removedFromList: false,
-      message: enabled ? "已开启广告检测 (/ad_detect)。" : "已关闭广告检测 (/ad_detect)。",
+      feature: "adDetect",
+      message: enabled ? "FEATURE_ENABLED" : "FEATURE_DISABLED",
       detail: getManagedChatDetail(chatId),
     };
   }
@@ -221,7 +229,8 @@ export async function setManagedChatFeature({
     return {
       ok: true,
       removedFromList: false,
-      message: enabled ? "已开启防刷屏禁言 (/flood_control)。" : "已关闭防刷屏禁言 (/flood_control)。",
+      feature: "floodControl",
+      message: enabled ? "FEATURE_ENABLED" : "FEATURE_DISABLED",
       detail: getManagedChatDetail(chatId),
     };
   }
@@ -244,7 +253,8 @@ export async function setManagedChatFeature({
     return {
       ok: true,
       removedFromList: false,
-      message: enabled ? "已开启入群守卫 (/antiraid)。" : "已关闭入群守卫 (/antiraid)。",
+      feature: "antiRaid",
+      message: enabled ? "FEATURE_ENABLED" : "FEATURE_DISABLED",
       detail: getManagedChatDetail(chatId),
     };
   }
@@ -260,7 +270,8 @@ export async function setManagedChatFeature({
     return {
       ok: true,
       removedFromList: false,
-      message: "已将该群设为私聊中转发送目标 (/send)。",
+      feature: "proxySend",
+      message: "PROXY_SEND_ENABLED",
       detail: getManagedChatDetail(chatId),
     };
   }
@@ -270,7 +281,8 @@ export async function setManagedChatFeature({
   return {
     ok: true,
     removedFromList: false,
-    message: "已停止该群的私聊中转发送 (/send finish)。",
+    feature: "proxySend",
+    message: "PROXY_SEND_DISABLED",
     detail: getManagedChatDetail(chatId),
   };
 }

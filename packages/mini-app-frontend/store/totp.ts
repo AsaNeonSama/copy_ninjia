@@ -95,7 +95,7 @@ export function createTotpStore(): MiniAppTotpStore {
             const res: Readonly<MiniAppTotpSetupResponse> = await setupMiniAppTotp();
             set({ setupData: res, codeInput: "" });
           } catch (error: unknown) {
-            useMiniAppStore.getState().notify(errorMessage(error));
+            useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {
             set({ busy: false });
           }
@@ -125,9 +125,9 @@ export function createTotpStore(): MiniAppTotpStore {
             useMiniAppStore
               .getState()
               .setAuthMode(res.status.enabled ? "totp" : "password");
-            useMiniAppStore.getState().notify(res.message);
+            useMiniAppStore.getState().notify(res.message, "info", res);
           } catch (error: unknown) {
-            useMiniAppStore.getState().notify(errorMessage(error));
+            useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {
             set({ busy: false });
           }
@@ -147,9 +147,9 @@ export function createTotpStore(): MiniAppTotpStore {
               await deleteMiniAppTotp();
             set({ totpStatus: res.status, setupData: null, codeInput: "" });
             useMiniAppStore.getState().setAuthMode("password");
-            useMiniAppStore.getState().notify(res.message);
+            useMiniAppStore.getState().notify(res.message, "info", res);
           } catch (error: unknown) {
-            useMiniAppStore.getState().notify(errorMessage(error));
+            useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {
             set({ busy: false });
           }

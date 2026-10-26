@@ -3,9 +3,13 @@ import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
   MiniAppChatDetail,
+  MiniAppFeatureKey,
   MiniAppIdentitySubTabKey,
 } from "../types/miniApp";
-import type { MiniAppTranslations } from "../types/miniAppI18n";
+import type {
+  MiniAppServerNoticeParams,
+  MiniAppTranslations,
+} from "../types/miniAppI18n";
 
 /**
  * 返回简体中文（杂鱼语气）的 Mini App 界面文案字典。
@@ -23,6 +27,200 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
     cron: "定时播报任务",
     hImage: "随机色图图库 (/h_image)",
     randomHImage: "随机色图图库 (/h_image)",
+  };
+  const featureShortNames: Readonly<Record<MiniAppFeatureKey, string>> = {
+    init: "群受管总开关 (/init)",
+    aiChat: "AI 群聊 (/ai_chat)",
+    translation: "自动翻译 (/translate)",
+    adDetect: "广告检测 (/ad_detect)",
+    floodControl: "防刷屏禁言 (/flood_control)",
+    antiRaid: "入群守卫 (/antiraid)",
+    proxySend: "私聊中转发送 (/send)",
+  };
+  const serverNotice = (
+    rawCode: string,
+    params?: Readonly<MiniAppServerNoticeParams>
+  ): string => {
+    const code: string = rawCode.replace(/^\[[A-Z0-9_]+\]\s*/u, "").trim();
+    const idText: string = params?.id !== undefined ? String(params.id) : "";
+    const featureLabel: string =
+      params?.feature !== undefined ? featureShortNames[params.feature] : "该功能";
+    const listLabel: string =
+      params?.targetList === "blocklist" ? "黑名单" : "白名单";
+    switch (code) {
+      case "MISSING_INIT_DATA":
+      case "MALFORMED_INIT_DATA":
+      case "MISSING_HASH":
+      case "MISSING_USER":
+        return `Telegram WebApp initData 校验失败（${code}），严禁从外部浏览器直接偷看哦，杂鱼`;
+      case "INVALID_SIGNATURE":
+        return `Telegram WebApp 签名校验失败（${code}），伪造签名也是没用的哦，杂鱼`;
+      case "EXPIRED_AUTH_DATE":
+        return `Telegram WebApp 签名凭据已过期（${code}），快回 Telegram 重新点开面板刷新签名吧，杂鱼`;
+      case "FORBIDDEN_USER":
+        return "只有配置好的超级管理员本尊才能进入这个 Mini App 哦，杂鱼就别乱碰啦";
+      case "DIRECT_NAVIGATION_FORBIDDEN":
+        return "禁止从浏览器地址栏直接导航访问受保护的图片或 SVG 资源。";
+      case "CROSS_SITE_FORBIDDEN":
+        return `跨站请求已被直接拦截（${code}），杂鱼别想从奇怪的地方发起调用哦`;
+      case "PASSWORD_REQUIRED":
+        return "Mini App 访问密码尚未验证，请先输入访问密码解锁控制台。";
+      case "SESSION_EXPIRED":
+        return "Mini App 访问认证已满 45 分钟过期或无效，请重新输入访问密码。";
+      case "PASSWORD_LOCKED":
+        return `密码连续输错已达 3 次，当前超级管理员 ID 已被锁定，30 分钟内无法访问${params?.remainingMinutes !== undefined ? `（剩余约 ${params.remainingMinutes} 分钟）` : ""}。`;
+      case "INVALID_PASSWORD":
+        return `访问密码错误${params?.remainingAttempts !== undefined ? `，还剩 ${params.remainingAttempts} 次尝试机会` : ""}（连续输错 3 次将锁定 30 分钟）。`;
+      case "INVALID_TOTP_CODE":
+        return params?.remainingAttempts !== undefined
+          ? `Google Authenticator 6 位动态验证码错误，还剩 ${params.remainingAttempts} 次尝试机会（连续输错 3 次将锁定 30 分钟）。`
+          : "6 位动态验证码不正确，请确认 Google Authenticator 当前显示的验证码。";
+      case "TOTP_SETUP_EXPIRED":
+        return "待绑定的验证器二维码已过期或不存在，请重新点击生成二维码。";
+      case "TOTP_ENABLED":
+        return "已成功启用 Google Authenticator 验证器。";
+      case "TOTP_UPDATED":
+        return "已成功更新 Google Authenticator 验证器。";
+      case "TOTP_DELETED":
+        return "已删除 Google Authenticator 验证器，已恢复使用访问密码验证。";
+      case "MOOD_SWITCHED":
+        return params?.mood
+          ? `哼，本天才现在的心情已经切换成「${params.mood}」啦♡`
+          : "哼，已经帮杂鱼切换好全局情绪啦♡";
+      case "MOOD_SWITCH_FAILED":
+        return "啧，情绪切换失败了，AI Worker 或情绪配置还没准备好呢♡";
+      case "INVALID_CHAT_ID":
+        return "无效的群聊 ID。";
+      case "CHAT_NOT_FOUND":
+        return "该群未开启 /init 或不存在。";
+      case "INVALID_CHAT_FEATURE_PARAMS":
+        return "请求参数格式非法：需要合法的 feature 与布尔值 enabled。";
+      case "CHAT_NOT_INITIALIZED":
+        return "该群当前未开启 /init，已不在受管群列表中。";
+      case "CHAT_INIT_ALREADY_ENABLED":
+        return "该群已处于 /init 开启状态。";
+      case "CHAT_INIT_DISABLED":
+        return "已关闭该群 /init 总开关并从受管列表中移除。";
+      case "CHAT_INIT_DISABLED_TEARDOWN_FAILED":
+        return "已关闭 /init 总开关，但部分运行时状态清理失败。";
+      case "FEATURE_CONFIG_NOT_READY":
+        return `${featureLabel}配置未就绪${params?.configFile !== undefined ? ` (${params.configFile})` : ""}，无法开启。`;
+      case "FEATURE_ENABLED":
+        return `已开启 ${featureLabel}。`;
+      case "FEATURE_DISABLED":
+        return `已关闭 ${featureLabel}。`;
+      case "PROXY_SEND_ENABLED":
+        return "已将该群设为私聊中转发送目标 (/send)。";
+      case "PROXY_SEND_DISABLED":
+        return "已停止该群的私聊中转发送 (/send finish)。";
+      case "INVALID_IDENTITY_PARAMS":
+        return "请求参数非法：需要非零安全整数 id 与布尔值 enabled。";
+      case "INVALID_IDENTITY_ID":
+        return "笨蛋杂鱼♡，连身份 ID 都填错啦（必须是非零安全整数）！";
+      case "INVALID_PERMISSION_PARAMS":
+        return "请求参数非法：需要合法的权限键 key 与布尔值 value。";
+      case "INVALID_PICKER_PARAMS":
+        return "请求参数非法：需要合法的 targetList 与 subjectKind。";
+      case "INVALID_PICKER_REQUEST_ID":
+        return "请求参数非法：需要正整数 requestId。";
+      case "SUPER_ADMIN_EXEMPT":
+        return "杂鱼♡，超级管理员天生就拥有全部最高权限，才不需要塞进白名单表呢！";
+      case "BLOCKLIST_SUPER_ADMIN_FORBIDDEN":
+        return "笨蛋杂鱼♡，居然想把超级管理员关进黑名单？做梦去吧！";
+      case "IDENTITY_STORAGE_UNAVAILABLE":
+        return "啧，身份策略存储暂时没空理你，杂鱼稍后再试♡";
+      case "IDENTITY_IN_BLOCKLIST":
+        return `笨蛋杂鱼♡，ID ${idText} 现在正关在黑名单里呢，想放进白名单就先去解封！`;
+      case "IDENTITY_IN_WHITELIST":
+        return `笨蛋杂鱼♡，ID ${idText} 受白名单保护呢，不许直接塞进黑名单！`;
+      case "WHITELIST_DUPLICATE":
+        return `笨蛋杂鱼♡，ID ${idText} 早就已经在白名单里啦，不许重复添加！`;
+      case "WHITELIST_ADDED":
+        return `哼，已帮杂鱼把 ID ${idText} 放进白名单并授予默认权限啦♡`;
+      case "WHITELIST_REMOVED":
+        return `哼，已经把 ID ${idText} 从白名单里踢出去啦♡`;
+      case "WHITELIST_NOT_FOUND":
+        return `杂鱼♡，ID ${idText} 原本就不在白名单里哦。`;
+      case "WHITELIST_PERSIST_FAILED":
+        return "啧，白名单变更落盘失败了，杂鱼快去检查数据库写入状态♡";
+      case "BLOCKLIST_DUPLICATE":
+        return `笨蛋杂鱼♡，ID ${idText} 早就已经在黑名单里啦，不许重复添加！`;
+      case "BLOCKLIST_ADDED": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `，已在 ${params.affectedChats ?? 0}/${params.totalChats} 个受管群执行封禁`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? "（注意：磁盘持久化确认未完成）" : "";
+        return `哼，已帮杂鱼把 ID ${idText} 关进黑名单啦${fanOutNote}${persistNote}♡`;
+      }
+      case "BLOCKLIST_REMOVED":
+      case "BLOCKLIST_NOT_FOUND": {
+        const fanOutNote: string =
+          params?.totalChats !== undefined && params.totalChats > 0
+            ? `，已在 ${params.affectedChats ?? 0}/${params.totalChats} 个受管群解除封禁`
+            : "";
+        const persistNote: string =
+          params?.persisted === false ? "（注意：磁盘持久化确认未完成）" : "";
+        const base: string =
+          code === "BLOCKLIST_REMOVED"
+            ? `哼，已把 ID ${idText} 从黑名单放出来啦`
+            : `杂鱼，ID ${idText} 原本就不在黑名单里`;
+        return `${base}${fanOutNote}${persistNote}♡`;
+      }
+      case "PERMISSION_UPDATED":
+        return `已将 ID ${idText} 的 ${params?.key ?? ""} 设为 ${String(params?.value ?? true)}。`;
+      case "PERMISSION_UNCHANGED":
+        return `ID ${idText} 的 ${params?.key ?? ""} 原本就是 ${String(params?.value ?? true)}。`;
+      case "ALL_PERMISSIONS_ENABLED":
+        return `已开启 ID ${idText} 的全部白名单权限。`;
+      case "ALL_PERMISSIONS_UNCHANGED":
+        return `ID ${idText} 的全部权限原本已开启。`;
+      case "PERMISSION_PERSIST_FAILED":
+        return "权限变更落盘失败，请检查数据库写入状态。";
+      case "PICKER_PREPARE_FAILED":
+        return "无法创建 Telegram 原生选择器预备按钮，请确认 Bot API 支持 savePreparedKeyboardButton 或改用 ID 直接添加。";
+      case "PICKER_IMPORT_ADDED": {
+        const added: number = params?.addedCount ?? 0;
+        const skipped: number = params?.skippedCount ?? 0;
+        const dup: number = params?.duplicateCount ?? 0;
+        const dupSuffix: string =
+          dup > 0 ? `，其中 ${dup} 个已在${listLabel}中（已去重拦截）` : "";
+        return `哼，已帮杂鱼把 ${added} 个身份加入${listLabel}${skipped > 0 ? `（跳过 ${skipped} 个${dupSuffix}）` : ""}♡`;
+      }
+      case "PICKER_IMPORT_DUPLICATE":
+        return `笨蛋杂鱼♡，选中的 ${params?.duplicateCount ?? 0} 个目标早就已经在${listLabel}里啦，不许重复添加！`;
+      case "PICKER_IMPORT_EMPTY":
+        return `杂鱼♡，未能将所选身份加入${listLabel}（共跳过 ${params?.skippedCount ?? 0} 个）。`;
+      case "GALLERY_IMAGE_ADDED":
+        return `哼，本天才已按 SHA-256 帮杂鱼收录好啦：${params?.fileName ?? ""}♡`;
+      case "GALLERY_IMAGE_EXISTING":
+        return `笨蛋杂鱼♡，图库里早就有一模一样的 SHA-256 图片啦：${params?.fileName ?? ""}`;
+      case "GALLERY_DIRECTORY_MISSING":
+        return "啧，当前配置的图库目录不存在，杂鱼还没创建好目录就没法入库♡";
+      case "GALLERY_IMAGE_EMPTY":
+        return "笨蛋杂鱼♡，上传的图片内容居然是空的！";
+      case "GALLERY_IMAGE_TOO_LARGE":
+        return "杂鱼♡，图片体积超过 10 MiB 上限啦，塞不进去！";
+      case "GALLERY_UNSUPPORTED_FORMAT":
+        return "笨蛋杂鱼♡，只支持 JPEG、PNG 或 WebP 格式的图片哦！";
+      case "GALLERY_INVALID_DIMENSIONS":
+        return `杂鱼♡，图片尺寸 (${params?.width ?? 0}×${params?.height ?? 0}) 不符合 Telegram 发送门槛（宽高之和 ≤ 10000 且长宽比 ≤ 20）！`;
+      case "GALLERY_UPLOAD_FAILED":
+        return "啧，图片尺寸解析或写入图库目录失败了，杂鱼快去检查文件或磁盘♡";
+      case "GALLERY_UPLOAD_READ_FAILED":
+        return "无法读取上传的图片请求体。";
+      case "GALLERY_IMAGE_DELETED":
+        return `哼，本天才已经帮杂鱼把 ${params?.fileName ?? ""} 删掉啦♡`;
+      case "GALLERY_IMAGE_NOT_FOUND":
+        return "杂鱼♡，这张图片早就已经被删掉或者不存在啦！";
+      case "GALLERY_INVALID_FILE_NAME":
+        return "笨蛋杂鱼♡，连图片文件名格式都搞错了！";
+      case "GALLERY_DELETE_FAILED":
+        return "啧，从图库目录删除图片失败了，杂鱼快去检查磁盘权限♡";
+      default:
+        return code;
+    }
   };
   return {
     languageLabel: "中",
@@ -53,8 +251,8 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       gallery: "/h_image 图库预览、上传与删除",
       totp: "谷歌验证器 (TOTP) 绑定、替换与删除",
     },
+    serverNotice,
     gate: {
-      checkingText: "本天才正在核验杂鱼的 SuperAdmin 签名，老实等着…",
       deniedTitle: "禁止访问啦，杂鱼♡",
       deniedDescription:
         "哼，你没有权限从外部浏览器或未经授权的客户端偷看这个控制台哦，杂鱼。",
@@ -70,29 +268,15 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       deniedWhatHappenedDesc:
         "这个端点强制执行严格的 Telegram WebApp 签名校验与超级管理员门禁控制哦。杂鱼刚才发出的请求没能通过策略校验，已经被直接踢回去啦♡",
       deniedPolicyDetailLabel: (code: string): string => `策略详情 (${code})`,
-      deniedPolicyReason: (code: string, fallbackError: string): string => {
+      deniedPolicyReason: (
+        code: string,
+        fallbackError: string,
+        params?: Readonly<MiniAppServerNoticeParams>
+      ): string => {
         const upper: string = code.toUpperCase();
-        if (
-          upper === "MISSING_INIT_DATA" ||
-          upper === "MALFORMED_INIT_DATA" ||
-          upper === "MISSING_HASH" ||
-          upper === "MISSING_USER"
-        ) {
-          return `Telegram WebApp initData 校验失败（${code}），严禁从外部浏览器直接偷看哦，杂鱼`;
-        }
-        if (upper === "INVALID_SIGNATURE") {
-          return `Telegram WebApp 签名校验失败（${code}），伪造签名也是没用的哦，杂鱼`;
-        }
-        if (upper === "EXPIRED_AUTH_DATE") {
-          return `Telegram WebApp 签名凭据已过期（${code}），快回 Telegram 重新点开面板刷新签名吧，杂鱼`;
-        }
-        if (upper === "FORBIDDEN_USER") {
-          return "只有配置好的超级管理员本尊才能进入这个 Mini App 哦，杂鱼就别乱碰啦";
-        }
-        if (upper === "CROSS_SITE_FORBIDDEN") {
-          return `跨站请求已被直接拦截（${code}），杂鱼别想从奇怪的地方发起调用哦`;
-        }
-        return fallbackError;
+        const byCode: string = serverNotice(upper, params);
+        if (byCode !== upper) return byCode;
+        return serverNotice(fallbackError || code, params);
       },
       deniedWhatCanIDoTitle: "杂鱼现在该怎么办？",
       deniedWhatCanIDoDesc:
@@ -266,10 +450,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
     identities: {
       whitelistTab: "权限",
       blocklistTab: "黑名单",
-      searchPlaceholder: (subTab: MiniAppIdentitySubTabKey): string =>
-        subTab === "whitelist"
-          ? "搜索白名单名称 / @用户名 / ID"
-          : "搜索黑名单名称 / @用户名 / ID",
+      searchPlaceholder: "id/name",
       searchClearAria: "清空搜索词",
       searchDebounceHint: "0.5s 防抖检索中…",
       addFoldButton: "添加用户",

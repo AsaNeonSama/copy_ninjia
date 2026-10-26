@@ -178,21 +178,24 @@ export async function setWhitelistEntryMembership({
     return {
       ok: false,
       changed: false,
-      message: "笨蛋杂鱼♡，连身份 ID 都填错啦（必须是非零安全整数）！",
+      id,
+      message: "INVALID_IDENTITY_ID",
     };
   }
   if (enabled && id === SUPER_ADMIN_USER_ID) {
     return {
       ok: false,
       changed: false,
-      message: "杂鱼♡，超级管理员天生就拥有全部最高权限，才不需要塞进白名单表呢！",
+      id,
+      message: "SUPER_ADMIN_EXEMPT",
     };
   }
   if (!await prefetchIdentityPolicies([id])) {
     return {
       ok: false,
       changed: false,
-      message: "啧，身份策略存储暂时没空理你，杂鱼稍后再试♡",
+      id,
+      message: "IDENTITY_STORAGE_UNAVAILABLE",
     };
   }
 
@@ -223,7 +226,8 @@ export async function setWhitelistEntryMembership({
       return {
         ok: false,
         changed: false,
-        message: `笨蛋杂鱼♡，ID ${id} 现在正关在黑名单里呢，想放进白名单就先去解封！`,
+        id,
+        message: "IDENTITY_IN_BLOCKLIST",
       };
     }
     if (outcome.kind === "duplicate") {
@@ -231,7 +235,8 @@ export async function setWhitelistEntryMembership({
         ok: true,
         changed: false,
         duplicate: true,
-        message: `笨蛋杂鱼♡，ID ${id} 早就已经在白名单里啦，不许重复添加！`,
+        id,
+        message: "WHITELIST_DUPLICATE",
       };
     }
     await confirmIdentityPolicyPersisted("whitelist", id, !outcome.result.changed);
@@ -240,13 +245,14 @@ export async function setWhitelistEntryMembership({
       ok: true,
       changed,
       duplicate: enabled ? !changed : false,
+      id,
       message: enabled
         ? changed
-          ? `哼，已帮杂鱼把 ID ${id} 放进白名单并授予默认权限啦♡`
-          : `笨蛋杂鱼♡，ID ${id} 早就已经在白名单里啦！`
+          ? "WHITELIST_ADDED"
+          : "WHITELIST_DUPLICATE"
         : changed
-          ? `哼，已经把 ID ${id} 从白名单里踢出去啦♡`
-          : `杂鱼♡，ID ${id} 原本就不在白名单里哦。`,
+          ? "WHITELIST_REMOVED"
+          : "WHITELIST_NOT_FOUND",
     };
   } catch (error: unknown) {
     logger.error(
@@ -256,7 +262,8 @@ export async function setWhitelistEntryMembership({
     return {
       ok: false,
       changed: false,
-      message: "啧，白名单变更落盘失败了，杂鱼快去检查数据库写入状态♡",
+      id,
+      message: "WHITELIST_PERSIST_FAILED",
     };
   }
 }
@@ -275,21 +282,30 @@ export async function setWhitelistEntryPermission({
     return {
       ok: false,
       changed: false,
-      message: "超级管理员恒拥有全部权限，不受白名单表单项开关控制。",
+      id,
+      key,
+      value,
+      message: "SUPER_ADMIN_EXEMPT",
     };
   }
   if (!await prefetchIdentityPolicies([id])) {
     return {
       ok: false,
       changed: false,
-      message: "身份策略存储暂不可用，请稍后重试。",
+      id,
+      key,
+      value,
+      message: "IDENTITY_STORAGE_UNAVAILABLE",
     };
   }
   if (!isWhitelisted(id)) {
     return {
       ok: false,
       changed: false,
-      message: `ID ${id} 尚未加入白名单，请先添加至白名单。`,
+      id,
+      key,
+      value,
+      message: "WHITELIST_NOT_FOUND",
     };
   }
 
@@ -303,9 +319,10 @@ export async function setWhitelistEntryPermission({
     return {
       ok: true,
       changed: result.changed,
-      message: result.changed
-        ? `已将 ID ${id} 的 ${key} 设为 ${String(value)}。`
-        : `ID ${id} 的 ${key} 原本就是 ${String(value)}。`,
+      id,
+      key,
+      value,
+      message: result.changed ? "PERMISSION_UPDATED" : "PERMISSION_UNCHANGED",
     };
   } catch (error: unknown) {
     logger.error(
@@ -315,7 +332,10 @@ export async function setWhitelistEntryPermission({
     return {
       ok: false,
       changed: false,
-      message: "权限变更落盘失败，请检查数据库写入状态。",
+      id,
+      key,
+      value,
+      message: "PERMISSION_PERSIST_FAILED",
     };
   }
 }
@@ -332,21 +352,24 @@ export async function enableAllWhitelistEntryPermissions(
     return {
       ok: false,
       changed: false,
-      message: "超级管理员恒拥有全部权限。",
+      id,
+      message: "SUPER_ADMIN_EXEMPT",
     };
   }
   if (!await prefetchIdentityPolicies([id])) {
     return {
       ok: false,
       changed: false,
-      message: "身份策略存储暂不可用，请稍后重试。",
+      id,
+      message: "IDENTITY_STORAGE_UNAVAILABLE",
     };
   }
   if (!isWhitelisted(id)) {
     return {
       ok: false,
       changed: false,
-      message: `ID ${id} 尚未加入白名单，请先添加至白名单。`,
+      id,
+      message: "WHITELIST_NOT_FOUND",
     };
   }
 
@@ -356,9 +379,8 @@ export async function enableAllWhitelistEntryPermissions(
     return {
       ok: true,
       changed: result.changed,
-      message: result.changed
-        ? `已开启 ID ${id} 的全部白名单权限。`
-        : `ID ${id} 的全部权限原本已开启。`,
+      id,
+      message: result.changed ? "ALL_PERMISSIONS_ENABLED" : "ALL_PERMISSIONS_UNCHANGED",
     };
   } catch (error: unknown) {
     logger.error(
@@ -368,7 +390,8 @@ export async function enableAllWhitelistEntryPermissions(
     return {
       ok: false,
       changed: false,
-      message: "权限变更落盘失败，请检查数据库写入状态。",
+      id,
+      message: "PERMISSION_PERSIST_FAILED",
     };
   }
 }

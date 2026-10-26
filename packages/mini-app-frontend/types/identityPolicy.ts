@@ -1,6 +1,6 @@
 /**
  * Mini App 前端使用的白名单权限类型副本：与 `packages/types/identityPolicy.ts` 同名声明一致，
- * 由 `test/miniApp/frontendParity.test.ts` 逐项核对。
+ * 由 `test/mini-app-frontend/frontendParity.test.ts` 逐项核对。
  */
 
 /** 白名单身份可被逐项授予的权限；字段名与 /permission 参数保持一致。 */

@@ -41,11 +41,11 @@ export function handleGetChatsRoute(): Response {
 export function handleGetChatDetailById(rawChatId: string): Response {
   const chatId: number | null = parseGroupChatIdParam(rawChatId);
   if (chatId === null) {
-    return jsonResponse({ error: "无效的群聊 ID。" }, 400);
+    return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
   }
   const detail: Readonly<MiniAppChatDetail> | null = getManagedChatDetail(chatId);
   if (detail === null) {
-    return jsonResponse({ error: "该群未开启 /init 或不存在。" }, 404);
+    return jsonResponse({ error: "CHAT_NOT_FOUND" }, 404);
   }
   return jsonResponse({ detail });
 }
@@ -62,7 +62,7 @@ export function handleGetChatMessagesById(
 ): Response {
   const chatId: number | null = parseGroupChatIdParam(rawChatId);
   if (chatId === null) {
-    return jsonResponse({ error: "无效的群聊 ID。" }, 400);
+    return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
   }
   const page: number | undefined = parseOptionalSafeInt(url.searchParams.get("page"));
   const pageSize: number | undefined = parseOptionalSafeInt(url.searchParams.get("pageSize"));
@@ -72,7 +72,7 @@ export function handleGetChatMessagesById(
     pageSize,
   });
   if (messagesPage === null) {
-    return jsonResponse({ error: "该群未开启 /init 或不存在。" }, 404);
+    return jsonResponse({ error: "CHAT_NOT_FOUND" }, 404);
   }
   return jsonResponse(messagesPage);
 }
@@ -89,7 +89,7 @@ export async function handlePostChatFeatureById(
 ): Promise<Response> {
   const chatId: number | null = parseGroupChatIdParam(rawChatId);
   if (chatId === null) {
-    return jsonResponse({ error: "无效的群聊 ID。" }, 400);
+    return jsonResponse({ error: "INVALID_CHAT_ID" }, 400);
   }
   const body: Record<string, unknown> | null = await readJsonObjectBody(request);
   if (
@@ -99,7 +99,7 @@ export async function handlePostChatFeatureById(
     typeof body.enabled !== "boolean"
   ) {
     return jsonResponse(
-      { error: "请求参数格式非法：需要合法的 feature 与布尔值 enabled。" },
+      { error: "INVALID_CHAT_FEATURE_PARAMS" },
       400
     );
   }

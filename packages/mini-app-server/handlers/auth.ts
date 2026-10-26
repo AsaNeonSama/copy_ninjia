@@ -116,14 +116,13 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
       lockedUntil: 0,
     };
     const remaining: number = MINI_APP_PASSWORD_MAX_ATTEMPTS - nextAttempts;
+    const errorCode: string = totpRecord !== null ? "INVALID_TOTP_CODE" : "INVALID_PASSWORD";
     return accessErrorResponse(request, {
       status: 403,
-      code: totpRecord !== null ? "INVALID_TOTP_CODE" : "INVALID_PASSWORD",
+      code: errorCode,
       reason: "invalid_password",
-      error:
-        totpRecord !== null
-          ? `Google Authenticator 6 位动态验证码错误，还剩 ${remaining} 次尝试机会（连续输错 ${MINI_APP_PASSWORD_MAX_ATTEMPTS} 次将锁定 30 分钟）。`
-          : `访问密码错误，还剩 ${remaining} 次尝试机会（连续输错 ${MINI_APP_PASSWORD_MAX_ATTEMPTS} 次将锁定 30 分钟）。`,
+      error: errorCode,
+      remainingAttempts: remaining,
     });
   }
 

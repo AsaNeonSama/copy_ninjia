@@ -65,7 +65,7 @@ export async function handlePostWhitelistRoute(request: Request): Promise<Respon
     typeof body.enabled !== "boolean"
   ) {
     return jsonResponse(
-      { error: "请求参数非法：需要非零安全整数 id 与布尔值 enabled。" },
+      { error: "INVALID_IDENTITY_PARAMS" },
       400
     );
   }
@@ -117,7 +117,7 @@ export async function handlePostBlocklistRoute(request: Request): Promise<Respon
     typeof body.enabled !== "boolean"
   ) {
     return jsonResponse(
-      { error: "请求参数非法：需要非零安全整数 id 与布尔值 enabled。" },
+      { error: "INVALID_IDENTITY_PARAMS" },
       400
     );
   }
@@ -142,7 +142,7 @@ export async function handlePostPermissionRoute(request: Request): Promise<Respo
     !Number.isSafeInteger(body.id) ||
     body.id === 0
   ) {
-    return jsonResponse({ error: "请求参数非法：需要非零安全整数 id。" }, 400);
+    return jsonResponse({ error: "INVALID_IDENTITY_ID" }, 400);
   }
   if (body.enableAll === true) {
     const result: Readonly<MiniAppIdentityMutationResult> =
@@ -153,7 +153,7 @@ export async function handlePostPermissionRoute(request: Request): Promise<Respo
     typeof body.key === "string" ? parseWhitelistPermissionKey(body.key) : undefined;
   if (key === undefined || typeof body.value !== "boolean") {
     return jsonResponse(
-      { error: "请求参数非法：需要合法的权限键 key 与布尔值 value。" },
+      { error: "INVALID_PERMISSION_PARAMS" },
       400
     );
   }
@@ -181,7 +181,7 @@ export async function handlePostPickerPrepareRoute(request: Request): Promise<Re
     !MINI_APP_PICKER_SUBJECT_KINDS.includes(body.subjectKind as MiniAppPickerSubjectKind)
   ) {
     return jsonResponse(
-      { error: "请求参数非法：需要合法的 targetList 与 subjectKind。" },
+      { error: "INVALID_PICKER_PARAMS" },
       400
     );
   }
@@ -201,7 +201,7 @@ export async function handlePostPickerPrepareRoute(request: Request): Promise<Re
 export function handleGetPickerResultRoute(url: URL): Response {
   const requestId: number | undefined = parseOptionalSafeInt(url.searchParams.get("requestId"));
   if (requestId === undefined || requestId <= 0) {
-    return jsonResponse({ error: "请求参数非法：需要正整数 requestId。" }, 400);
+    return jsonResponse({ error: "INVALID_PICKER_REQUEST_ID" }, 400);
   }
   return jsonResponse({ result: getMiniAppPickerResult(requestId) });
 }

@@ -16,7 +16,7 @@ export function miniAppCrossSiteGuardMiddleware(
       status: 403,
       code: "CROSS_SITE_FORBIDDEN",
       reason: "forbidden_user",
-      error: "Cross-site request to Telegram Mini App endpoint is forbidden.",
+      error: "CROSS_SITE_FORBIDDEN",
     });
   }
   return next();
