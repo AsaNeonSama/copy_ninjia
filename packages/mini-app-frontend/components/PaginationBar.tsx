@@ -1,5 +1,5 @@
 import type React from "react";
-import type { MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppLanguage, TelegramWindow } from "../types/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store/app";
@@ -28,7 +28,16 @@ export interface PaginationBarProps {
 }
 
 /**
- * 统一分页控制栏组件：展示总条数、分段式每页条数切换，以及「首页/上页 · 当前页/总页数 · 下页/末页」导航栏。
+ * 触发分页切换后将窗口平滑滚动回页面顶部。
+ */
+function scrollWindowToTop(): void {
+  const tgWindow: TelegramWindow = globalThis;
+  tgWindow.scrollTo?.({ top: 0, behavior: "smooth" });
+}
+
+/**
+ * 统一分页控制栏组件：展示总条数、分段式每页条数切换，以及「首页/上页 · 当前页/总页数 · 下页/末页」导航栏；
+ * 切换页码或每页条数后平滑滚动回顶部。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -50,6 +59,11 @@ export function PaginationBar({
   const safeTotalPages: number = Math.max(1, Math.trunc(totalPages));
   const safePage: number = Math.min(safeTotalPages, Math.max(1, Math.trunc(page)));
 
+  const handlePageSelect = (nextPage: number): void => {
+    onPageChange(nextPage);
+    scrollWindowToTop();
+  };
+
   return (
     <div className="pagination-bar">
       <div className="pagination-summary">
@@ -70,6 +84,7 @@ export function PaginationBar({
                   onClick={(): void => {
                     if (option !== pageSize) {
                       onPageSizeChange(option);
+                      scrollWindowToTop();
                     }
                   }}
                 >
@@ -87,7 +102,7 @@ export function PaginationBar({
           className="page-btn"
           disabled={disabled || safePage <= 1}
           onClick={(): void => {
-            onPageChange(1);
+            handlePageSelect(1);
           }}
           aria-label={t.pagination.firstPageAria}
           title={t.pagination.firstPageAria}
@@ -100,7 +115,7 @@ export function PaginationBar({
           className="page-btn"
           disabled={disabled || safePage <= 1}
           onClick={(): void => {
-            onPageChange(Math.max(1, safePage - 1));
+            handlePageSelect(Math.max(1, safePage - 1));
           }}
           aria-label={t.pagination.prevPageAria}
           title={t.pagination.prevPageAria}
@@ -120,7 +135,7 @@ export function PaginationBar({
           className="page-btn"
           disabled={disabled || safePage >= safeTotalPages}
           onClick={(): void => {
-            onPageChange(Math.min(safeTotalPages, safePage + 1));
+            handlePageSelect(Math.min(safeTotalPages, safePage + 1));
           }}
           aria-label={t.pagination.nextPageAria}
           title={t.pagination.nextPageAria}
@@ -133,7 +148,7 @@ export function PaginationBar({
           className="page-btn"
           disabled={disabled || safePage >= safeTotalPages}
           onClick={(): void => {
-            onPageChange(safeTotalPages);
+            handlePageSelect(safeTotalPages);
           }}
           aria-label={t.pagination.lastPageAria}
           title={t.pagination.lastPageAria}

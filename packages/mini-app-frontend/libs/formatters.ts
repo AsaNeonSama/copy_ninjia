@@ -128,6 +128,17 @@ export function formatTime(timestampMs: number): string {
 }
 
 /**
+ * 将 Unix 毫秒时间戳格式化为不含日期的本地时分秒字符串（`HH:mm:ss`）。
+ *
+ * @param timestampMs Unix 毫秒时间戳
+ * @returns 本地时分秒字符串
+ */
+export function formatClockTime(timestampMs: number): string {
+  if (!Number.isFinite(timestampMs) || timestampMs <= 0) return "-";
+  return new Date(timestampMs).toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+/**
  * 根据群功能键返回指定语言的前端展示标题、命令名与功能描述。
  *
  * @param key 群功能开关枚举键

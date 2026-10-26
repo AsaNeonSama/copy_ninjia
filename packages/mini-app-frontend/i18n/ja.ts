@@ -334,11 +334,11 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       cancelButton: "やっぱりやめる",
     },
     status: {
-      loadingText: "雑魚のためにリアルタイム状態を読んでるから急かさないで…",
+      loadingText: "ステータスを読み込み中…",
       uptimeLabel: "プロセス稼働時間",
       updatedAtSub: (timeText: string): string => `${timeText} 更新`,
       cpuLoadLabel: "CPU 平均負荷",
-      cpuLoadSub: "サンプリング窓の平滑使用率",
+      cpuLoadSub: "平滑サンプリング",
       memoryCurrentLabel: "現在メモリ",
       memoryPeakLabel: "ピークメモリ",
       memoryHeapLabel: "JS ヒープ",
@@ -352,8 +352,14 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
         `白リスト ${whitelistCount} · 黒リスト ${blocklistCount}`,
       activeSessionsLabel: "進行中セッション",
-      activeSessionsSub: (sessions: Readonly<MiniAppActiveSessionCounts>): string =>
-        `猿轡 ${sessions.gag} · 嫁ガチャ ${sessions.wed} · 認証 ${sessions.verify} · QA ${sessions.qaSet}`,
+      activeSessionsSub: (
+        sessions: Readonly<MiniAppActiveSessionCounts>
+      ): readonly [string, string, string, string] => [
+        `猿轡 ${sessions.gag}`,
+        `嫁ガチャ ${sessions.wed}`,
+        `認証 ${sessions.verify}`,
+        `QA ${sessions.qaSet}`,
+      ],
       outboundGateLabel: "Telegram 送信ゲート",
       outboundGateSub: (waiting: number, retrySize: number, retryMax: number): string =>
         `待機 ${waiting} · 再送キュー ${retrySize}/${retryMax}`,

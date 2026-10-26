@@ -5,8 +5,8 @@ import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
 import {
+  formatClockTime,
   formatMemoryMb,
-  formatTime,
   formatUptime,
 } from "../libs/formatters";
 import {
@@ -181,13 +181,22 @@ function renderStatusSnapshot({
     100,
     Math.max(0, (outboundQueuedTotal / outboundRetryMax) * 100)
   );
+  const [gagSub, wedSub, verifySub, qaSub]: readonly [
+    string,
+    string,
+    string,
+    string
+  ] = t.status.activeSessionsSub(status.activeSessions);
+  const updatedAtText: string = t.status.updatedAtSub(
+    formatClockTime(status.generatedAt)
+  );
   return (
     <>
       <div className="card">
         <div className="card-title">
           <span>{t.tabs.status}</span>
           <span className="badge ok">
-            {t.status.updatedAtSub(formatTime(status.generatedAt))}
+            {updatedAtText}
           </span>
         </div>
         <div className="grid-2">
@@ -195,7 +204,7 @@ function renderStatusSnapshot({
             <div className="stat-label">{t.status.uptimeLabel}</div>
             <div className="stat-value">{formatUptime(status.uptimeMs)}</div>
             <div className="stat-sub">
-              {t.status.updatedAtSub(formatTime(status.generatedAt))}
+              {updatedAtText}
             </div>
           </div>
           <div className="stat-box stat-box-cpu">
@@ -252,8 +261,11 @@ function renderStatusSnapshot({
             <div className="stat-value">
               {status.activeSessions.total}
             </div>
-            <div className="stat-sub">
-              {t.status.activeSessionsSub(status.activeSessions)}
+            <div className="stat-sub stat-sub-grid">
+              <span>{gagSub}</span>
+              <span>{wedSub}</span>
+              <span>{verifySub}</span>
+              <span>{qaSub}</span>
             </div>
           </div>
           <div className="stat-box stat-box-outbound">
@@ -568,7 +580,7 @@ export function StatusTab(): React.JSX.Element {
           </span>
           <span>
             {!loading && !refreshing && status !== null
-              ? t.status.updatedAtSub(formatTime(status.generatedAt))
+              ? t.status.updatedAtSub(formatClockTime(status.generatedAt))
               : t.status.loadingText}
           </span>
         </span>

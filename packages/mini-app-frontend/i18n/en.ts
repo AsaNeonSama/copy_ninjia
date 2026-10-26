@@ -334,11 +334,11 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       cancelButton: "Nevermind",
     },
     status: {
-      loadingText: "Fetching live runtime telemetry for you, don't rush me Zaako…",
+      loadingText: "Syncing live status…",
       uptimeLabel: "Process Uptime",
       updatedAtSub: (timeText: string): string => `Synced at ${timeText}`,
       cpuLoadLabel: "CPU Avg Load",
-      cpuLoadSub: "Smoothed sampling window load",
+      cpuLoadSub: "Smoothed sampling",
       memoryCurrentLabel: "Current Memory",
       memoryPeakLabel: "Peak Memory",
       memoryHeapLabel: "JS Heap",
@@ -352,8 +352,14 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
         `Whitelist ${whitelistCount} · Blocklist ${blocklistCount}`,
       activeSessionsLabel: "Active Sessions",
-      activeSessionsSub: (sessions: Readonly<MiniAppActiveSessionCounts>): string =>
-        `Gag ${sessions.gag} · Wed ${sessions.wed} · Verify ${sessions.verify} · QA ${sessions.qaSet}`,
+      activeSessionsSub: (
+        sessions: Readonly<MiniAppActiveSessionCounts>
+      ): readonly [string, string, string, string] => [
+        `Gag ${sessions.gag}`,
+        `Wed ${sessions.wed}`,
+        `Verify ${sessions.verify}`,
+        `QA ${sessions.qaSet}`,
+      ],
       outboundGateLabel: "Telegram Outbound Gate",
       outboundGateSub: (waiting: number, retrySize: number, retryMax: number): string =>
         `Waiting ${waiting} · Retry ${retrySize}/${retryMax}`,

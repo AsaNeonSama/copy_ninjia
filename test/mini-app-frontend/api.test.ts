@@ -56,6 +56,7 @@ import {
 import {
   buildMiniAppGalleryDownloadFileName,
   formatBytes,
+  formatClockTime,
   formatGalleryFileSize,
   formatMemoryMb,
   formatTime,
@@ -289,10 +290,27 @@ describe("前端接口文件与纯函数辅助库", () => {
     ).toBe("1792934567.png");
     expect(formatTime(0)).toBe("-");
     expect(formatTime(1_700_000_000_000).length).toBeGreaterThan(0);
+    expect(formatClockTime(0)).toBe("-");
+    expect(formatClockTime(1_700_000_000_000)).toMatch(/^\d{2}:\d{2}:\d{2}$/u);
 
     for (const lang of MINI_APP_LANGUAGES) {
       const dict = getMiniAppTranslations(lang);
       expect(dict.appTitle).toContain("♡");
+      expect(dict.status.loadingText.length).toBeGreaterThan(0);
+      expect(dict.status.cpuLoadSub.length).toBeGreaterThan(0);
+      const activeSessionsItems: readonly [string, string, string, string] =
+        dict.status.activeSessionsSub({
+          total: 10,
+          gag: 1,
+          wed: 2,
+          verify: 3,
+          qaSet: 4,
+        });
+      expect(activeSessionsItems).toHaveLength(4);
+      expect(activeSessionsItems[0]).toContain("1");
+      expect(activeSessionsItems[1]).toContain("2");
+      expect(activeSessionsItems[2]).toContain("3");
+      expect(activeSessionsItems[3]).toContain("4");
       expect(dict.status.memoryCurrentLabel.length).toBeGreaterThan(0);
       expect(dict.status.memoryPeakLabel.length).toBeGreaterThan(0);
       expect(dict.status.memoryHeapLabel.length).toBeGreaterThan(0);

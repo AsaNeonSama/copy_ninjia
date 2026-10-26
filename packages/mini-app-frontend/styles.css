@@ -421,7 +421,7 @@ header,
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-sm);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .toolbar-hint {
@@ -433,6 +433,17 @@ header,
   font-weight: 600;
   line-height: 1.2;
   color: var(--text);
+}
+
+.toolbar > .toolbar-hint {
+  flex: 1;
+}
+
+.toolbar > .toolbar-hint > span:not(.toolbar-icon-badge) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toolbar-icon-badge {
@@ -561,6 +572,7 @@ header,
 .stat-label { font-size: 11px; font-weight: 600; color: var(--hint); }
 .stat-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 3px; word-break: break-word; }
 .stat-sub { font-size: 11px; color: var(--hint); margin-top: 4px; line-height: 1.38; word-break: break-word; }
+.stat-sub-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; }
 
 .stat-cpu-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 @keyframes miniapp-ring-grow { from { stroke-dashoffset: 109.96; } }

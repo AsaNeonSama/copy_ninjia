@@ -435,6 +435,9 @@ export interface TelegramWindow {
   readonly sessionStorage?: Readonly<MiniAppWebStorage>;
   readonly location?: Readonly<{ readonly href?: string; readonly host?: string; readonly search: string; readonly hash: string }>;
   readonly confirm?: (message?: string) => boolean;
+  readonly scrollTo?: (
+    options: Readonly<{ readonly top: number; readonly behavior?: "auto" | "instant" | "smooth" }>
+  ) => void;
   readonly navigator?: Readonly<{ readonly language?: string; readonly languages?: readonly string[] }>;
   readonly document?: Readonly<{
     readonly getElementById: (elementId: string) => Element | null;

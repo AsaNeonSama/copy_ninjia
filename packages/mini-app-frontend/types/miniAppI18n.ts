@@ -163,7 +163,9 @@ export interface MiniAppTranslations {
     readonly managedChatsLabel: string;
     readonly managedChatsSub: (whitelistCount: number, blocklistCount: number) => string;
     readonly activeSessionsLabel: string;
-    readonly activeSessionsSub: (sessions: Readonly<MiniAppActiveSessionCounts>) => string;
+    readonly activeSessionsSub: (
+      sessions: Readonly<MiniAppActiveSessionCounts>
+    ) => readonly [string, string, string, string];
     readonly outboundGateLabel: string;
     readonly outboundGateSub: (waiting: number, retrySize: number, retryMax: number) => string;
     readonly capabilitiesSectionTitle: string;

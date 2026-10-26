@@ -334,11 +334,11 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       cancelButton: "算了，手滑啦",
     },
     status: {
-      loadingText: "正在帮杂鱼读取实时运行状态，别催啦…",
+      loadingText: "正在读取实时状态…",
       uptimeLabel: "进程运行时长",
       updatedAtSub: (timeText: string): string => `刷新于 ${timeText}`,
       cpuLoadLabel: "CPU 平均负载",
-      cpuLoadSub: "采样窗口平滑占用率",
+      cpuLoadSub: "平滑采样",
       memoryCurrentLabel: "当前内存",
       memoryPeakLabel: "峰值内存",
       memoryHeapLabel: "JS 堆内存",
@@ -352,8 +352,14 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
         `白名单 ${whitelistCount} · 黑名单 ${blocklistCount}`,
       activeSessionsLabel: "活跃交互会话",
-      activeSessionsSub: (sessions: Readonly<MiniAppActiveSessionCounts>): string =>
-        `口球 ${sessions.gag} · 娶群友 ${sessions.wed} · 验证 ${sessions.verify} · 问答 ${sessions.qaSet}`,
+      activeSessionsSub: (
+        sessions: Readonly<MiniAppActiveSessionCounts>
+      ): readonly [string, string, string, string] => [
+        `口球 ${sessions.gag}`,
+        `娶群友 ${sessions.wed}`,
+        `验证 ${sessions.verify}`,
+        `问答 ${sessions.qaSet}`,
+      ],
       outboundGateLabel: "Telegram 出站门控",
       outboundGateSub: (waiting: number, retrySize: number, retryMax: number): string =>
         `排队 ${waiting} · 重试队列 ${retrySize}/${retryMax}`,
