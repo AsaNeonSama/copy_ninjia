@@ -50,6 +50,7 @@ import {
   collectRepositoryPaths,
 } from "./conventions/markdownPaths";
 import { checkMarkdownLocalLinks } from "./conventions/markdownAnchors";
+import { collectMiniAppFrontendBoundaryProblems } from "./conventions/miniAppFrontend";
 import {
   collectNodeCompatibilityProblems,
   collectNodeImportUsage,
@@ -76,12 +77,16 @@ import {
   collectInfraLayeringProblems,
   collectStatesPurityProblems,
   collectConstsPurityProblems,
+  CONSTS_ROOT_PREFIXES,
   STATES_CLOSURE_OPAQUE_MODULES,
 } from "./conventions/moduleBoundaries";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..");
 const CACHE_ROOT: string = join(PROJECT_ROOT, "packages", "cache");
-const CONSTS_ROOT: string = join(PROJECT_ROOT, "packages", "consts");
+/** 常量目录（`packages/consts/` 与 Mini App 前端的 `packages/mini-app-frontend/consts/`）的绝对路径前缀。 */
+const CONSTS_ROOTS: readonly string[] = CONSTS_ROOT_PREFIXES.map(
+  (prefix: string): string => join(PROJECT_ROOT, prefix)
+);
 const SOURCE_ROOT: string = join(PROJECT_ROOT, "packages");
 const SCRIPTS_ROOT: string = join(PROJECT_ROOT, "scripts");
 const TEST_ROOT: string = join(PROJECT_ROOT, "test");
@@ -167,6 +172,7 @@ for (const trackedPath of projectFiles()) {
   }
 }
 const repositoryPaths: ReadonlySet<string> = collectRepositoryPaths(tracked);
+failures.push(...await collectMiniAppFrontendBoundaryProblems(PROJECT_ROOT, tracked));
 for (const trackedPath of tracked) {
   const path: string = join(PROJECT_ROOT, trackedPath);
   if (/\.(?:[cm]?[jt]sx?|sh)$/.test(path)) {
@@ -224,7 +230,7 @@ const cacheFiles: readonly string[] = sourceFiles.filter(
   (path: string): boolean => path.startsWith(CACHE_ROOT + "/")
 );
 const constFiles: readonly string[] = sourceFiles.filter(
-  (path: string): boolean => path.startsWith(CONSTS_ROOT + "/")
+  (path: string): boolean => CONSTS_ROOTS.some((root: string): boolean => path.startsWith(root))
 );
 const scriptFiles: readonly string[] = sourceFilesUnder(SCRIPTS_ROOT);
 const testFiles: readonly string[] = sourceFilesUnder(TEST_ROOT);
@@ -253,9 +259,9 @@ const cacheSourceFiles: ReadonlySet<string> = new Set(cacheFiles);
 const constsSourceFiles: ReadonlySet<string> = new Set(constFiles);
 /** 根 manifest 直接声明的包；逐文件核对运行期裸导入时共用。 */
 const declaredPackages: ReadonlySet<string> = await readDeclaredPackages(PROJECT_ROOT);
-/** packages/consts 导出的字符串常量表（取值 → 常量名），逐文件判定时顺带收集，供测试断言规则比对。 */
+/** 常量目录导出的字符串常量表（取值 → 常量名），逐文件判定时顺带收集，供测试断言规则比对。 */
 const exportedStringConstants: Map<string, string[]> = new Map();
-/** packages/consts 全部字符串字面量与模板静态片段，供测试断言的文案片段规则做子串比对。 */
+/** 常量目录全部字符串字面量与模板静态片段，供测试断言的文案片段规则做子串比对。 */
 const constantTextFragments: string[] = [];
 /** 文案片段规则本次用到的提示词契约豁免（`路径::用例名`），跑完后核对有无闲置条目。 */
 const usedConstantTextExemptions: Set<string> = new Set<string>();
@@ -287,7 +293,7 @@ for (const path of referenceResolutionFiles) {
   }
   failures.push(...collectObjectFreezeProblems(params));
   failures.push(...collectIteratorHeadProblems(params));
-  if (!path.startsWith(CACHE_ROOT) && !path.startsWith(CONSTS_ROOT)) {
+  if (!path.startsWith(CACHE_ROOT) && !constsSourceFiles.has(path)) {
     failures.push(...collectModuleCacheProblems(params));
   }
   failures.push(...collectDeclarationProblems(params));
@@ -299,7 +305,7 @@ for (const path of referenceResolutionFiles) {
       closure: await moduleGraph.boundedModuleClosure(path, statesOpaqueModules),
     }));
   }
-  if (path.startsWith(CONSTS_ROOT + "/")) {
+  if (constsSourceFiles.has(path)) {
     failures.push(...collectConstsPurityProblems(params));
   }
   if (path.startsWith(INFRA_ROOT + "/")) {

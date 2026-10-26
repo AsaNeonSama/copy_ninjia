@@ -22,9 +22,12 @@
 - **`packages/commands/`**
   - **职责**：所有用户显式触发的 Telegram 斜杠命令实现，按命令领域组织；子命令在各自领域内分发，公用的权限门禁独立抽离。
   - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts` 与 `qa/`（`board.ts`、`ingress.ts`、`notices.ts`、`rendering.ts`、`session.ts`）、`wed.ts` 与 `wed/`（`memberReview.ts`、`messages.ts`、`persistence.ts`、`rendering.ts`）、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts`、`gag/notices.ts`、`gag/refresh.ts` 与 `gag/rendering.ts` 承接；`/delete_message` 由 `deleteMessage.ts`（命令与消息 ingress）与 `deleteMessage/queue.ts`（待删队列与停机排空）承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
-- **`packages/miniApp/`**
-  - **职责**：超级管理员专属 Telegram Mini App 管理控制台的本地 `Bun.serve` HTTP 服务、统一鉴权中间件链与 API/静态资源路由、运行状态与 AI 情绪切换/已初始化群/热 256 消息/黑白名单与权限/图库数据视图、Google Authenticator (TOTP) 验证器持久化管理、原生联系人与频道选择器会话、受保护 SVG 与 `/favicon.ico` 图标资源，以及支持中/日/英三语与亮/暗主题的 React + Zustand WebApp 前端。
-  - **代表文件**：`server.ts`、`routes.ts`、`favicon.ts`、`totpStorage.ts`、`http/`（`common.ts`、`middleware.ts`、`statusRoutes.ts`、`chatRoutes.ts`、`identityRoutes.ts`、`galleryRoutes.ts`、`totpRoutes.ts`）、`statusView.ts`、`chatsView.ts`、`chats/`（`query.ts`、`toggle.ts`）、`messagesView.ts`、`identitiesView.ts`、`identities/`（`whitelist.ts`、`blocklist.ts`、`metadata.ts`）、`galleryView.ts`、`picker.ts`、`miniAppResoures/`（`favicon.ico`、`icons.tsx`、`index.ts`）、`ui/`（`App.tsx`、`store.ts`、`api.ts`、`formatters.ts`、`i18n/`、`components/`）；`index.ts` 提供薄公开入口。
+- **`packages/mini-app-server/`**
+  - **职责**：超级管理员专属 Telegram Mini App 管理控制台的服务端：本地 `Bun.serve` HTTP 服务、统一鉴权中间件链与 API/静态资源路由、运行状态与 AI 情绪切换/已初始化群/热 256 消息/黑白名单与权限/图库数据视图、Google Authenticator (TOTP) 验证器持久化管理、原生联系人与频道选择器会话，以及受保护 SVG 与 `/favicon.ico` 图标资源。与 bot 服务共享 `packages/` 下的常量、类型与能力模块；`routes.ts` 以 HTML import 引入 `packages/mini-app-frontend/index.html`，由 `Bun.serve` 打包托管前端，这是服务端对前端的唯一引用。
+  - **代表文件**：`server.ts`、`routes.ts`、`favicon.ts`、`totpStorage.ts`、`http/`（`common.ts`、`middleware.ts`、`statusRoutes.ts`、`chatRoutes.ts`、`identityRoutes.ts`、`galleryRoutes.ts`、`totpRoutes.ts`）、`statusView.ts`、`chatsView.ts`、`chats/`（`query.ts`、`toggle.ts`）、`messagesView.ts`、`identitiesView.ts`、`identities/`（`whitelist.ts`、`blocklist.ts`、`metadata.ts`）、`galleryView.ts`、`picker.ts`、`miniAppResoures/`（`favicon.ico` 与受保护 SVG 图标）；`index.ts` 提供薄公开入口。
+- **`packages/mini-app-frontend/`**
+  - **职责**：Mini App 的 React + Zustand WebApp 前端，支持中/日/英三语与亮/暗主题。代码不依赖本目录外的任何文件（含 `import type` 与 HTML/CSS 资源引用），npm 依赖按根 `package.json` 共用；与服务端重合的常量、类型、函数与 favicon 在 `consts/`、`types/`、`formatters.ts` 与 `miniAppResoures/` 中单独复制，由 `test/miniApp/frontendParity.test.ts` 核对与服务端一致，边界由 `bun run check:conventions` 强制。
+  - **代表文件**：`index.html`、`main.tsx`、`App.tsx`、`store.ts`、`api.ts`、`formatters.ts`、`styles.css`、`i18n/`、`components/`、`consts/`、`types/`、`miniAppResoures/`（`favicon.ico`、`icons.tsx`、`index.ts`）。
 - **`packages/auto/`**
   - **职责**：非命令形式的自动响应行为，包括自动复读、AI 聊天转录与智能触发、群表情反应同步。
   - **代表文件**：`message/`（含 `triggerPolicy.ts`）、`reactionSync.ts`。
@@ -108,11 +111,11 @@
 在新增功能或重构代码时，请按以下顺序判断文件归属：
 
 1. **是字面量参数、阈值或用户可见文案？**
-   - 放置在 `packages/consts/<domain>.ts`（若领域庞大则拆分至 `packages/consts/<domain>/`）。
+   - 放置在 `packages/consts/<domain>.ts`（若领域庞大则拆分至 `packages/consts/<domain>/`）；Mini App 前端的放在 `packages/mini-app-frontend/consts/<domain>.ts`。
    - 必须附带中文 JSDoc 说明其用途与约束。命令提示与回执应统一汇总在文案表中，禁止在业务代码中临时拼凑。
    - 部署 JSON 文件的读取与校验放入 `packages/config/<domain>.ts`；环境变量仅允许在 `packages/consts/paths.ts` 与 `packages/consts/environment.ts` 中读取。
 2. **是跨模块共享的类型定义或协议？**
-   - 放置在 `packages/types/<domain>.ts`。纯状态机的状态、事件与决策契约放入 `packages/types/states/`。
+   - 放置在 `packages/types/<domain>.ts`。纯状态机的状态、事件与决策契约放入 `packages/types/states/`；Mini App 前端的放在 `packages/mini-app-frontend/types/<domain>.ts`，与服务端重合的副本登记到 `test/miniApp/frontendParity.test.ts`。
 3. **是长期存活的可变状态（如 Map、Set、队列、计时器或单例）？**
    - 放置在 `packages/cache/` 对应宿主线程的子目录下（`main/`、`workers/...` 或 `perThread/`）。
    - 必须使用 `{ current: T | null }` 容器封装，严禁直接使用 `export let`；并在 JSDoc 中写明何时初始化、何时清理以及 Worker 重启后的恢复策略。

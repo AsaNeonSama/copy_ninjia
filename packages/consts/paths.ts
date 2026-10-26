@@ -143,7 +143,7 @@ const GLOBAL_STATE_DIR: string = join(MEMORY_DIR, GLOBAL_STATE_DIR_NAME);
 export const GLOBAL_STATE_FILE_PATH: string = join(GLOBAL_STATE_DIR, "state.json");
 /**
  * Mini App 谷歌验证器（TOTP）单实例持久化目录；与 memory/ 下其余子目录并列，由主线程
- * 独占原子写入（见 miniApp/totpStorage.ts）。
+ * 独占原子写入（见 mini-app-server/totpStorage.ts）。
  */
 export const MINI_APP_TOTP_MEMORY_DIR: string = join(MEMORY_DIR, MINI_APP_TOTP_DIR_NAME);
 /** Mini App 谷歌验证器（TOTP）单实例密钥持久化文件（仅允许在 Mini App 前端控制台生成、修改与删除）。 */

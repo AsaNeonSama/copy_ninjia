@@ -1,5 +1,4 @@
 import type { WhitelistPermissionKey, WhitelistPermissions } from "./identityPolicy";
-import type { MiniAppAuthMode } from "./miniAppTotp";
 import type { RandomImageMimeType } from "./randomImage";
 
 /** Telegram WebApp `initData` 中解析出的用户身份摘要。 */
@@ -64,27 +63,6 @@ export interface MiniAppLoginSuccessResponse {
   /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
   readonly assetToken?: string;
 }
-
-/** `GET /api/auth/precheck` 首屏签名预检结果。 */
-export type MiniAppPrecheckResult =
-  | {
-    readonly ok: true;
-    readonly ttlMs: number;
-    /** 当前是否已配置并启用谷歌验证器（TOTP）。 */
-    readonly totpEnabled?: boolean;
-    /** 当前登录门禁优先使用的认证方式（有验证器时为 `"totp"`，否则为 `"password"`）。 */
-    readonly authMode?: MiniAppAuthMode;
-    /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
-    readonly assetToken?: string;
-    /** 客户端持久化的会话令牌在服务端是否仍在 45 分钟有效期内。 */
-    readonly sessionValid?: boolean;
-    /** 客户端持久化会话在服务端的到期毫秒时间戳（无效或未携带时为 `0`）。 */
-    readonly sessionExpiresAt?: number;
-  }
-  | {
-    readonly ok: false;
-    readonly diagnostics: Readonly<MiniAppAccessDiagnostics>;
-  };
 
 /** Mini App HTTP 路由中间件链与处理器共享的请求上下文。 */
 export interface MiniAppRouteContext {
@@ -337,15 +315,6 @@ export type MiniAppPickerTargetList = "whitelist" | "blocklist";
 /** Mini App 原生选择器挑选的身份种类（好友/联系人用户 vs 频道）。 */
 export type MiniAppPickerSubjectKind = "users" | "channel";
 
-/** Mini App 名单添加折叠菜单的添加方式（按 ID、按联系人、按频道）。 */
-export type MiniAppIdentityAddMode = "id" | "users" | "channel";
-
-/** Mini App 界面支持的语言键（中文、日文、英文）。 */
-export type MiniAppLanguage = "zh" | "ja" | "en";
-
-/** Mini App 界面支持的主题模式（暗色、亮色）。 */
-export type MiniAppThemeMode = "dark" | "light";
-
 /** 已向 Telegram Bot API 预注册的 `savePreparedKeyboardButton` 选择器会话记录。 */
 export interface MiniAppPreparedPickerSession {
   /** 32 位正整数请求 ID（对应 `KeyboardButtonRequestUsers.request_id` / `KeyboardButtonRequestChat.request_id`）。 */
@@ -367,9 +336,6 @@ export interface MiniAppPickerResultEvent {
   readonly duplicateIds?: readonly number[];
   readonly summary: string;
 }
-
-/** Mini App 主导航标签键。 */
-export type MiniAppTabKey = "status" | "chats" | "identities" | "gallery" | "totp";
 
 /** 图库分页列表中的单张图片元数据视图。 */
 export interface MiniAppGalleryItem {
@@ -412,84 +378,6 @@ export interface MiniAppGalleryDeleteResult {
   readonly outcome: MiniAppGalleryDeleteOutcome;
   readonly fileName?: string;
   readonly message: string;
-}
-
-/** 名单管理子标签键。 */
-export type MiniAppIdentitySubTabKey = "whitelist" | "blocklist";
-
-/** Telegram WebApp `initDataUnsafe` 中当前用户信息。 */
-export interface TelegramWebAppUser {
-  readonly id: number;
-  readonly first_name?: string;
-  readonly last_name?: string;
-  readonly username?: string;
-  readonly language_code?: string;
-}
-
-/** Telegram WebApp 注入浏览器的宿主对象接口。 */
-export interface TelegramWebApp {
-  readonly initData?: string;
-  readonly colorScheme?: "light" | "dark";
-  readonly themeParams?: Readonly<Record<string, string | undefined>>;
-  readonly initDataUnsafe?: Readonly<{ readonly user?: Readonly<TelegramWebAppUser> }>;
-  readonly ready?: () => void;
-  readonly expand?: () => void;
-  readonly setHeaderColor?: (color: string) => void;
-  readonly setBackgroundColor?: (color: string) => void;
-  readonly isVersionAtLeast?: (version: string) => boolean;
-  /** 唤起 Telegram 客户端原生文件下载器将 HTTPS 资源保存至系统默认下载目录（Bot API 8.0+）。 */
-  readonly downloadFile?: (
-    params: Readonly<{ readonly url: string; readonly file_name: string }>,
-    callback?: (accepted: boolean) => void
-  ) => void;
-  /** 唤起 `savePreparedKeyboardButton` 创建的原生好友/联系人/群组/频道选择器（Bot API 9.6+）。 */
-  readonly requestChat?: (preparedButtonId: string, callback?: (accepted: boolean) => void) => void;
-}
-
-/** 供浏览器触发附件保存的临时 `<a download>` 节点最小接口。 */
-export interface MiniAppDownloadAnchorElement {
-  href: string;
-  download: string;
-  rel: string;
-  readonly style: { display: string };
-  readonly click: () => void;
-  readonly remove: () => void;
-}
-
-/** 浏览器 Web Storage（`localStorage` / `sessionStorage`）最小读写接口。 */
-export interface MiniAppWebStorage {
-  readonly getItem: (key: string) => string | null;
-  readonly setItem: (key: string, value: string) => void;
-  readonly removeItem: (key: string) => void;
-}
-
-/** 带有可选 `Telegram.WebApp` 与标准浏览器宿主能力的全局窗口视图。 */
-export interface TelegramWindow {
-  readonly Telegram?: Readonly<{ readonly WebApp?: Readonly<TelegramWebApp> }>;
-  /** 当前浏览器会话已解锁的 Mini App 45 分钟认证令牌。 */
-  __copyNinjaSessionToken?: string;
-  /** 当前浏览器会话已解锁的认证令牌到期毫秒时间戳。 */
-  __copyNinjaSessionExpiresAt?: number;
-  /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
-  __copyNinjaAssetToken?: string;
-  readonly localStorage?: Readonly<MiniAppWebStorage>;
-  readonly sessionStorage?: Readonly<MiniAppWebStorage>;
-  readonly location?: Readonly<{ readonly href?: string; readonly host?: string; readonly search: string; readonly hash: string }>;
-  readonly confirm?: (message?: string) => boolean;
-  readonly navigator?: Readonly<{ readonly language?: string; readonly languages?: readonly string[] }>;
-  readonly document?: Readonly<{
-    readonly getElementById: (elementId: string) => Element | null;
-    readonly createElement?: (tagName: "a") => MiniAppDownloadAnchorElement;
-    readonly body?: Readonly<{ readonly appendChild?: (node: MiniAppDownloadAnchorElement) => void }>;
-    readonly documentElement?: Readonly<{ readonly setAttribute?: (qualifiedName: string, value: string) => void }>;
-  }>;
-}
-
-/** 功能开关在前端展示的标题、对应命令与说明。 */
-export interface MiniAppFeatureDisplayMeta {
-  readonly label: string;
-  readonly command: string;
-  readonly description: string;
 }
 
 /** 已解析并通过安全校验的图库单张图片文件句柄信息。 */

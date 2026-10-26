@@ -75,6 +75,24 @@ describe("packages/consts 纯度", () => {
     expect(problems).toHaveLength(2);
     expect(problems.every((problem: string): boolean => problem.includes("may only depend on other consts modules"))).toBeTrue();
   });
+
+  test("Mini App 前端常量目录运行期只依赖自身，packages/consts/ 同样拦下", () => {
+    expect(collectConstsPurityProblems(params(
+      "packages/mini-app-frontend/consts/example.ts",
+      'import { A } from "./exhaustiveList";\nimport type { B } from "../types/x";'
+    ))).toEqual([]);
+    expect(collectConstsPurityProblems(params(
+      "packages/mini-app-frontend/consts/example.ts",
+      'import { MINUTE_MS } from "../../consts/time";'
+    ))).toEqual([expect.stringContaining("packages/mini-app-frontend/consts/ may only depend on other consts modules")]);
+  });
+
+  test("常量目录之外的文件不在本规则范围内", () => {
+    expect(collectConstsPurityProblems(params(
+      "packages/libs/example.ts",
+      'import { a } from "../infra/x";'
+    ))).toEqual([]);
+  });
 });
 
 describe("packages/states 纯度", () => {

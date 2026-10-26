@@ -1,11 +1,12 @@
 import { dirname, relative, resolve } from "node:path";
 import ts from "typescript";
+import { MINI_APP_FRONTEND_CONSTS_ROOT } from "./miniAppFrontend";
 import { runtimeModuleReferences } from "./sourceAnalysis";
 import { globalPropertyName } from "./staticAccess";
 
 /**
  * 逐文件判定几条「谁能依赖谁」的硬边界：读取环境变量的唯一入口、
- * `packages/consts/` 与 `packages/states/` 的纯度、`infra` 不得向上依赖业务层，以及全量基准父进程与
+ * 常量目录与 `packages/states/` 的纯度、`infra` 不得向上依赖业务层，以及全量基准父进程与
  * 非夹具模块的 import 约束。`states/` 纯度与 `infra` 依赖方向见 docs/cn/04-invariants.md；判定细节以本文件
  * 各规则的常量与 JSDoc 为准。
  *
@@ -76,12 +77,21 @@ export function collectEnvironmentAccessProblems({
 }
 
 /**
- * `packages/consts/` 运行期只依赖本目录：其余 `packages/` 模块只能 `import type`，npm 包与 `node:`
- * 内置模块不在此列。全量基准 import 边界与 `states/` 纯度规则放行的 consts，因此不会间接带入其它
- * `packages/` 实现模块。
+ * 常量目录（相对仓库根，带结尾斜杠）：`packages/consts/` 与 Mini App 前端自己的
+ * `packages/mini-app-frontend/consts/`，后者见 scripts/conventions/miniAppFrontend.ts。
+ */
+export const CONSTS_ROOT_PREFIXES: readonly string[] = [
+  "packages/consts/",
+  MINI_APP_FRONTEND_CONSTS_ROOT,
+];
+
+/**
+ * 常量目录运行期只依赖本目录：`packages/consts/` 对其余 `packages/` 模块只能 `import type`，npm 包与
+ * `node:` 内置模块不在此列。全量基准 import 边界与 `states/` 纯度规则放行的 consts，因此不会间接带入
+ * 其它 `packages/` 实现模块。前端常量目录同样只依赖自身，类型引用另受前端目录边界约束。
  *
  * @param params 逐文件模块边界检查入参
- * @returns `packages/consts/` 越界运行期依赖的问题列表
+ * @returns 常量目录越界运行期依赖的问题列表
  */
 export function collectConstsPurityProblems({
   projectRoot,
@@ -89,14 +99,18 @@ export function collectConstsPurityProblems({
   source,
 }: ModuleBoundaryParams): readonly string[] {
   const relativePath: string = relative(projectRoot, path);
+  const ownRoot: string | undefined = CONSTS_ROOT_PREFIXES.find(
+    (prefix: string): boolean => relativePath.startsWith(prefix)
+  );
+  if (ownRoot === undefined) return [];
   const problems: string[] = [];
   for (const reference of runtimeModuleReferences(source)) {
     if (!reference.specifier.startsWith(".")) continue;
     const target: string = relative(projectRoot, resolve(dirname(path), reference.specifier));
-    if (target.startsWith("packages/consts/")) continue;
+    if (target.startsWith(ownRoot)) continue;
     problems.push(
       `${relativePath}:${lineOf(source, reference.start)} imports ${target} at runtime; ` +
-      "packages/consts/ may only depend on other consts modules at runtime — use import type for anything else"
+      `${ownRoot} may only depend on other consts modules in ${ownRoot} at runtime — use import type for anything else`
     );
   }
   return problems;

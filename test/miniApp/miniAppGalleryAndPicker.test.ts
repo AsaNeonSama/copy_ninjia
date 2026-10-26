@@ -95,12 +95,14 @@ const {
   MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_INIT_DATA_HEADER,
-  MINI_APP_LANGUAGES,
-  MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_HEADER,
-  MINI_APP_TAB_KEYS,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
+const {
+  MINI_APP_LANGUAGES,
+  MINI_APP_MIN_LOADING_MS,
+  MINI_APP_TAB_KEYS,
+} = await import("../../packages/mini-app-frontend/consts/miniApp");
 const { WHITELIST_PERMISSION_KEYS } = await import("../../packages/consts/whitelist");
 const {
   configureSuperAdminMenuButton,
@@ -114,7 +116,7 @@ const {
   prepareMiniAppPicker,
   startMiniAppServer,
   stopMiniAppServer,
-} = await import("../../packages/miniApp");
+} = await import("../../packages/mini-app-server");
 const {
   formatBytes,
   formatGalleryFileSize,
@@ -127,7 +129,7 @@ const {
   shortenGalleryFileName,
   truncateDisplayText,
   waitMinimumLoadingDuration,
-} = await import("../../packages/miniApp/ui/formatters");
+} = await import("../../packages/mini-app-frontend/formatters");
 const {
   buildMiniAppGalleryDownloadFileName,
   buildMiniAppGalleryDownloadUrl,
@@ -143,19 +145,19 @@ const {
   readMiniAppSessionToken,
   setMiniAppAssetToken,
   setMiniAppSessionToken,
-} = await import("../../packages/miniApp/ui/api");
+} = await import("../../packages/mini-app-frontend/api");
 const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const {
   detectBrowserDefaultLanguage,
   detectInitialMiniAppLanguage,
   getMiniAppTranslations,
-} = await import("../../packages/miniApp/ui/i18n");
+} = await import("../../packages/mini-app-frontend/i18n");
 const {
   applyMiniAppThemeToDocument,
   detectInitialMiniAppTheme,
   resetMiniAppStoreForTest,
   useMiniAppStore,
-} = await import("../../packages/miniApp/ui/store");
+} = await import("../../packages/mini-app-frontend/store");
 const {
   ChatsSvgIcon,
   DownloadSvgIcon,
@@ -166,7 +168,7 @@ const {
   StatusSvgIcon,
   TabSvgIcon,
   TrashSvgIcon,
-} = await import("../../packages/miniApp/miniAppResoures");
+} = await import("../../packages/mini-app-frontend/miniAppResoures");
 import type {
   MiniAppGalleryDeleteResult,
   MiniAppGalleryPage,

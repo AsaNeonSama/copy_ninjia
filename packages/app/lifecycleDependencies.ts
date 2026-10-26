@@ -56,7 +56,7 @@ import { updateCachedIdentity } from "../users/senderIdentity";
 import { hydrateIdentityStorageCounts } from "../infra/identityStorage";
 import { validateExistingDeploymentInputs } from "../config/readiness";
 import { getAssetConfig } from "../config/assets";
-import { startMiniAppServer, stopMiniAppServer } from "../miniApp";
+import { startMiniAppServer, stopMiniAppServer } from "../mini-app-server";
 import { quiesceConfigReload, startConfigReload } from "./configReload";
 import { registerCommandMenu } from "./commandMenu";
 import { registerHandlers } from "./registerHandlers";

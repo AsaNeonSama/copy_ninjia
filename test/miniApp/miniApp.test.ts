@@ -170,7 +170,7 @@ const {
   handleMiniAppHttpRequest,
   issueMiniAppAuthSession,
   stopMiniAppServer,
-} = await import("../../packages/miniApp");
+} = await import("../../packages/mini-app-server");
 import type {
   MiniAppAccessDiagnostics,
   MiniAppBlocklistPage,

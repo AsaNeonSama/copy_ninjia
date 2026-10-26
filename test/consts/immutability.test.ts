@@ -640,19 +640,23 @@ function assertStorageMigrationLineageReadonly(): void {
 void assertStorageMigrationLineageReadonly;
 
 import {
-  MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
   MINI_APP_FEATURE_KEYS,
+  MINI_APP_PICKER_SUBJECT_KINDS,
+  MINI_APP_PICKER_TARGET_LISTS,
+  MINI_APP_TOGGLEABLE_FEATURE_KEYS,
+} from "../../packages/consts/miniApp";
+import {
+  MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
+  MINI_APP_FEATURE_KEYS as FRONTEND_MINI_APP_FEATURE_KEYS,
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
   MINI_APP_IDENTITY_ADD_MODES,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
   MINI_APP_LANGUAGES,
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
-  MINI_APP_PICKER_SUBJECT_KINDS,
-  MINI_APP_PICKER_TARGET_LISTS,
   MINI_APP_TAB_KEYS,
   MINI_APP_THEME_MODES,
-  MINI_APP_TOGGLEABLE_FEATURE_KEYS,
-} from "../../packages/consts/miniApp";
+} from "../../packages/mini-app-frontend/consts/miniApp";
+import { WHITELIST_PERMISSION_KEYS as FRONTEND_WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import {
   QR_ALIGNMENT_CENTERS_V4_TO_V8,
   QR_L_DATA_CODEWORDS_PER_BLOCK,
@@ -665,6 +669,10 @@ import {
 function assertMiniAppConstantsReadonly(): void {
   // @ts-expect-error Mini App 功能开关键闭集禁止调用方增删。
   MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error 前端功能开关键闭集禁止调用方增删。
+  FRONTEND_MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error 前端白名单权限键全集禁止调用方增删。
+  FRONTEND_WHITELIST_PERMISSION_KEYS.push("isCanMute");
   // @ts-expect-error Mini App 子功能开关键闭集禁止调用方增删。
   MINI_APP_TOGGLEABLE_FEATURE_KEYS.push("aiChat");
   // @ts-expect-error Mini App 选择器目标名单闭集禁止调用方增删。

@@ -2,7 +2,7 @@ import { MINUTE_MS } from "./time";
 
 /**
  * `memory/mini-app-totp/totp.json` 持久化记录的当前 Schema 版本号。
- * 不变量：恒为正整数 `1`。所属模块：`packages/miniApp/totpStorage.ts`。
+ * 不变量：恒为正整数 `1`。所属模块：`packages/mini-app-server/totpStorage.ts`。
  */
 export const MINI_APP_TOTP_RECORD_VERSION: number = 1;
 
@@ -26,7 +26,7 @@ export const MINI_APP_TOTP_STEP_SECONDS: number = 30;
 
 /**
  * 前端控制台生成待绑定 TOTP 密钥与二维码后，在主线程内存中的待确认有效期毫秒数（10 分钟）。
- * 不变量：到期未完成 6 位动态码核验的待绑定密钥自动失效。所属模块：`packages/miniApp/totpStorage.ts`。
+ * 不变量：到期未完成 6 位动态码核验的待绑定密钥自动失效。所属模块：`packages/mini-app-server/totpStorage.ts`。
  */
 export const MINI_APP_TOTP_PENDING_TTL_MS: number = 10 * MINUTE_MS;
 
@@ -51,7 +51,7 @@ export const MINI_APP_TOTP_BASE32_ALPHABET: string =
 
 /**
  * 合法 32 位 RFC 4648 Base32 TOTP 密钥的严格匹配规则。
- * 不变量：不带全局标志 `g`，供持久化文件解码与验证无状态复用。所属模块：`packages/libs/miniAppTotp.ts` 与 `packages/miniApp/totpStorage.ts`。
+ * 不变量：不带全局标志 `g`，供持久化文件解码与验证无状态复用。所属模块：`packages/libs/miniAppTotp.ts` 与 `packages/mini-app-server/totpStorage.ts`。
  */
 export const MINI_APP_TOTP_SECRET_PATTERN: RegExp = /^[A-Z2-7]{32}$/u;
 

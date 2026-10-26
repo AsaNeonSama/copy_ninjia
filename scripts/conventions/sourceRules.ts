@@ -1,5 +1,6 @@
 import { relative } from "node:path";
 import ts from "typescript";
+import { MINI_APP_FRONTEND_CONSTS_ROOT, MINI_APP_FRONTEND_ROOT } from "./miniAppFrontend";
 import {
   collectSharedConstantProblems,
   declarationName,
@@ -28,7 +29,8 @@ export interface SourceFileRuleParams {
 }
 
 /**
- * 普通生产模块的纯字面量常量统一归入 consts；调用方排除缓存 owner 与常量模块。
+ * 普通生产模块的纯字面量常量统一归入 consts；Mini App 前端目录内的归入前端自己的常量目录。
+ * 调用方排除缓存 owner 与常量模块。
  * @param params 被检查文件及 AST。
  * @returns 字面量常量位置违规列表。
  */
@@ -38,13 +40,17 @@ export function collectConstantLocationProblems({
   source,
 }: SourceFileRuleParams): readonly string[] {
   const problems: string[] = [];
+  const relativePath: string = relative(projectRoot, path);
+  const constsRoot: string = relativePath.startsWith(MINI_APP_FRONTEND_ROOT)
+    ? MINI_APP_FRONTEND_CONSTS_ROOT
+    : "packages/consts/";
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
     for (const declaration of statement.declarationList.declarations) {
       if (declaration.initializer === undefined || !isLiteralConstant(declaration.initializer)) continue;
       problems.push(
-        `${relative(projectRoot, path)}:${lineOf(source, declaration)} literal constant ` +
-        `${declarationName(declaration)} must live in packages/consts/`
+        `${relativePath}:${lineOf(source, declaration)} literal constant ` +
+        `${declarationName(declaration)} must live in ${constsRoot}`
       );
     }
   }
@@ -138,7 +144,8 @@ export function collectCacheJsDocProblems({
 }
 
 /**
- * `packages/consts/` 下的常量要求 SCREAMING_SNAKE_CASE、显式类型、JSDoc 与编译期只读。
+ * 常量目录（`packages/consts/` 与 `packages/mini-app-frontend/consts/`）下的常量要求 SCREAMING_SNAKE_CASE、
+ * 显式类型、JSDoc 与编译期只读。
  * @param params 被检查文件及 AST。
  * @returns 常量命名、类型、JSDoc 与只读约定违规列表。
  */

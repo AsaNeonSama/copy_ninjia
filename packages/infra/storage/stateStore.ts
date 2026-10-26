@@ -23,7 +23,7 @@ import { logger } from "../logger";
 import { throwIfUpdateAborted } from "../updateContext";
 import { assertChatStateCapacity } from "../chatStateStorage";
 import { StateStore, loadCurrentGlobalState } from "./statePersistence";
-import { loadMiniAppTotpRecord } from "../../miniApp/totpStorage";
+import { loadMiniAppTotpRecord } from "../../mini-app-server/totpStorage";
 import { toError } from "../../libs/errorMessage";
 
 export {
