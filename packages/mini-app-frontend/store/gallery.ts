@@ -58,7 +58,7 @@ export interface MiniAppGalleryStoreState {
   readonly beginPreviewLoad: () => void;
   /** 预览图加载完成或失败时调用：属于当前预览周期时在骨架屏最短展示时长后标记为已加载。 */
   readonly markPreviewLoaded: () => void;
-  /** 设置或关闭大图预览。 */
+  /** 设置或关闭大图预览，并同步开启新的预览加载周期、重置加载完成态。 */
   readonly setPreviewItem: (item: Readonly<MiniAppGalleryItem> | null) => void;
   /** 切换页码并加载该页（关闭大图预览）。 */
   readonly changePage: (page: number) => void;
@@ -94,6 +94,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
       let currentBatchEpoch: number = 0;
       const pendingThumbKeys: Set<string> = new Set<string>();
       let previewEpoch: number = 0;
+      let settledPreviewEpoch: number = -1;
       let pageRenderAt: number = Date.now();
       let previewRenderAt: number = Date.now();
 
@@ -172,12 +173,17 @@ export function createGalleryStore(): MiniAppGalleryStore {
 
         beginPreviewLoad: (): void => {
           previewEpoch += 1;
+          settledPreviewEpoch = -1;
           previewRenderAt = Date.now();
           set({ previewLoaded: false });
         },
 
         markPreviewLoaded: (): void => {
           const epoch: number = previewEpoch;
+          if (settledPreviewEpoch === epoch) {
+            return;
+          }
+          settledPreviewEpoch = epoch;
           void (async (): Promise<void> => {
             await waitMinimumLoadingDuration(previewRenderAt);
             if (previewEpoch !== epoch) {
@@ -188,16 +194,23 @@ export function createGalleryStore(): MiniAppGalleryStore {
         },
 
         setPreviewItem: (item: Readonly<MiniAppGalleryItem> | null): void => {
-          set({ previewItem: item });
+          previewEpoch += 1;
+          settledPreviewEpoch = -1;
+          previewRenderAt = Date.now();
+          set({ previewItem: item, previewLoaded: false });
         },
 
         changePage: (page: number): void => {
-          set({ previewItem: null, page });
+          previewEpoch += 1;
+          settledPreviewEpoch = -1;
+          set({ previewItem: null, previewLoaded: false, page });
           void get().loadGallery(page, get().pageSize);
         },
 
         changePageSize: (pageSize: number): void => {
-          set({ previewItem: null, page: 1, pageSize });
+          previewEpoch += 1;
+          settledPreviewEpoch = -1;
+          set({ previewItem: null, previewLoaded: false, page: 1, pageSize });
         },
 
         downloadImage: async (fileName: string): Promise<void> => {
@@ -232,7 +245,9 @@ export function createGalleryStore(): MiniAppGalleryStore {
             if (result.ok) {
               useMiniAppStore.getState().notify(t.gallery.deletedToast(shortName));
               if (get().previewItem?.fileName === fileName) {
-                set({ previewItem: null });
+                previewEpoch += 1;
+                settledPreviewEpoch = -1;
+                set({ previewItem: null, previewLoaded: false });
               }
               await get().loadGallery(get().page, get().pageSize);
             } else {

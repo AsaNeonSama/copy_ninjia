@@ -1442,10 +1442,10 @@ input:disabled + .slider {
 }
 .gallery-preview-img {
   max-width: 100%; max-height: 58vh; object-fit: contain; border-radius: 6px; display: block;
-  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity; transition: opacity 0.24s ease;
 }
-.gallery-preview-img.loading { opacity: 0; transform: scale(0.985); }
-.gallery-preview-img.loaded { opacity: 1; transform: scale(1); }
+.gallery-preview-img.loading { opacity: 0; }
+.gallery-preview-img.loaded { opacity: 1; }
 
 .cf-error-page {
   position: fixed;

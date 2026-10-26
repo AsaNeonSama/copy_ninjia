@@ -503,11 +503,28 @@ describe("页面 store", () => {
 
   test("图库：预览周期内只采纳当前预览的加载回调，下载成功回报文件名，删除失败回报服务端说明", async () => {
     const store = createGalleryStore();
-    store.getState().beginPreviewLoad();
+    store.getState().setPreviewItem({
+      fileName: "a.png",
+      sizeBytes: 100,
+      updatedAt: "2026-04-12 00:00:00",
+      mimeType: "image/png",
+    });
+    expect(store.getState().previewLoaded).toBeFalse();
+    store.getState().markPreviewLoaded();
     store.getState().markPreviewLoaded();
     store.getState().beginPreviewLoad();
     expect(store.getState().previewLoaded).toBeFalse();
     await settleLoading();
+    expect(store.getState().previewLoaded).toBeFalse();
+    store.getState().markPreviewLoaded();
+    await settleLoading();
+    expect(store.getState().previewLoaded).toBeTrue();
+    store.getState().setPreviewItem({
+      fileName: "b.png",
+      sizeBytes: 200,
+      updatedAt: "2026-04-12 00:00:01",
+      mimeType: "image/png",
+    });
     expect(store.getState().previewLoaded).toBeFalse();
     store.getState().markPreviewLoaded();
     await settleLoading();

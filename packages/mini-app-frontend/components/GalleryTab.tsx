@@ -83,7 +83,6 @@ export function GalleryTab(): React.JSX.Element {
     previewLoaded,
     loadGallery,
     markThumbLoaded,
-    beginPreviewLoad,
     markPreviewLoaded,
     setPreviewItem,
     changePage,
@@ -100,16 +99,26 @@ export function GalleryTab(): React.JSX.Element {
     useRef<{ readonly x: number; readonly y: number }>({ x: -1, y: -1 });
   const previewCardRef: React.RefObject<ScrollablePreviewElement | null> =
     useRef<ScrollablePreviewElement | null>(null);
+  const previewImgRef: React.RefObject<ProbeableImageElement | null> =
+    useRef<ProbeableImageElement | null>(null);
 
   useEffect((): void => {
     if (previewItem !== null) {
-      beginPreviewLoad();
+      const imgEl: ProbeableImageElement | null = previewImgRef.current;
+      if (
+        imgEl !== null &&
+        typeof imgEl.src === "string" &&
+        imgEl.src.length > 0 &&
+        imgEl.complete === true
+      ) {
+        markPreviewLoaded();
+      }
       previewCardRef.current?.scrollIntoView?.({
         behavior: "smooth",
         block: "start",
       });
     }
-  }, [beginPreviewLoad, previewItem]);
+  }, [markPreviewLoaded, previewItem]);
 
   useEffect((): void => {
     void loadGallery(1, pageSize);
@@ -252,6 +261,7 @@ export function GalleryTab(): React.JSX.Element {
               <img
                 key={previewItem.fileName}
                 ref={(imgEl: ProbeableImageElement | null): void => {
+                  previewImgRef.current = imgEl;
                   if (
                     imgEl !== null &&
                     typeof imgEl.src === "string" &&
@@ -262,7 +272,6 @@ export function GalleryTab(): React.JSX.Element {
                   }
                 }}
                 className={`gallery-preview-img ${previewLoaded ? "loaded" : "loading"}`}
-                src={buildMiniAppGalleryImageUrl(previewItem.fileName)}
                 alt={previewItem.fileName}
                 decoding="async"
                 onLoad={(): void => {
@@ -271,6 +280,7 @@ export function GalleryTab(): React.JSX.Element {
                 onError={(): void => {
                   markPreviewLoaded();
                 }}
+                src={buildMiniAppGalleryImageUrl(previewItem.fileName)}
               />
             </div>
             <div className="cap-items" style={{ marginTop: "8px" }}>
@@ -382,7 +392,6 @@ export function GalleryTab(): React.JSX.Element {
                                 }
                               }}
                               className={`gallery-thumb ${isImgLoaded ? "loaded" : "loading"}`}
-                              src={buildMiniAppGalleryImageUrl(item.fileName)}
                               alt={item.fileName}
                               decoding="async"
                               onLoad={(): void => {
@@ -391,6 +400,7 @@ export function GalleryTab(): React.JSX.Element {
                               onError={(): void => {
                                 markThumbLoaded(item.fileName, batchEpoch);
                               }}
+                              src={buildMiniAppGalleryImageUrl(item.fileName)}
                             />
                             <button
                               type="button"
