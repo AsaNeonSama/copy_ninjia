@@ -2,8 +2,8 @@ import type React from "react";
 import type { MiniAppLanguage } from "../types/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
 
 /** `PaginationBar` 通用分页导航组件的属性参数。 */
 export interface PaginationBarProps {

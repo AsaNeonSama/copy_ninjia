@@ -8,7 +8,7 @@ import { getBotMiniAppConfig } from "../config/bot";
 import { MINI_APP_MAX_UPLOAD_BODY_BYTES } from "../consts/miniApp";
 import { logger } from "../infra/logger";
 import type { BotMiniAppConfig } from "../types/config";
-import { jsonResponse } from "./http/common";
+import { jsonResponse } from "./libs/response";
 import { resetMiniAppPickerState } from "./picker";
 import { createMiniAppBunRoutes, handleMiniAppHttpRequest } from "./routes";
 import { resetMiniAppTotpMemoryCache } from "./totpStorage";

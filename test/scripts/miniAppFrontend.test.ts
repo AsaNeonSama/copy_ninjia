@@ -21,10 +21,10 @@ afterEach((): void => {
 /** 合规基线：前端只引用本目录与 npm 包，服务端只经登记的 HTML import 引用前端入口。 */
 const COMPLIANT_FILES: Readonly<Record<string, string>> = {
   "packages/mini-app-frontend/index.html":
-    '<link rel="icon" href="./miniAppResoures/favicon.ico" />\n' +
+    '<link rel="icon" href="./resource/favicon.ico" />\n' +
     '<script src="https://telegram.org/js/telegram-web-app.js"></script>\n' +
     '<link rel="stylesheet" href="./styles.css" />\n<script type="module" src="./main.tsx"></script>\n',
-  "packages/mini-app-frontend/styles.css": '.a { background: url("./miniAppResoures/bg.svg"); }\n.b { background: url(data:image/png;base64,AA); }\n',
+  "packages/mini-app-frontend/styles.css": '.a { background: url("./resource/bg.svg"); }\n.b { background: url(data:image/png;base64,AA); }\n',
   "packages/mini-app-frontend/main.tsx":
     'import { createRoot } from "react-dom/client";\nimport type { T } from "./types/miniApp";\nimport { App } from "./App";\n',
   "packages/mini-app-frontend/types/miniApp.ts": "export type T = number;\n",
@@ -57,43 +57,43 @@ describe("Mini App 前端目录引用边界", () => {
 
   test("前端 TS/TSX 引用目录外文件一律拦下，纯类型引用与类型位置 import() 同样计入", async () => {
     const { root, tracked } = await projectFixture({
-      "packages/mini-app-frontend/api.ts": 'import type { BotConfig } from "../types/config";\n',
+      "packages/mini-app-frontend/api/request.ts": 'import type { BotConfig } from "../../types/config";\n',
       "packages/mini-app-frontend/App.tsx":
         'export const x = (): number => 1;\ntype P = import("../mini-app-server/picker").PrepareMiniAppPickerResult;\n',
-      "packages/mini-app-frontend/store.ts": 'export { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";\n',
+      "packages/mini-app-frontend/store/app.ts": 'export { WHITELIST_PERMISSION_KEYS } from "../../consts/whitelist";\n',
     });
     const problems: readonly string[] = await collectMiniAppFrontendBoundaryProblems(root, tracked);
     expect(problems).toEqual([
-      expect.stringContaining("packages/mini-app-frontend/api.ts:1 references packages/types/config"),
+      expect.stringContaining("packages/mini-app-frontend/api/request.ts:1 references packages/types/config"),
       expect.stringContaining("packages/mini-app-frontend/App.tsx:2 references packages/mini-app-server/picker"),
-      expect.stringContaining("packages/mini-app-frontend/store.ts:1 references packages/consts/whitelist"),
+      expect.stringContaining("packages/mini-app-frontend/store/app.ts:1 references packages/consts/whitelist"),
     ]);
   });
 
   test("前端 HTML 与 CSS 的相对资源引用越出目录时拦下", async () => {
     const { root, tracked } = await projectFixture({
-      "packages/mini-app-frontend/index.html": '<link rel="icon" href="../mini-app-server/miniAppResoures/favicon.ico" />\n',
+      "packages/mini-app-frontend/index.html": '<link rel="icon" href="../mini-app-server/resource/favicon.ico" />\n',
       "packages/mini-app-frontend/styles.css": '@import "../shared.css";\n',
     });
     const problems: readonly string[] = await collectMiniAppFrontendBoundaryProblems(root, tracked);
     expect(problems).toEqual([
-      expect.stringContaining("packages/mini-app-frontend/index.html:1 references packages/mini-app-server/miniAppResoures/favicon.ico"),
+      expect.stringContaining("packages/mini-app-frontend/index.html:1 references packages/mini-app-server/resource/favicon.ico"),
       expect.stringContaining("packages/mini-app-frontend/styles.css:1 references packages/shared.css"),
     ]);
   });
 
   test("登记之外的生产模块引用前端时拦下，登记的引用方改引其它前端文件同样拦下", async () => {
     const { root, tracked } = await projectFixture({
-      "packages/mini-app-server/http/statusRoutes.ts": 'import type { MiniAppTranslations } from "../../mini-app-frontend/types/miniAppI18n";\n',
+      "packages/mini-app-server/handlers/status.ts": 'import type { MiniAppTranslations } from "../../mini-app-frontend/types/miniAppI18n";\n',
       "index.ts": 'import { App } from "./packages/mini-app-frontend/App";\n',
       "packages/mini-app-server/routes.ts":
-        'import indexHtml from "../mini-app-frontend/index.html";\nimport { formatBytes } from "../mini-app-frontend/formatters";\n',
+        'import indexHtml from "../mini-app-frontend/index.html";\nimport { formatBytes } from "../mini-app-frontend/libs/formatters";\n',
     });
     const problems: readonly string[] = await collectMiniAppFrontendBoundaryProblems(root, tracked);
     expect(problems).toHaveLength(3);
     expect(problems).toContainEqual(expect.stringContaining("index.ts:1 references packages/mini-app-frontend/App"));
-    expect(problems).toContainEqual(expect.stringContaining("packages/mini-app-server/http/statusRoutes.ts:1 references packages/mini-app-frontend/types/miniAppI18n"));
-    expect(problems).toContainEqual(expect.stringContaining("packages/mini-app-server/routes.ts:2 references packages/mini-app-frontend/formatters"));
+    expect(problems).toContainEqual(expect.stringContaining("packages/mini-app-server/handlers/status.ts:1 references packages/mini-app-frontend/types/miniAppI18n"));
+    expect(problems).toContainEqual(expect.stringContaining("packages/mini-app-server/routes.ts:2 references packages/mini-app-frontend/libs/formatters"));
   });
 
   test("登记的入口 import 不再存在时报废弃登记", async () => {

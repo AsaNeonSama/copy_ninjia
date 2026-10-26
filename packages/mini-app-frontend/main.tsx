@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { App } from "./App";
-import { getTelegramWebApp } from "./api";
+import { getTelegramWebApp } from "./libs/telegram";
 import type { TelegramWebApp, TelegramWindow } from "./types/miniApp";
 
 /**

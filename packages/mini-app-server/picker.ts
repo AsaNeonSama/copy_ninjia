@@ -19,10 +19,8 @@ import type {
   MiniAppPickerTargetList,
   MiniAppPreparedPickerSession,
 } from "../types/miniApp";
-import {
-  setBlocklistEntryMembership,
-  setWhitelistEntryMembership,
-} from "./identitiesView";
+import { setBlocklistEntryMembership } from "./view/identities/blocklist";
+import { setWhitelistEntryMembership } from "./view/identities/whitelist";
 
 /** `prepareMiniAppPicker` 的入参。 */
 export interface PrepareMiniAppPickerParams {

@@ -1,30 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type React from "react";
 import { VERBATIM_CONTEXT_MAX } from "../consts/memory";
 import {
+  MINI_APP_MESSAGE_AVATAR_TONE_COUNT,
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
 } from "../consts/miniApp";
-import type {
-  MiniAppLanguage,
-  MiniAppMessageItem,
-  MiniAppMessagePage,
-} from "../types/miniApp";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useComponentStore } from "../libs/componentStore";
+import { truncateDisplayText } from "../libs/formatters";
 import {
   ArrowLeftSvgIcon,
   ChatsSvgIcon,
   RefreshSvgIcon,
-} from "../miniAppResoures";
-import { fetchMiniAppChatMessages } from "../api";
-import {
-  truncateDisplayText,
-  waitMinimumLoadingDuration,
-} from "../formatters";
-import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
+} from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import { createMessagesStore } from "../store/messages";
+import type { MiniAppMessagesStoreState } from "../store/messages";
+import type {
+  MiniAppLanguage,
+  MiniAppMessageItem,
+} from "../types/miniApp";
 import { PaginationBar } from "./PaginationBar";
+import { LoadingBox } from "./skeletons/LoadingBox";
+import { MessageSkeletonRows } from "./skeletons/MessageSkeletonRows";
 
 /** `MessagesView` 组件的属性参数。 */
 export interface MessagesViewProps {
@@ -32,11 +33,7 @@ export interface MessagesViewProps {
   readonly chatId: number;
   /** 返回群详细状态页的回调。 */
   readonly onBack: () => void;
-  /** 全局提示回调。 */
-  readonly onToast: (message: string) => void;
 }
-
-const AVATAR_TONE_COUNT: number = 6;
 
 /**
  * 提取发言者显示名称的首个字符用于头像徽章展示。
@@ -54,34 +51,6 @@ function extractAvatarInitial(name: string): string {
 }
 
 /**
- * 按指定行数生成发言列表骨架占位卡片数组（含头像徽章、作者信息行与消息气泡骨架）。
- *
- * @param count 骨架卡片行数
- * @returns React 节点数组
- */
-function renderMessageSkeletonRows(count: number): React.JSX.Element[] {
-  const rows: React.JSX.Element[] = [];
-  for (let i: number = 0; i < count; i += 1) {
-    rows.push(
-      <div key={i} className="skeleton-card msg-skeleton-card">
-        <div className="msg-head">
-          <div className="skeleton-line msg-skeleton-avatar" />
-          <div className="msg-author-col">
-            <div className="skeleton-row-between" style={{ marginBottom: 0 }}>
-              <div className="skeleton-line" style={{ width: "46%", height: "12px" }} />
-              <div className="skeleton-line" style={{ width: "36px", height: "14px" }} />
-            </div>
-            <div className="skeleton-line" style={{ width: "68%", height: "9px" }} />
-          </div>
-        </div>
-        <div className="skeleton-line msg-skeleton-bubble" />
-      </div>
-    );
-  }
-  return rows;
-}
-
-/**
  * 群热 256 条发言记录按条查看组件（默认 10 条/页，支持 10/15/20 档位切换，不展示压缩记忆摘要）。
  *
  * @param props 组件属性
@@ -90,71 +59,24 @@ function renderMessageSkeletonRows(count: number): React.JSX.Element[] {
 export function MessagesView({
   chatId,
   onBack,
-  onToast,
 }: MessagesViewProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-
-  const [pageSize, setPageSize]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE);
-  const [pageNumber, setPageNumber]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(1);
-  const [pageData, setPageData]: [
-    MiniAppMessagePage | null,
-    React.Dispatch<React.SetStateAction<MiniAppMessagePage | null>>
-  ] = useState<MiniAppMessagePage | null>(null);
-  const [loading, setLoading]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(true);
-  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
-
-  const loadMessages: (nextPage: number, nextPageSize: number) => Promise<void> =
-    useCallback(
-      async (nextPage: number, nextPageSize: number): Promise<void> => {
-        const reqId: number = ++requestSeqRef.current;
-        const startedAt: number = Date.now();
-        setLoading(true);
-        try {
-          const data: MiniAppMessagePage = await fetchMiniAppChatMessages(
-            chatId,
-            nextPage,
-            nextPageSize
-          );
-          await waitMinimumLoadingDuration(startedAt);
-          if (reqId !== requestSeqRef.current) {
-            return;
-          }
-          setPageData(data);
-          if (data.page !== nextPage) {
-            setPageNumber(data.page);
-          }
-        } catch (error: unknown) {
-          await waitMinimumLoadingDuration(startedAt);
-          if (reqId !== requestSeqRef.current) {
-            return;
-          }
-          const message: string =
-            error instanceof Error ? error.message : String(error);
-          onToast(message);
-        } finally {
-          if (reqId === requestSeqRef.current) {
-            setLoading(false);
-          }
-        }
-      },
-      [chatId, onToast]
-    );
+  const {
+    pageSize,
+    pageNumber,
+    pageData,
+    loading,
+    loadMessages,
+    setPageNumber,
+    setPageSize,
+  }: MiniAppMessagesStoreState = useComponentStore(createMessagesStore);
 
   useEffect((): void => {
-    void loadMessages(pageNumber, pageSize);
-  }, [loadMessages, pageNumber, pageSize]);
+    void loadMessages(chatId, pageNumber, pageSize);
+  }, [chatId, loadMessages, pageNumber, pageSize]);
 
   return (
     <div className="animate-fade-in">
@@ -168,7 +90,7 @@ export function MessagesView({
           className="btn icon-btn"
           disabled={loading}
           onClick={(): void => {
-            void loadMessages(pageNumber, pageSize);
+            void loadMessages(chatId, pageNumber, pageSize);
           }}
         >
           <RefreshSvgIcon size={14} className={loading ? "spin-icon" : ""} />
@@ -203,12 +125,9 @@ export function MessagesView({
 
         {loading && pageData === null
           ? (
-            <div className="loading-box">
-              <div className="loading-text">{t.messages.loadingText}</div>
-              <div className="skeleton-stack">
-                {renderMessageSkeletonRows(MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE)}
-              </div>
-            </div>
+            <LoadingBox text={t.messages.loadingText}>
+              <MessageSkeletonRows count={MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE} />
+            </LoadingBox>
           )
           : null}
 
@@ -220,7 +139,7 @@ export function MessagesView({
           ? (
             <div className="msg-list">
               {pageData.items.map((item: Readonly<MiniAppMessageItem>): React.JSX.Element => {
-                const toneIndex: number = Math.abs(item.userId) % AVATAR_TONE_COUNT;
+                const toneIndex: number = Math.abs(item.userId) % MINI_APP_MESSAGE_AVATAR_TONE_COUNT;
                 return (
                   <div
                     key={`${item.index}-${item.messageId}`}
@@ -302,13 +221,8 @@ export function MessagesView({
           pageSize={pageData?.pageSize ?? pageSize}
           pageSizeOptions={MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS}
           disabled={loading}
-          onPageChange={(nextPage: number): void => {
-            setPageNumber(nextPage);
-          }}
-          onPageSizeChange={(nextPageSize: number): void => {
-            setPageNumber(1);
-            setPageSize(nextPageSize);
-          }}
+          onPageChange={setPageNumber}
+          onPageSizeChange={setPageSize}
         />
       </div>
     </div>

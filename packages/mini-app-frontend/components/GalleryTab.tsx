@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type React from "react";
+import { MINI_APP_GALLERY_PAGE_SIZE_OPTIONS } from "../consts/miniApp";
+import { buildMiniAppGalleryImageUrl } from "../api/galleryFile";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useComponentStore } from "../libs/componentStore";
 import {
-  MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
-  MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
-} from "../consts/miniApp";
-import type {
-  MiniAppGalleryDeleteResult,
-  MiniAppGalleryItem,
-  MiniAppGalleryPage,
-  MiniAppGalleryUploadResult,
-  MiniAppLanguage,
-} from "../types/miniApp";
+  formatGalleryFileSize,
+  shortenGalleryFileName,
+} from "../libs/formatters";
 import {
   CloseSvgIcon,
   DownloadSvgIcon,
@@ -18,32 +16,17 @@ import {
   RefreshSvgIcon,
   TrashSvgIcon,
   UploadSvgIcon,
-} from "../miniAppResoures";
-import {
-  buildMiniAppGalleryDownloadFileName,
-  buildMiniAppGalleryImageUrl,
-  deleteMiniAppGalleryImageByName,
-  downloadMiniAppGalleryImageByName,
-  fetchMiniAppGallery,
-  uploadMiniAppGalleryImageBytes,
-} from "../api";
-import {
-  formatGalleryFileSize,
-  shortenGalleryFileName,
-  truncateDisplayText,
-  waitMinimumLoadingDuration,
-} from "../formatters";
-import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
+} from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import { createGalleryStore } from "../store/gallery";
+import type { MiniAppGalleryStoreState } from "../store/gallery";
+import type {
+  MiniAppGalleryItem,
+  MiniAppLanguage,
+} from "../types/miniApp";
 import { PaginationBar } from "./PaginationBar";
-
-/** `GalleryTab` 组件的属性参数。 */
-export interface GalleryTabProps {
-  /** 触发全局 Toast 提示的回调。 */
-  readonly onToast: (message: string) => void;
-}
+import { GalleryImageSkeleton } from "./skeletons/GalleryImageSkeleton";
 
 /** 浏览器文件选择 `<input type="file">` 事件目标的最小类型接口。 */
 interface FileInputEventTarget {
@@ -79,175 +62,58 @@ interface ProbeableImageElement {
 /**
  * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理组件。
  *
- * @param props 组件属性
  * @returns React 节点
  */
-export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
+export function GalleryTab(): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
-  const requestConfirm: (
-    message: string,
-    tone?: "danger" | "primary"
-  ) => Promise<boolean> = useMiniAppStore(
-    (state: MiniAppUiStoreState): ((message: string, tone?: "danger" | "primary") => Promise<boolean>) =>
-      state.requestConfirm
-  );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-
-  const [galleryPage, setGalleryPage]: [
-    MiniAppGalleryPage | null,
-    React.Dispatch<React.SetStateAction<MiniAppGalleryPage | null>>
-  ] = useState<MiniAppGalleryPage | null>(null);
-  const [page, setPage]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(1);
-  const [pageSize, setPageSize]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(MINI_APP_GALLERY_DEFAULT_PAGE_SIZE);
-  const [loading, setLoading]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(true);
-  const [uploading, setUploading]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [deletingFileName, setDeletingFileName]: [
-    string | null,
-    React.Dispatch<React.SetStateAction<string | null>>
-  ] = useState<string | null>(null);
-  const [downloadingFileName, setDownloadingFileName]: [
-    string | null,
-    React.Dispatch<React.SetStateAction<string | null>>
-  ] = useState<string | null>(null);
+  const {
+    galleryPage,
+    pageSize,
+    loading,
+    uploading,
+    deletingFileName,
+    downloadingFileName,
+    uploadStatusText,
+    previewItem,
+    loadedImages,
+    batchEpoch,
+    previewLoaded,
+    loadGallery,
+    markThumbLoaded,
+    beginPreviewLoad,
+    markPreviewLoaded,
+    setPreviewItem,
+    changePage,
+    changePageSize,
+    downloadImage,
+    deleteImage,
+    uploadFiles,
+  }: MiniAppGalleryStoreState = useComponentStore(createGalleryStore);
   const [suppressedHoverFileName, setSuppressedHoverFileName]: [
     string | null,
     React.Dispatch<React.SetStateAction<string | null>>
   ] = useState<string | null>(null);
   const clickCoordsRef: React.RefObject<{ readonly x: number; readonly y: number }> =
     useRef<{ readonly x: number; readonly y: number }>({ x: -1, y: -1 });
-  const [uploadStatusText, setUploadStatusText]: [
-    string | null,
-    React.Dispatch<React.SetStateAction<string | null>>
-  ] = useState<string | null>(null);
-  const [previewItem, setPreviewItem]: [
-    Readonly<MiniAppGalleryItem> | null,
-    React.Dispatch<React.SetStateAction<Readonly<MiniAppGalleryItem> | null>>
-  ] = useState<Readonly<MiniAppGalleryItem> | null>(null);
-  const [loadedImages, setLoadedImages]: [
-    Readonly<Record<string, boolean>>,
-    React.Dispatch<React.SetStateAction<Readonly<Record<string, boolean>>>>
-  ] = useState<Readonly<Record<string, boolean>>>({});
-  const [batchEpoch, setBatchEpoch]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(0);
-  const [previewLoaded, setPreviewLoaded]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
-  const batchEpochRef: React.RefObject<number> = useRef<number>(0);
-  const pendingThumbKeysRef: React.RefObject<Set<string>> = useRef<Set<string>>(
-    new Set<string>()
-  );
-  const previewEpochRef: React.RefObject<number> = useRef<number>(0);
-  const pageRenderAtRef: React.RefObject<number> = useRef<number>(Date.now());
-  const previewRenderAtRef: React.RefObject<number> = useRef<number>(Date.now());
   const previewCardRef: React.RefObject<ScrollablePreviewElement | null> =
     useRef<ScrollablePreviewElement | null>(null);
 
   useEffect((): void => {
     if (previewItem !== null) {
-      previewEpochRef.current += 1;
-      previewRenderAtRef.current = Date.now();
-      setPreviewLoaded(false);
+      beginPreviewLoad();
       previewCardRef.current?.scrollIntoView?.({
         behavior: "smooth",
         block: "start",
       });
     }
-  }, [previewItem]);
-
-  const markThumbLoaded = (fileName: string, epoch: number): void => {
-    if (batchEpochRef.current !== epoch) {
-      return;
-    }
-    const pendingKey: string = `${epoch}:${fileName}`;
-    if (pendingThumbKeysRef.current.has(pendingKey)) {
-      return;
-    }
-    pendingThumbKeysRef.current.add(pendingKey);
-    void (async (): Promise<void> => {
-      await waitMinimumLoadingDuration(pageRenderAtRef.current);
-      if (batchEpochRef.current !== epoch) {
-        return;
-      }
-      setLoadedImages(
-        (prev: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>> =>
-          prev[fileName] === true ? prev : { ...prev, [fileName]: true }
-      );
-    })();
-  };
-
-  const markPreviewLoaded = (epoch: number): void => {
-    if (previewEpochRef.current !== epoch) {
-      return;
-    }
-    void (async (): Promise<void> => {
-      await waitMinimumLoadingDuration(previewRenderAtRef.current);
-      if (previewEpochRef.current !== epoch) {
-        return;
-      }
-      setPreviewLoaded(true);
-    })();
-  };
-
-  const loadGallery: (targetPage?: number, targetPageSize?: number) => Promise<void> =
-    useCallback(
-      async (targetPage?: number, targetPageSize?: number): Promise<void> => {
-        const reqPage: number = targetPage ?? page;
-        const reqSize: number = targetPageSize ?? pageSize;
-        const reqId: number = ++requestSeqRef.current;
-        setLoading(true);
-        try {
-          const result: MiniAppGalleryPage = await fetchMiniAppGallery(
-            reqPage,
-            reqSize
-          );
-          if (reqId !== requestSeqRef.current) {
-            return;
-          }
-          const nextEpoch: number = batchEpochRef.current + 1;
-          batchEpochRef.current = nextEpoch;
-          pendingThumbKeysRef.current.clear();
-          pageRenderAtRef.current = Date.now();
-          setBatchEpoch(nextEpoch);
-          setLoadedImages({});
-          setGalleryPage(result);
-          setPage(result.page);
-        } catch (error: unknown) {
-          if (reqId !== requestSeqRef.current) {
-            return;
-          }
-          const message: string =
-            error instanceof Error ? error.message : String(error);
-          onToast(message);
-        } finally {
-          if (reqId === requestSeqRef.current) {
-            setLoading(false);
-          }
-        }
-      },
-      [onToast, page, pageSize]
-    );
+  }, [beginPreviewLoad, previewItem]);
 
   useEffect((): void => {
     void loadGallery(1, pageSize);
-  }, [pageSize]);
+  }, [loadGallery, pageSize]);
 
   const clearHoverSuppressionOnLeave = (fileName: string): void => {
     if (
@@ -274,55 +140,17 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     }
   };
 
-  const handleDownloadImage = async (fileName: string): Promise<void> => {
+  const handleDownloadImage = (fileName: string): void => {
     setSuppressedHoverFileName(fileName);
-    setDownloadingFileName(fileName);
-    try {
-      const downloadFileName: string = buildMiniAppGalleryDownloadFileName(fileName);
-      const accepted: boolean = await downloadMiniAppGalleryImageByName(fileName);
-      if (accepted) {
-        onToast(t.gallery.downloadedToast(downloadFileName));
-      }
-    } catch (error: unknown) {
-      const message: string =
-        error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setDownloadingFileName(null);
-    }
+    void downloadImage(fileName);
   };
 
-  const handleDeleteImage = async (fileName: string): Promise<void> => {
+  const handleDeleteImage = (fileName: string): void => {
     setSuppressedHoverFileName(fileName);
-    const shortName: string = shortenGalleryFileName(fileName);
-    if (!(await requestConfirm(t.gallery.confirmDeleteImage(shortName), "danger"))) {
-      return;
-    }
-    setDeletingFileName(fileName);
-    try {
-      const result: MiniAppGalleryDeleteResult =
-        await deleteMiniAppGalleryImageByName(fileName);
-      if (result.ok) {
-        onToast(t.gallery.deletedToast(shortName));
-        if (previewItem?.fileName === fileName) {
-          setPreviewItem(null);
-        }
-        await loadGallery(page, pageSize);
-      } else {
-        onToast(result.message);
-      }
-    } catch (error: unknown) {
-      const message: string =
-        error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setDeletingFileName(null);
-    }
+    void deleteImage(fileName);
   };
 
-  const handleFilesSelected = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ): Promise<void> => {
+  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>): void => {
     const target: FileInputEventTarget =
       event.currentTarget as unknown as FileInputEventTarget;
     const rawFiles: ArrayLike<File> | null | undefined = target.files;
@@ -331,53 +159,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
     }
     const files: File[] = Array.from(rawFiles);
     target.value = "";
-
-    setUploading(true);
-    let added: number = 0;
-    let existing: number = 0;
-    let invalidDimensions: number = 0;
-    let failed: number = 0;
-    let lastSingleMessage: string = "";
-
-    try {
-      for (let i: number = 0; i < files.length; i++) {
-        const file: File | undefined = files[i];
-        if (file === undefined) continue;
-        setUploadStatusText(
-          `(${i + 1}/${files.length}) ${truncateDisplayText(shortenGalleryFileName(file.name), 20)}…`
-        );
-        try {
-          const buffer: ArrayBuffer = await file.arrayBuffer();
-          const bytes: Uint8Array = new Uint8Array(buffer);
-          const result: MiniAppGalleryUploadResult =
-            await uploadMiniAppGalleryImageBytes(bytes);
-          lastSingleMessage = result.message;
-          if (result.outcome === "added") {
-            added++;
-          } else if (result.outcome === "existing") {
-            existing++;
-          } else if (result.outcome === "invalidDimensions") {
-            invalidDimensions++;
-          } else {
-            failed++;
-          }
-        } catch (_error: unknown) {
-          failed++;
-        }
-      }
-
-      if (files.length === 1 && lastSingleMessage.length > 0) {
-        onToast(lastSingleMessage);
-      } else {
-        onToast(
-          `+${added} · =${existing} · !${invalidDimensions + failed}`
-        );
-      }
-      await loadGallery(1, pageSize);
-    } finally {
-      setUploading(false);
-      setUploadStatusText(null);
-    }
+    void uploadFiles(files);
   };
 
   const uploadDisabled: boolean =
@@ -410,9 +192,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                 multiple
                 disabled={uploadDisabled}
                 style={{ display: "none" }}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>): void => {
-                  void handleFilesSelected(e);
-                }}
+                onChange={handleFilesSelected}
               />
             </label>
             <button
@@ -420,7 +200,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
               className="btn icon-btn"
               disabled={loading || uploading || deletingFileName !== null}
               onClick={(): void => {
-                void loadGallery(page, pageSize);
+                void loadGallery();
               }}
             >
               <RefreshSvgIcon size={14} className={loading ? "spin-icon" : ""} />
@@ -467,14 +247,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
               className={`gallery-preview-img-wrap ${previewLoaded ? "loaded" : "loading"}`}
             >
               {!previewLoaded
-                ? (
-                  <div
-                    className="gallery-img-skeleton preview-skeleton"
-                    aria-hidden="true"
-                  >
-                    <GallerySvgIcon size={28} className="gallery-skeleton-icon" />
-                  </div>
-                )
+                ? <GalleryImageSkeleton iconSize={28} preview />
                 : null}
               <img
                 key={previewItem.fileName}
@@ -485,7 +258,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                     imgEl.src.length > 0 &&
                     imgEl.complete === true
                   ) {
-                    markPreviewLoaded(previewEpochRef.current);
+                    markPreviewLoaded();
                   }
                 }}
                 className={`gallery-preview-img ${previewLoaded ? "loaded" : "loading"}`}
@@ -493,10 +266,10 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                 alt={previewItem.fileName}
                 decoding="async"
                 onLoad={(): void => {
-                  markPreviewLoaded(previewEpochRef.current);
+                  markPreviewLoaded();
                 }}
                 onError={(): void => {
-                  markPreviewLoaded(previewEpochRef.current);
+                  markPreviewLoaded();
                 }}
               />
             </div>
@@ -524,7 +297,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                 disabled={downloadingFileName !== null || deletingFileName !== null}
                 onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
                   (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                  void handleDownloadImage(previewItem.fileName);
+                  handleDownloadImage(previewItem.fileName);
                 }}
               >
                 <DownloadSvgIcon size={14} />
@@ -540,7 +313,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                 disabled={deletingFileName !== null || downloadingFileName !== null}
                 onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
                   (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                  void handleDeleteImage(previewItem.fileName);
+                  handleDeleteImage(previewItem.fileName);
                 }}
               >
                 <TrashSvgIcon size={14} />
@@ -595,11 +368,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                             className={`gallery-thumb-wrap ${isImgLoaded ? "loaded" : "loading"}`}
                           >
                             {!isImgLoaded
-                              ? (
-                                <div className="gallery-img-skeleton" aria-hidden="true">
-                                  <GallerySvgIcon size={22} className="gallery-skeleton-icon" />
-                                </div>
-                              )
+                              ? <GalleryImageSkeleton iconSize={22} />
                               : null}
                             <img
                               ref={(imgEl: ProbeableImageElement | null): void => {
@@ -639,7 +408,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                                 event.stopPropagation();
                                 clickCoordsRef.current = { x: event.clientX, y: event.clientY };
                                 (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                                void handleDownloadImage(item.fileName);
+                                handleDownloadImage(item.fileName);
                               }}
                             >
                               <DownloadSvgIcon size={13} />
@@ -660,7 +429,7 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
                                 event.stopPropagation();
                                 clickCoordsRef.current = { x: event.clientX, y: event.clientY };
                                 (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                                void handleDeleteImage(item.fileName);
+                                handleDeleteImage(item.fileName);
                               }}
                             >
                               <TrashSvgIcon size={13} />
@@ -692,16 +461,8 @@ export function GalleryTab({ onToast }: GalleryTabProps): React.JSX.Element {
               pageSize={pageSize}
               pageSizeOptions={MINI_APP_GALLERY_PAGE_SIZE_OPTIONS}
               disabled={loading || uploading || deletingFileName !== null}
-              onPageChange={(nextPage: number): void => {
-                setPreviewItem(null);
-                setPage(nextPage);
-                void loadGallery(nextPage, pageSize);
-              }}
-              onPageSizeChange={(nextPageSize: number): void => {
-                setPreviewItem(null);
-                setPage(1);
-                setPageSize(nextPageSize);
-              }}
+              onPageChange={changePage}
+              onPageSizeChange={changePageSize}
             />
           </div>
         )

@@ -1,156 +1,43 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type React from "react";
-import type { MiniAppLanguage } from "../types/miniApp";
-import type {
-  MiniAppTotpMutationResponse,
-  MiniAppTotpSetupResponse,
-  MiniAppTotpStatusView,
-} from "../types/miniAppTotp";
-import { LockSvgIcon, RefreshSvgIcon, TrashSvgIcon } from "../miniAppResoures";
-import {
-  deleteMiniAppTotp,
-  enableMiniAppTotp,
-  fetchMiniAppTotpStatus,
-  setupMiniAppTotp,
-} from "../api";
-import { formatTime, waitMinimumLoadingDuration } from "../formatters";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
-
-/** `TotpManagerCard` 组件的属性参数。 */
-export interface TotpManagerCardProps {
-  /** 全局提示回调。 */
-  readonly onToast: (message: string) => void;
-}
+import { useComponentStore } from "../libs/componentStore";
+import { formatTime } from "../libs/formatters";
+import { LockSvgIcon, RefreshSvgIcon, TrashSvgIcon } from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import { createTotpStore } from "../store/totp";
+import type { MiniAppTotpStoreState } from "../store/totp";
+import type { MiniAppLanguage } from "../types/miniApp";
+import { TotpSkeleton } from "./skeletons/TotpSkeleton";
 
 /**
  * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理卡片。
- * @param props 组件属性
  * @returns React 节点
  */
-export function TotpManagerCard({
-  onToast,
-}: TotpManagerCardProps): React.JSX.Element {
+export function TotpManagerCard(): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-
-  const [totpStatus, setTotpStatus]: [
-    Readonly<MiniAppTotpStatusView> | null,
-    React.Dispatch<React.SetStateAction<Readonly<MiniAppTotpStatusView> | null>>
-  ] = useState<Readonly<MiniAppTotpStatusView> | null>(null);
-  const [setupData, setSetupData]: [
-    Readonly<MiniAppTotpSetupResponse> | null,
-    React.Dispatch<
-      React.SetStateAction<Readonly<MiniAppTotpSetupResponse> | null>
-    >
-  ] = useState<Readonly<MiniAppTotpSetupResponse> | null>(null);
-  const [codeInput, setCodeInput]: [
-    string,
-    React.Dispatch<React.SetStateAction<string>>
-  ] = useState<string>("");
-  const [busy, setBusy]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [loadingStatus, setLoadingStatus]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(true);
-  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
-
-  const loadTotpStatus: () => Promise<void> = useCallback(async (): Promise<void> => {
-    const reqId: number = ++requestSeqRef.current;
-    const startedAt: number = Date.now();
-    setLoadingStatus(true);
-    try {
-      const next: Readonly<MiniAppTotpStatusView> =
-        await fetchMiniAppTotpStatus();
-      await waitMinimumLoadingDuration(startedAt);
-      if (reqId !== requestSeqRef.current) {
-        return;
-      }
-      setTotpStatus(next);
-      useMiniAppStore
-        .getState()
-        .setAuthMode(next.enabled ? "totp" : "password");
-    } catch (_error: unknown) {
-      await waitMinimumLoadingDuration(startedAt);
-      // 保持静默，由主状态轮询统一处理网络或会话错误
-    } finally {
-      if (reqId === requestSeqRef.current) {
-        setLoadingStatus(false);
-      }
-    }
-  }, []);
+  const {
+    totpStatus,
+    setupData,
+    codeInput,
+    busy,
+    loadingStatus,
+    loadTotpStatus,
+    startSetup,
+    setCodeInput,
+    cancelSetup,
+    verifyEnable,
+    deleteTotp,
+  }: MiniAppTotpStoreState = useComponentStore(createTotpStore);
 
   useEffect((): void => {
     void loadTotpStatus();
   }, [loadTotpStatus]);
-
-  async function handleStartSetup(): Promise<void> {
-    setBusy(true);
-    try {
-      const res: Readonly<MiniAppTotpSetupResponse> = await setupMiniAppTotp();
-      setSetupData(res);
-      setCodeInput("");
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleVerifyEnable(
-    event?: React.SyntheticEvent<HTMLFormElement>
-  ): Promise<void> {
-    event?.preventDefault();
-    const trimmed: string = codeInput.trim();
-    if (!/^\d{6}$/u.test(trimmed)) {
-      onToast(t.gate.totpEmptyHint);
-      return;
-    }
-    setBusy(true);
-    try {
-      const res: Readonly<MiniAppTotpMutationResponse> =
-        await enableMiniAppTotp(trimmed);
-      setTotpStatus(res.status);
-      setSetupData(null);
-      setCodeInput("");
-      useMiniAppStore
-        .getState()
-        .setAuthMode(res.status.enabled ? "totp" : "password");
-      onToast(res.message);
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleDeleteTotp(): Promise<void> {
-    const confirmed: boolean = await useMiniAppStore
-      .getState()
-      .requestConfirm(t.totp.confirmDeleteTotp, "danger");
-    if (!confirmed) return;
-    setBusy(true);
-    try {
-      const res: Readonly<MiniAppTotpMutationResponse> =
-        await deleteMiniAppTotp();
-      setTotpStatus(res.status);
-      setSetupData(null);
-      setCodeInput("");
-      useMiniAppStore.getState().setAuthMode("password");
-      onToast(res.message);
-    } catch (error: unknown) {
-      onToast(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   const enabled: boolean = totpStatus?.enabled === true;
 
@@ -180,19 +67,7 @@ export function TotpManagerCard({
       </div>
 
       {loadingStatus && totpStatus === null ? (
-        <div className="card auth-gate-skeleton" aria-busy="true">
-          <div className="skeleton-row-between">
-            <div className="skeleton-line skeleton-title-bar" />
-            <div className="skeleton-line skeleton-badge-pill" />
-          </div>
-          <div className="skeleton-auth-desc">
-            <div className="skeleton-line" style={{ width: "88%" }} />
-            <div className="skeleton-line" style={{ width: "62%" }} />
-          </div>
-          <div className="totp-actions-row">
-            <div className="skeleton-line skeleton-totp-btn" />
-          </div>
-        </div>
+        <TotpSkeleton />
       ) : (
         <div className={`card ${loadingStatus ? "content-refreshing" : ""}`}>
           <div className="card-title">
@@ -217,7 +92,7 @@ export function TotpManagerCard({
                 className="btn primary icon-btn"
                 disabled={busy}
                 onClick={(): void => {
-                  void handleStartSetup();
+                  void startSetup();
                 }}
               >
                 <LockSvgIcon size={14} />
@@ -229,7 +104,7 @@ export function TotpManagerCard({
                   className="btn danger icon-btn"
                   disabled={busy}
                   onClick={(): void => {
-                    void handleDeleteTotp();
+                    void deleteTotp();
                   }}
                 >
                   <TrashSvgIcon size={14} />
@@ -241,7 +116,8 @@ export function TotpManagerCard({
             <form
               className="totp-setup-panel"
               onSubmit={(e: React.SyntheticEvent<HTMLFormElement>): void => {
-                void handleVerifyEnable(e);
+                e.preventDefault();
+                void verifyEnable();
               }}
             >
               <div className="stat-sub">{t.totp.qrGuideText}</div>
@@ -274,10 +150,7 @@ export function TotpManagerCard({
                     type="button"
                     className="btn"
                     disabled={busy}
-                    onClick={(): void => {
-                      setSetupData(null);
-                      setCodeInput("");
-                    }}
+                    onClick={cancelSetup}
                   >
                     {t.totp.cancelSetupButton}
                   </button>

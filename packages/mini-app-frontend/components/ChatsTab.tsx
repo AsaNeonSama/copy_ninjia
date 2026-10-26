@@ -1,266 +1,77 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type React from "react";
 import {
   MINI_APP_CHATS_DEFAULT_PAGE_SIZE,
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
   MINI_APP_FEATURE_KEYS,
 } from "../consts/miniApp";
-import type {
-  MiniAppChatDetail,
-  MiniAppChatSummary,
-  MiniAppFeatureDisplayMeta,
-  MiniAppFeatureKey,
-  MiniAppFeatureToggleResult,
-  MiniAppLanguage,
-} from "../types/miniApp";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useComponentStore } from "../libs/componentStore";
+import {
+  getFeatureDisplayMeta,
+  truncateDisplayText,
+} from "../libs/formatters";
 import {
   ArrowLeftSvgIcon,
   ChatsSvgIcon,
   RefreshSvgIcon,
-} from "../miniAppResoures";
-import {
-  fetchMiniAppChatDetail,
-  fetchMiniAppChats,
-  toggleMiniAppChatFeature,
-} from "../api";
-import {
-  getFeatureDisplayMeta,
-  truncateDisplayText,
-  waitMinimumLoadingDuration,
-} from "../formatters";
-import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
+} from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import { createChatsStore } from "../store/chats";
+import type { MiniAppChatsStoreState } from "../store/chats";
+import type {
+  MiniAppChatSummary,
+  MiniAppFeatureDisplayMeta,
+  MiniAppFeatureKey,
+  MiniAppLanguage,
+} from "../types/miniApp";
 import { MessagesView } from "./MessagesView";
 import { PaginationBar } from "./PaginationBar";
-
-/** `ChatsTab` 组件的属性参数。 */
-export interface ChatsTabProps {
-  /** 全局提示回调。 */
-  readonly onToast: (message: string) => void;
-}
-
-/**
- * 按指定行数生成列表骨架占位卡片数组。
- *
- * @param count 骨架卡片行数
- * @returns React 节点数组
- */
-function renderChatSkeletonRows(count: number): React.JSX.Element[] {
-  const rows: React.JSX.Element[] = [];
-  for (let i: number = 0; i < count; i += 1) {
-    rows.push(
-      <div key={i} className="skeleton-card">
-        <div className="skeleton-line medium" />
-        <div className="skeleton-line wide" />
-      </div>
-    );
-  }
-  return rows;
-}
-
-/**
- * 渲染受管群详细状态与功能开关面板的专属双卡片骨架（群状态诊断卡 + 7 项带拨杆胶囊的功能开关行）。
- *
- * @returns React 节点
- */
-function renderChatDetailSkeleton(): React.JSX.Element {
-  return (
-    <div className="skeleton-detail-wrap animate-fade-in" aria-hidden="true">
-      <div className="card">
-        <div className="skeleton-row-between">
-          <div className="skeleton-line skeleton-title-bar" />
-          <div className="skeleton-line skeleton-badge-pill" />
-        </div>
-        <div className="skeleton-line skeleton-sub-bar" />
-        <div className="skeleton-line skeleton-perm-banner" />
-      </div>
-      <div className="card">
-        <div className="skeleton-line skeleton-section-bar" />
-        {MINI_APP_FEATURE_KEYS.map((key: MiniAppFeatureKey): React.JSX.Element => (
-          <div key={key} className="row skeleton-switch-row">
-            <div className="row-main">
-              <div className="skeleton-title-with-badge">
-                <div className="skeleton-line skeleton-switch-label" />
-                <div className="skeleton-line skeleton-cmd-pill" />
-              </div>
-              <div className="skeleton-line skeleton-switch-desc" />
-            </div>
-            <div className="skeleton-line skeleton-switch-pill" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+import { ChatDetailSkeleton } from "./skeletons/ChatDetailSkeleton";
+import { ListSkeletonRows } from "./skeletons/ListSkeletonRows";
+import { LoadingBox } from "./skeletons/LoadingBox";
 
 /**
  * 已启用 `/init` 的群列表、群详细状态与功能开关组件（含热 256 条发言记录跳转）。
  *
- * @param props 组件属性
  * @returns React 节点
  */
-export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
+export function ChatsTab(): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
-  const requestConfirm: (
-    message: string,
-    tone?: "danger" | "primary"
-  ) => Promise<boolean> = useMiniAppStore(
-    (state: MiniAppUiStoreState): ((message: string, tone?: "danger" | "primary") => Promise<boolean>) =>
-      state.requestConfirm
-  );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-
-  const [chats, setChats]: [
-    readonly Readonly<MiniAppChatSummary>[],
-    React.Dispatch<React.SetStateAction<readonly Readonly<MiniAppChatSummary>[]>>
-  ] = useState<readonly Readonly<MiniAppChatSummary>[]>([]);
-  const [loadingList, setLoadingList]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(true);
-  const [selectedChatId, setSelectedChatId]: [
-    number | null,
-    React.Dispatch<React.SetStateAction<number | null>>
-  ] = useState<number | null>(null);
-  const [chatDetail, setChatDetail]: [
-    MiniAppChatDetail | null,
-    React.Dispatch<React.SetStateAction<MiniAppChatDetail | null>>
-  ] = useState<MiniAppChatDetail | null>(null);
-  const [loadingDetail, setLoadingDetail]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [togglingFeature, setTogglingFeature]: [
-    MiniAppFeatureKey | null,
-    React.Dispatch<React.SetStateAction<MiniAppFeatureKey | null>>
-  ] = useState<MiniAppFeatureKey | null>(null);
-  const [viewingMessages, setViewingMessages]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [chatPage, setChatPage]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(1);
-  const [chatPageSize, setChatPageSize]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(MINI_APP_CHATS_DEFAULT_PAGE_SIZE);
-  const listReqSeqRef: React.RefObject<number> = useRef<number>(0);
-  const detailReqSeqRef: React.RefObject<number> = useRef<number>(0);
-
-  const loadChatList: () => Promise<void> = useCallback(async (): Promise<void> => {
-    const reqId: number = ++listReqSeqRef.current;
-    const startedAt: number = Date.now();
-    setLoadingList(true);
-    try {
-      const items: readonly Readonly<MiniAppChatSummary>[] = await fetchMiniAppChats();
-      await waitMinimumLoadingDuration(startedAt);
-      if (reqId !== listReqSeqRef.current) {
-        return;
-      }
-      setChats(items);
-    } catch (error: unknown) {
-      await waitMinimumLoadingDuration(startedAt);
-      if (reqId !== listReqSeqRef.current) {
-        return;
-      }
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      if (reqId === listReqSeqRef.current) {
-        setLoadingList(false);
-      }
-    }
-  }, [onToast]);
-
-  const loadDetail: (chatId: number) => Promise<void> = useCallback(
-    async (chatId: number): Promise<void> => {
-      const reqId: number = ++detailReqSeqRef.current;
-      const startedAt: number = Date.now();
-      setLoadingDetail(true);
-      try {
-        const detail: MiniAppChatDetail = await fetchMiniAppChatDetail(chatId);
-        await waitMinimumLoadingDuration(startedAt);
-        if (reqId !== detailReqSeqRef.current) {
-          return;
-        }
-        setChatDetail(detail);
-      } catch (error: unknown) {
-        await waitMinimumLoadingDuration(startedAt);
-        if (reqId !== detailReqSeqRef.current) {
-          return;
-        }
-        const message: string = error instanceof Error ? error.message : String(error);
-        onToast(message);
-      } finally {
-        if (reqId === detailReqSeqRef.current) {
-          setLoadingDetail(false);
-        }
-      }
-    },
-    [onToast]
-  );
+  const {
+    chats,
+    loadingList,
+    selectedChatId,
+    chatDetail,
+    loadingDetail,
+    togglingFeature,
+    viewingMessages,
+    chatPage,
+    chatPageSize,
+    loadChatList,
+    selectChat,
+    closeDetail,
+    openMessages,
+    closeMessages,
+    toggleFeature,
+    setChatPage,
+    setChatPageSize,
+  }: MiniAppChatsStoreState = useComponentStore(createChatsStore);
 
   useEffect((): void => {
     void loadChatList();
   }, [loadChatList]);
 
-  const handleSelectChat = (chatId: number): void => {
-    setSelectedChatId(chatId);
-    setViewingMessages(false);
-    setChatDetail(null);
-    void loadDetail(chatId);
-  };
-
-  const handleToggleFeature = async (
-    feature: MiniAppFeatureKey,
-    enabled: boolean
-  ): Promise<void> => {
-    if (selectedChatId === null) return;
-    if (
-      feature === "init" &&
-      !enabled &&
-      !(await requestConfirm(t.chats.confirmDisableInit, "danger"))
-    ) {
-      return;
-    }
-    setTogglingFeature(feature);
-    try {
-      const result: MiniAppFeatureToggleResult = await toggleMiniAppChatFeature(
-        selectedChatId,
-        feature,
-        enabled
-      );
-      onToast(result.message);
-      if (result.removedFromList || result.detail === null) {
-        setSelectedChatId(null);
-        setChatDetail(null);
-        void loadChatList();
-      } else {
-        setChatDetail(result.detail);
-      }
-    } catch (error: unknown) {
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setTogglingFeature(null);
-    }
-  };
-
   if (selectedChatId !== null && viewingMessages) {
     return (
       <MessagesView
         chatId={selectedChatId}
-        onBack={(): void => {
-          setViewingMessages(false);
-          void loadDetail(selectedChatId);
-        }}
-        onToast={onToast}
+        onBack={closeMessages}
       />
     );
   }
@@ -272,11 +83,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
           <button
             type="button"
             className="btn icon-btn"
-            onClick={(): void => {
-              setSelectedChatId(null);
-              setChatDetail(null);
-              void loadChatList();
-            }}
+            onClick={closeDetail}
           >
             <ArrowLeftSvgIcon size={14} />
             <span>{t.chats.closeDetailButton}</span>
@@ -284,9 +91,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
           <button
             type="button"
             className="btn primary icon-btn"
-            onClick={(): void => {
-              setViewingMessages(true);
-            }}
+            onClick={openMessages}
           >
             <ChatsSvgIcon size={14} />
             <span>
@@ -299,7 +104,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
         </div>
 
         {loadingDetail && chatDetail === null
-          ? renderChatDetailSkeleton()
+          ? <ChatDetailSkeleton />
           : null}
 
         {chatDetail !== null
@@ -379,7 +184,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
                             const nextChecked: boolean = (
                               event.currentTarget as unknown as { readonly checked: boolean }
                             ).checked;
-                            void handleToggleFeature(key, nextChecked);
+                            void toggleFeature(key, nextChecked);
                           }}
                         />
                         <span className="slider" />
@@ -427,12 +232,9 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
 
       {loadingList && chats.length === 0
         ? (
-          <div className="card loading-box">
-            <div className="loading-text">{t.chats.loadingChatsText}</div>
-            <div className="skeleton-stack">
-              {renderChatSkeletonRows(MINI_APP_CHATS_DEFAULT_PAGE_SIZE)}
-            </div>
-          </div>
+          <LoadingBox className="card loading-box" text={t.chats.loadingChatsText}>
+            <ListSkeletonRows count={MINI_APP_CHATS_DEFAULT_PAGE_SIZE} />
+          </LoadingBox>
         )
         : null}
 
@@ -472,7 +274,7 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
                 type="button"
                 className="btn primary"
                 onClick={(): void => {
-                  handleSelectChat(chat.chatId);
+                  selectChat(chat.chatId);
                 }}
               >
                 {t.chats.detailSectionTitle}
@@ -492,13 +294,8 @@ export function ChatsTab({ onToast }: ChatsTabProps): React.JSX.Element {
               pageSize={chatPageSize}
               pageSizeOptions={MINI_APP_CHATS_PAGE_SIZE_OPTIONS}
               disabled={loadingList}
-              onPageChange={(nextPage: number): void => {
-                setChatPage(nextPage);
-              }}
-              onPageSizeChange={(nextPageSize: number): void => {
-                setChatPage(1);
-                setChatPageSize(nextPageSize);
-              }}
+              onPageChange={setChatPage}
+              onPageSizeChange={setChatPageSize}
             />
           </div>
         )

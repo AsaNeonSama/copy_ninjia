@@ -13,7 +13,7 @@ import type {
   WhitelistIdPage,
 } from "../../packages/types/identityStorage";
 import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
-import { buildSignedTestInitData } from "../libs/miniAppAuth.test";
+import { buildSignedTestInitData } from "../helpers/miniAppInitData";
 
 const diskMessages: DiskBusinessMessage[] = [];
 const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [];

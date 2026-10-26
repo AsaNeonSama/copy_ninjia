@@ -1,0 +1,41 @@
+import type { TelegramWebApp, TelegramWindow } from "../types/miniApp";
+
+/**
+ * 读取浏览器全局注入的 `Telegram.WebApp` 实例。
+ * @returns `TelegramWebApp` 对象；非 Telegram WebView 环境返回 `undefined`
+ */
+export function getTelegramWebApp(): Readonly<TelegramWebApp> | undefined {
+  const tgWindow: TelegramWindow = globalThis;
+  return tgWindow.Telegram?.WebApp;
+}
+
+/**
+ * 提取当前会话的 Telegram WebApp `initData` 原始签名串。
+ * @returns `initData` 字符串；未注入时返回空字符串
+ */
+export function readMiniAppInitData(): string {
+  const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
+  if (webApp?.initData !== undefined && webApp.initData.length > 0) return webApp.initData;
+  const tgWindow: TelegramWindow = globalThis;
+  if (tgWindow.location === undefined) return "";
+  const queryParams: URLSearchParams = new URLSearchParams(tgWindow.location.search);
+  const fromQuery: string | null = queryParams.get("tgWebAppData");
+  if (fromQuery !== null && fromQuery.length > 0) return fromQuery;
+  const hashRaw: string = tgWindow.location.hash.startsWith("#")
+    ? tgWindow.location.hash.slice(1)
+    : tgWindow.location.hash;
+  return new URLSearchParams(hashRaw).get("tgWebAppData") ?? "";
+}
+
+/**
+ * 调用宿主环境确认对话框；无弹窗宿主时默认确认通过。
+ * @param message 确认提示文本
+ * @returns 用户是否确认继续
+ */
+export function confirmMiniAppAction(message: string): boolean {
+  const tgWindow: TelegramWindow = globalThis;
+  if (tgWindow.document !== undefined && typeof tgWindow.confirm === "function") {
+    return tgWindow.confirm(message);
+  }
+  return true;
+}

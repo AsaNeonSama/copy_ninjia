@@ -1,359 +1,79 @@
-import { MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN } from "../consts/miniApp";
-import { miniAppServerHolder } from "../cache/main/miniApp";
-import type { MiniAppMiddleware, MiniAppRouteContext } from "../types/miniApp";
-import { handleGetFaviconRoute } from "./favicon";
 import {
-  handleChatsApiRoute, handleGetChatDetailById, handleGetChatMessagesById,
-  handleGetChatsRoute, handlePostChatFeatureById,
-} from "./http/chatRoutes";
+  MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN,
+  MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
+  MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
+  MINI_APP_SVG_RESOURCE_ROUTE_PATTERN,
+} from "../consts/miniApp";
+import type { MiniAppRouteContext, MiniAppRouteMatch } from "../types/miniApp";
+import { buildNoStoreHeaders, jsonResponse } from "./libs/response";
+import { normalizeRoutePathname } from "./libs/routePath";
+import type { NormalizedRoutePath } from "./libs/routePath";
 import {
-  buildNoStoreHeaders, handleGetAuthPrecheckRoute, handlePostAuthLoginRoute,
-  htmlResponse, jsonResponse, normalizeRoutePathname,
-} from "./http/common";
+  executeMiniAppMiddlewareChain,
+  getMiniAppApiAuthMiddlewareChain,
+  getMiniAppProtectedAssetMiddlewareChain,
+} from "./middleware";
+import { createAuthBunRoutes, dispatchAuthRoute } from "./routes/auth";
+import { createChatsBunRoutes, dispatchChatsApiRoute } from "./routes/chats";
 import {
-  handleDeleteGalleryFileByName, handleDownloadGalleryFileByName, handleGalleryApiRoute,
-  handleGetGalleryFileByName, handleGetGalleryRoute, handleGetSvgResourceByName,
-  handlePostGalleryDeleteRoute, handlePostGalleryUploadRoute, handleProtectedAssetRoute,
-} from "./http/galleryRoutes";
-import {
-  handleGetBlocklistRoute, handleGetPickerResultRoute, handleGetWhitelistRoute,
-  handleIdentitiesAndPickerApiRoute, handlePostBlocklistRoute, handlePostPermissionRoute,
-  handlePostPickerPrepareRoute, handlePostWhitelistRoute,
-} from "./http/identityRoutes";
-import {
-  executeMiniAppMiddlewareChain, getMiniAppApiAuthMiddlewareChain, getMiniAppGalleryDownloadMiddlewareChain,
-  getMiniAppInitDataMiddlewareChain, getMiniAppProtectedAssetMiddlewareChain, getMiniAppPublicMiddlewareChain,
-  isProtectedMiniAppAssetPath, withMiniAppMiddlewareChain,
-} from "./http/middleware";
-import {
-  handleDeleteTotpRoute, handleGetTotpRoute, handlePostTotpEnableRoute,
-  handlePostTotpSetupRoute, handleTotpApiRoute,
-} from "./http/totpRoutes";
-import {
-  handleGetMoodRoute, handleGetStatusRoute,
-  handlePostMoodSwitchRoute, handleStatusAndMoodApiRoute,
-} from "./http/statusRoutes";
+  createGalleryBunRoutes,
+  dispatchGalleryApiRoute,
+  dispatchGalleryDownloadRoute,
+  dispatchGalleryFileRoute,
+} from "./routes/gallery";
+import { createIdentitiesBunRoutes, dispatchIdentitiesApiRoute } from "./routes/identities";
+import { createPageBunRoutes, dispatchPageRoute } from "./routes/page";
+import { createResourceBunRoutes, dispatchSvgResourceRoute } from "./routes/resource";
+import { createStatusBunRoutes, dispatchStatusApiRoute } from "./routes/status";
+import { createTotpBunRoutes, dispatchTotpApiRoute } from "./routes/totp";
 import indexHtml from "../mini-app-frontend/index.html";
 
 /**
- * 读取 Mini App 入口 HTML 文本（当 `Bun.serve` 已启动时从内部 `/_bundle` 路由获取注入了打包产物路径的 HTML；直接单元测试调用时读取源文件），并附带完整的 CSP 与 `X-Frame-Options` 响应头返回。
- * @param headOnly 是否为 `HEAD` 请求。
- * @returns 带完整安全响应头的 HTML `Response`。
- */
-async function serveMiniAppIndexHtml(headOnly: boolean): Promise<Response> {
-  const activeServer: ReturnType<typeof Bun.serve> | null = miniAppServerHolder.current;
-  if (activeServer !== null) {
-    try {
-      const bundleUrl: URL = new URL("/_bundle", activeServer.url);
-      const bundledRes: Response = await fetch(bundleUrl);
-      if (bundledRes.ok) {
-        const bundledHtml: string = await bundledRes.text();
-        return htmlResponse(bundledHtml, headOnly);
-      }
-    } catch (_error: unknown) {
-      // 回退至直接读取源 HTML 文件
-    }
-  }
-  const htmlText: string = await Bun.file(indexHtml.index).text();
-  return htmlResponse(htmlText, headOnly);
-}
-
-/**
- * 构建传给 `Bun.serve({ routes })` 的原生路由表（所有业务 API 与 SVG/图库资源路由均统一由前置中间件链包装）。
+ * 合并各领域路由表片段（`routes/` 目录）为传给 `Bun.serve({ routes })` 的原生路由表；所有业务 API 与资源路由均由前置中间件链包装。
  * @returns `Bun.serve` 原生路由定义对象。
  */
 export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
-  const publicChain: readonly MiniAppMiddleware[] =
-    getMiniAppPublicMiddlewareChain();
-  const initDataChain: readonly MiniAppMiddleware[] =
-    getMiniAppInitDataMiddlewareChain();
-  const protectedAssetChain: readonly MiniAppMiddleware[] =
-    getMiniAppProtectedAssetMiddlewareChain();
-  const galleryDownloadChain: readonly MiniAppMiddleware[] =
-    getMiniAppGalleryDownloadMiddlewareChain();
-  const apiAuthChain: readonly MiniAppMiddleware[] =
-    getMiniAppApiAuthMiddlewareChain();
-
   return {
-    "/healthz": {
-      GET: withMiniAppMiddlewareChain(
-        publicChain,
-        (): Response => jsonResponse({ ok: true })
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        publicChain,
-        (): Response =>
-          new Response(null, { status: 200, headers: buildNoStoreHeaders() })
-      ),
-    },
-    "/_bundle": indexHtml,
-    "/": {
-      GET: withMiniAppMiddlewareChain(
-        publicChain,
-        (): Promise<Response> => serveMiniAppIndexHtml(false)
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        publicChain,
-        (): Promise<Response> => serveMiniAppIndexHtml(true)
-      ),
-    },
-    "/index.html": {
-      GET: withMiniAppMiddlewareChain(
-        publicChain,
-        (): Promise<Response> => serveMiniAppIndexHtml(false)
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        publicChain,
-        (): Promise<Response> => serveMiniAppIndexHtml(true)
-      ),
-    },
-    "/favicon.ico": {
-      GET: withMiniAppMiddlewareChain(
-        publicChain,
-        (ctx: Readonly<MiniAppRouteContext>): Response =>
-          handleGetFaviconRoute(ctx.request)
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        publicChain,
-        (ctx: Readonly<MiniAppRouteContext>): Response =>
-          handleGetFaviconRoute(ctx.request)
-      ),
-    },
-    "/api/auth/precheck": {
-      GET: withMiniAppMiddlewareChain(
-        initDataChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetAuthPrecheckRoute(ctx.request)
-      ),
-    },
-    "/api/auth/login": {
-      POST: withMiniAppMiddlewareChain(
-        initDataChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostAuthLoginRoute(ctx.request)
-      ),
-    },
-    "/api/totp": {
-      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleGetTotpRoute()),
-      DELETE: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleDeleteTotpRoute()),
-    },
-    "/api/totp/setup": {
-      POST: withMiniAppMiddlewareChain(apiAuthChain, (): Response => handlePostTotpSetupRoute()),
-    },
-    "/api/totp/enable": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> => handlePostTotpEnableRoute(ctx.request)
-      ),
-    },
-    "/api/totp/delete": {
-      POST: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleDeleteTotpRoute()),
-    },
-    "/api/status": {
-      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Response => handleGetStatusRoute()),
-    },
-    "/api/mood": {
-      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handleGetMoodRoute()),
-    },
-    "/api/mood/switch": {
-      POST: withMiniAppMiddlewareChain(apiAuthChain, (): Promise<Response> => handlePostMoodSwitchRoute()),
-    },
-    "/api/chats": {
-      GET: withMiniAppMiddlewareChain(apiAuthChain, (): Response => handleGetChatsRoute()),
-    },
-    "/api/chats/:chatId": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Response =>
-          handleGetChatDetailById(ctx.params.chatId ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          chatId: (req as Bun.BunRequest<"/api/chats/:chatId">).params.chatId,
-        })
-      ),
-    },
-    "/api/chats/:chatId/messages": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Response =>
-          handleGetChatMessagesById(
-            ctx.request,
-            ctx.params.chatId ?? "",
-            ctx.url
-          ),
-        (req: Request): Readonly<Record<string, string>> => ({
-          chatId: (req as Bun.BunRequest<"/api/chats/:chatId/messages">).params.chatId,
-        })
-      ),
-    },
-    "/api/chats/:chatId/feature": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostChatFeatureById(ctx.request, ctx.params.chatId ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          chatId: (req as Bun.BunRequest<"/api/chats/:chatId/feature">).params.chatId,
-        })
-      ),
-    },
-    "/api/identities/whitelist": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetWhitelistRoute(ctx.request, ctx.url)
-      ),
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostWhitelistRoute(ctx.request)
-      ),
-    },
-    "/api/identities/blocklist": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetBlocklistRoute(ctx.request, ctx.url)
-      ),
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostBlocklistRoute(ctx.request)
-      ),
-    },
-    "/api/identities/permission": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostPermissionRoute(ctx.request)
-      ),
-    },
-    "/api/picker/prepare": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostPickerPrepareRoute(ctx.request)
-      ),
-    },
-    "/api/picker/result": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Response =>
-          handleGetPickerResultRoute(ctx.request, ctx.url)
-      ),
-    },
-    "/api/gallery": {
-      GET: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetGalleryRoute(ctx.request)
-      ),
-    },
-    "/api/gallery/upload": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostGalleryUploadRoute(ctx.request)
-      ),
-    },
-    "/api/gallery/delete": {
-      POST: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handlePostGalleryDeleteRoute(ctx.request)
-      ),
-    },
-    "/api/gallery/download/:fileName": {
-      GET: withMiniAppMiddlewareChain(
-        galleryDownloadChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleDownloadGalleryFileByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/api/gallery/download/:fileName">).params.fileName,
-        })
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        galleryDownloadChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleDownloadGalleryFileByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/api/gallery/download/:fileName">).params.fileName,
-        })
-      ),
-    },
-    "/api/gallery/file/:fileName": {
-      GET: withMiniAppMiddlewareChain(
-        protectedAssetChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetGalleryFileByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/api/gallery/file/:fileName">).params.fileName,
-        })
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        protectedAssetChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetGalleryFileByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/api/gallery/file/:fileName">).params.fileName,
-        })
-      ),
-      DELETE: withMiniAppMiddlewareChain(
-        apiAuthChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleDeleteGalleryFileByName(ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/api/gallery/file/:fileName">).params.fileName,
-        })
-      ),
-    },
-    "/api/resources/svg/:fileName": {
-      GET: withMiniAppMiddlewareChain(
-        protectedAssetChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetSvgResourceByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/api/resources/svg/:fileName">).params.fileName,
-        })
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        protectedAssetChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetSvgResourceByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/api/resources/svg/:fileName">).params.fileName,
-        })
-      ),
-    },
-    "/miniAppResoures/:fileName": {
-      GET: withMiniAppMiddlewareChain(
-        protectedAssetChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetSvgResourceByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/miniAppResoures/:fileName">).params.fileName,
-        })
-      ),
-      HEAD: withMiniAppMiddlewareChain(
-        protectedAssetChain,
-        (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-          handleGetSvgResourceByName(ctx.request, ctx.params.fileName ?? ""),
-        (req: Request): Readonly<Record<string, string>> => ({
-          fileName: (req as Bun.BunRequest<"/miniAppResoures/:fileName">).params.fileName,
-        })
-      ),
-    },
+    ...createPageBunRoutes(indexHtml),
+    ...createAuthBunRoutes(),
+    ...createTotpBunRoutes(),
+    ...createStatusBunRoutes(),
+    ...createChatsBunRoutes(),
+    ...createIdentitiesBunRoutes(),
+    ...createGalleryBunRoutes(),
+    ...createResourceBunRoutes(),
   };
 }
 
 /**
- * 处理到达 Mini App 本地 HTTP 源站的请求（统一通过前置中间件链完成跨站拦截、浏览器直接导航拦截、Telegram WebApp 超管签名校验与会话校验）。
+ * 判断归一化后的内部路由路径是否属于受保护的图片或 SVG 静态/动态资源路径（排除走完整双层 API 鉴权的 `/api/gallery/download/:fileName`）。
+ * @param routePath 归一化后的内部路由路径。
+ * @returns 命中图片或 SVG 资源路径时返回 `true`。
+ */
+function isProtectedMiniAppAssetPath(routePath: string): boolean {
+  if (MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN.test(routePath)) {
+    return false;
+  }
+  return (
+    MINI_APP_GALLERY_FILE_ROUTE_PATTERN.test(routePath) ||
+    MINI_APP_SVG_RESOURCE_ROUTE_PATTERN.test(routePath) ||
+    routePath.startsWith("/miniAppResoures/") ||
+    routePath.startsWith("/api/resources/svg/") ||
+    MINI_APP_PROTECTED_ASSET_EXT_PATTERN.test(routePath)
+  );
+}
+
+/**
+ * 处理未命中原生路由表的请求（`mini_app.url` 子路径前缀、方法不匹配或未知路径），按以下顺序兜底分发：
+ * 公开页面 → 预检与登录 → 图库附件下载 → 受保护图片与 SVG 资源 → 业务 API（状态与情绪、TOTP、图库、受管群、名单与选择器）；
+ * 每类均经与原生路由表相同的前置中间件链（跨站拦截、浏览器直接导航拦截、Telegram WebApp 超管签名与会话校验）。
  * @param request 传入的 HTTP `Request`。
  * @returns 完整的 HTTP `Response`。
  */
 export async function handleMiniAppHttpRequest(request: Request): Promise<Response> {
   const url: URL = new URL(request.url);
   const method: string = request.method.toUpperCase();
-  const normalized: { readonly redirectTo?: string; readonly routePath: string } =
-    normalizeRoutePathname(url.pathname);
+  const normalized: NormalizedRoutePath = normalizeRoutePathname(url.pathname);
 
   if (normalized.redirectTo !== undefined && (method === "GET" || method === "HEAD")) {
     const headers: Record<string, string> = buildNoStoreHeaders();
@@ -373,79 +93,20 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     params: {},
   };
 
-  if ((method === "GET" || method === "HEAD") && routePath === "/healthz") {
-    return executeMiniAppMiddlewareChain(
-      ctx,
-      getMiniAppPublicMiddlewareChain(),
-      (): Response =>
-        method === "HEAD"
-          ? new Response(null, { status: 200, headers: buildNoStoreHeaders() })
-          : jsonResponse({ ok: true })
-    );
-  }
-
-  if (
-    (method === "GET" || method === "HEAD") &&
-    (routePath === "/" || routePath === "/index.html")
-  ) {
-    return executeMiniAppMiddlewareChain(
-      ctx,
-      getMiniAppPublicMiddlewareChain(),
-      (): Promise<Response> => serveMiniAppIndexHtml(method === "HEAD")
-    );
-  }
-
-  if ((method === "GET" || method === "HEAD") && routePath === "/favicon.ico") {
-    return executeMiniAppMiddlewareChain(
-      ctx,
-      getMiniAppPublicMiddlewareChain(),
-      (routeCtx: Readonly<MiniAppRouteContext>): Response =>
-        handleGetFaviconRoute(routeCtx.request)
-    );
-  }
-
-  if (method === "GET" && routePath === "/api/auth/precheck") {
-    return executeMiniAppMiddlewareChain(
-      ctx,
-      getMiniAppInitDataMiddlewareChain(),
-      (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handleGetAuthPrecheckRoute(routeCtx.request)
-    );
-  }
-
-  if (method === "POST" && routePath === "/api/auth/login") {
-    return executeMiniAppMiddlewareChain(
-      ctx,
-      getMiniAppInitDataMiddlewareChain(),
-      (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handlePostAuthLoginRoute(routeCtx.request)
-    );
-  }
-
-  const downloadMatch: RegExpExecArray | null =
-    MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN.exec(routePath);
-  if (downloadMatch !== null && (method === "GET" || method === "HEAD")) {
-    return executeMiniAppMiddlewareChain(
-      ctx,
-      getMiniAppGalleryDownloadMiddlewareChain(),
-      (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> =>
-        handleDownloadGalleryFileByName(routeCtx.request, downloadMatch[1] ?? "")
-    );
-  }
+  const preApiResponse: MiniAppRouteMatch =
+    dispatchPageRoute(ctx, indexHtml) ??
+    dispatchAuthRoute(ctx) ??
+    dispatchGalleryDownloadRoute(ctx);
+  if (preApiResponse !== null) return preApiResponse;
 
   if (method !== "DELETE" && isProtectedMiniAppAssetPath(routePath)) {
     return executeMiniAppMiddlewareChain(
       ctx,
       getMiniAppProtectedAssetMiddlewareChain(),
-      async (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> => {
-        const assetResponse: Response | null = await handleProtectedAssetRoute(
-          routeCtx.method,
-          routeCtx.routePath,
-          routeCtx.request
-        );
-        if (assetResponse !== null) return assetResponse;
-        return jsonResponse({ error: "Resource not found" }, 404);
-      }
+      (routeCtx: Readonly<MiniAppRouteContext>): Response | Promise<Response> =>
+        dispatchGalleryFileRoute(routeCtx) ??
+        dispatchSvgResourceRoute(routeCtx) ??
+        jsonResponse({ error: "Resource not found" }, 404)
     );
   }
 
@@ -456,40 +117,12 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
   return executeMiniAppMiddlewareChain(
     ctx,
     getMiniAppApiAuthMiddlewareChain(),
-    async (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> => {
-      const statusOrMoodResponse: Response | null =
-        await handleStatusAndMoodApiRoute(routeCtx.method, routeCtx.routePath);
-      if (statusOrMoodResponse !== null) return statusOrMoodResponse;
-      const totpResponse: Response | null = await handleTotpApiRoute(
-        routeCtx.method,
-        routeCtx.routePath,
-        routeCtx.request
-      );
-      if (totpResponse !== null) return totpResponse;
-
-      const galleryResponse: Response | null = await handleGalleryApiRoute(
-        routeCtx.method,
-        routeCtx.routePath,
-        routeCtx.request
-      );
-      if (galleryResponse !== null) return galleryResponse;
-
-      const chatsResponse: Response | null = await handleChatsApiRoute(
-        routeCtx.method,
-        routeCtx.routePath,
-        routeCtx.request
-      );
-      if (chatsResponse !== null) return chatsResponse;
-
-      const identitiesResponse: Response | null =
-        await handleIdentitiesAndPickerApiRoute(
-          routeCtx.method,
-          routeCtx.routePath,
-          routeCtx.request
-        );
-      if (identitiesResponse !== null) return identitiesResponse;
-
-      return jsonResponse({ error: "API route not found" }, 404);
-    }
+    (routeCtx: Readonly<MiniAppRouteContext>): Response | Promise<Response> =>
+      dispatchStatusApiRoute(routeCtx) ??
+      dispatchTotpApiRoute(routeCtx) ??
+      dispatchGalleryApiRoute(routeCtx) ??
+      dispatchChatsApiRoute(routeCtx) ??
+      dispatchIdentitiesApiRoute(routeCtx) ??
+      jsonResponse({ error: "API route not found" }, 404)
   );
 }

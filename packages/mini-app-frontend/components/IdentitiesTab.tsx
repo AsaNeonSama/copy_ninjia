@@ -1,29 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type React from "react";
 import {
   MINI_APP_IDENTITY_ADD_MODES,
   MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
-  MINI_APP_PICKER_POLL_INTERVAL_MS,
-  MINI_APP_PICKER_POLL_MAX_ATTEMPTS,
   MINI_APP_SEARCH_DEBOUNCE_MS,
 } from "../consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
-import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type {
-  MiniAppBlocklistEntryView,
-  MiniAppBlocklistPage,
-  MiniAppIdentityAddMode,
-  MiniAppIdentityMutationResult,
-  MiniAppIdentitySubTabKey,
-  MiniAppLanguage,
-  MiniAppPickerResultEvent,
-  MiniAppPickerSubjectKind,
-  MiniAppWhitelistEntryView,
-  MiniAppWhitelistPage,
-  PrepareMiniAppPickerResult,
-  TelegramWebApp,
-} from "../types/miniApp";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useComponentStore } from "../libs/componentStore";
+import {
+  sanitizeBidiText,
+  truncateDisplayText,
+} from "../libs/formatters";
 import {
   AlertSvgIcon,
   ChannelSvgIcon,
@@ -36,33 +26,22 @@ import {
   SearchSvgIcon,
   TrashSvgIcon,
   UserSvgIcon,
-} from "../miniAppResoures";
-import {
-  fetchMiniAppBlocklist,
-  fetchMiniAppWhitelist,
-  getTelegramWebApp,
-  pollMiniAppPickerResult,
-  requestMiniAppPreparedPicker,
-  setMiniAppBlocklistMembership,
-  setMiniAppWhitelistMembership,
-} from "../api";
-import {
-  sanitizeBidiText,
-  truncateDisplayText,
-  waitMinimumLoadingDuration,
-} from "../formatters";
-import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
+} from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import { createIdentitiesStore } from "../store/identities";
+import type { MiniAppIdentitiesStoreState } from "../store/identities";
+import type { WhitelistPermissionKey } from "../types/identityPolicy";
+import type {
+  MiniAppBlocklistEntryView,
+  MiniAppIdentityAddMode,
+  MiniAppLanguage,
+  MiniAppWhitelistEntryView,
+} from "../types/miniApp";
 import { PaginationBar } from "./PaginationBar";
 import { PermissionDrawer } from "./PermissionDrawer";
-
-/** `IdentitiesTab` 组件的属性参数。 */
-export interface IdentitiesTabProps {
-  /** 全局提示回调。 */
-  readonly onToast: (message: string) => void;
-}
+import { ListSkeletonRows } from "./skeletons/ListSkeletonRows";
+import { LoadingBox } from "./skeletons/LoadingBox";
 
 /**
  * 根据添加模式键渲染对应的 SVG 图标。
@@ -77,390 +56,78 @@ function renderAddModeIcon(mode: MiniAppIdentityAddMode): React.JSX.Element {
 }
 
 /**
- * 按指定行数生成权限控制列表骨架占位卡片数组。
- *
- * @param count 骨架卡片行数
- * @returns React 节点数组
- */
-function renderIdentitySkeletonRows(count: number): React.JSX.Element[] {
-  const rows: React.JSX.Element[] = [];
-  for (let i: number = 0; i < count; i += 1) {
-    rows.push(
-      <div key={i} className="skeleton-card">
-        <div className="skeleton-line medium" />
-        <div className="skeleton-line wide" />
-      </div>
-    );
-  }
-  return rows;
-}
-
-/**
  * 黑白名单与权限矩阵管理组件（支持 0.5s 防抖按名称搜索、折叠式三合一添加菜单、重复添加拦截提示与权限抽屉）。
  *
- * @param props 组件属性
  * @returns React 节点
  */
-export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Element {
+export function IdentitiesTab(): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
-  const showStoreToast: (text: string, tone?: "info" | "warning" | "danger") => void =
-    useMiniAppStore(
-      (state: MiniAppUiStoreState): ((text: string, tone?: "info" | "warning" | "danger") => void) =>
-        state.showToast
-    );
-  const requestConfirm: (
-    message: string,
-    tone?: "danger" | "primary"
-  ) => Promise<boolean> = useMiniAppStore(
-    (state: MiniAppUiStoreState): ((message: string, tone?: "danger" | "primary") => Promise<boolean>) =>
-      state.requestConfirm
-  );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-
-  const [subTab, setSubTab]: [
-    MiniAppIdentitySubTabKey,
-    React.Dispatch<React.SetStateAction<MiniAppIdentitySubTabKey>>
-  ] = useState<MiniAppIdentitySubTabKey>("whitelist");
-
-  const [searchInput, setSearchInput]: [
-    string,
-    React.Dispatch<React.SetStateAction<string>>
-  ] = useState<string>("");
-  const [debouncedQuery, setDebouncedQuery]: [
-    string,
-    React.Dispatch<React.SetStateAction<string>>
-  ] = useState<string>("");
-
-  const [addMenuOpen, setAddMenuOpen]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [idFormOpen, setIdFormOpen]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [idInput, setIdInput]: [
-    string,
-    React.Dispatch<React.SetStateAction<string>>
-  ] = useState<string>("");
-  const [duplicateAlertText, setDuplicateAlertText]: [
-    string | null,
-    React.Dispatch<React.SetStateAction<string | null>>
-  ] = useState<string | null>(null);
-
-  const [busyAction, setBusyAction]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [loadingList, setLoadingList]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(true);
-
-  const [whitelistPageNumber, setWhitelistPageNumber]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(1);
-  const [whitelistPageSize, setWhitelistPageSize]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE);
-  const [whitelistPage, setWhitelistPage]: [
-    MiniAppWhitelistPage | null,
-    React.Dispatch<React.SetStateAction<MiniAppWhitelistPage | null>>
-  ] = useState<MiniAppWhitelistPage | null>(null);
-  const [selectedEntryId, setSelectedEntryId]: [
-    number | null,
-    React.Dispatch<React.SetStateAction<number | null>>
-  ] = useState<number | null>(null);
-
-  const [blocklistPageNumber, setBlocklistPageNumber]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(1);
-  const [blocklistPageSize, setBlocklistPageSize]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE);
-  const [blocklistPage, setBlocklistPage]: [
-    MiniAppBlocklistPage | null,
-    React.Dispatch<React.SetStateAction<MiniAppBlocklistPage | null>>
-  ] = useState<MiniAppBlocklistPage | null>(null);
-
-  const [whitelistTotal, setWhitelistTotal]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(0);
-  const [blocklistTotal, setBlocklistTotal]: [
-    number,
-    React.Dispatch<React.SetStateAction<number>>
-  ] = useState<number>(0);
-  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
+  const {
+    subTab,
+    searchInput,
+    debouncedQuery,
+    addMenuOpen,
+    idFormOpen,
+    idInput,
+    duplicateAlertText,
+    busyAction,
+    loadingList,
+    whitelistPageNumber,
+    whitelistPageSize,
+    whitelistPage,
+    selectedEntryId,
+    blocklistPageNumber,
+    blocklistPageSize,
+    blocklistPage,
+    whitelistTotal,
+    blocklistTotal,
+    loadCurrentList,
+    selectSubTab,
+    setSearchInput,
+    commitSearchQuery,
+    clearSearch,
+    toggleAddMenu,
+    selectAddMode,
+    closeIdForm,
+    setIdInput,
+    dismissDuplicateAlert,
+    addById,
+    removeWhitelist,
+    removeBlocklist,
+    togglePermissionDrawer,
+    closePermissionDrawer,
+    setWhitelistPageNumber,
+    setWhitelistPageSize,
+    setBlocklistPageNumber,
+    setBlocklistPageSize,
+  }: MiniAppIdentitiesStoreState = useComponentStore(createIdentitiesStore);
 
   useEffect((): (() => void) => {
     const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-      const nextTrimmed: string = searchInput.trim();
-      setDebouncedQuery((prev: string): string => {
-        if (prev !== nextTrimmed) {
-          setWhitelistPageNumber(1);
-          setBlocklistPageNumber(1);
-        }
-        return nextTrimmed;
-      });
+      commitSearchQuery(searchInput.trim());
     }, MINI_APP_SEARCH_DEBOUNCE_MS);
     return (): void => {
       clearTimeout(timer);
     };
-  }, [searchInput]);
+  }, [commitSearchQuery, searchInput]);
 
-  const loadCurrentList: () => Promise<void> = useCallback(async (): Promise<void> => {
-    const reqId: number = ++requestSeqRef.current;
-    const startedAt: number = Date.now();
-    setLoadingList(true);
-    try {
-      if (subTab === "whitelist") {
-        const page: MiniAppWhitelistPage = await fetchMiniAppWhitelist(
-          whitelistPageNumber,
-          whitelistPageSize,
-          debouncedQuery
-        );
-        await waitMinimumLoadingDuration(startedAt);
-        if (reqId !== requestSeqRef.current) {
-          return;
-        }
-        setWhitelistPage(page);
-        setWhitelistTotal(page.whitelistTotal);
-        setBlocklistTotal(page.blocklistTotal);
-        if (page.page !== whitelistPageNumber) {
-          setWhitelistPageNumber(page.page);
-        }
-      } else {
-        const page: MiniAppBlocklistPage = await fetchMiniAppBlocklist(
-          blocklistPageNumber,
-          blocklistPageSize,
-          debouncedQuery
-        );
-        await waitMinimumLoadingDuration(startedAt);
-        if (reqId !== requestSeqRef.current) {
-          return;
-        }
-        setBlocklistPage(page);
-        setWhitelistTotal(page.whitelistTotal);
-        setBlocklistTotal(page.blocklistTotal);
-        if (page.page !== blocklistPageNumber) {
-          setBlocklistPageNumber(page.page);
-        }
-      }
-    } catch (error: unknown) {
-      await waitMinimumLoadingDuration(startedAt);
-      if (reqId !== requestSeqRef.current) {
-        return;
-      }
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      if (reqId === requestSeqRef.current) {
-        setLoadingList(false);
-      }
-    }
+  useEffect((): void => {
+    void loadCurrentList();
   }, [
     blocklistPageNumber,
     blocklistPageSize,
     debouncedQuery,
-    onToast,
+    loadCurrentList,
     subTab,
     whitelistPageNumber,
     whitelistPageSize,
   ]);
 
-  useEffect((): void => {
+  const reloadList = (): void => {
     void loadCurrentList();
-  }, [loadCurrentList]);
-
-  const triggerDuplicateNotice = (idText: string): void => {
-    const text: string = t.identities.duplicateToast(idText, subTab);
-    setDuplicateAlertText(text);
-    onToast(text);
-    showStoreToast(text, "warning");
-  };
-
-  const handleAddById = async (): Promise<void> => {
-    const trimmed: string = idInput.trim();
-    const id: number = Number(trimmed);
-    if (trimmed.length === 0 || !Number.isSafeInteger(id) || id === 0) {
-      onToast(t.identities.invalidIdToast);
-      showStoreToast(t.identities.invalidIdToast, "warning");
-      return;
-    }
-
-    const alreadyInCurrentPage: boolean =
-      subTab === "whitelist"
-        ? (whitelistPage?.items.some(
-          (item: Readonly<MiniAppWhitelistEntryView>): boolean => item.id === id
-        ) ?? false)
-        : (blocklistPage?.items.some(
-          (item: Readonly<MiniAppBlocklistEntryView>): boolean => item.id === id
-        ) ?? false);
-    if (alreadyInCurrentPage) {
-      triggerDuplicateNotice(`ID ${id}`);
-      return;
-    }
-
-    setBusyAction(true);
-    try {
-      const result: MiniAppIdentityMutationResult =
-        subTab === "whitelist"
-          ? await setMiniAppWhitelistMembership(id, true)
-          : await setMiniAppBlocklistMembership(id, true);
-
-      if (result.duplicate === true || (result.ok && !result.changed)) {
-        triggerDuplicateNotice(`ID ${id}`);
-        return;
-      }
-
-      if (!result.ok) {
-        onToast(result.message);
-        showStoreToast(result.message, "danger");
-        return;
-      }
-
-      setDuplicateAlertText(null);
-      onToast(result.message);
-      if (subTab === "whitelist") {
-        setSelectedEntryId(id);
-      }
-      setIdInput("");
-      setIdFormOpen(false);
-      setAddMenuOpen(false);
-      await loadCurrentList();
-    } catch (error: unknown) {
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setBusyAction(false);
-    }
-  };
-
-  const pollPickerSession = async (requestId: number): Promise<void> => {
-    for (let attempt: number = 0; attempt < MINI_APP_PICKER_POLL_MAX_ATTEMPTS; attempt += 1) {
-      await new Promise<void>((resolve: () => void): void => {
-        setTimeout(resolve, MINI_APP_PICKER_POLL_INTERVAL_MS);
-      });
-      try {
-        const result: Readonly<MiniAppPickerResultEvent> | null =
-          await pollMiniAppPickerResult(requestId);
-        if (result !== null) {
-          if (result.duplicateIds !== undefined && result.duplicateIds.length > 0) {
-            triggerDuplicateNotice(
-              result.duplicateIds.map((dupId: number): string => `ID ${dupId}`).join(", ")
-            );
-          } else {
-            onToast(result.summary);
-          }
-          await loadCurrentList();
-          return;
-        }
-      } catch (_error: unknown) {
-        return;
-      }
-    }
-    onToast(t.identities.pickerTimeoutToast);
-  };
-
-  const handleOpenPicker = async (subjectKind: MiniAppPickerSubjectKind): Promise<void> => {
-    const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
-    if (typeof webApp?.requestChat !== "function") {
-      onToast(t.identities.pickerUnsupportedHint);
-      showStoreToast(t.identities.pickerUnsupportedHint, "warning");
-      return;
-    }
-    setBusyAction(true);
-    try {
-      const prepared: Extract<PrepareMiniAppPickerResult, { readonly ok: true }> =
-        await requestMiniAppPreparedPicker(subTab, subjectKind);
-      setAddMenuOpen(false);
-      setIdFormOpen(false);
-      webApp.requestChat(prepared.preparedButtonId, (accepted: boolean): void => {
-        if (!accepted) {
-          onToast(t.identities.pickerCancelledToast);
-          return;
-        }
-        onToast(t.identities.pickerWaitingToast);
-        void pollPickerSession(prepared.requestId);
-      });
-    } catch (error: unknown) {
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setBusyAction(false);
-    }
-  };
-
-  const handleSelectAddMode = (mode: MiniAppIdentityAddMode): void => {
-    if (mode === "id") {
-      setIdFormOpen((prev: boolean): boolean => !prev);
-      return;
-    }
-    void handleOpenPicker(mode);
-  };
-
-  const handleRemoveWhitelist = async (
-    entry: Readonly<MiniAppWhitelistEntryView>
-  ): Promise<void> => {
-    if (
-      !(await requestConfirm(
-        t.identities.confirmRemoveWhitelist(
-          truncateDisplayText(entry.displayName, 20),
-          entry.id
-        ),
-        "danger"
-      ))
-    ) {
-      return;
-    }
-    setBusyAction(true);
-    try {
-      const result: MiniAppIdentityMutationResult =
-        await setMiniAppWhitelistMembership(entry.id, false);
-      if (selectedEntryId === entry.id) setSelectedEntryId(null);
-      onToast(result.message);
-      await loadCurrentList();
-    } catch (error: unknown) {
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setBusyAction(false);
-    }
-  };
-
-  const handleRemoveBlocklist = async (
-    entry: Readonly<MiniAppBlocklistEntryView>
-  ): Promise<void> => {
-    if (
-      !(await requestConfirm(
-        t.identities.confirmRemoveBlocklist(
-          truncateDisplayText(entry.displayName, 20),
-          entry.id
-        ),
-        "danger"
-      ))
-    ) {
-      return;
-    }
-    setBusyAction(true);
-    try {
-      const result: MiniAppIdentityMutationResult =
-        await setMiniAppBlocklistMembership(entry.id, false);
-      onToast(result.message);
-      await loadCurrentList();
-    } catch (error: unknown) {
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setBusyAction(false);
-    }
   };
 
   const isDebouncing: boolean = searchInput.trim() !== debouncedQuery;
@@ -473,9 +140,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             type="button"
             className={`subtab-btn ${subTab === "whitelist" ? "active" : ""}`}
             onClick={(): void => {
-              setSubTab("whitelist");
-              setSelectedEntryId(null);
-              setDuplicateAlertText(null);
+              selectSubTab("whitelist");
             }}
           >
             <IdentitiesSvgIcon size={14} />
@@ -485,9 +150,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             type="button"
             className={`subtab-btn danger-tab ${subTab === "blocklist" ? "active" : ""}`}
             onClick={(): void => {
-              setSubTab("blocklist");
-              setSelectedEntryId(null);
-              setDuplicateAlertText(null);
+              selectSubTab("blocklist");
             }}
           >
             <span>{t.identities.blocklistTab}</span>
@@ -497,9 +160,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
           type="button"
           className="btn icon-btn"
           disabled={loadingList}
-          onClick={(): void => {
-            void loadCurrentList();
-          }}
+          onClick={reloadList}
         >
           <RefreshSvgIcon size={14} className={loadingList ? "spin-icon" : ""} />
           <span>{t.chats.refreshButton}</span>
@@ -521,9 +182,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             <button
               type="button"
               className="btn icon-btn"
-              onClick={(): void => {
-                setDuplicateAlertText(null);
-              }}
+              onClick={dismissDuplicateAlert}
             >
               <CloseSvgIcon size={14} />
             </button>
@@ -553,10 +212,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                   type="button"
                   className="search-clear-btn"
                   aria-label={t.identities.searchClearAria}
-                  onClick={(): void => {
-                    setSearchInput("");
-                    setDebouncedQuery("");
-                  }}
+                  onClick={clearSearch}
                 >
                   <CloseSvgIcon size={13} />
                 </button>
@@ -568,9 +224,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
             type="button"
             className={`btn primary icon-btn add-fold-trigger ${addMenuOpen ? "open" : ""}`}
             disabled={busyAction}
-            onClick={(): void => {
-              setAddMenuOpen((prev: boolean): boolean => !prev);
-            }}
+            onClick={toggleAddMenu}
           >
             <PlusSvgIcon size={15} />
             <span>{t.identities.addFoldButton}</span>
@@ -601,7 +255,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                       className={`add-mode-card ${mode === "id" && idFormOpen ? "active" : ""}`}
                       disabled={busyAction}
                       onClick={(): void => {
-                        handleSelectAddMode(mode);
+                        selectAddMode(mode);
                       }}
                     >
                       <div className="add-mode-head">
@@ -635,7 +289,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                       className="btn primary"
                       disabled={busyAction}
                       onClick={(): void => {
-                        void handleAddById();
+                        void addById();
                       }}
                     >
                       {t.identities.idConfirmButton}
@@ -643,9 +297,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                     <button
                       type="button"
                       className="btn"
-                      onClick={(): void => {
-                        setIdFormOpen(false);
-                      }}
+                      onClick={closeIdForm}
                     >
                       {t.identities.idCancelButton}
                     </button>
@@ -662,12 +314,9 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
           <div className="card">
             {loadingList && whitelistPage === null
               ? (
-                <div className="loading-box">
-                  <div className="loading-text">{t.identities.loadingText}</div>
-                  <div className="skeleton-stack">
-                    {renderIdentitySkeletonRows(MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE)}
-                  </div>
-                </div>
+                <LoadingBox text={t.identities.loadingText}>
+                  <ListSkeletonRows count={MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE} />
+                </LoadingBox>
               )
               : null}
 
@@ -739,7 +388,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                         type="button"
                         className={`btn ${isExpanded ? "primary" : ""}`}
                         onClick={(): void => {
-                          setSelectedEntryId(isExpanded ? null : entry.id);
+                          togglePermissionDrawer(entry.id);
                         }}
                       >
                         {t.identities.configurePermButton}
@@ -749,7 +398,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                         className="btn danger icon-btn"
                         disabled={busyAction}
                         onClick={(): void => {
-                          void handleRemoveWhitelist(entry);
+                          void removeWhitelist(entry);
                         }}
                       >
                         <TrashSvgIcon size={13} />
@@ -762,13 +411,8 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                       <PermissionDrawer
                         entry={entry}
                         descriptors={whitelistPage.permissionDescriptors}
-                        onUpdated={(): void => {
-                          void loadCurrentList();
-                        }}
-                        onClose={(): void => {
-                          setSelectedEntryId(null);
-                        }}
-                        onToast={onToast}
+                        onUpdated={reloadList}
+                        onClose={closePermissionDrawer}
                       />
                     )
                     : null}
@@ -783,13 +427,8 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
               pageSize={whitelistPage?.pageSize ?? whitelistPageSize}
               pageSizeOptions={MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS}
               disabled={loadingList || busyAction}
-              onPageChange={(nextPage: number): void => {
-                setWhitelistPageNumber(nextPage);
-              }}
-              onPageSizeChange={(nextPageSize: number): void => {
-                setWhitelistPageNumber(1);
-                setWhitelistPageSize(nextPageSize);
-              }}
+              onPageChange={setWhitelistPageNumber}
+              onPageSizeChange={setWhitelistPageSize}
             />
           </div>
         )
@@ -797,12 +436,9 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
           <div className="card">
             {loadingList && blocklistPage === null
               ? (
-                <div className="loading-box">
-                  <div className="loading-text">{t.identities.loadingText}</div>
-                  <div className="skeleton-stack">
-                    {renderIdentitySkeletonRows(MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE)}
-                  </div>
-                </div>
+                <LoadingBox text={t.identities.loadingText}>
+                  <ListSkeletonRows count={MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE} />
+                </LoadingBox>
               )
               : null}
 
@@ -867,7 +503,7 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
                       className="btn danger icon-btn"
                       disabled={busyAction}
                       onClick={(): void => {
-                        void handleRemoveBlocklist(entry);
+                        void removeBlocklist(entry);
                       }}
                     >
                       <TrashSvgIcon size={13} />
@@ -885,13 +521,8 @@ export function IdentitiesTab({ onToast }: IdentitiesTabProps): React.JSX.Elemen
               pageSize={blocklistPage?.pageSize ?? blocklistPageSize}
               pageSizeOptions={MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS}
               disabled={loadingList || busyAction}
-              onPageChange={(nextPage: number): void => {
-                setBlocklistPageNumber(nextPage);
-              }}
-              onPageSizeChange={(nextPageSize: number): void => {
-                setBlocklistPageNumber(1);
-                setBlocklistPageSize(nextPageSize);
-              }}
+              onPageChange={setBlocklistPageNumber}
+              onPageSizeChange={setBlocklistPageSize}
             />
           </div>
         )}

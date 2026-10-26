@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**6879 tests / 571 files / 453941 次 `expect()`**；全源码**函数覆盖率 97.84% / 行覆盖率 98.09%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**6887 tests / 574 files / 454152 次 `expect()`**；全源码**函数覆盖率 98.09% / 行覆盖率 98.14%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 

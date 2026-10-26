@@ -9,15 +9,17 @@ import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
 import * as serverTimeConsts from "../../packages/consts/time";
 import * as serverWhitelistConsts from "../../packages/consts/whitelist";
+import { errorMessage as serverErrorMessage } from "../../packages/libs/errorMessage";
 import * as frontendMemoryConsts from "../../packages/mini-app-frontend/consts/memory";
 import * as frontendMiniAppConsts from "../../packages/mini-app-frontend/consts/miniApp";
 import * as frontendTimeConsts from "../../packages/mini-app-frontend/consts/time";
 import * as frontendWhitelistConsts from "../../packages/mini-app-frontend/consts/whitelist";
-import { buildMiniAppGalleryDownloadFileName as buildFrontendDownloadFileName } from "../../packages/mini-app-frontend/formatters";
+import { errorMessage as frontendErrorMessage } from "../../packages/mini-app-frontend/libs/errorMessage";
+import { buildMiniAppGalleryDownloadFileName as buildFrontendDownloadFileName } from "../../packages/mini-app-frontend/libs/formatters";
 import type * as FrontendIdentityPolicy from "../../packages/mini-app-frontend/types/identityPolicy";
 import type * as FrontendMiniApp from "../../packages/mini-app-frontend/types/miniApp";
 import type * as FrontendMiniAppTotp from "../../packages/mini-app-frontend/types/miniAppTotp";
-import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } from "../../packages/mini-app-server/galleryView";
+import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } from "../../packages/mini-app-server/libs/downloadFileName";
 import type { PrepareMiniAppPickerResult as ServerPrepareMiniAppPickerResult } from "../../packages/mini-app-server/picker";
 import type * as ServerIdentityPolicy from "../../packages/types/identityPolicy";
 import type * as ServerMiniApp from "../../packages/types/miniApp";
@@ -126,10 +128,10 @@ describe("Mini App 前端副本与服务端定义一致", () => {
 
   test("前端打包引用的 favicon 与服务端 `/favicon.ico` 路由返回的文件逐字节一致", async () => {
     const frontendIcon: Uint8Array = await Bun.file(
-      new URL("../../packages/mini-app-frontend/miniAppResoures/favicon.ico", import.meta.url)
+      new URL("../../packages/mini-app-frontend/resource/favicon.ico", import.meta.url)
     ).bytes();
     const serverIcon: Uint8Array = await Bun.file(
-      new URL("../../packages/mini-app-server/miniAppResoures/favicon.ico", import.meta.url)
+      new URL("../../packages/mini-app-server/resource/favicon.ico", import.meta.url)
     ).bytes();
     expect(frontendIcon).toEqual(serverIcon);
   });
@@ -146,5 +148,12 @@ describe("Mini App 前端副本与服务端定义一致", () => {
       expect(buildFrontendDownloadFileName(fileName, nowMs)).toBe(buildServerDownloadFileName(fileName, nowMs));
     }
     expect(buildFrontendDownloadFileName("c.png", -1)).toBe(buildServerDownloadFileName("c.png", -1));
+  });
+
+  test("前后端各自的异常文案归一化对同一输入给出相同结果", () => {
+    const inputs: readonly unknown[] = [new Error("boom"), new TypeError("type"), "text", 42, null, undefined, { reason: "x" }];
+    for (const input of inputs) {
+      expect(frontendErrorMessage(input)).toBe(serverErrorMessage(input));
+    }
   });
 });

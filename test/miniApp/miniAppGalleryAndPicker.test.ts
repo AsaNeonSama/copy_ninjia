@@ -10,7 +10,7 @@ import type {
 import type { IdentityPolicyRawReadResult } from "../../packages/types/identityStorage";
 import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import { imageFixture } from "../helpers/image";
-import { buildSignedTestInitData } from "../libs/miniAppAuth.test";
+import { buildSignedTestInitData } from "../helpers/miniAppInitData";
 
 const diskMessages: DiskBusinessMessage[] = [];
 const persistedListeners: ((reply: IdentityStoragePersistedReply) => void)[] = [];
@@ -118,6 +118,7 @@ const {
   stopMiniAppServer,
 } = await import("../../packages/mini-app-server");
 const {
+  buildMiniAppGalleryDownloadFileName,
   formatBytes,
   formatGalleryFileSize,
   formatMemoryMb,
@@ -128,24 +129,25 @@ const {
   sanitizeBidiText,
   shortenGalleryFileName,
   truncateDisplayText,
-  waitMinimumLoadingDuration,
-} = await import("../../packages/mini-app-frontend/formatters");
+} = await import("../../packages/mini-app-frontend/libs/formatters");
+const { waitMinimumLoadingDuration } = await import("../../packages/mini-app-frontend/libs/loading");
+const { buildMiniAppGalleryDownloadUrl } = await import("../../packages/mini-app-frontend/api/galleryDownload");
+const { buildMiniAppGalleryImageUrl } = await import("../../packages/mini-app-frontend/api/galleryFile");
+const { buildMiniAppSvgResourceUrl } = await import("../../packages/mini-app-frontend/api/svgResource");
 const {
-  buildMiniAppGalleryDownloadFileName,
-  buildMiniAppGalleryDownloadUrl,
-  buildMiniAppGalleryImageUrl,
-  buildMiniAppSvgResourceUrl,
   clearMiniAppAssetToken,
   clearMiniAppSessionToken,
-  confirmMiniAppAction,
-  getTelegramWebApp,
   readMiniAppAssetToken,
-  readMiniAppInitData,
   readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
   setMiniAppAssetToken,
   setMiniAppSessionToken,
-} = await import("../../packages/mini-app-frontend/api");
+} = await import("../../packages/mini-app-frontend/libs/credentials");
+const {
+  confirmMiniAppAction,
+  getTelegramWebApp,
+  readMiniAppInitData,
+} = await import("../../packages/mini-app-frontend/libs/telegram");
 const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const {
   detectBrowserDefaultLanguage,
@@ -157,7 +159,7 @@ const {
   detectInitialMiniAppTheme,
   resetMiniAppStoreForTest,
   useMiniAppStore,
-} = await import("../../packages/mini-app-frontend/store");
+} = await import("../../packages/mini-app-frontend/store/app");
 const {
   ChatsSvgIcon,
   DownloadSvgIcon,
@@ -168,7 +170,7 @@ const {
   StatusSvgIcon,
   TabSvgIcon,
   TrashSvgIcon,
-} = await import("../../packages/mini-app-frontend/miniAppResoures");
+} = await import("../../packages/mini-app-frontend/resource");
 import type {
   MiniAppGalleryDeleteResult,
   MiniAppGalleryPage,

@@ -1,24 +1,27 @@
-import { useState } from "react";
 import type React from "react";
 import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
-import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type {
-  MiniAppIdentityMutationResult,
-  MiniAppLanguage,
-  MiniAppPermissionDescriptor,
-  MiniAppWhitelistEntryView,
-} from "../types/miniApp";
-import { CloseSvgIcon } from "../miniAppResoures";
-import { updateMiniAppWhitelistPermission } from "../api";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useComponentStore } from "../libs/componentStore";
 import {
   getPermissionDisplayLabel,
   sanitizeBidiText,
   truncateDisplayText,
-} from "../formatters";
-import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
+} from "../libs/formatters";
+import { CloseSvgIcon } from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import { createPermissionDrawerStore } from "../store/permissionDrawer";
+import type {
+  MiniAppPermissionDrawerStore,
+  MiniAppPermissionDrawerStoreState,
+} from "../store/permissionDrawer";
+import type { WhitelistPermissionKey } from "../types/identityPolicy";
+import type {
+  MiniAppLanguage,
+  MiniAppPermissionDescriptor,
+  MiniAppWhitelistEntryView,
+} from "../types/miniApp";
 
 /** `PermissionDrawer` 组件的属性参数。 */
 export interface PermissionDrawerProps {
@@ -26,12 +29,10 @@ export interface PermissionDrawerProps {
   readonly entry: MiniAppWhitelistEntryView;
   /** 后端返回的权限键说明列表。 */
   readonly descriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
-  /** 权限变更成功后触发父组件重新加载白名单。 */
+  /** 权限变更成功后触发父组件重新加载白名单；抽屉创建仓库时捕获首次渲染传入的回调，之后的重渲染不再替换。 */
   readonly onUpdated: () => void;
   /** 关闭权限编辑抽屉。 */
   readonly onClose: () => void;
-  /** 全局提示回调。 */
-  readonly onToast: (message: string) => void;
 }
 
 /**
@@ -45,37 +46,14 @@ export function PermissionDrawer({
   descriptors,
   onUpdated,
   onClose,
-  onToast,
 }: PermissionDrawerProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-  const [busyKey, setBusyKey]: [
-    WhitelistPermissionKey | "all" | null,
-    React.Dispatch<React.SetStateAction<WhitelistPermissionKey | "all" | null>>
-  ] = useState<WhitelistPermissionKey | "all" | null>(null);
-
-  const handleTogglePermission = async (
-    permission: WhitelistPermissionKey | "all",
-    enabled: boolean
-  ): Promise<void> => {
-    setBusyKey(permission);
-    try {
-      const result: MiniAppIdentityMutationResult = await updateMiniAppWhitelistPermission(
-        entry.id,
-        permission,
-        enabled
-      );
-      onToast(result.message);
-      onUpdated();
-    } catch (error: unknown) {
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setBusyKey(null);
-    }
-  };
+  const { busyKey, togglePermission }: MiniAppPermissionDrawerStoreState = useComponentStore(
+    (): MiniAppPermissionDrawerStore => createPermissionDrawerStore(onUpdated)
+  );
 
   return (
     <div className="perm-drawer-inline animate-fade-in">
@@ -110,7 +88,7 @@ export function PermissionDrawer({
             className="btn primary"
             disabled={busyKey !== null}
             onClick={(): void => {
-              void handleTogglePermission("all", true);
+              void togglePermission(entry.id, "all", true);
             }}
           >
             {t.permissionDrawer.enableAllButton}
@@ -142,7 +120,7 @@ export function PermissionDrawer({
                     const nextChecked: boolean = (
                       event.currentTarget as unknown as { readonly checked: boolean }
                     ).checked;
-                    void handleTogglePermission(key, nextChecked);
+                    void togglePermission(entry.id, key, nextChecked);
                   }}
                 />
                 <span className="slider" />

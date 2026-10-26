@@ -1,47 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { MINI_APP_STATUS_POLL_INTERVAL_MS } from "../consts/miniApp";
-import type {
-  MiniAppCapabilityDetailItem,
-  MiniAppCapabilityStatus,
-  MiniAppLanguage,
-  MiniAppMoodMutationResult,
-  MiniAppMoodView,
-  MiniAppStatusView,
-} from "../types/miniApp";
-import {
-  ChevronDownSvgIcon,
-  RefreshSvgIcon,
-  StatusSvgIcon,
-} from "../miniAppResoures";
-import {
-  fetchMiniAppMood,
-  fetchMiniAppStatus,
-  switchMiniAppMood,
-} from "../api";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { useComponentStore } from "../libs/componentStore";
 import {
   formatMemoryMb,
   formatTime,
   formatUptime,
-  waitMinimumLoadingDuration,
-} from "../formatters";
-import { getMiniAppTranslations } from "../i18n";
-import type { MiniAppTranslations } from "../i18n";
-import { useMiniAppStore } from "../store";
-import type { MiniAppUiStoreState } from "../store";
-
-/** `StatusTab` 组件的属性参数。 */
-export interface StatusTabProps {
-  /** 顶层鉴权门禁阶段已预拉取的初始状态快照。 */
-  readonly initialStatus?: MiniAppStatusView | null;
-  /** 当成功获取状态快照时同步通知顶层状态栏。 */
-  readonly onStatusLoaded: (status: MiniAppStatusView) => void;
-  /** 全局错误/操作提示回调。 */
-  readonly onToast: (message: string) => void;
-}
+} from "../libs/formatters";
+import {
+  ChevronDownSvgIcon,
+  RefreshSvgIcon,
+  StatusSvgIcon,
+} from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import { createStatusStore } from "../store/status";
+import type { MiniAppStatusStoreState } from "../store/status";
+import type {
+  MiniAppCapabilityDetailItem,
+  MiniAppCapabilityStatus,
+  MiniAppLanguage,
+  MiniAppStatusView,
+} from "../types/miniApp";
+import { StatusSkeleton } from "./skeletons/StatusSkeleton";
 
 /** `renderStatusSnapshot` 渲染函数的参数。 */
-export interface RenderStatusSnapshotOptions {
+interface RenderStatusSnapshotOptions {
   /** 实时运行状态快照。 */
   readonly status: Readonly<MiniAppStatusView>;
   /** 当前语言翻译字典。 */
@@ -117,232 +103,6 @@ function CapabilityCollapseBody({
         className="cap-body"
       >
         {children}
-      </div>
-    </div>
-  );
-}
-
-const SKELETON_CAPABILITY_INDICES: readonly number[] = [0, 1, 2, 3, 4, 5];
-const SKELETON_MEMORY_INDICES: readonly number[] = [0, 1, 2];
-
-/**
- * 渲染实时状态页专属骨架屏（1:1 对应顶部 5 项指标卡、CPU 环形图、全宽三栏内存进度卡与 6 项默认收起的能力折叠行）。
- *
- * @returns React 节点
- */
-function renderStatusSkeleton(): React.JSX.Element {
-  return (
-    <div className="skeleton-detail-wrap" aria-busy="true">
-      <div className="card">
-        <div className="skeleton-row-between">
-          <div
-            className="skeleton-line skeleton-title-bar"
-            style={{ width: "36%" }}
-          />
-          <div
-            className="skeleton-line skeleton-badge-pill"
-            style={{ width: "86px" }}
-          />
-        </div>
-        <div className="grid-2">
-          <div className="stat-box">
-            <div
-              className="skeleton-line"
-              style={{ width: "52%", height: "11px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "68%", height: "20px", borderRadius: "6px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "60%", height: "10px" }}
-            />
-          </div>
-          <div className="stat-box stat-box-cpu">
-            <div className="stat-cpu-row">
-              <div className="stat-cpu-main">
-                <div
-                  className="skeleton-line"
-                  style={{ width: "58%", height: "11px" }}
-                />
-                <div
-                  className="skeleton-line"
-                  style={{ width: "64%", height: "20px", borderRadius: "6px" }}
-                />
-                <div
-                  className="skeleton-line"
-                  style={{ width: "74%", height: "10px" }}
-                />
-              </div>
-              <div className="skeleton-line skeleton-cpu-ring" />
-            </div>
-          </div>
-          <div className="stat-box">
-            <div
-              className="skeleton-line"
-              style={{ width: "56%", height: "11px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "42%", height: "20px", borderRadius: "6px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "72%", height: "10px" }}
-            />
-          </div>
-          <div className="stat-box">
-            <div
-              className="skeleton-line"
-              style={{ width: "54%", height: "11px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "38%", height: "20px", borderRadius: "6px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "82%", height: "10px" }}
-            />
-          </div>
-          <div className="stat-box stat-box-outbound">
-            <div className="stat-outbound-head">
-              <div
-                className="skeleton-line"
-                style={{ width: "58%", height: "11px" }}
-              />
-              <div
-                className="skeleton-line skeleton-cmd-pill"
-                style={{ width: "36px" }}
-              />
-            </div>
-            <div
-              className="skeleton-line"
-              style={{ width: "48%", height: "20px", borderRadius: "6px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "100%", height: "6px" }}
-            />
-            <div
-              className="skeleton-line"
-              style={{ width: "76%", height: "10px" }}
-            />
-          </div>
-          <div className="stat-box stat-box-memory">
-            <div className="memory-metrics-row">
-              {SKELETON_MEMORY_INDICES.map(
-                (idx: number): React.JSX.Element => (
-                  <div key={idx} className="memory-metric-card">
-                    <div
-                      className="skeleton-line"
-                      style={{ width: "56%", height: "10px" }}
-                    />
-                    <div
-                      className="skeleton-line"
-                      style={{
-                        width: "74%",
-                        height: "15px",
-                        borderRadius: "5px",
-                      }}
-                    />
-                  </div>
-                )
-              )}
-            </div>
-            <div className="memory-bar-section">
-              <div
-                className="skeleton-line"
-                style={{ width: "100%", height: "10px" }}
-              />
-              <div className="memory-legend-grid">
-                {SKELETON_MEMORY_INDICES.map(
-                  (idx: number): React.JSX.Element => (
-                    <div key={idx} className="memory-legend-item">
-                      <div
-                        className="skeleton-line"
-                        style={{
-                          width: "7px",
-                          height: "7px",
-                          borderRadius: "50%",
-                          flexShrink: 0,
-                        }}
-                      />
-                      <div
-                        className="skeleton-line"
-                        style={{ width: "44%", height: "10px" }}
-                      />
-                      <div
-                        className="skeleton-line"
-                        style={{
-                          width: "36%",
-                          height: "10px",
-                          marginLeft: "auto",
-                        }}
-                      />
-                    </div>
-                  )
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-title">
-          <div
-            className="skeleton-line skeleton-section-bar"
-            style={{ width: "46%", marginBottom: 0 }}
-          />
-        </div>
-        <div className="cap-list">
-          {SKELETON_CAPABILITY_INDICES.map(
-            (idx: number): React.JSX.Element => (
-              <div key={idx} className="cap-block skeleton-cap-row">
-                <div className="cap-header-main">
-                  <div
-                    className="skeleton-line"
-                    style={{
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <div
-                    className="skeleton-line"
-                    style={{
-                      width: `${idx % 2 === 0 ? 44 : 54}%`,
-                      height: "13px",
-                      borderRadius: "5px",
-                    }}
-                  />
-                  <div
-                    className="skeleton-line skeleton-cmd-pill"
-                    style={{ width: "42px" }}
-                  />
-                </div>
-                <div className="cap-header-right">
-                  <div
-                    className="skeleton-line skeleton-badge-pill"
-                    style={{ width: "52px", height: "20px" }}
-                  />
-                  <div
-                    className="skeleton-line"
-                    style={{
-                      width: "24px",
-                      height: "24px",
-                      borderRadius: "7px",
-                      flexShrink: 0,
-                    }}
-                  />
-                </div>
-              </div>
-            )
-          )}
-        </div>
       </div>
     </div>
   );
@@ -767,133 +527,26 @@ function renderStatusSnapshot({
 /**
  * 首页实时状态看板组件（每 3 秒自动刷新一次进程资源、会话、Telegram 出站与模型就绪状态）。
  *
- * @param props 组件属性
  * @returns React 节点
  */
-export function StatusTab({
-  initialStatus = null,
-  onStatusLoaded,
-  onToast,
-}: StatusTabProps): React.JSX.Element {
+export function StatusTab(): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-
-  const [status, setStatus]: [
-    MiniAppStatusView | null,
-    React.Dispatch<React.SetStateAction<MiniAppStatusView | null>>
-  ] = useState<MiniAppStatusView | null>(initialStatus);
-  const [loading, setLoading]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(true);
-  const [refreshing, setRefreshing]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const [errorText, setErrorText]: [
-    string | null,
-    React.Dispatch<React.SetStateAction<string | null>>
-  ] = useState<string | null>(null);
-  const [expandedCapKeys, setExpandedCapKeys]: [
-    Readonly<Record<string, boolean>>,
-    React.Dispatch<React.SetStateAction<Readonly<Record<string, boolean>>>>
-  ] = useState<Readonly<Record<string, boolean>>>({});
-  const [currentMood, setCurrentMood]: [
-    string | null,
-    React.Dispatch<React.SetStateAction<string | null>>
-  ] = useState<string | null>(null);
-  const [switchingMood, setSwitchingMood]: [
-    boolean,
-    React.Dispatch<React.SetStateAction<boolean>>
-  ] = useState<boolean>(false);
-  const hasSnapshotRef: React.RefObject<boolean> = useRef<boolean>(false);
-  const requestSeqRef: React.RefObject<number> = useRef<number>(0);
-
-  const loadMood: () => Promise<void> = useCallback(async (): Promise<void> => {
-    try {
-      const moodView: MiniAppMoodView = await fetchMiniAppMood();
-      if (moodView.available && moodView.currentMood !== null) {
-        setCurrentMood(moodView.currentMood);
-      } else {
-        setCurrentMood(null);
-      }
-    } catch (_error: unknown) {
-      // 情绪查询异常不阻塞主状态看板
-    }
-  }, []);
-
-  const loadStatus: (showErrorToast: boolean) => Promise<void> = useCallback(
-    async (showErrorToast: boolean): Promise<void> => {
-      const reqId: number = ++requestSeqRef.current;
-      const startedAt: number = Date.now();
-      const shouldWaitMin: boolean = showErrorToast || !hasSnapshotRef.current;
-      if (showErrorToast) {
-        setRefreshing(true);
-        void loadMood();
-      }
-      try {
-        const next: MiniAppStatusView = await fetchMiniAppStatus();
-        if (shouldWaitMin) {
-          await waitMinimumLoadingDuration(startedAt);
-        }
-        if (reqId !== requestSeqRef.current) {
-          return;
-        }
-        hasSnapshotRef.current = true;
-        setStatus(next);
-        setErrorText(null);
-        onStatusLoaded(next);
-      } catch (error: unknown) {
-        if (shouldWaitMin) {
-          await waitMinimumLoadingDuration(startedAt);
-        }
-        if (reqId !== requestSeqRef.current) {
-          return;
-        }
-        const message: string = error instanceof Error ? error.message : String(error);
-        setErrorText(message);
-        if (showErrorToast) {
-          onToast(message);
-        }
-      } finally {
-        if (reqId === requestSeqRef.current) {
-          setLoading(false);
-          setRefreshing(false);
-        }
-      }
-    },
-    [loadMood, onStatusLoaded, onToast]
-  );
-
-  const handleToggleCapability: (capKey: string) => void = useCallback(
-    (capKey: string): void => {
-      setExpandedCapKeys(
-        (prev: Readonly<Record<string, boolean>>): Readonly<Record<string, boolean>> => ({
-          ...prev,
-          [capKey]: prev[capKey] !== true,
-        })
-      );
-    },
-    []
-  );
-
-  const handleSwitchMood: () => Promise<void> = useCallback(async (): Promise<void> => {
-    setSwitchingMood(true);
-    try {
-      const result: MiniAppMoodMutationResult = await switchMiniAppMood();
-      if (result.ok && result.currentMood !== null) {
-        setCurrentMood(result.currentMood);
-      }
-      onToast(result.message);
-    } catch (error: unknown) {
-      const message: string = error instanceof Error ? error.message : String(error);
-      onToast(message);
-    } finally {
-      setSwitchingMood(false);
-    }
-  }, [onToast]);
+  const {
+    status,
+    loading,
+    refreshing,
+    errorText,
+    expandedCapKeys,
+    currentMood,
+    switchingMood,
+    loadMood,
+    loadStatus,
+    toggleCapability,
+    switchMood,
+  }: MiniAppStatusStoreState = useComponentStore(createStatusStore);
 
   useEffect((): (() => void) => {
     void loadStatus(false);
@@ -935,7 +588,7 @@ export function StatusTab({
         </button>
       </div>
 
-      {loading || refreshing ? renderStatusSkeleton() : null}
+      {loading || refreshing ? <StatusSkeleton /> : null}
 
       {!loading && !refreshing && errorText !== null && status === null
         ? (
@@ -952,11 +605,11 @@ export function StatusTab({
               status,
               t,
               expandedCapKeys,
-              onToggleCapability: handleToggleCapability,
+              onToggleCapability: toggleCapability,
               currentMood,
               switchingMood,
               onSwitchMood: (): void => {
-                void handleSwitchMood();
+                void switchMood();
               },
             })}
           </div>
