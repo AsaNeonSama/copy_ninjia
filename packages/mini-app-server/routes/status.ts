@@ -4,7 +4,8 @@ import type {
   MiniAppRouteMatch,
 } from "../../types/miniApp";
 import { handleGetMoodRoute, handleGetStatusRoute, handlePostMoodSwitchRoute } from "../handlers/status";
-import { getMiniAppApiAuthMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware";
+import { getMiniAppApiAuthMiddlewareChain } from "../middleware/chains";
+import { withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建运行状态与 AI 情绪路由（`GET /api/status`、`GET /api/mood`、`POST /api/mood/switch`）的 `Bun.serve` 原生路由表片段，

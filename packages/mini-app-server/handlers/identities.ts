@@ -8,14 +8,12 @@ import type {
   MiniAppIdentityMutationResult,
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
+  PrepareMiniAppPickerResult,
 } from "../../types/miniApp";
 import { parseOptionalSafeInt, readJsonObjectBody } from "../libs/request";
 import { jsonResponse } from "../libs/response";
-import {
-  getMiniAppPickerResult,
-  prepareMiniAppPicker,
-} from "../picker";
-import type { PrepareMiniAppPickerResult } from "../picker";
+import { prepareMiniAppPicker } from "../picker/prepare";
+import { getMiniAppPickerResult } from "../picker/sessions";
 import {
   listBlocklistEntries,
   setBlocklistEntryMembership,

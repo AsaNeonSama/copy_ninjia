@@ -1,13 +1,13 @@
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
 import type { MiniAppTotpMutationResponse } from "../../types/miniAppTotp";
-import { readJsonObjectBody } from "../libs/request";
-import { jsonResponse } from "../libs/response";
 import {
   createPendingMiniAppTotpSetup,
   deleteMiniAppTotpRecord,
   enableMiniAppTotpFromPending,
   getMiniAppTotpStatus,
-} from "../totpStorage";
+} from "../auth/totpStorage";
+import { readJsonObjectBody } from "../libs/request";
+import { jsonResponse } from "../libs/response";
 
 /**
  * 处理 `GET /api/totp`：返回当前 Google Authenticator 验证器的启用状态与脱敏摘要。

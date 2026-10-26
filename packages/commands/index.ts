@@ -44,4 +44,3 @@ export { dispatchWedCommand, dispatchWedCallback } from "./wed/dispatch";
 
 export { handleHImageCommand } from "./hImage";
 export { handleInfoCommand } from "./info";
-export { handleMiniAppSharedMessage } from "../mini-app-server/picker";

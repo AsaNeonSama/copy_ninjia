@@ -9,7 +9,8 @@ import {
   handlePostTotpEnableRoute,
   handlePostTotpSetupRoute,
 } from "../handlers/totp";
-import { getMiniAppApiAuthMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware";
+import { getMiniAppApiAuthMiddlewareChain } from "../middleware/chains";
+import { withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建 Google Authenticator 验证器管理路由（`/api/totp`、`/api/totp/setup`、`/api/totp/enable`、`/api/totp/delete`）的

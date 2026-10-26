@@ -3,30 +3,30 @@ import {
   MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
   MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
   MINI_APP_SVG_RESOURCE_ROUTE_PATTERN,
-} from "../consts/miniApp";
-import type { MiniAppRouteContext, MiniAppRouteMatch } from "../types/miniApp";
-import { buildNoStoreHeaders, jsonResponse } from "./libs/response";
-import { normalizeRoutePathname } from "./libs/routePath";
-import type { NormalizedRoutePath } from "./libs/routePath";
+} from "../../consts/miniApp";
+import type { MiniAppRouteContext, MiniAppRouteMatch } from "../../types/miniApp";
+import { buildNoStoreHeaders, jsonResponse } from "../libs/response";
+import { normalizeRoutePathname } from "../libs/routePath";
+import type { NormalizedRoutePath } from "../libs/routePath";
 import {
-  executeMiniAppMiddlewareChain,
   getMiniAppApiAuthMiddlewareChain,
   getMiniAppProtectedAssetMiddlewareChain,
-} from "./middleware";
-import { createAuthBunRoutes, dispatchAuthRoute } from "./routes/auth";
-import { createChatsBunRoutes, dispatchChatsApiRoute } from "./routes/chats";
+} from "../middleware/chains";
+import { executeMiniAppMiddlewareChain } from "../middleware/pipeline";
+import { createAuthBunRoutes, dispatchAuthRoute } from "../routes/auth";
+import { createChatsBunRoutes, dispatchChatsApiRoute } from "../routes/chats";
 import {
   createGalleryBunRoutes,
   dispatchGalleryApiRoute,
   dispatchGalleryDownloadRoute,
   dispatchGalleryFileRoute,
-} from "./routes/gallery";
-import { createIdentitiesBunRoutes, dispatchIdentitiesApiRoute } from "./routes/identities";
-import { createPageBunRoutes, dispatchPageRoute } from "./routes/page";
-import { createResourceBunRoutes, dispatchSvgResourceRoute } from "./routes/resource";
-import { createStatusBunRoutes, dispatchStatusApiRoute } from "./routes/status";
-import { createTotpBunRoutes, dispatchTotpApiRoute } from "./routes/totp";
-import indexHtml from "../mini-app-frontend/index.html";
+} from "../routes/gallery";
+import { createIdentitiesBunRoutes, dispatchIdentitiesApiRoute } from "../routes/identities";
+import { createPageBunRoutes, dispatchPageRoute } from "../routes/page";
+import { createResourceBunRoutes, dispatchSvgResourceRoute } from "../routes/resource";
+import { createStatusBunRoutes, dispatchStatusApiRoute } from "../routes/status";
+import { createTotpBunRoutes, dispatchTotpApiRoute } from "../routes/totp";
+import indexHtml from "../../mini-app-frontend/index.html";
 
 /**
  * 合并各领域路由表片段（`routes/` 目录）为传给 `Bun.serve({ routes })` 的原生路由表；所有业务 API 与资源路由均由前置中间件链包装。

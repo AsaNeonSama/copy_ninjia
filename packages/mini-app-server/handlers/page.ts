@@ -15,7 +15,7 @@ export function handleHealthzRoute(headOnly: boolean): Response {
 
 /**
  * 读取 Mini App 入口 HTML 文本（当 `Bun.serve` 已启动时从内部 `/_bundle` 路由获取注入了打包产物路径的 HTML；直接单元测试调用时读取源文件），并附带完整的 CSP 与 `X-Frame-Options` 响应头返回。
- * @param indexHtml `routes.ts` 以 HTML import 引入的前端入口。
+ * @param indexHtml `server/register.ts` 以 HTML import 引入的前端入口。
  * @param headOnly 是否为 `HEAD` 请求。
  * @returns 带完整安全响应头的 HTML `Response`。
  */

@@ -16,12 +16,11 @@ import {
   handlePostGalleryUploadRoute,
 } from "../handlers/gallery";
 import {
-  executeMiniAppMiddlewareChain,
   getMiniAppApiAuthMiddlewareChain,
   getMiniAppGalleryDownloadMiddlewareChain,
   getMiniAppProtectedAssetMiddlewareChain,
-  withMiniAppMiddlewareChain,
-} from "../middleware";
+} from "../middleware/chains";
+import { executeMiniAppMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建图库路由的 `Bun.serve` 原生路由表片段：列表、上传与删除走完整双层鉴权链，单张预览读取走受保护资源链，

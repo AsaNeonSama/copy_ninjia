@@ -3,15 +3,15 @@ import {
   miniAppAuthSessions,
   miniAppPasswordGuardHolder,
   miniAppServerHolder,
-} from "../cache/main/miniApp";
-import { getBotMiniAppConfig } from "../config/bot";
-import { MINI_APP_MAX_UPLOAD_BODY_BYTES } from "../consts/miniApp";
-import { logger } from "../infra/logger";
-import type { BotMiniAppConfig } from "../types/config";
-import { jsonResponse } from "./libs/response";
-import { resetMiniAppPickerState } from "./picker";
-import { createMiniAppBunRoutes, handleMiniAppHttpRequest } from "./routes";
-import { resetMiniAppTotpMemoryCache } from "./totpStorage";
+} from "../../cache/main/miniApp";
+import { getBotMiniAppConfig } from "../../config/bot";
+import { MINI_APP_MAX_UPLOAD_BODY_BYTES } from "../../consts/miniApp";
+import { logger } from "../../infra/logger";
+import type { BotMiniAppConfig } from "../../types/config";
+import { resetMiniAppTotpMemoryCache } from "../auth/totpStorage";
+import { jsonResponse } from "../libs/response";
+import { resetMiniAppPickerState } from "../picker/sessions";
+import { createMiniAppBunRoutes, handleMiniAppHttpRequest } from "./register";
 
 /**
  * 使用 `Bun.serve` 原生路由与 HTTP 服务启动本地 Mini App 源站（供 Cloudflare Tunnel 反向代理接入）；未配置 `mini_app` 时跳过并返回 `null`。

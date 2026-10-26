@@ -9,7 +9,7 @@ import { MINUTE_MS } from "./time";
 
 /**
  * `config/static/bot.json` 中 `mini_app.host` 缺省时绑定的本地回环地址。
- * 不变量：仅监听本机回环，由反向代理提供公网 HTTPS。所属模块：`packages/config/botInput.ts` 与 `packages/mini-app-server/server.ts`。
+ * 不变量：仅监听本机回环，由反向代理提供公网 HTTPS。所属模块：`packages/config/botInput.ts` 与 `packages/mini-app-server/server/serve.ts`。
  */
 export const MINI_APP_DEFAULT_HOST: string = "127.0.0.1";
 
@@ -95,13 +95,13 @@ export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
 /**
  * Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。
- * 不变量：到期后必须重新输入密码完成认证。所属模块：`packages/mini-app-server/session.ts` 与 `packages/mini-app-server/handlers/auth.ts`。
+ * 不变量：到期后必须重新输入密码完成认证。所属模块：`packages/mini-app-server/auth/session.ts` 与 `packages/mini-app-server/handlers/auth.ts`。
  */
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
 
 /**
  * 超级管理员 ID 连续输错 Mini App 访问密码允许的最大次数（3 次机会）。
- * 不变量：正整数，连续失败达到该次数后立即锁定该超级管理员 ID 30 分钟。所属模块：`packages/mini-app-server/session.ts` 与 `packages/mini-app-server/handlers/auth.ts`。
+ * 不变量：正整数，连续失败达到该次数后立即锁定该超级管理员 ID 30 分钟。所属模块：`packages/mini-app-server/auth/session.ts` 与 `packages/mini-app-server/handlers/auth.ts`。
  */
 export const MINI_APP_PASSWORD_MAX_ATTEMPTS: number = 3;
 
@@ -185,7 +185,7 @@ export const MINI_APP_MAX_JSON_BODY_BYTES: number = 32_768;
 
 /**
  * Mini App HTTP 服务允许的最大请求体字节数（11 MiB，覆盖 10 MiB 随机图库单图上传上限并提供结构化超限报错余量）。
- * 不变量：大于 `RANDOM_IMAGE_MAX_BYTES`，配置到 `Bun.serve` 的 `maxRequestBodySize`。所属模块：`packages/mini-app-server/server.ts`。
+ * 不变量：大于 `RANDOM_IMAGE_MAX_BYTES`，配置到 `Bun.serve` 的 `maxRequestBodySize`。所属模块：`packages/mini-app-server/server/serve.ts`。
  */
 export const MINI_APP_MAX_UPLOAD_BODY_BYTES: number = 11 * 1024 * 1024;
 
@@ -203,21 +203,21 @@ export const MINI_APP_GALLERY_MAX_PAGE_SIZE: number = 20;
 
 /**
  * `/api/gallery/file/:fileName` 图库单张图片读取路由的匹配规则。
- * 不变量：不带全局标志 `g`，供 HTTP 路由兜底解析无状态复用。所属模块：`packages/mini-app-server/routes/gallery.ts` 与 `packages/mini-app-server/routes.ts`。
+ * 不变量：不带全局标志 `g`，供 HTTP 路由兜底解析无状态复用。所属模块：`packages/mini-app-server/routes/gallery.ts` 与 `packages/mini-app-server/server/register.ts`。
  */
 export const MINI_APP_GALLERY_FILE_ROUTE_PATTERN: RegExp =
   /^\/api\/gallery\/file\/([^/]+)$/u;
 
 /**
  * `/api/gallery/download/:fileName` 图库单张图片附件下载路由的匹配规则。
- * 不变量：不带全局标志 `g`，供 HTTP 路由兜底分发与受保护资源路径判定无状态复用。所属模块：`packages/mini-app-server/routes/gallery.ts` 与 `packages/mini-app-server/routes.ts`。
+ * 不变量：不带全局标志 `g`，供 HTTP 路由兜底分发与受保护资源路径判定无状态复用。所属模块：`packages/mini-app-server/routes/gallery.ts` 与 `packages/mini-app-server/server/register.ts`。
  */
 export const MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN: RegExp =
   /^\/api\/gallery\/download\/([^/]+)$/u;
 
 /**
  * `/api/resources/svg/:fileName` 与 `/miniAppResoures/:fileName` 受保护 SVG 资源读取路由的匹配规则。
- * 不变量：不带全局标志 `g`，供 HTTP 路由兜底分发与受保护资源路径判定无状态复用。所属模块：`packages/mini-app-server/routes/resource.ts` 与 `packages/mini-app-server/routes.ts`。
+ * 不变量：不带全局标志 `g`，供 HTTP 路由兜底分发与受保护资源路径判定无状态复用。所属模块：`packages/mini-app-server/routes/resource.ts` 与 `packages/mini-app-server/server/register.ts`。
  */
 export const MINI_APP_SVG_RESOURCE_ROUTE_PATTERN: RegExp =
   /^\/(?:api\/resources\/svg|miniAppResoures)\/([^/]+)$/u;
@@ -231,7 +231,7 @@ export const MINI_APP_SVG_SAFE_FILE_NAME_PATTERN: RegExp =
 
 /**
  * 静态图片与 SVG 资源路径后缀的匹配规则（用于统一纳入受保护资源鉴权中间件链，不含公开 `/favicon.ico`）。
- * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/mini-app-server/routes.ts`。
+ * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/mini-app-server/server/register.ts`。
  */
 export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: RegExp =
   /\.(?:svg|png|jpe?g|webp|gif|avif)$/iu;
@@ -269,7 +269,7 @@ export const MINI_APP_IDENTITY_MAX_PAGE_SIZE: number = 20;
 
 /**
  * `savePreparedKeyboardButton` 预备选择器会话在主线程缓存中的存活时长（10 分钟）。
- * 不变量：到期后未消费的 `request_id` 记录自动淘汰。所属模块：`packages/mini-app-server/picker.ts`。
+ * 不变量：到期后未消费的 `request_id` 记录自动淘汰。所属模块：`packages/mini-app-server/picker/sessions.ts`。
  */
 export const MINI_APP_PICKER_TTL_MS: number = 10 * MINUTE_MS;
 
@@ -287,7 +287,7 @@ export const MINI_APP_PICKER_MAX_RESULTS: number = 32;
 
 /**
  * Telegram `KeyboardButtonRequestUsers` 单次允许选择的最大用户数量。
- * 不变量：Telegram Bot API 规定的上限为 10。所属模块：`packages/mini-app-server/picker.ts`。
+ * 不变量：Telegram Bot API 规定的上限为 10。所属模块：`packages/mini-app-server/picker/prepare.ts`。
  */
 export const MINI_APP_PICKER_MAX_USERS_QUANTITY: number = 10;
 

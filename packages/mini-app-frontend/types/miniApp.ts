@@ -1,5 +1,5 @@
 /**
- * Mini App 前端类型。与 `packages/types/miniApp.ts`、`packages/mini-app-server/picker.ts` 同名的声明是 HTTP 接口契约副本，
+ * Mini App 前端类型。与 `packages/types/miniApp.ts` 同名的声明是 HTTP 接口契约副本，
  * 由 `test/miniApp/frontendParity.test.ts` 逐项核对与服务端一致；其余声明只属于前端。
  */
 

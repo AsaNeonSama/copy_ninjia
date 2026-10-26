@@ -1,6 +1,7 @@
 /**
- * Mini App 服务端两条入口的一致性：`Bun.serve` 原生路由表（`routes/` 各领域片段）与未命中时的
- * 兜底分发（`handleMiniAppHttpRequest`）对每条已登记路由的同一请求给出相同的状态码与内容类型。
+ * Mini App 服务端两条入口：`Bun.serve` 原生路由表（`routes/` 各领域片段）与未命中时的兜底分发
+ * （`handleMiniAppHttpRequest`）对每条已登记路由的同一请求给出相同的状态码与内容类型；兜底分发的子路径
+ * 重定向、跨站拦截与未命中路由的 404。
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -115,6 +116,45 @@ describe("Mini App 原生路由表与兜底分发", () => {
       expect(nativeRes.headers.get("content-type")).toBe(fallbackRes.headers.get("content-type"));
       await nativeRes.arrayBuffer();
       await fallbackRes.arrayBuffer();
+    }
+  });
+
+  test("跨站请求在每条鉴权链首位被拒，兜底分发补齐子路径斜杠并对未命中路由返回 404", async () => {
+    expect(startMiniAppServer({
+      url: "https://miniapp.example.com/sub",
+      host: "127.0.0.1",
+      port: 0,
+      password: "test-mini-app-password",
+    })).not.toBeNull();
+    const crossSitePaths: readonly string[] = [
+      "/sub/api/auth/precheck",
+      "/sub/api/status",
+      "/sub/api/gallery/file/a.png",
+      "/sub/api/gallery/download/a.png",
+    ];
+    for (const path of crossSitePaths) {
+      const res: Response = await handleMiniAppHttpRequest(new Request(`http://127.0.0.1:3000${path}`, {
+        headers: { ...superAdminHeaders(), "sec-fetch-site": "cross-site" },
+      }));
+      expect(`${path} ${res.status}`).toBe(`${path} 403`);
+      expect(((await res.json()) as { readonly code: string }).code).toBe("CROSS_SITE_FORBIDDEN");
+    }
+
+    const redirect: Response = await handleMiniAppHttpRequest(new Request("http://127.0.0.1:3000/sub?tgWebAppStartParam=1"));
+    expect(redirect.status).toBe(308);
+    expect(redirect.headers.get("location")).toBe("/sub/?tgWebAppStartParam=1");
+
+    const notFoundCases: readonly (readonly [string, string])[] = [
+      ["/sub/unknown", "Not found"],
+      ["/sub/unknown.png", "Resource not found"],
+      ["/sub/api/unknown", "API route not found"],
+    ];
+    for (const [path, error] of notFoundCases) {
+      const res: Response = await handleMiniAppHttpRequest(new Request(`http://127.0.0.1:3000${path}`, {
+        headers: superAdminHeaders(),
+      }));
+      expect(`${path} ${res.status}`).toBe(`${path} 404`);
+      expect(await res.json()).toEqual({ error });
     }
   });
 });

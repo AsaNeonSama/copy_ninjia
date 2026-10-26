@@ -20,7 +20,6 @@ import type * as FrontendIdentityPolicy from "../../packages/mini-app-frontend/t
 import type * as FrontendMiniApp from "../../packages/mini-app-frontend/types/miniApp";
 import type * as FrontendMiniAppTotp from "../../packages/mini-app-frontend/types/miniAppTotp";
 import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } from "../../packages/mini-app-server/libs/downloadFileName";
-import type { PrepareMiniAppPickerResult as ServerPrepareMiniAppPickerResult } from "../../packages/mini-app-server/picker";
 import type * as ServerIdentityPolicy from "../../packages/types/identityPolicy";
 import type * as ServerMiniApp from "../../packages/types/miniApp";
 import type * as ServerMiniAppTotp from "../../packages/types/miniAppTotp";
@@ -63,7 +62,7 @@ const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppGalleryUploadResult: true satisfies Exact<FrontendMiniApp.MiniAppGalleryUploadResult, ServerMiniApp.MiniAppGalleryUploadResult>,
   MiniAppGalleryDeleteOutcome: true satisfies Exact<FrontendMiniApp.MiniAppGalleryDeleteOutcome, ServerMiniApp.MiniAppGalleryDeleteOutcome>,
   MiniAppGalleryDeleteResult: true satisfies Exact<FrontendMiniApp.MiniAppGalleryDeleteResult, ServerMiniApp.MiniAppGalleryDeleteResult>,
-  PrepareMiniAppPickerResult: true satisfies Exact<FrontendMiniApp.PrepareMiniAppPickerResult, ServerPrepareMiniAppPickerResult>,
+  PrepareMiniAppPickerResult: true satisfies Exact<FrontendMiniApp.PrepareMiniAppPickerResult, ServerMiniApp.PrepareMiniAppPickerResult>,
   MiniAppAuthMode: true satisfies Exact<FrontendMiniAppTotp.MiniAppAuthMode, ServerMiniAppTotp.MiniAppAuthMode>,
   MiniAppTotpStatusView: true satisfies Exact<FrontendMiniAppTotp.MiniAppTotpStatusView, ServerMiniAppTotp.MiniAppTotpStatusView>,
   MiniAppTotpSetupResponse: true satisfies Exact<FrontendMiniAppTotp.MiniAppTotpSetupResponse, ServerMiniAppTotp.MiniAppTotpSetupResponse>,

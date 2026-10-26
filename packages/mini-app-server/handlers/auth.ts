@@ -16,12 +16,12 @@ import type {
   MiniAppAuthSession, MiniAppLoginSuccessResponse, MiniAppPasswordGuardState,
 } from "../../types/miniApp";
 import type { MiniAppTotpRecord } from "../../types/miniAppTotp";
-import { extractSessionToken, readJsonObjectBody, resolveSafeClientIp } from "../libs/request";
-import { accessErrorResponse, jsonResponse } from "../libs/response";
 import {
   checkSuperAdminPasswordLockout, issueMiniAppAuthSession, purgeExpiredAuthSessions,
-} from "../session";
-import { loadMiniAppTotpRecord } from "../totpStorage";
+} from "../auth/session";
+import { loadMiniAppTotpRecord } from "../auth/totpStorage";
+import { extractSessionToken, readJsonObjectBody, resolveSafeClientIp } from "../libs/request";
+import { accessErrorResponse, jsonResponse } from "../libs/response";
 
 /**
  * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态、持久化会话是否有效及受保护资源缓存令牌。

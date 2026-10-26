@@ -328,6 +328,18 @@ export interface MiniAppPreparedPickerSession {
   readonly createdAt: number;
 }
 
+/** `POST /api/picker/prepare` 预备原生选择器的返回结果。 */
+export type PrepareMiniAppPickerResult =
+  | {
+    readonly ok: true;
+    readonly requestId: number;
+    readonly preparedButtonId: string;
+  }
+  | {
+    readonly ok: false;
+    readonly message: string;
+  };
+
 /** `users_shared` 或 `chat_shared` 处理完成后的事件回执，供前端查询反馈。 */
 export interface MiniAppPickerResultEvent {
   readonly requestId: number;

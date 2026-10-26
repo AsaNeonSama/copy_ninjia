@@ -3,34 +3,34 @@ import type { Stats } from "node:fs";
 import {
   miniAppPendingTotpSetupHolder,
   miniAppTotpRecordHolder,
-} from "../cache/main/miniApp";
+} from "../../cache/main/miniApp";
 import {
   MINI_APP_TOTP_PENDING_TTL_MS,
   MINI_APP_TOTP_RECORD_VERSION,
   MINI_APP_TOTP_SECRET_PATTERN,
-} from "../consts/miniAppTotp";
+} from "../../consts/miniAppTotp";
 import {
   MINI_APP_TOTP_FILE_PATH,
   MINI_APP_TOTP_MEMORY_DIR,
-} from "../consts/paths";
-import { RUNTIME_DATA_ROOT_MAX_MODE } from "../consts/storage";
-import { atomicWriteText, syncDirectory } from "../libs/atomicFile";
-import { isErrno } from "../libs/errno";
+} from "../../consts/paths";
+import { RUNTIME_DATA_ROOT_MAX_MODE } from "../../consts/storage";
+import { atomicWriteText, syncDirectory } from "../../libs/atomicFile";
+import { isErrno } from "../../libs/errno";
 import {
   buildMiniAppTotpUri,
   generateMiniAppTotpSecret,
   maskMiniAppTotpSecret,
   verifyMiniAppTotpCode,
-} from "../libs/miniAppTotp";
-import { renderQrCodeSvg } from "../libs/qrcodeSvg";
-import { isPlainRecord } from "../libs/record";
+} from "../../libs/miniAppTotp";
+import { renderQrCodeSvg } from "../../libs/qrcodeSvg";
+import { isPlainRecord } from "../../libs/record";
 import type {
   MiniAppPendingTotpSetup,
   MiniAppTotpMutationResponse,
   MiniAppTotpRecord,
   MiniAppTotpSetupResponse,
   MiniAppTotpStatusView,
-} from "../types/miniAppTotp";
+} from "../../types/miniAppTotp";
 
 /**
  * 解析并严格校验 `totp.json` 的 JSON 文本结构。

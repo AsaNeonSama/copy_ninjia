@@ -1,8 +1,8 @@
-import { miniAppAuthSessions, miniAppPasswordGuardHolder } from "../cache/main/miniApp";
-import { SUPER_ADMIN_USER_ID } from "../config/bot";
-import { MINI_APP_PASSWORD_MAX_ATTEMPTS, MINI_APP_SESSION_TTL_MS } from "../consts/miniApp";
-import type { MiniAppAuthSession, MiniAppPasswordGuardState } from "../types/miniApp";
-import { accessErrorResponse } from "./libs/response";
+import { miniAppAuthSessions, miniAppPasswordGuardHolder } from "../../cache/main/miniApp";
+import { SUPER_ADMIN_USER_ID } from "../../config/bot";
+import { MINI_APP_PASSWORD_MAX_ATTEMPTS, MINI_APP_SESSION_TTL_MS } from "../../consts/miniApp";
+import type { MiniAppAuthSession, MiniAppPasswordGuardState } from "../../types/miniApp";
+import { accessErrorResponse } from "../libs/response";
 
 /**
  * 清理已超过 45 分钟有效期的密码认证会话。

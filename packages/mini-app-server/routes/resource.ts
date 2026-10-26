@@ -1,7 +1,8 @@
 import { MINI_APP_SVG_RESOURCE_ROUTE_PATTERN } from "../../consts/miniApp";
 import type { MiniAppRouteContext, MiniAppRouteMatch } from "../../types/miniApp";
 import { handleGetSvgResourceByName } from "../handlers/resource";
-import { getMiniAppProtectedAssetMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware";
+import { getMiniAppProtectedAssetMiddlewareChain } from "../middleware/chains";
+import { withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建受保护 SVG 图标资源路由（`GET|HEAD /api/resources/svg/:fileName` 与 `GET|HEAD /miniAppResoures/:fileName`）的

@@ -10,7 +10,8 @@ import {
   handleGetChatsRoute,
   handlePostChatFeatureById,
 } from "../handlers/chats";
-import { getMiniAppApiAuthMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware";
+import { getMiniAppApiAuthMiddlewareChain } from "../middleware/chains";
+import { withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建受管群路由（`GET /api/chats`、`GET /api/chats/:chatId`、`GET /api/chats/:chatId/messages`、

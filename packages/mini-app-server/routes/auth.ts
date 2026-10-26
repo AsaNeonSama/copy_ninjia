@@ -4,11 +4,8 @@ import type {
   MiniAppRouteMatch,
 } from "../../types/miniApp";
 import { handleGetAuthPrecheckRoute, handlePostAuthLoginRoute } from "../handlers/auth";
-import {
-  executeMiniAppMiddlewareChain,
-  getMiniAppInitDataMiddlewareChain,
-  withMiniAppMiddlewareChain,
-} from "../middleware";
+import { getMiniAppInitDataMiddlewareChain } from "../middleware/chains";
+import { executeMiniAppMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建首屏预检与登录路由（`GET /api/auth/precheck`、`POST /api/auth/login`）的 `Bun.serve` 原生路由表片段，

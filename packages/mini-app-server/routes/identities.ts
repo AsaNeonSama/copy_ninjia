@@ -12,7 +12,8 @@ import {
   handlePostPickerPrepareRoute,
   handlePostWhitelistRoute,
 } from "../handlers/identities";
-import { getMiniAppApiAuthMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware";
+import { getMiniAppApiAuthMiddlewareChain } from "../middleware/chains";
+import { withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建黑白名单、权限与原生选择器路由（`/api/identities/whitelist`、`/api/identities/blocklist`、

@@ -4,16 +4,13 @@ import type {
   MiniAppRouteMatch,
 } from "../../types/miniApp";
 import { handleGetFaviconRoute, handleHealthzRoute, serveMiniAppIndexHtml } from "../handlers/page";
-import {
-  executeMiniAppMiddlewareChain,
-  getMiniAppPublicMiddlewareChain,
-  withMiniAppMiddlewareChain,
-} from "../middleware";
+import { getMiniAppPublicMiddlewareChain } from "../middleware/chains";
+import { executeMiniAppMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建公开页面路由（`/healthz`、`/_bundle`、`/`、`/index.html`、`/favicon.ico`）的 `Bun.serve` 原生路由表片段；
  * `/_bundle` 直接挂载前端 HTML import，供 `serveMiniAppIndexHtml` 读取注入打包产物路径后的入口 HTML。
- * @param indexHtml `routes.ts` 以 HTML import 引入的前端入口。
+ * @param indexHtml `server/register.ts` 以 HTML import 引入的前端入口。
  * @returns 公开页面路由表片段。
  */
 export function createPageBunRoutes(
@@ -49,7 +46,7 @@ export function createPageBunRoutes(
 /**
  * 在兜底分发中匹配公开页面路由（`GET|HEAD` 的 `/healthz`、`/`、`/index.html`、`/favicon.ico`），经公开中间件链执行。
  * @param ctx 路由请求上下文。
- * @param indexHtml `routes.ts` 以 HTML import 引入的前端入口。
+ * @param indexHtml `server/register.ts` 以 HTML import 引入的前端入口。
  * @returns 命中时返回响应，未命中时返回 `null`。
  */
 export function dispatchPageRoute(

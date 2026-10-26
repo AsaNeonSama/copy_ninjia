@@ -119,7 +119,7 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
       purpose: "startup file type and access-mode validation and optional-directory listing",
     },
   },
-  "packages/mini-app-server/totpStorage.ts": {
+  "packages/mini-app-server/auth/totpStorage.ts": {
     "node:fs/promises": {
       symbols: ["lstat", "mkdir"],
       purpose: "checking Mini App TOTP file metadata without following symbolic links and creating the memory/mini-app-totp directory",
