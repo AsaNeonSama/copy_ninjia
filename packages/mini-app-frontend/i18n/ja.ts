@@ -659,13 +659,13 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       directoryReadyText: (_directory: string): string =>
         "図鑑ストレージ準備完了 · JPEG / PNG / WebP (≤ 10 MiB)",
       previewTitle: (shortName: string): string => `プレビュー · ${shortName}`,
-      downloadButton: "ダウンロード",
+      downloadButton: "保存",
       downloadingButton: "保存中…",
       downloadedToast: (fileName: string): string =>
         `雑魚のために ${fileName} をダウンロードしてあげたわよ♡`,
-      deleteButton: "画像を削除",
+      deleteButton: "削除",
       deletingButton: "削除中…",
-      closePreviewButton: "プレビューを閉じる",
+      closePreviewButton: "閉じる",
       confirmDeleteImage: (fileName: string): string =>
         `雑魚、本当にこの画像 (${fileName}) を図鑑から完全に削除するの？元には戻せないわよ！`,
       deletedToast: (fileName: string): string =>

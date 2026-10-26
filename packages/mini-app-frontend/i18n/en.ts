@@ -663,9 +663,9 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       downloadingButton: "Saving…",
       downloadedToast: (fileName: string): string =>
         `Downloaded ${fileName} for you, Zaako♡`,
-      deleteButton: "Delete Image",
+      deleteButton: "Delete",
       deletingButton: "Deleting…",
-      closePreviewButton: "Close Preview",
+      closePreviewButton: "Close",
       confirmDeleteImage: (fileName: string): string =>
         `Zaako, permanently delete this image (${fileName}) from the gallery? There's no undo!`,
       deletedToast: (fileName: string): string =>

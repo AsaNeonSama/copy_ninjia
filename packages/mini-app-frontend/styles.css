@@ -1405,7 +1405,8 @@ input:disabled + .slider {
 .gallery-sub { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 10px; color: var(--hint); }
 .gallery-preview-card { border-color: var(--accent); scroll-margin-top: 72px; }
 .gallery-preview-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.gallery-preview-actions .btn { width: 100%; height: 36px; padding: 0 10px; border-radius: 10px; font-size: 12.5px; }
+.gallery-preview-actions .btn { width: 100%; min-width: 0; height: 36px; padding: 0 8px; border-radius: 10px; font-size: 12.5px; overflow: hidden; }
+.gallery-preview-actions .btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .gallery-preview-img-wrap {
   position: relative; width: 100%; min-height: 180px; max-height: 62vh; background: var(--gallery-stage-bg);
   border-radius: 10px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
