@@ -292,12 +292,6 @@ export const MINI_APP_PICKER_MAX_RESULTS: number = 32;
 export const MINI_APP_PICKER_MAX_USERS_QUANTITY: number = 10;
 
 /**
- * Mini App 单页 HTML 标题与超级管理员私聊菜单按钮显示文字。
- * 不变量：非空短文本。所属模块：`packages/mini-app-server/routes.ts` 与 `packages/app/commandMenu.ts`。
- */
-export const MINI_APP_HTML_TITLE: string = "Copy Ninja 管理中心";
-
-/**
  * 超级管理员私聊左下角 `MenuButtonWebApp` 的显示文字。
  * 不变量：非空短文本。所属模块：`packages/app/commandMenu.ts`。
  */

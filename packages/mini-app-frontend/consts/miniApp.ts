@@ -137,6 +137,12 @@ export const MINI_APP_TOAST_DURATION_MS: number = 2_600;
 export const MINI_APP_MIN_LOADING_MS: number = 260;
 
 /**
+ * Mini App 管理界面的标题文字。
+ * 不变量：非空短文本。所属模块：Mini App 前端（`packages/mini-app-frontend/`），当前未被引用。
+ */
+export const MINI_APP_HTML_TITLE: string = "Copy Ninja 管理中心";
+
+/**
  * Mini App 群详情页可操作的功能开关全集（含 `/init` 总开关）。
  * 不变量：与 `MiniAppFeatureKey` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/miniApp/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatsTab.tsx`。
  */
@@ -164,7 +170,7 @@ export const MINI_APP_LANGUAGES: readonly MiniAppLanguage[] =
 
 /**
  * Mini App 界面支持的主题模式闭集（暗色、亮色）。
- * 不变量：与 `MiniAppThemeMode` 联合类型一一对应。所属模块：`packages/mini-app-frontend/store.ts`。
+ * 不变量：与 `MiniAppThemeMode` 联合类型一一对应。所属模块：Mini App 前端（`packages/mini-app-frontend/`），当前未被引用。
  */
 export const MINI_APP_THEME_MODES: readonly MiniAppThemeMode[] =
   exhaustiveList<MiniAppThemeMode>()([
