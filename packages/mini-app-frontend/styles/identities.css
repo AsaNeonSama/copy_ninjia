@@ -9,9 +9,9 @@
 
 .search-input-wrap {
   position: relative;
-  flex: 0 0 62%;
-  width: 62%;
-  max-width: 62%;
+  flex: 0 0 60%;
+  width: 60%;
+  max-width: 60%;
   min-width: 0;
   display: flex;
   align-items: center;
