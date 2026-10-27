@@ -156,5 +156,42 @@ describe("Mini App 原生路由表与兜底分发", () => {
       expect(`${path} ${res.status}`).toBe(`${path} 404`);
       expect(await res.json()).toEqual({ error });
     }
+
+    const headers: Record<string, string> = superAdminHeaders();
+    const adminInitData: string = headers[MINI_APP_INIT_DATA_HEADER]!;
+    const rejectedCases: readonly (readonly [string, Record<string, string>, number, string])[] = [
+      ["/sub/api/auth/precheck", { ...headers, "sec-fetch-site": "invalid-site" }, 403, "CROSS_SITE_FORBIDDEN"],
+      ["/sub/api/auth/precheck", { ...headers, "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
+      ["/sub/api/status", { ...headers, accept: "text/html,application/xhtml+xml" }, 403, "DIRECT_NAVIGATION_FORBIDDEN"],
+      ["/sub/api/status", { ...headers, origin: "https://evil.example.com" }, 403, "CROSS_SITE_FORBIDDEN"],
+      ["/sub/api/status", { ...headers, origin: "ftp://evil.example.com" }, 403, "CROSS_SITE_FORBIDDEN"],
+      ["/sub/api/status", { ...headers, origin: "null" }, 403, "CROSS_SITE_FORBIDDEN"],
+      ["/sub/api/status", { ...headers, referer: "https://evil.example.com/attack" }, 403, "CROSS_SITE_FORBIDDEN"],
+      ["/sub/api/auth/precheck", { ...headers, "user-agent": "curl/8.5.0" }, 403, "FORBIDDEN_USER"],
+      ["/sub/api/auth/precheck", { authorization: "Bearer some-token" }, 401, "MISSING_INIT_DATA"],
+      ["/sub/api/auth/precheck", { [MINI_APP_INIT_DATA_HEADER]: adminInitData, authorization: `tma ${adminInitData}&extra=1` }, 401, "INVALID_SIGNATURE"],
+      ["/sub/api/auth/precheck", { [MINI_APP_INIT_DATA_HEADER]: "foo=bar" }, 401, "MALFORMED_INIT_DATA"],
+    ];
+    for (const [path, reqHeaders, expectedStatus, expectedCode] of rejectedCases) {
+      const res: Response = await handleMiniAppHttpRequest(
+        new Request(`http://127.0.0.1:3000${path}`, { headers: reqHeaders })
+      );
+      expect(res.status).toBe(expectedStatus);
+      expect(((await res.json()) as { readonly code: string }).code).toBe(expectedCode);
+    }
+
+    const sameOriginRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/sub/api/auth/precheck", {
+        headers: {
+          ...headers,
+          origin: "https://miniapp.example.com",
+          referer: "https://miniapp.example.com/sub/",
+          "sec-fetch-site": "same-origin",
+          "sec-fetch-mode": "cors",
+          "sec-fetch-dest": "empty",
+        },
+      })
+    );
+    expect(sameOriginRes.status).toBe(200);
   });
 });

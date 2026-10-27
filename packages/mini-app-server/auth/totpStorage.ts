@@ -4,6 +4,7 @@ import {
   miniAppPendingTotpSetupHolder,
   miniAppTotpRecordHolder,
 } from "../../cache/main/miniApp";
+import { MINI_APP_PASSWORD_MAX_ATTEMPTS } from "../../consts/miniApp";
 import {
   MINI_APP_TOTP_PENDING_TTL_MS,
   MINI_APP_TOTP_RECORD_VERSION,
@@ -172,6 +173,7 @@ export function createPendingMiniAppTotpSetup(
     qrSvg,
     createdAt: nowMs,
     expiresAt,
+    failedAttempts: 0,
   };
   miniAppPendingTotpSetupHolder.current = pending;
   return {
@@ -184,7 +186,8 @@ export function createPendingMiniAppTotpSetup(
 }
 
 /**
- * 校验前端提交的 6 位动态码，通过后将待绑定密钥原子持久化到 `memory/mini-app-totp/totp.json`（覆盖已有单条记录）。
+ * 校验前端提交的 6 位动态码，通过后将待绑定密钥原子持久化到 `memory/mini-app-totp/totp.json`（覆盖已有单条记录）；
+ * 若连续输错达到 `MINI_APP_PASSWORD_MAX_ATTEMPTS` 次则立即销毁待绑定密钥并返回过期状态。
  * @param code 用户在前端输入的 6 位 Google Authenticator 动态码。
  * @param nowMs 当前毫秒时间戳（缺省取 `Date.now()`）。
  * @returns 绑定/修改结果与最新验证器状态。
@@ -206,6 +209,19 @@ export async function enableMiniAppTotpFromPending(
     };
   }
   if (!verifyMiniAppTotpCode(code, pending.secret, nowMs)) {
+    const nextAttempts: number = pending.failedAttempts + 1;
+    if (nextAttempts >= MINI_APP_PASSWORD_MAX_ATTEMPTS) {
+      miniAppPendingTotpSetupHolder.current = null;
+      return {
+        ok: false,
+        message: "TOTP_SETUP_EXPIRED",
+        status: toMiniAppTotpStatusView(existing),
+      };
+    }
+    miniAppPendingTotpSetupHolder.current = {
+      ...pending,
+      failedAttempts: nextAttempts,
+    };
     return {
       ok: false,
       message: "INVALID_TOTP_CODE",

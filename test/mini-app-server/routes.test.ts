@@ -1,16 +1,11 @@
 import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { rmSync } from "node:fs";
 import type {
-  AiMemoryDeletedPersistedReply,
-  DiskBusinessMessage,
-  DomainFlushOutcome,
-  IdentityPolicyPersistedRevision,
-  IdentityStoragePersistedReply,
+  AiMemoryDeletedPersistedReply, DiskBusinessMessage, DomainFlushOutcome,
+  IdentityPolicyPersistedRevision, IdentityStoragePersistedReply,
 } from "../../packages/types/diskIO";
 import type {
-  BlocklistIdPage,
-  IdentityPolicyRawReadResult,
-  WhitelistIdPage,
+  BlocklistIdPage, IdentityPolicyRawReadResult, WhitelistIdPage,
 } from "../../packages/types/identityStorage";
 import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import { buildSignedTestInitData } from "../helpers/miniAppInitData";
@@ -21,114 +16,105 @@ const aiMemoryDeletedListeners: ((reply: AiMemoryDeletedPersistedReply) => void)
 const whitelistDbRows: Map<number, string> = new Map<number, string>();
 const blocklistDbRows: Map<number, string> = new Map<number, string>();
 
-mock.module(
-  "../../packages/infra/diskIO",
-  () =>
-    diskIOStub({
-      isDiskIOInitialized: (): boolean => true,
-      flushDiskIODomain: async (): Promise<DomainFlushOutcome> => {
-        const latestChatRevisions: Map<number, number> = new Map<number, number>();
-        const identityWrites: IdentityPolicyPersistedRevision[] = [];
-        for (const msg of diskMessages) {
-          if (msg.type === "chatStateWrite") {
-            latestChatRevisions.set(msg.chatId, msg.revision);
-          } else if (msg.type === "identityPolicyWrite") {
-            identityWrites.push({
-              table: msg.table,
-              id: msg.id,
-              revision: msg.revision,
-            });
-            const targetMap: Map<number, string> =
-              msg.table === "whitelist" ? whitelistDbRows : blocklistDbRows;
-            if (msg.data === null) {
-              targetMap.delete(msg.id);
-            } else {
-              targetMap.set(msg.id, msg.data);
-            }
-          }
+mock.module("../../packages/infra/diskIO", () =>
+  diskIOStub({
+    isDiskIOInitialized: (): boolean => true,
+    flushDiskIODomain: async (): Promise<DomainFlushOutcome> => {
+      const latestChatRevisions: Map<number, number> = new Map<number, number>();
+      const identityWrites: IdentityPolicyPersistedRevision[] = [];
+      for (const msg of diskMessages) {
+        if (msg.type === "chatStateWrite") {
+          latestChatRevisions.set(msg.chatId, msg.revision);
+        } else if (msg.type === "identityPolicyWrite") {
+          identityWrites.push({ table: msg.table, id: msg.id, revision: msg.revision });
+          const targetMap: Map<number, string> =
+            msg.table === "whitelist" ? whitelistDbRows : blocklistDbRows;
+          if (msg.data === null) targetMap.delete(msg.id);
+          else targetMap.set(msg.id, msg.data);
         }
-        const chatStateWrites: { chatId: number; revision: number }[] = [];
-        for (const [chatId, revision] of latestChatRevisions) {
-          chatStateWrites.push({ chatId, revision });
-        }
-        for (const listener of persistedListeners) {
+      }
+      const chatStateWrites: { chatId: number; revision: number }[] = [];
+      for (const [chatId, revision] of latestChatRevisions) {
+        chatStateWrites.push({ chatId, revision });
+      }
+      for (const listener of persistedListeners) {
+        listener({
+          type: "identityStoragePersisted",
+          writes: identityWrites,
+          temporaryAdBypassWrites: [],
+          chatStateWrites,
+          chatQaWrites: [],
+          removalWrites: [],
+        });
+      }
+      return { result: "flushed" };
+    },
+    onDiskIOReply: diskIOReplyStub({
+      identityStoragePersisted: (
+        listener: (reply: IdentityStoragePersistedReply) => void
+      ): void => {
+        persistedListeners.push(listener);
+      },
+      aiMemoryDeletedPersisted: (
+        listener: (reply: AiMemoryDeletedPersistedReply) => void
+      ): void => {
+        aiMemoryDeletedListeners.push(listener);
+      },
+    }),
+    postDiskIO: (message: DiskBusinessMessage): boolean => {
+      diskMessages.push(message);
+      if (message.type === "deleteAiMemory") {
+        for (const listener of aiMemoryDeletedListeners) {
           listener({
-            type: "identityStoragePersisted",
-            writes: identityWrites,
-            temporaryAdBypassWrites: [],
-            chatStateWrites,
-            chatQaWrites: [],
-            removalWrites: [],
+            type: "aiMemoryDeletedPersisted",
+            chatId: message.chatId,
+            revision: message.revision,
           });
         }
-        return { result: "flushed" };
-      },
-      onDiskIOReply: diskIOReplyStub({
-        identityStoragePersisted: (
-          listener: (reply: IdentityStoragePersistedReply) => void
-        ): void => {
-          persistedListeners.push(listener);
-        },
-        aiMemoryDeletedPersisted: (
-          listener: (reply: AiMemoryDeletedPersistedReply) => void
-        ): void => {
-          aiMemoryDeletedListeners.push(listener);
-        },
-      }),
-      postDiskIO: (message: DiskBusinessMessage): boolean => {
-        diskMessages.push(message);
-        if (message.type === "deleteAiMemory") {
-          for (const listener of aiMemoryDeletedListeners) {
-            listener({
-              type: "aiMemoryDeletedPersisted",
-              chatId: message.chatId,
-              revision: message.revision,
-            });
-          }
-        }
-        return true;
-      },
-      readIdentityPolicies: async (
-        ids: readonly number[]
-      ): Promise<IdentityPolicyRawReadResult> => {
-        const whitelist: [number, string][] = [];
-        const blocklist: [number, string][] = [];
-        for (const id of ids) {
-          const wRow: string | undefined = whitelistDbRows.get(id);
-          if (wRow !== undefined) whitelist.push([id, wRow]);
-          const bRow: string | undefined = blocklistDbRows.get(id);
-          if (bRow !== undefined) blocklist.push([id, bRow]);
-        }
-        return {
-          whitelist,
-          blocklist,
-          temporaryAdBypass: [],
-        };
-      },
-      readWhitelistIdPage: async (afterId: number | null): Promise<WhitelistIdPage> => {
-        const sortedIds: number[] = [...whitelistDbRows.keys()]
-          .filter((id) => afterId === null || id > afterId)
-          .sort((a, b) => a - b);
-        return {
-          ids: sortedIds,
-          nextCursor:
-            sortedIds.length === 0 ? afterId : sortedIds[sortedIds.length - 1]!,
-          done: true,
-        };
-      },
-      readBlocklistIdPage: async (afterId: number | null): Promise<BlocklistIdPage> => {
-        const sortedIds: number[] = [...blocklistDbRows.keys()]
-          .filter((id) => afterId === null || id > afterId)
-          .sort((a, b) => a - b);
-        return {
-          ids: sortedIds,
-          nextCursor:
-            sortedIds.length === 0 ? afterId : sortedIds[sortedIds.length - 1]!,
-          done: true,
-        };
-      },
-      relayLogMessage: (): boolean => true,
-    })
+      }
+      return true;
+    },
+    readIdentityPolicies: async (
+      ids: readonly number[]
+    ): Promise<IdentityPolicyRawReadResult> => {
+      const whitelist: [number, string][] = [];
+      const blocklist: [number, string][] = [];
+      for (const id of ids) {
+        const wRow: string | undefined = whitelistDbRows.get(id);
+        if (wRow !== undefined) whitelist.push([id, wRow]);
+        const bRow: string | undefined = blocklistDbRows.get(id);
+        if (bRow !== undefined) blocklist.push([id, bRow]);
+      }
+      return {
+        whitelist,
+        blocklist,
+        temporaryAdBypass: [],
+      };
+    },
+    readWhitelistIdPage: async (afterId: number | null): Promise<WhitelistIdPage> => {
+      const sortedIds: number[] = [...whitelistDbRows.keys()]
+        .filter((id) => afterId === null || id > afterId)
+        .sort((a, b) => a - b);
+      return {
+        ids: sortedIds,
+        nextCursor:
+          sortedIds.length === 0 ? afterId : sortedIds[sortedIds.length - 1]!,
+        done: true,
+      };
+    },
+    readBlocklistIdPage: async (afterId: number | null): Promise<BlocklistIdPage> => {
+      const sortedIds: number[] = [...blocklistDbRows.keys()]
+        .filter((id) => afterId === null || id > afterId)
+        .sort((a, b) => a - b);
+      return {
+        ids: sortedIds,
+        nextCursor:
+          sortedIds.length === 0 ? afterId : sortedIds[sortedIds.length - 1]!,
+        done: true,
+      };
+    },
+    relayLogMessage: (): boolean => true,
+  })
 );
 
 const { latestAiMemories } = await import("../../packages/cache/main/aiChat");
@@ -140,13 +126,14 @@ const {
   miniAppAuthSessions,
   miniAppPasswordGuardHolder,
 } = await import("../../packages/cache/main/miniApp");
-const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
+const { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } = await import(
+  "../../packages/config/bot"
+);
 const { AI_MEMORY_HYDRATE_BUFFER_MAX, VERBATIM_CONTEXT_MAX } = await import(
   "../../packages/consts/aiChat/memory"
 );
 const {
   MINI_APP_CSP_HEADER_VALUE,
-  MINI_APP_FALLBACK_TEST_PASSWORD,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
   MINI_APP_PASSWORD_LOCKOUT_MS,
@@ -307,7 +294,6 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       ttlMs: MINI_APP_SESSION_TTL_MS,
       totpEnabled: false,
       authMode: "password",
-      assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
     });
 
     const missingPasswordSessionRes: Response = await handleMiniAppHttpRequest(
@@ -335,6 +321,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       "INVALID_PASSWORD"
     );
 
+    const configuredPassword: string = getBotMiniAppConfig()!.password;
     const okLoginRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/login", {
         method: "POST",
@@ -342,7 +329,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
           [MINI_APP_INIT_DATA_HEADER]: adminInitData,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }),
+        body: JSON.stringify({ password: configuredPassword }),
       })
     );
     expect(okLoginRes.status).toBe(200);
@@ -351,6 +338,9 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(loginBody.ok).toBeTrue();
     expect(loginBody.sessionToken).toMatch(/^[0-9a-f]{64}$/);
     expect(loginBody.ttlMs).toBe(MINI_APP_SESSION_TTL_MS);
+    expect(loginBody.assetToken).toBe(
+      deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID)
+    );
 
     const resumedPrecheckRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/precheck", {
@@ -436,7 +426,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
           [MINI_APP_INIT_DATA_HEADER]: adminInitData,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }),
+        body: JSON.stringify({ password: configuredPassword }),
       })
     );
     expect(lockedCorrectLoginRes.status).toBe(403);
@@ -499,7 +489,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     await Promise.allSettled(pending.slice(0, burstSize - 1));
     // 错误密码全部结算、锁定已生效后才放行最后一个请求的正确密码。
     bodyControllers[burstSize - 1]?.enqueue(
-      bodyEncoder.encode(JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }))
+      bodyEncoder.encode(JSON.stringify({ password: getBotMiniAppConfig()!.password }))
     );
     bodyControllers[burstSize - 1]?.close();
     const settled: PromiseSettledResult<Response>[] = await Promise.allSettled(pending);
@@ -948,14 +938,13 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       ttlMs: MINI_APP_SESSION_TTL_MS,
       totpEnabled: true,
       authMode: "totp",
-      assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
     });
 
     const passwordRejectedWhenTotpEnabled: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/login", {
         method: "POST",
         headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
-        body: JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }),
+        body: JSON.stringify({ password: getBotMiniAppConfig()!.password }),
       })
     );
     expect(passwordRejectedWhenTotpEnabled.status).toBe(403);
@@ -1003,9 +992,29 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       new Request("http://127.0.0.1:3000/api/auth/login", {
         method: "POST",
         headers: { [MINI_APP_INIT_DATA_HEADER]: adminInitData, "Content-Type": "application/json" },
-        body: JSON.stringify({ password: MINI_APP_FALLBACK_TEST_PASSWORD }),
+        body: JSON.stringify({ password: getBotMiniAppConfig()!.password }),
       })
     );
     expect(passwordRestoredLoginRes.status).toBe(200);
+
+    const setup3Res: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/totp/setup", { method: "POST", headers })
+    );
+    const setup3: MiniAppTotpSetupResponse = (await setup3Res.json()) as MiniAppTotpSetupResponse;
+    const wrongCode: string =
+      generateMiniAppTotpCodeAt(setup3.secret) === "000000" ? "111111" : "000000";
+    for (let attempt: number = 1; attempt <= MINI_APP_PASSWORD_MAX_ATTEMPTS; attempt++) {
+      const failEnableRes: Response = await handleMiniAppHttpRequest(
+        new Request("http://127.0.0.1:3000/api/totp/enable", {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ code: wrongCode }),
+        })
+      );
+      expect(failEnableRes.status).toBe(400);
+      expect(((await failEnableRes.json()) as MiniAppTotpMutationResponse).message).toBe(
+        attempt < MINI_APP_PASSWORD_MAX_ATTEMPTS ? "INVALID_TOTP_CODE" : "TOTP_SETUP_EXPIRED"
+      );
+    }
   });
 });

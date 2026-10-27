@@ -131,15 +131,27 @@ export const MINI_APP_PASSWORD_AT_LEAST_SIX_DIGITS_PATTERN: RegExp =
   /^(?:\D*\d){6}/u;
 
 /**
- * 测试环境在未显式挂载 `mini_app` 配置时供路由单测使用的默认访问密码（与 `config_example/static/bot.json` 一致，包含 6 位数字）。
- * 不变量：仅在 `miniAppActiveConfigHolder.current` 与 `getBotMiniAppConfig()` 均未配置时作为回退值。所属模块：`packages/mini-app-server/handlers/auth.ts`。
+ * Telegram WebApp `initData` 原始查询串允许的最大字符长度（4096 字符）。
+ * 不变量：正整数上界，超出该长度的异常载荷在进入 `URLSearchParams` 解析与 HMAC 计算前直接按快路径拒绝。所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-server/middleware/headerGuard.ts`。
  */
-export const MINI_APP_FALLBACK_TEST_PASSWORD: string =
-  "mini-app-example-password-908172";
+export const MINI_APP_MAX_INIT_DATA_LENGTH: number = 4_096;
+
+/**
+ * 控制字符（Unicode `Cc` 分类，含 `0x00..0x1F` 与 `0x7F`）的匹配规则。
+ * 不变量：不带全局标志 `g`，用于在鉴权快路径拦截含控制字符的畸形凭据头。所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-server/middleware/headerGuard.ts`。
+ */
+export const MINI_APP_CONTROL_CHARS_PATTERN: RegExp = /\p{Cc}/u;
+
+/**
+ * 已知命令行抓取工具与自动化扫描器的 `User-Agent` 特征匹配规则。
+ * 不变量：不带全局标志 `g`，大小写不敏感匹配非 Telegram WebView 的外部扫描与脚本客户端，在鉴权链最开头直接快路径拒绝。所属模块：`packages/mini-app-server/middleware/headerGuard.ts`。
+ */
+export const MINI_APP_BLOCKED_USER_AGENT_PATTERN: RegExp =
+  /\b(?:curl|wget|python-requests|python-urllib|go-http-client|libwww-perl|httpclient|okhttp|axios|postmanruntime|insomnia|sqlmap|nikto|nmap|masscan|zgrab|scrapy)\b/iu;
 
 /**
  * `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。
- * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式。所属模块：`packages/mini-app-server/libs/request.ts`。
+ * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式。所属模块：`packages/mini-app-server/libs/request.ts` 与 `packages/mini-app-server/middleware/headerGuard.ts`。
  */
 export const MINI_APP_TMA_AUTH_PREFIX: string = "tma ";
 
@@ -159,7 +171,7 @@ export const MINI_APP_ASSET_CACHE_CONTROL: string =
 
 /**
  * 派生 Mini App 受保护静态/图库资源稳定鉴权令牌（`assetToken`）的 HMAC-SHA256 种子字符串。
- * 不变量：由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生，使关闭并重开 Mini App 后的图片/SVG URL 保持稳定以命中 WebView 与 CDN 缓存。所属模块：`packages/libs/miniAppAuth.ts`。
+ * 不变量：由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生，仅在通过第二层认证（或恢复未过期的 45 分钟解锁会话）后下发，使解锁后重开 Mini App 的图片/SVG URL 保持稳定以命中 WebView 与 CDN 缓存。所属模块：`packages/libs/miniAppAuth.ts`。
  */
 export const MINI_APP_ASSET_TOKEN_SECRET_SEED: string =
   "CopyNinjaMiniAppAssetTokenV1";

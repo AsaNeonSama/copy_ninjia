@@ -1,5 +1,6 @@
 import { MINI_APP_SESSION_TTL_MS } from "../consts/miniApp";
 import {
+  clearMiniAppAssetToken,
   clearMiniAppSessionToken,
   readMiniAppSessionToken,
   setMiniAppAssetToken,
@@ -53,6 +54,7 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   });
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
+    clearMiniAppAssetToken();
     clearMiniAppSessionToken();
     return {
       ok: false,
@@ -68,9 +70,6 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   const totpEnabled: boolean = record.totpEnabled === true;
   const authMode: MiniAppAuthMode =
     record.authMode === "totp" || totpEnabled ? "totp" : "password";
-  const assetToken: string | undefined =
-    typeof record.assetToken === "string" && record.assetToken.length > 0 ? record.assetToken : undefined;
-  if (assetToken !== undefined) setMiniAppAssetToken(assetToken);
   const existingToken: string = readMiniAppSessionToken();
   const sessionValid: boolean =
     record.sessionValid === true &&
@@ -81,10 +80,20 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
     sessionValid && typeof record.sessionExpiresAt === "number"
       ? record.sessionExpiresAt
       : 0;
+  const assetToken: string | undefined =
+    sessionValid && typeof record.assetToken === "string" && record.assetToken.length > 0
+      ? record.assetToken
+      : undefined;
+  if (assetToken !== undefined) {
+    setMiniAppAssetToken(assetToken);
+  }
   if (sessionValid) {
     setMiniAppSessionToken(existingToken, sessionExpiresAt);
-  } else if (existingToken.length > 0) {
-    clearMiniAppSessionToken();
+  } else {
+    clearMiniAppAssetToken();
+    if (existingToken.length > 0) {
+      clearMiniAppSessionToken();
+    }
   }
   return {
     ok: true, ttlMs, totpEnabled, authMode,

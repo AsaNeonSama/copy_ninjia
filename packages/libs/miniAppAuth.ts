@@ -2,6 +2,8 @@ import {
   MINI_APP_ASSET_TOKEN_SECRET_SEED,
   MINI_APP_AUTH_CLOCK_SKEW_SECONDS,
   MINI_APP_AUTH_MAX_AGE_SECONDS,
+  MINI_APP_CONTROL_CHARS_PATTERN,
+  MINI_APP_MAX_INIT_DATA_LENGTH,
   MINI_APP_POSITIVE_INTEGER_PATTERN,
   MINI_APP_SHA256_HEX_PATTERN,
   MINI_APP_WEB_APP_DATA_SECRET_SEED,
@@ -73,7 +75,16 @@ export function verifyMiniAppInitData({
   if (typeof initData !== "string" || initData.trim().length === 0) {
     return { ok: false, reason: "missing_init_data" };
   }
-  const params: URLSearchParams = new URLSearchParams(initData);
+  const trimmedInitData: string = initData.trim();
+  if (
+    trimmedInitData.length > MINI_APP_MAX_INIT_DATA_LENGTH ||
+    MINI_APP_CONTROL_CHARS_PATTERN.test(trimmedInitData) ||
+    !trimmedInitData.includes("hash=") ||
+    !trimmedInitData.includes("auth_date=")
+  ) {
+    return { ok: false, reason: "malformed_init_data" };
+  }
+  const params: URLSearchParams = new URLSearchParams(trimmedInitData);
   const seenKeys: Set<string> = new Set<string>();
   const dataCheckLines: string[] = [];
   let hashHex: string | undefined;

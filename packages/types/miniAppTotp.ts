@@ -11,7 +11,7 @@ export interface MiniAppTotpRecord {
 }
 
 /**
- * 主线程内存中暂存的待扫码确认 TOTP 绑定会话（10 分钟有效期）。
+ * 主线程内存中暂存的待扫码确认 TOTP 绑定会话（10 分钟有效期，连续输错达上限立即作废）。
  */
 export interface MiniAppPendingTotpSetup {
   /** 待确认的 32 位 Base32 密钥。 */
@@ -24,6 +24,8 @@ export interface MiniAppPendingTotpSetup {
   readonly createdAt: number;
   /** 待确认密钥过期毫秒时间戳。 */
   readonly expiresAt: number;
+  /** 当前待确认密钥已连续输错动态码的次数。 */
+  readonly failedAttempts: number;
 }
 
 /**

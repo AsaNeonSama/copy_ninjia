@@ -302,6 +302,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
 
         lockSession: (reason: string): void => {
           clearSessionTimer();
+          clearMiniAppAssetToken();
           clearMiniAppSessionToken();
           const current: Readonly<MiniAppConfirmModalState> | null = get().confirmModal;
           if (current !== null) {
@@ -327,6 +328,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           try {
             const result: MiniAppPrecheckResult = await precheckMiniAppAccess();
             if (!result.ok) {
+              clearMiniAppAssetToken();
               clearMiniAppSessionToken();
               set({ deniedDiag: result.diagnostics, gateState: "denied" });
               return;
@@ -345,9 +347,11 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
               set({ sessionExpiresAt: result.sessionExpiresAt, gateState: "unlocked" });
               return;
             }
+            clearMiniAppAssetToken();
             clearMiniAppSessionToken();
             set({ gateState: "password" });
           } catch (error: unknown) {
+            clearMiniAppAssetToken();
             clearMiniAppSessionToken();
             const message: string = errorMessage(error);
             set({ deniedDiag: buildFallbackDiagnostics(message), gateState: "denied" });

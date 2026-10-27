@@ -118,12 +118,13 @@ export function setMiniAppSessionToken(token: string, expiresAt?: number): void 
 }
 
 /**
- * 清除当前浏览器会话及 Mini App 环境持久化的认证令牌（会话满 45 分钟过期或主动锁定时调用）。
+ * 清除当前浏览器会话及 Mini App 环境持久化的认证令牌与受保护资源令牌（会话满 45 分钟过期或主动锁定时调用）。
  */
 export function clearMiniAppSessionToken(): void {
   const tgWindow: TelegramWindow = globalThis;
   tgWindow.__copyNinjaSessionToken = undefined;
   tgWindow.__copyNinjaSessionExpiresAt = undefined;
+  tgWindow.__copyNinjaAssetToken = undefined;
   try {
     tgWindow.localStorage?.removeItem(MINI_APP_SESSION_STORAGE_KEY);
   } catch (_error: unknown) {
@@ -138,7 +139,7 @@ export function clearMiniAppSessionToken(): void {
 
 /**
  * 读取当前浏览器会话缓存的受保护静态/图库资源稳定访问令牌。
- * @returns 64 位十六进制资源令牌；未预检时返回空字符串
+ * @returns 64 位十六进制资源令牌；未登录解锁时返回空字符串
  */
 export function readMiniAppAssetToken(): string {
   const tgWindow: TelegramWindow = globalThis;
@@ -146,7 +147,7 @@ export function readMiniAppAssetToken(): string {
 }
 
 /**
- * 保存服务端在预检或登录成功后下发的受保护静态/图库资源稳定访问令牌。
+ * 保存服务端在登录成功后（或预检恢复有效 45 分钟解锁会话时）下发的受保护静态/图库资源稳定访问令牌。
  * @param token 64 位十六进制资源令牌
  */
 export function setMiniAppAssetToken(token: string): void {
@@ -155,7 +156,7 @@ export function setMiniAppAssetToken(token: string): void {
 }
 
 /**
- * 清除当前浏览器会话的受保护资源令牌（仅供测试重置使用）。
+ * 清除当前浏览器会话的受保护资源令牌（会话未解锁、锁定或测试重置时调用）。
  */
 export function clearMiniAppAssetToken(): void {
   const tgWindow: TelegramWindow = globalThis;
