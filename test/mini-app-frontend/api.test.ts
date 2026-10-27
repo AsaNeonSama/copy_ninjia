@@ -30,6 +30,9 @@ import { fetchMiniAppTotpStatus } from "../../packages/mini-app-frontend/api/tot
 import { fetchMiniAppWhitelist } from "../../packages/mini-app-frontend/api/whitelist";
 import { setMiniAppWhitelistMembership } from "../../packages/mini-app-frontend/api/whitelistMembership";
 import {
+  MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS,
+  MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
+  MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_LANGUAGES,
@@ -54,7 +57,9 @@ import {
   setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
 import {
+  areCapabilityStatusEqual,
   buildMiniAppGalleryDownloadFileName,
+  computeCapabilityCollapseDurationMs,
   formatBytes,
   formatClockTime,
   formatGalleryFileSize,
@@ -292,6 +297,38 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(formatTime(1_700_000_000_000).length).toBeGreaterThan(0);
     expect(formatClockTime(0)).toBe("-");
     expect(formatClockTime(1_700_000_000_000)).toMatch(/^\d{2}:\d{2}:\d{2}$/u);
+
+    const baseCap = {
+      key: "agent",
+      label: "Agent 能力",
+      ready: true,
+      detail: "text:gemini",
+      items: [{ label: "对话 text", value: "gemini", sub: "google" }],
+    } as const;
+    expect(areCapabilityStatusEqual(baseCap, baseCap)).toBeTrue();
+    expect(
+      areCapabilityStatusEqual(baseCap, {
+        ...baseCap,
+        items: [{ label: "对话 text", value: "gemini", sub: "google" }],
+      })
+    ).toBeTrue();
+    expect(areCapabilityStatusEqual(baseCap, { ...baseCap, ready: false })).toBeFalse();
+    expect(areCapabilityStatusEqual(baseCap, { ...baseCap, items: [] })).toBeFalse();
+    expect(
+      areCapabilityStatusEqual(baseCap, {
+        ...baseCap,
+        items: [{ label: "对话 text", value: "claude", sub: "google" }],
+      })
+    ).toBeFalse();
+    expect(computeCapabilityCollapseDurationMs(0)).toBe(
+      MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS
+    );
+    expect(computeCapabilityCollapseDurationMs(40)).toBe(
+      MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS
+    );
+    expect(computeCapabilityCollapseDurationMs(600)).toBe(
+      MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS
+    );
 
     for (const lang of MINI_APP_LANGUAGES) {
       const dict = getMiniAppTranslations(lang);

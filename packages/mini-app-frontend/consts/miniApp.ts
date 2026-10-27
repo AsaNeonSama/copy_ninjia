@@ -113,6 +113,78 @@ export const MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 2
 export const MINI_APP_STATUS_POLL_INTERVAL_MS: number = 3_000;
 
 /**
+ * 实时状态页子系统折叠面板展开/收起过渡的最短时长毫秒数。
+ * 不变量：正整数毫秒数，小于等于 `MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS`。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
+ */
+export const MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS: number = 125;
+
+/**
+ * 实时状态页子系统折叠面板展开/收起过渡的最长时长毫秒数。
+ * 不变量：正整数毫秒数，大于等于 `MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS`。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
+ */
+export const MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS: number = 165;
+
+/**
+ * 实时状态页子系统折叠面板在未测得内容高度时的缺省过渡时长毫秒数。
+ * 不变量：落在 `[MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS, MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS]` 区间内。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
+ */
+export const MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS: number = 140;
+
+/**
+ * 实时状态页子系统折叠面板按高度线性折算过渡时长的基础毫秒数。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
+ */
+export const MINI_APP_CAP_COLLAPSE_BASE_DURATION_MS: number = 115;
+
+/**
+ * 实时状态页子系统折叠面板每像素内容高度折算的额外过渡毫秒系数。
+ * 不变量：正有限浮点数。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
+ */
+export const MINI_APP_CAP_COLLAPSE_HEIGHT_DURATION_FACTOR: number = 0.12;
+
+/**
+ * 实时状态页子系统折叠面板展开动画完成后，触发视口平滑向下跟滚前的稳定等待毫秒数。
+ * 不变量：非负整数毫秒数。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ */
+export const MINI_APP_CAP_SCROLL_SETTLE_DELAY_MS: number = 15;
+
+/**
+ * 实时状态页子系统折叠面板标题栏的估算像素高度（用于展开后跟滚时保留标题可见）。
+ * 不变量：正整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ */
+export const MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX: number = 50;
+
+/**
+ * 实时状态页子系统折叠面板展开跟滚时，面板标题距离视口顶部的最小保留像素边距。
+ * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ */
+export const MINI_APP_CAP_SCROLL_TOP_MARGIN_PX: number = 16;
+
+/**
+ * 实时状态页子系统折叠面板展开跟滚时，面板底部距离视口下沿的目标保留像素边距。
+ * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ */
+export const MINI_APP_CAP_SCROLL_BOTTOM_MARGIN_PX: number = 24;
+
+/**
+ * 实时状态页子系统折叠面板展开跟滚时，触发舒适阅读区上移的视口高度比例阈值。
+ * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ */
+export const MINI_APP_CAP_SCROLL_COMFORT_TOP_RATIO: number = 0.28;
+
+/**
+ * 实时状态页子系统折叠面板位于视口中下半区展开时，按内容高度折算跟滚距离的比例系数。
+ * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ */
+export const MINI_APP_CAP_SCROLL_COMFORT_BODY_FACTOR: number = 0.55;
+
+/**
+ * 实时状态页子系统折叠面板展开后触发视口平滑跟滚的最小像素位移阈值（小于等于该值时不触发滚动）。
+ * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ */
+export const MINI_APP_CAP_SCROLL_MIN_DELTA_PX: number = 4;
+
+/**
  * 实时状态页骨架屏中能力折叠行占位的序号表（6 行，对应服务端状态快照的 6 项能力槽位）。
  * 不变量：从 0 起连续递增的只读整数数组，仅用作骨架行 key 与奇偶宽度切换。所属模块：`packages/mini-app-frontend/components/skeletons/StatusSkeleton.tsx`。
  */

@@ -317,7 +317,7 @@ input:disabled + .slider {
 }
 
 .chevron-icon {
-  transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.14s cubic-bezier(0.37, 0, 0.63, 1);
 }
 
 .chevron-icon.rotated {

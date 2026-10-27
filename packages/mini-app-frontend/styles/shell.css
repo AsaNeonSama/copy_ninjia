@@ -118,15 +118,17 @@ header,
   inset: 0;
   z-index: 90;
   background: rgba(2, 6, 23, 0.58);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.24s ease;
+  transition: opacity 0.24s ease, visibility 0.24s ease;
 }
 
 .sidebar-backdrop.open {
   opacity: 1;
+  visibility: visible;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   pointer-events: auto;
 }
 

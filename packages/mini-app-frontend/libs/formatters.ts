@@ -1,7 +1,16 @@
-import { MINI_APP_BIDI_CONTROL_CHARS_PATTERN } from "../consts/miniApp";
+import {
+  MINI_APP_BIDI_CONTROL_CHARS_PATTERN,
+  MINI_APP_CAP_COLLAPSE_BASE_DURATION_MS,
+  MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS,
+  MINI_APP_CAP_COLLAPSE_HEIGHT_DURATION_FACTOR,
+  MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
+  MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
+} from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type {
+  MiniAppCapabilityDetailItem,
+  MiniAppCapabilityStatus,
   MiniAppFeatureDisplayMeta,
   MiniAppFeatureKey,
   MiniAppLanguage,
@@ -164,4 +173,61 @@ export function getPermissionDisplayLabel(
   language: MiniAppLanguage = "zh"
 ): string {
   return getMiniAppTranslations(language).permissionDrawer.labels[key];
+}
+
+/**
+ * 比较两个子系统就绪度快照在结构与展示文案上是否完全一致，供折叠面板记忆化比对使用。
+ *
+ * @param prev 上一次渲染的子系统状态
+ * @param next 本次渲染的子系统状态
+ * @returns 完全一致时返回 `true`
+ */
+export function areCapabilityStatusEqual(
+  prev: Readonly<MiniAppCapabilityStatus>,
+  next: Readonly<MiniAppCapabilityStatus>
+): boolean {
+  if (prev === next) return true;
+  if (
+    prev.key !== next.key ||
+    prev.label !== next.label ||
+    prev.ready !== next.ready ||
+    prev.detail !== next.detail ||
+    prev.items.length !== next.items.length
+  ) {
+    return false;
+  }
+  for (let i: number = 0; i < prev.items.length; i += 1) {
+    const prevItem: Readonly<MiniAppCapabilityDetailItem> | undefined = prev.items[i];
+    const nextItem: Readonly<MiniAppCapabilityDetailItem> | undefined = next.items[i];
+    if (
+      prevItem?.label !== nextItem?.label ||
+      prevItem?.value !== nextItem?.value ||
+      prevItem?.sub !== nextItem?.sub
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * 按子系统折叠面板内容像素高度计算平滑过渡时长（展开与收起严格复用同一时长）。
+ *
+ * @param heightPx 内容完整像素高度
+ * @returns 动画时长毫秒数（落在 `[MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS, MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS]` 区间内）
+ */
+export function computeCapabilityCollapseDurationMs(heightPx: number): number {
+  if (!Number.isFinite(heightPx) || heightPx <= 0) {
+    return MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS;
+  }
+  return Math.min(
+    MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
+    Math.max(
+      MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
+      Math.round(
+        MINI_APP_CAP_COLLAPSE_BASE_DURATION_MS +
+          heightPx * MINI_APP_CAP_COLLAPSE_HEIGHT_DURATION_FACTOR
+      )
+    )
+  );
 }

@@ -16,6 +16,8 @@
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 32%, transparent);
+  --cap-expanded-bg: color-mix(in srgb, var(--accent) 4%, var(--surface-inset));
+  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 6%, var(--card));
   --danger: var(--tg-theme-destructive-text-color, #dc2626);
   --danger-soft: color-mix(in srgb, var(--danger) 12%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 32%, transparent);
@@ -50,6 +52,8 @@
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 36%, transparent);
+  --cap-expanded-bg: color-mix(in srgb, var(--accent) 5%, var(--surface-inset));
+  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 7%, var(--card));
   --danger: var(--tg-theme-destructive-text-color, #f87171);
   --danger-soft: color-mix(in srgb, var(--danger) 16%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 38%, transparent);

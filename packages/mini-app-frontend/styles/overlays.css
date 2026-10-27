@@ -25,10 +25,11 @@
   justify-content: space-between;
   gap: 10px;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.22s ease, visibility 0.22s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.toast.show { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0); animation: miniapp-toast-in 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
+.toast.show { opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(-50%) translateY(0); animation: miniapp-toast-in 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
 .toast-badge {
   width: 28px; height: 28px; border-radius: 9px;
   background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent);
