@@ -8,7 +8,6 @@ import {
   MINI_APP_CAP_SCROLL_MIN_DELTA_PX,
   MINI_APP_CAP_SCROLL_SETTLE_DELAY_MS,
   MINI_APP_CAP_SCROLL_TOP_MARGIN_PX,
-  MINI_APP_STATUS_POLL_INTERVAL_MS,
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -864,7 +863,7 @@ function renderStatusSnapshot({
 }
 
 /**
- * 首页实时状态看板组件（每 3 秒自动刷新一次进程资源、会话、Telegram 出站与模型就绪状态）。
+ * 首页实时状态看板组件（前台时按状态仓库的轮询节奏刷新进程资源、会话、Telegram 出站与模型就绪状态）。
  *
  * @returns React 节点
  */
@@ -883,6 +882,8 @@ export function StatusTab(): React.JSX.Element {
     switchingMood,
     loadMood,
     loadStatus,
+    startPolling,
+    stopPolling,
     toggleCapability,
     switchMood,
   }: MiniAppStatusStoreState = useComponentStore(createStatusStore);
@@ -898,20 +899,17 @@ export function StatusTab(): React.JSX.Element {
   }, [switchMood]);
 
   useEffect((): (() => void) => {
-    void loadStatus(false);
     void loadMood();
-    const timer: ReturnType<typeof setInterval> = setInterval((): void => {
-      void loadStatus(false);
-    }, MINI_APP_STATUS_POLL_INTERVAL_MS);
+    startPolling();
     const scrollState: ExpandScrollScheduleState = expandScrollStateRef.current;
     return (): void => {
-      clearInterval(timer);
+      stopPolling();
       if (scrollState.timer !== null) {
         clearTimeout(scrollState.timer);
         scrollState.timer = null;
       }
     };
-  }, [loadMood, loadStatus]);
+  }, [loadMood, startPolling, stopPolling]);
 
   return (
     <section className="animate-fade-in">

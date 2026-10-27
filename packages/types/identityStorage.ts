@@ -33,6 +33,15 @@ export interface IdentityPolicyVerdicts {
   readonly blocked: ReadonlySet<number>;
 }
 
+/**
+ * 一次直接冷读得到的白名单与黑名单当前条目，只由发起读取的调用方局部持有；
+ * 不读写身份 LRU，不在对应名单中的身份不出现在映射里。
+ */
+export interface IdentityPolicyEntries {
+  readonly whitelist: ReadonlyMap<number, Readonly<WhitelistEntryData>>;
+  readonly blocklist: ReadonlyMap<number, Readonly<BlocklistEntryData>>;
+}
+
 /** SQLite 按主键稳定顺序返回的一页黑名单 ID；载荷受固定页大小硬顶。 */
 export interface BlocklistIdPage {
   readonly ids: readonly number[];

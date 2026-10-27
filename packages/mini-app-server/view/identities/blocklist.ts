@@ -17,10 +17,10 @@ import { botCanRestrictMembersIn } from "../../../infra/botAdmin";
 import { runProtectedIdentityMutation } from "../../../infra/identityPolicy/coordination";
 import { isWhitelisted } from "../../../infra/identityPolicy/whitelist";
 import {
-  cachedBlocklistEntry,
   getIdentityEntryCount,
   prefetchIdentityPolicies,
   readBlocklistSweepPage,
+  readIdentityPolicyEntries,
 } from "../../../infra/identityStorage";
 import {
   banChatMember,
@@ -52,6 +52,7 @@ import type {
 
 /**
  * 分页列出持久化的黑名单成员（支持按名称、用户名或 ID 模糊搜索）。
+ * 条目经 `readIdentityPolicyEntries` 直接冷读并在本次请求内局部持有，不读写 Bot 的合并身份缓存。
  * @param params 页码 `page`、每页条数 `pageSize`、游标 `afterId` 或搜索关键字 `query`。
  * @returns 黑名单分页视图（含当前页、总页数、黑名单总数、白名单总数）。
  */
@@ -73,12 +74,11 @@ export async function listBlocklistEntries(
       allIds.length
     );
     const whitelistTotal: number = getIdentityEntryCount("whitelist");
-    if (allIds.length > 0) {
-      await prefetchIdentityPolicies(allIds);
-    }
+    const entries: ReadonlyMap<number, Readonly<BlocklistEntryData>> =
+      (await readIdentityPolicyEntries(allIds)).blocklist;
     const matchedItems: Readonly<MiniAppBlocklistEntryView>[] = [];
     for (const id of allIds) {
-      const entry: Readonly<BlocklistEntryData> | undefined = cachedBlocklistEntry(id);
+      const entry: Readonly<BlocklistEntryData> | undefined = entries.get(id);
       if (entry === undefined) continue;
       const displayName: string = formatIdentityDisplayName(id, entry.meta);
       const username: string | undefined =
@@ -129,10 +129,11 @@ export async function listBlocklistEntries(
     };
   }
 
-  await prefetchIdentityPolicies(slice.sliceIds);
+  const entries: ReadonlyMap<number, Readonly<BlocklistEntryData>> =
+    (await readIdentityPolicyEntries(slice.sliceIds)).blocklist;
   const items: Readonly<MiniAppBlocklistEntryView>[] = [];
   for (const id of slice.sliceIds) {
-    const entry: Readonly<BlocklistEntryData> | undefined = cachedBlocklistEntry(id);
+    const entry: Readonly<BlocklistEntryData> | undefined = entries.get(id);
     if (entry === undefined) continue;
     items.push({
       id,

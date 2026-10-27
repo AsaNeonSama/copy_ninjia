@@ -28,6 +28,35 @@ export function readMiniAppInitData(): string {
 }
 
 /**
+ * 判断 Mini App 当前是否处于前台：页面未隐藏，且 Telegram 宿主未将其最小化（Bot API 8.0+ 的 `isActive`）。
+ * 宿主或浏览器不提供对应字段时按前台处理。
+ * @returns 处于前台时返回 `true`
+ */
+export function isMiniAppForeground(): boolean {
+  const tgWindow: TelegramWindow = globalThis;
+  if (tgWindow.document?.visibilityState === "hidden") return false;
+  return getTelegramWebApp()?.isActive !== false;
+}
+
+/**
+ * 订阅可能改变前台状态的页面 `visibilitychange` 与 Telegram `activated` / `deactivated` 事件。
+ * @param listener 事件回调；回调内用 `isMiniAppForeground` 读取当前状态
+ * @returns 注销全部订阅的函数
+ */
+export function subscribeMiniAppForeground(listener: () => void): () => void {
+  const tgWindow: TelegramWindow = globalThis;
+  const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
+  tgWindow.document?.addEventListener?.("visibilitychange", listener);
+  webApp?.onEvent?.("activated", listener);
+  webApp?.onEvent?.("deactivated", listener);
+  return (): void => {
+    tgWindow.document?.removeEventListener?.("visibilitychange", listener);
+    webApp?.offEvent?.("activated", listener);
+    webApp?.offEvent?.("deactivated", listener);
+  };
+}
+
+/**
  * 调用宿主环境确认对话框；无弹窗宿主时默认确认通过。
  * @param message 确认提示文本
  * @returns 用户是否确认继续

@@ -143,13 +143,6 @@ export const MINI_APP_MAX_INIT_DATA_LENGTH: number = 4_096;
 export const MINI_APP_CONTROL_CHARS_PATTERN: RegExp = /\p{Cc}/u;
 
 /**
- * 已知命令行抓取工具与自动化扫描器的 `User-Agent` 特征匹配规则。
- * 不变量：不带全局标志 `g`，大小写不敏感匹配非 Telegram WebView 的外部扫描与脚本客户端，在鉴权链最开头直接快路径拒绝。所属模块：`packages/mini-app-server/middleware/headerGuard.ts`。
- */
-export const MINI_APP_BLOCKED_USER_AGENT_PATTERN: RegExp =
-  /\b(?:curl|wget|python-requests|python-urllib|go-http-client|libwww-perl|httpclient|okhttp|axios|postmanruntime|insomnia|sqlmap|nikto|nmap|masscan|zgrab|scrapy)\b/iu;
-
-/**
  * `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。
  * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式。所属模块：`packages/mini-app-server/libs/request.ts` 与 `packages/mini-app-server/middleware/headerGuard.ts`。
  */

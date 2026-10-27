@@ -167,7 +167,6 @@ describe("Mini App 原生路由表与兜底分发", () => {
       ["/sub/api/status", { ...headers, origin: "ftp://evil.example.com" }, 403, "CROSS_SITE_FORBIDDEN"],
       ["/sub/api/status", { ...headers, origin: "null" }, 403, "CROSS_SITE_FORBIDDEN"],
       ["/sub/api/status", { ...headers, referer: "https://evil.example.com/attack" }, 403, "CROSS_SITE_FORBIDDEN"],
-      ["/sub/api/auth/precheck", { ...headers, "user-agent": "curl/8.5.0" }, 403, "FORBIDDEN_USER"],
       ["/sub/api/auth/precheck", { authorization: "Bearer some-token" }, 401, "MISSING_INIT_DATA"],
       ["/sub/api/auth/precheck", { [MINI_APP_INIT_DATA_HEADER]: adminInitData, authorization: `tma ${adminInitData}&extra=1` }, 401, "INVALID_SIGNATURE"],
       ["/sub/api/auth/precheck", { [MINI_APP_INIT_DATA_HEADER]: "foo=bar" }, 401, "MALFORMED_INIT_DATA"],

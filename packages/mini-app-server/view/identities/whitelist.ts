@@ -16,10 +16,10 @@ import type {
   SetWhitelistPermissionResult,
 } from "../../../infra/identityPolicy/whitelist";
 import {
-  cachedWhitelistEntry,
   confirmIdentityPolicyPersisted,
   getIdentityEntryCount,
   prefetchIdentityPolicies,
+  readIdentityPolicyEntries,
   readWhitelistSweepPage,
 } from "../../../infra/identityStorage";
 import { logger } from "../../../infra/logger";
@@ -56,6 +56,7 @@ type WhitelistMembershipOutcome =
 
 /**
  * 分页列出持久化的白名单成员及其十八项细粒度权限（支持按名称、用户名或 ID 模糊搜索）。
+ * 条目经 `readIdentityPolicyEntries` 直接冷读并在本次请求内局部持有，不读写 Bot 的合并身份缓存。
  * @param params 页码 `page`、每页条数 `pageSize`、游标 `afterId` 或搜索关键字 `query`。
  * @returns 白名单分页视图（含当前页、总页数、白名单总数、黑名单总数）及权限说明列表。
  */
@@ -79,12 +80,11 @@ export async function listWhitelistEntries(
       allIds.length
     );
     const blocklistTotal: number = getIdentityEntryCount("blocklist");
-    if (allIds.length > 0) {
-      await prefetchIdentityPolicies(allIds);
-    }
+    const entries: ReadonlyMap<number, Readonly<WhitelistEntryData>> =
+      (await readIdentityPolicyEntries(allIds)).whitelist;
     const matchedItems: Readonly<MiniAppWhitelistEntryView>[] = [];
     for (const id of allIds) {
-      const entry: Readonly<WhitelistEntryData> | undefined = cachedWhitelistEntry(id);
+      const entry: Readonly<WhitelistEntryData> | undefined = entries.get(id);
       if (entry === undefined) continue;
       const displayName: string = formatIdentityDisplayName(id, entry.meta);
       const username: string | undefined =
@@ -137,10 +137,11 @@ export async function listWhitelistEntries(
     };
   }
 
-  await prefetchIdentityPolicies(slice.sliceIds);
+  const entries: ReadonlyMap<number, Readonly<WhitelistEntryData>> =
+    (await readIdentityPolicyEntries(slice.sliceIds)).whitelist;
   const items: Readonly<MiniAppWhitelistEntryView>[] = [];
   for (const id of slice.sliceIds) {
-    const entry: Readonly<WhitelistEntryData> | undefined = cachedWhitelistEntry(id);
+    const entry: Readonly<WhitelistEntryData> | undefined = entries.get(id);
     if (entry === undefined) continue;
     items.push({
       id,

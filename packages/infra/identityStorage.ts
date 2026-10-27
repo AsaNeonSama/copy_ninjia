@@ -11,6 +11,7 @@ export {
   identityMetadataFromCachedUser,
   isIdentityPolicyCached,
   prefetchIdentityPolicies,
+  readIdentityPolicyEntries,
   readIdentityPolicyVerdicts,
 } from "./identityStorage/read";
 export {

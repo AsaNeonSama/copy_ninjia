@@ -107,8 +107,8 @@ export const MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE: number = 10;
 export const MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
 /**
- * Mini App 首页实时状态自动轮询间隔毫秒数（3 秒）。
- * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * Mini App 首页实时状态轮询的间隔毫秒数（3 秒），自上一次响应结算起计时。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/store/status.ts`。
  */
 export const MINI_APP_STATUS_POLL_INTERVAL_MS: number = 3_000;
 

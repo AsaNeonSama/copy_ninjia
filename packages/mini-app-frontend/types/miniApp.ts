@@ -385,6 +385,9 @@ export interface TelegramWebAppUser {
   readonly language_code?: string;
 }
 
+/** Mini App 由最小化恢复或被最小化时 Telegram 宿主派发的事件名（Bot API 8.0+）。 */
+export type TelegramWebAppActivityEvent = "activated" | "deactivated";
+
 /** Telegram WebApp 注入浏览器的宿主对象接口。 */
 export interface TelegramWebApp {
   readonly initData?: string;
@@ -396,6 +399,12 @@ export interface TelegramWebApp {
   readonly setHeaderColor?: (color: string) => void;
   readonly setBackgroundColor?: (color: string) => void;
   readonly isVersionAtLeast?: (version: string) => boolean;
+  /** Mini App 当前是否处于激活态；被最小化时为 `false`（Bot API 8.0+，更早版本缺省）。 */
+  readonly isActive?: boolean;
+  /** 注册宿主事件处理器（本应用只订阅 Bot API 8.0+ 的 `activated` / `deactivated`）。 */
+  readonly onEvent?: (eventType: TelegramWebAppActivityEvent, handler: () => void) => void;
+  /** 注销 `onEvent` 注册过的宿主事件处理器。 */
+  readonly offEvent?: (eventType: TelegramWebAppActivityEvent, handler: () => void) => void;
   /** 唤起 Telegram 客户端原生文件下载器将 HTTPS 资源保存至系统默认下载目录（Bot API 8.0+）。 */
   readonly downloadFile?: (
     params: Readonly<{ readonly url: string; readonly file_name: string }>,
@@ -444,6 +453,10 @@ export interface TelegramWindow {
     readonly createElement?: (tagName: "a") => MiniAppDownloadAnchorElement;
     readonly body?: Readonly<{ readonly appendChild?: (node: MiniAppDownloadAnchorElement) => void }>;
     readonly documentElement?: Readonly<{ readonly setAttribute?: (qualifiedName: string, value: string) => void }>;
+    /** 页面可见性；切到后台或被遮挡时为 `"hidden"`。 */
+    readonly visibilityState?: "visible" | "hidden";
+    readonly addEventListener?: (type: "visibilitychange", listener: () => void) => void;
+    readonly removeEventListener?: (type: "visibilitychange", listener: () => void) => void;
   }>;
 }
 

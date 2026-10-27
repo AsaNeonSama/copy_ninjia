@@ -3,9 +3,11 @@ import type { StoreApi } from "zustand";
 import { fetchMiniAppMood } from "../api/mood";
 import { switchMiniAppMood } from "../api/moodSwitch";
 import { fetchMiniAppStatus } from "../api/status";
+import { MINI_APP_STATUS_POLL_INTERVAL_MS } from "../consts/miniApp";
 import { extractServerNoticeParams, getMiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
+import { isMiniAppForeground, subscribeMiniAppForeground } from "../libs/telegram";
 import type {
   MiniAppMoodMutationResult,
   MiniAppMoodView,
@@ -37,6 +39,13 @@ export interface MiniAppStatusStoreState {
    * 手动刷新（`showErrorToast`）或首次加载时保证骨架屏最短展示时长，手动刷新同时重查情绪并以 Toast 报错。
    */
   readonly loadStatus: (showErrorToast: boolean) => Promise<void>;
+  /**
+   * 开始前台轮询：前台时立即拉取一次，每次响应结算后间隔 `MINI_APP_STATUS_POLL_INTERVAL_MS` 再拉；
+   * 页面隐藏或 Mini App 被最小化时不再排期，回到前台且无排期与在途请求时立即补拉。重复调用先停止旧轮询。
+   */
+  readonly startPolling: () => void;
+  /** 停止轮询并注销前台状态订阅；在途请求结算后不再排期。 */
+  readonly stopPolling: () => void;
   /** 切换指定子系统折叠面板的展开状态。 */
   readonly toggleCapability: (capKey: string) => void;
   /** 重抽全局 AI 情绪并以 Toast 回报结果。 */
@@ -59,6 +68,39 @@ export function createStatusStore(): MiniAppStatusStore {
     ): MiniAppStatusStoreState => {
       let hasSnapshot: boolean = false;
       let requestSeq: number = 0;
+      let pollGeneration: number = 0;
+      let pollTimer: ReturnType<typeof setTimeout> | null = null;
+      let pollInFlight: boolean = false;
+      let unsubscribeForeground: (() => void) | null = null;
+
+      const clearPollTimer = (): void => {
+        if (pollTimer !== null) {
+          clearTimeout(pollTimer);
+          pollTimer = null;
+        }
+      };
+
+      const pollOnce = async (generation: number): Promise<void> => {
+        pollInFlight = true;
+        await get().loadStatus(false);
+        if (generation !== pollGeneration) return;
+        pollInFlight = false;
+        if (!isMiniAppForeground()) return;
+        pollTimer = setTimeout((): void => {
+          pollTimer = null;
+          void pollOnce(generation);
+        }, MINI_APP_STATUS_POLL_INTERVAL_MS);
+      };
+
+      const onForegroundChange = (): void => {
+        if (!isMiniAppForeground()) {
+          clearPollTimer();
+          return;
+        }
+        if (pollTimer === null && !pollInFlight) {
+          void pollOnce(pollGeneration);
+        }
+      };
 
       return {
         status: null,
@@ -121,6 +163,22 @@ export function createStatusStore(): MiniAppStatusStore {
               set({ loading: false, refreshing: false });
             }
           }
+        },
+
+        startPolling: (): void => {
+          get().stopPolling();
+          unsubscribeForeground = subscribeMiniAppForeground(onForegroundChange);
+          if (isMiniAppForeground()) {
+            void pollOnce(pollGeneration);
+          }
+        },
+
+        stopPolling: (): void => {
+          pollGeneration += 1;
+          pollInFlight = false;
+          clearPollTimer();
+          unsubscribeForeground?.();
+          unsubscribeForeground = null;
         },
 
         toggleCapability: (capKey: string): void => {

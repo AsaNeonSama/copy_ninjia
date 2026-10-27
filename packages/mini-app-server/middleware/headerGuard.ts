@@ -1,7 +1,6 @@
 import { miniAppActiveConfigHolder } from "../../cache/main/miniApp";
 import { getBotMiniAppConfig } from "../../config/bot";
 import {
-  MINI_APP_BLOCKED_USER_AGENT_PATTERN,
   MINI_APP_CONTROL_CHARS_PATTERN,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_MAX_INIT_DATA_LENGTH,
@@ -63,7 +62,7 @@ function isAllowedRequestOriginUrl(rawUrl: string, request: Request): boolean {
 
 /**
  * 在鉴权链最开头对请求头与凭据载体形态执行 O(1) 快路径严格校验：拦截非同源 `Sec-Fetch-Site`、
- * 直接导航/非預期 `Sec-Fetch-Mode` 与 `Sec-Fetch-Dest`、跨源 `Origin`/`Referer`、自动化扫描器 `User-Agent`，
+ * 直接导航/非预期 `Sec-Fetch-Mode` 与 `Sec-Fetch-Dest`、跨源 `Origin`/`Referer`，
  * 以及缺失、双头不一致或畸形的 Telegram WebApp `initData` 请求头。
  * @param request HTTP 请求对象。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
@@ -162,21 +161,6 @@ function verifyMiniAppRequestHeadersFast(
       code: "CROSS_SITE_FORBIDDEN",
       reason: "forbidden_user",
       error: "CROSS_SITE_FORBIDDEN",
-    });
-  }
-
-  const userAgent: string | null = headers.get("user-agent")?.trim() ?? null;
-  if (
-    userAgent !== null &&
-    userAgent.length > 0 &&
-    (MINI_APP_CONTROL_CHARS_PATTERN.test(userAgent) ||
-      MINI_APP_BLOCKED_USER_AGENT_PATTERN.test(userAgent))
-  ) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "FORBIDDEN_USER",
-      reason: "forbidden_user",
-      error: "FORBIDDEN_USER",
     });
   }
 

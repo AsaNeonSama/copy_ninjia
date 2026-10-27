@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_PICKER_POLL_INTERVAL_MS,
+  MINI_APP_STATUS_POLL_INTERVAL_MS,
   MINI_APP_TOAST_DURATION_MS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
@@ -208,6 +209,94 @@ describe("页面 store", () => {
     expect(store.getState().currentMood).toBe("calm");
     expect(store.getState().switchingMood).toBeFalse();
     expect(useMiniAppStore.getState().toastText).toBe("switched");
+  });
+
+  test("状态轮询：响应结算后才排下一次，最小化或页面隐藏时暂停、回到前台立即补拉，停止后注销订阅", async () => {
+    jest.useFakeTimers();
+    const telegramHandlers: Map<string, () => void> = new Map<string, () => void>();
+    const webApp: { isActive: boolean; onEvent: (type: string, handler: () => void) => void; offEvent: (type: string, handler: () => void) => void } = {
+      isActive: true,
+      onEvent: (type: string, handler: () => void): void => {
+        telegramHandlers.set(type, handler);
+      },
+      offEvent: (type: string, handler: () => void): void => {
+        if (telegramHandlers.get(type) === handler) telegramHandlers.delete(type);
+      },
+    };
+    const visibility: { listener: (() => void) | null } = { listener: null };
+    const page: { visibilityState: "visible" | "hidden"; addEventListener: (type: string, listener: () => void) => void; removeEventListener: (type: string, listener: () => void) => void } = {
+      visibilityState: "visible",
+      addEventListener: (_type: string, listener: () => void): void => {
+        visibility.listener = listener;
+      },
+      removeEventListener: (_type: string, listener: () => void): void => {
+        if (visibility.listener === listener) visibility.listener = null;
+      },
+    };
+    (globalThis as { Telegram?: unknown }).Telegram = { WebApp: webApp };
+    (globalThis as { document?: unknown }).document = page;
+    let calls: number = 0;
+    let hold: boolean = false;
+    let release: () => void = (): void => {};
+    route("GET /api/status", async (): Promise<Response> => {
+      calls += 1;
+      if (hold) await new Promise<void>((resolve: () => void): void => { release = resolve; });
+      return json({ generatedAt: calls });
+    });
+    const drain = async (): Promise<void> => {
+      for (let turn: number = 0; turn < 20; turn += 1) await Promise.resolve();
+    };
+    const advance = async (ms: number): Promise<void> => {
+      jest.advanceTimersByTime(ms);
+      await drain();
+    };
+    try {
+      const store = createStatusStore();
+      store.getState().startPolling();
+      await drain();
+      expect(calls).toBe(1);
+      await advance(MINI_APP_MIN_LOADING_MS);
+      expect(store.getState().status?.generatedAt).toBe(1);
+      await advance(MINI_APP_STATUS_POLL_INTERVAL_MS - 1);
+      expect(calls).toBe(1);
+
+      hold = true;
+      await advance(1);
+      expect(calls).toBe(2);
+      await advance(MINI_APP_STATUS_POLL_INTERVAL_MS * 5);
+      expect(calls).toBe(2);
+      hold = false;
+      release();
+      await drain();
+      await advance(MINI_APP_STATUS_POLL_INTERVAL_MS);
+      expect(calls).toBe(3);
+
+      webApp.isActive = false;
+      telegramHandlers.get("deactivated")?.();
+      await advance(MINI_APP_STATUS_POLL_INTERVAL_MS * 5);
+      expect(calls).toBe(3);
+      webApp.isActive = true;
+      telegramHandlers.get("activated")?.();
+      await drain();
+      expect(calls).toBe(4);
+
+      page.visibilityState = "hidden";
+      visibility.listener?.();
+      await advance(MINI_APP_STATUS_POLL_INTERVAL_MS * 5);
+      expect(calls).toBe(4);
+      page.visibilityState = "visible";
+      visibility.listener?.();
+      await drain();
+      expect(calls).toBe(5);
+
+      store.getState().stopPolling();
+      expect(telegramHandlers.size).toBe(0);
+      expect(visibility.listener).toBeNull();
+      await advance(MINI_APP_STATUS_POLL_INTERVAL_MS * 5);
+      expect(calls).toBe(5);
+    } finally {
+      (globalThis as { document?: unknown }).document = undefined;
+    }
   });
 
   test("受管群：选群加载详情，关闭 /init 需确认，移出列表后回到列表并重载", async () => {
