@@ -24,7 +24,9 @@ const COMPLIANT_FILES: Readonly<Record<string, string>> = {
     '<link rel="icon" href="./resource/favicon.ico" />\n' +
     '<script src="https://telegram.org/js/telegram-web-app.js"></script>\n' +
     '<link rel="stylesheet" href="./styles.css" />\n<script type="module" src="./main.tsx"></script>\n',
-  "packages/mini-app-frontend/styles.css": '.a { background: url("./resource/bg.svg"); }\n.b { background: url(data:image/png;base64,AA); }\n',
+  "packages/mini-app-frontend/styles.css": '@import "./styles/base.css";\n',
+  "packages/mini-app-frontend/styles/base.css":
+    '.a { background: url("../resource/bg.svg"); }\n.b { background: url(data:image/png;base64,AA); }\n',
   "packages/mini-app-frontend/main.tsx":
     'import { createRoot } from "react-dom/client";\nimport type { T } from "./types/miniApp";\nimport { App } from "./App";\n',
   "packages/mini-app-frontend/types/miniApp.ts": "export type T = number;\n",

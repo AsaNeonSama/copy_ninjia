@@ -1,0 +1,34 @@
+.loading-box {
+  display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+  gap: 8px; padding: 10px 4px; color: var(--hint); animation: miniapp-fade-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card.loading-box { padding: 13px; }
+.loading-text { font-size: 12px; font-weight: 500; color: var(--hint); text-align: center; }
+.content-refreshing { opacity: 0.62; transition: opacity 0.2s ease; pointer-events: none; }
+.skeleton-stack { width: 100%; display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+.skeleton-grid { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+.skeleton-card { background: var(--surface-inset); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 7px; }
+.skeleton-line {
+  position: relative; overflow: hidden; height: 10px; width: 100%; border-radius: 999px; background: var(--shimmer-base);
+}
+.skeleton-line::after, .gallery-img-skeleton::after {
+  content: ""; position: absolute; inset: -15% 0; width: 68%;
+  background: var(--shimmer-flash); animation: miniapp-shimmer 0.95s cubic-bezier(0.36, 0.04, 0.24, 1) infinite; pointer-events: none;
+}
+.skeleton-line.short, .skeleton-line.medium { width: 65%; margin: 0 auto; }
+.skeleton-card .skeleton-line.medium { margin: 0; width: 54%; }
+.skeleton-detail-wrap { display: flex; flex-direction: column; gap: 0; }
+.skeleton-row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.skeleton-title-bar { width: 56%; height: 15px; border-radius: 6px; }
+.skeleton-badge-pill { width: 62px; height: 20px; border-radius: 999px; flex-shrink: 0; }
+.skeleton-sub-bar { width: 46%; height: 10px; margin-bottom: 10px; }
+.skeleton-perm-banner { width: 100%; height: 34px; border-radius: 9px; }
+.skeleton-section-bar { width: 38%; height: 14px; border-radius: 6px; margin-bottom: 6px; }
+.skeleton-switch-row { padding: 10px 0; }
+.skeleton-title-with-badge { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.skeleton-switch-label { width: 34%; min-width: 72px; height: 13px; border-radius: 5px; }
+.skeleton-cmd-pill { width: 48px; height: 16px; border-radius: 6px; flex-shrink: 0; }
+.skeleton-switch-desc { width: 76%; height: 10px; }
+.skeleton-switch-pill { width: 44px; height: 24px; border-radius: 24px; flex-shrink: 0; }
+.skeleton-cpu-ring { width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0; -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px)); mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px)); }
+.skeleton-cap-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 12px; }

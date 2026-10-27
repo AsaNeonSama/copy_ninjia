@@ -1,0 +1,62 @@
+.gallery-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: 8px; margin-bottom: 8px; width: 100%;
+}
+.gallery-card {
+  display: flex; flex-direction: column; border-radius: 10px; overflow: hidden;
+  background: var(--surface-inset); border: 1px solid var(--border);
+  cursor: pointer; transition: border-color 0.16s ease, transform 0.16s ease;
+}
+.gallery-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.gallery-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.gallery-thumb-wrap {
+  position: relative; width: 100%; aspect-ratio: 1 / 1; background: var(--gallery-stage-bg);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.gallery-img-skeleton {
+  position: absolute; inset: 0; z-index: 1; background: var(--gallery-skeleton-bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.gallery-skeleton-icon { color: color-mix(in srgb, var(--accent) 62%, var(--hint)); opacity: 0.66; filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.45)); animation: miniapp-pulse 1.8s ease-in-out infinite; }
+.gallery-thumb {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.gallery-thumb.loading { opacity: 0; transform: scale(1.03); }
+.gallery-thumb.loaded { opacity: 1; transform: scale(1); }
+.gallery-card-download-btn, .gallery-card-delete-btn {
+  position: absolute; top: 6px; z-index: 2; appearance: none; outline: none;
+  border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(15, 23, 42, 0.78);
+  width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+.gallery-card-download-btn { right: 38px; color: var(--accent); }
+.gallery-card-delete-btn { right: 6px; color: #f87171; }
+@media (hover: hover) and (pointer: fine) {
+  .gallery-card-download-btn:hover:not(:disabled):not(.hover-suppressed) { background: var(--accent); color: var(--accent-text); transform: scale(1.06); }
+  .gallery-card-delete-btn:hover:not(:disabled):not(.hover-suppressed) { background: var(--danger); color: #ffffff; transform: scale(1.06); }
+}
+.gallery-card-download-btn:disabled, .gallery-card-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.gallery-meta { padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.gallery-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gallery-sub { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 10px; color: var(--hint); }
+.gallery-preview-card { border-color: var(--accent); scroll-margin-top: 72px; }
+.gallery-preview-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.gallery-preview-actions .btn { width: 100%; min-width: 0; height: 36px; padding: 0 8px; border-radius: 10px; font-size: 12.5px; overflow: hidden; }
+.gallery-preview-actions .btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gallery-preview-img-wrap {
+  position: relative; width: 100%; min-height: 180px; max-height: 62vh; background: var(--gallery-stage-bg);
+  border-radius: 10px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+  overflow: hidden; padding: 8px;
+}
+.gallery-preview-img {
+  max-width: 100%; max-height: 58vh; object-fit: contain; border-radius: 6px; display: block;
+  will-change: opacity; transition: opacity 0.24s ease;
+}
+.gallery-preview-img.loading { opacity: 0; }
+.gallery-preview-img.loaded { opacity: 1; }

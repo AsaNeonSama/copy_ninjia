@@ -1,0 +1,122 @@
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eef2f6;
+  --card: #ffffff;
+  --header-bg: rgba(255, 255, 255, 0.94);
+  --section-bg: #ffffff;
+  --surface-inset: #f4f6f9;
+  --surface-elevated: #ffffff;
+  --input-bg: #f8fafc;
+  --text: #0f172a;
+  --hint: #64748b;
+  --subtitle: #475569;
+  --link: var(--tg-theme-link-color, #ca7896);
+  --accent: var(--tg-theme-button-color, #ca7896);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 32%, transparent);
+  --danger: var(--tg-theme-destructive-text-color, #dc2626);
+  --danger-soft: color-mix(in srgb, var(--danger) 12%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger) 32%, transparent);
+  --success: #16a34a;
+  --success-soft: rgba(22, 163, 74, 0.14);
+  --border: rgba(100, 116, 139, 0.18);
+  --border-strong: rgba(100, 116, 139, 0.32);
+  --shadow-sm: 0 2px 10px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
+  --shimmer-base: rgba(148, 163, 184, 0.24);
+  --shimmer-highlight: rgba(255, 255, 255, 0.95);
+  --shimmer-flash: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--accent) 22%, rgba(255, 255, 255, 0.15)) 20%, rgba(255, 255, 255, 0.98) 44%, color-mix(in srgb, var(--accent) 54%, #ffffff) 52%, rgba(255, 255, 255, 0.96) 60%, color-mix(in srgb, var(--accent) 20%, rgba(255, 255, 255, 0.15)) 80%, transparent 100%);
+  --gallery-stage-bg: #e6ebf3;
+  --gallery-skeleton-bg: linear-gradient(135deg, #dce3ef 0%, #eadbe3 50%, #d9e1ee 100%);
+  --channel-badge-bg: rgba(147, 51, 234, 0.12); --channel-badge-text: #7e22ce; --channel-badge-border: rgba(147, 51, 234, 0.28);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1722;
+  --card: #182433;
+  --header-bg: rgba(24, 36, 51, 0.94);
+  --section-bg: #182433;
+  --surface-inset: #121c29;
+  --surface-elevated: #1e2d40;
+  --input-bg: #0d1520;
+  --text: #f1f5f9;
+  --hint: #94a3b8;
+  --subtitle: #cbd5e1;
+  --link: var(--tg-theme-link-color, #ca7896);
+  --accent: var(--tg-theme-button-color, #ca7896);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --accent-border: color-mix(in srgb, var(--accent) 36%, transparent);
+  --danger: var(--tg-theme-destructive-text-color, #f87171);
+  --danger-soft: color-mix(in srgb, var(--danger) 16%, transparent);
+  --danger-border: color-mix(in srgb, var(--danger) 38%, transparent);
+  --success: #22c55e;
+  --success-soft: rgba(34, 197, 94, 0.16);
+  --border: rgba(148, 163, 184, 0.16);
+  --border-strong: rgba(148, 163, 184, 0.28);
+  --shadow-sm: 0 4px 14px rgba(2, 6, 23, 0.32);
+  --shadow-lg: 0 14px 36px rgba(2, 6, 23, 0.62);
+  --shimmer-base: rgba(148, 163, 184, 0.14);
+  --shimmer-highlight: rgba(248, 250, 252, 0.28);
+  --shimmer-flash: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.06) 22%, rgba(255, 255, 255, 0.42) 46%, color-mix(in srgb, var(--accent) 50%, rgba(255, 255, 255, 0.42)) 54%, rgba(255, 255, 255, 0.06) 78%, transparent 100%);
+  --gallery-stage-bg: rgba(15, 23, 42, 0.78);
+  --gallery-skeleton-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(56, 36, 52, 0.88) 52%, rgba(23, 33, 49, 0.94) 100%);
+  --channel-badge-bg: rgba(168, 85, 247, 0.18); --channel-badge-text: #c084fc; --channel-badge-border: rgba(192, 132, 252, 0.36);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 10px 10px calc(36px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  line-height: 1.45;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+@keyframes miniapp-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes miniapp-shimmer {
+  0% { transform: translateX(-130%) skewX(-18deg); }
+  100% { transform: translateX(230%) skewX(-18deg); }
+}
+
+@keyframes miniapp-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes miniapp-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.92; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+.animate-fade-in { animation: miniapp-fade-in 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+.spin-icon { animation: miniapp-spin 0.85s linear infinite; }
+.pulse-icon { animation: miniapp-pulse 2s ease-in-out infinite; }

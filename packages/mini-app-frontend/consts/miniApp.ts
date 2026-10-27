@@ -126,7 +126,7 @@ export const MINI_APP_STATUS_SKELETON_MEMORY_INDICES: readonly number[] = [0, 1,
 
 /**
  * 热发言记录按发言人 ID 取模分配的头像与气泡色调档数。
- * 不变量：正整数，必须与 `styles.css` 中 `.tone-0` 至 `.tone-5` 的色调类数量一致。所属模块：`packages/mini-app-frontend/components/MessagesView.tsx`。
+ * 不变量：正整数，必须与 `styles/chats.css` 中 `.tone-0` 至 `.tone-5` 的色调类数量一致。所属模块：`packages/mini-app-frontend/components/MessagesView.tsx`。
  */
 export const MINI_APP_MESSAGE_AVATAR_TONE_COUNT: number = 6;
 
