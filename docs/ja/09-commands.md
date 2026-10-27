@@ -319,3 +319,41 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 - **音声ブロードキャスト（`send_voice`）**：`content` を任意の `tone`（口調）に従って音声バブルに合成して送信します。`agent.json` 内で `agent.tts` が設定されている必要があり、設定されていない場合は起動拒否またはホットリロード拒否となります。
 - **ウェブ要約（`send_web_digest`）**：短い `topic` を検索し、`instructions` のタスク規則に従って `max_items` を超えない項目数の MarkdownV2 要約にまとめます。項目本文は改行できます。`agent.web_search` を優先し、未設定なら `text` の組み込み検索を使います。モデルが検索しなかった場合は、先頭に `WEB_DIGEST_UNSEARCHED_WARNING` を付与して本文を送信します。
 - **ライフサイクル**：定時メッセージは長期保持され、フォーラムグループでは General トピックに送信されます。単発タスク（`just_once`）やランダム時刻はメモリ内でのみ管理され、停止期間中にスキップされたタスクは補填送信されません。
+
+---
+
+## 🖥️ Mini App 管理コンソール：API と権限境界
+
+`config/static/bot.json` に任意の `mini_app` オブジェクトが設定されている場合、ローカル `Bun.serve` HTTP サーバー（サーバー実装は `packages/mini-app-api-server/`、フロントエンドは `packages/mini-app-frontend/`）が起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）が配置されます。
+
+### 1. 認証とセキュリティ境界
+- **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはまず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証し、次に `initData` ミドルウェアで Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）とログイン（`POST /api/auth/login`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。
+- **初回画面の資格情報とロック保護**：認証器が未バインドの場合は `mini_app.password` を検証し、コンソールで Google Authenticator (TOTP) をバインド済みの場合（`memory/mini-app-totp/totp.json` に永続化）は現在の 30 秒タイムステップの 6 桁コードを優先検証します。3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロックし、ロック突入時に解除時刻と送信元 IP を記したアラートを個人チャットへ 1 通送信します。
+- **保護された静的リソースと画像庫アセット**：画像庫サムネイル（`GET /api/gallery/:name/preview`）と保護された SVG アイコン（`GET|HEAD /api/resource/:name.svg`）はログインまたは有効セッション再開時のみ発行される決定論的 `assetToken` で認証され、7 日間の不変キャッシュと `ETag` 304 再検証をサポートします。
+
+### 2. HTTP API ルートと機能対応表
+
+| ルート | メソッド | 権限と境界の説明 |
+| :--- | :---: | :--- |
+| `/api/auth/precheck`<br>`/api/auth/login` | `GET`<br>`POST` | `initData` 署名とスーパー管理者身分を検証し、ログインモード（`password` または `totp`）の返却、有効セッションの再開、または新規 45 分 `sessionToken`・`assetToken` の発行を行う |
+| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Google Authenticator 認証器の照会、バインド用シークレットおよび QR コードの生成、6 桁コード検証による有効化、削除 |
+| `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | リアルタイムシステム指標（稼働時間、CPU 平均負荷、メモリ PSS、管理対象グループ数、アクティブセッション、AI モデル準備状態、Telegram 出站ゲート）の照会、および AI 機嫌の照会・手動再抽選 |
+| `/api/chats`<br>`/api/chats/:chatId` | `GET` | `/init` 有効化済み管理対象グループの一覧、または単一グループ詳細（機能スイッチ、ホットメッセージ件数、静音／ロック残り時間、Bot が保持する管理者権限 `botPermissions`、1–24 時間の各遡及ウィンドウにおける重複排除済み参加人数 `joinedCountsByHour`、`/batch_kick` 実行状態）の照会 |
+| `/api/chats/:chatId/messages` | `GET` | 当該グループのメモリ内ホット 256 バッファの直近メッセージをページング・キーワード検索 |
+| `/api/chats/:chatId/feature` | `POST` | グループ機能スイッチ（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）の切替。`init` 無効化は `/init disable` と同順序でランタイム解体と状態消去を実行し、`proxySend` 有効化は個人チャット `/send` と単一グループ排他制約を共有 |
+| `/api/chats/:chatId/batch-kick` | `POST` | `1..24` 時間の遡及ウィンドウで `/batch_kick` 一括退会を起動。グループ内 `/batch_kick` コマンドと `batchKickChats` 単一実行ロックおよびバックグラウンド実行器を共有し、完了時に `miniAppBatchKickCompletedByChat` へ集計を書き込む |
+| `/api/chats/:chatId/targets` | `GET`<br>`POST` | 当該グループのカスタム QA（`setQa`/`removeQa`）、発言削除対象（`addDeleteTarget`/`removeDeleteTarget`）、翻訳対象（`addTranslateTarget`/`removeTranslateTarget`）の照会・追加・更新・削除 |
+| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | `readIdentityPolicyEntries` コールドリードによるホワイトリスト／ブラックリストのページング照会と検索（メインスレッドのホット LRU を汚染しない）、メンバー追加・削除、ホワイトリスト 13 権限の個別変更または一括全有効化（`enableAll`） |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Telegram `savePreparedKeyboardButton` を呼び出してネイティブ連絡先／チャンネルピッカーセッションを準備し、`users_shared`/`chat_shared` のインポート結果をポーリング（`whitelist`、`blocklist`、`deleteMessage`、`translate` の 4 対象に対応） |
+| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/:name/delete`<br>`/api/gallery/:name/download` | `GET`<br>`POST`<br>`POST`/`DELETE`<br>`GET`/`HEAD` | 専用画像庫のページング閲覧、バイナリアップロード収録（`/h_image add` と同一の SHA-256 重複排除とサイズ事前検査を実行）、削除および原画ダウンロード |
+
+### 3. リストおよびグループ対象操作の競合・境界ガード
+- **ホワイトリスト／ブラックリスト追加ガード（ID 指定とネイティブピッカーで共通）**：
+  - 厳格な相互排他：ブラックリスト登録済みの身分をホワイトリストに追加すると `IDENTITY_IN_BLOCKLIST`、ホワイトリスト登録済みの身分をブラックリストに追加すると `IDENTITY_IN_WHITELIST` を返します。
+  - スーパー管理者の恒久免除：`SUPER_ADMIN_USER_ID` をホワイトリストに追加しようとすると `SUPER_ADMIN_EXEMPT`、ブラックリストに追加しようとすると `BLOCKLIST_SUPER_ADMIN_FORBIDDEN` を返します。
+  - 自己および管理対象グループの拒否：Bot 自身（`TARGET_SELF_FORBIDDEN`）または `/init` 有効化済みの管理対象グループ身分（`TARGET_CURRENT_CHAT_FORBIDDEN`）のホワイトリスト／ブラックリスト追加は拒否されます。
+  - ネイティブピッカーによるインポート（`handleMiniAppSharedMessage`）で新規追加が 0 件かつ重複以外の拒否が存在する場合、最初の具体的な境界ステータスコードと拒否対象 ID を優先的に透過し、フロントエンドで該当理由の警告トーストを表示します。
+- **グループ別カスタム QA・発言削除対象・翻訳対象ガード**：
+  - **カスタム QA（`qa`）**：質問と回答は非空かつ `CHAT_QA_QUESTION_MAX_CHARS`、`CHAT_QA_ANSWER_MAX_CHARS`、グループあたり `CHAT_QA_MAX_PER_CHAT` の上限に従い、質問全文および回答の `pre` コードブロック外にクリック可能な `/command` を含めることはできません。
+  - **発言削除対象（`deleteMessage`）**：Bot が当該グループでメッセージ削除権限（`canDeleteMessages`、不足時は `DELETE_TARGET_MISSING_BOT_PERMISSION`）を保持していることを要求し、スーパー管理者（`DELETE_TARGET_SUPER_ADMIN_FORBIDDEN`）・Bot 自身（`TARGET_SELF_FORBIDDEN`）・当該グループ自身（`TARGET_CURRENT_CHAT_FORBIDDEN`）を拒否、対象が正の整数ユーザーかつオンライン時はグループ在籍を確認（不在時は `TARGET_NOT_IN_CHAT`）し、上限は `DELETE_MESSAGE_CHAT_TARGET_MAX`。
+  - **翻訳対象（`translate`）**：`g-auth.json` の準備完了と当該グループの翻訳有効化（`TRANSLATE_FEATURE_DISABLED`）を要求し、対象言語は `ja`/`cn`/`en`/`uk`/`ru` に限定。Bot 自身と当該グループ自身を拒否し、オンライン時はユーザーの在籍を確認、上限は `TRANSLATE_CHAT_USER_LIMIT`（既存対象に新しい言語を送信した場合は対象言語を直接更新）。

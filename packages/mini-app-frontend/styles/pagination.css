@@ -101,6 +101,7 @@
   color: var(--text);
   font-size: clamp(12px, 2.8vw, 13px);
   font-weight: 600;
+  line-height: 14px;
   width: 100%;
   min-width: 0;
   height: 36px;
@@ -115,8 +116,8 @@
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
-.page-btn-arrow { font-size: 14px; line-height: 1; }
-.page-btn-text { overflow: hidden; text-overflow: ellipsis; }
+.page-btn-arrow { display: inline-flex; align-items: center; justify-content: center; font-size: 14px; line-height: 14px; transform: translateY(-1px); }
+.page-btn-text { display: inline-block; line-height: 14px; overflow: hidden; text-overflow: ellipsis; }
 .page-btn:hover:not(:disabled):not(.active) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .page-btn.active { background: var(--accent); color: var(--accent-text); border-color: transparent; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); }
 .page-btn:disabled { opacity: 0.38; cursor: not-allowed; }

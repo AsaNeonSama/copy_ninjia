@@ -148,8 +148,10 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           | Partial<MiniAppUiStoreState>
           | ((state: MiniAppUiStoreState) => Partial<MiniAppUiStoreState>)
       ) => void,
-      get: () => MiniAppUiStoreState
+      get: () => MiniAppUiStoreState,
+      store: StoreApi<MiniAppUiStoreState>
     ): MiniAppUiStoreState => {
+      store.getInitialState = get;
       let toastTimer: ReturnType<typeof setTimeout> | null = null;
       let sessionTimer: ReturnType<typeof setTimeout> | null = null;
 

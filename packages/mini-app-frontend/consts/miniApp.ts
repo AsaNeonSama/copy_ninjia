@@ -1,9 +1,11 @@
 import type {
+  MiniAppChatTargetKind,
   MiniAppFeatureKey,
   MiniAppIdentityAddMode,
   MiniAppLanguage,
   MiniAppTabKey,
   MiniAppThemeMode,
+  MiniAppTranslateLanguage,
 } from "../types/miniApp";
 import { exhaustiveList } from "./exhaustiveList";
 import { MINUTE_MS } from "./time";
@@ -54,7 +56,7 @@ export const MINI_APP_TMA_AUTH_PREFIX: string = "tma ";
 
 /**
  * 名单搜索输入框触发按名称过滤请求的防抖等待毫秒数（0.5 秒）。
- * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/IdentitiesTab.tsx`。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/pages/IdentitiesPage.tsx`。
  */
 export const MINI_APP_SEARCH_DEBOUNCE_MS: number = 500;
 
@@ -66,7 +68,7 @@ export const MINI_APP_GALLERY_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 图库页面可选的每页张数档位（默认 10 张，可切换 15、20 张）。
- * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/components/GalleryTab.tsx`。
+ * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/GalleryPage.tsx`。
  */
 export const MINI_APP_GALLERY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
@@ -84,25 +86,25 @@ export const MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 2
 
 /**
  * 已 `/init` 受管群列表缺省每页显示的群数量（10 条）。
- * 不变量：正整数。所属模块：`packages/mini-app-frontend/store/chats.ts` 与 `packages/mini-app-frontend/components/ChatsTab.tsx`。
+ * 不变量：正整数。所属模块：`packages/mini-app-frontend/store/chats.ts` 与 `packages/mini-app-frontend/pages/ChatsPage.tsx`。
  */
 export const MINI_APP_CHATS_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 已 `/init` 受管群列表可选的每页条数档位（默认 10 条，可切换 15、20 条）。
- * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/components/ChatsTab.tsx`。
+ * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx`。
  */
 export const MINI_APP_CHATS_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
 /**
  * 白名单与黑名单列表接口缺省每页返回的条数（10 条）。
- * 不变量：属于 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/components/IdentitiesTab.tsx`。
+ * 不变量：属于 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/pages/IdentitiesPage.tsx`。
  */
 export const MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 白名单与黑名单列表可选的每页条数档位（默认 10 条，可切换 15、20 条）。
- * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/components/IdentitiesTab.tsx`。
+ * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/IdentitiesPage.tsx`。
  */
 export const MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
@@ -144,43 +146,43 @@ export const MINI_APP_CAP_COLLAPSE_HEIGHT_DURATION_FACTOR: number = 0.12;
 
 /**
  * 实时状态页子系统折叠面板展开动画完成后，触发视口平滑向下跟滚前的稳定等待毫秒数。
- * 不变量：非负整数毫秒数。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * 不变量：非负整数毫秒数。所属模块：`packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
  */
 export const MINI_APP_CAP_SCROLL_SETTLE_DELAY_MS: number = 15;
 
 /**
  * 实时状态页子系统折叠面板标题栏的估算像素高度（用于展开后跟滚时保留标题可见）。
- * 不变量：正整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * 不变量：正整数像素值。所属模块：`packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
  */
 export const MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX: number = 50;
 
 /**
  * 实时状态页子系统折叠面板展开跟滚时，面板标题距离视口顶部的最小保留像素边距。
- * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
  */
 export const MINI_APP_CAP_SCROLL_TOP_MARGIN_PX: number = 16;
 
 /**
  * 实时状态页子系统折叠面板展开跟滚时，面板底部距离视口下沿的目标保留像素边距。
- * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
  */
 export const MINI_APP_CAP_SCROLL_BOTTOM_MARGIN_PX: number = 24;
 
 /**
  * 实时状态页子系统折叠面板展开跟滚时，触发舒适阅读区上移的视口高度比例阈值。
- * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
  */
 export const MINI_APP_CAP_SCROLL_COMFORT_TOP_RATIO: number = 0.28;
 
 /**
  * 实时状态页子系统折叠面板位于视口中下半区展开时，按内容高度折算跟滚距离的比例系数。
- * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
  */
 export const MINI_APP_CAP_SCROLL_COMFORT_BODY_FACTOR: number = 0.55;
 
 /**
  * 实时状态页子系统折叠面板展开后触发视口平滑跟滚的最小像素位移阈值（小于等于该值时不触发滚动）。
- * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/StatusTab.tsx`。
+ * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
  */
 export const MINI_APP_CAP_SCROLL_MIN_DELTA_PX: number = 4;
 
@@ -204,13 +206,13 @@ export const MINI_APP_MESSAGE_AVATAR_TONE_COUNT: number = 6;
 
 /**
  * Mini App 原生选择器在等待 `users_shared` / `chat_shared` 回执时的轮询间隔毫秒数。
- * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/store/identities.ts`。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/store/chatTargetsActions.ts`。
  */
 export const MINI_APP_PICKER_POLL_INTERVAL_MS: number = 600;
 
 /**
  * Mini App 原生选择器在等待 `users_shared` / `chat_shared` 回执时的最大轮询次数。
- * 不变量：正整数。所属模块：`packages/mini-app-frontend/store/identities.ts`。
+ * 不变量：正整数。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/store/chatTargetsActions.ts`。
  */
 export const MINI_APP_PICKER_POLL_MAX_ATTEMPTS: number = 25;
 
@@ -234,7 +236,7 @@ export const MINI_APP_HTML_TITLE: string = "Copy Ninja 管理中心";
 
 /**
  * Mini App 群详情页可操作的功能开关全集（含 `/init` 总开关）。
- * 不变量：与 `MiniAppFeatureKey` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatsTab.tsx` 与 `packages/mini-app-frontend/components/skeletons/ChatDetailSkeleton.tsx`。
+ * 不变量：与 `MiniAppFeatureKey` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx` 与 `packages/mini-app-frontend/components/skeletons/ChatDetailSkeleton.tsx`。
  */
 export const MINI_APP_FEATURE_KEYS: readonly MiniAppFeatureKey[] =
   exhaustiveList<MiniAppFeatureKey>()([
@@ -269,8 +271,8 @@ export const MINI_APP_THEME_MODES: readonly MiniAppThemeMode[] =
   ]);
 
 /**
- * Mini App 名单添加折叠按钮支持的添加模式闭集（按 ID、按联系人、按频道）。
- * 不变量：与 `MiniAppIdentityAddMode` 联合类型一一对应。所属模块：`packages/mini-app-frontend/components/IdentitiesTab.tsx`。
+ * Mini App 名单与群内目标添加折叠菜单支持的添加模式闭集（按 ID、按联系人、按频道）。
+ * 不变量：与 `MiniAppIdentityAddMode` 联合类型一一对应。所属模块：`packages/mini-app-frontend/components/IdentitySearchAndAddCard.tsx` 与 `packages/mini-app-frontend/components/ChatTargetsMemberPanels.tsx`。
  */
 export const MINI_APP_IDENTITY_ADD_MODES: readonly MiniAppIdentityAddMode[] =
   exhaustiveList<MiniAppIdentityAddMode>()([
@@ -291,3 +293,75 @@ export const MINI_APP_TAB_KEYS: readonly MiniAppTabKey[] =
     "gallery",
     "totp",
   ]);
+
+/**
+ * Mini App 群详情页批量清理新进群成员（`/batch_kick`）允许的最短回溯小时数。
+ * 不变量：正整数下界 1，与 `packages/consts/miniApp.ts` 同名常量一致。所属模块：`packages/mini-app-frontend/store/chats.ts` 与 `packages/mini-app-frontend/components/ChatJoinCleanCard.tsx`。
+ */
+export const MINI_APP_BATCH_KICK_MIN_HOURS: number = 1;
+
+/**
+ * Mini App 群详情页批量清理新进群成员（`/batch_kick`）允许的最长回溯小时数。
+ * 不变量：正整数上界 24，与 `packages/consts/miniApp.ts` 同名常量一致。所属模块：`packages/mini-app-frontend/store/chats.ts` 与 `packages/mini-app-frontend/components/ChatJoinCleanCard.tsx`。
+ */
+export const MINI_APP_BATCH_KICK_MAX_HOURS: number = 24;
+
+/**
+ * Mini App 群详情页批量清理新进群成员（`/batch_kick`）的初始默认回溯小时数。
+ * 不变量：`MINI_APP_BATCH_KICK_MIN_HOURS..MINI_APP_BATCH_KICK_MAX_HOURS` 之间的正整数。所属模块：`packages/mini-app-frontend/store/chats.ts`。
+ */
+export const MINI_APP_BATCH_KICK_DEFAULT_HOURS: number = 1;
+
+/**
+ * Mini App 群详情页批量清理新进群成员（`/batch_kick`）的快捷小时档位列表。
+ * 不变量：严格递增的 `1..24` 正整数只读数组。所属模块：`packages/mini-app-frontend/components/ChatJoinCleanCard.tsx`。
+ */
+export const MINI_APP_BATCH_KICK_PRESET_HOURS: readonly number[] = [1, 3, 6, 12, 24];
+
+/**
+ * Mini App 群详情页在后台 `/batch_kick` 批次执行期间轮询服务端完成回调状态的间隔毫秒数（90 秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx`。
+ */
+export const MINI_APP_BATCH_KICK_POLL_INTERVAL_MS: number = 90_000;
+
+/**
+ * Mini App 群详情页切换回溯清理时间窗口（滑块、步进或预设档位）时触发实时入群人数查询的防抖等待毫秒数（0.5 秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/store/chats.ts`。
+ */
+export const MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS: number = 500;
+
+/**
+ * Mini App 群详情页点击回溯清理窗口小时按钮（步进 `−`/`+` 或快捷档位 `1h`–`24h`）时进度条与滑块平滑生长并带定点弹性回弹的动画时长毫秒数。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。
+ */
+export const MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS: number = 320;
+
+/**
+ * Mini App 群详情页目标管理下拉菜单与弹窗支持的类别键闭集（问答对、追着删目标、追着翻目标）。
+ * 不变量：与 `MiniAppChatTargetKind` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx` 与 `packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
+ */
+export const MINI_APP_CHAT_TARGET_KINDS: readonly MiniAppChatTargetKind[] =
+  exhaustiveList<MiniAppChatTargetKind>()([
+    "qa",
+    "deleteMessage",
+    "translate",
+  ]);
+
+/**
+ * Mini App 群内追着翻目标支持的目标语言闭集。
+ * 不变量：与 `MiniAppTranslateLanguage` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatTargetsMemberPanels.tsx`。
+ */
+export const MINI_APP_TRANSLATE_LANGUAGES: readonly MiniAppTranslateLanguage[] =
+  exhaustiveList<MiniAppTranslateLanguage>()([
+    "ja",
+    "cn",
+    "en",
+    "uk",
+    "ru",
+  ]);
+
+/**
+ * 群内目标管理弹窗数据条目骨架屏中列表行占位的序号表（3 行）。
+ * 不变量：从 0 起连续递增的只读整数数组，仅用作骨架行 key。所属模块：`packages/mini-app-frontend/components/skeletons/ChatTargetsListSkeleton.tsx`。
+ */
+export const MINI_APP_TARGETS_SKELETON_ROW_INDICES: readonly number[] = [0, 1, 2];

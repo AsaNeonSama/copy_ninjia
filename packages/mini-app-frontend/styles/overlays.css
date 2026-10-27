@@ -3,6 +3,11 @@
   to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
+@keyframes miniapp-toast-out {
+  from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  to { opacity: 0; transform: translateX(-50%) translateY(12px) scale(0.96); }
+}
+
 .toast {
   position: fixed;
   bottom: calc(20px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
@@ -18,7 +23,7 @@
   padding: 10px 12px;
   border-radius: 14px;
   font-size: 13px;
-  z-index: 999;
+  z-index: 1300;
   box-shadow: var(--shadow-lg), 0 0 0 1px var(--accent-soft);
   display: flex;
   align-items: center;
@@ -29,7 +34,8 @@
   pointer-events: none;
   transition: opacity 0.22s ease, visibility 0.22s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.toast.show { opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(-50%) translateY(0); animation: miniapp-toast-in 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
+.toast.show { opacity: 1; visibility: visible; pointer-events: auto; transform: translateX(-50%) translateY(0); animation: miniapp-toast-in 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+.toast.closing { opacity: 1; visibility: visible; pointer-events: none; animation: miniapp-toast-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards; }
 .toast-badge {
   width: 28px; height: 28px; border-radius: 9px;
   background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent);
@@ -63,7 +69,11 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  animation: fade-slide-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: miniapp-backdrop-fade-in 0.18s ease-out;
+}
+.confirm-backdrop.closing {
+  pointer-events: none;
+  animation: miniapp-backdrop-fade-out 0.18s ease-in forwards;
 }
 
 .confirm-dialog {
@@ -77,6 +87,12 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transform-origin: center center;
+  animation: miniapp-modal-pop-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.confirm-dialog.closing {
+  pointer-events: none;
+  animation: miniapp-modal-pop-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 .confirm-dialog.confirm-danger { border-color: var(--danger-border); }

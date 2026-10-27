@@ -44,9 +44,10 @@ import { rejectUnlessSuperAdmin } from "./commandActor";
 import { submitDeferredCommand } from "./deferredCommands";
 import type { CachedUser, ChatState } from "../types/chatState";
 import type { IdentityPolicyVerdicts } from "../types/identityStorage";
+import type { BatchKickTriggerSource } from "../types/miniApp";
 
 /** `/batch_kick` 单次批次执行的各分类计数器与中断状态。 */
-interface BatchKickStats {
+export interface BatchKickStats {
   /** 成功踢出（unban 解除封禁）的成员数。 */
   kicked: number;
   /** 探测或踢出时确认已不在群内的成员数。 */
@@ -290,6 +291,8 @@ async function runBatchKick({
 interface DeliverBatchKickParams {
   /** 目标超级群 ID。 */
   readonly chatId: number;
+  /** 触发来源：群内 `/batch_kick` 命令或 Mini App API。 */
+  readonly source: BatchKickTriggerSource;
   /** 触发命令的消息 ID；用于挂回复引用。 */
   readonly messageId: number | undefined;
   /** 回溯时间窗口时长（毫秒）。 */
@@ -298,23 +301,30 @@ interface DeliverBatchKickParams {
   readonly records: readonly JoinLogRecord[];
   /** 「已受理」回执发完（或发送结束）后兑现；批次在它之后开始，保证战报排在回执之后。 */
   readonly acknowledged: Promise<void>;
+  /** 当 `source === "api"` 时在批次执行完成后写入服务端完成状态的回调。 */
+  readonly onComplete?: (stats: Readonly<BatchKickStats>) => void;
 }
 
 /**
  * 延迟命令执行器里的批次任务：逐条处置、交回黑名单、按 NOTICE_TEXTS.batchKickResult 发战报。
- * 本群途中不再受管时静默结束，不发战报；停机取消由执行器吞掉。结束时摘除单飞标记。
- * @param params 目标群 `chatId`、触发消息 ID `messageId`、窗口时长 `durationMs`、入群记录 `records` 与受理回执完成信号 `acknowledged`。
+ * 本群途中不再受管时静默结束，不发战报；停机取消由执行器吞掉。结束时摘除单飞标记，
+ * 并仅在 `source === "api"` 时触发完成回调向服务端写入执行完成状态。
+ * @param params 目标群 `chatId`、来源 `source`、触发消息 ID `messageId`、窗口时长 `durationMs`、入群记录 `records`、回执信号 `acknowledged` 与完成回调 `onComplete`。
  */
 async function deliverBatchKick({
   chatId,
+  source,
   messageId,
   durationMs,
   records,
   acknowledged,
+  onComplete,
 }: DeliverBatchKickParams): Promise<void> {
+  let completedStats: BatchKickStats | null = null;
   try {
     await acknowledged;
     const stats: BatchKickStats = await runBatchKick({ chatId, records });
+    completedStats = stats;
     if (stats.unmanaged) return;
     if (stats.aborted && stats.scanned === 0) {
       await sendCommandMessage({
@@ -353,7 +363,60 @@ async function deliverBatchKick({
     });
   } finally {
     batchKickChats.delete(chatId);
+    if (source === "api" && onComplete !== undefined && completedStats !== null) {
+      onComplete(completedStats);
+    }
   }
+}
+
+/** 启动后台 `/batch_kick` 延迟任务的参数。 */
+export interface StartBatchKickTaskParams {
+  /** 目标超级群 ID。 */
+  readonly chatId: number;
+  /** 触发来源：`"command"`（群内 `/batch_kick` 命令）或 `"api"`（Mini App API）。 */
+  readonly source: BatchKickTriggerSource;
+  /** 触发命令的消息 ID；Mini App 触发时为 undefined。 */
+  readonly messageId?: number;
+  /** 回溯时间窗口时长（毫秒）。 */
+  readonly durationMs: number;
+  /** 窗口内读取到的入群日志记录列表。 */
+  readonly records: readonly JoinLogRecord[];
+  /** 受理回执完成信号；省略时立即开始处置。 */
+  readonly acknowledged?: Promise<void>;
+  /** 仅当 `source === "api"` 时生效的执行完成回调。 */
+  readonly onComplete?: (stats: Readonly<BatchKickStats>) => void;
+}
+
+/**
+ * 登记本群 `/batch_kick` 单飞状态并将批次任务提交至延迟命令执行器 background 档。
+ * @param params 目标群 ID、触发来源、窗口时长、入群记录列表及可选回复消息 ID、回执同步信号与完成回调。
+ * @returns 已由延迟命令执行器受理时返回 true；队列满被拒时清理单飞标记并返回 false。
+ */
+export function startBatchKickTask({
+  chatId,
+  source,
+  messageId,
+  durationMs,
+  records,
+  acknowledged = Promise.resolve(),
+  onComplete,
+}: StartBatchKickTaskParams): boolean {
+  // 先登记再提交：执行器可能在提交的同步段里就启动任务。
+  batchKickChats.add(chatId);
+  const accepted: boolean = submitDeferredCommand({
+    priority: "background",
+    task: (): Promise<void> =>
+      deliverBatchKick({ chatId, source, messageId, durationMs, records, acknowledged, onComplete }),
+    errorLabel: "Unexpected error while processing /batch_kick:",
+    onSkipped: (): void => {
+      batchKickChats.delete(chatId);
+    },
+  });
+  if (!accepted) {
+    batchKickChats.delete(chatId);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -424,16 +487,16 @@ export async function handleBatchKickCommand(
   }
 
   const acknowledged: PromiseWithResolvers<void> = Promise.withResolvers<void>();
-  // 先登记再提交：执行器可能在提交的同步段里就启动任务。
-  batchKickChats.add(chatId);
-  const accepted: boolean = submitDeferredCommand({
-    priority: "background",
-    task: (): Promise<void> => deliverBatchKick({ chatId, messageId, durationMs, records, acknowledged: acknowledged.promise }),
-    errorLabel: "Unexpected error while processing /batch_kick:",
-    onSkipped: (): void => { batchKickChats.delete(chatId); },
-  });
-  if (!accepted) {
-    batchKickChats.delete(chatId);
+  if (
+    !startBatchKickTask({
+      chatId,
+      source: "command",
+      messageId,
+      durationMs,
+      records,
+      acknowledged: acknowledged.promise,
+    })
+  ) {
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.batchKickBusy);
     return;
   }

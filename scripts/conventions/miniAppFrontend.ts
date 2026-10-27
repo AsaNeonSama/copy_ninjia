@@ -20,12 +20,12 @@ export const MINI_APP_FRONTEND_CONSTS_ROOT: string = "packages/mini-app-frontend
 /**
  * 前端目录外允许引用前端的位置：引用方 → 被引用文件，均相对仓库根。
  *
- * 唯一条目：`packages/mini-app-server/server/register.ts` 以 Bun HTML import 引入
+ * 唯一条目：`packages/mini-app-api-server/server/register.ts` 以 Bun HTML import 引入
  * `packages/mini-app-frontend/index.html`，由 `Bun.serve` 打包并托管前端。新增条目必须同时改这里与
  * AGENTS.md 的 Mini App 前后端边界一节。
  */
 export const MINI_APP_FRONTEND_ENTRY_IMPORTS: ReadonlyMap<string, string> = new Map<string, string>([
-  ["packages/mini-app-server/server/register.ts", "packages/mini-app-frontend/index.html"],
+  ["packages/mini-app-api-server/server/register.ts", "packages/mini-app-frontend/index.html"],
 ]);
 
 /** HTML `src`/`href` 属性值。 */

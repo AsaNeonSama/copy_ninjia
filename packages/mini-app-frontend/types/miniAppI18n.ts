@@ -1,15 +1,18 @@
 import type { WhitelistPermissionKey } from "./identityPolicy";
 import type {
   MiniAppActiveSessionCounts,
+  MiniAppBatchKickCompletion,
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
   MiniAppChatDetail,
+  MiniAppChatTargetKind,
   MiniAppFeatureDisplayMeta,
   MiniAppFeatureKey,
   MiniAppIdentityAddMode,
   MiniAppIdentitySubTabKey,
   MiniAppPickerTargetList,
   MiniAppTabKey,
+  MiniAppTranslateLanguage,
 } from "./miniApp";
 
 /** 服务端英文状态码映射为多语言提示时的可选插值参数。 */
@@ -50,6 +53,10 @@ export interface MiniAppServerNoticeParams {
   readonly remainingAttempts?: number;
   /** 剩余锁定分钟数（仅 `PASSWORD_LOCKED` 使用）。 */
   readonly remainingMinutes?: number;
+  /** 批量踢人回溯小时数（仅 `BATCH_KICK_*` 使用）。 */
+  readonly hours?: number;
+  /** 批量踢人回溯窗口命中的入群记录条数（仅 `BATCH_KICK_*` 使用）。 */
+  readonly recordCount?: number;
 }
 
 /** Mini App 界面三语言（中/日/英）杂鱼语气文案结构定义。 */
@@ -191,13 +198,62 @@ export interface MiniAppTranslations {
     readonly lockdownBadge: string;
     readonly chatCardMeta: (chatId: number, hotCount: number, qaCount: number) => string;
     readonly detailSectionTitle: string;
-    readonly viewMessagesButton: (hotCount: number, hotMax: number) => string;
+    readonly viewMessagesButton: string;
+    readonly targetsMenuButton: string;
+    readonly targetsKindLabel: Readonly<Record<MiniAppChatTargetKind, string>>;
+    readonly targetsModalSubtitle: (
+      chatTitle: string,
+      count: number,
+      maxCount: number
+    ) => string;
+    readonly targetsCloseButton: string;
+    readonly targetsRefreshButton: string;
+    readonly qaOpenEditorButton: string;
+    readonly qaCancelEditButton: string;
+    readonly qaQuestionLabel: string;
+    readonly qaQuestionPlaceholder: (maxChars: number) => string;
+    readonly qaAnswerLabel: string;
+    readonly qaAnswerPlaceholder: (maxChars: number) => string;
+    readonly qaSaveButton: string;
+    readonly qaSavingButton: string;
+    readonly qaEditButton: string;
+    readonly qaDeleteButton: string;
+    readonly confirmDeleteQa: (q: string) => string;
+    readonly qaEmptyHint: string;
+    readonly deleteTargetInputPlaceholder: string;
+    readonly deleteTargetAddButton: string;
+    readonly deleteTargetAddingButton: string;
+    readonly deleteTargetRemoveButton: string;
+    readonly confirmRemoveDeleteTarget: (displayName: string, id: number) => string;
+    readonly deleteTargetEmptyHint: string;
+    readonly translateTargetInputPlaceholder: string;
+    readonly translateLanguageLabels: Readonly<Record<MiniAppTranslateLanguage, string>>;
+    readonly translateTargetAddButton: string;
+    readonly translateTargetAddingButton: string;
+    readonly translateTargetRemoveButton: string;
+    readonly confirmRemoveTranslateTarget: (displayName: string, id: number) => string;
+    readonly translateTargetEmptyHint: string;
     readonly closeDetailButton: string;
     readonly botPermProbing: string;
-    readonly botPermAllReady: string;
-    readonly botPermMissingTitle: (count: number) => string;
+    readonly botPermNone: string;
+    readonly botPermGrantedTitle: (count: number) => string;
     readonly botPermLabel: (rawLabel: string) => string;
     readonly detailStatsLine: (detail: Readonly<MiniAppChatDetail>) => string;
+    readonly joinCleanSectionTitle: string;
+    readonly batchKickRunningBadge: string;
+    readonly windowJoinedLabel: string;
+    readonly windowJoinedSub: (hours: number) => string;
+    readonly windowJoinedValue: (count: number) => string;
+    readonly batchKickWindowLabel: string;
+    readonly batchKickHourPill: (hours: number) => string;
+    readonly batchKickDecreaseAria: string;
+    readonly batchKickIncreaseAria: string;
+    readonly batchKickTriggerButton: (hours: number) => string;
+    readonly batchKickRunningButton: string;
+    readonly batchKickCompletedSummary: (
+      completion: Readonly<MiniAppBatchKickCompletion>
+    ) => string;
+    readonly confirmBatchKick: (hours: number) => string;
     readonly featuresSectionTitle: string;
     readonly confirmDisableInit: string;
     readonly featureMeta: Readonly<Record<MiniAppFeatureKey, Readonly<MiniAppFeatureDisplayMeta>>>;

@@ -30,7 +30,7 @@ export function PrefsBar(): React.JSX.Element {
   return (
     <div className="prefs-bar">
       <div className="lang-pill-group" role="group" aria-label="Language">
-        <GlobeSvgIcon size={15} className="lang-globe-icon" />
+        <GlobeSvgIcon size={14} className="lang-globe-icon" />
         {MINI_APP_LANGUAGES.map((lang: MiniAppLanguage): React.JSX.Element => {
           const label: string = getMiniAppTranslations(lang).languageLabel;
           return (

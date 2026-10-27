@@ -640,13 +640,18 @@ function assertStorageMigrationLineageReadonly(): void {
 void assertStorageMigrationLineageReadonly;
 
 import {
+  MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS,
+  MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_PICKER_SUBJECT_KINDS,
   MINI_APP_PICKER_TARGET_LISTS,
   MINI_APP_TOGGLEABLE_FEATURE_KEYS,
+  MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/consts/miniApp";
 import {
+  MINI_APP_BATCH_KICK_PRESET_HOURS,
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
+  MINI_APP_CHAT_TARGET_KINDS as FRONTEND_MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_FEATURE_KEYS as FRONTEND_MINI_APP_FEATURE_KEYS,
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
   MINI_APP_IDENTITY_ADD_MODES,
@@ -654,7 +659,9 @@ import {
   MINI_APP_LANGUAGES,
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
   MINI_APP_TAB_KEYS,
+  MINI_APP_TARGETS_SKELETON_ROW_INDICES,
   MINI_APP_THEME_MODES,
+  MINI_APP_TRANSLATE_LANGUAGES as FRONTEND_MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS as FRONTEND_WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import {
@@ -691,6 +698,20 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 受管群分页档位列表禁止调用方增删。
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error 受管群批量清理快捷小时数预设列表禁止调用方增删。
+  MINI_APP_BATCH_KICK_PRESET_HOURS.push(48);
+  // @ts-expect-error Mini App 群内目标类别闭集禁止调用方增删。
+  MINI_APP_CHAT_TARGET_KINDS.push("qa");
+  // @ts-expect-error 前端群内目标类别闭集禁止调用方增删。
+  FRONTEND_MINI_APP_CHAT_TARGET_KINDS.push("qa");
+  // @ts-expect-error Mini App 追着翻语言闭集禁止调用方增删。
+  MINI_APP_TRANSLATE_LANGUAGES.push("ja");
+  // @ts-expect-error 前端追着翻语言闭集禁止调用方增删。
+  FRONTEND_MINI_APP_TRANSLATE_LANGUAGES.push("ja");
+  // @ts-expect-error Mini App 群内目标变更动作闭集禁止调用方增删。
+  MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS.push("setQa");
+  // @ts-expect-error 群内目标弹窗数据条目骨架行序号表禁止调用方增删。
+  MINI_APP_TARGETS_SKELETON_ROW_INDICES.push(3);
   // @ts-expect-error 名单分页档位列表禁止调用方增删。
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 图库分页档位列表禁止调用方增删。

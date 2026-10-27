@@ -19,7 +19,7 @@ import { buildMiniAppGalleryDownloadFileName as buildFrontendDownloadFileName } 
 import type * as FrontendIdentityPolicy from "../../packages/mini-app-frontend/types/identityPolicy";
 import type * as FrontendMiniApp from "../../packages/mini-app-frontend/types/miniApp";
 import type * as FrontendMiniAppTotp from "../../packages/mini-app-frontend/types/miniAppTotp";
-import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } from "../../packages/mini-app-server/libs/downloadFileName";
+import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } from "../../packages/mini-app-api-server/libs/downloadFileName";
 import type * as ServerIdentityPolicy from "../../packages/types/identityPolicy";
 import type * as ServerMiniApp from "../../packages/types/miniApp";
 import type * as ServerMiniAppTotp from "../../packages/types/miniAppTotp";
@@ -43,8 +43,21 @@ const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppChatFeatureFlags: true satisfies Exact<FrontendMiniApp.MiniAppChatFeatureFlags, ServerMiniApp.MiniAppChatFeatureFlags>,
   MiniAppChatSummary: true satisfies Exact<FrontendMiniApp.MiniAppChatSummary, ServerMiniApp.MiniAppChatSummary>,
   MiniAppChatBotPermissionsView: true satisfies Exact<FrontendMiniApp.MiniAppChatBotPermissionsView, ServerMiniApp.MiniAppChatBotPermissionsView>,
+  BatchKickTriggerSource: true satisfies Exact<FrontendMiniApp.BatchKickTriggerSource, ServerMiniApp.BatchKickTriggerSource>,
+  MiniAppBatchKickCompletion: true satisfies Exact<FrontendMiniApp.MiniAppBatchKickCompletion, ServerMiniApp.MiniAppBatchKickCompletion>,
   MiniAppChatDetail: true satisfies Exact<FrontendMiniApp.MiniAppChatDetail, ServerMiniApp.MiniAppChatDetail>,
   MiniAppFeatureToggleResult: true satisfies Exact<FrontendMiniApp.MiniAppFeatureToggleResult, ServerMiniApp.MiniAppFeatureToggleResult>,
+  MiniAppBatchKickOutcome: true satisfies Exact<FrontendMiniApp.MiniAppBatchKickOutcome, ServerMiniApp.MiniAppBatchKickOutcome>,
+  MiniAppBatchKickResult: true satisfies Exact<FrontendMiniApp.MiniAppBatchKickResult, ServerMiniApp.MiniAppBatchKickResult>,
+  MiniAppChatTargetKind: true satisfies Exact<FrontendMiniApp.MiniAppChatTargetKind, ServerMiniApp.MiniAppChatTargetKind>,
+  MiniAppTranslateLanguage: true satisfies Exact<FrontendMiniApp.MiniAppTranslateLanguage, ServerMiniApp.MiniAppTranslateLanguage>,
+  MiniAppChatQaItem: true satisfies Exact<FrontendMiniApp.MiniAppChatQaItem, ServerMiniApp.MiniAppChatQaItem>,
+  MiniAppChatDeleteTargetItem: true satisfies Exact<FrontendMiniApp.MiniAppChatDeleteTargetItem, ServerMiniApp.MiniAppChatDeleteTargetItem>,
+  MiniAppChatTranslateTargetItem: true satisfies Exact<FrontendMiniApp.MiniAppChatTranslateTargetItem, ServerMiniApp.MiniAppChatTranslateTargetItem>,
+  MiniAppChatTargetsView: true satisfies Exact<FrontendMiniApp.MiniAppChatTargetsView, ServerMiniApp.MiniAppChatTargetsView>,
+  MiniAppChatTargetsMutationAction: true satisfies Exact<FrontendMiniApp.MiniAppChatTargetsMutationAction, ServerMiniApp.MiniAppChatTargetsMutationAction>,
+  MiniAppChatTargetsMutationRequest: true satisfies Exact<FrontendMiniApp.MiniAppChatTargetsMutationRequest, ServerMiniApp.MiniAppChatTargetsMutationRequest>,
+  MiniAppChatTargetsMutationResult: true satisfies Exact<FrontendMiniApp.MiniAppChatTargetsMutationResult, ServerMiniApp.MiniAppChatTargetsMutationResult>,
   MiniAppMessageItem: true satisfies Exact<FrontendMiniApp.MiniAppMessageItem, ServerMiniApp.MiniAppMessageItem>,
   MiniAppMessagePage: true satisfies Exact<FrontendMiniApp.MiniAppMessagePage, ServerMiniApp.MiniAppMessagePage>,
   MiniAppWhitelistEntryView: true satisfies Exact<FrontendMiniApp.MiniAppWhitelistEntryView, ServerMiniApp.MiniAppWhitelistEntryView>,
@@ -84,7 +97,11 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE);
     expect(frontendMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE);
     expect(frontendMiniAppConsts.MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE);
+    expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS);
+    expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS);
     expect(frontendMiniAppConsts.MINI_APP_FEATURE_KEYS).toEqual(serverMiniAppConsts.MINI_APP_FEATURE_KEYS);
+    expect(frontendMiniAppConsts.MINI_APP_CHAT_TARGET_KINDS).toEqual(serverMiniAppConsts.MINI_APP_CHAT_TARGET_KINDS);
+    expect(frontendMiniAppConsts.MINI_APP_TRANSLATE_LANGUAGES).toEqual(serverMiniAppConsts.MINI_APP_TRANSLATE_LANGUAGES);
     expect(frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS).toEqual(serverWhitelistConsts.WHITELIST_PERMISSION_KEYS);
     expect(frontendMemoryConsts.VERBATIM_CONTEXT_MAX).toBe(serverMemoryConsts.VERBATIM_CONTEXT_MAX);
     expect(frontendTimeConsts.MINUTE_MS).toBe(serverTimeConsts.MINUTE_MS);
@@ -130,7 +147,7 @@ describe("Mini App 前端副本与服务端定义一致", () => {
       new URL("../../packages/mini-app-frontend/resource/favicon.ico", import.meta.url)
     ).bytes();
     const serverIcon: Uint8Array = await Bun.file(
-      new URL("../../packages/mini-app-server/resource/favicon.ico", import.meta.url)
+      new URL("../../packages/mini-app-api-server/resource/favicon.ico", import.meta.url)
     ).bytes();
     expect(frontendIcon).toEqual(serverIcon);
   });

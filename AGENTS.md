@@ -107,11 +107,11 @@
 
 ### Mini App 前后端边界
 
-- `packages/mini-app-server/` 是 Mini App 服务端，与 bot 服务共享 `packages/` 下的常量、类型和能力模块，按普通 `packages/` 规则开发。
+- `packages/mini-app-api-server/` 是 Mini App 服务端，与 bot 服务共享 `packages/` 下的常量、类型和能力模块，按普通 `packages/` 规则开发。
 - `packages/mini-app-frontend/` 在代码上不得依赖该目录之外的任何文件；`import type`、`import()`、HTML 的 `src`/`href` 与 CSS 的 `url()`/`@import` 同样计入。npm 依赖按根 `package.json` 共用，不另建 `package.json`。
 - 前端与服务端重合的常量、类型、函数和静态资源在前端内单独复制：常量放 `packages/mini-app-frontend/consts/<domain>.ts`，适用与 `packages/consts/` 相同的常量规则；类型放 `packages/mini-app-frontend/types/<domain>.ts`。每份副本必须登记到 `test/mini-app-frontend/frontendParity.test.ts`（类型编译期恒等，常量、函数与静态资源运行期一致），改动任一侧必须在同一改动中同步另一侧。
 - 只被前端使用的常量与类型放在前端目录，不得留在 `packages/consts/` 或 `packages/types/`。
-- `packages/` 其余模块与 `index.ts` 不得引用 `packages/mini-app-frontend/`；唯一例外是 `packages/mini-app-server/server/register.ts` 以 HTML import 引入 `packages/mini-app-frontend/index.html`，作为 `Bun.serve` 打包托管前端的入口。例外登记在 `scripts/conventions/miniAppFrontend.ts` 的 `MINI_APP_FRONTEND_ENTRY_IMPORTS`，新增例外必须由用户明确授权。
+- `packages/` 其余模块与 `index.ts` 不得引用 `packages/mini-app-frontend/`；唯一例外是 `packages/mini-app-api-server/server/register.ts` 以 HTML import 引入 `packages/mini-app-frontend/index.html`，作为 `Bun.serve` 打包托管前端的入口。例外登记在 `scripts/conventions/miniAppFrontend.ts` 的 `MINI_APP_FRONTEND_ENTRY_IMPORTS`，新增例外必须由用户明确授权。
 - 上述边界由 `bun run check:conventions` 强制。
 
 ### 缓存与线程归属

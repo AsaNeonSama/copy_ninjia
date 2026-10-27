@@ -308,6 +308,11 @@ describe("页面 store", () => {
 
     store.getState().selectChat(-100);
     expect(store.getState().selectedChatId).toBe(-100);
+    expect(store.getState().botPermsExpanded).toBeFalse();
+    store.getState().toggleBotPerms();
+    expect(store.getState().botPermsExpanded).toBeTrue();
+    store.getState().toggleBotPerms();
+    expect(store.getState().botPermsExpanded).toBeFalse();
     expect(store.getState().loadingDetail).toBeTrue();
     await settleLoading();
     expect(store.getState().chatDetail?.chatId).toBe(-100);
@@ -501,6 +506,122 @@ describe("页面 store", () => {
     expect(useMiniAppStore.getState().confirmModal).toBeNull();
     expect(store.getState().chatDetail?.title).toBe("x");
 
+    store.getState().setBatchKickHours(0);
+    expect(store.getState().batchKickHours).toBe(1);
+    store.getState().setBatchKickHours(99);
+    expect(store.getState().batchKickHours).toBe(24);
+    expect(store.getState().loadingWindowJoined).toBeTrue();
+    store.getState().setBatchKickHours(Number.NaN);
+    expect(store.getState().batchKickHours).toBe(1);
+    route("GET /api/chats/-100", (): Response =>
+      json({
+        detail: {
+          chatId: -100,
+          title: "x",
+          joinedCountsByHour: Array.from({ length: 24 }, (_: unknown, i: number): number => i + 10),
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    store.getState().setBatchKickHours(6);
+    expect(store.getState().batchKickHours).toBe(6);
+    expect(store.getState().loadingWindowJoined).toBeTrue();
+    await new Promise<void>((resolve: () => void): void => {
+      setTimeout(resolve, 560);
+    });
+    expect(store.getState().loadingWindowJoined).toBeFalse();
+    expect(store.getState().chatDetail?.joinedCountsByHour[5]).toBe(15);
+
+    const declinedKick: Promise<void> = store.getState().runBatchKick();
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
+      zh.chats.confirmBatchKick(6)
+    );
+    useMiniAppStore.getState().resolveConfirm(false);
+    await declinedKick;
+    expect(fetchCalls.some((call: string): boolean => call.includes("/batch-kick"))).toBeFalse();
+
+    route("POST /api/chats/-100/batch-kick", (): Response =>
+      json({
+        ok: true,
+        outcome: "accepted",
+        hours: 6,
+        recordCount: 5,
+        message: "BATCH_KICK_ACCEPTED",
+        detail: {
+          chatId: -100,
+          title: "x",
+          joinedCountsByHour: Array.from({ length: 24 }, (): number => 5),
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    const acceptedKick: Promise<void> = store.getState().runBatchKick();
+    useMiniAppStore.getState().resolveConfirm(true);
+    await acceptedKick;
+    expect(store.getState().batchKickSubmitting).toBeFalse();
+    expect(store.getState().chatDetail?.batchKickRunning).toBeTrue();
+    expect(useMiniAppStore.getState().toastText).toBe(
+      zh.serverNotice("BATCH_KICK_ACCEPTED", { hours: 6, recordCount: 5 })
+    );
+    expect(useMiniAppStore.getState().toastTone).toBe("info");
+
+    const completion = {
+      hours: 6,
+      recordCount: 5,
+      scanned: 5,
+      kicked: 4,
+      absent: 1,
+      protected: 0,
+      blocked: 0,
+      forbidden: 0,
+      failed: 0,
+      aborted: false,
+      unmanaged: false,
+      completedAt: 1_700_000_000_000,
+    };
+    route("GET /api/chats/-100", (): Response =>
+      json({
+        detail: {
+          chatId: -100,
+          title: "x",
+          joinedCountsByHour: Array.from({ length: 24 }, (): number => 1),
+          batchKickRunning: false,
+          lastBatchKickCompletion: completion,
+        },
+      }));
+    await store.getState().pollRunningBatchKick();
+    expect(store.getState().chatDetail?.batchKickRunning).toBeFalse();
+    expect(store.getState().chatDetail?.lastBatchKickCompletion).toEqual(completion);
+    expect(useMiniAppStore.getState().toastText).toBe(
+      zh.chats.batchKickCompletedSummary(completion)
+    );
+
+    route("POST /api/chats/-100/batch-kick", (): Response =>
+      json({
+        ok: true,
+        outcome: "empty",
+        hours: 6,
+        recordCount: 0,
+        message: "BATCH_KICK_EMPTY",
+        detail: {
+          chatId: -100,
+          title: "x",
+          joinedCountsByHour: Array.from({ length: 24 }, (): number => 0),
+          batchKickRunning: false,
+        },
+      }));
+    const emptyKick: Promise<void> = store.getState().runBatchKick();
+    useMiniAppStore.getState().resolveConfirm(true);
+    await emptyKick;
+    expect(useMiniAppStore.getState().toastTone).toBe("warning");
+
+    route("POST /api/chats/-100/batch-kick", (): Response => json({ error: "kick failed" }, 503));
+    const failedKick: Promise<void> = store.getState().runBatchKick();
+    useMiniAppStore.getState().resolveConfirm(true);
+    await failedKick;
+    expect(useMiniAppStore.getState().toastText).toBe("kick failed");
+    expect(useMiniAppStore.getState().toastTone).toBe("warning");
+
     route("GET /api/chats/-100", (): Response => json({ error: "detail down" }, 500));
     store.getState().closeDetail();
     expect(store.getState().selectedChatId).toBeNull();
@@ -508,6 +629,126 @@ describe("页面 store", () => {
     await settleLoading();
     expect(useMiniAppStore.getState().toastText).toBe("detail down");
     expect(store.getState().loadingDetail).toBeFalse();
+
+    const emptyTargets = {
+      chatId: -100,
+      qaItems: [],
+      qaMax: 15,
+      qaQuestionMaxChars: 256,
+      qaAnswerMaxChars: 3840,
+      deleteMessageTargets: [],
+      deleteMessageMax: 15,
+      translateTargets: [],
+      translateMax: 5,
+      isTranslationEnabled: true,
+    };
+    route("GET /api/chats/-100/targets", (): Response => json({ targets: emptyTargets }));
+    store.getState().toggleTargetsMenu();
+    expect(store.getState().targetsMenuOpen).toBeTrue();
+    store.getState().closeTargetsMenu();
+    expect(store.getState().targetsMenuOpen).toBeFalse();
+    store.getState().openTargetsModal("qa");
+    expect(store.getState().activeTargetsModal).toBe("qa");
+    expect(store.getState().qaEditorOpen).toBeFalse();
+    await settleLoading();
+    expect(store.getState().chatTargets?.qaItems).toEqual([]);
+    store.getState().openQaEditor();
+    expect(store.getState().qaEditorOpen).toBeTrue();
+    store.getState().setQaQuestionInput("draft-q");
+    store.getState().setQaAnswerInput("draft-a");
+    store.getState().closeQaEditor();
+    expect(store.getState().qaEditorOpen).toBeFalse();
+    expect(store.getState().qaQuestionInput).toBe("");
+    expect(store.getState().qaAnswerInput).toBe("");
+
+    store.getState().switchTargetsModalTab("deleteMessage");
+    expect(store.getState().activeTargetsModal).toBe("deleteMessage");
+    expect(store.getState().targetAddMenuOpen).toBeFalse();
+    store.getState().openTargetAddMenu();
+    expect(store.getState().targetAddMenuOpen).toBeTrue();
+    store.getState().selectTargetAddMode("id");
+    expect(store.getState().targetIdFormOpen).toBeTrue();
+    store.getState().closeTargetIdForm();
+    expect(store.getState().targetIdFormOpen).toBeFalse();
+    store.getState().closeTargetAddMenu();
+    expect(store.getState().targetAddMenuOpen).toBeFalse();
+    store.getState().selectTargetAddMode("users");
+    expect(useMiniAppStore.getState().toastText).toBe(zh.identities.pickerUnsupportedHint);
+
+    store.getState().fillQaPairForEdit("q1", "a1");
+    expect(store.getState().qaEditorOpen).toBeTrue();
+    expect(store.getState().qaQuestionInput).toBe("q1");
+    expect(store.getState().qaAnswerInput).toBe("a1");
+
+    route("POST /api/chats/-100/targets", (_url: URL, init?: RequestInit): Response => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { readonly action: string };
+      return json({
+        ok: true,
+        message: body.action === "setQa" ? "QA_ADDED" : "QA_REMOVED",
+        detail: { chatId: -100, title: "x" },
+        targets: {
+          ...emptyTargets,
+          qaItems: body.action === "setQa" ? [{ q: "q1", a: "a1" }] : [],
+        },
+      });
+    });
+    await store.getState().submitQaPair();
+    expect(store.getState().qaEditorOpen).toBeFalse();
+    expect(store.getState().qaQuestionInput).toBe("");
+    expect(store.getState().qaAnswerInput).toBe("");
+    expect(store.getState().chatTargets?.qaItems).toEqual([{ q: "q1", a: "a1" }]);
+    const declinedQaDelete: Promise<void> = store.getState().removeQaPair("q1");
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
+      zh.chats.confirmDeleteQa("q1")
+    );
+    useMiniAppStore.getState().resolveConfirm(false);
+    await declinedQaDelete;
+    expect(store.getState().chatTargets?.qaItems).toEqual([{ q: "q1", a: "a1" }]);
+
+    const acceptedQaDelete: Promise<void> = store.getState().removeQaPair("q1");
+    useMiniAppStore.getState().resolveConfirm(true);
+    await acceptedQaDelete;
+    expect(store.getState().chatTargets?.qaItems).toEqual([]);
+
+    store.getState().setDeleteTargetInput("7001");
+    await store.getState().submitDeleteTarget();
+    expect(store.getState().deleteTargetInput).toBe("");
+    const declinedDeleteTarget: Promise<void> =
+      store.getState().removeDeleteTarget(7001);
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
+      zh.chats.confirmRemoveDeleteTarget("ID 7001", 7001)
+    );
+    useMiniAppStore.getState().resolveConfirm(false);
+    await declinedDeleteTarget;
+    const acceptedDeleteTarget: Promise<void> =
+      store.getState().removeDeleteTarget(7001);
+    useMiniAppStore.getState().resolveConfirm(true);
+    await acceptedDeleteTarget;
+
+    store.getState().setTranslateTargetInput("7002");
+    store.getState().toggleTranslateLangMenu();
+    expect(store.getState().translateLangMenuOpen).toBeTrue();
+    store.getState().closeTranslateLangMenu();
+    expect(store.getState().translateLangMenuOpen).toBeFalse();
+    store.getState().toggleTranslateLangMenu();
+    store.getState().setTranslateLanguageInput("en");
+    expect(store.getState().translateLangMenuOpen).toBeFalse();
+    await store.getState().submitTranslateTarget();
+    expect(store.getState().translateTargetInput).toBe("");
+    const declinedTranslateTarget: Promise<void> =
+      store.getState().removeTranslateTarget(7002);
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
+      zh.chats.confirmRemoveTranslateTarget("ID 7002", 7002)
+    );
+    useMiniAppStore.getState().resolveConfirm(false);
+    await declinedTranslateTarget;
+    const acceptedTranslateTarget: Promise<void> =
+      store.getState().removeTranslateTarget(7002);
+    useMiniAppStore.getState().resolveConfirm(true);
+    await acceptedTranslateTarget;
+
+    store.getState().closeTargetsModal();
+    expect(store.getState().activeTargetsModal).toBeNull();
   });
 
   test("热发言记录与状态看板：加载失败以 Toast 报错，情绪不可用时清空当前情绪", async () => {
@@ -558,10 +799,33 @@ describe("页面 store", () => {
     expect(useMiniAppStore.getState().toastText).toBe(zh.identities.pickerCancelledToast);
     chatCallbacks[0]?.(true);
     expect(useMiniAppStore.getState().toastText).toBe(zh.identities.pickerWaitingToast);
-    await Bun.sleep(MINI_APP_PICKER_POLL_INTERVAL_MS * 2 + 200);
+    await Bun.sleep(MINI_APP_PICKER_POLL_INTERVAL_MS * 2 + MINI_APP_MIN_LOADING_MS + 200);
     expect(store.getState().duplicateAlertText).toBe(zh.identities.duplicateToast("ID 5, ID 6", "whitelist"));
     store.getState().dismissDuplicateAlert();
     expect(store.getState().duplicateAlertText).toBeNull();
+
+    store.getState().selectSubTab("blocklist");
+    route("GET /api/identities/blocklist", (): Response =>
+      json({ page: 1, items: [], whitelistTotal: 1, blocklistTotal: 0 }));
+    route("GET /api/picker/result", (): Response =>
+      json({
+        result: {
+          requestId: 11,
+          targetList: "blocklist",
+          addedIds: [],
+          skippedIds: [77001],
+          duplicateIds: [],
+          summary: "IDENTITY_IN_WHITELIST",
+        },
+      }));
+    store.getState().selectAddMode("users");
+    await Bun.sleep(30);
+    chatCallbacks[1]?.(true);
+    await Bun.sleep(MINI_APP_PICKER_POLL_INTERVAL_MS + MINI_APP_MIN_LOADING_MS + 200);
+    expect(useMiniAppStore.getState().toastText).toBe(
+      zh.serverNotice("IDENTITY_IN_WHITELIST", { id: 77001 })
+    );
+    expect(useMiniAppStore.getState().toastTone).toBe("warning");
 
     store.getState().selectAddMode("id");
     expect(store.getState().idFormOpen).toBeTrue();

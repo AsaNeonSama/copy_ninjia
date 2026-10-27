@@ -146,11 +146,11 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | `super_admin_user_id` | `number` | **必須** | 正の安全な整数（`> 0`） | 唯一のスーパー管理者の Telegram ユーザー数値 ID（@ユーザー名ではありません）。全権限を本質的に保持します |
 | `atmosphere` | `string` | 任意 | `"mesugaki"` または `"normal"`。前後の空白を除いて厳格に検証。省略時はカスタム人設の有無で選択 | システム通知と操作レシートの文体。明示設定を優先（`mesugaki` はメスガキ風、`normal` は通常）。省略時は `prompt/persona.md` があれば通常、なければメスガキ風。AI 人設は変更しない |
 | `time_zone` | `string` | 任意 | IANA 名、既定 `DEFAULT_BOT_TIME_ZONE`。前後の空白を除いて厳格に検証 | 運勢、ログ、広告の発言累計、AI の時刻、日次保守、タイムゾーンを省略した cron の既定暦タイムゾーン。`TOKYO_TIME_ZONE`（省略時を含む）の場合だけ東京天気ツールを登録。不正値は起動拒否。データルートは作成時にこのタイムゾーンへ固定され、以後の変更は起動時に拒否されます（[07 運用とトラブルシューティング](../../docs/ja/07-operations.md#暦タイムゾーン) を参照） |
-| `mini_app` | `object` | 任意 | `url`、`port`、`host`、`password` のみを許可する厳格なオブジェクト。省略時はローカル HTTP サーバーやルートを起動せず、`/app` コマンドおよび個人チャットの `MenuButtonWebApp` も登録しない | SuperAdmin 専用 Telegram Mini App 管理コンソール（Dashboard）設定 |
+| `mini_app` | `object` | 任意 | `url`、`port`、`host`、`password` のみを許可する厳格なオブジェクト。省略時はローカル HTTP サーバーやルートを起動せず、個人チャットの `MenuButtonWebApp` も登録しない | SuperAdmin 専用 Telegram Mini App 管理コンソール（Dashboard）設定 |
 | `mini_app.url` | `string` | `mini_app` 指定時は**必須** | `#` フラグメントを含まない有効な `https://` URL | Telegram WebApp クライアントが読み込む公開 HTTPS エンドポイント URL |
 | `mini_app.port` | `number` | 任意 | `1`–`65535` の安全な整数、既定 `3000` | ローカル `Bun.serve` HTTP 待受ポート |
 | `mini_app.host` | `string` | 任意 | 非空文字列、既定 `"127.0.0.1"` | ローカル `Bun.serve` HTTP 待受アドレス |
-| `mini_app.password` | `string` | `mini_app` 指定時は**必須** | 6 桁以上の数字（`0-9`）を含む非空文字列（プレースホルダー `MINI_APP_PASSWORD_PLACEHOLDER` 不可）。未指定や不正値の場合は起動を拒否 | Mini App 初回画面のアクセスパスワード（1 回の認証は 90 分間有効、5 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック） |
+| `mini_app.password` | `string` | `mini_app` 指定時は**必須** | 6 桁以上の数字（`0-9`）を含む非空文字列（プレースホルダー `MINI_APP_PASSWORD_PLACEHOLDER` 不可）。未指定や不正値の場合は起動を拒否 | Mini App 初回画面のアクセスパスワード（`initData` と認証セッションはいずれも 45 分間有効、3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロック、コンソールで Google Authenticator TOTP をバインドした場合はログイン時に 6 桁コードが優先） |
 
 ---
 

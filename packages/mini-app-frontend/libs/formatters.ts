@@ -43,7 +43,7 @@ export function truncateDisplayText(raw: string, maxChars: number = 20): string 
 
 /**
  * 构造以秒级 Unix 时间戳命名的图库图片下载文件名（保留原文件扩展名，如 `1792934000.png`）。
- * 与 `packages/mini-app-server/libs/downloadFileName.ts` 的同名函数输出一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。
+ * 与 `packages/mini-app-api-server/libs/downloadFileName.ts` 的同名函数输出一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。
  *
  * @param fileName 图库图片原始 SHA-256 文件名
  * @param nowMs 可选当前毫秒时间戳（默认 `Date.now()`）

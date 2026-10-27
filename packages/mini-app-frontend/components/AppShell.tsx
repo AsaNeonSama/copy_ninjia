@@ -3,18 +3,18 @@ import { MINI_APP_TAB_KEYS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { getTelegramWebApp } from "../libs/telegram";
+import { ChatsPage } from "../pages/ChatsPage";
+import { GalleryPage } from "../pages/GalleryPage";
+import { IdentitiesPage } from "../pages/IdentitiesPage";
+import { StatusPage } from "../pages/StatusPage";
+import { TotpPage } from "../pages/TotpPage";
 import { CloseSvgIcon, LockSvgIcon, MenuSvgIcon, TabSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import type { MiniAppLanguage, MiniAppTabKey, TelegramWebApp } from "../types/miniApp";
-import { ChatsTab } from "./ChatsTab";
 import { ConfirmModal } from "./ConfirmModal";
-import { GalleryTab } from "./GalleryTab";
-import { IdentitiesTab } from "./IdentitiesTab";
 import { PrefsBar } from "./PrefsBar";
-import { StatusTab } from "./StatusTab";
 import { Toast } from "./Toast";
-import { TotpManagerCard } from "./TotpManagerCard";
 
 /**
  * 渲染解锁后的控制台外壳：顶栏（侧栏开关、当前页标题、偏好栏与锁定按钮）、折叠侧边栏导航与当前标签页内容。
@@ -123,7 +123,7 @@ export function AppShell(): React.JSX.Element {
               setSidebarOpen(false);
             }}
           >
-            <CloseSvgIcon size={17} />
+            <CloseSvgIcon size={16} />
           </button>
         </div>
 
@@ -159,15 +159,15 @@ export function AppShell(): React.JSX.Element {
       </aside>
 
       <main className="app-main">
-        {activeTab === "status" ? <StatusTab /> : null}
+        {activeTab === "status" ? <StatusPage /> : null}
 
-        {activeTab === "chats" ? <ChatsTab /> : null}
+        {activeTab === "chats" ? <ChatsPage /> : null}
 
-        {activeTab === "identities" ? <IdentitiesTab /> : null}
+        {activeTab === "identities" ? <IdentitiesPage /> : null}
 
-        {activeTab === "gallery" ? <GalleryTab /> : null}
+        {activeTab === "gallery" ? <GalleryPage /> : null}
 
-        {activeTab === "totp" ? <TotpManagerCard /> : null}
+        {activeTab === "totp" ? <TotpPage /> : null}
       </main>
 
       <ConfirmModal />

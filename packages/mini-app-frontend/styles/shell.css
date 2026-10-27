@@ -49,6 +49,12 @@ header,
   flex-shrink: 0;
 }
 
+.topbar-right > .btn {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+}
+
 .topbar-titles {
   min-width: 0;
   flex: 1;
@@ -92,11 +98,11 @@ header,
   border-radius: 10px; padding: 3px 5px 3px 8px;
 }
 
-.lang-globe-icon { color: var(--hint); margin-right: 3px; flex-shrink: 0; }
+.lang-globe-icon { color: var(--hint); margin-right: 3px; flex-shrink: 0; align-self: center; }
 
 .lang-pill-btn {
   appearance: none; border: none; background: transparent; color: var(--hint);
-  font-size: 13px; font-weight: 700; line-height: 1; height: 28px; min-width: 32px;
+  font-size: 13px; font-weight: 700; line-height: 14px; height: 28px; min-width: 32px;
   padding: 0 9px; border-radius: 7px; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   transition: background-color 0.16s ease, color 0.16s ease, transform 0.14s ease;
@@ -107,7 +113,7 @@ header,
 
 .theme-toggle-btn {
   appearance: none; border: 1px solid var(--border); background: var(--surface-inset); color: var(--text);
-  font-size: 12px; font-weight: 600; line-height: 1; height: 36px; padding: 0 12px; border-radius: 10px;
+  font-size: 12px; font-weight: 600; line-height: 14px; height: 36px; padding: 0 12px; border-radius: 10px;
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   transition: background-color 0.16s ease, border-color 0.16s ease, transform 0.14s ease;
 }

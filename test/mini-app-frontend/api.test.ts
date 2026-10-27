@@ -8,8 +8,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { fetchMiniAppBlocklist } from "../../packages/mini-app-frontend/api/blocklist";
 import { setMiniAppBlocklistMembership } from "../../packages/mini-app-frontend/api/blocklistMembership";
+import { triggerMiniAppChatBatchKick } from "../../packages/mini-app-frontend/api/chatBatchKick";
 import { fetchMiniAppChatDetail } from "../../packages/mini-app-frontend/api/chatDetail";
 import { toggleMiniAppChatFeature } from "../../packages/mini-app-frontend/api/chatFeature";
+import {
+  fetchMiniAppChatTargets,
+  mutateMiniAppChatTargets,
+} from "../../packages/mini-app-frontend/api/chatTargets";
 import { fetchMiniAppChats } from "../../packages/mini-app-frontend/api/chats";
 import { deleteMiniAppGalleryImageByName } from "../../packages/mini-app-frontend/api/galleryDelete";
 import {
@@ -29,6 +34,23 @@ import { setupMiniAppTotp } from "../../packages/mini-app-frontend/api/totpSetup
 import { fetchMiniAppTotpStatus } from "../../packages/mini-app-frontend/api/totpStatus";
 import { fetchMiniAppWhitelist } from "../../packages/mini-app-frontend/api/whitelist";
 import { setMiniAppWhitelistMembership } from "../../packages/mini-app-frontend/api/whitelistMembership";
+import {
+  CollapseGrid,
+  TriggerCollapseGrid,
+} from "../../packages/mini-app-frontend/components/animations/CollapseGrid";
+import { LoadingDotsWave } from "../../packages/mini-app-frontend/components/animations/LoadingDotsWave";
+import {
+  readModalBodyHeight,
+  scrollModalBodyToTop,
+} from "../../packages/mini-app-frontend/components/animations/TabHeightSizer";
+import {
+  computeRangeProgressPercent,
+  interpolateSpringRangeValue,
+} from "../../packages/mini-app-frontend/components/animations/useAnimatedRangeProgress";
+import { ConfirmModal } from "../../packages/mini-app-frontend/components/ConfirmModal";
+import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
+import { StatusOverviewCard } from "../../packages/mini-app-frontend/components/StatusOverviewCard";
+import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import {
   MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
@@ -139,7 +161,10 @@ describe("前端接口文件与纯函数辅助库", () => {
   test("每个接口按约定的方法、路径与 JSON 请求体发出，并附带 initData 与会话令牌", async () => {
     await fetchMiniAppChats();
     await fetchMiniAppChatDetail(-100);
+    await fetchMiniAppChatTargets(-100);
+    await mutateMiniAppChatTargets(-100, { action: "setQa", q: "hi", a: "yo" });
     await toggleMiniAppChatFeature(-100, "aiChat", true);
+    await triggerMiniAppChatBatchKick(-100, 6);
     await fetchMiniAppWhitelist(2, 15, " doro ");
     await setMiniAppWhitelistMembership(7, true);
     await fetchMiniAppBlocklist(1, 10);
@@ -157,7 +182,10 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(requests.map((request: RecordedRequest): string => `${request.key} ${request.body ?? ""}`.trim())).toEqual([
       "GET /api/chats",
       "GET /api/chats/-100",
+      "GET /api/chats/-100/targets",
+      'POST /api/chats/-100/targets {"action":"setQa","q":"hi","a":"yo"}',
       'POST /api/chats/-100/feature {"feature":"aiChat","enabled":true}',
+      'POST /api/chats/-100/batch-kick {"hours":6}',
       "GET /api/identities/whitelist?page=2&pageSize=15&query=doro",
       'POST /api/identities/whitelist {"id":7,"enabled":true}',
       "GET /api/identities/blocklist?page=1&pageSize=10",
@@ -240,7 +268,7 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(readMiniAppSessionToken()).toBe("");
   });
 
-  test("useComponentStore 为组件实例创建独占仓库并按当前状态渲染", () => {
+  test("useComponentStore 为组件实例创建独占仓库并按当前状态渲染", async () => {
     const Probe = (): ReturnType<typeof createElement> => {
       const state: MiniAppMessagesStoreState = useComponentStore(createMessagesStore);
       return createElement("span", null, `${state.pageNumber}/${state.pageSize}/${String(state.loading)}`);
@@ -277,6 +305,45 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(openedMarkup).toContain(`aria-label="${zhDict.sidebarCloseAria}"`);
     expect(openedMarkup).toContain('aria-expanded="true"');
     expect(openedMarkup).toContain('width="22" height="22"');
+
+    expect(renderToStaticMarkup(createElement(Toast))).toBe("");
+    useMiniAppStore.getState().showToast("删除成功", "warning");
+    const toastMarkup: string = renderToStaticMarkup(createElement(Toast));
+    expect(toastMarkup).toContain('class="toast show toast-warning"');
+    expect(toastMarkup).toContain("删除成功");
+    useMiniAppStore.getState().clearToast();
+
+    expect(renderToStaticMarkup(createElement(ConfirmModal))).toBe("");
+    const pendingConfirm: Promise<boolean> = useMiniAppStore
+      .getState()
+      .requestConfirm("确定移除该目标？", "danger");
+    const confirmMarkup: string = renderToStaticMarkup(createElement(ConfirmModal));
+    expect(confirmMarkup).toContain('class="confirm-backdrop "');
+    expect(confirmMarkup).toContain('class="confirm-dialog confirm-danger "');
+    expect(confirmMarkup).toContain("确定移除该目标？");
+    useMiniAppStore.getState().resolveConfirm(false);
+    expect(await pendingConfirm).toBeFalse();
+
+    const permDrawerMarkup: string = renderToStaticMarkup(
+      createElement(PermissionDrawer, {
+        entry: {
+          id: 1001,
+          isChannel: false,
+          displayName: "Alice",
+          permissions: Object.fromEntries(
+            WHITELIST_PERMISSION_KEYS.map((key) => [
+              key,
+              key === WHITELIST_PERMISSION_KEYS[0],
+            ])
+          ) as Record<(typeof WHITELIST_PERMISSION_KEYS)[number], boolean>,
+        },
+        descriptors: [],
+        onUpdated: (): void => {},
+        onClose: (): void => {},
+      })
+    );
+    expect(permDrawerMarkup).toContain('class="perm-drawer-inline"');
+    expect(permDrawerMarkup).toContain("Alice");
     resetMiniAppStoreForTest();
   });
 
@@ -377,6 +444,85 @@ describe("前端接口文件与纯函数辅助库", () => {
         })
       ).toContain("25");
       expect(dict.gate.deniedNodeGatewayState(403).length).toBeGreaterThan(0);
+      expect(dict.chats.botPermProbing.length).toBeGreaterThan(0);
+      expect(dict.chats.botPermNone.length).toBeGreaterThan(0);
+      expect(dict.chats.botPermGrantedTitle(7)).toContain("7");
+      expect(dict.chats.botPermLabel("删除消息").length).toBeGreaterThan(0);
+      expect(dict.chats.viewMessagesButton.length).toBeGreaterThan(0);
+      expect(dict.chats.targetsMenuButton.length).toBeGreaterThan(0);
+      expect(dict.chats.targetsKindLabel.qa.length).toBeGreaterThan(0);
+      expect(dict.chats.targetsKindLabel.deleteMessage.length).toBeGreaterThan(0);
+      expect(dict.chats.targetsKindLabel.translate.length).toBeGreaterThan(0);
+      expect(dict.chats.targetsModalSubtitle("群A", 2, 15)).toContain("2/15");
+      expect(dict.chats.qaOpenEditorButton.length).toBeGreaterThan(0);
+      expect(dict.chats.qaCancelEditButton.length).toBeGreaterThan(0);
+      expect(dict.chats.qaQuestionPlaceholder(256)).toContain("256");
+      expect(dict.chats.qaAnswerPlaceholder(3840)).toContain("3840");
+      expect(
+        dict.chats.detailStatsLine({
+          chatId: -1001,
+          title: "G",
+          isLockdownActive: false,
+          quietRemainingMs: 0,
+          lockdownRemainingMs: 0,
+          activeSessions: {
+            gag: 0,
+            wed: false,
+            verify: 0,
+            qaSet: false,
+          },
+          hotMessageCount: 0,
+          hotMessageMax: 256,
+          qaPairCount: 1,
+          deleteMessageTargetCount: 2,
+          translateTargetCount: 3,
+          joinedCountsByHour: [],
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+          features: {
+            init: true,
+            aiChat: false,
+            translation: false,
+            adDetect: false,
+            floodControl: false,
+            antiRaid: false,
+            proxySend: false,
+          },
+          botPermissions: null,
+        })
+      ).toContain("-1001");
+      expect(dict.chats.joinCleanSectionTitle.length).toBeGreaterThan(0);
+      expect(dict.chats.batchKickRunningBadge.length).toBeGreaterThan(0);
+      expect(dict.chats.windowJoinedLabel.length).toBeGreaterThan(0);
+      expect(dict.chats.windowJoinedSub(6)).toContain("6");
+      expect(dict.chats.windowJoinedValue(12_345)).toContain("12345");
+      expect(dict.chats.batchKickWindowLabel.length).toBeGreaterThan(0);
+      expect(dict.chats.batchKickHourPill(6)).toContain("6");
+      expect(dict.chats.batchKickDecreaseAria.length).toBeGreaterThan(0);
+      expect(dict.chats.batchKickIncreaseAria.length).toBeGreaterThan(0);
+      expect(dict.chats.batchKickTriggerButton(6)).toContain("6");
+      expect(dict.chats.batchKickTriggerButton(6)).not.toContain("/batch_kick");
+      expect(dict.chats.batchKickRunningButton.length).toBeGreaterThan(0);
+      expect(
+        dict.chats.batchKickCompletedSummary({
+          hours: 6,
+          recordCount: 5,
+          scanned: 5,
+          kicked: 3,
+          absent: 1,
+          protected: 1,
+          blocked: 0,
+          forbidden: 0,
+          failed: 0,
+          aborted: false,
+          unmanaged: false,
+          completedAt: 1_700_000_000_000,
+        })
+      ).toContain("3");
+      expect(dict.chats.confirmBatchKick(6)).toContain("6");
+      expect(dict.chats.confirmDeleteQa("q1")).toContain("q1");
+      expect(dict.chats.confirmRemoveDeleteTarget("Alice", 7001)).toContain("7001");
+      expect(dict.chats.confirmRemoveTranslateTarget("Bob", 7002)).toContain("7002");
       expect(dict.identities.whitelistTab.length).toBeGreaterThan(0);
       expect(dict.identities.blocklistTab.length).toBeGreaterThan(0);
       expect(dict.identities.searchPlaceholder).toBe("id/name");
@@ -414,6 +560,12 @@ describe("前端接口文件与纯函数辅助库", () => {
         "FEATURE_DISABLED",
         "PROXY_SEND_ENABLED",
         "PROXY_SEND_DISABLED",
+        "INVALID_BATCH_KICK_PARAMS",
+        "BATCH_KICK_RUNNING",
+        "JOIN_LOG_UNAVAILABLE",
+        "BATCH_KICK_EMPTY",
+        "BATCH_KICK_BUSY",
+        "BATCH_KICK_ACCEPTED",
         "INVALID_IDENTITY_PARAMS",
         "INVALID_IDENTITY_ID",
         "INVALID_PERMISSION_PARAMS",
@@ -455,6 +607,39 @@ describe("前端接口文件与纯函数辅助库", () => {
         "GALLERY_IMAGE_NOT_FOUND",
         "GALLERY_INVALID_FILE_NAME",
         "GALLERY_DELETE_FAILED",
+        "QA_ADDED",
+        "QA_UPDATED",
+        "QA_REMOVED",
+        "QA_NOT_FOUND",
+        "QA_EMPTY_FIELDS",
+        "QA_QUESTION_TOO_LONG",
+        "QA_ANSWER_TOO_LONG",
+        "QA_COMMAND_IN_QUESTION",
+        "QA_COMMAND_IN_ANSWER",
+        "QA_LIMIT_REACHED",
+        "QA_STORAGE_FAILED",
+        "TARGET_REQUIRED",
+        "TARGET_INVALID",
+        "TARGET_USERNAME_NOT_FOUND",
+        "TARGET_SELF_FORBIDDEN",
+        "TARGET_CURRENT_CHAT_FORBIDDEN",
+        "DELETE_TARGET_SUPER_ADMIN_FORBIDDEN",
+        "DELETE_TARGET_MISSING_BOT_PERMISSION",
+        "DELETE_TARGET_ALREADY_EXISTS",
+        "DELETE_TARGET_LIMIT_REACHED",
+        "DELETE_TARGET_ADDED",
+        "DELETE_TARGET_REMOVED",
+        "DELETE_TARGET_NOT_FOUND",
+        "TRANSLATE_CAPABILITY_UNAVAILABLE",
+        "TRANSLATE_FEATURE_DISABLED",
+        "TRANSLATE_LANGUAGE_INVALID",
+        "TRANSLATE_TARGET_LIMIT_REACHED",
+        "TRANSLATE_TARGET_ALREADY_EXISTS",
+        "TRANSLATE_TARGET_ADDED",
+        "TRANSLATE_TARGET_UPDATED",
+        "TRANSLATE_TARGET_REMOVED",
+        "TRANSLATE_TARGET_NOT_FOUND",
+        "INVALID_CHAT_TARGETS_PARAMS",
         "UNKNOWN_CUSTOM_CODE",
       ];
       for (const code of serverCodes) {
@@ -471,6 +656,8 @@ describe("前端接口文件与纯函数辅助库", () => {
           duplicateCount: 1,
           affectedChats: 1,
           totalChats: 2,
+          hours: 6,
+          recordCount: 15,
           persisted: false,
           fileName: "abc.png",
           width: 12000,
@@ -510,15 +697,115 @@ describe("前端接口文件与纯函数辅助库", () => {
     useMiniAppStore.getState().showToast("笨蛋杂鱼♡", "danger");
     expect(useMiniAppStore.getState().toastText).toBe("笨蛋杂鱼♡");
     expect(useMiniAppStore.getState().toastTone).toBe("danger");
+    const openToastHtml: string = renderToStaticMarkup(createElement(Toast));
+    expect(openToastHtml).toContain("toast show toast-danger");
+    expect(openToastHtml).toContain("笨蛋杂鱼♡");
     useMiniAppStore.getState().clearToast();
     expect(useMiniAppStore.getState().toastText).toBe("");
+    expect(renderToStaticMarkup(createElement(Toast))).toBe("");
     const confirmPromise: Promise<boolean> = useMiniAppStore
       .getState()
       .requestConfirm("确认删除？", "danger");
     expect(useMiniAppStore.getState().confirmModal?.message).toBe("确认删除？");
+    const openConfirmHtml: string = renderToStaticMarkup(createElement(ConfirmModal));
+    expect(openConfirmHtml).toContain("confirm-backdrop");
+    expect(openConfirmHtml).toContain("confirm-dialog");
+    expect(openConfirmHtml).toContain("确认删除？");
     useMiniAppStore.getState().resolveConfirm(true);
     expect(await confirmPromise).toBeTrue();
     expect(useMiniAppStore.getState().confirmModal).toBeNull();
+    expect(renderToStaticMarkup(createElement(ConfirmModal))).toBe("");
+    const collapsedGridHtml: string = renderToStaticMarkup(
+      createElement(CollapseGrid, {
+        expanded: false,
+        gridClassName: "perm-drawer-collapse-grid",
+        innerClassName: "perm-drawer-collapse-inner",
+        children: createElement(PermissionDrawer, {
+          entry: {
+            id: 1001,
+            displayName: "测试成员",
+            isChannel: false,
+            permissions: Object.fromEntries(
+              WHITELIST_PERMISSION_KEYS.map((key) => [key, false])
+            ) as never,
+          },
+          descriptors: [],
+          onUpdated: (): void => undefined,
+          onClose: (): void => undefined,
+        }),
+      })
+    );
+    expect(collapsedGridHtml).toContain('class="perm-drawer-collapse-grid "');
+    expect(collapsedGridHtml).toContain('aria-hidden="true"');
+    const expandedGridHtml: string = renderToStaticMarkup(
+      createElement(CollapseGrid, {
+        expanded: true,
+        gridClassName: "perm-drawer-collapse-grid",
+        innerClassName: "perm-drawer-collapse-inner",
+        children: createElement("div", null, "panel"),
+      })
+    );
+    expect(expandedGridHtml).toContain('class="perm-drawer-collapse-grid expanded"');
+    expect(expandedGridHtml).toContain('aria-hidden="false"');
+    const triggerGridHtml: string = renderToStaticMarkup(
+      createElement(TriggerCollapseGrid, {
+        collapsed: true,
+        gridClassName: "targets-add-trigger-collapse-grid",
+        innerClassName: "targets-add-trigger-collapse-inner",
+        children: createElement("button", { type: "button" }, "add"),
+      })
+    );
+    expect(triggerGridHtml).toContain("targets-add-trigger-collapse-grid collapsed");
+    expect(renderToStaticMarkup(createElement(LoadingDotsWave))).toContain(
+      "join-clean-loading-dots"
+    );
+    expect(readModalBodyHeight(null)).toBe(0);
+    expect(readModalBodyHeight({ offsetHeight: 180 })).toBe(180);
+    expect(readModalBodyHeight({ scrollHeight: 210 })).toBe(210);
+    scrollModalBodyToTop(null);
+    const scrolledCalls: { readonly top: number; readonly behavior: "smooth" | "auto" }[] = [];
+    scrollModalBodyToTop({
+      scrollTo: (opts): void => {
+        scrolledCalls.push(opts);
+      },
+    });
+    expect(scrolledCalls).toEqual([{ top: 0, behavior: "smooth" }]);
+    const fallbackScrollEl: { scrollTop: number } = { scrollTop: 140 };
+    scrollModalBodyToTop(fallbackScrollEl);
+    expect(fallbackScrollEl.scrollTop).toBe(0);
+    expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
+    expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");
+    expect(computeRangeProgressPercent(12.5, 1, 24)).toBe("50.00%");
+    const statusOverviewHtml: string = renderToStaticMarkup(
+      createElement(StatusOverviewCard, {
+        t: getMiniAppTranslations("zh"),
+        status: {
+          generatedAt: 1_700_000_000_000,
+          uptimeMs: 120_000,
+          cpuAveragePercent: 0.22,
+          memoryCurrentRssBytes: 64 * 1024 * 1024,
+          memoryPeakRssBytes: 80 * 1024 * 1024,
+          memoryHeapUsedBytes: 32 * 1024 * 1024,
+          memoryHeapTotalBytes: 48 * 1024 * 1024,
+          memoryOtherBytes: 128 * 1024 * 1024,
+          memoryTotalBytes: 1024 * 1024 * 1024,
+          managedChatCount: 3,
+          whitelistCount: 5,
+          blocklistCount: 1,
+          activeSessions: { total: 2, gag: 1, wed: 0, verify: 1, qaSet: 0 },
+          telegramOutbound: {
+            inFlight: 1,
+            maxConcurrency: 20,
+            waiting: 0,
+            retryQueueSize: 0,
+            retryQueueMax: 100,
+          },
+          capabilities: [],
+        },
+      })
+    );
+    expect(statusOverviewHtml).toContain('class="stat-value stat-value-active">0.22%</div>');
+    expect(statusOverviewHtml).toContain('class="stat-value-active">1</span>');
     resetMiniAppStoreForTest();
 
     expect(MenuSvgIcon({})).toBeDefined();
@@ -536,6 +823,14 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
     expect(truncateDisplayText("短名称", 20)).toBe("短名称");
     expect(MINI_APP_MIN_LOADING_MS).toBeGreaterThanOrEqual(150);
+    expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
+    expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");
+    expect(interpolateSpringRangeValue(1, 6, 0.72)).toBeGreaterThan(6);
+    expect(interpolateSpringRangeValue(1, 6, 1)).toBe(6);
+    expect(interpolateSpringRangeValue(12, 24, 0.72)).toBeLessThan(24);
+    expect(interpolateSpringRangeValue(12, 24, 1)).toBe(24);
+    expect(interpolateSpringRangeValue(6, 1, 0.72)).toBeGreaterThan(1);
+    expect(interpolateSpringRangeValue(6, 1, 1)).toBe(1);
     await waitMinimumLoadingDuration(Date.now() - MINI_APP_MIN_LOADING_MS - 10);
     const minWaitStart: number = Date.now();
     await waitMinimumLoadingDuration(minWaitStart, 20);

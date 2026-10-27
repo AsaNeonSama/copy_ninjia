@@ -323,3 +323,41 @@
 - **定时语音广播（`send_voice`）**：将配置的 `content` 文本按照可选的 `tone` 语气修饰词合成为语音气泡发出。此项依赖在 `agent.json` 中配置有效的 `agent.tts`，否则在配置校验阶段将被直接拦截报错。
 - **AI 网页搜索摘要（`send_web_digest`）**：系统根据配置的简短 `topic` 检索相关主题，按照 `instructions` 的指导规则整理为符合 MarkdownV2 格式的精简摘要，返回条目数不超过 `max_items`。优先调用 `agent.web_search` 独立检索模型；若未配置，则回落至主文本模型内置的搜索能力；若模型未触发外部搜索，则会在发送正文前附带 `WEB_DIGEST_UNSEARCHED_WARNING`（“注意，以下可能为模型侧缓存内容，请仔细甄别”）的警示前缀。
 - **生命周期与论坛路由**：定时消息发出后属于正式功能消息，长期保留；在开启了话题的超级群中，定时消息默认投递至 General 主话题中。一次性定时任务与随机浮动时间仅在内存中计时调度，若进程在预定触发时处于停机状态，重启后错过的任务不会补偿补发。
+
+---
+
+## 🖥️ Mini App 管理控制台：API 与权限边界
+
+当 `config/static/bot.json` 配置了可选的 `mini_app` 对象时，系统会启动本地 `Bun.serve` HTTP 服务（实现在 `packages/mini-app-api-server/`，前端在 `packages/mini-app-frontend/`），并在超级管理员私聊窗口左下角挂载 `MenuButtonWebApp`（`App` 按钮）。
+
+### 1. 认证与安全边界
+- **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求先经 `headerGuard` 校验同源与凭据头形态，再经 `initData` 中间件执行 Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）与登录（`POST /api/auth/login`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。
+- **首屏凭据与锁定保护**：未绑定验证器时校验 `mini_app.password`；在控制台绑定 Google Authenticator (TOTP) 后（持久化于 `memory/mini-app-totp/totp.json`），登录优先校验当前 30 秒时间步的 6 位动态码。连续输错 3 次将锁定超级管理员 ID 30 分钟，转入锁定时向超级管理员私聊发送一次含解锁时间与来源 IP 的告警。
+- **受保护静态与图库资源**：图库缩略预览（`GET /api/gallery/:name/preview`）与受保护 SVG 图标（`GET|HEAD /api/resource/:name.svg`）通过仅在登录或有效会话续接时派发的确定性 `assetToken` 鉴权，并支持 7 天不可变缓存与 `ETag` 304 协商。
+
+### 2. HTTP API 路由与能力对照
+
+| 路由 | 方法 | 权限与边界说明 |
+| :--- | :---: | :--- |
+| `/api/auth/precheck`<br>`/api/auth/login` | `GET`<br>`POST` | 校验 `initData` 签名与超级管理员身份，返回登录模式（`password` 或 `totp`）、续接有效会话或签发新 45 分钟 `sessionToken` 与 `assetToken` |
+| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | 查询、生成待绑定密钥二维码、校验 6 位动态码启用或删除 Google Authenticator 验证器 |
+| `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | 查询实时系统指标（运行时长、CPU 平均负载、内存 PSS、托管群数、活跃会话、AI 模型就绪状态、Telegram 出站门控），查询或手动重抽全局 AI 心情 |
+| `/api/chats`<br>`/api/chats/:chatId` | `GET` | 列出已开启 `/init` 的受管群摘要，或查询单群详情（含功能开关、热消息计数、静音/锁定剩余时长、Bot 在本群持有的管理员权限 `botPermissions`、1–24 小时各回溯窗口去重入群人数 `joinedCountsByHour` 及 `/batch_kick` 执行状态） |
+| `/api/chats/:chatId/messages` | `GET` | 分页查看并按关键字搜索该群内存热 256 缓冲区内的近期聊天记录 |
+| `/api/chats/:chatId/feature` | `POST` | 切换单群功能开关（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）；关闭 `init` 与 `/init disable` 同序执行运行时拆除与状态清理，开启 `proxySend` 与私聊 `/send` 共享单群唯一性约束 |
+| `/api/chats/:chatId/batch-kick` | `POST` | 按 `1..24` 小时回溯窗口触发本群 `/batch_kick` 批量清理新成员；与群内 `/batch_kick` 命令共享 `batchKickChats` 单飞锁与后台执行器，完成后写入 `miniAppBatchKickCompletedByChat` 供前端轮询展示战报 |
+| `/api/chats/:chatId/targets` | `GET`<br>`POST` | 查询或增删改本群的自定义问答对（`setQa`/`removeQa`）、追着删目标（`addDeleteTarget`/`removeDeleteTarget`）与追着翻目标（`addTranslateTarget`/`removeTranslateTarget`） |
+| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | 分页查询与搜索白名单/黑名单（经 `readIdentityPolicyEntries` 冷读，不污染主线程热 LRU），添加/移出黑白名单，修改白名单条目的 13 项细粒度权限或一键全开（`enableAll`） |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | 调用 Telegram `savePreparedKeyboardButton` 准备原生好友/联系人或频道选择器会话，并轮询 `users_shared`/`chat_shared` 导入回执（支持 `whitelist`、`blocklist`、`deleteMessage`、`translate` 四类目标列表） |
+| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/:name/delete`<br>`/api/gallery/:name/download` | `GET`<br>`POST`<br>`POST`/`DELETE`<br>`GET`/`HEAD` | 分页浏览专用图库、按原始二进制上传入库（执行与 `/h_image add` 相同的 SHA-256 命名去重与尺寸预检）、删除或下载原图 |
+
+### 3. 名单与群目标操作的冲突与边界守卫
+- **黑白名单添加守卫（按 ID 与原生选择器共用）**：
+  - 白名单与黑名单严格互斥：已在黑名单中的身份加入白名单返回 `IDENTITY_IN_BLOCKLIST`，已在白名单中的身份加入黑名单返回 `IDENTITY_IN_WHITELIST`。
+  - 超级管理员恒定豁免：尝试将 `SUPER_ADMIN_USER_ID` 加入白名单返回 `SUPER_ADMIN_EXEMPT`，尝试加入黑名单返回 `BLOCKLIST_SUPER_ADMIN_FORBIDDEN`。
+  - 自指与受管群拦截：禁止将机器人自身（`TARGET_SELF_FORBIDDEN`）或任何已开启 `/init` 的受管群身份（`TARGET_CURRENT_CHAT_FORBIDDEN`）加入白名单或黑名单。
+  - 原生选择器导入（`handleMiniAppSharedMessage`）当 `addedIds` 为空且存在非重复拒绝项时，优先透传首个具体边界状态码及被拒身份 ID，前端据此展示针对性警告提示。
+- **群内问答对、追着删与追着翻目标守卫**：
+  - **问答对（`qa`）**：问题与答案非空且受 `CHAT_QA_QUESTION_MAX_CHARS`、`CHAT_QA_ANSWER_MAX_CHARS` 与每群 `CHAT_QA_MAX_PER_CHAT` 限制；问题全文及答案在 `pre` 代码围栏之外禁止包含可触发的 `/command`。
+  - **追着删目标（`deleteMessage`）**：要求机器人在本群持有删除消息权限（`canDeleteMessages`，缺失时返回 `DELETE_TARGET_MISSING_BOT_PERMISSION`）；拒绝超级管理员（`DELETE_TARGET_SUPER_ADMIN_FORBIDDEN`）、机器人自身（`TARGET_SELF_FORBIDDEN`）与当前群自身（`TARGET_CURRENT_CHAT_FORBIDDEN`）；目标为正整数用户且在线时实时核验在群状态（不在群返回 `TARGET_NOT_IN_CHAT`）；每群上限 `DELETE_MESSAGE_CHAT_TARGET_MAX`。
+  - **追着翻目标（`translate`）**：要求 `g-auth.json` 就绪且本群已开启翻译功能（`TRANSLATE_FEATURE_DISABLED`）；目标语言限于 `ja`/`cn`/`en`/`uk`/`ru`；拒绝机器人自身与当前群自身，在线时核验用户在群状态；每群不同目标上限 `TRANSLATE_CHAT_USER_LIMIT`，对已有目标提交新语言时直接更新目标语言。

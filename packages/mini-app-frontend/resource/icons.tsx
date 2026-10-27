@@ -96,9 +96,9 @@ export function ChatsSvgIcon({
       className={className}
       aria-hidden="true"
     >
-      <path d="M21 14a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      <line x1="8" y1="9" x2="16" y2="9" />
-      <line x1="8" y1="12.5" x2="13" y2="12.5" />
+      <path d="M21 15a2 2 0 0 1-2 2H8l-5 3V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <line x1="8" y1="10" x2="16" y2="10" />
+      <line x1="8" y1="13.5" x2="13" y2="13.5" />
     </svg>
   );
 }
@@ -305,8 +305,8 @@ export function LockSvgIcon({
       className={className}
       aria-hidden="true"
     >
-      <rect x="5" y="11" width="14" height="10" rx="2" ry="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+      <rect x="5" y="10.5" width="14" height="10" rx="2" ry="2" />
+      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
     </svg>
   );
 }
@@ -392,10 +392,10 @@ export function TrashSvgIcon({
       className={className}
       aria-hidden="true"
     >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-      <line x1="10" y1="11" x2="10" y2="17" />
-      <line x1="14" y1="11" x2="14" y2="17" />
+      <polyline points="3 5.5 5 5.5 21 5.5" />
+      <path d="M19 5.5v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-14m3 0V3.5a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 16 3.5v2" />
+      <line x1="10" y1="10" x2="10" y2="16.5" />
+      <line x1="14" y1="10" x2="14" y2="16.5" />
     </svg>
   );
 }
@@ -423,8 +423,8 @@ export function UserSvgIcon({
       className={className}
       aria-hidden="true"
     >
-      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
+      <path d="M19 20.5v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7.5" r="4" />
     </svg>
   );
 }
@@ -452,8 +452,8 @@ export function ChannelSvgIcon({
       className={className}
       aria-hidden="true"
     >
-      <path d="m3 11 18-5v12L3 14v-3z" />
-      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+      <path d="m3 10 18-5v12L3 13v-3z" />
+      <path d="M11.6 15.8a3 3 0 1 1-5.8-1.6" />
     </svg>
   );
 }
@@ -496,7 +496,7 @@ export function HashtagSvgIcon({
  * @returns SVG 节点
  */
 export function ChevronDownSvgIcon({
-  size = 15,
+  size = 14,
   className = "",
 }: MiniAppIconProps): React.JSX.Element {
   return (
@@ -553,7 +553,7 @@ export function CloseSvgIcon({
  * @returns SVG 节点
  */
 export function RefreshSvgIcon({
-  size = 15,
+  size = 14,
   className = "",
 }: MiniAppIconProps): React.JSX.Element {
   return (
@@ -582,7 +582,7 @@ export function RefreshSvgIcon({
  * @returns SVG 节点
  */
 export function UploadSvgIcon({
-  size = 15,
+  size = 14,
   className = "",
 }: MiniAppIconProps): React.JSX.Element {
   return (
@@ -612,7 +612,7 @@ export function UploadSvgIcon({
  * @returns SVG 节点
  */
 export function DownloadSvgIcon({
-  size = 15,
+  size = 14,
   className = "",
 }: MiniAppIconProps): React.JSX.Element {
   return (
@@ -642,7 +642,7 @@ export function DownloadSvgIcon({
  * @returns SVG 节点
  */
 export function ArrowLeftSvgIcon({
-  size = 15,
+  size = 14,
   className = "",
 }: MiniAppIconProps): React.JSX.Element {
   return (

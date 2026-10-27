@@ -13,11 +13,12 @@
   --subtitle: #475569;
   --link: var(--tg-theme-link-color, #ca7896);
   --accent: var(--tg-theme-button-color, #ca7896);
+  --accent-light: color-mix(in srgb, var(--accent) 78%, #ffffff);
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 32%, transparent);
-  --cap-expanded-bg: color-mix(in srgb, var(--accent) 4%, var(--surface-inset));
-  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 6%, var(--card));
+  --cap-expanded-bg: color-mix(in srgb, var(--accent) 4%, color-mix(in srgb, var(--card) 65%, var(--surface-inset)));
+  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 13%, var(--card));
   --danger: var(--tg-theme-destructive-text-color, #dc2626);
   --danger-soft: color-mix(in srgb, var(--danger) 12%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 32%, transparent);
@@ -25,6 +26,7 @@
   --success-soft: rgba(22, 163, 74, 0.14);
   --border: rgba(100, 116, 139, 0.18);
   --border-strong: rgba(100, 116, 139, 0.32);
+  --backdrop: rgba(15, 23, 42, 0.45);
   --shadow-sm: 0 2px 10px rgba(15, 23, 42, 0.05);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
   --shimmer-base: rgba(148, 163, 184, 0.24);
@@ -33,6 +35,7 @@
   --gallery-stage-bg: #e6ebf3;
   --gallery-skeleton-bg: linear-gradient(135deg, #dce3ef 0%, #eadbe3 50%, #d9e1ee 100%);
   --channel-badge-bg: rgba(147, 51, 234, 0.12); --channel-badge-text: #7e22ce; --channel-badge-border: rgba(147, 51, 234, 0.28);
+  --qa-answer-bg: rgba(14, 165, 233, 0.1); --qa-answer-border: rgba(14, 165, 233, 0.28); --qa-answer-text: #0369a1; --qa-answer-badge-bg: rgba(14, 165, 233, 0.16);
 }
 
 [data-theme="dark"] {
@@ -49,11 +52,12 @@
   --subtitle: #cbd5e1;
   --link: var(--tg-theme-link-color, #ca7896);
   --accent: var(--tg-theme-button-color, #ca7896);
+  --accent-light: color-mix(in srgb, var(--accent) 78%, #ffffff);
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 36%, transparent);
-  --cap-expanded-bg: color-mix(in srgb, var(--accent) 5%, var(--surface-inset));
-  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 7%, var(--card));
+  --cap-expanded-bg: color-mix(in srgb, var(--accent) 5%, color-mix(in srgb, var(--card) 65%, var(--surface-inset)));
+  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 14%, var(--card));
   --danger: var(--tg-theme-destructive-text-color, #f87171);
   --danger-soft: color-mix(in srgb, var(--danger) 16%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 38%, transparent);
@@ -61,6 +65,7 @@
   --success-soft: rgba(34, 197, 94, 0.16);
   --border: rgba(148, 163, 184, 0.16);
   --border-strong: rgba(148, 163, 184, 0.28);
+  --backdrop: rgba(2, 6, 23, 0.58);
   --shadow-sm: 0 4px 14px rgba(2, 6, 23, 0.32);
   --shadow-lg: 0 14px 36px rgba(2, 6, 23, 0.62);
   --shimmer-base: rgba(148, 163, 184, 0.14);
@@ -69,6 +74,7 @@
   --gallery-stage-bg: rgba(15, 23, 42, 0.78);
   --gallery-skeleton-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(56, 36, 52, 0.88) 52%, rgba(23, 33, 49, 0.94) 100%);
   --channel-badge-bg: rgba(168, 85, 247, 0.18); --channel-badge-text: #c084fc; --channel-badge-border: rgba(192, 132, 252, 0.36);
+  --qa-answer-bg: rgba(56, 189, 248, 0.12); --qa-answer-border: rgba(56, 189, 248, 0.32); --qa-answer-text: #7dd3fc; --qa-answer-badge-bg: rgba(56, 189, 248, 0.2);
 }
 
 * {
@@ -88,6 +94,12 @@ body,
   -ms-overflow-style: none;
 }
 
+html:has(.chat-targets-backdrop),
+body:has(.chat-targets-backdrop) {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
 html::-webkit-scrollbar,
 body::-webkit-scrollbar,
 #root::-webkit-scrollbar {
@@ -97,13 +109,20 @@ body::-webkit-scrollbar,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   background: var(--bg);
   color: var(--text);
   padding: 10px 10px calc(36px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   line-height: 1.45;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 svg {

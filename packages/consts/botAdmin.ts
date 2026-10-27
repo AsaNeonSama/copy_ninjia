@@ -29,8 +29,8 @@ export const BOT_CHAT_PERMISSION_KEYS: readonly (keyof BotChatPermissions)[] = e
 ]);
 
 /**
- * 权限位的中文名。`/bot_status` 的权限块只列**已经拥有**的位，缺权限提示点名
- * 机器人缺的那一位（见 libs/botPermissionGap.ts），两处读同一张表。
+ * 权限位的中文名。`/bot_status` 与 Mini App 群详情的权限块只列**已经拥有**的位，缺权限提示点名
+ * 机器人缺的那一位（见 libs/botPermissionGap.ts），各处读同一张表。
  *
  * 字段全集与展示顺序以 BOT_CHAT_PERMISSION_KEYS 为准，这里只补名字；新增权限位时
  * 两处都要加，仅本表缺项会在类型层报错。

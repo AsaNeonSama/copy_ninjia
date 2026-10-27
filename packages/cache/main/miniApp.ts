@@ -1,4 +1,4 @@
-/** owner: main。Mini App HTTP 服务实例、运行时配置镜像、密码认证会话、预备选择器会话与结果回执缓存（packages/mini-app-server/）。 */
+/** owner: main。Mini App HTTP 服务实例、运行时配置镜像、密码认证会话、预备选择器会话与结果回执缓存（packages/mini-app-api-server/）。 */
 
 import {
   MINI_APP_PICKER_MAX_PENDING,

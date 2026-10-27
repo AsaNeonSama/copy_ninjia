@@ -10,9 +10,9 @@ import type {
   MiniAppServerNoticeParams,
   MiniAppTranslations,
 } from "../types/miniAppI18n";
-import { getEnTranslations } from "./en";
-import { getJaTranslations } from "./ja";
-import { getZhTranslations } from "./zh";
+import { getEnTranslations } from "./languages/en";
+import { getJaTranslations } from "./languages/ja";
+import { getZhTranslations } from "./languages/zh";
 
 const ZH_TRANSLATIONS: Readonly<MiniAppTranslations> = getZhTranslations();
 const JA_TRANSLATIONS: Readonly<MiniAppTranslations> = getJaTranslations();
@@ -75,6 +75,31 @@ export function detectInitialMiniAppLanguage(): MiniAppLanguage {
 }
 
 /**
+ * 从载荷字典中提取目标身份数字 ID（优先读取直接字段 `id`，选择器回执则回退取首个非重复 `skippedIds` 项）。
+ *
+ * @param record 归一化后的响应载荷字典
+ * @returns 目标身份数字 ID；不存在时返回 `undefined`
+ */
+function extractNoticeIdentityId(
+  record: Readonly<Record<string, unknown>>
+): number | undefined {
+  if (typeof record.id === "number") return record.id;
+  if (!Array.isArray(record.skippedIds)) return undefined;
+  const duplicateSet: ReadonlySet<unknown> = Array.isArray(record.duplicateIds)
+    ? new Set<unknown>(record.duplicateIds)
+    : new Set<unknown>();
+  let firstNumericId: number | undefined;
+  for (const candidate of record.skippedIds) {
+    if (typeof candidate !== "number") continue;
+    firstNumericId ??= candidate;
+    if (!duplicateSet.has(candidate)) {
+      return candidate;
+    }
+  }
+  return firstNumericId;
+}
+
+/**
  * 从服务端响应对象、Error 实例（含 `cause`）或显式参数对象提取多语言提示插值字段。
  *
  * @param source 响应载荷、`Error` 实例或插值参数对象
@@ -98,7 +123,7 @@ export function extractServerNoticeParams(
         ? (record.feature as MiniAppFeatureKey)
         : undefined,
     configFile: typeof record.configFile === "string" ? record.configFile : undefined,
-    id: typeof record.id === "number" ? record.id : undefined,
+    id: extractNoticeIdentityId(record),
     key:
       typeof record.key === "string"
         ? (record.key as WhitelistPermissionKey)
@@ -109,7 +134,10 @@ export function extractServerNoticeParams(
       typeof record.affectedChats === "number" ? record.affectedChats : undefined,
     totalChats: typeof record.totalChats === "number" ? record.totalChats : undefined,
     targetList:
-      record.targetList === "whitelist" || record.targetList === "blocklist"
+      record.targetList === "whitelist" ||
+      record.targetList === "blocklist" ||
+      record.targetList === "deleteMessage" ||
+      record.targetList === "translate"
         ? record.targetList
         : undefined,
     addedCount:
@@ -141,6 +169,9 @@ export function extractServerNoticeParams(
       typeof record.remainingMinutes === "number"
         ? record.remainingMinutes
         : undefined,
+    hours: typeof record.hours === "number" ? record.hours : undefined,
+    recordCount:
+      typeof record.recordCount === "number" ? record.recordCount : undefined,
   };
 }
 

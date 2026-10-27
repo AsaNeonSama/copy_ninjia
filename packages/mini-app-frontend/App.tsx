@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import type React from "react";
-import { AccessDeniedPage } from "./components/AccessDeniedPage";
 import { AppShell } from "./components/AppShell";
-import { AuthGate } from "./components/AuthGate";
+import { AccessDeniedPage } from "./pages/AccessDeniedPage";
+import { AuthGatePage } from "./pages/AuthGatePage";
 import { applyMiniAppThemeToDocument, useMiniAppStore } from "./store/app";
 import type { MiniAppGateState, MiniAppUiStoreState } from "./store/app";
 import type { MiniAppThemeMode } from "./types/miniApp";
@@ -47,7 +47,7 @@ export function App(): React.JSX.Element | null {
   }
 
   if (gateState === "password") {
-    return <AuthGate />;
+    return <AuthGatePage />;
   }
 
   return <AppShell />;

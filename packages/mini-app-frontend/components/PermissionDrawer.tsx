@@ -56,7 +56,7 @@ export function PermissionDrawer({
   );
 
   return (
-    <div className="perm-drawer-inline animate-fade-in">
+    <div className="perm-drawer-inline">
       <div className="card-title perm-drawer-head">
         <div className="perm-drawer-title-wrap">
           <div className="identity-title-row">

@@ -15,7 +15,7 @@ import type {
 } from "../types/miniApp";
 import { useMiniAppStore } from "./app";
 
-/** `StatusTab` 实时状态看板的状态与动作接口。 */
+/** `StatusPage` 实时状态看板的状态与动作接口。 */
 export interface MiniAppStatusStoreState {
   /** 最近一次成功拉取的运行状态快照。 */
   readonly status: MiniAppStatusView | null;
@@ -52,11 +52,11 @@ export interface MiniAppStatusStoreState {
   readonly switchMood: () => Promise<void>;
 }
 
-/** 一个 `StatusTab` 实例独占的状态仓库。 */
+/** 一个 `StatusPage` 实例独占的状态仓库。 */
 export type MiniAppStatusStore = StoreApi<MiniAppStatusStoreState>;
 
 /**
- * 创建 `StatusTab` 的状态仓库；组件挂载时创建、卸载即丢弃，生命周期与组件实例一致。
+ * 创建 `StatusPage` 的状态仓库；组件挂载时创建、卸载即丢弃，生命周期与组件实例一致。
  *
  * @returns 新的实时状态看板仓库
  */
@@ -187,18 +187,26 @@ export function createStatusStore(): MiniAppStatusStore {
         },
 
         switchMood: async (): Promise<void> => {
+          const startedAt: number = Date.now();
           set({ switchingMood: true });
           try {
             const result: MiniAppMoodMutationResult = await switchMiniAppMood();
+            await waitMinimumLoadingDuration(startedAt);
             if (result.ok && result.currentMood !== null) {
-              set({ currentMood: result.currentMood });
+              set({ currentMood: result.currentMood, switchingMood: false });
+            } else {
+              set({ switchingMood: false });
             }
             useMiniAppStore.getState().notify(result.message, "info", result);
           } catch (error: unknown) {
+            await waitMinimumLoadingDuration(startedAt);
+            set({ switchingMood: false });
             const message: string = errorMessage(error);
             useMiniAppStore.getState().notify(message, "info", error);
           } finally {
-            set({ switchingMood: false });
+            if (get().switchingMood) {
+              set({ switchingMood: false });
+            }
           }
         },
       };

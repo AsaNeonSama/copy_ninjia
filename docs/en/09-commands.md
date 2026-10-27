@@ -325,6 +325,44 @@ Scheduled tasks are configured by administrators in `config/dynamic/cron.json` a
 
 ---
 
+## 🖥️ Mini App Management Console: APIs and Permission Boundaries
+
+When the optional `mini_app` object is configured in `config/static/bot.json`, the system starts a local `Bun.serve` HTTP server (`packages/mini-app-api-server/` with frontend in `packages/mini-app-frontend/`) and attaches `MenuButtonWebApp` (`App` button) in the SuperAdmin's private chat.
+
+### 1. Authentication and Security Boundaries
+- **SuperAdmin Exclusive (`SUPER_ADMIN_USER_ID`)**: Every business API is restricted exclusively to the configured SuperAdmin. Requests first pass `headerGuard` (same-origin and credential header shape checks) and `initData` (Telegram WebApp `initData` HMAC-SHA256 verification, 45-minute freshness check, and `user.id === SUPER_ADMIN_USER_ID`); all business APIs except `GET /api/auth/precheck` and `POST /api/auth/login` additionally require a valid 45-minute session token (`X-Mini-App-Session`).
+- **First-Screen Credentials and Lockout**: Validates `mini_app.password` when no authenticator is bound; once Google Authenticator (TOTP) is bound in the console (`memory/mini-app-totp/totp.json`), login prioritizes the 6-digit TOTP code for the current 30-second time step. 3 consecutive failures lock out the SuperAdmin ID for 30 minutes and send a one-time private-chat alert with unlock time and source IP.
+- **Protected Static and Gallery Assets**: Gallery thumbnail previews (`GET /api/gallery/:name/preview`) and protected SVG icons (`GET|HEAD /api/resource/:name.svg`) authenticate via a deterministic `assetToken` issued only on login or active session resumption, supporting 7-day immutable caching and `ETag` 304 revalidation.
+
+### 2. HTTP API Routes and Capabilities
+
+| Route | Method | Permission and Boundary Notes |
+| :--- | :---: | :--- |
+| `/api/auth/precheck`<br>`/api/auth/login` | `GET`<br>`POST` | Verifies `initData` signature and SuperAdmin identity, returns login mode (`password` or `totp`), resumes an active session, or issues a new 45-minute `sessionToken` and `assetToken` |
+| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Queries, generates a pending secret & QR code, verifies a 6-digit code to enable, or deletes the Google Authenticator 2FA secret |
+| `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | Queries live system metrics (uptime, CPU average load, memory PSS, managed chat count, active sessions, AI capability readiness, Telegram outbound gate), and queries or redraws the global AI mood |
+| `/api/chats`<br>`/api/chats/:chatId` | `GET` | Lists `/init`-enabled managed chats, or queries a single chat's detail (feature switches, hot message count, quiet/lockdown remaining time, Bot admin permissions `botPermissions`, 1–24 hour rolling join counts `joinedCountsByHour`, and `/batch_kick` execution state) |
+| `/api/chats/:chatId/messages` | `GET` | Paginates and searches recent messages in the chat's in-memory hot 256 buffer |
+| `/api/chats/:chatId/feature` | `POST` | Toggles per-chat features (`init`, `aiChat`, `translation`, `adDetect`, `floodControl`, `antiRaid`, `proxySend`); disabling `init` executes runtime teardown and state purge in the same order as `/init disable`, and enabling `proxySend` shares the single-active-chat constraint with private `/send` |
+| `/api/chats/:chatId/batch-kick` | `POST` | Triggers `/batch_kick` for a `1..24` hour lookback window; shares the `batchKickChats` single-flight lock and background executor with the `/batch_kick` command, recording completion summaries in `miniAppBatchKickCompletedByChat` |
+| `/api/chats/:chatId/targets` | `GET`<br>`POST` | Queries or mutates per-chat custom QA pairs (`setQa`/`removeQa`), delete-message targets (`addDeleteTarget`/`removeDeleteTarget`), and translate targets (`addTranslateTarget`/`removeTranslateTarget`) |
+| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | Paginates and searches allowlist/blocklist via `readIdentityPolicyEntries` cold reads (without polluting the main-thread hot LRU), adds/removes entries, and updates 13 fine-grained allowlist permissions or enables all (`enableAll`) |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Calls Telegram `savePreparedKeyboardButton` to prepare a native contact or channel picker session and polls `users_shared`/`chat_shared` import results (supporting `whitelist`, `blocklist`, `deleteMessage`, and `translate` target lists) |
+| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/:name/delete`<br>`/api/gallery/:name/download` | `GET`<br>`POST`<br>`POST`/`DELETE`<br>`GET`/`HEAD` | Paginates the dedicated image gallery, uploads raw image bytes (applying the same SHA-256 content-addressed deduplication and dimension pre-checks as `/h_image add`), or deletes/downloads original images |
+
+### 3. Conflict and Boundary Guards for Lists and Chat Targets
+- **Allowlist and Blocklist Addition Guards (shared by ID input and native picker)**:
+  - Strict mutual exclusivity: adding a blocklisted identity to the allowlist returns `IDENTITY_IN_BLOCKLIST`; adding an allowlisted identity to the blocklist returns `IDENTITY_IN_WHITELIST`.
+  - SuperAdmin exemption: attempting to add `SUPER_ADMIN_USER_ID` to the allowlist returns `SUPER_ADMIN_EXEMPT`; attempting to add to the blocklist returns `BLOCKLIST_SUPER_ADMIN_FORBIDDEN`.
+  - Self and managed-chat rejection: adding the Bot itself (`TARGET_SELF_FORBIDDEN`) or any `/init`-enabled managed group chat (`TARGET_CURRENT_CHAT_FORBIDDEN`) to the allowlist or blocklist is rejected.
+  - When a native picker import (`handleMiniAppSharedMessage`) adds zero entries and encounters non-duplicate rejections, it propagates the first specific boundary status code and rejected identity ID so the frontend displays the targeted warning notice.
+- **Per-Chat QA, Delete-Message, and Translate Target Guards**:
+  - **QA pairs (`qa`)**: Non-empty question and answer bounded by `CHAT_QA_QUESTION_MAX_CHARS`, `CHAT_QA_ANSWER_MAX_CHARS`, and `CHAT_QA_MAX_PER_CHAT`; renderable `/command` strings are rejected in the question and outside `pre` code fences in the answer.
+  - **Delete-message targets (`deleteMessage`)**: Requires the Bot to hold `canDeleteMessages` in the chat (`DELETE_TARGET_MISSING_BOT_PERMISSION`); rejects `SUPER_ADMIN_USER_ID` (`DELETE_TARGET_SUPER_ADMIN_FORBIDDEN`), the Bot itself (`TARGET_SELF_FORBIDDEN`), and the current chat (`TARGET_CURRENT_CHAT_FORBIDDEN`); verifies user presence in the chat when online (`TARGET_NOT_IN_CHAT`); capped at `DELETE_MESSAGE_CHAT_TARGET_MAX`.
+  - **Translate targets (`translate`)**: Requires `g-auth.json` readiness and per-chat `isTranslationEnabled` (`TRANSLATE_FEATURE_DISABLED`); supports `ja`/`cn`/`en`/`uk`/`ru`; rejects the Bot itself and the current chat, verifies user presence when online, and enforces `TRANSLATE_CHAT_USER_LIMIT` (updating the language in place when the target already exists).
+
+---
+
 <div align="center">
 
 [← Prev: 08 Images and Scheduled Tasks](08-images-and-cron.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#09-command-and-behavior-reference) · [Next: 10 Performance Benchmark →](10-performance.md)

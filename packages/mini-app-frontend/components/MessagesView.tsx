@@ -102,7 +102,7 @@ export function MessagesView({
         <div className="card-title">
           <span className="toolbar-hint" style={{ minWidth: 0, flex: 1 }}>
             <span className="toolbar-icon-badge">
-              <ChatsSvgIcon size={15} />
+              <ChatsSvgIcon size={16} />
             </span>
             <span
               className="chat-title-ellipsis"

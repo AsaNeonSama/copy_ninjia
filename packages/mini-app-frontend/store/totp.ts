@@ -14,7 +14,7 @@ import type {
 } from "../types/miniAppTotp";
 import { useMiniAppStore } from "./app";
 
-/** `TotpManagerCard` 验证器管理的状态与动作接口。 */
+/** `TotpPage` 验证器管理的状态与动作接口。 */
 export interface MiniAppTotpStoreState {
   /** 最近一次拉取的验证器状态摘要。 */
   readonly totpStatus: Readonly<MiniAppTotpStatusView> | null;
@@ -41,11 +41,11 @@ export interface MiniAppTotpStoreState {
   readonly deleteTotp: () => Promise<void>;
 }
 
-/** 一个 `TotpManagerCard` 实例独占的状态仓库。 */
+/** 一个 `TotpPage` 实例独占的状态仓库。 */
 export type MiniAppTotpStore = StoreApi<MiniAppTotpStoreState>;
 
 /**
- * 创建 `TotpManagerCard` 的状态仓库；组件挂载时创建、卸载即丢弃，生命周期与组件实例一致。
+ * 创建 `TotpPage` 的状态仓库；组件挂载时创建、卸载即丢弃，生命周期与组件实例一致。
  *
  * @returns 新的验证器管理仓库
  */
@@ -121,15 +121,26 @@ export function createTotpStore(): MiniAppTotpStore {
           try {
             const res: Readonly<MiniAppTotpMutationResponse> =
               await enableMiniAppTotp(trimmed);
-            set({ totpStatus: res.status, setupData: null, codeInput: "" });
+            const skeletonStartedAt: number = Date.now();
+            set({
+              setupData: null,
+              codeInput: "",
+              totpStatus: null,
+              loadingStatus: true,
+            });
+            await waitMinimumLoadingDuration(skeletonStartedAt);
+            set({ totpStatus: res.status, loadingStatus: false, busy: false });
             useMiniAppStore
               .getState()
               .setAuthMode(res.status.enabled ? "totp" : "password");
             useMiniAppStore.getState().notify(res.message, "info", res);
           } catch (error: unknown) {
+            set({ busy: false, loadingStatus: false });
             useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {
-            set({ busy: false });
+            if (get().busy || get().loadingStatus) {
+              set({ busy: false, loadingStatus: false });
+            }
           }
         },
 
@@ -141,17 +152,30 @@ export function createTotpStore(): MiniAppTotpStore {
               "danger"
             );
           if (!confirmed) return;
-          set({ busy: true });
+          const prevStatus: Readonly<MiniAppTotpStatusView> | null = get().totpStatus;
+          const startedAt: number = Date.now();
+          set({ busy: true, loadingStatus: true, totpStatus: null });
           try {
             const res: Readonly<MiniAppTotpMutationResponse> =
               await deleteMiniAppTotp();
-            set({ totpStatus: res.status, setupData: null, codeInput: "" });
+            await waitMinimumLoadingDuration(startedAt);
+            set({
+              totpStatus: res.status,
+              setupData: null,
+              codeInput: "",
+              busy: false,
+              loadingStatus: false,
+            });
             useMiniAppStore.getState().setAuthMode("password");
             useMiniAppStore.getState().notify(res.message, "info", res);
           } catch (error: unknown) {
+            await waitMinimumLoadingDuration(startedAt);
+            set({ totpStatus: prevStatus, busy: false, loadingStatus: false });
             useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {
-            set({ busy: false });
+            if (get().busy || get().loadingStatus) {
+              set({ busy: false, loadingStatus: false });
+            }
           }
         },
       };

@@ -23,7 +23,7 @@ import type {
 import { useMiniAppStore } from "./app";
 import type { MiniAppUiStoreState } from "./app";
 
-/** `GalleryTab` 图库管理的状态与动作接口。 */
+/** `GalleryPage` 图库管理的状态与动作接口。 */
 export interface MiniAppGalleryStoreState {
   /** 最近一次成功拉取的图库分页。 */
   readonly galleryPage: MiniAppGalleryPage | null;
@@ -72,11 +72,11 @@ export interface MiniAppGalleryStoreState {
   readonly uploadFiles: (files: readonly File[]) => Promise<void>;
 }
 
-/** 一个 `GalleryTab` 实例独占的状态仓库。 */
+/** 一个 `GalleryPage` 实例独占的状态仓库。 */
 export type MiniAppGalleryStore = StoreApi<MiniAppGalleryStoreState>;
 
 /**
- * 创建 `GalleryTab` 的状态仓库；组件挂载时创建、卸载即丢弃，生命周期与组件实例一致。
+ * 创建 `GalleryPage` 的状态仓库；组件挂载时创建、卸载即丢弃，生命周期与组件实例一致。
  *
  * @returns 新的图库管理仓库
  */
@@ -243,13 +243,16 @@ export function createGalleryStore(): MiniAppGalleryStore {
             const result: MiniAppGalleryDeleteResult =
               await deleteMiniAppGalleryImageByName(fileName);
             if (result.ok) {
-              useMiniAppStore.getState().notify(t.gallery.deletedToast(shortName));
               if (get().previewItem?.fileName === fileName) {
                 previewEpoch += 1;
                 settledPreviewEpoch = -1;
-                set({ previewItem: null, previewLoaded: false });
+                set({ previewItem: null, previewLoaded: false, loadedImages: {} });
+              } else {
+                set({ loadedImages: {} });
               }
               await get().loadGallery(get().page, get().pageSize);
+              await waitMinimumLoadingDuration(pageRenderAt);
+              useMiniAppStore.getState().notify(t.gallery.deletedToast(shortName));
             } else {
               useMiniAppStore.getState().notify(result.message, "danger", result);
             }
@@ -297,6 +300,9 @@ export function createGalleryStore(): MiniAppGalleryStore {
               }
             }
 
+            set({ loadedImages: {}, uploadStatusText: null });
+            await get().loadGallery(1, get().pageSize);
+            await waitMinimumLoadingDuration(pageRenderAt);
             if (files.length === 1 && lastSingleResult !== null) {
               useMiniAppStore
                 .getState()
@@ -310,7 +316,6 @@ export function createGalleryStore(): MiniAppGalleryStore {
                 `+${added} · =${existing} · !${invalidDimensions + failed}`
               );
             }
-            await get().loadGallery(1, get().pageSize);
           } finally {
             set({ uploading: false, uploadStatusText: null });
           }

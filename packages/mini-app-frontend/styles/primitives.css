@@ -112,7 +112,7 @@
   color: var(--hint);
   font-size: 13px;
   font-weight: 600;
-  line-height: 1;
+  line-height: 14px;
   height: 30px;
   padding: 0 10px;
   border-radius: 8px;
@@ -210,7 +210,7 @@
   color: var(--accent);
   font-size: 12px;
   font-weight: 600;
-  line-height: 1;
+  line-height: 14px;
   height: 32px;
   padding: 0 11px;
   border-radius: 9px;
@@ -222,6 +222,22 @@
   gap: 5px;
   flex-shrink: 0;
   transition: transform 0.14s ease, opacity 0.14s ease, background-color 0.16s ease;
+}
+
+.subtab-btn > svg,
+.btn > svg,
+.icon-btn > svg {
+  display: block;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.subtab-btn > span,
+.btn > span,
+.icon-btn > span {
+  display: inline-block;
+  align-self: center;
+  line-height: 14px;
 }
 
 .btn:hover:not(:disabled) {
