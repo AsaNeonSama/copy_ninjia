@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type React from "react";
 import { MINI_APP_TRANSLATE_LANGUAGES } from "../consts/miniApp";
 import {
@@ -92,7 +93,7 @@ export function ChatTargetsMemberPanels({
     : submitTranslateTarget;
 
   return (
-    <>
+    <Fragment>
       {isDelete && missingDeletePermission ? (
         <div className="chat-targets-prereq-warn">
           <AlertSvgIcon size={14} />
@@ -159,7 +160,7 @@ export function ChatTargetsMemberPanels({
                     />
                   </button>
                   {translateLangMenuOpen ? (
-                    <>
+                    <Fragment>
                       <div
                         className="chat-targets-lang-backdrop"
                         onClick={closeTranslateLangMenu}
@@ -196,7 +197,7 @@ export function ChatTargetsMemberPanels({
                           }
                         )}
                       </div>
-                    </>
+                    </Fragment>
                   ) : null}
                 </div>
               )}
@@ -351,6 +352,6 @@ export function ChatTargetsMemberPanels({
           )}
         </div>
       )}
-    </>
+    </Fragment>
   );
 }

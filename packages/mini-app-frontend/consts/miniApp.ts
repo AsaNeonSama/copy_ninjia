@@ -182,34 +182,40 @@ export const MINI_APP_CAP_SCROLL_SETTLE_DELAY_MS: number = 15;
 export const MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX: number = 50;
 
 /**
- * 折叠项展开完成后视口跟滚时，折叠项标题栏距离视口顶部的最小保留像素边距（实时状态页子系统面板与白名单权限抽屉共用）。
+ * 折叠项展开完成后视口跟滚时，折叠项标题栏距离视口顶部的最小保留像素边距（实时状态页子系统面板、白名单权限抽屉与验证器绑定面板共用）。
  * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/expandFollowScroll.ts`。
  */
 export const MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX: number = 16;
 
 /**
- * 折叠项展开完成后视口跟滚时，展开内容底部距离视口下沿的目标保留像素边距（实时状态页子系统面板与白名单权限抽屉共用）。
+ * 折叠项展开完成后视口跟滚时，展开内容底部距离视口下沿的目标保留像素边距（实时状态页子系统面板、白名单权限抽屉与验证器绑定面板共用）。
  * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/expandFollowScroll.ts`。
  */
 export const MINI_APP_EXPAND_SCROLL_BOTTOM_MARGIN_PX: number = 24;
 
 /**
- * 折叠项展开完成后视口跟滚时，触发舒适阅读区上移的视口高度比例阈值（标题栏顶部低于该比例处才上移；实时状态页子系统面板与白名单权限抽屉共用）。
+ * 折叠项展开完成后视口跟滚时，触发舒适阅读区上移的视口高度比例阈值（标题栏顶部低于该比例处才上移；实时状态页子系统面板、白名单权限抽屉与验证器绑定面板共用）。
  * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/expandFollowScroll.ts`。
  */
 export const MINI_APP_EXPAND_SCROLL_COMFORT_TOP_RATIO: number = 0.28;
 
 /**
- * 折叠项位于视口中下半区展开完成后，按展开内容高度折算跟滚距离的比例系数（实时状态页子系统面板与白名单权限抽屉共用）。
+ * 折叠项位于视口中下半区展开完成后，按展开内容高度折算跟滚距离的比例系数（实时状态页子系统面板、白名单权限抽屉与验证器绑定面板共用）。
  * 不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/expandFollowScroll.ts`。
  */
 export const MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR: number = 0.55;
 
 /**
- * 折叠项展开完成后触发视口平滑跟滚的最小像素位移阈值（小于等于该值时不触发滚动；实时状态页子系统面板与白名单权限抽屉共用）。
+ * 折叠项展开完成后触发视口平滑跟滚的最小像素位移阈值（小于等于该值时不触发滚动；实时状态页子系统面板、白名单权限抽屉与验证器绑定面板共用）。
  * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/expandFollowScroll.ts`。
  */
 export const MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX: number = 4;
+
+/**
+ * Google Authenticator (TOTP) 管理卡片绑定表单收起过渡动画的毫秒数（与 `styles/auth.css` 的 `0.24s` 齐平）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/pages/TotpPage.tsx`。
+ */
+export const MINI_APP_TOTP_SETUP_COLLAPSE_MS: number = 240;
 
 /**
  * 实时状态页骨架屏中能力折叠行占位的序号表（6 行，对应服务端状态快照的 6 项能力槽位）。

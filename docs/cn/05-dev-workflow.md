@@ -56,7 +56,7 @@
   - 函数与行覆盖率必须达到 `bunfig.toml` 中配置的 `coverageThreshold` 阈值。新增业务模块若缺少单元测试，将直接导致整体覆盖率不达标。
 - **严格类型与语法规范**：
   - `tsconfig.json` 全面启用 `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals` 与 `noUnusedParameters`。
-  - 生产代码中严禁使用 `any`（测试代码豁免）；严禁随意使用原生 `Promise.all`（ESLint 规则拒绝），必须改用具备并发容错控制的 `Promise.allSettled`。
+  - 生产代码中严禁使用 `any`（测试代码豁免）；严禁随意使用原生 `Promise.all`（ESLint 规则拒绝），必须改用具备并发容错控制的 `Promise.allSettled`；JSX/TSX 片段必须显式使用 `react` 的 `<Fragment>`，禁止使用 `<>...</>` 简写。
 - **类型导入独立声明**：
   - 生产代码、脚本与测试文件均强制使用独立的 `import type` 语法。ESLint 严格拦截混合导入（如 `import { value, type Shape }`）。
 - **显式类型标注**：

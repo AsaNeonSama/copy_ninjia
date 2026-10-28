@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type React from "react";
 import { truncateDisplayText } from "../libs/formatters";
 import type { MiniAppChatSummary } from "../types/miniApp";
@@ -28,7 +29,7 @@ export function ManagedChatList({
   onSelectChat,
 }: ManagedChatListProps): React.JSX.Element {
   return (
-    <>
+    <Fragment>
       {chats.map((chat: Readonly<MiniAppChatSummary>): React.JSX.Element => {
         const metaText: string = t.chats.chatCardMeta(
           chat.chatId,
@@ -79,6 +80,6 @@ export function ManagedChatList({
           </div>
         );
       })}
-    </>
+    </Fragment>
   );
 }

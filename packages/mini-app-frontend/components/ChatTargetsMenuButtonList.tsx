@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type React from "react";
 import { MINI_APP_CHAT_TARGET_KINDS } from "../consts/miniApp";
 import { ChevronDownSvgIcon } from "../resource";
@@ -59,7 +60,7 @@ export function ChatTargetsMenuButtonList({
         />
       </button>
       {targetsMenuOpen && chatDetail !== null ? (
-        <>
+        <Fragment>
           <div
             className="chat-targets-menu-backdrop"
             aria-hidden="true"
@@ -94,7 +95,7 @@ export function ChatTargetsMenuButtonList({
               }
             )}
           </div>
-        </>
+        </Fragment>
       ) : null}
     </div>
   );

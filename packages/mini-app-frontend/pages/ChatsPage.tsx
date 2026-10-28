@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Fragment, useEffect } from "react";
 import type React from "react";
 import { CollapseGrid } from "../components/animations/CollapseGrid";
 import { ChatFeatureListCard } from "../components/ChatFeatureListCard";
@@ -140,7 +140,7 @@ export function ChatsPage(): React.JSX.Element {
 
         {chatDetail !== null
           ? (
-            <>
+            <Fragment>
               <div className="card">
                 <div className="card-title">
                   <span className="chat-title-ellipsis" title={chatDetail.title}>
@@ -224,7 +224,7 @@ export function ChatsPage(): React.JSX.Element {
                 t={t}
                 onToggleFeature={toggleFeature}
               />
-            </>
+            </Fragment>
           )
           : null}
         <ChatTargetsModal state={storeState} />

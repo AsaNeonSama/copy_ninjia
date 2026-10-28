@@ -55,7 +55,7 @@
   - Both function and line coverage must satisfy `coverageThreshold` in `bunfig.toml`.
 - **Strict typing and syntax standards**:
   - `tsconfig.json` enforces `strict`, `noUncheckedIndexedAccess`, `noUnusedLocals`, and `noUnusedParameters`.
-  - Production code strictly forbids `any` (exempted in test files). The native `Promise.all` is disallowed by ESLint (`no-restricted-syntax`); use `Promise.allSettled` with bounded concurrency instead.
+  - Production code strictly forbids `any` (exempted in test files). The native `Promise.all` is disallowed by ESLint (`no-restricted-syntax`); use `Promise.allSettled` with bounded concurrency instead. JSX/TSX fragments must explicitly use `<Fragment>` from `react`; the `<>...</>` shorthand is disallowed.
 - **Standalone type imports**:
   - Production code, scripts, and tests must use explicit, separate `import type` declarations. ESLint strictly rejects mixed import statements like `import { value, type Shape }`.
 - **Explicit type annotations**:

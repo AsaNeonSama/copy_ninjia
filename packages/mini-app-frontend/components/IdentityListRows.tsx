@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef } from "react";
+import { Fragment, memo, useCallback, useRef } from "react";
 import type React from "react";
 import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
 import {
@@ -227,7 +227,7 @@ export function WhitelistEntryRowList({
   onRemoveWhitelist,
 }: WhitelistEntryRowListProps): React.JSX.Element {
   return (
-    <>
+    <Fragment>
       {items.map(
         (entry: Readonly<MiniAppWhitelistEntryView>): React.JSX.Element => (
           <WhitelistEntryRow
@@ -245,7 +245,7 @@ export function WhitelistEntryRowList({
           />
         )
       )}
-    </>
+    </Fragment>
   );
 }
 
@@ -279,7 +279,7 @@ export function BlocklistEntryRowList({
   onRemoveBlocklist,
 }: BlocklistEntryRowListProps): React.JSX.Element {
   return (
-    <>
+    <Fragment>
       {items.map(
         (entry: Readonly<MiniAppBlocklistEntryView>): React.JSX.Element => {
           const blockSubText: string = `ID: ${entry.id} · ${t.identities.blockedAtText(entry.blockedAt)}`;
@@ -341,6 +341,6 @@ export function BlocklistEntryRowList({
           );
         }
       )}
-    </>
+    </Fragment>
   );
 }

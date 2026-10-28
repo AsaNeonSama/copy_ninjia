@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type React from "react";
 
 /** `ListSkeletonRows` 的属性参数。 */
@@ -22,5 +23,5 @@ export function ListSkeletonRows({ count }: ListSkeletonRowsProps): React.JSX.El
       </div>
     );
   }
-  return <>{rows}</>;
+  return <Fragment>{rows}</Fragment>;
 }

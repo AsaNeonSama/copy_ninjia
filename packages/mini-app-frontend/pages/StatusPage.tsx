@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { Fragment, useCallback, useEffect, useRef } from "react";
 import type React from "react";
 import type { ExpandScrollScheduleState } from "../components/animations/CapabilityCollapseBody";
 import { CapabilityBlock } from "../components/CapabilityBlock";
@@ -56,7 +56,7 @@ function renderStatusSnapshot({
   expandScrollStateRef,
 }: RenderStatusSnapshotOptions): React.JSX.Element {
   return (
-    <>
+    <Fragment>
       <StatusOverviewCard status={status} t={t} />
 
       <div className="card">
@@ -84,7 +84,7 @@ function renderStatusSnapshot({
           )}
         </div>
       </div>
-    </>
+    </Fragment>
   );
 }
 

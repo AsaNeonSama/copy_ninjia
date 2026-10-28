@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type React from "react";
 
 /** `MessageSkeletonRows` 的属性参数。 */
@@ -31,5 +32,5 @@ export function MessageSkeletonRows({ count }: MessageSkeletonRowsProps): React.
       </div>
     );
   }
-  return <>{rows}</>;
+  return <Fragment>{rows}</Fragment>;
 }

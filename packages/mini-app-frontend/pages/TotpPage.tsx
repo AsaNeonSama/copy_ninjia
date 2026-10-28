@@ -1,6 +1,12 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type React from "react";
+import { CollapseGrid, TriggerCollapseGrid } from "../components/animations/CollapseGrid";
+import { scrollViewportToExpandedBody } from "../components/animations/expandFollowScroll";
+import type { ViewportRectElement } from "../components/animations/expandFollowScroll";
+import { useDelayedUnmount } from "../components/animations/useDelayedUnmount";
+import type { DelayedUnmountState } from "../components/animations/useDelayedUnmount";
 import { TotpSkeleton } from "../components/skeletons/TotpSkeleton";
+import { MINI_APP_TOTP_SETUP_COLLAPSE_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
@@ -11,9 +17,11 @@ import type { MiniAppUiStoreState } from "../store/app";
 import { createTotpStore } from "../store/totp";
 import type { MiniAppTotpStoreState } from "../store/totp";
 import type { MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppTotpSetupResponse } from "../types/miniAppTotp";
 
 /**
- * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理页面。
+ * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理页面
+ * （点击添加或修改验证器时平滑收起顶部触发按钮并展开绑定表单，展开结束后按 `scrollViewportToExpandedBody` 让视口平滑跟滚，取消时保留二维码快照完成收起过渡）。
  *
  * @returns React 节点
  */
@@ -36,11 +44,47 @@ export function TotpPage(): React.JSX.Element {
     deleteTotp,
   }: MiniAppTotpStoreState = useComponentStore(createTotpStore);
 
+  const cardRef: React.RefObject<ViewportRectElement | null> =
+    useRef<ViewportRectElement | null>(null);
+  const setCardNode: (el: ViewportRectElement | null) => void =
+    useCallback((el: ViewportRectElement | null): void => {
+      cardRef.current = el;
+    }, []);
+  const handleSetupExpandEnd: (gridElement: ViewportRectElement) => void =
+    useCallback((gridElement: ViewportRectElement): void => {
+      const cardEl: ViewportRectElement | null = cardRef.current;
+      if (
+        cardEl === null ||
+        typeof cardEl.getBoundingClientRect !== "function" ||
+        typeof gridElement.getBoundingClientRect !== "function"
+      ) {
+        return;
+      }
+      const gridRect: { readonly top: number; readonly height: number } =
+        gridElement.getBoundingClientRect();
+      scrollViewportToExpandedBody({
+        blockTop: cardEl.getBoundingClientRect().top,
+        bodyTop: gridRect.top,
+        bodyHeight: gridRect.height,
+      });
+    }, []);
+
+  const {
+    displayValue: displaySetupData,
+  }: Readonly<DelayedUnmountState<Readonly<MiniAppTotpSetupResponse>>> =
+    useDelayedUnmount(setupData, MINI_APP_TOTP_SETUP_COLLAPSE_MS);
+  const qrSvgHtml: string = displaySetupData?.qrSvg ?? "";
+  const qrInnerHtml: Readonly<{ readonly __html: string }> = useMemo(
+    (): Readonly<{ readonly __html: string }> => ({ __html: qrSvgHtml }),
+    [qrSvgHtml]
+  );
+
   useEffect((): void => {
     void loadTotpStatus();
   }, [loadTotpStatus]);
 
   const enabled: boolean = totpStatus?.enabled === true;
+  const setupOpen: boolean = setupData !== null;
 
   return (
     <section className="animate-fade-in">
@@ -70,7 +114,10 @@ export function TotpPage(): React.JSX.Element {
       {loadingStatus && totpStatus === null ? (
         <TotpSkeleton />
       ) : (
-        <div className={`card ${loadingStatus ? "content-refreshing" : ""}`}>
+        <div
+          ref={setCardNode}
+          className={`card ${loadingStatus ? "content-refreshing" : ""}`}
+        >
           <div className="card-title">
             <span>{t.totp.sectionTitle}</span>
             <span className={`badge ${enabled ? "ok" : "warn"}`}>
@@ -86,12 +133,17 @@ export function TotpPage(): React.JSX.Element {
               : t.totp.statusDescDisabled}
           </div>
 
-          {setupData === null ? (
+          <TriggerCollapseGrid
+            collapsed={setupOpen}
+            gridClassName="totp-trigger-collapse-grid"
+            innerClassName="totp-collapse-inner"
+          >
             <div className="totp-actions-row">
               <button
                 type="button"
                 className="btn primary icon-btn"
-                disabled={busy}
+                disabled={busy || setupOpen}
+                tabIndex={setupOpen ? -1 : 0}
                 onClick={(): void => {
                   void startSetup();
                 }}
@@ -103,7 +155,8 @@ export function TotpPage(): React.JSX.Element {
                 <button
                   type="button"
                   className="btn danger icon-btn"
-                  disabled={busy}
+                  disabled={busy || setupOpen}
+                  tabIndex={setupOpen ? -1 : 0}
                   onClick={(): void => {
                     void deleteTotp();
                   }}
@@ -113,7 +166,14 @@ export function TotpPage(): React.JSX.Element {
                 </button>
               ) : null}
             </div>
-          ) : (
+          </TriggerCollapseGrid>
+
+          <CollapseGrid
+            expanded={setupOpen}
+            gridClassName="totp-setup-collapse-grid"
+            innerClassName="totp-collapse-inner"
+            onExpandEnd={handleSetupExpandEnd}
+          >
             <form
               className="totp-setup-panel"
               onSubmit={(e: React.SyntheticEvent<HTMLFormElement>): void => {
@@ -124,11 +184,11 @@ export function TotpPage(): React.JSX.Element {
               <div className="stat-sub">{t.totp.qrGuideText}</div>
               <div
                 className="totp-qr-box"
-                dangerouslySetInnerHTML={{ __html: setupData.qrSvg }}
+                dangerouslySetInnerHTML={qrInnerHtml}
               />
               <div className="totp-secret-line">
                 <span>{t.totp.secretLabel}</span>
-                <code>{setupData.secret}</code>
+                <code>{displaySetupData?.secret ?? ""}</code>
               </div>
               <div className="totp-verify-stack">
                 <input
@@ -138,7 +198,8 @@ export function TotpPage(): React.JSX.Element {
                   maxLength={6}
                   placeholder={t.totp.codePlaceholder}
                   value={codeInput}
-                  disabled={busy}
+                  disabled={busy || !setupOpen}
+                  tabIndex={setupOpen ? 0 : -1}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>): void => {
                     const rawVal: string = (
                       e.currentTarget as unknown as { readonly value: string }
@@ -150,7 +211,8 @@ export function TotpPage(): React.JSX.Element {
                   <button
                     type="button"
                     className="btn"
-                    disabled={busy}
+                    disabled={busy || !setupOpen}
+                    tabIndex={setupOpen ? 0 : -1}
                     onClick={cancelSetup}
                   >
                     {t.totp.cancelSetupButton}
@@ -158,7 +220,8 @@ export function TotpPage(): React.JSX.Element {
                   <button
                     type="submit"
                     className="btn primary icon-btn"
-                    disabled={busy}
+                    disabled={busy || !setupOpen}
+                    tabIndex={setupOpen ? 0 : -1}
                   >
                     <LockSvgIcon size={14} />
                     <span>
@@ -168,7 +231,7 @@ export function TotpPage(): React.JSX.Element {
                 </div>
               </div>
             </form>
-          )}
+          </CollapseGrid>
         </div>
       )}
     </section>

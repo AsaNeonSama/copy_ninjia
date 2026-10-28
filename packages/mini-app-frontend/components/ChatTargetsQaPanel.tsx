@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type React from "react";
 import { truncateDisplayText } from "../libs/formatters";
 import { CloseSvgIcon, PlusSvgIcon, TrashSvgIcon } from "../resource";
@@ -48,7 +49,7 @@ export function ChatTargetsQaPanel({
   const qaAnswerMaxChars: number = chatTargets?.qaAnswerMaxChars ?? 3_840;
 
   return (
-    <>
+    <Fragment>
       <div className="chat-targets-qa-editor-shell">
         <TriggerCollapseGrid
           collapsed={qaEditorOpen}
@@ -215,6 +216,6 @@ export function ChatTargetsQaPanel({
           )}
         </div>
       )}
-    </>
+    </Fragment>
   );
 }

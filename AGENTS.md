@@ -175,6 +175,7 @@
 - 位置参数最多 3 个；更多参数必须改为函数旁导出的 options interface，并在签名处解构。
 - 可选项使用 `?`，默认值写在解构处。
 - 导出函数使用 `function`；箭头函数仅用于回调和 IIFE。
+- JSX/TSX 片段必须显式使用 `react` 的 `<Fragment>`，禁止使用 `<>...</>` 简写。
 - 非必要绝不使用 `Promise.all`，必须使用 `Promise.allSettled`，进行有界重试和批处理
 
 ### 测试

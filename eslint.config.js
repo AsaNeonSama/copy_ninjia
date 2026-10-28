@@ -158,6 +158,10 @@ export default defineConfig(
           message: "Use a separate import type declaration.",
         },
         {
+          selector: "JSXFragment",
+          message: "Use explicit <Fragment> from 'react' instead of <>...</> shorthand.",
+        },
+        {
           selector: "CallExpression[callee.object.name='Promise'][callee.property.name='all']",
           message: "Use Promise.allSettled with bounded concurrency and traceable per-item outcomes.",
         },
