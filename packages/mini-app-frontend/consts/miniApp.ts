@@ -218,6 +218,12 @@ export const MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX: number = 4;
 export const MINI_APP_TOTP_SETUP_COLLAPSE_MS: number = 240;
 
 /**
+ * 图库大图预览卡片关闭收起过渡动画的毫秒数（与 `styles/gallery.css` 的 `0.24s` 齐平）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/pages/GalleryPage.tsx`。
+ */
+export const MINI_APP_GALLERY_PREVIEW_COLLAPSE_MS: number = 240;
+
+/**
  * 实时状态页骨架屏中能力折叠行占位的序号表（6 行，对应服务端状态快照的 6 项能力槽位）。
  * 不变量：从 0 起连续递增的只读整数数组，仅用作骨架行 key 与奇偶宽度切换。所属模块：`packages/mini-app-frontend/components/skeletons/StatusSkeleton.tsx`。
  */

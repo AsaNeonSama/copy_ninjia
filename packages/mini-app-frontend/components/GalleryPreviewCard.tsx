@@ -50,6 +50,8 @@ export interface GalleryPreviewCardProps {
   readonly previewItem: Readonly<MiniAppGalleryItem>;
   /** 预览大图是否已加载完成。 */
   readonly previewLoaded: boolean;
+  /** 是否正处于收起退场动画阶段。 */
+  readonly isClosing?: boolean;
   /** 当前正在下载的文件名（无则为 `null`）。 */
   readonly downloadingFileName: string | null;
   /** 当前正在删除的文件名（无则为 `null`）。 */
@@ -73,6 +75,7 @@ export interface GalleryPreviewCardProps {
 export function GalleryPreviewCard({
   previewItem,
   previewLoaded,
+  isClosing = false,
   downloadingFileName,
   deletingFileName,
   onMarkPreviewLoaded,
@@ -90,6 +93,9 @@ export function GalleryPreviewCard({
     useRef<ProbeableImageElement | null>(null);
 
   useEffect((): void => {
+    if (isClosing) {
+      return;
+    }
     const imgEl: ProbeableImageElement | null = previewImgRef.current;
     if (
       imgEl !== null &&
@@ -103,7 +109,7 @@ export function GalleryPreviewCard({
       behavior: "smooth",
       block: "start",
     });
-  }, [onMarkPreviewLoaded, previewItem]);
+  }, [isClosing, onMarkPreviewLoaded, previewItem]);
 
   return (
     <div
@@ -173,7 +179,7 @@ export function GalleryPreviewCard({
         <button
           type="button"
           className="btn primary icon-btn"
-          disabled={downloadingFileName !== null || deletingFileName !== null}
+          disabled={isClosing || downloadingFileName !== null || deletingFileName !== null}
           onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
             (event.currentTarget as unknown as BlurTargetElement).blur?.();
             onDownloadImage(previewItem.fileName);
@@ -189,7 +195,7 @@ export function GalleryPreviewCard({
         <button
           type="button"
           className="btn danger icon-btn"
-          disabled={deletingFileName !== null || downloadingFileName !== null}
+          disabled={isClosing || deletingFileName !== null || downloadingFileName !== null}
           onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
             (event.currentTarget as unknown as BlurTargetElement).blur?.();
             onDeleteImage(previewItem.fileName);
@@ -205,7 +211,11 @@ export function GalleryPreviewCard({
         <button
           type="button"
           className="btn icon-btn"
-          onClick={onClosePreview}
+          disabled={isClosing}
+          onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+            (event.currentTarget as unknown as BlurTargetElement).blur?.();
+            onClosePreview();
+          }}
         >
           <CloseSvgIcon size={14} />
           <span>{t.gallery.closePreviewButton}</span>

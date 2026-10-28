@@ -1,9 +1,14 @@
 import { useEffect } from "react";
 import type React from "react";
+import { useDelayedUnmount } from "../components/animations/useDelayedUnmount";
+import type { DelayedUnmountState } from "../components/animations/useDelayedUnmount";
 import { GalleryGridList } from "../components/GalleryGridList";
 import { GalleryPreviewCard } from "../components/GalleryPreviewCard";
 import { PaginationBar } from "../components/PaginationBar";
-import { MINI_APP_GALLERY_PAGE_SIZE_OPTIONS } from "../consts/miniApp";
+import {
+  MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
+  MINI_APP_GALLERY_PREVIEW_COLLAPSE_MS,
+} from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
@@ -16,7 +21,7 @@ import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createGalleryStore } from "../store/gallery";
 import type { MiniAppGalleryStoreState } from "../store/gallery";
-import type { MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppGalleryItem, MiniAppLanguage } from "../types/miniApp";
 
 /** 浏览器文件选择 `<input type="file">` 事件目标的最小类型接口。 */
 interface FileInputEventTarget {
@@ -27,7 +32,7 @@ interface FileInputEventTarget {
 }
 
 /**
- * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理页面。
+ * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理页面（关闭大图预览时执行延迟卸载收起过渡动画）。
  *
  * @returns React 节点
  */
@@ -81,6 +86,12 @@ export function GalleryPage(): React.JSX.Element {
     target.value = "";
     void uploadFiles(files);
   };
+
+  const {
+    displayValue: displayPreviewItem,
+    isClosing: previewClosing,
+  }: Readonly<DelayedUnmountState<Readonly<MiniAppGalleryItem>>> =
+    useDelayedUnmount(previewItem, MINI_APP_GALLERY_PREVIEW_COLLAPSE_MS);
 
   const uploadDisabled: boolean =
     uploading || loading || deletingFileName !== null || galleryPage?.exists === false;
@@ -146,20 +157,28 @@ export function GalleryPage(): React.JSX.Element {
           : null}
       </div>
 
-      {previewItem !== null
+      {displayPreviewItem !== null
         ? (
-          <GalleryPreviewCard
-            previewItem={previewItem}
-            previewLoaded={previewLoaded}
-            downloadingFileName={downloadingFileName}
-            deletingFileName={deletingFileName}
-            onMarkPreviewLoaded={markPreviewLoaded}
-            onDownloadImage={handleDownloadImage}
-            onDeleteImage={handleDeleteImage}
-            onClosePreview={(): void => {
-              setPreviewItem(null);
-            }}
-          />
+          <div
+            className={`gallery-preview-collapse-grid ${previewClosing ? "closing" : ""}`}
+            aria-hidden={previewClosing}
+          >
+            <div className="gallery-preview-collapse-inner">
+              <GalleryPreviewCard
+                previewItem={displayPreviewItem}
+                previewLoaded={previewLoaded}
+                isClosing={previewClosing}
+                downloadingFileName={downloadingFileName}
+                deletingFileName={deletingFileName}
+                onMarkPreviewLoaded={markPreviewLoaded}
+                onDownloadImage={handleDownloadImage}
+                onDeleteImage={handleDeleteImage}
+                onClosePreview={(): void => {
+                  setPreviewItem(null);
+                }}
+              />
+            </div>
+          </div>
         )
         : null}
 

@@ -939,6 +939,9 @@ describe("页面 store", () => {
     store.getState().markPreviewLoaded();
     await settleLoading();
     expect(store.getState().previewLoaded).toBeTrue();
+    store.getState().setPreviewItem(null);
+    expect(store.getState().previewItem).toBeNull();
+    expect(store.getState().previewLoaded).toBeTrue();
 
     (globalThis as { Telegram?: unknown }).Telegram = {
       WebApp: {

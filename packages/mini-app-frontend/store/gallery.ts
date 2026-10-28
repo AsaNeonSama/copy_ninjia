@@ -58,7 +58,7 @@ export interface MiniAppGalleryStoreState {
   readonly beginPreviewLoad: () => void;
   /** 预览图加载完成或失败时调用：属于当前预览周期时在骨架屏最短展示时长后标记为已加载。 */
   readonly markPreviewLoaded: () => void;
-  /** 设置或关闭大图预览，并同步开启新的预览加载周期、重置加载完成态。 */
+  /** 设置或关闭大图预览（选中新图时同步开启新的预览加载周期并重置加载完成态，关闭时保留已完成加载态供收起过渡动画展示）。 */
   readonly setPreviewItem: (item: Readonly<MiniAppGalleryItem> | null) => void;
   /** 切换页码并加载该页（关闭大图预览）。 */
   readonly changePage: (page: number) => void;
@@ -195,6 +195,11 @@ export function createGalleryStore(): MiniAppGalleryStore {
 
         setPreviewItem: (item: Readonly<MiniAppGalleryItem> | null): void => {
           previewEpoch += 1;
+          if (item === null) {
+            settledPreviewEpoch = previewEpoch;
+            set({ previewItem: null });
+            return;
+          }
           settledPreviewEpoch = -1;
           previewRenderAt = Date.now();
           set({ previewItem: item, previewLoaded: false });
@@ -202,15 +207,15 @@ export function createGalleryStore(): MiniAppGalleryStore {
 
         changePage: (page: number): void => {
           previewEpoch += 1;
-          settledPreviewEpoch = -1;
-          set({ previewItem: null, previewLoaded: false, page });
+          settledPreviewEpoch = previewEpoch;
+          set({ previewItem: null, page });
           void get().loadGallery(page, get().pageSize);
         },
 
         changePageSize: (pageSize: number): void => {
           previewEpoch += 1;
-          settledPreviewEpoch = -1;
-          set({ previewItem: null, previewLoaded: false, page: 1, pageSize });
+          settledPreviewEpoch = previewEpoch;
+          set({ previewItem: null, page: 1, pageSize });
         },
 
         downloadImage: async (fileName: string): Promise<void> => {
@@ -245,8 +250,8 @@ export function createGalleryStore(): MiniAppGalleryStore {
             if (result.ok) {
               if (get().previewItem?.fileName === fileName) {
                 previewEpoch += 1;
-                settledPreviewEpoch = -1;
-                set({ previewItem: null, previewLoaded: false, loadedImages: {} });
+                settledPreviewEpoch = previewEpoch;
+                set({ previewItem: null, loadedImages: {} });
               } else {
                 set({ loadedImages: {} });
               }
