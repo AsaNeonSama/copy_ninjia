@@ -46,8 +46,12 @@ import {
 import {
   computeRangeProgressPercent,
   interpolateSpringRangeValue,
+  resolveAnimatedRangeStartValue,
 } from "../../packages/mini-app-frontend/components/animations/useAnimatedRangeProgress";
+import { AddModeButtonList } from "../../packages/mini-app-frontend/components/AddModeButtonList";
+import { ChatTargetsMenuButtonList } from "../../packages/mini-app-frontend/components/ChatTargetsMenuButtonList";
 import { ConfirmModal } from "../../packages/mini-app-frontend/components/ConfirmModal";
+import { IdentitySubtabsBar } from "../../packages/mini-app-frontend/components/IdentitySubtabsBar";
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
 import { StatusOverviewCard } from "../../packages/mini-app-frontend/components/StatusOverviewCard";
 import { Toast } from "../../packages/mini-app-frontend/components/Toast";
@@ -56,9 +60,11 @@ import {
   MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
   MINI_APP_FEATURE_KEYS,
+  MINI_APP_HTML_TITLE,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_LANGUAGES,
   MINI_APP_MIN_LOADING_MS,
+  MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
   MINI_APP_TAB_KEYS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
@@ -831,6 +837,60 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(interpolateSpringRangeValue(12, 24, 1)).toBe(24);
     expect(interpolateSpringRangeValue(6, 1, 0.72)).toBeGreaterThan(1);
     expect(interpolateSpringRangeValue(6, 1, 1)).toBe(1);
+    // 连续点击与回撤时保证至少有足够位移区间驱动弹跳动画
+    expect(resolveAnimatedRangeStartValue(5.9, 5, 6)).toBeLessThanOrEqual(5.65);
+    expect(resolveAnimatedRangeStartValue(5.1, 6, 5)).toBeGreaterThanOrEqual(5.45);
+    expect(MINI_APP_HTML_TITLE).toBe("杂鱼控制台♡");
+    expect(getMiniAppTranslations("zh").appTitle).toBe("杂鱼控制台♡");
+    expect(getMiniAppTranslations("en").appTitle).toBe("Zaako Console♡");
+    expect(getMiniAppTranslations("ja").appTitle).toBe("雑魚コンソール♡");
+    const addModeHtml: string = renderToStaticMarkup(
+      createElement(AddModeButtonList, {
+        idFormOpen: true,
+        disabled: false,
+        interactive: true,
+        t: getMiniAppTranslations("zh"),
+        onSelectMode: (): void => undefined,
+      })
+    );
+    expect(addModeHtml).toContain("add-mode-grid");
+    const targetsMenuHtml: string = renderToStaticMarkup(
+      createElement(ChatTargetsMenuButtonList, {
+        targetsMenuOpen: true,
+        chatDetail: null,
+        chatTargets: null,
+        t: getMiniAppTranslations("zh"),
+        onToggleMenu: (): void => undefined,
+        onCloseMenu: (): void => undefined,
+        onSelectTargetKind: (): void => undefined,
+      })
+    );
+    expect(targetsMenuHtml).toContain("chat-targets-dropdown");
+    const subtabsHtml: string = renderToStaticMarkup(
+      createElement(IdentitySubtabsBar, {
+        subTab: "whitelist",
+        loadingList: false,
+        t: getMiniAppTranslations("zh"),
+        onSelectSubTab: (): void => undefined,
+        onRefresh: (): void => undefined,
+      })
+    );
+    expect(subtabsHtml).toContain("subtabs-bar");
+    const refreshedSession: string = "f".repeat(64);
+    const refreshedExp: number = Date.now() + 180_000;
+    responses.set("GET /api/status", (): Response =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          [MINI_APP_SESSION_HEADER]: refreshedSession,
+          [MINI_APP_SESSION_EXPIRES_AT_HEADER]: String(refreshedExp),
+        },
+      })
+    );
+    await miniAppFetchJson("/api/status");
+    expect(readMiniAppSessionToken()).toBe(refreshedSession);
+    expect(readMiniAppSessionExpiresAt()).toBe(refreshedExp);
     await waitMinimumLoadingDuration(Date.now() - MINI_APP_MIN_LOADING_MS - 10);
     const minWaitStart: number = Date.now();
     await waitMinimumLoadingDuration(minWaitStart, 20);

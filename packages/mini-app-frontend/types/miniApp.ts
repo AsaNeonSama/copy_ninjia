@@ -610,7 +610,8 @@ export interface TelegramWindow {
     options: Readonly<{ readonly top: number; readonly behavior?: "auto" | "instant" | "smooth" }>
   ) => void;
   readonly navigator?: Readonly<{ readonly language?: string; readonly languages?: readonly string[] }>;
-  readonly document?: Readonly<{
+  readonly document?: {
+    title?: string;
     readonly getElementById: (elementId: string) => Element | null;
     readonly createElement?: (tagName: "a") => MiniAppDownloadAnchorElement;
     readonly body?: Readonly<{ readonly appendChild?: (node: MiniAppDownloadAnchorElement) => void }>;
@@ -619,7 +620,7 @@ export interface TelegramWindow {
     readonly visibilityState?: "visible" | "hidden";
     readonly addEventListener?: (type: "visibilitychange", listener: () => void) => void;
     readonly removeEventListener?: (type: "visibilitychange", listener: () => void) => void;
-  }>;
+  };
 }
 
 /** 功能开关在前端展示的标题、对应命令与说明。 */

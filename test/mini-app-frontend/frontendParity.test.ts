@@ -92,7 +92,9 @@ describe("Mini App 前端副本与服务端定义一致", () => {
   test("前端复制的字面量常量与服务端同名常量取值一致", () => {
     expect(frontendMiniAppConsts.MINI_APP_INIT_DATA_HEADER).toBe(serverMiniAppConsts.MINI_APP_INIT_DATA_HEADER);
     expect(frontendMiniAppConsts.MINI_APP_SESSION_HEADER).toBe(serverMiniAppConsts.MINI_APP_SESSION_HEADER);
+    expect(frontendMiniAppConsts.MINI_APP_SESSION_EXPIRES_AT_HEADER).toBe(serverMiniAppConsts.MINI_APP_SESSION_EXPIRES_AT_HEADER);
     expect(frontendMiniAppConsts.MINI_APP_SESSION_TTL_MS).toBe(serverMiniAppConsts.MINI_APP_SESSION_TTL_MS);
+    expect(frontendMiniAppConsts.MINI_APP_SESSION_REFRESH_THRESHOLD_MS).toBe(serverMiniAppConsts.MINI_APP_SESSION_REFRESH_THRESHOLD_MS);
     expect(frontendMiniAppConsts.MINI_APP_TMA_AUTH_PREFIX).toBe(serverMiniAppConsts.MINI_APP_TMA_AUTH_PREFIX);
     expect(frontendMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE);
     expect(frontendMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE);

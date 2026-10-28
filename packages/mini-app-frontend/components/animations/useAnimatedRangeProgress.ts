@@ -18,6 +18,8 @@ export interface AnimatedRangeProgressResult {
   readonly displayValue: number;
   /** 当前是否处于按钮点击触发的平滑生长过渡动画中。 */
   readonly isAnimating: boolean;
+  /** 交替翻转的 CSS 关键帧相位（`"a"` / `"b"`），保证连续点击或快速回撤时每次点击都能重新触发弹性关键帧动画。 */
+  readonly animationPhase: "a" | "b";
   /** 当前进度条填充百分比字符串（如 `"21.74%"`）。 */
   readonly progressPercent: string;
   /** 用户手动拖拽 `<input type="range">` 时调用：立即中止动画并同步目标小时数。 */
@@ -76,7 +78,7 @@ export function interpolateSpringRangeValue(
   const direction: number = Math.sign(delta);
   const amplitude: number = Math.min(0.62, Math.max(0.26, distance * 0.075));
   const envelope: number = (1 - tailT) * (1 - tailT);
-  const wave: number = Math.sin(tailT * Math.PI * 1.35) * envelope;
+  const wave: number = Math.sin(tailT * Math.PI) * envelope;
   const rawValue: number = toValue + direction * amplitude * wave;
 
   if (rawValue > MINI_APP_BATCH_KICK_MAX_HOURS) {
@@ -94,6 +96,48 @@ export function interpolateSpringRangeValue(
     );
   }
   return rawValue;
+}
+
+/**
+ * 计算按钮步进或回撤触发新一轮滑块动画时的有效起始数值。
+ * 连续同向点击但上一轮尚未推进满 35% 时向前垫进起点，避免滑块原地停滞；
+ * 快速回撤至原目标导致当前显示值与新目标差值过小时，朝上一目标方向预留回拉行程，保证回撤动画始终可见。
+ *
+ * @param currentDisplay 当前帧滑块显示值
+ * @param prevTarget 上一轮目标小时数
+ * @param nextTarget 本轮新目标小时数
+ * @returns 归一化后的动画起始数值
+ */
+export function resolveAnimatedRangeStartValue(
+  currentDisplay: number,
+  prevTarget: number,
+  nextTarget: number
+): number {
+  if (prevTarget === nextTarget) {
+    return currentDisplay;
+  }
+  const stepDelta: number = nextTarget - prevTarget;
+  const prevRemaining: number = prevTarget - currentDisplay;
+  if (stepDelta * prevRemaining > 0 && Math.abs(prevRemaining) > 0.55) {
+    const advanced: number = currentDisplay + prevRemaining * 0.45;
+    return Math.min(
+      MINI_APP_BATCH_KICK_MAX_HOURS,
+      Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, advanced)
+    );
+  }
+  if (Math.abs(nextTarget - currentDisplay) < 0.35) {
+    const pullbackSpan: number = Math.min(
+      0.45,
+      Math.max(0.35, Math.abs(prevTarget - nextTarget) * 0.45)
+    );
+    const offsetStart: number =
+      nextTarget + Math.sign(prevTarget - nextTarget) * pullbackSpan;
+    return Math.min(
+      MINI_APP_BATCH_KICK_MAX_HOURS,
+      Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, offsetStart)
+    );
+  }
+  return currentDisplay;
 }
 
 /**
@@ -115,7 +159,12 @@ export function useAnimatedRangeProgress(
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
   ] = useState<boolean>(false);
+  const [animationPhase, setAnimationPhase]: [
+    "a" | "b",
+    React.Dispatch<React.SetStateAction<"a" | "b">>
+  ] = useState<"a" | "b">("a");
   const displayValueRef: React.RefObject<number> = useRef<number>(targetHours);
+  const committedTargetRef: React.RefObject<number> = useRef<number>(targetHours);
   const manualChangeRef: React.RefObject<boolean> = useRef<boolean>(false);
   const rafIdRef: React.RefObject<number | null> = useRef<number | null>(null);
 
@@ -126,6 +175,9 @@ export function useAnimatedRangeProgress(
       rafIdRef.current = null;
     }
 
+    const prevTarget: number = committedTargetRef.current;
+    committedTargetRef.current = targetHours;
+
     if (manualChangeRef.current) {
       manualChangeRef.current = false;
       displayValueRef.current = targetHours;
@@ -134,8 +186,12 @@ export function useAnimatedRangeProgress(
       return undefined;
     }
 
-    const fromValue: number = displayValueRef.current;
     const toValue: number = targetHours;
+    const fromValue: number = resolveAnimatedRangeStartValue(
+      displayValueRef.current,
+      prevTarget,
+      toValue
+    );
     const reqFrame: ((callback: (now: number) => void) => number) | undefined =
       host.requestAnimationFrame;
     if (Math.abs(toValue - fromValue) < 0.001 || typeof reqFrame !== "function") {
@@ -145,15 +201,26 @@ export function useAnimatedRangeProgress(
       return undefined;
     }
 
-    const startTime: number =
-      typeof performance !== "undefined" && typeof performance.now === "function"
-        ? performance.now()
-        : Date.now();
+    const kickoffProgress: number = Math.min(
+      0.25,
+      16 / MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS
+    );
+    const kickoffValue: number = interpolateSpringRangeValue(
+      fromValue,
+      toValue,
+      kickoffProgress
+    );
+    displayValueRef.current = kickoffValue;
+    setDisplayValue(kickoffValue);
     setIsAnimating(true);
+    setAnimationPhase((prev: "a" | "b"): "a" | "b" => (prev === "a" ? "b" : "a"));
+
+    let firstFrameTime: number | null = null;
 
     const stepFrame = (now: number): void => {
       const currentNow: number = Number.isFinite(now) ? now : Date.now();
-      const elapsed: number = Math.max(0, currentNow - startTime);
+      firstFrameTime ??= currentNow - 16;
+      const elapsed: number = Math.max(16, currentNow - firstFrameTime);
       const progress: number = Math.min(
         1,
         elapsed / MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS
@@ -200,6 +267,7 @@ export function useAnimatedRangeProgress(
       Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, normalized)
     );
     manualChangeRef.current = true;
+    committedTargetRef.current = clamped;
     displayValueRef.current = clamped;
     setDisplayValue(clamped);
     setIsAnimating(false);
@@ -207,13 +275,21 @@ export function useAnimatedRangeProgress(
   };
 
   const onButtonStepChange = (nextHours: number): void => {
+    const normalized: number = Number.isFinite(nextHours)
+      ? Math.round(nextHours)
+      : MINI_APP_BATCH_KICK_MIN_HOURS;
+    const clamped: number = Math.min(
+      MINI_APP_BATCH_KICK_MAX_HOURS,
+      Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, normalized)
+    );
     manualChangeRef.current = false;
-    setBatchKickHours(nextHours);
+    setBatchKickHours(clamped);
   };
 
   return {
     displayValue,
     isAnimating,
+    animationPhase,
     progressPercent: computeRangeProgressPercent(displayValue),
     onManualDragChange,
     onButtonStepChange,

@@ -1,15 +1,39 @@
 import {
   MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
+  MINI_APP_SESSION_TTL_MS,
+  MINI_APP_SHA256_HEX_PATTERN,
   MINI_APP_TMA_AUTH_PREFIX,
 } from "../consts/miniApp";
 import {
   clearMiniAppSessionToken,
   readMiniAppAssetToken,
   readMiniAppSessionToken,
+  setMiniAppSessionToken,
 } from "../libs/credentials";
 import { asPayloadRecord } from "../libs/record";
 import { readMiniAppInitData } from "../libs/telegram";
+
+/**
+ * 检查服务端响应头中是否包含超过 5 分钟自动刷新的新会话令牌（`X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At`），
+ * 若存在合法的新令牌则立即同步更新本地持久化凭据并延长有效期。
+ * @param response HTTP 响应对象
+ */
+export function syncRefreshedMiniAppSession(response: Response): void {
+  const refreshedToken: string =
+    response.headers.get(MINI_APP_SESSION_HEADER)?.trim() ?? "";
+  if (!MINI_APP_SHA256_HEX_PATTERN.test(refreshedToken)) return;
+  const rawExpiresAt: string =
+    response.headers.get(MINI_APP_SESSION_EXPIRES_AT_HEADER)?.trim() ?? "";
+  const parsedExpiresAt: number = Number(rawExpiresAt);
+  const nowMs: number = Date.now();
+  const nextExpiresAt: number =
+    Number.isFinite(parsedExpiresAt) && parsedExpiresAt > nowMs
+      ? parsedExpiresAt
+      : nowMs + MINI_APP_SESSION_TTL_MS;
+  setMiniAppSessionToken(refreshedToken, nextExpiresAt);
+}
 
 /**
  * 组装携带当前会话 `initData` 与 45 分钟令牌的认证请求头。
@@ -47,6 +71,7 @@ export async function miniAppFetchJson<T>(path: string, init?: RequestInit): Pro
     ...init,
     headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });
+  syncRefreshedMiniAppSession(response);
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
     const record: Record<string, unknown> = asPayloadRecord(payload);

@@ -229,6 +229,7 @@ export async function enableMiniAppTotpFromPending(
     };
   }
 
+  miniAppPendingTotpSetupHolder.current = null;
   const nextRecord: Readonly<MiniAppTotpRecord> = {
     version: MINI_APP_TOTP_RECORD_VERSION,
     secret: pending.secret,
@@ -243,7 +244,6 @@ export async function enableMiniAppTotpFromPending(
     `${JSON.stringify(nextRecord, null, 2)}\n`
   );
   miniAppTotpRecordHolder.current = nextRecord;
-  miniAppPendingTotpSetupHolder.current = null;
   return {
     ok: true,
     message: existing === null ? "TOTP_ENABLED" : "TOTP_UPDATED",

@@ -1,7 +1,6 @@
 import type { Message, SharedUser } from "grammy/types";
 import { miniAppCompletedPickerResults, miniAppPendingPickers } from "../../cache/main/miniApp";
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
-import type { CachedUser } from "../../types/chatState";
 import type { TelegramIdentityMetadata } from "../../types/identityPolicy";
 import type {
   MiniAppChatTargetsMutationResult,
@@ -9,9 +8,9 @@ import type {
   MiniAppPickerResultEvent,
   MiniAppPreparedPickerSession,
 } from "../../types/miniApp";
-import { updateCachedIdentity } from "../../users/senderIdentity";
 import { mutateManagedChatTargets } from "../view/chats/targets";
 import { setBlocklistEntryMembership } from "../view/identities/blocklist";
+import { cacheIdentityMetadataInBot } from "../view/identities/metadata";
 import { setWhitelistEntryMembership } from "../view/identities/whitelist";
 import { pruneExpiredMiniAppPickers } from "./sessions";
 
@@ -33,29 +32,6 @@ interface PickerImportTally {
   readonly duplicateIds: readonly number[];
   /** 首个非重复跳过项的服务端回执码（供全部失败时透传具体原因，如 `IDENTITY_IN_WHITELIST`、`TARGET_NOT_IN_CHAT`）。 */
   readonly firstFailureMessage?: string;
-}
-
-/**
- * 当共享身份携带公开 `@username` 时同步写入主线程发送者缓存，供后续目标列表展示名称与用户名。
- * @param candidate 待导入的共享身份项。
- */
-function cacheSharedCandidate(candidate: Readonly<SharedIdentityCandidate>): void {
-  if (candidate.meta.username.length === 0) return;
-  const cached: CachedUser =
-    candidate.id < 0
-      ? {
-        id: candidate.id,
-        title: candidate.meta.firstName,
-        username: candidate.meta.username,
-        isChannel: true,
-      }
-      : {
-        id: candidate.id,
-        first_name: candidate.meta.firstName,
-        ...(candidate.meta.lastName.length > 0 ? { last_name: candidate.meta.lastName } : {}),
-        username: candidate.meta.username,
-      };
-  updateCachedIdentity(cached);
 }
 
 /**
@@ -137,7 +113,7 @@ async function importSharedCandidates(
       return { addedIds, skippedIds, duplicateIds };
     }
     for (const candidate of candidates) {
-      cacheSharedCandidate(candidate);
+      cacheIdentityMetadataInBot(candidate.id, candidate.meta);
       const mutation: Readonly<MiniAppChatTargetsMutationResult> =
         targetList === "deleteMessage"
           ? await mutateManagedChatTargets(chatId, {
@@ -176,7 +152,7 @@ async function importSharedCandidates(
   }
 
   for (const candidate of candidates) {
-    cacheSharedCandidate(candidate);
+    cacheIdentityMetadataInBot(candidate.id, candidate.meta);
     const mutation: Readonly<MiniAppIdentityMutationResult> =
       targetList === "whitelist"
         ? await setWhitelistEntryMembership({

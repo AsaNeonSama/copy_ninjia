@@ -140,6 +140,15 @@ export async function setManagedChatFeature({
       const refused: Readonly<MiniAppFeatureToggleResult> | null =
         await checkFeatureReadiness(chatId, "aiChat", aiChatConfigReadiness());
       if (refused !== null) return refused;
+      if (getChatState(chatId).isInitEnabled !== true) {
+        return {
+          ok: false,
+          removedFromList: true,
+          feature: "aiChat",
+          message: "CHAT_NOT_INITIALIZED",
+          detail: null,
+        };
+      }
     }
     const state: ChatState = getOrCreateChatState(chatId);
     state.isAIChatEnabled = enabled;
@@ -169,12 +178,26 @@ export async function setManagedChatFeature({
       const refused: Readonly<MiniAppFeatureToggleResult> | null =
         await checkFeatureReadiness(chatId, "translation", translateConfigReadiness());
       if (refused !== null) return refused;
+      if (getChatState(chatId).isInitEnabled !== true) {
+        return {
+          ok: false,
+          removedFromList: true,
+          feature: "translation",
+          message: "CHAT_NOT_INITIALIZED",
+          detail: null,
+        };
+      }
+      const state: ChatState = getOrCreateChatState(chatId);
+      state.isTranslationEnabled = true;
+      await persistChatState(chatId, "translation toggled");
     } else {
+      const state: ChatState = getOrCreateChatState(chatId);
+      state.isTranslationEnabled = false;
       await stopTranslation(chatId);
+      if (getChatState(chatId).isInitEnabled === true) {
+        await persistChatState(chatId, "translation toggled");
+      }
     }
-    const state: ChatState = getOrCreateChatState(chatId);
-    state.isTranslationEnabled = enabled;
-    await persistChatState(chatId, "translation toggled");
     return {
       ok: true,
       removedFromList: false,
@@ -189,6 +212,15 @@ export async function setManagedChatFeature({
       const refused: Readonly<MiniAppFeatureToggleResult> | null =
         await checkFeatureReadiness(chatId, "adDetect", adDetectConfigReadiness());
       if (refused !== null) return refused;
+      if (getChatState(chatId).isInitEnabled !== true) {
+        return {
+          ok: false,
+          removedFromList: true,
+          feature: "adDetect",
+          message: "CHAT_NOT_INITIALIZED",
+          detail: null,
+        };
+      }
     }
     const state: ChatState = getOrCreateChatState(chatId);
     state.isAdDetectEnabled = enabled;
@@ -262,12 +294,26 @@ export async function setManagedChatFeature({
   }
 
   if (enabled) {
-    const activeTargetChatId: number | undefined = getActiveProxySendTarget();
-    if (activeTargetChatId !== undefined && activeTargetChatId !== chatId) {
+    const previousTargetChatIds: number[] = [];
+    let activeTargetChatId: number | undefined = getActiveProxySendTarget();
+    while (activeTargetChatId !== undefined && activeTargetChatId !== chatId) {
       disableChatStateSwitch(activeTargetChatId, "isProxySendEnabled");
-      await persistChatState(activeTargetChatId, "send finished");
+      previousTargetChatIds.push(activeTargetChatId);
+      activeTargetChatId = getActiveProxySendTarget();
     }
     getOrCreateChatState(chatId).isProxySendEnabled = true;
+    for (const previousChatId of previousTargetChatIds) {
+      await persistChatState(previousChatId, "send finished");
+    }
+    if (getChatState(chatId).isInitEnabled !== true) {
+      return {
+        ok: false,
+        removedFromList: true,
+        feature: "proxySend",
+        message: "CHAT_NOT_INITIALIZED",
+        detail: null,
+      };
+    }
     await persistChatState(chatId, "send started");
     return {
       ok: true,

@@ -1,5 +1,6 @@
 import type { ChatFullInfo } from "grammy/types";
 import { aiChatBotInfo } from "../../../cache/main/aiChat";
+import { unacknowledgedIdentityWrites } from "../../../cache/main/identityStorage";
 import {
   MINI_APP_BIDI_CONTROL_CHARS_PATTERN,
   MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
@@ -14,14 +15,21 @@ import {
 import { getChatStateCache } from "../../../infra/storage/stateStore";
 import { probeTelegramChatInfoSilent } from "../../../infra/telegram/actions/miniApp";
 import { bot } from "../../../infra/telegram/mainClient";
-import { resolveIdTarget } from "../../../users/senderIdentity";
+import {
+  resolveIdTarget,
+  resolveUsernameTarget,
+  updateCachedIdentity,
+} from "../../../users/senderIdentity";
 import type { CachedUser } from "../../../types/chatState";
 import type {
   IdentityPolicyTable,
   TelegramIdentityMetadata,
   WhitelistPermissionKey,
 } from "../../../types/identityPolicy";
-import type { BlocklistIdPage } from "../../../types/identityStorage";
+import type {
+  BlocklistIdPage,
+  UnacknowledgedIdentityWrite,
+} from "../../../types/identityStorage";
 import type { MiniAppPermissionDescriptor } from "../../../types/miniApp";
 
 /** 分页查询白名单或黑名单的入参。 */
@@ -39,18 +47,66 @@ export interface ListIdentityPageParams {
 }
 
 /**
+ * 读取一页游标 ID 并叠加当前尚未收到落盘 ACK 的内存身份增删写入，确保 Bot 或 API 侧刚提交的名单变更立即可见。
+ *
+ * @param table 目标身份策略表名（可选）。
+ * @param readSweepPage 底层游标页读取函数。
+ * @param afterId 游标起点 ID。
+ * @returns 叠加未确认内存写入后的游标页。
+ */
+async function readOverlaySweepPage(
+  table: IdentityPolicyTable | undefined,
+  readSweepPage: (afterId: number | null) => Promise<BlocklistIdPage>,
+  afterId: number | null
+): Promise<BlocklistIdPage> {
+  const sweep: BlocklistIdPage = await readSweepPage(afterId);
+  if (table === undefined) return sweep;
+  const pendingWrites: ReadonlyMap<number, UnacknowledgedIdentityWrite> =
+    unacknowledgedIdentityWrites(table);
+  if (pendingWrites.size === 0) return sweep;
+  const idSet: Set<number> = new Set(sweep.ids);
+  for (const [id, change] of pendingWrites) {
+    if (change.data === null) {
+      idSet.delete(id);
+      continue;
+    }
+    if (afterId !== null && id <= afterId) continue;
+    if (!sweep.done && sweep.nextCursor !== null && id > sweep.nextCursor) {
+      continue;
+    }
+    idSet.add(id);
+  }
+  const ids: number[] = [...idSet].sort(
+    (left: number, right: number): number => left - right
+  );
+  return {
+    ids,
+    nextCursor: sweep.done
+      ? (ids.length === 0 ? afterId : ids[ids.length - 1]!)
+      : sweep.nextCursor,
+    done: sweep.done,
+  };
+}
+
+/**
  * 读取指定身份策略表的全部身份 ID（供按名称搜索过滤时遍历）。
  *
  * @param readSweepPage 底层游标页读取函数。
+ * @param table 可选的身份策略表名，用于叠加本地未确认内存写入。
  * @returns 表中全部身份 ID 列表。
  */
 export async function collectAllIdentityIds(
-  readSweepPage: (afterId: number | null) => Promise<BlocklistIdPage>
+  readSweepPage: (afterId: number | null) => Promise<BlocklistIdPage>,
+  table?: IdentityPolicyTable
 ): Promise<readonly number[]> {
   const allIds: number[] = [];
   let cursor: number | null = null;
   while (true) {
-    const sweep: BlocklistIdPage = await readSweepPage(cursor);
+    const sweep: BlocklistIdPage = await readOverlaySweepPage(
+      table,
+      readSweepPage,
+      cursor
+    );
     for (const id of sweep.ids) {
       allIds.push(id);
     }
@@ -126,10 +182,14 @@ export async function collectIdentityPageIds(
     Math.max(1, Math.trunc(rawPageSize))
   );
   const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
-  const knownTotal: number = getIdentityEntryCount(table);
 
   if (params.afterId !== undefined && params.afterId !== null) {
-    const cursorSweep: BlocklistIdPage = await readSweepPage(params.afterId);
+    const cursorSweep: BlocklistIdPage = await readOverlaySweepPage(
+      table,
+      readSweepPage,
+      params.afterId
+    );
+    const knownTotal: number = getIdentityEntryCount(table);
     const sliceIds: readonly number[] = cursorSweep.ids.slice(0, pageSize);
     const hasMore: boolean =
       cursorSweep.ids.length > sliceIds.length || !cursorSweep.done;
@@ -147,7 +207,12 @@ export async function collectIdentityPageIds(
     };
   }
 
-  const firstSweep: BlocklistIdPage = await readSweepPage(null);
+  const firstSweep: BlocklistIdPage = await readOverlaySweepPage(
+    table,
+    readSweepPage,
+    null
+  );
+  const knownTotal: number = getIdentityEntryCount(table);
   if (firstSweep.done) {
     const total: number = Math.max(knownTotal, firstSweep.ids.length);
     const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
@@ -193,7 +258,11 @@ export async function collectIdentityPageIds(
     ) {
       break;
     }
-    currentSweep = await readSweepPage(currentSweep.nextCursor);
+    currentSweep = await readOverlaySweepPage(
+      table,
+      readSweepPage,
+      currentSweep.nextCursor
+    );
   }
 
   if (scanned > total) {
@@ -270,7 +339,81 @@ export function formatIdentityDisplayName(
 }
 
 /**
- * 为待写入白名单或黑名单的目标身份补齐 `TelegramIdentityMetadata`（优先采用调用方提供的资料，其次读取主线程发送者缓存，最后尽力通过 `getChat` 探测）。
+ * 当身份元数据包含非空 `@username` 时，同步刷新 Bot 主线程发送者缓存（`userCache`、`senderUsernameCache`、`identityById`）。
+ * 对象属性顺序与 `packages/users/visibleSender.ts` 的 `channelIdentity` / `userIdentity` 保持严格一致。
+ * @param id 用户（正整数）或频道（负整数）身份 ID。
+ * @param meta 规范化后的 Telegram 身份展示元数据。
+ */
+export function cacheIdentityMetadataInBot(
+  id: number,
+  meta: Readonly<TelegramIdentityMetadata>
+): void {
+  const cleanUsername: string = meta.username.trim().replace(/^@+/u, "");
+  if (cleanUsername.length === 0) return;
+  const firstName: string = meta.firstName.trim();
+  const lastName: string = meta.lastName.trim();
+  const cached: CachedUser =
+    id < 0
+      ? {
+        id,
+        username: cleanUsername,
+        title: firstName.length > 0 ? firstName : undefined,
+        isChannel: true,
+      }
+      : {
+        id,
+        username: cleanUsername,
+        first_name: firstName.length > 0 ? firstName : undefined,
+        last_name: lastName.length > 0 ? lastName : undefined,
+      };
+  updateCachedIdentity(cached);
+}
+
+/**
+ * 在 API 服务器与 Bot 主线程发送者缓存之间双向对齐身份展示元数据：
+ * 若 Bot 发送者缓存已持有该身份更新后的昵称或用户名，则优先合并最新资料；
+ * 若名单元数据带有尚未被其他身份占用的非空 `@username`，则按需回填至 Bot 发送者缓存。
+ * @param id 用户或频道身份 ID。
+ * @param meta 持久化条目中的身份元数据。
+ * @returns 对齐后的只读 `TelegramIdentityMetadata`。
+ */
+export function syncIdentityMetadataWithBotCache(
+  id: number,
+  meta: Readonly<TelegramIdentityMetadata>
+): Readonly<TelegramIdentityMetadata> {
+  const cachedUser: CachedUser = resolveIdTarget(id);
+  const fromCached: TelegramIdentityMetadata =
+    identityMetadataFromCachedUser(cachedUser);
+  const hasCachedName: boolean = fromCached.firstName.length > 0;
+  const cleanMetaUsername: string = meta.username.trim().replace(/^@+/u, "");
+  const aliasOwner: CachedUser | undefined =
+    fromCached.username.length === 0 && cleanMetaUsername.length > 0
+      ? resolveUsernameTarget(cleanMetaUsername)
+      : undefined;
+  const canUseMetaUsername: boolean =
+    aliasOwner === undefined || aliasOwner.id === id;
+  const effective: Readonly<TelegramIdentityMetadata> = {
+    firstName: hasCachedName ? fromCached.firstName : meta.firstName.trim(),
+    lastName: hasCachedName ? fromCached.lastName : meta.lastName.trim(),
+    username:
+      fromCached.username.length > 0
+        ? fromCached.username
+        : canUseMetaUsername
+          ? cleanMetaUsername
+          : "",
+  };
+  if (
+    effective.username.length > 0 &&
+    (fromCached.username.length === 0 ||
+      (fromCached.firstName.length === 0 && effective.firstName.length > 0))
+  ) {
+    cacheIdentityMetadataInBot(id, effective);
+  }
+  return effective;
+}
+
+/**
+ * 为待写入白名单或黑名单的目标身份补齐 `TelegramIdentityMetadata`（优先采用调用方提供的资料，其次读取主线程发送者缓存，最后尽力通过 `getChat` 探测），并同步更新主线程发送者缓存。
  * @param id 目标身份 ID。
  * @param fallback 调用方传入的可选部分元数据。
  * @returns 完整的只读 `TelegramIdentityMetadata`。
@@ -281,13 +424,16 @@ export async function resolveIdentityMetadataForMiniApp(
 ): Promise<Readonly<TelegramIdentityMetadata>> {
   const firstNameFromFallback: string = fallback?.firstName?.trim() ?? "";
   const lastNameFromFallback: string = fallback?.lastName?.trim() ?? "";
-  const usernameFromFallback: string = fallback?.username?.trim() ?? "";
+  const usernameFromFallback: string =
+    fallback?.username?.trim().replace(/^@+/u, "") ?? "";
   if (firstNameFromFallback.length > 0 || usernameFromFallback.length > 0) {
-    return {
+    const resolved: Readonly<TelegramIdentityMetadata> = {
       firstName: firstNameFromFallback,
       lastName: lastNameFromFallback,
       username: usernameFromFallback,
     };
+    cacheIdentityMetadataInBot(id, resolved);
+    return resolved;
   }
 
   const cachedUser: CachedUser = resolveIdTarget(id);
@@ -314,7 +460,13 @@ export async function resolveIdentityMetadataForMiniApp(
         ? chatInfo.username.trim()
         : "";
     if (firstName.length > 0 || username.length > 0) {
-      return { firstName, lastName, username };
+      const resolved: Readonly<TelegramIdentityMetadata> = {
+        firstName,
+        lastName,
+        username,
+      };
+      cacheIdentityMetadataInBot(id, resolved);
+      return resolved;
     }
   }
 

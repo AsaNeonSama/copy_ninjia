@@ -74,6 +74,20 @@ export async function handleSendCommand(ctx: CommandContext<Context>): Promise<v
     return;
   }
 
+  if (!getChatStateCache().has(targetChatId)) {
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyNotInitialized(targetChatId));
+    return;
+  }
+
+  const currentActiveTargetChatId: number | undefined = getActiveProxySendTarget();
+  if (currentActiveTargetChatId !== undefined) {
+    await replyCommandNotice(
+      ctx,
+      chatAtmosphere().NOTICE_TEXTS.proxyAlreadyStarted(currentActiveTargetChatId)
+    );
+    return;
+  }
+
   getOrCreateChatState(targetChatId).isProxySendEnabled = true;
   await persistChatState(targetChatId, "send started");
   await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyStarted(targetChatId));

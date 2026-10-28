@@ -1,27 +1,21 @@
 import type React from "react";
-import {
-  MINI_APP_IDENTITY_ADD_MODES,
-  MINI_APP_TRANSLATE_LANGUAGES,
-} from "../consts/miniApp";
+import { MINI_APP_TRANSLATE_LANGUAGES } from "../consts/miniApp";
 import {
   AlertSvgIcon,
-  ChannelSvgIcon,
   ChevronDownSvgIcon,
   CloseSvgIcon,
-  HashtagSvgIcon,
   PlusSvgIcon,
   TrashSvgIcon,
-  UserSvgIcon,
 } from "../resource";
 import type { MiniAppChatsStoreState } from "../store/chats";
 import type {
   MiniAppChatDeleteTargetItem,
   MiniAppChatDetail,
   MiniAppChatTranslateTargetItem,
-  MiniAppIdentityAddMode,
   MiniAppTranslateLanguage,
 } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
+import { AddModeButtonList } from "./AddModeButtonList";
 import { CollapseGrid, TriggerCollapseGrid } from "./animations/CollapseGrid";
 import { ChatTargetsListSkeleton } from "./skeletons/ChatTargetsListSkeleton";
 
@@ -35,20 +29,6 @@ export interface ChatTargetsMemberPanelsProps {
   readonly state: MiniAppChatsStoreState;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
-}
-
-/**
- * 根据添加模式键渲染对应的 SVG 图标。
- *
- * @param mode 添加模式键
- * @returns SVG 图标元素
- */
-function renderTargetAddModeIcon(
-  mode: MiniAppIdentityAddMode
-): React.JSX.Element {
-  if (mode === "id") return <HashtagSvgIcon size={14} />;
-  if (mode === "users") return <UserSvgIcon size={14} />;
-  return <ChannelSvgIcon size={14} />;
 }
 
 /**
@@ -232,30 +212,14 @@ export function ChatTargetsMemberPanels({
               </button>
             </div>
 
-            <div className="add-mode-grid chat-targets-add-mode-grid">
-              {MINI_APP_IDENTITY_ADD_MODES.map(
-                (mode: MiniAppIdentityAddMode): React.JSX.Element => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={`add-mode-card ${mode === "id" && targetIdFormOpen ? "active" : ""}`}
-                    disabled={mutatingTargets || !targetAddMenuOpen}
-                    tabIndex={targetAddMenuOpen ? 0 : -1}
-                    onClick={(): void => {
-                      selectTargetAddMode(mode);
-                    }}
-                  >
-                    <div className="add-mode-head">
-                      {renderTargetAddModeIcon(mode)}
-                      <span>{t.identities.addModes[mode]}</span>
-                    </div>
-                    <div className="add-mode-desc">
-                      {t.identities.addModeDescriptions[mode]}
-                    </div>
-                  </button>
-                )
-              )}
-            </div>
+            <AddModeButtonList
+              idFormOpen={targetIdFormOpen}
+              disabled={mutatingTargets}
+              interactive={targetAddMenuOpen}
+              className="chat-targets-add-mode-grid"
+              t={t}
+              onSelectMode={selectTargetAddMode}
+            />
 
             <CollapseGrid
               expanded={targetIdFormOpen}

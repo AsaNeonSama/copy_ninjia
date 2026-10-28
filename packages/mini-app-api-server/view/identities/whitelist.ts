@@ -18,6 +18,7 @@ import type {
 import {
   confirmIdentityPolicyPersisted,
   getIdentityEntryCount,
+  isIdentityPolicyCached,
   prefetchIdentityPolicies,
   readIdentityPolicyEntries,
   readWhitelistSweepPage,
@@ -42,6 +43,7 @@ import {
   isInitializedManagedChatTarget,
   matchesIdentitySearchQuery,
   resolveIdentityMetadataForMiniApp,
+  syncIdentityMetadataWithBotCache,
 } from "./metadata";
 import type {
   CollectedIdentityPageSlice,
@@ -52,9 +54,16 @@ import type {
 
 /** 白名单成员变更临界区返回结果。 */
 type WhitelistMembershipOutcome =
+  | { readonly kind: "unavailable" }
   | { readonly kind: "blocked" }
   | { readonly kind: "duplicate" }
   | { readonly kind: "updated"; readonly result: SetWhitelistMembershipResult };
+
+/** 白名单权限修改临界区返回结果。 */
+type WhitelistPermissionOutcome =
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "notFound" }
+  | { readonly kind: "updated"; readonly result: SetWhitelistPermissionResult };
 
 /**
  * 分页列出持久化的白名单成员及其十八项细粒度权限（支持按名称、用户名或 ID 模糊搜索）。
@@ -76,7 +85,10 @@ export async function listWhitelistEntries(
       Math.max(1, Math.trunc(rawPageSize))
     );
     const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
-    const allIds: readonly number[] = await collectAllIdentityIds(readWhitelistSweepPage);
+    const allIds: readonly number[] = await collectAllIdentityIds(
+      readWhitelistSweepPage,
+      "whitelist"
+    );
     const whitelistTotal: number = Math.max(
       getIdentityEntryCount("whitelist"),
       allIds.length
@@ -88,9 +100,11 @@ export async function listWhitelistEntries(
     for (const id of allIds) {
       const entry: Readonly<WhitelistEntryData> | undefined = entries.get(id);
       if (entry === undefined) continue;
-      const displayName: string = formatIdentityDisplayName(id, entry.meta);
+      const effectiveMeta: Readonly<TelegramIdentityMetadata> =
+        syncIdentityMetadataWithBotCache(id, entry.meta);
+      const displayName: string = formatIdentityDisplayName(id, effectiveMeta);
       const username: string | undefined =
-        entry.meta.username.length > 0 ? entry.meta.username : undefined;
+        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined;
       if (!matchesIdentitySearchQuery(id, displayName, username)(normalizedQuery)) {
         continue;
       }
@@ -145,11 +159,14 @@ export async function listWhitelistEntries(
   for (const id of slice.sliceIds) {
     const entry: Readonly<WhitelistEntryData> | undefined = entries.get(id);
     if (entry === undefined) continue;
+    const effectiveMeta: Readonly<TelegramIdentityMetadata> =
+      syncIdentityMetadataWithBotCache(id, entry.meta);
     items.push({
       id,
       isChannel: id < 0,
-      displayName: formatIdentityDisplayName(id, entry.meta),
-      username: entry.meta.username.length > 0 ? entry.meta.username : undefined,
+      displayName: formatIdentityDisplayName(id, effectiveMeta),
+      username:
+        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined,
       permissions: { ...entry.permissions },
     });
   }
@@ -225,7 +242,10 @@ export async function setWhitelistEntryMembership({
 
   try {
     const outcome: WhitelistMembershipOutcome = await runProtectedIdentityMutation(
-      (): WhitelistMembershipOutcome => {
+      async (): Promise<WhitelistMembershipOutcome> => {
+        if (!isIdentityPolicyCached(id) && !await prefetchIdentityPolicies([id])) {
+          return { kind: "unavailable" };
+        }
         if (enabled && isUserBlocked(id)) {
           return { kind: "blocked" };
         }
@@ -242,6 +262,14 @@ export async function setWhitelistEntryMembership({
         };
       }
     );
+    if (outcome.kind === "unavailable") {
+      return {
+        ok: false,
+        changed: false,
+        id,
+        message: "IDENTITY_STORAGE_UNAVAILABLE",
+      };
+    }
     if (outcome.kind === "blocked") {
       return {
         ok: false,
@@ -318,31 +346,53 @@ export async function setWhitelistEntryPermission({
       message: "IDENTITY_STORAGE_UNAVAILABLE",
     };
   }
-  if (!isWhitelisted(id)) {
-    return {
-      ok: false,
-      changed: false,
-      id,
-      key,
-      value,
-      message: "WHITELIST_NOT_FOUND",
-    };
-  }
-
   try {
-    const result: SetWhitelistPermissionResult = setWhitelistPermission({
-      id,
-      key,
-      value,
-    });
-    await confirmIdentityPolicyPersisted("whitelist", id, !result.changed);
+    const outcome: WhitelistPermissionOutcome = await runProtectedIdentityMutation(
+      async (): Promise<WhitelistPermissionOutcome> => {
+        if (!isIdentityPolicyCached(id) && !await prefetchIdentityPolicies([id])) {
+          return { kind: "unavailable" };
+        }
+        if (!isWhitelisted(id)) {
+          return { kind: "notFound" };
+        }
+        return {
+          kind: "updated",
+          result: setWhitelistPermission({
+            id,
+            key,
+            value,
+          }),
+        };
+      }
+    );
+    if (outcome.kind === "unavailable") {
+      return {
+        ok: false,
+        changed: false,
+        id,
+        key,
+        value,
+        message: "IDENTITY_STORAGE_UNAVAILABLE",
+      };
+    }
+    if (outcome.kind === "notFound") {
+      return {
+        ok: false,
+        changed: false,
+        id,
+        key,
+        value,
+        message: "WHITELIST_NOT_FOUND",
+      };
+    }
+    await confirmIdentityPolicyPersisted("whitelist", id, !outcome.result.changed);
     return {
       ok: true,
-      changed: result.changed,
+      changed: outcome.result.changed,
       id,
       key,
       value,
-      message: result.changed ? "PERMISSION_UPDATED" : "PERMISSION_UNCHANGED",
+      message: outcome.result.changed ? "PERMISSION_UPDATED" : "PERMISSION_UNCHANGED",
     };
   } catch (error: unknown) {
     logger.error(
@@ -384,23 +434,44 @@ export async function enableAllWhitelistEntryPermissions(
       message: "IDENTITY_STORAGE_UNAVAILABLE",
     };
   }
-  if (!isWhitelisted(id)) {
-    return {
-      ok: false,
-      changed: false,
-      id,
-      message: "WHITELIST_NOT_FOUND",
-    };
-  }
 
   try {
-    const result: SetWhitelistPermissionResult = enableAllWhitelistPermissions(id);
-    await confirmIdentityPolicyPersisted("whitelist", id, !result.changed);
+    const outcome: WhitelistPermissionOutcome = await runProtectedIdentityMutation(
+      async (): Promise<WhitelistPermissionOutcome> => {
+        if (!isIdentityPolicyCached(id) && !await prefetchIdentityPolicies([id])) {
+          return { kind: "unavailable" };
+        }
+        if (!isWhitelisted(id)) {
+          return { kind: "notFound" };
+        }
+        return {
+          kind: "updated",
+          result: enableAllWhitelistPermissions(id),
+        };
+      }
+    );
+    if (outcome.kind === "unavailable") {
+      return {
+        ok: false,
+        changed: false,
+        id,
+        message: "IDENTITY_STORAGE_UNAVAILABLE",
+      };
+    }
+    if (outcome.kind === "notFound") {
+      return {
+        ok: false,
+        changed: false,
+        id,
+        message: "WHITELIST_NOT_FOUND",
+      };
+    }
+    await confirmIdentityPolicyPersisted("whitelist", id, !outcome.result.changed);
     return {
       ok: true,
-      changed: result.changed,
+      changed: outcome.result.changed,
       id,
-      message: result.changed ? "ALL_PERMISSIONS_ENABLED" : "ALL_PERMISSIONS_UNCHANGED",
+      message: outcome.result.changed ? "ALL_PERMISSIONS_ENABLED" : "ALL_PERMISSIONS_UNCHANGED",
     };
   } catch (error: unknown) {
     logger.error(

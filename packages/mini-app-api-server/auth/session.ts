@@ -1,17 +1,104 @@
 import { miniAppAuthSessions, miniAppPasswordGuardHolder } from "../../cache/main/miniApp";
 import { SUPER_ADMIN_USER_ID } from "../../config/bot";
-import { MINI_APP_SESSION_TTL_MS } from "../../consts/miniApp";
+import {
+  MINI_APP_SESSION_EXPIRES_AT_HEADER,
+  MINI_APP_SESSION_HEADER,
+  MINI_APP_SESSION_REFRESH_THRESHOLD_MS,
+  MINI_APP_SESSION_TTL_MS,
+  MINI_APP_SHA256_HEX_PATTERN,
+} from "../../consts/miniApp";
 import type { MiniAppAuthSession, MiniAppPasswordGuardState } from "../../types/miniApp";
 import { accessErrorResponse } from "../libs/response";
 
 /**
- * 清理已超过 45 分钟有效期的密码认证会话。
+ * 清理已超过 45 分钟有效期的密码认证会话，以及已超过 5 分钟并发宽限期的旧令牌别名。
  * @param nowMs 当前毫秒时间戳。
  */
 export function purgeExpiredAuthSessions(nowMs: number): void {
   for (const [token, session] of miniAppAuthSessions) {
-    if (session.expiresAt <= nowMs) miniAppAuthSessions.delete(token);
+    if (
+      session.expiresAt <= nowMs ||
+      (session.token !== token &&
+        nowMs - session.createdAt > MINI_APP_SESSION_REFRESH_THRESHOLD_MS)
+    ) {
+      miniAppAuthSessions.delete(token);
+    }
   }
+}
+
+/**
+ * 判断给定的会话令牌在当前时刻是否对应一条仍在有效期内的密码认证会话。
+ * @param sessionToken 待核验的 64 位十六进制会话令牌。
+ * @param nowMs 当前毫秒时间戳。
+ * @returns 会话存在且未过期时返回 `true`。
+ */
+export function hasActiveMiniAppAuthSession(
+  sessionToken: string,
+  nowMs: number = Date.now()
+): boolean {
+  purgeExpiredAuthSessions(nowMs);
+  if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) return false;
+  const session: Readonly<MiniAppAuthSession> | undefined =
+    miniAppAuthSessions.get(sessionToken);
+  return session !== undefined && session.expiresAt > nowMs;
+}
+
+/**
+ * 核验请求携带的密码认证会话令牌；若会话仍在有效期内且距签发时刻（`createdAt`）已超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`），
+ * 则签发新令牌并将有效期顺延 45 分钟（`nowMs + MINI_APP_SESSION_TTL_MS`），同时将当前请求令牌映射至新会话对象以兼容并发在途请求。
+ * @param sessionToken 请求携带的 64 位十六进制会话令牌。
+ * @param nowMs 当前毫秒时间戳。
+ * @returns 有效（或已刷新续期）的会话记录；缺失或已过期时返回 `null`。
+ */
+export function resolveAndRefreshMiniAppAuthSession(
+  sessionToken: string,
+  nowMs: number = Date.now()
+): Readonly<MiniAppAuthSession> | null {
+  purgeExpiredAuthSessions(nowMs);
+  if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) return null;
+  const session: Readonly<MiniAppAuthSession> | undefined =
+    miniAppAuthSessions.get(sessionToken);
+  if (session === undefined || session.expiresAt <= nowMs) return null;
+  if (nowMs - session.createdAt <= MINI_APP_SESSION_REFRESH_THRESHOLD_MS) {
+    return session;
+  }
+  for (const [key, existing] of miniAppAuthSessions) {
+    if (
+      key !== sessionToken &&
+      (existing === session || existing.token === session.token)
+    ) {
+      miniAppAuthSessions.delete(key);
+    }
+  }
+  const tokenBytes: Uint8Array = new Uint8Array(32);
+  crypto.getRandomValues(tokenBytes);
+  const newToken: string = tokenBytes.toHex();
+  const refreshed: Readonly<MiniAppAuthSession> = {
+    token: newToken,
+    createdAt: nowMs,
+    expiresAt: nowMs + MINI_APP_SESSION_TTL_MS,
+  };
+  miniAppAuthSessions.set(sessionToken, refreshed);
+  miniAppAuthSessions.set(newToken, refreshed);
+  return refreshed;
+}
+
+/**
+ * 为已触发会话令牌刷新的响应原地写入最新的 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头。
+ * @param response 业务响应对象。
+ * @param session 刷新后的新会话记录。
+ * @returns 写入最新会话凭据响应头后的同一 `Response`。
+ */
+export function attachRefreshedSessionHeaders(
+  response: Response,
+  session: Readonly<MiniAppAuthSession>
+): Response {
+  response.headers.set(MINI_APP_SESSION_HEADER, session.token);
+  response.headers.set(
+    MINI_APP_SESSION_EXPIRES_AT_HEADER,
+    String(session.expiresAt)
+  );
+  return response;
 }
 
 /**

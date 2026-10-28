@@ -1,4 +1,7 @@
-export { issueMiniAppAuthSession } from "./auth/session";
+export {
+  issueMiniAppAuthSession,
+  resolveAndRefreshMiniAppAuthSession,
+} from "./auth/session";
 export { prepareMiniAppPicker } from "./picker/prepare";
 export { getMiniAppPickerResult } from "./picker/sessions";
 export { handleMiniAppSharedMessage } from "./picker/sharedMessage";

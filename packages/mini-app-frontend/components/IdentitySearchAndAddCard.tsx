@@ -1,38 +1,23 @@
 import type React from "react";
-import { MINI_APP_IDENTITY_ADD_MODES } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import {
-  ChannelSvgIcon,
   ChevronDownSvgIcon,
   CloseSvgIcon,
-  HashtagSvgIcon,
   PlusSvgIcon,
   SearchSvgIcon,
-  UserSvgIcon,
 } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import type { MiniAppIdentitiesStoreState } from "../store/identities";
-import type { MiniAppIdentityAddMode, MiniAppLanguage } from "../types/miniApp";
+import type { MiniAppLanguage } from "../types/miniApp";
+import { AddModeButtonList } from "./AddModeButtonList";
 import { CollapseGrid } from "./animations/CollapseGrid";
 
 /** `IdentitySearchAndAddCard` 组件属性参数。 */
 export interface IdentitySearchAndAddCardProps {
   /** 黑白名单与权限矩阵状态仓库快照。 */
   readonly state: MiniAppIdentitiesStoreState;
-}
-
-/**
- * 根据添加模式键渲染对应的 SVG 图标。
- *
- * @param mode 添加模式键
- * @returns SVG 图标元素
- */
-function renderAddModeIcon(mode: MiniAppIdentityAddMode): React.JSX.Element {
-  if (mode === "id") return <HashtagSvgIcon size={14} />;
-  if (mode === "users") return <UserSvgIcon size={14} />;
-  return <ChannelSvgIcon size={14} />;
 }
 
 /**
@@ -125,30 +110,13 @@ export function IdentitySearchAndAddCard({
         innerClassName="add-fold-collapse-inner"
       >
         <div className="add-fold-panel">
-          <div className="add-mode-grid">
-            {MINI_APP_IDENTITY_ADD_MODES.map(
-              (mode: MiniAppIdentityAddMode): React.JSX.Element => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`add-mode-card ${mode === "id" && idFormOpen ? "active" : ""}`}
-                  disabled={busyAction || !addMenuOpen}
-                  tabIndex={addMenuOpen ? 0 : -1}
-                  onClick={(): void => {
-                    selectAddMode(mode);
-                  }}
-                >
-                  <div className="add-mode-head">
-                    {renderAddModeIcon(mode)}
-                    <span>{t.identities.addModes[mode]}</span>
-                  </div>
-                  <div className="add-mode-desc">
-                    {t.identities.addModeDescriptions[mode]}
-                  </div>
-                </button>
-              )
-            )}
-          </div>
+          <AddModeButtonList
+            idFormOpen={idFormOpen}
+            disabled={busyAction}
+            interactive={addMenuOpen}
+            t={t}
+            onSelectMode={selectAddMode}
+          />
 
           <CollapseGrid
             expanded={idFormOpen}

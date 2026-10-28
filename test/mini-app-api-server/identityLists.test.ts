@@ -46,10 +46,15 @@ const readIdentityPolicies = mock(
   }
 );
 
+let onFlushDiskIODomain: (() => void) | undefined;
+
 mock.module("../../packages/infra/diskIO", () =>
   diskIOStub({
     isDiskIOInitialized: (): boolean => true,
-    flushDiskIODomain: async () => ({ result: "flushed" as const }),
+    flushDiskIODomain: async () => {
+      onFlushDiskIODomain?.();
+      return { result: "flushed" as const };
+    },
     onDiskIOReply: diskIOReplyStub({}),
     postDiskIO: (): boolean => true,
     readIdentityPolicies,
@@ -65,10 +70,20 @@ const { identityPolicyCache, resetIdentityStorageCache } = await import(
   "../../packages/cache/main/identityStorage"
 );
 const {
+  identityById,
+  senderUsernameCache,
+  userCache,
+} = await import("../../packages/cache/main/senderIdentity");
+const {
   prefetchIdentityPolicies,
   queueIdentityPolicyWrite,
   readIdentityPolicyEntries,
 } = await import("../../packages/infra/identityStorage");
+const {
+  resolveIdTarget,
+  resolveUsernameTarget,
+  updateCachedIdentity,
+} = await import("../../packages/users/senderIdentity");
 const { listWhitelistEntries } = await import(
   "../../packages/mini-app-api-server/view/identities/whitelist"
 );
@@ -94,10 +109,14 @@ function seedLists(count: number): void {
 }
 
 beforeEach((): void => {
+  onFlushDiskIODomain = undefined;
   whitelistRows.clear();
   blocklistRows.clear();
   readIdentityPolicies.mockClear();
   resetIdentityStorageCache();
+  userCache.clear();
+  senderUsernameCache.clear();
+  identityById.clear();
 });
 
 describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
@@ -150,5 +169,66 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
     expect(entries.blocklist.get(addedId)?.meta.firstName).toBe("Added");
     expect(readIdentityPolicies.mock.calls.at(-1)![0]).toEqual([removedId, addedId]);
     expect(identityPolicyCache.size).toBe(cachedBefore);
+  });
+
+  test("Mini App 名单查询与 Bot 发送者缓存及未 ACK 增删写叠加双向同步，且不以旧用户名覆盖新持有人", async () => {
+    const syncId: number = 2001;
+    whitelistRows.set(syncId, JSON.stringify({
+      permissions: DEFAULT_WHITELIST_PERMISSIONS,
+      meta: { firstName: "DbName", lastName: "", username: "db_user" },
+    }));
+    const page1 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    expect(page1.items[0]?.displayName).toBe("DbName");
+    expect(page1.items[0]?.username).toBe("db_user");
+    // DB 带非空 username 的条目回填至 Bot 的 senderIdentity 缓存
+    expect(resolveIdTarget(syncId)).toEqual({
+      id: syncId,
+      username: "db_user",
+      first_name: "DbName",
+      last_name: undefined,
+    });
+
+    // Bot 侧收到新消息更新昵称与用户名后，API Server 列表读取自动同步最新值
+    updateCachedIdentity({
+      id: syncId,
+      username: "live_bot_user",
+      first_name: "LiveBotName",
+      last_name: "Chan",
+    });
+    const page2 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    expect(page2.items[0]?.displayName).toBe("LiveBotName Chan");
+    expect(page2.items[0]?.username).toBe("live_bot_user");
+
+    // 若另一身份已接管旧用户名，读取 DB 中的旧条目不会冲掉新持有人的 username 缓存
+    const newOwnerId: number = 2002;
+    const staleEntryId: number = 2003;
+    updateCachedIdentity({
+      id: newOwnerId,
+      username: "reassigned_alias",
+      first_name: "NewOwner",
+      last_name: undefined,
+    });
+    whitelistRows.set(staleEntryId, JSON.stringify({
+      permissions: DEFAULT_WHITELIST_PERMISSIONS,
+      meta: { firstName: "StaleHolder", lastName: "", username: "reassigned_alias" },
+    }));
+    const page3 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    const staleItem = page3.items.find((item) => item.id === staleEntryId);
+    expect(staleItem?.displayName).toBe("StaleHolder");
+    expect(staleItem?.username).toBeUndefined();
+    expect(resolveUsernameTarget("reassigned_alias")?.id).toBe(newOwnerId);
+
+    // 列表读取 flush 期间并发排入且尚未收到落盘 ACK 的内存新增条目立即叠加在游标页中
+    const pendingId: number = 2004;
+    await prefetchIdentityPolicies([pendingId]);
+    onFlushDiskIODomain = (): void => {
+      onFlushDiskIODomain = undefined;
+      queueIdentityPolicyWrite("whitelist", pendingId, {
+        permissions: DEFAULT_WHITELIST_PERMISSIONS,
+        meta: { firstName: "PendingMember", lastName: "", username: "pending_user" },
+      });
+    };
+    const page4 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    expect(page4.items.some((item) => item.id === pendingId)).toBeTrue();
   });
 });

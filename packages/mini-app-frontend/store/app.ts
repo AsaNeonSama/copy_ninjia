@@ -12,6 +12,7 @@ import type { MiniAppTranslations } from "../i18n";
 import {
   clearMiniAppAssetToken,
   clearMiniAppSessionToken,
+  readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
 } from "../libs/credentials";
 import { buildFallbackDiagnostics } from "../libs/diagnostics";
@@ -166,6 +167,12 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         clearSessionTimer();
         const remainingMs: number = Math.max(1_000, expiresAt - Date.now());
         sessionTimer = setTimeout((): void => {
+          const latestExpiresAt: number = readMiniAppSessionExpiresAt();
+          if (latestExpiresAt > Date.now() && latestExpiresAt > expiresAt) {
+            set({ sessionExpiresAt: latestExpiresAt });
+            scheduleSessionExpiry(latestExpiresAt);
+            return;
+          }
           get().lockSession(
             getMiniAppTranslations(get().language).sessionExpiredToast
           );

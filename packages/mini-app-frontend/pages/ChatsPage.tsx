@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import type React from "react";
 import { CollapseGrid } from "../components/animations/CollapseGrid";
+import { ChatFeatureListCard } from "../components/ChatFeatureListCard";
 import { ChatJoinCleanCard } from "../components/ChatJoinCleanCard";
-import {
-  ChatTargetsModal,
-  resolveTargetKindCounts,
-} from "../components/ChatTargetsModal";
+import { ChatTargetsMenuButtonList } from "../components/ChatTargetsMenuButtonList";
+import { ChatTargetsModal } from "../components/ChatTargetsModal";
+import { ManagedChatList } from "../components/ManagedChatList";
 import { MessagesView } from "../components/MessagesView";
 import { PaginationBar } from "../components/PaginationBar";
 import { ChatDetailSkeleton } from "../components/skeletons/ChatDetailSkeleton";
@@ -15,16 +15,11 @@ import {
   MINI_APP_BATCH_KICK_POLL_INTERVAL_MS,
   MINI_APP_CHATS_DEFAULT_PAGE_SIZE,
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
-  MINI_APP_CHAT_TARGET_KINDS,
-  MINI_APP_FEATURE_KEYS,
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
-import {
-  getFeatureDisplayMeta,
-  truncateDisplayText,
-} from "../libs/formatters";
+import { truncateDisplayText } from "../libs/formatters";
 import {
   ArrowLeftSvgIcon,
   ChatsSvgIcon,
@@ -38,9 +33,6 @@ import { createChatsStore } from "../store/chats";
 import type { MiniAppChatsStoreState } from "../store/chats";
 import type {
   MiniAppChatSummary,
-  MiniAppChatTargetKind,
-  MiniAppFeatureDisplayMeta,
-  MiniAppFeatureKey,
   MiniAppLanguage,
 } from "../types/miniApp";
 
@@ -130,66 +122,15 @@ export function ChatsPage(): React.JSX.Element {
               <ChatsSvgIcon size={14} />
               <span>{t.chats.viewMessagesButton}</span>
             </button>
-            <div className="chat-targets-dropdown">
-              <button
-                type="button"
-                className={`btn icon-btn chat-targets-menu-btn ${targetsMenuOpen ? "active" : ""}`}
-                aria-haspopup="menu"
-                aria-expanded={targetsMenuOpen}
-                disabled={chatDetail === null}
-                onClick={toggleTargetsMenu}
-              >
-                <span>{t.chats.targetsMenuButton}</span>
-                <ChevronDownSvgIcon
-                  size={14}
-                  className={`chevron-icon ${targetsMenuOpen ? "rotated" : ""}`}
-                />
-              </button>
-              {targetsMenuOpen && chatDetail !== null
-                ? (
-                  <>
-                    <div
-                      className="chat-targets-menu-backdrop"
-                      aria-hidden="true"
-                      onClick={closeTargetsMenu}
-                    />
-                    <div
-                      className="chat-targets-menu-popover animate-fade-in"
-                      role="menu"
-                    >
-                      {MINI_APP_CHAT_TARGET_KINDS.map(
-                        (kind: MiniAppChatTargetKind): React.JSX.Element => {
-                          const [count, max]: readonly [number, number] =
-                            resolveTargetKindCounts(
-                              kind,
-                              chatDetail,
-                              chatTargets
-                            );
-                          return (
-                            <button
-                              key={kind}
-                              type="button"
-                              role="menuitem"
-                              className="chat-targets-menu-item"
-                              onClick={(): void => {
-                                openTargetsModal(kind);
-                              }}
-                            >
-                              <span className="chat-targets-menu-item-label">
-                                {t.chats.targetsKindLabel[kind]}
-                              </span>
-                              <span className="chat-targets-menu-item-badge">
-                                {`${count}/${max}`}
-                              </span>
-                            </button>
-                          );
-                        }
-                      )}
-                    </div>
-                  </>
-                )
-                : null}
-            </div>
+            <ChatTargetsMenuButtonList
+              targetsMenuOpen={targetsMenuOpen}
+              chatDetail={chatDetail}
+              chatTargets={chatTargets}
+              t={t}
+              onToggleMenu={toggleTargetsMenu}
+              onCloseMenu={closeTargetsMenu}
+              onSelectTargetKind={openTargetsModal}
+            />
           </div>
         </div>
 
@@ -276,40 +217,13 @@ export function ChatsPage(): React.JSX.Element {
 
               <ChatJoinCleanCard chatDetail={chatDetail} state={storeState} />
 
-              <div className="card">
-                <div className="card-title">
-                  <span>{t.chats.featuresSectionTitle}</span>
-                </div>
-                {MINI_APP_FEATURE_KEYS.map((key: MiniAppFeatureKey): React.JSX.Element => {
-                  const enabled: boolean = chatDetail.features[key];
-                  const meta: MiniAppFeatureDisplayMeta = getFeatureDisplayMeta(key, language);
-                  return (
-                    <div key={key} className="row">
-                      <div className="row-main">
-                        <div className="row-title">
-                          {meta.label}{" "}
-                          <span className="badge">{meta.command}</span>
-                        </div>
-                        <div className="row-sub">{meta.description}</div>
-                      </div>
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={enabled}
-                          disabled={togglingFeature !== null}
-                          onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-                            const nextChecked: boolean = (
-                              event.currentTarget as unknown as { readonly checked: boolean }
-                            ).checked;
-                            void toggleFeature(key, nextChecked);
-                          }}
-                        />
-                        <span className="slider" />
-                      </label>
-                    </div>
-                  );
-                })}
-              </div>
+              <ChatFeatureListCard
+                chatDetail={chatDetail}
+                togglingFeature={togglingFeature}
+                language={language}
+                t={t}
+                onToggleFeature={toggleFeature}
+              />
             </>
           )
           : null}
@@ -360,47 +274,12 @@ export function ChatsPage(): React.JSX.Element {
         ? <div className="card"><div className="empty">{t.chats.emptyChatsHint}</div></div>
         : null}
 
-      {pagedChats.map((chat: Readonly<MiniAppChatSummary>): React.JSX.Element => {
-        const metaText: string = t.chats.chatCardMeta(
-          chat.chatId,
-          chat.hotMessageCount,
-          chat.qaPairCount
-        );
-        return (
-          <div
-            key={chat.chatId}
-            className={`card interactive-card ${loadingList ? "content-refreshing" : ""}`}
-          >
-            <div className="row" style={{ padding: 0 }}>
-              <div className="row-main">
-                <div className="row-title chat-title-ellipsis" title={chat.title}>
-                  {truncateDisplayText(chat.title, 18)}
-                </div>
-                <div className="row-sub identity-sub-row" title={metaText}>
-                  {metaText}
-                </div>
-                {chat.isLockdownActive || chat.features.proxySend
-                  ? (
-                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginTop: "6px" }}>
-                      {chat.features.proxySend ? <span className="badge ok">/send</span> : null}
-                      {chat.isLockdownActive ? <span className="badge warn">{t.chats.lockdownBadge}</span> : null}
-                    </div>
-                  )
-                  : null}
-              </div>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={(): void => {
-                  selectChat(chat.chatId);
-                }}
-              >
-                {t.chats.detailSectionTitle}
-              </button>
-            </div>
-          </div>
-        );
-      })}
+      <ManagedChatList
+        chats={pagedChats}
+        loadingList={loadingList}
+        t={t}
+        onSelectChat={selectChat}
+      />
 
       {totalChats > 0
         ? (

@@ -97,10 +97,23 @@ export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
 /**
+ * Mini App 会话令牌自动刷新时下发新到期毫秒时间戳的 HTTP 响应头名（小写）。
+ * 不变量：当有效会话距离签发已超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS` 时随刷新后的 `X-Mini-App-Session` 一并下发。所属模块：`packages/mini-app-api-server/middleware/sessionToken.ts` 与 `packages/mini-app-api-server/handlers/auth.ts`。
+ */
+export const MINI_APP_SESSION_EXPIRES_AT_HEADER: string =
+  "x-mini-app-session-expires-at";
+
+/**
  * Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。
  * 不变量：到期后必须重新输入密码完成认证。所属模块：`packages/mini-app-api-server/auth/session.ts` 与 `packages/mini-app-api-server/handlers/auth.ts`。
  */
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
+
+/**
+ * Mini App 会话令牌触发自动刷新与续期的已签发时长阈值毫秒数（5 分钟）。
+ * 不变量：正整数毫秒数，小于 `MINI_APP_SESSION_TTL_MS`；携带有效会话令牌访问服务端且距签发时刻超过 5 分钟时自动签发新令牌并顺延有效期。所属模块：`packages/mini-app-api-server/auth/session.ts`。
+ */
+export const MINI_APP_SESSION_REFRESH_THRESHOLD_MS: number = 5 * MINUTE_MS;
 
 /**
  * 超级管理员 ID 连续输错 Mini App 访问密码允许的最大次数（3 次机会）。
@@ -174,10 +187,10 @@ export const MINI_APP_ASSET_TOKEN_SECRET_SEED: string =
 
 /**
  * Mini App 响应的 `Content-Security-Policy` 安全策略头取值。
- * 不变量：仅允许同源脚本与 `https://telegram.org` 官方脚本，彻底封死外联 XSS 与页面嵌套。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ * 不变量：仅允许同源脚本、`https://telegram.org` 官方脚本与 `index.html` 内置的首屏 `lang`/`title` 语言初始化脚本哈希，彻底封死外联 XSS 与页面嵌套。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_CSP_HEADER_VALUE: string =
-  "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  "default-src 'self'; script-src 'self' https://telegram.org 'sha256-PBFoa02N5ze01HNF5R/KrmpngVw7cMKtFUj7uWEUKDU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 /**
  * Mini App 响应的 `X-Frame-Options` 安全头取值。

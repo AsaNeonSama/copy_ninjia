@@ -40,7 +40,7 @@ export const miniAppActiveConfigHolder: {
 
 /**
  * 已通过访问密码认证的超级管理员 45 分钟会话令牌表（键为 64 位十六进制 `token`）。
- * 填充：`POST /api/auth/login` 校验 `initData` 与访问密码均通过后签发写入。
+ * 填充：`POST /api/auth/login` 校验 `initData` 与访问密码均通过后签发写入；携带有效令牌访问且距签发超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS`（5 分钟）时自动签发新令牌并顺延有效期。
  * 清理：每次鉴权或新签发时按 `MINI_APP_SESSION_TTL_MS`（45 分钟）清理过期项，`stopMiniAppServer` 清空。
  * 容量上界为 `MINI_APP_SESSION_MAX`（8 条），超出时由 `FifoMap` 按插入顺序淘汰最早会话；与 Worker 崩溃无关，进程重启后从空表开始。
  */

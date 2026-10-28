@@ -311,7 +311,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
   };
   return {
     languageLabel: "日",
-    appTitle: "Bot コンソール♡",
+    appTitle: "雑魚コンソール♡",
     appSubtitle: "雑魚管理人のために天才のアタシが用意したコックピット",
     superAdminBadge: "SuperAdmin",
     lockButton: "ロック",

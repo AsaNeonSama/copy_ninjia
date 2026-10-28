@@ -4,7 +4,7 @@ import {
 import { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } from "../../config/bot";
 import {
   MINI_APP_PASSWORD_LOCKOUT_MS, MINI_APP_PASSWORD_MAX_ATTEMPTS,
-  MINI_APP_SESSION_TTL_MS, MINI_APP_SHA256_HEX_PATTERN,
+  MINI_APP_SESSION_TTL_MS,
 } from "../../consts/miniApp";
 import { chatAtmosphere } from "../../infra/atmosphere";
 import { sendMessage } from "../../infra/telegram/actions/messages";
@@ -17,14 +17,16 @@ import type {
 } from "../../types/miniApp";
 import type { MiniAppTotpRecord } from "../../types/miniAppTotp";
 import {
-  checkSuperAdminPasswordLockout, issueMiniAppAuthSession, purgeExpiredAuthSessions,
+  attachRefreshedSessionHeaders,
+  checkSuperAdminPasswordLockout, issueMiniAppAuthSession,
+  resolveAndRefreshMiniAppAuthSession,
 } from "../auth/session";
 import { loadMiniAppTotpRecord } from "../auth/totpStorage";
 import { extractSessionToken, readJsonObjectBody, resolveSafeClientIp } from "../libs/request";
 import { accessErrorResponse, jsonResponse } from "../libs/response";
 
 /**
- * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态及持久化会话是否有效（仅当 45 分钟解锁会话仍有效时一并下发受保护资源缓存令牌 `assetToken`）。
+ * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态及持久化会话是否有效（仅当 45 分钟解锁会话仍有效时一并下发受保护资源缓存令牌 `assetToken`；若距签发已超过 5 分钟则自动刷新会话令牌并顺延有效期）。
  * @param request 可选 HTTP 请求对象（用于核验客户端持久化的 45 分钟会话令牌）。
  * @returns JSON 响应。
  */
@@ -32,23 +34,29 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
   const totpRecord: Readonly<MiniAppTotpRecord> | null = await loadMiniAppTotpRecord();
   const totpEnabled: boolean = totpRecord !== null;
   const nowMs: number = Date.now();
-  purgeExpiredAuthSessions(nowMs);
   const sessionToken: string = request !== undefined ? extractSessionToken(request) : "";
-  const activeSession: Readonly<MiniAppAuthSession> | undefined =
-    MINI_APP_SHA256_HEX_PATTERN.test(sessionToken) ? miniAppAuthSessions.get(sessionToken) : undefined;
-  return jsonResponse({
+  const activeSession: Readonly<MiniAppAuthSession> | null =
+    resolveAndRefreshMiniAppAuthSession(sessionToken, nowMs);
+  const response: Response = jsonResponse({
     ok: true,
     ttlMs: MINI_APP_SESSION_TTL_MS,
     totpEnabled,
     authMode: totpEnabled ? "totp" : "password",
-    ...(activeSession !== undefined && activeSession.expiresAt > nowMs
+    ...(activeSession !== null
       ? {
         sessionValid: true,
         sessionExpiresAt: activeSession.expiresAt,
+        ...(activeSession.token !== sessionToken
+          ? { sessionToken: activeSession.token }
+          : {}),
         assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
       }
       : {}),
   });
+  if (activeSession !== null && activeSession.token !== sessionToken) {
+    return attachRefreshedSessionHeaders(response, activeSession);
+  }
+  return response;
 }
 
 /**

@@ -311,7 +311,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
   };
   return {
     languageLabel: "中",
-    appTitle: "Bot 控制台♡",
+    appTitle: "杂鱼控制台♡",
     appSubtitle: "专为杂鱼管理员准备的本天才指挥舱",
     superAdminBadge: "SuperAdmin",
     lockButton: "锁定",

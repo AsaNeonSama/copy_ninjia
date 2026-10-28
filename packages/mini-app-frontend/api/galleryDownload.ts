@@ -11,7 +11,7 @@ import type {
   TelegramWebApp,
   TelegramWindow,
 } from "../types/miniApp";
-import { buildMiniAppAuthHeaders } from "./request";
+import { buildMiniAppAuthHeaders, syncRefreshedMiniAppSession } from "./request";
 
 /**
  * 构造 `GET|HEAD ./api/gallery/download/:fileName` 图库单张图片附件下载 URL（携带受保护资源令牌或 `initData`，以及 45 分钟 `session` 会话令牌）。
@@ -48,6 +48,7 @@ export async function downloadMiniAppGalleryImageByName(fileName: string): Promi
     method: "HEAD",
     headers: buildMiniAppAuthHeaders(true),
   });
+  syncRefreshedMiniAppSession(response);
   if (!response.ok) {
     const getRes: Response = await fetch(
       `./api/gallery/download/${encodeURIComponent(fileName)}`,

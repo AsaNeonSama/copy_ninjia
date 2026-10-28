@@ -1,36 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type React from "react";
-import { buildMiniAppGalleryImageUrl } from "../api/galleryFile";
+import { GalleryGridList } from "../components/GalleryGridList";
 import { GalleryPreviewCard } from "../components/GalleryPreviewCard";
-import type {
-  BlurTargetElement,
-  ProbeableImageElement,
-} from "../components/GalleryPreviewCard";
 import { PaginationBar } from "../components/PaginationBar";
-import { GalleryImageSkeleton } from "../components/skeletons/GalleryImageSkeleton";
 import { MINI_APP_GALLERY_PAGE_SIZE_OPTIONS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
 import {
-  formatGalleryFileSize,
-  shortenGalleryFileName,
-} from "../libs/formatters";
-import {
-  DownloadSvgIcon,
   GallerySvgIcon,
   RefreshSvgIcon,
-  TrashSvgIcon,
   UploadSvgIcon,
 } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createGalleryStore } from "../store/gallery";
 import type { MiniAppGalleryStoreState } from "../store/gallery";
-import type {
-  MiniAppGalleryItem,
-  MiniAppLanguage,
-} from "../types/miniApp";
+import type { MiniAppLanguage } from "../types/miniApp";
 
 /** 浏览器文件选择 `<input type="file">` 事件目标的最小类型接口。 */
 interface FileInputEventTarget {
@@ -72,49 +58,15 @@ export function GalleryPage(): React.JSX.Element {
     deleteImage,
     uploadFiles,
   }: MiniAppGalleryStoreState = useComponentStore(createGalleryStore);
-  const [suppressedHoverFileName, setSuppressedHoverFileName]: [
-    string | null,
-    React.Dispatch<React.SetStateAction<string | null>>
-  ] = useState<string | null>(null);
-  const clickCoordsRef: React.RefObject<{ readonly x: number; readonly y: number }> =
-    useRef<{ readonly x: number; readonly y: number }>({ x: -1, y: -1 });
-
   useEffect((): void => {
     void loadGallery(1, pageSize);
   }, [loadGallery, pageSize]);
 
-  const clearHoverSuppressionOnLeave = (fileName: string): void => {
-    if (
-      downloadingFileName === null &&
-      deletingFileName === null &&
-      suppressedHoverFileName === fileName
-    ) {
-      setSuppressedHoverFileName(null);
-    }
-  };
-
-  const clearHoverSuppressionOnMove = (
-    fileName: string,
-    event: React.MouseEvent<HTMLButtonElement>
-  ): void => {
-    if (
-      downloadingFileName === null &&
-      deletingFileName === null &&
-      suppressedHoverFileName === fileName &&
-      (Math.abs(event.clientX - clickCoordsRef.current.x) > 4 ||
-        Math.abs(event.clientY - clickCoordsRef.current.y) > 4)
-    ) {
-      setSuppressedHoverFileName(null);
-    }
-  };
-
   const handleDownloadImage = (fileName: string): void => {
-    setSuppressedHoverFileName(fileName);
     void downloadImage(fileName);
   };
 
   const handleDeleteImage = (fileName: string): void => {
-    setSuppressedHoverFileName(fileName);
     void deleteImage(fileName);
   };
 
@@ -219,112 +171,19 @@ export function GalleryPage(): React.JSX.Element {
               : galleryPage.items.length === 0
                 ? <div className="empty">{t.gallery.emptyGalleryHint}</div>
                 : (
-                  <div className="gallery-grid">
-                    {galleryPage.items.map((item: Readonly<MiniAppGalleryItem>): React.JSX.Element => {
-                      const isSelected: boolean =
-                        previewItem?.fileName === item.fileName;
-                      const isDeleting: boolean =
-                        deletingFileName === item.fileName;
-                      const isDownloading: boolean =
-                        downloadingFileName === item.fileName;
-                      const isImgLoaded: boolean =
-                        loadedImages[item.fileName] === true;
-                      return (
-                        <div
-                          key={`${batchEpoch}:${item.fileName}`}
-                          className={`gallery-card ${isSelected ? "selected" : ""}`}
-                          onClick={(): void => {
-                            setPreviewItem(isSelected ? null : item);
-                          }}
-                        >
-                          <div
-                            className={`gallery-thumb-wrap ${isImgLoaded ? "loaded" : "loading"}`}
-                          >
-                            {!isImgLoaded
-                              ? <GalleryImageSkeleton iconSize={22} />
-                              : null}
-                            <img
-                              ref={(imgEl: ProbeableImageElement | null): void => {
-                                if (
-                                  imgEl !== null &&
-                                  typeof imgEl.src === "string" &&
-                                  imgEl.src.length > 0 &&
-                                  imgEl.complete === true
-                                ) {
-                                  markThumbLoaded(item.fileName, batchEpoch);
-                                }
-                              }}
-                              className={`gallery-thumb ${isImgLoaded ? "loaded" : "loading"}`}
-                              alt={item.fileName}
-                              decoding="async"
-                              onLoad={(): void => {
-                                markThumbLoaded(item.fileName, batchEpoch);
-                              }}
-                              onError={(): void => {
-                                markThumbLoaded(item.fileName, batchEpoch);
-                              }}
-                              src={buildMiniAppGalleryImageUrl(item.fileName)}
-                            />
-                            <button
-                              type="button"
-                              className={`gallery-card-download-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
-                              title={t.gallery.downloadButton}
-                              aria-label={t.gallery.downloadButton}
-                              disabled={downloadingFileName !== null || deletingFileName !== null}
-                              onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                                clearHoverSuppressionOnMove(item.fileName, event);
-                              }}
-                              onMouseLeave={(): void => {
-                                clearHoverSuppressionOnLeave(item.fileName);
-                              }}
-                              onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                                event.stopPropagation();
-                                clickCoordsRef.current = { x: event.clientX, y: event.clientY };
-                                (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                                handleDownloadImage(item.fileName);
-                              }}
-                            >
-                              <DownloadSvgIcon size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              className={`gallery-card-delete-btn ${suppressedHoverFileName === item.fileName ? "hover-suppressed" : ""}`}
-                              title={t.gallery.deleteButton}
-                              aria-label={t.gallery.deleteButton}
-                              disabled={deletingFileName !== null || downloadingFileName !== null}
-                              onMouseMove={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                                clearHoverSuppressionOnMove(item.fileName, event);
-                              }}
-                              onMouseLeave={(): void => {
-                                clearHoverSuppressionOnLeave(item.fileName);
-                              }}
-                              onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                                event.stopPropagation();
-                                clickCoordsRef.current = { x: event.clientX, y: event.clientY };
-                                (event.currentTarget as unknown as BlurTargetElement).blur?.();
-                                handleDeleteImage(item.fileName);
-                              }}
-                            >
-                              <TrashSvgIcon size={14} />
-                            </button>
-                          </div>
-                          <div className="gallery-meta">
-                            <div className="gallery-name" title={item.fileName}>
-                              {isDeleting
-                                ? t.gallery.deletingButton
-                                : isDownloading
-                                  ? t.gallery.downloadingButton
-                                  : shortenGalleryFileName(item.fileName)}
-                            </div>
-                            <div className="gallery-sub">
-                              <span>{formatGalleryFileSize(item.sizeBytes)}</span>
-                              <span>{item.updatedAt.slice(5, 16)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <GalleryGridList
+                    items={galleryPage.items}
+                    previewItem={previewItem}
+                    deletingFileName={deletingFileName}
+                    downloadingFileName={downloadingFileName}
+                    loadedImages={loadedImages}
+                    batchEpoch={batchEpoch}
+                    t={t}
+                    onMarkThumbLoaded={markThumbLoaded}
+                    onSelectPreviewItem={setPreviewItem}
+                    onDownloadImage={handleDownloadImage}
+                    onDeleteImage={handleDeleteImage}
+                  />
                 )}
 
             <PaginationBar

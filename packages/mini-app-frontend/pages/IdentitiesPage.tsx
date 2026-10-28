@@ -1,9 +1,12 @@
 import { useEffect } from "react";
 import type React from "react";
-import { CollapseGrid } from "../components/animations/CollapseGrid";
+import {
+  BlocklistEntryRowList,
+  WhitelistEntryRowList,
+} from "../components/IdentityListRows";
 import { IdentitySearchAndAddCard } from "../components/IdentitySearchAndAddCard";
+import { IdentitySubtabsBar } from "../components/IdentitySubtabsBar";
 import { PaginationBar } from "../components/PaginationBar";
-import { PermissionDrawer } from "../components/PermissionDrawer";
 import { ListSkeletonRows } from "../components/skeletons/ListSkeletonRows";
 import { LoadingBox } from "../components/skeletons/LoadingBox";
 import {
@@ -11,31 +14,18 @@ import {
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
   MINI_APP_SEARCH_DEBOUNCE_MS,
 } from "../consts/miniApp";
-import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
 import {
-  sanitizeBidiText,
-  truncateDisplayText,
-} from "../libs/formatters";
-import {
   AlertSvgIcon,
   CloseSvgIcon,
-  IdentitiesSvgIcon,
-  RefreshSvgIcon,
-  TrashSvgIcon,
 } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createIdentitiesStore } from "../store/identities";
 import type { MiniAppIdentitiesStoreState } from "../store/identities";
-import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type {
-  MiniAppBlocklistEntryView,
-  MiniAppLanguage,
-  MiniAppWhitelistEntryView,
-} from "../types/miniApp";
+import type { MiniAppLanguage } from "../types/miniApp";
 
 /**
  * 黑白名单与权限矩阵管理页面（支持 0.5s 防抖按名称搜索、折叠式三合一添加菜单、重复添加拦截提示与权限抽屉）。
@@ -105,38 +95,13 @@ export function IdentitiesPage(): React.JSX.Element {
 
   return (
     <section className="animate-fade-in">
-      <div className="subtabs-bar">
-        <div className="subtabs-group">
-          <button
-            type="button"
-            className={`subtab-btn ${subTab === "whitelist" ? "active" : ""}`}
-            onClick={(): void => {
-              selectSubTab("whitelist");
-            }}
-          >
-            <IdentitiesSvgIcon size={14} />
-            <span>{t.identities.whitelistTab}</span>
-          </button>
-          <button
-            type="button"
-            className={`subtab-btn danger-tab ${subTab === "blocklist" ? "active" : ""}`}
-            onClick={(): void => {
-              selectSubTab("blocklist");
-            }}
-          >
-            <span>{t.identities.blocklistTab}</span>
-          </button>
-        </div>
-        <button
-          type="button"
-          className="btn icon-btn"
-          disabled={loadingList}
-          onClick={reloadList}
-        >
-          <RefreshSvgIcon size={14} className={loadingList ? "spin-icon" : ""} />
-          <span>{t.chats.refreshButton}</span>
-        </button>
-      </div>
+      <IdentitySubtabsBar
+        subTab={subTab}
+        loadingList={loadingList}
+        t={t}
+        onSelectSubTab={selectSubTab}
+        onRefresh={reloadList}
+      />
 
       {duplicateAlertText !== null
         ? (
@@ -184,98 +149,20 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {whitelistPage?.items.map((entry: Readonly<MiniAppWhitelistEntryView>): React.JSX.Element => {
-              const enabledCount: number = WHITELIST_PERMISSION_KEYS.filter(
-                (key: WhitelistPermissionKey): boolean => entry.permissions[key]
-              ).length;
-              const isExpanded: boolean = selectedEntryId === entry.id;
-              const permSubText: string = `ID: ${entry.id} · ${t.identities.enabledPermCountText(
-                enabledCount,
-                WHITELIST_PERMISSION_KEYS.length
-              )}`;
-              return (
-                <div
-                  key={entry.id}
-                  className={`identity-row-group ${loadingList ? "content-refreshing" : ""}`}
-                >
-                  <div className="row identity-row">
-                    <div className="row-main">
-                      <div className="identity-title-row">
-                        <bdi
-                          className="identity-name"
-                          title={sanitizeBidiText(entry.displayName)}
-                        >
-                          {truncateDisplayText(
-                            entry.displayName,
-                            entry.username !== undefined ? 8 : 13
-                          )}
-                        </bdi>
-                        {entry.username !== undefined
-                          ? (
-                            <span
-                              className="identity-username"
-                              dir="ltr"
-                              title={`@${sanitizeBidiText(entry.username)}`}
-                            >
-                              @{truncateDisplayText(entry.username, 9)}
-                            </span>
-                          )
-                          : null}
-                        <span
-                          className={`badge ${
-                            entry.isChannel
-                              ? "identity-channel-badge"
-                              : "identity-user-badge"
-                          }`}
-                        >
-                          {entry.isChannel
-                            ? t.identities.channelBadge
-                            : t.identities.userBadge}
-                        </span>
-                      </div>
-                      <div className="row-sub identity-sub-row" title={permSubText}>
-                        {permSubText}
-                      </div>
-                    </div>
-                    <div className="toolbar-actions identity-row-actions">
-                      <button
-                        type="button"
-                        className={`btn ${isExpanded ? "primary" : ""}`}
-                        aria-expanded={isExpanded}
-                        onClick={(): void => {
-                          togglePermissionDrawer(entry.id);
-                        }}
-                      >
-                        {t.identities.configurePermButton}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn danger icon-btn"
-                        disabled={busyAction}
-                        onClick={(): void => {
-                          void removeWhitelist(entry);
-                        }}
-                      >
-                        <TrashSvgIcon size={14} />
-                        <span>{t.identities.removeWhitelistButton}</span>
-                      </button>
-                    </div>
-                  </div>
-                  <CollapseGrid
-                    expanded={isExpanded}
-                    gridClassName="perm-drawer-collapse-grid"
-                    innerClassName="perm-drawer-collapse-inner"
-                  >
-                    <PermissionDrawer
-                      entry={entry}
-                      descriptors={whitelistPage.permissionDescriptors}
-                      onUpdated={reloadList}
-                      onClose={closePermissionDrawer}
-                    />
-                  </CollapseGrid>
-                </div>
-              );
-            })}
+            {whitelistPage !== null ? (
+              <WhitelistEntryRowList
+                items={whitelistPage.items}
+                permissionDescriptors={whitelistPage.permissionDescriptors}
+                selectedEntryId={selectedEntryId}
+                loadingList={loadingList}
+                busyAction={busyAction}
+                t={t}
+                onTogglePermissionDrawer={togglePermissionDrawer}
+                onClosePermissionDrawer={closePermissionDrawer}
+                onPermissionsUpdated={reloadList}
+                onRemoveWhitelist={removeWhitelist}
+              />
+            ) : null}
 
             <PaginationBar
               page={whitelistPage?.page ?? whitelistPageNumber}
@@ -309,67 +196,15 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {blocklistPage?.items.map((entry: Readonly<MiniAppBlocklistEntryView>): React.JSX.Element => {
-              const blockSubText: string = `ID: ${entry.id} · ${t.identities.blockedAtText(entry.blockedAt)}`;
-              return (
-                <div
-                  key={entry.id}
-                  className={`row identity-row ${loadingList ? "content-refreshing" : ""}`}
-                >
-                  <div className="row-main">
-                    <div className="identity-title-row">
-                      <bdi
-                        className="identity-name"
-                        title={sanitizeBidiText(entry.displayName)}
-                      >
-                        {truncateDisplayText(
-                          entry.displayName,
-                          entry.username !== undefined ? 11 : 16
-                        )}
-                      </bdi>
-                      {entry.username !== undefined
-                        ? (
-                          <span
-                            className="identity-username"
-                            dir="ltr"
-                            title={`@${sanitizeBidiText(entry.username)}`}
-                          >
-                            @{truncateDisplayText(entry.username, 11)}
-                          </span>
-                        )
-                        : null}
-                      <span
-                        className={`badge ${
-                          entry.isChannel
-                            ? "identity-channel-badge"
-                            : "identity-user-badge"
-                        }`}
-                      >
-                        {entry.isChannel
-                          ? t.identities.channelBadge
-                          : t.identities.userBadge}
-                      </span>
-                    </div>
-                    <div className="row-sub identity-sub-row" title={blockSubText}>
-                      {blockSubText}
-                    </div>
-                  </div>
-                  <div className="toolbar-actions identity-row-actions">
-                    <button
-                      type="button"
-                      className="btn danger icon-btn"
-                      disabled={busyAction}
-                      onClick={(): void => {
-                        void removeBlocklist(entry);
-                      }}
-                    >
-                      <TrashSvgIcon size={14} />
-                      <span>{t.identities.removeBlocklistButton}</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {blocklistPage !== null ? (
+              <BlocklistEntryRowList
+                items={blocklistPage.items}
+                loadingList={loadingList}
+                busyAction={busyAction}
+                t={t}
+                onRemoveBlocklist={removeBlocklist}
+              />
+            ) : null}
 
             <PaginationBar
               page={blocklistPage?.page ?? blocklistPageNumber}

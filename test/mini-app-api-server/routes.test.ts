@@ -130,10 +130,13 @@ const { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } = await import(
   "../../packages/config/bot"
 );
 const {
+  MINI_APP_AUTH_MAX_AGE_SECONDS,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_PASSWORD_LOCKOUT_MS,
   MINI_APP_PASSWORD_MAX_ATTEMPTS,
+  MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
+  MINI_APP_SESSION_REFRESH_THRESHOLD_MS,
   MINI_APP_SESSION_TTL_MS,
 } = await import("../../packages/consts/miniApp");
 const {
@@ -338,6 +341,7 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       })
     );
     expect(resumedPrecheckRes.status).toBe(200);
+    expect(resumedPrecheckRes.headers.get(MINI_APP_SESSION_HEADER)).toBeNull();
     expect(await resumedPrecheckRes.json()).toEqual({
       ok: true,
       ttlMs: MINI_APP_SESSION_TTL_MS,
@@ -347,6 +351,60 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       sessionValid: true,
       sessionExpiresAt: loginBody.expiresAt,
     });
+
+    const agedSession = issueMiniAppAuthSession(
+      Date.now() - MINI_APP_SESSION_REFRESH_THRESHOLD_MS - 1_000
+    );
+    const agedAuthDateInitData: string = buildSignedTestInitData({
+      botToken: BOT_TOKEN,
+      authDate: Math.floor(Date.now() / 1000) - MINI_APP_AUTH_MAX_AGE_SECONDS - 120,
+      user: {
+        id: SUPER_ADMIN_USER_ID,
+        first_name: "SuperAdmin",
+      },
+    });
+    const refreshStatusRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
+          [MINI_APP_SESSION_HEADER]: agedSession.token,
+        },
+      })
+    );
+    expect(refreshStatusRes.status).toBe(200);
+    const refreshedToken: string | null = refreshStatusRes.headers.get(
+      MINI_APP_SESSION_HEADER
+    );
+    const refreshedExpiresAtHeader: string | null = refreshStatusRes.headers.get(
+      MINI_APP_SESSION_EXPIRES_AT_HEADER
+    );
+    expect(refreshedToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(refreshedToken).not.toBe(agedSession.token);
+    expect(Number(refreshedExpiresAtHeader)).toBeGreaterThan(agedSession.expiresAt);
+    // 刚刷新的新令牌未满 5 分钟阈值，再次访问不会重复换发令牌
+    const followUpStatusRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
+          [MINI_APP_SESSION_HEADER]: refreshedToken!,
+        },
+      })
+    );
+    expect(followUpStatusRes.status).toBe(200);
+    expect(followUpStatusRes.headers.get(MINI_APP_SESSION_HEADER)).toBeNull();
+    // 5 分钟并发宽限期内携带旧令牌的在途请求仍可通行并收到最新令牌响应头
+    const graceStatusRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
+          [MINI_APP_SESSION_HEADER]: agedSession.token,
+        },
+      })
+    );
+    expect(graceStatusRes.status).toBe(200);
+    expect(graceStatusRes.headers.get(MINI_APP_SESSION_HEADER)).toBe(
+      refreshedToken
+    );
 
     const expiredSession = issueMiniAppAuthSession(
       Date.now() - MINI_APP_SESSION_TTL_MS - 1_000

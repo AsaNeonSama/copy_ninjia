@@ -311,7 +311,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
   };
   return {
     languageLabel: "EN",
-    appTitle: "Bot Console♡",
+    appTitle: "Zaako Console♡",
     appSubtitle: "This Genius's command deck built for a clueless Zaako admin",
     superAdminBadge: "SuperAdmin",
     lockButton: "Lock",

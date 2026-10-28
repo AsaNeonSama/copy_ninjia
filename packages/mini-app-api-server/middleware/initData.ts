@@ -8,12 +8,20 @@ import type {
   MiniAppMiddleware,
   MiniAppRouteContext,
 } from "../../types/miniApp";
-import { checkSuperAdminPasswordLockout } from "../auth/session";
-import { extractAssetTokenFromQuery, extractInitDataFromHeaders } from "../libs/request";
+import {
+  checkSuperAdminPasswordLockout,
+  hasActiveMiniAppAuthSession,
+} from "../auth/session";
+import {
+  extractAssetTokenFromQuery,
+  extractInitDataFromHeaders,
+  extractSessionToken,
+} from "../libs/request";
 import { accessErrorResponse } from "../libs/response";
 
 /**
  * 校验请求携带的 Telegram WebApp `initData` 签名（或受保护静态/图库资源稳定令牌 `token`）、时效、超级管理员身份与 30 分钟密码锁定状态。
+ * 若请求同时携带仍在有效期内的密码认证会话令牌，则放行因持续访问续期而超过初始 45 分钟的静态 `initData.auth_date`（仍严格校验签名、超管身份与未来时钟偏移）。
  * @param request HTTP 请求对象。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取 `token` 或 `initData`。
  * @returns 验证通过时返回 `null`，失败时返回带真实请求诊断的 `401` 或 `403` `Response`。
@@ -29,10 +37,13 @@ function verifyInitDataRequest(request: Request, allowQueryAuth: boolean): Respo
     }
   }
   const initData: string = extractInitDataFromHeaders(request, allowQueryAuth);
+  const sessionToken: string = extractSessionToken(request, allowQueryAuth);
+  const hasActiveSession: boolean = hasActiveMiniAppAuthSession(sessionToken);
   const authResult: MiniAppAuthResult = verifyMiniAppInitData({
     initData,
     botToken: BOT_TOKEN,
     superAdminUserId: SUPER_ADMIN_USER_ID,
+    ...(hasActiveSession ? { maxAgeSeconds: Number.POSITIVE_INFINITY } : {}),
   });
   if (authResult.ok) {
     return checkSuperAdminPasswordLockout(request);

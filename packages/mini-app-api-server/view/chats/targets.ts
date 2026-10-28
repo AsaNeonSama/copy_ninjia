@@ -1,3 +1,4 @@
+import type { ChatFullInfo } from "grammy/types";
 import { chatQaEntries } from "../../../cache/main/qa";
 import { telegramApiState } from "../../../cache/perThread/telegramApi";
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
@@ -21,8 +22,13 @@ import {
   removeChatQa,
   setChatQa,
 } from "../../../infra/qaStore";
-import { getChatState, persistChatState } from "../../../infra/storage/stateStore";
+import {
+  getChatState,
+  getChatStateCache,
+  persistChatState,
+} from "../../../infra/storage/stateStore";
 import { readPresentChatUser } from "../../../infra/telegram/actions/membership";
+import { probeTelegramChatInfoSilent } from "../../../infra/telegram/actions/miniApp";
 import { bot } from "../../../infra/telegram/mainClient";
 import { renderFencedText } from "../../../libs/codeFence";
 import { containsRenderableCommand } from "../../../libs/renderableCommand";
@@ -46,9 +52,17 @@ import type {
   RichTextMessage,
 } from "../../../types/telegram";
 import type { TranslateState } from "../../../types/translate";
-import { resolveIdTarget, resolveUsernameTarget } from "../../../users/senderIdentity";
-import { userIdentity } from "../../../users/visibleSender";
-import { currentBotUserId, formatIdentityDisplayName } from "../identities/metadata";
+import {
+  resolveIdTarget,
+  resolveUsernameTarget,
+  updateCachedIdentity,
+} from "../../../users/senderIdentity";
+import { channelIdentity, userIdentity } from "../../../users/visibleSender";
+import {
+  currentBotUserId,
+  formatIdentityDisplayName,
+  syncIdentityMetadataWithBotCache,
+} from "../identities/metadata";
 import { getManagedChatDetail } from "./query";
 
 /**
@@ -105,13 +119,11 @@ function buildTranslateTargetItem(
 ): Readonly<MiniAppChatTranslateTargetItem> {
   const targetId: number = entry.translatedUser.id;
   const latestCached: CachedUser = resolveIdTarget(targetId);
-  const metaFromLatest: TelegramIdentityMetadata = identityMetadataFromCachedUser(latestCached);
-  const metaFromEntry: TelegramIdentityMetadata =
-    identityMetadataFromCachedUser(entry.translatedUser);
-  const effectiveMeta: TelegramIdentityMetadata =
-    metaFromLatest.firstName.length > 0 || metaFromLatest.username.length > 0
-      ? metaFromLatest
-      : metaFromEntry;
+  const effectiveMeta: Readonly<TelegramIdentityMetadata> =
+    syncIdentityMetadataWithBotCache(
+      targetId,
+      identityMetadataFromCachedUser(entry.translatedUser)
+    );
   const displayName: string = formatIdentityDisplayName(targetId, effectiveMeta);
   const cleanUsername: string = effectiveMeta.username
     .replace(MINI_APP_BIDI_CONTROL_CHARS_PATTERN, "")
@@ -213,7 +225,7 @@ function resolveTargetInput(chatId: number, rawTarget: string | undefined): Reso
 }
 
 /**
- * 当目标为正整数用户 ID 且 Telegram API 客户端已就绪时，探测该用户当前是否在目标群内。
+ * 当目标为正整数用户 ID 且 Telegram API 客户端已就绪时，探测该用户当前是否在目标群内，并将现查到的资料同步写入 Bot 主线程发送者缓存。
  * @param chatId 目标群 ID。
  * @param targetUser 初步解析出的目标身份。
  * @returns 确认不在群时返回失败结果；在群或离线未挂载 API 时返回目标身份（在群时补齐最新用户资料）。
@@ -222,11 +234,19 @@ async function verifyTargetUserInChat(
   chatId: number,
   targetUser: CachedUser
 ): Promise<ResolvedTargetInput> {
-  if (
-    targetUser.id <= 0 ||
-    targetUser.isChannel === true ||
-    (telegramApiState.current === null && !bot.isInited())
-  ) {
+  if (telegramApiState.current === null && !bot.isInited()) {
+    return { ok: true, user: targetUser };
+  }
+  if (targetUser.id <= 0 || targetUser.isChannel === true) {
+    if (targetUser.title === undefined && targetUser.username === undefined) {
+      const chatInfo: ChatFullInfo | undefined =
+        await probeTelegramChatInfoSilent(targetUser.id);
+      if (chatInfo !== undefined) {
+        const liveChannel: CachedUser = channelIdentity(chatInfo);
+        updateCachedIdentity(liveChannel);
+        return { ok: true, user: liveChannel };
+      }
+    }
     return { ok: true, user: targetUser };
   }
   const presence: ChatMemberPresence = await readPresentChatUser({
@@ -237,7 +257,9 @@ async function verifyTargetUserInChat(
     return { ok: false, message: "TARGET_NOT_IN_CHAT" };
   }
   if (presence.kind === "present") {
-    return { ok: true, user: userIdentity(presence.user) };
+    const liveUser: CachedUser = userIdentity(presence.user);
+    updateCachedIdentity(liveUser);
+    return { ok: true, user: liveUser };
   }
   return { ok: true, user: targetUser };
 }
@@ -350,8 +372,8 @@ export async function mutateManagedChatTargets(
       if (!verified.ok) {
         return buildMutationResult(chatId, false, verified.message);
       }
-      const latestState: ChatState = getChatState(chatId);
-      if (!latestState.isInitEnabled) {
+      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
+      if (latestState?.isInitEnabled !== true) {
         return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
       }
       const current: readonly number[] = latestState.deleteMessageTargets ?? [];
@@ -375,12 +397,16 @@ export async function mutateManagedChatTargets(
       ) {
         return buildMutationResult(chatId, false, "TARGET_INVALID");
       }
-      const current: readonly number[] = state.deleteMessageTargets ?? [];
+      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
+      if (latestState?.isInitEnabled !== true) {
+        return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
+      }
+      const current: readonly number[] = latestState.deleteMessageTargets ?? [];
       if (!current.includes(targetId)) {
         return buildMutationResult(chatId, true, "DELETE_TARGET_NOT_FOUND");
       }
       const next: number[] = current.filter((id: number): boolean => id !== targetId);
-      state.deleteMessageTargets = next.length > 0 ? next : undefined;
+      latestState.deleteMessageTargets = next.length > 0 ? next : undefined;
       await persistChatState(chatId, "delete_message target removed via Mini App");
       return buildMutationResult(chatId, true, "DELETE_TARGET_REMOVED");
     }
@@ -410,8 +436,8 @@ export async function mutateManagedChatTargets(
       if (!verified.ok) {
         return buildMutationResult(chatId, false, verified.message);
       }
-      const latestState: ChatState = getChatState(chatId);
-      if (!latestState.isInitEnabled) {
+      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
+      if (latestState?.isInitEnabled !== true) {
         return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
       }
       if (!latestState.isTranslationEnabled) {
@@ -448,7 +474,11 @@ export async function mutateManagedChatTargets(
       ) {
         return buildMutationResult(chatId, false, "TARGET_INVALID");
       }
-      const hadTarget: boolean = (state.translate ?? []).some(
+      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
+      if (latestState?.isInitEnabled !== true) {
+        return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
+      }
+      const hadTarget: boolean = (latestState.translate ?? []).some(
         (item: TranslateState): boolean => item.translatedUser.id === targetId
       );
       await stopTranslation(chatId, targetId);

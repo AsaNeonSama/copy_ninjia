@@ -1,4 +1,7 @@
-import { MINI_APP_SESSION_TTL_MS } from "../consts/miniApp";
+import {
+  MINI_APP_SESSION_TTL_MS,
+  MINI_APP_SHA256_HEX_PATTERN,
+} from "../consts/miniApp";
 import {
   clearMiniAppAssetToken,
   clearMiniAppSessionToken,
@@ -9,7 +12,7 @@ import {
 import { asPayloadRecord } from "../libs/record";
 import type { MiniAppAccessDiagnostics, MiniAppPrecheckResult } from "../types/miniApp";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
-import { buildMiniAppAuthHeaders } from "./request";
+import { buildMiniAppAuthHeaders, syncRefreshedMiniAppSession } from "./request";
 
 /**
  * 从后端 401/403 JSON 载荷与响应头提取真实访问诊断元数据。
@@ -52,6 +55,7 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   const response: Response = await fetch("./api/auth/precheck", {
     method: "GET", headers: buildMiniAppAuthHeaders(true),
   });
+  syncRefreshedMiniAppSession(response);
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
     clearMiniAppAssetToken();
@@ -70,7 +74,13 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   const totpEnabled: boolean = record.totpEnabled === true;
   const authMode: MiniAppAuthMode =
     record.authMode === "totp" || totpEnabled ? "totp" : "password";
-  const existingToken: string = readMiniAppSessionToken();
+  const refreshedBodyToken: string =
+    typeof record.sessionToken === "string" &&
+    MINI_APP_SHA256_HEX_PATTERN.test(record.sessionToken.trim())
+      ? record.sessionToken.trim()
+      : "";
+  const existingToken: string =
+    refreshedBodyToken.length > 0 ? refreshedBodyToken : readMiniAppSessionToken();
   const sessionValid: boolean =
     record.sessionValid === true &&
     typeof record.sessionExpiresAt === "number" &&

@@ -47,6 +47,7 @@ export function ChatJoinCleanCard({
   const {
     displayValue,
     isAnimating,
+    animationPhase,
     progressPercent,
     onManualDragChange,
     onButtonStepChange,
@@ -54,6 +55,9 @@ export function ChatJoinCleanCard({
     batchKickHours,
     setBatchKickHours
   );
+  const animClassSuffix: string = isAnimating
+    ? `is-animating is-animating-${animationPhase}`
+    : "";
 
   return (
     <div className="card join-clean-card">
@@ -103,7 +107,7 @@ export function ChatJoinCleanCard({
             >
               −
             </button>
-            <span className={`join-clean-hour-pill ${isAnimating ? "is-animating" : ""}`}>
+            <span className={`join-clean-hour-pill ${animClassSuffix}`}>
               {t.chats.batchKickHourPill(batchKickHours)}
             </span>
             <button
@@ -125,10 +129,10 @@ export function ChatJoinCleanCard({
         </div>
         <input
           type="range"
-          className={`join-clean-range ${isAnimating ? "is-animating" : ""}`}
+          className={`join-clean-range ${animClassSuffix}`}
           min={MINI_APP_BATCH_KICK_MIN_HOURS}
           max={MINI_APP_BATCH_KICK_MAX_HOURS}
-          step={isAnimating ? "any" : 1}
+          step="any"
           value={displayValue}
           style={{
             "--range-progress": progressPercent,

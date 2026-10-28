@@ -1,3 +1,4 @@
+import { blocklistIdentityMutationRunner } from "../../../cache/main/blocklist";
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
 import {
   MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
@@ -18,6 +19,7 @@ import { runProtectedIdentityMutation } from "../../../infra/identityPolicy/coor
 import { isWhitelisted } from "../../../infra/identityPolicy/whitelist";
 import {
   getIdentityEntryCount,
+  isIdentityPolicyCached,
   prefetchIdentityPolicies,
   readBlocklistSweepPage,
   readIdentityPolicyEntries,
@@ -45,6 +47,7 @@ import {
   isInitializedManagedChatTarget,
   matchesIdentitySearchQuery,
   resolveIdentityMetadataForMiniApp,
+  syncIdentityMetadataWithBotCache,
 } from "./metadata";
 import type {
   CollectedIdentityPageSlice,
@@ -70,7 +73,10 @@ export async function listBlocklistEntries(
       Math.max(1, Math.trunc(rawPageSize))
     );
     const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
-    const allIds: readonly number[] = await collectAllIdentityIds(readBlocklistSweepPage);
+    const allIds: readonly number[] = await collectAllIdentityIds(
+      readBlocklistSweepPage,
+      "blocklist"
+    );
     const blocklistTotal: number = Math.max(
       getIdentityEntryCount("blocklist"),
       allIds.length
@@ -82,9 +88,11 @@ export async function listBlocklistEntries(
     for (const id of allIds) {
       const entry: Readonly<BlocklistEntryData> | undefined = entries.get(id);
       if (entry === undefined) continue;
-      const displayName: string = formatIdentityDisplayName(id, entry.meta);
+      const effectiveMeta: Readonly<TelegramIdentityMetadata> =
+        syncIdentityMetadataWithBotCache(id, entry.meta);
+      const displayName: string = formatIdentityDisplayName(id, effectiveMeta);
       const username: string | undefined =
-        entry.meta.username.length > 0 ? entry.meta.username : undefined;
+        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined;
       if (!matchesIdentitySearchQuery(id, displayName, username)(normalizedQuery)) {
         continue;
       }
@@ -137,11 +145,14 @@ export async function listBlocklistEntries(
   for (const id of slice.sliceIds) {
     const entry: Readonly<BlocklistEntryData> | undefined = entries.get(id);
     if (entry === undefined) continue;
+    const effectiveMeta: Readonly<TelegramIdentityMetadata> =
+      syncIdentityMetadataWithBotCache(id, entry.meta);
     items.push({
       id,
       isChannel: id < 0,
-      displayName: formatIdentityDisplayName(id, entry.meta),
-      username: entry.meta.username.length > 0 ? entry.meta.username : undefined,
+      displayName: formatIdentityDisplayName(id, effectiveMeta),
+      username:
+        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined,
       blockedAt: entry.blockedAt,
     });
   }
@@ -211,100 +222,134 @@ export async function setBlocklistEntryMembership({
   }
 
   const isChannel: boolean = id < 0;
-  const targetChatIds: number[] = managedAdminChatIds(0, false);
 
-  if (enabled) {
-    const resolvedMeta: Readonly<TelegramIdentityMetadata> =
-      await resolveIdentityMetadataForMiniApp(id, meta);
-    const mutationKind: "whitelisted" | "duplicate" | "blocked" =
-      await runProtectedIdentityMutation(
-        (): "whitelisted" | "duplicate" | "blocked" => {
-          if (isWhitelisted(id)) return "whitelisted";
-          if (isUserBlocked(id)) return "duplicate";
-          blockUser(id, resolvedMeta);
-          return "blocked";
+  return blocklistIdentityMutationRunner.run(
+    id,
+    async (): Promise<Readonly<MiniAppIdentityMutationResult>> => {
+      if (enabled) {
+        const resolvedMeta: Readonly<TelegramIdentityMetadata> =
+          await resolveIdentityMetadataForMiniApp(id, meta);
+        const mutationKind: "unavailable" | "whitelisted" | "duplicate" | "blocked" =
+          await runProtectedIdentityMutation(
+            async (): Promise<"unavailable" | "whitelisted" | "duplicate" | "blocked"> => {
+              if (!isIdentityPolicyCached(id) && !await prefetchIdentityPolicies([id])) {
+                return "unavailable";
+              }
+              if (isWhitelisted(id)) return "whitelisted";
+              if (isUserBlocked(id)) return "duplicate";
+              blockUser(id, resolvedMeta);
+              return "blocked";
+            }
+          );
+        if (mutationKind === "unavailable") {
+          return {
+            ok: false,
+            changed: false,
+            id,
+            message: "IDENTITY_STORAGE_UNAVAILABLE",
+          };
         }
-      );
-    if (mutationKind === "whitelisted") {
-      return {
-        ok: false,
-        changed: false,
-        id,
-        message: "IDENTITY_IN_WHITELIST",
-      };
-    }
-    if (mutationKind === "duplicate") {
+        if (mutationKind === "whitelisted") {
+          return {
+            ok: false,
+            changed: false,
+            id,
+            message: "IDENTITY_IN_WHITELIST",
+          };
+        }
+        if (mutationKind === "duplicate") {
+          return {
+            ok: true,
+            changed: false,
+            duplicate: true,
+            id,
+            message: "BLOCKLIST_DUPLICATE",
+          };
+        }
+        const persisted: boolean = await confirmBlocklistPersisted(id, false);
+        const targetChatIds: number[] = managedAdminChatIds(0, false);
+        let bannedCount: number = 0;
+        if (targetChatIds.length > 0) {
+          const outcomes: readonly ManagedChatOutcome<boolean>[] =
+            await runManagedChatBatch<boolean>({
+              chatIds: targetChatIds,
+              action: `ban blocked identity ${id}`,
+              onUnexpectedFailure: false,
+              execute: (targetChatId: number): Promise<boolean> => {
+                if (botCanRestrictMembersIn(targetChatId) === false) {
+                  return Promise.resolve(false);
+                }
+                return isChannel
+                  ? banChatSenderChat(targetChatId, id)
+                  : banChatMember(targetChatId, id);
+              },
+            });
+          for (const outcome of outcomes) {
+            if (outcome.value) bannedCount++;
+            else requestBlocklistResweep(outcome.chatId);
+          }
+        }
+        return {
+          ok: true,
+          changed: true,
+          duplicate: false,
+          id,
+          persisted,
+          affectedChats: bannedCount,
+          totalChats: targetChatIds.length,
+          message: "BLOCKLIST_ADDED",
+        };
+      }
+
+      const unblockOutcome: "unavailable" | "removed" | "absent" =
+        await runProtectedIdentityMutation(
+          async (): Promise<"unavailable" | "removed" | "absent"> => {
+            if (!isIdentityPolicyCached(id) && !await prefetchIdentityPolicies([id])) {
+              return "unavailable";
+            }
+            return unblockUser(id) ? "removed" : "absent";
+          }
+        );
+      if (unblockOutcome === "unavailable") {
+        return {
+          ok: false,
+          changed: false,
+          id,
+          message: "IDENTITY_STORAGE_UNAVAILABLE",
+        };
+      }
+      const removedFromList: boolean = unblockOutcome === "removed";
+      const persisted: boolean = await confirmBlocklistPersisted(id, !removedFromList);
+      const targetChatIds: number[] = managedAdminChatIds(0, false);
+      let unbannedCount: number = 0;
+      if (targetChatIds.length > 0) {
+        const outcomes: readonly ManagedChatOutcome<boolean>[] =
+          await runManagedChatBatch<boolean>({
+            chatIds: targetChatIds,
+            action: `lift the ban on identity ${id}`,
+            onUnexpectedFailure: false,
+            execute: (targetChatId: number): Promise<boolean> => {
+              if (botCanRestrictMembersIn(targetChatId) === false) {
+                return Promise.resolve(false);
+              }
+              return isChannel
+                ? unbanChatSenderChat(targetChatId, id)
+                : unbanChatMemberIfBanned(targetChatId, id);
+            },
+          });
+        for (const outcome of outcomes) {
+          if (outcome.value) unbannedCount++;
+        }
+      }
       return {
         ok: true,
-        changed: false,
-        duplicate: true,
+        changed: removedFromList,
         id,
-        message: "BLOCKLIST_DUPLICATE",
+        persisted,
+        affectedChats: unbannedCount,
+        totalChats: targetChatIds.length,
+        message: removedFromList ? "BLOCKLIST_REMOVED" : "BLOCKLIST_NOT_FOUND",
       };
     }
-    const persisted: boolean = await confirmBlocklistPersisted(id, false);
-    let bannedCount: number = 0;
-    if (targetChatIds.length > 0) {
-      const outcomes: readonly ManagedChatOutcome<boolean>[] =
-        await runManagedChatBatch<boolean>({
-          chatIds: targetChatIds,
-          action: `ban blocked identity ${id}`,
-          onUnexpectedFailure: false,
-          execute: (targetChatId: number): Promise<boolean> => {
-            if (botCanRestrictMembersIn(targetChatId) === false) {
-              return Promise.resolve(false);
-            }
-            return isChannel
-              ? banChatSenderChat(targetChatId, id)
-              : banChatMember(targetChatId, id);
-          },
-        });
-      for (const outcome of outcomes) {
-        if (outcome.value) bannedCount++;
-        else requestBlocklistResweep(outcome.chatId);
-      }
-    }
-    return {
-      ok: true,
-      changed: true,
-      duplicate: false,
-      id,
-      persisted,
-      affectedChats: bannedCount,
-      totalChats: targetChatIds.length,
-      message: "BLOCKLIST_ADDED",
-    };
-  }
-
-  const removedFromList: boolean = unblockUser(id);
-  const persisted: boolean = await confirmBlocklistPersisted(id, !removedFromList);
-  let unbannedCount: number = 0;
-  if (targetChatIds.length > 0) {
-    const outcomes: readonly ManagedChatOutcome<boolean>[] =
-      await runManagedChatBatch<boolean>({
-        chatIds: targetChatIds,
-        action: `lift the ban on identity ${id}`,
-        onUnexpectedFailure: false,
-        execute: (targetChatId: number): Promise<boolean> => {
-          if (botCanRestrictMembersIn(targetChatId) === false) {
-            return Promise.resolve(false);
-          }
-          return isChannel
-            ? unbanChatSenderChat(targetChatId, id)
-            : unbanChatMemberIfBanned(targetChatId, id);
-        },
-      });
-    for (const outcome of outcomes) {
-      if (outcome.value) unbannedCount++;
-    }
-  }
-  return {
-    ok: true,
-    changed: removedFromList,
-    id,
-    persisted,
-    affectedChats: unbannedCount,
-    totalChats: targetChatIds.length,
-    message: removedFromList ? "BLOCKLIST_REMOVED" : "BLOCKLIST_NOT_FOUND",
-  };
+  );
 }

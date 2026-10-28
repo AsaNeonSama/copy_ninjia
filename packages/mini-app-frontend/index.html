@@ -3,7 +3,36 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Bot 管理中心</title>
+  <title>杂鱼控制台♡</title>
+  <script>
+    (function () {
+      const langs = {
+        "ja": "ja",
+        "zh": "zh-CN",
+        "en": "en-US",
+      };
+      const translations = {
+        "zh": "杂鱼控制台♡",
+        "ja": "雑魚コンソール♡",
+        "en": "Zaako Console♡",
+      };
+      const root = document.documentElement;
+      const candidates = Array.isArray(navigator.languages) && navigator.languages.length > 0
+        ? navigator.languages
+        : [navigator.language || langs["en"]];
+      for (let i = 0; i < candidates.length; i += 1) {
+        const normalized = String(candidates[i] || "").trim().toLowerCase();
+        const currBrowserLang = normalized.split(/[-_]/)[0];
+        if (currBrowserLang === "zh" || currBrowserLang === "ja" || currBrowserLang === "en") {
+          if (root) root.lang = langs[currBrowserLang];
+          document.title = translations[currBrowserLang];
+          return;
+        }
+      }
+      if (root) root.lang = langs["en"];
+      document.title = translations["en"];
+    })();
+  </script>
   <link rel="icon" href="./resource/favicon.ico" type="image/x-icon" />
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="./styles.css" />

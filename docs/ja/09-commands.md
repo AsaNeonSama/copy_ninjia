@@ -327,7 +327,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 `config/static/bot.json` に任意の `mini_app` オブジェクトが設定されている場合、ローカル `Bun.serve` HTTP サーバー（サーバー実装は `packages/mini-app-api-server/`、フロントエンドは `packages/mini-app-frontend/`）が起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）が配置されます。
 
 ### 1. 認証とセキュリティ境界
-- **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはまず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証し、次に `initData` ミドルウェアで Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）とログイン（`POST /api/auth/login`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。
+- **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはまず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証し、次に `initData` ミドルウェアで Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）とログイン（`POST /api/auth/login`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。有効期限内のセッショントークンが発行から 5 分（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）を超えている場合、サーバーは自動的に新しいトークンを発行して有効期限を 45 分（`MINI_APP_SESSION_TTL_MS`）延長し、`X-Mini-App-Session` および `X-Mini-App-Session-Expires-At` レスポンスヘッダー（ならびに `/api/auth/precheck` のレスポンスボディ）で返却するとともに、セッション更新中は静的な `initData.auth_date` を継続許可します。
 - **初回画面の資格情報とロック保護**：認証器が未バインドの場合は `mini_app.password` を検証し、コンソールで Google Authenticator (TOTP) をバインド済みの場合（`memory/mini-app-totp/totp.json` に永続化）は現在の 30 秒タイムステップの 6 桁コードを優先検証します。3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロックし、ロック突入時に解除時刻と送信元 IP を記したアラートを個人チャットへ 1 通送信します。
 - **保護された静的リソースと画像庫アセット**：画像庫サムネイル（`GET /api/gallery/:name/preview`）と保護された SVG アイコン（`GET|HEAD /api/resource/:name.svg`）はログインまたは有効セッション再開時のみ発行される決定論的 `assetToken` で認証され、7 日間の不変キャッシュと `ETag` 304 再検証をサポートします。
 
@@ -335,7 +335,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 
 | ルート | メソッド | 権限と境界の説明 |
 | :--- | :---: | :--- |
-| `/api/auth/precheck`<br>`/api/auth/login` | `GET`<br>`POST` | `initData` 署名とスーパー管理者身分を検証し、ログインモード（`password` または `totp`）の返却、有効セッションの再開、または新規 45 分 `sessionToken`・`assetToken` の発行を行う |
+| `/api/auth/precheck`<br>`/api/auth/login` | `GET`<br>`POST` | `initData` 署名とスーパー管理者身分を検証し、ログインモード（`password` または `totp`）の返却、有効セッションの再開・自動更新（発行後 5 分経過時）、または新規 45 分 `sessionToken`・`assetToken` の発行を行う |
 | `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Google Authenticator 認証器の照会、バインド用シークレットおよび QR コードの生成、6 桁コード検証による有効化、削除 |
 | `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | リアルタイムシステム指標（稼働時間、CPU 平均負荷、メモリ PSS、管理対象グループ数、アクティブセッション、AI モデル準備状態、Telegram 出站ゲート）の照会、および AI 機嫌の照会・手動再抽選 |
 | `/api/chats`<br>`/api/chats/:chatId` | `GET` | `/init` 有効化済み管理対象グループの一覧、または単一グループ詳細（機能スイッチ、ホットメッセージ件数、静音／ロック残り時間、Bot が保持する管理者権限 `botPermissions`、1–24 時間の各遡及ウィンドウにおける重複排除済み参加人数 `joinedCountsByHour`、`/batch_kick` 実行状態）の照会 |
@@ -343,7 +343,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 | `/api/chats/:chatId/feature` | `POST` | グループ機能スイッチ（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）の切替。`init` 無効化は `/init disable` と同順序でランタイム解体と状態消去を実行し、`proxySend` 有効化は個人チャット `/send` と単一グループ排他制約を共有 |
 | `/api/chats/:chatId/batch-kick` | `POST` | `1..24` 時間の遡及ウィンドウで `/batch_kick` 一括退会を起動。グループ内 `/batch_kick` コマンドと `batchKickChats` 単一実行ロックおよびバックグラウンド実行器を共有し、完了時に `miniAppBatchKickCompletedByChat` へ集計を書き込む |
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 当該グループのカスタム QA（`setQa`/`removeQa`）、発言削除対象（`addDeleteTarget`/`removeDeleteTarget`）、翻訳対象（`addTranslateTarget`/`removeTranslateTarget`）の照会・追加・更新・削除 |
-| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | `readIdentityPolicyEntries` コールドリードによるホワイトリスト／ブラックリストのページング照会と検索（メインスレッドのホット LRU を汚染しない）、メンバー追加・削除、ホワイトリスト 13 権限の個別変更または一括全有効化（`enableAll`） |
+| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | `readIdentityPolicyEntries` コールドリードによるホワイトリスト／ブラックリストのページング照会と検索（未 ACK のメモリ書き込みを重ね合わせ、メインスレッドのホットポリシー LRU を汚染せず、メインスレッドの `senderIdentity` キャッシュと表示メタデータを双方向同期）、メンバー追加・削除、ホワイトリスト権限の個別変更または一括全有効化（`enableAll`） |
 | `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Telegram `savePreparedKeyboardButton` を呼び出してネイティブ連絡先／チャンネルピッカーセッションを準備し、`users_shared`/`chat_shared` のインポート結果をポーリング（`whitelist`、`blocklist`、`deleteMessage`、`translate` の 4 対象に対応） |
 | `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/:name/delete`<br>`/api/gallery/:name/download` | `GET`<br>`POST`<br>`POST`/`DELETE`<br>`GET`/`HEAD` | 専用画像庫のページング閲覧、バイナリアップロード収録（`/h_image add` と同一の SHA-256 重複排除とサイズ事前検査を実行）、削除および原画ダウンロード |
 

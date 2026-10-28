@@ -36,10 +36,23 @@ export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
 /**
+ * Mini App 会话令牌自动刷新时下发新到期毫秒时间戳的 HTTP 响应头名（小写）。
+ * 不变量：取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
+ */
+export const MINI_APP_SESSION_EXPIRES_AT_HEADER: string =
+  "x-mini-app-session-expires-at";
+
+/**
  * Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。
  * 不变量：到期后必须重新输入密码完成认证；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts` 与 `packages/mini-app-frontend/api/authPrecheck.ts`。
  */
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
+
+/**
+ * Mini App 会话令牌触发自动刷新与续期的已签发时长阈值毫秒数（5 分钟）。
+ * 不变量：正整数毫秒数，小于 `MINI_APP_SESSION_TTL_MS`；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
+ */
+export const MINI_APP_SESSION_REFRESH_THRESHOLD_MS: number = 5 * MINUTE_MS;
 
 /**
  * Mini App 在浏览器 `localStorage` / `sessionStorage` 中持久化 45 分钟认证会话凭据的存储键名。
@@ -232,7 +245,7 @@ export const MINI_APP_MIN_LOADING_MS: number = 260;
  * Mini App 管理界面的标题文字。
  * 不变量：非空短文本。所属模块：Mini App 前端（`packages/mini-app-frontend/`），当前未被引用。
  */
-export const MINI_APP_HTML_TITLE: string = "Copy Ninja 管理中心";
+export const MINI_APP_HTML_TITLE: string = "杂鱼控制台♡";
 
 /**
  * Mini App 群详情页可操作的功能开关全集（含 `/init` 总开关）。
