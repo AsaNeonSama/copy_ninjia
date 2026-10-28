@@ -1,4 +1,5 @@
 import type React from "react";
+import { LoadingDotsWave } from "../components/animations/LoadingDotsWave";
 import { PrefsBar } from "../components/PrefsBar";
 import { Toast } from "../components/Toast";
 import { getMiniAppTranslations } from "../i18n";
@@ -11,7 +12,7 @@ import type { MiniAppLanguage, TelegramWebApp } from "../types/miniApp";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
 
 /**
- * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态）。
+ * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态，提交核验期间按钮展示三点波浪加载动效）。
  *
  * @returns React 节点
  */
@@ -95,11 +96,12 @@ export function AuthGatePage(): React.JSX.Element {
             : null}
           <button
             type="submit"
-            className="btn primary auth-gate-submit"
+            className={`btn primary auth-gate-submit ${passwordBusy ? "is-loading" : ""}`}
             disabled={passwordBusy || passwordInput.trim().length === 0}
+            aria-busy={passwordBusy}
           >
             {passwordBusy
-              ? t.gate.passwordSubmitting
+              ? <LoadingDotsWave />
               : isTotpGate
                 ? t.gate.totpSubmitButton
                 : t.gate.passwordSubmitButton}

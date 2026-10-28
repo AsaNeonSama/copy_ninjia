@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 import type React from "react";
 import { CollapseGrid, TriggerCollapseGrid } from "../components/animations/CollapseGrid";
 import { scrollViewportToExpandedBody } from "../components/animations/expandFollowScroll";
 import type { ViewportRectElement } from "../components/animations/expandFollowScroll";
+import { LoadingDotsWave } from "../components/animations/LoadingDotsWave";
 import { useDelayedUnmount } from "../components/animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "../components/animations/useDelayedUnmount";
 import { TotpSkeleton } from "../components/skeletons/TotpSkeleton";
@@ -21,7 +22,7 @@ import type { MiniAppTotpSetupResponse } from "../types/miniAppTotp";
 
 /**
  * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理页面
- * （点击添加或修改验证器时平滑收起顶部触发按钮并展开绑定表单，展开结束后按 `scrollViewportToExpandedBody` 让视口平滑跟滚，取消时保留二维码快照完成收起过渡）。
+ * （点击添加或修改验证器时平滑收起顶部触发按钮并展开绑定表单，展开结束后按 `scrollViewportToExpandedBody` 让视口平滑跟滚，提交 6 位动态码核验时按钮展示三点波浪加载动效，取消时保留二维码快照完成收起过渡）。
  *
  * @returns React 节点
  */
@@ -85,6 +86,7 @@ export function TotpPage(): React.JSX.Element {
 
   const enabled: boolean = totpStatus?.enabled === true;
   const setupOpen: boolean = setupData !== null;
+  const verifyBusy: boolean = busy && setupOpen;
 
   return (
     <section className="animate-fade-in">
@@ -219,14 +221,19 @@ export function TotpPage(): React.JSX.Element {
                   </button>
                   <button
                     type="submit"
-                    className="btn primary icon-btn"
+                    className={`btn primary icon-btn totp-verify-submit ${verifyBusy ? "is-loading" : ""}`}
                     disabled={busy || !setupOpen}
+                    aria-busy={verifyBusy}
                     tabIndex={setupOpen ? 0 : -1}
                   >
-                    <LockSvgIcon size={14} />
-                    <span>
-                      {busy ? t.totp.verifyingButton : t.totp.verifyEnableButton}
-                    </span>
+                    {verifyBusy ? (
+                      <LoadingDotsWave />
+                    ) : (
+                      <Fragment>
+                        <LockSvgIcon size={14} />
+                        <span>{t.totp.verifyEnableButton}</span>
+                      </Fragment>
+                    )}
                   </button>
                 </div>
               </div>

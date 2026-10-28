@@ -117,10 +117,12 @@ export function createTotpStore(): MiniAppTotpStore {
             );
             return;
           }
+          const startedAt: number = Date.now();
           set({ busy: true });
           try {
             const res: Readonly<MiniAppTotpMutationResponse> =
               await enableMiniAppTotp(trimmed);
+            await waitMinimumLoadingDuration(startedAt);
             const skeletonStartedAt: number = Date.now();
             set({
               setupData: null,
@@ -135,6 +137,7 @@ export function createTotpStore(): MiniAppTotpStore {
               .setAuthMode(res.status.enabled ? "totp" : "password");
             useMiniAppStore.getState().notify(res.message, "info", res);
           } catch (error: unknown) {
+            await waitMinimumLoadingDuration(startedAt);
             set({ busy: false, loadingStatus: false });
             useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {

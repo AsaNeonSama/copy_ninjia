@@ -55,6 +55,7 @@ import { IdentitySubtabsBar } from "../../packages/mini-app-frontend/components/
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
 import { StatusOverviewCard } from "../../packages/mini-app-frontend/components/StatusOverviewCard";
 import { Toast } from "../../packages/mini-app-frontend/components/Toast";
+import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
 import {
   MINI_APP_CAP_CLOSE_DURATION_FACTOR,
   MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS,
@@ -772,6 +773,16 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(renderToStaticMarkup(createElement(LoadingDotsWave))).toContain(
       "join-clean-loading-dots"
     );
+    useMiniAppStore.setState({ language: "zh", authMode: "password", passwordBusy: false });
+    const idleGateHtml: string = renderToStaticMarkup(createElement(AuthGatePage));
+    expect(idleGateHtml).toContain(getMiniAppTranslations("zh").gate.passwordSubmitButton);
+    expect(idleGateHtml).not.toContain("join-clean-loading-dots");
+    useMiniAppStore.setState({ authMode: "totp", passwordBusy: true });
+    const busyGateHtml: string = renderToStaticMarkup(createElement(AuthGatePage));
+    expect(busyGateHtml).toContain('class="btn primary auth-gate-submit is-loading"');
+    expect(busyGateHtml).toContain('aria-busy="true"');
+    expect(busyGateHtml).toContain("join-clean-loading-dots");
+    expect(busyGateHtml).not.toContain(getMiniAppTranslations("zh").gate.totpSubmitButton);
     expect(readModalBodyHeight(null)).toBe(0);
     expect(readModalBodyHeight({ offsetHeight: 180 })).toBe(180);
     expect(readModalBodyHeight({ scrollHeight: 210 })).toBe(210);

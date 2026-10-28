@@ -57,7 +57,30 @@
 .auth-gate-input::placeholder { color: var(--hint); font-weight: 400; }
 .auth-gate-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .auth-gate-error { font-size: 12px; color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger-border); border-radius: 9px; padding: 9px 12px; }
-.auth-gate-submit { width: 100%; height: 46px; padding: 0 16px; border-radius: 11px; font-size: 14.5px; font-weight: 700; box-shadow: var(--shadow-sm); }
+.auth-gate-submit {
+  position: relative; overflow: hidden;
+  width: 100%; height: 46px; padding: 0 16px; border-radius: 11px; font-size: 14.5px; font-weight: 700; box-shadow: var(--shadow-sm);
+}
+.auth-gate-submit.is-loading,
+.auth-gate-submit.is-loading:disabled,
+.totp-verify-submit.is-loading,
+.totp-verify-submit.is-loading:disabled {
+  opacity: 1; filter: none;
+  color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border);
+}
+.auth-gate-submit.is-loading::after,
+.totp-verify-submit.is-loading::after {
+  content: ""; position: absolute; inset: -15% 0; width: 68%;
+  background: var(--shimmer-flash);
+  animation: miniapp-shimmer 0.95s cubic-bezier(0.36, 0.04, 0.24, 1) infinite;
+  pointer-events: none;
+}
+.auth-gate-submit > .join-clean-loading-dots {
+  gap: 7px; height: 18px; transform: translateY(1.25px);
+}
+.auth-gate-submit > .join-clean-loading-dots > span {
+  width: 6px; height: 6px; --dot-wave-peak-y: -3.5px;
+}
 .skeleton-auth-desc { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 16px; }
 .skeleton-totp-btn { width: 148px; height: 40px; border-radius: 10px; }
 .totp-trigger-collapse-grid {
@@ -95,6 +118,13 @@
 .totp-verify-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .totp-verify-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 8px; width: 100%; }
 .totp-verify-actions .btn { width: 100%; height: 42px; padding: 0 12px; border-radius: 10px; font-size: 13px; white-space: nowrap; }
+.totp-verify-submit { position: relative; overflow: hidden; }
+.totp-verify-submit > .join-clean-loading-dots {
+  gap: 6px; height: 16px; transform: translateY(1px);
+}
+.totp-verify-submit > .join-clean-loading-dots > span {
+  width: 5.5px; height: 5.5px; --dot-wave-peak-y: -3px;
+}
 .totp-qr-box { width: 184px; height: 184px; margin: 4px auto; padding: 8px; border-radius: 12px; background: #ffffff; border: 1px solid var(--border-strong); box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: center; }
 .totp-qr-box svg { width: 100%; height: 100%; display: block; }
 .totp-secret-line { font-size: 12px; color: var(--hint); text-align: center; word-break: break-all; }

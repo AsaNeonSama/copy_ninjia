@@ -374,7 +374,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         "Telegram の署名はギリギリ合格ね。次はコンソール用アクセスパスワードを入れて45分セッションを解除しなさい（3回間違えたら30分ロックよ）。",
       passwordPlaceholder: "ほら、間違えずにパスワードを入力しなさい雑魚…",
       passwordEmptyHint: "マヌケな雑魚、空欄のまま突破できると思ったの？",
-      passwordSubmitting: "アタシが照合中…",
       passwordSubmitButton: "ロック解除",
       totpBadge: "Google 認証システム",
       totpTitle: "6桁コードを出せ、雑魚",
@@ -401,7 +400,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       secretLabel: "Base32 キー：",
       codePlaceholder: "6桁の確認コードを入力…",
       verifyEnableButton: "確認して保存",
-      verifyingButton: "確認中…",
       cancelSetupButton: "キャンセル",
       confirmDeleteTotp:
         "雑魚、本当に Google Authenticator 認証器を削除するの？削除後はアクセスパスワード認証に戻るわよ！",
@@ -458,7 +456,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       moodCurrentActiveBadge: "現在有効",
       moodUnavailableText: "未稼働 (AI Worker 停止中)",
       moodSwitchButton: "感情切替",
-      moodSwitchingButton: "切替中…",
       capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>): string =>
         capabilityLabels[capability.key] ?? capability.label,
       capabilityItem: (

@@ -374,7 +374,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         "Your Telegram signature barely passed. Now enter the console access password to unlock a 45-minute session (3 wrong tries locks you out for 30 minutes).",
       passwordPlaceholder: "Type the access password carefully, Zaako…",
       passwordEmptyHint: "Clueless Zaako, trying to sneak in with an empty password box?",
-      passwordSubmitting: "Checking for you…",
       passwordSubmitButton: "Unlock Console",
       totpBadge: "Authenticator Gate",
       totpTitle: "Hand Over the 6-Digit Code, Zaako",
@@ -401,7 +400,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       secretLabel: "Base32 Secret:",
       codePlaceholder: "Enter 6-digit code…",
       verifyEnableButton: "Verify & Save",
-      verifyingButton: "Verifying…",
       cancelSetupButton: "Cancel",
       confirmDeleteTotp:
         "Zaako, delete the current Google Authenticator? Login will fall back to the access password!",
@@ -458,7 +456,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       moodCurrentActiveBadge: "Active",
       moodUnavailableText: "Inactive (AI Worker Down)",
       moodSwitchButton: "Switch Mood",
-      moodSwitchingButton: "Switching…",
       capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>): string =>
         capabilityLabels[capability.key] ?? capability.label,
       capabilityItem: (

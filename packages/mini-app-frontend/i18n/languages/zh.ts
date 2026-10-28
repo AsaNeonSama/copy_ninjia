@@ -374,7 +374,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         "Telegram 签名倒是勉强过关了，再输入控制台访问密码解锁 45 分钟会话吧（连续输错 3 次直接锁你 30 分钟哦）。",
       passwordPlaceholder: "快输入访问密码，别输错哦杂鱼…",
       passwordEmptyHint: "笨蛋杂鱼，密码框还是空的就想蒙混过关？",
-      passwordSubmitting: "本天才核验中…",
       passwordSubmitButton: "乖乖解锁控制台",
       totpBadge: "谷歌验证器门禁",
       totpTitle: "交出 6 位动态码，杂鱼♡",
@@ -401,7 +400,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       secretLabel: "Base32 密钥：",
       codePlaceholder: "输入 6 位动态验证码…",
       verifyEnableButton: "验证并保存",
-      verifyingButton: "验证中…",
       cancelSetupButton: "取消",
       confirmDeleteTotp:
         "杂鱼，确定要删除当前的 Google Authenticator 验证器吗？删除后将恢复使用访问密码验证哦！",
@@ -458,7 +456,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       moodCurrentActiveBadge: "当前生效",
       moodUnavailableText: "未激活 (AI Worker 未运行)",
       moodSwitchButton: "切换情绪",
-      moodSwitchingButton: "切换中…",
       capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>): string =>
         capabilityLabels[capability.key] ?? capability.label,
       capabilityItem: (

@@ -17,6 +17,7 @@ import {
 } from "../libs/credentials";
 import { buildFallbackDiagnostics } from "../libs/diagnostics";
 import { errorMessage } from "../libs/errorMessage";
+import { waitMinimumLoadingDuration } from "../libs/loading";
 import type {
   MiniAppAccessDiagnostics,
   MiniAppLanguage,
@@ -380,10 +381,12 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             set({ passwordError: t.gate.passwordEmptyHint });
             return;
           }
+          const startedAt: number = Date.now();
           set({ passwordBusy: true, passwordError: null });
           try {
             const loginRes: MiniAppLoginSuccessResponse =
               await loginMiniAppWithPassword(trimmed, authMode);
+            await waitMinimumLoadingDuration(startedAt);
             scheduleSessionExpiry(loginRes.expiresAt);
             set({
               sessionExpiresAt: loginRes.expiresAt,
@@ -396,6 +399,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             const message: string = errorMessage(error);
             if (message.includes("[PASSWORD_LOCKED]")) {
               const lockedCheck: MiniAppPrecheckResult = await precheckMiniAppAccess();
+              await waitMinimumLoadingDuration(startedAt);
               set({
                 deniedDiag: lockedCheck.ok
                   ? buildFallbackDiagnostics(message.replace("[PASSWORD_LOCKED]", "").trim())
@@ -404,6 +408,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
               });
               return;
             }
+            await waitMinimumLoadingDuration(startedAt);
             set({
               passwordError: t.serverNotice(
                 message.replace("[PASSWORD_REQUIRED]", "").trim(),

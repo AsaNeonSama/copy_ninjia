@@ -109,7 +109,6 @@ export interface MiniAppTranslations {
     readonly passwordSubtitle: string;
     readonly passwordPlaceholder: string;
     readonly passwordEmptyHint: string;
-    readonly passwordSubmitting: string;
     readonly passwordSubmitButton: string;
     readonly totpBadge: string;
     readonly totpTitle: string;
@@ -133,7 +132,6 @@ export interface MiniAppTranslations {
     readonly secretLabel: string;
     readonly codePlaceholder: string;
     readonly verifyEnableButton: string;
-    readonly verifyingButton: string;
     readonly cancelSetupButton: string;
     readonly confirmDeleteTotp: string;
   }>;
@@ -183,7 +181,6 @@ export interface MiniAppTranslations {
     readonly moodCurrentActiveBadge: string;
     readonly moodUnavailableText: string;
     readonly moodSwitchButton: string;
-    readonly moodSwitchingButton: string;
     readonly capabilityLabel: (capability: Readonly<MiniAppCapabilityStatus>) => string;
     readonly capabilityItem: (
       item: Readonly<MiniAppCapabilityDetailItem>
