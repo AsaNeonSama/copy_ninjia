@@ -93,6 +93,10 @@ export function IdentitiesPage(): React.JSX.Element {
     void loadCurrentList();
   }, [loadCurrentList]);
 
+  const reloadListSilently: () => void = useCallback((): void => {
+    void loadCurrentList(true);
+  }, [loadCurrentList]);
+
   return (
     <section className="animate-fade-in">
       <IdentitySubtabsBar
@@ -131,7 +135,7 @@ export function IdentitiesPage(): React.JSX.Element {
       {subTab === "whitelist"
         ? (
           <div className="card identity-list-card">
-            {loadingList && whitelistPage === null
+            {loadingList
               ? (
                 <LoadingBox text={t.identities.loadingText}>
                   <ListSkeletonRows count={MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE} />
@@ -139,7 +143,7 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {whitelistPage !== null && whitelistPage.items.length === 0
+            {!loadingList && whitelistPage !== null && whitelistPage.items.length === 0
               ? (
                 <div className="empty">
                   {debouncedQuery.length > 0
@@ -149,17 +153,16 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {whitelistPage !== null ? (
+            {!loadingList && whitelistPage !== null && whitelistPage.items.length > 0 ? (
               <WhitelistEntryRowList
                 items={whitelistPage.items}
                 permissionDescriptors={whitelistPage.permissionDescriptors}
                 selectedEntryId={selectedEntryId}
-                loadingList={loadingList}
                 busyAction={busyAction}
                 t={t}
                 onTogglePermissionDrawer={togglePermissionDrawer}
                 onClosePermissionDrawer={closePermissionDrawer}
-                onPermissionsUpdated={reloadList}
+                onPermissionsUpdated={reloadListSilently}
                 onRemoveWhitelist={removeWhitelist}
               />
             ) : null}
@@ -178,7 +181,7 @@ export function IdentitiesPage(): React.JSX.Element {
         )
         : (
           <div className="card identity-list-card">
-            {loadingList && blocklistPage === null
+            {loadingList
               ? (
                 <LoadingBox text={t.identities.loadingText}>
                   <ListSkeletonRows count={MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE} />
@@ -186,7 +189,7 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {blocklistPage !== null && blocklistPage.items.length === 0
+            {!loadingList && blocklistPage !== null && blocklistPage.items.length === 0
               ? (
                 <div className="empty">
                   {debouncedQuery.length > 0
@@ -196,10 +199,9 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {blocklistPage !== null ? (
+            {!loadingList && blocklistPage !== null && blocklistPage.items.length > 0 ? (
               <BlocklistEntryRowList
                 items={blocklistPage.items}
-                loadingList={loadingList}
                 busyAction={busyAction}
                 t={t}
                 onRemoveBlocklist={removeBlocklist}

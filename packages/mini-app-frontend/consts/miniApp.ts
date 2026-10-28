@@ -260,6 +260,12 @@ export const MINI_APP_TOAST_DURATION_MS: number = 2_600;
 export const MINI_APP_MIN_LOADING_MS: number = 260;
 
 /**
+ * 分页控制栏按钮点击后 hover 视觉状态固定保留的毫秒数（85 毫秒，消除移动设备点击翻页后残留的粘滞 hover 状态）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/PaginationBar.tsx`。
+ */
+export const MINI_APP_PAGINATION_HOVER_DURATION_MS: number = 85;
+
+/**
  * Mini App 管理界面的标题文字。
  * 不变量：非空短文本。所属模块：Mini App 前端（`packages/mini-app-frontend/`），当前未被引用。
  */

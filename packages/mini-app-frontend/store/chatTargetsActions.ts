@@ -303,6 +303,7 @@ export function createChatTargetsActions({
     switchTargetsModalTab: (kind: MiniAppChatTargetKind): void => {
       set({
         activeTargetsModal: kind,
+        qaEditorOpen: false,
         targetAddMenuOpen: false,
         targetIdFormOpen: false,
         translateLangMenuOpen: false,

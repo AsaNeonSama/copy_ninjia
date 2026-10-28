@@ -59,7 +59,7 @@ export function ChatTargetsQaPanel({
           <button
             type="button"
             className="btn primary icon-btn chat-targets-qa-open-btn"
-            disabled={mutatingTargets || qaEditorOpen}
+            disabled={mutatingTargets}
             tabIndex={qaEditorOpen ? -1 : 0}
             onClick={openQaEditor}
           >

@@ -1,36 +1,32 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="light">
+<html lang="en-US" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>杂鱼控制台♡</title>
+  <title>Zaako Console♡</title>
   <script>
     (function () {
       const langs = {
-        "ja": "ja",
-        "zh": "zh-CN",
-        "en": "en-US",
+        zh: "zh-CN",
+        ja: "ja",
       };
       const translations = {
-        "zh": "杂鱼控制台♡",
-        "ja": "雑魚コンソール♡",
-        "en": "Zaako Console♡",
+        zh: "杂鱼控制台♡",
+        ja: "雑魚コンソール♡",
       };
-      const root = document.documentElement;
-      const candidates = Array.isArray(navigator.languages) && navigator.languages.length > 0
-        ? navigator.languages
-        : [navigator.language || langs["en"]];
-      for (let i = 0; i < candidates.length; i += 1) {
-        const normalized = String(candidates[i] || "").trim().toLowerCase();
-        const currBrowserLang = normalized.split(/[-_]/)[0];
-        if (currBrowserLang === "zh" || currBrowserLang === "ja" || currBrowserLang === "en") {
-          if (root) root.lang = langs[currBrowserLang];
-          document.title = translations[currBrowserLang];
+      const candidates =
+        Array.isArray(navigator.languages) && navigator.languages.length > 0
+          ? navigator.languages
+          : [navigator.language || "en-US"];
+      for (const item of candidates) {
+        const lang = String(item || "").trim().toLowerCase().split(/[-_]/)[0];
+        if (lang === "en") return;
+        if (lang === "zh" || lang === "ja") {
+          document.documentElement.lang = langs[lang];
+          document.title = translations[lang];
           return;
         }
       }
-      if (root) root.lang = langs["en"];
-      document.title = translations["en"];
     })();
   </script>
   <link rel="icon" href="./resource/favicon.ico" type="image/x-icon" />

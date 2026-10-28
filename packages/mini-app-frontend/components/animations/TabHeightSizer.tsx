@@ -115,8 +115,6 @@ export function useModalBodyScrollLock(isModalOpen: boolean): void {
 export interface TabHeightSizerProps {
   /** 当前激活的目标类别（关闭时为 `null`）。 */
   readonly activeTab: MiniAppChatTargetKind | null;
-  /** 当前应渲染的目标类别。 */
-  readonly displayTab: MiniAppChatTargetKind;
   /** 目标数据是否已加载完成。 */
   readonly hasTargets: boolean;
   /** 外层高度过渡容器节点引用。 */
@@ -142,7 +140,6 @@ export interface TabHeightSizerProps {
  */
 export function TabHeightSizer({
   activeTab,
-  displayTab,
   hasTargets,
   sizerRef,
   paneRef,
@@ -217,6 +214,11 @@ export function TabHeightSizer({
         }
       };
     }
+    if ((tabChanged || targetsHydrated) && sizerEl?.style !== undefined) {
+      sizerEl.style.height = "";
+      sizerEl.style.overflow = "";
+      sizerEl.style.transition = "";
+    }
     return undefined;
   }, [
     activeTab,
@@ -231,7 +233,6 @@ export function TabHeightSizer({
   return (
     <div ref={setSizerNode} className="chat-targets-body-sizer">
       <div
-        key={displayTab}
         ref={setPaneNode}
         className="chat-targets-tab-pane"
       >

@@ -203,11 +203,19 @@ export function ChatTargetsModal({
                   aria-selected={isActive}
                   className={`chat-targets-tab ${isActive ? "active" : ""}`}
                   onClick={(): void => {
-                    const currentHeight: number = readModalBodyHeight(
-                      sizerRef.current
-                    );
+                    if (kind === activeTargetsModal) {
+                      return;
+                    }
+                    const currentHeight: number =
+                      readModalBodyHeight(paneRef.current) ||
+                      readModalBodyHeight(sizerRef.current);
                     if (currentHeight > 0) {
                       lastHeightRef.current = currentHeight;
+                      if (sizerRef.current?.style !== undefined) {
+                        sizerRef.current.style.overflow = "hidden";
+                        sizerRef.current.style.transition = "none";
+                        sizerRef.current.style.height = `${currentHeight}px`;
+                      }
                     }
                     switchTargetsModalTab(kind);
                   }}
@@ -232,7 +240,6 @@ export function ChatTargetsModal({
         >
           <TabHeightSizer
             activeTab={activeTargetsModal}
-            displayTab={displayModalKind}
             hasTargets={chatTargets !== null && !loadingTargets}
             sizerRef={sizerRef}
             paneRef={paneRef}

@@ -8,8 +8,6 @@ import type { MiniAppTranslations } from "../types/miniAppI18n";
 export interface ManagedChatListProps {
   /** 当前页待展示的受管群摘要数组。 */
   readonly chats: readonly Readonly<MiniAppChatSummary>[];
-  /** 列表当前是否正在刷新。 */
-  readonly loadingList: boolean;
   /** 当前语言的翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
   /** 点击某个群的「配置与开关」按钮进入详情页的回调。 */
@@ -24,7 +22,6 @@ export interface ManagedChatListProps {
  */
 export function ManagedChatList({
   chats,
-  loadingList,
   t,
   onSelectChat,
 }: ManagedChatListProps): React.JSX.Element {
@@ -39,7 +36,7 @@ export function ManagedChatList({
         return (
           <div
             key={chat.chatId}
-            className={`card interactive-card ${loadingList ? "content-refreshing" : ""}`}
+            className="card interactive-card"
           >
             <div className="row" style={{ padding: 0 }}>
               <div className="row-main">

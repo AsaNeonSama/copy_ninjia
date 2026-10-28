@@ -321,10 +321,6 @@
   from { opacity: 1; transform: translateY(0) scale(1); }
   to { opacity: 0; transform: translateY(8px) scale(0.96); }
 }
-@keyframes miniapp-tab-pane-fade {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
 .chat-targets-menu-popover {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
   min-width: 196px; padding: 6px; border-radius: 12px;
@@ -411,6 +407,7 @@
 .chat-targets-tab-count {
   font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
   padding: 1px 5px; border-radius: 999px; background: var(--surface-inset); flex-shrink: 0;
+  transition: background-color 0.16s ease, color 0.16s ease;
 }
 .chat-targets-tab.active .chat-targets-tab-count {
   background: var(--card); color: var(--accent);
@@ -429,7 +426,6 @@
 }
 .chat-targets-tab-pane {
   width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 12px;
-  animation: miniapp-tab-pane-fade 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .chat-targets-form {
   width: 100%; min-width: 0; padding: 11px 12px; border-radius: 12px; background: var(--surface-inset);
@@ -538,7 +534,7 @@
 }
 .chat-targets-qa-editor-shell { width: 100%; min-width: 0; display: flex; flex-direction: column; }
 .chat-targets-qa-trigger-collapse {
-  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr; opacity: 1; will-change: opacity;
+  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr; opacity: 1;
   transition: grid-template-rows 0.22s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease;
 }
 .chat-targets-qa-trigger-collapse.collapsed {
@@ -546,7 +542,7 @@
   transition: grid-template-rows 0.24s cubic-bezier(0.37, 0, 0.63, 1), opacity 0.16s ease;
 }
 .chat-targets-qa-collapse-grid {
-  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); pointer-events: none; will-change: opacity, transform;
+  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); pointer-events: none;
   transition: grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .chat-targets-qa-collapse-grid.expanded {

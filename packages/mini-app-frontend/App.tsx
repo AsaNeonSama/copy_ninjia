@@ -54,17 +54,14 @@ export function App(): React.JSX.Element | null {
     void runAccessPrecheck();
   }, [gateState, runAccessPrecheck]);
 
-  if (gateState === "checking") {
-    return null;
+  switch (gateState) {
+    case "checking":
+      return null;
+    case "denied":
+      return <AccessDeniedPage />;
+    case "password":
+      return <AuthGatePage />;
+    case "unlocked":
+      return <AppShell />;
   }
-
-  if (gateState === "denied") {
-    return <AccessDeniedPage />;
-  }
-
-  if (gateState === "password") {
-    return <AuthGatePage />;
-  }
-
-  return <AppShell />;
 }

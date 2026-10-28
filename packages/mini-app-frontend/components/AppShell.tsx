@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type React from "react";
 import { MINI_APP_TAB_KEYS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
@@ -15,6 +16,49 @@ import type { MiniAppLanguage, MiniAppTabKey, TelegramWebApp } from "../types/mi
 import { ConfirmModal } from "./ConfirmModal";
 import { PrefsBar } from "./PrefsBar";
 import { Toast } from "./Toast";
+
+/** `AppMainContent` 主内容出口的属性参数。 */
+interface AppMainContentProps {
+  /** 当前激活的导航标签键。 */
+  readonly activeTab: MiniAppTabKey;
+}
+
+/**
+ * 按当前激活标签键渲染对应顶层页面组件。
+ *
+ * @param activeTab 当前激活的导航标签键
+ * @returns 顶层页面节点
+ */
+function renderActiveTabPage(activeTab: MiniAppTabKey): React.JSX.Element {
+  switch (activeTab) {
+    case "status":
+      return <StatusPage />;
+    case "chats":
+      return <ChatsPage />;
+    case "identities":
+      return <IdentitiesPage />;
+    case "gallery":
+      return <GalleryPage />;
+    case "totp":
+      return <TotpPage />;
+  }
+}
+
+/**
+ * 渲染当前激活标签页的主内容区；与 `sidebarOpen` 状态隔离，使开关侧边栏导航抽屉时不触发主页面重渲染。
+ *
+ * @param props 组件属性
+ * @returns React 节点
+ */
+function AppMainContentView({
+  activeTab,
+}: AppMainContentProps): React.JSX.Element {
+  return <main className="app-main">{renderActiveTabPage(activeTab)}</main>;
+}
+
+/** 按 `activeTab` 浅比较跳过重渲染的主页面容器。 */
+const AppMainContent: React.MemoExoticComponent<typeof AppMainContentView> =
+  memo(AppMainContentView);
 
 /**
  * 渲染解锁后的控制台外壳：顶栏（侧栏开关、当前页标题、偏好栏与锁定按钮）、折叠侧边栏导航与当前标签页内容。
@@ -158,17 +202,7 @@ export function AppShell(): React.JSX.Element {
         </div>
       </aside>
 
-      <main className="app-main">
-        {activeTab === "status" ? <StatusPage /> : null}
-
-        {activeTab === "chats" ? <ChatsPage /> : null}
-
-        {activeTab === "identities" ? <IdentitiesPage /> : null}
-
-        {activeTab === "gallery" ? <GalleryPage /> : null}
-
-        {activeTab === "totp" ? <TotpPage /> : null}
-      </main>
+      <AppMainContent activeTab={activeTab} />
 
       <ConfirmModal />
       <Toast />

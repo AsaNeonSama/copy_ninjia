@@ -123,7 +123,7 @@ export function MessagesView({
           {t.messages.headerMeta(chatId)}
         </div>
 
-        {loading && pageData === null
+        {loading
           ? (
             <LoadingBox text={t.messages.loadingText}>
               <MessageSkeletonRows count={MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE} />
@@ -131,11 +131,11 @@ export function MessagesView({
           )
           : null}
 
-        {pageData !== null && pageData.items.length === 0
+        {!loading && pageData !== null && pageData.items.length === 0
           ? <div className="empty">{t.messages.emptyHint}</div>
           : null}
 
-        {pageData !== null
+        {!loading && pageData !== null && pageData.items.length > 0
           ? (
             <div className="msg-list">
               {pageData.items.map((item: Readonly<MiniAppMessageItem>): React.JSX.Element => {
@@ -143,7 +143,7 @@ export function MessagesView({
                 return (
                   <div
                     key={`${item.index}-${item.messageId}`}
-                    className={`msg-item tone-${toneIndex} ${loading ? "content-refreshing" : ""}`}
+                    className={`msg-item tone-${toneIndex}`}
                   >
                     <div className="msg-head">
                       <div

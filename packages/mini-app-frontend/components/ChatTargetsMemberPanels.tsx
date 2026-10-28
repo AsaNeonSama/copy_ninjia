@@ -116,7 +116,7 @@ export function ChatTargetsMemberPanels({
           <button
             type="button"
             className="btn primary icon-btn chat-targets-qa-open-btn"
-            disabled={mutatingTargets || targetAddMenuOpen}
+            disabled={mutatingTargets}
             tabIndex={targetAddMenuOpen ? -1 : 0}
             onClick={openTargetAddMenu}
           >

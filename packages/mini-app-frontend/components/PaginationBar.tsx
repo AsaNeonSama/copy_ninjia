@@ -1,9 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import type React from "react";
-import type { MiniAppLanguage, TelegramWindow } from "../types/miniApp";
+import { MINI_APP_PAGINATION_HOVER_DURATION_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
+import type { MiniAppLanguage, TelegramWindow } from "../types/miniApp";
+import type { BlurTargetElement } from "./GalleryPreviewCard";
 
 /** `PaginationBar` 通用分页导航组件的属性参数。 */
 export interface PaginationBarProps {
@@ -37,7 +40,7 @@ function scrollWindowToTop(): void {
 
 /**
  * 统一分页控制栏组件：展示总条数、分段式每页条数切换，以及「首页/上页 · 当前页/总页数 · 下页/末页」导航栏；
- * 切换页码或每页条数后平滑滚动回顶部。
+ * 点击翻页按钮时固定保持 `MINI_APP_PAGINATION_HOVER_DURATION_MS` 的 hover 视觉反馈并在切换后平滑滚动回顶部。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -59,7 +62,40 @@ export function PaginationBar({
   const safeTotalPages: number = Math.max(1, Math.trunc(totalPages));
   const safePage: number = Math.min(safeTotalPages, Math.max(1, Math.trunc(page)));
 
-  const handlePageSelect = (nextPage: number): void => {
+  const [hoveredKey, setHoveredKey]: [
+    string | null,
+    React.Dispatch<React.SetStateAction<string | null>>
+  ] = useState<string | null>(null);
+  const hoverTimerRef: React.RefObject<ReturnType<typeof setTimeout> | null> =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect((): (() => void) => {
+    return (): void => {
+      if (hoverTimerRef.current !== null) {
+        clearTimeout(hoverTimerRef.current);
+        hoverTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const triggerTransientHover = (key: string): void => {
+    if (hoverTimerRef.current !== null) {
+      clearTimeout(hoverTimerRef.current);
+    }
+    setHoveredKey(key);
+    hoverTimerRef.current = setTimeout((): void => {
+      hoverTimerRef.current = null;
+      setHoveredKey(null);
+    }, MINI_APP_PAGINATION_HOVER_DURATION_MS);
+  };
+
+  const handlePageSelect = (
+    key: string,
+    nextPage: number,
+    event: React.MouseEvent<HTMLButtonElement>
+  ): void => {
+    (event.currentTarget as unknown as BlurTargetElement).blur?.();
+    triggerTransientHover(key);
     onPageChange(nextPage);
     scrollWindowToTop();
   };
@@ -75,22 +111,27 @@ export function PaginationBar({
         onPageSizeChange !== undefined
           ? (
             <div className="pagination-sizes" role="group">
-              {pageSizeOptions.map((option: number): React.JSX.Element => (
-                <button
-                  key={option}
-                  type="button"
-                  className={`page-size-pill ${pageSize === option ? "active" : ""}`}
-                  disabled={disabled}
-                  onClick={(): void => {
-                    if (option !== pageSize) {
-                      onPageSizeChange(option);
-                      scrollWindowToTop();
-                    }
-                  }}
-                >
-                  {t.pagination.pageSizeOption(option)}
-                </button>
-              ))}
+              {pageSizeOptions.map((option: number): React.JSX.Element => {
+                const sizeKey: string = `size:${option}`;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    className={`page-size-pill ${pageSize === option ? "active" : ""} ${hoveredKey === sizeKey ? "is-hovering" : ""}`}
+                    disabled={disabled}
+                    onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+                      (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                      if (option !== pageSize) {
+                        triggerTransientHover(sizeKey);
+                        onPageSizeChange(option);
+                        scrollWindowToTop();
+                      }
+                    }}
+                  >
+                    {t.pagination.pageSizeOption(option)}
+                  </button>
+                );
+              })}
             </div>
           )
           : null}
@@ -99,10 +140,10 @@ export function PaginationBar({
       <div className="pagination-controls">
         <button
           type="button"
-          className="page-btn"
+          className={`page-btn ${hoveredKey === "first" ? "is-hovering" : ""}`}
           disabled={disabled || safePage <= 1}
-          onClick={(): void => {
-            handlePageSelect(1);
+          onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+            handlePageSelect("first", 1, event);
           }}
           aria-label={t.pagination.firstPageAria}
           title={t.pagination.firstPageAria}
@@ -112,10 +153,10 @@ export function PaginationBar({
         </button>
         <button
           type="button"
-          className="page-btn"
+          className={`page-btn ${hoveredKey === "prev" ? "is-hovering" : ""}`}
           disabled={disabled || safePage <= 1}
-          onClick={(): void => {
-            handlePageSelect(Math.max(1, safePage - 1));
+          onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+            handlePageSelect("prev", Math.max(1, safePage - 1), event);
           }}
           aria-label={t.pagination.prevPageAria}
           title={t.pagination.prevPageAria}
@@ -132,10 +173,10 @@ export function PaginationBar({
 
         <button
           type="button"
-          className="page-btn"
+          className={`page-btn ${hoveredKey === "next" ? "is-hovering" : ""}`}
           disabled={disabled || safePage >= safeTotalPages}
-          onClick={(): void => {
-            handlePageSelect(Math.min(safeTotalPages, safePage + 1));
+          onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+            handlePageSelect("next", Math.min(safeTotalPages, safePage + 1), event);
           }}
           aria-label={t.pagination.nextPageAria}
           title={t.pagination.nextPageAria}
@@ -145,10 +186,10 @@ export function PaginationBar({
         </button>
         <button
           type="button"
-          className="page-btn"
+          className={`page-btn ${hoveredKey === "last" ? "is-hovering" : ""}`}
           disabled={disabled || safePage >= safeTotalPages}
-          onClick={(): void => {
-            handlePageSelect(safeTotalPages);
+          onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
+            handlePageSelect("last", safeTotalPages, event);
           }}
           aria-label={t.pagination.lastPageAria}
           title={t.pagination.lastPageAria}

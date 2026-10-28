@@ -1,7 +1,8 @@
 /**
  * `packages/mini-app-frontend/` 不得依赖目录外的文件，与服务端重合的常量、类型、函数和 favicon 在前端
- * 单独复制。本文件逐项核对这些副本与服务端定义一致，任何一侧改动而另一侧未同步时失败：
- * 类型在编译期按 TypeScript 恒等关系核对（含 readonly 与可选修饰），常量、函数与文件在运行期核对。
+ * 单独复制。本文件逐项核对这些副本与服务端定义（含 `index.html` 内联脚本 SHA-256 与服务端 CSP 头）一致，
+ * 任何一侧改动而另一侧未同步时失败：类型在编译期按 TypeScript 恒等关系核对（含 readonly 与可选修饰），
+ * 常量、函数与文件在运行期核对。
  */
 
 import { describe, expect, test } from "bun:test";
@@ -152,6 +153,21 @@ describe("Mini App 前端副本与服务端定义一致", () => {
       new URL("../../packages/mini-app-api-server/resource/favicon.ico", import.meta.url)
     ).bytes();
     expect(frontendIcon).toEqual(serverIcon);
+  });
+
+  test("前端入口 index.html 内联首屏语言初始化脚本的 SHA-256 哈希与服务端 CSP 头一致", async () => {
+    const htmlText: string = await Bun.file(
+      new URL("../../packages/mini-app-frontend/index.html", import.meta.url)
+    ).text();
+    const inlineScriptMatch: RegExpMatchArray | null = htmlText.match(/<script>([\s\S]*?)<\/script>/u);
+    expect(inlineScriptMatch).not.toBeNull();
+    const scriptBody: string = inlineScriptMatch?.[1] ?? "";
+    const scriptSha256Base64: string = new Bun.CryptoHasher("sha256")
+      .update(scriptBody, "utf8")
+      .digest("base64");
+    expect(serverMiniAppConsts.MINI_APP_CSP_HEADER_VALUE).toContain(
+      `'sha256-${scriptSha256Base64}'`
+    );
   });
 
   test("前后端各自的图库下载文件名构造对同一输入给出相同结果", () => {

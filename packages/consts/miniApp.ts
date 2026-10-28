@@ -190,7 +190,7 @@ export const MINI_APP_ASSET_TOKEN_SECRET_SEED: string =
  * 不变量：仅允许同源脚本、`https://telegram.org` 官方脚本与 `index.html` 内置的首屏 `lang`/`title` 语言初始化脚本哈希，彻底封死外联 XSS 与页面嵌套。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_CSP_HEADER_VALUE: string =
-  "default-src 'self'; script-src 'self' https://telegram.org 'sha256-PBFoa02N5ze01HNF5R/KrmpngVw7cMKtFUj7uWEUKDU='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  "default-src 'self'; script-src 'self' https://telegram.org 'sha256-QWTSQdDnyTbsLW0pe3w3OntSBjLiStumg3aS49sZVGo='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 /**
  * Mini App 响应的 `X-Frame-Options` 安全头取值。

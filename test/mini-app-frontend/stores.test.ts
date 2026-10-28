@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
   MINI_APP_MIN_LOADING_MS,
+  MINI_APP_PAGINATION_HOVER_DURATION_MS,
   MINI_APP_PICKER_POLL_INTERVAL_MS,
   MINI_APP_STATUS_POLL_INTERVAL_MS,
   MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS,
@@ -379,9 +380,14 @@ describe("页面 store", () => {
     expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats")).toHaveLength(2);
 
     store.getState().setChatPage(3);
+    expect(store.getState().loadingList).toBeTrue();
     store.getState().setChatPageSize(20);
     expect(store.getState().chatPage).toBe(1);
     expect(store.getState().chatPageSize).toBe(20);
+    expect(store.getState().loadingList).toBeTrue();
+    expect(MINI_APP_PAGINATION_HOVER_DURATION_MS).toBeGreaterThan(0);
+    await settleLoading();
+    expect(store.getState().loadingList).toBeFalse();
   });
 
   test("热发言记录：服务端夹紧页码时同步当前页码", async () => {
@@ -415,6 +421,10 @@ describe("页面 store", () => {
     route("GET /api/identities/whitelist", (): Response =>
       json({ page: 1, items: [{ id: 7 }], whitelistTotal: 1, blocklistTotal: 0 }));
     await store.getState().loadCurrentList();
+    expect(store.getState().loadingList).toBeFalse();
+    const silentLoad: Promise<void> = store.getState().loadCurrentList(true);
+    expect(store.getState().loadingList).toBeFalse();
+    await silentLoad;
     store.getState().setIdInput("7");
     await store.getState().addById();
     expect(store.getState().duplicateAlertText).toBe(zh.identities.duplicateToast("ID 7", "whitelist"));
@@ -705,8 +715,11 @@ describe("页面 store", () => {
     expect(store.getState().qaQuestionInput).toBe("");
     expect(store.getState().qaAnswerInput).toBe("");
 
+    store.getState().openQaEditor();
+    expect(store.getState().qaEditorOpen).toBeTrue();
     store.getState().switchTargetsModalTab("deleteMessage");
     expect(store.getState().activeTargetsModal).toBe("deleteMessage");
+    expect(store.getState().qaEditorOpen).toBeFalse();
     expect(store.getState().targetAddMenuOpen).toBeFalse();
     store.getState().openTargetAddMenu();
     expect(store.getState().targetAddMenuOpen).toBeTrue();

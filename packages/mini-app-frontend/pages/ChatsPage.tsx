@@ -262,7 +262,7 @@ export function ChatsPage(): React.JSX.Element {
         </button>
       </div>
 
-      {loadingList && chats.length === 0
+      {loadingList
         ? (
           <LoadingBox className="card loading-box" text={t.chats.loadingChatsText}>
             <ListSkeletonRows count={MINI_APP_CHATS_DEFAULT_PAGE_SIZE} />
@@ -274,12 +274,15 @@ export function ChatsPage(): React.JSX.Element {
         ? <div className="card"><div className="empty">{t.chats.emptyChatsHint}</div></div>
         : null}
 
-      <ManagedChatList
-        chats={pagedChats}
-        loadingList={loadingList}
-        t={t}
-        onSelectChat={selectChat}
-      />
+      {!loadingList && chats.length > 0
+        ? (
+          <ManagedChatList
+            chats={pagedChats}
+            t={t}
+            onSelectChat={selectChat}
+          />
+        )
+        : null}
 
       {totalChats > 0
         ? (

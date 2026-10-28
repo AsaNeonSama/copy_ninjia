@@ -72,8 +72,8 @@ export interface MiniAppIdentitiesStoreState {
   /** 最近一次列表响应携带的黑名单总条数。 */
   readonly blocklistTotal: number;
 
-  /** 按当前子标签、页码、每页条数与防抖关键字拉取列表；只采纳最后一次发起的请求结果，服务端夹紧页码时同步当前页码。 */
-  readonly loadCurrentList: () => Promise<void>;
+  /** 按当前子标签、页码、每页条数与防抖关键字拉取列表（`silent` 为 `true` 时不置 `loadingList: true` 以保持已展开权限抽屉原位更新）；只采纳最后一次发起的请求结果，服务端夹紧页码时同步当前页码。 */
+  readonly loadCurrentList: (silent?: boolean) => Promise<void>;
   /** 切换子标签并收起权限抽屉与重复拦截横幅。 */
   readonly selectSubTab: (tab: MiniAppIdentitySubTabKey) => void;
   /** 更新搜索输入框。 */
@@ -247,7 +247,7 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
         whitelistTotal: 0,
         blocklistTotal: 0,
 
-        loadCurrentList: async (): Promise<void> => {
+        loadCurrentList: async (silent: boolean = false): Promise<void> => {
           const {
             subTab,
             debouncedQuery,
@@ -258,7 +258,9 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
           }: MiniAppIdentitiesStoreState = get();
           const reqId: number = ++requestSeq;
           const startedAt: number = Date.now();
-          set({ loadingList: true });
+          if (!silent) {
+            set({ loadingList: true });
+          }
           try {
             if (subTab === "whitelist") {
               const page: MiniAppWhitelistPage = await fetchMiniAppWhitelist(
@@ -266,7 +268,9 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
                 whitelistPageSize,
                 debouncedQuery
               );
-              await waitMinimumLoadingDuration(startedAt);
+              if (!silent) {
+                await waitMinimumLoadingDuration(startedAt);
+              }
               if (reqId !== requestSeq) {
                 return;
               }
@@ -284,7 +288,9 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
                 blocklistPageSize,
                 debouncedQuery
               );
-              await waitMinimumLoadingDuration(startedAt);
+              if (!silent) {
+                await waitMinimumLoadingDuration(startedAt);
+              }
               if (reqId !== requestSeq) {
                 return;
               }
@@ -298,13 +304,15 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
               }
             }
           } catch (error: unknown) {
-            await waitMinimumLoadingDuration(startedAt);
+            if (!silent) {
+              await waitMinimumLoadingDuration(startedAt);
+            }
             if (reqId !== requestSeq) {
               return;
             }
             notify(errorMessage(error), undefined, error);
           } finally {
-            if (reqId === requestSeq) {
+            if (reqId === requestSeq && get().loadingList) {
               set({ loadingList: false });
             }
           }

@@ -26,8 +26,6 @@ export interface WhitelistEntryRowListProps {
   readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
   /** 当前展开权限抽屉的目标身份 ID（未展开时为 `null`）。 */
   readonly selectedEntryId: number | null;
-  /** 列表当前是否正在刷新。 */
-  readonly loadingList: boolean;
   /** 当前是否有增删操作在途。 */
   readonly busyAction: boolean;
   /** 当前语言的翻译字典。 */
@@ -52,8 +50,6 @@ interface WhitelistEntryRowProps {
   readonly isExpanded: boolean;
   /** 十八项白名单权限键与描述列表。 */
   readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
-  /** 列表当前是否正在刷新。 */
-  readonly loadingList: boolean;
   /** 当前是否有增删操作在途。 */
   readonly busyAction: boolean;
   /** 当前语言的翻译字典。 */
@@ -81,7 +77,6 @@ function WhitelistEntryRowView({
   entry,
   isExpanded,
   permissionDescriptors,
-  loadingList,
   busyAction,
   t,
   onTogglePermissionDrawer,
@@ -123,7 +118,7 @@ function WhitelistEntryRowView({
   return (
     <div
       ref={setRowGroupNode}
-      className={`identity-row-group ${loadingList ? "content-refreshing" : ""}`}
+      className="identity-row-group"
     >
       <div className="row identity-row">
         <div className="row-main">
@@ -218,7 +213,6 @@ export function WhitelistEntryRowList({
   items,
   permissionDescriptors,
   selectedEntryId,
-  loadingList,
   busyAction,
   t,
   onTogglePermissionDrawer,
@@ -235,7 +229,6 @@ export function WhitelistEntryRowList({
             entry={entry}
             isExpanded={selectedEntryId === entry.id}
             permissionDescriptors={permissionDescriptors}
-            loadingList={loadingList}
             busyAction={busyAction}
             t={t}
             onTogglePermissionDrawer={onTogglePermissionDrawer}
@@ -253,8 +246,6 @@ export function WhitelistEntryRowList({
 export interface BlocklistEntryRowListProps {
   /** 当前页的黑名单条目数组。 */
   readonly items: readonly Readonly<MiniAppBlocklistEntryView>[];
-  /** 列表当前是否正在刷新。 */
-  readonly loadingList: boolean;
   /** 当前是否有增删操作在途。 */
   readonly busyAction: boolean;
   /** 当前语言的翻译字典。 */
@@ -273,7 +264,6 @@ export interface BlocklistEntryRowListProps {
  */
 export function BlocklistEntryRowList({
   items,
-  loadingList,
   busyAction,
   t,
   onRemoveBlocklist,
@@ -286,7 +276,7 @@ export function BlocklistEntryRowList({
           return (
             <div
               key={entry.id}
-              className={`row identity-row ${loadingList ? "content-refreshing" : ""}`}
+              className="row identity-row"
             >
               <div className="row-main">
                 <div className="identity-title-row">

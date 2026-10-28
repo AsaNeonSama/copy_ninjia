@@ -65,7 +65,10 @@
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.page-size-pill:hover:not(.active) { color: var(--text); background: var(--accent-soft); }
+@media (hover: hover) and (pointer: fine) {
+  .page-size-pill:hover:not(.active) { color: var(--text); background: var(--accent-soft); }
+}
+.page-size-pill.is-hovering:not(.active) { color: var(--text); background: var(--accent-soft); transition: none; }
 .page-size-pill.active { background: var(--accent); color: var(--accent-text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14); }
 
 .pagination-controls {
@@ -118,9 +121,13 @@
 
 .page-btn-arrow { display: inline-flex; align-items: center; justify-content: center; font-size: 14px; line-height: 14px; transform: translateY(-1px); }
 .page-btn-text { display: inline-block; line-height: 14px; overflow: hidden; text-overflow: ellipsis; }
-.page-btn:hover:not(:disabled):not(.active) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+@media (hover: hover) and (pointer: fine) {
+  .page-btn:hover:not(:disabled):not(.active) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+}
+.page-btn.is-hovering:not(.active) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); opacity: 1; transition: none; }
 .page-btn.active { background: var(--accent); color: var(--accent-text); border-color: transparent; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); }
-.page-btn:disabled { opacity: 0.38; cursor: not-allowed; }
+.page-btn:disabled:not(.is-hovering) { opacity: 0.38; cursor: not-allowed; }
+.page-btn:disabled.is-hovering { cursor: not-allowed; }
 
 @media (max-width: 340px) {
   .page-btn-text { display: none; }
