@@ -96,6 +96,9 @@
 .cap-list { display: flex; flex-direction: column; gap: 8px; }
 .cap-block { border-radius: 12px; background: color-mix(in srgb, var(--card) 60%, var(--surface-inset)); border: 1px solid var(--border); transition: border-color 0.14s ease, background-color 0.14s ease; }
 .cap-block.expanded { border-color: var(--accent-border); background: var(--cap-expanded-bg); }
+@media (hover: none) and (pointer: coarse) {
+  .cap-block { will-change: transform; }
+}
 .cap-header-btn { appearance: none; border: none; border-radius: 11px; background: transparent; color: var(--text); width: 100%; padding: 11px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; transition: background-color 0.14s ease; }
 .cap-block.expanded .cap-header-btn { border-radius: 11px 11px 0 0; }
 @media (hover: hover) and (pointer: fine) {

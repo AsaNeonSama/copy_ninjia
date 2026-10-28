@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import type React from "react";
 import {
   BlocklistEntryRowList,
@@ -89,9 +89,9 @@ export function IdentitiesPage(): React.JSX.Element {
     whitelistPageSize,
   ]);
 
-  const reloadList = (): void => {
+  const reloadList: () => void = useCallback((): void => {
     void loadCurrentList();
-  };
+  }, [loadCurrentList]);
 
   return (
     <section className="animate-fade-in">
@@ -130,7 +130,7 @@ export function IdentitiesPage(): React.JSX.Element {
 
       {subTab === "whitelist"
         ? (
-          <div className="card">
+          <div className="card identity-list-card">
             {loadingList && whitelistPage === null
               ? (
                 <LoadingBox text={t.identities.loadingText}>
@@ -177,7 +177,7 @@ export function IdentitiesPage(): React.JSX.Element {
           </div>
         )
         : (
-          <div className="card">
+          <div className="card identity-list-card">
             {loadingList && blocklistPage === null
               ? (
                 <LoadingBox text={t.identities.loadingText}>

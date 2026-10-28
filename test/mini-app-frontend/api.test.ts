@@ -56,6 +56,7 @@ import { PermissionDrawer } from "../../packages/mini-app-frontend/components/Pe
 import { StatusOverviewCard } from "../../packages/mini-app-frontend/components/StatusOverviewCard";
 import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import {
+  MINI_APP_CAP_CLOSE_DURATION_FACTOR,
   MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
@@ -393,14 +394,20 @@ describe("前端接口文件与纯函数辅助库", () => {
         items: [{ label: "对话 text", value: "claude", sub: "google" }],
       })
     ).toBeFalse();
-    expect(computeCapabilityCollapseDurationMs(0)).toBe(
+    expect(computeCapabilityCollapseDurationMs(0, true)).toBe(
       MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS
     );
-    expect(computeCapabilityCollapseDurationMs(40)).toBe(
+    expect(computeCapabilityCollapseDurationMs(40, true)).toBe(
       MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS
     );
-    expect(computeCapabilityCollapseDurationMs(600)).toBe(
+    expect(computeCapabilityCollapseDurationMs(600, true)).toBe(
       MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS
+    );
+    expect(computeCapabilityCollapseDurationMs(600, false)).toBe(
+      Math.round(MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS * MINI_APP_CAP_CLOSE_DURATION_FACTOR)
+    );
+    expect(computeCapabilityCollapseDurationMs(0, false)).toBe(
+      Math.round(MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS * MINI_APP_CAP_CLOSE_DURATION_FACTOR)
     );
 
     for (const lang of MINI_APP_LANGUAGES) {

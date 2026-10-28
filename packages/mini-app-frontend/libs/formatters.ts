@@ -1,5 +1,6 @@
 import {
   MINI_APP_BIDI_CONTROL_CHARS_PATTERN,
+  MINI_APP_CAP_CLOSE_DURATION_FACTOR,
   MINI_APP_CAP_COLLAPSE_BASE_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_HEIGHT_DURATION_FACTOR,
@@ -211,23 +212,32 @@ export function areCapabilityStatusEqual(
 }
 
 /**
- * 按子系统折叠面板内容像素高度计算平滑过渡时长（展开与收起严格复用同一时长）。
+ * 按子系统折叠面板内容像素高度计算过渡到目标展开态的平滑过渡时长：展开时长按高度线性折算后落在
+ * `[MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS, MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS]` 区间内（未测得高度时取缺省值）；
+ * 收起时长为同一高度的展开时长乘以 `MINI_APP_CAP_CLOSE_DURATION_FACTOR` 后取整。
  *
  * @param heightPx 内容完整像素高度
- * @returns 动画时长毫秒数（落在 `[MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS, MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS]` 区间内）
+ * @param expanded 过渡的目标状态是否为展开
+ * @returns 动画时长毫秒数
  */
-export function computeCapabilityCollapseDurationMs(heightPx: number): number {
-  if (!Number.isFinite(heightPx) || heightPx <= 0) {
-    return MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS;
-  }
-  return Math.min(
-    MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
-    Math.max(
-      MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
-      Math.round(
-        MINI_APP_CAP_COLLAPSE_BASE_DURATION_MS +
-          heightPx * MINI_APP_CAP_COLLAPSE_HEIGHT_DURATION_FACTOR
-      )
-    )
-  );
+export function computeCapabilityCollapseDurationMs(
+  heightPx: number,
+  expanded: boolean
+): number {
+  const expandDurationMs: number =
+    !Number.isFinite(heightPx) || heightPx <= 0
+      ? MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS
+      : Math.min(
+        MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
+        Math.max(
+          MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
+          Math.round(
+            MINI_APP_CAP_COLLAPSE_BASE_DURATION_MS +
+              heightPx * MINI_APP_CAP_COLLAPSE_HEIGHT_DURATION_FACTOR
+          )
+        )
+      );
+  return expanded
+    ? expandDurationMs
+    : Math.round(expandDurationMs * MINI_APP_CAP_CLOSE_DURATION_FACTOR);
 }

@@ -24,7 +24,9 @@ export function GalleryImageSkeleton({
       className={preview ? "gallery-img-skeleton preview-skeleton" : "gallery-img-skeleton"}
       aria-hidden="true"
     >
-      <GallerySvgIcon size={iconSize} className="gallery-skeleton-icon" />
+      <span className="gallery-skeleton-icon-pulse">
+        <GallerySvgIcon size={iconSize} className="gallery-skeleton-icon" />
+      </span>
     </div>
   );
 }

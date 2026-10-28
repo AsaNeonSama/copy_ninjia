@@ -2,14 +2,11 @@ import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
 import {
   MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX,
-  MINI_APP_CAP_SCROLL_BOTTOM_MARGIN_PX,
-  MINI_APP_CAP_SCROLL_COMFORT_BODY_FACTOR,
-  MINI_APP_CAP_SCROLL_COMFORT_TOP_RATIO,
-  MINI_APP_CAP_SCROLL_MIN_DELTA_PX,
   MINI_APP_CAP_SCROLL_SETTLE_DELAY_MS,
-  MINI_APP_CAP_SCROLL_TOP_MARGIN_PX,
 } from "../../consts/miniApp";
 import { computeCapabilityCollapseDurationMs } from "../../libs/formatters";
+import { scrollViewportToExpandedBody } from "./expandFollowScroll";
+import type { ViewportRectElement } from "./expandFollowScroll";
 
 /** 子系统面板展开后延迟视口跟滚的共享调度状态（保证连续展开多项时只触发最后一次滑动）。 */
 export interface ExpandScrollScheduleState {
@@ -27,29 +24,13 @@ interface MeasurableCollapseElement {
   readonly scrollHeight?: number;
 }
 
-/** 支持直接写入行内高度与过渡时长样式的折叠外层容器 DOM 节点最小类型接口。 */
-interface MeasurableCollapseWrapElement {
+/** 支持直接写入行内高度与过渡时长样式、读取视口几何边界的折叠外层容器 DOM 节点最小类型接口。 */
+interface MeasurableCollapseWrapElement extends ViewportRectElement {
   /** 行内样式对象。 */
   readonly style?: {
     height: string;
     setProperty?: (property: string, value: string) => void;
   };
-  /** 读取元素相对于视口的几何边界。 */
-  readonly getBoundingClientRect?: () => {
-    readonly top: number;
-    readonly height: number;
-  };
-}
-
-/** 支持读取视口尺寸与触发平滑滚动的全局宿主最小类型接口。 */
-interface ScrollableViewportHost {
-  /** 视口可视像素高度。 */
-  readonly innerHeight?: number;
-  /** 按指定增量平滑滚动文档视口。 */
-  readonly scrollBy?: (options: {
-    readonly top: number;
-    readonly behavior: "smooth";
-  }) => void;
 }
 
 /** `CapabilityCollapseBody` 折叠动画容器的属性参数。 */
@@ -95,7 +76,8 @@ function readCollapseBodyHeight(
 }
 
 /**
- * 在子系统折叠面板展开动画完成后触发浏览器原生平滑向下滚动以展现展开内容。
+ * 在子系统折叠面板展开动画完成后按 `scrollViewportToExpandedBody` 让视口平滑向下滚动以展现展开内容
+ * （标题栏顶部按容器顶部减去 `MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX` 估算）。
  * 若在等待期间连续展开多个面板，自动取消前序未触发的滚动定时器并顺延至最晚完成的展开面板结束后单次滑动。
  *
  * @param options 折叠容器节点、内容高度、展开时长与共享调度状态引用
@@ -107,15 +89,7 @@ function scrollViewportAfterCapabilityExpanded({
   durationMs,
   expandScrollStateRef,
 }: ScrollViewportAfterExpandedOptions): (() => void) | undefined {
-  const host: ScrollableViewportHost = globalThis as ScrollableViewportHost;
-  const scrollByFn:
-    | ((options: { readonly top: number; readonly behavior: "smooth" }) => void)
-    | undefined = host.scrollBy;
-  if (
-    typeof scrollByFn !== "function" ||
-    typeof wrapEl.getBoundingClientRect !== "function" ||
-    bodyHeight <= 0
-  ) {
+  if (typeof wrapEl.getBoundingClientRect !== "function" || bodyHeight <= 0) {
     return undefined;
   }
 
@@ -138,42 +112,16 @@ function scrollViewportAfterCapabilityExpanded({
     if (scheduleState.timer === timer) {
       scheduleState.timer = null;
     }
-    const viewportHeight: number = host.innerHeight ?? 0;
-    if (
-      viewportHeight <= 0 ||
-      typeof wrapEl.getBoundingClientRect !== "function"
-    ) {
+    if (typeof wrapEl.getBoundingClientRect !== "function") {
       return;
     }
     const wrapRect: { readonly top: number; readonly height: number } =
       wrapEl.getBoundingClientRect();
-    const actualBodyHeight: number = Math.max(wrapRect.height, bodyHeight);
-    const blockTop: number = wrapRect.top - MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX;
-    const maxScrollKeepHeader: number = Math.max(
-      0,
-      blockTop - MINI_APP_CAP_SCROLL_TOP_MARGIN_PX
-    );
-    const expandedBottom: number = wrapRect.top + actualBodyHeight;
-    const overflowBottom: number = Math.max(
-      0,
-      expandedBottom + MINI_APP_CAP_SCROLL_BOTTOM_MARGIN_PX - viewportHeight
-    );
-    const comfortTargetTop: number =
-      viewportHeight * MINI_APP_CAP_SCROLL_COMFORT_TOP_RATIO;
-    const comfortShift: number =
-      blockTop > comfortTargetTop
-        ? Math.min(
-          actualBodyHeight * MINI_APP_CAP_SCROLL_COMFORT_BODY_FACTOR,
-          blockTop - comfortTargetTop
-        )
-        : 0;
-    const scrollDelta: number = Math.min(
-      maxScrollKeepHeader,
-      Math.max(overflowBottom, Math.round(comfortShift))
-    );
-    if (scrollDelta > MINI_APP_CAP_SCROLL_MIN_DELTA_PX) {
-      scrollByFn.call(host, { top: scrollDelta, behavior: "smooth" });
-    }
+    scrollViewportToExpandedBody({
+      blockTop: wrapRect.top - MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX,
+      bodyTop: wrapRect.top,
+      bodyHeight: Math.max(wrapRect.height, bodyHeight),
+    });
   }, waitMs);
 
   scheduleState.timer = timer;
@@ -186,7 +134,8 @@ function scrollViewportAfterCapabilityExpanded({
 }
 
 /**
- * 基于真实像素高度与自适应过渡时长平滑展开/收起的子系统折叠面板容器。
+ * 基于真实像素高度与自适应过渡时长平滑展开/收起的子系统折叠面板容器；`--cap-duration` 每次渲染按目标展开态取值，
+ * 收起时长为同一高度展开时长乘以 `MINI_APP_CAP_CLOSE_DURATION_FACTOR`。
  *
  * @param props 展开状态、共享滚动调度引用与子节点
  * @returns React 节点
@@ -226,7 +175,7 @@ export function CapabilityCollapseBody({
     const effectiveHeight: number =
       measured > 0 ? measured : lastHeightRef.current;
     const durationMs: number =
-      computeCapabilityCollapseDurationMs(effectiveHeight);
+      computeCapabilityCollapseDurationMs(effectiveHeight, expanded);
     wrapEl.style.setProperty?.("--cap-duration", `${durationMs}ms`);
     if (expanded && measured > 0) {
       const nextHeightCss: string = `${measured}px`;
@@ -246,7 +195,7 @@ export function CapabilityCollapseBody({
         measured > 0 ? measured : lastHeightRef.current;
       if (wrapEl !== null && effectiveHeight > 0) {
         const durationMs: number =
-          computeCapabilityCollapseDurationMs(effectiveHeight);
+          computeCapabilityCollapseDurationMs(effectiveHeight, true);
         return scrollViewportAfterCapabilityExpanded({
           wrapEl,
           bodyHeight: effectiveHeight,
@@ -262,7 +211,7 @@ export function CapabilityCollapseBody({
   const effectiveHeight: number =
     currentMeasured > 0 ? currentMeasured : lastHeightRef.current;
   const durationMs: number =
-    computeCapabilityCollapseDurationMs(effectiveHeight);
+    computeCapabilityCollapseDurationMs(effectiveHeight, expanded);
   const targetHeightCss: string =
     expanded ? (effectiveHeight > 0 ? `${effectiveHeight}px` : "auto") : "0px";
   const wrapStyle: CollapseWrapInlineStyle = {

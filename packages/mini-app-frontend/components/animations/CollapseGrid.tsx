@@ -1,4 +1,5 @@
 import type React from "react";
+import type { ViewportRectElement } from "./expandFollowScroll";
 
 /** `CollapseGrid` 展开/收起过渡容器组件的属性参数。 */
 export interface CollapseGridProps {
@@ -8,6 +9,8 @@ export interface CollapseGridProps {
   readonly gridClassName: string;
   /** 内层裁剪容器类名（定义 `overflow: hidden; min-height: 0`）。 */
   readonly innerClassName: string;
+  /** 外层网格自身的 `grid-template-rows` 展开过渡结束时的回调（参数为外层网格节点）；收起过渡结束与子孙节点冒泡上来的过渡结束事件不触发。 */
+  readonly onExpandEnd?: (gridElement: ViewportRectElement) => void;
   /** 折叠面板内部子节点。 */
   readonly children: React.ReactNode;
 }
@@ -15,19 +18,36 @@ export interface CollapseGridProps {
 /**
  * 配合 CSS Grid `0fr <-> 1fr` 规则实现平滑高度展开与收起动画的通用包装组件。
  *
- * @param props 展开状态、外层/内层类名与子节点
+ * @param props 展开状态、外层/内层类名、展开结束回调与子节点
  * @returns React 节点
  */
 export function CollapseGrid({
   expanded,
   gridClassName,
   innerClassName,
+  onExpandEnd,
   children,
 }: CollapseGridProps): React.JSX.Element {
+  const handleTransitionEnd:
+    | ((event: React.TransitionEvent<HTMLDivElement>) => void)
+    | undefined =
+    onExpandEnd === undefined
+      ? undefined
+      : (event: React.TransitionEvent<HTMLDivElement>): void => {
+        if (
+          !expanded ||
+          event.target !== event.currentTarget ||
+          event.propertyName !== "grid-template-rows"
+        ) {
+          return;
+        }
+        onExpandEnd(event.currentTarget as unknown as ViewportRectElement);
+      };
   return (
     <div
       className={`${gridClassName} ${expanded ? "expanded" : ""}`}
       aria-hidden={!expanded}
+      onTransitionEnd={handleTransitionEnd}
     >
       <div className={innerClassName}>{children}</div>
     </div>

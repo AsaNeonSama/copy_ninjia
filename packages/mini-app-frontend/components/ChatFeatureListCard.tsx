@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type React from "react";
 import { MINI_APP_FEATURE_KEYS } from "../consts/miniApp";
 import { getFeatureDisplayMeta } from "../libs/formatters";
@@ -32,7 +33,7 @@ export interface ChatFeatureListCardProps {
  * @param props 组件属性
  * @returns React 节点
  */
-export function ChatFeatureListCard({
+function ChatFeatureListCardView({
   chatDetail,
   togglingFeature,
   language,
@@ -40,7 +41,7 @@ export function ChatFeatureListCard({
   onToggleFeature,
 }: ChatFeatureListCardProps): React.JSX.Element {
   return (
-    <div className="card">
+    <div className="card chat-feature-card">
       <div className="card-title">
         <span>{t.chats.featuresSectionTitle}</span>
       </div>
@@ -85,3 +86,8 @@ export function ChatFeatureListCard({
     </div>
   );
 }
+
+/** 按属性浅比较跳过重渲染的群功能开关卡片：问答表单输入等与本卡片无关的仓库更新不重新渲染。 */
+export const ChatFeatureListCard: React.MemoExoticComponent<
+  typeof ChatFeatureListCardView
+> = memo(ChatFeatureListCardView);

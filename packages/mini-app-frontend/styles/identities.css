@@ -110,6 +110,13 @@
   grid-template-rows: 1fr;
   opacity: 1;
   pointer-events: auto;
+  will-change: opacity;
+}
+
+.perm-drawer-collapse-grid.expanded {
+  transition:
+    grid-template-rows 0.24s cubic-bezier(0.37, 0, 0.63, 1),
+    opacity 0.18s ease;
 }
 
 .add-fold-collapse-inner,
@@ -230,13 +237,17 @@
 
 .perm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; padding-top: 9px; border-top: 1px dashed var(--accent-border); }
 .perm-drawer-inline { margin: 4px 0 10px; padding: 10px 12px; border-radius: 11px; background: var(--cap-expanded-bg); border: 1px solid var(--accent-border); border-left: 3px solid var(--accent); transform: translateY(-4px); transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
-.perm-drawer-collapse-grid.expanded .perm-drawer-inline { transform: translateY(0); }
+.perm-drawer-collapse-grid.expanded .perm-drawer-inline { transform: translateY(0); will-change: transform; transition: transform 0.24s cubic-bezier(0.37, 0, 0.63, 1); }
 .perm-drawer-head { flex-wrap: nowrap; align-items: flex-start; gap: 8px; margin-bottom: 0; }
 .perm-drawer-title-wrap { min-width: 0; flex: 1; }
 .perm-chip { display: flex; align-items: center; justify-content: space-between; padding: 6px 9px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 7%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border)); font-size: 12px; font-weight: 600; gap: 6px; }
 .perm-chip-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .identity-row-group { border-bottom: 1px solid var(--border); transition: opacity 0.2s ease; }
 .identity-row-group:last-child { border-bottom: none; }
+@media (hover: none) and (pointer: coarse) {
+  .identity-list-card,
+  .identity-row-group { will-change: transform; }
+}
 .identity-row-group > .row { border-bottom: none; }
 .identity-row { gap: 8px; transition: opacity 0.2s ease; }
 .identity-row-actions { flex-wrap: nowrap; gap: 5px; flex-shrink: 0; }

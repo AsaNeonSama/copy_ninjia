@@ -18,7 +18,8 @@
   box-shadow: inset 0 0 0 1px var(--border);
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
-.gallery-skeleton-icon { color: color-mix(in srgb, var(--accent) 62%, var(--hint)); opacity: 0.66; filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.45)); animation: miniapp-pulse 1.8s ease-in-out infinite; }
+.gallery-skeleton-icon-pulse { display: inline-flex; animation: miniapp-pulse 1.8s ease-in-out infinite; }
+.gallery-skeleton-icon { color: color-mix(in srgb, var(--accent) 62%, var(--hint)); filter: drop-shadow(0 1px 2px rgba(255, 255, 255, 0.45)); }
 .gallery-thumb {
   width: 100%; height: 100%; object-fit: cover; display: block;
   transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
@@ -32,6 +33,8 @@
   cursor: pointer; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
 }
+.gallery-thumb-wrap.loading > .gallery-card-download-btn,
+.gallery-thumb-wrap.loading > .gallery-card-delete-btn { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .gallery-card-download-btn { right: 38px; color: var(--accent); }
 .gallery-card-delete-btn { right: 6px; color: #f87171; }
 @media (hover: hover) and (pointer: fine) {

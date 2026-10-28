@@ -3,7 +3,10 @@ import type { StoreApi } from "zustand";
 import { fetchMiniAppMood } from "../api/mood";
 import { switchMiniAppMood } from "../api/moodSwitch";
 import { fetchMiniAppStatus } from "../api/status";
-import { MINI_APP_STATUS_POLL_INTERVAL_MS } from "../consts/miniApp";
+import {
+  MINI_APP_STATUS_POLL_INTERVAL_MS,
+  MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS,
+} from "../consts/miniApp";
 import { extractServerNoticeParams, getMiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
@@ -37,6 +40,7 @@ export interface MiniAppStatusStoreState {
   /**
    * 拉取状态快照；只采纳最后一次发起的请求结果，成功时通知根 store 状态已就绪。
    * 手动刷新（`showErrorToast`）或首次加载时保证骨架屏最短展示时长，手动刷新同时重查情绪并以 Toast 报错。
+   * 成功取得的快照若落在 `toggleCapability` 开启的暂缓时段内，等该时段结束后再写入。
    */
   readonly loadStatus: (showErrorToast: boolean) => Promise<void>;
   /**
@@ -46,7 +50,7 @@ export interface MiniAppStatusStoreState {
   readonly startPolling: () => void;
   /** 停止轮询并注销前台状态订阅；在途请求结算后不再排期。 */
   readonly stopPolling: () => void;
-  /** 切换指定子系统折叠面板的展开状态。 */
+  /** 切换指定子系统折叠面板的展开状态，并从此刻起开启 `MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS` 的快照暂缓时段（连续切换时以最后一次为准）。 */
   readonly toggleCapability: (capKey: string) => void;
   /** 重抽全局 AI 情绪并以 Toast 回报结果。 */
   readonly switchMood: () => Promise<void>;
@@ -72,6 +76,18 @@ export function createStatusStore(): MiniAppStatusStore {
       let pollTimer: ReturnType<typeof setTimeout> | null = null;
       let pollInFlight: boolean = false;
       let unsubscribeForeground: (() => void) | null = null;
+      let snapshotHoldUntilMs: number = 0;
+
+      const waitSnapshotHold = async (): Promise<void> => {
+        let remainingMs: number = Math.round(snapshotHoldUntilMs - performance.now());
+        while (remainingMs > 0) {
+          const delayMs: number = remainingMs;
+          await new Promise<void>((resolve: () => void): void => {
+            setTimeout(resolve, delayMs);
+          });
+          remainingMs = Math.round(snapshotHoldUntilMs - performance.now());
+        }
+      };
 
       const clearPollTimer = (): void => {
         if (pollTimer !== null) {
@@ -137,6 +153,7 @@ export function createStatusStore(): MiniAppStatusStore {
             if (shouldWaitMin) {
               await waitMinimumLoadingDuration(startedAt);
             }
+            await waitSnapshotHold();
             if (reqId !== requestSeq) {
               return;
             }
@@ -184,6 +201,8 @@ export function createStatusStore(): MiniAppStatusStore {
         toggleCapability: (capKey: string): void => {
           const prev: Readonly<Record<string, boolean>> = get().expandedCapKeys;
           set({ expandedCapKeys: { ...prev, [capKey]: prev[capKey] !== true } });
+          snapshotHoldUntilMs =
+            performance.now() + MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS;
         },
 
         switchMood: async (): Promise<void> => {

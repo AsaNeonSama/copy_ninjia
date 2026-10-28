@@ -8,6 +8,7 @@ import {
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_PICKER_POLL_INTERVAL_MS,
   MINI_APP_STATUS_POLL_INTERVAL_MS,
+  MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS,
   MINI_APP_TOAST_DURATION_MS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
@@ -16,6 +17,7 @@ import {
   readMiniAppSessionToken,
   setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
+import { computeCapabilityCollapseDurationMs } from "../../packages/mini-app-frontend/libs/formatters";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import { createGalleryStore } from "../../packages/mini-app-frontend/store/gallery";
@@ -209,6 +211,48 @@ describe("页面 store", () => {
     expect(store.getState().currentMood).toBe("calm");
     expect(store.getState().switchingMood).toBeFalse();
     expect(useMiniAppStore.getState().toastText).toBe("switched");
+  });
+
+  test("状态看板切换折叠面板后，暂缓时段内取得的快照到时段结束才写入，时段过后立即写入", async () => {
+    jest.useFakeTimers();
+    expect(MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS).toBeGreaterThanOrEqual(
+      computeCapabilityCollapseDurationMs(Number.MAX_SAFE_INTEGER, false)
+    );
+    let calls: number = 0;
+    route("GET /api/status", (): Response => {
+      calls += 1;
+      return json({ generatedAt: calls });
+    });
+    const drain = async (): Promise<void> => {
+      for (let turn: number = 0; turn < 20; turn += 1) await Promise.resolve();
+    };
+    const advance = async (ms: number): Promise<void> => {
+      jest.advanceTimersByTime(ms);
+      await drain();
+    };
+    const store = createStatusStore();
+    const first: Promise<void> = store.getState().loadStatus(false);
+    await drain();
+    await advance(MINI_APP_MIN_LOADING_MS);
+    await first;
+    expect(store.getState().status?.generatedAt).toBe(1);
+
+    store.getState().toggleCapability("mood");
+    const second: Promise<void> = store.getState().loadStatus(false);
+    await drain();
+    expect(calls).toBe(2);
+    expect(store.getState().status?.generatedAt).toBe(1);
+    await advance(MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS - 1);
+    expect(store.getState().status?.generatedAt).toBe(1);
+    await advance(1);
+    await second;
+    expect(store.getState().status?.generatedAt).toBe(2);
+    expect(store.getState().loading).toBeFalse();
+
+    const third: Promise<void> = store.getState().loadStatus(false);
+    await drain();
+    await third;
+    expect(store.getState().status?.generatedAt).toBe(3);
   });
 
   test("状态轮询：响应结算后才排下一次，最小化或页面隐藏时暂停、回到前台立即补拉，停止后注销订阅", async () => {

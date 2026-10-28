@@ -26,8 +26,6 @@ header,
   position: relative;
   z-index: 40;
   background: var(--header-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px 12px;
