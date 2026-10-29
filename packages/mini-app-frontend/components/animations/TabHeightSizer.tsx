@@ -32,15 +32,20 @@ interface ScrollLockableDocumentHost {
   };
 }
 
+/** 弹窗滚动容器 `scrollTo` 调用参数接口。 */
+export interface ModalScrollToParams {
+  /** 目标纵向偏移量。 */
+  readonly top: number;
+  /** 滚动动画行为。 */
+  readonly behavior: "smooth" | "auto";
+}
+
 /** 支持平滑滚动至顶部的弹窗内容滚动容器最小 DOM 接口。 */
 export interface ScrollableModalBodyElement {
   /** 当前纵向滚动偏移量。 */
   scrollTop?: number;
   /** 平滑滚动至指定坐标。 */
-  readonly scrollTo?: (options: {
-    readonly top: number;
-    readonly behavior: "smooth" | "auto";
-  }) => void;
+  readonly scrollTo?: (options: ModalScrollToParams) => void;
 }
 
 /**

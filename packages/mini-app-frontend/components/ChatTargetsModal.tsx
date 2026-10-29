@@ -1,6 +1,9 @@
 import { useRef } from "react";
 import type React from "react";
-import { MINI_APP_CHAT_TARGET_KINDS } from "../consts/miniApp";
+import {
+  MINI_APP_CHAT_TARGET_KINDS,
+  MINI_APP_TARGETS_MODAL_CLOSE_MS,
+} from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import { CloseSvgIcon, RefreshSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
@@ -27,9 +30,6 @@ import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import { ChatTargetsMemberPanels } from "./ChatTargetsMemberPanels";
 import { ChatTargetsQaPanel } from "./ChatTargetsQaPanel";
-
-/** 目标管理弹窗关闭收起动画时长（毫秒，与 `chats.css` 的 `0.18s` 齐平）。 */
-const MINI_APP_TARGETS_MODAL_CLOSE_MS: number = 180;
 
 /** `ChatTargetsModal` 组件入参。 */
 export interface ChatTargetsModalProps {

@@ -21,13 +21,18 @@ import type {
 } from "../types/miniApp";
 import { GalleryImageSkeleton } from "./skeletons/GalleryImageSkeleton";
 
+/** 预览大图容器 `scrollIntoView` 调用参数接口。 */
+export interface PreviewScrollIntoViewParams {
+  /** 滚动动画行为。 */
+  readonly behavior: string;
+  /** 垂直对齐位置。 */
+  readonly block: string;
+}
+
 /** 具备平滑滚动能力的预览容器 DOM 节点接口。 */
 interface ScrollablePreviewElement extends HTMLDivElement {
   /** 将当前元素平滑滚动至可视区域。 */
-  readonly scrollIntoView?: (options: {
-    readonly behavior: string;
-    readonly block: string;
-  }) => void;
+  readonly scrollIntoView?: (options: PreviewScrollIntoViewParams) => void;
 }
 
 /** 支持主动失焦（`blur`）的按钮事件目标接口。 */

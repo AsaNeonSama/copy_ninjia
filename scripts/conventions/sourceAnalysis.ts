@@ -218,17 +218,18 @@ export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly 
 }
 
 /**
- * 递归读取目录下的 TypeScript 源文件。
+ * 递归读取目录下的 TypeScript 源文件（`.ts` 与 `.tsx`）。
  *
  * @param root 起始目录路径
- * @returns 目录下全部 `.ts` 文件路径列表
+ * @returns 目录下全部 `.ts` 与 `.tsx` 文件路径列表
  */
 export function sourceFilesUnder(root: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const path: string = join(root, entry.name);
+    const ext: string = extname(entry.name);
     if (entry.isDirectory()) files.push(...sourceFilesUnder(path));
-    else if (entry.isFile() && extname(entry.name) === ".ts") files.push(path);
+    else if (entry.isFile() && (ext === ".ts" || ext === ".tsx")) files.push(path);
   }
   return files;
 }
@@ -238,7 +239,7 @@ const parsedSourceFiles: Map<string, ts.SourceFile> = new Map<string, ts.SourceF
 
 /**
  * 读入一个源文件并解析成 AST，各约定检查共用这一份：`setParentNodes` 为 true
- * （规则沿 `node.parent` 上行），`ScriptKind.TS` 固定按 TypeScript 解析。
+ * （规则沿 `node.parent` 上行），按扩展名选择 `ScriptKind.TSX` 或 `ScriptKind.TS` 解析。
  * 文件内容与上次解析时相同则复用 parsedSourceFiles 里的 AST。
  *
  * @param path 源文件路径
@@ -253,7 +254,7 @@ export async function parseSourceFile(path: string): Promise<ts.SourceFile> {
     text,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS
+    extname(path) === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   );
   parsedSourceFiles.set(path, source);
   return source;

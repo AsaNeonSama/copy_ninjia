@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type React from "react";
+import { MINI_APP_TOAST_CLOSE_ANIMATION_MS } from "../consts/miniApp";
 import { AlertSvgIcon, CloseSvgIcon, StatusSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppToastTone, MiniAppUiStoreState } from "../store/app";
@@ -13,9 +14,6 @@ interface RenderedToastSnapshot {
   /** 提示色调。 */
   readonly tone: MiniAppToastTone;
 }
-
-/** Toast 淡出退场动画时长（毫秒，与 `overlays.css` 的 `0.2s` 齐平）。 */
-const MINI_APP_TOAST_CLOSE_ANIMATION_MS: number = 200;
 
 /**
  * 渲染底部 Toast 提示（支持淡入弹出与淡出退场动画，无提示文案且退场结束时不渲染）。

@@ -47,6 +47,7 @@ import {
   isExported,
   isObjectFreezeCall,
   moduleCacheInitializerKind,
+  parseSourceFile,
   sourceFilesUnder,
 } from "../../scripts/conventions/sourceAnalysis";
 
@@ -218,17 +219,26 @@ describe("project convention collectors", () => {
     expect(moduleCacheInitializerKind(pattern.initializer!)).toBeNull();
   });
 
-  test("源码文件收集只递归返回 TypeScript 文件", async () => {
+  test("源码文件收集递归返回 .ts 与 .tsx 文件，且 .tsx 内的字面量常量会被拦截", async () => {
     const root: string = temporaryRoot("copy-ninjia-source-analysis-");
     mkdirSync(join(root, "nested"), { recursive: true });
+    const tsxPath: string = join(root, "nested", "view.tsx");
     await Bun.write(join(root, "root.ts"), "export {};\n");
     await Bun.write(join(root, "nested", "child.ts"), "export {};\n");
-    await Bun.write(join(root, "nested", "ignored.tsx"), "export {};\n");
+    await Bun.write(tsxPath, "const CLOSE_MS: number = 180;\nexport function View(): null { return null; }\n");
     await Bun.write(join(root, "ignored.js"), "export {};\n");
 
     expect(sourceFilesUnder(root).sort()).toEqual([
       join(root, "nested", "child.ts"),
+      tsxPath,
       join(root, "root.ts"),
+    ]);
+    expect(collectConstantLocationProblems({
+      projectRoot: root,
+      path: tsxPath,
+      source: await parseSourceFile(tsxPath),
+    })).toEqual([
+      "nested/view.tsx:1 literal constant CLOSE_MS must live in packages/consts/",
     ]);
   });
 

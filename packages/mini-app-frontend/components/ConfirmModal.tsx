@@ -1,4 +1,5 @@
 import type React from "react";
+import { MINI_APP_CONFIRM_CLOSE_ANIMATION_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { AlertSvgIcon, CloseSvgIcon } from "../resource";
@@ -7,9 +8,6 @@ import type { MiniAppConfirmModalState, MiniAppUiStoreState } from "../store/app
 import type { MiniAppLanguage } from "../types/miniApp";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
-
-/** 确认弹窗关闭收起动画时长（毫秒，与 `overlays.css` 的 `0.18s` 齐平）。 */
-const MINI_APP_CONFIRM_CLOSE_ANIMATION_MS: number = 180;
 
 /**
  * 渲染 `requestConfirm` 发起的自定义确认弹窗（带弹出与关闭收起动画，无待确认请求且动画结束时不渲染）；

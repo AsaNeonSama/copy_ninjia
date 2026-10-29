@@ -224,6 +224,24 @@ export const MINI_APP_TOTP_SETUP_COLLAPSE_MS: number = 240;
 export const MINI_APP_GALLERY_PREVIEW_COLLAPSE_MS: number = 240;
 
 /**
+ * 群内目标管理弹窗关闭收起退场动画的毫秒数（与 `styles/chats.css` 的 `0.18s` 齐平）。
+ * 不变量：正整数毫秒数，与对应 CSS 退场时长一致。所属模块：`packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
+ */
+export const MINI_APP_TARGETS_MODAL_CLOSE_MS: number = 180;
+
+/**
+ * 底部 Toast 提示淡出退场动画的毫秒数（与 `styles/overlays.css` 的 `0.2s` 齐平）。
+ * 不变量：正整数毫秒数，与对应 CSS 退场时长一致。所属模块：`packages/mini-app-frontend/components/Toast.tsx`。
+ */
+export const MINI_APP_TOAST_CLOSE_ANIMATION_MS: number = 200;
+
+/**
+ * 自定义确认弹窗关闭收起退场动画的毫秒数（与 `styles/overlays.css` 的 `0.18s` 齐平）。
+ * 不变量：正整数毫秒数，与对应 CSS 退场时长一致。所属模块：`packages/mini-app-frontend/components/ConfirmModal.tsx`。
+ */
+export const MINI_APP_CONFIRM_CLOSE_ANIMATION_MS: number = 180;
+
+/**
  * 实时状态页骨架屏中能力折叠行占位的序号表（6 行，对应服务端状态快照的 6 项能力槽位）。
  * 不变量：从 0 起连续递增的只读整数数组，仅用作骨架行 key 与奇偶宽度切换。所属模块：`packages/mini-app-frontend/components/skeletons/StatusSkeleton.tsx`。
  */

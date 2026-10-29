@@ -192,7 +192,7 @@ for (const trackedPath of tracked) {
     ));
   }
   const extension: string = extname(path);
-  if (![".ts", ".json", ".md", ".yaml", ".yml"].includes(extension)) continue;
+  if (![".ts", ".tsx", ".json", ".md", ".yaml", ".yml"].includes(extension)) continue;
   const stats: Stats = await Bun.file(path).stat();
   if (!stats.isFile() || (stats.mode & 0o111) === 0) continue;
   if ((await Bun.file(path).text()).startsWith("#!")) continue;

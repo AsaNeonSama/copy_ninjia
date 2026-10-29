@@ -95,7 +95,7 @@ function assetReferences(text: string, pattern: RegExp): readonly FileReference[
 }
 
 /**
- * 读取一个受跟踪文件里的全部文件引用；不解析引用的文件类型返回空列表。`.ts` 经 parseSourceFile
+ * 读取一个受跟踪文件里的全部文件引用；不解析引用的文件类型返回空列表。`.ts` 与 `.tsx` 经 parseSourceFile
  * 解析，与逐文件约定检查共用同一份 AST。
  *
  * @param projectRoot 仓库根目录绝对路径
@@ -106,15 +106,8 @@ async function fileReferences(projectRoot: string, trackedPath: string): Promise
   const path: string = join(projectRoot, trackedPath);
   switch (extname(trackedPath)) {
     case ".ts":
-      return moduleReferences(await parseSourceFile(path));
     case ".tsx":
-      return moduleReferences(ts.createSourceFile(
-        path,
-        await Bun.file(path).text(),
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TSX
-      ));
+      return moduleReferences(await parseSourceFile(path));
     case ".html":
       return assetReferences(await Bun.file(path).text(), HTML_REFERENCE_PATTERN);
     case ".css":
