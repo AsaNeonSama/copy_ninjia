@@ -63,12 +63,15 @@
 }
 .auth-gate-submit.is-loading,
 .auth-gate-submit.is-loading:disabled,
+.totp-start-submit.is-loading,
+.totp-start-submit.is-loading:disabled,
 .totp-verify-submit.is-loading,
 .totp-verify-submit.is-loading:disabled {
   opacity: 1; filter: none;
   color: var(--accent); background: var(--accent-soft); border-color: var(--accent-border);
 }
 .auth-gate-submit.is-loading::after,
+.totp-start-submit.is-loading::after,
 .totp-verify-submit.is-loading::after {
   content: ""; position: absolute; inset: -15% 0; width: 68%;
   background: var(--shimmer-flash);
@@ -84,44 +87,54 @@
 .skeleton-auth-desc { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 16px; }
 .skeleton-totp-btn { width: 148px; height: 40px; border-radius: 10px; }
 .totp-trigger-collapse-grid {
-  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr; opacity: 1; will-change: opacity;
-  transition: grid-template-rows 0.22s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease;
+  width: 100%; min-width: 0; display: block; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr;
+  overflow: hidden; overflow-anchor: none;
 }
 .totp-trigger-collapse-grid.collapsed {
-  grid-template-rows: 0fr; opacity: 0; pointer-events: none;
-  transition: grid-template-rows 0.24s cubic-bezier(0.37, 0, 0.63, 1), opacity 0.16s ease;
+  pointer-events: none;
+}
+.totp-trigger-collapse-grid.collapsed:not(.flip-closing) {
+  display: grid; grid-template-rows: 0fr;
+}
+.totp-trigger-collapse-grid.collapsed:not(.flip-closing) > .totp-collapse-inner {
+  display: none;
 }
 .totp-setup-collapse-grid {
-  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); pointer-events: none; will-change: opacity, transform;
-  transition: grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr;
+  overflow: hidden; overflow-anchor: none; pointer-events: none;
+}
+.totp-setup-collapse-grid.expanded,
+.totp-setup-collapse-grid.flip-closing {
+  display: block; grid-template-rows: 1fr;
 }
 .totp-setup-collapse-grid.expanded {
-  grid-template-rows: 1fr; opacity: 1; transform: translateY(0); pointer-events: auto;
-  transition: grid-template-rows 0.24s cubic-bezier(0.37, 0, 0.63, 1), opacity 0.2s ease, transform 0.24s cubic-bezier(0.37, 0, 0.63, 1);
+  pointer-events: auto;
+}
+.totp-setup-collapse-grid:not(.expanded):not(.flip-closing) > .totp-collapse-inner {
+  display: none;
 }
 .totp-collapse-inner { width: 100%; min-width: 0; min-height: 0; overflow: hidden; }
-@keyframes miniapp-totp-collapse-overflow-reveal { to { overflow: visible; } }
-.totp-setup-collapse-grid.expanded > .totp-collapse-inner {
-  animation: miniapp-totp-collapse-overflow-reveal 0s linear 0.24s forwards;
-}
-.totp-actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.totp-actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 6px; }
 .totp-actions-row .btn { height: 40px; padding: 0 14px; border-radius: 10px; font-size: 13px; }
-.totp-setup-panel { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.totp-start-submit { position: relative; overflow: hidden; min-width: 118px; }
+.totp-setup-panel { display: flex; flex-direction: column; gap: 10px; padding-top: 8px; border-top: 1px dashed var(--border); margin-top: 2px; }
 .totp-verify-stack { display: flex; flex-direction: column; gap: 9px; margin-top: 4px; width: 100%; }
 .totp-verify-input {
   width: 100%; height: 44px; background: var(--input-bg); border: 1px solid var(--border-strong); color: var(--text);
   padding: 0 14px; border-radius: 10px; font-size: 15px; font-weight: 600; text-align: center;
   font-variant-numeric: tabular-nums; letter-spacing: 0.14em; box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
-  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  transition: border-color 0.16s cubic-bezier(0.32, 0.08, 0.24, 1), box-shadow 0.16s cubic-bezier(0.32, 0.08, 0.24, 1);
 }
 .totp-verify-input:placeholder-shown { letter-spacing: normal; font-size: 13.5px; font-weight: 400; }
 .totp-verify-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .totp-verify-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 8px; width: 100%; }
 .totp-verify-actions .btn { width: 100%; height: 42px; padding: 0 12px; border-radius: 10px; font-size: 13px; white-space: nowrap; }
 .totp-verify-submit { position: relative; overflow: hidden; }
+.totp-start-submit > .join-clean-loading-dots,
 .totp-verify-submit > .join-clean-loading-dots {
   gap: 6px; height: 16px; transform: translateY(1px);
 }
+.totp-start-submit > .join-clean-loading-dots > span,
 .totp-verify-submit > .join-clean-loading-dots > span {
   width: 5.5px; height: 5.5px; --dot-wave-peak-y: -3px;
 }

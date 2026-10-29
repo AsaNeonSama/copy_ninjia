@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type React from "react";
 
 /** 退场动画延迟卸载钩子的返回值。 */
@@ -10,7 +10,7 @@ export interface DelayedUnmountState<T> {
 }
 
 /**
- * 配合 CSS 退场关键帧动画延迟卸载节点：当 `activeValue` 非空时立即同步显示；
+ * 配合 CSS 退场关键帧动画延迟卸载节点：当 `activeValue` 非空时同步更新快照且不触发额外重渲染；
  * 当 `activeValue` 变为 `null` 时保留上一份值并置 `isClosing = true`，等待 `durationMs` 退场动画播完后再清空卸载。
  *
  * @param activeValue 当前激活的值（关闭时为 `null`）
@@ -21,29 +21,40 @@ export function useDelayedUnmount<T>(
   activeValue: T | null,
   durationMs: number
 ): Readonly<DelayedUnmountState<T>> {
-  const [renderedValue, setRenderedValue]: [
-    T | null,
-    React.Dispatch<React.SetStateAction<T | null>>
-  ] = useState<T | null>(activeValue);
+  const lastNonNullRef: React.RefObject<T | null> = useRef<T | null>(
+    activeValue
+  );
+  if (activeValue !== null) {
+    lastNonNullRef.current = activeValue;
+  }
+  const [unmounted, setUnmounted]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(activeValue === null);
+
+  if (activeValue !== null && unmounted) {
+    setUnmounted(false);
+  }
 
   useEffect((): (() => void) | undefined => {
     if (activeValue !== null) {
-      setRenderedValue(activeValue);
       return undefined;
     }
-    if (renderedValue === null) {
+    if (lastNonNullRef.current === null) {
       return undefined;
     }
     const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-      setRenderedValue(null);
+      lastNonNullRef.current = null;
+      setUnmounted(true);
     }, durationMs);
     return (): void => {
       clearTimeout(timer);
     };
-  }, [activeValue, durationMs, renderedValue]);
+  }, [activeValue, durationMs]);
 
   return {
-    displayValue: activeValue ?? renderedValue,
-    isClosing: activeValue === null && renderedValue !== null,
+    displayValue: activeValue ?? (unmounted ? null : lastNonNullRef.current),
+    isClosing:
+      activeValue === null && !unmounted && lastNonNullRef.current !== null,
   };
 }

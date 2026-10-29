@@ -502,12 +502,14 @@ describe("页面 store", () => {
 
   test("权限抽屉：成功回执后通知父组件重载，失败只报错", async () => {
     let updated: number = 0;
-    const store = createPermissionDrawerStore((): void => {
+    const store = createPermissionDrawerStore(async (): Promise<void> => {
       updated += 1;
     });
     route("POST /api/identities/permission", (_url: URL, init: RequestInit | undefined): Response =>
-      json({ ok: true, message: String(init?.body) }));
-    await store.getState().togglePermission(5, "all", true);
+      json({ ok: true, changed: true, message: String(init?.body) }));
+    const togglePromise: Promise<void> = store.getState().togglePermission(5, "all", true);
+    expect(store.getState().busyKey).toBe("all");
+    await togglePromise;
     expect(useMiniAppStore.getState().toastText).toBe(JSON.stringify({ id: 5, enableAll: true }));
     expect(updated).toBe(1);
     expect(store.getState().busyKey).toBeNull();

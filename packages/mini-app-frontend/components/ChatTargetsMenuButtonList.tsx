@@ -1,6 +1,9 @@
-import { Fragment } from "react";
+import { Fragment, memo } from "react";
 import type React from "react";
-import { MINI_APP_CHAT_TARGET_KINDS } from "../consts/miniApp";
+import {
+  MINI_APP_CHAT_TARGET_KINDS,
+  MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
+} from "../consts/miniApp";
 import { ChevronDownSvgIcon } from "../resource";
 import type {
   MiniAppChatDetail,
@@ -8,6 +11,8 @@ import type {
   MiniAppChatTargetsView,
 } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
+import { useDelayedUnmount } from "./animations/useDelayedUnmount";
+import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import { resolveTargetKindCounts } from "./ChatTargetsModal";
 
 /** `ChatTargetsMenuButtonList` 群目标管理下拉按钮列表的属性参数。 */
@@ -34,7 +39,7 @@ export interface ChatTargetsMenuButtonListProps {
  * @param props 组件属性
  * @returns React 节点
  */
-export function ChatTargetsMenuButtonList({
+function ChatTargetsMenuButtonListView({
   targetsMenuOpen,
   chatDetail,
   chatTargets,
@@ -43,6 +48,15 @@ export function ChatTargetsMenuButtonList({
   onCloseMenu,
   onSelectTargetKind,
 }: ChatTargetsMenuButtonListProps): React.JSX.Element {
+  const {
+    displayValue: displayMenuDetail,
+    isClosing,
+  }: Readonly<DelayedUnmountState<Readonly<MiniAppChatDetail>>> =
+    useDelayedUnmount(
+      targetsMenuOpen && chatDetail !== null ? chatDetail : null,
+      MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS
+    );
+
   return (
     <div className="chat-targets-dropdown">
       <button
@@ -59,26 +73,32 @@ export function ChatTargetsMenuButtonList({
           className={`chevron-icon ${targetsMenuOpen ? "rotated" : ""}`}
         />
       </button>
-      {targetsMenuOpen && chatDetail !== null ? (
+      {displayMenuDetail !== null ? (
         <Fragment>
           <div
-            className="chat-targets-menu-backdrop"
+            className={`chat-targets-menu-backdrop ${isClosing ? "closing" : ""}`}
             aria-hidden="true"
-            onClick={onCloseMenu}
+            onClick={(): void => {
+              if (!isClosing) {
+                onCloseMenu();
+              }
+            }}
           />
           <div
-            className="chat-targets-menu-popover animate-fade-in"
+            className={`chat-targets-menu-popover ${isClosing ? "closing" : ""}`}
             role="menu"
+            aria-hidden={isClosing}
           >
             {MINI_APP_CHAT_TARGET_KINDS.map(
               (kind: MiniAppChatTargetKind): React.JSX.Element => {
                 const [count, max]: readonly [number, number] =
-                  resolveTargetKindCounts(kind, chatDetail, chatTargets);
+                  resolveTargetKindCounts(kind, displayMenuDetail, chatTargets);
                 return (
                   <button
                     key={kind}
                     type="button"
                     role="menuitem"
+                    disabled={isClosing}
                     className="chat-targets-menu-item"
                     onClick={(): void => {
                       onSelectTargetKind(kind);
@@ -100,3 +120,8 @@ export function ChatTargetsMenuButtonList({
     </div>
   );
 }
+
+/** 按属性浅比较跳过重渲染的目标管理下拉按钮组件。 */
+export const ChatTargetsMenuButtonList: React.MemoExoticComponent<
+  typeof ChatTargetsMenuButtonListView
+> = memo(ChatTargetsMenuButtonListView);

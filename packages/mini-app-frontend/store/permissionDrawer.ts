@@ -2,6 +2,7 @@ import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
 import { updateMiniAppWhitelistPermission } from "../api/permission";
 import { errorMessage } from "../libs/errorMessage";
+import { waitMinimumLoadingDuration } from "../libs/loading";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type { MiniAppIdentityMutationResult } from "../types/miniApp";
 import { useMiniAppStore } from "./app";
@@ -11,7 +12,7 @@ export interface MiniAppPermissionDrawerStoreState {
   /** 正在提交的权限键或 `"all"`（无提交时为 `null`）。 */
   readonly busyKey: WhitelistPermissionKey | "all" | null;
 
-  /** 修改条目的单项权限或一键开启全部权限，成功后以 Toast 回报并通知父组件重载白名单。 */
+  /** 修改条目的单项权限或一键开启全部权限，保持最短骨架动画展示时长，成功后以 Toast 回报并等待父组件静默重载白名单。 */
   readonly togglePermission: (
     entryId: number,
     permission: WhitelistPermissionKey | "all",
@@ -25,11 +26,11 @@ export type MiniAppPermissionDrawerStore = StoreApi<MiniAppPermissionDrawerStore
 /**
  * 创建 `PermissionDrawer` 的状态仓库；抽屉展开时创建、收起即丢弃，生命周期与组件实例一致。
  *
- * @param onUpdated 权限变更成功后的回调（父组件重载白名单）
+ * @param onUpdated 权限变更成功后的回调（父组件静默重载白名单）
  * @returns 新的权限抽屉仓库
  */
 export function createPermissionDrawerStore(
-  onUpdated: () => void
+  onUpdated: () => Promise<void> | void
 ): MiniAppPermissionDrawerStore {
   return createStore<MiniAppPermissionDrawerStoreState>()(
     (
@@ -42,6 +43,7 @@ export function createPermissionDrawerStore(
         permission: WhitelistPermissionKey | "all",
         enabled: boolean
       ): Promise<void> => {
+        const startedAt: number = Date.now();
         set({ busyKey: permission });
         try {
           const result: MiniAppIdentityMutationResult = await updateMiniAppWhitelistPermission(
@@ -49,9 +51,21 @@ export function createPermissionDrawerStore(
             permission,
             enabled
           );
-          useMiniAppStore.getState().notify(result.message, "info", result);
-          onUpdated();
+          await waitMinimumLoadingDuration(startedAt);
+          const isUnchanged: boolean =
+            result.changed === false ||
+            result.message === "ALL_PERMISSIONS_UNCHANGED" ||
+            result.message === "PERMISSION_UNCHANGED";
+          useMiniAppStore.getState().notify(
+            result.message,
+            isUnchanged ? "warning" : "info",
+            result
+          );
+          if (!isUnchanged) {
+            await onUpdated();
+          }
         } catch (error: unknown) {
+          await waitMinimumLoadingDuration(startedAt);
           const message: string = errorMessage(error);
           useMiniAppStore.getState().notify(message, "danger", error);
         } finally {

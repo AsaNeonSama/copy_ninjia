@@ -1,4 +1,4 @@
-import { Fragment, useEffect } from "react";
+import { Fragment, memo, useEffect } from "react";
 import type React from "react";
 import { CollapseGrid } from "../components/animations/CollapseGrid";
 import { ChatFeatureListCard } from "../components/ChatFeatureListCard";
@@ -32,9 +32,145 @@ import type { MiniAppUiStoreState } from "../store/app";
 import { createChatsStore } from "../store/chats";
 import type { MiniAppChatsStoreState } from "../store/chats";
 import type {
+  MiniAppChatDetail,
   MiniAppChatSummary,
   MiniAppLanguage,
 } from "../types/miniApp";
+
+/** `BotPermTagGrid` 已授予 Bot 权限标签网格的属性参数（与 `botPermsExpanded` 隔离，展开/收起切换时不重排标签）。 */
+interface BotPermTagGridProps {
+  /** 已授予的 Bot 权限标识数组。 */
+  readonly grantedLabels: readonly string[];
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+}
+
+/**
+ * 渲染已授予的 Bot 权限标签网格。
+ *
+ * @param props 权限标识数组与翻译字典
+ * @returns React 节点
+ */
+function BotPermTagGridView({
+  grantedLabels,
+  t,
+}: BotPermTagGridProps): React.JSX.Element {
+  return (
+    <div className="bot-perm-tag-grid">
+      {grantedLabels.map(
+        (rawLabel: string): React.JSX.Element => (
+          <span key={rawLabel} className="bot-perm-tag">
+            <span className="bot-perm-tag-dot" />
+            <span className="bot-perm-tag-text">
+              {t.chats.botPermLabel(rawLabel)}
+            </span>
+          </span>
+        )
+      )}
+    </div>
+  );
+}
+
+/** 按属性浅比较跳过重渲染的 Bot 权限标签网格组件。 */
+const BotPermTagGrid: React.MemoExoticComponent<typeof BotPermTagGridView> =
+  memo(BotPermTagGridView);
+
+/** `ChatOverviewCard` 群概览与 Bot 权限折叠卡片的属性参数。 */
+interface ChatOverviewCardProps {
+  /** 当前群详情快照。 */
+  readonly chatDetail: Readonly<MiniAppChatDetail>;
+  /** Bot 权限面板是否处于展开状态。 */
+  readonly botPermsExpanded: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+  /** 切换 Bot 权限面板展开/收起的回调。 */
+  readonly onToggleBotPerms: () => void;
+}
+
+/**
+ * 渲染群详情页顶部的群标题、统计摘要与可折叠 Bot 权限卡片（与目标弹窗及表单输入状态隔离）。
+ *
+ * @param props 群详情、权限展开态、翻译字典与切换回调
+ * @returns React 节点
+ */
+function ChatOverviewCardView({
+  chatDetail,
+  botPermsExpanded,
+  t,
+  onToggleBotPerms,
+}: ChatOverviewCardProps): React.JSX.Element {
+  return (
+    <div className="card">
+      <div className="card-title">
+        <span className="chat-title-ellipsis" title={chatDetail.title}>
+          {truncateDisplayText(chatDetail.title, 20)}
+        </span>
+        <span className={`badge ${chatDetail.features.init ? "ok" : "warn"}`}>
+          {chatDetail.features.init ? "/init ON" : "/init OFF"}
+        </span>
+      </div>
+      <div className="row-sub" style={{ marginBottom: "10px" }}>
+        {t.chats.detailStatsLine(chatDetail)}
+      </div>
+      {chatDetail.botPermissions === null
+        ? (
+          <div className="bot-perm-status-box">
+            <span>{t.chats.botPermProbing}</span>
+          </div>
+        )
+        : chatDetail.botPermissions.grantedLabels.length === 0
+          ? (
+            <div className="bot-perm-status-box">
+              <span>{t.chats.botPermNone}</span>
+            </div>
+          )
+          : (
+            <div
+              className={`bot-perm-granted-box ${botPermsExpanded ? "expanded" : ""}`}
+            >
+              <button
+                type="button"
+                className="bot-perm-granted-toggle"
+                aria-expanded={botPermsExpanded}
+                onClick={onToggleBotPerms}
+              >
+                <span className="bot-perm-granted-head-main">
+                  <IdentitiesSvgIcon size={14} />
+                  <span className="bot-perm-granted-title">
+                    {t.chats.botPermGrantedTitle(
+                      chatDetail.botPermissions.grantedLabels.length
+                    )}
+                  </span>
+                </span>
+                <span
+                  className="bot-perm-chevron-pill"
+                  aria-hidden="true"
+                >
+                  <ChevronDownSvgIcon
+                    size={14}
+                    className={`chevron-icon ${botPermsExpanded ? "rotated" : ""}`}
+                  />
+                </span>
+              </button>
+              <CollapseGrid
+                expanded={botPermsExpanded}
+                gridClassName="bot-perm-collapse-grid"
+                innerClassName="bot-perm-collapse-inner"
+              >
+                <BotPermTagGrid
+                  grantedLabels={chatDetail.botPermissions.grantedLabels}
+                  t={t}
+                />
+              </CollapseGrid>
+            </div>
+          )}
+    </div>
+  );
+}
+
+/** 按属性浅比较跳过重渲染的群概览与 Bot 权限折叠卡片组件。 */
+const ChatOverviewCard: React.MemoExoticComponent<typeof ChatOverviewCardView> =
+  memo(ChatOverviewCardView);
 
 /**
  * 已启用 `/init` 的群列表、群详细状态、进群统计与批量清理及功能开关页面（含热 256 条发言记录跳转）。
@@ -141,79 +277,12 @@ export function ChatsPage(): React.JSX.Element {
         {chatDetail !== null
           ? (
             <Fragment>
-              <div className="card">
-                <div className="card-title">
-                  <span className="chat-title-ellipsis" title={chatDetail.title}>
-                    {truncateDisplayText(chatDetail.title, 20)}
-                  </span>
-                  <span className={`badge ${chatDetail.features.init ? "ok" : "warn"}`}>
-                    {chatDetail.features.init ? "/init ON" : "/init OFF"}
-                  </span>
-                </div>
-                <div className="row-sub" style={{ marginBottom: "10px" }}>
-                  {t.chats.detailStatsLine(chatDetail)}
-                </div>
-                {chatDetail.botPermissions === null
-                  ? (
-                    <div className="bot-perm-status-box">
-                      <span>{t.chats.botPermProbing}</span>
-                    </div>
-                  )
-                  : chatDetail.botPermissions.grantedLabels.length === 0
-                    ? (
-                      <div className="bot-perm-status-box">
-                        <span>{t.chats.botPermNone}</span>
-                      </div>
-                    )
-                    : (
-                      <div
-                        className={`bot-perm-granted-box ${botPermsExpanded ? "expanded" : ""}`}
-                      >
-                        <button
-                          type="button"
-                          className="bot-perm-granted-toggle"
-                          aria-expanded={botPermsExpanded}
-                          onClick={toggleBotPerms}
-                        >
-                          <span className="bot-perm-granted-head-main">
-                            <IdentitiesSvgIcon size={14} />
-                            <span className="bot-perm-granted-title">
-                              {t.chats.botPermGrantedTitle(
-                                chatDetail.botPermissions.grantedLabels.length
-                              )}
-                            </span>
-                          </span>
-                          <span
-                            className="bot-perm-chevron-pill"
-                            aria-hidden="true"
-                          >
-                            <ChevronDownSvgIcon
-                              size={14}
-                              className={`chevron-icon ${botPermsExpanded ? "rotated" : ""}`}
-                            />
-                          </span>
-                        </button>
-                        <CollapseGrid
-                          expanded={botPermsExpanded}
-                          gridClassName="bot-perm-collapse-grid"
-                          innerClassName="bot-perm-collapse-inner"
-                        >
-                          <div className="bot-perm-tag-grid">
-                            {chatDetail.botPermissions.grantedLabels.map(
-                              (rawLabel: string): React.JSX.Element => (
-                                <span key={rawLabel} className="bot-perm-tag">
-                                  <span className="bot-perm-tag-dot" />
-                                  <span className="bot-perm-tag-text">
-                                    {t.chats.botPermLabel(rawLabel)}
-                                  </span>
-                                </span>
-                              )
-                            )}
-                          </div>
-                        </CollapseGrid>
-                      </div>
-                    )}
-              </div>
+              <ChatOverviewCard
+                chatDetail={chatDetail}
+                botPermsExpanded={botPermsExpanded}
+                t={t}
+                onToggleBotPerms={toggleBotPerms}
+              />
 
               <ChatJoinCleanCard chatDetail={chatDetail} state={storeState} />
 

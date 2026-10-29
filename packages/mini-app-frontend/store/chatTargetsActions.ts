@@ -89,7 +89,7 @@ export function createChatTargetsActions({
     if (selectedChatId === null || mutatingTargets) return;
     const reqId: number = nextTargetsReqSeq();
     const startedAt: number = Date.now();
-    set({ mutatingTargets: true, loadingTargets: true });
+    set({ mutatingTargets: true });
     try {
       const result: MiniAppChatTargetsMutationResult =
         await mutateMiniAppChatTargets(selectedChatId, payload);
@@ -101,17 +101,16 @@ export function createChatTargetsActions({
         result.message === "DELETE_TARGET_NOT_FOUND" ||
         result.message === "TRANSLATE_TARGET_NOT_FOUND";
       if (get().selectedChatId === selectedChatId) {
-        if (result.detail !== null) {
-          set({ chatDetail: result.detail });
-        }
-        if (result.targets !== null) {
-          set({ chatTargets: result.targets });
-        }
         if (result.ok && !isNoOpWarning && onSuccess !== undefined) {
           onSuccess();
         }
-      }
-      if (reqId === currentTargetsReqSeq()) {
+        set({
+          ...(result.detail !== null ? { chatDetail: result.detail } : {}),
+          ...(result.targets !== null ? { chatTargets: result.targets } : {}),
+          mutatingTargets: false,
+          ...(reqId === currentTargetsReqSeq() ? { loadingTargets: false } : {}),
+        });
+      } else if (reqId === currentTargetsReqSeq()) {
         set({ mutatingTargets: false, loadingTargets: false });
       } else {
         set({ mutatingTargets: false });

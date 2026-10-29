@@ -1,5 +1,6 @@
 import { Fragment, memo, useCallback, useRef } from "react";
 import type React from "react";
+import { MINI_APP_FLIP_COLLAPSE_DURATION_MS } from "../consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
 import {
   sanitizeBidiText,
@@ -16,7 +17,14 @@ import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { CollapseGrid } from "./animations/CollapseGrid";
 import { scrollViewportToExpandedBody } from "./animations/expandFollowScroll";
 import type { ViewportRectElement } from "./animations/expandFollowScroll";
+import { useDelayedUnmount } from "./animations/useDelayedUnmount";
+import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import { PermissionDrawer } from "./PermissionDrawer";
+
+/** 按属性浅比较跳过重渲染的权限配置抽屉：切换行展开/收起时跳过内部 18 项权限卡片重调和。 */
+const MemoizedPermissionDrawer: React.MemoExoticComponent<
+  typeof PermissionDrawer
+> = memo(PermissionDrawer);
 
 /** `WhitelistEntryRowList` 白名单条目与操作按钮列表的属性参数。 */
 export interface WhitelistEntryRowListProps {
@@ -35,7 +43,7 @@ export interface WhitelistEntryRowListProps {
   /** 关闭权限配置抽屉的回调。 */
   readonly onClosePermissionDrawer: () => void;
   /** 权限配置更新后的刷新回调。 */
-  readonly onPermissionsUpdated: () => void;
+  readonly onPermissionsUpdated: () => Promise<void> | void;
   /** 移除指定白名单条目的回调。 */
   readonly onRemoveWhitelist: (
     entry: Readonly<MiniAppWhitelistEntryView>
@@ -59,7 +67,7 @@ interface WhitelistEntryRowProps {
   /** 关闭权限配置抽屉的回调。 */
   readonly onClosePermissionDrawer: () => void;
   /** 权限配置更新后的刷新回调。 */
-  readonly onPermissionsUpdated: () => void;
+  readonly onPermissionsUpdated: () => Promise<void> | void;
   /** 移除指定白名单条目的回调。 */
   readonly onRemoveWhitelist: (
     entry: Readonly<MiniAppWhitelistEntryView>
@@ -67,7 +75,7 @@ interface WhitelistEntryRowProps {
 }
 
 /**
- * 渲染单个白名单条目行、「配置权限」「移出」按钮组与常驻挂载的内联权限抽屉；
+ * 渲染单个白名单条目行、「配置权限」「移出」按钮组与按需延迟卸载的内联权限抽屉；
  * 抽屉展开过渡结束后以条目行顶部为标题栏、抽屉为展开内容，按 `scrollViewportToExpandedBody` 让视口平滑向下跟滚。
  *
  * @param props 组件属性
@@ -86,6 +94,13 @@ function WhitelistEntryRowView({
 }: WhitelistEntryRowProps): React.JSX.Element {
   const rowGroupRef: React.RefObject<ViewportRectElement | null> =
     useRef<ViewportRectElement | null>(null);
+  const {
+    displayValue: mountedDrawerEntry,
+  }: Readonly<DelayedUnmountState<Readonly<MiniAppWhitelistEntryView>>> =
+    useDelayedUnmount(
+      isExpanded ? entry : null,
+      MINI_APP_FLIP_COLLAPSE_DURATION_MS + 20
+    );
   const setRowGroupNode: (el: ViewportRectElement | null) => void =
     useCallback((el: ViewportRectElement | null): void => {
       rowGroupRef.current = el;
@@ -187,12 +202,14 @@ function WhitelistEntryRowView({
         innerClassName="perm-drawer-collapse-inner"
         onExpandEnd={handleDrawerExpandEnd}
       >
-        <PermissionDrawer
-          entry={entry}
-          descriptors={permissionDescriptors}
-          onUpdated={onPermissionsUpdated}
-          onClose={onClosePermissionDrawer}
-        />
+        {mountedDrawerEntry !== null ? (
+          <MemoizedPermissionDrawer
+            entry={mountedDrawerEntry}
+            descriptors={permissionDescriptors}
+            onUpdated={onPermissionsUpdated}
+            onClose={onClosePermissionDrawer}
+          />
+        ) : null}
       </CollapseGrid>
     </div>
   );
@@ -209,7 +226,7 @@ const WhitelistEntryRow: React.MemoExoticComponent<
  * @param props 组件属性
  * @returns React 节点
  */
-export function WhitelistEntryRowList({
+function WhitelistEntryRowListView({
   items,
   permissionDescriptors,
   selectedEntryId,
@@ -242,6 +259,11 @@ export function WhitelistEntryRowList({
   );
 }
 
+/** 按属性浅比较跳过重渲染的白名单列表：展开顶部添加抽屉或编辑搜索框时不重复遍历列表。 */
+export const WhitelistEntryRowList: React.MemoExoticComponent<
+  typeof WhitelistEntryRowListView
+> = memo(WhitelistEntryRowListView);
+
 /** `BlocklistEntryRowList` 黑名单条目与操作按钮列表的属性参数。 */
 export interface BlocklistEntryRowListProps {
   /** 当前页的黑名单条目数组。 */
@@ -262,7 +284,7 @@ export interface BlocklistEntryRowListProps {
  * @param props 组件属性
  * @returns React 节点
  */
-export function BlocklistEntryRowList({
+function BlocklistEntryRowListView({
   items,
   busyAction,
   t,
@@ -334,3 +356,8 @@ export function BlocklistEntryRowList({
     </Fragment>
   );
 }
+
+/** 按属性浅比较跳过重渲染的黑名单列表：展开顶部添加抽屉或编辑搜索框时不重复遍历列表。 */
+export const BlocklistEntryRowList: React.MemoExoticComponent<
+  typeof BlocklistEntryRowListView
+> = memo(BlocklistEntryRowListView);

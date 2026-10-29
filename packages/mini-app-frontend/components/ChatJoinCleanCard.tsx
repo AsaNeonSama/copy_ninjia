@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type React from "react";
 import {
   MINI_APP_BATCH_KICK_MAX_HOURS,
@@ -24,12 +25,31 @@ export interface ChatJoinCleanCardProps {
 }
 
 /**
+ * 比较进群统计与批量清理卡片依赖的切片是否一致，避免打开/收起问答抽屉或 Bot 权限面板时重渲染本卡片。
+ *
+ * @param prev 上一次属性
+ * @param next 本次属性
+ * @returns 依赖切片未变化时返回 `true`
+ */
+function areChatJoinCleanCardPropsEqual(
+  prev: Readonly<ChatJoinCleanCardProps>,
+  next: Readonly<ChatJoinCleanCardProps>
+): boolean {
+  return (
+    prev.chatDetail === next.chatDetail &&
+    prev.state.batchKickHours === next.state.batchKickHours &&
+    prev.state.loadingWindowJoined === next.state.loadingWindowJoined &&
+    prev.state.batchKickSubmitting === next.state.batchKickSubmitting
+  );
+}
+
+/**
  * 渲染群详情页中的「进群统计与批量清理」卡片（含小时滑杆、步进器、快捷预设按钮与三圆点波浪加载动效）。
  *
  * @param props 组件属性
  * @returns React 节点
  */
-export function ChatJoinCleanCard({
+function ChatJoinCleanCardView({
   chatDetail,
   state,
 }: ChatJoinCleanCardProps): React.JSX.Element {
@@ -191,3 +211,8 @@ export function ChatJoinCleanCard({
     </div>
   );
 }
+
+/** 按进群统计与批量清理相关状态切片浅比较跳过重渲染的卡片组件。 */
+export const ChatJoinCleanCard: React.MemoExoticComponent<
+  typeof ChatJoinCleanCardView
+> = memo(ChatJoinCleanCardView, areChatJoinCleanCardPropsEqual);

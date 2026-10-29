@@ -1,11 +1,11 @@
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import type React from "react";
 import {
   MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_TARGETS_MODAL_CLOSE_MS,
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
-import { CloseSvgIcon, RefreshSvgIcon } from "../resource";
+import { CloseSvgIcon, PlusSvgIcon, RefreshSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import type { MiniAppChatsStoreState } from "../store/chats";
@@ -16,6 +16,7 @@ import type {
   MiniAppLanguage,
 } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
+import { CollapseGrid, TriggerCollapseGrid } from "./animations/CollapseGrid";
 import {
   readElementBodyHeight,
   scrollModalBodyToTop,
@@ -28,8 +29,14 @@ import type {
 } from "./animations/TabHeightSizer";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
-import { ChatTargetsMemberPanels } from "./ChatTargetsMemberPanels";
-import { ChatTargetsQaPanel } from "./ChatTargetsQaPanel";
+import {
+  ChatTargetsMemberAddForm,
+  ChatTargetsMemberPanels,
+} from "./ChatTargetsMemberPanels";
+import {
+  ChatTargetsQaEditorForm,
+  ChatTargetsQaPanel,
+} from "./ChatTargetsQaPanel";
 
 /** `ChatTargetsModal` 组件入参。 */
 export interface ChatTargetsModalProps {
@@ -93,6 +100,10 @@ export function ChatTargetsModal({
     chatTargets,
     loadingTargets,
     mutatingTargets,
+    qaEditorOpen,
+    targetAddMenuOpen,
+    openQaEditor,
+    openTargetAddMenu,
     switchTargetsModalTab,
     closeTargetsModal,
     loadChatTargets,
@@ -123,12 +134,24 @@ export function ChatTargetsModal({
     displayModalKind !== null && chatDetail !== null;
   useModalBodyScrollLock(isModalOpen);
 
+  const handleScrollToTop: () => void = useCallback((): void => {
+    scrollModalBodyToTop(modalBodyRef.current);
+  }, []);
+
   if (displayModalKind === null || chatDetail === null) {
     return null;
   }
 
   const [activeCount, activeMax]: readonly [number, number] =
     resolveTargetKindCounts(displayModalKind, chatDetail, chatTargets);
+  const isTopFormOpen: boolean =
+    displayModalKind === "qa" ? qaEditorOpen : targetAddMenuOpen;
+  const openTopFormButtonLabel: string =
+    displayModalKind === "qa"
+      ? t.chats.qaOpenEditorButton
+      : displayModalKind === "deleteMessage"
+        ? t.chats.deleteTargetAddButton
+        : t.chats.translateTargetAddButton;
 
   return (
     <div
@@ -217,6 +240,7 @@ export function ChatTargetsModal({
                         sizerRef.current.style.height = `${currentHeight}px`;
                       }
                     }
+                    scrollModalBodyToTop(modalBodyRef.current);
                     switchTargetsModalTab(kind);
                   }}
                 >
@@ -247,22 +271,61 @@ export function ChatTargetsModal({
             prevTabRef={prevTabRef}
             prevHadTargetsRef={prevHadTargetsRef}
           >
-            {displayModalKind === "qa" ? (
-              <ChatTargetsQaPanel
-                state={state}
-                t={t}
-                onScrollToTop={(): void => {
-                  scrollModalBodyToTop(modalBodyRef.current);
-                }}
-              />
-            ) : (
-              <ChatTargetsMemberPanels
-                kind={displayModalKind}
-                chatDetail={chatDetail}
-                state={state}
-                t={t}
-              />
-            )}
+            <div className="chat-targets-qa-editor-shell">
+              <TriggerCollapseGrid
+                collapsed={isTopFormOpen}
+                resetKey={displayModalKind}
+                gridClassName="chat-targets-qa-trigger-collapse"
+                innerClassName="chat-targets-qa-collapse-inner"
+              >
+                <button
+                  type="button"
+                  className="btn primary icon-btn chat-targets-qa-open-btn"
+                  disabled={mutatingTargets}
+                  tabIndex={isTopFormOpen ? -1 : 0}
+                  onClick={
+                    displayModalKind === "qa" ? openQaEditor : openTargetAddMenu
+                  }
+                >
+                  <PlusSvgIcon size={14} />
+                  <span>{openTopFormButtonLabel}</span>
+                </button>
+              </TriggerCollapseGrid>
+
+              <CollapseGrid
+                expanded={isTopFormOpen}
+                resetKey={displayModalKind}
+                gridClassName="chat-targets-qa-collapse-grid"
+                innerClassName="chat-targets-qa-collapse-inner"
+              >
+                {displayModalKind === "qa" ? (
+                  <ChatTargetsQaEditorForm state={state} t={t} />
+                ) : (
+                  <ChatTargetsMemberAddForm
+                    kind={displayModalKind}
+                    state={state}
+                    t={t}
+                  />
+                )}
+              </CollapseGrid>
+            </div>
+
+            <div key={displayModalKind} className="chat-targets-tab-content">
+              {displayModalKind === "qa" ? (
+                <ChatTargetsQaPanel
+                  state={state}
+                  t={t}
+                  onScrollToTop={handleScrollToTop}
+                />
+              ) : (
+                <ChatTargetsMemberPanels
+                  kind={displayModalKind}
+                  chatDetail={chatDetail}
+                  state={state}
+                  t={t}
+                />
+              )}
+            </div>
           </TabHeightSizer>
         </div>
       </div>

@@ -21,20 +21,6 @@ import type {
 } from "../types/miniApp";
 import { GalleryImageSkeleton } from "./skeletons/GalleryImageSkeleton";
 
-/** 预览大图容器 `scrollIntoView` 调用参数接口。 */
-export interface PreviewScrollIntoViewParams {
-  /** 滚动动画行为。 */
-  readonly behavior: string;
-  /** 垂直对齐位置。 */
-  readonly block: string;
-}
-
-/** 具备平滑滚动能力的预览容器 DOM 节点接口。 */
-interface ScrollablePreviewElement extends HTMLDivElement {
-  /** 将当前元素平滑滚动至可视区域。 */
-  readonly scrollIntoView?: (options: PreviewScrollIntoViewParams) => void;
-}
-
 /** 支持主动失焦（`blur`）的按钮事件目标接口。 */
 export interface BlurTargetElement {
   /** 移除当前按钮焦点，防止原生弹窗关闭后残留悬停或焦点态。 */
@@ -72,7 +58,7 @@ export interface GalleryPreviewCardProps {
 }
 
 /**
- * 渲染图库单张大图预览卡片（含自动平滑滚动入视口、内存缓存探测、SHA-256 摘要信息及下载/删除/关闭动作栏）。
+ * 渲染图库单张大图预览卡片（含内存缓存探测、SHA-256 摘要信息及下载/删除/关闭动作栏）。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -92,8 +78,6 @@ export function GalleryPreviewCard({
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-  const previewCardRef: React.RefObject<ScrollablePreviewElement | null> =
-    useRef<ScrollablePreviewElement | null>(null);
   const previewImgRef: React.RefObject<ProbeableImageElement | null> =
     useRef<ProbeableImageElement | null>(null);
 
@@ -110,17 +94,10 @@ export function GalleryPreviewCard({
     ) {
       onMarkPreviewLoaded();
     }
-    previewCardRef.current?.scrollIntoView?.({
-      behavior: "smooth",
-      block: "start",
-    });
   }, [isClosing, onMarkPreviewLoaded, previewItem]);
 
   return (
-    <div
-      ref={previewCardRef}
-      className="card gallery-preview-card animate-fade-in"
-    >
+    <div className="card gallery-preview-card">
       <div className="card-title">
         <span className="toolbar-hint" style={{ minWidth: 0, flex: 1 }}>
           <span className="toolbar-icon-badge">

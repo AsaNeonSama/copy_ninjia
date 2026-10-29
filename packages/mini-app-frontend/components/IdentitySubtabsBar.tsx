@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type React from "react";
 import { IdentitiesSvgIcon, RefreshSvgIcon } from "../resource";
 import type { MiniAppIdentitySubTabKey } from "../types/miniApp";
@@ -23,7 +24,7 @@ export interface IdentitySubtabsBarProps {
  * @param props 组件属性
  * @returns React 节点
  */
-export function IdentitySubtabsBar({
+function IdentitySubtabsBarView({
   subTab,
   loadingList,
   t,
@@ -65,3 +66,8 @@ export function IdentitySubtabsBar({
     </div>
   );
 }
+
+/** 按属性浅比较跳过重渲染的黑白名单顶部子页签与刷新按钮栏。 */
+export const IdentitySubtabsBar: React.MemoExoticComponent<
+  typeof IdentitySubtabsBarView
+> = memo(IdentitySubtabsBarView);

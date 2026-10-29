@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type React from "react";
 import { MINI_APP_PAGINATION_HOVER_DURATION_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
@@ -43,7 +43,7 @@ function scrollWindowToTop(): void {
  * @param props 组件属性
  * @returns React 节点
  */
-export function PaginationBar({
+function PaginationBarView({
   page,
   totalPages,
   total,
@@ -199,3 +199,8 @@ export function PaginationBar({
     </div>
   );
 }
+
+/** 按属性浅比较跳过重渲染的分页导航栏：搜索输入、添加抽屉或权限抽屉展开时不重复渲染分页栏。 */
+export const PaginationBar: React.MemoExoticComponent<
+  typeof PaginationBarView
+> = memo(PaginationBarView);

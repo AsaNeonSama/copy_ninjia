@@ -1,5 +1,6 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
+import { MINI_APP_CHAT_TARGET_KINDS } from "../../consts/miniApp";
 import type { MiniAppChatTargetKind } from "../../types/miniApp";
 
 /** 支持读取像素高度并写入行内高度过渡样式的折叠面板或弹窗内容容器最小 DOM 接口。 */
@@ -72,6 +73,9 @@ export function scrollModalBodyToTop(
   element: ScrollableModalBodyElement | null
 ): void {
   if (element === null) return;
+  if (typeof element.scrollTop === "number" && element.scrollTop <= 0) {
+    return;
+  }
   if (typeof element.scrollTo === "function") {
     element.scrollTo({ top: 0, behavior: "smooth" });
     return;
@@ -137,8 +141,30 @@ export interface TabHeightSizerProps {
 }
 
 /**
+ * 根据前后激活的目标管理标签类别计算面板切换滑动方向类名（向右切入或向左切入）。
+ *
+ * @param prevTab 上一次激活的标签类别
+ * @param activeTab 当前激活的标签类别
+ * @returns 方向动画类名（无切换方向时返回空字符串）
+ */
+export function resolveTabSlideDirectionClass(
+  prevTab: MiniAppChatTargetKind | null,
+  activeTab: MiniAppChatTargetKind | null
+): string {
+  if (prevTab === null || activeTab === null || prevTab === activeTab) {
+    return "";
+  }
+  const prevIndex: number = MINI_APP_CHAT_TARGET_KINDS.indexOf(prevTab);
+  const nextIndex: number = MINI_APP_CHAT_TARGET_KINDS.indexOf(activeTab);
+  if (prevIndex < 0 || nextIndex < 0 || prevIndex === nextIndex) {
+    return "";
+  }
+  return nextIndex > prevIndex ? "tab-slide-forward" : "tab-slide-backward";
+}
+
+/**
  * 在弹窗内切换不同标签页或首次注水完成时测量前后像素高度，通过 CSS `height` 过渡平滑改变弹窗内容高度，
- * 过渡结束后恢复自适应高度以保证内部列表正常滚动。
+ * 并按标签顺序附加方向切入动画，过渡结束后恢复自适应高度以保证内部列表正常滚动。
  *
  * @param props 高度过渡容器属性
  * @returns React 节点
@@ -153,6 +179,20 @@ export function TabHeightSizer({
   prevHadTargetsRef,
   children,
 }: TabHeightSizerProps): React.JSX.Element {
+  const lastDirectionRef: React.RefObject<string> = useRef<string>("");
+  if (activeTab === null) {
+    lastDirectionRef.current = "";
+  } else if (prevTabRef.current !== null && prevTabRef.current !== activeTab) {
+    const livePrevHeight: number = readElementBodyHeight(paneRef.current);
+    if (livePrevHeight > 0) {
+      lastHeightRef.current = livePrevHeight;
+    }
+    lastDirectionRef.current = resolveTabSlideDirectionClass(
+      prevTabRef.current,
+      activeTab
+    );
+  }
+  const directionClass: string = lastDirectionRef.current;
   const setSizerNode: (el: MeasurableBodyElement | null) => void =
     useCallback(
       (el: MeasurableBodyElement | null): void => {
@@ -203,7 +243,7 @@ export function TabHeightSizer({
       sizerEl.style.transition = "none";
       sizerEl.style.height = `${prevHeight}px`;
       void sizerEl.offsetHeight;
-      sizerEl.style.transition = "height 0.22s cubic-bezier(0.22, 1, 0.36, 1)";
+      sizerEl.style.transition = "height 0.22s cubic-bezier(0.32, 0.08, 0.24, 1)";
       sizerEl.style.height = `${nextHeight}px`;
       const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
         if (sizerEl.style !== undefined) {
@@ -215,7 +255,9 @@ export function TabHeightSizer({
       return (): void => {
         clearTimeout(timer);
         if (sizerEl.style !== undefined) {
+          sizerEl.style.height = "";
           sizerEl.style.overflow = "";
+          sizerEl.style.transition = "";
         }
       };
     }
@@ -239,7 +281,7 @@ export function TabHeightSizer({
     <div ref={setSizerNode} className="chat-targets-body-sizer">
       <div
         ref={setPaneNode}
-        className="chat-targets-tab-pane"
+        className={`chat-targets-tab-pane ${directionClass}`.trim()}
       >
         {children}
       </div>

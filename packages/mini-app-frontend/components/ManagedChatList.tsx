@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, memo } from "react";
 import type React from "react";
 import { truncateDisplayText } from "../libs/formatters";
 import type { MiniAppChatSummary } from "../types/miniApp";
@@ -20,7 +20,7 @@ export interface ManagedChatListProps {
  * @param props 组件属性
  * @returns React 节点
  */
-export function ManagedChatList({
+function ManagedChatListView({
   chats,
   t,
   onSelectChat,
@@ -80,3 +80,8 @@ export function ManagedChatList({
     </Fragment>
   );
 }
+
+/** 按属性浅比较跳过重渲染的受管群摘要卡片列表组件。 */
+export const ManagedChatList: React.MemoExoticComponent<
+  typeof ManagedChatListView
+> = memo(ManagedChatListView);

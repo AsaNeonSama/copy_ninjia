@@ -93,9 +93,10 @@ export function IdentitiesPage(): React.JSX.Element {
     void loadCurrentList();
   }, [loadCurrentList]);
 
-  const reloadListSilently: () => void = useCallback((): void => {
-    void loadCurrentList(true);
-  }, [loadCurrentList]);
+  const reloadListSilently: () => Promise<void> = useCallback(
+    (): Promise<void> => loadCurrentList(true),
+    [loadCurrentList]
+  );
 
   return (
     <section className="animate-fade-in">

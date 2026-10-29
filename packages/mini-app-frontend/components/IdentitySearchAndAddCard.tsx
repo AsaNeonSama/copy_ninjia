@@ -1,3 +1,4 @@
+import { memo, useRef } from "react";
 import type React from "react";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -21,12 +22,35 @@ export interface IdentitySearchAndAddCardProps {
 }
 
 /**
+ * 比较搜索与添加卡片所需的状态切片是否一致，使展开/收起列表项的权限抽屉时不触发本卡片重渲染。
+ *
+ * @param prev 上一次属性
+ * @param next 本次属性
+ * @returns 状态切片未变化时返回 `true`
+ */
+function areIdentitySearchAndAddCardPropsEqual(
+  prev: Readonly<IdentitySearchAndAddCardProps>,
+  next: Readonly<IdentitySearchAndAddCardProps>
+): boolean {
+  const a: MiniAppIdentitiesStoreState = prev.state;
+  const b: MiniAppIdentitiesStoreState = next.state;
+  return (
+    a.searchInput === b.searchInput &&
+    a.debouncedQuery === b.debouncedQuery &&
+    a.addMenuOpen === b.addMenuOpen &&
+    a.idFormOpen === b.idFormOpen &&
+    a.idInput === b.idInput &&
+    a.busyAction === b.busyAction
+  );
+}
+
+/**
  * 渲染黑白名单顶部的防抖搜索栏与折叠式三合一添加抽屉卡片（含按 ID 输入内联展开区）。
  *
  * @param props 组件属性
  * @returns React 节点
  */
-export function IdentitySearchAndAddCard({
+function IdentitySearchAndAddCardView({
   state,
 }: IdentitySearchAndAddCardProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
@@ -49,6 +73,32 @@ export function IdentitySearchAndAddCard({
     addById,
   }: MiniAppIdentitiesStoreState = state;
   const isDebouncing: boolean = searchInput.trim() !== debouncedQuery;
+  const closingIdInputRef: React.RefObject<string> = useRef<string>(idInput);
+  if (addMenuOpen && idFormOpen) {
+    closingIdInputRef.current = idInput;
+  }
+  const closingMenuSnapshotRef: React.RefObject<{
+    readonly idFormOpen: boolean;
+    readonly busyAction: boolean;
+  }> = useRef<{ readonly idFormOpen: boolean; readonly busyAction: boolean }>({
+    idFormOpen,
+    busyAction,
+  });
+  if (addMenuOpen) {
+    closingMenuSnapshotRef.current = {
+      idFormOpen,
+      busyAction,
+    };
+  }
+  const displayIdFormOpen: boolean = addMenuOpen
+    ? idFormOpen
+    : closingMenuSnapshotRef.current.idFormOpen;
+  const displayBusyAction: boolean =
+    addMenuOpen && idFormOpen
+      ? busyAction
+      : closingMenuSnapshotRef.current.busyAction;
+  const displayIdInput: string =
+    addMenuOpen && idFormOpen ? idInput : closingIdInputRef.current;
 
   return (
     <div className="card">
@@ -111,23 +161,23 @@ export function IdentitySearchAndAddCard({
       >
         <div className="add-fold-panel">
           <AddModeButtonList
-            idFormOpen={idFormOpen}
-            disabled={busyAction}
+            idFormOpen={displayIdFormOpen}
+            disabled={displayBusyAction}
             interactive={addMenuOpen}
             t={t}
             onSelectMode={selectAddMode}
           />
 
           <CollapseGrid
-            expanded={idFormOpen}
+            expanded={displayIdFormOpen}
             gridClassName="id-add-collapse-grid"
             innerClassName="id-add-collapse-inner"
           >
             <div className="id-add-inline-row">
               <input
                 type="text"
-                value={idInput}
-                disabled={busyAction || !idFormOpen}
+                value={displayIdInput}
+                disabled={displayBusyAction}
                 tabIndex={idFormOpen ? 0 : -1}
                 onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
                   const nextValue: string = (
@@ -140,7 +190,7 @@ export function IdentitySearchAndAddCard({
               <button
                 type="button"
                 className="btn primary"
-                disabled={busyAction || !idFormOpen}
+                disabled={displayBusyAction}
                 tabIndex={idFormOpen ? 0 : -1}
                 onClick={(): void => {
                   void addById();
@@ -151,7 +201,7 @@ export function IdentitySearchAndAddCard({
               <button
                 type="button"
                 className="btn"
-                disabled={!idFormOpen}
+                disabled={displayBusyAction}
                 tabIndex={idFormOpen ? 0 : -1}
                 onClick={closeIdForm}
               >
@@ -164,3 +214,8 @@ export function IdentitySearchAndAddCard({
     </div>
   );
 }
+
+/** 按搜索与添加抽屉相关状态切片浅比较跳过重渲染的顶部搜索与添加卡片。 */
+export const IdentitySearchAndAddCard: React.MemoExoticComponent<
+  typeof IdentitySearchAndAddCardView
+> = memo(IdentitySearchAndAddCardView, areIdentitySearchAndAddCardPropsEqual);

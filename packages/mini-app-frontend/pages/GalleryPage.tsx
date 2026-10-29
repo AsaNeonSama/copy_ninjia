@@ -1,5 +1,9 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
+import { CollapseGrid } from "../components/animations/CollapseGrid";
+import { scrollViewportToPreviewCard } from "../components/animations/expandFollowScroll";
+import type { ViewportRectElement } from "../components/animations/expandFollowScroll";
+import type { FlipAnimatableElement } from "../components/animations/flipCollapse";
 import { useDelayedUnmount } from "../components/animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "../components/animations/useDelayedUnmount";
 import { GalleryGridList } from "../components/GalleryGridList";
@@ -67,13 +71,45 @@ export function GalleryPage(): React.JSX.Element {
     void loadGallery(1, pageSize);
   }, [loadGallery, pageSize]);
 
-  const handleDownloadImage = (fileName: string): void => {
-    void downloadImage(fileName);
-  };
+  const handleDownloadImage: (fileName: string) => void = useCallback(
+    (fileName: string): void => {
+      void downloadImage(fileName);
+    },
+    [downloadImage]
+  );
 
-  const handleDeleteImage = (fileName: string): void => {
-    void deleteImage(fileName);
-  };
+  const handleDeleteImage: (fileName: string) => void = useCallback(
+    (fileName: string): void => {
+      void deleteImage(fileName);
+    },
+    [deleteImage]
+  );
+
+  const previewGridRef: React.RefObject<FlipAnimatableElement | null> =
+    useRef<FlipAnimatableElement | null>(null);
+
+  const handleClosePreview: () => void = useCallback((): void => {
+    setPreviewItem(null);
+  }, [setPreviewItem]);
+
+  const handlePreviewExpandEnd: (gridElement: ViewportRectElement) => void =
+    useCallback((gridElement: ViewportRectElement): void => {
+      scrollViewportToPreviewCard(gridElement);
+    }, []);
+
+  useEffect((): void => {
+    if (previewItem === null) {
+      return;
+    }
+    const gridEl: FlipAnimatableElement | null = previewGridRef.current;
+    if (
+      gridEl === null ||
+      gridEl.firstElementChild?.dataset?.flipInFlight === "1"
+    ) {
+      return;
+    }
+    scrollViewportToPreviewCard(gridEl);
+  }, [previewItem]);
 
   const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>): void => {
     const target: FileInputEventTarget =
@@ -157,30 +193,27 @@ export function GalleryPage(): React.JSX.Element {
           : null}
       </div>
 
-      {displayPreviewItem !== null
-        ? (
-          <div
-            className={`gallery-preview-collapse-grid ${previewClosing ? "closing" : ""}`}
-            aria-hidden={previewClosing}
-          >
-            <div className="gallery-preview-collapse-inner">
-              <GalleryPreviewCard
-                previewItem={displayPreviewItem}
-                previewLoaded={previewLoaded}
-                isClosing={previewClosing}
-                downloadingFileName={downloadingFileName}
-                deletingFileName={deletingFileName}
-                onMarkPreviewLoaded={markPreviewLoaded}
-                onDownloadImage={handleDownloadImage}
-                onDeleteImage={handleDeleteImage}
-                onClosePreview={(): void => {
-                  setPreviewItem(null);
-                }}
-              />
-            </div>
-          </div>
-        )
-        : null}
+      <CollapseGrid
+        expanded={previewItem !== null}
+        gridClassName="gallery-preview-collapse-grid"
+        innerClassName="gallery-preview-collapse-inner"
+        containerRef={previewGridRef}
+        onExpandEnd={handlePreviewExpandEnd}
+      >
+        {displayPreviewItem !== null ? (
+          <GalleryPreviewCard
+            previewItem={displayPreviewItem}
+            previewLoaded={previewLoaded}
+            isClosing={previewClosing}
+            downloadingFileName={downloadingFileName}
+            deletingFileName={deletingFileName}
+            onMarkPreviewLoaded={markPreviewLoaded}
+            onDownloadImage={handleDownloadImage}
+            onDeleteImage={handleDeleteImage}
+            onClosePreview={handleClosePreview}
+          />
+        ) : null}
+      </CollapseGrid>
 
       {galleryPage !== null
         ? (

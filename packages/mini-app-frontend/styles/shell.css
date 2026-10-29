@@ -206,7 +206,7 @@
   display: flex;
   flex-direction: column;
   padding: calc(14px + var(--tg-safe-area-inset-top, env(safe-area-inset-top, 0px))) 14px calc(14px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
-  contain: layout style paint;
+  contain: layout style;
   will-change: transform;
   backface-visibility: hidden;
   transform: translate3d(-100%, 0, 0);

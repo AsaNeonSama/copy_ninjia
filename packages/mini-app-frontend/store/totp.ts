@@ -93,14 +93,20 @@ export function createTotpStore(): MiniAppTotpStore {
         },
 
         startSetup: async (): Promise<void> => {
+          const startedAt: number = Date.now();
           set({ busy: true });
           try {
             const res: Readonly<MiniAppTotpSetupResponse> = await setupMiniAppTotp();
-            set({ setupData: res, codeInput: "" });
+            await waitMinimumLoadingDuration(startedAt);
+            set({ setupData: res, codeInput: "", busy: false });
           } catch (error: unknown) {
+            await waitMinimumLoadingDuration(startedAt);
+            set({ busy: false });
             useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {
-            set({ busy: false });
+            if (get().busy) {
+              set({ busy: false });
+            }
           }
         },
 
@@ -126,15 +132,13 @@ export function createTotpStore(): MiniAppTotpStore {
             const res: Readonly<MiniAppTotpMutationResponse> =
               await enableMiniAppTotp(trimmed);
             await waitMinimumLoadingDuration(startedAt);
-            const skeletonStartedAt: number = Date.now();
             set({
+              totpStatus: res.status,
               setupData: null,
               codeInput: "",
-              totpStatus: null,
-              loadingStatus: true,
+              busy: false,
+              loadingStatus: false,
             });
-            await waitMinimumLoadingDuration(skeletonStartedAt);
-            set({ totpStatus: res.status, loadingStatus: false, busy: false });
             useMiniAppStore
               .getState()
               .setAuthMode(res.status.enabled ? "totp" : "password");

@@ -4,10 +4,7 @@ import { CollapseGrid, TriggerCollapseGrid } from "../components/animations/Coll
 import { scrollViewportToExpandedBody } from "../components/animations/expandFollowScroll";
 import type { ViewportRectElement } from "../components/animations/expandFollowScroll";
 import { LoadingDotsWave } from "../components/animations/LoadingDotsWave";
-import { useDelayedUnmount } from "../components/animations/useDelayedUnmount";
-import type { DelayedUnmountState } from "../components/animations/useDelayedUnmount";
 import { TotpSkeleton } from "../components/skeletons/TotpSkeleton";
-import { MINI_APP_TOTP_SETUP_COLLAPSE_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
@@ -20,6 +17,16 @@ import type { MiniAppTotpStore, MiniAppTotpStoreState } from "../store/totp";
 import type { MiniAppLanguage } from "../types/miniApp";
 import type { MiniAppTotpSetupResponse } from "../types/miniAppTotp";
 
+/** `TotpPage` 绑定表单在收起过渡期间保留的快照接口（避免关闭/提交瞬间清空二维码、输入或按钮加载态导致收起首帧闪烁）。 */
+interface TotpClosingSetupSnapshot {
+  /** 待确认绑定的密钥与二维码快照。 */
+  readonly setupData: Readonly<MiniAppTotpSetupResponse> | null;
+  /** 6 位动态码输入快照。 */
+  readonly codeInput: string;
+  /** 提交核验按钮是否处于加载态。 */
+  readonly verifyBusy: boolean;
+}
+
 /** `TotpPage` 组件属性。 */
 export interface TotpPageProps {
   /** 可选的状态仓库工厂（默认 `createTotpStore`）。 */
@@ -28,7 +35,7 @@ export interface TotpPageProps {
 
 /**
  * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理页面
- * （点击添加或修改验证器时平滑收起顶部触发按钮并展开绑定表单，展开结束后按 `scrollViewportToExpandedBody` 让视口平滑跟滚，提交 6 位动态码核验时按钮展示三点波浪加载动效，取消时保留二维码快照完成收起过渡）。
+ * （点击添加或修改验证器时按钮展示三点波浪加载动效直至二维码就绪，随后平滑收起顶部触发按钮并展开绑定表单，展开结束后按 `scrollViewportToExpandedBody` 让视口平滑跟滚，提交 6 位动态码核验时按钮展示三点波浪加载动效，取消时保留二维码快照完成收起过渡）。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -79,23 +86,50 @@ export function TotpPage({
       });
     }, []);
 
-  const {
-    displayValue: displaySetupData,
-  }: Readonly<DelayedUnmountState<Readonly<MiniAppTotpSetupResponse>>> =
-    useDelayedUnmount(setupData, MINI_APP_TOTP_SETUP_COLLAPSE_MS);
-  const qrSvgHtml: string = displaySetupData?.qrSvg ?? "";
-  const qrInnerHtml: Readonly<{ readonly __html: string }> = useMemo(
-    (): Readonly<{ readonly __html: string }> => ({ __html: qrSvgHtml }),
-    [qrSvgHtml]
-  );
-
   useEffect((): void => {
     void loadTotpStatus();
   }, [loadTotpStatus]);
 
   const enabled: boolean = totpStatus?.enabled === true;
   const setupOpen: boolean = setupData !== null;
+  const startSetupBusy: boolean = busy && !setupOpen;
   const verifyBusy: boolean = busy && setupOpen;
+
+  const closingTriggerBusyRef: React.RefObject<boolean> =
+    useRef<boolean>(startSetupBusy);
+  if (!setupOpen) {
+    closingTriggerBusyRef.current = startSetupBusy;
+  }
+  const displayStartSetupBusy: boolean = setupOpen
+    ? closingTriggerBusyRef.current
+    : startSetupBusy;
+
+  const closingSetupSnapshotRef: React.RefObject<TotpClosingSetupSnapshot> =
+    useRef<TotpClosingSetupSnapshot>({
+      setupData,
+      codeInput,
+      verifyBusy,
+    });
+  if (setupOpen) {
+    closingSetupSnapshotRef.current = {
+      setupData,
+      codeInput,
+      verifyBusy,
+    };
+  }
+  const displaySetupData: Readonly<MiniAppTotpSetupResponse> | null =
+    setupData ?? closingSetupSnapshotRef.current.setupData;
+  const displayCodeInput: string = setupOpen
+    ? codeInput
+    : closingSetupSnapshotRef.current.codeInput;
+  const displayVerifyBusy: boolean = setupOpen
+    ? verifyBusy
+    : closingSetupSnapshotRef.current.verifyBusy;
+  const qrSvgHtml: string = displaySetupData?.qrSvg ?? "";
+  const qrInnerHtml: Readonly<{ readonly __html: string }> = useMemo(
+    (): Readonly<{ readonly __html: string }> => ({ __html: qrSvgHtml }),
+    [qrSvgHtml]
+  );
 
   return (
     <section className="animate-fade-in">
@@ -122,12 +156,12 @@ export function TotpPage({
         </button>
       </div>
 
-      {totpStatus === null ? (
+      {loadingStatus || totpStatus === null ? (
         <TotpSkeleton />
       ) : (
         <div
           ref={setCardNode}
-          className={`card ${loadingStatus ? "content-refreshing" : ""}`}
+          className="card animate-fade-in"
         >
           <div className="card-title">
             <span>{t.totp.sectionTitle}</span>
@@ -152,21 +186,28 @@ export function TotpPage({
             <div className="totp-actions-row">
               <button
                 type="button"
-                className="btn primary icon-btn"
-                disabled={busy || setupOpen}
+                className={`btn primary icon-btn totp-start-submit ${displayStartSetupBusy ? "is-loading" : ""}`}
+                disabled={displayStartSetupBusy || busy}
+                aria-busy={displayStartSetupBusy}
                 tabIndex={setupOpen ? -1 : 0}
                 onClick={(): void => {
                   void startSetup();
                 }}
               >
-                <LockSvgIcon size={14} />
-                <span>{enabled ? t.totp.modifyButton : t.totp.addButton}</span>
+                {displayStartSetupBusy ? (
+                  <LoadingDotsWave />
+                ) : (
+                  <Fragment>
+                    <LockSvgIcon size={14} />
+                    <span>{enabled ? t.totp.modifyButton : t.totp.addButton}</span>
+                  </Fragment>
+                )}
               </button>
               {enabled ? (
                 <button
                   type="button"
                   className="btn danger icon-btn"
-                  disabled={busy || setupOpen}
+                  disabled={displayStartSetupBusy || busy}
                   tabIndex={setupOpen ? -1 : 0}
                   onClick={(): void => {
                     void deleteTotp();
@@ -208,8 +249,8 @@ export function TotpPage({
                   inputMode="numeric"
                   maxLength={6}
                   placeholder={t.totp.codePlaceholder}
-                  value={codeInput}
-                  disabled={busy || !setupOpen}
+                  value={displayCodeInput}
+                  disabled={displayVerifyBusy || busy}
                   tabIndex={setupOpen ? 0 : -1}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>): void => {
                     const rawVal: string = (
@@ -222,7 +263,7 @@ export function TotpPage({
                   <button
                     type="button"
                     className="btn"
-                    disabled={busy || !setupOpen}
+                    disabled={displayVerifyBusy || busy}
                     tabIndex={setupOpen ? 0 : -1}
                     onClick={cancelSetup}
                   >
@@ -230,12 +271,12 @@ export function TotpPage({
                   </button>
                   <button
                     type="submit"
-                    className={`btn primary icon-btn totp-verify-submit ${verifyBusy ? "is-loading" : ""}`}
-                    disabled={busy || !setupOpen}
-                    aria-busy={verifyBusy}
+                    className={`btn primary icon-btn totp-verify-submit ${displayVerifyBusy ? "is-loading" : ""}`}
+                    disabled={displayVerifyBusy || busy}
+                    aria-busy={displayVerifyBusy}
                     tabIndex={setupOpen ? 0 : -1}
                   >
-                    {verifyBusy ? (
+                    {displayVerifyBusy ? (
                       <LoadingDotsWave />
                     ) : (
                       <Fragment>

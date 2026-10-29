@@ -17,8 +17,12 @@
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 32%, transparent);
-  --cap-expanded-bg: color-mix(in srgb, var(--accent) 4%, color-mix(in srgb, var(--card) 65%, var(--surface-inset)));
-  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 13%, var(--card));
+  --cap-expanded-bg: color-mix(in srgb, var(--accent) 1.8%, color-mix(in srgb, var(--card) 84%, var(--surface-inset)));
+  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 7.5%, var(--card));
+  --dropdown-board-bg: color-mix(in srgb, var(--card) 78%, var(--surface-inset));
+  --dropdown-board-border: color-mix(in srgb, var(--accent) 22%, var(--border));
+  --dropdown-item-bg: color-mix(in srgb, var(--accent) 3%, var(--card));
+  --dropdown-item-border: color-mix(in srgb, var(--accent) 14%, var(--border));
   --danger: var(--tg-theme-destructive-text-color, #dc2626);
   --danger-soft: color-mix(in srgb, var(--danger) 12%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 32%, transparent);
@@ -35,7 +39,7 @@
   --gallery-stage-bg: #e6ebf3;
   --gallery-skeleton-bg: linear-gradient(135deg, #dce3ef 0%, #eadbe3 50%, #d9e1ee 100%);
   --channel-badge-bg: rgba(147, 51, 234, 0.12); --channel-badge-text: #7e22ce; --channel-badge-border: rgba(147, 51, 234, 0.28);
-  --qa-answer-bg: rgba(14, 165, 233, 0.1); --qa-answer-border: rgba(14, 165, 233, 0.28); --qa-answer-text: #0369a1; --qa-answer-badge-bg: rgba(14, 165, 233, 0.16);
+  --qa-answer-bg: color-mix(in srgb, var(--accent) 3.2%, var(--card)); --qa-answer-border: color-mix(in srgb, var(--accent) 16%, var(--border)); --qa-answer-text: var(--text); --qa-answer-badge-bg: color-mix(in srgb, var(--accent) 11%, var(--card)); --qa-answer-badge-text: var(--accent);
 }
 
 [data-theme="dark"] {
@@ -56,8 +60,12 @@
   --accent-text: var(--tg-theme-button-text-color, #ffffff);
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-border: color-mix(in srgb, var(--accent) 36%, transparent);
-  --cap-expanded-bg: color-mix(in srgb, var(--accent) 5%, color-mix(in srgb, var(--card) 65%, var(--surface-inset)));
-  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 14%, var(--card));
+  --cap-expanded-bg: color-mix(in srgb, var(--accent) 2.2%, color-mix(in srgb, var(--card) 82%, var(--surface-inset)));
+  --cap-active-mood-bg: color-mix(in srgb, var(--accent) 8.5%, var(--card));
+  --dropdown-board-bg: color-mix(in srgb, var(--card) 76%, var(--surface-inset));
+  --dropdown-board-border: color-mix(in srgb, var(--accent) 24%, var(--border));
+  --dropdown-item-bg: color-mix(in srgb, var(--accent) 3.5%, var(--card));
+  --dropdown-item-border: color-mix(in srgb, var(--accent) 16%, var(--border));
   --danger: var(--tg-theme-destructive-text-color, #f87171);
   --danger-soft: color-mix(in srgb, var(--danger) 16%, transparent);
   --danger-border: color-mix(in srgb, var(--danger) 38%, transparent);
@@ -74,7 +82,7 @@
   --gallery-stage-bg: rgba(15, 23, 42, 0.78);
   --gallery-skeleton-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.92) 0%, rgba(56, 36, 52, 0.88) 52%, rgba(23, 33, 49, 0.94) 100%);
   --channel-badge-bg: rgba(168, 85, 247, 0.18); --channel-badge-text: #c084fc; --channel-badge-border: rgba(192, 132, 252, 0.36);
-  --qa-answer-bg: rgba(56, 189, 248, 0.12); --qa-answer-border: rgba(56, 189, 248, 0.32); --qa-answer-text: #7dd3fc; --qa-answer-badge-bg: rgba(56, 189, 248, 0.2);
+  --qa-answer-bg: color-mix(in srgb, var(--accent) 4%, var(--card)); --qa-answer-border: color-mix(in srgb, var(--accent) 18%, var(--border)); --qa-answer-text: var(--text); --qa-answer-badge-bg: color-mix(in srgb, var(--accent) 15%, var(--card)); --qa-answer-badge-text: var(--accent-light);
 }
 
 * {
@@ -90,6 +98,7 @@ body,
   min-width: 100%;
   min-height: 100vh;
   overflow-x: hidden;
+  overflow-anchor: none;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }

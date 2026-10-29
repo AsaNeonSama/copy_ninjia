@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import type React from "react";
 import { buildMiniAppGalleryImageUrl } from "../api/galleryFile";
 import {
@@ -46,7 +46,7 @@ export interface GalleryGridListProps {
  * @param props 组件属性
  * @returns React 节点
  */
-export function GalleryGridList({
+function GalleryGridListView({
   items,
   previewItem,
   deletingFileName,
@@ -224,3 +224,8 @@ export function GalleryGridList({
     </div>
   );
 }
+
+/** 按属性浅比较跳过重渲染的图库卡片网格组件（预览收起退场帧期间跳过整页缩略图重调和）。 */
+export const GalleryGridList: React.MemoExoticComponent<
+  typeof GalleryGridListView
+> = memo(GalleryGridListView);

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type React from "react";
 import { MINI_APP_IDENTITY_ADD_MODES } from "../consts/miniApp";
 import {
@@ -42,7 +43,7 @@ function renderAddModeIcon(mode: MiniAppIdentityAddMode): React.JSX.Element {
  * @param props 组件属性
  * @returns React 节点
  */
-export function AddModeButtonList({
+function AddModeButtonListView({
   idFormOpen,
   disabled,
   interactive,
@@ -62,7 +63,7 @@ export function AddModeButtonList({
             key={mode}
             type="button"
             className={`add-mode-card ${mode === "id" && idFormOpen ? "active" : ""}`}
-            disabled={disabled || !interactive}
+            disabled={disabled}
             tabIndex={interactive ? 0 : -1}
             onClick={(): void => {
               onSelectMode(mode);
@@ -81,3 +82,8 @@ export function AddModeButtonList({
     </div>
   );
 }
+
+/** 按属性浅比较跳过重渲染的三合一添加模式按钮列表组件。 */
+export const AddModeButtonList: React.MemoExoticComponent<
+  typeof AddModeButtonListView
+> = memo(AddModeButtonListView);

@@ -150,7 +150,7 @@ export interface MiniAppChatsStoreState {
   readonly submitTranslateTarget: () => Promise<void>;
   /** 弹出确认后移除指定 ID 的翻译目标。 */
   readonly removeTranslateTarget: (targetId: number) => Promise<void>;
-  /** 切换当前群的单项功能开关（关闭 `/init` 前先弹出确认）。 */
+  /** 切换当前群的单项功能开关（关闭 `/init` 前先弹出确认，请求期间保持对应功能行最短骨架动画展示时长）。 */
   readonly toggleFeature: (feature: MiniAppFeatureKey, enabled: boolean) => Promise<void>;
   /** 更新 `/batch_kick` 回溯小时数（夹紧在 `1..24` 区间）。 */
   readonly setBatchKickHours: (hours: number) => void;
@@ -412,6 +412,7 @@ export function createChatsStore(): MiniAppChatsStore {
           ) {
             return;
           }
+          const startedAt: number = Date.now();
           set({ togglingFeature: feature });
           try {
             const result: MiniAppFeatureToggleResult = await toggleMiniAppChatFeature(
@@ -419,6 +420,7 @@ export function createChatsStore(): MiniAppChatsStore {
               feature,
               enabled
             );
+            await waitMinimumLoadingDuration(startedAt);
             if (result.removedFromList || result.detail === null) {
               set({
                 selectedChatId: null,
@@ -442,6 +444,7 @@ export function createChatsStore(): MiniAppChatsStore {
               );
             }
           } catch (error: unknown) {
+            await waitMinimumLoadingDuration(startedAt);
             set({ togglingFeature: null });
             const message: string = errorMessage(error);
             useMiniAppStore.getState().notify(message, "info", error);

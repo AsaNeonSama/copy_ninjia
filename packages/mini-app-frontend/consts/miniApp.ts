@@ -176,6 +176,19 @@ export const MINI_APP_CAP_SCROLL_SETTLE_DELAY_MS: number = 15;
 export const MINI_APP_CAP_HEADER_ESTIMATED_HEIGHT_PX: number = 50;
 
 /**
+ * 折叠面板与后续同级元素 GPU FLIP 位移过渡的持续毫秒数（0.2 秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts` 与 `packages/mini-app-frontend/components/animations/CapabilityCollapseBody.tsx`。
+ */
+export const MINI_APP_FLIP_COLLAPSE_DURATION_MS: number = 200;
+
+/**
+ * 折叠面板与后续同级元素 GPU FLIP 位移过渡的 S 型平滑缓动曲线。
+ * 不变量：合法的 CSS `cubic-bezier(...)` 函数表达式，与 `styles/` 下各样式表的缓动曲线一致。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`。
+ */
+export const MINI_APP_FLIP_COLLAPSE_EASING: string =
+  "cubic-bezier(0.32, 0.08, 0.24, 1)";
+
+/**
  * 折叠项展开完成后视口跟滚时，折叠项标题栏距离视口顶部的最小保留像素边距（实时状态页子系统面板、白名单权限抽屉与验证器绑定面板共用）。
  * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/expandFollowScroll.ts`。
  */
@@ -204,12 +217,6 @@ export const MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR: number = 0.55;
  * 不变量：非负整数像素值。所属模块：`packages/mini-app-frontend/components/animations/expandFollowScroll.ts`。
  */
 export const MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX: number = 4;
-
-/**
- * Google Authenticator (TOTP) 管理卡片绑定表单收起过渡动画的毫秒数（与 `styles/auth.css` 的 `0.24s` 齐平）。
- * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/pages/TotpPage.tsx`。
- */
-export const MINI_APP_TOTP_SETUP_COLLAPSE_MS: number = 240;
 
 /**
  * 图库大图预览卡片关闭收起过渡动画的毫秒数（与 `styles/gallery.css` 的 `0.24s` 齐平）。

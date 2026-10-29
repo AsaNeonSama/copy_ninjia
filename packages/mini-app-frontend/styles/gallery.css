@@ -5,7 +5,7 @@
 .gallery-card {
   display: flex; flex-direction: column; border-radius: 10px; overflow: hidden;
   background: var(--surface-inset); border: 1px solid var(--border);
-  cursor: pointer; transition: border-color 0.16s ease, transform 0.16s ease;
+  cursor: pointer; transition: border-color 0.16s cubic-bezier(0.32, 0.08, 0.24, 1), transform 0.16s cubic-bezier(0.32, 0.08, 0.24, 1);
 }
 .gallery-card:hover { border-color: var(--accent); transform: translateY(-2px); }
 .gallery-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
@@ -49,31 +49,38 @@
 }
 .gallery-sub { display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 10px; color: var(--hint); }
 .gallery-preview-collapse-grid {
-  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr;
-  opacity: 1; transform: translateY(0); margin-bottom: 10px;
+  width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr;
+  overflow: hidden; overflow-anchor: none; pointer-events: none; scroll-margin-top: 72px;
 }
-.gallery-preview-collapse-grid.closing {
-  grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); margin-bottom: 0; pointer-events: none;
-  transition:
-    grid-template-rows 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.2s ease,
-    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1),
-    margin-bottom 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+.gallery-preview-collapse-grid.expanded ~ .card {
+  overflow-anchor: none;
 }
-.gallery-preview-collapse-inner { width: 100%; min-width: 0; min-height: 0; }
-.gallery-preview-collapse-grid.closing > .gallery-preview-collapse-inner { overflow: hidden; }
+.gallery-preview-collapse-grid.expanded,
+.gallery-preview-collapse-grid.flip-closing {
+  display: block;
+  grid-template-rows: 1fr;
+}
+.gallery-preview-collapse-grid.expanded {
+  pointer-events: auto;
+}
+.gallery-preview-collapse-grid:not(.expanded):not(.flip-closing) > .gallery-preview-collapse-inner {
+  display: none;
+}
+.gallery-preview-collapse-inner {
+  width: 100%; min-width: 0; min-height: 0; overflow: hidden; padding-bottom: 10px;
+}
 .gallery-preview-card { border-color: var(--accent); margin-bottom: 0; scroll-margin-top: 72px; }
 .gallery-preview-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .gallery-preview-actions .btn { width: 100%; min-width: 0; height: 36px; padding: 0 8px; border-radius: 10px; font-size: 12px; overflow: hidden; }
 .gallery-preview-actions .btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .gallery-preview-img-wrap {
-  position: relative; width: 100%; min-height: 180px; max-height: 62vh; background: var(--gallery-stage-bg);
+  position: relative; width: 100%; height: clamp(220px, 42vh, 320px); background: var(--gallery-stage-bg);
   border-radius: 10px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
   overflow: hidden; padding: 8px;
 }
 .gallery-preview-img {
-  max-width: 100%; max-height: 58vh; object-fit: contain; border-radius: 6px; display: block;
-  will-change: opacity; transition: opacity 0.24s ease;
+  max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; display: block;
+  will-change: opacity; transition: opacity 0.24s cubic-bezier(0.32, 0.08, 0.24, 1);
 }
 .gallery-preview-img.loading { opacity: 0; }
 .gallery-preview-img.loaded { opacity: 1; }
