@@ -313,19 +313,11 @@
   from { opacity: 1; }
   to { opacity: 0; }
 }
-@keyframes miniapp-modal-pop {
-  from { opacity: 0; transform: translateY(10px) scale(0.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@keyframes miniapp-modal-pop-out {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(8px) scale(0.96); }
-}
 .chat-targets-menu-popover {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
   min-width: 196px; padding: 6px; border-radius: 12px;
   background: var(--card); border: 1px solid var(--border);
-  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 4px;
+  box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 4px;
   transform-origin: top right;
   animation: miniapp-popover-drop 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -363,7 +355,7 @@
 .chat-targets-modal {
   width: 100%; max-width: 460px; max-height: min(84vh, 660px);
   background: var(--card); border: 1px solid var(--border); border-radius: 16px;
-  box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden;
   overscroll-behavior: contain; touch-action: pan-y;
   transform-origin: center center;
   animation: miniapp-modal-pop 0.24s cubic-bezier(0.22, 1, 0.36, 1);
