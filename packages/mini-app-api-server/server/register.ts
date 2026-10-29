@@ -21,7 +21,7 @@ import {
   dispatchGalleryFileRoute,
 } from "../routes/gallery";
 import { createIdentitiesBunRoutes, dispatchIdentitiesApiRoute } from "../routes/identities";
-import { createPageBunRoutes, dispatchPageRoute } from "../routes/page";
+import { createPageBunRoutes, dispatchBundleAssetRoute, dispatchPageRoute } from "../routes/page";
 import { createStatusBunRoutes, dispatchStatusApiRoute } from "../routes/status";
 import { createTotpBunRoutes, dispatchTotpApiRoute } from "../routes/totp";
 import indexHtml from "../../mini-app-frontend/index.html";
@@ -59,7 +59,7 @@ function isProtectedMiniAppAssetPath(routePath: string): boolean {
 
 /**
  * 处理未命中原生路由表的请求（`mini_app.url` 子路径前缀、方法不匹配或未知路径），按以下顺序兜底分发：
- * 公开页面 → 预检与登录 → 图库附件下载 → 受保护图库图片资源 → 业务 API（状态与情绪、TOTP、图库、受管群、名单与选择器）；
+ * 公开页面 → 打包入口静态资源 → 预检与登录 → 图库附件下载 → 受保护图库图片资源 → 业务 API（状态与情绪、TOTP、图库、受管群、名单与选择器）；
  * 每类均经与原生路由表相同的前置中间件链（跨站拦截、浏览器直接导航拦截、Telegram WebApp 超管签名与会话校验）。
  * @param request 传入的 HTTP `Request`。
  * @returns 完整的 HTTP `Response`。
@@ -89,6 +89,7 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
 
   const preApiResponse: MiniAppRouteMatch =
     dispatchPageRoute(ctx, indexHtml) ??
+    (await dispatchBundleAssetRoute(ctx)) ??
     dispatchAuthRoute(ctx) ??
     dispatchGalleryDownloadRoute(ctx);
   if (preApiResponse !== null) return preApiResponse;

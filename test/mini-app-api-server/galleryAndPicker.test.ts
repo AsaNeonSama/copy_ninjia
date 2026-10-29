@@ -117,6 +117,9 @@ const {
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
+const { readBundledMiniAppIndex } = await import(
+  "../../packages/mini-app-api-server/handlers/page"
+);
 
 /**
  * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟密码会话的测试请求头。
@@ -649,6 +652,16 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(htmlText).toContain("id=\"root\"");
     expect(htmlText).not.toContain("./main.tsx");
 
+    const bundledRoot = await readBundledMiniAppIndex();
+    expect(bundledRoot).not.toBeNull();
+    expect(bundledRoot!.assetPaths.size).toBeGreaterThanOrEqual(3);
+    for (const assetPath of bundledRoot!.assetPaths) {
+      const rootAssetRes: Response = await fetch(
+        new URL(`.${assetPath}`, `http://127.0.0.1:${port}/`)
+      );
+      expect(rootAssetRes.status).toBe(200);
+    }
+
     const menuOk: boolean = await configureSuperAdminMenuButton({
       superAdminUserId: SUPER_ADMIN_USER_ID,
       buttonText: MINI_APP_BUTTON_TEXT,
@@ -673,5 +686,60 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       },
     });
     expect(prepBtnId).toBe("btn-42");
+  });
+
+  test("mini_app.url 带子路径时入口 HTML 本地资源引用均改为相对路径，且子路径下打包产物支持回环读取与 If-None-Match 304", async () => {
+    const server = startMiniAppServer({
+      url: "https://miniapp.example.com/sub",
+      host: "127.0.0.1",
+      port: 0,
+      password: "test-mini-app-password",
+    });
+    expect(server).not.toBeNull();
+    const port: number = server!.port ?? 0;
+    expect(port).toBeGreaterThan(0);
+
+    const subHtmlRes: Response = await fetch(`http://127.0.0.1:${port}/sub/`);
+    expect(subHtmlRes.status).toBe(200);
+    const subHtmlText: string = await subHtmlRes.text();
+
+    const bundled = await readBundledMiniAppIndex();
+    expect(bundled).not.toBeNull();
+    expect(bundled!.assetPaths.size).toBeGreaterThanOrEqual(3);
+
+    const attrRefs: string[] = Array.from(
+      subHtmlText.matchAll(/(?:src|href)="([^"]+)"/gu),
+      (match: RegExpExecArray): string => match[1] ?? ""
+    );
+    const localRefs: string[] = attrRefs.filter(
+      (ref: string): boolean => !ref.startsWith("https://") && !ref.startsWith("http://")
+    );
+    expect(localRefs.length).toBe(bundled!.assetPaths.size);
+    for (const ref of localRefs) {
+      expect(ref.startsWith("./")).toBeTrue();
+    }
+
+    for (const assetPath of bundled!.assetPaths) {
+      const rootAssetRes: Response = await fetch(`http://127.0.0.1:${port}${assetPath}`);
+      expect(rootAssetRes.status).toBe(200);
+      const rootBytes: Uint8Array = await rootAssetRes.bytes();
+
+      const subAssetRes: Response = await fetch(`http://127.0.0.1:${port}/sub${assetPath}`);
+      expect(subAssetRes.status).toBe(200);
+      const subBytes: Uint8Array = await subAssetRes.bytes();
+      expect(subBytes).toEqual(rootBytes);
+
+      const etag: string | null = subAssetRes.headers.get("etag");
+      expect(etag !== null && etag.length > 0).toBeTrue();
+      const notModifiedRes: Response = await fetch(`http://127.0.0.1:${port}/sub${assetPath}`, {
+        headers: { "If-None-Match": etag! },
+      });
+      expect(notModifiedRes.status).toBe(304);
+    }
+
+    const unknownAssetRes: Response = await fetch(
+      `http://127.0.0.1:${port}/sub/chunk-unknown.js`
+    );
+    expect(unknownAssetRes.status).toBe(404);
   });
 });

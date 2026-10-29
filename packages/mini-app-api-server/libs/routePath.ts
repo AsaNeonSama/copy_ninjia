@@ -26,7 +26,7 @@ function configuredBasePathname(): string {
 }
 
 /**
- * 将请求路径按 `mini_app.url` 配置的子路径前缀剥离为内部标准路径（同时兼容 Cloudflare Tunnel 保留前缀或剥离前缀两种转发模式）。
+ * 将请求路径按 `mini_app.url` 配置的子路径前缀剥离为内部标准路径（同时兼容反向代理保留前缀或剥离前缀两种转发模式，覆盖公开页面、打包入口静态资源与业务 API）。
  * @param rawPathname 原始 `url.pathname`。
  * @returns 归一化后的内部路由路径，或需重定向补齐末尾斜杠的指示。
  */

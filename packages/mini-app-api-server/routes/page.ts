@@ -1,15 +1,22 @@
+import { miniAppServerHolder } from "../../cache/main/miniApp";
 import type {
   MiniAppMiddleware,
   MiniAppRouteContext,
   MiniAppRouteMatch,
 } from "../../types/miniApp";
-import { handleGetFaviconRoute, handleHealthzRoute, serveMiniAppIndexHtml } from "../handlers/page";
+import {
+  handleGetFaviconRoute,
+  handleHealthzRoute,
+  readBundledMiniAppIndex,
+  serveMiniAppIndexHtml,
+} from "../handlers/page";
+import type { BundledMiniAppIndex } from "../handlers/page";
 import { getMiniAppPublicMiddlewareChain } from "../middleware/chains";
 import { executeMiniAppMiddlewareChain, withMiniAppMiddlewareChain } from "../middleware/pipeline";
 
 /**
  * 构建公开页面路由（`/healthz`、`/_bundle`、`/`、`/index.html`、`/favicon.ico`）的 `Bun.serve` 原生路由表片段；
- * `/_bundle` 直接挂载前端 HTML import，供 `serveMiniAppIndexHtml` 读取注入打包产物路径后的入口 HTML。
+ * `/_bundle` 直接挂载前端 HTML import，供 `readBundledMiniAppIndex` 读取注入打包产物路径后的入口 HTML 与资源集合。
  * @param indexHtml `server/register.ts` 以 HTML import 引入的前端入口。
  * @returns 公开页面路由表片段。
  */
@@ -78,4 +85,33 @@ export function dispatchPageRoute(
     );
   }
   return null;
+}
+
+/**
+ * 在兜底分发中匹配 `/_bundle` 入口 HTML 所引用的本地打包产物路径（如 `/chunk-*.js`、`/chunk-*.css`、`/favicon-*.ico`），
+ * 供 `mini_app.url` 带子路径前缀部署时经公开中间件链回环读取 `Bun.serve` 原生静态资源并透传 `If-None-Match`。
+ * @param ctx 路由请求上下文。
+ * @returns 命中打包产物路径时返回响应，未命中或服务未启动时返回 `null`。
+ */
+export async function dispatchBundleAssetRoute(
+  ctx: Readonly<MiniAppRouteContext>
+): Promise<Response | null> {
+  const { method, routePath }: Readonly<MiniAppRouteContext> = ctx;
+  if (method !== "GET" && method !== "HEAD") return null;
+  const activeServer: ReturnType<typeof Bun.serve> | null = miniAppServerHolder.current;
+  if (activeServer === null) return null;
+  const bundled: Readonly<BundledMiniAppIndex> | null = await readBundledMiniAppIndex();
+  if (!bundled?.assetPaths.has(routePath)) return null;
+  return executeMiniAppMiddlewareChain(
+    ctx,
+    getMiniAppPublicMiddlewareChain(),
+    (routeCtx: Readonly<MiniAppRouteContext>): Promise<Response> => {
+      const assetUrl: URL = new URL(routeCtx.routePath, activeServer.url);
+      const ifNoneMatch: string | null = routeCtx.request.headers.get("if-none-match");
+      return fetch(assetUrl, {
+        method: routeCtx.method,
+        headers: ifNoneMatch !== null ? { "If-None-Match": ifNoneMatch } : undefined,
+      });
+    }
+  );
 }
