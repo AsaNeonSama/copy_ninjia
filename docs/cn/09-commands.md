@@ -331,9 +331,9 @@
 当 `config/static/bot.json` 配置了可选的 `mini_app` 对象时，系统会启动本地 `Bun.serve` HTTP 服务（实现在 `packages/mini-app-api-server/`，前端在 `packages/mini-app-frontend/`），并在超级管理员私聊窗口左下角挂载 `MenuButtonWebApp`（`App` 按钮）。
 
 ### 1. 认证与安全边界
-- **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求先经 `headerGuard` 校验同源与凭据头形态，再经 `initData` 中间件执行 Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）与登录（`POST /api/auth/login`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。当请求携带仍在有效期内的会话令牌且距签发时刻超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发给客户端，同时在会话续期期间放行静态 `initData.auth_date`，直至用户停止访问。
+- **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求先经 `headerGuard` 校验同源与凭据头形态，再经 `initData` 中间件执行 Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）与登录（`POST /api/auth/login`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。当请求携带仍在有效期内的会话令牌且距签发时刻超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发给客户端，同时在会话续期期间放行静态 `initData.auth_date`，直至用户停止访问。换发后旧令牌在 5 分钟内仍可用于并发在途请求；服务端最多保留 `MINI_APP_SESSION_MAX`（8）个会话，每个会话只占一个槽位，满额时淘汰签发或刷新最早的会话。
 - **首屏凭据与锁定保护**：未绑定验证器时校验 `mini_app.password`；在控制台绑定 Google Authenticator (TOTP) 后（持久化于 `memory/mini-app-totp/totp.json`），登录优先校验当前 30 秒时间步的 6 位动态码。连续输错 3 次将锁定超级管理员 ID 30 分钟，转入锁定时向超级管理员私聊发送一次含解锁时间与来源 IP 的告警。
-- **受保护图库预览资源**：图库缩略预览（`GET /api/gallery/:name/preview`）通过仅在登录或有效会话续接时派发的确定性 `assetToken` 鉴权，并支持 7 天不可变缓存与 `ETag` 304 协商。
+- **受保护图库预览资源**：图库图片读取（`GET|HEAD /api/gallery/file/:fileName`）通过仅在登录或有效会话续接时派发的确定性 `assetToken` 鉴权，并支持 7 天不可变缓存与 `ETag` 304 协商。
 
 ### 2. HTTP API 路由与能力对照
 
@@ -349,7 +349,7 @@
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 查询或增删改本群的自定义问答对（`setQa`/`removeQa`）、追着删目标（`addDeleteTarget`/`removeDeleteTarget`）与追着翻目标（`addTranslateTarget`/`removeTranslateTarget`） |
 | `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | 分页查询与搜索白名单/黑名单（经 `readIdentityPolicyEntries` 冷读且叠加未 ACK 内存写入，不污染主线程热策略 LRU，同时与主线程 `senderIdentity` 发送者缓存双向对齐展示元数据），添加/移出黑白名单，修改白名单条目的细粒度权限或一键全开（`enableAll`） |
 | `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | 调用 Telegram `savePreparedKeyboardButton` 准备原生好友/联系人或频道选择器会话，并轮询 `users_shared`/`chat_shared` 导入回执（支持 `whitelist`、`blocklist`、`deleteMessage`、`translate` 四类目标列表） |
-| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/:name/delete`<br>`/api/gallery/:name/download` | `GET`<br>`POST`<br>`POST`/`DELETE`<br>`GET`/`HEAD` | 分页浏览专用图库、按原始二进制上传入库（执行与 `/h_image add` 相同的 SHA-256 命名去重与尺寸预检）、删除或下载原图 |
+| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/delete`<br>`/api/gallery/file/:fileName`<br>`/api/gallery/download/:fileName` | `GET`<br>`POST`<br>`POST`<br>`DELETE`<br>`GET`/`HEAD` | 分页浏览专用图库、按原始二进制上传入库（执行与 `/h_image add` 相同的 SHA-256 命名去重与尺寸预检）、删除或下载原图 |
 
 ### 3. 名单与群目标操作的冲突与边界守卫
 - **黑白名单添加守卫（按 ID 与原生选择器共用）**：

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import type { Message } from "grammy/types";
 import type {
@@ -688,7 +688,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(prepBtnId).toBe("btn-42");
   });
 
-  test("mini_app.url 带子路径时入口 HTML 本地资源引用均改为相对路径，且子路径下打包产物支持回环读取与 If-None-Match 304", async () => {
+  test("mini_app.url 带子路径时入口 HTML 本地资源引用均改为相对路径，且子路径下打包产物支持回环读取与 If-None-Match 304，业务 API 不触发 /_bundle 回环", async () => {
     const server = startMiniAppServer({
       url: "https://miniapp.example.com/sub",
       host: "127.0.0.1",
@@ -741,5 +741,16 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       `http://127.0.0.1:${port}/sub/chunk-unknown.js`
     );
     expect(unknownAssetRes.status).toBe(404);
+
+    const fetchSpy = spyOn(globalThis, "fetch");
+    try {
+      const apiRes: Response = await handleMiniAppHttpRequest(
+        new Request("http://127.0.0.1:3000/sub/api/gallery/file/a.png")
+      );
+      expect(apiRes.status).toBe(401);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

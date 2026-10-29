@@ -89,7 +89,8 @@ export function dispatchPageRoute(
 
 /**
  * 在兜底分发中匹配 `/_bundle` 入口 HTML 所引用的本地打包产物路径（如 `/chunk-*.js`、`/chunk-*.css`、`/favicon-*.ico`），
- * 供 `mini_app.url` 带子路径前缀部署时经公开中间件链回环读取 `Bun.serve` 原生静态资源并透传 `If-None-Match`。
+ * 供 `mini_app.url` 带子路径前缀部署时经公开中间件链回环读取 `Bun.serve` 原生静态资源并透传 `If-None-Match`；
+ * `/api/` 下的业务路径不属于打包产物，直接返回 `null`，不触发 `/_bundle` 回环读取。
  * @param ctx 路由请求上下文。
  * @returns 命中打包产物路径时返回响应，未命中或服务未启动时返回 `null`。
  */
@@ -97,7 +98,7 @@ export async function dispatchBundleAssetRoute(
   ctx: Readonly<MiniAppRouteContext>
 ): Promise<Response | null> {
   const { method, routePath }: Readonly<MiniAppRouteContext> = ctx;
-  if (method !== "GET" && method !== "HEAD") return null;
+  if ((method !== "GET" && method !== "HEAD") || routePath.startsWith("/api/")) return null;
   const activeServer: ReturnType<typeof Bun.serve> | null = miniAppServerHolder.current;
   if (activeServer === null) return null;
   const bundled: Readonly<BundledMiniAppIndex> | null = await readBundledMiniAppIndex();

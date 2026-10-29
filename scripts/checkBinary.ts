@@ -1,11 +1,12 @@
-/** 在独立临时部署中核对编译产物：无 source map 与 node_modules、版本一致、内置图片编解码、各 Worker 与正常排空，并在无系统 Bun 下执行发行包携带的冷迁移与安装器（首次安装与迁移后升级）。 */
+/** 在独立临时部署中核对编译产物：无 source map 与 node_modules、服务端 favicon 随包且与源文件一致、版本一致、内置图片编解码、各 Worker 与正常排空，并在无系统 Bun 下执行发行包携带的冷迁移与安装器（首次安装与迁移后升级）。 */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../packages/consts/configLayout";
-import { MINI_APP_FAVICON_PATH } from "../packages/consts/paths";
+import { MINI_APP_FAVICON_PATH, PROJECT_ROOT } from "../packages/consts/paths";
 import { PROMPT_DIR_NAME, PROMPT_EXAMPLE_DIR_NAME } from "../packages/consts/promptLayout";
 import { checkBinaryMigrations } from "./checkBinaryMigrations";
+import { fileSha256 } from "./fileSha256";
 import { PRESERVED_MIGRATION_CONFIG_FILES, assertMigrationSourcesUnchanged, deployMigratedFixture } from "./fixtures/migrationDeployment";
 import type { MigratedDeployment } from "./fixtures/migrationDeployment";
 import { copyFixtureTree } from "./fixtures/copyTree";
@@ -46,20 +47,11 @@ try {
   }
   await copyFixtureTree(source, root);
   chmodSync(executable, 0o700);
-  const packagedFavicon: Bun.BunFile = Bun.file(
-    join(root, "packages", "mini-app-api-server", "resource", "favicon.ico")
-  );
-  if (!(await packagedFavicon.exists())) {
-    throw new Error("Binary package is missing packages/mini-app-api-server/resource/favicon.ico.");
-  }
-  const packagedFaviconSha256: string = new Bun.CryptoHasher("sha256")
-    .update(await packagedFavicon.bytes())
-    .digest("hex");
-  const sourceFaviconSha256: string = new Bun.CryptoHasher("sha256")
-    .update(await Bun.file(MINI_APP_FAVICON_PATH).bytes())
-    .digest("hex");
-  if (packagedFaviconSha256 !== sourceFaviconSha256) {
-    throw new Error("Binary package favicon.ico SHA-256 does not match source.");
+  const faviconRelativePath: string = relative(PROJECT_ROOT, MINI_APP_FAVICON_PATH);
+  const packagedFaviconPath: string = join(root, faviconRelativePath);
+  if (!(await Bun.file(packagedFaviconPath).exists())) throw new Error(`Binary package is missing ${faviconRelativePath}.`);
+  if (await fileSha256(packagedFaviconPath) !== await fileSha256(MINI_APP_FAVICON_PATH)) {
+    throw new Error(`Binary package ${faviconRelativePath} SHA-256 does not match source.`);
   }
   const manifest: { readonly version: string } = await Bun.file(join(root, "package.json")).json() as { readonly version: string };
   if (run(["--version"]).trim() !== manifest.version) throw new Error("Binary version must match the packaged manifest.");

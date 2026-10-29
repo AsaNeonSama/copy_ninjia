@@ -37,7 +37,7 @@ function findMiniAppAuthSession(
   if (direct !== undefined) {
     return direct.expiresAt > nowMs ? direct : null;
   }
-  for (const [, session] of miniAppAuthSessions) {
+  for (const session of miniAppAuthSessions.values()) {
     if (
       session.previousToken === token &&
       session.expiresAt > nowMs &&

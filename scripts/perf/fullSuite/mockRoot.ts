@@ -143,7 +143,7 @@ export async function createBenchmarkConfigRoot(runRoot: string): Promise<string
     botConfig.includes(MINI_APP_PASSWORD_PLACEHOLDER)
   ) {
     throw new Error(
-      "Benchmark Telegram configuration still contains a placeholder token."
+      "Benchmark Telegram configuration still contains placeholder credentials."
     );
   }
   assertInsidePerformanceMockRoot(telegramPath);

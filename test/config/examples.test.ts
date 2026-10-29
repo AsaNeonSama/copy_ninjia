@@ -82,6 +82,7 @@ describe("config_example 与解析器保持同步", () => {
     expect(parseWithOnlyToken).toThrow(
       `${path}: $.mini_app.password must be a configured non-empty password string containing at least 6 digits`
     );
+    expect(parseWithOnlyToken).not.toThrow(MINI_APP_PASSWORD_PLACEHOLDER);
     // 拒绝理由只是占位 token 与占位 mini_app.password：换成真值后同一份示例能解析通过，示例的其余字段（键集合、super_admin_user_id 与 mini_app 形态）与解析器一致。
     const rawRecord = raw as Readonly<{
       time_zone: string;
