@@ -127,6 +127,7 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
       get: () => MiniAppIdentitiesStoreState
     ): MiniAppIdentitiesStoreState => {
       let requestSeq: number = 0;
+      let clampedFollowUpKey: string | null = null;
 
       const notify = (
         message: string,
@@ -256,6 +257,18 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
             blocklistPageNumber,
             blocklistPageSize,
           }: MiniAppIdentitiesStoreState = get();
+          const currentPageNumber: number =
+            subTab === "whitelist" ? whitelistPageNumber : blocklistPageNumber;
+          const currentPageSize: number =
+            subTab === "whitelist" ? whitelistPageSize : blocklistPageSize;
+          const currentKey: string = `${subTab}:${currentPageNumber}:${currentPageSize}:${debouncedQuery}`;
+          if (clampedFollowUpKey !== null) {
+            const skipKey: string = clampedFollowUpKey;
+            clampedFollowUpKey = null;
+            if (skipKey === currentKey) {
+              return;
+            }
+          }
           const reqId: number = ++requestSeq;
           const startedAt: number = Date.now();
           if (!silent) {
@@ -274,13 +287,20 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
               if (reqId !== requestSeq) {
                 return;
               }
-              set({
-                whitelistPage: page,
-                whitelistTotal: page.whitelistTotal,
-                blocklistTotal: page.blocklistTotal,
-              });
               if (page.page !== whitelistPageNumber) {
-                set({ whitelistPageNumber: page.page });
+                clampedFollowUpKey = `whitelist:${page.page}:${whitelistPageSize}:${debouncedQuery}`;
+                set({
+                  whitelistPage: page,
+                  whitelistTotal: page.whitelistTotal,
+                  blocklistTotal: page.blocklistTotal,
+                  whitelistPageNumber: page.page,
+                });
+              } else {
+                set({
+                  whitelistPage: page,
+                  whitelistTotal: page.whitelistTotal,
+                  blocklistTotal: page.blocklistTotal,
+                });
               }
             } else {
               const page: MiniAppBlocklistPage = await fetchMiniAppBlocklist(
@@ -294,13 +314,20 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
               if (reqId !== requestSeq) {
                 return;
               }
-              set({
-                blocklistPage: page,
-                whitelistTotal: page.whitelistTotal,
-                blocklistTotal: page.blocklistTotal,
-              });
               if (page.page !== blocklistPageNumber) {
-                set({ blocklistPageNumber: page.page });
+                clampedFollowUpKey = `blocklist:${page.page}:${blocklistPageSize}:${debouncedQuery}`;
+                set({
+                  blocklistPage: page,
+                  whitelistTotal: page.whitelistTotal,
+                  blocklistTotal: page.blocklistTotal,
+                  blocklistPageNumber: page.page,
+                });
+              } else {
+                set({
+                  blocklistPage: page,
+                  whitelistTotal: page.whitelistTotal,
+                  blocklistTotal: page.blocklistTotal,
+                });
               }
             }
           } catch (error: unknown) {

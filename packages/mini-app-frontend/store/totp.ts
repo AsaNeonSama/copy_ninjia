@@ -27,7 +27,7 @@ export interface MiniAppTotpStoreState {
   /** 是否正在拉取验证器状态。 */
   readonly loadingStatus: boolean;
 
-  /** 拉取验证器状态并同步根 store 的登录模式；只采纳最后一次发起的请求结果，失败时保持静默。 */
+  /** 拉取验证器状态并同步根 store 的登录模式；只采纳最后一次发起的请求结果。 */
   readonly loadTotpStatus: () => Promise<void>;
   /** 生成新的待确认密钥与二维码，进入绑定流程。 */
   readonly startSetup: () => Promise<void>;
@@ -79,9 +79,12 @@ export function createTotpStore(): MiniAppTotpStore {
             useMiniAppStore
               .getState()
               .setAuthMode(next.enabled ? "totp" : "password");
-          } catch (_error: unknown) {
+          } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
-            // 保持静默，由主状态轮询统一处理网络或会话错误
+            if (reqId !== requestSeq) {
+              return;
+            }
+            useMiniAppStore.getState().notify(errorMessage(error), "info", error);
           } finally {
             if (reqId === requestSeq) {
               set({ loadingStatus: false });

@@ -40,6 +40,7 @@ export function createMessagesStore(): MiniAppMessagesStore {
       set: (partial: Partial<MiniAppMessagesStoreState>) => void
     ): MiniAppMessagesStoreState => {
       let requestSeq: number = 0;
+      let clampedFollowUpKey: string | null = null;
 
       return {
         pageSize: MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
@@ -52,6 +53,14 @@ export function createMessagesStore(): MiniAppMessagesStore {
           nextPage: number,
           nextPageSize: number
         ): Promise<void> => {
+          const currentKey: string = `${chatId}:${nextPage}:${nextPageSize}`;
+          if (clampedFollowUpKey !== null) {
+            const skipKey: string = clampedFollowUpKey;
+            clampedFollowUpKey = null;
+            if (skipKey === currentKey) {
+              return;
+            }
+          }
           const reqId: number = ++requestSeq;
           const startedAt: number = Date.now();
           set({ loading: true });
@@ -65,9 +74,11 @@ export function createMessagesStore(): MiniAppMessagesStore {
             if (reqId !== requestSeq) {
               return;
             }
-            set({ pageData: data });
             if (data.page !== nextPage) {
-              set({ pageNumber: data.page });
+              clampedFollowUpKey = `${chatId}:${data.page}:${nextPageSize}`;
+              set({ pageData: data, pageNumber: data.page });
+            } else {
+              set({ pageData: data });
             }
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);

@@ -247,9 +247,10 @@ describe("前端接口文件与纯函数辅助库", () => {
         },
       },
     };
-    expect(await downloadMiniAppGalleryImageByName("a.png")).toBeFalse();
+    const aDownloadName: string = buildMiniAppGalleryDownloadFileName("a.png");
+    expect(await downloadMiniAppGalleryImageByName("a.png", aDownloadName)).toBeFalse();
     expect(requests[0]?.key).toStartWith("HEAD /api/gallery/download/a.png?");
-    expect(downloads[0]?.file_name).toBe(buildMiniAppGalleryDownloadFileName("a.png"));
+    expect(downloads[0]?.file_name).toBe(aDownloadName);
 
     const clicked: string[] = [];
     (globalThis as { Telegram?: unknown }).Telegram = { WebApp: { initData: "signed-init-data" } };
@@ -265,14 +266,17 @@ describe("前端接口文件与纯函数辅助库", () => {
       },
       body: { appendChild: (): void => {} },
     };
-    expect(await downloadMiniAppGalleryImageByName("b.webp")).toBeTrue();
-    expect(clicked).toEqual([buildMiniAppGalleryDownloadFileName("b.webp")]);
+    const bDownloadName: string = buildMiniAppGalleryDownloadFileName("b.webp");
+    expect(await downloadMiniAppGalleryImageByName("b.webp", bDownloadName)).toBeTrue();
+    expect(clicked).toEqual([bDownloadName]);
 
     responses.set("HEAD /api/gallery/download/c.png?initData=signed-init-data&session=" + session, (): Response =>
       new Response(null, { status: 401 }));
     responses.set("GET /api/gallery/download/c.png", (): Response =>
       Response.json({ code: "PASSWORD_REQUIRED", error: "login again" }, { status: 401 }));
-    await expect(downloadMiniAppGalleryImageByName("c.png")).rejects.toThrow("login again");
+    await expect(
+      downloadMiniAppGalleryImageByName("c.png", buildMiniAppGalleryDownloadFileName("c.png"))
+    ).rejects.toThrow("login again");
     expect(readMiniAppSessionToken()).toBe("");
   });
 

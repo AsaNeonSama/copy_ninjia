@@ -16,17 +16,26 @@ import { LockSvgIcon, RefreshSvgIcon, TrashSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createTotpStore } from "../store/totp";
-import type { MiniAppTotpStoreState } from "../store/totp";
+import type { MiniAppTotpStore, MiniAppTotpStoreState } from "../store/totp";
 import type { MiniAppLanguage } from "../types/miniApp";
 import type { MiniAppTotpSetupResponse } from "../types/miniAppTotp";
+
+/** `TotpPage` 组件属性。 */
+export interface TotpPageProps {
+  /** 可选的状态仓库工厂（默认 `createTotpStore`）。 */
+  readonly storeFactory?: () => MiniAppTotpStore;
+}
 
 /**
  * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理页面
  * （点击添加或修改验证器时平滑收起顶部触发按钮并展开绑定表单，展开结束后按 `scrollViewportToExpandedBody` 让视口平滑跟滚，提交 6 位动态码核验时按钮展示三点波浪加载动效，取消时保留二维码快照完成收起过渡）。
  *
+ * @param props 组件属性
  * @returns React 节点
  */
-export function TotpPage(): React.JSX.Element {
+export function TotpPage({
+  storeFactory = createTotpStore,
+}: TotpPageProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
@@ -43,7 +52,7 @@ export function TotpPage(): React.JSX.Element {
     cancelSetup,
     verifyEnable,
     deleteTotp,
-  }: MiniAppTotpStoreState = useComponentStore(createTotpStore);
+  }: MiniAppTotpStoreState = useComponentStore(storeFactory);
 
   const cardRef: React.RefObject<ViewportRectElement | null> =
     useRef<ViewportRectElement | null>(null);
@@ -113,7 +122,7 @@ export function TotpPage(): React.JSX.Element {
         </button>
       </div>
 
-      {loadingStatus && totpStatus === null ? (
+      {totpStatus === null ? (
         <TotpSkeleton />
       ) : (
         <div

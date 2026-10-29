@@ -1,9 +1,7 @@
 import {
-  clearMiniAppSessionToken,
   readMiniAppAssetToken,
   readMiniAppSessionToken,
 } from "../libs/credentials";
-import { buildMiniAppGalleryDownloadFileName } from "../libs/formatters";
 import { asPayloadRecord } from "../libs/record";
 import { getTelegramWebApp, readMiniAppInitData } from "../libs/telegram";
 import type {
@@ -11,7 +9,11 @@ import type {
   TelegramWebApp,
   TelegramWindow,
 } from "../types/miniApp";
-import { buildMiniAppAuthHeaders, syncRefreshedMiniAppSession } from "./request";
+import {
+  buildMiniAppAuthHeaders,
+  consumeMiniAppAuthErrorPrefix,
+  syncRefreshedMiniAppSession,
+} from "./request";
 
 /**
  * 构造 `GET|HEAD ./api/gallery/download/:fileName` 图库单张图片附件下载 URL（携带受保护资源令牌或 `initData`，以及 45 分钟 `session` 会话令牌）。
@@ -38,11 +40,15 @@ export function buildMiniAppGalleryDownloadUrl(fileName: string): string {
 }
 
 /**
- * 先通过完整双层鉴权 `HEAD /api/gallery/download/:fileName` 校验 45 分钟会话与文件存在性，随后优先调用 Telegram 原生 `WebApp.downloadFile({ url, file_name })`（或浏览器原生 `Content-Disposition: attachment` 直连下载）并以秒级时间戳文件名将图片保存至系统默认下载目录。
+ * 先通过完整双层鉴权 `HEAD /api/gallery/download/:fileName` 校验 45 分钟会话与文件存在性，随后优先调用 Telegram 原生 `WebApp.downloadFile({ url, file_name })`（或浏览器原生 `Content-Disposition: attachment` 直连下载）并以给定的目标文件名将图片保存至系统默认下载目录。
  * @param fileName 待下载的图库图片文件名
+ * @param downloadFileName 保存至本地的目标文件名
  * @returns 用户确认或触发原生下载时返回 `true`，在 Telegram 原生弹窗中取消时返回 `false`
  */
-export async function downloadMiniAppGalleryImageByName(fileName: string): Promise<boolean> {
+export async function downloadMiniAppGalleryImageByName(
+  fileName: string,
+  downloadFileName: string
+): Promise<boolean> {
   const relativeUrl: string = buildMiniAppGalleryDownloadUrl(fileName);
   const response: Response = await fetch(relativeUrl, {
     method: "HEAD",
@@ -56,19 +62,15 @@ export async function downloadMiniAppGalleryImageByName(fileName: string): Promi
     );
     const payload: unknown = await getRes.json().catch((): null => null);
     const record: Record<string, unknown> = asPayloadRecord(payload);
+    const prefix: string = consumeMiniAppAuthErrorPrefix(record);
     const errText: string =
       typeof record.message === "string"
         ? record.message
         : typeof record.error === "string"
           ? record.error
           : `HTTP ${String(response.status)}`;
-    if (record.code === "PASSWORD_REQUIRED" || record.code === "PASSWORD_LOCKED") {
-      clearMiniAppSessionToken();
-      throw new Error(`[${record.code}] ${errText}`, { cause: record });
-    }
-    throw new Error(errText, { cause: record });
+    throw new Error(`${prefix}${errText}`, { cause: record });
   }
-  const downloadFileName: string = buildMiniAppGalleryDownloadFileName(fileName);
   const tgWindow: TelegramWindow = globalThis;
   const baseHref: string | undefined = tgWindow.location?.href;
   const absoluteUrl: string =

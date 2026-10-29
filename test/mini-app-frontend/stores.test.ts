@@ -4,6 +4,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_PAGINATION_HOVER_DURATION_MS,
@@ -19,6 +21,7 @@ import {
   setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
 import { computeCapabilityCollapseDurationMs } from "../../packages/mini-app-frontend/libs/formatters";
+import { TotpPage } from "../../packages/mini-app-frontend/pages/TotpPage";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import { createGalleryStore } from "../../packages/mini-app-frontend/store/gallery";
@@ -76,7 +79,7 @@ afterEach((): void => {
 });
 
 describe("根 store", () => {
-  test("notify 展示 Toast 并在时限后清除，PASSWORD_REQUIRED 前缀改为锁定会话", () => {
+  test("notify 展示 Toast 并在时限后清除，PASSWORD_REQUIRED 锁定会话，PASSWORD_LOCKED 重新预检进入 denied", async () => {
     jest.useFakeTimers();
     useMiniAppStore.setState({ gateState: "unlocked", sessionExpiresAt: 1 });
     useMiniAppStore.getState().notify("hello", "warning");
@@ -91,6 +94,17 @@ describe("根 store", () => {
     expect(useMiniAppStore.getState().toastText).toBe("expired");
     expect(useMiniAppStore.getState().toastTone).toBe("warning");
     expect(useMiniAppStore.getState().sessionExpiresAt).toBe(0);
+
+    setMiniAppSessionToken("e".repeat(64), Date.now() + 60_000);
+    route("GET /api/auth/precheck", (): Response =>
+      json({ ok: false, code: "PASSWORD_LOCKED", error: "locked" }, 403));
+    useMiniAppStore.setState({ gateState: "unlocked", sessionExpiresAt: 1 });
+    useMiniAppStore.getState().notify("[PASSWORD_LOCKED] locked");
+    expect(useMiniAppStore.getState().gateState).toBe("checking");
+    expect(readMiniAppSessionToken()).toBe("");
+    await useMiniAppStore.getState().runAccessPrecheck();
+    expect(useMiniAppStore.getState().gateState).toBe("denied");
+    expect(useMiniAppStore.getState().deniedDiag?.code).toBe("PASSWORD_LOCKED");
   });
 
   test("预检按结果进入 denied、password 或 unlocked，网络异常落到兜底诊断", async () => {
@@ -390,16 +404,35 @@ describe("页面 store", () => {
     expect(store.getState().loadingList).toBeFalse();
   });
 
-  test("热发言记录：服务端夹紧页码时同步当前页码", async () => {
+  test("热发言记录与名单：服务端夹紧页码时同步当前页码且后续 effect 不重复请求", async () => {
     const store = createMessagesStore();
     route("GET /api/chats/-100/messages", (url: URL): Response =>
       json({ page: 2, pageSize: Number(url.searchParams.get("pageSize")), items: [] }));
     await store.getState().loadMessages(-100, 9, 15);
+    await store.getState().loadMessages(-100, store.getState().pageNumber, 15);
     expect(fetchCalls).toEqual(["GET /api/chats/-100/messages?page=9&pageSize=15"]);
     expect(store.getState().pageNumber).toBe(2);
     expect(store.getState().pageData?.pageSize).toBe(15);
     store.getState().setPageSize(20);
     expect(store.getState().pageNumber).toBe(1);
+
+    const identities = createIdentitiesStore();
+    identities.getState().setWhitelistPageNumber(5);
+    route("GET /api/identities/whitelist", (): Response =>
+      json({ page: 1, items: [], whitelistTotal: 0, blocklistTotal: 0 }));
+    await identities.getState().loadCurrentList();
+    await identities.getState().loadCurrentList();
+    expect(identities.getState().whitelistPageNumber).toBe(1);
+    expect(fetchCalls.filter((c: string): boolean => c.startsWith("GET /api/identities/whitelist"))).toHaveLength(1);
+
+    identities.getState().selectSubTab("blocklist");
+    identities.getState().setBlocklistPageNumber(4);
+    route("GET /api/identities/blocklist", (): Response =>
+      json({ page: 1, items: [], whitelistTotal: 0, blocklistTotal: 0 }));
+    await identities.getState().loadCurrentList();
+    await identities.getState().loadCurrentList();
+    expect(identities.getState().blocklistPageNumber).toBe(1);
+    expect(fetchCalls.filter((c: string): boolean => c.startsWith("GET /api/identities/blocklist"))).toHaveLength(1);
   });
 
   test("名单：搜索词变化才回到第 1 页，按 ID 添加的校验、判重与成功回执", async () => {
@@ -513,9 +546,23 @@ describe("页面 store", () => {
     expect(store.getState().uploading).toBeFalse();
     expect(store.getState().uploadStatusText).toBeNull();
     expect(store.getState().page).toBe(1);
+
+    fetchCalls.length = 0;
+    useMiniAppStore.setState({ gateState: "unlocked" });
+    route("POST /api/gallery/upload", (): Response =>
+      json({ code: "PASSWORD_REQUIRED", error: "expired" }, 401));
+    await store.getState().uploadFiles([new File([new Uint8Array([1])], "x.png"), new File([new Uint8Array([2])], "y.png")]);
+    expect(fetchCalls).toEqual(["POST /api/gallery/upload"]);
+    expect(useMiniAppStore.getState().gateState).toBe("password");
   });
 
-  test("验证器：拉取状态同步登录模式，动态码格式不符就地提示，删除需确认", async () => {
+  test("验证器：拉取状态同步登录模式，失败时报错且不渲染未启用，动态码格式不符就地提示，删除需确认", async () => {
+    const failedStore = createTotpStore();
+    route("GET /api/totp", (): Response => json({ error: "totp read failed" }, 500));
+    await failedStore.getState().loadTotpStatus();
+    expect(useMiniAppStore.getState().toastText).toBe("totp read failed");
+    expect(renderToStaticMarkup(createElement(TotpPage, { storeFactory: () => failedStore }))).not.toContain(zh.totp.disabledBadge);
+
     const store = createTotpStore();
     route("GET /api/totp", (): Response => json({ enabled: true, createdAt: 1, maskedSecret: "AB••" }));
     await store.getState().loadTotpStatus();
@@ -620,49 +667,31 @@ describe("页面 store", () => {
     expect(useMiniAppStore.getState().toastTone).toBe("info");
 
     const completion = {
-      hours: 6,
-      recordCount: 5,
-      scanned: 5,
-      kicked: 4,
-      absent: 1,
-      protected: 0,
-      blocked: 0,
-      forbidden: 0,
-      failed: 0,
-      aborted: false,
-      unmanaged: false,
-      completedAt: 1_700_000_000_000,
+      hours: 6, recordCount: 5, scanned: 5, kicked: 4, absent: 1, protected: 0,
+      blocked: 0, forbidden: 0, failed: 0, aborted: false, unmanaged: false, completedAt: 1_700_000_000_000,
     };
     route("GET /api/chats/-100", (): Response =>
       json({
         detail: {
-          chatId: -100,
-          title: "x",
-          joinedCountsByHour: Array.from({ length: 24 }, (): number => 1),
-          batchKickRunning: false,
-          lastBatchKickCompletion: completion,
+          chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: 24 }, (): number => 1),
+          batchKickRunning: false, lastBatchKickCompletion: completion,
         },
       }));
+    jest.useFakeTimers();
     await store.getState().pollRunningBatchKick();
     expect(store.getState().chatDetail?.batchKickRunning).toBeFalse();
     expect(store.getState().chatDetail?.lastBatchKickCompletion).toEqual(completion);
     expect(useMiniAppStore.getState().toastText).toBe(
       zh.chats.batchKickCompletedSummary(completion)
     );
+    jest.advanceTimersByTime(MINI_APP_TOAST_DURATION_MS);
+    expect(useMiniAppStore.getState().toastText).toBe("");
+    jest.useRealTimers();
 
     route("POST /api/chats/-100/batch-kick", (): Response =>
       json({
-        ok: true,
-        outcome: "empty",
-        hours: 6,
-        recordCount: 0,
-        message: "BATCH_KICK_EMPTY",
-        detail: {
-          chatId: -100,
-          title: "x",
-          joinedCountsByHour: Array.from({ length: 24 }, (): number => 0),
-          batchKickRunning: false,
-        },
+        ok: true, outcome: "empty", hours: 6, recordCount: 0, message: "BATCH_KICK_EMPTY",
+        detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: 24 }, (): number => 0), batchKickRunning: false },
       }));
     const emptyKick: Promise<void> = store.getState().runBatchKick();
     useMiniAppStore.getState().resolveConfirm(true);

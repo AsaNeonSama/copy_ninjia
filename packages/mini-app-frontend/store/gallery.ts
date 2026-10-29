@@ -68,7 +68,7 @@ export interface MiniAppGalleryStoreState {
   readonly downloadImage: (fileName: string) => Promise<void>;
   /** 确认后删除指定图片并重载当前页。 */
   readonly deleteImage: (fileName: string) => Promise<void>;
-  /** 逐个上传选中的图片并汇总结果，完成后回到第 1 页重载。 */
+  /** 逐个上传选中的图片并汇总结果，完成后回到第 1 页重载；遇鉴权失败（密码过期或锁定）立即中止并交由全局通知处理。 */
   readonly uploadFiles: (files: readonly File[]) => Promise<void>;
 }
 
@@ -224,7 +224,10 @@ export function createGalleryStore(): MiniAppGalleryStore {
           set({ downloadingFileName: fileName });
           try {
             const downloadFileName: string = buildMiniAppGalleryDownloadFileName(fileName);
-            const accepted: boolean = await downloadMiniAppGalleryImageByName(fileName);
+            const accepted: boolean = await downloadMiniAppGalleryImageByName(
+              fileName,
+              downloadFileName
+            );
             if (accepted) {
               useMiniAppStore.getState().notify(t.gallery.downloadedToast(downloadFileName));
             }
@@ -300,7 +303,14 @@ export function createGalleryStore(): MiniAppGalleryStore {
                 } else {
                   failed++;
                 }
-              } catch (_error: unknown) {
+              } catch (error: unknown) {
+                const message: string = errorMessage(error);
+                if (
+                  message.includes("[PASSWORD_REQUIRED]") ||
+                  message.includes("[PASSWORD_LOCKED]")
+                ) {
+                  throw error;
+                }
                 failed++;
               }
             }
@@ -321,6 +331,8 @@ export function createGalleryStore(): MiniAppGalleryStore {
                 `+${added} · =${existing} · !${invalidDimensions + failed}`
               );
             }
+          } catch (error: unknown) {
+            useMiniAppStore.getState().notify(errorMessage(error), "warning", error);
           } finally {
             set({ uploading: false, uploadStatusText: null });
           }

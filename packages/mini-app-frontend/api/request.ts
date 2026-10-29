@@ -57,6 +57,23 @@ export function buildMiniAppAuthHeaders(includeSession: boolean, contentType?: s
 }
 
 /**
+ * 核对服务端错误响应记录中的鉴权失败状态码：命中 `PASSWORD_REQUIRED` 或 `PASSWORD_LOCKED` 时
+ * 清除本地会话令牌并返回 `"[<状态码>] "` 前缀，否则返回空字符串。
+ * @param record 服务端响应 JSON 解析出的字典
+ * @returns 鉴权失败前缀或空字符串
+ */
+export function consumeMiniAppAuthErrorPrefix(
+  record: Readonly<Record<string, unknown>>
+): string {
+  const code: string = typeof record.code === "string" ? record.code : "";
+  if (code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED") {
+    clearMiniAppSessionToken();
+    return `[${code}] `;
+  }
+  return "";
+}
+
+/**
  * 调用 Mini App 后端 JSON 接口并附带 SuperAdmin `initData` 与 45 分钟密码会话令牌请求头。
  * 非 2xx 响应抛出 `Error`：会话缺失或锁定（`PASSWORD_REQUIRED` / `PASSWORD_LOCKED`）时先清除本地会话令牌，并在消息前加 `[代号] ` 前缀。
  * @param path 相对路径（如 `./api/status`）
@@ -75,16 +92,13 @@ export async function miniAppFetchJson<T>(path: string, init?: RequestInit): Pro
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok) {
     const record: Record<string, unknown> = asPayloadRecord(payload);
-    const code: string = typeof record.code === "string" ? record.code : "";
-    if (code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED") clearMiniAppSessionToken();
+    const prefix: string = consumeMiniAppAuthErrorPrefix(record);
     const errorMessage: string =
       typeof record.error === "string"
         ? record.error
         : typeof record.message === "string"
           ? record.message
           : `HTTP ${response.status}`;
-    const prefix: string =
-      code === "PASSWORD_REQUIRED" || code === "PASSWORD_LOCKED" ? `[${code}] ` : "";
     throw new Error(`${prefix}${errorMessage}`, { cause: record });
   }
   return payload as T;

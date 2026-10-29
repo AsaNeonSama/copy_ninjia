@@ -547,7 +547,7 @@ export function createChatsStore(): MiniAppChatsStore {
               nextDetail.lastBatchKickCompletion !== null
             ) {
               const app: MiniAppUiStoreState = useMiniAppStore.getState();
-              app.showToast(
+              app.notify(
                 getMiniAppTranslations(app.language).chats.batchKickCompletedSummary(
                   nextDetail.lastBatchKickCompletion
                 ),

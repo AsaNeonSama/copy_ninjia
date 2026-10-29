@@ -91,7 +91,8 @@ export interface MiniAppUiStoreState {
   readonly setPasswordInput: (value: string) => void;
   /**
    * 展示一条自动消失的 Toast（`MINI_APP_TOAST_DURATION_MS` 后清除，重复调用重新计时）；
-   * 服务端英文状态码自动按当前语言映射为对应提示文案，文本含 `[PASSWORD_REQUIRED]` 时改为按会话过期锁定控制台。
+   * 服务端英文状态码自动按当前语言映射为对应提示文案，文本含 `[PASSWORD_REQUIRED]` 时改为按会话过期锁定控制台，
+   * 含 `[PASSWORD_LOCKED]` 时清除本地会话并回到 `checking` 重新预检进入拦截页。
    */
   readonly notify: (
     message: string,
@@ -161,6 +162,16 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         if (sessionTimer !== null) {
           clearTimeout(sessionTimer);
           sessionTimer = null;
+        }
+      };
+
+      const clearActiveSessionState = (): void => {
+        clearSessionTimer();
+        clearMiniAppAssetToken();
+        clearMiniAppSessionToken();
+        const current: Readonly<MiniAppConfirmModalState> | null = get().confirmModal;
+        if (current !== null) {
+          current.resolve(false);
         }
       };
 
@@ -296,6 +307,18 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             message,
             extractServerNoticeParams(metaSource)
           );
+          if (message.includes("[PASSWORD_LOCKED]")) {
+            clearActiveSessionState();
+            set({
+              gateState: "checking",
+              sidebarOpen: false,
+              statusReady: false,
+              sessionExpiresAt: 0,
+              confirmModal: null,
+              passwordInput: "",
+            });
+            return;
+          }
           if (message.includes("[PASSWORD_REQUIRED]")) {
             get().lockSession(localized);
             return;
@@ -311,13 +334,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         },
 
         lockSession: (reason: string): void => {
-          clearSessionTimer();
-          clearMiniAppAssetToken();
-          clearMiniAppSessionToken();
-          const current: Readonly<MiniAppConfirmModalState> | null = get().confirmModal;
-          if (current !== null) {
-            current.resolve(false);
-          }
+          clearActiveSessionState();
           const localizedReason: string = getMiniAppTranslations(
             get().language
           ).serverNotice(reason);
