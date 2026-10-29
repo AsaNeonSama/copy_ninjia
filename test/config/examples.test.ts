@@ -34,6 +34,7 @@ import {
   STICKERS_CONFIG_PATH,
 } from "../../packages/consts/paths";
 import { TELEGRAM_BOT_TOKEN_PLACEHOLDER } from "../../packages/consts/telegram";
+import { MINI_APP_PASSWORD_PLACEHOLDER } from "../../packages/consts/miniApp";
 import { CRON_RANDOM_INTERVAL_MIN_MS } from "../../packages/consts/cron";
 import { readJsonInput } from "../../packages/libs/inputValidation";
 import type { CronAction, CronConfig, CronTask } from "../../packages/types/cron";
@@ -61,16 +62,27 @@ describe("config_example 与解析器保持同步", () => {
     });
   }
 
-  test("bot.json 恰好因为占位 token 被拒绝，且占位符与常量一致", async () => {
+  test("bot.json 恰好因为占位 token 与占位 mini_app 密码被拒绝，且占位符与常量一致", async () => {
     const raw: unknown = await readJsonInput(examplePath(BOT_CONFIG_PATH));
-    expect(raw).toMatchObject({ bot_token: TELEGRAM_BOT_TOKEN_PLACEHOLDER });
+    expect(raw).toMatchObject({
+      bot_token: TELEGRAM_BOT_TOKEN_PLACEHOLDER,
+      mini_app: { password: MINI_APP_PASSWORD_PLACEHOLDER },
+    });
 
     const path: string = examplePath(BOT_CONFIG_PATH);
     const parse = (): unknown => parseBotConfig(raw, path);
     expect(parse).toThrow(
       `${path}: $.bot_token must be a configured non-placeholder string`
     );
-    // 拒绝理由只是占位 token：换成真值后同一份示例能解析通过，示例的其余字段（键集合、super_admin_user_id 与 mini_app 形态）与解析器一致。
+    const parseWithOnlyToken = (): unknown =>
+      parseBotConfig(
+        { ...(raw as Readonly<Record<string, unknown>>), bot_token: "123456789:example" },
+        path
+      );
+    expect(parseWithOnlyToken).toThrow(
+      `${path}: $.mini_app.password must be a configured non-empty password string containing at least 6 digits`
+    );
+    // 拒绝理由只是占位 token 与占位 mini_app.password：换成真值后同一份示例能解析通过，示例的其余字段（键集合、super_admin_user_id 与 mini_app 形态）与解析器一致。
     const rawRecord = raw as Readonly<{
       time_zone: string;
       atmosphere: BotAtmosphere;
@@ -84,7 +96,14 @@ describe("config_example 与解析器保持同步", () => {
     }>;
     expect(
       parseBotConfig(
-        { ...(raw as Readonly<Record<string, unknown>>), bot_token: "123456789:example" },
+        {
+          ...(raw as Readonly<Record<string, unknown>>),
+          bot_token: "123456789:example",
+          mini_app: {
+            ...rawRecord.mini_app,
+            password: "example-password-908172",
+          },
+        },
         path
       )
     ).toEqual({
@@ -96,7 +115,7 @@ describe("config_example 与解析器保持同步", () => {
         url: new URL(rawRecord.mini_app.url).href,
         port: rawRecord.mini_app.port,
         host: rawRecord.mini_app.host,
-        password: rawRecord.mini_app.password,
+        password: "example-password-908172",
       },
     });
   });

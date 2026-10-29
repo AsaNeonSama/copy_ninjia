@@ -35,6 +35,10 @@ export const BENCHMARK_AGENT_API_KEY: string = "benchmark-only-agent-api-key";
 export const BENCHMARK_BOT_TOKEN: string =
   "123456789:benchmark-only-telegram-bot-token";
 
+/** 性能夹具使用的非占位 Mini App 密码（含至少 6 位数字）。 */
+export const BENCHMARK_MINI_APP_PASSWORD: string =
+  "benchmark-only-mini-app-password-908172";
+
 /**
  * 每轮运行时数据根在本次运行目录下的前缀（充当 COPY_NINJIA_DATA_ROOT）。
  *

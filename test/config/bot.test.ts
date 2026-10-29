@@ -1,5 +1,6 @@
 import { getTimeZone } from "../../packages/config/time";
 import { afterEach, describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   BOT_TOKEN,
   SUPER_ADMIN_USER_ID,
@@ -207,4 +208,29 @@ test("mini_app 缺省保持未配置，配置时严格校验 https URL、端口�
       )
     ).toThrow("bot.fixture.json: $.mini_app");
   }
+});
+
+test("未替换占位凭据的示例 bot.json（含仅替换 token 但保留占位 mini_app.password）一律被拒绝", async () => {
+  const exampleBotPath: string = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "config_example",
+    "static",
+    "bot.json"
+  );
+  const rawExample: Readonly<Record<string, unknown>> =
+    (await Bun.file(exampleBotPath).json()) as Readonly<Record<string, unknown>>;
+  expect((): BotConfig => parseBotConfig(rawExample, exampleBotPath)).toThrow(
+    `${exampleBotPath}: $.bot_token must be a configured non-placeholder string`
+  );
+  const parseWithPlaceholderMiniApp = (): BotConfig =>
+    parseBotConfig(
+      { ...rawExample, bot_token: "123456789:configured-token" },
+      exampleBotPath
+    );
+  expect(parseWithPlaceholderMiniApp).toThrow(
+    `${exampleBotPath}: $.mini_app.password must be a configured non-empty password string containing at least 6 digits`
+  );
+  expect(parseWithPlaceholderMiniApp).not.toThrow(MINI_APP_PASSWORD_PLACEHOLDER);
 });

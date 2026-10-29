@@ -7,6 +7,6 @@
     "url": "https://miniapp.example.com",
     "port": 3000,
     "host": "127.0.0.1",
-    "password": "mini-app-example-password-908172"
+    "password": "replace-with-mini-app-password"
   }
 }

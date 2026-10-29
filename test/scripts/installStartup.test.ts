@@ -205,6 +205,67 @@ describe("install.sh 到真实应用启动", () => {
     });
   }, 30_000);
 
+  test("首次安装会丢弃占位的 mini_app", async (): Promise<void> => {
+    const fixture: InstallerFixture = await createFixture(true);
+    const result: InstallerRunResult = await runInstaller(fixture, firstInstallPrompts(false));
+    expect(result.exitCode, result.output).toBe(0);
+    await assertInstalledStartup(fixture, result.output, false);
+    const writtenBotConfig: Readonly<Record<string, unknown>> =
+      (await Bun.file(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json")).json()) as Readonly<
+        Record<string, unknown>
+      >;
+    expect(writtenBotConfig.mini_app).toBeUndefined();
+    expect(result.output).not.toContain("INSTALL_API setChatMenuButton");
+  }, 30_000);
+
+  test("重新填写会保留已配置的 mini_app", async (): Promise<void> => {
+    const probeServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (): Response => new Response("ok"),
+    });
+    const freePort: number = probeServer.port ?? 39_871;
+    await probeServer.stop(true);
+
+    const fixture: InstallerFixture = await createFixture(true);
+    mkdirSync(join(fixture.configRoot, STATIC_CONFIG_DIR_NAME), { recursive: true });
+    const botConfigPath: string = join(fixture.configRoot, STATIC_CONFIG_DIR_NAME, "bot.json");
+    const configuredMiniApp = {
+      url: "https://miniapp.example.com/console",
+      port: freePort,
+      host: "127.0.0.1",
+      password: "configured-password-654321",
+    };
+    await writeText(
+      botConfigPath,
+      JSON.stringify({
+        bot_token: "123456789:existing_test_token",
+        super_admin_user_id: 123456789,
+        atmosphere: "mesugaki",
+        time_zone: "Asia/Tokyo",
+        mini_app: configuredMiniApp,
+      }),
+      0o600
+    );
+    const result: InstallerRunResult = await runInstaller(fixture, [
+      { prompt: "是否重新填写？", reply: "y" },
+      { prompt: "Telegram bot token", reply: "987654321:replacement_test_token", secret: true },
+      { prompt: "超级管理员用户 ID", reply: "987654321" },
+      { prompt: "现在配置 AI 能力", reply: "n", optional: true },
+      systemdPrompt(),
+    ]);
+    expect(result.exitCode, result.output).toBe(0);
+    await assertInstalledStartup(fixture, result.output, false);
+    expect(result.output).toContain("INSTALL_API setChatMenuButton");
+    expect(await Bun.file(botConfigPath).json()).toEqual({
+      bot_token: "987654321:replacement_test_token",
+      super_admin_user_id: 987654321,
+      atmosphere: "mesugaki",
+      time_zone: "Asia/Tokyo",
+      mini_app: configuredMiniApp,
+    });
+  }, 30_000);
+
   test("存在但非法的可选配置在启动之前拒绝", async (): Promise<void> => {
     const fixture: InstallerFixture = await createFixture(true);
     await writeText(join(fixture.configRoot, DYNAMIC_CONFIG_DIR_NAME, "stickers.json"), "{}\n");

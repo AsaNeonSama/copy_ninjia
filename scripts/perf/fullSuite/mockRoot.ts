@@ -22,12 +22,15 @@ import {
   BENCHMARK_AGENT_API_KEY,
   BENCHMARK_BOT_TOKEN,
   BENCHMARK_CONFIG_ROOT_NAME,
+  BENCHMARK_MINI_APP_PASSWORD,
   PERFORMANCE_MOCK_ROOT_NAME,
   RUN_ROOT_PREFIX,
   RUNTIME_ROOT_PREFIX,
 } from "./constants";
 import { AGENT_API_KEY_PLACEHOLDERS } from
   "../../../packages/consts/agent";
+import { MINI_APP_PASSWORD_PLACEHOLDER } from
+  "../../../packages/consts/miniApp";
 import { RUNTIME_DATA_ROOT_MAX_MODE } from
   "../../../packages/consts/storage";
 import { TELEGRAM_BOT_TOKEN_PLACEHOLDER } from
@@ -132,11 +135,13 @@ export async function createBenchmarkConfigRoot(runRoot: string): Promise<string
   await Bun.write(agentPath, agentConfig);
 
   const telegramPath: string = join(configRoot, STATIC_CONFIG_DIR_NAME, "bot.json");
-  const botConfig: string = (await Bun.file(telegramPath).text()).replaceAll(
-    TELEGRAM_BOT_TOKEN_PLACEHOLDER,
-    BENCHMARK_BOT_TOKEN
-  );
-  if (botConfig.includes(TELEGRAM_BOT_TOKEN_PLACEHOLDER)) {
+  const botConfig: string = (await Bun.file(telegramPath).text())
+    .replaceAll(TELEGRAM_BOT_TOKEN_PLACEHOLDER, BENCHMARK_BOT_TOKEN)
+    .replaceAll(MINI_APP_PASSWORD_PLACEHOLDER, BENCHMARK_MINI_APP_PASSWORD);
+  if (
+    botConfig.includes(TELEGRAM_BOT_TOKEN_PLACEHOLDER) ||
+    botConfig.includes(MINI_APP_PASSWORD_PLACEHOLDER)
+  ) {
     throw new Error(
       "Benchmark Telegram configuration still contains a placeholder token."
     );

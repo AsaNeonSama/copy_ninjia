@@ -58,6 +58,11 @@ ${BOT_ATMOSPHERE_FIELD}
 }
 JSON
   unset BOT_TOKEN SUPER_ADMIN_USER_ID BOT_ATMOSPHERE BOT_ATMOSPHERE_FIELD BOT_TIME_ZONE
+  bun -e '
+    import { carryOverMiniAppConfig } from "./scripts/install/runtime";
+    await carryOverMiniAppConfig(Bun.argv[1], Bun.argv[2]);
+  ' "$BOT_CONFIG_TARGET_PATH" "$BOT_CONFIG_STAGING_PATH" ||
+    die "合并既有 mini_app 配置失败，原文件未改动。"
   backup_deployment_config "$BOT_CONFIG_TARGET_PATH"
   validate_staged_telegram_config "$BOT_CONFIG_STAGING_PATH" ||
     die "候选 config/static/bot.json 严格校验未通过，原文件未改动。"
