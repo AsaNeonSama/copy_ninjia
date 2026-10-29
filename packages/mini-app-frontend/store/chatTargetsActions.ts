@@ -3,11 +3,7 @@ import {
   mutateMiniAppChatTargets,
 } from "../api/chatTargets";
 import { requestMiniAppPreparedPicker } from "../api/pickerPrepare";
-import { pollMiniAppPickerResult } from "../api/pickerResult";
-import {
-  MINI_APP_PICKER_POLL_INTERVAL_MS,
-  MINI_APP_PICKER_POLL_MAX_ATTEMPTS,
-} from "../consts/miniApp";
+import { waitForMiniAppPickerResult } from "../api/pickerResult";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
@@ -57,7 +53,6 @@ export type MiniAppChatTargetsActions = Pick<
   | "openTargetAddMenu"
   | "closeTargetAddMenu"
   | "selectTargetAddMode"
-  | "closeTargetIdForm"
   | "setQaQuestionInput"
   | "setQaAnswerInput"
   | "fillQaPairForEdit"
@@ -142,37 +137,27 @@ export function createChatTargetsActions({
     requestId: number,
     chatId: number
   ): Promise<void> => {
-    for (
-      let attempt: number = 0;
-      attempt < MINI_APP_PICKER_POLL_MAX_ATTEMPTS;
-      attempt += 1
-    ) {
-      await new Promise<void>((resolve: () => void): void => {
-        setTimeout(resolve, MINI_APP_PICKER_POLL_INTERVAL_MS);
-      });
-      try {
-        const result: Readonly<MiniAppPickerResultEvent> | null =
-          await pollMiniAppPickerResult(requestId);
-        if (result !== null) {
-          if (get().selectedChatId === chatId) {
-            await get().loadChatTargets();
-            void get().loadDetail(chatId);
-          }
-          useMiniAppStore.getState().notify(
-            result.summary,
-            result.addedIds.length > 0 ? "info" : "warning",
-            result
-          );
-          return;
-        }
-      } catch (_error: unknown) {
-        return;
-      }
+    const outcome: Readonly<MiniAppPickerResultEvent> | "failed" | "timeout" =
+      await waitForMiniAppPickerResult(requestId);
+    if (outcome === "failed") {
+      return;
     }
-    const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(
-      useMiniAppStore.getState().language
+    if (outcome === "timeout") {
+      const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(
+        useMiniAppStore.getState().language
+      );
+      useMiniAppStore.getState().notify(t.identities.pickerTimeoutToast, "warning");
+      return;
+    }
+    if (get().selectedChatId === chatId) {
+      await get().loadChatTargets();
+      void get().loadDetail(chatId);
+    }
+    useMiniAppStore.getState().notify(
+      outcome.summary,
+      outcome.addedIds.length > 0 ? "info" : "warning",
+      outcome
     );
-    useMiniAppStore.getState().notify(t.identities.pickerTimeoutToast, "warning");
   };
 
   const checkActiveTargetModalPrerequisite = (): string | null => {
@@ -379,10 +364,6 @@ export function createChatTargetsActions({
         return;
       }
       void openTargetPicker(mode);
-    },
-
-    closeTargetIdForm: (): void => {
-      set({ targetIdFormOpen: false });
     },
 
     setQaQuestionInput: (value: string): void => {

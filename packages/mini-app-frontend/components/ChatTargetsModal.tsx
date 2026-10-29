@@ -17,13 +17,13 @@ import type {
 } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import {
-  readModalBodyHeight,
+  readElementBodyHeight,
   scrollModalBodyToTop,
   TabHeightSizer,
   useModalBodyScrollLock,
 } from "./animations/TabHeightSizer";
 import type {
-  MeasurableModalBodyElement,
+  MeasurableBodyElement,
   ScrollableModalBodyElement,
 } from "./animations/TabHeightSizer";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
@@ -100,10 +100,10 @@ export function ChatTargetsModal({
 
   const modalBodyRef: React.RefObject<ScrollableModalBodyElement | null> =
     useRef<ScrollableModalBodyElement | null>(null);
-  const sizerRef: React.RefObject<MeasurableModalBodyElement | null> =
-    useRef<MeasurableModalBodyElement | null>(null);
-  const paneRef: React.RefObject<MeasurableModalBodyElement | null> =
-    useRef<MeasurableModalBodyElement | null>(null);
+  const sizerRef: React.RefObject<MeasurableBodyElement | null> =
+    useRef<MeasurableBodyElement | null>(null);
+  const paneRef: React.RefObject<MeasurableBodyElement | null> =
+    useRef<MeasurableBodyElement | null>(null);
   const lastHeightRef: React.RefObject<number> = useRef<number>(0);
   const prevTabRef: React.RefObject<MiniAppChatTargetKind | null> =
     useRef<MiniAppChatTargetKind | null>(activeTargetsModal);
@@ -207,8 +207,8 @@ export function ChatTargetsModal({
                       return;
                     }
                     const currentHeight: number =
-                      readModalBodyHeight(paneRef.current) ||
-                      readModalBodyHeight(sizerRef.current);
+                      readElementBodyHeight(paneRef.current) ||
+                      readElementBodyHeight(sizerRef.current);
                     if (currentHeight > 0) {
                       lastHeightRef.current = currentHeight;
                       if (sizerRef.current?.style !== undefined) {

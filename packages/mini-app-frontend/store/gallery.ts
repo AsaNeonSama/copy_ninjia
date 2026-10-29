@@ -54,8 +54,6 @@ export interface MiniAppGalleryStoreState {
   readonly loadGallery: (targetPage?: number, targetPageSize?: number) => Promise<void>;
   /** 缩略图加载完成或失败时调用：属于当前批次时在骨架屏最短展示时长后标记为已加载。 */
   readonly markThumbLoaded: (fileName: string, epoch: number) => void;
-  /** 预览图切换后调用：开启新的预览加载周期并回到加载态。 */
-  readonly beginPreviewLoad: () => void;
   /** 预览图加载完成或失败时调用：属于当前预览周期时在骨架屏最短展示时长后标记为已加载。 */
   readonly markPreviewLoaded: () => void;
   /** 设置或关闭大图预览（选中新图时同步开启新的预览加载周期并重置加载完成态，关闭时保留已完成加载态供收起过渡动画展示）。 */
@@ -169,13 +167,6 @@ export function createGalleryStore(): MiniAppGalleryStore {
                   : { ...state.loadedImages, [fileName]: true },
             }));
           })();
-        },
-
-        beginPreviewLoad: (): void => {
-          previewEpoch += 1;
-          settledPreviewEpoch = -1;
-          previewRenderAt = Date.now();
-          set({ previewLoaded: false });
         },
 
         markPreviewLoaded: (): void => {

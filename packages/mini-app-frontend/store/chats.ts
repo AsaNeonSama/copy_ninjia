@@ -122,8 +122,6 @@ export interface MiniAppChatsStoreState {
   readonly closeTargetAddMenu: () => void;
   /** 选择删发言目标或翻译目标添加方式：按 ID 时展开/收起内联表单，按联系人或频道时唤起 Telegram 原生选择器。 */
   readonly selectTargetAddMode: (mode: MiniAppIdentityAddMode) => void;
-  /** 收起按 @username/ID 添加的内联输入框。 */
-  readonly closeTargetIdForm: () => void;
   /** 更新问答对表单的问题输入。 */
   readonly setQaQuestionInput: (value: string) => void;
   /** 更新问答对表单的答案输入。 */

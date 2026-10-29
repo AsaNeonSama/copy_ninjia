@@ -1,10 +1,8 @@
 import type {
-  MiniAppChatTargetKind,
   MiniAppChatTargetsMutationAction,
   MiniAppFeatureKey,
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppToggleableFeatureKey,
   MiniAppTranslateLanguage,
 } from "../types/miniApp";
 import { exhaustiveList } from "./exhaustiveList";
@@ -305,20 +303,6 @@ export const MINI_APP_PICKER_MAX_USERS_QUANTITY: number = 10;
 export const MINI_APP_BUTTON_TEXT: string = "App";
 
 /**
- * 已 `/init` 群内可独立开关的子功能键闭集。
- * 不变量：与 `MiniAppToggleableFeatureKey` 联合类型一一对应。所属模块：Mini App 服务端（`packages/mini-app-api-server/`），当前未被引用。
- */
-export const MINI_APP_TOGGLEABLE_FEATURE_KEYS: readonly MiniAppToggleableFeatureKey[] =
-  exhaustiveList<MiniAppToggleableFeatureKey>()([
-    "aiChat",
-    "translation",
-    "adDetect",
-    "floodControl",
-    "antiRaid",
-    "proxySend",
-  ]);
-
-/**
  * Mini App 群详情页可操作的功能开关全集（含 `/init` 总开关）。
  * 不变量：与 `MiniAppFeatureKey` 联合类型一一对应。所属模块：`packages/mini-app-api-server/handlers/chats.ts`。
  */
@@ -366,17 +350,6 @@ export const MINI_APP_BATCH_KICK_MIN_HOURS: number = 1;
  * 不变量：正整数上界 24（对应 `DAY_MS`）。所属模块：`packages/mini-app-api-server/handlers/chats.ts`。
  */
 export const MINI_APP_BATCH_KICK_MAX_HOURS: number = 24;
-
-/**
- * Mini App 群详情页目标管理下拉菜单与弹窗支持的类别键闭集（问答对、追着删目标、追着翻目标）。
- * 不变量：与 `MiniAppChatTargetKind` 联合类型一一对应。所属模块：Mini App 服务端（`packages/mini-app-api-server/`），与前端副本对齐。
- */
-export const MINI_APP_CHAT_TARGET_KINDS: readonly MiniAppChatTargetKind[] =
-  exhaustiveList<MiniAppChatTargetKind>()([
-    "qa",
-    "deleteMessage",
-    "translate",
-  ]);
 
 /**
  * Mini App 群内追着翻目标支持的目标语言闭集。

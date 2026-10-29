@@ -55,16 +55,3 @@ export function subscribeMiniAppForeground(listener: () => void): () => void {
     webApp?.offEvent?.("deactivated", listener);
   };
 }
-
-/**
- * 调用宿主环境确认对话框；无弹窗宿主时默认确认通过。
- * @param message 确认提示文本
- * @returns 用户是否确认继续
- */
-export function confirmMiniAppAction(message: string): boolean {
-  const tgWindow: TelegramWindow = globalThis;
-  if (tgWindow.document !== undefined && typeof tgWindow.confirm === "function") {
-    return tgWindow.confirm(message);
-  }
-  return true;
-}

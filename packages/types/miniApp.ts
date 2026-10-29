@@ -291,9 +291,6 @@ export interface MiniAppFeatureToggleResult {
   readonly detail: Readonly<MiniAppChatDetail> | null;
 }
 
-/** 群详情页目标管理下拉菜单与弹窗的分类键（问答对、追着删目标、追着翻目标）。 */
-export type MiniAppChatTargetKind = "qa" | "deleteMessage" | "translate";
-
 /** `/translate` 支持的目标翻译语言代码（`ja` 日语、`cn` 简体中文、`en` 美式英语、`uk` 乌克兰语、`ru` 俄语）。 */
 export type MiniAppTranslateLanguage = "ja" | "cn" | "en" | "uk" | "ru";
 

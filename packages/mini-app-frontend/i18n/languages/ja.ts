@@ -312,7 +312,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
   return {
     languageLabel: "日",
     appTitle: "雑魚コンソール♡",
-    appSubtitle: "雑魚管理人のために天才のアタシが用意したコックピット",
     superAdminBadge: "SuperAdmin",
     lockButton: "ロック",
     lockSessionToast: "ふん、うっかり屋の雑魚のためにセッションをロックしてあげたわよ♡",
@@ -430,9 +429,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       memoryProcessUsedLabel: "当プロセス使用",
       memoryOtherUsedLabel: "他プロセス使用",
       memoryTotalUsedLabel: "合計使用",
-      memorySub: (currentRss: string, heapUsed: string): string =>
-        `現在 RSS ${currentRss} · ヒープ ${heapUsed}`,
-      memoryHeapSub: (heapUsed: string): string => `JS ヒープ ${heapUsed}`,
       managedChatsLabel: "/init 済み管理群",
       managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
         `白リスト ${whitelistCount} · 黒リスト ${blocklistCount}`,

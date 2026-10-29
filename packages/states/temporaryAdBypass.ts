@@ -141,9 +141,6 @@ export function advanceTemporaryAdBypassActivity(
   if (currentDay !== countedDay) return firstActivity(now);
   if (current.qualifiedAt !== null) return current;
 
-  if (!Number.isSafeInteger(current.sendCount + 1)) {
-    throw new RangeError("Temporary ad bypass daily message count is exhausted.");
-  }
   const sendCount: number = current.sendCount + 1;
   if (sendCount <= TEMPORARY_AD_BYPASS_DAILY_MESSAGE_THRESHOLD) {
     return {

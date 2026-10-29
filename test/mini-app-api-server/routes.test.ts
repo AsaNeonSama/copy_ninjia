@@ -634,19 +634,18 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(setup1.otpauthUri).toContain("otpauth://totp/");
     expect(setup1.qrSvg).toContain("<svg");
 
+    const validCode1: string = generateMiniAppTotpCodeAt(setup1.secret);
+    const badCode1: string = validCode1 === "000000" ? "111111" : "000000";
     const badEnableRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/totp/enable", {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ code: "000000" }),
+        body: JSON.stringify({ code: badCode1 }),
       })
     );
-    if (generateMiniAppTotpCodeAt(setup1.secret) !== "000000") {
-      expect(badEnableRes.status).toBe(400);
-      expect(await Bun.file(MINI_APP_TOTP_FILE_PATH).exists()).toBeFalse();
-    }
+    expect(badEnableRes.status).toBe(400);
+    expect(await Bun.file(MINI_APP_TOTP_FILE_PATH).exists()).toBeFalse();
 
-    const validCode1: string = generateMiniAppTotpCodeAt(setup1.secret);
     const enable1Res: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/totp/enable", {
         method: "POST",

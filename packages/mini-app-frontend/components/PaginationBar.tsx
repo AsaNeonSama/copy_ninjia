@@ -20,8 +20,6 @@ export interface PaginationBarProps {
   readonly pageSize: number;
   /** 可选的每页条数切换档位列表（如 `[10, 15, 20]`）。 */
   readonly pageSizeOptions?: readonly number[];
-  /** 记录数量单位（可选）。 */
-  readonly unitLabel?: string;
   /** 是否禁用交互（如异步加载中）。 */
   readonly disabled?: boolean;
   /** 页码切换回调。 */

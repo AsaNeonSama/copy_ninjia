@@ -3,14 +3,10 @@ import type { StoreApi } from "zustand";
 import { fetchMiniAppBlocklist } from "../api/blocklist";
 import { setMiniAppBlocklistMembership } from "../api/blocklistMembership";
 import { requestMiniAppPreparedPicker } from "../api/pickerPrepare";
-import { pollMiniAppPickerResult } from "../api/pickerResult";
+import { waitForMiniAppPickerResult } from "../api/pickerResult";
 import { fetchMiniAppWhitelist } from "../api/whitelist";
 import { setMiniAppWhitelistMembership } from "../api/whitelistMembership";
-import {
-  MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
-  MINI_APP_PICKER_POLL_INTERVAL_MS,
-  MINI_APP_PICKER_POLL_MAX_ATTEMPTS,
-} from "../consts/miniApp";
+import { MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { errorMessage } from "../libs/errorMessage";
@@ -151,50 +147,44 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
         requestId: number,
         list: MiniAppIdentitySubTabKey
       ): Promise<void> => {
-        for (let attempt: number = 0; attempt < MINI_APP_PICKER_POLL_MAX_ATTEMPTS; attempt += 1) {
-          await new Promise<void>((resolve: () => void): void => {
-            setTimeout(resolve, MINI_APP_PICKER_POLL_INTERVAL_MS);
-          });
-          try {
-            const result: Readonly<MiniAppPickerResultEvent> | null =
-              await pollMiniAppPickerResult(requestId);
-            if (result !== null) {
-              set(
-                list === "whitelist"
-                  ? { whitelistPage: null, loadingList: true }
-                  : { blocklistPage: null, loadingList: true }
-              );
-              await get().loadCurrentList();
-              const addedCount: number = result.addedIds?.length ?? 0;
-              if (
-                addedCount === 0 &&
-                result.duplicateIds !== undefined &&
-                result.duplicateIds.length > 0 &&
-                (result.summary === "PICKER_IMPORT_DUPLICATE" ||
-                  result.summary === "dup")
-              ) {
-                triggerDuplicateNotice(
-                  getMiniAppTranslations(useMiniAppStore.getState().language),
-                  result.duplicateIds.map((dupId: number): string => `ID ${dupId}`).join(", "),
-                  list
-                );
-              } else {
-                notify(
-                  result.summary,
-                  addedCount > 0 ? undefined : "warning",
-                  result
-                );
-              }
-              return;
-            }
-          } catch (_error: unknown) {
-            return;
-          }
+        const outcome: Readonly<MiniAppPickerResultEvent> | "failed" | "timeout" =
+          await waitForMiniAppPickerResult(requestId);
+        if (outcome === "failed") {
+          return;
         }
-        notify(
-          getMiniAppTranslations(useMiniAppStore.getState().language).identities
-            .pickerTimeoutToast
+        if (outcome === "timeout") {
+          notify(
+            getMiniAppTranslations(useMiniAppStore.getState().language).identities
+              .pickerTimeoutToast
+          );
+          return;
+        }
+        set(
+          list === "whitelist"
+            ? { whitelistPage: null, loadingList: true }
+            : { blocklistPage: null, loadingList: true }
         );
+        await get().loadCurrentList();
+        const addedCount: number = outcome.addedIds?.length ?? 0;
+        if (
+          addedCount === 0 &&
+          outcome.duplicateIds !== undefined &&
+          outcome.duplicateIds.length > 0 &&
+          (outcome.summary === "PICKER_IMPORT_DUPLICATE" ||
+            outcome.summary === "dup")
+        ) {
+          triggerDuplicateNotice(
+            getMiniAppTranslations(useMiniAppStore.getState().language),
+            outcome.duplicateIds.map((dupId: number): string => `ID ${dupId}`).join(", "),
+            list
+          );
+        } else {
+          notify(
+            outcome.summary,
+            addedCount > 0 ? undefined : "warning",
+            outcome
+          );
+        }
       };
 
       const openPicker = async (subjectKind: MiniAppPickerSubjectKind): Promise<void> => {

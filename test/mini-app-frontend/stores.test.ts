@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  MINI_APP_BATCH_KICK_MAX_HOURS,
+  MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_PAGINATION_HOVER_DURATION_MS,
   MINI_APP_PICKER_POLL_INTERVAL_MS,
@@ -608,12 +610,12 @@ describe("页面 store", () => {
     expect(store.getState().chatDetail?.title).toBe("x");
 
     store.getState().setBatchKickHours(0);
-    expect(store.getState().batchKickHours).toBe(1);
+    expect(store.getState().batchKickHours).toBe(MINI_APP_BATCH_KICK_MIN_HOURS);
     store.getState().setBatchKickHours(99);
-    expect(store.getState().batchKickHours).toBe(24);
+    expect(store.getState().batchKickHours).toBe(MINI_APP_BATCH_KICK_MAX_HOURS);
     expect(store.getState().loadingWindowJoined).toBeTrue();
     store.getState().setBatchKickHours(Number.NaN);
-    expect(store.getState().batchKickHours).toBe(1);
+    expect(store.getState().batchKickHours).toBe(MINI_APP_BATCH_KICK_MIN_HOURS);
     route("GET /api/chats/-100", (): Response =>
       json({
         detail: {
@@ -754,7 +756,7 @@ describe("页面 store", () => {
     expect(store.getState().targetAddMenuOpen).toBeTrue();
     store.getState().selectTargetAddMode("id");
     expect(store.getState().targetIdFormOpen).toBeTrue();
-    store.getState().closeTargetIdForm();
+    store.getState().selectTargetAddMode("id");
     expect(store.getState().targetIdFormOpen).toBeFalse();
     store.getState().closeTargetAddMenu();
     expect(store.getState().targetAddMenuOpen).toBeFalse();
@@ -950,11 +952,6 @@ describe("页面 store", () => {
     });
     expect(store.getState().previewLoaded).toBeFalse();
     store.getState().markPreviewLoaded();
-    store.getState().markPreviewLoaded();
-    store.getState().beginPreviewLoad();
-    expect(store.getState().previewLoaded).toBeFalse();
-    await settleLoading();
-    expect(store.getState().previewLoaded).toBeFalse();
     store.getState().markPreviewLoaded();
     await settleLoading();
     expect(store.getState().previewLoaded).toBeTrue();

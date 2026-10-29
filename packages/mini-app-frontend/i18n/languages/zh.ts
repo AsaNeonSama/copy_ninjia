@@ -312,7 +312,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
   return {
     languageLabel: "中",
     appTitle: "杂鱼控制台♡",
-    appSubtitle: "专为杂鱼管理员准备的本天才指挥舱",
     superAdminBadge: "SuperAdmin",
     lockButton: "锁定",
     lockSessionToast: "哼，已经帮粗心的杂鱼把会话锁上啦♡",
@@ -430,9 +429,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       memoryProcessUsedLabel: "当前进程内存占用",
       memoryOtherUsedLabel: "其他进程内存占用",
       memoryTotalUsedLabel: "总占用",
-      memorySub: (currentRss: string, heapUsed: string): string =>
-        `当前 RSS ${currentRss} · 堆 ${heapUsed}`,
-      memoryHeapSub: (heapUsed: string): string => `JS 堆占用 ${heapUsed}`,
       managedChatsLabel: "已 /init 受管群",
       managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
         `白名单 ${whitelistCount} · 黑名单 ${blocklistCount}`,

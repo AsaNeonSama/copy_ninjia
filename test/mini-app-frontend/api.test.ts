@@ -39,7 +39,7 @@ import {
 } from "../../packages/mini-app-frontend/components/animations/CollapseGrid";
 import { LoadingDotsWave } from "../../packages/mini-app-frontend/components/animations/LoadingDotsWave";
 import {
-  readModalBodyHeight,
+  readElementBodyHeight,
   scrollModalBodyToTop,
 } from "../../packages/mini-app-frontend/components/animations/TabHeightSizer";
 import {
@@ -62,6 +62,7 @@ import {
   MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_HTML_TITLE,
+  MINI_APP_INITIAL_THEME,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_LANGUAGES,
   MINI_APP_MIN_LOADING_MS,
@@ -89,7 +90,6 @@ import {
   areCapabilityStatusEqual,
   buildMiniAppGalleryDownloadFileName,
   computeCapabilityCollapseDurationMs,
-  formatBytes,
   formatClockTime,
   formatGalleryFileSize,
   formatMemoryMb,
@@ -103,7 +103,6 @@ import {
 } from "../../packages/mini-app-frontend/libs/formatters";
 import { waitMinimumLoadingDuration } from "../../packages/mini-app-frontend/libs/loading";
 import {
-  confirmMiniAppAction,
   getTelegramWebApp,
   readMiniAppInitData,
 } from "../../packages/mini-app-frontend/libs/telegram";
@@ -120,7 +119,6 @@ import {
 } from "../../packages/mini-app-frontend/resource";
 import {
   applyMiniAppThemeToDocument,
-  detectInitialMiniAppTheme,
   resetMiniAppStoreForTest,
   useMiniAppStore,
 } from "../../packages/mini-app-frontend/store/app";
@@ -366,7 +364,6 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(formatUptime(90_061_000)).toBe("1d 1h 1m");
     expect(formatUptime(3_661_000)).toBe("1h 1m 1s");
     expect(formatUptime(65_000)).toBe("1m 5s");
-    expect(formatBytes(10 * 1024 * 1024)).toBe("10.0 MiB");
     expect(formatMemoryMb(128.456 * 1024 * 1024)).toBe("128.46 MB");
     expect(
       buildMiniAppGalleryDownloadFileName(`${"a".repeat(64)}.PNG`, 1_792_934_567_890)
@@ -438,7 +435,6 @@ describe("前端接口文件与纯函数辅助库", () => {
       expect(dict.status.memoryProcessUsedLabel.length).toBeGreaterThan(0);
       expect(dict.status.memoryOtherUsedLabel.length).toBeGreaterThan(0);
       expect(dict.status.memoryTotalUsedLabel.length).toBeGreaterThan(0);
-      expect(dict.status.memoryHeapSub("64.00 MB")).toContain("64.00 MB");
       expect(dict.identities.duplicateBannerTitle.length).toBeGreaterThan(0);
       for (const tabKey of MINI_APP_TAB_KEYS) {
         expect(dict.tabs[tabKey].length).toBeGreaterThan(0);
@@ -696,11 +692,10 @@ describe("前端接口文件与纯函数辅助库", () => {
 
     expect(["zh", "ja", "en"]).toContain(detectBrowserDefaultLanguage());
     expect(["zh", "ja", "en"]).toContain(detectInitialMiniAppLanguage());
-    expect(detectInitialMiniAppTheme()).toBe("light");
     applyMiniAppThemeToDocument("light");
 
     resetMiniAppStoreForTest();
-    expect(useMiniAppStore.getState().theme).toBe("light");
+    expect(useMiniAppStore.getState().theme).toBe(MINI_APP_INITIAL_THEME);
     expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
     useMiniAppStore.getState().toggleSidebar();
     expect(useMiniAppStore.getState().sidebarOpen).toBeTrue();
@@ -786,9 +781,9 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(busyGateHtml).toContain('aria-busy="true"');
     expect(busyGateHtml).toContain("join-clean-loading-dots");
     expect(busyGateHtml).not.toContain(getMiniAppTranslations("zh").gate.totpSubmitButton);
-    expect(readModalBodyHeight(null)).toBe(0);
-    expect(readModalBodyHeight({ offsetHeight: 180 })).toBe(180);
-    expect(readModalBodyHeight({ scrollHeight: 210 })).toBe(210);
+    expect(readElementBodyHeight(null)).toBe(0);
+    expect(readElementBodyHeight({ offsetHeight: 180 })).toBe(180);
+    expect(readElementBodyHeight({ scrollHeight: 210 })).toBe(210);
     scrollModalBodyToTop(null);
     const scrolledCalls: { readonly top: number; readonly behavior: "smooth" | "auto" }[] = [];
     scrollModalBodyToTop({
@@ -846,7 +841,6 @@ describe("前端接口文件与纯函数辅助库", () => {
 
     expect(getTelegramWebApp()).toBeUndefined();
     expect(readMiniAppInitData()).toBe("");
-    expect(confirmMiniAppAction("确认测试？")).toBeTrue();
     expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
     expect(truncateDisplayText("短名称", 20)).toBe("短名称");
     expect(MINI_APP_MIN_LOADING_MS).toBeGreaterThanOrEqual(150);

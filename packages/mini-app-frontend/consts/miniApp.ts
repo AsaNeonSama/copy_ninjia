@@ -49,12 +49,6 @@ export const MINI_APP_SESSION_EXPIRES_AT_HEADER: string =
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
 
 /**
- * Mini App 会话令牌触发自动刷新与续期的已签发时长阈值毫秒数（5 分钟）。
- * 不变量：正整数毫秒数，小于 `MINI_APP_SESSION_TTL_MS`；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
- */
-export const MINI_APP_SESSION_REFRESH_THRESHOLD_MS: number = 5 * MINUTE_MS;
-
-/**
  * Mini App 在浏览器 `localStorage` / `sessionStorage` 中持久化 45 分钟认证会话凭据的存储键名。
  * 不变量：仅在 Mini App 客户端 WebView 环境内持久化 `{ token, expiresAt, assetToken }`，过期或主动锁定时立即清除。所属模块：`packages/mini-app-frontend/libs/credentials.ts`。
  */
@@ -261,13 +255,13 @@ export const MINI_APP_MESSAGE_AVATAR_TONE_COUNT: number = 6;
 
 /**
  * Mini App 原生选择器在等待 `users_shared` / `chat_shared` 回执时的轮询间隔毫秒数。
- * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/store/chatTargetsActions.ts`。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/api/pickerResult.ts`。
  */
 export const MINI_APP_PICKER_POLL_INTERVAL_MS: number = 600;
 
 /**
  * Mini App 原生选择器在等待 `users_shared` / `chat_shared` 回执时的最大轮询次数。
- * 不变量：正整数。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/store/chatTargetsActions.ts`。
+ * 不变量：正整数。所属模块：`packages/mini-app-frontend/api/pickerResult.ts`。
  */
 export const MINI_APP_PICKER_POLL_MAX_ATTEMPTS: number = 25;
 
@@ -312,7 +306,7 @@ export const MINI_APP_FEATURE_KEYS: readonly MiniAppFeatureKey[] =
 
 /**
  * Mini App 界面支持的语言键闭集（中文、日文、英文）。
- * 不变量：与 `MiniAppLanguage` 联合类型一一对应。所属模块：`packages/mini-app-frontend/store/app.ts` 与 `packages/mini-app-frontend/components/PrefsBar.tsx`。
+ * 不变量：与 `MiniAppLanguage` 联合类型一一对应。所属模块：`packages/mini-app-frontend/components/PrefsBar.tsx`。
  */
 export const MINI_APP_LANGUAGES: readonly MiniAppLanguage[] =
   exhaustiveList<MiniAppLanguage>()([
@@ -320,6 +314,12 @@ export const MINI_APP_LANGUAGES: readonly MiniAppLanguage[] =
     "ja",
     "en",
   ]);
+
+/**
+ * Mini App 初始主题模式（默认固定为亮色 `"light"`）。
+ * 不变量：与 `index.html` 根节点 `<html>` 的初始 `data-theme="light"` 属性一致。所属模块：`packages/mini-app-frontend/store/app.ts`。
+ */
+export const MINI_APP_INITIAL_THEME: MiniAppThemeMode = "light";
 
 /**
  * Mini App 界面支持的主题模式闭集（暗色、亮色）。
@@ -399,7 +399,7 @@ export const MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS: number = 320;
 
 /**
  * Mini App 群详情页目标管理下拉菜单与弹窗支持的类别键闭集（问答对、追着删目标、追着翻目标）。
- * 不变量：与 `MiniAppChatTargetKind` 联合类型一一对应；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx` 与 `packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
+ * 不变量：与 `MiniAppChatTargetKind` 联合类型一一对应。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx` 与 `packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
  */
 export const MINI_APP_CHAT_TARGET_KINDS: readonly MiniAppChatTargetKind[] =
   exhaustiveList<MiniAppChatTargetKind>()([

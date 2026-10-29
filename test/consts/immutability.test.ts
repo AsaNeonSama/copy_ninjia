@@ -641,11 +641,9 @@ void assertStorageMigrationLineageReadonly;
 
 import {
   MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS,
-  MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_PICKER_SUBJECT_KINDS,
   MINI_APP_PICKER_TARGET_LISTS,
-  MINI_APP_TOGGLEABLE_FEATURE_KEYS,
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/consts/miniApp";
 import {
@@ -680,8 +678,6 @@ function assertMiniAppConstantsReadonly(): void {
   FRONTEND_MINI_APP_FEATURE_KEYS.push("init");
   // @ts-expect-error 前端白名单权限键全集禁止调用方增删。
   FRONTEND_WHITELIST_PERMISSION_KEYS.push("isCanMute");
-  // @ts-expect-error Mini App 子功能开关键闭集禁止调用方增删。
-  MINI_APP_TOGGLEABLE_FEATURE_KEYS.push("aiChat");
   // @ts-expect-error Mini App 选择器目标名单闭集禁止调用方增删。
   MINI_APP_PICKER_TARGET_LISTS.push("whitelist");
   // @ts-expect-error Mini App 选择器身份类型闭集禁止调用方增删。
@@ -700,8 +696,6 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 受管群批量清理快捷小时数预设列表禁止调用方增删。
   MINI_APP_BATCH_KICK_PRESET_HOURS.push(48);
-  // @ts-expect-error Mini App 群内目标类别闭集禁止调用方增删。
-  MINI_APP_CHAT_TARGET_KINDS.push("qa");
   // @ts-expect-error 前端群内目标类别闭集禁止调用方增删。
   FRONTEND_MINI_APP_CHAT_TARGET_KINDS.push("qa");
   // @ts-expect-error Mini App 追着翻语言闭集禁止调用方增删。

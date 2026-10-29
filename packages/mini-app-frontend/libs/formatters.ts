@@ -79,16 +79,6 @@ export function formatUptime(uptimeMs: number): string {
 }
 
 /**
- * 将字节数格式化为 MiB 文本。
- *
- * @param bytes 字节数
- * @returns 以 MiB 为单位的文本
- */
-export function formatBytes(bytes: number): string {
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
-}
-
-/**
  * 将内存字节数格式化为保留 2 位小数的 MB 文本（如 `128.45 MB`）。
  *
  * @param bytes 内存字节数

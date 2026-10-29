@@ -2,11 +2,11 @@ import { useCallback, useEffect } from "react";
 import type React from "react";
 import type { MiniAppChatTargetKind } from "../../types/miniApp";
 
-/** 支持读取像素高度并写入行内高度过渡样式的弹窗内容容器最小 DOM 接口。 */
-export interface MeasurableModalBodyElement {
-  /** 元素包含内边距的像素高度。 */
+/** 支持读取像素高度并写入行内高度过渡样式的折叠面板或弹窗内容容器最小 DOM 接口。 */
+export interface MeasurableBodyElement {
+  /** 元素包含边框与内边距的像素高度。 */
   readonly offsetHeight?: number;
-  /** 元素内容总像素高度。 */
+  /** 元素内容总像素高度（不受外层 `height: 0` 裁切影响）。 */
   readonly scrollHeight?: number;
   /** 行内样式对象。 */
   readonly style?: {
@@ -49,13 +49,13 @@ export interface ScrollableModalBodyElement {
 }
 
 /**
- * 读取弹窗内容容器的当前像素高度（在非真实 DOM 测试环境下安全返回 `0`）。
+ * 读取折叠面板或弹窗内容容器的当前像素高度（优先取 `offsetHeight`，在非真实 DOM 测试环境下安全返回 `0`）。
  *
- * @param element 弹窗内容容器节点
+ * @param element 内容容器 DOM 节点
  * @returns 像素高度
  */
-export function readModalBodyHeight(
-  element: MeasurableModalBodyElement | null
+export function readElementBodyHeight(
+  element: MeasurableBodyElement | null
 ): number {
   if (element === null) return 0;
   const offset: number = element.offsetHeight ?? 0;
@@ -123,9 +123,9 @@ export interface TabHeightSizerProps {
   /** 目标数据是否已加载完成。 */
   readonly hasTargets: boolean;
   /** 外层高度过渡容器节点引用。 */
-  readonly sizerRef: React.RefObject<MeasurableModalBodyElement | null>;
+  readonly sizerRef: React.RefObject<MeasurableBodyElement | null>;
   /** 内层面板节点引用。 */
-  readonly paneRef: React.RefObject<MeasurableModalBodyElement | null>;
+  readonly paneRef: React.RefObject<MeasurableBodyElement | null>;
   /** 上一次记录的内容像素高度引用。 */
   readonly lastHeightRef: React.RefObject<number>;
   /** 上一次渲染的目标类别引用。 */
@@ -153,18 +153,18 @@ export function TabHeightSizer({
   prevHadTargetsRef,
   children,
 }: TabHeightSizerProps): React.JSX.Element {
-  const setSizerNode: (el: MeasurableModalBodyElement | null) => void =
+  const setSizerNode: (el: MeasurableBodyElement | null) => void =
     useCallback(
-      (el: MeasurableModalBodyElement | null): void => {
+      (el: MeasurableBodyElement | null): void => {
         sizerRef.current = el;
       },
       [sizerRef]
     );
-  const setPaneNode: (el: MeasurableModalBodyElement | null) => void =
+  const setPaneNode: (el: MeasurableBodyElement | null) => void =
     useCallback(
-      (el: MeasurableModalBodyElement | null): void => {
+      (el: MeasurableBodyElement | null): void => {
         paneRef.current = el;
-        const measured: number = readModalBodyHeight(el);
+        const measured: number = readElementBodyHeight(el);
         if (measured > 0 && lastHeightRef.current === 0) {
           lastHeightRef.current = measured;
         }
@@ -184,14 +184,14 @@ export function TabHeightSizer({
     prevTabRef.current = activeTab;
     prevHadTargetsRef.current = hasTargets;
 
-    const nextHeight: number = readModalBodyHeight(paneRef.current);
+    const nextHeight: number = readElementBodyHeight(paneRef.current);
     const prevHeight: number = lastHeightRef.current;
     if (nextHeight > 0) {
       lastHeightRef.current = nextHeight;
     }
     const tabChanged: boolean = prevTab !== null && prevTab !== activeTab;
     const targetsHydrated: boolean = !prevHadTargets && hasTargets;
-    const sizerEl: MeasurableModalBodyElement | null = sizerRef.current;
+    const sizerEl: MeasurableBodyElement | null = sizerRef.current;
     if (
       (tabChanged || targetsHydrated) &&
       sizerEl?.style !== undefined &&

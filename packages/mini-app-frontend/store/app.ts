@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { UseBoundStore, StoreApi } from "zustand";
 import { loginMiniAppWithPassword } from "../api/authLogin";
 import { precheckMiniAppAccess } from "../api/authPrecheck";
-import { MINI_APP_LANGUAGES, MINI_APP_TOAST_DURATION_MS } from "../consts/miniApp";
+import { MINI_APP_INITIAL_THEME, MINI_APP_TOAST_DURATION_MS } from "../consts/miniApp";
 import {
   detectInitialMiniAppLanguage,
   extractServerNoticeParams,
@@ -72,8 +72,6 @@ export interface MiniAppUiStoreState {
   readonly passwordError: string | null;
 
   readonly setLanguage: (language: MiniAppLanguage) => void;
-  readonly cycleLanguage: () => void;
-  readonly setTheme: (theme: MiniAppThemeMode) => void;
   readonly toggleTheme: () => void;
   readonly setSidebarOpen: (open: boolean) => void;
   readonly toggleSidebar: () => void;
@@ -110,15 +108,6 @@ export interface MiniAppUiStoreState {
   readonly submitCredential: () => Promise<void>;
   /** 清除 Toast 自动消失与会话到期两个计时器（根组件卸载或测试重置时调用）。 */
   readonly clearTimers: () => void;
-}
-
-/**
- * 返回 Mini App 初始主题模式（默认固定为亮色 `"light"`）。
- *
- * @returns 初始主题模式（`"light"`）
- */
-export function detectInitialMiniAppTheme(): MiniAppThemeMode {
-  return "light";
 }
 
 /**
@@ -193,7 +182,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
 
       return {
         language: detectInitialMiniAppLanguage(),
-        theme: detectInitialMiniAppTheme(),
+        theme: MINI_APP_INITIAL_THEME,
         sidebarOpen: false,
         gateState: "checking",
         authMode: "password",
@@ -210,20 +199,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
 
         setLanguage: (language: MiniAppLanguage): void => {
           set({ language });
-        },
-
-        cycleLanguage: (): void => {
-          set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => {
-            const currentIndex: number = MINI_APP_LANGUAGES.indexOf(state.language);
-            const nextIndex: number =
-              currentIndex < 0 ? 0 : (currentIndex + 1) % MINI_APP_LANGUAGES.length;
-            return { language: MINI_APP_LANGUAGES[nextIndex] ?? "zh" };
-          });
-        },
-
-        setTheme: (theme: MiniAppThemeMode): void => {
-          applyMiniAppThemeToDocument(theme);
-          set({ theme });
         },
 
         toggleTheme: (): void => {
@@ -461,7 +436,7 @@ export function resetMiniAppStoreForTest(): void {
   }
   useMiniAppStore.setState({
     language: detectInitialMiniAppLanguage(),
-    theme: detectInitialMiniAppTheme(),
+    theme: MINI_APP_INITIAL_THEME,
     sidebarOpen: false,
     gateState: "checking",
     authMode: "password",

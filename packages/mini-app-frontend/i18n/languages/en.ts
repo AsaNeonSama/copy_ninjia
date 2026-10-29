@@ -312,7 +312,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
   return {
     languageLabel: "EN",
     appTitle: "Zaako Console♡",
-    appSubtitle: "This Genius's command deck built for a clueless Zaako admin",
     superAdminBadge: "SuperAdmin",
     lockButton: "Lock",
     lockSessionToast: "Hmph, locked the session for you, careless Zaako♡",
@@ -430,9 +429,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       memoryProcessUsedLabel: "Current Process",
       memoryOtherUsedLabel: "Other Processes",
       memoryTotalUsedLabel: "Total Used",
-      memorySub: (currentRss: string, heapUsed: string): string =>
-        `Current RSS ${currentRss} · Heap ${heapUsed}`,
-      memoryHeapSub: (heapUsed: string): string => `JS Heap ${heapUsed}`,
       managedChatsLabel: "/init Managed Chats",
       managedChatsSub: (whitelistCount: number, blocklistCount: number): string =>
         `Whitelist ${whitelistCount} · Blocklist ${blocklistCount}`,

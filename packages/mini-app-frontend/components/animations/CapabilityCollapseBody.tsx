@@ -7,6 +7,8 @@ import {
 import { computeCapabilityCollapseDurationMs } from "../../libs/formatters";
 import { scrollViewportToExpandedBody } from "./expandFollowScroll";
 import type { ViewportRectElement } from "./expandFollowScroll";
+import { readElementBodyHeight } from "./TabHeightSizer";
+import type { MeasurableBodyElement } from "./TabHeightSizer";
 
 /** 子系统面板展开后延迟视口跟滚的共享调度状态（保证连续展开多项时只触发最后一次滑动）。 */
 export interface ExpandScrollScheduleState {
@@ -14,14 +16,6 @@ export interface ExpandScrollScheduleState {
   timer: ReturnType<typeof setTimeout> | null;
   /** 当前批次所有正在展开面板中最晚完成展开动画的时间戳（`performance.now()` 毫秒）。 */
   latestFinishTimeMs: number;
-}
-
-/** 支持读取内容总高度的折叠面板内容 DOM 节点最小类型接口。 */
-interface MeasurableCollapseElement {
-  /** 元素包含边框与内边距的完整布局像素高度。 */
-  readonly offsetHeight?: number;
-  /** 元素内容的完整像素高度（不受外层 `height: 0` 裁切影响）。 */
-  readonly scrollHeight?: number;
 }
 
 /** 支持直接写入行内高度与过渡时长样式、读取视口几何边界的折叠外层容器 DOM 节点最小类型接口。 */
@@ -59,21 +53,6 @@ interface ScrollViewportAfterExpandedOptions {
 type CollapseWrapInlineStyle = React.CSSProperties & {
   readonly "--cap-duration": string;
 };
-
-/**
- * 读取折叠面板内容节点的完整像素高度（优先取含上边框的 `offsetHeight`）。
- *
- * @param element 折叠面板内容 DOM 节点
- * @returns 像素高度（未挂载时返回 `0`）
- */
-function readCollapseBodyHeight(
-  element: MeasurableCollapseElement | null
-): number {
-  if (element === null) return 0;
-  const offset: number = element.offsetHeight ?? 0;
-  if (offset > 0) return offset;
-  return element.scrollHeight ?? 0;
-}
 
 /**
  * 在子系统折叠面板展开动画完成后按 `scrollViewportToExpandedBody` 让视口平滑向下滚动以展现展开内容
@@ -147,8 +126,8 @@ export function CapabilityCollapseBody({
 }: CapabilityCollapseBodyProps): React.JSX.Element {
   const wrapRef: React.RefObject<MeasurableCollapseWrapElement | null> =
     useRef<MeasurableCollapseWrapElement | null>(null);
-  const bodyRef: React.RefObject<MeasurableCollapseElement | null> =
-    useRef<MeasurableCollapseElement | null>(null);
+  const bodyRef: React.RefObject<MeasurableBodyElement | null> =
+    useRef<MeasurableBodyElement | null>(null);
   const lastHeightRef: React.RefObject<number> = useRef<number>(0);
   const prevExpandedRef: React.RefObject<boolean> = useRef<boolean>(expanded);
 
@@ -156,17 +135,17 @@ export function CapabilityCollapseBody({
     useCallback((el: MeasurableCollapseWrapElement | null): void => {
       wrapRef.current = el;
     }, []);
-  const setBodyNode: (el: MeasurableCollapseElement | null) => void =
-    useCallback((el: MeasurableCollapseElement | null): void => {
+  const setBodyNode: (el: MeasurableBodyElement | null) => void =
+    useCallback((el: MeasurableBodyElement | null): void => {
       bodyRef.current = el;
-      const measured: number = readCollapseBodyHeight(el);
+      const measured: number = readElementBodyHeight(el);
       if (measured > 0) {
         lastHeightRef.current = measured;
       }
     }, []);
 
   useEffect((): void => {
-    const measured: number = readCollapseBodyHeight(bodyRef.current);
+    const measured: number = readElementBodyHeight(bodyRef.current);
     if (measured > 0) {
       lastHeightRef.current = measured;
     }
@@ -190,7 +169,7 @@ export function CapabilityCollapseBody({
     prevExpandedRef.current = expanded;
     if (!wasExpanded && expanded) {
       const wrapEl: MeasurableCollapseWrapElement | null = wrapRef.current;
-      const measured: number = readCollapseBodyHeight(bodyRef.current);
+      const measured: number = readElementBodyHeight(bodyRef.current);
       const effectiveHeight: number =
         measured > 0 ? measured : lastHeightRef.current;
       if (wrapEl !== null && effectiveHeight > 0) {
@@ -207,7 +186,7 @@ export function CapabilityCollapseBody({
     return undefined;
   }, [expanded, expandScrollStateRef]);
 
-  const currentMeasured: number = readCollapseBodyHeight(bodyRef.current);
+  const currentMeasured: number = readElementBodyHeight(bodyRef.current);
   const effectiveHeight: number =
     currentMeasured > 0 ? currentMeasured : lastHeightRef.current;
   const durationMs: number =

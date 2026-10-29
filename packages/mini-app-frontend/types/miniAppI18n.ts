@@ -63,7 +63,6 @@ export interface MiniAppServerNoticeParams {
 export interface MiniAppTranslations {
   readonly languageLabel: string;
   readonly appTitle: string;
-  readonly appSubtitle: string;
   readonly superAdminBadge: string;
   readonly lockButton: string;
   readonly lockSessionToast: string;
@@ -163,8 +162,6 @@ export interface MiniAppTranslations {
     readonly memoryProcessUsedLabel: string;
     readonly memoryOtherUsedLabel: string;
     readonly memoryTotalUsedLabel: string;
-    readonly memorySub: (currentRss: string, heapUsed: string) => string;
-    readonly memoryHeapSub: (heapUsed: string) => string;
     readonly managedChatsLabel: string;
     readonly managedChatsSub: (whitelistCount: number, blocklistCount: number) => string;
     readonly activeSessionsLabel: string;

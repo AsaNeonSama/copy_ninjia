@@ -90,7 +90,7 @@ describe("Mini App 原生路由表与兜底分发", () => {
       ["GET", "/api/auth/precheck"], ["POST", "/api/auth/login", JSON.stringify({ password: "test-mini-app-password" })],
       ["GET", "/api/totp"], ["POST", "/api/totp/setup"], ["POST", "/api/totp/enable", "{}"],
       ["POST", "/api/totp/delete"], ["DELETE", "/api/totp"],
-      ["GET", "/api/status"], ["GET", "/api/mood"],
+      ["GET", "/api/status"], ["GET", "/api/mood"], ["POST", "/api/mood/switch", "{}"],
       ["GET", "/api/chats"], ["GET", "/api/chats/-1001"], ["GET", "/api/chats/-1001/messages"],
       ["GET", "/api/chats/-1001/targets"], ["POST", "/api/chats/-1001/targets", "{}"],
       ["POST", "/api/chats/-1001/feature", "{}"], ["POST", "/api/chats/-1001/batch-kick", "{}"],

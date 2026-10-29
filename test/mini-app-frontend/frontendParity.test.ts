@@ -51,7 +51,6 @@ const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppFeatureToggleResult: true satisfies Exact<FrontendMiniApp.MiniAppFeatureToggleResult, ServerMiniApp.MiniAppFeatureToggleResult>,
   MiniAppBatchKickOutcome: true satisfies Exact<FrontendMiniApp.MiniAppBatchKickOutcome, ServerMiniApp.MiniAppBatchKickOutcome>,
   MiniAppBatchKickResult: true satisfies Exact<FrontendMiniApp.MiniAppBatchKickResult, ServerMiniApp.MiniAppBatchKickResult>,
-  MiniAppChatTargetKind: true satisfies Exact<FrontendMiniApp.MiniAppChatTargetKind, ServerMiniApp.MiniAppChatTargetKind>,
   MiniAppTranslateLanguage: true satisfies Exact<FrontendMiniApp.MiniAppTranslateLanguage, ServerMiniApp.MiniAppTranslateLanguage>,
   MiniAppChatQaItem: true satisfies Exact<FrontendMiniApp.MiniAppChatQaItem, ServerMiniApp.MiniAppChatQaItem>,
   MiniAppChatDeleteTargetItem: true satisfies Exact<FrontendMiniApp.MiniAppChatDeleteTargetItem, ServerMiniApp.MiniAppChatDeleteTargetItem>,
@@ -96,7 +95,6 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.MINI_APP_SESSION_HEADER).toBe(serverMiniAppConsts.MINI_APP_SESSION_HEADER);
     expect(frontendMiniAppConsts.MINI_APP_SESSION_EXPIRES_AT_HEADER).toBe(serverMiniAppConsts.MINI_APP_SESSION_EXPIRES_AT_HEADER);
     expect(frontendMiniAppConsts.MINI_APP_SESSION_TTL_MS).toBe(serverMiniAppConsts.MINI_APP_SESSION_TTL_MS);
-    expect(frontendMiniAppConsts.MINI_APP_SESSION_REFRESH_THRESHOLD_MS).toBe(serverMiniAppConsts.MINI_APP_SESSION_REFRESH_THRESHOLD_MS);
     expect(frontendMiniAppConsts.MINI_APP_TMA_AUTH_PREFIX).toBe(serverMiniAppConsts.MINI_APP_TMA_AUTH_PREFIX);
     expect(frontendMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_GALLERY_DEFAULT_PAGE_SIZE);
     expect(frontendMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE).toBe(serverMiniAppConsts.MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE);
@@ -104,7 +102,6 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MIN_HOURS);
     expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS);
     expect(frontendMiniAppConsts.MINI_APP_FEATURE_KEYS).toEqual(serverMiniAppConsts.MINI_APP_FEATURE_KEYS);
-    expect(frontendMiniAppConsts.MINI_APP_CHAT_TARGET_KINDS).toEqual(serverMiniAppConsts.MINI_APP_CHAT_TARGET_KINDS);
     expect(frontendMiniAppConsts.MINI_APP_TRANSLATE_LANGUAGES).toEqual(serverMiniAppConsts.MINI_APP_TRANSLATE_LANGUAGES);
     expect(frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS).toEqual(serverWhitelistConsts.WHITELIST_PERMISSION_KEYS);
     expect(frontendMemoryConsts.VERBATIM_CONTEXT_MAX).toBe(serverMemoryConsts.VERBATIM_CONTEXT_MAX);
