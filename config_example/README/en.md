@@ -133,7 +133,7 @@ Static configuration file located at `config/static/bot.json`. Requires a proces
     "url": "https://miniapp.example.com",
     "port": 3000,
     "host": "127.0.0.1",
-    "password": "mini-app-example-password-908172"
+    "password": "replace-with-mini-app-password"
   }
 }
 ```
@@ -146,8 +146,8 @@ Static configuration file located at `config/static/bot.json`. Requires a proces
 | `super_admin_user_id` | `number` | **Required** | Positive safe integer (`> 0`) | Telegram numeric user ID of the sole super administrator (not @username). Inherent holder of all permissions |
 | `atmosphere` | `string` | Optional | `"mesugaki"` or `"normal"`; trimmed and strictly validated; omission selects by custom-persona presence | Global notification tone; explicit configuration takes priority (`mesugaki` teasing, `normal` plain). When omitted, use plain if `prompt/persona.md` exists, otherwise teasing; does not change the AI persona |
 | `time_zone` | `string` | Optional | IANA name, default `DEFAULT_BOT_TIME_ZONE`; trimmed and strictly validated | Default calendar zone for fortune, logs, ad activity, AI clocks, daily maintenance, and cron tasks without an explicit zone; the Tokyo weather tool is registered only for `TOKYO_TIME_ZONE`, including the omitted default; invalid values refuse startup. The data root is bound to this zone when it is created, and a later change refuses startup; see [07 Operations](../../docs/en/07-operations.md#calendar-time-zone) |
-| `mini_app` | `object` | Optional | Strict object allowing only `url`, `port`, `host`, and `password`; when omitted, no local HTTP server or routes are started and private `MenuButtonWebApp` is not registered | SuperAdmin-only Telegram Mini App management console (Dashboard) configuration |
-| `mini_app.url` | `string` | **Required** when `mini_app` is present | Valid `https://` URL without a `#` fragment | Public HTTPS URL loaded by the Telegram WebApp client |
+| `mini_app` | `object` | Optional | Strict object allowing only `url`, `port`, `host`, and `password`; when omitted, no local HTTP server or routes are started and private `MenuButtonWebApp` is not registered; when copying from `config_example/` manually without using the Mini App, remove this section or replace `password` with a real password (the placeholder password refuses startup) | SuperAdmin-only Telegram Mini App management console (Dashboard) configuration |
+| `mini_app.url` | `string` | **Required** when `mini_app` is present | Valid `https://` URL without a `#` fragment; supports subpath prefixes (e.g. `https://example.com/sub`) and reverse proxies that either preserve or strip the path prefix | Public HTTPS URL loaded by the Telegram WebApp client |
 | `mini_app.port` | `number` | Optional | Safe integer in `1`–`65535`, default `3000` | Local `Bun.serve` HTTP listening port |
 | `mini_app.host` | `string` | Optional | Non-empty string, default `"127.0.0.1"` | Local `Bun.serve` HTTP listening address |
 | `mini_app.password` | `string` | **Required** when `mini_app` is present | Non-empty string containing at least 6 digits (`0-9`) and not equal to `MINI_APP_PASSWORD_PLACEHOLDER`; missing or invalid values refuse startup | First-screen access password for the Mini App (45-minute `initData` and session validity; 3 consecutive failures lock out the SuperAdmin ID for 30 minutes; when Google Authenticator TOTP is bound in the console, 6-digit TOTP takes precedence on login) |

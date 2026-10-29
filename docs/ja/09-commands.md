@@ -329,7 +329,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 ### 1. 認証とセキュリティ境界
 - **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはまず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証し、次に `initData` ミドルウェアで Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）とログイン（`POST /api/auth/login`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。有効期限内のセッショントークンが発行から 5 分（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）を超えている場合、サーバーは自動的に新しいトークンを発行して有効期限を 45 分（`MINI_APP_SESSION_TTL_MS`）延長し、`X-Mini-App-Session` および `X-Mini-App-Session-Expires-At` レスポンスヘッダー（ならびに `/api/auth/precheck` のレスポンスボディ）で返却するとともに、セッション更新中は静的な `initData.auth_date` を継続許可します。
 - **初回画面の資格情報とロック保護**：認証器が未バインドの場合は `mini_app.password` を検証し、コンソールで Google Authenticator (TOTP) をバインド済みの場合（`memory/mini-app-totp/totp.json` に永続化）は現在の 30 秒タイムステップの 6 桁コードを優先検証します。3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロックし、ロック突入時に解除時刻と送信元 IP を記したアラートを個人チャットへ 1 通送信します。
-- **保護された静的リソースと画像庫アセット**：画像庫サムネイル（`GET /api/gallery/:name/preview`）と保護された SVG アイコン（`GET|HEAD /api/resource/:name.svg`）はログインまたは有効セッション再開時のみ発行される決定論的 `assetToken` で認証され、7 日間の不変キャッシュと `ETag` 304 再検証をサポートします。
+- **保護された画像庫プレビューアセット**：画像庫サムネイル（`GET /api/gallery/:name/preview`）はログインまたは有効セッション再開時のみ発行される決定論的 `assetToken` で認証され、7 日間の不変キャッシュと `ETag` 304 再検証をサポートします。
 
 ### 2. HTTP API ルートと機能対応表
 

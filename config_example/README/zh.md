@@ -133,7 +133,7 @@ done
     "url": "https://miniapp.example.com",
     "port": 3000,
     "host": "127.0.0.1",
-    "password": "mini-app-example-password-908172"
+    "password": "replace-with-mini-app-password"
   }
 }
 ```
@@ -146,8 +146,8 @@ done
 | `super_admin_user_id` | `number` | **必填** | 正安全整数（`> 0`） | 唯一超级管理员的 Telegram 用户数字 ID（非用户名），天生拥有全部可授予权限，无需写入数据库 |
 | `atmosphere` | `string` | 可选 | `"mesugaki"` 或 `"normal"`；首尾空白去掉后严格校验，缺省按是否配置自定义人设选择 | 机器人系统通知与命令回执的语气风格；显式配置优先（`mesugaki` 雌小鬼，`normal` 普通）。未配置时，存在 `prompt/persona.md` 使用普通风格，否则使用雌小鬼风格；不改变 AI 人设 |
 | `time_zone` | `string` | 可选 | IANA 时区名，缺省 `DEFAULT_BOT_TIME_ZONE`；首尾空白去掉后严格校验 | 默认日历时区：运势、日志、广告累计、AI 时间、每日维护与未指定时区的 cron 共用；仅为 `TOKYO_TIME_ZONE`（含缺省）时注册东京天气工具；非法值拒绝启动。数据根建库时绑定该时区，之后更换会被启动拒绝，见 [07 运维与排障](../../docs/cn/07-operations.md#日历时区) |
-| `mini_app` | `object` | 可选 | 严格对象，仅允许 `url`、`port`、`host`、`password` 四个字段；缺省时不启动本地 HTTP 服务、不注册路由，也不挂载私聊 `MenuButtonWebApp` | SuperAdmin 专属 Telegram Mini App 管理面板（Dashboard）配置 |
-| `mini_app.url` | `string` | `mini_app` 存在时**必填** | 合法的 `https://` URL，禁止携带 `#` fragment | Telegram 客户端加载 WebApp 的公网 HTTPS 入口地址 |
+| `mini_app` | `object` | 可选 | 严格对象，仅允许 `url`、`port`、`host`、`password` 四个字段；缺省时不启动本地 HTTP 服务、不注册路由，也不挂载私聊 `MenuButtonWebApp`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除该节，或将 `password` 替换为真实密码（占位密码拒绝启动） | SuperAdmin 专属 Telegram Mini App 管理面板（Dashboard）配置 |
+| `mini_app.url` | `string` | `mini_app` 存在时**必填** | 合法的 `https://` URL，禁止携带 `#` fragment；支持配置子路径前缀（如 `https://example.com/sub`），兼容保留或剥离路径前缀的反向代理 | Telegram 客户端加载 WebApp 的公网 HTTPS 入口地址 |
 | `mini_app.port` | `number` | 可选 | `1`–`65535` 的安全整数，缺省 `3000` | 本地 `Bun.serve` HTTP 监听端口 |
 | `mini_app.host` | `string` | 可选 | 非空字符串，缺省 `"127.0.0.1"` | 本地 `Bun.serve` HTTP 监听地址 |
 | `mini_app.password` | `string` | `mini_app` 存在时**必填** | 非空字符串、至少包含 6 位数字（`0-9`），且不得保留占位值 `MINI_APP_PASSWORD_PLACEHOLDER`；缺省或非法时拒绝启动 | Mini App 首屏访问密码（`initData` 与单次会话有效期均为 45 分钟；连续输错 3 次锁定超级管理员 ID 30 分钟；在控制台绑定 Google Authenticator TOTP 后登录优先校验 6 位动态码） |
