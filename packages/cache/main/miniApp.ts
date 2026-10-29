@@ -39,10 +39,10 @@ export const miniAppActiveConfigHolder: {
 } = { current: null };
 
 /**
- * 已通过访问密码认证的超级管理员 45 分钟会话令牌表（键为 64 位十六进制 `token`）。
- * 填充：`POST /api/auth/login` 校验 `initData` 与访问密码均通过后签发写入；携带有效令牌访问且距签发超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS`（5 分钟）时自动签发新令牌并顺延有效期。
+ * 已通过访问密码认证的超级管理员 45 分钟会话令牌表（键为当前 64 位十六进制 `token`，每个会话占 1 个槽位）。
+ * 填充：`POST /api/auth/login` 校验 `initData` 与访问密码均通过后签发写入；携带有效令牌访问且距签发超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS`（5 分钟）时删除旧键、签发新键插到最新端并顺延有效期，上一轮令牌保存在条目 `previousToken` 中供 5 分钟宽限期内匹配。
  * 清理：每次鉴权或新签发时按 `MINI_APP_SESSION_TTL_MS`（45 分钟）清理过期项，`stopMiniAppServer` 清空。
- * 容量上界为 `MINI_APP_SESSION_MAX`（8 条），超出时由 `FifoMap` 按插入顺序淘汰最早会话；与 Worker 崩溃无关，进程重启后从空表开始。
+ * 容量上界为 `MINI_APP_SESSION_MAX`（8 个会话），超出时由 `FifoMap` 按插入（或最近一次刷新）顺序淘汰最早会话；与 Worker 崩溃无关，进程重启后从空表开始。
  */
 export const miniAppAuthSessions: FifoMap<string, Readonly<MiniAppAuthSession>> =
   new FifoMap<string, Readonly<MiniAppAuthSession>>(MINI_APP_SESSION_MAX);

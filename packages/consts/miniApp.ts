@@ -110,8 +110,8 @@ export const MINI_APP_SESSION_EXPIRES_AT_HEADER: string =
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
 
 /**
- * Mini App 会话令牌触发自动刷新与续期的已签发时长阈值毫秒数（5 分钟）。
- * 不变量：正整数毫秒数，小于 `MINI_APP_SESSION_TTL_MS`；携带有效会话令牌访问服务端且距签发时刻超过 5 分钟时自动签发新令牌并顺延有效期。所属模块：`packages/mini-app-api-server/auth/session.ts`。
+ * Mini App 会话令牌触发自动刷新与续期的已签发时长阈值毫秒数，同时也是刷新后上一轮旧令牌（`previousToken`）的并发宽限期（5 分钟）。
+ * 不变量：正整数毫秒数，小于 `MINI_APP_SESSION_TTL_MS`；携带有效会话令牌访问服务端且距签发时刻超过 5 分钟时自动签发新令牌并顺延有效期，旧令牌在刷新后的 5 分钟内仍可通过核验。所属模块：`packages/mini-app-api-server/auth/session.ts`。
  */
 export const MINI_APP_SESSION_REFRESH_THRESHOLD_MS: number = 5 * MINUTE_MS;
 

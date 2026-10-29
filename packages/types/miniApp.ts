@@ -24,6 +24,8 @@ export type MiniAppAuthResult =
 export interface MiniAppAuthSession {
   /** 64 位十六进制随机会话令牌。 */
   readonly token: string;
+  /** 最近一次刷新前的旧会话令牌（距 `createdAt` 5 分钟宽限期内有效；新签发时为 `undefined`）。 */
+  readonly previousToken: string | undefined;
   readonly createdAt: number;
   /** 会话过期毫秒时间戳（`createdAt + MINI_APP_SESSION_TTL_MS`）。 */
   readonly expiresAt: number;

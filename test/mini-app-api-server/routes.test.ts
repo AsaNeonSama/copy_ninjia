@@ -136,6 +136,7 @@ const {
   MINI_APP_PASSWORD_MAX_ATTEMPTS,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
+  MINI_APP_SESSION_MAX,
   MINI_APP_SESSION_REFRESH_THRESHOLD_MS,
   MINI_APP_SESSION_TTL_MS,
 } = await import("../../packages/consts/miniApp");
@@ -747,5 +748,74 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
         attempt < MINI_APP_PASSWORD_MAX_ATTEMPTS ? "INVALID_TOTP_CODE" : "TOTP_SETUP_EXPIRED"
       );
     }
+  });
+
+  test("满表时刷新最早会话不会自淘汰旧令牌宽限别名，会将刷新会话移至最新端，且宽限期过后旧令牌失效", async () => {
+    miniAppAuthSessions.clear();
+    const baseNowMs: number = Date.now();
+    const agedAuthDateInitData: string = buildSignedTestInitData({
+      botToken: BOT_TOKEN,
+      authDate: Math.floor(baseNowMs / 1000) - MINI_APP_AUTH_MAX_AGE_SECONDS - 120,
+      user: {
+        id: SUPER_ADMIN_USER_ID,
+        first_name: "SuperAdmin",
+      },
+    });
+
+    const oldestSession = issueMiniAppAuthSession(
+      baseNowMs - MINI_APP_SESSION_REFRESH_THRESHOLD_MS - 1_000
+    );
+    const otherSessions = Array.from(
+      { length: MINI_APP_SESSION_MAX - 1 },
+      () => issueMiniAppAuthSession(baseNowMs)
+    );
+    expect(miniAppAuthSessions.size).toBe(MINI_APP_SESSION_MAX);
+
+    const refreshRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
+          [MINI_APP_SESSION_HEADER]: oldestSession.token,
+        },
+      })
+    );
+    expect(refreshRes.status).toBe(200);
+    const refreshedToken: string | null = refreshRes.headers.get(
+      MINI_APP_SESSION_HEADER
+    );
+    expect(refreshedToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(refreshedToken).not.toBe(oldestSession.token);
+    expect(miniAppAuthSessions.size).toBe(MINI_APP_SESSION_MAX);
+    for (const session of otherSessions) {
+      expect(miniAppAuthSessions.has(session.token)).toBeTrue();
+    }
+
+    const graceRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
+          [MINI_APP_SESSION_HEADER]: oldestSession.token,
+        },
+      })
+    );
+    expect(graceRes.status).toBe(200);
+    expect(graceRes.headers.get(MINI_APP_SESSION_HEADER)).toBe(refreshedToken);
+
+    const extraSession = issueMiniAppAuthSession(baseNowMs);
+    expect(miniAppAuthSessions.size).toBe(MINI_APP_SESSION_MAX);
+    expect(miniAppAuthSessions.has(otherSessions[0]!.token)).toBeFalse();
+    expect(miniAppAuthSessions.has(refreshedToken!)).toBeTrue();
+    expect(miniAppAuthSessions.has(extraSession.token)).toBeTrue();
+
+    setSystemTime(new Date(baseNowMs + MINI_APP_SESSION_REFRESH_THRESHOLD_MS + 2_000));
+    const expiredAliasRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: agedAuthDateInitData,
+          [MINI_APP_SESSION_HEADER]: oldestSession.token,
+        },
+      })
+    );
+    expect(expiredAliasRes.status).toBe(401);
   });
 });
