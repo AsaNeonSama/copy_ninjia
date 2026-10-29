@@ -236,6 +236,12 @@ export const MINI_APP_TOAST_CLOSE_ANIMATION_MS: number = 200;
 export const MINI_APP_CONFIRM_CLOSE_ANIMATION_MS: number = 180;
 
 /**
+ * 顶栏语言选择下拉菜单关闭收起退场动画的毫秒数（与 `styles/shell.css` 的 `0.18s` 齐平）。
+ * 不变量：正整数毫秒数，与对应 CSS 退场时长一致。所属模块：`packages/mini-app-frontend/components/PrefsBar.tsx`。
+ */
+export const MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS: number = 180;
+
+/**
  * 实时状态页骨架屏中能力折叠行占位的序号表（6 行，对应服务端状态快照的 6 项能力槽位）。
  * 不变量：从 0 起连续递增的只读整数数组，仅用作骨架行 key 与奇偶宽度切换。所属模块：`packages/mini-app-frontend/components/skeletons/StatusSkeleton.tsx`。
  */
@@ -305,14 +311,14 @@ export const MINI_APP_FEATURE_KEYS: readonly MiniAppFeatureKey[] =
   ]);
 
 /**
- * Mini App 界面支持的语言键闭集（中文、日文、英文）。
+ * Mini App 界面支持的语言键闭集（按英文、日文、中文顺序排列）。
  * 不变量：与 `MiniAppLanguage` 联合类型一一对应。所属模块：`packages/mini-app-frontend/components/PrefsBar.tsx`。
  */
 export const MINI_APP_LANGUAGES: readonly MiniAppLanguage[] =
   exhaustiveList<MiniAppLanguage>()([
-    "zh",
-    "ja",
     "en",
+    "ja",
+    "zh",
   ]);
 
 /**

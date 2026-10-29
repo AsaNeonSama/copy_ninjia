@@ -310,7 +310,8 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
     }
   };
   return {
-    languageLabel: "中",
+    languageLabel: "简体中文",
+    languageMenuAria: "切换界面语言",
     appTitle: "杂鱼控制台♡",
     superAdminBadge: "SuperAdmin",
     lockButton: "锁定",

@@ -310,7 +310,8 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
     }
   };
   return {
-    languageLabel: "EN",
+    languageLabel: "English",
+    languageMenuAria: "Switch display language",
     appTitle: "Zaako Console♡",
     superAdminBadge: "SuperAdmin",
     lockButton: "Lock",

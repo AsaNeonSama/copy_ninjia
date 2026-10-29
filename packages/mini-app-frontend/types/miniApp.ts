@@ -466,8 +466,8 @@ export type MiniAppPickerSubjectKind = "users" | "channel";
 /** Mini App 名单添加折叠菜单的添加方式（按 ID、按联系人、按频道）。 */
 export type MiniAppIdentityAddMode = "id" | "users" | "channel";
 
-/** Mini App 界面支持的语言键（中文、日文、英文）。 */
-export type MiniAppLanguage = "zh" | "ja" | "en";
+/** Mini App 界面支持的语言键（英文、日文、中文）。 */
+export type MiniAppLanguage = "en" | "ja" | "zh";
 
 /** Mini App 界面支持的主题模式（暗色、亮色）。 */
 export type MiniAppThemeMode = "dark" | "light";
@@ -641,3 +641,23 @@ export type PrepareMiniAppPickerResult =
     readonly ok: false;
     readonly message: string;
   };
+
+/** Mini App 通用 SVG 图标组件入参。 */
+export interface MiniAppIconProps {
+  /** 图标边长像素值（缺省按各图标默认尺寸渲染）。 */
+  readonly size?: number;
+  /** 附加的 CSS 类名。 */
+  readonly className?: string;
+}
+
+/** Mini App 侧边栏主导航标签 SVG 图标入参。 */
+export interface MiniAppTabIconProps extends MiniAppIconProps {
+  /** 导航标签键。 */
+  readonly tabKey: MiniAppTabKey;
+}
+
+/** Mini App 顶栏多语言切换球标 SVG 图标入参。 */
+export interface MiniAppGlobeIconProps extends MiniAppIconProps {
+  /** 当前界面语言键（缺省为中文 `"zh"`，对应右下角 `CN` 角标）。 */
+  readonly language?: MiniAppLanguage;
+}

@@ -62,6 +62,7 @@ export interface MiniAppServerNoticeParams {
 /** Mini App 界面三语言（中/日/英）杂鱼语气文案结构定义。 */
 export interface MiniAppTranslations {
   readonly languageLabel: string;
+  readonly languageMenuAria: string;
   readonly appTitle: string;
   readonly superAdminBadge: string;
   readonly lockButton: string;

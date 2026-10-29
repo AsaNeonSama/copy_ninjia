@@ -52,6 +52,7 @@ import { ChatTargetsMenuButtonList } from "../../packages/mini-app-frontend/comp
 import { ConfirmModal } from "../../packages/mini-app-frontend/components/ConfirmModal";
 import { IdentitySubtabsBar } from "../../packages/mini-app-frontend/components/IdentitySubtabsBar";
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
+import { PrefsBar } from "../../packages/mini-app-frontend/components/PrefsBar";
 import { StatusOverviewCard } from "../../packages/mini-app-frontend/components/StatusOverviewCard";
 import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
@@ -60,10 +61,12 @@ import {
   MINI_APP_CAP_COLLAPSE_DEFAULT_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_MAX_DURATION_MS,
   MINI_APP_CAP_COLLAPSE_MIN_DURATION_MS,
+  MINI_APP_CONFIRM_CLOSE_ANIMATION_MS,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_HTML_TITLE,
   MINI_APP_INITIAL_THEME,
   MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
   MINI_APP_LANGUAGES,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
@@ -110,6 +113,10 @@ import {
   ChatsSvgIcon,
   DownloadSvgIcon,
   GallerySvgIcon,
+  GlobeCnSvgIcon,
+  GlobeEnSvgIcon,
+  GlobeJaSvgIcon,
+  GlobeSvgIcon,
   IdentitiesSvgIcon,
   MenuSvgIcon,
   SearchSvgIcon,
@@ -413,6 +420,9 @@ describe("前端接口文件与纯函数辅助库", () => {
 
     for (const lang of MINI_APP_LANGUAGES) {
       const dict = getMiniAppTranslations(lang);
+      expect(dict.languageLabel.length).toBeGreaterThan(0);
+      expect(dict.languageMenuAria.length).toBeGreaterThan(0);
+      expect(GlobeSvgIcon({ language: lang })).toBeDefined();
       expect(dict.appTitle).toContain("♡");
       expect(dict.status.loadingText.length).toBeGreaterThan(0);
       expect(dict.status.cpuLoadSub.length).toBeGreaterThan(0);
@@ -695,17 +705,43 @@ describe("前端接口文件与纯函数辅助库", () => {
     applyMiniAppThemeToDocument("light");
 
     resetMiniAppStoreForTest();
+    expect(MINI_APP_LANGUAGES).toEqual(["en", "ja", "zh"]);
+    expect(MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS).toBe(
+      MINI_APP_CONFIRM_CLOSE_ANIMATION_MS
+    );
     expect(useMiniAppStore.getState().theme).toBe(MINI_APP_INITIAL_THEME);
+    expect(useMiniAppStore.getState().langMenuOpen).toBeFalse();
     expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
+    const collapsedPrefsHtml: string = renderToStaticMarkup(createElement(PrefsBar));
+    expect(collapsedPrefsHtml).toContain('class="lang-dropdown"');
+    expect(collapsedPrefsHtml).toContain('aria-expanded="false"');
+    expect(collapsedPrefsHtml).not.toContain("lang-menu-popover");
+    useMiniAppStore.getState().toggleLangMenu();
+    expect(useMiniAppStore.getState().langMenuOpen).toBeTrue();
+    const expandedPrefsHtml: string = renderToStaticMarkup(createElement(PrefsBar));
+    expect(expandedPrefsHtml).toContain('class="btn icon-btn lang-menu-btn active"');
+    expect(expandedPrefsHtml).toContain('aria-expanded="true"');
+    expect(expandedPrefsHtml).toContain("lang-menu-popover");
+    expect(expandedPrefsHtml).toContain(getMiniAppTranslations("zh").languageLabel);
+    expect(expandedPrefsHtml).toContain(getMiniAppTranslations("ja").languageLabel);
+    expect(expandedPrefsHtml).toContain(getMiniAppTranslations("en").languageLabel);
+    useMiniAppStore.getState().closeLangMenu();
+    expect(useMiniAppStore.getState().langMenuOpen).toBeFalse();
+    useMiniAppStore.getState().toggleLangMenu();
+    expect(useMiniAppStore.getState().langMenuOpen).toBeTrue();
     useMiniAppStore.getState().toggleSidebar();
     expect(useMiniAppStore.getState().sidebarOpen).toBeTrue();
+    expect(useMiniAppStore.getState().langMenuOpen).toBeFalse();
     useMiniAppStore.getState().setActiveTab("identities");
     expect(useMiniAppStore.getState().activeTab).toBe("identities");
     expect(useMiniAppStore.getState().sidebarOpen).toBeFalse();
     useMiniAppStore.getState().toggleTheme();
     expect(useMiniAppStore.getState().theme).toBe("dark");
+    useMiniAppStore.getState().toggleLangMenu();
+    expect(useMiniAppStore.getState().langMenuOpen).toBeTrue();
     useMiniAppStore.getState().setLanguage("ja");
     expect(useMiniAppStore.getState().language).toBe("ja");
+    expect(useMiniAppStore.getState().langMenuOpen).toBeFalse();
     useMiniAppStore.getState().showToast("笨蛋杂鱼♡", "danger");
     expect(useMiniAppStore.getState().toastText).toBe("笨蛋杂鱼♡");
     expect(useMiniAppStore.getState().toastTone).toBe("danger");
@@ -835,6 +871,10 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(ChatsSvgIcon({})).toBeDefined();
     expect(IdentitiesSvgIcon({})).toBeDefined();
     expect(GallerySvgIcon({})).toBeDefined();
+    expect(GlobeCnSvgIcon({})).toBeDefined();
+    expect(GlobeJaSvgIcon({})).toBeDefined();
+    expect(GlobeEnSvgIcon({})).toBeDefined();
+    expect(GlobeSvgIcon({})).toBeDefined();
     expect(DownloadSvgIcon({})).toBeDefined();
     expect(SearchSvgIcon({})).toBeDefined();
     expect(TrashSvgIcon({})).toBeDefined();

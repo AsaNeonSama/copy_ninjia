@@ -310,7 +310,8 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
     }
   };
   return {
-    languageLabel: "日",
+    languageLabel: "日本語",
+    languageMenuAria: "表示言語を切り替え",
     appTitle: "雑魚コンソール♡",
     superAdminBadge: "SuperAdmin",
     lockButton: "ロック",

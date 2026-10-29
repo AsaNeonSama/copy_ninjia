@@ -18,7 +18,7 @@
   justify-content: space-between;
   margin-bottom: 10px;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .app-topbar {
@@ -35,7 +35,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1 1 130px;
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -89,24 +89,83 @@
 
 .prefs-bar { display: flex; align-items: center; gap: 6px; }
 
-.lang-pill-group {
-  display: inline-flex; align-items: center; gap: 3px; height: 36px;
-  background: var(--surface-inset); border: 1px solid var(--border);
-  border-radius: 10px; padding: 3px 5px 3px 8px;
+.lang-dropdown { position: relative; display: inline-flex; }
+
+.lang-menu-btn {
+  appearance: none; border: 1px solid var(--border); background: var(--surface-inset); color: var(--text);
+  width: 36px; height: 36px; padding: 0; border-radius: 10px;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.14s ease;
+}
+.lang-menu-btn:hover,
+.lang-menu-btn.active {
+  border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+}
+.lang-menu-btn:active { transform: scale(0.95); }
+
+.lang-globe-icon { flex-shrink: 0; align-self: center; }
+
+@keyframes miniapp-popover-drop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.lang-globe-icon { color: var(--hint); margin-right: 3px; flex-shrink: 0; align-self: center; }
-
-.lang-pill-btn {
-  appearance: none; border: none; background: transparent; color: var(--hint);
-  font-size: 13px; font-weight: 700; line-height: 14px; height: 28px; min-width: 32px;
-  padding: 0 9px; border-radius: 7px; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  transition: background-color 0.16s ease, color 0.16s ease, transform 0.14s ease;
+@keyframes miniapp-popover-drop-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-6px) scale(0.96); }
 }
-.lang-pill-btn:hover:not(.active) { color: var(--text); background: var(--accent-soft); }
-.lang-pill-btn:active { transform: scale(0.95); }
-.lang-pill-btn.active { background: var(--accent); color: var(--accent-text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14); }
+
+.lang-menu-backdrop {
+  position: fixed; inset: 0; z-index: 45; background: transparent;
+}
+.lang-menu-backdrop.closing {
+  pointer-events: none;
+}
+
+.lang-menu-popover {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+  min-width: 152px; padding: 5px; border-radius: 12px;
+  background: var(--card); border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 3px;
+  transform-origin: top left;
+  animation: miniapp-popover-drop 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lang-menu-popover.closing {
+  pointer-events: none;
+  animation: miniapp-popover-drop-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.gate-top-prefs .lang-menu-popover {
+  left: auto; right: 0; transform-origin: top right;
+}
+
+.lang-menu-item {
+  appearance: none; width: 100%; padding: 7px 9px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; color: var(--text);
+  font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  text-align: left;
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.lang-menu-item:hover:not(.active) {
+  background: color-mix(in srgb, var(--accent-soft) 65%, var(--surface-inset));
+  color: var(--accent);
+}
+.lang-menu-item.active {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+}
+.lang-menu-item-label { white-space: nowrap; }
+.lang-menu-item-code {
+  font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 1px 6px; border-radius: 999px;
+  background: var(--surface-inset); color: var(--hint); border: 1px solid var(--border);
+}
+.lang-menu-item.active .lang-menu-item-code,
+.lang-menu-item:hover .lang-menu-item-code {
+  background: var(--card); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+}
 
 .theme-toggle-btn {
   appearance: none; border: 1px solid var(--border); background: var(--surface-inset); color: var(--text);

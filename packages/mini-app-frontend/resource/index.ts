@@ -1,26 +1,39 @@
 export {
   AlertSvgIcon,
   ArrowLeftSvgIcon,
-  ChannelSvgIcon,
-  ChatsSvgIcon,
   ChevronDownSvgIcon,
   CloseSvgIcon,
   DownloadSvgIcon,
-  GallerySvgIcon,
-  GlobeSvgIcon,
-  HashtagSvgIcon,
-  IdentitiesSvgIcon,
-  LockSvgIcon,
-  MenuSvgIcon,
-  MoonSvgIcon,
   PlusSvgIcon,
   RefreshSvgIcon,
   SearchSvgIcon,
-  StatusSvgIcon,
-  SunSvgIcon,
-  TabSvgIcon,
   TrashSvgIcon,
   UploadSvgIcon,
+} from "./icons/actionIcons";
+export {
+  ChatsSvgIcon,
+  GallerySvgIcon,
+  IdentitiesSvgIcon,
+  LockSvgIcon,
+  MenuSvgIcon,
+  StatusSvgIcon,
+  TabSvgIcon,
+} from "./icons/navigationIcons";
+export {
+  GlobeCnSvgIcon,
+  GlobeEnSvgIcon,
+  GlobeJaSvgIcon,
+  GlobeSvgIcon,
+  MoonSvgIcon,
+  SunSvgIcon,
+} from "./icons/preferenceIcons";
+export {
+  ChannelSvgIcon,
+  HashtagSvgIcon,
   UserSvgIcon,
-} from "./icons";
-export type { MiniAppIconProps, MiniAppTabIconProps } from "./icons";
+} from "./icons/subjectIcons";
+export type {
+  MiniAppGlobeIconProps,
+  MiniAppIconProps,
+  MiniAppTabIconProps,
+} from "../types/miniApp";

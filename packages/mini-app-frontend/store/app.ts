@@ -54,6 +54,8 @@ export interface MiniAppConfirmModalState {
 export interface MiniAppUiStoreState {
   readonly language: MiniAppLanguage;
   readonly theme: MiniAppThemeMode;
+  /** 顶栏语言选择下拉菜单当前是否已展开。 */
+  readonly langMenuOpen: boolean;
   readonly sidebarOpen: boolean;
   readonly gateState: MiniAppGateState;
   readonly authMode: MiniAppAuthMode;
@@ -72,6 +74,8 @@ export interface MiniAppUiStoreState {
   readonly passwordError: string | null;
 
   readonly setLanguage: (language: MiniAppLanguage) => void;
+  readonly toggleLangMenu: () => void;
+  readonly closeLangMenu: () => void;
   readonly toggleTheme: () => void;
   readonly setSidebarOpen: (open: boolean) => void;
   readonly toggleSidebar: () => void;
@@ -98,7 +102,7 @@ export interface MiniAppUiStoreState {
     metaSource?: unknown
   ) => void;
   /**
-   * 锁定控制台：清除会话到期计时器与本地会话令牌，以取消结算待确认弹窗，收起侧栏，
+   * 锁定控制台：清除会话到期计时器与本地会话令牌，以取消结算待确认弹窗，收起侧栏与语言菜单，
    * 回到密码门禁并把原因同时写入门禁错误与警告 Toast。
    */
   readonly lockSession: (reason: string) => void;
@@ -183,6 +187,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
       return {
         language: detectInitialMiniAppLanguage(),
         theme: MINI_APP_INITIAL_THEME,
+        langMenuOpen: false,
         sidebarOpen: false,
         gateState: "checking",
         authMode: "password",
@@ -198,7 +203,17 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         passwordError: null,
 
         setLanguage: (language: MiniAppLanguage): void => {
-          set({ language });
+          set({ language, langMenuOpen: false });
+        },
+
+        toggleLangMenu: (): void => {
+          set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => ({
+            langMenuOpen: !state.langMenuOpen,
+          }));
+        },
+
+        closeLangMenu: (): void => {
+          set({ langMenuOpen: false });
         },
 
         toggleTheme: (): void => {
@@ -210,12 +225,13 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         },
 
         setSidebarOpen: (open: boolean): void => {
-          set({ sidebarOpen: open });
+          set({ sidebarOpen: open, langMenuOpen: false });
         },
 
         toggleSidebar: (): void => {
           set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => ({
             sidebarOpen: !state.sidebarOpen,
+            langMenuOpen: false,
           }));
         },
 
@@ -224,7 +240,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         },
 
         setActiveTab: (tab: MiniAppTabKey): void => {
-          set({ activeTab: tab, sidebarOpen: false });
+          set({ activeTab: tab, sidebarOpen: false, langMenuOpen: false });
         },
 
         setStatusReady: (ready: boolean): void => {
@@ -286,6 +302,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             clearActiveSessionState();
             set({
               gateState: "checking",
+              langMenuOpen: false,
               sidebarOpen: false,
               statusReady: false,
               sessionExpiresAt: 0,
@@ -318,6 +335,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             passwordError: localizedReason,
             sessionExpiresAt: 0,
             statusReady: false,
+            langMenuOpen: false,
             sidebarOpen: false,
             confirmModal: null,
             gateState: "password",
@@ -374,7 +392,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             return;
           }
           const startedAt: number = Date.now();
-          set({ passwordBusy: true, passwordError: null });
+          set({ passwordBusy: true, passwordError: null, langMenuOpen: false });
           try {
             const loginRes: MiniAppLoginSuccessResponse =
               await loginMiniAppWithPassword(trimmed, authMode);
@@ -437,6 +455,7 @@ export function resetMiniAppStoreForTest(): void {
   useMiniAppStore.setState({
     language: detectInitialMiniAppLanguage(),
     theme: MINI_APP_INITIAL_THEME,
+    langMenuOpen: false,
     sidebarOpen: false,
     gateState: "checking",
     authMode: "password",
