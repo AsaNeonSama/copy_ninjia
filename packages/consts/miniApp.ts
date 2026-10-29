@@ -237,21 +237,7 @@ export const MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN: RegExp =
   /^\/api\/gallery\/download\/([^/]+)$/u;
 
 /**
- * `/api/resources/svg/:fileName` 与 `/miniAppResoures/:fileName` 受保护 SVG 资源读取路由的匹配规则。
- * 不变量：不带全局标志 `g`，供 HTTP 路由兜底分发与受保护资源路径判定无状态复用。所属模块：`packages/mini-app-api-server/routes/resource.ts` 与 `packages/mini-app-api-server/server/register.ts`。
- */
-export const MINI_APP_SVG_RESOURCE_ROUTE_PATTERN: RegExp =
-  /^\/(?:api\/resources\/svg|miniAppResoures)\/([^/]+)$/u;
-
-/**
- * 允许通过受保护 HTTP 路由读取的 SVG 图标安全文件名匹配规则（非点号开头、仅含字母数字与 `._-`、以 `.svg` 结尾）。
- * 不变量：不含路径分隔符或空字符，防止目录穿越。所属模块：`packages/mini-app-api-server/libs/resource.ts`。
- */
-export const MINI_APP_SVG_SAFE_FILE_NAME_PATTERN: RegExp =
-  /^[A-Za-z0-9][A-Za-z0-9._-]*\.svg$/iu;
-
-/**
- * 静态图片与 SVG 资源路径后缀的匹配规则（用于统一纳入受保护资源鉴权中间件链，不含公开 `/favicon.ico`）。
+ * 受保护图片与矢量图路径后缀的匹配规则（让携带图片后缀的未知路径先经受保护资源鉴权中间件链再返回 404，不含公开 `/favicon.ico`）。
  * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/mini-app-api-server/server/register.ts`。
  */
 export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: RegExp =

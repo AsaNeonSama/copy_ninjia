@@ -9,7 +9,7 @@ const initDataMiddlewareChain: readonly MiniAppMiddleware[] = [
   createMiniAppInitDataMiddleware(false),
 ];
 
-/** 受保护 SVG 与图库图片资源的专属鉴权中间件链（请求头快路径拦截跨站与浏览器直接导航 + 强制校验 Telegram WebApp 签名或资源令牌与超管 ID）。 */
+/** 受保护图库图片资源的专属鉴权中间件链（请求头快路径拦截跨站与浏览器直接导航 + 强制校验 Telegram WebApp 签名或资源令牌与超管 ID）。 */
 const protectedAssetMiddlewareChain: readonly MiniAppMiddleware[] = [
   createMiniAppHeaderGuardMiddleware(true),
   createMiniAppInitDataMiddleware(true),
@@ -46,7 +46,7 @@ export function getMiniAppInitDataMiddlewareChain(): readonly MiniAppMiddleware[
 }
 
 /**
- * 获取受保护图片与 SVG 资源路由（`/api/gallery/file/:fileName`、`/api/resources/svg/:fileName`、`/miniAppResoures/:fileName`）的中间件链。
+ * 获取受保护图库图片资源路由（`/api/gallery/file/:fileName`）的中间件链。
  * @returns 只读中间件数组。
  */
 export function getMiniAppProtectedAssetMiddlewareChain(): readonly MiniAppMiddleware[] {

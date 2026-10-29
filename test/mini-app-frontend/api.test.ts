@@ -27,7 +27,6 @@ import { updateMiniAppWhitelistPermission } from "../../packages/mini-app-fronte
 import { requestMiniAppPreparedPicker } from "../../packages/mini-app-frontend/api/pickerPrepare";
 import { pollMiniAppPickerResult } from "../../packages/mini-app-frontend/api/pickerResult";
 import { miniAppFetchJson } from "../../packages/mini-app-frontend/api/request";
-import { buildMiniAppSvgResourceUrl } from "../../packages/mini-app-frontend/api/svgResource";
 import { deleteMiniAppTotp } from "../../packages/mini-app-frontend/api/totpDelete";
 import { enableMiniAppTotp } from "../../packages/mini-app-frontend/api/totpEnable";
 import { setupMiniAppTotp } from "../../packages/mini-app-frontend/api/totpSetup";
@@ -932,17 +931,11 @@ describe("前端接口文件与纯函数辅助库", () => {
     ).toBe("00493093…a112c2.jpg");
     expect(shortenGalleryFileName("short.png")).toBe("short.png");
     expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe("./api/gallery/file/abc.jpg");
-    expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
-      "./api/resources/svg/status.svg"
-    );
     expect(readMiniAppAssetToken()).toBe("");
     setMiniAppAssetToken("b".repeat(64));
     expect(readMiniAppAssetToken()).toBe("b".repeat(64));
     expect(buildMiniAppGalleryImageUrl("abc.jpg")).toBe(
       `./api/gallery/file/abc.jpg?token=${"b".repeat(64)}`
-    );
-    expect(buildMiniAppSvgResourceUrl("status.svg")).toBe(
-      `./api/resources/svg/status.svg?token=${"b".repeat(64)}`
     );
     const storageMap: Map<string, string> = new Map<string, string>();
     const prevLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;

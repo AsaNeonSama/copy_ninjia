@@ -8,6 +8,7 @@
 import { describe, expect, test } from "bun:test";
 import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
+import { MINI_APP_FAVICON_PATH } from "../../packages/consts/paths";
 import * as serverTimeConsts from "../../packages/consts/time";
 import * as serverWhitelistConsts from "../../packages/consts/whitelist";
 import { errorMessage as serverErrorMessage } from "../../packages/libs/errorMessage";
@@ -149,9 +150,7 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     const frontendIcon: Uint8Array = await Bun.file(
       new URL("../../packages/mini-app-frontend/resource/favicon.ico", import.meta.url)
     ).bytes();
-    const serverIcon: Uint8Array = await Bun.file(
-      new URL("../../packages/mini-app-api-server/resource/favicon.ico", import.meta.url)
-    ).bytes();
+    const serverIcon: Uint8Array = await Bun.file(MINI_APP_FAVICON_PATH).bytes();
     expect(frontendIcon).toEqual(serverIcon);
   });
 

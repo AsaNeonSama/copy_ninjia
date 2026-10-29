@@ -1,5 +1,5 @@
 import { miniAppServerHolder } from "../../cache/main/miniApp";
-import { openMiniAppResourceFile } from "../libs/resource";
+import { MINI_APP_FAVICON_PATH } from "../../consts/paths";
 import { buildNoStoreHeaders, htmlResponse, jsonResponse, serveCachedAssetResponse } from "../libs/response";
 
 /**
@@ -41,12 +41,12 @@ export async function serveMiniAppIndexHtml(
 }
 
 /**
- * 处理公开的 `GET /favicon.ico` 与 `HEAD /favicon.ico` 请求，直接返回 `packages/mini-app-api-server/resource/favicon.ico` 静态图标并允许浏览器与 CDN 缓存。
+ * 处理公开的 `GET /favicon.ico` 与 `HEAD /favicon.ico` 请求，直接按 `MINI_APP_FAVICON_PATH` 读取静态图标并允许浏览器与 CDN 缓存。
  * @param request HTTP 请求对象。
  * @returns `200 OK` 或 `304 Not Modified` 图标响应。
  */
 export function handleGetFaviconRoute(request: Request): Response {
-  const file: Bun.BunFile = openMiniAppResourceFile("favicon.ico");
+  const file: Bun.BunFile = Bun.file(MINI_APP_FAVICON_PATH);
   return serveCachedAssetResponse(request, file, {
     mimeType: "image/x-icon",
     sizeBytes: file.size,

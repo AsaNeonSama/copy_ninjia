@@ -149,6 +149,17 @@ export const MINI_APP_TOTP_MEMORY_DIR: string = join(MEMORY_DIR, MINI_APP_TOTP_D
 /** Mini App 谷歌验证器（TOTP）单实例密钥持久化文件（仅允许在 Mini App 前端控制台生成、修改与删除）。 */
 export const MINI_APP_TOTP_FILE_PATH: string = join(MINI_APP_TOTP_MEMORY_DIR, "totp.json");
 /**
+ * Mini App 服务端 `/favicon.ico` 路由读取的静态图标路径。源码运行时以仓库为根，
+ * 二进制运行时以部署工作目录为根（由 `scripts/build.ts` 复制进发行包）。
+ */
+export const MINI_APP_FAVICON_PATH: string = join(
+  PROJECT_ROOT,
+  "packages",
+  "mini-app-api-server",
+  "resource",
+  "favicon.ico"
+);
+/**
  * SQLite 运行时数据库目录；与 memory/ 平级，只由 Disk I/O Worker 和显式迁移脚本访问。
  */
 export const DATABASE_DIR: string = join(RUNTIME_DATA_ROOT, DATABASE_DIR_NAME);

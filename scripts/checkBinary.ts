@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } fro
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../packages/consts/configLayout";
+import { MINI_APP_FAVICON_PATH } from "../packages/consts/paths";
 import { PROMPT_DIR_NAME, PROMPT_EXAMPLE_DIR_NAME } from "../packages/consts/promptLayout";
 import { checkBinaryMigrations } from "./checkBinaryMigrations";
 import { PRESERVED_MIGRATION_CONFIG_FILES, assertMigrationSourcesUnchanged, deployMigratedFixture } from "./fixtures/migrationDeployment";
@@ -45,6 +46,21 @@ try {
   }
   await copyFixtureTree(source, root);
   chmodSync(executable, 0o700);
+  const packagedFavicon: Bun.BunFile = Bun.file(
+    join(root, "packages", "mini-app-api-server", "resource", "favicon.ico")
+  );
+  if (!(await packagedFavicon.exists())) {
+    throw new Error("Binary package is missing packages/mini-app-api-server/resource/favicon.ico.");
+  }
+  const packagedFaviconSha256: string = new Bun.CryptoHasher("sha256")
+    .update(await packagedFavicon.bytes())
+    .digest("hex");
+  const sourceFaviconSha256: string = new Bun.CryptoHasher("sha256")
+    .update(await Bun.file(MINI_APP_FAVICON_PATH).bytes())
+    .digest("hex");
+  if (packagedFaviconSha256 !== sourceFaviconSha256) {
+    throw new Error("Binary package favicon.ico SHA-256 does not match source.");
+  }
   const manifest: { readonly version: string } = await Bun.file(join(root, "package.json")).json() as { readonly version: string };
   if (run(["--version"]).trim() !== manifest.version) throw new Error("Binary version must match the packaged manifest.");
   await copyFixtureTree(join(root, "config_example"), join(root, "config"));

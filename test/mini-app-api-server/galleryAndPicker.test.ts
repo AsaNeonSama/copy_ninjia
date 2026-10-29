@@ -485,54 +485,6 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     );
     expect(await headImageRes.bytes()).toEqual(new Uint8Array(0));
 
-    const unauthSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/resources/svg/status.svg")
-    );
-    expect(unauthSvgRes.status).toBe(401);
-
-    const unauthLegacySvgRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/miniAppResoures/status.svg")
-    );
-    expect(unauthLegacySvgRes.status).toBe(401);
-
-    const navigateSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(initData)}`,
-        {
-          headers: {
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-          },
-        }
-      )
-    );
-    expect(navigateSvgRes.status).toBe(403);
-
-    const okSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(initData)}`
-      )
-    );
-    expect(okSvgRes.status).toBe(200);
-    expect(okSvgRes.headers.get("Content-Type")).toBe("image/svg+xml; charset=utf-8");
-    expect(okSvgRes.headers.get("Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
-    expect(okSvgRes.headers.get("CDN-Cache-Control")).toBe(MINI_APP_ASSET_CACHE_CONTROL);
-    const svgEtag: string | null = okSvgRes.headers.get("ETag");
-    expect(svgEtag !== null && svgEtag.length > 0).toBeTrue();
-    expect(await okSvgRes.text()).toContain("<svg");
-
-    const headSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/api/resources/svg/status.svg?token=${encodeURIComponent(assetToken)}`,
-        { method: "HEAD" }
-      )
-    );
-    expect(headSvgRes.status).toBe(200);
-    expect(headSvgRes.headers.get("Content-Type")).toBe(
-      "image/svg+xml; charset=utf-8"
-    );
-    expect(await headSvgRes.bytes()).toEqual(new Uint8Array(0));
-
     const faviconRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/favicon.ico", {
         headers: {
@@ -561,36 +513,6 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       })
     );
     expect(favicon304Res.status).toBe(304);
-
-    const cachedSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/api/resources/svg/status.svg?initData=${encodeURIComponent(initData)}`,
-        { headers: { "if-none-match": svgEtag! } }
-      )
-    );
-    expect(cachedSvgRes.status).toBe(304);
-
-    const unauthCachedSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/resources/svg/status.svg", {
-        headers: { "if-none-match": svgEtag! },
-      })
-    );
-    expect(unauthCachedSvgRes.status).toBe(401);
-
-    const okLegacySvgRes: Response = await handleMiniAppHttpRequest(
-      new Request(
-        `http://127.0.0.1:3000/miniAppResoures/chats.svg?initData=${encodeURIComponent(initData)}`
-      )
-    );
-    expect(okLegacySvgRes.status).toBe(200);
-    expect(await okLegacySvgRes.text()).toContain("<svg");
-
-    const traversalSvgRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/resources/svg/..%2Fsecret.svg", {
-        headers: superAdminHeaders(),
-      })
-    );
-    expect(traversalSvgRes.status).toBe(404);
 
     const traversalRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/gallery/file/..%2Fsecret.png", {

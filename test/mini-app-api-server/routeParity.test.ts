@@ -101,8 +101,6 @@ describe("Mini App 原生路由表与兜底分发", () => {
       ["GET", "/api/gallery"], ["POST", "/api/gallery/upload"], ["POST", "/api/gallery/delete", "{}"],
       ["GET", "/api/gallery/file/a.png"], ["HEAD", "/api/gallery/file/a.png"], ["DELETE", "/api/gallery/file/a.png"],
       ["GET", "/api/gallery/download/a.png"], ["HEAD", "/api/gallery/download/a.png"],
-      ["GET", "/api/resources/svg/status.svg"], ["HEAD", "/api/resources/svg/status.svg"],
-      ["GET", "/miniAppResoures/status.svg"], ["HEAD", "/miniAppResoures/status.svg"],
     ];
     for (const [method, path, body] of cases) {
       const nativeRes: Response = await fetch(`${base}${path}`, {

@@ -598,11 +598,3 @@ export interface ResolvedMiniAppGalleryFile {
   readonly sizeBytes: number;
   readonly etag: string;
 }
-
-/** 已解析并通过安全校验的受保护 SVG 资源文件句柄信息。 */
-export interface ResolvedMiniAppSvgResource {
-  readonly file: Bun.BunFile;
-  readonly mimeType: string;
-  readonly sizeBytes: number;
-  readonly etag: string;
-}
