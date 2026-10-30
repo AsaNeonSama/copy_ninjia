@@ -32,8 +32,8 @@ export interface GalleryGridListProps {
   readonly t: Readonly<MiniAppTranslations>;
   /** 标记某张缩略图已加载完成的回调。 */
   readonly onMarkThumbLoaded: (fileName: string, epoch: number) => void;
-  /** 切换或设置当前放大预览图片的回调。 */
-  readonly onSelectPreviewItem: (item: Readonly<MiniAppGalleryItem> | null) => void;
+  /** 点击缩略图卡片时选中该图片预览的回调（含再次点击当前预览中的图片）。 */
+  readonly onSelectPreviewItem: (item: Readonly<MiniAppGalleryItem>) => void;
   /** 触发下载指定文件名图片的回调。 */
   readonly onDownloadImage: (fileName: string) => void;
   /** 触发删除指定文件名图片的回调。 */
@@ -115,7 +115,7 @@ function GalleryGridListView({
             key={`${batchEpoch}:${item.fileName}`}
             className={`gallery-card ${isSelected ? "selected" : ""}`}
             onClick={(): void => {
-              onSelectPreviewItem(isSelected ? null : item);
+              onSelectPreviewItem(item);
             }}
           >
             <div

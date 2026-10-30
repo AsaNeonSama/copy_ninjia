@@ -97,10 +97,8 @@ export function GalleryPage(): React.JSX.Element {
       scrollViewportToPreviewCard(gridElement);
     }, []);
 
-  useEffect((): void => {
-    if (previewItem === null) {
-      return;
-    }
+  /** 预览面板不在展开过渡中时把视口滚到预览位置；展开过渡中由 `handlePreviewExpandEnd` 在过渡结束后滚动。 */
+  const scrollToSettledPreview: () => void = useCallback((): void => {
     const gridEl: FlipAnimatableElement | null = previewGridRef.current;
     if (
       gridEl === null ||
@@ -109,7 +107,25 @@ export function GalleryPage(): React.JSX.Element {
       return;
     }
     scrollViewportToPreviewCard(gridEl);
-  }, [previewItem]);
+  }, []);
+
+  const handleSelectPreviewItem: (item: Readonly<MiniAppGalleryItem>) => void =
+    useCallback(
+      (item: Readonly<MiniAppGalleryItem>): void => {
+        if (previewItem?.fileName === item.fileName) {
+          scrollToSettledPreview();
+          return;
+        }
+        setPreviewItem(item);
+      },
+      [previewItem, scrollToSettledPreview, setPreviewItem]
+    );
+
+  useEffect((): void => {
+    if (previewItem !== null) {
+      scrollToSettledPreview();
+    }
+  }, [previewItem, scrollToSettledPreview]);
 
   const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>): void => {
     const target: FileInputEventTarget =
@@ -232,7 +248,7 @@ export function GalleryPage(): React.JSX.Element {
                     batchEpoch={batchEpoch}
                     t={t}
                     onMarkThumbLoaded={markThumbLoaded}
-                    onSelectPreviewItem={setPreviewItem}
+                    onSelectPreviewItem={handleSelectPreviewItem}
                     onDownloadImage={handleDownloadImage}
                     onDeleteImage={handleDeleteImage}
                   />
