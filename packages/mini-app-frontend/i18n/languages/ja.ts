@@ -123,7 +123,7 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_BATCH_KICK_PARAMS":
         return "パラメータが不正よ：1〜24 の整数時間 hours が必要よ。";
       case "CHAT_NOT_SUPERGROUP":
-        return "/batch_kick 一括整理はスーパーグループ専用よ（通常グループでは unbanChatMember で在籍メンバーを蹴れないの）♡";
+        return "/batch_kick 一括整理はスーパーグループ専用よ♡";
       case "CHAT_KIND_UNAVAILABLE":
         return "Telegram からこのグループがスーパーグループか確認できなかったわ。今回は処理せず終了したから後でやり直しなさい。";
       case "BATCH_KICK_RUNNING":

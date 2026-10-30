@@ -78,32 +78,23 @@ function cleanupDirectories(
   atomicTargetPaths: readonly string[],
   lockFilePath: string
 ): readonly CleanupDirectory[] {
-  const lockDir: string = dirname(lockFilePath);
-  const lockPrefix: string = `.${basename(lockFilePath)}.`;
-  const byDirectory: Map<string, { prefixes: string[]; lockFileName: string | null }> = new Map([
-    [lockDir, { prefixes: [lockPrefix], lockFileName: basename(lockFilePath) }],
-  ]);
+  const directories: CleanupDirectory[] = [{
+    directory: dirname(lockFilePath),
+    atomicTempPrefixes: [`.${basename(lockFilePath)}.`],
+    lockFileName: basename(lockFilePath),
+  }];
   for (const targetPath of atomicTargetPaths) {
-    const dir: string = dirname(targetPath);
+    const directory: string = dirname(targetPath);
     const prefix: string = `.${basename(targetPath)}.`;
-    const existing: { prefixes: string[]; lockFileName: string | null } | undefined = byDirectory.get(dir);
-    if (existing !== undefined) {
-      if (!existing.prefixes.includes(prefix)) {
-        existing.prefixes.push(prefix);
-      }
-      continue;
+    const index: number = directories.findIndex((entry: CleanupDirectory): boolean => entry.directory === directory);
+    const existing: CleanupDirectory | undefined = directories[index];
+    if (existing === undefined) {
+      directories.push({ directory, atomicTempPrefixes: [prefix], lockFileName: null });
+    } else {
+      directories[index] = { ...existing, atomicTempPrefixes: [...existing.atomicTempPrefixes, prefix] };
     }
-    byDirectory.set(dir, { prefixes: [prefix], lockFileName: null });
   }
-  const result: CleanupDirectory[] = [];
-  for (const [directory, entry] of byDirectory) {
-    result.push({
-      directory,
-      atomicTempPrefixes: entry.prefixes,
-      lockFileName: entry.lockFileName,
-    });
-  }
-  return result;
+  return directories;
 }
 
 /**

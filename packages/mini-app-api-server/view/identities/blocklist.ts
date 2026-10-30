@@ -48,6 +48,7 @@ import {
   matchesIdentitySearchQuery,
   resolveIdentityMetadataForMiniApp,
   syncIdentityMetadataWithBotCache,
+  toIdentitySearchQuery,
 } from "./metadata";
 import type {
   CollectedIdentityPageSlice,
@@ -85,10 +86,7 @@ export async function listBlocklistEntries(
     const whitelistTotal: number = getIdentityEntryCount("whitelist");
     const entries: ReadonlyMap<number, Readonly<BlocklistEntryData>> =
       (await readIdentityPolicyEntries(allIds)).blocklist;
-    const searchQuery: Readonly<IdentitySearchQuery> = {
-      normalized: normalizedQuery,
-      withoutAt: normalizedQuery.replace(/^@+/u, ""),
-    };
+    const searchQuery: Readonly<IdentitySearchQuery> = toIdentitySearchQuery(normalizedQuery);
     const matchedItems: Readonly<MiniAppBlocklistEntryView>[] = [];
     for (const id of allIds) {
       const entry: Readonly<BlocklistEntryData> | undefined = entries.get(id);

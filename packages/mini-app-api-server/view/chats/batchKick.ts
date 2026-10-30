@@ -11,31 +11,30 @@ import { HOUR_MS } from "../../../consts/time";
 import { readJoinLog } from "../../../infra/diskIO";
 import { logger } from "../../../infra/logger";
 import { getChatState } from "../../../infra/storage/stateStore";
+import { runTelegramAction } from "../../../infra/telegram/actions/core";
 import { telegramApi } from "../../../infra/telegram/client";
+import { telegramSignal } from "../../../libs/telegramSignal";
 import type { ChatState } from "../../../types/chatState";
 import type { JoinLogRecord } from "../../../types/diskIO/storage";
 import type { MiniAppBatchKickResult } from "../../../types/miniApp";
 import { getManagedChatDetail } from "./query";
 
 /**
- * 确认受管群是否为超级群：优先读取主线程 `chatIsSupergroupById` 缓存，未命中时调用
- * `telegramApi.getChat(chatId)` 并经 `observeChatKind` 写回缓存与 Anti-Raid Worker 镜像。
+ * 确认受管群是否为超级群：优先读取主线程 `chatIsSupergroupById` 缓存，未命中时经 `getChat`
+ * 查询（失败记 API 错误日志）并由 `observeChatKind` 写回缓存与 Anti-Raid Worker 镜像。
  * @param chatId 目标群聊 ID。
  * @returns 确认为超级群时返回 `true`，确认为普通群时返回 `false`，探测失败或未知类型时返回 `undefined`。
  */
 async function resolveIsSupergroup(chatId: number): Promise<boolean | undefined> {
   const cached: boolean | undefined = chatIsSupergroupById.get(chatId);
   if (cached !== undefined) return cached;
-  try {
-    const chat: ChatFullInfo = await telegramApi.getChat(chatId);
-    observeChatKind(chat);
-  } catch (error: unknown) {
-    logger.error(
-      `Failed to probe chat kind for /batch_kick in chat ${chatId}:`,
-      error
-    );
-    return undefined;
-  }
+  const chat: ChatFullInfo | undefined = await runTelegramAction<ChatFullInfo, ChatFullInfo | undefined>({
+    action: `read chat ${chatId} kind for Mini App /batch_kick`,
+    execute: (signal?: AbortSignal): Promise<ChatFullInfo> => telegramApi.getChat(chatId, telegramSignal(signal)),
+    map: (result: ChatFullInfo): ChatFullInfo => result,
+    fallback: undefined,
+  });
+  if (chat !== undefined) observeChatKind(chat);
   return chatIsSupergroupById.get(chatId);
 }
 

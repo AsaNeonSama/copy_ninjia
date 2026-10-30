@@ -137,6 +137,16 @@ export interface IdentitySearchCandidate {
 }
 
 /**
+ * 为一次名单搜索请求构造预先规范化的搜索关键字。
+ *
+ * @param normalizedQuery 已 trim 并转小写的非空搜索关键字。
+ * @returns 供 `matchesIdentitySearchQuery` 逐条复用的搜索关键字对象。
+ */
+export function toIdentitySearchQuery(normalizedQuery: string): Readonly<IdentitySearchQuery> {
+  return { normalized: normalizedQuery, withoutAt: normalizedQuery.replace(/^@+/u, "") };
+}
+
+/**
  * 判断单个名单条目的展示名称、用户名或数字 ID 是否命中搜索关键字（忽略大小写）。
  *
  * @param query 预先规范化的搜索关键字对象。

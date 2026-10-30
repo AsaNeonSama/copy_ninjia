@@ -124,7 +124,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_BATCH_KICK_PARAMS":
         return "请求参数非法：需要 1 到 24 之间的整数小时 hours。";
       case "CHAT_NOT_SUPERGROUP":
-        return "只有超级群才能执行 /batch_kick 批量清理（普通群调用 unbanChatMember 不会踢出在群成员）♡";
+        return "只有超级群才能执行 /batch_kick 批量清理♡";
       case "CHAT_KIND_UNAVAILABLE":
         return "暂时无法向 Telegram 确认该群是否为超级群，本次未执行清理，请稍后重试。";
       case "BATCH_KICK_RUNNING":

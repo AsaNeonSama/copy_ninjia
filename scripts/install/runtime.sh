@@ -87,12 +87,13 @@ bun -e '
   await assertNoMisplacedConfigFiles("config");
 ' || die "config/ 布局不是当前格式：有 telegram.json 时先安装 13.x 发行版并按其说明执行 migrate:bot-config 冷迁移；其余部署文件按上面报错的路径移入 config/static/（bot.json、g-auth.json）或 config/dynamic/（其余六份），再重新安装。"
 
-# 全局状态按启动恢复同一口径只读校验：数据根不得残留旧 state.json，memory/global/state.json
-# 必须是当前格式。未迁移的状态由部署方冷迁移，不在安装器里改写，也不带着它注册和启动服务。
+# 全局状态与 Mini App 验证器文件按启动恢复同一口径只读校验：数据根不得残留旧 state.json，
+# memory/global/state.json 与已存在的 memory/mini-app-totp/totp.json 必须是当前格式。
+# 不合格的文件由部署方处理，不在安装器里改写，也不带着它注册和启动服务。
 bun -e '
   import { assertStateFilesMigrated } from "./scripts/install/runtime";
   await assertStateFilesMigrated();
-' || die "全局状态不是当前格式（文件与字段见上）：数据根仍有 state.json 或 state.json.bak，或 memory/global/state.json 仍是旧格式（例如总计数 ttsUsage）时，先升级到 17.2.1 并按其说明完成迁移，再安装本版。"
+' || die "全局状态或 Mini App 验证器文件不是当前格式（文件与字段见上）：数据根仍有 state.json 或 state.json.bak，或 memory/global/state.json 仍是旧格式（例如总计数 ttsUsage）时，先升级到 17.2.1 并按其说明完成迁移；memory/mini-app-totp/totp.json 不合法时修正或删除该文件（删除后需在控制台重新绑定验证器），再安装本版。"
 
 # 已有共享数据库只读核对 schema 版本：不是当前 schema 的库不带着它注册和启动服务。
 bun -e '

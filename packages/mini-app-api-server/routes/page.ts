@@ -21,7 +21,6 @@ export function createPageBunRoutes(
     GET: (): Promise<Response> => serveMiniAppIndexHtml(indexHtml, false),
     HEAD: (): Promise<Response> => serveMiniAppIndexHtml(indexHtml, true),
   };
-  const faviconHandler = (request: Request): Response => handleGetFaviconRoute(request);
   return {
     "/healthz": {
       GET: (): Response => handleHealthzRoute(false),
@@ -30,7 +29,7 @@ export function createPageBunRoutes(
     "/_bundle": indexHtml,
     "/": indexRoute,
     "/index.html": indexRoute,
-    "/favicon.ico": { GET: faviconHandler, HEAD: faviconHandler },
+    "/favicon.ico": { GET: handleGetFaviconRoute, HEAD: handleGetFaviconRoute },
   };
 }
 

@@ -123,7 +123,7 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       case "INVALID_BATCH_KICK_PARAMS":
         return "Invalid request parameters: integer hours between 1 and 24 are required.";
       case "CHAT_NOT_SUPERGROUP":
-        return "/batch_kick is only supported in supergroups (calling unbanChatMember in a basic group does not remove present members), Zaako♡";
+        return "/batch_kick is only supported in supergroups, Zaako♡";
       case "CHAT_KIND_UNAVAILABLE":
         return "Could not verify with Telegram whether this chat is a supergroup; no members were kicked. Please retry later.";
       case "BATCH_KICK_RUNNING":
