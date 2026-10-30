@@ -1,39 +1,11 @@
 /**
- * Mini App 前端折叠动画辅助、名单弹窗 Tab 切换过渡、QA 问答对卡片结构，
- * 以及直接针对 CSS 滑动动画曲线、下拉看板浅色背景变量和 Windows TG / Pixel 6.3" 断点规则的核验。
+ * Mini App 前端名单弹窗 Tab 切换过渡、QA 问答对卡片结构、权限抽屉与验证器页面渲染，
+ * 以及直接针对 CSS 滑动动画曲线、合成层提示、下拉看板浅色背景变量和 Windows TG / Pixel 6.3" 断点规则的核验。
  */
 
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  CollapseGrid,
-  createCollapseGridTransitionEndHandler,
-} from "../../packages/mini-app-frontend/components/animations/CollapseGrid";
-import {
-  computeExpandFollowScrollDelta,
-  computePreviewCardScrollDelta,
-  scrollViewportToExpandedBody,
-  scrollViewportToPreviewCard,
-} from "../../packages/mini-app-frontend/components/animations/expandFollowScroll";
-import type {
-  ViewportRectElement,
-  ViewportScrollByParams,
-} from "../../packages/mini-app-frontend/components/animations/expandFollowScroll";
-import {
-  findPairedTriggerElement,
-  formatTranslate3dY,
-  hasCollapsedFlipGridAncestor,
-  parseCurrentTranslateYPx,
-  readElementCurrentTranslateYPx,
-  runFlipCollapseTransition,
-  syncFlipCollapseLayoutEffect,
-} from "../../packages/mini-app-frontend/components/animations/flipCollapse";
-import type {
-  FlipAnimatableElement,
-  FlipClassList,
-  FlipTransitionEndEvent,
-} from "../../packages/mini-app-frontend/components/animations/flipCollapse";
 import {
   resolveTabSlideDirectionClass,
   TabHeightSizer,
@@ -42,12 +14,8 @@ import { ChatFeatureListCard } from "../../packages/mini-app-frontend/components
 import { ChatTargetsModal } from "../../packages/mini-app-frontend/components/ChatTargetsModal";
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
 import {
-  MINI_APP_EXPAND_SCROLL_BOTTOM_MARGIN_PX,
-  MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR,
-  MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX,
-  MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX,
   MINI_APP_FEATURE_KEYS,
-  MINI_APP_FLIP_COLLAPSE_EASING,
+  MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
@@ -59,420 +27,7 @@ import { createPermissionDrawerStore } from "../../packages/mini-app-frontend/st
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
 
-/** 测试直接调用的 `onTransitionEnd` 处理函数形状。 */
-type TransitionEndHandler = (event: {
-  readonly target: unknown;
-  readonly currentTarget: unknown;
-  readonly propertyName: string;
-}) => void;
-
-/** 取出 `CollapseGrid` 外层网格的 `onTransitionEnd` 处理函数。 */
-function readTransitionEndHandler(
-  expanded: boolean,
-  onExpandEnd: ((gridElement: ViewportRectElement) => void) | undefined
-): TransitionEndHandler | undefined {
-  return createCollapseGridTransitionEndHandler(
-    expanded,
-    onExpandEnd
-  ) as unknown as TransitionEndHandler | undefined;
-}
-
-/** 构造模拟的 `FlipClassList`。 */
-function createMockClassList(initial: readonly string[] = []): FlipClassList & {
-  readonly tokens: Set<string>;
-} {
-  const tokens: Set<string> = new Set<string>(initial);
-  return {
-    tokens,
-    add: (...items: string[]): void => {
-      for (const item of items) tokens.add(item);
-    },
-    remove: (...items: string[]): void => {
-      for (const item of items) tokens.delete(item);
-    },
-    contains: (token: string): boolean => tokens.has(token),
-  };
-}
-
-describe("折叠动画辅助", () => {
-  test("展开跟滚距离：内容溢出视口底部时下滑到底边距，以标题栏保留上边距为上限，标题栏偏下时按内容比例上移", () => {
-    const viewportHeight: number = 800;
-    expect(
-      computeExpandFollowScrollDelta({ blockTop: 100, bodyTop: 150, bodyHeight: 800 }, viewportHeight)
-    ).toBe(100 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX);
-    expect(
-      computeExpandFollowScrollDelta({ blockTop: 200, bodyTop: 250, bodyHeight: 700 }, viewportHeight)
-    ).toBe(250 + 700 + MINI_APP_EXPAND_SCROLL_BOTTOM_MARGIN_PX - viewportHeight);
-    expect(
-      computeExpandFollowScrollDelta({ blockTop: 500, bodyTop: 550, bodyHeight: 100 }, viewportHeight)
-    ).toBe(Math.round(100 * MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR));
-    expect(
-      computeExpandFollowScrollDelta({ blockTop: 50, bodyTop: 100, bodyHeight: 100 }, viewportHeight)
-    ).toBe(0);
-    expect(
-      computeExpandFollowScrollDelta({ blockTop: -40, bodyTop: 10, bodyHeight: 200 }, viewportHeight)
-    ).toBe(-40 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX);
-    expect(computePreviewCardScrollDelta(-120)).toBe(-120 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX);
-    expect(computePreviewCardScrollDelta(20)).toBe(20 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX);
-    expect(computePreviewCardScrollDelta(178)).toBe(178 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX);
-  });
-
-  test("展开跟滚与图库预览固定位置滚动：支持正向与负向平滑滚动，位移不足或缺少接口时不滚动", () => {
-    const host: { innerHeight?: number; scrollBy?: unknown } = globalThis as {
-      innerHeight?: number;
-      scrollBy?: unknown;
-    };
-    const prevInnerHeight: number | undefined = host.innerHeight;
-    const prevScrollBy: unknown = host.scrollBy;
-    const scrollCalls: ViewportScrollByParams[] = [];
-    host.innerHeight = 800;
-    host.scrollBy = (options: ViewportScrollByParams): void => {
-      scrollCalls.push(options);
-    };
-    try {
-      const expectedTop: number = Math.round(100 * MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR);
-      expect(expectedTop).toBeGreaterThan(MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX);
-      scrollViewportToExpandedBody({ blockTop: 500, bodyTop: 550, bodyHeight: 100 });
-      scrollViewportToExpandedBody({ blockTop: 50, bodyTop: 100, bodyHeight: 100 });
-      scrollViewportToExpandedBody({ blockTop: 500, bodyTop: 550, bodyHeight: 0 });
-      scrollViewportToExpandedBody({ blockTop: -30, bodyTop: 20, bodyHeight: 200 });
-      expect(scrollCalls).toEqual([
-        { top: expectedTop, behavior: "smooth" },
-        { top: -30 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX, behavior: "smooth" },
-      ]);
-
-      scrollCalls.length = 0;
-      scrollViewportToPreviewCard(null);
-      scrollViewportToPreviewCard({});
-      scrollViewportToPreviewCard({
-        getBoundingClientRect: (): { readonly top: number; readonly height: number } => ({
-          top: MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX + 2,
-          height: 450,
-        }),
-      });
-      scrollViewportToPreviewCard({
-        getBoundingClientRect: (): { readonly top: number; readonly height: number } => ({
-          top: -80,
-          height: 450,
-        }),
-      });
-      scrollViewportToPreviewCard({
-        getBoundingClientRect: (): { readonly top: number; readonly height: number } => ({
-          top: 178,
-          height: 450,
-        }),
-      });
-      expect(scrollCalls).toEqual([
-        { top: -80 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX, behavior: "smooth" },
-        { top: 178 - MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX, behavior: "smooth" },
-      ]);
-    } finally {
-      host.innerHeight = prevInnerHeight;
-      host.scrollBy = prevScrollBy;
-    }
-  });
-
-  test("CollapseGrid 只在展开态下自身 height 或 grid-template-rows 过渡结束时回调 onExpandEnd", () => {
-    const gridNode: ViewportRectElement = {
-      getBoundingClientRect: (): { readonly top: number; readonly height: number } => ({ top: 0, height: 0 }),
-    };
-    const expandEnds: ViewportRectElement[] = [];
-    const onExpandEnd = (gridElement: ViewportRectElement): void => {
-      expandEnds.push(gridElement);
-    };
-    const expandedHandler: TransitionEndHandler | undefined = readTransitionEndHandler(true, onExpandEnd);
-    expandedHandler?.({ target: gridNode, currentTarget: gridNode, propertyName: "opacity" });
-    expandedHandler?.({ target: {}, currentTarget: gridNode, propertyName: "grid-template-rows" });
-    expandedHandler?.({ target: gridNode, currentTarget: gridNode, propertyName: "grid-template-rows" });
-    expandedHandler?.({ target: gridNode, currentTarget: gridNode, propertyName: "height" });
-    expect(expandEnds).toEqual([gridNode, gridNode]);
-    readTransitionEndHandler(false, onExpandEnd)?.({
-      target: gridNode,
-      currentTarget: gridNode,
-      propertyName: "grid-template-rows",
-    });
-    expect(expandEnds).toEqual([gridNode, gridNode]);
-    expect(readTransitionEndHandler(true, undefined)).toBeUndefined();
-    expect(
-      renderToStaticMarkup(
-        createElement(CollapseGrid, {
-          expanded: true,
-          gridClassName: "g",
-          innerClassName: "i",
-          children: null,
-        })
-      )
-    ).toContain('class="g expanded"');
-  });
-
-  test("GPU FLIP 折叠引擎：外层容器 height 与刚性内层 translate3d 同步伸缩、半途打断平滑续接及收起零延迟复位", async () => {
-    expect(parseCurrentTranslateYPx("")).toBe(0);
-    expect(parseCurrentTranslateYPx("none")).toBe(0);
-    expect(parseCurrentTranslateYPx("matrix(1, 0, 0, 1, 0, -145.2)")).toBe(-145);
-    expect(
-      parseCurrentTranslateYPx(
-        "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -88.4, 0, 1)"
-      )
-    ).toBe(-88);
-    expect(parseCurrentTranslateYPx("translate3d(0px, -120px, 0px)")).toBe(-120);
-    expect(parseCurrentTranslateYPx("translateY(42px)")).toBe(42);
-    expect(readElementCurrentTranslateYPx(null)).toBe(0);
-    expect(formatTranslate3dY(0)).toBe("translate3d(0, 0, 0)");
-    expect(formatTranslate3dY(-180)).toBe("translate3d(0, -180px, 0)");
-
-    const sectionEl: FlipAnimatableElement = {
-      tagName: "SECTION",
-      dataset: {},
-      style: { transform: "", transition: "", willChange: "" },
-      getBoundingClientRect: () => ({ top: 0, height: 900 }),
-    };
-    const cardEl: FlipAnimatableElement = {
-      parentElement: sectionEl,
-      classList: createMockClassList(["card"]),
-      dataset: {},
-      style: { transform: "", transition: "", willChange: "" },
-      getBoundingClientRect: () => ({ top: 60, height: 240 }),
-    };
-
-    const transitionEndHandler: {
-      current: ((event: FlipTransitionEndEvent) => void) | null;
-    } = { current: null };
-    const innerEl: FlipAnimatableElement = {
-      style: { transform: "", transition: "", willChange: "", opacity: "", pointerEvents: "" },
-      dataset: {},
-      getBoundingClientRect: () => ({ top: 100, height: 180 }),
-      addEventListener: (
-        type: string,
-        listener: (event: FlipTransitionEndEvent) => void
-      ): void => {
-        if (type === "transitionend") {
-          transitionEndHandler.current = listener;
-        }
-      },
-      removeEventListener: (
-        type: string,
-        listener: (event: FlipTransitionEndEvent) => void
-      ): void => {
-        if (type === "transitionend" && transitionEndHandler.current === listener) {
-          transitionEndHandler.current = null;
-        }
-      },
-    };
-    let gridHeightPx: number = 180;
-    const gridClassList = createMockClassList(["chat-targets-qa-collapse-grid"]);
-    const gridEl: FlipAnimatableElement = {
-      parentElement: cardEl,
-      classList: gridClassList,
-      dataset: {},
-      style: { height: "", transform: "", transition: "", willChange: "" },
-      offsetWidth: 360,
-      getBoundingClientRect: () => ({ top: 100, height: gridHeightPx }),
-    };
-
-    expect(hasCollapsedFlipGridAncestor(gridEl)).toBeFalse();
-
-    // 1. 展开过渡：t=0 帧 height="0px" 且 transform="translate3d(0, -180px, 0)"，微任务同步过渡到 180px 与 0px
-    const expandEndNodes: ViewportRectElement[] = [];
-    const cleanupExpand = runFlipCollapseTransition({
-      gridEl,
-      innerEl,
-      expanded: true,
-      wasOneFrInDom: false,
-      onExpandEnd: (el): void => {
-        expandEndNodes.push(el);
-      },
-    });
-    expect(gridEl.style?.height).toBe("0px");
-    expect(innerEl.style?.transform).toBe("translate3d(0, -180px, 0)");
-    expect(innerEl.style?.opacity).toBe("0");
-
-    await Promise.resolve();
-    expect(gridEl.style?.height).toBe("180px");
-    expect(gridEl.style?.transition).toContain(MINI_APP_FLIP_COLLAPSE_EASING);
-    expect(innerEl.style?.transform).toBe("translate3d(0, 0, 0)");
-    expect(innerEl.style?.opacity).toBe("1");
-    expect(innerEl.style?.transition).toContain(MINI_APP_FLIP_COLLAPSE_EASING);
-
-    transitionEndHandler.current?.({ target: innerEl, propertyName: "transform" });
-    expect(gridEl.style?.height).toBe("");
-    expect(innerEl.style?.transform).toBe("");
-    expect(expandEndNodes).toEqual([gridEl]);
-    cleanupExpand?.();
-
-    // 2. 收起过渡：外层容器 height 从 180px 同步缩至 0px，内层面板从 0px 上滑至 -180px，动画结束时容器已是 0px 零弹跳
-    let closingClearedCount: number = 0;
-    const cleanupCollapse = runFlipCollapseTransition({
-      gridEl,
-      innerEl,
-      expanded: false,
-      wasOneFrInDom: true,
-      onClosingCleared: (): void => {
-        closingClearedCount += 1;
-      },
-    });
-    expect(gridClassList.contains("flip-closing")).toBeTrue();
-    expect(gridEl.style?.height).toBe("180px");
-    expect(innerEl.style?.transform).toBe("translate3d(0, 0, 0)");
-    expect(innerEl.style?.opacity).toBe("1");
-
-    await Promise.resolve();
-    expect(gridEl.style?.height).toBe("0px");
-    expect(innerEl.style?.transform).toBe("translate3d(0, -180px, 0)");
-    expect(innerEl.style?.opacity).toBe("0");
-
-    expect(transitionEndHandler.current).not.toBeNull();
-    transitionEndHandler.current?.({ target: innerEl, propertyName: "transform" });
-    expect(closingClearedCount).toBe(1);
-    expect(gridClassList.contains("flip-closing")).toBeFalse();
-    expect(gridEl.style?.height).toBe("");
-    expect(innerEl.style?.transform).toBe("");
-    expect(innerEl.style?.opacity).toBe("");
-    cleanupCollapse?.();
-
-    // 3. 半途打断反向续接：在收起半途（height=72px, translateY=-108px）打断并重新展开，从采样位置平滑恢复
-    const cleanupMidFlight = runFlipCollapseTransition({
-      gridEl,
-      innerEl,
-      expanded: false,
-      wasOneFrInDom: true,
-    });
-    await Promise.resolve();
-    gridHeightPx = 72;
-    if (innerEl.style !== undefined) {
-      innerEl.style.transform = "translate3d(0, -108px, 0)";
-    }
-    cleanupMidFlight?.();
-    expect(innerEl.dataset?.flipInterruptedH).toBe("72");
-    expect(innerEl.dataset?.flipInterruptedY).toBe("-108");
-
-    gridHeightPx = 180;
-    const cleanupReExpand = runFlipCollapseTransition({
-      gridEl,
-      innerEl,
-      expanded: true,
-      wasOneFrInDom: true,
-    });
-    expect(gridEl.style?.height).toBe("72px");
-    expect(innerEl.style?.transform).toBe("translate3d(0, -108px, 0)");
-    await Promise.resolve();
-    expect(gridEl.style?.height).toBe("180px");
-    expect(innerEl.style?.transform).toBe("translate3d(0, 0, 0)");
-    transitionEndHandler.current?.({ target: innerEl, propertyName: "transform" });
-    cleanupReExpand?.();
-
-    // 4. 配对 TriggerCollapseGrid + CollapseGrid（验证器与 QA 编辑）：同起点 marginTop 重叠、46px <-> 180px 平滑过渡与原子清理
-    const triggerInnerEl: FlipAnimatableElement = {
-      style: { transform: "", transition: "", willChange: "", opacity: "" },
-      getBoundingClientRect: () => ({ top: 100, height: 46 }),
-    };
-    const triggerClassList = createMockClassList(["totp-trigger-collapse-grid"]);
-    const triggerEl: FlipAnimatableElement = {
-      classList: triggerClassList,
-      dataset: { flipTrigger: "1" },
-      firstElementChild: triggerInnerEl,
-      getBoundingClientRect: () => ({ top: 100, height: 46 }),
-    };
-    const pairedGridEl: FlipAnimatableElement = {
-      parentElement: cardEl,
-      previousElementSibling: triggerEl,
-      classList: createMockClassList(["totp-setup-collapse-grid"]),
-      dataset: {},
-      style: { height: "", marginTop: "", transform: "", transition: "", willChange: "" },
-      offsetWidth: 360,
-      getBoundingClientRect: () => ({ top: 100, height: 180 }),
-    };
-    expect(findPairedTriggerElement(pairedGridEl)).toBe(triggerEl);
-
-    const cleanupPairedExpand = runFlipCollapseTransition({
-      gridEl: pairedGridEl,
-      innerEl,
-      expanded: true,
-      wasOneFrInDom: false,
-    });
-    expect(triggerClassList.contains("flip-closing")).toBeTrue();
-    expect(pairedGridEl.style?.marginTop).toBe("-46px");
-    expect(pairedGridEl.style?.height).toBe("46px");
-    expect(triggerInnerEl.style?.opacity).toBe("1");
-    expect(innerEl.style?.opacity).toBe("0");
-    expect(innerEl.style?.transform).toBe("translate3d(0, -16px, 0)");
-
-    await Promise.resolve();
-    expect(pairedGridEl.style?.height).toBe("180px");
-    expect(triggerInnerEl.style?.opacity).toBe("0");
-    expect(triggerInnerEl.style?.transform).toBe("translate3d(0, -10px, 0)");
-    expect(innerEl.style?.opacity).toBe("1");
-    expect(innerEl.style?.transform).toBe("translate3d(0, 0, 0)");
-
-    transitionEndHandler.current?.({ target: innerEl, propertyName: "transform" });
-    expect(triggerClassList.contains("flip-closing")).toBeFalse();
-    expect(pairedGridEl.style?.marginTop).toBe("");
-    expect(pairedGridEl.style?.height).toBe("");
-    expect(triggerInnerEl.style?.opacity).toBe("");
-    cleanupPairedExpand?.();
-
-    const prevExpandedRef = { current: true };
-    const prevResetKeyRef = { current: "qa" as string | null };
-    const closingActiveRef = { current: true };
-    const syncCleanup = syncFlipCollapseLayoutEffect({
-      expanded: false,
-      resetKey: "qa",
-      gridRef: { current: pairedGridEl },
-      innerRef: { current: innerEl },
-      prevExpandedRef,
-      prevResetKeyRef,
-      closingActiveRef,
-    });
-    expect(closingActiveRef.current).toBeTrue();
-    expect(pairedGridEl.style?.marginTop).toBe("-46px");
-    expect(pairedGridEl.style?.height).toBe("180px");
-    await Promise.resolve();
-    expect(pairedGridEl.style?.height).toBe("46px");
-    transitionEndHandler.current?.({ target: innerEl, propertyName: "transform" });
-    expect(closingActiveRef.current).toBeFalse();
-    syncCleanup?.();
-
-    const syncExpandNodes: FlipAnimatableElement[] = [];
-    const syncExpandCleanup = syncFlipCollapseLayoutEffect({
-      expanded: true,
-      resetKey: "qa",
-      gridRef: { current: pairedGridEl },
-      innerRef: { current: innerEl },
-      prevExpandedRef,
-      prevResetKeyRef,
-      closingActiveRef,
-      onExpandEnd: (el: FlipAnimatableElement): void => {
-        syncExpandNodes.push(el);
-      },
-    });
-    await Promise.resolve();
-    transitionEndHandler.current?.({ target: innerEl, propertyName: "transform" });
-    expect(syncExpandNodes).toEqual([pairedGridEl]);
-    syncExpandCleanup?.();
-
-    expect(
-      syncFlipCollapseLayoutEffect({
-        expanded: false,
-        resetKey: "deleteMessage",
-        gridRef: { current: pairedGridEl },
-        innerRef: { current: innerEl },
-        prevExpandedRef,
-        prevResetKeyRef,
-        closingActiveRef,
-      })
-    ).toBeUndefined();
-    expect(
-      syncFlipCollapseLayoutEffect({
-        expanded: false,
-        resetKey: "deleteMessage",
-        gridRef: { current: pairedGridEl },
-        innerRef: { current: innerEl },
-        prevExpandedRef,
-        prevResetKeyRef,
-        closingActiveRef,
-      })
-    ).toBeUndefined();
-  });
-
+describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
   test("名单弹窗 Tab 切换方向与 QA 问答对 / 删发言对象 / 翻译对象面板渲染", () => {
     expect(resolveTabSlideDirectionClass(null, "qa")).toBe("");
     expect(resolveTabSlideDirectionClass("qa", "qa")).toBe("");
@@ -798,12 +353,16 @@ describe("折叠动画辅助", () => {
     expect(identitiesCss).toContain("var(--dropdown-board-bg)");
     expect(identitiesCss).toContain("var(--dropdown-item-bg)");
 
-    // 2. 下拉展开与关闭滑动动画统一采用平滑 S 缓动曲线与 GPU FLIP 折叠样式规则
+    // 2. 下拉展开与关闭滑动动画统一采用平滑 S 缓动曲线与逐帧折叠样式规则
     for (const css of [primitivesCss, statusCss, chatsCss, identitiesCss, authCss, galleryCss]) {
       expect(css).not.toContain("cubic-bezier(0.37, 0, 0.63, 1)");
-      expect(css).toContain(MINI_APP_FLIP_COLLAPSE_EASING);
+      expect(css).toContain(`cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`);
     }
     expect(baseCss).toContain("overflow-anchor: none;");
+    // 逐帧跟滚以 `scrollBy({ behavior: "auto" })` 即时写入，样式表不得设置 `scroll-behavior`。
+    for (const css of [baseCss, primitivesCss, statusCss, chatsCss, identitiesCss, authCss, galleryCss]) {
+      expect(css).not.toMatch(/(?<![\w-])scroll-behavior\s*:/u);
+    }
     expect(primitivesCss).not.toContain(".card.flip-card-clip");
     expect(chatsCss).not.toContain(".chat-targets-form.flip-card-clip");
     expect(chatsCss).not.toContain("miniapp-qa-collapse-overflow-reveal");
@@ -820,6 +379,16 @@ describe("折叠动画辅助", () => {
     expect(authCss).toContain(".totp-start-submit.is-loading");
     expect(galleryCss).toContain(".gallery-preview-collapse-grid.flip-closing");
     expect(galleryCss).toContain(".gallery-preview-collapse-grid.expanded ~ .card");
+    // 预览展开与收起飞行中，其后的一览卡片都不作为滚动锚点，视口只由逐帧跟滚与收起回落驱动。
+    expect(galleryCss).toContain(".gallery-preview-collapse-grid.flip-closing ~ .card");
+    // 展开态与飞行中的内层面板常驻合成层；触屏下被折叠动画推移的行与卡片常驻合成层，推移时不重绘
+    expect(statusCss).toContain(".cap-collapse-wrap.expanded > .cap-collapse-inner");
+    expect(identitiesCss).toContain(".perm-drawer-collapse-grid.flip-closing > .perm-drawer-collapse-inner");
+    expect(galleryCss).toContain(".gallery-preview-collapse-grid.expanded > .gallery-preview-collapse-inner");
+    for (const css of [statusCss, identitiesCss, chatsCss, galleryCss]) {
+      expect(css).toContain("@media (hover: none) and (pointer: coarse)");
+    }
+    expect(galleryCss).toContain(".gallery-preview-collapse-grid ~ .card { will-change: transform; }");
     expect(galleryCss).toContain("height: clamp(220px, 42vh, 320px);");
 
     // 3. 覆盖 Windows Telegram Mini App 默认宽度（~380px–420px）与 Pixel 6.3 英寸初始宽度（~393px–412px）的 440px 断点及紧凑/桌面断点

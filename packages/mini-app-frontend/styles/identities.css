@@ -136,6 +136,15 @@
   border-radius: 11px;
 }
 
+.add-fold-collapse-grid.expanded > .add-fold-collapse-inner,
+.add-fold-collapse-grid.flip-closing > .add-fold-collapse-inner,
+.id-add-collapse-grid.expanded > .id-add-collapse-inner,
+.id-add-collapse-grid.flip-closing > .id-add-collapse-inner,
+.perm-drawer-collapse-grid.expanded > .perm-drawer-collapse-inner,
+.perm-drawer-collapse-grid.flip-closing > .perm-drawer-collapse-inner {
+  will-change: transform;
+}
+
 .add-fold-panel {
   margin-top: 10px;
   padding-top: 10px;
@@ -270,6 +279,10 @@
 }
 .identity-row-group { contain: layout style; transition: opacity 0.2s ease; }
 .identity-row-group + .identity-row-group { border-top: 1px solid var(--border); }
+@media (hover: none) and (pointer: coarse) {
+  .identity-list-card,
+  .identity-row-group { will-change: transform; }
+}
 .identity-row-group > .row { border-bottom: none; }
 .identity-row { gap: 8px; transition: opacity 0.2s ease; }
 .identity-row-actions { flex-wrap: nowrap; gap: 5px; flex-shrink: 0; }

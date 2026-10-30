@@ -1,9 +1,9 @@
 import { useRef } from "react";
 import type React from "react";
-import type { ViewportRectElement } from "./expandFollowScroll";
 import { useFlipCollapseLayoutEffect } from "./flipCollapse";
 import type {
   FlipAnimatableElement,
+  FlipFollowScrollResolver,
   UseFlipCollapseLayoutEffectResult,
 } from "./flipCollapse";
 
@@ -19,43 +19,18 @@ export interface CollapseGridProps {
   readonly resetKey?: string | null;
   /** 可选的外层网格容器节点引用（供父组件读取实时几何位置与飞行态标志）。 */
   readonly containerRef?: React.RefObject<FlipAnimatableElement | null>;
-  /** 外层网格自身的展开过渡结束时的回调（参数为外层网格节点）；收起过渡结束与子孙节点冒泡上来的过渡结束事件不触发。 */
-  readonly onExpandEnd?: (gridElement: ViewportRectElement) => void;
+  /** 展开起始时解析同帧视口跟滚目标的回调（入参为外层网格节点与展开完成后的高度）。 */
+  readonly resolveFollowScroll?: FlipFollowScrollResolver;
+  /** 收起起始时解析同帧视口滚动目标的回调（入参为外层网格节点与将收掉的高度）。 */
+  readonly resolveCollapseScroll?: FlipFollowScrollResolver;
   /** 折叠面板内部子节点。 */
   readonly children: React.ReactNode;
 }
 
 /**
- * 构造外层网格节点的 `onTransitionEnd` 处理函数（仅在展开态下自身 `grid-template-rows` 或 `height` 过渡结束时回调 `onExpandEnd`）。
+ * 基于绘制前单次测量与单时钟逐帧写入外层 `height`、内层 `translate3d`/`opacity` 及可选同帧视口滚动的通用展开/收起包装组件。
  *
- * @param expanded 当前是否处于展开态
- * @param onExpandEnd 展开结束回调
- * @returns React `TransitionEvent` 处理函数或 `undefined`
- */
-export function createCollapseGridTransitionEndHandler(
-  expanded: boolean,
-  onExpandEnd: ((gridElement: ViewportRectElement) => void) | undefined
-): ((event: React.TransitionEvent<HTMLDivElement>) => void) | undefined {
-  if (onExpandEnd === undefined) {
-    return undefined;
-  }
-  return (event: React.TransitionEvent<HTMLDivElement>): void => {
-    if (
-      !expanded ||
-      event.target !== event.currentTarget ||
-      (event.propertyName !== "grid-template-rows" &&
-        event.propertyName !== "height")
-    ) {
-      return;
-    }
-    onExpandEnd(event.currentTarget as unknown as ViewportRectElement);
-  };
-}
-
-/**
- * 基于首帧单次布局测量与外层 `height` + 内层 GPU `translate3d` 同步滑动实现零尾帧跳变展开与收起动画的通用包装组件。
- *
- * @param props 展开状态、外层/内层类名、上下文重置键、展开结束回调与子节点
+ * @param props 展开状态、外层/内层类名、上下文重置键、视口滚动解析回调与子节点
  * @returns React 节点
  */
 export function CollapseGrid({
@@ -64,25 +39,10 @@ export function CollapseGrid({
   innerClassName,
   resetKey,
   containerRef,
-  onExpandEnd,
+  resolveFollowScroll,
+  resolveCollapseScroll,
   children,
 }: CollapseGridProps): React.JSX.Element {
-  const notifiedExpandRef: React.RefObject<boolean> = useRef<boolean>(false);
-  if (!expanded) {
-    notifiedExpandRef.current = false;
-  }
-  const notifyExpandOnce:
-    | ((gridElement: ViewportRectElement) => void)
-    | undefined =
-      onExpandEnd !== undefined
-        ? (gridElement: ViewportRectElement): void => {
-          if (notifiedExpandRef.current) {
-            return;
-          }
-          notifiedExpandRef.current = true;
-          onExpandEnd(gridElement);
-        }
-        : undefined;
   const {
     gridRef,
     innerRef,
@@ -91,20 +51,14 @@ export function CollapseGrid({
     expanded,
     resetKey,
     gridRef: containerRef,
-    onExpandEnd: notifyExpandOnce,
+    resolveFollowScroll,
+    resolveCollapseScroll,
   });
-  const handleTransitionEnd:
-    | ((event: React.TransitionEvent<HTMLDivElement>) => void)
-    | undefined = createCollapseGridTransitionEndHandler(
-      expanded,
-      notifyExpandOnce
-    );
   return (
     <div
       ref={gridRef}
       className={`${gridClassName} ${expanded ? "expanded" : ""}${isClosing ? " flip-closing" : ""}`}
       aria-hidden={!expanded}
-      onTransitionEnd={handleTransitionEnd}
     >
       <div
         ref={innerRef}

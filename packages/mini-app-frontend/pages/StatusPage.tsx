@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef } from "react";
 import type React from "react";
-import type { ExpandScrollScheduleState } from "../components/animations/CapabilityCollapseBody";
+import type { ViewportAnchorScroll } from "../components/animations/expandFollowScroll";
 import { CapabilityBlock } from "../components/CapabilityBlock";
 import { StatusSkeleton } from "../components/skeletons/StatusSkeleton";
 import { StatusOverviewCard } from "../components/StatusOverviewCard";
@@ -35,8 +35,8 @@ interface RenderStatusSnapshotOptions {
   readonly switchingMood: boolean;
   /** 点击「切换情绪」按钮的回调。 */
   readonly onSwitchMood: () => void;
-  /** 跨子系统面板共享的展开跟滚定时器状态引用。 */
-  readonly expandScrollStateRef: React.RefObject<ExpandScrollScheduleState>;
+  /** 跨子系统面板共享的跟滚槽位。 */
+  readonly followScrollSlotRef: React.RefObject<ViewportAnchorScroll | null>;
 }
 
 /**
@@ -53,7 +53,7 @@ function renderStatusSnapshot({
   currentMood,
   switchingMood,
   onSwitchMood,
-  expandScrollStateRef,
+  followScrollSlotRef,
 }: RenderStatusSnapshotOptions): React.JSX.Element {
   return (
     <Fragment>
@@ -77,7 +77,7 @@ function renderStatusSnapshot({
                   currentMood={isMoodCap ? currentMood : null}
                   switchingMood={isMoodCap ? switchingMood : false}
                   onSwitchMood={onSwitchMood}
-                  expandScrollStateRef={expandScrollStateRef}
+                  followScrollSlotRef={followScrollSlotRef}
                 />
               );
             }
@@ -114,11 +114,8 @@ export function StatusPage(): React.JSX.Element {
     switchMood,
   }: MiniAppStatusStoreState = useComponentStore(createStatusStore);
 
-  const expandScrollStateRef: React.RefObject<ExpandScrollScheduleState> =
-    useRef<ExpandScrollScheduleState>({
-      timer: null,
-      latestFinishTimeMs: 0,
-    });
+  const followScrollSlotRef: React.RefObject<ViewportAnchorScroll | null> =
+    useRef<ViewportAnchorScroll | null>(null);
 
   const handleSwitchMood: () => void = useCallback((): void => {
     void switchMood();
@@ -127,13 +124,8 @@ export function StatusPage(): React.JSX.Element {
   useEffect((): (() => void) => {
     void loadMood();
     startPolling();
-    const scrollState: ExpandScrollScheduleState = expandScrollStateRef.current;
     return (): void => {
       stopPolling();
-      if (scrollState.timer !== null) {
-        clearTimeout(scrollState.timer);
-        scrollState.timer = null;
-      }
     };
   }, [loadMood, startPolling, stopPolling]);
 
@@ -187,7 +179,7 @@ export function StatusPage(): React.JSX.Element {
               currentMood,
               switchingMood,
               onSwitchMood: handleSwitchMood,
-              expandScrollStateRef,
+              followScrollSlotRef,
             })}
           </div>
         )

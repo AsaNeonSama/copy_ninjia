@@ -49,6 +49,8 @@
   border: 1px solid var(--dropdown-board-border); border-left: 3px solid var(--accent); border-top: none;
   border-radius: 0 0 11px 11px;
 }
+.bot-perm-collapse-grid.expanded > .bot-perm-collapse-inner,
+.bot-perm-collapse-grid.flip-closing > .bot-perm-collapse-inner { will-change: transform; }
 .bot-perm-tag-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px; padding: 9px 11px 10px;
@@ -680,4 +682,9 @@
 @media (max-width: 350px) {
   .chat-targets-id-inline-row { flex-direction: column; align-items: stretch; }
   .chat-targets-qa-head { flex-direction: column; align-items: stretch; gap: 6px; }
+}
+@media (hover: none) and (pointer: coarse) {
+  .join-clean-card,
+  .chat-feature-card,
+  .chat-targets-qa-item { will-change: transform; }
 }

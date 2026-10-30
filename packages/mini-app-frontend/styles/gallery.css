@@ -52,8 +52,12 @@
   width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr;
   overflow: hidden; overflow-anchor: none; pointer-events: none; scroll-margin-top: 72px;
 }
-.gallery-preview-collapse-grid.expanded ~ .card {
+.gallery-preview-collapse-grid.expanded ~ .card,
+.gallery-preview-collapse-grid.flip-closing ~ .card {
   overflow-anchor: none;
+}
+@media (hover: none) and (pointer: coarse) {
+  .gallery-preview-collapse-grid ~ .card { will-change: transform; }
 }
 .gallery-preview-collapse-grid.expanded,
 .gallery-preview-collapse-grid.flip-closing {
@@ -69,6 +73,8 @@
 .gallery-preview-collapse-inner {
   width: 100%; min-width: 0; min-height: 0; overflow: hidden; padding-bottom: 10px;
 }
+.gallery-preview-collapse-grid.expanded > .gallery-preview-collapse-inner,
+.gallery-preview-collapse-grid.flip-closing > .gallery-preview-collapse-inner { will-change: transform, opacity; }
 .gallery-preview-card { border-color: var(--accent); margin-bottom: 0; scroll-margin-top: 72px; }
 .gallery-preview-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .gallery-preview-actions .btn { width: 100%; min-width: 0; height: 36px; padding: 0 8px; border-radius: 10px; font-size: 12px; overflow: hidden; }

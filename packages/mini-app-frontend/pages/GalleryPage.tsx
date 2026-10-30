@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
 import { CollapseGrid } from "../components/animations/CollapseGrid";
-import { scrollViewportToPreviewCard } from "../components/animations/expandFollowScroll";
-import type { ViewportRectElement } from "../components/animations/expandFollowScroll";
-import type { FlipAnimatableElement } from "../components/animations/flipCollapse";
+import {
+  animateViewportToAnchor,
+  resolveCollapseClampScrollTarget,
+  resolvePreviewCardScrollTarget,
+} from "../components/animations/expandFollowScroll";
+import type { ViewportAnchorScrollTarget } from "../components/animations/expandFollowScroll";
+import type {
+  FlipAnimatableElement,
+  FlipFollowScrollResolver,
+} from "../components/animations/flipCollapse";
 import { useDelayedUnmount } from "../components/animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "../components/animations/useDelayedUnmount";
 import { GalleryGridList } from "../components/GalleryGridList";
 import { GalleryPreviewCard } from "../components/GalleryPreviewCard";
 import { PaginationBar } from "../components/PaginationBar";
 import {
+  MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
-  MINI_APP_GALLERY_PREVIEW_COLLAPSE_MS,
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -88,16 +95,36 @@ export function GalleryPage(): React.JSX.Element {
   const previewGridRef: React.RefObject<FlipAnimatableElement | null> =
     useRef<FlipAnimatableElement | null>(null);
 
+  /** 关闭按钮触发的收起在同一次提交内解析视口回落；翻页、删除等其余收起路径不回落（翻页由分页栏滚回顶部）。 */
+  const closeScrollArmedRef: React.RefObject<boolean> = useRef<boolean>(false);
+
   const handleClosePreview: () => void = useCallback((): void => {
+    closeScrollArmedRef.current = true;
     setPreviewItem(null);
   }, [setPreviewItem]);
 
-  const handlePreviewExpandEnd: (gridElement: ViewportRectElement) => void =
-    useCallback((gridElement: ViewportRectElement): void => {
-      scrollViewportToPreviewCard(gridElement);
-    }, []);
+  const resolvePreviewCollapseScroll: FlipFollowScrollResolver = useCallback(
+    (
+      gridElement: FlipAnimatableElement,
+      removedHeightPx: number
+    ): ViewportAnchorScrollTarget | null => {
+      if (!closeScrollArmedRef.current) {
+        return null;
+      }
+      closeScrollArmedRef.current = false;
+      return resolveCollapseClampScrollTarget(gridElement, removedHeightPx);
+    },
+    []
+  );
 
-  /** 预览面板不在展开过渡中时把视口滚到预览位置；展开过渡中由 `handlePreviewExpandEnd` 在过渡结束后滚动。 */
+  useEffect((): void => {
+    closeScrollArmedRef.current = false;
+  }, [previewItem]);
+
+  const cancelPreviewScrollRef: React.RefObject<(() => void) | null> =
+    useRef<(() => void) | null>(null);
+
+  /** 预览面板不在展开过渡中时以同一时长与曲线把视口滚到预览位置；展开过渡中由折叠动画的同帧跟滚负责。 */
   const scrollToSettledPreview: () => void = useCallback((): void => {
     const gridEl: FlipAnimatableElement | null = previewGridRef.current;
     if (
@@ -106,7 +133,20 @@ export function GalleryPage(): React.JSX.Element {
     ) {
       return;
     }
-    scrollViewportToPreviewCard(gridEl);
+    const target: ViewportAnchorScrollTarget | null =
+      resolvePreviewCardScrollTarget(gridEl);
+    if (target === null) {
+      return;
+    }
+    cancelPreviewScrollRef.current?.();
+    cancelPreviewScrollRef.current = animateViewportToAnchor(target);
+  }, []);
+
+  useEffect((): (() => void) => {
+    return (): void => {
+      cancelPreviewScrollRef.current?.();
+      cancelPreviewScrollRef.current = null;
+    };
   }, []);
 
   const handleSelectPreviewItem: (item: Readonly<MiniAppGalleryItem>) => void =
@@ -143,7 +183,7 @@ export function GalleryPage(): React.JSX.Element {
     displayValue: displayPreviewItem,
     isClosing: previewClosing,
   }: Readonly<DelayedUnmountState<Readonly<MiniAppGalleryItem>>> =
-    useDelayedUnmount(previewItem, MINI_APP_GALLERY_PREVIEW_COLLAPSE_MS);
+    useDelayedUnmount(previewItem, MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS);
 
   const uploadDisabled: boolean =
     uploading || loading || deletingFileName !== null || galleryPage?.exists === false;
@@ -214,7 +254,8 @@ export function GalleryPage(): React.JSX.Element {
         gridClassName="gallery-preview-collapse-grid"
         innerClassName="gallery-preview-collapse-inner"
         containerRef={previewGridRef}
-        onExpandEnd={handlePreviewExpandEnd}
+        resolveFollowScroll={resolvePreviewCardScrollTarget}
+        resolveCollapseScroll={resolvePreviewCollapseScroll}
       >
         {displayPreviewItem !== null ? (
           <GalleryPreviewCard

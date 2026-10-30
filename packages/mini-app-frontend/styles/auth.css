@@ -114,6 +114,8 @@
   display: none;
 }
 .totp-collapse-inner { width: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.totp-setup-collapse-grid.expanded > .totp-collapse-inner,
+.totp-setup-collapse-grid.flip-closing > .totp-collapse-inner { will-change: transform, opacity; }
 .totp-actions-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 6px; }
 .totp-actions-row .btn { height: 40px; padding: 0 14px; border-radius: 10px; font-size: 13px; }
 .totp-start-submit { position: relative; overflow: hidden; min-width: 118px; }

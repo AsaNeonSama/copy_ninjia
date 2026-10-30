@@ -1,8 +1,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef } from "react";
 import type React from "react";
 import { CollapseGrid, TriggerCollapseGrid } from "../components/animations/CollapseGrid";
-import { scrollViewportToExpandedBody } from "../components/animations/expandFollowScroll";
-import type { ViewportRectElement } from "../components/animations/expandFollowScroll";
+import { resolveExpandFollowScrollTarget } from "../components/animations/expandFollowScroll";
+import type {
+  ViewportAnchorScrollTarget,
+  ViewportRectElement,
+} from "../components/animations/expandFollowScroll";
+import type {
+  FlipAnimatableElement,
+  FlipFollowScrollResolver,
+} from "../components/animations/flipCollapse";
 import { LoadingDotsWave } from "../components/animations/LoadingDotsWave";
 import { TotpSkeleton } from "../components/skeletons/TotpSkeleton";
 import { getMiniAppTranslations } from "../i18n";
@@ -35,7 +42,7 @@ export interface TotpPageProps {
 
 /**
  * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理页面
- * （点击添加或修改验证器时按钮展示三点波浪加载动效直至二维码就绪，随后平滑收起顶部触发按钮并展开绑定表单，展开结束后按 `scrollViewportToExpandedBody` 让视口平滑跟滚，提交 6 位动态码核验时按钮展示三点波浪加载动效，取消时保留二维码快照完成收起过渡）。
+ * （点击添加或修改验证器时按钮展示三点波浪加载动效直至二维码就绪，随后平滑收起顶部触发按钮并展开绑定表单，展开时按 `resolveExpandFollowScrollTarget` 以卡片为锚点同帧跟滚，提交 6 位动态码核验时按钮展示三点波浪加载动效，取消时保留二维码快照完成收起过渡）。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -67,24 +74,18 @@ export function TotpPage({
     useCallback((el: ViewportRectElement | null): void => {
       cardRef.current = el;
     }, []);
-  const handleSetupExpandEnd: (gridElement: ViewportRectElement) => void =
-    useCallback((gridElement: ViewportRectElement): void => {
-      const cardEl: ViewportRectElement | null = cardRef.current;
-      if (
-        cardEl === null ||
-        typeof cardEl.getBoundingClientRect !== "function" ||
-        typeof gridElement.getBoundingClientRect !== "function"
-      ) {
-        return;
-      }
-      const gridRect: { readonly top: number; readonly height: number } =
-        gridElement.getBoundingClientRect();
-      scrollViewportToExpandedBody({
-        blockTop: cardEl.getBoundingClientRect().top,
-        bodyTop: gridRect.top,
-        bodyHeight: gridRect.height,
-      });
-    }, []);
+  const resolveSetupFollowScroll: FlipFollowScrollResolver = useCallback(
+    (
+      gridElement: FlipAnimatableElement,
+      expandedHeightPx: number
+    ): ViewportAnchorScrollTarget | null =>
+      resolveExpandFollowScrollTarget(
+        cardRef.current,
+        gridElement,
+        expandedHeightPx
+      ),
+    []
+  );
 
   useEffect((): void => {
     void loadTotpStatus();
@@ -224,7 +225,7 @@ export function TotpPage({
             expanded={setupOpen}
             gridClassName="totp-setup-collapse-grid"
             innerClassName="totp-collapse-inner"
-            onExpandEnd={handleSetupExpandEnd}
+            resolveFollowScroll={resolveSetupFollowScroll}
           >
             <form
               className="totp-setup-panel"

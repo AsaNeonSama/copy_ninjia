@@ -9,6 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_MIN_HOURS,
+  MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_PAGINATION_HOVER_DURATION_MS,
   MINI_APP_PICKER_POLL_INTERVAL_MS,
@@ -22,7 +23,6 @@ import {
   readMiniAppSessionToken,
   setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
-import { computeCapabilityCollapseDurationMs } from "../../packages/mini-app-frontend/libs/formatters";
 import { TotpPage } from "../../packages/mini-app-frontend/pages/TotpPage";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
@@ -233,7 +233,7 @@ describe("页面 store", () => {
   test("状态看板切换折叠面板后，暂缓时段内取得的快照到时段结束才写入，时段过后立即写入", async () => {
     jest.useFakeTimers();
     expect(MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS).toBeGreaterThanOrEqual(
-      computeCapabilityCollapseDurationMs(Number.MAX_SAFE_INTEGER, false)
+      MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS
     );
     let calls: number = 0;
     route("GET /api/status", (): Response => {

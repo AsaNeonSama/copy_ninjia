@@ -1,35 +1,33 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
 import type React from "react";
 import {
+  MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS,
+  MINI_APP_FLIP_COLLAPSE_CLOSE_SPEED_PX_PER_MS,
+  MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
   MINI_APP_FLIP_COLLAPSE_DURATION_MS,
-  MINI_APP_FLIP_COLLAPSE_EASING,
 } from "../../consts/miniApp";
-import type { ViewportRectElement } from "./expandFollowScroll";
+import { startViewportAnchorScroll } from "./expandFollowScroll";
+import type {
+  ViewportAnchorScroll,
+  ViewportAnchorScrollTarget,
+  ViewportRectElement,
+} from "./expandFollowScroll";
+import { runFrameMotion } from "./frameMotion";
 
-/** 支持写入折叠容器高度与内层 GPU 合成层平移/透明度过渡样式的行内样式最小接口。 */
+/** 逐帧写入折叠容器高度与内层面板位移/透明度的行内样式最小接口。 */
 export interface FlipStyleDeclaration {
-  /** CSS `height` 属性（驱动外层折叠容器与包裹卡片/弹窗同步平滑伸缩）。 */
+  /** CSS `height` 属性（外层折叠容器逐帧高度）。 */
   height?: string;
-  /** CSS `margin-top` 属性（在与顶部配对触发器重叠过渡时抵消触发器占高，保持面板顶部原点稳定）。 */
+  /** CSS `margin-top` 属性（与顶部配对触发器重叠过渡时抵消触发器占高，保持面板顶部原点稳定）。 */
   marginTop?: string;
-  /** CSS `transform` 属性（驱动内层刚性面板在裁剪框内同步上下滑动）。 */
+  /** CSS `transform` 属性（内层面板在裁剪框内的纵向位移）。 */
   transform: string;
-  /** CSS `transition` 属性。 */
-  transition: string;
   /** CSS `will-change` 属性。 */
   willChange: string;
   /** CSS `opacity` 属性。 */
   opacity?: string;
   /** CSS `pointer-events` 属性。 */
   pointerEvents?: string;
-}
-
-/** 监听内层节点 `transitionend` 事件的最小事件对象接口。 */
-export interface FlipTransitionEndEvent {
-  /** 触发过渡结束的目标节点。 */
-  readonly target?: unknown;
-  /** 完成过渡的 CSS 属性名称。 */
-  readonly propertyName?: string;
 }
 
 /** 支持增删与检测 CSS 类名的 `classList` 最小接口。 */
@@ -42,21 +40,19 @@ export interface FlipClassList {
   readonly contains: (token: string) => boolean;
 }
 
-/** 挂载在折叠面板或配对触发器节点上的飞行状态与半途打断采样 `dataset` 属性。 */
+/** 挂载在折叠面板或配对触发器节点上的飞行状态与半途打断进度 `dataset` 属性。 */
 export interface FlipDataset {
   /** 标记当前节点为与下方折叠面板配对的顶部触发器容器（`"1"`）。 */
   flipTrigger?: string;
   /** 标记配对触发器正处于收起飞行态（`"1"` 表示飞行中）。 */
   flipTriggerClosing?: string;
-  /** 标记当前节点正处于 200ms 过渡飞行态（`"1"` 表示飞行中）。 */
+  /** 标记内层面板正处于逐帧动画飞行态（`"1"` 表示飞行中）。 */
   flipInFlight?: string;
-  /** 半途打断时采样记录的外层网格瞬时像素高度文本。 */
-  flipInterruptedH?: string;
-  /** 半途打断时采样记录的内层面板瞬时纵向平移像素值文本。 */
-  flipInterruptedY?: string;
+  /** 半途打断时记录的展开进度文本（`0..1`，`0` 为收起、`1` 为完全展开），供下一次过渡从该进度续接。 */
+  flipInterruptedProgress?: string;
 }
 
-/** 支持几何测量、类名切换、样式过渡与事件监听的折叠动画 DOM 元素最小接口。 */
+/** 支持几何测量、类名切换与行内样式写入的折叠动画 DOM 元素最小接口。 */
 export interface FlipAnimatableElement extends ViewportRectElement {
   /** 标签名（大写，如 `"SECTION"`）。 */
   readonly tagName?: string;
@@ -72,81 +68,17 @@ export interface FlipAnimatableElement extends ViewportRectElement {
   readonly parentElement?: FlipAnimatableElement | null;
   /** 前一个同级元素节点（用于定位与折叠面板紧邻配对的 `TriggerCollapseGrid`）。 */
   readonly previousElementSibling?: FlipAnimatableElement | null;
-  /** 第一个子元素节点（用于驱动配对触发器内层节点的同步位移与透明度过渡）。 */
+  /** 第一个子元素节点（配对触发器的内层节点）。 */
   readonly firstElementChild?: FlipAnimatableElement | null;
-  /** 触发单次样式冲刷的布局宽度只读属性。 */
-  readonly offsetWidth?: number;
   /** 读取 HTML 属性（用于检测外层折叠容器是否处于 `aria-hidden="true"` 收起态）。 */
   readonly getAttribute?: (qualifiedName: string) => string | null;
-  /** 注册 DOM 事件监听器（用于精确对齐合成器 `transitionend` 结束帧）。 */
-  readonly addEventListener?: (type: string, listener: (event: FlipTransitionEndEvent) => void) => void;
-  /** 移除 DOM 事件监听器。 */
-  readonly removeEventListener?: (type: string, listener: (event: FlipTransitionEndEvent) => void) => void;
 }
 
-/** 全局宿主窗口对象的最小读取接口。 */
-export interface FlipGlobalHost {
-  /** 文档对象（用于判定是否处于浏览器 DOM 环境）。 */
-  readonly document?: unknown;
-  /** 读取元素当前计算后样式（用于半途打断飞行态动画时采样矩阵位移）。 */
-  readonly getComputedStyle?: (element: unknown) => { readonly transform?: string };
-}
-
-/**
- * 从 CSS `transform` 字符串（支持 `matrix(...)`、`matrix3d(...)`、`translate3d(...)` 与 `translateY(...)`）解析当前纵向像素偏移量。
- *
- * @param transformText 计算后样式或行内样式中的 `transform` 字符串
- * @returns 纵向位移像素值（无位移或不可解析时返回 `0`）
- */
-export function parseCurrentTranslateYPx(transformText: string): number {
-  const trimmed: string = transformText.trim();
-  if (trimmed.length === 0 || trimmed === "none") return 0;
-  if (trimmed.startsWith("matrix3d(") && trimmed.endsWith(")")) {
-    const parts: readonly string[] = trimmed.slice(9, -1).split(",");
-    const rawTy: number = Number.parseFloat(parts[13] ?? "0");
-    return Number.isFinite(rawTy) ? Math.round(rawTy) : 0;
-  }
-  if (trimmed.startsWith("matrix(") && trimmed.endsWith(")")) {
-    const parts: readonly string[] = trimmed.slice(7, -1).split(",");
-    const rawTy: number = Number.parseFloat(parts[5] ?? "0");
-    return Number.isFinite(rawTy) ? Math.round(rawTy) : 0;
-  }
-  const match3d: RegExpExecArray | null =
-    /translate3d\(\s*[^,]+,\s*([+-]?\d+(?:\.\d+)?)px/u.exec(trimmed);
-  if (match3d?.[1] !== undefined) {
-    const val: number = Number.parseFloat(match3d[1]);
-    return Number.isFinite(val) ? Math.round(val) : 0;
-  }
-  const matchY: RegExpExecArray | null =
-    /translateY\(\s*([+-]?\d+(?:\.\d+)?)px/u.exec(trimmed);
-  if (matchY?.[1] !== undefined) {
-    const val: number = Number.parseFloat(matchY[1]);
-    return Number.isFinite(val) ? Math.round(val) : 0;
-  }
-  return 0;
-}
-
-/**
- * 读取元素在被打断瞬间的真实纵向 GPU 位移像素值（仅在元素处于飞行态时采样计算样式，空闲态零开销返回 `0`）。
- *
- * @param element 目标可动画元素
- * @returns 当前纵向位移像素值
- */
-export function readElementCurrentTranslateYPx(element: FlipAnimatableElement | null): number {
-  if (element === null) return 0;
-  if (element.dataset?.flipInFlight === "1") {
-    const host: FlipGlobalHost = globalThis as FlipGlobalHost;
-    if (typeof host.getComputedStyle === "function") {
-      try {
-        const computedTransform: string = (host.getComputedStyle(element).transform ?? "").trim();
-        if (computedTransform.length > 0) return parseCurrentTranslateYPx(computedTransform);
-      } catch (_error: unknown) {
-        // 测试模拟节点非原生 Element 时回退读取行内 transform。
-      }
-    }
-  }
-  return parseCurrentTranslateYPx(element.style?.transform ?? "");
-}
+/** 过渡起始时解析同帧视口滚动目标的回调：入参为外层折叠容器与本次过渡的高度（展开为展开完成后的高度，收起为将收掉的高度），返回 `null` 时不滚动。 */
+export type FlipFollowScrollResolver = (
+  gridElement: FlipAnimatableElement,
+  heightPx: number
+) => ViewportAnchorScrollTarget | null;
 
 /**
  * 判断祖先节点是否为页面或弹窗内容区的折叠遍历停止边界。
@@ -208,7 +140,7 @@ function shouldFadeInnerPanel(gridEl: FlipAnimatableElement): boolean {
 }
 
 /**
- * 将纵向像素偏移格式化为 GPU 合成层 `translate3d(0, Ypx, 0)` 字符串。
+ * 将纵向像素偏移取整后格式化为 `translate3d(0, Ypx, 0)` 字符串。
  *
  * @param offsetYPx 纵向像素偏移
  * @returns CSS `transform` 字符串
@@ -216,6 +148,35 @@ function shouldFadeInnerPanel(gridEl: FlipAnimatableElement): boolean {
 export function formatTranslate3dY(offsetYPx: number): string {
   const rounded: number = Math.round(offsetYPx);
   return rounded === 0 ? "translate3d(0, 0, 0)" : `translate3d(0, ${rounded}px, 0)`;
+}
+
+/**
+ * 将 `0..1` 的透明度保留三位小数格式化为 CSS `opacity` 字符串。
+ *
+ * @param value 透明度
+ * @returns CSS `opacity` 字符串
+ */
+function formatOpacity(value: number): string {
+  return String(Math.round(value * 1000) / 1000);
+}
+
+/**
+ * 按过渡方向与高度跨度计算完整过渡的时长：展开为 `MINI_APP_FLIP_COLLAPSE_DURATION_MS`；
+ * 收起取「跨度 ÷ `MINI_APP_FLIP_COLLAPSE_CLOSE_SPEED_PX_PER_MS`」与展开时长的较大值，并以 `MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS` 为上限。
+ *
+ * @param spanPx 收起态与展开态之间的高度跨度
+ * @param expanded 目标是否为展开态
+ * @returns 从一端到另一端的完整过渡毫秒数
+ */
+export function computeFlipCollapseDurationMs(spanPx: number, expanded: boolean): number {
+  if (expanded) return MINI_APP_FLIP_COLLAPSE_DURATION_MS;
+  return Math.min(
+    MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS,
+    Math.max(
+      MINI_APP_FLIP_COLLAPSE_DURATION_MS,
+      Math.round(spanPx / MINI_APP_FLIP_COLLAPSE_CLOSE_SPEED_PX_PER_MS)
+    )
+  );
 }
 
 /**
@@ -238,7 +199,7 @@ export function findPairedTriggerElement(gridEl: FlipAnimatableElement): FlipAni
   return null;
 }
 
-/** `runFlipCollapseTransition` 执行单次折叠容器高度与刚性内层面板同步滑动过渡的参数接口。 */
+/** `runFlipCollapseTransition` 执行单次折叠过渡的参数接口。 */
 export interface RunFlipCollapseTransitionOptions {
   /** 外层折叠裁剪容器节点。 */
   readonly gridEl: FlipAnimatableElement;
@@ -246,23 +207,29 @@ export interface RunFlipCollapseTransitionOptions {
   readonly innerEl: FlipAnimatableElement;
   /** 当前目标是否为展开态。 */
   readonly expanded: boolean;
-  /** 本次提交前该面板是否已处于展开或收起飞行布局态。 */
+  /** 本次提交前该面板是否已处于展开或飞行布局态（无打断进度时从完全展开起步）。 */
   readonly wasOneFrInDom: boolean;
   /** 是否同步对内层节点执行透明度过渡（缺省按容器类名自动判定）。 */
   readonly fadeInner?: boolean;
-  /** 收起飞行态结束时的清理通知回调（用于同步复位 `closingActiveRef`）。 */
+  /** 收起过渡结束时的清理通知回调（用于同步复位 `closingActiveRef`）。 */
   readonly onClosingCleared?: () => void;
-  /** 展开过渡结束时的通知回调（用于触发视口平滑跟滚）。 */
-  readonly onExpandEnd?: (gridElement: ViewportRectElement) => void;
+  /** 展开起始时解析同帧视口跟滚目标的回调（入参为展开完成后的高度）。 */
+  readonly resolveFollowScroll?: FlipFollowScrollResolver;
+  /** 收起起始时解析同帧视口滚动目标的回调（入参为将收掉的高度）。 */
+  readonly resolveCollapseScroll?: FlipFollowScrollResolver;
+  /** 多个面板可同时过渡时共享的跟滚槽位：新的视口滚动启动时停止槽内旧滚动，保证只有最后启动的一次驱动视口。 */
+  readonly followScrollSlotRef?: React.RefObject<ViewportAnchorScroll | null>;
 }
 
 /**
- * 在 DOM 提交后、浏览器绘制前测量内层刚性面板与可选配对触发器的自然高度，
- * 并在同一缓动曲线上同步驱动外层容器 `height` 与内层面板 `translate3d` / `opacity`，
- * 使下拉上收滑动动画与外层卡片/弹窗高度伸缩在每一帧严格对齐，结束帧零布局跳变、零背景闪烁。
+ * 在 DOM 提交后、浏览器绘制前测量内层面板与可选配对触发器的自然高度，写入起始帧样式，
+ * 再以 `runFrameMotion` 的单一时钟逐帧写入外层容器 `height`、内层面板 `translate3d`/`opacity`、
+ * 配对触发器的位移/透明度与可选的视口滚动：所有值都由同一展开进度派生，同帧提交，互不错位。
+ * 无配对触发器时内层面板位移等于「当前高度 − 展开高度」，面板下沿始终贴住裁剪框下沿；
+ * 有配对触发器时面板只滑动 16px 并与触发按钮交叉渐变。时长按 `computeFlipCollapseDurationMs` 取完整过渡时长再乘以剩余进度。
  *
- * @param options 外层节点、内层节点、目标展开态与结束回调
- * @returns 取消本次微任务与定时器的清理函数（无需动画时返回 `undefined`）
+ * @param options 外层节点、内层节点、目标展开态、视口滚动与结束回调
+ * @returns 取消本次动画的清理函数（记录打断进度并清除行内样式；无需动画时返回 `undefined`）
  */
 export function runFlipCollapseTransition({
   gridEl,
@@ -271,7 +238,9 @@ export function runFlipCollapseTransition({
   wasOneFrInDom,
   fadeInner,
   onClosingCleared,
-  onExpandEnd,
+  resolveFollowScroll,
+  resolveCollapseScroll,
+  followScrollSlotRef,
 }: RunFlipCollapseTransitionOptions): (() => void) | undefined {
   const gridStyle: FlipStyleDeclaration | undefined = gridEl.style;
   const innerStyle: FlipStyleDeclaration | undefined = innerEl.style;
@@ -290,7 +259,7 @@ export function runFlipCollapseTransition({
       const ancestorTimer: ReturnType<typeof setTimeout> = setTimeout((): void => {
         gridEl.classList?.remove("flip-closing");
         onClosingCleared?.();
-      }, MINI_APP_FLIP_COLLAPSE_DURATION_MS);
+      }, MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS);
       return (): void => {
         clearTimeout(ancestorTimer);
         gridEl.classList?.remove("flip-closing");
@@ -300,8 +269,7 @@ export function runFlipCollapseTransition({
   }
 
   const triggerEl: FlipAnimatableElement | null = findPairedTriggerElement(gridEl);
-  const triggerInnerEl: FlipAnimatableElement | null = triggerEl?.firstElementChild ?? null;
-  const triggerInnerStyle: FlipStyleDeclaration | undefined = triggerInnerEl?.style;
+  const triggerInnerStyle: FlipStyleDeclaration | undefined = triggerEl?.firstElementChild?.style;
 
   if (!expanded) {
     gridEl.classList?.add("flip-closing");
@@ -318,14 +286,9 @@ export function runFlipCollapseTransition({
   }
 
   const innerDataset: FlipDataset | undefined = innerEl.dataset;
-  const rawInterruptedH: string | undefined = innerDataset?.flipInterruptedH;
-  const rawInterruptedY: string | undefined = innerDataset?.flipInterruptedY;
-  if (innerDataset !== undefined) {
-    delete innerDataset.flipInterruptedH;
-    delete innerDataset.flipInterruptedY;
-  }
+  const interruptedProgress: number = Number(innerDataset?.flipInterruptedProgress ?? Number.NaN);
+  if (innerDataset !== undefined) delete innerDataset.flipInterruptedProgress;
 
-  gridStyle.transition = "none";
   gridStyle.height = "";
   gridStyle.marginTop = "";
 
@@ -351,170 +314,103 @@ export function runFlipCollapseTransition({
   }
 
   const collapsedH: number = triggerH;
-  const expandedH: number = Math.max(deltaH, triggerH);
-  const hasInterruptedH: boolean = rawInterruptedH !== undefined && Number.isFinite(Number(rawInterruptedH));
-  const hStart: number = hasInterruptedH
-    ? Math.max(collapsedH, Math.min(expandedH, Math.round(Number(rawInterruptedH))))
-    : wasOneFrInDom
-      ? expandedH
-      : collapsedH;
-  const hEnd: number = expanded ? expandedH : collapsedH;
-
+  const spanH: number = Math.max(deltaH, triggerH) - collapsedH;
   const slideRangePx: number = triggerH > 0 ? Math.min(deltaH, 16) : deltaH;
-  const hasInterruptedY: boolean = rawInterruptedY !== undefined && Number.isFinite(Number(rawInterruptedY));
-  const uStart: number = hasInterruptedY
-    ? Math.round(Number(rawInterruptedY))
-    : wasOneFrInDom
-      ? readElementCurrentTranslateYPx(innerEl)
-      : -slideRangePx;
-  const uEnd: number = expanded ? 0 : -slideRangePx;
+  const triggerSlidePx: number = Math.min(triggerH, 10);
   const shouldFadeInner: boolean = fadeInner ?? (triggerH > 0 || shouldFadeInnerPanel(gridEl));
+  const progressStart: number = Number.isFinite(interruptedProgress)
+    ? Math.min(1, Math.max(0, interruptedProgress))
+    : wasOneFrInDom
+      ? 1
+      : 0;
+  const progressEnd: number = expanded ? 1 : 0;
+  let currentProgress: number = progressStart;
 
-  // 1. 同步写入外层容器、配对触发器与内层面板在 t=0 帧的初始高度及偏移位置，保证首帧零跳变
+  const writeFrame = (progress: number): void => {
+    currentProgress = progress;
+    gridStyle.height = `${Math.round(collapsedH + spanH * progress)}px`;
+    innerStyle.transform = formatTranslate3dY(-slideRangePx * (1 - progress));
+    if (shouldFadeInner) innerStyle.opacity = formatOpacity(progress);
+    if (triggerH > 0 && triggerInnerStyle !== undefined) {
+      triggerInnerStyle.transform = formatTranslate3dY(-triggerSlidePx * progress);
+      triggerInnerStyle.opacity = formatOpacity(1 - progress);
+    }
+  };
+
+  // 起始帧样式在绘制前同步写入，保证首帧与上一状态零跳变。
   if (triggerH > 0) gridStyle.marginTop = `-${triggerH}px`;
-  gridStyle.height = `${hStart}px`;
-  innerStyle.transition = "none";
   innerStyle.willChange = shouldFadeInner ? "transform, opacity" : "transform";
-  innerStyle.transform = formatTranslate3dY(uStart);
-  if (shouldFadeInner) {
-    const spanH: number = Math.max(1, expandedH - collapsedH);
-    const startOpacity: number =
-      deltaH > 0
-        ? Math.max(0, Math.min(1, Math.round(((hStart - collapsedH) / spanH) * 100) / 100))
-        : expanded
-          ? 0
-          : 1;
-    innerStyle.opacity = String(startOpacity);
-  }
   innerStyle.pointerEvents = expanded ? "" : "none";
+  if (triggerH > 0 && triggerInnerStyle !== undefined) {
+    triggerInnerStyle.willChange = "transform, opacity";
+  }
+  writeFrame(progressStart);
   if (innerDataset !== undefined) innerDataset.flipInFlight = "1";
 
-  const triggerSlidePx: number = Math.min(triggerH, 10);
-  if (triggerH > 0 && triggerInnerStyle !== undefined) {
-    triggerInnerStyle.transition = "none";
-    triggerInnerStyle.willChange = "transform, opacity";
-    triggerInnerStyle.transform = formatTranslate3dY(expanded ? 0 : -triggerSlidePx);
-    triggerInnerStyle.opacity = expanded ? "1" : "0";
+  let followScroll: ViewportAnchorScroll | null = null;
+  const followScrollTarget: ViewportAnchorScrollTarget | null = expanded
+    ? resolveFollowScroll?.(gridEl, collapsedH + spanH) ?? null
+    : resolveCollapseScroll?.(gridEl, Math.round(spanH * progressStart)) ?? null;
+  if (followScrollTarget !== null) {
+    followScroll = startViewportAnchorScroll(followScrollTarget);
+    if (followScrollSlotRef !== undefined) {
+      followScrollSlotRef.current?.dispose();
+      followScrollSlotRef.current = followScroll;
+    }
   }
 
-  const heightTransition: string =
-    `height ${MINI_APP_FLIP_COLLAPSE_DURATION_MS}ms ${MINI_APP_FLIP_COLLAPSE_EASING}`;
-  const transformTransition: string =
-    `transform ${MINI_APP_FLIP_COLLAPSE_DURATION_MS}ms ${MINI_APP_FLIP_COLLAPSE_EASING}`;
-  const transformAndOpacityTransition: string =
-    `${transformTransition}, opacity ${MINI_APP_FLIP_COLLAPSE_DURATION_MS}ms ${MINI_APP_FLIP_COLLAPSE_EASING}`;
+  const disposeFollowScroll = (): void => {
+    if (followScroll === null) return;
+    followScroll.dispose();
+    if (followScrollSlotRef?.current === followScroll) followScrollSlotRef.current = null;
+    followScroll = null;
+  };
 
-  let cancelled: boolean = false;
-  let finished: boolean = false;
-  let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
-  let innerTransitionListener: ((event: FlipTransitionEndEvent) => void) | null = null;
-
-  const clearTriggerStyles = (): void => {
+  const clearInlineStyles = (): void => {
     if (triggerEl !== null) {
       triggerEl.classList?.remove("flip-closing");
       if (triggerEl.dataset !== undefined) delete triggerEl.dataset.flipTriggerClosing;
     }
     if (triggerInnerStyle !== undefined) {
-      triggerInnerStyle.transition = "";
       triggerInnerStyle.transform = "";
       triggerInnerStyle.willChange = "";
       triggerInnerStyle.opacity = "";
     }
-  };
-
-  const finishTransition = (): void => {
-    if (finished || cancelled) return;
-    finished = true;
-    if (cleanupTimer !== null) {
-      clearTimeout(cleanupTimer);
-      cleanupTimer = null;
-    }
-    if (innerTransitionListener !== null) {
-      innerEl.removeEventListener?.("transitionend", innerTransitionListener);
-      innerTransitionListener = null;
-    }
-    clearTriggerStyles();
-    if (!expanded) {
-      gridEl.classList?.remove("flip-closing");
-      onClosingCleared?.();
-    }
-    gridStyle.transition = "";
     gridStyle.height = "";
     gridStyle.marginTop = "";
-    innerStyle.transition = "";
-    innerStyle.transform = "";
-    innerStyle.willChange = "";
-    innerStyle.opacity = "";
-    innerStyle.pointerEvents = "";
-    if (innerDataset !== undefined) {
-      delete innerDataset.flipInFlight;
-      delete innerDataset.flipInterruptedH;
-      delete innerDataset.flipInterruptedY;
-    }
-    if (expanded && onExpandEnd !== undefined) onExpandEnd(gridEl);
-  };
-
-  // 2. 在同一绘制帧的微任务阶段统一冲刷初始样式并同步启动外层高度与内层位移过渡
-  queueMicrotask((): void => {
-    if (cancelled) return;
-    void gridEl.offsetWidth;
-    gridStyle.transition = heightTransition;
-    gridStyle.height = `${hEnd}px`;
-    innerStyle.transition = shouldFadeInner ? transformAndOpacityTransition : transformTransition;
-    innerStyle.transform = formatTranslate3dY(uEnd);
-    if (shouldFadeInner) innerStyle.opacity = expanded ? "1" : "0";
-    if (triggerH > 0 && triggerInnerStyle !== undefined) {
-      triggerInnerStyle.transition = transformAndOpacityTransition;
-      triggerInnerStyle.transform = formatTranslate3dY(expanded ? -triggerSlidePx : 0);
-      triggerInnerStyle.opacity = expanded ? "0" : "1";
-    }
-
-    const hasTransitionEndSupport: boolean =
-      typeof innerEl.addEventListener === "function" && (uStart !== uEnd || hStart !== hEnd);
-    if (hasTransitionEndSupport) {
-      innerTransitionListener = (event: FlipTransitionEndEvent): void => {
-        if (
-          event.target === innerEl &&
-          (event.propertyName === undefined || event.propertyName === "transform")
-        ) {
-          finishTransition();
-        }
-      };
-      innerEl.addEventListener?.("transitionend", innerTransitionListener);
-    }
-
-    const fallbackDurationMs: number = hasTransitionEndSupport
-      ? MINI_APP_FLIP_COLLAPSE_DURATION_MS + 34
-      : MINI_APP_FLIP_COLLAPSE_DURATION_MS;
-    cleanupTimer = setTimeout(finishTransition, fallbackDurationMs);
-  });
-
-  return (): void => {
-    if (!finished && innerDataset !== undefined) {
-      const midH: number = Math.max(0, Math.round(gridEl.getBoundingClientRect?.().height ?? 0));
-      const midY: number = readElementCurrentTranslateYPx(innerEl);
-      innerDataset.flipInterruptedH = String(midH);
-      innerDataset.flipInterruptedY = String(midY);
-    }
-    cancelled = true;
-    if (cleanupTimer !== null) {
-      clearTimeout(cleanupTimer);
-      cleanupTimer = null;
-    }
-    if (innerTransitionListener !== null) {
-      innerEl.removeEventListener?.("transitionend", innerTransitionListener);
-      innerTransitionListener = null;
-    }
-    clearTriggerStyles();
-    gridStyle.transition = "";
-    gridStyle.height = "";
-    gridStyle.marginTop = "";
-    innerStyle.transition = "";
     innerStyle.transform = "";
     innerStyle.willChange = "";
     innerStyle.opacity = "";
     innerStyle.pointerEvents = "";
     if (innerDataset !== undefined) delete innerDataset.flipInFlight;
+  };
+
+  let finished: boolean = false;
+  const cancelMotion: () => void = runFrameMotion({
+    durationMs: Math.round(
+      computeFlipCollapseDurationMs(spanH, expanded) * Math.abs(progressEnd - progressStart)
+    ),
+    onFrame: (easedProgress: number): void => {
+      writeFrame(progressStart + (progressEnd - progressStart) * easedProgress);
+      followScroll?.step(easedProgress);
+    },
+    onFinish: (): void => {
+      finished = true;
+      disposeFollowScroll();
+      clearInlineStyles();
+      if (!expanded) {
+        gridEl.classList?.remove("flip-closing");
+        onClosingCleared?.();
+      }
+    },
+  });
+
+  return (): void => {
+    if (finished) return;
+    cancelMotion();
+    disposeFollowScroll();
+    if (innerDataset !== undefined) innerDataset.flipInterruptedProgress = String(currentProgress);
+    clearInlineStyles();
   };
 }
 
@@ -528,8 +424,12 @@ export interface UseFlipCollapseLayoutEffectOptions {
   readonly fadeInner?: boolean;
   /** 可选的外部网格容器节点引用（提供时复用该引用，便于父组件读取实时几何位置）。 */
   readonly gridRef?: React.RefObject<FlipAnimatableElement | null>;
-  /** 展开过渡收尾完成时的可选回调（保证在内层 `transform` 先于外层 `height` 完成并清理样式时同样可靠触发）。 */
-  readonly onExpandEnd?: (gridElement: FlipAnimatableElement) => void;
+  /** 展开起始时解析同帧视口跟滚目标的回调（按最新一次渲染传入的回调执行）。 */
+  readonly resolveFollowScroll?: FlipFollowScrollResolver;
+  /** 收起起始时解析同帧视口滚动目标的回调（按最新一次渲染传入的回调执行）。 */
+  readonly resolveCollapseScroll?: FlipFollowScrollResolver;
+  /** 多个面板可同时过渡时共享的跟滚槽位。 */
+  readonly followScrollSlotRef?: React.RefObject<ViewportAnchorScroll | null>;
 }
 
 /** `useFlipCollapseLayoutEffect` Hook 的返回值接口。 */
@@ -560,8 +460,12 @@ export interface SyncFlipCollapseLayoutEffectOptions {
   readonly prevResetKeyRef: React.RefObject<string | null>;
   /** 收起飞行态激活标志引用。 */
   readonly closingActiveRef: React.RefObject<boolean>;
-  /** 展开过渡收尾完成时的可选回调。 */
-  readonly onExpandEnd?: (gridElement: FlipAnimatableElement) => void;
+  /** 展开起始时解析同帧视口跟滚目标的回调。 */
+  readonly resolveFollowScroll?: FlipFollowScrollResolver;
+  /** 收起起始时解析同帧视口滚动目标的回调。 */
+  readonly resolveCollapseScroll?: FlipFollowScrollResolver;
+  /** 多个面板可同时过渡时共享的跟滚槽位。 */
+  readonly followScrollSlotRef?: React.RefObject<ViewportAnchorScroll | null>;
 }
 
 /**
@@ -579,7 +483,9 @@ export function syncFlipCollapseLayoutEffect({
   prevExpandedRef,
   prevResetKeyRef,
   closingActiveRef,
-  onExpandEnd,
+  resolveFollowScroll,
+  resolveCollapseScroll,
+  followScrollSlotRef,
 }: SyncFlipCollapseLayoutEffectOptions): (() => void) | undefined {
   const wasExpanded: boolean = prevExpandedRef.current;
   const prevResetKey: string | null = prevResetKeyRef.current;
@@ -591,13 +497,14 @@ export function syncFlipCollapseLayoutEffect({
   if (prevResetKey !== resetKey) {
     closingActiveRef.current = false;
     gridEl?.classList?.remove("flip-closing");
-    if (innerEl?.dataset !== undefined) {
-      delete innerEl.dataset.flipInterruptedH;
-      delete innerEl.dataset.flipInterruptedY;
-    }
+    if (innerEl?.dataset !== undefined) delete innerEl.dataset.flipInterruptedProgress;
     return undefined;
   }
-  if (wasExpanded === expanded) return undefined;
+  if (wasExpanded === expanded) {
+    // 展开态未变的重跑（其余依赖变化）已由上一轮清理清除行内样式，面板落在 CSS 终态，打断进度随之作废。
+    if (innerEl?.dataset !== undefined) delete innerEl.dataset.flipInterruptedProgress;
+    return undefined;
+  }
   if (gridEl === null || innerEl === null) {
     closingActiveRef.current = false;
     return undefined;
@@ -605,7 +512,7 @@ export function syncFlipCollapseLayoutEffect({
   const wasOneFrInDom: boolean =
     wasExpanded ||
     innerEl.dataset?.flipInFlight === "1" ||
-    innerEl.dataset?.flipInterruptedH !== undefined;
+    innerEl.dataset?.flipInterruptedProgress !== undefined;
   closingActiveRef.current = !expanded;
   return runFlipCollapseTransition({
     gridEl,
@@ -616,14 +523,16 @@ export function syncFlipCollapseLayoutEffect({
     onClosingCleared: (): void => {
       closingActiveRef.current = false;
     },
-    onExpandEnd,
+    resolveFollowScroll,
+    resolveCollapseScroll,
+    followScrollSlotRef,
   });
 }
 
 /**
- * 为折叠容器组件接入浏览器绘制前外层高度与内层 GPU 滑动同步展开/收起过渡的 React Hook（SSR 环境自动降级为无副作用）。
+ * 为折叠容器组件接入绘制前测量与单时钟逐帧展开/收起过渡的 React Hook（SSR 环境自动降级为无副作用）。
  *
- * @param options 展开状态与可选上下文重置键
+ * @param options 展开状态、可选上下文重置键与视口滚动参数
  * @returns 外层/内层节点引用与收起飞行态标志
  */
 export function useFlipCollapseLayoutEffect({
@@ -631,7 +540,9 @@ export function useFlipCollapseLayoutEffect({
   resetKey = null,
   fadeInner,
   gridRef: externalGridRef,
-  onExpandEnd,
+  resolveFollowScroll,
+  resolveCollapseScroll,
+  followScrollSlotRef,
 }: UseFlipCollapseLayoutEffectOptions): UseFlipCollapseLayoutEffectResult {
   const internalGridRef: React.RefObject<FlipAnimatableElement | null> = useRef<FlipAnimatableElement | null>(null);
   const gridRef: React.RefObject<FlipAnimatableElement | null> = externalGridRef ?? internalGridRef;
@@ -639,9 +550,14 @@ export function useFlipCollapseLayoutEffect({
   const prevExpandedRef: React.RefObject<boolean> = useRef<boolean>(expanded);
   const prevResetKeyRef: React.RefObject<string | null> = useRef<string | null>(resetKey);
   const closingActiveRef: React.RefObject<boolean> = useRef<boolean>(false);
-  const onExpandEndRef: React.RefObject<((gridElement: FlipAnimatableElement) => void) | undefined> =
-    useRef<((gridElement: FlipAnimatableElement) => void) | undefined>(onExpandEnd);
-  onExpandEndRef.current = onExpandEnd;
+  const resolveExpandScrollEvent: FlipFollowScrollResolver = useEffectEvent(
+    (gridElement: FlipAnimatableElement, heightPx: number): ViewportAnchorScrollTarget | null =>
+      resolveFollowScroll?.(gridElement, heightPx) ?? null
+  );
+  const resolveCollapseScrollEvent: FlipFollowScrollResolver = useEffectEvent(
+    (gridElement: FlipAnimatableElement, heightPx: number): ViewportAnchorScrollTarget | null =>
+      resolveCollapseScroll?.(gridElement, heightPx) ?? null
+  );
 
   if (prevResetKeyRef.current !== resetKey) {
     closingActiveRef.current = false;
@@ -652,7 +568,7 @@ export function useFlipCollapseLayoutEffect({
   }
   const isClosing: boolean = closingActiveRef.current && !expanded;
 
-  const hasDomDocument: boolean = (globalThis as FlipGlobalHost).document !== undefined;
+  const hasDomDocument: boolean = (globalThis as { readonly document?: unknown }).document !== undefined;
   const useIsoLayoutEffect: typeof useEffect = hasDomDocument ? useLayoutEffect : useEffect;
 
   useIsoLayoutEffect(
@@ -666,11 +582,11 @@ export function useFlipCollapseLayoutEffect({
         prevExpandedRef,
         prevResetKeyRef,
         closingActiveRef,
-        onExpandEnd: (gridElement: FlipAnimatableElement): void => {
-          onExpandEndRef.current?.(gridElement);
-        },
+        resolveFollowScroll: resolveExpandScrollEvent,
+        resolveCollapseScroll: resolveCollapseScrollEvent,
+        followScrollSlotRef,
       }),
-    [expanded, fadeInner, gridRef, resetKey]
+    [expanded, fadeInner, followScrollSlotRef, gridRef, resetKey]
   );
 
   return { gridRef, innerRef, isClosing };

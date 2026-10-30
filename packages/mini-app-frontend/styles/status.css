@@ -95,6 +95,9 @@
 
 .cap-list { display: flex; flex-direction: column; gap: 8px; }
 .cap-block { border-radius: 12px; contain: layout style; }
+@media (hover: none) and (pointer: coarse) {
+  .cap-block { will-change: transform; }
+}
 .cap-header-btn {
   appearance: none; border: 1px solid var(--border); border-radius: 12px;
   background: var(--dropdown-board-bg); color: var(--text); width: 100%; padding: 11px 12px;
@@ -143,6 +146,8 @@
   border: 1px solid var(--dropdown-board-border); border-top: none;
   border-radius: 0 0 12px 12px;
 }
+.cap-collapse-wrap.expanded > .cap-collapse-inner,
+.cap-collapse-wrap.flip-closing > .cap-collapse-inner { will-change: transform; }
 .cap-body { padding: 10px 11px 11px; display: flex; flex-direction: column; gap: 8px; }
 .mood-current-panel { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 10px; background: var(--dropdown-item-bg); border: 1px solid var(--dropdown-item-border); box-shadow: inset 3px 0 0 var(--accent); }
 .mood-current-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }

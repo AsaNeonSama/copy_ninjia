@@ -8,7 +8,7 @@ import type {
   MiniAppCapabilityStatus,
 } from "../types/miniApp";
 import { CapabilityCollapseBody } from "./animations/CapabilityCollapseBody";
-import type { ExpandScrollScheduleState } from "./animations/CapabilityCollapseBody";
+import type { ViewportAnchorScroll } from "./animations/expandFollowScroll";
 import { LoadingDotsWave } from "./animations/LoadingDotsWave";
 
 /** `CapabilityBlock` 单个子系统折叠项组件的属性参数。 */
@@ -27,8 +27,8 @@ export interface CapabilityBlockProps {
   readonly switchingMood: boolean;
   /** 点击「切换情绪」按钮的回调。 */
   readonly onSwitchMood: () => void;
-  /** 跨子系统面板共享的展开跟滚定时器状态引用。 */
-  readonly expandScrollStateRef: React.RefObject<ExpandScrollScheduleState>;
+  /** 跨子系统面板共享的跟滚槽位。 */
+  readonly followScrollSlotRef: React.RefObject<ViewportAnchorScroll | null>;
 }
 
 /** `CapabilityDetailContent` 折叠面板内部明细列表组件的属性参数（与 `isExpanded` 隔离，展开/收起切换时不重排内部列表）。 */
@@ -180,7 +180,7 @@ function areCapabilityBlockPropsEqual(
     prev.switchingMood === next.switchingMood &&
     prev.onToggleCapability === next.onToggleCapability &&
     prev.onSwitchMood === next.onSwitchMood &&
-    prev.expandScrollStateRef === next.expandScrollStateRef &&
+    prev.followScrollSlotRef === next.followScrollSlotRef &&
     areCapabilityStatusEqual(prev.capability, next.capability)
   );
 }
@@ -199,7 +199,7 @@ function CapabilityBlockView({
   currentMood,
   switchingMood,
   onSwitchMood,
-  expandScrollStateRef,
+  followScrollSlotRef,
 }: CapabilityBlockProps): React.JSX.Element {
   const isMoodCap: boolean = capability.key === "mood";
   return (
@@ -253,7 +253,7 @@ function CapabilityBlockView({
       </button>
       <CapabilityCollapseBody
         expanded={isExpanded}
-        expandScrollStateRef={expandScrollStateRef}
+        followScrollSlotRef={followScrollSlotRef}
       >
         <CapabilityDetailContent
           capability={capability}

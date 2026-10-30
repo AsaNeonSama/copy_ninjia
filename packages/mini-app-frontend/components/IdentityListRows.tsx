@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useRef } from "react";
 import type React from "react";
-import { MINI_APP_FLIP_COLLAPSE_DURATION_MS } from "../consts/miniApp";
+import { MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS } from "../consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
 import {
   sanitizeBidiText,
@@ -15,8 +15,15 @@ import type {
 } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { CollapseGrid } from "./animations/CollapseGrid";
-import { scrollViewportToExpandedBody } from "./animations/expandFollowScroll";
-import type { ViewportRectElement } from "./animations/expandFollowScroll";
+import { resolveExpandFollowScrollTarget } from "./animations/expandFollowScroll";
+import type {
+  ViewportAnchorScrollTarget,
+  ViewportRectElement,
+} from "./animations/expandFollowScroll";
+import type {
+  FlipAnimatableElement,
+  FlipFollowScrollResolver,
+} from "./animations/flipCollapse";
 import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import { PermissionDrawer } from "./PermissionDrawer";
@@ -76,7 +83,7 @@ interface WhitelistEntryRowProps {
 
 /**
  * 渲染单个白名单条目行、「配置权限」「移出」按钮组与按需延迟卸载的内联权限抽屉；
- * 抽屉展开过渡结束后以条目行顶部为标题栏、抽屉为展开内容，按 `scrollViewportToExpandedBody` 让视口平滑向下跟滚。
+ * 抽屉展开时以条目行为跟滚锚点、抽屉为展开内容，按 `resolveExpandFollowScrollTarget` 与展开动画同帧跟滚。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -99,30 +106,24 @@ function WhitelistEntryRowView({
   }: Readonly<DelayedUnmountState<Readonly<MiniAppWhitelistEntryView>>> =
     useDelayedUnmount(
       isExpanded ? entry : null,
-      MINI_APP_FLIP_COLLAPSE_DURATION_MS + 20
+      MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS
     );
   const setRowGroupNode: (el: ViewportRectElement | null) => void =
     useCallback((el: ViewportRectElement | null): void => {
       rowGroupRef.current = el;
     }, []);
-  const handleDrawerExpandEnd: (gridElement: ViewportRectElement) => void =
-    useCallback((gridElement: ViewportRectElement): void => {
-      const rowGroup: ViewportRectElement | null = rowGroupRef.current;
-      if (
-        rowGroup === null ||
-        typeof rowGroup.getBoundingClientRect !== "function" ||
-        typeof gridElement.getBoundingClientRect !== "function"
-      ) {
-        return;
-      }
-      const gridRect: { readonly top: number; readonly height: number } =
-        gridElement.getBoundingClientRect();
-      scrollViewportToExpandedBody({
-        blockTop: rowGroup.getBoundingClientRect().top,
-        bodyTop: gridRect.top,
-        bodyHeight: gridRect.height,
-      });
-    }, []);
+  const resolveDrawerFollowScroll: FlipFollowScrollResolver = useCallback(
+    (
+      gridElement: FlipAnimatableElement,
+      expandedHeightPx: number
+    ): ViewportAnchorScrollTarget | null =>
+      resolveExpandFollowScrollTarget(
+        rowGroupRef.current,
+        gridElement,
+        expandedHeightPx
+      ),
+    []
+  );
   const enabledCount: number = WHITELIST_PERMISSION_KEYS.filter(
     (key: WhitelistPermissionKey): boolean => entry.permissions[key]
   ).length;
@@ -200,7 +201,7 @@ function WhitelistEntryRowView({
         expanded={isExpanded}
         gridClassName="perm-drawer-collapse-grid"
         innerClassName="perm-drawer-collapse-inner"
-        onExpandEnd={handleDrawerExpandEnd}
+        resolveFollowScroll={resolveDrawerFollowScroll}
       >
         {mountedDrawerEntry !== null ? (
           <MemoizedPermissionDrawer
