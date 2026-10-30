@@ -124,7 +124,7 @@
   - 在测试环境中，测试沙盒会在模块导入前自动注入独立的临时数据根，确保真实的测试文件读写绝不会污染或覆盖生产数据。
 - **低优先级群标题维护**：
   - 在系统启动就绪、命令菜单与长轮询 Runner 完全运转后，主线程会启动低优先级的群组标题异步更新任务。
-  - 通过 `runBoundedSettledBatch` 逐个调用 `getChat` 获取最新群名，各群独立处理，支持在收到停机信号时平滑中止。
+  - 通过 `runBoundedSettledBatch`（并发上限 `CHAT_TITLE_REFRESH_CONCURRENCY`）逐个调用 `getChat` 获取最新群名，各群独立处理，支持在收到停机信号时平滑中止。
   - `getChat` 的失败由 `infra/telegram/errors.ts` 的 `classifyChatAbsence` 归类：400 且描述为 `chat not found`、`group chat was upgraded to a supergroup chat` 或带 `parameters.migrate_to_chat_id` 判为 `gone`；403 且描述为 `bot was kicked from the (super)group chat`、`bot is not a member of the (super)group chat` 判为 `departed`；其余错误只记日志。
   - 判为不可达的群按 `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` 间隔重查，累计 `CHAT_ABSENCE_CONFIRM_ATTEMPTS` 次（含首次）都得到同一类结论，才经 `completeChatDeparture` 收尾并记一条 warn。中途查到群、得到别的结论或错误、该群已不在群状态表里，都放弃，本次不收尾。
   - 两次重查之间的等待挂在 `chatTitleRefreshRuntime.absenceConfirmation` 上，停机 quiesce 与 abort 都会立刻打断它，标题刷新任务随即结算；在途的 `getChat` 不受影响，照常在维护预算内结算。
