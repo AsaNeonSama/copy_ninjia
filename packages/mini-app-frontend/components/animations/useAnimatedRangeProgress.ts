@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import {
+  MINI_APP_ANIMATION_FRAME_STEP_MS,
   MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS,
+  MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD,
+  MINI_APP_RANGE_KICKOFF_MAX_PROGRESS,
+  MINI_APP_RANGE_PULLBACK_MAX_SPAN,
+  MINI_APP_RANGE_PULLBACK_MIN_SPAN,
+  MINI_APP_RANGE_SPRING_AMPLITUDE_MAX,
+  MINI_APP_RANGE_SPRING_AMPLITUDE_MIN,
+  MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO,
+  MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING,
+  MINI_APP_RANGE_SPRING_SPLIT_PROGRESS,
+  MINI_APP_RANGE_VALUE_EPSILON,
 } from "../../consts/miniApp";
-
-/** 浏览器 `globalThis` 上帧动画调度接口的最小类型声明。 */
-interface AnimationFrameHost {
-  readonly requestAnimationFrame?: (callback: (now: number) => void) => number;
-  readonly cancelAnimationFrame?: (handle: number) => void;
-}
+import { getFrameMotionHost } from "./frameMotion";
+import type { FrameMotionHost } from "./frameMotion";
 
 /** `useAnimatedRangeProgress` 返回的滑块动画状态与事件处理句柄。 */
 export interface AnimatedRangeProgressResult {
@@ -48,7 +55,7 @@ export function computeRangeProgressPercent(
 
 /**
  * 计算滑块从起点平滑生长到目标点并在定点后产生轻微弹性回弹的插值数值。
- * 前段（`0..0.62`）快速平滑抵达目标值，后段（`0.62..1`）做阻尼微幅过冲与回弹；若目标位于两端边界则向内侧轻微回弹后落定。
+ * 前段（`0..MINI_APP_RANGE_SPRING_SPLIT_PROGRESS`）快速平滑抵达目标值，后段做阻尼微幅过冲与回弹；若目标位于两端边界则向内侧轻微回弹后落定。
  *
  * @param fromValue 动画起始小时值
  * @param toValue 动画目标小时值
@@ -64,9 +71,9 @@ export function interpolateSpringRangeValue(
   if (t >= 1) return toValue;
   const delta: number = toValue - fromValue;
   const distance: number = Math.abs(delta);
-  if (distance < 0.001) return toValue;
+  if (distance < MINI_APP_RANGE_VALUE_EPSILON) return toValue;
 
-  const splitAt: number = 0.62;
+  const splitAt: number = MINI_APP_RANGE_SPRING_SPLIT_PROGRESS;
   if (t <= splitAt) {
     const approachT: number = t / splitAt;
     const inv: number = 1 - approachT;
@@ -76,7 +83,13 @@ export function interpolateSpringRangeValue(
 
   const tailT: number = (t - splitAt) / (1 - splitAt);
   const direction: number = Math.sign(delta);
-  const amplitude: number = Math.min(0.62, Math.max(0.26, distance * 0.075));
+  const amplitude: number = Math.min(
+    MINI_APP_RANGE_SPRING_AMPLITUDE_MAX,
+    Math.max(
+      MINI_APP_RANGE_SPRING_AMPLITUDE_MIN,
+      distance * MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO
+    )
+  );
   const envelope: number = (1 - tailT) * (1 - tailT);
   const wave: number = Math.sin(tailT * Math.PI) * envelope;
   const rawValue: number = toValue + direction * amplitude * wave;
@@ -85,14 +98,14 @@ export function interpolateSpringRangeValue(
     const excess: number = rawValue - MINI_APP_BATCH_KICK_MAX_HOURS;
     return Math.max(
       MINI_APP_BATCH_KICK_MIN_HOURS,
-      MINI_APP_BATCH_KICK_MAX_HOURS - excess * 0.65
+      MINI_APP_BATCH_KICK_MAX_HOURS - excess * MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING
     );
   }
   if (rawValue < MINI_APP_BATCH_KICK_MIN_HOURS) {
     const deficit: number = MINI_APP_BATCH_KICK_MIN_HOURS - rawValue;
     return Math.min(
       MINI_APP_BATCH_KICK_MAX_HOURS,
-      MINI_APP_BATCH_KICK_MIN_HOURS + deficit * 0.65
+      MINI_APP_BATCH_KICK_MIN_HOURS + deficit * MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING
     );
   }
   return rawValue;
@@ -100,7 +113,7 @@ export function interpolateSpringRangeValue(
 
 /**
  * 计算按钮步进或回撤触发新一轮滑块动画时的有效起始数值。
- * 连续同向点击但上一轮尚未推进满 35% 时向前垫进起点，避免滑块原地停滞；
+ * 连续同向点击但上一轮尚未推进满时向前垫进起点，避免滑块原地停滞；
  * 快速回撤至原目标导致当前显示值与新目标差值过小时，朝上一目标方向预留回拉行程，保证回撤动画始终可见。
  *
  * @param currentDisplay 当前帧滑块显示值
@@ -118,17 +131,24 @@ export function resolveAnimatedRangeStartValue(
   }
   const stepDelta: number = nextTarget - prevTarget;
   const prevRemaining: number = prevTarget - currentDisplay;
-  if (stepDelta * prevRemaining > 0 && Math.abs(prevRemaining) > 0.55) {
-    const advanced: number = currentDisplay + prevRemaining * 0.45;
+  if (
+    stepDelta * prevRemaining > 0 &&
+    Math.abs(prevRemaining) > MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD
+  ) {
+    const advanced: number =
+      currentDisplay + prevRemaining * MINI_APP_RANGE_PULLBACK_MAX_SPAN;
     return Math.min(
       MINI_APP_BATCH_KICK_MAX_HOURS,
       Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, advanced)
     );
   }
-  if (Math.abs(nextTarget - currentDisplay) < 0.35) {
+  if (Math.abs(nextTarget - currentDisplay) < MINI_APP_RANGE_PULLBACK_MIN_SPAN) {
     const pullbackSpan: number = Math.min(
-      0.45,
-      Math.max(0.35, Math.abs(prevTarget - nextTarget) * 0.45)
+      MINI_APP_RANGE_PULLBACK_MAX_SPAN,
+      Math.max(
+        MINI_APP_RANGE_PULLBACK_MIN_SPAN,
+        Math.abs(prevTarget - nextTarget) * MINI_APP_RANGE_PULLBACK_MAX_SPAN
+      )
     );
     const offsetStart: number =
       nextTarget + Math.sign(prevTarget - nextTarget) * pullbackSpan;
@@ -169,7 +189,7 @@ export function useAnimatedRangeProgress(
   const rafIdRef: React.RefObject<number | null> = useRef<number | null>(null);
 
   useEffect((): (() => void) | undefined => {
-    const host: AnimationFrameHost = globalThis as unknown as AnimationFrameHost;
+    const host: FrameMotionHost = getFrameMotionHost();
     if (rafIdRef.current !== null && typeof host.cancelAnimationFrame === "function") {
       host.cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
@@ -194,7 +214,10 @@ export function useAnimatedRangeProgress(
     );
     const reqFrame: ((callback: (now: number) => void) => number) | undefined =
       host.requestAnimationFrame;
-    if (Math.abs(toValue - fromValue) < 0.001 || typeof reqFrame !== "function") {
+    if (
+      Math.abs(toValue - fromValue) < MINI_APP_RANGE_VALUE_EPSILON ||
+      typeof reqFrame !== "function"
+    ) {
       displayValueRef.current = toValue;
       setDisplayValue(toValue);
       setIsAnimating(false);
@@ -202,8 +225,8 @@ export function useAnimatedRangeProgress(
     }
 
     const kickoffProgress: number = Math.min(
-      0.25,
-      16 / MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS
+      MINI_APP_RANGE_KICKOFF_MAX_PROGRESS,
+      MINI_APP_ANIMATION_FRAME_STEP_MS / MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS
     );
     const kickoffValue: number = interpolateSpringRangeValue(
       fromValue,
@@ -219,8 +242,11 @@ export function useAnimatedRangeProgress(
 
     const stepFrame = (now: number): void => {
       const currentNow: number = Number.isFinite(now) ? now : Date.now();
-      firstFrameTime ??= currentNow - 16;
-      const elapsed: number = Math.max(16, currentNow - firstFrameTime);
+      firstFrameTime ??= currentNow - MINI_APP_ANIMATION_FRAME_STEP_MS;
+      const elapsed: number = Math.max(
+        MINI_APP_ANIMATION_FRAME_STEP_MS,
+        currentNow - firstFrameTime
+      );
       const progress: number = Math.min(
         1,
         elapsed / MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS
@@ -254,7 +280,7 @@ export function useAnimatedRangeProgress(
   }, [targetHours]);
 
   const onManualDragChange = (rawValue: number): void => {
-    const host: AnimationFrameHost = globalThis as unknown as AnimationFrameHost;
+    const host: FrameMotionHost = getFrameMotionHost();
     if (rafIdRef.current !== null && typeof host.cancelAnimationFrame === "function") {
       host.cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;

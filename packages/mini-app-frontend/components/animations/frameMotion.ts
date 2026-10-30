@@ -5,9 +5,18 @@ import {
 } from "../../consts/miniApp";
 
 /** 浏览器 `globalThis` 上逐帧调度接口的最小类型声明。 */
-interface FrameMotionHost {
+export interface FrameMotionHost {
   readonly requestAnimationFrame?: (callback: (now: number) => void) => number;
   readonly cancelAnimationFrame?: (handle: number) => void;
+}
+
+/**
+ * 获取当前运行环境的逐帧动画调度宿主对象（`requestAnimationFrame` / `cancelAnimationFrame`）。
+ *
+ * @returns 逐帧调度宿主引用
+ */
+export function getFrameMotionHost(): FrameMotionHost {
+  return globalThis as FrameMotionHost;
 }
 
 /**
@@ -83,7 +92,7 @@ export function runFrameMotion({
   onFrame,
   onFinish,
 }: RunFrameMotionOptions): () => void {
-  const host: FrameMotionHost = globalThis as FrameMotionHost;
+  const host: FrameMotionHost = getFrameMotionHost();
   let startTime: number = -1;
   let lastFrameTime: number = -1;
   let shortestIntervalMs: number = 0;

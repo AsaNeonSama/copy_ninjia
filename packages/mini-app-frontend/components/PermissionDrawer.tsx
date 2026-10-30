@@ -6,6 +6,7 @@ import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
 import {
   getPermissionDisplayLabel,
+  readEventTargetChecked,
   sanitizeBidiText,
   truncateDisplayText,
 } from "../libs/formatters";
@@ -98,10 +99,11 @@ function PermissionChipView({
               checked={checked}
               disabled={switchDisabled}
               onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-                const nextChecked: boolean = (
-                  event.currentTarget as unknown as { readonly checked: boolean }
-                ).checked;
-                void onTogglePermission(entryId, permKey, nextChecked);
+                void onTogglePermission(
+                  entryId,
+                  permKey,
+                  readEventTargetChecked(event)
+                );
               }}
             />
             <span className="slider" />

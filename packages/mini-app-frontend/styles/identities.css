@@ -110,7 +110,6 @@
 .perm-drawer-collapse-grid.expanded,
 .perm-drawer-collapse-grid.flip-closing {
   display: block;
-  grid-template-rows: 1fr;
 }
 
 .add-fold-collapse-grid.expanded,

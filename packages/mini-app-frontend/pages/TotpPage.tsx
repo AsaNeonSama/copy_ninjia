@@ -11,11 +11,12 @@ import type {
   FlipFollowScrollResolver,
 } from "../components/animations/flipCollapse";
 import { LoadingDotsWave } from "../components/animations/LoadingDotsWave";
+import { useClosingSnapshot } from "../components/animations/useDelayedUnmount";
 import { TotpSkeleton } from "../components/skeletons/TotpSkeleton";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
-import { formatTime } from "../libs/formatters";
+import { formatTime, readEventTargetValue } from "../libs/formatters";
 import { LockSvgIcon, RefreshSvgIcon, TrashSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
@@ -23,16 +24,6 @@ import { createTotpStore } from "../store/totp";
 import type { MiniAppTotpStore, MiniAppTotpStoreState } from "../store/totp";
 import type { MiniAppLanguage } from "../types/miniApp";
 import type { MiniAppTotpSetupResponse } from "../types/miniAppTotp";
-
-/** `TotpPage` 绑定表单在收起过渡期间保留的快照接口（避免关闭/提交瞬间清空二维码、输入或按钮加载态导致收起首帧闪烁）。 */
-interface TotpClosingSetupSnapshot {
-  /** 待确认绑定的密钥与二维码快照。 */
-  readonly setupData: Readonly<MiniAppTotpSetupResponse> | null;
-  /** 6 位动态码输入快照。 */
-  readonly codeInput: string;
-  /** 提交核验按钮是否处于加载态。 */
-  readonly verifyBusy: boolean;
-}
 
 /** `TotpPage` 组件属性。 */
 export interface TotpPageProps {
@@ -96,36 +87,14 @@ export function TotpPage({
   const startSetupBusy: boolean = busy && !setupOpen;
   const verifyBusy: boolean = busy && setupOpen;
 
-  const closingTriggerBusyRef: React.RefObject<boolean> =
-    useRef<boolean>(startSetupBusy);
-  if (!setupOpen) {
-    closingTriggerBusyRef.current = startSetupBusy;
-  }
-  const displayStartSetupBusy: boolean = setupOpen
-    ? closingTriggerBusyRef.current
-    : startSetupBusy;
-
-  const closingSetupSnapshotRef: React.RefObject<TotpClosingSetupSnapshot> =
-    useRef<TotpClosingSetupSnapshot>({
-      setupData,
-      codeInput,
-      verifyBusy,
-    });
-  if (setupOpen) {
-    closingSetupSnapshotRef.current = {
-      setupData,
-      codeInput,
-      verifyBusy,
-    };
-  }
+  const displayStartSetupBusy: boolean = useClosingSnapshot(
+    startSetupBusy,
+    !setupOpen
+  );
   const displaySetupData: Readonly<MiniAppTotpSetupResponse> | null =
-    setupData ?? closingSetupSnapshotRef.current.setupData;
-  const displayCodeInput: string = setupOpen
-    ? codeInput
-    : closingSetupSnapshotRef.current.codeInput;
-  const displayVerifyBusy: boolean = setupOpen
-    ? verifyBusy
-    : closingSetupSnapshotRef.current.verifyBusy;
+    useClosingSnapshot(setupData, setupOpen);
+  const displayCodeInput: string = useClosingSnapshot(codeInput, setupOpen);
+  const displayVerifyBusy: boolean = useClosingSnapshot(verifyBusy, setupOpen);
   const qrSvgHtml: string = displaySetupData?.qrSvg ?? "";
   const qrInnerHtml: Readonly<{ readonly __html: string }> = useMemo(
     (): Readonly<{ readonly __html: string }> => ({ __html: qrSvgHtml }),
@@ -225,6 +194,7 @@ export function TotpPage({
             expanded={setupOpen}
             gridClassName="totp-setup-collapse-grid"
             innerClassName="totp-collapse-inner"
+            fadeInner
             resolveFollowScroll={resolveSetupFollowScroll}
           >
             <form
@@ -254,9 +224,7 @@ export function TotpPage({
                   disabled={displayVerifyBusy || busy}
                   tabIndex={setupOpen ? 0 : -1}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>): void => {
-                    const rawVal: string = (
-                      e.currentTarget as unknown as { readonly value: string }
-                    ).value;
+                    const rawVal: string = readEventTargetValue(e);
                     setCodeInput(rawVal.replace(/\D+/gu, "").slice(0, 6));
                   }}
                 />

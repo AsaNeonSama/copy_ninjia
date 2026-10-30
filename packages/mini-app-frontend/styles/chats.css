@@ -40,7 +40,7 @@
   overflow: hidden; overflow-anchor: none; border-radius: 0 0 11px 11px; pointer-events: none;
 }
 .bot-perm-collapse-grid.expanded,
-.bot-perm-collapse-grid.flip-closing { display: block; grid-template-rows: 1fr; }
+.bot-perm-collapse-grid.flip-closing { display: block; }
 .bot-perm-collapse-grid.expanded { pointer-events: auto; }
 .bot-perm-collapse-grid:not(.expanded):not(.flip-closing) > .bot-perm-collapse-inner { display: none; }
 .bot-perm-collapse-inner {
@@ -583,14 +583,14 @@
 }
 .chat-targets-qa-editor-shell { width: 100%; min-width: 0; display: flex; flex-direction: column; }
 .chat-targets-qa-trigger-collapse {
-  width: 100%; min-width: 0; display: block; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr;
+  width: 100%; min-width: 0; display: block;
   overflow: hidden; overflow-anchor: none;
 }
 .chat-targets-qa-trigger-collapse.collapsed {
   pointer-events: none;
 }
 .chat-targets-qa-trigger-collapse.collapsed:not(.flip-closing) {
-  display: grid; grid-template-rows: 0fr;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr;
 }
 .chat-targets-qa-trigger-collapse.collapsed:not(.flip-closing) > .chat-targets-qa-collapse-inner {
   display: none;
@@ -601,7 +601,7 @@
 }
 .chat-targets-qa-collapse-grid.expanded,
 .chat-targets-qa-collapse-grid.flip-closing {
-  display: block; grid-template-rows: 1fr;
+  display: block;
 }
 .chat-targets-qa-collapse-grid.expanded {
   pointer-events: auto;

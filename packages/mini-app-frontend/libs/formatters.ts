@@ -192,3 +192,72 @@ export function areCapabilityStatusEqual(
   }
   return true;
 }
+
+/** 携带 `currentTarget` 的 React 或原生 DOM 事件最小参数接口。 */
+export interface DomCurrentTargetEventParams {
+  /** 触发当前事件监听器的 DOM 节点引用。 */
+  readonly currentTarget: unknown;
+}
+
+/** 浏览器文件选择 `<input type="file">` 事件目标的最小类型接口。 */
+export interface FileInputEventTarget {
+  /** 当前选中的文件伪数组。 */
+  readonly files?: ArrayLike<File> | null;
+  /** 输入框当前值（置空可允许重复选择同一文件）。 */
+  value: string;
+}
+
+/**
+ * 在不含完整 DOM 类型库的编译环境下安全读取表单输入控件（input/select/textarea）的 `currentTarget.value`。
+ *
+ * @param event 携带 `currentTarget` 的 React 变更事件
+ * @returns 当前输入控件的字符串值
+ */
+export function readEventTargetValue(
+  event: DomCurrentTargetEventParams
+): string {
+  return (event.currentTarget as { readonly value: string }).value;
+}
+
+/**
+ * 在不含完整 DOM 类型库的编译环境下安全读取复选框控件的 `currentTarget.checked` 布尔状态。
+ *
+ * @param event 携带 `currentTarget` 的 React 变更事件
+ * @returns 当前复选框的勾选状态
+ */
+export function readEventTargetChecked(
+  event: DomCurrentTargetEventParams
+): boolean {
+  return (event.currentTarget as { readonly checked: boolean }).checked;
+}
+
+/**
+ * 在不含完整 DOM 类型库的编译环境下安全调用触发按钮或控件的 `currentTarget.blur()`，消除点击后的焦点外框。
+ *
+ * @param event 携带 `currentTarget` 的 React 鼠标事件
+ */
+export function blurEventCurrentTarget(
+  event: DomCurrentTargetEventParams
+): void {
+  (event.currentTarget as { readonly blur?: () => void }).blur?.();
+}
+
+/**
+ * 从文件选择控件变更事件中提取全部选中的 `File` 列表并立即清空控件 `value`（允许重复选择同一批文件）。
+ *
+ * @param event 携带 `currentTarget` 的文件输入变更事件
+ * @returns 选中的文件数组（未选择时返回空数组）
+ */
+export function extractSelectedFilesAndReset(
+  event: DomCurrentTargetEventParams
+): File[] {
+  const target: FileInputEventTarget =
+    event.currentTarget as FileInputEventTarget;
+  const rawFiles: ArrayLike<File> | null | undefined = target.files;
+  if (rawFiles === undefined || rawFiles === null || rawFiles.length === 0) {
+    return [];
+  }
+  const files: File[] = Array.from(rawFiles);
+  target.value = "";
+  return files;
+}

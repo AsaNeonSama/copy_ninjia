@@ -13,17 +13,14 @@
 }
 
 .app-topbar {
+  position: relative;
+  z-index: 40;
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
   gap: 8px;
   flex-wrap: nowrap;
-}
-
-.app-topbar {
-  position: relative;
-  z-index: 40;
   background: var(--header-bg);
   border: 1px solid var(--border);
   border-radius: 14px;

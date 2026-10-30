@@ -1,10 +1,14 @@
-import { Fragment, memo, useRef } from "react";
+import { Fragment, memo } from "react";
 import type React from "react";
 import {
   MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../consts/miniApp";
-import { sanitizeBidiText, truncateDisplayText } from "../libs/formatters";
+import {
+  readEventTargetValue,
+  sanitizeBidiText,
+  truncateDisplayText,
+} from "../libs/formatters";
 import {
   AlertSvgIcon,
   ChevronDownSvgIcon,
@@ -22,7 +26,10 @@ import type {
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { AddModeButtonList } from "./AddModeButtonList";
 import { CollapseGrid } from "./animations/CollapseGrid";
-import { useDelayedUnmount } from "./animations/useDelayedUnmount";
+import {
+  useClosingSnapshot,
+  useDelayedUnmount,
+} from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import { ChatTargetsListSkeleton } from "./skeletons/ChatTargetsListSkeleton";
 
@@ -228,33 +235,18 @@ export function ChatTargetsMemberAddForm({
   const inputValue: string = isDelete
     ? deleteTargetInput
     : translateTargetInput;
-  const closingInputRef: React.RefObject<string> = useRef<string>(inputValue);
-  if (targetAddMenuOpen && targetIdFormOpen) {
-    closingInputRef.current = inputValue;
-  }
-  const closingMenuSnapshotRef: React.RefObject<{
-    readonly idFormOpen: boolean;
-    readonly mutating: boolean;
-  }> = useRef<{ readonly idFormOpen: boolean; readonly mutating: boolean }>({
-    idFormOpen: targetIdFormOpen,
-    mutating: mutatingTargets,
-  });
-  if (targetAddMenuOpen) {
-    closingMenuSnapshotRef.current = {
-      idFormOpen: targetIdFormOpen,
-      mutating: mutatingTargets,
-    };
-  }
-  const displayIdFormOpen: boolean = targetAddMenuOpen
-    ? targetIdFormOpen
-    : closingMenuSnapshotRef.current.idFormOpen;
-  const displayMutating: boolean = targetAddMenuOpen
-    ? mutatingTargets
-    : closingMenuSnapshotRef.current.mutating;
-  const displayInputValue: string =
+  const displayIdFormOpen: boolean = useClosingSnapshot(
+    targetIdFormOpen,
+    targetAddMenuOpen
+  );
+  const displayMutating: boolean = useClosingSnapshot(
+    mutatingTargets,
+    targetAddMenuOpen
+  );
+  const displayInputValue: string = useClosingSnapshot(
+    inputValue,
     targetAddMenuOpen && targetIdFormOpen
-      ? inputValue
-      : closingInputRef.current;
+  );
   const onInputChange: (value: string) => void = isDelete
     ? setDeleteTargetInput
     : setTranslateTargetInput;
@@ -371,6 +363,7 @@ export function ChatTargetsMemberAddForm({
         expanded={displayIdFormOpen}
         gridClassName="chat-targets-qa-collapse-grid"
         innerClassName="chat-targets-qa-collapse-inner"
+        fadeInner
       >
         <div className="chat-targets-id-inline-row">
           <input
@@ -383,12 +376,7 @@ export function ChatTargetsMemberAddForm({
             onChange={(
               event: React.ChangeEvent<HTMLInputElement>
             ): void => {
-              const rawValue: string = (
-                event.currentTarget as unknown as {
-                  readonly value: string;
-                }
-              ).value;
-              onInputChange(rawValue);
+              onInputChange(readEventTargetValue(event));
             }}
           />
           <button

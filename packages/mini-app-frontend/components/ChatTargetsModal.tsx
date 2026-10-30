@@ -297,6 +297,7 @@ export function ChatTargetsModal({
                 resetKey={displayModalKind}
                 gridClassName="chat-targets-qa-collapse-grid"
                 innerClassName="chat-targets-qa-collapse-inner"
+                fadeInner
               >
                 {displayModalKind === "qa" ? (
                   <ChatTargetsQaEditorForm state={state} t={t} />

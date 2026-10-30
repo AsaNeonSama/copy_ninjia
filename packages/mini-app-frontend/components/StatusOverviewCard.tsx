@@ -1,5 +1,6 @@
 import { memo } from "react";
 import type React from "react";
+import { MINI_APP_CPU_RING_CIRCUMFERENCE } from "../consts/miniApp";
 import type { MiniAppTranslations } from "../i18n";
 import {
   formatClockTime,
@@ -33,9 +34,8 @@ function StatusOverviewCardView({
       Number.isFinite(status.cpuAveragePercent) ? status.cpuAveragePercent : 0
     )
   );
-  const cpuRingCircumference: number = 109.96;
   const cpuRingOffset: string = (
-    cpuRingCircumference *
+    MINI_APP_CPU_RING_CIRCUMFERENCE *
     (1 - cpuClampedPercent / 100)
   ).toFixed(2);
   const memoryTotal: number = Math.max(
@@ -143,7 +143,7 @@ function StatusOverviewCardView({
                   cx={22}
                   cy={22}
                   r={17.5}
-                  strokeDasharray="109.96"
+                  strokeDasharray={String(MINI_APP_CPU_RING_CIRCUMFERENCE)}
                   strokeDashoffset={cpuRingOffset}
                 />
               </svg>

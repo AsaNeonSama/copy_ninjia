@@ -4,6 +4,7 @@ import { PrefsBar } from "../components/PrefsBar";
 import { Toast } from "../components/Toast";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
+import { readEventTargetValue } from "../libs/formatters";
 import { getTelegramWebApp } from "../libs/telegram";
 import { LockSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
@@ -83,9 +84,7 @@ export function AuthGatePage(): React.JSX.Element {
             value={passwordInput}
             disabled={passwordBusy}
             onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-              const rawVal: string = (
-                event.currentTarget as unknown as { readonly value: string }
-              ).value;
+              const rawVal: string = readEventTargetValue(event);
               setPasswordInput(
                 isTotpGate ? rawVal.replace(/\D+/gu, "").slice(0, 6) : rawVal
               );

@@ -1,7 +1,10 @@
 import { Fragment, memo } from "react";
 import type React from "react";
 import { MINI_APP_FEATURE_KEYS } from "../consts/miniApp";
-import { getFeatureDisplayMeta } from "../libs/formatters";
+import {
+  getFeatureDisplayMeta,
+  readEventTargetChecked,
+} from "../libs/formatters";
 import type {
   MiniAppChatDetail,
   MiniAppFeatureDisplayMeta,
@@ -82,12 +85,7 @@ function ChatFeatureSwitchRowView({
               onChange={(
                 event: React.ChangeEvent<HTMLInputElement>
               ): void => {
-                const nextChecked: boolean = (
-                  event.currentTarget as unknown as {
-                    readonly checked: boolean;
-                  }
-                ).checked;
-                void onToggleFeature(featureKey, nextChecked);
+                void onToggleFeature(featureKey, readEventTargetChecked(event));
               }}
             />
             <span className="slider" />

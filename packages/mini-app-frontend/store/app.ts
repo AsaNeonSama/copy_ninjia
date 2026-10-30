@@ -2,7 +2,17 @@ import { create } from "zustand";
 import type { UseBoundStore, StoreApi } from "zustand";
 import { loginMiniAppWithPassword } from "../api/authLogin";
 import { precheckMiniAppAccess } from "../api/authPrecheck";
-import { MINI_APP_INITIAL_THEME, MINI_APP_TOAST_DURATION_MS } from "../consts/miniApp";
+import {
+  MINI_APP_DARK_BG_COLOR,
+  MINI_APP_DARK_HEADER_COLOR,
+  MINI_APP_DEFAULT_ACCENT_COLOR,
+  MINI_APP_DEFAULT_ACCENT_TEXT_COLOR,
+  MINI_APP_INITIAL_THEME,
+  MINI_APP_LIGHT_BG_COLOR,
+  MINI_APP_LIGHT_HEADER_COLOR,
+  MINI_APP_THEME_MODES,
+  MINI_APP_TOAST_DURATION_MS,
+} from "../consts/miniApp";
 import {
   detectInitialMiniAppLanguage,
   extractServerNoticeParams,
@@ -115,16 +125,48 @@ export interface MiniAppUiStoreState {
 }
 
 /**
- * 将当前主题模式同步至根节点 `data-theme` 属性及 Telegram WebApp 宿主背景色。
+ * 解析当前生效的 Mini App 主题主色调：若 Telegram 宿主在 `themeParams` 中注入了主题色（优先读取
+ * `button_color`，次选 `link_color`），则以 Telegram 注入色为准；未注入时回退为自带默认粉色
+ * `MINI_APP_DEFAULT_ACCENT_COLOR`。
+ *
+ * @param webApp 可选的 Telegram WebApp 宿主实例
+ * @returns 生效的主题主色调颜色串
+ */
+export function resolveMiniAppAccentColor(
+  webApp?: Readonly<TelegramWebApp>
+): string {
+  const buttonColor: string = webApp?.themeParams?.button_color?.trim() ?? "";
+  if (buttonColor.length > 0) return buttonColor;
+  const linkColor: string = webApp?.themeParams?.link_color?.trim() ?? "";
+  if (linkColor.length > 0) return linkColor;
+  return MINI_APP_DEFAULT_ACCENT_COLOR;
+}
+
+/**
+ * 将当前主题模式与主题色同步至根节点 `data-theme` 属性、CSS 自定义属性及 Telegram WebApp 宿主背景色：
+ * 若 Telegram 注入了 `themeParams` 主题色则优先同步注入色，未注入时回退为自带默认粉色 `MINI_APP_DEFAULT_ACCENT_COLOR`。
  *
  * @param theme 目标主题模式
  */
 export function applyMiniAppThemeToDocument(theme: MiniAppThemeMode): void {
+  const normalizedTheme: MiniAppThemeMode = MINI_APP_THEME_MODES.includes(theme) ? theme : MINI_APP_INITIAL_THEME;
   const tgWindow: TelegramWindow = globalThis;
-  tgWindow.document?.documentElement?.setAttribute?.("data-theme", theme);
+  const docEl: NonNullable<TelegramWindow["document"]>["documentElement"] =
+    tgWindow.document?.documentElement;
+  docEl?.setAttribute?.("data-theme", normalizedTheme);
   const webApp: Readonly<TelegramWebApp> | undefined = tgWindow.Telegram?.WebApp;
-  const bgHex: string = theme === "light" ? "#eef2f6" : "#0f1722";
-  const headerHex: string = theme === "light" ? "#ffffff" : "#182433";
+  const accentColor: string = resolveMiniAppAccentColor(webApp);
+  const accentTextColor: string =
+    webApp?.themeParams?.button_text_color?.trim() ||
+    MINI_APP_DEFAULT_ACCENT_TEXT_COLOR;
+  docEl?.style?.setProperty?.("--default-accent-color", accentColor);
+  docEl?.style?.setProperty?.("--default-accent-text-color", accentTextColor);
+  const bgHex: string =
+    normalizedTheme === "light" ? MINI_APP_LIGHT_BG_COLOR : MINI_APP_DARK_BG_COLOR;
+  const headerHex: string =
+    normalizedTheme === "light"
+      ? MINI_APP_LIGHT_HEADER_COLOR
+      : MINI_APP_DARK_HEADER_COLOR;
   try {
     webApp?.setHeaderColor?.(headerHex);
     webApp?.setBackgroundColor?.(bgHex);

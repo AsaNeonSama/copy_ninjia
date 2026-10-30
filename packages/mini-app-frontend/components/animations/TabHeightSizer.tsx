@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
-import { MINI_APP_CHAT_TARGET_KINDS } from "../../consts/miniApp";
+import {
+  MINI_APP_CHAT_TARGET_KINDS,
+  MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
+  MINI_APP_TAB_HEIGHT_CLEANUP_MS,
+  MINI_APP_TAB_HEIGHT_TRANSITION_MS,
+} from "../../consts/miniApp";
 import type { MiniAppChatTargetKind } from "../../types/miniApp";
 
 /** 支持读取像素高度并写入行内高度过渡样式的折叠面板或弹窗内容容器最小 DOM 接口。 */
@@ -243,7 +248,7 @@ export function TabHeightSizer({
       sizerEl.style.transition = "none";
       sizerEl.style.height = `${prevHeight}px`;
       void sizerEl.offsetHeight;
-      sizerEl.style.transition = "height 0.22s cubic-bezier(0.32, 0.08, 0.24, 1)";
+      sizerEl.style.transition = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
       sizerEl.style.height = `${nextHeight}px`;
       const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
         if (sizerEl.style !== undefined) {
@@ -251,7 +256,7 @@ export function TabHeightSizer({
           sizerEl.style.overflow = "";
           sizerEl.style.transition = "";
         }
-      }, 230);
+      }, MINI_APP_TAB_HEIGHT_CLEANUP_MS);
       return (): void => {
         clearTimeout(timer);
         if (sizerEl.style !== undefined) {

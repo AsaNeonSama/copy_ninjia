@@ -2,16 +2,14 @@ import { memo, useRef, useState } from "react";
 import type React from "react";
 import { buildMiniAppGalleryImageUrl } from "../api/galleryFile";
 import {
+  blurEventCurrentTarget,
   formatGalleryFileSize,
   shortenGalleryFileName,
 } from "../libs/formatters";
 import { DownloadSvgIcon, TrashSvgIcon } from "../resource";
 import type { MiniAppGalleryItem } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
-import type {
-  BlurTargetElement,
-  ProbeableImageElement,
-} from "./GalleryPreviewCard";
+import type { ProbeableImageElement } from "./GalleryPreviewCard";
 import { GalleryImageSkeleton } from "./skeletons/GalleryImageSkeleton";
 
 /** `GalleryGridList` 图库卡片与操作按钮网格列表的属性参数。 */
@@ -168,7 +166,7 @@ function GalleryGridListView({
                     x: event.clientX,
                     y: event.clientY,
                   };
-                  (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                  blurEventCurrentTarget(event);
                   handleCardDownload(item.fileName);
                 }}
               >
@@ -198,7 +196,7 @@ function GalleryGridListView({
                     x: event.clientX,
                     y: event.clientY,
                   };
-                  (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                  blurEventCurrentTarget(event);
                   handleCardDelete(item.fileName);
                 }}
               >

@@ -3,10 +3,10 @@ import type React from "react";
 import { MINI_APP_PAGINATION_HOVER_DURATION_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
+import { blurEventCurrentTarget } from "../libs/formatters";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import type { MiniAppLanguage, TelegramWindow } from "../types/miniApp";
-import type { BlurTargetElement } from "./GalleryPreviewCard";
 
 /** `PaginationBar` 通用分页导航组件的属性参数。 */
 export interface PaginationBarProps {
@@ -92,7 +92,7 @@ function PaginationBarView({
     nextPage: number,
     event: React.MouseEvent<HTMLButtonElement>
   ): void => {
-    (event.currentTarget as unknown as BlurTargetElement).blur?.();
+    blurEventCurrentTarget(event);
     triggerTransientHover(key);
     onPageChange(nextPage);
     scrollWindowToTop();
@@ -118,7 +118,7 @@ function PaginationBarView({
                     className={`page-size-pill ${pageSize === option ? "active" : ""} ${hoveredKey === sizeKey ? "is-hovering" : ""}`}
                     disabled={disabled}
                     onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-                      (event.currentTarget as unknown as BlurTargetElement).blur?.();
+                      blurEventCurrentTarget(event);
                       if (option !== pageSize) {
                         triggerTransientHover(sizeKey);
                         onPageSizeChange(option);

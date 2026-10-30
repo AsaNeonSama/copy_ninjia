@@ -1,10 +1,11 @@
-import { memo, useRef } from "react";
+import { memo } from "react";
 import type React from "react";
-import { truncateDisplayText } from "../libs/formatters";
+import { readEventTargetValue, truncateDisplayText } from "../libs/formatters";
 import { CloseSvgIcon, PlusSvgIcon, TrashSvgIcon } from "../resource";
 import type { MiniAppChatsStoreState } from "../store/chats";
 import type { MiniAppChatQaItem } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
+import { useClosingSnapshot } from "./animations/useDelayedUnmount";
 import { ChatTargetsListSkeleton } from "./skeletons/ChatTargetsListSkeleton";
 
 /** `ChatTargetsQaItemList` 问答卡片列表的属性参数。 */
@@ -127,35 +128,15 @@ export function ChatTargetsQaEditorForm({
 
   const qaQuestionMaxChars: number = chatTargets?.qaQuestionMaxChars ?? 256;
   const qaAnswerMaxChars: number = chatTargets?.qaAnswerMaxChars ?? 3_840;
-  const closingSnapshotRef: React.RefObject<{
-    readonly q: string;
-    readonly a: string;
-    readonly mutating: boolean;
-  }> = useRef<{
-    readonly q: string;
-    readonly a: string;
-    readonly mutating: boolean;
-  }>({
-    q: qaQuestionInput,
-    a: qaAnswerInput,
-    mutating: mutatingTargets,
-  });
-  if (qaEditorOpen) {
-    closingSnapshotRef.current = {
-      q: qaQuestionInput,
-      a: qaAnswerInput,
-      mutating: mutatingTargets,
-    };
-  }
-  const displayQuestion: string = qaEditorOpen
-    ? qaQuestionInput
-    : closingSnapshotRef.current.q;
-  const displayAnswer: string = qaEditorOpen
-    ? qaAnswerInput
-    : closingSnapshotRef.current.a;
-  const displayMutating: boolean = qaEditorOpen
-    ? mutatingTargets
-    : closingSnapshotRef.current.mutating;
+  const displayQuestion: string = useClosingSnapshot(
+    qaQuestionInput,
+    qaEditorOpen
+  );
+  const displayAnswer: string = useClosingSnapshot(qaAnswerInput, qaEditorOpen);
+  const displayMutating: boolean = useClosingSnapshot(
+    mutatingTargets,
+    qaEditorOpen
+  );
 
   return (
     <div className="chat-targets-form chat-targets-form-qa">
@@ -177,10 +158,7 @@ export function ChatTargetsQaEditorForm({
           disabled={displayMutating}
           tabIndex={qaEditorOpen ? 0 : -1}
           onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-            const rawValue: string = (
-              event.currentTarget as unknown as { readonly value: string }
-            ).value;
-            setQaQuestionInput(rawValue);
+            setQaQuestionInput(readEventTargetValue(event));
           }}
         />
       </div>
@@ -204,10 +182,7 @@ export function ChatTargetsQaEditorForm({
           onChange={(
             event: React.ChangeEvent<HTMLTextAreaElement>
           ): void => {
-            const rawValue: string = (
-              event.currentTarget as unknown as { readonly value: string }
-            ).value;
-            setQaAnswerInput(rawValue);
+            setQaAnswerInput(readEventTargetValue(event));
           }}
         />
       </div>

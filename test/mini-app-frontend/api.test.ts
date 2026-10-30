@@ -58,6 +58,7 @@ import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
 import {
   MINI_APP_CONFIRM_CLOSE_ANIMATION_MS,
+  MINI_APP_DEFAULT_ACCENT_COLOR,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_HTML_TITLE,
   MINI_APP_INITIAL_THEME,
@@ -87,7 +88,9 @@ import {
 } from "../../packages/mini-app-frontend/libs/credentials";
 import {
   areCapabilityStatusEqual,
+  blurEventCurrentTarget,
   buildMiniAppGalleryDownloadFileName,
+  extractSelectedFilesAndReset,
   formatClockTime,
   formatGalleryFileSize,
   formatMemoryMb,
@@ -95,6 +98,8 @@ import {
   formatUptime,
   getFeatureDisplayMeta,
   getPermissionDisplayLabel,
+  readEventTargetChecked,
+  readEventTargetValue,
   sanitizeBidiText,
   shortenGalleryFileName,
   truncateDisplayText,
@@ -122,6 +127,7 @@ import {
 import {
   applyMiniAppThemeToDocument,
   resetMiniAppStoreForTest,
+  resolveMiniAppAccentColor,
   useMiniAppStore,
 } from "../../packages/mini-app-frontend/store/app";
 import { createMessagesStore } from "../../packages/mini-app-frontend/store/messages";
@@ -682,6 +688,9 @@ describe("前端接口文件与纯函数辅助库", () => {
 
     expect(["zh", "ja", "en"]).toContain(detectBrowserDefaultLanguage());
     expect(["zh", "ja", "en"]).toContain(detectInitialMiniAppLanguage());
+    expect(resolveMiniAppAccentColor(undefined)).toBe(MINI_APP_DEFAULT_ACCENT_COLOR);
+    expect(resolveMiniAppAccentColor({ themeParams: { link_color: " #3b82f6 " } })).toBe("#3b82f6");
+    expect(resolveMiniAppAccentColor({ themeParams: { button_color: "#2563eb", link_color: "#3b82f6" } })).toBe("#2563eb");
     applyMiniAppThemeToDocument("light");
 
     resetMiniAppStoreForTest();
@@ -863,6 +872,18 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(readMiniAppInitData()).toBe("");
     expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
     expect(truncateDisplayText("短名称", 20)).toBe("短名称");
+    expect(readEventTargetValue({ currentTarget: { value: "杂鱼" } })).toBe("杂鱼");
+    expect(readEventTargetChecked({ currentTarget: { checked: true } })).toBeTrue();
+    let blurred: boolean = false;
+    blurEventCurrentTarget({ currentTarget: { blur: (): void => { blurred = true; } } });
+    expect(blurred).toBeTrue();
+    expect(extractSelectedFilesAndReset({ currentTarget: { value: "", files: null } })).toEqual([]);
+    const fileInputTarget: { value: string; files: File[] } = {
+      value: "C:\\fakepath\\a.png",
+      files: [new File(["x"], "a.png", { type: "image/png" })],
+    };
+    expect(extractSelectedFilesAndReset({ currentTarget: fileInputTarget })).toHaveLength(1);
+    expect(fileInputTarget.value).toBe("");
     expect(MINI_APP_MIN_LOADING_MS).toBeGreaterThanOrEqual(150);
     expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
     expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");

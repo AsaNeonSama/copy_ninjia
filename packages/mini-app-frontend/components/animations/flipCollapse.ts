@@ -1,10 +1,16 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef } from "react";
 import type React from "react";
 import {
+  MINI_APP_FLIP_BOUNDARY_CLASS_NAMES,
+  MINI_APP_FLIP_BOUNDARY_TAG_NAMES,
   MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS,
   MINI_APP_FLIP_COLLAPSE_CLOSE_SPEED_PX_PER_MS,
   MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
   MINI_APP_FLIP_COLLAPSE_DURATION_MS,
+  MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES,
+  MINI_APP_FLIP_PAIRED_SLIDE_MAX_PX,
+  MINI_APP_FLIP_TRIGGER_CLASS_NAMES,
+  MINI_APP_FLIP_TRIGGER_SLIDE_MAX_PX,
 } from "../../consts/miniApp";
 import { startViewportAnchorScroll } from "./expandFollowScroll";
 import type {
@@ -81,23 +87,38 @@ export type FlipFollowScrollResolver = (
 ) => ViewportAnchorScrollTarget | null;
 
 /**
+ * 判断折叠容器的 `classList` 是否包含给定候选类名集合中的任意一项。
+ *
+ * @param classList 待检测的类名集合
+ * @param candidates 候选 CSS 类名只读数组
+ * @returns 命中任意候选类名时返回 `true`
+ */
+function hasAnyFlipClass(
+  classList: FlipClassList | undefined,
+  candidates: readonly string[]
+): boolean {
+  if (classList === undefined) return false;
+  for (const name of candidates) {
+    if (classList.contains(name)) return true;
+  }
+  return false;
+}
+
+/**
  * 判断祖先节点是否为页面或弹窗内容区的折叠遍历停止边界。
  *
  * @param element 待判断的祖先节点
  * @returns 到达页面/弹窗边界时返回 `true`
  */
 function isFlipBoundaryElement(element: FlipAnimatableElement): boolean {
-  if (element.tagName === "SECTION" || element.tagName === "MAIN" || element.id === "root") {
+  if (
+    (element.tagName !== undefined &&
+      MINI_APP_FLIP_BOUNDARY_TAG_NAMES.includes(element.tagName)) ||
+    element.id === "root"
+  ) {
     return true;
   }
-  const classList: FlipClassList | undefined = element.classList;
-  if (classList === undefined) return false;
-  return (
-    classList.contains("chat-targets-tab-pane") ||
-    classList.contains("chat-targets-modal-body") ||
-    classList.contains("app-main") ||
-    classList.contains("animate-fade-in")
-  );
+  return hasAnyFlipClass(element.classList, MINI_APP_FLIP_BOUNDARY_CLASS_NAMES);
 }
 
 /**
@@ -128,14 +149,9 @@ export function hasCollapsedFlipGridAncestor(gridEl: FlipAnimatableElement): boo
  * @returns 需要同步渐变 `opacity` 时返回 `true`
  */
 function shouldFadeInnerPanel(gridEl: FlipAnimatableElement): boolean {
-  const classList: FlipClassList | undefined = gridEl.classList;
-  if (classList === undefined) return false;
-  return (
-    classList.contains("chat-targets-qa-trigger-collapse") ||
-    classList.contains("chat-targets-qa-collapse-grid") ||
-    classList.contains("totp-trigger-collapse-grid") ||
-    classList.contains("totp-setup-collapse-grid") ||
-    classList.contains("gallery-preview-collapse-grid")
+  return hasAnyFlipClass(
+    gridEl.classList,
+    MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES
   );
 }
 
@@ -191,8 +207,7 @@ export function findPairedTriggerElement(gridEl: FlipAnimatableElement): FlipAni
   if (
     prev.dataset?.flipTrigger === "1" ||
     prev.getAttribute?.("data-flip-trigger") === "1" ||
-    prev.classList?.contains("totp-trigger-collapse-grid") === true ||
-    prev.classList?.contains("chat-targets-qa-trigger-collapse") === true
+    hasAnyFlipClass(prev.classList, MINI_APP_FLIP_TRIGGER_CLASS_NAMES)
   ) {
     return prev;
   }
@@ -315,8 +330,9 @@ export function runFlipCollapseTransition({
 
   const collapsedH: number = triggerH;
   const spanH: number = Math.max(deltaH, triggerH) - collapsedH;
-  const slideRangePx: number = triggerH > 0 ? Math.min(deltaH, 16) : deltaH;
-  const triggerSlidePx: number = Math.min(triggerH, 10);
+  const slideRangePx: number =
+    triggerH > 0 ? Math.min(deltaH, MINI_APP_FLIP_PAIRED_SLIDE_MAX_PX) : deltaH;
+  const triggerSlidePx: number = Math.min(triggerH, MINI_APP_FLIP_TRIGGER_SLIDE_MAX_PX);
   const shouldFadeInner: boolean = fadeInner ?? (triggerH > 0 || shouldFadeInnerPanel(gridEl));
   const progressStart: number = Number.isFinite(interruptedProgress)
     ? Math.min(1, Math.max(0, interruptedProgress))

@@ -7,6 +7,7 @@ import {
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
+import { readEventTargetValue } from "../libs/formatters";
 import { RefreshSvgIcon, TrashSvgIcon, UserSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
@@ -160,10 +161,7 @@ function ChatJoinCleanCardView({
           aria-label={t.chats.batchKickWindowLabel}
           disabled={batchKickSubmitting || chatDetail.batchKickRunning}
           onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-            const rawValue: string = (
-              event.currentTarget as unknown as { readonly value: string }
-            ).value;
-            onManualDragChange(Number(rawValue));
+            onManualDragChange(Number(readEventTargetValue(event)));
           }}
         />
         <div className="join-clean-presets">

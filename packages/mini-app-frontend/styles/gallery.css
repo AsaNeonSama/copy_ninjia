@@ -62,7 +62,6 @@
 .gallery-preview-collapse-grid.expanded,
 .gallery-preview-collapse-grid.flip-closing {
   display: block;
-  grid-template-rows: 1fr;
 }
 .gallery-preview-collapse-grid.expanded {
   pointer-events: auto;

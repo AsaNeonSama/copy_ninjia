@@ -10,109 +10,58 @@ import type {
 import { exhaustiveList } from "./exhaustiveList";
 import { MINUTE_MS } from "./time";
 
-/**
- * 十六进制 SHA-256 摘要字符串（固定 64 位十六进制字符）的匹配规则。
- * 不变量：不带全局标志 `g`，供持久化会话令牌格式校验无状态复用；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts`。
- */
+/** 十六进制 SHA-256 摘要字符串（固定 64 位十六进制字符）的匹配规则。不变量：不带全局标志 `g`，供持久化会话令牌格式校验无状态复用；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts`。 */
 export const MINI_APP_SHA256_HEX_PATTERN: RegExp = /^[0-9a-f]{64}$/i;
 
-/**
- * Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则。
- * 不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。
- */
+/** Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则。不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。 */
 export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: RegExp =
   /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
-/**
- * Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。
- * 不变量：所有 `/api/*` 鉴权统一读取该请求头；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
- */
+/** Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。不变量：所有 `/api/*` 鉴权统一读取该请求头；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
 export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 
-/**
- * Mini App 密码认证通过后签发的会话令牌 HTTP 请求头名（小写）。
- * 不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
- */
+/** Mini App 密码认证通过后签发的会话令牌 HTTP 请求头名（小写）。不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
-/**
- * Mini App 会话令牌自动刷新时下发新到期毫秒时间戳的 HTTP 响应头名（小写）。
- * 不变量：取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
- */
+/** Mini App 会话令牌自动刷新时下发新到期毫秒时间戳的 HTTP 响应头名（小写）。不变量：取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
 export const MINI_APP_SESSION_EXPIRES_AT_HEADER: string =
   "x-mini-app-session-expires-at";
 
-/**
- * Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。
- * 不变量：到期后必须重新输入密码完成认证；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts` 与 `packages/mini-app-frontend/api/authPrecheck.ts`。
- */
+/** Mini App 访问密码认证会话的有效期毫秒数（45 分钟）。不变量：到期后必须重新输入密码完成认证；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/credentials.ts` 与 `packages/mini-app-frontend/api/authPrecheck.ts`。 */
 export const MINI_APP_SESSION_TTL_MS: number = 45 * MINUTE_MS;
 
-/**
- * Mini App 在浏览器 `localStorage` / `sessionStorage` 中持久化 45 分钟认证会话凭据的存储键名。
- * 不变量：仅在 Mini App 客户端 WebView 环境内持久化 `{ token, expiresAt, assetToken }`，过期或主动锁定时立即清除。所属模块：`packages/mini-app-frontend/libs/credentials.ts`。
- */
+/** Mini App 在浏览器 `localStorage` / `sessionStorage` 中持久化 45 分钟认证会话凭据的存储键名。不变量：仅在 Mini App 客户端 WebView 环境内持久化 `{ token, expiresAt, assetToken }`，过期或主动锁定时立即清除。所属模块：`packages/mini-app-frontend/libs/credentials.ts`。 */
 export const MINI_APP_SESSION_STORAGE_KEY: string =
   "copy_ninja_mini_app_session_v1";
 
-/**
- * `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。
- * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。
- */
+/** `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。不变量：与 `X-Telegram-Init-Data` 互为备选传递方式；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
 export const MINI_APP_TMA_AUTH_PREFIX: string = "tma ";
 
-/**
- * 名单搜索输入框触发按名称过滤请求的防抖等待毫秒数（0.5 秒）。
- * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/pages/IdentitiesPage.tsx`。
- */
+/** 名单搜索输入框触发按名称过滤请求的防抖等待毫秒数（0.5 秒）。不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/pages/IdentitiesPage.tsx`。 */
 export const MINI_APP_SEARCH_DEBOUNCE_MS: number = 500;
 
-/**
- * 图库分页接口缺省每页返回的图片张数（10 张）。
- * 不变量：属于 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/gallery.ts`。
- */
+/** 图库分页接口缺省每页返回的图片张数（10 张）。不变量：属于 `MINI_APP_GALLERY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/gallery.ts`。 */
 export const MINI_APP_GALLERY_DEFAULT_PAGE_SIZE: number = 10;
 
-/**
- * 图库页面可选的每页张数档位（默认 10 张，可切换 15、20 张）。
- * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/GalleryPage.tsx`。
- */
+/** 图库页面可选的每页张数档位（默认 10 张，可切换 15、20 张）。不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/GalleryPage.tsx`。 */
 export const MINI_APP_GALLERY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
-/**
- * 群热发言记录接口缺省每页返回的条数（10 条）。
- * 不变量：属于 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/messages.ts` 与 `packages/mini-app-frontend/components/MessagesView.tsx`。
- */
+/** 群热发言记录接口缺省每页返回的条数（10 条）。不变量：属于 `MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/messages.ts` 与 `packages/mini-app-frontend/components/MessagesView.tsx`。 */
 export const MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE: number = 10;
 
-/**
- * 群热发言记录页面可选的每页条数档位（默认 10 条，可切换 15、20 条）。
- * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/components/MessagesView.tsx`。
- */
+/** 群热发言记录页面可选的每页条数档位（默认 10 条，可切换 15、20 条）。不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/components/MessagesView.tsx`。 */
 export const MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
-/**
- * 已 `/init` 受管群列表缺省每页显示的群数量（10 条）。
- * 不变量：正整数。所属模块：`packages/mini-app-frontend/store/chats.ts` 与 `packages/mini-app-frontend/pages/ChatsPage.tsx`。
- */
+/** 已 `/init` 受管群列表缺省每页显示的群数量（10 条）。不变量：正整数。所属模块：`packages/mini-app-frontend/store/chats.ts` 与 `packages/mini-app-frontend/pages/ChatsPage.tsx`。 */
 export const MINI_APP_CHATS_DEFAULT_PAGE_SIZE: number = 10;
 
-/**
- * 已 `/init` 受管群列表可选的每页条数档位（默认 10 条，可切换 15、20 条）。
- * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx`。
- */
+/** 已 `/init` 受管群列表可选的每页条数档位（默认 10 条，可切换 15、20 条）。不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/ChatsPage.tsx`。 */
 export const MINI_APP_CHATS_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
-/**
- * 白名单与黑名单列表接口缺省每页返回的条数（10 条）。
- * 不变量：属于 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/pages/IdentitiesPage.tsx`。
- */
+/** 白名单与黑名单列表接口缺省每页返回的条数（10 条）。不变量：属于 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 档位；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identities.ts` 与 `packages/mini-app-frontend/pages/IdentitiesPage.tsx`。 */
 export const MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE: number = 10;
 
-/**
- * 白名单与黑名单列表可选的每页条数档位（默认 10 条，可切换 15、20 条）。
- * 不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/IdentitiesPage.tsx`。
- */
+/** 白名单与黑名单列表可选的每页条数档位（默认 10 条，可切换 15、20 条）。不变量：升序正整数只读数组，仅包含 10、15、20 三档。所属模块：`packages/mini-app-frontend/pages/IdentitiesPage.tsx`。 */
 export const MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS: readonly number[] = [10, 15, 20];
 
 /**
@@ -172,6 +121,47 @@ export const MINI_APP_FLIP_COLLAPSE_EASING_POINTS: readonly [number, number, num
  * 不变量：正整数毫秒数，大于等于 `MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS` 加 `MINI_APP_FRAME_MOTION_MAX_LAG_MS` 再加两帧（60 Hz 约 34 毫秒）。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`、`packages/mini-app-frontend/components/IdentityListRows.tsx` 与 `packages/mini-app-frontend/pages/GalleryPage.tsx`。
  */
 export const MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS: number = 400;
+
+/** 折叠面板逐帧动画中与面板配对的底部触发条（如新增按钮栏）随展开/收起联动的初始最大位移像素数。不变量：正整数像素值。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`。 */
+export const MINI_APP_FLIP_PAIRED_SLIDE_MAX_PX: number = 16;
+
+/** 折叠面板逐帧动画中显式绑定的触发容器随展开/收起联动的初始最大位移像素数。不变量：正整数像素值。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`。 */
+export const MINI_APP_FLIP_TRIGGER_SLIDE_MAX_PX: number = 10;
+
+/** 折叠面板向上搜索祖先收起态时作为遍历停止边界的 HTML 标签名大写集合。不变量：大写 HTML 标签名只读数组。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`。 */
+export const MINI_APP_FLIP_BOUNDARY_TAG_NAMES: readonly string[] = ["SECTION", "MAIN"];
+
+/** 折叠面板向上搜索祖先收起态时作为页面或弹窗内容区边界的 CSS 类名集合。不变量：非空 CSS 类名只读数组。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`。 */
+export const MINI_APP_FLIP_BOUNDARY_CLASS_NAMES: readonly string[] = [
+  "chat-targets-tab-pane",
+  "chat-targets-modal-body",
+  "app-main",
+  "animate-fade-in",
+];
+
+/** 折叠面板在前一个同级节点中识别配对 `TriggerCollapseGrid` 时匹配的回退 CSS 类名集合。不变量：非空 CSS 类名只读数组。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`。 */
+export const MINI_APP_FLIP_TRIGGER_CLASS_NAMES: readonly string[] = [
+  "totp-trigger-collapse-grid",
+  "chat-targets-qa-trigger-collapse",
+];
+
+/** 折叠面板在未显式传入 `fadeInner` 时默认启用内层透明度同步渐变的外层网格 CSS 类名集合。不变量：非空 CSS 类名只读数组。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`。 */
+export const MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES: readonly string[] = [
+  "chat-targets-qa-trigger-collapse",
+  "chat-targets-qa-collapse-grid",
+  "totp-trigger-collapse-grid",
+  "totp-setup-collapse-grid",
+  "gallery-preview-collapse-grid",
+];
+
+/** 子页签切换容器（`TabHeightSizer`）平滑过渡外层高度的 CSS `transition` 持续毫秒数。不变量：正整数毫秒数，小于 `MINI_APP_TAB_HEIGHT_CLEANUP_MS`。所属模块：`packages/mini-app-frontend/components/animations/TabHeightSizer.tsx`。 */
+export const MINI_APP_TAB_HEIGHT_TRANSITION_MS: number = 220;
+
+/** 子页签切换容器（`TabHeightSizer`）在高度过渡结束后清除内联 `height` / `transition` / `overflow` 的定时器毫秒数。不变量：正整数毫秒数，大于 `MINI_APP_TAB_HEIGHT_TRANSITION_MS`。所属模块：`packages/mini-app-frontend/components/animations/TabHeightSizer.tsx`。 */
+export const MINI_APP_TAB_HEIGHT_CLEANUP_MS: number = 230;
+
+/** 实时状态页 CPU 环形进度条 SVG 圆周长（半径 `r = 17.5` 时的 `2 * π * r` 近似值 `109.96`）。不变量：正浮点数，与 `StatusOverviewCard.tsx` 中环形进度圆的 `r="17.5"` 匹配。所属模块：`packages/mini-app-frontend/components/StatusOverviewCard.tsx`。 */
+export const MINI_APP_CPU_RING_CIRCUMFERENCE: number = 109.96;
 
 /**
  * 程序跟滚进行中收到即停止跟滚、把视口交还用户的全局输入事件名（触摸开始与滚轮）。
@@ -285,8 +275,8 @@ export const MINI_APP_MIN_LOADING_MS: number = 260;
 export const MINI_APP_PAGINATION_HOVER_DURATION_MS: number = 85;
 
 /**
- * Mini App 管理界面的标题文字。
- * 不变量：非空短文本。所属模块：Mini App 前端（`packages/mini-app-frontend/`），当前未被引用。
+ * Mini App 简体中文网页标题与顶栏主标题默认文案。
+ * 不变量：非空短文本，与 `index.html` 的中文标题及 `i18n/languages/zh.ts` 的 `appTitle` 一致。所属模块：`packages/mini-app-frontend/i18n/languages/zh.ts`。
  */
 export const MINI_APP_HTML_TITLE: string = "杂鱼控制台♡";
 
@@ -316,21 +306,33 @@ export const MINI_APP_LANGUAGES: readonly MiniAppLanguage[] =
     "zh",
   ]);
 
-/**
- * Mini App 初始主题模式（默认固定为亮色 `"light"`）。
- * 不变量：与 `index.html` 根节点 `<html>` 的初始 `data-theme="light"` 属性一致。所属模块：`packages/mini-app-frontend/store/app.ts`。
- */
+/** Mini App 初始主题模式（默认固定为亮色 `"light"`）。不变量：与 `index.html` 根节点 `<html>` 的初始 `data-theme="light"` 属性一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
 export const MINI_APP_INITIAL_THEME: MiniAppThemeMode = "light";
 
-/**
- * Mini App 界面支持的主题模式闭集（暗色、亮色）。
- * 不变量：与 `MiniAppThemeMode` 联合类型一一对应。所属模块：Mini App 前端（`packages/mini-app-frontend/`），当前未被引用。
- */
+/** Mini App 界面支持的主题模式闭集（暗色、亮色）。不变量：与 `MiniAppThemeMode` 联合类型一一对应。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
 export const MINI_APP_THEME_MODES: readonly MiniAppThemeMode[] =
   exhaustiveList<MiniAppThemeMode>()([
     "dark",
     "light",
   ]);
+
+/** Telegram 宿主未注入主题色（`button_color` / `link_color`）时回退使用的自带默认粉色主色调。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 中 `--default-accent-color` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_DEFAULT_ACCENT_COLOR: string = "#ca7896";
+
+/** Telegram 宿主未注入按钮文字色（`button_text_color`）时回退使用的默认亮白文字色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 中 `--default-accent-text-color` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_DEFAULT_ACCENT_TEXT_COLOR: string = "#ffffff";
+
+/** Mini App 亮色主题默认页面背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 亮色 `--bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_LIGHT_BG_COLOR: string = "#eef2f6";
+
+/** Mini App 暗色主题默认页面背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 暗色 `--bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_DARK_BG_COLOR: string = "#0f1722";
+
+/** Mini App 亮色主题默认顶栏与卡片背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 亮色 `--card` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_LIGHT_HEADER_COLOR: string = "#ffffff";
+
+/** Mini App 暗色主题默认顶栏与卡片背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 暗色 `--card` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_DARK_HEADER_COLOR: string = "#182433";
 
 /**
  * Mini App 名单与群内目标添加折叠菜单支持的添加模式闭集（按 ID、按联系人、按频道）。
@@ -397,6 +399,39 @@ export const MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS: number = 500;
  * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。
  */
 export const MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS: number = 320;
+
+/** 滑块进度条弹性生长插值中前段平滑推进与后段阻尼回弹的分界进度比例（`0.62`）。不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_SPRING_SPLIT_PROGRESS: number = 0.62;
+
+/** 滑块进度条弹性回弹振幅按总跨度折算的比例系数。不变量：正浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO: number = 0.075;
+
+/** 滑块进度条弹性回弹振幅的下限小时数（保证 1 小时单步点击也有清晰回弹）。不变量：正浮点数，小于等于 `MINI_APP_RANGE_SPRING_AMPLITUDE_MAX`。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_SPRING_AMPLITUDE_MIN: number = 0.26;
+
+/** 滑块进度条弹性回弹振幅的上限小时数（限制大跨度跳转时的最大过冲幅度）。不变量：正浮点数，大于等于 `MINI_APP_RANGE_SPRING_AMPLITUDE_MIN`。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_SPRING_AMPLITUDE_MAX: number = 0.62;
+
+/** 滑块进度条过冲超出最小/最大小时边界时向内侧折返的阻尼衰减系数。不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING: number = 0.65;
+
+/** 连续同向点击滑块按钮时触发向前垫进起点的上一轮剩余行程最小阈值。不变量：正浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD: number = 0.55;
+
+/** 连续点击或回撤滑块按钮时垫进起点与计算回拉跨度的比例系数兼最大回拉上限。不变量：正浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_PULLBACK_MAX_SPAN: number = 0.45;
+
+/** 快速回撤滑块按钮时触发预留回拉行程的当前值与新目标最小差值阈值兼回拉跨度下限。不变量：正浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_PULLBACK_MIN_SPAN: number = 0.35;
+
+/** 滑块视觉值与目标值比较时判定已收敛相等的浮点容差阈值。不变量：正浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_VALUE_EPSILON: number = 0.001;
+
+/** 滑块弹性动画启动首帧同步推进的最大归一化进度上限。不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_RANGE_KICKOFF_MAX_PROGRESS: number = 0.25;
+
+/** 滑块弹性动画启动首帧同步推进的基准单帧毫秒步长（60 Hz 下约 16 毫秒）。不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+export const MINI_APP_ANIMATION_FRAME_STEP_MS: number = 16;
 
 /**
  * Mini App 群详情页目标管理下拉菜单与弹窗支持的类别键闭集（问答对、追着删目标、追着翻目标）。

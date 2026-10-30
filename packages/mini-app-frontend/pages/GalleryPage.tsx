@@ -23,6 +23,7 @@ import {
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
+import { extractSelectedFilesAndReset } from "../libs/formatters";
 import {
   GallerySvgIcon,
   RefreshSvgIcon,
@@ -33,14 +34,6 @@ import type { MiniAppUiStoreState } from "../store/app";
 import { createGalleryStore } from "../store/gallery";
 import type { MiniAppGalleryStoreState } from "../store/gallery";
 import type { MiniAppGalleryItem, MiniAppLanguage } from "../types/miniApp";
-
-/** 浏览器文件选择 `<input type="file">` 事件目标的最小类型接口。 */
-interface FileInputEventTarget {
-  /** 当前选中的文件伪数组。 */
-  readonly files?: ArrayLike<File> | null;
-  /** 输入框当前值（置空可允许重复选择同一文件）。 */
-  value: string;
-}
 
 /**
  * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理页面（关闭大图预览时执行延迟卸载收起过渡动画）。
@@ -168,14 +161,10 @@ export function GalleryPage(): React.JSX.Element {
   }, [previewItem, scrollToSettledPreview]);
 
   const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>): void => {
-    const target: FileInputEventTarget =
-      event.currentTarget as unknown as FileInputEventTarget;
-    const rawFiles: ArrayLike<File> | null | undefined = target.files;
-    if (rawFiles === undefined || rawFiles === null || rawFiles.length === 0) {
+    const files: File[] = extractSelectedFilesAndReset(event);
+    if (files.length === 0) {
       return;
     }
-    const files: File[] = Array.from(rawFiles);
-    target.value = "";
     void uploadFiles(files);
   };
 
@@ -253,6 +242,7 @@ export function GalleryPage(): React.JSX.Element {
         expanded={previewItem !== null}
         gridClassName="gallery-preview-collapse-grid"
         innerClassName="gallery-preview-collapse-inner"
+        fadeInner
         containerRef={previewGridRef}
         resolveFollowScroll={resolvePreviewCardScrollTarget}
         resolveCollapseScroll={resolvePreviewCollapseScroll}

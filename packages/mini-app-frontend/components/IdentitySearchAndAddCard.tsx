@@ -1,7 +1,8 @@
-import { memo, useRef } from "react";
+import { memo } from "react";
 import type React from "react";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
+import { readEventTargetValue } from "../libs/formatters";
 import {
   ChevronDownSvgIcon,
   CloseSvgIcon,
@@ -14,6 +15,7 @@ import type { MiniAppIdentitiesStoreState } from "../store/identities";
 import type { MiniAppLanguage } from "../types/miniApp";
 import { AddModeButtonList } from "./AddModeButtonList";
 import { CollapseGrid } from "./animations/CollapseGrid";
+import { useClosingSnapshot } from "./animations/useDelayedUnmount";
 
 /** `IdentitySearchAndAddCard` 组件属性参数。 */
 export interface IdentitySearchAndAddCardProps {
@@ -73,32 +75,18 @@ function IdentitySearchAndAddCardView({
     addById,
   }: MiniAppIdentitiesStoreState = state;
   const isDebouncing: boolean = searchInput.trim() !== debouncedQuery;
-  const closingIdInputRef: React.RefObject<string> = useRef<string>(idInput);
-  if (addMenuOpen && idFormOpen) {
-    closingIdInputRef.current = idInput;
-  }
-  const closingMenuSnapshotRef: React.RefObject<{
-    readonly idFormOpen: boolean;
-    readonly busyAction: boolean;
-  }> = useRef<{ readonly idFormOpen: boolean; readonly busyAction: boolean }>({
+  const displayIdFormOpen: boolean = useClosingSnapshot(
     idFormOpen,
+    addMenuOpen
+  );
+  const displayBusyAction: boolean = useClosingSnapshot(
     busyAction,
-  });
-  if (addMenuOpen) {
-    closingMenuSnapshotRef.current = {
-      idFormOpen,
-      busyAction,
-    };
-  }
-  const displayIdFormOpen: boolean = addMenuOpen
-    ? idFormOpen
-    : closingMenuSnapshotRef.current.idFormOpen;
-  const displayBusyAction: boolean =
+    addMenuOpen
+  );
+  const displayIdInput: string = useClosingSnapshot(
+    idInput,
     addMenuOpen && idFormOpen
-      ? busyAction
-      : closingMenuSnapshotRef.current.busyAction;
-  const displayIdInput: string =
-    addMenuOpen && idFormOpen ? idInput : closingIdInputRef.current;
+  );
 
   return (
     <div className="card">
@@ -110,10 +98,7 @@ function IdentitySearchAndAddCardView({
             className="search-input"
             value={searchInput}
             onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-              const nextValue: string = (
-                event.currentTarget as unknown as { readonly value: string }
-              ).value;
-              setSearchInput(nextValue);
+              setSearchInput(readEventTargetValue(event));
             }}
             placeholder={t.identities.searchPlaceholder}
           />
@@ -180,10 +165,7 @@ function IdentitySearchAndAddCardView({
                 disabled={displayBusyAction}
                 tabIndex={idFormOpen ? 0 : -1}
                 onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-                  const nextValue: string = (
-                    event.currentTarget as unknown as { readonly value: string }
-                  ).value;
-                  setIdInput(nextValue);
+                  setIdInput(readEventTargetValue(event));
                 }}
                 placeholder={t.identities.idInputPlaceholder}
               />

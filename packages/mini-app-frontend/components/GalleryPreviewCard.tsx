@@ -4,6 +4,7 @@ import { buildMiniAppGalleryImageUrl } from "../api/galleryFile";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import {
+  blurEventCurrentTarget,
   formatGalleryFileSize,
   shortenGalleryFileName,
 } from "../libs/formatters";
@@ -20,12 +21,6 @@ import type {
   MiniAppLanguage,
 } from "../types/miniApp";
 import { GalleryImageSkeleton } from "./skeletons/GalleryImageSkeleton";
-
-/** 支持主动失焦（`blur`）的按钮事件目标接口。 */
-export interface BlurTargetElement {
-  /** 移除当前按钮焦点，防止原生弹窗关闭后残留悬停或焦点态。 */
-  readonly blur?: () => void;
-}
 
 /** 支持缓存完成态探测的 `<img>` DOM 节点最小类型接口。 */
 export interface ProbeableImageElement {
@@ -163,7 +158,7 @@ export function GalleryPreviewCard({
           className="btn primary icon-btn"
           disabled={isClosing || downloadingFileName !== null || deletingFileName !== null}
           onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-            (event.currentTarget as unknown as BlurTargetElement).blur?.();
+            blurEventCurrentTarget(event);
             onDownloadImage(previewItem.fileName);
           }}
         >
@@ -179,7 +174,7 @@ export function GalleryPreviewCard({
           className="btn danger icon-btn"
           disabled={isClosing || deletingFileName !== null || downloadingFileName !== null}
           onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-            (event.currentTarget as unknown as BlurTargetElement).blur?.();
+            blurEventCurrentTarget(event);
             onDeleteImage(previewItem.fileName);
           }}
         >
@@ -195,7 +190,7 @@ export function GalleryPreviewCard({
           className="btn icon-btn"
           disabled={isClosing}
           onClick={(event: React.MouseEvent<HTMLButtonElement>): void => {
-            (event.currentTarget as unknown as BlurTargetElement).blur?.();
+            blurEventCurrentTarget(event);
             onClosePreview();
           }}
         >

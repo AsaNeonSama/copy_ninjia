@@ -615,7 +615,12 @@ export interface TelegramWindow {
     readonly getElementById: (elementId: string) => Element | null;
     readonly createElement?: (tagName: "a") => MiniAppDownloadAnchorElement;
     readonly body?: Readonly<{ readonly appendChild?: (node: MiniAppDownloadAnchorElement) => void }>;
-    readonly documentElement?: Readonly<{ readonly setAttribute?: (qualifiedName: string, value: string) => void }>;
+    readonly documentElement?: Readonly<{
+      readonly setAttribute?: (qualifiedName: string, value: string) => void;
+      readonly style?: Readonly<{
+        readonly setProperty?: (property: string, value: string) => void;
+      }>;
+    }>;
     /** 页面可见性；切到后台或被遮挡时为 `"hidden"`。 */
     readonly visibilityState?: "visible" | "hidden";
     readonly addEventListener?: (type: "visibilitychange", listener: () => void) => void;

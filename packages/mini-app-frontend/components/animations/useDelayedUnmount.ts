@@ -58,3 +58,19 @@ export function useDelayedUnmount<T>(
       activeValue === null && !unmounted && lastNonNullRef.current !== null,
   };
 }
+
+/**
+ * 在折叠面板展开且数据有效时同步更新快照缓存，当转入收起过渡或临时清空时回退到最近一次缓存的有效快照，
+ * 防止收起动画进行中内容突然切换为空态或旧分支导致面板高度跳变。
+ *
+ * @param value 当前实时数据值
+ * @param shouldCapture 当前是否处于应写入快照缓存的有效展开态
+ * @returns 供渲染与收起过渡使用的稳定快照值
+ */
+export function useClosingSnapshot<T>(value: T, shouldCapture: boolean): T {
+  const snapshotRef: React.RefObject<T> = useRef<T>(value);
+  if (shouldCapture) {
+    snapshotRef.current = value;
+  }
+  return snapshotRef.current;
+}

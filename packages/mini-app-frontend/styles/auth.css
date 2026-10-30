@@ -87,14 +87,14 @@
 .skeleton-auth-desc { display: flex; flex-direction: column; gap: 7px; margin: 4px 0 16px; }
 .skeleton-totp-btn { width: 148px; height: 40px; border-radius: 10px; }
 .totp-trigger-collapse-grid {
-  width: 100%; min-width: 0; display: block; grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr;
+  width: 100%; min-width: 0; display: block;
   overflow: hidden; overflow-anchor: none;
 }
 .totp-trigger-collapse-grid.collapsed {
   pointer-events: none;
 }
 .totp-trigger-collapse-grid.collapsed:not(.flip-closing) {
-  display: grid; grid-template-rows: 0fr;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 0fr;
 }
 .totp-trigger-collapse-grid.collapsed:not(.flip-closing) > .totp-collapse-inner {
   display: none;
@@ -105,7 +105,7 @@
 }
 .totp-setup-collapse-grid.expanded,
 .totp-setup-collapse-grid.flip-closing {
-  display: block; grid-template-rows: 1fr;
+  display: block;
 }
 .totp-setup-collapse-grid.expanded {
   pointer-events: auto;

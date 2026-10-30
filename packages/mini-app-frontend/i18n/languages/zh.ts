@@ -1,3 +1,4 @@
+import { MINI_APP_HTML_TITLE } from "../../consts/miniApp";
 import type {
   MiniAppActiveSessionCounts,
   MiniAppBatchKickCompletion,
@@ -312,7 +313,7 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
   return {
     languageLabel: "简体中文",
     languageMenuAria: "切换界面语言",
-    appTitle: "杂鱼控制台♡",
+    appTitle: MINI_APP_HTML_TITLE,
     superAdminBadge: "SuperAdmin",
     lockButton: "锁定",
     lockSessionToast: "哼，已经帮粗心的杂鱼把会话锁上啦♡",

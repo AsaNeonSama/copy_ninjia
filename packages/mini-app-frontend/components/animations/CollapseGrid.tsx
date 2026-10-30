@@ -17,6 +17,8 @@ export interface CollapseGridProps {
   readonly innerClassName: string;
   /** 面板上下文重置键（如弹窗当前激活的 Tab 键）：该键变化时直接同步新状态，不触发折叠动画。 */
   readonly resetKey?: string | null;
+  /** 是否同步对内层节点执行透明度过渡（缺省按容器类名自动判定）。 */
+  readonly fadeInner?: boolean;
   /** 可选的外层网格容器节点引用（供父组件读取实时几何位置与飞行态标志）。 */
   readonly containerRef?: React.RefObject<FlipAnimatableElement | null>;
   /** 展开起始时解析同帧视口跟滚目标的回调（入参为外层网格节点与展开完成后的高度）。 */
@@ -30,7 +32,7 @@ export interface CollapseGridProps {
 /**
  * 基于绘制前单次测量与单时钟逐帧写入外层 `height`、内层 `translate3d`/`opacity` 及可选同帧视口滚动的通用展开/收起包装组件。
  *
- * @param props 展开状态、外层/内层类名、上下文重置键、视口滚动解析回调与子节点
+ * @param props 展开状态、外层/内层类名、上下文重置键、透明度过渡标志、视口滚动解析回调与子节点
  * @returns React 节点
  */
 export function CollapseGrid({
@@ -38,6 +40,7 @@ export function CollapseGrid({
   gridClassName,
   innerClassName,
   resetKey,
+  fadeInner,
   containerRef,
   resolveFollowScroll,
   resolveCollapseScroll,
@@ -50,6 +53,7 @@ export function CollapseGrid({
   }: UseFlipCollapseLayoutEffectResult = useFlipCollapseLayoutEffect({
     expanded,
     resetKey,
+    fadeInner,
     gridRef: containerRef,
     resolveFollowScroll,
     resolveCollapseScroll,
