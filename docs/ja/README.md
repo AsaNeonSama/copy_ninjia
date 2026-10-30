@@ -30,6 +30,11 @@
   <a href="https://www.typescriptlang.org/"><img src="../../public/typescript_badge.svg" alt="TypeScript"></a>
   <a href="https://www.sqlite.org/"><img src="../../public/sqlite_badge.svg" alt="SQLite"></a>
   <a href="https://grammy.dev/"><img src="../../public/grammy_badge.svg" alt="grammY"></a>
+  <a href="https://react.dev/"><img src="../../public/react_badge.svg" alt="React"></a>
+  <a href="https://zustand.docs.pmnd.rs/"><img src="../../public/zustand_badge.svg" alt="Zustand"></a>
+</p>
+
+<p align="center">
   <a href="https://www.anthropic.com/"><img src="../../public/anthropic_badge.svg" alt="Anthropic"></a>
   <a href="https://platform.openai.com/docs/"><img src="../../public/openai_badge.svg" alt="OpenAI"></a>
   <a href="https://ai.google.dev/"><img src="../../public/gemini_badge.svg" alt="Gemini"></a>

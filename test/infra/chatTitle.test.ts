@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { GrammyError } from "grammy";
 import { grammyApiError } from "../helpers/grammyError";
 import { loggerStub } from "../helpers/loggerMock";
-import { CHAT_ABSENCE_CONFIRM_ATTEMPTS, CHAT_ABSENCE_CONFIRM_INTERVAL_MS } from "../../packages/consts/chatTeardown";
-import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
+import {
+  CHAT_ABSENCE_CONFIRM_ATTEMPTS,
+  CHAT_ABSENCE_CONFIRM_INTERVAL_MS,
+  CHAT_TITLE_REFRESH_CONCURRENCY,
+} from "../../packages/consts/chatTeardown";
 import { chatStateOf } from "../helpers/chatState";
 import type { ChatState } from "../../packages/types/chatState";
 import type { ChatDepartureReason } from "../../packages/types/chatTeardown";
@@ -83,9 +86,9 @@ describe("chat title maintenance", () => {
     expect(saveStateInBackground).toHaveBeenCalledTimes(1);
   });
 
-  test("每群各查一次、并发不超过受管群上限，全部独立结算", async () => {
+  test("每群各查一次、并发不超过标题刷新并发上限，全部独立结算", async () => {
     // 群数取并发上限的两倍，使并发上限起作用。
-    const total: number = STATE_MANAGED_CHAT_LIMIT * 2;
+    const total: number = CHAT_TITLE_REFRESH_CONCURRENCY * 2;
     for (let chatId: number = 1; chatId <= total; chatId++) {
       states.set(chatId, chatStateOf({ isInitEnabled: true }));
     }
@@ -102,7 +105,7 @@ describe("chat title maintenance", () => {
     await refreshAllChatTitles();
 
     expect(getChat).toHaveBeenCalledTimes(total);
-    expect(maxActive).toBe(STATE_MANAGED_CHAT_LIMIT);
+    expect(maxActive).toBe(CHAT_TITLE_REFRESH_CONCURRENCY);
     // 每条标题只编码本群并入 Worker 事务缓冲，不重复序列化全量群快照。
     expect(saveStateInBackground).toHaveBeenCalledTimes(total);
     expect(loggerInfo).toHaveBeenCalledWith(expect.stringContaining(`${total}/${total}`));

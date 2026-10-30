@@ -36,7 +36,7 @@
 .memory-metric-card.peak { background: var(--accent-soft); border-color: var(--accent-border); }
 .memory-metric-label { font-size: 10px; font-weight: 600; color: var(--hint); line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .memory-metric-card.peak .memory-metric-label { color: var(--accent); font-weight: 700; }
-.memory-metric-value { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1.2; white-space: nowrap; }
+.memory-metric-value { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .memory-metric-card.peak .memory-metric-value { color: var(--accent); font-weight: 800; }
 .memory-bar-section { display: flex; flex-direction: column; gap: 6px; padding-top: 7px; border-top: 1px dashed var(--border); }
 .memory-bar-track {
@@ -56,11 +56,11 @@
   animation: miniapp-bar-sheen 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite; pointer-events: none;
 }
 .memory-seg-total-cap { width: 3px; height: 100%; background: var(--memory-total); flex-shrink: 0; }
-.memory-legend-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-@media (max-width: 560px) { .memory-legend-grid { grid-template-columns: 1fr; gap: 4px; } }
+.memory-legend-grid { display: grid; grid-template-columns: repeat(3, minmax(max-content, 1fr)); gap: 6px; }
+@media (max-width: 840px) { .memory-legend-grid { grid-template-columns: 1fr; gap: 4px; } }
 .memory-legend-item {
-  display: flex; align-items: center; gap: 5px; font-size: 10.5px; line-height: 1.3;
-  padding: 4px 7px; border-radius: 7px; background: var(--card); border: 1px solid var(--border); min-width: 0;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px 5px; font-size: 10.5px; line-height: 1.3;
+  padding: 4px 7px; border-radius: 7px; background: var(--card); border: 1px solid var(--border); min-width: 0; overflow: hidden;
 }
 .memory-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
 .memory-dot.proc { background: var(--accent); }
