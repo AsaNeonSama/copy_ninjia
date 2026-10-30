@@ -1,8 +1,11 @@
 import { useCallback, useRef } from "react";
 import type React from "react";
 import {
+  CHAT_QA_MAX_PER_CHAT,
+  DELETE_MESSAGE_CHAT_TARGET_MAX,
   MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_TARGETS_MODAL_CLOSE_MS,
+  TRANSLATE_CHAT_USER_LIMIT,
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import { CloseSvgIcon, PlusSvgIcon, RefreshSvgIcon } from "../resource";
@@ -61,21 +64,21 @@ export function resolveTargetKindCounts(
     case "qa":
       return [
         targets !== null ? targets.qaItems.length : detail.qaPairCount,
-        targets?.qaMax ?? 15,
+        targets?.qaMax ?? CHAT_QA_MAX_PER_CHAT,
       ];
     case "deleteMessage":
       return [
         targets !== null
           ? targets.deleteMessageTargets.length
           : detail.deleteMessageTargetCount,
-        targets?.deleteMessageMax ?? 15,
+        targets?.deleteMessageMax ?? DELETE_MESSAGE_CHAT_TARGET_MAX,
       ];
     case "translate":
       return [
         targets !== null
           ? targets.translateTargets.length
           : detail.translateTargetCount,
-        targets?.translateMax ?? 5,
+        targets?.translateMax ?? TRANSLATE_CHAT_USER_LIMIT,
       ];
   }
 }

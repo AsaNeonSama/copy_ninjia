@@ -1,7 +1,7 @@
 /**
- * 群类型的主线程观测口：把 `chat.type` 镜像给入群守卫线程，供踢人分派「只踢
- * 不封」时选择对应的 Bot API 方法（见 workers/antiRaid/chatKind.ts 与
- * infra/telegram/actions/moderation.ts）。
+ * 群类型的主线程观测口：把 `chat.type` 写入 `chatIsSupergroupById` 并镜像给入群守卫线程，
+ * 供踢人分派「只踢不封」时选择对应的 Bot API 方法（见 workers/antiRaid/chatKind.ts 与
+ * infra/telegram/actions/moderation.ts），以及供 Mini App `/batch_kick` 校验超级群身份。
  *
  * 权威线程为主线程，取值变化时增量推送；Worker 重建后由 workerBridge/replay.ts
  * 整表重放，teardown 清理见 workerBridge/observers.ts。本模块只负责观测与去重。

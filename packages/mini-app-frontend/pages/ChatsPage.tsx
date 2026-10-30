@@ -207,13 +207,17 @@ export function ChatsPage(): React.JSX.Element {
     openTargetsModal,
     toggleFeature,
     pollRunningBatchKick,
+    cancelPendingRefresh,
     setChatPage,
     setChatPageSize,
   }: MiniAppChatsStoreState = storeState;
 
-  useEffect((): void => {
+  useEffect((): (() => void) => {
     void loadChatList();
-  }, [loadChatList]);
+    return (): void => {
+      cancelPendingRefresh();
+    };
+  }, [loadChatList, cancelPendingRefresh]);
 
   const batchKickRunning: boolean = chatDetail?.batchKickRunning === true;
   useEffect((): (() => void) | undefined => {

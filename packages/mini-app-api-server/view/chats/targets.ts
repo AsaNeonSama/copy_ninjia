@@ -1,6 +1,7 @@
 import type { ChatFullInfo } from "grammy/types";
 import { chatQaEntries } from "../../../cache/main/qa";
 import { telegramApiState } from "../../../cache/perThread/telegramApi";
+import { answerRejectionOf, questionRejectionOf } from "../../../commands/qa/fieldRules";
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
 import { translateConfigReadiness } from "../../../config/readiness";
 import { USERNAME_ARG_PATTERN } from "../../../consts/commands";
@@ -30,8 +31,6 @@ import {
 import { readPresentChatUser } from "../../../infra/telegram/actions/membership";
 import { probeTelegramChatInfoSilent } from "../../../infra/telegram/actions/miniApp";
 import { bot } from "../../../infra/telegram/mainClient";
-import { renderFencedText } from "../../../libs/codeFence";
-import { containsRenderableCommand } from "../../../libs/renderableCommand";
 import { parseChatIdArgument, parseUserIdArgument } from "../../../libs/telegramId";
 import { setTranslateState, stopTranslation } from "../../../translate/state";
 import type { CachedUser, ChatState } from "../../../types/chatState";
@@ -46,10 +45,10 @@ import type {
   MiniAppChatTranslateTargetItem,
   MiniAppTranslateLanguage,
 } from "../../../types/miniApp";
+import type { QaFieldRejection } from "../../../types/qa";
 import type {
   BotChatPermissions,
   ChatMemberPresence,
-  RichTextMessage,
 } from "../../../types/telegram";
 import type { TranslateState } from "../../../types/translate";
 import {
@@ -66,27 +65,21 @@ import {
 import { getManagedChatDetail } from "./query";
 
 /**
- * 检查问答答案在 `pre` 代码围栏之外的普通正文片段是否包含可点击的 `/command`。
- * @param answer 已 trim 的问答答案文本。
- * @returns 普通正文含可触发命令时返回 `true`。
+ * 将问答字段校验拒绝原因映射为 Mini App 服务端回执编码。
+ * @param rejection `questionRejectionOf` 或 `answerRejectionOf` 返回的拒绝原因。
+ * @returns Mini App 问答字段拒绝回执编码。
  */
-function answerContainsCommandOutsideCodeFence(answer: string): boolean {
-  const rendered: RichTextMessage = renderFencedText(answer);
-  let cursor: number = 0;
-  for (const entity of rendered.entities) {
-    if (entity.type !== "pre") continue;
-    if (
-      entity.offset > cursor &&
-      containsRenderableCommand(rendered.text.slice(cursor, entity.offset))
-    ) {
-      return true;
-    }
-    cursor = entity.offset + entity.length;
+function qaRejectionMessageOf(rejection: QaFieldRejection): string {
+  switch (rejection) {
+    case "questionTooLong":
+      return "QA_QUESTION_TOO_LONG";
+    case "answerTooLong":
+      return "QA_ANSWER_TOO_LONG";
+    case "questionHasCommand":
+      return "QA_COMMAND_IN_QUESTION";
+    case "answerHasCommand":
+      return "QA_COMMAND_IN_ANSWER";
   }
-  return (
-    cursor < rendered.text.length &&
-    containsRenderableCommand(rendered.text.slice(cursor))
-  );
 }
 
 /**
@@ -308,17 +301,10 @@ export async function mutateManagedChatTargets(
       if (q.length === 0 || a.length === 0) {
         return buildMutationResult(chatId, false, "QA_EMPTY_FIELDS");
       }
-      if (q.length > CHAT_QA_QUESTION_MAX_CHARS) {
-        return buildMutationResult(chatId, false, "QA_QUESTION_TOO_LONG");
-      }
-      if (a.length > CHAT_QA_ANSWER_MAX_CHARS) {
-        return buildMutationResult(chatId, false, "QA_ANSWER_TOO_LONG");
-      }
-      if (containsRenderableCommand(q)) {
-        return buildMutationResult(chatId, false, "QA_COMMAND_IN_QUESTION");
-      }
-      if (answerContainsCommandOutsideCodeFence(a)) {
-        return buildMutationResult(chatId, false, "QA_COMMAND_IN_ANSWER");
+      const rejection: QaFieldRejection | null =
+        questionRejectionOf(q) ?? answerRejectionOf(a);
+      if (rejection !== null) {
+        return buildMutationResult(chatId, false, qaRejectionMessageOf(rejection));
       }
       try {
         const outcome: "created" | "replaced" = setChatQa(chatId, q, a);

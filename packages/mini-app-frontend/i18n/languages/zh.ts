@@ -123,6 +123,10 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         return "已停止该群的私聊中转发送 (/send finish)。";
       case "INVALID_BATCH_KICK_PARAMS":
         return "请求参数非法：需要 1 到 24 之间的整数小时 hours。";
+      case "CHAT_NOT_SUPERGROUP":
+        return "只有超级群才能执行 /batch_kick 批量清理（普通群调用 unbanChatMember 不会踢出在群成员）♡";
+      case "CHAT_KIND_UNAVAILABLE":
+        return "暂时无法向 Telegram 确认该群是否为超级群，本次未执行清理，请稍后重试。";
       case "BATCH_KICK_RUNNING":
         return "本群上一批清理任务还在后台处理中呢，等战报发出来再试啦杂鱼♡";
       case "JOIN_LOG_UNAVAILABLE":

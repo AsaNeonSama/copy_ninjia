@@ -1,7 +1,12 @@
 import { CANDIDATE_OWNER_PID_PATTERN } from "../../consts/storage";
 import { readdir } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { GLOBAL_STATE_FILE_PATH, LOCK_FILE_PATH, TMP_FILE_SUFFIX } from "../../consts/paths";
+import {
+  GLOBAL_STATE_FILE_PATH,
+  LOCK_FILE_PATH,
+  MINI_APP_TOTP_FILE_PATH,
+  TMP_FILE_SUFFIX,
+} from "../../consts/paths";
 import { isErrno } from "../../libs/errno";
 import { logger } from "../logger";
 import { isRecordedLockOwnerInactive, readLinuxProcessIdentity } from "./instanceLock";
@@ -10,6 +15,8 @@ import { isRecordedLockOwnerInactive, readLinuxProcessIdentity } from "./instanc
 export interface StorageCleanupOptions {
   /** 全局状态文件路径。 */
   stateFilePath?: string;
+  /** Mini App TOTP 持久化文件路径。 */
+  totpFilePath?: string;
   /** 单实例锁文件路径。 */
   lockFilePath?: string;
   /** 读取目录条目列表的注入函数。 */
@@ -61,42 +68,59 @@ interface CleanupDirectory {
 }
 
 /**
- * 按目录归并状态文件与锁文件；两者同目录时合成一项。
+ * 按目录归并原子写目标文件与单实例锁文件；同目录条目合并到同一项。
  *
- * @param stateFilePath 全局状态文件路径。
+ * @param atomicTargetPaths 经原子写发布的目标文件路径列表。
  * @param lockFilePath 单实例锁文件路径。
  * @returns 去重归并后的待清扫目录描述列表。
  */
-function cleanupDirectories(stateFilePath: string, lockFilePath: string): readonly CleanupDirectory[] {
-  const lockDirectory: CleanupDirectory = {
-    directory: dirname(lockFilePath),
-    atomicTempPrefixes: [`.${basename(lockFilePath)}.`],
-    lockFileName: basename(lockFilePath),
-  };
-  const statePrefix: string = `.${basename(stateFilePath)}.`;
-  if (dirname(stateFilePath) === lockDirectory.directory) {
-    return [{ ...lockDirectory, atomicTempPrefixes: [statePrefix, ...lockDirectory.atomicTempPrefixes] }];
+function cleanupDirectories(
+  atomicTargetPaths: readonly string[],
+  lockFilePath: string
+): readonly CleanupDirectory[] {
+  const lockDir: string = dirname(lockFilePath);
+  const lockPrefix: string = `.${basename(lockFilePath)}.`;
+  const byDirectory: Map<string, { prefixes: string[]; lockFileName: string | null }> = new Map([
+    [lockDir, { prefixes: [lockPrefix], lockFileName: basename(lockFilePath) }],
+  ]);
+  for (const targetPath of atomicTargetPaths) {
+    const dir: string = dirname(targetPath);
+    const prefix: string = `.${basename(targetPath)}.`;
+    const existing: { prefixes: string[]; lockFileName: string | null } | undefined = byDirectory.get(dir);
+    if (existing !== undefined) {
+      if (!existing.prefixes.includes(prefix)) {
+        existing.prefixes.push(prefix);
+      }
+      continue;
+    }
+    byDirectory.set(dir, { prefixes: [prefix], lockFileName: null });
   }
-  return [
-    lockDirectory,
-    { directory: dirname(stateFilePath), atomicTempPrefixes: [statePrefix], lockFileName: null },
-  ];
+  const result: CleanupDirectory[] = [];
+  for (const [directory, entry] of byDirectory) {
+    result.push({
+      directory,
+      atomicTempPrefixes: entry.prefixes,
+      lockFileName: entry.lockFileName,
+    });
+  }
+  return result;
 }
 
 /**
- * 持锁后清扫全局状态文件（memory/global/）与 bot.lock（数据根）原子写中断留下的临时文件，
- * 以及锁的孤儿辅助文件。目录尚不存在时跳过。
+ * 持锁后清扫全局状态文件（`memory/global/`）、Mini App TOTP 文件（`memory/mini-app-totp/`）与
+ * `bot.lock`（数据根）原子写中断留下的临时文件，以及锁的孤儿辅助文件。目录尚不存在时跳过。
  *
  * @param options 清扫路径与文件系统依赖注入选项。
  */
 export async function cleanupOrphanedTempFiles({
   stateFilePath = GLOBAL_STATE_FILE_PATH,
+  totpFilePath = MINI_APP_TOTP_FILE_PATH,
   lockFilePath = LOCK_FILE_PATH,
   readDirectory = readdir,
   removeFile = (path: string): Promise<void> => Bun.file(path).delete(),
   isInactiveLockOwner = hasInactiveCurrentFormatOwner,
 }: StorageCleanupOptions = {}): Promise<void> {
-  for (const target of cleanupDirectories(stateFilePath, lockFilePath)) {
+  for (const target of cleanupDirectories([stateFilePath, totpFilePath], lockFilePath)) {
     let entries: string[];
     try {
       entries = await readDirectory(target.directory);

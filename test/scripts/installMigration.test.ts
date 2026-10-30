@@ -64,6 +64,21 @@ test("memory/global/state.json 仍是总计数 ttsUsage 时安装器在启动前
   expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
 }, 30_000);
 
+test("memory/mini-app-totp/totp.json 格式非法时安装器在启动前拒绝，不改写文件或创建数据库", async (): Promise<void> => {
+  const fixture: InstallerFixture = await createFixture(true);
+  const path: string = join(fixture.runtimeRoot, "memory/mini-app-totp/totp.json");
+  await Bun.write(path, JSON.stringify({ version: 1, secret: "invalid", createdAt: 1 }));
+  const before: MigrationFileSnapshot | null = await readMigrationFileSnapshot(path);
+  const result: InstallerRunResult = await runInstaller(fixture, []);
+  expect(result.exitCode).not.toBe(0);
+  expect(result.output).toContain("memory/mini-app-totp/totp.json: $.secret must be a 32-character RFC 4648 Base32 secret");
+  expect(result.output).not.toContain("配置校验通过");
+  expect(result.output).not.toContain("INSTALL_API");
+  expect(await readMigrationFileSnapshot(path)).toEqual(before);
+  expect(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists()).toBeFalse();
+  expect(await Bun.file(fixture.outboundLog).text()).not.toContain("systemctl:guarded:start");
+}, 30_000);
+
 test("数据库不是当前 schema 时安装器在启动前拒绝并提示先升级到 17.2.1，不改写数据库", async (): Promise<void> => {
   const fixture: InstallerFixture = await createFixture(true);
   const path: string = join(fixture.runtimeRoot, "database/storage.sqlite");

@@ -345,7 +345,7 @@
 | `/api/chats`<br>`/api/chats/:chatId` | `GET` | 列出已开启 `/init` 的受管群摘要，或查询单群详情（含功能开关、热消息计数、静音/锁定剩余时长、Bot 在本群持有的管理员权限 `botPermissions`、1–24 小时各回溯窗口去重入群人数 `joinedCountsByHour` 及 `/batch_kick` 执行状态） |
 | `/api/chats/:chatId/messages` | `GET` | 分页查看并按关键字搜索该群内存热 256 缓冲区内的近期聊天记录 |
 | `/api/chats/:chatId/feature` | `POST` | 切换单群功能开关（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）；关闭 `init` 与 `/init disable` 同序执行运行时拆除与状态清理，开启 `proxySend` 与私聊 `/send` 共享单群唯一性约束 |
-| `/api/chats/:chatId/batch-kick` | `POST` | 按 `1..24` 小时回溯窗口触发本群 `/batch_kick` 批量清理新成员；与群内 `/batch_kick` 命令共享 `batchKickChats` 单飞锁与后台执行器，完成后写入 `miniAppBatchKickCompletedByChat` 供前端轮询展示战报 |
+| `/api/chats/:chatId/batch-kick` | `POST` | 按 `1..24` 小时回溯窗口在已确证的超级群触发本群 `/batch_kick` 批量清理新成员（优先读取 `chatIsSupergroupById`，未命中时经 `getChat` 探测并回填缓存；普通群以 `notSupergroup` 拒绝，`getChat` 探测失败以 `unavailable` 拒绝）；与群内 `/batch_kick` 命令共享 `batchKickChats` 单飞锁与后台执行器，完成后写入 `miniAppBatchKickCompletedByChat` 供前端轮询展示战报 |
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 查询或增删改本群的自定义问答对（`setQa`/`removeQa`）、追着删目标（`addDeleteTarget`/`removeDeleteTarget`）与追着翻目标（`addTranslateTarget`/`removeTranslateTarget`） |
 | `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | 分页查询与搜索白名单/黑名单（经 `readIdentityPolicyEntries` 冷读且叠加未 ACK 内存写入，不污染主线程热策略 LRU，同时与主线程 `senderIdentity` 发送者缓存双向对齐展示元数据），添加/移出黑白名单，修改白名单条目的细粒度权限或一键全开（`enableAll`） |
 | `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | 调用 Telegram `savePreparedKeyboardButton` 准备原生好友/联系人或频道选择器会话，并轮询 `users_shared`/`chat_shared` 导入回执（支持 `whitelist`、`blocklist`、`deleteMessage`、`translate` 四类目标列表） |

@@ -9,6 +9,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_MIN_HOURS,
+  MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS,
   MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_PAGINATION_HOVER_DURATION_MS,
@@ -621,43 +622,40 @@ describe("页面 store", () => {
     route("GET /api/chats/-100", (): Response =>
       json({
         detail: {
-          chatId: -100,
-          title: "x",
+          chatId: -100, title: "x",
           joinedCountsByHour: Array.from({ length: 24 }, (_: unknown, i: number): number => i + 10),
-          batchKickRunning: false,
-          lastBatchKickCompletion: null,
+          batchKickRunning: false, lastBatchKickCompletion: null,
         },
       }));
     store.getState().setBatchKickHours(6);
     expect(store.getState().batchKickHours).toBe(6);
     expect(store.getState().loadingWindowJoined).toBeTrue();
-    await new Promise<void>((resolve: () => void): void => {
-      setTimeout(resolve, 560);
-    });
+    await Bun.sleep(560);
     expect(store.getState().loadingWindowJoined).toBeFalse();
     expect(store.getState().chatDetail?.joinedCountsByHour[5]).toBe(15);
 
+    const detailCallsBeforeCancel: number = fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length;
+    store.getState().setBatchKickHours(12);
+    expect(store.getState().batchKickHours).toBe(12);
+    expect(store.getState().loadingWindowJoined).toBeTrue();
+    store.getState().cancelPendingRefresh();
+    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
+    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length).toBe(detailCallsBeforeCancel);
+    store.getState().setBatchKickHours(6);
+    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
+
     const declinedKick: Promise<void> = store.getState().runBatchKick();
-    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
-      zh.chats.confirmBatchKick(6)
-    );
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmBatchKick(6));
     useMiniAppStore.getState().resolveConfirm(false);
     await declinedKick;
     expect(fetchCalls.some((call: string): boolean => call.includes("/batch-kick"))).toBeFalse();
 
     route("POST /api/chats/-100/batch-kick", (): Response =>
       json({
-        ok: true,
-        outcome: "accepted",
-        hours: 6,
-        recordCount: 5,
-        message: "BATCH_KICK_ACCEPTED",
+        ok: true, outcome: "accepted", hours: 6, recordCount: 5, message: "BATCH_KICK_ACCEPTED",
         detail: {
-          chatId: -100,
-          title: "x",
-          joinedCountsByHour: Array.from({ length: 24 }, (): number => 5),
-          batchKickRunning: true,
-          lastBatchKickCompletion: null,
+          chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: 24 }, (): number => 5),
+          batchKickRunning: true, lastBatchKickCompletion: null,
         },
       }));
     const acceptedKick: Promise<void> = store.getState().runBatchKick();
@@ -718,16 +716,8 @@ describe("页面 store", () => {
     expect(store.getState().loadingDetail).toBeFalse();
 
     const emptyTargets = {
-      chatId: -100,
-      qaItems: [],
-      qaMax: 15,
-      qaQuestionMaxChars: 256,
-      qaAnswerMaxChars: 3840,
-      deleteMessageTargets: [],
-      deleteMessageMax: 15,
-      translateTargets: [],
-      translateMax: 5,
-      isTranslationEnabled: true,
+      chatId: -100, qaItems: [], qaMax: 15, qaQuestionMaxChars: 256, qaAnswerMaxChars: 3840,
+      deleteMessageTargets: [], deleteMessageMax: 15, translateTargets: [], translateMax: 5, isTranslationEnabled: true,
     };
     route("GET /api/chats/-100/targets", (): Response => json({ targets: emptyTargets }));
     store.getState().toggleTargetsMenu();

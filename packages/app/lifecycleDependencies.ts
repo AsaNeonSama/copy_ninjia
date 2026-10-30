@@ -43,7 +43,7 @@ import {
   getChatStateCache,
   getGlobalCopyState,
   hydrateChatStateCache,
-  loadState,
+  loadState as loadGlobalState,
   setStatePersistenceFatalHandler,
 } from "../infra/storage/stateStore";
 import {
@@ -56,7 +56,7 @@ import { updateCachedIdentity } from "../users/senderIdentity";
 import { hydrateIdentityStorageCounts } from "../infra/identityStorage";
 import { validateExistingDeploymentInputs } from "../config/readiness";
 import { getAssetConfig } from "../config/assets";
-import { startMiniAppServer, stopMiniAppServer } from "../mini-app-api-server";
+import { loadMiniAppTotpRecord, startMiniAppServer, stopMiniAppServer } from "../mini-app-api-server";
 import { quiesceConfigReload, startConfigReload } from "./configReload";
 import { registerCommandMenu } from "./commandMenu";
 import { registerHandlers } from "./registerHandlers";
@@ -115,7 +115,10 @@ export const lifecycleDependencies = {
   initTranslate,
   initTelegramClients,
   loadPersistedData,
-  loadState,
+  loadState: async (): Promise<void> => {
+    await loadMiniAppTotpRecord();
+    await loadGlobalState();
+  },
   logger,
   monotonicNow: (): number => performance.now(),
   validateExistingDeploymentInputs,

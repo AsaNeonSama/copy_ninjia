@@ -188,13 +188,14 @@ describe("packages/states 纯度", () => {
 });
 
 describe("infra 不得向上依赖业务层", () => {
-  test("命令、AI、Anti-Raid 与 Worker 一律拦下", () => {
+  test("命令、AI、Anti-Raid、Mini App 与 Worker 一律拦下", () => {
     const problems = collectInfraLayeringProblems(params(
       "packages/infra/example.ts",
       'import { a } from "../commands/x";\nimport { b } from "../aiChat/workerBridge";\n' +
-      'import { c } from "../antiRaid/adDetect";\nimport { d } from "../workers/aiChat/x";'
+      'import { c } from "../antiRaid/adDetect";\nimport { d } from "../workers/aiChat/x";\n' +
+      'import { e } from "../mini-app-api-server/auth/totpStorage";'
     ));
-    expect(problems).toHaveLength(4);
+    expect(problems).toHaveLength(5);
     expect(problems[0]).toContain("inject the dependency instead");
   });
 

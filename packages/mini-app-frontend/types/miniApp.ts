@@ -160,9 +160,6 @@ export interface MiniAppChatBotPermissionsView {
   readonly grantedLabels: readonly string[];
 }
 
-/** `/batch_kick` 触发来源：群内 `/batch_kick` 命令或 Mini App HTTP API。 */
-export type BatchKickTriggerSource = "command" | "api";
-
 /** Mini App 触发的 `/batch_kick` 批次执行完成后由回调写入服务端的汇总结果。 */
 export interface MiniAppBatchKickCompletion {
   /** 本次清理回溯的小时数（`1..24`）。 */
@@ -219,7 +216,8 @@ export type MiniAppBatchKickOutcome =
   | "running"
   | "busy"
   | "unavailable"
-  | "notInitialized";
+  | "notInitialized"
+  | "notSupergroup";
 
 /** 群按回溯小时数批量清理新进群成员（`/batch_kick`）的响应结果。 */
 export interface MiniAppBatchKickResult {

@@ -1,5 +1,9 @@
 import { memo } from "react";
 import type React from "react";
+import {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_QUESTION_MAX_CHARS,
+} from "../consts/miniApp";
 import { readEventTargetValue, truncateDisplayText } from "../libs/formatters";
 import { CloseSvgIcon, PlusSvgIcon, TrashSvgIcon } from "../resource";
 import type { MiniAppChatsStoreState } from "../store/chats";
@@ -126,8 +130,10 @@ export function ChatTargetsQaEditorForm({
     submitQaPair,
   }: MiniAppChatsStoreState = state;
 
-  const qaQuestionMaxChars: number = chatTargets?.qaQuestionMaxChars ?? 256;
-  const qaAnswerMaxChars: number = chatTargets?.qaAnswerMaxChars ?? 3_840;
+  const qaQuestionMaxChars: number =
+    chatTargets?.qaQuestionMaxChars ?? CHAT_QA_QUESTION_MAX_CHARS;
+  const qaAnswerMaxChars: number =
+    chatTargets?.qaAnswerMaxChars ?? CHAT_QA_ANSWER_MAX_CHARS;
   const displayQuestion: string = useClosingSnapshot(
     qaQuestionInput,
     qaEditorOpen

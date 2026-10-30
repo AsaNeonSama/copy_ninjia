@@ -96,8 +96,8 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
   },
   "packages/infra/storage/statePersistence.ts": {
     "node:fs/promises": {
-      symbols: ["lstat", "mkdir"],
-      purpose: "distinguishing a truly missing state file from a dangling symbolic link, and creating the global state directory",
+      symbols: ["mkdir"],
+      purpose: "creating the global state directory",
     },
   },
   "packages/libs/atomicFile.ts": {
@@ -119,10 +119,16 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
       purpose: "startup file type and access-mode validation and optional-directory listing",
     },
   },
+  "packages/libs/inputValidation.ts": {
+    "node:fs/promises": {
+      symbols: ["lstat"],
+      purpose: "checking optional state and TOTP file metadata without following symbolic links",
+    },
+  },
   "packages/mini-app-api-server/auth/totpStorage.ts": {
     "node:fs/promises": {
-      symbols: ["lstat", "mkdir"],
-      purpose: "checking Mini App TOTP file metadata without following symbolic links and creating the memory/mini-app-totp directory",
+      symbols: ["mkdir"],
+      purpose: "creating the memory/mini-app-totp directory",
     },
   },
   "packages/workers/diskIO/adSampleFile.ts": {

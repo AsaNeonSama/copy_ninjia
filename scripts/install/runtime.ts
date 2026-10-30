@@ -1,6 +1,6 @@
 /** 安装器共用的路径、严格校验和建库入口；二进制发行时单独打包。 */
 export { RUNTIME_DATA_ROOT, IDENTITY_DATABASE_PATH } from "../../packages/consts/paths";
-import { IDENTITY_DATABASE_PATH } from "../../packages/consts/paths";
+import { IDENTITY_DATABASE_PATH, MINI_APP_TOTP_FILE_PATH } from "../../packages/consts/paths";
 import { IDENTITY_DATABASE_SCHEMA_VERSION } from "../../packages/consts/identityStorage";
 import { closeStorageDatabase, openStorageDatabase } from "../../packages/database/interact/connection";
 import { readStorageDatabaseSchemaMetadata } from "../../packages/database/interact/inspection";
@@ -13,6 +13,7 @@ import { MINI_APP_PASSWORD_PLACEHOLDER } from "../../packages/consts/miniApp";
 import { TELEGRAM_BOT_TOKEN_PLACEHOLDER } from "../../packages/consts/telegram";
 import { StateStore, loadCurrentGlobalState } from "../../packages/infra/storage/statePersistence";
 import { invalidInput, readJsonInput } from "../../packages/libs/inputValidation";
+import { readMiniAppTotpFile } from "../../packages/libs/miniAppTotpFile";
 import { isPlainRecord } from "../../packages/libs/record";
 import { inspectWedMemberFiles } from "../../packages/workers/diskIO/wedMemberFiles";
 import type { BotConfig } from "../../packages/types/config";
@@ -26,11 +27,13 @@ export async function validateExistingDeploymentInputs(): Promise<void> {
 }
 
 /**
- * 安装前按启动恢复同一口径只读校验全局状态：旧位置的状态文件（`LEGACY_STATE_FILE_PATHS`）
- * 存在，或 memory/global/state.json 不是当前格式时拒绝。
+ * 安装前按启动恢复同一口径只读校验全局状态与 Mini App TOTP 持久化文件：旧位置的状态文件
+ * （`LEGACY_STATE_FILE_PATHS`）存在，或 `memory/global/state.json`、`memory/mini-app-totp/totp.json`
+ * 不是当前格式时拒绝。
  */
 export async function assertStateFilesMigrated(): Promise<void> {
   await loadCurrentGlobalState(new StateStore());
+  await readMiniAppTotpFile(MINI_APP_TOTP_FILE_PATH);
 }
 
 /**

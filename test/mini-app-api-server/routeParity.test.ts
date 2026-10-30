@@ -1,7 +1,7 @@
 /**
- * Mini App 服务端两条入口：`Bun.serve` 原生路由表（`routes/` 各领域片段）与未命中时的兜底分发
- * （`handleMiniAppHttpRequest`）对每条已登记路由的同一请求给出相同的状态码与内容类型；兜底分发的子路径
- * 重定向、跨站拦截与未命中路由的 404。
+ * Mini App 服务端路由一致性测试：
+ * - 从 `createMiniAppBunRoutes()` 的键自动展开全部路由与方法，核对根路径部署、`/sub` 子路径前缀（原生前缀键）与剥离前缀转发三种请求的状态码与内容类型完全一致；
+ * - 核对跨站拦截、子路径 `308` 补齐斜杠、未命中路由 `404` 以及方法不匹配时的「先鉴权后 404」。
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -46,11 +46,19 @@ const {
 } = await import("../../packages/consts/miniApp");
 const { MINI_APP_TOTP_MEMORY_DIR } = await import("../../packages/consts/paths");
 const {
-  handleMiniAppHttpRequest,
+  createMiniAppBunRoutes,
   issueMiniAppAuthSession,
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
+
+/** 自动展开的单条路由方法测试样例。 */
+interface ExpandedRouteCase {
+  readonly routePattern: string;
+  readonly method: string;
+  readonly samplePath: string;
+  readonly body: string | undefined;
+}
 
 /**
  * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟有效密码会话的测试请求头。
@@ -68,63 +76,151 @@ function superAdminHeaders(): Record<string, string> {
   };
 }
 
+/**
+ * 从根路径 `createMiniAppBunRoutes()` 的键集合自动展开全部路由与 HTTP 方法样例。
+ * @param routes 根路径下的 `Bun.serve` 原生路由定义对象。
+ * @returns 展开后的路由方法测试样例列表。
+ */
+function expandRouteCases(
+  routes: Bun.Serve.Routes<undefined, string>
+): readonly Readonly<ExpandedRouteCase>[] {
+  const cases: ExpandedRouteCase[] = [];
+  for (const [routePattern, entry] of Object.entries(routes)) {
+    if (
+      routePattern === "/_bundle" ||
+      entry === undefined ||
+      typeof entry !== "object" ||
+      entry === null ||
+      entry instanceof Response
+    ) {
+      continue;
+    }
+    const resolvedBase: string = routePattern
+      .replace(":chatId", "-1001")
+      .replace(":fileName", "a.png");
+    if (resolvedBase.includes(":")) {
+      throw new Error(`Unhandled route parameter placeholder in ${routePattern}`);
+    }
+    const samplePath: string =
+      routePattern === "/api/picker/result"
+        ? `${resolvedBase}?requestId=1`
+        : resolvedBase;
+    for (const method of Object.keys(entry)) {
+      let body: string | undefined;
+      if (method === "POST") {
+        if (routePattern === "/api/auth/login") {
+          body = JSON.stringify({ password: "test-mini-app-password" });
+        } else if (
+          routePattern !== "/api/totp/setup" &&
+          routePattern !== "/api/totp/delete" &&
+          routePattern !== "/api/gallery/upload"
+        ) {
+          body = "{}";
+        }
+      }
+      cases.push({
+        routePattern,
+        method,
+        samplePath,
+        body,
+      });
+    }
+  }
+  return cases;
+}
+
 afterEach(async (): Promise<void> => {
   await stopMiniAppServer();
   rmSync(MINI_APP_TOTP_MEMORY_DIR, { recursive: true, force: true });
   miniAppAuthSessions.clear();
 });
 
-describe("Mini App 原生路由表与兜底分发", () => {
-  test("Bun.serve 原生路由表与兜底分发对每条已登记路由给出相同的状态码与内容类型", async () => {
-    const server = startMiniAppServer({
+describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
+  test("从 createMiniAppBunRoutes() 自动展开全部路由：根路径、/sub 前缀与剥离前缀转发三种请求的状态码与内容类型一致", async () => {
+    const rootServer = startMiniAppServer({
       url: "https://miniapp.example.com",
+      host: "127.0.0.1",
+      port: 0,
+      password: "test-mini-app-password",
+    });
+    expect(rootServer).not.toBeNull();
+    const rootBase: string = `http://127.0.0.1:${rootServer!.port}`;
+    const rootRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
+    const cases: readonly Readonly<ExpandedRouteCase>[] = expandRouteCases(rootRoutes);
+    expect(cases.length).toBeGreaterThanOrEqual(35);
+
+    const rootOutcomes = new Map<
+      string,
+      { readonly status: number; readonly contentType: string | null }
+    >();
+    for (const routeCase of cases) {
+      const res: Response = await fetch(`${rootBase}${routeCase.samplePath}`, {
+        method: routeCase.method,
+        headers: superAdminHeaders(),
+        body: routeCase.body,
+      });
+      rootOutcomes.set(`${routeCase.method} ${routeCase.samplePath}`, {
+        status: res.status,
+        contentType: res.headers.get("content-type"),
+      });
+      await res.arrayBuffer();
+    }
+
+    await stopMiniAppServer();
+
+    const subServer = startMiniAppServer({
+      url: "https://miniapp.example.com/sub",
+      host: "127.0.0.1",
+      port: 0,
+      password: "test-mini-app-password",
+    });
+    expect(subServer).not.toBeNull();
+    const subBase: string = `http://127.0.0.1:${subServer!.port}`;
+    const subRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
+    for (const routeKey of Object.keys(rootRoutes)) {
+      expect(routeKey in subRoutes).toBeTrue();
+      if (routeKey === "/_bundle") {
+        expect("/sub/_bundle" in subRoutes).toBeFalse();
+      } else {
+        const expectedPrefixedKey: string = routeKey === "/" ? "/sub/" : `/sub${routeKey}`;
+        expect(expectedPrefixedKey in subRoutes).toBeTrue();
+      }
+    }
+
+    for (const routeCase of cases) {
+      const key: string = `${routeCase.method} ${routeCase.samplePath}`;
+      const expected = rootOutcomes.get(key)!;
+      const prefixedPath: string = `/sub${routeCase.samplePath}`;
+
+      const prefixedRes: Response = await fetch(`${subBase}${prefixedPath}`, {
+        method: routeCase.method,
+        headers: superAdminHeaders(),
+        body: routeCase.body,
+      });
+      const strippedRes: Response = await fetch(`${subBase}${routeCase.samplePath}`, {
+        method: routeCase.method,
+        headers: superAdminHeaders(),
+        body: routeCase.body,
+      });
+      expect(`${key} prefixed:${prefixedRes.status}`).toBe(`${key} prefixed:${expected.status}`);
+      expect(`${key} stripped:${strippedRes.status}`).toBe(`${key} stripped:${expected.status}`);
+      expect(prefixedRes.headers.get("content-type")).toBe(expected.contentType);
+      expect(strippedRes.headers.get("content-type")).toBe(expected.contentType);
+      await prefixedRes.arrayBuffer();
+      await strippedRes.arrayBuffer();
+    }
+  });
+
+  test("跨站请求在每条鉴权链首位被拒，兜底分发补齐子路径斜杠、未知路径返回 404，且方法不匹配遵循先鉴权后 404", async () => {
+    const server = startMiniAppServer({
+      url: "https://miniapp.example.com/sub",
       host: "127.0.0.1",
       port: 0,
       password: "test-mini-app-password",
     });
     expect(server).not.toBeNull();
     const base: string = `http://127.0.0.1:${server!.port}`;
-    const cases: readonly (readonly [string, string, string?])[] = [
-      ["GET", "/healthz"], ["HEAD", "/healthz"], ["GET", "/"], ["HEAD", "/"],
-      ["GET", "/index.html"], ["HEAD", "/index.html"], ["GET", "/favicon.ico"], ["HEAD", "/favicon.ico"],
-      ["GET", "/api/auth/precheck"], ["POST", "/api/auth/login", JSON.stringify({ password: "test-mini-app-password" })],
-      ["GET", "/api/totp"], ["POST", "/api/totp/setup"], ["POST", "/api/totp/enable", "{}"],
-      ["POST", "/api/totp/delete"], ["DELETE", "/api/totp"],
-      ["GET", "/api/status"], ["GET", "/api/mood"], ["POST", "/api/mood/switch", "{}"],
-      ["GET", "/api/chats"], ["GET", "/api/chats/-1001"], ["GET", "/api/chats/-1001/messages"],
-      ["GET", "/api/chats/-1001/targets"], ["POST", "/api/chats/-1001/targets", "{}"],
-      ["POST", "/api/chats/-1001/feature", "{}"], ["POST", "/api/chats/-1001/batch-kick", "{}"],
-      ["GET", "/api/identities/whitelist"], ["POST", "/api/identities/whitelist", "{}"],
-      ["GET", "/api/identities/blocklist"], ["POST", "/api/identities/blocklist", "{}"],
-      ["POST", "/api/identities/permission", "{}"], ["POST", "/api/picker/prepare", "{}"],
-      ["GET", "/api/picker/result?requestId=1"],
-      ["GET", "/api/gallery"], ["POST", "/api/gallery/upload"], ["POST", "/api/gallery/delete", "{}"],
-      ["GET", "/api/gallery/file/a.png"], ["HEAD", "/api/gallery/file/a.png"], ["DELETE", "/api/gallery/file/a.png"],
-      ["GET", "/api/gallery/download/a.png"], ["HEAD", "/api/gallery/download/a.png"],
-    ];
-    for (const [method, path, body] of cases) {
-      const nativeRes: Response = await fetch(`${base}${path}`, {
-        method,
-        headers: superAdminHeaders(),
-        body,
-      });
-      const fallbackRes: Response = await handleMiniAppHttpRequest(
-        new Request(`http://127.0.0.1:3000${path}`, { method, headers: superAdminHeaders(), body })
-      );
-      expect(`${method} ${path} ${nativeRes.status}`).toBe(`${method} ${path} ${fallbackRes.status}`);
-      expect(nativeRes.headers.get("content-type")).toBe(fallbackRes.headers.get("content-type"));
-      await nativeRes.arrayBuffer();
-      await fallbackRes.arrayBuffer();
-    }
-  });
 
-  test("跨站请求在每条鉴权链首位被拒，兜底分发补齐子路径斜杠并对未命中路由返回 404", async () => {
-    expect(startMiniAppServer({
-      url: "https://miniapp.example.com/sub",
-      host: "127.0.0.1",
-      port: 0,
-      password: "test-mini-app-password",
-    })).not.toBeNull();
     const crossSitePaths: readonly string[] = [
       "/sub/api/auth/precheck",
       "/sub/api/status",
@@ -132,14 +228,16 @@ describe("Mini App 原生路由表与兜底分发", () => {
       "/sub/api/gallery/download/a.png",
     ];
     for (const path of crossSitePaths) {
-      const res: Response = await handleMiniAppHttpRequest(new Request(`http://127.0.0.1:3000${path}`, {
+      const res: Response = await fetch(`${base}${path}`, {
         headers: { ...superAdminHeaders(), "sec-fetch-site": "cross-site" },
-      }));
+      });
       expect(`${path} ${res.status}`).toBe(`${path} 403`);
       expect(((await res.json()) as { readonly code: string }).code).toBe("CROSS_SITE_FORBIDDEN");
     }
 
-    const redirect: Response = await handleMiniAppHttpRequest(new Request("http://127.0.0.1:3000/sub?tgWebAppStartParam=1"));
+    const redirect: Response = await fetch(`${base}/sub?tgWebAppStartParam=1`, {
+      redirect: "manual",
+    });
     expect(redirect.status).toBe(308);
     expect(redirect.headers.get("location")).toBe("/sub/?tgWebAppStartParam=1");
 
@@ -149,11 +247,31 @@ describe("Mini App 原生路由表与兜底分发", () => {
       ["/sub/api/unknown", "API route not found"],
     ];
     for (const [path, error] of notFoundCases) {
-      const res: Response = await handleMiniAppHttpRequest(new Request(`http://127.0.0.1:3000${path}`, {
+      const res: Response = await fetch(`${base}${path}`, {
         headers: superAdminHeaders(),
-      }));
+      });
       expect(`${path} ${res.status}`).toBe(`${path} 404`);
       expect(await res.json()).toEqual({ error });
+    }
+
+    // 方法不匹配 → 先鉴权（未认证 401）后 404（已认证 404）。
+    const methodMismatchCases: readonly (readonly [string, string, string])[] = [
+      ["DELETE", "/sub/api/status", "API route not found"],
+      ["POST", "/sub/api/chats", "API route not found"],
+      ["POST", "/sub/api/gallery/file/a.png", "Resource not found"],
+      ["POST", "/sub/api/gallery/download/a.png", "API route not found"],
+    ];
+    for (const [method, path, expectedError] of methodMismatchCases) {
+      const unauthRes: Response = await fetch(`${base}${path}`, { method });
+      expect(`${method} ${path} unauth:${unauthRes.status}`).toBe(`${method} ${path} unauth:401`);
+      expect(((await unauthRes.json()) as { readonly code: string }).code).toBe("MISSING_INIT_DATA");
+
+      const authRes: Response = await fetch(`${base}${path}`, {
+        method,
+        headers: superAdminHeaders(),
+      });
+      expect(`${method} ${path} auth:${authRes.status}`).toBe(`${method} ${path} auth:404`);
+      expect(await authRes.json()).toEqual({ error: expectedError });
     }
 
     const headers: Record<string, string> = superAdminHeaders();
@@ -171,25 +289,21 @@ describe("Mini App 原生路由表与兜底分发", () => {
       ["/sub/api/auth/precheck", { [MINI_APP_INIT_DATA_HEADER]: "foo=bar" }, 401, "MALFORMED_INIT_DATA"],
     ];
     for (const [path, reqHeaders, expectedStatus, expectedCode] of rejectedCases) {
-      const res: Response = await handleMiniAppHttpRequest(
-        new Request(`http://127.0.0.1:3000${path}`, { headers: reqHeaders })
-      );
+      const res: Response = await fetch(`${base}${path}`, { headers: reqHeaders });
       expect(res.status).toBe(expectedStatus);
       expect(((await res.json()) as { readonly code: string }).code).toBe(expectedCode);
     }
 
-    const sameOriginRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/sub/api/auth/precheck", {
-        headers: {
-          ...headers,
-          origin: "https://miniapp.example.com",
-          referer: "https://miniapp.example.com/sub/",
-          "sec-fetch-site": "same-origin",
-          "sec-fetch-mode": "cors",
-          "sec-fetch-dest": "empty",
-        },
-      })
-    );
+    const sameOriginRes: Response = await fetch(`${base}/sub/api/auth/precheck`, {
+      headers: {
+        ...headers,
+        origin: "https://miniapp.example.com",
+        referer: "https://miniapp.example.com/sub/",
+        "sec-fetch-site": "same-origin",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-dest": "empty",
+      },
+    });
     expect(sameOriginRes.status).toBe(200);
   });
 });

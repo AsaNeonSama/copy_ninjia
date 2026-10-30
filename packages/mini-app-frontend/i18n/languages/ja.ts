@@ -122,6 +122,10 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         return "このグループの個別チャット代送 (/send finish) を停止したわ。";
       case "INVALID_BATCH_KICK_PARAMS":
         return "パラメータが不正よ：1〜24 の整数時間 hours が必要よ。";
+      case "CHAT_NOT_SUPERGROUP":
+        return "/batch_kick 一括整理はスーパーグループ専用よ（通常グループでは unbanChatMember で在籍メンバーを蹴れないの）♡";
+      case "CHAT_KIND_UNAVAILABLE":
+        return "Telegram からこのグループがスーパーグループか確認できなかったわ。今回は処理せず終了したから後でやり直しなさい。";
       case "BATCH_KICK_RUNNING":
         return "このグループでは前回の一括整理がまだバックグラウンドで処理中よ、結果が出てからにしなさい♡";
       case "JOIN_LOG_UNAVAILABLE":

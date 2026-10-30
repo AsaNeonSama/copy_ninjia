@@ -231,4 +231,43 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
     const page4 = await listWhitelistEntries({ page: 1, pageSize: 20 });
     expect(page4.items.some((item) => item.id === pendingId)).toBeTrue();
   });
+
+  test("名单搜索支持 @ 前缀、纯数字 ID 与仅命中用户名三种情形（忽略大小写）", async () => {
+    whitelistRows.set(3001, JSON.stringify({
+      permissions: DEFAULT_WHITELIST_PERMISSIONS,
+      meta: { firstName: "AlphaDisplay", lastName: "", username: "secret_handle" },
+    }));
+    whitelistRows.set(3002, JSON.stringify({
+      permissions: DEFAULT_WHITELIST_PERMISSIONS,
+      meta: { firstName: "BetaDisplay", lastName: "", username: "" },
+    }));
+    blocklistRows.set(4001, JSON.stringify({
+      blockedAt: "2026/10/27 00:00:00",
+      meta: { firstName: "GammaDisplay", lastName: "", username: "raid_channel" },
+    }));
+
+    // 1. @ 前缀搜索：命中 username 或剥离 @ 后的 displayName
+    const byAtUsername = await listWhitelistEntries({ query: "@SECRET_HANDLE" });
+    expect(byAtUsername.items.map((item) => item.id)).toEqual([3001]);
+
+    const byAtDisplayName = await listWhitelistEntries({ query: "@betadisplay" });
+    expect(byAtDisplayName.items.map((item) => item.id)).toEqual([3002]);
+
+    const blockByAtUsername = await listBlocklistEntries({ query: "@RAID_CHANNEL" });
+    expect(blockByAtUsername.items.map((item) => item.id)).toEqual([4001]);
+
+    // 2. 纯数字 ID 搜索：displayName 与 username 均不含该数字串时仍按 ID 命中
+    const byPureId = await listWhitelistEntries({ query: "3002" });
+    expect(byPureId.items.map((item) => item.id)).toEqual([3002]);
+
+    const blockByPureId = await listBlocklistEntries({ query: "4001" });
+    expect(blockByPureId.items.map((item) => item.id)).toEqual([4001]);
+
+    // 3. 仅命中用户名（不带 @，且 displayName 不包含该子串）
+    const byUsernameOnly = await listWhitelistEntries({ query: "secret_handle" });
+    expect(byUsernameOnly.items.map((item) => item.id)).toEqual([3001]);
+
+    const blockByUsernameOnly = await listBlocklistEntries({ query: "raid_channel" });
+    expect(blockByUsernameOnly.items.map((item) => item.id)).toEqual([4001]);
+  });
 });

@@ -8,6 +8,7 @@ import {
   MINI_APP_TOTP_SECRET_PATTERN,
   MINI_APP_TOTP_STEP_SECONDS,
 } from "../consts/miniAppTotp";
+import { timingSafeStringEqual } from "./digestEqual";
 
 /**
  * 将字节数组编码为无填充的 RFC 4648 大写 Base32 字符串。
@@ -141,13 +142,10 @@ export function verifyMiniAppTotpCode(
   if (!MINI_APP_TOTP_CODE_PATTERN.test(normalizedCode)) {
     return false;
   }
-  const inputDigest: Uint8Array = new Bun.CryptoHasher("sha256")
-    .update(normalizedCode, "utf8")
-    .digest();
-  const expectedDigest: Uint8Array = new Bun.CryptoHasher("sha256")
-    .update(generateMiniAppTotpCodeAt(secret, nowMs), "utf8")
-    .digest();
-  return crypto.timingSafeEqual(inputDigest, expectedDigest);
+  return timingSafeStringEqual(
+    normalizedCode,
+    generateMiniAppTotpCodeAt(secret, nowMs)
+  );
 }
 
 /**

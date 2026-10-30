@@ -3,35 +3,31 @@ import {
   MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
   MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
 } from "../../consts/miniApp";
-import type { MiniAppRouteContext, MiniAppRouteMatch } from "../../types/miniApp";
+import type { MiniAppRouteContext } from "../../types/miniApp";
 import { buildNoStoreHeaders, jsonResponse } from "../libs/response";
-import { normalizeRoutePathname } from "../libs/routePath";
+import { configuredBasePathname, normalizeRoutePathname } from "../libs/routePath";
 import type { NormalizedRoutePath } from "../libs/routePath";
 import {
-  getMiniAppApiAuthMiddlewareChain,
-  getMiniAppProtectedAssetMiddlewareChain,
+  MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+  MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN,
 } from "../middleware/chains";
 import { executeMiniAppMiddlewareChain } from "../middleware/pipeline";
-import { createAuthBunRoutes, dispatchAuthRoute } from "../routes/auth";
-import { createChatsBunRoutes, dispatchChatsApiRoute } from "../routes/chats";
-import {
-  createGalleryBunRoutes,
-  dispatchGalleryApiRoute,
-  dispatchGalleryDownloadRoute,
-  dispatchGalleryFileRoute,
-} from "../routes/gallery";
-import { createIdentitiesBunRoutes, dispatchIdentitiesApiRoute } from "../routes/identities";
-import { createPageBunRoutes, dispatchBundleAssetRoute, dispatchPageRoute } from "../routes/page";
-import { createStatusBunRoutes, dispatchStatusApiRoute } from "../routes/status";
-import { createTotpBunRoutes, dispatchTotpApiRoute } from "../routes/totp";
+import { createAuthBunRoutes } from "../routes/auth";
+import { createChatsBunRoutes } from "../routes/chats";
+import { createGalleryBunRoutes } from "../routes/gallery";
+import { createIdentitiesBunRoutes } from "../routes/identities";
+import { createPageBunRoutes, dispatchBundleAssetRoute } from "../routes/page";
+import { createStatusBunRoutes } from "../routes/status";
+import { createTotpBunRoutes } from "../routes/totp";
 import indexHtml from "../../mini-app-frontend/index.html";
 
 /**
- * 合并各领域路由表片段（`routes/` 目录）为传给 `Bun.serve({ routes })` 的原生路由表；所有业务 API 与资源路由均由前置中间件链包装。
+ * 合并各领域路由表片段（`routes/` 目录）为传给 `Bun.serve({ routes })` 的原生路由表；
+ * 当 `mini_app.url` 配置了子路径前缀（`basePath !== "/"`）时，为除 `/_bundle` 外的每条路由同步注册 `${basePath}` 前缀别名（`/` 对应 `${basePath}/`），同时覆盖反向代理保留前缀与剥离前缀两种转发模式。
  * @returns `Bun.serve` 原生路由定义对象。
  */
 export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
-  return {
+  const baseRoutes: Bun.Serve.Routes<undefined, string> = {
     ...createPageBunRoutes(indexHtml),
     ...createAuthBunRoutes(),
     ...createTotpBunRoutes(),
@@ -40,6 +36,16 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
     ...createIdentitiesBunRoutes(),
     ...createGalleryBunRoutes(),
   };
+  const basePath: string = configuredBasePathname();
+  if (basePath === "/") return baseRoutes;
+
+  const routes: Bun.Serve.Routes<undefined, string> = { ...baseRoutes };
+  for (const [routeKey, routeValue] of Object.entries(baseRoutes)) {
+    if (routeKey === "/_bundle" || routeValue === undefined) continue;
+    const prefixedKey: string = routeKey === "/" ? `${basePath}/` : `${basePath}${routeKey}`;
+    routes[prefixedKey] = routeValue;
+  }
+  return routes;
 }
 
 /**
@@ -58,9 +64,8 @@ function isProtectedMiniAppAssetPath(routePath: string): boolean {
 }
 
 /**
- * 处理未命中原生路由表的请求（`mini_app.url` 子路径前缀、方法不匹配或未知路径），按以下顺序兜底分发：
- * 公开页面 → 打包入口静态资源 → 预检与登录 → 图库附件下载 → 受保护图库图片资源 → 业务 API（状态与情绪、TOTP、图库、受管群、名单与选择器）；
- * 每类均经与原生路由表相同的前置中间件链（跨站拦截、浏览器直接导航拦截、Telegram WebApp 超管签名与会话校验）。
+ * 处理未命中 `Bun.serve` 原生路由表的请求（子路径末尾斜杠重定向、携带子路径前缀的本地打包静态资源、方法不匹配或未知路径），按以下顺序兜底：
+ * `${basePath}` 的 `308` 补斜杠 → 子路径打包静态资源回环读取 → 受保护图片后缀路径经受保护资源鉴权链后返回 404 → 非 `/api/` 未知路径返回 404 → `/api/` 下未知路径或方法不匹配经完整双层业务 API 鉴权链后返回 404。
  * @param request 传入的 HTTP `Request`。
  * @returns 完整的 HTTP `Response`。
  */
@@ -87,20 +92,14 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     params: {},
   };
 
-  const preApiResponse: MiniAppRouteMatch =
-    dispatchPageRoute(ctx, indexHtml) ??
-    (await dispatchBundleAssetRoute(ctx)) ??
-    dispatchAuthRoute(ctx) ??
-    dispatchGalleryDownloadRoute(ctx);
-  if (preApiResponse !== null) return preApiResponse;
+  const bundleAssetResponse: Response | null = await dispatchBundleAssetRoute(ctx);
+  if (bundleAssetResponse !== null) return bundleAssetResponse;
 
   if (method !== "DELETE" && isProtectedMiniAppAssetPath(routePath)) {
     return executeMiniAppMiddlewareChain(
       ctx,
-      getMiniAppProtectedAssetMiddlewareChain(),
-      (routeCtx: Readonly<MiniAppRouteContext>): Response | Promise<Response> =>
-        dispatchGalleryFileRoute(routeCtx) ??
-        jsonResponse({ error: "Resource not found" }, 404)
+      MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN,
+      (): Response => jsonResponse({ error: "Resource not found" }, 404)
     );
   }
 
@@ -110,13 +109,7 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
 
   return executeMiniAppMiddlewareChain(
     ctx,
-    getMiniAppApiAuthMiddlewareChain(),
-    (routeCtx: Readonly<MiniAppRouteContext>): Response | Promise<Response> =>
-      dispatchStatusApiRoute(routeCtx) ??
-      dispatchTotpApiRoute(routeCtx) ??
-      dispatchGalleryApiRoute(routeCtx) ??
-      dispatchChatsApiRoute(routeCtx) ??
-      dispatchIdentitiesApiRoute(routeCtx) ??
-      jsonResponse({ error: "API route not found" }, 404)
+    MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    (): Response => jsonResponse({ error: "API route not found" }, 404)
   );
 }

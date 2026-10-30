@@ -7,9 +7,12 @@
 
 import { describe, expect, test } from "bun:test";
 import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
+import * as serverDeleteMessageConsts from "../../packages/consts/deleteMessage";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
 import { MINI_APP_FAVICON_PATH } from "../../packages/consts/paths";
+import * as serverQaConsts from "../../packages/consts/qa";
 import * as serverTimeConsts from "../../packages/consts/time";
+import * as serverTranslateConsts from "../../packages/consts/translate";
 import * as serverWhitelistConsts from "../../packages/consts/whitelist";
 import { errorMessage as serverErrorMessage } from "../../packages/libs/errorMessage";
 import * as frontendMemoryConsts from "../../packages/mini-app-frontend/consts/memory";
@@ -45,7 +48,6 @@ const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppChatFeatureFlags: true satisfies Exact<FrontendMiniApp.MiniAppChatFeatureFlags, ServerMiniApp.MiniAppChatFeatureFlags>,
   MiniAppChatSummary: true satisfies Exact<FrontendMiniApp.MiniAppChatSummary, ServerMiniApp.MiniAppChatSummary>,
   MiniAppChatBotPermissionsView: true satisfies Exact<FrontendMiniApp.MiniAppChatBotPermissionsView, ServerMiniApp.MiniAppChatBotPermissionsView>,
-  BatchKickTriggerSource: true satisfies Exact<FrontendMiniApp.BatchKickTriggerSource, ServerMiniApp.BatchKickTriggerSource>,
   MiniAppBatchKickCompletion: true satisfies Exact<FrontendMiniApp.MiniAppBatchKickCompletion, ServerMiniApp.MiniAppBatchKickCompletion>,
   MiniAppChatDetail: true satisfies Exact<FrontendMiniApp.MiniAppChatDetail, ServerMiniApp.MiniAppChatDetail>,
   MiniAppFeatureToggleResult: true satisfies Exact<FrontendMiniApp.MiniAppFeatureToggleResult, ServerMiniApp.MiniAppFeatureToggleResult>,
@@ -103,6 +105,11 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS).toBe(serverMiniAppConsts.MINI_APP_BATCH_KICK_MAX_HOURS);
     expect(frontendMiniAppConsts.MINI_APP_FEATURE_KEYS).toEqual(serverMiniAppConsts.MINI_APP_FEATURE_KEYS);
     expect(frontendMiniAppConsts.MINI_APP_TRANSLATE_LANGUAGES).toEqual(serverMiniAppConsts.MINI_APP_TRANSLATE_LANGUAGES);
+    expect(frontendMiniAppConsts.CHAT_QA_MAX_PER_CHAT).toBe(serverQaConsts.CHAT_QA_MAX_PER_CHAT);
+    expect(frontendMiniAppConsts.CHAT_QA_QUESTION_MAX_CHARS).toBe(serverQaConsts.CHAT_QA_QUESTION_MAX_CHARS);
+    expect(frontendMiniAppConsts.CHAT_QA_ANSWER_MAX_CHARS).toBe(serverQaConsts.CHAT_QA_ANSWER_MAX_CHARS);
+    expect(frontendMiniAppConsts.DELETE_MESSAGE_CHAT_TARGET_MAX).toBe(serverDeleteMessageConsts.DELETE_MESSAGE_CHAT_TARGET_MAX);
+    expect(frontendMiniAppConsts.TRANSLATE_CHAT_USER_LIMIT).toBe(serverTranslateConsts.TRANSLATE_CHAT_USER_LIMIT);
     expect(frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS).toEqual(serverWhitelistConsts.WHITELIST_PERMISSION_KEYS);
     expect(frontendMemoryConsts.VERBATIM_CONTEXT_MAX).toBe(serverMemoryConsts.VERBATIM_CONTEXT_MAX);
     expect(frontendTimeConsts.MINUTE_MS).toBe(serverTimeConsts.MINUTE_MS);
@@ -158,9 +165,7 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     const inlineScriptMatch: RegExpMatchArray | null = htmlText.match(/<script>([\s\S]*?)<\/script>/u);
     expect(inlineScriptMatch).not.toBeNull();
     const scriptBody: string = inlineScriptMatch?.[1] ?? "";
-    const scriptSha256Base64: string = new Bun.CryptoHasher("sha256")
-      .update(scriptBody, "utf8")
-      .digest("base64");
+    const scriptSha256Base64: string = Bun.SHA256.hash(scriptBody, "base64");
     expect(serverMiniAppConsts.MINI_APP_CSP_HEADER_VALUE).toContain(
       `'sha256-${scriptSha256Base64}'`
     );

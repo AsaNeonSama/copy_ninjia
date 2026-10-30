@@ -76,13 +76,6 @@ export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: RegExp =
   /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
 /**
- * `/api/chats/:chatId` 及其子路径（`feature` / `messages` / `batch-kick` / `targets`）的匹配规则。
- * 不变量：不带全局标志 `g`，供 HTTP 路由兜底解析无状态复用。所属模块：`packages/mini-app-api-server/routes/chats.ts`。
- */
-export const MINI_APP_CHAT_ROUTE_PATTERN: RegExp =
-  /^\/api\/chats\/(-?\d+)(?:\/(feature|messages|batch-kick|targets))?$/u;
-
-/**
  * Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。
  * 不变量：所有 `/api/*` 鉴权统一读取该请求头。所属模块：`packages/mini-app-api-server/libs/request.ts`。
  */
@@ -222,14 +215,14 @@ export const MINI_APP_GALLERY_MAX_PAGE_SIZE: number = 20;
 
 /**
  * `/api/gallery/file/:fileName` 图库单张图片读取路由的匹配规则。
- * 不变量：不带全局标志 `g`，供 HTTP 路由兜底解析无状态复用。所属模块：`packages/mini-app-api-server/routes/gallery.ts` 与 `packages/mini-app-api-server/server/register.ts`。
+ * 不变量：不带全局标志 `g`，供受保护资源路径判定无状态复用。所属模块：`packages/mini-app-api-server/server/register.ts`。
  */
 export const MINI_APP_GALLERY_FILE_ROUTE_PATTERN: RegExp =
   /^\/api\/gallery\/file\/([^/]+)$/u;
 
 /**
  * `/api/gallery/download/:fileName` 图库单张图片附件下载路由的匹配规则。
- * 不变量：不带全局标志 `g`，供 HTTP 路由兜底分发与受保护资源路径判定无状态复用。所属模块：`packages/mini-app-api-server/routes/gallery.ts` 与 `packages/mini-app-api-server/server/register.ts`。
+ * 不变量：不带全局标志 `g`，供受保护资源路径判定排除附件下载路由无状态复用。所属模块：`packages/mini-app-api-server/server/register.ts`。
  */
 export const MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN: RegExp =
   /^\/api\/gallery\/download\/([^/]+)$/u;

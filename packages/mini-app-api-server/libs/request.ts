@@ -2,10 +2,8 @@ import {
   MINI_APP_INIT_DATA_HEADER, MINI_APP_MAX_JSON_BODY_BYTES, MINI_APP_SESSION_HEADER,
   MINI_APP_SIGNED_INTEGER_PATTERN, MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
+import { readBoundedResponseText } from "../../libs/boundedResponse";
 import { isPlainRecord } from "../../libs/record";
-
-/** 模块级复用的无状态 UTF-8 编码器，用于计算请求体字节数。 */
-const BODY_TEXT_ENCODER: TextEncoder = new TextEncoder();
 
 /**
  * 校验并归一化单个候选客户端 IP 字符串（过滤空串与回环地址）。
@@ -122,14 +120,17 @@ export function extractSessionToken(
 }
 
 /**
- * 读取并严格解析有界大小的 JSON 请求体对象。
+ * 流式有界读取并严格解析 JSON 请求体对象。
  * @param request HTTP 请求。
  * @returns 解析成功时返回普通对象，超出体积上限或非对象 JSON 时返回 `null`。
  */
 export async function readJsonObjectBody(request: Request): Promise<Record<string, unknown> | null> {
   try {
-    const text: string = await request.text();
-    if (BODY_TEXT_ENCODER.encode(text).byteLength > MINI_APP_MAX_JSON_BODY_BYTES) return null;
+    const text: string | null = await readBoundedResponseText(
+      request,
+      MINI_APP_MAX_JSON_BODY_BYTES
+    );
+    if (text === null) return null;
     const parsed: unknown = JSON.parse(text);
     return isPlainRecord(parsed) ? parsed : null;
   } catch (_error: unknown) {

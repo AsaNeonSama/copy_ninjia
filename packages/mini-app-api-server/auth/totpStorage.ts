@@ -1,5 +1,4 @@
-import { lstat, mkdir } from "node:fs/promises";
-import type { Stats } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import {
   miniAppPendingTotpSetupHolder,
   miniAppTotpRecordHolder,
@@ -8,7 +7,6 @@ import { MINI_APP_PASSWORD_MAX_ATTEMPTS } from "../../consts/miniApp";
 import {
   MINI_APP_TOTP_PENDING_TTL_MS,
   MINI_APP_TOTP_RECORD_VERSION,
-  MINI_APP_TOTP_SECRET_PATTERN,
 } from "../../consts/miniAppTotp";
 import {
   MINI_APP_TOTP_FILE_PATH,
@@ -23,8 +21,8 @@ import {
   maskMiniAppTotpSecret,
   verifyMiniAppTotpCode,
 } from "../../libs/miniAppTotp";
+import { readMiniAppTotpFile } from "../../libs/miniAppTotpFile";
 import { renderQrCodeSvg } from "../../libs/qrcodeSvg";
-import { isPlainRecord } from "../../libs/record";
 import type {
   MiniAppPendingTotpSetup,
   MiniAppTotpMutationResponse,
@@ -32,47 +30,6 @@ import type {
   MiniAppTotpSetupResponse,
   MiniAppTotpStatusView,
 } from "../../types/miniAppTotp";
-
-/**
- * 解析并严格校验 `totp.json` 的 JSON 文本结构。
- * @param rawText 原始 JSON 文本。
- * @returns 校验通过时返回只读记录对象，非法时返回 `null`。
- */
-function parseMiniAppTotpRecord(
-  rawText: string
-): Readonly<MiniAppTotpRecord> | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch (_error: unknown) {
-    return null;
-  }
-  if (!isPlainRecord(parsed)) return null;
-  for (const key of Object.keys(parsed)) {
-    if (key !== "version" && key !== "secret" && key !== "createdAt") {
-      return null;
-    }
-  }
-  if (parsed.version !== MINI_APP_TOTP_RECORD_VERSION) return null;
-  if (
-    typeof parsed.secret !== "string" ||
-    !MINI_APP_TOTP_SECRET_PATTERN.test(parsed.secret)
-  ) {
-    return null;
-  }
-  if (
-    typeof parsed.createdAt !== "number" ||
-    !Number.isSafeInteger(parsed.createdAt) ||
-    parsed.createdAt <= 0
-  ) {
-    return null;
-  }
-  return {
-    version: MINI_APP_TOTP_RECORD_VERSION,
-    secret: parsed.secret,
-    createdAt: parsed.createdAt,
-  };
-}
 
 /**
  * 将内部 TOTP 记录转换为脱敏的前端状态视图。
@@ -97,7 +54,7 @@ export function toMiniAppTotpStatusView(
 }
 
 /**
- * 从 `memory/mini-app-totp/totp.json` 读取并校验单条 TOTP 验证器记录（命中主线程缓存时直接返回）。
+ * 从 `memory/mini-app-totp/totp.json` 读取并严格校验单条 TOTP 验证器记录（命中主线程缓存时直接返回）。
  * @param filePath 持久化文件路径（缺省为 `MINI_APP_TOTP_FILE_PATH`）。
  * @returns 已绑定的 TOTP 记录；尚未绑定时返回 `null`。
  */
@@ -110,31 +67,7 @@ export async function loadMiniAppTotpRecord(
   ) {
     return miniAppTotpRecordHolder.current;
   }
-  let stat: Stats;
-  try {
-    stat = await lstat(filePath);
-  } catch (error: unknown) {
-    if (isErrno(error, "ENOENT")) {
-      if (filePath === MINI_APP_TOTP_FILE_PATH) {
-        miniAppTotpRecordHolder.current = null;
-      }
-      return null;
-    }
-    throw error;
-  }
-  if (stat.isSymbolicLink() || !stat.isFile()) {
-    throw new Error(
-      `Invalid Mini App TOTP file entry at ${filePath}: expected regular file`
-    );
-  }
-  const rawText: string = await Bun.file(filePath).text();
-  const record: Readonly<MiniAppTotpRecord> | null =
-    parseMiniAppTotpRecord(rawText);
-  if (record === null) {
-    throw new Error(
-      `Invalid Mini App TOTP JSON payload at ${filePath}: expected { version: 1, secret, createdAt }`
-    );
-  }
+  const record: Readonly<MiniAppTotpRecord> | null = await readMiniAppTotpFile(filePath);
   if (filePath === MINI_APP_TOTP_FILE_PATH) {
     miniAppTotpRecordHolder.current = record;
   }

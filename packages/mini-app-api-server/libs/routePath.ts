@@ -14,7 +14,7 @@ export interface NormalizedRoutePath {
  * 归一化配置中的基础路径前缀（去除末尾斜杠，根路径保持 `"/"`）。
  * @returns 归一化后的基础路径。
  */
-function configuredBasePathname(): string {
+export function configuredBasePathname(): string {
   const config: Readonly<BotMiniAppConfig> | undefined = miniAppActiveConfigHolder.current ?? getBotMiniAppConfig();
   if (config === undefined) return "/";
   try {

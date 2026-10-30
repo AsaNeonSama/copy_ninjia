@@ -110,13 +110,15 @@ const {
 const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAuth");
 const {
   getMiniAppPickerResult,
-  handleMiniAppHttpRequest,
   handleMiniAppSharedMessage,
   issueMiniAppAuthSession,
   prepareMiniAppPicker,
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
+const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
+  "../helpers/miniAppRequest"
+);
 const { readBundledMiniAppIndex } = await import(
   "../../packages/mini-app-api-server/handlers/page"
 );
@@ -662,6 +664,17 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       expect(rootAssetRes.status).toBe(200);
     }
 
+    const rootFetchSpy = spyOn(globalThis, "fetch");
+    try {
+      const unknownRootRes: Response = await handleMiniAppHttpRequest(
+        new Request(`http://127.0.0.1:${port}/unknown-scanner-path`)
+      );
+      expect(unknownRootRes.status).toBe(404);
+      expect(rootFetchSpy).not.toHaveBeenCalled();
+    } finally {
+      rootFetchSpy.mockRestore();
+    }
+
     const menuOk: boolean = await configureSuperAdminMenuButton({
       superAdminUserId: SUPER_ADMIN_USER_ID,
       buttonText: MINI_APP_BUTTON_TEXT,
@@ -748,6 +761,10 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
         new Request("http://127.0.0.1:3000/sub/api/gallery/file/a.png")
       );
       expect(apiRes.status).toBe(401);
+      const unprefixedUnknownRes: Response = await handleMiniAppHttpRequest(
+        new Request("http://127.0.0.1:3000/unknown-unprefixed-path")
+      );
+      expect(unprefixedUnknownRes.status).toBe(404);
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();

@@ -95,9 +95,6 @@ export type MiniAppMiddleware = (
   next: () => Response | Promise<Response>
 ) => Response | Promise<Response>;
 
-/** 兜底分发中单个领域路由匹配器的结果：命中时为处理器（或中间件链）产出的响应，未命中时为 `null`。 */
-export type MiniAppRouteMatch = Response | Promise<Response> | null;
-
 /** 单项模型子能力或已加载任务的结构化明细项（供前端竖向样式化展示）。 */
 export interface MiniAppCapabilityDetailItem {
   readonly label: string;
@@ -260,7 +257,8 @@ export type MiniAppBatchKickOutcome =
   | "running"
   | "busy"
   | "unavailable"
-  | "notInitialized";
+  | "notInitialized"
+  | "notSupergroup";
 
 /** 群按回溯小时数批量清理新进群成员（`/batch_kick`）的响应结果。 */
 export interface MiniAppBatchKickResult {

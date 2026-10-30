@@ -122,6 +122,10 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         return "Stopped private chat proxy send for this group (/send finish).";
       case "INVALID_BATCH_KICK_PARAMS":
         return "Invalid request parameters: integer hours between 1 and 24 are required.";
+      case "CHAT_NOT_SUPERGROUP":
+        return "/batch_kick is only supported in supergroups (calling unbanChatMember in a basic group does not remove present members), Zaako♡";
+      case "CHAT_KIND_UNAVAILABLE":
+        return "Could not verify with Telegram whether this chat is a supergroup; no members were kicked. Please retry later.";
       case "BATCH_KICK_RUNNING":
         return "A batch cleanup is still running in the background for this group; wait for the report first, Zaako♡";
       case "JOIN_LOG_UNAVAILABLE":

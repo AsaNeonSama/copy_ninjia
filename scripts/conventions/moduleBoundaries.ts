@@ -199,21 +199,21 @@ export function collectStatesPurityProblems({
 }
 
 /**
- * `packages/infra/` 不得静态依赖业务层。
+ * `packages/infra/` 只允许静态依赖同层与更低层模块。
  *
- * infra 是命令、AI 与 Anti-Raid 共同依赖的底座；需要业务能力时由上层在组合点注入
+ * infra 是命令、AI、Anti-Raid 与 Mini App 共同依赖的底座；需要业务能力时由上层在组合点注入
  * （见 docs/cn/04-invariants.md 的 chat runtime teardown 一节）。
  */
-const INFRA_FORBIDDEN_PREFIXES: readonly string[] = [
-  "packages/aiChat/",
-  "packages/antiRaid/",
-  "packages/app/",
-  "packages/auto/",
-  "packages/commands/",
-  "packages/copy/",
-  "packages/cron/",
-  "packages/translate/",
-  "packages/workers/",
+const INFRA_ALLOWED_PREFIXES: readonly string[] = [
+  "packages/cache/",
+  "packages/config/",
+  "packages/consts/",
+  "packages/database/",
+  "packages/infra/",
+  "packages/libs/",
+  "packages/states/",
+  "packages/types/",
+  "packages/users/",
 ];
 
 /**
@@ -242,10 +242,7 @@ export function collectInfraLayeringProblems({
   for (const reference of runtimeModuleReferences(source)) {
     if (!reference.specifier.startsWith(".")) continue;
     const target: string = relative(projectRoot, resolve(dirname(path), reference.specifier));
-    const forbidden: string | undefined = INFRA_FORBIDDEN_PREFIXES.find(
-      (prefix: string): boolean => target.startsWith(prefix)
-    );
-    if (forbidden === undefined) continue;
+    if (INFRA_ALLOWED_PREFIXES.some((prefix: string): boolean => target.startsWith(prefix))) continue;
     if (INFRA_LAYERING_EXEMPTIONS.includes(`${target}.ts`)) continue;
     problems.push(
       `${relativePath}:${lineOf(source, reference.start)} imports ${target} at runtime; ` +

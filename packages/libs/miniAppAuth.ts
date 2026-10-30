@@ -8,6 +8,7 @@ import {
   MINI_APP_SHA256_HEX_PATTERN,
   MINI_APP_WEB_APP_DATA_SECRET_SEED,
 } from "../consts/miniApp";
+import { timingSafeStringEqual } from "./digestEqual";
 import { isPlainRecord } from "./record";
 import type { MiniAppAuthResult, MiniAppInitDataUser } from "../types/miniApp";
 
@@ -184,13 +185,7 @@ export function verifyMiniAppPassword(
   if (normalizedInput.length === 0 || normalizedExpected.length === 0) {
     return false;
   }
-  const inputDigest: Uint8Array = new Bun.CryptoHasher("sha256")
-    .update(normalizedInput, "utf8")
-    .digest();
-  const expectedDigest: Uint8Array = new Bun.CryptoHasher("sha256")
-    .update(normalizedExpected, "utf8")
-    .digest();
-  return crypto.timingSafeEqual(inputDigest, expectedDigest);
+  return timingSafeStringEqual(normalizedInput, normalizedExpected);
 }
 
 /**

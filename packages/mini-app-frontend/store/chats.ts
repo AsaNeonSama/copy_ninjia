@@ -158,6 +158,8 @@ export interface MiniAppChatsStoreState {
   readonly runBatchKick: () => Promise<void>;
   /** 在后台 `/batch_kick` 执行期间静默刷新当前群详情，检测服务端完成回调写入的结束状态。 */
   readonly pollRunningBatchKick: () => Promise<void>;
+  /** 取消防抖中的回溯时间窗口进群人数刷新定时器并作废在途窗口详情请求（供页面卸载清理使用）。 */
+  readonly cancelPendingRefresh: () => void;
   /** 切换群列表页码并播放最短加载骨架动画。 */
   readonly setChatPage: (page: number) => void;
   /** 切换群列表每页条数、回到第 1 页并播放最短加载骨架动画。 */
@@ -567,6 +569,8 @@ export function createChatsStore(): MiniAppChatsStore {
         setChatPageSize: (pageSize: number): void => {
           applyChatPagination({ chatPage: 1, chatPageSize: pageSize });
         },
+
+        cancelPendingRefresh: cancelWindowJoinedRefresh,
       };
     }
   );

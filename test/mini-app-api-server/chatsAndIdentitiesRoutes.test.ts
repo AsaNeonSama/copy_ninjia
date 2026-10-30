@@ -24,6 +24,7 @@ import type {
   MiniAppMessagePage,
   MiniAppWhitelistPage,
 } from "../../packages/types/miniApp";
+import type { QaFieldRejection } from "../../packages/types/qa";
 import type { InstalledTelegramApi, TelegramSentMessage } from "../../packages/types/telegramWorker";
 import { botPermissions } from "../helpers/botPermissions";
 import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
@@ -152,6 +153,7 @@ mock.module("../../packages/infra/diskIO", () =>
 );
 
 const { latestAiMemories } = await import("../../packages/cache/main/aiChat");
+const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
 const {
   batchKickChats,
   miniAppBatchKickCompletedByChat,
@@ -167,6 +169,10 @@ const {
   drainDeferredCommandRuntime,
   initDeferredCommandRuntime,
 } = await import("../../packages/commands/deferredCommands");
+const {
+  answerRejectionOf,
+  questionRejectionOf,
+} = await import("../../packages/commands/qa/fieldRules");
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { AI_MEMORY_HYDRATE_BUFFER_MAX, VERBATIM_CONTEXT_MAX } = await import(
   "../../packages/consts/aiChat/memory"
@@ -179,12 +185,18 @@ const {
   MINI_APP_SESSION_HEADER,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
+const {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_QUESTION_MAX_CHARS,
+} = await import("../../packages/consts/qa");
 const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 const {
-  handleMiniAppHttpRequest,
   issueMiniAppAuthSession,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
+const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
+  "../helpers/miniAppRequest"
+);
 
 /**
  * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟有效密码会话的测试请求头。
@@ -214,6 +226,7 @@ afterEach(async (): Promise<void> => {
   whitelistDbRows.clear();
   blocklistDbRows.clear();
   batchKickChats.clear();
+  chatIsSupergroupById.clear();
   miniAppBatchKickCompletedByChat.clear();
   joinLogRecordsHolder = [];
   joinLogShouldThrow = false;
@@ -319,7 +332,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(disableInitBody.detail).toBeNull();
   });
 
-  test("POST /api/chats/:chatId/batch-kick 校验 1–24 小时参数、并发锁、空记录与入群日志读取，接纳后复用 /batch_kick 后台清理", async () => {
+  test("POST /api/chats/:chatId/batch-kick 校验超级群身份、1–24 小时参数、并发锁、空记录与入群日志读取，接纳后复用 /batch_kick 后台清理", async () => {
     const chatId: number = -1002099;
     const uninitRes: Response = await handleMiniAppHttpRequest(
       new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
@@ -357,6 +370,79 @@ describe("Mini App 受管群与黑白名单路由", () => {
       );
     }
 
+    // 1. chatIsSupergroupById 为 false（普通群）时直接拒绝，不读入群日志（joinLogShouldThrow = true 仅由 getManagedChatDetail 吞掉）。
+    chatIsSupergroupById.set(chatId, false);
+    joinLogRecordsHolder = [{ userId: 7999, joinedAt: Date.now() - 10_000 }];
+    const cachedBasicRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 3 }),
+      })
+    );
+    expect(cachedBasicRes.status).toBe(200);
+    const cachedBasicBody: MiniAppBatchKickResult =
+      (await cachedBasicRes.json()) as MiniAppBatchKickResult;
+    expect(cachedBasicBody.ok).toBeFalse();
+    expect(cachedBasicBody.outcome).toBe("notSupergroup");
+    expect(cachedBasicBody.message).toBe("CHAT_NOT_SUPERGROUP");
+    expect(cachedBasicBody.recordCount).toBe(0);
+
+    // 2. 缓存缺失且 getChat 抛错时返回 unavailable（HTTP 503）。
+    chatIsSupergroupById.delete(chatId);
+    telegramApiState.current = {
+      getChat: async (): Promise<unknown> => {
+        throw new Error("Telegram getChat network failure");
+      },
+    } as unknown as InstalledTelegramApi;
+    const chatKindUnavailableRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 3 }),
+      })
+    );
+    expect(chatKindUnavailableRes.status).toBe(503);
+    const chatKindUnavailableBody: MiniAppBatchKickResult =
+      (await chatKindUnavailableRes.json()) as MiniAppBatchKickResult;
+    expect(chatKindUnavailableBody.ok).toBeFalse();
+    expect(chatKindUnavailableBody.outcome).toBe("unavailable");
+    expect(chatKindUnavailableBody.message).toBe("CHAT_KIND_UNAVAILABLE");
+    expect(chatIsSupergroupById.has(chatId)).toBeFalse();
+
+    // 3. 缓存缺失且 getChat 返回 group 时拒绝并写入缓存 false。
+    telegramApiState.current = {
+      getChat: async (cId: number): Promise<unknown> => ({
+        id: cId,
+        type: "group",
+        title: "普通群",
+      }),
+    } as unknown as InstalledTelegramApi;
+    const probedBasicRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 3 }),
+      })
+    );
+    expect(probedBasicRes.status).toBe(200);
+    const probedBasicBody: MiniAppBatchKickResult =
+      (await probedBasicRes.json()) as MiniAppBatchKickResult;
+    expect(probedBasicBody.ok).toBeFalse();
+    expect(probedBasicBody.outcome).toBe("notSupergroup");
+    expect(probedBasicBody.message).toBe("CHAT_NOT_SUPERGROUP");
+    expect(chatIsSupergroupById.get(chatId)).toBeFalse();
+
+    // 4. 确认为 supergroup 时正常读取入群日志并受理。
+    chatIsSupergroupById.delete(chatId);
+    telegramApiState.current = {
+      getChat: async (cId: number): Promise<unknown> => ({
+        id: cId,
+        type: "supergroup",
+        title: "超级群",
+      }),
+    } as unknown as InstalledTelegramApi;
+
     joinLogShouldThrow = true;
     const unavailableRes: Response = await handleMiniAppHttpRequest(
       new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
@@ -369,6 +455,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(((await unavailableRes.json()) as MiniAppBatchKickResult).message).toBe(
       "JOIN_LOG_UNAVAILABLE"
     );
+    expect(chatIsSupergroupById.get(chatId)).toBeTrue();
     joinLogShouldThrow = false;
 
     joinLogRecordsHolder = [];
@@ -590,6 +677,53 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(removeQaBody.ok).toBeTrue();
     expect(removeQaBody.message).toBe("QA_REMOVED");
     expect(removeQaBody.targets?.qaItems).toEqual([]);
+
+    // Mini App setQa 与群内表单共用 questionRejectionOf / answerRejectionOf：
+    // 对超长、问题含命令、答案围栏外含命令、两项同时非法及答案围栏内含命令给出对应结论。
+    const qaRejectionCases: readonly (readonly [string, string, QaFieldRejection, string])[] = [
+      ["q".repeat(CHAT_QA_QUESTION_MAX_CHARS + 1), "正常答案", "questionTooLong", "QA_QUESTION_TOO_LONG"],
+      ["请执行 /ban 命令", "正常答案", "questionHasCommand", "QA_COMMAND_IN_QUESTION"],
+      ["正常问题", "a".repeat(CHAT_QA_ANSWER_MAX_CHARS + 1), "answerTooLong", "QA_ANSWER_TOO_LONG"],
+      ["正常问题", "先试试 /kick 别人", "answerHasCommand", "QA_COMMAND_IN_ANSWER"],
+      ["问题含 /ban 命令", "a".repeat(CHAT_QA_ANSWER_MAX_CHARS + 1), "questionHasCommand", "QA_COMMAND_IN_QUESTION"],
+    ];
+    for (const [qText, aText, expectedRuleRejection, expectedApiMessage] of qaRejectionCases) {
+      expect(questionRejectionOf(qText) ?? answerRejectionOf(aText)).toBe(expectedRuleRejection);
+      const rejectRes: Response = await handleMiniAppHttpRequest(
+        new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+          method: "POST",
+          headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "setQa", q: qText, a: aText }),
+        })
+      );
+      expect(rejectRes.status).toBe(200);
+      const rejectBody: MiniAppChatTargetsMutationResult =
+        (await rejectRes.json()) as MiniAppChatTargetsMutationResult;
+      expect(rejectBody.ok).toBeFalse();
+      expect(rejectBody.message).toBe(expectedApiMessage);
+    }
+
+    const fencedAnswer: string = "示例用法：\n```\n/kick @user\n```\n说明完毕";
+    expect(questionRejectionOf("围栏示例") ?? answerRejectionOf(fencedAnswer)).toBeNull();
+    const fencedQaRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setQa", q: "围栏示例", a: fencedAnswer }),
+      })
+    );
+    expect(fencedQaRes.status).toBe(200);
+    const fencedQaBody: MiniAppChatTargetsMutationResult =
+      (await fencedQaRes.json()) as MiniAppChatTargetsMutationResult;
+    expect(fencedQaBody.ok).toBeTrue();
+    expect(fencedQaBody.message).toBe("QA_ADDED");
+    await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "removeQa", q: "围栏示例" }),
+      })
+    );
 
     const addDelRes: Response = await handleMiniAppHttpRequest(
       new Request(`http://127.0.0.1:3000/api/chats/${chatId}/targets`, {

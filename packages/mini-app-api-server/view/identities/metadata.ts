@@ -118,32 +118,46 @@ export async function collectAllIdentityIds(
   return allIds;
 }
 
+/** 预先规范化的名单搜索关键字（每次查询请求构造一次）。 */
+export interface IdentitySearchQuery {
+  /** 已 trim 并转小写的搜索关键字。 */
+  readonly normalized: string;
+  /** 剥离前导 `@` 后的小写搜索关键字。 */
+  readonly withoutAt: string;
+}
+
+/** 待匹配的单个名单身份候选字段。 */
+export interface IdentitySearchCandidate {
+  /** 身份数字 ID。 */
+  readonly id: number;
+  /** 格式化后的展示名称。 */
+  readonly displayName: string;
+  /** 可选的用户名（不含 `@`）。 */
+  readonly username?: string;
+}
+
 /**
  * 判断单个名单条目的展示名称、用户名或数字 ID 是否命中搜索关键字（忽略大小写）。
  *
- * @param id 身份数字 ID。
- * @param displayName 格式化后的展示名称。
- * @param username 可选的用户名（不含 `@`）。
- * @returns 构造匹配判定函数。
+ * @param query 预先规范化的搜索关键字对象。
+ * @param candidate 待匹配的名单身份候选字段。
+ * @returns 命中搜索关键字时返回 `true`。
  */
 export function matchesIdentitySearchQuery(
-  id: number,
-  displayName: string,
-  username: string | undefined
-): (normalizedQuery: string) => boolean {
-  return (normalizedQuery: string): boolean => {
-    const cleanQuery: string = normalizedQuery.replace(/^@+/u, "");
-    if (displayName.toLowerCase().includes(normalizedQuery)) return true;
-    if (cleanQuery.length > 0 && displayName.toLowerCase().includes(cleanQuery)) return true;
-    if (
-      username !== undefined &&
-      cleanQuery.length > 0 &&
-      username.toLowerCase().includes(cleanQuery)
-    ) {
-      return true;
-    }
-    return String(id).includes(normalizedQuery);
-  };
+  query: Readonly<IdentitySearchQuery>,
+  candidate: Readonly<IdentitySearchCandidate>
+): boolean {
+  const lowerDisplayName: string = candidate.displayName.toLowerCase();
+  if (lowerDisplayName.includes(query.normalized)) return true;
+  if (query.withoutAt.length > 0 && lowerDisplayName.includes(query.withoutAt)) return true;
+  if (
+    candidate.username !== undefined &&
+    query.withoutAt.length > 0 &&
+    candidate.username.toLowerCase().includes(query.withoutAt)
+  ) {
+    return true;
+  }
+  return String(candidate.id).includes(query.normalized);
 }
 
 /** 身份名单分页切片与总量统计结果。 */

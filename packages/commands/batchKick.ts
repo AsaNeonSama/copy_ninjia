@@ -155,7 +155,7 @@ async function processJoinRecord({
     stats.blockedHandoffs++;
     return;
   }
-  // 本命令入口只接受超级群（见 handleBatchKickCommand），isSupergroup 传 true。
+  // 群内命令与 Mini App API 两个入口均只放行已确认的超级群（见 handleBatchKickCommand 与 triggerManagedChatBatchKick），isSupergroup 传 true。
   const outcome: KickChatMemberOutcome = await kickChatMemberWithOutcome({
     chatId,
     userId: record.userId,

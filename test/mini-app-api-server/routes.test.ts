@@ -132,6 +132,7 @@ const { BOT_TOKEN, SUPER_ADMIN_USER_ID, getBotMiniAppConfig } = await import(
 const {
   MINI_APP_AUTH_MAX_AGE_SECONDS,
   MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_MAX_JSON_BODY_BYTES,
   MINI_APP_PASSWORD_LOCKOUT_MS,
   MINI_APP_PASSWORD_MAX_ATTEMPTS,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
@@ -152,10 +153,12 @@ const { chatAtmosphere } = await import("../../packages/infra/atmosphere");
 const { telegramApiState } = await import("../../packages/cache/perThread/telegramApi");
 const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
 const {
-  handleMiniAppHttpRequest,
   issueMiniAppAuthSession,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
+const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
+  "../helpers/miniAppRequest"
+);
 import type {
   MiniAppAccessDiagnostics,
   MiniAppLoginSuccessResponse,
@@ -816,5 +819,94 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
       })
     );
     expect(expiredAliasRes.status).toBe(401);
+  });
+
+  test("JSON 请求体按 MINI_APP_MAX_JSON_BODY_BYTES 流式有界读取：Content-Length 超限零 pull 拒绝，流式越界首块取消，恰等于上限正常解析", async () => {
+    const headers: Record<string, string> = {
+      ...superAdminHeaders(),
+      "Content-Type": "application/json",
+    };
+
+    // 1. Content-Length 超限时直接提前拒绝并取消流，pull 次数为 0。
+    let declaredPulls: number = 0;
+    let declaredCancelled: boolean = false;
+    const declaredTooLargeReq: Request = new Request(
+      "http://127.0.0.1:3000/api/identities/whitelist",
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Length": String(MINI_APP_MAX_JSON_BODY_BYTES + 1),
+        },
+        body: new ReadableStream<Uint8Array>(
+          {
+            pull(controller: ReadableStreamDefaultController<Uint8Array>): void {
+              declaredPulls += 1;
+              controller.enqueue(new Uint8Array(64));
+            },
+            cancel(): void {
+              declaredCancelled = true;
+            },
+          },
+          { highWaterMark: 0 }
+        ),
+      }
+    );
+    const declaredRes: Response = await handleMiniAppHttpRequest(declaredTooLargeReq);
+    expect(declaredRes.status).toBe(400);
+    expect(declaredPulls).toBe(0);
+    expect(declaredCancelled).toBeTrue();
+
+    // 2. 无 Content-Length 的流式请求在首个越界 chunk 处取消流并返回 400。
+    let streamPulls: number = 0;
+    let streamCancelled: boolean = false;
+    const halfChunk: Uint8Array = new Uint8Array(
+      Math.floor(MINI_APP_MAX_JSON_BODY_BYTES / 2) + 1
+    ).fill(0x20);
+    const streamingTooLargeReq: Request = new Request(
+      "http://127.0.0.1:3000/api/identities/whitelist",
+      {
+        method: "POST",
+        headers,
+        body: new ReadableStream<Uint8Array>(
+          {
+            pull(controller: ReadableStreamDefaultController<Uint8Array>): void {
+              streamPulls += 1;
+              controller.enqueue(halfChunk);
+            },
+            cancel(): void {
+              streamCancelled = true;
+            },
+          },
+          { highWaterMark: 0 }
+        ),
+      }
+    );
+    const streamRes: Response = await handleMiniAppHttpRequest(streamingTooLargeReq);
+    expect(streamRes.status).toBe(400);
+    expect(streamPulls).toBe(2);
+    expect(streamCancelled).toBeTrue();
+
+    // 3. 请求体字节数恰好等于 MINI_APP_MAX_JSON_BODY_BYTES 时正常解析执行。
+    const prefix: string = '{"id":88999,"enabled":true,"pad":"';
+    const suffix: string = '"}';
+    const exactBody: string =
+      prefix +
+      "a".repeat(MINI_APP_MAX_JSON_BODY_BYTES - prefix.length - suffix.length) +
+      suffix;
+    expect(new TextEncoder().encode(exactBody).byteLength).toBe(
+      MINI_APP_MAX_JSON_BODY_BYTES
+    );
+    const exactRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/identities/whitelist", {
+        method: "POST",
+        headers,
+        body: exactBody,
+      })
+    );
+    expect(exactRes.status).toBe(200);
+    const exactJson = (await exactRes.json()) as { readonly ok: boolean; readonly id?: number };
+    expect(exactJson.ok).toBeTrue();
+    expect(exactJson.id).toBe(88999);
   });
 });

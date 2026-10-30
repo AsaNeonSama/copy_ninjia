@@ -462,3 +462,33 @@ export const MINI_APP_TRANSLATE_LANGUAGES: readonly MiniAppTranslateLanguage[] =
  * 不变量：从 0 起连续递增的只读整数数组，仅用作骨架行 key。所属模块：`packages/mini-app-frontend/components/skeletons/ChatTargetsListSkeleton.tsx`。
  */
 export const MINI_APP_TARGETS_SKELETON_ROW_INDICES: readonly number[] = [0, 1, 2];
+
+/**
+ * 每群可登记的问答对条数上限（目标清单尚未加载完成时的前端回退值）。
+ * 不变量：正整数，取值与 `packages/consts/qa.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
+ */
+export const CHAT_QA_MAX_PER_CHAT: number = 15;
+
+/**
+ * 单条问答问题文本的最大长度（UTF-16 code unit，目标清单尚未加载完成时的前端回退值）。
+ * 不变量：正整数，取值与 `packages/consts/qa.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatTargetsQaPanel.tsx`。
+ */
+export const CHAT_QA_QUESTION_MAX_CHARS: number = 256;
+
+/**
+ * 单条问答答案文本的最大长度（UTF-16 code unit，目标清单尚未加载完成时的前端回退值）。
+ * 不变量：正整数，取值与 `packages/consts/qa.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatTargetsQaPanel.tsx`。
+ */
+export const CHAT_QA_ANSWER_MAX_CHARS: number = 3_840;
+
+/**
+ * 每群同时处于自动删除发言状态的目标身份数上限（目标清单尚未加载完成时的前端回退值）。
+ * 不变量：正整数，取值与 `packages/consts/deleteMessage.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
+ */
+export const DELETE_MESSAGE_CHAT_TARGET_MAX: number = 15;
+
+/**
+ * 每群同时开启追着翻译的目标人数上限（目标清单尚未加载完成时的前端回退值）。
+ * 不变量：正整数，取值与 `packages/consts/translate.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
+ */
+export const TRANSLATE_CHAT_USER_LIMIT: number = 5;
