@@ -38,7 +38,7 @@ interface ActionMessage {
 }
 
 /** parseCjkActionCommand 的解析结果。 */
-export interface CjkActionCommand {
+interface CjkActionCommand {
   /** 动作词本身（字数由 CJK_ACTION_COMMAND_PATTERN 限定的中文字）。 */
   actionWord: string;
   /** 命令后紧跟的 `@<BotUsername>` 定向后缀；未指定时为 undefined。 */

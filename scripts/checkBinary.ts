@@ -5,9 +5,8 @@ import { join, relative, resolve } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../packages/consts/configLayout";
 import { MINI_APP_FAVICON_PATH, PROJECT_ROOT } from "../packages/consts/paths";
 import { PROMPT_DIR_NAME, PROMPT_EXAMPLE_DIR_NAME } from "../packages/consts/promptLayout";
-import { checkBinaryMigrations } from "./checkBinaryMigrations";
 import { fileSha256 } from "./fileSha256";
-import { PRESERVED_MIGRATION_CONFIG_FILES, assertMigrationSourcesUnchanged, deployMigratedFixture } from "./fixtures/migrationDeployment";
+import { PRESERVED_MIGRATION_CONFIG_FILES, assertMigrationSourcesUnchanged, deployMigratedFixture, prepareMigratedDeployment } from "./fixtures/migrationDeployment";
 import type { MigratedDeployment } from "./fixtures/migrationDeployment";
 import { copyFixtureTree } from "./fixtures/copyTree";
 import { cleanupFixtures, createFixture, runInstaller, writeText } from "./installIsolation/fixture";
@@ -92,7 +91,12 @@ try {
   if (output.includes("BINARY_NETWORK_BLOCKED") || await Bun.file(join(root, "bot.lock")).exists()) {
     throw new Error(`Binary check did not complete cleanly:\n${output}`);
   }
-  const migrated: MigratedDeployment = await checkBinaryMigrations(root);
+  // 在无系统 Bun、无配置的临时目录真实执行发行包携带的全部冷迁移。
+  const migrated: MigratedDeployment = await prepareMigratedDeployment({
+    packageRoot: root,
+    root: join(root, "cold-migration-check"),
+    binary: true,
+  });
   const originalFixture: InstallerFixture = await createFixture();
   const worktree: string = join(originalFixture.root, "binary deployment");
   renameSync(originalFixture.worktree, worktree);

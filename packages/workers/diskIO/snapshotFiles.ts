@@ -143,7 +143,7 @@ export async function cleanupStaleLuckFiles(
 }
 
 /** 运势日文件追加游标的可变持有者接口。 */
-export interface LuckFileStateHolder {
+interface LuckFileStateHolder {
   /** 当前运势日文件的追加游标；未打开时为 `null`。 */
   current: DayFileState | null;
 }

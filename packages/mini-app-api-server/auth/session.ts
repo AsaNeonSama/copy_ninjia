@@ -14,7 +14,7 @@ import { accessErrorResponse } from "../libs/response";
  * 清理已超过 45 分钟有效期的密码认证会话。
  * @param nowMs 当前毫秒时间戳。
  */
-export function purgeExpiredAuthSessions(nowMs: number): void {
+function purgeExpiredAuthSessions(nowMs: number): void {
   for (const [token, session] of miniAppAuthSessions) {
     if (session.expiresAt <= nowMs) {
       miniAppAuthSessions.delete(token);

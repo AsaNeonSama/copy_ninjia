@@ -155,6 +155,10 @@ mock.module("../../packages/infra/diskIO", () =>
 const { latestAiMemories } = await import("../../packages/cache/main/aiChat");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
 const {
+  clearActiveVerificationSnapshots,
+  setActiveVerificationSnapshot,
+} = await import("../../packages/cache/main/antiRaid/verificationMirror");
+const {
   batchKickChats,
   miniAppBatchKickCompletedByChat,
 } = await import("../../packages/cache/main/batchKick");
@@ -227,6 +231,7 @@ afterEach(async (): Promise<void> => {
   blocklistDbRows.clear();
   batchKickChats.clear();
   chatIsSupergroupById.clear();
+  clearActiveVerificationSnapshots();
   miniAppBatchKickCompletedByChat.clear();
   joinLogRecordsHolder = [];
   joinLogShouldThrow = false;
@@ -255,6 +260,37 @@ describe("Mini App 受管群与黑白名单路由", () => {
     stateB.isInitEnabled = false;
     stateB.title = "未初始化群 B";
 
+    const baseSnapshot = {
+      generation: 1,
+      revision: 1,
+      label: "待验证成员",
+      isBot: false,
+      trackedMessageTimes: [],
+      replyReminderRequested: false,
+      reminderSuperseded: false,
+      joinedAt: 1_000,
+      expiresAt: 121_000,
+    };
+    setActiveVerificationSnapshot("-1002001:6001", {
+      ...baseSnapshot,
+      chatId: -1002001,
+      userId: 6001,
+      phase: "pending",
+    });
+    setActiveVerificationSnapshot("-1002001:6002", {
+      ...baseSnapshot,
+      chatId: -1002001,
+      userId: 6002,
+      phase: "expelling",
+      expelReason: "timeout",
+    });
+    setActiveVerificationSnapshot("-1002002:6003", {
+      ...baseSnapshot,
+      chatId: -1002002,
+      userId: 6003,
+      phase: "pending",
+    });
+
     const listRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/chats", {
         headers: superAdminHeaders(),
@@ -277,6 +313,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(detailBody.detail.features.init).toBeTrue();
     expect(detailBody.detail.features.floodControl).toBeTrue();
     expect(detailBody.detail.features.proxySend).toBeFalse();
+    expect(detailBody.detail.activeSessions.verify).toBe(1);
     expect(detailBody.detail.joinedCountsByHour[0]).toBe(1);
     expect(detailBody.detail.joinedCountsByHour[1]).toBe(1);
     expect(detailBody.detail.joinedCountsByHour[2]).toBe(2);

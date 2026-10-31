@@ -36,7 +36,7 @@ import type {
  * @param record 内部持久化记录或 `null`。
  * @returns 前端可安全展示的状态摘要。
  */
-export function toMiniAppTotpStatusView(
+function toMiniAppTotpStatusView(
   record: Readonly<MiniAppTotpRecord> | null
 ): Readonly<MiniAppTotpStatusView> {
   if (record === null) {

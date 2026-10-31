@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { StorageDatabaseMigrationJournalEntry } from "../types/storageDatabase";
 
 /** 黑名单、白名单与临时广告免检各自在主线程保留的热查询 LRU 容量。 */
@@ -115,9 +114,3 @@ export const IDENTITY_DATABASE_DIRECTORY_MODE: number = 0o2770;
 
 /** SQLite 主库及 WAL/SHM 旁路文件权限；owner 与部署协作组均可读写。 */
 export const IDENTITY_DATABASE_FILE_MODE: number = 0o660;
-
-/** Drizzle 内建 migrator 读取的身份数据库 schema migration 目录。 */
-export const IDENTITY_DATABASE_MIGRATIONS_DIR: string = join(
-  Bun.isStandaloneExecutable ? process.cwd() : join(import.meta.dir, "..", ".."),
-  "packages/database/schema/migrations"
-);

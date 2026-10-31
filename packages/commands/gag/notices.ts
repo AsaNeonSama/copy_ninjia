@@ -87,7 +87,7 @@ function deleteGagSpeakNotice(
 }
 
 /** GagSession 上记着提示 message id 的各槽位。 */
-export type GagNoticeSlot =
+type GagNoticeSlot =
   | "publicNoticeMessageId"
   | "speakNoticeMessageId"
   | "pendingSpeakNoticeMessageId"

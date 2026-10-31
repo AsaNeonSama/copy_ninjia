@@ -32,7 +32,7 @@ import type {
 import { rejectUnlessPermitted } from "./commandActor";
 
 /** `/bot_status` 的完整回执：一段 MarkdownV2 正文。 */
-export interface BotStatusMessage {
+interface BotStatusMessage {
   /** 渲染完成的 MarkdownV2 状态看板正文。 */
   readonly text: string;
 }

@@ -1,4 +1,5 @@
 import { NO_LOCKDOWN_EFFECTS } from "../../consts/antiRaid/lockdown";
+import { activeOf, preparedOf, reconcilingOf, restoringOf } from "./shared";
 import type {
   LockdownAnnouncement,
   LockdownEffect,
@@ -32,15 +33,13 @@ export function handleAdopt(
   switch (event.phase) {
     case "applying":
       return {
-        next: {
-          kind: "applying",
-          stage: "prepared",
+        next: preparedOf({
           originalPermissions: event.originalPermissions,
           intentId: event.intentId,
           // persisted 时下面立刻发 commitApply，commitStarted 同步置位。
           commitStarted: event.persisted,
-          ...announcement,
-        },
+          announcement,
+        }),
         effects: [
           { kind: "prefetchAdmins", onlyIfCold: false },
           ...announceEffects,
@@ -51,14 +50,13 @@ export function handleAdopt(
       };
     case "restoring":
       return {
-        next: {
-          kind: "restoring",
+        next: restoringOf({
           originalPermissions: event.originalPermissions,
           intentId: event.intentId,
           restoreAfterPersist: !event.persisted,
           restoreReason: "lifted",
-          ...announcement,
-        },
+          announcement,
+        }),
         effects: [
           { kind: "prefetchAdmins", onlyIfCold: false },
           ...(!event.persisted
@@ -68,13 +66,12 @@ export function handleAdopt(
       };
     case "reconciling":
       return {
-        next: {
-          kind: "reconciling",
+        next: reconcilingOf({
           originalPermissions: event.originalPermissions,
           intentId: event.intentId,
           reapplyAfterPersist: !event.persisted,
-          ...announcement,
-        },
+          announcement,
+        }),
         effects: [
           { kind: "prefetchAdmins", onlyIfCold: false },
           ...announceEffects,
@@ -86,12 +83,7 @@ export function handleAdopt(
       };
     case "active":
       return {
-        next: {
-          kind: "active",
-          originalPermissions: event.originalPermissions,
-          intentId: event.intentId,
-          ...announcement,
-        },
+        next: activeOf(event.originalPermissions, event.intentId, announcement),
         effects: [
           { kind: "prefetchAdmins", onlyIfCold: false },
           ...announceEffects,

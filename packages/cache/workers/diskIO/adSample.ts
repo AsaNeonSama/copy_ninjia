@@ -18,7 +18,7 @@ export const adSampleTempsSwept: { current: boolean } = { current: false };
 export const adSampleArchiveSweepDay: { current: string | null } = { current: null };
 
 /** 每日广告样本归档文件命名的候选序号游标。 */
-export interface AdSampleArchiveCursor {
+interface AdSampleArchiveCursor {
   /** 当前游标所属的配置时区自然日。 */
   readonly day: string;
   /** 下一个待探测归档文件名的正整数序号（首个候选对应无序号归档文件）。 */

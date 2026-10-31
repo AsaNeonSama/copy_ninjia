@@ -6,7 +6,7 @@ import type { MiniAppAccessDiagnostics } from "../../types/miniApp";
 import { resolveSafeClientIp } from "./request";
 
 /** `serveCachedAssetResponse` 所需的已解析资源元数据。 */
-export interface CachedAssetMeta {
+interface CachedAssetMeta {
   /** 资源的 `Content-Type` 响应头值。 */
   readonly mimeType: string;
   /** 资源字节长度。 */
@@ -50,7 +50,7 @@ export function buildNoStoreHeaders(
  * @param etag 资源强校验 `ETag` 响应头值。
  * @returns 响应头键值对。
  */
-export function buildAssetCacheHeaders(
+function buildAssetCacheHeaders(
   contentType: string,
   contentLength: number,
   etag: string

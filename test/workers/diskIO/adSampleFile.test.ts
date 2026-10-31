@@ -256,6 +256,7 @@ describe("广告命中样本旁路", () => {
     rmSync(AD_SAMPLE_MEMORY_DIR, { recursive: true, force: true });
     await Bun.write(AD_SAMPLE_MEMORY_DIR, "not a directory");
 
+    await expect(maintainAdSampleFiles("2026-07-28")).rejects.toThrow("an accessible directory");
     await handleAdSampleMessage(sample());
     await expect(flushAdSampleBuffer()).resolves.toBeUndefined();
     expect(adSampleFileState.current).toBeNull();

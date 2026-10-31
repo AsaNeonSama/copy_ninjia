@@ -1,7 +1,7 @@
 import { NO_LOCKDOWN_EFFECTS } from "../../consts/antiRaid/lockdown";
 import {
   announcementCleanupEffects,
-  announcementOf,
+  restoringOf,
   suppressRetrigger,
 } from "./shared";
 import type {
@@ -89,14 +89,13 @@ export function handlePersistFailed(
   }
   // 已派发的提交可能在途；恢复沿同一 API 串行链排在提交后面。
   return {
-    next: {
-      kind: "restoring",
+    next: restoringOf({
       originalPermissions: state.originalPermissions,
       intentId: state.intentId,
       restoreAfterPersist: false,
       restoreReason: "lifted",
-      ...announcementOf(state),
-    },
+      announcement: state,
+    }),
     effects: [
       { kind: "persistState" },
       { kind: "beginRestore", originalPermissions: state.originalPermissions },

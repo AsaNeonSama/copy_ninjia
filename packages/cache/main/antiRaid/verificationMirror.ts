@@ -76,6 +76,18 @@ export function isActiveVerificationUser(chatId: number, userId: number): boolea
 }
 
 /**
+ * 读取 chatId 群活动验证镜像按群二级索引的只读视图（无条目表示该群当前没有活动验证快照）。
+ *
+ * @param chatId 群聊 ID
+ * @returns 该群当前处于活动入群验证的用户 ID 只读集合；无活动记录时返回 undefined
+ */
+export function getActiveVerificationUsers(
+  chatId: number
+): ReadonlySet<number> | undefined {
+  return activeUsersByChat.get(chatId);
+}
+
+/**
  * 各活动验证 key 已收到 Disk I/O 落盘回执的最新 `{ generation, revision }`。
  * 填充：启动 hydrate 与收到 verificationPersisted 回执时更新。
  * 清理：key 从 activeVerificationSnapshots 删除且收到删除回执时移除，启动 hydrate 时整表重建。

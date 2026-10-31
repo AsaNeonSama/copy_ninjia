@@ -127,7 +127,7 @@ export interface IdentitySearchQuery {
 }
 
 /** 待匹配的单个名单身份候选字段。 */
-export interface IdentitySearchCandidate {
+interface IdentitySearchCandidate {
   /** 身份数字 ID。 */
   readonly id: number;
   /** 格式化后的展示名称。 */

@@ -77,7 +77,7 @@ export function acceptVerificationDeferred(
     activeVerificationSnapshots.get(key);
   if (
     current === undefined ||
-    !isTerminalVerificationPhase(current?.phase) ||
+    !isTerminalVerificationPhase(current.phase) ||
     current.generation !== record.generation ||
     current.revision !== record.revision
   ) {
@@ -161,18 +161,17 @@ export function advanceDeferredVerificationGeneration(generation: number): void 
 }
 
 /**
- * 显式关闭守卫或群 teardown 时删除延后记录，并落 tombstone（取消是权威意图）。
+ * 删除指定群在单张延后验证表中的记录并投递删除 tombstone。
  *
- * @param chatId 群聊 ID
- * @returns 本次清理并投递删除 tombstone 的延后记录条数
+ * @param records 待扫描的延后验证表
+ * @param prefix 群聊验证键前缀（`<chatId>:`）
+ * @returns 本次删除并投递 tombstone 的记录条数
  */
-export function deleteDeferredVerificationsForChat(chatId: number): number {
-  const prefix: string = verificationKeyPrefix(chatId);
+function deleteDeferredVerificationEntriesForChat(
+  records: ReadonlyMap<string, DeferredVerificationRecord>,
+  prefix: string
+): number {
   let deleted: number = 0;
-  const records: Map<string, DeferredVerificationRecord> = new Map([
-    ...deferredVerificationRecords,
-    ...pendingVerificationDeferrals,
-  ]);
   for (const [key, record] of records) {
     if (!key.startsWith(prefix)) continue;
     const revision: number = record.revision + 1;
@@ -192,6 +191,20 @@ export function deleteDeferredVerificationsForChat(chatId: number): number {
     deleted++;
   }
   return deleted;
+}
+
+/**
+ * 显式关闭守卫或群 teardown 时删除延后记录，并落 tombstone（取消是权威意图）。
+ *
+ * @param chatId 群聊 ID
+ * @returns 本次清理并投递删除 tombstone 的延后记录条数
+ */
+export function deleteDeferredVerificationsForChat(chatId: number): number {
+  const prefix: string = verificationKeyPrefix(chatId);
+  return (
+    deleteDeferredVerificationEntriesForChat(deferredVerificationRecords, prefix) +
+    deleteDeferredVerificationEntriesForChat(pendingVerificationDeferrals, prefix)
+  );
 }
 
 /** 完整进程启动/终止边界清空所有非持久化预算与延后索引。 */

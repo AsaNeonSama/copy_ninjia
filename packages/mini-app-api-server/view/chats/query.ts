@@ -1,5 +1,8 @@
 import { aiMemoryUsages, latestAiMemories } from "../../../cache/main/aiChat";
-import { activeVerificationSnapshots } from "../../../cache/main/antiRaid/verificationMirror";
+import {
+  activeVerificationSnapshots,
+  getActiveVerificationUsers,
+} from "../../../cache/main/antiRaid/verificationMirror";
 import {
   batchKickChats,
   miniAppBatchKickCompletedByChat,
@@ -20,7 +23,9 @@ import {
   getChatStateCache,
 } from "../../../infra/storage/stateStore";
 import { parseAiMemorySnapshot } from "../../../libs/persistedSnapshotCodec";
+import { verificationKey } from "../../../libs/verificationKey";
 import { isTerminalVerificationPhase } from "../../../states/verification/shared";
+import type { VerificationSnapshot } from "../../../types/antiRaid/verification";
 import type { ChatState } from "../../../types/chatState";
 import type { JoinLogRecord } from "../../../types/diskIO/storage";
 import type { GagSession } from "../../../types/gag";
@@ -36,7 +41,7 @@ import type {
  * @param chatId 群聊 ID。
  * @returns 当前热 256 缓冲区内的消息条数。
  */
-export function readChatHotMessageCount(chatId: number): number {
+function readChatHotMessageCount(chatId: number): number {
   const usageCount: number | undefined = aiMemoryUsages.get(chatId)?.bufferedCount;
   if (usageCount !== undefined) return usageCount;
   const rawSnapshot: string | undefined = latestAiMemories.get(chatId);
@@ -133,14 +138,11 @@ export function listManagedChats(): readonly Readonly<MiniAppChatSummary>[] {
  * @param now 当前毫秒时间戳。
  * @returns 长度 24 的去重入群人数只读数组（下标 `hours - 1` 对应最近 `hours` 小时）。
  */
-export async function readChatJoinedCountsByHour(
+async function readChatJoinedCountsByHour(
   chatId: number,
   now: number
 ): Promise<readonly number[]> {
-  const counts: number[] = Array.from(
-    { length: MINI_APP_BATCH_KICK_MAX_HOURS },
-    (): number => 0
-  );
+  const counts: number[] = new Array<number>(MINI_APP_BATCH_KICK_MAX_HOURS).fill(0);
   const since: number = Math.max(0, now - DAY_MS);
   try {
     const records: readonly JoinLogRecord[] = await readJoinLog({
@@ -212,9 +214,15 @@ export async function getManagedChatDetail(
   }
 
   let verifyActiveCount: number = 0;
-  for (const record of activeVerificationSnapshots.values()) {
-    if (record.chatId === chatId && !isTerminalVerificationPhase(record.phase)) {
-      verifyActiveCount++;
+  const activeVerificationUsers: ReadonlySet<number> | undefined =
+    getActiveVerificationUsers(chatId);
+  if (activeVerificationUsers !== undefined) {
+    for (const userId of activeVerificationUsers) {
+      const record: VerificationSnapshot | undefined =
+        activeVerificationSnapshots.get(verificationKey(chatId, userId));
+      if (record !== undefined && !isTerminalVerificationPhase(record.phase)) {
+        verifyActiveCount++;
+      }
     }
   }
 

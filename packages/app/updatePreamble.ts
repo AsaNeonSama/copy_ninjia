@@ -43,7 +43,7 @@ import {
 import { messageOriginIdentityId } from "../users/messageOrigin";
 
 /** 前置链之后交给 grammY Composer 的三组路由；registerHandlers 建好后传给 createUpdatePreamble。 */
-export interface UpdatePreambleRoutes {
+interface UpdatePreambleRoutes {
   /** `:entities:bot_command` 外闸之后的全部斜杠命令。 */
   readonly commands: MiddlewareFn<Filter<Context, ":entities:bot_command">>;
   /** 原文首字符为 `/` 的中文动作命令（hears）。 */

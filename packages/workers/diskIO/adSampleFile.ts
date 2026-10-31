@@ -11,6 +11,7 @@ import type { AdSampleDiskMessage } from "../../types/diskIO/messages";
 import type { AppendOnlyFileState } from "../../types/diskIO/storage";
 import { AD_SAMPLE_FILE_PATH, AD_SAMPLE_MEMORY_DIR } from "../../consts/paths";
 import { removeOrphanedTempFiles } from "../../libs/atomicFile";
+import { inspectOptionalDirectory } from "../../libs/fileAccess";
 import {
   AD_SAMPLE_ARCHIVE_FILENAME_PATTERN,
   AD_SAMPLE_ARCHIVE_RETENTION_DAYS,
@@ -111,17 +112,6 @@ function listAdSampleArchiveEntries(): AdSampleArchiveEntry[] {
 }
 
 /**
- * 提取归档文件名中的有效公历日期；不匹配时返回 null。
- * @param name 目录项文件名。
- * @returns 归档文件名对应的 `YYYY-MM-DD` 日期键；非归档文件名或日期非法时返回 null。
- */
-function archiveDayFromName(name: string): string | null {
-  const matched: RegExpExecArray | null = AD_SAMPLE_ARCHIVE_FILENAME_PATTERN.exec(name);
-  const day: string | undefined = matched?.[1];
-  return day !== undefined && isCanonicalDateKey(day) ? day : null;
-}
-
-/**
  * 清理超出保留期的样本归档文件并更新当日归档序号游标；同一自然日只执行一次。
  * @param params 清理日期与可注入的目录读取、文件删除钩子。
  */
@@ -144,9 +134,10 @@ export async function sweepExpiredAdSampleArchives({
   let occupiedTodayIndexes: Set<number> | null = null;
   for (const entry of entries) {
     if (!entry.isFile) continue;
-    const archiveDay: string | null = archiveDayFromName(entry.name);
+    const match: RegExpExecArray | null = AD_SAMPLE_ARCHIVE_FILENAME_PATTERN.exec(entry.name);
+    const archiveDay: string | undefined = match?.[1];
+    if (archiveDay === undefined || !isCanonicalDateKey(archiveDay)) continue;
     if (archiveDay === today) {
-      const match: RegExpExecArray | null = AD_SAMPLE_ARCHIVE_FILENAME_PATTERN.exec(entry.name);
       const suffix: string | undefined = match?.[2];
       const index: number = suffix === undefined ? 1 : Number(suffix);
       if (suffix === undefined || (index >= 2 && Number.isSafeInteger(index))) {
@@ -154,7 +145,7 @@ export async function sweepExpiredAdSampleArchives({
         occupiedTodayIndexes.add(index);
       }
     }
-    if (archiveDay === null || archiveDay >= earliestRetainedDay) continue;
+    if (archiveDay >= earliestRetainedDay) continue;
     try {
       await removeFile(join(AD_SAMPLE_MEMORY_DIR, entry.name));
     } catch (error: unknown) {
@@ -180,7 +171,7 @@ export async function sweepExpiredAdSampleArchives({
 export async function maintainAdSampleFiles(
   today: string = getDateKey()
 ): Promise<void> {
-  if (!existsSync(AD_SAMPLE_MEMORY_DIR)) return;
+  if (!inspectOptionalDirectory(AD_SAMPLE_MEMORY_DIR)) return;
   await sweepOrphanedTemps();
   await sweepExpiredAdSampleArchives({ today });
 }

@@ -42,31 +42,39 @@ export interface LockdownPreparedState extends LockdownAnnouncement {
   commitStarted: boolean;
 }
 
+/** 私密模式已生效，等待恢复计时器到期或显式解除。 */
+export interface LockdownActiveState extends LockdownAnnouncement {
+  kind: "active";
+  originalPermissions: ChatPermissions;
+  intentId: number;
+}
+
+/** 迟到恢复已打开邀请权限，当前正在把 ACTIVE 意图重新对账到 Telegram。 */
+export interface LockdownReconcilingState extends LockdownAnnouncement {
+  kind: "reconciling";
+  originalPermissions: ChatPermissions;
+  intentId: number;
+  /** true 时只等本阶段落盘回执，回执到达后恰好启动一次纠偏。 */
+  reapplyAfterPersist: boolean;
+}
+
+/** 正在把群权限恢复为进入私密模式前的原权限。 */
+export interface LockdownRestoringState extends LockdownAnnouncement {
+  kind: "restoring";
+  originalPermissions: ChatPermissions;
+  intentId: number;
+  /** true 时只等本阶段落盘回执，回执到达后恰好启动一次恢复。 */
+  restoreAfterPersist: boolean;
+  /** 恢复成功时解锁公告用哪句文案；只活在内存里，见 LockdownRestoreReason。 */
+  restoreReason: LockdownRestoreReason;
+}
+
 export type LockdownState =
   | LockdownPreparingState
   | LockdownPreparedState
-  | ({
-    kind: "active";
-    originalPermissions: ChatPermissions;
-    intentId: number;
-  } & LockdownAnnouncement)
-  | ({
-    /** 迟到恢复已打开邀请权限，当前正在把 ACTIVE 意图重新对账到 Telegram。 */
-    kind: "reconciling";
-    originalPermissions: ChatPermissions;
-    intentId: number;
-    /** true 时只等本阶段落盘回执，回执到达后恰好启动一次纠偏。 */
-    reapplyAfterPersist: boolean;
-  } & LockdownAnnouncement)
-  | ({
-    kind: "restoring";
-    originalPermissions: ChatPermissions;
-    intentId: number;
-    /** true 时只等本阶段落盘回执，回执到达后恰好启动一次恢复。 */
-    restoreAfterPersist: boolean;
-    /** 恢复成功时解锁公告用哪句文案；只活在内存里，见 LockdownRestoreReason。 */
-    restoreReason: LockdownRestoreReason;
-  } & LockdownAnnouncement);
+  | LockdownActiveState
+  | LockdownReconcilingState
+  | LockdownRestoringState;
 
 /**
  * 进入 RESTORING 的原因：`expired` 为本轮到期，`lifted` 为到期前恢复（主动解除、加锁结果不确定后的补偿、

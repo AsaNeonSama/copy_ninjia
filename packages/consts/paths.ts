@@ -165,6 +165,11 @@ export const MINI_APP_FAVICON_PATH: string = join(
 export const DATABASE_DIR: string = join(RUNTIME_DATA_ROOT, DATABASE_DIR_NAME);
 /** 权限、封禁、群状态与 AI 上下文共用的 SQLite 数据库文件。 */
 export const IDENTITY_DATABASE_PATH: string = join(DATABASE_DIR, "storage.sqlite");
+/** Drizzle 内建 migrator 读取的身份数据库 schema migration 目录。 */
+export const IDENTITY_DATABASE_MIGRATIONS_DIR: string = join(
+  PROJECT_ROOT,
+  "packages/database/schema/migrations"
+);
 /** /wed 已发言成员滑窗目录；Disk I/O Worker 按 <chatId>.json 原子替换 `{ id, enteredAt }` 成员数组。 */
 export const WED_MEMORY_DIR: string = join(MEMORY_DIR, "wed");
 /** 当日运势追加文件与签名密钥目录。 */

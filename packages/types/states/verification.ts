@@ -306,7 +306,7 @@ export interface VerificationTransition {
   next: VerificationState | undefined;
   /** 只读：无副作用时是共享的 NO_VERIFICATION_EFFECTS（consts/antiRaid/verification.ts）。 */
   effects: readonly VerificationEffect[];
-  /** 仅原地修改 pending 时置 true。 */
+  /** 原地修改 pending 或 expelling 状态、需要重发持久化快照时置 true。 */
   snapshotChanged?: boolean;
   /** expiresAt 原地变化时通知解释器重建验证 timer。 */
   rescheduleTimer?: boolean;

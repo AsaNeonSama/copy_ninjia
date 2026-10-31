@@ -2,7 +2,7 @@ import { lstatSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { IDENTITY_DATABASE_MIGRATIONS_DIR } from "../../consts/identityStorage";
+import { IDENTITY_DATABASE_MIGRATIONS_DIR } from "../../consts/paths";
 import { storageDatabaseSchema } from "../schema/storage";
 import type {
   StorageDatabase,

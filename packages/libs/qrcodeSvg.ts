@@ -401,13 +401,15 @@ function placeCodewordsAndFormatInfo(
   }
 }
 
+const UTF8_ENCODER: TextEncoder = new TextEncoder();
+
 /**
  * 将给定文本（如 `otpauth://totp/...` URI）编码并渲染为标准 ISO/IEC 18004 内联 `<svg>` 矢量二维码字符串。
  * @param text 待编码的 UTF-8 文本（不超过 192 字节）。
  * @returns 完整的 `<svg ...>...</svg>` 字符串。
  */
 export function renderQrCodeSvg(text: string): string {
-  const payload: Uint8Array = new TextEncoder().encode(text);
+  const payload: Uint8Array = UTF8_ENCODER.encode(text);
   let versionIndex: number = -1;
   for (let i: number = 0; i < QR_L_MAX_BYTES.length; i += 1) {
     if (payload.byteLength <= (QR_L_MAX_BYTES[i] ?? 0)) {
