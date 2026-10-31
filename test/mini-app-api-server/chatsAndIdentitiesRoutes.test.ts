@@ -26,6 +26,7 @@ import type {
 } from "../../packages/types/miniApp";
 import type { QaFieldRejection } from "../../packages/types/qa";
 import type { InstalledTelegramApi, TelegramSentMessage } from "../../packages/types/telegramWorker";
+import { verificationKey } from "../../packages/libs/verificationKey";
 import { botPermissions } from "../helpers/botPermissions";
 import { diskIOReplyStub, diskIOStub } from "../helpers/diskIOMock";
 import { buildSignedTestInitData } from "../helpers/miniAppInitData";
@@ -271,20 +272,20 @@ describe("Mini App 受管群与黑白名单路由", () => {
       joinedAt: 1_000,
       expiresAt: 121_000,
     };
-    setActiveVerificationSnapshot("-1002001:6001", {
+    setActiveVerificationSnapshot(verificationKey(-1002001, 6001), {
       ...baseSnapshot,
       chatId: -1002001,
       userId: 6001,
       phase: "pending",
     });
-    setActiveVerificationSnapshot("-1002001:6002", {
+    setActiveVerificationSnapshot(verificationKey(-1002001, 6002), {
       ...baseSnapshot,
       chatId: -1002001,
       userId: 6002,
       phase: "expelling",
       expelReason: "timeout",
     });
-    setActiveVerificationSnapshot("-1002002:6003", {
+    setActiveVerificationSnapshot(verificationKey(-1002002, 6003), {
       ...baseSnapshot,
       chatId: -1002002,
       userId: 6003,

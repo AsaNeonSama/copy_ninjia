@@ -161,9 +161,9 @@ export function advanceDeferredVerificationGeneration(generation: number): void 
 }
 
 /**
- * 删除指定群在单张延后验证表中的记录并投递删除 tombstone。
+ * 扫描一张延后验证表中属于该群的键，连同两张延后表与各镜像里的同键条目一起删除，并投递删除 tombstone。
  *
- * @param records 待扫描的延后验证表
+ * @param records 待扫描的延后验证表（deferredVerificationRecords 或 pendingVerificationDeferrals）
  * @param prefix 群聊验证键前缀（`<chatId>:`）
  * @returns 本次删除并投递 tombstone 的记录条数
  */

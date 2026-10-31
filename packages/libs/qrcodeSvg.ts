@@ -14,6 +14,8 @@ import {
   QR_VERSION_BCH_GENERATOR,
 } from "../consts/miniAppTotp";
 
+const UTF8_ENCODER: TextEncoder = new TextEncoder();
+
 /** QR 矩阵可变构建上下文。 */
 interface QrMatrixBuffer {
   /** 矩阵边长模块数（`version * 4 + 17`）。 */
@@ -400,8 +402,6 @@ function placeCodewordsAndFormatInfo(
     matrix.modules[r2 * size + c2] = dark ? 1 : 0;
   }
 }
-
-const UTF8_ENCODER: TextEncoder = new TextEncoder();
 
 /**
  * 将给定文本（如 `otpauth://totp/...` URI）编码并渲染为标准 ISO/IEC 18004 内联 `<svg>` 矢量二维码字符串。

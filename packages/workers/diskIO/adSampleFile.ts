@@ -165,7 +165,8 @@ export async function sweepExpiredAdSampleArchives({
 }
 
 /**
- * 样本目录已存在时清理孤儿临时文件与过期归档。
+ * 样本目录已存在时清理孤儿临时文件与过期归档；目录缺省时跳过，路径存在但不是可读写目录时由
+ * inspectOptionalDirectory 抛出输入错误。
  * @param today 当前配置时区的 `YYYY-MM-DD` 日期键；缺省为当前时刻。
  */
 export async function maintainAdSampleFiles(
