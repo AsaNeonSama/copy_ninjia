@@ -395,6 +395,42 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(listBody.items[0]?.fileName).toBe(expectedFileName);
     expect(listBody.items[0]?.mimeType).toBe("image/png");
 
+    const secondPng: Uint8Array = await new Bun.Image(imageFixture(12, 12)).png().bytes();
+    const secondFileName: string = `${Bun.SHA256.hash(secondPng, "hex")}.png`;
+    await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/gallery/upload", {
+        method: "POST",
+        headers: superAdminHeaders(),
+        body: secondPng,
+      })
+    );
+    const sortedExpectedNames: readonly string[] = [
+      expectedFileName,
+      secondFileName,
+    ].sort();
+    const page1Res: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/gallery?page=1&pageSize=1", {
+        headers: superAdminHeaders(),
+      })
+    );
+    const page1Body: MiniAppGalleryPage =
+      (await page1Res.json()) as MiniAppGalleryPage;
+    expect(page1Body.total).toBe(2);
+    expect(page1Body.totalPages).toBe(2);
+    expect(page1Body.items.map((item): string => item.fileName)).toEqual([
+      sortedExpectedNames[0]!,
+    ]);
+    const page2Res: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/gallery?page=2&pageSize=1", {
+        headers: superAdminHeaders(),
+      })
+    );
+    const page2Body: MiniAppGalleryPage =
+      (await page2Res.json()) as MiniAppGalleryPage;
+    expect(page2Body.items.map((item): string => item.fileName)).toEqual([
+      sortedExpectedNames[1]!,
+    ]);
+
     const headers: Record<string, string> = superAdminHeaders();
     const initData: string = headers[MINI_APP_INIT_DATA_HEADER]!;
     const sessionToken: string = headers[MINI_APP_SESSION_HEADER]!;

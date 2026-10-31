@@ -335,44 +335,40 @@ export function ChatsPage(): React.JSX.Element {
         </button>
       </div>
 
-      {loadingList
-        ? (
-          <LoadingBox className="card loading-box" text={t.chats.loadingChatsText}>
-            <ListSkeletonRows count={MINI_APP_CHATS_DEFAULT_PAGE_SIZE} />
-          </LoadingBox>
-        )
-        : null}
+      <div className="card identity-list-card">
+        {loadingList
+          ? (
+            <LoadingBox>
+              <ListSkeletonRows count={MINI_APP_CHATS_DEFAULT_PAGE_SIZE} />
+            </LoadingBox>
+          )
+          : null}
 
-      {!loadingList && chats.length === 0
-        ? <div className="card"><div className="empty">{t.chats.emptyChatsHint}</div></div>
-        : null}
+        {!loadingList && chats.length === 0
+          ? <div className="empty">{t.chats.emptyChatsHint}</div>
+          : null}
 
-      {!loadingList && chats.length > 0
-        ? (
-          <ManagedChatList
-            chats={pagedChats}
-            t={t}
-            onSelectChat={selectChat}
-          />
-        )
-        : null}
-
-      {totalChats > 0
-        ? (
-          <div className="card">
-            <PaginationBar
-              page={safeChatPage}
-              totalPages={totalChatPages}
-              total={totalChats}
-              pageSize={chatPageSize}
-              pageSizeOptions={MINI_APP_CHATS_PAGE_SIZE_OPTIONS}
-              disabled={loadingList}
-              onPageChange={setChatPage}
-              onPageSizeChange={setChatPageSize}
+        {!loadingList && chats.length > 0
+          ? (
+            <ManagedChatList
+              chats={pagedChats}
+              t={t}
+              onSelectChat={selectChat}
             />
-          </div>
-        )
-        : null}
+          )
+          : null}
+
+        <PaginationBar
+          page={safeChatPage}
+          totalPages={totalChatPages}
+          total={totalChats}
+          pageSize={chatPageSize}
+          pageSizeOptions={MINI_APP_CHATS_PAGE_SIZE_OPTIONS}
+          disabled={loadingList}
+          onPageChange={setChatPage}
+          onPageSizeChange={setChatPageSize}
+        />
+      </div>
     </section>
   );
 }

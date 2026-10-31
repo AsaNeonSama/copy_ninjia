@@ -3,7 +3,6 @@
   gap: 8px; padding: 10px 4px; color: var(--hint); animation: miniapp-fade-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .card.loading-box { padding: 13px; }
-.loading-text { font-size: 12px; font-weight: 500; color: var(--hint); text-align: center; }
 .content-refreshing { opacity: 0.62; transition: opacity 0.2s ease; pointer-events: none; }
 .skeleton-stack { width: 100%; display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
 .skeleton-grid { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }

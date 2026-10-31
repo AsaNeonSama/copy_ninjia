@@ -807,9 +807,9 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
   - Path configured in `config/dynamic/assets.json` under `onlyPath.random_h_image_dir` (default `RANDOM_H_IMAGE_DIR`).
   - Preflighted at startup via `ensureRandomImageDirectory` in `infra/randomImage.ts` before external connections: must exist and be readable/writable. Rejects startup on subdirectories, symlink files, hidden files, or filenames not matching `RANDOM_IMAGE_CONTENT_NAME_PATTERN` (lowercase hex SHA-256).
   - Hot reload applies the same checks; invalid paths reject the change and retain the active directory. Deleted directories are not recreated at runtime.
-- **Drawing Algorithm (`pickRandomImage`)**:
-  - Re-scans directory on each draw (no cached file lists); selects uniformly among regular files with allowed extensions and size ≤ `RANDOM_IMAGE_MAX_BYTES`.
-  - If a drawn file exceeds limits or vanished, drops it and redraws from remaining candidates. Reports `tooLarge` if candidates included oversized files, or `empty` if no candidates remain.
+- **Drawing Algorithm & Filename Cache (`pickRandomImage` / `randomImageDirectoryCache`)**:
+  - Startup or hot-reload execution of `ensureRandomImageDirectory` (or first access to an uncached directory) scans the directory once, filters non-hidden regular files with allowed extensions, sorts them in ascending lexicographical order, and stores them in `randomImageDirectoryCache` (`cache/main/hImage.ts`). `storeRandomImage` (`/h_image add` and Mini App upload) and `deleteRandomImageFile` (Mini App deletion) maintain this sorted cache in-place via binary search; random drawing and Mini App gallery pagination read directly from the cache without re-sorting on page turns.
+  - `pickRandomImage` selects uniformly among cached filenames with size ≤ `RANDOM_IMAGE_MAX_BYTES`. If a drawn file vanished before reading, it is evicted from the cache; if it exceeds size limits, it is excluded from the remaining candidates for that draw. Reports `tooLarge` if candidates included oversized files, or `empty` if no candidates remain.
 - **Rate Limiting & Deferred Scheduling**:
   - `/h_image` and `/h_image add` share a global sliding-window rate limit (`H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` per `H_IMAGE_RATE_LIMIT_WINDOW_MS`). Calls exceeding quota drop silently without queuing or replying.
   - Submits to deferred command executor (`commands/deferredCommands.ts`):

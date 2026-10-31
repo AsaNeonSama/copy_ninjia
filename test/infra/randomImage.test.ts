@@ -9,6 +9,7 @@ import {
   readRandomImageLibrary,
   storeRandomImage,
 } from "../../packages/infra/randomImage";
+import { randomImageDirectoryCache } from "../../packages/cache/main/hImage";
 import { RANDOM_IMAGE_CONTENT_NAME_PATTERN, RANDOM_IMAGE_MAX_BYTES } from "../../packages/consts/randomImage";
 import { ASSETS_CONFIG_PATH } from "../../packages/consts/paths";
 import { RANDOM_H_IMAGE_DIR_FIELD } from "../../packages/consts/ui/assets";
@@ -23,6 +24,7 @@ function temporaryRoot(): string {
 }
 
 afterEach(() => {
+  randomImageDirectoryCache.current = null;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -176,7 +178,7 @@ describe("pickRandomImage", () => {
     const root: string = temporaryRoot();
     await Bun.write(join(root, "huge.jpg"), new Uint8Array(RANDOM_IMAGE_MAX_BYTES + 1));
     await Bun.write(join(root, "ok.png"), "ok");
-    const order: readonly string[] = readdirSync(root);
+    const order: readonly string[] = readdirSync(root).sort();
     const random = spyOn(Math, "random");
     try {
       // 先抽中超限的那张，剔除后剩余候选只有一项，下标恒为 0。

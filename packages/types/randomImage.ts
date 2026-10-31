@@ -26,7 +26,15 @@ export interface RandomImageLibrary {
   readonly size: number;
 }
 
-/** 图库目录内单张有效图片的文件元数据（infra/randomImage.ts 的 listRandomImageEntries 与 statRandomImageFile）。 */
+/** 随机图库目录的有效文件名缓存快照（cache/main/hImage.ts 的 randomImageDirectoryCache）。 */
+export interface RandomImageDirectoryCache {
+  /** 当前缓存对应的图库目录绝对路径。 */
+  readonly directory: string;
+  /** 目录内有效普通图片文件名列表（启动加载时按字典序升序排列，新增/删除时按二分查找原位维护，翻页不重复排序）。 */
+  readonly names: string[];
+}
+
+/** 图库目录内单张有效图片的文件元数据（infra/randomImage.ts 的 statRandomImageFile）。 */
 export interface RandomImageEntry {
   /** 图库目录内的文件名（不含路径）。 */
   readonly fileName: string;

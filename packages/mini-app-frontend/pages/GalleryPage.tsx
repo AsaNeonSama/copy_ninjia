@@ -221,13 +221,15 @@ export function GalleryPage(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="row-sub">
-          {galleryPage === null
-            ? t.gallery.loadingText
-            : galleryPage.exists
-              ? t.gallery.directoryReadyText(galleryPage.directory)
-              : t.gallery.directoryMissingText(galleryPage.directory)}
-        </div>
+        {galleryPage !== null
+          ? (
+            <div className="row-sub">
+              {galleryPage.exists
+                ? t.gallery.directoryReadyText(galleryPage.directory)
+                : t.gallery.directoryMissingText(galleryPage.directory)}
+            </div>
+          )
+          : null}
 
         {uploadStatusText !== null
           ? (

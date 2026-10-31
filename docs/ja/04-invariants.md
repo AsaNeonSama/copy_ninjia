@@ -766,9 +766,9 @@
   - 画像ディレクトリのパスは `config/dynamic/assets.json` の `onlyPath.random_h_image_dir`（省略時は `RANDOM_H_IMAGE_DIR`）から取得します。
   - 起動段階において、外部接続の確立前に `infra/randomImage.ts` の `ensureRandomImageDirectory` でディレクトリの妥当性を事前検証します：存在し、読み書き可能でなければなりません。サブディレクトリ、シンボリックリンクファイル、隠しファイル、または `RANDOM_IMAGE_CONTENT_NAME_PATTERN` に一致しないファイル名が存在する場合は起動を直ちに拒否します。
   - ホットリロードでディレクトリを変更する際も同一の厳格な検証を実施し、新ディレクトリが不適合の場合は変更を拒否して元のディレクトリを維持します。稼働中にディレクトリが削除されても自動再作成は行いません。
-- **画像抽選アルゴリズム（`pickRandomImage`）**：
-  - 毎回ディレクトリを再スキャンし（ファイルリストは常駐キャッシュしない）、対応拡張子かつ `RANDOM_IMAGE_MAX_BYTES` 以下の通常ファイルのみを一様ランダムに抽出します。
-  - 抽出したファイルが上限を超過しているか、読み込み前に削除・変更されていた場合は、候補リストから除外して残りの候補から再抽出します。送信可能なファイルが存在せず、上限超過ファイルを引いていた場合は `tooLarge`、候補が空の場合は `empty` を返します。
+- **画像抽選アルゴリズムとファイル名キャッシュ（`pickRandomImage` / `randomImageDirectoryCache`）**：
+  - 起動時やホットリロード時の `ensureRandomImageDirectory`（または未キャッシュディレクトリへの初回アクセス）でディレクトリを走査し、対応拡張子の非隠し通常ファイルのみを辞書順昇順でソートして `cache/main/hImage.ts` の `randomImageDirectoryCache` に保持します。`storeRandomImage`（`/h_image add` および Mini App アップロード）と `deleteRandomImageFile`（Mini App 削除）は二分探索でこのソート済みキャッシュをインプレース更新し、ランダム抽選および Mini App 画像庫ページングは再ソートを行わずキャッシュから直接読み取ります。
+  - `pickRandomImage` はキャッシュされたファイル名リストから `RANDOM_IMAGE_MAX_BYTES` 以下の通常ファイルを一様ランダムに抽出します。抽出したファイルが読み込み前に削除・変更されていた場合はキャッシュから除外し、サイズ上限を超過していた場合は当該抽選の残り候補から再抽出します。送信可能なファイルが存在せず上限超過ファイルを引いていた場合は `tooLarge`、候補が空の場合は `empty` を返します。
 - **レート制限と遅延タスクスケジューリング**：
   - `/h_image` と `/h_image add` は単一のグローバルスライディングウィンドウ枠を共有します（`H_IMAGE_RATE_LIMIT_WINDOW_MS` 内に最大 `H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` 回）。超過した呼び出しはキューイングも返答もせず静默に破棄します。
   - コマンド解析後に遅延コマンドエグゼキュータ（`commands/deferredCommands.ts`）へ投入します：

@@ -4,7 +4,7 @@
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 @media (hover: hover) and (pointer: fine) {
-  .stat-box:hover, .interactive-card:hover { border-color: var(--accent-border); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+  .stat-box:hover { border-color: var(--accent-border); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
 }
 .stat-label { font-size: 11px; font-weight: 600; color: var(--hint); }
 .stat-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 3px; word-break: break-word; }

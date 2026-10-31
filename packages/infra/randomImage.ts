@@ -1,15 +1,15 @@
 /**
  * 随机图片：`/h_image` 的目录准备、抽取与收图写盘。
  *
- * 启动时严格检查专用图库；运行时为 /h_image 与 cron 提供抽图、计数和按内容摘要收图。
- * 不持有缓存，也不发送；目录路径由调用方传入（部署值见 config/assets.ts 的 getAssetConfig）。
- * 每次抽取都重新枚举目录，不缓存目录列表。
+ * 启动时严格检查专用图库并加载有效图片文件名缓存；运行时为 /h_image、cron 与 Mini App 图库提供基于缓存的抽图、计数、列表分页与按内容摘要收图，
+ * 并在收图写盘（`/h_image add` 与 Mini App 上传）或删除图片时增量更新缓存。
  */
 
 import { access, lstat, mkdir, readdir, rename } from "node:fs/promises";
 import { constants } from "node:fs";
 import type { Dirent, Stats } from "node:fs";
 import { extname, join } from "node:path";
+import { randomImageDirectoryCache } from "../cache/main/hImage";
 import { ASSETS_CONFIG_PATH } from "../consts/paths";
 import {
   RANDOM_IMAGE_CONTENT_NAME_PATTERN,
@@ -25,6 +25,7 @@ import { pickRandom } from "../libs/random";
 import { logger } from "./logger";
 import { sniffImageFormat } from "./image";
 import type {
+  RandomImageDirectoryCache,
   RandomImageEntry,
   RandomImageLibrary,
   RandomImageMimeType,
@@ -33,8 +34,77 @@ import type {
 } from "../types/randomImage";
 
 /**
+ * 在按字典序升序排列的文件名数组中二分查找目标文件名的插入下标（lower bound）。
+ * @param names 已按字典序升序排列的文件名数组。
+ * @param target 目标文件名。
+ * @returns 首个大于或等于 `target` 的下标（`0 .. names.length`）。
+ */
+function findRandomImageNameIndex(
+  names: readonly string[],
+  target: string
+): number {
+  let low: number = 0;
+  let high: number = names.length;
+  while (low < high) {
+    const mid: number = (low + high) >>> 1;
+    if (names[mid]! < target) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  return low;
+}
+
+/**
+ * 将给定的文件名列表按字典序升序排序后写入当前图库目录缓存。
+ * @param directory 图库目录绝对路径。
+ * @param names 目录内有效图片文件名数组。
+ * @returns 已写入 holder 的缓存对象。
+ */
+function setRandomImageDirectoryCache(
+  directory: string,
+  names: string[]
+): RandomImageDirectoryCache {
+  names.sort();
+  const cache: RandomImageDirectoryCache = {
+    directory,
+    names,
+  };
+  randomImageDirectoryCache.current = cache;
+  return cache;
+}
+
+/**
+ * 向已命中的图库目录缓存按字典序二分插入一个新入库的文件名。
+ * @param directory 图库目录绝对路径。
+ * @param fileName 新增的图片文件名。
+ */
+function addCachedRandomImageName(directory: string, fileName: string): void {
+  const cache: RandomImageDirectoryCache | null = randomImageDirectoryCache.current;
+  if (cache?.directory !== directory) return;
+  const index: number = findRandomImageNameIndex(cache.names, fileName);
+  if (cache.names[index] === fileName) return;
+  cache.names.splice(index, 0, fileName);
+}
+
+/**
+ * 从已命中的图库目录缓存中按字典序二分查找并移除指定文件名。
+ * @param directory 图库目录绝对路径。
+ * @param fileName 待移除的图片文件名。
+ */
+function removeCachedRandomImageName(directory: string, fileName: string): void {
+  const cache: RandomImageDirectoryCache | null = randomImageDirectoryCache.current;
+  if (cache?.directory !== directory) return;
+  const index: number = findRandomImageNameIndex(cache.names, fileName);
+  if (cache.names[index] === fileName) {
+    cache.names.splice(index, 1);
+  }
+}
+
+/**
  * 准备 `/h_image` 专用图库并校验内容摘要文件名、扩展名与条目类型（见 `docs/cn/04-invariants.md`）：
- * 允许目录根为符号链接，拒绝子目录、符号链接文件及临时文件。
+ * 允许目录根为符号链接，拒绝子目录、符号链接文件及临时文件；校验通过后将文件名列表加载到内存缓存。
  * @param directory 专用图库目录的绝对路径。
  */
 export async function ensureRandomImageDirectory(directory: string): Promise<void> {
@@ -60,6 +130,7 @@ export async function ensureRandomImageDirectory(directory: string): Promise<voi
   } catch {
     throw invalid;
   }
+  const names: string[] = [];
   for (const entry of entries) {
     const extension: string = extname(entry.name);
     if (!entry.isFile() || !RANDOM_IMAGE_EXTENSIONS.has(extension.toLowerCase()) ||
@@ -67,7 +138,9 @@ export async function ensureRandomImageDirectory(directory: string): Promise<voi
       throw new InputValidationError(join(directory, entry.name), RANDOM_H_IMAGE_DIR_FIELD,
         "a regular image named <64 lowercase SHA-256 hex characters>.jpg/.jpeg/.png/.webp");
     }
+    names.push(entry.name);
   }
+  setRandomImageDirectoryCache(directory, names);
 }
 
 /**
@@ -86,12 +159,27 @@ function randomImageNames(entries: readonly Dirent[]): string[] {
 }
 
 /**
- * 列一次目录并统计有效图库图片张数；目录读取失败原样上抛。
+ * 读取指定图库目录的缓存；若当前目录尚未缓存则执行一次 `readdir` 填充缓存。
+ * @param directory 专用图库目录的绝对路径。
+ * @returns 当前目录的文件名缓存对象。
+ */
+async function readOrLoadRandomImageCache(
+  directory: string
+): Promise<RandomImageDirectoryCache> {
+  const existing: RandomImageDirectoryCache | null = randomImageDirectoryCache.current;
+  if (existing?.directory === directory) return existing;
+  const entries: Dirent[] = await readdir(directory, { withFileTypes: true });
+  return setRandomImageDirectoryCache(directory, randomImageNames(entries));
+}
+
+/**
+ * 统计当前图库有效图片张数（优先读取已加载的目录缓存，未缓存时列一次目录填充缓存）；目录读取失败原样上抛。
  * @param directory 专用图库目录的绝对路径。
  * @returns 包含当前有效图片张数的图库摘要。
  */
 export async function readRandomImageLibrary(directory: string): Promise<RandomImageLibrary> {
-  return { size: randomImageNames(await readdir(directory, { withFileTypes: true })).length };
+  const cache: RandomImageDirectoryCache = await readOrLoadRandomImageCache(directory);
+  return { size: cache.names.length };
 }
 
 /**
@@ -104,89 +192,84 @@ function vanished(error: unknown): boolean {
 }
 
 /**
- * 从目录非递归地均匀抽取一张不超过 `RANDOM_IMAGE_MAX_BYTES` 的图片并读取字节；
- * 抽中超限或已消失的文件时从剩余候选中剔除并继续抽取。
+ * 从图库文件名缓存中均匀随机抽取一张不超过 `RANDOM_IMAGE_MAX_BYTES` 的图片并读取字节；
+ * 抽中已消失的文件时同步从缓存剔除，抽中超限文件时从本次剩余候选中剔除并继续抽取。
  * @param directory 专用图库目录的绝对路径。
  * @returns 抽取结果（成功读取图片字节，或目录缺失、为空、全部超限）。
  */
 export async function pickRandomImage(directory: string): Promise<RandomImagePick> {
-  let entries: Dirent[];
+  let cache: RandomImageDirectoryCache;
   try {
-    entries = await readdir(directory, { withFileTypes: true });
+    cache = await readOrLoadRandomImageCache(directory);
   } catch (error: unknown) {
     if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return { status: "missingDirectory" };
     throw error;
   }
-  const candidates: string[] = randomImageNames(entries);
+  if (cache.names.length === 0) return { status: "empty" };
+
   let oversized: string | undefined;
-  for (let fileName: string | undefined = pickRandom(candidates); fileName !== undefined; fileName = pickRandom(candidates)) {
+  let candidates: string[] | null = null;
+  for (
+    let fileName: string | undefined = pickRandom(cache.names);
+    fileName !== undefined;
+    fileName = pickRandom(candidates ?? cache.names)
+  ) {
     const path: string = join(directory, fileName);
     try {
       if ((await Bun.file(path).stat()).size > RANDOM_IMAGE_MAX_BYTES) {
         oversized = fileName;
-      } else {
-        const mimeType: RandomImageMimeType = RANDOM_IMAGE_EXTENSIONS.get(extname(fileName).toLowerCase())!;
-        return { status: "ok", bytes: await Bun.file(path).bytes(), mimeType, fileName };
+        candidates ??= [...cache.names];
+        const idx: number = candidates.indexOf(fileName);
+        if (idx !== -1) candidates.splice(idx, 1);
+        continue;
       }
+      const mimeType: RandomImageMimeType = RANDOM_IMAGE_EXTENSIONS.get(extname(fileName).toLowerCase())!;
+      return { status: "ok", bytes: await Bun.file(path).bytes(), mimeType, fileName };
     } catch (error: unknown) {
       if (!vanished(error)) throw error;
     }
-    candidates.splice(candidates.indexOf(fileName), 1);
+    removeCachedRandomImageName(directory, fileName);
+    if (candidates !== null) {
+      const idx: number = candidates.indexOf(fileName);
+      if (idx !== -1) candidates.splice(idx, 1);
+    }
   }
   return oversized === undefined ? { status: "empty" } : { status: "tooLarge", fileName: oversized };
 }
 
 /**
- * 路径此刻是不是目录（跟随符号链接）；不存在或读不到都按不是处理。
+ * 路径此刻是不是目录（跟随符号链接）；不存在或读不到都按不是处理，若原缓存指向该失效目录则一并清空。
  * @param directory 待探测的目录路径。
  * @returns 路径存在且为目录时返回 true，否则返回 false。
  */
 export async function isRandomImageDirectory(directory: string): Promise<boolean> {
   try {
-    return (await Bun.file(directory).stat()).isDirectory();
+    if ((await Bun.file(directory).stat()).isDirectory()) return true;
   } catch (_error: unknown) {
-    return false;
+    // 路径不存在或不可访问时视为非目录
   }
+  if (randomImageDirectoryCache.current?.directory === directory) {
+    randomImageDirectoryCache.current = null;
+  }
+  return false;
 }
 
 /**
- * 枚举图库目录内的全部有效普通图片文件并采集字节大小与修改时间；目录不存在时返回 `null`。
+ * 返回图库目录内已缓存的全部有效普通图片文件名列表（不重复排序）；目录不存在或非目录时返回 `null`。
  * @param directory 专用图库目录的绝对路径。
- * @returns 有效图片元数据数组；目录不存在或非目录时返回 `null`。
+ * @returns 有效图片文件名只读数组；目录不存在或非目录时返回 `null`。
  */
-export async function listRandomImageEntries(
+export async function listRandomImageNames(
   directory: string
-): Promise<readonly Readonly<RandomImageEntry>[] | null> {
+): Promise<readonly string[] | null> {
   if (!await isRandomImageDirectory(directory)) return null;
-  let entries: Dirent[];
   try {
-    entries = await readdir(directory, { withFileTypes: true });
+    const cache: RandomImageDirectoryCache = await readOrLoadRandomImageCache(directory);
+    return cache.names;
   } catch (error: unknown) {
     if (vanished(error)) return null;
     throw error;
   }
-  const records: Readonly<RandomImageEntry>[] = [];
-  for (const name of randomImageNames(entries)) {
-    const filePath: string = join(directory, name);
-    const mimeType: RandomImageMimeType | undefined = RANDOM_IMAGE_EXTENSIONS.get(
-      extname(name).toLowerCase()
-    );
-    if (mimeType === undefined) continue;
-    try {
-      const stat: Stats = await lstat(filePath);
-      if (!stat.isFile()) continue;
-      records.push({
-        fileName: name,
-        filePath,
-        mimeType,
-        sizeBytes: stat.size,
-        mtimeMs: stat.mtimeMs,
-      });
-    } catch (error: unknown) {
-      if (!vanished(error)) throw error;
-    }
-  }
-  return records;
 }
 
 /**
@@ -204,7 +287,6 @@ export async function statRandomImageFile(
     extname(fileName).toLowerCase()
   );
   if (mimeType === undefined) return null;
-  if (!await isRandomImageDirectory(directory)) return null;
   const filePath: string = join(directory, fileName);
   try {
     const stat: Stats = await lstat(filePath);
@@ -223,7 +305,7 @@ export async function statRandomImageFile(
 }
 
 /**
- * 安全删除图库目录内指定文件名的普通图片文件（不跟随文件级符号链接）。
+ * 安全删除图库目录内指定文件名的普通图片文件（不跟随文件级符号链接），并在删除成功后同步从文件名缓存移除。
  * @param directory 专用图库目录的绝对路径。
  * @param fileName 已通过文件名形态校验的图片文件名。
  * @returns 删除成功时返回 `true`；文件不存在、非普通图片文件或已消失时返回 `false`。
@@ -239,15 +321,19 @@ export async function deleteRandomImageFile(
   if (entry === null) return false;
   try {
     await Bun.file(entry.filePath).delete();
+    removeCachedRandomImageName(directory, fileName);
     return true;
   } catch (error: unknown) {
-    if (vanished(error)) return false;
+    if (vanished(error)) {
+      removeCachedRandomImageName(directory, fileName);
+      return false;
+    }
     throw error;
   }
 }
 
 /**
- * 将图片按魔数嗅探格式与内容 SHA-256 命名写入图库：目标已存在时返回 `existing`；
+ * 将图片按魔数嗅探格式与内容 SHA-256 命名写入图库并同步更新内存缓存：目标已存在时返回 `existing`；
  * 新增时先写同目录隐藏临时文件再原子改名，失败时清理临时文件并上抛。
  * @param directory 专用图库目录的绝对路径。
  * @param bytes 待存入的图片原始字节。
@@ -261,7 +347,10 @@ export async function storeRandomImage(
   if (extension === undefined) return { status: "unsupportedFormat" };
   const fileName: string = `${Bun.SHA256.hash(bytes, "hex")}${extension}`;
   const target: string = join(directory, fileName);
-  if (await Bun.file(target).exists()) return { status: "existing", fileName };
+  if (await Bun.file(target).exists()) {
+    addCachedRandomImageName(directory, fileName);
+    return { status: "existing", fileName };
+  }
   const temporary: string = join(directory, `${RANDOM_IMAGE_TEMP_PREFIX}${Bun.randomUUIDv7()}${extension}`);
   try {
     await Bun.write(temporary, bytes);
@@ -270,5 +359,6 @@ export async function storeRandomImage(
     await Bun.file(temporary).delete().catch((): undefined => undefined);
     throw error;
   }
+  addCachedRandomImageName(directory, fileName);
   return { status: "stored", fileName };
 }

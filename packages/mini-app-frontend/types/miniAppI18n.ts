@@ -188,7 +188,6 @@ export interface MiniAppTranslations {
   readonly chats: Readonly<{
     readonly sectionTitle: (count: number) => string;
     readonly refreshButton: string;
-    readonly loadingChatsText: string;
     readonly emptyChatsHint: string;
     readonly lockdownBadge: string;
     readonly chatCardMeta: (chatId: number, hotCount: number, qaCount: number) => string;
@@ -259,7 +258,6 @@ export interface MiniAppTranslations {
     readonly refreshButton: string;
     readonly headerTitle: (title: string, total: number, maxCapacity: number) => string;
     readonly headerMeta: (chatId: number) => string;
-    readonly loadingText: string;
     readonly emptyHint: string;
     readonly replyBadge: (name: string, preview: string) => string;
     readonly forwardBadge: (from: string) => string;
@@ -271,7 +269,6 @@ export interface MiniAppTranslations {
     readonly blocklistTab: string;
     readonly searchPlaceholder: string;
     readonly searchClearAria: string;
-    readonly searchDebounceHint: string;
     readonly addFoldButton: string;
     readonly addModes: Readonly<Record<MiniAppIdentityAddMode, string>>;
     readonly addModeDescriptions: Readonly<Record<MiniAppIdentityAddMode, string>>;
@@ -285,7 +282,6 @@ export interface MiniAppTranslations {
     readonly pickerCancelledToast: string;
     readonly pickerWaitingToast: string;
     readonly pickerTimeoutToast: string;
-    readonly loadingText: string;
     readonly emptySearchHint: (query: string) => string;
     readonly emptyListHint: (subTab: MiniAppIdentitySubTabKey) => string;
     readonly channelBadge: string;
@@ -323,7 +319,6 @@ export interface MiniAppTranslations {
     readonly closePreviewButton: string;
     readonly confirmDeleteImage: (fileName: string) => string;
     readonly deletedToast: (fileName: string) => string;
-    readonly loadingText: string;
     readonly emptyMissingDirHint: string;
     readonly emptyGalleryHint: string;
   }>;

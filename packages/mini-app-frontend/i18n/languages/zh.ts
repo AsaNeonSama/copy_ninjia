@@ -467,7 +467,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
     chats: {
       sectionTitle: (count: number): string => `已启用 /init 的受管群聊 (${count})`,
       refreshButton: "刷新",
-      loadingChatsText: "正在帮杂鱼清点受管群列表…",
       emptyChatsHint:
         "啧，现在连一个开启 /init 的群都没有呢，杂鱼快去群里发送 /init enable 吧♡",
       lockdownBadge: "封锁冷却中",
@@ -596,7 +595,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         `${title} · 热发言 (${total}/${maxCapacity})`,
       headerMeta: (chatId: number): string =>
         `群 ID: ${chatId} · 仅展示最近 256 条热缓冲区发言，压缩摘要才不给杂鱼看呢`,
-      loadingText: "正在帮杂鱼翻阅热发言记录…",
       emptyHint: "这个群的热缓冲区里空空如也，一条发言都没有呢杂鱼♡",
       replyBadge: (name: string, preview: string): string =>
         `回复 ${name}${preview.length > 0 ? `: ${preview}` : ""}`,
@@ -608,7 +606,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       blocklistTab: "黑名单",
       searchPlaceholder: "id/name",
       searchClearAria: "清空搜索词",
-      searchDebounceHint: "0.5s 防抖检索中…",
       addFoldButton: "添加用户",
       addModes: {
         id: "按数字 ID 添加",
@@ -632,7 +629,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
       pickerWaitingToast: "已在 Telegram 弹出选择器，快去挑人吧杂鱼…",
       pickerCancelledToast: "哼，杂鱼居然半途取消了选择器操作♡",
       pickerTimeoutToast: "等半天都没收到选择器回执，杂鱼手动刷新看看吧",
-      loadingText: "正在帮杂鱼翻名单册子…",
       emptySearchHint: (query: string): string =>
         `啧，找不到名称或 ID 包含「${query}」的目标呢，杂鱼是不是拼错啦？`,
       emptyListHint: (subTab: MiniAppIdentitySubTabKey): string =>
@@ -700,7 +696,6 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         `杂鱼，确定要从图库永久删掉这张图片 (${fileName}) 吗？删掉可就找不回来咯！`,
       deletedToast: (fileName: string): string =>
         `哼，已经帮杂鱼把 ${fileName} 从图库删掉啦♡`,
-      loadingText: "正在帮杂鱼翻找图库相册…",
       emptyMissingDirHint:
         "当前配置的图库目录还不存在呢，杂鱼快去服务器上建好目录再来看吧",
       emptyGalleryHint:

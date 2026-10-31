@@ -1,5 +1,6 @@
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import type React from "react";
+import { MINI_APP_SEARCH_DEBOUNCE_MS } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { readEventTargetValue } from "../libs/formatters";
@@ -24,7 +25,7 @@ export interface IdentitySearchAndAddCardProps {
 }
 
 /**
- * 比较搜索与添加卡片所需的状态切片是否一致，使展开/收起列表项的权限抽屉时不触发本卡片重渲染。
+ * 比较搜索与添加卡片所需的状态切片是否一致，使防抖词提交、列表加载或展开/收起列表项的权限抽屉时不触发本卡片重渲染。
  *
  * @param prev 上一次属性
  * @param next 本次属性
@@ -38,7 +39,6 @@ function areIdentitySearchAndAddCardPropsEqual(
   const b: MiniAppIdentitiesStoreState = next.state;
   return (
     a.searchInput === b.searchInput &&
-    a.debouncedQuery === b.debouncedQuery &&
     a.addMenuOpen === b.addMenuOpen &&
     a.idFormOpen === b.idFormOpen &&
     a.idInput === b.idInput &&
@@ -61,12 +61,12 @@ function IdentitySearchAndAddCardView({
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
   const {
     searchInput,
-    debouncedQuery,
     addMenuOpen,
     idFormOpen,
     idInput,
     busyAction,
     setSearchInput,
+    commitSearchQuery,
     clearSearch,
     toggleAddMenu,
     selectAddMode,
@@ -74,7 +74,24 @@ function IdentitySearchAndAddCardView({
     setIdInput,
     addById,
   }: MiniAppIdentitiesStoreState = state;
-  const isDebouncing: boolean = searchInput.trim() !== debouncedQuery;
+  const [isComposing, setIsComposing]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(false);
+
+  useEffect((): (() => void) | undefined => {
+    if (isComposing) {
+      return undefined;
+    }
+    const trimmed: string = searchInput.trim();
+    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+      commitSearchQuery(trimmed);
+    }, MINI_APP_SEARCH_DEBOUNCE_MS);
+    return (): void => {
+      clearTimeout(timer);
+    };
+  }, [commitSearchQuery, isComposing, searchInput]);
+
   const displayIdFormOpen: boolean = useClosingSnapshot(
     idFormOpen,
     addMenuOpen
@@ -94,11 +111,28 @@ function IdentitySearchAndAddCardView({
         <div className="search-input-wrap">
           <SearchSvgIcon size={16} className="search-input-icon" />
           <input
-            type="search"
+            type="text"
+            inputMode="text"
+            lang=""
             className="search-input"
             value={searchInput}
+            onCompositionStart={(): void => {
+              setIsComposing(true);
+            }}
+            onCompositionEnd={(
+              event: React.CompositionEvent<HTMLInputElement>
+            ): void => {
+              setIsComposing(false);
+              setSearchInput(readEventTargetValue(event));
+            }}
             onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
               setSearchInput(readEventTargetValue(event));
+            }}
+            onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>): void => {
+              if (event.key === "Enter" && !isComposing) {
+                event.preventDefault();
+                commitSearchQuery(searchInput.trim());
+              }
             }}
             placeholder={t.identities.searchPlaceholder}
           />
@@ -108,7 +142,15 @@ function IdentitySearchAndAddCardView({
                 type="button"
                 className="search-clear-btn"
                 aria-label={t.identities.searchClearAria}
-                onClick={clearSearch}
+                onMouseDown={(
+                  event: React.MouseEvent<HTMLButtonElement>
+                ): void => {
+                  event.preventDefault();
+                }}
+                onClick={(): void => {
+                  setIsComposing(false);
+                  clearSearch();
+                }}
               >
                 <CloseSvgIcon size={14} />
               </button>
@@ -130,14 +172,6 @@ function IdentitySearchAndAddCardView({
           />
         </button>
       </div>
-
-      {isDebouncing
-        ? (
-          <div className="debounce-status-hint">
-            {t.identities.searchDebounceHint}
-          </div>
-        )
-        : null}
 
       <CollapseGrid
         expanded={addMenuOpen}

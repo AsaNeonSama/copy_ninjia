@@ -53,12 +53,6 @@
   line-height: 16px;
 }
 
-.debounce-status-hint {
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--hint);
-}
-
 .duplicate-alert-banner {
   margin-bottom: 10px;
   padding: 10px 12px;

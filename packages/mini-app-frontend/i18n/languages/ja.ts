@@ -564,7 +564,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
     chats: {
       sectionTitle: (count: number): string => `/init 有効な管理グループ (${count})`,
       refreshButton: "更新",
-      loadingChatsText: "管理グループ一覧を数えてあげてるわよ…",
       emptyChatsHint:
         "ちぇっ、/init が有効なグループが1つもないじゃない。雑魚、グループで /init enable を撃ってきなさい♡",
       lockdownBadge: "封鎖クールダウン中",
@@ -715,7 +714,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         `${title} · 直近発言 (${total}/${maxCapacity})`,
       headerMeta: (chatId: number): string =>
         `群 ID: ${chatId} · ホットバッファの最新256件だけ見せてあげる（圧縮記憶は秘密よ）`,
-      loadingText: "発言ログをめくってあげてるわよ…",
       emptyHint: "このグループのホットバッファは空っぽよ、雑魚",
       replyBadge: (name: string, preview: string): string =>
         `${name} への返信${preview.length > 0 ? `: ${preview}` : ""}`,
@@ -727,7 +725,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       blocklistTab: "ブラックリスト",
       searchPlaceholder: "id/name",
       searchClearAria: "検索語をクリア",
-      searchDebounceHint: "0.5s デバウンス検索中…",
       addFoldButton: "ユーザー追加",
       addModes: {
         id: "ID 指定で追加",
@@ -751,7 +748,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
       pickerWaitingToast: "Telegram の選択画面を出したわよ、早く選びなさい雑魚…",
       pickerCancelledToast: "ふん、選択を途中でキャンセルするなんて気まぐれな雑魚ね",
       pickerTimeoutToast: "選択結果がなかなか届かないわね、手動で更新してみなさい",
-      loadingText: "名簿をめくってあげてるわよ…",
       emptySearchHint: (query: string): string =>
         `ちぇっ、「${query}」に一致する名前や ID は見つからないわよ。タイプミスじゃないの雑魚？`,
       emptyListHint: (subTab: MiniAppIdentitySubTabKey): string =>
@@ -819,7 +815,6 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         `雑魚、本当にこの画像 (${fileName}) を図鑑から完全に削除するの？元には戻せないわよ！`,
       deletedToast: (fileName: string): string =>
         `ふん、雑魚のために ${fileName} を図鑑から消してあげたわよ♡`,
-      loadingText: "えっち図鑑のアルバムを開いてあげてるわよ…",
       emptyMissingDirHint:
         "設定された画像ディレクトリがまだ存在しないわ。サーバーで作ってから出直しなさい雑魚",
       emptyGalleryHint:

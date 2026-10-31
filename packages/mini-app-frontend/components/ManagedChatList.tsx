@@ -1,10 +1,13 @@
 import { Fragment, memo } from "react";
 import type React from "react";
-import { truncateDisplayText } from "../libs/formatters";
+import {
+  sanitizeBidiText,
+  truncateDisplayText,
+} from "../libs/formatters";
 import type { MiniAppChatSummary } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 
-/** `ManagedChatList` 受管群卡片与操作按钮列表的属性参数。 */
+/** `ManagedChatList` 受管群列表行与操作按钮列表的属性参数。 */
 export interface ManagedChatListProps {
   /** 当前页待展示的受管群摘要数组。 */
   readonly chats: readonly Readonly<MiniAppChatSummary>[];
@@ -15,7 +18,7 @@ export interface ManagedChatListProps {
 }
 
 /**
- * 渲染已启用 `/init` 的受管群摘要卡片与详情跳转按钮列表。
+ * 渲染已启用 `/init` 的受管群摘要列表行与详情跳转按钮。
  *
  * @param props 组件属性
  * @returns React 节点
@@ -36,37 +39,31 @@ function ManagedChatListView({
         return (
           <div
             key={chat.chatId}
-            className="card interactive-card"
+            className="row identity-row"
           >
-            <div className="row" style={{ padding: 0 }}>
-              <div className="row-main">
-                <div className="row-title chat-title-ellipsis" title={chat.title}>
+            <div className="row-main">
+              <div className="identity-title-row">
+                <bdi
+                  className="identity-name"
+                  title={sanitizeBidiText(chat.title)}
+                >
                   {truncateDisplayText(chat.title, 18)}
-                </div>
-                <div className="row-sub identity-sub-row" title={metaText}>
-                  {metaText}
-                </div>
-                {chat.isLockdownActive || chat.features.proxySend ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "4px",
-                      flexWrap: "wrap",
-                      marginTop: "6px",
-                    }}
-                  >
-                    {chat.features.proxySend ? (
-                      <span className="badge ok">/send</span>
-                    ) : null}
-                    {chat.isLockdownActive ? (
-                      <span className="badge warn">{t.chats.lockdownBadge}</span>
-                    ) : null}
-                  </div>
+                </bdi>
+                {chat.features.proxySend ? (
+                  <span className="badge ok">/send</span>
+                ) : null}
+                {chat.isLockdownActive ? (
+                  <span className="badge warn">{t.chats.lockdownBadge}</span>
                 ) : null}
               </div>
+              <div className="row-sub identity-sub-row" title={metaText}>
+                {metaText}
+              </div>
+            </div>
+            <div className="toolbar-actions identity-row-actions">
               <button
                 type="button"
-                className="btn primary"
+                className="btn"
                 onClick={(): void => {
                   onSelectChat(chat.chatId);
                 }}
@@ -81,7 +78,7 @@ function ManagedChatListView({
   );
 }
 
-/** 按属性浅比较跳过重渲染的受管群摘要卡片列表组件。 */
+/** 按属性浅比较跳过重渲染的受管群摘要列表行组件。 */
 export const ManagedChatList: React.MemoExoticComponent<
   typeof ManagedChatListView
 > = memo(ManagedChatListView);

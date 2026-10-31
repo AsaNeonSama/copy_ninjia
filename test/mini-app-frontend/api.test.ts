@@ -50,11 +50,14 @@ import {
 import { AddModeButtonList } from "../../packages/mini-app-frontend/components/AddModeButtonList";
 import { ChatTargetsMenuButtonList } from "../../packages/mini-app-frontend/components/ChatTargetsMenuButtonList";
 import { ConfirmModal } from "../../packages/mini-app-frontend/components/ConfirmModal";
+import { IdentitySearchAndAddCard } from "../../packages/mini-app-frontend/components/IdentitySearchAndAddCard";
 import { IdentitySubtabsBar } from "../../packages/mini-app-frontend/components/IdentitySubtabsBar";
+import { ManagedChatList } from "../../packages/mini-app-frontend/components/ManagedChatList";
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
 import { PrefsBar } from "../../packages/mini-app-frontend/components/PrefsBar";
 import { StatusOverviewCard } from "../../packages/mini-app-frontend/components/StatusOverviewCard";
 import { Toast } from "../../packages/mini-app-frontend/components/Toast";
+import { LoadingBox } from "../../packages/mini-app-frontend/components/skeletons/LoadingBox";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
 import {
   MINI_APP_CONFIRM_CLOSE_ANIMATION_MS,
@@ -130,6 +133,7 @@ import {
   resolveMiniAppAccentColor,
   useMiniAppStore,
 } from "../../packages/mini-app-frontend/store/app";
+import { createIdentitiesStore } from "../../packages/mini-app-frontend/store/identities";
 import { createMessagesStore } from "../../packages/mini-app-frontend/store/messages";
 import type { MiniAppMessagesStoreState } from "../../packages/mini-app-frontend/store/messages";
 
@@ -900,38 +904,40 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(getMiniAppTranslations("zh").appTitle).toBe("杂鱼控制台♡");
     expect(getMiniAppTranslations("en").appTitle).toBe("Zaako Console♡");
     expect(getMiniAppTranslations("ja").appTitle).toBe("雑魚コンソール♡");
-    const addModeHtml: string = renderToStaticMarkup(
-      createElement(AddModeButtonList, {
-        idFormOpen: true,
-        disabled: false,
-        interactive: true,
-        t: getMiniAppTranslations("zh"),
-        onSelectMode: (): void => undefined,
-      })
-    );
+    const addModeHtml: string = renderToStaticMarkup(createElement(AddModeButtonList, {
+      idFormOpen: true, disabled: false, interactive: true, t: getMiniAppTranslations("zh"), onSelectMode: (): void => undefined,
+    }));
     expect(addModeHtml).toContain("add-mode-grid");
-    const targetsMenuHtml: string = renderToStaticMarkup(
-      createElement(ChatTargetsMenuButtonList, {
-        targetsMenuOpen: true,
-        chatDetail: null,
-        chatTargets: null,
-        t: getMiniAppTranslations("zh"),
-        onToggleMenu: (): void => undefined,
-        onCloseMenu: (): void => undefined,
-        onSelectTargetKind: (): void => undefined,
-      })
-    );
+    const targetsMenuHtml: string = renderToStaticMarkup(createElement(ChatTargetsMenuButtonList, {
+      targetsMenuOpen: true, chatDetail: null, chatTargets: null, t: getMiniAppTranslations("zh"),
+      onToggleMenu: (): void => undefined, onCloseMenu: (): void => undefined, onSelectTargetKind: (): void => undefined,
+    }));
     expect(targetsMenuHtml).toContain("chat-targets-dropdown");
-    const subtabsHtml: string = renderToStaticMarkup(
-      createElement(IdentitySubtabsBar, {
-        subTab: "whitelist",
-        loadingList: false,
-        t: getMiniAppTranslations("zh"),
-        onSelectSubTab: (): void => undefined,
-        onRefresh: (): void => undefined,
-      })
-    );
+    const subtabsHtml: string = renderToStaticMarkup(createElement(IdentitySubtabsBar, {
+      subTab: "whitelist", loadingList: false, t: getMiniAppTranslations("zh"), onSelectSubTab: (): void => undefined, onRefresh: (): void => undefined,
+    }));
     expect(subtabsHtml).toContain("subtabs-bar");
+    const identitiesStore = createIdentitiesStore();
+    identitiesStore.getState().setSearchInput("doro");
+    const searchCardHtml: string = renderToStaticMarkup(createElement(IdentitySearchAndAddCard, { state: identitiesStore.getState() }));
+    expect(searchCardHtml).toContain('type="text" inputMode="text" lang="" class="search-input" placeholder="id/name" value="doro"');
+    expect(searchCardHtml).not.toContain('type="search"');
+    expect(searchCardHtml).not.toContain("debounce-status-hint");
+    const loadingBoxHtml: string = renderToStaticMarkup(createElement(LoadingBox, { children: createElement("div", { className: "skeleton-line" }) }));
+    expect(loadingBoxHtml).toContain('class="loading-box"');
+    expect(loadingBoxHtml).toContain('class="skeleton-stack"');
+    expect(loadingBoxHtml).not.toContain("loading-text");
+    const chatListHtml: string = renderToStaticMarkup(createElement(ManagedChatList, {
+      chats: [{
+        chatId: -1001, title: "群A", isLockdownActive: true, hotMessageCount: 3, qaPairCount: 2,
+        features: { init: true, aiChat: false, translation: false, adDetect: false, floodControl: false, antiRaid: false, proxySend: true },
+      }],
+      t: getMiniAppTranslations("zh"), onSelectChat: (): void => undefined,
+    }));
+    expect(chatListHtml).toContain('class="row identity-row"');
+    expect(chatListHtml).toContain('class="identity-title-row"');
+    expect(chatListHtml).toContain('class="toolbar-actions identity-row-actions"');
+    expect(chatListHtml).not.toContain("interactive-card");
     const refreshedSession: string = "f".repeat(64);
     const refreshedExp: number = Date.now() + 180_000;
     responses.set("GET /api/status", (): Response =>

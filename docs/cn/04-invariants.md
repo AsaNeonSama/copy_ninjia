@@ -819,9 +819,9 @@
   - 图库路径来自 `config/dynamic/assets.json` 的 `onlyPath.random_h_image_dir`（缺省 `RANDOM_H_IMAGE_DIR`）。
   - 启动阶段在外部连接建立前通过 `infra/randomImage.ts` 的 `ensureRandomImageDirectory` 检查目录有效性：必须存在且可读写；子目录、软链接文件、隐藏文件或未匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN` 命名的文件均直接拒绝启动。
   - 热重载更改目录时执行相同严格检查；若新目录不合规，则拒绝变更并保持原目录运行。运行期间若目录被删，不自动重建。
-- **抽图算法（`pickRandomImage`）**：
-  - 每次重新枚举目录（不常驻文件列表），仅筛选合法扩展名且小于等于 `RANDOM_IMAGE_MAX_BYTES` 的普通文件进行均匀随机抽取。
-  - 抽中的文件若超限或在读取前被删改，剔除后在剩余候选列表中重新抽取。若无可发送文件且曾抽中超限文件，报错 `tooLarge`；若列表为空则报错 `empty`。
+- **抽图算法与文件名缓存（`pickRandomImage` / `randomImageDirectoryCache`）**：
+  - 启动或热重载执行 `ensureRandomImageDirectory`（及首次访问未缓存目录）时读取目录，仅筛选合法扩展名的非隐藏普通文件，按字典序升序排列后缓存于 `cache/main/hImage.ts` 的 `randomImageDirectoryCache`；`storeRandomImage`（`/h_image add` 与 Mini App 上传）及 `deleteRandomImageFile`（Mini App 删除）通过二分查找原位维护该有序缓存，抽图与 Mini App 图库分页直接读取缓存且翻页不重复排序。
+  - `pickRandomImage` 从缓存文件名列表中均匀随机抽取小于等于 `RANDOM_IMAGE_MAX_BYTES` 的普通文件；抽中的文件若在读取前被删改则同步从缓存剔除，若超限则在本次剩余候选列表中重新抽取。若无可发送文件且曾抽中超限文件，报错 `tooLarge`；若列表为空则报错 `empty`。
 - **限流与延迟任务调度**：
   - `/h_image` 与 `/h_image add` 共用全局滑动窗口限流（`H_IMAGE_RATE_LIMIT_WINDOW_MS` 内至多 `H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` 次），超额调用直接丢弃，不排队也不报错。
   - 命令解析后提交至延迟命令执行器（`commands/deferredCommands.ts`）：

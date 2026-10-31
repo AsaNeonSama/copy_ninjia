@@ -12,7 +12,6 @@ import { LoadingBox } from "../components/skeletons/LoadingBox";
 import {
   MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
-  MINI_APP_SEARCH_DEBOUNCE_MS,
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -40,7 +39,6 @@ export function IdentitiesPage(): React.JSX.Element {
   const storeState: MiniAppIdentitiesStoreState = useComponentStore(createIdentitiesStore);
   const {
     subTab,
-    searchInput,
     debouncedQuery,
     duplicateAlertText,
     busyAction,
@@ -56,7 +54,6 @@ export function IdentitiesPage(): React.JSX.Element {
     blocklistTotal,
     loadCurrentList,
     selectSubTab,
-    commitSearchQuery,
     dismissDuplicateAlert,
     removeWhitelist,
     removeBlocklist,
@@ -67,15 +64,6 @@ export function IdentitiesPage(): React.JSX.Element {
     setBlocklistPageNumber,
     setBlocklistPageSize,
   }: MiniAppIdentitiesStoreState = storeState;
-
-  useEffect((): (() => void) => {
-    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-      commitSearchQuery(searchInput.trim());
-    }, MINI_APP_SEARCH_DEBOUNCE_MS);
-    return (): void => {
-      clearTimeout(timer);
-    };
-  }, [commitSearchQuery, searchInput]);
 
   useEffect((): void => {
     void loadCurrentList();
@@ -138,7 +126,7 @@ export function IdentitiesPage(): React.JSX.Element {
           <div className="card identity-list-card">
             {loadingList
               ? (
-                <LoadingBox text={t.identities.loadingText}>
+                <LoadingBox>
                   <ListSkeletonRows count={MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE} />
                 </LoadingBox>
               )
@@ -184,7 +172,7 @@ export function IdentitiesPage(): React.JSX.Element {
           <div className="card identity-list-card">
             {loadingList
               ? (
-                <LoadingBox text={t.identities.loadingText}>
+                <LoadingBox>
                   <ListSkeletonRows count={MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE} />
                 </LoadingBox>
               )

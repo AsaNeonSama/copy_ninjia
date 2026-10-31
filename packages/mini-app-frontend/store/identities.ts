@@ -344,10 +344,14 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
         },
 
         commitSearchQuery: (query: string): void => {
-          if (get().debouncedQuery !== query) {
-            set({ whitelistPageNumber: 1, blocklistPageNumber: 1 });
+          if (get().debouncedQuery === query) {
+            return;
           }
-          set({ debouncedQuery: query });
+          set({
+            whitelistPageNumber: 1,
+            blocklistPageNumber: 1,
+            debouncedQuery: query,
+          });
         },
 
         clearSearch: (): void => {

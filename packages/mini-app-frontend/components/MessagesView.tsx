@@ -125,7 +125,7 @@ export function MessagesView({
 
         {loading
           ? (
-            <LoadingBox text={t.messages.loadingText}>
+            <LoadingBox>
               <MessageSkeletonRows count={MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE} />
             </LoadingBox>
           )

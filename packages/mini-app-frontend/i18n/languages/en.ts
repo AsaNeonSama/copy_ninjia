@@ -564,7 +564,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
     chats: {
       sectionTitle: (count: number): string => `/init Managed Groups (${count})`,
       refreshButton: "Refresh",
-      loadingChatsText: "Counting your managed groups, Zaako…",
       emptyChatsHint:
         "Tsk, not a single group has /init enabled yet! Go run /init enable in a group first, Zaako♡",
       lockdownBadge: "Lockdown Active",
@@ -715,7 +714,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         `${title} · Hot Msgs (${total}/${maxCapacity})`,
       headerMeta: (chatId: number): string =>
         `Chat ID: ${chatId} · Showing only the latest 256 hot buffer messages (compressed summaries are off-limits, Zaako)`,
-      loadingText: "Flipping through the hot message buffer for you…",
       emptyHint: "The hot buffer for this group is completely empty, Zaako",
       replyBadge: (name: string, preview: string): string =>
         `Reply to ${name}${preview.length > 0 ? `: ${preview}` : ""}`,
@@ -727,7 +725,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       blocklistTab: "Blocklist",
       searchPlaceholder: "id/name",
       searchClearAria: "Clear search query",
-      searchDebounceHint: "0.5s debounced searching…",
       addFoldButton: "Add User",
       addModes: {
         id: "Add by Numeric ID",
@@ -751,7 +748,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
       pickerWaitingToast: "Opened Telegram native picker, go pick someone Zaako…",
       pickerCancelledToast: "Hmph, you cancelled the picker halfway through, indecisive Zaako",
       pickerTimeoutToast: "Timed out waiting for picker receipt, hit refresh manually Zaako",
-      loadingText: "Reading the identity ledger for you…",
       emptySearchHint: (query: string): string =>
         `Tsk, no entry matching "${query}" found. Did you mistype it, Zaako?`,
       emptyListHint: (subTab: MiniAppIdentitySubTabKey): string =>
@@ -819,7 +815,6 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         `Zaako, permanently delete this image (${fileName}) from the gallery? There's no undo!`,
       deletedToast: (fileName: string): string =>
         `Hmph, deleted ${fileName} from the gallery for you, Zaako♡`,
-      loadingText: "Flipping through the gallery album for you…",
       emptyMissingDirHint:
         "The configured gallery directory doesn't exist yet! Go create it on the server first, Zaako",
       emptyGalleryHint:

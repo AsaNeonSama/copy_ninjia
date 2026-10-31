@@ -13,7 +13,7 @@ import type { SniffedImageFormat } from "../../infra/image";
 import {
   deleteRandomImageFile,
   isRandomImageDirectory,
-  listRandomImageEntries,
+  listRandomImageNames,
   statRandomImageFile,
   storeRandomImage,
 } from "../../infra/randomImage";
@@ -33,7 +33,8 @@ import type {
 } from "../../types/randomImage";
 
 /**
- * 分页读取当前配置的图库目录（`getAssetConfig().randomHImageDirectory`）内的图片列表；目录不存在或为空时原样返回空列表，不自动创建目录。
+ * 分页读取当前配置的图库目录（`getAssetConfig().randomHImageDirectory`）内的图片列表：
+ * 直接按内存文件名缓存切出当前页切片（不重复扫描或排序），再仅对当前页的图片文件执行 `lstat` 读取元数据；目录不存在或为空时原样返回空列表，不自动创建目录。
  * @param pageRaw 请求页码（从 1 开始，缺省为 1）。
  * @param pageSizeRaw 请求每页张数（缺省为 `MINI_APP_GALLERY_DEFAULT_PAGE_SIZE`）。
  * @returns 图库分页视图。
@@ -48,9 +49,9 @@ export async function listMiniAppGalleryPage(
       ? Math.min(MINI_APP_GALLERY_MAX_PAGE_SIZE, Math.max(1, pageSizeRaw))
       : MINI_APP_GALLERY_DEFAULT_PAGE_SIZE;
 
-  const rawEntries: readonly Readonly<RandomImageEntry>[] | null =
-    await listRandomImageEntries(directory);
-  if (rawEntries === null) {
+  const candidates: readonly string[] | null =
+    await listRandomImageNames(directory);
+  if (candidates === null) {
     return {
       directory,
       exists: false,
@@ -62,11 +63,6 @@ export async function listMiniAppGalleryPage(
     };
   }
 
-  const candidates: Readonly<RandomImageEntry>[] = [...rawEntries].sort(
-    (a: Readonly<RandomImageEntry>, b: Readonly<RandomImageEntry>): number =>
-      b.mtimeMs - a.mtimeMs || a.fileName.localeCompare(b.fileName)
-  );
-
   const total: number = candidates.length;
   const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
   const requestedPage: number =
@@ -75,19 +71,25 @@ export async function listMiniAppGalleryPage(
       : 1;
   const page: number = Math.min(totalPages, requestedPage);
   const startOffset: number = (page - 1) * pageSize;
-  const slice: readonly Readonly<RandomImageEntry>[] = candidates.slice(
+  const slice: readonly string[] = candidates.slice(
     startOffset,
     startOffset + pageSize
   );
 
-  const items: Readonly<MiniAppGalleryItem>[] = slice.map(
-    (record: Readonly<RandomImageEntry>): Readonly<MiniAppGalleryItem> => ({
+  const items: Readonly<MiniAppGalleryItem>[] = [];
+  for (const fileName of slice) {
+    const record: Readonly<RandomImageEntry> | null = await statRandomImageFile(
+      directory,
+      fileName
+    );
+    if (record === null) continue;
+    items.push({
       fileName: record.fileName,
       mimeType: record.mimeType,
       sizeBytes: record.sizeBytes,
       updatedAt: formatLocalTime(Math.max(0, Math.trunc(record.mtimeMs))),
-    })
-  );
+    });
+  }
 
   return {
     directory,
