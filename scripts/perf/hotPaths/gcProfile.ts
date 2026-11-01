@@ -4,6 +4,7 @@ import {
   HOT_PATH_GC_WINDOW_START,
 } from "../../../packages/consts/performance";
 
+/** 测量窗口内 JSC GC 暂停次数、总耗时与时间占比摘要。 */
 export interface GcPauseProfile {
   readonly elapsedMs: number;
   readonly pauseCount: number;

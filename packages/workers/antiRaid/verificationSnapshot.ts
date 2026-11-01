@@ -26,6 +26,7 @@ export function isPersistedVerificationState(
   return state?.kind === "pending" || isTerminalVerificationPhase(state?.kind);
 }
 
+/** `verificationSnapshot` 构造跨线程持久化验证快照的入参。 */
 interface VerificationSnapshotParams {
   /** 群组 ID。 */
   chatId: number;

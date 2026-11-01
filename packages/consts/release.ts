@@ -14,5 +14,5 @@ export const RELEASE_REQUIRED_FILES: readonly string[] = [
   `copy-ninjia/${PROMPT_EXAMPLE_DIR_NAME}/${VOICE_TOOL_PROMPT_FILE_NAME}`,
 ];
 
-/** Release tag 与包内清单共用的无前缀版本形态，所属模块：scripts/release.ts。 */
+/** Release tag 与包内清单共用的无前缀版本形态，所属模块：scripts/release.ts、scripts/build.ts、scripts/release/assets.ts 与 scripts/release/github.ts。 */
 export const RELEASE_VERSION_PATTERN: Readonly<RegExp> = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;

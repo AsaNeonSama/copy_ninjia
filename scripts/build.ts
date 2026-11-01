@@ -9,6 +9,7 @@ import { fileSha256 } from "./fileSha256";
 import { RELEASE_VERSION_PATTERN } from "../packages/consts/release";
 import type { ReleaseCommand } from "./release/command";
 
+/** 构建脚本校验 `package.json` 中 `packageManager` 版本所需的最小结构。 */
 interface PackageManifest {
   readonly packageManager?: string;
 }
@@ -82,7 +83,7 @@ try {
     });
     if (!migration.success) throw new AggregateError(migration.logs, `Migration compilation failed: ${edge.command}`);
   }
-  for (const relative of ["install.sh", "config_example", "prompt_example", "LICENSES", "packages/database/schema/migrations"]) {
+  for (const relative of ["install.sh", "config_example", "prompt_example", "LICENSES", "packages/database/schema/migrations", "packages/mini-app-api-server/resource"]) {
     await copyFixtureTree(join(projectRoot, relative), join(packageRoot, relative));
   }
   for await (const file of new Bun.Glob("*.sh").scan(join(projectRoot, "scripts/install"))) {

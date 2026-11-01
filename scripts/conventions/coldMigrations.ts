@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
 import type { ColdMigrationEdge } from "../migrations/active";
 
+/** `package.json` 中用于核对冷迁移命令入口的 `scripts` 字段结构。 */
 interface ProjectPackageJson {
   readonly scripts?: Readonly<Record<string, string>>;
 }

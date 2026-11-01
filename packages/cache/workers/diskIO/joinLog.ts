@@ -19,7 +19,7 @@ export const joinLogFileCaches: LruCache<string, JoinLogFileCache> =
 export const joinLogRetryAt: LruCache<string, number> =
   new LruCache<string, number>(JOIN_LOG_MAX_RETRY_FILES);
 
-/** 最近一次完成跨日过期文件清理的配置时区自然日：清理完成后更新，Worker 重建或 resetJoinLogCache 时恢复为 null；单例字符串。 */
+/** 最近一次完成跨日过期文件清理的配置时区自然日：清理完成后写入最新日期，Worker 重建或 resetJoinLogCache 时重置为 null；单例字符串。 */
 export const joinLogCleanupDay: { current: string | null } = { current: null };
 
 /** 已收到 deleteJoinLog 但尚未删净对应群日文件的群 ID 集合：收到整群删除时登记，该群日文件全部 unlink 成功后摘除（失败保留至下次统一 flush 重试）；容量与受管群数上限同阶，Worker 重建后由主线程重投未确认删除。 */
@@ -45,7 +45,7 @@ export const joinLogBuffer: {
   acknowledgedPending: 0,
 };
 
-/** joinLogPersisted 回执发送回调单例：Disk I/O Worker 启动时安装，isolate 销毁时释放；单例函数。 */
+/** joinLogPersisted 回执发送回调单例：Disk I/O Worker 启动时注入，isolate 销毁时释放，Worker 重建后重新注入；单例函数。 */
 export const joinLogPersistedNotifier: { current: (reply: JoinLogPersistedReply) => void } = {
   current: (): void => { /* 独立 owner 测试未安装 Worker 回执出口。 */ },
 };

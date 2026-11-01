@@ -55,8 +55,8 @@ export const BOT_STATUS_JSON_LANGUAGE: string = "json";
 
 /**
  * `/bot_status` 功能块列出的群开关字段名与展示顺序，属 packages/commands/botStatus.ts。
- * 键就是 state 里的开关名，值是该开关此刻的真假；覆盖 ChatStateSwitchKey 的全部成员，
- * 新增群开关时须在这里补上展示位置。
+ * 覆盖 ChatStateSwitchKey 的全部成员，并经 BOT_STATUS_FEATURE_LABELS 映射为中文能力名称后
+ * 输出此刻的布尔状态；新增群开关时须在这里补上展示位置。
  */
 export const BOT_STATUS_FEATURE_KEYS: readonly ChatStateSwitchKey[] = exhaustiveList<ChatStateSwitchKey>()([
   "isInitEnabled",
@@ -67,3 +67,17 @@ export const BOT_STATUS_FEATURE_KEYS: readonly ChatStateSwitchKey[] = exhaustive
   "isAntiRaidEnabled",
   "isProxySendEnabled",
 ]);
+
+/**
+ * `/bot_status` 功能块里各群开关字段名对应的中文能力名称，属 packages/commands/botStatus.ts。
+ * 键覆盖 ChatStateSwitchKey 的全部成员，新增群开关时编译器强制在此补齐中文名称。
+ */
+export const BOT_STATUS_FEATURE_LABELS: Readonly<Record<ChatStateSwitchKey, string>> = {
+  isInitEnabled: "机器人监听",
+  isAIChatEnabled: "AI 闲聊",
+  isTranslationEnabled: "自动翻译",
+  isAdDetectEnabled: "广告检测",
+  isFloodControlEnabled: "防刷屏禁言",
+  isAntiRaidEnabled: "入群守卫",
+  isProxySendEnabled: "私聊中转",
+};

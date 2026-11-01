@@ -15,10 +15,10 @@ export const wedMemberStates: Map<number, WedMemberState> = new Map();
  * 与 wedMemberStates 合计群数上限为 STATE_MANAGED_CHAT_LIMIT，不淘汰未确认条目；进程重启后从空表开始（无条目表示无待确认删除）。
  */
 export const pendingWedMemberDeletes: Map<number, WedMembersDeleteDiskMessage> = new Map();
-/** `/wed` 成员池删除请求的单调递增序号发号器：teardown 时分配，Worker 重建不重置，进程重启后从零开始；单例标量。 */
+/** `/wed` 成员池删除请求的单调递增序号发号器：teardown 时递增分配，Worker 重建不重置，进程重启后从零开始；单例标量。 */
 export const wedMemberDeleteCounter: { current: number } = { current: 0 };
 
-/** `/wed` 成员池批量落盘定时器与变更计数状态：首次变更启动定时器或达阈值提前触发，发送或 resetWedMemberStates 时清理；单例固定字段。 */
+/** `/wed` 成员池批量落盘定时器与变更计数状态：首次变更时创建定时器或达阈值提前触发，发送或 resetWedMemberStates 时重置；单例固定字段，进程重启后从初始值开始。 */
 export const wedMemberFlushState: {
   timer: ReturnType<typeof setTimeout> | null;
   changes: number;

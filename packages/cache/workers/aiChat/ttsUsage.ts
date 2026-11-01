@@ -4,10 +4,10 @@ import type { TtsDailyUsage } from "../../../types/aiChat/voiceMessage";
 
 /**
  * 语音合成每日窗口与已用计数；null 表示尚未发起过合成请求。
- * 填充：主线程 hydrateTtsUsage 注入或合成成功后整槽替换（并向主线程发送 ttsUsage 回执落盘）。
+ * 填充：主线程 hydrateTtsUsage 注入或合成成功后整槽覆盖（并向主线程发送 ttsUsage 回执落盘）。
  * 清理：窗口过期后在下一次登记时重置为新窗口。
  * 重建：Worker 崩溃重启后由主线程重放最新 ttsUsage 回执恢复。
- * 容量：恒为单个对象槽位。
+ * 容量：恒为单个对象槽位，不淘汰。
  */
 export const ttsDailyUsage: { current: TtsDailyUsage | null } = { current: null };
 

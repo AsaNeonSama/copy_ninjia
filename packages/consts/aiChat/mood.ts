@@ -14,7 +14,7 @@ export const MOOD_REROLL_MIN_MS: number = 2 * 60 * 60_000;
 /** 单次心情保持时长的随机上界。 */
 export const MOOD_REROLL_MAX_MS: number = 4 * 60 * 60_000;
 
-/** 心情查询/重抽命令等待 Worker 回执的超时及请求截止时长（见 packages/aiChat/index.ts）。 */
+/** 心情查询/重抽命令等待 Worker 回执的超时及请求截止时长（见 packages/aiChat/workerBridge.ts）。 */
 export const MOOD_REQUEST_TIMEOUT_MS: number = 5_000;
 
 /**

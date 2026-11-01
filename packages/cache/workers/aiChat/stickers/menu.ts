@@ -10,7 +10,7 @@ import type { StickerPackCandidate } from "../../../../types/stickers/tools";
 export const stickerMenuRevision: { current: number } = { current: 0 };
 
 /**
- * 最近一次构建的贴纸包菜单及其修订号；修订号匹配时由 buildStickerPackMenu 直接复用，不匹配时重建覆盖。
+ * 最近一次构建的贴纸包菜单及其修订号；构建完成时写入缓存，修订号匹配时由 buildStickerPackMenu 直接复用，修订号递增失效后在新构建完成时覆盖旧菜单。
  * 重建：Worker 重启后从 null 开始；容量：固定为单个槽位。
  */
 export const stickerMenuCache: {
@@ -18,7 +18,7 @@ export const stickerMenuCache: {
 } = { current: null };
 
 /**
- * 正在构建中的菜单 Promise 及其修订号；并发同版本请求复用同一 Promise，结算后置空。
+ * 正在构建中的菜单 Promise 及其修订号；开始构建时写入，并发同版本请求复用同一 Promise，结算后置空。
  * 重建：Worker 重启后从 null 开始；容量：固定为单个槽位。
  */
 export const stickerMenuInflight: {

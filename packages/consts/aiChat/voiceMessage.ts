@@ -39,7 +39,8 @@ export const TTS_BOT_LANGUAGES: readonly TtsBotLanguage[] = exhaustiveList<TtsBo
 
 /**
  * `agent.tts.bot_language` 缺省时的台词语言；`agent.tts` 整段缺省时 AI 回复的 send_message 与
- * 「行动与停止」段同样按它取 VOICE_LANGUAGE_PROMPTS（见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
+ * 「行动与停止」段同样按它从 consts/aiChat/prompts/tools.ts 的 VOICE_LANGUAGE_PROMPTS 取值
+ * （见 aiChat/ai/tools/replyToolset/orchestrator.ts）。
  */
 export const TTS_DEFAULT_BOT_LANGUAGE: TtsBotLanguage = "ja";
 

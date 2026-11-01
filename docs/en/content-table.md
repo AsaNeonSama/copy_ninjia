@@ -80,9 +80,14 @@ Comprehensive multi-page developer documentation covering environment setup, sys
     <td align="center"><nobr><a href="10-performance.md">📖 10 Performance</a></nobr></td>
   </tr>
   <tr>
+    <td><nobr>🖥️ <b>Mini App Console</b></nobr></td>
+    <td><code>mini_app</code> setup, recommended Cloudflare Tunnel configuration, two-tier auth, and TOTP binding</td>
+    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App Setup</a></nobr></td>
+  </tr>
+  <tr>
     <td><nobr>❓ <b>Troubleshooting</b></nobr></td>
     <td>Comprehensive diagnosis checklist for silent or unresponsive bot instances</td>
-    <td align="center"><nobr><a href="11-faq.md">📖 11 FAQ</a></nobr></td>
+    <td align="center"><nobr><a href="12-faq.md">📖 12 FAQ</a></nobr></td>
   </tr>
 </tbody>
 </table>
@@ -146,7 +151,12 @@ Comprehensive multi-page developer documentation covering environment setup, sys
     - Statistical summaries with multi-round averages, min/max values, and coefficients of variation.
     - Total throughput, I/O footprint, and mock directory resource consumption.
 
-11. **[11 FAQ](11-faq.md)**
+11. **[11 Mini App Setup and Recommended Configuration](11-mini-app.md)**
+    - Configuring the `mini_app` section in `config/static/bot.json` and activation rules.
+    - Exposing the local HTTP server via Cloudflare Tunnel (`cloudflared`), DNS routing, and systemd service setup.
+    - Private-chat `App` button entry, two-tier authentication, and binding Google Authenticator (TOTP) 2FA.
+
+12. **[12 FAQ](12-faq.md)**
     - Comprehensive troubleshooting checklist when a running bot fails to reply in chat.
     - Tone style switching, image library startup issues, scheduled task deduplication, and voice synthesis errors.
     - Routing AI requests through third-party reverse proxies (such as Cloudflare AI Gateway).

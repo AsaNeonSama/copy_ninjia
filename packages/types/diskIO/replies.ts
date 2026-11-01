@@ -8,7 +8,7 @@ import type {
   LuckDayCache,
   LuckReceiptSecret,
 } from "./storage";
-import type { BlocklistIdPage } from "../identityStorage";
+import type { BlocklistIdPage, WhitelistIdPage } from "../identityStorage";
 import type { StoredTemporaryAdBypassActivity } from "../temporaryAdBypass";
 /** diskIOWorker -> 主线程：启动恢复读盘完成。AI 记忆与贴纸目录的值与增量写入
  * 消息同形态——序列化 JSON 文本（恢复时逐字段重建校验后重新 stringify；AI 记忆
@@ -87,6 +87,14 @@ export interface BlocklistIdPageReadReply {
   type: "blocklistIdPageRead";
   requestId: number;
   page?: BlocklistIdPage;
+  error?: string;
+}
+
+/** Disk I/O Worker -> 主线程：按主键游标分页读取的有界白名单主键页。 */
+export interface WhitelistIdPageReadReply {
+  type: "whitelistIdPageRead";
+  requestId: number;
+  page?: WhitelistIdPage;
   error?: string;
 }
 
@@ -369,6 +377,7 @@ export type DiskIOReply =
   | JoinLogReadReply
   | IdentityPoliciesReadReply
   | BlocklistIdPageReadReply
+  | WhitelistIdPageReadReply
   | StorageClosedReply
   | IdentityStoragePersistedReply
   | DiskFlushReply

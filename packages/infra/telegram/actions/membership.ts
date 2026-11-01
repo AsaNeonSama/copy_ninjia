@@ -8,6 +8,7 @@ import type { TelegramApi } from "../../../types/telegramWorker";
 
 type ChatMemberApi = Pick<TelegramApi, "getChatMember">;
 
+/** `getChatMember` 查询群成员信息的参数。 */
 interface GetChatMemberOptions {
   /** 执行成员查询的 Telegram API 接口。 */
   readonly api: ChatMemberApi;

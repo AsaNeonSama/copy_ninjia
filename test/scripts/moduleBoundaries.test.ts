@@ -75,6 +75,24 @@ describe("packages/consts 纯度", () => {
     expect(problems).toHaveLength(2);
     expect(problems.every((problem: string): boolean => problem.includes("may only depend on other consts modules"))).toBeTrue();
   });
+
+  test("Mini App 前端常量目录运行期只依赖自身，packages/consts/ 同样拦下", () => {
+    expect(collectConstsPurityProblems(params(
+      "packages/mini-app-frontend/consts/example.ts",
+      'import { A } from "./exhaustiveList";\nimport type { B } from "../types/x";'
+    ))).toEqual([]);
+    expect(collectConstsPurityProblems(params(
+      "packages/mini-app-frontend/consts/example.ts",
+      'import { MINUTE_MS } from "../../consts/time";'
+    ))).toEqual([expect.stringContaining("packages/mini-app-frontend/consts/ may only depend on other consts modules")]);
+  });
+
+  test("常量目录之外的文件不在本规则范围内", () => {
+    expect(collectConstsPurityProblems(params(
+      "packages/libs/example.ts",
+      'import { a } from "../infra/x";'
+    ))).toEqual([]);
+  });
 });
 
 describe("packages/states 纯度", () => {
@@ -170,13 +188,14 @@ describe("packages/states 纯度", () => {
 });
 
 describe("infra 不得向上依赖业务层", () => {
-  test("命令、AI、Anti-Raid 与 Worker 一律拦下", () => {
+  test("命令、AI、Anti-Raid、Mini App 与 Worker 一律拦下", () => {
     const problems = collectInfraLayeringProblems(params(
       "packages/infra/example.ts",
       'import { a } from "../commands/x";\nimport { b } from "../aiChat/workerBridge";\n' +
-      'import { c } from "../antiRaid/adDetect";\nimport { d } from "../workers/aiChat/x";'
+      'import { c } from "../antiRaid/adDetect";\nimport { d } from "../workers/aiChat/x";\n' +
+      'import { e } from "../mini-app-api-server/auth/totpStorage";'
     ));
-    expect(problems).toHaveLength(4);
+    expect(problems).toHaveLength(5);
     expect(problems[0]).toContain("inject the dependency instead");
   });
 

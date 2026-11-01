@@ -14,6 +14,7 @@ import {
   handleBlocklistRemovalWrite,
   readBlocklistIdPage,
   readIdentityPolicies,
+  readWhitelistIdPage,
   setStorageFlushHold,
 } from "./diskIO/storageDatabase";
 import { flushLogBuffer, handleLogMessage } from "./diskIO/logFiles";
@@ -342,6 +343,9 @@ export async function handleDiskIOWorkerMessage(
       break;
     case "readBlocklistIdPage":
       postReply(readBlocklistIdPage(msg));
+      break;
+    case "readWhitelistIdPage":
+      postReply(readWhitelistIdPage(msg));
       break;
     case "closeStorage":
       handleCloseStorage(msg);

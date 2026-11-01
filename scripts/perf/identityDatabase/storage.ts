@@ -49,6 +49,7 @@ const EMPTY_TEMPORARY_AD_BYPASS_CHANGES: ReadonlyMap<
   PendingTemporaryAdBypassWrite
 > = new Map();
 
+/** 身份数据库性能基准使用的临时目录、库文件路径与已打开 SQLite 连接夹具。 */
 interface DatabaseFixture {
   readonly root: string;
   readonly path: string;

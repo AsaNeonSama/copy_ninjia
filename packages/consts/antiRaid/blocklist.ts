@@ -37,14 +37,14 @@ export const BLOCKLIST_SWEEP_BATCH_PAUSE_MS: number = 1_000;
 /**
  * 「同一次入群已经记过反刷群计数」这张去重表的容量上界。条目在
  * JOIN_WINDOW_MS 之后淘汰；超过上限时，超出的入群可能多记一次计数。
- * 所属模块：antiRaid/blocklistGuard.ts。
+ * 所属模块：cache/main/antiRaid/blocklistGuard.ts。
  */
 export const BLOCKLIST_JOIN_DEDUP_MAX_ENTRIES: number = 5_000;
 
 /**
  * 持久化黑名单移除 outbox 的批次数硬顶：达到上限时 `trackBlockedRemoval` 抛错（调用方就地降级并挂回补扫，
  * 见 blocklistGuard.ts 的 claimBlockedJoiner）；Disk I/O 启动 inspect 对 `pending_blocked_removals` 行数执行同一上限。
- * 所属模块：infra/blocklist/。
+ * 所属模块：infra/blocklist/outbox.ts、database/interact/validation.ts 与 workers/diskIO/storageDatabase/pendingRemoval.ts。
  */
 export const BLOCKLIST_REMOVAL_OUTBOX_MAX_ENTRIES: number = 4_096;
 

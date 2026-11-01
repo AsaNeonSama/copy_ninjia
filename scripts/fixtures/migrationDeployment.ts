@@ -21,6 +21,7 @@ import { runCapturedCommand } from "./subprocess";
 import type { CapturedCommandResult } from "./subprocess";
 import type { WedMemberWindowMigrationResult } from "../migrateWedMemberWindow";
 
+/** 构造与运行冷迁移端到端部署夹具的选项。 */
 export interface MigrationDeploymentOptions {
   /** 源码仓库根或发行包根目录绝对路径。 */
   readonly packageRoot: string;
@@ -30,6 +31,7 @@ export interface MigrationDeploymentOptions {
   readonly binary?: boolean;
 }
 
+/** 完成冷迁移与恢复后的隔离部署夹具快照。 */
 export interface MigratedDeployment {
   readonly config: string;
   readonly data: string;

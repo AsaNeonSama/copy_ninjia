@@ -12,6 +12,7 @@ import type {
   StoredStorageMetadataRow,
 } from "../../types/storageDatabase";
 
+/** `StorageDatabase.transaction` 回调接收的同步事务上下文类型。 */
 type StorageDatabaseTransaction = Parameters<
   Parameters<StorageDatabase["transaction"]>[0]
 >[0];

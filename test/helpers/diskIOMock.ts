@@ -29,6 +29,7 @@ export function diskIOStub(overrides: Partial<typeof diskIO> = {}): typeof diskI
     readJoinLog: unavailableRead,
     readIdentityPolicies: unavailableRead,
     readBlocklistIdPage: unavailableRead,
+    readWhitelistIdPage: unavailableRead,
     flushDiskIO: async (): Promise<FlushResult> => "failed",
     flushDiskIODomain: async (): Promise<DomainFlushOutcome> => ({ result: "failed" }),
     terminateDiskIO: async (): Promise<void> => {},

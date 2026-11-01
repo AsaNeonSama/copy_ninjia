@@ -20,6 +20,7 @@ type UnbanMemberApi = Pick<TelegramApi, "unbanChatMember">;
 type BanSenderChatApi = Pick<TelegramApi, "banChatSenderChat">;
 type UnbanSenderChatApi = Pick<TelegramApi, "unbanChatSenderChat">;
 
+/** `muteChatMemberWithOutcome` 临时限制群成员发言权限的参数。 */
 export interface MuteChatMemberParams {
   /** 目标群聊 ID。 */
   chatId: number;
@@ -38,6 +39,7 @@ export interface MuteChatMemberParams {
   signal?: AbortSignal;
 }
 
+/** 一次群成员禁言请求的结局；权限拒绝与偶发失败分开返回。 */
 export type MuteChatMemberOutcome =
   | "muted"
   | "forbidden"
@@ -72,6 +74,7 @@ export async function muteChatMemberWithOutcome({
   return outcome === "forbidden" ? "forbidden" : "failed";
 }
 
+/** `unmuteChatMemberWithOutcome` 解除群成员禁言的参数。 */
 export interface UnmuteChatMemberParams {
   /** 目标群聊 ID。 */
   chatId: number;
@@ -83,6 +86,7 @@ export interface UnmuteChatMemberParams {
   signal?: AbortSignal;
 }
 
+/** 一次解除群成员禁言请求的结局；权限拒绝与偶发失败分开返回。 */
 export type UnmuteChatMemberOutcome =
   | "unmuted"
   | "forbidden"
@@ -122,6 +126,7 @@ export type KickChatMemberOutcome =
   | "forbidden"
   | "failed";
 
+/** `kickChatMemberWithOutcome` 只踢不封移出群成员的参数。 */
 export interface KickChatMemberParams {
   /** 目标群聊 ID。 */
   chatId: number;

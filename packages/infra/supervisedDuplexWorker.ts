@@ -45,6 +45,7 @@ export type WorkerCapabilityHandler<TRequest> = (
   signal: AbortSignal
 ) => Promise<unknown>;
 
+/** `superviseDuplexWorker` 的配置选项。 */
 export interface SupervisedDuplexWorkerOptions<TMessage, TEvent, TRequest>
   extends Omit<
     SupervisedWorkerOptions<WorkerDuplexInbound<TMessage>, WorkerDuplexOutbound<TRequest> | TEvent>,

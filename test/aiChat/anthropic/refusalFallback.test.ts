@@ -1,5 +1,5 @@
 /**
- * 拒答回退的真实 SDK 链路：本机 Bun.serve 充当 Messages 端点。校验请求走 beta 端点；配置了 fallback_model
+ * 拒答回退的真实 SDK 链路：本机 Bun.serve 充当 Messages 端点。校验请求走 `/v1/messages` 端点；配置了 fallback_model
  * 时 betaRefusalFallbackMiddleware 在每个请求上带 fallback-credit beta，以回退模型重发同一请求体并按 best_effort
  * 兑换拒答带回的额度令牌（拒答不带令牌时不兑换），用量记回退模型的配置写法并记带兑换结果的改道日志；回复会话改道后后续请求
  * 直接发给回退模型、历史里不带 fallback 块，新会话重新从 model 起发；回退模型也拒答或未配置回退时都只按 refused 交回，不再
@@ -150,7 +150,7 @@ describe("没有 fallback_model", () => {
     replies.push("refusal");
     expect(await summarize()).toEqual({ ok: false, retryable: false, refused: true });
     expect(captured).toHaveLength(1);
-    expect(captured[0]!.path).toBe("/v1/messages?beta=true");
+    expect(captured[0]!.path).toBe("/v1/messages");
     expect(captured[0]!.beta).toBeNull();
     expect(loggerError).toHaveBeenCalledWith(
       `Test summary returned an unusable response: model=${PRIMARY}, stop_reason=refusal, ` +
@@ -169,7 +169,7 @@ describe("配置了 fallback_model", () => {
       ...captured[0]!.body, model: FALLBACK, fallback_credit_token: { token: CREDIT_TOKEN, mode: "best_effort" },
     });
     for (const request of captured) {
-      expect(request.path).toBe("/v1/messages?beta=true");
+      expect(request.path).toBe("/v1/messages");
       expect(request.beta).toContain(CREDIT_BETA);
     }
     expect(reported).toHaveLength(1);

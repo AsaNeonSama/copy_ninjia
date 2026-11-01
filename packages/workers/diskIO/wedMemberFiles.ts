@@ -22,6 +22,7 @@ import type {
 import { flushDirtyEntries } from "./dirtyFlush";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
+/** `inspectWedMemberFiles` 启动只读校验返回的 `/wed` 成员快照与目录文件名集合。 */
 export interface WedMemberInspection {
   /** 群 ID → 成员 ID → 进入时间，插入顺序同文件顺序。 */
   readonly snapshots: ReadonlyMap<number, Map<number, number>>;

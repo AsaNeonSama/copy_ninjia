@@ -30,6 +30,11 @@
   <a href="https://www.typescriptlang.org/"><img src="../../public/typescript_badge.svg" alt="TypeScript"></a>
   <a href="https://www.sqlite.org/"><img src="../../public/sqlite_badge.svg" alt="SQLite"></a>
   <a href="https://grammy.dev/"><img src="../../public/grammy_badge.svg" alt="grammY"></a>
+  <a href="https://react.dev/"><img src="../../public/react_badge.svg" alt="React"></a>
+  <a href="https://zustand.docs.pmnd.rs/"><img src="../../public/zustand_badge.svg" alt="Zustand"></a>
+</p>
+
+<p align="center">
   <a href="https://www.anthropic.com/"><img src="../../public/anthropic_badge.svg" alt="Anthropic"></a>
   <a href="https://platform.openai.com/docs/"><img src="../../public/openai_badge.svg" alt="OpenAI"></a>
   <a href="https://ai.google.dev/"><img src="../../public/gemini_badge.svg" alt="Gemini"></a>
@@ -38,8 +43,8 @@
 <p align="center">
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6829_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.78%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6940_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.83%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -47,7 +52,7 @@
 
 ---
 
-🧬 [純 AI 開発](#pure-ai-development) • ✨ [機能](#features) • 🎮 [コマンドと権限](#commands-and-permissions) • 🚀 [クイックスタート](#quick-start) • 🤖 [BotFather 設定](#botfather-setup) • ❓ [よくある質問](11-faq.md) • 📚 [開発者ドキュメント](content-table.md)
+🧬 [純 AI 開発](#pure-ai-development) • ✨ [機能](#features) • 🎮 [コマンドと権限](#commands-and-permissions) • 🚀 [クイックスタート](#quick-start) • 🤖 [BotFather 設定](#botfather-setup) • ❓ [よくある質問](12-faq.md) • 📚 [開発者ドキュメント](content-table.md)
 
 </div>
 
@@ -106,7 +111,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 6829 件のテストが全て成功 / テストファイル 566 件 / expect() 呼び出し 453,211 回 / 関数カバレッジ 98.53% / 行カバレッジ 98.78%" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 6940 件のテストが全て成功 / テストファイル 583 件 / expect() 呼び出し 455,825 回 / 関数カバレッジ 97.45% / 行カバレッジ 97.83%" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -271,7 +276,7 @@
 
 - **TTS 音声設定**：`config/dynamic/agent.json` で `agent.tts` の明示設定が必要です（Google、OpenAI 互換 `audio/speech`、xAI Grok `/tts` に対応。Google は `base_url` によるゲートウェイ経由も可能）。任意の `bot_language`（`en` / `zh` / `ja`、既定 `TTS_DEFAULT_BOT_LANGUAGE`）で AI ボイスのセリフの言語を指定できます。プロジェクトルートの `prompt/voice_tool.md` で AI `send_voice` のツール説明全体を置き換えられます（再起動後に反映。例は [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)）。AI 返信の合成には `bot_language` に従って読み上げ言語指定が自動で追加されます。`style` は `/send`・cron と共用で声質だけを書きます。`bot_language` を変えるときは `style` と `voice_tool.md` も同じ言語に変えることを推奨します。
 - **枠の独立管理**：`daily_limit`（既定 `TTS_DEFAULT_DAILY_LIMIT`）のうち `daily_reserve_quota`（既定 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）を管理者と cron 用に予約し、残りを AI 音声に割り当てます。両方の回数は独立して数え、カウントウィンドウ（`TTS_USAGE_WINDOW_MS`）はその中の最初のリクエストから起算され、ウィンドウ終了後の次のリクエストで新しいウィンドウが始まり、まとめてゼロに戻ります。
-- **コンテキスト記録規則**：`/send` による中継メッセージや定時テキスト/音声は AI 記憶に自動記録されません。画像の自動記録は、グループで AI が有効かつ非復唱状態の場合に動作します。詳細は [11 よくある質問](11-faq.md)。
+- **コンテキスト記録規則**：`/send` による中継メッセージや定時テキスト/音声は AI 記憶に自動記録されません。画像の自動記録は、グループで AI が有効かつ非復唱状態の場合に動作します。詳細は [12 よくある質問](12-faq.md)。
 
 各機能の挙動・設定・境界は **[📚 開発者ドキュメント](content-table.md)** を参照してください。
 
@@ -285,9 +290,9 @@
 
 - **一般グループメンバー**：復唱、翻訳、アクション、`/info` 照会、`/wed` 抽選、`/h_image` 閲覧などの基本チャット機能。
 - **身元権限キー（`isCanXxx`）**：グループ管理・運用コマンド。`/bot_status`、`/mute` / `/unmute`、`/gag`、`/block`、`/h_image add` および各機能スイッチ。
-- **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、指定身分の新しい発言を削除する `/delete_message`、個別チャットでの `/send` 中継。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
+- **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、指定身分の新しい発言を削除する `/delete_message`、個別チャットでの `/send` 中継および左下の `App` メニューボタン（`MenuButtonWebApp`）から開く Mini App 管理コンソール。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
 
-画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
+画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、Mini App の設定と Cloudflare Tunnel 推奨構成は [11 Mini App の設定方法と推奨構成](11-mini-app.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
 
 全コマンド一覧と権限マトリクスは **[📖 09 コマンドと挙動リファレンス](09-commands.md)** にあります。
 
@@ -423,9 +428,14 @@ Copy Ninjia のアーキテクチャ概要、モジュールマップ、実行�
     <td align="center"><nobr><a href="10-performance.md">📖 10 パフォーマンス</a></nobr></td>
   </tr>
   <tr>
+    <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
+    <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
+    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App の設定方法と推奨構成</a></nobr></td>
+  </tr>
+  <tr>
     <td><nobr>❓ <b>返信がないとき</b></nobr></td>
     <td>Bot が動いているのに反応しないときの確認リスト</td>
-    <td align="center"><nobr><a href="11-faq.md">📖 11 よくある質問</a></nobr></td>
+    <td align="center"><nobr><a href="12-faq.md">📖 12 よくある質問</a></nobr></td>
   </tr>
 </tbody>
 </table>
@@ -507,7 +517,7 @@ Bot をグループ管理者に昇格させ、利用したい機能に応じて�
 > [!TIP]
 > - **参加イベント依存**：認証機能は管理者権限に依存します（Telegram はメンバーの入退出イベントを管理者の Bot にのみ配信）。
 > - **診断フィードバック**：権限不足時は不足している項目を明示提示します。`isCanViewBotStatus` を持つメンバーは `/bot_status` で現在の権限スナップショットを確認できます。
-> - Bot が動いているのに返答がない場合は [11 よくある質問](11-faq.md) を参照してください。
+> - Bot が動いているのに返答がない場合は [12 よくある質問](12-faq.md) を参照してください。
 
 
 ---

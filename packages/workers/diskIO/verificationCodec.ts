@@ -19,6 +19,7 @@ import type {
   VerificationSnapshotBase,
 } from "../../types/antiRaid/verification";
 
+/** 入群验证日文件中单个键的值形态：活跃/延后终态快照或代表已结清删除的 `null` 墓碑。 */
 export type VerificationDayValue = VerificationSnapshot | null;
 
 /**

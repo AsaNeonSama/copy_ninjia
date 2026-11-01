@@ -12,7 +12,7 @@ import type {
 } from "../../types/blocklist";
 /**
  * 白名单变更与黑名单新增共用的主线程串行尾链（packages/infra/identityPolicy/coordination.ts）。
- * 每次调用追加一步，异常由尾链吸收；holder 仅保留当前尾节点，容量恒为一个 Promise，进程重启后从已决议 Promise 重建。
+ * 每次调用写入新尾节点，结算后释放旧节点（异常由尾链吸收）；holder 仅保留当前尾节点，容量恒为一个 Promise，进程重启后从已决议 Promise 重建。
  */
 export const protectedIdentityMutationQueue: { current: Promise<void> } = {
   current: Promise.resolve(),
@@ -25,13 +25,16 @@ export const protectedIdentityMutationQueue: { current: Promise<void> } = {
  */
 export const blocklistIdentityMutationQueues: Map<number, Promise<void>> = new Map();
 
-/** blocklistIdentityMutationQueues 上的逐身份串行执行器。 */
+/**
+ * blocklistIdentityMutationQueues 上的逐身份串行执行器单例：模块加载时创建并绑定尾链表，
+ * 任务入队填充与结算清理由底层表承担，不淘汰，进程重启后随模块重新创建。
+ */
 export const blocklistIdentityMutationRunner: KeyedSerialTaskRunner<number> =
   createKeyedSerialTaskRunner(blocklistIdentityMutationQueues);
 
 /**
  * 黑名单销号计数更新的主线程串行尾链（infra/blocklist/participantInvalid.ts）。
- * 每次带观测的 Anti-Raid 处置回执到达时追加一步，更新 `participantInvalidCount`；
+ * 每次收到带观测的 Anti-Raid 处置回执时写入新尾节点并更新 `participantInvalidCount`；
  * holder 仅保留当前尾节点（单步持有回执 ID 页，上限 BLOCKLIST_SWEEP_PAGE_SIZE），结算后释放。
  * Worker 崩溃不影响，进程重启后从已决议 Promise 开始。
  */
@@ -59,7 +62,7 @@ export const pendingBlockedRemovals: Map<number, PendingBlockedRemoval> = new Ma
  */
 export const unwrittenRemovalDiagnostics: Set<number> = new Set();
 
-/** 待踢批次 removalId 单调发号器；启动恢复按已存最大主键初始化，主线程同步递增，容量为一个标量。 */
+/** 待踢批次 removalId 单调发号器；启动恢复时写入已存最大主键，主线程同步递增，hydrateBlocklist 重置时覆盖，容量为一个标量。 */
 export const blocklistRemovalCounter: { current: number } = { current: 0 };
 
 /**
@@ -83,7 +86,7 @@ export const blocklistSweepPages: Map<number, BlocklistSweepPageState> =
 
 /**
  * 黑名单补扫重试的唯一调度 timer 状态（infra/blocklist/sweep.ts）。
- * 启动后按各群最近的 nextRetryAt 设定 timer，每次状态推进重算截止时间，停机 quiesce 时清除。
+ * 启动后按各群最近的 nextRetryAt 写入 timer，每次状态推进重算截止时间，停机 quiesce 时清除。
  * 容量恒为一个调度状态对象，进程重启后从初值重建。
  */
 export const blocklistSweepSchedulerState: BlocklistSweepSchedulerState = {
@@ -98,7 +101,7 @@ const noBlockedMemberRemover: BlockedMemberRemover = (): Promise<number> => Prom
 
 /**
  * 黑名单处置投递入口单槽位；启动时由 packages/antiRaid/blocklistGuard.ts 注入，
- * 进程重启后从默认空实现开始，容量恒为一个函数。
+ * 运行期不淘汰、不清理，进程重启后从默认空实现开始，容量恒为一个函数。
  */
 export const blockedMemberRemoverHolder: { current: BlockedMemberRemover } = {
   current: noBlockedMemberRemover,

@@ -32,6 +32,7 @@ import type { TelegramApi } from "../../../types/telegramWorker";
 type MessageReactionApi = Pick<TelegramApi, "setMessageReaction">;
 type EphemeralMessageDeletionApi = Pick<TelegramApi, "deleteEphemeralMessage">;
 
+/** `deleteEphemeralMessageWithOutcome` 删除目标专属消息的参数。 */
 export interface DeleteEphemeralMessageParams {
   /** 目标群聊 ID。 */
   chatId: number;
@@ -43,6 +44,7 @@ export interface DeleteEphemeralMessageParams {
   api?: EphemeralMessageDeletionApi;
 }
 
+/** `setMessageReaction` 设置单个标准 emoji 反应的参数。 */
 export interface SetMessageReactionParams {
   /** 目标聊天 ID。 */
   chatId: number;
@@ -56,6 +58,7 @@ export interface SetMessageReactionParams {
   signal?: AbortSignal;
 }
 
+/** `setMessageReactions` 批量设置或清空消息反应的参数。 */
 export interface SetMessageReactionsParams {
   /** 目标聊天 ID。 */
   chatId: number;
@@ -251,6 +254,7 @@ export async function deleteMessages(
   );
 }
 
+/** `deleteMessageAfter` 登记固定延迟删除的参数。 */
 export interface DeleteMessageAfterParams {
   /** 目标聊天 ID。 */
   chatId: number;

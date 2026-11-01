@@ -47,6 +47,7 @@ export {
   readBlocklistIdPage,
   readIdentityPolicies,
   readJoinLog,
+  readWhitelistIdPage,
 } from "./diskIO/requests";
 export type { ReadJoinLogParams } from "./diskIO/requests";
 import type { FlushResult } from "../types/lifecycle";
@@ -68,6 +69,7 @@ import type {
 import { toErrorOr } from "../libs/errorMessage";
 
 const isMainThread: boolean = Bun.isMainThread;
+/** `initDiskIO` 启动主线程落盘 Worker 宿主的配置选项。 */
 export interface DiskIOInitOptions {
   /** 运行时恢复无法继续时通知应用停止；启动握手失败仍由 loadPersistedData reject。 */
   onFatal?: (error: Error) => void;

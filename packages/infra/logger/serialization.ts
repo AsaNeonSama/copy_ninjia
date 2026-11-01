@@ -55,6 +55,8 @@ function currentSecrets(): LogRedactionSecrets {
   const secrets: string[] = [];
   const telegramToken: string | undefined = telegram?.botToken;
   if (telegramToken !== undefined) secrets.push(telegramToken);
+  const miniAppPassword: string | undefined = telegram?.miniApp?.password;
+  if (miniAppPassword !== undefined) secrets.push(miniAppPassword);
   if (adDetect !== null) secrets.push(adDetect.apiKey);
   if (agent !== null) {
     secrets.push(agent.text.apiKey, agent.summary.apiKey, agent.media.apiKey);

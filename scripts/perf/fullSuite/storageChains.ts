@@ -31,6 +31,7 @@ import type { unacknowledgedTemporaryAdBypassWrites } from "../../../packages/ca
 import type { ChainDefinition } from "./chainDefinition";
 import type { ChainName } from "./types";
 
+/** `createStorageChain` 构造端到端落盘链路基准所需的生产入口与规模常量依赖。 */
 export interface StorageChainDependencies {
   readonly chainJoinLogEvents: number;
   readonly chainIdentityBatches: number;
@@ -398,7 +399,7 @@ function diagnosticLogChain(
 }
 
 /**
- * 返回存储链路定义；命令链路与配置链路分别交给 commandChains、configChains。
+ * 返回存储链路定义；命令、配置与 Mini App API 链路分别交给 commandChains、configChains 与 miniAppChains。
  * @param chain 目标链路标识名。
  * @param dependencies 存储链路依赖集合。
  * @returns 若属于存储链路则返回对应定义，否则返回 `undefined`。
@@ -419,6 +420,7 @@ export function createStorageChain(
     case "ad-detect-command":
     case "ai-reply-command":
     case "cron-send-voice":
-    case "cron-config-reload": return undefined;
+    case "cron-config-reload":
+    case "mini-app-api-request": return undefined;
   }
 }

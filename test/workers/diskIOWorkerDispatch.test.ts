@@ -96,4 +96,14 @@ describe("Disk I/O Worker 路由：AI 记忆遗忘、待验证写入、入群日
       page: { ids: [], nextCursor: 99, done: true },
     });
   });
+
+  test("readWhitelistIdPage 的回执原样投回主线程", async () => {
+    await route({ type: "readWhitelistIdPage", requestId: 13, afterId: 50 });
+
+    expect(postMessage).toHaveBeenLastCalledWith({
+      type: "whitelistIdPageRead",
+      requestId: 13,
+      page: { entries: [], nextCursor: 50, done: true },
+    });
+  });
 });

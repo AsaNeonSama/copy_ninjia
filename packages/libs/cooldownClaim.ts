@@ -11,6 +11,7 @@
 
 import type { CooldownAvailability, CooldownClaim, CooldownClaimStore } from "../types/cooldown";
 
+/** `cooldownAvailability` 与 `claimCooldown` 的按群冷却判定与占位参数。 */
 export interface CooldownClaimParams {
   /** 调用方领域持有的按群冷却状态存储表。 */
   readonly store: CooldownClaimStore;

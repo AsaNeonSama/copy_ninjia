@@ -8,6 +8,7 @@ import { formatMinSec } from "../../../libs/time";
 import type { AtmosphereNotices } from "../../../types/atmosphereNotices";
 import type { ExpelRemovalOutcome, VerificationCleanupResult } from "../../../types/antiRaid/verification";
 
+/** `expelNoticeText` 组装入群验证踢出终态播报文案的选项。 */
 export interface ExpelNoticeTextOptions {
   /** 当前群风格的提示文案表。 */
   readonly texts: AtmosphereNotices;

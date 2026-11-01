@@ -21,6 +21,7 @@ export const STAGING_FILE_MODE: number = 0o600;
 /** ready.json 与 incomplete.json 的 JSON 缩进。 */
 const JSON_INDENT: number = 2;
 
+/** `prepareWedMemberWindowMigration` 执行 `/wed` 成员文件冷迁移的源与输出目录选项。 */
 export interface WedMemberWindowMigrationOptions {
   /** 停机备份源目录路径。 */
   readonly sourceRoot: string;
@@ -28,6 +29,7 @@ export interface WedMemberWindowMigrationOptions {
   readonly outputRoot: string;
 }
 
+/** `/wed` 成员文件冷迁移完成后的汇总结果与校验清单。 */
 export interface WedMemberWindowMigrationResult {
   /** 写入全部成员的同一进入时间（Unix 毫秒），取自迁移开始时刻。 */
   readonly enteredAt: number;

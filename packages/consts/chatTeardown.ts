@@ -24,6 +24,11 @@ export const CHAT_TEARDOWN_ORDER: readonly ChatRuntimeOwner[] = exhaustiveList<C
 ]);
 
 /**
+ * 启动标题刷新同时运行的 getChat 任务数。所属模块：infra/chatTitle.ts。
+ */
+export const CHAT_TITLE_REFRESH_CONCURRENCY: number = 5;
+
+/**
  * 启动标题刷新确证群不可达时，相邻两次 getChat 的间隔（ms）。所属模块：infra/chatTitle.ts。
  */
 export const CHAT_ABSENCE_CONFIRM_INTERVAL_MS: number = 60_000;

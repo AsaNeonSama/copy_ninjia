@@ -411,6 +411,14 @@ export interface ReadBlocklistIdPageRequest {
   afterId: number | null;
 }
 
+/** 主线程 -> Disk I/O Worker：按稳定主键游标读取一页白名单 ID。 */
+export interface ReadWhitelistIdPageRequest {
+  type: "readWhitelistIdPage";
+  requestId: number;
+  /** null 从最小主键开始；其余值只读取严格大于该主键的行。 */
+  afterId: number | null;
+}
+
 /**
  * 主线程 -> Disk I/O Worker：停机时关闭共享 SQLite。Worker 先以一个事务提交残余写，
  * 再 `PRAGMA wal_checkpoint(TRUNCATE)` 并关闭连接；主线程发送前已置不可写、不再投递存储写，
@@ -431,6 +439,7 @@ export type DiskIORequestMessage =
   | ReadJoinLogRequest
   | ReadIdentityPoliciesRequest
   | ReadBlocklistIdPageRequest
+  | ReadWhitelistIdPageRequest
   | CloseStorageRequest;
 
 /**

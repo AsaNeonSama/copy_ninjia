@@ -21,6 +21,7 @@ import type {
   TelegramMemoryFile,
 } from "../../types/telegramWorker";
 
+/** 提取双重载函数的第一个重载返回值类型。 */
 type FirstOverloadReturn<T> = T extends {
   (...args: never[]): infer FirstReturn;
   (...args: never[]): unknown;

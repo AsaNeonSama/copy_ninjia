@@ -4,6 +4,7 @@ import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS } from "./fixtures";
 import type { Scenario } from "./types";
 
+/** 用户回复触发冷却窗口基准的测试模式。 */
 type CooldownMode = "hit" | "renew" | "growth" | "saturated" | "expiry";
 
 /**

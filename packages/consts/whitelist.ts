@@ -4,39 +4,39 @@ import type {
 } from "../types/identityPolicy";
 import { exhaustiveList } from "./exhaustiveList";
 
-/** 白名单条目缺省不可使用手动禁言。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可使用手动禁言。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_MUTE: boolean = false;
-/** 白名单条目缺省不可使用手动解除禁言。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可使用手动解除禁言。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_UNMUTE: boolean = false;
-/** 白名单条目缺省不可使用 /gag 与 /ungag。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可使用 /gag 与 /ungag。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_GAG: boolean = false;
-/** 白名单条目缺省可以查看 /bot_status。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省可以查看 /bot_status。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_VIEW_BOT_STATUS: boolean = true;
-/** 白名单条目缺省不可写入永久黑名单。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可写入永久黑名单。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_BLOCK: boolean = false;
-/** 白名单条目缺省不可移出永久黑名单。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可移出永久黑名单。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_UNBLOCK: boolean = false;
-/** 白名单条目缺省不可代为新增其它白名单身份。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可代为新增其它白名单身份。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_WHITE_OTHER: boolean = false;
-/** 白名单条目缺省不可重抽 AI 心情。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可重抽 AI 心情。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_SWITCH_MOOD: boolean = false;
-/** 白名单条目缺省绕过广告检测。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省绕过广告检测。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_BYPASS_AD_DETECTION: boolean = true;
-/** 白名单条目缺省绕过防刷屏禁言。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省绕过防刷屏禁言。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_BYPASS_FLOOD_CONTROL: boolean = true;
-/** 白名单条目缺省不可开关 AI 闲聊。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可开关 AI 闲聊。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_CONTROLL_AI_PERMISSION: boolean = false;
-/** 白名单条目缺省不可开关广告检测。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可开关广告检测。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_CONTROLL_AD_DETECT_PERMISSION: boolean = false;
-/** 白名单条目缺省不可开关防刷屏禁言。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可开关防刷屏禁言。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_CONTROLL_FLOOD_CONTROL_PERMISSION: boolean = false;
-/** 白名单条目缺省不可开关翻译功能。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可开关翻译功能。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_CONTROLL_TRANSLATE_PERMISSION: boolean = false;
-/** 白名单条目缺省不可开关入群守卫。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可开关入群守卫。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_CONTROLL_ANTI_RAID_PERMISSION: boolean = false;
-/** 白名单条目缺省不可维护本群问答。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可维护本群问答。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_CONTROLL_QA_PERMISSION: boolean = false;
-/** 白名单条目缺省不可往随机图库收图（`/h_image add`）。所属模块：packages/infra/identityPolicy/whitelist.ts。 */
+/** 白名单条目缺省不可往随机图库收图（`/h_image add`）。所属模块：packages/consts/whitelist.ts（组装 DEFAULT_WHITELIST_PERMISSIONS）。 */
 const DEFAULT_IS_CAN_ADD_H_IMAGE: boolean = false;
 
 /**

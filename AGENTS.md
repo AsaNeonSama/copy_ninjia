@@ -64,7 +64,7 @@
 
 ### 依赖冷却期与紧急豁免 *重要*
 
-- `bunfig.toml` 的 `install.minimumReleaseAge` 必须保持 7 天（604_800 秒）。
+- `bunfig.toml` 的 `install.minimumReleaseAge` 必须保持 3 天（259_200 秒）。
 - 需要紧急安装尚未满冷却期的修复时，只把**那一个包名**加进 `install.minimumReleaseAgeExcludes`，安装完成后立即移除。
 - 不得改用 `bun install --minimum-release-age=<更小值>` 绕过。
 - 被豁免的版本仍须交叉至少两个独立来源的受害清单核对，并与 npm registry 的 `integrity` 校验一致；同时确认无投毒载荷与持久化残留。
@@ -87,13 +87,13 @@
 
 ## 编码规范
 
-- 文件超过 512 行时应考虑拆分，超过 1024 行时必须拆分。
+- 后端文件超过 512 行时应考虑拆分，超过 1024 行时必须拆分；前端 `.tsx`、`.css` 文件上限为 1536 行。
 - 代码风格以 eslint 为准。
 - 跨模块和生命周期约束以 `docs/cn/04-invariants.md` 为准。
 
 ### 常量与不可变性
 
-- 字面量常量放在 `packages/consts/<domain>.ts`；env 派生配置放在 `packages/consts/paths.ts`，环境变量名放在 `packages/consts/environment.ts`（这两处是 `packages/` 与 `index.ts` 中唯一读取 `process.env` 的边界）；部署 JSON 的严格解析放在 `packages/config/<domain>.ts`。
+- 字面量常量放在 `packages/consts/<domain>.ts`（Mini App 前端的放在 `packages/mini-app-frontend/consts/<domain>.ts`，见「Mini App 前后端边界」）；env 派生配置放在 `packages/consts/paths.ts`，环境变量名放在 `packages/consts/environment.ts`（这两处是 `packages/` 与 `index.ts` 中唯一读取 `process.env` 的边界）；部署 JSON 的严格解析放在 `packages/config/<domain>.ts`。
 - 常量使用 `SCREAMING_SNAKE_CASE` 和显式类型；长数值使用 `_` 分隔。
 - `packages/` 下禁止使用 `Object.freeze`。
 - 不可变性必须在编译期表达；容器必须声明为 `readonly T[]`、`Readonly<T>`、`ReadonlyArray<T>`、`ReadonlyMap` 或 `ReadonlySet` 等只读类型。
@@ -104,6 +104,15 @@
 - `@ts-expect-error` 不可变性断言必须放在不调用的闭包内，或只操作用完即弃的对象；不得修改共享单例。
 - 每个常量必须有中文 JSDoc，说明用途、不变量和所属模块。
 - 领域变大时拆分为 `packages/consts/<domain>/`；原文件仅保留 `export * from` 兼容入口，新代码直接导入子模块。
+
+### Mini App 前后端边界
+
+- `packages/mini-app-api-server/` 是 Mini App 服务端，与 bot 服务共享 `packages/` 下的常量、类型和能力模块，按普通 `packages/` 规则开发。
+- `packages/mini-app-frontend/` 在代码上不得依赖该目录之外的任何文件；`import type`、`import()`、HTML 的 `src`/`href` 与 CSS 的 `url()`/`@import` 同样计入。npm 依赖按根 `package.json` 共用，不另建 `package.json`。
+- 前端与服务端重合的常量、类型、函数和静态资源在前端内单独复制：常量放 `packages/mini-app-frontend/consts/<domain>.ts`，适用与 `packages/consts/` 相同的常量规则；类型放 `packages/mini-app-frontend/types/<domain>.ts`。每份副本必须登记到 `test/mini-app-frontend/frontendParity.test.ts`（类型编译期恒等，常量、函数与静态资源运行期一致），改动任一侧必须在同一改动中同步另一侧。
+- 只被前端使用的常量与类型放在前端目录，不得留在 `packages/consts/` 或 `packages/types/`。
+- `packages/` 其余模块与 `index.ts` 不得引用 `packages/mini-app-frontend/`；唯一例外是 `packages/mini-app-api-server/server/register.ts` 以 HTML import 引入 `packages/mini-app-frontend/index.html`，作为 `Bun.serve` 打包托管前端的入口。例外登记在 `scripts/conventions/miniAppFrontend.ts` 的 `MINI_APP_FRONTEND_ENTRY_IMPORTS`，新增例外必须由用户明确授权。
+- 上述边界由 `bun run check:conventions` 强制。
 
 ### 缓存与线程归属
 
@@ -157,7 +166,7 @@
 
 - 变量、参数、返回值、对象属性、数组元素和普通 `for` 变量必须显式标注类型。
 - 仅豁免 `for...of`/`for...in` 变量、初始化器为全标注箭头函数的 `const`、自引用 `typeof` 常量。
-- 共享类型按领域放在 `packages/types/<domain>.ts`；生产代码直接导入领域文件；`packages/types/antiRaid.ts`、`packages/types/diskIO.ts` 这类聚合入口仅供测试。
+- 共享类型按领域放在 `packages/types/<domain>.ts`（Mini App 前端的放在 `packages/mini-app-frontend/types/<domain>.ts`）；生产代码直接导入领域文件；`packages/types/antiRaid.ts`、`packages/types/diskIO.ts` 这类聚合入口仅供测试。
 - 类型导入必须单独使用 `import type`。
 - 导出函数必须标注返回类型，包括 `Promise<T>`。
 - 必须使用 `catch (error: unknown)`。
@@ -166,6 +175,7 @@
 - 位置参数最多 3 个；更多参数必须改为函数旁导出的 options interface，并在签名处解构。
 - 可选项使用 `?`，默认值写在解构处。
 - 导出函数使用 `function`；箭头函数仅用于回调和 IIFE。
+- JSX/TSX 片段必须显式使用 `react` 的 `<Fragment>`，禁止使用 `<>...</>` 简写。
 - 非必要绝不使用 `Promise.all`，必须使用 `Promise.allSettled`，进行有界重试和批处理
 
 ### 测试

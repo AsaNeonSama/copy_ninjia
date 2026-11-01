@@ -12,5 +12,5 @@ export const verificationCallbackChecks: { current: number } = { current: 0 };
  */
 export const verificationCallbackReplies: { current: number } = { current: 0 };
 
-/** 验证回调回执满载告警单次闩锁；每个 isolate 至多告警一次，Worker 重启后恢复为 false，容量固定为单个布尔值。 */
+/** 验证回调回执满载告警单次闩锁；首次满载告警时写入 true，随 isolate 销毁释放，Worker 重启后恢复为 false，容量固定为单个布尔值。 */
 export const verificationCallbackOverloadLogged: { current: boolean } = { current: false };

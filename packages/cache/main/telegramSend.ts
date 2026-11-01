@@ -14,10 +14,10 @@ export const sendChatLanes: Map<TelegramSendChatKey, TelegramSendLane> = new Map
 /** 全局发送秒级滑动窗口时间戳队列：每放行一条发送按消息条数写入时间戳，放行前淘汰滑出窗口的队首，出站生命周期重新初始化时清空；容量固定为 TELEGRAM_SEND_GLOBAL_LIMIT，进程重启后从空队列开始。 */
 export const sendGlobalWindow: TimestampDeque = new TimestampDeque(TELEGRAM_SEND_GLOBAL_LIMIT);
 
-/** 等待全局秒级窗口额度的发送车道轮转队列：车道仅缺全局额度时入队，全局定时器触发时按轮转顺序逐车道放行并出队，全局取消或重新初始化时清空；同一车道至多入队一次，容量不超过 sendChatLanes，进程重启后从空队列开始。 */
+/** 等待全局秒级窗口额度的发送车道轮转队列：车道仅缺全局额度时加入队列，全局定时器触发时按轮转顺序逐车道放行并出队，全局取消或重新初始化时清空；同一车道至多入队一次，容量不超过 sendChatLanes，进程重启后从空队列开始。 */
 export const sendGlobalRing: LinkedQueue<TelegramSendLane> = new LinkedQueue<TelegramSendLane>();
 
-/** 发送调度器全局排队总数（上限 TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX）与全局轮转定时器状态：任务入队/出队时增减，全局取消或重新初始化时归零；单例固定字段，进程重启后从初始值开始。 */
+/** 发送调度器全局排队总数（上限 TELEGRAM_MESSAGE_GLOBAL_PENDING_MAX）与全局轮转定时器状态：任务加入或移出队列时增减，全局取消或重新初始化时归零；单例固定字段，进程重启后从初始值开始。 */
 export const sendSchedulerState: {
   queuedTotal: number;
   globalTimer: ReturnType<typeof setTimeout> | null;

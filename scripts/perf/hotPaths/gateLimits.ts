@@ -21,6 +21,7 @@ export function selectHotPathGcPausePercentLimit(cpuCount: number): number {
   throw new Error("Hot-path GC policy does not cover the available CPU count.");
 }
 
+/** `createHotPathGcSoftReport` 判定热路径 GC 软超限的输入参数。 */
 export interface HotPathGcSoftReportInput {
   /** 热路径场景名称。 */
   readonly scenario: string;
@@ -30,6 +31,7 @@ export interface HotPathGcSoftReportInput {
   readonly budgetPercent: number;
 }
 
+/** 热路径 GC 暂停占比超出 CPU 分档软预算但未达硬上限时的软上报结构。 */
 export interface HotPathGcSoftReport {
   readonly scenario: string;
   readonly gcPercent: number;
@@ -63,6 +65,7 @@ export function createHotPathGcSoftReport({
   return { scenario, gcPercent, budgetPercent, failPercent: hotPathGcPauseFailPercent(budgetPercent) };
 }
 
+/** `createHotPathMedianLatencyReport` 与 `createHotPathCalibrationStaleReport` 的中位耗时判定输入。 */
 export interface HotPathMedianReportInput {
   /** 热路径场景名称。 */
   readonly scenario: string;
@@ -74,6 +77,7 @@ export interface HotPathMedianReportInput {
   readonly reportThresholdNsPerOp: number;
 }
 
+/** 热路径实测中位耗时超过软上报阈值时的诊断报告。 */
 export interface HotPathMedianLatencyReport {
   readonly scenario: string;
   readonly medianNsPerOp: number;
@@ -109,6 +113,7 @@ export function createHotPathMedianLatencyReport({
   };
 }
 
+/** 热路径校准软阈值远高于实测中位耗时时的过松提示报告。 */
 export interface HotPathCalibrationStaleReport {
   readonly scenario: string;
   readonly medianNsPerOp: number;

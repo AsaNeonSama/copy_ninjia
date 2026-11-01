@@ -7,7 +7,6 @@
 import { qaFormSessions } from "../../cache/main/qa";
 
 import type { Message } from "grammy/types";
-import { CHAT_QA_ANSWER_MAX_CHARS, CHAT_QA_QUESTION_MAX_CHARS } from "../../consts/qa";
 import { deleteMessageWithOutcome } from "../../infra/telegram";
 import { throwIfUpdateAborted } from "../../infra/updateContext";
 import {
@@ -17,9 +16,7 @@ import {
 } from "../../infra/selfSentTracker";
 import { visibleSenderId } from "../../users/visibleSender";
 import type { QaFieldInput, QaFieldRejection, QaFormIngressResult, QaFormSession } from "../../types/qa";
-import type { RichTextMessage } from "../../types/telegram";
-import { renderFencedText } from "../../libs/codeFence";
-import { containsRenderableCommand } from "../../libs/renderableCommand";
+import { answerRejectionOf, questionRejectionOf } from "./fieldRules";
 import { parseQaFieldMessage } from "./rendering";
 
 /**
@@ -85,31 +82,4 @@ async function claimParsedQaField(
     accepted: { q: question, a: answer },
     rejection: questionRejection ?? answerRejection,
   };
-}
-
-/**
- * 问题超长或整条含可点命令时挡下。
- * @param question 问题文本。
- * @returns 拒绝原因；合规时返回 null。
- */
-function questionRejectionOf(question: string): QaFieldRejection | null {
-  if (question.length > CHAT_QA_QUESTION_MAX_CHARS) return "questionTooLong";
-  return containsRenderableCommand(question) ? "questionHasCommand" : null;
-}
-
-/**
- * 答案超长，或按直答出口同一套围栏拆分（auto/message/qaDirectAnswer.ts 的 sendQaDirectAnswer）
- * 后代码块之外的文字含可点命令时挡下；代码块内的命令示例照常收下。
- * @param answer 回答文本。
- * @returns 拒绝原因；合规时返回 null。
- */
-function answerRejectionOf(answer: string): QaFieldRejection | null {
-  if (answer.length > CHAT_QA_ANSWER_MAX_CHARS) return "answerTooLong";
-  const rendered: RichTextMessage = renderFencedText(answer);
-  let cursor: number = 0;
-  for (const entity of rendered.entities) {
-    if (containsRenderableCommand(rendered.text.slice(cursor, entity.offset))) return "answerHasCommand";
-    cursor = entity.offset + entity.length;
-  }
-  return containsRenderableCommand(rendered.text.slice(cursor)) ? "answerHasCommand" : null;
 }

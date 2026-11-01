@@ -2,7 +2,7 @@
  * Google GenAI 协议的广告检测传输层；提示词拼装与 JSON 收窄由 workers/antiRaid/adDetect/classifier.ts 负责。
  *
  * 系统指令携带判定规则与部署示例（params.instructions），用户消息依次携带系统事实（params.fact）与待判定正文。
- * 显式缓存可用时经 AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE（见 infra/geminiContextCache.ts）引用 cachedContent；
+ * 显式缓存可用时经 AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE（其登记表由 infra/geminiContextCache.ts 的 createGeminiContextCacheRegistry 按需创建）引用 cachedContent；
  * 若缓存引用被端点拒绝（isGeminiContextCacheRejection），释放缓存登记并回退为带 systemInstruction 的完整请求重发。
  */
 

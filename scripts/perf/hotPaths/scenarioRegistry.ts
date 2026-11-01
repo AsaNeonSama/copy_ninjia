@@ -49,6 +49,10 @@ import {
   transcriptRenderScenario,
 } from "./transcriptScenarios";
 import { pendingVerificationLookupScenario } from "./verificationLookupScenario";
+import {
+  miniAppFrontendRenderScenario,
+  miniAppStatusRouteScenario,
+} from "./miniAppScenarios";
 import type { Scenario, ScenarioName } from "./types";
 import { base64PayloadScenario, replyAdmissionScenario, replyDeliveryScenario } from "./replyScenarios";
 import { proxyTtsDetectScenario, voiceMessageEncodeScenario } from "./voiceScenarios";
@@ -120,5 +124,7 @@ export function createScenario(name: ScenarioName): Scenario {
     case "mention-facts-plain": return mentionFactsScenario(false);
     case "redact-clean-log": return redactCleanLogScenario();
     case "luck-tier-table": return luckTierTableScenario();
+    case "mini-app-status-route": return miniAppStatusRouteScenario();
+    case "mini-app-frontend-render": return miniAppFrontendRenderScenario();
   }
 }

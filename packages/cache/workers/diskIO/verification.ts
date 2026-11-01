@@ -11,9 +11,9 @@ import type { DayFileState, VerificationFlushTarget } from "../../../types/diskI
  * - 清理与容量：handleVerificationDelete 单条删除，跨日轮换按最新旧日重建，resetVerificationPersistenceCache 时清空；容量上限为 VERIFICATION_RECORD_CAPACITY（满额拒收新记录且不淘汰现有记录），Worker 重建后从磁盘文件重建。
  */
 export const verificationWorkerCache: Map<string, VerificationSnapshot> = new Map();
-/** 待刷盘的验证记录增量变更表（`"chatId:userId"` -> VerificationFileChange）：合并窗口（FLUSH_INTERVAL_MS 或满 FLUSH_MAX_ENTRIES 键）内按成员合并最新变更，flush 完成后按 revision 删除；容量上限为 VERIFICATION_RECORD_CAPACITY，Worker 重建后由主线程重投未确认 revision。 */
+/** 待刷盘的验证记录增量变更表（`"chatId:userId"` -> VerificationFileChange）：合并窗口（FLUSH_INTERVAL_MS 或满 FLUSH_MAX_ENTRIES 键）内收到变更时合并写入，flush 完成后按 revision 删除；容量上限为 VERIFICATION_RECORD_CAPACITY，Worker 重建后由主线程重投未确认 revision。 */
 export const verificationPendingChanges: Map<string, VerificationFileChange> = new Map();
-/** 当日验证追加文件游标与已追加条数/字节计数：打开或追加时更新，收敛重写、跨日、恢复或 resetVerificationPersistenceCache 时重置；Worker 重建后从初始值开始。 */
+/** 当日验证追加文件游标与已追加条数/字节计数：打开或追加写入时更新，收敛重写、跨日、恢复或 resetVerificationPersistenceCache 时重置；单例固定字段，Worker 重建后从初始值开始。 */
 export const verificationFileState: {
   current: DayFileState | null;
   appendedEntries: number;
@@ -23,19 +23,19 @@ export const verificationFileState: {
   appendedEntries: 0,
   appendedBytes: 0,
 };
-/** 普通验证增量变更的合并刷盘 timer 单例：首次待刷变更进入时启动，flush 或 resetVerificationPersistenceCache 时清除；Worker 重建后从 null 开始。 */
+/** 普通验证增量变更的合并刷盘 timer 单例：首次待刷变更进入时创建，flush 或 resetVerificationPersistenceCache 时清除；Worker 重建后从 null 开始。 */
 export const verificationFlushTimer: { timer: ReturnType<typeof setTimeout> | null } = { timer: null };
-/** 单次 operationBatch 内关键验证写入的合并刷盘状态（withVerificationBatchFlush）：批次开始时置 active 为 true 并累积 target，批次结束回执前统一 flush 并复位；单例固定字段，Worker 重建后从初始值开始。 */
+/** 单次 operationBatch 内关键验证写入的合并刷盘状态（withVerificationBatchFlush）：批次开始时写入 active 为 true 并累积 target，批次结束回执前统一 flush 并重置；单例固定字段，Worker 重建后从初始值开始。 */
 export const verificationBatchFlush: { active: boolean; target: VerificationFlushTarget | null } = {
   active: false,
   target: null,
 };
-/** 午夜跨日轮换失败后的重试 timer 单例：轮换失败时设置，重试成功、重新维护或 resetVerificationPersistenceCache 时清除；Worker 重建后从 null 开始。 */
+/** 午夜跨日轮换失败后的重试 timer 单例：轮换失败时创建，重试成功、重新维护或 resetVerificationPersistenceCache 时清除；Worker 重建后从 null 开始。 */
 export const verificationRolloverRetryTimer: {
   timer: ReturnType<typeof setTimeout> | null;
 } = { timer: null };
 
-/** 跨日整理或收敛时最新旧日文件的连续解码失败路径与次数：同一文件连续失败时递增、切换文件时重置为单次计数，解码成功、隔离改名或 resetVerificationPersistenceCache 时清零；单例固定字段，Worker 重建后从初始值开始。 */
+/** 跨日整理或收敛时最新旧日文件的连续解码失败路径与次数：同一文件连续解码失败时递增、切换文件时覆盖为单次计数，解码成功、隔离改名或 resetVerificationPersistenceCache 时清零；单例固定字段，Worker 重建后从初始值开始。 */
 export const verificationPriorDayDecodeFailures: { path: string | null; count: number } = {
   path: null,
   count: 0,

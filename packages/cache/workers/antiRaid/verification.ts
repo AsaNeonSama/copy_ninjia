@@ -19,7 +19,7 @@ import type { DeferredVerificationRecord } from
 export const verificationEntries: Map<string, VerificationEntry> = new Map();
 
 /**
- * 运行态容量超限拒收闩锁；首次超限置 true 并上报 fatal，仅在下一代 adopt 或 Worker 停止时复位，Worker 重启后为 false。容量固定为单个布尔值。
+ * 运行态容量超限拒收闩锁；首次超限时写入 true 并上报 fatal，仅在下一代 adopt 或 Worker 停止时重置为 false，Worker 重启后恢复为 false；容量固定为单个布尔值。
  */
 export const verificationRuntimeCapacityFatalState: { current: boolean } = { current: false };
 
@@ -38,7 +38,7 @@ export const verificationGeneration: { current: number } = { current: 0 };
  */
 export const verificationRevisions: Map<string, { revision: number; retiredAt?: number }> = new Map();
 
-/** 修订号容量超限 fatal 闩锁；每代际至多触发一次，换代际或停止时复位。容量固定为单个布尔值。 */
+/** 修订号容量超限 fatal 闩锁；每代际首次超限时写入 true，换代际或 Worker 停止时重置为 false，Worker 重启后恢复为 false；容量固定为单个布尔值。 */
 export const verificationRevisionCapacityFatalState: { current: boolean } = { current: false };
 
 /**

@@ -17,6 +17,7 @@ export const NOTICE_TEXTS: Readonly<AtmosphereNotices> = {
   adPartialBan: (head: string, enforcedChats: number, failedChats: number): string => `${head}已加入永久黑名单，在 ${enforcedChats} 个群完成封禁，另有 ${failedChats} 个群未成功，请管理员检查权限。`,
   adBanned: (head: string): string => `${head}已加入永久黑名单，并在所有受管群完成封禁。`,
   proxyFailed: (targetChatId: number): string => `转发到 ${targetChatId} 失败，本轮中转已停止。请检查后重新使用 /send 开启。`,
+  miniAppLoginLocked: (attempts: number, lockedUntil: string, clientIp: string): string => `Mini App 登录已连续失败 ${attempts} 次，已锁定至 ${lockedUntil}（来源 IP：${clientIp}）。若非本人操作，Bot Token 可能已泄露，请立即通过 BotFather 重新签发。`,
   adConfigInvalid: (file: string): string => `无法读取配置 ${file}，广告检测未开启。请修正配置并重启。`,
   aiConfigInvalid: (file: string): string => `无法读取配置 ${file}，AI 闲聊未开启。请修正配置并重启。`,
   batchKickRejected: "/batch_kick 仅限超级管理员本人使用。",

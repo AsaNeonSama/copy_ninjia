@@ -24,10 +24,12 @@ const AI_REPLIES: readonly ScenarioName[] = [
   "reply-admission", "reply-delivery-normal", "reply-delivery-capacity",
   "base64-normal", "base64-large", "base64-head", "base64-tail", "voice-message-encode",
 ];
+/** 单轮性能复核子进程报告的 Bun 运行时版本与修订号。 */
 interface ReviewRound {
   readonly bunVersion: string;
   readonly bunRevision: string;
 }
+/** 单个复核场景标签及其全部轮次的汇总结果。 */
 interface ReviewResult {
   readonly label: string;
   readonly rounds: readonly ReviewRound[];

@@ -9,6 +9,7 @@
 import { FifoMap } from "./fifoMap";
 import type { FifoNode } from "./fifoMap";
 
+/** 固定容量的最近最少使用（LRU）缓存容器，继承 `FifoMap` 并在命中或覆写时将节点移至最新端。 */
 export class LruCache<K, V> extends FifoMap<K, V> {
   /**
    * 读取一个键；命中时顺带把它标记为最近使用。未命中返回 undefined。

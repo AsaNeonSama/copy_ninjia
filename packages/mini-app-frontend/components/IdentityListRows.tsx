@@ -1,0 +1,364 @@
+import { Fragment, memo, useCallback, useRef } from "react";
+import type React from "react";
+import { MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS } from "../consts/miniApp";
+import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
+import {
+  sanitizeBidiText,
+  truncateDisplayText,
+} from "../libs/formatters";
+import { TrashSvgIcon } from "../resource";
+import type { WhitelistPermissionKey } from "../types/identityPolicy";
+import type {
+  MiniAppBlocklistEntryView,
+  MiniAppPermissionDescriptor,
+  MiniAppWhitelistEntryView,
+} from "../types/miniApp";
+import type { MiniAppTranslations } from "../types/miniAppI18n";
+import { CollapseGrid } from "./animations/CollapseGrid";
+import { resolveExpandFollowScrollTarget } from "./animations/expandFollowScroll";
+import type {
+  ViewportAnchorScrollTarget,
+  ViewportRectElement,
+} from "./animations/expandFollowScroll";
+import type {
+  FlipAnimatableElement,
+  FlipFollowScrollResolver,
+} from "./animations/flipCollapse";
+import { useDelayedUnmount } from "./animations/useDelayedUnmount";
+import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
+import { PermissionDrawer } from "./PermissionDrawer";
+
+/** 按属性浅比较跳过重渲染的权限配置抽屉：切换行展开/收起时跳过内部 18 项权限卡片重调和。 */
+const MemoizedPermissionDrawer: React.MemoExoticComponent<
+  typeof PermissionDrawer
+> = memo(PermissionDrawer);
+
+/** `WhitelistEntryRowList` 白名单条目与操作按钮列表的属性参数。 */
+export interface WhitelistEntryRowListProps {
+  /** 当前页的白名单条目数组。 */
+  readonly items: readonly Readonly<MiniAppWhitelistEntryView>[];
+  /** 十八项白名单权限键与描述列表。 */
+  readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
+  /** 当前展开权限抽屉的目标身份 ID（未展开时为 `null`）。 */
+  readonly selectedEntryId: number | null;
+  /** 当前是否有增删操作在途。 */
+  readonly busyAction: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+  /** 切换某个条目权限配置抽屉展开/收起的回调。 */
+  readonly onTogglePermissionDrawer: (id: number) => void;
+  /** 关闭权限配置抽屉的回调。 */
+  readonly onClosePermissionDrawer: () => void;
+  /** 权限配置更新后的刷新回调。 */
+  readonly onPermissionsUpdated: () => Promise<void> | void;
+  /** 移除指定白名单条目的回调。 */
+  readonly onRemoveWhitelist: (
+    entry: Readonly<MiniAppWhitelistEntryView>
+  ) => Promise<void>;
+}
+
+/** `WhitelistEntryRow` 单个白名单条目行的属性参数。 */
+interface WhitelistEntryRowProps {
+  /** 当前行的白名单条目。 */
+  readonly entry: Readonly<MiniAppWhitelistEntryView>;
+  /** 当前行的权限抽屉是否展开。 */
+  readonly isExpanded: boolean;
+  /** 十八项白名单权限键与描述列表。 */
+  readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
+  /** 当前是否有增删操作在途。 */
+  readonly busyAction: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+  /** 切换某个条目权限配置抽屉展开/收起的回调。 */
+  readonly onTogglePermissionDrawer: (id: number) => void;
+  /** 关闭权限配置抽屉的回调。 */
+  readonly onClosePermissionDrawer: () => void;
+  /** 权限配置更新后的刷新回调。 */
+  readonly onPermissionsUpdated: () => Promise<void> | void;
+  /** 移除指定白名单条目的回调。 */
+  readonly onRemoveWhitelist: (
+    entry: Readonly<MiniAppWhitelistEntryView>
+  ) => Promise<void>;
+}
+
+/**
+ * 渲染单个白名单条目行、「配置权限」「移出」按钮组与按需延迟卸载的内联权限抽屉；
+ * 抽屉展开时以条目行为跟滚锚点、抽屉为展开内容，按 `resolveExpandFollowScrollTarget` 与展开动画同帧跟滚。
+ *
+ * @param props 组件属性
+ * @returns React 节点
+ */
+function WhitelistEntryRowView({
+  entry,
+  isExpanded,
+  permissionDescriptors,
+  busyAction,
+  t,
+  onTogglePermissionDrawer,
+  onClosePermissionDrawer,
+  onPermissionsUpdated,
+  onRemoveWhitelist,
+}: WhitelistEntryRowProps): React.JSX.Element {
+  const rowGroupRef: React.RefObject<ViewportRectElement | null> =
+    useRef<ViewportRectElement | null>(null);
+  const {
+    displayValue: mountedDrawerEntry,
+  }: Readonly<DelayedUnmountState<Readonly<MiniAppWhitelistEntryView>>> =
+    useDelayedUnmount(
+      isExpanded ? entry : null,
+      MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS
+    );
+  const setRowGroupNode: (el: ViewportRectElement | null) => void =
+    useCallback((el: ViewportRectElement | null): void => {
+      rowGroupRef.current = el;
+    }, []);
+  const resolveDrawerFollowScroll: FlipFollowScrollResolver = useCallback(
+    (
+      gridElement: FlipAnimatableElement,
+      expandedHeightPx: number
+    ): ViewportAnchorScrollTarget | null =>
+      resolveExpandFollowScrollTarget(
+        rowGroupRef.current,
+        gridElement,
+        expandedHeightPx
+      ),
+    []
+  );
+  const enabledCount: number = WHITELIST_PERMISSION_KEYS.filter(
+    (key: WhitelistPermissionKey): boolean => entry.permissions[key]
+  ).length;
+  const permSubText: string = `ID: ${entry.id} · ${t.identities.enabledPermCountText(
+    enabledCount,
+    WHITELIST_PERMISSION_KEYS.length
+  )}`;
+  return (
+    <div
+      ref={setRowGroupNode}
+      className="identity-row-group"
+    >
+      <div className="row identity-row">
+        <div className="row-main">
+          <div className="identity-title-row">
+            <bdi
+              className="identity-name"
+              title={sanitizeBidiText(entry.displayName)}
+            >
+              {truncateDisplayText(
+                entry.displayName,
+                entry.username !== undefined ? 8 : 13
+              )}
+            </bdi>
+            {entry.username !== undefined ? (
+              <span
+                className="identity-username"
+                dir="ltr"
+                title={`@${sanitizeBidiText(entry.username)}`}
+              >
+                @{truncateDisplayText(entry.username, 9)}
+              </span>
+            ) : null}
+            <span
+              className={`badge ${
+                entry.isChannel
+                  ? "identity-channel-badge"
+                  : "identity-user-badge"
+              }`}
+            >
+              {entry.isChannel
+                ? t.identities.channelBadge
+                : t.identities.userBadge}
+            </span>
+          </div>
+          <div className="row-sub identity-sub-row" title={permSubText}>
+            {permSubText}
+          </div>
+        </div>
+        <div className="toolbar-actions identity-row-actions">
+          <button
+            type="button"
+            className={`btn ${isExpanded ? "primary" : ""}`}
+            aria-expanded={isExpanded}
+            onClick={(): void => {
+              onTogglePermissionDrawer(entry.id);
+            }}
+          >
+            {t.identities.configurePermButton}
+          </button>
+          <button
+            type="button"
+            className="btn danger icon-btn"
+            disabled={busyAction}
+            onClick={(): void => {
+              void onRemoveWhitelist(entry);
+            }}
+          >
+            <TrashSvgIcon size={14} />
+            <span>{t.identities.removeWhitelistButton}</span>
+          </button>
+        </div>
+      </div>
+      <CollapseGrid
+        expanded={isExpanded}
+        gridClassName="perm-drawer-collapse-grid"
+        innerClassName="perm-drawer-collapse-inner"
+        resolveFollowScroll={resolveDrawerFollowScroll}
+      >
+        {mountedDrawerEntry !== null ? (
+          <MemoizedPermissionDrawer
+            entry={mountedDrawerEntry}
+            descriptors={permissionDescriptors}
+            onUpdated={onPermissionsUpdated}
+            onClose={onClosePermissionDrawer}
+          />
+        ) : null}
+      </CollapseGrid>
+    </div>
+  );
+}
+
+/** 按属性浅比较跳过重渲染的白名单条目行：切换权限抽屉时只有展开态变化的行重新渲染。 */
+const WhitelistEntryRow: React.MemoExoticComponent<
+  typeof WhitelistEntryRowView
+> = memo(WhitelistEntryRowView);
+
+/**
+ * 渲染白名单成员列表行及每行的「配置权限」「移出」按钮组与内联展开抽屉。
+ *
+ * @param props 组件属性
+ * @returns React 节点
+ */
+function WhitelistEntryRowListView({
+  items,
+  permissionDescriptors,
+  selectedEntryId,
+  busyAction,
+  t,
+  onTogglePermissionDrawer,
+  onClosePermissionDrawer,
+  onPermissionsUpdated,
+  onRemoveWhitelist,
+}: WhitelistEntryRowListProps): React.JSX.Element {
+  return (
+    <Fragment>
+      {items.map(
+        (entry: Readonly<MiniAppWhitelistEntryView>): React.JSX.Element => (
+          <WhitelistEntryRow
+            key={entry.id}
+            entry={entry}
+            isExpanded={selectedEntryId === entry.id}
+            permissionDescriptors={permissionDescriptors}
+            busyAction={busyAction}
+            t={t}
+            onTogglePermissionDrawer={onTogglePermissionDrawer}
+            onClosePermissionDrawer={onClosePermissionDrawer}
+            onPermissionsUpdated={onPermissionsUpdated}
+            onRemoveWhitelist={onRemoveWhitelist}
+          />
+        )
+      )}
+    </Fragment>
+  );
+}
+
+/** 按属性浅比较跳过重渲染的白名单列表：展开顶部添加抽屉或编辑搜索框时不重复遍历列表。 */
+export const WhitelistEntryRowList: React.MemoExoticComponent<
+  typeof WhitelistEntryRowListView
+> = memo(WhitelistEntryRowListView);
+
+/** `BlocklistEntryRowList` 黑名单条目与操作按钮列表的属性参数。 */
+export interface BlocklistEntryRowListProps {
+  /** 当前页的黑名单条目数组。 */
+  readonly items: readonly Readonly<MiniAppBlocklistEntryView>[];
+  /** 当前是否有增删操作在途。 */
+  readonly busyAction: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+  /** 解封并移除指定黑名单条目的回调。 */
+  readonly onRemoveBlocklist: (
+    entry: Readonly<MiniAppBlocklistEntryView>
+  ) => Promise<void>;
+}
+
+/**
+ * 渲染黑名单成员列表行及每行的「解封」操作按钮。
+ *
+ * @param props 组件属性
+ * @returns React 节点
+ */
+function BlocklistEntryRowListView({
+  items,
+  busyAction,
+  t,
+  onRemoveBlocklist,
+}: BlocklistEntryRowListProps): React.JSX.Element {
+  return (
+    <Fragment>
+      {items.map(
+        (entry: Readonly<MiniAppBlocklistEntryView>): React.JSX.Element => {
+          const blockSubText: string = `ID: ${entry.id} · ${t.identities.blockedAtText(entry.blockedAt)}`;
+          return (
+            <div
+              key={entry.id}
+              className="row identity-row"
+            >
+              <div className="row-main">
+                <div className="identity-title-row">
+                  <bdi
+                    className="identity-name"
+                    title={sanitizeBidiText(entry.displayName)}
+                  >
+                    {truncateDisplayText(
+                      entry.displayName,
+                      entry.username !== undefined ? 11 : 16
+                    )}
+                  </bdi>
+                  {entry.username !== undefined ? (
+                    <span
+                      className="identity-username"
+                      dir="ltr"
+                      title={`@${sanitizeBidiText(entry.username)}`}
+                    >
+                      @{truncateDisplayText(entry.username, 11)}
+                    </span>
+                  ) : null}
+                  <span
+                    className={`badge ${
+                      entry.isChannel
+                        ? "identity-channel-badge"
+                        : "identity-user-badge"
+                    }`}
+                  >
+                    {entry.isChannel
+                      ? t.identities.channelBadge
+                      : t.identities.userBadge}
+                  </span>
+                </div>
+                <div className="row-sub identity-sub-row" title={blockSubText}>
+                  {blockSubText}
+                </div>
+              </div>
+              <div className="toolbar-actions identity-row-actions">
+                <button
+                  type="button"
+                  className="btn danger icon-btn"
+                  disabled={busyAction}
+                  onClick={(): void => {
+                    void onRemoveBlocklist(entry);
+                  }}
+                >
+                  <TrashSvgIcon size={14} />
+                  <span>{t.identities.removeBlocklistButton}</span>
+                </button>
+              </div>
+            </div>
+          );
+        }
+      )}
+    </Fragment>
+  );
+}
+
+/** 按属性浅比较跳过重渲染的黑名单列表：展开顶部添加抽屉或编辑搜索框时不重复遍历列表。 */
+export const BlocklistEntryRowList: React.MemoExoticComponent<
+  typeof BlocklistEntryRowListView
+> = memo(BlocklistEntryRowListView);

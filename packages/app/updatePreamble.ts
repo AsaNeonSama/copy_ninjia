@@ -33,6 +33,7 @@ import { SLASH_CHAR_CODE } from "../consts/commands";
 import { logger } from "../infra/logger";
 import { getChatState } from "../infra/storage/stateStore";
 import { DEFAULT_CHAT_STATE } from "../libs/chatState";
+import { handleMiniAppSharedMessage } from "../mini-app-api-server/picker/sharedMessage";
 import { isIdentityPolicyCached, prefetchIdentityPolicies } from "../infra/identityStorage";
 import {
   shouldPassInitGate,
@@ -42,7 +43,7 @@ import {
 import { messageOriginIdentityId } from "../users/messageOrigin";
 
 /** 前置链之后交给 grammY Composer 的三组路由；registerHandlers 建好后传给 createUpdatePreamble。 */
-export interface UpdatePreambleRoutes {
+interface UpdatePreambleRoutes {
   /** `:entities:bot_command` 外闸之后的全部斜杠命令。 */
   readonly commands: MiddlewareFn<Filter<Context, ":entities:bot_command">>;
   /** 原文首字符为 `/` 的中文动作命令（hears）。 */
@@ -257,8 +258,14 @@ export function createUpdatePreamble({
    * @returns 已认领或短路处理的结果，否则转交下一阶段。
    */
   function afterIdentityPrefetch(ctx: Context, next: NextFunction, chatState: Readonly<ChatState>): unknown {
-    if (shouldRoutePrivateProxyMessage(ctx)) return handleIncomingMessageMiddleware(ctx, chatState);
     const message: Message | undefined = ctx.message;
+    if (
+      message !== undefined &&
+      (message.users_shared !== undefined || message.chat_shared !== undefined)
+    ) {
+      return handleMiniAppSharedMessage(message).then((): undefined => undefined);
+    }
+    if (shouldRoutePrivateProxyMessage(ctx)) return handleIncomingMessageMiddleware(ctx, chatState);
     if (message === undefined) return afterAntiRaidIngress(ctx, next, chatState);
     const claimed: boolean | Promise<boolean> = handleAntiRaidMessageIngress(message, ctx.me.id, chatState);
     if (typeof claimed === "boolean") return claimed ? undefined : afterAntiRaidIngress(ctx, next, chatState);

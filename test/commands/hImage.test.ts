@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { RandomImagePick } from "../../packages/types/randomImage";
+import type { RandomImagePick } from "../../packages/types/imageGallery";
 import { replyCommandNoticeVia } from "../helpers/common";
 
 const sendCommandMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
@@ -14,7 +14,7 @@ const pickRandomImage = mock(async (_directory: string): Promise<RandomImagePick
 mock.module("../../packages/infra/telegram", () => ({ sendCommandMessage, replyCommandNotice: replyCommandNoticeVia(sendCommandMessage), sendPhotoWithResult }));
 const recordBotImage = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/aiChat/botImages", () => ({ recordBotImage }));
-mock.module("../../packages/infra/randomImage", () => ({
+mock.module("../../packages/infra/imageGallery", () => ({
   pickRandomImage,
   readRandomImageLibrary: async (): Promise<unknown> => ({ size: 0, storedIds: new Set<string>() }),
   isRandomImageDirectory: async (): Promise<boolean> => true,

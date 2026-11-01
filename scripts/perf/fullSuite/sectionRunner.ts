@@ -16,6 +16,7 @@ import type { SpawnChildOptions } from "./child";
 import type { DirectoryFootprint } from "./processIo";
 import type { ProcessIoDelta } from "./types";
 
+/** 全量基准单个分区运行时的根目录、轮数与指标收集上下文。 */
 export interface SectionContext {
   readonly runRoot: string;
   readonly configRoot: string;
@@ -56,18 +57,21 @@ const DEFAULT_SECTION_DEPENDENCIES: SectionDependencies = {
   removeMockPath,
 };
 
+/** 全量基准子进程入口脚本的绝对路径。 */
 export const FULL_SUITE_ENTRY: string = join(
   PROJECT_ROOT,
   "scripts",
   "perf",
   "fullSuite.ts"
 );
+/** 热点基准子进程入口脚本的绝对路径。 */
 export const HOT_PATH_ENTRY: string = join(
   PROJECT_ROOT,
   "scripts",
   "perf",
   "hotPaths.ts"
 );
+/** 入群日志容量线基准子进程入口脚本的绝对路径。 */
 export const JOIN_LOG_ENTRY: string = join(
   PROJECT_ROOT,
   "scripts",

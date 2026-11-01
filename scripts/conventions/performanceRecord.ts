@@ -16,6 +16,7 @@ import { DOC_PAGE_TARGETS } from "../perf/fullSuite/docPage";
 /** 基准区块里那一个 ISO-8601 时间戳；渲染模板保证每份区块只出现一次。 */
 const BLOCK_TIMESTAMP_PATTERN: RegExp = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
 
+/** `performance-result.json` 中用于读取 `fullSuite` 报告字段的顶层结构。 */
 interface PerformanceResultFile {
   readonly fullSuite?: unknown;
 }

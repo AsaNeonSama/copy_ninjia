@@ -34,6 +34,7 @@ import type { StickerCatalogEntry, StickerCatalogSnapshot } from "../../../types
 import type { AiStickerCatalogEvent } from "../../../types/stickers/protocol";
 import type { AiTextResult } from "../../../types/aiChat/provider";
 
+/** 解析并校验通过的单份贴纸包目录快照及其包名。 */
 interface ParsedStickerCatalog {
   readonly pack: string;
   readonly snapshot: StickerCatalogSnapshot;

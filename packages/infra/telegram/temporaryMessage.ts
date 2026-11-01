@@ -5,6 +5,7 @@ import { deleteMessageAfter } from "./actions/messageLifecycle";
 import { sendMessage } from "./actions/messages";
 import type { TelegramWorkerTemporaryMessageSentResult } from "../../types/telegramWorker";
 
+/** `sendTemporaryMessageOnMain` 发送并登记固定延迟删除群提示的参数。 */
 export interface SendTemporaryMessageOnMainParams {
   /** 目标群聊 ID。 */
   readonly chatId: number;

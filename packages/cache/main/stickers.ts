@@ -6,5 +6,5 @@
  */
 export const pendingStickerCatalogRevisions: Map<string, number> = new Map();
 
-/** 贴纸目录写入的单调递增 revision 发号器：每次发布自增，Worker 重建不重置，进程重启后从零开始；单例标量。 */
+/** 贴纸目录写入的单调递增 revision 发号器：每次发布时自增，Worker 重建不重置，进程重启后从 0 开始；单例标量。 */
 export const stickerCatalogRevisionCounter: { current: number } = { current: 0 };

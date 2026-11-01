@@ -1,6 +1,6 @@
 import type { Message, PhotoSize } from "grammy/types";
 import { MEDIA_MAX_DOWNLOAD_BYTES } from "../consts/aiChat/media";
-import { RANDOM_IMAGE_DOCUMENT_MIME_TYPES } from "../consts/randomImage";
+import { RANDOM_IMAGE_DOCUMENT_MIME_TYPES } from "../consts/imageGallery";
 import { TELEGRAM_PHOTO_MAX_ASPECT_RATIO, TELEGRAM_PHOTO_MAX_DIMENSION_SUM } from "../consts/telegram";
 import type { ImageDimensions, MessageImageCandidate } from "../types/hImage";
 import type { TelegramVisionSource } from "../types/media";

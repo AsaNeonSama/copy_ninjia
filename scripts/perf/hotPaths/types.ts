@@ -5,6 +5,7 @@
 
 import type { HotPathProfileScenarioName } from "../../../packages/types/performance";
 
+/** 热点性能基准支持的全部场景名称。 */
 export type ScenarioName =
   | HotPathProfileScenarioName
   | "cooldown-hit"
@@ -83,6 +84,7 @@ export interface JitTierStats extends JitTierCounts {
   changedDuringSampling: boolean;
 }
 
+/** 单个热点性能场景的执行参数、生命周期钩子与 JIT 探针定义。 */
 export interface Scenario {
   iterations: number;
   /** 场景可显式指定预热迭代数；缺省沿用热点默认值。 */

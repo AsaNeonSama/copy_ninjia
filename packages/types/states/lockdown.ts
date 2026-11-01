@@ -42,31 +42,40 @@ export interface LockdownPreparedState extends LockdownAnnouncement {
   commitStarted: boolean;
 }
 
+/** 私密模式已生效，等待恢复计时器到期或显式解除。 */
+export interface LockdownActiveState extends LockdownAnnouncement {
+  kind: "active";
+  originalPermissions: ChatPermissions;
+  intentId: number;
+}
+
+/** 迟到恢复已打开邀请权限，当前正在把 ACTIVE 意图重新对账到 Telegram。 */
+export interface LockdownReconcilingState extends LockdownAnnouncement {
+  kind: "reconciling";
+  originalPermissions: ChatPermissions;
+  intentId: number;
+  /** true 时只等本阶段落盘回执，回执到达后恰好启动一次纠偏。 */
+  reapplyAfterPersist: boolean;
+}
+
+/** 正在把群权限恢复为进入私密模式前的原权限。 */
+export interface LockdownRestoringState extends LockdownAnnouncement {
+  kind: "restoring";
+  originalPermissions: ChatPermissions;
+  intentId: number;
+  /** true 时只等本阶段落盘回执，回执到达后恰好启动一次恢复。 */
+  restoreAfterPersist: boolean;
+  /** 恢复成功时解锁公告用哪句文案；只活在内存里，见 LockdownRestoreReason。 */
+  restoreReason: LockdownRestoreReason;
+}
+
+/** 私密模式（群锁定）状态机的非空闲状态联合。 */
 export type LockdownState =
   | LockdownPreparingState
   | LockdownPreparedState
-  | ({
-    kind: "active";
-    originalPermissions: ChatPermissions;
-    intentId: number;
-  } & LockdownAnnouncement)
-  | ({
-    /** 迟到恢复已打开邀请权限，当前正在把 ACTIVE 意图重新对账到 Telegram。 */
-    kind: "reconciling";
-    originalPermissions: ChatPermissions;
-    intentId: number;
-    /** true 时只等本阶段落盘回执，回执到达后恰好启动一次纠偏。 */
-    reapplyAfterPersist: boolean;
-  } & LockdownAnnouncement)
-  | ({
-    kind: "restoring";
-    originalPermissions: ChatPermissions;
-    intentId: number;
-    /** true 时只等本阶段落盘回执，回执到达后恰好启动一次恢复。 */
-    restoreAfterPersist: boolean;
-    /** 恢复成功时解锁公告用哪句文案；只活在内存里，见 LockdownRestoreReason。 */
-    restoreReason: LockdownRestoreReason;
-  } & LockdownAnnouncement);
+  | LockdownActiveState
+  | LockdownReconcilingState
+  | LockdownRestoringState;
 
 /**
  * 进入 RESTORING 的原因：`expired` 为本轮到期，`lifted` 为到期前恢复（主动解除、加锁结果不确定后的补偿、
@@ -74,6 +83,7 @@ export type LockdownState =
  */
 export type LockdownRestoreReason = "expired" | "lifted";
 
+/** 驱动私密模式状态机（packages/states/lockdown.ts）转移的输入事件联合。 */
 export type LockdownMachineEvent =
   | { type: "thresholdExceeded"; joinCount: number }
   | { type: "applyPrepared"; originalPermissions: ChatPermissions; intentId: number }
@@ -118,6 +128,7 @@ export type LockdownAbandonReason =
   | "commitPreparationFailed"
   | "persistFailed";
 
+/** 私密模式状态机产出的副作用意图，由 antiRaid Worker 按序解释执行。 */
 export type LockdownEffect =
   /** 预热管理员表：锁定期内「管理员拉人免验证」只认同步缓存判定。 */
   | { kind: "prefetchAdmins"; onlyIfCold: boolean }
@@ -146,6 +157,7 @@ export type LockdownEffect =
   /** 恢复成功且本轮公告过：按 reason 发到期或提前解除的解锁公告。 */
   | { kind: "announceUnlock"; reason: LockdownRestoreReason };
 
+/** 私密模式状态机单步转移的输出：下一状态与待执行副作用列表。 */
 export interface LockdownTransition {
   /** 下一个状态：undefined = 删除记录；与传入同一对象 = 保持（计时器由 scheduleRestore 副作用管理）。 */
   next: LockdownState | undefined;

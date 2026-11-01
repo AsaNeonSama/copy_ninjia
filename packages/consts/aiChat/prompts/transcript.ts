@@ -279,7 +279,7 @@ export const SELF_ACTION_TAG_MARKERS: readonly string[] = [
 ];
 
 /**
- * 拦截 send_message 正文中伪造执行侧动作记号的正则列表（见 aiChat/ai/tools/replyToolset/sendMessage.ts）。
+ * 拦截 send_message 正文中伪造执行侧动作记号的正则列表（见 aiChat/ai/tools/replyToolset/modelAuthoredText.ts）。
  */
 export const SELF_ACTION_TAG_PATTERNS: readonly RegExp[] = [
   new RegExp(`（[^）]{0,20}${SELF_STICKER_TAG_MARKER}(?:：|）)`),

@@ -10,6 +10,7 @@ import type {
   TelegramWorkerTemporaryMessageRequest,
 } from "../../types/telegramWorker";
 
+/** Worker 请求主线程下载 Telegram 文件的参数。 */
 export interface DownloadTelegramFileFromMainParams {
   /** Telegram 文件标识（file_id）。 */
   readonly fileId: string;
@@ -19,6 +20,7 @@ export interface DownloadTelegramFileFromMainParams {
   readonly signal?: AbortSignal;
 }
 
+/** Worker 请求主线程发送并登记 30 秒自动删除的群提示参数。 */
 export type SendTemporaryMessageFromMainParams = Omit<TelegramWorkerTemporaryMessageRequest, "operation" | "purpose"> & (
   | { readonly purpose: "adWarning"; readonly identityId: number }
   | { readonly purpose: "notice" }
@@ -82,6 +84,7 @@ function asSignal(value: Parameters<Api["getChat"]>[1]): AbortSignal | undefined
   return value as AbortSignal | undefined;
 }
 
+/** 独占底层普通 `ArrayBuffer`、可直接跨线程 transfer 的内存文件对象。 */
 type TransferableTelegramMemoryFile = TelegramMemoryFile & {
   readonly bytes: Uint8Array<ArrayBuffer>;
 };
@@ -116,6 +119,7 @@ function checkedMemoryFile(value: unknown, label: string): TransferableTelegramM
   return { bytes: new Uint8Array(bytes), fileName: value.fileName };
 }
 
+/** `requestMemoryFileSend` 校验并跨线程发送内存文件上传请求的参数。 */
 interface RequestMemoryFileSendParams {
   /** 调用方传入的内存文件；形状由 checkedMemoryFile 校验。 */
   readonly file: unknown;

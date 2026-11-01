@@ -8,6 +8,7 @@ import type { RoundMessageState } from "../../../../types/aiChat/replies";
 import { toolError } from "../../utils/toolResult";
 import { isDuplicateOfAcceptedText } from "./messageState";
 
+/** 模型生成文本的发送载体类型（普通文本消息或生成图片的图注）。 */
 type ModelAuthoredTextSurface = "message" | "picture";
 
 /**

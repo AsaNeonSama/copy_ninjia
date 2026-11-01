@@ -31,7 +31,7 @@ export const aiMemoryFlushBarrier: FlushBarrier = createFlushBarrier({
 export const lastInitState: { current: AiInitMessage | null } = { current: null };
 /**
  * 机器人账号身份快照。启动时 initAiChat 写入一次；热重载使 AI 闲聊转为可用时由
- * aiChat/hydration.ts 的 resumeAiChat 读取以启动 Worker。运行期不清理，进程重启后从 null
+ * aiChat/hydration.ts 的 resumeAiChat 读取以启动 Worker。运行期不清理、不淘汰，进程重启后从 null
  * 开始；主线程独占，Worker 崩溃不影响，容量恒为一个对象。
  */
 export const aiChatBotInfo: { current: AiBotInfo | null } = { current: null };
@@ -61,7 +61,7 @@ export const latestAiMemories: Map<number, string> = new Map();
 export const aiMemoryUsages: Map<number, AiMemoryUsage> = new Map();
 /**
  * latestAiMemories 各快照对应的运行时 revision；启动恢复播种时写入初始基准值，
- * 此后随 memory 事件更新。清理、重放与容量同 latestAiMemories，两表成对增删。
+ * 此后随 memory 事件更新。清理与淘汰、Worker 崩溃重建重放及容量同 latestAiMemories，两表成对增删。
  */
 export const latestAiMemoryRevisions: Map<number, number> = new Map();
 /**
@@ -74,7 +74,7 @@ export const latestAiMemoryRevisions: Map<number, number> = new Map();
  * STATE_MANAGED_CHAT_LIMIT 与在途 teardown 数约束。
  */
 export const aiMemoryRevisionCounters: Map<number, number> = new Map();
-/** teardown 已释放计数器的最高 revision 下界；nextAiMemoryRevision 从不低于该下界处递增。进程重启后归零，Worker 重建保留，容量为一个标量。 */
+/** teardown 已释放计数器的最高 revision 下界；释放群计数器时写入抬高，nextAiMemoryRevision 从不低于该下界处递增。进程重启后归零，Worker 重建保留，容量为一个标量。 */
 export const aiMemoryRevisionFloor: { current: number } = { current: 0 };
 /**
  * 在途的群记忆 teardown 状态。beginAiMemoryTeardown 登记，durable 删除与 Worker 失效均完成后
@@ -104,7 +104,8 @@ export const postPurgeAiMemoryPersistRevisions: Map<number, number | null> = new
  * 显式删除记忆的等待者列表（LRU 淘汰删除不挂等待者）。
  * 填充：`/clear_context`、`/ai_chat disable` 与群 teardown 调用 requestAiMemoryDelete(chatId, true) 时登记。
  * 清理：收到 aiMemoryDeletedPersisted 回执、满 AI_MEMORY_FLUSH_TIMEOUT_MS 超时、投递被拒或
- * Disk I/O Worker 放弃自愈时结算并删除。容量上界为 STATE_MANAGED_CHAT_LIMIT。
+ * Disk I/O Worker 放弃自愈时结算并删除；Disk I/O Worker 重建期间保留等待回执，进程重启后从空表开始。
+ * 容量上界为 STATE_MANAGED_CHAT_LIMIT。
  */
 export const aiMemoryDeleteWaiters: Map<number, AiMemoryDeleteWaiter[]> = new Map();
 /**
@@ -112,7 +113,8 @@ export const aiMemoryDeleteWaiters: Map<number, AiMemoryDeleteWaiter[]> = new Ma
  *
  * 填充：invalidateAiChat 在 Worker 可用时加入。在此期间到达的该群 memory 事件直接丢弃并补发删除。
  * 清理：收到 memoryDeleted 事件、该群产生新记录（recordChatMessage / recordChatMedia），或
- * AI Worker 放弃自愈 / 终止时移除。容量上界为 STATE_MANAGED_CHAT_LIMIT。
+ * AI Worker 放弃自愈 / 终止时移除；AI Worker 崩溃重建时原样保留（onRespawn 不改动本集合），进程重启后从空集开始。
+ * 容量上界为 STATE_MANAGED_CHAT_LIMIT。
  */
 export const purgedAiMemoryChats: Set<number> = new Set();
 /**
@@ -150,7 +152,7 @@ export const aiChatInvalidateRequests: WorkerRequestTable<WorkerRequestOutcome<u
   waiters: new Map(),
   counter: { current: 0 },
 };
-/** AI Worker 可用标志。startAiChatWorker 成功后置 true，投递被拒、终止或放弃自愈时置 false；进程重启后从 false 开始，容量为一个布尔值。 */
+/** AI Worker 可用标志。startAiChatWorker 成功后写入 true，投递被拒、终止或放弃自愈时重置为 false；不淘汰，进程重启后从 false 开始，容量为一个布尔值。 */
 export const aiChatWorkerState: { available: boolean } = { available: false };
 /**
  * 主线程持有的贴纸目录快照只读镜像（pack -> JSON 文本）。

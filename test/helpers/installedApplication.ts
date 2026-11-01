@@ -34,6 +34,7 @@ const transformer: Transformer = async (_previous: unknown, method: string, payl
       } };
     case "setMyCommands":
     case "deleteMyCommands":
+    case "setChatMenuButton":
       return { ok: true, result: true };
     case "getChat":
       return { ok: true, result: { id: payload.chat_id, type: "supergroup", title: "Installation test group" } };

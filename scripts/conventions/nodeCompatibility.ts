@@ -401,6 +401,7 @@ function inScope(relativePath: string, scope: AllowanceScope): boolean {
   return !isScript && !isTest;
 }
 
+/** `collectUnusedAllowanceSymbolProblems` 核对闲置 Node 导入白名单登记项的入参。 */
 interface UnusedAllowanceSymbolCheckOptions {
   /** 待核对的模块导入白名单登记项。 */
   readonly allowance: NodeImportAllowance;

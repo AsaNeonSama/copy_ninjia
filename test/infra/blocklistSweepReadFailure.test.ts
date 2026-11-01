@@ -60,7 +60,7 @@ describe("黑名单主键读失败的降级边界", () => {
     requestBlocklistResweep(-1001, retryAt);
     failBlocklistIdReads();
 
-    // 名单页读排在 claim 资格闸之后，这一轮的 now 越过退避截止（见 sweep.ts 的 canClaimSweep）；
+    // 名单页读排在 claim 资格闸之后，这一轮的 now 越过退避截止（见 sweepEligibility.ts 的 canClaimSweep）；
     // 读失败后 finally 照常执行，armBlocklistSweepScheduler 继续排下一轮周期补扫。
     await expect(sweepBlockedMembers(-1001, retryAt + 1_000))
       .rejects.toThrow("cannot read blocklist IDs");

@@ -25,7 +25,7 @@ import { basename } from "node:path";
 import { TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES, TELEGRAM_PHOTO_UPLOAD_MAX_BYTES } from "../consts/telegram";
 import { composeWebDigest, recordBotImage, synthesizeVoice } from "../aiChat";
 import { MARKDOWN_V2_PARSE_MODE } from "../consts/telegramMarkdown";
-import { pickRandomImage } from "../infra/randomImage";
+import { pickRandomImage } from "../infra/imageGallery";
 import { getAssetConfig } from "../config/assets";
 import { runTelegramAction } from "../infra/telegram/actions/core";
 import { toTelegramSendResult } from "../infra/telegram/actions/sendResult";
@@ -43,7 +43,7 @@ import type {
 } from "../types/cron";
 import type { WebDigestCompositionResult, WebDigestFailure } from "../types/webDigest";
 import type { EncodedVoiceMessage, VoiceSynthesisFailure, VoiceSynthesisResult } from "../types/aiChat/voiceMessage";
-import type { RandomImagePick } from "../types/randomImage";
+import type { RandomImagePick } from "../types/imageGallery";
 import { errorMessage } from "../libs/errorMessage";
 
 /**

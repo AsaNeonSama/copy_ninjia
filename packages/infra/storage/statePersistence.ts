@@ -1,6 +1,5 @@
-import { lstat, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { Stats } from "node:fs";
 import { STATE_FLUSH_TIMEOUT_MS } from "../../consts/lifecycle";
 import { GLOBAL_STATE_FILE_PATH, LEGACY_STATE_FILE_PATHS } from "../../consts/paths";
 import {
@@ -10,12 +9,12 @@ import {
   STATE_SAVE_RETRY_DELAYS_MS,
 } from "../../consts/storage";
 import { atomicWriteText } from "../../libs/atomicFile";
-import { isErrno } from "../../libs/errno";
 import {
   InputValidationError,
   invalidInput,
+  isMissingLeaf,
   parseJsonInput,
-  readUtf8TextInput,
+  readOptionalRegularTextInput,
 } from "../../libs/inputValidation";
 import { createLatestValueRunner } from "../../libs/latestValueRunner";
 import type { LatestValueRunner } from "../../libs/latestValueRunner";
@@ -47,6 +46,7 @@ export interface StateStoreOptions {
   onFatal?: (error: Error) => void;
 }
 
+/** `StateStore.save` 与 `saveState` 的持久化等待选项。 */
 export interface StateSaveOptions {
   /**
    * false 用于 fire-and-forget 快照：不为每次后台变化保留等待者，在后台合并窗口到期后
@@ -55,60 +55,17 @@ export interface StateSaveOptions {
   waitForPersistence?: boolean;
 }
 
+/** 已编码的全局状态 JSON 快照及其单调修订号。 */
 interface StateWrite {
   json: string;
   revision: number;
 }
 
+/** 等待指定状态修订号落盘完成的调用方 Promise 回调记录。 */
 interface PersistenceWaiter {
   revision: number;
   resolve: () => void;
   reject: (error: Error) => void;
-}
-
-/**
- * 叶子路径本身是否不存在，以 `lstat` 报 ENOENT 为准（`BunFile.stat()` 跟随软链接，
- * 悬空链接同样报 ENOENT）。
- *
- * @param path 待检查的文件系统路径。
- * @returns 叶子路径本身不存在时返回 `true`。
- */
-async function isMissingLeaf(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return false;
-  } catch (error: unknown) {
-    return isErrno(error, "ENOENT");
-  }
-}
-
-/**
- * 状态文件的默认读取边界：叶子路径本身必须是普通文件，内容必须是严格 UTF-8。
- *
- * 类型经 `lstat` 判定，不跟随软链接：软链接（含指向普通文件的链接与悬空链接）、目录、其它非普通文件以及
- * EACCES/ELOOP/ENOTDIR 等访问失败一律是已配置但非法，按 AGENTS.md 的「不为用户行为兜底」拒绝启动；
- * 只有 `lstat` 报 ENOENT 才按缺失处理。lstat 成功之后的读取或解码失败也不降级为缺失。
- *
- * 错误统一收敛为 InputValidationError，只带文件路径、字段路径和期望形态，不回显
- * 底层异常与状态内容（见 docs/cn/04-invariants.md 的严格解析约束）。
- *
- * @param path 状态文件路径。
- * @returns 文件文本；叶子路径真正缺失时为 null。
- */
-async function readExistingText(path: string): Promise<string | null> {
-  let stats: Stats;
-  try {
-    stats = await lstat(path);
-  } catch (error: unknown) {
-    if (isErrno(error, "ENOENT")) return null;
-    return invalidInput(path, "$", "an accessible regular file");
-  }
-  if (!stats.isFile()) return invalidInput(path, "$", "a regular file, not a symbolic link");
-  try {
-    return await readUtf8TextInput(path);
-  } catch {
-    return invalidInput(path, "$", "a regular file readable as strictly valid UTF-8 text");
-  }
 }
 
 /**
@@ -187,7 +144,7 @@ export class StateStore {
    */
   constructor({
     stateFilePath = GLOBAL_STATE_FILE_PATH,
-    readText = readExistingText,
+    readText = readOptionalRegularTextInput,
     writeText = writeStateText,
     retryDelaysMs = STATE_SAVE_RETRY_DELAYS_MS,
     maxAttempts = STATE_SAVE_MAX_ATTEMPTS,

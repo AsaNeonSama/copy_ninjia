@@ -55,7 +55,7 @@ export const JOIN_LOG_MAX_RETRY_FILES: number = 128;
  * 处置回执释放，只有尚未落盘的事实占用名额。Disk I/O Worker 的待写集合恒为该镜像的
  * 子集，因此同一上限也约束 Worker 内存。达到上限后 recordJoinLog 快速失败，对应 update
  * 不被确认并由 Telegram 重投。
- * 所属模块：cache/main/joinLog.ts、infra/joinLog.ts。
+ * 所属模块：infra/joinLog.ts。
  */
 export const JOIN_LOG_MAX_BUFFERED_ENTRIES: number = FLUSH_MAX_ENTRIES * 4;
 

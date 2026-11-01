@@ -9,6 +9,7 @@ import {
   luckSecretRequests,
   pendingLoad,
   storageCloseRequests,
+  whitelistIdPageReadRequests,
 } from "../../cache/main/diskIO";
 import { DISK_IO_WORKER_URL } from "../../consts/paths";
 import { DISK_DIAGNOSTIC_MAX_CONSECUTIVE_WRITE_FAILURES } from
@@ -189,6 +190,14 @@ export function createDiskIOWorker(): Worker {
       case "blocklistIdPageRead":
         settleDiskIOReply({
           channel: blocklistIdPageReadRequests,
+          requestId: data.requestId,
+          error: data.error,
+          payload: data.page,
+        });
+        return;
+      case "whitelistIdPageRead":
+        settleDiskIOReply({
+          channel: whitelistIdPageReadRequests,
           requestId: data.requestId,
           error: data.error,
           payload: data.page,

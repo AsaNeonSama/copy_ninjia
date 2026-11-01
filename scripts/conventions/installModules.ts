@@ -21,6 +21,7 @@ const MODULE_LOOP_PATTERN: RegExp = /^for install_module in ([a-z ]+); do$/m;
 /** 入口逐个 source 安装模块。 */
 const MODULE_SOURCE_PATTERN: RegExp = /^source "\.\/scripts\/install\/([a-z]+)\.sh"$/gm;
 
+/** `install.sh` 注释头或 `step` 调用中声明的单个安装步骤。 */
 interface InstallStep {
   readonly index: number;
   readonly total: number;

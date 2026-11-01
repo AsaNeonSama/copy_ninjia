@@ -2,7 +2,7 @@
 
 /**
  * chatId -> 黑名单补扫处置世代号。
- * 填充：群停管（deactivateChat）且存在在途补扫任务时经 bumpBlocklistRemovalEpoch 递增写入。
+ * 填充：群停管（deactivateChat）且存在在途补扫任务时经 bumpBlocklistRemovalEpoch 递增。
  * 清理：该群在途任务数归零时删除，Worker 停止时清空。
  * 重建：Worker 崩溃重启后从空表开始，未完成批次由主线程重投并从零世代重新比对。
  * 容量：不超过存在在途黑名单处置任务的群数，不设淘汰。

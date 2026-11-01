@@ -8,6 +8,7 @@ interface QueueNode<T> {
   next: QueueNode<T> | null;
 }
 
+/** 单向链表实现的无界 FIFO 队列，支持 O(1) 入队与出队。 */
 export class LinkedQueue<T> {
   private head: QueueNode<T> | null = null;
   private tail: QueueNode<T> | null = null;

@@ -4,6 +4,7 @@ export interface CommandResult {
   readonly stdout: string;
 }
 
+/** 接收参数数组并同步返回退出码与标准输出的外部命令执行函数。 */
 export type ReleaseCommand = (arguments_: readonly string[]) => CommandResult;
 
 /**

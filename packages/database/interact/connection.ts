@@ -9,6 +9,7 @@ import {
   assertFileReadableWritable,
 } from "../../libs/fileAccess";
 
+/** `openStorageDatabase` 打开 SQLite 存储数据库的选项。 */
 export interface OpenStorageDatabaseOptions {
   /** SQLite 数据库文件的路径。 */
   readonly path: string;

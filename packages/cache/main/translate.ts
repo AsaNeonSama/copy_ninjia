@@ -9,6 +9,7 @@ import type { TranslateMessageBacklog } from "../../types/translate";
 /** Google 翻译服务账号凭据快照单例：启动预检解析成功后填充，运行期不清除、不淘汰；进程重启后从 null 重新加载。 */
 export const googleServiceAccountKey: { current: GoogleServiceAccountKey | null } = { current: null };
 
+/** Google 翻译运行时状态结构。 */
 interface TranslateRuntime {
   client: GoogleTranslate.TranslationServiceClient | null;
   accepting: boolean;
@@ -31,6 +32,6 @@ export const translateRuntime: TranslateRuntime = {
 export const translateMessageChains: Map<number, Promise<void>> = new Map();
 /** 群 ID 到后台译文积压计数的映射：queueTranslateMessage 入队时递增、任务结算时递减并在归零时删除；单群上限为 TRANSLATE_CHAT_BACKLOG_MAX（满额跳过新消息），容量与 translateMessageChains 同阶，进程重启后从空表开始。 */
 export const translateMessageBacklogs: Map<number, TranslateMessageBacklog> = new Map();
-/** 绑定 translateMessageChains 的按群串行任务调度器单例。 */
+/** 绑定 translateMessageChains 的按群串行任务调度器单例：模块加载时创建，任务入队写入与排空清理由底层表承担，不淘汰，进程重启后随模块重新创建。 */
 export const translateMessageRunner: KeyedSerialTaskRunner<number> =
   createKeyedSerialTaskRunner(translateMessageChains);

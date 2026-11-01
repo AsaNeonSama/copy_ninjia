@@ -1,10 +1,13 @@
+/** 单个 `node:*` 模块允许导入的具名符号列表，或 `"*"` 表示允许命名空间/任意具名导入。 */
 type NodeImportSymbols = "*" | readonly string[];
 
+/** 单个 `node:*` 模块允许导入的符号集合与用途说明。 */
 export interface NodeImportAllowance {
   readonly symbols: NodeImportSymbols;
   readonly purpose: string;
 }
 
+/** 单个文件中允许调用的 `Buffer` 静态方法列表与用途说明。 */
 export interface BufferGlobalAllowance {
   readonly methods: readonly string[];
   readonly purpose: string;
@@ -18,6 +21,7 @@ export const PORTABLE_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowance>
   },
 };
 
+/** 生产源码（`packages/` 与 `index.ts`）中允许按文件精确使用的 `node:*` 模块白名单。 */
 export const PRODUCTION_NODE_IMPORTS: Readonly<
   Record<string, Readonly<Record<string, NodeImportAllowance>>>
 > = {
@@ -63,17 +67,17 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
       purpose: "cold database creation precondition: any existing entry, including a dangling symbolic link, blocks creation",
     },
   },
-  "packages/infra/processStatus.ts": {
-    "node:os": {
-      symbols: ["availableParallelism", "totalmem"],
-      purpose: "runtime capacity limits derived from host resources",
-    },
-  },
-  "packages/infra/randomImage.ts": {
+  "packages/infra/imageGallery.ts": {
     "node:fs": { symbols: ["constants"], purpose: "directory read, write and search access flags" },
     "node:fs/promises": {
       symbols: ["access", "lstat", "mkdir", "readdir", "rename"],
       purpose: "random image directory creation at startup, per-request directory traversal, and the atomic rename that publishes a collected picture",
+    },
+  },
+  "packages/infra/processStatus.ts": {
+    "node:os": {
+      symbols: ["availableParallelism", "freemem", "totalmem"],
+      purpose: "runtime capacity limits and host memory telemetry derived from host resources",
     },
   },
   "packages/infra/storage/cleanup.ts": {
@@ -96,8 +100,8 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
   },
   "packages/infra/storage/statePersistence.ts": {
     "node:fs/promises": {
-      symbols: ["lstat", "mkdir"],
-      purpose: "distinguishing a truly missing state file from a dangling symbolic link, and creating the global state directory",
+      symbols: ["mkdir"],
+      purpose: "creating the global state directory",
     },
   },
   "packages/libs/atomicFile.ts": {
@@ -117,6 +121,18 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
     "node:fs": {
       symbols: ["accessSync", "constants", "lstatSync", "readdirSync", "statSync"],
       purpose: "startup file type and access-mode validation and optional-directory listing",
+    },
+  },
+  "packages/libs/inputValidation.ts": {
+    "node:fs/promises": {
+      symbols: ["lstat"],
+      purpose: "checking optional state and TOTP file metadata without following symbolic links",
+    },
+  },
+  "packages/mini-app-api-server/auth/totpStorage.ts": {
+    "node:fs/promises": {
+      symbols: ["mkdir"],
+      purpose: "creating the memory/mini-app-totp directory",
     },
   },
   "packages/workers/diskIO/adSampleFile.ts": {
@@ -275,6 +291,7 @@ export const TEST_SHARED_NODE_IMPORTS: Readonly<Record<string, NodeImportAllowan
       "rmdirSync",
       "statfsSync",
       "symlinkSync",
+      "utimesSync",
       "writeSync",
     ],
     // 同步内容 I/O 只由 TEST_SYNC_CONTENT_IO_EXEMPTIONS 按调用点放行。

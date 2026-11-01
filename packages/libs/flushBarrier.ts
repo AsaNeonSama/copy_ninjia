@@ -1,11 +1,13 @@
 import type { FlushResult } from "../types/lifecycle";
 
+/** 在途 flush 握手的结算回调、附加详情回调与超时定时器记录。 */
 interface PendingFlush<TDetail> {
   resolve: (result: FlushResult) => void;
   onDetail: ((detail: TDetail | undefined) => void) | undefined;
   timer: ReturnType<typeof setTimeout>;
 }
 
+/** 跨线程 flush / mailbox 握手的等待与结算控制器。 */
 export interface FlushBarrier<TDetail = undefined> {
   /** 建立一次等待；post 返回 false 或同步抛错时立即按 failed 结算。 */
   readonly begin: (
@@ -21,6 +23,7 @@ export interface FlushBarrier<TDetail = undefined> {
   readonly pendingCount: () => number;
 }
 
+/** `createFlushBarrier` 构造握手屏障的参数。 */
 export interface CreateFlushBarrierParams {
   /** 单次 flush 握手的默认超时毫秒预算。 */
   timeoutMs: number;

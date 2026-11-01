@@ -61,6 +61,7 @@ async function isAdminSender(bundle: AdMessageBundle): Promise<boolean | undefin
   return await isChatAdmin(bundle.chatId, bundle.senderId, "sender");
 }
 
+/** 单次消息束广告分类与引用归因的结果。 */
 type AdDetectionOutcome =
   | { readonly kind: "notAd" }
   | { readonly kind: "unknown" }

@@ -43,7 +43,7 @@ export interface ImageDimensions {
 export interface HImageAddSummary {
   /** 本次新收进图库的张数。 */
   readonly added: number;
-  /** 本次收图开始前图库里的张数，口径同 `/h_image` 抽图的候选（infra/randomImage.ts）。 */
+  /** 本次收图开始前图库里的张数，口径同 `/h_image` 抽图的候选（infra/imageGallery.ts）。 */
   readonly librarySize: number;
   /** 内容 SHA-256 已在图库里（含同批更早写入的一张）、本次没再写入的张数。 */
   readonly existing: number;

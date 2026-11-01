@@ -7,13 +7,15 @@ import { readLinuxProcessIdentity } from "../../../packages/infra/storage/instan
 import type { ProcessIdentity } from "../../../packages/types/storage";
 
 describe("storage startup cleanup", () => {
-  test("只删除 state/lock 原子写临时文件，目录扫描与删除均可注入", async () => {
+  test("只删除 state/totp/lock 原子写临时文件，目录扫描与删除均可注入", async () => {
     const removed: string[] = [];
     await cleanupOrphanedTempFiles({
       stateFilePath: "/virtual/state.json",
+      totpFilePath: "/virtual/totp.json",
       lockFilePath: "/virtual/bot.lock",
       readDirectory: async () => [
         ".state.json.1.uuid.tmp",
+        ".totp.json.1.uuid.tmp",
         ".bot.lock.1.uuid.tmp",
         ".other.json.1.uuid.tmp",
         "bot.lock.guard.candidate.42.11111111-1111-4111-8111-111111111111",
@@ -21,6 +23,7 @@ describe("storage startup cleanup", () => {
         "bot.lock.guard.candidate.bad.33333333-3333-4333-8333-333333333333",
         "bot.lock.guard.recovery",
         "state.json",
+        "totp.json",
       ],
       isInactiveLockOwner: async (path) => !path.includes("candidate.43."),
       removeFile: async (path) => {
@@ -30,31 +33,35 @@ describe("storage startup cleanup", () => {
 
     expect(removed).toEqual([
       "/virtual/.state.json.1.uuid.tmp",
+      "/virtual/.totp.json.1.uuid.tmp",
       "/virtual/.bot.lock.1.uuid.tmp",
       "/virtual/bot.lock.guard.candidate.42.11111111-1111-4111-8111-111111111111",
       "/virtual/bot.lock.guard.recovery",
     ]);
   });
 
-  test("状态文件与锁不同目录时各扫各的：状态目录只认状态临时件，缺失目录直接跳过", async () => {
+  test("状态文件、TOTP 文件与锁不同目录时各扫各的：各目录只认本目标临时件，缺失目录直接跳过", async () => {
     const removed: string[] = [];
     const scanned: string[] = [];
     const listing: Readonly<Record<string, readonly string[]>> = {
-      "/virtual": [".bot.lock.1.uuid.tmp", ".state.json.1.uuid.tmp", "bot.lock.guard.recovery"],
+      "/virtual": [".bot.lock.1.uuid.tmp", ".state.json.1.uuid.tmp", ".totp.json.1.uuid.tmp", "bot.lock.guard.recovery"],
       "/virtual/memory/global": [".state.json.2.uuid.tmp", ".bot.lock.2.uuid.tmp", "bot.lock.guard.recovery"],
+      "/virtual/memory/mini-app-totp": [".totp.json.2.uuid.tmp", ".state.json.2.uuid.tmp", "totp.json"],
     };
     await cleanupOrphanedTempFiles({
       stateFilePath: "/virtual/memory/global/state.json",
+      totpFilePath: "/virtual/memory/mini-app-totp/totp.json",
       lockFilePath: "/virtual/bot.lock",
       readDirectory: async (path) => { scanned.push(path); return [...listing[path]!]; },
       isInactiveLockOwner: async () => true,
       removeFile: async (path) => { removed.push(path); },
     });
-    expect(scanned).toEqual(["/virtual", "/virtual/memory/global"]);
+    expect(scanned).toEqual(["/virtual", "/virtual/memory/global", "/virtual/memory/mini-app-totp"]);
     expect(removed).toEqual([
       "/virtual/.bot.lock.1.uuid.tmp",
       "/virtual/bot.lock.guard.recovery",
       "/virtual/memory/global/.state.json.2.uuid.tmp",
+      "/virtual/memory/mini-app-totp/.totp.json.2.uuid.tmp",
     ]);
 
     const missing: Error & { code?: string } = new Error("ENOENT");
@@ -62,6 +69,7 @@ describe("storage startup cleanup", () => {
     removed.length = 0;
     await cleanupOrphanedTempFiles({
       stateFilePath: "/virtual/memory/global/state.json",
+      totpFilePath: "/virtual/memory/mini-app-totp/totp.json",
       lockFilePath: "/virtual/bot.lock",
       readDirectory: async (path) => {
         if (path !== "/virtual") throw missing;
@@ -77,6 +85,7 @@ describe("storage startup cleanup", () => {
 
     await expect(cleanupOrphanedTempFiles({
       stateFilePath: "/virtual/state.json",
+      totpFilePath: "/virtual/totp.json",
       lockFilePath: "/virtual/bot.lock",
       readDirectory: async () => {
         throw new Error("injected readdir failure");
@@ -94,6 +103,7 @@ describe("storage startup cleanup", () => {
 
     await cleanupOrphanedTempFiles({
       stateFilePath: "/virtual/state.json",
+      totpFilePath: "/virtual/totp.json",
       lockFilePath: "/virtual/bot.lock",
       readDirectory: async () => [
         ".state.json.1.first.tmp",

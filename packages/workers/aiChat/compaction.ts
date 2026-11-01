@@ -72,6 +72,7 @@ function finishCompactionTask(chatId: number): void {
   else compactionPendingCounts.set(chatId, remaining);
 }
 
+/** `rotateCompaction` 执行单轮中期记忆摘要晋升与压缩的参数。 */
 export interface RotateCompactionParams {
   /** 群聊 ID。 */
   chatId: number;

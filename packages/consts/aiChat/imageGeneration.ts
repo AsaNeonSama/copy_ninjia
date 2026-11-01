@@ -17,7 +17,7 @@ export const PNG_SIGNATURE: readonly number[] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0
 export const MAX_GENERATED_IMAGES_PER_REPLY: number = 1;
 /**
  * 一次生图最多交给图片模型的参考图张数，也是 `agent.image.max_reference_images` 的取值上限
- * （config/agentCapability.ts）与 AI Worker 相册缓存每组保留的张数（cache/workers/aiChat/imageReferenceAlbums.ts）。
+ * （config/agentCapability.ts）与 AI Worker 相册缓存每组保留的张数（workers/aiChat/imageReferenceAlbums.ts 与 cache/workers/aiChat/imageReferenceAlbums.ts）。
  */
 export const IMAGE_GENERATION_MAX_REFERENCE_IMAGES: number = 5;
 /** `agent.image.max_reference_images` 缺省时的参考图张数，属 config/agentCapability.ts。 */

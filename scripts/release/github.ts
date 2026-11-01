@@ -9,7 +9,9 @@ import type { ReleaseAsset } from "./assets";
 
 /** 发布仓库固定为安装器下载来源；命令显式指定主机。 */
 const REPOSITORY: string = "github.com/AsaNeonSama/copy_ninjia";
+/** GitHub Release API 返回的单个远端资产元数据。 */
 interface RemoteAsset { readonly name: string; readonly size: number; readonly state: string; }
+/** GitHub Release API 返回的远端发布记录结构。 */
 interface RemoteRelease {
   readonly tag_name: string;
   readonly draft: boolean;
@@ -104,6 +106,7 @@ async function verifyRemoteAssets(command: ReleaseCommand, version: string, asse
   }
 }
 
+/** `publishRelease` 发布并核验 GitHub Release 的参数。 */
 export interface PublishReleaseOptions {
   /** 待发布的无前缀 MAJOR.MINOR.PATCH 版本号。 */
   readonly version: string;

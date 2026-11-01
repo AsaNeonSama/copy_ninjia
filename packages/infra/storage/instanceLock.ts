@@ -8,6 +8,7 @@ import { prepareRuntimeDataRoot } from "./dataRoot";
 import type { FileHandle } from "node:fs/promises";
 import type { ProcessIdentity } from "../../types/storage";
 
+/** `bot.lock` 单行记录的进程身份三元组与 Bot Token 指纹。 */
 interface BotLockRecord extends ProcessIdentity {
   tokenFingerprint: string;
 }
@@ -20,12 +21,14 @@ export interface InstanceLockOptions {
   readProcessIdentity?: (pid: number) => Promise<ProcessIdentity | null>;
 }
 
+/** `/proc/<pid>/stat` 解析出的 PID、运行状态与启动时钟滴答。 */
 interface LinuxProcessStat {
   pid: number;
   state: string;
   startTimeTicks: string;
 }
 
+/** 单实例锁操作使用的当前进程身份与按 PID 查询函数上下文。 */
 interface ProcessIdentityContext {
   currentIdentity: ProcessIdentity;
   readProcessIdentity: (pid: number) => Promise<ProcessIdentity | null>;

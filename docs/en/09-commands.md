@@ -166,14 +166,14 @@ Running `/translate list` returns the supported language dictionary (`TRANSLATE_
 - System personas are configured globally and cannot be toggled per group via commands.
 - The AI persona prompt defaults to `prompt/persona.md` at the project root; if absent, it falls back to the built-in teasing persona. Prompt tone for notices, buttons, menus, and inline fortunes follows the `atmosphere` setting in `config/static/bot.json` (`mesugaki` for teasing, `normal` for reserved). When omitted, custom personas default to `normal` (reserved tone), while the built-in persona defaults to `DEFAULT_BOT_ATMOSPHERE`.
 - Atmosphere settings are initialized at startup; modifications require a process restart.
-- At startup, the bot registers command menus for group chats only. No menu is shown in private chat; private chat only responds to superadmin `/send` relay commands.
+- At startup, the bot registers command menus for group chats only. No command menu is shown in private chat; private chat only responds to superadmin `/send` relay commands and (when `mini_app` is configured) attaches a `MenuButtonWebApp` (`App` button) in the superadmin's private chat as the Mini App entry point.
 
 #### 2. `/bot_status` Metric Collection
 - **Wording follows the notice style**: the labels of the CPU, uptime, memory, model capability, and Telegram outbound lines come from the current notice style's text table (`packages/consts/atmosphere/{plain,teasing}/notices.ts`). The restrained and teasing styles each have their own set; values and inclusion rules are the same.
 - **Model capability breakdown**: Lists only configured and ready capabilities in the format `capability: model name`. Model names omit namespace prefixes; xAI speech synthesis shows the configured voice name. Unconfigured capabilities (image generation, voice synthesis, web search) or unready modules are omitted. If no model capabilities are available, the entire section is omitted.
 - **Memory footprint**: Calls `Bun.unsafe.memoryFootprint()` to measure the physical resident memory (PSS on Linux) across the bot process and all Worker threads, proportionally distributing shared libraries. Percentages use container cgroup limits as denominator, or host RAM if unconstrained.
 - **AI context memory saturation**: Evaluates rolling verbatim memory (up to `VERBATIM_CONTEXT_MAX`) and summary rounds (up to `MAX_SUMMARY_ROUNDS`), returning a composite percentage weighted by `BOT_STATUS_HOT_MEMORY_WEIGHT` and `BOT_STATUS_COLD_MEMORY_WEIGHT`. This figure is periodically reported by the AI Worker via memory snapshots (`AI_SNAPSHOT_INTERVAL_MS`); the main thread reads the cached snapshot.
-- **Permissions and group state**: Outputs a JSON block listing the bot's current administrator privileges in the group, followed by the active boolean states of all group feature switches.
+- **Permissions and group state**: Outputs a JSON block listing the bot's current administrator privileges in the group, followed by a JSON block mapping Chinese capability names (`BOT_STATUS_FEATURE_LABELS`) to the active boolean states (`true` / `false`) of all group feature switches.
 
 #### 3. Action Commands and `/x`
 - When an action command succeeds, the bot replies in the format `caller action target`. Users with public Telegram usernames have their names hyperlinked to their profiles; targets are resolved via reply or `@username`.
@@ -292,7 +292,7 @@ In initialized groups, members can query an identity's public profile via `/info
 
 In initialized groups, sending `/h_image` (without arguments) picks a uniformly random image from the library and posts it to the group.
 
-- **Format filtering**: Scans files matching `RANDOM_IMAGE_EXTENSIONS` (`jpg`, `jpeg`, `png`, and `webp`) in the library root (ignoring hidden files, subfolders, and symlinks). Files exceeding `RANDOM_IMAGE_MAX_BYTES` are skipped, triggering a redraw. Adding or removing images takes effect dynamically without restarts.
+- **Format filtering**: Includes regular files matching `RANDOM_IMAGE_EXTENSIONS` (`jpg`, `jpeg`, `png`, and `webp`) in the library root (ignoring hidden files, subfolders, and symlinks). Files exceeding `RANDOM_IMAGE_MAX_BYTES` are skipped, triggering a redraw. Adding or removing images via `/h_image add` or the Mini App gallery updates the in-memory caches immediately without restarts.
 - **Spoiler protection**: Drawn images always include Telegram spoiler masks (`has_spoiler`), appearing blurred until clicked.
 - **Retention policy**: Output pictures are functional content and **retained permanently**; syntax errors, empty libraries, or lookup failures auto-delete after `COMMAND_MESSAGE_AUTO_DELETE_MS`.
 - **Concurrency and rate limits**:
@@ -322,6 +322,46 @@ Scheduled tasks are configured by administrators in `config/dynamic/cron.json` a
 - **Scheduled voice notes (`send_voice`)**: Synthesizes `content` into voice notes using optional `tone` hints. Requires valid `agent.tts` configuration in `agent.json`; invalid setups fail validation at startup or reload.
 - **AI web search summaries (`send_web_digest`)**: Searches web results for a brief `topic` and formats them into a MarkdownV2 summary following `instructions` (up to `max_items`). Prefers `agent.web_search`, falling back to text model search capabilities. If the model does not trigger an external search, `WEB_DIGEST_UNSEARCHED_WARNING` is prepended.
 - **Lifecycle and routing**: Scheduled messages are permanent functional messages; in supergroups with topics, they post to the General topic. One-off schedules and randomized delays are tracked in memory only; tasks scheduled during downtime are not backfilled upon restart.
+
+---
+
+<a id="mini-app-console"></a>
+
+## 🖥️ Mini App Management Console: APIs and Permission Boundaries
+
+When the optional `mini_app` object is configured in `config/static/bot.json`, the system starts a local `Bun.serve` HTTP server (`packages/mini-app-api-server/` with frontend in `packages/mini-app-frontend/`) and attaches `MenuButtonWebApp` (`App` button) in the SuperAdmin's private chat. For field definitions, see the [Configuration Guide](../../config_example/README/en.md#botjson); for full setup and recommended Cloudflare Tunnel configuration, see [11 Mini App Setup and Recommended Configuration](11-mini-app.md).
+
+### 1. Authentication and Security Boundaries
+- **SuperAdmin Exclusive (`SUPER_ADMIN_USER_ID`)**: Every business API is restricted exclusively to the configured SuperAdmin. Requests first pass `headerGuard` (same-origin and credential header shape checks) and `initData` (Telegram WebApp `initData` HMAC-SHA256 verification, 45-minute freshness check, and `user.id === SUPER_ADMIN_USER_ID`); all business APIs except `GET /api/auth/precheck`, `POST /api/auth/login`, and `POST /api/auth/logout` additionally require a valid 45-minute session token (`X-Mini-App-Session`). When a request carries an unexpired session token issued more than 5 minutes ago (`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`), the server automatically rotates the token and extends `expiresAt` by 45 minutes (`MINI_APP_SESSION_TTL_MS`), returning the refreshed credentials via `X-Mini-App-Session` and `X-Mini-App-Session-Expires-At` response headers (and the `/api/auth/precheck` response body) while permitting the static WebApp `initData.auth_date` across active session renewals until the user stops accessing the console. After rotation the previous token stays valid for 5 minutes for concurrent in-flight requests; the server keeps at most `MINI_APP_SESSION_MAX` (8) sessions, each occupying a single slot, and evicts the session issued or refreshed earliest when full.
+- **First-Screen Credentials and Lockout**: Validates `mini_app.password` when no authenticator is bound; once Google Authenticator (TOTP) is bound in the console (`memory/mini-app-totp/totp.json`), login prioritizes the 6-digit TOTP code for the current 30-second time step. 3 consecutive failures lock out the SuperAdmin ID for 30 minutes and send a one-time private-chat alert with unlock time and source IP.
+- **Protected Gallery Preview Assets**: Gallery image reads (`GET|HEAD /api/gallery/file/:fileName`) authenticate via a deterministic `assetToken` issued only on login or active session resumption, supporting 7-day immutable caching and `ETag` 304 revalidation.
+
+### 2. HTTP API Routes and Capabilities
+
+| Route | Method | Permission and Boundary Notes |
+| :--- | :---: | :--- |
+| `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | Verifies `initData` signature and SuperAdmin identity, returns login mode (`password` or `totp`), resumes or auto-refreshes (when issued over 5 minutes ago) an active session, or issues a new 45-minute `sessionToken` and `assetToken`; logout revokes the session carried in the `X-Mini-App-Session` header (without refreshing the token, and succeeding even when the session is already gone) |
+| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Queries, generates a pending secret & QR code, verifies a 6-digit code to enable, or deletes the Google Authenticator 2FA secret |
+| `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | Queries live system metrics (uptime, CPU average load, memory PSS, managed chat count, active sessions, AI capability readiness, Telegram outbound gate), and queries or redraws the global AI mood |
+| `/api/chats`<br>`/api/chats/:chatId` | `GET` | Lists `/init`-enabled managed chats, or queries a single chat's detail (feature switches, hot message count, quiet/lockdown remaining time, Bot admin permissions `botPermissions`, 1–24 hour rolling join counts `joinedCountsByHour`, and `/batch_kick` execution state) |
+| `/api/chats/:chatId/messages` | `GET` | Paginates and searches recent messages in the chat's in-memory hot 256 buffer |
+| `/api/chats/:chatId/feature` | `POST` | Toggles per-chat features (`init`, `aiChat`, `translation`, `adDetect`, `floodControl`, `antiRaid`, `proxySend`); disabling `init` executes runtime teardown and state purge in the same order as `/init disable`, and enabling `proxySend` shares the single-active-chat constraint with private `/send` |
+| `/api/chats/:chatId/batch-kick` | `POST` | Triggers `/batch_kick` for a `1..24` hour lookback window in a verified supergroup (reads `chatIsSupergroupById` first and falls back to `getChat` to populate the cache; basic groups are rejected with `notSupergroup` and `getChat` probe failures with `unavailable`); shares the `batchKickChats` single-flight lock and background executor with the `/batch_kick` command, recording completion summaries in `miniAppBatchKickCompletedByChat` |
+| `/api/chats/:chatId/targets` | `GET`<br>`POST` | Queries or mutates per-chat custom QA pairs (`setQa`/`removeQa`), delete-message targets (`addDeleteTarget`/`removeDeleteTarget`), and translate targets (`addTranslateTarget`/`removeTranslateTarget`) |
+| `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | Paginates and searches allowlist/blocklist via `readIdentityPolicyEntries` cold reads (overlaying unacknowledged writes without polluting the main-thread hot policy LRU, while bidirectionally aligning display metadata with the main-thread `senderIdentity` cache), adds/removes entries, and updates fine-grained allowlist permissions or enables all (`enableAll`) |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Calls Telegram `savePreparedKeyboardButton` to prepare a native contact or channel picker session and polls `users_shared`/`chat_shared` import results (supporting `whitelist`, `blocklist`, `deleteMessage`, and `translate` target lists) |
+| `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/delete`<br>`/api/gallery/file/:fileName`<br>`/api/gallery/download/:fileName` | `GET`<br>`POST`<br>`POST`<br>`DELETE`<br>`GET`/`HEAD` | Paginates the dedicated image gallery, uploads raw image bytes (applying the same SHA-256 content-addressed deduplication and dimension pre-checks as `/h_image add`), or deletes/downloads original images |
+
+### 3. Conflict and Boundary Guards for Lists and Chat Targets
+- **Allowlist and Blocklist Addition Guards (shared by ID input and native picker)**:
+  - Strict mutual exclusivity: adding a blocklisted identity to the allowlist returns `IDENTITY_IN_BLOCKLIST`; adding an allowlisted identity to the blocklist returns `IDENTITY_IN_WHITELIST`.
+  - SuperAdmin exemption: attempting to add `SUPER_ADMIN_USER_ID` to the allowlist returns `SUPER_ADMIN_EXEMPT`; attempting to add to the blocklist returns `BLOCKLIST_SUPER_ADMIN_FORBIDDEN`.
+  - Self and managed-chat rejection: adding the Bot itself (`TARGET_SELF_FORBIDDEN`) or any `/init`-enabled managed group chat (`TARGET_CURRENT_CHAT_FORBIDDEN`) to the allowlist or blocklist is rejected.
+  - When a native picker import (`handleMiniAppSharedMessage`) adds zero entries and encounters non-duplicate rejections, it propagates the first specific boundary status code and rejected identity ID so the frontend displays the targeted warning notice.
+- **Per-Chat QA, Delete-Message, and Translate Target Guards**:
+  - **QA pairs (`qa`)**: Non-empty question and answer bounded by `CHAT_QA_QUESTION_MAX_CHARS`, `CHAT_QA_ANSWER_MAX_CHARS`, and `CHAT_QA_MAX_PER_CHAT`; renderable `/command` strings are rejected in the question and outside `pre` code fences in the answer.
+  - **Delete-message targets (`deleteMessage`)**: Requires the Bot to hold `canDeleteMessages` in the chat (`DELETE_TARGET_MISSING_BOT_PERMISSION`); rejects `SUPER_ADMIN_USER_ID` (`DELETE_TARGET_SUPER_ADMIN_FORBIDDEN`), the Bot itself (`TARGET_SELF_FORBIDDEN`), and the current chat (`TARGET_CURRENT_CHAT_FORBIDDEN`); verifies user presence in the chat when online (`TARGET_NOT_IN_CHAT`); capped at `DELETE_MESSAGE_CHAT_TARGET_MAX`.
+  - **Translate targets (`translate`)**: Requires `g-auth.json` readiness and per-chat `isTranslationEnabled` (`TRANSLATE_FEATURE_DISABLED`); supports `ja`/`cn`/`en`/`uk`/`ru`; rejects the Bot itself and the current chat, verifies user presence when online, and enforces `TRANSLATE_CHAT_USER_LIMIT` (updating the language in place when the target already exists).
 
 ---
 

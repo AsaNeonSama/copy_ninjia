@@ -127,7 +127,7 @@ export interface ExpellingState {
    *
    * 与 unconfirmedNoticeSent 各自独立记录，两条告警互不占用名额。随快照持久化，
    * Worker 重生/进程重启后不重发；发出去的那条消息本身走统一临时发送边界，到期自删
-   * （见 workers/antiRaid/verificationEffects/terminal.ts 的 sendTemporaryMessageFromMain）。
+   * （见 workers/antiRaid/verificationEffects/terminal.ts 调用 infra/telegram/workerClient.ts 的 sendTemporaryMessageFromMain）。
    */
   failureNoticeSent: true | undefined;
   /** 「没能确认成员是否仍在群里或群类型」告警已发送；语义同 failureNoticeSent。 */
@@ -153,6 +153,7 @@ export type VerificationExpelState = CheckingInviterState | ExpellingState;
  * isTerminalVerificationPhase 判定同一组 kind。
  */
 export type VerificationTerminalState = KickPendingState | VerificationExpelState;
+/** 入群验证状态机单个（群, 用户）条目的状态联合。 */
 export type VerificationState =
   | PendingState
   | ExemptState
@@ -168,6 +169,7 @@ export interface JoinExemption {
   readonly viaChannelComment: boolean;
 }
 
+/** 新成员入群（chat_member 权威更新或入群服务消息）触发的验证状态机事件。 */
 export interface JoinEvent {
   type: "join";
   memberId: number;
@@ -186,6 +188,7 @@ export interface JoinEvent {
   now: number;
 }
 
+/** 待验证成员在群内发出一条被追踪发言时触发的状态机事件。 */
 export interface TrackedMessageEvent {
   type: "trackedMessage";
   messageId: number;
@@ -220,11 +223,13 @@ export interface VerificationCallbackEvent {
   fromLabel: string;
 }
 
+/** 入群验证倒计时到期事件。 */
 export interface VerifyTimeoutEvent {
   type: "verifyTimeout";
   now: number;
 }
 
+/** 超时或刷屏进入 checkingInviter 后，拉人者是否为群管理员的终核结论事件。 */
 export interface TimeoutInviterVerdictEvent {
   type: "timeoutInviterVerdict";
   inviterIsAdmin: boolean;
@@ -244,6 +249,7 @@ export interface TerminalAttemptUnsettledEvent {
   attemptState: VerificationTerminalState;
 }
 
+/** 入群验证按钮提示消息（首次提示或回复提示）在 Telegram 成功落地后的回执事件。 */
 export interface ReminderLandedEvent {
   type: "reminderLanded";
   reminderKind: "original" | "reply";
@@ -254,6 +260,7 @@ export interface ReminderLandedEvent {
 /** 驱逐播报的三类：成功处置、踢不动、没能确认；各对应 ExpellingState 的一个持久标记。 */
 export type ExpelNoticeKind = "success" | "failure" | "unconfirmed";
 
+/** 驱动入群验证状态机（packages/states/verification.ts）转移的输入事件联合。 */
 export type VerificationEvent =
   | JoinEvent
   | { type: "left" }
@@ -301,12 +308,13 @@ export type VerificationEffect =
   | { kind: "expel"; snapshot: ExpelSnapshot }
   | { kind: "expelFlood"; snapshot: ExpelSnapshot };
 
+/** 入群验证状态机单步转移的输出：下一状态、待执行副作用及快照/计时器重排标记。 */
 export interface VerificationTransition {
   /** undefined = 删除；同一引用 = 原地更新。 */
   next: VerificationState | undefined;
   /** 只读：无副作用时是共享的 NO_VERIFICATION_EFFECTS（consts/antiRaid/verification.ts）。 */
   effects: readonly VerificationEffect[];
-  /** 仅原地修改 pending 时置 true。 */
+  /** 原地修改 pending 或 expelling 状态、需要重发持久化快照时置 true。 */
   snapshotChanged?: boolean;
   /** expiresAt 原地变化时通知解释器重建验证 timer。 */
   rescheduleTimer?: boolean;

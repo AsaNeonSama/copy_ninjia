@@ -12,8 +12,11 @@ import {
   saveChatStateInBackground,
 } from "./storage/stateStore";
 import { chatTitleRefreshRuntime } from "../cache/main/chatTitle";
-import { CHAT_ABSENCE_CONFIRM_ATTEMPTS, CHAT_ABSENCE_CONFIRM_INTERVAL_MS } from "../consts/chatTeardown";
-import { STATE_MANAGED_CHAT_LIMIT } from "../consts/storage";
+import {
+  CHAT_ABSENCE_CONFIRM_ATTEMPTS,
+  CHAT_ABSENCE_CONFIRM_INTERVAL_MS,
+  CHAT_TITLE_REFRESH_CONCURRENCY,
+} from "../consts/chatTeardown";
 import { runBoundedSettledBatch } from "../libs/boundedSettledBatch";
 import type { BoundedBatchExecution } from "../libs/boundedSettledBatch";
 import type { ChatState } from "../types/chatState";
@@ -123,7 +126,7 @@ async function confirmChatAbsence(
 }
 
 /**
- * 启动后台刷新：按 `STATE_MANAGED_CHAT_LIMIT` 并发上限查询已知受管群的当前名称并回填；
+ * 启动后台刷新：按 `CHAT_TITLE_REFRESH_CONCURRENCY` 并发上限查询已知受管群的当前名称并回填；
  * 确证群不可达时转入 `confirmChatAbsence` 收尾。
  * @param signal 控制全量刷新取消的 AbortSignal；缺省使用运行时自身的 controller.signal。
  */
@@ -138,7 +141,7 @@ export async function refreshAllChatTitles(
   logger.info(`Chat title refresh started: total=${total}.`);
   await runBoundedSettledBatch<number, void>({
     items: chatIds,
-    maxConcurrent: STATE_MANAGED_CHAT_LIMIT,
+    maxConcurrent: CHAT_TITLE_REFRESH_CONCURRENCY,
     execute: async ({ item: chatId }: BoundedBatchExecution<number>): Promise<void> => {
       if (signal.aborted) return;
       try {

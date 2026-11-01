@@ -1,6 +1,12 @@
 import { join, resolve } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "./configLayout";
-import { DATABASE_DIR_NAME, GLOBAL_STATE_DIR_NAME, LOGS_DIR_NAME, MEMORY_DIR_NAME } from "./dataRootLayout";
+import {
+  DATABASE_DIR_NAME,
+  GLOBAL_STATE_DIR_NAME,
+  LOGS_DIR_NAME,
+  MEMORY_DIR_NAME,
+  MINI_APP_TOTP_DIR_NAME,
+} from "./dataRootLayout";
 import { PERSONA_FILE_NAME, PROMPT_DIR_NAME, VOICE_TOOL_PROMPT_FILE_NAME } from "./promptLayout";
 import {
   CONFIG_ROOT_ENV,
@@ -136,11 +142,34 @@ const GLOBAL_STATE_DIR: string = join(MEMORY_DIR, GLOBAL_STATE_DIR_NAME);
 /** 全局状态文件：复读状态、冷却时钟与语音合成每日计数。 */
 export const GLOBAL_STATE_FILE_PATH: string = join(GLOBAL_STATE_DIR, "state.json");
 /**
+ * Mini App 谷歌验证器（TOTP）单实例持久化目录；与 memory/ 下其余子目录并列，由主线程
+ * 独占原子写入（见 mini-app-api-server/auth/totpStorage.ts）。
+ */
+export const MINI_APP_TOTP_MEMORY_DIR: string = join(MEMORY_DIR, MINI_APP_TOTP_DIR_NAME);
+/** Mini App 谷歌验证器（TOTP）单实例密钥持久化文件（仅允许在 Mini App 前端控制台生成、修改与删除）。 */
+export const MINI_APP_TOTP_FILE_PATH: string = join(MINI_APP_TOTP_MEMORY_DIR, "totp.json");
+/**
+ * Mini App 服务端 `/favicon.ico` 路由读取的静态图标路径。源码运行时以仓库为根，
+ * 二进制运行时以部署工作目录为根（由 `scripts/build.ts` 复制进发行包）。
+ */
+export const MINI_APP_FAVICON_PATH: string = join(
+  PROJECT_ROOT,
+  "packages",
+  "mini-app-api-server",
+  "resource",
+  "favicon.ico"
+);
+/**
  * SQLite 运行时数据库目录；与 memory/ 平级，只由 Disk I/O Worker 和显式迁移脚本访问。
  */
 export const DATABASE_DIR: string = join(RUNTIME_DATA_ROOT, DATABASE_DIR_NAME);
 /** 权限、封禁、群状态与 AI 上下文共用的 SQLite 数据库文件。 */
 export const IDENTITY_DATABASE_PATH: string = join(DATABASE_DIR, "storage.sqlite");
+/** Drizzle 内建 migrator 读取的身份数据库 schema migration 目录。 */
+export const IDENTITY_DATABASE_MIGRATIONS_DIR: string = join(
+  PROJECT_ROOT,
+  "packages/database/schema/migrations"
+);
 /** /wed 已发言成员滑窗目录；Disk I/O Worker 按 <chatId>.json 原子替换 `{ id, enteredAt }` 成员数组。 */
 export const WED_MEMORY_DIR: string = join(MEMORY_DIR, "wed");
 /** 当日运势追加文件与签名密钥目录。 */

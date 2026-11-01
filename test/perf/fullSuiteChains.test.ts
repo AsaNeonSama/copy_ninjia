@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { AI_MEMORY_HYDRATE_BUFFER_MAX } from "../../packages/consts/aiChat/memory";
+import { MINI_APP_BATCH_KICK_MAX_HOURS } from "../../packages/consts/miniApp";
+import { HOT_PATH_PROFILE_SCENARIOS } from "../../packages/consts/performance";
+import { CHAT_QA_MAX_PER_CHAT } from "../../packages/consts/qa";
+import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { createStorageChain } from
   "../../scripts/perf/fullSuite/storageChains";
+import { createMiniAppChain } from "../../scripts/perf/fullSuite/miniAppChains";
+import type { MiniAppChainDependencies } from "../../scripts/perf/fullSuite/miniAppChains";
+import { benchmarkEntryCopy } from "../../scripts/perf/fullSuite/markdownEntryCopy";
+import type { BenchmarkEntryCopy } from "../../scripts/perf/fullSuite/markdownEntryCopy";
 import {
   CHAIN_NAMES,
   PRODUCTION_HOT_PATH_SCENARIOS,
@@ -15,25 +24,44 @@ import type { AdDetectionMessageContext } from
   "../../packages/types/antiRaid/adDetect";
 import type { ChatState } from "../../packages/types/chatState";
 import type { DiskIOMessage } from "../../packages/types/diskIO";
+import type { MiniAppAuthSession, MiniAppChatDetail } from "../../packages/types/miniApp";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
 import { chatStateOf } from "../helpers/chatState";
 import { createCommandChain } from "../../scripts/perf/fullSuite/commandChains";
 import type { CommandChainDependencies } from "../../scripts/perf/fullSuite/commandChains";
-import { AI_REPLY_SEED_MESSAGES } from "../../scripts/perf/fullSuite/constants";
+import {
+  AI_REPLY_SEED_MESSAGES,
+  MINI_APP_API_SEED_JOIN_EVENTS_PER_CHAT,
+} from "../../scripts/perf/fullSuite/constants";
 import type { DeliverCronActionOptions } from "../../packages/cron/delivery";
 import type { CronDeliveryOutcome } from "../../packages/types/cron";
 import type { IdentityPolicyCacheEntry } from "../../packages/types/identityStorage";
 import type { EncodedVoiceMessage, VoiceSynthesisResult } from "../../packages/types/aiChat/voiceMessage";
 
 describe("全量性能链路编排", () => {
-  test("临时广告免检 CPU 与 durable 场景分别登记且不重名", () => {
+  test("临时广告免检与 Mini App 前后端热路径及 API 链路均已登记且不重名", () => {
     expect(PRODUCTION_HOT_PATH_SCENARIOS)
       .toContain("temporary-whitelist-activity");
+    expect(PRODUCTION_HOT_PATH_SCENARIOS)
+      .toContain("mini-app-status-route");
+    expect(PRODUCTION_HOT_PATH_SCENARIOS)
+      .toContain("mini-app-frontend-render");
+    expect(HOT_PATH_PROFILE_SCENARIOS)
+      .toContain("mini-app-status-route");
+    expect(HOT_PATH_PROFILE_SCENARIOS)
+      .toContain("mini-app-frontend-render");
     expect(CHAIN_NAMES).toContain("temporary-whitelist-write");
+    expect(CHAIN_NAMES).toContain("mini-app-api-request");
     expect(new Set(PRODUCTION_HOT_PATH_SCENARIOS).size)
       .toBe(PRODUCTION_HOT_PATH_SCENARIOS.length);
     expect(new Set(CHAIN_NAMES).size).toBe(CHAIN_NAMES.length);
+    for (const language of ["zh", "en", "ja"] as const) {
+      const copy: BenchmarkEntryCopy = benchmarkEntryCopy(language);
+      expect(copy.labels["mini-app-status-route"]?.length).toBeGreaterThan(0);
+      expect(copy.labels["mini-app-frontend-render"]?.length).toBeGreaterThan(0);
+      expect(copy.labels["mini-app-api-request"]?.length).toBeGreaterThan(0);
+    }
   });
 
   test("durable 场景从资格入口等到精确 ACK，并核验最终记录数", async () => {
@@ -397,5 +425,180 @@ describe("AI 回复命令链路", () => {
     });
     await silent.definition.prepare?.();
     await expect(silent.definition.run(0)).rejects.toThrow("produced no outgoing message");
+  });
+});
+
+describe("Mini App API 请求链路", () => {
+  function miniAppChain(overrides: Partial<MiniAppChainDependencies>): {
+    definition: ChainDefinition;
+    seededJoinLogs: number;
+    sessions: Map<string, unknown>;
+    aiMemories: Map<number, { bufferedCount: number; summaryCount: number }>;
+    qaEntries: Map<number, Map<string, string>>;
+  } {
+    const states: Map<number, ChatState> = new Map<number, ChatState>();
+    const aiMemories: Map<number, { bufferedCount: number; summaryCount: number }> =
+      new Map<number, { bufferedCount: number; summaryCount: number }>();
+    const qaEntries: Map<number, Map<string, string>> = new Map<number, Map<string, string>>();
+    const sessions: Map<string, unknown> = new Map<string, unknown>();
+    let seededJoinLogs: number = 0;
+    const dependencies: MiniAppChainDependencies = {
+      chainMiniAppApiRequests: 2,
+      botToken: "123456789:benchmark-token",
+      superAdminUserId: 900_001,
+      benchmarkChatId: (index: number): number => -1_000 - index,
+      benchmarkUserId: (index: number): number => 10_000 + index,
+      getOrCreateChatState: (chatId: number): ChatState => {
+        let state: ChatState | undefined = states.get(chatId);
+        if (state === undefined) {
+          state = chatStateOf();
+          states.set(chatId, state);
+        }
+        return state;
+      },
+      aiMemoryUsages: aiMemories as never,
+      chatQaEntries: qaEntries as never,
+      recordJoinLog: (): boolean => {
+        seededJoinLogs += 1;
+        return true;
+      },
+      flushDiskIODomain: async (): Promise<{ result: "flushed" }> => ({ result: "flushed" }),
+      issueMiniAppAuthSession: (): Readonly<MiniAppAuthSession> => {
+        const session: MiniAppAuthSession = {
+          token: "bench-session-token",
+          previousToken: undefined,
+          createdAt: 1_000,
+          expiresAt: 2_000,
+        };
+        sessions.set(session.token, session);
+        return session;
+      },
+      miniAppAuthSessions: sessions as never,
+      loadChatsBunRoutes: async () => ({
+        "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
+        "/api/chats/:chatId": {
+          GET: async (
+            req: Request & { readonly params: Readonly<{ readonly chatId: string }> }
+          ): Promise<Response> => {
+            const chatId: number = Number(req.params.chatId);
+            const joinedCountsByHour: number[] = new Array<number>(
+              MINI_APP_BATCH_KICK_MAX_HOURS
+            ).fill(0);
+            joinedCountsByHour[0] = MINI_APP_API_SEED_JOIN_EVENTS_PER_CHAT;
+            const detail: MiniAppChatDetail = {
+              chatId,
+              title: states.get(chatId)?.title ?? "",
+              features: {
+                init: true,
+                aiChat: true,
+                translation: false,
+                adDetect: true,
+                floodControl: true,
+                antiRaid: true,
+                proxySend: false,
+              },
+              hotMessageCount: aiMemories.get(chatId)?.bufferedCount ?? 0,
+              hotMessageMax: AI_MEMORY_HYDRATE_BUFFER_MAX,
+              qaPairCount: qaEntries.get(chatId)?.size ?? 0,
+              isLockdownActive: false,
+              quietRemainingMs: 0,
+              lockdownRemainingMs: 0,
+              botPermissions: null,
+              translateTargetCount: 0,
+              deleteMessageTargetCount: 0,
+              joinedCountsByHour,
+              batchKickRunning: false,
+              lastBatchKickCompletion: null,
+              activeSessions: {
+                gag: 0,
+                wed: false,
+                verify: 0,
+                qaSet: false,
+              },
+            };
+            return Response.json({ detail });
+          },
+        },
+      }) as never,
+      ...overrides,
+    };
+    return {
+      definition: createMiniAppChain("mini-app-api-request", dependencies)!,
+      get seededJoinLogs(): number {
+        return seededJoinLogs;
+      },
+      sessions,
+      aiMemories,
+      qaEntries,
+    };
+  }
+
+  test("满规格受管群与入群日志播种后，从路由入口跑完请求并在 cleanup 清空会话与夹具缓存", async (): Promise<void> => {
+    const built = miniAppChain({});
+    expect(createMiniAppChain("join-log-append", {} as never)).toBeUndefined();
+    await expect(built.definition.run(0)).rejects.toThrow("route was not prepared");
+    await built.definition.prepare?.();
+    expect(built.seededJoinLogs).toBe(
+      STATE_MANAGED_CHAT_LIMIT * MINI_APP_API_SEED_JOIN_EVENTS_PER_CHAT
+    );
+    await built.definition.run(0);
+    await built.definition.run(1);
+    built.definition.cleanup?.();
+    expect({
+      sessions: built.sessions.size,
+      aiMemories: built.aiMemories.size,
+      qaEntries: built.qaEntries.size,
+    }).toEqual({ sessions: 0, aiMemories: 0, qaEntries: 0 });
+  });
+
+  test("入群日志播种被拒、flush 失败、路由缺失、非 200 响应或详情载荷残缺均使基准失败", async (): Promise<void> => {
+    const rejectedSeed = miniAppChain({
+      recordJoinLog: (): boolean => false,
+    });
+    await expect(rejectedSeed.definition.prepare?.()).rejects.toThrow("join-log seed");
+
+    const failedFlush = miniAppChain({
+      flushDiskIODomain: async (): Promise<{ result: "timedOut" }> => ({ result: "timedOut" }),
+    });
+    await expect(failedFlush.definition.prepare?.()).rejects.toThrow("failed to flush seeded join logs");
+
+    const missingRoute = miniAppChain({
+      loadChatsBunRoutes: async () => ({}) as never,
+    });
+    await expect(missingRoute.definition.prepare?.()).rejects.toThrow("route is missing");
+
+    const httpError = miniAppChain({
+      loadChatsBunRoutes: async () => ({
+        "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
+        "/api/chats/:chatId": {
+          GET: async (): Promise<Response> => new Response("unauthorized", { status: 401 }),
+        },
+      }) as never,
+    });
+    await httpError.definition.prepare?.();
+    await expect(httpError.definition.run(0)).rejects.toThrow("returned HTTP 401");
+
+    const incompleteDetail = miniAppChain({
+      loadChatsBunRoutes: async () => ({
+        "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
+        "/api/chats/:chatId": {
+          GET: async (
+            req: Request & { readonly params: Readonly<{ readonly chatId: string }> }
+          ): Promise<Response> =>
+            Response.json({
+              detail: {
+                chatId: Number(req.params.chatId),
+                qaPairCount: CHAT_QA_MAX_PER_CHAT,
+                hotMessageCount: AI_MEMORY_HYDRATE_BUFFER_MAX,
+                joinedCountsByHour: new Array<number>(
+                  MINI_APP_BATCH_KICK_MAX_HOURS
+                ).fill(0),
+              },
+            }),
+        },
+      }) as never,
+    });
+    await incompleteDetail.definition.prepare?.();
+    await expect(incompleteDetail.definition.run(0)).rejects.toThrow("incomplete chat detail payload");
   });
 });

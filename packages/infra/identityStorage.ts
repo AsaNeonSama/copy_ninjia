@@ -6,10 +6,12 @@
 export {
   cachedBlocklistEntry,
   cachedWhitelistEntry,
+  getIdentityEntryCount,
   hydrateIdentityStorageCounts,
   identityMetadataFromCachedUser,
   isIdentityPolicyCached,
   prefetchIdentityPolicies,
+  readIdentityPolicyEntries,
   readIdentityPolicyVerdicts,
 } from "./identityStorage/read";
 export {
@@ -21,6 +23,7 @@ export {
 export {
   hasAnyBlockedIdentity,
   readBlocklistSweepPage,
+  readWhitelistSweepPage,
   retainCurrentlyBlockedIdentityIds,
   retainParticipantInvalidBlocklistIds,
 } from "./identityStorage/sweep";

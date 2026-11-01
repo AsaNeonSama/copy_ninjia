@@ -20,10 +20,12 @@ import type {
   StoredStorageMetadataRow,
 } from "../../packages/types/storageDatabase";
 
+/** `StorageDatabase.transaction` 回调接收的同步事务上下文类型。 */
 type StorageDatabaseTransaction = Parameters<
   Parameters<StorageDatabase["transaction"]>[0]
 >[0];
 
+/** `seedStorageDatabase` 向测试或基准 SQLite 库批量写入夹具数据的选项。 */
 export interface SeedStorageDatabaseOptions {
   /** storage_metadata 行；库已由 bootstrapStorageDatabase 写好 metadata 时省略。 */
   readonly metadata?: readonly StoredStorageMetadataRow[];

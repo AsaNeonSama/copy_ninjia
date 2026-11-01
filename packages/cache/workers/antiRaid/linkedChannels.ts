@@ -21,8 +21,8 @@ export const linkedChannels: FifoMap<number, LinkedChannelCache> = new FifoMap(A
 export const linkedChannelFetches: Map<number, Promise<void>> = new Map();
 
 /**
- * 关联频道缓存世代号，resetLinkedChannelCache 时递增以阻止旧在途查询写回。
- * 重建：Worker 崩溃重启后从零开始；容量：固定为单个数值 holder。
+ * 关联频道缓存世代号，resetLinkedChannelCache 时递增以使旧代际在途查询失效。
+ * 清理与重建：运行期单调递增，Worker 崩溃重启后归零；容量：固定为单个数值 holder。
  */
 export const linkedChannelCacheGeneration: { current: number } = { current: 0 };
 

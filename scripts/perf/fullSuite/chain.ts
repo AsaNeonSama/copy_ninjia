@@ -1,6 +1,6 @@
 /**
  * 完整流程 child runner：唯一加载生产实现的链路模块。
- * storageChains、commandChains 与 configChains 只接收这里装配的生产入口，不加载生产模块图。
+ * storageChains、commandChains、configChains 与 miniAppChains 只接收这里装配的生产入口，不加载生产模块图。
  */
 
 import {
@@ -24,6 +24,7 @@ import {
   CHAIN_IDENTITY_BATCHES,
   CHAIN_JOIN_LOG_EVENTS,
   CHAIN_LOG_ENTRIES,
+  CHAIN_MINI_APP_API_REQUESTS,
   CHAIN_TEMPORARY_AD_BYPASS_WRITES,
   CHAIN_WARMUP_OPERATIONS,
   CRON_RELOAD_WARMUP_OPERATIONS,
@@ -41,11 +42,16 @@ import { diffProcessIo, readProcessIo } from "./processIo";
 import { createStorageChain } from "./storageChains";
 import { createCommandChain } from "./commandChains";
 import { createConfigChain } from "./configChains";
+import { createMiniAppChain } from "./miniAppChains";
 import { MAIN_WRITE_THROUGH_WORKING_SET } from
   "../identityDatabase/constants";
 import { WHITE_ENTRY } from "../identityDatabase/fixtures";
+import { aiMemoryUsages } from "../../../packages/cache/main/aiChat";
 import { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
+import { miniAppAuthSessions } from "../../../packages/cache/main/miniApp";
+import { chatQaEntries } from "../../../packages/cache/main/qa";
 import { unacknowledgedTemporaryAdBypassWrites } from "../../../packages/cache/main/temporaryAdBypass";
+import { BOT_TOKEN, SUPER_ADMIN_USER_ID } from "../../../packages/config/bot";
 import { IDENTITY_WRITE_BATCH_MAX_ENTRIES } from
   "../../../packages/consts/identityStorage";
 import { STATE_MANAGED_CHAT_LIMIT } from
@@ -71,6 +77,8 @@ import { setChatQa } from "../../../packages/infra/qaStore";
 import { recordJoinLog } from "../../../packages/infra/joinLog";
 import { getOrCreateChatState } from
   "../../../packages/infra/storage/stateStore";
+import { issueMiniAppAuthSession } from
+  "../../../packages/mini-app-api-server/auth/session";
 import { recordEligibleTemporaryAdBypassActivity } from
   "../../../packages/antiRaid/temporaryAdBypass";
 import { drainAdDisposals, handleAdDetected } from
@@ -116,6 +124,7 @@ import { cronRuntime } from "../../../packages/cache/main/cron";
 import type { ChainDefinition } from "./chainDefinition";
 import type { CommandChainDependencies } from "./commandChains";
 import type { ConfigChainDependencies } from "./configChains";
+import type { MiniAppChainDependencies } from "./miniAppChains";
 import type { ProcessIoSnapshot } from "./processIo";
 import type { StorageChainDependencies } from "./storageChains";
 import type { ChainName, ChainRound } from "./types";
@@ -204,6 +213,24 @@ const CONFIG_CHAIN_DEPENDENCIES: ConfigChainDependencies = {
   cannedTelegramCalls,
 };
 
+const MINI_APP_CHAIN_DEPENDENCIES: MiniAppChainDependencies = {
+  chainMiniAppApiRequests: CHAIN_MINI_APP_API_REQUESTS,
+  botToken: BOT_TOKEN,
+  superAdminUserId: SUPER_ADMIN_USER_ID,
+  benchmarkChatId,
+  benchmarkUserId,
+  getOrCreateChatState,
+  aiMemoryUsages,
+  chatQaEntries,
+  recordJoinLog,
+  flushDiskIODomain,
+  issueMiniAppAuthSession,
+  miniAppAuthSessions,
+  loadChatsBunRoutes: async (): Promise<Bun.Serve.Routes<undefined, string>> =>
+    (await import("../../../packages/mini-app-api-server/routes/chats"))
+      .createChatsBunRoutes(),
+};
+
 /**
  * 出站换成罐头应答的链路：命令链路断言出站计数；cron.json 热重载链路据此断言
  * 计时窗口内没有任务执行。
@@ -216,7 +243,7 @@ const CANNED_OUTBOUND_CHAINS: ReadonlySet<ChainName> = new Set<ChainName>([
 ]);
 
 /**
- * 按链路名称从存储、命令或配置链路工厂构造链路定义。
+ * 按链路名称从存储、命令、配置或 Mini App 链路工厂构造链路定义。
  * @param chain 目标链路标识名。
  * @returns 已装配好生产依赖的链路定义对象。
  */
@@ -236,6 +263,11 @@ function createChain(chain: ChainName): ChainDefinition {
     CONFIG_CHAIN_DEPENDENCIES
   );
   if (config !== undefined) return config;
+  const miniApp: ChainDefinition | undefined = createMiniAppChain(
+    chain,
+    MINI_APP_CHAIN_DEPENDENCIES
+  );
+  if (miniApp !== undefined) return miniApp;
   throw new Error(`Chain ${chain} has no definition.`);
 }
 
@@ -256,10 +288,11 @@ function parseChainName(value: string | undefined): ChainName {
     case "ad-detect-command":
     case "ai-reply-command":
     case "cron-send-voice":
-    case "cron-config-reload": return value;
+    case "cron-config-reload":
+    case "mini-app-api-request": return value;
     default:
       throw new Error(
-        "Chain child expects one declared storage, command or config chain name."
+        "Chain child expects one declared storage, command, config or Mini App chain name."
       );
   }
 }

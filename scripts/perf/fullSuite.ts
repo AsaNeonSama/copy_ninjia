@@ -55,6 +55,7 @@ import type {
   SuiteEnvironment,
 } from "./fullSuite/types";
 
+/** 全量性能基准 CLI 的运行选项。 */
 export interface SuiteOptions {
   /** 每个基准分区在独立子进程中重复运行的轮数。 */
   readonly rounds: number;

@@ -13,6 +13,7 @@ import type { HotPathGateFixture } from "./gateFixture";
 import { removeMockPath } from "../fullSuite/mockRoot";
 import type { HotPathGateCalibration } from "./gateResult";
 
+/** 子进程采样剖析得到的 JSC 各执行层级样本占比。 */
 export interface SamplingProfileResult {
   readonly totalSamples: number;
   readonly llintPercent: number;
@@ -21,12 +22,14 @@ export interface SamplingProfileResult {
   readonly ftlPercent: number;
 }
 
+/** 单个被观测热函数的 DFG 编译与去优化计数结果。 */
 export interface JitProbeResult {
   readonly dfgCompiles: number;
   readonly reoptRetries: number;
   readonly changedDuringSampling: boolean;
 }
 
+/** 热路径门禁子进程单次运行解码后的完整测量与剖析结果。 */
 export interface ChildProfileResult {
   readonly gcProfile: GcPauseProfile | null;
   readonly scenario: string;
@@ -326,6 +329,7 @@ function assertRetainedRunWithinLimits(
   }
 }
 
+/** `runHotPathGateChild` 启动并校验单轮热路径门禁子进程的参数。 */
 export interface RunHotPathGateChildOptions {
   /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;

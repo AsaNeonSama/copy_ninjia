@@ -1,10 +1,14 @@
 /** HTTPS 出站请求的轻量 URL allowlist；不负责 DNS 解析或响应体读取。 */
 
+/** 允许出站访问的 HTTPS origin 与主机名后缀白名单策略。 */
 export interface AllowedHttpsUrlPolicy {
+  /** 精确匹配的 HTTPS origin 列表（如 `https://example.com`）。 */
   allowedOrigins?: readonly string[];
+  /** 按 DNS 标签边界匹配的主机名后缀列表（仅限默认 HTTPS 端口）。 */
   allowedHostnameSuffixes?: readonly string[];
 }
 
+/** `parseAllowedHttpsUrl` 解析并校验 HTTPS URL 的入参。 */
 export interface ParseAllowedHttpsUrlParams {
   /** 待解析与校验的原始 URL 字符串或 URL 实例。 */
   input: string | URL;

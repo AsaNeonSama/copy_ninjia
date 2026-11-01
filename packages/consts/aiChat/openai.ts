@@ -37,7 +37,7 @@ export const OPENAI_WEB_SEARCH_ERROR_LABEL: string = "OpenAI web search";
 export const OPENAI_PROMPT_CACHE_KEY_PREFIX: string = "hunhebi-reply";
 
 /**
- * Responses API 接受的 `prompt_cache_key` 最大字符长度（见 libs/prefixFingerprint.ts）。
+ * Responses API 接受的 `prompt_cache_key` 最大字符长度（见 aiChat/openai/replySession.ts 与 libs/prefixFingerprint.ts）。
  */
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH: number = 64;
 
@@ -46,6 +46,7 @@ export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH: number = 64;
  */
 export const OPENAI_PROMPT_CACHE_BREAKPOINT_MODEL_PREFIX: string = "gpt-5.6";
 
+/** OpenAI Responses API `prompt_cache_options.ttl` 允许的缓存存活时长字面量类型。 */
 type OpenAiPromptCacheTtl = NonNullable<
   NonNullable<
     OpenAI.Responses.ResponseCreateParamsNonStreaming["prompt_cache_options"]
@@ -66,7 +67,7 @@ export const OPENAI_IMAGE_ERROR_LABEL: string = "OpenAI image generation API";
 export const OPENAI_IMAGE_REQUEST_TIMEOUT_MS: number = 300_000;
 /**
  * 按能力取 SDK 每次尝试的超时上限，requestOpenAiResult 同时以它作整次调用的 deadline。
- * image 与 tts 分别由 aiChat/openai/image.ts 与 aiChat/openai/speech.ts 在每次请求上另行覆盖。
+ * image 与 tts 分别由 aiChat/openai/image.ts 与 aiChat/openai/speech.ts、aiChat/openai/xaiSpeech.ts 在每次请求上另行覆盖。
  * 所属模块：aiChat/openai/client.ts、aiChat/openai/text.ts。
  */
 export const OPENAI_REQUEST_TIMEOUTS_MS: Readonly<Record<AgentCapability, number>> = {

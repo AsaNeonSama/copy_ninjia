@@ -61,6 +61,7 @@ async function declaresSymbol(
   return false;
 }
 
+/** `collectCommentReferenceProblems` 核对源码注释交叉引用的参数。 */
 export interface CommentReferenceParams {
   /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;

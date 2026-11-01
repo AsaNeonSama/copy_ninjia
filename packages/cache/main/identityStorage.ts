@@ -19,7 +19,7 @@ import { resetTemporaryAdBypassCache } from "./temporaryAdBypass";
 export const identityPolicyCache: LruCache<number, IdentityPolicyCacheEntry> =
   new LruCache(IDENTITY_READ_CACHE_MAX_ENTRIES);
 
-/** 白名单与黑名单当前总条目数：启动时从 SQLite 加载初始化，运行期随本地最终值增删同步增减，resetIdentityStorageCache 时清零。 */
+/** 白名单与黑名单当前总条目数：启动时从 SQLite 加载初始化，运行期随本地最终值增删同步增减，进程重启或 resetIdentityStorageCache 时清零；固定两个计数字段，不淘汰。 */
 export const identityEntryCounts: {
   whitelist: number;
   blocklist: number;
@@ -34,18 +34,18 @@ export const unacknowledgedWhitelistWrites: Map<
   UnacknowledgedIdentityWrite
 > = new Map();
 
-/** 黑名单未确认落盘写入表（主键 ID -> 最新写入状态）：填充、ACK 清理、Worker 重建重放与容量预算同 unacknowledgedWhitelistWrites。 */
+/** 黑名单未确认落盘写入表（主键 ID -> 最新写入状态）：填充、ACK 清理、不淘汰策略、Worker 重建重放与容量预算同 unacknowledgedWhitelistWrites。 */
 export const unacknowledgedBlocklistWrites: Map<
   number,
   UnacknowledgedIdentityWrite
 > = new Map();
 
-/** 白名单与黑名单未确认写入的估算字节总数：登记或覆盖写入时按差额更新，收到精确 ACK 时扣减，resetIdentityStorageCache 时清零。 */
+/** 白名单与黑名单未确认写入的估算字节总数：登记或覆盖写入时按差额更新，收到精确 ACK 时扣减，Worker 重建重放保留，进程重启或 resetIdentityStorageCache 时清零；固定两个计数字段。 */
 export const unacknowledgedIdentityBytes: { current: Record<IdentityPolicyTable, number> } = {
   current: { whitelist: 0, blocklist: 0 },
 };
 
-/** 身份策略写入的单调递增 revision 发号器：每次写入自增，进程重启或 resetIdentityStorageCache 时归零。 */
+/** 身份策略写入的单调递增 revision 发号器：每次写入自增，Worker 重建保留，进程重启或 resetIdentityStorageCache 时归零；单例标量。 */
 export const identityWriteRevision: { current: number } = { current: 0 };
 
 /**
@@ -54,10 +54,10 @@ export const identityWriteRevision: { current: number } = { current: 0 };
  */
 export const unacknowledgedRemovalWrites: Map<number, UnacknowledgedRemovalWrite> = new Map();
 
-/** 待踢 outbox 未确认写入的估算字节总数：登记或覆盖写入时按差额更新，收到精确 ACK 时扣减，resetIdentityStorageCache 时清零。 */
+/** 待踢 outbox 未确认写入的估算字节总数：登记或覆盖写入时按差额更新，收到精确 ACK 时扣减，Worker 重建重放保留，进程重启或 resetIdentityStorageCache 时清零；单例标量。 */
 export const unacknowledgedRemovalBytes: { current: number } = { current: 0 };
 
-/** 待踢 outbox 写入的单调递增 revision 发号器：每次写入自增，进程重启或 resetIdentityStorageCache 时归零。 */
+/** 待踢 outbox 写入的单调递增 revision 发号器：每次写入自增，Worker 重建保留，进程重启或 resetIdentityStorageCache 时归零；单例标量。 */
 export const removalWriteRevision: { current: number } = { current: 0 };
 
 /**

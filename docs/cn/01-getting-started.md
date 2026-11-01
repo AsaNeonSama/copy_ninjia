@@ -138,6 +138,10 @@ done
   - 机器人的基准日历时区，供运势抽签、日志归档、广告统计、AI 时间感知、每日维护以及未指定时区的 cron 任务共同使用（不会直接继承宿主机操作系统时区）。
   - 配置时会自动去除首尾空白并规范化名称（例如 `asia/tokyo` 会标准化为 `Asia/Tokyo`）。
   - **时区绑定**：数据库初始化时会将此时区写入 `storage_metadata` 表中。此后机器人启动或安装脚本均会核对此时区；若中途修改 `time_zone` 将导致启动报错退出。已有数据不支持直接更换时区。
+- **`mini_app`**（可选，对象：`{ url: string, port: number, host?: string, password: string }`）
+  - 超级管理员专属 Telegram Mini App 管理控制台配置；不配置时直接不注册 HTTP 服务器与路由，也不挂载私聊入口按钮。
+  - **字段要求**：`url` 为必填的公网 `https://` 地址（支持带子路径前缀）；`port` 为必填的本地监听端口（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` 正整数，示例配置为 `3000`）；`host` 可选，缺省为 `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`）；`password` 为必填的首屏访问密码（非占位符字符串，至少包含 6 位数字 `0-9`；手工从 `config_example/` 复制配置且不使用 Mini App 时须删除 `mini_app` 节）。
+  - **运行与认证**：配置后启动本地 `Bun.serve` HTTP 控制台，在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮），启用 `initData` 签名 + 首屏凭据的双层鉴权，并支持绑定 Google Authenticator TOTP 动态码（持久化于 `memory/mini-app-totp/totp.json`）。完整设置步骤、Cloudflare Tunnel 推荐配置、会话续接/防爆破锁定规则与 TOTP 绑定见 [11 Mini App 设置与推荐配置](11-mini-app.md)。
 
 ---
 

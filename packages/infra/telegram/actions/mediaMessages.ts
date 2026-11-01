@@ -22,6 +22,7 @@ type SendStickerApi = Pick<TelegramApi, "sendSticker">;
 type SendPhotoApi = Pick<TelegramApi, "sendPhoto">;
 type SendVoiceApi = Pick<TelegramApi, "sendVoice">;
 
+/** `sendSticker` 发送贴纸消息的参数。 */
 export interface SendStickerParams {
   /** 目标聊天 ID。 */
   chatId: number;
@@ -68,6 +69,7 @@ export async function sendSticker({
   });
 }
 
+/** `sendPhotoWithResult` 发送内存图片消息的参数。 */
 export interface SendPhotoParams {
   /** 目标聊天 ID。 */
   chatId: number;
@@ -139,6 +141,7 @@ export async function sendPhotoWithResult({
   });
 }
 
+/** `sendVoiceWithResult` 发送内存语音消息的参数。 */
 export interface SendVoiceParams {
   /** 目标聊天 ID。 */
   chatId: number;
@@ -199,6 +202,7 @@ export async function sendVoiceWithResult({
   });
 }
 
+/** `copyMessage` 复制已有消息的参数。 */
 export interface CopyMessageParams {
   /** 目标聊天 ID。 */
   chatId: number;

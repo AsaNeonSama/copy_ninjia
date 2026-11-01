@@ -39,5 +39,5 @@ export const queuedLockdownPersistence: Set<number> = new Set();
  */
 export const emergencyLockdownRecoveries: Map<number, EmergencyLockdownRecovery> = new Map();
 
-/** 主线程紧急恢复的停止标志；initAntiRaid 置 false，terminate 置 true，容量为一个布尔值。 */
+/** 主线程紧急恢复的停止标志；initAntiRaid 写入 false，terminate 停止并重置为 true；不淘汰，进程重启后从初始值开始，容量为一个布尔值。 */
 export const emergencyLockdownRecoveryRuntime: { stopped: boolean } = { stopped: true };

@@ -78,7 +78,7 @@ export const VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS: number = 15;
 export const VERIFICATION_RECORD_CAPACITY: number = 15_000;
 /**
  * Anti-Raid Worker 当前运行态共用的 key 硬顶（包含持久阶段及 exempt/kicked 去重；跨模块约束见 docs/cn/04-invariants.md）。
- * 所属模块：workers/antiRaid/verificationAdmission.ts 与 verificationRuntime.ts。
+ * 所属模块：antiRaid/workerBridge/events.ts、workers/antiRaid/verificationAdmission.ts 与 workers/antiRaid/verificationRuntime.ts。
  */
 export const VERIFICATION_RUNTIME_CAPACITY: number = VERIFICATION_RECORD_CAPACITY;
 /** Worker 当前代际的活跃与保留期终结 revision 共用的硬上限；新键满额时请求主线程停机。 */
@@ -91,7 +91,7 @@ export const VERIFICATION_CHAT_KIND_FETCH_MAX: number = 100;
 /**
  * kicked 结算占位与 exempt 豁免占位的运行态去重窗口；同一物理入群的
  * chat_member 更新和 new_chat_members 服务消息共用占位，重复投递不续期。
- * kickPending 仍待持久处置，不使用本去重 timer。所属模块：verificationRuntime.ts。
+ * kickPending 仍待持久处置，不使用本去重 timer。所属模块：workers/antiRaid/verificationRuntime.ts。
  */
 export const LOCKDOWN_KICK_DEDUPE_MS: number = 30 * 1000;
 /**

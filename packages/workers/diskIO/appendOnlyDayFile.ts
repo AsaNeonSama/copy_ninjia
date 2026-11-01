@@ -21,8 +21,10 @@ if (DAY_FILE_JSON_INDENT < 1) {
   throw new Error("DAY_FILE_JSON_INDENT must be >= 1: serializeDayFileEntry relies on multi-line JSON.stringify output");
 }
 
+/** 将已打开文件描述符的数据刷盘的同步函数签名。 */
 export type SyncFile = (fd: number) => void;
 
+/** `openValidatedAppendOnlyFile` 打开已通过领域校验的追加型 JSON 文件选项。 */
 export interface OpenValidatedAppendOnlyFileOptions {
   /** 已由领域 codec 严格校验过的目标路径。 */
   readonly path: string;
@@ -352,6 +354,7 @@ export async function appendToAppendOnlyFile({
   state.size = state.size - 2 + data.length;
 }
 
+/** `restoreAppendTail` 原位截断并恢复追加文件闭合结尾的写入与同步钩子。 */
 interface RestoreAppendTailOptions {
   /** 可选的同步写入替换钩子。 */
   write: SyncBufferWriter | undefined;

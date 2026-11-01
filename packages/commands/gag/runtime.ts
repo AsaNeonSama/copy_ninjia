@@ -28,7 +28,7 @@ import {
 import { DURATION_UNIT_MS } from "../../consts/commands";
 
 /** gag 会话结束的触发原因（到期超时、显式 `/ungag` 解除或群 teardown）。 */
-export type GagEndReason = "timeout" | "ungag" | "teardown";
+type GagEndReason = "timeout" | "ungag" | "teardown";
 
 /** 尝试登记新 gag 会话的准入结果（成功占槽、同目标重复、全局容量已满或正在停机排空）。 */
 export type GagReservationOutcome =

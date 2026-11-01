@@ -60,6 +60,8 @@ export const PRODUCTION_HOT_PATH_SCENARIOS: readonly ScenarioName[] = [
   "luck-receipt-fast-path",
   "luck-tier-table",
   "redact-clean-log",
+  "mini-app-status-route",
+  "mini-app-frontend-render",
 ];
 
 /**
@@ -77,7 +79,7 @@ export const CONTAINER_ALGORITHM_SCENARIOS: readonly ScenarioName[] = [
   "bounded-rolling-buffer",
 ];
 
-/** 完整生产动作的固定出数顺序：落盘动作、用户可见流程与部署配置热重载。 */
+/** 完整生产动作的固定出数顺序：落盘动作、用户可见流程、部署配置热重载与 Mini App 端到端 HTTP API 请求。 */
 export const CHAIN_NAMES: readonly ChainName[] = [
   "join-log-append",
   "identity-policy-write",
@@ -90,6 +92,7 @@ export const CHAIN_NAMES: readonly ChainName[] = [
   "ai-reply-command",
   "cron-send-voice",
   "cron-config-reload",
+  "mini-app-api-request",
 ];
 
 /** 入群日志容量线的各项操作，一律跑 `current` 变体；`baseline` 变体只由 `bun run perf:join-log` 运行。 */
@@ -316,7 +319,7 @@ const CHAIN_METRICS: readonly MetricDefinition<ChainRound>[] = [
 ];
 
 /**
- * 完整流程分区：durable 动作、本地命令流程与 cron.json 中途变更的单次耗时及吞吐。
+ * 完整流程分区：durable 动作、本地命令流程、cron.json 中途变更与 Mini App API 请求的单次耗时及吞吐。
  * @param context 分区运行上下文。
  * @returns 完整流程分区的聚合基准结果。
  */

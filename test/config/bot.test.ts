@@ -11,6 +11,10 @@ import { TELEGRAM_BOT_TOKEN_PLACEHOLDER } from "../../packages/consts/telegram";
 import { botConfigCache } from "../../packages/cache/perThread/config";
 import type { BotConfig } from "../../packages/types/config";
 import { DEFAULT_BOT_TIME_ZONE } from "../../packages/consts/bot";
+import {
+  MINI_APP_DEFAULT_HOST,
+  MINI_APP_PASSWORD_PLACEHOLDER,
+} from "../../packages/consts/miniApp";
 
 afterEach((): void => {
   botConfigCache.current = null;
@@ -129,5 +133,78 @@ test("存在但非法的默认时区拒绝，错误只包含文件、字段与�
     expect((): BotConfig => parseBotConfig({
       bot_token: "secret", super_admin_user_id: 7, time_zone: timeZone,
     }, "bot.fixture.json")).toThrow("bot.fixture.json: $.time_zone must be an IANA time zone name.");
+  }
+});
+
+test("mini_app 缺省保持未配置，配置时严格校验 https URL、端口、默认回环地址与必填 password", () => {
+  const withoutMiniApp: BotConfig = parseBotConfig({
+    bot_token: "secret",
+    super_admin_user_id: 7,
+  });
+  expect(withoutMiniApp.miniApp).toBeUndefined();
+
+  const withDefaultHost: BotConfig = parseBotConfig({
+    bot_token: "secret",
+    super_admin_user_id: 7,
+    mini_app: {
+      url: "  https://miniapp.example.com/app  ",
+      port: 3000,
+      password: "  s3cr3t-pass-123456  ",
+    },
+  });
+  expect(withDefaultHost.miniApp).toEqual({
+    url: "https://miniapp.example.com/app",
+    host: MINI_APP_DEFAULT_HOST,
+    port: 3000,
+    password: "s3cr3t-pass-123456",
+  });
+
+  const withCustomHost: BotConfig = parseBotConfig({
+    bot_token: "secret",
+    super_admin_user_id: 7,
+    mini_app: {
+      url: "https://miniapp.example.com/",
+      host: " 0.0.0.0 ",
+      port: 3000,
+      password: "custom-password-654321",
+    },
+  });
+  expect(withCustomHost.miniApp).toEqual({
+    url: "https://miniapp.example.com/",
+    host: "0.0.0.0",
+    port: 3000,
+    password: "custom-password-654321",
+  });
+
+  for (const invalidMiniApp of [
+    null,
+    "https://miniapp.example.com",
+    {},
+    { url: "http://miniapp.example.com", port: 3000, password: "123456" },
+    { url: "https://miniapp.example.com", port: 0, password: "123456" },
+    { url: "https://miniapp.example.com", port: 65_536, password: "123456" },
+    { url: "https://miniapp.example.com", port: 3000, host: "   ", password: "123456" },
+    { url: "https://miniapp.example.com", port: 3000 },
+    { url: "https://miniapp.example.com", port: 3000, password: "   " },
+    { url: "https://miniapp.example.com", port: 3000, password: "12345" },
+    { url: "https://miniapp.example.com", port: 3000, password: "only-letters-password" },
+    { url: "https://miniapp.example.com", port: 3000, password: "a1b2c3d4e5" },
+    {
+      url: "https://miniapp.example.com",
+      port: 3000,
+      password: MINI_APP_PASSWORD_PLACEHOLDER,
+    },
+    { url: "https://miniapp.example.com", port: 3000, password: "123456", extra: true },
+  ]) {
+    expect((): BotConfig =>
+      parseBotConfig(
+        {
+          bot_token: "secret",
+          super_admin_user_id: 7,
+          mini_app: invalidMiniApp,
+        },
+        "bot.fixture.json"
+      )
+    ).toThrow("bot.fixture.json: $.mini_app");
   }
 });

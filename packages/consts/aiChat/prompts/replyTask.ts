@@ -7,13 +7,13 @@ import { SELF_ROSTER_CODE, SELF_SPEAKER_NAME } from "./transcript";
  * workers/aiChat/promptContext.ts 的 buildReplyPromptSections；回复任务区块属易变组，
  * 逐轮变化不影响前缀缓存。 */
 
-/** 直接唤起类回复任务共用的尾句：建议第一条消息挂回复引用。所属模块：workers/aiChat/promptContext.ts。 */
+/** 直接唤起类回复任务共用的尾句：建议第一条消息挂回复引用。所属模块：consts/aiChat/prompts/replyTask.ts。 */
 const REPLY_TO_TRIGGER_SUGGESTION: string =
   "建议第一条消息把 reply_to_trigger 设为 true 挂在那条消息上，让 TA 知道你在回谁。";
 
 /**
  * 拿媒体直接唤起机器人（回复机器人或配文 @）时共用的接话要求，接在媒体描述之后。
- * 所属模块：workers/aiChat/promptContext.ts。
+ * 所属模块：consts/aiChat/prompts/replyTask.ts。
  */
 const MEDIA_DIRECT_TRIGGER_TAIL: string =
   "TA 是在跟你说话，别已读不回——请结合这份内容和你们正聊的话题，以你的人设自然接住，通常一两句话就够；" +

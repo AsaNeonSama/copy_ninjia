@@ -65,7 +65,7 @@ export interface ColdStartRound {
   readonly peakRssBytes: number;
 }
 
-/** 真实落盘动作、用户可见本地流程与部署配置热重载；全部从生产入口驱动。 */
+/** 真实落盘动作、用户可见本地流程、Mini App 端到端 HTTP API 请求与部署配置热重载；全部从生产入口驱动。 */
 export type ChainName =
   | "join-log-append"
   | "identity-policy-write"
@@ -77,14 +77,15 @@ export type ChainName =
   | "ad-detect-command"
   | "ai-reply-command"
   | "cron-send-voice"
-  | "cron-config-reload";
+  | "cron-config-reload"
+  | "mini-app-api-request";
 
 /** 单条链路一轮的完整回传；延迟分位数来自逐次 durable 往返。 */
 export interface ChainRound {
   readonly chain: ChainName;
   readonly bunVersion: string;
   readonly bunRevision: string;
-  /** 计时窗口内完成的 durable 往返次数。 */
+  /** 计时窗口内完成的完整动作次数。 */
   readonly operations: number;
   /** 一次往返承载的业务记录数；批量链路大于 1。 */
   readonly recordsPerOperation: number;
@@ -92,9 +93,9 @@ export interface ChainRound {
   /**
    * 完整处理吞吐（ops/s）：每秒能从生产入口跑完多少次该动作。
    *
-   * 落盘动作的终点是 durable 回执；广告检测与 AI 回复的终点分别是处置
-   * 排空与消息发送完成。批量动作的 `throughputPerSecond` 按记录折算，是它
-   * 的 recordsPerOperation 倍，不用于比较一次完整动作的成本。
+   * 落盘动作的终点是 durable 回执；命令、配置热重载与 Mini App API 请求的终点分别是
+   * 处置排空/消息发出、调度重排完成与 HTTP JSON 响应解析完成。批量动作的 `throughputPerSecond`
+   * 按记录折算，是它的 recordsPerOperation 倍，不用于比较一次完整动作的成本。
    */
   readonly operationThroughputPerSecond: number;
   /** 业务记录吞吐（records/s），已按 recordsPerOperation 折算。 */

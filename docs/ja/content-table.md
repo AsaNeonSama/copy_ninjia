@@ -80,9 +80,14 @@
     <td align="center"><nobr><a href="10-performance.md">📖 10 パフォーマンス</a></nobr></td>
   </tr>
   <tr>
+    <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
+    <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
+    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App の設定方法と推奨構成</a></nobr></td>
+  </tr>
+  <tr>
     <td><nobr>❓ <b>返信がないとき</b></nobr></td>
     <td>Bot が動いているのに反応しないときの確認リスト</td>
-    <td align="center"><nobr><a href="11-faq.md">📖 11 よくある質問</a></nobr></td>
+    <td align="center"><nobr><a href="12-faq.md">📖 12 よくある質問</a></nobr></td>
   </tr>
 </tbody>
 </table>
@@ -149,7 +154,12 @@
     - 各項目を既定のラウンド数で実行し、平均・最小・最大・変動係数を報告
     - 1 ラウンドあたりの総スループット、総 I/O、モックデータルートの使用量
 
-11. **[11 よくある質問](11-faq.md)**
+11. **[11 Mini App の設定方法と推奨構成](11-mini-app.md)**
+    - `config/static/bot.json` の `mini_app` セクションの設定と有効化条件
+    - Cloudflare Tunnel（`cloudflared`）による公開 HTTPS エンドポイントの構成、ドメインルーティングと systemd サービス登録手順
+    - 個人チャット左下の `App` ボタン、二段階認証、Google Authenticator (TOTP) のバインド手順
+
+12. **[12 よくある質問](12-faq.md)**
     - Bot が動いているのに返信しない場合の順次確認：初期化、プライバシーモード、AI の反応条件、個人チャット、通知の自動削除、Inline Mode、Bot-to-Bot、既定で無効な保護機能、プロセスの状態
     - 通知の口調、画像ライブラリによる起動拒否、定時タスクの再送、定時ボイスと `/send` のボイス、ボイスの長さとメモリ設定、サードパーティゲートウェイ経由の Google モデル呼び出し、Cloudflare AI Gateway 経由の Anthropic モデル呼び出し
 

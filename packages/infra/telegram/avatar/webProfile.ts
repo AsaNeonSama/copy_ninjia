@@ -14,6 +14,7 @@ import { signalWithTimeout } from "../../../libs/abortSignal";
 import { sniffImageFormat } from "../../image";
 import type { SniffedImageFormat } from "../../image";
 
+/** 公开主页 HTML 扫描出的单个起始标签名称与属性映射。 */
 interface ParsedHtmlTag {
   name: string;
   attributes: ReadonlyMap<string, string>;

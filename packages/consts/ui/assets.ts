@@ -62,7 +62,7 @@ export const ASSET_ONLY_URL_KEYS: ReadonlySet<string> = new Set([
   "gag_thumbnail_url",
 ]);
 
-/** `random_h_image_dir` 在 assets.json 里的字段路径；素材解析与图库目录准备（infra/randomImage.ts）的诊断共用。 */
+/** `random_h_image_dir` 在 assets.json 里的字段路径；素材解析与图库目录准备（infra/imageGallery.ts）的诊断共用。 */
 export const RANDOM_H_IMAGE_DIR_FIELD: string = `$.${ASSET_ONLY_PATH_GROUP}.random_h_image_dir`;
 
 /** `bot_default_avatar` 在 assets.json 里的字段路径；素材解析与本机头像文件核对的诊断共用。 */

@@ -21,6 +21,7 @@ import {
   TRANSCRIPT_LINE_FORMAT_HINT,
 } from "./transcript";
 
+/** 回复会话初始 user 内容四大固定区块的标签名结构。 */
 interface ReplyContextSectionNames {
   readonly referenceMemory: string;
   readonly currentConversation: string;
@@ -28,6 +29,7 @@ interface ReplyContextSectionNames {
   readonly replyTask: string;
 }
 
+/** 回复会话初始 user 内容四大固定区块的标题与空占位文案结构。 */
 interface ReplyContextSectionText {
   readonly referenceMemory: Readonly<{ header: string; emptyContent: string }>;
   readonly currentConversation: Readonly<{ header: string }>;
@@ -163,7 +165,7 @@ export const TIME_AWARENESS_INSTRUCTION: string =
   "回答时间/日期相关的问题、或判断某句话是多久之前说的，都要把这两半合起来当作真实时间，不要只看时分秒、也不要默认所有消息都是今天的，更不要编造。";
 
 /**
- * 运行时状态区块与压缩批末尾的当前时间句前缀。所属模块：aiChat/ai/timeSentence.ts
- * （调用方 workers/aiChat/runtimeState.ts、compaction.ts）。
+ * 运行时状态区块与压缩批末尾的当前时间句前缀。所属模块：workers/aiChat/runtimeState.ts、
+ * workers/aiChat/compaction.ts（传入 aiChat/ai/timeSentence.ts 的 currentTimeSentence）。
  */
 export const CURRENT_TIME_LABEL: string = "当前实际时间";

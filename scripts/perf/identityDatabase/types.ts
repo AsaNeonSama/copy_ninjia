@@ -1,3 +1,4 @@
+/** SQLite 与主线程身份策略缓存基准支持的操作类型。 */
 export type BenchmarkOperation =
   | "storage-read-hot-connection"
   | "storage-read-cold-connection"
@@ -6,6 +7,7 @@ export type BenchmarkOperation =
   | "main-lru-read"
   | "main-write-through-acked";
 
+/** 单个独立基准子进程返回的单轮测量结果。 */
 export interface ChildResult {
   readonly operation: BenchmarkOperation;
   readonly bunVersion: string;
@@ -23,6 +25,7 @@ export interface ChildResult {
   readonly checksum: number;
 }
 
+/** 同一操作跨多轮独立样本聚合后的统计指标。 */
 export interface AggregateResult {
   readonly operation: BenchmarkOperation;
   readonly samples: number;
@@ -41,6 +44,7 @@ export interface AggregateResult {
   readonly checksum: number;
 }
 
+/** SQLite 与主线程身份策略缓存基准的完整报告。 */
 export interface BenchmarkReport {
   readonly bunVersion: string;
   readonly bunRevision: string;

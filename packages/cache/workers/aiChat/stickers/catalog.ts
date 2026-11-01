@@ -13,7 +13,7 @@ export const catalogs: Map<string, Map<string, StickerCatalogEntry>> = new Map()
 
 /**
  * packShortName -> AI 生成的整包简介（供 aiChat/ai/tools/stickers.ts 只读挑包，缺项表示尚未生成或生成失败）。
- * 填充：generatePackCatalog 或主线程镜像 hydrate 写入；清理、重建与容量同 catalogs。
+ * 填充：generatePackCatalog 或主线程镜像 hydrate 写入；清理、不设 TTL 淘汰、重建与容量同 catalogs。
  */
 export const packSummaries: Map<string, string> = new Map();
 

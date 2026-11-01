@@ -1,5 +1,5 @@
 import { NO_LOCKDOWN_EFFECTS, RESTORE_RETRY_MS } from "../../consts/antiRaid/lockdown";
-import { announcementCleanupEffects, announcementOf } from "./shared";
+import { activeOf, announcementCleanupEffects, reconcilingOf, restoringOf } from "./shared";
 import type { ChatPermissions } from "grammy/types";
 import type {
   LockdownMachineEvent,
@@ -21,14 +21,13 @@ export function handleRestoreTimerFired(
     return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   }
   return {
-    next: {
-      kind: "restoring",
+    next: restoringOf({
       originalPermissions: state.originalPermissions,
       intentId: event.intentId,
       restoreAfterPersist: true,
       restoreReason: "expired",
-      ...announcementOf(state),
-    },
+      announcement: state,
+    }),
     effects: [{ kind: "persistState" }],
   };
 }
@@ -73,15 +72,14 @@ export function handleDeactivate(
   const originalPermissions: ChatPermissions =
     state.originalPermissions;
   return {
-    next: {
-      kind: "restoring",
+    next: restoringOf({
       originalPermissions,
       intentId: event.intentId,
       restoreAfterPersist: true,
       // 到期恢复进行中再被解除时，解锁仍按到期公告。
       restoreReason: state.kind === "restoring" ? state.restoreReason : "lifted",
-      ...announcementOf(state),
-    },
+      announcement: state,
+    }),
     effects: [{ kind: "persistState" }],
   };
 }
@@ -113,13 +111,12 @@ export function handleRestoreResult(
       // ACTIVE 收到恢复成功回执时，先持久化远端权限与当前意图的差异，
       // 再重新收紧；RECONCILING 在 Worker 重建后仍可幂等接管。
       return {
-        next: {
-          kind: "reconciling",
+        next: reconcilingOf({
           originalPermissions: state.originalPermissions,
           intentId: state.intentId,
           reapplyAfterPersist: true,
-          ...announcementOf(state),
-        },
+          announcement: state,
+        }),
         effects: [{ kind: "persistState" }],
       };
     }
@@ -160,12 +157,7 @@ export function handleReapplyResult(
     };
   }
   return {
-    next: {
-      kind: "active",
-      originalPermissions: state.originalPermissions,
-      intentId: state.intentId,
-      ...announcementOf(state),
-    },
+    next: activeOf(state.originalPermissions, state.intentId, state),
     effects: [{ kind: "persistState" }],
   };
 }

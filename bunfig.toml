@@ -8,7 +8,7 @@ coverageSkipTestFiles = true
 coverageThreshold = { line = 0.95, function = 0.95 }
 
 [install]
-# 只解析发布满 7 天的版本。
+# 只解析发布满 3 天的版本。
 # 紧急安全修复按 AGENTS.md「依赖冷却期与紧急豁免」临时配置单包豁免。
 # minimumReleaseAgeExcludes = ["<仅在紧急安全修复期间填入，装完移除>"]
-minimumReleaseAge = 604_800
+minimumReleaseAge = 259_200

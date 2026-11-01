@@ -6,13 +6,13 @@
  */
 
 import { chatAtmosphere } from "../../infra/atmosphere";
-import { pickRandomImage } from "../../infra/randomImage";
+import { pickRandomImage } from "../../infra/imageGallery";
 import { getAssetConfig } from "../../config/assets";
 import { recordBotImage } from "../../aiChat";
 import { sendCommandMessage, sendPhotoWithResult } from "../../infra/telegram";
 import type { AtmosphereTexts } from "../../types/atmosphere";
 import type { HImageRequest } from "../../types/hImage";
-import type { RandomImagePick } from "../../types/randomImage";
+import type { RandomImagePick } from "../../types/imageGallery";
 import type { TelegramPhotoSendResult } from "../../types/telegram";
 
 /** 发送 `/h_image` 抽图结果图片所需的上下文与图片载荷。 */

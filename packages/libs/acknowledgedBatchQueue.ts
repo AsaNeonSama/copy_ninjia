@@ -16,6 +16,7 @@ export interface AcknowledgedBatchQueueOptions {
   readonly maxCost: number;
 }
 
+/** 带有领域成本权重的队列元素包装。 */
 interface CostedQueueValue<T> {
   readonly value: T;
   readonly cost: number;

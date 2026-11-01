@@ -14,7 +14,9 @@ export type HotPathProfileScenarioName =
   | "identity-permission-read"
   | "buffered-message-build"
   | "temporary-whitelist-activity"
-  | "pending-verification-lookup";
+  | "pending-verification-lookup"
+  | "mini-app-status-route"
+  | "mini-app-frontend-render";
 
 /** 按进程可用 CPU 数匹配的热路径 GC 暂停预算。 */
 export interface HotPathGcCpuBudget {

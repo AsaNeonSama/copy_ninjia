@@ -197,6 +197,7 @@ function settleChatQaWrites(reply: IdentityStoragePersistedReply): void {
   }
 }
 
+/** 待按 revision 升序重放的未确认群问答写入条目。 */
 interface QueuedChatQaWrite {
   readonly chatId: number;
   readonly q: string;

@@ -30,6 +30,11 @@
   <a href="https://www.typescriptlang.org/"><img src="public/typescript_badge.svg" alt="TypeScript"></a>
   <a href="https://www.sqlite.org/"><img src="public/sqlite_badge.svg" alt="SQLite"></a>
   <a href="https://grammy.dev/"><img src="public/grammy_badge.svg" alt="grammY"></a>
+  <a href="https://react.dev/"><img src="public/react_badge.svg" alt="React"></a>
+  <a href="https://zustand.docs.pmnd.rs/"><img src="public/zustand_badge.svg" alt="Zustand"></a>
+</p>
+
+<p align="center">
   <a href="https://www.anthropic.com/"><img src="public/anthropic_badge.svg" alt="Anthropic"></a>
   <a href="https://platform.openai.com/docs/"><img src="public/openai_badge.svg" alt="OpenAI"></a>
   <a href="https://ai.google.dev/"><img src="public/gemini_badge.svg" alt="Gemini"></a>
@@ -38,8 +43,8 @@
 <p align="center">
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6829_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.78%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6940_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.83%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -47,7 +52,7 @@
 
 ---
 
-🧬 [纯 AI 开发](#-纯-ai-开发) • ✨ [它能做什么](#-它能做什么) • 🎮 [命令与权限](#-命令与权限) • 🚀 [快速开始](#-快速开始) • 🤖 [BotFather 配置](#botfather-setup) • ❓ [常见问题](docs/cn/11-faq.md) • 📚 [开发者文档](docs/cn/content-table.md)
+🧬 [纯 AI 开发](#-纯-ai-开发) • ✨ [它能做什么](#-它能做什么) • 🎮 [命令与权限](#-命令与权限) • 🚀 [快速开始](#-快速开始) • 🤖 [BotFather 配置](#botfather-setup) • ❓ [常见问题](docs/cn/12-faq.md) • 📚 [开发者文档](docs/cn/content-table.md)
 
 </div>
 
@@ -104,7 +109,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：6829 项测试全部通过 / 566 个测试文件 / 453,211 次 expect() 调用 / 函数覆盖率 98.53% / 行覆盖率 98.78%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：6940 项测试全部通过 / 583 个测试文件 / 455,825 次 expect() 调用 / 函数覆盖率 97.45% / 行覆盖率 97.83%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -267,7 +272,7 @@
 
 - **TTS 语音服务接入**：需在 `config/dynamic/agent.json` 中配置 `agent.tts`（支持 Google 原生、OpenAI 兼容 `audio/speech` 及 xAI Grok `/tts`；Google 端点支持配置 `base_url` 接入反向代理或网关）。可选 `bot_language`（`TTS_BOT_LANGUAGES`，缺省为 `TTS_DEFAULT_BOT_LANGUAGE`）用于指定 AI 语音台词的语言；在项目根目录放置 `prompt/voice_tool.md` 可完整覆盖 `send_voice` 工具的使用说明（重启生效，示例见 [`prompt_example/voice_tool.md`](prompt_example/voice_tool.md)）。AI 回复时会根据 `bot_language` 自动在声线后追加朗读语言指导；`style` 字段由 `/send` 与定时任务通用，建议只描述音色风格，切换 `bot_language` 时建议同步调整 `style` 与 `voice_tool.md`。
 - **配额物理隔离**：每日总配额 `daily_limit`（缺省 `TTS_DEFAULT_DAILY_LIMIT`）中切分出 `daily_reserve_quota`（缺省 `TTS_DEFAULT_DAILY_RESERVE_QUOTA`）专供 `/send` 与定时任务使用，AI 闲聊仅使用剩余额度；两套额度独立统计、互不挤占。配额窗口（`TTS_USAGE_WINDOW_MS`）从窗口内首次请求开始计时，到期后的首个请求会自动清零计数开启新周期。
-- **记忆准入机制**：`/send` 转发消息与定时语音不录入 AI 对话上下文；群内图片的自动记录仅在群内已启用 AI 且当前未处于复读状态时生效。详见 [11 常见问题](docs/cn/11-faq.md)。
+- **记忆准入机制**：`/send` 转发消息与定时语音不录入 AI 对话上下文；群内图片的自动记录仅在群内已启用 AI 且当前未处于复读状态时生效。详见 [12 常见问题](docs/cn/12-faq.md)。
 
 每项功能的完整行为细节、配置指南与系统边界请参阅 **[📚 开发者文档](docs/cn/content-table.md)**。
 
@@ -279,9 +284,9 @@
 
 - **群成员基础权限**：复读、按群翻译、中文动作、`/info` 查资料、`/wed` 抽老婆、`/h_image` 看图等日常群聊交互命令，所有群成员均可直接使用。
 - **身份策略权限（`isCanXxx`）**：群组管理与运维命令，包括 `/bot_status` 查看系统状态、`/mute` / `/unmute` 禁言控制、`/gag` 限制发言、`/block` 黑名单控制、`/h_image add` 图库入库以及各项功能的启停开关。通过细粒度权限列表单独授权。
-- **超级管理员专属（`SUPER_ADMIN_USER_ID`）**：`/init` 初始化群接管、`/permission` 权限分配、`/white disable` 移除白名单身份、`/batch_kick` 批量清理新成员、`/delete_message` 删除指定身份此后的发言，以及私聊专属的 `/send` 跨群中转。拥有 `isCanWhiteOther` 权限的普通白名单用户可通过 `/white enable` 协助添加成员，但仅能赋予默认的基础权限。
+- **超级管理员专属（`SUPER_ADMIN_USER_ID`）**：`/init` 初始化群接管、`/permission` 权限分配、`/white disable` 移除白名单身份、`/batch_kick` 批量清理新成员、`/delete_message` 删除指定身份此后的发言，以及私聊专属的 `/send` 跨群中转与左下角 `App` 菜单按钮（`MenuButtonWebApp`）打开的 Mini App 管理控制台。拥有 `isCanWhiteOther` 权限的普通白名单用户可通过 `/white enable` 协助添加成员，但仅能赋予默认的基础权限。
 
-图库与 cron 定时任务的配置和使用请参阅 [08 图库与定时任务](docs/cn/08-images-and-cron.md)，源码与二进制部署的离线冷迁移步骤请参阅 [运维手册](docs/cn/07-operations.md)。
+图库与 cron 定时任务的配置和使用请参阅 [08 图库与定时任务](docs/cn/08-images-and-cron.md)，Mini App 的设置与 Cloudflare Tunnel 推荐配置请参阅 [11 Mini App 设置与推荐配置](docs/cn/11-mini-app.md)，源码与二进制部署的离线冷迁移步骤请参阅 [运维手册](docs/cn/07-operations.md)。
 
 完整命令列表、权限要求与详细行为说明请参阅 **[📖 09 命令与行为参考](docs/cn/09-commands.md)**。
 
@@ -415,9 +420,14 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
     <td align="center"><nobr><a href="docs/cn/10-performance.md">📖 10 性能基准</a></nobr></td>
   </tr>
   <tr>
+    <td><nobr>🖥️ <b>Mini App 控制台</b></nobr></td>
+    <td><code>mini_app</code> 配置、Cloudflare Tunnel 推荐穿透方案、双层认证与 TOTP 绑定</td>
+    <td align="center"><nobr><a href="docs/cn/11-mini-app.md">📖 11 Mini App 设置与推荐配置</a></nobr></td>
+  </tr>
+  <tr>
     <td><nobr>❓ <b>排查没有回复</b></nobr></td>
     <td>机器人在运行却不回应时的逐条排查清单</td>
-    <td align="center"><nobr><a href="docs/cn/11-faq.md">📖 11 常见问题</a></nobr></td>
+    <td align="center"><nobr><a href="docs/cn/12-faq.md">📖 12 常见问题</a></nobr></td>
   </tr>
 </tbody>
 </table>
@@ -499,7 +509,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
 > [!TIP]
 > - **入群事件感知**：入群验证功能依赖群管理员身份（Telegram 仅向群管理员 Bot 推送成员进出群的系统事件）。
 > - **权限排查诊断**：当机器人因缺少权限导致操作失败时，会在日志或回执中明确指出缺失的具体权限项。拥有 `isCanViewBotStatus` 权限的成员可发送 `/bot_status` 实时查看机器人在当前群的完整权限清单。
-> - 若机器人在运行但无任何交互响应，请按 [11 常见问题](docs/cn/11-faq.md) 逐项排查。
+> - 若机器人在运行但无任何交互响应，请按 [12 常见问题](docs/cn/12-faq.md) 逐项排查。
 
 ---
 

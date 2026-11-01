@@ -26,7 +26,9 @@ import { telegramSignal } from "../../libs/telegramSignal";
 
 export { abortJob, resetRecoveryIfIdle };
 
+/** grammY `Transformer<RawApi>` 链向下游发起真实 HTTP 请求的调用函数类型。 */
 type PreviousCall = Parameters<Transformer<RawApi>>[0];
+/** Bot API `unbanChatMember` 的原始请求载荷类型。 */
 type UnbanChatMemberPayload = Parameters<RawApi["unbanChatMember"]>[0];
 /**
  * 判断 Bot API 原始响应是否为携带成员状态字段的成功对象。

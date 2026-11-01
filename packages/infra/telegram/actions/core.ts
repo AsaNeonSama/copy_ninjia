@@ -8,6 +8,7 @@ import { isAbortError } from "../../../libs/abortSignal";
 import { logApiError } from "../client";
 import { telegramErrorDetails } from "../errors";
 
+/** `runTelegramAction` 统一执行 Telegram 出站请求、结果映射与错误处理的入参。 */
 interface RunTelegramActionParams<T, R> {
   /** 日志中记录的动作描述。 */
   action: string;
@@ -127,6 +128,7 @@ export type PermissionAwareOutcome =
   | "participantInvalid"
   | "failed";
 
+/** `runPermissionAwareTelegramAction` 执行权限敏感 Telegram 动作的参数。 */
 export interface RunPermissionAwareTelegramActionParams {
   /** 日志中记录的动作描述。 */
   action: string;

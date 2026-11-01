@@ -43,11 +43,13 @@ import type {
 } from "../types/diskIO/replies";
 import type { UnacknowledgedChatStateWrite } from "../types/identityStorage";
 
+/** 群状态当前热表现编码后的序列化文本或删除墓碑。 */
 interface EncodedChatStateWrite {
   readonly data: string | null;
   readonly deleted: boolean;
 }
 
+/** 待按 revision 升序重放的未确认群状态写入条目。 */
 interface QueuedChatStateWrite {
   readonly chatId: number;
   readonly revision: number;

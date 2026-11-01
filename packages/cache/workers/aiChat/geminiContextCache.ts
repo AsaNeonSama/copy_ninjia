@@ -32,7 +32,7 @@ export function sweepGeminiReplyRequestTimes(now: number): void {
   }
 }
 
-/** Gemini 回复共用显式缓存输入内容与指纹单槽：replySession.ts 在 acquireGeminiContextCache 需要内容（扫描状态为 running 或 done）且模型、系统指令、工具声明 JSON 或 toolConfig 变化时重算并整体替换，resetGeminiContextCache 时置为 null；单例对象，Worker 重建后从 null 开始。 */
+/** Gemini 回复共用显式缓存输入内容与指纹单槽：replySession.ts 在 acquireGeminiContextCache 需要内容（扫描状态为 running 或 done）且模型、系统指令、工具声明 JSON 或 toolConfig 变化时重算并覆盖，resetGeminiContextCache 时重置为 null；单例对象，Worker 重建后从 null 开始。 */
 export const textGeminiReplyCacheContent: { current: GeminiReplyCacheContentSlot | null } = { current: null };
 
 /** 清空本地 Gemini 显式缓存登记表、各群最近请求时间与缓存内容单槽。 */

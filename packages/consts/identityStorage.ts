@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import type { StorageDatabaseMigrationJournalEntry } from "../types/storageDatabase";
 
 /** 黑名单、白名单与临时广告免检各自在主线程保留的热查询 LRU 容量。 */
@@ -18,7 +17,7 @@ export const IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES: number = 4_096;
  * 群级黑名单补扫一次从 SQLite 读取并投给 Anti-Raid Worker 的主键数上限。
  *
  * 游标页、跨线程消息与单群在途处置共用这一上限；不得把多页重新拼成全量数组。
- * 所属模块：infra/identityStorage/sweep.ts、cache/main/blocklist.ts、workers/diskIO/storageDatabase/identityPolicy.ts。
+ * 所属模块：infra/identityStorage/sweep.ts、workers/diskIO/storageDatabase/identityPolicy.ts。
  */
 export const BLOCKLIST_SWEEP_PAGE_SIZE: number = 512;
 
@@ -115,9 +114,3 @@ export const IDENTITY_DATABASE_DIRECTORY_MODE: number = 0o2770;
 
 /** SQLite 主库及 WAL/SHM 旁路文件权限；owner 与部署协作组均可读写。 */
 export const IDENTITY_DATABASE_FILE_MODE: number = 0o660;
-
-/** Drizzle 内建 migrator 读取的身份数据库 schema migration 目录。 */
-export const IDENTITY_DATABASE_MIGRATIONS_DIR: string = join(
-  Bun.isStandaloneExecutable ? process.cwd() : join(import.meta.dir, "..", ".."),
-  "packages/database/schema/migrations"
-);

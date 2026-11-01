@@ -13,7 +13,7 @@ export const unacknowledgedTemporaryAdBypassWrites: Map<
   UnacknowledgedTemporaryAdBypassWrite
 > = new Map();
 
-/** 临时广告免检写入的单调递增 revision 发号器：每次写入自增，Disk I/O Worker 重建不重置，进程重启或 resetTemporaryAdBypassCache 时归零。 */
+/** 临时广告免检写入的单调递增 revision 发号器：每次写入自增，Disk I/O Worker 重建不重置，进程重启或 resetTemporaryAdBypassCache 时归零；单例标量。 */
 export const temporaryAdBypassWriteRevision: { current: number } = { current: 0 };
 
 /** 清空临时广告免检未确认写入表与 revision 发号器（由 resetIdentityStorageCache 调用）。 */

@@ -82,7 +82,7 @@ WantedBy=multi-user.target
   sudo install -d -o copy-ninjia -g copy-ninjia -m 0750 /var/lib/copy-ninjia
   ```
   コンテナ運用の場合は、該当ディレクトリを永続ボリュームとしてマウントし、ホスト側または init コンテナで所有者を設定してください。`memory/` や `database/` をコンテナの一時レイヤーに配置してはなりません。
-- **自動補完と厳格な書き込み保護**：プログラム起動時にデータルート、`RUNTIME_SENSITIVE_DIRECTORY_NAMES` に列挙されたディレクトリ（`logs/`、`memory/`、`memory/global/`。上限モードは `packages/consts/paths.ts` の `RUNTIME_DATA_ROOT_MAX_MODE`）、および初期の `database/`（`packages/consts/identityStorage.ts` の `IDENTITY_DATABASE_DIRECTORY_MODE`）が存在しない場合は自動作成されます（実際の権限はプロセスの umask により制限されます）。いずれのディレクトリも**シンボリックリンクは拒否**されます。データルートおよび `RUNTIME_SENSITIVE_DIRECTORY_NAMES` は実行 UID が所有者であり、かつパーミッションが `RUNTIME_DATA_ROOT_MAX_MODE` 以下でなければなりません。group または other に書き込み権限（`w`）が検知された場合は**起動を拒否**します。
+- **自動補完と厳格な書き込み保護**：プログラム起動時にデータルート、`RUNTIME_SENSITIVE_DIRECTORY_NAMES` に列挙されたディレクトリ（`logs/`、`memory/`、`memory/global/`。上限モードは `packages/consts/storage.ts` の `RUNTIME_DATA_ROOT_MAX_MODE`）、および初期の `database/`（`packages/consts/identityStorage.ts` の `IDENTITY_DATABASE_DIRECTORY_MODE`）が存在しない場合は自動作成されます（実際の権限はプロセスの umask により制限されます）。いずれのディレクトリも**シンボリックリンクは拒否**されます。データルートおよび `RUNTIME_SENSITIVE_DIRECTORY_NAMES` は実行 UID が所有者であり、かつパーミッションが `RUNTIME_DATA_ROOT_MAX_MODE` 以下でなければなりません。group または other に書き込み権限（`w`）が検知された場合は**起動を拒否**します。
 
 > [!WARNING]
 > **マルチテナント環境のデータセキュリティ**：
@@ -120,11 +120,12 @@ WantedBy=multi-user.target
 - **書き込みメカニズム**：メインスレッドが排他的にアトミック書き込みを行い（一時ファイル + fsync + アトミック rename）、Disk I/O Worker はこのディレクトリに直接触れません。`copy` の変更は即座にディスクへ反映され、`ttsUsage` は `STATE_BACKGROUND_SAVE_DELAY_MS` のマージウィンドウを経てバックグラウンドで flush されます。正常終了時は未書き込みの変更を安全にコミットしますが、突発的な SIGKILL 等ではウィンドウ内の未永続化カウントが失われる可能性があります。
 - **手動変更**：サービスを停止して inactive であることを確認し、ワークツリー外で `mktemp -d` を用いてファイルとメタデータを完全バックアップした上で編集してください。未変更のフィールドは保持し、厳格なパース検証を行い、問題がないことを確認してから起動します。
 - **データルート直下の残留ファイル**：データルート直下に `state.json` または `state.json.bak` が残存している場合、起動およびインストーラーはエラー終了します。先に[段階的アップグレード](#staged-upgrade)で 17.2.1 へ上げてその移行を完了し、このファイルをデータルート外へ移動してください。
+- **Mini App 認証器：`memory/mini-app-totp/totp.json`**（任意、詳細は [11 Mini App の設定方法と推奨構成](11-mini-app.md) を参照）：スーパー管理者が Mini App の「認証器」タブで単一の Google Authenticator (TOTP) シークレットを登録すると、メインスレッドが `{ version: 1, secret, createdAt }` をアトミック書き込み（一時ファイル + `fsync` + `rename`、パーミッション `0o600`）で永続化します。起動時の composition 境界で 1 回だけ厳格に検証してメモリキャッシュへ読み込まれ、インストーラーの事前検査も同じ基準で読み取り専用に検証し（ファイル未作成は未バインド扱い、通常ファイル以外や不正形式は起動とインストールを拒否）、稼働中の認証や状態照会はディスク I/O ゼロで動作し、追加・変更・削除時のみ即座にディスクへ反映されます。
 
 ### 2. エロ画像専用ライブラリ：`random_h_image_dir`
-- **役割と内容**：`config/dynamic/assets.json` の `onlyPath.random_h_image_dir` で指定（デフォルトは `packages/consts/paths.ts` の `RANDOM_H_IMAGE_DIR`、データルート基準で解決）。`/h_image` およびディレクトリ未指定の cron `rand_image` はここから均等に抽選し、`/h_image add` で画像が収集されます。
-- **ファイル仕様**：`RANDOM_IMAGE_CONTENT_NAME_PATTERN`（**画像バイナリコンテンツの SHA-256** の小文字 16 進数に `packages/consts/randomImage.ts` の `RANDOM_IMAGE_EXTENSIONS` の拡張子を付与した形式）に一致するファイル名でなければなりません。他機能の画像ファイルが混入することは厳禁です。
-- **起動時検査**：ディレクトリが存在しない場合は自動作成されます。ディレクトリエントリを 1 件ずつ走査し、不正なファイル名、サブディレクトリ、シンボリックリンク、および残存する `RANDOM_IMAGE_TEMP_PREFIX`（`.h_image-add-*`）一時ファイルが存在する場合は**起動を拒否**します。規約に適合した画像の追加や削除はプロセスの再起動を必要としません。稼働中に設定パスを変更した場合は、まず新ディレクトリを同等基準で事前検査し、失敗した場合は変更全体を拒否します。
+- **役割と内容**：`config/dynamic/assets.json` の `onlyPath.random_h_image_dir` で指定（デフォルトは `packages/consts/ui/assets.ts` の `RANDOM_H_IMAGE_DIR`、データルート基準で解決）。`/h_image` およびディレクトリ未指定の cron `rand_image` はここから均等に抽選し、`/h_image add` または Mini App 画像庫で画像の収集・削除が行われます。
+- **ファイル仕様**：`RANDOM_IMAGE_CONTENT_NAME_PATTERN`（**画像バイナリコンテンツの SHA-256** の小文字 16 進数に `packages/consts/imageGallery.ts` の `RANDOM_IMAGE_EXTENSIONS` の拡張子を付与した形式）に一致するファイル名でなければなりません。他機能の画像ファイルが混入することは厳禁です。
+- **起動時検査**：ディレクトリが存在しない場合は自動作成されます。ディレクトリエントリを 1 件ずつ走査してメモリキャッシュへ読み込み、不正なファイル名、サブディレクトリ、シンボリックリンク、および残存する `RANDOM_IMAGE_TEMP_PREFIX`（`.h_image-add-*`）一時ファイルが存在する場合は**起動を拒否**します。`/h_image add` や Mini App 画像庫を通じた画像の追加・削除はメモリキャッシュへ即座に同期されるためプロセスの再起動を必要としません。稼働中に設定パスを変更した場合は、まず新ディレクトリを同等基準で事前検査してキャッシュを更新し、失敗した場合は変更全体を拒否します。ディレクトリへ手動で置いた画像はメモリキャッシュに入らず、サービス再起動（またはホットリロードでこのディレクトリへ切り替えたとき）まで抽選と Mini App 画像庫に現れません。手動で削除した画像は、抽選で引かれたとき、または Mini App 画像庫で読み取られたときに検出されキャッシュから除かれます。
 
 ### 3. グループ嫁候補ライブラリ：`memory/wed/<chatId>.json`
 - **役割と内容**：グループごとに発言済みメンバーのスライディングウィンドウを 1 つ保持し、ファイルは参加順に並んだオブジェクト配列です（例: `[{"id":5974478892,"enteredAt":1791770134683}]`）。`enteredAt` はメンバーがウィンドウに入った時点の Unix ミリ秒タイムスタンプです。メインスレッドはグループごとに長期再利用される `Map<number, number>`（メンバー ID → 参加時刻）を管理します。グループ数の上限は `STATE_MANAGED_CHAT_LIMIT`、単一グループのウィンドウ容量は `WED_MEMBER_LIMIT` です。

@@ -35,6 +35,10 @@ export const BENCHMARK_AGENT_API_KEY: string = "benchmark-only-agent-api-key";
 export const BENCHMARK_BOT_TOKEN: string =
   "123456789:benchmark-only-telegram-bot-token";
 
+/** 性能夹具使用的非占位 Mini App 密码（含至少 6 位数字）。 */
+export const BENCHMARK_MINI_APP_PASSWORD: string =
+  "benchmark-only-mini-app-password-908172";
+
 /**
  * 每轮运行时数据根在本次运行目录下的前缀（充当 COPY_NINJIA_DATA_ROOT）。
  *
@@ -139,6 +143,18 @@ export const CHAIN_CRON_RELOAD_OPERATIONS: number = 24;
 
 /** cron.json 中途变更链路的预热次数；每次完整跑一轮热重载。 */
 export const CRON_RELOAD_WARMUP_OPERATIONS: number = 4;
+
+/**
+ * Mini App 端到端 HTTP API 请求链路的计时次数。
+ *
+ * 一次 = 从 `Bun.serve` 路由处理器入口完成请求头护栏、Telegram WebApp `initData`
+ * HMAC-SHA256 签名与超管身份核验、45 分钟密码会话核验与续期、受管群状态与 Disk I/O
+ * Worker 过去 24 小时入群日志 1–24 小时滑窗聚合查询、以及 HTTP JSON 响应序列化与解析。
+ */
+export const CHAIN_MINI_APP_API_REQUESTS: number = 400;
+
+/** Mini App API 请求链路在每个受管群近 1 小时窗口预先播种的入群日志条数。 */
+export const MINI_APP_API_SEED_JOIN_EVENTS_PER_CHAT: number = 4;
 
 /** AI 回复链路的预热次数；每次完整执行一轮回复及生产拟人停顿。 */
 export const AI_REPLY_WARMUP_OPERATIONS: number = 8;

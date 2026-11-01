@@ -41,5 +41,5 @@ export const RATE_LIMIT_NOTICE_COOLDOWN_MS: number = 60_000;
 export const ABUSE_MARK_DURATION_MINUTES: number = 5;
 /** 被 abuse_mark 工具标记的用户在主线程不再进入 AI 闲聊的冷却时长（毫秒）。 */
 export const ABUSE_MARK_DURATION_MS: number = ABUSE_MARK_DURATION_MINUTES * MINUTE_MS;
-/** 主线程最多同时保留的 abuse_mark 标记用户数；满额按 FIFO 淘汰最早项。所属模块：cache/main/aiChat.ts。 */
+/** 主线程最多同时保留的 abuse_mark 标记用户数；满额按 FIFO 淘汰最早项。所属模块：aiChat/abuseMark.ts 与 cache/main/aiChat.ts。 */
 export const ABUSE_MARK_MAX_USERS: number = 1_024;

@@ -246,7 +246,7 @@ function cronConfigReloadChain(dependencies: ConfigChainDependencies): ChainDefi
 }
 
 /**
- * 返回配置链路定义；其余链路交给 storageChains 与 commandChains。
+ * 返回配置链路定义；其余链路交给 storageChains、commandChains 与 miniAppChains。
  * @param chain 目标链路标识名。
  * @param dependencies 配置链路依赖集合。
  * @returns 若属于配置链路则返回对应定义，否则返回 `undefined`。
@@ -266,6 +266,7 @@ export function createConfigChain(
     case "diagnostic-log":
     case "ad-detect-command":
     case "ai-reply-command":
-    case "cron-send-voice": return undefined;
+    case "cron-send-voice":
+    case "mini-app-api-request": return undefined;
   }
 }

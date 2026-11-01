@@ -13,7 +13,7 @@ export const aiProviderQuotaLanes: AiProviderQuotaLane[] = [];
 
 /**
  * 各项能力的稳定门面缓存。
- * 填充：能力门面首次读取时写入；清理：reloadAgentDeploymentConfig 与 resetAiProviderFacades 置空；重建：Worker 重启后从空门面按需重建；容量：固定为 AgentCapability 字段集合。
+ * 填充：能力门面首次读取时写入；清理：reloadAgentDeploymentConfig 与 resetAiProviderFacades 重置为空；重建：Worker 重启后从空门面按需重建；容量：固定为 AgentCapability 字段集合，不淘汰。
  */
 export const aiProviderFacades: AiProviderFacadeCache = {
   text: undefined,

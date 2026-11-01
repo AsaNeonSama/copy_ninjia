@@ -157,6 +157,7 @@ function attemptReminderDelivery(
   void trackAntiRaidTask({ task });
 }
 
+/** `sendReminderMessage` 发起待验证提醒投递的参数。 */
 interface SendReminderMessageParams {
   /** 群组 ID。 */
   chatId: number;
@@ -215,6 +216,7 @@ function sendReminderMessage({
   attemptReminderDelivery(delivery, dispatchVerification);
 }
 
+/** `sendVerificationReminder` 发送原始独立验证提醒的参数。 */
 interface SendVerificationReminderParams {
   /** 群组 ID。 */
   chatId: number;
@@ -250,6 +252,7 @@ export function sendVerificationReminder({
   });
 }
 
+/** `sendReplyReminder` 发送回复式验证提醒的参数。 */
 interface SendReplyReminderParams {
   /** 群组 ID。 */
   chatId: number;
@@ -288,6 +291,7 @@ export function sendReplyReminder({
   });
 }
 
+/** `ensurePendingReminder` 按当前待验证状态补发提醒的参数。 */
 interface EnsurePendingReminderParams {
   /** 群组 ID。 */
   chatId: number;

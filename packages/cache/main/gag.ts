@@ -10,7 +10,7 @@ import type { GagSession } from "../../types/gag";
  */
 export const gagSessionsByChat: Map<number, GagSession[]> = new Map();
 
-/** gag 新会话准入开关：启动时为 true，停机 quiesce 时置为 false；单例布尔值，进程重启后恢复为 true。 */
+/** gag 新会话准入开关：启动时写入 true，停机 quiesce 时重置为 false；不淘汰，单例布尔值，进程重启后恢复为 true。 */
 export const gagRuntimeAccepting: { current: boolean } = { current: true };
 
 /** gag 到期清理、删除重试与入口换新的在途后台任务集合：任务发起时登记，结算时自摘除；容量与 GAG_SESSION_MAX 同阶，进程重启后从空集开始。 */

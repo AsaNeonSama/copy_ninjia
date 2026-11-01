@@ -7,6 +7,7 @@ export interface HotPathSamplingProfileSummary {
   readonly ftlPercent: number;
 }
 
+/** `bun:jsc` 采样剖析器输出的函数与字节码原始文本对。 */
 export interface HotPathSamplingProfileText {
   readonly functions: string;
   readonly bytecodes: string;

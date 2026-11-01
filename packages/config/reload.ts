@@ -33,7 +33,7 @@ import {
   STICKERS_CONFIG_PATH,
 } from "../consts/paths";
 import { DEFAULT_ASSET_CONFIG } from "../consts/ui/assets";
-import { ensureRandomImageDirectory } from "../infra/randomImage";
+import { ensureRandomImageDirectory } from "../infra/imageGallery";
 import type { CronAgentShortfall, CronConfig } from "../types/cron";
 import { InputValidationError } from "../libs/inputValidation";
 import type {

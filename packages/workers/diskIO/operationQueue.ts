@@ -4,7 +4,7 @@ import { diskIOOperationCount, diskIOOperationTail } from "../../cache/workers/d
 import { DISK_WORKER_MAX_QUEUED_OPERATIONS } from "../../consts/diskIO/business";
 
 /** 一项 Disk I/O 操作；同步维护任务与异步内容读取共用同一签名。 */
-export type DiskIOOperation = () => void | Promise<void>;
+type DiskIOOperation = () => void | Promise<void>;
 
 /** 单项 Disk I/O 串行操作结算时归还队列计数的共用回调。 */
 function onDiskIOOperationSettled(): void {

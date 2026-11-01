@@ -273,7 +273,7 @@ function replyActionInstruction(voiceDuplicateRule: string): string {
 /**
  * 按 `agent.tts.bot_language` 注册的语音相关提示词与合成朗读语言说明，键与 TtsBotLanguage 一一对应。
  * prompt/voice_tool.md 存在时 send_voice 的说明改用其正文（见 aiChat/ai/tools/replyToolset/voiceMessage.ts 的 buildSendVoiceToolDefinition）。
- * 所属模块：aiChat/ai/tools/replyToolset。
+ * 所属模块：aiChat/ai/tools/replyToolset/orchestrator.ts。
  */
 export const VOICE_LANGUAGE_PROMPTS: Readonly<Record<TtsBotLanguage, Readonly<VoiceLanguagePrompts>>> = {
   en: {

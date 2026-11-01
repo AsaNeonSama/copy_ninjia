@@ -14,7 +14,7 @@ export const COPY_COOLDOWN_MS: number = 5 * 60 * 1000;
 
 /**
  * 命令参数接受的用户名最小长度，不含可选的 @ 前缀；
- * 由 USERNAME_ARG_PATTERN 使用，所属模块：commands/targetResolution.ts。
+ * 所属模块：consts/commands.ts（USERNAME_ARG_PATTERN）。
  */
 export const TELEGRAM_USERNAME_MIN_LENGTH: number = 5;
 /** Telegram 用户名允许的最大长度。 */

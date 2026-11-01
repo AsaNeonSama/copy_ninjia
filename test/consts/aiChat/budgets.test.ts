@@ -59,7 +59,7 @@ describe("AI 回复动作预算", () => {
     expect(HARD_MAX_ACTIONS_PER_REPLY).toBeGreaterThan(AI_MAX_ACTIONS_PER_REPLY);
   });
 
-  /** 表情反应与其余动作共用同一份预算（见 replyToolset/orchestrator.ts 的 ACTION_TOOL_NAMES）。 */
+  /** 表情反应与其余动作共用同一份预算（见 consts/tools.ts 的 ACTION_TOOL_NAMES 与 replyToolset/orchestrator.ts）。 */
   test("单轮反应上限不超过整轮动作硬顶", () => {
     expect(MAX_REACTIONS_PER_REPLY).toBeLessThanOrEqual(HARD_MAX_ACTIONS_PER_REPLY);
   });

@@ -22,7 +22,7 @@ async function projectFixture(): Promise<{
   temporaryRoots.push(root);
   const trackedFiles: readonly string[] = [
     "packages/consts/diskIO/common.ts",
-    "packages/consts/randomImage.ts",
+    "packages/consts/imageGallery.ts",
     "scripts/conventions/markdownPaths.ts",
     "test/scripts/markdownPaths.test.ts",
     "docs/cn/07-operations.md",
@@ -72,7 +72,7 @@ describe("文档仓库路径核对", () => {
     const { root, repositoryPaths } = await projectFixture();
     expect(await problemsFor(root, repositoryPaths, [
       "- `packages/consts/diskIO/common.ts`",
-      "- `packages/consts/randomImage.ts`",
+      "- `packages/consts/imageGallery.ts`",
       "- `packages/consts/diskIO/` 与 `packages/consts/diskIO`",
       "- `scripts/conventions/`、`test/scripts/`、`docs/cn/07-operations.md`",
       "- `config_example/static/bot.json`、`prompt_example/system.md`、`public/coverage_light.svg`、`LICENSES/LICENSE`",
@@ -113,7 +113,7 @@ describe("文档仓库路径核对", () => {
       "- `packages/infra/telegram/actions/*`",
       "- `packages/workers/diskIO/verification{Codec,Recovery,Writes}.ts`",
       "- `test/commands/xxx.test.ts`",
-      "- `packages/consts/randomImage.ts:10`",
+      "- `packages/consts/imageGallery.ts:10`",
       "- `docs/cn/04-invariants.md#persistence`",
     ].join("\n"))).toEqual([]);
   });

@@ -17,11 +17,16 @@ import {
   isWhitelisted,
   setWhitelistPermission,
 } from "../infra/identityPolicy/whitelist";
+import { runProtectedIdentityMutation } from "../infra/identityPolicy/coordination";
 import { SUPER_ADMIN_USER_ID } from "../config/bot";
 import { MARKDOWN_V2_PARSE_MODE } from "../consts/telegramMarkdown";
 import { escapeMarkdownV2, markdownV2Pre } from "../libs/telegramMarkdown";
 
-import { confirmIdentityPolicyPersisted, prefetchIdentityPolicies } from "../infra/identityStorage";
+import {
+  confirmIdentityPolicyPersisted,
+  isIdentityPolicyCached,
+  prefetchIdentityPolicies,
+} from "../infra/identityStorage";
 import { logger } from "../infra/logger";
 import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { formatActorLabel, formatTargetLabel } from "../users/userLabel";
@@ -234,17 +239,43 @@ async function handlePermissionMutation(
     await replyCommandNotice(ctx, chatAtmosphere().PERMISSION_COMMAND_TEXTS.superAdminTarget);
     return;
   }
-  if (!isWhitelisted(target.id)) {
-    const atmosphere: AtmosphereTexts = chatAtmosphere();
-    await replyCommandNotice(ctx, atmosphere.PERMISSION_COMMAND_TEXTS.targetNotWhitelisted(formatTargetLabel(target, atmosphere)));
-    return;
-  }
 
   let result: SetWhitelistPermissionResult;
   try {
-    result = mutation.kind === "all"
-      ? enableAllWhitelistPermissions(target.id)
-      : setWhitelistPermission({ id: target.id, key: mutation.key, value: mutation.value });
+    const outcome:
+      | { readonly kind: "unavailable" }
+      | { readonly kind: "notWhitelisted" }
+      | { readonly kind: "updated"; readonly result: SetWhitelistPermissionResult } =
+        await runProtectedIdentityMutation(
+          async (): Promise<
+            | { readonly kind: "unavailable" }
+            | { readonly kind: "notWhitelisted" }
+            | { readonly kind: "updated"; readonly result: SetWhitelistPermissionResult }
+          > => {
+            if (!isIdentityPolicyCached(target.id) && !await prefetchIdentityPolicies([target.id])) {
+              return { kind: "unavailable" };
+            }
+            if (!isWhitelisted(target.id)) {
+              return { kind: "notWhitelisted" };
+            }
+            return {
+              kind: "updated",
+              result: mutation.kind === "all"
+                ? enableAllWhitelistPermissions(target.id)
+                : setWhitelistPermission({ id: target.id, key: mutation.key, value: mutation.value }),
+            };
+          }
+        );
+    if (outcome.kind === "unavailable") {
+      await replyCommandNotice(ctx, chatAtmosphere().IDENTITY_POLICY_UNAVAILABLE_TEXT);
+      return;
+    }
+    if (outcome.kind === "notWhitelisted") {
+      const atmosphere: AtmosphereTexts = chatAtmosphere();
+      await replyCommandNotice(ctx, atmosphere.PERMISSION_COMMAND_TEXTS.targetNotWhitelisted(formatTargetLabel(target, atmosphere)));
+      return;
+    }
+    result = outcome.result;
     await confirmIdentityPolicyPersisted("whitelist", target.id, !result.changed);
   } catch (error: unknown) {
     await reportWhitelistMutationFailure(ctx, target.id, error);

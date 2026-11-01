@@ -30,6 +30,7 @@ export const CACHE_OWNER_BY_PREFIX: readonly CacheOwnerPrefix[] = [
  */
 export const CACHE_OWNER_EXEMPTIONS: Readonly<Record<string, readonly string[]>> = {};
 
+/** `collectCacheOwnershipProblems` 核对缓存模块线程归属的参数。 */
 export interface CollectCacheOwnershipProblemsParams {
   /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
@@ -149,6 +150,7 @@ export function expectedCacheOwnerHeader(relativePath: string): string | null {
   return null;
 }
 
+/** `collectCacheOwnerHeaderProblems` 核对缓存文件首行 owner 头注的参数。 */
 export interface CollectCacheOwnerHeaderProblemsParams {
   /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;

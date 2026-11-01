@@ -18,8 +18,8 @@ import type {
 export const adDetectQueue: LinkedQueue<string> = new LinkedQueue<string>();
 
 /**
- * 当前排在 adDetectQueue 中的发言者键集合，随队列入队与出队同步增删。
- * 清理：派发出队、按群摘键或 Worker 停止时删除；重建：Worker 重启后从空集合开始；容量：上限为 AD_DETECT_MAX_PENDING_SENDERS。
+ * 当前排在 adDetectQueue 中的发言者键集合，随队列入队登记、随出队同步删除。
+ * 清理：派发出队、按群摘键或 Worker 停止时删除；重建：Worker 重启后从空集合开始；容量：上限为 AD_DETECT_MAX_PENDING_SENDERS，满载时拒收新键而不淘汰已有项。
  */
 export const queuedAdDetectKeys: Set<string> = new Set<string>();
 
@@ -58,13 +58,14 @@ export const referencedAdWarningGeneration: { current: number } = { current: 0 }
 export const pendingAdMessages: Map<number, Map<number, AdMessageBundle>> = new Map();
 
 /**
- * pendingAdMessages 两层合计的消息串总数，随 queueState.ts 增删同步更新，清空时归零。
+ * pendingAdMessages 两层合计的消息串总数。
+ * 填充：新增待检消息串时递增；清理：消息串删除或清空时递减或归零；重建：Worker 重启后从 0 开始；容量：固定为单个数值 holder（上限 AD_DETECT_MAX_PENDING_SENDERS）。
  */
 export const pendingAdBundleCount: { current: number } = { current: 0 };
 
 /**
  * 按当前广告样本快照拼接的判定提示词缓存。
- * 填充：classifier.ts 首次判定时构造写入；清理：收到新广告样本快照时由 workers/antiRaid/adDetect/config.ts 置空；重建：Worker 重启后从 null 按需重建；容量：固定为单个槽位。
+ * 填充：classifier.ts 首次判定时构造并写入；清理：收到新广告样本快照时由 workers/antiRaid/adDetect/config.ts 重置为 null；重建：Worker 重启后从 null 按需重建；容量：固定为单个槽位。
  */
 export const adDetectPrompts: { current: AdDetectPrompts | null } = { current: null };
 
@@ -81,26 +82,26 @@ export const inFlightAdDetectKeys: Set<string> = new Set<string>();
 export const inFlightReferencedAdCleanupTasks: Set<Promise<void>> =
   new Set<Promise<void>>();
 
-/** 上一轮派发是否触及全局在途上限，用于边沿告警去重；容量固定为单个布尔值，Worker 重启后恢复为 false。 */
+/** 上一轮派发是否触及全局在途上限，用于边沿告警去重：触及上限时写入 true，有空位或 Worker 停止时重置为 false；容量固定为单个布尔值，Worker 重启后恢复为 false。 */
 export const adDetectSaturated: { current: boolean } = { current: false };
 
-/** 待检队列上一轮是否触及容量上限，用于边沿告警去重；容量恢复或 Worker 重启后恢复为 false。 */
+/** 待检队列上一轮是否触及容量上限，用于边沿告警去重：触及容量上限时写入 true，容量恢复或 Worker 停止时重置为 false；容量固定为单个布尔值，Worker 重启后恢复为 false。 */
 export const adDetectCapacitySaturated: { current: boolean } = { current: false };
 
 /**
- * 广告检测流水线是否已进入停机排空阶段（quiesceAdDetectQueue 置 true，启动或停止时置 false）。
+ * 广告检测流水线是否已进入停机排空阶段：quiesceAdDetectQueue 调用时写入 true，启动或停止时重置为 false；重建：Worker 重启后从 false 开始；容量：固定为单个布尔值。
  */
 export const adDetectStopping: { current: boolean } = { current: false };
 
-/** 广告检测批处理节拍 interval 句柄；Worker 启动时创建，停止时清除，容量固定为单个 timer。 */
+/** 广告检测批处理节拍 interval 句柄；Worker 启动时创建，停止时清除，重建后从 null 开始，容量固定为单个 timer。 */
 export const adDetectTickTimer: { current: ReturnType<typeof setInterval> | null } = { current: null };
 
-/** 广告判定命中后回投主线程的发送回调 holder；启动时注入，停止时置空，容量固定为单个回调。 */
+/** 广告判定命中后回投主线程的发送回调 holder；启动时注入，停止时重置为 null，Worker 重启后从 null 重新注入，容量固定为单个回调。 */
 export const adDetectPublishHolder: {
   current: ((event: AdDetectedEvent) => void) | null;
 } = { current: null };
 
-/** 广告判定为真时通知主线程清零无广告连续日计数的回调 holder；启动时注入，停止时置空，容量固定为单个回调。 */
+/** 广告判定为真时通知主线程清零无广告连续日计数的回调 holder；启动时注入，停止时重置为 null，Worker 重启后从 null 重新注入，容量固定为单个回调。 */
 export const adVerdictTruePublishHolder: {
   current: ((event: AdVerdictTrueEvent) => void) | null;
 } = { current: null };

@@ -1,3 +1,4 @@
+/** 参与群 teardown 生命周期清理的运行态与持久化 owner 标识（派发顺序见 consts/chatTeardown.ts 的 CHAT_TEARDOWN_ORDER）。 */
 export type ChatRuntimeOwner = "copy" | "translate" | "gag" | "deleteMessage" | "aiChat" | "antiRaid" | "qa" | "wed" | "joinLog";
 /**
  * 一次群 teardown 的起因，决定 owner 是只停运行态还是连同本群持久化数据一并删除。
@@ -18,6 +19,7 @@ export type ChatTeardownReason = "explicitDisable" | "departed" | "gone" | "lost
 
 /** 机器人已离开群或群已不存在时的收尾起因，见 infra/botAdmin.ts 的 completeChatDeparture。 */
 export type ChatDepartureReason = Extract<ChatTeardownReason, "departed" | "gone">;
+/** 单个 ChatRuntimeOwner 注册到 chatTeardownRegistry 的群清理回调。 */
 export type ChatTeardownCallback = (
   chatId: number,
   reason: ChatTeardownReason

@@ -7,8 +7,8 @@
 export const antiRaidInFlightTasks: Set<Promise<unknown>> = new Set();
 
 /**
- * 任务追踪器生命周期代际号，Worker 停止时递增以忽略旧代际任务的迟到结算。
- * 重建：Worker 重启后从零开始；容量：固定为单个数值 holder。
+ * 任务追踪器生命周期代际号，resetAntiRaidTaskTracker 或 Worker 停止时递增以使旧代际任务的迟到结算失效。
+ * 重建：Worker 重启后归零；容量：固定为单个数值 holder。
  */
 export const antiRaidTaskTrackerGeneration: { current: number } = { current: 0 };
 

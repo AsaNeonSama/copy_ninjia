@@ -1,42 +1,42 @@
-/** cron `send_web_digest` 联网摘要（libs/webDigest.ts、libs/webDigestMarkdown.ts、config/cron.ts、consts/aiChat/prompts/webDigest.ts）的格式常量。 */
+/** cron `send_web_digest` 联网摘要（libs/webDigest.ts、libs/webDigestMarkdown.ts、config/cronAction.ts、consts/aiChat/prompts/webDigest.ts）的格式常量。 */
 
 import type { WebDigestLanguage } from "../types/webDigest";
 import { exhaustiveList } from "./exhaustiveList";
 
 /** 摘要标题的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_TITLE_MAX_CHARS: number = 80;
-/** 导语的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 导语的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_SUMMARY_MAX_CHARS: number = 300;
-/** 小节名的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 小节名的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_HEADING_MAX_CHARS: number = 40;
-/** 条目标题的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 条目标题的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_ITEM_TITLE_MAX_CHARS: number = 120;
-/** 条目正文的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 条目正文的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_ITEM_BODY_MAX_CHARS: number = 400;
-/** 来源名的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 来源名的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_SOURCE_MAX_CHARS: number = 40;
-/** 条目时间说明的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 条目时间说明的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_TIME_MAX_CHARS: number = 32;
-/** 结语的最大字符数。所属模块：libs/webDigest.ts。 */
+/** 结语的最大字符数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_CLOSING_MAX_CHARS: number = 200;
 /** 来源地址的最大字符数。所属模块：libs/webDigest.ts、libs/webDigestUrls.ts。 */
 export const WEB_DIGEST_URL_MAX_CHARS: number = 2_048;
-/** 一份摘要最多的小节数。所属模块：libs/webDigest.ts。 */
+/** 一份摘要最多的小节数。所属模块：libs/webDigest.ts、consts/aiChat/prompts/webDigest.ts。 */
 export const WEB_DIGEST_MAX_SECTIONS: number = 3;
 
-/** cron.json `payload.topic` 的最大字符数（单行）。所属模块：config/cron.ts。 */
+/** cron.json `payload.topic` 的最大字符数（单行）。所属模块：config/cronAction.ts。 */
 export const WEB_DIGEST_TOPIC_MAX_CHARS: number = 200;
-/** cron.json `payload.instructions` 任务规则的最大字符数。所属模块：config/cron.ts。 */
+/** cron.json `payload.instructions` 任务规则的最大字符数。所属模块：config/cronAction.ts。 */
 export const WEB_DIGEST_INSTRUCTIONS_MAX_CHARS: number = 500;
-/** cron.json `payload.max_items` 允许的最小值。所属模块：config/cron.ts。 */
+/** cron.json `payload.max_items` 允许的最小值。所属模块：config/cronAction.ts。 */
 export const WEB_DIGEST_MIN_ITEMS: number = 1;
-/** cron.json `payload.max_items` 允许的最大值。所属模块：config/cron.ts。 */
+/** cron.json `payload.max_items` 允许的最大值。所属模块：config/cronAction.ts。 */
 export const WEB_DIGEST_MAX_ITEMS: number = 15;
-/** cron.json `payload.max_items` 缺省时的条目上限。所属模块：config/cron.ts。 */
+/** cron.json `payload.max_items` 缺省时的条目上限。所属模块：config/cronAction.ts。 */
 export const WEB_DIGEST_DEFAULT_MAX_ITEMS: number = 5;
-/** cron.json `payload.language` 缺省时的摘要语言。所属模块：config/cron.ts。 */
+/** cron.json `payload.language` 缺省时的摘要语言。所属模块：config/cronAction.ts。 */
 export const WEB_DIGEST_DEFAULT_LANGUAGE: WebDigestLanguage = "zh";
-/** cron.json `payload.language` 接受的全部取值。所属模块：config/cron.ts。 */
+/** cron.json `payload.language` 接受的全部取值。所属模块：config/cronAction.ts。 */
 export const WEB_DIGEST_LANGUAGES: readonly WebDigestLanguage[] = exhaustiveList<WebDigestLanguage>()(["zh", "ja", "en"]);
 
 /**
@@ -69,12 +69,12 @@ export const WEB_DIGEST_UNSEARCHED_WARNING: string = "注意，以下可能为�
  * 一次组稿流水线里单次模型调用的上限：取三家实现包 `text` 与 `web_search` 档位超时的最大值
  * （GEMINI/OPENAI/ANTHROPIC_REQUEST_TIMEOUTS_MS），档位内已含 SDK 自身的重试；
  * 与那三张表的一致性由 test/consts/webDigest.test.ts 核对。
- * 所属模块：aiChat/webDigest.ts。
+ * 所属模块：consts/webDigest.ts（派生 WEB_DIGEST_REQUEST_TIMEOUT_MS，供 aiChat/webDigest.ts 使用）。
  */
 export const WEB_DIGEST_MODEL_CALL_TIMEOUT_MS: number = 180_000;
 /**
  * 组稿流水线的排队余量：每次模型调用开始前在配额通道里等待的时间不计入单次调用超时。
- * 所属模块：aiChat/webDigest.ts。
+ * 所属模块：consts/webDigest.ts（派生 WEB_DIGEST_REQUEST_TIMEOUT_MS，供 aiChat/webDigest.ts 使用）。
  */
 export const WEB_DIGEST_QUEUE_ALLOWANCE_MS: number = 60_000;
 /**

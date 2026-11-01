@@ -39,7 +39,7 @@ export const MEDIA_FILE_METADATA_TIMEOUT_MS: number = 15_000;
  * 内联媒体请求的整体字节预算：取 Gemini 官方对内联数据整个请求（提示词、system
  * 指令与 base64 字节合计）的上限，各家实现共用同一份媒体字节、按这一上限取。Anthropic 的单图
  * 上限更低，超出的那一份由端点按单份媒体拒绝，不改变模态结论。
- * 所属模块：本文件与 consts/aiChat/voice.ts 的字节上限推导。
+ * 所属模块：consts/aiChat/media.ts（用于推导 MEDIA_MAX_DOWNLOAD_BYTES）。
  */
 export const MEDIA_INLINE_REQUEST_MAX_BYTES: number = 20_000_000;
 /** 内联请求里留给提示词、system 指令与请求封装的字节余量；所属模块同 MEDIA_INLINE_REQUEST_MAX_BYTES。 */
@@ -61,7 +61,7 @@ export const MEDIA_DESCRIPTION_MAX_CONCURRENCY: number = 32;
 export const MEDIA_DESCRIPTION_MAX_PENDING: number = 256;
 
 /**
- * 模态探测在连续瞬时失败后的首次退避时长（见
+ * 模态探测在连续瞬时失败后的首次退避时长（见 states/mediaInputSupport.ts 与
  * cache/workers/aiChat/mediaInputSupport.ts）。退避期间的媒体请求得到
  * MEDIA_BACKOFF_RESULT。
  */

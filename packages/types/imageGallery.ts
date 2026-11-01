@@ -1,0 +1,76 @@
+/** 随机图片上传时声明的 MIME；只决定上传文件名的扩展名，见 consts/imageGallery.ts。 */
+export type RandomImageMimeType = "image/jpeg" | "image/png" | "image/webp";
+
+/**
+ * 从目录随机抽取一张图片的结果（infra/imageGallery.ts 的 pickRandomImage）。
+ * - ok：已读入字节；fileName 是目录内的原始文件名，只用于日志与上传文件名。
+ * - missingDirectory：目录不存在或不是目录。
+ * - empty：目录里没有候选图片。
+ * - tooLarge：候选都抽过了仍没有可发送的图，且其中至少一张超过 RANDOM_IMAGE_MAX_BYTES；
+ *   fileName 是最后抽中的那张超限文件，只用于提示部署方处理。
+ */
+export type RandomImagePick =
+  | {
+    readonly status: "ok";
+    readonly bytes: Uint8Array;
+    readonly mimeType: RandomImageMimeType;
+    readonly fileName: string;
+  }
+  | { readonly status: "missingDirectory" }
+  | { readonly status: "empty" }
+  | { readonly status: "tooLarge"; readonly fileName: string };
+
+/** 图库的一次候选计数（infra/imageGallery.ts 的 readRandomImageLibrary）。 */
+export interface RandomImageLibrary {
+  /** 图库里的图片张数，口径同 pickRandomImage 的候选。 */
+  readonly size: number;
+}
+
+/** 随机图库目录的有效文件名缓存快照（cache/main/hImage.ts 的 randomImageDirectoryCache，按字典序升序排列）。 */
+export interface RandomImageDirectoryCache {
+  /** 当前缓存对应的图库目录绝对路径。 */
+  readonly directory: string;
+  /** 目录内有效普通图片文件名列表（启动加载时按字典序升序排列，新增/删除时按二分查找原位维护）。 */
+  readonly names: string[];
+}
+
+/** Mini App 图库目录按修改时间降序排列的缓存项（infra/imageGallery.ts）。 */
+export interface RandomImageGalleryCacheEntry {
+  /** 图库目录内的文件名（不含路径）。 */
+  readonly fileName: string;
+  /** 最后修改毫秒时间戳（用于按修改时间从新到老降序排列）。 */
+  readonly mtimeMs: number;
+}
+
+/** Mini App 图库分页使用的按修改时间降序缓存快照（cache/main/hImage.ts 的 randomImageGalleryCache）。 */
+export interface RandomImageGalleryCache {
+  /** 当前缓存对应的图库目录绝对路径。 */
+  readonly directory: string;
+  /** 目录内有效普通图片缓存项列表（按修改时间从新到老降序排列，翻页直接切片不重复排序）。 */
+  readonly entries: Readonly<RandomImageGalleryCacheEntry>[];
+}
+
+/** 图库目录内单张有效图片的文件元数据（infra/imageGallery.ts 的 statRandomImageFile）。 */
+export interface RandomImageEntry {
+  /** 图库目录内的文件名（不含路径）。 */
+  readonly fileName: string;
+  /** 本机图片文件的绝对路径。 */
+  readonly filePath: string;
+  /** 扩展名映射得到的图片 MIME 类型。 */
+  readonly mimeType: RandomImageMimeType;
+  /** 文件字节大小。 */
+  readonly sizeBytes: number;
+  /** 最后修改毫秒时间戳。 */
+  readonly mtimeMs: number;
+}
+
+/**
+ * 把一张图写进随机图库的结局（infra/imageGallery.ts 的 storeRandomImage）：
+ * - stored：已按 `<内容 SHA-256><扩展名>` 写入，扩展名由字节嗅探得出；
+ * - existing：按内容摘要和扩展名计算的目标已存在，没有读取旧内容或重复写入；
+ * - unsupportedFormat：字节不是 jpeg、png 或 webp，没有写入。
+ */
+export type StoreRandomImageResult =
+  | { readonly status: "stored"; readonly fileName: string }
+  | { readonly status: "existing"; readonly fileName: string }
+  | { readonly status: "unsupportedFormat" };

@@ -38,6 +38,7 @@ import type {
   UnacknowledgedIdentityWrite,
 } from "../../types/identityStorage";
 
+/** 待按 revision 升序重放的未确认身份策略写入条目。 */
 interface QueuedIdentityWrite {
   readonly table: IdentityPolicyTable;
   readonly id: number;

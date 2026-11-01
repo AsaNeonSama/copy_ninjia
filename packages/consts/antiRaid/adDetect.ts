@@ -13,7 +13,7 @@ export const AD_DETECT_BATCH_SIZE: number = 25;
 
 /**
  * 同时在途的判定请求上限（入群守卫线程跨群总量闸）。
- * 所属模块：workers/antiRaid/adDetect/queue.ts。
+ * 所属模块：states/adDetectAdmission.ts、workers/antiRaid/adDetect/disposal.ts 与 workers/antiRaid/adDetect/queueState.ts。
  */
 export const AD_DETECT_MAX_IN_FLIGHT: number = 75;
 
@@ -24,7 +24,7 @@ export const AD_DETECT_JUDGED_RETENTION_WINDOW_MS: number = 90_000;
 
 /**
  * 引用、回复或转发非白名单广告第一次命中后的升级窗口；窗口内再次命中才沿用
- * 直接广告的永久拉黑路径。所属模块：workers/antiRaid/adDetect/referencePolicy.ts。
+ * 直接广告的永久拉黑路径。所属模块：workers/antiRaid/adDetect/referencePolicy.ts 与 workers/antiRaid/adDetect/verdict.ts。
  */
 export const AD_REFERENCE_WARNING_WINDOW_MS: number = 300_000;
 

@@ -22,11 +22,13 @@ import {
 import type { CachedUser } from "../../types/chatState";
 import type {
   BlocklistEntryData,
+  IdentityPolicyTable,
   TelegramIdentityMetadata,
   WhitelistEntryData,
 } from "../../types/identityPolicy";
 import type {
   IdentityPolicyCacheEntry,
+  IdentityPolicyEntries,
   IdentityPolicyRawReadResult,
   IdentityPolicyVerdicts,
 } from "../../types/identityStorage";
@@ -72,6 +74,16 @@ export function hydrateIdentityStorageCounts(
   identityPolicyCache.clear();
   identityEntryCounts.whitelist = whitelistCount;
   identityEntryCounts.blocklist = blocklistCount;
+}
+
+/**
+ * 读取指定身份策略表在主线程维护的当前总条目数。
+ *
+ * @param table 目标身份策略表名（`"whitelist"` 或 `"blocklist"`）。
+ * @returns 当前表内的条目总数。
+ */
+export function getIdentityEntryCount(table: IdentityPolicyTable): number {
+  return identityEntryCounts[table];
 }
 
 /**
@@ -272,4 +284,76 @@ export async function readIdentityPolicyVerdicts(
     }
   }
   return verdicts;
+}
+
+/**
+ * 为管理端列表与搜索直接冷读一组主键的白名单与黑名单当前条目，不读写合并身份缓存：
+ * 不刷新任何条目的热度，也不挤出 Bot 处理消息所需的热条目。
+ *
+ * 结果由调用方局部持有；本地未 ACK 最终值覆盖数据库迟到结果。主键去重后按
+ * IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES 分块跨线程读取，任一块读取或解码失败直接抛出。
+ *
+ * @param candidateIds 待读取的身份 ID 列表。
+ * @returns 按身份 ID 索引的白名单与黑名单条目。
+ */
+export async function readIdentityPolicyEntries(
+  candidateIds: readonly number[]
+): Promise<IdentityPolicyEntries> {
+  const ids: number[] = [];
+  const seen: Set<number> = new Set();
+  for (const id of candidateIds) {
+    assertTelegramIdentityId(id, "identity policy entry read");
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  const whitelist: Map<number, Readonly<WhitelistEntryData>> = new Map();
+  const blocklist: Map<number, Readonly<BlocklistEntryData>> = new Map();
+  for (
+    let index: number = 0;
+    index < ids.length;
+    index += IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES
+  ) {
+    const chunk: readonly number[] = ids.slice(
+      index,
+      index + IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES
+    );
+    const reply: IdentityPolicyRawReadResult = await diskIO.readIdentityPolicies(chunk);
+    const requested: Set<number> = new Set(chunk);
+    const whitelistRows: Map<number, string> = rawIdentityPolicyRows(
+      reply.whitelist,
+      requested,
+      "whitelist"
+    );
+    const blocklistRows: Map<number, string> = rawIdentityPolicyRows(
+      reply.blocklist,
+      requested,
+      "blocklist"
+    );
+    for (const id of chunk) {
+      const whitelistText: string | null = currentIdentityPolicyText(
+        "whitelist",
+        id,
+        whitelistRows.get(id)
+      );
+      if (whitelistText !== null) {
+        whitelist.set(
+          id,
+          decodeWhitelistEntryData(whitelistText, `permission_list[${id}].policy`)
+        );
+      }
+      const blocklistText: string | null = currentIdentityPolicyText(
+        "blocklist",
+        id,
+        blocklistRows.get(id)
+      );
+      if (blocklistText !== null) {
+        blocklist.set(
+          id,
+          decodeBlocklistEntryData(blocklistText, `blocklist_entries[${id}].data`)
+        );
+      }
+    }
+  }
+  return { whitelist, blocklist };
 }

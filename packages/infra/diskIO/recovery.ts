@@ -119,6 +119,7 @@ function isCurrentRecoveryWorker(worker: Worker): boolean {
     !diskIORuntime.writable;
 }
 
+/** 单个领域在 Disk I/O Worker 恢复期间使用的受限投递作用域。 */
 interface RecoveryTransportScope {
   transport: DiskIORecoveryTransport;
   deactivate(): void;

@@ -26,11 +26,11 @@ export const unacknowledgedChatStateWrites: Map<
 
 /**
  * unacknowledgedChatStateWrites 全部条目的估算字节总数；登记或覆盖时按差额更新，
- * 精确 ACK 时扣减，重放时按重编码结果更新，resetChatStateCache 时归零。
+ * 精确 ACK 时扣减，Worker 重建重放时按重编码结果更新，进程重启或 resetChatStateCache 时归零；单例标量。
  */
 export const unacknowledgedChatStateBytes: { current: number } = { current: 0 };
 
-/** 群状态写入 revision 单调发号器；主线程同步自增，resetChatStateCache 时归零。 */
+/** 群状态写入 revision 单调发号器；每次写入自增，Worker 重建保留，进程重启或 resetChatStateCache 时归零；单例标量。 */
 export const chatStateWriteRevision: { current: number } = { current: 0 };
 
 /** 新生命周期启动或测试隔离时重置群状态热读缓存与未 ACK 记账。 */

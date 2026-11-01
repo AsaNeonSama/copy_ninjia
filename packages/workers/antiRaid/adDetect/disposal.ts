@@ -31,6 +31,7 @@ import type {
 } from "../../../types/antiRaid/adDetect";
 import type { TelegramWorkerTemporaryMessageResult } from "../../../types/telegramWorker";
 
+/** `disposeAdSender` 处置命中广告发送者的参数。 */
 export interface DisposeAdSenderParams {
   /** 待处置发送者的待检消息束。 */
   bundle: AdMessageBundle;
@@ -40,6 +41,7 @@ export interface DisposeAdSenderParams {
   judged: readonly AdCandidateEntry[];
 }
 
+/** `deleteReferencedAdMessages` 清理首次引用广告警告前消息的参数。 */
 export interface DeleteReferencedAdMessagesParams {
   /** 待清理发送者的待检消息束。 */
   readonly bundle: AdMessageBundle;
@@ -49,6 +51,7 @@ export interface DeleteReferencedAdMessagesParams {
   readonly messageIdThrough: number;
 }
 
+/** `disposalMessageIds` 汇总待删除广告消息 ID 集合的参数。 */
 interface DisposalMessageIdsParams {
   /** 本次送检时入选的条目快照。 */
   readonly judged: readonly AdCandidateEntry[];

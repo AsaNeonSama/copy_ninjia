@@ -74,6 +74,7 @@ export type SendMessageFormat =
     parseMode: TelegramParseMode;
   };
 
+/** `sendMessage` 与 `sendMessageWithResult` 的完整文本消息发送参数。 */
 export type SendMessageParams = SendMessageBaseParams & SendMessageFormat;
 
 /**
@@ -143,6 +144,7 @@ export async function sendMessage(
   return (await sendMessageWithResult(params))?.messageId;
 }
 
+/** `sendEphemeralMessage` 发送目标专属消息的参数。 */
 export interface SendEphemeralMessageParams {
   /** 目标群聊 ID。 */
   chatId: number;
@@ -228,6 +230,7 @@ export async function sendEphemeralMessage({
   });
 }
 
+/** `sendChatAction` 发送聊天状态动作的参数。 */
 export interface SendChatActionParams {
   /** 目标聊天 ID。 */
   chatId: number;
@@ -278,6 +281,7 @@ export function isMessageNotModified(error: unknown): boolean {
   return telegramErrorDetails(error)?.description.includes(MESSAGE_NOT_MODIFIED) === true;
 }
 
+/** `editMessageText` 就地编辑文本消息的参数。 */
 export interface EditMessageTextParams {
   /** 目标聊天 ID。 */
   chatId: number;
@@ -336,6 +340,7 @@ export async function editMessageText({
   );
 }
 
+/** `answerCallbackQuery` 应答内联按钮回调查询的参数。 */
 export interface AnswerCallbackQueryParams {
   /** 待应答的回调查询 ID。 */
   callbackQueryId: string;

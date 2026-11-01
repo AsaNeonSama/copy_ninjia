@@ -44,7 +44,7 @@ export const MAX_TOOL_ROUNDS: number = 45;
 export const MAX_WEB_SEARCH_CALLS_PER_REPLY: number = 5;
 /**
  * `web_search` 函数工具交回模型的结果正文（提示语、结论与来源合计）的最大字符数（UTF-16）。
- * 所属模块：aiChat/ai/tools/webSearch.ts。
+ * 所属模块：aiChat/ai/tools/webSearch.ts、consts/aiChat/prompts/search.ts。
  */
 export const WEB_SEARCH_RESULT_MAX_CHARS: number = 2_048;
 /** `web_search` 函数工具结果里最多列出的来源条数。所属模块：aiChat/ai/tools/webSearch.ts。 */
@@ -56,7 +56,7 @@ export const WEB_SEARCH_QUERY_MAX_CHARS: number = 300;
 /**
  * `web_search` 函数工具未成功时交回模型的说明：请求失败、超时、端点没有真正检索、
  * 结果为空、入参不合法与超出本轮次数都回这一句；Anthropic 检索模型拒答另回 WEB_SEARCH_REFUSED_TEXT。
- * 所属模块：aiChat/ai/tools/webSearch.ts。
+ * 所属模块：aiChat/ai/tools/webSearch.ts、consts/aiChat/prompts/search.ts。
  */
 export const WEB_SEARCH_FAILED_TEXT: string = "模型搜索失败";
 /**
@@ -116,6 +116,6 @@ export const DUPLICATE_REPLY_RESULT: string = JSON.stringify({
 
 /**
  * 模型回复没有工具调用时各家供应商共用的只读空列表（aiChat/gemini/replySession.ts、
- * aiChat/openai/{replySession,response}.ts、aiChat/anthropic/replySession.ts），无调用的轮次不另分配数组。
+ * aiChat/openai/response.ts、aiChat/anthropic/response.ts 与 aiChat/ai/utils/replyTurn.ts），无调用的轮次不另分配数组。
  */
 export const EMPTY_FUNCTION_CALLS: readonly [] = [];

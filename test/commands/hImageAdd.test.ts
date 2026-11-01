@@ -52,7 +52,11 @@ const { handleHImageCommand } = await import("../../packages/commands/hImage");
 const { drainDeferredCommandRuntime, initDeferredCommandRuntime } = await import("../../packages/commands/deferredCommands");
 const { deferredCommandRuntime } = await import("../../packages/cache/main/deferredCommands");
 const { mediaGroupImages } = await import("../../packages/cache/main/mediaGroups");
-const { recentHImageCallTimestamps } = await import("../../packages/cache/main/hImage");
+const {
+  randomImageDirectoryCache,
+  randomImageGalleryCache,
+  recentHImageCallTimestamps,
+} = await import("../../packages/cache/main/hImage");
 const { chatAtmosphere } = await import("../../packages/infra/atmosphere");
 const { getAssetConfig } = await import("../../packages/config/assets");
 
@@ -115,6 +119,8 @@ async function runAdd(replyTo: Message | undefined): Promise<void> {
 
 beforeEach(() => {
   recentHImageCallTimestamps.clear();
+  randomImageDirectoryCache.current = null;
+  randomImageGalleryCache.current = null;
   sendCommandMessage.mockClear();
   downloadTelegramFileBytes.mockClear();
   loggerError.mockClear();
@@ -131,6 +137,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   await drainDeferredCommandRuntime(0);
+  randomImageDirectoryCache.current = null;
+  randomImageGalleryCache.current = null;
   rmSync(directory, { recursive: true, force: true });
 });
 

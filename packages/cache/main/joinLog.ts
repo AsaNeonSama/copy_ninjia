@@ -9,5 +9,5 @@ import type { JoinLogDiskMessage } from "../../types/diskIO/messages";
  */
 export const unacknowledgedJoinLogs: LinkedQueue<JoinLogDiskMessage> = new LinkedQueue();
 
-/** 入群日志投递序号发号器：recordJoinLog 每次递增，Worker 重建不重置，进程重启后从零开始；单例标量。 */
+/** 入群日志投递序号发号器：每次调用 recordJoinLog 时递增，Worker 重建不重置，进程重启后从 0 开始；单例标量。 */
 export const joinLogSequence: { current: number } = { current: 0 };

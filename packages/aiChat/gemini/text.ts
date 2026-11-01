@@ -72,6 +72,7 @@ export function generateGeminiJson(request: AiJsonRequest): Promise<AiTextResult
   });
 }
 
+/** Gemini 内联二进制媒体（图像或音频）理解请求的参数。 */
 interface InlineMediaPrompt {
   /** 媒体数据的 MIME 类型。 */
   readonly mime: string;

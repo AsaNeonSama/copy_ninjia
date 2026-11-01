@@ -16,6 +16,7 @@ import { botCanRestrictIn } from "../botPermissions";
 import { resolveChatIsSupergroup } from "../chatKind";
 import { retryTerminalAttempt } from "./retry";
 
+/** `runKickMemberEffect` 执行私密模式踢人副作用的参数。 */
 interface RunKickMemberEffectParams {
   /** 群组 ID。 */
   chatId: number;

@@ -34,12 +34,12 @@ export const lockdownRetriggerCooldowns: Map<number, number> = new Map();
  */
 export const lockdownApiChains: Map<number, Promise<void>> = new Map();
 
-/** 私密模式 Telegram API 的按群串行调度器，绑定 lockdownApiChains，Worker 重启后重建。 */
+/** 私密模式 Telegram API 的按群串行调度器单例：模块加载时创建并绑定 lockdownApiChains，单群任务链排空后释放对应键，Worker 重启后重建。 */
 export const lockdownApiRunner: KeyedSerialTaskRunner<number> =
   createKeyedSerialTaskRunner(lockdownApiChains);
 
 /**
  * 本 Worker 最近分配的私密模式意图 ID（单调递增）。
- * 填充：分配新意图时更新；清理与重建：Worker 重启后从零开始并以当前时间戳抬高；容量：固定为单个数值 holder。
+ * 填充：分配新意图时写入最新序号；清理与重建：运行期不回退，Worker 重启后归零并以当前时间戳抬高；容量：固定为单个数值 holder。
  */
 export const lastLockdownIntentId: { current: number } = { current: 0 };

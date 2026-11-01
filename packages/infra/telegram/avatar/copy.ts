@@ -18,11 +18,13 @@ import {
   normalizePublicUsername,
 } from "./webProfile";
 
+/** `getChat` 查询目标公开用户名的结果与失败标记。 */
 interface PublicUsernameLookupResult {
   username?: string;
   failed: boolean;
 }
 
+/** 尝试复制目标头像后的结局及可选缓存的 `getChat` 详情。 */
 interface AttemptCopyUserProfilePhotoResult {
   readonly result: AvatarOperationAttemptResult;
   readonly chat: ChatFullInfo | undefined;

@@ -1,5 +1,6 @@
 import { HOT_PATH_PROFILE_MEMORY_USAGE_MAX_ATTEMPTS } from "../../../packages/consts/performance";
 
+/** `process.memoryUsage()` 抛出系统调用异常时可能携带的错误码与 errno 结构。 */
 interface MemoryUsageSystemError extends Error {
   readonly code?: unknown;
   readonly errno?: unknown;

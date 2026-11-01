@@ -47,9 +47,7 @@ export function acceptForwardedLogBatch(message: unknown): boolean {
  * @param args 原始日志参数列表。
  */
 function emit(level: LogLevel, args: unknown[]): void {
-  // 序列化边界统一处理异常对象、不可序列化值与敏感字段。
   const serializedArgs: unknown[] = serializeLogArgs(args);
-  // 所有控制台级别统一输出脱敏后的参数。
   try {
     console[level](...serializedArgs);
   } catch {
@@ -69,7 +67,7 @@ function emit(level: LogLevel, args: unknown[]): void {
   }
 }
 
-/** 主线程与 Worker 共用的日志出口；Worker 侧经 postMessage 转发到主线程。 */
+/** 主线程与 Worker 共用的日志门面接口。 */
 interface Logger {
   log: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
@@ -77,6 +75,7 @@ interface Logger {
   error: (...args: unknown[]) => void;
 }
 
+/** 主线程与 Worker 共用的统一日志出口；`error` 级别自动转投或转发至落盘线程。 */
 export const logger: Logger = {
   log: (...args: unknown[]): void => emit("log", args),
   info: (...args: unknown[]): void => emit("info", args),

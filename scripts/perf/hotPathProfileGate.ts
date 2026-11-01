@@ -45,6 +45,7 @@ import type {
 import { PERFORMANCE_RESULT_PATH } from "./performanceResult";
 import { collectRuntimeCalibrationProblems } from "./hotPaths/gateRuntime";
 
+/** 单个热路径场景经多轮子进程采样与 JIT 探测聚合后的门禁结果。 */
 interface ScenarioGateResult {
   readonly scenario: string;
   readonly repeats: number;

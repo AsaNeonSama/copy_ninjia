@@ -11,6 +11,7 @@ import { join, resolve } from "node:path";
 import type { Stats } from "node:fs";
 import { toError } from "../../libs/errorMessage";
 
+/** 运行时数据根目录探针可注入的文件系统原语依赖。 */
 export interface DataRootProbeDependencies {
   mkdir: typeof mkdir;
   lstat: typeof lstat;

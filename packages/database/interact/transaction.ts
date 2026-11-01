@@ -15,6 +15,7 @@ import type {
 import type { PendingTemporaryAdBypassWrite } from
   "../../types/temporaryAdBypass";
 
+/** `commitStorageDatabaseChanges` 原子提交多表待写变更的参数。 */
 export interface CommitStorageDatabaseChangesOptions {
   /** 白名单按身份主键的待提交增删改映射。 */
   readonly whitelist: ReadonlyMap<number, StorageDatabaseChange>;

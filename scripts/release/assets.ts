@@ -6,6 +6,7 @@ import { checked } from "./command";
 import type { ReleaseCommand } from "./command";
 import { RELEASE_PLATFORMS, RELEASE_REQUIRED_FILES, RELEASE_VERSION_PATTERN } from "../../packages/consts/release";
 
+/** 通过校验的单个发行资产元数据（含 64 位小写十六进制 SHA-256 摘要与字节数）。 */
 export interface ReleaseAsset {
   readonly name: string;
   readonly path: string;
@@ -13,6 +14,7 @@ export interface ReleaseAsset {
   readonly size: number;
 }
 
+/** `verifyReleaseAssets` 核对发行包资产的参数。 */
 export interface VerifyAssetsOptions {
   /** 存放待校验发行包与校验和文件的目录路径。 */
   readonly directory: string;

@@ -1,7 +1,7 @@
 /**
  * 入群日志的主线程写入与删除入口。写入只投递最小事件给 Disk I/O
  * Worker，主线程只保留未确认落盘的事实镜像（cache/main/joinLog.ts），不保留成员列表；
- * 读取由 `/batch_kick` 直接调用 infra/diskIO.ts 的 readJoinLog；整群删除由群 teardown
+ * 读取由 `/batch_kick` 直接调用 infra/diskIO/requests.ts 的 readJoinLog；整群删除由群 teardown
  * 的 `joinLog` owner 发起（本模块在加载时反向注册那个 owner）。
  */
 
@@ -19,6 +19,7 @@ import type { JoinLogPersistedReply } from "../types/diskIO/replies";
 import { registerChatTeardown } from "./chatTeardownRegistry";
 import * as diskIO from "./diskIO";
 
+/** `recordJoinLog` 记录入群日志的入参。 */
 export interface RecordJoinLogParams {
   /** 入群事件所属的群 ID。 */
   chatId: number;

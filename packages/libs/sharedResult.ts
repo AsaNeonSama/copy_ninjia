@@ -5,6 +5,7 @@ export interface SharedResult<T> {
   readonly wait: (signal?: AbortSignal) => Promise<T>;
 }
 
+/** `createSharedResult` 构造可取消共享结果订阅的选项。 */
 export interface CreateSharedResultOptions<T> {
   /** 等待者因自身 signal 中止而提前离场时交付的回退值。 */
   readonly cancelled: T;

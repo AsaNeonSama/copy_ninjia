@@ -122,6 +122,12 @@ for (const handlerName of new Set(Object.values(COMMAND_HANDLERS))) {
 }
 
 mock.module("../../packages/commands", () => commandsModule);
+mock.module("../../packages/mini-app-api-server/picker/sharedMessage", () => ({
+  handleMiniAppSharedMessage: (): Promise<boolean> => {
+    calls.push("handleMiniAppSharedMessage");
+    return Promise.resolve(true);
+  },
+}));
 mock.module("../../packages/auto", () => ({
   handleIncomingMessageMiddleware: (): undefined => {
     calls.push("handleIncomingMessageMiddleware");

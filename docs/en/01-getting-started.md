@@ -138,6 +138,10 @@ Core bot credentials and administrator ownership are declared in `config/static/
   - Defines the authoritative calendar time zone for fortunes, rotation logs, daily maintenance crons, AI time awareness, and ad quotas.
   - Trimmed and case-normalized via Temporal (aliases are preserved).
   - **Data Root Binding**: The initial setup permanently stamps this time zone into `database/storage.sqlite`. Changing `time_zone` on an existing data root will be rejected at startup to prevent time-series corruption.
+- **`mini_app`** (optional, object: `{ url: string, port: number, host?: string, password: string }`)
+  - Configures the SuperAdmin-exclusive Telegram Mini App management console; when omitted, no HTTP server, routes, or private-chat menu button are registered.
+  - **Field Requirements**: `url` is the required public `https://` URL (supports subpath prefixes); `port` is the required local listening port (an integer in `MINI_APP_PORT_MIN`–`MINI_APP_PORT_MAX`, set to `3000` in the example config); `host` is optional and defaults to `MINI_APP_DEFAULT_HOST` (`"127.0.0.1"`); `password` is the required first-screen access password (non-placeholder string containing at least 6 digits `0-9`; remove the `mini_app` section when copying from `config_example/` manually without using the Mini App).
+  - **Runtime & Authentication**: Starts a local `Bun.serve` HTTP console, attaches `MenuButtonWebApp` (`App`) to the SuperAdmin's private chat, enforces two-tier authentication (`initData` signature + first-screen credential), and supports optional Google Authenticator TOTP binding persisted at `memory/mini-app-totp/totp.json`. See [11 Mini App Setup and Recommended Configuration](11-mini-app.md) for full setup, Cloudflare Tunnel configuration, session renewal/lockout rules, and TOTP binding.
 
 ---
 
@@ -176,7 +180,7 @@ config/
   - **Validation**: Plain text; empty files or invalid UTF-8 will prevent startup. Requires a restart to take effect.
 
 - **`config/static/bot.json`** ([Example](../../config_example/static/bot.json))
-  - Holds primary bot token, owner user ID, notice atmosphere, and time zone. Strictly parsed with zero tolerance for unknown fields.
+  - Holds primary bot token, owner user ID, notice atmosphere, time zone, and optional Mini App console settings (see "Configuring Telegram Identity" above). Strictly parsed with zero tolerance for unknown fields.
 
 - **`config/dynamic/stickers.json`** ([Example](../../config_example/dynamic/stickers.json))
   - Defines the `packs` array of Telegram sticker pack short names available for AI expression. Each pack name must be unique, with total count capped at `MAX_CONFIGURED_STICKER_PACKS`.

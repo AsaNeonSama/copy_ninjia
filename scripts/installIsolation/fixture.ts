@@ -13,6 +13,7 @@ import { runCapturedCommand, runCapturedTerminalCommand } from "../fixtures/subp
 import type { CapturedCommandResult } from "../fixtures/subprocess";
 import { readInstallScripts } from "../installSources";
 
+/** 读取 `package.json` 中 `packageManager` 锁定版本所需的最小结构。 */
 interface PackageManifest {
   readonly packageManager: string;
 }
@@ -26,6 +27,7 @@ const REAL_BUN_PATH: string = Bun.argv[0]!;
 /** 替身 bun 解析数据根时直接加载的生产路径模块。 */
 const PATHS_MODULE_PATH: string = join(PROJECT_ROOT, "packages", "consts", "paths.ts");
 
+/** 安装器与运维脚本隔离验证环境的目录与日志路径夹具。 */
 export interface InstallerFixture {
   readonly realRuntime: boolean;
   readonly root: string;
@@ -38,6 +40,7 @@ export interface InstallerFixture {
   readonly outboundLog: string;
 }
 
+/** 交互式安装脚本单步终端提示的匹配与应答定义。 */
 export interface PromptReply {
   readonly prompt: string;
   readonly reply?: string;
@@ -46,6 +49,7 @@ export interface PromptReply {
   readonly secret?: boolean;
 }
 
+/** 安装器或运维脚本子进程运行的退出码与合并输出。 */
 export interface InstallerRunResult {
   readonly exitCode: number;
   readonly output: string;
@@ -152,6 +156,9 @@ async function installBunGuard(fixture: InstallerFixture): Promise<void> {
     "fi",
     "if [[ \"$inline_source\" == *\"loadInstallerBotConfig\"* ]]; then",
     "  exec \"$REAL_BUN_PATH\" -e 'const runtime = await import(Bun.argv[1]); const config = await runtime.loadInstallerBotConfig(\"config/static/bot.json\"); console.log(config.atmosphere ?? \"\"); console.log(config.timeZone);' \"$FAKE_INSTALL_RUNTIME_MODULE\"",
+    "fi",
+    "if [[ \"$inline_source\" == *\"carryOverMiniAppConfig\"* ]]; then",
+    "  exec \"$REAL_BUN_PATH\" -e 'const runtime = await import(Bun.argv[1]); await runtime.carryOverMiniAppConfig(Bun.argv[2], Bun.argv[3]);' \"$FAKE_INSTALL_RUNTIME_MODULE\" \"${3:?}\" \"${4:?}\"",
     "fi",
     "if [[ \"$inline_source\" == *\"validateStagedBotConfig\"* ]]; then",
     "  printf 'validate:telegram\\n' >> \"$FAKE_CALL_LOG\"",

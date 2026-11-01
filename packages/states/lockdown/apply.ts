@@ -1,7 +1,10 @@
 import { LOCKDOWN_MS, NO_LOCKDOWN_EFFECTS } from "../../consts/antiRaid/lockdown";
 import {
+  activeOf,
   announcementCleanupEffects,
-  announcementOf,
+  preparedOf,
+  preparingOf,
+  restoringOf,
   suppressRetrigger,
 } from "./shared";
 import type {
@@ -22,13 +25,7 @@ export function handleThresholdExceeded(
 ): LockdownTransition {
   if (state === undefined) {
     return {
-      next: {
-        kind: "applying",
-        stage: "preparing",
-        announced: false,
-        announcementPending: true,
-        announcementMessageId: undefined,
-      },
+      next: preparingOf(),
       effects: [
         { kind: "prefetchAdmins", onlyIfCold: true },
         { kind: "beginLockdownAnnouncement", joinCount: event.joinCount },
@@ -55,14 +52,12 @@ export function handleApplyPrepared(
     return { next: state, effects: NO_LOCKDOWN_EFFECTS };
   }
   return {
-    next: {
-      kind: "applying",
-      stage: "prepared",
+    next: preparedOf({
       originalPermissions: event.originalPermissions,
       intentId: event.intentId,
       commitStarted: false,
-      ...announcementOf(state),
-    },
+      announcement: state,
+    }),
     effects: [{ kind: "persistState" }],
   };
 }
@@ -120,24 +115,18 @@ export function handleApplyResult(
   }
   if (!event.ok) {
     return {
-      next: {
-        kind: "restoring",
+      next: restoringOf({
         originalPermissions: state.originalPermissions,
         intentId: event.restoreIntentId,
         restoreAfterPersist: true,
         restoreReason: "lifted",
-        ...announcementOf(state),
-      },
+        announcement: state,
+      }),
       effects: [{ kind: "persistState" }],
     };
   }
   return {
-    next: {
-      kind: "active",
-      originalPermissions: state.originalPermissions,
-      intentId: state.intentId,
-      ...announcementOf(state),
-    },
+    next: activeOf(state.originalPermissions, state.intentId, state),
     effects: [
       { kind: "scheduleRestore", delayMs: LOCKDOWN_MS },
       { kind: "persistState" },

@@ -4,6 +4,7 @@ import { INDEPENDENT_CHAT_PERMISSIONS_OTHER } from "../../consts/telegram";
 
 type LockdownPermissionsApi = Pick<TelegramApi, "getChat" | "setChatPermissions">;
 
+/** `restoreLockdownInvitePermission` 恢复私密模式邀请权限的参数。 */
 export interface RestoreLockdownInvitePermissionParams {
   /** 目标群聊 ID。 */
   chatId: number;

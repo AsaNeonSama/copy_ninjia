@@ -5,6 +5,7 @@ import type { TelegramChatAction } from "../telegram";
 /** 心跳挡位：TelegramChatAction 中会发出去的状态，加上「什么都不显示」的 idle。 */
 export type ChatActionPhase = TelegramChatAction | "idle";
 
+/** 传递给回复工具集的 chat action 切挡与排空控制器。 */
 export interface ChatActionControl {
   /**
    * 切挡。切到 idle 标记一段状态结束：发送前切一次，发送落地后调用方再切一次，同群静默
@@ -12,6 +13,7 @@ export interface ChatActionControl {
    * （不在静默期内为 0），拟人停顿据此顺延；切 idle 返回 0。
    */
   readonly set: (phase: ChatActionPhase) => number;
+  /** 等待当前已在途的 chat action 发送请求全部结算。 */
   readonly settle: () => Promise<void>;
 }
 

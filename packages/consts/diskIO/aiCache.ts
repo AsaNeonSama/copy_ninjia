@@ -2,7 +2,7 @@
 
 import { AGENT_CAPABILITY_NAMES, AGENT_PROVIDERS } from "../agent";
 
-/** 统计文件里汇总条目的键，写在对象首位。所属模块：workers/diskIO/aiCacheDocument.ts。 */
+/** 统计文件里汇总条目的键，写在对象首位。所属模块：workers/diskIO/aiCacheDocument.ts 与 workers/diskIO/aiCacheFile.ts。 */
 export const AI_CACHE_SUMMARY_KEY: string = "summary";
 
 /**

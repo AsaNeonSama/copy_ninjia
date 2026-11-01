@@ -11,6 +11,7 @@ import type {
   ProviderCapabilityConfig,
 } from "../types/config";
 
+/** `capabilityClient` 获取或构造按供应商隔离的 SDK 客户端参数。 */
 export interface CapabilityClientOptions<TProvider extends AgentProvider, TClient> {
   /** 期望的能力供应商标识。 */
   readonly provider: TProvider;

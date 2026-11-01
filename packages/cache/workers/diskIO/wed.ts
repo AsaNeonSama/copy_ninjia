@@ -15,7 +15,7 @@ export const dirtyWedChats: Set<number> = new Set();
 /** 已收到 deleteWedMembers 但尚未完成文件 unlink 的群 ID 到删除序号映射：收到删除消息时登记，unlink 成功、同群新快照到达或 resetWedFileWrites 时移除；容量上限为 STATE_MANAGED_CHAT_LIMIT，Worker 重建后由主线程全量重投未确认删除。 */
 export const deletedWedChats: Map<number, number> = new Map();
 
-/** `/wed` 成员文件删除 durable 回执发送回调单例：Disk I/O Worker 启动时安装，isolate 销毁时释放；单例函数。 */
+/** `/wed` 成员文件删除 durable 回执发送回调单例：Disk I/O Worker 启动时注入，isolate 销毁时释放，Worker 重建后重新注入；单例函数。 */
 export const wedMemberDeletePersistedNotifier: { current: (reply: WedMembersDeletedPersistedReply) => void } = {
   current: (): void => { /* 独立 owner 测试未安装 Worker 回执出口。 */ },
 };

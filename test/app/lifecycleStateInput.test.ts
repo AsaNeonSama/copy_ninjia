@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StateStore } from "../../packages/infra/storage/statePersistence";
+import { loadMiniAppTotpRecord } from "../../packages/mini-app-api-server";
 import {
   installLifecycleFixtureHooks,
   lifecycleFixture as sharedFixture,
@@ -23,10 +24,10 @@ const {
 installLifecycleFixtureHooks();
 
 /**
- * 启动总闸对 memory/global/state.json 的真实字节判定。
+ * 启动总闸对 memory/global/state.json 与 memory/mini-app-totp/totp.json 的真实字节判定。
  *
- * 只有 `loadState` 接到真实临时 `StateStore.load()`，其余出站仍是 fixture 的 mock；
- * 这条链路验证「磁盘上确有一份非法状态文件时进程拒绝启动」。写盘同样注入 mock，
+ * 只有 `loadState` 接到真实临时 `loadMiniAppTotpRecord` + `StateStore.load()`，其余出站仍是 fixture 的 mock；
+ * 这条链路验证「磁盘上确有一份非法状态或 TOTP 文件时进程拒绝启动」。写盘同样注入 mock，
  * 用来断言被拒绝的启动没有回写。
  */
 describe("启动总闸的全局状态输入判定", () => {
@@ -34,12 +35,14 @@ describe("启动总闸的全局状态输入判定", () => {
 
   let dir: string;
   let statePath: string;
+  let totpPath: string;
   let writes: string[];
 
-  /** 把 fixture 的 loadState 换成真实 StateStore；写入仍走 mock 计数。 */
+  /** 把 fixture 的 loadState 换成真实 TOTP 加载与 StateStore；写入仍走 mock 计数。 */
   function useRealStateLoad(): void {
     writes = [];
     loadState.mockImplementation(async (): Promise<void> => {
+      await loadMiniAppTotpRecord(totpPath);
       const store = new StateStore({
         stateFilePath: statePath,
         writeText: async (path: string): Promise<void> => { writes.push(path); },
@@ -51,6 +54,7 @@ describe("启动总闸的全局状态输入判定", () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "lifecycle-state-input-"));
     statePath = join(dir, "state.json");
+    totpPath = join(dir, "totp.json");
     useRealStateLoad();
   });
 
@@ -120,5 +124,24 @@ describe("启动总闸的全局状态输入判定", () => {
     expect(initTelegramClients).not.toHaveBeenCalled();
     expect(writes).toEqual([]);
     expect(await Bun.file(statePath).text()).toBe(legacy);
+  });
+
+  test("Mini App TOTP 文件非法时联网前以非零码退出，字节保持原样", async () => {
+    const invalidTotp: string = JSON.stringify({ version: 1, secret: "not-valid-base32", createdAt: 1 });
+    await Bun.write(totpPath, invalidTotp);
+    const lifecycle = new ApplicationLifecycle(testDependencies);
+
+    await lifecycle.run("main");
+    await lifecycle.dispose();
+
+    expect(process.exitCode).toBe(1);
+    expect(initDiskIO).not.toHaveBeenCalled();
+    expect(initTelegramClients).not.toHaveBeenCalled();
+    expect(registerCommandMenu).not.toHaveBeenCalled();
+    expect(botInit).not.toHaveBeenCalled();
+    expect(initAiChat).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(await Bun.file(totpPath).text()).toBe(invalidTotp);
+    expect(releaseSingleInstanceLock).toHaveBeenCalledTimes(1);
   });
 });

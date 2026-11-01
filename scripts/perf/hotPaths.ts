@@ -33,12 +33,14 @@ import type {
 
 installOutboundGuards();
 
+/** 单次进程实时内存采样快照（堆占用、常驻集与进程峰值 RSS）。 */
 interface LiveMemorySnapshot {
   heapUsed: number;
   rss: number;
   processPeakRssBytes: number;
 }
 
+/** 单个热路径基准场景在子进程中运行完成后的完整测量报告。 */
 interface BenchmarkResult {
   scenario: ScenarioName;
   measurementMode: "retained" | "steadyProfile";
@@ -214,6 +216,8 @@ const SCENARIO_NAMES: Readonly<Record<ScenarioName, true>> = {
   "mention-facts-plain": true,
   "redact-clean-log": true,
   "luck-tier-table": true,
+  "mini-app-status-route": true,
+  "mini-app-frontend-render": true,
 };
 
 /**

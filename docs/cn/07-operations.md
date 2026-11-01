@@ -128,11 +128,12 @@ WantedBy=multi-user.target
 - **写入机制**：由主线程独占写入（采用“写入临时文件 + fsync 刷盘 + 原子 rename 覆盖”机制），Disk I/O Worker 不介入此目录。`copy` 变更会立即同步刷盘；`ttsUsage` 则通过 `STATE_BACKGROUND_SAVE_DELAY_MS` 聚合合并后在后台定时刷盘。正常停机时会触发优雅 Flush 提交所有变更；若遭遇断电或被 `kill -9` 强杀，可能丢失未及合并窗口落盘的少量计数。
 - **手工编辑**：若需手动调整，必须先停止服务并确认进程完全退出，在项目目录外通过 `mktemp -d` 完整备份文件及元数据后再进行修改。严禁删除未知字段，核验 JSON 格式符合 Schema 后方可启动。
 - **根目录遗留检查**：如果数据根顶层存在遗留的旧版 `state.json` 或 `state.json.bak`，服务启动与安装器都会拒绝运行。请先参考[旧版本分阶段升级](#staged-upgrade)升级至 17.2.1 并完成其迁移，再把这些旧文件移出数据根。
+- **Mini App 验证器：`memory/mini-app-totp/totp.json`**（可选，详见 [11 Mini App 设置与推荐配置](11-mini-app.md)）：当超级管理员在 Mini App「验证器」页面绑定唯一 Google Authenticator (TOTP) 时，由主线程以原子写（临时文件 + `fsync` + `rename`，权限 `0o600`）持久化 `{ version: 1, secret, createdAt }`；启动组合点一次性读入并严格校验后常驻主线程内存缓存，安装预检按同一口径只读校验（文件缺失视作未绑定，非普通文件或格式非法时拒绝启动与安装），运行期间鉴权与查询零磁盘 I/O，仅在新增、修改或删除验证器时立即同步落盘。
 
 ### 2. 色图专用图库：`random_h_image_dir`
-- **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（缺省为相对数据根目录的 `RANDOM_H_IMAGE_DIR`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令上传收录。
+- **功能职责**：路径由 `config/dynamic/assets.json` 中的 `onlyPath.random_h_image_dir` 指定（缺省为相对数据根目录的 `RANDOM_H_IMAGE_DIR`）。`/h_image` 命令与未指定目录的定时随机发图均从此目录中均匀随机抽选，管理员可通过 `/h_image add` 命令或 Mini App 图库管理上传收录与删除。
 - **命名规范**：文件名必须严格等于**图片二进制内容的 SHA-256 哈希**（匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN`），扩展名仅支持 `RANDOM_IMAGE_EXTENSIONS`。严禁在此目录存放任何非色图文件或说明文档。
-- **启动检查**：若目录不存在，启动时会自动创建；启动阶段会逐项扫描该目录，一旦发现非法文件名、子目录、软链接或异常残留的 `RANDOM_IMAGE_TEMP_PREFIX` 前缀临时文件，程序将**直接拒绝启动**。往该目录手动增删合规图片无需重启服务，即时生效；若在运行期间动态修改配置路径，程序会以同等规则严格校验新目录，若存在非法文件则拒绝切换。
+- **启动检查**：若目录不存在，启动时会自动创建；启动阶段会逐项扫描该目录并加载内存缓存，一旦发现非法文件名、子目录、软链接或异常残留的 `RANDOM_IMAGE_TEMP_PREFIX` 前缀临时文件，程序将**直接拒绝启动**。通过 `/h_image add` 或 Mini App 图库增删合规图片会同步更新内存缓存并即时生效，无需重启服务；若在运行期间动态修改配置路径，程序会以同等规则严格校验新目录并刷新缓存，若存在非法文件则拒绝切换。直接在目录中手动放入的图片不会进入内存缓存，需重启服务（或热重载切换到该目录）后才参与抽图与 Mini App 图库；手动删除的图片在被抽中或被 Mini App 图库读取时探测到并从缓存剔除。
 
 ### 3. 群友老婆候选库：`memory/wed/<chatId>.json`
 - **功能职责**：每群一份已发言成员滑窗，文件是按进入顺序排列的对象数组（如 `[{"id":5974478892,"enteredAt":1791770134683}]`），`enteredAt` 为成员进入滑窗时的 Unix 毫秒时间戳；主线程为每个活跃群维护一个复用的 `Map<number, number>`（成员 ID → 进入时间）。系统管理的群数量上限为 `STATE_MANAGED_CHAT_LIMIT`，单群滑窗容量为 `WED_MEMBER_LIMIT`。

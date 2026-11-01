@@ -82,4 +82,6 @@ export const HOT_PATH_PROFILE_SCENARIOS: readonly HotPathProfileScenarioName[] =
   "buffered-message-build",
   "temporary-whitelist-activity",
   "pending-verification-lookup",
+  "mini-app-status-route",
+  "mini-app-frontend-render",
 ]);

@@ -6,7 +6,7 @@
  * 总预算内按 H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE 张一页处理，内存里至多同时有一页的图：
  * 一页内同时下载，已知超过 RANDOM_IMAGE_MAX_BYTES 的不下载，其余经共享的 Telegram 文件下载
  * 读进有界内存，再按 `sendPhoto` 的尺寸门槛（isSendablePhotoDimensions）过一道闸；整页结算后
- * 按候选顺序逐张按字节嗅探格式写进图库（infra/randomImage.ts），写完才开始下一页。
+ * 按候选顺序逐张按字节嗅探格式写进图库（infra/imageGallery.ts），写完才开始下一页。
  * 结果只回一句汇总（新收张数、收图前图库张数，以及跳过、尺寸不合规与失败的张数），
  * 走默认自动清理；停机取消时静默收场。
  *
@@ -22,12 +22,12 @@ import {
   H_IMAGE_ADD_METADATA_TIMEOUT_MS,
   H_IMAGE_ADD_TASK_BUDGET_MS,
 } from "../../consts/hImage";
-import { RANDOM_IMAGE_MAX_BYTES } from "../../consts/randomImage";
+import { RANDOM_IMAGE_MAX_BYTES } from "../../consts/imageGallery";
 import { chatAtmosphere } from "../../infra/atmosphere";
 import { logger } from "../../infra/logger";
 import { mediaGroupImagesIn } from "../../infra/mediaGroups";
 import { readImageDimensions } from "../../infra/image";
-import { isRandomImageDirectory, readRandomImageLibrary, storeRandomImage } from "../../infra/randomImage";
+import { isRandomImageDirectory, readRandomImageLibrary, storeRandomImage } from "../../infra/imageGallery";
 import { getAssetConfig } from "../../config/assets";
 import { replyCommandNotice, sendCommandMessage } from "../../infra/telegram";
 import { downloadTelegramFileBytes } from "../../infra/telegram/fileDownload";
@@ -40,7 +40,7 @@ import { isSendablePhotoDimensions, messageImageCandidate } from "../../libs/tel
 import type { AtmosphereTexts } from "../../types/atmosphere";
 import type { CachedUser } from "../../types/chatState";
 import type { HImageAddOutcome, HImageAddRequest, ImageDimensions, MessageImageCandidate } from "../../types/hImage";
-import type { RandomImageLibrary, StoreRandomImageResult } from "../../types/randomImage";
+import type { RandomImageLibrary, StoreRandomImageResult } from "../../types/imageGallery";
 import type { TelegramFileDownloadResult } from "../../types/telegram";
 import { rejectUnlessPermitted } from "../commandActor";
 import { submitDeferredCommand } from "../deferredCommands";
@@ -72,7 +72,7 @@ type DownloadedImage = Uint8Array | "invalidDimensions" | "failed";
  * 超限与空文件不记日志，单张的两段下载超时与其它失败记日志，取消与整批预算超时不记日志
  * （停机取消由 addRandomImages 在整页结算后收场）。
  *
- * 去重排在下载之后：图库文件名是内容的 SHA-256（见 infra/randomImage.ts 的
+ * 去重排在下载之后：图库文件名是内容的 SHA-256（见 infra/imageGallery.ts 的
  * storeRandomImage）。已收录的图同样会被下载一次；同一张图换个人转发
  * （`file_unique_id` 不同）也判成重复。
  * @param candidate 待下载的图片候选元数据。

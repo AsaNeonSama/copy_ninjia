@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { TEST_DATA_ROOT } from "../preloadEnv";
-import { ensureRandomImageDirectory } from "../../packages/infra/randomImage";
+import { ensureRandomImageDirectory } from "../../packages/infra/imageGallery";
 import { installLifecycleFixtureHooks, lifecycleFixture } from "../helpers/lifecycleFixture";
 
 installLifecycleFixtureHooks();

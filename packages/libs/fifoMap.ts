@@ -24,6 +24,7 @@ export interface FifoNode<K, V> {
   older: FifoNode<K, V> | null;
 }
 
+/** 固定容量、按插入顺序 O(1) 淘汰最早项的 FIFO 映射容器。 */
 export class FifoMap<K, V> {
   protected readonly map: Map<K, FifoNode<K, V>> = new Map();
   protected oldest: FifoNode<K, V> | null = null;

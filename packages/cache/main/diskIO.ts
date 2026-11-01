@@ -30,7 +30,7 @@ import type {
 } from "../../types/diskIO/replies";
 import type { WorkerRequestTable } from "../../types/workerRequest";
 import type { JoinLogRecord, LuckReceiptSecret } from "../../types/diskIO/storage";
-import type { IdentityPolicyRawReadResult, BlocklistIdPage } from "../../types/identityStorage";
+import type { IdentityPolicyRawReadResult, BlocklistIdPage, WhitelistIdPage } from "../../types/identityStorage";
 
 /** 启动恢复回调槽：loadPersistedData 填充，收到 loaded 回执或 terminateDiskIO 时结算清空；单例固定字段，进程重启后从初始值开始。 */
 export const pendingLoad: {
@@ -78,19 +78,28 @@ export const identityPolicyReadRequests: DiskIORequestChannel<IdentityPolicyRawR
 export const blocklistIdPageReadRequests: DiskIORequestChannel<BlocklistIdPage> =
   createDiskIORequestChannel("blocklist ID page read", "Disk I/O Worker returned no blocklist ID page.");
 
+/** 白名单主键页读取通道：Mini App 分页查询请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
+export const whitelistIdPageReadRequests: DiskIORequestChannel<WhitelistIdPage> =
+  createDiskIORequestChannel("whitelist ID page read", "Disk I/O Worker returned no whitelist ID page.");
+
 /** 停机关库（closeStorage）请求通道：请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量至多一个在途请求，进程重启后从空表开始。 */
 export const storageCloseRequests: DiskIORequestChannel<StorageCloseOutcome> =
   createDiskIORequestChannel("storage close", "Disk I/O Worker returned no storage close outcome.");
 
-/** 全部 Disk I/O 请求通道列表，供代际失效、恢复失败与 terminateDiskIO 统一结算等待者。 */
+/**
+ * 全部 Disk I/O 请求通道固定列表：模块加载时登记全集，供代际失效、恢复失败与 terminateDiskIO
+ * 统一遍历结算等待者；固定 6 条通道引用，不淘汰，进程重启后随模块重建。
+ */
 export const DISK_IO_REQUEST_CHANNELS: readonly DiskIORequestChannel<never>[] = [
   luckSecretRequests,
   joinLogReadRequests,
   identityPolicyReadRequests,
   blocklistIdPageReadRequests,
+  whitelistIdPageReadRequests,
   storageCloseRequests,
 ] as readonly DiskIORequestChannel<never>[];
 
+/** 主线程 Disk I/O Worker 宿主运行态结构。 */
 interface DiskIORuntime {
   worker: Worker | null;
   initialized: boolean;
@@ -170,7 +179,7 @@ export const diskIORuntime: DiskIORuntime = {
   giveUpListeners: [],
 };
 
-/** Disk I/O Worker 滑动窗口重启节流器：Worker 重建时记录时间戳并淘汰滑出 WORKER_RESTART_WINDOW_MS 的记录，容量上限为 WORKER_MAX_RESTARTS；进程重启后从空窗口重建。 */
+/** Disk I/O Worker 滑动窗口重启节流器：Worker 重建时登记时间戳并淘汰滑出 WORKER_RESTART_WINDOW_MS 的记录，容量上限为 WORKER_MAX_RESTARTS；terminateDiskIO 不重置窗口，进程重启后从空窗口重建。 */
 export const diskIORestartThrottle: ReturnType<typeof createRestartThrottle> =
   createRestartThrottle(WORKER_MAX_RESTARTS, WORKER_RESTART_WINDOW_MS);
 

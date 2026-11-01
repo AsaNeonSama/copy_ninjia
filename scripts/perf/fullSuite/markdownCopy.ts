@@ -107,7 +107,10 @@ const ZH: BenchmarkCopy = {
       `cron.json 一行只量中途变更的开销，不执行任务：任务表取生产上限（${CRON_MAX_TASKS} 个任务、每个 ` +
       `${CRON_MAX_ACTIONS_PER_TASK} 个动作，本地来源相对数据根），` +
       "每次改动其中 1 个任务后按生产顺序读取并严格解析六份可热重载文件（含逐项核对本地来源）、替换快照并按任务名对账调度器；" +
-      "改写与写盘属于部署方，不计时；文件监听的防抖等待、随后的广告检测与 AI 闲聊可用性重算和热重载日志也不计入。",
+      "改写与写盘属于部署方，不计时；文件监听的防抖等待、随后的广告检测与 AI 闲聊可用性重算和热重载日志也不计入。" +
+      "Mini App API 请求一行从 `Bun.serve` 路由处理器入口跑完完整鉴权中间件链（请求头护栏、Telegram WebApp `initData` " +
+      "HMAC-SHA256 签名与超管身份核验、45 分钟密码会话续期）、受管群状态与 QA/热消息计数汇总、经真实 Disk I/O Worker 读取过去 " +
+      "24 小时入群日志并按 1–24 小时滑窗聚合、以及 HTTP JSON 响应序列化与解析，衡量典型管理端 API 的单进程端到端 RPS。",
     storage:
       "复用 `bun run perf:identity-database` 的实现；「冷」指连接页缓存与语句缓存为空，不声称绕过操作系统页缓存。",
     "container-algorithm":
@@ -120,7 +123,7 @@ const ZH: BenchmarkCopy = {
   sectionSubjects: {
     "cold-start": "启动阶段",
     "hot-path": "场景",
-    chain: "生产动作",
+    "chain": "生产动作",
     storage: "操作",
     "container-algorithm": "容器",
     "join-log-capacity": "操作",
@@ -214,7 +217,11 @@ const EN: BenchmarkCopy = {
       "parsed in production order (including a check of every local source), the snapshots are replaced and the " +
       "scheduler is reconciled by task name. Rewriting and saving the file belong to the deployer and are not timed, " +
       "nor are the file watcher's debounce wait, the following ad-detection and AI chat availability checks, " +
-      "or the reload log lines.",
+      "or the reload log lines. The Mini App API request row runs from the `Bun.serve` route handler entry through " +
+      "the full auth middleware chain (header guard, Telegram WebApp `initData` HMAC-SHA256 signature and super-admin " +
+      "check, and 45-minute password session renewal), managed chat state and QA/hot-message aggregation, a 24-hour " +
+      "join-log query via the real Disk I/O Worker aggregated across 1–24h rolling windows, and HTTP JSON response " +
+      "serialization and parsing, measuring typical end-to-end single-process API RPS.",
     storage:
       "Reuses `bun run perf:identity-database`; \"cold\" means an empty connection page cache and statement cache, " +
       "not a dropped OS page cache.",
@@ -228,7 +235,7 @@ const EN: BenchmarkCopy = {
   sectionSubjects: {
     "cold-start": "Phase",
     "hot-path": "Scenario",
-    chain: "Production action",
+    "chain": "Production action",
     storage: "Operation",
     "container-algorithm": "Container",
     "join-log-capacity": "Operation",
@@ -318,7 +325,11 @@ const JA: BenchmarkCopy = {
       "ローカルソースはデータルート相対）とし、1 タスクを変更するたびに本番と同じ順序でホットリロード対象の 6 ファイルを読み取って" +
       "厳密に解析し（ローカルソースを 1 件ずつ確認）、スナップショットを置き換えてタスク名でスケジューラを突き合わせる。" +
       "書き換えと保存はデプロイ側の作業なので計測せず、ファイル監視のデバウンス待ち、その後の広告検出と AI チャットの" +
-      "可用性の再判定、ホットリロードのログも含まない。",
+      "可用性の再判定、ホットリロードのログも含まない。" +
+      "Mini App API リクエストの行は `Bun.serve` ルートハンドラ入口から認証ミドルウェアチェーン（ヘッダーガード、Telegram WebApp " +
+      "`initData` の HMAC-SHA256 署名と特権管理者チェック、45 分パスワードセッション延長）、管理対象グループ状態および Q&A・" +
+      "ホットメッセージ件数の集計、実際の Disk I/O Worker 経由での過去 24 時間参加ログ取得と 1～24 時間スライディングウィンドウ集計、" +
+      "および HTTP JSON レスポンスの直列化と解析までを通しで実行し、管理 API の典型的な単一プロセス RPS を計測する。",
     storage:
       "`bun run perf:identity-database` の実装を再利用。「コールド」は接続のページキャッシュと文キャッシュが空である意味で、" +
       "OS のページキャッシュを破棄したという意味ではない。",

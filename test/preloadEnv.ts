@@ -75,10 +75,15 @@ const TEST_AGENT_CONFIG: string = readFileSync(TEST_AGENT_CONFIG_PATH, "utf8").r
 );
 writeFileSync(TEST_AGENT_CONFIG_PATH, TEST_AGENT_CONFIG, { mode: 0o600 });
 const TEST_BOT_CONFIG_PATH: string = join(TEST_STATIC_CONFIG_DIR, "bot.json");
-const TEST_BOT_CONFIG: string = readFileSync(TEST_BOT_CONFIG_PATH, "utf8").replace(
-  "replace-with-telegram-bot-token",
-  "123456789:test-only-telegram-bot-token"
-);
+const TEST_BOT_CONFIG: string = readFileSync(TEST_BOT_CONFIG_PATH, "utf8")
+  .replace(
+    "replace-with-telegram-bot-token",
+    "123456789:test-only-telegram-bot-token"
+  )
+  .replace(
+    "replace-with-mini-app-password",
+    "test-only-mini-app-password-908172"
+  );
 writeFileSync(TEST_BOT_CONFIG_PATH, TEST_BOT_CONFIG, { mode: 0o600 });
 
 // 在任何生产模块 import 之前将 database/、memory/、logs/ 与 bot.lock 定向到隔离数据根。

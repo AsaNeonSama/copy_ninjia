@@ -110,7 +110,7 @@ export const GEMINI_SERVER_TOOL_CONFIG: Readonly<{ includeServerSideToolInvocati
  * 本群上一次成功的回复 generateContent 发出后，下一轮首轮请求仍走完整结构、由隐式前缀缓存
  * 命中的最长时间（毫秒，按 performance.now() 计）。距该发出时刻不超过此时长（含相等）时不引用
  * 显式缓存；超过此时长或本群还没有成功请求时才引用。本轮后续请求不看这个间隔。
- * 所属模块：aiChat/gemini/replySession.ts。
+ * 所属模块：aiChat/gemini/replySession.ts 与 cache/workers/aiChat/geminiContextCache.ts。
  */
 export const GEMINI_REPLY_EXPLICIT_CACHE_IDLE_MS: number = 30_000;
 

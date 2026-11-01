@@ -111,7 +111,7 @@ export function settleWorkerRequest<T>(table: WorkerRequestTable<T>, requestId: 
  * @param result 统一交回给所有在途等待者的兜底结果。
  */
 export function failAllWorkerRequests<T>(table: WorkerRequestTable<T>, result: T): void {
-  for (const requestId of [...table.waiters.keys()]) {
+  for (const requestId of table.waiters.keys()) {
     takeWorkerRequest(table, requestId)?.resolve(result);
   }
 }

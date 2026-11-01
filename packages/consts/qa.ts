@@ -10,7 +10,7 @@ import { STATE_MANAGED_CHAT_LIMIT } from "./storage";
  *
  * 派生上界随本值变化：主线程热表与 Disk I/O 未提交缓冲各自的
  * `STATE_MANAGED_CHAT_LIMIT × 本数`，以及看板页数 `ceil(本数 / QA_QUERY_PAGE_MAX_ENTRIES)`。
- * 所属模块：packages/commands/qa/。
+ * 所属模块：commands/qa.ts、infra/qaStore.ts、database/validation/storageRows.ts、workers/diskIO/storageDatabase/chatQa.ts、mini-app-api-server/view/chats/targets.ts、consts/atmosphere/plain/qa.ts、consts/atmosphere/teasing/qa.ts 与 consts/atmosphere/teasing/commands.ts。
  */
 export const CHAT_QA_MAX_PER_CHAT: number = 15;
 
@@ -18,7 +18,7 @@ export const CHAT_QA_MAX_PER_CHAT: number = 15;
  * 单条问题文本的最大长度（UTF-16 code unit）。
  *
  * 问题文本是直答 Map 的键，本值约束键的长度。
- * 所属模块：packages/commands/qa/。
+ * 所属模块：commands/qa/fieldRules.ts、database/codec/chatQa.ts、mini-app-api-server/view/chats/targets.ts、consts/atmosphere/plain/qa.ts 与 consts/atmosphere/teasing/qa.ts。
  */
 export const CHAT_QA_QUESTION_MAX_CHARS: number = 256;
 
@@ -27,7 +27,7 @@ export const CHAT_QA_QUESTION_MAX_CHARS: number = 256;
  *
  * 取值低于 TELEGRAM_MESSAGE_MAX_CHARS，已登记的答案都能原样发出；余量留给围栏被拆回
  * `pre` 实体之外的正文。代码块在落盘时以字面围栏保存（见 libs/codeFence.ts），围栏本身也计入。
- * 所属模块：packages/commands/qa/。
+ * 所属模块：commands/qa/fieldRules.ts、database/codec/chatQa.ts、mini-app-api-server/view/chats/targets.ts、consts/atmosphere/plain/qa.ts 与 consts/atmosphere/teasing/qa.ts。
  */
 export const CHAT_QA_ANSWER_MAX_CHARS: number = 3_840;
 
@@ -49,7 +49,7 @@ export const QA_ANSWER_LABELS: readonly string[] = ["回答:", "回答：", "答
  * `/qa set` 表单会话的存活时长：超时仍未填齐两项即作废。
  *
  * 会话只握在主线程内存里（见 packages/cache/main/qa.ts），到点由状态机结算并删除表单，不持久化。
- * 所属模块：packages/commands/qa/。
+ * 所属模块：commands/qa/session.ts、consts/atmosphere/plain/qa.ts 与 consts/atmosphere/teasing/qa.ts。
  */
 export const QA_FORM_SESSION_TTL_MS: number = 15 * 60 * 1000;
 
@@ -57,7 +57,7 @@ export const QA_FORM_SESSION_TTL_MS: number = 15 * 60 * 1000;
  * 全局同时存在的 `/qa set` 表单会话上限，等于受管群上限 STATE_MANAGED_CHAT_LIMIT。
  *
  * 会话按群唯一，同一个群重开表单替换旧会话；达到上限后新的 `/qa set` 被拒绝。
- * 所属模块：packages/cache/main/qa.ts。
+ * 所属模块：packages/commands/qa/session.ts。
  */
 export const QA_FORM_SESSION_MAX: number = STATE_MANAGED_CHAT_LIMIT;
 

@@ -28,10 +28,10 @@ export const qaFormSessions: Map<number, QaFormSession> = new Map();
  */
 export const unacknowledgedChatQaWrites: Map<number, Map<string, UnacknowledgedChatQaWrite>> = new Map();
 
-/** 群问答未确认写入的总条数与估算字节总数：登记或覆盖写入时按差额更新，收到精确 ACK 时扣减，hydrate 或 resetChatQaCache 时清零。 */
+/** 群问答未确认写入的总条数与估算字节总数：登记或覆盖写入时按差额更新，收到精确 ACK 时扣减，Worker 重建重放保留，进程重启、hydrate 或 resetChatQaCache 时清零；单例固定字段。 */
 export const unacknowledgedChatQaTotals: { entries: number; bytes: number } = { entries: 0, bytes: 0 };
 
-/** 群问答写入的单调递增 revision 发号器：每次写入自增，进程重启或 resetChatQaCache 时重置为初始值。 */
+/** 群问答写入的单调递增 revision 发号器：每次写入自增，Worker 重建保留，进程重启或 resetChatQaCache 时重置为初始值；单例标量。 */
 export const nextChatQaRevision: { current: number } = { current: 1 };
 
 /** 清空群问答进程内缓存、表单会话定时器与未确认写入状态（测试隔离用）。 */

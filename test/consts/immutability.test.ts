@@ -164,7 +164,7 @@ import {
   OPENAI_STANDARD_IMAGE_SIZE_BY_ASPECT_RATIO,
   EMPTY_OUTPUT_ITEMS,
 } from "../../packages/consts/aiChat/openai";
-import { RANDOM_IMAGE_EXTENSIONS } from "../../packages/consts/randomImage";
+import { RANDOM_IMAGE_EXTENSIONS } from "../../packages/consts/imageGallery";
 import { H_IMAGE_TEXTS } from "../../packages/consts/atmosphere/teasing/hImage";
 import {
   EMPTY_MESSAGE_ENTITIES,
@@ -180,6 +180,7 @@ import { DEFAULT_WHITELIST_PERMISSIONS, NON_WHITELIST_PERMISSIONS, SUPER_ADMIN_W
 import { PERMISSION_COMMAND_TEXTS, WHITE_COMMAND_TEXTS } from "../../packages/consts/atmosphere/teasing/whitelist";
 import { WEATHER_CODE_DESCRIPTIONS } from "../../packages/consts/weather";
 import { BOT_CHAT_PERMISSION_LABELS } from "../../packages/consts/botAdmin";
+import { BOT_STATUS_FEATURE_LABELS } from "../../packages/consts/botStatus";
 import { getChatState } from "../../packages/infra/storage/stateStore";
 
 import * as Media from "../../packages/consts/aiChat/media";
@@ -289,6 +290,8 @@ test("Readonly<Record<…>> 形态的常量不可写入", () => {
   // @ts-expect-error 权限中文名表被 /bot_status 回执与缺权限提示共用，改坏它等于
   // 对着所有群报错一个权限位的含义。
   expect(() => { BOT_CHAT_PERMISSION_LABELS.canDeleteMessages = "篡改"; }).toBeDefined();
+  // @ts-expect-error 群功能开关中文名表被 /bot_status 功能块使用，不允许调用方改写。
+  expect(() => { BOT_STATUS_FEATURE_LABELS.isInitEnabled = "篡改"; }).toBeDefined();
   // @ts-expect-error Readonly<WhitelistPermissions> 的字段只读；这份默认值被
   // setWhitelistMembership 逐条展开复用，写坏它等于改掉此后所有新增成员的缺省权限。
   expect(() => { DEFAULT_WHITELIST_PERMISSIONS.isCanBlock = true; }).toBeDefined();
@@ -635,3 +638,91 @@ function assertStorageMigrationLineageReadonly(): void {
   STORAGE_MIGRATION_LINEAGE[0]!.hash = "mock";
 }
 void assertStorageMigrationLineageReadonly;
+
+import {
+  MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS,
+  MINI_APP_FEATURE_KEYS,
+  MINI_APP_PICKER_SUBJECT_KINDS,
+  MINI_APP_PICKER_TARGET_LISTS,
+  MINI_APP_TRANSLATE_LANGUAGES,
+} from "../../packages/consts/miniApp";
+import {
+  MINI_APP_BATCH_KICK_PRESET_HOURS,
+  MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
+  MINI_APP_CHAT_TARGET_KINDS as FRONTEND_MINI_APP_CHAT_TARGET_KINDS,
+  MINI_APP_FEATURE_KEYS as FRONTEND_MINI_APP_FEATURE_KEYS,
+  MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
+  MINI_APP_IDENTITY_ADD_MODES,
+  MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
+  MINI_APP_LANGUAGES,
+  MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
+  MINI_APP_TAB_KEYS,
+  MINI_APP_TARGETS_SKELETON_ROW_INDICES,
+  MINI_APP_THEME_MODES,
+  MINI_APP_TRANSLATE_LANGUAGES as FRONTEND_MINI_APP_TRANSLATE_LANGUAGES,
+} from "../../packages/mini-app-frontend/consts/miniApp";
+import { WHITELIST_PERMISSION_KEYS as FRONTEND_WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
+import {
+  QR_ALIGNMENT_CENTERS_V4_TO_V8,
+  QR_L_DATA_CODEWORDS_PER_BLOCK,
+  QR_L_EC_CODEWORDS_PER_BLOCK,
+  QR_L_MAX_BYTES,
+  QR_L_NUM_BLOCKS,
+  QR_L_VERSIONS,
+  QR_PAD_BYTES,
+} from "../../packages/consts/miniAppTotp";
+function assertMiniAppConstantsReadonly(): void {
+  // @ts-expect-error Mini App 功能开关键闭集禁止调用方增删。
+  MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error 前端功能开关键闭集禁止调用方增删。
+  FRONTEND_MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error 前端白名单权限键全集禁止调用方增删。
+  FRONTEND_WHITELIST_PERMISSION_KEYS.push("isCanMute");
+  // @ts-expect-error Mini App 选择器目标名单闭集禁止调用方增删。
+  MINI_APP_PICKER_TARGET_LISTS.push("whitelist");
+  // @ts-expect-error Mini App 选择器身份类型闭集禁止调用方增删。
+  MINI_APP_PICKER_SUBJECT_KINDS.push("users");
+  // @ts-expect-error Mini App 支持语言闭集禁止调用方增删。
+  MINI_APP_LANGUAGES.push("zh");
+  // @ts-expect-error Mini App 主题模式闭集禁止调用方增删。
+  MINI_APP_THEME_MODES.push("dark");
+  // @ts-expect-error Mini App 添加名单方式闭集禁止调用方增删。
+  MINI_APP_IDENTITY_ADD_MODES.push("id");
+  // @ts-expect-error Mini App 侧边栏菜单项闭集禁止调用方增删。
+  MINI_APP_TAB_KEYS.push("status");
+  // @ts-expect-error 发言记录分页档位列表禁止调用方增删。
+  MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error 受管群分页档位列表禁止调用方增删。
+  MINI_APP_CHATS_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error 受管群批量清理快捷小时数预设列表禁止调用方增删。
+  MINI_APP_BATCH_KICK_PRESET_HOURS.push(48);
+  // @ts-expect-error 前端群内目标类别闭集禁止调用方增删。
+  FRONTEND_MINI_APP_CHAT_TARGET_KINDS.push("qa");
+  // @ts-expect-error Mini App 追着翻语言闭集禁止调用方增删。
+  MINI_APP_TRANSLATE_LANGUAGES.push("ja");
+  // @ts-expect-error 前端追着翻语言闭集禁止调用方增删。
+  FRONTEND_MINI_APP_TRANSLATE_LANGUAGES.push("ja");
+  // @ts-expect-error Mini App 群内目标变更动作闭集禁止调用方增删。
+  MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS.push("setQa");
+  // @ts-expect-error 群内目标弹窗数据条目骨架行序号表禁止调用方增删。
+  MINI_APP_TARGETS_SKELETON_ROW_INDICES.push(3);
+  // @ts-expect-error 名单分页档位列表禁止调用方增删。
+  MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error 图库分页档位列表禁止调用方增删。
+  MINI_APP_GALLERY_PAGE_SIZE_OPTIONS.push(50);
+  // @ts-expect-error QR 版本列表禁止调用方增删。
+  QR_L_VERSIONS.push(9);
+  // @ts-expect-error QR 最大容量列表禁止调用方增删。
+  QR_L_MAX_BYTES.push(999);
+  // @ts-expect-error QR 分块数列表禁止调用方增删。
+  QR_L_NUM_BLOCKS.push(4);
+  // @ts-expect-error QR 每块数据码字列表禁止调用方增删。
+  QR_L_DATA_CODEWORDS_PER_BLOCK.push(100);
+  // @ts-expect-error QR 每块纠错码字列表禁止调用方增删。
+  QR_L_EC_CODEWORDS_PER_BLOCK.push(30);
+  // @ts-expect-error QR 校正图形坐标表外层与内层均禁止调用方改写。
+  QR_ALIGNMENT_CENTERS_V4_TO_V8[0]!.push(99);
+  // @ts-expect-error QR 填充字节表禁止调用方增删。
+  QR_PAD_BYTES.push(0);
+}
+void assertMiniAppConstantsReadonly;

@@ -12,7 +12,7 @@ export const botPermissionFetches: Map<number, Promise<BotChatPermissions | unde
 
 /**
  * 各群在途权限现查的身份令牌；请求回填快照前核对令牌一致，失效时连同 botPermissionFetches 一并删除。
- * 填充、清理与容量同 botPermissionFetches。
+ * 填充、清理、容量与进程重启重建同 botPermissionFetches。
  */
 export const botPermissionRequestTokens: Map<number, symbol> = new Map();
 
@@ -28,7 +28,7 @@ export const botPermissionProbeBackoff: Map<number, number> = new Map();
 /**
  * 权限变更的下游广播回调单槽位，启动时由 packages/antiRaid/workerBridge/observers.ts 注入。
  * 确证权限或撤管理员时传入具体快照，离群、`/init` 切换或主动失效时传入 undefined（镜像语义见
- * cache/workers/antiRaid/botPermissions.ts）。容量恒为一个回调，进程重启后从 null 开始。
+ * cache/workers/antiRaid/botPermissions.ts）。运行期不清理、不淘汰，容量恒为一个回调，进程重启后从 null 开始。
  */
 export const botPermissionObserver: {
   current: ((chatId: number, permissions: BotChatPermissions | undefined) => void) | null;

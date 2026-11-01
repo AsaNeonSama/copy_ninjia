@@ -52,8 +52,9 @@ export function parseAdVerdict(raw: string | null | undefined): AdVerdict | null
   return { isAd: verdict.ad, reason };
 }
 
+/** `classifyAdText` 的入参。 */
 export interface ClassifyAdTextParams {
-  /** 按行编号的待判定消息串（见 adDetect/queue.ts）。 */
+  /** 按行编号的待判定消息串（见 adDetect/bundle.ts）。 */
   text: string;
   /** 发送者是否仍处于入群验证窗口内。 */
   justJoined: boolean;

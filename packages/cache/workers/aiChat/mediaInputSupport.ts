@@ -18,6 +18,7 @@ import type {
   MediaInputSupportState,
 } from "../../../types/states/mediaInputSupport";
 
+/** 视觉与语音模态各自的首次探测在途任务容器。 */
 interface MediaInputProbeState {
   vision: SharedResult<AiTextResult> | null;
   voice: SharedResult<AiTextResult> | null;

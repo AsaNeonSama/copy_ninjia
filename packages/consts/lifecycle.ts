@@ -47,7 +47,7 @@ export const DISK_IO_FLUSH_TIMEOUT_MS: number = 15_000;
 /**
  * terminateDiskIO 等待 Worker 关闭共享 SQLite（提交残余写、TRUNCATE checkpoint、关库）回执的预算，
  * 独立于 DISK_IO_FLUSH_TIMEOUT_MS，也不随 FlushTimeouts（含 EMERGENCY_FLUSH_TIMEOUTS）缩放；超时时
- * 无法确认残余写已提交，照常 terminate 后把这一步记为失败。所属模块：infra/diskIO.ts。
+ * 无法确认残余写已提交，照常 terminate 后把这一步记为失败。所属模块：infra/diskIO/requests.ts。
  */
 export const DISK_IO_STORAGE_CLOSE_TIMEOUT_MS: number = 1_500;
 /** 正常停机等待全局状态文件写入的预算。 */

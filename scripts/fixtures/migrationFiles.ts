@@ -5,6 +5,7 @@ import type { Stats } from "node:fs";
 import { isErrno } from "../../packages/libs/errno";
 import { invalidInput } from "../../packages/libs/inputValidation";
 
+/** 单个部署文件的路径、符号链接目标、SHA-256 与权限属主快照。 */
 export interface MigrationFileSnapshot {
   readonly path: string;
   readonly resolvedPath: string;

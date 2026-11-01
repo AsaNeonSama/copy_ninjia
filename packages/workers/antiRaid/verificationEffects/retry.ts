@@ -8,6 +8,7 @@ import { verificationKey } from "../../../libs/verificationKey";
 import type { VerificationDispatcher, VerificationEntry } from "../../../types/antiRaid/internal";
 import type { VerificationEvent, VerificationTerminalState } from "../../../types/states/verification";
 
+/** `retryTerminalAttempt` 安排入群验证终态动作退避重试的参数。 */
 export interface RetryTerminalAttemptParams {
   /** 群组 ID。 */
   chatId: number;

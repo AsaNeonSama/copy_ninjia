@@ -1,0 +1,237 @@
+import { memo, useEffect, useState } from "react";
+import type React from "react";
+import { MINI_APP_SEARCH_DEBOUNCE_MS } from "../consts/miniApp";
+import { getMiniAppTranslations } from "../i18n";
+import type { MiniAppTranslations } from "../i18n";
+import { readEventTargetValue } from "../libs/formatters";
+import {
+  ChevronDownSvgIcon,
+  CloseSvgIcon,
+  PlusSvgIcon,
+  SearchSvgIcon,
+} from "../resource";
+import { useMiniAppStore } from "../store/app";
+import type { MiniAppUiStoreState } from "../store/app";
+import type { MiniAppIdentitiesStoreState } from "../store/identities";
+import type { MiniAppLanguage } from "../types/miniApp";
+import { AddModeButtonList } from "./AddModeButtonList";
+import { CollapseGrid } from "./animations/CollapseGrid";
+import { useClosingSnapshot } from "./animations/useDelayedUnmount";
+
+/** `IdentitySearchAndAddCard` 组件属性参数。 */
+export interface IdentitySearchAndAddCardProps {
+  /** 黑白名单与权限矩阵状态仓库快照。 */
+  readonly state: MiniAppIdentitiesStoreState;
+}
+
+/**
+ * 比较搜索与添加卡片所需的状态切片是否一致，使防抖词提交、列表加载或展开/收起列表项的权限抽屉时不触发本卡片重渲染。
+ *
+ * @param prev 上一次属性
+ * @param next 本次属性
+ * @returns 状态切片未变化时返回 `true`
+ */
+function areIdentitySearchAndAddCardPropsEqual(
+  prev: Readonly<IdentitySearchAndAddCardProps>,
+  next: Readonly<IdentitySearchAndAddCardProps>
+): boolean {
+  const a: MiniAppIdentitiesStoreState = prev.state;
+  const b: MiniAppIdentitiesStoreState = next.state;
+  return (
+    a.searchInput === b.searchInput &&
+    a.addMenuOpen === b.addMenuOpen &&
+    a.idFormOpen === b.idFormOpen &&
+    a.idInput === b.idInput &&
+    a.busyAction === b.busyAction
+  );
+}
+
+/**
+ * 渲染黑白名单顶部的防抖搜索栏与折叠式三合一添加抽屉卡片（含按 ID 输入内联展开区）。
+ *
+ * @param props 组件属性
+ * @returns React 节点
+ */
+function IdentitySearchAndAddCardView({
+  state,
+}: IdentitySearchAndAddCardProps): React.JSX.Element {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (uiState: MiniAppUiStoreState): MiniAppLanguage => uiState.language
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+  const {
+    searchInput,
+    addMenuOpen,
+    idFormOpen,
+    idInput,
+    busyAction,
+    setSearchInput,
+    commitSearchQuery,
+    clearSearch,
+    toggleAddMenu,
+    selectAddMode,
+    closeIdForm,
+    setIdInput,
+    addById,
+  }: MiniAppIdentitiesStoreState = state;
+  const [isComposing, setIsComposing]: [
+    boolean,
+    React.Dispatch<React.SetStateAction<boolean>>
+  ] = useState<boolean>(false);
+
+  useEffect((): (() => void) | undefined => {
+    if (isComposing) {
+      return undefined;
+    }
+    const trimmed: string = searchInput.trim();
+    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+      commitSearchQuery(trimmed);
+    }, MINI_APP_SEARCH_DEBOUNCE_MS);
+    return (): void => {
+      clearTimeout(timer);
+    };
+  }, [commitSearchQuery, isComposing, searchInput]);
+
+  const displayIdFormOpen: boolean = useClosingSnapshot(
+    idFormOpen,
+    addMenuOpen
+  );
+  const displayBusyAction: boolean = useClosingSnapshot(
+    busyAction,
+    addMenuOpen
+  );
+  const displayIdInput: string = useClosingSnapshot(
+    idInput,
+    addMenuOpen && idFormOpen
+  );
+
+  return (
+    <div className="card">
+      <div className="search-and-add-bar">
+        <div className="search-input-wrap">
+          <SearchSvgIcon size={16} className="search-input-icon" />
+          <input
+            type="text"
+            inputMode="text"
+            lang=""
+            className="search-input"
+            value={searchInput}
+            onCompositionStart={(): void => {
+              setIsComposing(true);
+            }}
+            onCompositionEnd={(
+              event: React.CompositionEvent<HTMLInputElement>
+            ): void => {
+              setIsComposing(false);
+              setSearchInput(readEventTargetValue(event));
+            }}
+            onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+              setSearchInput(readEventTargetValue(event));
+            }}
+            onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>): void => {
+              if (event.key === "Enter" && !isComposing) {
+                event.preventDefault();
+                commitSearchQuery(searchInput.trim());
+              }
+            }}
+            placeholder={t.identities.searchPlaceholder}
+          />
+          {searchInput.length > 0
+            ? (
+              <button
+                type="button"
+                className="search-clear-btn"
+                aria-label={t.identities.searchClearAria}
+                onMouseDown={(
+                  event: React.MouseEvent<HTMLButtonElement>
+                ): void => {
+                  event.preventDefault();
+                }}
+                onClick={(): void => {
+                  setIsComposing(false);
+                  clearSearch();
+                }}
+              >
+                <CloseSvgIcon size={14} />
+              </button>
+            )
+            : null}
+        </div>
+
+        <button
+          type="button"
+          className={`btn primary icon-btn add-fold-trigger ${addMenuOpen ? "open" : ""}`}
+          disabled={busyAction}
+          onClick={toggleAddMenu}
+        >
+          <PlusSvgIcon size={16} />
+          <span>{t.identities.addFoldButton}</span>
+          <ChevronDownSvgIcon
+            size={14}
+            className={`chevron-icon ${addMenuOpen ? "rotated" : ""}`}
+          />
+        </button>
+      </div>
+
+      <CollapseGrid
+        expanded={addMenuOpen}
+        gridClassName="add-fold-collapse-grid"
+        innerClassName="add-fold-collapse-inner"
+      >
+        <div className="add-fold-panel">
+          <AddModeButtonList
+            idFormOpen={displayIdFormOpen}
+            disabled={displayBusyAction}
+            interactive={addMenuOpen}
+            t={t}
+            onSelectMode={selectAddMode}
+          />
+
+          <CollapseGrid
+            expanded={displayIdFormOpen}
+            gridClassName="id-add-collapse-grid"
+            innerClassName="id-add-collapse-inner"
+          >
+            <div className="id-add-inline-row">
+              <input
+                type="text"
+                value={displayIdInput}
+                disabled={displayBusyAction}
+                tabIndex={idFormOpen ? 0 : -1}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+                  setIdInput(readEventTargetValue(event));
+                }}
+                placeholder={t.identities.idInputPlaceholder}
+              />
+              <button
+                type="button"
+                className="btn primary"
+                disabled={displayBusyAction}
+                tabIndex={idFormOpen ? 0 : -1}
+                onClick={(): void => {
+                  void addById();
+                }}
+              >
+                {t.identities.idConfirmButton}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={displayBusyAction}
+                tabIndex={idFormOpen ? 0 : -1}
+                onClick={closeIdForm}
+              >
+                {t.identities.idCancelButton}
+              </button>
+            </div>
+          </CollapseGrid>
+        </div>
+      </CollapseGrid>
+    </div>
+  );
+}
+
+/** 按搜索与添加抽屉相关状态切片浅比较跳过重渲染的顶部搜索与添加卡片。 */
+export const IdentitySearchAndAddCard: React.MemoExoticComponent<
+  typeof IdentitySearchAndAddCardView
+> = memo(IdentitySearchAndAddCardView, areIdentitySearchAndAddCardPropsEqual);

@@ -30,6 +30,7 @@ import { expelNoticeText } from "./expelNotice";
 import { VERIFICATION_CLEANUP_SETTLED } from "../../../consts/antiRaid/verification";
 import type { ExpelRemovalOutcome, VerificationCleanupResult } from "../../../types/antiRaid/verification";
 
+/** `runRecheckInviterEffect` 执行拉人者终核副作用的参数。 */
 interface RunRecheckInviterEffectParams {
   /** 群组 ID。 */
   chatId: number;
@@ -66,6 +67,7 @@ export async function runRecheckInviterEffect({
   });
 }
 
+/** `runExpelEffect` 执行超时或刷屏踢出处置终态的参数。 */
 interface RunExpelEffectParams {
   /** 群组 ID。 */
   chatId: number;
@@ -150,6 +152,7 @@ export async function runExpelEffect({
   retryTerminalAttempt({ chatId, userId, state: expectedState, dispatchVerification });
 }
 
+/** `recheckInviterThenSettle` 核对拉人者管理员身份并结算的参数。 */
 interface RecheckInviterThenSettleParams {
   /** 群组 ID。 */
   chatId: number;
@@ -183,6 +186,7 @@ async function recheckInviterThenSettle({
   dispatchVerification(chatId, userId, { type: "timeoutInviterVerdict", inviterIsAdmin });
 }
 
+/** `expelMember` 执行单次踢出处置、消息清理与播报的参数。 */
 interface ExpelMemberParams {
   /** 群组 ID。 */
   chatId: number;
@@ -255,6 +259,7 @@ async function probeBlockedMember(
   return present === false ? "absent" : "failed";
 }
 
+/** `deleteVerificationMessages` 清理验证相关机器人消息的选项。 */
 interface DeleteVerificationMessagesOptions {
   /** 群组 ID。 */
   readonly chatId: number;

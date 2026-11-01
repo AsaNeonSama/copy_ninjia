@@ -20,6 +20,6 @@ export const weatherRefreshTimer: { current: ReturnType<typeof setInterval> | nu
 
 /**
  * 天气刷新循环的取消控制器。
- * 填充：startWeatherRefreshLoop 启动时创建；清理：stopWeatherRefreshLoop 先置空再 abort；重建：Worker 重启后重新创建；容量：固定为单个 holder。
+ * 填充：startWeatherRefreshLoop 启动时创建；清理：stopWeatherRefreshLoop 先清空再 abort；重建：Worker 重启后重新创建；容量：固定为单个 holder，不淘汰。
  */
 export const weatherRefreshController: { current: AbortController | null } = { current: null };

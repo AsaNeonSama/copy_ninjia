@@ -119,6 +119,7 @@ export function syncDirectorySync(path: string): void {
   }
 }
 
+/** 向临时文件描述符同步写入内容并返回已写字节数的回调。 */
 type AtomicSyncWriter = (fd: number) => number;
 
 /**

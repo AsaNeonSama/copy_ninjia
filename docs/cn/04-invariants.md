@@ -74,6 +74,7 @@
   - **按需批量预热**：每条消息在进入具体业务逻辑前，前置中间件会收集本条消息涉及的所有用户和频道身份，单次向 Disk I/O Worker 批量预取策略状态（单次最多 `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` 个），同一身份的三项一次写入同一条目。后续的命令执行与权限判定直接同步读取主线程内存缓存，无需反复进行跨线程往返请求。Disk I/O 侧的白名单、黑名单、临时免检批量读取与群状态 id 读取使用连接级预编译语句（id 列表经 `json_each` 占位传入），不在每次读取时重新拼装查询。
   - **冷读失败安全处理**：若跨线程预热读取失败，普通业务将安全降级（按未授权处理）；对于踢人、拉黑等破坏性批量操作，则直接取消执行，绝不把未知状态当成无保护状态。
   - **批量踢人例外（`/batch_kick`）**：批量踢人不依赖缓存是否常驻，而是在每个批次开始前直接冷读本批全部身份的永久策略并在局部持有。
+  - **Mini App 名单页例外**：Mini App 的白名单、黑名单列表与搜索经 `readIdentityPolicyEntries` 按同一分块上限直接冷读当页或全部条目，游标页与条目内容均以本地未 ACK 最终值覆盖数据库结果，展示元数据与主线程 `senderIdentity` 发送者缓存双向对齐（优先采用发送者缓存中的最新资料，并在用户名未被其他身份接管时按需回填），结果只在本次请求内局部持有，不读写这张策略 LRU，因此不会刷新或挤出 Bot 处理消息所需的热条目；冷读失败时请求返回错误。增删名单与修改权限仍与 `/white`、`/block`、`/permission` 走同一预热与写入路径，并执行一致的目标互斥与边界拦截（拒绝超级管理员、机器人自身及任何已 `/init` 的受管群身份；白名单与黑名单严格互斥；原生选择器 `users_shared`/`chat_shared` 导入未新增条目时优先透传首个边界拒绝码）。
 
 - **临时广告免检的跨群累计机制**：
   - 仅当广告检测功能可用且当前群已显式开启广告检测时，普通用户或频道马甲的正常发言才会参与免检累计；机器人自身、自动转发、匿名管理员与永久白名单成员均不参与累计。
@@ -123,7 +124,7 @@
   - 在测试环境中，测试沙盒会在模块导入前自动注入独立的临时数据根，确保真实的测试文件读写绝不会污染或覆盖生产数据。
 - **低优先级群标题维护**：
   - 在系统启动就绪、命令菜单与长轮询 Runner 完全运转后，主线程会启动低优先级的群组标题异步更新任务。
-  - 通过 `runBoundedSettledBatch` 逐个调用 `getChat` 获取最新群名，各群独立处理，支持在收到停机信号时平滑中止。
+  - 通过 `runBoundedSettledBatch`（并发上限 `CHAT_TITLE_REFRESH_CONCURRENCY`）逐个调用 `getChat` 获取最新群名，各群独立处理，支持在收到停机信号时平滑中止。
   - `getChat` 的失败由 `infra/telegram/errors.ts` 的 `classifyChatAbsence` 归类：400 且描述为 `chat not found`、`group chat was upgraded to a supergroup chat` 或带 `parameters.migrate_to_chat_id` 判为 `gone`；403 且描述为 `bot was kicked from the (super)group chat`、`bot is not a member of the (super)group chat` 判为 `departed`；其余错误只记日志。
   - 判为不可达的群按 `CHAT_ABSENCE_CONFIRM_INTERVAL_MS` 间隔重查，累计 `CHAT_ABSENCE_CONFIRM_ATTEMPTS` 次（含首次）都得到同一类结论，才经 `completeChatDeparture` 收尾并记一条 warn。中途查到群、得到别的结论或错误、该群已不在群状态表里，都放弃，本次不收尾。
   - 两次重查之间的等待挂在 `chatTitleRefreshRuntime.absenceConfirmation` 上，停机 quiesce 与 abort 都会立刻打断它，标题刷新任务随即结算；在途的 `getChat` 不受影响，照常在维护预算内结算。
@@ -816,11 +817,11 @@
 
 - **图库目录校验与热重载**：
   - 图库路径来自 `config/dynamic/assets.json` 的 `onlyPath.random_h_image_dir`（缺省 `RANDOM_H_IMAGE_DIR`）。
-  - 启动阶段在外部连接建立前通过 `infra/randomImage.ts` 的 `ensureRandomImageDirectory` 检查目录有效性：必须存在且可读写；子目录、软链接文件、隐藏文件或未匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN` 命名的文件均直接拒绝启动。
+  - 启动阶段在外部连接建立前通过 `infra/imageGallery.ts` 的 `ensureRandomImageDirectory` 检查目录有效性：必须存在且可读写；子目录、软链接文件、隐藏文件或未匹配 `RANDOM_IMAGE_CONTENT_NAME_PATTERN` 命名的文件均直接拒绝启动。
   - 热重载更改目录时执行相同严格检查；若新目录不合规，则拒绝变更并保持原目录运行。运行期间若目录被删，不自动重建。
-- **抽图算法（`pickRandomImage`）**：
-  - 每次重新枚举目录（不常驻文件列表），仅筛选合法扩展名且小于等于 `RANDOM_IMAGE_MAX_BYTES` 的普通文件进行均匀随机抽取。
-  - 抽中的文件若超限或在读取前被删改，剔除后在剩余候选列表中重新抽取。若无可发送文件且曾抽中超限文件，报错 `tooLarge`；若列表为空则报错 `empty`。
+- **抽图算法与图库双缓存（`pickRandomImage` / `randomImageDirectoryCache` / `randomImageGalleryCache`）**：
+  - 启动或热重载执行 `ensureRandomImageDirectory`（及首次访问未缓存目录）时读取目录，仅筛选合法扩展名的非隐藏普通文件，同时在 `cache/main/hImage.ts` 维护两份缓存：供抽图与计数使用的字典序升序缓存 `randomImageDirectoryCache`，以及供 Mini App 图库分页使用的按修改时间从新到老（`mtimeMs` 降序）缓存 `randomImageGalleryCache`；`storeRandomImage`（`/h_image add` 与 Mini App 上传）按各自排序结构通过二分查找原位插入两边缓存，`deleteRandomImageFile`（Mini App 删除）从两边缓存原位同步移除，抽图与 Mini App 图库分页直接读取对应缓存且翻页不重复排序。
+  - `pickRandomImage` 从 `randomImageDirectoryCache` 文件名列表中均匀随机抽取小于等于 `RANDOM_IMAGE_MAX_BYTES` 的普通文件；抽中的文件若在读取前被删改则同步从两边缓存剔除，若超限则在本次剩余候选列表中重新抽取。若无可发送文件且曾抽中超限文件，报错 `tooLarge`；若列表为空则报错 `empty`。
 - **限流与延迟任务调度**：
   - `/h_image` 与 `/h_image add` 共用全局滑动窗口限流（`H_IMAGE_RATE_LIMIT_WINDOW_MS` 内至多 `H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW` 次），超额调用直接丢弃，不排队也不报错。
   - 命令解析后提交至延迟命令执行器（`commands/deferredCommands.ts`）：
@@ -1116,7 +1117,7 @@
     - `unsettled`：存在未完成的排空任务或落盘失败。**强制扣住实例锁**以保护现场，以非零状态退出。
 - **Anti-Raid 与各 Worker 停机排空（Drain）**：
   - Anti-Raid 停机时先向 Worker 发送 `drain` 协议，停止广告判定节拍并阻断新请求；取得回执后，主线程在有界预算内排空在途处置、持久化事务并完成固定点对账。
-  - 停机流程遵循固定顺序（`packages/app/lifecycle/maintenance.ts` 与 `packages/app/lifecycle/shutdown.ts` 的 `SHUTDOWN_DRAIN_OWNERS` 与 `SHUTDOWN_TERMINATION_OWNERS`）：
+  - 停机流程遵循固定顺序（入口静默与 runner 排空位于 `packages/app/lifecycle/maintenance.ts`，`SHUTDOWN_DRAIN_OWNERS` 与 `SHUTDOWN_TERMINATION_OWNERS` 位于 `packages/app/lifecycle/shutdown.ts`）：
     1. 暂停所有新任务接入（停止配置热重载与 update 拉取，quiesce 各业务入口，排空 runner）；
     2. 按 `SHUTDOWN_DRAIN_OWNERS` 顺序依次排空：`avatar` → `translate` → `antiRaid` → `gag` → `qa form` → `wed` → `deferred commands` → `cron` → `target message deletion` → `Telegram delayed deletion` → `ai`（Flush AI 记忆）→ `telegram`（排空 Telegram 出站总闸）→ `disk`（Flush Disk I/O），再落盘 StateStore（`flushAllToDisk`）；这一步与前置条件全部成功后确认最终 offset；
     3. `dispose()` 按同一顺序排空并执行终局收尾（关闭翻译客户端、终止 AI Worker、关闭 Telegram 出站闸门），随后按 `SHUTDOWN_TERMINATION_OWNERS` 顺序执行 `terminateAntiRaid` → `terminateDiskIO`，再 `flushStateToDisk`，最后按停机结局释放或扣住实例锁。

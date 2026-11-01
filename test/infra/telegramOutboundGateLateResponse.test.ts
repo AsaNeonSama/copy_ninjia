@@ -1,5 +1,5 @@
 /**
- * 出站闸的取消路径：任务取消之后才回来的响应（outboundGate.ts 的
+ * 出站闸的取消路径：任务取消之后才回来的响应（outboundRetryLane.ts 的
  * handleActiveResponse 非 active 分支与「在途但 signal 已中止」分支）、入队前已中止
  * 的 signal、429 重放前置条件同步抛错，以及生命周期 signal 已中止后 retry timer
  * 到点。只有 fetch 那条路（媒体下载、头像抓取）会拿到真正的 Response；没人接手的

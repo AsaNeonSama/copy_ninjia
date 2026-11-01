@@ -52,6 +52,7 @@ export interface SupervisedWorkerEventContext<TMessage> {
   readonly signal: AbortSignal;
 }
 
+/** 受监督业务 Worker 的生命周期与消息投递句柄。 */
 export interface SupervisedWorkerHandle<TMessage> {
   /** 显式启动 Worker；重复调用幂等。 */
   readonly init: () => void;

@@ -46,6 +46,7 @@ import type { ChainDefinition } from "./chainDefinition";
 import { AI_REPLY_SEED_MESSAGES } from "./constants";
 import type { ChainName } from "./types";
 
+/** `createCommandChain` 构造端到端命令链路基准所需的生产入口与规模常量依赖。 */
 export interface CommandChainDependencies {
   readonly chainAdDetectCommands: number;
   readonly chainAiReplyCommands: number;
@@ -386,7 +387,7 @@ function cronSendVoiceChain(
 }
 
 /**
- * 返回命令链路定义；存储链路与配置链路分别交给 storageChains、configChains。
+ * 返回命令链路定义；存储、配置与 Mini App API 链路分别交给 storageChains、configChains 与 miniAppChains。
  * @param chain 目标链路标识名。
  * @param dependencies 命令链路所需的生产实现与罐头桩依赖。
  * @returns 若属于命令链路则返回对应定义，否则返回 `undefined`。
@@ -400,6 +401,7 @@ export function createCommandChain(
     case "ai-reply-command": return aiReplyCommandChain(dependencies);
     case "cron-send-voice": return cronSendVoiceChain(dependencies);
     case "cron-config-reload":
+    case "mini-app-api-request":
     case "join-log-append":
     case "identity-policy-write":
     case "temporary-whitelist-write":

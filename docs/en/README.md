@@ -30,6 +30,11 @@
   <a href="https://www.typescriptlang.org/"><img src="../../public/typescript_badge.svg" alt="TypeScript"></a>
   <a href="https://www.sqlite.org/"><img src="../../public/sqlite_badge.svg" alt="SQLite"></a>
   <a href="https://grammy.dev/"><img src="../../public/grammy_badge.svg" alt="grammY"></a>
+  <a href="https://react.dev/"><img src="../../public/react_badge.svg" alt="React"></a>
+  <a href="https://zustand.docs.pmnd.rs/"><img src="../../public/zustand_badge.svg" alt="Zustand"></a>
+</p>
+
+<p align="center">
   <a href="https://www.anthropic.com/"><img src="../../public/anthropic_badge.svg" alt="Anthropic"></a>
   <a href="https://platform.openai.com/docs/"><img src="../../public/openai_badge.svg" alt="OpenAI"></a>
   <a href="https://ai.google.dev/"><img src="../../public/gemini_badge.svg" alt="Gemini"></a>
@@ -38,8 +43,8 @@
 <p align="center">
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-pure-ai-development"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6829_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.78%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6940_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.83%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="../../LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -47,7 +52,7 @@ Message copying and personality mimicry are only the surface. Underneath is a mu
 
 ---
 
-🧬 [Pure AI Development](#-pure-ai-development) • ✨ [Features](#-features) • 🎮 [Commands and Permissions](#-commands-and-permissions) • 🚀 [Quick Start](#-quick-start) • 🤖 [BotFather Setup](#botfather-setup) • ❓ [FAQ](11-faq.md) • 📚 [Developer Docs](content-table.md)
+🧬 [Pure AI Development](#-pure-ai-development) • ✨ [Features](#-features) • 🎮 [Commands and Permissions](#-commands-and-permissions) • 🚀 [Quick Start](#-quick-start) • 🤖 [BotFather Setup](#botfather-setup) • ❓ [FAQ](12-faq.md) • 📚 [Developer Docs](content-table.md)
 
 </div>
 
@@ -104,7 +109,7 @@ From commit-by-commit human/AI co-review to repeated full-repository audits and 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../../public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="../../public/coverage_light.svg">
-    <img alt="bun run test:coverage — 6829 tests passed, 566 test files, 453,211 expect() calls, 98.53% function coverage, 98.78% line coverage" src="../../public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage — 6940 tests passed, 583 test files, 455,825 expect() calls, 97.45% function coverage, 97.83% line coverage" src="../../public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -267,7 +272,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 
 - **TTS Configuration**: Configured under `agent.tts` in `config/dynamic/agent.json` (supports native Google, OpenAI-compatible `audio/speech`, and xAI Grok `/tts`; Google supports a custom `base_url` for third-party gateways). Optional `bot_language` (`en` / `zh` / `ja`, default `TTS_DEFAULT_BOT_LANGUAGE`) sets the language of AI voice lines; placing `prompt/voice_tool.md` in the project root overrides the entire `send_voice` tool instruction (takes effect after a restart; see [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)). The AI reply pipeline automatically appends target language guidance based on `bot_language`; `style` is shared with `/send` and cron and describes only the acoustic timbre. When changing `bot_language`, remember to align `style` and `voice_tool.md` accordingly.
 - **Quota Isolation**: The daily quota `daily_limit` (default `TTS_DEFAULT_DAILY_LIMIT`) reserves `daily_reserve_quota` (default `TTS_DEFAULT_DAILY_RESERVE_QUOTA`) exclusively for `/send` and scheduled cron tasks, leaving the remainder for spontaneous AI chatter; both pools track counts independently. The tracking window (`TTS_USAGE_WINDOW_MS`) begins on the first request and resets both counters upon window expiry.
-- **Memory Ingestion Boundaries**: Messages forwarded via `/send` and scheduled cron tasks are excluded from AI conversation context. Automatic image logging requires AI chat to be enabled in the group and not suppressed by active copying mode. See [11 FAQ](11-faq.md).
+- **Memory Ingestion Boundaries**: Messages forwarded via `/send` and scheduled cron tasks are excluded from AI conversation context. Automatic image logging requires AI chat to be enabled in the group and not suppressed by active copying mode. See [12 FAQ](12-faq.md).
 
 For comprehensive behavioral contracts, configuration parameters, and invariants for every feature, explore the **[📚 Developer Documentation](content-table.md)**.
 
@@ -279,9 +284,9 @@ Commands are organized into three clear authorization tiers:
 
 - **Group Members**: Basic chat features such as copying, translation, actions, `/info`, `/wed`, and `/h_image` are open to all group participants.
 - **Identity Permissions (`isCanXxx`)**: Administrative commands including `/bot_status`, `/mute` / `/unmute`, `/gag`, `/block`, `/h_image add`, and feature switches, granted individually via fine-grained permission rules.
-- **Super Administrator (`SUPER_ADMIN_USER_ID`)**: Strict hard boundaries restricted exclusively to the configured owner ID: `/init` group onboarding, `/permission` grants, `/white disable` member removal, `/batch_kick` mass removal of recent joins, `/delete_message` deletion of a target's new messages, and private `/send` relays. Allowlisted users with `isCanWhiteOther` may use `/white enable` to add members, but can only assign default baseline permissions.
+- **Super Administrator (`SUPER_ADMIN_USER_ID`)**: Strict hard boundaries restricted exclusively to the configured owner ID: `/init` group onboarding, `/permission` grants, `/white disable` member removal, `/batch_kick` mass removal of recent joins, `/delete_message` deletion of a target's new messages, and private `/send` relays and the Mini App Management Console opened via the bottom-left `App` menu button (`MenuButtonWebApp`). Allowlisted users with `isCanWhiteOther` may use `/white enable` to add members, but can only assign default baseline permissions.
 
-Image library and cron task configuration and usage are documented in [08 Images and Scheduled Tasks](08-images-and-cron.md); offline cold migration steps live in the [Operations Manual](07-operations.md).
+Image library and cron task configuration and usage are documented in [08 Images and Scheduled Tasks](08-images-and-cron.md); Mini App setup and the recommended Cloudflare Tunnel configuration are documented in [11 Mini App Setup and Recommended Configuration](11-mini-app.md); offline cold migration steps live in the [Operations Manual](07-operations.md).
 
 The full command reference and permission matrix are documented in **[📖 09 Command and Behaviour Reference](09-commands.md)**.
 
@@ -415,9 +420,14 @@ Comprehensive architecture overviews, module maps, authoritative runtime invaria
     <td align="center"><nobr><a href="10-performance.md">📖 10 Performance</a></nobr></td>
   </tr>
   <tr>
+    <td><nobr>🖥️ <b>Mini App Console</b></nobr></td>
+    <td><code>mini_app</code> setup, recommended Cloudflare Tunnel configuration, two-tier auth, and TOTP binding</td>
+    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App Setup</a></nobr></td>
+  </tr>
+  <tr>
     <td><nobr>❓ <b>Bot not replying</b></nobr></td>
     <td>Checklist for a running bot that stays silent</td>
-    <td align="center"><nobr><a href="11-faq.md">📖 11 FAQ</a></nobr></td>
+    <td align="center"><nobr><a href="12-faq.md">📖 12 FAQ</a></nobr></td>
   </tr>
 </tbody>
 </table>
@@ -499,7 +509,7 @@ Promote the bot to a group administrator and grant permissions based on required
 > [!TIP]
 > - **Join Event Dependency**: Verification relies on group administrator status (Telegram only delivers member join/leave events to admin bots).
 > - **Diagnostic Feedback**: If permissions are missing, the bot explicitly reports which right is needed. Members holding `isCanViewBotStatus` can run `/bot_status` to view the chat's current permission snapshot.
-> - If the bot is running but produces no responses, consult [11 FAQ](11-faq.md).
+> - If the bot is running but produces no responses, consult [12 FAQ](12-faq.md).
 
 ---
 

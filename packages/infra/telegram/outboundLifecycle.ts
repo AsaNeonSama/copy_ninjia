@@ -108,6 +108,7 @@ export function telegramOutboundStats(): Readonly<{
   };
 }
 
+/** `drainTelegramOutbound` 排空已接纳 Telegram 出站请求的选项。 */
 interface DrainTelegramOutboundOptions {
   /** false 只排空当前任务而不关闭入口；预算耗尽仍会全局 abort。 */
   readonly quiesce?: boolean;

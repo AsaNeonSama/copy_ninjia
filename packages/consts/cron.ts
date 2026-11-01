@@ -28,10 +28,10 @@ export const CRON_MAX_ACTIONS_PER_TASK: number = 16;
 /** 任务名（任务身份）的最大 UTF-16 长度，属 packages/config/cron.ts；限定 just_once 记录的单条大小。 */
 export const CRON_TASK_NAME_MAX_CHARS: number = 64;
 
-/** `rand_cron` 区间允许的最小等待毫秒数，属 packages/config/cron.ts。 */
+/** `rand_cron` 区间允许的最小等待毫秒数，属 packages/config/cronAction.ts。 */
 export const CRON_RANDOM_INTERVAL_MIN_MS: number = 60_000;
 
-/** `rand_cron` 区间允许的最大等待毫秒数，属 packages/config/cron.ts。 */
+/** `rand_cron` 区间允许的最大等待毫秒数，属 packages/config/cronAction.ts。 */
 export const CRON_RANDOM_INTERVAL_MAX_MS: number = 24 * DAY_MS;
 
 /**
@@ -60,7 +60,7 @@ export const CRON_ACTION_GAP_MS: number = 1_000;
 export const CRON_ACTION_RETRY_DELAYS_MS: readonly number[] = [2_000, 4_000, 8_000];
 
 /**
- * just_once 执行记录（任务名）的 LRU 上限，属 cron/scheduler.ts（创建 cache/main/cron.ts 里运行时的 justOnceRecords）；当前配置里的任务
+ * just_once 执行记录（任务名）的 LRU 上限，属 packages/cron/scheduler.ts；当前配置里的任务
  * 每次对账都会刷新自己的记录，淘汰只落在早已删除的旧名字上。
  */
 export const CRON_JUST_ONCE_RECORD_MAX: number = 1_024;

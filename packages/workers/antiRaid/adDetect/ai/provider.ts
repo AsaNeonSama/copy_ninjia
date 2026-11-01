@@ -7,6 +7,7 @@ import { requestAnthropicAdDetectJson } from "./anthropic";
 import type { AdDetectJsonRequestParams } from "../../../../types/antiRaid/adDetect";
 import type { AgentProvider } from "../../../../types/config";
 
+/** 单个模型提供商的广告检测结构化 JSON 请求函数签名。 */
 type AdDetectRequest = (params: AdDetectJsonRequestParams) => Promise<string | null>;
 
 /** provider 到广告检测传输的穷举映射；扩展 AgentProvider 时编译器会要求补项。 */

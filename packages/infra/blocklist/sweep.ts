@@ -117,6 +117,7 @@ export function noteBanPermissionObserved(chatId: number, canRestrict: boolean):
   replayPendingBlockedRemovalsForChat(chatId);
 }
 
+/** 已登记群级补扫 claim 与首张游标页的准备上下文。 */
 interface PreparedBlocklistSweep {
   chatId: number;
   params: RemoveBlockedMembersParams;

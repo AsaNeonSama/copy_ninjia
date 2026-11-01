@@ -1,3 +1,7 @@
+import { lstat } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { isErrno } from "./errno";
+
 /**
  * 不可信部署输入的安全错误。消息只包含来源、字段路径和期望形态，不携带
  * 实际值或底层异常。
@@ -113,6 +117,51 @@ const STRICT_UTF8_DECODER: TextDecoder = new TextDecoder("utf-8", {
 export async function readUtf8TextInput(sourcePath: string): Promise<string> {
   const bytes: Uint8Array = await Bun.file(sourcePath).bytes();
   return STRICT_UTF8_DECODER.decode(bytes);
+}
+
+/**
+ * 叶子路径本身是否不存在，以 `lstat` 报 ENOENT 为准（`BunFile.stat()` 跟随软链接，
+ * 悬空链接同样报 ENOENT）。
+ *
+ * @param path 待检查的文件系统路径。
+ * @returns 叶子路径本身不存在时返回 `true`。
+ */
+export async function isMissingLeaf(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return false;
+  } catch (error: unknown) {
+    return isErrno(error, "ENOENT");
+  }
+}
+
+/**
+ * 可选持久化状态文件的严格读取边界：叶子路径本身必须是普通文件，内容必须是严格 UTF-8。
+ *
+ * 类型经 `lstat` 判定，不跟随软链接：软链接（含指向普通文件的链接与悬空链接）、目录、其它非普通文件以及
+ * EACCES/ELOOP/ENOTDIR 等访问失败一律是已配置但非法，按 AGENTS.md 的「不为用户行为兜底」拒绝启动；
+ * 只有 `lstat` 报 ENOENT 才按缺失处理。lstat 成功之后的读取或解码失败也不降级为缺失。
+ *
+ * 错误统一收敛为 InputValidationError，只带文件路径、字段路径和期望形态，不回显
+ * 底层异常与状态内容（见 docs/cn/04-invariants.md 的严格解析约束）。
+ *
+ * @param path 状态文件路径。
+ * @returns 文件文本；叶子路径真正缺失时为 null。
+ */
+export async function readOptionalRegularTextInput(path: string): Promise<string | null> {
+  let stats: Stats;
+  try {
+    stats = await lstat(path);
+  } catch (error: unknown) {
+    if (isErrno(error, "ENOENT")) return null;
+    return invalidInput(path, "$", "an accessible regular file");
+  }
+  if (!stats.isFile()) return invalidInput(path, "$", "a regular file, not a symbolic link");
+  try {
+    return await readUtf8TextInput(path);
+  } catch {
+    return invalidInput(path, "$", "a regular file readable as strictly valid UTF-8 text");
+  }
 }
 
 /**

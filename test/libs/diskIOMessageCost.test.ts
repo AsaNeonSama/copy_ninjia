@@ -208,6 +208,11 @@ const CASES: Readonly<Record<QueuedDiskIOOperationMessage["type"], MessageCase>>
     payloadBytes: 0,
     business: false,
   },
+  readWhitelistIdPage: {
+    message: { type: "readWhitelistIdPage", requestId: 6, afterId: null },
+    payloadBytes: 0,
+    business: false,
+  },
   recoveryReplay: {
     message: { type: "recoveryReplay", active: true },
     payloadBytes: 0,

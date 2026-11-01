@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { CronAction, CronDeliveryOutcome, CronRoundDigests, CronRoundVoices } from "../../packages/types/cron";
 import type { WebDigestCompositionResult, WebDigestRequest } from "../../packages/types/webDigest";
 import type { VoiceSynthesisResult } from "../../packages/types/aiChat/voiceMessage";
-import type { RandomImagePick } from "../../packages/types/randomImage";
+import type { RandomImagePick } from "../../packages/types/imageGallery";
 
 /** 记录调用并按预设返回的 grammY api 替身。 */
 const calls: { method: string; args: unknown[] }[] = [];
@@ -60,7 +60,7 @@ mock.module("../../packages/infra/selfSentTracker", () => ({
   beginSelfSentSend: (): void => {},
   endSelfSentSend: (): void => {},
 }));
-mock.module("../../packages/infra/randomImage", () => ({ pickRandomImage }));
+mock.module("../../packages/infra/imageGallery", () => ({ pickRandomImage }));
 const recordBotImage = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/aiChat/botImages", () => ({ recordBotImage }));
 /** MP3 帧头 + 两字节的合成替身；每次返回新数组，确认复用的是登记下的那一份。上传文件名取自合成结果。 */

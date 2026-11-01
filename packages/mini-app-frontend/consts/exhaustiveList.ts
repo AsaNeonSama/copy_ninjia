@@ -1,0 +1,23 @@
+/**
+ * 联合类型全集表的构造器，由 `packages/mini-app-frontend/consts/` 内的模块在初始化时调用：
+ * `exhaustiveList<U>()([...])` 要求数组字面量覆盖 U 的每一个成员，漏掉任何一个时形参类型
+ * 退化成 `never`，混入 U 以外的值时违反约束，两者都在调用点编译失败。表的顺序就是字面量的
+ * 顺序；重复成员不在检查范围内。运行期原样返回同一个数组。
+ *
+ * `bun run check:conventions` 要求前端 consts 里元素为字面量联合的导出数组表都经它构造。
+ * @returns 校验并原样返回完整联合类型数组字面量的构造函数。
+ */
+export function exhaustiveList<U>(): <const T extends readonly U[]>(
+  items: T & ([U] extends [T[number]] ? unknown : never)
+) => readonly U[] {
+  return returnItems;
+}
+
+/**
+ * 原样返回传入的数组表。
+ * @param items 经编译期穷尽性校验的只读数组。
+ * @returns 原样返回的同一份数组引用。
+ */
+function returnItems<T>(items: T): T {
+  return items;
+}

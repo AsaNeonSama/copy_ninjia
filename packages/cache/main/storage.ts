@@ -4,7 +4,7 @@ import type { StateStore } from "../../infra/storage/statePersistence";
 import type { TtsDailyUsage } from "../../types/aiChat/voiceMessage";
 import type { GlobalCopyState } from "../../types/chatState";
 
-/** 进程唯一 StateStore 实例 holder：首次经 infra/storage/stateStore.ts 访问时创建，停机时进入 quiesced 状态，进程重启后从 null 重新创建。 */
+/** 进程唯一 StateStore 实例 holder：首次经 infra/storage/stateStore.ts 访问时创建，停机时关闭进入 quiesced 状态，不淘汰，进程重启后从 null 重新创建。 */
 export const stateStoreHolder: { current: StateStore | null } = { current: null };
 
 /**

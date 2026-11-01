@@ -17,8 +17,10 @@ import { workerAtmosphere } from "./atmosphere";
 import { isChatAdmin } from "./adminCache";
 import { trackAntiRaidTask } from "./taskTracker";
 
+/** 入群验证内联按钮回调的应答类型。 */
 type VerificationCallbackReply = Extract<VerificationEffect, { kind: "answerCallback" }>["reply"];
 
+/** `answerVerificationCallback` 应答入群验证内联按钮回调的选项。 */
 export interface AnswerVerificationCallbackOptions {
   /** Telegram 回调查询 ID。 */
   readonly callbackQueryId: string;

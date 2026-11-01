@@ -31,8 +31,8 @@ export const userReplyTriggerSweepState: {
  */
 export const aiReplyActivityByChat: Map<number, AiReplyActivityEntry> = new Map();
 
-/** 群活跃度表的单调访问序号；每次记录递增，整表清空时归零，进程重启后从初值开始。 */
+/** 群活跃度表的单调访问序号单例；每次记录写入时递增，整表清空时归零，进程重启后从初值开始。 */
 export const aiReplyActivitySequenceState: { current: number } = { current: 0 };
 
-/** 群活跃度表按最早到期时刻调度的唯一清扫 timer；表空时释放，进程重启后从 null 开始。 */
+/** 群活跃度表按最早到期时刻调度的唯一清扫 timer；记录活跃度时创建或重设，表空时释放，进程重启后从 null 开始。 */
 export const aiReplyActivitySweepState: { timer: ReturnType<typeof setTimeout> | null } = { timer: null };
