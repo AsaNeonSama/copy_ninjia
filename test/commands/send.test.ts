@@ -5,9 +5,8 @@ import { replyCommandNoticeVia } from "../helpers/common";
 /**
  * 替换 infra/telegram、infra/telegram/mainClient 与 infra/storage/stateStore：
  * stateStore 使用内存 Map 覆盖 handleSendCommand 用到的接口（getChatState、
- * getOrCreateChatState、getChatStateCache、getActiveProxySendTarget、
- * disableChatStateSwitch、persistChatState），getActiveProxySendTarget 按真实
- * 实现的扫描语义查找。
+ * getOrCreateChatState、getActiveProxySendTarget、disableChatStateSwitch、
+ * persistChatState），getActiveProxySendTarget 按真实实现的扫描语义查找。
  */
 const sendMessageMock = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const getChatMock = mock(async (chatId: number): Promise<any> => ({ id: chatId, type: "supergroup", title: "Test Group" }));
@@ -24,7 +23,7 @@ mock.module("../../packages/infra/telegram/mainClient", () => ({
 const chatStates = new Map<number, Record<string, unknown>>();
 const saveStateInBackgroundMock = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/storage/stateStore", () => ({
-  getChatState: (): Record<string, never> => ({}),
+  getChatState: (chatId: number): Record<string, unknown> => chatStates.get(chatId) ?? {},
   // 按「State 已经管满」建模：真实的 getOrCreateChatState 在 chat_states 已达
   // STATE_MANAGED_CHAT_LIMIT 时，为未知群新建状态会抛容量错（见 infra/chatStateStorage.ts 的 assertChatStateCapacity）；
   // handleSendCommand 不为未纳管的群走到这里，这句抛错等价于一条断言。
@@ -33,7 +32,6 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
     if (!state) throw new Error("chat_states must contain at most 25 chats; delete chats that are no longer managed before adding another chat.");
     return state;
   },
-  getChatStateCache: (): ReadonlyMap<number, Record<string, unknown>> => chatStates,
   getActiveProxySendTarget: (): number | undefined => {
     for (const [chatId, state] of chatStates) {
       if (state.isProxySendEnabled === true) return chatId;
@@ -52,6 +50,7 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
 
 const { handleSendCommand } = await import("../../packages/commands/send");
 const { SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
+const { chatAtmosphere } = await import("../../packages/infra/atmosphere");
 
 function makeCtx(chatType: "private" | "group", userId: number | undefined, arg: string): any {
   return {
@@ -62,9 +61,9 @@ function makeCtx(chatType: "private" | "group", userId: number | undefined, arg:
   };
 }
 
-/** 把一个群标成「已纳管」：/init enable 过的群在 chat_states 里就是这么一条记录。 */
+/** 把一个群标成已 `/init enable`：在 chat_states 里登记 `{ isInitEnabled: true }`。 */
 function manage(chatId: number): void {
-  chatStates.set(chatId, {});
+  chatStates.set(chatId, { isInitEnabled: true });
 }
 
 describe("handleSendCommand", () => {
@@ -104,7 +103,7 @@ describe("handleSendCommand", () => {
     });
     await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100123"));
     expect(saveStateInBackgroundMock).not.toHaveBeenCalled();
-    expect(chatStates.get(-100123)).toEqual({});
+    expect(chatStates.get(-100123)).toEqual({ isInitEnabled: true });
     expect(logApiErrorMock).toHaveBeenCalledTimes(1);
     expect(sendMessageMock).toHaveBeenCalledTimes(1);
   });
@@ -116,12 +115,12 @@ describe("handleSendCommand", () => {
       await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-1001"));
     }
     expect(saveStateInBackgroundMock).not.toHaveBeenCalled();
-    expect(chatStates.get(-1001)).toEqual({});
+    expect(chatStates.get(-1001)).toEqual({ isInitEnabled: true });
     expect(logApiErrorMock).not.toHaveBeenCalled();
     expect(sendMessageMock).toHaveBeenCalledTimes(2);
   });
 
-  // 目标群未纳管时只读 getChatStateCache，不调用 getOrCreateChatState；
+  // 目标群未启用 /init 时只读 getChatState，不调用 getOrCreateChatState；
   // 容量闸（chat_states 满 STATE_MANAGED_CHAT_LIMIT 个群）只属于 /init enable 那一处。
   test("目标群没被纳管时只回一句提示：不抛错、不建状态、不落盘，也不探可达性", async () => {
     for (let index: number = 0; index < STATE_MANAGED_CHAT_LIMIT; index += 1) manage(-2_000 - index);
@@ -132,6 +131,42 @@ describe("handleSendCommand", () => {
     expect(chatStates.has(-100123)).toBe(false);
     expect(chatStates.size).toBe(STATE_MANAGED_CHAT_LIMIT);
     expect(getChatMock).not.toHaveBeenCalled();
+    expect(saveStateInBackgroundMock).not.toHaveBeenCalled();
+  });
+
+  test("只有 lockdown 残留（isInitEnabled 非 true）的群按未启用 /init 拒绝，不探可达性、不置位、不落盘", async () => {
+    chatStates.set(-100123, { lockdown: { phase: "active" } });
+
+    await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100123"));
+
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: chatAtmosphere().NOTICE_TEXTS.proxyNotInitialized(-100123),
+      })
+    );
+    expect(getChatMock).not.toHaveBeenCalled();
+    expect(chatStates.get(-100123)).toEqual({ lockdown: { phase: "active" } });
+    expect(saveStateInBackgroundMock).not.toHaveBeenCalled();
+  });
+
+  test("getChat 期间目标群 /init 被关闭时由第二道判定拒绝，不置位、不落盘", async () => {
+    manage(-100123);
+    getChatMock.mockImplementationOnce(async (chatId: number): Promise<any> => {
+      chatStates.set(chatId, { isInitEnabled: false });
+      return { id: chatId, type: "supergroup", title: "Test Group" };
+    });
+
+    await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100123"));
+
+    expect(getChatMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: chatAtmosphere().NOTICE_TEXTS.proxyNotInitialized(-100123),
+      })
+    );
+    expect(chatStates.get(-100123)).toEqual({ isInitEnabled: false });
     expect(saveStateInBackgroundMock).not.toHaveBeenCalled();
   });
 
@@ -151,12 +186,12 @@ describe("handleSendCommand", () => {
     manage(-100456);
     await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100123"));
     expect(getChatMock).toHaveBeenCalledTimes(1);
-    expect(chatStates.get(-100123)).toEqual({ isProxySendEnabled: true });
+    expect(chatStates.get(-100123)).toEqual({ isInitEnabled: true, isProxySendEnabled: true });
     expect(saveStateInBackgroundMock).toHaveBeenCalledTimes(1);
 
     await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100456"));
-    expect(chatStates.get(-100123)).toEqual({ isProxySendEnabled: true });
-    expect(chatStates.get(-100456)).toEqual({}); // 已纳管但没被开成第二个目标
+    expect(chatStates.get(-100123)).toEqual({ isInitEnabled: true, isProxySendEnabled: true });
+    expect(chatStates.get(-100456)).toEqual({ isInitEnabled: true }); // 已纳管但没被开成第二个目标
     expect(saveStateInBackgroundMock).toHaveBeenCalledTimes(1); // 被拒绝的这次没有再落盘
     expect(getChatMock).toHaveBeenCalledTimes(1); // 已经在转发就不必再探一次可达性
   });
@@ -169,7 +204,7 @@ describe("handleSendCommand", () => {
 
     await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "-100123"));
     await handleSendCommand(makeCtx("private", SUPER_ADMIN_USER_ID, "finish"));
-    expect(chatStates.get(-100123)).toBeUndefined();
+    expect(chatStates.get(-100123)).toEqual({ isInitEnabled: true });
     expect(saveStateInBackgroundMock).toHaveBeenCalledTimes(2);
   });
 });

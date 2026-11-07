@@ -382,7 +382,6 @@ export function buildMiniAppStatusView(): Readonly<MiniAppStatusView> {
     memoryOtherBytes,
     memoryTotalBytes,
     memoryHeapUsedBytes: memoryUsage.heapUsed,
-    memoryHeapTotalBytes: memoryUsage.heapTotal,
     managedChatCount,
     whitelistCount: getIdentityEntryCount("whitelist"),
     blocklistCount: getIdentityEntryCount("blocklist"),

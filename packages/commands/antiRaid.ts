@@ -30,9 +30,7 @@ export async function handleAntiRaidCommand(
     ctx,
     texts: atmosphere.ANTI_RAID_TOGGLE_TEXTS,
     permission: "isCanControllAntiRaidPermission",
-    persistReason: "antiraid toggled",
-    runtimeLabel: "join guard runtime",
-    switchKey: "isAntiRaidEnabled",
+    feature: "antiRaid",
     teardown: deactivateJoinGuardChat,
     teardownFailedText: atmosphere.ANTI_RAID_DISABLE_TEARDOWN_FAILED_TEXT,
   });

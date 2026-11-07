@@ -120,8 +120,7 @@ export function diskIOMessageCost(message: QueuedDiskIOOperationMessage): number
     case "temporaryAdBypassWrite":
     case "flush":
     case "readJoinLog":
-    case "readBlocklistIdPage":
-    case "readWhitelistIdPage":
+    case "readIdentityIdPage":
     case "recoveryReplay":
     case "storageFlushHold":
     case "closeStorage":
@@ -151,8 +150,7 @@ export function isDiskBusinessMessage(message: QueuedDiskIOOperationMessage): me
     case "storageFlushHold":
     case "flush":
     case "readIdentityPolicies":
-    case "readBlocklistIdPage":
-    case "readWhitelistIdPage":
+    case "readIdentityIdPage":
     case "readJoinLog":
     case "ensureLuckSecret":
     case "closeStorage":

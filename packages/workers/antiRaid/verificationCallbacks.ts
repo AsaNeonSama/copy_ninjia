@@ -10,8 +10,9 @@ import { answerCallbackQuery } from "../../infra/telegram";
 import { verificationKey } from "../../libs/verificationKey";
 import { formatUserLabel } from "../../users/userLabel";
 import type { VerificationDispatcher, VerificationEntry } from "../../types/antiRaid/internal";
+import type { VerificationChallenge } from "../../types/antiRaid/verification";
 import type { VerifyCallbackMessage } from "../../types/antiRaid/protocol";
-import type { VerificationEffect } from "../../types/states/verification";
+import type { VerificationAnswerVerdict, VerificationEffect } from "../../types/states/verification";
 import type { AtmosphereTexts } from "../../types/atmosphere";
 import { workerAtmosphere } from "./atmosphere";
 import { isChatAdmin } from "./adminCache";
@@ -42,13 +43,13 @@ function verificationCallbackText(
     case "ok": return atmosphere.NOTICE_TEXTS.verificationCallbackPassed;
     case "invalid": return atmosphere.NOTICE_TEXTS.verificationCallbackExpired;
     case "useSelfButton":
-      return atmosphere.NOTICE_TEXTS.verificationUseSelfButton(
-        atmosphere.VERIFICATION_SELF_BUTTON_TEXT,
-        atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT
-      );
+      return atmosphere.NOTICE_TEXTS.verificationUseSelfButton(atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT);
     case "notApprover": return atmosphere.NOTICE_TEXTS.verificationAdminOnly;
     case "approverUnknown": return atmosphere.NOTICE_TEXTS.verificationAdminUnknown;
     case "notYourButton": return atmosphere.NOTICE_TEXTS.verificationOtherUser;
+    case "staleReminder": return atmosphere.NOTICE_TEXTS.verificationStaleReminder;
+    case "wrongAnswer": return atmosphere.NOTICE_TEXTS.verificationWrongAnswer;
+    case "challengeRefreshed": return atmosphere.NOTICE_TEXTS.verificationChallengeRefreshed;
     default: {
       const unhandledReply: never = reply;
       throw new Error(`Unsupported verification callback reply: ${String(unhandledReply)}`);
@@ -85,7 +86,22 @@ export function answerVerificationCallback({
 }
 
 /**
- * 本人点击同步转移；代点查询有界受理，回投前同时核验 Worker 代际与验证实例。
+ * 本人作答按钮所选数值与运行态条目缓存题目的比对结论。
+ * @param answer callback_data 携带的选项数值。
+ * @param entry 点击时的验证运行态条目。
+ * @returns 条目没有缓存题目时为 `missing`，否则按是否等于正确答案给出 `correct` 或 `wrong`。
+ */
+function answerVerdictOf(
+  answer: number,
+  entry: VerificationEntry | undefined
+): VerificationAnswerVerdict {
+  const challenge: VerificationChallenge | undefined = entry?.challenge;
+  if (challenge === undefined) return "missing";
+  return answer === challenge.answer ? "correct" : "wrong";
+}
+
+/**
+ * 本人作答同步比对缓存题目后转移；代点查询有界受理，回投前同时核验 Worker 代际与验证实例。
  * 普通 pending 字段原地更新保持实例有效；leave/rejoin、adopt、停管或 stop 使旧结果失效。
  * @param message 主线程转发的验证内联按钮点击消息。
  * @param dispatchVerification 验证状态机派发函数。
@@ -119,10 +135,15 @@ export function handleVerificationCallbackEvent(
     first_name: message.from.first_name,
   }, workerAtmosphere());
   if (!needsAdminCheck) {
-    dispatchVerification(chatId, targetUserId, {
-      type: "callback", callbackQueryId: message.callbackQueryId,
-      action: message.action, isSelf, fromCanApprove: false, fromLabel,
-    });
+    dispatchVerification(chatId, targetUserId, message.action === "self"
+      ? {
+        type: "callback", callbackQueryId: message.callbackQueryId, isSelf, fromCanApprove: false, fromLabel,
+        action: "self", messageId: message.messageId, answerVerdict: answerVerdictOf(message.answer, expectedEntry),
+      }
+      : {
+        type: "callback", callbackQueryId: message.callbackQueryId, isSelf, fromCanApprove: false, fromLabel,
+        action: "approve",
+      });
     return;
   }
   verificationCallbackChecks.current++;
@@ -133,8 +154,8 @@ export function handleVerificationCallbackEvent(
           return answerVerificationCallback({ callbackQueryId: message.callbackQueryId, reply: "invalid" });
         }
         dispatchVerification(chatId, targetUserId, {
-          type: "callback", callbackQueryId: message.callbackQueryId,
-          action: "approve", isSelf: false, fromCanApprove: isAdmin, fromLabel,
+          type: "callback", callbackQueryId: message.callbackQueryId, isSelf: false, fromCanApprove: isAdmin, fromLabel,
+          action: "approve",
         });
       })
       .finally((): void => { verificationCallbackChecks.current--; }),

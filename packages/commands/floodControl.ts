@@ -20,9 +20,7 @@ export async function handleFloodControlCommand(
     ctx,
     texts: chatAtmosphere().FLOOD_CONTROL_TOGGLE_TEXTS,
     permission: "isCanControllFloodControlPermission",
-    persistReason: "flood_control toggled",
-    runtimeLabel: "flood control runtime",
-    switchKey: "isFloodControlEnabled",
+    feature: "floodControl",
     teardown: clearFloodControl,
   });
 }

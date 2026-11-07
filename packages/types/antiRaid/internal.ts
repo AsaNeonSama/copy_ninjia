@@ -8,6 +8,7 @@ import type {
   VerificationEvent,
   VerificationState,
 } from "../states/verification";
+import type { VerificationChallenge } from "./verification";
 
 /** 私密模式 API 与计时器回投状态机的同步入口。 */
 export type LockdownDispatcher = (chatId: number, event: LockdownMachineEvent) => void;
@@ -81,6 +82,13 @@ export interface VerificationEntry {
    * failureNoticeSent 同时成立为前提：清理未结清时不短路。
    */
   cleanupSettled: boolean;
+  /**
+   * pending 真人成员本次验证的算术题。Worker 本地缓存，不进入状态机或持久化快照；条目构造时为
+   * undefined，由 workers/antiRaid/verificationReminders.ts 在首次登记提醒投递时生成，同一 pending
+   * 对象的原始提醒、回复式提醒与重发共用这一道题。有效期即本条目的存活期：状态换成新对象或
+   * 条目删除时随之失效，不另设计时器；Worker 重建后为 undefined，本人作答时按 `missing` 换题重发。
+   */
+  challenge: VerificationChallenge | undefined;
 }
 
 /** 反刷群 Worker 的入群滑动计数窗口。 */
@@ -180,6 +188,8 @@ export interface ReminderDelivery {
   isBot: boolean;
   replyToMessageId: number | undefined;
   expectedState: PendingState;
+  /** 本次投递渲染的算术题，取自登记时的 VerificationEntry.challenge；机器人成员为 undefined。 */
+  challenge: VerificationChallenge | undefined;
   attempts: number;
   timer: ReturnType<typeof setTimeout> | undefined;
   inFlight: boolean;

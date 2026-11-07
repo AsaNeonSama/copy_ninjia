@@ -1,7 +1,8 @@
 import type {
   IdentityPolicyRawReadResult,
-  BlocklistIdPage,
+  IdentityIdPage,
 } from "../../packages/types/identityStorage";
+import type { IdentityPolicyTable } from "../../packages/types/identityPolicy";
 import type { FlushResult } from "../../packages/types/lifecycle";
 import { diskIOReplyStub, diskIOStub } from "./diskIOMock";
 import type { DiskIORespawnListener } from "../../packages/types/diskIO/messages";
@@ -62,8 +63,8 @@ export const persistedListeners: ((reply: IdentityStoragePersistedReply) => void
 const blocklistIdPageSource: { current: () => Promise<readonly number[]> } = {
   current: async (): Promise<readonly number[]> => readBlockedIdentityTestIds(),
 };
-export const readBlocklistIdPage = mock(
-  async (afterId: number | null): Promise<BlocklistIdPage> => {
+export const readIdentityIdPage = mock(
+  async (_table: IdentityPolicyTable, afterId: number | null): Promise<IdentityIdPage> => {
     const all: readonly number[] = await blocklistIdPageSource.current();
     const remaining: number[] = all
       .filter((id: number): boolean => afterId === null || id > afterId)
@@ -98,7 +99,7 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
       persistedListeners.push(listener);
     },
   }),
-  readBlocklistIdPage,
+  readIdentityIdPage,
   readIdentityPolicies: async (ids: readonly number[]): Promise<IdentityPolicyRawReadResult> => ({
     temporaryAdBypass: [],
     whitelist: [],
@@ -238,7 +239,7 @@ export function installBlocklistSweepHooks(injected: BlocklistSweepDeps): void {
     unacknowledgedRemovalBytes.current = 0;
     loggerError.mockClear();
     loggerLog.mockClear();
-    readBlocklistIdPage.mockClear();
+    readIdentityIdPage.mockClear();
     postDiskIO.mockClear();
     postDiskIO.mockImplementation((): boolean => true);
     remover.mockReset();

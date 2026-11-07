@@ -56,6 +56,12 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
     }
     return state;
   },
+  disableChatStateSwitch(chatId: number, key: string): boolean {
+    const state = states.get(chatId);
+    if (state?.[key] !== true) return false;
+    state[key] = false;
+    return true;
+  },
   getChatState: (chatId: number): Record<string, unknown> => states.get(chatId) ?? {},
   getChatStateCache: (): ReadonlyMap<number, Record<string, unknown>> => states,
   persistChatState,

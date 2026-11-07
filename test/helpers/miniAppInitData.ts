@@ -9,10 +9,10 @@ import type {
   IdentityStoragePersistedReply,
   JoinLogRecord,
 } from "../../packages/types/diskIO";
+import type { IdentityPolicyTable } from "../../packages/types/identityPolicy";
 import type {
-  BlocklistIdPage,
+  IdentityIdPage,
   IdentityPolicyRawReadResult,
-  WhitelistIdPage,
 } from "../../packages/types/identityStorage";
 import { diskIOReplyStub, diskIOStub } from "./diskIOMock";
 
@@ -46,7 +46,7 @@ let diskIOMockInstalled: boolean = false;
  * @param afterId 上一页游标。
  * @returns 游标分页结果。
  */
-function idPage(rows: ReadonlyMap<number, string>, afterId: number | null): BlocklistIdPage {
+function idPage(rows: ReadonlyMap<number, string>, afterId: number | null): IdentityIdPage {
   const sorted: number[] = [...rows.keys()]
     .filter((id: number): boolean => afterId === null || id > afterId)
     .sort((left: number, right: number): number => left - right);
@@ -58,24 +58,29 @@ function idPage(rows: ReadonlyMap<number, string>, afterId: number | null): Bloc
   };
 }
 
-/** Mini App 集成测试共享的 `readIdentityPolicies` 桩函数。 */
-export const readIdentityPoliciesMock = mock(
-  async (ids: readonly number[]): Promise<IdentityPolicyRawReadResult> => {
-    const whitelist: [number, string][] = [];
-    const blocklist: [number, string][] = [];
-    for (const id of ids) {
-      const wRow: string | undefined = miniAppTestWhitelistRows.get(id);
-      if (wRow !== undefined) whitelist.push([id, wRow]);
-      const bRow: string | undefined = miniAppTestBlocklistRows.get(id);
-      if (bRow !== undefined) blocklist.push([id, bRow]);
-    }
-    return {
-      whitelist,
-      blocklist,
-      temporaryAdBypass: [],
-    };
+/**
+ * 按夹具行表回答身份策略冷读。
+ * @param ids 待读取的身份 ID。
+ * @returns 命中的白名单与黑名单行。
+ */
+async function readFixtureIdentityPolicies(ids: readonly number[]): Promise<IdentityPolicyRawReadResult> {
+  const whitelist: [number, string][] = [];
+  const blocklist: [number, string][] = [];
+  for (const id of ids) {
+    const wRow: string | undefined = miniAppTestWhitelistRows.get(id);
+    if (wRow !== undefined) whitelist.push([id, wRow]);
+    const bRow: string | undefined = miniAppTestBlocklistRows.get(id);
+    if (bRow !== undefined) blocklist.push([id, bRow]);
   }
-);
+  return {
+    whitelist,
+    blocklist,
+    temporaryAdBypass: [],
+  };
+}
+
+/** Mini App 集成测试共享的 `readIdentityPolicies` 桩函数；用例可用 mockImplementationOnce 模拟冷读失败。 */
+export const readIdentityPoliciesMock = mock(readFixtureIdentityPolicies);
 
 /**
  * 幂等安装 Mini App 服务端测试共用的 `packages/infra/diskIO` 模块替身，使多文件同进程运行与 `--isolate` 具有一致的回执监听。
@@ -162,10 +167,11 @@ export function installMiniAppTestDiskIOMock(): void {
         );
       },
       readIdentityPolicies: readIdentityPoliciesMock,
-      readWhitelistIdPage: async (afterId: number | null): Promise<WhitelistIdPage> =>
-        idPage(miniAppTestWhitelistRows, afterId),
-      readBlocklistIdPage: async (afterId: number | null): Promise<BlocklistIdPage> =>
-        idPage(miniAppTestBlocklistRows, afterId),
+      readIdentityIdPage: async (
+        table: IdentityPolicyTable,
+        afterId: number | null
+      ): Promise<IdentityIdPage> =>
+        idPage(table === "whitelist" ? miniAppTestWhitelistRows : miniAppTestBlocklistRows, afterId),
       relayLogMessage: (): boolean => true,
     })
   );
@@ -181,7 +187,8 @@ export function resetMiniAppTestDiskIOState(): void {
   miniAppTestJoinLogState.records = [];
   miniAppTestJoinLogState.shouldThrow = false;
   miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
-  readIdentityPoliciesMock.mockClear();
+  readIdentityPoliciesMock.mockReset();
+  readIdentityPoliciesMock.mockImplementation(readFixtureIdentityPolicies);
 }
 
 /**

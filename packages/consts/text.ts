@@ -11,7 +11,15 @@ export const INLINE_SANITIZE_REQUIRED_PATTERN: RegExp = /[^\S ]|\u0085|^ | $| {2
 /** libs/text.ts 的 truncateWithEllipsis 缺省补在截断处的省略号。 */
 export const TRUNCATION_ELLIPSIS: string = "…";
 
-/** 安全展示文本时需要移除的双向控制字符。 */
+/**
+ * Unicode 双向文本控制字符（ALM、LRM/RLM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则，
+ * 展示前从昵称、用户名、频道名与群标题中剥掉 RLO 等控制字符，防止反转整行布局。
+ * 不变量：带 g 标志，只交给 `String.prototype.replace` 整段替换，不用于 test()/exec()；取值与
+ * `packages/mini-app-frontend/consts/miniApp.ts` 的 `MINI_APP_BIDI_CONTROL_CHARS_PATTERN` 一致，由
+ * `test/mini-app-frontend/frontendParity.test.ts` 核对。
+ * 所属模块：`packages/libs/text.ts` 的 `sanitizeDisplayName`、`packages/mini-app-api-server/view/identities/metadata.ts`
+ * 与 `packages/mini-app-api-server/view/chats/targets.ts`。
+ */
 export const BIDI_CONTROL_PATTERN: RegExp = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 /** 用户名规范化时去除的连续前导 @。 */

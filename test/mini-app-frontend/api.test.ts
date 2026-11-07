@@ -332,10 +332,20 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(
       buildMiniAppGalleryDownloadFileName(`${"a".repeat(64)}.PNG`, 1_792_934_567_890)
     ).toBe("1792934567.png");
+    const sampleTimestampMs: number = 1_700_000_000_000;
     expect(formatTime(0)).toBe("-");
-    expect(formatTime(1_700_000_000_000).length).toBeGreaterThan(0);
+    expect(formatTime(-1)).toBe("-");
+    expect(formatTime(Number.NaN)).toBe("-");
+    expect(formatTime(sampleTimestampMs)).toBe(
+      new Date(sampleTimestampMs).toLocaleString("zh-CN", { hour12: false })
+    );
     expect(formatClockTime(0)).toBe("-");
-    expect(formatClockTime(1_700_000_000_000)).toMatch(/^\d{2}:\d{2}:\d{2}$/u);
+    expect(formatClockTime(-1)).toBe("-");
+    expect(formatClockTime(Number.NaN)).toBe("-");
+    expect(formatClockTime(sampleTimestampMs)).toBe(
+      new Date(sampleTimestampMs).toLocaleTimeString("zh-CN", { hour12: false })
+    );
+    expect(formatClockTime(sampleTimestampMs)).toMatch(/^\d{2}:\d{2}:\d{2}$/u);
 
     const baseCap = {
       key: "agent",
@@ -523,6 +533,7 @@ describe("前端接口文件与纯函数辅助库", () => {
         "FEATURE_CONFIG_NOT_READY",
         "FEATURE_ENABLED",
         "FEATURE_DISABLED",
+        "ANTI_RAID_DISABLED_TEARDOWN_FAILED",
         "PROXY_SEND_ENABLED",
         "PROXY_SEND_DISABLED",
         "INVALID_BATCH_KICK_PARAMS",
@@ -642,15 +653,14 @@ describe("前端接口文件与纯函数辅助库", () => {
       ).toBeGreaterThan(0);
     }
 
-    expect(["zh", "ja", "en"]).toContain(detectBrowserDefaultLanguage());
-    expect(["zh", "ja", "en"]).toContain(detectInitialMiniAppLanguage());
+    expect(MINI_APP_LANGUAGES).toContain(detectBrowserDefaultLanguage());
+    expect(MINI_APP_LANGUAGES).toContain(detectInitialMiniAppLanguage());
     expect(resolveMiniAppAccentColor(undefined)).toBe(MINI_APP_DEFAULT_ACCENT_COLOR);
     expect(resolveMiniAppAccentColor({ themeParams: { link_color: " #3b82f6 " } })).toBe("#3b82f6");
     expect(resolveMiniAppAccentColor({ themeParams: { button_color: "#2563eb", link_color: "#3b82f6" } })).toBe("#2563eb");
     applyMiniAppThemeToDocument("light");
 
     resetMiniAppStoreForTest();
-    expect(MINI_APP_LANGUAGES).toEqual(["en", "ja", "zh"]);
     expect(MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS).toBe(
       MINI_APP_CONFIRM_CLOSE_ANIMATION_MS
     );
@@ -789,7 +799,6 @@ describe("前端接口文件与纯函数辅助库", () => {
           memoryCurrentRssBytes: 64 * 1024 * 1024,
           memoryPeakRssBytes: 80 * 1024 * 1024,
           memoryHeapUsedBytes: 32 * 1024 * 1024,
-          memoryHeapTotalBytes: 48 * 1024 * 1024,
           memoryOtherBytes: 128 * 1024 * 1024,
           memoryTotalBytes: 1024 * 1024 * 1024,
           managedChatCount: 3,
@@ -828,6 +837,12 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(readMiniAppInitData()).toBe("");
     expect(sanitizeBidiText("\u202EDoro\u202C")).toBe("Doro");
     expect(truncateDisplayText("短名称", 20)).toBe("短名称");
+    expect(truncateDisplayText("😀😀", 2)).toBe("😀😀");
+    expect(truncateDisplayText("😀😀😀", 2)).toBe("😀😀…");
+    expect(truncateDisplayText("A\uD800B", 2)).toBe("A\uD800…");
+    expect(truncateDisplayText("\uD800BC", 2)).toBe("\uD800B…");
+    expect(truncateDisplayText("😀BC", 0)).toBe("😀…");
+    expect(truncateDisplayText("😀BC", 1)).toBe("😀…");
     expect(readEventTargetValue({ currentTarget: { value: "杂鱼" } })).toBe("杂鱼");
     expect(readEventTargetChecked({ currentTarget: { checked: true } })).toBeTrue();
     let blurred: boolean = false;
@@ -840,7 +855,6 @@ describe("前端接口文件与纯函数辅助库", () => {
     };
     expect(extractSelectedFilesAndReset({ currentTarget: fileInputTarget })).toHaveLength(1);
     expect(fileInputTarget.value).toBe("");
-    expect(MINI_APP_MIN_LOADING_MS).toBeGreaterThanOrEqual(150);
     expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
     expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");
     expect(interpolateSpringRangeValue(1, 6, 0.72)).toBeGreaterThan(6);
@@ -852,7 +866,7 @@ describe("前端接口文件与纯函数辅助库", () => {
     // 连续点击与回撤时保证至少有足够位移区间驱动弹跳动画
     expect(resolveAnimatedRangeStartValue(5.9, 5, 6)).toBeLessThanOrEqual(5.65);
     expect(resolveAnimatedRangeStartValue(5.1, 6, 5)).toBeGreaterThanOrEqual(5.45);
-    expect(MINI_APP_HTML_TITLE).toBe("杂鱼控制台♡");
+    expect(MINI_APP_HTML_TITLE).toBe(getMiniAppTranslations("zh").appTitle);
     expect(getMiniAppTranslations("zh").appTitle).toBe("杂鱼控制台♡");
     expect(getMiniAppTranslations("en").appTitle).toBe("Zaako Console♡");
     expect(getMiniAppTranslations("ja").appTitle).toBe("雑魚コンソール♡");

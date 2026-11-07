@@ -10,7 +10,7 @@ import type {
 } from "../../types/storageDatabase";
 
 /**
- * 创建新库并交给 Drizzle 内建 migrator 建表；目标目录项已存在（含悬空软链接）时拒绝覆盖。
+ * 创建新库并交给 Drizzle 内建 migrator 应用当前 schema 建表（生产启动不得调用）；目标目录项已存在（含悬空软链接）时拒绝覆盖。
  * @param path 新数据库文件的目标路径。
  */
 export function createStorageDatabase(path: string): void {
@@ -25,18 +25,10 @@ export function createStorageDatabase(path: string): void {
   });
   try {
     const database: StorageDatabase = drizzle({ client, schema: storageDatabaseSchema });
-    migrateStorageDatabaseSchema(database);
+    migrate(database, { migrationsFolder: IDENTITY_DATABASE_MIGRATIONS_DIR });
   } finally {
     client.close(false);
   }
-}
-
-/**
- * 给刚建出来的空库应用当前 schema；只有 createStorageDatabase 调用，生产启动不得调用。
- * @param database 刚创建的空共享存储数据库实例。
- */
-function migrateStorageDatabaseSchema(database: StorageDatabase): void {
-  migrate(database, { migrationsFolder: IDENTITY_DATABASE_MIGRATIONS_DIR });
 }
 
 /**

@@ -1,35 +1,22 @@
 import { blocklistIdentityMutationRunner } from "../../../cache/main/blocklist";
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
 import {
-  MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
-  MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-} from "../../../consts/miniApp";
-import {
   blockUser,
   confirmBlocklistPersisted,
   isUserBlocked,
   managedAdminChatIds,
-  runManagedChatBatch,
   unblockUser,
 } from "../../../infra/blocklist/membership";
-import type { ManagedChatOutcome } from "../../../infra/blocklist/membership";
-import { requestBlocklistResweep } from "../../../infra/blocklist/sweep";
-import { botCanRestrictMembersIn } from "../../../infra/botAdmin";
+import {
+  banBlockedIdentityInManagedChats,
+  liftBlockedIdentityBanInManagedChats,
+} from "../../../infra/blocklist/crossChatBan";
 import { runProtectedIdentityMutation } from "../../../infra/identityPolicy/coordination";
 import { isWhitelisted } from "../../../infra/identityPolicy/whitelist";
 import {
-  getIdentityEntryCount,
   isIdentityPolicyCached,
   prefetchIdentityPolicies,
-  readBlocklistSweepPage,
-  readIdentityPolicyEntries,
 } from "../../../infra/identityStorage";
-import {
-  banChatMember,
-  banChatSenderChat,
-  unbanChatMemberIfBanned,
-  unbanChatSenderChat,
-} from "../../../infra/telegram/actions/moderation";
 import type {
   BlocklistEntryData,
   TelegramIdentityMetadata,
@@ -40,22 +27,16 @@ import type {
   MiniAppIdentityMutationResult,
 } from "../../../types/miniApp";
 import {
-  collectAllIdentityIds,
-  collectIdentityPageIds,
   currentBotUserId,
-  formatIdentityDisplayName,
   isInitializedManagedChatTarget,
-  matchesIdentitySearchQuery,
   resolveIdentityMetadataForMiniApp,
-  syncIdentityMetadataWithBotCache,
-  toIdentitySearchQuery,
 } from "./metadata";
+import type { SetIdentityMembershipParams } from "./metadata";
+import { listIdentityPolicyPage } from "./page";
 import type {
-  CollectedIdentityPageSlice,
-  IdentitySearchQuery,
+  IdentityPolicyEntryBaseView,
   ListIdentityPageParams,
-  SetIdentityMembershipParams,
-} from "./metadata";
+} from "./page";
 
 /**
  * 分页列出持久化的黑名单成员（支持按名称、用户名或 ID 模糊搜索）。
@@ -63,113 +44,20 @@ import type {
  * @param params 页码 `page`、每页条数 `pageSize`、游标 `afterId` 或搜索关键字 `query`。
  * @returns 黑名单分页视图（含当前页、总页数、黑名单总数、白名单总数）。
  */
-export async function listBlocklistEntries(
+export function listBlocklistEntries(
   params: ListIdentityPageParams = {}
 ): Promise<Readonly<MiniAppBlocklistPage>> {
-  const normalizedQuery: string = params.query?.trim().toLowerCase() ?? "";
-  if (normalizedQuery.length > 0) {
-    const rawPageSize: number =
-      params.pageSize ?? params.limit ?? MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE;
-    const pageSize: number = Math.min(
-      MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-      Math.max(1, Math.trunc(rawPageSize))
-    );
-    const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
-    const allIds: readonly number[] = await collectAllIdentityIds(
-      readBlocklistSweepPage,
-      "blocklist"
-    );
-    const blocklistTotal: number = Math.max(
-      getIdentityEntryCount("blocklist"),
-      allIds.length
-    );
-    const whitelistTotal: number = getIdentityEntryCount("whitelist");
-    const entries: ReadonlyMap<number, Readonly<BlocklistEntryData>> =
-      (await readIdentityPolicyEntries(allIds)).blocklist;
-    const searchQuery: Readonly<IdentitySearchQuery> = toIdentitySearchQuery(normalizedQuery);
-    const matchedItems: Readonly<MiniAppBlocklistEntryView>[] = [];
-    for (const id of allIds) {
-      const entry: Readonly<BlocklistEntryData> | undefined = entries.get(id);
-      if (entry === undefined) continue;
-      const effectiveMeta: Readonly<TelegramIdentityMetadata> =
-        syncIdentityMetadataWithBotCache(id, entry.meta);
-      const displayName: string = formatIdentityDisplayName(id, effectiveMeta);
-      const username: string | undefined =
-        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined;
-      if (!matchesIdentitySearchQuery(searchQuery, { id, displayName, username })) {
-        continue;
-      }
-      matchedItems.push({
-        id,
-        isChannel: id < 0,
-        displayName,
-        username,
-        blockedAt: entry.blockedAt,
-      });
-    }
-    const total: number = matchedItems.length;
-    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
-    const page: number = Math.min(requestedPage, totalPages);
-    const offset: number = (page - 1) * pageSize;
-    return {
-      items: matchedItems.slice(offset, offset + pageSize),
-      page,
-      pageSize,
-      total,
-      totalPages,
-      whitelistTotal,
-      blocklistTotal,
-      nextAfterId: null,
-    };
-  }
-
-  const slice: Readonly<CollectedIdentityPageSlice> = await collectIdentityPageIds(
-    "blocklist",
+  return listIdentityPolicyPage({
+    table: "blocklist",
     params,
-    readBlocklistSweepPage
-  );
-  const whitelistTotal: number = getIdentityEntryCount("whitelist");
-  if (slice.sliceIds.length === 0) {
-    return {
-      items: [],
-      page: slice.page,
-      pageSize: slice.pageSize,
-      total: slice.total,
-      totalPages: slice.totalPages,
-      whitelistTotal,
-      blocklistTotal: slice.total,
-      nextAfterId: null,
-    };
-  }
-
-  const entries: ReadonlyMap<number, Readonly<BlocklistEntryData>> =
-    (await readIdentityPolicyEntries(slice.sliceIds)).blocklist;
-  const items: Readonly<MiniAppBlocklistEntryView>[] = [];
-  for (const id of slice.sliceIds) {
-    const entry: Readonly<BlocklistEntryData> | undefined = entries.get(id);
-    if (entry === undefined) continue;
-    const effectiveMeta: Readonly<TelegramIdentityMetadata> =
-      syncIdentityMetadataWithBotCache(id, entry.meta);
-    items.push({
-      id,
-      isChannel: id < 0,
-      displayName: formatIdentityDisplayName(id, effectiveMeta),
-      username:
-        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined,
+    toView: (
+      base: Readonly<IdentityPolicyEntryBaseView>,
+      entry: Readonly<BlocklistEntryData>
+    ): Readonly<MiniAppBlocklistEntryView> => ({
+      ...base,
       blockedAt: entry.blockedAt,
-    });
-  }
-
-  return {
-    items,
-    page: slice.page,
-    pageSize: slice.pageSize,
-    total: slice.total,
-    totalPages: slice.totalPages,
-    whitelistTotal,
-    blocklistTotal: slice.total,
-    nextAfterId: slice.nextAfterId,
-  };
+    }),
+  });
 }
 
 /**
@@ -271,27 +159,10 @@ export async function setBlocklistEntryMembership({
         }
         const persisted: boolean = await confirmBlocklistPersisted(id, false);
         const targetChatIds: number[] = managedAdminChatIds(0, false);
-        let bannedCount: number = 0;
-        if (targetChatIds.length > 0) {
-          const outcomes: readonly ManagedChatOutcome<boolean>[] =
-            await runManagedChatBatch<boolean>({
-              chatIds: targetChatIds,
-              action: `ban blocked identity ${id}`,
-              onUnexpectedFailure: false,
-              execute: (targetChatId: number): Promise<boolean> => {
-                if (botCanRestrictMembersIn(targetChatId) === false) {
-                  return Promise.resolve(false);
-                }
-                return isChannel
-                  ? banChatSenderChat(targetChatId, id)
-                  : banChatMember(targetChatId, id);
-              },
-            });
-          for (const outcome of outcomes) {
-            if (outcome.value) bannedCount++;
-            else requestBlocklistResweep(outcome.chatId);
-          }
-        }
+        // 没有受管群时不进入扇出，也就不做扇出后的停机撤销检查。
+        const bannedCount: number = targetChatIds.length === 0
+          ? 0
+          : await banBlockedIdentityInManagedChats({ chatIds: targetChatIds, identityId: id, isChannel });
         return {
           ok: true,
           changed: true,
@@ -324,26 +195,9 @@ export async function setBlocklistEntryMembership({
       const removedFromList: boolean = unblockOutcome === "removed";
       const persisted: boolean = await confirmBlocklistPersisted(id, !removedFromList);
       const targetChatIds: number[] = managedAdminChatIds(0, false);
-      let unbannedCount: number = 0;
-      if (targetChatIds.length > 0) {
-        const outcomes: readonly ManagedChatOutcome<boolean>[] =
-          await runManagedChatBatch<boolean>({
-            chatIds: targetChatIds,
-            action: `lift the ban on identity ${id}`,
-            onUnexpectedFailure: false,
-            execute: (targetChatId: number): Promise<boolean> => {
-              if (botCanRestrictMembersIn(targetChatId) === false) {
-                return Promise.resolve(false);
-              }
-              return isChannel
-                ? unbanChatSenderChat(targetChatId, id)
-                : unbanChatMemberIfBanned(targetChatId, id);
-            },
-          });
-        for (const outcome of outcomes) {
-          if (outcome.value) unbannedCount++;
-        }
-      }
+      const unbannedCount: number = targetChatIds.length === 0
+        ? 0
+        : await liftBlockedIdentityBanInManagedChats({ chatIds: targetChatIds, identityId: id, isChannel });
       return {
         ok: true,
         changed: removedFromList,

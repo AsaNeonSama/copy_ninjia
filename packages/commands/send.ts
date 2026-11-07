@@ -1,7 +1,7 @@
 import { telegramSignal } from "../libs/telegramSignal";
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import { disableChatStateSwitch, getActiveProxySendTarget, getChatStateCache, getOrCreateChatState, persistChatState } from "../infra/storage/stateStore";
+import { disableChatStateSwitch, getActiveProxySendTarget, getChatState, getOrCreateChatState, persistChatState } from "../infra/storage/stateStore";
 import { logApiError, replyCommandNotice } from "../infra/telegram";
 import { bot } from "../infra/telegram/mainClient";
 import {
@@ -13,8 +13,8 @@ import { parseChatIdArgument } from "../libs/telegramId";
 import type { ChatFullInfo } from "grammy/types";
 
 /**
- * 隐藏的超管私聊中转命令；群聊和非超管调用静默返回。只接受可达、且已经在
- * chat_states 里被纳管的 group/supergroup（本命令不新建群状态，见下方判定），
+ * 隐藏的超管私聊中转命令；群聊和非超管调用静默返回。只接受可达、且已 `/init enable`
+ * 的 group/supergroup（本命令不新建群状态，见下方判定），
  * 会话状态存于 ChatState.isProxySendEnabled；`finish` 关闭当前中转会话。
  * @param ctx grammY 命令上下文。
  */
@@ -50,11 +50,11 @@ export async function handleSendCommand(ctx: CommandContext<Context>): Promise<v
     return;
   }
 
-  // 目标群必须已经在 chat_states 里，否则只回一句提示。
+  // 目标群必须已 `/init enable`，否则只回一句提示。
   //
   // 这里只读现有状态，不创建 chat_states 记录，也不触发 /init enable 的容量闸。
   // 判定在 getChat 之前，未纳管的目标不探测可达性。
-  if (!getChatStateCache().has(targetChatId)) {
+  if (getChatState(targetChatId).isInitEnabled !== true) {
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyNotInitialized(targetChatId));
     return;
   }
@@ -74,7 +74,7 @@ export async function handleSendCommand(ctx: CommandContext<Context>): Promise<v
     return;
   }
 
-  if (!getChatStateCache().has(targetChatId)) {
+  if (getChatState(targetChatId).isInitEnabled !== true) {
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.proxyNotInitialized(targetChatId));
     return;
   }

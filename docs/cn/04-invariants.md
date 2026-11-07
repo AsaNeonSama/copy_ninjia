@@ -635,7 +635,11 @@
   - 整表重置（`resetAdminCache()`）清空全部快照、在途拉取槽位与暂存增量，单群停用或离群（`clearChatAdminCache(chatId)`）只清除该群的这三项；在途请求返回时若该群槽位不再指向当前请求，仅将结果返回给当前等待者，不写回 `cacheAdminIds`，也不改动暂存增量。
 
 - **验证按钮交互权限独立性**：
-  - **「我是良民」按钮**：仅允许待验证新人本人点击。Worker 严格通过 `callback_query.from.id === callback_data` 校验目标关系，绝不接受前端直接声明。
+  - **本人作答按钮**：真人成员的验证提醒第一行是一道算术题的 `VERIFICATION_CHALLENGE_OPTION_COUNT` 个选项，第二行是「通过」；机器人成员没有算术题，只有「通过」一行。题目从 `VERIFICATION_CHALLENGE_OPERATORS`（`+ - × ÷`）等概率抽取，操作数落在 `VERIFICATION_CHALLENGE_OPERAND_MIN` 至 `VERIFICATION_CHALLENGE_OPERAND_MAX`，减法结果非负、除法整除；干扰项取自正确答案 ±`VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD` 内的非负整数：先在可行范围内均匀抽取答案的数值名次（比它小的干扰项个数），再从答案下方与上方各自均匀取对应个数，与答案一起打乱；答案过小、下方候选不足时名次上限随之收窄（答案为 0 时只能最小）。`callback_data` 为 `verify:<userId>:<选项数值>`，主线程按 `parseUserIdArgument` 与 `VERIFY_ANSWER_ARG_PATTERN` 严格解析。
+    - 仅允许待验证新人本人作答。Worker 严格通过 `callback_query.from.id === callback_data` 校验目标关系，绝不接受前端直接声明；别人点任何选项都不改变记录。
+    - 只认 pending 当前登记的提醒消息（`reminderMessageId` 或 `replyReminderMessageId`）；在其它消息上作答只提示已过期，不比对答案。
+    - 答对即通过；答错转入 `expelling`（`reason: "wrongAnswer"`），落盘回执后与超时同序先清理验证消息再踢出，只踢不封，不经 `checkingInviter` 复核拉人者。
+  - **算术题缓存**：题目挂在 Worker 运行态条目 `VerificationEntry.challenge` 上，首次登记真人成员的提醒投递时生成，同一 pending 对象的原始提醒、回复式提醒与重发共用一道题。条目随状态换新或删除时题目失效，有效期由条目自身的验证超时 timer 界定，不另设计时器或周期清扫，也不进入持久化快照。Worker 重建或同代重放后条目没有题目，本人在当前提醒上作答时删除现有提醒、清空登记并按当前形态补发新题。
   - **「通过」按钮**：仅允许本群**非匿名管理员**代点（真人与机器人目标一致）。资格由 Worker 侧的管理员缓存（`isChatAdmin`）判定，缓存未命中时拉取 `getChatAdministrators`，查询失败时提示稍后重试，不变更记录。
   - **白名单完全无关**：白名单成员或超级管理员若在当前群并非管理员，无权代点「通过」；待验证成员本人点「通过」一律拒绝。拉人豁免同样只认非匿名的人类管理员，白名单拉人不免除验证。
   - **机器人按普通成员处理**：机器人不论是否为管理员都不进入 Worker 侧管理员缓存。全量拉取 `getChatAdministrators` 不带 `return_bots`，并按 `user.is_bot` 滤掉返回里的本机器人；`chat_member` 增量（`isInviterExemptAdmin`）同口径。因此机器人拉人不免验证，刷屏禁言与广告处置的管理员身份闸也不把它当管理员。

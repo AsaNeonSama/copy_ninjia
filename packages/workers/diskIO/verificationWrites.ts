@@ -98,22 +98,6 @@ async function rolloverVerificationDay(
 }
 
 /**
- * 注册跨日轮换失败后的重试定时器。
- * @param reply 向主线程发送持久化回执的出口。
- * @param dir 待验证目录路径。
- */
-function scheduleVerificationRolloverRetry(
-  reply: VerificationReplySink,
-  dir: string
-): void {
-  armDiskIOFlushTimer(
-    verificationRolloverRetryTimer,
-    VERIFICATION_ROLLOVER_RETRY_MS,
-    (): Promise<void> => maintainVerificationDayForToday(reply, getDateKey(), dir)
-  );
-}
-
-/**
  * 发布目标日的 active 快照并清理旧日文件；失败时保留镜像并注册重试定时器。
  * @param reply 向主线程发送持久化回执的出口。
  * @param day 目标 `YYYY-MM-DD` 日期键；缺省为当前时刻。
@@ -130,7 +114,11 @@ export async function maintainVerificationDayForToday(
     await rolloverVerificationDay(day, reply, dir);
   } catch (error: unknown) {
     console.error("[diskIOWorker] failed to roll pending verification day:", error);
-    scheduleVerificationRolloverRetry(reply, dir);
+    armDiskIOFlushTimer(
+      verificationRolloverRetryTimer,
+      VERIFICATION_ROLLOVER_RETRY_MS,
+      (): Promise<void> => maintainVerificationDayForToday(reply, getDateKey(), dir)
+    );
   }
 }
 

@@ -1,3 +1,4 @@
+import type { ChatToggleFeature } from "./chatState";
 import type { WhitelistPermissionKey, WhitelistPermissions } from "./identityPolicy";
 import type { RandomImageMimeType } from "./imageGallery";
 
@@ -95,6 +96,25 @@ export type MiniAppMiddleware = (
   next: () => Response | Promise<Response>
 ) => Response | Promise<Response>;
 
+/** 经 `withMiniAppMiddlewareChain` 包装、可直接注册到 `Bun.serve` 原生路由表的 Mini App 路由处理器。 */
+export type MiniAppBunRouteHandler = (request: Request) => Promise<Response>;
+
+/**
+ * `routes/` 目录各领域路由表片段（模块级共享常量）的形态：路径键与每条路径下的 HTTP 方法表均为只读，
+ * 由 `server/register.ts` 的 `createMiniAppBunRoutes` 展开合并为传给 `Bun.serve` 的原生路由表。
+ */
+export type MiniAppBunRouteTable = Readonly<
+  Record<string, Readonly<Partial<Record<Bun.Serve.HTTPMethod, MiniAppBunRouteHandler>>>>
+>;
+
+/** Mini App 外部访问地址解析出的规范化子路径前缀与主机名快照。 */
+export interface MiniAppPublicUrlParts {
+  /** 规范化后的子路径前缀（根路径为 `"/"`，子路径去尾斜杠如 `"/sub"`）。 */
+  readonly basePath: string;
+  /** URL 的 `host`（小写主机名含非默认端口，如 `"bot.example.com:8443"`）。 */
+  readonly host: string;
+}
+
 /** 单项模型子能力或已加载任务的结构化明细项（供前端竖向样式化展示）。 */
 export interface MiniAppCapabilityDetailItem {
   readonly label: string;
@@ -145,7 +165,6 @@ export interface MiniAppStatusView {
   readonly memoryOtherBytes: number;
   readonly memoryTotalBytes: number;
   readonly memoryHeapUsedBytes: number;
-  readonly memoryHeapTotalBytes: number;
   readonly managedChatCount: number;
   readonly whitelistCount: number;
   readonly blocklistCount: number;
@@ -160,9 +179,8 @@ export interface MiniAppStatusView {
   readonly capabilities: readonly Readonly<MiniAppCapabilityStatus>[];
 }
 
-/** 已 `/init` 群内可独立开关的子功能键。 */
-export type MiniAppToggleableFeatureKey =
-  | "aiChat" | "translation" | "adDetect" | "floodControl" | "antiRaid" | "proxySend";
+/** 已 `/init` 群内可独立开关的子功能键：与开关命令共用落盘编排的群功能，加上 `/send` 代发目标。 */
+export type MiniAppToggleableFeatureKey = ChatToggleFeature | "proxySend";
 
 /** Mini App 群详情页可操作的功能开关全集（含 `/init` 总开关）。 */
 export type MiniAppFeatureKey = "init" | MiniAppToggleableFeatureKey;

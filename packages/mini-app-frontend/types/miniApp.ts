@@ -107,7 +107,6 @@ export interface MiniAppStatusView {
   readonly memoryOtherBytes: number;
   readonly memoryTotalBytes: number;
   readonly memoryHeapUsedBytes: number;
-  readonly memoryHeapTotalBytes: number;
   readonly managedChatCount: number;
   readonly whitelistCount: number;
   readonly blocklistCount: number;

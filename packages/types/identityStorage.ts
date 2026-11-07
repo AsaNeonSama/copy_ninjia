@@ -42,17 +42,14 @@ export interface IdentityPolicyEntries {
   readonly blocklist: ReadonlyMap<number, Readonly<BlocklistEntryData>>;
 }
 
-/** SQLite 按主键稳定顺序返回的一页黑名单 ID；载荷受固定页大小硬顶。 */
-export interface BlocklistIdPage {
+/** SQLite 按主键稳定顺序返回的一页黑名单或白名单 ID；载荷受固定页大小硬顶。 */
+export interface IdentityIdPage {
   readonly ids: readonly number[];
   /** 本页最后一个主键；空页保持请求游标，完成页不再使用它续读。 */
   readonly nextCursor: number | null;
-  /** true 表示当前游标之后已没有更多有效黑名单主键。 */
+  /** true 表示当前游标之后该名单已没有更多有效主键。 */
   readonly done: boolean;
 }
-
-/** SQLite 按主键稳定顺序返回的一页白名单 ID；载荷受固定页大小硬顶。 */
-export type WhitelistIdPage = BlocklistIdPage;
 
 /** 主线程按表和主键保留到事务 ACK 的最终值。 */
 export interface UnacknowledgedIdentityWrite {

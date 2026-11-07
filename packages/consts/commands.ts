@@ -135,9 +135,9 @@ export const BATCH_KICK_MAX_DURATION_MS: number = DAY_MS;
 export const BATCH_KICK_CONCURRENCY: number = 5;
 
 /**
- * 跨托管群处置同时运行的群数（`/block` 的连坐封禁与 `/block disable` 的跨群解封）。
- * 两条命令共用同一份群清单与并发上限。
- * 所属模块：infra/blocklist/membership.ts 的 runManagedChatBatch。
+ * 跨托管群处置同时运行的群数（`/block` 的连坐封禁、`/block disable` 的跨群解封与 Mini App 黑名单增删）。
+ * 三处共用同一份群清单与并发上限。
+ * 所属模块：infra/blocklist/crossChatBan.ts 的 runManagedChatBatch。
  */
 export const MANAGED_CHAT_BATCH_CONCURRENCY: number = 5;
 

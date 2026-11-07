@@ -14,7 +14,9 @@ import {
 
 installMiniAppTestDiskIOMock();
 
-const { miniAppAuthSessions } = await import("../../packages/cache/main/miniApp");
+const { miniAppActiveUrlPartsHolder, miniAppAuthSessions } = await import(
+  "../../packages/cache/main/miniApp"
+);
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const {
   MINI_APP_INIT_DATA_HEADER,
@@ -27,6 +29,12 @@ const {
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
+const { attachRefreshedSessionHeaders } = await import(
+  "../../packages/mini-app-api-server/auth/session"
+);
+const { jsonResponse } = await import(
+  "../../packages/mini-app-api-server/libs/response"
+);
 
 /** 自动展开的单条路由方法测试样例。 */
 interface ExpandedRouteCase {
@@ -121,6 +129,10 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
       password: "test-mini-app-password",
     });
     expect(rootServer).not.toBeNull();
+    expect(miniAppActiveUrlPartsHolder.current).toEqual({
+      basePath: "/",
+      host: "miniapp.example.com",
+    });
     const rootBase: string = `http://127.0.0.1:${rootServer!.port}`;
     const rootRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
     const cases: readonly Readonly<ExpandedRouteCase>[] = expandRouteCases(rootRoutes);
@@ -144,6 +156,7 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
     }
 
     await stopMiniAppServer();
+    expect(miniAppActiveUrlPartsHolder.current).toBeNull();
 
     const subServer = startMiniAppServer({
       url: "https://miniapp.example.com/sub",
@@ -152,6 +165,10 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
       password: "test-mini-app-password",
     });
     expect(subServer).not.toBeNull();
+    expect(miniAppActiveUrlPartsHolder.current).toEqual({
+      basePath: "/sub",
+      host: "miniapp.example.com",
+    });
     const subBase: string = `http://127.0.0.1:${subServer!.port}`;
     const subRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
     for (const routeKey of Object.keys(rootRoutes)) {
@@ -282,5 +299,16 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
       },
     });
     expect(sameOriginRes.status).toBe(200);
+
+    const firstResponse: Response = jsonResponse({ ok: true });
+    const secondResponse: Response = jsonResponse({ ok: true });
+    attachRefreshedSessionHeaders(firstResponse, {
+      token: "a".repeat(64),
+      createdAt: 1_000,
+      expiresAt: 2_000,
+      previousToken: undefined,
+    });
+    expect(firstResponse.headers.get(MINI_APP_SESSION_HEADER)).toBe("a".repeat(64));
+    expect(secondResponse.headers.get(MINI_APP_SESSION_HEADER)).toBeNull();
   });
 });

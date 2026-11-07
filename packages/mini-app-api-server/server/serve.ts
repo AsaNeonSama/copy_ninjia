@@ -1,5 +1,6 @@
 import {
   miniAppActiveConfigHolder,
+  miniAppActiveUrlPartsHolder,
   miniAppAuthSessions,
   miniAppPasswordGuardHolder,
   miniAppServerHolder,
@@ -10,6 +11,7 @@ import { logger } from "../../infra/logger";
 import type { BotMiniAppConfig } from "../../types/config";
 import { resetMiniAppTotpMemoryCache } from "../auth/totpStorage";
 import { jsonResponse } from "../libs/response";
+import { deriveMiniAppPublicUrlParts } from "../libs/routePath";
 import { resetMiniAppPickerState } from "../picker/sessions";
 import { createMiniAppBunRoutes, handleMiniAppHttpRequest } from "./register";
 
@@ -29,6 +31,7 @@ export function startMiniAppServer(
   if (config === undefined) return null;
 
   miniAppActiveConfigHolder.current = config;
+  miniAppActiveUrlPartsHolder.current = deriveMiniAppPublicUrlParts(config);
   const server: ReturnType<typeof Bun.serve> = Bun.serve({
     hostname: config.host,
     port: config.port,
@@ -55,6 +58,7 @@ export async function stopMiniAppServer(): Promise<void> {
   const server: ReturnType<typeof Bun.serve> | null = miniAppServerHolder.current;
   miniAppServerHolder.current = null;
   miniAppActiveConfigHolder.current = null;
+  miniAppActiveUrlPartsHolder.current = null;
   miniAppAuthSessions.clear();
   miniAppPasswordGuardHolder.current = null;
   resetMiniAppPickerState();

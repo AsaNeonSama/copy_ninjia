@@ -30,45 +30,33 @@ export function prepareStoredIdentityIdLookups(
   };
 }
 
-/**
- * 按主键升序游标读取一页黑名单 ID。
- * @param database 共享存储数据库连接。
- * @param afterId 上一页最后一个主键 ID；首页传 null。
- * @param limit 单页最多读取的行数。
- * @returns 按升序排列的黑名单身份 ID 列表。
- */
-export function readStoredBlocklistIdPage(
-  database: StorageDatabase,
-  afterId: number | null,
-  limit: number
-): readonly number[] {
-  const rows: StoredIdentityIdRow[] = database
-    .select({ id: blocklistEntries.id })
-    .from(blocklistEntries)
-    .where(afterId === null ? undefined : gt(blocklistEntries.id, afterId))
-    .orderBy(asc(blocklistEntries.id))
-    .limit(limit)
-    .all();
-  return rows.map((row: StoredIdentityIdRow): number => row.id);
+/** `readStoredIdentityIdPage` 的游标与页大小。 */
+export interface StoredIdentityIdPageCursor {
+  /** 上一页最后一个主键 ID；首页传 null。 */
+  readonly afterId: number | null;
+  /** 单页最多读取的行数。 */
+  readonly limit: number;
 }
 
 /**
- * 按主键升序游标读取一页白名单 ID。
+ * 按主键升序游标读取一页黑名单或白名单 ID。
  * @param database 共享存储数据库连接。
- * @param afterId 上一页最后一个主键 ID；首页传 null。
- * @param limit 单页最多读取的行数。
- * @returns 按升序排列的白名单身份 ID 列表。
+ * @param table 读取的名单（白名单读 permission_list，黑名单读 blocklist_entries）。
+ * @param cursor 游标起点（不含）与单页行数上限。
+ * @returns 按升序排列的身份 ID 列表。
  */
-export function readStoredWhitelistIdPage(
+export function readStoredIdentityIdPage(
   database: StorageDatabase,
-  afterId: number | null,
-  limit: number
+  table: IdentityPolicyTable,
+  { afterId, limit }: StoredIdentityIdPageCursor
 ): readonly number[] {
+  const source: typeof permissionList | typeof blocklistEntries =
+    table === "whitelist" ? permissionList : blocklistEntries;
   const rows: StoredIdentityIdRow[] = database
-    .select({ id: permissionList.id })
-    .from(permissionList)
-    .where(afterId === null ? undefined : gt(permissionList.id, afterId))
-    .orderBy(asc(permissionList.id))
+    .select({ id: source.id })
+    .from(source)
+    .where(afterId === null ? undefined : gt(source.id, afterId))
+    .orderBy(asc(source.id))
     .limit(limit)
     .all();
   return rows.map((row: StoredIdentityIdRow): number => row.id);

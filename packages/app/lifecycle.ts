@@ -390,7 +390,8 @@ export class ApplicationLifecycle {
     if (managesProcess) this.installProcessHandlers();
 
     try {
-      await this.runMain();
+      await this.init();
+      await this.wait();
     } catch (error: unknown) {
       if (!managesProcess) throw error;
       this.dependencies.logger.error("Unhandled error in bot main runner:", error);
@@ -402,12 +403,6 @@ export class ApplicationLifecycle {
         if (this.runnerCancellationUnsettled) process.exit(1);
       }
     }
-  }
-
-  /** 依次完成启动初始化与主循环阻塞等待。 */
-  private async runMain(): Promise<void> {
-    await this.init();
-    await this.wait();
   }
 
   /** 注册进程信号与未捕获异常/拒绝监听器（幂等）。 */

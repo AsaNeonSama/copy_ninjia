@@ -29,9 +29,20 @@ export function sanitizeBidiText(raw: string): string {
 export function truncateDisplayText(raw: string, maxChars: number = 20): string {
   const clean: string = sanitizeBidiText(raw).trim();
   if (clean.length <= maxChars) return clean;
-  const chars: string[] = Array.from(clean);
-  if (chars.length <= maxChars) return clean;
-  return `${chars.slice(0, Math.max(1, maxChars)).join("")}…`;
+  const limit: number = Math.max(1, maxChars);
+  let points: number = 0;
+  let index: number = 0;
+  let cut: number = 0;
+  while (index < clean.length) {
+    const code: number = clean.charCodeAt(index);
+    // 高代理后紧跟低代理时按一个码点前进两位；孤立代理按一个码点计。
+    index += code >= 0xd800 && code <= 0xdbff && index + 1 < clean.length &&
+      (clean.charCodeAt(index + 1) & 0xfc00) === 0xdc00 ? 2 : 1;
+    points++;
+    if (points === limit) cut = index;
+    if (points > maxChars && points >= limit) return `${clean.slice(0, cut)}…`;
+  }
+  return clean;
 }
 
 /**
@@ -108,6 +119,31 @@ export function shortenGalleryFileName(fileName: string): string {
   return `${stem.slice(0, 8)}…${stem.slice(-6)}${ext}`;
 }
 
+/** 24 小时制中文完整日期时间格式化器单例（模块加载时构造一次，供列表与详情卡片复用）。 */
+const ZH_CN_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
+  "zh-CN",
+  {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  }
+);
+
+/** 24 小时制中文时分秒格式化器单例（模块加载时构造一次，供状态顶栏时钟复用）。 */
+const ZH_CN_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
+  "zh-CN",
+  {
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  }
+);
+
 /**
  * 将 Unix 毫秒时间戳格式化为本地日期时间字符串。
  *
@@ -116,7 +152,7 @@ export function shortenGalleryFileName(fileName: string): string {
  */
 export function formatTime(timestampMs: number): string {
   if (!Number.isFinite(timestampMs) || timestampMs <= 0) return "-";
-  return new Date(timestampMs).toLocaleString("zh-CN", { hour12: false });
+  return ZH_CN_DATE_TIME_FORMATTER.format(timestampMs);
 }
 
 /**
@@ -127,7 +163,7 @@ export function formatTime(timestampMs: number): string {
  */
 export function formatClockTime(timestampMs: number): string {
   if (!Number.isFinite(timestampMs) || timestampMs <= 0) return "-";
-  return new Date(timestampMs).toLocaleTimeString("zh-CN", { hour12: false });
+  return ZH_CN_CLOCK_TIME_FORMATTER.format(timestampMs);
 }
 
 /**

@@ -1,8 +1,4 @@
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
-import {
-  MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
-  MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-} from "../../../consts/miniApp";
 import { isUserBlocked } from "../../../infra/blocklist/membership";
 import { runProtectedIdentityMutation } from "../../../infra/identityPolicy/coordination";
 import {
@@ -17,16 +13,14 @@ import type {
 } from "../../../infra/identityPolicy/whitelist";
 import {
   confirmIdentityPolicyPersisted,
-  getIdentityEntryCount,
   isIdentityPolicyCached,
   prefetchIdentityPolicies,
-  readIdentityPolicyEntries,
-  readWhitelistSweepPage,
 } from "../../../infra/identityStorage";
 import { logger } from "../../../infra/logger";
 import type {
   TelegramIdentityMetadata,
   WhitelistEntryData,
+  WhitelistPermissionKey,
 } from "../../../types/identityPolicy";
 import type {
   MiniAppIdentityMutationResult,
@@ -36,23 +30,20 @@ import type {
 } from "../../../types/miniApp";
 import {
   buildPermissionDescriptors,
-  collectAllIdentityIds,
-  collectIdentityPageIds,
   currentBotUserId,
-  formatIdentityDisplayName,
   isInitializedManagedChatTarget,
-  matchesIdentitySearchQuery,
   resolveIdentityMetadataForMiniApp,
-  syncIdentityMetadataWithBotCache,
-  toIdentitySearchQuery,
 } from "./metadata";
 import type {
-  CollectedIdentityPageSlice,
-  IdentitySearchQuery,
-  ListIdentityPageParams,
   SetIdentityMembershipParams,
   SetMiniAppWhitelistPermissionParams,
 } from "./metadata";
+import { listIdentityPolicyPage } from "./page";
+import type {
+  IdentityPolicyEntryBaseView,
+  IdentityPolicyPageResult,
+  ListIdentityPageParams,
+} from "./page";
 
 /** 白名单成员变更临界区返回结果。 */
 type WhitelistMembershipOutcome =
@@ -67,6 +58,30 @@ type WhitelistPermissionOutcome =
   | { readonly kind: "notFound" }
   | { readonly kind: "updated"; readonly result: SetWhitelistPermissionResult };
 
+/** 白名单权限修改事务的附加回显字段（单项修改携带 `key` 与 `value`，全开为空对象）。 */
+interface WhitelistPermissionMutationEcho {
+  /** 变更的权限键名。 */
+  readonly key?: WhitelistPermissionKey;
+  /** 变更的目标布尔值。 */
+  readonly value?: boolean;
+}
+
+/** `mutateWhitelistEntryPermissions` 的入参。 */
+interface MutateWhitelistEntryPermissionsParams {
+  /** 目标白名单身份 ID。 */
+  readonly id: number;
+  /** 在互斥临界区内执行内存权限修改的回调。 */
+  readonly apply: () => SetWhitelistPermissionResult;
+  /** 拼入返回结果的附加回显字段。 */
+  readonly echo: Readonly<WhitelistPermissionMutationEcho>;
+  /** 发生实际变更时的回执编码。 */
+  readonly changedMessage: string;
+  /** 权限值未变化时的回执编码。 */
+  readonly unchangedMessage: string;
+  /** 持久化失败时的英文错误日志前缀。 */
+  readonly failureLog: string;
+}
+
 /**
  * 分页列出持久化的白名单成员及其十八项细粒度权限（支持按名称、用户名或 ID 模糊搜索）。
  * 条目经 `readIdentityPolicyEntries` 直接冷读并在本次请求内局部持有，不读写 Bot 的合并身份缓存。
@@ -78,113 +93,19 @@ export async function listWhitelistEntries(
 ): Promise<Readonly<MiniAppWhitelistPage>> {
   const permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[] =
     buildPermissionDescriptors();
-  const normalizedQuery: string = params.query?.trim().toLowerCase() ?? "";
-  if (normalizedQuery.length > 0) {
-    const rawPageSize: number =
-      params.pageSize ?? params.limit ?? MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE;
-    const pageSize: number = Math.min(
-      MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-      Math.max(1, Math.trunc(rawPageSize))
-    );
-    const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
-    const allIds: readonly number[] = await collectAllIdentityIds(
-      readWhitelistSweepPage,
-      "whitelist"
-    );
-    const whitelistTotal: number = Math.max(
-      getIdentityEntryCount("whitelist"),
-      allIds.length
-    );
-    const blocklistTotal: number = getIdentityEntryCount("blocklist");
-    const entries: ReadonlyMap<number, Readonly<WhitelistEntryData>> =
-      (await readIdentityPolicyEntries(allIds)).whitelist;
-    const searchQuery: Readonly<IdentitySearchQuery> = toIdentitySearchQuery(normalizedQuery);
-    const matchedItems: Readonly<MiniAppWhitelistEntryView>[] = [];
-    for (const id of allIds) {
-      const entry: Readonly<WhitelistEntryData> | undefined = entries.get(id);
-      if (entry === undefined) continue;
-      const effectiveMeta: Readonly<TelegramIdentityMetadata> =
-        syncIdentityMetadataWithBotCache(id, entry.meta);
-      const displayName: string = formatIdentityDisplayName(id, effectiveMeta);
-      const username: string | undefined =
-        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined;
-      if (!matchesIdentitySearchQuery(searchQuery, { id, displayName, username })) {
-        continue;
-      }
-      matchedItems.push({
-        id,
-        isChannel: id < 0,
-        displayName,
-        username,
+  const page: Readonly<IdentityPolicyPageResult<MiniAppWhitelistEntryView>> =
+    await listIdentityPolicyPage({
+      table: "whitelist",
+      params,
+      toView: (
+        base: Readonly<IdentityPolicyEntryBaseView>,
+        entry: Readonly<WhitelistEntryData>
+      ): Readonly<MiniAppWhitelistEntryView> => ({
+        ...base,
         permissions: { ...entry.permissions },
-      });
-    }
-    const total: number = matchedItems.length;
-    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
-    const page: number = Math.min(requestedPage, totalPages);
-    const offset: number = (page - 1) * pageSize;
-    return {
-      items: matchedItems.slice(offset, offset + pageSize),
-      page,
-      pageSize,
-      total,
-      totalPages,
-      whitelistTotal,
-      blocklistTotal,
-      nextAfterId: null,
-      permissionDescriptors,
-    };
-  }
-
-  const slice: Readonly<CollectedIdentityPageSlice> = await collectIdentityPageIds(
-    "whitelist",
-    params,
-    readWhitelistSweepPage
-  );
-  const blocklistTotal: number = getIdentityEntryCount("blocklist");
-  if (slice.sliceIds.length === 0) {
-    return {
-      items: [],
-      page: slice.page,
-      pageSize: slice.pageSize,
-      total: slice.total,
-      totalPages: slice.totalPages,
-      whitelistTotal: slice.total,
-      blocklistTotal,
-      nextAfterId: null,
-      permissionDescriptors,
-    };
-  }
-
-  const entries: ReadonlyMap<number, Readonly<WhitelistEntryData>> =
-    (await readIdentityPolicyEntries(slice.sliceIds)).whitelist;
-  const items: Readonly<MiniAppWhitelistEntryView>[] = [];
-  for (const id of slice.sliceIds) {
-    const entry: Readonly<WhitelistEntryData> | undefined = entries.get(id);
-    if (entry === undefined) continue;
-    const effectiveMeta: Readonly<TelegramIdentityMetadata> =
-      syncIdentityMetadataWithBotCache(id, entry.meta);
-    items.push({
-      id,
-      isChannel: id < 0,
-      displayName: formatIdentityDisplayName(id, effectiveMeta),
-      username:
-        effectiveMeta.username.length > 0 ? effectiveMeta.username : undefined,
-      permissions: { ...entry.permissions },
+      }),
     });
-  }
-
-  return {
-    items,
-    page: slice.page,
-    pageSize: slice.pageSize,
-    total: slice.total,
-    totalPages: slice.totalPages,
-    whitelistTotal: slice.total,
-    blocklistTotal,
-    nextAfterId: slice.nextAfterId,
-    permissionDescriptors,
-  };
+  return { ...page, permissionDescriptors };
 }
 
 /**
@@ -320,22 +241,24 @@ export async function setWhitelistEntryMembership({
 }
 
 /**
- * 修改白名单成员的单项细粒度权限（与 `/permission <target> <key> <value>` 同源）。
- * @param params 目标白名单身份 ID、权限键与目标布尔值。
+ * 执行白名单成员权限修改的共享事务骨架：超级管理员豁免拦截、冷读预取、互斥临界区执行与落盘确认。
+ * @param params 权限修改事务参数。
  * @returns 权限变更结果。
  */
-export async function setWhitelistEntryPermission({
+async function mutateWhitelistEntryPermissions({
   id,
-  key,
-  value,
-}: SetMiniAppWhitelistPermissionParams): Promise<Readonly<MiniAppIdentityMutationResult>> {
+  apply,
+  echo,
+  changedMessage,
+  unchangedMessage,
+  failureLog,
+}: MutateWhitelistEntryPermissionsParams): Promise<Readonly<MiniAppIdentityMutationResult>> {
   if (id === SUPER_ADMIN_USER_ID) {
     return {
       ok: false,
       changed: false,
       id,
-      key,
-      value,
+      ...echo,
       message: "SUPER_ADMIN_EXEMPT",
     };
   }
@@ -344,8 +267,7 @@ export async function setWhitelistEntryPermission({
       ok: false,
       changed: false,
       id,
-      key,
-      value,
+      ...echo,
       message: "IDENTITY_STORAGE_UNAVAILABLE",
     };
   }
@@ -360,11 +282,7 @@ export async function setWhitelistEntryPermission({
         }
         return {
           kind: "updated",
-          result: setWhitelistPermission({
-            id,
-            key,
-            value,
-          }),
+          result: apply(),
         };
       }
     );
@@ -373,8 +291,7 @@ export async function setWhitelistEntryPermission({
         ok: false,
         changed: false,
         id,
-        key,
-        value,
+        ...echo,
         message: "IDENTITY_STORAGE_UNAVAILABLE",
       };
     }
@@ -383,8 +300,7 @@ export async function setWhitelistEntryPermission({
         ok: false,
         changed: false,
         id,
-        key,
-        value,
+        ...echo,
         message: "WHITELIST_NOT_FOUND",
       };
     }
@@ -393,24 +309,40 @@ export async function setWhitelistEntryPermission({
       ok: true,
       changed: outcome.result.changed,
       id,
-      key,
-      value,
-      message: outcome.result.changed ? "PERMISSION_UPDATED" : "PERMISSION_UNCHANGED",
+      ...echo,
+      message: outcome.result.changed ? changedMessage : unchangedMessage,
     };
   } catch (error: unknown) {
-    logger.error(
-      `Failed to persist the whitelist permission change for identity ${id}:`,
-      error
-    );
+    logger.error(`${failureLog} for identity ${id}:`, error);
     return {
       ok: false,
       changed: false,
       id,
-      key,
-      value,
+      ...echo,
       message: "PERMISSION_PERSIST_FAILED",
     };
   }
+}
+
+/**
+ * 修改白名单成员的单项细粒度权限（与 `/permission <target> <key> <value>` 同源）。
+ * @param params 目标白名单身份 ID、权限键与目标布尔值。
+ * @returns 权限变更结果。
+ */
+export async function setWhitelistEntryPermission({
+  id,
+  key,
+  value,
+}: SetMiniAppWhitelistPermissionParams): Promise<Readonly<MiniAppIdentityMutationResult>> {
+  return mutateWhitelistEntryPermissions({
+    id,
+    apply: (): SetWhitelistPermissionResult =>
+      setWhitelistPermission({ id, key, value }),
+    echo: { key, value },
+    changedMessage: "PERMISSION_UPDATED",
+    unchangedMessage: "PERMISSION_UNCHANGED",
+    failureLog: "Failed to persist the whitelist permission change",
+  });
 }
 
 /**
@@ -421,71 +353,12 @@ export async function setWhitelistEntryPermission({
 export async function enableAllWhitelistEntryPermissions(
   id: number
 ): Promise<Readonly<MiniAppIdentityMutationResult>> {
-  if (id === SUPER_ADMIN_USER_ID) {
-    return {
-      ok: false,
-      changed: false,
-      id,
-      message: "SUPER_ADMIN_EXEMPT",
-    };
-  }
-  if (!await prefetchIdentityPolicies([id])) {
-    return {
-      ok: false,
-      changed: false,
-      id,
-      message: "IDENTITY_STORAGE_UNAVAILABLE",
-    };
-  }
-
-  try {
-    const outcome: WhitelistPermissionOutcome = await runProtectedIdentityMutation(
-      async (): Promise<WhitelistPermissionOutcome> => {
-        if (!isIdentityPolicyCached(id) && !await prefetchIdentityPolicies([id])) {
-          return { kind: "unavailable" };
-        }
-        if (!isWhitelisted(id)) {
-          return { kind: "notFound" };
-        }
-        return {
-          kind: "updated",
-          result: enableAllWhitelistPermissions(id),
-        };
-      }
-    );
-    if (outcome.kind === "unavailable") {
-      return {
-        ok: false,
-        changed: false,
-        id,
-        message: "IDENTITY_STORAGE_UNAVAILABLE",
-      };
-    }
-    if (outcome.kind === "notFound") {
-      return {
-        ok: false,
-        changed: false,
-        id,
-        message: "WHITELIST_NOT_FOUND",
-      };
-    }
-    await confirmIdentityPolicyPersisted("whitelist", id, !outcome.result.changed);
-    return {
-      ok: true,
-      changed: outcome.result.changed,
-      id,
-      message: outcome.result.changed ? "ALL_PERMISSIONS_ENABLED" : "ALL_PERMISSIONS_UNCHANGED",
-    };
-  } catch (error: unknown) {
-    logger.error(
-      `Failed to persist enable-all permissions for identity ${id}:`,
-      error
-    );
-    return {
-      ok: false,
-      changed: false,
-      id,
-      message: "PERMISSION_PERSIST_FAILED",
-    };
-  }
+  return mutateWhitelistEntryPermissions({
+    id,
+    apply: (): SetWhitelistPermissionResult => enableAllWhitelistPermissions(id),
+    echo: {},
+    changedMessage: "ALL_PERMISSIONS_ENABLED",
+    unchangedMessage: "ALL_PERMISSIONS_UNCHANGED",
+    failureLog: "Failed to persist enable-all permissions",
+  });
 }

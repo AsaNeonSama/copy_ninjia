@@ -610,7 +610,7 @@ describe("Anti-Raid mirror persistence barriers", () => {
       () => antiRaid.handleVerificationCallback({
         callbackQuery: {
           id: "callback-1",
-          data: "verify:203",
+          data: "verify:203:1",
           message: { chat: { id: -5003 } },
           from: { id: 203, first_name: "Verify" },
         },

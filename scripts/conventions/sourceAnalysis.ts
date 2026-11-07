@@ -202,7 +202,7 @@ export function runtimeModuleReferences(source: ts.SourceFile): readonly Runtime
 
 /**
  * 按仓库 tsconfig 为给定入口文件建一个只做类型检查的 program。常量不可变性断言与字面量
- * 联合全集表两道门禁以 packages/consts/ 为入口共用一个，测试替身复位门禁以 test/ 为入口另建一个。
+ * 联合全集表两道门禁以 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 为入口共用一个，测试替身复位门禁以 `test/` 为入口另建一个。
  *
  * @param projectRoot 仓库根目录绝对路径
  * @param rootFiles Program 根文件绝对路径列表

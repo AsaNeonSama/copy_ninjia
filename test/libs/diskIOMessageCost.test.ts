@@ -203,13 +203,8 @@ const CASES: Readonly<Record<QueuedDiskIOOperationMessage["type"], MessageCase>>
     payloadBytes: 0,
     business: false,
   },
-  readBlocklistIdPage: {
-    message: { type: "readBlocklistIdPage", requestId: 4, afterId: null },
-    payloadBytes: 0,
-    business: false,
-  },
-  readWhitelistIdPage: {
-    message: { type: "readWhitelistIdPage", requestId: 6, afterId: null },
+  readIdentityIdPage: {
+    message: { type: "readIdentityIdPage", requestId: 4, table: "whitelist", afterId: null },
     payloadBytes: 0,
     business: false,
   },

@@ -120,11 +120,11 @@ export function advanceTemporaryAdBypassActivity(
   if (current === null) {
     return firstActivity(now);
   }
-  const currentDay: number = getDayIndex(now);
-  const countedDay: number = getDayIndex(current.countedAt);
   if (now < current.countedAt) {
     return restartActivityAfterClockRollback(current, now);
   }
+  const currentDay: number = getDayIndex(now);
+  const countedDay: number = getDayIndex(current.countedAt);
   if (currentDay === countedDay + 1) {
     const previousDayQualified: boolean = current.qualifiedAt !== null &&
       getDayIndex(current.qualifiedAt) === countedDay;

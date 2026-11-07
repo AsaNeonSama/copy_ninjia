@@ -12,12 +12,12 @@ import {
   AI_MEMORY_HYDRATE_BUFFER_MAX,
   MAX_SUMMARY_ROUNDS,
 } from "../../../packages/consts/aiChat/memory";
-import {
-  MINI_APP_WEB_APP_DATA_SECRET_SEED,
-} from "../../../packages/consts/miniApp";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
 import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
-import { verifyMiniAppInitData } from "../../../packages/libs/miniAppAuth";
+import {
+  deriveMiniAppInitDataSecretKey,
+  verifyMiniAppInitData,
+} from "../../../packages/libs/miniAppAuth";
 import {
   issueMiniAppAuthSession,
   resolveAndRefreshMiniAppAuthSession,
@@ -53,6 +53,10 @@ import type {
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS } from "./fixtures";
 import type { Scenario } from "./types";
 
+/** 基准测试共享的 `initData` 验签 HMAC-SHA256 密钥。 */
+const BENCHMARK_INIT_DATA_SECRET_KEY: Uint8Array =
+  deriveMiniAppInitDataSecretKey(BOT_TOKEN);
+
 /**
  * 构造已按 Telegram WebApp 规范 HMAC-SHA256 签名的基准测试 `initData` 查询字符串。
  * @param authDate 秒级签发时间戳。
@@ -65,13 +69,7 @@ function buildBenchmarkSignedInitData(authDate: number): string {
     username: "super_admin",
   });
   const dataCheckString: string = `auth_date=${authDate}\nuser=${userJson}`;
-  const secretKey: Uint8Array = new Bun.CryptoHasher(
-    "sha256",
-    MINI_APP_WEB_APP_DATA_SECRET_SEED
-  )
-    .update(BOT_TOKEN, "utf8")
-    .digest();
-  const hashHex: string = new Bun.CryptoHasher("sha256", secretKey)
+  const hashHex: string = new Bun.CryptoHasher("sha256", BENCHMARK_INIT_DATA_SECRET_KEY)
     .update(dataCheckString, "utf8")
     .digest("hex");
   const searchParams: URLSearchParams = new URLSearchParams();
@@ -128,7 +126,7 @@ export function miniAppStatusRouteScenario(): Scenario {
         const nowMs: number = baseNowMs + (index & 1_023);
         const authResult: MiniAppAuthResult = verifyMiniAppInitData({
           initData,
-          botToken: BOT_TOKEN,
+          secretKey: BENCHMARK_INIT_DATA_SECRET_KEY,
           superAdminUserId: SUPER_ADMIN_USER_ID,
           nowMs,
           maxAgeSeconds: Number.POSITIVE_INFINITY,

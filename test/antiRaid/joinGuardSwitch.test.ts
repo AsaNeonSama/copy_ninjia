@@ -437,7 +437,7 @@ describe("入群守卫开关（主线程投递侧）", () => {
     await handleVerificationCallback({
       callbackQuery: {
         id: "cb-1",
-        data: "verify:42",
+        data: "verify:42:7",
         from: { id: 7, is_bot: false, first_name: "Clicker" },
         message: { chat: { id: -1001 } },
       },
@@ -448,15 +448,15 @@ describe("入群守卫开关（主线程投递侧）", () => {
     expect(typesOf()).not.toContain("callback");
   });
 
-  test("开着时按钮照常投给 Worker", async () => {
+  test("开着时作答按钮连同所选数值与按钮消息 ID 投给 Worker", async () => {
     chatState.isAntiRaidEnabled = true;
 
     await handleVerificationCallback({
       callbackQuery: {
         id: "cb-2",
-        data: "verify:42",
+        data: "verify:42:0",
         from: { id: 7, is_bot: false, first_name: "Clicker" },
-        message: { chat: { id: -1001 } },
+        message: { chat: { id: -1001 }, message_id: 77 },
       },
     } as never);
 
@@ -465,7 +465,28 @@ describe("入群守卫开关（主线程投递侧）", () => {
       type: "callback",
       action: "self",
       targetUserId: 42,
+      answer: 0,
+      messageId: 77,
     }));
+  });
+
+  test("作答按钮缺选项、选项非规范十进制或「通过」多带一段时当场应答无效，不投给 Worker", async () => {
+    chatState.isAntiRaidEnabled = true;
+
+    const malformed: readonly string[] = ["verify:42", "verify:42:", "verify:42:07", "verify:42:-1", "verify:42:1000", "verify:x:3", "approve:42:3"];
+    for (const [index, data] of malformed.entries()) {
+      await handleVerificationCallback({
+        callbackQuery: {
+          id: `bad-${index}`,
+          data,
+          from: { id: 7, is_bot: false, first_name: "Clicker" },
+          message: { chat: { id: -1001 }, message_id: 77 },
+        },
+      } as never);
+    }
+
+    expect(answeredCallbacks.map((call): string => call.callbackQueryId)).toEqual(malformed.map((_data, index): string => `bad-${index}`));
+    expect(typesOf()).not.toContain("callback");
   });
 
   test("「通过」按钮按前缀投成 approve，其它前缀的回调不认领", async () => {
@@ -491,6 +512,7 @@ describe("入群守卫开关（主线程投递侧）", () => {
     expect(workerPosts.filter((message): boolean => message.type === "callback")).toEqual([
       expect.objectContaining({ type: "callback", action: "approve", targetUserId: 42, callbackQueryId: "cb-3" }),
     ]);
+    expect(workerPosts.find((message): boolean => message.type === "callback")).not.toHaveProperty("answer");
     expect(answeredCallbacks).toHaveLength(0);
   });
 });
@@ -610,11 +632,11 @@ describe("验证按钮的非法目标", () => {
     } as never);
   }
 
-  // 覆盖 NaN / 0 / 负数，以及裸 `Number()` 会放行但本 bot 从不生成的非规范写法：
+  // 目标用户 ID 段覆盖 NaN / 0 / 负数，以及裸 `Number()` 会放行但本 bot 从不生成的非规范写法：
   // 指数、十六进制、前导空白、小数点、正号（见 libs/telegramId.ts 的 parseUserIdArgument）。
   test.each([
-    "verify:abc", "verify:", "verify:0", "verify:-5", "approve:abc",
-    "verify:1e3", "verify:0x10", "verify: 12", "verify:12.0", "verify:+5",
+    "verify:abc:3", "verify::3", "verify:0:3", "verify:-5:3", "approve:abc",
+    "verify:1e3:3", "verify:0x10:3", "verify: 12:3", "verify:12.0:3", "verify:+5:3",
   ])(
     "%s 当场以「非法目标」应答，不投给 Worker",
     async (data: string) => {

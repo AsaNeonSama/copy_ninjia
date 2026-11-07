@@ -3,18 +3,17 @@ import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import type { CachedUser } from "../types/chatState";
 
-import { sendCommandMessage, unbanChatMemberIfBanned, unbanChatSenderChat } from "../infra/telegram";
+import { sendCommandMessage } from "../infra/telegram";
 import { formatTargetLabel } from "../users/userLabel";
 import { resolveCommandTarget } from "./targetResolution";
 import { rejectUnlessPermitted } from "./commandActor";
-import { botCanRestrictMembersIn, resolveBotAdminStatus } from "../infra/botAdmin";
+import { resolveBotAdminStatus } from "../infra/botAdmin";
 import {
   confirmBlocklistPersisted,
   managedAdminChatIds,
-  runManagedChatBatch,
   unblockUser,
 } from "../infra/blocklist/membership";
-import type { ManagedChatOutcome } from "../infra/blocklist/membership";
+import { liftBlockedIdentityBanInManagedChats } from "../infra/blocklist/crossChatBan";
 import { runBlocklistFanOut } from "./blocklistFanOut";
 
 /** 串行位内的名单解除结果。 */
@@ -143,8 +142,8 @@ interface UnbanOutcome {
 }
 
 /**
- * 在机器人具有管理员身份的群中解除目标封禁。群清单与有界并发执行分别由
- * managedAdminChatIds、runManagedChatBatch 提供，结算结果按输入顺序计数。
+ * 在机器人具有管理员身份的群中解除目标封禁。群清单由 managedAdminChatIds 给出，逐群解封由
+ * liftBlockedIdentityBanInManagedChats 执行（见 infra/blocklist/crossChatBan.ts）。
  * @param targetUser 被解封的目标身份。
  * @param chatId 发起命令所在群聊 ID。
  * @returns 解封成功与失败的受管群计数。
@@ -152,27 +151,10 @@ interface UnbanOutcome {
 async function unbanEverywhereFor(targetUser: CachedUser, chatId: number): Promise<UnbanOutcome> {
   const isAdminHere: boolean = await resolveBotAdminStatus(chatId);
   const targetChatIds: number[] = managedAdminChatIds(chatId, isAdminHere);
-
-  const outcomes: readonly ManagedChatOutcome<boolean>[] = await runManagedChatBatch<boolean>({
+  const unbannedCount: number = await liftBlockedIdentityBanInManagedChats({
     chatIds: targetChatIds,
-    action: `lift the ban on identity ${targetUser.id}`,
-    onUnexpectedFailure: false,
-    execute: (targetChatId: number): Promise<boolean> => {
-      // 快照已确证缺「限制与封禁成员」的群不发请求，计为失败；快照未知时照常发，
-      // 由 Telegram 裁决（与 /block enable 同口径，见 infra/botAdmin.ts 的 botCanRestrictMembersIn）。
-      if (botCanRestrictMembersIn(targetChatId) === false) return Promise.resolve(false);
-      // 频道身份解除 sender_chat 封禁；用户仅解除已有封禁，保留在群成员身份。
-      return targetUser.isChannel === true
-        ? unbanChatSenderChat(targetChatId, targetUser.id)
-        : unbanChatMemberIfBanned(targetChatId, targetUser.id);
-    },
+    identityId: targetUser.id,
+    isChannel: targetUser.isChannel === true,
   });
-
-  let unbannedCount: number = 0;
-  let failedCount: number = 0;
-  for (const outcome of outcomes) {
-    if (outcome.value) unbannedCount++;
-    else failedCount++;
-  }
-  return { unbannedCount, failedCount };
+  return { unbannedCount, failedCount: targetChatIds.length - unbannedCount };
 }

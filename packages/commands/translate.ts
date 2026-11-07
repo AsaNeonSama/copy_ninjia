@@ -64,9 +64,7 @@ export async function handleTranslateCommand(ctx: CommandContext<Context>): Prom
       ctx,
       texts: chatAtmosphere().TRANSLATE_TOGGLE_TEXTS,
       permission: "isCanControllTranslatePermission",
-      persistReason: "translation toggled",
-      runtimeLabel: "translation runtime",
-      switchKey: "isTranslationEnabled",
+      feature: "translation",
       refuseEnable: refuseUnavailableTranslation,
       beforeDisable: (chatId: number): Promise<void> => stopTranslation(chatId),
     });

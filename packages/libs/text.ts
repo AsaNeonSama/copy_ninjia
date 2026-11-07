@@ -46,12 +46,13 @@ export function sanitizeDisplayName(raw: string): string {
 }
 
 /**
- * 去掉用户名前导的 `@`，供转录行、回复标注与逐字缓存条目共用同一份归一规则。
+ * 去掉用户名前导的 `@`，供转录行、回复标注、逐字缓存条目与 Mini App 名单身份归一共用同一份规则。
  *
  * Telegram 的 username 字段本身不含 `@`，剥离针对用户手打进来的 @名字与从 mention
  * 实体里切出来的片段。先看首码元，只有带 `@` 时才走正则。这条判定落在每条进滚动记忆的
- * 群消息（workers/aiChat/bufferedMessage.ts）和每次转录渲染的名册与回复标注
- * （aiChat/ai/utils/chatTranscript.ts）上。
+ * 群消息（workers/aiChat/bufferedMessage.ts）、每次转录渲染的名册与回复标注
+ * （aiChat/ai/utils/chatTranscript.ts）以及 Mini App 名单检索与元数据同步
+ * （mini-app-api-server/view/identities/page.ts、mini-app-api-server/view/identities/metadata.ts）上。
  *
  * 空串的 `charCodeAt(0)` 是 NaN，比较为假，原样返回。
  * @param username 待处理的用户名字符串。

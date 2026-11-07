@@ -7,6 +7,8 @@ import {
 import { MINI_APP_TOTP_STEP_SECONDS } from "../../packages/consts/miniAppTotp";
 import {
   deriveMiniAppAssetToken,
+  deriveMiniAppAssetTokenDigest,
+  deriveMiniAppInitDataSecretKey,
   verifyMiniAppAssetToken,
   verifyMiniAppInitData,
   verifyMiniAppPassword,
@@ -27,11 +29,12 @@ import { buildSignedTestInitData } from "../helpers/miniAppInitData";
 
 describe("verifyMiniAppInitData", () => {
   const botToken: string = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11";
+  const secretKey: Uint8Array = deriveMiniAppInitDataSecretKey(botToken);
   const superAdminUserId: number = 10001;
   const nowMs: number = 1_700_000_000_000;
   const nowSec: number = Math.floor(nowMs / 1000);
 
-  test("通过合法的 SuperAdmin initData 签名校验并提取用户资料", () => {
+  test("通过合法的 SuperAdmin initData 签名校验并提取用户资料（含大写十六进制 hash）", () => {
     const initData: string = buildSignedTestInitData({
       botToken,
       authDate: nowSec - 10,
@@ -46,7 +49,7 @@ describe("verifyMiniAppInitData", () => {
 
     const result: MiniAppAuthResult = verifyMiniAppInitData({
       initData,
-      botToken,
+      secretKey,
       superAdminUserId,
       nowMs,
     });
@@ -61,6 +64,17 @@ describe("verifyMiniAppInitData", () => {
         username: "copy_ninja",
       },
     });
+
+    const upperHashParams: URLSearchParams = new URLSearchParams(initData);
+    upperHashParams.set("hash", upperHashParams.get("hash")!.toUpperCase());
+    expect(
+      verifyMiniAppInitData({
+        initData: upperHashParams.toString(),
+        secretKey,
+        superAdminUserId,
+        nowMs,
+      })
+    ).toEqual(result);
   });
 
   test("非 SuperAdmin 用户的合法签名同样被拒绝 (forbidden_user)", () => {
@@ -75,7 +89,7 @@ describe("verifyMiniAppInitData", () => {
 
     const result: MiniAppAuthResult = verifyMiniAppInitData({
       initData,
-      botToken,
+      secretKey,
       superAdminUserId,
       nowMs,
     });
@@ -99,7 +113,7 @@ describe("verifyMiniAppInitData", () => {
     expect(
       verifyMiniAppInitData({
         initData: forgedByOtherBot,
-        botToken,
+        secretKey,
         superAdminUserId,
         nowMs,
       })
@@ -119,7 +133,7 @@ describe("verifyMiniAppInitData", () => {
     expect(
       verifyMiniAppInitData({
         initData: expiredInitData,
-        botToken,
+        secretKey,
         superAdminUserId,
         nowMs,
       })
@@ -136,7 +150,7 @@ describe("verifyMiniAppInitData", () => {
     expect(
       verifyMiniAppInitData({
         initData: futureInitData,
-        botToken,
+        secretKey,
         superAdminUserId,
         nowMs,
       })
@@ -150,7 +164,7 @@ describe("verifyMiniAppInitData", () => {
     expect(
       verifyMiniAppInitData({
         initData: "",
-        botToken,
+        secretKey,
         superAdminUserId,
         nowMs,
       })
@@ -162,7 +176,7 @@ describe("verifyMiniAppInitData", () => {
     expect(
       verifyMiniAppInitData({
         initData: "auth_date=1700000000&hash=not-a-hex",
-        botToken,
+        secretKey,
         superAdminUserId,
         nowMs,
       })
@@ -181,19 +195,25 @@ describe("verifyMiniAppInitData", () => {
 
   test("deriveMiniAppAssetToken 与 verifyMiniAppAssetToken 派生并恒定时间核验受保护资源稳定令牌", () => {
     const token: string = deriveMiniAppAssetToken(botToken, superAdminUserId);
+    const expectedDigest: Uint8Array = deriveMiniAppAssetTokenDigest(
+      botToken,
+      superAdminUserId
+    );
+    const otherBotDigest: Uint8Array = deriveMiniAppAssetTokenDigest(
+      `${botToken}-other`,
+      superAdminUserId
+    );
+    const otherUserDigest: Uint8Array = deriveMiniAppAssetTokenDigest(
+      botToken,
+      superAdminUserId + 1
+    );
     expect(token).toMatch(/^[0-9a-f]{64}$/);
-    expect(verifyMiniAppAssetToken(token, botToken, superAdminUserId)).toBeTrue();
-    expect(
-      verifyMiniAppAssetToken(token.toUpperCase(), botToken, superAdminUserId)
-    ).toBeTrue();
-    expect(
-      verifyMiniAppAssetToken(token, `${botToken}-other`, superAdminUserId)
-    ).toBeFalse();
-    expect(
-      verifyMiniAppAssetToken(token, botToken, superAdminUserId + 1)
-    ).toBeFalse();
-    expect(verifyMiniAppAssetToken("", botToken, superAdminUserId)).toBeFalse();
-    expect(verifyMiniAppAssetToken(null, botToken, superAdminUserId)).toBeFalse();
+    expect(verifyMiniAppAssetToken(token, expectedDigest)).toBeTrue();
+    expect(verifyMiniAppAssetToken(token.toUpperCase(), expectedDigest)).toBeTrue();
+    expect(verifyMiniAppAssetToken(token, otherBotDigest)).toBeFalse();
+    expect(verifyMiniAppAssetToken(token, otherUserDigest)).toBeFalse();
+    expect(verifyMiniAppAssetToken("", expectedDigest)).toBeFalse();
+    expect(verifyMiniAppAssetToken(null, expectedDigest)).toBeFalse();
   });
 
   test("RFC 6238 TOTP 生成、仅当前时间步验证与内联 QR Code SVG 渲染", () => {

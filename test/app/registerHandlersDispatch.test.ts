@@ -485,7 +485,7 @@ describe("registerHandlers 分发", () => {
       id: "q1",
       from: FROM,
       chat_instance: "ci",
-      data: "verify:42",
+      data: "verify:42:3",
       message: { message_id: 7, date: 1, chat: CHAT },
     };
     expect(await dispatch({ update_id: ++nextUpdateId, callback_query: query }))

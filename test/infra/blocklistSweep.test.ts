@@ -13,7 +13,7 @@ const {
   lastRemovalId,
   loggerError,
   loggerLog,
-  readBlocklistIdPage,
+  readIdentityIdPage,
   remover,
   setBlocklistIdReads,
   settleLast,
@@ -157,8 +157,8 @@ describe("黑名单清扫", () => {
 
     await sweepBlockedMembers(-1001, 1_000);
 
-    expect(readBlocklistIdPage).toHaveBeenCalledTimes(1);
-    expect(readBlocklistIdPage).toHaveBeenLastCalledWith(null);
+    expect(readIdentityIdPage).toHaveBeenCalledTimes(1);
+    expect(readIdentityIdPage).toHaveBeenLastCalledWith("blocklist", null);
     expect(remover).toHaveBeenCalledTimes(1);
     const firstPage = remover.mock.calls[0]![0] as {
       chatId: number;
@@ -196,8 +196,9 @@ describe("黑名单清扫", () => {
     expect(pendingBlockedRemovals.size).toBe(1);
     await settleBackgroundWork();
 
-    expect(readBlocklistIdPage).toHaveBeenCalledTimes(2);
-    expect(readBlocklistIdPage).toHaveBeenLastCalledWith(
+    expect(readIdentityIdPage).toHaveBeenCalledTimes(2);
+    expect(readIdentityIdPage).toHaveBeenLastCalledWith(
+      "blocklist",
       BLOCKLIST_SWEEP_PAGE_SIZE
     );
     expect(remover).toHaveBeenCalledTimes(2);
@@ -254,7 +255,7 @@ describe("黑名单清扫", () => {
     });
     await settleBackgroundWork();
 
-    expect(readBlocklistIdPage).toHaveBeenCalledTimes(2);
+    expect(readIdentityIdPage).toHaveBeenCalledTimes(2);
     expect(remover).toHaveBeenCalledTimes(1);
     expect(pendingBlockedRemovals.has(removalId)).toBeFalse();
     expect(blocklistSweepPages.has(removalId)).toBeFalse();
@@ -283,7 +284,7 @@ describe("黑名单清扫", () => {
     });
     await settleBackgroundWork();
 
-    expect(readBlocklistIdPage).toHaveBeenCalledTimes(1);
+    expect(readIdentityIdPage).toHaveBeenCalledTimes(1);
     expect(remover).toHaveBeenCalledTimes(1);
     expect(pendingBlockedRemovals.has(removalId)).toBeTrue();
     expect(blocklistSweepPages.has(removalId)).toBeFalse();

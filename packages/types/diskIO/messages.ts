@@ -403,18 +403,12 @@ export interface ReadIdentityPoliciesRequest {
   ids: readonly number[];
 }
 
-/** 主线程 -> Disk I/O Worker：按稳定主键游标读取一页黑名单 ID。 */
-export interface ReadBlocklistIdPageRequest {
-  type: "readBlocklistIdPage";
+/** 主线程 -> Disk I/O Worker：按稳定主键游标读取一页黑名单或白名单 ID。 */
+export interface ReadIdentityIdPageRequest {
+  type: "readIdentityIdPage";
   requestId: number;
-  /** null 从最小主键开始；其余值只读取严格大于该主键的行。 */
-  afterId: number | null;
-}
-
-/** 主线程 -> Disk I/O Worker：按稳定主键游标读取一页白名单 ID。 */
-export interface ReadWhitelistIdPageRequest {
-  type: "readWhitelistIdPage";
-  requestId: number;
+  /** 读取的名单。 */
+  table: IdentityPolicyTable;
   /** null 从最小主键开始；其余值只读取严格大于该主键的行。 */
   afterId: number | null;
 }
@@ -438,8 +432,7 @@ export type DiskIORequestMessage =
   | EnsureLuckSecretRequest
   | ReadJoinLogRequest
   | ReadIdentityPoliciesRequest
-  | ReadBlocklistIdPageRequest
-  | ReadWhitelistIdPageRequest
+  | ReadIdentityIdPageRequest
   | CloseStorageRequest;
 
 /**

@@ -26,7 +26,7 @@ export async function collectTelegramMessageProblems(
   const wedMessagesPath: string = join(commandsRoot, "wed", "messages.ts");
   const hImageDrawPath: string = join(commandsRoot, "hImage", "draw.ts");
 
-  // 状态机按钮及功能性正文只有下列命名边界能够直接发送；普通提示统一交给主线程清理。
+  // 状态机按钮、超管私聊告警及功能性正文只有下列命名边界能够直接发送；普通提示统一交给主线程清理。
   const directBoundaries: Readonly<Record<string, string>> = {
     "workers/antiRaid/lockdownApi.ts": "beginLockdownAnnouncement",
     "workers/antiRaid/verificationReminders.ts": "attemptReminderDelivery",
@@ -34,9 +34,10 @@ export async function collectTelegramMessageProblems(
     "auto/message/proxySend.ts": "handlePrivateProxySend",
     "auto/message/proxyTts.ts": "sendProxyTtsNotice",
     "auto/message/proactive.ts": "replyToBathTrigger",
+    "mini-app-api-server/handlers/auth.ts": "handlePostAuthLoginRoute",
   };
   const directSendNames: ReadonlySet<string> = new Set(["sendMessage", "sendMessageWithResult"]);
-  for (const directory of ["workers", "antiRaid", "auto"]) {
+  for (const directory of ["workers", "antiRaid", "auto", "mini-app-api-server"]) {
     for (const path of sourceFilesUnder(join(sourceRoot, directory))) {
       const source: ts.SourceFile = await parseSourceFile(path);
       const sendNames: Set<string> = new Set(directSendNames);

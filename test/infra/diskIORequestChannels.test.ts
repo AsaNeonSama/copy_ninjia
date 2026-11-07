@@ -3,14 +3,14 @@ import { waitUntil } from "../helpers/waitUntil";
 import type { DiskIOMessage, LuckDrawDiskMessage } from "../../packages/types/diskIO/messages";
 import type { DiskIOReply, LuckAppendStalledReply, WedMembersDeletedPersistedReply } from "../../packages/types/diskIO/replies";
 import type {
-  BlocklistIdPage,
+  IdentityIdPage,
   IdentityPolicyRawReadResult,
 } from "../../packages/types/identityStorage";
 import { onDiskIOReply } from "../../packages/infra/diskIO/observers";
 import { requestDiskIO } from "../../packages/infra/diskIO/requests";
 import {
-  blocklistIdPageReadRequests,
   diskIORuntime,
+  identityIdPageReadRequests,
   identityPolicyReadRequests,
   joinLogReadRequests,
   pendingLoad,
@@ -226,18 +226,19 @@ describe("Disk I/O 请求通道、运行时恢复与诊断缓冲", () => {
       });
       expect(identityPolicyReadRequests.table.waiters.size).toBe(0);
 
-      const pagePromise: Promise<BlocklistIdPage> =
-        diskIO.readBlocklistIdPage(43, 1_000);
+      const pagePromise: Promise<IdentityIdPage> =
+        diskIO.readIdentityIdPage("blocklist", 43, 1_000);
       const pageRequest: DiskIOMessage | undefined = worker.messages.at(-1);
       expect(pageRequest).toMatchObject({
-        type: "readBlocklistIdPage",
+        type: "readIdentityIdPage",
+        table: "blocklist",
         afterId: 43,
       });
-      if (pageRequest?.type !== "readBlocklistIdPage") {
-        throw new Error("missing blocklist page request");
+      if (pageRequest?.type !== "readIdentityIdPage") {
+        throw new Error("missing identity ID page request");
       }
       worker.onmessage!({ data: {
-        type: "blocklistIdPageRead",
+        type: "identityIdPageRead",
         requestId: pageRequest.requestId,
         page: { ids: [44, 45], nextCursor: 45, done: false },
       } } as unknown as MessageEvent<DiskIOReply>);
@@ -246,7 +247,7 @@ describe("Disk I/O 请求通道、运行时恢复与诊断缓冲", () => {
         nextCursor: 45,
         done: false,
       });
-      expect(blocklistIdPageReadRequests.table.waiters.size).toBe(0);
+      expect(identityIdPageReadRequests.table.waiters.size).toBe(0);
 
       const incompletePromise: Promise<IdentityPolicyRawReadResult> =
         diskIO.readIdentityPolicies([99], 1_000);
@@ -264,10 +265,10 @@ describe("Disk I/O 请求通道、运行时恢复与诊断缓冲", () => {
       );
       expect(identityPolicyReadRequests.table.waiters.size).toBe(0);
 
-      await expect(diskIO.readBlocklistIdPage(null, 1)).rejects.toThrow(
-        "blocklist ID page read request timed out"
+      await expect(diskIO.readIdentityIdPage("whitelist", null, 1)).rejects.toThrow(
+        "identity ID page read request timed out"
       );
-      expect(blocklistIdPageReadRequests.table.waiters.size).toBe(0);
+      expect(identityIdPageReadRequests.table.waiters.size).toBe(0);
     } finally {
       await diskIO.terminateDiskIO();
       globalThis.Worker = originalWorker;

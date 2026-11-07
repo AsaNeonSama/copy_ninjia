@@ -112,14 +112,6 @@ function adoptLogDay(inspection: LogDayInspection): DayFileState {
 }
 
 /**
- * 清理 `LOGS_DIR` 下原子写入遗留的 `*.tmp` 孤儿临时文件。
- * @param names 日志目录下的文件名列表；缺省时直接读取 `LOGS_DIR`。
- */
-function cleanupStaleTmpFiles(names: readonly string[] = readdirSync(LOGS_DIR)): Promise<void> {
-  return removeOrphanedTempFiles(LOGS_DIR, names);
-}
-
-/**
  * 删除超出保留期的日志文件（保留今天在内的最近 RETENTION_DAYS 天）。
  * @param names 日志目录下的文件名列表；缺省时直接读取 `LOGS_DIR`。
  */
@@ -198,7 +190,7 @@ export function adoptLogFiles(inspection: LogFilesInspection): void {
  * @param inspection 启动只读探测阶段产出的日志状态。
  */
 export async function maintainLogFiles(inspection: LogFilesInspection): Promise<void> {
-  await cleanupStaleTmpFiles(inspection.names);
+  await removeOrphanedTempFiles(LOGS_DIR, inspection.names);
   await cleanupOldLogs(inspection.names);
 }
 
@@ -207,8 +199,9 @@ export async function maintainLogRetention(): Promise<void> {
   if (!await flushLogBuffer()) {
     throw new Error("Failed to flush logs before daily retention maintenance.");
   }
-  await cleanupStaleTmpFiles();
-  await cleanupOldLogs();
+  const names: readonly string[] = readdirSync(LOGS_DIR);
+  await removeOrphanedTempFiles(LOGS_DIR, names);
+  await cleanupOldLogs(names);
 }
 
 /**

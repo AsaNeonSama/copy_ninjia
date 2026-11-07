@@ -12,13 +12,13 @@ import {
   MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN,
 } from "../middleware/chains";
 import { executeMiniAppMiddlewareChain } from "../middleware/pipeline";
-import { createAuthBunRoutes } from "../routes/auth";
-import { createChatsBunRoutes } from "../routes/chats";
-import { createGalleryBunRoutes } from "../routes/gallery";
-import { createIdentitiesBunRoutes } from "../routes/identities";
+import { MINI_APP_AUTH_BUN_ROUTES } from "../routes/auth";
+import { MINI_APP_CHATS_BUN_ROUTES } from "../routes/chats";
+import { MINI_APP_GALLERY_BUN_ROUTES } from "../routes/gallery";
+import { MINI_APP_IDENTITIES_BUN_ROUTES } from "../routes/identities";
 import { createPageBunRoutes, dispatchBundleAssetRoute } from "../routes/page";
-import { createStatusBunRoutes } from "../routes/status";
-import { createTotpBunRoutes } from "../routes/totp";
+import { MINI_APP_STATUS_BUN_ROUTES } from "../routes/status";
+import { MINI_APP_TOTP_BUN_ROUTES } from "../routes/totp";
 import indexHtml from "../../mini-app-frontend/index.html";
 
 /**
@@ -29,12 +29,12 @@ import indexHtml from "../../mini-app-frontend/index.html";
 export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
   const baseRoutes: Bun.Serve.Routes<undefined, string> = {
     ...createPageBunRoutes(indexHtml),
-    ...createAuthBunRoutes(),
-    ...createTotpBunRoutes(),
-    ...createStatusBunRoutes(),
-    ...createChatsBunRoutes(),
-    ...createIdentitiesBunRoutes(),
-    ...createGalleryBunRoutes(),
+    ...MINI_APP_AUTH_BUN_ROUTES,
+    ...MINI_APP_TOTP_BUN_ROUTES,
+    ...MINI_APP_STATUS_BUN_ROUTES,
+    ...MINI_APP_CHATS_BUN_ROUTES,
+    ...MINI_APP_IDENTITIES_BUN_ROUTES,
+    ...MINI_APP_GALLERY_BUN_ROUTES,
   };
   const basePath: string = configuredBasePathname();
   if (basePath === "/") return baseRoutes;

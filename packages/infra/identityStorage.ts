@@ -22,8 +22,7 @@ export {
 } from "./identityStorage/write";
 export {
   hasAnyBlockedIdentity,
-  readBlocklistSweepPage,
-  readWhitelistSweepPage,
+  readIdentitySweepPage,
   retainCurrentlyBlockedIdentityIds,
   retainParticipantInvalidBlocklistIds,
 } from "./identityStorage/sweep";

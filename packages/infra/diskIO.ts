@@ -44,10 +44,9 @@ export {
 } from "./diskIO/observers";
 export {
   ensureLuckReceiptSecret,
-  readBlocklistIdPage,
+  readIdentityIdPage,
   readIdentityPolicies,
   readJoinLog,
-  readWhitelistIdPage,
 } from "./diskIO/requests";
 export type { ReadJoinLogParams } from "./diskIO/requests";
 import type { FlushResult } from "../types/lifecycle";

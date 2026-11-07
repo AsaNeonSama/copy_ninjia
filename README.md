@@ -43,8 +43,8 @@
 <p align="center">
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Code-100%25_AI--written-e91e63?style=flat-square" alt="100% AI-written"></a>
   <a href="#-纯-ai-开发"><img src="https://img.shields.io/badge/Audits-Claude_/_Gemini_/_Grok-6d4aff?style=flat-square" alt="Audited"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-6940_Passed-2ea44f?style=flat-square" alt="Tests"></a>
-  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-97.83%25-2ea44f?style=flat-square" alt="Coverage"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Tests-7001_Passed-2ea44f?style=flat-square" alt="Tests"></a>
+  <a href="docs/cn/05-dev-workflow.md"><img src="https://img.shields.io/badge/Coverage-98.13%25-2ea44f?style=flat-square" alt="Coverage"></a>
   <a href="LICENSES/LICENSE"><img src="https://img.shields.io/badge/License-MIT-007ec6?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -109,7 +109,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="public/coverage_dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="public/coverage_light.svg">
-    <img alt="bun run test:coverage：6940 项测试全部通过 / 583 个测试文件 / 455,825 次 expect() 调用 / 函数覆盖率 97.45% / 行覆盖率 97.83%" src="public/coverage_light.svg" width="780">
+    <img alt="bun run test:coverage：7001 项测试全部通过 / 588 个测试文件 / 456,453 次 expect() 调用 / 函数覆盖率 97.57% / 行覆盖率 98.13%" src="public/coverage_light.svg" width="780">
   </picture>
 </p>
 
@@ -165,7 +165,7 @@
 <tr>
 <td align="left" valign="top" width="33%">
   <p><b>🛡️ 入群验证</b><br>
-  <sub>新成员必须在限定时间内点击按钮验证，超时自动踢出。</sub></p>
+  <sub>新成员必须在限定时间内答对三选一算术题，答错或超时自动踢出。</sub></p>
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>🚨 Anti-Raid 防冲群</b><br>
@@ -501,7 +501,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
   </tr>
   <tr>
     <td><nobr>🚫 <b>限制与封禁成员</b></nobr></td>
-    <td>入群验证超时踢出、防冲群自动切私密、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、刷屏自动禁言、广告处置封禁。</td>
+    <td>入群验证答错或超时踢出、防冲群自动切私密、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、刷屏自动禁言、广告处置封禁。</td>
   </tr>
 </tbody>
 </table>

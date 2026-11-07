@@ -10,6 +10,7 @@ import type {
   ExpelSnapshot,
   VerificationState,
 } from "../../../packages/types/states/verification";
+import type { VerificationChallenge } from "../../../packages/types/antiRaid/verification";
 
 const {
   CHAT_ID,
@@ -56,9 +57,20 @@ const {
 const {
   VERIFICATION_TERMINAL_RETRY_MS,
   VERIFICATION_TIMEOUT_MS,
+  VERIFY_ANSWER_SEPARATOR,
   VERIFY_APPROVE_CALLBACK_PREFIX,
   VERIFY_SELF_CALLBACK_PREFIX,
 } = await import("../../../packages/consts/antiRaid/verification");
+
+/**
+ * 读取当前条目上缓存的算术题。
+ * @returns 条目已挂上的算术题。
+ */
+function currentChallenge(): VerificationChallenge {
+  const challenge: VerificationChallenge | undefined = verificationEntries.get(KEY)?.challenge;
+  if (challenge === undefined) throw new Error("missing cached verification challenge");
+  return challenge;
+}
 
 const {
   applyBotPermissionsChange,
@@ -86,13 +98,11 @@ test("验证按钮应答按注入的本进程风格指向实际按钮", async ()
   atmosphereState.current = "plain";
   await run([{ kind: "answerCallback", callbackQueryId: "callback", reply: "useSelfButton" }]);
   expect(callbackTexts[0]).toBe(ATMOSPHERE_TEXTS.plain.NOTICE_TEXTS.verificationUseSelfButton(
-    ATMOSPHERE_TEXTS.plain.VERIFICATION_SELF_BUTTON_TEXT,
     ATMOSPHERE_TEXTS.plain.VERIFICATION_APPROVE_BUTTON_TEXT
   ));
   atmosphereState.current = "teasing";
   await run([{ kind: "answerCallback", callbackQueryId: "callback", reply: "useSelfButton" }]);
   expect(callbackTexts[1]).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationUseSelfButton(
-    ATMOSPHERE_TEXTS.teasing.VERIFICATION_SELF_BUTTON_TEXT,
     ATMOSPHERE_TEXTS.teasing.VERIFICATION_APPROVE_BUTTON_TEXT
   ));
 });
@@ -239,33 +249,32 @@ describe("超时踢人前的拉人者最终复核", () => {
   });
 });
 describe("同步副作用的逐条执行", () => {
-  test("验证提醒重试采用当前群风格，按钮与正文一致且保留目标昵称", async () => {
+  test("验证提醒重试采用当前群风格，沿用同一道算术题且保留目标昵称", async () => {
     const state: VerificationState = pendingState();
     setState(state);
     testState.nextSentMessageId = undefined;
     const timeout: string = formatMinSec(VERIFICATION_TIMEOUT_MS);
     await run([{ kind: "sendReminder", label: "用户😀♡", isBot: false }]);
     await Bun.sleep(0);
+    const challenge: VerificationChallenge = currentChallenge();
     expect(sentTexts[0]).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationMemberReminder({
       label: "用户😀♡",
       timeout,
-      selfButton: ATMOSPHERE_TEXTS.teasing.VERIFICATION_SELF_BUTTON_TEXT,
+      question: challenge.question,
       approveButton: ATMOSPHERE_TEXTS.teasing.VERIFICATION_APPROVE_BUTTON_TEXT,
     }));
     atmosphereState.current = "plain";
     testState.nextSentMessageId = 900;
     await run([{ kind: "sendReminder", label: "用户😀♡", isBot: false }]);
     await Bun.sleep(0);
+    expect(currentChallenge()).toBe(challenge);
     expect(sentTexts[1]).toBe(ATMOSPHERE_TEXTS.plain.NOTICE_TEXTS.verificationMemberReminder({
       label: "用户😀♡",
       timeout,
-      selfButton: ATMOSPHERE_TEXTS.plain.VERIFICATION_SELF_BUTTON_TEXT,
+      question: challenge.question,
       approveButton: ATMOSPHERE_TEXTS.plain.VERIFICATION_APPROVE_BUTTON_TEXT,
     }));
-    expect(sentKeyboards[1]?.inline_keyboard[0]?.[0]).toEqual({
-      text: ATMOSPHERE_TEXTS.plain.VERIFICATION_SELF_BUTTON_TEXT,
-      callback_data: `${VERIFY_SELF_CALLBACK_PREFIX}${USER_ID}`,
-    });
+    expect(sentKeyboards[1]).toEqual(sentKeyboards[0]);
     expect(reminderDeliveries.size).toBe(0);
   });
   test("真人、机器人和回复式验证提醒都明确给出三分钟", async () => {
@@ -291,13 +300,18 @@ describe("同步副作用的逐条执行", () => {
     expect(sentTexts[2]).toContain(`${formatMinSec(VERIFICATION_TIMEOUT_MS)}内`);
   });
 
-  test("真人提醒带「我是良民」与「通过」两颗按钮，机器人提醒只留「通过」", async () => {
+  test("真人提醒第一行是三个作答选项、第二行是「通过」，机器人提醒只留「通过」", async () => {
     setState(pendingState());
     await run([{ kind: "sendReminder", label: "真人杂鱼", isBot: false }]);
-    expect(sentKeyboards[0]?.inline_keyboard).toEqual([[
-      { text: ATMOSPHERE_TEXTS.teasing.VERIFICATION_SELF_BUTTON_TEXT, callback_data: `${VERIFY_SELF_CALLBACK_PREFIX}${USER_ID}` },
-      { text: ATMOSPHERE_TEXTS.teasing.VERIFICATION_APPROVE_BUTTON_TEXT, callback_data: `${VERIFY_APPROVE_CALLBACK_PREFIX}${USER_ID}` },
-    ]]);
+    const challenge: VerificationChallenge = currentChallenge();
+    expect(sentKeyboards[0]?.inline_keyboard).toEqual([
+      challenge.options.map((option: number) => ({
+        text: String(option),
+        callback_data: `${VERIFY_SELF_CALLBACK_PREFIX}${USER_ID}${VERIFY_ANSWER_SEPARATOR}${option}`,
+      })),
+      [{ text: ATMOSPHERE_TEXTS.teasing.VERIFICATION_APPROVE_BUTTON_TEXT, callback_data: `${VERIFY_APPROVE_CALLBACK_PREFIX}${USER_ID}` }],
+    ]);
+    expect(sentTexts[0]).toContain(challenge.question);
 
     const botState: VerificationState = pendingState();
     if (botState.kind === "pending") botState.isBot = true;
@@ -525,7 +539,7 @@ describe("同步副作用的逐条执行", () => {
     testState.membershipPresent = false;
     const state = kickPendingState();
     setState(state);
-    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1, cleanupSettled: false });
+    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1, cleanupSettled: false, challenge: undefined });
 
     await run([{ kind: "kickMember" }]);
 
@@ -542,7 +556,7 @@ describe("同步副作用的逐条执行", () => {
     testState.membershipPresent = undefined;
     const state = kickPendingState();
     setState(state);
-    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1, cleanupSettled: false });
+    verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 1, cleanupSettled: false, challenge: undefined });
 
     await run([{ kind: "kickMember" }]);
 

@@ -12,6 +12,7 @@ import type {
   MiniAppPasswordGuardState,
   MiniAppPickerResultEvent,
   MiniAppPreparedPickerSession,
+  MiniAppPublicUrlParts,
 } from "../../types/miniApp";
 import type {
   MiniAppPendingTotpSetup,
@@ -36,6 +37,16 @@ export const miniAppServerHolder: {
  */
 export const miniAppActiveConfigHolder: {
   current: Readonly<BotMiniAppConfig> | null;
+} = { current: null };
+
+/**
+ * 主线程当前激活的 Mini App 公网 URL 派生片段（`basePath` 与小写 `host`）。
+ * 填充：`startMiniAppServer` 启动时与 `miniAppActiveConfigHolder` 同步由 `deriveMiniAppPublicUrlParts` 派生写入。
+ * 清理：`stopMiniAppServer` 停止服务时与 `miniAppActiveConfigHolder` 同步重置为 `null`。
+ * 容量恒为单个只读对象，不淘汰；与 Worker 崩溃无关，进程重启后从 `null` 重新按 `bot.json` 派生。
+ */
+export const miniAppActiveUrlPartsHolder: {
+  current: Readonly<MiniAppPublicUrlParts> | null;
 } = { current: null };
 
 /**

@@ -16,9 +16,9 @@ export const MINI_APP_SHA256_HEX_PATTERN: RegExp = /^[0-9a-f]{64}$/i;
 /** 十进制有符号整数文本（可带前导 `-`，仅含数字）的匹配规则。不变量：不带全局标志 `g`，拒绝 `0x1F`、`1e3`、小数等会被 `Number()` 宽松接受的写法；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/store/identities.ts`。 */
 export const MINI_APP_SIGNED_INTEGER_PATTERN: RegExp = /^-?\d+$/u;
 
-/** Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则。不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。 */
+/** Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则。不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局；取值与 `packages/consts/text.ts` 的 `BIDI_CONTROL_PATTERN` 一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/libs/formatters.ts`。 */
 export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: RegExp =
-  /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
+  /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 /** Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。不变量：所有 `/api/*` 鉴权统一读取该请求头；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
 export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";

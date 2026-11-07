@@ -7,6 +7,12 @@ import { MINUTE_MS } from "./time";
 export const MINI_APP_TOTP_RECORD_VERSION: number = 1;
 
 /**
+ * `memory/mini-app-totp/totp.json` 首次创建时的文件权限位（仅属主可读写 `0o600`）。
+ * 不变量：文件已存在时沿用原权限（见 `libs/atomicFile.ts` 的 `atomicWriteText`）；首次落盘时以此权限创建，禁止 group/other 读写 TOTP 密钥。所属模块：`packages/mini-app-api-server/auth/totpStorage.ts`。
+ */
+export const MINI_APP_TOTP_FILE_MODE: number = 0o600;
+
+/**
  * 生成 RFC 6238 / Google Authenticator 兼容 TOTP 密钥的随机字节长度（20 字节 = 160 位，编码为 32 位无填充 Base32 字符串）。
  * 不变量：正整数 `20`，恰好被 5 位一组整除（`20 * 8 / 5 = 32`）。所属模块：`packages/libs/miniAppTotp.ts`。
  */

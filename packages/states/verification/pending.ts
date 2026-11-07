@@ -6,9 +6,12 @@ import {
 } from "../../consts/antiRaid/verification";
 import { trimSlidingWindowArrayInPlace } from "../../libs/slidingWindowRateLimit";
 import type {
+  ApproveCallbackEvent,
   ConfirmedThreadCommentEvent,
   ExpelSnapshot,
+  PendingState,
   ReminderLandedEvent,
+  SelfAnswerCallbackEvent,
   TrackedMessageEvent,
   VerificationCallbackEvent,
   VerificationEffect,
@@ -22,6 +25,7 @@ import {
   exemptOf,
   expellingOf,
   pendingUpdated,
+  reminderResendOf,
   remindersOf,
   snapshotOf,
 } from "./shared";
@@ -88,48 +92,31 @@ export function handleConfirmedThreadComment(
   return channelCommentExemption(state.snapshot, event.messageId);
 }
 
+/** 验证按钮回调的应答类型。 */
+type CallbackReply = Extract<VerificationEffect, { kind: "answerCallback" }>["reply"];
+
 /**
- * 计算「通过」按钮的驳回理由；返回 undefined 表示放行。
- * @param event 验证按钮回调事件载荷。
- * @returns 驳回原因枚举值；允许放行时返回 undefined。
+ * 只应答按钮、不改记录的转移。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @param callbackQueryId Telegram 回调查询 ID。
+ * @param reply 回调应答类型。
+ * @returns 原样返回状态并携带单个 answerCallback 副作用的转移结果。
  */
-function approveDenial(
-  event: VerificationCallbackEvent
-): "useSelfButton" | "notApprover" | "approverUnknown" | undefined {
-  if (event.isSelf) return "useSelfButton";
-  if (event.fromCanApprove === undefined) return "approverUnknown";
-  return event.fromCanApprove ? undefined : "notApprover";
+function callbackReplied(
+  state: VerificationState | undefined,
+  callbackQueryId: string,
+  reply: CallbackReply
+): VerificationTransition {
+  return { next: state, effects: [{ kind: "answerCallback", callbackQueryId, reply }] };
 }
 
 /**
- * 处理验证按钮回调：本人验证仅接受待验证真人本人，「通过」仅接受群管理员代点；
- * 记录非 pending 时应答失效。
- * @param state 当前成员的验证状态，未记录时为 undefined。
+ * 验证通过：应答按钮、删除提醒并发送欢迎语，记录随之删除。
+ * @param state 当前待验证状态。
  * @param event 验证按钮回调事件载荷。
- * @returns 状态转移结果及回调应答、删除提醒、发送欢迎等副作用。
+ * @returns 删除记录并携带应答、清理提醒与欢迎语副作用的转移结果。
  */
-export function handleCallback(
-  state: VerificationState | undefined,
-  event: VerificationCallbackEvent
-): VerificationTransition {
-  if (state?.kind !== "pending") {
-    return {
-      next: state,
-      effects: [{ kind: "answerCallback", callbackQueryId: event.callbackQueryId, reply: "invalid" }],
-    };
-  }
-
-  const denial: "notYourButton" | "useSelfButton" | "notApprover" | "approverUnknown" | undefined =
-    event.action === "self"
-      ? (event.isSelf ? undefined : "notYourButton")
-      : approveDenial(event);
-  if (denial !== undefined) {
-    return {
-      next: state,
-      effects: [{ kind: "answerCallback", callbackQueryId: event.callbackQueryId, reply: denial }],
-    };
-  }
-
+function callbackPassed(state: PendingState, event: VerificationCallbackEvent): VerificationTransition {
   return {
     next: undefined,
     effects: [
@@ -146,6 +133,77 @@ export function handleCallback(
       },
     ],
   };
+}
+
+/**
+ * 「通过」按钮：本人点按提示改点作答按钮，身份未查清提示稍后再试，非管理员驳回，管理员代点放行。
+ * @param state 当前待验证状态。
+ * @param event 「通过」按钮回调事件载荷。
+ * @returns 驳回时仅应答，放行时为验证通过的转移结果。
+ */
+function handleApproveCallback(state: PendingState, event: ApproveCallbackEvent): VerificationTransition {
+  if (event.isSelf) return callbackReplied(state, event.callbackQueryId, "useSelfButton");
+  if (event.fromCanApprove === undefined) return callbackReplied(state, event.callbackQueryId, "approverUnknown");
+  if (!event.fromCanApprove) return callbackReplied(state, event.callbackQueryId, "notApprover");
+  return callbackPassed(state, event);
+}
+
+/**
+ * 本人作答按钮：只认本人在 pending 当前登记的提醒消息上作答。答对即通过；答错转入
+ * expelling(wrongAnswer)，落盘回执后只踢不封；Worker 没有缓存题目（`missing`）时删除现有提醒、
+ * 清空登记并按当前形态补发，补发时 Worker 生成新题。
+ * @param state 当前待验证状态。
+ * @param event 本人作答按钮回调事件载荷。
+ * @returns 应答、通过、答错处置或换题补发的转移结果。
+ */
+function handleSelfAnswerCallback(state: PendingState, event: SelfAnswerCallbackEvent): VerificationTransition {
+  if (!event.isSelf) return callbackReplied(state, event.callbackQueryId, "notYourButton");
+  if (
+    event.messageId === undefined ||
+    (event.messageId !== state.reminderMessageId && event.messageId !== state.replyReminderMessageId)
+  ) {
+    return callbackReplied(state, event.callbackQueryId, "staleReminder");
+  }
+  switch (event.answerVerdict) {
+    case "correct":
+      return callbackPassed(state, event);
+    case "wrong":
+      return {
+        next: expellingOf("wrongAnswer", snapshotOf(state)),
+        effects: [{ kind: "answerCallback", callbackQueryId: event.callbackQueryId, reply: "wrongAnswer" }],
+      };
+    case "missing": {
+      const effects: VerificationEffect[] = [
+        { kind: "answerCallback", callbackQueryId: event.callbackQueryId, reply: "challengeRefreshed" },
+        remindersOf(state),
+        reminderResendOf(state),
+      ];
+      state.reminderMessageId = undefined;
+      state.replyReminderMessageId = undefined;
+      return pendingUpdated(state, effects);
+    }
+    default: {
+      const unhandledVerdict: never = event.answerVerdict;
+      throw new Error(`Unsupported verification answer verdict: ${String(unhandledVerdict)}`);
+    }
+  }
+}
+
+/**
+ * 处理验证按钮回调：本人作答仅接受待验证真人本人，「通过」仅接受群管理员代点；
+ * 记录非 pending 时应答失效。
+ * @param state 当前成员的验证状态，未记录时为 undefined。
+ * @param event 验证按钮回调事件载荷。
+ * @returns 状态转移结果及回调应答、删除提醒、发送欢迎、答错处置或换题补发等副作用。
+ */
+export function handleCallback(
+  state: VerificationState | undefined,
+  event: VerificationCallbackEvent
+): VerificationTransition {
+  if (state?.kind !== "pending") return callbackReplied(state, event.callbackQueryId, "invalid");
+  return event.action === "self"
+    ? handleSelfAnswerCallback(state, event)
+    : handleApproveCallback(state, event);
 }
 
 /**
@@ -166,16 +224,7 @@ export function handleVerifyTimeout(
     event.now - state.joinedAt < VERIFICATION_REMINDER_UNDELIVERED_MAX_MS
   ) {
     state.expiresAt = event.now + VERIFICATION_TIMEOUT_MS;
-    const anchorMessageId: number | undefined = state.welcomeAnchorMessageId;
-    const effects: VerificationEffect[] = anchorMessageId !== undefined
-      ? [{
-        kind: "sendReplyReminder",
-        label: state.label,
-        isBot: state.isBot,
-        targetMessageId: anchorMessageId,
-      }]
-      : [{ kind: "sendReminder", label: state.label, isBot: state.isBot }];
-    return pendingUpdated(state, effects, true);
+    return pendingUpdated(state, [reminderResendOf(state)], true);
   }
 
   const snapshot: ExpelSnapshot = snapshotOf(state);

@@ -1,11 +1,12 @@
 import { relative } from "node:path";
 import ts from "typescript";
+import { isLiteralConstant } from "./sourceAnalysis";
 
 /**
  * 测试断言涉及代码常量的取值时必须从常量模块读取，不得在测试里写死具体值。机器可判的下界如下：
  *
- * - 把导入的 SCREAMING_SNAKE_CASE 常量直接与数字字面量比对：
- *   `expect(IMPORTED_CONST).toBe(30_000)`、`.toEqual(3 * 60_000)` 这类写法
+ * - 把导入的 SCREAMING_SNAKE_CASE 常量直接与字面量常量比对：
+ *   `expect(IMPORTED_CONST).toBe(30_000)`、`.toEqual(3 * 60_000)`、`.toBe("label")` 这类写法
  *   （collectConstantValueAssertionProblems）。
  * - 匹配器实参里写出与 packages/consts 导出字符串常量逐字相同的字面量
  *   （collectStringConstantAssertionProblems）。同一字面量在本文件匹配器实参之外出现过
@@ -73,31 +74,7 @@ function importedBindings(source: ts.SourceFile): ReadonlySet<string> {
 }
 
 /**
- * 表达式是否只由数字字面量与四则运算组成。
- *
- * @param node 待检查的表达式节点
- * @returns 仅由数字字面量与四则运算组成时返回 true
- */
-function isNumericLiteralExpression(node: ts.Expression): boolean {
-  if (ts.isNumericLiteral(node)) return true;
-  if (ts.isParenthesizedExpression(node)) return isNumericLiteralExpression(node.expression);
-  if (ts.isPrefixUnaryExpression(node)) {
-    return node.operator === ts.SyntaxKind.MinusToken && isNumericLiteralExpression(node.operand);
-  }
-  if (ts.isBinaryExpression(node)) {
-    const operator: ts.SyntaxKind = node.operatorToken.kind;
-    return (
-      operator === ts.SyntaxKind.PlusToken ||
-      operator === ts.SyntaxKind.MinusToken ||
-      operator === ts.SyntaxKind.AsteriskToken ||
-      operator === ts.SyntaxKind.SlashToken
-    ) && isNumericLiteralExpression(node.left) && isNumericLiteralExpression(node.right);
-  }
-  return false;
-}
-
-/**
- * 找出把导入常量直接与数字字面量比对的断言。
+ * 找出把导入常量直接与字面量常量比对的断言。
  *
  * @param params 逐文件测试断言规则入参
  * @returns 违规断言问题列表
@@ -115,7 +92,7 @@ export function collectConstantValueAssertionProblems({
       ts.isPropertyAccessExpression(node.expression) &&
       VALUE_MATCHERS.has(node.expression.name.text) &&
       node.arguments.length === 1 &&
-      isNumericLiteralExpression(node.arguments[0]!)
+      isLiteralConstant(node.arguments[0]!)
     ) {
       const subject: ts.Expression = node.expression.expression;
       if (
@@ -133,7 +110,7 @@ export function collectConstantValueAssertionProblems({
           const line: number = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
           problems.push(
             `${relative(projectRoot, path)}:${line} asserts imported constant ${actual.text} ` +
-            "against a numeric literal; derive the expectation from the constant module or assert behavior"
+            "against a literal; derive the expectation from the constant module or assert behavior"
           );
         }
       }

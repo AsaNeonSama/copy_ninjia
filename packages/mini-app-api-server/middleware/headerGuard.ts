@@ -1,4 +1,4 @@
-import { miniAppActiveConfigHolder } from "../../cache/main/miniApp";
+import { miniAppActiveUrlPartsHolder } from "../../cache/main/miniApp";
 import { getBotMiniAppConfig } from "../../config/bot";
 import {
   MINI_APP_CONTROL_CHARS_PATTERN,
@@ -6,17 +6,20 @@ import {
   MINI_APP_MAX_INIT_DATA_LENGTH,
   MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
-import type { BotMiniAppConfig } from "../../types/config";
 import type { MiniAppMiddleware, MiniAppRouteContext } from "../../types/miniApp";
 import { accessErrorResponse } from "../libs/response";
+import { deriveMiniAppPublicUrlParts } from "../libs/routePath";
 
 /**
  * 校验请求头中的 `Origin` 或 `Referer` URL 是否与当前 Mini App 源站或反向代理 Host 同源。
  * @param rawUrl 待核验的 `Origin` 或 `Referer` 原始头值。
- * @param request HTTP 请求对象。
+ * @param ctx 路由请求上下文。
  * @returns 同源合法时返回 `true`，伪造或跨源时返回 `false`。
  */
-function isAllowedRequestOriginUrl(rawUrl: string, request: Request): boolean {
+function isAllowedRequestOriginUrl(
+  rawUrl: string,
+  ctx: Readonly<MiniAppRouteContext>
+): boolean {
   const trimmed: string = rawUrl.trim();
   if (trimmed.length === 0 || trimmed.toLowerCase() === "null") {
     return false;
@@ -29,7 +32,8 @@ function isAllowedRequestOriginUrl(rawUrl: string, request: Request): boolean {
     return false;
   }
   const candidateHost: string = parsedOrigin.host.toLowerCase();
-  const rawForwardedHost: string | null = request.headers.get("x-forwarded-host");
+  const headers: Headers = ctx.request.headers;
+  const rawForwardedHost: string | null = headers.get("x-forwarded-host");
   if (rawForwardedHost !== null) {
     const commaIndex: number = rawForwardedHost.indexOf(",");
     const firstForwardedHost: string = (
@@ -41,37 +45,34 @@ function isAllowedRequestOriginUrl(rawUrl: string, request: Request): boolean {
       return true;
     }
   }
-  const hostHeader: string = request.headers.get("host")?.trim().toLowerCase() ?? "";
+  const hostHeader: string = headers.get("host")?.trim().toLowerCase() ?? "";
   if (hostHeader.length > 0 && candidateHost === hostHeader) {
     return true;
   }
-  const reqUrlHost: string = URL.parse(request.url)?.host.toLowerCase() ?? "";
+  const reqUrlHost: string = ctx.url.host.toLowerCase();
   if (reqUrlHost.length > 0 && candidateHost === reqUrlHost) {
     return true;
   }
-  const activeConfig: Readonly<BotMiniAppConfig> | undefined =
-    miniAppActiveConfigHolder.current ?? getBotMiniAppConfig();
-  if (activeConfig !== undefined) {
-    const configHost: string = URL.parse(activeConfig.url)?.host.toLowerCase() ?? "";
-    if (configHost.length > 0 && candidateHost === configHost) {
-      return true;
-    }
-  }
-  return false;
+  const configHost: string = (
+    miniAppActiveUrlPartsHolder.current ??
+    deriveMiniAppPublicUrlParts(getBotMiniAppConfig())
+  ).host;
+  return configHost.length > 0 && candidateHost === configHost;
 }
 
 /**
  * 在鉴权链最开头对请求头与凭据载体形态执行 O(1) 快路径严格校验：拦截非同源 `Sec-Fetch-Site`、
  * 直接导航/非预期 `Sec-Fetch-Mode` 与 `Sec-Fetch-Dest`、跨源 `Origin`/`Referer`，
  * 以及缺失、双头不一致或畸形的 Telegram WebApp `initData` 请求头。
- * @param request HTTP 请求对象。
+ * @param ctx 路由请求上下文。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
  * @returns 快路径拦截命中时返回 `401` 或 `403` 诊断响应，通过时返回 `null`。
  */
 function verifyMiniAppRequestHeadersFast(
-  request: Request,
+  ctx: Readonly<MiniAppRouteContext>,
   allowQueryAuth: boolean
 ): Response | null {
+  const request: Request = ctx.request;
   const headers: Headers = request.headers;
 
   const secFetchSite: string | null = headers.get("sec-fetch-site")?.trim().toLowerCase() ?? null;
@@ -140,7 +141,7 @@ function verifyMiniAppRequestHeadersFast(
   if (
     originHeader !== null &&
     originHeader.trim().length > 0 &&
-    !isAllowedRequestOriginUrl(originHeader, request)
+    !isAllowedRequestOriginUrl(originHeader, ctx)
   ) {
     return accessErrorResponse(request, {
       status: 403,
@@ -154,7 +155,7 @@ function verifyMiniAppRequestHeadersFast(
   if (
     refererHeader !== null &&
     refererHeader.trim().length > 0 &&
-    !isAllowedRequestOriginUrl(refererHeader, request)
+    !isAllowedRequestOriginUrl(refererHeader, ctx)
   ) {
     return accessErrorResponse(request, {
       status: 403,
@@ -238,5 +239,5 @@ export function createMiniAppHeaderGuardMiddleware(
     ctx: Readonly<MiniAppRouteContext>,
     next: () => Response | Promise<Response>
   ): Response | Promise<Response> =>
-    verifyMiniAppRequestHeadersFast(ctx.request, allowQueryAuth) ?? next();
+    verifyMiniAppRequestHeadersFast(ctx, allowQueryAuth) ?? next();
 }

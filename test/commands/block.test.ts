@@ -51,6 +51,11 @@ const resolveCommandTarget = mock(async (
 const chatStates = new Map<number, { isInitEnabled?: boolean; botPermissions?: BotChatPermissions }>();
 const postDiskIO = mock((..._args: unknown[]): boolean => true);
 
+/** 本文件不该走到的 Telegram 方向；被调用即让用例失败。 */
+async function unexpectedTelegramCall(): Promise<never> {
+  throw new Error("unexpected Telegram moderation call");
+}
+
 // 1 是超级管理员：SQLite 没有其白名单记录，但由 packages/infra/identityPolicy/whitelist.ts
 // 的读取边界直接算进白名单边界并持有全部权限，这里的 mock 照实模拟那层结论。
 mock.module("../../packages/config/bot", () => ({
@@ -65,6 +70,9 @@ mock.module("../../packages/infra/telegram", () => ({
   replyCommandNotice: replyCommandNoticeVia(sendMessage),
   banChatMember,
   banChatSenderChat,
+  // 跨群执行单元（infra/blocklist/crossChatBan.ts）同时导入两个方向；本文件只走封禁方向。
+  unbanChatMemberIfBanned: unexpectedTelegramCall,
+  unbanChatSenderChat: unexpectedTelegramCall,
 }));
 mock.module("../../packages/infra/telegram/client", () => ({
   installTelegramApi: (): void => {},

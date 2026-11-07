@@ -8,11 +8,11 @@ import type {
   BlocklistSweepRecord,
   RemoveBlockedMembersParams,
 } from "../../types/blocklist";
-import type { BlocklistIdPage } from "../../types/identityStorage";
+import type { IdentityIdPage } from "../../types/identityStorage";
 import { logger } from "../logger";
 import {
   hasAnyBlockedIdentity,
-  readBlocklistSweepPage,
+  readIdentitySweepPage,
 } from "../identityStorage";
 import { materializeRemovalParams } from "./outbox";
 import {
@@ -111,10 +111,10 @@ async function replayPendingBlockedRemovalsAsync(
   const deferredSweepChatIds: Set<number> = new Set<number>();
   const replayedSweepRemovalIds: Map<number, number> = new Map();
   const deferredSweepRemovalIds: Map<number, number> = new Map();
-  let page: BlocklistIdPage = { ids: [], nextCursor: null, done: true };
+  let page: IdentityIdPage = { ids: [], nextCursor: null, done: true };
   blocklistSweepPages.clear();
   try {
-    if (hasAnyBlockedIdentity()) page = await readBlocklistSweepPage(null);
+    if (hasAnyBlockedIdentity()) page = await readIdentitySweepPage("blocklist", null);
   } catch (error: unknown) {
     logger.error(
       "Failed to read the first blocklist ID page for pending removal replay:",

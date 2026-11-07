@@ -29,7 +29,7 @@
   - 有効なロックダウンミラーには `phase` と正の整数 `intentId` が必須です。`announcementMessageId` は `announced` が `true` のときに限り、かつ必ず存在します。
   - 参加認証のスナップショットには `phase` と `trackedMessageTimes`（最大 `ANTI_RAID_PER_MINUTE_LIMIT` 件）が必須です。
   - `reminderMessageId`、`replyReminderMessageId`、`announcementMessageId` は任意（optional）であり、`kickPending` では両リマインダー ID は存在してはなりません。
-  - `pending` フェーズでは `replyReminderRequested`、`reminderSuperseded`、`welcomeAnchorMessageId` の有無がすべて真かすべて偽で、それ以外のフェーズは空の `trackedMessageTimes`、`invitedBy` なし、`replyReminderRequested: false`、`welcomeAnchorMessageId` なし、`reminderSuperseded: true` でなければなりません。`expelling` の通知・確認フラグ（`successNoticeSent`、`failureNoticeSent`、`unconfirmedNoticeSent`、`removalConfirmed`）は省略か `true` のみを受け付けます。
+  - `pending` フェーズでは `replyReminderRequested`、`reminderSuperseded`、`welcomeAnchorMessageId` の有無がすべて真かすべて偽で、それ以外のフェーズは空の `trackedMessageTimes`、`invitedBy` なし、`replyReminderRequested: false`、`welcomeAnchorMessageId` なし、`reminderSuperseded: true` でなければなりません。`expelling` の `expelReason` は `timeout`、`flood`、`wrongAnswer` のみ、通知・確認フラグ（`successNoticeSent`、`failureNoticeSent`、`unconfirmedNoticeSent`、`removalConfirmed`）は省略か `true` のみを受け付けます。
   - それ以外の未定義フィールドや形式不一致は厳格なデコードで拒否されます。旧バージョンのデータはオフラインで手動マイグレーションする必要があり、本番の読み込みパスに後方互換用フォールバックロジックを残してはなりません。
 
 - **終端通知の独立した永続化フラグ**：

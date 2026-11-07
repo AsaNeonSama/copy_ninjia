@@ -20,29 +20,25 @@ import {
 } from "../../../database/codec/identity";
 import {
   prepareStoredIdentityIdLookups,
-  readStoredBlocklistIdPage,
+  readStoredIdentityIdPage,
   readStoredIdentityPolicies,
-  readStoredWhitelistIdPage,
 } from "../../../database/interact/identityPolicy";
 import { readStoredTemporaryAdBypassActivities } from
   "../../../database/interact/temporaryAdBypass";
 import type {
-  BlocklistIdPageReadReply,
+  IdentityIdPageReadReply,
   IdentityPersistenceReply,
   IdentityPoliciesReadReply,
-  WhitelistIdPageReadReply,
 } from "../../../types/diskIO/replies";
 import type {
   IdentityPolicyWriteDiskMessage,
-  ReadBlocklistIdPageRequest,
+  ReadIdentityIdPageRequest,
   ReadIdentityPoliciesRequest,
-  ReadWhitelistIdPageRequest,
 } from "../../../types/diskIO/messages";
 import type { IdentityPolicyTable } from "../../../types/identityPolicy";
 import type {
-  BlocklistIdPage,
+  IdentityIdPage,
   PendingIdentityPolicyWrite,
-  WhitelistIdPage,
 } from "../../../types/identityStorage";
 import type {
   PendingTemporaryAdBypassWrite,
@@ -96,32 +92,29 @@ function pendingPolicyMap(
 }
 
 /**
- * 读取一页已提交黑名单主键并叠加事务缓冲中的未提交变更。
+ * 读取一页已提交的名单主键并叠加该名单事务缓冲中的未提交变更。
+ * @param table 名单类型（白名单或黑名单）
  * @param afterId 分页游标起点（不含），首屏传 null
- * @returns 叠加未提交变更后的黑名单主键分页结果
+ * @returns 叠加未提交变更后的名单主键分页结果
  */
-function effectiveBlocklistIdPage(afterId: number | null): BlocklistIdPage {
-  if (
-    pendingBlocklistWrites.size >
-    BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES
-  ) {
+function effectiveIdentityIdPage(table: IdentityPolicyTable, afterId: number | null): IdentityIdPage {
+  const pendingWrites: Map<number, PendingIdentityPolicyWrite> = pendingPolicyMap(table);
+  if (pendingWrites.size > BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES) {
     throw new Error(
-      `Pending blocklist delta exceeds ${BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES} entries; ` +
+      `Pending ${table} delta exceeds ${BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES} entries; ` +
       "refusing to expand a sweep page."
     );
   }
-  const readLimit: number = BLOCKLIST_SWEEP_PAGE_SIZE +
-    pendingBlocklistWrites.size + 1;
-  const storedIds: readonly number[] = readStoredBlocklistIdPage(
+  const storedIds: readonly number[] = readStoredIdentityIdPage(
     requireStorageDatabase(),
-    afterId,
-    readLimit
+    table,
+    { afterId, limit: BLOCKLIST_SWEEP_PAGE_SIZE + pendingWrites.size + 1 }
   );
   const candidates: Set<number> = new Set<number>();
   for (const id of storedIds) {
-    if (pendingBlocklistWrites.get(id)?.data !== null) candidates.add(id);
+    if (pendingWrites.get(id)?.data !== null) candidates.add(id);
   }
-  for (const [id, pending] of pendingBlocklistWrites) {
+  for (const [id, pending] of pendingWrites) {
     if (
       pending.data !== null &&
       (afterId === null || id > afterId)
@@ -159,7 +152,7 @@ export function hasEffectiveBlocklistIdentity(id: number): boolean {
  * @returns 有效黑名单中是否至少包含一个身份
  */
 export function hasAnyEffectiveBlocklistIdentity(): boolean {
-  return effectiveBlocklistIdPage(null).ids.length > 0;
+  return effectiveIdentityIdPage("blocklist", null).ids.length > 0;
 }
 
 /**
@@ -256,7 +249,7 @@ function assertBlocklistDeletionUnreferenced(id: number): void {
     }
   }
   if (!hasProbeRow) return;
-  if (!effectiveBlocklistIdPage(null).ids.some((other: number): boolean => other !== id)) {
+  if (!effectiveIdentityIdPage("blocklist", null).ids.some((other: number): boolean => other !== id)) {
     throw new Error(
       `Deleting blocklist identity ${id} would leave pending sweep rows without any blocklist entry.`
     );
@@ -342,104 +335,29 @@ export function readIdentityPolicies(
 }
 
 /**
- * 读取一页有界白名单主键并叠加尚未提交的最终值。
- * @param afterId 分页游标起点（不含），首屏传 null
- * @returns 叠加未提交变更后的白名单主键分页结果
+ * 读取一页有界黑名单或白名单主键并叠加尚未提交的最终值；黑名单页只在群级补扫边界读取，
+ * 白名单页供 Mini App 分页列举。
+ * @param message 名单主键分页读取请求消息
+ * @returns 包含名单主键分页结果或错误信息的应答消息
  */
-function effectiveWhitelistIdPage(afterId: number | null): WhitelistIdPage {
-  if (
-    pendingWhitelistWrites.size >
-    BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES
-  ) {
-    throw new Error(
-      `Pending whitelist delta exceeds ${BLOCKLIST_SWEEP_PENDING_DELTA_MAX_ENTRIES} entries; ` +
-      "refusing to expand a sweep page."
-    );
-  }
-  const readLimit: number = BLOCKLIST_SWEEP_PAGE_SIZE +
-    pendingWhitelistWrites.size + 1;
-  const storedIds: readonly number[] = readStoredWhitelistIdPage(
-    requireStorageDatabase(),
-    afterId,
-    readLimit
-  );
-  const candidates: Set<number> = new Set<number>();
-  for (const id of storedIds) {
-    if (pendingWhitelistWrites.get(id)?.data !== null) candidates.add(id);
-  }
-  for (const [id, pending] of pendingWhitelistWrites) {
-    if (
-      pending.data !== null &&
-      (afterId === null || id > afterId)
-    ) {
-      candidates.add(id);
-    }
-  }
-  const ordered: number[] = [...candidates];
-  ordered.sort((left: number, right: number): number => left - right);
-  const done: boolean = ordered.length <= BLOCKLIST_SWEEP_PAGE_SIZE;
-  const ids: number[] = done
-    ? ordered
-    : ordered.slice(0, BLOCKLIST_SWEEP_PAGE_SIZE);
-  return {
-    ids,
-    nextCursor: ids.length === 0 ? afterId : ids[ids.length - 1]!,
-    done,
-  };
-}
-
-/**
- * 读取一页有界黑名单主键并叠加尚未提交的最终值；只在群级补扫边界调用。
- * @param message 黑名单主键分页读取请求消息
- * @returns 包含黑名单主键分页结果或错误信息的应答消息
- */
-export function readBlocklistIdPage(
-  message: ReadBlocklistIdPageRequest
-): BlocklistIdPageReadReply {
+export function readIdentityIdPage(
+  message: ReadIdentityIdPageRequest
+): IdentityIdPageReadReply {
   try {
     if (message.afterId !== null) {
       assertTelegramIdentityId(
         message.afterId,
-        `${IDENTITY_DATABASE_PATH}:readBlocklistIdPage.afterId`
+        `${IDENTITY_DATABASE_PATH}:readIdentityIdPage.afterId`
       );
     }
     return {
-      type: "blocklistIdPageRead",
+      type: "identityIdPageRead",
       requestId: message.requestId,
-      page: effectiveBlocklistIdPage(message.afterId),
+      page: effectiveIdentityIdPage(message.table, message.afterId),
     };
   } catch (error: unknown) {
     return {
-      type: "blocklistIdPageRead",
-      requestId: message.requestId,
-      error: errorMessage(error),
-    };
-  }
-}
-
-/**
- * 读取一页有界白名单主键并叠加尚未提交的最终值。
- * @param message 白名单主键分页读取请求消息
- * @returns 包含白名单主键分页结果或错误信息的应答消息
- */
-export function readWhitelistIdPage(
-  message: ReadWhitelistIdPageRequest
-): WhitelistIdPageReadReply {
-  try {
-    if (message.afterId !== null) {
-      assertTelegramIdentityId(
-        message.afterId,
-        `${IDENTITY_DATABASE_PATH}:readWhitelistIdPage.afterId`
-      );
-    }
-    return {
-      type: "whitelistIdPageRead",
-      requestId: message.requestId,
-      page: effectiveWhitelistIdPage(message.afterId),
-    };
-  } catch (error: unknown) {
-    return {
-      type: "whitelistIdPageRead",
+      type: "identityIdPageRead",
       requestId: message.requestId,
       error: errorMessage(error),
     };

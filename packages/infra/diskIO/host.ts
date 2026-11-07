@@ -1,15 +1,14 @@
 /** Disk I/O Worker 工厂与回执路由；请求通道和恢复状态机位于同目录叶子模块。 */
 
 import {
-  blocklistIdPageReadRequests,
   diskIOFlushBarrier,
   diskIORuntime,
+  identityIdPageReadRequests,
   identityPolicyReadRequests,
   joinLogReadRequests,
   luckSecretRequests,
   pendingLoad,
   storageCloseRequests,
-  whitelistIdPageReadRequests,
 } from "../../cache/main/diskIO";
 import { DISK_IO_WORKER_URL } from "../../consts/paths";
 import { DISK_DIAGNOSTIC_MAX_CONSECUTIVE_WRITE_FAILURES } from
@@ -187,17 +186,9 @@ export function createDiskIOWorker(): Worker {
             } satisfies IdentityPolicyRawReadResult,
         });
         return;
-      case "blocklistIdPageRead":
+      case "identityIdPageRead":
         settleDiskIOReply({
-          channel: blocklistIdPageReadRequests,
-          requestId: data.requestId,
-          error: data.error,
-          payload: data.page,
-        });
-        return;
-      case "whitelistIdPageRead":
-        settleDiskIOReply({
-          channel: whitelistIdPageReadRequests,
+          channel: identityIdPageReadRequests,
           requestId: data.requestId,
           error: data.error,
           payload: data.page,

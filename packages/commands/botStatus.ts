@@ -68,21 +68,15 @@ export interface BotStatusSnapshot {
 }
 
 /**
- * 清理并截断单行模型或能力名称。
- * @param value 原始名称字符串。
- * @returns 单行清理并按上限截断后的展示标签。
- */
-function statusLabel(value: string): string {
-  return truncateWithEllipsis(sanitizeInline(value), BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS);
-}
-
-/**
- * 只展示模型名：不带 provider，并去掉模型 id 里最后一个 `/` 之前的厂商命名空间。
+ * 只展示模型名：不带 provider，去掉模型 id 里最后一个 `/` 之前的厂商命名空间，单行清理并按 `BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS` 截断。
  * @param model 完整模型标识符。
- * @returns 剥离命名空间并截断后的模型展示名。
+ * @returns 剥离命名空间、单行清理并按 `BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS` 截断后的模型展示名。
  */
 function modelName(model: string): string {
-  return statusLabel(model.slice(model.lastIndexOf("/") + 1));
+  return truncateWithEllipsis(
+    sanitizeInline(model.slice(model.lastIndexOf("/") + 1)),
+    BOT_STATUS_CAPABILITY_LABEL_MAX_CHARS
+  );
 }
 
 /**

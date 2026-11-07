@@ -142,6 +142,7 @@ export function dispatchVerification(
         timer: startVerificationTimer(chatId, userId, next),
         terminalRetries: 0,
         cleanupSettled: false,
+        challenge: undefined,
       });
     }
   } else if (rescheduleTimer && entry !== undefined && next !== undefined) {
@@ -333,6 +334,7 @@ export function adoptVerifications(message: AdoptVerificationsMessage): void {
       timer: startVerificationTimer(record.chatId, record.userId, state),
       terminalRetries: 0,
       cleanupSettled: false,
+      challenge: undefined,
     });
     if (state.kind === "pending" && record.expiresAt <= now) {
       dispatchVerification(

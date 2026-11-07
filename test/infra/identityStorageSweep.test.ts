@@ -1,5 +1,5 @@
 /**
- * 主线程黑名单补扫：每页先等待黑名单精确 ACK 再按游标读取 SQLite、flush 期间并发写的
+ * 主线程黑白名单游标页：每页先等待该名单精确 ACK 再按游标读取 SQLite、flush 期间并发写的
  * revision 归属、durable 对账与未 ACK 最终值叠加，以及 Disk I/O 游标页回包的 fail-closed 校验。
  *
  * Disk I/O 替身与逐用例复位见 test/helpers/identityStorageHarness.ts。
@@ -10,7 +10,7 @@ import {
   diskMessages,
   flushDiskIODomain,
   pageReadImplementation,
-  readBlocklistIdPage,
+  readIdentityIdPage,
   readImplementation,
   resetIdentityStorageHarness,
 } from "../helpers/identityStorageHarness";
@@ -18,9 +18,11 @@ import { seedMissingIdentity as seedMissing } from "../helpers/identityStorage";
 import { BLOCKLIST_SWEEP_PAGE_SIZE } from "../../packages/consts/identityStorage";
 import type { DomainFlushOutcome } from "../../packages/types/diskIO";
 import type {
-  BlocklistIdPage,
+  IdentityIdPage,
   IdentityPolicyRawReadResult,
 } from "../../packages/types/identityStorage";
+import type { IdentityPolicyTable } from "../../packages/types/identityPolicy";
+import { DEFAULT_WHITELIST_PERMISSIONS } from "../../packages/consts/whitelist";
 import { identityFieldView } from "../helpers/identityCacheView";
 import type { IdentityFieldView } from "../helpers/identityCacheView";
 
@@ -30,47 +32,77 @@ const blocklistField: IdentityFieldView<"blocklist"> = identityFieldView("blockl
 const {
   identityEntryCounts,
   unacknowledgedBlocklistWrites,
+  unacknowledgedIdentityWrites,
 } = await import("../../packages/cache/main/identityStorage");
 const {
   queueIdentityPolicyWrite,
-  readBlocklistSweepPage,
+  readIdentitySweepPage,
   retainCurrentlyBlockedIdentityIds,
 } = await import("../../packages/infra/identityStorage");
+
+const TABLES: readonly IdentityPolicyTable[] = ["blocklist", "whitelist"];
+
+/**
+ * 按名单排入一条非空写入。
+ * @param table 名单。
+ * @param id 身份 ID。
+ */
+function queuePresentWrite(table: IdentityPolicyTable, id: number): void {
+  if (table === "blocklist") {
+    queueIdentityPolicyWrite("blocklist", id, blockValue());
+  } else {
+    queueIdentityPolicyWrite("whitelist", id, {
+      permissions: DEFAULT_WHITELIST_PERMISSIONS,
+      meta: { firstName: "Alice", lastName: "", username: "alice" },
+    });
+  }
+}
 
 beforeEach(resetIdentityStorageHarness);
 
 describe("主线程身份 LRU 与数据库最终一致性", () => {
-  test("补扫每页先等待黑名单精确 ACK，再以该页游标读取 SQLite", async () => {
-    seedMissing(7);
-    queueIdentityPolicyWrite("blocklist", 7, blockValue());
-    pageReadImplementation.current = async (): Promise<BlocklistIdPage> => ({
-      ids: [7],
-      nextCursor: 7,
-      done: true,
+  for (const table of TABLES) {
+    test(`${table} 游标页先等待该名单精确 ACK，再以该页游标读取 SQLite`, async () => {
+      seedMissing(7);
+      queuePresentWrite(table, 7);
+      pageReadImplementation.current = async (): Promise<IdentityIdPage> => ({
+        ids: [7],
+        nextCursor: 7,
+        done: true,
+      });
+
+      await expect(readIdentitySweepPage(table, null)).resolves.toEqual({
+        ids: [7],
+        nextCursor: 7,
+        done: true,
+      });
+
+      expect(flushDiskIODomain).toHaveBeenCalledWith(table);
+      expect(unacknowledgedIdentityWrites(table).size).toBe(0);
+      expect(readIdentityIdPage).toHaveBeenCalledWith(table, null);
     });
 
-    await expect(readBlocklistSweepPage(null)).resolves.toEqual({
-      ids: [7],
-      nextCursor: 7,
-      done: true,
+    test(`${table} flush 没有精确 ACK 时拒绝读页，不拿数据库旧页继续`, async () => {
+      seedMissing(7);
+      queuePresentWrite(table, 7);
+      flushDiskIODomain.mockImplementationOnce(
+        async (): Promise<DomainFlushOutcome> => ({ result: "flushed" })
+      );
+
+      await expect(readIdentitySweepPage(table, null))
+        .rejects.toThrow(`Identity ID page flush for ${table} left 1 unacknowledged write(s).`);
+      expect(readIdentityIdPage).not.toHaveBeenCalled();
     });
 
-    expect(flushDiskIODomain).toHaveBeenCalledWith("blocklist");
-    expect(unacknowledgedBlocklistWrites.size).toBe(0);
-    expect(readBlocklistIdPage).toHaveBeenCalledWith(null);
-  });
+    test(`${table} flush 失败时拒绝读页`, async () => {
+      flushDiskIODomain.mockImplementationOnce(
+        async (): Promise<DomainFlushOutcome> => ({ result: "failed" })
+      );
 
-  test("flush 没有精确 ACK 时拒绝开始补扫，不拿数据库旧页继续", async () => {
-    seedMissing(7);
-    queueIdentityPolicyWrite("blocklist", 7, blockValue());
-    flushDiskIODomain.mockImplementationOnce(
-      async (): Promise<DomainFlushOutcome> => ({ result: "flushed" })
-    );
-
-    await expect(readBlocklistSweepPage(null))
-      .rejects.toThrow("unacknowledged write");
-    expect(readBlocklistIdPage).not.toHaveBeenCalled();
-  });
+      await expect(readIdentitySweepPage(table, null)).rejects.toThrow(`Identity ID page flush for ${table} failed.`);
+      expect(readIdentityIdPage).not.toHaveBeenCalled();
+    });
+  }
 
   test("flush 期间并发排入的黑名单写不属于本页：核对只看 flush 前已登记的 revision", async () => {
     seedMissing(8);
@@ -80,13 +112,13 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
         return { result: "flushed" };
       }
     );
-    pageReadImplementation.current = async (): Promise<BlocklistIdPage> => ({
+    pageReadImplementation.current = async (): Promise<IdentityIdPage> => ({
       ids: [],
       nextCursor: null,
       done: true,
     });
 
-    await expect(readBlocklistSweepPage(null)).resolves.toEqual({
+    await expect(readIdentitySweepPage("blocklist", null)).resolves.toEqual({
       ids: [],
       nextCursor: null,
       done: true,
@@ -110,24 +142,26 @@ describe("主线程身份 LRU 与数据库最终一致性", () => {
 });
 
 describe("补扫游标页 fail-closed 校验", () => {
-  /** 伪造一份 Disk I/O 游标页回包，断言主线程拒收且不留下任何据此产生的状态。 */
+  /** 伪造一份 Disk I/O 游标页回包，断言两张名单的主线程读取都拒收且不留下任何据此产生的状态。 */
   async function expectRejectedPage(
     afterId: number | null,
-    page: BlocklistIdPage,
+    page: IdentityIdPage,
     message: string
   ): Promise<void> {
-    readBlocklistIdPage.mockClear();
-    pageReadImplementation.current = async (): Promise<BlocklistIdPage> => page;
+    for (const table of TABLES) {
+      readIdentityIdPage.mockClear();
+      pageReadImplementation.current = async (): Promise<IdentityIdPage> => page;
 
-    await expect(readBlocklistSweepPage(afterId)).rejects.toThrow(message);
+      await expect(readIdentitySweepPage(table, afterId)).rejects.toThrow(message);
 
-    expect(flushDiskIODomain).toHaveBeenCalledWith("blocklist");
-    expect(readBlocklistIdPage).toHaveBeenCalledTimes(1);
-    expect(readBlocklistIdPage).toHaveBeenCalledWith(afterId);
-    expect(diskMessages).toEqual([]);
-    expect(identityEntryCounts).toEqual({ whitelist: 0, blocklist: 0 });
-    expect(blocklistField.size).toBe(0);
-    expect(whitelistField.size).toBe(0);
+      expect(flushDiskIODomain).toHaveBeenCalledWith(table);
+      expect(readIdentityIdPage).toHaveBeenCalledTimes(1);
+      expect(readIdentityIdPage).toHaveBeenCalledWith(table, afterId);
+      expect(diskMessages).toEqual([]);
+      expect(identityEntryCounts).toEqual({ whitelist: 0, blocklist: 0 });
+      expect(blocklistField.size).toBe(0);
+      expect(whitelistField.size).toBe(0);
+    }
   }
 
   test("超过固定页大小的回包被拒收，即使升序与游标都自洽", async () => {
@@ -136,7 +170,7 @@ describe("补扫游标页 fail-closed 校验", () => {
     await expectRejectedPage(
       null,
       { ids, nextCursor: BLOCKLIST_SWEEP_PAGE_SIZE + 1, done: true },
-      `Blocklist ID page exceeds ${BLOCKLIST_SWEEP_PAGE_SIZE} entries.`
+      `Identity ID page exceeds ${BLOCKLIST_SWEEP_PAGE_SIZE} entries.`
     );
   });
 
@@ -144,13 +178,13 @@ describe("补扫游标页 fail-closed 校验", () => {
     await expectRejectedPage(
       null,
       { ids: [0], nextCursor: 0, done: true },
-      "blocklist ID page: $.id must be a non-zero safe integer Telegram identity ID."
+      "identity ID page: $.id must be a non-zero safe integer Telegram identity ID."
     );
     const unsafeId: number = Number.MAX_SAFE_INTEGER + 1;
     await expectRejectedPage(
       null,
       { ids: [unsafeId], nextCursor: unsafeId, done: true },
-      "blocklist ID page: $.id must be a non-zero safe integer Telegram identity ID."
+      "identity ID page: $.id must be a non-zero safe integer Telegram identity ID."
     );
   });
 
@@ -158,12 +192,12 @@ describe("补扫游标页 fail-closed 校验", () => {
     await expectRejectedPage(
       7,
       { ids: [7], nextCursor: 7, done: true },
-      "Blocklist ID page must be strictly ordered after its cursor."
+      "Identity ID page must be strictly ordered after its cursor."
     );
     await expectRejectedPage(
       null,
       { ids: [9, 9], nextCursor: 9, done: true },
-      "Blocklist ID page must be strictly ordered after its cursor."
+      "Identity ID page must be strictly ordered after its cursor."
     );
   });
 
@@ -171,12 +205,12 @@ describe("补扫游标页 fail-closed 校验", () => {
     await expectRejectedPage(
       7,
       { ids: [8, 9], nextCursor: 8, done: true },
-      "Blocklist ID page returned an inconsistent next cursor."
+      "Identity ID page returned an inconsistent next cursor."
     );
     await expectRejectedPage(
       7,
       { ids: [], nextCursor: null, done: true },
-      "Blocklist ID page returned an inconsistent next cursor."
+      "Identity ID page returned an inconsistent next cursor."
     );
   });
 
@@ -184,12 +218,12 @@ describe("补扫游标页 fail-closed 校验", () => {
     await expectRejectedPage(
       null,
       { ids: [8, 9], nextCursor: 9, done: false },
-      "A non-final blocklist ID page must fill the fixed page size."
+      "A non-final identity ID page must fill the fixed page size."
     );
     await expectRejectedPage(
       7,
       { ids: [], nextCursor: 7, done: false },
-      "A non-final blocklist ID page must fill the fixed page size."
+      "A non-final identity ID page must fill the fixed page size."
     );
   });
 });

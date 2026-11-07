@@ -16,14 +16,25 @@ import type { MiniAppAuthResult, MiniAppInitDataUser } from "../types/miniApp";
 export interface VerifyMiniAppInitDataOptions {
   /** Telegram WebApp 传入的原始 `initData` 查询字符串。 */
   readonly initData: string | null | undefined;
-  /** 当前 Bot 的 API Token，用于派生 `WebAppData` HMAC 密钥。 */
-  readonly botToken: string;
+  /** 由 `deriveMiniAppInitDataSecretKey(botToken)` 预先派生的 `WebAppData` HMAC 密钥。 */
+  readonly secretKey: Uint8Array;
   /** 唯一允许访问 Mini App 的超级管理员 Telegram 用户 ID。 */
   readonly superAdminUserId: number;
   /** 当前毫秒时间戳（缺省取 `Date.now()`）。 */
   readonly nowMs?: number;
   /** `auth_date` 最大有效秒数（缺省取 `MINI_APP_AUTH_MAX_AGE_SECONDS`）。 */
   readonly maxAgeSeconds?: number;
+}
+
+/**
+ * 按 Telegram Mini Apps 官方规范从 `BOT_TOKEN` 派生 `WebAppData` HMAC-SHA256 密钥。
+ * @param botToken 当前 Bot 的 API Token。
+ * @returns 32 字节 HMAC-SHA256 密钥。
+ */
+export function deriveMiniAppInitDataSecretKey(botToken: string): Uint8Array {
+  return new Bun.CryptoHasher("sha256", MINI_APP_WEB_APP_DATA_SECRET_SEED)
+    .update(botToken, "utf8")
+    .digest();
 }
 
 /**
@@ -68,7 +79,7 @@ function parseInitDataUser(rawUser: string): Readonly<MiniAppInitDataUser> | nul
  */
 export function verifyMiniAppInitData({
   initData,
-  botToken,
+  secretKey,
   superAdminUserId,
   nowMs = Date.now(),
   maxAgeSeconds = MINI_APP_AUTH_MAX_AGE_SECONDS,
@@ -121,16 +132,10 @@ export function verifyMiniAppInitData({
 
   dataCheckLines.sort();
   const dataCheckString: string = dataCheckLines.join("\n");
-  const secretKey: Uint8Array = new Bun.CryptoHasher(
-    "sha256",
-    MINI_APP_WEB_APP_DATA_SECRET_SEED
-  )
-    .update(botToken, "utf8")
-    .digest();
   const expectedDigest: Uint8Array = new Bun.CryptoHasher("sha256", secretKey)
     .update(dataCheckString, "utf8")
     .digest();
-  const actualDigest: Uint8Array = Uint8Array.fromHex(hashHex.toLowerCase());
+  const actualDigest: Uint8Array = Uint8Array.fromHex(hashHex);
   if (
     actualDigest.byteLength !== expectedDigest.byteLength ||
     !crypto.timingSafeEqual(actualDigest, expectedDigest)
@@ -189,6 +194,21 @@ export function verifyMiniAppPassword(
 }
 
 /**
+ * 基于 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生受保护静态/图库资源令牌的 32 字节 HMAC-SHA256 摘要。
+ * @param botToken 当前 Bot 的 API Token。
+ * @param superAdminUserId 超级管理员 Telegram 用户 ID。
+ * @returns 32 字节资源令牌摘要。
+ */
+export function deriveMiniAppAssetTokenDigest(
+  botToken: string,
+  superAdminUserId: number
+): Uint8Array {
+  return new Bun.CryptoHasher("sha256", MINI_APP_ASSET_TOKEN_SECRET_SEED)
+    .update(`${botToken}:${superAdminUserId}`, "utf8")
+    .digest();
+}
+
+/**
  * 基于 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生受保护静态/图库资源的稳定访问令牌（64 位小写十六进制）。
  * @param botToken 当前 Bot 的 API Token。
  * @param superAdminUserId 超级管理员 Telegram 用户 ID。
@@ -198,33 +218,23 @@ export function deriveMiniAppAssetToken(
   botToken: string,
   superAdminUserId: number
 ): string {
-  return new Bun.CryptoHasher("sha256", MINI_APP_ASSET_TOKEN_SECRET_SEED)
-    .update(`${botToken}:${superAdminUserId}`, "utf8")
-    .digest("hex");
+  return deriveMiniAppAssetTokenDigest(botToken, superAdminUserId).toHex();
 }
 
 /**
- * 以常量时间校验 URL 查询参数中的受保护静态/图库资源令牌是否合法。
+ * 以常量时间校验 URL 查询参数中的受保护静态/图库资源令牌是否与预期摘要匹配。
  * @param token 请求携带的 `token` 查询参数。
- * @param botToken 当前 Bot 的 API Token。
- * @param superAdminUserId 超级管理员 Telegram 用户 ID。
+ * @param expectedDigest 由 `deriveMiniAppAssetTokenDigest` 预先派生的 32 字节期望摘要。
  * @returns 令牌合法且匹配时返回 `true`，否则返回 `false`。
  */
 export function verifyMiniAppAssetToken(
   token: string | null | undefined,
-  botToken: string,
-  superAdminUserId: number
+  expectedDigest: Uint8Array
 ): boolean {
   if (typeof token !== "string" || !MINI_APP_SHA256_HEX_PATTERN.test(token)) {
     return false;
   }
-  const expectedDigest: Uint8Array = new Bun.CryptoHasher(
-    "sha256",
-    MINI_APP_ASSET_TOKEN_SECRET_SEED
-  )
-    .update(`${botToken}:${superAdminUserId}`, "utf8")
-    .digest();
-  const actualDigest: Uint8Array = Uint8Array.fromHex(token.toLowerCase());
+  const actualDigest: Uint8Array = Uint8Array.fromHex(token);
   return (
     actualDigest.byteLength === expectedDigest.byteLength &&
     crypto.timingSafeEqual(actualDigest, expectedDigest)

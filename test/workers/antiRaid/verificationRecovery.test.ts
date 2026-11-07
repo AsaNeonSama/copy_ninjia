@@ -236,10 +236,12 @@ describe("Anti-Raid Worker verification recovery", () => {
     runtime.dispatchVerification(-1001, 44, {
       type: "callback",
       callbackQueryId: "callback-44",
-      action: "self",
       isSelf: true,
       fromCanApprove: false,
       fromLabel: "本人",
+      messageId: 10,
+      action: "self",
+      answerVerdict: "correct",
     });
     runtime.dispatchVerification(-1001, 45, { type: "left" });
     await Bun.sleep(0);

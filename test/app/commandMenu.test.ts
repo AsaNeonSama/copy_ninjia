@@ -6,6 +6,10 @@ import { getOrCreateChatState } from "../../packages/infra/storage/stateStore";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
 import { BOT_COMMANDS } from "../../packages/consts/atmosphere/teasing/commands";
 import { logger } from "../../packages/infra/logger";
+import { botConfigCache } from "../../packages/cache/perThread/config";
+import { SUPER_ADMIN_USER_ID } from "../../packages/config/bot";
+import { MINI_APP_BUTTON_TEXT } from "../../packages/consts/miniApp";
+import type { BotConfig } from "../../packages/types/config";
 
 beforeEach(() => { chatStateCache.clear(); });
 
@@ -29,6 +33,37 @@ test("群聊菜单注册失败时不清默认作用域，只记一行日志", as
     expect(deleteMyCommands).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledTimes(1);
   } finally { error.mockRestore(); }
+});
+
+test("配置了 mini_app 时群菜单之后为超级管理员私聊设置 web_app 菜单按钮", async () => {
+  const original: BotConfig | null = botConfigCache.current;
+  const setMyCommands = mock(async (..._args: unknown[]): Promise<true> => true);
+  const deleteMyCommands = mock(async (..._args: unknown[]): Promise<true> => true);
+  const setChatMenuButton = mock(async (..._args: unknown[]): Promise<true> => true);
+  try {
+    botConfigCache.current = {
+      ...original!,
+      miniApp: { url: "https://miniapp.example.com/console", host: "127.0.0.1", port: 3000, password: "fixture" },
+    };
+    await registerCommandMenu({ api: { setMyCommands, deleteMyCommands, setChatMenuButton } } as unknown as Bot);
+    expect(setChatMenuButton.mock.calls).toEqual([[
+      {
+        chat_id: SUPER_ADMIN_USER_ID,
+        menu_button: {
+          type: "web_app",
+          text: MINI_APP_BUTTON_TEXT,
+          web_app: { url: "https://miniapp.example.com/console" },
+        },
+      },
+      undefined,
+    ]]);
+
+    botConfigCache.current = { ...original!, miniApp: undefined };
+    await registerCommandMenu({ api: { setMyCommands, deleteMyCommands, setChatMenuButton } } as unknown as Bot);
+    expect(setChatMenuButton).toHaveBeenCalledTimes(1);
+  } finally {
+    botConfigCache.current = original;
+  }
 });
 
 test("两种风格的菜单都不再提供 /prompt", () => {

@@ -25,9 +25,7 @@ export async function handleAdDetectCommand(ctx: CommandContext<Context>): Promi
     ctx,
     texts: chatAtmosphere().AD_DETECT_TOGGLE_TEXTS,
     permission: "isCanControllAdDetectPermission",
-    persistReason: "ad_detect toggled",
-    runtimeLabel: "queued ad detection",
-    switchKey: "isAdDetectEnabled",
+    feature: "adDetect",
     refuseEnable: (chatId: number, messageId: number | undefined): Promise<boolean> =>
       refuseIfConfigBroken({
         readiness: adDetectConfigReadiness(),

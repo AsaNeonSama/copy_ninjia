@@ -104,13 +104,11 @@ export async function listMiniAppGalleryPage(
 }
 
 /**
- * 校验并解析图库目录内的单张图片文件路径，防止路径穿越、隐藏文件读取或符号链接越权。
- * @param rawFileName URL 路径参数中的原始文件名。
- * @returns 通过安全校验的文件路径、MIME 与字节大小；文件不存在或文件名不合法时返回 `null`。
+ * 解码并校验图库文件名，防止路径穿越、空串、隐藏文件或非法字符。
+ * @param rawFileName URL 路径参数或请求体中的原始文件名。
+ * @returns 校验通过的文件名；解码失败或文件名不合法时返回 `null`。
  */
-export async function readMiniAppGalleryFile(
-  rawFileName: string
-): Promise<Readonly<ResolvedMiniAppGalleryFile> | null> {
+function normalizeSafeGalleryFileName(rawFileName: string): string | null {
   let decodedName: string;
   try {
     decodedName = decodeURIComponent(rawFileName).trim();
@@ -124,6 +122,19 @@ export async function readMiniAppGalleryFile(
   ) {
     return null;
   }
+  return decodedName;
+}
+
+/**
+ * 校验并解析图库目录内的单张图片文件路径，防止路径穿越、隐藏文件读取或符号链接越权。
+ * @param rawFileName URL 路径参数中的原始文件名。
+ * @returns 通过安全校验的文件路径、MIME 与字节大小；文件不存在或文件名不合法时返回 `null`。
+ */
+export async function readMiniAppGalleryFile(
+  rawFileName: string
+): Promise<Readonly<ResolvedMiniAppGalleryFile> | null> {
+  const decodedName: string | null = normalizeSafeGalleryFileName(rawFileName);
+  if (decodedName === null) return null;
 
   const directory: string = getAssetConfig().randomHImageDirectory;
   const entry: Readonly<RandomImageEntry> | null = await statRandomImageFile(
@@ -148,21 +159,8 @@ export async function readMiniAppGalleryFile(
 export async function deleteMiniAppGalleryImage(
   rawFileName: string
 ): Promise<Readonly<MiniAppGalleryDeleteResult>> {
-  let decodedName: string;
-  try {
-    decodedName = decodeURIComponent(rawFileName).trim();
-  } catch (_error: unknown) {
-    return {
-      ok: false,
-      outcome: "invalidFileName",
-      message: "GALLERY_INVALID_FILE_NAME",
-    };
-  }
-  if (
-    decodedName.length === 0 ||
-    decodedName.includes("..") ||
-    !MINI_APP_GALLERY_SAFE_FILE_NAME_PATTERN.test(decodedName)
-  ) {
+  const decodedName: string | null = normalizeSafeGalleryFileName(rawFileName);
+  if (decodedName === null) {
     return {
       ok: false,
       outcome: "invalidFileName",

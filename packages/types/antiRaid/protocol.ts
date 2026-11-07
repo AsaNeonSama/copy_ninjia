@@ -74,19 +74,34 @@ export interface TrackedChatMessage {
   isThreadReply?: boolean;
 }
 
-/** 主线程 -> Worker：入群验证按钮被点击（callback_query）。 */
-export interface VerifyCallbackMessage {
+/** 入群验证按钮点击消息两类按钮共有的字段。 */
+interface VerifyCallbackMessageBase {
   type: "callback";
   callbackQueryId: string;
   /** 按钮所在消息的聊天；缺失时 Worker 只应答不处理。 */
   chatId?: number;
   /** callback_data 里携带的待验证成员 userId。 */
   targetUserId: number;
-  /** 由 callback_data 前缀解析出的按钮：`self` = 本人验证，`approve` = 「通过」。 */
-  action: "self" | "approve";
   /** 实际点击按钮的用户；「通过」的管理员身份由 Worker 按本群管理员缓存判定。 */
   from: AntiRaidMember;
 }
+
+/** 本人作答按钮（`verify:` 前缀）的点击。 */
+export interface VerifySelfAnswerCallbackMessage extends VerifyCallbackMessageBase {
+  action: "self";
+  /** 按钮所在消息 ID；Telegram 未给出消息时为 undefined。 */
+  messageId: number | undefined;
+  /** callback_data 携带的选项数值。 */
+  answer: number;
+}
+
+/** 「通过」按钮（`approve:` 前缀）的点击。 */
+export interface VerifyApproveCallbackMessage extends VerifyCallbackMessageBase {
+  action: "approve";
+}
+
+/** 主线程 -> Worker：入群验证按钮被点击（callback_query）；`action` 由 callback_data 前缀解析。 */
+export type VerifyCallbackMessage = VerifySelfAnswerCallbackMessage | VerifyApproveCallbackMessage;
 
 /** adopt 重放里的一条私密模式记录（见 AdoptLockdownsMessage）。 */
 export interface AdoptableLockdown {

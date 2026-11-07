@@ -64,7 +64,7 @@ function fillDedupes(size: number = VERIFICATION_RUNTIME_CAPACITY): void {
     const key: string = verificationKey(CHAT_ID, userId);
     if (verificationEntries.has(key)) continue;
     const entry: VerificationEntry = {
-      state: exemptOf("容量占位", false), timer: undefined, terminalRetries: 0, cleanupSettled: false,
+      state: exemptOf("容量占位", false), timer: undefined, terminalRetries: 0, cleanupSettled: false, challenge: undefined,
     };
     verificationEntries.set(key, entry);
   }
@@ -211,8 +211,8 @@ describe("验证运行态容量与去重生命周期", () => {
       join(VERIFICATION_RUNTIME_CAPACITY + 1));
     for (let index: number = 0; index < 2; index++) {
       runtime.dispatchVerification(CHAT_ID, 1, {
-        type: "callback", callbackQueryId: `self-${index}`, action: "self",
-        isSelf: true, fromCanApprove: false, fromLabel: "本人",
+        type: "callback", callbackQueryId: `self-${index}`, isSelf: true, fromCanApprove: false, fromLabel: "本人",
+        messageId: 700, action: "self", answerVerdict: "correct",
       });
     }
     expect(verificationEntries.has(verificationKey(CHAT_ID, 1))).toBeFalse();
@@ -291,7 +291,7 @@ describe("验证运行态容量与去重生命周期", () => {
           replyReminderRequested: false, welcomeAnchorMessageId: undefined,
           reminderSuperseded: false, joinedAt: record.joinedAt, expiresAt: record.expiresAt,
         },
-        timer: undefined, terminalRetries: 0, cleanupSettled: false,
+        timer: undefined, terminalRetries: 0, cleanupSettled: false, challenge: undefined,
       });
     }
     const first: VerificationEntry | undefined = verificationEntries.get(verificationKey(CHAT_ID, 1));

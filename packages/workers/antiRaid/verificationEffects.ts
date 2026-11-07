@@ -66,15 +66,14 @@ export interface RunVerificationEffectsParams {
 /**
  * 判断副作用列表中是否包含需要申请进程级终态执行许可的动作。
  * @param effects 状态转移产出的副作用序列。
- * @returns 含有 `kickMember`、`recheckInviter`、`expel` 或 `expelFlood` 时返回 true，否则返回 false。
+ * @returns 含有 `kickMember`、`recheckInviter` 或 `expel` 时返回 true，否则返回 false。
  */
 function includesTerminalAttempt(effects: readonly VerificationEffect[]): boolean {
   for (const effect of effects) {
     if (
       effect.kind === "kickMember" ||
       effect.kind === "recheckInviter" ||
-      effect.kind === "expel" ||
-      effect.kind === "expelFlood"
+      effect.kind === "expel"
     ) {
       return true;
     }
@@ -230,7 +229,6 @@ export async function runVerificationEffects({
           }
           break;
         case "expel":
-        case "expelFlood":
           await runExpelEffect({
             chatId,
             userId,

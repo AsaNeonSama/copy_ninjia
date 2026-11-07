@@ -11,6 +11,7 @@ import * as serverDeleteMessageConsts from "../../packages/consts/deleteMessage"
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
 import { MINI_APP_FAVICON_PATH } from "../../packages/consts/paths";
 import * as serverQaConsts from "../../packages/consts/qa";
+import * as serverTextConsts from "../../packages/consts/text";
 import * as serverTimeConsts from "../../packages/consts/time";
 import * as serverTranslateConsts from "../../packages/consts/translate";
 import * as serverWhitelistConsts from "../../packages/consts/whitelist";
@@ -115,11 +116,11 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendTimeConsts.MINUTE_MS).toBe(serverTimeConsts.MINUTE_MS);
   });
 
-  test("前端复制的正则与服务端同名正则的模式和标志一致", () => {
+  test("前端复制的正则与服务端对应正则的模式和标志一致", () => {
     const pairs: readonly (readonly [RegExp, RegExp])[] = [
       [frontendMiniAppConsts.MINI_APP_SHA256_HEX_PATTERN, serverMiniAppConsts.MINI_APP_SHA256_HEX_PATTERN],
       [frontendMiniAppConsts.MINI_APP_SIGNED_INTEGER_PATTERN, serverMiniAppConsts.MINI_APP_SIGNED_INTEGER_PATTERN],
-      [frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_PATTERN, serverMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_PATTERN],
+      [frontendMiniAppConsts.MINI_APP_BIDI_CONTROL_CHARS_PATTERN, serverTextConsts.BIDI_CONTROL_PATTERN],
     ];
     for (const [frontend, server] of pairs) {
       expect(frontend.source).toBe(server.source);

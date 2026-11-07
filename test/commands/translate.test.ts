@@ -67,6 +67,12 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   getChatState: (chatId: number): TestChatState => chatStates.get(chatId) ?? createTestChatState(),
   getChatStateCache: (): ReadonlyMap<number, TestChatState> => chatStates,
   getOrCreateChatState: chatStateFor,
+  disableChatStateSwitch: (chatId: number, key: keyof TestChatState): boolean => {
+    const current: TestChatState | undefined = chatStates.get(chatId);
+    if (current?.[key] !== true) return false;
+    (current as Record<keyof TestChatState, unknown>)[key] = false;
+    return true;
+  },
   getGlobalCopyState: () => globalCopy,
   persistChatState,
 }));

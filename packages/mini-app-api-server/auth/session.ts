@@ -59,8 +59,8 @@ export function hasActiveMiniAppAuthSession(
   sessionToken: string,
   nowMs: number = Date.now()
 ): boolean {
-  purgeExpiredAuthSessions(nowMs);
   if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) return false;
+  purgeExpiredAuthSessions(nowMs);
   return findMiniAppAuthSession(sessionToken, nowMs) !== null;
 }
 
@@ -76,8 +76,8 @@ export function resolveAndRefreshMiniAppAuthSession(
   sessionToken: string,
   nowMs: number = Date.now()
 ): Readonly<MiniAppAuthSession> | null {
-  purgeExpiredAuthSessions(nowMs);
   if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) return null;
+  purgeExpiredAuthSessions(nowMs);
   const session: Readonly<MiniAppAuthSession> | null =
     findMiniAppAuthSession(sessionToken, nowMs);
   if (session === null) return null;
@@ -109,8 +109,8 @@ export function revokeMiniAppAuthSession(
   sessionToken: string,
   nowMs: number = Date.now()
 ): boolean {
-  purgeExpiredAuthSessions(nowMs);
   if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) return false;
+  purgeExpiredAuthSessions(nowMs);
   const session: Readonly<MiniAppAuthSession> | null =
     findMiniAppAuthSession(sessionToken, nowMs);
   if (session === null) return false;

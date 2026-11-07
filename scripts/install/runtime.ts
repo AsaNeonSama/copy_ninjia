@@ -15,7 +15,6 @@ import { StateStore, loadCurrentGlobalState } from "../../packages/infra/storage
 import { invalidInput, readJsonInput } from "../../packages/libs/inputValidation";
 import { readMiniAppTotpFile } from "../../packages/libs/miniAppTotpFile";
 import { isPlainRecord } from "../../packages/libs/record";
-import { inspectWedMemberFiles } from "../../packages/workers/diskIO/wedMemberFiles";
 import type { BotConfig } from "../../packages/types/config";
 import type * as Readiness from "../../packages/config/readiness";
 export { bootstrapStorageDatabase } from "../../packages/database/interact/initialization";
@@ -40,9 +39,7 @@ export async function assertStateFilesMigrated(): Promise<void> {
  * 安装前按启动恢复同一口径只读校验 memory/wed：任一群文件不是当前 `{ id, enteredAt }` 滑窗格式
  * （例如仍是未经 migrate:wed-member-window 的成员 ID 数组）时拒绝，不改写文件。
  */
-export async function assertWedMemberFilesMigrated(): Promise<void> {
-  await inspectWedMemberFiles();
-}
+export { inspectWedMemberFiles as assertWedMemberFilesMigrated } from "../../packages/workers/diskIO/wedMemberFiles";
 
 /**
  * 只读读出已有共享数据库的 metadata，并先确认 schema 版本是当前版本。

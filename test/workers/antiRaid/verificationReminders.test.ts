@@ -1,10 +1,17 @@
 /**
  * 入群验证提醒的投递 owner 与回复式提醒渲染：发送在途期间成员状态被替换（已通过、离群或重建）时，
- * 迟到落地的提醒自删且不再向状态机派发 reminderLanded；回复式提醒按 isBot 选用机器人或真人提醒文案与按钮。
+ * 迟到落地的提醒自删且不再向状态机派发 reminderLanded；回复式提醒按 isBot 选用机器人或真人提醒文案与按钮；
+ * 真人提醒的算术题挂在运行态条目上，同一 pending 的原始与回复式提醒共用一道题。
  */
 
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { VERIFICATION_TIMEOUT_MS, VERIFY_APPROVE_CALLBACK_PREFIX, VERIFY_SELF_CALLBACK_PREFIX } from "../../../packages/consts/antiRaid/verification";
+import {
+  VERIFICATION_TIMEOUT_MS,
+  VERIFY_ANSWER_SEPARATOR,
+  VERIFY_APPROVE_CALLBACK_PREFIX,
+  VERIFY_SELF_CALLBACK_PREFIX,
+} from "../../../packages/consts/antiRaid/verification";
+import type { VerificationChallenge } from "../../../packages/types/antiRaid/verification";
 import { formatMinSec } from "../../../packages/libs/time";
 import type { AtmosphereTexts } from "../../../packages/types/atmosphere";
 import { loggerStub } from "../../helpers/loggerMock";
@@ -139,8 +146,9 @@ test("回复式提醒：isBot 为 true 时改用机器人提醒文案与单颗�
   await settleAntiRaidTasks();
 });
 
-test("回复式提醒：isBot 为 false 时保持真人回复式提醒文案与双按钮", async () => {
-  verificationEntries.set(KEY, { state: pendingState(false) } as never);
+test("回复式提醒：isBot 为 false 时渲染真人回复式提醒、作答选项行与「通过」行，并沿用条目上的算术题", async () => {
+  const challenge: VerificationChallenge = { question: "9 - 4", answer: 5, options: [6, 5, 3] };
+  verificationEntries.set(KEY, { state: pendingState(false), challenge } as never);
   const dispatchVerification = mock((..._args: unknown[]): void => {});
   const atmosphere: AtmosphereTexts = workerAtmosphere();
   sendReplyReminder({
@@ -158,22 +166,41 @@ test("回复式提醒：isBot 为 false 时保持真人回复式提醒文案与�
     text: atmosphere.NOTICE_TEXTS.verificationReplyReminder(
       "待验证成员",
       formatMinSec(VERIFICATION_TIMEOUT_MS),
-      atmosphere.VERIFICATION_SELF_BUTTON_TEXT
+      challenge.question
     ),
     replyToMessageId: 778,
     keyboard: {
-      inline_keyboard: [[
-        {
-          text: atmosphere.VERIFICATION_SELF_BUTTON_TEXT,
-          callback_data: `${VERIFY_SELF_CALLBACK_PREFIX}${USER_ID}`,
-        },
-        {
+      inline_keyboard: [
+        challenge.options.map((option: number) => ({
+          text: String(option),
+          callback_data: `${VERIFY_SELF_CALLBACK_PREFIX}${USER_ID}${VERIFY_ANSWER_SEPARATOR}${option}`,
+        })),
+        [{
           text: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT,
           callback_data: `${VERIFY_APPROVE_CALLBACK_PREFIX}${USER_ID}`,
-        },
-      ]],
+        }],
+      ],
     },
   });
   releaseSend(558);
+  await settleAntiRaidTasks();
+});
+
+test("真人原始提醒首次登记时生成算术题并挂到条目上，机器人提醒不生成", async () => {
+  const entry: { state: unknown; challenge?: VerificationChallenge } = { state: pendingState(false) };
+  verificationEntries.set(KEY, entry as never);
+  const dispatchVerification = mock((..._args: unknown[]): void => {});
+  sendVerificationReminder({ chatId: CHAT_ID, userId: USER_ID, label: "待验证成员", isBot: false, dispatchVerification });
+  const challenge: VerificationChallenge | undefined = entry.challenge;
+  if (challenge === undefined) throw new Error("challenge was not cached on the entry");
+  expect(challenge.options).toContain(challenge.answer);
+  releaseSend(559);
+  await settleAntiRaidTasks();
+
+  const botEntry: { state: unknown; challenge?: VerificationChallenge } = { state: pendingState(true) };
+  verificationEntries.set(KEY, botEntry as never);
+  sendVerificationReminder({ chatId: CHAT_ID, userId: USER_ID, label: "待验证机器人", isBot: true, dispatchVerification });
+  expect(botEntry.challenge).toBeUndefined();
+  releaseSend(560);
   await settleAntiRaidTasks();
 });

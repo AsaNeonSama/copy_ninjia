@@ -15,16 +15,6 @@ import { scheduleEarliestExpirySweep } from "../../libs/earliestExpirySweep";
 import type { EarliestExpirySweeper } from "../../libs/earliestExpirySweep";
 import type { AiReplyActivityEntry } from "../../types/auto";
 
-/**
- * 修剪单群活跃度队列中已滑出时间窗口的时间戳。
- *
- * @param entry 群聊活跃度条目
- * @param now 当前毫秒时间戳
- */
-function pruneEntry(entry: AiReplyActivityEntry, now: number): void {
-  entry.timestamps.trim(AI_REPLY_ACTIVITY_WINDOW_MS, now);
-}
-
 /** 满载插入新群时扫描表并淘汰访问序号最小的群；扫描只在缓存 miss 的冷路径执行，命中路径不重排 Map。 */
 function evictLeastRecentlyUsedActivityEntry(): void {
   let oldestChatId: number | undefined;
@@ -60,7 +50,7 @@ function storeActivityEntry(
  */
 export function sweepAiReplyActivity(now: number = Date.now()): void {
   for (const [chatId, entry] of aiReplyActivityByChat) {
-    pruneEntry(entry, now);
+    entry.timestamps.trim(AI_REPLY_ACTIVITY_WINDOW_MS, now);
     if (entry.timestamps.size === 0) aiReplyActivityByChat.delete(chatId);
   }
 }
@@ -114,7 +104,7 @@ export function observeGroupMessageForAiReply(chatId: number, now: number = Date
   } else {
     // 系统时钟回退时 now 取 lastObservedAt，队列时间戳保持单调。
     now = Math.max(now, entry.lastObservedAt);
-    pruneEntry(entry, now);
+    entry.timestamps.trim(AI_REPLY_ACTIVITY_WINDOW_MS, now);
   }
 
   entry.timestamps.pushReplacingOldest(now);

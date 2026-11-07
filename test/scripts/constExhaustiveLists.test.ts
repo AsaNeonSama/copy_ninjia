@@ -8,7 +8,10 @@ import {
   PARTIAL_LITERAL_TABLES,
 } from "../../scripts/conventions/constExhaustiveLists";
 import { exportedConstDeclarations } from "../../scripts/conventions/constsProgram";
+import { MINI_APP_FRONTEND_CONSTS_ROOT } from "../../scripts/conventions/miniAppFrontend";
+import { CONSTS_ROOT_PREFIXES } from "../../scripts/conventions/moduleBoundaries";
 import { createTypeCheckProgram } from "../../scripts/conventions/sourceAnalysis";
+import type { ExportedConstDeclaration } from "../../scripts/conventions/constsProgram";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..", "..");
 const REACTIONS: string = join(PROJECT_ROOT, "packages", "consts", "aiChat", "reactions.ts");
@@ -63,9 +66,10 @@ describe("字面量联合的全集表必须经 exhaustiveList 构造", () => {
       [agentKey, "已经经 exhaustiveList 构造"],
       [otherFileKey, "别的文件里没有这张表"],
     ]));
+    const roots: string = CONSTS_ROOT_PREFIXES.join(" or ");
     expect(problems).toEqual([
-      expect.stringContaining(`PARTIAL_LITERAL_TABLES registers ${agentKey}`),
-      expect.stringContaining(`PARTIAL_LITERAL_TABLES registers ${otherFileKey}`),
+      `PARTIAL_LITERAL_TABLES registers ${agentKey}, which is no longer a literal-union table listed without exhaustiveList in ${roots}; remove the entry`,
+      `PARTIAL_LITERAL_TABLES registers ${otherFileKey}, which is no longer a literal-union table listed without exhaustiveList in ${roots}; remove the entry`,
     ]);
   });
 
@@ -74,5 +78,27 @@ describe("字面量联合的全集表必须经 exhaustiveList 构造", () => {
     const flagged: string[] = ["COMPLETE", "NARROWED", "SPREAD", "ASSERTED", "VARIABLE", "TUPLE"]
       .filter((name: string): boolean => problems.some((problem: string): boolean => problem.includes(` ${name} lists`)));
     expect(flagged).toEqual(["NARROWED", "SPREAD", "ASSERTED", "VARIABLE"]);
+  });
+
+  test("前端常量目录里的字面量联合表违规时提示导入 packages/mini-app-frontend/consts/exhaustiveList.ts", () => {
+    const narrowDecl: ExportedConstDeclaration = exportedConstDeclarations(
+      PROGRAM,
+      [FIXTURE]
+    ).find(
+      ({ name }: ExportedConstDeclaration): boolean => name === "NARROWED"
+    )!;
+    const frontendPath: string = join(PROJECT_ROOT, MINI_APP_FRONTEND_CONSTS_ROOT, "miniApp.ts");
+    const problems: string[] = collectConstExhaustiveListProblems({
+      projectRoot: PROJECT_ROOT,
+      checker: PROGRAM.getTypeChecker(),
+      declarations: [{ ...narrowDecl, path: frontendPath }],
+      partialTables: new Map<string, string>(),
+    });
+    expect(problems).toEqual([
+      expect.stringContaining(
+        `${MINI_APP_FRONTEND_CONSTS_ROOT}miniApp.ts: NARROWED lists members of a literal union; build it with ` +
+        `exhaustiveList<U>()([...]) from ${MINI_APP_FRONTEND_CONSTS_ROOT}exhaustiveList.ts`
+      ),
+    ]);
   });
 });

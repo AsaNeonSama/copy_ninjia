@@ -6,9 +6,9 @@ import type { ExportedConstDeclaration } from "./constsProgram";
 export interface ConstImmutabilityParams {
   /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
-  /** 以 packages/consts/ 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
+  /** 以 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
   readonly checker: ts.TypeChecker;
-  /** packages/consts/ 的全部导出常量声明（exportedConstDeclarations）。 */
+  /** `packages/consts/` 与 `packages/mini-app-frontend/consts/` 的全部导出常量声明（exportedConstDeclarations）。 */
   readonly declarations: readonly ExportedConstDeclaration[];
   /** test/consts/immutability.test.ts 的全文。 */
   readonly assertionSource: string;
@@ -75,7 +75,7 @@ function followsExpectError(lines: readonly string[], index: number): boolean {
 
 /**
  * 带对象元素的导出常量表必须在 test/consts/immutability.test.ts 里有 `@ts-expect-error` 改写断言。
- * 用类型检查器读 packages/consts/ 下导出常量的声明类型，元素里有对象（函数值与正则除外）即要求
+ * 用类型检查器读 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 下导出常量的声明类型，元素里有对象（函数值与正则除外）即要求
  * 断言文件里有一行按 `NAME.` 或 `NAME[` 访问它，且紧跟在带 `@ts-expect-error` 的注释之后。
  *
  * @param params 常量不可变断言检查入参

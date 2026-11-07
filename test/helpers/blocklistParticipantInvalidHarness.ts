@@ -16,8 +16,8 @@ import type {
   IdentityPolicyWriteDiskMessage,
   IdentityStoragePersistedReply,
 } from "../../packages/types/diskIO";
-import type { BlocklistEntryData } from "../../packages/types/identityPolicy";
-import type { BlocklistIdPage, IdentityPolicyRawReadResult } from "../../packages/types/identityStorage";
+import type { BlocklistEntryData, IdentityPolicyTable } from "../../packages/types/identityPolicy";
+import type { IdentityIdPage, IdentityPolicyRawReadResult } from "../../packages/types/identityStorage";
 
 /**
  * 黑名单销号计数测试共用的 Disk I/O 与日志替身。
@@ -109,7 +109,7 @@ export function participantInvalidDiskIO(): typeof diskIO {
     },
     flushDiskIODomain,
     readIdentityPolicies,
-    readBlocklistIdPage: async (afterId: number | null): Promise<BlocklistIdPage> => ({
+    readIdentityIdPage: async (_table: IdentityPolicyTable, afterId: number | null): Promise<IdentityIdPage> => ({
       ids: [],
       nextCursor: afterId,
       done: true,

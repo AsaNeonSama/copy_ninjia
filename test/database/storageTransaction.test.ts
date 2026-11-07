@@ -27,7 +27,7 @@ import {
   openStorageDatabase,
 } from "../../packages/database/interact/connection";
 import {
-  readStoredBlocklistIdPage,
+  readStoredIdentityIdPage,
   readStoredIdentityPolicies,
 } from "../../packages/database/interact/identityPolicy";
 import { createStorageDatabase } from "../../packages/database/interact/migration";
@@ -178,7 +178,8 @@ test("白名单删除只命中该 id，黑名单不受影响", () => {
   });
 
   expect(readStoredIdentityPolicies(prepareStorageDatabaseReader(database), "whitelist", [7, 8]).map((row: { id: number }): number => row.id)).toEqual([8]);
-  expect(readStoredBlocklistIdPage(database, null, 10)).toEqual([11, 12]);
+  expect(readStoredIdentityIdPage(database, "whitelist", { afterId: null, limit: 10 })).toEqual([8]);
+  expect(readStoredIdentityIdPage(database, "blocklist", { afterId: null, limit: 10 })).toEqual([11, 12]);
 });
 
 test("黑名单删除只命中该 id，白名单不受影响", () => {
@@ -187,7 +188,8 @@ test("黑名单删除只命中该 id，白名单不受影响", () => {
     blocklist: new Map([[11, { data: null }]]),
   });
 
-  expect(readStoredBlocklistIdPage(database, null, 10)).toEqual([12]);
+  expect(readStoredIdentityIdPage(database, "blocklist", { afterId: null, limit: 10 })).toEqual([12]);
+  expect(readStoredIdentityIdPage(database, "whitelist", { afterId: 7, limit: 10 })).toEqual([8]);
   expect(readStoredIdentityPolicies(prepareStorageDatabaseReader(database), "whitelist", [7, 8]).map((row: { id: number }): number => row.id)).toEqual([7, 8]);
 });
 

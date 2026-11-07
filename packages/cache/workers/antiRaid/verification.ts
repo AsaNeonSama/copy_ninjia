@@ -10,10 +10,11 @@ import type { DeferredVerificationRecord } from
   "../../../types/antiRaid/verification";
 
 /**
- * `chatId:userId` -> 入群验证状态机运行态条目。
- * 填充：状态机转移至非 ABSENT 状态或收到 adoptVerifications 接管时写入。
- * 清理：转移回 ABSENT（验证通过、离群、终态结算、守卫关闭）时按 key 删除，adopt 换代际时清空重建。
- * 重建：Worker 崩溃重启后由主线程发送 adoptVerifications 全量重放（states/verification/adopt.ts）。
+ * `chatId:userId` -> 入群验证状态机运行态条目（含 pending 真人成员本次验证的算术题缓存 `challenge`）。
+ * 填充：状态机转移至非 ABSENT 状态或收到 adoptVerifications 接管时写入；`challenge` 在首次登记该成员的提醒投递时写入。
+ * 清理：转移回 ABSENT（验证通过、离群、终态结算、守卫关闭）时按 key 删除，adopt 换代际时清空重建；状态换成新对象时整条换新，
+ * `challenge` 随之失效，其有效期由条目自身的验证超时 timer 界定，不另设计时器或清扫。
+ * 重建：Worker 崩溃重启后由主线程发送 adoptVerifications 全量重放（states/verification/adopt.ts）；`challenge` 不重放，本人作答时按 `missing` 换题重发。
  * 容量：上限为 VERIFICATION_RUNTIME_CAPACITY（持久阶段另受 VERIFICATION_RECORD_CAPACITY 约束），满载时拒收新 key 并触发 fatal，不淘汰持久责任。
  */
 export const verificationEntries: Map<string, VerificationEntry> = new Map();

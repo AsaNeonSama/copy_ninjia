@@ -121,6 +121,7 @@ import {
   startCronScheduler,
 } from "../../../packages/cron/scheduler";
 import { cronRuntime } from "../../../packages/cache/main/cron";
+import type { MiniAppBunRouteTable } from "../../../packages/types/miniApp";
 import type { ChainDefinition } from "./chainDefinition";
 import type { CommandChainDependencies } from "./commandChains";
 import type { ConfigChainDependencies } from "./configChains";
@@ -226,9 +227,9 @@ const MINI_APP_CHAIN_DEPENDENCIES: MiniAppChainDependencies = {
   flushDiskIODomain,
   issueMiniAppAuthSession,
   miniAppAuthSessions,
-  loadChatsBunRoutes: async (): Promise<Bun.Serve.Routes<undefined, string>> =>
+  loadChatsBunRoutes: async (): Promise<MiniAppBunRouteTable> =>
     (await import("../../../packages/mini-app-api-server/routes/chats"))
-      .createChatsBunRoutes(),
+      .MINI_APP_CHATS_BUN_ROUTES,
 };
 
 /**

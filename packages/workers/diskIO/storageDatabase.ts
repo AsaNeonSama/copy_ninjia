@@ -15,9 +15,8 @@ export { setStorageFlushHold } from "./storageDatabase/flushHold";
 export { adoptStorageDatabase, inspectStorageDatabase } from "./storageDatabase/hydration";
 export {
   handleIdentityPolicyWrite,
-  readBlocklistIdPage,
+  readIdentityIdPage,
   readIdentityPolicies,
-  readWhitelistIdPage,
 } from "./storageDatabase/identityPolicy";
 export { handleBlocklistRemovalWrite } from "./storageDatabase/pendingRemoval";
 export { closeStorageDatabaseForShutdown } from "./storageDatabase/shutdown";

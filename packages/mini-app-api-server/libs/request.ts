@@ -48,14 +48,14 @@ export function resolveSafeClientIp(request: Request): string {
 }
 
 /**
- * 从请求中提取 Telegram WebApp `initData`（默认仅接受请求头；仅当 `allowQueryAuth` 显式为 `true` 且方法为 `GET`/`HEAD` 时允许从 `initData` 查询参数提取以供 `<img>` 标签加载受保护图库与 SVG 资源）。
+ * 从请求中提取 Telegram WebApp `initData`（默认仅接受请求头；仅当传入 `queryUrl` 且方法为 `GET`/`HEAD` 时允许从 `initData` 查询参数提取以供 `<img>` 标签加载受保护图库与 SVG 资源）。
  * @param request HTTP 请求对象。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中回退读取查询参数。
+ * @param queryUrl 允许在 `GET`/`HEAD` 请求中回退读取查询参数时传入的已解析 `URL`；不允许时为 `null`。
  * @returns 提取出的 `initData` 原始查询串。
  */
 export function extractInitDataFromHeaders(
   request: Request,
-  allowQueryAuth: boolean = false
+  queryUrl: URL | null = null
 ): string {
   const customHeader: string | null = request.headers.get(MINI_APP_INIT_DATA_HEADER);
   if (customHeader !== null && customHeader.trim().length > 0) return customHeader.trim();
@@ -63,15 +63,11 @@ export function extractInitDataFromHeaders(
   if (authHeader?.toLowerCase().startsWith(MINI_APP_TMA_AUTH_PREFIX) === true) {
     return authHeader.slice(MINI_APP_TMA_AUTH_PREFIX.length).trim();
   }
-  if (allowQueryAuth) {
+  if (queryUrl !== null) {
     const method: string = request.method.toUpperCase();
     if (method === "GET" || method === "HEAD") {
-      try {
-        const queryInitData: string | null = new URL(request.url).searchParams.get("initData");
-        if (queryInitData !== null && queryInitData.trim().length > 0) return queryInitData.trim();
-      } catch (_error: unknown) {
-        return "";
-      }
+      const queryInitData: string | null = queryUrl.searchParams.get("initData");
+      if (queryInitData !== null && queryInitData.trim().length > 0) return queryInitData.trim();
     }
   }
   return "";
@@ -80,40 +76,33 @@ export function extractInitDataFromHeaders(
 /**
  * 从 `GET`/`HEAD` 请求查询参数中提取受保护静态/图库资源的稳定访问令牌（`?token=`）。
  * @param request HTTP 请求对象。
+ * @param url 已解析的请求 `URL`。
  * @returns 提取出的 64 位十六进制资源令牌或空字符串。
  */
-export function extractAssetTokenFromQuery(request: Request): string {
+export function extractAssetTokenFromQuery(request: Request, url: URL): string {
   const method: string = request.method.toUpperCase();
   if (method !== "GET" && method !== "HEAD") return "";
-  try {
-    const queryToken: string | null = new URL(request.url).searchParams.get("token");
-    return queryToken !== null ? queryToken.trim() : "";
-  } catch (_error: unknown) {
-    return "";
-  }
+  const queryToken: string | null = url.searchParams.get("token");
+  return queryToken !== null ? queryToken.trim() : "";
 }
 
 /**
  * 从请求头（或 `GET`/`HEAD` 查询参数）中提取 64 位十六进制密码认证会话令牌。
  * @param request HTTP 请求对象。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中回退读取 `session` 查询参数。
+ * @param queryUrl 允许在 `GET`/`HEAD` 请求中回退读取 `session` 查询参数时传入的已解析 `URL`；不允许时为 `null`。
  * @returns 提取出的 64 位十六进制会话令牌或空字符串。
  */
 export function extractSessionToken(
   request: Request,
-  allowQueryAuth: boolean = false
+  queryUrl: URL | null = null
 ): string {
   const headerToken: string | null = request.headers.get(MINI_APP_SESSION_HEADER);
   if (headerToken !== null && headerToken.trim().length > 0) return headerToken.trim();
-  if (allowQueryAuth) {
+  if (queryUrl !== null) {
     const method: string = request.method.toUpperCase();
     if (method === "GET" || method === "HEAD") {
-      try {
-        const queryToken: string | null = new URL(request.url).searchParams.get("session");
-        if (queryToken !== null && queryToken.trim().length > 0) return queryToken.trim();
-      } catch (_error: unknown) {
-        return "";
-      }
+      const queryToken: string | null = queryUrl.searchParams.get("session");
+      if (queryToken !== null && queryToken.trim().length > 0) return queryToken.trim();
     }
   }
   return "";

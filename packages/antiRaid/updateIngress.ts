@@ -15,7 +15,12 @@ import {
   resolveBotAdminStatus,
   markBotAdminObserved,
 } from "../infra/botAdmin";
-import { VERIFY_APPROVE_CALLBACK_PREFIX, VERIFY_SELF_CALLBACK_PREFIX } from "../consts/antiRaid/verification";
+import {
+  VERIFY_ANSWER_ARG_PATTERN,
+  VERIFY_ANSWER_SEPARATOR,
+  VERIFY_APPROVE_CALLBACK_PREFIX,
+  VERIFY_SELF_CALLBACK_PREFIX,
+} from "../consts/antiRaid/verification";
 
 import { isAdminStatus, isPresentMember } from "../libs/chatMember";
 import { hasUserMessageContent } from "../users/messageContent";
@@ -46,6 +51,7 @@ import type {
 import type {
   AntiRaidWorkerMessage,
   FloodCandidateMessage,
+  VerifyCallbackMessage,
 } from "../types/antiRaid/protocol";
 import type { ChatState } from "../types/chatState";
 import { TELEGRAM_DATE_UNIT_MS } from "../consts/telegram";
@@ -330,8 +336,41 @@ function ingestAdmittedMessage(
 }
 
 /**
- * 处理入群验证按钮回调（callback_query）：按前缀解析本人验证或管理员代点「通过」，
- * 校验目标用户 ID 后经 durable 边界投递给 Worker。
+ * 严格解析 callback_data 前缀之后的部分并组装投给 Worker 的点击消息：本人作答为
+ * `<userId>:<选项数值>`，「通过」为 `<userId>`。userId 按 libs/telegramId.ts 的
+ * parseUserIdArgument 校验，选项数值须匹配 VERIFY_ANSWER_ARG_PATTERN。
+ * @param query Telegram 回调查询。
+ * @param action 由前缀确定的按钮类型。
+ * @param payload 去掉前缀后的 callback_data。
+ * @returns 点击消息；形态非法时返回 undefined。
+ */
+function verificationCallbackMessage(
+  query: CallbackQuery,
+  action: "self" | "approve",
+  payload: string
+): VerifyCallbackMessage | undefined {
+  if (action === "approve") {
+    const targetUserId: number | undefined = parseUserIdArgument(payload);
+    if (targetUserId === undefined) return undefined;
+    return {
+      type: "callback", callbackQueryId: query.id, chatId: query.message?.chat.id, targetUserId,
+      from: pickMember(query.from), action,
+    };
+  }
+  const separatorIndex: number = payload.indexOf(VERIFY_ANSWER_SEPARATOR);
+  if (separatorIndex < 0) return undefined;
+  const targetUserId: number | undefined = parseUserIdArgument(payload.slice(0, separatorIndex));
+  const answerArgument: string = payload.slice(separatorIndex + VERIFY_ANSWER_SEPARATOR.length);
+  if (targetUserId === undefined || !VERIFY_ANSWER_ARG_PATTERN.test(answerArgument)) return undefined;
+  return {
+    type: "callback", callbackQueryId: query.id, chatId: query.message?.chat.id, targetUserId,
+    from: pickMember(query.from), action, messageId: query.message?.message_id, answer: Number(answerArgument),
+  };
+}
+
+/**
+ * 处理入群验证按钮回调（callback_query）：按前缀解析本人作答或管理员代点「通过」，
+ * 校验目标用户 ID 与选项数值后经 durable 边界投递给 Worker。
  *
  * @param ctx grammY 更新上下文
  */
@@ -366,9 +405,9 @@ export async function handleVerificationCallback(
     return;
   }
 
-  // 使用严格十进制整数解析校验外部 callback_data 的目标用户 ID（见 libs/telegramId.ts 的 parseUserIdArgument）。
-  const targetUserId: number | undefined = parseUserIdArgument(data.slice(prefixLength));
-  if (targetUserId === undefined) {
+  const message: VerifyCallbackMessage | undefined =
+    verificationCallbackMessage(query, action, data.slice(prefixLength));
+  if (message === undefined) {
     await answerCallbackQuery({
       callbackQueryId: query.id,
       text: chatAtmosphere().VERIFICATION_INVALID_CALLBACK_TEXT,
@@ -377,12 +416,5 @@ export async function handleVerificationCallback(
     return;
   }
 
-  await postAntiRaidDurably([{
-    type: "callback",
-    callbackQueryId: query.id,
-    chatId: query.message?.chat.id,
-    targetUserId,
-    action,
-    from: pickMember(query.from),
-  }]);
+  await postAntiRaidDurably([message]);
 }

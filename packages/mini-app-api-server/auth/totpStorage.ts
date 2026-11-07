@@ -5,6 +5,7 @@ import {
 } from "../../cache/main/miniApp";
 import { MINI_APP_PASSWORD_MAX_ATTEMPTS } from "../../consts/miniApp";
 import {
+  MINI_APP_TOTP_FILE_MODE,
   MINI_APP_TOTP_PENDING_TTL_MS,
   MINI_APP_TOTP_RECORD_VERSION,
 } from "../../consts/miniAppTotp";
@@ -174,7 +175,8 @@ export async function enableMiniAppTotpFromPending(
   });
   await atomicWriteText(
     MINI_APP_TOTP_FILE_PATH,
-    `${JSON.stringify(nextRecord, null, 2)}\n`
+    `${JSON.stringify(nextRecord, null, 2)}\n`,
+    MINI_APP_TOTP_FILE_MODE
   );
   miniAppTotpRecordHolder.current = nextRecord;
   return {

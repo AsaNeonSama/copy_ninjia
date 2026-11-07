@@ -49,7 +49,7 @@ function expectNoSnapshotMetadata(state: VerificationState): void {
 }
 
 describe("adoptVerificationState：pending", () => {
-  test("缺省的可选字段重建为 undefined，键集合与全字段快照一致", () => {
+  test("缺省的可选字段重建为 undefined，全字段快照逐字带回且键集合一致", () => {
     const minimal: VerificationState = adoptVerificationState({ ...minimalBase(), phase: "pending" }, NOW);
     const full: VerificationState = adoptVerificationState({ ...fullBase(), phase: "pending" }, NOW);
 
@@ -68,20 +68,47 @@ describe("adoptVerificationState：pending", () => {
       joinedAt: NOW - 30_000,
       expiresAt: NOW + 90_000,
     });
+    expect(full).toEqual({
+      kind: "pending",
+      label: "杂鱼C",
+      isBot: true,
+      announcementMessageId: 601,
+      trackedMessageTimes: [],
+      invitedBy: 77,
+      reminderMessageId: 602,
+      replyReminderMessageId: 603,
+      replyReminderRequested: false,
+      welcomeAnchorMessageId: 604,
+      reminderSuperseded: false,
+      joinedAt: NOW - 30_000,
+      expiresAt: NOW + 90_000,
+    });
     expect(Object.keys(minimal)).toEqual(Object.keys(full));
     expectNoSnapshotMetadata(full);
   });
 
-  test("发言窗口返回新数组，落盘快照里的数组不被修改", () => {
-    const times: number[] = [NOW - 10, NOW - 5];
+  test("发言窗口按 (now - JOIN_WINDOW_MS, now] 精确裁剪并返回新数组，落盘快照里的数组不被修改", () => {
+    const times: number[] = [
+      NOW - JOIN_WINDOW_MS - 1,
+      NOW - JOIN_WINDOW_MS,
+      NOW - JOIN_WINDOW_MS + 1,
+      NOW,
+      NOW + 1,
+    ];
     const record: PendingVerificationSnapshot = { ...minimalBase(), phase: "pending", trackedMessageTimes: times };
 
     const state: VerificationState = adoptVerificationState(record, NOW);
 
     const tracked: number[] | undefined = state.kind === "pending" ? state.trackedMessageTimes : undefined;
-    expect(tracked).toEqual([NOW - 10, NOW - 5]);
+    expect(tracked).toEqual([NOW - JOIN_WINDOW_MS + 1, NOW]);
     expect(tracked).not.toBe(times);
-    expect(record.trackedMessageTimes).toEqual([NOW - 10, NOW - 5]);
+    expect(record.trackedMessageTimes).toEqual([
+      NOW - JOIN_WINDOW_MS - 1,
+      NOW - JOIN_WINDOW_MS,
+      NOW - JOIN_WINDOW_MS + 1,
+      NOW,
+      NOW + 1,
+    ]);
   });
 
   test("窗口内一条都不剩时得到空数组", () => {
@@ -121,7 +148,7 @@ describe("adoptVerificationState：终态", () => {
     expectNoSnapshotMetadata(state);
   });
 
-  test("kickPending 缺省公告与计数时间戳时键集合不变", () => {
+  test("kickPending 带回计数时间戳且缺省公告与计数时间戳时键集合不变", () => {
     const minimal: VerificationState = adoptVerificationState({ ...minimalBase(), phase: "kickPending", requestedAt: NOW }, NOW);
     const full: VerificationState = adoptVerificationState(
       { ...fullBase(), phase: "kickPending", requestedAt: NOW, countedJoinAt: NOW - 1 },
@@ -129,10 +156,20 @@ describe("adoptVerificationState：终态", () => {
     );
 
     expect(minimal.kind === "kickPending" ? minimal.announcementMessageId : "missing").toBeUndefined();
+    expect(full).toEqual({
+      kind: "kickPending",
+      label: "杂鱼C",
+      isBot: true,
+      requestedAt: NOW,
+      countedJoinAt: NOW - 1,
+      announcementMessageId: 601,
+      effectStarted: false,
+      executionStarted: false,
+    });
     expect(Object.keys(minimal)).toEqual(Object.keys(full));
   });
 
-  test("checkingInviter 缺省消息 id 时快照里对应项为 undefined，键集合不变", () => {
+  test("checkingInviter 带回全字段快照，缺省消息 id 时对应项为 undefined 且键集合不变", () => {
     const minimalRecord: CheckingInviterVerificationSnapshot = { ...minimalBase(), phase: "checkingInviter", terminalInviterId: 88 };
     const fullRecord: CheckingInviterVerificationSnapshot = { ...fullBase(), phase: "checkingInviter", terminalInviterId: 88 };
 
@@ -153,12 +190,26 @@ describe("adoptVerificationState：终态", () => {
       },
       executionStarted: false,
     });
+    expect(full).toEqual({
+      kind: "checkingInviter",
+      inviterId: 88,
+      snapshot: {
+        label: "杂鱼C",
+        isBot: true,
+        announcementMessageId: 601,
+        reminderMessageId: 602,
+        replyReminderMessageId: 603,
+        joinedAt: NOW - 30_000,
+        expiresAt: NOW + 90_000,
+      },
+      executionStarted: false,
+    });
     expect(Object.keys(minimal)).toEqual(Object.keys(full));
     expect(full.kind === "checkingInviter" ? Object.keys(full.snapshot) : [])
       .toEqual(minimal.kind === "checkingInviter" ? Object.keys(minimal.snapshot) : ["missing"]);
   });
 
-  test("expelling 只带回落盘里出现的播报记账，单独的 failureNoticeSent 原样保留", () => {
+  test("expelling 只带回落盘里出现的播报记账，单独或组合出现的布尔标记原样保留", () => {
     const record: ExpellingVerificationSnapshot = {
       ...fullBase(),
       phase: "expelling",
@@ -187,9 +238,39 @@ describe("adoptVerificationState：终态", () => {
       removalConfirmed: undefined,
     });
     expectNoSnapshotMetadata(state);
+
+    const floodState: VerificationState = adoptVerificationState(
+      {
+        ...fullBase(),
+        phase: "expelling",
+        expelReason: "flood",
+        unconfirmedNoticeSent: true,
+        successNoticeSent: true,
+        removalConfirmed: true,
+      },
+      NOW
+    );
+    expect(floodState).toEqual({
+      kind: "expelling",
+      reason: "flood",
+      snapshot: {
+        label: "杂鱼C",
+        isBot: true,
+        announcementMessageId: 601,
+        reminderMessageId: 602,
+        replyReminderMessageId: 603,
+        joinedAt: NOW - 30_000,
+        expiresAt: NOW + 90_000,
+      },
+      executionStarted: false,
+      failureNoticeSent: undefined,
+      unconfirmedNoticeSent: true,
+      successNoticeSent: true,
+      removalConfirmed: true,
+    });
   });
 
-  test("expelling 有无播报记账时键集合一致", () => {
+  test("expelling 无播报记账时四项全为 undefined，且有无播报记账时键集合一致", () => {
     const bare: VerificationState = adoptVerificationState({ ...minimalBase(), phase: "expelling", expelReason: "flood" }, NOW);
     const noted: VerificationState = adoptVerificationState(
       {
@@ -204,6 +285,10 @@ describe("adoptVerificationState：终态", () => {
       NOW
     );
 
+    expect(bare.kind === "expelling" ? bare.failureNoticeSent : "missing").toBeUndefined();
+    expect(bare.kind === "expelling" ? bare.unconfirmedNoticeSent : "missing").toBeUndefined();
+    expect(bare.kind === "expelling" ? bare.successNoticeSent : "missing").toBeUndefined();
+    expect(bare.kind === "expelling" ? bare.removalConfirmed : "missing").toBeUndefined();
     expect(Object.keys(bare)).toEqual(Object.keys(noted));
   });
 });

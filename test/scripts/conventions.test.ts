@@ -279,6 +279,7 @@ describe("project convention collectors", () => {
       join(sourceRoot, "antiRaid"),
       join(sourceRoot, "auto"),
       join(sourceRoot, "workers", "antiRaid"),
+      join(sourceRoot, "mini-app-api-server"),
     ]) mkdirSync(directory, { recursive: true });
     await Bun.write(join(commandsRoot, "gag.ts"), "");
     await Bun.write(join(commandsRoot, "gag", "notices.ts"), "");
@@ -811,27 +812,35 @@ describe("注释交叉引用核对", () => {
 });
 
 describe("测试断言取值口径", () => {
-  test("拒绝把导入常量直接与数字字面量比对，静态与动态导入都算", () => {
+  test("拒绝把导入常量直接与字面量常量比对，静态与动态导入及各类字面量都算", () => {
     const path: string = "/project/test/sample.test.ts";
     const problems: readonly string[] = collectConstantValueAssertionProblems({
       projectRoot: "/project",
       path,
       source: source(path, [
-        'import { LIMIT_MAX } from "../packages/consts/sample";',
+        'import { ENABLED, ITEMS, LABEL, LIMIT_MAX, META } from "../packages/consts/sample";',
         'const { WINDOW_MS } = await import("../packages/consts/window");',
         "expect(LIMIT_MAX).toBe(8);",
         "expect(WINDOW_MS).toEqual(3 * 60_000);",
         "expect(LIMIT_MAX).toStrictEqual(-(1));",
+        'expect(LABEL).toBe("label");',
+        'expect(ITEMS).toEqual(["a", "b"]);',
+        "expect(META).toEqual({ ok: true });",
+        "expect(ENABLED).toBe(true);",
       ].join("\n")),
     });
     expect(problems).toEqual([
-      expect.stringContaining("test/sample.test.ts:3 asserts imported constant LIMIT_MAX"),
-      expect.stringContaining("test/sample.test.ts:4 asserts imported constant WINDOW_MS"),
-      expect.stringContaining("test/sample.test.ts:5 asserts imported constant LIMIT_MAX"),
+      expect.stringContaining("test/sample.test.ts:3 asserts imported constant LIMIT_MAX against a literal"),
+      expect.stringContaining("test/sample.test.ts:4 asserts imported constant WINDOW_MS against a literal"),
+      expect.stringContaining("test/sample.test.ts:5 asserts imported constant LIMIT_MAX against a literal"),
+      expect.stringContaining("test/sample.test.ts:6 asserts imported constant LABEL against a literal"),
+      expect.stringContaining("test/sample.test.ts:7 asserts imported constant ITEMS against a literal"),
+      expect.stringContaining("test/sample.test.ts:8 asserts imported constant META against a literal"),
+      expect.stringContaining("test/sample.test.ts:9 asserts imported constant ENABLED against a literal"),
     ]);
   });
 
-  test("放过本文件夹具常量、非数字取值与由常量推导的期望", () => {
+  test("放过本文件夹具常量与由常量或行为推导的期望", () => {
     const path: string = "/project/test/sample.test.ts";
     expect(collectConstantValueAssertionProblems({
       projectRoot: "/project",
@@ -840,7 +849,7 @@ describe("测试断言取值口径", () => {
         'import { LIMIT_MAX, LABEL } from "../packages/consts/sample";',
         "const LOCAL_FIXTURE: number = 3;",
         "expect(LOCAL_FIXTURE).toBe(3);",
-        'expect(LABEL).toBe("label");',
+        "expect(LABEL).toBe(computeLabel());",
         "expect(LIMIT_MAX).toBe(LIMIT_MAX);",
         "expect(LIMIT_MAX).toBeGreaterThan(1);",
         "expect(limit).toBe(8);",

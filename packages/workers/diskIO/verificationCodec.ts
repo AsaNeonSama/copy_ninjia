@@ -196,7 +196,7 @@ function decodeExpelling(
   const unconfirmedNoticeSent: unknown = value.unconfirmedNoticeSent;
   const removalConfirmed: unknown = value.removalConfirmed;
   if (
-    (expelReason !== "timeout" && expelReason !== "flood") ||
+    (expelReason !== "timeout" && expelReason !== "flood" && expelReason !== "wrongAnswer") ||
     !isOptionalTrue(successNoticeSent) ||
     !isOptionalTrue(failureNoticeSent) ||
     !isOptionalTrue(unconfirmedNoticeSent) ||

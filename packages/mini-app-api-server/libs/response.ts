@@ -43,6 +43,14 @@ export function buildNoStoreHeaders(
   return headers;
 }
 
+/** 无 `requestId` 时复用的 JSON 防缓存响应头。 */
+const JSON_NO_STORE_HEADERS: Readonly<Record<string, string>> =
+  buildNoStoreHeaders("application/json; charset=utf-8");
+
+/** 公开 HTML 页面复用的防缓存响应头。 */
+const HTML_NO_STORE_HEADERS: Readonly<Record<string, string>> =
+  buildNoStoreHeaders("text/html; charset=utf-8");
+
 /**
  * 生成允许已鉴权 Telegram WebView 客户端与 Cloudflare CDN 边缘节点持久化缓存 7 天的图片/SVG/图标资源响应头。
  * @param contentType 资源的 `Content-Type` 响应头值。
@@ -85,7 +93,10 @@ export function jsonResponse(
 ): Response {
   return Response.json(payload, {
     status,
-    headers: buildNoStoreHeaders("application/json; charset=utf-8", requestId),
+    headers:
+      requestId === undefined
+        ? JSON_NO_STORE_HEADERS
+        : buildNoStoreHeaders("application/json; charset=utf-8", requestId),
   });
 }
 
@@ -98,7 +109,7 @@ export function jsonResponse(
 export function htmlResponse(html: string, headOnly: boolean): Response {
   return new Response(headOnly ? null : html, {
     status: 200,
-    headers: buildNoStoreHeaders("text/html; charset=utf-8"),
+    headers: HTML_NO_STORE_HEADERS,
   });
 }
 
@@ -159,12 +170,7 @@ export function accessErrorResponse(
   const requestId: string = randomBytes.toHex();
   const timestamp: string = `${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`;
   const clientIp: string = resolveSafeClientIp(request);
-  let parsedUrl: URL | null;
-  try {
-    parsedUrl = new URL(request.url);
-  } catch (_error: unknown) {
-    parsedUrl = null;
-  }
+  const parsedUrl: URL | null = URL.parse(request.url);
   const rawHost: string =
     request.headers.get("x-forwarded-host")?.trim() ??
     request.headers.get("host")?.trim() ??

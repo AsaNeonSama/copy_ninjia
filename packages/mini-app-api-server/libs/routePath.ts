@@ -1,6 +1,7 @@
-import { miniAppActiveConfigHolder } from "../../cache/main/miniApp";
+import { miniAppActiveUrlPartsHolder } from "../../cache/main/miniApp";
 import { getBotMiniAppConfig } from "../../config/bot";
 import type { BotMiniAppConfig } from "../../types/config";
+import type { MiniAppPublicUrlParts } from "../../types/miniApp";
 
 /** `normalizeRoutePathname` 的返回结果。 */
 export interface NormalizedRoutePath {
@@ -11,18 +12,31 @@ export interface NormalizedRoutePath {
 }
 
 /**
+ * 从 `mini_app` 配置派生归一化后的基础路径前缀与小写公网主机名。
+ * @param config `mini_app` 部署配置或覆盖配置。
+ * @returns 归一化后的 `{ basePath, host }`；配置缺失或 URL 解析失败时返回 `{ basePath: "/", host: "" }`。
+ */
+export function deriveMiniAppPublicUrlParts(
+  config: Readonly<BotMiniAppConfig> | undefined
+): Readonly<MiniAppPublicUrlParts> {
+  const parsed: URL | null = config === undefined ? null : URL.parse(config.url);
+  if (parsed === null) return { basePath: "/", host: "" };
+  const pathname: string = parsed.pathname.replace(/\/+$/u, "");
+  return {
+    basePath: pathname.length > 0 ? pathname : "/",
+    host: parsed.host.toLowerCase(),
+  };
+}
+
+/**
  * 归一化配置中的基础路径前缀（去除末尾斜杠，根路径保持 `"/"`）。
  * @returns 归一化后的基础路径。
  */
 export function configuredBasePathname(): string {
-  const config: Readonly<BotMiniAppConfig> | undefined = miniAppActiveConfigHolder.current ?? getBotMiniAppConfig();
-  if (config === undefined) return "/";
-  try {
-    const pathname: string = new URL(config.url).pathname.replace(/\/+$/u, "");
-    return pathname.length > 0 ? pathname : "/";
-  } catch (_error: unknown) {
-    return "/";
-  }
+  return (
+    miniAppActiveUrlPartsHolder.current ??
+    deriveMiniAppPublicUrlParts(getBotMiniAppConfig())
+  ).basePath;
 }
 
 /**

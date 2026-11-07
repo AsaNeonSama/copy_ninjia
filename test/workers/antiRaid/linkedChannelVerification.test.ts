@@ -246,13 +246,14 @@ describe("cold linked-channel verification", () => {
       messageId: 702,
       isThreadReply: true,
     }, runtime.dispatchVerification);
+    // 楼中楼发言已把原始提醒换成尚未落地的回复式提醒，这里由管理员代点「通过」结束同一代 pending。
     runtime.dispatchVerification(-1001, 44, {
       type: "callback",
       callbackQueryId: "verified",
-      action: "self",
-      isSelf: true,
-      fromCanApprove: false,
-      fromLabel: "User 44",
+      isSelf: false,
+      fromCanApprove: true,
+      fromLabel: "Admin",
+      action: "approve",
     });
 
     chatRequests[1]!.resolve({ id: -1001, type: "supergroup", linked_chat_id: -2001 });

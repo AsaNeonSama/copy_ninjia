@@ -631,16 +631,22 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       rootFetchSpy.mockRestore();
     }
 
+    let capturedMenuButtonText: string | undefined;
     const menuOk: boolean = await configureSuperAdminMenuButton({
       superAdminUserId: SUPER_ADMIN_USER_ID,
       buttonText: MINI_APP_BUTTON_TEXT,
       webAppUrl: "https://miniapp.example.com",
       api: {
-        setChatMenuButton: async () => true,
+        setChatMenuButton: async (payload) => {
+          if (payload?.menu_button?.type === "web_app") {
+            capturedMenuButtonText = payload.menu_button.text;
+          }
+          return true;
+        },
       },
     });
     expect(menuOk).toBeTrue();
-    expect(MINI_APP_BUTTON_TEXT).toBe("App");
+    expect(capturedMenuButtonText).toBe(MINI_APP_BUTTON_TEXT);
 
     const prepBtnId: string | undefined = await saveMiniAppPreparedKeyboardButton({
       userId: SUPER_ADMIN_USER_ID,

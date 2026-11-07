@@ -1,3 +1,5 @@
+import type { VerificationExpelReason } from "../states/verification";
+
 /** 验证持久化快照的各 phase 共享字段。 */
 export interface VerificationSnapshotBase {
   chatId: number;
@@ -74,7 +76,7 @@ export interface ExpellingVerificationSnapshot
   countedJoinAt?: never;
   terminalInviterId?: never;
   /** expelling 终态的处置原因。 */
-  expelReason: "timeout" | "flood";
+  expelReason: VerificationExpelReason;
   /** 成功处置播报已发送；仅 expelling 终态可携带。 */
   successNoticeSent?: true;
   /** 「踢不动」告警已发送；仅 expelling 终态可携带（见 ExpellingState）。 */
@@ -124,4 +126,20 @@ export interface VerificationCleanupResult {
   readonly total: number;
   readonly missed: number;
   readonly permissionDenied: boolean;
+}
+
+/** 入群验证算术题的运算符；题面与运算语义见 workers/antiRaid/verificationChallenge.ts。 */
+export type VerificationChallengeOperator = "+" | "-" | "×" | "÷";
+
+/**
+ * 一道入群验证算术题：题面、正确答案与按钮选项。构造后只读；挂在 Worker 验证运行态条目上
+ * （见 types/antiRaid/internal.ts 的 VerificationEntry.challenge），不进入状态机或持久化快照。
+ */
+export interface VerificationChallenge {
+  /** 不含问号的题面，如 `7 × 8`。 */
+  readonly question: string;
+  /** 正确答案，非负整数。 */
+  readonly answer: number;
+  /** 按钮选项，按展示顺序排列；共 VERIFICATION_CHALLENGE_OPTION_COUNT 个互不相同的非负整数，恰好一个等于 answer。 */
+  readonly options: readonly number[];
 }

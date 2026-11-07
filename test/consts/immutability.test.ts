@@ -181,6 +181,7 @@ import { PERMISSION_COMMAND_TEXTS, WHITE_COMMAND_TEXTS } from "../../packages/co
 import { WEATHER_CODE_DESCRIPTIONS } from "../../packages/consts/weather";
 import { BOT_CHAT_PERMISSION_LABELS } from "../../packages/consts/botAdmin";
 import { BOT_STATUS_FEATURE_LABELS } from "../../packages/consts/botStatus";
+import { CHAT_FEATURE_SWITCHES } from "../../packages/consts/chatFeatureSwitch";
 import { getChatState } from "../../packages/infra/storage/stateStore";
 
 import * as Media from "../../packages/consts/aiChat/media";
@@ -292,6 +293,10 @@ test("Readonly<Record<…>> 形态的常量不可写入", () => {
   expect(() => { BOT_CHAT_PERMISSION_LABELS.canDeleteMessages = "篡改"; }).toBeDefined();
   // @ts-expect-error 群功能开关中文名表被 /bot_status 功能块使用，不允许调用方改写。
   expect(() => { BOT_STATUS_FEATURE_LABELS.isInitEnabled = "篡改"; }).toBeDefined();
+  // @ts-expect-error 群功能开关描述表被开关命令与 Mini App 共用，不允许整项替换。
+  expect(() => { CHAT_FEATURE_SWITCHES.aiChat = CHAT_FEATURE_SWITCHES.translation; }).toBeDefined();
+  // @ts-expect-error 描述项字段只读；改写落盘原因串会让两条入口的诊断不再同源。
+  expect(() => { CHAT_FEATURE_SWITCHES.antiRaid.persistReason = "篡改"; }).toBeDefined();
   // @ts-expect-error Readonly<WhitelistPermissions> 的字段只读；这份默认值被
   // setWhitelistMembership 逐条展开复用，写坏它等于改掉此后所有新增成员的缺省权限。
   expect(() => { DEFAULT_WHITELIST_PERMISSIONS.isCanBlock = true; }).toBeDefined();
@@ -726,3 +731,13 @@ function assertMiniAppConstantsReadonly(): void {
   QR_PAD_BYTES.push(0);
 }
 void assertMiniAppConstantsReadonly;
+
+import type { MiniAppBunRouteTable } from "../../packages/types/miniApp";
+/** `routes/` 各领域路由表片段是模块级共享常量，路径键与各路径下的 HTTP 方法表都不可改写。 */
+function assertMiniAppBunRouteTableReadonly(routes: MiniAppBunRouteTable): void {
+  // @ts-expect-error 路由表片段禁止调用方增删或替换路径。
+  routes["/api/status"] = {};
+  // @ts-expect-error 路径下的 HTTP 方法表禁止调用方替换处理器。
+  routes["/api/status"]!.GET = async (): Promise<Response> => new Response(null);
+}
+void assertMiniAppBunRouteTableReadonly;

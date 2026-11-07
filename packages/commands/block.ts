@@ -3,12 +3,7 @@ import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import type { CachedUser } from "../types/chatState";
 import type { ToggleAction } from "../types/commands";
-import {
-  banChatMember,
-  banChatSenderChat,
-  replyCommandNotice,
-  sendCommandMessage,
-} from "../infra/telegram";
+import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { formatTargetLabel } from "../users/userLabel";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
 
@@ -17,7 +12,7 @@ import { parseToggleAction, splitTrailingToken } from "./arguments";
 import type { TrailingTokenSplit } from "./arguments";
 import { handleBlockDisable } from "./unblock";
 import { rejectUnlessPermitted } from "./commandActor";
-import { botCanRestrictMembersIn, botChatPermissionsIn } from "../infra/botAdmin";
+import { botChatPermissionsIn } from "../infra/botAdmin";
 import { describeBotPermissionGap } from "../libs/botPermissionGap";
 import type { BotChatPermissions } from "../types/telegram";
 import { runProtectedIdentityMutation } from "../infra/identityPolicy/coordination";
@@ -26,10 +21,8 @@ import {
   blockUser,
   confirmBlocklistPersisted,
   managedAdminChatIds,
-  runManagedChatBatch,
 } from "../infra/blocklist/membership";
-import type { ManagedChatOutcome } from "../infra/blocklist/membership";
-import { requestBlocklistResweep } from "../infra/blocklist/sweep";
+import { banBlockedIdentityInManagedChats } from "../infra/blocklist/crossChatBan";
 import { runBlocklistFanOut } from "./blocklistFanOut";
 
 /** 串行位内的名单写入结果：受保护目标不写名单。 */
@@ -231,32 +224,12 @@ async function banEverywhereAndReport({
   newlyBlocked,
   persisted,
 }: BanEverywhereParams): Promise<void> {
-  let bannedCount: number = 0;
-  // 扇出与逐项结算收在 runManagedChatBatch，与 `/block disable` 的跨群解封共用同一份
-  // 清单和同一个并发上限（见 infra/blocklist/membership.ts）。
-  const perChatOutcomes: readonly ManagedChatOutcome<boolean>[] =
-    await runManagedChatBatch<boolean>({
-      chatIds: targetChatIds,
-      action: `ban blocked identity ${targetUser.id}`,
-      onUnexpectedFailure: false,
-      execute: (targetChatId: number): Promise<boolean> => {
-        // 快照已确证缺「限制与封禁成员」的群不发请求，计为失败；快照未知时照常发，
-        // 由 Telegram 裁决（见 infra/botAdmin.ts 的 botCanRestrictMembersIn）。
-        if (botCanRestrictMembersIn(targetChatId) === false) return Promise.resolve(false);
-        // 每次 /block 都对每个群重新封禁；频道马甲（sender_chat）由 banChatSenderChat
-        // 限制它在本群的发言。
-        return targetUser.isChannel === true
-          ? banChatSenderChat(targetChatId, targetUser.id)
-          : banChatMember(targetChatId, targetUser.id);
-      },
-    });
-  // 结算保留 chatId 且与输入同序，单群异常不影响其它群的结果。封禁失败的群经
-  // requestBlocklistResweep 重新登记补扫（见 infra/blocklist/sweep.ts），权限恢复后由
-  // 下一次管理员身份观测重扫。
-  for (const outcome of perChatOutcomes) {
-    if (outcome.value) bannedCount++;
-    else requestBlocklistResweep(outcome.chatId);
-  }
+  // 每次 /block 都对每个群重新封禁；缺权限与失败的群重新欠一次补扫（见 infra/blocklist/crossChatBan.ts）。
+  const bannedCount: number = await banBlockedIdentityInManagedChats({
+    chatIds: targetChatIds,
+    identityId: targetUser.id,
+    isChannel: targetUser.isChannel === true,
+  });
 
   const atmosphere: AtmosphereTexts = chatAtmosphere();
   const targetLabel: string = formatTargetLabel(targetUser, atmosphere);

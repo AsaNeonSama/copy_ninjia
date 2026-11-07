@@ -44,7 +44,7 @@
 ## 品質ゲートの基準
 
 - **インストーラー起動の隔離**：フィクスチャは独立した一時設定・一時データルートを使用し、システム管理コマンド、パッケージマネージャー、ネットワーク通信をモック化して、実際の `index.ts`、Worker、終了時永続化を実行します。各 Worker は Bun の `preload` でモック化されたネットワークスタックを読み込み、天気 API には固定値を返し、それ以外の外部リクエストは安全に拒否します。起動完了、ポーリング開始、SIGTERM 時の安全な排空、ロックファイル解放が検証されます。
-- **ファイル行数制限と走査対象**：手書きの TS / JS / シェルファイルは `MAX_SOURCE_LINES`（`scripts/conventions/fileLength.ts`）を超えてはならず、長大なファイルは分割が義務付けられます（[`AGENTS.md`](../../AGENTS.md) 参照）。Git 追跡対象および未ステージングの新規ファイルが検査対象となり、`.gitignore` されたデプロイデータは除外されます。インストーラー構文検査は `install.sh` と定義済みの全シェルモジュールを網羅します。
+- **ファイル行数制限と走査対象**：手書きの TS / JS / CSS / シェルファイルは対応する上限（`packages/mini-app-frontend/` 配下の `.tsx` と `.css` は `MAX_FRONTEND_SOURCE_LINES`、それ以外は `MAX_SOURCE_LINES`、`scripts/conventions/fileLength.ts` で定義）を超えてはならず、長大なファイルは分割が義務付けられます（[`AGENTS.md`](../../AGENTS.md) 参照）。Git 追跡対象および未ステージングの新規ファイルが検査対象となり、`.gitignore` されたデプロイデータは除外されます。インストーラー構文検査は `install.sh` と定義済みの全シェルモジュールを網羅します。
 - **全ソースコードを分母とするカバレッジ計測**：`test/productionModules.test.ts` が `index.ts` および `packages/types/` を除く `packages/` 配下の全ランタイムモジュールをロードします。どのテストからも実行されなかったモジュールは 0% として分母に算入されます。関数・行カバレッジはともに `bunfig.toml` の `coverageThreshold` を満たす必要があります。テストを伴わない新規モジュールの追加は、全体カバレッジを直接低下させます。
 - **ESLint + 完全 strict な型検査**：`tsconfig.json` で `strict`、`noUncheckedIndexedAccess`、`noUnusedLocals`、`noUnusedParameters` を有効化しています。本番コードでは `any` の使用を禁止し（テストコードのみ例外）、`Promise.all` は `no-restricted-syntax` で禁止されているため、安全な `Promise.allSettled` による有界並行処理を用います。JSX/TSX フラグメントは `react` の `<Fragment>` を明示的に使用し、`<>...</>` 省略記法を禁止しています。
 - **型 import の明示的分離**：本番コード・スクリプト・テストのすべてで独立した `import type` を使用します。ESLint の `no-restricted-syntax` が `import { value, type Shape }` のようなインライン型指定を禁止しています。
@@ -55,7 +55,7 @@
   - **定数テーブルの制約**：オブジェクト要素を持つエクスポート定数テーブル（正規表現と関数値を除く）は、`test/consts/immutability.test.ts` で `@ts-expect-error` コメントの直後の行から参照されていなければなりません（`scripts/conventions/constImmutability.ts`）。要素がリテラル union のエクスポート配列テーブルは `exhaustiveList<U>()([...])`（`packages/consts/exhaustiveList.ts`。フロントエンドの定数ディレクトリは `packages/mini-app-frontend/consts/exhaustiveList.ts`）の形で書き、`U` は宣言した要素型と一致させ、引数は各要素を文字列または数値リテラルで並べます。型のメンバーを追加・削除してテーブルが追従していなければコンパイルに失敗します。意図的に部分集合だけを列挙するテーブルは `<相対パス>#<テーブル名>` で `scripts/conventions/constExhaustiveLists.ts` の `PARTIAL_LITERAL_TABLES` に登録し、無効になった登録もエラーとなります。
   - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。`packages/` では `Object.freeze` を禁止し、`.keys().next()`、`.values().next()`、`.entries().next()` で最古の項目を取ることも禁止します。有界 FIFO / LRU の最古の項目は必ず `libs/fifoMap.ts` の `FifoMap`（またはそれを継承する `LruCache`）から取得します。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
   - **整合性突合**：`index.ts`、`packages/`、`scripts/` におけるトップレベル関数、クラスメソッド、および `*Params`/`*Options` 引数インターフェースのプロパティの JSDoc（`@param` と `void`/`never` 以外の戻り値に対する `@returns` を含む。`scripts/conventions/sourceRules.ts` の `collectFunctionJsDocProblems`）、Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。`./`・`../` で始まるパスはコメントのあるソースファイルのディレクトリを基準に解決し、対象ファイルまたはシンボルが存在しなければエラーになります。それ以外の書き方は対象ファイルを一意に特定できる場合にのみ検査します。
-  - **テストアサーション規約**：テストコード内で大文字定数や数値リテラルを直接ハードコードして比較することを禁止します。matcher の引数に `packages/consts` の文字列定数（長さ `STRING_CONSTANT_MIN_LENGTH` 以上）と同一のリテラルを書くこと、および漢字・仮名を `CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上含む文言の断片を書き写すことも禁止されます（期待値は定数そのもの、または template 定数から描画された固定部分を使用。`test/helpers/templateText.ts` 参照）。プロンプトの文言を検証する契約テストは `scripts/conventions/testAssertionFragments.ts` の `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` に登録する必要があります。
+  - **テストアサーション規約**：テストコード内でインポートした大文字定数をリテラル定数と直接比較することを禁止します。matcher の引数に `packages/consts` の文字列定数（長さ `STRING_CONSTANT_MIN_LENGTH` 以上）と同一のリテラルを書くこと、および漢字・仮名を `CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上含む文言の断片を書き写すことも禁止されます（期待値は定数そのもの、または template 定数から描画された固定部分を使用。`test/helpers/templateText.ts` 参照）。プロンプトの文言を検証する契約テストは `scripts/conventions/testAssertionFragments.ts` の `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` に登録する必要があります。
   - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません。ゲートは TypeScript checker でモックを宣言シンボルまで解決して判定します（`scripts/conventions/testMockReset.ts`）。テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
 
 ---
@@ -82,7 +82,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**6940 tests / 583 files / 455825 `expect()` calls**。全ソースコードの**関数カバレッジは 97.45%、行カバレッジは 97.83%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**7001 tests / 588 files / 456453 `expect()` calls**。全ソースコードの**関数カバレッジは 97.57%、行カバレッジは 98.13%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 

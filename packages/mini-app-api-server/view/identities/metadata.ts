@@ -1,20 +1,13 @@
 import type { ChatFullInfo } from "grammy/types";
 import { aiChatBotInfo } from "../../../cache/main/aiChat";
-import { unacknowledgedIdentityWrites } from "../../../cache/main/identityStorage";
-import {
-  MINI_APP_BIDI_CONTROL_CHARS_PATTERN,
-  MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
-  MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-} from "../../../consts/miniApp";
+import { BIDI_CONTROL_PATTERN } from "../../../consts/text";
 import { WHITELIST_PERMISSION_KEYS } from "../../../consts/whitelist";
 import { chatAtmosphere } from "../../../infra/atmosphere";
-import {
-  getIdentityEntryCount,
-  identityMetadataFromCachedUser,
-} from "../../../infra/identityStorage";
+import { identityMetadataFromCachedUser } from "../../../infra/identityStorage";
 import { getChatStateCache } from "../../../infra/storage/stateStore";
 import { probeTelegramChatInfoSilent } from "../../../infra/telegram/actions/miniApp";
 import { bot } from "../../../infra/telegram/mainClient";
+import { stripLeadingAtSigns } from "../../../libs/text";
 import {
   resolveIdTarget,
   resolveUsernameTarget,
@@ -22,289 +15,10 @@ import {
 } from "../../../users/senderIdentity";
 import type { CachedUser } from "../../../types/chatState";
 import type {
-  IdentityPolicyTable,
   TelegramIdentityMetadata,
   WhitelistPermissionKey,
 } from "../../../types/identityPolicy";
-import type {
-  BlocklistIdPage,
-  UnacknowledgedIdentityWrite,
-} from "../../../types/identityStorage";
 import type { MiniAppPermissionDescriptor } from "../../../types/miniApp";
-
-/** 分页查询白名单或黑名单的入参。 */
-export interface ListIdentityPageParams {
-  /** 页码（从 1 开始；未传 `afterId` 时按页码分页）。 */
-  readonly page?: number;
-  /** 每页条数（`1..MINI_APP_IDENTITY_MAX_PAGE_SIZE`，与 `limit` 同义）。 */
-  readonly pageSize?: number;
-  /** 游标起点 ID（返回严格大于 `afterId` 的记录；首页传 `null` 或省略）。 */
-  readonly afterId?: number | null;
-  /** 单页返回条数上限（`1..MINI_APP_IDENTITY_MAX_PAGE_SIZE`）。 */
-  readonly limit?: number;
-  /** 按名称、用户名或 ID 模糊搜索的关键字。 */
-  readonly query?: string;
-}
-
-/**
- * 读取一页游标 ID 并叠加当前尚未收到落盘 ACK 的内存身份增删写入，确保 Bot 或 API 侧刚提交的名单变更立即可见。
- *
- * @param table 目标身份策略表名（可选）。
- * @param readSweepPage 底层游标页读取函数。
- * @param afterId 游标起点 ID。
- * @returns 叠加未确认内存写入后的游标页。
- */
-async function readOverlaySweepPage(
-  table: IdentityPolicyTable | undefined,
-  readSweepPage: (afterId: number | null) => Promise<BlocklistIdPage>,
-  afterId: number | null
-): Promise<BlocklistIdPage> {
-  const sweep: BlocklistIdPage = await readSweepPage(afterId);
-  if (table === undefined) return sweep;
-  const pendingWrites: ReadonlyMap<number, UnacknowledgedIdentityWrite> =
-    unacknowledgedIdentityWrites(table);
-  if (pendingWrites.size === 0) return sweep;
-  const idSet: Set<number> = new Set(sweep.ids);
-  for (const [id, change] of pendingWrites) {
-    if (change.data === null) {
-      idSet.delete(id);
-      continue;
-    }
-    if (afterId !== null && id <= afterId) continue;
-    if (!sweep.done && sweep.nextCursor !== null && id > sweep.nextCursor) {
-      continue;
-    }
-    idSet.add(id);
-  }
-  const ids: number[] = [...idSet].sort(
-    (left: number, right: number): number => left - right
-  );
-  return {
-    ids,
-    nextCursor: sweep.done
-      ? (ids.length === 0 ? afterId : ids[ids.length - 1]!)
-      : sweep.nextCursor,
-    done: sweep.done,
-  };
-}
-
-/**
- * 读取指定身份策略表的全部身份 ID（供按名称搜索过滤时遍历）。
- *
- * @param readSweepPage 底层游标页读取函数。
- * @param table 可选的身份策略表名，用于叠加本地未确认内存写入。
- * @returns 表中全部身份 ID 列表。
- */
-export async function collectAllIdentityIds(
-  readSweepPage: (afterId: number | null) => Promise<BlocklistIdPage>,
-  table?: IdentityPolicyTable
-): Promise<readonly number[]> {
-  const allIds: number[] = [];
-  let cursor: number | null = null;
-  while (true) {
-    const sweep: BlocklistIdPage = await readOverlaySweepPage(
-      table,
-      readSweepPage,
-      cursor
-    );
-    for (const id of sweep.ids) {
-      allIds.push(id);
-    }
-    if (sweep.done || sweep.nextCursor === null || sweep.ids.length === 0) {
-      break;
-    }
-    cursor = sweep.nextCursor;
-  }
-  return allIds;
-}
-
-/** 预先规范化的名单搜索关键字（每次查询请求构造一次）。 */
-export interface IdentitySearchQuery {
-  /** 已 trim 并转小写的搜索关键字。 */
-  readonly normalized: string;
-  /** 剥离前导 `@` 后的小写搜索关键字。 */
-  readonly withoutAt: string;
-}
-
-/** 待匹配的单个名单身份候选字段。 */
-interface IdentitySearchCandidate {
-  /** 身份数字 ID。 */
-  readonly id: number;
-  /** 格式化后的展示名称。 */
-  readonly displayName: string;
-  /** 可选的用户名（不含 `@`）。 */
-  readonly username?: string;
-}
-
-/**
- * 为一次名单搜索请求构造预先规范化的搜索关键字。
- *
- * @param normalizedQuery 已 trim 并转小写的非空搜索关键字。
- * @returns 供 `matchesIdentitySearchQuery` 逐条复用的搜索关键字对象。
- */
-export function toIdentitySearchQuery(normalizedQuery: string): Readonly<IdentitySearchQuery> {
-  return { normalized: normalizedQuery, withoutAt: normalizedQuery.replace(/^@+/u, "") };
-}
-
-/**
- * 判断单个名单条目的展示名称、用户名或数字 ID 是否命中搜索关键字（忽略大小写）。
- *
- * @param query 预先规范化的搜索关键字对象。
- * @param candidate 待匹配的名单身份候选字段。
- * @returns 命中搜索关键字时返回 `true`。
- */
-export function matchesIdentitySearchQuery(
-  query: Readonly<IdentitySearchQuery>,
-  candidate: Readonly<IdentitySearchCandidate>
-): boolean {
-  const lowerDisplayName: string = candidate.displayName.toLowerCase();
-  if (lowerDisplayName.includes(query.normalized)) return true;
-  if (query.withoutAt.length > 0 && lowerDisplayName.includes(query.withoutAt)) return true;
-  if (
-    candidate.username !== undefined &&
-    query.withoutAt.length > 0 &&
-    candidate.username.toLowerCase().includes(query.withoutAt)
-  ) {
-    return true;
-  }
-  return String(candidate.id).includes(query.normalized);
-}
-
-/** 身份名单分页切片与总量统计结果。 */
-export interface CollectedIdentityPageSlice {
-  /** 当前页目标身份 ID 列表。 */
-  readonly sliceIds: readonly number[];
-  /** 规范化后的当前页码（从 1 开始）。 */
-  readonly page: number;
-  /** 规范化后的每页条数。 */
-  readonly pageSize: number;
-  /** 当前名单总条数。 */
-  readonly total: number;
-  /** 当前名单总页数（至少为 1）。 */
-  readonly totalPages: number;
-  /** 下一页游标 ID；无下一页时为 `null`。 */
-  readonly nextAfterId: number | null;
-}
-
-/**
- * 按页码（`page` + `pageSize`）或游标（`afterId` + `limit`）收集一页身份 ID 及总条数/总页数统计。
- *
- * @param table 目标身份策略表名（`"whitelist"` 或 `"blocklist"`）。
- * @param params 分页查询参数。
- * @param readSweepPage 底层游标页读取函数。
- * @returns 当前页身份 ID 列表及分页统计元数据。
- */
-export async function collectIdentityPageIds(
-  table: IdentityPolicyTable,
-  params: ListIdentityPageParams,
-  readSweepPage: (afterId: number | null) => Promise<BlocklistIdPage>
-): Promise<Readonly<CollectedIdentityPageSlice>> {
-  const rawPageSize: number =
-    params.pageSize ?? params.limit ?? MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE;
-  const pageSize: number = Math.min(
-    MINI_APP_IDENTITY_MAX_PAGE_SIZE,
-    Math.max(1, Math.trunc(rawPageSize))
-  );
-  const requestedPage: number = Math.max(1, Math.trunc(params.page ?? 1));
-
-  if (params.afterId !== undefined && params.afterId !== null) {
-    const cursorSweep: BlocklistIdPage = await readOverlaySweepPage(
-      table,
-      readSweepPage,
-      params.afterId
-    );
-    const knownTotal: number = getIdentityEntryCount(table);
-    const sliceIds: readonly number[] = cursorSweep.ids.slice(0, pageSize);
-    const hasMore: boolean =
-      cursorSweep.ids.length > sliceIds.length || !cursorSweep.done;
-    const nextAfterId: number | null =
-      hasMore && sliceIds.length > 0 ? sliceIds[sliceIds.length - 1]! : null;
-    const total: number = Math.max(knownTotal, sliceIds.length);
-    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
-    return {
-      sliceIds,
-      page: requestedPage,
-      pageSize,
-      total,
-      totalPages,
-      nextAfterId,
-    };
-  }
-
-  const firstSweep: BlocklistIdPage = await readOverlaySweepPage(
-    table,
-    readSweepPage,
-    null
-  );
-  const knownTotal: number = getIdentityEntryCount(table);
-  if (firstSweep.done) {
-    const total: number = Math.max(knownTotal, firstSweep.ids.length);
-    const totalPages: number = Math.max(1, Math.ceil(total / pageSize));
-    const page: number = Math.min(requestedPage, totalPages);
-    const offset: number = (page - 1) * pageSize;
-    const sliceIds: readonly number[] = firstSweep.ids.slice(
-      offset,
-      offset + pageSize
-    );
-    const hasMore: boolean = offset + sliceIds.length < firstSweep.ids.length;
-    const nextAfterId: number | null =
-      hasMore && sliceIds.length > 0 ? sliceIds[sliceIds.length - 1]! : null;
-    return {
-      sliceIds,
-      page,
-      pageSize,
-      total,
-      totalPages,
-      nextAfterId,
-    };
-  }
-
-  let total: number = Math.max(knownTotal, firstSweep.ids.length);
-  let totalPages: number = Math.max(1, Math.ceil(total / pageSize));
-  const page: number = Math.min(requestedPage, totalPages);
-  const offset: number = (page - 1) * pageSize;
-  const targetEnd: number = offset + pageSize;
-  const sliceIds: number[] = [];
-  let scanned: number = 0;
-  let currentSweep: BlocklistIdPage = firstSweep;
-
-  while (true) {
-    for (const id of currentSweep.ids) {
-      if (scanned >= offset && sliceIds.length < pageSize) {
-        sliceIds.push(id);
-      }
-      scanned += 1;
-    }
-    if (
-      scanned >= targetEnd ||
-      currentSweep.done ||
-      currentSweep.nextCursor === null
-    ) {
-      break;
-    }
-    currentSweep = await readOverlaySweepPage(
-      table,
-      readSweepPage,
-      currentSweep.nextCursor
-    );
-  }
-
-  if (scanned > total) {
-    total = scanned;
-    totalPages = Math.max(1, Math.ceil(total / pageSize));
-  }
-  const hasMore: boolean = offset + sliceIds.length < total || !currentSweep.done;
-  const nextAfterId: number | null =
-    hasMore && sliceIds.length > 0 ? sliceIds[sliceIds.length - 1]! : null;
-  return {
-    sliceIds,
-    page,
-    pageSize,
-    total,
-    totalPages,
-    nextAfterId,
-  };
-}
 
 /** 新增或移除白名单/黑名单身份的入参。 */
 export interface SetIdentityMembershipParams {
@@ -352,11 +66,11 @@ export function formatIdentityDisplayName(
   meta: Readonly<TelegramIdentityMetadata>
 ): string {
   const fullName: string = `${meta.firstName} ${meta.lastName}`
-    .replace(MINI_APP_BIDI_CONTROL_CHARS_PATTERN, "")
+    .replace(BIDI_CONTROL_PATTERN, "")
     .trim();
   if (fullName.length > 0) return fullName;
   const cleanUsername: string = meta.username
-    .replace(MINI_APP_BIDI_CONTROL_CHARS_PATTERN, "")
+    .replace(BIDI_CONTROL_PATTERN, "")
     .trim();
   if (cleanUsername.length > 0) return `@${cleanUsername}`;
   return id < 0 ? `频道 ${id}` : `用户 ${id}`;
@@ -372,7 +86,7 @@ export function cacheIdentityMetadataInBot(
   id: number,
   meta: Readonly<TelegramIdentityMetadata>
 ): void {
-  const cleanUsername: string = meta.username.trim().replace(/^@+/u, "");
+  const cleanUsername: string = stripLeadingAtSigns(meta.username.trim());
   if (cleanUsername.length === 0) return;
   const firstName: string = meta.firstName.trim();
   const lastName: string = meta.lastName.trim();
@@ -409,7 +123,7 @@ export function syncIdentityMetadataWithBotCache(
   const fromCached: TelegramIdentityMetadata =
     identityMetadataFromCachedUser(cachedUser);
   const hasCachedName: boolean = fromCached.firstName.length > 0;
-  const cleanMetaUsername: string = meta.username.trim().replace(/^@+/u, "");
+  const cleanMetaUsername: string = stripLeadingAtSigns(meta.username.trim());
   const aliasOwner: CachedUser | undefined =
     fromCached.username.length === 0 && cleanMetaUsername.length > 0
       ? resolveUsernameTarget(cleanMetaUsername)
@@ -448,8 +162,9 @@ export async function resolveIdentityMetadataForMiniApp(
 ): Promise<Readonly<TelegramIdentityMetadata>> {
   const firstNameFromFallback: string = fallback?.firstName?.trim() ?? "";
   const lastNameFromFallback: string = fallback?.lastName?.trim() ?? "";
-  const usernameFromFallback: string =
-    fallback?.username?.trim().replace(/^@+/u, "") ?? "";
+  const usernameFromFallback: string = stripLeadingAtSigns(
+    fallback?.username?.trim() ?? ""
+  );
   if (firstNameFromFallback.length > 0 || usernameFromFallback.length > 0) {
     const resolved: Readonly<TelegramIdentityMetadata> = {
       firstName: firstNameFromFallback,

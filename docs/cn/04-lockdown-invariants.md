@@ -22,7 +22,7 @@
 - **镜像格式与严格校验**：
   - 运行时 lockdown 镜像必须包含 `phase` 与正整数 `intentId`；`announcementMessageId` 与 `announced === true` 同时成立或同时不成立。
   - 验证快照必须包含 `phase` 与 `trackedMessageTimes`（长度至多为 `ANTI_RAID_PER_MINUTE_LIMIT`）。选填字段 `reminderMessageId`、`replyReminderMessageId` 与 `announcementMessageId` 缺失仅表示提醒尚未成功发出或未检测到入群公告，恢复后各自独立执行补发或清理逻辑；`kickPending` 阶段严禁携带 `reminderMessageId` 与 `replyReminderMessageId`。
-  - 验证快照的回复提醒三字段与阶段交叉校验：`pending` 阶段 `replyReminderRequested`、`reminderSuperseded` 与「`welcomeAnchorMessageId` 已知」同真同假；其余阶段 `trackedMessageTimes` 必须为空、不得携带 `invitedBy`，且三字段只能是 `replyReminderRequested: false`、无 `welcomeAnchorMessageId`、`reminderSuperseded: true`。`expelling` 的四个播报与确认标志（`successNoticeSent`、`failureNoticeSent`、`unconfirmedNoticeSent`、`removalConfirmed`）只接受缺省或 `true`。
+  - 验证快照的回复提醒三字段与阶段交叉校验：`pending` 阶段 `replyReminderRequested`、`reminderSuperseded` 与「`welcomeAnchorMessageId` 已知」同真同假；其余阶段 `trackedMessageTimes` 必须为空、不得携带 `invitedBy`，且三字段只能是 `replyReminderRequested: false`、无 `welcomeAnchorMessageId`、`reminderSuperseded: true`。`expelling` 的 `expelReason` 只接受 `timeout`、`flood` 与 `wrongAnswer`，四个播报与确认标志（`successNoticeSent`、`failureNoticeSent`、`unconfirmedNoticeSent`、`removalConfirmed`）只接受缺省或 `true`。
   - 其它字段缺失或格式不符时由解码器严格拒绝启动，必须在停机期间人工修复，生产读取路径不保留向前兼容降级。
 - **终态播报标志持久化**：
   - 终态提示的三个状态标志必须持久化落盘：

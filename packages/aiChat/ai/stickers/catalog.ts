@@ -300,7 +300,7 @@ export async function generatePackCatalog(pack: string, signal: AbortSignal = ai
     if (map.size > 0 && (entriesChanged || !packSummaries.has(pack))) {
       const summary: string | null = await resampleAiText({
         label: `Sticker pack summary (pack "${pack}")`,
-        call: (): Promise<AiTextResult> => summarizePack(set.title, [...map.values()].map(formatEntryForSummary), signal),
+        call: (): Promise<AiTextResult> => summarizePack(set.title, Array.from(map.values(), formatEntryForSummary), signal),
         delaysMs: STICKER_CATALOG_RETRY_DELAYS_MS,
         signal,
       });

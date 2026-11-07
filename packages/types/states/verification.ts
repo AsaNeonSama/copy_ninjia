@@ -111,10 +111,16 @@ export interface CheckingInviterState {
   executionStarted: boolean;
 }
 
+/**
+ * expelling 终态的处置原因：`timeout` 验证超时，`flood` 待验证期刷屏，`wrongAnswer` 本人选错算术题答案。
+ * 随快照持久化为 `expelReason`（见 types/antiRaid/verification.ts）。
+ */
+export type VerificationExpelReason = "timeout" | "flood" | "wrongAnswer";
+
 /** 已持久化后才可执行验证痕迹清理/踢人；这些 API 均按幂等方式重放。 */
 export interface ExpellingState {
   kind: "expelling";
-  reason: "timeout" | "flood";
+  reason: VerificationExpelReason;
   snapshot: ExpelSnapshot;
   /**
    * 本轮处置已开始；flood 终态开始执行后不再接受评论区豁免。Worker 本地幂等门，不持久化，构造与
@@ -146,7 +152,7 @@ export interface ExpellingState {
   removalConfirmed: true | undefined;
 }
 
-/** pending 超时或刷屏之后的两段处置终态；都持有冻结的 ExpelSnapshot。 */
+/** pending 超时、刷屏或答错之后的两段处置终态；都持有冻结的 ExpelSnapshot。 */
 export type VerificationExpelState = CheckingInviterState | ExpellingState;
 /**
  * 落盘回执到达后才执行动作的终态：私密模式秒踢与两段处置终态。与 states/verification/shared.ts 的
@@ -206,13 +212,15 @@ export interface ConfirmedThreadCommentEvent {
 }
 
 /**
- * 验证按钮点击。`action` 区分两颗按钮：`self` 是本人验证，只认本人；
- * `approve` 是「通过」，只认代点资格。
+ * 本人作答按钮所选数值与 Worker 运行态缓存题目的比对结论：`correct` 答对，`wrong` 答错，
+ * `missing` 本条验证当前没有缓存题目（Worker 重建或同代重放后运行态条目已重建）。
  */
-export interface VerificationCallbackEvent {
+export type VerificationAnswerVerdict = "correct" | "wrong" | "missing";
+
+/** 验证按钮点击事件两种按钮共有的字段。 */
+interface VerificationCallbackEventBase {
   type: "callback";
   callbackQueryId: string;
-  action: "self" | "approve";
   /** 点击者就是待验证成员本人（由可信的 callback_query.from.id 算出）。 */
   isSelf: boolean;
   /**
@@ -222,6 +230,23 @@ export interface VerificationCallbackEvent {
   fromCanApprove: boolean | undefined;
   fromLabel: string;
 }
+
+/** 本人作答按钮（算术题选项）的点击，只认本人。 */
+export interface SelfAnswerCallbackEvent extends VerificationCallbackEventBase {
+  action: "self";
+  /** 按钮所在消息 ID；只认 pending 当前登记的提醒消息，Telegram 未给出消息时为 undefined。 */
+  messageId: number | undefined;
+  /** 所选数值与 Worker 运行态缓存题目的比对结论。 */
+  answerVerdict: VerificationAnswerVerdict;
+}
+
+/** 「通过」按钮的点击，只认代点资格。 */
+export interface ApproveCallbackEvent extends VerificationCallbackEventBase {
+  action: "approve";
+}
+
+/** 验证按钮点击；`action` 区分本人作答与「通过」两类按钮。 */
+export type VerificationCallbackEvent = SelfAnswerCallbackEvent | ApproveCallbackEvent;
 
 /** 入群验证倒计时到期事件。 */
 export interface VerifyTimeoutEvent {
@@ -299,14 +324,13 @@ export type VerificationEffect =
   | { kind: "sendReminder"; label: string; isBot: boolean }
   | { kind: "sendReplyReminder"; label: string; isBot: boolean; targetMessageId: number }
   | { kind: "sendWelcome"; variant: "verified" | "approved" | "vouchedBot" | "channelComment"; targetLabel: string; fromLabel?: string; anchorMessageId?: number }
-  | { kind: "answerCallback"; callbackQueryId: string; reply: "ok" | "invalid" | "notYourButton" | "useSelfButton" | "notApprover" | "approverUnknown" }
+  | { kind: "answerCallback"; callbackQueryId: string; reply: "ok" | "invalid" | "notYourButton" | "useSelfButton" | "notApprover" | "approverUnknown" | "staleReminder" | "wrongAnswer" | "challengeRefreshed" }
   | { kind: "deleteReminders"; reminderMessageId?: number; replyReminderMessageId?: number }
   | { kind: "startAdminCheck"; actorId: number }
   | { kind: "logUncancelableKickExemption"; label: string }
   | { kind: "retractJoinCount"; joinedAt: number }
   | { kind: "recheckInviter"; inviterId: number; snapshot: ExpelSnapshot }
-  | { kind: "expel"; snapshot: ExpelSnapshot }
-  | { kind: "expelFlood"; snapshot: ExpelSnapshot };
+  | { kind: "expel"; reason: VerificationExpelReason; snapshot: ExpelSnapshot };
 
 /** 入群验证状态机单步转移的输出：下一状态、待执行副作用及快照/计时器重排标记。 */
 export interface VerificationTransition {

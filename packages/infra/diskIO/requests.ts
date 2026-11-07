@@ -1,14 +1,13 @@
 /** Disk I/O 主线程逐请求通道：投递、结局解包与回执结算，等待表机制见 libs/workerRequestTable.ts。 */
 
 import {
-  blocklistIdPageReadRequests,
   DISK_IO_REQUEST_CHANNELS,
   diskIORuntime,
+  identityIdPageReadRequests,
   identityPolicyReadRequests,
   joinLogReadRequests,
   luckSecretRequests,
   storageCloseRequests,
-  whitelistIdPageReadRequests,
 } from "../../cache/main/diskIO";
 import type { DiskIORequestChannel } from "../../cache/main/diskIO";
 import { beginWorkerRequest, failAllWorkerRequests, settleWorkerRequest } from "../../libs/workerRequestTable";
@@ -22,17 +21,16 @@ import type {
   CloseStorageRequest,
   DiskIORequestMessage,
   EnsureLuckSecretRequest,
-  ReadBlocklistIdPageRequest,
+  ReadIdentityIdPageRequest,
   ReadIdentityPoliciesRequest,
   ReadJoinLogRequest,
-  ReadWhitelistIdPageRequest,
 } from "../../types/diskIO/messages";
 import type { DiskIORequestOutcome, StorageCloseOutcome } from "../../types/diskIO/replies";
 import type { JoinLogRecord, LuckReceiptSecret } from "../../types/diskIO/storage";
+import type { IdentityPolicyTable } from "../../types/identityPolicy";
 import type {
-  BlocklistIdPage,
+  IdentityIdPage,
   IdentityPolicyRawReadResult,
-  WhitelistIdPage,
 } from "../../types/identityStorage";
 import { safePostDiskIO } from "./transport";
 import { writeDiskIODiagnostic } from "../../workers/diskIO/diagnosticSink";
@@ -300,47 +298,26 @@ export function readIdentityPolicies(
 }
 
 /**
- * 群级补扫按稳定主键游标读取一页黑名单；普通成员判定不得调用。
+ * 按稳定主键游标读取一页黑名单或白名单 ID；供黑名单群级补扫与 Mini App 名单分页，普通成员与权限判定不得调用。
+ * @param table 读取的名单。
  * @param afterId 分页起始游标 ID（不含）；首批次传 `null`。
  * @param timeoutMs 请求超时毫秒数。
- * @returns 下一页黑名单身份 ID 列表与游标状态。
+ * @returns 下一页身份 ID 列表与游标状态。
  */
-export function readBlocklistIdPage(
+export function readIdentityIdPage(
+  table: IdentityPolicyTable,
   afterId: number | null,
   timeoutMs: number = LOAD_TIMEOUT_MS
-): Promise<BlocklistIdPage> {
+): Promise<IdentityIdPage> {
   return requestFromWritableWorker({
     timeoutMs,
-    timeoutLabel: "Blocklist ID read timeout",
-    action: "read a blocklist ID page",
-    request: (worker: Worker): Promise<BlocklistIdPage> => requestDiskIO({
+    timeoutLabel: "Identity ID page read timeout",
+    action: `read a ${table} ID page`,
+    request: (worker: Worker): Promise<IdentityIdPage> => requestDiskIO({
       worker,
-      channel: blocklistIdPageReadRequests,
+      channel: identityIdPageReadRequests,
       timeoutMs,
-      buildRequest: (requestId: number): ReadBlocklistIdPageRequest => ({ type: "readBlocklistIdPage", requestId, afterId }),
-    }),
-  });
-}
-
-/**
- * 按稳定主键游标读取一页白名单 ID；供管理端分页列举，普通权限判定不得调用。
- * @param afterId 分页起始游标 ID（不含）；首批次传 `null`。
- * @param timeoutMs 请求超时毫秒数。
- * @returns 下一页白名单身份 ID 列表与游标状态。
- */
-export function readWhitelistIdPage(
-  afterId: number | null,
-  timeoutMs: number = LOAD_TIMEOUT_MS
-): Promise<WhitelistIdPage> {
-  return requestFromWritableWorker({
-    timeoutMs,
-    timeoutLabel: "Whitelist ID read timeout",
-    action: "read a whitelist ID page",
-    request: (worker: Worker): Promise<WhitelistIdPage> => requestDiskIO({
-      worker,
-      channel: whitelistIdPageReadRequests,
-      timeoutMs,
-      buildRequest: (requestId: number): ReadWhitelistIdPageRequest => ({ type: "readWhitelistIdPage", requestId, afterId }),
+      buildRequest: (requestId: number): ReadIdentityIdPageRequest => ({ type: "readIdentityIdPage", requestId, table, afterId }),
     }),
   });
 }

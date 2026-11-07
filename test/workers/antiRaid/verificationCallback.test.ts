@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { AtmosphereTexts } from "../../../packages/types/atmosphere";
 import type { VerificationSnapshot } from "../../../packages/types/antiRaid";
+import type { VerificationChallenge } from "../../../packages/types/antiRaid/verification";
 import { VERIFICATION_CALLBACK_CHECK_MAX, VERIFICATION_CALLBACK_REPLY_MAX } from "../../../packages/consts/antiRaid/verification";
 import { verificationCallbackChecks, verificationCallbackReplies } from "../../../packages/cache/workers/antiRaid/verificationCallbacks";
 import { antiRaidInFlightTasks } from "../../../packages/cache/workers/antiRaid/tasks";
@@ -54,6 +55,9 @@ const {
 
 const CHAT_ID: number = -1001;
 const ADMIN_ID: number = 900;
+const REMINDER_ID: number = 500;
+/** 测试为运行态条目挂上的固定算术题。 */
+const CHALLENGE: VerificationChallenge = { question: "6 ÷ 2", answer: 3, options: [2, 3, 4] };
 
 function pendingRecord(userId: number, isBot: boolean): VerificationSnapshot {
   return {
@@ -65,7 +69,7 @@ function pendingRecord(userId: number, isBot: boolean): VerificationSnapshot {
     label: isBot ? "待验证机器人" : "待验证成员",
     isBot,
     trackedMessageTimes: [],
-    reminderMessageId: 500,
+    reminderMessageId: REMINDER_ID,
     replyReminderRequested: false,
     reminderSuperseded: false,
     joinedAt: Date.now(),
@@ -81,22 +85,35 @@ function adoptPending(userId: number, isBot: boolean = false): void {
   });
 }
 
+/** 接管 pending 后给运行态条目挂上固定算术题，模拟本代已发出带题提醒。 */
+function adoptPendingWithChallenge(userId: number): void {
+  adoptPending(userId);
+  const entry = verificationEntries.get(`${CHAT_ID}:${userId}`);
+  if (entry === undefined) throw new Error("missing adopted entry");
+  entry.challenge = CHALLENGE;
+}
+
 interface ClickParams {
   callbackQueryId: string;
   targetUserId: number;
   action: "self" | "approve";
   fromId: number;
+  answer?: number;
+  messageId?: number;
 }
 
-function click({ callbackQueryId, targetUserId, action, fromId }: ClickParams): void {
-  handleVerificationCallbackEvent({
-    type: "callback",
-    callbackQueryId,
-    chatId: CHAT_ID,
-    targetUserId,
-    action,
-    from: { id: fromId, first_name: `User ${fromId}` },
-  }, runtime.dispatchVerification);
+function click({
+  callbackQueryId,
+  targetUserId,
+  action,
+  fromId,
+  answer = CHALLENGE.answer,
+  messageId = REMINDER_ID,
+}: ClickParams): void {
+  const from = { id: fromId, first_name: `User ${fromId}` };
+  handleVerificationCallbackEvent(action === "self"
+    ? { type: "callback", callbackQueryId, chatId: CHAT_ID, targetUserId, from, action, messageId, answer }
+    : { type: "callback", callbackQueryId, chatId: CHAT_ID, targetUserId, from, action }, runtime.dispatchVerification);
 }
 
 function answeredText(callbackQueryId: string): string | undefined {
@@ -193,8 +210,10 @@ describe("verification callback ownership", () => {
     handleVerificationCallbackEvent({
       type: "callback",
       callbackQueryId: "detached-callback",
+      messageId: undefined,
       targetUserId: 42,
       action: "self",
+      answer: CHALLENGE.answer,
       from: { id: 42, first_name: "Self" },
     }, runtime.dispatchVerification);
 
@@ -216,8 +235,10 @@ describe("verification callback ownership", () => {
     handleVerificationCallbackEvent({
       type: "callback",
       callbackQueryId: "detached-failure",
+      messageId: undefined,
       targetUserId: 43,
       action: "self",
+      answer: CHALLENGE.answer,
       from: { id: 43, first_name: "Self" },
     }, runtime.dispatchVerification);
 
@@ -229,8 +250,8 @@ describe("verification callback ownership", () => {
     );
   });
 
-  test("「我是良民」只认本人：别人点不动，本人点了才通过", () => {
-    adoptPending(42);
+  test("作答按钮只认本人：别人点正确答案也不动，本人答对才通过", () => {
+    adoptPendingWithChallenge(42);
 
     click({ callbackQueryId: "other-user", targetUserId: 42, action: "self", fromId: 43 });
     expect(verificationEntries.get(`${CHAT_ID}:42`)?.state.kind).toBe("pending");
@@ -239,8 +260,43 @@ describe("verification callback ownership", () => {
     expect(verificationEntries.has(`${CHAT_ID}:42`)).toBeFalse();
   });
 
-  test("管理员点「我是良民」同样驳回：那颗按钮不是代点入口", () => {
-    adoptPending(44);
+  test("本人答错转入 wrongAnswer 终态并弹窗提示；别人点错误答案不会连累目标", async (): Promise<void> => {
+    adoptPendingWithChallenge(52);
+
+    click({ callbackQueryId: "other-wrong", targetUserId: 52, action: "self", fromId: 53, answer: 2 });
+    expect(verificationEntries.get(`${CHAT_ID}:52`)?.state.kind).toBe("pending");
+
+    click({ callbackQueryId: "self-wrong", targetUserId: 52, action: "self", fromId: 52, answer: 4 });
+    await drainAntiRaidTasks();
+    expect(verificationEntries.get(`${CHAT_ID}:52`)?.state).toMatchObject({ kind: "expelling", reason: "wrongAnswer" });
+    expect(answeredText("self-wrong")).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationWrongAnswer);
+  });
+
+  test("本人在不是当前登记提醒的消息上作答只提示过期，答错也不处置", async (): Promise<void> => {
+    adoptPendingWithChallenge(54);
+
+    click({ callbackQueryId: "stale-message", targetUserId: 54, action: "self", fromId: 54, answer: 4, messageId: 999 });
+    await drainAntiRaidTasks();
+
+    expect(verificationEntries.get(`${CHAT_ID}:54`)?.state.kind).toBe("pending");
+    expect(answeredText("stale-message")).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationStaleReminder);
+  });
+
+  test("Worker 重建后没有缓存题目：本人作答换新题补发，旧提醒登记清空", async (): Promise<void> => {
+    adoptPending(55);
+    expect(verificationEntries.get(`${CHAT_ID}:55`)?.challenge).toBeUndefined();
+
+    click({ callbackQueryId: "missing-challenge", targetUserId: 55, action: "self", fromId: 55, answer: 1 });
+    await drainAntiRaidTasks();
+
+    const entry = verificationEntries.get(`${CHAT_ID}:55`);
+    expect(entry?.state).toMatchObject({ kind: "pending", reminderMessageId: undefined });
+    expect(entry?.challenge).toBeDefined();
+    expect(answeredText("missing-challenge")).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationChallengeRefreshed);
+  });
+
+  test("管理员点作答按钮同样驳回：那排按钮不是代点入口", () => {
+    adoptPendingWithChallenge(44);
     cacheAdminIds(CHAT_ID, new Set([ADMIN_ID]));
 
     click({ callbackQueryId: "admin-self-button", targetUserId: 44, action: "self", fromId: ADMIN_ID });
@@ -314,7 +370,6 @@ describe("verification callback ownership", () => {
     expect(verificationEntries.get(`${CHAT_ID}:50`)?.state.kind).toBe("pending");
     const teasing: AtmosphereTexts = ATMOSPHERE_TEXTS.teasing;
     expect(answeredText("self-approve")).toBe(teasing.NOTICE_TEXTS.verificationUseSelfButton(
-      teasing.VERIFICATION_SELF_BUTTON_TEXT,
       teasing.VERIFICATION_APPROVE_BUTTON_TEXT
     ));
     expect(getChatAdministratorsMock).not.toHaveBeenCalled();

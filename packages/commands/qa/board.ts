@@ -24,15 +24,6 @@ import type { QaEntry } from "../../types/qa";
 import type { RichTextMessage } from "../../types/telegram";
 
 /**
- * 看板上的一条答案：超出展示上限时截断并补省略号，总长仍在上限之内。
- * @param answer 原始答案文本。
- * @returns 截断后的答案预览文本。
- */
-function answerPreview(answer: string): string {
-  return truncateWithEllipsis(answer, QA_QUERY_ANSWER_PREVIEW_MAX_CHARS, QA_TRUNCATION_MARK);
-}
-
-/**
  * 把一页条目渲染成「前缀 + json 代码块」；实体偏移按 UTF-16 code unit 计。
  * @param entries 单页问答条目列表。
  * @param atmosphere 语气词表。
@@ -70,7 +61,14 @@ export function buildQaBoardPages(entries: readonly QaEntry[], atmosphere: Atmos
     for (let index: number = start; index < end; index++) {
       const entry: QaEntry | undefined = entries[index];
       if (entry === undefined) continue;
-      bucket.push({ q: entry.q, a: answerPreview(entry.a) });
+      bucket.push({
+        q: entry.q,
+        a: truncateWithEllipsis(
+          entry.a,
+          QA_QUERY_ANSWER_PREVIEW_MAX_CHARS,
+          QA_TRUNCATION_MARK
+        ),
+      });
     }
     if (bucket.length > 0) pages.push(renderQaBoardPage(bucket, atmosphere));
   }

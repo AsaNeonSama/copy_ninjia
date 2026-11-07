@@ -107,7 +107,7 @@ describe("踢人失败时的权限告警", () => {
       const state = expellingState();
       setState(state);
 
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       expect(kickedUserIds).toEqual([USER_ID]);
       expect(kickChatKinds).toEqual([expected]);
@@ -120,7 +120,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState();
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(kickedUserIds).toBeEmpty();
     expect(probeChatMembership).not.toHaveBeenCalled();
@@ -138,7 +138,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState();
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(probeChatMembership).toHaveBeenCalledWith(CHAT_ID, USER_ID, telegramApi);
     expect(kickedUserIds).toEqual([]);
@@ -151,7 +151,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState();
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(probeChatMembership).toHaveBeenCalledTimes(1);
     expect(kickedUserIds).toEqual([USER_ID]);
@@ -163,7 +163,7 @@ describe("踢人失败时的权限告警", () => {
     const humanState = expellingState();
     setState(humanState);
 
-    await run([{ kind: "expel", snapshot: humanState.snapshot }]);
+    await run([{ kind: "expel", reason: humanState.reason, snapshot: humanState.snapshot }]);
     expect(sentTexts[0]).toContain("3分钟");
 
     const botState = expellingState({
@@ -171,7 +171,7 @@ describe("踢人失败时的权限告警", () => {
       isBot: true,
     });
     setState(botState);
-    await run([{ kind: "expel", snapshot: botState.snapshot }]);
+    await run([{ kind: "expel", reason: botState.reason, snapshot: botState.snapshot }]);
     expect(sentTexts[1]).toContain("3分钟");
   });
 
@@ -180,7 +180,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState();
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(kickedUserIds).toEqual([]);
     expect(sentTexts[0]).toContain("没能确认");
@@ -208,7 +208,7 @@ describe("踢人失败时的权限告警", () => {
       });
       setState(state);
 
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       // 踢人请求不发，只探测成员是否还在……
       expect(probeChatMembership).toHaveBeenCalledTimes(1);
@@ -227,7 +227,7 @@ describe("踢人失败时的权限告警", () => {
       deletedMessageIds.length = 0;
       sentTexts.length = 0;
       probeChatMembership.mockClear();
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       expect(probeChatMembership).toHaveBeenCalledTimes(1);
       expect(kickedUserIds).toEqual([]);
@@ -241,7 +241,7 @@ describe("踢人失败时的权限告警", () => {
         canRestrictMembers: true,
         canDeleteMessages: true,
       });
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       expect(probeChatMembership).toHaveBeenCalledTimes(1);
       expect(kickedUserIds).toEqual([USER_ID]);
@@ -263,7 +263,7 @@ describe("踢人失败时的权限告警", () => {
       });
       setState(state);
 
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       expect(deletedMessageIds).toEqual([20, 21, 22]);
       expect(verificationEntries.get(KEY)?.cleanupSettled).toBeTrue();
@@ -278,7 +278,7 @@ describe("踢人失败时的权限告警", () => {
       kickedUserIds.length = 0;
       testState.kickSucceeds = true;
 
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       expect(deletedMessageIds).toEqual([]);
       expect(kickedUserIds).toEqual([USER_ID]);
@@ -300,7 +300,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState({ announcementMessageId: 20 });
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(kickedUserIds).toEqual([]);
     expect(deletedMessageIds).toEqual([20]);
@@ -318,14 +318,14 @@ describe("踢人失败时的权限告警", () => {
       setState(state);
       verificationEntries.get(KEY)!.cleanupSettled = true;
 
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
       expect(probeChatMembership).toHaveBeenCalledTimes(1);
       expect(dispatched).toEqual([]);
       expect(verificationEntries.get(KEY)?.terminalRetries).toBe(1);
 
       testState.membershipPresent = false;
       loggedErrors.length = 0;
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       // 离群那一轮只发这一次探测：不再清理已清完的验证消息，也不记缺权限诊断。
       expect(probeChatMembership).toHaveBeenCalledTimes(2);
@@ -352,7 +352,7 @@ describe("踢人失败时的权限告警", () => {
       verificationEntries.get(KEY)!.cleanupSettled = true;
       testState.membershipPresent = false;
 
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       expect(probeChatMembership).toHaveBeenCalledTimes(1);
       expect(loggedErrors.some((line: string): boolean => line.includes("can_restrict_members"))).toBeFalse();
@@ -379,7 +379,7 @@ describe("踢人失败时的权限告警", () => {
       return true;
     });
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(kickedUserIds).toEqual([]);
     expect(sentTexts).toEqual([]);
@@ -392,7 +392,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState();
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expectTemplateRendered(sentTexts[0]!, ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationTimeoutKickFailed);
     expect(state.failureNoticeSent).toBeTrue();
@@ -410,7 +410,7 @@ describe("踢人失败时的权限告警", () => {
     });
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(deletedMessageIds).toEqual([]);
     expect(kickedUserIds).toEqual([USER_ID]);
@@ -423,7 +423,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState({ reminderMessageId: 21 });
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(deletedMessageIds).toEqual([21]);
   });
@@ -439,7 +439,7 @@ describe("踢人失败时的权限告警", () => {
     });
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(kickedUserIds).toEqual([USER_ID]);
     expect(deletedMessageIds).toEqual([20, 21, 22]);
@@ -458,7 +458,7 @@ describe("踢人失败时的权限告警", () => {
     });
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(sentTexts[0]).not.toContain("删不动");
     expect(loggedErrors.some((line: string): boolean => line.includes("can_delete_messages"))).toBeFalse();
@@ -475,7 +475,7 @@ describe("踢人失败时的权限告警", () => {
     });
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expectTemplateRendered(sentTexts[0]!, (label: string): string => ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.verificationCleanupFailed(label, 1));
     expect(sentTexts[0]).not.toContain(
@@ -494,7 +494,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState();
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(sentTexts).toHaveLength(1);
     expect(state.failureNoticeSent).toBeUndefined();
@@ -507,7 +507,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState();
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(kickedUserIds).toEqual([USER_ID]);
     expect(state.removalConfirmed).toBeTrue();
@@ -519,7 +519,7 @@ describe("踢人失败时的权限告警", () => {
     testState.membershipPresent = false;
     testState.nextSentMessageId = 901;
     sentTexts.length = 0;
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(kickedUserIds).toEqual([USER_ID]);
     expect(sentTexts).toHaveLength(1);
@@ -541,7 +541,7 @@ describe("踢人失败时的权限告警", () => {
       setState(state);
       state.executionStarted = true;
 
-      await run([{ kind: "expel", snapshot: state.snapshot }]);
+      await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
       expect(kickedUserIds).toEqual([USER_ID]);
       expect(state.removalConfirmed).toBeTrue();
@@ -565,7 +565,7 @@ describe("踢人失败时的权限告警", () => {
       probeChatMembership.mockImplementationOnce(async (): Promise<boolean | undefined> => {
         throw new Error("Main-thread capability request failed.");
       });
-      await expect(run([{ kind: "expel", snapshot: expelling.snapshot }])).rejects.toThrow("Main-thread capability request failed.");
+      await expect(run([{ kind: "expel", reason: expelling.reason, snapshot: expelling.snapshot }])).rejects.toThrow("Main-thread capability request failed.");
       expect(verificationEntries.get(KEY)?.state).toBe(expelling);
       expect(expelling.executionStarted).toBeFalse();
       expect(verificationEntries.get(KEY)?.terminalRetries).toBe(1);
@@ -594,7 +594,7 @@ describe("踢人失败时的权限告警", () => {
     const state = expellingState({ announcementMessageId: 20 });
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(deletedMessageIds).toEqual([20]);
     expect(state.failureNoticeSent).toBeTrue();
@@ -603,7 +603,7 @@ describe("踢人失败时的权限告警", () => {
     // 第二轮：告警闩住了不再重发，公告仍然要重试删除。
     deletedMessageIds.length = 0;
     sentTexts.length = 0;
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(deletedMessageIds).toEqual([20]);
     expect(sentTexts).toEqual([]);
@@ -611,7 +611,7 @@ describe("踢人失败时的权限告警", () => {
 
     // 第三轮：清干净之后才真正闩住，一个请求都不发。
     deletedMessageIds.length = 0;
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(deletedMessageIds).toEqual([]);
     expect(kickedUserIds).toEqual([]);
@@ -626,7 +626,7 @@ describe("踢人失败时的权限告警", () => {
     state.failureNoticeSent = true;
     setState(state);
 
-    await run([{ kind: "expel", snapshot: state.snapshot }]);
+    await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
 
     expect(sentTexts).toHaveLength(0);
     expect(state.failureNoticeSent).toBeTrue();
@@ -644,7 +644,7 @@ describe("踢人失败时的权限告警", () => {
 
       const expectedDelays: number[] = [];
       for (let attempt: number = 0; attempt < 3; attempt++) {
-        await run([{ kind: "expel", snapshot: state.snapshot }]);
+        await run([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }]);
         expectedDelays.push(Math.min(VERIFICATION_TERMINAL_RETRY_MS * 2 ** attempt, VERIFICATION_TERMINAL_RETRY_MAX_MS));
       }
 
@@ -727,7 +727,7 @@ describe("验证终态进程级尝试预算", () => {
     const state = expellingOf("timeout", snapshot());
     setState(state);
 
-    await runPublishingRevisions([{ kind: "expel", snapshot: state.snapshot }], {
+    await runPublishingRevisions([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }], {
       status: "granted",
       attempt: VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS,
     });
@@ -744,7 +744,7 @@ describe("验证终态进程级尝试预算", () => {
     const state = expellingOf("timeout", snapshot());
     setState(state);
 
-    await runPublishingRevisions([{ kind: "expel", snapshot: state.snapshot }], {
+    await runPublishingRevisions([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }], {
       status: "granted",
       attempt: VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS,
     });
@@ -764,7 +764,7 @@ describe("验证终态进程级尝试预算", () => {
     state.failureNoticeSent = true;
     setState(state);
 
-    await runPublishingRevisions([{ kind: "expel", snapshot: state.snapshot }], {
+    await runPublishingRevisions([{ kind: "expel", reason: state.reason, snapshot: state.snapshot }], {
       status: "granted",
       attempt: VERIFICATION_TERMINAL_MAX_ATTEMPTS_PER_PROCESS,
     });

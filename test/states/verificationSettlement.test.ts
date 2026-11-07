@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { transitionVerification } from "../../packages/states/verification";
 import { checkingInviterOf, expellingOf, snapshotOf } from "../../packages/states/verification/shared";
-import type { VerificationState } from "../../packages/types/states/verification";
+import type {
+  ApproveCallbackEvent,
+  SelfAnswerCallbackEvent,
+  VerificationEffect,
+  VerificationState,
+} from "../../packages/types/states/verification";
 import {
   VERIFICATION_REMINDER_UNDELIVERED_MAX_MS,
   VERIFICATION_TIMEOUT_MS,
@@ -149,73 +154,154 @@ describe("私密模式踢人结算", () => {
 });
 
 describe("callback", () => {
-  type CallbackOverrides = Partial<{
-    action: "self" | "approve";
-    isSelf: boolean;
-    fromCanApprove: boolean | undefined;
-  }>;
-  const cb = (overrides: CallbackOverrides = {}) =>
-    ({
-      type: "callback",
-      callbackQueryId: "q1",
-      action: "self",
-      isSelf: true,
-      fromCanApprove: false,
-      fromLabel: "点击者",
-      ...overrides,
-    }) as const;
+  const REMINDER_ID: number = 30;
+  const REPLY_REMINDER_ID: number = 31;
+  type SelfOverrides = Partial<Pick<SelfAnswerCallbackEvent, "isSelf" | "fromCanApprove" | "messageId" | "answerVerdict">>;
+  type ApproveOverrides = Partial<Pick<ApproveCallbackEvent, "isSelf" | "fromCanApprove">>;
+  /** 本人作答按钮事件；缺省为本人在原始提醒上答对。 */
+  const selfAnswer = (overrides: SelfOverrides = {}): SelfAnswerCallbackEvent => ({
+    type: "callback",
+    callbackQueryId: "q1",
+    isSelf: true,
+    fromCanApprove: false,
+    fromLabel: "点击者",
+    messageId: REMINDER_ID,
+    action: "self",
+    answerVerdict: "correct",
+    ...overrides,
+  });
+  /** 「通过」按钮事件；缺省为管理员代点。 */
+  const approve = (overrides: ApproveOverrides = {}): ApproveCallbackEvent => ({
+    type: "callback",
+    callbackQueryId: "q1",
+    isSelf: false,
+    fromCanApprove: true,
+    fromLabel: "点击者",
+    action: "approve",
+    ...overrides,
+  });
   const answer = (
-    reply: "ok" | "invalid" | "notYourButton" | "useSelfButton" | "notApprover" | "approverUnknown"
+    reply: Extract<VerificationEffect, { kind: "answerCallback" }>["reply"]
   ) => [{ kind: "answerCallback" as const, callbackQueryId: "q1", reply }];
 
-  test("本人点「我是良民」→ 通过：清记录 + 应答 + 删提醒 + 欢迎", () => {
-    const state = pendingState({ reminderMessageId: 30, welcomeAnchorMessageId: 40 });
-    const { next, effects } = transitionVerification(state, cb());
+  test("本人在原始提醒上答对 → 通过：清记录 + 应答 + 删提醒 + 欢迎", () => {
+    const state = pendingState({ reminderMessageId: REMINDER_ID, welcomeAnchorMessageId: 40 });
+    const { next, effects } = transitionVerification(state, selfAnswer());
     expect(next).toBeUndefined();
     expect(effects).toEqual([
       { kind: "answerCallback", callbackQueryId: "q1", reply: "ok" },
-      { kind: "deleteReminders", reminderMessageId: 30, replyReminderMessageId: undefined },
+      { kind: "deleteReminders", reminderMessageId: REMINDER_ID, replyReminderMessageId: undefined },
       { kind: "sendWelcome", variant: "verified", targetLabel: "杂鱼A", fromLabel: "点击者", anchorMessageId: 40 },
     ]);
   });
 
-  test("别人点「我是良民」→ 驳回，状态不动；管理员也不例外", () => {
-    const state = pendingState();
+  test("本人在回复式提醒上答对同样通过", () => {
+    const state = pendingState({
+      replyReminderMessageId: REPLY_REMINDER_ID,
+      replyReminderRequested: true,
+      reminderSuperseded: true,
+      welcomeAnchorMessageId: 40,
+    });
+    const { next, effects } = transitionVerification(state, selfAnswer({ messageId: REPLY_REMINDER_ID }));
+    expect(next).toBeUndefined();
+    expect(effectKinds(effects)).toEqual(["answerCallback", "deleteReminders", "sendWelcome"]);
+  });
+
+  test("别人点作答按钮 → 驳回，状态不动；管理员与答错结论也不例外", () => {
+    const state = pendingState({ reminderMessageId: REMINDER_ID });
     for (const fromCanApprove of [false, true]) {
-      const { next, effects } = transitionVerification(state, cb({ isSelf: false, fromCanApprove }));
-      expect(next).toBe(state);
-      expect(effects).toEqual(answer("notYourButton"));
+      for (const answerVerdict of ["correct", "wrong", "missing"] as const) {
+        const { next, effects } = transitionVerification(state, selfAnswer({ isSelf: false, fromCanApprove, answerVerdict }));
+        expect(next).toBe(state);
+        expect(effects).toEqual(answer("notYourButton"));
+      }
+    }
+    expect(state.reminderMessageId).toBe(REMINDER_ID);
+  });
+
+  test("本人在不是当前登记提醒的消息上作答 → 只提示过期，答错也不踢", () => {
+    const state = pendingState({ reminderMessageId: REMINDER_ID });
+    for (const messageId of [99, undefined]) {
+      for (const answerVerdict of ["correct", "wrong", "missing"] as const) {
+        const { next, effects, snapshotChanged } = transitionVerification(state, selfAnswer({ messageId, answerVerdict }));
+        expect(next).toBe(state);
+        expect(effects).toEqual(answer("staleReminder"));
+        expect(snapshotChanged).toBeUndefined();
+      }
     }
   });
 
+  test("本人答错 → 转入 wrongAnswer 终态并应答，落盘回执后按该原因踢出", () => {
+    const state = pendingState({ reminderMessageId: REMINDER_ID, announcementMessageId: 7, joinedAt: 5, expiresAt: 9 });
+    const { next, effects } = transitionVerification(state, selfAnswer({ answerVerdict: "wrong" }));
+    expect(next).toEqual(expellingOf("wrongAnswer", snapshotOf(state)));
+    expect(effects).toEqual(answer("wrongAnswer"));
+    if (next?.kind !== "expelling") throw new Error("Expected expelling state");
+    expect(transitionVerification(next, { type: "terminalPersisted" }).effects).toEqual([
+      { kind: "expel", reason: "wrongAnswer", snapshot: next.snapshot },
+    ]);
+  });
+
+  test("Worker 没有缓存题目 → 删除现有提醒、清空登记并补发原始提醒", () => {
+    const state = pendingState({ reminderMessageId: REMINDER_ID });
+    const result = transitionVerification(state, selfAnswer({ answerVerdict: "missing" }));
+    expect(result.next).toBe(state);
+    expect(result.effects).toEqual([
+      { kind: "answerCallback", callbackQueryId: "q1", reply: "challengeRefreshed" },
+      { kind: "deleteReminders", reminderMessageId: REMINDER_ID, replyReminderMessageId: undefined },
+      { kind: "sendReminder", label: "杂鱼A", isBot: false },
+    ]);
+    expect(state.reminderMessageId).toBeUndefined();
+    expect(result.snapshotChanged).toBeTrue();
+    expect(result.rescheduleTimer).toBeUndefined();
+  });
+
+  test("已是回复式提醒时没有缓存题目 → 补发回复式提醒到原锚点", () => {
+    const state = pendingState({
+      replyReminderMessageId: REPLY_REMINDER_ID,
+      replyReminderRequested: true,
+      reminderSuperseded: true,
+      welcomeAnchorMessageId: 40,
+    });
+    const result = transitionVerification(state, selfAnswer({ messageId: REPLY_REMINDER_ID, answerVerdict: "missing" }));
+    expect(result.next).toBe(state);
+    expect(result.effects).toEqual([
+      { kind: "answerCallback", callbackQueryId: "q1", reply: "challengeRefreshed" },
+      { kind: "deleteReminders", reminderMessageId: undefined, replyReminderMessageId: REPLY_REMINDER_ID },
+      { kind: "sendReplyReminder", label: "杂鱼A", isBot: false, targetMessageId: 40 },
+    ]);
+    expect(state.replyReminderMessageId).toBeUndefined();
+    expect(state.replyReminderRequested).toBeTrue();
+  });
+
   test("管理员点「通过」→ 以作保通过；真人与机器人各有欢迎语", () => {
-    const human = pendingState({ reminderMessageId: 30, welcomeAnchorMessageId: 40 });
-    const approvedHuman = transitionVerification(human, cb({ action: "approve", isSelf: false, fromCanApprove: true }));
+    const human = pendingState({ reminderMessageId: REMINDER_ID, welcomeAnchorMessageId: 40 });
+    const approvedHuman = transitionVerification(human, approve());
     expect(approvedHuman.next).toBeUndefined();
     expect(approvedHuman.effects).toEqual([
       { kind: "answerCallback", callbackQueryId: "q1", reply: "ok" },
-      { kind: "deleteReminders", reminderMessageId: 30, replyReminderMessageId: undefined },
+      { kind: "deleteReminders", reminderMessageId: REMINDER_ID, replyReminderMessageId: undefined },
       { kind: "sendWelcome", variant: "approved", targetLabel: "杂鱼A", fromLabel: "点击者", anchorMessageId: 40 },
     ]);
 
     const bot = pendingState({ isBot: true });
-    const approvedBot = transitionVerification(bot, cb({ action: "approve", isSelf: false, fromCanApprove: true }));
+    const approvedBot = transitionVerification(bot, approve());
     expect(approvedBot.next).toBeUndefined();
     expect(approvedBot.effects[2]).toMatchObject({ kind: "sendWelcome", variant: "vouchedBot" });
   });
 
   test("非管理员点「通过」→ 驳回，机器人目标也一样", () => {
     for (const state of [pendingState(), pendingState({ isBot: true })]) {
-      const { next, effects } = transitionVerification(state, cb({ action: "approve", isSelf: false }));
+      const { next, effects } = transitionVerification(state, approve({ fromCanApprove: false }));
       expect(next).toBe(state);
       expect(effects).toEqual(answer("notApprover"));
     }
   });
 
-  test("本人点「通过」→ 提示改点「我是良民」，即使本人有管理员身份", () => {
+  test("本人点「通过」→ 提示改点作答按钮，即使本人有管理员身份", () => {
     const state = pendingState();
     for (const fromCanApprove of [false, true]) {
-      const { next, effects } = transitionVerification(state, cb({ action: "approve", isSelf: true, fromCanApprove }));
+      const { next, effects } = transitionVerification(state, approve({ isSelf: true, fromCanApprove }));
       expect(next).toBe(state);
       expect(effects).toEqual(answer("useSelfButton"));
     }
@@ -223,17 +309,14 @@ describe("callback", () => {
 
   test("管理员身份没查出来 → 只应答稍后再试，记录不动", () => {
     const state = pendingState();
-    const { next, effects } = transitionVerification(
-      state,
-      cb({ action: "approve", isSelf: false, fromCanApprove: undefined })
-    );
+    const { next, effects } = transitionVerification(state, approve({ fromCanApprove: undefined }));
     expect(next).toBe(state);
     expect(effects).toEqual(answer("approverUnknown"));
   });
 
-  test("记录已不在（已通过/已踢/已豁免）→ 两颗按钮都只应答失效", () => {
+  test("记录已不在（已通过/已踢/已豁免）→ 两类按钮都只应答失效", () => {
     for (const state of [undefined, { kind: "exempt", label: "杂鱼A", isBot: false } as VerificationState]) {
-      for (const event of [cb(), cb({ action: "approve", isSelf: false, fromCanApprove: true })]) {
+      for (const event of [selfAnswer(), approve()]) {
         const { next, effects } = transitionVerification(state, event);
         expect(next).toBe(state);
         expect(effects).toEqual(answer("invalid"));

@@ -343,7 +343,7 @@ describe("trackedMessage", () => {
         now: 10_000,
       });
       expect(result.next).toBe(state);
-      expect(effectKinds(result.effects)).not.toContain("expelFlood");
+      expect(effectKinds(result.effects)).not.toContain("expel");
     }
 
     const overflow = transitionVerification(state, {
@@ -360,7 +360,7 @@ describe("trackedMessage", () => {
     expect("messageIds" in overflow.next.snapshot).toBeFalse();
     expect(overflow.effects).toEqual([]);
     const persisted = transitionVerification(overflow.next, { type: "terminalPersisted" });
-    expect(effectKinds(persisted.effects)).toEqual(["expelFlood"]);
+    expect(persisted.effects).toEqual([{ kind: "expel", reason: "flood", snapshot: overflow.next.snapshot }]);
   });
 
   test("冷缓存确认可撤回由同一消息触发、但尚未开始执行的 flood 终态", () => {

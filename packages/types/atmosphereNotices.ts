@@ -214,7 +214,14 @@ export interface AtmosphereNotices {
   readonly verificationOtherUser: string;
   readonly verificationCallbackPassed: string;
   readonly verificationCallbackExpired: string;
-  readonly verificationUseSelfButton: (selfButton: string, approveButton: string) => string;
+  /** 待验证成员本人点了「通过」：提示改点上方算术题答案。 */
+  readonly verificationUseSelfButton: (approveButton: string) => string;
+  /** 本人在已不是当前登记提醒的旧验证消息上作答。 */
+  readonly verificationStaleReminder: string;
+  /** 本人选错算术题答案，随后按 wrongAnswer 终态踢出。 */
+  readonly verificationWrongAnswer: string;
+  /** Worker 没有缓存题目，已删除旧提醒并补发新题。 */
+  readonly verificationChallengeRefreshed: string;
   readonly verificationMembershipUnknown: (label: string) => string;
   readonly verificationChatKindUnknown: (label: string) => string;
   readonly verificationFloodKickFailed: (label: string) => string;
@@ -222,9 +229,13 @@ export interface AtmosphereNotices {
   readonly verificationCleanupForbidden: (label: string, messageCount: number, missedCleanup: number) => string;
   readonly verificationCleanupFailed: (label: string, missedCleanup: number) => string;
   readonly verificationFloodKicked: (label: string) => string;
+  readonly verificationWrongAnswerKickFailed: (label: string) => string;
+  readonly verificationWrongAnswerKicked: (label: string) => string;
   readonly verificationBotTimeout: (timeout: string, label: string) => string;
   readonly verificationMemberTimeout: (label: string, timeout: string) => string;
   readonly verificationBotReminder: (label: string, timeout: string, approveButton: string) => string;
-  readonly verificationMemberReminder: (values: Readonly<{ label: string; timeout: string; selfButton: string; approveButton: string }>) => string;
-  readonly verificationReplyReminder: (label: string, timeout: string, selfButton: string) => string;
+  /** 真人成员的原始验证提醒；`question` 为不含问号的算术题题面。 */
+  readonly verificationMemberReminder: (values: Readonly<{ label: string; timeout: string; question: string; approveButton: string }>) => string;
+  /** 真人成员的回复式验证提醒；`question` 为不含问号的算术题题面。 */
+  readonly verificationReplyReminder: (label: string, timeout: string, question: string) => string;
 }

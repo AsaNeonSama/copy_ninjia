@@ -190,6 +190,14 @@ export function createMediaFacade(
 }
 
 /**
+ * 配额 lane 队列已满或排队期间被取消时生图请求的回退结算值。
+ * @returns 表示未生成图片的 `null`。
+ */
+function queueRejectedImageResult(): null {
+  return null;
+}
+
+/**
  * 构造生图门面；所选供应商未实现 `generateImage` 时返回 null。
  * @param provider 底层供应商实现。
  * @param config `image` 能力部署配置。
@@ -209,7 +217,7 @@ export function createImageFacade(
         runner,
         priority: "interactive",
         signal: request.signal,
-        fallback: (): null => null,
+        fallback: queueRejectedImageResult,
         task: (): Promise<GeneratedChatImage | null> => generateImage(request),
       });
     },

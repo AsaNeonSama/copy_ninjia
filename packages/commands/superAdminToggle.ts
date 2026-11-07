@@ -1,12 +1,9 @@
 import type { CommandContext, Context } from "grammy";
-import { logger } from "../infra/logger";
-import {
-  getOrCreateChatState,
-  persistChatState,
-} from "../infra/storage/stateStore";
+import { applyChatFeatureSwitch } from "../infra/chatFeatureSwitch";
+import type { ChatFeatureSwitchOutcome } from "../infra/chatFeatureSwitch";
 import { replyCommandNotice } from "../infra/telegram";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
-import type { CachedUser, ChatState, ChatStateSwitchKey } from "../types/chatState";
+import type { CachedUser, ChatToggleFeature } from "../types/chatState";
 import type { ToggleAction, ToggleCommandTexts } from "../types/commands";
 import { rejectUnlessPermitted, rejectUnlessSuperAdmin } from "./commandActor";
 import { parseToggleAction } from "./arguments";
@@ -56,12 +53,8 @@ export interface ChatToggleCommandParams {
   readonly texts: ToggleCommandTexts;
   /** 授权用的白名单权限键；超级管理员恒持有全部键。 */
   readonly permission: WhitelistPermissionKey;
-  /** 落盘原因串，进 persistChatState。 */
-  readonly persistReason: string;
-  /** 运行时清理对象的英文名，只进错误日志。 */
-  readonly runtimeLabel: string;
-  /** 本命令读写的群功能开关字段名。 */
-  readonly switchKey: ChatStateSwitchKey;
+  /** 本命令切换的群功能；字段名与落盘原因串查 consts/chatFeatureSwitch.ts 的 CHAT_FEATURE_SWITCHES。 */
+  readonly feature: ChatToggleFeature;
   /**
    * 开启方向的配置总闸；返回 true 表示它已经自己回执并拒绝了本次开启。
    * 省略表示开启时不检查部署配置。
@@ -79,22 +72,18 @@ export interface ChatToggleCommandParams {
 }
 
 /**
- * 按群开关命令的统一编排：解析授权与参数 → 配置总闸或关闭前的持久化前置操作 → 写入并落盘 →
- * 关闭方向尽力而为地拆除运行时 → 回执。
+ * 按群开关命令的统一编排：解析授权与参数 → 开启方向的配置总闸 → 经 applyChatFeatureSwitch
+ * 执行关闭前置、写入并落盘、关闭方向尽力拆除运行时 → 回执。
  *
- * /ad_detect、/ai_chat、/flood_control、/antiraid 与 /translate 开关共用这一编排。
- * 其中两处顺序是语义，调用方不得改动：
- * - 落盘先于运行时拆除。
- * - 拆除异常只记日志、不外抛；开关此时已落盘。
- * @param params 命令上下文、权限键、开关字段名、持久化原因及可选的开启闸门/关闭前置与运行时拆除钩子。
+ * /ad_detect、/ai_chat、/flood_control、/antiraid 与 /translate 开关共用这一编排；置位、落盘与
+ * 拆除的顺序语义见 infra/chatFeatureSwitch.ts。
+ * @param params 命令上下文、权限键、群功能及可选的开启闸门/关闭前置与运行时拆除钩子。
  */
 export async function runChatToggleCommand({
   ctx,
   texts,
   permission,
-  persistReason,
-  runtimeLabel,
-  switchKey,
+  feature,
   refuseEnable,
   beforeDisable,
   teardown,
@@ -110,29 +99,14 @@ export async function runChatToggleCommand({
   if (isEnabled && refuseEnable !== undefined && await refuseEnable(chatId, messageId)) {
     return;
   }
-  if (!isEnabled && beforeDisable !== undefined) await beforeDisable(chatId);
 
-  const state: ChatState = getOrCreateChatState(chatId);
-  const wasEnabled: boolean = state[switchKey] === true;
-  state[switchKey] = isEnabled;
-  // 落盘失败原样上抛：那是 fatal durability failure，这条 update 不能被确认
-  // （见 docs/cn/04-invariants.md）。
-  await persistChatState(chatId, persistReason);
-
-  let teardownFailed: boolean = false;
-  if (!isEnabled && teardown !== undefined) {
-    try {
-      await teardown(chatId);
-    } catch (error: unknown) {
-      teardownFailed = true;
-      logger.error(
-        `Failed to tear down the ${runtimeLabel} of chat ${chatId}; ` +
-        "the switch is already persisted as disabled:",
-        error
-      );
-    }
-  }
-
+  const { wasEnabled, teardownFailed }: ChatFeatureSwitchOutcome = await applyChatFeatureSwitch({
+    chatId,
+    feature,
+    enabled: isEnabled,
+    beforeDisable,
+    teardown,
+  });
   const replyText: string = teardownFailed && teardownFailedText !== undefined
     ? teardownFailedText
     : toggleReplyText({ isEnabled, wasEnabled, texts });

@@ -117,6 +117,8 @@ export function getZhTranslations(): Readonly<MiniAppTranslations> {
         return `已开启 ${featureLabel}。`;
       case "FEATURE_DISABLED":
         return `已关闭 ${featureLabel}。`;
+      case "ANTI_RAID_DISABLED_TEARDOWN_FAILED":
+        return "已关闭入群验证和防冲群，但已有验证窗口和私密模式未能完成清理；请查看日志，稍后再关闭一次。";
       case "PROXY_SEND_ENABLED":
         return "已将该群设为私聊中转发送目标 (/send)。";
       case "PROXY_SEND_DISABLED":

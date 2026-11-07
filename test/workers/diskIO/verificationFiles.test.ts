@@ -819,6 +819,21 @@ describe("pending verification daily append JSON", () => {
     expect((await recoverVerificationDay(DAY_ONE, dir)).get("-1001:42")).toEqual(withReminders);
   });
 
+  test("expelling 的三种处置原因都能持久化恢复，其它原因整份拒绝", async () => {
+    const { phase: _phase, ...pending } = snapshot(1, { trackedMessageTimes: [], reminderSuperseded: true });
+    for (const expelReason of ["timeout", "flood", "wrongAnswer"] as const) {
+      const record: VerificationSnapshot = { ...pending, phase: "expelling", expelReason };
+      await Bun.write(join(dir, `${DAY_ONE}.json`), JSON.stringify({
+        "-1001:42": { version: VERIFICATION_FILE_VERSION, ...record },
+      }, null, DAY_FILE_JSON_INDENT));
+      expect((await recoverVerificationDay(DAY_ONE, dir)).get("-1001:42")).toEqual(record);
+    }
+    await Bun.write(join(dir, `${DAY_ONE}.json`), JSON.stringify({
+      "-1001:42": { version: VERIFICATION_FILE_VERSION, ...pending, phase: "expelling", expelReason: "wrong" },
+    }));
+    await expect(recoverVerificationDay(DAY_ONE, dir)).rejects.toThrow("$.<record> must be a current verification record");
+  });
+
   test("checkingInviter 阶段可完整持久化并恢复", async () => {
     const { phase: _phase, ...pending } = snapshot(1, { trackedMessageTimes: [], reminderSuperseded: true });
     const record: VerificationSnapshot = {

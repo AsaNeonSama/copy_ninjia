@@ -224,7 +224,7 @@ describe("翻页回调", () => {
   });
 
   test("不是本领域前缀时同步返回 false，不认领", () => {
-    const claimed: boolean | Promise<boolean> = handleQaBoardCallback(callbackContext("verify:42"));
+    const claimed: boolean | Promise<boolean> = handleQaBoardCallback(callbackContext("verify:42:3"));
     expect(claimed).toBe(false);
     expect(answerCallbackQuery).not.toHaveBeenCalled();
   });

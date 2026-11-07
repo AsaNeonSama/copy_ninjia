@@ -159,6 +159,6 @@ export function mainBenchmarkEnvironment(
 ): Readonly<Record<string, string | undefined>> {
   return perfChildEnvironment({
     [RUNTIME_DATA_ROOT_ENV]: temporaryRoot,
-    [CONFIG_ROOT_ENV]: join(process.cwd(), "config_example"),
+    [CONFIG_ROOT_ENV]: join(PROJECT_ROOT, "config_example"),
   });
 }

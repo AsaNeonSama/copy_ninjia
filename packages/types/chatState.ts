@@ -146,14 +146,30 @@ export interface ChatState {
 }
 
 /**
- * ChatState 上取值为布尔的群功能开关字段名。按群开关命令经 commands/superAdminToggle.ts 的
- * runChatToggleCommand 读写；关闭开关经 infra/storage/stateStore.ts 的
+ * ChatState 上取值为布尔的群功能开关字段名。按群开关命令与 Mini App 经 infra/chatFeatureSwitch.ts 的
+ * applyChatFeatureSwitch 读写；关闭开关经 infra/storage/stateStore.ts 的
  * disableChatStateSwitch；`/bot_status` 的功能块按 consts/botStatus.ts 的
  * BOT_STATUS_FEATURE_KEYS 逐项列出。
  */
 export type ChatStateSwitchKey = {
   [Key in keyof ChatState]-?: boolean extends ChatState[Key] ? Key : never;
 }[keyof ChatState];
+
+/**
+ * 由 infra/chatFeatureSwitch.ts 的 applyChatFeatureSwitch 统一置位、落盘与拆除的群功能：
+ * `/ai_chat`、`/translate enable|disable`、`/ad_detect`、`/flood_control`、`/antiraid` 及 Mini App 同名开关。
+ */
+export type ChatToggleFeature = "aiChat" | "translation" | "adDetect" | "floodControl" | "antiRaid";
+
+/** 一项群功能开关的落盘描述，见 consts/chatFeatureSwitch.ts 的 CHAT_FEATURE_SWITCHES。 */
+export interface ChatFeatureSwitchDescriptor {
+  /** 读写的 ChatState 开关字段名。 */
+  readonly switchKey: ChatStateSwitchKey;
+  /** 落盘原因串，进 persistChatState。 */
+  readonly persistReason: string;
+  /** 运行时清理对象的英文名，只进拆除失败的错误日志。 */
+  readonly runtimeLabel: string;
+}
 
 /** ChatState 上以 undefined 表示「从没设过」的可选字段名；清除经 clearChatStateField。 */
 export type ChatStateOptionalField = Exclude<keyof ChatState, ChatStateSwitchKey>;

@@ -3,8 +3,7 @@ import {
   identityEntryCounts,
   identityPolicyCache,
   identityWriteRevision,
-  unacknowledgedBlocklistWrites,
-  unacknowledgedWhitelistWrites,
+  unacknowledgedIdentityWrites,
 } from "../../cache/main/identityStorage";
 import { BLOCKLIST_SWEEP_PAGE_SIZE } from
   "../../consts/identityStorage";
@@ -17,11 +16,10 @@ import {
   rawIdentityPolicyRows,
 } from "./shared";
 import type { DomainFlushOutcome } from "../../types/diskIO/replies";
-import type { BlocklistEntryData } from "../../types/identityPolicy";
+import type { BlocklistEntryData, IdentityPolicyTable } from "../../types/identityPolicy";
 import type {
-  BlocklistIdPage,
+  IdentityIdPage,
   IdentityPolicyRawReadResult,
-  WhitelistIdPage,
 } from "../../types/identityStorage";
 
 /**
@@ -36,24 +34,24 @@ export function hasAnyBlockedIdentity(): boolean {
 /**
  * 校验 Disk I/O 回传的游标页仍满足固定大小、严格升序与续读游标契约。
  *
- * @param page Disk I/O Worker 返回的黑名单 ID 游标页。
+ * @param page Disk I/O Worker 返回的名单 ID 游标页。
  * @param afterId 本次分页读取传入的起始游标 ID（首页为 `null`）。
  * @returns 校验通过的原游标页对象。
  */
-function validateBlocklistIdPage(
-  page: BlocklistIdPage,
+function validateIdentityIdPage(
+  page: IdentityIdPage,
   afterId: number | null
-): BlocklistIdPage {
+): IdentityIdPage {
   if (page.ids.length > BLOCKLIST_SWEEP_PAGE_SIZE) {
     throw new Error(
-      `Blocklist ID page exceeds ${BLOCKLIST_SWEEP_PAGE_SIZE} entries.`
+      `Identity ID page exceeds ${BLOCKLIST_SWEEP_PAGE_SIZE} entries.`
     );
   }
   let previous: number | null = afterId;
   for (const id of page.ids) {
-    assertTelegramIdentityId(id, "blocklist ID page");
+    assertTelegramIdentityId(id, "identity ID page");
     if (previous !== null && id <= previous) {
-      throw new Error("Blocklist ID page must be strictly ordered after its cursor.");
+      throw new Error("Identity ID page must be strictly ordered after its cursor.");
     }
     previous = id;
   }
@@ -61,88 +59,58 @@ function validateBlocklistIdPage(
     ? afterId
     : page.ids[page.ids.length - 1]!;
   if (page.nextCursor !== expectedCursor) {
-    throw new Error("Blocklist ID page returned an inconsistent next cursor.");
+    throw new Error("Identity ID page returned an inconsistent next cursor.");
   }
   if (!page.done && page.ids.length !== BLOCKLIST_SWEEP_PAGE_SIZE) {
-    throw new Error("A non-final blocklist ID page must fill the fixed page size.");
+    throw new Error("A non-final identity ID page must fill the fixed page size.");
   }
   return page;
 }
 
 /**
- * revision 不晚于 coveredRevision、仍未收到 durable ACK 的黑名单写入条数。
+ * 指定名单里 revision 不晚于 coveredRevision、仍未收到 durable ACK 的写入条数。
  *
- * @param coveredRevision 本次 flush 发起前捕获的黑名单写入 revision 上界。
- * @returns `revision <= coveredRevision` 且尚未收到落盘确认的黑名单写入条数。
+ * @param table 名单类型（白名单或黑名单）。
+ * @param coveredRevision 本次 flush 发起前捕获的身份写入 revision 上界。
+ * @returns `revision <= coveredRevision` 且尚未收到落盘确认的该名单写入条数。
  */
-function countUnacknowledgedBlocklistWritesThrough(coveredRevision: number): number {
+function countUnacknowledgedWritesThrough(
+  table: IdentityPolicyTable,
+  coveredRevision: number
+): number {
   let count: number = 0;
-  for (const write of unacknowledgedBlocklistWrites.values()) {
+  for (const write of unacknowledgedIdentityWrites(table).values()) {
     if (write.revision <= coveredRevision) count++;
   }
   return count;
 }
 
 /**
- * 群级补扫读取一页稳定主键；读取前提交黑名单事务，并确认 flush 发出前已登记的
+ * 按稳定主键游标读取一页名单 ID：读取前提交该名单的事务，并确认 flush 发出前已登记的
  * 本地 revision 均已 ACK。flush 期间新排入的写（如并发 `/block`、回执驱动的销号计数）
- * 不属于这一批、不参与核对，由之后的读取叠加本地最终值覆盖。
+ * 不属于这一批、不参与核对，由之后的读取叠加本地最终值覆盖。黑名单页供群级补扫，
+ * 白名单页供 Mini App 分页列举。
  *
- * @param afterId 上一页末尾的黑名单身份 ID 游标；读取首页时传 `null`。
- * @returns 经事务落盘与契约校验后的黑名单身份 ID 游标页。
+ * @param table 名单类型（白名单或黑名单）。
+ * @param afterId 上一页末尾的身份 ID 游标；读取首页时传 `null`。
+ * @returns 经事务落盘与契约校验后的名单 ID 游标页。
  */
-export async function readBlocklistSweepPage(
+export async function readIdentitySweepPage(
+  table: IdentityPolicyTable,
   afterId: number | null
-): Promise<BlocklistIdPage> {
+): Promise<IdentityIdPage> {
   const coveredRevision: number = identityWriteRevision.current;
-  const outcome: DomainFlushOutcome = await diskIO.flushDiskIODomain("blocklist");
+  const outcome: DomainFlushOutcome = await diskIO.flushDiskIODomain(table);
   if (outcome.result !== "flushed") {
-    throw new Error(`Blocklist sweep flush ${outcome.result}.`);
+    throw new Error(`Identity ID page flush for ${table} ${outcome.result}.`);
   }
-  const unacknowledged: number = countUnacknowledgedBlocklistWritesThrough(coveredRevision);
+  const unacknowledged: number = countUnacknowledgedWritesThrough(table, coveredRevision);
   if (unacknowledged !== 0) {
     throw new Error(
-      `Blocklist sweep flush left ${unacknowledged} unacknowledged write(s).`
+      `Identity ID page flush for ${table} left ${unacknowledged} unacknowledged write(s).`
     );
   }
-  return validateBlocklistIdPage(await diskIO.readBlocklistIdPage(afterId), afterId);
-}
-
-/**
- * revision 不晚于 coveredRevision、仍未收到 durable ACK 的白名单写入条数。
- *
- * @param coveredRevision 本次 flush 发起前捕获的白名单写入 revision 上界。
- * @returns `revision <= coveredRevision` 且尚未收到落盘确认的白名单写入条数。
- */
-function countUnacknowledgedWhitelistWritesThrough(coveredRevision: number): number {
-  let count: number = 0;
-  for (const write of unacknowledgedWhitelistWrites.values()) {
-    if (write.revision <= coveredRevision) count++;
-  }
-  return count;
-}
-
-/**
- * 管理端按稳定主键游标读取一页白名单 ID；读取前提交白名单事务并确认本地写入已落盘。
- *
- * @param afterId 上一页末尾的白名单身份 ID 游标；读取首页时传 `null`。
- * @returns 经事务落盘与契约校验后的白名单身份 ID 游标页。
- */
-export async function readWhitelistSweepPage(
-  afterId: number | null
-): Promise<WhitelistIdPage> {
-  const coveredRevision: number = identityWriteRevision.current;
-  const outcome: DomainFlushOutcome = await diskIO.flushDiskIODomain("whitelist");
-  if (outcome.result !== "flushed") {
-    throw new Error(`Whitelist sweep flush ${outcome.result}.`);
-  }
-  const unacknowledged: number = countUnacknowledgedWhitelistWritesThrough(coveredRevision);
-  if (unacknowledged !== 0) {
-    throw new Error(
-      `Whitelist sweep flush left ${unacknowledged} unacknowledged write(s).`
-    );
-  }
-  return validateBlocklistIdPage(await diskIO.readWhitelistIdPage(afterId), afterId);
+  return validateIdentityIdPage(await diskIO.readIdentityIdPage(table, afterId), afterId);
 }
 
 /**

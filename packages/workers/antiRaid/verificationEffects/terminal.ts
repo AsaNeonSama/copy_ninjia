@@ -18,6 +18,7 @@ import type {
   ExpelSnapshot,
   ExpellingState,
   VerificationEffect,
+  VerificationExpelReason,
   VerificationState,
 } from "../../../types/states/verification";
 import type { KickChatMemberOutcome } from "../../../infra/telegram";
@@ -67,14 +68,14 @@ export async function runRecheckInviterEffect({
   });
 }
 
-/** `runExpelEffect` 执行超时或刷屏踢出处置终态的参数。 */
+/** `runExpelEffect` 执行超时、刷屏或答错踢出处置终态的参数。 */
 interface RunExpelEffectParams {
   /** 群组 ID。 */
   chatId: number;
   /** 待踢出成员 ID。 */
   userId: number;
-  /** 超时或刷屏踢出副作用描述符。 */
-  effect: Extract<VerificationEffect, { kind: "expel" | "expelFlood" }>;
+  /** 踢出副作用描述符，携带处置原因。 */
+  effect: Extract<VerificationEffect, { kind: "expel" }>;
   /** 验证状态机派发函数。 */
   dispatchVerification: VerificationDispatcher;
 }
@@ -92,8 +93,7 @@ export async function runExpelEffect({
   const key: string = verificationKey(chatId, userId);
   const entry: VerificationEntry | undefined = verificationEntries.get(key);
   const expectedState: VerificationState | undefined = entry?.state;
-  const reason: "timeout" | "flood" =
-    effect.kind === "expelFlood" ? "flood" : "timeout";
+  const reason: VerificationExpelReason = effect.reason;
   if (
     entry === undefined ||
     expectedState?.kind !== "expelling" ||
@@ -194,8 +194,8 @@ interface ExpelMemberParams {
   userId: number;
   /** 踢出终态冻结的待验证快照。 */
   snapshot: ExpelSnapshot;
-  /** 踢出原因（验证超时或待验证期刷屏）。 */
-  reason: "timeout" | "flood";
+  /** 踢出原因（验证超时、待验证期刷屏或本人答错）。 */
+  reason: VerificationExpelReason;
   /**
    * 确证没有限制成员权限时为 false：只做成员探测、不发踢人请求（见 probeBlockedMember），
    * 其余（清理机器人自己的验证消息、战报措辞、诊断名额）全部照旧；成员仍在群里或查询
@@ -322,7 +322,8 @@ async function deleteVerificationMessages({
 }
 
 /**
- * 清理机器人验证痕迹并按现查结果踢出，成功播报先写入新 revision 再收尾。
+ * 清理机器人验证痕迹并按现查结果踢出（刷屏先踢后清理，超时与答错先清理后踢），成功播报先写入新
+ * revision 再收尾。
  * @param params 踢出与清理执行参数。
  * @returns 可直接派发 `expelSettled` 结束终态时返回 true；需等待落盘回执、状态已换代或需退避重试时返回 false。
  */
@@ -354,7 +355,7 @@ async function expelMember({
   if (entry?.state !== expectedState) return false;
   // 只在真的一条不剩时置位；欠着账就留给下一轮重试（见 VerificationEntry.cleanupSettled）。
   if (cleanup.missed === 0) entry.cleanupSettled = true;
-  if (reason === "timeout") {
+  if (reason !== "flood") {
     removalOutcome = canRestrict
       ? await kickPresentMember(chatId, userId, stillCurrent)
       : await probeBlockedMember(chatId, userId, stillCurrent);

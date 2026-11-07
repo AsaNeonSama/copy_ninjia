@@ -279,8 +279,10 @@ describe("Anti-Raid Worker lifecycle", () => {
       {
         type: "callback",
         callbackQueryId: "q",
+        messageId: 5,
         targetUserId: 1,
         action: "self",
+        answer: 3,
         from: { id: 1 },
       },
       { type: "adopt", lockdowns: [] },

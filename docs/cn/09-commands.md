@@ -157,7 +157,7 @@
   - **允许长期保留的例外**：`/permission help`、`/permission query` 的权限看板、`/qa query` 的问答看板、问答直答匹配出的答案文本、中文动作命令的成功执行结果、`/h_image` 抽出的图片、`cron.json` 发送的定时消息，以及复读、翻译、AI 回复等会话产物。
   - **状态机拥有的消息**：入群验证按钮、`/qa set` 录入表单、`/wed` 抽取结果及操作按钮、gag 限制发言公告等，不挂固定延迟自删，统一由用户点击按钮、业务状态机流转或群组被注销时销毁。
 - **子命令大小写不敏感**：`/copy stop|reverse|nya`、`/icon steal|reset`、`/qa set|remove|query`、`/translate <语言>|stop`、`/mood query|switch`、`/h_image add`、`/delete_message stop` 等子命令关键词均不区分大小写，与 `/block`、`/white`、`/init` 保持一致。但紧跟在子命令后的目标用户名、ID 或问答正文保持原始大小写不变。
-- **按钮回调安全性**：入群验证、`/wed` 交互以及 `/qa query` 翻页按钮的 `callback_data` 中的数字统一使用严格的规范十进制整数解析（从 0 开始的页码匹配 `QA_QUERY_PAGE_ARG_PATTERN`，各类 ID 使用正整数；拒绝正号、前导零、空格、小数点或指数形式）。非规范格式的回调将直接作为“按钮已失效”响应并忽略。
+- **按钮回调安全性**：入群验证、`/wed` 交互以及 `/qa query` 翻页按钮的 `callback_data` 中的数字统一使用严格的规范十进制整数解析（从 0 开始的页码匹配 `QA_QUERY_PAGE_ARG_PATTERN`，入群验证的作答选项匹配 `VERIFY_ANSWER_ARG_PATTERN`，各类 ID 使用正整数；拒绝正号、前导零、空格、小数点或指数形式）。非规范格式的回调将直接作为“按钮已失效”响应并忽略。
 
 ---
 
@@ -229,11 +229,11 @@
 #### 8. 广告检测与防冲群
 - **`/ad_detect`（智能广告拦截）**：同一发送者在短时间内发送的消息会聚合为消息串，检测队列每隔 `AD_DETECT_QUEUE_TICK_MS` 抽取一批送入广告识别模型进行判定。一旦判定命中，立即按照 `/block` 同等标准执行永久拉黑并从群中踢出，同时在群内播发带有命中理由的封禁公告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。纯网络代理节点链接（如 `vless://`、`vmess://`、`trojan://`、`ss://`）若不附带招募或营销导流文案，不会被误判为广告。
 - **`/flood_control`（防连续刷屏）**：单个用户在超级群的 `FLOOD_WINDOW_MS` 滑动时间窗口内发送的消息条数达到 `FLOOD_MESSAGE_LIMIT` 时，系统将立即对其执行 `FLOOD_MUTE_DURATION_MS` 时长的临时禁言，并在群内播报警告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。群管理员（机器人除外）、频道身份不计入刷屏；拥有 `isCanBypassFloodControl` 权限的身份直接豁免。
-- **`/antiraid`（入群验证与私密模式）**：开启后，新成员入群需在 `VERIFICATION_TIMEOUT_MS` 限时内完成人机验证挑战；在 `JOIN_WINDOW_MS` 内入群人数超过 `ANTI_RAID_PER_MINUTE_LIMIT` 时联动进入 `LOCKDOWN_MS` 私密防护。关闭该开关时，所有未完成的验证流程立即取消，发送的提醒消息同步撤回。广告拦截、防刷屏与全局黑名单不受此开关影响。
+- **`/antiraid`（入群验证与私密模式）**：开启后，新成员入群需在 `VERIFICATION_TIMEOUT_MS` 限时内答对提醒里的三选一算术题（答错立即踢出、不封禁，机器人成员由管理员点「通过」作保）；在 `JOIN_WINDOW_MS` 内入群人数超过 `ANTI_RAID_PER_MINUTE_LIMIT` 时联动进入 `LOCKDOWN_MS` 私密防护。关闭该开关时，所有未完成的验证流程立即取消，发送的提醒消息同步撤回。广告拦截、防刷屏与全局黑名单不受此开关影响。
 - **`/batch_kick`（批量清理新入群成员）**：仅超级管理员可用。通过分析入群事件日志，在指定的时间区间内（如 `30m`、`2h`、`1d`，必须在 `BATCH_KICK_MIN_DURATION_MS` 与 `BATCH_KICK_MAX_DURATION_MS` 范围内）批量踢出新加入的成员。只执行踢出操作，不加入黑名单；白名单身份与已在黑名单的身份均会自动跳过。命令受理后先行回复受理确认，踢人操作在后台异步执行并在完成后发送最终战报。
 
 #### 9. 私聊中转与语音代发：`/send`
-- 超级管理员在机器人私聊窗口中发送 `/send <群组 ID>` 开启中转；系统会先验证目标群的可达性，开启后管理员在私聊发送的所有普通消息均会被原样转发至目标群组。
+- 超级管理员在机器人私聊窗口中发送 `/send <群组 ID>` 开启中转；目标群须已执行 `/init enable`，系统会先验证目标群的可达性，开启后管理员在私聊发送的所有普通消息均会被原样转发至目标群组。
 - **语音代发模式**：在私聊中将整条消息以特定格式的 JSON 代码块发送，机器人会自动将其合成为语音气泡发送至目标群：
   ```json
   { "type": "tts", "tone": "需要的语气", "text": "需要转换的文本" }
@@ -346,7 +346,7 @@
 | `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | 查询实时系统指标（运行时长、CPU 平均负载、内存 PSS、托管群数、活跃会话、AI 模型就绪状态、Telegram 出站门控），查询或手动重抽全局 AI 心情 |
 | `/api/chats`<br>`/api/chats/:chatId` | `GET` | 列出已开启 `/init` 的受管群摘要，或查询单群详情（含功能开关、热消息计数、静音/锁定剩余时长、Bot 在本群持有的管理员权限 `botPermissions`、1–24 小时各回溯窗口去重入群人数 `joinedCountsByHour` 及 `/batch_kick` 执行状态） |
 | `/api/chats/:chatId/messages` | `GET` | 分页查看并按关键字搜索该群内存热 256 缓冲区内的近期聊天记录 |
-| `/api/chats/:chatId/feature` | `POST` | 切换单群功能开关（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）；关闭 `init` 与 `/init disable` 同序执行运行时拆除与状态清理，开启 `proxySend` 与私聊 `/send` 共享单群唯一性约束 |
+| `/api/chats/:chatId/feature` | `POST` | 切换单群功能开关（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）；关闭 `init` 与 `/init disable` 同序执行运行时拆除与状态清理，关闭 `antiRaid` 时运行时拆除失败回 `ANTI_RAID_DISABLED_TEARDOWN_FAILED`（开关已落盘，与 `/antiraid disable` 的回执同口径），开启 `proxySend` 与私聊 `/send` 共享单群唯一性约束 |
 | `/api/chats/:chatId/batch-kick` | `POST` | 按 `1..24` 小时回溯窗口在已确证的超级群触发本群 `/batch_kick` 批量清理新成员（优先读取 `chatIsSupergroupById`，未命中时经 `getChat` 探测并回填缓存；普通群以 `notSupergroup` 拒绝，`getChat` 探测失败以 `unavailable` 拒绝）；与群内 `/batch_kick` 命令共享 `batchKickChats` 单飞锁与后台执行器，完成后写入 `miniAppBatchKickCompletedByChat` 供前端轮询展示战报 |
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 查询或增删改本群的自定义问答对（`setQa`/`removeQa`）、追着删目标（`addDeleteTarget`/`removeDeleteTarget`）与追着翻目标（`addTranslateTarget`/`removeTranslateTarget`） |
 | `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | 分页查询与搜索白名单/黑名单（经 `readIdentityPolicyEntries` 冷读且叠加未 ACK 内存写入，不污染主线程热策略 LRU，同时与主线程 `senderIdentity` 发送者缓存双向对齐展示元数据），添加/移出黑白名单，修改白名单条目的细粒度权限或一键全开（`enableAll`） |

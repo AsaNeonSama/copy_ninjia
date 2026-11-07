@@ -1,6 +1,6 @@
 import ts from "typescript";
 
-/** packages/consts/ 里一条以标识符命名的导出常量声明。 */
+/** `packages/consts/` 或 `packages/mini-app-frontend/consts/` 里一条以标识符命名的导出常量声明。 */
 export interface ExportedConstDeclaration {
   readonly path: string;
   readonly name: string;

@@ -83,7 +83,7 @@ mock.module("../../../packages/infra/diskIO", () => (diskIOStub({
   flushDiskIO: async (): Promise<FlushResult> => "flushed",
   flushDiskIODomain: async (): Promise<{ result: FlushResult }> => ({ result: await flushDiskIODomain() }),
   onDiskIORespawn: (): void => {},
-  readBlocklistIdPage: async (afterId: number | null): Promise<{
+  readIdentityIdPage: async (_table: "whitelist" | "blocklist", afterId: number | null): Promise<{
     ids: readonly number[];
     nextCursor: number | null;
     done: boolean;

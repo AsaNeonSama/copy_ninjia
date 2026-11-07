@@ -71,7 +71,8 @@ export function handleTerminalPersisted(
     return {
       next: state,
       effects: [{
-        kind: state.reason === "flood" ? "expelFlood" : "expel",
+        kind: "expel",
+        reason: state.reason,
         snapshot: state.snapshot,
       }],
     };

@@ -129,7 +129,7 @@ export function checkingInviterOf(
 
 /**
  * 构造 expelling 终态；executionStarted 初始化为 false，播报记账从落盘快照恢复。
- * @param reason 触发驱逐处置的原因（timeout 或 flood）。
+ * @param reason 触发驱逐处置的原因（timeout、flood 或 wrongAnswer）。
  * @param snapshot 终态处置所需的成员与消息快照。
  * @param persisted 落盘快照中已记录的播报与确认标志。
  * @returns 初始化完成的 ExpellingState。
@@ -216,6 +216,19 @@ export function remindersOf(
     reminderMessageId: source.reminderMessageId,
     replyReminderMessageId: source.replyReminderMessageId,
   };
+}
+
+/**
+ * 按 pending 当前提醒形态构造补发提醒的副作用：已登记回复锚点（回复式提醒）时回复到锚点消息，
+ * 否则发原始独立提醒。
+ * @param state 待补发提醒的待验证状态。
+ * @returns sendReplyReminder 或 sendReminder 副作用对象。
+ */
+export function reminderResendOf(state: PendingState): VerificationEffect {
+  const anchorMessageId: number | undefined = state.welcomeAnchorMessageId;
+  return anchorMessageId !== undefined
+    ? { kind: "sendReplyReminder", label: state.label, isBot: state.isBot, targetMessageId: anchorMessageId }
+    : { kind: "sendReminder", label: state.label, isBot: state.isBot };
 }
 
 /**

@@ -25,6 +25,12 @@ import { loadMiniAppTotpRecord } from "../auth/totpStorage";
 import { extractSessionToken, readJsonObjectBody, resolveSafeClientIp } from "../libs/request";
 import { accessErrorResponse, jsonResponse } from "../libs/response";
 
+/** 模块加载时由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 派生一次的受保护静态/图库资源十六进制令牌（进程生命周期内恒定）。 */
+const MINI_APP_ASSET_TOKEN: string = deriveMiniAppAssetToken(
+  BOT_TOKEN,
+  SUPER_ADMIN_USER_ID
+);
+
 /**
  * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态及持久化会话是否有效（仅当 45 分钟解锁会话仍有效时一并下发受保护资源缓存令牌 `assetToken`；若距签发已超过 5 分钟则自动刷新会话令牌并顺延有效期）。
  * @param request 可选 HTTP 请求对象（用于核验客户端持久化的 45 分钟会话令牌）。
@@ -49,7 +55,7 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
         ...(activeSession.token !== sessionToken
           ? { sessionToken: activeSession.token }
           : {}),
-        assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
+        assetToken: MINI_APP_ASSET_TOKEN,
       }
       : {}),
   });
@@ -144,7 +150,7 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
     sessionToken: session.token,
     expiresAt: session.expiresAt,
     ttlMs: MINI_APP_SESSION_TTL_MS,
-    assetToken: deriveMiniAppAssetToken(BOT_TOKEN, SUPER_ADMIN_USER_ID),
+    assetToken: MINI_APP_ASSET_TOKEN,
   };
   return jsonResponse(response);
 }

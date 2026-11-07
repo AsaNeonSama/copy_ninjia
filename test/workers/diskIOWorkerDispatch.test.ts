@@ -87,23 +87,19 @@ describe("Disk I/O Worker 路由：AI 记忆遗忘、待验证写入、入群日
     });
   });
 
-  test("readBlocklistIdPage 的回执原样投回主线程", async () => {
-    await route({ type: "readBlocklistIdPage", requestId: 12, afterId: 99 });
-
+  test("readIdentityIdPage 按请求的名单读取，回执原样投回主线程", async () => {
+    await route({ type: "readIdentityIdPage", requestId: 12, table: "blocklist", afterId: 99 });
     expect(postMessage).toHaveBeenLastCalledWith({
-      type: "blocklistIdPageRead",
+      type: "identityIdPageRead",
       requestId: 12,
-      page: { ids: [], nextCursor: 99, done: true },
+      page: { ids: [2], nextCursor: 99, done: true },
     });
-  });
 
-  test("readWhitelistIdPage 的回执原样投回主线程", async () => {
-    await route({ type: "readWhitelistIdPage", requestId: 13, afterId: 50 });
-
+    await route({ type: "readIdentityIdPage", requestId: 13, table: "whitelist", afterId: 50 });
     expect(postMessage).toHaveBeenLastCalledWith({
-      type: "whitelistIdPageRead",
+      type: "identityIdPageRead",
       requestId: 13,
-      page: { entries: [], nextCursor: 50, done: true },
+      page: { ids: [1], nextCursor: 50, done: true },
     });
   });
 });

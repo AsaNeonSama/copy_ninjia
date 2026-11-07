@@ -13,7 +13,7 @@ import { logger } from "../logger";
 import { getChatStateCache } from "../storage/stateStore";
 import {
   hasAnyBlockedIdentity,
-  readBlocklistSweepPage,
+  readIdentitySweepPage,
 } from "../identityStorage";
 import {
   armBlocklistSweepScheduler,
@@ -35,7 +35,7 @@ import type {
   RemoveBlockedMembersParams,
 } from "../../types/blocklist";
 import type { ChatState } from "../../types/chatState";
-import type { BlocklistIdPage } from "../../types/identityStorage";
+import type { IdentityIdPage } from "../../types/identityStorage";
 import {
   nextFailedSweeps,
   noteSweepAttemptFailed,
@@ -136,7 +136,7 @@ interface PreparedBlocklistSweep {
 function prepareBlocklistSweep(
   chatId: number,
   now: number,
-  page: BlocklistIdPage
+  page: IdentityIdPage
 ): PreparedBlocklistSweep | null {
   const progress: BlocklistSweepRecord | undefined = blocklistSweepState.get(chatId);
   if (!canClaimSweep(progress, now)) return null;
@@ -235,10 +235,10 @@ export async function sweepBlockedMembers(
 ): Promise<void> {
   try {
     if (!canClaimSweep(blocklistSweepState.get(chatId), now)) return;
-    let page: BlocklistIdPage;
+    let page: IdentityIdPage;
     try {
       page = hasAnyBlockedIdentity()
-        ? await readBlocklistSweepPage(null)
+        ? await readIdentitySweepPage("blocklist", null)
         : { ids: [], nextCursor: null, done: true };
     } catch (error: unknown) {
       const progress: BlocklistSweepRecord | undefined = blocklistSweepState.get(chatId);
@@ -296,9 +296,9 @@ export async function sweepManagedBlocklistChats(
   try {
     if (!hasAnyBlockedIdentity()) return;
     if (!hasClaimableManagedChat(now)) return;
-    let page: BlocklistIdPage;
+    let page: IdentityIdPage;
     try {
-      page = await readBlocklistSweepPage(null);
+      page = await readIdentitySweepPage("blocklist", null);
     } catch (error: unknown) {
       logger.error("Failed to read the first blocklist ID page for the managed chat sweep:", error);
       deferManagedBlocklistSweeps(now);
@@ -332,7 +332,7 @@ async function continueBlocklistSweep(
   afterId: number
 ): Promise<void> {
   try {
-    const page: BlocklistIdPage = await readBlocklistSweepPage(afterId);
+    const page: IdentityIdPage = await readIdentitySweepPage("blocklist", afterId);
     const progress: BlocklistSweepRecord | undefined =
       blocklistSweepState.get(chatId);
     const pending: PendingBlockedRemoval | undefined =

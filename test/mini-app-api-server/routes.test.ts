@@ -41,6 +41,7 @@ const { deriveMiniAppAssetToken } = await import("../../packages/libs/miniAppAut
 const { generateMiniAppTotpCodeAt } = await import("../../packages/libs/miniAppTotp");
 const { formatLocalTime } = await import("../../packages/libs/time");
 const {
+  MINI_APP_TOTP_FILE_MODE,
   MINI_APP_TOTP_RECORD_VERSION,
   MINI_APP_TOTP_STEP_SECONDS,
 } = await import("../../packages/consts/miniAppTotp");
@@ -554,6 +555,9 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(enable1Body.ok).toBeTrue();
     expect(enable1Body.status.enabled).toBeTrue();
     expect(await Bun.file(MINI_APP_TOTP_FILE_PATH).exists()).toBeTrue();
+    expect(
+      ((await Bun.file(MINI_APP_TOTP_FILE_PATH).stat()).mode & 0o777)
+    ).toBe(MINI_APP_TOTP_FILE_MODE);
 
     const precheckTotpRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/precheck", {

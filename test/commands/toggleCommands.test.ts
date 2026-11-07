@@ -14,6 +14,7 @@ import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
 import { botPermissions } from "../helpers/botPermissions";
 import { lastReplyText } from "../helpers/replies";
 import type { ChatStateSwitchKey, LockdownRecord } from "../../packages/types/chatState";
+import type { ChatFeatureSwitchOutcome } from "../../packages/infra/chatFeatureSwitch";
 import { chatStateOf } from "../helpers/chatState";
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
@@ -75,6 +76,8 @@ const { handleTranslateCommand } = await import("../../packages/commands/transla
 const { handleFloodControlCommand } = await import("../../packages/commands/floodControl");
 const { handleAntiRaidCommand } = await import("../../packages/commands/antiRaid");
 const { resolveSuperAdminToggleArg } = await import("../../packages/commands/superAdminToggle");
+const { applyChatFeatureSwitch } = await import("../../packages/infra/chatFeatureSwitch");
+const { getChatState } = await import("../../packages/infra/storage/stateStore");
 
 function context(argument: string, userId: number | null = 100, chatId: number = -1001): never {
   return groupCommandContext({ match: argument, userId, chatId, messageId: 7 });
@@ -151,7 +154,8 @@ describe("超级管理员开关命令", () => {
     expect(invalidateAiChat).not.toHaveBeenCalled();
 
     await handleAiChatCommand(context("disable"));
-    expect(states.get(-1001)?.isAIChatEnabled).toBe(false);
+    expect(getChatState(-1001).isAIChatEnabled).toBe(false);
+    expect(states.has(-1001)).toBe(false);
     expect(invalidateAiChat).toHaveBeenCalledWith(-1001);
     expect(sendMessage).toHaveBeenCalledTimes(2);
   });
@@ -163,7 +167,8 @@ describe("超级管理员开关命令", () => {
     expect(clearAdDetection).not.toHaveBeenCalled();
 
     await handleAdDetectCommand(context("disable"));
-    expect(states.get(-1001)?.isAdDetectEnabled).toBe(false);
+    expect(getChatState(-1001).isAdDetectEnabled).toBe(false);
+    expect(states.has(-1001)).toBe(false);
     // disable 同步清掉 Worker 里已排队的待检消息。
     expect(clearAdDetection).toHaveBeenCalledWith(-1001);
     expect(sendMessage).toHaveBeenCalledTimes(2);
@@ -177,7 +182,7 @@ describe("超级管理员开关命令", () => {
 
     await handleAdDetectCommand(context("disable"));
 
-    expect(states.get(-1001)?.isAdDetectEnabled).toBe(false);
+    expect(getChatState(-1001).isAdDetectEnabled).toBe(false);
     // 开关照样关掉，回执照样发出去。
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
@@ -191,7 +196,8 @@ describe("超级管理员开关命令", () => {
     expect(clearFloodControl).not.toHaveBeenCalled();
 
     await handleFloodControlCommand(context("disable"));
-    expect(states.get(-1001)?.isFloodControlEnabled).toBe(false);
+    expect(getChatState(-1001).isFloodControlEnabled).toBe(false);
+    expect(states.has(-1001)).toBe(false);
     expect(clearFloodControl).toHaveBeenCalledWith(-1001);
     expect(sendMessage).toHaveBeenCalledTimes(2);
   });
@@ -204,7 +210,7 @@ describe("超级管理员开关命令", () => {
 
     await handleFloodControlCommand(context("disable"));
 
-    expect(states.get(-1001)?.isFloodControlEnabled).toBe(false);
+    expect(getChatState(-1001).isFloodControlEnabled).toBe(false);
     expect(saveStateInBackground).toHaveBeenCalledWith("flood_control toggled");
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
@@ -228,7 +234,8 @@ describe("超级管理员开关命令", () => {
     expect(deactivateJoinGuardChat).not.toHaveBeenCalled();
 
     await handleAntiRaidCommand(context("disable"));
-    expect(states.get(-1001)?.isAntiRaidEnabled).toBe(false);
+    expect(getChatState(-1001).isAntiRaidEnabled).toBe(false);
+    expect(states.has(-1001)).toBe(false);
     // 只拆入群这条链路：广告检测与防刷屏各有各的开关，这条命令不关它们。
     expect(deactivateJoinGuardChat).toHaveBeenCalledWith(-1001);
     expect(clearAdDetection).not.toHaveBeenCalled();
@@ -245,7 +252,7 @@ describe("超级管理员开关命令", () => {
     await handleAntiRaidCommand(context("disable"));
 
     // 开关照样 durable 地关掉，即使拆运行态抛错。
-    expect(states.get(-1001)?.isAntiRaidEnabled).toBe(false);
+    expect(getChatState(-1001).isAntiRaidEnabled).toBe(false);
     expect(saveStateInBackground).toHaveBeenCalledWith("antiraid toggled");
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -470,7 +477,8 @@ describe("超级管理员开关命令", () => {
     await handleTranslateCommand(context("enable"));
     expect(states.get(-1001)?.isTranslationEnabled).toBe(true);
     await handleTranslateCommand(context("disable"));
-    expect(states.get(-1001)?.isTranslationEnabled).toBe(false);
+    expect(getChatState(-1001).isTranslationEnabled).toBe(false);
+    expect(states.has(-1001)).toBe(false);
     // enable 写一次；disable 先写会话删除、再写开关。
     expect(saveStateInBackground).toHaveBeenCalledTimes(3);
   });
@@ -500,6 +508,18 @@ describe("超级管理员开关命令", () => {
     await command;
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
+
+  test("未登记的群直接调用 applyChatFeatureSwitch 关闭方向时不插入条目，仍调用一次 persistChatState", async () => {
+    const outcome: ChatFeatureSwitchOutcome = await applyChatFeatureSwitch({
+      chatId: -1001,
+      feature: "aiChat",
+      enabled: false,
+    });
+    expect(outcome).toEqual({ wasEnabled: false, teardownFailed: false });
+    expect(states.has(-1001)).toBeFalse();
+    expect(persistChatState).toHaveBeenCalledTimes(1);
+    expect(persistChatState).toHaveBeenCalledWith(-1001, "ai_chat toggled");
+  });
 });
 
 /** 每条开关命令的驱动方式与它写的那个 ChatState 开关字段。 */
@@ -508,8 +528,9 @@ interface ToggleCase {
   readonly field: ChatStateSwitchKey;
   readonly run: (argument: string) => Promise<void>;
   /**
-   * disable 之后该字段读出来是什么：功能开关落成 false（规范化后等价于「没设过」，但记录本身还在）；
-   * `/init` 的 disable 会整行删掉这个群，读出来是 undefined。逐条写死而不给默认值：`undefined` 是一个有意义的期望。
+   * disable 之后该字段在 `states.get(-1001)` 上读出来是什么：已启用 `/init` 的群关闭功能开关后该字段为 false
+   *（记录因 `isInitEnabled: true` 留在缓存）；`/init` 的 disable 会整行删掉这个群，读出来是 undefined。
+   * 逐条写死而不给默认值：`undefined` 是一个有意义的期望。
    */
   readonly disabledValue: boolean | undefined;
 }
@@ -559,6 +580,9 @@ describe("开关命令的同状态重复执行", () => {
       for (const action of ["enable", "disable"] as const) {
         const target: boolean | undefined = action === "enable" ? true : toggle.disabledValue;
         states.clear();
+        if (toggle.field !== "isInitEnabled") {
+          states.set(-1001, chatStateOf({ isInitEnabled: true }));
+        }
         // 先把状态推到相反一侧，保证紧接着那一次调用一定是真实变化。
         if (action === "disable") await toggle.run("enable");
         sendMessage.mockClear();

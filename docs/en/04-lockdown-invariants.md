@@ -29,7 +29,7 @@
   - Active lockdown mirrors must contain `phase` and a positive integer `intentId`. `announcementMessageId` is present if and only if `announced` is `true`.
   - Verification challenge snapshots must include `phase` and `trackedMessageTimes` (at most `ANTI_RAID_PER_MINUTE_LIMIT` entries).
   - `reminderMessageId`, `replyReminderMessageId`, and `announcementMessageId` are optional; in `kickPending`, both reminder IDs must be absent.
-  - In the `pending` phase, `replyReminderRequested`, `reminderSuperseded`, and whether `welcomeAnchorMessageId` is set are all true or all false; every other phase holds an empty `trackedMessageTimes`, no `invitedBy`, `replyReminderRequested: false`, no `welcomeAnchorMessageId`, and `reminderSuperseded: true`. The `expelling` notice and confirmation flags (`successNoticeSent`, `failureNoticeSent`, `unconfirmedNoticeSent`, `removalConfirmed`) accept only absence or `true`.
+  - In the `pending` phase, `replyReminderRequested`, `reminderSuperseded`, and whether `welcomeAnchorMessageId` is set are all true or all false; every other phase holds an empty `trackedMessageTimes`, no `invitedBy`, `replyReminderRequested: false`, no `welcomeAnchorMessageId`, and `reminderSuperseded: true`. The `expelling` `expelReason` accepts only `timeout`, `flood`, and `wrongAnswer`, and its notice and confirmation flags (`successNoticeSent`, `failureNoticeSent`, `unconfirmedNoticeSent`, `removalConfirmed`) accept only absence or `true`.
   - Any other missing or unrecognized fields are rejected by strict validation and must be migrated offline; production read paths retain no backward-compatibility fallback logic.
 
 - **Independent Terminal Notice Flags**:

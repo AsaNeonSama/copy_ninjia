@@ -22,7 +22,7 @@ import { exportedConstDeclarations } from "./conventions/constsProgram";
 import type { ExportedConstDeclaration } from "./conventions/constsProgram";
 import { collectCoverageMetricProblems } from "./conventions/coverageMetrics";
 import { collectFaultInjectionSuiteProblems } from "./conventions/faultInjectionSuite";
-import { collectFileLengthProblems } from "./conventions/fileLength";
+import { collectFileLengthProblems, FILE_LENGTH_CHECKED_PATH_PATTERN } from "./conventions/fileLength";
 import { collectInstallModuleProblems } from "./conventions/installModules";
 import {
   collectUndeclaredDependencyProblems,
@@ -175,7 +175,7 @@ const repositoryPaths: ReadonlySet<string> = collectRepositoryPaths(tracked);
 failures.push(...await collectMiniAppFrontendBoundaryProblems(PROJECT_ROOT, tracked));
 for (const trackedPath of tracked) {
   const path: string = join(PROJECT_ROOT, trackedPath);
-  if (/\.(?:[cm]?[jt]sx?|sh)$/.test(path)) {
+  if (FILE_LENGTH_CHECKED_PATH_PATTERN.test(trackedPath)) {
     failures.push(...collectFileLengthProblems(trackedPath, await Bun.file(path).text()));
   }
   if (extname(path) === ".md") {
@@ -192,7 +192,7 @@ for (const trackedPath of tracked) {
     ));
   }
   const extension: string = extname(path);
-  if (![".ts", ".tsx", ".json", ".md", ".yaml", ".yml"].includes(extension)) continue;
+  if (![".ts", ".tsx", ".css", ".html", ".json", ".md", ".yaml", ".yml"].includes(extension)) continue;
   const stats: Stats = await Bun.file(path).stat();
   if (!stats.isFile() || (stats.mode & 0o111) === 0) continue;
   if ((await Bun.file(path).text()).startsWith("#!")) continue;

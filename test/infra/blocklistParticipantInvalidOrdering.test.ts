@@ -19,7 +19,7 @@ import {
   BLOCKLIST_PARTICIPANT_INVALID_LIMIT,
   BLOCKLIST_PARTICIPANT_INVALID_WRITE_ATTEMPTS,
 } from "../../packages/consts/antiRaid/blocklist";
-import type { BlocklistIdPage } from "../../packages/types/identityStorage";
+import type { IdentityIdPage } from "../../packages/types/identityStorage";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
 import { identityFieldView } from "../helpers/identityCacheView";
@@ -50,19 +50,19 @@ const {
 const {
   cachedBlocklistEntry,
   prefetchIdentityPolicies,
-  readBlocklistSweepPage,
+  readIdentitySweepPage,
 } = await import("../../packages/infra/identityStorage");
 const { blocklistIdentityMutationRunner } = await import("../../packages/cache/main/blocklist");
 const { isUserBlocked } = await import("../../packages/infra/blocklist/membership");
 const { recordBlocklistParticipantReadability } = await import("../../packages/infra/blocklist/participantInvalid");
 
-const EMPTY_PAGE: BlocklistIdPage = { ids: [], nextCursor: null, done: true };
+const EMPTY_PAGE: IdentityIdPage = { ids: [], nextCursor: null, done: true };
 
 /** 发起一次卡在 flush 上的补扫分页读，返回放行 flush 的 resolver 与读取结果。 */
-function startGatedSweepPageRead(): { release: () => void; page: Promise<BlocklistIdPage> } {
+function startGatedSweepPageRead(): { release: () => void; page: Promise<IdentityIdPage> } {
   const gate: { promise: Promise<void>; resolve: () => void } = Promise.withResolvers<void>();
   participantInvalidHarness.flushGate = gate.promise;
-  const page: Promise<BlocklistIdPage> = readBlocklistSweepPage(null);
+  const page: Promise<IdentityIdPage> = readIdentitySweepPage("blocklist", null);
   participantInvalidHarness.flushGate = null;
   return { release: gate.resolve, page };
 }
@@ -182,7 +182,7 @@ describe("黑名单销号计数的次序", () => {
   test("补扫分页读 flush 期间落下的计数写入立即投递，也不让这次核对失败", async () => {
     storeBlocked(7);
     await prefetchIdentityPolicies([7]);
-    const sweep: { release: () => void; page: Promise<BlocklistIdPage> } = startGatedSweepPageRead();
+    const sweep: { release: () => void; page: Promise<IdentityIdPage> } = startGatedSweepPageRead();
 
     recordBlocklistParticipantReadability(receipt([7]));
     await drainParticipantInvalidWork();
@@ -192,6 +192,6 @@ describe("黑名单销号计数的次序", () => {
     sweep.release();
     await expect(sweep.page).resolves.toEqual(EMPTY_PAGE);
     // 之后开始的分页读由自己的 flush 覆盖这次写入。
-    await expect(readBlocklistSweepPage(null)).resolves.toEqual(EMPTY_PAGE);
+    await expect(readIdentitySweepPage("blocklist", null)).resolves.toEqual(EMPTY_PAGE);
   });
 });

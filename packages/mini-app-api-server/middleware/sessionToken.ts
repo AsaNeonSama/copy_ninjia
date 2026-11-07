@@ -23,7 +23,10 @@ export function createMiniAppSessionMiddleware(allowQueryAuth: boolean): MiniApp
     next: () => Response | Promise<Response>
   ): Promise<Response> => {
     const nowMs: number = Date.now();
-    const sessionToken: string = extractSessionToken(ctx.request, allowQueryAuth);
+    const sessionToken: string = extractSessionToken(
+      ctx.request,
+      allowQueryAuth ? ctx.url : null
+    );
     if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) {
       return accessErrorResponse(ctx.request, {
         status: 401,

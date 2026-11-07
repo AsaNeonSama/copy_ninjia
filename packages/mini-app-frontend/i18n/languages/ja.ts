@@ -116,6 +116,8 @@ export function getJaTranslations(): Readonly<MiniAppTranslations> {
         return `${featureLabel} をオンにしたわ。`;
       case "FEATURE_DISABLED":
         return `${featureLabel} をオフにしたわ。`;
+      case "ANTI_RAID_DISABLED_TEARDOWN_FAILED":
+        return "入群認証と荒らし対策はオフにしたけれど、開いている認証ウィンドウとプライベートモードの後片付けに失敗したわ。ログを確認して、あとでもう一度オフにして。";
       case "PROXY_SEND_ENABLED":
         return "このグループを個別チャット代送先 (/send) に設定したわ。";
       case "PROXY_SEND_DISABLED":

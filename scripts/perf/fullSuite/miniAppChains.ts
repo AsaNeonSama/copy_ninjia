@@ -30,7 +30,11 @@ import type { getOrCreateChatState } from "../../../packages/infra/storage/state
 import type { issueMiniAppAuthSession } from "../../../packages/mini-app-api-server/auth/session";
 import type { ChatState } from "../../../packages/types/chatState";
 import type { DomainFlushOutcome } from "../../../packages/types/diskIO";
-import type { MiniAppChatDetail } from "../../../packages/types/miniApp";
+import type {
+  MiniAppBunRouteHandler,
+  MiniAppBunRouteTable,
+  MiniAppChatDetail,
+} from "../../../packages/types/miniApp";
 import type { ChainDefinition } from "./chainDefinition";
 import type { ChainName } from "./types";
 
@@ -53,7 +57,7 @@ export interface MiniAppChainDependencies {
   readonly flushDiskIODomain: typeof flushDiskIODomain;
   readonly issueMiniAppAuthSession: typeof issueMiniAppAuthSession;
   readonly miniAppAuthSessions: typeof miniAppAuthSessions;
-  readonly loadChatsBunRoutes: () => Promise<Bun.Serve.Routes<undefined, string>>;
+  readonly loadChatsBunRoutes: () => Promise<MiniAppBunRouteTable>;
 }
 
 /**
@@ -185,23 +189,16 @@ function miniAppApiRequestChain(
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-origin",
       };
-      const routes: Bun.Serve.Routes<undefined, string> =
+      const routes: MiniAppBunRouteTable =
         await dependencies.loadChatsBunRoutes();
-      const chatDetailEntry: unknown = (
-        routes as Readonly<Record<string, unknown>>
-      )["/api/chats/:chatId"];
-      const getHandler: unknown =
-        typeof chatDetailEntry === "object" && chatDetailEntry !== null
-          ? (chatDetailEntry as Readonly<Record<string, unknown>>).GET
-          : undefined;
-      if (typeof getHandler !== "function") {
+      const getHandler: MiniAppBunRouteHandler | undefined =
+        routes["/api/chats/:chatId"]?.GET;
+      if (getHandler === undefined) {
         throw new Error(
           "Mini App API benchmark GET /api/chats/:chatId route is missing."
         );
       }
-      routeHandlerHolder.current = getHandler as (
-        req: ChatDetailRouteRequest
-      ) => Promise<Response>;
+      routeHandlerHolder.current = getHandler;
     },
     run: async (sequence: number): Promise<void> => {
       const routeHandler:

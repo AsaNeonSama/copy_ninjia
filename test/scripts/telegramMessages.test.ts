@@ -33,6 +33,7 @@ async function problemsFor(files: Readonly<Record<string, string>>): Promise<rea
     join(sourceRoot, "antiRaid"),
     join(sourceRoot, "auto"),
     join(sourceRoot, "cron"),
+    join(sourceRoot, "mini-app-api-server"),
   ]) mkdirSync(directory, { recursive: true });
   for (const [relativePath, text] of Object.entries({ ...BASELINE_FILES, ...files })) {
     await Bun.write(join(sourceRoot, relativePath), text);
@@ -71,6 +72,8 @@ describe("Telegram 提示留存门禁的边界豁免", () => {
         "export function sendQaDirectAnswer(): unknown { return sendMessage({ chatId: 1 }); }\n",
       "workers/antiRaid/lockdownApi.ts": 'import { sendMessage } from "../../infra/telegram";\n' +
         "export function beginLockdownAnnouncement(): unknown { return sendMessage({ chatId: 1 }); }\n",
+      "mini-app-api-server/handlers/auth.ts": 'import { sendMessage } from "../../infra/telegram";\n' +
+        "export function handlePostAuthLoginRoute(): unknown { return sendMessage({ chatId: 1 }); }\n",
     })).toEqual([]);
   });
 
@@ -150,9 +153,13 @@ describe("Telegram 提示留存门禁的命名边界函数", () => {
         "export function replyToOtherTrigger(): unknown { return sendMessage({ chatId: 1 }); }\n",
       "antiRaid/notice.ts": 'import { sendMessage } from "../infra/telegram";\n' +
         "export function announce(): unknown { return sendMessage({ chatId: 1 }); }\n",
+      "mini-app-api-server/handlers/auth.ts": 'import { sendMessage } from "../../infra/telegram";\n' +
+        "export function handlePostAuthLoginRoute(): unknown { return sendMessage({ chatId: 1 }); }\n" +
+        "export function handleOtherAuthRoute(): unknown { return sendMessage({ chatId: 1 }); }\n",
     })).toEqual([
       "packages/antiRaid/notice.ts: ordinary Worker/group notices must use the main-thread temporary-message boundary",
       "packages/auto/message/proactive.ts: ordinary Worker/group notices must use the main-thread temporary-message boundary",
+      "packages/mini-app-api-server/handlers/auth.ts: ordinary Worker/group notices must use the main-thread temporary-message boundary",
     ]);
   });
 

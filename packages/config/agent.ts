@@ -109,17 +109,6 @@ function requireAgentRecord(
 }
 
 /**
- * 读入统一配置并只校验顶层，具体能力由消费方严格解析。
- * @param path 配置文件路径。
- * @returns 顶层 `agent` 字段对应的只读对象记录。
- */
-async function readAgentConfigRecord(
-  path: string
-): Promise<Readonly<Record<string, unknown>>> {
-  return requireAgentRecord(await readJsonInput(path), path);
-}
-
-/**
  * 严格解析整份已存在的 agent.json：已出现的每项能力都必须合法，缺省的段返回 null。
  * @param path 配置文件路径。
  * @returns 广告检测与 AI 对话能力的分段配置快照，未配置的段为 null。
@@ -127,7 +116,10 @@ async function readAgentConfigRecord(
 export async function loadAgentConfigSnapshots(
   path: string = AGENT_CONFIG_PATH
 ): Promise<AgentConfigSnapshots> {
-  const record: Readonly<Record<string, unknown>> = await readAgentConfigRecord(path);
+  const record: Readonly<Record<string, unknown>> = requireAgentRecord(
+    await readJsonInput(path),
+    path
+  );
   if (!hasOnlyKeys(record, AGENT_CAPABILITY_NAMES)) {
     return invalidInput(
       path,

@@ -1,20 +1,15 @@
-import type { ChatFullInfo } from "grammy/types";
 import { chatQaEntries } from "../../../cache/main/qa";
-import { telegramApiState } from "../../../cache/perThread/telegramApi";
 import { answerRejectionOf, questionRejectionOf } from "../../../commands/qa/fieldRules";
 import { SUPER_ADMIN_USER_ID } from "../../../config/bot";
 import { translateConfigReadiness } from "../../../config/readiness";
-import { USERNAME_ARG_PATTERN } from "../../../consts/commands";
 import { DELETE_MESSAGE_CHAT_TARGET_MAX } from "../../../consts/deleteMessage";
-import {
-  MINI_APP_BIDI_CONTROL_CHARS_PATTERN,
-  MINI_APP_TRANSLATE_LANGUAGES,
-} from "../../../consts/miniApp";
+import { MINI_APP_TRANSLATE_LANGUAGES } from "../../../consts/miniApp";
 import {
   CHAT_QA_ANSWER_MAX_CHARS,
   CHAT_QA_MAX_PER_CHAT,
   CHAT_QA_QUESTION_MAX_CHARS,
 } from "../../../consts/qa";
+import { BIDI_CONTROL_PATTERN } from "../../../consts/text";
 import { TRANSLATE_CHAT_USER_LIMIT } from "../../../consts/translate";
 import { botChatPermissionsIn } from "../../../infra/botAdmin";
 import { identityMetadataFromCachedUser } from "../../../infra/identityStorage";
@@ -28,10 +23,6 @@ import {
   getChatStateCache,
   persistChatState,
 } from "../../../infra/storage/stateStore";
-import { readPresentChatUser } from "../../../infra/telegram/actions/membership";
-import { probeTelegramChatInfoSilent } from "../../../infra/telegram/actions/miniApp";
-import { bot } from "../../../infra/telegram/mainClient";
-import { parseChatIdArgument, parseUserIdArgument } from "../../../libs/telegramId";
 import { setTranslateState, stopTranslation } from "../../../translate/state";
 import type { CachedUser, ChatState } from "../../../types/chatState";
 import type { TelegramIdentityMetadata } from "../../../types/identityPolicy";
@@ -46,23 +37,16 @@ import type {
   MiniAppTranslateLanguage,
 } from "../../../types/miniApp";
 import type { QaFieldRejection } from "../../../types/qa";
-import type {
-  BotChatPermissions,
-  ChatMemberPresence,
-} from "../../../types/telegram";
+import type { BotChatPermissions } from "../../../types/telegram";
 import type { TranslateState } from "../../../types/translate";
+import { resolveIdTarget } from "../../../users/senderIdentity";
 import {
-  resolveIdTarget,
-  resolveUsernameTarget,
-  updateCachedIdentity,
-} from "../../../users/senderIdentity";
-import { channelIdentity, userIdentity } from "../../../users/visibleSender";
-import {
-  currentBotUserId,
   formatIdentityDisplayName,
   syncIdentityMetadataWithBotCache,
 } from "../identities/metadata";
 import { getManagedChatDetail } from "./query";
+import { resolveTargetInput, verifyTargetUserInChat } from "./targetInput";
+import type { ResolvedTargetInput } from "./targetInput";
 
 /**
  * 将问答字段校验拒绝原因映射为 Mini App 服务端回执编码。
@@ -92,7 +76,7 @@ function buildDeleteTargetItem(targetId: number): Readonly<MiniAppChatDeleteTarg
   const meta: TelegramIdentityMetadata = identityMetadataFromCachedUser(cached);
   const displayName: string = formatIdentityDisplayName(targetId, meta);
   const cleanUsername: string = meta.username
-    .replace(MINI_APP_BIDI_CONTROL_CHARS_PATTERN, "")
+    .replace(BIDI_CONTROL_PATTERN, "")
     .trim();
   return {
     id: targetId,
@@ -119,7 +103,7 @@ function buildTranslateTargetItem(
     );
   const displayName: string = formatIdentityDisplayName(targetId, effectiveMeta);
   const cleanUsername: string = effectiveMeta.username
-    .replace(MINI_APP_BIDI_CONTROL_CHARS_PATTERN, "")
+    .replace(BIDI_CONTROL_PATTERN, "")
     .trim();
   return {
     id: targetId,
@@ -172,91 +156,6 @@ export function getManagedChatTargets(
   };
 }
 
-/** 目标输入解析结果。 */
-type ResolvedTargetInput =
-  | { readonly ok: true; readonly user: CachedUser }
-  | { readonly ok: false; readonly message: string };
-
-/**
- * 将前端传入的目标参数（`@username`、`username`、正整数用户 ID 或负数频道 ID）解析为 `CachedUser`，并执行自指与当前群自身身份拦截。
- * @param chatId 当前操作的群 ID。
- * @param rawTarget 前端提交的原始目标字符串。
- * @returns 解析成功的目标身份或失败提示键。
- */
-function resolveTargetInput(chatId: number, rawTarget: string | undefined): ResolvedTargetInput {
-  const trimmed: string = (rawTarget ?? "").trim();
-  if (trimmed.length === 0) {
-    return { ok: false, message: "TARGET_REQUIRED" };
-  }
-
-  const numericId: number | undefined =
-    parseUserIdArgument(trimmed) ?? parseChatIdArgument(trimmed);
-  let targetUser: CachedUser;
-  if (numericId !== undefined) {
-    targetUser = resolveIdTarget(numericId);
-  } else {
-    const candidate: string = trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
-    const match: RegExpExecArray | null = USERNAME_ARG_PATTERN.exec(candidate);
-    if (match === null) {
-      return { ok: false, message: "TARGET_INVALID" };
-    }
-    const found: CachedUser | undefined = resolveUsernameTarget(match[1]!);
-    if (found === undefined) {
-      return { ok: false, message: "TARGET_USERNAME_NOT_FOUND" };
-    }
-    targetUser = found;
-  }
-
-  const botUserId: number | undefined = currentBotUserId();
-  if (botUserId !== undefined && targetUser.id === botUserId) {
-    return { ok: false, message: "TARGET_SELF_FORBIDDEN" };
-  }
-  if (targetUser.id === chatId) {
-    return { ok: false, message: "TARGET_CURRENT_CHAT_FORBIDDEN" };
-  }
-  return { ok: true, user: targetUser };
-}
-
-/**
- * 当目标为正整数用户 ID 且 Telegram API 客户端已就绪时，探测该用户当前是否在目标群内，并将现查到的资料同步写入 Bot 主线程发送者缓存。
- * @param chatId 目标群 ID。
- * @param targetUser 初步解析出的目标身份。
- * @returns 确认不在群时返回失败结果；在群或离线未挂载 API 时返回目标身份（在群时补齐最新用户资料）。
- */
-async function verifyTargetUserInChat(
-  chatId: number,
-  targetUser: CachedUser
-): Promise<ResolvedTargetInput> {
-  if (telegramApiState.current === null && !bot.isInited()) {
-    return { ok: true, user: targetUser };
-  }
-  if (targetUser.id <= 0 || targetUser.isChannel === true) {
-    if (targetUser.title === undefined && targetUser.username === undefined) {
-      const chatInfo: ChatFullInfo | undefined =
-        await probeTelegramChatInfoSilent(targetUser.id);
-      if (chatInfo !== undefined) {
-        const liveChannel: CachedUser = channelIdentity(chatInfo);
-        updateCachedIdentity(liveChannel);
-        return { ok: true, user: liveChannel };
-      }
-    }
-    return { ok: true, user: targetUser };
-  }
-  const presence: ChatMemberPresence = await readPresentChatUser({
-    chatId,
-    userId: targetUser.id,
-  });
-  if (presence.kind === "absent") {
-    return { ok: false, message: "TARGET_NOT_IN_CHAT" };
-  }
-  if (presence.kind === "present") {
-    const liveUser: CachedUser = userIdentity(presence.user);
-    updateCachedIdentity(liveUser);
-    return { ok: true, user: liveUser };
-  }
-  return { ok: true, user: targetUser };
-}
-
 /**
  * 构造目标管理变更后的统一返回载荷（含最新群详情与目标管理视图）。
  * @param chatId 目标群 ID。
@@ -280,6 +179,253 @@ async function buildMutationResult(
 }
 
 /**
+ * 群未 `/init`（或在等待期间被关闭）时的变更结果，不附视图。
+ * @returns 不附视图的 `CHAT_NOT_FOUND` 结果。
+ */
+function chatNotFound(): Readonly<MiniAppChatTargetsMutationResult> {
+  return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
+}
+
+/**
+ * 读取仍处于 `/init` 的群状态；跨过 await 的分支在写入前用它重新确认群仍受管。
+ * @param chatId 目标群 ID。
+ * @returns 群仍启用 `/init` 时返回其可变状态，否则返回 undefined。
+ */
+function initializedChatState(chatId: number): ChatState | undefined {
+  const state: ChatState | undefined = getChatStateCache().get(chatId);
+  return state?.isInitEnabled === true ? state : undefined;
+}
+
+/**
+ * 校验移除类请求的目标数字 ID：非零安全整数（用户为正、频道为负）。
+ * @param id 请求里的目标 ID。
+ * @returns 合法时返回该 ID，否则返回 undefined。
+ */
+function removalTargetId(id: number | undefined): number | undefined {
+  return typeof id === "number" && Number.isSafeInteger(id) && id !== 0 ? id : undefined;
+}
+
+/**
+ * 新增或替换一条问答对；字段规则与群内 `/qa set` 表单共用。
+ * @param chatId 目标群 ID。
+ * @param request 变更请求（读取 `q`、`a`）。
+ * @returns 变更结果。
+ */
+async function setQaPair(
+  chatId: number,
+  request: Readonly<MiniAppChatTargetsMutationRequest>
+): Promise<Readonly<MiniAppChatTargetsMutationResult>> {
+  const q: string = (request.q ?? "").trim();
+  const a: string = (request.a ?? "").trim();
+  if (q.length === 0 || a.length === 0) {
+    return buildMutationResult(chatId, false, "QA_EMPTY_FIELDS");
+  }
+  const rejection: QaFieldRejection | null =
+    questionRejectionOf(q) ?? answerRejectionOf(a);
+  if (rejection !== null) {
+    return buildMutationResult(chatId, false, qaRejectionMessageOf(rejection));
+  }
+  try {
+    const outcome: "created" | "replaced" = setChatQa(chatId, q, a);
+    return buildMutationResult(
+      chatId,
+      true,
+      outcome === "replaced" ? "QA_UPDATED" : "QA_ADDED"
+    );
+  } catch (error: unknown) {
+    if (error instanceof ChatQaCapacityError) {
+      return buildMutationResult(chatId, false, "QA_LIMIT_REACHED");
+    }
+    return buildMutationResult(chatId, false, "QA_STORAGE_FAILED");
+  }
+}
+
+/**
+ * 删除一条问答对。
+ * @param chatId 目标群 ID。
+ * @param request 变更请求（读取 `q`）。
+ * @returns 变更结果。
+ */
+async function removeQaPair(
+  chatId: number,
+  request: Readonly<MiniAppChatTargetsMutationRequest>
+): Promise<Readonly<MiniAppChatTargetsMutationResult>> {
+  const q: string = (request.q ?? "").trim();
+  if (q.length === 0) {
+    return buildMutationResult(chatId, false, "QA_EMPTY_FIELDS");
+  }
+  try {
+    const removed: boolean = removeChatQa(chatId, q);
+    return buildMutationResult(
+      chatId,
+      true,
+      removed ? "QA_REMOVED" : "QA_NOT_FOUND"
+    );
+  } catch (_error: unknown) {
+    return buildMutationResult(chatId, false, "QA_STORAGE_FAILED");
+  }
+}
+
+/**
+ * 新增一个追着删目标：拒绝超级管理员与缺删消息权限，核验在群后去重并受 DELETE_MESSAGE_CHAT_TARGET_MAX 限制。
+ * @param chatId 目标群 ID。
+ * @param request 变更请求（读取 `target`）。
+ * @returns 变更结果。
+ */
+async function addDeleteMessageTarget(
+  chatId: number,
+  request: Readonly<MiniAppChatTargetsMutationRequest>
+): Promise<Readonly<MiniAppChatTargetsMutationResult>> {
+  const resolved: ResolvedTargetInput = resolveTargetInput(chatId, request.target);
+  if (!resolved.ok) {
+    return buildMutationResult(chatId, false, resolved.message);
+  }
+  if (resolved.user.id === SUPER_ADMIN_USER_ID) {
+    return buildMutationResult(chatId, false, "DELETE_TARGET_SUPER_ADMIN_FORBIDDEN");
+  }
+  const permissions: Readonly<BotChatPermissions> | undefined =
+    await botChatPermissionsIn(chatId);
+  if (permissions?.canDeleteMessages !== true) {
+    return buildMutationResult(chatId, false, "DELETE_TARGET_MISSING_BOT_PERMISSION");
+  }
+  const verified: ResolvedTargetInput = await verifyTargetUserInChat(
+    chatId,
+    resolved.user
+  );
+  if (!verified.ok) {
+    return buildMutationResult(chatId, false, verified.message);
+  }
+  const latestState: ChatState | undefined = initializedChatState(chatId);
+  if (latestState === undefined) return chatNotFound();
+  const current: readonly number[] = latestState.deleteMessageTargets ?? [];
+  if (current.includes(verified.user.id)) {
+    return buildMutationResult(chatId, true, "DELETE_TARGET_ALREADY_EXISTS");
+  }
+  if (current.length >= DELETE_MESSAGE_CHAT_TARGET_MAX) {
+    return buildMutationResult(chatId, false, "DELETE_TARGET_LIMIT_REACHED");
+  }
+  latestState.deleteMessageTargets = [...current, verified.user.id];
+  await persistChatState(chatId, "delete_message target added via Mini App");
+  return buildMutationResult(chatId, true, "DELETE_TARGET_ADDED");
+}
+
+/**
+ * 移除一个追着删目标。
+ * @param chatId 目标群 ID。
+ * @param state 入口已确认启用 `/init` 的群状态。
+ * @param request 变更请求（读取 `id`）。
+ * @returns 变更结果。
+ */
+async function removeDeleteMessageTarget(
+  chatId: number,
+  state: ChatState,
+  request: Readonly<MiniAppChatTargetsMutationRequest>
+): Promise<Readonly<MiniAppChatTargetsMutationResult>> {
+  const targetId: number | undefined = removalTargetId(request.id);
+  if (targetId === undefined) {
+    return buildMutationResult(chatId, false, "TARGET_INVALID");
+  }
+  const current: readonly number[] = state.deleteMessageTargets ?? [];
+  if (!current.includes(targetId)) {
+    return buildMutationResult(chatId, true, "DELETE_TARGET_NOT_FOUND");
+  }
+  const next: number[] = current.filter((id: number): boolean => id !== targetId);
+  state.deleteMessageTargets = next.length > 0 ? next : undefined;
+  await persistChatState(chatId, "delete_message target removed via Mini App");
+  return buildMutationResult(chatId, true, "DELETE_TARGET_REMOVED");
+}
+
+/**
+ * 新增或改语言一个追着翻目标：要求翻译能力就绪且本群翻译开着，核验在群后受 TRANSLATE_CHAT_USER_LIMIT 限制。
+ * @param chatId 目标群 ID。
+ * @param state 入口已确认启用 `/init` 的群状态。
+ * @param request 变更请求（读取 `target`、`language`）。
+ * @returns 变更结果。
+ */
+async function addTranslateTarget(
+  chatId: number,
+  state: ChatState,
+  request: Readonly<MiniAppChatTargetsMutationRequest>
+): Promise<Readonly<MiniAppChatTargetsMutationResult>> {
+  if (!translateConfigReadiness().ok) {
+    return buildMutationResult(chatId, false, "TRANSLATE_CAPABILITY_UNAVAILABLE");
+  }
+  if (!state.isTranslationEnabled) {
+    return buildMutationResult(chatId, false, "TRANSLATE_FEATURE_DISABLED");
+  }
+  const language: MiniAppTranslateLanguage | undefined = request.language;
+  if (
+    language === undefined ||
+    !MINI_APP_TRANSLATE_LANGUAGES.includes(language)
+  ) {
+    return buildMutationResult(chatId, false, "TRANSLATE_LANGUAGE_INVALID");
+  }
+  const resolved: ResolvedTargetInput = resolveTargetInput(chatId, request.target);
+  if (!resolved.ok) {
+    return buildMutationResult(chatId, false, resolved.message);
+  }
+  const verified: ResolvedTargetInput = await verifyTargetUserInChat(
+    chatId,
+    resolved.user
+  );
+  if (!verified.ok) {
+    return buildMutationResult(chatId, false, verified.message);
+  }
+  const latestState: ChatState | undefined = initializedChatState(chatId);
+  if (latestState === undefined) return chatNotFound();
+  if (!latestState.isTranslationEnabled) {
+    return buildMutationResult(chatId, false, "TRANSLATE_FEATURE_DISABLED");
+  }
+  const currentList: readonly TranslateState[] = latestState.translate ?? [];
+  const existing: TranslateState | undefined = currentList.find(
+    (item: TranslateState): boolean => item.translatedUser.id === verified.user.id
+  );
+  if (existing === undefined && currentList.length >= TRANSLATE_CHAT_USER_LIMIT) {
+    return buildMutationResult(chatId, false, "TRANSLATE_TARGET_LIMIT_REACHED");
+  }
+  setTranslateState(chatId, {
+    translatedUser: verified.user,
+    language,
+  });
+  await persistChatState(chatId, "translation target updated via Mini App");
+  if (existing?.language === language) {
+    return buildMutationResult(chatId, true, "TRANSLATE_TARGET_ALREADY_EXISTS");
+  }
+  return buildMutationResult(
+    chatId,
+    true,
+    existing !== undefined ? "TRANSLATE_TARGET_UPDATED" : "TRANSLATE_TARGET_ADDED"
+  );
+}
+
+/**
+ * 移除一个追着翻目标（与 `/translate stop` 指定目标同源）。
+ * @param chatId 目标群 ID。
+ * @param state 入口已确认启用 `/init` 的群状态。
+ * @param request 变更请求（读取 `id`）。
+ * @returns 变更结果。
+ */
+async function removeTranslateTarget(
+  chatId: number,
+  state: ChatState,
+  request: Readonly<MiniAppChatTargetsMutationRequest>
+): Promise<Readonly<MiniAppChatTargetsMutationResult>> {
+  const targetId: number | undefined = removalTargetId(request.id);
+  if (targetId === undefined) {
+    return buildMutationResult(chatId, false, "TARGET_INVALID");
+  }
+  const hadTarget: boolean = (state.translate ?? []).some(
+    (item: TranslateState): boolean => item.translatedUser.id === targetId
+  );
+  await stopTranslation(chatId, targetId);
+  return buildMutationResult(
+    chatId,
+    true,
+    hadTarget ? "TRANSLATE_TARGET_REMOVED" : "TRANSLATE_TARGET_NOT_FOUND"
+  );
+}
+
+/**
  * 在指定已 `/init` 群内执行问答对、追着删目标或追着翻目标的新增/修改/删除操作。
  * @param chatId 目标群 ID。
  * @param request 变更动作及对应字段。
@@ -289,190 +435,20 @@ export async function mutateManagedChatTargets(
   chatId: number,
   request: Readonly<MiniAppChatTargetsMutationRequest>
 ): Promise<Readonly<MiniAppChatTargetsMutationResult>> {
-  const state: ChatState = getChatState(chatId);
-  if (!state.isInitEnabled) {
-    return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
-  }
-
+  const state: ChatState | undefined = initializedChatState(chatId);
+  if (state === undefined) return chatNotFound();
   switch (request.action) {
-    case "setQa": {
-      const q: string = (request.q ?? "").trim();
-      const a: string = (request.a ?? "").trim();
-      if (q.length === 0 || a.length === 0) {
-        return buildMutationResult(chatId, false, "QA_EMPTY_FIELDS");
-      }
-      const rejection: QaFieldRejection | null =
-        questionRejectionOf(q) ?? answerRejectionOf(a);
-      if (rejection !== null) {
-        return buildMutationResult(chatId, false, qaRejectionMessageOf(rejection));
-      }
-      try {
-        const outcome: "created" | "replaced" = setChatQa(chatId, q, a);
-        return buildMutationResult(
-          chatId,
-          true,
-          outcome === "replaced" ? "QA_UPDATED" : "QA_ADDED"
-        );
-      } catch (error: unknown) {
-        if (error instanceof ChatQaCapacityError) {
-          return buildMutationResult(chatId, false, "QA_LIMIT_REACHED");
-        }
-        return buildMutationResult(chatId, false, "QA_STORAGE_FAILED");
-      }
-    }
-
-    case "removeQa": {
-      const q: string = (request.q ?? "").trim();
-      if (q.length === 0) {
-        return buildMutationResult(chatId, false, "QA_EMPTY_FIELDS");
-      }
-      try {
-        const removed: boolean = removeChatQa(chatId, q);
-        return buildMutationResult(
-          chatId,
-          true,
-          removed ? "QA_REMOVED" : "QA_NOT_FOUND"
-        );
-      } catch (_error: unknown) {
-        return buildMutationResult(chatId, false, "QA_STORAGE_FAILED");
-      }
-    }
-
-    case "addDeleteTarget": {
-      const resolved: ResolvedTargetInput = resolveTargetInput(chatId, request.target);
-      if (!resolved.ok) {
-        return buildMutationResult(chatId, false, resolved.message);
-      }
-      if (resolved.user.id === SUPER_ADMIN_USER_ID) {
-        return buildMutationResult(chatId, false, "DELETE_TARGET_SUPER_ADMIN_FORBIDDEN");
-      }
-      const permissions: Readonly<BotChatPermissions> | undefined =
-        await botChatPermissionsIn(chatId);
-      if (permissions?.canDeleteMessages !== true) {
-        return buildMutationResult(chatId, false, "DELETE_TARGET_MISSING_BOT_PERMISSION");
-      }
-      const verified: ResolvedTargetInput = await verifyTargetUserInChat(
-        chatId,
-        resolved.user
-      );
-      if (!verified.ok) {
-        return buildMutationResult(chatId, false, verified.message);
-      }
-      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
-      if (latestState?.isInitEnabled !== true) {
-        return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
-      }
-      const current: readonly number[] = latestState.deleteMessageTargets ?? [];
-      if (current.includes(verified.user.id)) {
-        return buildMutationResult(chatId, true, "DELETE_TARGET_ALREADY_EXISTS");
-      }
-      if (current.length >= DELETE_MESSAGE_CHAT_TARGET_MAX) {
-        return buildMutationResult(chatId, false, "DELETE_TARGET_LIMIT_REACHED");
-      }
-      latestState.deleteMessageTargets = [...current, verified.user.id];
-      await persistChatState(chatId, "delete_message target added via Mini App");
-      return buildMutationResult(chatId, true, "DELETE_TARGET_ADDED");
-    }
-
-    case "removeDeleteTarget": {
-      const targetId: number | undefined = request.id;
-      if (
-        typeof targetId !== "number" ||
-        !Number.isSafeInteger(targetId) ||
-        targetId === 0
-      ) {
-        return buildMutationResult(chatId, false, "TARGET_INVALID");
-      }
-      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
-      if (latestState?.isInitEnabled !== true) {
-        return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
-      }
-      const current: readonly number[] = latestState.deleteMessageTargets ?? [];
-      if (!current.includes(targetId)) {
-        return buildMutationResult(chatId, true, "DELETE_TARGET_NOT_FOUND");
-      }
-      const next: number[] = current.filter((id: number): boolean => id !== targetId);
-      latestState.deleteMessageTargets = next.length > 0 ? next : undefined;
-      await persistChatState(chatId, "delete_message target removed via Mini App");
-      return buildMutationResult(chatId, true, "DELETE_TARGET_REMOVED");
-    }
-
-    case "addTranslateTarget": {
-      if (!translateConfigReadiness().ok) {
-        return buildMutationResult(chatId, false, "TRANSLATE_CAPABILITY_UNAVAILABLE");
-      }
-      if (!state.isTranslationEnabled) {
-        return buildMutationResult(chatId, false, "TRANSLATE_FEATURE_DISABLED");
-      }
-      const language: MiniAppTranslateLanguage | undefined = request.language;
-      if (
-        language === undefined ||
-        !MINI_APP_TRANSLATE_LANGUAGES.includes(language)
-      ) {
-        return buildMutationResult(chatId, false, "TRANSLATE_LANGUAGE_INVALID");
-      }
-      const resolved: ResolvedTargetInput = resolveTargetInput(chatId, request.target);
-      if (!resolved.ok) {
-        return buildMutationResult(chatId, false, resolved.message);
-      }
-      const verified: ResolvedTargetInput = await verifyTargetUserInChat(
-        chatId,
-        resolved.user
-      );
-      if (!verified.ok) {
-        return buildMutationResult(chatId, false, verified.message);
-      }
-      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
-      if (latestState?.isInitEnabled !== true) {
-        return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
-      }
-      if (!latestState.isTranslationEnabled) {
-        return buildMutationResult(chatId, false, "TRANSLATE_FEATURE_DISABLED");
-      }
-      const currentList: readonly TranslateState[] = latestState.translate ?? [];
-      const existing: TranslateState | undefined = currentList.find(
-        (item: TranslateState): boolean => item.translatedUser.id === verified.user.id
-      );
-      if (existing === undefined && currentList.length >= TRANSLATE_CHAT_USER_LIMIT) {
-        return buildMutationResult(chatId, false, "TRANSLATE_TARGET_LIMIT_REACHED");
-      }
-      setTranslateState(chatId, {
-        translatedUser: verified.user,
-        language,
-      });
-      await persistChatState(chatId, "translation target updated via Mini App");
-      if (existing?.language === language) {
-        return buildMutationResult(chatId, true, "TRANSLATE_TARGET_ALREADY_EXISTS");
-      }
-      return buildMutationResult(
-        chatId,
-        true,
-        existing !== undefined ? "TRANSLATE_TARGET_UPDATED" : "TRANSLATE_TARGET_ADDED"
-      );
-    }
-
-    case "removeTranslateTarget": {
-      const targetId: number | undefined = request.id;
-      if (
-        typeof targetId !== "number" ||
-        !Number.isSafeInteger(targetId) ||
-        targetId === 0
-      ) {
-        return buildMutationResult(chatId, false, "TARGET_INVALID");
-      }
-      const latestState: ChatState | undefined = getChatStateCache().get(chatId);
-      if (latestState?.isInitEnabled !== true) {
-        return { ok: false, message: "CHAT_NOT_FOUND", targets: null, detail: null };
-      }
-      const hadTarget: boolean = (latestState.translate ?? []).some(
-        (item: TranslateState): boolean => item.translatedUser.id === targetId
-      );
-      await stopTranslation(chatId, targetId);
-      return buildMutationResult(
-        chatId,
-        true,
-        hadTarget ? "TRANSLATE_TARGET_REMOVED" : "TRANSLATE_TARGET_NOT_FOUND"
-      );
-    }
+    case "setQa":
+      return setQaPair(chatId, request);
+    case "removeQa":
+      return removeQaPair(chatId, request);
+    case "addDeleteTarget":
+      return addDeleteMessageTarget(chatId, request);
+    case "removeDeleteTarget":
+      return removeDeleteMessageTarget(chatId, state, request);
+    case "addTranslateTarget":
+      return addTranslateTarget(chatId, state, request);
+    case "removeTranslateTarget":
+      return removeTranslateTarget(chatId, state, request);
   }
 }

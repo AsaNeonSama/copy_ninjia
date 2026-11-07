@@ -56,6 +56,11 @@ const flushBlocklistDomain = createFlushBlocklistDomain({
   identityAck,
 });
 
+/** 本文件不该走到的 Telegram 方向；被调用即让用例失败。 */
+async function unexpectedTelegramCall(): Promise<never> {
+  throw new Error("unexpected Telegram moderation call");
+}
+
 mock.module("../../packages/config/bot", () => ({
   BOT_ATMOSPHERE: "teasing", SUPER_ADMIN_USER_ID: 1 }));
 mock.module("../../packages/infra/logger", () => ({
@@ -71,6 +76,9 @@ mock.module("../../packages/infra/telegram", () => ({
   replyCommandNotice: replyCommandNoticeVia(sendMessage),
   unbanChatMemberIfBanned,
   unbanChatSenderChat,
+  // 跨群执行单元（infra/blocklist/crossChatBan.ts）同时导入两个方向；本文件只走解封方向。
+  banChatMember: unexpectedTelegramCall,
+  banChatSenderChat: unexpectedTelegramCall,
 }));
 mock.module("../../packages/infra/telegram/client", () => ({
   installTelegramApi: (): void => {},

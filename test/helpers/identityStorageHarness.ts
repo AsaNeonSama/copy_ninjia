@@ -19,9 +19,9 @@ import type {
   DiskIORespawnListener,
   IdentityStoragePersistedReply,
 } from "../../packages/types/diskIO";
-import type { BlocklistEntryData } from "../../packages/types/identityPolicy";
+import type { BlocklistEntryData, IdentityPolicyTable } from "../../packages/types/identityPolicy";
 import type {
-  BlocklistIdPage,
+  IdentityIdPage,
   IdentityPolicyRawReadResult,
 } from "../../packages/types/identityStorage";
 
@@ -36,7 +36,7 @@ async function emptyIdentityPolicyRead(): Promise<IdentityPolicyRawReadResult> {
   return { whitelist: [], blocklist: [], temporaryAdBypass: [] };
 }
 
-async function emptyBlocklistIdPage(afterId: number | null): Promise<BlocklistIdPage> {
+async function emptyIdentityIdPage(afterId: number | null): Promise<IdentityIdPage> {
   return { ids: [], nextCursor: afterId, done: true };
 }
 
@@ -44,18 +44,18 @@ async function emptyBlocklistIdPage(afterId: number | null): Promise<BlocklistId
 export const readImplementation: {
   current: (ids: readonly number[]) => Promise<IdentityPolicyRawReadResult>;
 } = { current: emptyIdentityPolicyRead };
-/** 黑名单游标页读取的当前实现；每个用例开始时复位为停在原游标的空末页。 */
+/** 名单游标页读取的当前实现；每个用例开始时复位为停在原游标的空末页。 */
 export const pageReadImplementation: {
-  current: (afterId: number | null) => Promise<BlocklistIdPage>;
-} = { current: emptyBlocklistIdPage };
+  current: (afterId: number | null) => Promise<IdentityIdPage>;
+} = { current: emptyIdentityIdPage };
 /** postDiskIO 的返回值；false 模拟 Disk I/O 拒收投递。每个用例开始时复位为 true。 */
 export const acceptDiskMessages: { current: boolean } = { current: true };
 
 export const readIdentityPolicies = mock(
   (ids: readonly number[]): Promise<IdentityPolicyRawReadResult> => readImplementation.current(ids)
 );
-export const readBlocklistIdPage = mock(
-  (afterId: number | null): Promise<BlocklistIdPage> =>
+export const readIdentityIdPage = mock(
+  (_table: IdentityPolicyTable, afterId: number | null): Promise<IdentityIdPage> =>
     pageReadImplementation.current(afterId)
 );
 /**
@@ -100,7 +100,7 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
     return acceptDiskMessages.current;
   },
   flushDiskIODomain,
-  readBlocklistIdPage,
+  readIdentityIdPage,
   readIdentityPolicies,
   relayLogMessage: (): boolean => true,
 })));
@@ -134,9 +134,9 @@ export function resetIdentityStorageHarness(): void {
   acceptDiskMessages.current = true;
   resetIdentityStorageCache();
   readIdentityPolicies.mockClear();
-  readBlocklistIdPage.mockClear();
+  readIdentityIdPage.mockClear();
   flushDiskIODomain.mockReset();
   flushDiskIODomain.mockImplementation(flushDiskIODomainStub);
   readImplementation.current = emptyIdentityPolicyRead;
-  pageReadImplementation.current = emptyBlocklistIdPage;
+  pageReadImplementation.current = emptyIdentityIdPage;
 }

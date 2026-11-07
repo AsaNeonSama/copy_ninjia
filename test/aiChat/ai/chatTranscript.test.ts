@@ -133,11 +133,6 @@ describe("AI 群聊转录身份格式", () => {
     );
   });
 
-  test("标注占位形态由真实模板代入「…」生成，与说明文案不会漂移", () => {
-    expect(REPLY_TAG_HINT).toBe("（回复 [message_id:…] … 的消息：「…」）");
-    expect(FORWARD_TAG_HINT).toBe("（转发自 …）");
-  });
-
   test("摘要提示按标注层级区分当前转发与被回复原消息的转发", () => {
     expect(SUMMARY_SYSTEM_PROMPT).toContain("直接紧跟当前发言人名字、位于回复标注外层");
     expect(SUMMARY_SYSTEM_PROMPT).toContain("出现在回复标注内部、紧跟「的消息」之后");

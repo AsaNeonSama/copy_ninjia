@@ -1,5 +1,5 @@
 /**
- * 入群验证状态机的「状态 × 事件」矩阵：每个状态 kind（expelling 按 reason 拆两行）
+ * 入群验证状态机的「状态 × 事件」矩阵：每个状态 kind（expelling 按 reason 拆三行）
  * 对每个事件类型的 next 归类与效果种类。每格现造状态：pending / kickPending /
  * 终态的若干转移原地修改对象。
  */
@@ -27,7 +27,8 @@ type VerificationRowLabel =
   | "kicked"
   | "checkingInviter"
   | "expelling:timeout"
-  | "expelling:flood";
+  | "expelling:flood"
+  | "expelling:wrongAnswer";
 /** 转移后的 next：删除记录、原样返回同一对象（含原地修改），或新对象的 kind。 */
 type VerificationNextLabel = "absent" | "same" | VerificationState["kind"];
 type VerificationCell = readonly [VerificationNextLabel, readonly VerificationEffect["kind"][]];
@@ -80,6 +81,7 @@ const VERIFICATION_ROWS: Readonly<Record<VerificationRowLabel, () => Verificatio
   checkingInviter: (): VerificationState => checkingInviterOf(7, SNAPSHOT),
   "expelling:timeout": (): VerificationState => expellingOf("timeout", SNAPSHOT),
   "expelling:flood": (): VerificationState => expellingOf("flood", SNAPSHOT),
+  "expelling:wrongAnswer": (): VerificationState => expellingOf("wrongAnswer", SNAPSHOT),
 };
 
 /** 不属于任何一行的 kickPending 对象，作执行门事件里已换代的 token。 */
@@ -93,7 +95,7 @@ function staleKickAttempt(): KickPendingState {
   });
 }
 
-/** 每个事件类型一列；参数取最常见的形态（自主入群、本人点按钮、非管理员拉人者）。 */
+/** 每个事件类型一列；参数取最常见的形态（自主入群、本人在当前提醒上答对、非管理员拉人者）。 */
 const VERIFICATION_COLUMNS: Readonly<Record<VerificationEvent["type"], () => VerificationEvent>> = {
   join: (): VerificationEvent => ({
     type: "join",
@@ -123,10 +125,12 @@ const VERIFICATION_COLUMNS: Readonly<Record<VerificationEvent["type"], () => Ver
   callback: (): VerificationEvent => ({
     type: "callback",
     callbackQueryId: "callback-1",
-    action: "self",
     isSelf: true,
     fromCanApprove: false,
     fromLabel: LABEL,
+    messageId: 11,
+    action: "self",
+    answerVerdict: "correct",
   }),
   adminCheckResolved: (): VerificationEvent => ({ type: "adminCheckResolved" }),
   verifyTimeout: (): VerificationEvent => ({ type: "verifyTimeout", now: NOW }),
@@ -236,7 +240,16 @@ const VERIFICATION_MATRIX: Readonly<Record<
     guardDisabled: ["absent", ["deleteReminders"]],
     confirmedThreadComment: ["exempt", ["deleteReminders", "retractJoinCount", "sendWelcome"]],
     callback: ["same", ["answerCallback"]],
-    terminalPersisted: ["same", ["expelFlood"]],
+    terminalPersisted: ["same", ["expel"]],
+    terminalAttemptBudgetExhausted: GONE,
+    expelSettled: GONE,
+    reminderLanded: ["same", ["deleteMessage"]],
+  }),
+  "expelling:wrongAnswer": verificationRow({
+    join: REPLACED_BY_JOIN,
+    guardDisabled: ["absent", ["deleteReminders"]],
+    callback: ["same", ["answerCallback"]],
+    terminalPersisted: ["same", ["expel"]],
     terminalAttemptBudgetExhausted: GONE,
     expelSettled: GONE,
     reminderLanded: ["same", ["deleteMessage"]],
@@ -290,11 +303,12 @@ describe("入群验证状态 × 事件矩阵", () => {
       "checkingInviter",
       "expelling:timeout",
       "expelling:flood",
+      "expelling:wrongAnswer",
     ]);
   });
 
   test("处置完成只让 expelling 退出，并且不带 tombstone 豁免标记", () => {
-    for (const row of ["expelling:timeout", "expelling:flood"] as const) {
+    for (const row of ["expelling:timeout", "expelling:flood", "expelling:wrongAnswer"] as const) {
       const transition: VerificationTransition =
         transitionVerification(VERIFICATION_ROWS[row](), { type: "expelSettled" });
       expect(transition).toEqual({ next: undefined, effects: [] });

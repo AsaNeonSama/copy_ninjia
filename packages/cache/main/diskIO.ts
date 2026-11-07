@@ -30,7 +30,7 @@ import type {
 } from "../../types/diskIO/replies";
 import type { WorkerRequestTable } from "../../types/workerRequest";
 import type { JoinLogRecord, LuckReceiptSecret } from "../../types/diskIO/storage";
-import type { IdentityPolicyRawReadResult, BlocklistIdPage, WhitelistIdPage } from "../../types/identityStorage";
+import type { IdentityPolicyRawReadResult, IdentityIdPage } from "../../types/identityStorage";
 
 /** 启动恢复回调槽：loadPersistedData 填充，收到 loaded 回执或 terminateDiskIO 时结算清空；单例固定字段，进程重启后从初始值开始。 */
 export const pendingLoad: {
@@ -74,13 +74,9 @@ export const joinLogReadRequests: DiskIORequestChannel<readonly JoinLogRecord[]>
 export const identityPolicyReadRequests: DiskIORequestChannel<IdentityPolicyRawReadResult> =
   createDiskIORequestChannel("identity policy read", "Disk I/O Worker returned no identity policy rows.");
 
-/** 黑名单主键页读取通道：群级补扫请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
-export const blocklistIdPageReadRequests: DiskIORequestChannel<BlocklistIdPage> =
-  createDiskIORequestChannel("blocklist ID page read", "Disk I/O Worker returned no blocklist ID page.");
-
-/** 白名单主键页读取通道：Mini App 分页查询请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
-export const whitelistIdPageReadRequests: DiskIORequestChannel<WhitelistIdPage> =
-  createDiskIORequestChannel("whitelist ID page read", "Disk I/O Worker returned no whitelist ID page.");
+/** 黑白名单主键页读取通道：群级补扫与 Mini App 分页查询请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量与并发请求数同阶，进程重启后从空表开始。 */
+export const identityIdPageReadRequests: DiskIORequestChannel<IdentityIdPage> =
+  createDiskIORequestChannel("identity ID page read", "Disk I/O Worker returned no identity ID page.");
 
 /** 停机关库（closeStorage）请求通道：请求时登记，回执、超时、代际失效或 terminateDiskIO 时结算摘除；容量至多一个在途请求，进程重启后从空表开始。 */
 export const storageCloseRequests: DiskIORequestChannel<StorageCloseOutcome> =
@@ -88,14 +84,13 @@ export const storageCloseRequests: DiskIORequestChannel<StorageCloseOutcome> =
 
 /**
  * 全部 Disk I/O 请求通道固定列表：模块加载时登记全集，供代际失效、恢复失败与 terminateDiskIO
- * 统一遍历结算等待者；固定 6 条通道引用，不淘汰，进程重启后随模块重建。
+ * 统一遍历结算等待者；固定 5 条通道引用，不淘汰，进程重启后随模块重建。
  */
 export const DISK_IO_REQUEST_CHANNELS: readonly DiskIORequestChannel<never>[] = [
   luckSecretRequests,
   joinLogReadRequests,
   identityPolicyReadRequests,
-  blocklistIdPageReadRequests,
-  whitelistIdPageReadRequests,
+  identityIdPageReadRequests,
   storageCloseRequests,
 ] as readonly DiskIORequestChannel<never>[];
 

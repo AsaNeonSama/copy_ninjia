@@ -11,6 +11,7 @@ import { checkingInviterOf } from "../../packages/states/verification/shared";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import type { AntiRaidWorkerEvent } from "../../packages/types/antiRaid/events";
 import type { VerificationAttemptPermitResult } from "../../packages/types/antiRaid/protocol";
+import type { VerificationChallenge } from "../../packages/types/antiRaid/verification";
 import type {
   ExpelSnapshot,
   VerificationEffect,
@@ -142,6 +143,7 @@ export interface VerificationEffectsDeps {
     timer?: ReturnType<typeof setTimeout>;
     terminalRetries: number;
     cleanupSettled: boolean;
+    challenge: VerificationChallenge | undefined;
   }>;
   readonly verificationRevisions: Map<string, { revision: number }>;
   readonly verificationGeneration: { current: number };
@@ -237,7 +239,7 @@ export function kickPendingState(): VerificationState & { kind: "kickPending" } 
 }
 
 export function setState(state: VerificationState): VerificationState {
-  requireDeps().verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 0, cleanupSettled: false });
+  requireDeps().verificationEntries.set(KEY, { state, timer: undefined, terminalRetries: 0, cleanupSettled: false, challenge: undefined });
   return state;
 }
 

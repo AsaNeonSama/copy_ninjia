@@ -1,18 +1,12 @@
 /**
- * 黑名单成员同步查询、增删与跨群有界并发处置入口，参见 docs/cn/04-invariants.md。
+ * 黑名单成员同步查询、增删与跨群处置的目标群清单，参见 docs/cn/04-invariants.md；
+ * 逐群封禁与解封见 ./crossChatBan.ts。
  */
 
 import { formatLocalTime } from "../../libs/time";
-import { MANAGED_CHAT_BATCH_CONCURRENCY } from "../../consts/commands";
-import { runBoundedSettledBatch } from "../../libs/boundedSettledBatch";
-import type {
-  BoundedBatchExecution,
-  BoundedBatchResult,
-} from "../../libs/boundedSettledBatch";
 import { getChatStateCache } from "../storage/stateStore";
 import { isManagedAdminChat } from "./sweepEligibility";
 import { logger } from "../logger";
-import { throwIfUpdateAborted } from "../updateContext";
 import { forgetUserBlocklistRemovals } from "./outbox";
 import {
   cachedBlocklistEntry,
@@ -39,63 +33,6 @@ export function managedAdminChatIds(chatId: number, isAdminHere: boolean): numbe
     if (adminChatId !== chatId && isManagedAdminChat(chatState)) targetChatIds.push(adminChatId);
   }
   return targetChatIds;
-}
-
-/** 单群处置结算结果。 */
-export interface ManagedChatOutcome<T> {
-  /** 目标群 ID。 */
-  readonly chatId: number;
-  /** 单群处置执行返回值或异常回退值。 */
-  readonly value: T;
-}
-
-/** runManagedChatBatch 的入参。 */
-export interface RunManagedChatBatchParams<T> {
-  /** 目标群 ID 列表。 */
-  readonly chatIds: readonly number[];
-  /** 异常日志中的动作描述。 */
-  readonly action: string;
-  /** 单群处置执行函数。 */
-  readonly execute: (chatId: number) => Promise<T>;
-  /** 单群抛出未预期异常时的回退返回值。 */
-  readonly onUnexpectedFailure: T;
-}
-
-/**
- * 按 MANAGED_CHAT_BATCH_CONCURRENCY 有界并发执行多群处置，按输入顺序返回各群结算结果。
- *
- * @param params 多群有界并发处置的目标群列表、执行函数与异常回退配置。
- * @returns 与输入群顺序一致的各群处置结算结果只读数组。
- */
-export async function runManagedChatBatch<T>({
-  chatIds,
-  action,
-  execute,
-  onUnexpectedFailure,
-}: RunManagedChatBatchParams<T>): Promise<readonly ManagedChatOutcome<T>[]> {
-  const settlements: BoundedBatchResult<number, T>[] =
-    await runBoundedSettledBatch<number, T>({
-      items: chatIds,
-      maxConcurrent: MANAGED_CHAT_BATCH_CONCURRENCY,
-      execute: ({ item: targetChatId }: BoundedBatchExecution<number>): Promise<T> =>
-        execute(targetChatId),
-    });
-  throwIfUpdateAborted();
-  const outcomes: ManagedChatOutcome<T>[] = [];
-  for (const settlement of settlements) {
-    if (settlement.status === "rejected") {
-      logger.error(
-        `Unexpected error while running ${action} in chat ${settlement.item} ` +
-        `(batch index ${settlement.index}):`,
-        settlement.reason
-      );
-    }
-    outcomes.push({
-      chatId: settlement.item,
-      value: settlement.status === "fulfilled" ? settlement.value : onUnexpectedFailure,
-    });
-  }
-  return outcomes;
 }
 
 /**

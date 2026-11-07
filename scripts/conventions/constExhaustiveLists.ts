@@ -1,5 +1,6 @@
 import { relative } from "node:path";
 import ts from "typescript";
+import { CONSTS_ROOT_PREFIXES } from "./moduleBoundaries";
 import type { ExportedConstDeclaration } from "./constsProgram";
 
 /**
@@ -14,9 +15,9 @@ export const PARTIAL_LITERAL_TABLES: ReadonlyMap<string, string> = new Map<strin
 export interface ConstExhaustiveListParams {
   /** 仓库根目录绝对路径。 */
   readonly projectRoot: string;
-  /** 以 packages/consts/ 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
+  /** 以 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 为入口经 createTypeCheckProgram 建的 program 的类型检查器。 */
   readonly checker: ts.TypeChecker;
-  /** packages/consts/ 的全部导出常量声明（exportedConstDeclarations）；废弃登记按这批声明判定。 */
+  /** `packages/consts/` 与 `packages/mini-app-frontend/consts/` 的全部导出常量声明（exportedConstDeclarations）；废弃登记按这批声明判定。 */
   readonly declarations: readonly ExportedConstDeclaration[];
   /** 有意只列字面量联合子集的导出数组表白名单。 */
   readonly partialTables: ReadonlyMap<string, string>;
@@ -83,9 +84,9 @@ function builtByExhaustiveList(
 }
 
 /**
- * packages/consts/ 里元素为字面量联合的导出数组表必须经 packages/consts/exhaustiveList.ts 的
- * exhaustiveList 构造，联合类型增删成员而表没跟上时编译失败；有意只列子集的表登记在
- * partialTables。元组类型本身已固定全部元素，不在检查范围内。
+ * `packages/consts/` 与 `packages/mini-app-frontend/consts/` 里元素为字面量联合的导出数组表必须经各自常量目录下的
+ * `exhaustiveList.ts` 的 `exhaustiveList` 构造，联合类型增删成员而表没跟上时编译失败；有意只列子集的表登记在
+ * `partialTables`。元组类型本身已固定全部元素，不在检查范围内。
  *
  * @param params 字面量联合全集表检查入参
  * @returns 未经 exhaustiveList 构造或废弃白名单登记的违规信息列表
@@ -102,14 +103,17 @@ export function collectConstExhaustiveListProblems({
     const declared: Set<string | number> | undefined =
       literalUnionValues(checker, checker.getTypeAtLocation(declaration.name));
     if (declared === undefined || builtByExhaustiveList(checker, declared, declaration.initializer)) continue;
-    const key: string = `${relative(projectRoot, path)}#${name}`;
+    const relativePath: string = relative(projectRoot, path);
+    const key: string = `${relativePath}#${name}`;
     if (partialTables.has(key)) {
       usedPartialTables.add(key);
       continue;
     }
+    const constsRoot: string =
+      CONSTS_ROOT_PREFIXES.find((prefix: string): boolean => relativePath.startsWith(prefix)) ?? "packages/consts/";
     problems.push(
-      `${relative(projectRoot, path)}: ${name} lists members of a literal union; build it with ` +
-      "exhaustiveList<U>()([...]) from packages/consts/exhaustiveList.ts, where U is the declared element type and every " +
+      `${relativePath}: ${name} lists members of a literal union; build it with ` +
+      `exhaustiveList<U>()([...]) from ${constsRoot}exhaustiveList.ts, where U is the declared element type and every ` +
       "item is a string or number literal, so a missing member fails to compile, or register it in " +
       "PARTIAL_LITERAL_TABLES (scripts/conventions/constExhaustiveLists.ts) with the reason it is a deliberate subset"
     );
@@ -118,7 +122,7 @@ export function collectConstExhaustiveListProblems({
     if (usedPartialTables.has(key)) continue;
     problems.push(
       `PARTIAL_LITERAL_TABLES registers ${key}, which is no longer a literal-union table listed without exhaustiveList ` +
-      "in packages/consts/; remove the entry"
+      `in ${CONSTS_ROOT_PREFIXES.join(" or ")}; remove the entry`
     );
   }
   return problems;

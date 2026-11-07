@@ -7,13 +7,14 @@ import { VERIFICATION_TIMEOUT_MS } from "../../../consts/antiRaid/verification";
 import { formatMinSec } from "../../../libs/time";
 import type { AtmosphereNotices } from "../../../types/atmosphereNotices";
 import type { ExpelRemovalOutcome, VerificationCleanupResult } from "../../../types/antiRaid/verification";
+import type { VerificationExpelReason } from "../../../types/states/verification";
 
 /** `expelNoticeText` 组装入群验证踢出终态播报文案的选项。 */
 export interface ExpelNoticeTextOptions {
   /** 当前群风格的提示文案表。 */
   readonly texts: AtmosphereNotices;
-  /** 踢出原因（验证超时或待验证期刷屏）。 */
-  readonly reason: "timeout" | "flood";
+  /** 踢出原因（验证超时、待验证期刷屏或本人答错）。 */
+  readonly reason: VerificationExpelReason;
   /** 本轮成员踢出动作的结局。 */
   readonly removalOutcome: ExpelRemovalOutcome;
   /** 是否为本轮确认踢出：本轮踢成，或上一轮已踢成（removalConfirmed）而本轮探测为不在群。 */
@@ -27,8 +28,8 @@ export interface ExpelNoticeTextOptions {
 }
 
 /**
- * 没踢走时说明原因：成员或群类型未能确认优先，其余按刷屏或超时报踢人失败。踢走后清理有欠账时
- * 报清理结果（被拒绝删除或瞬时失败），清理干净则按刷屏、机器人超时或成员超时播报。
+ * 没踢走时说明原因：成员或群类型未能确认优先，其余按刷屏、答错或超时报踢人失败。踢走后清理有欠账时
+ * 报清理结果（被拒绝删除或瞬时失败），清理干净则按刷屏、答错、机器人超时或成员超时播报。
  * @param options 踢出终态播报文案选项。
  * @returns 组装后的群内提示正文。
  */
@@ -44,9 +45,9 @@ export function expelNoticeText({
   if (!kicked) {
     if (removalOutcome === "unconfirmed") return texts.verificationMembershipUnknown(label);
     if (removalOutcome === "kindUnknown") return texts.verificationChatKindUnknown(label);
-    return reason === "flood"
-      ? texts.verificationFloodKickFailed(label)
-      : texts.verificationTimeoutKickFailed(label);
+    if (reason === "flood") return texts.verificationFloodKickFailed(label);
+    if (reason === "wrongAnswer") return texts.verificationWrongAnswerKickFailed(label);
+    return texts.verificationTimeoutKickFailed(label);
   }
   if (cleanup.missed > 0) {
     return cleanup.permissionDenied
@@ -54,6 +55,7 @@ export function expelNoticeText({
       : texts.verificationCleanupFailed(label, cleanup.missed);
   }
   if (reason === "flood") return texts.verificationFloodKicked(label);
+  if (reason === "wrongAnswer") return texts.verificationWrongAnswerKicked(label);
   const timeout: string = formatMinSec(VERIFICATION_TIMEOUT_MS);
   return isBot
     ? texts.verificationBotTimeout(timeout, label)

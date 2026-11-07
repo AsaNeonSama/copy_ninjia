@@ -94,7 +94,7 @@ ingress:
 ```
 
 ```shell
-#启动
+# 启动
 # 将配置安装为 systemd 服务（会自动将 ~/.cloudflared/config.yml 复制到 /etc/cloudflared/）
 sudo cloudflared --config ~/.cloudflared/config.yml service install
 

@@ -23,9 +23,7 @@ export async function handleAiChatCommand(ctx: CommandContext<Context>): Promise
     ctx,
     texts: chatAtmosphere().AI_CHAT_TOGGLE_TEXTS,
     permission: "isCanControllAIPermission",
-    persistReason: "ai_chat toggled",
-    runtimeLabel: "AI chat runtime",
-    switchKey: "isAIChatEnabled",
+    feature: "aiChat",
     refuseEnable: (chatId: number, messageId: number | undefined): Promise<boolean> =>
       refuseIfConfigBroken({
         readiness: aiChatConfigReadiness(),

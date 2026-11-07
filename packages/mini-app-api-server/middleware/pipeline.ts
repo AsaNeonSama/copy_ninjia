@@ -1,4 +1,5 @@
 import type {
+  MiniAppBunRouteHandler,
   MiniAppMiddleware,
   MiniAppRouteContext,
   MiniAppRouteHandler,
@@ -46,7 +47,7 @@ export async function executeMiniAppMiddlewareChain(
 export function withMiniAppMiddlewareChain(
   middlewares: readonly MiniAppMiddleware[],
   handler: MiniAppRouteHandler
-): (request: Request) => Promise<Response> {
+): MiniAppBunRouteHandler {
   return async (request: Request): Promise<Response> => {
     const url: URL = new URL(request.url);
     const method: string = request.method.toUpperCase();

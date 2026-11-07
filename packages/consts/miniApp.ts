@@ -69,13 +69,6 @@ export const MINI_APP_SIGNED_INTEGER_PATTERN: RegExp = /^-?\d+$/u;
 export const MINI_APP_IPV4_HOST_PATTERN: RegExp = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
 
 /**
- * Unicode 双向文本控制字符（LRM/RLM/ALM、LRE/RLE/PDF/LRO/RLO、LRI/RLI/FSI/PDI）的全局匹配规则。
- * 不变量：用于清洗 Telegram 昵称中的 RLO 等控制字符，防止反转整行 UI 布局。所属模块：`packages/mini-app-api-server/view/identities/metadata.ts` 与 `packages/mini-app-api-server/view/chats/targets.ts`。
- */
-export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: RegExp =
-  /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
-
-/**
  * Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。
  * 不变量：所有 `/api/*` 鉴权统一读取该请求头。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
  */
@@ -255,13 +248,13 @@ export const MINI_APP_MESSAGES_MAX_PAGE_SIZE: number = 20;
 
 /**
  * 白名单与黑名单列表接口缺省每页返回的条数（10 条）。
- * 不变量：`1..MINI_APP_IDENTITY_MAX_PAGE_SIZE` 之间的正整数。所属模块：`packages/mini-app-api-server/view/identities/whitelist.ts`、`packages/mini-app-api-server/view/identities/blocklist.ts` 与 `packages/mini-app-api-server/view/identities/metadata.ts`。
+ * 不变量：`1..MINI_APP_IDENTITY_MAX_PAGE_SIZE` 之间的正整数。所属模块：`packages/mini-app-api-server/view/identities/page.ts`。
  */
 export const MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE: number = 10;
 
 /**
  * 白名单与黑名单列表接口单页允许的最大条数（20 条）。
- * 不变量：不超过 `BLOCKLIST_SWEEP_PAGE_SIZE`，等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-api-server/view/identities/whitelist.ts`、`packages/mini-app-api-server/view/identities/blocklist.ts` 与 `packages/mini-app-api-server/view/identities/metadata.ts`。
+ * 不变量：不超过 `BLOCKLIST_SWEEP_PAGE_SIZE`，等于前端 `packages/mini-app-frontend/consts/miniApp.ts` 中 `MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS` 的最大档位，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-api-server/view/identities/page.ts`。
  */
 export const MINI_APP_IDENTITY_MAX_PAGE_SIZE: number = 20;
 

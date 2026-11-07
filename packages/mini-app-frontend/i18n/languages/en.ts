@@ -116,6 +116,8 @@ export function getEnTranslations(): Readonly<MiniAppTranslations> {
         return `Enabled ${featureLabel}.`;
       case "FEATURE_DISABLED":
         return `Disabled ${featureLabel}.`;
+      case "ANTI_RAID_DISABLED_TEARDOWN_FAILED":
+        return "Disabled join verification and anti-raid, but open verification windows and private mode were not cleaned up; check the logs and disable it again later.";
       case "PROXY_SEND_ENABLED":
         return "Set this group as the private chat proxy send target (/send).";
       case "PROXY_SEND_DISABLED":

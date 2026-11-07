@@ -1,4 +1,5 @@
-import type { VerificationCleanupResult } from "../../types/antiRaid/verification";
+import { exhaustiveList } from "../exhaustiveList";
+import type { VerificationChallengeOperator, VerificationCleanupResult } from "../../types/antiRaid/verification";
 import type { JoinExemption, VerificationEffect } from "../../types/states/verification";
 
 /** 验证回调管理员查询等待上限；满载只回执稍后重试，不继续增加查询等待者。 */
@@ -31,10 +32,33 @@ export const VERIFICATION_CLEANUP_SETTLED: Readonly<VerificationCleanupResult> =
 };
 
 /**
- * 本人验证按钮 callback_data 的前缀，后面拼上待验证成员的 userId。
+ * 本人作答按钮 callback_data 的前缀，后面拼上 `<待验证成员 userId>:<选项数值>`。
  * 与 VERIFY_APPROVE_CALLBACK_PREFIX、consts/qa.ts 的看板前缀互不为前缀。
  */
 export const VERIFY_SELF_CALLBACK_PREFIX: string = "verify:";
+/** 本人作答按钮 callback_data 里 userId 与选项数值之间的分隔符；userId 段为纯数字，不含该字符。 */
+export const VERIFY_ANSWER_SEPARATOR: string = ":";
+/**
+ * 本人作答选项数值的规范十进制形态：0 或不带前导零的正整数，最多 3 位（算术题答案上限为
+ * VERIFICATION_CHALLENGE_OPERAND_MAX 的平方加干扰项偏移）。所属模块：antiRaid/updateIngress.ts。
+ */
+export const VERIFY_ANSWER_ARG_PATTERN: RegExp = /^(?:0|[1-9]\d{0,2})$/;
+/** 算术题操作数的下限（含）；除法的除数同样不小于它，题目不出现 0 作除数。所属模块：workers/antiRaid/verificationChallenge.ts。 */
+export const VERIFICATION_CHALLENGE_OPERAND_MIN: number = 1;
+/** 算术题操作数的上限（含）；四则运算的两个操作数都不超过它，除法的被除数同样受限。所属模块：workers/antiRaid/verificationChallenge.ts。 */
+export const VERIFICATION_CHALLENGE_OPERAND_MAX: number = 10;
+/** 算术题可抽取的运算符，等概率抽取。所属模块：workers/antiRaid/verificationChallenge.ts。 */
+export const VERIFICATION_CHALLENGE_OPERATORS: readonly VerificationChallengeOperator[] =
+  exhaustiveList<VerificationChallengeOperator>()(["+", "-", "×", "÷"]);
+/** 本人作答按钮的个数：一个正确答案加两个干扰项，排成提醒键盘的第一行。所属模块：workers/antiRaid/verificationChallenge.ts。 */
+export const VERIFICATION_CHALLENGE_OPTION_COUNT: number = 3;
+/**
+ * 干扰项与正确答案的最大差值；下方干扰项取自 `answer - 本值…answer - 1` 中不小于 0 的整数，
+ * 上方取自 `answer + 1…answer + 本值`。本值须不小于 VERIFICATION_CHALLENGE_OPTION_COUNT - 1，
+ * 保证答案为 0（只能排最小）时上方候选仍凑得满选项。
+ * 所属模块：workers/antiRaid/verificationChallenge.ts。
+ */
+export const VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD: number = 3;
 /** 「通过」按钮 callback_data 的前缀，后面拼上待验证成员的 userId。 */
 export const VERIFY_APPROVE_CALLBACK_PREFIX: string = "approve:";
 /** 新成员完成验证的完整时间窗口。 */

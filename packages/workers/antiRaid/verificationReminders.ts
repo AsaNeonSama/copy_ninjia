@@ -6,7 +6,7 @@ import {
   sendMessage,
   telegramApi,
 } from "../../infra/telegram";
-import { VERIFICATION_REMINDER_RETRY_INITIAL_MS, VERIFICATION_REMINDER_RETRY_MAX_MS, VERIFICATION_TIMEOUT_MS, VERIFY_APPROVE_CALLBACK_PREFIX, VERIFY_SELF_CALLBACK_PREFIX } from "../../consts/antiRaid/verification";
+import { VERIFICATION_REMINDER_RETRY_INITIAL_MS, VERIFICATION_REMINDER_RETRY_MAX_MS, VERIFICATION_TIMEOUT_MS, VERIFY_ANSWER_SEPARATOR, VERIFY_APPROVE_CALLBACK_PREFIX, VERIFY_SELF_CALLBACK_PREFIX } from "../../consts/antiRaid/verification";
 
 import { reminderDeliveries, verificationEntries } from "../../cache/workers/antiRaid/verification";
 import { formatMinSec } from "../../libs/time";
@@ -16,9 +16,12 @@ import type {
   ReminderDelivery,
   ReminderKind,
   VerificationDispatcher,
+  VerificationEntry,
 } from "../../types/antiRaid/internal";
-import type { PendingState, VerificationState } from "../../types/states/verification";
+import type { VerificationChallenge } from "../../types/antiRaid/verification";
+import type { PendingState } from "../../types/states/verification";
 import { trackAntiRaidTask } from "./taskTracker";
+import { createVerificationChallenge } from "./verificationChallenge";
 import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types";
 
 /**
@@ -42,27 +45,31 @@ export function clearReminderDeliveries(): void {
 }
 
 /**
- * 构造验证提醒内联键盘：真人展示本人验证与管理员通过按钮，机器人仅展示管理员通过按钮。
+ * 构造验证提醒内联键盘：真人第一行是算术题的本人作答选项，第二行是管理员「通过」按钮；
+ * 机器人没有算术题，仅一行管理员作保的「通过」按钮。
  * @param userId 待验证成员 ID。
- * @param isBot 是否为机器人成员。
+ * @param challenge 真人成员本次验证的算术题；机器人为 undefined。
  * @param atmosphere 当前群风格文案表。
  * @returns 验证提醒内联键盘标记。
  */
-function buildVerificationKeyboard(userId: number, isBot: boolean, atmosphere: AtmosphereTexts): InlineKeyboardMarkup {
+function buildVerificationKeyboard(
+  userId: number,
+  challenge: VerificationChallenge | undefined,
+  atmosphere: AtmosphereTexts
+): InlineKeyboardMarkup {
   const approveButton: InlineKeyboardButton = {
     text: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT,
     callback_data: `${VERIFY_APPROVE_CALLBACK_PREFIX}${userId}`,
   };
-  if (isBot) return { inline_keyboard: [[approveButton]] };
-  return {
-    inline_keyboard: [[
-      {
-        text: atmosphere.VERIFICATION_SELF_BUTTON_TEXT,
-        callback_data: `${VERIFY_SELF_CALLBACK_PREFIX}${userId}`,
-      },
-      approveButton,
-    ]],
-  };
+  if (challenge === undefined) return { inline_keyboard: [[approveButton]] };
+  const answerButtons: InlineKeyboardButton[] = [];
+  for (const option of challenge.options) {
+    answerButtons.push({
+      text: String(option),
+      callback_data: `${VERIFY_SELF_CALLBACK_PREFIX}${userId}${VERIFY_ANSWER_SEPARATOR}${option}`,
+    });
+  }
+  return { inline_keyboard: [answerButtons, [approveButton]] };
 }
 
 /**
@@ -105,17 +112,18 @@ function attemptReminderDelivery(
 ): void {
   delivery.inFlight = true;
   const atmosphere: AtmosphereTexts = workerAtmosphere();
+  const challenge: VerificationChallenge | undefined = delivery.challenge;
   const verifyKeyboard: InlineKeyboardMarkup = buildVerificationKeyboard(
     delivery.userId,
-    delivery.isBot,
+    challenge,
     atmosphere
   );
   // 每次发送尝试都按当前群风格渲染，重试队列不保存已经选定语气的正文。
-  const text: string = delivery.isBot
+  const text: string = challenge === undefined
     ? atmosphere.NOTICE_TEXTS.verificationBotReminder(delivery.label, formatMinSec(VERIFICATION_TIMEOUT_MS), atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT)
     : delivery.kind === "reply"
-      ? atmosphere.NOTICE_TEXTS.verificationReplyReminder(delivery.label, formatMinSec(VERIFICATION_TIMEOUT_MS), atmosphere.VERIFICATION_SELF_BUTTON_TEXT)
-      : atmosphere.NOTICE_TEXTS.verificationMemberReminder({ label: delivery.label, timeout: formatMinSec(VERIFICATION_TIMEOUT_MS), selfButton: atmosphere.VERIFICATION_SELF_BUTTON_TEXT, approveButton: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT });
+      ? atmosphere.NOTICE_TEXTS.verificationReplyReminder(delivery.label, formatMinSec(VERIFICATION_TIMEOUT_MS), challenge.question)
+      : atmosphere.NOTICE_TEXTS.verificationMemberReminder({ label: delivery.label, timeout: formatMinSec(VERIFICATION_TIMEOUT_MS), question: challenge.question, approveButton: atmosphere.VERIFICATION_APPROVE_BUTTON_TEXT });
   const task: Promise<void> = (async (): Promise<void> => {
     let reminderMessageId: number | undefined;
     try {
@@ -176,7 +184,8 @@ interface SendReminderMessageParams {
 }
 
 /**
- * 登记或复用待验证提醒投递 owner 并立即发起发送尝试。
+ * 登记或复用待验证提醒投递 owner 并立即发起发送尝试。真人成员的新 owner 取当前运行态条目的
+ * 算术题，条目尚无题目时当场生成并挂上（见 VerificationEntry.challenge）。
  * @param params 提醒发送参数。
  */
 function sendReminderMessage({
@@ -189,8 +198,9 @@ function sendReminderMessage({
   dispatchVerification,
 }: SendReminderMessageParams): void {
   const key: string = verificationKey(chatId, userId);
-  const captured: VerificationState | undefined = verificationEntries.get(key)?.state;
-  if (captured?.kind !== "pending") return;
+  const entry: VerificationEntry | undefined = verificationEntries.get(key);
+  if (entry?.state.kind !== "pending") return;
+  const captured: PendingState = entry.state;
   const existing: ReminderDelivery | undefined = reminderDeliveries.get(key);
   if (existing?.expectedState === captured && existing.kind === reminderKind) {
     if (!existing.inFlight && existing.timer === undefined) {
@@ -199,6 +209,7 @@ function sendReminderMessage({
     return;
   }
   cancelReminderDelivery(key);
+  if (!isBot) entry.challenge ??= createVerificationChallenge();
   const delivery: ReminderDelivery = {
     key,
     chatId,
@@ -208,6 +219,7 @@ function sendReminderMessage({
     isBot,
     replyToMessageId,
     expectedState: captured,
+    challenge: entry.challenge,
     attempts: 0,
     timer: undefined,
     inFlight: false,
@@ -231,7 +243,7 @@ interface SendVerificationReminderParams {
 }
 
 /**
- * 发送原始独立提醒；真人自己点本人验证，机器人只能由管理员点「通过」作保。
+ * 发送原始独立提醒；真人本人点选算术题答案，机器人只能由管理员点「通过」作保。
  * @param params 原始独立验证提醒发送参数。
  */
 export function sendVerificationReminder({

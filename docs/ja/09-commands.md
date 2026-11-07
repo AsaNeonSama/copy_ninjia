@@ -153,7 +153,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
   - `/qa query` は質問を省略すると全件を一覧表示し、`/qa remove` は質問の指定が必須です。照会と削除のいずれも、質問テキスト内の空白や改行を保持します。
 - **通知の保持**：グループ内コマンドの検証失敗、権限拒否、使い方案内、操作結果の通知は、送信成功後 `COMMAND_MESSAGE_AUTO_DELETE_MS` 経過時に統一して自動削除されます。長期保持される例外は、`/permission help` と `/permission query` の権限ボード、`/qa query` の Q&A ボード、Q&A 直接応答の回答、成功した中国語アクションコマンドの結果、`/h_image` の結果画像、`cron.json` の定時タスクが送るメッセージ、および復唱・翻訳・AI 返信などのセッション性出力のみです。ステートマシンが所有するメッセージ（参加認証ボタン、`/qa set` フォーム、`/wed` の結果とそのボタン、gag の告知と発言入口通知）は、ボタン操作、ステートマシン遷移、またはグループの teardown によって削除されます。
 - **サブコマンドの大文字・小文字**：`/copy stop|reverse|nya`、`/icon steal|reset`、`/qa set|remove|query`、`/translate <方向>|stop`、`/mood query|switch`、`/h_image add`、`/delete_message stop` のサブコマンド語は、いずれも大文字・小文字を区別しません（`/block`、`/white`、`/init` の仕様と一致）。サブコマンド語の後に続く対象パラメータや質問テキストは、元の大文字・小文字をそのまま保持します。
-- **ボタンコールバックの検証**：参加認証、`/wed`、`/qa query` ボードのページ送りにおける `callback_data` 内の数値文字列は、正規の十進数として厳格に解析されます（0 始まりのページ番号は `QA_QUERY_PAGE_ARG_PATTERN`、ID は正の整数。正符号、先頭のゼロ、空白、小数点、指数表記は不可）。それ以外の形式は即座に「ボタン無効」として応答されます。
+- **ボタンコールバックの検証**：参加認証、`/wed`、`/qa query` ボードのページ送りにおける `callback_data` 内の数値文字列は、正規の十進数として厳格に解析されます（0 始まりのページ番号は `QA_QUERY_PAGE_ARG_PATTERN`、参加認証の回答選択肢は `VERIFY_ANSWER_ARG_PATTERN`、ID は正の整数。正符号、先頭のゼロ、空白、小数点、指数表記は不可）。それ以外の形式は即座に「ボタン無効」として応答されます。
 
 ---
 
@@ -225,11 +225,11 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 #### 8. 広告検出と荒らし対策
 - **`/ad_detect`**：メッセージは送信者（`chatId:senderId`）ごとにバンドルされ、キューが `AD_DETECT_QUEUE_TICK_MS` ごとに 1 バッチを取得して `agent.ad_detect` モデルに判定を委ねます。広告と判定された場合は保護対象外の身分に対して `/block` と同等の処分を実施し、グループ内に BAN 理由を通知します（`COMMAND_MESSAGE_AUTO_DELETE_MS` 経過後に自動削除）。純粋なプロキシリンク（`vless://`、`vmess://`、`trojan://`、`ss://`）であり募集・宣伝文を含まない場合は広告と判定されません。
 - **`/flood_control`（連投制限）**：同一人物が同一スーパーグループ内で `FLOOD_WINDOW_MS` のウィンドウ内に `FLOOD_MESSAGE_LIMIT` 件発言した場合、その場で `FLOOD_MUTE_DURATION_MS` ミュートし、グループ内に告知します（`COMMAND_MESSAGE_AUTO_DELETE_MS` 経過後に自動削除）。管理者（Bot を除く）やチャンネル身分はカウント対象外です（免除判定は `isCanBypassFloodControl` を参照）。
-- **`/antiraid`**：参加認証（タイムアウト `VERIFICATION_TIMEOUT_MS`）と Anti-Raid 非公開モード（`JOIN_WINDOW_MS` 内の参加数が `ANTI_RAID_PER_MINUTE_LIMIT` を超えた場合に `LOCKDOWN_MS` の間発動）を有効化します。無効化時は両方のパイプラインイベントが完全に停止し、送信済みの認証リマインダーは即座に取り下げられます。広告検出、連投制限、ブラックリストには影響しません。
+- **`/antiraid`**：参加認証（三択の算数問題、タイムアウト `VERIFICATION_TIMEOUT_MS`。不正解は即キック・BAN なし、Bot メンバーは管理者が「通过」で保証）と Anti-Raid 非公開モード（`JOIN_WINDOW_MS` 内の参加数が `ANTI_RAID_PER_MINUTE_LIMIT` を超えた場合に `LOCKDOWN_MS` の間発動）を有効化します。無効化時は両方のパイプラインイベントが完全に停止し、送信済みの認証リマインダーは即座に取り下げられます。広告検出、連投制限、ブラックリストには影響しません。
 - **`/batch_kick`**：スーパー管理者のみ利用可能。参加ログに基づき、指定された時間枠（例：`30m`、`2h`、`1d`。`BATCH_KICK_MIN_DURATION_MS` 以上 `BATCH_KICK_MAX_DURATION_MS` 以下）内に参加した新規メンバーをキックします（BAN は行わず、ホワイトリストおよびブラックリスト身分はスキップされます）。記録があるときはまず「受理」（記録数と時間枠）を返し、キックはバックグラウンドで行い、完了後に結果を送信します。同じグループで同時に実行されるのは 1 バッチのみで、前のバッチが完了する前の再実行には「処理中」と返し、バックグラウンドの待機枠が満杯なら混雑中と返します。処理中にグループが管理対象外となった場合（`/init disable`、Bot の退出、管理者権限の喪失）は結果を送信せず静かに停止します。
 
 #### 9. プライベート中継と音声代行：/send
-- 開始前に対象グループへの到達可能性を検証し、中継期間中はスーパー管理者が個人チャットで送信した各メッセージがそのまま対象グループへ転送されます。
+- 対象グループは `/init enable` 済みである必要があります。開始前に対象グループへの到達可能性を検証し、中継期間中はスーパー管理者が個人チャットで送信した各メッセージがそのまま対象グループへ転送されます。
 - **音声代行**：メッセージ全体を以下の JSON コードブロックとして送信します：
   ```json
   { "type": "tts", "tone": "望む口調", "text": "変換するテキスト" }
@@ -342,7 +342,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 | `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | リアルタイムシステム指標（稼働時間、CPU 平均負荷、メモリ PSS、管理対象グループ数、アクティブセッション、AI モデル準備状態、Telegram 出站ゲート）の照会、および AI 機嫌の照会・手動再抽選 |
 | `/api/chats`<br>`/api/chats/:chatId` | `GET` | `/init` 有効化済み管理対象グループの一覧、または単一グループ詳細（機能スイッチ、ホットメッセージ件数、静音／ロック残り時間、Bot が保持する管理者権限 `botPermissions`、1–24 時間の各遡及ウィンドウにおける重複排除済み参加人数 `joinedCountsByHour`、`/batch_kick` 実行状態）の照会 |
 | `/api/chats/:chatId/messages` | `GET` | 当該グループのメモリ内ホット 256 バッファの直近メッセージをページング・キーワード検索 |
-| `/api/chats/:chatId/feature` | `POST` | グループ機能スイッチ（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）の切替。`init` 無効化は `/init disable` と同順序でランタイム解体と状態消去を実行し、`proxySend` 有効化は個人チャット `/send` と単一グループ排他制約を共有 |
+| `/api/chats/:chatId/feature` | `POST` | グループ機能スイッチ（`init`、`aiChat`、`translation`、`adDetect`、`floodControl`、`antiRaid`、`proxySend`）の切替。`init` 無効化は `/init disable` と同順序でランタイム解体と状態消去を実行し、`antiRaid` 無効化でランタイム解体に失敗したときは `ANTI_RAID_DISABLED_TEARDOWN_FAILED` を返し（スイッチは永続化済みで、`/antiraid disable` の返信と同じ扱い）、`proxySend` 有効化は個人チャット `/send` と単一グループ排他制約を共有 |
 | `/api/chats/:chatId/batch-kick` | `POST` | スーパーグループであることが確認されたグループに対し、`1..24` 時間の遡及ウィンドウで `/batch_kick` 一括退会を起動（`chatIsSupergroupById` を優先参照し、未記録時は `getChat` で探査してキャッシュを更新。通常グループは `notSupergroup`、`getChat` 探査失敗は `unavailable` で拒否）。グループ内 `/batch_kick` コマンドと `batchKickChats` 単一実行ロックおよびバックグラウンド実行器を共有し、完了時に `miniAppBatchKickCompletedByChat` へ集計を書き込む |
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 当該グループのカスタム QA（`setQa`/`removeQa`）、発言削除対象（`addDeleteTarget`/`removeDeleteTarget`）、翻訳対象（`addTranslateTarget`/`removeTranslateTarget`）の照会・追加・更新・削除 |
 | `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | `readIdentityPolicyEntries` コールドリードによるホワイトリスト／ブラックリストのページング照会と検索（未 ACK のメモリ書き込みを重ね合わせ、メインスレッドのホットポリシー LRU を汚染せず、メインスレッドの `senderIdentity` キャッシュと表示メタデータを双方向同期）、メンバー追加・削除、ホワイトリスト権限の個別変更または一括全有効化（`enableAll`） |
