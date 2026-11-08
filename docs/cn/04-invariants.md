@@ -1045,8 +1045,12 @@
   - 待检发送者上限 `AD_DETECT_MAX_PENDING_SENDERS`，满载后直接拒绝新用户，禁止淘汰已有未检用户。
   - 调度器每 `AD_DETECT_QUEUE_TICK_MS` 从队首提取至多 `AD_DETECT_BATCH_SIZE` 个用户，全局在途请求上限为 `AD_DETECT_MAX_IN_FLIGHT`。
   - 抑制窗口 `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`：刚处置过的发送者键记录在 `recentlyDisposedAdKeys` 中，在此期间到来的新消息抑制重复判定；但频道马甲在此窗口内的新消息仍照常删除。
-- **送检组装与模型交互**：
+- **送检组装、黑名单快路径与模型交互**：
   - 单用户消息数量上限 `AD_DETECT_MAX_MESSAGES_PER_SENDER`，字符预算 `AD_DETECT_BUNDLE_MAX_CHARS`。当未判消息由于超限被丢弃时，正文移除但消息 ID 转入 `pendingDeleteIds`，确保处置时完整删除，并记录错误日志。
+  - 检测按固定三级流水线依次执行（任一免检身份在候选入口统一跳过全部三级检测）：
+    1. **贴纸包黑名单快路径**（`ad_data.json` 的 `sticker_black_list`）：直接比对未检条目携带的 `sticker.set_name`，命中即跳过后续检测并按直接广告执行永久拉黑处置。
+    2. **自定义表情包黑名单**（`ad_data.json` 的 `emoji_black_list`）：收集未检条目去重后的 `custom_emoji_id`（单次上限 `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS`），经主线程统一 Telegram 出站（`query` 类 429 退避策略）调用 `getCustomEmojiStickers` 查询所属表情包，命中即跳过 AI 判定并按直接广告执行永久拉黑处置；查询失败记错误日志并继续后续判定。
+    3. **AI 文本判定**（`ad_data.json` 的 `samples`）：仅当存在未检非空文本条目时调用模型分类（纯贴纸且未命中黑名单时不调用 AI）。
   - 发送者的个人姓名（`firstName`、`lastName`）与非转发正文共同送检，姓名推广与正文推广同等归因。
   - **纯链接保护**：若用户整串消息仅由单个或多个链接及普通姓名组成，且无任何推广、招募或交易文案，必须判定为 false（支持各类代理节点与订阅协议）。
   - 提示词必须显式包含 `"JSON"` 字符串，要求模型仅返回裸 JSON 对象；解析器优先解析裸对象，兼容 markdown 围栏包裹。模型识别失败时视为未检，不盲目判罚。

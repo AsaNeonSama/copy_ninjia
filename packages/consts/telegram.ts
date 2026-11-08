@@ -195,6 +195,12 @@ export const TELEGRAM_DOCUMENT_UPLOAD_MAX_BYTES: number = 50 * 1024 * 1024;
 export const TELEGRAM_DELETE_MESSAGES_BATCH_MAX: number = 100;
 
 /**
+ * `getCustomEmojiStickers` 单次能带的 custom_emoji_id 数上限，Bot API 官方上限（1..200）。
+ * 所属模块：packages/antiRaid/adCandidate.ts 与 packages/workers/antiRaid/adDetect/verdict.ts。
+ */
+export const TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS: number = 200;
+
+/**
  * 发送调度器全部聊天合计允许排队的发送请求数（不含各聊天在途的那一条）；超出即拒绝新请求。
  * 与 TELEGRAM_429_RETRY_QUEUE_MAX 分开计数。所属模块：infra/telegram/sendLane.ts 与 infra/telegram/sendScheduler.ts。
  */

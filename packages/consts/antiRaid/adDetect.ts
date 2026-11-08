@@ -124,8 +124,18 @@ export const AD_DETECT_JSON_SCHEMA: Readonly<{
   additionalProperties: false,
 };
 
-/** config/dynamic/ad_samples.json 允许的最大条数。 */
+/** config/dynamic/ad_data.json 顶层必须精确具备的字段名列表。所属模块：config/adSamples.ts。 */
+export const AD_SAMPLE_CONFIG_KEYS: readonly string[] = [
+  "samples",
+  "sticker_black_list",
+  "emoji_black_list",
+];
+
+/** config/dynamic/ad_data.json 的 samples 允许的最大条数。 */
 export const MAX_CONFIGURED_AD_SAMPLES: number = 500;
+
+/** config/dynamic/ad_data.json 的 sticker_black_list 与 emoji_black_list 各自允许的最大条数。所属模块：config/adSamples.ts。 */
+export const MAX_CONFIGURED_AD_BLACKLIST_PACKS: number = 500;
 
 /** 单条广告示例允许的最大字符数。 */
 export const AD_SAMPLE_MAX_CHARS: number = 1_024;
@@ -146,7 +156,7 @@ export const AD_SAMPLE_CONTEXT_MAX_CHARS: number = 200;
 const AD_DETECT_FACT_LABEL: string = "【系统事实】";
 
 /**
- * 广告判定器的系统提示词（题材示例由 buildAdDetectInstructions 从 config/dynamic/ad_samples.json 拼入；
+ * 广告判定器的系统提示词（题材示例由 buildAdDetectInstructions 从 config/dynamic/ad_data.json 拼入；
  * 请求带 `response_format: json_object`，提示词须包含「JSON」字样）。
  */
 const AD_DETECT_SYSTEM_PROMPT: string =
@@ -211,7 +221,7 @@ const AD_DETECT_ESTABLISHED_FACT: string =
 /**
  * 拼出判定规则与部署示例段（不含系统事实），各家传输共用、逐字相同。示例为空时
  * 不追加示例段。
- * @param samples 已校验的部署者广告示例（config/dynamic/ad_samples.json）。
+ * @param samples 已校验的部署者广告示例（config/dynamic/ad_data.json）。
  * @returns 完整的广告检测系统提示词文本。
  */
 export function buildAdDetectInstructions(samples: readonly string[]): string {

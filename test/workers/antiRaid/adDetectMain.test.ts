@@ -222,11 +222,76 @@ describe("广告检测投递门禁", () => {
       blocked: false,
       justJoined: false,
       linkUrls: undefined,
+      stickerSetName: undefined,
+      customEmojiIds: undefined,
       sampleQuote: undefined,
       sampleReplyTo: undefined,
     });
     // 图片只看说明文字。
     expect(buildAdCandidate(message({ text: undefined, caption: "扫码进群" }), 999)?.text).toBe("扫码进群");
+  });
+
+  test("贴纸包与自定义表情 ID 随候选投递，且同样受广告豁免门禁约束", () => {
+    const stickerOnly = buildAdCandidate(message({
+      text: undefined,
+      sticker: {
+        file_id: "sticker-1",
+        file_unique_id: "u-1",
+        type: "regular",
+        width: 512,
+        height: 512,
+        is_animated: false,
+        is_video: false,
+        set_name: "SpamStickerPack",
+      },
+    }), 999);
+    expect(stickerOnly?.text).toBe("");
+    expect(stickerOnly?.stickerSetName).toBe("SpamStickerPack");
+    expect(stickerOnly?.customEmojiIds).toBeUndefined();
+
+    // 缺少 set_name 且无正文、无引用、无自定义表情时不算有效候选。
+    expect(buildAdCandidate(message({
+      text: undefined,
+      sticker: {
+        file_id: "sticker-2",
+        file_unique_id: "u-2",
+        type: "regular",
+        width: 512,
+        height: 512,
+        is_animated: false,
+        is_video: false,
+      },
+    }), 999)).toBeUndefined();
+
+    const customEmojiCandidate = buildAdCandidate(message({
+      text: "🔥",
+      entities: [
+        { type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "emoji-1" },
+        { type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "emoji-1" },
+        { type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "emoji-2" },
+      ],
+    }), 999);
+    expect(customEmojiCandidate?.customEmojiIds).toEqual(["emoji-1", "emoji-2"]);
+
+    // 广告豁免成员发送贴纸或自定义表情同样不进入检测。
+    temporaryAdBypassIds.add(7);
+    expect(buildAdCandidate(message({
+      text: undefined,
+      sticker: {
+        file_id: "sticker-1",
+        file_unique_id: "u-1",
+        type: "regular",
+        width: 512,
+        height: 512,
+        is_animated: false,
+        is_video: false,
+        set_name: "SpamStickerPack",
+      },
+    }), 999)).toBeUndefined();
+    expect(buildAdCandidate(message({
+      text: "🔥",
+      entities: [{ type: "custom_emoji", offset: 0, length: 2, custom_emoji_id: "emoji-1" }],
+    }), 999)).toBeUndefined();
   });
 
   test("已进入临时广告免检的成员回复、转发或引用广告都不生成候选", () => {

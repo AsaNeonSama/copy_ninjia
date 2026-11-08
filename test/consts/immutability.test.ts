@@ -185,7 +185,7 @@ import { CHAT_FEATURE_SWITCHES } from "../../packages/consts/chatFeatureSwitch";
 import { getChatState } from "../../packages/infra/storage/stateStore";
 
 import * as Media from "../../packages/consts/aiChat/media";
-import { AD_DETECT_JSON_SCHEMA, EMPTY_AD_CANDIDATE_ENTRIES } from "../../packages/consts/antiRaid/adDetect";
+import { AD_DETECT_JSON_SCHEMA, AD_SAMPLE_CONFIG_KEYS, EMPTY_AD_CANDIDATE_ENTRIES } from "../../packages/consts/antiRaid/adDetect";
 import {
   CHANNEL_COMMENT_JOIN_EXEMPTION,
   IDENTITY_JOIN_EXEMPTION,
@@ -633,6 +633,8 @@ function assertAdDetectSchemaReadonly(): void {
   AD_DETECT_JSON_SCHEMA.properties.ad.type = "boolean";
   // @ts-expect-error 广告检测 Schema 的必填字段清单不可扩容。
   AD_DETECT_JSON_SCHEMA.required.push("extra");
+  // @ts-expect-error ad_data.json 顶层字段闭集不允许调用方增删。
+  AD_SAMPLE_CONFIG_KEYS.push("extra");
 }
 void assertAdDetectSchemaReadonly;
 

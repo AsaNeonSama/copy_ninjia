@@ -159,7 +159,7 @@ config/
     ├── assets.json         # サムネイル、デフォルトアバター、画像ライブラリパス
     ├── stickers.json       # スタンプパックの許可リスト
     ├── mood.json           # ムード段階と重み配分
-    ├── ad_samples.json     # 広告判定用の参照サンプル集
+    ├── ad_data.json        # 広告判定用の参照サンプルとステッカー／絵文字ブラックリスト
     └── cron.json           # 定期実行タスク定義（任意）
 ```
 
@@ -188,8 +188,8 @@ config/
 - **`config/dynamic/mood.json`**（[サンプル](../../config_example/dynamic/mood.json)）
   - AI の感情ステータス配列 `moods` を定義します。各項目は `name`、`weight`、`instruction` を含み、必要に応じて `weatherMultipliers` や `timeMultipliers` を設定できます。名前の重複は不可、重みは正の整数であり、全要素の合計値が厳密に `MOOD_WEIGHT_TOTAL` と一致する必要があります。
 
-- **`config/dynamic/ad_samples.json`**（[サンプル](../../config_example/dynamic/ad_samples.json)）
-  - 広告検出モデルの判定用参照サンプル文字列配列を定義します。空白文字の正規化とトリムが行われた上で、各項目は空文字不可、最大 `AD_SAMPLE_MAX_CHARS` 文字以内、重複不可、最大 `MAX_CONFIGURED_AD_SAMPLES` 件まで登録可能です。
+- **`config/dynamic/ad_data.json`**（[サンプル](../../config_example/dynamic/ad_data.json)）
+  - 広告検出設定オブジェクトを定義します：`samples`（広告検出モデルの判定用参照サンプル文字列配列。空白正規化・トリム後に非空、最大 `AD_SAMPLE_MAX_CHARS` 文字、重複不可、最大 `MAX_CONFIGURED_AD_SAMPLES` 件）、`sticker_black_list`（ステッカーパック short name ブラックリスト、高速経路として最初に照合）、および `emoji_black_list`（カスタム絵文字パック short name ブラックリスト、AI 判定前に照合；いずれも最大 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 件、一致時は AI 判定をスキップして即座にブロック処分）。
 
 - **`config/dynamic/agent.json`**（[サンプル](../../config_example/dynamic/agent.json)）
   - AI システムの各機能を定義します。トップレベルキーは `agent` のみです。各機能は独立して設定され、機能間での自動フォールバックは行われません。未知のキーが存在する場合は起動を拒否します：

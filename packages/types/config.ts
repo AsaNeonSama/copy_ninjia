@@ -19,10 +19,19 @@ export interface MoodConfig {
 }
 
 /**
- * 广告检测的部署者示例清单：config/dynamic/ad_samples.json 是一个纯字符串数组，每条
- * 是一段“应当被判成广告”的原文，作为判定口径由 workers/antiRaid/adDetect/classifier.ts 使用。
+ * 广告检测的部署配置（config/dynamic/ad_data.json）：
+ * - `samples`：判定口径参考示例，由 workers/antiRaid/adDetect/classifier.ts 拼入提示词；
+ * - `stickerBlackList`：部署字段 `sticker_black_list`，贴纸包 short name 黑名单，作为快路径最先检测；
+ * - `emojiBlackList`：部署字段 `emoji_black_list`，自定义表情所属表情包 short name 黑名单，在贴纸黑名单之后、AI 检测之前检测。
  */
-export type AdSampleConfig = readonly string[];
+export interface AdSampleConfig {
+  /** 广告分类判定用的正例参考样本列表（单行规范化、去重）。 */
+  readonly samples: readonly string[];
+  /** 命中即跳过 AI 检测直接判为广告并永久封禁的贴纸包 short name 黑名单。 */
+  readonly stickerBlackList: readonly string[];
+  /** 命中即跳过 AI 检测直接判为广告并永久封禁的自定义表情包 short name 黑名单。 */
+  readonly emojiBlackList: readonly string[];
+}
 
 /** `config/static/bot.json` 中可选的 Mini App HTTP 服务与入口配置。 */
 export interface BotMiniAppConfig {

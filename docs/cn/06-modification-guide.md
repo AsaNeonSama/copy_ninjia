@@ -161,7 +161,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 - **语音工具说明**：内置说明位于 `packages/consts/aiChat/prompts/tools.ts` 的 `VOICE_LANGUAGE_PROMPTS`（内含中、英、日三版）；在项目根目录放置 `prompt/voice_tool.md` 后，重启即可完整覆盖 `send_voice` 工具的主体描述，参数与文案仍根据 `bot_language` 选取。模板参考 [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md)。
 - **提示词示例校验**：`prompt_example/` 随版本一起分发，测试 `test/config/promptExamples.test.ts` 会严格校验示例能被 `loadPromptFile` 解析。`voice_tool.md` 中的额度、单轮上限与字符限制必须与代码常量保持一致，语言必须与 `config_example/dynamic/agent.json` 的 `bot_language` 保持一致。调整相关常量时需同步更新示例。
 - **配置文件分层**：开发时只修改被 Git 忽略的 `config/` 真实文件；`config_example/` 仅用作格式参照，不得直接作为工作数据。
-  - `config/dynamic/` 下的文件支持运行时热重载（`assets.json`、`ad_samples.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`）。
+  - `config/dynamic/` 下的文件支持运行时热重载（`assets.json`、`ad_data.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`）。
   - `config/static/` 下的文件修改后需要重启进程生效（`bot.json`、`g-auth.json`）。
 - **表情与黑白名单**：AI 允许发送的表情符号由常量 `AI_REACTION_EMOJIS` 约束。黑名单与权限白名单权威存储在 SQLite 数据库中，不通过 JSON 文件维护。
 

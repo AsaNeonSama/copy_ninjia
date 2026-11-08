@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**7001 tests / 588 files / 456453 次 `expect()`**；全源码**函数覆盖率 97.57% / 行覆盖率 98.13%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**7008 tests / 588 files / 456507 次 `expect()`**；全源码**函数覆盖率 97.57% / 行覆盖率 98.13%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 
@@ -107,7 +107,7 @@
 1. **测试文件上下文隔离**：Bun 为每个测试文件创建完全独立的全局对象，`mock.module` 与模块级全局变量绝不跨文件产生污染。
 2. **专属临时数据根**：`test/preloadEnv.ts` 在加载任何业务代码之前，为当前测试进程创建独立的临时数据目录（`mkdtempSync`）并设置环境变量 `COPY_NINJIA_DATA_ROOT`，另建一个测试专用临时目录设为 `TMPDIR`（用例与被测代码经 `os.tmpdir()` 创建的临时文件都在其中）。`/dev/shm` 是 tmpfs 且可用空间不少于 `TMPFS_MIN_AVAILABLE_BYTES` 时两者建在 `/dev/shm` 下，否则建在进程原有的 `os.tmpdir()` 下。所有文件 I/O 均局限于临时目录中，绝不触碰生产环境文件（`memory/`、`logs/`、`database/`、`bot.lock`），测试结束后两棵临时目录自动清理并还原 `TMPDIR`。
 3. **独立配置根目录**：自动将 `config_example/` 完整复制到临时目录的 `config/`，通过 `COPY_NINJIA_CONFIG_ROOT` 引导程序读取测试专用配置。占位密钥替换为安全的虚拟凭据，屏蔽 `g-auth.json`，并将 `cron.json` 初始化为空任务表。
-4. **配置快照同步与空库初始化**：`test/preload.ts` 将测试副本中的 `agent.json`、`ad_samples.json`、`mood.json`、`stickers.json`、`cron.json`、机器人语气及内置人设一次性加载至测试环境的 holder 中，并在临时数据根创建带时区标记的空 SQLite 数据库，各功能 readiness 状态直接置为就绪。
+4. **配置快照同步与空库初始化**：`test/preload.ts` 将测试副本中的 `agent.json`、`ad_data.json`、`mood.json`、`stickers.json`、`cron.json`、机器人语气及内置人设一次性加载至测试环境的 holder 中，并在临时数据根创建带时区标记的空 SQLite 数据库，各功能 readiness 状态直接置为就绪。
 
 ### 关键测试套件分布
 

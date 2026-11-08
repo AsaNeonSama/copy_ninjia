@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import type { Sticker } from "grammy/types";
+import { defaultAdSampleConfigCache } from "../../../packages/cache/perThread/config";
+import type { AdVerdict, AdVerdictTrueEvent } from "../../../packages/types/antiRaid/adDetect";
 import {
   candidate,
   classifiedTexts,
+  classifyAdText,
+  disposeAdSender,
   errorLogs,
+  getCustomEmojiStickers,
   resetAdDetectQueueHarness,
+  warnReferencedAdSender,
 } from "../../helpers/adDetectQueueHarness";
 
 const {
@@ -14,6 +21,7 @@ const {
 const { formatAdBundleText } = await import("../../../packages/workers/antiRaid/adDetect/bundle");
 const {
   adDetectQueue,
+  adVerdictTruePublishHolder,
 } = await import("../../../packages/cache/workers/antiRaid/adDetect");
 const {
   AD_DETECT_BUNDLE_MAX_CHARS,
@@ -24,6 +32,8 @@ const {
   AD_DETECT_MESSAGE_MAX_CHARS,
   AD_SAMPLE_CONTEXT_MAX_CHARS,
 } = await import("../../../packages/consts/antiRaid/adDetect");
+const { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } =
+  await import("../../../packages/consts/telegram");
 
 const { pendingAdBundle } =
   await import("../../../packages/workers/antiRaid/adDetect/queueState");
@@ -189,5 +199,198 @@ describe("入队时的送检文本整形", () => {
     expect(dropped).toHaveLength(1);
     expect(dropped[0]).toContain("sender 7");
     expect(pendingAdBundle(-1001, 7)!.pendingDeleteIds).toHaveLength(3);
+  });
+
+  test("sticker_black_list 快路径命中时跳过自定义表情查询与 AI 检测，即使带引用也直接走 block", async () => {
+    const verdictEvents: AdVerdictTrueEvent[] = [];
+    adVerdictTruePublishHolder.current = (event: AdVerdictTrueEvent): void => {
+      verdictEvents.push(event);
+    };
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: ["SpamStickerPack"],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    enqueueAdCandidate(candidate({
+      messageId: 1,
+      text: "",
+      stickerSetName: "SpamStickerPack",
+      customEmojiIds: ["emoji-1"],
+      sampleQuote: "引用文本",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(getCustomEmojiStickers).not.toHaveBeenCalled();
+    expect(classifyAdText).not.toHaveBeenCalled();
+    expect(warnReferencedAdSender).not.toHaveBeenCalled();
+    expect(disposeAdSender).toHaveBeenCalledTimes(1);
+    const [{ verdict }] = disposeAdSender.mock.calls[0] as [{ verdict: AdVerdict }];
+    expect(verdict).toEqual({
+      isAd: true,
+      reason: "命中贴纸黑名单 (SpamStickerPack)",
+    });
+    expect(verdictEvents).toEqual([{
+      type: "adVerdictTrue",
+      chatId: -1001,
+      senderId: 7,
+    }]);
+  });
+
+  test("sticker 未命中后检测 emoji_black_list，命中时跳过 AI 检测并直接走 block", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: ["OtherStickerPack"],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => ([
+      {
+        file_id: "f-1",
+        file_unique_id: "u-1",
+        type: "custom_emoji",
+        width: 100,
+        height: 100,
+        is_animated: false,
+        is_video: false,
+        custom_emoji_id: "emoji-1",
+        set_name: "SpamEmojiPack",
+      },
+    ]));
+    enqueueAdCandidate(candidate({
+      messageId: 1,
+      text: "🔥",
+      customEmojiIds: ["emoji-1"],
+      sampleReplyTo: "回复文本",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
+    expect(getCustomEmojiStickers).toHaveBeenCalledWith(["emoji-1"]);
+    expect(classifyAdText).not.toHaveBeenCalled();
+    expect(warnReferencedAdSender).not.toHaveBeenCalled();
+    expect(disposeAdSender).toHaveBeenCalledTimes(1);
+    const [{ verdict }] = disposeAdSender.mock.calls[0] as [{ verdict: AdVerdict }];
+    expect(verdict).toEqual({
+      isAd: true,
+      reason: "命中表情黑名单 (SpamEmojiPack)",
+    });
+  });
+
+  test("黑名单均未命中时：纯贴纸不调 AI 并推进水位，含正文的消息继续走 AI 检测", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: ["SpamStickerPack"],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    enqueueAdCandidate(candidate({
+      messageId: 1,
+      text: "",
+      firstName: "Alice",
+      stickerSetName: "CleanStickerPack",
+    }), 1_000);
+    await runAdDetectBatch(1_000);
+    expect(classifyAdText).not.toHaveBeenCalled();
+    expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(1);
+
+    getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => ([
+      {
+        file_id: "f-2",
+        file_unique_id: "u-2",
+        type: "custom_emoji",
+        width: 100,
+        height: 100,
+        is_animated: false,
+        is_video: false,
+        custom_emoji_id: "emoji-2",
+        set_name: "CleanEmojiPack",
+      },
+    ]));
+    classifyAdText.mockImplementationOnce(async (): Promise<AdVerdict> => ({
+      isAd: true,
+      reason: "AI 命中引流",
+    }));
+    enqueueAdCandidate(candidate({
+      messageId: 2,
+      text: "加我微信",
+      firstName: "Alice",
+      customEmojiIds: ["emoji-2"],
+    }), 1_100);
+    await runAdDetectBatch(1_100);
+
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
+    expect(classifiedTexts).toEqual(["1. Alice 加我微信"]);
+    expect(disposeAdSender).toHaveBeenCalledTimes(1);
+  });
+
+  test("已有已判文本上下文时，后续未命中黑名单的纯贴纸或重复引文贴纸不重复触发 AI 分类", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: ["SpamStickerPack"],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    enqueueAdCandidate(candidate({
+      messageId: 1,
+      text: "早上好",
+      firstName: "Alice",
+      sampleReplyTo: "旧引文",
+    }), 1_000);
+    await runAdDetectBatch(1_000);
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
+    expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(1);
+
+    // 紧接着发一张干净的纯贴纸，以及一张回复同一条已认领引文的干净贴纸：两者都只过贴纸快路径，不重跑 AI。
+    enqueueAdCandidate(candidate({
+      messageId: 2,
+      text: "",
+      firstName: "Alice",
+      stickerSetName: "CleanStickerPack",
+    }), 1_100);
+    enqueueAdCandidate(candidate({
+      messageId: 3,
+      text: "",
+      firstName: "Alice",
+      stickerSetName: "CleanStickerPack",
+      sampleReplyTo: "旧引文",
+    }), 1_200);
+    await runAdDetectBatch(1_200);
+
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
+    expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(3);
+  });
+
+  test("跨条目自定义表情去重并按 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS 截断；查询异常时记日志并回退 AI 检测", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    const firstBatchIds: string[] = Array.from(
+      { length: TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS - 1 },
+      (_unused: unknown, index: number): string => `emoji-${index}`
+    );
+    getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => {
+      throw new Error("network timeout");
+    });
+    enqueueAdCandidate(candidate({
+      messageId: 1,
+      text: "第一条",
+      customEmojiIds: firstBatchIds,
+    }), 1_000);
+    enqueueAdCandidate(candidate({
+      messageId: 2,
+      text: "第二条",
+      customEmojiIds: ["emoji-0", "emoji-tail-1", "emoji-tail-2"],
+    }), 1_010);
+
+    await runAdDetectBatch(1_010);
+
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
+    const queriedIds: string[] = (getCustomEmojiStickers.mock.calls[0] as [string[]])[0];
+    expect(queriedIds).toHaveLength(TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
+    expect(queriedIds.at(-1)).toBe("emoji-tail-1");
+    expect(errorLogs.some((line: string): boolean => line.includes("failed to query custom emoji stickers"))).toBe(true);
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
   });
 });

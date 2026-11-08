@@ -63,7 +63,7 @@ describe("按 holder 重算功能可用性", () => {
     expect(readiness.ok ? "" : readiness.failure.reason).toContain("$.agent must be configured with text, summary and media");
   });
 
-  test("广告检测按 ad_samples → agent.ad_detect 的顺序报缺失，与 AI 闲聊互不牵连", () => {
+  test("广告检测按 ad_data → agent.ad_detect 的顺序报缺失，与 AI 闲聊互不牵连", () => {
     fillAll();
     expect(adDetectReadinessFromHolders()).toEqual({ ok: true });
 
@@ -75,6 +75,6 @@ describe("按 holder 重算功能可用性", () => {
     expect(failedFile(readiness)).toBe("config/dynamic/agent.json");
     expect(readiness.ok ? "" : readiness.failure.reason).toContain("$.agent.ad_detect must be configured");
     defaultAdSampleConfigCache.current = null;
-    expect(failedFile(adDetectReadinessFromHolders())).toBe("config/dynamic/ad_samples.json");
+    expect(failedFile(adDetectReadinessFromHolders())).toBe("config/dynamic/ad_data.json");
   });
 });

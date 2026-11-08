@@ -5,8 +5,10 @@
 
 /** 广告检测候选消息的投递准入判定输入。 */
 export interface AdCandidateAdmissionInput {
-  /** 清洗、截断并接上隐藏 URL 之后的正文长度；0 表示这条消息没有可判定内容。 */
+  /** 清洗、截断并接上隐藏 URL 之后的正文长度；0 表示这条消息没有可判定文本内容。 */
   readonly textLength: number;
+  /** 消息是否携带待核对黑名单的贴纸包名或自定义表情 ID。 */
+  readonly hasPackCandidate?: boolean;
   /** 发送者是否为频道或匿名管理员身份（无群成员身份，处置走 banChatSenderChat）。 */
   readonly isChannel: boolean;
   /** 去重 TTL 窗口内该发送者键是否已被判为广告并发出处置。 */

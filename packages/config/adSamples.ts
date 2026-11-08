@@ -1,63 +1,149 @@
 import { defaultAdSampleConfigCache } from "../cache/perThread/config";
-import { AD_SAMPLE_MAX_CHARS, MAX_CONFIGURED_AD_SAMPLES } from "../consts/antiRaid/adDetect";
+import { STICKER_PACK_NAME_PATTERN } from "../consts/aiChat/stickers";
+import {
+  AD_SAMPLE_CONFIG_KEYS,
+  AD_SAMPLE_MAX_CHARS,
+  MAX_CONFIGURED_AD_BLACKLIST_PACKS,
+  MAX_CONFIGURED_AD_SAMPLES,
+} from "../consts/antiRaid/adDetect";
 import { AD_SAMPLES_CONFIG_PATH } from "../consts/paths";
 import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { hasExactKeys, isPlainRecord } from "../libs/record";
 import { sanitizeInline } from "../libs/text";
 import type { AdSampleConfig } from "../types/config";
 
 /**
- * 严格解码 ad_samples.json：顶层必须是字符串数组，拒绝空串、超长与重复。
+ * 校验并规范化贴纸包或自定义表情包 short name 黑名单数组（去掉首尾空白、核对格式、去重与上限）。
+ * @param entries 原始数组元素列表。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @param fieldPath 字段 JSONPath（如 `$.sticker_black_list`）。
+ * @returns 规范化并去重后的包名列表。
+ */
+function parseAdBlacklistPacks(
+  entries: readonly unknown[],
+  sourcePath: string,
+  fieldPath: string
+): readonly string[] {
+  if (entries.length > MAX_CONFIGURED_AD_BLACKLIST_PACKS) {
+    return invalidInput(
+      sourcePath,
+      fieldPath,
+      `an array with at most ${MAX_CONFIGURED_AD_BLACKLIST_PACKS} entries`
+    );
+  }
+  const packs: string[] = [];
+  const seen: Set<string> = new Set();
+  for (let index: number = 0; index < entries.length; index++) {
+    const entry: unknown = entries[index];
+    const pack: string = typeof entry === "string" ? entry.trim() : "";
+    if (!STICKER_PACK_NAME_PATTERN.test(pack)) {
+      return invalidInput(
+        sourcePath,
+        `${fieldPath}[${index}]`,
+        "a valid Telegram sticker pack short name"
+      );
+    }
+    if (seen.has(pack)) {
+      return invalidInput(sourcePath, `${fieldPath}[${index}]`, "unique");
+    }
+    seen.add(pack);
+    packs.push(pack);
+  }
+  return packs;
+}
+
+/**
+ * 严格解码 ad_data.json：顶层必须精确包含 `samples`、`sticker_black_list` 与 `emoji_black_list`
+ * 三个字符串数组，拒绝空串、超长、非法包名与重复。
  * @param value 待校验的原始 JSON 值。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
- * @returns 规范化并去重后的广告示例数组。
+ * @returns 规范化并去重后的广告示例与黑名单配置。
  */
 export function parseAdSampleConfig(
   value: unknown,
   sourcePath: string = AD_SAMPLES_CONFIG_PATH
 ): AdSampleConfig {
-  if (!Array.isArray(value)) {
-    return invalidInput(sourcePath, "$", "a string array");
+  if (
+    !isPlainRecord(value) ||
+    !hasExactKeys(value, AD_SAMPLE_CONFIG_KEYS) ||
+    !Array.isArray(value.samples) ||
+    !Array.isArray(value.sticker_black_list) ||
+    !Array.isArray(value.emoji_black_list)
+  ) {
+    return invalidInput(
+      sourcePath,
+      "$",
+      "exactly { samples: string[], sticker_black_list: string[], emoji_black_list: string[] }"
+    );
   }
-  if (value.length > MAX_CONFIGURED_AD_SAMPLES) {
-    return invalidInput(sourcePath, "$", `an array with at most ${MAX_CONFIGURED_AD_SAMPLES} entries`);
+  if (value.samples.length > MAX_CONFIGURED_AD_SAMPLES) {
+    return invalidInput(
+      sourcePath,
+      "$.samples",
+      `an array with at most ${MAX_CONFIGURED_AD_SAMPLES} entries`
+    );
   }
 
   const samples: string[] = [];
-  const seen: Set<string> = new Set();
-  for (let index: number = 0; index < value.length; index++) {
-    const sample: unknown = value[index];
+  const seenSamples: Set<string> = new Set();
+  for (let index: number = 0; index < value.samples.length; index++) {
+    const sample: unknown = value.samples[index];
     if (typeof sample !== "string") {
-      return invalidInput(sourcePath, `$[${index}]`, "a non-empty string");
+      return invalidInput(sourcePath, `$.samples[${index}]`, "a non-empty string");
     }
     // 空白序列压成单个空格并去掉首尾空白后，再判空、判长与判重；示例按单行拼进提示词。
     const normalized: string = sanitizeInline(sample);
     if (normalized.length === 0) {
-      return invalidInput(sourcePath, `$[${index}]`, "a non-empty string");
+      return invalidInput(sourcePath, `$.samples[${index}]`, "a non-empty string");
     }
     if (normalized.length > AD_SAMPLE_MAX_CHARS) {
-      return invalidInput(sourcePath, `$[${index}]`, `a string no longer than ${AD_SAMPLE_MAX_CHARS} characters`);
+      return invalidInput(
+        sourcePath,
+        `$.samples[${index}]`,
+        `a string no longer than ${AD_SAMPLE_MAX_CHARS} characters`
+      );
     }
-    if (seen.has(normalized)) {
-      return invalidInput(sourcePath, `$[${index}]`, "unique after whitespace normalization");
+    if (seenSamples.has(normalized)) {
+      return invalidInput(
+        sourcePath,
+        `$.samples[${index}]`,
+        "unique after whitespace normalization"
+      );
     }
-    seen.add(normalized);
+    seenSamples.add(normalized);
     samples.push(normalized);
   }
-  return samples;
+
+  const stickerBlackList: readonly string[] = parseAdBlacklistPacks(
+    value.sticker_black_list,
+    sourcePath,
+    "$.sticker_black_list"
+  );
+  const emojiBlackList: readonly string[] = parseAdBlacklistPacks(
+    value.emoji_black_list,
+    sourcePath,
+    "$.emoji_black_list"
+  );
+
+  return {
+    samples,
+    stickerBlackList,
+    emojiBlackList,
+  };
 }
 
 /**
  * 从 AD_SAMPLES_CONFIG_PATH 加载并校验；模块 import 本身不访问文件系统。
- * @returns 已通过校验的广告示例配置。
+ * @returns 已通过校验的广告示例与黑名单配置。
  */
 export async function loadAdSampleConfig(): Promise<AdSampleConfig> {
   return parseAdSampleConfig(await readJsonInput(AD_SAMPLES_CONFIG_PATH), AD_SAMPLES_CONFIG_PATH);
 }
 
 /**
- * 接管已经严格校验的广告示例快照：启动预检、Worker 初始化消息或 config/dynamic/ 热重载。
+ * 接管已经严格校验的广告示例与黑名单快照：启动预检、Worker 初始化消息或 config/dynamic/ 热重载。
  * null 只来自主线程热重载，表示部署方删除了该文件。
- * @param config 已校验的广告示例配置，或表示文件已移除的 null。
+ * @param config 已校验的广告示例与黑名单配置，或表示文件已移除的 null。
  */
 export function adoptAdSampleConfig(config: AdSampleConfig | null): void {
   defaultAdSampleConfigCache.current = config;
@@ -70,8 +156,8 @@ export async function ensureAdSampleConfig(): Promise<void> {
 }
 
 /**
- * 默认广告示例只读当前线程已校验的快照，不在运行期回退读盘。
- * @returns 当前线程已接管的广告示例配置。
+ * 默认广告示例与黑名单配置只读当前线程已校验的快照，不在运行期回退读盘。
+ * @returns 当前线程已接管的广告示例与黑名单配置。
  */
 export function getAdSampleConfig(): AdSampleConfig {
   const config: AdSampleConfig | null = defaultAdSampleConfigCache.current;

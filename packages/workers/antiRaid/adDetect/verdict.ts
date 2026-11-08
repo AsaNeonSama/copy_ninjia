@@ -1,19 +1,23 @@
 /**
  * 单个待检键的广告分类、引用归因与处置编排（Anti-Raid Worker 侧）：
  * - 送检前由 `selectAdBundleEntries` 定格入选条目与水位；
- * - 按分类与归因结果分派：非广告/未知仅推进 `checkedSeq`，本人姓名或正文命中广告直接处置，
+ * - 依次执行贴纸黑名单快路径（`sticker_black_list`）、自定义表情包黑名单（`emoji_black_list`）与 AI 分类；
+ * - 按分类与归因结果分派：非广告/未知仅推进 `checkedSeq`，命中黑名单或本人姓名/正文命中广告直接处置，
  *   仅引用内容命中广告且未处于警告窗口时先发警告并删除警告前消息，警告窗口内再次命中则升级处置。
  */
 
+import type { Sticker } from "grammy/types";
 import { classifyAdText } from "./classifier";
 import {
   deleteReferencedAdMessages,
   disposeAdSender,
   warnReferencedAdSender,
 } from "./disposal";
+import { getAdSampleConfig } from "../../../config/adSamples";
 import { deleteMessage, telegramApi } from "../../../infra/telegram";
 import { isChatAdmin } from "../adminCache";
 import { logger } from "../../../infra/logger";
+import { truncateInline } from "../../../libs/text";
 import {
   adVerdictTruePublishHolder,
   adDetectStopping,
@@ -21,7 +25,11 @@ import {
   recentlyDisposedAdKeys,
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
-import { AD_REFERENCE_WARNING_WINDOW_MS } from "../../../consts/antiRaid/adDetect";
+import {
+  AD_DETECT_REASON_MAX_CHARS,
+  AD_REFERENCE_WARNING_WINDOW_MS,
+} from "../../../consts/antiRaid/adDetect";
+import { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } from "../../../consts/telegram";
 import {
   claimSampleContextParts,
   containsReferencedAdContent,
@@ -69,7 +77,107 @@ type AdDetectionOutcome =
   | { readonly kind: "referencedOnly"; readonly verdict: AdVerdict };
 
 /**
- * 对选中条目执行分类与引用归因，返回 `AdDetectionOutcome`。
+ * 检查本次未检条目是否命中贴纸包黑名单（快路径）。
+ *
+ * @param bundle 待检消息束。
+ * @param judged 本次送检入选的条目快照。
+ * @returns 命中的贴纸包 short name；未命中时返回 `undefined`。
+ */
+function matchBlacklistedStickerSet(
+  bundle: AdMessageBundle,
+  judged: readonly AdCandidateEntry[]
+): string | undefined {
+  let stickerBlackList: readonly string[] | undefined;
+  for (const entry of judged) {
+    if (entry.seq <= bundle.checkedSeq) continue;
+    const setName: string | undefined = entry.stickerSetName;
+    if (setName === undefined) continue;
+    stickerBlackList ??= getAdSampleConfig().stickerBlackList;
+    if (stickerBlackList.length === 0) return undefined;
+    if (stickerBlackList.includes(setName)) return setName;
+  }
+  return undefined;
+}
+
+/**
+ * 收集本次未检条目中去重后的自定义表情 ID（上限 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS）。
+ *
+ * @param bundle 待检消息束。
+ * @param judged 本次送检入选的条目快照。
+ * @returns 去重后的自定义表情 ID 列表；无自定义表情时返回 `undefined`。
+ */
+function collectUncheckedCustomEmojiIds(
+  bundle: AdMessageBundle,
+  judged: readonly AdCandidateEntry[]
+): string[] | undefined {
+  let customEmojiIds: string[] | undefined;
+  for (const entry of judged) {
+    if (entry.seq <= bundle.checkedSeq) continue;
+    const ids: readonly string[] | undefined = entry.customEmojiIds;
+    if (ids === undefined || ids.length === 0) continue;
+    for (const id of ids) {
+      if ((customEmojiIds?.length ?? 0) >= TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS) {
+        return customEmojiIds;
+      }
+      if (customEmojiIds?.includes(id) === true) continue;
+      customEmojiIds ??= [];
+      customEmojiIds.push(id);
+    }
+  }
+  return customEmojiIds;
+}
+
+/**
+ * 经主线程统一 Telegram 出站查询自定义表情所属表情包是否命中黑名单。
+ *
+ * @param bundle 待检消息束。
+ * @param customEmojiIds 待查询的自定义表情 ID 列表（不超过 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS）。
+ * @param emojiBlackList 自定义表情包黑名单。
+ * @returns 命中的自定义表情包 short name；未命中或查询失败时返回 `undefined`。
+ */
+async function queryBlacklistedCustomEmojiSet(
+  bundle: AdMessageBundle,
+  customEmojiIds: string[],
+  emojiBlackList: readonly string[]
+): Promise<string | undefined> {
+  try {
+    const stickers: readonly Sticker[] = await telegramApi.getCustomEmojiStickers(customEmojiIds);
+    for (const sticker of stickers) {
+      const setName: string | undefined = sticker.set_name?.trim();
+      if (setName !== undefined && setName.length > 0 && emojiBlackList.includes(setName)) {
+        return setName;
+      }
+    }
+    return undefined;
+  } catch (error: unknown) {
+    logger.error(
+      `Ad detection failed to query custom emoji stickers for sender ${bundle.senderId} ` +
+      `in chat ${bundle.chatId}:`,
+      error
+    );
+    return undefined;
+  }
+}
+
+/**
+ * 检查本次送检是否存在尚未做过 AI 文本判定的非空文本条目。
+ *
+ * @param bundle 待检消息束。
+ * @param judged 本次送检入选的条目快照。
+ * @returns 任一未检条目（`seq > bundle.checkedSeq`）含有非空 `text` 时返回 `true`。
+ */
+function hasUncheckedAdText(
+  bundle: AdMessageBundle,
+  judged: readonly AdCandidateEntry[]
+): boolean {
+  for (const entry of judged) {
+    if (entry.seq > bundle.checkedSeq && entry.text.length > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * 对选中条目按「贴纸黑名单快路径 -> 自定义表情包黑名单 -> AI 分类与引用归因」顺序执行检测。
  *
  * @param bundle 待检消息束。
  * @param judged 本次送检入选的条目快照。
@@ -81,8 +189,40 @@ async function classifyAdBundle(
 ): Promise<AdDetectionOutcome> {
   let combinedVerdict: AdVerdict | null;
   try {
+    const matchedStickerSet: string | undefined = matchBlacklistedStickerSet(bundle, judged);
+    if (matchedStickerSet !== undefined) {
+      return {
+        kind: "directAd",
+        verdict: {
+          isAd: true,
+          reason: truncateInline(`命中贴纸黑名单 (${matchedStickerSet})`, AD_DETECT_REASON_MAX_CHARS),
+        },
+      };
+    }
+
+    const customEmojiIds: string[] | undefined = collectUncheckedCustomEmojiIds(bundle, judged);
+    if (customEmojiIds !== undefined) {
+      const emojiBlackList: readonly string[] = getAdSampleConfig().emojiBlackList;
+      if (emojiBlackList.length > 0) {
+        const matchedEmojiSet: string | undefined =
+          await queryBlacklistedCustomEmojiSet(bundle, customEmojiIds, emojiBlackList);
+        if (matchedEmojiSet !== undefined) {
+          return {
+            kind: "directAd",
+            verdict: {
+              isAd: true,
+              reason: truncateInline(`命中表情黑名单 (${matchedEmojiSet})`, AD_DETECT_REASON_MAX_CHARS),
+            },
+          };
+        }
+      }
+    }
+
+    if (!hasUncheckedAdText(bundle, judged)) return { kind: "notAd" };
+    const bundleText: string = formatAdBundleText(judged);
+
     combinedVerdict = await classifyAdText({
-      text: formatAdBundleText(judged),
+      text: bundleText,
       justJoined: bundle.justJoined,
     });
   } catch (error: unknown) {
@@ -150,7 +290,10 @@ function retainPostWarningContent(
   const retainedEntries: AdCandidateEntry[] = [];
   for (const entry of bundle.entries) {
     if (entry.messageId <= warning.messageId) continue;
-    if (entry.quote !== undefined || entry.replyTo !== undefined) {
+    if (
+      entry.directText.length > 0 &&
+      (entry.quote !== undefined || entry.replyTo !== undefined)
+    ) {
       entry.text = claimSampleContextParts(
         entry.directText,
         entry,

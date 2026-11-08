@@ -100,6 +100,22 @@ function candidateIdentityMetadata(
 }
 
 /**
+ * 判断消息束中是否已存在携带非空送检文本的条目（即当前发送者姓名已进入送检上下文）。
+ *
+ * @param entries 消息束现有的条目列表。
+ * @returns 任一条目 `text` 非空时返回 `true`。
+ */
+function hasTextEntry(
+  entries: readonly AdCandidateEntry[] | undefined
+): boolean {
+  if (entries === undefined) return false;
+  for (const entry of entries) {
+    if (entry.text.length > 0) return true;
+  }
+  return false;
+}
+
+/**
  * 接收并合并一条待判定候选消息，按准入策略入队或触发频道尾随广告删除。
  *
  * @param message 待检候选消息。
@@ -137,25 +153,43 @@ export function enqueueAdCandidate(
     truncateInline(message.text, AD_DETECT_MESSAGE_MAX_CHARS),
     message.linkUrls
   );
+  const stickerSetName: string | undefined = message.stickerSetName;
+  const customEmojiIds: readonly string[] | undefined =
+    message.customEmojiIds !== undefined && message.customEmojiIds.length > 0
+      ? message.customEmojiIds
+      : undefined;
+  const hasPackCandidate: boolean =
+    stickerSetName !== undefined || customEmojiIds !== undefined;
+  const hasTextOrContext: boolean =
+    textWithLinks.length > 0 || context !== undefined;
   const knownSenderName: string | undefined =
     existing?.meta.firstName === message.firstName && existing.meta.lastName === message.lastName
       ? existing.senderName
       : undefined;
   const senderName: string = message.isChannel ? "" : knownSenderName ?? formatAdSenderName(message);
-  const senderText: string = senderName.length === 0
-    ? textWithLinks
-    : textWithLinks.length === 0 ? senderName : `${senderName} ${textWithLinks}`;
-  const text: string = context === undefined
+  const senderText: string = !hasTextOrContext
+    ? ""
+    : senderName.length === 0
+      ? textWithLinks
+      : textWithLinks.length === 0 ? senderName : `${senderName} ${textWithLinks}`;
+  const rawText: string = context === undefined
     ? senderText
     : claimSampleContextParts(
       senderText,
       context,
       existing?.entries ?? EMPTY_AD_CANDIDATE_ENTRIES
     );
-  const directText: string = message.isForwarded ? senderName : senderText;
-  const onlyKnownName: boolean = text === senderName && knownSenderName !== undefined && (existing?.entries.length ?? 0) > 0;
+  const onlyKnownName: boolean =
+    rawText === senderName &&
+    knownSenderName !== undefined &&
+    hasTextEntry(existing?.entries);
+  const text: string = onlyKnownName ? "" : rawText;
+  const directText: string = !hasTextOrContext || onlyKnownName
+    ? ""
+    : message.isForwarded ? senderName : senderText;
   const decision: AdCandidateDecision = admitAdCandidate({
-    textLength: onlyKnownName ? 0 : text.length,
+    textLength: text.length,
+    hasPackCandidate,
     isChannel: message.isChannel,
     recentlyDisposed,
     blocked: message.blocked,
@@ -196,6 +230,8 @@ export function enqueueAdCandidate(
     receivedAt: now,
     withinReferencedWarning: referencedAdWarningStates.size > 0 &&
       hasActiveReferencedAdWarning(bundle.key, now),
+    stickerSetName,
+    customEmojiIds,
     quote: context?.quote,
     replyTo: context?.replyTo,
   };

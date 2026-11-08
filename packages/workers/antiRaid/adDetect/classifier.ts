@@ -66,7 +66,7 @@ export interface ClassifyAdTextParams {
  */
 function currentAdDetectPrompts(): AdDetectPrompts {
   if (adDetectPrompts.current !== null) return adDetectPrompts.current;
-  const instructions: string = buildAdDetectInstructions(getAdSampleConfig());
+  const instructions: string = buildAdDetectInstructions(getAdSampleConfig().samples);
   const prompts: AdDetectPrompts = {
     instructions,
     justJoinedSystemPrompt: `${instructions}\n${adDetectFact(true)}`,

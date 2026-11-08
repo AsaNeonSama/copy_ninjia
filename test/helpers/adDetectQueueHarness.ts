@@ -1,10 +1,15 @@
 /** 广告队列测试共用的 owner 状态、provider 替身与逐用例复位。 */
 
 import { mock } from "bun:test";
+import type { Sticker } from "grammy/types";
 import { loggerStub } from "./loggerMock";
+import { defaultAdSampleConfigCache } from "../../packages/cache/perThread/config";
 import type { AdCandidateMessage } from "../../packages/types/antiRaid";
 import type { AdVerdict } from "../../packages/types/antiRaid/adDetect";
-import type { TelegramWorkerTemporaryMessageResult } from "../../packages/types/telegramWorker";
+import type {
+  TelegramApi,
+  TelegramWorkerTemporaryMessageResult,
+} from "../../packages/types/telegramWorker";
 
 export const classifyAdText = mock(async (_text: string): Promise<AdVerdict | null> => ({ isAd: false, reason: "" }));
 export const disposeAdSender = mock(async (..._args: unknown[]): Promise<void> => {});
@@ -39,8 +44,17 @@ mock.module("../../packages/workers/antiRaid/adDetect/classifier", () => ({
 }));
 /** 迟到警告的定向撤回：verdict 直接走 infra/telegram 的 deleteMessage。 */
 export const deleteMessage = mock(async (..._args: unknown[]): Promise<boolean> => true);
+export const getCustomEmojiStickers = mock(async (_ids: readonly string[]): Promise<Sticker[]> => []);
 const realTelegram = await import("../../packages/infra/telegram");
-mock.module("../../packages/infra/telegram", () => ({ ...realTelegram, deleteMessage }));
+const mockedTelegramApi: TelegramApi = {
+  ...realTelegram.telegramApi,
+  getCustomEmojiStickers,
+};
+mock.module("../../packages/infra/telegram", () => ({
+  ...realTelegram,
+  deleteMessage,
+  telegramApi: mockedTelegramApi,
+}));
 mock.module("../../packages/workers/antiRaid/adDetect/disposal", () => ({
   disposeAdSender,
   warnReferencedAdSender,
@@ -84,6 +98,8 @@ export function candidate(overrides: Partial<AdCandidateMessage> = {}): AdCandid
     blocked: false,
     justJoined: false,
     linkUrls: undefined,
+    stickerSetName: undefined,
+    customEmojiIds: undefined,
     sampleQuote: undefined,
     sampleReplyTo: undefined,
     ...overrides,
@@ -93,12 +109,19 @@ export function candidate(overrides: Partial<AdCandidateMessage> = {}): AdCandid
 /** 复位 mock 与夹具；真实 owner 状态的清理由调用方传入，helper 不动态导入生产模块。 */
 export function resetAdDetectQueueHarness(stopAdDetectQueue: () => void): void {
   stopAdDetectQueue();
+  defaultAdSampleConfigCache.current = {
+    samples: [],
+    stickerBlackList: [],
+    emojiBlackList: [],
+  };
   errorLogs.length = 0;
   classifiedTexts.length = 0;
   classifiedFacts.length = 0;
   // 用 mockReset：连同未消费的 mockImplementationOnce 一起清掉。
   classifyAdText.mockReset();
   classifyAdText.mockImplementation(async (): Promise<AdVerdict | null> => ({ isAd: false, reason: "" }));
+  getCustomEmojiStickers.mockReset();
+  getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => []);
   disposeAdSender.mockClear();
   warnReferencedAdSender.mockReset();
   warningNow = 1_000;

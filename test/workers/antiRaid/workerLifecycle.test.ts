@@ -266,7 +266,13 @@ describe("Anti-Raid Worker lifecycle", () => {
     expect(workerSelf.onmessage).not.toBeNull();
 
     const messages: AntiRaidWorkerMessage[] = [
-      { atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: injectedAdDetectConfig, adSamples: [] },
+      {
+        atmosphere: "teasing",
+        type: "agentConfig",
+        timeZone: getTimeZone(),
+        adDetect: injectedAdDetectConfig,
+        adSamples: { samples: [], stickerBlackList: [], emojiBlackList: [] },
+      },
       {
         type: "join",
         chatId: -1001,
@@ -292,7 +298,7 @@ describe("Anti-Raid Worker lifecycle", () => {
       { type: "verificationPersisted", key: "-1001:1", generation: 1, revision: 1 },
       { type: "adminsChanged", chatId: -1001, userId: 1, isInviterExempt: true },
       { type: "removeBlockedMembers", chatId: -1001, userIds: [42], probeMembership: false, removalId: 1 },
-      { type: "adCandidate", chatId: -1001, senderId: 1, messageId: 11, observedAt: 1, text: "买号加我", firstName: "Spam", lastName: "", username: "spam", isChannel: false, isForwarded: false, blocked: false, justJoined: true, linkUrls: undefined, sampleQuote: undefined, sampleReplyTo: undefined },
+      { type: "adCandidate", chatId: -1001, senderId: 1, messageId: 11, observedAt: 1, text: "买号加我", firstName: "Spam", lastName: "", username: "spam", isChannel: false, isForwarded: false, blocked: false, justJoined: true, linkUrls: undefined, stickerSetName: undefined, customEmojiIds: undefined, sampleQuote: undefined, sampleReplyTo: undefined },
       { type: "clearAdDetect", chatId: -1001 },
       { type: "floodCandidate", chatId: -1001, userId: 1, observedAt: 1, name: "@noisy" },
       { type: "clearFloodControl", chatId: -1001 },

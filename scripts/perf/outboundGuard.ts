@@ -58,6 +58,7 @@ const CANNED_TELEGRAM_RESULTS: Readonly<Record<string, (payload: Record<string, 
       can_manage_chat: true,
     };
   },
+  getCustomEmojiStickers: (): readonly unknown[] => [],
   getStickerSet: (): unknown => ({ stickers: [] }),
   restrictChatMember: (): true => true,
   sendChatAction: (): true => true,

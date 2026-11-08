@@ -1033,8 +1033,12 @@ This section covers the [authoritative blocklist and the block command](#authori
   - Bounded by `AD_DETECT_MAX_PENDING_SENDERS`; rejects new senders when full without evicting unjudged senders.
   - Scheduler extracts up to `AD_DETECT_BATCH_SIZE` senders every `AD_DETECT_QUEUE_TICK_MS`, capped globally by `AD_DETECT_MAX_IN_FLIGHT`.
   - Disposed sender keys enter `recentlyDisposedAdKeys` for `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`, suppressing duplicate classifications while continuing to delete messages from channel aliases.
-- **Bundle Assembly & Model Interaction**:
+- **Bundle Assembly, Blacklist Fast-Path & Model Interaction**:
   - Limits per-sender messages to `AD_DETECT_MAX_MESSAGES_PER_SENDER` and character budgets to `AD_DETECT_BUNDLE_MAX_CHARS`. Dropped unjudged messages transfer their IDs to `pendingDeleteIds` to ensure full deletion during disposal, logging an error.
+  - Detection runs as a three-stage pipeline (any exempt identity bypasses all three stages at candidate admission):
+    1. **Sticker pack blacklist fast-path** (`sticker_black_list` in `ad_data.json`): Synchronously matches `sticker.set_name` on unchecked entries; a match skips subsequent checks and directly triggers permanent block disposal.
+    2. **Custom emoji pack blacklist** (`emoji_black_list` in `ad_data.json`): Collects deduplicated `custom_emoji_id` values from unchecked entries (up to `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` per call) and queries `getCustomEmojiStickers` through the main-thread unified Telegram outbound gate (`query` 429 retry policy); a match skips AI classification and directly triggers permanent block disposal, while lookup failures log an error and proceed.
+    3. **AI text classification** (`samples` in `ad_data.json`): Invokes the classifier model only when unchecked non-empty text entries exist (standalone stickers not on the blacklist never invoke AI).
   - Senders' display names (`firstName`, `lastName`) are submitted alongside non-forwarded text, treating name-based promotions identically to body promotions.
   - **Bare Link Protection**: If messages consist solely of links and an optional standard name without marketing, recruitment, or commercial copy, they must be classified as `false` (supporting proxy and subscription protocols).
   - Prompts explicitly mandate `"JSON"` output. Parsers extract bare JSON objects, tolerating markdown fences. Classification errors treat the message as unjudged without penalty.

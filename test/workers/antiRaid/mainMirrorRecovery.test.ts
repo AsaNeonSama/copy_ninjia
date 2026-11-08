@@ -73,13 +73,18 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       antiRaid.initAntiRaid();
       workerPosts.length = 0;
       const reloadedAdDetect = { ...originalAdDetect!, model: "reloaded-ad-model" };
+      const reloadedSamples = {
+        samples: ["热重载后的示例"],
+        stickerBlackList: ["ReloadedStickerPack"],
+        emojiBlackList: ["ReloadedEmojiPack"],
+      };
       adoptAdDetectAgentConfig(reloadedAdDetect);
-      adoptAdSampleConfig(["热重载后的示例"]);
+      adoptAdSampleConfig(reloadedSamples);
       syncAntiRaidAgentConfig();
       const expected: AntiRaidWorkerMessage = { atmosphere: "teasing",
         type: "agentConfig", timeZone: getTimeZone(),
         adDetect: reloadedAdDetect,
-        adSamples: ["热重载后的示例"],
+        adSamples: reloadedSamples,
       };
       expect(workerPosts).toEqual([expected]);
 

@@ -21,7 +21,7 @@ done
 
 `config/` 严格按生效机制拆分为两个子目录：
 - `config/static/`：`bot.json`、`g-auth.json`，修改后**必须重启服务**生效。
-- `config/dynamic/`：`assets.json`、`ad_samples.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
+- `config/dynamic/`：`assets.json`、`ad_data.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
 
 `config/dynamic/` 目录必须存在（可以为空）；任一配置文件放在 `config/` 顶层或放错子目录均会拒绝启动。白名单、黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于配置文件。
 
@@ -66,9 +66,9 @@ done
     <td>AI 对话停摆（但不拒绝启动）</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_samples.json</code></td>
+    <td><code>dynamic/ad_data.json</code></td>
     <td><nobr>动态（热重载）</nobr></td>
-    <td>广告分类判定用的正例参考样本</td>
+    <td>广告分类正例参考样本与贴纸包/表情包黑名单</td>
     <td>广告检测停摆（但不拒绝启动）</td>
   </tr>
   <tr>
@@ -104,7 +104,7 @@ done
 1. **热替换**：解析通过且配置产生变化时，立即更新快照并投递给各 Worker。
 2. **校验失败保护**：解析失败时整份变更被拒绝，日志记录具体错误位置（文件路径、字段路径与期望形态），系统继续沿用上一份已生效配置，不中断运行。
 3. **功能联动**：
-   - 增删 `ad_samples.json` 或 `agent.json` 的 `ad_detect` 段，自动启停广告检测。
+   - 增删 `ad_data.json` 或 `agent.json` 的 `ad_detect` 段，自动启停广告检测。
    - 增删 `agent.json` 的对话核心能力（`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`：`text` / `summary` / `media`）或 `mood.json` / `stickers.json`，自动启停 AI 闲聊。
    - 可选能力（`image`、`tts`、`web_search`）的变更即时生效。
 4. **跨配置依赖校验**：
@@ -451,26 +451,36 @@ done
 
 ---
 
-## `ad_samples.json`
+## `ad_data.json`
 
-动态配置文件，路径为 `config/dynamic/ad_samples.json`。顶层为纯文本字符串数组，提供给广告分类模型作为判定正例参考。
+动态配置文件，路径为 `config/dynamic/ad_data.json`。顶层为包含 `samples`、`sticker_black_list` 与 `emoji_black_list` 三个数组的 JSON 对象，分别配置广告分类正例样本、贴纸包黑名单与自定义表情包黑名单。检测按「贴纸包黑名单快路径 -> 自定义表情包黑名单 -> AI 文本判定」顺序执行，命中任一黑名单直接跳过 AI 判定并按广告处置封禁。
 
 ### 配置案例
 
 ```json
-[
-  "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
-  "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
-  "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
-  "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-]
+{
+  "samples": [
+    "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
+    "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
+    "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
+    "出售TG老号 白号 API号 协议号，价格优惠，私聊"
+  ],
+  "sticker_black_list": [
+    "SpamStickerPack_by_example_bot"
+  ],
+  "emoji_black_list": [
+    "SpamEmojiPack_by_example_bot"
+  ]
+}
 ```
 
 ### 键说明
 
-| 结构 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
+| 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
-| 顶层数组 | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长低于 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 时后台续期 |
+| `samples` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长低于 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 时后台续期 |
+| `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并执行封禁处置 |
+| `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并执行封禁处置 |
 
 ---
 

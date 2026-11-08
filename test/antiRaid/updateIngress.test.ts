@@ -50,6 +50,8 @@ mock.module("../../packages/antiRaid/adCandidate", () => ({
     blocked: false,
     justJoined: false,
     linkUrls: undefined,
+    stickerSetName: undefined,
+    customEmojiIds: undefined,
     sampleQuote: undefined,
     sampleReplyTo: undefined,
   }),

@@ -71,7 +71,7 @@ export interface AdSampleContext {
  * 机器人是本群管理员、且发送者不是自己人时才投递（见 antiRaid/adCandidate.ts）。
  * Worker 侧按发送者归并成消息串排队送检，见 workers/antiRaid/adDetect/queue.ts。
  *
- * 字段全部必填、缺省显式 undefined，除 linkUrls 外只含原始值；发送者元数据与引用
+ * 字段全部必填、缺省显式 undefined，除 linkUrls、customEmojiIds 外只含原始值；发送者元数据与引用
  * 上下文平铺成独立字段，Worker 侧按需重新组装。
  */
 export interface AdCandidateMessage {
@@ -107,6 +107,10 @@ export interface AdCandidateMessage {
   justJoined: boolean;
   /** 正文里不可见的 text_link 落地页 URL；没有时为 undefined。 */
   linkUrls: string[] | undefined;
+  /** 消息携带的贴纸所属贴纸包 short name（message.sticker?.set_name）；无贴纸或未归属贴纸包时为 undefined。 */
+  stickerSetName: string | undefined;
+  /** 消息或图注实体中的自定义表情 ID 去重列表（custom_emoji 实体）；没有时为 undefined。 */
+  customEmojiIds: string[] | undefined;
   /**
    * 被引用段与被回复原文（口径同 AdSampleContext 的 quote 与 replyTo）；与 text 一起
    * 参与判定并留进命中样本，缺席时为 undefined。
@@ -162,6 +166,10 @@ export interface AdCandidateEntry extends AdSampleContext {
    * 处理墙钟重新推断。
    */
   withinReferencedWarning: boolean;
+  /** 本条消息携带的贴纸所属贴纸包 short name；用于贴纸黑名单快路径检测。 */
+  stickerSetName?: string | undefined;
+  /** 本条消息携带的自定义表情 ID 去重列表；用于自定义表情包黑名单检测。 */
+  customEmojiIds?: readonly string[] | undefined;
 }
 
 /** 每个群内发送者的引用广告警告阶段。 */

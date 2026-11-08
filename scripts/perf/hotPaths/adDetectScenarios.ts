@@ -102,6 +102,8 @@ const SATURATED_CANDIDATE: AdCandidateMessage = {
       `https://benchmark.invalid/${index}/${"x".repeat(AD_DETECT_LINK_URL_MAX_CHARS)}`
         .slice(0, AD_DETECT_LINK_URL_MAX_CHARS)
   ),
+  stickerSetName: "BenchmarkStickerPack",
+  customEmojiIds: ["5368324170671202286"],
   sampleQuote: "引".repeat(AD_SAMPLE_CONTEXT_MAX_CHARS),
   sampleReplyTo: "回".repeat(AD_SAMPLE_CONTEXT_MAX_CHARS),
 };
@@ -209,6 +211,8 @@ export function adWireCloneScenario(): Scenario {
     blocked: false,
     justJoined: false,
     linkUrls: undefined,
+    stickerSetName: undefined,
+    customEmojiIds: undefined,
     sampleQuote: undefined,
     sampleReplyTo: undefined,
   };

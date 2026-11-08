@@ -161,7 +161,7 @@ config/
     ├── assets.json         # 界面素材缩略图、默认头像与图库路径
     ├── stickers.json       # AI 贴纸包白名单
     ├── mood.json           # AI 心情挡位与权重配置
-    ├── ad_samples.json     # 广告识别参考样本
+    ├── ad_data.json        # 广告识别参考样本与贴纸/表情黑名单
     └── cron.json           # 定时任务配置（可选）
 ```
 
@@ -189,8 +189,8 @@ config/
 - **`config/dynamic/mood.json`**（参考 [示例](../../config_example/dynamic/mood.json)）
   - 配置 AI 心情轮换挡位（`moods` 数组）。每项包含 `name`（心情名称）、`weight`（抽取权重）与 `instruction`（注入模型的行为指示），可选配置天气与时段权重加成。
 
-- **`config/dynamic/ad_samples.json`**（参考 [示例](../../config_example/dynamic/ad_samples.json)）
-  - 提供给广告检测模型的少样本参考集，为纯文本字符串数组。
+- **`config/dynamic/ad_data.json`**（参考 [示例](../../config_example/dynamic/ad_data.json)）
+  - 广告检测配置对象，包含 `samples`（提供给广告检测模型的少样本参考集）、`sticker_black_list`（贴纸包 short name 黑名单，作为快路径命中直接走封禁）与 `emoji_black_list`（自定义表情包 short name 黑名单，命中直接跳过 AI 检测并走封禁）。
 
 - **`config/dynamic/agent.json`**（参考 [示例](../../config_example/dynamic/agent.json)）
   - 配置 AI 系统的各项模型能力，顶层为 `agent` 对象。每项能力独立配置，各自声明 provider、api_key、model 及端点，能力之间不设自动回退：

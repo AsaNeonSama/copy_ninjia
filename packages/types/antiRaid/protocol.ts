@@ -247,7 +247,7 @@ export interface ChatKindChangedMessage {
 }
 
 /**
- * 主线程 -> Worker：主线程当前生效的广告检测能力配置与示例清单。初始化、Worker
+ * 主线程 -> Worker：主线程当前生效的广告检测能力配置与示例/黑名单配置（ad_data.json）。初始化、Worker
  * 重建与 config/dynamic/ 热重载替换这两份快照时各投递一次；adSamples 为 null 表示广告
  * 检测不可用，Worker 保留原 holder 不动。
  */

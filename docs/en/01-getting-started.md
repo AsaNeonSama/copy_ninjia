@@ -159,7 +159,7 @@ config/
     ├── assets.json         # Paths for avatars, thumbnails, and dedicated image library
     ├── stickers.json       # Whitelisted sticker packs
     ├── mood.json           # AI mood tiers and weight distribution
-    ├── ad_samples.json     # Reference spam and advertisement text samples
+    ├── ad_data.json        # Reference ad samples and sticker/emoji blacklists
     └── cron.json           # Scheduled tasks and periodic broadcasts (optional)
 ```
 
@@ -188,8 +188,8 @@ config/
 - **`config/dynamic/mood.json`** ([Example](../../config_example/dynamic/mood.json))
   - Configures the AI mood tiers `moods`. Each mood defines a `name`, positive integer `weight`, and character `instruction`. Weights must strictly sum to `MOOD_WEIGHT_TOTAL`.
 
-- **`config/dynamic/ad_samples.json`** ([Example](../../config_example/dynamic/ad_samples.json))
-  - Provides reference text samples for few-shot spam classification. Each entry must not exceed `AD_SAMPLE_MAX_CHARS` characters, up to `MAX_CONFIGURED_AD_SAMPLES` entries.
+- **`config/dynamic/ad_data.json`** ([Example](../../config_example/dynamic/ad_data.json))
+  - Configures ad detection with `samples` (reference text samples for few-shot spam classification, each up to `AD_SAMPLE_MAX_CHARS` characters and `MAX_CONFIGURED_AD_SAMPLES` entries), `sticker_black_list` (blacklisted sticker pack short names, checked first as a fast path), and `emoji_black_list` (blacklisted custom emoji pack short names, checked before AI classification; matches skip AI and block directly, each list up to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries).
 
 - **`config/dynamic/agent.json`** ([Example](../../config_example/dynamic/agent.json))
   - Declares all AI model capabilities under the top-level `agent` object. Each capability is isolated and configured independently:

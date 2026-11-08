@@ -127,6 +127,37 @@ describe("广告处置副作用", () => {
     expect(sendTemporaryMessageFromMain).not.toHaveBeenCalled();
   });
 
+  test("纯贴纸命中黑名单时样本正文回退到贴纸包名", async () => {
+    const events: AdDetectedEvent[] = [];
+    adDetectPublishHolder.current = (event: AdDetectedEvent): void => { events.push(event); };
+    const stickerBundle: AdMessageBundle = {
+      ...bundle(),
+      entries: [
+        {
+          messageId: 21,
+          seq: 1,
+          text: "",
+          directText: "",
+          receivedAt: 1_000,
+          withinReferencedWarning: false,
+          stickerSetName: "SpamStickerPack",
+          quote: undefined,
+          replyTo: undefined,
+        },
+      ],
+    };
+
+    await disposeAdSender({
+      bundle: stickerBundle,
+      judged: stickerBundle.entries,
+      verdict: { isAd: true, reason: "sticker_black_list:SpamStickerPack" },
+    });
+
+    expect(events[0]?.messages).toEqual([
+      { messageId: 21, text: "SpamStickerPack", quote: undefined, replyTo: undefined },
+    ]);
+  });
+
   test("播报标签按冻结的元数据与本进程氛围现算：频道念标题，缺名字时按氛围兜底", async () => {
     const { atmosphereState } = await import("../../../packages/cache/workers/antiRaid/atmosphere");
     const events: AdDetectedEvent[] = [];

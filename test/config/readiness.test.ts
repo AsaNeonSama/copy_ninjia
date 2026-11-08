@@ -146,11 +146,11 @@ describe("deployment config readiness", () => {
     expect(verdict.ok === false && verdict.failure.file).toBe("config/dynamic/agent.json");
   });
 
-  test("广告检测的示例清单缺省时报 ad_samples.json", async () => {
+  test("广告检测的示例清单缺省时报 ad_data.json", async () => {
     defaultAdSampleConfigCache.current = null;
     await validateExistingDeploymentInputs();
     const verdict: ConfigReadiness = adDetectConfigReadiness();
-    expect(verdict.ok === false && verdict.failure.file).toBe("config/dynamic/ad_samples.json");
+    expect(verdict.ok === false && verdict.failure.file).toBe("config/dynamic/ad_data.json");
   });
 
   test("命中缓存后返回同一结论引用，holder 之后变化也不重算", async () => {

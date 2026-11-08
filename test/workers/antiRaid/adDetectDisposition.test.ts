@@ -523,7 +523,7 @@ describe("广告判定命中后的处置", () => {
   });
 
   test("命中即写一条旁路样本，含时间、消息、理由与引用/回复上下文", async () => {
-    // 命中即写一条旁路样本，作为 config/dynamic/ad_samples.json 示例的原始素材。
+    // 命中即写一条旁路样本，作为 config/dynamic/ad_data.json 示例的原始素材。
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
 

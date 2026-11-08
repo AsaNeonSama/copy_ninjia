@@ -21,7 +21,7 @@ done
 
 `config/` は設定の反映方法に応じて厳格に 2 つのサブディレクトリに分かれています：
 - `config/static/`：`bot.json`、`g-auth.json`。変更後は**サービスの再起動が必要**です。
-- `config/dynamic/`：`assets.json`、`ad_samples.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`。稼働中の変更は自動的にホットリロードされます。
+- `config/dynamic/`：`assets.json`、`ad_data.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`。稼働中の変更は自動的にホットリロードされます。
 
 `config/dynamic/` ディレクトリは必ず存在させてください（空でも構いません）。設定ファイルが `config/` 直下に置かれていたり、誤ったサブディレクトリに置かれている場合は起動を拒否します。ホワイトリスト、ブラックリスト、およびグループ状態は `database/storage.sqlite` に保存されるため、設定ファイルではありません。
 
@@ -66,9 +66,9 @@ done
     <td>AI 雑談が停止（起動は成功）</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_samples.json</code></td>
+    <td><code>dynamic/ad_data.json</code></td>
     <td><nobr>動的（ホットリロード）</nobr></td>
-    <td>広告分類判定用の正例リファレンスサンプル</td>
+    <td>広告分類用の正例サンプルおよびステッカー／絵文字パックブラックリスト</td>
     <td>広告検出が停止（起動は成功）</td>
   </tr>
   <tr>
@@ -104,7 +104,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 1. **ホット置換**：検証に合格し設定に変更がある場合、即時にスナップショットを更新して各 Worker に配信します。
 2. **検証失敗時のフェイルセーフ**：検証に失敗した場合、変更全体が拒否されます。エラー箇所（ファイルパス、フィールドパス、期待される形式）をログに記録し、システムは直前の有効な設定をそのまま維持します。
 3. **機能連動**：
-   - `ad_samples.json` や `agent.json` の `ad_detect` を追加・削除すると、広告検出が即時に有効化・無効化されます。
+   - `ad_data.json` や `agent.json` の `ad_detect` を追加・削除すると、広告検出が即時に有効化・無効化されます。
    - `agent.json` の対話中核能力（`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`：`text` / `summary` / `media`）や `mood.json` / `stickers.json` を追加・削除すると、AI 雑談が自動的に起動・停止します。
    - 任意のツール能力（`image`、`tts`、`web_search`）の変更は即座に反映されます。
 4. **設定ファイル間の依存関係検証**：
@@ -451,26 +451,36 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 
 ---
 
-## `ad_samples.json`
+## `ad_data.json`
 
-動的設定ファイル（パス：`config/dynamic/ad_samples.json`）。最上位はプレーンテキスト文字列の配列であり、広告分類モデルの正例リファレンスとして機能します。
+動的設定ファイル（パス：`config/dynamic/ad_data.json`）。最上位は `samples`、`sticker_black_list`、`emoji_black_list` の 3 つの配列を持つ JSON オブジェクトであり、広告分類モデルの正例リファレンス、ステッカーパックブラックリスト、カスタム絵文字パックブラックリストを定義します。検出は「ステッカーパックブラックリスト高速経路 -> カスタム絵文字パックブラックリスト -> AI テキスト判定」の順で実行され、いずれかのブラックリストに一致した場合は AI 判定をスキップして即座にブロック処分を実行します。
 
 ### 設定例
 
 ```json
-[
-  "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
-  "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
-  "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
-  "出售TG老号 白号 API号 协议号，价格优惠，私聊"
-]
+{
+  "samples": [
+    "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
+    "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
+    "长期收u出u，价格美丽，秒结，飞机 @xxxxxx",
+    "出售TG老号 白号 API号 协议号，价格优惠，私聊"
+  ],
+  "sticker_black_list": [
+    "SpamStickerPack_by_example_bot"
+  ],
+  "emoji_black_list": [
+    "SpamEmojiPack_by_example_bot"
+  ]
+}
 ```
 
 ### フィールド説明
 
-| 構造 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
+| フィールド名 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
 | --- | --- | --- | --- | --- |
-| 最上位配列 | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います。`provider: "google"` の場合、Gemini 明示的コンテキストキャッシュが自動構築され、残りの存続時間が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` を下回るとバックグラウンドで延長されます |
+| `samples` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います。`provider: "google"` の場合、Gemini 明示的コンテキストキャッシュが自動構築され、残りの存続時間が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` を下回るとバックグラウンドで延長されます |
+| `sticker_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、`STICKER_PACK_NAME_PATTERN` に一致し重複不可 | ステッカーパック short name ブラックリスト（`https://t.me/addstickers/<short_name>` の末尾部分）。免除対象外の送信者がこのリストに含まれるパックのステッカーを送信した場合、後続の判定をスキップして即座にブロック処分を実行します |
+| `emoji_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、`STICKER_PACK_NAME_PATTERN` に一致し重複不可 | カスタム絵文字パック short name ブラックリスト（`https://t.me/addemoji/<short_name>` の末尾部分）。免除対象外の送信者のメッセージに `custom_emoji` エンティティが含まれる場合、メインスレッドの統一 Telegram 送信境界経由で所属パックを照会し、一致した場合は AI 判定をスキップして即座にブロック処分を実行します |
 
 ---
 

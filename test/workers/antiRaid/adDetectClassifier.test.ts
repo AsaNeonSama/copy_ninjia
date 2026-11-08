@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { getAdDetectAgentConfig } from "../../../packages/config/agent";
 import type { AdDetectPrompts } from "../../../packages/types/antiRaid/adDetect";
+import type { AdSampleConfig } from "../../../packages/types/config";
 
 const errorLogs: string[] = [];
 const requestAdDetectJson = mock(async (..._args: unknown[]): Promise<string | null> =>
@@ -12,7 +13,11 @@ mock.module("../../../packages/infra/logger", () => ({
 }));
 mock.module("../../../packages/workers/antiRaid/adDetect/ai/provider", () => ({ requestAdDetectJson }));
 mock.module("../../../packages/config/adSamples", () => ({
-  getAdSampleConfig: (): readonly string[] => ["加溦拉群"],
+  getAdSampleConfig: (): AdSampleConfig => ({
+    samples: ["加溦拉群"],
+    stickerBlackList: [],
+    emojiBlackList: [],
+  }),
 }));
 
 const { classifyAdText, parseAdVerdict } = await import("../../../packages/workers/antiRaid/adDetect/classifier");

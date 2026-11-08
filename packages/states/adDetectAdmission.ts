@@ -21,12 +21,12 @@ export function isKnownAdminCandidate(isChannel: boolean, knownAdmin: boolean): 
 
 /**
  * 投递闸：决定已过管理员闸的候选消息是否并入该发送者的消息串。
- * 空正文返回 `ignore`；命中黑名单或处置抑制窗口时，频道身份返回 `deleteStraggler` 单独删除消息，普通用户返回 `ignore`。
+ * 无正文且无贴纸/自定义表情候选时返回 `ignore`；命中黑名单或处置抑制窗口时，频道身份返回 `deleteStraggler` 单独删除消息，普通用户返回 `ignore`。
  * @param input 候选消息的投递准入判定输入。
  * @returns 投递准入决策（accept / ignore / deleteStraggler）。
  */
 export function admitAdCandidate(input: AdCandidateAdmissionInput): AdCandidateDecision {
-  if (input.textLength === 0) return "ignore";
+  if (input.textLength === 0 && input.hasPackCandidate !== true) return "ignore";
   if (input.blocked || input.recentlyDisposed) {
     return input.isChannel ? "deleteStraggler" : "ignore";
   }

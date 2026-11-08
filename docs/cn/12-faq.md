@@ -76,7 +76,7 @@
     <td>
       • <b>默认处于关闭状态</b>：需在群内显式执行 <code>/antiraid enable</code>、<code>/ad_detect enable</code>、<code>/flood_control enable</code>。<br>
       • <b>机器人权限不足</b>：机器人必须具备群管理员身份（并拥有“删除消息”与“封禁/限制用户”权限）。<br>
-      • <b>检测配置未就绪</b>：广告检测依赖 <code>config/dynamic/agent.json</code> 中的 <code>agent.ad_detect</code> 配置以及 <code>config/dynamic/ad_samples.json</code> 样本库。
+      • <b>检测配置未就绪</b>：广告检测依赖 <code>config/dynamic/agent.json</code> 中的 <code>agent.ad_detect</code> 配置以及 <code>config/dynamic/ad_data.json</code> 配置。
     </td>
   </tr>
   <tr>

@@ -111,8 +111,8 @@ export const DYNAMIC_CONFIG_DIR: string = join(CONFIG_ROOT, DYNAMIC_CONFIG_DIR_N
 export const STICKERS_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "stickers.json");
 /** AI 心情档位配置（文案、base weight、天气/时段倍率；可选、可热重载），见 packages/config/mood.ts。 */
 export const MOOD_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "mood.json");
-/** 广告检测的部署者示例清单（纯字符串数组；可选、可热重载），见 packages/config/adSamples.ts。 */
-export const AD_SAMPLES_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "ad_samples.json");
+/** 广告检测的部署配置（样本清单与贴纸包/表情包黑名单；可选、可热重载），见 packages/config/adSamples.ts。 */
+export const AD_SAMPLES_CONFIG_PATH: string = join(DYNAMIC_CONFIG_DIR, "ad_data.json");
 
 /** Bot token、超级管理员 ID 与默认通知风格的必填部署配置文件（静态，修改后须重启）。 */
 export const BOT_CONFIG_PATH: string = join(STATIC_CONFIG_DIR, "bot.json");
@@ -189,7 +189,7 @@ export const JOIN_LOG_MEMORY_DIR: string = join(MEMORY_DIR, "joinlog");
 /**
  * 广告检测命中样本的旁路目录，与 memory/ 下其余子目录同级。
  * 它**不是运行时状态**：进程不读样本内容，启动成功后的维护只扫描目录项，
- * 清理孤儿临时文件与过期归档；内容用于优化 config/dynamic/ad_samples.json。
+ * 清理孤儿临时文件与过期归档；内容用于优化 config/dynamic/ad_data.json。
  */
 export const AD_SAMPLE_MEMORY_DIR: string = join(MEMORY_DIR, "ad-detected");
 /**

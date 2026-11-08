@@ -69,6 +69,8 @@ const mainTelegramApi: TelegramApi = {
     bot.api.getChatAdministrators(...args),
   getChatMember: (...args: Parameters<TelegramApi["getChatMember"]>): ReturnType<TelegramApi["getChatMember"]> =>
     bot.api.getChatMember(...args),
+  getCustomEmojiStickers: (...args: Parameters<TelegramApi["getCustomEmojiStickers"]>): ReturnType<TelegramApi["getCustomEmojiStickers"]> =>
+    bot.api.getCustomEmojiStickers(...args),
   getStickerSet: (...args: Parameters<TelegramApi["getStickerSet"]>): ReturnType<TelegramApi["getStickerSet"]> =>
     bot.api.getStickerSet(...args),
   restrictChatMember: (...args: Parameters<TelegramApi["restrictChatMember"]>): ReturnType<TelegramApi["restrictChatMember"]> =>

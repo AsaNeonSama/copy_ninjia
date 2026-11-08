@@ -288,7 +288,7 @@ describe("广告判定队列：排队、调度与位置所有权", () => {
     // classifyAdText 的同步准备阶段（currentAdDetectPrompts → getAdSampleConfig()）也会抛；
     // runAdDetectBatch 接住它，按「本次没判定」结算。
     classifyAdText.mockImplementationOnce((): Promise<AdVerdict | null> => {
-      throw new Error("config/dynamic/ad_samples.json must contain a JSON object.");
+      throw new Error("config/dynamic/ad_data.json must contain a JSON object.");
     });
     enqueueAdCandidate(candidate({ messageId: 1, text: "加我微信" }), 1_000);
 

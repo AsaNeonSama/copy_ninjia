@@ -145,6 +145,7 @@ function jsonCallReply(call: TelegramWorkerJsonCall, result: unknown): unknown {
     case "getChat":
     case "getChatAdministrators":
     case "getChatMember":
+    case "getCustomEmojiStickers":
     case "getStickerSet":
     case "restrictChatMember":
     case "sendChatAction":
@@ -304,6 +305,7 @@ function antiRaidAllows(request: TelegramWorkerRequest): boolean {
     case "getChat":
     case "getChatAdministrators":
     case "getChatMember":
+    case "getCustomEmojiStickers":
     case "restrictChatMember":
     case "sendMessage":
     case "setChatPermissions":

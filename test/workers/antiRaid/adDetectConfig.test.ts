@@ -68,7 +68,11 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
   test("新快照整体替换 holder，并丢弃旧客户端、提示词缓存与显式缓存状态", () => {
     adDetectAgentConfigCache.current = { ...reloadedAdDetect, apiKey: "old-ad-key" };
     seedDerivedState();
-    const samples: AdSampleConfig = ["新的广告示例"];
+    const samples: AdSampleConfig = {
+      samples: ["新的广告示例"],
+      stickerBlackList: ["BadSticker"],
+      emojiBlackList: ["BadEmoji"],
+    };
 
     adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: reloadedAdDetect, adSamples: samples });
 
@@ -91,7 +95,13 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     adDetectAgentConfigCache.current = { ...reloadedAdDetect };
     seedDerivedState();
 
-    adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: googleAdDetect, adSamples: ["广告示例"] });
+    adoptAdDetectConfigMessage({
+      atmosphere: "teasing",
+      type: "agentConfig",
+      timeZone: getTimeZone(),
+      adDetect: googleAdDetect,
+      adSamples: { samples: ["广告示例"], stickerBlackList: [], emojiBlackList: [] },
+    });
 
     expect<AdDetectAgentConfig | null>(adDetectAgentConfigCache.current).toBe(googleAdDetect);
     expect(adDetectGeminiContextCache.current).toBeNull();
@@ -99,7 +109,13 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     expect(probeGeminiContextCache).toHaveBeenCalledWith(AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE);
 
     probeGeminiContextCache.mockClear();
-    adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: googleAdDetect, adSamples: ["新的广告示例"] });
+    adoptAdDetectConfigMessage({
+      atmosphere: "teasing",
+      type: "agentConfig",
+      timeZone: getTimeZone(),
+      adDetect: googleAdDetect,
+      adSamples: { samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
+    });
     expect(probeGeminiContextCache).not.toHaveBeenCalled();
   });
 
@@ -107,7 +123,13 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     adDetectAgentConfigCache.current = { ...reloadedAdDetect };
     const registry: GeminiContextCacheRegistry = seedDerivedState();
 
-    adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: reloadedAdDetect, adSamples: ["新的广告示例"] });
+    adoptAdDetectConfigMessage({
+      atmosphere: "teasing",
+      type: "agentConfig",
+      timeZone: getTimeZone(),
+      adDetect: reloadedAdDetect,
+      adSamples: { samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
+    });
 
     expect(adDetectGeminiContextCache.current).toBe(registry);
     expect(adDetectPrompts.current).toBeNull();

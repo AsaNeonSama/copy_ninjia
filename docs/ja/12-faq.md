@@ -76,7 +76,7 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
     <td>
       • <b>デフォルト無効</b>：<code>/antiraid enable</code>、<code>/ad_detect enable</code>、<code>/flood_control enable</code> で個別に有効化してください。<br>
       • <b>管理者権限不足</b>：Bot にメッセージ削除やメンバー制限の管理者権限が付与されている必要があります。<br>
-      • <b>設定の不備</b>：広告検出には <code>config/dynamic/agent.json</code> の <code>agent.ad_detect</code> と <code>config/dynamic/ad_samples.json</code> が必要です。
+      • <b>設定の不備</b>：広告検出には <code>config/dynamic/agent.json</code> の <code>agent.ad_detect</code> と <code>config/dynamic/ad_data.json</code> が必要です。
     </td>
   </tr>
   <tr>

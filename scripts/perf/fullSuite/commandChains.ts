@@ -141,6 +141,8 @@ function adDetectCommandChain(
         blocked: false,
         justJoined: true,
         linkUrls: undefined,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         sampleQuote: undefined,
         sampleReplyTo: undefined,
       });

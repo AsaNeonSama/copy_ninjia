@@ -147,6 +147,7 @@ describe("Telegram 客户端初始化", () => {
       { method: "getChat", args: [-1001, signal] },
       { method: "getChatAdministrators", args: [-1001, { return_bots: true }, signal] },
       { method: "getChatMember", args: [-1001, 7, signal] },
+      { method: "getCustomEmojiStickers", args: [["emoji-1", "emoji-2"], signal] },
       { method: "getStickerSet", args: ["pack", signal] },
       { method: "restrictChatMember", args: [-1001, 7, permissions, { until_date: 456 }, signal] },
       { method: "sendChatAction", args: [-1001, "typing", { message_thread_id: 3 }, signal] },
