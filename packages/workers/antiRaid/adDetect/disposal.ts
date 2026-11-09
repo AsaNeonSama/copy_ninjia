@@ -175,7 +175,7 @@ function disposalMessageIds({
 }
 
 /**
- * 删除已拉黑或刚处置频道身份在封禁落地前发出的尾随广告消息（见 docs/cn/04-invariants.md）。
+ * 删除刚处置发送者在处置抑制窗口内发出的尾随消息，以及已拉黑频道身份的消息（见 states/adDetectAdmission.ts 与 docs/cn/04-invariants.md）。
  *
  * @param chatId 目标群 ID。
  * @param messageId 待删除的尾随消息 ID。
@@ -186,7 +186,7 @@ export function deleteStragglerAdMessage(chatId: number, messageId: number): voi
 }
 
 /**
- * 执行广告命中处置：向主线程发布 adDetected 事件并批量删除涉事消息。
+ * 执行广告命中处置：向主线程发布 adDetected 事件（处罚由主线程按处罚等级执行）并批量删除涉事消息。
  *
  * @param params 待处置消息束、判定结果与送检条目快照。
  */
@@ -205,7 +205,7 @@ export async function disposeAdSender({ bundle, verdict, judged }: DisposeAdSend
   if (publish === null) {
     logger.error(
       `Ad detection could not report sender ${bundle.senderId} in chat ${bundle.chatId}: ` +
-      "the main-thread channel is closed; deleting the messages without announcing a block."
+      "the main-thread channel is closed; deleting the messages without punishing or announcing."
     );
     await deleteAdMessages(bundle.chatId, messageIds);
     return;

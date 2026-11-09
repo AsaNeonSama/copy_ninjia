@@ -125,7 +125,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 | `/clear_context` | `isCanClearContext` | 本グループの AI コンテキスト記憶を消去：Worker 内のローリング逐語バッファ、中期要約、未昇格要約を消去し、`chat_states.ai_context` を NULL にして本グループの処理中返信世代を無効化。引数は取らず、デプロイ設定不正時や AI Worker 未起動時でも実行 |
 | `/mood query` | グループメンバー | AI の現在有効な気分を照会（全グループ共通の 1 つ。再抽選は発生しない）。本グループで AI 雑談が有効、かつ AI のデプロイ設定が利用可能である必要がある |
 | `/mood switch` | `isCanSwitchMood` | AI の気分を即時再抽選し（全グループに反映）、Worker からの受諾後に新しい気分名を返信。前提条件は `/mood query` と同じ |
-| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | 本グループの広告検出の切り替え。保護対象外の身分が検出された場合は `/block` と同等の処分を実施 |
+| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | 本グループの広告検出の切り替え。保護対象外の身分が検出された場合は `ad_detect_config.json` の処罰等級に従って禁言・キック・BAN し、通知 |
 | `/flood_control enable\|disable` | `isCanControllFloodControlPermission` | 本グループの連投スパム制限（ミュート）の切り替え（デフォルト無効） |
 | `/antiraid enable\|disable` | `isCanControllAntiRaidPermission` | 本グループの参加認証と Anti-Raid 非公開モードの切り替え（デフォルト無効） |
 | `/qa set` | `isCanControllQaPermission` | フォームを開き、発行者が「问题:」「回答:」の 2 通に分けて本グループに送信。両方が揃うと本グループの Q&A を 1 件登録（1 グループあたりの件数上限は `CHAT_QA_MAX_PER_CHAT`、質問と回答の長さはそれぞれ `CHAT_QA_QUESTION_MAX_CHARS`、`CHAT_QA_ANSWER_MAX_CHARS` で制限） |
@@ -223,7 +223,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 - **アカウント削除のクリーンアップ**：対象の再スキャン処置（そのグループ内でのすべての探索と BAN リクエスト）が `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 回連続して Telegram に `PARTICIPANT_ID_INVALID` で拒否された場合、アカウント削除済みと判定され、ブラックリストから自動的に除外されます。いずれかのグループで処置が確定すると、カウントはゼロに戻ります。
 
 #### 8. 広告検出と荒らし対策
-- **`/ad_detect`**：メッセージは送信者（`chatId:senderId`）ごとにバンドルされ、キューが `AD_DETECT_QUEUE_TICK_MS` ごとに 1 バッチを取得して「ステッカーパックブラックリスト高速経路（`sticker_black_list`） -> カスタム絵文字パックブラックリスト（`emoji_black_list`、メインスレッド統一 Telegram 送信ゲート経由で照会） -> `agent.ad_detect` モデル判定（`samples`）」の順で検査します。広告と判定された場合は保護対象外の身分に対して `/block` と同等の処分を実施し、グループ内に BAN 理由を通知します（`COMMAND_MESSAGE_AUTO_DELETE_MS` 経過後に自動削除）。純粋なプロキシリンク（`vless://`、`vmess://`、`trojan://`、`ss://`）であり募集・宣伝文を含まない場合は広告と判定されません。
+- **`/ad_detect`**：メッセージは送信者（`chatId:senderId`）ごとにバンドルされ、キューが `AD_DETECT_QUEUE_TICK_MS` ごとに 1 バッチを取得して「ステッカーパックブラックリスト高速経路（`sticker_black_list`） -> カスタム絵文字パックブラックリスト（`emoji_black_list`、メインスレッド統一 Telegram 送信ゲート経由で照会） -> `agent.ad_detect` モデル判定（`samples`）」の順で検査します。広告と判定された場合は該当メッセージを削除し、保護対象外の身分を `ad_detect_config.json` の `punishment` に従って処罰します。等級 1 は本グループで禁言（時限または永久）、等級 2 は本グループから外し、設定に応じて BAN なし、本グループだけ BAN、または `/block` と同等に恒久ブラックリストへ登録して全管理対象グループで BAN します。チャンネル身分は全体 BAN 以外の等級ではメッセージ削除のみです。グループ内には判定理由と処罰結果を通知します（`COMMAND_MESSAGE_AUTO_DELETE_MS` 経過後に自動削除）。純粋なプロキシリンク（`vless://`、`vmess://`、`trojan://`、`ss://`）であり募集・宣伝文を含まない場合は広告と判定されません。
 - **`/flood_control`（連投制限）**：同一人物が同一スーパーグループ内で `FLOOD_WINDOW_MS` のウィンドウ内に `FLOOD_MESSAGE_LIMIT` 件発言した場合、その場で `FLOOD_MUTE_DURATION_MS` ミュートし、グループ内に告知します（`COMMAND_MESSAGE_AUTO_DELETE_MS` 経過後に自動削除）。管理者（Bot を除く）やチャンネル身分はカウント対象外です（免除判定は `isCanBypassFloodControl` を参照）。
 - **`/antiraid`**：参加認証（三択の算数問題、タイムアウト `VERIFICATION_TIMEOUT_MS`。不正解は即キック・BAN なし、Bot メンバーは管理者が「通过」で保証）と Anti-Raid 非公開モード（`JOIN_WINDOW_MS` 内の参加数が `ANTI_RAID_PER_MINUTE_LIMIT` を超えた場合に `LOCKDOWN_MS` の間発動）を有効化します。無効化時は両方のパイプラインイベントが完全に停止し、送信済みの認証リマインダーは即座に取り下げられます。広告検出、連投制限、ブラックリストには影響しません。
 - **`/batch_kick`**：スーパー管理者のみ利用可能。参加ログに基づき、指定された時間枠（例：`30m`、`2h`、`1d`。`BATCH_KICK_MIN_DURATION_MS` 以上 `BATCH_KICK_MAX_DURATION_MS` 以下）内に参加した新規メンバーをキックします（BAN は行わず、ホワイトリストおよびブラックリスト身分はスキップされます）。記録があるときはまず「受理」（記録数と時間枠）を返し、キックはバックグラウンドで行い、完了後に結果を送信します。同じグループで同時に実行されるのは 1 バッチのみで、前のバッチが完了する前の再実行には「処理中」と返し、バックグラウンドの待機枠が満杯なら混雑中と返します。処理中にグループが管理対象外となった場合（`/init disable`、Bot の退出、管理者権限の喪失）は結果を送信せず静かに停止します。

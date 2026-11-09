@@ -1023,7 +1023,7 @@ This section covers the [authoritative blocklist and the block command](#authori
 
 - **Admission Gates & Re-check**:
   - Ad detection requires three simultaneous conditions: chat `ChatState.isAdDetectEnabled === true`, bot is group admin, and sender lacks bypass rights (`isCanBypassAdDetection`). Super administrators always bypass.
-  - After Worker classification, the main thread re-verifies group toggles and allowlist status inside the critical section before calling `blockUser`. If ad detection was disabled in the interim, it logs an expected race and cancels the block.
+  - After Worker classification, the main thread re-verifies group toggles and allowlist status inside the identity's blocklist serial slot and identity-policy critical section before punishing. If ad detection was disabled in the interim, it logs an expected race and cancels the punishment.
 - **Exemptions & Special Message Sources**:
   - Linked-channel automatic forwards (`is_automatic_forward`) and the bot's own messages (`isBotOwnMessage`) are skipped.
   - Inline messages sent via the bot (`via_bot` pointing to self) are classified on the user's **original query text**, not the bot's formatted output. Inline features register raw query text via `recordInlineResultSources` (up to `INLINE_RESULT_SOURCE_MAX_AUTHORS`). Unregistered or mismatched text is skipped.
@@ -1032,26 +1032,32 @@ This section covers the [authoritative blocklist and the block command](#authori
   - Keys queue by `chatId:senderId`. Consecutive messages from the same sender merge into a single `pendingAdMessages` bundle without taking extra slots.
   - Bounded by `AD_DETECT_MAX_PENDING_SENDERS`; rejects new senders when full without evicting unjudged senders.
   - Scheduler extracts up to `AD_DETECT_BATCH_SIZE` senders every `AD_DETECT_QUEUE_TICK_MS`, capped globally by `AD_DETECT_MAX_IN_FLIGHT`.
-  - Disposed sender keys enter `recentlyDisposedAdKeys` for `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`, suppressing duplicate classifications while continuing to delete messages from channel aliases.
+  - Disposed sender keys enter `recentlyDisposedAdKeys` for `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`; new messages in that window skip classification and are deleted one by one (mutes, kicks without a ban, and channel bans do not revoke messages sent before the punishment lands). Ordinary users already on the permanent blocklist are the exception: their messages are neither classified nor deleted individually, because the ban with `revoke_messages` removes them.
 - **Bundle Assembly, Blacklist Fast-Path & Model Interaction**:
   - Limits per-sender messages to `AD_DETECT_MAX_MESSAGES_PER_SENDER` and character budgets to `AD_DETECT_BUNDLE_MAX_CHARS`. Dropped unjudged messages transfer their IDs to `pendingDeleteIds` to ensure full deletion during disposal, logging an error.
   - Detection runs as a three-stage pipeline (any exempt identity bypasses all three stages at candidate admission):
-    1. **Sticker pack blacklist fast-path** (`sticker_black_list` in `ad_data.json`): Synchronously matches `sticker.set_name` on unchecked entries; a match skips subsequent checks and directly triggers permanent block disposal.
-    2. **Custom emoji pack blacklist** (`emoji_black_list` in `ad_data.json`): When the list is non-empty, checks the `custom_emoji_id` values of unchecked entries: IDs already in the Worker's ID→pack LRU cache (capacity `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`, cleared when the Worker stops) are compared directly, and the rest are deduplicated and queried in batches of `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` with `getCustomEmojiStickers` through the main-thread unified Telegram outbound gate (`query` 429 retry policy), with the results written to the cache; a match skips AI classification and directly triggers permanent block disposal. Failed lookups share `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` immediate retries across all batches (4xx rejections are not retried); once the budget is spent, the request is rejected, or shutdown begins, the emoji check for this round is abandoned with an error log and detection proceeds.
-    3. **AI text classification** (`samples` in `ad_data.json`): Invokes the classifier model only when unchecked non-empty text entries exist (standalone stickers not on the blacklist never invoke AI).
+    1. **Sticker pack blacklist fast-path** (`sticker_black_list` in `ad_detect_config.json`): Synchronously matches `sticker.set_name` on unchecked entries; a match skips subsequent checks and is disposed of as a direct ad.
+    2. **Custom emoji pack blacklist** (`emoji_black_list` in `ad_detect_config.json`): When the list is non-empty, checks the `custom_emoji_id` values of unchecked entries: IDs already in the Worker's ID→pack LRU cache (capacity `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`, cleared when the Worker stops) are compared directly, and the rest are deduplicated and queried in batches of `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` with `getCustomEmojiStickers` through the main-thread unified Telegram outbound gate (`query` 429 retry policy), with the results written to the cache; a match skips AI classification and is disposed of as a direct ad. Failed lookups share `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` immediate retries across all batches (4xx rejections are not retried); once the budget is spent, the request is rejected, or shutdown begins, the emoji check for this round is abandoned with an error log and detection proceeds.
+    3. **AI text classification** (`samples` in `ad_detect_config.json`): Invokes the classifier model only when unchecked non-empty text entries exist (standalone stickers not on the blacklist never invoke AI).
   - Senders' display names (`firstName`, `lastName`) are submitted alongside non-forwarded text, treating name-based promotions identically to body promotions.
   - **Bare Link Protection**: If messages consist solely of links and an optional standard name without marketing, recruitment, or commercial copy, they must be classified as `false` (supporting proxy and subscription protocols).
   - Prompts explicitly mandate `"JSON"` output. Parsers extract bare JSON objects, tolerating markdown fences. Classification errors treat the message as unjudged without penalty.
   - System facts (such as unverified newcomer status) are declared explicitly in fixed prompt positions, separated from user text.
 - **Disposal Execution & Notices**:
-  - Upon positive classification, Worker deletes pending messages and emits `adDetected`. Main thread runs `blockUser` in its critical section, flushes the blocklist, and posts persistent removal batches to the Worker for cross-chat bans.
-  - Main thread sends temporary disposal notices via `sendTemporaryMessageOnMain` (`COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion), reporting enforced chat counts and permission errors.
+  - Upon positive classification, Worker deletes pending messages and emits `adDetected`. Inside its critical section the main thread reads `punishment` from `ad_detect_config.json` and picks an action from the punishment level and whether the sender is a channel identity (`states/adPunishment.ts`):
+    - **Level 2 with `block_scope: "global"`**: runs `blockUser`, flushes the blocklist, and posts persistent removal batches to the Worker for cross-chat bans; users and channel identities are handled alike.
+    - **Level 1**: mutes the sender in the triggering chat. Timed mutes reuse the `/mute` dispatch deadline (duration minus `MUTE_DISPATCH_MIN_REMAINING_MS`); permanent mutes omit `until_date`.
+    - **Level 2 with `block: false`**: kicks without a ban. Senders already on the permanent blocklist are left to the blocklist ban; the chat kind comes from the main-thread `chatIsSupergroupById` and no request is sent while it is unknown; membership is confirmed first so that the supergroup `unbanChatMember` never lifts a ban placed by someone else.
+    - **Level 2 with `block_scope: "chat"`**: bans the sender in the triggering chat only via `banChatMember` (`revoke_messages: true`) without touching the permanent blocklist.
+    - **Channel identities** under any non-global level only have their messages deleted; no punishment request is sent.
+    - In-chat punishments do not use the durable outbox: in-flight tasks are tracked in `inFlightAdDisposals` and are abandoned when the shutdown drain budget runs out or the process restarts. If hot reload has removed `ad_detect_config.json`, in-flight hits are logged as errors and left unpunished.
+  - Main thread sends temporary disposal notices via `sendTemporaryMessageOnMain` (`COMMAND_MESSAGE_AUTO_DELETE_MS` auto-deletion): global blocks report enforced chat counts and permission errors, while in-chat punishments report whether the punishment took effect (asking admins to check the bot's permissions when it did not).
   - Shutdown ceases new classifications; in-flight model calls settle within deadlines. Detected samples append to `memory/ad-detected/sample.json`, rotated by configured time-zone calendar dates.
 
 #### Bans and message revocation
 
 - **Message Revocation Mechanisms**:
-  - Blocklist bans (`/block`, instant kicks, sweeps, ad disposal) invoke `banChatMember` with `revoke_messages: true` to purge historical messages.
+  - Blocklist bans (`/block`, instant kicks, sweeps, global ad blocks) and in-chat ad bans invoke `banChatMember` with `revoke_messages: true` to purge historical messages.
   - Channel alias bans (`banChatSenderChat`) lack automatic revocation; ad disposal deletes associated messages explicitly on the Worker.
 
 #### Blocklist-removal outbox

@@ -8,7 +8,7 @@
 import { validateGoogleServiceAccountKey } from "./googleAuth";
 import { googleServiceAccountKey } from "../cache/main/translate";
 import { lstat } from "node:fs/promises";
-import { ensureAdSampleConfig } from "./adSamples";
+import { ensureAdDetectConfig } from "./adDetectConfig";
 import { ensureAssetConfig } from "./assets";
 import { ensureMoodConfig } from "./mood";
 import { ensureStickerConfig } from "./stickers";
@@ -26,7 +26,7 @@ import { botAtmosphereState } from "../cache/main/atmosphere";
 import {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
   defaultMoodConfigCache,
   defaultStickerConfigCache,
   voiceToolPromptCache,
@@ -35,7 +35,7 @@ import { DEFAULT_AI_PERSONA } from "../consts/aiChat/prompts/persona";
 import { BOT_ATMOSPHERES, DEFAULT_BOT_ATMOSPHERE } from "../consts/bot";
 import type { BotAtmosphere } from "../types/atmosphere";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
   CRON_CONFIG_PATH,
@@ -104,13 +104,13 @@ export function aiChatReadinessFromHolders(): ConfigReadiness {
 }
 
 /**
- * 按主线程当前 holder 判定广告检测的部署前提：ad_data.json（示例清单与贴纸/表情黑名单）与 agent.json 的 ad_detect 段
+ * 按主线程当前 holder 判定广告检测的部署前提：ad_detect_config.json（处罚等级、示例清单与贴纸/表情黑名单）与 agent.json 的 ad_detect 段
  * （开启时必填 provider、api_key 与 model，由 agent 配置解析器严格校验）；只看这一段，其余同上。
  * @returns 广告检测功能的配置可用性结论。
  */
 export function adDetectReadinessFromHolders(): ConfigReadiness {
-  if (defaultAdSampleConfigCache.current === null) {
-    return unavailable("config/dynamic/ad_data.json", new InputValidationError(AD_SAMPLES_CONFIG_PATH, "$", "a readable valid JSON document").message);
+  if (defaultAdDetectConfigCache.current === null) {
+    return unavailable("config/dynamic/ad_detect_config.json", new InputValidationError(AD_DETECT_CONFIG_PATH, "$", "a readable valid JSON document").message);
   }
   if (adDetectAgentConfigCache.current === null) {
     return unavailable(
@@ -219,7 +219,7 @@ export async function validateExistingDeploymentInputs(): Promise<void> {
   const probes: readonly Readonly<{ path: string; load: () => Promise<unknown> }>[] = [
     { path: STICKERS_CONFIG_PATH, load: ensureStickerConfig },
     { path: MOOD_CONFIG_PATH, load: ensureMoodConfig },
-    { path: AD_SAMPLES_CONFIG_PATH, load: ensureAdSampleConfig },
+    { path: AD_DETECT_CONFIG_PATH, load: ensureAdDetectConfig },
     { path: AGENT_CONFIG_PATH, load: validateAgentDeploymentConfig },
     { path: GOOGLE_AUTH_FILE_PATH, load: validateAndCacheGoogleServiceAccountKey },
     { path: CRON_CONFIG_PATH, load: ensureCronConfig },

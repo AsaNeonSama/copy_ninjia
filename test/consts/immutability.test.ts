@@ -185,7 +185,15 @@ import { CHAT_FEATURE_SWITCHES } from "../../packages/consts/chatFeatureSwitch";
 import { getChatState } from "../../packages/infra/storage/stateStore";
 
 import * as Media from "../../packages/consts/aiChat/media";
-import { AD_DETECT_JSON_SCHEMA, AD_SAMPLE_CONFIG_KEYS, EMPTY_AD_CANDIDATE_ENTRIES } from "../../packages/consts/antiRaid/adDetect";
+import {
+  AD_BLOCK_SCOPES,
+  AD_DETECT_CONFIG_KEYS,
+  AD_DETECT_JSON_SCHEMA,
+  AD_PUNISHMENT_KEYS,
+  AD_PUNISHMENT_KICK_KEYS,
+  AD_PUNISHMENT_MUTE_KEYS,
+  EMPTY_AD_CANDIDATE_ENTRIES,
+} from "../../packages/consts/antiRaid/adDetect";
 import {
   CHANNEL_COMMENT_JOIN_EXEMPTION,
   IDENTITY_JOIN_EXEMPTION,
@@ -633,8 +641,16 @@ function assertAdDetectSchemaReadonly(): void {
   AD_DETECT_JSON_SCHEMA.properties.ad.type = "boolean";
   // @ts-expect-error 广告检测 Schema 的必填字段清单不可扩容。
   AD_DETECT_JSON_SCHEMA.required.push("extra");
-  // @ts-expect-error ad_data.json 顶层字段闭集不允许调用方增删。
-  AD_SAMPLE_CONFIG_KEYS.push("extra");
+  // @ts-expect-error ad_detect_config.json 顶层字段闭集不允许调用方增删。
+  AD_DETECT_CONFIG_KEYS.push("extra");
+  // @ts-expect-error punishment 字段闭集不允许调用方增删。
+  AD_PUNISHMENT_KEYS.push("extra");
+  // @ts-expect-error punishment.mute 字段闭集不允许调用方增删。
+  AD_PUNISHMENT_MUTE_KEYS.push("extra");
+  // @ts-expect-error punishment.kick 字段闭集不允许调用方增删。
+  AD_PUNISHMENT_KICK_KEYS.push("extra");
+  // @ts-expect-error 封禁范围取值表不允许调用方增删。
+  AD_BLOCK_SCOPES.push("chat");
 }
 void assertAdDetectSchemaReadonly;
 

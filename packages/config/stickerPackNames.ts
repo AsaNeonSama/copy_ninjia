@@ -14,7 +14,7 @@ export interface ParseStickerPackNamesOptions {
 }
 
 /**
- * 严格解码贴纸包或自定义表情包 short name 数组（stickers.json 的 packs，ad_data.json 的
+ * 严格解码贴纸包或自定义表情包 short name 数组（stickers.json 的 packs，ad_detect_config.json 的
  * sticker_black_list 与 emoji_black_list）：去掉首尾空白后按 STICKER_PACK_NAME_PATTERN 校验，
  * 拒绝超量、非法与重复。
  * @param options 原始数组、诊断用路径与条数上限。

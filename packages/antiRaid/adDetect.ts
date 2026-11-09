@@ -1,6 +1,8 @@
 /**
- * 广告命中后的主线程处置：写入永久黑名单并落盘，再把跨群封禁登记进 durable
- * outbox 交回 Anti-Raid Worker。候选消息构建位于 adCandidate.ts。
+ * 广告命中后的主线程处置：在该身份的黑名单串行位里复核开关与免检身份，按 ad_detect_config.json 的
+ * 处罚等级选定动作（见 states/adPunishment.ts）。全局封禁写入永久黑名单并落盘，再把跨群封禁登记进
+ * durable outbox 交回 Anti-Raid Worker；禁言、只踢不封、本群封禁与频道只删消息见 adPunishment.ts。
+ * 候选消息构建位于 adCandidate.ts。
  */
 import type { AtmosphereTexts } from "../types/atmosphere";
 import { chatAtmosphere } from "../infra/atmosphere";
@@ -31,13 +33,31 @@ import { formatLocalTime } from "../libs/time";
 import { runProtectedIdentityMutation } from "../infra/identityPolicy/coordination";
 import { clearTemporaryAdBypassActivityOrThrow } from
   "../infra/identityPolicy/temporaryAdBypass";
+import { currentAdDetectPunishment } from "../config/adDetectConfig";
+import { AD_DETECT_CONFIG_PATH } from "../consts/paths";
+import { resolveAdPunishmentAction } from "../states/adPunishment";
+import { formatAdNoticeHead, punishAdSenderInChat } from "./adPunishment";
 import type {
   AdDetectedEvent,
   AdVerdictTrueEvent,
 } from "../types/antiRaid/adDetect";
+import type { AdDetectPunishment } from "../types/config";
 import type { RemoveBlockedMembersParams } from "../types/blocklist";
 import type { AdSampleDiskMessage } from "../types/diskIO/messages";
 import type { FlushResult } from "../types/lifecycle";
+import type { AdPunishmentAction } from "../types/states/adPunishment";
+
+/**
+ * 黑名单串行位临界区对一次广告命中的裁决：放弃处置的原因，或已选定的处罚动作；全局封禁附带本次是否新加入黑名单。
+ */
+type AdDisposalRuling =
+  /** 群在判定期间关闭了广告检测。 */
+  | "disabled"
+  /** 发送者在判定期间取得免检权限或进入白名单。 */
+  | "protected"
+  /** 部署方已在热重载中删除 ad_detect_config.json，没有可用的处罚设置。 */
+  | "unconfigured"
+  | Readonly<{ action: AdPunishmentAction; newlyBlocked: boolean }>;
 
 /**
  * 将命中广告的原始样本经 postDiskIODiagnostic 异步投递至落盘线程（见 infra/diskIO.ts）。
@@ -61,8 +81,26 @@ function recordAdSample(event: AdDetectedEvent): void {
 }
 
 /**
- * 执行广告命中处置：写入永久黑名单并落盘，随后为受管群登记封禁批次并交回 Worker。
- * 同一身份重复命中（blockUser 返回 false）时仅补登记触发群的封禁批次。
+ * 在身份策略临界区内复核群开关与免检身份，读取当前处罚设置并选定动作；全局封禁在临界区内执行 blockUser。
+ *
+ * @param event Worker 上报的广告命中事件
+ * @returns 本次命中的处置裁决
+ */
+function ruleAdDisposal(event: AdDetectedEvent): AdDisposalRuling {
+  if (getChatState(event.chatId).isAdDetectEnabled !== true) return "disabled";
+  if (canBypassAdDetection(event.senderId) || isWhitelisted(event.senderId)) return "protected";
+  const punishment: AdDetectPunishment | null = currentAdDetectPunishment();
+  if (punishment === null) return "unconfigured";
+  clearTemporaryAdBypassActivityOrThrow(event.senderId);
+  recordAdSample(event);
+  const action: AdPunishmentAction = resolveAdPunishmentAction(punishment, event.isChannel);
+  if (action.kind !== "blockGlobal") return { action, newlyBlocked: false };
+  return { action, newlyBlocked: blockUser(event.senderId, event.meta) };
+}
+
+/**
+ * 执行广告命中处置：放弃时只记日志（涉事消息已由 Worker 删除），全局封禁见 enforceGlobalAdBlock，
+ * 其余动作交给 adPunishment.ts 在触发群执行。
  *
  * @param event Worker 上报的广告命中事件
  */
@@ -70,34 +108,49 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
   if (!await prefetchIdentityPolicies([event.senderId])) {
     logger.error(
       `Dropped the ad detection verdict for sender ${event.senderId} in chat ${event.chatId}: ` +
-      "identity policies could not be read, so the sender was not added to the permanent blocklist."
+      "identity policies could not be read, so no punishment was applied."
     );
     return;
   }
-  const newlyBlocked: boolean | null = await runProtectedIdentityMutation(
-    (): boolean | null => {
-      if (getChatState(event.chatId).isAdDetectEnabled !== true) return null;
-      if (canBypassAdDetection(event.senderId)) return null;
-      if (isWhitelisted(event.senderId)) return null;
-      clearTemporaryAdBypassActivityOrThrow(event.senderId);
-      recordAdSample(event);
-      return blockUser(event.senderId, event.meta);
-    }
+  const ruling: AdDisposalRuling = await runProtectedIdentityMutation(
+    (): AdDisposalRuling => ruleAdDisposal(event)
   );
-  if (newlyBlocked === null) {
-    if (getChatState(event.chatId).isAdDetectEnabled !== true) {
-      logger.log(
-        `Ad detection was turned off in chat ${event.chatId} before the verdict for sender ` +
-        `${event.senderId} could be disposed; dropping it.`
-      );
-      return;
-    }
+  if (ruling === "disabled") {
+    logger.log(
+      `Ad detection was turned off in chat ${event.chatId} before the verdict for sender ` +
+      `${event.senderId} could be disposed; dropping it.`
+    );
+    return;
+  }
+  if (ruling === "protected") {
     logger.error(
       `Ad detection flagged protected sender ${event.senderId} in chat ${event.chatId}; ` +
-      "refusing to add the identity to the permanent blocklist."
+      "refusing to punish the identity."
     );
     return;
   }
+  if (ruling === "unconfigured") {
+    logger.error(
+      `Dropped the ad detection verdict for sender ${event.senderId} in chat ${event.chatId}: ` +
+      `${AD_DETECT_CONFIG_PATH} was removed, so no punishment is configured.`
+    );
+    return;
+  }
+  if (ruling.action.kind === "blockGlobal") {
+    await enforceGlobalAdBlock(event, ruling.newlyBlocked);
+    return;
+  }
+  await punishAdSenderInChat(event, ruling.action);
+}
+
+/**
+ * 全局封禁：确认黑名单落盘后为受管群登记封禁批次并交回 Worker。同一身份重复命中
+ * （newlyBlocked 为 false）时仅补登记触发群的封禁批次。
+ *
+ * @param event Worker 上报的广告命中事件
+ * @param newlyBlocked 本次是否新加入永久黑名单
+ */
+async function enforceGlobalAdBlock(event: AdDetectedEvent, newlyBlocked: boolean): Promise<void> {
   if (newlyBlocked && !await confirmBlocklistPersisted(event.senderId, false)) {
     logger.error(
       `Ad detection blocklist entry for sender ${event.senderId} is memory-only; ` +
@@ -153,10 +206,10 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
 }
 
 /**
- * 按身份串行执行广告封禁与 `/block` 名单写入及跨群扇出（见 cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）。
+ * 按身份串行执行广告处置与 `/block` 名单写入及跨群扇出（见 cache/main/blocklist.ts 的 blocklistIdentityMutationRunner）。
  *
  * @param event Worker 上报的广告命中事件
- * @returns 广告封禁与跨群扇出处置完成后的 Promise
+ * @returns 广告处置完成后的 Promise
  */
 function disposeDetectedAd(event: AdDetectedEvent): Promise<void> {
   return blocklistIdentityMutationRunner.run(
@@ -165,7 +218,7 @@ function disposeDetectedAd(event: AdDetectedEvent): Promise<void> {
   );
 }
 
-/** 生成广告处置群内播报文案所需的参数。 */
+/** 生成全局封禁播报文案所需的参数。 */
 export interface FormatAdNoticeParams {
   /** 发送者的展示标签（见 users/userLabel.ts 的 formatUserLabel）。 */
   label: string;
@@ -180,13 +233,13 @@ export interface FormatAdNoticeParams {
 }
 
 /**
- * 生成广告处置群内播报文案，仅包含展示标签、判定理由及封禁群统计，不回显广告原文。
+ * 生成全局封禁的群内播报文案，仅包含展示标签、判定理由及封禁群统计，不回显广告原文。
  *
  * @param params 发送者展示标签、判定理由、封禁群统计与氛围文案表
  * @returns 组装完成的广告处置播报 HTML/纯文本文案
  */
 export function formatAdNotice({ label, reason, enforcedChats, failedChats, atmosphere }: FormatAdNoticeParams): string {
-  const head: string = atmosphere.NOTICE_TEXTS.adDetected(label, reason || atmosphere.NOTICE_TEXTS.adDefaultReason);
+  const head: string = formatAdNoticeHead({ label, reason, atmosphere });
   if (enforcedChats === 0) {
     return atmosphere.NOTICE_TEXTS.adNoManagedChat(head);
   }
@@ -197,7 +250,7 @@ export function formatAdNotice({ label, reason, enforcedChats, failedChats, atmo
 }
 
 /**
- * 经统一临时消息边界发送广告处置播报并登记延迟删除（见 infra/telegram/temporaryMessage.ts）。
+ * 经统一临时消息边界发送全局封禁播报并登记延迟删除（见 infra/telegram/temporaryMessage.ts）。
  *
  * @param event Worker 上报的广告命中事件
  * @param enforcedChats 成功登记封禁批次的群数
@@ -266,7 +319,8 @@ export async function drainAdDisposals(timeoutMs: number): Promise<FlushResult> 
     if (remaining === 0 || !await settleWithinBudget([...inFlightAdDisposals], remaining)) {
       logger.error(
         `Ad disposal drain timed out with ${inFlightAdDisposals.size} task(s) still in flight; ` +
-        "the blocklist entries and removal batches stay in their durable outbox."
+        "blocklist entries and removal batches stay in their durable outbox, " +
+        "while pending in-chat mutes, kicks and bans are abandoned."
       );
       return "timedOut";
     }

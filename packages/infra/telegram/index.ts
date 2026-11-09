@@ -38,6 +38,7 @@ export {
   banChatSenderChat,
   banChatSenderChatWithOutcome,
   kickChatMemberWithOutcome,
+  muteChatMemberPermanentlyWithOutcome,
   muteChatMemberWithOutcome,
   unbanChatMemberIfBanned,
   unbanChatSenderChat,

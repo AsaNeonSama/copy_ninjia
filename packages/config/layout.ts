@@ -10,7 +10,7 @@ import { lstat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { LEGACY_BOT_CONFIG_NAME } from "../consts/bot";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
   BOT_CONFIG_PATH,
@@ -45,7 +45,7 @@ const CONFIG_FILE_PLACEMENTS: readonly ConfigFilePlacement[] = [
   ...[
     AGENT_CONFIG_PATH,
     ASSETS_CONFIG_PATH,
-    AD_SAMPLES_CONFIG_PATH,
+    AD_DETECT_CONFIG_PATH,
     MOOD_CONFIG_PATH,
     STICKERS_CONFIG_PATH,
     CRON_CONFIG_PATH,

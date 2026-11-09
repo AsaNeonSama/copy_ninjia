@@ -118,13 +118,13 @@ describe("部署配置写坏时的 enable 拒绝", () => {
   });
 
   test("/ad_detect enable 点名示例清单", async () => {
-    adDetectVerdict = broken("config/dynamic/ad_data.json");
+    adDetectVerdict = broken("config/dynamic/ad_detect_config.json");
     await handleAdDetectCommand(context("enable"));
 
     expect(states.size).toBe(0);
     expect(sendMessage).toHaveBeenLastCalledWith({
       chatId: -1001,
-      text: expect.stringContaining("config/dynamic/ad_data.json"),
+      text: expect.stringContaining("config/dynamic/ad_detect_config.json"),
       replyToMessageId: 7,
     });
   });

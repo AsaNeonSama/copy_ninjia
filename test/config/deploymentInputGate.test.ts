@@ -22,7 +22,7 @@ afterAll((): void => { rmSync(testRoot, { recursive: true, force: true }); });
 
 const STICKERS_PATH: string = join(testRoot, "stickers.json");
 const MOOD_PATH: string = join(testRoot, "mood.json");
-const AD_SAMPLES_PATH: string = join(testRoot, "ad_data.json");
+const AD_DETECT_CONFIG_FILE: string = join(testRoot, "ad_detect_config.json");
 const AGENT_PATH: string = join(testRoot, "agent.json");
 const AUTH_PATH: string = join(testRoot, "g-auth.json");
 const PERSONA_FILE_PATH: string = join(testRoot, "persona.md");
@@ -35,7 +35,7 @@ mock.module("../../packages/consts/paths", () => ({
   PROJECT_ROOT: testRoot,
   STICKERS_CONFIG_PATH: STICKERS_PATH,
   MOOD_CONFIG_PATH: MOOD_PATH,
-  AD_SAMPLES_CONFIG_PATH: AD_SAMPLES_PATH,
+  AD_DETECT_CONFIG_PATH: AD_DETECT_CONFIG_FILE,
   AGENT_CONFIG_PATH: AGENT_PATH,
   GOOGLE_AUTH_FILE_PATH: AUTH_PATH,
   PERSONA_PATH: PERSONA_FILE_PATH,
@@ -63,7 +63,7 @@ const {
 const {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
   defaultMoodConfigCache,
   defaultStickerConfigCache,
   personaCache,
@@ -84,7 +84,7 @@ const { googleServiceAccountKey } = await import("../../packages/cache/main/tran
 /** 每个用例都从一份合法部署开始；只有被点名的那一份被改成非法。 */
 beforeEach(async (): Promise<void> => {
   botConfigState.current = BOT_CONFIG;
-  for (const name of ["stickers.json", "mood.json", "ad_data.json", "agent.json", "cron.json"]) {
+  for (const name of ["stickers.json", "mood.json", "ad_detect_config.json", "agent.json", "cron.json"]) {
     await Bun.write(join(testRoot, name), Bun.file(join(TEST_CONFIG_ROOT, DYNAMIC_CONFIG_DIR_NAME, name)));
   }
   await Bun.write(PERSONA_FILE_PATH, `\n${CUSTOM_PERSONA}  \n`);
@@ -99,7 +99,7 @@ beforeEach(async (): Promise<void> => {
   translateConfigReadinessCache.current = null;
   adDetectAgentConfigCache.current = null;
   agentDeploymentConfigCache.current = null;
-  defaultAdSampleConfigCache.current = null;
+  defaultAdDetectConfigCache.current = null;
   defaultMoodConfigCache.current = null;
   defaultStickerConfigCache.current = null;
   personaCache.current = null;
@@ -113,7 +113,7 @@ test("八份可选部署输入齐备且合法时启动总闸放行，自定义�
   await validateExistingDeploymentInputs();
   expect(defaultMoodConfigCache.current).not.toBeNull();
   expect(defaultStickerConfigCache.current).not.toBeNull();
-  expect(defaultAdSampleConfigCache.current).not.toBeNull();
+  expect(defaultAdDetectConfigCache.current).not.toBeNull();
   expect(agentDeploymentConfigCache.current).not.toBeNull();
   expect(personaCache.current).toBe(CUSTOM_PERSONA);
   expect(voiceToolPromptCache.current).toBe(CUSTOM_VOICE_TOOL_PROMPT);
@@ -181,7 +181,7 @@ test("人设与风格已接管时启动总闸只读 holder，不再读盘", asyn
 const INVALID_INPUTS: readonly Readonly<{ label: string; path: string; content: string }>[] = [
   { label: "stickers.json", path: STICKERS_PATH, content: JSON.stringify({ packs: "MikuCat4" }) },
   { label: "mood.json", path: MOOD_PATH, content: JSON.stringify({ moods: [] }) },
-  { label: "ad_data.json", path: AD_SAMPLES_PATH, content: JSON.stringify({ samples: [] }) },
+  { label: "ad_detect_config.json", path: AD_DETECT_CONFIG_FILE, content: JSON.stringify({ samples: [] }) },
   { label: "agent.json", path: AGENT_PATH, content: JSON.stringify({ agent: 7 }) },
   { label: "g-auth.json", path: AUTH_PATH, content: JSON.stringify({ client_email: "", private_key: "" }) },
   { label: "persona.md", path: PERSONA_FILE_PATH, content: "   \n" },

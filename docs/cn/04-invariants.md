@@ -1035,7 +1035,7 @@
 
 - **准入门禁与复核机制**：
   - 送检门禁必须同时满足三项条件：本群 `ChatState.isAdDetectEnabled === true`、机器人是群管理员、发送者不具备免检权限（`isCanBypassAdDetection`）。超级管理员恒定免检。
-  - Worker 判定命中并将事件回传主线程后，在写入黑名单临界区前必须再次核对群开关与白名单状态；若期间群关闭了广告检测，按预期竞态记录普通日志并放弃拉黑。
+  - Worker 判定命中并将事件回传主线程后，主线程在该身份的黑名单串行位与身份策略临界区内必须再次核对群开关与白名单状态；若期间群关闭了广告检测，按预期竞态记录普通日志并放弃处罚。
 - **豁免与特殊消息来源**：
   - 关联频道的自动转发（`is_automatic_forward`）与机器人自身发布的消息（`isBotOwnMessage`）一律跳过。
   - 本 bot 发出的 inline 消息（`via_bot` 指向自身）送检的是用户的**原始查询文本**，而非 bot 渲染后的带格式落群正文。各 inline 功能在应答成功后调用 `recordInlineResultSources` 登记源文本，容量上限 `INLINE_RESULT_SOURCE_MAX_AUTHORS`；取不到源文本或正文不符时跳过判定。
@@ -1044,26 +1044,32 @@
   - 队列以 `chatId:senderId` 为键，同一用户的连续消息合并入 `pendingAdMessages` 的单一 bundle 中，不重复排队。
   - 待检发送者上限 `AD_DETECT_MAX_PENDING_SENDERS`，满载后直接拒绝新用户，禁止淘汰已有未检用户。
   - 调度器每 `AD_DETECT_QUEUE_TICK_MS` 从队首提取至多 `AD_DETECT_BATCH_SIZE` 个用户，全局在途请求上限为 `AD_DETECT_MAX_IN_FLIGHT`。
-  - 抑制窗口 `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`：刚处置过的发送者键记录在 `recentlyDisposedAdKeys` 中，在此期间到来的新消息抑制重复判定；但频道马甲在此窗口内的新消息仍照常删除。
+  - 抑制窗口 `AD_DETECT_JUDGED_RETENTION_WINDOW_MS`：刚处置过的发送者键记录在 `recentlyDisposedAdKeys` 中，在此期间到来的新消息不再判定、逐条删除（禁言、只踢不封与频道封禁都不撤回处罚落地前发出的消息）。已在永久黑名单的普通用户例外：其消息不送检也不逐条删除，由带 `revoke_messages` 的封禁撤回。
 - **送检组装、黑名单快路径与模型交互**：
   - 单用户消息数量上限 `AD_DETECT_MAX_MESSAGES_PER_SENDER`，字符预算 `AD_DETECT_BUNDLE_MAX_CHARS`。当未判消息由于超限被丢弃时，正文移除但消息 ID 转入 `pendingDeleteIds`，确保处置时完整删除，并记录错误日志。
   - 检测按固定三级流水线依次执行（任一免检身份在候选入口统一跳过全部三级检测）：
-    1. **贴纸包黑名单快路径**（`ad_data.json` 的 `sticker_black_list`）：直接比对未检条目携带的 `sticker.set_name`，命中即跳过后续检测并按直接广告执行永久拉黑处置。
-    2. **自定义表情包黑名单**（`ad_data.json` 的 `emoji_black_list`）：名单非空时核对未检条目的 `custom_emoji_id`：已在 Worker 的 ID→所属表情包 LRU 缓存（容量 `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`，Worker 停止时清空）中的直接比对，其余去重后按 `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` 分批经主线程统一 Telegram 出站（`query` 类 429 退避策略）调用 `getCustomEmojiStickers` 查询所属表情包并写入缓存，命中即跳过 AI 判定并按直接广告执行永久拉黑处置；查询失败时各批共用 `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` 次立即重试（4xx 拒绝不重试），预算用尽、被拒或进入停机时放弃本轮表情核对，记错误日志并继续后续判定。
-    3. **AI 文本判定**（`ad_data.json` 的 `samples`）：仅当存在未检非空文本条目时调用模型分类（纯贴纸且未命中黑名单时不调用 AI）。
+    1. **贴纸包黑名单快路径**（`ad_detect_config.json` 的 `sticker_black_list`）：直接比对未检条目携带的 `sticker.set_name`，命中即跳过后续检测并按直接广告处置。
+    2. **自定义表情包黑名单**（`ad_detect_config.json` 的 `emoji_black_list`）：名单非空时核对未检条目的 `custom_emoji_id`：已在 Worker 的 ID→所属表情包 LRU 缓存（容量 `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`，Worker 停止时清空）中的直接比对，其余去重后按 `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` 分批经主线程统一 Telegram 出站（`query` 类 429 退避策略）调用 `getCustomEmojiStickers` 查询所属表情包并写入缓存，命中即跳过 AI 判定并按直接广告处置；查询失败时各批共用 `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` 次立即重试（4xx 拒绝不重试），预算用尽、被拒或进入停机时放弃本轮表情核对，记错误日志并继续后续判定。
+    3. **AI 文本判定**（`ad_detect_config.json` 的 `samples`）：仅当存在未检非空文本条目时调用模型分类（纯贴纸且未命中黑名单时不调用 AI）。
   - 发送者的个人姓名（`firstName`、`lastName`）与非转发正文共同送检，姓名推广与正文推广同等归因。
   - **纯链接保护**：若用户整串消息仅由单个或多个链接及普通姓名组成，且无任何推广、招募或交易文案，必须判定为 false（支持各类代理节点与订阅协议）。
   - 提示词必须显式包含 `"JSON"` 字符串，要求模型仅返回裸 JSON 对象；解析器优先解析裸对象，兼容 markdown 围栏包裹。模型识别失败时视为未检，不盲目判罚。
   - 模型上下文事实声明：主线程同步获取用户是否处于入群待验证状态，作为事实独立声明并附加于固定位置，不混入待判定正文。
 - **处置执行与通知**：
-  - 判定为广告后，Worker 侧删除该用户待删消息列表并回传 `adDetected`；主线程在临界区内执行 `blockUser`、刷新黑名单落盘，并生成持久化封禁批次投回 Worker 执行全群封禁。
-  - 主线程通过 `sendTemporaryMessageOnMain` 发布处理播报，挂载 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁定时器，播报内容如实反馈成功封禁的群数与权限缺失情况。
+  - 判定为广告后，Worker 侧删除该用户待删消息列表并回传 `adDetected`；主线程在临界区内读取 `ad_detect_config.json` 的 `punishment`，按处罚等级与发送者是否为频道身份选定动作（`states/adPunishment.ts`）：
+    - **等级 2、`block_scope: "global"`**：执行 `blockUser`、刷新黑名单落盘，并生成持久化封禁批次投回 Worker 执行全群封禁；用户与频道身份相同。
+    - **等级 1**：在触发群禁言。限时禁言的派发截止沿用 `/mute` 契约（时长减去 `MUTE_DISPATCH_MIN_REMAINING_MS`），永久禁言不带 `until_date`。
+    - **等级 2、`block: false`**：只踢不封。发送者已在永久黑名单时交给黑名单封禁；群类型读主线程 `chatIsSupergroupById`，未知时不发请求；踢前确认目标仍在群，避免超级群的 `unbanChatMember` 解除他人留下的封禁。
+    - **等级 2、`block_scope: "chat"`**：只在触发群以 `banChatMember`（`revoke_messages: true`）封禁，不写永久黑名单。
+    - **频道身份**在非全局封禁等级下只删除消息，不发处罚请求。
+    - 本群处罚不进 durable outbox：在途任务由 `inFlightAdDisposals` 跟踪，停机排空预算耗尽或进程重启即放弃。`ad_detect_config.json` 已被热重载删除时，在途命中记错误日志并放弃处罚。
+  - 主线程通过 `sendTemporaryMessageOnMain` 发布处理播报，挂载 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自毁定时器：全局封禁如实反馈成功封禁的群数与权限缺失情况，本群处罚如实反馈处罚是否生效（未生效时提示管理员检查机器人权限）。
   - 停机时广告检测仅停止接入新请求，在途模型调用自行超时收尾，不阻塞快速停机。命中样本以追加方式写入 `memory/ad-detected/sample.json`，按配置时区日期自动归档轮转。
 
 #### 封禁与消息撤回
 
 - **消息撤回机制**：
-  - 黑名单封禁操作（`/block`、入群秒踢、补扫、广告处置）统一调用 `banChatMember` 并固定设置 `revoke_messages: true`，撤回目标在群内的历史消息。
+  - 黑名单封禁操作（`/block`、入群秒踢、补扫、广告全局封禁）与广告本群封禁统一调用 `banChatMember` 并固定设置 `revoke_messages: true`，撤回目标在群内的历史消息。
   - 频道马甲由于缺乏成员概念，`banChatSenderChat` 不支持自动撤回消息，广告检测处置时在 Worker 侧显式调用删除接口清理关联消息。
 
 #### 黑名单移除 outbox

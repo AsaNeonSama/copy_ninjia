@@ -5,7 +5,7 @@ import { rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { waitUntil } from "../helpers/waitUntil";
 import type {
-  AdSampleConfig,
+  AdDetectConfig,
   ConfigReadiness,
   HotDeploymentConfigChanges,
   MoodConfig,
@@ -35,13 +35,13 @@ mock.module("../../packages/consts/configReload", () => ({
 const { quiesceConfigReload, startConfigReload } = await import("../../packages/app/configReload");
 const { configReloadRuntime } = await import("../../packages/cache/main/configReload");
 const {
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
   defaultMoodConfigCache,
   defaultStickerConfigCache,
 } = await import("../../packages/cache/perThread/config");
 const { adDetectConfigReadinessCache, aiChatConfigReadinessCache } = await import("../../packages/cache/main/configReadiness");
 const {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   CRON_CONFIG_PATH,
   DYNAMIC_CONFIG_DIR,
   MOOD_CONFIG_PATH,
@@ -52,12 +52,12 @@ const { cronConfigCache } = await import("../../packages/cache/main/cron");
 
 const originalMoodText: string = await Bun.file(MOOD_CONFIG_PATH).text();
 const originalStickerText: string = await Bun.file(STICKERS_CONFIG_PATH).text();
-const originalAdSampleText: string = await Bun.file(AD_SAMPLES_CONFIG_PATH).text();
+const originalAdSampleText: string = await Bun.file(AD_DETECT_CONFIG_PATH).text();
 const originalCronText: string = await Bun.file(CRON_CONFIG_PATH).text();
 const originalCron = cronConfigCache.current;
 const originalMood: MoodConfig | null = defaultMoodConfigCache.current;
 const originalStickers: StickerConfig | null = defaultStickerConfigCache.current;
-const originalAdSamples: AdSampleConfig | null = defaultAdSampleConfigCache.current;
+const originalAdSamples: AdDetectConfig | null = defaultAdDetectConfigCache.current;
 
 /** 让一份合法心情表的档位名随编号变化，便于区分每一轮。 */
 function moodDocument(label: string): string {
@@ -86,12 +86,12 @@ afterEach(async (): Promise<void> => {
   await configReloadRuntime.runner?.push(null);
   await Bun.write(MOOD_CONFIG_PATH, originalMoodText);
   await Bun.write(STICKERS_CONFIG_PATH, originalStickerText);
-  await Bun.write(AD_SAMPLES_CONFIG_PATH, originalAdSampleText);
+  await Bun.write(AD_DETECT_CONFIG_PATH, originalAdSampleText);
   await Bun.write(CRON_CONFIG_PATH, originalCronText);
   cronConfigCache.current = originalCron;
   defaultMoodConfigCache.current = originalMood;
   defaultStickerConfigCache.current = originalStickers;
-  defaultAdSampleConfigCache.current = originalAdSamples;
+  defaultAdDetectConfigCache.current = originalAdSamples;
   aiChatConfigReadinessCache.current = { ok: true };
   adDetectConfigReadinessCache.current = { ok: true };
 });
@@ -249,14 +249,14 @@ describe("config/dynamic/ 目录监听", () => {
   test("删除与恢复广告示例都会切换广告检测可用性并重投 Anti-Raid", async () => {
     startConfigReload();
     await settle();
-    await Bun.file(AD_SAMPLES_CONFIG_PATH).delete();
+    await Bun.file(AD_DETECT_CONFIG_PATH).delete();
 
     expect(await waitUntil((): boolean => !published(adDetectConfigReadinessCache).ok)).toBe(true);
-    expect(published(adDetectConfigReadinessCache)).toMatchObject({ ok: false, failure: { file: "config/dynamic/ad_data.json" } });
+    expect(published(adDetectConfigReadinessCache)).toMatchObject({ ok: false, failure: { file: "config/dynamic/ad_detect_config.json" } });
     expect(syncAntiRaidAgentConfig).toHaveBeenCalledTimes(1);
     expect(published(aiChatConfigReadinessCache).ok).toBe(true);
 
-    await Bun.write(AD_SAMPLES_CONFIG_PATH, originalAdSampleText);
+    await Bun.write(AD_DETECT_CONFIG_PATH, originalAdSampleText);
     expect(await waitUntil((): boolean => published(adDetectConfigReadinessCache).ok)).toBe(true);
     expect(syncAntiRaidAgentConfig).toHaveBeenCalledTimes(2);
     expect(loggerLog).toHaveBeenCalledWith("Ad detection became available after a deployment config reload.");

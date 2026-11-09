@@ -76,7 +76,7 @@ If the bot process is running but fails to respond as expected in chat, work thr
     <td>
       • <b>Disabled by default</b>: Explicitly run <code>/antiraid enable</code>, <code>/ad_detect enable</code>, or <code>/flood_control enable</code>.<br>
       • <b>Insufficient rights</b>: The bot must be an administrator with delete and ban permissions.<br>
-      • <b>Configuration unready</b>: Ad detection requires <code>agent.ad_detect</code> in <code>config/dynamic/agent.json</code> and a populated <code>config/dynamic/ad_data.json</code>.
+      • <b>Configuration unready</b>: Ad detection requires <code>agent.ad_detect</code> in <code>config/dynamic/agent.json</code> and a populated <code>config/dynamic/ad_detect_config.json</code>.
     </td>
   </tr>
   <tr>

@@ -285,10 +285,10 @@ describe("广告判定队列：排队、调度与位置所有权", () => {
   });
 
   test("判定抛错按「本次没判定」结算：记一行日志、推进水位，不静默死循环", async () => {
-    // classifyAdText 的同步准备阶段（currentAdDetectPrompts → getAdSampleConfig()）也会抛；
+    // classifyAdText 的同步准备阶段（currentAdDetectPrompts → getAdDetectConfig()）也会抛；
     // runAdDetectBatch 接住它，按「本次没判定」结算。
     classifyAdText.mockImplementationOnce((): Promise<AdVerdict | null> => {
-      throw new Error("config/dynamic/ad_data.json must contain a JSON object.");
+      throw new Error("config/dynamic/ad_detect_config.json must contain a JSON object.");
     });
     enqueueAdCandidate(candidate({ messageId: 1, text: "加我微信" }), 1_000);
 

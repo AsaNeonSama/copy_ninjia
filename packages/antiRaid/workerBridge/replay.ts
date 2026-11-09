@@ -6,7 +6,7 @@ import {
   pendingVerificationDeferrals,
 } from "../../cache/main/antiRaid/verificationMirror";
 import { adDetectAgentConfigSnapshot } from "../../config/agent";
-import { getAdSampleConfig } from "../../config/adSamples";
+import { getAdDetectConfig } from "../../config/adDetectConfig";
 import { adDetectConfigReadiness } from "../../config/readiness";
 import { botAtmosphere } from "../../infra/atmosphere";
 import { getTimeZone } from "../../config/time";
@@ -67,7 +67,7 @@ export function buildAdoptVerificationsMessage(
 }
 
 /**
- * 把主线程当前生效的时区、氛围词表、广告检测配置与广告样本配置投给 Worker；
+ * 把主线程当前生效的时区、氛围词表、广告检测能力配置与广告检测部署配置投给 Worker；
  * 重建时排在新 Worker 的业务消息之前。
  *
  * @param postTo 向目标 Anti-Raid Worker 投递消息的函数
@@ -81,7 +81,7 @@ export function replayAdDetectAgentConfig(
     timeZone: getTimeZone(),
     atmosphere: botAtmosphere(),
     adDetect: adDetectAgentConfigSnapshot(),
-    adSamples: adDetectConfigReadiness().ok ? getAdSampleConfig() : null,
+    adDetectConfig: adDetectConfigReadiness().ok ? getAdDetectConfig() : null,
   });
 }
 

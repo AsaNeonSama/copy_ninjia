@@ -36,7 +36,7 @@
   - **代表ファイル**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`（Bot 自身の送信画像のプレースホルダー自己記録）、`voiceSynthesis.ts`（`/send` や cron からの音声合成ジョブ待機・解決）、`webDigest.ts`（cron による Web ダイジェスト生成待機・解決）、`memoryMirror.ts`、`stickerMirror.ts`（スタンプ目録スナップショットのメインスレッドミラー）、`workerJob.ts`（AI Worker へのキャンセル可能ジョブ発行基盤）、`availability.ts`、`provider.ts`、`providerFacades.ts`（機能ごとのプロバイダファサード）、`providerLanes.ts`（プロトコル・エンドポイント別のクォータレーン管理）、`capabilityClient.ts`（共通クライアント基盤）、`gemini/`、`openai/`、`anthropic/`、`ai/`。`index.ts` は薄い公開エクスポートのみ提供。
 - **`packages/antiRaid/`**
   - **責務**：メインスレッド側の Anti-Raid プロキシ。Worker 監視、確実なメッセージ配信（durable delivery）、update 受付、広告候補の収集・判定・処分、ブラックリスト／認証／スパム（flood）防御のオーケストレーション。
-  - **代表ファイル**：`workerBridge/`（`controller.ts`、`events.ts`、`observers.ts`、`replay.ts`）、`durableDelivery.ts`、`updateIngress.ts`、`adCandidate.ts`、`adDetect.ts`。`index.ts` は薄い公開エクスポートのみ提供。
+  - **代表ファイル**：`workerBridge/`（`controller.ts`、`events.ts`、`observers.ts`、`replay.ts`）、`durableDelivery.ts`、`updateIngress.ts`、`adCandidate.ts`、`adDetect.ts`、`adPunishment.ts`。`index.ts` は薄い公開エクスポートのみ提供。
 - **`packages/cron/`**
   - **責務**：`cron.json` による定期タスクのメインスレッドスケジューリング（Bun ネイティブ cron、1 回限り実行、ランダム間隔の再スケジュール）、タスクの順次実行と再試行、単一 Telegram 送信境界へのディスパッチ。
   - **代表ファイル**：`scheduler.ts`、`run.ts`、`delivery.ts`、`targets.ts`（`chat_id: ["all"]` や `["except", ...]` の権限検証）。設定パーサーは `packages/config/cron.ts` / `packages/config/cronAction.ts`、実行時状態は `packages/cache/main/cron.ts`。
@@ -51,10 +51,10 @@
   - **代表ファイル**：`senderIdentity.ts`、`visibleSender.ts`、`userLabel.ts`、`identityMetadata.ts`、`messageContent.ts`、`messageOrigin.ts`。
 - **`packages/states/`**
   - **責務**：**I/O を一切行わない**純粋な状態遷移ロジック。参加認証、ロックダウン、AI 返信受付、広告判定受付、一時広告バイパス、メディア入力サポート度のルールセット。
-  - **代表ファイル**：`verification.ts` と `verification/`（`join` / `pending` / `terminal` / `disable` フェーズ、永続化スナップショットから状態を再構築する `adopt.ts`）、`lockdown.ts` と `lockdown/`（`apply` / `persistence` / `restore` / `announcement` / `adopt` フェーズ）、`replyAdmission.ts`、`adDetectAdmission.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
+  - **代表ファイル**：`verification.ts` と `verification/`（`join` / `pending` / `terminal` / `disable` フェーズ、永続化スナップショットから状態を再構築する `adopt.ts`）、`lockdown.ts` と `lockdown/`（`apply` / `persistence` / `restore` / `announcement` / `adopt` フェーズ）、`replyAdmission.ts`、`adDetectAdmission.ts`、`adPunishment.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
 - **`packages/config/`**
   - **責務**：デプロイ設定 `config/{static,dynamic}/*.json` の厳格なスキーマ検証、プロセススナップショット作成、ホットリロード判定、機能ごとの readiness（利用可能）判定。ID ポリシーの永続化データは扱いません。
-  - **代表ファイル**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`adSamples.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`readiness.ts`、`reload.ts`。
+  - **代表ファイル**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`adDetectConfig.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`readiness.ts`、`reload.ts`。
 - **`packages/database/`**
   - **責務**：共有 SQLite（identity ポリシーとグループ状態）のスキーマ定義、codec、行バリデーション、Drizzle 接続境界。ランタイムハンドルは Disk I/O Worker のみが排他的に所有。
   - **代表ディレクトリ・ファイル**：`schema/`（`migrations/` を含む）、`codec/identity.ts`、`codec/chatState.ts`、`codec/chatQa.ts`、`codec/temporaryAdBypass.ts`、`interact/`（`connection.ts`、`transaction.ts`、`identityPolicy.ts`、`chatState.ts`、`chatQa.ts`、`temporaryAdBypass.ts`、`aiContext.ts`、`migration.ts`、`initialization.ts`、`inspection.ts`）、`validation/storageRows.ts`。

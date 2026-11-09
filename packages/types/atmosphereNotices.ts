@@ -12,6 +12,18 @@ export interface AtmosphereNotices {
   readonly adNoManagedChat: (head: string) => string;
   readonly adPartialBan: (head: string, enforcedChats: number, failedChats: number) => string;
   readonly adBanned: (head: string) => string;
+  /** 广告处罚等级 1：已在本群禁言 `duration`（中文时长文案）。 */
+  readonly adMuted: (head: string, duration: string) => string;
+  /** 广告处罚等级 1：已在本群永久禁言。 */
+  readonly adMutedPermanently: (head: string) => string;
+  /** 广告处罚等级 2 只踢不封：已移出本群。 */
+  readonly adKicked: (head: string) => string;
+  /** 广告处罚等级 2 本群封禁：已在本群封禁。 */
+  readonly adChatBanned: (head: string) => string;
+  /** 本群处罚未完成（权限不足或 Telegram 请求失败）；涉事消息已由 Worker 删除。 */
+  readonly adPunishFailed: (head: string) => string;
+  /** 频道身份在非全局封禁等级下只删除消息。 */
+  readonly adDeletedOnly: (head: string) => string;
   readonly proxyFailed: (targetChatId: number) => string;
   /** Mini App 登录连续失败触发锁定时发给超级管理员私聊的告警；`lockedUntil` 为部署时区的本地时间。 */
   readonly miniAppLoginLocked: (attempts: number, lockedUntil: string, clientIp: string) => string;

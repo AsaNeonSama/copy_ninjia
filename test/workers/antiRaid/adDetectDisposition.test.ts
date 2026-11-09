@@ -5,7 +5,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { AdDetectedEvent } from "../../../packages/types/antiRaid";
 import type { RemoveBlockedMembersParams } from "../../../packages/types/blocklist";
-import type { BotConfig } from "../../../packages/types/config";
+import type { AdDetectPunishment, BotConfig } from "../../../packages/types/config";
+import type {
+  BanChatMemberOutcome,
+  KickChatMemberOutcome,
+  MuteChatMemberOutcome,
+} from "../../../packages/infra/telegram";
+import { formatDurationCn } from "../../../packages/libs/durationToken";
+import { MINUTE_MS } from "../../../packages/consts/time";
 import { botPermissions } from "../../helpers/botPermissions";
 import { isManagedAdminChat } from "../../../packages/infra/blocklist/sweepEligibility";
 import type { ChatState } from "../../../packages/types/chatState";
@@ -57,6 +64,11 @@ const sendMessage = mock(async (params: SendMessageMockParams): Promise<number |
 });
 const deleteMessageAfter = mock((..._args: unknown[]): void => {});
 const clearTemporaryAdBypassActivity = mock((_id: number): boolean => true);
+const muteChatMemberWithOutcome = mock(async (..._args: unknown[]): Promise<MuteChatMemberOutcome> => "muted");
+const muteChatMemberPermanentlyWithOutcome = mock(async (..._args: unknown[]): Promise<MuteChatMemberOutcome> => "muted");
+const kickChatMemberWithOutcome = mock(async (..._args: unknown[]): Promise<KickChatMemberOutcome> => "kicked");
+const banChatMemberWithOutcome = mock(async (..._args: unknown[]): Promise<BanChatMemberOutcome> => "banned");
+const probeChatMembership = mock(async (..._args: unknown[]): Promise<boolean | undefined> => true);
 /** 置真时身份策略预热会真的去读 Disk I/O；读取替身一律拒绝，模拟冷读失败。 */
 let diskIOInitialized: boolean = false;
 mock.module("../../../packages/infra/logger", () => ({
@@ -87,6 +99,14 @@ mock.module("../../../packages/infra/telegram/actions", () => ({
 // 播报经统一的临时提示边界（infra/telegram/temporaryMessage.ts）发出，它直接依赖这两个子模块。
 mock.module("../../../packages/infra/telegram/actions/messages", () => ({ sendMessage }));
 mock.module("../../../packages/infra/telegram/actions/messageLifecycle", () => ({ deleteMessageAfter }));
+// 本群处罚（adPunishment.ts）经 infra/telegram 发出禁言、移出与封禁请求。
+mock.module("../../../packages/infra/telegram", () => ({
+  muteChatMemberWithOutcome,
+  muteChatMemberPermanentlyWithOutcome,
+  kickChatMemberWithOutcome,
+  banChatMemberWithOutcome,
+  probeChatMembership,
+}));
 mock.module("../../../packages/infra/blocklist/membership", () => ({
   blockUser,
   confirmBlocklistPersisted,
@@ -141,6 +161,29 @@ const { blocklistIdentityMutationQueues } = await import("../../../packages/cach
 const { blocklistIdentityMutationRunner } = await import("../../../packages/cache/main/blocklist");
 const { inlineResultSources } = await import("../../../packages/cache/main/inlineResultSources");
 const { resetSelfSentTracker } = await import("../../../packages/cache/perThread/selfSentTracker");
+const { defaultAdDetectConfigCache } = await import("../../../packages/cache/perThread/config");
+const { chatIsSupergroupById } = await import("../../../packages/cache/main/antiRaid/chatKind");
+const { MUTE_DISPATCH_MIN_REMAINING_MS } = await import("../../../packages/consts/commands");
+/** 测试预载的广告检测配置（config_example 副本）；各用例只替换 punishment。 */
+const preloadedAdDetectConfig = defaultAdDetectConfigCache.current;
+
+/**
+ * 把当前线程的处罚设置换成指定等级，其余字段沿用预载配置。
+ * @param punishment 本用例使用的处罚设置。
+ */
+function usePunishment(punishment: AdDetectPunishment): void {
+  defaultAdDetectConfigCache.current = { ...preloadedAdDetectConfig!, punishment };
+}
+
+/** 测试氛围（teasing）下 detected() 默认事件的播报开头一句。 */
+function teasingHead(): string {
+  return ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adDetected("@spammer", "引流");
+}
+
+/** 本用例发出的第一条播报正文。 */
+function firstNoticeText(): string | undefined {
+  return (sendMessage.mock.calls[0]?.[0] as { text: string } | undefined)?.text;
+}
 
 function detected(overrides: Partial<AdDetectedEvent> = {}): AdDetectedEvent {
   return {
@@ -205,6 +248,210 @@ beforeEach(() => {
   resetSelfSentTracker();
   inlineResultSources.clear();
   diskIOInitialized = false;
+  defaultAdDetectConfigCache.current = preloadedAdDetectConfig;
+  chatIsSupergroupById.clear();
+  muteChatMemberWithOutcome.mockReset();
+  muteChatMemberWithOutcome.mockImplementation(async (): Promise<MuteChatMemberOutcome> => "muted");
+  muteChatMemberPermanentlyWithOutcome.mockReset();
+  muteChatMemberPermanentlyWithOutcome.mockImplementation(async (): Promise<MuteChatMemberOutcome> => "muted");
+  kickChatMemberWithOutcome.mockReset();
+  kickChatMemberWithOutcome.mockImplementation(async (): Promise<KickChatMemberOutcome> => "kicked");
+  banChatMemberWithOutcome.mockReset();
+  banChatMemberWithOutcome.mockImplementation(async (): Promise<BanChatMemberOutcome> => "banned");
+  probeChatMembership.mockReset();
+  probeChatMembership.mockImplementation(async (): Promise<boolean | undefined> => true);
+});
+
+describe("按 ad_detect_config.json 的处罚等级处置", () => {
+  test("等级 1 限时禁言：只在触发群禁言，派发截止沿用 /mute 契约，不写黑名单也不登记封禁批次", async () => {
+    const durationMs: number = 30 * MINUTE_MS;
+    usePunishment({ level: 1, muteDurationMs: durationMs });
+    const before: number = Date.now();
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(muteChatMemberWithOutcome).toHaveBeenCalledTimes(1);
+    const params = muteChatMemberWithOutcome.mock.calls[0]?.[0] as {
+      chatId: number;
+      userId: number;
+      mutedUntil: number;
+      dispatchTimeoutMs: number;
+    };
+    expect(params).toMatchObject({
+      chatId: -1001,
+      userId: 7,
+      dispatchTimeoutMs: durationMs - MUTE_DISPATCH_MIN_REMAINING_MS,
+    });
+    expect(params.mutedUntil).toBeGreaterThanOrEqual(before + durationMs);
+    expect(muteChatMemberPermanentlyWithOutcome).not.toHaveBeenCalled();
+    expect(blockUser).not.toHaveBeenCalled();
+    expect(trackBlockedRemoval).not.toHaveBeenCalled();
+    expect(dispatched).toHaveLength(0);
+    // 临时免检累计照常清空，命中样本照常落盘。
+    expect(clearTemporaryAdBypassActivity).toHaveBeenCalledWith(7);
+    expect(diskMessages).toEqual([expect.objectContaining({ type: "adSample", senderId: 7 })]);
+    expect(firstNoticeText()).toBe(
+      ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adMuted(teasingHead(), formatDurationCn(durationMs))
+    );
+    expect(deleteMessageAfter).toHaveBeenCalledWith(expect.objectContaining({
+      chatId: -1001,
+      messageId: NOTICE_MESSAGE_ID,
+      delayMs: COMMAND_MESSAGE_AUTO_DELETE_MS,
+    }));
+  });
+
+  test("等级 1 永久禁言不带截止时刻", async () => {
+    usePunishment({ level: 1, muteDurationMs: null });
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(muteChatMemberPermanentlyWithOutcome).toHaveBeenCalledWith({ chatId: -1001, userId: 7 });
+    expect(muteChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adMutedPermanently(teasingHead()));
+  });
+
+  test("禁言请求被拒时播报改口点名权限，并留下错误日志", async () => {
+    usePunishment({ level: 1, muteDurationMs: 30 * MINUTE_MS });
+    muteChatMemberWithOutcome.mockImplementation(async (): Promise<MuteChatMemberOutcome> => "forbidden");
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
+    expect(errorLogs.some((line: string): boolean =>
+      line.includes("could not mute sender 7 in chat -1001: forbidden")
+    )).toBeTrue();
+  });
+
+  test("等级 2 只踢不封：确认仍在群后按群类型移出", async () => {
+    usePunishment({ level: 2, blockScope: null });
+    chatIsSupergroupById.set(-1001, true);
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(probeChatMembership).toHaveBeenCalledWith(-1001, 7);
+    expect(kickChatMemberWithOutcome).toHaveBeenCalledWith({ chatId: -1001, userId: 7, isSupergroup: true });
+    expect(blockUser).not.toHaveBeenCalled();
+    expect(banChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(dispatched).toHaveLength(0);
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adKicked(teasingHead()));
+  });
+
+  test("只踢不封时目标已不在群就不再发移出请求，以免解除他人留下的封禁", async () => {
+    usePunishment({ level: 2, blockScope: null });
+    chatIsSupergroupById.set(-1001, true);
+    probeChatMembership.mockImplementation(async (): Promise<boolean | undefined> => false);
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adKicked(teasingHead()));
+  });
+
+  test("只踢不封时群类型或成员状态无法确认就不猜测移出接口", async () => {
+    usePunishment({ level: 2, blockScope: null });
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
+    expect(errorLogs.some((line: string): boolean => line.includes("chat kind is unknown"))).toBeTrue();
+
+    errorLogs.length = 0;
+    sendMessage.mockClear();
+    chatIsSupergroupById.set(-1001, false);
+    probeChatMembership.mockImplementation(async (): Promise<boolean | undefined> => undefined);
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
+    expect(errorLogs.some((line: string): boolean => line.includes("membership could not be confirmed"))).toBeTrue();
+  });
+
+  test("只踢不封时发送者已在永久黑名单就交给黑名单封禁，不再踢", async () => {
+    usePunishment({ level: 2, blockScope: null });
+    chatIsSupergroupById.set(-1001, true);
+    blockedIds.add(7);
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
+  });
+
+  test("等级 2 本群封禁：只在触发群封禁，不写永久黑名单", async () => {
+    usePunishment({ level: 2, blockScope: "chat" });
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(banChatMemberWithOutcome).toHaveBeenCalledWith(-1001, 7);
+    expect(blockUser).not.toHaveBeenCalled();
+    expect(trackBlockedRemoval).not.toHaveBeenCalled();
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adChatBanned(teasingHead()));
+
+    sendMessage.mockClear();
+    banChatMemberWithOutcome.mockImplementation(async (): Promise<BanChatMemberOutcome> => "failed");
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+    expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
+  });
+
+  test("频道身份在非全局封禁等级下只删消息，不发处罚请求", async () => {
+    for (const punishment of [
+      { level: 1, muteDurationMs: null },
+      { level: 2, blockScope: null },
+      { level: 2, blockScope: "chat" },
+    ] satisfies AdDetectPunishment[]) {
+      usePunishment(punishment);
+      sendMessage.mockClear();
+
+      handleAdDetected(detected({ senderId: -300, isChannel: true, label: "@spam_channel" }));
+      await drainAdDisposals(5_000);
+
+      expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adDeletedOnly(
+        ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adDetected("@spam_channel", "引流")
+      ));
+    }
+    expect(muteChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(muteChatMemberPermanentlyWithOutcome).not.toHaveBeenCalled();
+    expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(banChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(blockUser).not.toHaveBeenCalled();
+  });
+
+  test("等级 2 全局封禁对频道身份同样写入永久黑名单", async () => {
+    usePunishment({ level: 2, blockScope: "global" });
+
+    handleAdDetected(detected({ senderId: -300, isChannel: true }));
+    await drainAdDisposals(5_000);
+
+    expect(blockUser).toHaveBeenCalledWith(-300, expect.anything());
+    expect(dispatched[0]?.map((params) => params.chatId)).toEqual([-1001]);
+  });
+
+  test("ad_detect_config.json 已被热重载移除时放弃处罚，不记样本也不播报", async () => {
+    defaultAdDetectConfigCache.current = null;
+
+    handleAdDetected(detected());
+    await drainAdDisposals(5_000);
+
+    expect(blockUser).not.toHaveBeenCalled();
+    expect(muteChatMemberWithOutcome).not.toHaveBeenCalled();
+    expect(diskMessages).toHaveLength(0);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(errorLogs.some((line: string): boolean =>
+      line.includes("Dropped the ad detection verdict for sender 7 in chat -1001") && line.includes("was removed")
+    )).toBeTrue();
+  });
 });
 
 describe("广告判定命中后的处置", () => {
@@ -229,7 +476,7 @@ describe("广告判定命中后的处置", () => {
     expect(diskMessages).toHaveLength(0);
   });
 
-  test("按 /block 同样的动作：先写名单落盘，再给每个在管群登记一批封禁", async () => {
+  test("等级 2 全局封禁按 /block 同样的动作：先写名单落盘，再给每个在管群登记一批封禁", async () => {
     chatStates.set(-1002, { isInitEnabled: true, botPermissions: botPermissions() });
     chatStates.set(-1003, {
       isInitEnabled: true,
@@ -523,7 +770,7 @@ describe("广告判定命中后的处置", () => {
   });
 
   test("命中即写一条旁路样本，含时间、消息、理由与引用/回复上下文", async () => {
-    // 命中即写一条旁路样本，作为 config/dynamic/ad_data.json 示例的原始素材。
+    // 命中即写一条旁路样本，作为 config/dynamic/ad_detect_config.json 示例的原始素材。
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
 

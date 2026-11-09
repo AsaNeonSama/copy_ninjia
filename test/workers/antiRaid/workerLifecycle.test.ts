@@ -161,7 +161,7 @@ beforeEach(() => {
 describe("Anti-Raid Worker lifecycle", () => {
   test("时区与通知风格随 agentConfig 注入，失权不改风格，Worker 停止时清空风格", () => {
     worker.startAntiRaidWorker();
-    worker.handleAntiRaidWorkerMessage({ type: "agentConfig", timeZone: "UTC", atmosphere: "plain", adDetect: null, adSamples: null });
+    worker.handleAntiRaidWorkerMessage({ type: "agentConfig", timeZone: "UTC", atmosphere: "plain", adDetect: null, adDetectConfig: null });
     expect(workerAtmosphere()).toBe(ATMOSPHERE_TEXTS.plain);
     expect(getTimeZone()).toBe("UTC");
     worker.handleAntiRaidWorkerMessage({ type: "deactivateChat", chatId: -1001, cleanupVerificationMessages: false, abandonLockdown: false });
@@ -271,7 +271,7 @@ describe("Anti-Raid Worker lifecycle", () => {
         type: "agentConfig",
         timeZone: getTimeZone(),
         adDetect: injectedAdDetectConfig,
-        adSamples: { samples: [], stickerBlackList: [], emojiBlackList: [] },
+        adDetectConfig: { punishment: { level: 2, blockScope: "global" }, samples: [], stickerBlackList: [], emojiBlackList: [] },
       },
       {
         type: "join",

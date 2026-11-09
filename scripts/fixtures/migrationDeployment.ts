@@ -57,7 +57,7 @@ const SECRET_CONFIG_FILES: readonly string[] = [
 /** 冷迁移不涉及、部署时原样沿用的配置；安装与启动后必须逐字节不变。 */
 export const PRESERVED_MIGRATION_CONFIG_FILES: readonly string[] = [
   join(STATIC_CONFIG_DIR_NAME, "g-auth.json"),
-  ...["agent.json", "ad_data.json", "mood.json", "stickers.json", "assets.json"].map(
+  ...["agent.json", "ad_detect_config.json", "mood.json", "stickers.json", "assets.json"].map(
     (name: string): string => join(DYNAMIC_CONFIG_DIR_NAME, name)
   ),
 ];
@@ -127,7 +127,8 @@ export async function prepareMigratedDeployment({
     media: { provider: "openai", api_key: "migration-test-key", model: "test" },
   } }));
   for (const path of SECRET_CONFIG_FILES) chmodSync(join(config, path), 0o600);
-  await Bun.write(join(config, DYNAMIC_CONFIG_DIR_NAME, "ad_data.json"), JSON.stringify({
+  await Bun.write(join(config, DYNAMIC_CONFIG_DIR_NAME, "ad_detect_config.json"), JSON.stringify({
+    punishment: { level: 2, kick: { block: true, block_scope: "global" } },
     samples: ["迁移前的广告示例"],
     sticker_black_list: [],
     emoji_black_list: [],

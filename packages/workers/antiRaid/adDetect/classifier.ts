@@ -1,12 +1,12 @@
 /**
- * 广告判定领域逻辑：组装判定提示词（见 config/adSamples.ts 与 consts/antiRaid/adDetect.ts）、
+ * 广告判定领域逻辑：组装判定提示词（见 config/adDetectConfig.ts 与 consts/antiRaid/adDetect.ts）、
  * 调用传输层（./ai/provider.ts）并将模型响应解析为 AdVerdict。
  * 请求失败、超时或响应形态不符时统一返回 null。
  */
 
 import { requestAdDetectJson } from "./ai/provider";
 import { adDetectPrompts } from "../../../cache/workers/antiRaid/adDetect";
-import { getAdSampleConfig } from "../../../config/adSamples";
+import { getAdDetectConfig } from "../../../config/adDetectConfig";
 import { logger } from "../../../infra/logger";
 import {
   AD_DETECT_MAX_OUTPUT_TOKENS,
@@ -66,7 +66,7 @@ export interface ClassifyAdTextParams {
  */
 function currentAdDetectPrompts(): AdDetectPrompts {
   if (adDetectPrompts.current !== null) return adDetectPrompts.current;
-  const instructions: string = buildAdDetectInstructions(getAdSampleConfig().samples);
+  const instructions: string = buildAdDetectInstructions(getAdDetectConfig().samples);
   const prompts: AdDetectPrompts = {
     instructions,
     justJoinedSystemPrompt: `${instructions}\n${adDetectFact(true)}`,

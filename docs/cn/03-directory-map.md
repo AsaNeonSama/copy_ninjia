@@ -36,7 +36,7 @@
   - **代表文件**：`workerBridge.ts`、`hydration.ts`、`messageIngress.ts`、`abuseMark.ts`、`botImages.ts`、`voiceSynthesis.ts`、`webDigest.ts`、`memoryMirror.ts`、`stickerMirror.ts`、`workerJob.ts`、`availability.ts`、`provider.ts`、`providerFacades.ts`、`providerLanes.ts`、`capabilityClient.ts`、`gemini/`、`openai/`、`anthropic/`、`ai/`；`index.ts` 仅提供统一的薄接口导出。
 - **`packages/antiRaid/`**
   - **职责**：Anti-Raid（防冲群与风控）在主线程侧的代理组件，包括 Worker 监督、数据持久化同步、进群消息流转、广告候选排队送检，以及黑名单处置与成员验证调度。
-  - **代表文件**：`workerBridge/`（`controller.ts`、`events.ts`、`observers.ts`、`replay.ts`）、`durableDelivery.ts`、`updateIngress.ts`、`adCandidate.ts`、`adDetect.ts`；`index.ts` 仅提供统一的薄接口导出。
+  - **代表文件**：`workerBridge/`（`controller.ts`、`events.ts`、`observers.ts`、`replay.ts`）、`durableDelivery.ts`、`updateIngress.ts`、`adCandidate.ts`、`adDetect.ts`、`adPunishment.ts`；`index.ts` 仅提供统一的薄接口导出。
 - **`packages/cron/`**
   - **职责**：`cron.json` 定时任务在主线程的调度执行（支持标准 cron 表达式、一次性任务 `just_once` 与随机间隔 `rand_cron`），动作按序执行与重试，以及 Telegram 出站发送。
   - **代表文件**：`scheduler.ts`、`run.ts`、`delivery.ts`、`targets.ts`。
@@ -51,10 +51,10 @@
   - **代表文件**：`senderIdentity.ts`、`visibleSender.ts`、`userLabel.ts`、`identityMetadata.ts`、`messageContent.ts`、`messageOrigin.ts`。
 - **`packages/states/`**
   - **职责**：**无任何 I/O 的纯状态机与准入规则**，包括入群验证阶段转换、锁定状态转换、AI 回复准入判据、广告送检准入、临时免检累计规则及媒体输入支持度归约。
-  - **代表文件**：`verification.ts` 与 `verification/`（`join`/`pending`/`terminal`/`disable` 各阶段与 `adopt.ts` 恢复）、`lockdown.ts` 与 `lockdown/`（`apply`/`persistence`/`restore`/`announcement`/`adopt` 各阶段）、`replyAdmission.ts`、`adDetectAdmission.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
+  - **代表文件**：`verification.ts` 与 `verification/`（`join`/`pending`/`terminal`/`disable` 各阶段与 `adopt.ts` 恢复）、`lockdown.ts` 与 `lockdown/`（`apply`/`persistence`/`restore`/`announcement`/`adopt` 各阶段）、`replyAdmission.ts`、`adDetectAdmission.ts`、`adPunishment.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
 - **`packages/config/`**
   - **职责**：`config/{static,dynamic}/*.json` 配置文件的严格 schema 校验、内存快照封装、热重载差异判定与功能可用性检查。
-  - **代表文件**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`adSamples.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`readiness.ts`、`reload.ts`。
+  - **代表文件**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`adDetectConfig.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`readiness.ts`、`reload.ts`。
 - **`packages/database/`**
   - **职责**：本地共享 SQLite 数据库的 schema、编解码器（codec）、数据行校验及 Drizzle ORM 交互边界；运行时数据库句柄仅归 Disk I/O Worker 独占。
   - **代表目录**：`schema/`（含 `migrations/`）、`codec/identity.ts`、`codec/chatState.ts`、`codec/chatQa.ts`、`codec/temporaryAdBypass.ts`、`interact/`（`connection.ts`、`transaction.ts`、`identityPolicy.ts`、`chatState.ts`、`chatQa.ts`、`temporaryAdBypass.ts`、`aiContext.ts`、`migration.ts`、`initialization.ts`、`inspection.ts`）、`validation/storageRows.ts`。

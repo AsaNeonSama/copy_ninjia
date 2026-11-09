@@ -36,7 +36,7 @@ This document answers the core organizational question: **"Where does existing c
   - **Key Modules**: `workerBridge.ts`, `hydration.ts`, `messageIngress.ts`, `abuseMark.ts`, `botImages.ts`, `voiceSynthesis.ts`, `webDigest.ts`, `memoryMirror.ts`, `stickerMirror.ts`, `workerJob.ts`, `availability.ts`, `provider.ts`, `providerFacades.ts`, `providerLanes.ts`, `capabilityClient.ts`, `gemini/`, `openai/`, `anthropic/`, `ai/`; `index.ts` provides a thin stateless public facade.
 - **`packages/antiRaid/`**
   - **Responsibility**: Main-thread Anti-Raid proxy, including Worker supervision, durable message delivery, join/message update ingress, ad candidate queuing and disposal, blocklist enforcement, and verification scheduling.
-  - **Key Modules**: `workerBridge/` (`controller.ts`, `events.ts`, `observers.ts`, `replay.ts`), `durableDelivery.ts`, `updateIngress.ts`, `adCandidate.ts`, `adDetect.ts`; `index.ts` provides a thin stateless public facade.
+  - **Key Modules**: `workerBridge/` (`controller.ts`, `events.ts`, `observers.ts`, `replay.ts`), `durableDelivery.ts`, `updateIngress.ts`, `adCandidate.ts`, `adDetect.ts`, `adPunishment.ts`; `index.ts` provides a thin stateless public facade.
 - **`packages/cron/`**
   - **Responsibility**: Main-thread scheduler for `cron.json` tasks (standard cron expressions, one-shot `just_once`, and random interval `rand_cron`), sequential action execution with retries, and Telegram outbound delivery.
   - **Key Modules**: `scheduler.ts`, `run.ts`, `delivery.ts`, `targets.ts`.
@@ -51,10 +51,10 @@ This document answers the core organizational question: **"Where does existing c
   - **Key Modules**: `senderIdentity.ts`, `visibleSender.ts`, `userLabel.ts`, `identityMetadata.ts`, `messageContent.ts`, `messageOrigin.ts`.
 - **`packages/states/`**
   - **Responsibility**: **Completely I/O-free, pure functional state machines** and admission predicates for join verification transitions, lockdown transitions, AI reply admission, ad-detection admission, temporary ad bypasses, and media input support reduction.
-  - **Key Modules**: `verification.ts` and `verification/` (`join`/`pending`/`terminal`/`disable` phases and `adopt.ts` recovery), `lockdown.ts` and `lockdown/` (`apply`/`persistence`/`restore`/`announcement`/`adopt` phases), `replyAdmission.ts`, `adDetectAdmission.ts`, `temporaryAdBypass.ts`, `mediaInputSupport.ts`.
+  - **Key Modules**: `verification.ts` and `verification/` (`join`/`pending`/`terminal`/`disable` phases and `adopt.ts` recovery), `lockdown.ts` and `lockdown/` (`apply`/`persistence`/`restore`/`announcement`/`adopt` phases), `replyAdmission.ts`, `adDetectAdmission.ts`, `adPunishment.ts`, `temporaryAdBypass.ts`, `mediaInputSupport.ts`.
 - **`packages/config/`**
   - **Responsibility**: Strict schema validation, in-memory snapshots, hot-reload diffing, and capability readiness checks for `config/{static,dynamic}/*.json`.
-  - **Key Modules**: `bot.ts`, `botInput.ts`, `layout.ts`, `agent.ts`, `agentCapability.ts`, `agentTts.ts`, `assets.ts`, `cron.ts`, `cronAction.ts`, `mood.ts`, `persona.ts`, `promptFile.ts`, `stickers.ts`, `adSamples.ts`, `googleAuth.ts`, `time.ts`, `timeZoneInput.ts`, `readiness.ts`, `reload.ts`.
+  - **Key Modules**: `bot.ts`, `botInput.ts`, `layout.ts`, `agent.ts`, `agentCapability.ts`, `agentTts.ts`, `assets.ts`, `cron.ts`, `cronAction.ts`, `mood.ts`, `persona.ts`, `promptFile.ts`, `stickers.ts`, `adDetectConfig.ts`, `googleAuth.ts`, `time.ts`, `timeZoneInput.ts`, `readiness.ts`, `reload.ts`.
 - **`packages/database/`**
   - **Responsibility**: Shared SQLite database schemas, codecs, row validations, and Drizzle ORM interaction boundaries; runtime database handles are exclusively owned by the Disk I/O Worker.
   - **Key Modules**: `schema/` (including `migrations/`), `codec/identity.ts`, `codec/chatState.ts`, `codec/chatQa.ts`, `codec/temporaryAdBypass.ts`, `interact/` (`connection.ts`, `transaction.ts`, `identityPolicy.ts`, `chatState.ts`, `chatQa.ts`, `temporaryAdBypass.ts`, `aiContext.ts`, `migration.ts`, `initialization.ts`, `inspection.ts`), `validation/storageRows.ts`.

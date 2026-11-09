@@ -13,7 +13,7 @@ import {
   disposeAdSender,
   warnReferencedAdSender,
 } from "./disposal";
-import { getAdSampleConfig } from "../../../config/adSamples";
+import { getAdDetectConfig } from "../../../config/adDetectConfig";
 import { deleteMessage, telegramApi } from "../../../infra/telegram";
 import { isTelegramRequestRejected } from "../../../infra/telegram/errors";
 import { isChatAdmin } from "../adminCache";
@@ -56,7 +56,7 @@ import type {
   AdMessageBundle,
   AdVerdict,
 } from "../../../types/antiRaid/adDetect";
-import type { AdSampleConfig } from "../../../types/config";
+import type { AdDetectConfig } from "../../../types/config";
 import type {
   TelegramWorkerTemporaryMessageResult,
   TelegramWorkerTemporaryMessageSentResult,
@@ -215,7 +215,7 @@ async function classifyAdBundle(
 ): Promise<AdDetectionOutcome> {
   let combinedVerdict: AdVerdict | null;
   try {
-    const { stickerBlackList, emojiBlackList }: AdSampleConfig = getAdSampleConfig();
+    const { stickerBlackList, emojiBlackList }: AdDetectConfig = getAdDetectConfig();
     const matchedStickerSet: string | undefined =
       matchBlacklistedStickerSet(bundle, judged, stickerBlackList);
     if (matchedStickerSet !== undefined) {

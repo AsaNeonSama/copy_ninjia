@@ -127,7 +127,7 @@
 | `/clear_context` | `isCanClearContext` | 清空本群的 AI 上下文记忆（重置滚动逐字缓存与摘要，并将持久化字段置空）；使在途回复立即失效 |
 | `/mood query` | 群成员 | 查看当前 AI 的全局心情状态（不触发重抽；需已开启 AI 且模型配置正常） |
 | `/mood switch` | `isCanSwitchMood` | 立即重新随机抽取 AI 的全局心情（对所有群生效）并播报新心情名称 |
-| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | 开启或关闭本群的智能广告检测；非受保护身份命中后按 `/block` 同等标准封禁并播报 |
+| `/ad_detect enable\|disable` | `isCanControllAdDetectPermission` | 开启或关闭本群的智能广告检测；非受保护身份命中后按 `ad_detect_config.json` 的处罚等级禁言、踢出或封禁并播报 |
 | `/flood_control enable\|disable` | `isCanControllFloodControlPermission` | 开启或关闭本群的防连续刷屏禁言（默认关闭） |
 | `/antiraid enable\|disable` | `isCanControllAntiRaidPermission` | 开启或关闭本群的入群验证挑战与防冲群私密模式（默认关闭） |
 | `/qa set` | `isCanControllQaPermission` | 发起问答录入表单，随后由发起者通过「问题:」「回答:」两条消息录入问答对并存盘 |
@@ -227,7 +227,7 @@
 - **销号清理机制**：在后台巡检封禁过程中，若对某一目标的封禁探测连续 `BLOCKLIST_PARTICIPANT_INVALID_LIMIT` 次均被 Telegram 官方返回 `PARTICIPANT_ID_INVALID`（账号已注销），系统会自动将其判定为“已销号账号”，并从黑名单数据库中彻底注销该 ID。
 
 #### 8. 广告检测与防冲群
-- **`/ad_detect`（智能广告拦截）**：同一发送者在短时间内发送的消息会聚合为消息串，检测队列每隔 `AD_DETECT_QUEUE_TICK_MS` 抽取一批，按「贴纸包黑名单快路径（`sticker_black_list`） -> 自定义表情包黑名单（`emoji_black_list`，经主线程统一 Telegram 出站查询） -> AI 广告识别模型（`samples`）」顺序进行判定。一旦任一环节判定命中，立即按照 `/block` 同等标准执行永久拉黑并从群中踢出，同时在群内播发带有命中理由的封禁公告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。纯网络代理节点链接（如 `vless://`、`vmess://`、`trojan://`、`ss://`）若不附带招募或营销导流文案，不会被误判为广告。
+- **`/ad_detect`（智能广告拦截）**：同一发送者在短时间内发送的消息会聚合为消息串，检测队列每隔 `AD_DETECT_QUEUE_TICK_MS` 抽取一批，按「贴纸包黑名单快路径（`sticker_black_list`） -> 自定义表情包黑名单（`emoji_black_list`，经主线程统一 Telegram 出站查询） -> AI 广告识别模型（`samples`）」顺序进行判定。一旦任一环节判定命中，立即删除涉事消息，并按 `ad_detect_config.json` 的 `punishment` 处罚：等级 1 在本群禁言（限时或永久）；等级 2 移出本群，按设置只踢不封、只在本群封禁，或按 `/block` 同等标准写入永久黑名单并在全部受管群封禁；频道身份在非全局封禁等级下只删除消息。同时在群内播发带有命中理由与处罚结果的公告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。纯网络代理节点链接（如 `vless://`、`vmess://`、`trojan://`、`ss://`）若不附带招募或营销导流文案，不会被误判为广告。
 - **`/flood_control`（防连续刷屏）**：单个用户在超级群的 `FLOOD_WINDOW_MS` 滑动时间窗口内发送的消息条数达到 `FLOOD_MESSAGE_LIMIT` 时，系统将立即对其执行 `FLOOD_MUTE_DURATION_MS` 时长的临时禁言，并在群内播报警告（按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自删）。群管理员（机器人除外）、频道身份不计入刷屏；拥有 `isCanBypassFloodControl` 权限的身份直接豁免。
 - **`/antiraid`（入群验证与私密模式）**：开启后，新成员入群需在 `VERIFICATION_TIMEOUT_MS` 限时内答对提醒里的三选一算术题（答错立即踢出、不封禁，机器人成员由管理员点「通过」作保）；在 `JOIN_WINDOW_MS` 内入群人数超过 `ANTI_RAID_PER_MINUTE_LIMIT` 时联动进入 `LOCKDOWN_MS` 私密防护。关闭该开关时，所有未完成的验证流程立即取消，发送的提醒消息同步撤回。广告拦截、防刷屏与全局黑名单不受此开关影响。
 - **`/batch_kick`（批量清理新入群成员）**：仅超级管理员可用。通过分析入群事件日志，在指定的时间区间内（如 `30m`、`2h`、`1d`，必须在 `BATCH_KICK_MIN_DURATION_MS` 与 `BATCH_KICK_MAX_DURATION_MS` 范围内）批量踢出新加入的成员。只执行踢出操作，不加入黑名单；白名单身份与已在黑名单的身份均会自动跳过。命令受理后先行回复受理确认，踢人操作在后台异步执行并在完成后发送最终战报。

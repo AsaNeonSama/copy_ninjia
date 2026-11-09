@@ -20,7 +20,7 @@ import {
   parseAdDetectAgentConfig,
   parseAgentDeploymentConfig,
 } from "../packages/config/agent";
-import { adoptAdSampleConfig, parseAdSampleConfig } from "../packages/config/adSamples";
+import { adoptAdDetectConfig, parseAdDetectConfig } from "../packages/config/adDetectConfig";
 import { adoptMoodConfig, parseMoodConfig } from "../packages/config/mood";
 import { adoptPersona } from "../packages/config/persona";
 import { parseBotConfig } from "../packages/config/botInput";
@@ -43,7 +43,7 @@ import {
 import {
   DATABASE_DIR,
   IDENTITY_DATABASE_PATH,
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   CRON_CONFIG_PATH,
   BOT_CONFIG_PATH,
@@ -72,7 +72,7 @@ const agentDocument = JSON.parse(
 ) as { agent: Record<string, unknown> };
 adoptAgentDeploymentConfig(parseAgentDeploymentConfig(agentDocument.agent));
 adoptAdDetectAgentConfig(parseAdDetectAgentConfig(agentDocument.agent.ad_detect));
-adoptAdSampleConfig(parseAdSampleConfig(JSON.parse(await Bun.file(AD_SAMPLES_CONFIG_PATH).text())));
+adoptAdDetectConfig(parseAdDetectConfig(JSON.parse(await Bun.file(AD_DETECT_CONFIG_PATH).text())));
 adoptMoodConfig(parseMoodConfig(JSON.parse(await Bun.file(MOOD_CONFIG_PATH).text())));
 adoptStickerConfig(parseStickerConfig(JSON.parse(await Bun.file(STICKERS_CONFIG_PATH).text())));
 // 人设与本进程通知风格成对接管：内置人设加 Bot 显式语气，缺省时使用默认风格。

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { getAdDetectAgentConfig } from "../../../packages/config/agent";
 import type { AdDetectPrompts } from "../../../packages/types/antiRaid/adDetect";
-import type { AdSampleConfig } from "../../../packages/types/config";
+import type { AdDetectConfig } from "../../../packages/types/config";
 
 const errorLogs: string[] = [];
 const requestAdDetectJson = mock(async (..._args: unknown[]): Promise<string | null> =>
@@ -12,8 +12,9 @@ mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({ error(message: unknown): void { errorLogs.push(String(message)); } }),
 }));
 mock.module("../../../packages/workers/antiRaid/adDetect/ai/provider", () => ({ requestAdDetectJson }));
-mock.module("../../../packages/config/adSamples", () => ({
-  getAdSampleConfig: (): AdSampleConfig => ({
+mock.module("../../../packages/config/adDetectConfig", () => ({
+  getAdDetectConfig: (): AdDetectConfig => ({
+    punishment: { level: 2, blockScope: "global" },
     samples: ["加溦拉群"],
     stickerBlackList: [],
     emojiBlackList: [],

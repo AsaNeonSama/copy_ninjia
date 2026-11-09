@@ -173,7 +173,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>📮 智能广告检测</b><br>
-  <sub>消息自动串联送审，判定为广告立即撤回并执行永久封禁。</sub></p>
+  <sub>消息自动串联送审，判定为广告立即撤回，并按配置的处罚等级禁言、踢出或封禁。</sub></p>
 </td>
 </tr>
 <tr>
@@ -501,7 +501,7 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
   </tr>
   <tr>
     <td><nobr>🚫 <b>限制与封禁成员</b></nobr></td>
-    <td>入群验证答错或超时踢出、防冲群自动切私密、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、刷屏自动禁言、广告处置封禁。</td>
+    <td>入群验证答错或超时踢出、防冲群自动切私密、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、刷屏自动禁言、广告处罚（禁言、踢出、封禁）。</td>
   </tr>
 </tbody>
 </table>

@@ -4,9 +4,10 @@ import { getTimeZone } from "../../../packages/config/time";
 import { describe, expect, test } from "bun:test";
 
 import { adDetectAgentConfigSnapshot, adoptAdDetectAgentConfig } from "../../../packages/config/agent";
-import { adoptAdSampleConfig, getAdSampleConfig } from "../../../packages/config/adSamples";
+import { adoptAdDetectConfig, getAdDetectConfig } from "../../../packages/config/adDetectConfig";
 
 import type { AntiRaidWorkerMessage } from "../../../packages/types/antiRaid/protocol";
+import type { AdDetectConfig } from "../../../packages/types/config";
 import type { DiskBusinessMessage, DiskIORecoveryTransport, VerificationDeleteDiskMessage, VerificationUpsertDiskMessage } from "../../../packages/types/diskIO/messages";
 
 const {
@@ -65,7 +66,7 @@ describe("Anti-Raid main-thread persistence mirror", () => {
   test("热重载后投递主线程当前广告检测快照，重建重放的也是这一份", async () => {
     await resetAntiRaidTestState();
     const originalAdDetect = adDetectAgentConfigSnapshot();
-    const originalSamples = getAdSampleConfig();
+    const originalSamples = getAdDetectConfig();
     try {
       syncAntiRaidAgentConfig();
       expect(workerPosts).toEqual([]);
@@ -73,18 +74,19 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       antiRaid.initAntiRaid();
       workerPosts.length = 0;
       const reloadedAdDetect = { ...originalAdDetect!, model: "reloaded-ad-model" };
-      const reloadedSamples = {
+      const reloadedSamples: AdDetectConfig = {
+        punishment: { level: 2, blockScope: "global" },
         samples: ["热重载后的示例"],
         stickerBlackList: ["ReloadedStickerPack"],
         emojiBlackList: ["ReloadedEmojiPack"],
       };
       adoptAdDetectAgentConfig(reloadedAdDetect);
-      adoptAdSampleConfig(reloadedSamples);
+      adoptAdDetectConfig(reloadedSamples);
       syncAntiRaidAgentConfig();
       const expected: AntiRaidWorkerMessage = { atmosphere: "teasing",
         type: "agentConfig", timeZone: getTimeZone(),
         adDetect: reloadedAdDetect,
-        adSamples: reloadedSamples,
+        adDetectConfig: reloadedSamples,
       };
       expect(workerPosts).toEqual([expected]);
 
@@ -96,7 +98,7 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       expect(replay[0]).toEqual(expected);
     } finally {
       adoptAdDetectAgentConfig(originalAdDetect);
-      adoptAdSampleConfig(originalSamples);
+      adoptAdDetectConfig(originalSamples);
     }
   });
 
@@ -259,7 +261,7 @@ describe("Anti-Raid main-thread persistence mirror", () => {
     expect(workerPosts[0]).toEqual({ atmosphere: "teasing",
       type: "agentConfig", timeZone: getTimeZone(),
       adDetect: adDetectAgentConfigSnapshot(),
-      adSamples: getAdSampleConfig(),
+      adDetectConfig: getAdDetectConfig(),
     });
     expect(workerPosts[1]).toMatchObject({
       type: "adoptVerifications",
@@ -282,7 +284,7 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       { atmosphere: "teasing",
         type: "agentConfig", timeZone: getTimeZone(),
         adDetect: adDetectAgentConfigSnapshot(),
-        adSamples: getAdSampleConfig(),
+        adDetectConfig: getAdDetectConfig(),
       },
       expect.objectContaining({
         type: "adoptVerifications",

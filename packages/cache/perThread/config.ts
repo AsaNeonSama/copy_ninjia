@@ -2,7 +2,7 @@
 
 import type {
   AdDetectAgentConfig,
-  AdSampleConfig,
+  AdDetectConfig,
   AgentDeploymentConfig,
   MoodConfig,
   StickerConfig,
@@ -13,8 +13,8 @@ import type {
 export const defaultMoodConfigCache: { current: MoodConfig | null } = { current: null };
 /** 默认贴纸配置（stickers.json）快照单例：填充、热重载覆盖、不淘汰与 Worker 重建重放同 defaultMoodConfigCache。 */
 export const defaultStickerConfigCache: { current: StickerConfig | null } = { current: null };
-/** 默认广告数据配置（ad_data.json：样本清单与贴纸/表情黑名单）快照单例：主线程启动预检填充、热重载整体覆盖；Anti-Raid Worker 由 agentConfig 消息填充，不淘汰，重建后从 null 重新接管。 */
-export const defaultAdSampleConfigCache: { current: AdSampleConfig | null } = { current: null };
+/** 默认广告检测部署配置（ad_detect_config.json：处罚等级、样本清单与贴纸/表情黑名单）快照单例：主线程启动预检填充、热重载整体覆盖，处置广告命中时读取处罚等级；Anti-Raid Worker 由 agentConfig 消息填充，只读示例与黑名单，不淘汰，重建后从 null 重新接管。 */
+export const defaultAdDetectConfigCache: { current: AdDetectConfig | null } = { current: null };
 /** AI 人设文本（prompt/persona.md 或内置人设）快照单例：主线程启动预检填充，AI 闲聊 Worker 由 init 消息填充；运行期不清理、不淘汰，重建后从 null 重新接管。 */
 export const personaCache: { current: string | null } = { current: null };
 /** 自定义语音工具说明（prompt/voice_tool.md）快照单例：主线程启动预检填充（未放置文件时为 null），AI 闲聊 Worker 由 init 消息填充；运行期不清理、不淘汰，重建后从 null 重新接管。 */

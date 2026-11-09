@@ -3,7 +3,7 @@
 import { mock } from "bun:test";
 import type { Sticker } from "grammy/types";
 import { loggerStub } from "./loggerMock";
-import { defaultAdSampleConfigCache } from "../../packages/cache/perThread/config";
+import { defaultAdDetectConfigCache } from "../../packages/cache/perThread/config";
 import type { AdCandidateMessage } from "../../packages/types/antiRaid";
 import type { AdVerdict } from "../../packages/types/antiRaid/adDetect";
 import type {
@@ -109,7 +109,8 @@ export function candidate(overrides: Partial<AdCandidateMessage> = {}): AdCandid
 /** 复位 mock 与夹具；真实 owner 状态的清理由调用方传入，helper 不动态导入生产模块。 */
 export function resetAdDetectQueueHarness(stopAdDetectQueue: () => void): void {
   stopAdDetectQueue();
-  defaultAdSampleConfigCache.current = {
+  defaultAdDetectConfigCache.current = {
+    punishment: { level: 2, blockScope: "global" },
     samples: [],
     stickerBlackList: [],
     emojiBlackList: [],

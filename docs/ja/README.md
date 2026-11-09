@@ -177,7 +177,7 @@
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>📮 広告検出</b><br>
-  <sub>連続メッセージを束ねて広告判定し、該当メッセージを即時削除・処分。</sub></p>
+  <sub>連続メッセージを束ねて広告判定し、該当メッセージを即時削除して、設定した処罰等級で禁言・キック・BAN。</sub></p>
 </td>
 </tr>
 <tr>
@@ -509,7 +509,7 @@ Bot をグループ管理者に昇格させ、利用したい機能に応じて�
   </tr>
   <tr>
     <td><nobr>🚫 <b>メンバーの制限と BAN</b></nobr></td>
-    <td>参加認証未完了者のキック、Anti-Raid 非公開化、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、連投ミュート、広告処分 BAN。</td>
+    <td>参加認証未完了者のキック、Anti-Raid 非公開化、<code>/block enable|disable</code>、<code>/mute</code> / <code>/unmute</code>、<code>/batch_kick</code>、連投ミュート、広告の処罰（禁言・キック・BAN）。</td>
   </tr>
 </tbody>
 </table>

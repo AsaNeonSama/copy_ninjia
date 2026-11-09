@@ -58,11 +58,17 @@ describe("投递闸 admitAdCandidate", () => {
     expect(admitAdCandidate({ ...CANDIDATE, textLength: 0, hasPackCandidate: true })).toBe("accept");
   });
 
-  test("自身 TTL 内刚处置过：普通账号忽略，频道马甲要顺手删这一条", () => {
-    // banChatSenderChat 没有 revoke_messages：跨线程空档里频道新发的广告不会被那次封禁带走，也没有第二次判定来删它。
-    expect(admitAdCandidate({ ...CANDIDATE, recentlyDisposed: true })).toBe("ignore");
+  test("自身 TTL 内刚处置过：普通账号与频道马甲都顺手删这一条", () => {
+    // 禁言、只踢不封与 banChatSenderChat 都不撤回消息：跨线程空档里新发的广告不会被那次处罚带走，也没有第二次判定来删它。
+    expect(admitAdCandidate({ ...CANDIDATE, recentlyDisposed: true })).toBe("deleteStraggler");
     expect(admitAdCandidate({ ...CANDIDATE, recentlyDisposed: true, isChannel: true }))
       .toBe("deleteStraggler");
+  });
+
+  test("已在永久黑名单：普通账号忽略（封禁撤回消息），频道马甲删这一条", () => {
+    expect(admitAdCandidate({ ...CANDIDATE, blocked: true })).toBe("ignore");
+    expect(admitAdCandidate({ ...CANDIDATE, blocked: true, recentlyDisposed: true })).toBe("ignore");
+    expect(admitAdCandidate({ ...CANDIDATE, blocked: true, isChannel: true })).toBe("deleteStraggler");
   });
 
   test("空正文优先于其余判据：连删都不必删", () => {

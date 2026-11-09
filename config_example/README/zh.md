@@ -21,7 +21,7 @@ done
 
 `config/` 严格按生效机制拆分为两个子目录：
 - `config/static/`：`bot.json`、`g-auth.json`，修改后**必须重启服务**生效。
-- `config/dynamic/`：`assets.json`、`ad_data.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
+- `config/dynamic/`：`assets.json`、`ad_detect_config.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
 
 `config/dynamic/` 目录必须存在（可以为空）；任一配置文件放在 `config/` 顶层或放错子目录均会拒绝启动。白名单、黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于配置文件。
 
@@ -66,9 +66,9 @@ done
     <td>AI 对话停摆（但不拒绝启动）</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_data.json</code></td>
+    <td><code>dynamic/ad_detect_config.json</code></td>
     <td><nobr>动态（热重载）</nobr></td>
-    <td>广告分类正例参考样本与贴纸包/表情包黑名单</td>
+    <td>广告处罚等级、广告分类正例参考样本与贴纸包/表情包黑名单</td>
     <td>广告检测停摆（但不拒绝启动）</td>
   </tr>
   <tr>
@@ -104,7 +104,7 @@ done
 1. **热替换**：解析通过且配置产生变化时，立即更新快照并投递给各 Worker。
 2. **校验失败保护**：解析失败时整份变更被拒绝，日志记录具体错误位置（文件路径、字段路径与期望形态），系统继续沿用上一份已生效配置，不中断运行。
 3. **功能联动**：
-   - 增删 `ad_data.json` 或 `agent.json` 的 `ad_detect` 段，自动启停广告检测。
+   - 增删 `ad_detect_config.json` 或 `agent.json` 的 `ad_detect` 段，自动启停广告检测。
    - 增删 `agent.json` 的对话核心能力（`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`：`text` / `summary` / `media`）或 `mood.json` / `stickers.json`，自动启停 AI 闲聊。
    - 可选能力（`image`、`tts`、`web_search`）的变更即时生效。
 4. **跨配置依赖校验**：
@@ -451,14 +451,25 @@ done
 
 ---
 
-## `ad_data.json`
+## `ad_detect_config.json`
 
-动态配置文件，路径为 `config/dynamic/ad_data.json`。顶层为包含 `samples`、`sticker_black_list` 与 `emoji_black_list` 三个数组的 JSON 对象，分别配置广告分类正例样本、贴纸包黑名单与自定义表情包黑名单。检测按「贴纸包黑名单快路径 -> 自定义表情包黑名单 -> AI 文本判定」顺序执行，命中任一黑名单直接跳过 AI 判定并按广告处置封禁。
+动态配置文件，路径为 `config/dynamic/ad_detect_config.json`。顶层为 JSON 对象，必须精确包含 `punishment` 对象与 `samples`、`sticker_black_list`、`emoji_black_list` 三个数组，分别配置判定为广告后的处罚等级、广告分类正例样本、贴纸包黑名单与自定义表情包黑名单。检测按「贴纸包黑名单快路径 -> 自定义表情包黑名单 -> AI 文本判定」顺序执行，命中任一黑名单直接跳过 AI 判定。任一路径判定为广告后，先删除涉事消息，再按 `punishment` 处罚，并在触发群发布按 `COMMAND_MESSAGE_AUTO_DELETE_MS` 自动删除的播报。
 
 ### 配置案例
 
 ```json
 {
+  "punishment": {
+    "level": 2,
+    "mute": {
+      "permanent": false,
+      "duration": "1d"
+    },
+    "kick": {
+      "block": true,
+      "block_scope": "global"
+    }
+  },
   "samples": [
     "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
     "招聘日结兼职，手机就能做，日入三百起，加微信 xxxxxx",
@@ -474,13 +485,35 @@ done
 }
 ```
 
+### 处罚等级
+
+| 设置 | 普通用户 | 频道身份（`sender_chat`） |
+| --- | --- | --- |
+| `level: 1` | 在触发群禁言：`mute.permanent` 为 `true` 时永久禁言，否则禁言 `mute.duration`，到期由 Telegram 自动解除 | 只删除消息 |
+| `level: 2`，`kick.block: false` | 只踢不封：移出触发群，可再次入群 | 只删除消息 |
+| `level: 2`，`kick.block_scope: "chat"` | 只在触发群封禁并撤回其消息，不写入永久黑名单 | 只删除消息 |
+| `level: 2`，`kick.block_scope: "global"` | 写入永久黑名单（与 `/block` 同一份名单），并在全部受管群封禁 | 同左 |
+
+- 禁言、只踢不封与本群封禁只作用于触发群，不写入持久化 outbox：停机排空超时或进程重启时，尚未完成的请求直接放弃；请求未成功时播报提示管理员检查机器人权限。
+- 本群封禁不在机器人的永久黑名单里，`/unblock` 解不开，需在 Telegram 群管理界面解除；永久禁言用 `/unmute` 解除。
+- 只踢不封前先确认目标仍在群；群类型未知或成员状态无法确认时不发移出请求。
+- 处罚设置随热重载生效，每次处置都读取当前设置；文件被删除时，尚在处理的命中只删除消息、不再处罚。
+
 ### 键说明
 
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
+| `punishment` | `object` | **必填** | 只允许 `level`、`mute`、`kick` 三个键 | 判定为广告（含黑名单命中）后的处罚设置 |
+| `punishment.level` | `number` | **必填** | 只能是 `1`（禁言）或 `2`（移出） | 处罚等级，见上表 |
+| `punishment.mute` | `object` | `level` 为 `1` 时必填，否则可选 | 只允许 `permanent`、`duration` 两个键；`level` 为 `2` 时出现也同样严格校验 | 等级 1 的禁言设置；保留在 `level: 2` 的文件里便于切换，不生效 |
+| `punishment.mute.permanent` | `boolean` | **必填** | — | `true` 为永久禁言 |
+| `punishment.mute.duration` | `string` | `permanent` 为 `false` 时必填，为 `true` 时必须缺省 | `数字+m/h/d`（如 `"30m"`、`"12h"`、`"7d"`），去掉首尾空白后落在 `MUTE_MIN_DURATION_MS ～ MUTE_MAX_DURATION_MS`，越界拒绝 | 禁言时长 |
+| `punishment.kick` | `object` | `level` 为 `2` 时必填，否则可选 | 只允许 `block`、`block_scope` 两个键；`level` 为 `1` 时出现也同样严格校验 | 等级 2 的移出设置 |
+| `punishment.kick.block` | `boolean` | **必填** | — | `false` 为只踢不封，`true` 时按 `block_scope` 封禁 |
+| `punishment.kick.block_scope` | `string` | `block` 为 `true` 时必填，为 `false` 时必须缺省 | 去掉首尾空白后只能是 `"chat"` 或 `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` 只在触发群封禁；`"global"` 写入永久黑名单并在全部受管群封禁 |
 | `samples` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长低于 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 时后台续期 |
-| `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并执行封禁处置 |
-| `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并执行封禁处置 |
+| `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并按 `punishment` 处罚 |
+| `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并按 `punishment` 处罚 |
 
 ---
 

@@ -4,7 +4,7 @@
  * 本模块只读盘并改写主线程 holder；可用性重算、cron 调度对账与向 Worker 分发由 app/configReload.ts 负责。
  */
 
-import { adoptAdSampleConfig, loadAdSampleConfig } from "./adSamples";
+import { adoptAdDetectConfig, loadAdDetectConfig } from "./adDetectConfig";
 import { adoptAssetConfig, loadAssetConfig } from "./assets";
 import {
   adoptAdDetectAgentConfig,
@@ -20,12 +20,12 @@ import { cronConfigCache } from "../cache/main/cron";
 import {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
   defaultMoodConfigCache,
   defaultStickerConfigCache,
 } from "../cache/perThread/config";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
   CRON_CONFIG_PATH,
@@ -37,7 +37,7 @@ import { ensureRandomImageDirectory } from "../infra/imageGallery";
 import type { CronAgentShortfall, CronConfig } from "../types/cron";
 import { InputValidationError } from "../libs/inputValidation";
 import type {
-  AdSampleConfig,
+  AdDetectConfig,
   AgentConfigSnapshots,
   AgentDeploymentConfig,
   AssetConfig,
@@ -93,12 +93,12 @@ async function readHotAssetConfig(): Promise<HotConfigRead<AssetConfig>> {
  */
 export async function readHotDeploymentConfigs(): Promise<HotDeploymentConfigReads> {
   const assets: HotConfigRead<AssetConfig> = await readHotAssetConfig();
-  const adSamples: HotConfigRead<AdSampleConfig> = await readHotConfig(AD_SAMPLES_CONFIG_PATH, loadAdSampleConfig);
+  const adDetectConfig: HotConfigRead<AdDetectConfig> = await readHotConfig(AD_DETECT_CONFIG_PATH, loadAdDetectConfig);
   const agent: HotConfigRead<AgentConfigSnapshots> = await readHotConfig(AGENT_CONFIG_PATH, loadAgentConfigSnapshots);
   const mood: HotConfigRead<MoodConfig> = await readHotConfig(MOOD_CONFIG_PATH, loadMoodConfig);
   const stickers: HotConfigRead<StickerConfig> = await readHotConfig(STICKERS_CONFIG_PATH, loadStickerConfig);
   const cron: HotConfigRead<CronConfig> = await readHotConfig(CRON_CONFIG_PATH, loadCronConfig);
-  return { assets, adSamples, agent, mood, stickers, cron };
+  return { assets, adDetectConfig, agent, mood, stickers, cron };
 }
 
 /** nextFileSnapshot 的入参：本轮读取结果、当前快照与拒绝诊断收集表。 */
@@ -248,13 +248,13 @@ export function applyHotDeploymentConfigs(reads: HotDeploymentConfigReads): HotD
     }
   }
 
-  const adSamples: AdSampleConfig | null | undefined = nextFileSnapshot({
-    read: reads.adSamples,
-    current: defaultAdSampleConfigCache.current,
+  const adDetectConfig: AdDetectConfig | null | undefined = nextFileSnapshot({
+    read: reads.adDetectConfig,
+    current: defaultAdDetectConfigCache.current,
     rejections,
   });
-  if (adSamples !== undefined) adoptAdSampleConfig(adSamples);
-  recordFileOutcome(adSamples, AD_SAMPLES_CONFIG_PATH, paths);
+  if (adDetectConfig !== undefined) adoptAdDetectConfig(adDetectConfig);
+  recordFileOutcome(adDetectConfig, AD_DETECT_CONFIG_PATH, paths);
 
   // agent.json 与 cron.json 先各自判定、交叉核对 cron 动作对 agent 能力的依赖之后再替换，
   // 见 reconcileAgentDependency。
@@ -317,7 +317,7 @@ export function applyHotDeploymentConfigs(reads: HotDeploymentConfigReads): HotD
     assets: assetsChanged,
     adDetect: adDetectChanged,
     aiAgent: aiAgentChanged,
-    adSamples: adSamples !== undefined,
+    adDetectConfig: adDetectConfig !== undefined,
     mood: mood !== undefined,
     stickers: stickers !== undefined,
     cron: cron !== undefined,

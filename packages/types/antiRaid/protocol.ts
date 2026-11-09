@@ -2,7 +2,7 @@ import type { Atmosphere } from "../atmosphere";
 import type { ChatPermissions } from "grammy/types";
 import type { RemoveBlockedMembersParams } from "../blocklist";
 import type { LockdownPhase } from "../chatState";
-import type { AdDetectAgentConfig, AdSampleConfig } from "../config";
+import type { AdDetectAgentConfig, AdDetectConfig } from "../config";
 import type { BotActionPermissions } from "../telegram";
 import type { TelegramWorkerRequest } from "../telegramWorker";
 import type {
@@ -247,8 +247,8 @@ export interface ChatKindChangedMessage {
 }
 
 /**
- * 主线程 -> Worker：主线程当前生效的广告检测能力配置与示例/黑名单配置（ad_data.json）。初始化、Worker
- * 重建与 config/dynamic/ 热重载替换这两份快照时各投递一次；adSamples 为 null 表示广告
+ * 主线程 -> Worker：主线程当前生效的广告检测能力配置与广告检测部署配置（ad_detect_config.json）。初始化、Worker
+ * 重建与 config/dynamic/ 热重载替换这两份快照时各投递一次；adDetectConfig 为 null 表示广告
  * 检测不可用，Worker 保留原 holder 不动。
  */
 export interface AntiRaidAgentConfigMessage {
@@ -258,7 +258,7 @@ export interface AntiRaidAgentConfigMessage {
   /** 主线程启动总闸确定的本进程群通知风格；每次投递取同一启动快照。 */
   readonly atmosphere: Atmosphere;
   adDetect: AdDetectAgentConfig | null;
-  adSamples: AdSampleConfig | null;
+  adDetectConfig: AdDetectConfig | null;
 }
 
 /** 主线程 -> Worker：FIFO mailbox barrier；此前消息完成同步状态转移后回执。 */

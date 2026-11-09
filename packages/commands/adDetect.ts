@@ -14,7 +14,7 @@ import { runChatToggleCommand } from "./superAdminToggle";
  * 超级管理员恒持有该权限（见 infra/identityPolicy/whitelist.ts），白名单身份可由 /permission 单独获权。
  *
  * 开启前经 adDetectConfigReadiness 检查 config/dynamic/agent.json 的 agent.ad_detect 能力与
- * config/dynamic/ad_data.json，不可用则拒绝开启；不检查机器人是否为本群管理员。
+ * config/dynamic/ad_detect_config.json，不可用则拒绝开启；不检查机器人是否为本群管理员。
  *
  * 关闭时经 clearAdDetection 丢掉 Worker 里该群已排队的待检消息；清理是尽力而为，
  * 边界见 runChatToggleCommand。

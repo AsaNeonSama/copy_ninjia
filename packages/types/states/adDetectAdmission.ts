@@ -23,7 +23,7 @@ export type AdCandidateDecision =
   | "accept"
   /** 忽略该消息，不参与检测且不单独删除。 */
   | "ignore"
-  /** 不参与检测，但单独删除该频道残余消息（见 states/adDetectAdmission.ts）。 */
+  /** 不参与检测，但单独删除这条残余消息（见 states/adDetectAdmission.ts）。 */
   | "deleteStraggler";
 
 /** 发送者待检消息串的入队准入判定输入。 */

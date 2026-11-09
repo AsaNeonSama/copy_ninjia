@@ -19,17 +19,44 @@ export interface MoodConfig {
 }
 
 /**
- * 广告检测的部署配置（config/dynamic/ad_data.json）：
+ * 广告处罚等级 2 的封禁范围（部署字段 `punishment.kick.block_scope`）：
+ * - `chat`：只在触发群以 `banChatMember` 封禁，不写入机器人的永久黑名单；
+ * - `global`：写入永久黑名单，并在全部受管群封禁（与 `/block` 同一份名单）。
+ */
+export type AdBlockScope = "chat" | "global";
+
+/** 广告处罚等级 1：在触发群禁言。 */
+export interface AdMutePunishment {
+  readonly level: 1;
+  /** 禁言时长（毫秒，整分钟）；null 表示永久禁言。 */
+  readonly muteDurationMs: number | null;
+}
+
+/** 广告处罚等级 2：把发送者移出触发群。 */
+export interface AdKickPunishment {
+  readonly level: 2;
+  /** 移出后的封禁范围；null 表示只踢不封，可再次入群。 */
+  readonly blockScope: AdBlockScope | null;
+}
+
+/** ad_detect_config.json 的 `punishment` 解析结果：只保留所选等级生效的设置。 */
+export type AdDetectPunishment = AdMutePunishment | AdKickPunishment;
+
+/**
+ * 广告检测的部署配置（config/dynamic/ad_detect_config.json）：
+ * - `punishment`：判定为广告后的处罚等级，由 antiRaid/adDetect.ts 在主线程处置时读取；
  * - `samples`：判定口径参考示例，由 workers/antiRaid/adDetect/classifier.ts 拼入提示词；
  * - `stickerBlackList`：部署字段 `sticker_black_list`，贴纸包 short name 黑名单，作为快路径最先检测；
  * - `emojiBlackList`：部署字段 `emoji_black_list`，自定义表情所属表情包 short name 黑名单，在贴纸黑名单之后、AI 检测之前检测。
  */
-export interface AdSampleConfig {
+export interface AdDetectConfig {
+  /** 判定为广告（含黑名单命中）后的处罚等级。 */
+  readonly punishment: AdDetectPunishment;
   /** 广告分类判定用的正例参考样本列表（单行规范化、去重）。 */
   readonly samples: readonly string[];
-  /** 命中即跳过 AI 检测直接判为广告并永久封禁的贴纸包 short name 黑名单。 */
+  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的贴纸包 short name 黑名单。 */
   readonly stickerBlackList: readonly string[];
-  /** 命中即跳过 AI 检测直接判为广告并永久封禁的自定义表情包 short name 黑名单。 */
+  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的自定义表情包 short name 黑名单。 */
   readonly emojiBlackList: readonly string[];
 }
 
@@ -327,7 +354,7 @@ export interface AssetConfig {
 export interface HotDeploymentConfigReads {
   /** assets.json；随机图片目录变化时已在读取阶段完成目录准备，失败记为 invalid。 */
   readonly assets: HotConfigRead<AssetConfig>;
-  readonly adSamples: HotConfigRead<AdSampleConfig>;
+  readonly adDetectConfig: HotConfigRead<AdDetectConfig>;
   readonly agent: HotConfigRead<AgentConfigSnapshots>;
   readonly mood: HotConfigRead<MoodConfig>;
   readonly stickers: HotConfigRead<StickerConfig>;
@@ -345,7 +372,7 @@ export interface HotDeploymentConfigChanges {
   readonly adDetect: boolean;
   /** agent.json 的 AI 对话能力段快照已替换。 */
   readonly aiAgent: boolean;
-  readonly adSamples: boolean;
+  readonly adDetectConfig: boolean;
   readonly mood: boolean;
   readonly stickers: boolean;
   /** cron.json 的任务表已替换。 */

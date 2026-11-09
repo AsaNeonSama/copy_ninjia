@@ -7,7 +7,7 @@ import { assertDeploymentConfigLayout, assertNoMisplacedConfigFiles } from "../.
 import { LEGACY_BOT_CONFIG_NAME } from "../../packages/consts/bot";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../../packages/consts/configLayout";
 import {
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
   BOT_CONFIG_PATH,
@@ -28,7 +28,7 @@ const STATIC_PATHS: readonly string[] = [BOT_CONFIG_PATH, GOOGLE_AUTH_FILE_PATH]
 const DYNAMIC_PATHS: readonly string[] = [
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
-  AD_SAMPLES_CONFIG_PATH,
+  AD_DETECT_CONFIG_PATH,
   MOOD_CONFIG_PATH,
   STICKERS_CONFIG_PATH,
   CRON_CONFIG_PATH,

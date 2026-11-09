@@ -1,4 +1,15 @@
 {
+  "punishment": {
+    "level": 2,
+    "mute": {
+      "permanent": false,
+      "duration": "1d"
+    },
+    "kick": {
+      "block": true,
+      "block_scope": "global"
+    }
+  },
   "samples": [
     "博彩平台首充送58，提款秒到，无视风控，联系 @xxxxxx",
     "菠菜平台首冲58，提款秒到，无视风控，飞机 @xxxxxx",

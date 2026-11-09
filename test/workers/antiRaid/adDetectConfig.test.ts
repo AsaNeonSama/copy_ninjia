@@ -8,10 +8,10 @@ import { adDetectGoogleClientHolder } from "../../../packages/cache/workers/anti
 import { adDetectOpenAiClientHolder } from "../../../packages/cache/workers/antiRaid/openai";
 import {
   adDetectAgentConfigCache,
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
 } from "../../../packages/cache/perThread/config";
 import type { AdDetectPrompts } from "../../../packages/types/antiRaid/adDetect";
-import type { AdDetectAgentConfig, AdSampleConfig } from "../../../packages/types/config";
+import type { AdDetectAgentConfig, AdDetectConfig } from "../../../packages/types/config";
 import type { GeminiContextCacheRegistry } from "../../../packages/types/geminiContextCache";
 
 const probeGeminiContextCache = mock((..._args: unknown[]): void => {});
@@ -26,7 +26,7 @@ const { AD_DETECT_GEMINI_CONTEXT_CACHE_SCOPE } = await import("../../../packages
 const { createGeminiContextCacheRegistry } = realGeminiContextCache;
 
 const originalAdDetect: AdDetectAgentConfig | null = adDetectAgentConfigCache.current;
-const originalSamples: AdSampleConfig | null = defaultAdSampleConfigCache.current;
+const originalSamples: AdDetectConfig | null = defaultAdDetectConfigCache.current;
 
 const reloadedAdDetect: AdDetectAgentConfig = {
   provider: "openai",
@@ -57,7 +57,7 @@ beforeEach((): void => {
 
 afterEach((): void => {
   adDetectAgentConfigCache.current = originalAdDetect;
-  defaultAdSampleConfigCache.current = originalSamples;
+  defaultAdDetectConfigCache.current = originalSamples;
   adDetectGoogleClientHolder.current = null;
   adDetectOpenAiClientHolder.current = null;
   adDetectPrompts.current = null;
@@ -68,16 +68,17 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
   test("新快照整体替换 holder，并丢弃旧客户端、提示词缓存与显式缓存状态", () => {
     adDetectAgentConfigCache.current = { ...reloadedAdDetect, apiKey: "old-ad-key" };
     seedDerivedState();
-    const samples: AdSampleConfig = {
+    const samples: AdDetectConfig = {
+      punishment: { level: 2, blockScope: "global" },
       samples: ["新的广告示例"],
       stickerBlackList: ["BadSticker"],
       emojiBlackList: ["BadEmoji"],
     };
 
-    adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: reloadedAdDetect, adSamples: samples });
+    adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: reloadedAdDetect, adDetectConfig: samples });
 
     expect(adDetectAgentConfigCache.current).toBe(reloadedAdDetect);
-    expect(defaultAdSampleConfigCache.current).toBe(samples);
+    expect(defaultAdDetectConfigCache.current).toBe(samples);
     expect(adDetectGoogleClientHolder.current).toBeNull();
     expect(adDetectOpenAiClientHolder.current).toBeNull();
     expect(adDetectPrompts.current).toBeNull();
@@ -100,7 +101,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       type: "agentConfig",
       timeZone: getTimeZone(),
       adDetect: googleAdDetect,
-      adSamples: { samples: ["广告示例"], stickerBlackList: [], emojiBlackList: [] },
+      adDetectConfig: { punishment: { level: 2, blockScope: "global" }, samples: ["广告示例"], stickerBlackList: [], emojiBlackList: [] },
     });
 
     expect<AdDetectAgentConfig | null>(adDetectAgentConfigCache.current).toBe(googleAdDetect);
@@ -114,7 +115,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       type: "agentConfig",
       timeZone: getTimeZone(),
       adDetect: googleAdDetect,
-      adSamples: { samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
+      adDetectConfig: { punishment: { level: 2, blockScope: "global" }, samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
     });
     expect(probeGeminiContextCache).not.toHaveBeenCalled();
   });
@@ -128,7 +129,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       type: "agentConfig",
       timeZone: getTimeZone(),
       adDetect: reloadedAdDetect,
-      adSamples: { samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
+      adDetectConfig: { punishment: { level: 2, blockScope: "global" }, samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
     });
 
     expect(adDetectGeminiContextCache.current).toBe(registry);
@@ -140,10 +141,10 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     adDetectAgentConfigCache.current = { ...reloadedAdDetect };
     seedDerivedState();
 
-    adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: null, adSamples: null });
+    adoptAdDetectConfigMessage({ atmosphere: "teasing", type: "agentConfig", timeZone: getTimeZone(), adDetect: null, adDetectConfig: null });
 
     expect(adDetectAgentConfigCache.current).toBeNull();
-    expect(defaultAdSampleConfigCache.current).toBe(originalSamples);
+    expect(defaultAdDetectConfigCache.current).toBe(originalSamples);
     expect(adDetectPrompts.current).toBe(OLD_PROMPTS);
     expect(adDetectGoogleClientHolder.current).toBeNull();
     expect(adDetectOpenAiClientHolder.current).toBeNull();

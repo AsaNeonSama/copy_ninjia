@@ -173,7 +173,7 @@ Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chai
 </td>
 <td align="left" valign="top" width="33%">
   <p><b>📮 Smart Ad Detection</b><br>
-  <sub>Evaluates concatenated message streams with an AI classifier, instantly purging detected spam and banning the sender.</sub></p>
+  <sub>Evaluates concatenated message streams with an AI classifier, instantly purging detected spam and punishing the sender with a configurable mute, kick, or ban.</sub></p>
 </td>
 </tr>
 <tr>
@@ -501,7 +501,7 @@ Promote the bot to a group administrator and grant permissions based on required
   </tr>
   <tr>
     <td><nobr>🚫 <b>Restrict & Ban Members</b></nobr></td>
-    <td>Kicking unverified members, Anti-Raid private mode lockdown, <code>/block enable|disable</code>, <code>/mute</code> / <code>/unmute</code>, <code>/batch_kick</code>, flood muting, and ad bans.</td>
+    <td>Kicking unverified members, Anti-Raid private mode lockdown, <code>/block enable|disable</code>, <code>/mute</code> / <code>/unmute</code>, <code>/batch_kick</code>, flood muting, and ad punishments (mute, kick, or ban).</td>
   </tr>
 </tbody>
 </table>

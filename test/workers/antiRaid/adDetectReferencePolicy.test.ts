@@ -397,7 +397,7 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(disposeAdSender).not.toHaveBeenCalled();
   });
 
-  test("命中后同窗口内抢跑进来的消息直接丢弃，不再攒出第二次处置", async () => {
+  test("命中后同窗口内抢跑进来的消息不再判定、单独删除，不再攒出第二次处置", async () => {
     classifyAdText.mockImplementation(async (): Promise<AdVerdict> => ({ isAd: true, reason: "引流" }));
     // 处置标记由判定结算路径按本地时钟落下，读取一侧使用同一把钟。
     const disposedAt: number = Date.now();
@@ -406,9 +406,10 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
     expect(recentlyDisposedAdKeys.has("-1001:7")).toBe(true);
 
-    // 封禁还没落地时他还能再说几句；这些消息直接丢弃，不重判。
+    // 处罚还没落地时他还能再说几句；禁言与只踢不封不撤回消息，这些消息不重判、单独删除。
     const stragglerAt: number = Date.now() + 500;
     enqueueAdCandidate(candidate({ messageId: 2, text: "还有名额" }), stragglerAt);
+    expect(deleteStragglerAdMessage).toHaveBeenCalledWith(-1001, 2);
     expect(pendingAdBundleCount.current).toBe(0);
     await runAdDetectBatch(stragglerAt);
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
@@ -434,7 +435,7 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(pendingAdBundleCount.current).toBe(0);
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
 
-    // 真人目标走 revoke_messages，不需要这条补删。
+    // 没被处置过的真人照常入队，不走补删。
     enqueueAdCandidate(candidate({ messageId: 3, text: "加我微信" }), stragglerAt);
     await runAdDetectBatch(stragglerAt);
     expect(deleteStragglerAdMessage).toHaveBeenCalledTimes(1);

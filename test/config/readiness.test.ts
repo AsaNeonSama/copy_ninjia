@@ -27,7 +27,7 @@ mock.module("../../packages/consts/paths", () => ({
   AGENT_CONFIG_PATH: join(testRoot, "unused-agent.json"),
   STICKERS_CONFIG_PATH: join(testRoot, "unused-stickers.json"),
   MOOD_CONFIG_PATH: join(testRoot, "unused-mood.json"),
-  AD_SAMPLES_CONFIG_PATH: join(testRoot, "unused-ad-samples.json"),
+  AD_DETECT_CONFIG_PATH: join(testRoot, "unused-ad-samples.json"),
   PERSONA_PATH: personaPath,
   VOICE_TOOL_PROMPT_PATH: voiceToolPromptPath,
 }));
@@ -39,7 +39,7 @@ mock.module("../../packages/config/bot", () => ({
 }));
 mock.module("../../packages/config/stickers", () => ({ ensureStickerConfig: unusedLoader }));
 mock.module("../../packages/config/mood", () => ({ ensureMoodConfig: unusedLoader }));
-mock.module("../../packages/config/adSamples", () => ({ ensureAdSampleConfig: unusedLoader }));
+mock.module("../../packages/config/adDetectConfig", () => ({ ensureAdDetectConfig: unusedLoader }));
 mock.module("../../packages/config/agent", () => ({ validateAgentDeploymentConfig: unusedLoader }));
 mock.module("../../packages/config/persona", () => ({
   adoptPersona: (): void => {},
@@ -60,7 +60,7 @@ const { googleServiceAccountKey } = await import("../../packages/cache/main/tran
 const {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
-  defaultAdSampleConfigCache,
+  defaultAdDetectConfigCache,
   defaultMoodConfigCache,
   defaultStickerConfigCache,
 } = await import("../../packages/cache/perThread/config");
@@ -69,7 +69,7 @@ const {
 const HOLDERS = {
   sticker: defaultStickerConfigCache.current,
   mood: defaultMoodConfigCache.current,
-  adSample: defaultAdSampleConfigCache.current,
+  adSample: defaultAdDetectConfigCache.current,
   agent: agentDeploymentConfigCache.current,
   adDetect: adDetectAgentConfigCache.current,
 };
@@ -77,7 +77,7 @@ const HOLDERS = {
 function restoreHolders(): void {
   defaultStickerConfigCache.current = HOLDERS.sticker;
   defaultMoodConfigCache.current = HOLDERS.mood;
-  defaultAdSampleConfigCache.current = HOLDERS.adSample;
+  defaultAdDetectConfigCache.current = HOLDERS.adSample;
   agentDeploymentConfigCache.current = HOLDERS.agent;
   adDetectAgentConfigCache.current = HOLDERS.adDetect;
 }
@@ -146,11 +146,11 @@ describe("deployment config readiness", () => {
     expect(verdict.ok === false && verdict.failure.file).toBe("config/dynamic/agent.json");
   });
 
-  test("广告检测的示例清单缺省时报 ad_data.json", async () => {
-    defaultAdSampleConfigCache.current = null;
+  test("广告检测的示例清单缺省时报 ad_detect_config.json", async () => {
+    defaultAdDetectConfigCache.current = null;
     await validateExistingDeploymentInputs();
     const verdict: ConfigReadiness = adDetectConfigReadiness();
-    expect(verdict.ok === false && verdict.failure.file).toBe("config/dynamic/ad_data.json");
+    expect(verdict.ok === false && verdict.failure.file).toBe("config/dynamic/ad_detect_config.json");
   });
 
   test("命中缓存后返回同一结论引用，holder 之后变化也不重算", async () => {

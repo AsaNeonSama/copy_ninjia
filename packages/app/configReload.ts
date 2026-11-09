@@ -65,7 +65,7 @@ function reconcileAdDetectAvailability(changes: HotDeploymentConfigChanges): voi
     if (next.ok) logger.log("Ad detection became available after a deployment config reload.");
     else logger.log(`Ad detection became unavailable after a deployment config reload: ${next.failure.reason}`);
   }
-  if (availabilityChanged || changes.adDetect || changes.adSamples) syncAntiRaidAgentConfig();
+  if (availabilityChanged || changes.adDetect || changes.adDetectConfig) syncAntiRaidAgentConfig();
 }
 
 /**
