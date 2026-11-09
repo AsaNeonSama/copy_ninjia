@@ -135,7 +135,7 @@ export interface AdSampleMessage extends AdSampleContext {
   text: string;
 }
 
-/** Worker -> 主线程：发送者被判成广告，涉事消息已删除，请按 ad_detect_config.json 的处罚等级处置。 */
+/** Worker -> 主线程：发送者被判成广告，涉事消息已删除，请按 ad_detect.json 的处罚设置处置。 */
 export interface AdDetectedEvent {
   type: "adDetected";
   chatId: number;

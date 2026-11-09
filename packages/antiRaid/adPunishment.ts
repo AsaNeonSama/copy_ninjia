@@ -1,6 +1,6 @@
 /**
  * 广告命中后的本群处罚（禁言、只踢不封、本群封禁、频道身份只删消息）与处置播报文案。
- * 动作由 states/adPunishment.ts 按 ad_detect_config.json 的处罚等级选定，由 antiRaid/adDetect.ts
+ * 动作由 states/adPunishment.ts 按 ad_detect.json 的处罚设置选定，由 antiRaid/adDetect.ts
  * 在该身份的黑名单串行位里调用；永久黑名单与全部受管群封禁不经过本模块。
  * 本群处罚不写 durable outbox：在途任务由 inFlightAdDisposals 跟踪，停机排空预算耗尽或进程重启即放弃
  * （见 docs/cn/04-invariants.md）。

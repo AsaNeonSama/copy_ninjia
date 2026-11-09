@@ -252,7 +252,7 @@ describe("config/dynamic/ 目录监听", () => {
     await Bun.file(AD_DETECT_CONFIG_PATH).delete();
 
     expect(await waitUntil((): boolean => !published(adDetectConfigReadinessCache).ok)).toBe(true);
-    expect(published(adDetectConfigReadinessCache)).toMatchObject({ ok: false, failure: { file: "config/dynamic/ad_detect_config.json" } });
+    expect(published(adDetectConfigReadinessCache)).toMatchObject({ ok: false, failure: { file: "config/dynamic/ad_detect.json" } });
     expect(syncAntiRaidAgentConfig).toHaveBeenCalledTimes(1);
     expect(published(aiChatConfigReadinessCache).ok).toBe(true);
 

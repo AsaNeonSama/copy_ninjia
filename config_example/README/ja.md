@@ -21,7 +21,7 @@ done
 
 `config/` は設定の反映方法に応じて厳格に 2 つのサブディレクトリに分かれています：
 - `config/static/`：`bot.json`、`g-auth.json`。変更後は**サービスの再起動が必要**です。
-- `config/dynamic/`：`assets.json`、`ad_detect_config.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`。稼働中の変更は自動的にホットリロードされます。
+- `config/dynamic/`：`assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`。稼働中の変更は自動的にホットリロードされます。
 
 `config/dynamic/` ディレクトリは必ず存在させてください（空でも構いません）。設定ファイルが `config/` 直下に置かれていたり、誤ったサブディレクトリに置かれている場合は起動を拒否します。ホワイトリスト、ブラックリスト、およびグループ状態は `database/storage.sqlite` に保存されるため、設定ファイルではありません。
 
@@ -66,9 +66,9 @@ done
     <td>AI 雑談が停止（起動は成功）</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_detect_config.json</code></td>
+    <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>動的（ホットリロード）</nobr></td>
-    <td>広告の処罰等級、広告分類用の正例サンプルおよびステッカー／絵文字パックブラックリスト</td>
+    <td>広告の処罰設定、広告分類用の正例サンプルおよびステッカー／絵文字パックブラックリスト</td>
     <td>広告検出が停止（起動は成功）</td>
   </tr>
   <tr>
@@ -104,7 +104,7 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 1. **ホット置換**：検証に合格し設定に変更がある場合、即時にスナップショットを更新して各 Worker に配信します。
 2. **検証失敗時のフェイルセーフ**：検証に失敗した場合、変更全体が拒否されます。エラー箇所（ファイルパス、フィールドパス、期待される形式）をログに記録し、システムは直前の有効な設定をそのまま維持します。
 3. **機能連動**：
-   - `ad_detect_config.json` や `agent.json` の `ad_detect` を追加・削除すると、広告検出が即時に有効化・無効化されます。
+   - `ad_detect.json` や `agent.json` の `ad_detect` を追加・削除すると、広告検出が即時に有効化・無効化されます。
    - `agent.json` の対話中核能力（`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`：`text` / `summary` / `media`）や `mood.json` / `stickers.json` を追加・削除すると、AI 雑談が自動的に起動・停止します。
    - 任意のツール能力（`image`、`tts`、`web_search`）の変更は即座に反映されます。
 4. **設定ファイル間の依存関係検証**：
@@ -451,20 +451,15 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 
 ---
 
-## `ad_detect_config.json`
+## `ad_detect.json`
 
-動的設定ファイル（パス：`config/dynamic/ad_detect_config.json`）。最上位は `punishment` オブジェクトと `samples`、`sticker_black_list`、`emoji_black_list` の 3 つの配列をちょうど持つ JSON オブジェクトであり、広告と判定された後の処罰等級、広告分類モデルの正例リファレンス、ステッカーパックブラックリスト、カスタム絵文字パックブラックリストを定義します。検出は「ステッカーパックブラックリスト高速経路 -> カスタム絵文字パックブラックリスト -> AI テキスト判定」の順で実行され、いずれかのブラックリストに一致した場合は AI 判定をスキップします。どの経路で広告と判定されても、まず該当メッセージを削除し、続いて `punishment` に従って処罰し、発生グループに `COMMAND_MESSAGE_AUTO_DELETE_MS` 後に自動削除される通知を投稿します。
+動的設定ファイル（パス：`config/dynamic/ad_detect.json`）。最上位は `punishment` オブジェクトと `samples`、`sticker_black_list`、`emoji_black_list` の 3 つの配列をちょうど持つ JSON オブジェクトであり、広告と判定された後の処罰設定、広告分類モデルの正例リファレンス、ステッカーパックブラックリスト、カスタム絵文字パックブラックリストを定義します。検出は「ステッカーパックブラックリスト高速経路 -> カスタム絵文字パックブラックリスト -> AI テキスト判定」の順で実行され、いずれかのブラックリストに一致した場合は AI 判定をスキップします。どの経路で広告と判定されても、まず該当メッセージを削除し、続いて `punishment` に従って処罰し、発生グループに `COMMAND_MESSAGE_AUTO_DELETE_MS` 後に自動削除される通知を投稿します。
 
 ### 設定例
 
 ```json
 {
   "punishment": {
-    "level": 2,
-    "mute": {
-      "permanent": false,
-      "duration": "1d"
-    },
     "kick": {
       "block": true,
       "block_scope": "global"
@@ -485,14 +480,16 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 }
 ```
 
-### 処罰等級
+### 処罰設定
+
+`punishment` の `mute` と `kick` は互いに排他で、どちらか一方だけを書きます。両方書いた場合も、どちらも書かない場合も拒否されます。
 
 | 設定 | 一般ユーザー | チャンネル身分（`sender_chat`） |
 | --- | --- | --- |
-| `level: 1` | 発生グループで禁言：`mute.permanent` が `true` なら永久、それ以外は `mute.duration` の間禁言し、期限が来ると Telegram が自動解除 | メッセージ削除のみ |
-| `level: 2`、`kick.block: false` | BAN なしのキック：発生グループから外し、再入室は可能 | メッセージ削除のみ |
-| `level: 2`、`kick.block_scope: "chat"` | 発生グループだけで BAN してメッセージを撤回し、恒久ブラックリストには登録しない | メッセージ削除のみ |
-| `level: 2`、`kick.block_scope: "global"` | 恒久ブラックリスト（`/block` と同じリスト）に登録し、全管理対象グループで BAN | 同左 |
+| `mute` | 発生グループで禁言：`permanent` が `true` なら永久、それ以外は `duration` の間禁言し、期限が来ると Telegram が自動解除 | メッセージ削除のみ |
+| `kick`、`block: false` | BAN なしのキック：発生グループから外し、再入室は可能 | メッセージ削除のみ |
+| `kick`、`block_scope: "chat"` | 発生グループだけで BAN してメッセージを撤回し、恒久ブラックリストには登録しない | メッセージ削除のみ |
+| `kick`、`block_scope: "global"` | 恒久ブラックリスト（`/block` と同じリスト）に登録し、全管理対象グループで BAN | 同左 |
 
 - 禁言・BAN なしのキック・本グループ BAN は発生グループだけに作用し、永続 outbox には書き込みません。停止時の排出がタイムアウトした場合やプロセス再起動時は、未完了の要求をそのまま放棄します。要求が成功しなかった場合、通知で Bot の権限確認を管理者に促します。
 - 本グループ BAN は Bot の恒久ブラックリストに入らないため `/unblock` では解除できず、Telegram のグループ管理画面で解除します。永久禁言は `/unmute` で解除します。
@@ -503,12 +500,11 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 
 | フィールド名 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
 | --- | --- | --- | --- | --- |
-| `punishment` | `object` | **必須** | `level`、`mute`、`kick` の 3 キーのみ | 広告と判定された後（ブラックリスト一致を含む）の処罰設定 |
-| `punishment.level` | `number` | **必須** | `1`（禁言）または `2`（キック）のみ | 処罰等級。上の表を参照 |
-| `punishment.mute` | `object` | `level` が `1` のとき必須、それ以外は任意 | `permanent`、`duration` の 2 キーのみ。`level` が `2` でも存在すれば同じく厳密に検証 | 等級 1 の禁言設定。切り替え用に `level: 2` のファイルに残しておいても効果はない |
+| `punishment` | `object` | **必須** | `mute`、`kick` の 2 キーのみで、ちょうど一方だけ | 広告と判定された後（ブラックリスト一致を含む）の処罰設定。上の表を参照 |
+| `punishment.mute` | `object` | `kick` と二者択一 | `permanent`、`duration` の 2 キーのみ | 禁言設定 |
 | `punishment.mute.permanent` | `boolean` | **必須** | — | `true` で永久禁言 |
 | `punishment.mute.duration` | `string` | `permanent` が `false` のとき必須、`true` のときは省略必須 | `数字+m/h/d`（例：`"30m"`、`"12h"`、`"7d"`）。前後の空白を除いて `MUTE_MIN_DURATION_MS 〜 MUTE_MAX_DURATION_MS` に収まること。範囲外は拒否 | 禁言時間 |
-| `punishment.kick` | `object` | `level` が `2` のとき必須、それ以外は任意 | `block`、`block_scope` の 2 キーのみ。`level` が `1` でも存在すれば同じく厳密に検証 | 等級 2 のキック設定 |
+| `punishment.kick` | `object` | `mute` と二者択一 | `block`、`block_scope` の 2 キーのみ | キック設定 |
 | `punishment.kick.block` | `boolean` | **必須** | — | `false` で BAN なしのキック、`true` で `block_scope` に従って BAN |
 | `punishment.kick.block_scope` | `string` | `block` が `true` のとき必須、`false` のときは省略必須 | 前後の空白を除いて `"chat"` または `"global"`（`AD_BLOCK_SCOPES`） | `"chat"` は発生グループだけで BAN、`"global"` は恒久ブラックリストに登録して全管理対象グループで BAN |
 | `samples` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います。`provider: "google"` の場合、Gemini 明示的コンテキストキャッシュが自動構築され、残りの存続時間が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` を下回るとバックグラウンドで延長されます |

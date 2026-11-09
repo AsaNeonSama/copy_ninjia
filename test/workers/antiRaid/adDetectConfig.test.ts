@@ -69,7 +69,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
     adDetectAgentConfigCache.current = { ...reloadedAdDetect, apiKey: "old-ad-key" };
     seedDerivedState();
     const samples: AdDetectConfig = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: ["新的广告示例"],
       stickerBlackList: ["BadSticker"],
       emojiBlackList: ["BadEmoji"],
@@ -101,7 +101,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       type: "agentConfig",
       timeZone: getTimeZone(),
       adDetect: googleAdDetect,
-      adDetectConfig: { punishment: { level: 2, blockScope: "global" }, samples: ["广告示例"], stickerBlackList: [], emojiBlackList: [] },
+      adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: ["广告示例"], stickerBlackList: [], emojiBlackList: [] },
     });
 
     expect<AdDetectAgentConfig | null>(adDetectAgentConfigCache.current).toBe(googleAdDetect);
@@ -115,7 +115,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       type: "agentConfig",
       timeZone: getTimeZone(),
       adDetect: googleAdDetect,
-      adDetectConfig: { punishment: { level: 2, blockScope: "global" }, samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
+      adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
     });
     expect(probeGeminiContextCache).not.toHaveBeenCalled();
   });
@@ -129,7 +129,7 @@ describe("Anti-Raid Worker 接管广告检测配置", () => {
       type: "agentConfig",
       timeZone: getTimeZone(),
       adDetect: reloadedAdDetect,
-      adDetectConfig: { punishment: { level: 2, blockScope: "global" }, samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
+      adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: ["新的广告示例"], stickerBlackList: [], emojiBlackList: [] },
     });
 
     expect(adDetectGeminiContextCache.current).toBe(registry);

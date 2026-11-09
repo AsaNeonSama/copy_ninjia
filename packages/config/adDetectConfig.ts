@@ -29,7 +29,7 @@ import { parseStickerPackNames } from "./stickerPackNames";
 /**
  * 严格解码 `punishment.mute`：`permanent` 为 true 时不得带 `duration`；为 false 时 `duration` 必须是
  * `数字+m/h/d` 时长（去掉首尾空白），落在 [MUTE_MIN_DURATION_MS, MUTE_MAX_DURATION_MS] 内，越界即拒绝。
- * @param value `punishment.mute` 的原始值；所选等级为 1 时缺省同样拒绝。
+ * @param value `punishment.mute` 的原始值。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
  * @returns 禁言时长毫秒数；永久禁言返回 null。
  */
@@ -38,7 +38,7 @@ function parseMutePunishment(value: unknown, sourcePath: string): number | null 
     return invalidInput(
       sourcePath,
       "$.punishment.mute",
-      "an object { permanent: boolean, duration?: string } (required when level is 1)"
+      "an object { permanent: boolean, duration?: string }"
     );
   }
   if (typeof value.permanent !== "boolean") {
@@ -71,7 +71,7 @@ function parseMutePunishment(value: unknown, sourcePath: string): number | null 
 /**
  * 严格解码 `punishment.kick`：`block` 为 false 时不得带 `block_scope`；为 true 时 `block_scope`
  * 必须是 AD_BLOCK_SCOPES 之一（去掉首尾空白）。
- * @param value `punishment.kick` 的原始值；所选等级为 2 时缺省同样拒绝。
+ * @param value `punishment.kick` 的原始值。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
  * @returns 封禁范围；只踢不封返回 null。
  */
@@ -80,7 +80,7 @@ function parseKickPunishment(value: unknown, sourcePath: string): AdBlockScope |
     return invalidInput(
       sourcePath,
       "$.punishment.kick",
-      "an object { block: boolean, block_scope?: \"chat\" | \"global\" } (required when level is 2)"
+      "an object { block: boolean, block_scope?: \"chat\" | \"global\" }"
     );
   }
   if (typeof value.block !== "boolean") {
@@ -107,33 +107,27 @@ function parseKickPunishment(value: unknown, sourcePath: string): AdBlockScope |
 }
 
 /**
- * 严格解码 `punishment`：`level` 只能是 1（禁言）或 2（移出）；所选等级对应的 `mute` 或 `kick` 必填，
- * 另一段可缺省，出现时同样严格校验，解析结果只保留所选等级的设置。
+ * 严格解码 `punishment`：只允许 `mute`、`kick` 两个键，且二者互斥、必须恰好出现其一。
  * @param value `punishment` 的原始值。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
- * @returns 所选等级生效的处罚设置。
+ * @returns 禁言或移出处罚设置。
  */
 function parsePunishment(value: unknown, sourcePath: string): AdDetectPunishment {
-  if (!isPlainRecord(value) || !hasOnlyKeys(value, AD_PUNISHMENT_KEYS)) {
-    return invalidInput(
-      sourcePath,
-      "$.punishment",
-      "an object { level: 1 | 2, mute?: object, kick?: object }"
-    );
+  if (
+    !isPlainRecord(value) ||
+    !hasOnlyKeys(value, AD_PUNISHMENT_KEYS) ||
+    (value.mute === undefined) === (value.kick === undefined)
+  ) {
+    return invalidInput(sourcePath, "$.punishment", "an object with exactly one of mute or kick");
   }
-  if (value.level !== 1 && value.level !== 2) {
-    return invalidInput(sourcePath, "$.punishment.level", "1 (mute) or 2 (kick)");
+  if (value.mute !== undefined) {
+    return { kind: "mute", durationMs: parseMutePunishment(value.mute, sourcePath) };
   }
-  if (value.level === 1) {
-    if (value.kick !== undefined) parseKickPunishment(value.kick, sourcePath);
-    return { level: 1, muteDurationMs: parseMutePunishment(value.mute, sourcePath) };
-  }
-  if (value.mute !== undefined) parseMutePunishment(value.mute, sourcePath);
-  return { level: 2, blockScope: parseKickPunishment(value.kick, sourcePath) };
+  return { kind: "kick", blockScope: parseKickPunishment(value.kick, sourcePath) };
 }
 
 /**
- * 严格解码 ad_detect_config.json：顶层必须精确包含对象 `punishment` 与 `samples`、`sticker_black_list`、
+ * 严格解码 ad_detect.json：顶层必须精确包含对象 `punishment` 与 `samples`、`sticker_black_list`、
  * `emoji_black_list` 三个字符串数组；拒绝非法处罚设置、空串、超长、非法包名与重复。
  * @param value 待校验的原始 JSON 值。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
@@ -249,7 +243,7 @@ export function getAdDetectConfig(): AdDetectConfig {
 }
 
 /**
- * 主线程处置广告命中时读取当前处罚设置；部署方在热重载中删除了 ad_detect_config.json 时返回 null。
+ * 主线程处置广告命中时读取当前处罚设置；部署方在热重载中删除了 ad_detect.json 时返回 null。
  * @returns 当前生效的处罚设置；配置已移除时返回 null。
  */
 export function currentAdDetectPunishment(): AdDetectPunishment | null {

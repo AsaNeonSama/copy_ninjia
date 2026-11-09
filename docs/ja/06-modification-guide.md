@@ -155,7 +155,7 @@
 - **ボイスツール説明文の管理**：内蔵の説明文は `packages/consts/aiChat/prompts/tools.ts` の `VOICE_LANGUAGE_PROMPTS`（`TTS_BOT_LANGUAGES` の各言語に対応）に配置されています。プロジェクトルートに `prompt/voice_tool.md` を配置すると、再起動後にその本文が `send_voice` の説明文全体を置き換えます。引数の仕様やその他のボイス関連ルールは、引き続き `bot_language` に基づいて選択されます。サンプルは [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md) を参照してください。
 - **プロンプトサンプルの保守**：`prompt_example/` はリリースパッケージに同梱されます。`test/config/promptExamples.test.ts` は、サンプルファイル（`persona.md` と `voice_tool.md`）が `loadPromptFile` を通過すること、`voice_tool.md` のクォータ案内・1 ターンの送信件数・文字数上限がコード定数と完全一致すること、セリフ言語が `config_example/dynamic/agent.json` の `bot_language` と一致することを自動検証します。`MAX_VOICES_PER_REPLY`、`VOICE_TEXT_MAX_CHARS`、`VOICE_TONE_MAX_CHARS` やサンプルの `bot_language` を変更する際は、サンプルファイルも同期して更新してください。
 - **設定ファイル**：開発作業時は、Git 管理から除外されている `config/` ディレクトリ内のファイルのみを編集します。`config_example/` は初期テンプレートとしてのみ使用してください。
-  - `config/dynamic/` はホットリロードに対応しています（`assets.json`、`ad_detect_config.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`）。
+  - `config/dynamic/` はホットリロードに対応しています（`assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`）。
   - `config/static/` の変更反映にはプロセスの再起動が必要です（`bot.json`、`g-auth.json`）。
 - **リアクションとリスト**：リアクション emoji は `AI_REACTION_EMOJIS` によってホワイトリスト制限されています。ブラックリストおよびホワイトリストのマスター（権威）ストレージは SQLite であり、JSON 設定では管理しません。
 

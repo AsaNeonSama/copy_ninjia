@@ -106,7 +106,7 @@ export const DURATION_UNIT_MS: Readonly<Record<"m" | "h" | "d", number>> = {
  * 距现在不足官方下限按永久禁言处理；本值高于该下限，本进程不为永久禁言排恢复计时器。
  *
  * 「命令处理到请求真正发出」之间的排队（restrict 类 429 按 `retry_after` 排队）不由这条下限约束，
- * 由派发截止兑现，见 MUTE_DISPATCH_MIN_REMAINING_MS。所属模块：commands/mute.ts；ad_detect_config.json 的
+ * 由派发截止兑现，见 MUTE_DISPATCH_MIN_REMAINING_MS。所属模块：commands/mute.ts；ad_detect.json 的
  * `punishment.mute.duration` 低于本值时由 config/adDetectConfig.ts 拒绝。
  */
 export const MUTE_MIN_DURATION_MS: number = 60_000;
@@ -119,7 +119,7 @@ export const MUTE_MIN_DURATION_MS: number = 60_000;
 export const MUTE_DISPATCH_MIN_REMAINING_MS: number = 45_000;
 
 /**
- * `/mute` 的最长时长，超出时由 commands/mute.ts 收敛到本上限；ad_detect_config.json 的
+ * `/mute` 的最长时长，超出时由 commands/mute.ts 收敛到本上限；ad_detect.json 的
  * `punishment.mute.duration` 超出时由 config/adDetectConfig.ts 拒绝。截止时刻交给 Telegram，本进程不保存恢复计时器；禁言边界见 docs/cn/04-invariants.md。
  */
 export const MUTE_MAX_DURATION_MS: number = 365 * DAY_MS;

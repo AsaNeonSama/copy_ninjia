@@ -186,7 +186,7 @@ export function deleteStragglerAdMessage(chatId: number, messageId: number): voi
 }
 
 /**
- * 执行广告命中处置：向主线程发布 adDetected 事件（处罚由主线程按处罚等级执行）并批量删除涉事消息。
+ * 执行广告命中处置：向主线程发布 adDetected 事件（处罚由主线程按处罚设置执行）并批量删除涉事消息。
  *
  * @param params 待处置消息束、判定结果与送检条目快照。
  */

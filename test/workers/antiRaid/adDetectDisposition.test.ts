@@ -168,7 +168,7 @@ const { MUTE_DISPATCH_MIN_REMAINING_MS } = await import("../../../packages/const
 const preloadedAdDetectConfig = defaultAdDetectConfigCache.current;
 
 /**
- * 把当前线程的处罚设置换成指定等级，其余字段沿用预载配置。
+ * 把当前线程的处罚设置换成指定值，其余字段沿用预载配置。
  * @param punishment 本用例使用的处罚设置。
  */
 function usePunishment(punishment: AdDetectPunishment): void {
@@ -262,10 +262,10 @@ beforeEach(() => {
   probeChatMembership.mockImplementation(async (): Promise<boolean | undefined> => true);
 });
 
-describe("按 ad_detect_config.json 的处罚等级处置", () => {
-  test("等级 1 限时禁言：只在触发群禁言，派发截止沿用 /mute 契约，不写黑名单也不登记封禁批次", async () => {
+describe("按 ad_detect.json 的处罚设置处置", () => {
+  test("mute 限时禁言：只在触发群禁言，派发截止沿用 /mute 契约，不写黑名单也不登记封禁批次", async () => {
     const durationMs: number = 30 * MINUTE_MS;
-    usePunishment({ level: 1, muteDurationMs: durationMs });
+    usePunishment({ kind: "mute", durationMs });
     const before: number = Date.now();
 
     handleAdDetected(detected());
@@ -301,8 +301,8 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
     }));
   });
 
-  test("等级 1 永久禁言不带截止时刻", async () => {
-    usePunishment({ level: 1, muteDurationMs: null });
+  test("mute 永久禁言不带截止时刻", async () => {
+    usePunishment({ kind: "mute", durationMs: null });
 
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
@@ -313,7 +313,7 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
   });
 
   test("禁言请求被拒时播报改口点名权限，并留下错误日志", async () => {
-    usePunishment({ level: 1, muteDurationMs: 30 * MINUTE_MS });
+    usePunishment({ kind: "mute", durationMs: 30 * MINUTE_MS });
     muteChatMemberWithOutcome.mockImplementation(async (): Promise<MuteChatMemberOutcome> => "forbidden");
 
     handleAdDetected(detected());
@@ -325,8 +325,8 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
     )).toBeTrue();
   });
 
-  test("等级 2 只踢不封：确认仍在群后按群类型移出", async () => {
-    usePunishment({ level: 2, blockScope: null });
+  test("kick 只踢不封：确认仍在群后按群类型移出", async () => {
+    usePunishment({ kind: "kick", blockScope: null });
     chatIsSupergroupById.set(-1001, true);
 
     handleAdDetected(detected());
@@ -341,7 +341,7 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
   });
 
   test("只踢不封时目标已不在群就不再发移出请求，以免解除他人留下的封禁", async () => {
-    usePunishment({ level: 2, blockScope: null });
+    usePunishment({ kind: "kick", blockScope: null });
     chatIsSupergroupById.set(-1001, true);
     probeChatMembership.mockImplementation(async (): Promise<boolean | undefined> => false);
 
@@ -353,7 +353,7 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
   });
 
   test("只踢不封时群类型或成员状态无法确认就不猜测移出接口", async () => {
-    usePunishment({ level: 2, blockScope: null });
+    usePunishment({ kind: "kick", blockScope: null });
 
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
@@ -376,7 +376,7 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
   });
 
   test("只踢不封时发送者已在永久黑名单就交给黑名单封禁，不再踢", async () => {
-    usePunishment({ level: 2, blockScope: null });
+    usePunishment({ kind: "kick", blockScope: null });
     chatIsSupergroupById.set(-1001, true);
     blockedIds.add(7);
 
@@ -387,8 +387,8 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
     expect(kickChatMemberWithOutcome).not.toHaveBeenCalled();
   });
 
-  test("等级 2 本群封禁：只在触发群封禁，不写永久黑名单", async () => {
-    usePunishment({ level: 2, blockScope: "chat" });
+  test("kick 本群封禁：只在触发群封禁，不写永久黑名单", async () => {
+    usePunishment({ kind: "kick", blockScope: "chat" });
 
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
@@ -405,11 +405,11 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
     expect(firstNoticeText()).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.adPunishFailed(teasingHead()));
   });
 
-  test("频道身份在非全局封禁等级下只删消息，不发处罚请求", async () => {
+  test("频道身份在全局封禁以外的设置下只删消息，不发处罚请求", async () => {
     for (const punishment of [
-      { level: 1, muteDurationMs: null },
-      { level: 2, blockScope: null },
-      { level: 2, blockScope: "chat" },
+      { kind: "mute", durationMs: null },
+      { kind: "kick", blockScope: null },
+      { kind: "kick", blockScope: "chat" },
     ] satisfies AdDetectPunishment[]) {
       usePunishment(punishment);
       sendMessage.mockClear();
@@ -428,8 +428,8 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
     expect(blockUser).not.toHaveBeenCalled();
   });
 
-  test("等级 2 全局封禁对频道身份同样写入永久黑名单", async () => {
-    usePunishment({ level: 2, blockScope: "global" });
+  test("kick 全局封禁对频道身份同样写入永久黑名单", async () => {
+    usePunishment({ kind: "kick", blockScope: "global" });
 
     handleAdDetected(detected({ senderId: -300, isChannel: true }));
     await drainAdDisposals(5_000);
@@ -438,7 +438,7 @@ describe("按 ad_detect_config.json 的处罚等级处置", () => {
     expect(dispatched[0]?.map((params) => params.chatId)).toEqual([-1001]);
   });
 
-  test("ad_detect_config.json 已被热重载移除时放弃处罚，不记样本也不播报", async () => {
+  test("ad_detect.json 已被热重载移除时放弃处罚，不记样本也不播报", async () => {
     defaultAdDetectConfigCache.current = null;
 
     handleAdDetected(detected());
@@ -476,7 +476,7 @@ describe("广告判定命中后的处置", () => {
     expect(diskMessages).toHaveLength(0);
   });
 
-  test("等级 2 全局封禁按 /block 同样的动作：先写名单落盘，再给每个在管群登记一批封禁", async () => {
+  test("kick 全局封禁按 /block 同样的动作：先写名单落盘，再给每个在管群登记一批封禁", async () => {
     chatStates.set(-1002, { isInitEnabled: true, botPermissions: botPermissions() });
     chatStates.set(-1003, {
       isInitEnabled: true,
@@ -770,7 +770,7 @@ describe("广告判定命中后的处置", () => {
   });
 
   test("命中即写一条旁路样本，含时间、消息、理由与引用/回复上下文", async () => {
-    // 命中即写一条旁路样本，作为 config/dynamic/ad_detect_config.json 示例的原始素材。
+    // 命中即写一条旁路样本，作为 config/dynamic/ad_detect.json 示例的原始素材。
     handleAdDetected(detected());
     await drainAdDisposals(5_000);
 

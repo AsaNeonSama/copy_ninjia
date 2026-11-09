@@ -161,7 +161,7 @@ Model capabilities are organized as minimal, single-responsibility interfaces (e
 - **Voice tool customization**: Default voice instructions are defined in `VOICE_LANGUAGE_PROMPTS` under `packages/consts/aiChat/prompts/tools.ts`. Placing `prompt/voice_tool.md` in the root replaces the body description of `send_voice`, while parameter descriptions continue to align with `bot_language`. See [`prompt_example/voice_tool.md`](../../prompt_example/voice_tool.md).
 - **Sample prompt validation**: The `prompt_example/` directory ships with release archives. `test/config/promptExamples.test.ts` validates that sample prompts parse cleanly via `loadPromptFile`. Quotas and character bounds in `voice_tool.md` must match code constants, and the sample language must match `bot_language` in `config_example/dynamic/agent.json`.
 - **Config file layering**: In development, only modify git-ignored files inside `config/`; `config_example/` serves strictly as an illustrative template.
-  - Files under `config/dynamic/` support runtime hot-reloading (`assets.json`, `ad_detect_config.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`).
+  - Files under `config/dynamic/` support runtime hot-reloading (`assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`).
   - Files under `config/static/` require a process restart (`bot.json`, `g-auth.json`).
 - **Reactions and access lists**: Emojis the AI is permitted to react with are constrained by `AI_REACTION_EMOJIS`. Blocklists and permission allowlists reside authoritatively in SQLite, not JSON files.
 

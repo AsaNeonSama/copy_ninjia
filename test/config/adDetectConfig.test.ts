@@ -12,15 +12,17 @@ import {
 } from "../../packages/consts/commands";
 import type { AdDetectConfig, AdDetectPunishment } from "../../packages/types/config";
 
-/** 夹具：等级 2、写入永久黑名单的处罚段。 */
+/** 夹具：移出并写入永久黑名单的处罚段。 */
 const GLOBAL_BLOCK_INPUT: Readonly<Record<string, unknown>> = {
-  level: 2,
   kick: { block: true, block_scope: "global" },
 };
 
 /** 顶层形态不符时的期望形态描述。 */
 const TOP_LEVEL_EXPECTED: string =
   "exactly { punishment: object, samples: string[], sticker_black_list: string[], emoji_black_list: string[] }";
+
+/** punishment 不是恰好含 mute 或 kick 其一时的期望形态描述。 */
+const PUNISHMENT_EXPECTED: string = "an object with exactly one of mute or kick";
 
 /**
  * 只换 punishment 段、其余字段取空表后解析。
@@ -36,7 +38,7 @@ function parsePunishmentInput(punishment: unknown): AdDetectPunishment {
   }).punishment;
 }
 
-describe("ad_detect_config.json", () => {
+describe("ad_detect.json", () => {
   test("顶层包含 punishment、samples、sticker_black_list 与 emoji_black_list，空白规范化后保留", async () => {
     // 示例按行拼进提示词；带换行的示例被折叠成单行，包名去掉首尾空白。
     expect(parseAdDetectConfig({
@@ -45,7 +47,7 @@ describe("ad_detect_config.json", () => {
       sticker_black_list: ["  SpamStickerPack_1  "],
       emoji_black_list: ["  SpamEmojiPack_1  "],
     })).toEqual({
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: ["加 微信 拉群", "USDT 承兑"],
       stickerBlackList: ["SpamStickerPack_1"],
       emojiBlackList: ["SpamEmojiPack_1"],
@@ -53,83 +55,63 @@ describe("ad_detect_config.json", () => {
     expect((await loadAdDetectConfig()).samples.length).toBeGreaterThan(0);
   });
 
-  test("处罚等级 1 解析出禁言时长或永久，等级 2 解析出封禁范围或只踢不封", () => {
-    expect(parsePunishmentInput({ level: 1, mute: { permanent: false, duration: " 30m " } }))
-      .toEqual({ level: 1, muteDurationMs: 30 * DURATION_UNIT_MS.m });
-    expect(parsePunishmentInput({ level: 1, mute: { permanent: true } }))
-      .toEqual({ level: 1, muteDurationMs: null });
-    expect(parsePunishmentInput({ level: 2, kick: { block: false } }))
-      .toEqual({ level: 2, blockScope: null });
-    expect(parsePunishmentInput({ level: 2, kick: { block: true, block_scope: " chat " } }))
-      .toEqual({ level: 2, blockScope: "chat" });
+  test("mute 解析出禁言时长或永久，kick 解析出封禁范围或只踢不封", () => {
+    expect(parsePunishmentInput({ mute: { permanent: false, duration: " 30m " } }))
+      .toEqual({ kind: "mute", durationMs: 30 * DURATION_UNIT_MS.m });
+    expect(parsePunishmentInput({ mute: { permanent: true } }))
+      .toEqual({ kind: "mute", durationMs: null });
+    expect(parsePunishmentInput({ kick: { block: false } }))
+      .toEqual({ kind: "kick", blockScope: null });
+    expect(parsePunishmentInput({ kick: { block: true, block_scope: " chat " } }))
+      .toEqual({ kind: "kick", blockScope: "chat" });
     // 禁言时长上下界取 /mute 同一区间，边界值本身合法。
     expect(parsePunishmentInput({
-      level: 1,
       mute: { permanent: false, duration: `${MUTE_MIN_DURATION_MS / DURATION_UNIT_MS.m}m` },
-    })).toEqual({ level: 1, muteDurationMs: MUTE_MIN_DURATION_MS });
+    })).toEqual({ kind: "mute", durationMs: MUTE_MIN_DURATION_MS });
     expect(parsePunishmentInput({
-      level: 1,
       mute: { permanent: false, duration: `${MUTE_MAX_DURATION_MS / DURATION_UNIT_MS.d}d` },
-    })).toEqual({ level: 1, muteDurationMs: MUTE_MAX_DURATION_MS });
+    })).toEqual({ kind: "mute", durationMs: MUTE_MAX_DURATION_MS });
   });
 
-  test("未选等级的那一段可缺省；出现时同样严格校验，解析结果只保留所选等级", () => {
-    expect(parsePunishmentInput({
-      level: 2,
-      mute: { permanent: false, duration: "1d" },
-      kick: { block: false },
-    })).toEqual({ level: 2, blockScope: null });
-    expect(parsePunishmentInput({
-      level: 1,
-      mute: { permanent: true },
-      kick: { block: true, block_scope: "global" },
-    })).toEqual({ level: 1, muteDurationMs: null });
-    expect(() => parsePunishmentInput({
-      level: 2,
-      mute: { permanent: false },
-      kick: { block: false },
-    })).toThrow("$.punishment.mute.duration must be");
-    expect(() => parsePunishmentInput({
-      level: 1,
-      mute: { permanent: true },
-      kick: { block: true, block_scope: "everywhere" },
-    })).toThrow("$.punishment.kick.block_scope must be");
-  });
-
-  test("拒绝缺失、类型不符、取值越界、枚举非法与互斥冲突的处罚设置", () => {
-    const rejects = (punishment: unknown, fieldPath: string, expected: string): void => {
-      expect(() => parsePunishmentInput(punishment)).toThrow(`${fieldPath} must be ${expected}.`);
+  test("mute 与 kick 互斥：同时出现、都缺省、多余键或非对象一律拒绝", () => {
+    const rejects = (punishment: unknown): void => {
+      expect(() => parsePunishmentInput(punishment)).toThrow(`$.punishment must be ${PUNISHMENT_EXPECTED}.`);
     };
     expect(() => parseAdDetectConfig({ samples: [], sticker_black_list: [], emoji_black_list: [] }))
       .toThrow(TOP_LEVEL_EXPECTED);
-    rejects([], "$.punishment", "an object { level: 1 | 2, mute?: object, kick?: object }");
-    rejects({ level: 2, kick: { block: false }, extra: true }, "$.punishment", "an object { level: 1 | 2, mute?: object, kick?: object }");
-    rejects({ level: 3, kick: { block: false } }, "$.punishment.level", "1 (mute) or 2 (kick)");
-    rejects({ level: "1", mute: { permanent: true } }, "$.punishment.level", "1 (mute) or 2 (kick)");
-    rejects({ kick: { block: false } }, "$.punishment.level", "1 (mute) or 2 (kick)");
+    rejects({ mute: { permanent: true }, kick: { block: false } });
+    rejects({});
+    rejects([]);
+    rejects(null);
+    rejects({ kick: { block: false }, extra: true });
+    // `level` 等未列出的键同样拒绝。
+    rejects({ level: 2, kick: { block: true, block_scope: "global" } });
+  });
 
-    const muteExpected: string = "an object { permanent: boolean, duration?: string } (required when level is 1)";
-    rejects({ level: 1 }, "$.punishment.mute", muteExpected);
-    rejects({ level: 1, kick: { block: false } }, "$.punishment.mute", muteExpected);
-    rejects({ level: 1, mute: { permanent: true, extra: 1 } }, "$.punishment.mute", muteExpected);
-    rejects({ level: 1, mute: { permanent: "true" } }, "$.punishment.mute.permanent", "a boolean");
-    rejects({ level: 1, mute: { duration: "1d" } }, "$.punishment.mute.permanent", "a boolean");
-    rejects({ level: 1, mute: { permanent: true, duration: "1d" } }, "$.punishment.mute.duration", "absent when permanent is true");
+  test("拒绝类型不符、取值越界、枚举非法与互斥冲突的 mute、kick 设置", () => {
+    const rejects = (punishment: unknown, fieldPath: string, expected: string): void => {
+      expect(() => parsePunishmentInput(punishment)).toThrow(`${fieldPath} must be ${expected}.`);
+    };
+    const muteExpected: string = "an object { permanent: boolean, duration?: string }";
+    rejects({ mute: [] }, "$.punishment.mute", muteExpected);
+    rejects({ mute: { permanent: true, extra: 1 } }, "$.punishment.mute", muteExpected);
+    rejects({ mute: { permanent: "true" } }, "$.punishment.mute.permanent", "a boolean");
+    rejects({ mute: { duration: "1d" } }, "$.punishment.mute.permanent", "a boolean");
+    rejects({ mute: { permanent: true, duration: "1d" } }, "$.punishment.mute.duration", "absent when permanent is true");
     const durationExpected: string =
       `a duration such as "30m", "12h" or "7d" between ${MUTE_MIN_DURATION_MS / DURATION_UNIT_MS.m}m ` +
       `and ${MUTE_MAX_DURATION_MS / DURATION_UNIT_MS.d}d when permanent is false`;
     for (const duration of [undefined, "", "   ", "30", "0m", "1.5h", "1w", 30, `${MUTE_MAX_DURATION_MS / DURATION_UNIT_MS.d + 1}d`]) {
-      rejects({ level: 1, mute: { permanent: false, duration } }, "$.punishment.mute.duration", durationExpected);
+      rejects({ mute: { permanent: false, duration } }, "$.punishment.mute.duration", durationExpected);
     }
 
-    const kickExpected: string = "an object { block: boolean, block_scope?: \"chat\" | \"global\" } (required when level is 2)";
-    rejects({ level: 2 }, "$.punishment.kick", kickExpected);
-    rejects({ level: 2, mute: { permanent: true } }, "$.punishment.kick", kickExpected);
-    rejects({ level: 2, kick: { block: false, extra: 1 } }, "$.punishment.kick", kickExpected);
-    rejects({ level: 2, kick: { block: 1 } }, "$.punishment.kick.block", "a boolean");
-    rejects({ level: 2, kick: { block: false, block_scope: "chat" } }, "$.punishment.kick.block_scope", "absent when block is false");
+    const kickExpected: string = "an object { block: boolean, block_scope?: \"chat\" | \"global\" }";
+    rejects({ kick: "global" }, "$.punishment.kick", kickExpected);
+    rejects({ kick: { block: false, extra: 1 } }, "$.punishment.kick", kickExpected);
+    rejects({ kick: { block: 1 } }, "$.punishment.kick.block", "a boolean");
+    rejects({ kick: { block: false, block_scope: "chat" } }, "$.punishment.kick.block_scope", "absent when block is false");
     for (const blockScope of [undefined, "", "all", "Global", 1]) {
-      rejects({ level: 2, kick: { block: true, block_scope: blockScope } }, "$.punishment.kick.block_scope", "\"chat\" or \"global\" when block is true");
+      rejects({ kick: { block: true, block_scope: blockScope } }, "$.punishment.kick.block_scope", "\"chat\" or \"global\" when block is true");
     }
   });
 
@@ -247,7 +229,7 @@ describe("ad_detect_config.json", () => {
       emoji_black_list: ["BadEmoji"],
     });
     expect(probe).toEqual({
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: ["加微信"],
       stickerBlackList: ["BadSticker"],
       emojiBlackList: ["BadEmoji"],
@@ -256,9 +238,9 @@ describe("ad_detect_config.json", () => {
       // @ts-expect-error 顶层字段只读
       probe.samples = [];
       // @ts-expect-error 处罚设置只读
-      probe.punishment = { level: 1, muteDurationMs: null };
-      // @ts-expect-error 处罚等级不允许就地改写
-      probe.punishment.level = 1;
+      probe.punishment = { kind: "mute", durationMs: null };
+      // @ts-expect-error 处罚种类不允许就地改写
+      probe.punishment.kind = "mute";
       // @ts-expect-error 示例表不允许就地追加
       probe.samples.push("x");
       // @ts-expect-error 贴纸黑名单不允许就地追加

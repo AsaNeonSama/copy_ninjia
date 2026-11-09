@@ -4,7 +4,7 @@ import {
 } from "../consts/commands";
 
 /**
- * `/mute`、`/batch_kick`、cron.json 与 ad_detect_config.json 共用的「数字 + m/h/d」时长 token 解析与中文渲染。
+ * `/mute`、`/batch_kick`、cron.json 与 ad_detect.json 共用的「数字 + m/h/d」时长 token 解析与中文渲染。
  *
  * 本模块只做形态解析，不带区间判定：`/mute` 把越界值收敛到边界，
  * `/batch_kick` 与两份部署配置的解析直接拒绝，区间语义留在各自调用点。

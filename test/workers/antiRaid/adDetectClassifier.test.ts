@@ -14,7 +14,7 @@ mock.module("../../../packages/infra/logger", () => ({
 mock.module("../../../packages/workers/antiRaid/adDetect/ai/provider", () => ({ requestAdDetectJson }));
 mock.module("../../../packages/config/adDetectConfig", () => ({
   getAdDetectConfig: (): AdDetectConfig => ({
-    punishment: { level: 2, blockScope: "global" },
+    punishment: { kind: "kick", blockScope: "global" },
     samples: ["加溦拉群"],
     stickerBlackList: [],
     emojiBlackList: [],

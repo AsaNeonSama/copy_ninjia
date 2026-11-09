@@ -21,7 +21,7 @@ done
 
 `config/` is strictly split into two subdirectories based on how changes take effect:
 - `config/static/`: `bot.json`, `g-auth.json`; changes **require a service restart**.
-- `config/dynamic/`: `assets.json`, `ad_detect_config.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`; changes are automatically hot-reloaded at runtime.
+- `config/dynamic/`: `assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`; changes are automatically hot-reloaded at runtime.
 
 The `config/dynamic/` directory must exist (it may be empty). Placing any configuration file at the root of `config/` or in the wrong subdirectory will refuse startup. Allowlist, blocklist, and per-group state live in `database/storage.sqlite` and are not deployment configuration.
 
@@ -66,9 +66,9 @@ Every JSON file is parsed under a strict schema: unknown keys, typos, type misma
     <td>AI chat halts (startup succeeds)</td>
   </tr>
   <tr>
-    <td><code>dynamic/ad_detect_config.json</code></td>
+    <td><code>dynamic/ad_detect.json</code></td>
     <td><nobr>Dynamic (Hot reloaded)</nobr></td>
-    <td>Ad punishment level, positive reference samples, and sticker/emoji pack blacklists for ad detection</td>
+    <td>Ad punishment, positive reference samples, and sticker/emoji pack blacklists for ad detection</td>
     <td>Ad detection halts (startup succeeds)</td>
   </tr>
   <tr>
@@ -104,7 +104,7 @@ The bot watches `config/dynamic/` continuously. Strict schema validation and hot
 1. **Hot Replacement**: Valid changes update the in-memory snapshot and are immediately dispatched to relevant Workers.
 2. **Rejection & Fail-Safe**: Invalid configurations are rejected as a whole. Detailed error locations (file path, field path, expected shape) are logged, and the bot continues running using the previous valid snapshot.
 3. **Availability Linkage**:
-   - Adding or removing `ad_detect_config.json` or `ad_detect` in `agent.json` directly enables or disables ad detection.
+   - Adding or removing `ad_detect.json` or `ad_detect` in `agent.json` directly enables or disables ad detection.
    - Adding or removing the chat core capabilities (`AGENT_AI_CHAT_REQUIRED_CAPABILITIES`: `text`, `summary`, `media`) or `mood.json` / `stickers.json` automatically enables or disables AI chat.
    - Adding or removing optional tools (`image`, `tts`, `web_search`) takes effect on the fly.
 4. **Cross-File Dependency Validation**:
@@ -451,20 +451,15 @@ Dynamic configuration file located at `config/dynamic/mood.json`. Defines AI moo
 
 ---
 
-## `ad_detect_config.json`
+## `ad_detect.json`
 
-Dynamic configuration file located at `config/dynamic/ad_detect_config.json`. The root is a JSON object that must contain exactly the `punishment` object and the `samples`, `sticker_black_list`, and `emoji_black_list` arrays: the punishment applied after a positive verdict, positive advertisement text examples, blacklisted sticker pack short names, and blacklisted custom emoji pack short names. Detection runs in the order "sticker pack blacklist fast-path -> custom emoji pack blacklist -> AI text classification"; matching either blacklist skips AI classification. Whichever path flags the sender, the offending messages are deleted first, then `punishment` is applied and a notice that deletes itself after `COMMAND_MESSAGE_AUTO_DELETE_MS` is posted in the triggering chat.
+Dynamic configuration file located at `config/dynamic/ad_detect.json`. The root is a JSON object that must contain exactly the `punishment` object and the `samples`, `sticker_black_list`, and `emoji_black_list` arrays: the punishment applied after a positive verdict, positive advertisement text examples, blacklisted sticker pack short names, and blacklisted custom emoji pack short names. Detection runs in the order "sticker pack blacklist fast-path -> custom emoji pack blacklist -> AI text classification"; matching either blacklist skips AI classification. Whichever path flags the sender, the offending messages are deleted first, then `punishment` is applied and a notice that deletes itself after `COMMAND_MESSAGE_AUTO_DELETE_MS` is posted in the triggering chat.
 
 ### Configuration Example
 
 ```json
 {
   "punishment": {
-    "level": 2,
-    "mute": {
-      "permanent": false,
-      "duration": "1d"
-    },
     "kick": {
       "block": true,
       "block_scope": "global"
@@ -485,14 +480,16 @@ Dynamic configuration file located at `config/dynamic/ad_detect_config.json`. Th
 }
 ```
 
-### Punishment Levels
+### Punishment Settings
+
+`mute` and `kick` in `punishment` are mutually exclusive: write exactly one of them. Writing both or neither is rejected.
 
 | Setting | Ordinary users | Channel identities (`sender_chat`) |
 | --- | --- | --- |
-| `level: 1` | Muted in the triggering chat: permanently when `mute.permanent` is `true`, otherwise for `mute.duration`, after which Telegram lifts the mute | Messages deleted only |
-| `level: 2`, `kick.block: false` | Kicked from the triggering chat without a ban; may rejoin | Messages deleted only |
-| `level: 2`, `kick.block_scope: "chat"` | Banned in the triggering chat only, with their messages revoked; not added to the permanent blocklist | Messages deleted only |
-| `level: 2`, `kick.block_scope: "global"` | Added to the permanent blocklist (the same list as `/block`) and banned in every managed chat | Same |
+| `mute` | Muted in the triggering chat: permanently when `permanent` is `true`, otherwise for `duration`, after which Telegram lifts the mute | Messages deleted only |
+| `kick`, `block: false` | Kicked from the triggering chat without a ban; may rejoin | Messages deleted only |
+| `kick`, `block_scope: "chat"` | Banned in the triggering chat only, with their messages revoked; not added to the permanent blocklist | Messages deleted only |
+| `kick`, `block_scope: "global"` | Added to the permanent blocklist (the same list as `/block`) and banned in every managed chat | Same |
 
 - Mutes, kicks without a ban, and in-chat bans only affect the triggering chat and are not written to the persistent outbox: requests still pending when the shutdown drain times out or the process restarts are abandoned; when a request fails, the notice asks admins to check the bot's permissions.
 - In-chat bans are not on the bot's permanent blocklist, so `/unblock` cannot lift them; lift them from Telegram's group management screen. Lift permanent mutes with `/unmute`.
@@ -503,12 +500,11 @@ Dynamic configuration file located at `config/dynamic/ad_detect_config.json`. Th
 
 | Key | Type | Required | Constraints & Values | Description |
 | --- | --- | --- | --- | --- |
-| `punishment` | `object` | **Required** | Only the `level`, `mute`, and `kick` keys | Punishment applied after a positive verdict (including blacklist matches) |
-| `punishment.level` | `number` | **Required** | `1` (mute) or `2` (kick) only | Punishment level; see the table above |
-| `punishment.mute` | `object` | Required when `level` is `1`, otherwise optional | Only the `permanent` and `duration` keys; validated just as strictly when `level` is `2` | Level 1 mute settings; may stay in a `level: 2` file for switching, without effect |
+| `punishment` | `object` | **Required** | Only the `mute` and `kick` keys, exactly one of them present | Punishment applied after a positive verdict (including blacklist matches); see the table above |
+| `punishment.mute` | `object` | Exactly one of `mute` and `kick` | Only the `permanent` and `duration` keys | Mute settings |
 | `punishment.mute.permanent` | `boolean` | **Required** | — | `true` mutes permanently |
 | `punishment.mute.duration` | `string` | Required when `permanent` is `false`; must be absent when `true` | `<number>m/h/d` (for example `"30m"`, `"12h"`, `"7d"`), trimmed, within `MUTE_MIN_DURATION_MS` to `MUTE_MAX_DURATION_MS`; out-of-range values are rejected | Mute duration |
-| `punishment.kick` | `object` | Required when `level` is `2`, otherwise optional | Only the `block` and `block_scope` keys; validated just as strictly when `level` is `1` | Level 2 kick settings |
+| `punishment.kick` | `object` | Exactly one of `mute` and `kick` | Only the `block` and `block_scope` keys | Kick settings |
 | `punishment.kick.block` | `boolean` | **Required** | — | `false` kicks without a ban; `true` bans according to `block_scope` |
 | `punishment.kick.block_scope` | `string` | Required when `block` is `true`; must be absent when `false` | `"chat"` or `"global"` after trimming (`AD_BLOCK_SCOPES`) | `"chat"` bans in the triggering chat only; `"global"` adds the sender to the permanent blocklist and bans in every managed chat |
 | `samples` | `string[]` | **Required** | Array with `0` to `MAX_CONFIGURED_AD_SAMPLES` unique entries | Positive ad message examples. Each entry, after runs of whitespace are collapsed into a single space and leading/trailing whitespace is trimmed, must be non-empty and `≤ AD_SAMPLE_MAX_CHARS` characters; uniqueness is judged on that normalized form. Under `provider: "google"`, these samples are automatically compiled into a Gemini explicit context cache, refreshed in the background when the remaining lifetime falls below `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` |

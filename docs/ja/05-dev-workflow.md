@@ -93,7 +93,7 @@
 1. **ファイルコンテキスト分離**：Bun はテストファイルごとに独立したグローバルコンテキストを生成し、`mock.module` やモジュールスコープの可変状態が他のテストファイルへ波及・汚染することはありません。
 2. **一時データルートの注入**：`test/preloadEnv.ts` は本番モジュールがロードされる前に、テストプロセス専用の独立した一時データルート（`mkdtempSync`）を作成して環境変数 `COPY_NINJIA_DATA_ROOT` に設定し、さらにテスト専用の一時ディレクトリを作成して `TMPDIR` に設定します（テストと被テストコードが `os.tmpdir()` 経由で作る一時ファイルはここに置かれます）。`/dev/shm` が tmpfs で空き容量が `TMPFS_MIN_AVAILABLE_BYTES` 以上なら両方を `/dev/shm` の下に、そうでなければプロセス本来の `os.tmpdir()` の下に作成します。実際のファイル I/O は本番用ディレクトリ（`memory/`、`logs/`、`database/`、`bot.lock`）には一切触れず、テスト終了時に 2 つの一時ディレクトリを削除して `TMPDIR` を元に戻します。
 3. **独立した設定ルート**：`config_example/` が一時データルート配下の `config/` へ自動複製され、`COPY_NINJIA_CONFIG_ROOT` によりテスト用コピーが読み込まれます。コピー内のプレースホルダー認証情報はテスト専用ダミー値に置換され、`g-auth.json` は除外され、`cron.json` は空のタスク配列に初期化されます。
-4. **設定スナップショット同期と空データベース**：`test/preload.ts` はテスト用コピー内の `agent.json`、`ad_detect_config.json`、`mood.json`、`stickers.json`、`cron.json`、Bot のトーンスタイル、タイムゾーン、組み込みペルソナを一括してテストアイソレートの holder に adopt し、メインスレッドからの設定注入をシミュレートします。さらに一時データルート内にタイムゾーンマーカー付きの空の SQLite データベースを初期化し、各機能の readiness を有効化します。
+4. **設定スナップショット同期と空データベース**：`test/preload.ts` はテスト用コピー内の `agent.json`、`ad_detect.json`、`mood.json`、`stickers.json`、`cron.json`、Bot のトーンスタイル、タイムゾーン、組み込みペルソナを一括してテストアイソレートの holder に adopt し、メインスレッドからの設定注入をシミュレートします。さらに一時データルート内にタイムゾーンマーカー付きの空の SQLite データベースを初期化し、各機能の readiness を有効化します。
 
 ### 主要テストスイートの分布
 

@@ -19,38 +19,38 @@ export interface MoodConfig {
 }
 
 /**
- * 广告处罚等级 2 的封禁范围（部署字段 `punishment.kick.block_scope`）：
+ * 移出处罚的封禁范围（部署字段 `punishment.kick.block_scope`）：
  * - `chat`：只在触发群以 `banChatMember` 封禁，不写入机器人的永久黑名单；
  * - `global`：写入永久黑名单，并在全部受管群封禁（与 `/block` 同一份名单）。
  */
 export type AdBlockScope = "chat" | "global";
 
-/** 广告处罚等级 1：在触发群禁言。 */
+/** 禁言处罚（部署字段 `punishment.mute`）：在触发群禁言。 */
 export interface AdMutePunishment {
-  readonly level: 1;
+  readonly kind: "mute";
   /** 禁言时长（毫秒，整分钟）；null 表示永久禁言。 */
-  readonly muteDurationMs: number | null;
+  readonly durationMs: number | null;
 }
 
-/** 广告处罚等级 2：把发送者移出触发群。 */
+/** 移出处罚（部署字段 `punishment.kick`）：把发送者移出触发群。 */
 export interface AdKickPunishment {
-  readonly level: 2;
+  readonly kind: "kick";
   /** 移出后的封禁范围；null 表示只踢不封，可再次入群。 */
   readonly blockScope: AdBlockScope | null;
 }
 
-/** ad_detect_config.json 的 `punishment` 解析结果：只保留所选等级生效的设置。 */
+/** ad_detect.json 的 `punishment` 解析结果：`mute` 与 `kick` 二者恰好其一。 */
 export type AdDetectPunishment = AdMutePunishment | AdKickPunishment;
 
 /**
- * 广告检测的部署配置（config/dynamic/ad_detect_config.json）：
- * - `punishment`：判定为广告后的处罚等级，由 antiRaid/adDetect.ts 在主线程处置时读取；
+ * 广告检测的部署配置（config/dynamic/ad_detect.json）：
+ * - `punishment`：判定为广告后的处罚设置，由 antiRaid/adDetect.ts 在主线程处置时读取；
  * - `samples`：判定口径参考示例，由 workers/antiRaid/adDetect/classifier.ts 拼入提示词；
  * - `stickerBlackList`：部署字段 `sticker_black_list`，贴纸包 short name 黑名单，作为快路径最先检测；
  * - `emojiBlackList`：部署字段 `emoji_black_list`，自定义表情所属表情包 short name 黑名单，在贴纸黑名单之后、AI 检测之前检测。
  */
 export interface AdDetectConfig {
-  /** 判定为广告（含黑名单命中）后的处罚等级。 */
+  /** 判定为广告（含黑名单命中）后的处罚设置。 */
   readonly punishment: AdDetectPunishment;
   /** 广告分类判定用的正例参考样本列表（单行规范化、去重）。 */
   readonly samples: readonly string[];

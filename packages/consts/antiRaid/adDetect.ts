@@ -27,7 +27,7 @@ export const AD_DETECT_JUDGED_RETENTION_WINDOW_MS: number = 90_000;
 
 /**
  * 引用、回复或转发非白名单广告第一次命中后的升级窗口；窗口内再次命中才沿用
- * 直接广告的处罚路径（按 ad_detect_config.json 的处罚等级）。所属模块：workers/antiRaid/adDetect/referencePolicy.ts 与 workers/antiRaid/adDetect/verdict.ts。
+ * 直接广告的处罚路径（按 ad_detect.json 的处罚设置）。所属模块：workers/antiRaid/adDetect/referencePolicy.ts 与 workers/antiRaid/adDetect/verdict.ts。
  */
 export const AD_REFERENCE_WARNING_WINDOW_MS: number = 300_000;
 
@@ -127,7 +127,7 @@ export const AD_DETECT_JSON_SCHEMA: Readonly<{
   additionalProperties: false,
 };
 
-/** config/dynamic/ad_detect_config.json 顶层必须精确具备的字段名列表。所属模块：config/adDetectConfig.ts。 */
+/** config/dynamic/ad_detect.json 顶层必须精确具备的字段名列表。所属模块：config/adDetectConfig.ts。 */
 export const AD_DETECT_CONFIG_KEYS: readonly string[] = [
   "punishment",
   "samples",
@@ -136,10 +136,10 @@ export const AD_DETECT_CONFIG_KEYS: readonly string[] = [
 ];
 
 /**
- * ad_detect_config.json 的 `punishment` 允许出现的字段名：`level` 必填，`mute` 与 `kick` 只要求
- * 所选等级对应的那一段，另一段可缺省、出现时同样严格校验。所属模块：config/adDetectConfig.ts。
+ * ad_detect.json 的 `punishment` 允许出现的字段名：`mute` 与 `kick` 互斥，必须恰好出现其一。
+ * 所属模块：config/adDetectConfig.ts。
  */
-export const AD_PUNISHMENT_KEYS: readonly string[] = ["level", "mute", "kick"];
+export const AD_PUNISHMENT_KEYS: readonly string[] = ["mute", "kick"];
 
 /**
  * `punishment.mute` 允许出现的字段名：`permanent` 必填；`duration` 在 permanent 为 false 时必填、
@@ -159,10 +159,10 @@ export const AD_BLOCK_SCOPES: readonly AdBlockScope[] = exhaustiveList<AdBlockSc
   "global",
 ]);
 
-/** config/dynamic/ad_detect_config.json 的 samples 允许的最大条数。 */
+/** config/dynamic/ad_detect.json 的 samples 允许的最大条数。 */
 export const MAX_CONFIGURED_AD_SAMPLES: number = 500;
 
-/** config/dynamic/ad_detect_config.json 的 sticker_black_list 与 emoji_black_list 各自允许的最大条数。所属模块：config/adDetectConfig.ts。 */
+/** config/dynamic/ad_detect.json 的 sticker_black_list 与 emoji_black_list 各自允许的最大条数。所属模块：config/adDetectConfig.ts。 */
 export const MAX_CONFIGURED_AD_BLACKLIST_PACKS: number = 500;
 
 /**
@@ -216,7 +216,7 @@ export const AD_SAMPLE_CONTEXT_MAX_CHARS: number = 200;
 const AD_DETECT_FACT_LABEL: string = "【系统事实】";
 
 /**
- * 广告判定器的系统提示词（题材示例由 buildAdDetectInstructions 从 config/dynamic/ad_detect_config.json 拼入；
+ * 广告判定器的系统提示词（题材示例由 buildAdDetectInstructions 从 config/dynamic/ad_detect.json 拼入；
  * 请求带 `response_format: json_object`，提示词须包含「JSON」字样）。
  */
 const AD_DETECT_SYSTEM_PROMPT: string =
@@ -281,7 +281,7 @@ const AD_DETECT_ESTABLISHED_FACT: string =
 /**
  * 拼出判定规则与部署示例段（不含系统事实），各家传输共用、逐字相同。示例为空时
  * 不追加示例段。
- * @param samples 已校验的部署者广告示例（config/dynamic/ad_detect_config.json）。
+ * @param samples 已校验的部署者广告示例（config/dynamic/ad_detect.json）。
  * @returns 完整的广告检测系统提示词文本。
  */
 export function buildAdDetectInstructions(samples: readonly string[]): string {

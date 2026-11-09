@@ -110,7 +110,7 @@ export function candidate(overrides: Partial<AdCandidateMessage> = {}): AdCandid
 export function resetAdDetectQueueHarness(stopAdDetectQueue: () => void): void {
   stopAdDetectQueue();
   defaultAdDetectConfigCache.current = {
-    punishment: { level: 2, blockScope: "global" },
+    punishment: { kind: "kick", blockScope: "global" },
     samples: [],
     stickerBlackList: [],
     emojiBlackList: [],

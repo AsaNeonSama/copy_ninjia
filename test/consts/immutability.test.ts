@@ -641,7 +641,7 @@ function assertAdDetectSchemaReadonly(): void {
   AD_DETECT_JSON_SCHEMA.properties.ad.type = "boolean";
   // @ts-expect-error 广告检测 Schema 的必填字段清单不可扩容。
   AD_DETECT_JSON_SCHEMA.required.push("extra");
-  // @ts-expect-error ad_detect_config.json 顶层字段闭集不允许调用方增删。
+  // @ts-expect-error ad_detect.json 顶层字段闭集不允许调用方增删。
   AD_DETECT_CONFIG_KEYS.push("extra");
   // @ts-expect-error punishment 字段闭集不允许调用方增删。
   AD_PUNISHMENT_KEYS.push("extra");

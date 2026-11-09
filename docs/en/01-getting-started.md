@@ -159,7 +159,7 @@ config/
     ├── assets.json         # Paths for avatars, thumbnails, and dedicated image library
     ├── stickers.json       # Whitelisted sticker packs
     ├── mood.json           # AI mood tiers and weight distribution
-    ├── ad_detect_config.json # Ad punishment level, reference ad samples, and sticker/emoji blacklists
+    ├── ad_detect.json      # Ad punishment, reference ad samples, and sticker/emoji blacklists
     └── cron.json           # Scheduled tasks and periodic broadcasts (optional)
 ```
 
@@ -188,8 +188,8 @@ config/
 - **`config/dynamic/mood.json`** ([Example](../../config_example/dynamic/mood.json))
   - Configures the AI mood tiers `moods`. Each mood defines a `name`, positive integer `weight`, and character `instruction`. Weights must strictly sum to `MOOD_WEIGHT_TOTAL`.
 
-- **`config/dynamic/ad_detect_config.json`** ([Example](../../config_example/dynamic/ad_detect_config.json))
-  - Configures ad detection with `punishment` (the punishment level applied after a positive verdict: `level` `1` mutes the sender in the triggering chat, permanently when `mute.permanent` is `true` and otherwise for `mute.duration`; `level` `2` removes the sender from the triggering chat, without a ban when `kick.block` is `false`, and otherwise bans in that chat only (`"chat"`) or adds the sender to the permanent blocklist and bans in every managed chat (`"global"`) according to `kick.block_scope`; channel identities only have their messages deleted under non-global levels), `samples` (few-shot reference texts for the ad classifier; after whitespace normalization and trimming each entry must be non-empty, at most `AD_SAMPLE_MAX_CHARS` characters, and unique, up to `MAX_CONFIGURED_AD_SAMPLES` entries), `sticker_black_list` (blacklisted sticker pack short names, checked first as a fast path), and `emoji_black_list` (blacklisted custom emoji pack short names, checked before AI classification). Blacklist entries, once trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique, up to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries per list; a match skips AI classification and applies `punishment`.
+- **`config/dynamic/ad_detect.json`** ([Example](../../config_example/dynamic/ad_detect.json))
+  - Configures ad detection with `punishment` (the punishment applied after a positive verdict, with exactly one of the mutually exclusive `mute` and `kick`: `mute` mutes the sender in the triggering chat, permanently when `permanent` is `true` and otherwise for `duration`; `kick` removes the sender from the triggering chat, without a ban when `block` is `false`, and otherwise bans in that chat only (`"chat"`) or adds the sender to the permanent blocklist and bans in every managed chat (`"global"`) according to `block_scope`; channel identities only have their messages deleted under any setting other than a global block), `samples` (few-shot reference texts for the ad classifier; after whitespace normalization and trimming each entry must be non-empty, at most `AD_SAMPLE_MAX_CHARS` characters, and unique, up to `MAX_CONFIGURED_AD_SAMPLES` entries), `sticker_black_list` (blacklisted sticker pack short names, checked first as a fast path), and `emoji_black_list` (blacklisted custom emoji pack short names, checked before AI classification). Blacklist entries, once trimmed, must match `STICKER_PACK_NAME_PATTERN` and be unique, up to `MAX_CONFIGURED_AD_BLACKLIST_PACKS` entries per list; a match skips AI classification and applies `punishment`.
 
 - **`config/dynamic/agent.json`** ([Example](../../config_example/dynamic/agent.json))
   - Declares all AI model capabilities under the top-level `agent` object. Each capability is isolated and configured independently:

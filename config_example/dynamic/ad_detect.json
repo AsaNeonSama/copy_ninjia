@@ -1,10 +1,5 @@
 {
   "punishment": {
-    "level": 2,
-    "mute": {
-      "permanent": false,
-      "duration": "1d"
-    },
     "kick": {
       "block": true,
       "block_scope": "global"

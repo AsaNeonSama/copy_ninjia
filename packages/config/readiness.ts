@@ -104,13 +104,13 @@ export function aiChatReadinessFromHolders(): ConfigReadiness {
 }
 
 /**
- * 按主线程当前 holder 判定广告检测的部署前提：ad_detect_config.json（处罚等级、示例清单与贴纸/表情黑名单）与 agent.json 的 ad_detect 段
+ * 按主线程当前 holder 判定广告检测的部署前提：ad_detect.json（处罚设置、示例清单与贴纸/表情黑名单）与 agent.json 的 ad_detect 段
  * （开启时必填 provider、api_key 与 model，由 agent 配置解析器严格校验）；只看这一段，其余同上。
  * @returns 广告检测功能的配置可用性结论。
  */
 export function adDetectReadinessFromHolders(): ConfigReadiness {
   if (defaultAdDetectConfigCache.current === null) {
-    return unavailable("config/dynamic/ad_detect_config.json", new InputValidationError(AD_DETECT_CONFIG_PATH, "$", "a readable valid JSON document").message);
+    return unavailable("config/dynamic/ad_detect.json", new InputValidationError(AD_DETECT_CONFIG_PATH, "$", "a readable valid JSON document").message);
   }
   if (adDetectAgentConfigCache.current === null) {
     return unavailable(

@@ -1,6 +1,6 @@
 /**
- * 广告命中后的主线程处置：在该身份的黑名单串行位里复核开关与免检身份，按 ad_detect_config.json 的
- * 处罚等级选定动作（见 states/adPunishment.ts）。全局封禁写入永久黑名单并落盘，再把跨群封禁登记进
+ * 广告命中后的主线程处置：在该身份的黑名单串行位里复核开关与免检身份，按 ad_detect.json 的
+ * 处罚设置选定动作（见 states/adPunishment.ts）。全局封禁写入永久黑名单并落盘，再把跨群封禁登记进
  * durable outbox 交回 Anti-Raid Worker；禁言、只踢不封、本群封禁与频道只删消息见 adPunishment.ts。
  * 候选消息构建位于 adCandidate.ts。
  */
@@ -55,7 +55,7 @@ type AdDisposalRuling =
   | "disabled"
   /** 发送者在判定期间取得免检权限或进入白名单。 */
   | "protected"
-  /** 部署方已在热重载中删除 ad_detect_config.json，没有可用的处罚设置。 */
+  /** 部署方已在热重载中删除 ad_detect.json，没有可用的处罚设置。 */
   | "unconfigured"
   | Readonly<{ action: AdPunishmentAction; newlyBlocked: boolean }>;
 

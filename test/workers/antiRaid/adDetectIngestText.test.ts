@@ -238,7 +238,7 @@ describe("入队时的送检文本整形", () => {
       verdictEvents.push(event);
     };
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: ["SpamStickerPack"],
       emojiBlackList: ["SpamEmojiPack"],
@@ -271,7 +271,7 @@ describe("入队时的送检文本整形", () => {
 
   test("sticker 未命中后检测 emoji_black_list，命中时跳过 AI 检测并直接走 block", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: ["OtherStickerPack"],
       emojiBlackList: ["SpamEmojiPack"],
@@ -312,7 +312,7 @@ describe("入队时的送检文本整形", () => {
 
   test("黑名单均未命中时：纯贴纸不调 AI 并推进水位，含正文的消息继续走 AI 检测", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: ["SpamStickerPack"],
       emojiBlackList: ["SpamEmojiPack"],
@@ -360,7 +360,7 @@ describe("入队时的送检文本整形", () => {
 
   test("已有已判文本上下文时，后续未命中黑名单的纯贴纸或重复引文贴纸不重复触发 AI 分类", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: ["SpamStickerPack"],
       emojiBlackList: ["SpamEmojiPack"],
@@ -397,7 +397,7 @@ describe("入队时的送检文本整形", () => {
 
   test("跨条目自定义表情去重后按 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS 分批查询，后一批命中黑名单同样直接处置", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
@@ -436,7 +436,7 @@ describe("入队时的送检文本整形", () => {
 
   test("查询失败时各批共用 AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES 次重试，预算内恢复则照常核对", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
@@ -461,7 +461,7 @@ describe("入队时的送检文本整形", () => {
 
   test("重试预算用尽后放弃本轮表情核对：记日志、不写缓存、回退 AI 检测", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
@@ -485,7 +485,7 @@ describe("入队时的送检文本整形", () => {
 
   test("重试预算跨批共用：前一批用掉的次数不再归还给后一批", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
@@ -522,7 +522,7 @@ describe("入队时的送检文本整形", () => {
 
   test("进入停机后查询失败不再重试，直接放弃本轮表情核对", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
@@ -542,7 +542,7 @@ describe("入队时的送检文本整形", () => {
 
   test("Bot API 以 4xx 拒绝查询时不重试，直接放弃本轮表情核对", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
@@ -561,7 +561,7 @@ describe("入队时的送检文本整形", () => {
 
   test("自定义表情所属包写入 LRU：已查过的 ID（含无所属包）不再查询，缓存命中黑名单直接处置", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
@@ -611,7 +611,7 @@ describe("入队时的送检文本整形", () => {
 
   test("自定义表情所属包缓存满 AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX 条后淘汰最久未用的 ID", async () => {
     defaultAdDetectConfigCache.current = {
-      punishment: { level: 2, blockScope: "global" },
+      punishment: { kind: "kick", blockScope: "global" },
       samples: [],
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
