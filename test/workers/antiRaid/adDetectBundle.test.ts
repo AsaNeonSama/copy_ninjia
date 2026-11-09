@@ -20,6 +20,8 @@ function entry(seq: number, text: string): AdCandidateEntry {
     directText: text,
     receivedAt: 1_000 + seq,
     withinReferencedWarning: false,
+    stickerSetName: undefined,
+    customEmojiIds: undefined,
     quote: undefined,
     replyTo: undefined,
   };

@@ -172,7 +172,7 @@ Accompanied at runtime by SQLite temporary WAL (`-wal`) and shared memory (`-shm
 - **Backup protocol**: Contains critical security and state data. **Always back up and restore the main database alongside its contemporaneous `-wal` and `-shm` sidecars (when present) as a single indivisible unit**. Never copy the `.sqlite` file in isolation.
 
 ### 7. Ad Samples and AI Usage: `memory/ad-detected/` and `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**: Captured raw messages triggered by the ad detection engine (including timestamp, original text, verdict reasons, and quoted context). Used purely for auditing; automatically rolls over to `sample.<date>[.<seq>].json` upon reaching `AD_SAMPLE_FILE_MAX_BYTES`. Archives are retained for `AD_SAMPLE_ARCHIVE_RETENTION_DAYS`.
+- **`memory/ad-detected/sample.json`**: Captured raw messages triggered by the ad detection engine (including timestamp, original text, verdict reasons, and quoted context; a sticker-only message without text records its sticker pack short name). Used purely for auditing; automatically rolls over to `sample.<date>[.<seq>].json` upon reaching `AD_SAMPLE_FILE_MAX_BYTES`. Archives are retained for `AD_SAMPLE_ARCHIVE_RETENTION_DAYS`.
 - **`memory/ai-daily-usage/usage.json`**: Model token and request counts (contains zero conversation text).
   - **Data structure**: The root `summary` object tracks usage for the most recent completed calendar day (aggregated by capability, provider, and model name); all other keys represent individual unsummarized daily calls.
   - **Capability coverage**: Tracks all capabilities listed in `AGENT_CAPABILITY_NAMES`.

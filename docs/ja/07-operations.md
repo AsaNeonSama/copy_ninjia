@@ -160,7 +160,7 @@ WantedBy=multi-user.target
 - **バックアップ仕様**：機密データを含むため、バックアップ時はメインデータベースと同一時点の WAL/SHM（存在する場合）を不可分の一体として一緒にバックアップ・復元する必要があります。
 
 ### 7. 広告サンプルと AI 利用量：`memory/ad-detected/` と `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**：広告判定に命中した生サンプル記録（時刻、メッセージ本文、判定理由、文脈）。純粋な副次的データであり、`AD_SAMPLE_FILE_MAX_BYTES` に達した時点で自動的に `sample.<日付>[.<連番>].json` にローテーション・アーカイブされ、アーカイブは `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` に従って保持されます。
+- **`memory/ad-detected/sample.json`**：広告判定に命中した生サンプル記録（時刻、メッセージ本文、判定理由、文脈。本文のないステッカーのみのメッセージはステッカーパックの short name を記録）。純粋な副次的データであり、`AD_SAMPLE_FILE_MAX_BYTES` に達した時点で自動的に `sample.<日付>[.<連番>].json` にローテーション・アーカイブされ、アーカイブは `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` に従って保持されます。
 - **`memory/ai-daily-usage/usage.json`**：モデルリクエスト利用量の統計（対話内容は含みません）。
   - **データ構造**：先頭の `summary` は直近の終了済み設定タイムゾーンの暦日利用量集計（機能 / プロバイダ / モデル別に集約）、残りのキーは未集計の個別記録。
   - **対象機能**：`AGENT_CAPABILITY_NAMES` のすべての機能。

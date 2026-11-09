@@ -153,25 +153,14 @@ export function enqueueAdCandidate(
     truncateInline(message.text, AD_DETECT_MESSAGE_MAX_CHARS),
     message.linkUrls
   );
-  const stickerSetName: string | undefined = message.stickerSetName;
-  const customEmojiIds: readonly string[] | undefined =
-    message.customEmojiIds !== undefined && message.customEmojiIds.length > 0
-      ? message.customEmojiIds
-      : undefined;
-  const hasPackCandidate: boolean =
-    stickerSetName !== undefined || customEmojiIds !== undefined;
-  const hasTextOrContext: boolean =
-    textWithLinks.length > 0 || context !== undefined;
   const knownSenderName: string | undefined =
     existing?.meta.firstName === message.firstName && existing.meta.lastName === message.lastName
       ? existing.senderName
       : undefined;
   const senderName: string = message.isChannel ? "" : knownSenderName ?? formatAdSenderName(message);
-  const senderText: string = !hasTextOrContext
-    ? ""
-    : senderName.length === 0
-      ? textWithLinks
-      : textWithLinks.length === 0 ? senderName : `${senderName} ${textWithLinks}`;
+  const senderText: string = senderName.length === 0
+    ? textWithLinks
+    : textWithLinks.length === 0 ? senderName : `${senderName} ${textWithLinks}`;
   const rawText: string = context === undefined
     ? senderText
     : claimSampleContextParts(
@@ -179,17 +168,18 @@ export function enqueueAdCandidate(
       context,
       existing?.entries ?? EMPTY_AD_CANDIDATE_ENTRIES
     );
-  const onlyKnownName: boolean =
-    rawText === senderName &&
-    knownSenderName !== undefined &&
-    hasTextEntry(existing?.entries);
-  const text: string = onlyKnownName ? "" : rawText;
-  const directText: string = !hasTextOrContext || onlyKnownName
+  // 无正文也无引用（纯贴纸），或只剩本串送检文本里已有的姓名时，本条没有可送检文本。
+  const text: string =
+    (textWithLinks.length === 0 && context === undefined) ||
+    (rawText === senderName && knownSenderName !== undefined && hasTextEntry(existing?.entries))
+      ? ""
+      : rawText;
+  const directText: string = text.length === 0
     ? ""
     : message.isForwarded ? senderName : senderText;
   const decision: AdCandidateDecision = admitAdCandidate({
     textLength: text.length,
-    hasPackCandidate,
+    hasPackCandidate: message.stickerSetName !== undefined || message.customEmojiIds !== undefined,
     isChannel: message.isChannel,
     recentlyDisposed,
     blocked: message.blocked,
@@ -230,8 +220,8 @@ export function enqueueAdCandidate(
     receivedAt: now,
     withinReferencedWarning: referencedAdWarningStates.size > 0 &&
       hasActiveReferencedAdWarning(bundle.key, now),
-    stickerSetName,
-    customEmojiIds,
+    stickerSetName: message.stickerSetName,
+    customEmojiIds: message.customEmojiIds,
     quote: context?.quote,
     replyTo: context?.replyTo,
   };

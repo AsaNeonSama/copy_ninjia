@@ -1,5 +1,4 @@
 import { defaultAdSampleConfigCache } from "../cache/perThread/config";
-import { STICKER_PACK_NAME_PATTERN } from "../consts/aiChat/stickers";
 import {
   AD_SAMPLE_CONFIG_KEYS,
   AD_SAMPLE_MAX_CHARS,
@@ -11,46 +10,7 @@ import { invalidInput, readJsonInput } from "../libs/inputValidation";
 import { hasExactKeys, isPlainRecord } from "../libs/record";
 import { sanitizeInline } from "../libs/text";
 import type { AdSampleConfig } from "../types/config";
-
-/**
- * 校验并规范化贴纸包或自定义表情包 short name 黑名单数组（去掉首尾空白、核对格式、去重与上限）。
- * @param entries 原始数组元素列表。
- * @param sourcePath 配置文件路径，用于构造致命错误诊断。
- * @param fieldPath 字段 JSONPath（如 `$.sticker_black_list`）。
- * @returns 规范化并去重后的包名列表。
- */
-function parseAdBlacklistPacks(
-  entries: readonly unknown[],
-  sourcePath: string,
-  fieldPath: string
-): readonly string[] {
-  if (entries.length > MAX_CONFIGURED_AD_BLACKLIST_PACKS) {
-    return invalidInput(
-      sourcePath,
-      fieldPath,
-      `an array with at most ${MAX_CONFIGURED_AD_BLACKLIST_PACKS} entries`
-    );
-  }
-  const packs: string[] = [];
-  const seen: Set<string> = new Set();
-  for (let index: number = 0; index < entries.length; index++) {
-    const entry: unknown = entries[index];
-    const pack: string = typeof entry === "string" ? entry.trim() : "";
-    if (!STICKER_PACK_NAME_PATTERN.test(pack)) {
-      return invalidInput(
-        sourcePath,
-        `${fieldPath}[${index}]`,
-        "a valid Telegram sticker pack short name"
-      );
-    }
-    if (seen.has(pack)) {
-      return invalidInput(sourcePath, `${fieldPath}[${index}]`, "unique");
-    }
-    seen.add(pack);
-    packs.push(pack);
-  }
-  return packs;
-}
+import { parseStickerPackNames } from "./stickerPackNames";
 
 /**
  * 严格解码 ad_data.json：顶层必须精确包含 `samples`、`sticker_black_list` 与 `emoji_black_list`
@@ -114,21 +74,20 @@ export function parseAdSampleConfig(
     samples.push(normalized);
   }
 
-  const stickerBlackList: readonly string[] = parseAdBlacklistPacks(
-    value.sticker_black_list,
-    sourcePath,
-    "$.sticker_black_list"
-  );
-  const emojiBlackList: readonly string[] = parseAdBlacklistPacks(
-    value.emoji_black_list,
-    sourcePath,
-    "$.emoji_black_list"
-  );
-
   return {
     samples,
-    stickerBlackList,
-    emojiBlackList,
+    stickerBlackList: parseStickerPackNames({
+      entries: value.sticker_black_list,
+      sourcePath,
+      fieldPath: "$.sticker_black_list",
+      maxEntries: MAX_CONFIGURED_AD_BLACKLIST_PACKS,
+    }),
+    emojiBlackList: parseStickerPackNames({
+      entries: value.emoji_black_list,
+      sourcePath,
+      fieldPath: "$.emoji_black_list",
+      maxEntries: MAX_CONFIGURED_AD_BLACKLIST_PACKS,
+    }),
   };
 }
 

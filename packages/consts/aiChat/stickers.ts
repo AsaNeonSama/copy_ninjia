@@ -5,7 +5,7 @@ export const STICKER_SET_FAILURE_RETRY_MS: number = 60_000;
 export const MAX_STICKERS_PER_REPLY: number = 1;
 /** 部署配置允许的贴纸包上限，启动预检拒绝超出的配置。 */
 export const MAX_CONFIGURED_STICKER_PACKS: number = 5;
-/** Telegram 贴纸包与自定义表情包 short name 的运行时校验规则（stickers.json、ad_data.json 与入站候选提取共用）。 */
+/** Telegram 贴纸包与自定义表情包 short name 的运行时校验规则。 */
 export const STICKER_PACK_NAME_PATTERN: RegExp = /^[A-Za-z0-9_]{1,64}$/;
 /** 一轮最多查看的不同贴纸包数；同一包由执行侧保证只能查看一次。 */
 export const MAX_STICKER_PACK_VIEWS_PER_REPLY: number = MAX_CONFIGURED_STICKER_PACKS;

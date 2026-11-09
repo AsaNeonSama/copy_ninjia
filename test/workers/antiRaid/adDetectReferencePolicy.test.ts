@@ -158,6 +158,41 @@ describe("引用类广告的警告升级与处置抑制", () => {
     expect(disposeAdSender).toHaveBeenCalledTimes(1);
   });
 
+  test("警告后保留的频道无正文回复按剩余条目重新认领引文，被丢弃条目认领过的引用段回到送检文本", async () => {
+    classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
+      isAd: text.includes("日入过千"),
+      reason: "引用内容引流",
+    }));
+    warnReferencedAdSender.mockImplementationOnce(async (): Promise<TelegramWorkerTemporaryMessageResult> => {
+      // 556 的被引用段已被 1 号认领，入队时只剩被回复原文；本人直发内容为空。
+      enqueueAdCandidate(candidate({
+        senderId: -1005,
+        isChannel: true,
+        messageId: 556,
+        text: "",
+        sampleQuote: "日入过千 加V same",
+        sampleReplyTo: "回复原文",
+      }), 2_000);
+      expect(pendingAdBundle(-1001, -1005)?.entries[1]).toMatchObject({
+        text: "回复原文",
+        directText: "",
+      });
+      return { messageId: 555, sentAt: 3_000 };
+    });
+    enqueueAdCandidate(candidate({
+      senderId: -1005,
+      isChannel: true,
+      text: "第一次",
+      sampleQuote: "日入过千 加V same",
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(warnReferencedAdSender).toHaveBeenCalledTimes(1);
+    expect(pendingAdBundle(-1001, -1005)?.entries.map((entry) => entry.text))
+      .toEqual(["日入过千 加V same 回复原文"]);
+  });
+
   test("公开警告结算后裁剪 pendingDeleteIds，仅保留晚于警告的消息 id 且条目为空时保留消息束", async () => {
     classifyAdText.mockImplementation(async (text: string): Promise<AdVerdict> => ({
       isAd: text.includes("日入过千"),

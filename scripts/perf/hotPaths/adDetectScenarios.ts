@@ -16,6 +16,7 @@ import {
   AD_DETECT_MESSAGE_MAX_CHARS,
   AD_SAMPLE_CONTEXT_MAX_CHARS,
 } from "../../../packages/consts/antiRaid/adDetect";
+import { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } from "../../../packages/consts/telegram";
 import { enqueueAdCandidate } from "../../../packages/workers/antiRaid/adDetect/queue";
 import { clearPendingAdBundles, storeBundle } from "../../../packages/workers/antiRaid/adDetect/queueState";
 import { verificationKey } from "../../../packages/libs/verificationKey";
@@ -70,6 +71,8 @@ function createCapacityBundle(index: number): AdMessageBundle {
       directText: `capacity benchmark message ${messageId}`,
       receivedAt: BENCHMARK_EPOCH_MS,
       withinReferencedWarning: false,
+      stickerSetName: undefined,
+      customEmojiIds: undefined,
       quote: undefined,
       replyTo: undefined,
     }],
@@ -103,7 +106,10 @@ const SATURATED_CANDIDATE: AdCandidateMessage = {
         .slice(0, AD_DETECT_LINK_URL_MAX_CHARS)
   ),
   stickerSetName: "BenchmarkStickerPack",
-  customEmojiIds: ["5368324170671202286"],
+  customEmojiIds: Array.from(
+    { length: TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS },
+    (_unused: unknown, index: number): string => `benchmark-emoji-${index}`
+  ),
   sampleQuote: "引".repeat(AD_SAMPLE_CONTEXT_MAX_CHARS),
   sampleReplyTo: "回".repeat(AD_SAMPLE_CONTEXT_MAX_CHARS),
 };

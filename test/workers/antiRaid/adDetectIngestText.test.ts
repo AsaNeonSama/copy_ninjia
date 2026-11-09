@@ -31,6 +31,8 @@ const {
   AD_DETECT_MAX_MESSAGES_PER_SENDER,
   AD_DETECT_MESSAGE_MAX_CHARS,
   AD_SAMPLE_CONTEXT_MAX_CHARS,
+  adEmojiBlacklistReason,
+  adStickerBlacklistReason,
 } = await import("../../../packages/consts/antiRaid/adDetect");
 const { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } =
   await import("../../../packages/consts/telegram");
@@ -49,6 +51,8 @@ describe("入队时的送检文本整形", () => {
         directText: "第一条",
         receivedAt: 1,
         withinReferencedWarning: false,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
       },
@@ -59,6 +63,8 @@ describe("入队时的送检文本整形", () => {
         directText: "第二条",
         receivedAt: 2,
         withinReferencedWarning: false,
+        stickerSetName: undefined,
+        customEmojiIds: undefined,
         quote: undefined,
         replyTo: undefined,
       },
@@ -228,7 +234,7 @@ describe("入队时的送检文本整形", () => {
     const [{ verdict }] = disposeAdSender.mock.calls[0] as [{ verdict: AdVerdict }];
     expect(verdict).toEqual({
       isAd: true,
-      reason: "命中贴纸黑名单 (SpamStickerPack)",
+      reason: adStickerBlacklistReason("SpamStickerPack"),
     });
     expect(verdictEvents).toEqual([{
       type: "adVerdictTrue",
@@ -273,7 +279,7 @@ describe("入队时的送检文本整形", () => {
     const [{ verdict }] = disposeAdSender.mock.calls[0] as [{ verdict: AdVerdict }];
     expect(verdict).toEqual({
       isAd: true,
-      reason: "命中表情黑名单 (SpamEmojiPack)",
+      reason: adEmojiBlacklistReason("SpamEmojiPack"),
     });
   });
 

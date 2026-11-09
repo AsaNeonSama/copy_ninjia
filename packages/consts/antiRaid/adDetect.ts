@@ -144,6 +144,26 @@ export const AD_SAMPLE_MAX_CHARS: number = 1_024;
 export const AD_DETECT_REASON_MAX_CHARS: number = 80;
 
 /**
+ * 贴纸包黑名单命中时的判定理由；包名来自已校验的 sticker_black_list（不超过 64 字符），
+ * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ * @param pack 命中的贴纸包 short name。
+ * @returns 写进日志、播报与命中样本的判定理由。
+ */
+export function adStickerBlacklistReason(pack: string): string {
+  return `命中贴纸黑名单 (${pack})`;
+}
+
+/**
+ * 自定义表情包黑名单命中时的判定理由；包名来自已校验的 emoji_black_list（不超过 64 字符），
+ * 全文不超过 AD_DETECT_REASON_MAX_CHARS。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ * @param pack 命中的自定义表情包 short name。
+ * @returns 写进日志、播报与命中样本的判定理由。
+ */
+export function adEmojiBlacklistReason(pack: string): string {
+  return `命中表情黑名单 (${pack})`;
+}
+
+/**
  * 随每条消息一起送检并写入命中样本的「被引用段」与「被回复原文」各自的最大字符数
  * （独立于 AD_DETECT_MESSAGE_MAX_CHARS，见 docs/cn/04-invariants.md 与 workers/antiRaid/adDetect/bundle.ts 的 claimSampleContextParts）。
  */

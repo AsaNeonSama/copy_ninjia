@@ -1,8 +1,9 @@
 import { defaultStickerConfigCache } from "../cache/perThread/config";
-import { MAX_CONFIGURED_STICKER_PACKS, STICKER_PACK_NAME_PATTERN } from "../consts/aiChat/stickers";
+import { MAX_CONFIGURED_STICKER_PACKS } from "../consts/aiChat/stickers";
 import { STICKERS_CONFIG_PATH } from "../consts/paths";
 import { hasExactKeys, isPlainRecord } from "../libs/record";
 import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { parseStickerPackNames } from "./stickerPackNames";
 import type { StickerConfig } from "../types/config";
 
 /**
@@ -18,23 +19,14 @@ export function parseStickerConfig(
   if (!isPlainRecord(value) || !hasExactKeys(value, ["packs"]) || !Array.isArray(value.packs)) {
     return invalidInput(sourcePath, "$", "exactly { packs: string[] }");
   }
-  if (value.packs.length > MAX_CONFIGURED_STICKER_PACKS) {
-    return invalidInput(sourcePath, "$.packs", `an array with at most ${MAX_CONFIGURED_STICKER_PACKS} entries`);
-  }
-
-  const packs: string[] = [];
-  const seen: Set<string> = new Set();
-  for (let index: number = 0; index < value.packs.length; index++) {
-    const entry: unknown = value.packs[index];
-    const pack: string = typeof entry === "string" ? entry.trim() : "";
-    if (!STICKER_PACK_NAME_PATTERN.test(pack)) {
-      return invalidInput(sourcePath, `$.packs[${index}]`, "a valid Telegram sticker pack short name");
-    }
-    if (seen.has(pack)) return invalidInput(sourcePath, `$.packs[${index}]`, "unique");
-    seen.add(pack);
-    packs.push(pack);
-  }
-  return { packs };
+  return {
+    packs: parseStickerPackNames({
+      entries: value.packs,
+      sourcePath,
+      fieldPath: "$.packs",
+      maxEntries: MAX_CONFIGURED_STICKER_PACKS,
+    }),
+  };
 }
 
 /**

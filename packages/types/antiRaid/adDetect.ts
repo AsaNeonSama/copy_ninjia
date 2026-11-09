@@ -128,7 +128,10 @@ export interface ClearAdDetectMessage {
 /** 命中样本里的一条消息：判定读到的内容，以及单独保留的引用上下文。 */
 export interface AdSampleMessage extends AdSampleContext {
   messageId: number;
-  /** 送检时的内容（当次用户姓名、已截断正文与 text_link 落地页），与模型读到的完全一致。 */
+  /**
+   * 送检时的内容（当次用户姓名、已截断正文与 text_link 落地页），与模型读到的完全一致；
+   * 没有送检文本的纯贴纸条目记其贴纸包 short name。
+   */
   text: string;
 }
 
@@ -166,10 +169,10 @@ export interface AdCandidateEntry extends AdSampleContext {
    * 处理墙钟重新推断。
    */
   withinReferencedWarning: boolean;
-  /** 本条消息携带的贴纸所属贴纸包 short name；用于贴纸黑名单快路径检测。 */
-  stickerSetName?: string | undefined;
-  /** 本条消息携带的自定义表情 ID 去重列表；用于自定义表情包黑名单检测。 */
-  customEmojiIds?: readonly string[] | undefined;
+  /** 本条消息携带的贴纸所属贴纸包 short name；用于贴纸黑名单快路径检测，没有时为 undefined，键恒写。 */
+  stickerSetName: string | undefined;
+  /** 本条消息携带的自定义表情 ID 去重列表；用于自定义表情包黑名单检测，没有时为 undefined，键恒写。 */
+  customEmojiIds: readonly string[] | undefined;
 }
 
 /** 每个群内发送者的引用广告警告阶段。 */

@@ -479,8 +479,8 @@ done
 | 键名 | 类型 | 必填/可选 | 约束与取值范围 | 说明 |
 | --- | --- | --- | --- | --- |
 | `samples` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_SAMPLES`，元素互不重复 | 广告正例文本样本数组。每条样本的连续空白压成单个空格并去掉首尾空白后必须非空且长度 `≤ AD_SAMPLE_MAX_CHARS` 个字符，判重按该规范化结果。使用 `provider: "google"` 时，系统会自动将这些样本构建为 Gemini 显式上下文缓存，剩余存活时长低于 `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` 时后台续期 |
-| `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并执行封禁处置 |
-| `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并执行封禁处置 |
+| `sticker_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 贴纸包 short name 黑名单（即 `https://t.me/addstickers/<short_name>` 末尾段）。非豁免发送者发送所属贴纸包命中该列表的贴纸时，直接跳过后续检测并执行封禁处置 |
+| `emoji_black_list` | `string[]` | **必填** | 数组长度 `0 ～ MAX_CONFIGURED_AD_BLACKLIST_PACKS`，元素去掉首尾空白后符合 `STICKER_PACK_NAME_PATTERN` 且互不重复 | 自定义表情包 short name 黑名单（即 `https://t.me/addemoji/<short_name>` 末尾段）。非豁免发送者消息含 `custom_emoji` 实体时，经主线程统一 Telegram 出站查询所属表情包，命中该列表时直接跳过 AI 检测并执行封禁处置 |
 
 ---
 

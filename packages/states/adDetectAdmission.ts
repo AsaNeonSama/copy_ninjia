@@ -26,7 +26,7 @@ export function isKnownAdminCandidate(isChannel: boolean, knownAdmin: boolean): 
  * @returns 投递准入决策（accept / ignore / deleteStraggler）。
  */
 export function admitAdCandidate(input: AdCandidateAdmissionInput): AdCandidateDecision {
-  if (input.textLength === 0 && input.hasPackCandidate !== true) return "ignore";
+  if (input.textLength === 0 && !input.hasPackCandidate) return "ignore";
   if (input.blocked || input.recentlyDisposed) {
     return input.isChannel ? "deleteStraggler" : "ignore";
   }

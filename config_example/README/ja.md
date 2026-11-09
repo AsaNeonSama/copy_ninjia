@@ -479,8 +479,8 @@ Bot は `config/dynamic/` ディレクトリを常時監視しています。デ
 | フィールド名 | 型 | 必須/任意 | 制約および値の範囲 | 説明 |
 | --- | --- | --- | --- | --- |
 | `samples` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_SAMPLES`、重複不可 | 広告正例サンプル文字列配列。各サンプルは連続する空白を 1 つのスペースにまとめ前後の空白を除いた後に非空かつ `≤ AD_SAMPLE_MAX_CHARS` 文字で、重複判定もこの正規化結果で行います。`provider: "google"` の場合、Gemini 明示的コンテキストキャッシュが自動構築され、残りの存続時間が `GEMINI_CONTEXT_CACHE_RENEW_BEFORE_MS` を下回るとバックグラウンドで延長されます |
-| `sticker_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、`STICKER_PACK_NAME_PATTERN` に一致し重複不可 | ステッカーパック short name ブラックリスト（`https://t.me/addstickers/<short_name>` の末尾部分）。免除対象外の送信者がこのリストに含まれるパックのステッカーを送信した場合、後続の判定をスキップして即座にブロック処分を実行します |
-| `emoji_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、`STICKER_PACK_NAME_PATTERN` に一致し重複不可 | カスタム絵文字パック short name ブラックリスト（`https://t.me/addemoji/<short_name>` の末尾部分）。免除対象外の送信者のメッセージに `custom_emoji` エンティティが含まれる場合、メインスレッドの統一 Telegram 送信境界経由で所属パックを照会し、一致した場合は AI 判定をスキップして即座にブロック処分を実行します |
+| `sticker_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | ステッカーパック short name ブラックリスト（`https://t.me/addstickers/<short_name>` の末尾部分）。免除対象外の送信者がこのリストに含まれるパックのステッカーを送信した場合、後続の判定をスキップして即座にブロック処分を実行します |
+| `emoji_black_list` | `string[]` | **必須** | 配列長 `0 〜 MAX_CONFIGURED_AD_BLACKLIST_PACKS`、要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可 | カスタム絵文字パック short name ブラックリスト（`https://t.me/addemoji/<short_name>` の末尾部分）。免除対象外の送信者のメッセージに `custom_emoji` エンティティが含まれる場合、メインスレッドの統一 Telegram 送信境界経由で所属パックを照会し、一致した場合は AI 判定をスキップして即座にブロック処分を実行します |
 
 ---
 

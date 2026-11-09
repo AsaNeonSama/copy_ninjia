@@ -22,6 +22,7 @@ import type {
 
 const CANDIDATE: AdCandidateAdmissionInput = {
   textLength: 10,
+  hasPackCandidate: false,
   isChannel: false,
   recentlyDisposed: false,
   blocked: false,
@@ -53,6 +54,10 @@ describe("投递闸 admitAdCandidate", () => {
     expect(admitAdCandidate({ ...CANDIDATE, textLength: 0 })).toBe("ignore");
   });
 
+  test("无正文但带贴纸包名或自定义表情 ID 时接纳，交给黑名单核对", () => {
+    expect(admitAdCandidate({ ...CANDIDATE, textLength: 0, hasPackCandidate: true })).toBe("accept");
+  });
+
   test("自身 TTL 内刚处置过：普通账号忽略，频道马甲要顺手删这一条", () => {
     // banChatSenderChat 没有 revoke_messages：跨线程空档里频道新发的广告不会被那次封禁带走，也没有第二次判定来删它。
     expect(admitAdCandidate({ ...CANDIDATE, recentlyDisposed: true })).toBe("ignore");
@@ -61,8 +66,19 @@ describe("投递闸 admitAdCandidate", () => {
   });
 
   test("空正文优先于其余判据：连删都不必删", () => {
-    expect(admitAdCandidate({ textLength: 0, isChannel: true, recentlyDisposed: true, blocked: false }))
-      .toBe("ignore");
+    expect(admitAdCandidate({
+      textLength: 0,
+      hasPackCandidate: false,
+      isChannel: true,
+      recentlyDisposed: true,
+      blocked: false,
+    })).toBe("ignore");
+  });
+
+  test("无正文的贴纸候选同样走黑名单与处置抑制：普通账号忽略，频道马甲删这一条", () => {
+    const sticker: AdCandidateAdmissionInput = { ...CANDIDATE, textLength: 0, hasPackCandidate: true };
+    expect(admitAdCandidate({ ...sticker, blocked: true })).toBe("ignore");
+    expect(admitAdCandidate({ ...sticker, blocked: true, isChannel: true })).toBe("deleteStraggler");
   });
 });
 

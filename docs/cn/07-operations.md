@@ -168,7 +168,7 @@ WantedBy=multi-user.target
 - **备份规范**：包含敏感数据与核心权限。备份时**必须把主数据库文件与同一时刻的 `-wal`、`-shm` 文件（存在时）作为一个不可分割的整体一同备份与恢复**，绝不能只拷贝单独的 `.sqlite` 文件。
 
 ### 7. 广告样本与 AI 用量：`memory/ad-detected/` 与 `memory/ai-daily-usage/`
-- **`memory/ad-detected/sample.json`**：被广告拦截引擎命中的原始消息样本（包括触发时间、消息原文、命中原因及上下文）。此数据纯属旁路分析审计用途；当文件大小达到 `AD_SAMPLE_FILE_MAX_BYTES` 时会自动归档切分为 `sample.<日期>[.<序号>].json`，历史归档按 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 保留指定天数后自动清理。
+- **`memory/ad-detected/sample.json`**：被广告拦截引擎命中的原始消息样本（包括触发时间、消息原文、命中原因及上下文；无正文的纯贴纸消息记其贴纸包 short name）。此数据纯属旁路分析审计用途；当文件大小达到 `AD_SAMPLE_FILE_MAX_BYTES` 时会自动归档切分为 `sample.<日期>[.<序号>].json`，历史归档按 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 保留指定天数后自动清理。
 - **`memory/ai-daily-usage/usage.json`**：AI 模型调用的 Token 与请求量统计（不含任何用户对话正文）。
   - **数据结构**：最顶部的 `summary` 对象保存最近一个已结束自然日的用量汇总（按能力、供应商、模型名称分组归纳），其余键值为当天尚未汇总的实时逐条调用统计。
   - **覆盖能力范围**：全面覆盖 `AGENT_CAPABILITY_NAMES` 中定义的所有能力维度。

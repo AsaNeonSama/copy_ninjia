@@ -17,7 +17,6 @@ import { getAdSampleConfig } from "../../../config/adSamples";
 import { deleteMessage, telegramApi } from "../../../infra/telegram";
 import { isChatAdmin } from "../adminCache";
 import { logger } from "../../../infra/logger";
-import { truncateInline } from "../../../libs/text";
 import {
   adVerdictTruePublishHolder,
   adDetectStopping,
@@ -26,8 +25,9 @@ import {
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
 import {
-  AD_DETECT_REASON_MAX_CHARS,
   AD_REFERENCE_WARNING_WINDOW_MS,
+  adEmojiBlacklistReason,
+  adStickerBlacklistReason,
 } from "../../../consts/antiRaid/adDetect";
 import { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } from "../../../consts/telegram";
 import {
@@ -53,6 +53,7 @@ import type {
   AdMessageBundle,
   AdVerdict,
 } from "../../../types/antiRaid/adDetect";
+import type { AdSampleConfig } from "../../../types/config";
 import type {
   TelegramWorkerTemporaryMessageResult,
   TelegramWorkerTemporaryMessageSentResult,
@@ -81,20 +82,20 @@ type AdDetectionOutcome =
  *
  * @param bundle 待检消息束。
  * @param judged 本次送检入选的条目快照。
+ * @param stickerBlackList 贴纸包黑名单。
  * @returns 命中的贴纸包 short name；未命中时返回 `undefined`。
  */
 function matchBlacklistedStickerSet(
   bundle: AdMessageBundle,
-  judged: readonly AdCandidateEntry[]
+  judged: readonly AdCandidateEntry[],
+  stickerBlackList: readonly string[]
 ): string | undefined {
-  let stickerBlackList: readonly string[] | undefined;
   for (const entry of judged) {
-    if (entry.seq <= bundle.checkedSeq) continue;
-    const setName: string | undefined = entry.stickerSetName;
-    if (setName === undefined) continue;
-    stickerBlackList ??= getAdSampleConfig().stickerBlackList;
-    if (stickerBlackList.length === 0) return undefined;
-    if (stickerBlackList.includes(setName)) return setName;
+    if (
+      entry.seq > bundle.checkedSeq &&
+      entry.stickerSetName !== undefined &&
+      stickerBlackList.includes(entry.stickerSetName)
+    ) return entry.stickerSetName;
   }
   return undefined;
 }
@@ -112,10 +113,8 @@ function collectUncheckedCustomEmojiIds(
 ): string[] | undefined {
   let customEmojiIds: string[] | undefined;
   for (const entry of judged) {
-    if (entry.seq <= bundle.checkedSeq) continue;
-    const ids: readonly string[] | undefined = entry.customEmojiIds;
-    if (ids === undefined || ids.length === 0) continue;
-    for (const id of ids) {
+    if (entry.seq <= bundle.checkedSeq || entry.customEmojiIds === undefined) continue;
+    for (const id of entry.customEmojiIds) {
       if ((customEmojiIds?.length ?? 0) >= TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS) {
         return customEmojiIds;
       }
@@ -143,9 +142,8 @@ async function queryBlacklistedCustomEmojiSet(
   try {
     const stickers: readonly Sticker[] = await telegramApi.getCustomEmojiStickers(customEmojiIds);
     for (const sticker of stickers) {
-      const setName: string | undefined = sticker.set_name?.trim();
-      if (setName !== undefined && setName.length > 0 && emojiBlackList.includes(setName)) {
-        return setName;
+      if (sticker.set_name !== undefined && emojiBlackList.includes(sticker.set_name)) {
+        return sticker.set_name;
       }
     }
     return undefined;
@@ -189,40 +187,33 @@ async function classifyAdBundle(
 ): Promise<AdDetectionOutcome> {
   let combinedVerdict: AdVerdict | null;
   try {
-    const matchedStickerSet: string | undefined = matchBlacklistedStickerSet(bundle, judged);
+    const { stickerBlackList, emojiBlackList }: AdSampleConfig = getAdSampleConfig();
+    const matchedStickerSet: string | undefined =
+      matchBlacklistedStickerSet(bundle, judged, stickerBlackList);
     if (matchedStickerSet !== undefined) {
       return {
         kind: "directAd",
-        verdict: {
-          isAd: true,
-          reason: truncateInline(`命中贴纸黑名单 (${matchedStickerSet})`, AD_DETECT_REASON_MAX_CHARS),
-        },
+        verdict: { isAd: true, reason: adStickerBlacklistReason(matchedStickerSet) },
       };
     }
 
-    const customEmojiIds: string[] | undefined = collectUncheckedCustomEmojiIds(bundle, judged);
+    const customEmojiIds: string[] | undefined = emojiBlackList.length === 0
+      ? undefined
+      : collectUncheckedCustomEmojiIds(bundle, judged);
     if (customEmojiIds !== undefined) {
-      const emojiBlackList: readonly string[] = getAdSampleConfig().emojiBlackList;
-      if (emojiBlackList.length > 0) {
-        const matchedEmojiSet: string | undefined =
-          await queryBlacklistedCustomEmojiSet(bundle, customEmojiIds, emojiBlackList);
-        if (matchedEmojiSet !== undefined) {
-          return {
-            kind: "directAd",
-            verdict: {
-              isAd: true,
-              reason: truncateInline(`命中表情黑名单 (${matchedEmojiSet})`, AD_DETECT_REASON_MAX_CHARS),
-            },
-          };
-        }
+      const matchedEmojiSet: string | undefined =
+        await queryBlacklistedCustomEmojiSet(bundle, customEmojiIds, emojiBlackList);
+      if (matchedEmojiSet !== undefined) {
+        return {
+          kind: "directAd",
+          verdict: { isAd: true, reason: adEmojiBlacklistReason(matchedEmojiSet) },
+        };
       }
     }
 
     if (!hasUncheckedAdText(bundle, judged)) return { kind: "notAd" };
-    const bundleText: string = formatAdBundleText(judged);
-
     combinedVerdict = await classifyAdText({
-      text: bundleText,
+      text: formatAdBundleText(judged),
       justJoined: bundle.justJoined,
     });
   } catch (error: unknown) {
@@ -291,7 +282,7 @@ function retainPostWarningContent(
   for (const entry of bundle.entries) {
     if (entry.messageId <= warning.messageId) continue;
     if (
-      entry.directText.length > 0 &&
+      entry.text.length > 0 &&
       (entry.quote !== undefined || entry.replyTo !== undefined)
     ) {
       entry.text = claimSampleContextParts(
