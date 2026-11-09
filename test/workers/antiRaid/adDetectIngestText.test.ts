@@ -22,6 +22,7 @@ const {
 const { formatAdBundleText } = await import("../../../packages/workers/antiRaid/adDetect/bundle");
 const {
   adDetectQueue,
+  adDetectStopping,
   adVerdictTruePublishHolder,
   customEmojiSetNames,
 } = await import("../../../packages/cache/workers/antiRaid/adDetect");
@@ -473,6 +474,61 @@ describe("入队时的送检文本整形", () => {
     expect(customEmojiSetNames.size).toBe(0);
     expect(classifyAdText).toHaveBeenCalledTimes(1);
     expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(1);
+  });
+
+  test("重试预算跨批共用：前一批用掉的次数不再归还给后一批", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    const firstBatchFailures: number = AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES - 1;
+    const outcomes: ("fail" | "ok")[] = [
+      ...Array.from({ length: firstBatchFailures }, (): "fail" => "fail"),
+      "ok",
+      "fail",
+      "fail",
+    ];
+    getCustomEmojiStickers.mockImplementation(async (ids: readonly string[]): Promise<Sticker[]> => {
+      if (outcomes.shift() === "fail") throw new Error("network timeout");
+      return ids.map((id: string): Sticker => emojiSticker(id, "CleanEmojiPack"));
+    });
+    enqueueAdCandidate(candidate({
+      text: "第一条",
+      customEmojiIds: Array.from(
+        { length: TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS + 1 },
+        (_unused: unknown, index: number): string => `emoji-${index}`
+      ),
+    }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    // 第一批失败 firstBatchFailures 次后成功；第二批用掉剩下的 1 次重试后再失败即放弃。
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(firstBatchFailures + 1 + 2);
+    expect(errorLogs.some((line: string): boolean =>
+      line.includes(`(${AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES} retries used)`)
+    )).toBe(true);
+    expect(customEmojiSetNames.size).toBe(TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
+  });
+
+  test("进入停机后查询失败不再重试，直接放弃本轮表情核对", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => {
+      adDetectStopping.current = true;
+      throw new Error("worker channel closed");
+    });
+    enqueueAdCandidate(candidate({ text: "第一条", customEmojiIds: ["emoji-spam"] }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
+    expect(errorLogs.some((line: string): boolean => line.includes("(0 retries used)"))).toBe(true);
+    expect(disposeAdSender).not.toHaveBeenCalled();
   });
 
   test("Bot API 以 4xx 拒绝查询时不重试，直接放弃本轮表情核对", async () => {

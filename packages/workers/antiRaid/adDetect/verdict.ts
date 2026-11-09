@@ -156,10 +156,11 @@ async function queryBlacklistedCustomEmojiSet(
     start += TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS
   ) {
     const batch: string[] = customEmojiIds.slice(start, start + TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
-    let stickers: readonly Sticker[] | undefined;
-    while (stickers === undefined) {
+    let stickers: readonly Sticker[];
+    for (;;) {
       try {
         stickers = await telegramApi.getCustomEmojiStickers(batch);
+        break;
       } catch (error: unknown) {
         if (retriesLeft === 0 || isTelegramRequestRejected(error) || adDetectStopping.current) {
           logger.error(
