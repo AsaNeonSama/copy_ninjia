@@ -15,6 +15,7 @@ import {
   adDetectQueue,
   adDetectStopping,
   adDetectTickTimer,
+  customEmojiSetNames,
   inFlightAdDetectKeys,
   inFlightReferencedAdCleanupTasks,
   pendingAdMessages,
@@ -364,6 +365,7 @@ export function stopAdDetectQueue(): void {
   adDetectQueue.clear();
   queuedAdDetectKeys.clear();
   recentlyDisposedAdKeys.clear();
+  customEmojiSetNames.clear();
   resetReferencedAdWarnings();
   clearPendingAdBundles();
   inFlightAdDetectKeys.clear();

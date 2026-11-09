@@ -20,6 +20,7 @@ import { logger } from "../../../infra/logger";
 import {
   adVerdictTruePublishHolder,
   adDetectStopping,
+  customEmojiSetNames,
   inFlightAdDetectKeys,
   recentlyDisposedAdKeys,
   referencedAdWarningStates,
@@ -101,33 +102,43 @@ function matchBlacklistedStickerSet(
 }
 
 /**
- * 收集本次未检条目中去重后的自定义表情 ID（上限 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS）。
+ * 核对本次未检条目的自定义表情是否属于黑名单表情包：已在 customEmojiSetNames 的 ID 直接比对，
+ * 其余 ID 去重后（上限 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS）经 queryBlacklistedCustomEmojiSet 查询。
  *
  * @param bundle 待检消息束。
  * @param judged 本次送检入选的条目快照。
- * @returns 去重后的自定义表情 ID 列表；无自定义表情时返回 `undefined`。
+ * @param emojiBlackList 非空的自定义表情包黑名单。
+ * @returns 命中的自定义表情包 short name；未命中或查询失败时返回 `undefined`。
  */
-function collectUncheckedCustomEmojiIds(
+async function matchBlacklistedCustomEmojiSet(
   bundle: AdMessageBundle,
-  judged: readonly AdCandidateEntry[]
-): string[] | undefined {
-  let customEmojiIds: string[] | undefined;
+  judged: readonly AdCandidateEntry[],
+  emojiBlackList: readonly string[]
+): Promise<string | undefined> {
+  let uncachedIds: string[] | undefined;
   for (const entry of judged) {
     if (entry.seq <= bundle.checkedSeq || entry.customEmojiIds === undefined) continue;
     for (const id of entry.customEmojiIds) {
-      if ((customEmojiIds?.length ?? 0) >= TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS) {
-        return customEmojiIds;
+      const setName: string | null | undefined = customEmojiSetNames.get(id);
+      if (setName !== undefined) {
+        if (setName !== null && emojiBlackList.includes(setName)) return setName;
+        continue;
       }
-      if (customEmojiIds?.includes(id) === true) continue;
-      customEmojiIds ??= [];
-      customEmojiIds.push(id);
+      if (
+        (uncachedIds?.length ?? 0) >= TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS ||
+        uncachedIds?.includes(id) === true
+      ) continue;
+      uncachedIds ??= [];
+      uncachedIds.push(id);
     }
   }
-  return customEmojiIds;
+  if (uncachedIds === undefined) return undefined;
+  return await queryBlacklistedCustomEmojiSet(bundle, uncachedIds, emojiBlackList);
 }
 
 /**
- * 经主线程统一 Telegram 出站查询自定义表情所属表情包是否命中黑名单。
+ * 经主线程统一 Telegram 出站查询自定义表情所属表情包，把返回的每个贴纸写入 customEmojiSetNames，
+ * 再比对黑名单。
  *
  * @param bundle 待检消息束。
  * @param customEmojiIds 待查询的自定义表情 ID 列表（不超过 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS）。
@@ -141,12 +152,13 @@ async function queryBlacklistedCustomEmojiSet(
 ): Promise<string | undefined> {
   try {
     const stickers: readonly Sticker[] = await telegramApi.getCustomEmojiStickers(customEmojiIds);
+    let matched: string | undefined;
     for (const sticker of stickers) {
-      if (sticker.set_name !== undefined && emojiBlackList.includes(sticker.set_name)) {
-        return sticker.set_name;
-      }
+      const setName: string | null = sticker.set_name ?? null;
+      if (sticker.custom_emoji_id !== undefined) customEmojiSetNames.set(sticker.custom_emoji_id, setName);
+      if (matched === undefined && setName !== null && emojiBlackList.includes(setName)) matched = setName;
     }
-    return undefined;
+    return matched;
   } catch (error: unknown) {
     logger.error(
       `Ad detection failed to query custom emoji stickers for sender ${bundle.senderId} ` +
@@ -197,18 +209,14 @@ async function classifyAdBundle(
       };
     }
 
-    const customEmojiIds: string[] | undefined = emojiBlackList.length === 0
+    const matchedEmojiSet: string | undefined = emojiBlackList.length === 0
       ? undefined
-      : collectUncheckedCustomEmojiIds(bundle, judged);
-    if (customEmojiIds !== undefined) {
-      const matchedEmojiSet: string | undefined =
-        await queryBlacklistedCustomEmojiSet(bundle, customEmojiIds, emojiBlackList);
-      if (matchedEmojiSet !== undefined) {
-        return {
-          kind: "directAd",
-          verdict: { isAd: true, reason: adEmojiBlacklistReason(matchedEmojiSet) },
-        };
-      }
+      : await matchBlacklistedCustomEmojiSet(bundle, judged, emojiBlackList);
+    if (matchedEmojiSet !== undefined) {
+      return {
+        kind: "directAd",
+        verdict: { isAd: true, reason: adEmojiBlacklistReason(matchedEmojiSet) },
+      };
     }
 
     if (!hasUncheckedAdText(bundle, judged)) return { kind: "notAd" };

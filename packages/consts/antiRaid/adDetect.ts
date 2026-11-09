@@ -137,6 +137,12 @@ export const MAX_CONFIGURED_AD_SAMPLES: number = 500;
 /** config/dynamic/ad_data.json 的 sticker_black_list 与 emoji_black_list 各自允许的最大条数。所属模块：config/adSamples.ts。 */
 export const MAX_CONFIGURED_AD_BLACKLIST_PACKS: number = 500;
 
+/**
+ * 自定义表情 ID -> 所属表情包 short name 的 LRU 缓存容量；按表情 ID 计数，同一表情包的多个表情各占一条。
+ * 所属模块：cache/workers/antiRaid/adDetect.ts。
+ */
+export const AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX: number = 4_096;
+
 /** 单条广告示例允许的最大字符数。 */
 export const AD_SAMPLE_MAX_CHARS: number = 1_024;
 

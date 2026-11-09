@@ -22,6 +22,7 @@ const { formatAdBundleText } = await import("../../../packages/workers/antiRaid/
 const {
   adDetectQueue,
   adVerdictTruePublishHolder,
+  customEmojiSetNames,
 } = await import("../../../packages/cache/workers/antiRaid/adDetect");
 const {
   AD_DETECT_BUNDLE_MAX_CHARS,
@@ -30,6 +31,7 @@ const {
   AD_DETECT_MAX_LINK_URLS,
   AD_DETECT_MAX_MESSAGES_PER_SENDER,
   AD_DETECT_MESSAGE_MAX_CHARS,
+  AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX,
   AD_SAMPLE_CONTEXT_MAX_CHARS,
   adEmojiBlacklistReason,
   adStickerBlacklistReason,
@@ -398,5 +400,99 @@ describe("入队时的送检文本整形", () => {
     expect(queriedIds.at(-1)).toBe("emoji-tail-1");
     expect(errorLogs.some((line: string): boolean => line.includes("failed to query custom emoji stickers"))).toBe(true);
     expect(classifyAdText).toHaveBeenCalledTimes(1);
+    expect(customEmojiSetNames.size).toBe(0);
+  });
+
+  test("自定义表情所属包写入 LRU：已查过的 ID（含无所属包）不再查询，缓存命中黑名单直接处置", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    const emojiSticker = (id: string, setName: string | undefined): Sticker => ({
+      file_id: `f-${id}`,
+      file_unique_id: `u-${id}`,
+      type: "custom_emoji",
+      width: 100,
+      height: 100,
+      is_animated: false,
+      is_video: false,
+      custom_emoji_id: id,
+      set_name: setName,
+    });
+    getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => [
+      emojiSticker("emoji-clean", "CleanEmojiPack"),
+      emojiSticker("emoji-loose", undefined),
+    ]);
+    enqueueAdCandidate(candidate({
+      messageId: 1,
+      text: "🙂🙂",
+      customEmojiIds: ["emoji-clean", "emoji-loose"],
+    }), 1_000);
+    await runAdDetectBatch(1_000);
+    expect(customEmojiSetNames.peek("emoji-clean")).toBe("CleanEmojiPack");
+    expect(customEmojiSetNames.peek("emoji-loose")).toBeNull();
+
+    getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => [
+      emojiSticker("emoji-spam", "SpamEmojiPack"),
+    ]);
+    enqueueAdCandidate(candidate({
+      messageId: 2,
+      text: "🙂🙂🔥",
+      customEmojiIds: ["emoji-clean", "emoji-loose", "emoji-spam"],
+    }), 1_100);
+    await runAdDetectBatch(1_100);
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(2);
+    expect(getCustomEmojiStickers.mock.calls[1]).toEqual([["emoji-spam"]]);
+    expect(disposeAdSender).toHaveBeenCalledTimes(1);
+
+    enqueueAdCandidate(candidate({
+      senderId: 8,
+      messageId: 3,
+      text: "🔥",
+      customEmojiIds: ["emoji-spam"],
+    }), 1_200);
+    await runAdDetectBatch(1_200);
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(2);
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
+    expect(disposeAdSender).toHaveBeenCalledTimes(2);
+    const [{ verdict }] = disposeAdSender.mock.calls[1] as [{ verdict: AdVerdict }];
+    expect(verdict).toEqual({ isAd: true, reason: adEmojiBlacklistReason("SpamEmojiPack") });
+
+    stopAdDetectQueue();
+    expect(customEmojiSetNames.size).toBe(0);
+  });
+
+  test("自定义表情所属包缓存满 AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX 条后淘汰最久未用的 ID", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    getCustomEmojiStickers.mockImplementation(async (ids: readonly string[]): Promise<Sticker[]> =>
+      ids.map((id: string): Sticker => ({
+        file_id: `f-${id}`,
+        file_unique_id: `u-${id}`,
+        type: "custom_emoji",
+        width: 100,
+        height: 100,
+        is_animated: false,
+        is_video: false,
+        custom_emoji_id: id,
+        set_name: "CleanEmojiPack",
+      })));
+    for (let index: number = 0; index <= AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX; index++) {
+      enqueueAdCandidate(candidate({
+        senderId: 100 + index,
+        messageId: index + 1,
+        text: "🙂",
+        customEmojiIds: [`emoji-${index}`],
+      }), 1_000);
+    }
+    while (adDetectQueue.size > 0) await runAdDetectBatch(1_000);
+
+    expect(customEmojiSetNames.size).toBe(AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX);
+    expect(customEmojiSetNames.has("emoji-0")).toBe(false);
+    expect(customEmojiSetNames.has(`emoji-${AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX}`)).toBe(true);
   });
 });
