@@ -190,7 +190,7 @@ config/
   - 配置 AI 心情轮换挡位（`moods` 数组）。每项包含 `name`（心情名称）、`weight`（抽取权重）与 `instruction`（注入模型的行为指示），可选配置天气与时段权重加成。
 
 - **`config/dynamic/ad_data.json`**（参考 [示例](../../config_example/dynamic/ad_data.json)）
-  - 广告检测配置对象，包含 `samples`（提供给广告检测模型的少样本参考集）、`sticker_black_list`（贴纸包 short name 黑名单，作为快路径命中直接走封禁）与 `emoji_black_list`（自定义表情包 short name 黑名单，命中直接跳过 AI 检测并走封禁）。
+  - 广告检测配置对象：`samples`（广告检测模型的少样本参考集；空白规范化并去掉首尾空白后非空，最长 `AD_SAMPLE_MAX_CHARS` 字符，互不重复，最多 `MAX_CONFIGURED_AD_SAMPLES` 条）、`sticker_black_list`（贴纸包 short name 黑名单，作为快路径最先核对）与 `emoji_black_list`（自定义表情包 short name 黑名单，在 AI 判定前核对）。黑名单元素去掉首尾空白后须符合 `STICKER_PACK_NAME_PATTERN` 且互不重复，每份最多 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 条；命中即跳过 AI 判定直接封禁。
 
 - **`config/dynamic/agent.json`**（参考 [示例](../../config_example/dynamic/agent.json)）
   - 配置 AI 系统的各项模型能力，顶层为 `agent` 对象。每项能力独立配置，各自声明 provider、api_key、model 及端点，能力之间不设自动回退：

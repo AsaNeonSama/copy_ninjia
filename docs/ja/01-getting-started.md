@@ -189,7 +189,7 @@ config/
   - AI の感情ステータス配列 `moods` を定義します。各項目は `name`、`weight`、`instruction` を含み、必要に応じて `weatherMultipliers` や `timeMultipliers` を設定できます。名前の重複は不可、重みは正の整数であり、全要素の合計値が厳密に `MOOD_WEIGHT_TOTAL` と一致する必要があります。
 
 - **`config/dynamic/ad_data.json`**（[サンプル](../../config_example/dynamic/ad_data.json)）
-  - 広告検出設定オブジェクトを定義します：`samples`（広告検出モデルの判定用参照サンプル文字列配列。空白正規化・トリム後に非空、最大 `AD_SAMPLE_MAX_CHARS` 文字、重複不可、最大 `MAX_CONFIGURED_AD_SAMPLES` 件）、`sticker_black_list`（ステッカーパック short name ブラックリスト、高速経路として最初に照合）、および `emoji_black_list`（カスタム絵文字パック short name ブラックリスト、AI 判定前に照合；いずれも最大 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 件、一致時は AI 判定をスキップして即座にブロック処分）。
+  - 広告検出設定オブジェクトを定義します：`samples`（広告検出モデルの判定用参照サンプル文字列配列。空白正規化・トリム後に非空、最大 `AD_SAMPLE_MAX_CHARS` 文字、重複不可、最大 `MAX_CONFIGURED_AD_SAMPLES` 件）、`sticker_black_list`（ステッカーパック short name ブラックリスト、高速経路として最初に照合）、および `emoji_black_list`（カスタム絵文字パック short name ブラックリスト、AI 判定前に照合）。ブラックリストの要素は前後の空白を除いて `STICKER_PACK_NAME_PATTERN` に一致し重複不可、各リスト最大 `MAX_CONFIGURED_AD_BLACKLIST_PACKS` 件で、一致時は AI 判定をスキップして即座にブロック処分します。
 
 - **`config/dynamic/agent.json`**（[サンプル](../../config_example/dynamic/agent.json)）
   - AI システムの各機能を定義します。トップレベルキーは `agent` のみです。各機能は独立して設定され、機能間での自動フォールバックは行われません。未知のキーが存在する場合は起動を拒否します：
