@@ -17,6 +17,6 @@ export function resolveAdPunishmentAction(
 ): AdPunishmentAction {
   if (punishment.kind === "kick" && punishment.blockScope === "global") return { kind: "blockGlobal" };
   if (isChannel) return { kind: "deleteOnly" };
-  if (punishment.kind === "mute") return { kind: "mute", durationMs: punishment.durationMs };
+  if (punishment.kind === "mute") return punishment;
   return punishment.blockScope === "chat" ? { kind: "banChat" } : { kind: "kick" };
 }

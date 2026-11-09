@@ -45,10 +45,13 @@ import type { AdDetectPunishment } from "../types/config";
 import type { RemoveBlockedMembersParams } from "../types/blocklist";
 import type { AdSampleDiskMessage } from "../types/diskIO/messages";
 import type { FlushResult } from "../types/lifecycle";
-import type { AdPunishmentAction } from "../types/states/adPunishment";
+import type {
+  AdInChatPunishmentAction,
+  AdPunishmentAction,
+} from "../types/states/adPunishment";
 
 /**
- * 黑名单串行位临界区对一次广告命中的裁决：放弃处置的原因，或已选定的处罚动作；全局封禁附带本次是否新加入黑名单。
+ * 黑名单串行位临界区对一次广告命中的裁决：放弃处置的原因、已在临界区写入黑名单的全局封禁，或本群处罚动作。
  */
 type AdDisposalRuling =
   /** 群在判定期间关闭了广告检测。 */
@@ -57,7 +60,9 @@ type AdDisposalRuling =
   | "protected"
   /** 部署方已在热重载中删除 ad_detect.json，没有可用的处罚设置。 */
   | "unconfigured"
-  | Readonly<{ action: AdPunishmentAction; newlyBlocked: boolean }>;
+  /** 全局封禁；newlyBlocked 为本次 blockUser 是否新加入永久黑名单。 */
+  | Readonly<{ kind: "blockGlobal"; newlyBlocked: boolean }>
+  | AdInChatPunishmentAction;
 
 /**
  * 将命中广告的原始样本经 postDiskIODiagnostic 异步投递至落盘线程（见 infra/diskIO.ts）。
@@ -94,8 +99,8 @@ function ruleAdDisposal(event: AdDetectedEvent): AdDisposalRuling {
   clearTemporaryAdBypassActivityOrThrow(event.senderId);
   recordAdSample(event);
   const action: AdPunishmentAction = resolveAdPunishmentAction(punishment, event.isChannel);
-  if (action.kind !== "blockGlobal") return { action, newlyBlocked: false };
-  return { action, newlyBlocked: blockUser(event.senderId, event.meta) };
+  if (action.kind !== "blockGlobal") return action;
+  return { kind: "blockGlobal", newlyBlocked: blockUser(event.senderId, event.meta) };
 }
 
 /**
@@ -136,11 +141,11 @@ async function disposeDetectedAdLocked(event: AdDetectedEvent): Promise<void> {
     );
     return;
   }
-  if (ruling.action.kind === "blockGlobal") {
+  if (ruling.kind === "blockGlobal") {
     await enforceGlobalAdBlock(event, ruling.newlyBlocked);
     return;
   }
-  await punishAdSenderInChat(event, ruling.action);
+  await punishAdSenderInChat(event, ruling);
 }
 
 /**

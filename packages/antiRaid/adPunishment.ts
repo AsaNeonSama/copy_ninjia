@@ -50,7 +50,7 @@ export function formatAdNoticeHead({ label, reason, atmosphere }: FormatAdNotice
 }
 
 /** 生成本群处罚播报文案所需的参数。 */
-export interface FormatInChatAdNoticeParams extends FormatAdNoticeHeadParams {
+interface FormatInChatAdNoticeParams extends FormatAdNoticeHeadParams {
   /** 已执行的本群处罚动作。 */
   readonly action: AdInChatPunishmentAction;
   /** 处罚请求是否已确认生效；`deleteOnly` 不发请求，取值不参与文案。 */
@@ -62,12 +62,13 @@ export interface FormatInChatAdNoticeParams extends FormatAdNoticeHeadParams {
  * @param params 展示标签、判定理由、处罚动作、是否生效与氛围文案表。
  * @returns 组装完成的播报文案。
  */
-export function formatInChatAdNotice(params: FormatInChatAdNoticeParams): string {
-  const head: string = formatAdNoticeHead(params);
-  const notices: Readonly<AtmosphereNotices> = params.atmosphere.NOTICE_TEXTS;
-  const { action }: FormatInChatAdNoticeParams = params;
+function formatInChatAdNotice(
+  { label, reason, action, punished, atmosphere }: FormatInChatAdNoticeParams
+): string {
+  const head: string = formatAdNoticeHead({ label, reason, atmosphere });
+  const notices: Readonly<AtmosphereNotices> = atmosphere.NOTICE_TEXTS;
   if (action.kind === "deleteOnly") return notices.adDeletedOnly(head);
-  if (!params.punished) return notices.adPunishFailed(head);
+  if (!punished) return notices.adPunishFailed(head);
   if (action.kind === "kick") return notices.adKicked(head);
   if (action.kind === "banChat") return notices.adChatBanned(head);
   return action.durationMs === null

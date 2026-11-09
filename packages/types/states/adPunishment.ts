@@ -3,16 +3,12 @@
  * packages/antiRaid/adDetect.ts，本群处罚的执行见 packages/antiRaid/adPunishment.ts）。
  */
 
-/** 在触发群禁言。 */
-export interface AdMuteAction {
-  readonly kind: "mute";
-  /** 禁言时长（毫秒）；null 表示永久禁言。 */
-  readonly durationMs: number | null;
-}
+import type { AdMutePunishment } from "../config";
 
 /** 本群处罚动作：只作用于触发群，不写永久黑名单，也不进 durable outbox。 */
 export type AdInChatPunishmentAction =
-  | AdMuteAction
+  /** 在触发群禁言，直接沿用 ad_detect.json 的禁言设置。 */
+  | AdMutePunishment
   /** 只踢不封：移出触发群，可再次入群。 */
   | Readonly<{ kind: "kick" }>
   /** 只在触发群以 banChatMember 封禁并撤回历史消息。 */

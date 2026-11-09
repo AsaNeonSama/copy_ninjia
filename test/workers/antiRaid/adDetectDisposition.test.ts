@@ -166,6 +166,8 @@ const { chatIsSupergroupById } = await import("../../../packages/cache/main/anti
 const { MUTE_DISPATCH_MIN_REMAINING_MS } = await import("../../../packages/consts/commands");
 /** 测试预载的广告检测配置（config_example 副本）；各用例只替换 punishment。 */
 const preloadedAdDetectConfig = defaultAdDetectConfigCache.current;
+/** 夹具：移出并写入永久黑名单的处罚设置；未单独设置处罚的用例都按它处置。 */
+const GLOBAL_BLOCK_PUNISHMENT: AdDetectPunishment = { kind: "kick", blockScope: "global" };
 
 /**
  * 把当前线程的处罚设置换成指定值，其余字段沿用预载配置。
@@ -248,7 +250,7 @@ beforeEach(() => {
   resetSelfSentTracker();
   inlineResultSources.clear();
   diskIOInitialized = false;
-  defaultAdDetectConfigCache.current = preloadedAdDetectConfig;
+  usePunishment(GLOBAL_BLOCK_PUNISHMENT);
   chatIsSupergroupById.clear();
   muteChatMemberWithOutcome.mockReset();
   muteChatMemberWithOutcome.mockImplementation(async (): Promise<MuteChatMemberOutcome> => "muted");
@@ -429,7 +431,7 @@ describe("按 ad_detect.json 的处罚设置处置", () => {
   });
 
   test("kick 全局封禁对频道身份同样写入永久黑名单", async () => {
-    usePunishment({ kind: "kick", blockScope: "global" });
+    usePunishment(GLOBAL_BLOCK_PUNISHMENT);
 
     handleAdDetected(detected({ senderId: -300, isChannel: true }));
     await drainAdDisposals(5_000);
