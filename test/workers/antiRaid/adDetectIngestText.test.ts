@@ -12,6 +12,7 @@ import {
   resetAdDetectQueueHarness,
   warnReferencedAdSender,
 } from "../../helpers/adDetectQueueHarness";
+import { grammyApiError } from "../../helpers/grammyError";
 
 const {
   enqueueAdCandidate,
@@ -31,6 +32,7 @@ const {
   AD_DETECT_MAX_LINK_URLS,
   AD_DETECT_MAX_MESSAGES_PER_SENDER,
   AD_DETECT_MESSAGE_MAX_CHARS,
+  AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES,
   AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX,
   AD_SAMPLE_CONTEXT_MAX_CHARS,
   adEmojiBlacklistReason,
@@ -42,6 +44,26 @@ const { TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS } =
 const { pendingAdBundle } =
   await import("../../../packages/workers/antiRaid/adDetect/queueState");
 beforeEach((): void => resetAdDetectQueueHarness(stopAdDetectQueue));
+
+/**
+ * 构造 getCustomEmojiStickers 返回的自定义表情贴纸夹具。
+ * @param id 自定义表情 ID。
+ * @param setName 所属表情包 short name；不属于任何表情包时为 undefined。
+ * @returns 自定义表情贴纸对象。
+ */
+function emojiSticker(id: string, setName: string | undefined): Sticker {
+  return {
+    file_id: `f-${id}`,
+    file_unique_id: `u-${id}`,
+    type: "custom_emoji",
+    width: 100,
+    height: 100,
+    is_animated: false,
+    is_video: false,
+    custom_emoji_id: id,
+    set_name: setName,
+  };
+}
 
 describe("入队时的送检文本整形", () => {
   test("拼串只负责编号，取舍由 selectAdBundleEntries 定完再交过来", () => {
@@ -368,7 +390,7 @@ describe("入队时的送检文本整形", () => {
     expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(3);
   });
 
-  test("跨条目自定义表情去重并按 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS 截断；查询异常时记日志并回退 AI 检测", async () => {
+  test("跨条目自定义表情去重后按 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS 分批查询，后一批命中黑名单同样直接处置", async () => {
     defaultAdSampleConfigCache.current = {
       samples: [],
       stickerBlackList: [],
@@ -378,9 +400,8 @@ describe("入队时的送检文本整形", () => {
       { length: TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS - 1 },
       (_unused: unknown, index: number): string => `emoji-${index}`
     );
-    getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => {
-      throw new Error("network timeout");
-    });
+    getCustomEmojiStickers.mockImplementation(async (ids: readonly string[]): Promise<Sticker[]> =>
+      ids.map((id: string): Sticker => emojiSticker(id, id === "emoji-tail-2" ? "SpamEmojiPack" : "CleanEmojiPack")));
     enqueueAdCandidate(candidate({
       messageId: 1,
       text: "第一条",
@@ -394,13 +415,82 @@ describe("入队时的送检文本整形", () => {
 
     await runAdDetectBatch(1_010);
 
-    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
-    const queriedIds: string[] = (getCustomEmojiStickers.mock.calls[0] as [string[]])[0];
-    expect(queriedIds).toHaveLength(TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
-    expect(queriedIds.at(-1)).toBe("emoji-tail-1");
-    expect(errorLogs.some((line: string): boolean => line.includes("failed to query custom emoji stickers"))).toBe(true);
-    expect(classifyAdText).toHaveBeenCalledTimes(1);
+    const queriedBatches: string[][] = getCustomEmojiStickers.mock.calls.map(
+      (call: unknown[]): string[] => call[0] as string[]
+    );
+    expect(queriedBatches.map((batch: string[]): number => batch.length))
+      .toEqual([TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS, 1]);
+    expect(queriedBatches[0]?.at(-1)).toBe("emoji-tail-1");
+    expect(queriedBatches[1]).toEqual(["emoji-tail-2"]);
+    expect(classifyAdText).not.toHaveBeenCalled();
+    expect(disposeAdSender).toHaveBeenCalledTimes(1);
+    const [{ verdict }] = disposeAdSender.mock.calls[0] as [{ verdict: AdVerdict }];
+    expect(verdict).toEqual({ isAd: true, reason: adEmojiBlacklistReason("SpamEmojiPack") });
+  });
+
+  test("查询失败时各批共用 AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES 次重试，预算内恢复则照常核对", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    for (let attempt: number = 0; attempt < AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES; attempt++) {
+      getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => {
+        throw new Error("network timeout");
+      });
+    }
+    getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => [
+      emojiSticker("emoji-spam", "SpamEmojiPack"),
+    ]);
+    enqueueAdCandidate(candidate({ text: "🔥", customEmojiIds: ["emoji-spam"] }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES + 1);
+    expect(errorLogs).toEqual([]);
+    expect(classifyAdText).not.toHaveBeenCalled();
+    expect(disposeAdSender).toHaveBeenCalledTimes(1);
+  });
+
+  test("重试预算用尽后放弃本轮表情核对：记日志、不写缓存、回退 AI 检测", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => {
+      throw new Error("network timeout");
+    });
+    enqueueAdCandidate(candidate({ text: "第一条", customEmojiIds: ["emoji-spam"] }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES + 1);
+    expect(errorLogs.some((line: string): boolean =>
+      line.includes("failed to query custom emoji stickers") &&
+      line.includes(`(${AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES} retries used)`)
+    )).toBe(true);
     expect(customEmojiSetNames.size).toBe(0);
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
+    expect(pendingAdBundle(-1001, 7)?.checkedSeq).toBe(1);
+  });
+
+  test("Bot API 以 4xx 拒绝查询时不重试，直接放弃本轮表情核对", async () => {
+    defaultAdSampleConfigCache.current = {
+      samples: [],
+      stickerBlackList: [],
+      emojiBlackList: ["SpamEmojiPack"],
+    };
+    getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => {
+      throw grammyApiError(400, "Bad Request: invalid custom emoji identifier");
+    });
+    enqueueAdCandidate(candidate({ text: "第一条", customEmojiIds: ["emoji-bad"] }), 1_000);
+
+    await runAdDetectBatch(1_000);
+
+    expect(getCustomEmojiStickers).toHaveBeenCalledTimes(1);
+    expect(errorLogs.some((line: string): boolean => line.includes("(0 retries used)"))).toBe(true);
+    expect(classifyAdText).toHaveBeenCalledTimes(1);
   });
 
   test("自定义表情所属包写入 LRU：已查过的 ID（含无所属包）不再查询，缓存命中黑名单直接处置", async () => {
@@ -409,17 +499,6 @@ describe("入队时的送检文本整形", () => {
       stickerBlackList: [],
       emojiBlackList: ["SpamEmojiPack"],
     };
-    const emojiSticker = (id: string, setName: string | undefined): Sticker => ({
-      file_id: `f-${id}`,
-      file_unique_id: `u-${id}`,
-      type: "custom_emoji",
-      width: 100,
-      height: 100,
-      is_animated: false,
-      is_video: false,
-      custom_emoji_id: id,
-      set_name: setName,
-    });
     getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => [
       emojiSticker("emoji-clean", "CleanEmojiPack"),
       emojiSticker("emoji-loose", undefined),
@@ -470,17 +549,7 @@ describe("入队时的送检文本整形", () => {
       emojiBlackList: ["SpamEmojiPack"],
     };
     getCustomEmojiStickers.mockImplementation(async (ids: readonly string[]): Promise<Sticker[]> =>
-      ids.map((id: string): Sticker => ({
-        file_id: `f-${id}`,
-        file_unique_id: `u-${id}`,
-        type: "custom_emoji",
-        width: 100,
-        height: 100,
-        is_animated: false,
-        is_video: false,
-        custom_emoji_id: id,
-        set_name: "CleanEmojiPack",
-      })));
+      ids.map((id: string): Sticker => emojiSticker(id, "CleanEmojiPack")));
     for (let index: number = 0; index <= AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX; index++) {
       enqueueAdCandidate(candidate({
         senderId: 100 + index,

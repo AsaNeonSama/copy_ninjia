@@ -143,6 +143,12 @@ export const MAX_CONFIGURED_AD_BLACKLIST_PACKS: number = 500;
  */
 export const AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX: number = 4_096;
 
+/**
+ * 一轮表情黑名单核对里 getCustomEmojiStickers 失败后还能再试的总次数，各批共用；4xx 拒绝不重试，
+ * 用尽即放弃本轮表情核对。所属模块：workers/antiRaid/adDetect/verdict.ts。
+ */
+export const AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES: number = 3;
+
 /** 单条广告示例允许的最大字符数。 */
 export const AD_SAMPLE_MAX_CHARS: number = 1_024;
 

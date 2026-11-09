@@ -1049,7 +1049,7 @@
   - 单用户消息数量上限 `AD_DETECT_MAX_MESSAGES_PER_SENDER`，字符预算 `AD_DETECT_BUNDLE_MAX_CHARS`。当未判消息由于超限被丢弃时，正文移除但消息 ID 转入 `pendingDeleteIds`，确保处置时完整删除，并记录错误日志。
   - 检测按固定三级流水线依次执行（任一免检身份在候选入口统一跳过全部三级检测）：
     1. **贴纸包黑名单快路径**（`ad_data.json` 的 `sticker_black_list`）：直接比对未检条目携带的 `sticker.set_name`，命中即跳过后续检测并按直接广告执行永久拉黑处置。
-    2. **自定义表情包黑名单**（`ad_data.json` 的 `emoji_black_list`）：名单非空时核对未检条目的 `custom_emoji_id`：已在 Worker 的 ID→所属表情包 LRU 缓存（容量 `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`，Worker 停止时清空）中的直接比对，其余去重后（单次上限 `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS`）经主线程统一 Telegram 出站（`query` 类 429 退避策略）调用 `getCustomEmojiStickers` 查询所属表情包并写入缓存，命中即跳过 AI 判定并按直接广告执行永久拉黑处置；查询失败记错误日志并继续后续判定。
+    2. **自定义表情包黑名单**（`ad_data.json` 的 `emoji_black_list`）：名单非空时核对未检条目的 `custom_emoji_id`：已在 Worker 的 ID→所属表情包 LRU 缓存（容量 `AD_DETECT_CUSTOM_EMOJI_SET_CACHE_MAX`，Worker 停止时清空）中的直接比对，其余去重后按 `TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS` 分批经主线程统一 Telegram 出站（`query` 类 429 退避策略）调用 `getCustomEmojiStickers` 查询所属表情包并写入缓存，命中即跳过 AI 判定并按直接广告执行永久拉黑处置；查询失败时各批共用 `AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES` 次立即重试（4xx 拒绝不重试），预算用尽、被拒或进入停机时放弃本轮表情核对，记错误日志并继续后续判定。
     3. **AI 文本判定**（`ad_data.json` 的 `samples`）：仅当存在未检非空文本条目时调用模型分类（纯贴纸且未命中黑名单时不调用 AI）。
   - 发送者的个人姓名（`firstName`、`lastName`）与非转发正文共同送检，姓名推广与正文推广同等归因。
   - **纯链接保护**：若用户整串消息仅由单个或多个链接及普通姓名组成，且无任何推广、招募或交易文案，必须判定为 false（支持各类代理节点与订阅协议）。

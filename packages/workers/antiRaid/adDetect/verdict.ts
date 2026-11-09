@@ -15,6 +15,7 @@ import {
 } from "./disposal";
 import { getAdSampleConfig } from "../../../config/adSamples";
 import { deleteMessage, telegramApi } from "../../../infra/telegram";
+import { isTelegramRequestRejected } from "../../../infra/telegram/errors";
 import { isChatAdmin } from "../adminCache";
 import { logger } from "../../../infra/logger";
 import {
@@ -26,6 +27,7 @@ import {
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
 import {
+  AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES,
   AD_REFERENCE_WARNING_WINDOW_MS,
   adEmojiBlacklistReason,
   adStickerBlacklistReason,
@@ -103,7 +105,7 @@ function matchBlacklistedStickerSet(
 
 /**
  * 核对本次未检条目的自定义表情是否属于黑名单表情包：已在 customEmojiSetNames 的 ID 直接比对，
- * 其余 ID 去重后（上限 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS）经 queryBlacklistedCustomEmojiSet 查询。
+ * 其余 ID 去重后交给 queryBlacklistedCustomEmojiSet 分批查询。
  *
  * @param bundle 待检消息束。
  * @param judged 本次送检入选的条目快照。
@@ -115,58 +117,71 @@ async function matchBlacklistedCustomEmojiSet(
   judged: readonly AdCandidateEntry[],
   emojiBlackList: readonly string[]
 ): Promise<string | undefined> {
-  let uncachedIds: string[] | undefined;
+  let uncachedIds: Set<string> | undefined;
   for (const entry of judged) {
     if (entry.seq <= bundle.checkedSeq || entry.customEmojiIds === undefined) continue;
     for (const id of entry.customEmojiIds) {
       const setName: string | null | undefined = customEmojiSetNames.get(id);
-      if (setName !== undefined) {
-        if (setName !== null && emojiBlackList.includes(setName)) return setName;
-        continue;
+      if (setName === undefined) {
+        uncachedIds ??= new Set<string>();
+        uncachedIds.add(id);
+      } else if (setName !== null && emojiBlackList.includes(setName)) {
+        return setName;
       }
-      if (
-        (uncachedIds?.length ?? 0) >= TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS ||
-        uncachedIds?.includes(id) === true
-      ) continue;
-      uncachedIds ??= [];
-      uncachedIds.push(id);
     }
   }
   if (uncachedIds === undefined) return undefined;
-  return await queryBlacklistedCustomEmojiSet(bundle, uncachedIds, emojiBlackList);
+  return await queryBlacklistedCustomEmojiSet(bundle, [...uncachedIds], emojiBlackList);
 }
 
 /**
- * 经主线程统一 Telegram 出站查询自定义表情所属表情包，把返回的每个贴纸写入 customEmojiSetNames，
- * 再比对黑名单。
+ * 经主线程统一 Telegram 出站按 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS 分批查询自定义表情所属表情包，
+ * 把每批返回的贴纸写入 customEmojiSetNames 后比对黑名单，命中即停。查询失败时各批共用
+ * AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES 次立即重试；4xx 拒绝、预算用尽或进入停机时放弃本轮核对。
  *
  * @param bundle 待检消息束。
- * @param customEmojiIds 待查询的自定义表情 ID 列表（不超过 TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS）。
+ * @param customEmojiIds 去重后的待查询自定义表情 ID 列表。
  * @param emojiBlackList 自定义表情包黑名单。
- * @returns 命中的自定义表情包 short name；未命中或查询失败时返回 `undefined`。
+ * @returns 命中的自定义表情包 short name；未命中或放弃核对时返回 `undefined`。
  */
 async function queryBlacklistedCustomEmojiSet(
   bundle: AdMessageBundle,
-  customEmojiIds: string[],
+  customEmojiIds: readonly string[],
   emojiBlackList: readonly string[]
 ): Promise<string | undefined> {
-  try {
-    const stickers: readonly Sticker[] = await telegramApi.getCustomEmojiStickers(customEmojiIds);
+  let retriesLeft: number = AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES;
+  for (
+    let start: number = 0;
+    start < customEmojiIds.length;
+    start += TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS
+  ) {
+    const batch: string[] = customEmojiIds.slice(start, start + TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS);
+    let stickers: readonly Sticker[] | undefined;
+    while (stickers === undefined) {
+      try {
+        stickers = await telegramApi.getCustomEmojiStickers(batch);
+      } catch (error: unknown) {
+        if (retriesLeft === 0 || isTelegramRequestRejected(error) || adDetectStopping.current) {
+          logger.error(
+            `Ad detection failed to query custom emoji stickers for sender ${bundle.senderId} ` +
+            `in chat ${bundle.chatId} (${AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES - retriesLeft} ` +
+            "retries used); skipping the custom emoji blacklist check:",
+            error
+          );
+          return undefined;
+        }
+        retriesLeft--;
+      }
+    }
     let matched: string | undefined;
     for (const sticker of stickers) {
       const setName: string | null = sticker.set_name ?? null;
       if (sticker.custom_emoji_id !== undefined) customEmojiSetNames.set(sticker.custom_emoji_id, setName);
       if (matched === undefined && setName !== null && emojiBlackList.includes(setName)) matched = setName;
     }
-    return matched;
-  } catch (error: unknown) {
-    logger.error(
-      `Ad detection failed to query custom emoji stickers for sender ${bundle.senderId} ` +
-      `in chat ${bundle.chatId}:`,
-      error
-    );
-    return undefined;
+    if (matched !== undefined) return matched;
   }
+  return undefined;
 }
 
 /**
