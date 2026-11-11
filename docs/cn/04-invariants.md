@@ -109,7 +109,7 @@
 - **`config/dynamic/` 动态热重载机制**：
   - 主线程在业务 Worker 启动后，使用文件监听监听 `config/dynamic/` 目录变动（`config/static/` 下的文件修改后必须重启）。
   - 监听到变动后，系统通过防抖计时器（`CONFIG_RELOAD_DEBOUNCE_MS`）合并短时间内的频繁变动，然后串行执行配置重载。
-  - 热重载先核对 `config/dynamic/` 目录白名单（`packages/config/reload.ts` 的 `readDynamicConfigLayoutRejections`），再采用与启动时相同的严格校验器：目录内存在任何未列入白名单的条目，或新文件存在格式与语法错误时，该轮改动被拒绝并保留当前有效快照、记录错误日志；如果配置文件内容与当前快照一致，则不会进行多余更新。
+  - 热重载先由 `packages/config/reload.ts` 调用 `packages/config/layout.ts` 的 `readDynamicConfigLayoutRejections` 核对 `config/dynamic/` 目录白名单，再采用与启动时相同的严格校验器：目录内存在任何未列入白名单的条目，或新文件存在格式与语法错误时，该轮改动被拒绝并保留当前有效快照、记录错误日志；如果配置文件内容与当前快照一致，则不会进行多余更新。
   - 跨文件依赖核对：若 `cron.json` 中的任务用到了语音合成或摘要生成，但 `agent.json` 中缺少相应能力，系统会阻止配置更新并报错，保证配置在任何时刻都完整有效。
   - AI Worker 接管新的 `agent.json` 快照后丢弃旧的能力门面与 SDK 客户端，下一次取用按新快照重建。一轮 AI 回复在创建会话时固定 text 能力的模型与客户端，整轮工具往返（含 Anthropic `pause_turn` 续发）都沿用它们，热重载只影响之后开始的回复；Gemini 会话在第一次请求前若配置已被替换，不引用共用显式缓存。
 
