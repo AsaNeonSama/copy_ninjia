@@ -3,6 +3,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import {
+  AD_PUNISHMENT_BAN_CHAT,
+  AD_PUNISHMENT_BLOCK_GLOBAL,
+  AD_PUNISHMENT_DELETE_ONLY,
+  AD_PUNISHMENT_KICK,
+} from "../../packages/consts/antiRaid/adDetect";
 import { resolveAdPunishmentAction } from "../../packages/states/adPunishment";
 
 describe("处罚动作表 resolveAdPunishmentAction", () => {
@@ -14,15 +20,22 @@ describe("处罚动作表 resolveAdPunishmentAction", () => {
   });
 
   test("kick 对普通用户按封禁范围选只踢不封、本群封禁或全局封禁", () => {
-    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: null }, false)).toEqual({ kind: "kick" });
-    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "chat" }, false)).toEqual({ kind: "banChat" });
-    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "global" }, false)).toEqual({ kind: "blockGlobal" });
+    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: null }, false))
+      .toBe(AD_PUNISHMENT_KICK);
+    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "chat" }, false))
+      .toBe(AD_PUNISHMENT_BAN_CHAT);
+    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "global" }, false))
+      .toBe(AD_PUNISHMENT_BLOCK_GLOBAL);
   });
 
   test("频道身份只有全局封禁照常执行，其余设置只删消息", () => {
-    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "global" }, true)).toEqual({ kind: "blockGlobal" });
-    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "chat" }, true)).toEqual({ kind: "deleteOnly" });
-    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: null }, true)).toEqual({ kind: "deleteOnly" });
-    expect(resolveAdPunishmentAction({ kind: "mute", durationMs: null }, true)).toEqual({ kind: "deleteOnly" });
+    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "global" }, true))
+      .toBe(AD_PUNISHMENT_BLOCK_GLOBAL);
+    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: "chat" }, true))
+      .toBe(AD_PUNISHMENT_DELETE_ONLY);
+    expect(resolveAdPunishmentAction({ kind: "kick", blockScope: null }, true))
+      .toBe(AD_PUNISHMENT_DELETE_ONLY);
+    expect(resolveAdPunishmentAction({ kind: "mute", durationMs: null }, true))
+      .toBe(AD_PUNISHMENT_DELETE_ONLY);
   });
 });

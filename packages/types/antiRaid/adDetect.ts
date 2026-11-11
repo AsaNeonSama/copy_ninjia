@@ -175,20 +175,6 @@ export interface AdCandidateEntry extends AdSampleContext {
   customEmojiIds: readonly string[] | undefined;
 }
 
-/** 每个群内发送者的引用广告警告阶段。 */
-export type ReferencedAdWarningState =
-  | {
-    readonly phase: "sending";
-    /** 同 key 的单调 attempt；清群后迟到的旧回执不命中新状态。 */
-    readonly generation: number;
-  }
-  | {
-    readonly phase: "warned";
-    readonly generation: number;
-    readonly warnedAt: number;
-    readonly expiresAt: number;
-  };
-
 /** 某个发言者在一个群里累积的待检消息串（队列里只排它的键）。 */
 export interface AdMessageBundle {
   /**

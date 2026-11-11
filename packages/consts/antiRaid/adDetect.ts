@@ -1,4 +1,5 @@
 import type { AdBlockScope } from "../../types/config";
+import type { AdPunishmentAction } from "../../types/states/adPunishment";
 import { exhaustiveList } from "../exhaustiveList";
 
 /**
@@ -27,7 +28,7 @@ export const AD_DETECT_JUDGED_RETENTION_WINDOW_MS: number = 90_000;
 
 /**
  * 引用、回复或转发非白名单广告第一次命中后的升级窗口；窗口内再次命中才沿用
- * 直接广告的处罚路径（按 ad_detect.json 的处罚设置）。所属模块：workers/antiRaid/adDetect/referencePolicy.ts 与 workers/antiRaid/adDetect/verdict.ts。
+ * 直接广告的处罚路径（按 ad_detect.json 的处罚设置）。所属模块：states/adReferenceWarning.ts、workers/antiRaid/adDetect/referencePolicy.ts 与 workers/antiRaid/adDetect/verdict.ts。
  */
 export const AD_REFERENCE_WARNING_WINDOW_MS: number = 300_000;
 
@@ -304,3 +305,15 @@ export function adDetectFact(justJoined: boolean): string {
 
 /** 广告检测没有可消费条目时复用的只读空列表。 */
 export const EMPTY_AD_CANDIDATE_ENTRIES: readonly [] = [];
+
+/** 广告命中后写入永久黑名单并在全部受管群封禁的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_BLOCK_GLOBAL: Readonly<AdPunishmentAction> = { kind: "blockGlobal" };
+
+/** 频道身份无法禁言或移出时仅删除消息的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_DELETE_ONLY: Readonly<AdPunishmentAction> = { kind: "deleteOnly" };
+
+/** 广告命中后仅在触发群封禁的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_BAN_CHAT: Readonly<AdPunishmentAction> = { kind: "banChat" };
+
+/** 广告命中后仅移出触发群而不封禁的无参动作常量（只读单例）。所属模块：states/adPunishment.ts。 */
+export const AD_PUNISHMENT_KICK: Readonly<AdPunishmentAction> = { kind: "kick" };

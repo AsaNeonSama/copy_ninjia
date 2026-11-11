@@ -49,8 +49,8 @@ describe("ad_detect.json", () => {
     })).toEqual({
       punishment: { kind: "kick", blockScope: "global" },
       samples: ["加 微信 拉群", "USDT 承兑"],
-      stickerBlackList: ["SpamStickerPack_1"],
-      emojiBlackList: ["SpamEmojiPack_1"],
+      stickerBlackList: new Set(["SpamStickerPack_1"]),
+      emojiBlackList: new Set(["SpamEmojiPack_1"]),
     });
     expect((await loadAdDetectConfig()).samples.length).toBeGreaterThan(0);
   });
@@ -206,7 +206,7 @@ describe("ad_detect.json", () => {
       samples: [],
       sticker_black_list: maxPacks,
       emoji_black_list: maxPacks,
-    }).stickerBlackList).toHaveLength(MAX_CONFIGURED_AD_BLACKLIST_PACKS);
+    }).stickerBlackList.size).toBe(MAX_CONFIGURED_AD_BLACKLIST_PACKS);
     expect(() => parseAdDetectConfig({
       punishment: GLOBAL_BLOCK_INPUT,
       samples: [],
@@ -231,8 +231,8 @@ describe("ad_detect.json", () => {
     expect(probe).toEqual({
       punishment: { kind: "kick", blockScope: "global" },
       samples: ["加微信"],
-      stickerBlackList: ["BadSticker"],
-      emojiBlackList: ["BadEmoji"],
+      stickerBlackList: new Set(["BadSticker"]),
+      emojiBlackList: new Set(["BadEmoji"]),
     });
     const assertCompileTimeReadonly = (): void => {
       // @ts-expect-error 顶层字段只读
@@ -243,10 +243,10 @@ describe("ad_detect.json", () => {
       probe.punishment.kind = "mute";
       // @ts-expect-error 示例表不允许就地追加
       probe.samples.push("x");
-      // @ts-expect-error 贴纸黑名单不允许就地追加
-      probe.stickerBlackList.push("x");
-      // @ts-expect-error 表情黑名单不允许就地追加
-      probe.emojiBlackList.push("x");
+      // @ts-expect-error 贴纸黑名单集合不允许就地增删
+      probe.stickerBlackList.add("x");
+      // @ts-expect-error 表情黑名单集合不允许就地增删
+      probe.emojiBlackList.add("x");
     };
     void assertCompileTimeReadonly;
   });

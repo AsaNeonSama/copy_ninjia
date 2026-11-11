@@ -15,10 +15,7 @@ import {
   AD_DETECT_MAX_IN_FLIGHT,
   AD_DETECT_MAX_PENDING_SENDERS,
 } from "../../packages/consts/antiRaid/adDetect";
-import type {
-  AdCandidateAdmissionInput,
-  AdRequeueInput,
-} from "../../packages/types/states/adDetectAdmission";
+import type { AdCandidateAdmissionInput } from "../../packages/types/states/adDetectAdmission";
 
 const CANDIDATE: AdCandidateAdmissionInput = {
   textLength: 10,
@@ -26,12 +23,6 @@ const CANDIDATE: AdCandidateAdmissionInput = {
   isChannel: false,
   recentlyDisposed: false,
   blocked: false,
-};
-
-const REQUEUE: AdRequeueInput = {
-  hasUncheckedContent: true,
-  queued: false,
-  inFlight: false,
 };
 
 describe("管理员闸 isKnownAdminCandidate", () => {
@@ -90,22 +81,21 @@ describe("投递闸 admitAdCandidate", () => {
 
 describe("排队闸 admitAdRequeue", () => {
   test("有未判定内容且不在任何表里 → 入队", () => {
-    expect(admitAdRequeue(REQUEUE)).toBe("enqueue");
+    expect(admitAdRequeue(true, false, false)).toBe("enqueue");
   });
 
   test("没有未判定内容就不排队：重排一个判完的键只会白烧一次额度", () => {
-    expect(admitAdRequeue({ ...REQUEUE, hasUncheckedContent: false })).toBe("skip");
+    expect(admitAdRequeue(false, false, false)).toBe("skip");
   });
 
   test("已排队或在途 → 一律跳过", () => {
-    for (const field of ["queued", "inFlight"] as const) {
-      expect(admitAdRequeue({ ...REQUEUE, [field]: true })).toBe("skip");
-    }
+    expect(admitAdRequeue(true, true, false)).toBe("skip");
+    expect(admitAdRequeue(true, false, true)).toBe("skip");
   });
 
   test("排队闸没有容量判据：队列每键最多一个位置，长度天然被待检硬顶兜住", () => {
     // 走到这一步的键已在 pendingAdMessages 里，容量已由待检硬顶判完。
-    expect(admitAdRequeue(REQUEUE)).toBe("enqueue");
+    expect(admitAdRequeue(true, false, false)).toBe("enqueue");
   });
 });
 

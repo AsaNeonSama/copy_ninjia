@@ -26,16 +26,6 @@ export type AdCandidateDecision =
   /** 不参与检测，但单独删除这条残余消息（见 states/adDetectAdmission.ts）。 */
   | "deleteStraggler";
 
-/** 发送者待检消息串的入队准入判定输入。 */
-export interface AdRequeueInput {
-  /** 消息串中是否存在序号大于 checkedSeq 的未检测消息。 */
-  readonly hasUncheckedContent: boolean;
-  /** 该发送者键当前是否已在待检队列中排队。 */
-  readonly queued: boolean;
-  /** 该发送者键当前是否有在途的广告检测模型请求。 */
-  readonly inFlight: boolean;
-}
-
 /** 发送者待检消息串的入队准入决策。 */
 export type AdRequeueDecision =
   /** 将该发送者键加入待检队列。 */

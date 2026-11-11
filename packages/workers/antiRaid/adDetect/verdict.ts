@@ -91,13 +91,13 @@ type AdDetectionOutcome =
 function matchBlacklistedStickerSet(
   bundle: AdMessageBundle,
   judged: readonly AdCandidateEntry[],
-  stickerBlackList: readonly string[]
+  stickerBlackList: ReadonlySet<string>
 ): string | undefined {
   for (const entry of judged) {
     if (
       entry.seq > bundle.checkedSeq &&
       entry.stickerSetName !== undefined &&
-      stickerBlackList.includes(entry.stickerSetName)
+      stickerBlackList.has(entry.stickerSetName)
     ) return entry.stickerSetName;
   }
   return undefined;
@@ -115,7 +115,7 @@ function matchBlacklistedStickerSet(
 async function matchBlacklistedCustomEmojiSet(
   bundle: AdMessageBundle,
   judged: readonly AdCandidateEntry[],
-  emojiBlackList: readonly string[]
+  emojiBlackList: ReadonlySet<string>
 ): Promise<string | undefined> {
   let uncachedIds: Set<string> | undefined;
   for (const entry of judged) {
@@ -125,7 +125,7 @@ async function matchBlacklistedCustomEmojiSet(
       if (setName === undefined) {
         uncachedIds ??= new Set<string>();
         uncachedIds.add(id);
-      } else if (setName !== null && emojiBlackList.includes(setName)) {
+      } else if (setName !== null && emojiBlackList.has(setName)) {
         return setName;
       }
     }
@@ -147,7 +147,7 @@ async function matchBlacklistedCustomEmojiSet(
 async function queryBlacklistedCustomEmojiSet(
   bundle: AdMessageBundle,
   customEmojiIds: readonly string[],
-  emojiBlackList: readonly string[]
+  emojiBlackList: ReadonlySet<string>
 ): Promise<string | undefined> {
   let retriesLeft: number = AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES;
   for (
@@ -178,7 +178,7 @@ async function queryBlacklistedCustomEmojiSet(
     for (const sticker of stickers) {
       const setName: string | null = sticker.set_name ?? null;
       if (sticker.custom_emoji_id !== undefined) customEmojiSetNames.set(sticker.custom_emoji_id, setName);
-      if (matched === undefined && setName !== null && emojiBlackList.includes(setName)) matched = setName;
+      if (matched === undefined && setName !== null && emojiBlackList.has(setName)) matched = setName;
     }
     if (matched !== undefined) return matched;
   }
@@ -225,7 +225,7 @@ async function classifyAdBundle(
       };
     }
 
-    const matchedEmojiSet: string | undefined = emojiBlackList.length === 0
+    const matchedEmojiSet: string | undefined = emojiBlackList.size === 0
       ? undefined
       : await matchBlacklistedCustomEmojiSet(bundle, judged, emojiBlackList);
     if (matchedEmojiSet !== undefined) {

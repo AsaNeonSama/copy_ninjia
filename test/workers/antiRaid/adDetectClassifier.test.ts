@@ -16,8 +16,8 @@ mock.module("../../../packages/config/adDetectConfig", () => ({
   getAdDetectConfig: (): AdDetectConfig => ({
     punishment: { kind: "kick", blockScope: "global" },
     samples: ["加溦拉群"],
-    stickerBlackList: [],
-    emojiBlackList: [],
+    stickerBlackList: new Set(),
+    emojiBlackList: new Set(),
   }),
 }));
 

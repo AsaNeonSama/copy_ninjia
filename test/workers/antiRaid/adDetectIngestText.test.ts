@@ -240,8 +240,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: ["SpamStickerPack"],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(["SpamStickerPack"]),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     enqueueAdCandidate(candidate({
       messageId: 1,
@@ -273,8 +273,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: ["OtherStickerPack"],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(["OtherStickerPack"]),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => ([
       {
@@ -314,8 +314,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: ["SpamStickerPack"],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(["SpamStickerPack"]),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     enqueueAdCandidate(candidate({
       messageId: 1,
@@ -362,8 +362,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: ["SpamStickerPack"],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(["SpamStickerPack"]),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     enqueueAdCandidate(candidate({
       messageId: 1,
@@ -399,8 +399,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     const firstBatchIds: string[] = Array.from(
       { length: TELEGRAM_CUSTOM_EMOJI_STICKERS_MAX_IDS - 1 },
@@ -438,8 +438,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     for (let attempt: number = 0; attempt < AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES; attempt++) {
       getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => {
@@ -463,8 +463,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => {
       throw new Error("network timeout");
@@ -487,8 +487,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     const firstBatchFailures: number = AD_DETECT_CUSTOM_EMOJI_QUERY_MAX_RETRIES - 1;
     const outcomes: ("fail" | "ok")[] = [
@@ -524,8 +524,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => {
       adDetectStopping.current = true;
@@ -544,8 +544,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     getCustomEmojiStickers.mockImplementation(async (): Promise<Sticker[]> => {
       throw grammyApiError(400, "Bad Request: invalid custom emoji identifier");
@@ -563,8 +563,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     getCustomEmojiStickers.mockImplementationOnce(async (): Promise<Sticker[]> => [
       emojiSticker("emoji-clean", "CleanEmojiPack"),
@@ -613,8 +613,8 @@ describe("入队时的送检文本整形", () => {
     defaultAdDetectConfigCache.current = {
       punishment: { kind: "kick", blockScope: "global" },
       samples: [],
-      stickerBlackList: [],
-      emojiBlackList: ["SpamEmojiPack"],
+      stickerBlackList: new Set(),
+      emojiBlackList: new Set(["SpamEmojiPack"]),
     };
     getCustomEmojiStickers.mockImplementation(async (ids: readonly string[]): Promise<Sticker[]> =>
       ids.map((id: string): Sticker => emojiSticker(id, "CleanEmojiPack")));

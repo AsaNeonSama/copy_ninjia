@@ -112,8 +112,8 @@ export function resetAdDetectQueueHarness(stopAdDetectQueue: () => void): void {
   defaultAdDetectConfigCache.current = {
     punishment: { kind: "kick", blockScope: "global" },
     samples: [],
-    stickerBlackList: [],
-    emojiBlackList: [],
+    stickerBlackList: new Set(),
+    emojiBlackList: new Set(),
   };
   errorLogs.length = 0;
   classifiedTexts.length = 0;

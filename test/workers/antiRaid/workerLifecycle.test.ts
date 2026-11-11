@@ -271,7 +271,7 @@ describe("Anti-Raid Worker lifecycle", () => {
         type: "agentConfig",
         timeZone: getTimeZone(),
         adDetect: injectedAdDetectConfig,
-        adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: [], stickerBlackList: [], emojiBlackList: [] },
+        adDetectConfig: { punishment: { kind: "kick", blockScope: "global" }, samples: [], stickerBlackList: new Set(), emojiBlackList: new Set() },
       },
       {
         type: "join",

@@ -1,3 +1,9 @@
+import {
+  AD_PUNISHMENT_BAN_CHAT,
+  AD_PUNISHMENT_BLOCK_GLOBAL,
+  AD_PUNISHMENT_DELETE_ONLY,
+  AD_PUNISHMENT_KICK,
+} from "../consts/antiRaid/adDetect";
 import type { AdDetectPunishment } from "../types/config";
 import type { AdPunishmentAction } from "../types/states/adPunishment";
 
@@ -15,8 +21,10 @@ export function resolveAdPunishmentAction(
   punishment: AdDetectPunishment,
   isChannel: boolean
 ): AdPunishmentAction {
-  if (punishment.kind === "kick" && punishment.blockScope === "global") return { kind: "blockGlobal" };
-  if (isChannel) return { kind: "deleteOnly" };
+  if (punishment.kind === "kick" && punishment.blockScope === "global") {
+    return AD_PUNISHMENT_BLOCK_GLOBAL;
+  }
+  if (isChannel) return AD_PUNISHMENT_DELETE_ONLY;
   if (punishment.kind === "mute") return punishment;
-  return punishment.blockScope === "chat" ? { kind: "banChat" } : { kind: "kick" };
+  return punishment.blockScope === "chat" ? AD_PUNISHMENT_BAN_CHAT : AD_PUNISHMENT_KICK;
 }

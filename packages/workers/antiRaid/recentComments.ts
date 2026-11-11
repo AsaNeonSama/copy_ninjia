@@ -93,14 +93,14 @@ export function takeRecentComment(chatId: number, userId: number, now: number = 
 export function sweepRecentComments(now: number = Date.now(), discardFuture: boolean = true): number {
   let deleted: number = 0;
   let minObservedAt: number = Number.POSITIVE_INFINITY;
-  for (const [key, entry] of recentChannelComments) {
+  recentChannelComments.forEach((entry: RecentChannelComment, key: string): void => {
     if (!isCommentInWindow(entry.observedAt, now) && (discardFuture || entry.observedAt <= now)) {
       recentChannelComments.delete(key);
       deleted++;
     } else if (entry.observedAt < minObservedAt) {
       minObservedAt = entry.observedAt;
     }
-  }
+  });
   recentCommentsMinObservedAt.current = minObservedAt;
   return deleted;
 }

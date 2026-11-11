@@ -288,9 +288,9 @@ export function clearChatAdDetect(chatId: number): void {
     if (key.startsWith(prefix)) queuedAdDetectKeys.delete(key);
   }
   deletePendingAdBundlesInChat(chatId);
-  for (const key of recentlyDisposedAdKeys.keys()) {
+  recentlyDisposedAdKeys.forEach((_disposedAt: number, key: string): void => {
     if (key.startsWith(prefix)) recentlyDisposedAdKeys.delete(key);
-  }
+  });
   clearChatReferencedAdWarnings(chatId);
 }
 
@@ -307,9 +307,9 @@ export function clearIdentityAdDetect(identityId: number): void {
     if (belongsToIdentity(key)) queuedAdDetectKeys.delete(key);
   }
   deletePendingAdBundlesOfSender(identityId);
-  for (const key of recentlyDisposedAdKeys.keys()) {
+  recentlyDisposedAdKeys.forEach((_disposedAt: number, key: string): void => {
     if (belongsToIdentity(key)) recentlyDisposedAdKeys.delete(key);
-  }
+  });
   clearIdentityReferencedAdWarnings(identityId);
 }
 

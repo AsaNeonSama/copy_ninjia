@@ -180,8 +180,8 @@ describe("config/dynamic/ 热重载判定", () => {
     const samples: readonly string[] = baseline.adDetectConfig?.samples ?? [];
     await writeJson(AD_DETECT_CONFIG_PATH, {
       samples: samples.map((sample: string): string => `  ${sample}\n`),
-      sticker_black_list: baseline.adDetectConfig?.stickerBlackList ?? [],
-      emoji_black_list: baseline.adDetectConfig?.emojiBlackList ?? [],
+      sticker_black_list: [...(baseline.adDetectConfig?.stickerBlackList ?? [])],
+      emoji_black_list: [...(baseline.adDetectConfig?.emojiBlackList ?? [])],
     });
     const changes: HotDeploymentConfigChanges = await reload();
     expect(changes.adDetectConfig).toBe(false);

@@ -11,9 +11,9 @@ import type {
   AdDetectedEvent,
   AdDetectPrompts,
   AdMessageBundle,
-  ReferencedAdWarningState,
   AdVerdictTrueEvent,
 } from "../../../types/antiRaid/adDetect";
+import type { ReferencedAdWarningState } from "../../../types/states/adReferenceWarning";
 
 /**
  * 待检发言者键（`chatId:senderId`）FIFO 队列，每个节拍取走队首至多 AD_DETECT_BATCH_SIZE 个。

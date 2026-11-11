@@ -77,8 +77,8 @@ describe("Anti-Raid main-thread persistence mirror", () => {
       const reloadedSamples: AdDetectConfig = {
         punishment: { kind: "kick", blockScope: "global" },
         samples: ["热重载后的示例"],
-        stickerBlackList: ["ReloadedStickerPack"],
-        emojiBlackList: ["ReloadedEmojiPack"],
+        stickerBlackList: new Set(["ReloadedStickerPack"]),
+        emojiBlackList: new Set(["ReloadedEmojiPack"]),
       };
       adoptAdDetectAgentConfig(reloadedAdDetect);
       adoptAdDetectConfig(reloadedSamples);

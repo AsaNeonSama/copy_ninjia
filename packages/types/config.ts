@@ -46,18 +46,18 @@ export type AdDetectPunishment = AdMutePunishment | AdKickPunishment;
  * 广告检测的部署配置（config/dynamic/ad_detect.json）：
  * - `punishment`：判定为广告后的处罚设置，由 antiRaid/adDetect.ts 在主线程处置时读取；
  * - `samples`：判定口径参考示例，由 workers/antiRaid/adDetect/classifier.ts 拼入提示词；
- * - `stickerBlackList`：部署字段 `sticker_black_list`，贴纸包 short name 黑名单，作为快路径最先检测；
- * - `emojiBlackList`：部署字段 `emoji_black_list`，自定义表情所属表情包 short name 黑名单，在贴纸黑名单之后、AI 检测之前检测。
+ * - `stickerBlackList`：部署字段 `sticker_black_list`，贴纸包 short name 只读黑名单集合，作为快路径最先检测；
+ * - `emojiBlackList`：部署字段 `emoji_black_list`，自定义表情所属表情包 short name 只读黑名单集合，在贴纸黑名单之后、AI 检测之前检测。
  */
 export interface AdDetectConfig {
   /** 判定为广告（含黑名单命中）后的处罚设置。 */
   readonly punishment: AdDetectPunishment;
   /** 广告分类判定用的正例参考样本列表（单行规范化、去重）。 */
   readonly samples: readonly string[];
-  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的贴纸包 short name 黑名单。 */
-  readonly stickerBlackList: readonly string[];
-  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的自定义表情包 short name 黑名单。 */
-  readonly emojiBlackList: readonly string[];
+  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的贴纸包 short name 只读黑名单集合。 */
+  readonly stickerBlackList: ReadonlySet<string>;
+  /** 命中即跳过 AI 检测直接判为广告、按 punishment 处罚的自定义表情包 short name 只读黑名单集合。 */
+  readonly emojiBlackList: ReadonlySet<string>;
 }
 
 /** `config/static/bot.json` 中可选的 Mini App HTTP 服务与入口配置。 */

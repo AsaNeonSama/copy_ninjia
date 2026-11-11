@@ -53,6 +53,18 @@ function assertAiWorkerJobFailuresReadonly(): void {
 }
 void assertAiWorkerJobFailuresReadonly;
 
+function assertAdPunishmentActionsReadonly(): void {
+  // @ts-expect-error 全局封禁处罚动作禁止调用方改写。
+  AD_PUNISHMENT_BLOCK_GLOBAL.kind = "kick";
+  // @ts-expect-error 仅删消息处罚动作禁止调用方改写。
+  AD_PUNISHMENT_DELETE_ONLY.kind = "kick";
+  // @ts-expect-error 本群封禁处罚动作禁止调用方改写。
+  AD_PUNISHMENT_BAN_CHAT.kind = "kick";
+  // @ts-expect-error 移出本群处罚动作禁止调用方改写。
+  AD_PUNISHMENT_KICK.kind = "banChat";
+}
+void assertAdPunishmentActionsReadonly;
+
 /** 回复工具集、已接纳动作与调用链 owner 是构造后只读的句柄。 */
 function assertReplyToolHandlesReadonly(
   toolset: ReplyToolset,
@@ -189,7 +201,11 @@ import {
   AD_BLOCK_SCOPES,
   AD_DETECT_CONFIG_KEYS,
   AD_DETECT_JSON_SCHEMA,
+  AD_PUNISHMENT_BAN_CHAT,
+  AD_PUNISHMENT_BLOCK_GLOBAL,
+  AD_PUNISHMENT_DELETE_ONLY,
   AD_PUNISHMENT_KEYS,
+  AD_PUNISHMENT_KICK,
   AD_PUNISHMENT_KICK_KEYS,
   AD_PUNISHMENT_MUTE_KEYS,
   EMPTY_AD_CANDIDATE_ENTRIES,

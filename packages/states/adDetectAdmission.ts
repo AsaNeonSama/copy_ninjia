@@ -6,7 +6,6 @@ import type {
   AdCandidateAdmissionInput,
   AdCandidateDecision,
   AdRequeueDecision,
-  AdRequeueInput,
 } from "../types/states/adDetectAdmission";
 
 /**
@@ -36,12 +35,18 @@ export function admitAdCandidate(input: AdCandidateAdmissionInput): AdCandidateD
 
 /**
  * 排队闸：有未检内容且当前既未排队也不在途时返回 `enqueue`，否则返回 `skip`。
- * @param input 发送者消息串的排队准入输入（含未检内容标记 `hasUncheckedContent`、已入队标记 `queued` 与在途标记 `inFlight`）。
+ * @param hasUncheckedContent 消息串中是否存在序号大于 `checkedSeq` 的未检测消息。
+ * @param queued 该发送者键当前是否已在待检队列中排队。
+ * @param inFlight 该发送者键当前是否有在途的广告检测请求。
  * @returns 排队决策（`enqueue` 或 `skip`）。
  */
-export function admitAdRequeue(input: AdRequeueInput): AdRequeueDecision {
-  if (!input.hasUncheckedContent) return "skip";
-  if (input.queued || input.inFlight) return "skip";
+export function admitAdRequeue(
+  hasUncheckedContent: boolean,
+  queued: boolean,
+  inFlight: boolean
+): AdRequeueDecision {
+  if (!hasUncheckedContent) return "skip";
+  if (queued || inFlight) return "skip";
   return "enqueue";
 }
 

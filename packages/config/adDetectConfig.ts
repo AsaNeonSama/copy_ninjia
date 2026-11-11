@@ -192,18 +192,18 @@ export function parseAdDetectConfig(
   return {
     punishment,
     samples,
-    stickerBlackList: parseStickerPackNames({
+    stickerBlackList: new Set(parseStickerPackNames({
       entries: value.sticker_black_list,
       sourcePath,
       fieldPath: "$.sticker_black_list",
       maxEntries: MAX_CONFIGURED_AD_BLACKLIST_PACKS,
-    }),
-    emojiBlackList: parseStickerPackNames({
+    })),
+    emojiBlackList: new Set(parseStickerPackNames({
       entries: value.emoji_black_list,
       sourcePath,
       fieldPath: "$.emoji_black_list",
       maxEntries: MAX_CONFIGURED_AD_BLACKLIST_PACKS,
-    }),
+    })),
   };
 }
 

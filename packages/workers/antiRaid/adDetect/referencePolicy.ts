@@ -4,13 +4,20 @@ import {
   referencedAdWarningGeneration,
   referencedAdWarningStates,
 } from "../../../cache/workers/antiRaid/adDetect";
-import { AD_REFERENCE_WARNING_WINDOW_MS } from "../../../consts/antiRaid/adDetect";
 import { logger } from "../../../infra/logger";
 import {
   verificationKeyPrefix,
   verificationKeySuffix,
 } from "../../../libs/verificationKey";
-import type { ReferencedAdWarningState } from "../../../types/antiRaid/adDetect";
+import {
+  cancelsReferencedAdWarning,
+  commitReferencedAdWarning,
+  referencedAdWarningWindow,
+} from "../../../states/adReferenceWarning";
+import type {
+  ReferencedAdWarningState,
+  ReferencedAdWarningWindow,
+} from "../../../types/states/adReferenceWarning";
 
 /**
  * 为一个首次警告建立唯一发送 attempt；undefined 表示序号已经不可安全递增。
@@ -50,16 +57,13 @@ export function completeReferencedAdWarning(
 ): boolean {
   const current: ReferencedAdWarningState | undefined =
     referencedAdWarningStates.get(key);
-  if (
-    current?.phase !== "sending" ||
-    current.generation !== generation
-  ) return false;
-  referencedAdWarningStates.set(key, {
-    phase: "warned",
+  const next: ReferencedAdWarningState | undefined = commitReferencedAdWarning(
+    current,
     generation,
-    warnedAt,
-    expiresAt: warnedAt + AD_REFERENCE_WARNING_WINDOW_MS,
-  });
+    warnedAt
+  );
+  if (next === current || next === undefined) return false;
+  referencedAdWarningStates.set(key, next);
   return true;
 }
 
@@ -75,10 +79,9 @@ export function cancelReferencedAdWarning(
 ): void {
   const current: ReferencedAdWarningState | undefined =
     referencedAdWarningStates.get(key);
-  if (
-    current?.phase === "sending" &&
-    current.generation === generation
-  ) referencedAdWarningStates.delete(key);
+  if (cancelsReferencedAdWarning(current, generation)) {
+    referencedAdWarningStates.delete(key);
+  }
 }
 
 /**
@@ -92,10 +95,9 @@ export function cancelReferencedAdWarning(
 export function hasActiveReferencedAdWarning(key: string, receivedAt: number): boolean {
   const state: ReferencedAdWarningState | undefined =
     referencedAdWarningStates.get(key);
-  if (state?.phase !== "warned") return false;
-  if (receivedAt >= state.warnedAt && receivedAt < state.expiresAt) return true;
-  // 超出警告窗口或墙钟回拨（receivedAt < warnedAt）时就地回收。
-  referencedAdWarningStates.delete(key);
+  const status: ReferencedAdWarningWindow = referencedAdWarningWindow(state, receivedAt);
+  if (status === "active") return true;
+  if (status === "stale") referencedAdWarningStates.delete(key);
   return false;
 }
 
@@ -106,9 +108,9 @@ export function hasActiveReferencedAdWarning(key: string, receivedAt: number): b
  */
 export function clearChatReferencedAdWarnings(chatId: number): void {
   const prefix: string = verificationKeyPrefix(chatId);
-  for (const key of referencedAdWarningStates.keys()) {
+  referencedAdWarningStates.forEach((_state: ReferencedAdWarningState, key: string): void => {
     if (key.startsWith(prefix)) referencedAdWarningStates.delete(key);
-  }
+  });
 }
 
 /**
@@ -118,11 +120,11 @@ export function clearChatReferencedAdWarnings(chatId: number): void {
  */
 export function clearIdentityReferencedAdWarnings(identityId: number): void {
   const suffix: string = verificationKeySuffix(identityId);
-  for (const key of referencedAdWarningStates.keys()) {
+  referencedAdWarningStates.forEach((_state: ReferencedAdWarningState, key: string): void => {
     if (key.endsWith(suffix)) {
       referencedAdWarningStates.delete(key);
     }
-  }
+  });
 }
 
 /**
@@ -131,13 +133,11 @@ export function clearIdentityReferencedAdWarnings(identityId: number): void {
  * @param now 当前墙钟毫秒时间戳。
  */
 export function sweepReferencedAdWarnings(now: number): void {
-  for (const [key, state] of referencedAdWarningStates) {
-    if (state.phase !== "warned") continue;
-    const elapsedMs: number = now - state.warnedAt;
-    if (elapsedMs < 0 || now >= state.expiresAt) {
+  referencedAdWarningStates.forEach((state: ReferencedAdWarningState, key: string): void => {
+    if (referencedAdWarningWindow(state, now) === "stale") {
       referencedAdWarningStates.delete(key);
     }
-  }
+  });
 }
 
 /** Worker 停止时清空全部引用类广告警告状态；attempt 序号不得回退。 */
