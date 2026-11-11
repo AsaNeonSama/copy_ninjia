@@ -15,11 +15,13 @@ import { accessErrorResponse } from "../libs/response";
  * @param nowMs 当前毫秒时间戳。
  */
 function purgeExpiredAuthSessions(nowMs: number): void {
-  for (const [token, session] of miniAppAuthSessions) {
-    if (session.expiresAt <= nowMs) {
-      miniAppAuthSessions.delete(token);
+  miniAppAuthSessions.forEach(
+    (session: Readonly<MiniAppAuthSession>, token: string): void => {
+      if (session.expiresAt <= nowMs) {
+        miniAppAuthSessions.delete(token);
+      }
     }
-  }
+  );
 }
 
 /**
@@ -65,18 +67,17 @@ export function hasActiveMiniAppAuthSession(
 }
 
 /**
- * 核验请求携带的密码认证会话令牌（支持刷新后 5 分钟宽限期内的上一轮令牌 `previousToken`）；
+ * 对调用方已用 `MINI_APP_SHA256_HEX_PATTERN` 校验过形态的会话令牌执行有效期核验与按需续期（支持刷新后 5 分钟宽限期内的上一轮令牌 `previousToken`）：
  * 若会话仍在有效期内且距签发时刻（`createdAt`）已超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`），
  * 则删除旧键、签发新令牌插到最新端并将有效期顺延 45 分钟（`nowMs + MINI_APP_SESSION_TTL_MS`），同时将原令牌保存在 `previousToken` 中以兼容并发在途请求。
- * @param sessionToken 请求携带的 64 位十六进制会话令牌。
+ * @param sessionToken 调用方已用 `MINI_APP_SHA256_HEX_PATTERN` 校验的 64 位十六进制会话令牌。
  * @param nowMs 当前毫秒时间戳。
  * @returns 有效（或已刷新续期）的会话记录；缺失或已过期时返回 `null`。
  */
-export function resolveAndRefreshMiniAppAuthSession(
+export function resolveAndRefreshCheckedMiniAppAuthSession(
   sessionToken: string,
   nowMs: number = Date.now()
 ): Readonly<MiniAppAuthSession> | null {
-  if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) return null;
   purgeExpiredAuthSessions(nowMs);
   const session: Readonly<MiniAppAuthSession> | null =
     findMiniAppAuthSession(sessionToken, nowMs);
@@ -96,6 +97,20 @@ export function resolveAndRefreshMiniAppAuthSession(
   miniAppAuthSessions.delete(session.token);
   miniAppAuthSessions.set(newToken, refreshed);
   return refreshed;
+}
+
+/**
+ * 核验请求携带的密码认证会话令牌（支持刷新后 5 分钟宽限期内的上一轮令牌 `previousToken`），并在距签发超过 5 分钟时签发新令牌续期。
+ * @param sessionToken 请求携带的候选会话令牌。
+ * @param nowMs 当前毫秒时间戳。
+ * @returns 有效（或已刷新续期）的会话记录；形态非法、缺失或已过期时返回 `null`。
+ */
+export function resolveAndRefreshMiniAppAuthSession(
+  sessionToken: string,
+  nowMs: number = Date.now()
+): Readonly<MiniAppAuthSession> | null {
+  if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) return null;
+  return resolveAndRefreshCheckedMiniAppAuthSession(sessionToken, nowMs);
 }
 
 /**

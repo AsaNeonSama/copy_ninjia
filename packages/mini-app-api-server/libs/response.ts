@@ -3,7 +3,7 @@ import {
   MINI_APP_NO_STORE_CACHE_CONTROL, MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
 import type { MiniAppAccessDiagnostics } from "../../types/miniApp";
-import { resolveSafeClientIp } from "./request";
+import { firstForwardedHost, resolveSafeClientIp } from "./request";
 
 /** `serveCachedAssetResponse` 所需的已解析资源元数据。 */
 interface CachedAssetMeta {
@@ -171,14 +171,25 @@ export function accessErrorResponse(
   const timestamp: string = `${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`;
   const clientIp: string = resolveSafeClientIp(request);
   const parsedUrl: URL | null = URL.parse(request.url);
+  const hostHeader: string = request.headers.get("host")?.trim() ?? "";
+  const urlHost: string = parsedUrl?.host ?? "";
   const rawHost: string =
-    request.headers.get("x-forwarded-host")?.trim() ??
-    request.headers.get("host")?.trim() ??
-    parsedUrl?.host ??
-    "localhost";
-  const hostNoPort: string = rawHost.split(":")[0]?.trim().toLowerCase() ?? "";
+    firstForwardedHost(request.headers) ??
+    (hostHeader.length > 0
+      ? hostHeader
+      : urlHost.length > 0
+        ? urlHost
+        : "localhost");
+  const firstColon: number = rawHost.indexOf(":");
+  const hasMultipleColons: boolean =
+    firstColon >= 0 && rawHost.includes(":", firstColon + 1);
+  const hostNoPort: string = (firstColon >= 0 ? rawHost.slice(0, firstColon) : rawHost)
+    .trim()
+    .toLowerCase();
   const isIpHost: boolean =
-    hostNoPort.startsWith("[") || MINI_APP_IPV4_HOST_PATTERN.test(hostNoPort);
+    rawHost.startsWith("[") ||
+    hasMultipleColons ||
+    MINI_APP_IPV4_HOST_PATTERN.test(hostNoPort);
   const host: string = rawHost.length > 0 && !isIpHost ? rawHost : "localhost";
   const path: string = parsedUrl?.pathname ?? "/";
   const diag: Readonly<MiniAppAccessDiagnostics> = {

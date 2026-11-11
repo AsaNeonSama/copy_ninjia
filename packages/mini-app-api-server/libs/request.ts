@@ -6,18 +6,46 @@ import { readBoundedResponseText } from "../../libs/boundedResponse";
 import { isPlainRecord } from "../../libs/record";
 
 /**
- * 校验并归一化单个候选客户端 IP 字符串（过滤空串与回环地址）。
+ * 提取请求头 `X-Forwarded-Host` 的第一跳非空主机名（按逗号切分取首段并去掉首尾空白）。
+ * @param headers HTTP 请求头对象。
+ * @returns 首跳非空主机名；缺省或首跳为空时返回 `null`。
+ */
+export function firstForwardedHost(headers: Headers): string | null {
+  const raw: string | null = headers.get("x-forwarded-host");
+  if (raw === null) return null;
+  const commaIndex: number = raw.indexOf(",");
+  const firstHop: string = (commaIndex >= 0 ? raw.slice(0, commaIndex) : raw).trim();
+  return firstHop.length > 0 ? firstHop : null;
+}
+
+/**
+ * 校验并归一化单个候选客户端 IP 字符串（剥离方括号、可选端口与 `::ffff:` 前缀，过滤空串与回环地址）。
  * @param raw 原始候选 IP 字符串。
- * @returns 合法的非回环客户端 IP，或无效时返回 `null`。
+ * @returns 归一化后的非回环客户端 IP，或无效时返回 `null`。
  */
 function extractValidClientIp(raw: string | null | undefined): string | null {
   if (raw === null || raw === undefined) return null;
   let ip: string = raw.trim().toLowerCase();
-  if (ip.startsWith("::ffff:")) ip = ip.slice(7);
+  if (ip.startsWith("[")) {
+    const closeBracket: number = ip.indexOf("]");
+    if (
+      closeBracket >= 1 &&
+      (closeBracket === ip.length - 1 || ip[closeBracket + 1] === ":")
+    ) {
+      ip = ip.slice(1, closeBracket).trim();
+    }
+  } else {
+    const firstColon: number = ip.indexOf(":");
+    if (firstColon >= 0 && !ip.includes(":", firstColon + 1) && ip.includes(".")) {
+      ip = ip.slice(0, firstColon).trim();
+    }
+  }
+  if (ip.startsWith("::ffff:")) ip = ip.slice(7).trim();
   if (
     ip.length === 0 ||
     ip.startsWith("127.") ||
     ip === "::1" ||
+    ip === "0:0:0:0:0:0:0:1" ||
     ip === "0.0.0.0" ||
     ip === "::" ||
     ip === "localhost"

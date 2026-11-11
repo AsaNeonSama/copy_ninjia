@@ -8,6 +8,7 @@ import {
 } from "../../consts/miniApp";
 import type { MiniAppMiddleware, MiniAppRouteContext } from "../../types/miniApp";
 import { accessErrorResponse } from "../libs/response";
+import { firstForwardedHost } from "../libs/request";
 import { deriveMiniAppPublicUrlParts } from "../libs/routePath";
 
 /**
@@ -33,17 +34,9 @@ function isAllowedRequestOriginUrl(
   }
   const candidateHost: string = parsedOrigin.host.toLowerCase();
   const headers: Headers = ctx.request.headers;
-  const rawForwardedHost: string | null = headers.get("x-forwarded-host");
-  if (rawForwardedHost !== null) {
-    const commaIndex: number = rawForwardedHost.indexOf(",");
-    const firstForwardedHost: string = (
-      commaIndex >= 0 ? rawForwardedHost.slice(0, commaIndex) : rawForwardedHost
-    )
-      .trim()
-      .toLowerCase();
-    if (firstForwardedHost.length > 0 && candidateHost === firstForwardedHost) {
-      return true;
-    }
+  const forwardedHost: string | null = firstForwardedHost(headers);
+  if (forwardedHost !== null && candidateHost === forwardedHost.toLowerCase()) {
+    return true;
   }
   const hostHeader: string = headers.get("host")?.trim().toLowerCase() ?? "";
   if (hostHeader.length > 0 && candidateHost === hostHeader) {

@@ -884,4 +884,83 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(exactJson.ok).toBeTrue();
     expect(exactJson.id).toBe(88999);
   });
+
+  test("诊断 Host 与客户端 IP 归一化同口径，且会话过期与畸形令牌分别返回 SESSION_EXPIRED 与 PASSWORD_REQUIRED", async () => {
+    for (const ipHost of ["2001:db8::1", "[2001:db8::1]:8443"]) {
+      const res: Response = await handleMiniAppHttpRequest(
+        new Request("http://127.0.0.1:3000/api/auth/precheck", {
+          headers: { host: ipHost },
+        })
+      );
+      expect(res.status).toBe(401);
+      const diag: MiniAppAccessDiagnostics = (await res.json()) as MiniAppAccessDiagnostics;
+      expect(diag.host).toBe("localhost");
+    }
+
+    const multiHopHostRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-host": "a.example, 1.2.3.4",
+          origin: "https://a.example",
+        },
+      })
+    );
+    expect(multiHopHostRes.status).toBe(401);
+    const multiHopDiag: MiniAppAccessDiagnostics =
+      (await multiHopHostRes.json()) as MiniAppAccessDiagnostics;
+    expect(multiHopDiag.code).toBe("MISSING_INIT_DATA");
+    expect(multiHopDiag.host).toBe("a.example");
+
+    const blankForwardedHostRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-host": "   ",
+          host: "panel.example",
+        },
+      })
+    );
+    expect(blankForwardedHostRes.status).toBe(401);
+    expect(((await blankForwardedHostRes.json()) as MiniAppAccessDiagnostics).host).toBe(
+      "panel.example"
+    );
+
+    const xffRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-for": "[::1]:54321, 0:0:0:0:0:0:0:1, 203.0.113.5:41234",
+        },
+      })
+    );
+    expect(xffRes.status).toBe(401);
+    expect(((await xffRes.json()) as MiniAppAccessDiagnostics).clientIp).toBe("203.0.113.5");
+
+    const baseHeaders: Record<string, string> = superAdminHeaders();
+    const malformedSessionRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: baseHeaders[MINI_APP_INIT_DATA_HEADER]!,
+          [MINI_APP_SESSION_HEADER]: "not-a-hex-session",
+        },
+      })
+    );
+    expect(malformedSessionRes.status).toBe(401);
+    const malformedDiag: MiniAppAccessDiagnostics =
+      (await malformedSessionRes.json()) as MiniAppAccessDiagnostics;
+    expect(malformedDiag.code).toBe("PASSWORD_REQUIRED");
+    expect(malformedDiag.error).toBe("PASSWORD_REQUIRED");
+
+    const unknownValidHexRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/status", {
+        headers: {
+          [MINI_APP_INIT_DATA_HEADER]: baseHeaders[MINI_APP_INIT_DATA_HEADER]!,
+          [MINI_APP_SESSION_HEADER]: "f".repeat(64),
+        },
+      })
+    );
+    expect(unknownValidHexRes.status).toBe(401);
+    const expiredDiag: MiniAppAccessDiagnostics =
+      (await unknownValidHexRes.json()) as MiniAppAccessDiagnostics;
+    expect(expiredDiag.code).toBe("PASSWORD_REQUIRED");
+    expect(expiredDiag.error).toBe("SESSION_EXPIRED");
+  });
 });

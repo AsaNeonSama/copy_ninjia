@@ -6,7 +6,7 @@ import type {
 } from "../../types/miniApp";
 import {
   attachRefreshedSessionHeaders,
-  resolveAndRefreshMiniAppAuthSession,
+  resolveAndRefreshCheckedMiniAppAuthSession,
 } from "../auth/session";
 import { extractSessionToken } from "../libs/request";
 import { accessErrorResponse } from "../libs/response";
@@ -36,7 +36,7 @@ export function createMiniAppSessionMiddleware(allowQueryAuth: boolean): MiniApp
       });
     }
     const session: Readonly<MiniAppAuthSession> | null =
-      resolveAndRefreshMiniAppAuthSession(sessionToken, nowMs);
+      resolveAndRefreshCheckedMiniAppAuthSession(sessionToken, nowMs);
     if (session === null) {
       return accessErrorResponse(ctx.request, {
         status: 401,

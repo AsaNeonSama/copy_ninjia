@@ -4,23 +4,30 @@ import {
   miniAppPickerSequence,
 } from "../../cache/main/miniApp";
 import { MINI_APP_PICKER_TTL_MS } from "../../consts/miniApp";
-import type { MiniAppPickerResultEvent } from "../../types/miniApp";
+import type {
+  MiniAppPickerResultEvent,
+  MiniAppPreparedPickerSession,
+} from "../../types/miniApp";
 
 /**
  * 清理已超过 `MINI_APP_PICKER_TTL_MS` 的待处理选择器会话与已完成回执。
  * @param now 当前毫秒时间戳。
  */
 export function pruneExpiredMiniAppPickers(now: number = Date.now()): void {
-  for (const [requestId, session] of miniAppPendingPickers) {
-    if (now - session.createdAt > MINI_APP_PICKER_TTL_MS) {
-      miniAppPendingPickers.delete(requestId);
+  miniAppPendingPickers.forEach(
+    (session: Readonly<MiniAppPreparedPickerSession>, requestId: number): void => {
+      if (now - session.createdAt > MINI_APP_PICKER_TTL_MS) {
+        miniAppPendingPickers.delete(requestId);
+      }
     }
-  }
-  for (const [requestId, result] of miniAppCompletedPickerResults) {
-    if (now - result.completedAt > MINI_APP_PICKER_TTL_MS) {
-      miniAppCompletedPickerResults.delete(requestId);
+  );
+  miniAppCompletedPickerResults.forEach(
+    (result: Readonly<MiniAppPickerResultEvent>, requestId: number): void => {
+      if (now - result.completedAt > MINI_APP_PICKER_TTL_MS) {
+        miniAppCompletedPickerResults.delete(requestId);
+      }
     }
-  }
+  );
 }
 
 /**
