@@ -21,6 +21,7 @@ export const chatTeardownCallbacks: Record<ChatRuntimeOwner, ChatTeardownCallbac
   aiChat: noChatTeardown,
   antiRaid: noChatTeardown,
   qa: noChatTeardown,
+  batchKick: noChatTeardown,
   wed: noChatTeardown,
   joinLog: noChatTeardown,
 };

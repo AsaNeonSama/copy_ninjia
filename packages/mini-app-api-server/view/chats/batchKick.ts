@@ -4,9 +4,16 @@ import { chatIsSupergroupById } from "../../../cache/main/antiRaid/chatKind";
 import {
   batchKickChats,
   miniAppBatchKickCompletedByChat,
+  miniAppBatchKickInFlightSeqByChat,
+  miniAppBatchKickSequence,
 } from "../../../cache/main/batchKick";
 import { startBatchKickTask } from "../../../commands/batchKick";
-import type { BatchKickStats } from "../../../commands/batchKick";
+import {
+  beginBatchKickPreflight,
+  endBatchKickPreflight,
+  hasLiveBatchKickPreflight,
+} from "../../../commands/batchKick/preflight";
+import type { BatchKickStats } from "../../../types/batchKick";
 import { HOUR_MS } from "../../../consts/time";
 import { readJoinLog } from "../../../infra/diskIO";
 import { logger } from "../../../infra/logger";
@@ -14,10 +21,47 @@ import { getChatState } from "../../../infra/storage/stateStore";
 import { runTelegramAction } from "../../../infra/telegram/actions/core";
 import { telegramApi } from "../../../infra/telegram/client";
 import { telegramSignal } from "../../../libs/telegramSignal";
-import type { ChatState } from "../../../types/chatState";
 import type { JoinLogRecord } from "../../../types/diskIO/storage";
-import type { MiniAppBatchKickResult } from "../../../types/miniApp";
+import type { MiniAppBatchKickResult, MiniAppChatDetail } from "../../../types/miniApp";
 import { getManagedChatDetail } from "./query";
+
+/**
+ * 构造群未开启 `/init`（或在异步预检期间被关群拆除）时的统一响应。
+ * @param hours 本次请求回溯的小时数。
+ * @returns `notInitialized` 响应载荷。
+ */
+function notInitializedResult(hours: number): Readonly<MiniAppBatchKickResult> {
+  return {
+    ok: false,
+    outcome: "notInitialized",
+    hours,
+    recordCount: 0,
+    message: "CHAT_NOT_INITIALIZED",
+    detail: null,
+  };
+}
+
+/**
+ * 构造同群已有 `/batch_kick` 在途时的响应；读取详情时若群已关闭 `/init` 则转为 `notInitialized`。
+ * @param chatId 目标群聊 ID。
+ * @param hours 本次请求回溯的小时数。
+ * @returns `running` 或 `notInitialized` 响应载荷。
+ */
+async function runningResult(
+  chatId: number,
+  hours: number
+): Promise<Readonly<MiniAppBatchKickResult>> {
+  const detail: Readonly<MiniAppChatDetail> | null = await getManagedChatDetail(chatId);
+  if (detail === null) return notInitializedResult(hours);
+  return {
+    ok: false,
+    outcome: "running",
+    hours,
+    recordCount: 0,
+    message: "BATCH_KICK_RUNNING",
+    detail,
+  };
+}
 
 /**
  * 确认受管群是否为超级群：优先读取主线程 `chatIsSupergroupById` 缓存，未命中时经 `getChat`
@@ -48,131 +92,143 @@ export async function triggerManagedChatBatchKick(
   chatId: number,
   hours: number
 ): Promise<Readonly<MiniAppBatchKickResult>> {
-  const current: Readonly<ChatState> = getChatState(chatId);
-  if (current.isInitEnabled !== true) {
-    return {
-      ok: false,
-      outcome: "notInitialized",
-      hours,
-      recordCount: 0,
-      message: "CHAT_NOT_INITIALIZED",
-      detail: null,
-    };
+  if (getChatState(chatId).isInitEnabled !== true) {
+    return notInitializedResult(hours);
   }
-
   if (batchKickChats.has(chatId)) {
-    return {
-      ok: false,
-      outcome: "running",
-      hours,
-      recordCount: 0,
-      message: "BATCH_KICK_RUNNING",
-      detail: await getManagedChatDetail(chatId),
-    };
+    return runningResult(chatId, hours);
   }
 
-  const isSupergroup: boolean | undefined = await resolveIsSupergroup(chatId);
-  if (isSupergroup === undefined) {
-    return {
-      ok: false,
-      outcome: "unavailable",
-      hours,
-      recordCount: 0,
-      message: "CHAT_KIND_UNAVAILABLE",
-      detail: await getManagedChatDetail(chatId),
-    };
-  }
-  if (!isSupergroup) {
-    return {
-      ok: false,
-      outcome: "notSupergroup",
-      hours,
-      recordCount: 0,
-      message: "CHAT_NOT_SUPERGROUP",
-      detail: await getManagedChatDetail(chatId),
-    };
-  }
-
-  const durationMs: number = hours * HOUR_MS;
-  const now: number = Date.now();
-  let records: readonly JoinLogRecord[];
+  const preflightSeq: number = beginBatchKickPreflight(chatId);
   try {
-    records = await readJoinLog({
-      chatId,
-      since: now - durationMs,
-      now,
-    });
-  } catch (error: unknown) {
-    logger.error(
-      `Failed to read join logs for /batch_kick in chat ${chatId}:`,
-      error
-    );
-    return {
-      ok: false,
-      outcome: "unavailable",
-      hours,
-      recordCount: 0,
-      message: "JOIN_LOG_UNAVAILABLE",
-      detail: await getManagedChatDetail(chatId),
-    };
-  }
+    const isSupergroup: boolean | undefined = await resolveIsSupergroup(chatId);
+    if (!hasLiveBatchKickPreflight(chatId, preflightSeq) || getChatState(chatId).isInitEnabled !== true) {
+      return notInitializedResult(hours);
+    }
+    if (isSupergroup === undefined) {
+      return {
+        ok: false,
+        outcome: "unavailable",
+        hours,
+        recordCount: 0,
+        message: "CHAT_KIND_UNAVAILABLE",
+        detail: await getManagedChatDetail(chatId),
+      };
+    }
+    if (!isSupergroup) {
+      return {
+        ok: false,
+        outcome: "notSupergroup",
+        hours,
+        recordCount: 0,
+        message: "CHAT_NOT_SUPERGROUP",
+        detail: await getManagedChatDetail(chatId),
+      };
+    }
 
-  if (records.length === 0) {
-    return {
-      ok: true,
-      outcome: "empty",
-      hours,
-      recordCount: 0,
-      message: "BATCH_KICK_EMPTY",
-      detail: await getManagedChatDetail(chatId),
-    };
-  }
-
-  miniAppBatchKickCompletedByChat.delete(chatId);
-  const recordCount: number = records.length;
-  const accepted: boolean = startBatchKickTask({
-    chatId,
-    source: "api",
-    durationMs,
-    records,
-    onComplete: (stats: Readonly<BatchKickStats>): void => {
-      if (stats.unmanaged || getChatState(chatId).isInitEnabled !== true) {
-        miniAppBatchKickCompletedByChat.delete(chatId);
-        return;
+    const durationMs: number = hours * HOUR_MS;
+    const now: number = Date.now();
+    let records: readonly JoinLogRecord[];
+    try {
+      records = await readJoinLog({
+        chatId,
+        since: now - durationMs,
+        now,
+      });
+    } catch (error: unknown) {
+      if (!hasLiveBatchKickPreflight(chatId, preflightSeq) || getChatState(chatId).isInitEnabled !== true) {
+        return notInitializedResult(hours);
       }
-      miniAppBatchKickCompletedByChat.set(chatId, {
+      logger.error(
+        `Failed to read join logs for /batch_kick in chat ${chatId}:`,
+        error
+      );
+      return {
+        ok: false,
+        outcome: "unavailable",
+        hours,
+        recordCount: 0,
+        message: "JOIN_LOG_UNAVAILABLE",
+        detail: await getManagedChatDetail(chatId),
+      };
+    }
+    if (!hasLiveBatchKickPreflight(chatId, preflightSeq) || getChatState(chatId).isInitEnabled !== true) {
+      return notInitializedResult(hours);
+    }
+    if (batchKickChats.has(chatId)) {
+      return runningResult(chatId, hours);
+    }
+
+    if (records.length === 0) {
+      return {
+        ok: true,
+        outcome: "empty",
+        hours,
+        recordCount: 0,
+        message: "BATCH_KICK_EMPTY",
+        detail: await getManagedChatDetail(chatId),
+      };
+    }
+
+    const recordCount: number = records.length;
+    const sequence: number = ++miniAppBatchKickSequence.current;
+    miniAppBatchKickInFlightSeqByChat.set(chatId, sequence);
+    const clearInFlightSeq = (): void => {
+      if (miniAppBatchKickInFlightSeqByChat.get(chatId) === sequence) {
+        miniAppBatchKickInFlightSeqByChat.delete(chatId);
+      }
+    };
+    const accepted: boolean = startBatchKickTask({
+      chatId,
+      source: "api",
+      durationMs,
+      records,
+      onCancel: clearInFlightSeq,
+      onComplete: (stats: Readonly<BatchKickStats>): void => {
+        if (miniAppBatchKickInFlightSeqByChat.get(chatId) !== sequence) return;
+        miniAppBatchKickInFlightSeqByChat.delete(chatId);
+        if (stats.unmanaged || getChatState(chatId).isInitEnabled !== true) {
+          miniAppBatchKickCompletedByChat.delete(chatId);
+          return;
+        }
+        miniAppBatchKickCompletedByChat.set(chatId, {
+          hours,
+          recordCount,
+          scanned: stats.scanned,
+          kicked: stats.kicked,
+          absent: stats.absent,
+          protected: stats.protected,
+          blocked: stats.blocked,
+          forbidden: stats.forbidden,
+          failed: stats.failed,
+          aborted: stats.aborted,
+          unmanaged: stats.unmanaged,
+          completedAt: Date.now(),
+        });
+      },
+    });
+    if (!accepted) {
+      clearInFlightSeq();
+      return {
+        ok: false,
+        outcome: "busy",
         hours,
         recordCount,
-        scanned: stats.scanned,
-        kicked: stats.kicked,
-        absent: stats.absent,
-        protected: stats.protected,
-        blocked: stats.blocked,
-        forbidden: stats.forbidden,
-        failed: stats.failed,
-        aborted: stats.aborted,
-        unmanaged: stats.unmanaged,
-        completedAt: Date.now(),
-      });
-    },
-  });
-  if (!accepted) {
+        message: "BATCH_KICK_BUSY",
+        detail: await getManagedChatDetail(chatId),
+      };
+    }
+
+    miniAppBatchKickCompletedByChat.delete(chatId);
     return {
-      ok: false,
-      outcome: "busy",
+      ok: true,
+      outcome: "accepted",
       hours,
       recordCount,
-      message: "BATCH_KICK_BUSY",
+      message: "BATCH_KICK_ACCEPTED",
       detail: await getManagedChatDetail(chatId),
     };
+  } finally {
+    endBatchKickPreflight(chatId, preflightSeq);
   }
-
-  return {
-    ok: true,
-    outcome: "accepted",
-    hours,
-    recordCount,
-    message: "BATCH_KICK_ACCEPTED",
-    detail: await getManagedChatDetail(chatId),
-  };
 }

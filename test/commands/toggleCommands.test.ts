@@ -1,7 +1,7 @@
 import { replyCommandNoticeVia } from "../helpers/common";
 const postAntiRaid = mock((_message: unknown): boolean => true);
 mock.module("../../packages/antiRaid/workerBridge/controller", () => ({ postAntiRaid }));
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { groupCommandContext } from "../helpers/groupCommandContext";
 import {
   ANTI_RAID_DISABLE_TEARDOWN_FAILED_TEXT,
@@ -20,9 +20,6 @@ import { chatStateOf } from "../helpers/chatState";
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 const invalidateAiChat = mock((..._args: unknown[]): void => {});
 const teardownChatRuntime = mock(async (_chatId: number, _reason: unknown): Promise<void> => {});
-const invalidateBotAdminStatus = mock((chatId: number): void => {
-  delete states.get(chatId)?.botPermissions;
-});
 const saveStateInBackground = mock((..._args: unknown[]): void => {});
 const persistChatState = mock(async (_chatId: number, context: string): Promise<void> => { saveStateInBackground(context); });
 const handleCopyCommand = mock(async (..._args: unknown[]): Promise<void> => {});
@@ -55,9 +52,9 @@ mock.module("../../packages/infra/telegram", () => ({
 }));
 mock.module("../../packages/aiChat", () => ({ invalidateAiChat }));
 mock.module("../../packages/antiRaid", () => ({ clearAdDetection, clearFloodControl, deactivateJoinGuardChat }));
-// resolveBotAdminStatus 是 /init enable 之后重新判定管理员身份的调用点（见 infra/botAdmin.ts）。
-const resolveBotAdminStatus = mock(async (_chatId: number): Promise<boolean> => false);
-mock.module("../../packages/infra/botAdmin", () => ({ invalidateBotAdminStatus, resolveBotAdminStatus }));
+mock.module("../../packages/infra/telegram/mainClient", () => ({
+  bot: { botInfo: { id: 99 }, api: {} },
+}));
 mock.module("../../packages/infra/chatTeardown", () => ({ teardownChatRuntime }));
 // 群状态走真实 stateStore 与 LRU（getOrCreateChatState / clearChatStateField /
 // purgeChatStateExceptLockdown 的收敛语义不替身）；只替身它下面的 SQLite 落盘边界。
@@ -68,6 +65,13 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
   saveChatStateInBackground: (): void => {},
 }));
 mock.module("../../packages/commands/copy", () => ({ handleCopyCommand }));
+
+const botAdmin = await import("../../packages/infra/botAdmin");
+const invalidateBotAdminStatus = spyOn(botAdmin, "invalidateBotAdminStatus");
+// resolveBotAdminStatus 是 /init enable 之后重新判定管理员身份的调用点（见 infra/botAdmin.ts）。
+const resolveBotAdminStatus = spyOn(botAdmin, "resolveBotAdminStatus").mockImplementation(
+  async (_chatId: number): Promise<boolean> => false
+);
 
 const { handleAdDetectCommand } = await import("../../packages/commands/adDetect");
 const { handleAiChatCommand } = await import("../../packages/commands/aiChat");

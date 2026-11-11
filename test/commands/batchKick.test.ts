@@ -458,6 +458,27 @@ describe("/batch_kick", () => {
     expect(kickChatMemberWithOutcome).toHaveBeenCalledTimes(2);
   });
 
+  test("读入群日志期间同群已被另一入口抢占单飞或停管时不重复启动批次", async () => {
+    readJoinLog.mockImplementationOnce(async (): Promise<readonly JoinLogRecord[]> => {
+      batchKickChats.add(-1001);
+      return [{ userId: 42, joinedAt: 1 }];
+    });
+    await handleBatchKickCommand(context());
+    expect(lastReplyText(sendMessage)).toBe(ATMOSPHERE_TEXTS.teasing.NOTICE_TEXTS.batchKickRunning);
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    batchKickChats.delete(-1001);
+
+    sendMessage.mockClear();
+    readJoinLog.mockImplementationOnce(async (): Promise<readonly JoinLogRecord[]> => {
+      getOrCreateChatState(-1001).isInitEnabled = false;
+      return [{ userId: 42, joinedAt: 1 }];
+    });
+    await runCommand(context());
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(probeChatMembership).not.toHaveBeenCalled();
+    expect(batchKickChats.size).toBe(0);
+  });
+
   test.each([
     ["/init disable", (): void => { getOrCreateChatState(-1001).isInitEnabled = false; }],
     ["被撤管理员", (): void => {

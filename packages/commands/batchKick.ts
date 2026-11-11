@@ -1,32 +1,28 @@
 import type { AtmosphereTexts } from "../types/atmosphere";
 import { chatAtmosphere } from "../infra/atmosphere";
-
 import { commandArgumentTokens } from "./arguments";
 import type { CommandContext, Context } from "grammy";
 import { BATCH_KICK_CONCURRENCY, BATCH_KICK_MAX_DURATION_MS, BATCH_KICK_MIN_DURATION_MS } from "../consts/commands";
 import { TELEGRAM_DATE_UNIT_MS } from "../consts/telegram";
-
-import {
-  formatDurationCn,
-  parseDurationTokenMs,
-} from "../libs/durationToken";
+import { formatDurationCn, parseDurationTokenMs } from "../libs/durationToken";
 import { isWhitelisted } from "../infra/identityPolicy/whitelist";
 import { isUserBlocked } from "../infra/blocklist/membership";
-import {
-  requestBlocklistResweep,
-  sweepBlockedMembers,
-} from "../infra/blocklist/sweep";
+import { requestBlocklistResweep, sweepBlockedMembers } from "../infra/blocklist/sweep";
+import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { readJoinLog } from "../infra/diskIO";
 import { getChatState } from "../infra/storage/stateStore";
 import { currentUpdateAbortSignal, throwIfUpdateAborted } from "../infra/updateContext";
 import { batchKickChats } from "../cache/main/batchKick";
+import {
+  beginBatchKickPreflight,
+  endBatchKickPreflight,
+  hasLiveBatchKickPreflight,
+  purgeBatchKickChatState,
+} from "./batchKick/preflight";
 import { logger } from "../infra/logger";
 import { readIdentityPolicyVerdicts } from "../infra/identityStorage";
 import { IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES } from "../consts/identityStorage";
-import type {
-  BanChatMemberOutcome,
-  KickChatMemberOutcome,
-} from "../infra/telegram";
+import type { BanChatMemberOutcome, KickChatMemberOutcome } from "../infra/telegram";
 import {
   banChatMemberWithOutcome,
   kickChatMemberWithOutcome,
@@ -34,45 +30,19 @@ import {
   replyCommandNotice,
   sendCommandMessage,
 } from "../infra/telegram";
+import type { BatchKickStats } from "../types/batchKick";
 import type { JoinLogRecord } from "../types/diskIO/storage";
 import { runBoundedSettledBatch } from "../libs/boundedSettledBatch";
-import type {
-  BoundedBatchExecution,
-  BoundedBatchResult,
-} from "../libs/boundedSettledBatch";
+import type { BoundedBatchExecution, BoundedBatchResult } from "../libs/boundedSettledBatch";
 import { rejectUnlessSuperAdmin } from "./commandActor";
 import { submitDeferredCommand } from "./deferredCommands";
 import type { CachedUser, ChatState } from "../types/chatState";
 import type { IdentityPolicyVerdicts } from "../types/identityStorage";
 import type { BatchKickTriggerSource } from "../types/miniApp";
 
-/** `/batch_kick` 单次批次执行的各分类计数器与中断状态。 */
-export interface BatchKickStats {
-  /** 成功踢出（unban 解除封禁）的成员数。 */
-  kicked: number;
-  /** 探测或踢出时确认已不在群内的成员数。 */
-  absent: number;
-  /** 命中白名单保护而跳过的成员数。 */
-  protected: number;
-  /** 命中永久黑名单（跳过或补封成功）的成员数。 */
-  blocked: number;
-  /** 因缺少管理员权限或目标为群管理员而被 Telegram 拒绝的成员数。 */
-  forbidden: number;
-  /** 因探测/踢出/补封请求失败或未预期异常计入失败的成员数。 */
-  failed: number;
-  /**
-   * blocked 中本命令未做任何处置、交还给黑名单流程的条数：processJoinRecord 里命中
-   * 黑名单后直接返回的分支。只用来决定整批结束后是否请求一次补扫；补封成功的
-   * 记录不计入。
-   */
-  blockedHandoffs: number;
-  /** 真正进入处置的记录条数；身份策略读取失败中断时小于总条数。 */
-  scanned: number;
-  /** 是否因身份策略读取失败提前中断；true 时剩余记录未处理。 */
-  aborted: boolean;
-  /** 批次途中本群不再受管而停止；true 时不发战报。 */
-  unmanaged: boolean;
-}
+export type { BatchKickStats } from "../types/batchKick";
+
+registerChatTeardown("batchKick", purgeBatchKickChatState);
 
 /**
  * 把 `/batch_kick` 的单个 m/h/d 参数换算为毫秒数；须落在 BATCH_KICK_MIN_DURATION_MS 与 BATCH_KICK_MAX_DURATION_MS 之间，否则返回 undefined。
@@ -303,13 +273,15 @@ interface DeliverBatchKickParams {
   readonly acknowledged: Promise<void>;
   /** 当 `source === "api"` 时在批次执行完成后写入服务端完成状态的回调。 */
   readonly onComplete?: (stats: Readonly<BatchKickStats>) => void;
+  /** 当 `source === "api"` 的批次在完成前被取消或跳过时清理在途登记的回调。 */
+  readonly onCancel?: () => void;
 }
 
 /**
  * 延迟命令执行器里的批次任务：逐条处置、交回黑名单、按 NOTICE_TEXTS.batchKickResult 发战报。
  * 本群途中不再受管时静默结束，不发战报；停机取消由执行器吞掉。结束时摘除单飞标记，
- * 并仅在 `source === "api"` 时触发完成回调向服务端写入执行完成状态。
- * @param params 目标群 `chatId`、来源 `source`、触发消息 ID `messageId`、窗口时长 `durationMs`、入群记录 `records`、回执信号 `acknowledged` 与完成回调 `onComplete`。
+ * 并仅在 `source === "api"` 时触发完成或取消回调同步服务端状态。
+ * @param params 目标群 `chatId`、来源 `source`、触发消息 ID `messageId`、窗口时长 `durationMs`、入群记录 `records`、回执信号 `acknowledged` 及回调。
  */
 async function deliverBatchKick({
   chatId,
@@ -319,6 +291,7 @@ async function deliverBatchKick({
   records,
   acknowledged,
   onComplete,
+  onCancel,
 }: DeliverBatchKickParams): Promise<void> {
   let completedStats: BatchKickStats | null = null;
   try {
@@ -363,8 +336,12 @@ async function deliverBatchKick({
     });
   } finally {
     batchKickChats.delete(chatId);
-    if (source === "api" && onComplete !== undefined && completedStats !== null) {
-      onComplete(completedStats);
+    if (source === "api") {
+      if (completedStats !== null) {
+        onComplete?.(completedStats);
+      } else {
+        onCancel?.();
+      }
     }
   }
 }
@@ -385,12 +362,14 @@ export interface StartBatchKickTaskParams {
   readonly acknowledged?: Promise<void>;
   /** 仅当 `source === "api"` 时生效的执行完成回调。 */
   readonly onComplete?: (stats: Readonly<BatchKickStats>) => void;
+  /** 仅当 `source === "api"` 时在排队撤销或停机取消时触发的清理回调。 */
+  readonly onCancel?: () => void;
 }
 
 /**
  * 登记本群 `/batch_kick` 单飞状态并将批次任务提交至延迟命令执行器 background 档。
- * @param params 目标群 ID、触发来源、窗口时长、入群记录列表及可选回复消息 ID、回执同步信号与完成回调。
- * @returns 已由延迟命令执行器受理时返回 true；队列满被拒时清理单飞标记并返回 false。
+ * @param params 目标群 ID、触发来源、窗口时长、入群记录列表及可选回复消息 ID、回执同步信号与回调。
+ * @returns 已由延迟命令执行器受理时返回 true；已有同群批次在途或队列满被拒时返回 false。
  */
 export function startBatchKickTask({
   chatId,
@@ -400,16 +379,19 @@ export function startBatchKickTask({
   records,
   acknowledged = Promise.resolve(),
   onComplete,
+  onCancel,
 }: StartBatchKickTaskParams): boolean {
+  if (batchKickChats.has(chatId)) return false;
   // 先登记再提交：执行器可能在提交的同步段里就启动任务。
   batchKickChats.add(chatId);
   const accepted: boolean = submitDeferredCommand({
     priority: "background",
     task: (): Promise<void> =>
-      deliverBatchKick({ chatId, source, messageId, durationMs, records, acknowledged, onComplete }),
+      deliverBatchKick({ chatId, source, messageId, durationMs, records, acknowledged, onComplete, onCancel }),
     errorLabel: "Unexpected error while processing /batch_kick:",
     onSkipped: (): void => {
       batchKickChats.delete(chatId);
+      if (source === "api") onCancel?.();
     },
   });
   if (!accepted) {
@@ -461,23 +443,25 @@ export async function handleBatchKickCommand(
 
   // 窗口的「现在」取本条命令自带的 Telegram 时间戳，与 joinedAt（来自 `update.date`，
   // 见 antiRaid/updateIngress.ts）同源；`readJoinLog` 用 since/now 比对 joinedAt，
-  // 并据此计算窗口覆盖的日文件。
-  //
-  // 文件保留期按宿主时钟判（见 readJoinLog 里的 today），与事件时间无关。
+  // 并据此计算窗口覆盖的日文件。文件保留期按宿主时钟判（见 readJoinLog 里的 today），与事件时间无关。
+  const preflightSeq: number = beginBatchKickPreflight(chatId);
   const now: number = ctx.msg.date * TELEGRAM_DATE_UNIT_MS;
   let records: readonly JoinLogRecord[];
   try {
-    records = await readJoinLog({
-      chatId,
-      since: now - durationMs,
-      now,
-    });
+    records = await readJoinLog({ chatId, since: now - durationMs, now });
   } catch (error: unknown) {
-    logger.error(
-      `Failed to read join logs for /batch_kick in chat ${chatId}:`,
-      error
-    );
+    const live: boolean = hasLiveBatchKickPreflight(chatId, preflightSeq);
+    endBatchKickPreflight(chatId, preflightSeq);
+    if (!live || !isBatchKickChatManaged(chatId)) return;
+    logger.error(`Failed to read join logs for /batch_kick in chat ${chatId}:`, error);
     await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.joinLogUnavailable);
+    return;
+  }
+  const live: boolean = hasLiveBatchKickPreflight(chatId, preflightSeq);
+  endBatchKickPreflight(chatId, preflightSeq);
+  if (!live || !isBatchKickChatManaged(chatId)) return;
+  if (batchKickChats.has(chatId)) {
+    await replyCommandNotice(ctx, chatAtmosphere().NOTICE_TEXTS.batchKickRunning);
     return;
   }
 

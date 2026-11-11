@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import { bot } from "./telegram/mainClient";
 import {
   clearChatStateField,
+  disableChatStateSwitch,
   getChatState,
   getOrCreateChatState,
   persistChatState,
@@ -183,6 +184,54 @@ export async function markBotAdminObserved(chatId: number): Promise<void> {
 export function invalidateBotAdminStatus(chatId: number): void {
   forgetBotChatPermissions(chatId);
   forgetChatBlocklistWork(chatId);
+}
+
+/**
+ * 关闭受管群的 `/init` 总开关并执行运行时拆除与状态清理（群内 `/init disable` 与 Mini App 关群共用）。
+ *
+ * 先关闭内存总开关、作废管理员权限快照并落盘总开关（失败原样上抛，见 `docs/cn/04-invariants.md`），
+ * 再按 `explicitDisable` 拆除各 owner 运行态、清除除 `lockdown` 外的群状态并补写收敛落盘；
+ * 拆除或收敛落盘失败时降级记错误日志并返回 `true`。
+ * @param chatId 目标群 ID。
+ * @returns 运行时拆除或收敛落盘失败时返回 `true`，全部成功时返回 `false`。
+ */
+export async function disableManagedChat(chatId: number): Promise<boolean> {
+  // disableChatStateSwitch 对没有条目的群是 no-op，随后的 persistChatState 仍写出删除墓碑，
+  // 重复 disable 仍会重跑清理。
+  disableChatStateSwitch(chatId, "isInitEnabled");
+  invalidateBotAdminStatus(chatId);
+  // 落盘先于运行时拆除，与 commands/superAdminToggle.ts 的 runChatToggleCommand
+  // 同序：teardownChatRuntime 含不可逆的持久化动作（aiChat owner 的 durable 记忆
+  // 删除、translate owner 的会话删除）。
+  //
+  // 这一次落盘失败原样上抛：那是 fatal durability failure，这条 update 不确认
+  // （见 docs/cn/04-invariants.md）。
+  await persistChatState(chatId, "init toggled");
+
+  // 拆运行态失败不上抛：总开关此前已 durable 地关掉；就地降级为记一行错误日志，
+  // 由调用方按返回值回执“部分未拆干净”。
+  try {
+    await teardownChatRuntime(chatId, "explicitDisable");
+    // 拆完才删这一行：本群的 AI 记忆、`/wed` 奖池、入群日志、问答与批踢完成结果都由各 owner
+    // 在 teardownChatRuntime 里删掉，`chat_states` 条目最后删除，排在总开关 durable 落盘之后。
+    //
+    // 功能开关与配置一并删掉，lockdown 除外（解锁流程仍要用它）。
+    purgeChatStateExceptLockdown(chatId);
+    // 无条件补这一次落盘：teardownChatRuntime 清掉的 isProxySendEnabled 与
+    // 上面的整行删除都只动内存。整条状态回到缺省时这次写出的是删除墓碑，
+    // SQLite 行一并消失（见 infra/chatStateStorage.ts 的 encodeCurrentChatState）。
+    //
+    // 这一次与拆除一起降级：失败按「有几样没拆干净」处理，不上抛。
+    await persistChatState(chatId, "init teardown settled");
+    return false;
+  } catch (error: unknown) {
+    logger.error(
+      `Failed to settle the chat runtime teardown for chat ${chatId}; ` +
+      "the init gate is already persisted as disabled:",
+      error
+    );
+    return true;
+  }
 }
 
 /**

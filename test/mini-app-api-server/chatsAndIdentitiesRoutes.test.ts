@@ -33,6 +33,7 @@ const {
 const {
   batchKickChats,
   miniAppBatchKickCompletedByChat,
+  miniAppBatchKickInFlightSeqByChat,
 } = await import("../../packages/cache/main/batchKick");
 const { resetChatStateCache } = await import("../../packages/cache/main/chatState");
 const { resetIdentityStorageCache } = await import(
@@ -103,6 +104,7 @@ afterEach(async (): Promise<void> => {
   chatIsSupergroupById.clear();
   clearActiveVerificationSnapshots();
   miniAppBatchKickCompletedByChat.clear();
+  miniAppBatchKickInFlightSeqByChat.clear();
   resetIdentityStorageCache();
   resetChatStateCache();
   latestAiMemories.clear();
@@ -478,6 +480,89 @@ describe("Mini App 受管群与黑白名单路由", () => {
       await Bun.sleep(10);
     }
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
+  });
+
+  test("在途 API /batch_kick 跨「关群 → 重开 /init」完成后不写回旧生命周期结果", async () => {
+    const chatId: number = -1002099;
+    const state = getOrCreateChatState(chatId);
+    state.isInitEnabled = true;
+    state.title = "跨代次批踢测试群";
+    chatIsSupergroupById.set(chatId, true);
+    initDeferredCommandRuntime();
+
+    const probeEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const releaseProbe: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    telegramApiState.current = {
+      getChatMember: async (_cId: number, userId: number): Promise<unknown> => {
+        probeEntered.resolve();
+        await releaseProbe.promise;
+        return {
+          status: "member",
+          user: { id: userId, is_bot: false, first_name: "U" },
+        };
+      },
+      banChatMember: async (): Promise<boolean> => true,
+      unbanChatMember: async (): Promise<boolean> => true,
+      sendMessage: async (): Promise<TelegramSentMessage> => ({ message_id: 1 }),
+      deleteMessage: async (): Promise<boolean> => true,
+    } as unknown as InstalledTelegramApi;
+
+    miniAppTestJoinLogState.records = [
+      { userId: 7101, joinedAt: Date.now() - 30_000 },
+    ];
+
+    const acceptedRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 2 }),
+      })
+    );
+    expect(acceptedRes.status).toBe(200);
+    expect(((await acceptedRes.json()) as MiniAppBatchKickResult).outcome).toBe("accepted");
+
+    try {
+      await probeEntered.promise;
+      expect(batchKickChats.has(chatId)).toBeTrue();
+
+      const disableRes: Response = await handleMiniAppHttpRequest(
+        new Request(`http://127.0.0.1:3000/api/chats/${chatId}/feature`, {
+          method: "POST",
+          headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ feature: "init", enabled: false }),
+        })
+      );
+      expect(disableRes.status).toBe(200);
+      expect(((await disableRes.json()) as MiniAppFeatureToggleResult).removedFromList).toBeTrue();
+
+      const reopened = getOrCreateChatState(chatId);
+      reopened.isInitEnabled = true;
+      reopened.title = "跨代次批踢测试群";
+      chatIsSupergroupById.set(chatId, true);
+    } finally {
+      releaseProbe.resolve();
+    }
+    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
+      await Bun.sleep(10);
+    }
+    expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
+    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+
+    // 重开后发起的新一轮 API 批次分配新序号，完成后正常写入最新结果。
+    const freshAcceptedRes: Response = await handleMiniAppHttpRequest(
+      new Request(`http://127.0.0.1:3000/api/chats/${chatId}/batch-kick`, {
+        method: "POST",
+        headers: { ...superAdminHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 3 }),
+      })
+    );
+    expect(freshAcceptedRes.status).toBe(200);
+    expect(((await freshAcceptedRes.json()) as MiniAppBatchKickResult).outcome).toBe("accepted");
+    for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
+      await Bun.sleep(10);
+    }
+    expect(miniAppBatchKickCompletedByChat.get(chatId)?.hours).toBe(3);
+    expect(miniAppBatchKickCompletedByChat.get(chatId)?.kicked).toBe(1);
   });
 
   test("GET /api/chats/:chatId/messages 仅返回热 256 条发言记录并支持分页，不暴露压缩记忆", async () => {

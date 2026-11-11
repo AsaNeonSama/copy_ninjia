@@ -54,6 +54,7 @@ export const FAULT_INJECTION_TESTS: readonly string[] = [
   "test/app/updateRunner.test.ts",
   "test/app/updateRunnerResources.test.ts",
   "test/auto/reactionSync.test.ts",
+  "test/commands/batchKickTeardown.test.ts",
   "test/commands/blocklistFanOut.test.ts",
   "test/commands/copyShared.test.ts",
   "test/commands/copyTeardown.test.ts",

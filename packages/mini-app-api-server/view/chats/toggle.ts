@@ -4,24 +4,20 @@ import {
   clearFloodControl,
   deactivateJoinGuardChat,
 } from "../../../antiRaid";
-import { miniAppBatchKickCompletedByChat } from "../../../cache/main/batchKick";
 import {
   adDetectConfigReadiness,
   aiChatConfigReadiness,
   translateConfigReadiness,
 } from "../../../config/readiness";
-import { invalidateBotAdminStatus } from "../../../infra/botAdmin";
+import { disableManagedChat } from "../../../infra/botAdmin";
 import { applyChatFeatureSwitch } from "../../../infra/chatFeatureSwitch";
 import type { ChatFeatureSwitchOutcome } from "../../../infra/chatFeatureSwitch";
-import { teardownChatRuntime } from "../../../infra/chatTeardown";
-import { logger } from "../../../infra/logger";
 import {
   disableChatStateSwitch,
   getActiveProxySendTarget,
   getChatState,
   getOrCreateChatState,
   persistChatState,
-  purgeChatStateExceptLockdown,
 } from "../../../infra/storage/stateStore";
 import { stopTranslation } from "../../../translate/state";
 import type { ChatToggleFeature } from "../../../types/chatState";
@@ -43,32 +39,14 @@ export interface SetManagedChatFeatureParams {
 }
 
 /**
- * 关闭群聊 `/init` 总开关并执行完整的运行时拆除与状态清理（与 `/init disable` 同序）。
+ * 关闭群聊 `/init` 总开关并执行完整的运行时拆除与状态清理（与 `/init disable` 共用 `disableManagedChat`）。
  * @param chatId 目标群聊 ID。
  * @returns 拆除完成后的开关操作结果。
  */
 async function disableChatInit(
   chatId: number
 ): Promise<Readonly<MiniAppFeatureToggleResult>> {
-  miniAppBatchKickCompletedByChat.delete(chatId);
-  disableChatStateSwitch(chatId, "isInitEnabled");
-  invalidateBotAdminStatus(chatId);
-  await persistChatState(chatId, "init toggled");
-
-  let teardownFailed: boolean = false;
-  try {
-    await teardownChatRuntime(chatId, "explicitDisable");
-    purgeChatStateExceptLockdown(chatId);
-    await persistChatState(chatId, "init teardown settled");
-  } catch (error: unknown) {
-    teardownFailed = true;
-    logger.error(
-      `Failed to settle the chat runtime teardown for chat ${chatId}; ` +
-      "the init gate is already persisted as disabled:",
-      error
-    );
-  }
-
+  const teardownFailed: boolean = await disableManagedChat(chatId);
   return {
     ok: true,
     removedFromList: true,
