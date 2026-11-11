@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { isBuiltin } from "node:module";
 import ts from "typescript";
@@ -16,6 +15,7 @@ import {
   TEST_SYNC_CONTENT_IO_EXEMPTIONS,
 } from "./nodeAllowances";
 import type { NodeImportAllowance, BufferGlobalAllowance } from "./nodeAllowances";
+import { pathExists } from "./pathStat";
 import { globalPropertyName, isGlobalReference, isInsideTypeNode, staticPropertyName } from "./staticAccess";
 
 /**
@@ -310,9 +310,9 @@ export function collectNodeCompatibilityProblems(
  * @param projectRoot 仓库根目录绝对路径
  * @returns 指向不存在文件的过期白名单条目问题列表
  */
-export function collectStaleNodeAllowanceProblems(
+export async function collectStaleNodeAllowanceProblems(
   projectRoot: string
-): readonly string[] {
+): Promise<readonly string[]> {
   const problems: string[] = [];
   const tables: readonly (readonly [string, Readonly<Record<string, unknown>>])[] = [
     ["PRODUCTION_NODE_IMPORTS", PRODUCTION_NODE_IMPORTS],
@@ -325,7 +325,7 @@ export function collectStaleNodeAllowanceProblems(
   ];
   for (const [table, entries] of tables) {
     for (const relativePath of Object.keys(entries)) {
-      if (!existsSync(join(projectRoot, relativePath))) {
+      if (!(await pathExists(join(projectRoot, relativePath)))) {
         problems.push(
           `${table} retains an allowance for a file that no longer exists: ${relativePath}`
         );

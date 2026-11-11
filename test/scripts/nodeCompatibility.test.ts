@@ -316,12 +316,12 @@ test("globalThis.Buffer 和字面量下标复用方法白名单", (): void => {
 });
 
 describe("Node 兼容登记的陈旧条目", () => {
-  test("仓库现有登记全部指向真实文件", () => {
-    expect(collectStaleNodeAllowanceProblems(process.cwd())).toEqual([]);
+  test("仓库现有登记全部指向真实文件", async () => {
+    expect(await collectStaleNodeAllowanceProblems(process.cwd())).toEqual([]);
   });
 
-  test("登记指向已删除文件时逐表报出", () => {
-    const problems: readonly string[] = collectStaleNodeAllowanceProblems("/nonexistent-root");
+  test("登记指向已删除文件时逐表报出", async () => {
+    const problems: readonly string[] = await collectStaleNodeAllowanceProblems("/nonexistent-root");
     expect(problems.length).toBeGreaterThan(0);
     expect(problems).toEqual(expect.arrayContaining([
       expect.stringContaining("PRODUCTION_NODE_IMPORTS retains an allowance for a file that no longer exists"),

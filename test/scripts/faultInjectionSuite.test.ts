@@ -232,4 +232,22 @@ describe("fault-injection 清单门禁", (): void => {
       "test directory does not exist; the fault-injection suite cannot be verified",
     ]);
   });
+
+  test("空的 test/ 目录存在时不报缺失，test 路径被普通文件占用时仍报缺失", async (): Promise<void> => {
+    expect(await problemsFor()).toEqual([]);
+
+    const fileRoot: string = mkdtempSync(join(tmpdir(), "fault-injection-file-"));
+    roots.push(fileRoot);
+    for (const harness of FAULT_INJECTION_BOUNDARIES) {
+      if (harness.path.startsWith("test/")) continue;
+      await Bun.write(join(fileRoot, harness.path), "export const marker: number = 1;\n");
+    }
+    await Bun.write(join(fileRoot, "test"), "not a directory\n");
+    expect(await collectFaultInjectionSuiteProblems(fileRoot, [])).toEqual([
+      ...FAULT_INJECTION_BOUNDARIES
+        .filter((entry): boolean => entry.path.startsWith("test/"))
+        .map((entry): string => `declared fault-injection boundary does not exist: ${entry.path}`),
+      "test directory does not exist; the fault-injection suite cannot be verified",
+    ]);
+  });
 });

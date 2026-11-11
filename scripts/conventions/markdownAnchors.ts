@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
 import { dirname, extname, relative, resolve } from "node:path";
 import { withoutMarkdownCodeFences } from "./markdownSource";
+import { pathExists } from "./pathStat";
 
 /**
  * Markdown 本地链接里 `#片段` 的存在性核对。
@@ -169,7 +169,7 @@ export async function checkMarkdownLocalLinks(
           decodedTarget = targetWithoutFragment;
         }
         linkedPath = resolve(dirname(path), decodedTarget);
-        if (!existsSync(linkedPath)) {
+        if (!(await pathExists(linkedPath))) {
           failures.push(
             `${relative(projectRoot, path)}:${line} local link target does not exist: ${target}`
           );

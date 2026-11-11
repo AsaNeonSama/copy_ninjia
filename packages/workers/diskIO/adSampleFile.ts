@@ -4,13 +4,14 @@
  * 并保留最近 `AD_SAMPLE_ARCHIVE_RETENTION_DAYS` 个自然日的归档文件。
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { mkdirSync, readdirSync, renameSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { basename, join } from "node:path";
 import type { AdSampleDiskMessage } from "../../types/diskIO/messages";
 import type { AppendOnlyFileState } from "../../types/diskIO/storage";
 import { AD_SAMPLE_FILE_PATH, AD_SAMPLE_MEMORY_DIR } from "../../consts/paths";
 import { removeOrphanedTempFiles } from "../../libs/atomicFile";
+import { isErrno } from "../../libs/errno";
 import { inspectOptionalDirectory } from "../../libs/fileAccess";
 import {
   AD_SAMPLE_ARCHIVE_FILENAME_PATTERN,
@@ -179,9 +180,11 @@ export async function maintainAdSampleFiles(
 
 /**
  * 选择当前自然日下一个未被占用的归档文件路径。
+ * Disk I/O Worker 的统一操作队列（`packages/workers/diskIO/operationQueue.ts` 的 `enqueueDiskIOOperation`）
+ * 串行执行全部 flush，候选路径探测与随后的归档改名不会与另一轮 flush 交错。
  * @returns 包含日期键、序号与目标绝对路径的归档位置。
  */
-function nextArchiveTarget(): AdSampleArchiveTarget {
+async function nextArchiveTarget(): Promise<AdSampleArchiveTarget> {
   const day: string = getDateKey();
   const base: string = join(AD_SAMPLE_MEMORY_DIR, `sample.${day}`);
   let index: number = adSampleArchiveCursor.current?.day === day
@@ -191,21 +194,27 @@ function nextArchiveTarget(): AdSampleArchiveTarget {
     const candidate: string = index === 1
       ? `${base}.json`
       : `${base}.${index}.json`;
-    if (!existsSync(candidate)) {
-      return { day, index, path: candidate };
+    try {
+      await Bun.file(candidate).stat();
+    } catch (error: unknown) {
+      if (isErrno(error, "ENOENT")) {
+        return { day, index, path: candidate };
+      }
+      throw error;
     }
     index++;
   }
 }
 
 /**
- * 样本文件大小达到 AD_SAMPLE_FILE_MAX_BYTES 时重命名归档并重置追加游标。
+ * 样本文件大小达到 AD_SAMPLE_FILE_MAX_BYTES 时重命名归档并重置追加游标；
+ * 调用方在 `packages/workers/diskIO/operationQueue.ts` 的 `enqueueDiskIOOperation` 串行队列内执行。
  * @param state 当前活动样本文件的追加游标。
  * @returns 轮转后的空文件游标或未达阈值时的原游标。
  */
-function rotateIfOversized(state: AppendOnlyFileState): AppendOnlyFileState {
+async function rotateIfOversized(state: AppendOnlyFileState): Promise<AppendOnlyFileState> {
   if (state.size < AD_SAMPLE_FILE_MAX_BYTES) return state;
-  const archive: AdSampleArchiveTarget = nextArchiveTarget();
+  const archive: AdSampleArchiveTarget = await nextArchiveTarget();
   renameSync(AD_SAMPLE_FILE_PATH, archive.path);
   adSampleArchiveCursor.current = { day: archive.day, nextIndex: archive.index + 1 };
   console.error(
@@ -229,7 +238,7 @@ export async function flushAdSampleBuffer(): Promise<void> {
       PERSISTED_FILE_MODE,
       true
     );
-    adSampleFileState.current = rotateIfOversized(adSampleFileState.current);
+    adSampleFileState.current = await rotateIfOversized(adSampleFileState.current);
     const state: AppendOnlyFileState = adSampleFileState.current;
     await appendToAppendOnlyFile({
       path: AD_SAMPLE_FILE_PATH,

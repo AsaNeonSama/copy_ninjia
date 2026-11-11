@@ -137,7 +137,7 @@ export const PRODUCTION_NODE_IMPORTS: Readonly<
   },
   "packages/workers/diskIO/adSampleFile.ts": {
     "node:fs": {
-      symbols: ["existsSync", "mkdirSync", "readdirSync", "renameSync"],
+      symbols: ["mkdirSync", "readdirSync", "renameSync"],
       purpose: "Disk I/O owner directory maintenance and atomic archive publication",
     },
   },

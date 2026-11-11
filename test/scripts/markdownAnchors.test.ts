@@ -79,8 +79,10 @@ describe("checkMarkdownLocalLinks", () => {
     const targetPath: string = join(root, "target.md");
     const assetPath: string = join(root, "diagram.svg");
     const dirTargetPath: string = join(root, "dir.md");
+    const subDirPath: string = join(root, "subdir");
     const docPath: string = join(root, "doc.md");
     mkdirSync(dirTargetPath, { recursive: true });
+    mkdirSync(subDirPath, { recursive: true });
     await Bun.write(targetPath, "# Existing Heading\n\n## 中文标题\n\n<a id=\"custom-id\"></a>\n");
     await Bun.write(assetPath, "<svg></svg>\n");
     await Bun.write(
@@ -93,6 +95,8 @@ describe("checkMarkdownLocalLinks", () => {
         "[self-ok](#local-heading)",
         "[asset](./diagram.svg#icon)",
         "[dir](./dir.md#ignored-when-unreadable)",
+        "[subdir](./subdir)",
+        "[subdir-slash](./subdir/)",
         "[ext](https://example.com/a#b)",
         "[abs](/absolute/path)",
         "[proto](//example.com/path)",
@@ -114,14 +118,14 @@ describe("checkMarkdownLocalLinks", () => {
     await checkMarkdownLocalLinks(root, docPath, failures);
 
     expect(failures).toEqual([
-      "doc.md:14 local link target does not exist: ./no-such.md",
-      "doc.md:15 link fragment has no matching heading in target.md: #missing-anchor",
-      "doc.md:16 local link target does not exist: ./%E0%A4%A.md",
-      "doc.md:17 link fragment has no matching heading in target.md: #%E0%A4%A",
-      "doc.md:19 link fragment has no matching heading in doc.md: #missing-self-anchor",
-      "doc.md:18 link fragment has no matching heading in target.md: #missing-html-anchor",
-      "doc.md:20 local link target does not exist: ./missing-ref.md",
-      "doc.md:21 link fragment has no matching heading in target.md: #missing-ref-anchor",
+      "doc.md:16 local link target does not exist: ./no-such.md",
+      "doc.md:17 link fragment has no matching heading in target.md: #missing-anchor",
+      "doc.md:18 local link target does not exist: ./%E0%A4%A.md",
+      "doc.md:19 link fragment has no matching heading in target.md: #%E0%A4%A",
+      "doc.md:21 link fragment has no matching heading in doc.md: #missing-self-anchor",
+      "doc.md:20 link fragment has no matching heading in target.md: #missing-html-anchor",
+      "doc.md:22 local link target does not exist: ./missing-ref.md",
+      "doc.md:23 link fragment has no matching heading in target.md: #missing-ref-anchor",
     ]);
   });
 });

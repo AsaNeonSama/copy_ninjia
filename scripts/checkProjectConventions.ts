@@ -142,7 +142,7 @@ const failures: string[] = [];
 /** 逐文件遍历时顺带记下的 Node 兼容 import；整趟结束后反向核对登记表。 */
 const nodeImportUsage: NodeImportUsage[] = [];
 failures.push(...await collectRuntimeCalibrationProblems({ projectRoot: PROJECT_ROOT }));
-failures.push(...collectStaleNodeAllowanceProblems(PROJECT_ROOT));
+failures.push(...await collectStaleNodeAllowanceProblems(PROJECT_ROOT));
 for (const problem of await collectColdMigrationProblems(PROJECT_ROOT)) {
   failures.push(`cold migration: ${problem}`);
 }

@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 import type ts from "typescript";
 import { relativeModuleCandidates, resolveRelativeModule } from "./moduleGraph";
 import type { RelativeModuleCandidates } from "./moduleGraph";
+import { pathExists, statOptionalPath } from "./pathStat";
 import { parseSourceFile, runtimeModuleReferences, sourceFilesUnder } from "./sourceAnalysis";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
 import type { ColdMigrationEdge } from "../migrations/active";
@@ -364,16 +364,16 @@ function resolvedSpecifierPath(importerPath: string, specifier: string): string 
  * @param listed 清单中的相对路径列表
  * @returns 重复或缺失路径的问题列表
  */
-function collectListedPathProblems(
+async function collectListedPathProblems(
   projectRoot: string,
   listed: readonly string[]
-): readonly string[] {
+): Promise<readonly string[]> {
   const problems: string[] = [];
   const seen: Set<string> = new Set<string>();
   for (const path of listed) {
     if (seen.has(path)) problems.push(`test:fault-injection lists ${path} more than once`);
     seen.add(path);
-    if (!existsSync(join(projectRoot, path))) {
+    if (!(await pathExists(join(projectRoot, path)))) {
       problems.push(`test:fault-injection lists a file that does not exist: ${path}`);
     }
   }
@@ -392,23 +392,23 @@ export async function collectFaultInjectionSuiteProblems(
   projectRoot: string,
   listed: readonly string[] = FAULT_INJECTION_TESTS
 ): Promise<readonly string[]> {
-  const problems: string[] = [...collectListedPathProblems(projectRoot, listed)];
+  const problems: string[] = [...(await collectListedPathProblems(projectRoot, listed))];
   const listedSet: ReadonlySet<string> = new Set<string>(listed);
   const requiredModules: Map<string, FaultInjectionBoundary> = new Map();
   for (const harness of FAULT_INJECTION_BOUNDARIES) {
     const harnessPath: string = join(projectRoot, harness.path);
-    if (!(await Bun.file(harnessPath).exists())) {
+    if ((await statOptionalPath(harnessPath))?.isFile() !== true) {
       problems.push(`declared fault-injection boundary does not exist: ${harness.path}`);
       continue;
     }
     requiredModules.set(harnessPath, harness);
   }
   const testRoot: string = join(projectRoot, "test");
-  if (!existsSync(testRoot)) {
+  if ((await statOptionalPath(testRoot))?.isDirectory() !== true) {
     problems.push("test directory does not exist; the fault-injection suite cannot be verified");
     return problems;
   }
-  for (const path of sourceFilesUnder(testRoot)) {
+  for (const path of sourceFilesUnder(testRoot).sort()) {
     if (!path.endsWith(".test.ts")) continue;
     const relativePath: string = relative(projectRoot, path);
     if (listedSet.has(relativePath)) continue;

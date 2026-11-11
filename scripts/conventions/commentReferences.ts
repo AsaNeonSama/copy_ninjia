@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import type ts from "typescript";
+import { pathExists, statOptionalPath } from "./pathStat";
 
 /**
  * 注释里「见 `<模块路径>` 的 `<符号>`」这类交叉引用的核对。
@@ -26,14 +26,14 @@ const EXEMPT_SYMBOLS: readonly string[] = ["TYPING_DELAY_"];
  * @param source 当前模块文件的文本内容
  * @returns 再导出目标文件的绝对路径列表
  */
-function reexportTargets(path: string, source: string): readonly string[] {
+async function reexportTargets(path: string, source: string): Promise<readonly string[]> {
   const targets: string[] = [];
   for (const match of source.matchAll(/export\s+(?:type\s+)?\*\s+from\s+"(\.[^"]+)"/g)) {
     const specifier: string | undefined = match[1];
     if (specifier === undefined) continue;
     const base: string = join(path, "..", specifier);
     for (const candidate of [`${base}.ts`, join(base, "index.ts")]) {
-      if (existsSync(candidate)) targets.push(candidate);
+      if ((await statOptionalPath(candidate))?.isFile() === true) targets.push(candidate);
     }
   }
   return targets;
@@ -55,7 +55,7 @@ async function declaresSymbol(
   const source: string = await Bun.file(path).text();
   if (new RegExp(`\\b${symbol}\\b`).test(source)) return true;
   if (depth <= 0) return false;
-  for (const target of reexportTargets(path, source)) {
+  for (const target of await reexportTargets(path, source)) {
     if (await declaresSymbol(target, symbol, depth - 1)) return true;
   }
   return false;
@@ -85,17 +85,17 @@ export interface CommentReferenceParams {
  * @param specifier 注释中书写的模块路径片段
  * @returns 解析到的目标文件绝对路径，存在歧义或无法唯一定位时返回 undefined
  */
-function resolveReference(
+async function resolveReference(
   { projectRoot, path, allSourceFiles }: CommentReferenceParams,
   specifier: string
-): string | undefined {
+): Promise<string | undefined> {
   if (specifier.startsWith("./") || specifier.startsWith("../")) {
     return resolve(dirname(path), specifier);
   }
   const direct: string = join(projectRoot, specifier);
-  if (existsSync(direct)) return direct;
+  if (await pathExists(direct)) return direct;
   const withPackages: string = join(projectRoot, "packages", specifier);
-  if (existsSync(withPackages)) return withPackages;
+  if (await pathExists(withPackages)) return withPackages;
   const suffix: string = `/${specifier}`;
   const matches: readonly string[] = allSourceFiles.filter(
     (file: string): boolean => file.endsWith(suffix)
@@ -127,10 +127,10 @@ export async function collectCommentReferenceProblems(
       const symbol: string | undefined = match[2];
       if (specifier === undefined || symbol === undefined) continue;
       if (EXEMPT_SYMBOLS.includes(symbol)) continue;
-      const target: string | undefined = resolveReference(params, specifier);
+      const target: string | undefined = await resolveReference(params, specifier);
       // 非相对路径解析不到唯一目标就不判：注释可以引用未随仓库分发的路径。
       if (target === undefined) continue;
-      if (!(await Bun.file(target).exists())) {
+      if ((await statOptionalPath(target))?.isFile() !== true) {
         problems.push(
           `${relativePath}:${index + 1} comment references ${symbol} in ${specifier}, ` +
           "but that file does not exist"
