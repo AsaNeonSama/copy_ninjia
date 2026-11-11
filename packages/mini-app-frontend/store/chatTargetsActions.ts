@@ -10,6 +10,7 @@ import { errorMessage } from "../libs/errorMessage";
 import { waitMinimumLoadingDuration } from "../libs/loading";
 import { getTelegramWebApp } from "../libs/telegram";
 import type {
+  MiniAppChatDetail,
   MiniAppChatDeleteTargetItem,
   MiniAppChatTargetKind,
   MiniAppChatTargetsMutationRequest,
@@ -33,6 +34,8 @@ export interface CreateChatTargetsActionsOptions {
   readonly set: (partial: Partial<MiniAppChatsStoreState>) => void;
   /** 读取当前 `MiniAppChatsStoreState` 快照。 */
   readonly get: () => MiniAppChatsStoreState;
+  /** 写入变更接口回传的最新群详情并推进详情请求序号，作废更早发出的在途详情读取。 */
+  readonly applyMutationDetail: (detail: MiniAppChatDetail) => void;
   /** 递增并返回下一次目标请求序号（用于丢弃过期响应）。 */
   readonly nextTargetsReqSeq: () => number;
   /** 读取当前最新的目标请求序号。 */
@@ -78,6 +81,7 @@ export type MiniAppChatTargetsActions = Pick<
 export function createChatTargetsActions({
   set,
   get,
+  applyMutationDetail,
   nextTargetsReqSeq,
   currentTargetsReqSeq,
 }: CreateChatTargetsActionsOptions): MiniAppChatTargetsActions {
@@ -104,8 +108,10 @@ export function createChatTargetsActions({
         if (result.ok && !isNoOpWarning && onSuccess !== undefined) {
           onSuccess();
         }
+        if (result.detail !== null) {
+          applyMutationDetail(result.detail);
+        }
         set({
-          ...(result.detail !== null ? { chatDetail: result.detail } : {}),
           ...(result.targets !== null ? { chatTargets: result.targets } : {}),
           mutatingTargets: false,
           ...(reqId === currentTargetsReqSeq() ? { loadingTargets: false } : {}),

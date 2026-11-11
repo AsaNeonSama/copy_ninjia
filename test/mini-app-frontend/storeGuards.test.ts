@@ -5,6 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
+  MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_HEADER,
 } from "../../packages/mini-app-frontend/consts/miniApp";
@@ -194,6 +195,406 @@ describe("页面 store 竞态与收起", () => {
     detailGate.resolve();
     await settleLoading();
     expect(store.getState().chatDetail?.title).toBe("A-fresh");
+    expect(store.getState().loadingDetail).toBeFalse();
+  });
+
+  test("受管群：轮询在途期间 toggleFeature 回执先到时，旧轮询响应不覆盖开关状态", async () => {
+    const store = createChatsStore();
+    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 2);
+    route("GET /api/chats/-100", (): Response =>
+      json({
+        detail: {
+          chatId: -100,
+          title: "A",
+          features: { aiChat: false },
+          joinedCountsByHour,
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    store.getState().selectChat(-100);
+    await settleLoading();
+    expect(store.getState().chatDetail?.batchKickRunning).toBeTrue();
+
+    const pollGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    route("GET /api/chats/-100", async (): Promise<Response> => {
+      await pollGate.promise;
+      return json({
+        detail: {
+          chatId: -100,
+          title: "A-stale-poll",
+          features: { aiChat: false },
+          joinedCountsByHour,
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+    route("POST /api/chats/-100/feature", (): Response =>
+      json({
+        ok: true,
+        message: "FEATURE_ENABLED",
+        removedFromList: false,
+        detail: {
+          chatId: -100,
+          title: "A-toggled",
+          features: { aiChat: true },
+          joinedCountsByHour,
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      }));
+
+    const polling: Promise<void> = store.getState().pollRunningBatchKick();
+    await store.getState().toggleFeature("aiChat", true);
+    expect(store.getState().chatDetail?.features.aiChat).toBeTrue();
+
+    pollGate.resolve();
+    await polling;
+    expect(store.getState().chatDetail?.features.aiChat).toBeTrue();
+    expect(store.getState().chatDetail?.title).toBe("A-toggled");
+  });
+
+  test("受管群：防抖刷新在途期间 toggleFeature 回执先到时，旧响应不覆盖且 loadingWindowJoined 为 false", async () => {
+    const store = createChatsStore();
+    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 3);
+    route("GET /api/chats/-100", (): Response =>
+      json({
+        detail: {
+          chatId: -100,
+          title: "A",
+          features: { aiChat: false },
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    store.getState().selectChat(-100);
+    await settleLoading();
+
+    const toggleGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    route("POST /api/chats/-100/feature", async (): Promise<Response> => {
+      await toggleGate.promise;
+      return json({
+        ok: true,
+        message: "FEATURE_ENABLED",
+        removedFromList: false,
+        detail: {
+          chatId: -100,
+          title: "A-toggled",
+          features: { aiChat: true },
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+
+    const refreshEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const refreshGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    route("GET /api/chats/-100", async (): Promise<Response> => {
+      refreshEntered.resolve();
+      await refreshGate.promise;
+      return json({
+        detail: {
+          chatId: -100,
+          title: "A-stale-window",
+          features: { aiChat: false },
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+
+    // 先发起 toggleFeature，使其在途期间触发滑块防抖请求（从而仅 detailReqSeq 变化、windowJoinedReqSeq 不变）。
+    const toggling: Promise<void> = store.getState().toggleFeature("aiChat", true);
+    store.getState().setBatchKickHours(8);
+    expect(store.getState().loadingWindowJoined).toBeTrue();
+    await refreshEntered.promise;
+
+    toggleGate.resolve();
+    await toggling;
+    expect(store.getState().chatDetail?.features.aiChat).toBeTrue();
+
+    refreshGate.resolve();
+    await Bun.sleep(20);
+    expect(store.getState().chatDetail?.features.aiChat).toBeTrue();
+    expect(store.getState().chatDetail?.title).toBe("A-toggled");
+    expect(store.getState().loadingWindowJoined).toBeFalse();
+
+    // 失败分支同样在仅 detailReqSeq 变化时收起 loadingWindowJoined。
+    const toggleGate2: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    route("POST /api/chats/-100/feature", async (): Promise<Response> => {
+      await toggleGate2.promise;
+      return json({
+        ok: true,
+        message: "FEATURE_DISABLED",
+        removedFromList: false,
+        detail: {
+          chatId: -100,
+          title: "A-toggled-2",
+          features: { aiChat: false },
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+    const failEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const failGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    route("GET /api/chats/-100", async (): Promise<Response> => {
+      failEntered.resolve();
+      await failGate.promise;
+      return json({ error: "stale refresh error" }, 500);
+    });
+    const toggling2: Promise<void> = store.getState().toggleFeature("aiChat", false);
+    store.getState().setBatchKickHours(10);
+    await failEntered.promise;
+    toggleGate2.resolve();
+    await toggling2;
+    failGate.resolve();
+    await Bun.sleep(20);
+    expect(store.getState().chatDetail?.title).toBe("A-toggled-2");
+    expect(store.getState().loadingWindowJoined).toBeFalse();
+  });
+
+  test("受管群：滑块防抖期间发起 toggleFeature 后立即取消防抖且 loadingWindowJoined 为 false", async () => {
+    const store = createChatsStore();
+    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 4);
+    route("GET /api/chats/-100", (): Response =>
+      json({
+        detail: {
+          chatId: -100,
+          title: "A",
+          features: { aiChat: false },
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    store.getState().selectChat(-100);
+    await settleLoading();
+
+    const getCallsBefore: number = fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length;
+    store.getState().setBatchKickHours(9);
+    expect(store.getState().loadingWindowJoined).toBeTrue();
+
+    const toggleGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    route("POST /api/chats/-100/feature", async (): Promise<Response> => {
+      await toggleGate.promise;
+      return json({
+        ok: true,
+        message: "FEATURE_ENABLED",
+        removedFromList: false,
+        detail: {
+          chatId: -100,
+          title: "A-after-toggle",
+          features: { aiChat: true },
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+
+    const toggling: Promise<void> = store.getState().toggleFeature("aiChat", true);
+    expect(store.getState().loadingWindowJoined).toBeFalse();
+    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
+    expect(fetchCalls.filter((call: string): boolean => call === "GET /api/chats/-100").length).toBe(getCallsBefore);
+
+    toggleGate.resolve();
+    await toggling;
+    expect(store.getState().loadingWindowJoined).toBeFalse();
+  });
+
+  test("受管群：A → B → A 切群期间旧轮询响应被丢弃，不覆盖重新加载的群详情", async () => {
+    const store = createChatsStore();
+    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 1);
+    route("GET /api/chats", (): Response => json({ items: [] }));
+    route("GET /api/chats/-100", (): Response =>
+      json({
+        detail: {
+          chatId: -100,
+          title: "A-initial",
+          joinedCountsByHour,
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    route("GET /api/chats/-200", (): Response =>
+      json({
+        detail: {
+          chatId: -200,
+          title: "B",
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    store.getState().selectChat(-100);
+    await settleLoading();
+
+    const stalePollGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    let aFetchCount: number = 0;
+    route("GET /api/chats/-100", async (): Promise<Response> => {
+      aFetchCount += 1;
+      if (aFetchCount === 1) {
+        await stalePollGate.promise;
+        return json({
+          detail: {
+            chatId: -100,
+            title: "A-stale-poll",
+            joinedCountsByHour,
+            batchKickRunning: true,
+            lastBatchKickCompletion: null,
+          },
+        });
+      }
+      return json({
+        detail: {
+          chatId: -100,
+          title: "A-reloaded",
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+
+    const stalePolling: Promise<void> = store.getState().pollRunningBatchKick();
+    store.getState().selectChat(-200);
+    await settleLoading();
+    expect(store.getState().chatDetail?.title).toBe("B");
+
+    store.getState().selectChat(-100);
+    await settleLoading();
+    expect(store.getState().chatDetail?.title).toBe("A-reloaded");
+
+    stalePollGate.resolve();
+    await stalePolling;
+    expect(store.getState().chatDetail?.title).toBe("A-reloaded");
+    expect(store.getState().chatDetail?.batchKickRunning).toBeFalse();
+  });
+
+  test("受管群：目标与问答变更回执作废更早发出的轮询与防抖刷新，且 closeDetail 作废在途 loadDetail", async () => {
+    const store = createChatsStore();
+    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 2);
+    route("GET /api/chats", (): Response => json({ items: [] }));
+    route("GET /api/chats/-100", (): Response =>
+      json({
+        detail: {
+          chatId: -100,
+          title: "A",
+          qaPairCount: 0,
+          joinedCountsByHour,
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      }));
+    store.getState().selectChat(-100);
+    await settleLoading();
+
+    const pollGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const windowEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    const windowGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    let getCount: number = 0;
+    route("GET /api/chats/-100", async (): Promise<Response> => {
+      getCount += 1;
+      if (getCount === 1) {
+        await pollGate.promise;
+        return json({
+          detail: {
+            chatId: -100,
+            title: "A-stale-poll",
+            qaPairCount: 0,
+            joinedCountsByHour,
+            batchKickRunning: true,
+            lastBatchKickCompletion: null,
+          },
+        });
+      }
+      windowEntered.resolve();
+      await windowGate.promise;
+      return json({
+        detail: {
+          chatId: -100,
+          title: "A-stale-window",
+          qaPairCount: 0,
+          joinedCountsByHour,
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+    route("POST /api/chats/-100/targets", (): Response =>
+      json({
+        ok: true,
+        message: "QA_ADDED",
+        targets: {
+          chatId: -100,
+          qaItems: [{ q: "hi", a: "hello" }],
+          qaMax: 15,
+          qaQuestionMaxChars: 256,
+          qaAnswerMaxChars: 3840,
+          deleteMessageTargets: [],
+          deleteMessageMax: 15,
+          translateTargets: [],
+          translateMax: 5,
+          isTranslationEnabled: true,
+        },
+        detail: {
+          chatId: -100,
+          title: "A-qa-updated",
+          qaPairCount: 1,
+          joinedCountsByHour,
+          batchKickRunning: true,
+          lastBatchKickCompletion: null,
+        },
+      }));
+
+    const polling: Promise<void> = store.getState().pollRunningBatchKick();
+    store.getState().setBatchKickHours(6);
+    await windowEntered.promise;
+
+    store.getState().setQaQuestionInput("hi");
+    store.getState().setQaAnswerInput("hello");
+    await store.getState().submitQaPair();
+    expect(store.getState().chatDetail?.qaPairCount).toBe(1);
+
+    pollGate.resolve();
+    windowGate.resolve();
+    await polling;
+    await Bun.sleep(20);
+    expect(store.getState().chatDetail?.qaPairCount).toBe(1);
+    expect(store.getState().chatDetail?.title).toBe("A-qa-updated");
+    expect(store.getState().loadingWindowJoined).toBeFalse();
+
+    // 打开详情后立即 closeDetail：loadingDetail 即刻归 false，随后晚到的详情响应不写回列表态。
+    const lateDetailGate: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    route("GET /api/chats/-100", async (): Promise<Response> => {
+      await lateDetailGate.promise;
+      return json({
+        detail: {
+          chatId: -100,
+          title: "A-after-close",
+          qaPairCount: 1,
+          joinedCountsByHour,
+          batchKickRunning: false,
+          lastBatchKickCompletion: null,
+        },
+      });
+    });
+    store.getState().selectChat(-100);
+    expect(store.getState().loadingDetail).toBeTrue();
+    store.getState().closeDetail();
+    expect(store.getState().selectedChatId).toBeNull();
+    expect(store.getState().loadingDetail).toBeFalse();
+
+    lateDetailGate.resolve();
+    await settleLoading();
+    expect(store.getState().selectedChatId).toBeNull();
+    expect(store.getState().chatDetail).toBeNull();
     expect(store.getState().loadingDetail).toBeFalse();
   });
 

@@ -215,7 +215,8 @@ export function createChatsStore(): MiniAppChatsStore {
       };
 
       /**
-       * 以开关或批量清理接口回传的最新详情覆盖当前群详情，并作废仍在途的详情读取（`loadDetail`）：
+       * 以功能开关、目标增删或批量清理接口回传的最新详情覆盖当前群详情，并作废仍在途的详情读取
+       * （`loadDetail`、`refreshWindowJoinedCount`、`pollRunningBatchKick`）：
        * 更早发出、其后才返回的读取结果被丢弃。调用方须先确认用户仍停留在该群。
        * @param detail 变更接口回传的群详情。
        */
@@ -232,14 +233,23 @@ export function createChatsStore(): MiniAppChatsStore {
           }
           return;
         }
+        const detailEpoch: number = detailReqSeq;
         try {
           const detail: MiniAppChatDetail = await fetchMiniAppChatDetail(chatId);
           if (reqId !== windowJoinedReqSeq || get().selectedChatId !== chatId) {
             return;
           }
+          if (detailEpoch !== detailReqSeq) {
+            set({ loadingWindowJoined: false });
+            return;
+          }
           set({ chatDetail: detail, loadingWindowJoined: false });
         } catch (error: unknown) {
           if (reqId !== windowJoinedReqSeq || get().selectedChatId !== chatId) {
+            return;
+          }
+          if (detailEpoch !== detailReqSeq) {
+            set({ loadingWindowJoined: false });
             return;
           }
           set({ loadingWindowJoined: false });
@@ -311,13 +321,13 @@ export function createChatsStore(): MiniAppChatsStore {
           try {
             const detail: MiniAppChatDetail = await fetchMiniAppChatDetail(chatId);
             await waitMinimumLoadingDuration(startedAt);
-            if (reqId !== detailReqSeq) {
+            if (reqId !== detailReqSeq || get().selectedChatId !== chatId) {
               return;
             }
             set({ chatDetail: detail });
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
-            if (reqId !== detailReqSeq) {
+            if (reqId !== detailReqSeq || get().selectedChatId !== chatId) {
               return;
             }
             const message: string = errorMessage(error);
@@ -359,10 +369,12 @@ export function createChatsStore(): MiniAppChatsStore {
 
         closeDetail: (): void => {
           cancelWindowJoinedRefresh();
+          detailReqSeq += 1;
           targetsReqSeq += 1;
           set({
             selectedChatId: null,
             chatDetail: null,
+            loadingDetail: false,
             botPermsExpanded: false,
             loadingWindowJoined: false,
             targetsMenuOpen: false,
@@ -407,6 +419,7 @@ export function createChatsStore(): MiniAppChatsStore {
         ...createChatTargetsActions({
           set,
           get,
+          applyMutationDetail,
           nextTargetsReqSeq: (): number => {
             targetsReqSeq += 1;
             return targetsReqSeq;
@@ -431,8 +444,9 @@ export function createChatsStore(): MiniAppChatsStore {
           ) {
             return;
           }
+          cancelWindowJoinedRefresh();
           const startedAt: number = Date.now();
-          set({ togglingFeature: feature });
+          set({ togglingFeature: feature, loadingWindowJoined: false });
           try {
             const result: MiniAppFeatureToggleResult = await toggleMiniAppChatFeature(
               chatId,
@@ -449,9 +463,12 @@ export function createChatsStore(): MiniAppChatsStore {
                 void get().loadChatList();
               }
             } else if (result.removedFromList || result.detail === null) {
+              detailReqSeq += 1;
+              targetsReqSeq += 1;
               set({
                 selectedChatId: null,
                 chatDetail: null,
+                loadingDetail: false,
                 chats: [],
                 loadingList: true,
                 togglingFeature: null,
@@ -539,7 +556,15 @@ export function createChatsStore(): MiniAppChatsStore {
                 void get().loadChatList();
               }
             } else if (result.outcome === "notInitialized" || result.detail === null) {
-              set({ selectedChatId: null, chatDetail: null, chats: [], loadingList: true });
+              detailReqSeq += 1;
+              targetsReqSeq += 1;
+              set({
+                selectedChatId: null,
+                chatDetail: null,
+                loadingDetail: false,
+                chats: [],
+                loadingList: true,
+              });
               void get().loadChatList();
             } else {
               applyMutationDetail(result.detail);
@@ -565,11 +590,12 @@ export function createChatsStore(): MiniAppChatsStore {
           ) {
             return;
           }
+          const detailEpoch: number = detailReqSeq;
           try {
             const nextDetail: Readonly<MiniAppChatDetail> =
               await fetchMiniAppChatDetail(selectedChatId);
             const current: MiniAppChatsStoreState = get();
-            if (current.selectedChatId !== selectedChatId) return;
+            if (current.selectedChatId !== selectedChatId || detailEpoch !== detailReqSeq) return;
             const wasRunning: boolean = current.chatDetail?.batchKickRunning === true;
             set({ chatDetail: nextDetail });
             if (
