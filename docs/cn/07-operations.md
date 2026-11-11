@@ -253,8 +253,8 @@ WantedBy=multi-user.target
 - **解决方法**：详细排查步骤请参考下一小节 [`bot.lock` 拒绝启动](#botlock-拒绝启动)。
 
 ### 3. 配置目录布局不符
-- **原因**：配置文件被直接散落在 `config/` 根目录而未按规范放入子目录；`config/` 根目录下残留了旧版的 `telegram.json`；或者 `config/dynamic/` 目录缺失。
-- **解决方法**：停机后，将 `bot.json` 和 `g-auth.json` 移入 `config/static/`，将其余动态配置文件移入 `config/dynamic/`；若存在旧的 `telegram.json`，请先参考[旧版本分阶段升级](#staged-upgrade)运行 `migrate:bot-config` 完成升级。
+- **原因**：`config/`、`config/static/` 或 `config/dynamic/` 下存在白名单之外的条目（文件错放、残留历史 `telegram.json` 或 `ad_samples.json`、隐藏/临时/备份文件、未声明子目录或悬挂软链），`config/dynamic/` 目录缺失，或任一层配置目录路径被非目录占用。
+- **解决方法**：停机后，`config/static/` 下仅保留 `bot.json` 与 `g-auth.json`，`config/dynamic/` 下仅保留 6 份动态配置文件，将任何备份或杂项文件移出 `config/`；若存在旧的 `telegram.json`，参考[旧版本分阶段升级](#staged-upgrade)运行 `migrate:bot-config` 完成升级；若残留旧的 `ad_samples.json`，将其手工迁移为 `config/dynamic/ad_detect.json`（补齐必填 `punishment`）后移除原文件。
 
 ### 4. Config Schema 校验失败
 - **原因**：`config/{static,dynamic}/*.json` 中的某些配置内容不符合规范（例如必填项缺失、字段类型错误、枚举值非法或配置了未定义的未知键）。

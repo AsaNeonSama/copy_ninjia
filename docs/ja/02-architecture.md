@@ -201,7 +201,7 @@ AI の発火は 2 つの契機によって制御されます：
 
 エントリポイントの [`index.ts`](../../index.ts) は [`packages/app/lifecycle.ts`](../../packages/app/lifecycle.ts) の `ApplicationLifecycle` を組み立てて初期化を委譲します。各本番モジュールの import 自体は Worker の起動、タイマー登録、ネットワーク接続、ディスク書き込みなどの副作用を一切持ちません。`ApplicationLifecycle.init()` は以下のステップを順次実行します。各手順の厳密な制約は [04 実行時の正式な不変条件](04-invariants.md) を参照してください：
 
-0. **設定レイアウト検査**：`config/bot.ts` の読み込み時、`layout.ts` が `config/` のディレクトリ構造を検証します。ルート直下に設定ファイルが配置されていないこと、および `config/dynamic/` が存在することを確認した上で、`bot.json` を厳格にパースします。
+0. **設定レイアウト検査**：`config/bot.ts` の読み込み時、`layout.ts` が 3 階層のディレクトリホワイトリスト（`config/`、`config/static/`、`config/dynamic/`）を検証し、`config/dynamic/` が既存ディレクトリであることを確認した上で、`bot.json` を厳格にパースします。
 1. **データルート事前検査とインスタンスロック**：`acquireSingleInstanceLock` がデータルートの基本 I/O（ファイル作成・書き込み、fsync、同一ディレクトリ内ハードリンク、アトミック rename、ディレクトリ fsync）を事前検証し、`/proc/<pid>/stat` と boot ID に基づく `bot.lock` の単一インスタンスロックを取得します。いずれかの検証に失敗した場合は直ちに fail-closed で終了します。その後 Worker の致命的エラーコールバックを登録し、アバター、グループタイトル、翻訳、gag、wed、遅延コマンドの各ランタイムを初期化します。
 2. **グローバル状態と設定の事前検証**：
    - ディレクトリ直下に残存する孤立した一時ファイルをクリーンアップ。

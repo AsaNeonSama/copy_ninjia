@@ -249,8 +249,8 @@ WantedBy=multi-user.target
 - **対処**：次節の [`bot.lock が起動を拒否する場合`](#botlock-が起動を拒否する場合) を参照。
 
 ### 3. 設定ディレクトリレイアウト不一致
-- **原因**：設定ファイルが `config/` 直下にフラットに置かれている、または別のサブディレクトリにある。`config/` 直下に `telegram.json` が残っている、または `config/dynamic/` が欠落している。
-- **対処**：サービス停止後、`bot.json`、`g-auth.json` を `config/static/` へ移動し、その他の業務設定ファイルを `config/dynamic/` へ移動。`telegram.json` が残っている場合は、先に[旧バージョンからの段階的アップグレード手順](#staged-upgrade)に従って `migrate:bot-config` を完了。
+- **原因**：`config/`、`config/static/`、または `config/dynamic/` にディレクトリホワイトリスト外のエントリ（ファイル誤配置、レガシー `telegram.json` または `ad_samples.json`、隠しファイル・一時ファイル・バックアップファイル、未宣言サブディレクトリ、リンク切れシンボリックリンク）が存在する、`config/dynamic/` が欠落している、あるいは設定ディレクトリパスが非ディレクトリに占有されている。
+- **対処**：サービス停止後、`config/static/` には `bot.json` と `g-auth.json` のみ、`config/dynamic/` には 6 つの動的設定ファイルのみを残し、バックアップや余分なファイルは `config/` の外へ退避。`telegram.json` が残っている場合は、先に[旧バージョンからの段階的アップグレード手順](#staged-upgrade)に従って `migrate:bot-config` を完了し、`ad_samples.json` が残っている場合は手動で `config/dynamic/ad_detect.json`（必須の `punishment` を追加）へ移行して元ファイルを削除。
 
 ### 4. Config Schema 検証失敗
 - **原因**：`config/{static,dynamic}/*.json` の内容が不正（必須項目の欠落、型の不一致、列挙値の範囲外など）。

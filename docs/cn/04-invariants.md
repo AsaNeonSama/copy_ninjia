@@ -104,12 +104,12 @@
   - 若探测结果为不支持或配置错误，系统将停止下载该模态的新媒体，避免浪费网络流量与调用配额。当修改配置文件触发热重载时，探测状态会重置并重新探测。
 
 - **配置目录结构检查**：
-  - 在读取任何配置文件前，系统会首先检查 `config/` 的目录结构：所有配置文件必须放在 `config/static/` 或 `config/dynamic/` 子目录中，禁止在 `config/` 根目录下直接存放配置文件。
+  - 在读取任何配置文件前，安装脚本（`assertNoMisplacedConfigFiles`）、启动门禁（`assertDeploymentConfigLayout`）与热重载（`readDynamicConfigLayoutRejections`）共用 `packages/config/layout.ts` 的三级目录白名单检查：`config/` 下仅允许 `static/` 与 `dynamic/` 两个子目录（其中 `config/dynamic/` 必须为已存在目录），`config/static/` 下仅允许 `bot.json` 与 `g-auth.json`，`config/dynamic/` 下仅允许 `assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json` 与 `cron.json`。任一层配置目录路径被非目录或悬挂软链占用、文件错放、残留历史文件（`telegram.json`、`ad_samples.json`）、出现隐藏/临时/备份文件或未声明子目录时直接拒绝（不读取内容）；新增部署文件必须在 `layout.ts` 对应层级的白名单中登记。
 
 - **`config/dynamic/` 动态热重载机制**：
   - 主线程在业务 Worker 启动后，使用文件监听监听 `config/dynamic/` 目录变动（`config/static/` 下的文件修改后必须重启）。
   - 监听到变动后，系统通过防抖计时器（`CONFIG_RELOAD_DEBOUNCE_MS`）合并短时间内的频繁变动，然后串行执行配置重载。
-  - 热重载采用与启动时相同的严格校验器：如果新文件存在格式或语法错误，该次改动将被整体拒绝，系统继续沿用当前的有效配置并记录错误日志；如果配置文件内容与当前快照一致，则不会进行多余更新。
+  - 热重载先核对 `config/dynamic/` 目录白名单（`packages/config/reload.ts` 的 `readDynamicConfigLayoutRejections`），再采用与启动时相同的严格校验器：目录内存在任何未列入白名单的条目，或新文件存在格式与语法错误时，该轮改动被拒绝并保留当前有效快照、记录错误日志；如果配置文件内容与当前快照一致，则不会进行多余更新。
   - 跨文件依赖核对：若 `cron.json` 中的任务用到了语音合成或摘要生成，但 `agent.json` 中缺少相应能力，系统会阻止配置更新并报错，保证配置在任何时刻都完整有效。
   - AI Worker 接管新的 `agent.json` 快照后丢弃旧的能力门面与 SDK 客户端，下一次取用按新快照重建。一轮 AI 回复在创建会话时固定 text 能力的模型与客户端，整轮工具往返（含 Anthropic `pause_turn` 续发）都沿用它们，热重载只影响之后开始的回复；Gemini 会话在第一次请求前若配置已被替换，不引用共用显式缓存。
 
@@ -174,7 +174,7 @@
 
 - **开关命令状态反馈的一致性**：
   - 执行 `/init`、`/ai_chat`、`/ad_detect`、`/antiraid` 等开关命令时，系统在写入前均会核对当前实际状态；若重复执行已处于的状态，回执必须明确说明「当前已是该状态」，不得谎报状态发生变更。
-  - 执行 `/init disable` 关闭群组时，系统会先安全持久化关闭标志，随后清理该群在各模块中的运行时数据与记忆，确保数据清理彻底且逻辑严谨。
+  - 执行 `/init disable` 或在 Mini App 中关闭群组 `init` 开关时，统一经 `packages/infra/botAdmin.ts` 的 `disableManagedChat` 先持久化关闭标志，再清理该群在各模块中的运行时数据与记忆，最后写回裁剪后的群状态。
 
 <p align="right"><a href="#快速导航">↑ 返回快速导航</a></p>
 
@@ -183,9 +183,9 @@
 ### 线程与状态归属
 
 - **各线程明确划分状态职责，严禁跨线程内存共享**：
-  - **主线程**：持有 Telegram runner、各 Worker 监督句柄，以及 `cache/main/storage.ts` 中的 `memory/global/state.json` 权威内存镜像。
-    - `infra/storage/stateStore.ts` 是业务门面，负责在恢复时填充内存镜像、构建领域快照并提供访问器。
-    - `infra/storage/statePersistence.ts` 的 `StateStore` 负责底层严格解码、latest-only 原子落盘、有限失败重试与退出时的 flush。
+  - **主线程**：持有 Telegram runner、各 Worker 监督句柄、`packages/infra/chatStateStorage.ts` 维护的按群 `chat_states` 热读快照，以及 `cache/main/storage.ts` 中的 `memory/global/state.json` 权威内存镜像。
+    - `infra/storage/stateStore.ts` 是 `memory/global/state.json`（`copy` 与 `ttsUsage`）的业务门面，负责在恢复时填充内存镜像、构建领域快照并提供访问器；按群状态持久化独立由 `infra/chatStateStorage.ts` 经 Disk I/O Worker 读写 SQLite `chat_states`。
+    - `infra/storage/statePersistence.ts` 的 `StateStore` 经 `libs/stateFileCodec.ts` 的 `decodeGlobalStateFile` 严格解码，负责 latest-only 原子落盘、有限失败重试与退出时的 flush。
     - 失败重试已排期时，等待落盘的写入与非停机 flush 都由重试 timer 按退避写出最新值，不提前投递、不额外消耗重试次数；停机 flush 取消退避立即做最后一次写出。
     - 有限重试耗尽属于致命持久化故障（fatal durability failure），系统必须立刻停止 runner，绝不能继续确认 Telegram update。
   - **AI Worker**：独占群聊滚动记忆、回复准入判断、多模态媒体描述流水线、全局心情以及贴纸包目录生成的运行时状态。
@@ -278,7 +278,7 @@
   - **三种实现形态**：
     - **离散状态机**：针对存在需要持久化离散状态的场景（如 `verification`、`lockdown`，需要将 PENDING / ACTIVE 等状态保存在 Map 中供后续事件查询），采用标准的 `transition(state, event) → {next, effects}` 形态。
     - **纯函数规则集**：针对没有独立生命周期状态的场景（如 `replyAdmission`、`adDetectAdmission`，仅根据调用方传入的标量做准入判定，容器与计时器留在外部），采用纯函数判定集合的形态。
-    - **单记录归约**：针对一条记录随调用结果或时间推进、容器与写回留在外部的场景（如 `mediaInputSupport` 的 `reduceMediaInputResult(current, event) → {next, effects}`、`temporaryAdBypass` 的 `advanceTemporaryAdBypassActivity(current, now) → next`）；状态不变时原样返回入参对象，调用方按引用相等跳过整表替换或写回。
+    - **单记录归约**：针对一条记录随调用结果或时间推进、容器与写回留在外部的场景（如 `mediaInputSupport` 的 `reduceMediaInputResult(current, event) → {next, effects}`、`temporaryAdBypass` 的 `advanceTemporaryAdBypassActivity(current, now) → next`、`adReferenceWarning` 的 `commitReferencedAdWarning` / `cancelsReferencedAdWarning` / `referencedAdWarningWindow`）；状态不变时原样返回入参对象，调用方按引用相等跳过整表替换或写回。
 
 - **私密模式（Lockdown）群默认权限更新必须包含独立标识**：
   - 修改群默认权限时，每一次读改写都必须带上 `use_independent_chat_permissions: true`。
@@ -767,10 +767,10 @@
 - **`/icon steal` 头像抓取兜底**：
   - 通过 t.me 主页抓取头像时，**必须以 `getChat(targetId)` 现查返回的 username 为准**，禁止直接使用上下文传入的 username（如回复上下文或身份缓存）来跳过该查询；传入的 username 仅作为诊断日志线索。
 - **群 Runtime Teardown（拆除）规范**：
-  - 各领域清理回调（`copy`、`translate`、`gag`、`deleteMessage`、`qa`、`wed`、`aiChat`、`antiRaid`、`joinLog`）集中由 `packages/cache/main/chatTeardown.ts` 维护，上层领域通过叶子模块 `packages/infra/chatTeardownRegistry.ts` 进行反向注册。`packages/infra/chatTeardown.ts` 仅负责组合调用，禁止静态依赖各具体业务。
+  - 各领域清理回调（`copy`、`translate`、`gag`、`deleteMessage`、`qa`、`batchKick`、`wed`、`aiChat`、`antiRaid`、`joinLog`）集中由 `packages/cache/main/chatTeardown.ts` 维护，上层领域通过叶子模块 `packages/infra/chatTeardownRegistry.ts` 进行反向注册。`packages/infra/chatTeardown.ts` 仅负责组合调用，禁止静态依赖各具体业务。
   - **清理原因与数据保留判定（`ChatTeardownReason`）**：
-    - `explicitDisable`（主动执行 `/init disable`）、`departed`（机器人被移出群，或启动时确证已不是成员）与 `gone`（群已不存在：普通群升级为超级群后的旧 id，或启动时确证 `chat not found`）：表示彻底停管，必须清除本群 `/wed` 成员集合、入群日志、问答库及 `chat_states` 记录。
-    - `lostAuthority`（机器人在群内但失去管理员权限）：仅暂停运行态，保留所有持久化数据，待权限恢复后可继续使用。
+    - `explicitDisable`（主动执行 `/init disable`）、`departed`（机器人被移出群，或启动时确证已不是成员）与 `gone`（群已不存在：普通群升级为超级群后的旧 id，或启动时确证 `chat not found`）：表示彻底停管，必须清除本群 `/wed` 成员集合、入群日志、问答库、批踢预检与在途批次序号及 Mini App 最近完成快照（`batchKickPreflightSeqsByChat`、`batchKickInFlightSeqByChat`、`miniAppBatchKickCompletedByChat`）以及 `chat_states` 记录。
+    - `lostAuthority`（机器人在群内但失去管理员权限）：仅暂停运行态，保留所有持久化数据与 Mini App 批踢最近完成快照，待权限恢复后可继续使用。
     - 各领域必须通过 `packages/libs/chatTeardown.ts` 的三个判定函数取结论，禁止自行比对 reason 字符串：`purgesChatData`（是否删持久化数据）、`isChatUnreachable`（`departed` 与 `gone`：机器人已无法调用本群 API，只作废本地消息 id）、`abandonsLockdown`（仅 `gone`：放弃私密模式记录）。
     - 特殊例外：AI 记忆在任何 teardown 原因下均清除；入群验证等残留按钮消息仅在 `explicitDisable` 时主动发 API 删除，`departed` 与 `gone` 时不发 Telegram 请求。
   - **离群收尾入口（`completeChatDeparture`）**：`packages/infra/botAdmin.ts` 的 `completeChatDeparture(chatId, "departed" | "gone")` 依次作废权限快照、执行全部 owner 的 teardown，再清掉黑名单补扫进度与除私密模式记录以外的群状态并落盘；对同一个群重复调用幂等。入口只有三处：

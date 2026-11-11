@@ -200,7 +200,7 @@ The model can execute multiple tool calls within a single round. All visible sid
 
 The entry point [`index.ts`](../../index.ts) solely delegates to [`ApplicationLifecycle`](../../packages/app/lifecycle.ts). Merely importing modules never starts background workers, timers, or network connections. `ApplicationLifecycle.init()` orchestrates startup sequentially:
 
-0. **Configuration Layout Verification**: When `config/bot.ts` is imported, `layout.ts` ensures deployment files are organized strictly in `config/static/` and `config/dynamic/`.
+0. **Configuration Layout Verification**: When `config/bot.ts` is imported, `layout.ts` enforces the three-level directory whitelist across `config/`, `config/static/`, and `config/dynamic/` and verifies `config/dynamic/` is an existing directory before strictly parsing `bot.json`.
 1. **Data Root Preflight & Instance Locking**: `acquireSingleInstanceLock` tests data root capabilities (writable, fsync, same-directory hard-links, atomic renames, directory fsync), then acquires the `/proc`-based `bot.lock` single-instance lock. It then registers the worker fatal callback and initializes avatar, chat title, translation, gag, wed, and deferred command runtimes.
 2. **Global State & Configuration Preflight**:
    - Cleans up orphaned temporary files from previous unexpected terminations.

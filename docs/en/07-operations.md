@@ -261,8 +261,8 @@ The application deliberately follows a **Fail-Fast** design. Any configuration o
 - **Solution**: Follow troubleshooting steps in [`bot.lock` Refuses Startup](#botlock-refuses-startup).
 
 ### 3. Configuration Directory Layout Mismatch
-- **Cause**: Configuration files are located flat in the root of `config/` instead of subdirectories; an outdated `telegram.json` sits in `config/`; or `config/dynamic/` is missing.
-- **Solution**: Stop the service. Move `bot.json` and `g-auth.json` into `config/static/`, and place dynamic configurations into `config/dynamic/`. If a legacy `telegram.json` exists, complete the [staged upgrade](#staged-upgrade) using `migrate:bot-config`.
+- **Cause**: `config/`, `config/static/`, or `config/dynamic/` contains entries outside the directory whitelist (misplaced files, legacy `telegram.json` or `ad_samples.json`, hidden/swap/backup files, extra subdirectories, or dangling symlinks), `config/dynamic/` is missing, or any config directory path is occupied by a non-directory.
+- **Solution**: Stop the service. Keep only `bot.json` and `g-auth.json` inside `config/static/`, keep only the 6 dynamic JSON files inside `config/dynamic/`, and move any backup or extra files outside `config/`. If a legacy `telegram.json` exists, complete the [staged upgrade](#staged-upgrade) using `migrate:bot-config`; if a legacy `ad_samples.json` remains, manually migrate it to `config/dynamic/ad_detect.json` (adding the required `punishment` field) and remove `ad_samples.json`.
 
 ### 4. Config Schema Validation Failure
 - **Cause**: Content in `config/{static,dynamic}/*.json` violates the schema (missing required fields, incorrect types, invalid enums, or undeclared keys).

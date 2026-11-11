@@ -90,7 +90,7 @@ curl -fsSL https://raw.githubusercontent.com/AsaNeonSama/copy_ninjia/master/inst
 > 2. **获取文件**：依次检查当前脚本所在目录、当前工作目录及目标克隆目录；若均无现存副本，则从 GitHub 拉取对应 Release 源码或下载预编译二进制包（自动识别 x64/arm64 与 glibc/musl）。之后转入目标目录自带的安装脚本继续执行。
 > 3. **工具与环境**：源码模式按需安装指定版本的 Bun；二进制模式直接使用包内自带的可执行文件。
 > 4. **安装依赖**：源码模式执行 `bun install --frozen-lockfile`；二进制模式直接跳过。
-> 5. **准备配置目录**：检查配置目录结构；自动补充缺失的基础配置模板，但跳过可选的 `agent.json`、`g-auth.json` 与 `cron.json`，且绝不覆盖已有文件。
+> 5. **准备配置目录**：按三级白名单检查 `config/` 目录结构（`config/` 仅允许 `static/` 与 `dynamic/`，`static/` 与 `dynamic/` 仅允许各自声明的配置文件；检测到未迁移旧文件、错放文件、隐藏/备份/交换文件或旧版全局状态/数据库时立即终止）；自动补充缺失的基础配置模板，但跳过可选的 `agent.json`、`g-auth.json` 与 `cron.json`，且绝不覆盖已有文件。
 > 6. **交互式填写配置**：在终端引导填写 `config/static/bot.json`；若 `agent.json` 尚不存在，则逐项询问并配置 AI 能力（含自定义 `base_url` 端点）。覆盖已有配置文件前会自动在临时目录外部备份，经严格格式校验通过后原子替换。
 > 7. **初始化身份数据库**：检查 `database/storage.sqlite`。若数据库已存在，核对其记录的时区与 `bot.json` 的 `time_zone` 是否一致（不一致时拒绝注册服务）；若不存在，则以当前配置的时区初始化全新的空数据库。随后对所有已存在的配置文件执行全面校验。
 > 8. **注册服务并观测**：注册或更新 systemd 服务 `copy-ninjia.service`（无可用 systemd 时提示在前台运行）。启动后持续观察服务状态，确认进程正常运行、无异常重启且日志无报错后，清理临时配置备份。

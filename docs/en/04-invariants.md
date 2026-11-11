@@ -106,12 +106,12 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
   - Unsupported or misconfigured states halt future downloads for that modality. Dynamic hot reload resets probing state for new evaluations.
 
 - **Configuration directory layout check**:
-  - Before reading any configuration file, the system validates directory structure: deployment files must reside under `config/static/` or `config/dynamic/`. Misplaced files directly under `config/` abort startup.
+  - Before reading any configuration file, the installer (`assertNoMisplacedConfigFiles`), startup gate (`assertDeploymentConfigLayout`), and hot reload (`readDynamicConfigLayoutRejections`) enforce the shared three-level directory whitelist in `packages/config/layout.ts`: `config/` permits only `static/` and `dynamic/` subdirectories (`config/dynamic/` must be an existing directory), `config/static/` permits only `bot.json` and `g-auth.json`, and `config/dynamic/` permits only `assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, and `cron.json`. Non-directories or dangling symlinks at any config directory path, misplaced files, legacy files (`telegram.json`, `ad_samples.json`), hidden/swap/backup files, or undeclared subdirectories are rejected without reading contents; adding a new deployment file requires registering it in the corresponding level whitelist in `layout.ts`.
 
 - **Dynamic hot reload via `config/dynamic/`**:
   - After worker startup, the main thread watches `config/dynamic/` using file-system notifications (`config/static/` files require a restart).
   - Events are debounced via `CONFIG_RELOAD_DEBOUNCE_MS` to coalesce rapid file modifications into serial reloads.
-  - Hot reload uses the same strict validators as startup: invalid files are rejected in full, retaining the last valid snapshot and logging errors; identical configurations bypass redundant processing.
+  - Hot reload first checks the `config/dynamic/` directory whitelist (`readDynamicConfigLayoutRejections` in `packages/config/reload.ts`) and then runs the same strict validators as startup: any non-whitelisted entry inside `config/dynamic/` or invalid file content rejects the reload, retaining the active valid snapshots and logging errors; identical configurations bypass redundant processing.
   - Cross-file validation: If `cron.json` specifies actions requiring TTS or web digests, the reload verifies that `agent.json` provides the necessary capabilities before applying changes.
   - When the AI Worker adopts a new `agent.json` snapshot it drops the old capability facades and SDK clients; the next use rebuilds them from the new snapshot. Each AI reply pins the text capability's model and client when its session is created and keeps them for every tool round of that reply (including Anthropic `pause_turn` continuations), so a hot reload only affects replies that start afterwards. A Gemini session whose configuration was replaced before its first request does not reference the shared explicit cache.
   - Applying configuration updates recomputes feature readiness. When a feature transitions to available, Workers are awakened or re-hydrated; when transitioning to unavailable, new tasks and toggle commands are disabled while persisted chat switches remain intact.
@@ -175,7 +175,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 
 - **Consistency in toggle command feedback**:
   - Toggle commands (`/init`, `/ai_chat`, `/ad_detect`, `/antiraid`, etc.) verify previous states; executing a command for an already-active state reports "already in this state" rather than claiming a change occurred.
-  - `/init disable` durably persists disable state before cleaning up runtime state and memory, ensuring teardown integrity.
+  - `/init disable` and Mini App chat `init` disable share `disableManagedChat` in `packages/infra/botAdmin.ts`, durably persisting the disabled flag before tearing down runtime state and memory and persisting the pruned chat state.
 
 <p align="right"><a href="#quick-navigation">↑ Back to quick navigation</a></p>
 
@@ -184,9 +184,9 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
 ### Thread and State Ownership
 
 - **Strict thread state boundaries without shared memory**:
-  - **Main thread**: Owns the Telegram update runner, Worker supervision handles, and the authoritative in-memory `memory/global/state.json` mirror under `cache/main/storage.ts`.
-    - `infra/storage/stateStore.ts` acts as the business facade, hydrating the mirror at startup, assembling domain snapshots, and providing accessors.
-    - `infra/storage/statePersistence.ts`'s `StateStore` handles strict decoding, latest-only atomic disk writes, bounded failure retries (`STATE_SAVE_RETRY_DELAYS_MS`, `STATE_SAVE_MAX_ATTEMPTS`), and shutdown flushes.
+  - **Main thread**: Owns the Telegram update runner, Worker supervision handles, the per-chat `chat_states` hot snapshot managed by `packages/infra/chatStateStorage.ts`, and the authoritative in-memory `memory/global/state.json` mirror under `cache/main/storage.ts`.
+    - `infra/storage/stateStore.ts` acts as the business facade for `memory/global/state.json` (`copy` and `ttsUsage`), hydrating the mirror at startup, assembling domain snapshots, and providing accessors; per-chat state persistence lives separately in `infra/chatStateStorage.ts` over SQLite `chat_states` via the Disk I/O Worker.
+    - `infra/storage/statePersistence.ts`'s `StateStore` strictly decodes via `decodeGlobalStateFile` (`libs/stateFileCodec.ts`) and handles latest-only atomic disk writes, bounded failure retries (`STATE_SAVE_RETRY_DELAYS_MS`, `STATE_SAVE_MAX_ATTEMPTS`), and shutdown flushes.
     - While a failure retry is scheduled, writes awaiting durability and non-shutdown flushes leave the latest value to the retry timer's backoff, posting nothing early and consuming no extra retries; a shutdown flush cancels the backoff and writes once more immediately.
     - Exhausting bounded retries is a fatal durability failure: the runner must stop immediately and never continue acknowledging Telegram updates.
   - **AI Worker**: Exclusively owns group-chat rolling memory, reply admission checks, multimodal media description pipelines, global mood, and sticker catalog generation state.
@@ -272,7 +272,7 @@ For a guided explanation, see [02 Architecture Overview](02-architecture.md). Fo
   - **Three structural models**:
     - **Discrete state machines**: For domains with persistent lifecycle states (like `verification` and `lockdown`), using `transition(state, event) → {next, effects}`.
     - **Pure rule functions**: For stateless evaluations (like `replyAdmission` and `adDetectAdmission`), taking computed inputs and returning decisions without internal timers.
-    - **Single-record reducers**: For one record advanced by call results or time while containers and write-back stay outside (like `reduceMediaInputResult(current, event) → {next, effects}` in `mediaInputSupport` and `advanceTemporaryAdBypassActivity(current, now) → next` in `temporaryAdBypass`). An unchanged state returns the input object itself, so callers skip the table replacement or write-back by reference equality.
+    - **Single-record reducers**: For one record advanced by call results or time while containers and write-back stay outside (like `reduceMediaInputResult(current, event) → {next, effects}` in `mediaInputSupport`, `advanceTemporaryAdBypassActivity(current, now) → next` in `temporaryAdBypass`, and `commitReferencedAdWarning` / `cancelsReferencedAdWarning` / `referencedAdWarningWindow` in `adReferenceWarning`). An unchanged state returns the input object itself, so callers skip the table replacement or write-back by reference equality.
 
 - **Lockdown default chat permission updates must set independent flags**:
   - Every read-modify-write of group default permissions passes `use_independent_chat_permissions: true`.
@@ -753,10 +753,10 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
 - **`/icon steal` Profile Fallback**:
   - Live username lookup via `getChat(targetId)` is strictly authoritative. Never short-circuit using context-provided usernames; caller usernames serve solely as diagnostic log hints.
 - **Chat Runtime Teardown**:
-  - Domain cleanup callbacks (`copy`, `translate`, `gag`, `deleteMessage`, `qa`, `wed`, `aiChat`, `antiRaid`, `joinLog`) are registered in reverse through `packages/infra/chatTeardownRegistry.ts` into `packages/cache/main/chatTeardown.ts`. `packages/infra/chatTeardown.ts` orchestrates cleanup and must not statically depend on business modules.
+  - Domain cleanup callbacks (`copy`, `translate`, `gag`, `deleteMessage`, `qa`, `batchKick`, `wed`, `aiChat`, `antiRaid`, `joinLog`) are registered in reverse through `packages/infra/chatTeardownRegistry.ts` into `packages/cache/main/chatTeardown.ts`. `packages/infra/chatTeardown.ts` orchestrates cleanup and must not statically depend on business modules.
   - **Teardown Reason & Purge Decision (`ChatTeardownReason`)**:
-    - `explicitDisable` (`/init disable`), `departed` (bot removed from chat, or confirmed at startup to no longer be a member), and `gone` (the chat no longer exists: the old id of a group upgraded to a supergroup, or `chat not found` confirmed at startup): chat is no longer managed; purge `/wed` members, join logs, Q&A records, and `chat_states`.
-    - `lostAuthority` (bot lost admin rights but remains in chat): pause runtime only; preserve all persisted data to resume when permissions return.
+    - `explicitDisable` (`/init disable`), `departed` (bot removed from chat, or confirmed at startup to no longer be a member), and `gone` (the chat no longer exists: the old id of a group upgraded to a supergroup, or `chat not found` confirmed at startup): chat is no longer managed; purge `/wed` members, join logs, Q&A records, batch-kick preflight/in-flight sequences and Mini App completion snapshots (`batchKickPreflightSeqsByChat`, `batchKickInFlightSeqByChat`, `miniAppBatchKickCompletedByChat`), and `chat_states`.
+    - `lostAuthority` (bot lost admin rights but remains in chat): pause runtime only; preserve all persisted data and Mini App batch-kick completion snapshots to resume when permissions return.
     - Owners take their decisions from the three predicates in `packages/libs/chatTeardown.ts` rather than checking reason strings manually: `purgesChatData` (whether persisted data is deleted), `isChatUnreachable` (`departed` and `gone`: the bot can no longer call the chat's API, so only local message ids are discarded), and `abandonsLockdown` (`gone` only: the lockdown record is abandoned).
     - Exceptions: AI memory purges on all teardown reasons; leftover buttons (verification, etc.) delete via API only on `explicitDisable` (on `departed` and `gone`, no Telegram request is made).
   - **Departure entry point (`completeChatDeparture`)**: `completeChatDeparture(chatId, "departed" | "gone")` in `packages/infra/botAdmin.ts` forgets the permission snapshot, runs every owner's teardown, then clears blocklist sweep progress and all chat state except the lockdown record and persists it; repeated calls for the same chat are idempotent. It has exactly three callers:

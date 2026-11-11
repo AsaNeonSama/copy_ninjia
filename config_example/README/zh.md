@@ -19,11 +19,11 @@ done
 > [!CAUTION]
 > 不要使用会覆盖已有文件的复制命令，也不要把 `config_example/` 当作部署配置的备份。`config/` 包含凭据，建议仅开放服务账号读取权限。
 
-`config/` 严格按生效机制拆分为两个子目录：
-- `config/static/`：`bot.json`、`g-auth.json`，修改后**必须重启服务**生效。
-- `config/dynamic/`：`assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
+`config/` 严格按生效机制实施三级目录白名单（`config/` 顶层仅允许 `static/` 与 `dynamic/` 两个子目录）：
+- `config/static/`：仅允许 `bot.json`、`g-auth.json`，修改后**必须重启服务**生效。
+- `config/dynamic/`：仅允许 `assets.json`、`ad_detect.json`、`agent.json`、`mood.json`、`stickers.json`、`cron.json`，运行中修改会自动热重载生效。
 
-`config/dynamic/` 目录必须存在（可以为空）；任一配置文件放在 `config/` 顶层或放错子目录均会拒绝启动。白名单、黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于配置文件。
+`config/dynamic/` 必须是已存在的目录（可以为空）；任一层级出现未声明条目（含错放或旧版配置文件如 `telegram.json`、`ad_samples.json`，隐藏/交换/备份文件、额外子目录或悬空软链接），或目录路径被非目录占用，均会拒绝启动；热重载期间若 `config/dynamic/` 出现非白名单条目，整轮重载将被拒绝并保留当前已生效快照。白名单、黑名单和群状态保存在运行时数据根的 `database/storage.sqlite` 中，不属于配置文件。
 
 所有 JSON 文件均执行严格 schema 校验：未知字段、拼写错误、类型不符、非法枚举或越界取值都会在启动阶段或热重载时被拒绝，**绝不静默修正或忽略**。
 

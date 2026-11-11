@@ -19,11 +19,11 @@ done
 > [!CAUTION]
 > Never use a copy command that overwrites existing files, and never treat `config_example/` as a deployment backup. Files under `config/` contain credentials and should be readable only by the service account.
 
-`config/` is strictly split into two subdirectories based on how changes take effect:
-- `config/static/`: `bot.json`, `g-auth.json`; changes **require a service restart**.
-- `config/dynamic/`: `assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`; changes are automatically hot-reloaded at runtime.
+`config/` enforces a strict three-level directory whitelist (`config/` itself permits only `static/` and `dynamic/`):
+- `config/static/`: permits only `bot.json`, `g-auth.json`; changes **require a service restart**.
+- `config/dynamic/`: permits only `assets.json`, `ad_detect.json`, `agent.json`, `mood.json`, `stickers.json`, `cron.json`; changes are automatically hot-reloaded at runtime.
 
-The `config/dynamic/` directory must exist (it may be empty). Placing any configuration file at the root of `config/` or in the wrong subdirectory will refuse startup. Allowlist, blocklist, and per-group state live in `database/storage.sqlite` and are not deployment configuration.
+`config/dynamic/` must be an existing directory (it may be empty). Any undeclared entry at any of the three levels (including misplaced or legacy files such as `telegram.json` or `ad_samples.json`, hidden/swap/backup files, extra subdirectories, or dangling symlinks), or a non-directory occupying a config directory path, refuses startup; during hot reload, any undeclared entry in `config/dynamic/` rejects the entire reload round and retains active snapshots. Allowlist, blocklist, and per-group state live in `database/storage.sqlite` and are not deployment configuration.
 
 Every JSON file is parsed under a strict schema: unknown keys, typos, type mismatches, invalid enums, or out-of-range values abort startup immediately or are rejected during hot reload—**the bot never repairs or silently ignores invalid configurations**.
 

@@ -21,7 +21,7 @@
   - **代表文件**：`lifecycle.ts` 与 `lifecycle/`（`maintenance.ts`、`shutdown.ts`）、`lifecycleDependencies.ts`、`configReload.ts`、`registerHandlers.ts`、`updatePreamble.ts`、`updateRunner.ts` / `updateFetcher.ts`。
 - **`packages/commands/`**
   - **职责**：所有用户显式触发的 Telegram 斜杠命令实现，按命令领域组织；子命令在各自领域内分发，公用的权限门禁独立抽离。
-  - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts` 与 `qa/`（`board.ts`、`fieldRules.ts`、`ingress.ts`、`notices.ts`、`rendering.ts`、`session.ts`）、`wed.ts` 与 `wed/`（`memberReview.ts`、`messages.ts`、`persistence.ts`、`rendering.ts`）、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts`、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts`、`gag/notices.ts`、`gag/refresh.ts` 与 `gag/rendering.ts` 承接；`/delete_message` 由 `deleteMessage.ts`（命令与消息 ingress）与 `deleteMessage/queue.ts`（待删队列与停机排空）承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
+  - **代表文件**：`copy.ts`、`icon.ts`、`mood.ts`、`qa.ts` 与 `qa/`（`board.ts`、`fieldRules.ts`、`ingress.ts`、`notices.ts`、`rendering.ts`、`session.ts`）、`wed.ts` 与 `wed/`（`memberReview.ts`、`messages.ts`、`persistence.ts`、`rendering.ts`）、`block.ts`、`hImage.ts` 与 `hImage/`（抽图、收图）、`info.ts`、`deferredCommands.ts`、`blocklistFanOut.ts`、`mute.ts`、`batchKick.ts` 与 `batchKick/`（`preflight.ts`）、`targetResolution.ts`、`configGate.ts`、`arguments.ts`；口球功能由 `gag.ts`（入口）、`gag/runtime.ts`（运行时生命周期）、`gag/inline.ts`、`gag/notices.ts`、`gag/refresh.ts` 与 `gag/rendering.ts` 承接；`/delete_message` 由 `deleteMessage.ts`（命令与消息 ingress）与 `deleteMessage/queue.ts`（待删队列与停机排空）承接；运势抽签由 `luckChallenge/` 承接（`cache.ts`、`draw.ts`、`key.ts`、`rateLimit.ts`、`receipt.ts`、`rendering.ts`、`telegramAdapter.ts`）。
 - **`packages/mini-app-api-server/`**
   - **职责**：超级管理员专属 Telegram Mini App 管理控制台的服务端：本地 `Bun.serve` HTTP 服务、统一鉴权中间件链与 API/静态资源路由、运行状态与 AI 情绪切换/已初始化群及 1–24 小时进群统计与 `/batch_kick` 批量清理/群内自定义问答对与追着删、追着翻目标管理/热 256 消息/黑白名单与权限/图库数据视图、Google Authenticator (TOTP) 验证器持久化管理、原生联系人与频道选择器会话（支持黑白名单及群内追着删/追着翻目标导入），以及 `/favicon.ico` 静态图标资源。与 bot 服务共享 `packages/` 下的常量、类型与能力模块。`server/serve.ts` 负责 `Bun.serve` 启停；路由按领域登记在 `routes/`，每个文件提供 `Bun.serve` 原生路由表片段，由 `server/register.ts` 汇总并在配置子路径前缀时同步注册带前缀别名，同时承接子路径末尾斜杠重定向、子路径打包静态资源回环读取、受保护图片后缀路径鉴权与未知路径/方法不匹配兜底；请求处理器在 `handlers/`，鉴权中间件与链定义在 `middleware/`，密码会话、锁定与 TOTP 验证器在 `auth/`，原生选择器会话在 `picker/`，数据视图在 `view/`，与业务无关的请求解析、响应构造、路径归一化与下载文件名生成在 `libs/`。`server/register.ts` 以 HTML import 引入 `packages/mini-app-frontend/index.html`，由 `Bun.serve` 打包托管前端，这是服务端对前端的唯一引用。
   - **代表文件**：`server/`（`serve.ts`、`register.ts`）、`routes/`（`page.ts`、`auth.ts`、`status.ts`、`totp.ts`、`chats.ts`、`identities.ts`、`gallery.ts`）、`handlers/`（与 `routes/` 同名的各领域处理器）、`middleware/`（`pipeline.ts`、`chains.ts`、`headerGuard.ts`、`initData.ts`、`sessionToken.ts`）、`auth/`（`session.ts`、`totpStorage.ts`）、`picker/`（`sessions.ts`、`prepare.ts`、`sharedMessage.ts`）、`view/`（`status.ts`、`gallery.ts`、`messages.ts`）及其子目录 `chats/`（`query.ts`、`toggle.ts`、`batchKick.ts`、`targets.ts`）与 `identities/`（`whitelist.ts`、`blocklist.ts`、`page.ts`、`metadata.ts`）、`libs/`（`request.ts`、`response.ts`、`routePath.ts`、`downloadFileName.ts`）、`resource/`（`favicon.ico`）；`index.ts` 提供薄公开入口。
@@ -50,8 +50,8 @@
   - **职责**：发言者身份缓存、发送者身份提取与标签生成，以及风控共用的身份元数据解析。
   - **代表文件**：`senderIdentity.ts`、`visibleSender.ts`、`userLabel.ts`、`identityMetadata.ts`、`messageContent.ts`、`messageOrigin.ts`。
 - **`packages/states/`**
-  - **职责**：**无任何 I/O 的纯状态机与准入规则**，包括入群验证阶段转换、锁定状态转换、AI 回复准入判据、广告送检准入、临时免检累计规则及媒体输入支持度归约。
-  - **代表文件**：`verification.ts` 与 `verification/`（`join`/`pending`/`terminal`/`disable` 各阶段与 `adopt.ts` 恢复）、`lockdown.ts` 与 `lockdown/`（`apply`/`persistence`/`restore`/`announcement`/`adopt` 各阶段）、`replyAdmission.ts`、`adDetectAdmission.ts`、`adPunishment.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
+  - **职责**：**无任何 I/O 的纯状态机与准入规则**，包括入群验证阶段转换、锁定状态转换、AI 回复准入判据、广告送检准入、引用类广告警告升级、临时免检累计规则及媒体输入支持度归约。
+  - **代表文件**：`verification.ts` 与 `verification/`（`join`/`pending`/`terminal`/`disable` 各阶段与 `adopt.ts` 恢复）、`lockdown.ts` 与 `lockdown/`（`apply`/`persistence`/`restore`/`announcement`/`adopt` 各阶段）、`replyAdmission.ts`、`adDetectAdmission.ts`、`adPunishment.ts`、`adReferenceWarning.ts`、`temporaryAdBypass.ts`、`mediaInputSupport.ts`。
 - **`packages/config/`**
   - **职责**：`config/{static,dynamic}/*.json` 配置文件的严格 schema 校验、内存快照封装、热重载差异判定与功能可用性检查。
   - **代表文件**：`bot.ts`、`botInput.ts`、`layout.ts`、`agent.ts`、`agentCapability.ts`、`agentTts.ts`、`assets.ts`、`cron.ts`、`cronAction.ts`、`mood.ts`、`persona.ts`、`promptFile.ts`、`stickers.ts`、`adDetectConfig.ts`、`googleAuth.ts`、`time.ts`、`timeZoneInput.ts`、`readiness.ts`、`reload.ts`。
@@ -60,7 +60,7 @@
   - **代表目录**：`schema/`（含 `migrations/`）、`codec/identity.ts`、`codec/chatState.ts`、`codec/chatQa.ts`、`codec/temporaryAdBypass.ts`、`interact/`（`connection.ts`、`transaction.ts`、`identityPolicy.ts`、`chatState.ts`、`chatQa.ts`、`temporaryAdBypass.ts`、`aiContext.ts`、`migration.ts`、`initialization.ts`、`inspection.ts`）、`validation/storageRows.ts`。
 - **`packages/libs/`**
   - **职责**：与具体业务无关的通用底层基础设施，包括原子文件写入、有界并发队列与通信工具。
-  - **代表文件**：`flushBarrier.ts`、`linkedQueue.ts`、`fifoMap.ts` 与 `lruCache.ts`、`acknowledgedBatchQueue.ts`、`boundedResponse.ts`、`boundedSettledBatch.ts`、`monotonicDeadline.ts`、`digestEqual.ts`、`miniAppTotpFile.ts`、`text.ts`、`errorMessage.ts`、`telegramMarkdown.ts`、`webDigest.ts` 与 `webDigestMarkdown.ts`、`webDigestUrls.ts`、`workerRequestTable.ts`。
+  - **代表文件**：`flushBarrier.ts`、`linkedQueue.ts`、`fifoMap.ts` 与 `lruCache.ts`、`boundedMap.ts`、`acknowledgedBatchQueue.ts`、`boundedResponse.ts`、`boundedSettledBatch.ts`、`monotonicDeadline.ts`、`digestEqual.ts`、`miniAppAuth.ts`、`miniAppTotpFile.ts`、`stateFileCodec.ts`、`text.ts`、`errorMessage.ts`、`telegramMarkdown.ts`、`webDigest.ts` 与 `webDigestMarkdown.ts`、`webDigestUrls.ts`、`workerRequestTable.ts`。
 - **`packages/workers/`**
   - **职责**：三个 Worker 线程内部的实现逻辑。
   - **代表文件**：`aiChatWorker.ts`、`antiRaidWorker.ts`、`diskIOWorker.ts`、`businessWorkerPort.ts`、`aiChat/`、`antiRaid/verificationEffects/`、`diskIO/storageDatabase.ts` 与 `diskIO/storageDatabase/`（含 `flushHold.ts` 等）、`diskIO/verification{Codec,Recovery,Writes}.ts`。
@@ -69,13 +69,14 @@
   - **代表文件**：`tools/replyToolset/`、`tools/webSearch.ts`、`webDigest.ts`、`utils/`、`stickers/`、`voiceSynthesis.ts`、`ttsUsage.ts`。
 - **`packages/workers/antiRaid/adDetect/`**
   - **职责**：广告检测处理流水线，包括排队批处理、消息串拼接、模型判定与违规处置。
-  - **代表文件**：`queue.ts`、`queueState.ts`、`verdict.ts`、`bundle.ts`、`classifier.ts`、`disposal.ts`、`config.ts`、`ai/`。
+  - **代表文件**：`queue.ts`、`queueState.ts`、`verdict.ts`、`bundle.ts`、`classifier.ts`、`disposal.ts`、`referencePolicy.ts`、`config.ts`、`ai/`。
 - **`packages/infra/`**
-  - **职责**：主线程唯一的 Telegram 客户端连接与出站闸门、Worker 双工通信宿主、系统日志输出、主线程 I/O 代理与专用图库文件管理。
+  - **职责**：主线程唯一的 Telegram 客户端连接与出站闸门、受管群权限与运行时拆除编排、群状态热读缓存与持久化门面、Worker 双工通信宿主、系统日志输出、主线程 I/O 代理与专用图库文件管理。
   - **代表文件与目录**：
     - `telegram/`（含 `telegram/outboundGate.ts`、`telegram/outboundRetryLane.ts`、`telegram/sendLane.ts`、`telegram/sendScheduler.ts`、`telegram/avatar/`、`telegram/actions/`）
     - `diskIO.ts` 与 `diskIO/`（`businessWrite.ts`、`diagnosticChannel.ts`、`fatal.ts`、`host.ts`、`observers.ts`、`recovery.ts`、`requests.ts`、`storageAdmission.ts`、`transport.ts`）
     - `identityStorage.ts` 与 `identityStorage/`（`read.ts`、`shared.ts`、`sweep.ts`、`write.ts`）
+    - `botAdmin.ts`、`chatTeardown.ts`、`chatTeardownRegistry.ts`、`chatFeatureSwitch.ts`、`chatStateStorage.ts`
     - `logger.ts` 与 `logger/`（`forwarding.ts`、`redaction.ts`、`serialization.ts`）
     - `supervisedWorker.ts`、`workerSupervisor.ts`
     - `aiCacheUsage.ts`、`geminiContextCache.ts`
@@ -88,7 +89,7 @@
   - **职责**：黑名单主线程基础设施，包括名单判定、持久化待办队列（outbox）、全群成员清扫与销号检测。
   - **代表文件**：`membership.ts`、`outbox.ts`、`participantInvalid.ts`、`sweep.ts`、`sweepEligibility.ts`、`sweepReplay.ts`、`sweepRetryState.ts`、`sweepScheduler.ts`。
 - **`packages/infra/storage/`**
-  - **职责**：数据根目录预检、单实例锁排他保护、全局状态（`memory/global/state.json`）门面与启动清理。
+  - **职责**：数据根目录预检、单实例锁排他保护、全局状态（`memory/global/state.json`，仅承载全局 `copy` 与 `ttsUsage`）门面与启动清理；按群 `chat_states` 的缓存与落盘由 `packages/infra/chatStateStorage.ts` 独立负责。
   - **代表文件**：`dataRoot.ts`、`instanceLock.ts`、`stateStore.ts`、`statePersistence.ts`、`cleanup.ts`。
 - **`packages/cache/`**
   - **职责**：进程内可变状态容器，**第一层目录严格对应持有该状态的宿主线程**。
@@ -98,7 +99,7 @@
   - **代表文件**：`atmosphere/{teasing,plain}/`、`commands.ts`、`whitelist.ts`、`aiChat/rateLimit.ts`、`antiRaid/`、`diskIO/`。
 - **`packages/types/`**
   - **职责**：跨模块契约、业务领域模型类型、状态机状态与事件定义（`types/states/`）。
-  - **代表文件**：`chatState.ts`、`commands.ts`、`lifecycle.ts`、`diskIO/`（`messages.ts`、`replies.ts`）。
+  - **代表文件**：`chatState.ts`、`commands.ts`、`lifecycle.ts`、`diskIO/`（`messages.ts`、`replies.ts`）、`miniApp.ts`（无状态兼容类型再导出）与 `miniApp/`（`auth.ts`、`chats.ts`、`gallery.ts`、`identities.ts`、`server.ts`）。
 - **`test/`**
   - **职责**：与 `packages/` 镜像对应的 Bun 单元测试与集成测试。
 - **`scripts/`**

@@ -206,7 +206,7 @@ AI 触发包含两种途径：
 
 程序入口 [`index.ts`](../../index.ts) 仅负责装配 [`ApplicationLifecycle`](../../packages/app/lifecycle.ts)。模块在 import 时保证无副作用（不启动 Worker、不建定时器、不发起网络连接、不写磁盘）。真正的启动流程由 `ApplicationLifecycle.init()` 串行推进：
 
-0. **配置目录布局检查**：由 `layout.ts` 检查 `config/` 目录结构，禁止文件散落根目录，确认 `config/dynamic/` 目录存在，随后严格解析 `bot.json`。
+0. **配置目录布局检查**：由 `layout.ts` 按三级目录白名单检查 `config/`、`config/static/` 与 `config/dynamic/`（拦截错放文件、旧文件与任何非白名单条目），确认 `config/dynamic/` 为已存在目录，随后严格解析 `bot.json`。
 1. **数据根预检与排他锁**：检查运行时数据根目录的写权限、文件 fsync、hard link 与原子 rename 能力，随后获取 `bot.lock` 单实例文件锁（基于系统 `/proc/<pid>/stat` 与内核 boot ID）；任一步失败立即安全退出。接着注册 Worker 致命异常回调，并初始化头像队列、群标题回填、翻译、口球、老婆抽取（`wed`）及延迟命令的运行时环境。
 2. **全局状态与配置校验**：
    - 清理中断残留的临时文件。
