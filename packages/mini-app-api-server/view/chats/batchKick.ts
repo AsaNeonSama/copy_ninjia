@@ -4,8 +4,6 @@ import { chatIsSupergroupById } from "../../../cache/main/antiRaid/chatKind";
 import {
   batchKickChats,
   miniAppBatchKickCompletedByChat,
-  miniAppBatchKickInFlightSeqByChat,
-  miniAppBatchKickSequence,
 } from "../../../cache/main/batchKick";
 import { startBatchKickTask } from "../../../commands/batchKick";
 import {
@@ -171,22 +169,12 @@ export async function triggerManagedChatBatchKick(
     }
 
     const recordCount: number = records.length;
-    const sequence: number = ++miniAppBatchKickSequence.current;
-    miniAppBatchKickInFlightSeqByChat.set(chatId, sequence);
-    const clearInFlightSeq = (): void => {
-      if (miniAppBatchKickInFlightSeqByChat.get(chatId) === sequence) {
-        miniAppBatchKickInFlightSeqByChat.delete(chatId);
-      }
-    };
     const accepted: boolean = startBatchKickTask({
       chatId,
       source: "api",
       durationMs,
       records,
-      onCancel: clearInFlightSeq,
       onComplete: (stats: Readonly<BatchKickStats>): void => {
-        if (miniAppBatchKickInFlightSeqByChat.get(chatId) !== sequence) return;
-        miniAppBatchKickInFlightSeqByChat.delete(chatId);
         if (stats.unmanaged || getChatState(chatId).isInitEnabled !== true) {
           miniAppBatchKickCompletedByChat.delete(chatId);
           return;
@@ -208,7 +196,6 @@ export async function triggerManagedChatBatchKick(
       },
     });
     if (!accepted) {
-      clearInFlightSeq();
       return {
         ok: false,
         outcome: "busy",

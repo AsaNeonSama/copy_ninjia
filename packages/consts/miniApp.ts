@@ -18,13 +18,13 @@ export const MINI_APP_DEFAULT_HOST: string = "127.0.0.1";
 
 /**
  * `mini_app.port` 允许的最小 TCP 端口号。
- * 不变量：正整数下界为 1。所属模块：`packages/config/botInput.ts`。
+ * 不变量：正整数下界为 1。所属模块：`packages/config/botInput.ts` 与 `packages/mini-app-api-server/libs/request.ts`。
  */
 export const MINI_APP_PORT_MIN: number = 1;
 
 /**
  * `mini_app.port` 允许的最大 TCP 端口号。
- * 不变量：16 位无符号端口上界 65535。所属模块：`packages/config/botInput.ts`。
+ * 不变量：16 位无符号端口上界 65535。所属模块：`packages/config/botInput.ts` 与 `packages/mini-app-api-server/libs/request.ts`。
  */
 export const MINI_APP_PORT_MAX: number = 65_535;
 
@@ -53,8 +53,8 @@ export const MINI_APP_AUTH_CLOCK_SKEW_SECONDS: number = 300;
 export const MINI_APP_SHA256_HEX_PATTERN: RegExp = /^[0-9a-f]{64}$/i;
 
 /**
- * 十进制正整数时间戳的匹配规则。
- * 不变量：不带全局标志 `g`，供 `verifyMiniAppInitData` 无状态复用。所属模块：`packages/libs/miniAppAuth.ts`。
+ * 十进制正整数时间戳与端口号的匹配规则。
+ * 不变量：不带全局标志 `g`，供 `verifyMiniAppInitData` 与客户端 IP 可选端口校验无状态复用。所属模块：`packages/libs/miniAppAuth.ts` 与 `packages/mini-app-api-server/libs/request.ts`。
  */
 export const MINI_APP_POSITIVE_INTEGER_PATTERN: RegExp = /^[1-9]\d*$/;
 

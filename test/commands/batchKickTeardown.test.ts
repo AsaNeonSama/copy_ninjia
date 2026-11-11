@@ -20,6 +20,8 @@ installMiniAppTestDiskIOMock();
 
 const sendMessage = mock(async (..._args: unknown[]): Promise<number | undefined> => 1);
 let probeGate: Promise<void> | null = null;
+let probePresent: boolean = false;
+const kickMember = mock(async (): Promise<string> => "absent");
 mock.module("../../packages/antiRaid/workerBridge/controller", () => ({
   postAntiRaid: (): boolean => true,
   deactivateAntiRaidChat: (): void => {},
@@ -32,21 +34,21 @@ mock.module("../../packages/infra/telegram", () => ({
   replyCommandNotice: replyCommandNoticeVia(sendMessage),
   probeChatMembership: async (): Promise<boolean> => {
     if (probeGate !== null) await probeGate;
-    return false;
+    return probePresent;
   },
-  kickChatMemberWithOutcome: async (): Promise<string> => "absent",
+  kickChatMemberWithOutcome: kickMember,
   banChatMemberWithOutcome: async (): Promise<string> => "absent",
 }));
 
-await import("../../packages/commands/batchKick");
+const { handleBatchKickCommand } = await import("../../packages/commands/batchKick");
 const { SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { DEFERRED_COMMAND_MAX_CONCURRENT } = await import("../../packages/consts/deferredCommands");
 const { chatIsSupergroupById } = await import("../../packages/cache/main/antiRaid/chatKind");
 const {
   batchKickChats,
+  batchKickInFlightSeqByChat,
   batchKickPreflightSeqsByChat,
   miniAppBatchKickCompletedByChat,
-  miniAppBatchKickInFlightSeqByChat,
 } = await import("../../packages/cache/main/batchKick");
 const { resetChatStateCache } = await import("../../packages/cache/main/chatState");
 const { telegramApiState } = await import("../../packages/cache/perThread/telegramApi");
@@ -84,25 +86,28 @@ function sampleCompletion(kicked: number = 3): Readonly<MiniAppBatchKickCompleti
 
 beforeEach((): void => {
   sendMessage.mockClear();
+  kickMember.mockClear();
   probeGate = null;
+  probePresent = false;
   initDeferredCommandRuntime();
   batchKickChats.clear();
   batchKickPreflightSeqsByChat.clear();
   chatIsSupergroupById.clear();
   miniAppBatchKickCompletedByChat.clear();
-  miniAppBatchKickInFlightSeqByChat.clear();
+  batchKickInFlightSeqByChat.clear();
   telegramApiState.current = null;
   resetChatStateCache();
 });
 
 afterEach(async (): Promise<void> => {
   probeGate = null;
+  probePresent = false;
   await drainDeferredCommandRuntime(1_000);
   batchKickChats.clear();
   batchKickPreflightSeqsByChat.clear();
   chatIsSupergroupById.clear();
   miniAppBatchKickCompletedByChat.clear();
-  miniAppBatchKickInFlightSeqByChat.clear();
+  batchKickInFlightSeqByChat.clear();
   telegramApiState.current = null;
   resetMiniAppTestDiskIOState();
   resetChatStateCache();
@@ -113,30 +118,30 @@ describe("batchKick 完成结果的群 teardown 与关群清理", () => {
     const targetChatId: number = -1_008_001;
     const siblingChatId: number = -1_008_002;
     miniAppBatchKickCompletedByChat.set(siblingChatId, sampleCompletion(5));
-    miniAppBatchKickInFlightSeqByChat.set(siblingChatId, 99);
+    batchKickInFlightSeqByChat.set(siblingChatId, 99);
     batchKickPreflightSeqsByChat.set(siblingChatId, new Set([88]));
 
     miniAppBatchKickCompletedByChat.set(targetChatId, sampleCompletion(2));
-    miniAppBatchKickInFlightSeqByChat.set(targetChatId, 11);
+    batchKickInFlightSeqByChat.set(targetChatId, 11);
     batchKickPreflightSeqsByChat.set(targetChatId, new Set([7]));
     await teardownChatRuntime(targetChatId, "lostAuthority");
     expect(miniAppBatchKickCompletedByChat.get(targetChatId)?.kicked).toBe(2);
-    expect(miniAppBatchKickInFlightSeqByChat.get(targetChatId)).toBe(11);
+    expect(batchKickInFlightSeqByChat.get(targetChatId)).toBe(11);
     expect(batchKickPreflightSeqsByChat.get(targetChatId)?.has(7)).toBeTrue();
     expect(miniAppBatchKickCompletedByChat.get(siblingChatId)?.kicked).toBe(5);
-    expect(miniAppBatchKickInFlightSeqByChat.get(siblingChatId)).toBe(99);
+    expect(batchKickInFlightSeqByChat.get(siblingChatId)).toBe(99);
     expect(batchKickPreflightSeqsByChat.get(siblingChatId)?.has(88)).toBeTrue();
 
     for (const reason of ["explicitDisable", "departed", "gone"] as const) {
       miniAppBatchKickCompletedByChat.set(targetChatId, sampleCompletion(4));
-      miniAppBatchKickInFlightSeqByChat.set(targetChatId, 12);
+      batchKickInFlightSeqByChat.set(targetChatId, 12);
       batchKickPreflightSeqsByChat.set(targetChatId, new Set([9]));
       await teardownChatRuntime(targetChatId, reason);
       expect(miniAppBatchKickCompletedByChat.has(targetChatId)).toBeFalse();
-      expect(miniAppBatchKickInFlightSeqByChat.has(targetChatId)).toBeFalse();
+      expect(batchKickInFlightSeqByChat.has(targetChatId)).toBeFalse();
       expect(batchKickPreflightSeqsByChat.has(targetChatId)).toBeFalse();
       expect(miniAppBatchKickCompletedByChat.get(siblingChatId)?.kicked).toBe(5);
-      expect(miniAppBatchKickInFlightSeqByChat.get(siblingChatId)).toBe(99);
+      expect(batchKickInFlightSeqByChat.get(siblingChatId)).toBe(99);
       expect(batchKickPreflightSeqsByChat.get(siblingChatId)?.has(88)).toBeTrue();
     }
   });
@@ -187,7 +192,7 @@ describe("batchKick 完成结果的群 teardown 与关群清理", () => {
     expect(result.detail).toBeNull();
     expect(batchKickChats.has(chatId)).toBeFalse();
     expect(batchKickPreflightSeqsByChat.has(chatId)).toBeFalse();
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
   });
 
@@ -220,17 +225,17 @@ describe("batchKick 完成结果的群 teardown 与关群清理", () => {
     const outcomes: string[] = [res1.outcome, res2.outcome].sort();
     expect(outcomes).toEqual(["accepted", "running"]);
     expect(batchKickPreflightSeqsByChat.has(chatId)).toBeFalse();
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeTrue();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeTrue();
 
     holdProbe.resolve();
     for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
       await Bun.sleep(10);
     }
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
     expect(miniAppBatchKickCompletedByChat.get(chatId)?.absent).toBe(1);
   });
 
-  test("API 批次在排队期被撤销或执行期停机取消时清理 miniAppBatchKickInFlightSeqByChat", async () => {
+  test("API 批次在排队期被撤销或执行期停机取消时清理 batchKickInFlightSeqByChat", async () => {
     const chatId: number = -1_008_006;
     getOrCreateChatState(chatId).isInitEnabled = true;
     chatIsSupergroupById.set(chatId, true);
@@ -249,12 +254,12 @@ describe("batchKick 完成结果的群 teardown 与关群清理", () => {
     }
     const queuedResult: Readonly<MiniAppBatchKickResult> = await triggerManagedChatBatchKick(chatId, 2);
     expect(queuedResult.outcome).toBe("accepted");
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeTrue();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeTrue();
 
     await drainDeferredCommandRuntime(0);
     await Bun.sleep(0);
     expect(batchKickChats.has(chatId)).toBeFalse();
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
     blocker.resolve();
     await drainDeferredCommandRuntime(1_000);
@@ -272,11 +277,47 @@ describe("batchKick 完成结果的群 teardown 与关群清理", () => {
       (): Promise<Readonly<MiniAppBatchKickResult>> => triggerManagedChatBatchKick(chatId, 2)
     );
     expect(abortedResult.outcome).toBe("accepted");
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeTrue();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeTrue();
     abortOnProbe.resolve();
     await drainDeferredCommandRuntime(1_000);
     expect(batchKickChats.has(chatId)).toBeFalse();
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
+  });
+
+  test("群内 /batch_kick 批次在途跨越「关群 → 重开 /init」时立即终止，不踢人也不补发旧战报", async () => {
+    const chatId: number = -1_008_007;
+    const nowSeconds: number = Math.floor(Date.now() / 1_000);
+    getOrCreateChatState(chatId).isInitEnabled = true;
+    miniAppTestJoinLogState.records = [
+      { userId: 9010, joinedAt: nowSeconds * 1_000 - 5_000 },
+      { userId: 9011, joinedAt: nowSeconds * 1_000 - 4_000 },
+    ];
+    probePresent = true;
+    const holdProbe: PromiseWithResolvers<void> = Promise.withResolvers<void>();
+    probeGate = holdProbe.promise;
+
+    await handleBatchKickCommand({
+      chat: { id: chatId, type: "supergroup" },
+      from: { id: SUPER_ADMIN_USER_ID, first_name: "Admin" },
+      msg: { message_id: 77, date: nowSeconds, chat: { id: chatId, type: "supergroup" } },
+      msgId: 77,
+      match: "1h",
+    } as never);
+    // 仅发送了「已受理」回执，批次已在后台挂起于 probeChatMembership。
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(batchKickChats.has(chatId)).toBeTrue();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeTrue();
+
+    expect(await disableManagedChat(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+    getOrCreateChatState(chatId).isInitEnabled = true;
+
+    holdProbe.resolve();
+    await drainDeferredCommandRuntime(1_000);
+    expect(kickMember).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(batchKickChats.has(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
   });
 });

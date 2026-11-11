@@ -34,8 +34,8 @@ const {
 } = await import("../../packages/cache/main/antiRaid/verificationMirror");
 const {
   batchKickChats,
+  batchKickInFlightSeqByChat,
   miniAppBatchKickCompletedByChat,
-  miniAppBatchKickInFlightSeqByChat,
 } = await import("../../packages/cache/main/batchKick");
 const { resetChatStateCache } = await import("../../packages/cache/main/chatState");
 const { resetIdentityStorageCache } = await import(
@@ -106,7 +106,7 @@ afterEach(async (): Promise<void> => {
   chatIsSupergroupById.clear();
   clearActiveVerificationSnapshots();
   miniAppBatchKickCompletedByChat.clear();
-  miniAppBatchKickInFlightSeqByChat.clear();
+  batchKickInFlightSeqByChat.clear();
   resetIdentityStorageCache();
   resetChatStateCache();
   latestAiMemories.clear();
@@ -492,6 +492,8 @@ describe("Mini App 受管群与黑白名单路由", () => {
     chatIsSupergroupById.set(chatId, true);
     initDeferredCommandRuntime();
 
+    let banCalls: number = 0;
+    let sendCalls: number = 0;
     const probeEntered: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     const releaseProbe: PromiseWithResolvers<void> = Promise.withResolvers<void>();
     telegramApiState.current = {
@@ -503,9 +505,15 @@ describe("Mini App 受管群与黑白名单路由", () => {
           user: { id: userId, is_bot: false, first_name: "U" },
         };
       },
-      banChatMember: async (): Promise<boolean> => true,
+      banChatMember: async (): Promise<boolean> => {
+        banCalls += 1;
+        return true;
+      },
       unbanChatMember: async (): Promise<boolean> => true,
-      sendMessage: async (): Promise<TelegramSentMessage> => ({ message_id: 1 }),
+      sendMessage: async (): Promise<TelegramSentMessage> => {
+        sendCalls += 1;
+        return { message_id: 1 };
+      },
       deleteMessage: async (): Promise<boolean> => true,
     } as unknown as InstalledTelegramApi;
 
@@ -547,8 +555,10 @@ describe("Mini App 受管群与黑白名单路由", () => {
     for (let turn: number = 0; turn < 20 && batchKickChats.has(chatId); turn += 1) {
       await Bun.sleep(10);
     }
+    expect(banCalls).toBe(0);
+    expect(sendCalls).toBe(0);
     expect(miniAppBatchKickCompletedByChat.has(chatId)).toBeFalse();
-    expect(miniAppBatchKickInFlightSeqByChat.has(chatId)).toBeFalse();
+    expect(batchKickInFlightSeqByChat.has(chatId)).toBeFalse();
 
     // 重开后发起的新一轮 API 批次分配新序号，完成后正常写入最新结果。
     const freshAcceptedRes: Response = await handleMiniAppHttpRequest(

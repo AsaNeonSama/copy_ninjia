@@ -1,5 +1,6 @@
 import {
-  MINI_APP_INIT_DATA_HEADER, MINI_APP_MAX_JSON_BODY_BYTES, MINI_APP_SESSION_HEADER,
+  MINI_APP_INIT_DATA_HEADER, MINI_APP_MAX_JSON_BODY_BYTES, MINI_APP_PORT_MAX,
+  MINI_APP_PORT_MIN, MINI_APP_POSITIVE_INTEGER_PATTERN, MINI_APP_SESSION_HEADER,
   MINI_APP_SIGNED_INTEGER_PATTERN, MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
 import { readBoundedResponseText } from "../../libs/boundedResponse";
@@ -19,7 +20,18 @@ export function firstForwardedHost(headers: Headers): string | null {
 }
 
 /**
- * 校验并归一化单个候选客户端 IP 字符串（剥离方括号、可选端口与 `::ffff:` 前缀，过滤空串与回环地址）。
+ * 校验客户端地址尾部可选端口后缀是否为合法的十进制 TCP 端口（`1..65535`）。
+ * @param portText 冒号之后的端口子串。
+ * @returns 合法端口返回 `true`，否则返回 `false`。
+ */
+function isValidPortSuffix(portText: string): boolean {
+  if (!MINI_APP_POSITIVE_INTEGER_PATTERN.test(portText)) return false;
+  const port: number = Number(portText);
+  return port >= MINI_APP_PORT_MIN && port <= MINI_APP_PORT_MAX;
+}
+
+/**
+ * 校验并归一化单个候选客户端 IP 字符串（剥离合法方括号、可选端口与 `::ffff:` 前缀，拒绝畸形端口/括号并过滤空串、未指定与回环地址）。
  * @param raw 原始候选 IP 字符串。
  * @returns 归一化后的非回环客户端 IP，或无效时返回 `null`。
  */
@@ -28,15 +40,19 @@ function extractValidClientIp(raw: string | null | undefined): string | null {
   let ip: string = raw.trim().toLowerCase();
   if (ip.startsWith("[")) {
     const closeBracket: number = ip.indexOf("]");
-    if (
-      closeBracket >= 1 &&
-      (closeBracket === ip.length - 1 || ip[closeBracket + 1] === ":")
-    ) {
-      ip = ip.slice(1, closeBracket).trim();
+    if (closeBracket < 1) return null;
+    if (closeBracket < ip.length - 1) {
+      if (ip[closeBracket + 1] !== ":" || !isValidPortSuffix(ip.slice(closeBracket + 2))) {
+        return null;
+      }
     }
+    ip = ip.slice(1, closeBracket).trim();
   } else {
     const firstColon: number = ip.indexOf(":");
-    if (firstColon >= 0 && !ip.includes(":", firstColon + 1) && ip.includes(".")) {
+    if (firstColon >= 0 && !ip.includes(":", firstColon + 1)) {
+      if (!ip.includes(".") || !isValidPortSuffix(ip.slice(firstColon + 1))) {
+        return null;
+      }
       ip = ip.slice(0, firstColon).trim();
     }
   }
@@ -48,6 +64,7 @@ function extractValidClientIp(raw: string | null | undefined): string | null {
     ip === "0:0:0:0:0:0:0:1" ||
     ip === "0.0.0.0" ||
     ip === "::" ||
+    ip === "0:0:0:0:0:0:0:0" ||
     ip === "localhost"
   ) {
     return null;

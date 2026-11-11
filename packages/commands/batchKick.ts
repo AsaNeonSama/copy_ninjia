@@ -10,13 +10,16 @@ import { isUserBlocked } from "../infra/blocklist/membership";
 import { requestBlocklistResweep, sweepBlockedMembers } from "../infra/blocklist/sweep";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { readJoinLog } from "../infra/diskIO";
-import { getChatState } from "../infra/chatStateStorage";
 import { currentUpdateAbortSignal, throwIfUpdateAborted } from "../infra/updateContext";
 import { batchKickChats } from "../cache/main/batchKick";
 import {
+  beginBatchKickExecution,
   beginBatchKickPreflight,
+  endBatchKickExecution,
   endBatchKickPreflight,
   hasLiveBatchKickPreflight,
+  isBatchKickChatManaged,
+  isBatchKickTaskLive,
   purgeBatchKickChatState,
 } from "./batchKick/preflight";
 import { logger } from "../infra/logger";
@@ -36,7 +39,7 @@ import { runBoundedSettledBatch } from "../libs/boundedSettledBatch";
 import type { BoundedBatchExecution, BoundedBatchResult } from "../libs/boundedSettledBatch";
 import { rejectUnlessSuperAdmin } from "./commandActor";
 import { submitDeferredCommand } from "./deferredCommands";
-import type { CachedUser, ChatState } from "../types/chatState";
+import type { CachedUser } from "../types/chatState";
 import type { IdentityPolicyVerdicts } from "../types/identityStorage";
 import type { BatchKickTriggerSource } from "../types/miniApp/chats";
 
@@ -61,22 +64,14 @@ export function parseBatchKickDurationMs(token: string): number | undefined {
   return durationMs;
 }
 
-/**
- * 本群此刻是否仍归本命令处置：已初始化，且没有确证失去管理员身份。批次在后台与其它
- * update 交错执行，`/init disable`、机器人离群（purge 后不再是已初始化）与被撤管理员
- * 都会让它变为 false。
- * @param chatId 目标群聊 ID。
- * @returns 本群仍受管且未确证失去管理员身份时返回 true；否则返回 false。
- */
-function isBatchKickChatManaged(chatId: number): boolean {
-  const state: Readonly<ChatState> = getChatState(chatId);
-  return state.isInitEnabled === true && state.botPermissions?.isAdministrator !== false;
-}
-
 /** 单条入群日志记录的批踢处置参数。 */
 interface ProcessJoinRecordParams {
   /** 目标超级群 ID。 */
   chatId: number;
+  /** 本批次登记的生命周期序号。 */
+  taskSeq: number;
+  /** 当前任务的停机取消信号。 */
+  updateSignal: AbortSignal | undefined;
   /** 单条入群日志记录。 */
   record: JoinLogRecord;
   /** 本批次共享的可变统计计数器。 */
@@ -88,10 +83,12 @@ interface ProcessJoinRecordParams {
 /**
  * 处理单条日志：先确认仍在群（probeChatMembership），再调用只踢不封接口；
  * 顺序固定，`unbanChatMember` 对已封禁身份有解除封禁语义。
- * @param params 目标群 `chatId`、入群记录 `record`、可变统计 `stats` 与本块永久策略结论 `verdicts`。
+ * @param params 目标群 `chatId`、批次序号 `taskSeq`、取消信号 `updateSignal`、入群记录 `record`、可变统计 `stats` 与本块永久策略结论 `verdicts`。
  */
 async function processJoinRecord({
   chatId,
+  taskSeq,
+  updateSignal,
   record,
   stats,
   verdicts,
@@ -110,6 +107,7 @@ async function processJoinRecord({
     chatId,
     record.userId
   );
+  if (updateSignal?.aborted === true || !isBatchKickTaskLive(chatId, taskSeq)) return;
   if (present === false) {
     stats.absent++;
     return;
@@ -170,6 +168,8 @@ async function processJoinRecord({
 interface RunBatchKickParams {
   /** 目标超级群 ID。 */
   chatId: number;
+  /** 本批次登记的生命周期序号。 */
+  taskSeq: number;
   /** 窗口内读取到的入群日志记录列表。 */
   records: readonly JoinLogRecord[];
 }
@@ -185,12 +185,13 @@ interface RunBatchKickParams {
  *
  * 停机取消本条任务后，尚未开始的记录不再处理，在途记录因取消而失败的结果不计入
  * 战报也不记日志；每块开始前与结束后各检查一次，取消即向上解开整条任务。本群途中
- * 不再受管时同样不再处理尚未开始的记录，标记 `unmanaged` 后返回。
- * @param params 目标超级群 `chatId` 与时间窗口内的入群日志记录列表 `records`。
+ * 不再受管或跨 `/init` 生命周期时同样不再处理尚未开始的记录，标记 `unmanaged` 后返回。
+ * @param params 目标超级群 `chatId`、批次序号 `taskSeq` 与时间窗口内的入群日志记录列表 `records`。
  * @returns 批次处置完成或中断时的统计结果。
  */
 async function runBatchKick({
   chatId,
+  taskSeq,
   records,
 }: RunBatchKickParams): Promise<BatchKickStats> {
   const stats: BatchKickStats = {
@@ -206,13 +207,18 @@ async function runBatchKick({
     unmanaged: false,
   };
   const updateSignal: AbortSignal | undefined = currentUpdateAbortSignal();
+  throwIfUpdateAborted(updateSignal);
+  if (!isBatchKickTaskLive(chatId, taskSeq)) {
+    stats.unmanaged = true;
+    return stats;
+  }
   for (
     let offset: number = 0;
     offset < records.length;
     offset += IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES
   ) {
     throwIfUpdateAborted(updateSignal);
-    if (!isBatchKickChatManaged(chatId)) {
+    if (!isBatchKickTaskLive(chatId, taskSeq)) {
       stats.unmanaged = true;
       return stats;
     }
@@ -234,12 +240,12 @@ async function runBatchKick({
         execute: async ({
           item: record,
         }: BoundedBatchExecution<JoinLogRecord>): Promise<void> => {
-          if (updateSignal?.aborted === true || !isBatchKickChatManaged(chatId)) return;
-          await processJoinRecord({ chatId, record, stats, verdicts });
+          if (updateSignal?.aborted === true || !isBatchKickTaskLive(chatId, taskSeq)) return;
+          await processJoinRecord({ chatId, taskSeq, updateSignal, record, stats, verdicts });
         },
       });
     throwIfUpdateAborted(updateSignal);
-    if (!isBatchKickChatManaged(chatId)) {
+    if (!isBatchKickTaskLive(chatId, taskSeq)) {
       stats.unmanaged = true;
       return stats;
     }
@@ -261,6 +267,8 @@ async function runBatchKick({
 interface DeliverBatchKickParams {
   /** 目标超级群 ID。 */
   readonly chatId: number;
+  /** 本批次登记的生命周期序号。 */
+  readonly taskSeq: number;
   /** 触发来源：群内 `/batch_kick` 命令或 Mini App API。 */
   readonly source: BatchKickTriggerSource;
   /** 触发命令的消息 ID；用于挂回复引用。 */
@@ -273,32 +281,33 @@ interface DeliverBatchKickParams {
   readonly acknowledged: Promise<void>;
   /** 当 `source === "api"` 时在批次执行完成后写入服务端完成状态的回调。 */
   readonly onComplete?: (stats: Readonly<BatchKickStats>) => void;
-  /** 当 `source === "api"` 的批次在完成前被取消或跳过时清理在途登记的回调。 */
-  readonly onCancel?: () => void;
 }
 
 /**
  * 延迟命令执行器里的批次任务：逐条处置、交回黑名单、按 NOTICE_TEXTS.batchKickResult 发战报。
- * 本群途中不再受管时静默结束，不发战报；停机取消由执行器吞掉。结束时摘除单飞标记，
- * 并仅在 `source === "api"` 时触发完成或取消回调同步服务端状态。
- * @param params 目标群 `chatId`、来源 `source`、触发消息 ID `messageId`、窗口时长 `durationMs`、入群记录 `records`、回执信号 `acknowledged` 及回调。
+ * 本群途中不再受管或跨 `/init` 生命周期时静默结束，不发战报；停机取消由执行器吞掉。结束时摘除单飞标记与批次序号，
+ * 并仅在 `source === "api"` 且批次序号未被删数据类 teardown 作废时触发完成回调同步服务端状态。
+ * @param params 目标群 `chatId`、批次序号 `taskSeq`、来源 `source`、触发消息 ID `messageId`、窗口时长 `durationMs`、入群记录 `records`、回执信号 `acknowledged` 及完成回调。
  */
 async function deliverBatchKick({
   chatId,
+  taskSeq,
   source,
   messageId,
   durationMs,
   records,
   acknowledged,
   onComplete,
-  onCancel,
 }: DeliverBatchKickParams): Promise<void> {
   let completedStats: BatchKickStats | null = null;
   try {
     await acknowledged;
-    const stats: BatchKickStats = await runBatchKick({ chatId, records });
+    const stats: BatchKickStats = await runBatchKick({ chatId, taskSeq, records });
     completedStats = stats;
-    if (stats.unmanaged) return;
+    if (stats.unmanaged || !isBatchKickTaskLive(chatId, taskSeq)) {
+      stats.unmanaged = true;
+      return;
+    }
     if (stats.aborted && stats.scanned === 0) {
       await sendCommandMessage({
         chatId,
@@ -324,7 +333,10 @@ async function deliverBatchKick({
       }
     }
     throwIfUpdateAborted();
-    if (!isBatchKickChatManaged(chatId)) return;
+    if (!isBatchKickTaskLive(chatId, taskSeq)) {
+      stats.unmanaged = true;
+      return;
+    }
     const atmosphere: AtmosphereTexts = chatAtmosphere();
     await sendCommandMessage({
       chatId,
@@ -336,12 +348,9 @@ async function deliverBatchKick({
     });
   } finally {
     batchKickChats.delete(chatId);
-    if (source === "api") {
-      if (completedStats !== null) {
-        onComplete?.(completedStats);
-      } else {
-        onCancel?.();
-      }
+    const liveExecution: boolean = endBatchKickExecution(chatId, taskSeq);
+    if (source === "api" && liveExecution && completedStats !== null) {
+      onComplete?.(completedStats);
     }
   }
 }
@@ -362,13 +371,11 @@ export interface StartBatchKickTaskParams {
   readonly acknowledged?: Promise<void>;
   /** 仅当 `source === "api"` 时生效的执行完成回调。 */
   readonly onComplete?: (stats: Readonly<BatchKickStats>) => void;
-  /** 仅当 `source === "api"` 时在排队撤销或停机取消时触发的清理回调。 */
-  readonly onCancel?: () => void;
 }
 
 /**
- * 登记本群 `/batch_kick` 单飞状态并将批次任务提交至延迟命令执行器 background 档。
- * @param params 目标群 ID、触发来源、窗口时长、入群记录列表及可选回复消息 ID、回执同步信号与回调。
+ * 登记本群 `/batch_kick` 单飞状态与生命周期序号，并将批次任务提交至延迟命令执行器 background 档。
+ * @param params 目标群 ID、触发来源、窗口时长、入群记录列表及可选回复消息 ID、回执同步信号与完成回调。
  * @returns 已由延迟命令执行器受理时返回 true；已有同群批次在途或队列满被拒时返回 false。
  */
 export function startBatchKickTask({
@@ -379,23 +386,24 @@ export function startBatchKickTask({
   records,
   acknowledged = Promise.resolve(),
   onComplete,
-  onCancel,
 }: StartBatchKickTaskParams): boolean {
   if (batchKickChats.has(chatId)) return false;
   // 先登记再提交：执行器可能在提交的同步段里就启动任务。
   batchKickChats.add(chatId);
+  const taskSeq: number = beginBatchKickExecution(chatId);
   const accepted: boolean = submitDeferredCommand({
     priority: "background",
     task: (): Promise<void> =>
-      deliverBatchKick({ chatId, source, messageId, durationMs, records, acknowledged, onComplete, onCancel }),
+      deliverBatchKick({ chatId, taskSeq, source, messageId, durationMs, records, acknowledged, onComplete }),
     errorLabel: "Unexpected error while processing /batch_kick:",
     onSkipped: (): void => {
       batchKickChats.delete(chatId);
-      if (source === "api") onCancel?.();
+      endBatchKickExecution(chatId, taskSeq);
     },
   });
   if (!accepted) {
     batchKickChats.delete(chatId);
+    endBatchKickExecution(chatId, taskSeq);
     return false;
   }
   return true;

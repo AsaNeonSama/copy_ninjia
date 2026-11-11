@@ -102,7 +102,7 @@ test.each(["file", "dangling", "directory"])("配置根顶层的旧 Bot 入口�
   else if (kind === "directory") mkdirSync(legacy);
   else symlinkSync(join(root, "absent"), legacy);
   await expect(assertNoMisplacedConfigFiles(root))
-    .rejects.toThrow(`${legacy}: $ must be absent after explicit cold migration to bot.json.`);
+    .rejects.toThrow(`${legacy}: $ must be absent after explicit cold migration to ${basename(BOT_CONFIG_PATH)}.`);
 });
 
 test.each(["file", "dangling", "directory"])("dynamic/ 下的旧广告样本配置为 %s 时拒绝并提示手工迁移", async (kind: string) => {
@@ -172,7 +172,34 @@ test("多个非法条目时按层级与名称排序报出第一个", async () =>
   );
 });
 
-test("配置目录读取遇到非 ENOENT/ENOTDIR 错误时按 a readable directory 拒绝，热重载辅助函数返回同名诊断不抛出", async () => {
+test("配置目录本身被普通文件或悬空链接占用时按 an existing directory 拒绝，符号链接环按 a readable directory 拒绝", async () => {
+  const fileRoot: string = join(root, "file-as-root");
+  await Bun.write(fileRoot, "not a directory");
+  await expect(assertNoMisplacedConfigFiles(fileRoot)).rejects.toThrow(`${fileRoot}: $ must be an existing directory.`);
+  await expect(readDynamicConfigLayoutRejections(fileRoot)).resolves.toEqual([
+    `${fileRoot}: $ must be an existing directory.`,
+  ]);
+
+  const danglingRoot: string = join(root, "dangling-root");
+  symlinkSync(join(root, "missing-dir-target"), danglingRoot);
+  await expect(assertNoMisplacedConfigFiles(danglingRoot)).rejects.toThrow(
+    `${danglingRoot}: $ must be an existing directory.`
+  );
+  await expect(readDynamicConfigLayoutRejections(danglingRoot)).resolves.toEqual([
+    `${danglingRoot}: $ must be an existing directory.`,
+  ]);
+
+  for (const subdirName of [STATIC_CONFIG_DIR_NAME, DYNAMIC_CONFIG_DIR_NAME] as const) {
+    const subRoot: string = join(root, `sub-${subdirName}`);
+    mkdirSync(subRoot);
+    const subPath: string = join(subRoot, subdirName);
+    await Bun.write(subPath, "not a directory");
+    await expect(assertNoMisplacedConfigFiles(subRoot)).rejects.toThrow(`${subPath}: $ must be an existing directory.`);
+    rmSync(subPath, { force: true });
+    symlinkSync(join(root, "missing-subdir-target"), subPath);
+    await expect(assertNoMisplacedConfigFiles(subRoot)).rejects.toThrow(`${subPath}: $ must be an existing directory.`);
+  }
+
   const loopDir: string = join(root, "loop");
   symlinkSync(loopDir, loopDir);
   await expect(assertNoMisplacedConfigFiles(loopDir)).rejects.toThrow(`${loopDir}: $ must be a readable directory.`);

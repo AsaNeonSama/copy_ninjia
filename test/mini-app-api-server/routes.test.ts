@@ -927,12 +927,25 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     const xffRes: Response = await handleMiniAppHttpRequest(
       new Request("http://127.0.0.1:3000/api/auth/precheck", {
         headers: {
-          "x-forwarded-for": "[::1]:54321, 0:0:0:0:0:0:0:1, 203.0.113.5:41234",
+          "x-forwarded-for":
+            "[::1]:54321, 0:0:0:0:0:0:0:1, 0:0:0:0:0:0:0:0, localhost:3000, [unclosed, [2001:db8::1]bad, [2001:db8::1]:abc, 203.0.113.9:99999, 203.0.113.5:41234",
         },
       })
     );
     expect(xffRes.status).toBe(401);
     expect(((await xffRes.json()) as MiniAppAccessDiagnostics).clientIp).toBe("203.0.113.5");
+
+    const ipv6BracketPortRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/api/auth/precheck", {
+        headers: {
+          "x-forwarded-for": "[2001:db8::42]:8443",
+        },
+      })
+    );
+    expect(ipv6BracketPortRes.status).toBe(401);
+    expect(((await ipv6BracketPortRes.json()) as MiniAppAccessDiagnostics).clientIp).toBe(
+      "2001:db8::42"
+    );
 
     const baseHeaders: Record<string, string> = superAdminHeaders();
     const malformedSessionRes: Response = await handleMiniAppHttpRequest(

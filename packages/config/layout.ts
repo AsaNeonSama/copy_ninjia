@@ -24,7 +24,7 @@ import {
 } from "../consts/paths";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../consts/configLayout";
 import { isErrno } from "../libs/errno";
-import { InputValidationError, invalidInput } from "../libs/inputValidation";
+import { InputValidationError, invalidInput, isMissingLeaf } from "../libs/inputValidation";
 
 /** 部署配置白名单的目录层级标识。 */
 type ConfigLayoutLevel = "root" | "static" | "dynamic";
@@ -107,25 +107,37 @@ function expectedEntryShape(
   return `absent (only ${rule.allowedList} are allowed in ${directoryLabel}/)`;
 }
 
+/** 目录项列出结果：成功返回已排序基名列表，失败返回期望形态描述。 */
+type DirectoryNamesResult =
+  | { readonly ok: true; readonly names: readonly string[] }
+  | { readonly ok: false; readonly expected: string };
+
 /**
- * 按字典序读取目录项名称；目录不存在或上级非目录（`ENOENT` / `ENOTDIR`）视为空，其余读取失败拒绝。
+ * 按字典序列出目录项名称；叶子路径本身不存在（`ENOENT` 且非悬空链接）视为空，
+ * 非目录（`ENOTDIR`）或悬空链接按 `"an existing directory"` 拒绝，其余读取失败按 `"a readable directory"` 拒绝。
  * @param directory 待列出的目录路径。
- * @returns 排序后的目录项名称列表。
+ * @returns 已排序名称列表或期望形态失败结果。
  */
-async function readSortedDirectoryEntries(directory: string): Promise<readonly string[]> {
+async function listSortedDirectoryNames(directory: string): Promise<DirectoryNamesResult> {
   let names: string[];
   try {
     names = await readdir(directory);
   } catch (error: unknown) {
-    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return [];
-    return invalidInput(directory, "$", "a readable directory");
+    if (isErrno(error, "ENOENT")) {
+      if (await isMissingLeaf(directory)) return { ok: true, names: [] };
+      return { ok: false, expected: "an existing directory" };
+    }
+    if (isErrno(error, "ENOTDIR")) {
+      return { ok: false, expected: "an existing directory" };
+    }
+    return { ok: false, expected: "a readable directory" };
   }
   names.sort();
-  return names;
+  return { ok: true, names };
 }
 
 /**
- * 核对单层配置目录的白名单；遇到第一个非白名单条目即抛出安全校验错误。
+ * 核对单层配置目录的白名单；目录自身为非目录/悬空链接或遇到第一个非白名单条目即抛出安全校验错误。
  * @param directory 待检查的目录路径。
  * @param directoryLabel 诊断文案中展示的目录名。
  * @param rule 当前层级的白名单规则。
@@ -135,8 +147,9 @@ async function assertDirectoryWhitelist(
   directoryLabel: string,
   rule: ConfigLayoutRule
 ): Promise<void> {
-  const names: readonly string[] = await readSortedDirectoryEntries(directory);
-  for (const name of names) {
+  const listed: DirectoryNamesResult = await listSortedDirectoryNames(directory);
+  if (!listed.ok) return invalidInput(directory, "$", listed.expected);
+  for (const name of listed.names) {
     if (rule.allowedNames.includes(name)) continue;
     return invalidInput(join(directory, name), "$", expectedEntryShape(rule, directoryLabel, name));
   }
@@ -144,7 +157,7 @@ async function assertDirectoryWhitelist(
 
 /**
  * 按三层白名单核对配置根、`static/` 与 `dynamic/` 下的目录项，按层级与名称排序拒绝第一个非白名单条目。
- * 配置根或子目录不存在时视为空；安装器在建立子目录与示例文件之前调用。
+ * 配置根或子目录本身不存在时视为空（普通文件或悬空链接仍拒绝）；安装器在建立子目录与示例文件之前调用。
  * @param root 部署配置根目录路径。
  */
 export async function assertNoMisplacedConfigFiles(root: string): Promise<void> {
@@ -156,23 +169,20 @@ export async function assertNoMisplacedConfigFiles(root: string): Promise<void> 
 
 /**
  * 扫描 `dynamic/` 内部的非白名单目录项，返回与启动总闸同一期望形态的拒绝诊断列表，不抛出异常。
- * 目录暂缺（`ENOENT` / `ENOTDIR`）返回空列表；其余目录读取失败返回单条 `"a readable directory"` 诊断。
+ * 目录真正暂缺（`ENOENT` 且非悬空链接）返回空列表；目录路径被非目录或悬空链接占用返回 `"an existing directory"` 诊断，
+ * 其余目录读取失败返回单条 `"a readable directory"` 诊断。
  * @param directory 动态配置目录路径，默认为 `DYNAMIC_CONFIG_DIR`。
  * @returns 按目录项名称排序的英文拒绝诊断列表。
  */
 export async function readDynamicConfigLayoutRejections(
   directory: string = DYNAMIC_CONFIG_DIR
 ): Promise<readonly string[]> {
-  let names: string[];
-  try {
-    names = await readdir(directory);
-  } catch (error: unknown) {
-    if (isErrno(error, "ENOENT") || isErrno(error, "ENOTDIR")) return [];
-    return [new InputValidationError(directory, "$", "a readable directory").message];
+  const listed: DirectoryNamesResult = await listSortedDirectoryNames(directory);
+  if (!listed.ok) {
+    return [new InputValidationError(directory, "$", listed.expected).message];
   }
-  names.sort();
   const rejections: string[] = [];
-  for (const name of names) {
+  for (const name of listed.names) {
     if (DYNAMIC_LAYOUT_RULE.allowedNames.includes(name)) continue;
     const expected: string = expectedEntryShape(DYNAMIC_LAYOUT_RULE, DYNAMIC_CONFIG_DIR_NAME, name);
     rejections.push(new InputValidationError(join(directory, name), "$", expected).message);

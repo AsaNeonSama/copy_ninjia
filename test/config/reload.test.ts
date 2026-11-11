@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   adDetectAgentConfigCache,
   agentDeploymentConfigCache,
@@ -140,7 +140,7 @@ describe("config/dynamic/ 热重载判定", () => {
       expect(changes.rejections).toHaveLength(2);
       expect(changes.rejections[0]).toContain(`${swapPath}: $ must be absent (only `);
       expect(changes.rejections[1]).toBe(
-        `${legacyPath}: $ must be absent after manual migration to ad_detect.json.`
+        `${legacyPath}: $ must be absent after manual migration to ${basename(AD_DETECT_CONFIG_PATH)}.`
       );
       expect(defaultStickerConfigCache.current).toBe(baseline.stickers);
       expect(assetConfigCache.current).toBe(DEFAULT_ASSET_CONFIG);

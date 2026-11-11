@@ -14,8 +14,8 @@ export const batchKickChats: Set<number> = new Set();
 /**
  * 各群最近一次由 Mini App API（`source: "api"`）触发并执行完毕的 `/batch_kick` 完成回调状态。
  *
- * 填充：仅当 `source === "api"` 的批次任务在 `deliverBatchKick` 结算且在途序号匹配后通过完成回调写入。
- * 清理：同群再次通过 API 发起新批次前、完成回调判定本群已不受管或未开启 `/init` 时、以及删数据类群
+ * 填充：仅当 `source === "api"` 的批次任务在 `deliverBatchKick` 结算且在途批次序号未被群 teardown 作废时通过完成回调写入。
+ * 清理：同群再次通过 API 发起新批次后、完成回调判定本群已不受管或未开启 `/init` 时、以及删数据类群
  * teardown（`purgesChatData`）时移除；进程重启后从空表开始。
  * 容量上界为 STATE_MANAGED_CHAT_LIMIT，不设淘汰；Worker 重建无关。
  */
@@ -38,14 +38,15 @@ export const batchKickPreflightSeqsByChat: Map<number, Set<number>> = new Map<
 >();
 
 /**
- * 各群当前在途的 Mini App API（`source: "api"`）批踢批次序号（`chatId` 到本批发起序号）。
+ * 各群当前已受理在途的 `/batch_kick` 批次序号（`chatId` 到本批发起序号，命令与 Mini App API 共用）。
  *
- * 填充：`view/chats/batchKick.ts` 调用 `startBatchKickTask` 前分配单调递增序号并写入。
- * 清理：`startBatchKickTask` 未受理、排队期被 `onSkipped` 撤销或停机取消且登记值仍为本批序号时移除；
- * `onComplete` 比对命中本批序号后移除；删数据类群 teardown（`purgesChatData`）时移除。同群单飞
- * （`batchKickChats`），容量上界为 STATE_MANAGED_CHAT_LIMIT，不设淘汰；Worker 重建无关，进程重启后从空表开始。
+ * 填充：`startBatchKickTask` 登记单飞锁时分配单调递增序号并写入。
+ * 清理：`startBatchKickTask` 未受理或排队期被 `onSkipped` 撤销且登记值仍为本批序号时移除；
+ * `deliverBatchKick` `finally` 结算时若登记值仍为本批序号则移除；删数据类群 teardown（`purgesChatData`）
+ * 时移除以作废跨 `/init` 生命周期的旧批次。同群单飞（`batchKickChats`），容量上界为 STATE_MANAGED_CHAT_LIMIT，
+ * 不设淘汰；Worker 重建无关，进程重启后从空表开始。
  */
-export const miniAppBatchKickInFlightSeqByChat: Map<number, number> = new Map<number, number>();
+export const batchKickInFlightSeqByChat: Map<number, number> = new Map<number, number>();
 
-/** `/batch_kick` 预检与 Mini App API 批次共用的单调递增发起序号发号器：每次预检或提交前递增分配，群 teardown 与 Worker 重建均不重置，进程重启后从零开始；单例标量。 */
-export const miniAppBatchKickSequence: { current: number } = { current: 0 };
+/** `/batch_kick` 预检与在途批次共用的单调递增发起序号发号器：每次预检或提交批次前递增分配，群 teardown 与 Worker 重建均不重置，进程重启后从零开始；单例标量。 */
+export const batchKickSequence: { current: number } = { current: 0 };

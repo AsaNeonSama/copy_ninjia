@@ -5,9 +5,15 @@
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_MAX_PER_CHAT,
+  CHAT_QA_QUESTION_MAX_CHARS,
+  DELETE_MESSAGE_CHAT_TARGET_MAX,
+  MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_HEADER,
+  TRANSLATE_CHAT_USER_LIMIT,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
 import {
@@ -200,7 +206,7 @@ describe("页面 store 竞态与收起", () => {
 
   test("受管群：轮询在途期间 toggleFeature 回执先到时，旧轮询响应不覆盖开关状态", async () => {
     const store = createChatsStore();
-    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 2);
+    const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 2);
     route("GET /api/chats/-100", (): Response =>
       json({
         detail: {
@@ -257,7 +263,7 @@ describe("页面 store 竞态与收起", () => {
 
   test("受管群：防抖刷新在途期间 toggleFeature 回执先到时，旧响应不覆盖且 loadingWindowJoined 为 false", async () => {
     const store = createChatsStore();
-    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 3);
+    const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 3);
     route("GET /api/chats/-100", (): Response =>
       json({
         detail: {
@@ -361,7 +367,7 @@ describe("页面 store 竞态与收起", () => {
 
   test("受管群：滑块防抖期间发起 toggleFeature 后立即取消防抖且 loadingWindowJoined 为 false", async () => {
     const store = createChatsStore();
-    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 4);
+    const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 4);
     route("GET /api/chats/-100", (): Response =>
       json({
         detail: {
@@ -410,7 +416,7 @@ describe("页面 store 竞态与收起", () => {
 
   test("受管群：A → B → A 切群期间旧轮询响应被丢弃，不覆盖重新加载的群详情", async () => {
     const store = createChatsStore();
-    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 1);
+    const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 1);
     route("GET /api/chats", (): Response => json({ items: [] }));
     route("GET /api/chats/-100", (): Response =>
       json({
@@ -479,7 +485,7 @@ describe("页面 store 竞态与收起", () => {
 
   test("受管群：目标与问答变更回执作废更早发出的轮询与防抖刷新，且 closeDetail 作废在途 loadDetail", async () => {
     const store = createChatsStore();
-    const joinedCountsByHour: readonly number[] = Array.from({ length: 24 }, (): number => 2);
+    const joinedCountsByHour: readonly number[] = Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 2);
     route("GET /api/chats", (): Response => json({ items: [] }));
     route("GET /api/chats/-100", (): Response =>
       json({
@@ -534,13 +540,13 @@ describe("页面 store 竞态与收起", () => {
         targets: {
           chatId: -100,
           qaItems: [{ q: "hi", a: "hello" }],
-          qaMax: 15,
-          qaQuestionMaxChars: 256,
-          qaAnswerMaxChars: 3840,
+          qaMax: CHAT_QA_MAX_PER_CHAT,
+          qaQuestionMaxChars: CHAT_QA_QUESTION_MAX_CHARS,
+          qaAnswerMaxChars: CHAT_QA_ANSWER_MAX_CHARS,
           deleteMessageTargets: [],
-          deleteMessageMax: 15,
+          deleteMessageMax: DELETE_MESSAGE_CHAT_TARGET_MAX,
           translateTargets: [],
-          translateMax: 5,
+          translateMax: TRANSLATE_CHAT_USER_LIMIT,
           isTranslationEnabled: true,
         },
         detail: {
