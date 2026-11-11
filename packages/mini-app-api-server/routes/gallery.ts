@@ -2,7 +2,7 @@ import type {
   MiniAppBunRouteHandler,
   MiniAppBunRouteTable,
   MiniAppRouteContext,
-} from "../../types/miniApp";
+} from "../../types/miniApp/server";
 import {
   handleDeleteGalleryFileByName,
   handleDownloadGalleryFileByName,

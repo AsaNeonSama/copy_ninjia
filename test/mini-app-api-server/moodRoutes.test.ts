@@ -3,7 +3,7 @@
  * 任一不可用时不发请求；查询失败回 `ok: false`，重抽失败回 503 `MOOD_SWITCH_FAILED`。
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { MiniAppMoodMutationResult, MiniAppMoodView } from "../../packages/types/miniApp";
+import type { MiniAppMoodMutationResult, MiniAppMoodView } from "../../packages/types/miniApp/server";
 
 /**
  * AI Worker 心情请求的默认替身：查询回「平静」，重抽回「开心」。

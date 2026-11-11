@@ -48,8 +48,8 @@ import type { ChatState } from "../../../packages/types/chatState";
 import type {
   MiniAppAuthResult,
   MiniAppAuthSession,
-  MiniAppChatSummary,
-} from "../../../packages/types/miniApp";
+} from "../../../packages/types/miniApp/auth";
+import type { MiniAppChatSummary } from "../../../packages/types/miniApp/chats";
 import { BENCHMARK_CHAT_ID, BENCHMARK_EPOCH_MS } from "./fixtures";
 import type { Scenario } from "./types";
 

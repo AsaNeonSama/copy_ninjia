@@ -35,7 +35,7 @@ import type {
   MiniAppChatTargetsView,
   MiniAppChatTranslateTargetItem,
   MiniAppTranslateLanguage,
-} from "../../../types/miniApp";
+} from "../../../types/miniApp/chats";
 import type { QaFieldRejection } from "../../../types/qa";
 import type { BotChatPermissions } from "../../../types/telegram";
 import type { TranslateState } from "../../../types/translate";

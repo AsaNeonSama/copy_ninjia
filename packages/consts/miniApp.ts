@@ -1,10 +1,12 @@
 import type {
   MiniAppChatTargetsMutationAction,
   MiniAppFeatureKey,
+  MiniAppTranslateLanguage,
+} from "../types/miniApp/chats";
+import type {
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppTranslateLanguage,
-} from "../types/miniApp";
+} from "../types/miniApp/identities";
 import { exhaustiveList } from "./exhaustiveList";
 import { MINUTE_MS } from "./time";
 

@@ -18,7 +18,7 @@ import type {
   TelegramIdentityMetadata,
   WhitelistPermissionKey,
 } from "../../../types/identityPolicy";
-import type { MiniAppPermissionDescriptor } from "../../../types/miniApp";
+import type { MiniAppPermissionDescriptor } from "../../../types/miniApp/identities";
 
 /** 新增或移除白名单/黑名单身份的入参。 */
 export interface SetIdentityMembershipParams {

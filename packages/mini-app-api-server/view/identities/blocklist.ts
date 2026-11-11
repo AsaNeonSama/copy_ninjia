@@ -25,7 +25,7 @@ import type {
   MiniAppBlocklistEntryView,
   MiniAppBlocklistPage,
   MiniAppIdentityMutationResult,
-} from "../../../types/miniApp";
+} from "../../../types/miniApp/identities";
 import {
   currentBotUserId,
   isInitializedManagedChatTarget,

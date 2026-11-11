@@ -6,11 +6,11 @@ import {
   verifyMiniAppAssetToken,
   verifyMiniAppInitData,
 } from "../../libs/miniAppAuth";
+import type { MiniAppAuthResult } from "../../types/miniApp/auth";
 import type {
-  MiniAppAuthResult,
   MiniAppMiddleware,
   MiniAppRouteContext,
-} from "../../types/miniApp";
+} from "../../types/miniApp/server";
 import {
   checkSuperAdminPasswordLockout,
   hasActiveMiniAppAuthSession,

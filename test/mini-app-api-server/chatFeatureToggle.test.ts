@@ -11,7 +11,7 @@ import type {
   ChatToggleFeature,
 } from "../../packages/types/chatState";
 import type { ConfigReadiness, ConfigReadinessCache } from "../../packages/types/config";
-import type { MiniAppFeatureToggleResult } from "../../packages/types/miniApp";
+import type { MiniAppFeatureToggleResult } from "../../packages/types/miniApp/chats";
 import {
   installMiniAppTestDiskIOMock,
   miniAppTestJoinLogState,

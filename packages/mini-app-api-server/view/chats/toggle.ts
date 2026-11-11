@@ -25,7 +25,7 @@ import type { ConfigReadiness } from "../../../types/config";
 import type {
   MiniAppFeatureKey,
   MiniAppFeatureToggleResult,
-} from "../../../types/miniApp";
+} from "../../../types/miniApp/chats";
 import { getManagedChatDetail } from "./query";
 
 /** `setManagedChatFeature` 的入参。 */

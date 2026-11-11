@@ -26,7 +26,7 @@ import type {
   MiniAppGalleryPage,
   MiniAppGalleryUploadResult,
   ResolvedMiniAppGalleryFile,
-} from "../../types/miniApp";
+} from "../../types/miniApp/gallery";
 import type {
   RandomImageEntry,
   RandomImageGalleryCacheEntry,

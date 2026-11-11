@@ -766,7 +766,7 @@ function assertMiniAppConstantsReadonly(): void {
 }
 void assertMiniAppConstantsReadonly;
 
-import type { MiniAppBunRouteTable } from "../../packages/types/miniApp";
+import type { MiniAppBunRouteTable } from "../../packages/types/miniApp/server";
 /** `routes/` 各领域路由表片段是模块级共享常量，路径键与各路径下的 HTTP 方法表都不可改写。 */
 function assertMiniAppBunRouteTableReadonly(routes: MiniAppBunRouteTable): void {
   // @ts-expect-error 路由表片段禁止调用方增删或替换路径。

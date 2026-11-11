@@ -3,7 +3,7 @@ import {
   MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
   MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
 } from "../../consts/miniApp";
-import type { MiniAppRouteContext } from "../../types/miniApp";
+import type { MiniAppRouteContext } from "../../types/miniApp/server";
 import { buildNoStoreHeaders, jsonResponse } from "../libs/response";
 import { configuredBasePathname, normalizeRoutePathname } from "../libs/routePath";
 import type { NormalizedRoutePath } from "../libs/routePath";

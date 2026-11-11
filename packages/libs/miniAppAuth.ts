@@ -10,7 +10,7 @@ import {
 } from "../consts/miniApp";
 import { timingSafeStringEqual } from "./digestEqual";
 import { isPlainRecord } from "./record";
-import type { MiniAppAuthResult, MiniAppInitDataUser } from "../types/miniApp";
+import type { MiniAppAuthResult, MiniAppInitDataUser } from "../types/miniApp/auth";
 
 /** `verifyMiniAppInitData` 的验签与权限校验选项。 */
 export interface VerifyMiniAppInitDataOptions {

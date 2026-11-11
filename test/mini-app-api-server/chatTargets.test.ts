@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type {
   MiniAppChatTargetsMutationRequest,
   MiniAppChatTargetsMutationResult,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/chats";
 import type { InstalledTelegramApi } from "../../packages/types/telegramWorker";
 import { botPermissions } from "../helpers/botPermissions";
 import {

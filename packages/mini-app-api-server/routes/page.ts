@@ -1,5 +1,5 @@
 import { miniAppServerHolder } from "../../cache/main/miniApp";
-import type { MiniAppRouteContext } from "../../types/miniApp";
+import type { MiniAppRouteContext } from "../../types/miniApp/server";
 import {
   handleGetFaviconRoute,
   handleHealthzRoute,

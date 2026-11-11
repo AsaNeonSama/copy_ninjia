@@ -1,9 +1,9 @@
 import { MINI_APP_SHA256_HEX_PATTERN } from "../../consts/miniApp";
+import type { MiniAppAuthSession } from "../../types/miniApp/auth";
 import type {
-  MiniAppAuthSession,
   MiniAppMiddleware,
   MiniAppRouteContext,
-} from "../../types/miniApp";
+} from "../../types/miniApp/server";
 import {
   attachRefreshedSessionHeaders,
   resolveAndRefreshCheckedMiniAppAuthSession,

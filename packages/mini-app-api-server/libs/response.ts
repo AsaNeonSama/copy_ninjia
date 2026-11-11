@@ -2,7 +2,7 @@ import {
   MINI_APP_ASSET_CACHE_CONTROL, MINI_APP_CSP_HEADER_VALUE, MINI_APP_IPV4_HOST_PATTERN,
   MINI_APP_NO_STORE_CACHE_CONTROL, MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
-import type { MiniAppAccessDiagnostics } from "../../types/miniApp";
+import type { MiniAppAccessDiagnostics } from "../../types/miniApp/auth";
 import { firstForwardedHost, resolveSafeClientIp } from "./request";
 
 /** `serveCachedAssetResponse` 所需的已解析资源元数据。 */

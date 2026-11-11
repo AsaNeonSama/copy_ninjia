@@ -6,7 +6,7 @@ import {
   MINI_APP_MAX_INIT_DATA_LENGTH,
   MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
-import type { MiniAppMiddleware, MiniAppRouteContext } from "../../types/miniApp";
+import type { MiniAppMiddleware, MiniAppRouteContext } from "../../types/miniApp/server";
 import { accessErrorResponse } from "../libs/response";
 import { firstForwardedHost } from "../libs/request";
 import { deriveMiniAppPublicUrlParts } from "../libs/routePath";

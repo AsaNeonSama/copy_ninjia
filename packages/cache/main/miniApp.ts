@@ -10,10 +10,12 @@ import type { BotMiniAppConfig } from "../../types/config";
 import type {
   MiniAppAuthSession,
   MiniAppPasswordGuardState,
+} from "../../types/miniApp/auth";
+import type {
   MiniAppPickerResultEvent,
   MiniAppPreparedPickerSession,
-  MiniAppPublicUrlParts,
-} from "../../types/miniApp";
+} from "../../types/miniApp/identities";
+import type { MiniAppPublicUrlParts } from "../../types/miniApp/server";
 import type {
   MiniAppPendingTotpSetup,
   MiniAppTotpRecord,

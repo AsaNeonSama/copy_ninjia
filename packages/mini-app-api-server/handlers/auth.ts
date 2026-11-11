@@ -13,8 +13,10 @@ import { verifyMiniAppTotpCode } from "../../libs/miniAppTotp";
 import { formatLocalTime } from "../../libs/time";
 import type { BotMiniAppConfig } from "../../types/config";
 import type {
-  MiniAppAuthSession, MiniAppLoginSuccessResponse, MiniAppPasswordGuardState,
-} from "../../types/miniApp";
+  MiniAppAuthSession,
+  MiniAppLoginSuccessResponse,
+  MiniAppPasswordGuardState,
+} from "../../types/miniApp/auth";
 import type { MiniAppTotpRecord } from "../../types/miniAppTotp";
 import {
   attachRefreshedSessionHeaders,

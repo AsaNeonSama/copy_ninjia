@@ -8,13 +8,13 @@ import { getChatState } from "../../infra/chatStateStorage";
 import { saveMiniAppPreparedKeyboardButton } from "../../infra/telegram/actions/miniApp";
 import type { MiniAppTelegramApi } from "../../infra/telegram/actions/miniApp";
 import type { ChatState } from "../../types/chatState";
+import type { MiniAppTranslateLanguage } from "../../types/miniApp/chats";
 import type {
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
   MiniAppPreparedPickerSession,
-  MiniAppTranslateLanguage,
   PrepareMiniAppPickerResult,
-} from "../../types/miniApp";
+} from "../../types/miniApp/identities";
 import type { BotChatPermissions } from "../../types/telegram";
 import { pruneExpiredMiniAppPickers } from "./sessions";
 

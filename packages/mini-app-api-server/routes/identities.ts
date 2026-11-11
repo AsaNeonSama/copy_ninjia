@@ -1,4 +1,4 @@
-import type { MiniAppBunRouteTable, MiniAppRouteContext } from "../../types/miniApp";
+import type { MiniAppBunRouteTable, MiniAppRouteContext } from "../../types/miniApp/server";
 import {
   handleGetBlocklistRoute,
   handleGetPickerResultRoute,

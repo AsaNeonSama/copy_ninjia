@@ -36,7 +36,7 @@ import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
   MiniAppStatusView,
-} from "../../types/miniApp";
+} from "../../types/miniApp/server";
 
 /** 构建单个配置槽位状态条目的入参。 */
 interface BuildCapabilityStatusParams {

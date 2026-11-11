@@ -30,11 +30,11 @@ import type { getOrCreateChatState } from "../../../packages/infra/chatStateStor
 import type { issueMiniAppAuthSession } from "../../../packages/mini-app-api-server/auth/session";
 import type { ChatState } from "../../../packages/types/chatState";
 import type { DomainFlushOutcome } from "../../../packages/types/diskIO";
+import type { MiniAppChatDetail } from "../../../packages/types/miniApp/chats";
 import type {
   MiniAppBunRouteHandler,
   MiniAppBunRouteTable,
-  MiniAppChatDetail,
-} from "../../../packages/types/miniApp";
+} from "../../../packages/types/miniApp/server";
 import type { ChainDefinition } from "./chainDefinition";
 import type { ChainName } from "./types";
 

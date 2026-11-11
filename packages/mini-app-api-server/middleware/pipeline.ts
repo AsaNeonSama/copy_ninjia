@@ -3,7 +3,7 @@ import type {
   MiniAppMiddleware,
   MiniAppRouteContext,
   MiniAppRouteHandler,
-} from "../../types/miniApp";
+} from "../../types/miniApp/server";
 import { normalizeRoutePathname } from "../libs/routePath";
 import type { NormalizedRoutePath } from "../libs/routePath";
 

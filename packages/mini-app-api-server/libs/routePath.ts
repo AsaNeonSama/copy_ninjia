@@ -1,7 +1,7 @@
 import { miniAppActiveUrlPartsHolder } from "../../cache/main/miniApp";
 import { getBotMiniAppConfig } from "../../config/bot";
 import type { BotMiniAppConfig } from "../../types/config";
-import type { MiniAppPublicUrlParts } from "../../types/miniApp";
+import type { MiniAppPublicUrlParts } from "../../types/miniApp/server";
 
 /** `normalizeRoutePathname` 的返回结果。 */
 export interface NormalizedRoutePath {

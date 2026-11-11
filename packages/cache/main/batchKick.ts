@@ -1,6 +1,6 @@
 /** owner: main。批量踢人命令（packages/commands/batchKick.ts 与 packages/mini-app-api-server/）的内存状态。 */
 
-import type { MiniAppBatchKickCompletion } from "../../types/miniApp";
+import type { MiniAppBatchKickCompletion } from "../../types/miniApp/chats";
 
 /**
  * 正在执行 `/batch_kick` 批次的群集合，同群同一时刻只允许一批（命令与 Mini App API 共享单飞锁）。

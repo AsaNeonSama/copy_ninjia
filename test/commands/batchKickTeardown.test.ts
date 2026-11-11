@@ -7,7 +7,7 @@ import {
   miniAppTestJoinLogState,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
-import type { MiniAppBatchKickCompletion, MiniAppBatchKickResult } from "../../packages/types/miniApp";
+import type { MiniAppBatchKickCompletion, MiniAppBatchKickResult } from "../../packages/types/miniApp/chats";
 import type { InstalledTelegramApi } from "../../packages/types/telegramWorker";
 
 /**

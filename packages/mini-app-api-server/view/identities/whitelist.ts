@@ -27,7 +27,7 @@ import type {
   MiniAppPermissionDescriptor,
   MiniAppWhitelistEntryView,
   MiniAppWhitelistPage,
-} from "../../../types/miniApp";
+} from "../../../types/miniApp/identities";
 import {
   buildPermissionDescriptors,
   currentBotUserId,

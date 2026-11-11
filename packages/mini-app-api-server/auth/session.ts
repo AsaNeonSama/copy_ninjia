@@ -7,7 +7,7 @@ import {
   MINI_APP_SESSION_TTL_MS,
   MINI_APP_SHA256_HEX_PATTERN,
 } from "../../consts/miniApp";
-import type { MiniAppAuthSession, MiniAppPasswordGuardState } from "../../types/miniApp";
+import type { MiniAppAuthSession, MiniAppPasswordGuardState } from "../../types/miniApp/auth";
 import { accessErrorResponse } from "../libs/response";
 
 /**

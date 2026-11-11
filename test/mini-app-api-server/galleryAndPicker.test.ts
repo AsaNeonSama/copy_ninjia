@@ -5,8 +5,8 @@ import type {
   MiniAppGalleryDeleteResult,
   MiniAppGalleryPage,
   MiniAppGalleryUploadResult,
-  MiniAppPickerResultEvent,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/gallery";
+import type { MiniAppPickerResultEvent } from "../../packages/types/miniApp/identities";
 import { imageFixture } from "../helpers/image";
 import {
   buildSignedTestInitData,

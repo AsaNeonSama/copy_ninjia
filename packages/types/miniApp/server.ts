@@ -1,0 +1,107 @@
+/** Mini App HTTP 路由中间件链与处理器共享的请求上下文。 */
+export interface MiniAppRouteContext {
+  /** 原始 HTTP 请求对象。 */
+  readonly request: Request;
+  /** 已解析的请求 URL。 */
+  readonly url: URL;
+  /** 大写 HTTP 方法（如 `"GET"`、`"POST"`、`"DELETE"`、`"HEAD"`）。 */
+  readonly method: string;
+  /** 剥离基础路径前缀后的内部标准路由路径（如 `"/api/status"`）。 */
+  readonly routePath: string;
+  /** 动态路由路径参数映射（如 `{ chatId: "-100123", fileName: "abc.png" }`）。 */
+  readonly params: Readonly<Record<string, string>>;
+}
+
+/** Mini App 标准路由处理器函数签名。 */
+export type MiniAppRouteHandler = (
+  ctx: Readonly<MiniAppRouteContext>
+) => Response | Promise<Response>;
+
+/** Mini App HTTP 中间件函数签名（可短路返回拦截响应，或调用 `next()` 进入下一环）。 */
+export type MiniAppMiddleware = (
+  ctx: Readonly<MiniAppRouteContext>,
+  next: () => Response | Promise<Response>
+) => Response | Promise<Response>;
+
+/** 经 `withMiniAppMiddlewareChain` 包装、可直接注册到 `Bun.serve` 原生路由表的 Mini App 路由处理器。 */
+export type MiniAppBunRouteHandler = (request: Request) => Promise<Response>;
+
+/**
+ * `routes/` 目录各领域路由表片段（模块级共享常量）的形态：路径键与每条路径下的 HTTP 方法表均为只读，
+ * 由 `server/register.ts` 的 `createMiniAppBunRoutes` 展开合并为传给 `Bun.serve` 的原生路由表。
+ */
+export type MiniAppBunRouteTable = Readonly<
+  Record<string, Readonly<Partial<Record<Bun.Serve.HTTPMethod, MiniAppBunRouteHandler>>>>
+>;
+
+/** Mini App 外部访问地址解析出的规范化子路径前缀与主机名快照。 */
+export interface MiniAppPublicUrlParts {
+  /** 规范化后的子路径前缀（根路径为 `"/"`，子路径去尾斜杠如 `"/sub"`）。 */
+  readonly basePath: string;
+  /** URL 的 `host`（小写主机名含非默认端口，如 `"bot.example.com:8443"`）。 */
+  readonly host: string;
+}
+
+/** 单项模型子能力或已加载任务的结构化明细项（供前端竖向样式化展示）。 */
+export interface MiniAppCapabilityDetailItem {
+  readonly label: string;
+  readonly value: string;
+  readonly sub?: string;
+}
+
+/** Mini App 首页展示的单个功能配置槽位状态。 */
+export interface MiniAppCapabilityStatus {
+  readonly key: string;
+  readonly label: string;
+  readonly ready: boolean;
+  readonly detail: string;
+  readonly items: readonly Readonly<MiniAppCapabilityDetailItem>[];
+}
+
+/** `GET /api/mood` 返回的 AI 全局情绪实时状态视图。 */
+export interface MiniAppMoodView {
+  readonly ok: boolean;
+  readonly available: boolean;
+  readonly currentMood: string | null;
+}
+
+/** `POST /api/mood/switch` 触发重抽 AI 全局情绪后的响应结果。 */
+export interface MiniAppMoodMutationResult {
+  readonly ok: boolean;
+  readonly available: boolean;
+  readonly currentMood: string | null;
+  readonly message: string;
+}
+
+/** Mini App 首页展示的活跃交互会话计数。 */
+export interface MiniAppActiveSessionCounts {
+  readonly total: number;
+  readonly gag: number;
+  readonly wed: number;
+  readonly verify: number;
+  readonly qaSet: number;
+}
+
+/** Mini App 首页展示的实时运行状态快照。 */
+export interface MiniAppStatusView {
+  readonly generatedAt: number;
+  readonly uptimeMs: number;
+  readonly cpuAveragePercent: number;
+  readonly memoryPeakRssBytes: number;
+  readonly memoryCurrentRssBytes: number;
+  readonly memoryOtherBytes: number;
+  readonly memoryTotalBytes: number;
+  readonly memoryHeapUsedBytes: number;
+  readonly managedChatCount: number;
+  readonly whitelistCount: number;
+  readonly blocklistCount: number;
+  readonly activeSessions: Readonly<MiniAppActiveSessionCounts>;
+  readonly telegramOutbound: Readonly<{
+    readonly inFlight: number;
+    readonly maxConcurrency: number;
+    readonly waiting: number;
+    readonly retryQueueSize: number;
+    readonly retryQueueMax: number;
+  }>;
+  readonly capabilities: readonly Readonly<MiniAppCapabilityStatus>[];
+}

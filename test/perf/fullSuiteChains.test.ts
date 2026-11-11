@@ -24,7 +24,8 @@ import type { AdDetectionMessageContext } from
   "../../packages/types/antiRaid/adDetect";
 import type { ChatState } from "../../packages/types/chatState";
 import type { DiskIOMessage } from "../../packages/types/diskIO";
-import type { MiniAppAuthSession, MiniAppChatDetail } from "../../packages/types/miniApp";
+import type { MiniAppAuthSession } from "../../packages/types/miniApp/auth";
+import type { MiniAppChatDetail } from "../../packages/types/miniApp/chats";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
 import { chatStateOf } from "../helpers/chatState";

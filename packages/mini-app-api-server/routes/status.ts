@@ -1,4 +1,4 @@
-import type { MiniAppBunRouteTable } from "../../types/miniApp";
+import type { MiniAppBunRouteTable } from "../../types/miniApp/server";
 import {
   handleGetMoodRoute,
   handleGetStatusRoute,

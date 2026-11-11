@@ -7,7 +7,7 @@ import { MINI_APP_PICKER_TTL_MS } from "../../consts/miniApp";
 import type {
   MiniAppPickerResultEvent,
   MiniAppPreparedPickerSession,
-} from "../../types/miniApp";
+} from "../../types/miniApp/identities";
 
 /**
  * 清理已超过 `MINI_APP_PICKER_TTL_MS` 的待处理选择器会话与已完成回执。

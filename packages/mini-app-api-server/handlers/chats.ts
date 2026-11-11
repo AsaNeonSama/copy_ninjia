@@ -16,7 +16,7 @@ import type {
   MiniAppFeatureToggleResult,
   MiniAppMessagePage,
   MiniAppTranslateLanguage,
-} from "../../types/miniApp";
+} from "../../types/miniApp/chats";
 import { parseOptionalSafeInt, readJsonObjectBody } from "../libs/request";
 import { jsonResponse } from "../libs/response";
 import { triggerManagedChatBatchKick } from "../view/chats/batchKick";

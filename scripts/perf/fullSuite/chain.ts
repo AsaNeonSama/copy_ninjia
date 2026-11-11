@@ -119,7 +119,7 @@ import {
   startCronScheduler,
 } from "../../../packages/cron/scheduler";
 import { cronRuntime } from "../../../packages/cache/main/cron";
-import type { MiniAppBunRouteTable } from "../../../packages/types/miniApp";
+import type { MiniAppBunRouteTable } from "../../../packages/types/miniApp/server";
 import type { ChainDefinition } from "./chainDefinition";
 import type { CommandChainDependencies } from "./commandChains";
 import type { ConfigChainDependencies } from "./configChains";

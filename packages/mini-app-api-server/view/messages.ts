@@ -14,7 +14,7 @@ import type { ChatState } from "../../types/chatState";
 import type {
   MiniAppMessageItem,
   MiniAppMessagePage,
-} from "../../types/miniApp";
+} from "../../types/miniApp/chats";
 import { formatManagedChatTitle } from "./chats/query";
 
 /** `readManagedChatMessages` 的入参。 */

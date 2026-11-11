@@ -38,7 +38,7 @@ import { rejectUnlessSuperAdmin } from "./commandActor";
 import { submitDeferredCommand } from "./deferredCommands";
 import type { CachedUser, ChatState } from "../types/chatState";
 import type { IdentityPolicyVerdicts } from "../types/identityStorage";
-import type { BatchKickTriggerSource } from "../types/miniApp";
+import type { BatchKickTriggerSource } from "../types/miniApp/chats";
 
 export type { BatchKickStats } from "../types/batchKick";
 

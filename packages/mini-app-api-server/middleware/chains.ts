@@ -1,4 +1,4 @@
-import type { MiniAppMiddleware } from "../../types/miniApp";
+import type { MiniAppMiddleware } from "../../types/miniApp/server";
 import { createMiniAppHeaderGuardMiddleware } from "./headerGuard";
 import { createMiniAppInitDataMiddleware } from "./initData";
 import { createMiniAppSessionMiddleware } from "./sessionToken";

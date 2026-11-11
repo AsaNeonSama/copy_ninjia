@@ -5,13 +5,13 @@ import {
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../consts/miniApp";
 import type { WhitelistPermissionKey } from "../../types/identityPolicy";
+import type { MiniAppTranslateLanguage } from "../../types/miniApp/chats";
 import type {
   MiniAppIdentityMutationResult,
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppTranslateLanguage,
   PrepareMiniAppPickerResult,
-} from "../../types/miniApp";
+} from "../../types/miniApp/identities";
 import { parseOptionalSafeInt, readJsonObjectBody } from "../libs/request";
 import { jsonResponse } from "../libs/response";
 import { prepareMiniAppPicker } from "../picker/prepare";

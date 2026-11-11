@@ -1,16 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type {
   MiniAppBatchKickResult,
-  MiniAppBlocklistPage,
   MiniAppChatDetail,
   MiniAppChatSummary,
   MiniAppChatTargetsMutationResult,
   MiniAppChatTargetsView,
   MiniAppFeatureToggleResult,
-  MiniAppIdentityMutationResult,
   MiniAppMessagePage,
+} from "../../packages/types/miniApp/chats";
+import type {
+  MiniAppBlocklistPage,
+  MiniAppIdentityMutationResult,
   MiniAppWhitelistPage,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/identities";
 import type { QaFieldRejection } from "../../packages/types/qa";
 import type { InstalledTelegramApi, TelegramSentMessage } from "../../packages/types/telegramWorker";
 import { verificationKey } from "../../packages/libs/verificationKey";

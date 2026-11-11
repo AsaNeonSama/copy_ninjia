@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { DEFAULT_WHITELIST_PERMISSIONS } from "../../packages/consts/whitelist";
-import type { MiniAppIdentityMutationResult } from "../../packages/types/miniApp";
+import type { MiniAppIdentityMutationResult } from "../../packages/types/miniApp/identities";
 import type { InstalledTelegramApi } from "../../packages/types/telegramWorker";
 import { botPermissions } from "../helpers/botPermissions";
 import {

@@ -3,12 +3,12 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Message } from "grammy/types";
+import type { MiniAppTranslateLanguage } from "../../packages/types/miniApp/chats";
 import type {
   MiniAppPickerResultEvent,
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
-  MiniAppTranslateLanguage,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/identities";
 import { botPermissions } from "../helpers/botPermissions";
 import {
   buildSignedTestInitData,

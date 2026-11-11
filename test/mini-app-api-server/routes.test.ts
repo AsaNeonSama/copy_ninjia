@@ -58,8 +58,8 @@ const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
 import type {
   MiniAppAccessDiagnostics,
   MiniAppLoginSuccessResponse,
-  MiniAppStatusView,
-} from "../../packages/types/miniApp";
+} from "../../packages/types/miniApp/auth";
+import type { MiniAppStatusView } from "../../packages/types/miniApp/server";
 import type {
   MiniAppTotpMutationResponse,
   MiniAppTotpSetupResponse,

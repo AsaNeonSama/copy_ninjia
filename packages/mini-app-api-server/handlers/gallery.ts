@@ -2,7 +2,7 @@ import type {
   MiniAppGalleryDeleteResult,
   MiniAppGalleryUploadResult,
   ResolvedMiniAppGalleryFile,
-} from "../../types/miniApp";
+} from "../../types/miniApp/gallery";
 import { buildMiniAppGalleryDownloadFileName } from "../libs/downloadFileName";
 import { parseOptionalSafeInt, readJsonObjectBody } from "../libs/request";
 import { buildNoStoreHeaders, jsonResponse, serveCachedAssetResponse } from "../libs/response";

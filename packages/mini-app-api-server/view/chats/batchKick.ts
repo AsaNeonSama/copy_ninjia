@@ -22,7 +22,7 @@ import { runTelegramAction } from "../../../infra/telegram/actions/core";
 import { telegramApi } from "../../../infra/telegram/client";
 import { telegramSignal } from "../../../libs/telegramSignal";
 import type { JoinLogRecord } from "../../../types/diskIO/storage";
-import type { MiniAppBatchKickResult, MiniAppChatDetail } from "../../../types/miniApp";
+import type { MiniAppBatchKickResult, MiniAppChatDetail } from "../../../types/miniApp/chats";
 import { getManagedChatDetail } from "./query";
 
 /**
