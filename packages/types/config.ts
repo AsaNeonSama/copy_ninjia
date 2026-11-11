@@ -352,6 +352,8 @@ export interface AssetConfig {
 
 /** config/reload.ts 对可热重载部署文件的一轮读取。 */
 export interface HotDeploymentConfigReads {
+  /** dynamic/ 内非白名单目录项或目录读取失败的拒绝诊断；非空时整轮热重载直接拒绝。 */
+  readonly layoutRejections: readonly string[];
   /** assets.json；随机图片目录变化时已在读取阶段完成目录准备，失败记为 invalid。 */
   readonly assets: HotConfigRead<AssetConfig>;
   readonly adDetectConfig: HotConfigRead<AdDetectConfig>;

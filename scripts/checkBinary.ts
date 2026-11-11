@@ -54,7 +54,9 @@ try {
   }
   const manifest: { readonly version: string } = await Bun.file(join(root, "package.json")).json() as { readonly version: string };
   if (run(["--version"]).trim() !== manifest.version) throw new Error("Binary version must match the packaged manifest.");
-  await copyFixtureTree(join(root, "config_example"), join(root, "config"));
+  for (const dirName of [STATIC_CONFIG_DIR_NAME, DYNAMIC_CONFIG_DIR_NAME]) {
+    await copyFixtureTree(join(root, "config_example", dirName), join(root, "config", dirName));
+  }
   // 以发行包携带的提示词示例作为 prompt/，核对编译产物按 PROJECT_ROOT 读取并严格校验它们。
   await copyFixtureTree(join(root, PROMPT_EXAMPLE_DIR_NAME), join(root, PROMPT_DIR_NAME));
   // 与首次部署一样不物化只示意结构的示例（g-auth.json、cron.json）。

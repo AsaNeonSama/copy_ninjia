@@ -1,12 +1,13 @@
 /**
  * config/dynamic/ 部署配置热重载的主线程 owner（状态见 cache/main/configReload.ts）。
  *
- * 只监听 config/dynamic/（config/static/ 下的文件修改后须重启）。目录级 `fs.watch` 覆盖原地写入、临时文件改名替换、删除与重建；
- * 按目录名的改名事件关闭旧 watcher 并重新监听，目录暂缺时按退避表延迟持续重试（至最高档间隔）、只记一次错误日志。任何事件只重新
- * 武装一次防抖 timer，到期后由最新值执行器串行跑一轮：config/reload.ts 读取并
- * 严格解析各可热重载文件（assets.json 切换随机图片目录时先准备新目录）→ 同步替换
- * 主线程 holder → 按 holder 重算广告检测与 AI 闲聊的可用性 → 把变化投给持有副本的
- * Worker（AI 闲聊：agent 对话段、mood、stickers；Anti-Raid：ad_detect 段与广告示例）
+ * 只监听 config/dynamic/（config/static/ 与配置根不在监听范围，其中的条目与文件改动在重启时核对）。
+ * 目录级 `fs.watch` 覆盖原地写入、临时文件改名替换、删除与重建；按目录名的改名事件关闭旧 watcher
+ * 并重新监听，目录暂缺时按退避表延迟持续重试（至最高档间隔）、只记一次错误日志。任何事件只重新
+ * 武装一次防抖 timer，到期后由最新值执行器串行跑一轮：config/reload.ts 先核对 dynamic/ 目录项白名单，
+ * 有多余条目时整轮拒绝，全部合法后读取并严格解析各可热重载文件（assets.json 切换随机图片目录时先准备新目录）
+ * → 同步替换主线程 holder → 按 holder 重算广告检测与 AI 闲聊的可用性 → 把变化投给持有副本的
+ * Worker（AI 闲聊：agent 对话段、mood、stickers；Anti-Raid：ad_detect 段与 ad_detect.json 快照）
  * → cron.json 变化时对账定时任务。assets.json 只有主线程读取，不分发。一轮在途时
  * 到达的事件合并成至多一轮补跑。
  *
@@ -59,7 +60,7 @@ function reconcileAdDetectAvailability(changes: HotDeploymentConfigChanges): voi
   const next: ConfigReadiness = adDetectReadinessFromHolders();
   const current: ConfigReadiness = adDetectConfigReadiness();
   const availabilityChanged: boolean = next.ok !== current.ok;
-  // 先发布结论：replayAdDetectAgentConfig 按它决定示例清单投不投。
+  // 先发布结论：replayAdDetectAgentConfig 按它决定 ad_detect.json 快照投不投。
   if (!sameReadiness(next, current)) adoptAdDetectConfigReadiness(next);
   if (availabilityChanged) {
     if (next.ok) logger.log("Ad detection became available after a deployment config reload.");

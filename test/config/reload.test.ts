@@ -17,10 +17,12 @@ import {
   DEFAULT_ASSET_CONFIG,
   RANDOM_H_IMAGE_DIR_FIELD,
 } from "../../packages/consts/ui/assets";
+import { LEGACY_AD_SAMPLES_CONFIG_NAME } from "../../packages/consts/antiRaid/adDetect";
 import {
   AD_DETECT_CONFIG_PATH,
   AGENT_CONFIG_PATH,
   ASSETS_CONFIG_PATH,
+  DYNAMIC_CONFIG_DIR,
   RUNTIME_DATA_ROOT,
   CRON_CONFIG_PATH,
   MOOD_CONFIG_PATH,
@@ -113,6 +115,41 @@ describe("config/dynamic/ 热重载判定", () => {
     expect(defaultMoodConfigCache.current).toBe(baseline.mood);
     expect(agentDeploymentConfigCache.current).toBe(baseline.agent);
     expect(adDetectAgentConfigCache.current).toBe(baseline.adDetect);
+  });
+
+  test("dynamic/ 存在未迁移 ad_samples.json 或多余条目时整轮拒绝，不替换任何 holder", async () => {
+    const legacyPath: string = join(DYNAMIC_CONFIG_DIR, LEGACY_AD_SAMPLES_CONFIG_NAME);
+    const swapPath: string = join(DYNAMIC_CONFIG_DIR, ".stickers.json.swp");
+    const candidateGallery: string = join(RUNTIME_DATA_ROOT, "reload-skipped-gallery");
+    rmSync(candidateGallery, { recursive: true, force: true });
+    await Bun.write(legacyPath, "{}");
+    await Bun.write(swapPath, "swap");
+    await writeJson(STICKERS_CONFIG_PATH, { packs: ["NewPack_1"] });
+    await writeJson(ASSETS_CONFIG_PATH, { [ASSET_ONLY_PATH_GROUP]: { random_h_image_dir: "./reload-skipped-gallery" } });
+    try {
+      const changes: HotDeploymentConfigChanges = await reload();
+      expect(changes.assets).toBe(false);
+      expect(changes.adDetect).toBe(false);
+      expect(changes.aiAgent).toBe(false);
+      expect(changes.adDetectConfig).toBe(false);
+      expect(changes.mood).toBe(false);
+      expect(changes.stickers).toBe(false);
+      expect(changes.cron).toBe(false);
+      expect(changes.reloadedPaths).toEqual([]);
+      expect(changes.removedPaths).toEqual([]);
+      expect(changes.rejections).toHaveLength(2);
+      expect(changes.rejections[0]).toContain(`${swapPath}: $ must be absent (only `);
+      expect(changes.rejections[1]).toBe(
+        `${legacyPath}: $ must be absent after manual migration to ad_detect.json.`
+      );
+      expect(defaultStickerConfigCache.current).toBe(baseline.stickers);
+      expect(assetConfigCache.current).toBe(DEFAULT_ASSET_CONFIG);
+      expect(await Bun.file(candidateGallery).exists()).toBe(false);
+    } finally {
+      rmSync(legacyPath, { force: true });
+      rmSync(swapPath, { force: true });
+      rmSync(candidateGallery, { recursive: true, force: true });
+    }
   });
 
   test("合法变更整体替换对应 holder，其余 holder 身份不变", async () => {

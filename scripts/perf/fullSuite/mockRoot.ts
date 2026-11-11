@@ -116,8 +116,14 @@ export function createRunRoot(): string {
 export async function createBenchmarkConfigRoot(runRoot: string): Promise<string> {
   assertInsidePerformanceMockRoot(runRoot);
   const configRoot: string = join(runRoot, BENCHMARK_CONFIG_ROOT_NAME);
-  // 目标树可能已经存在：逐个落点都过 assertInsidePerformanceMockRoot。
-  await copyFixtureTree(CONFIG_EXAMPLE_ROOT, configRoot, assertInsidePerformanceMockRoot);
+  // 只复制白名单允许的两个子目录；config_example/README/ 不属于部署配置布局。
+  for (const dirName of [STATIC_CONFIG_DIR_NAME, DYNAMIC_CONFIG_DIR_NAME]) {
+    await copyFixtureTree(
+      join(CONFIG_EXAMPLE_ROOT, dirName),
+      join(configRoot, dirName),
+      assertInsidePerformanceMockRoot
+    );
+  }
 
   const agentPath: string = join(configRoot, DYNAMIC_CONFIG_DIR_NAME, "agent.json");
   let agentConfig: string = await Bun.file(agentPath).text();

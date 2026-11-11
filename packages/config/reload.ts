@@ -1,6 +1,7 @@
 /**
  * config/dynamic/ 热重载的主线程判定（跨模块约束见 docs/cn/04-invariants.md）：
- * 严格解析可热重载部署文件，与主线程已生效快照比较并整体替换有变更的 holder。
+ * 先核对 dynamic/ 目录项白名单（有非白名单条目时整轮拒绝），再严格解析可热重载部署文件，
+ * 与主线程已生效快照比较并整体替换有变更的 holder。
  * 本模块只读盘并改写主线程 holder；可用性重算、cron 调度对账与向 Worker 分发由 app/configReload.ts 负责。
  */
 
@@ -13,6 +14,7 @@ import {
 } from "./agent";
 import { adoptCronConfig, assertCronAgentSupported, cronAgentShortfall, loadCronConfig } from "./cron";
 import { adoptMoodConfig, loadMoodConfig } from "./mood";
+import { readDynamicConfigLayoutRejections } from "./layout";
 import { deploymentInputExists } from "./readiness";
 import { adoptStickerConfig, loadStickerConfig } from "./stickers";
 import { assetConfigCache } from "../cache/main/assets";
@@ -88,17 +90,30 @@ async function readHotAssetConfig(): Promise<HotConfigRead<AssetConfig>> {
 }
 
 /**
- * 按固定顺序逐份读取可热重载部署文件；不改写任何 holder。
+ * 先核对 dynamic/ 目录项白名单，合法后按固定顺序逐份读取可热重载部署文件；不改写任何 holder。
+ * 存在非白名单目录项或目录读取失败时短路文件读取，交由 applyHotDeploymentConfigs 整轮拒绝。
  * @returns 全部可热重载部署文件的本轮读取结果集合。
  */
 export async function readHotDeploymentConfigs(): Promise<HotDeploymentConfigReads> {
+  const layoutRejections: readonly string[] = await readDynamicConfigLayoutRejections();
+  if (layoutRejections.length > 0) {
+    return {
+      layoutRejections,
+      assets: { kind: "absent" },
+      adDetectConfig: { kind: "absent" },
+      agent: { kind: "absent" },
+      mood: { kind: "absent" },
+      stickers: { kind: "absent" },
+      cron: { kind: "absent" },
+    };
+  }
   const assets: HotConfigRead<AssetConfig> = await readHotAssetConfig();
   const adDetectConfig: HotConfigRead<AdDetectConfig> = await readHotConfig(AD_DETECT_CONFIG_PATH, loadAdDetectConfig);
   const agent: HotConfigRead<AgentConfigSnapshots> = await readHotConfig(AGENT_CONFIG_PATH, loadAgentConfigSnapshots);
   const mood: HotConfigRead<MoodConfig> = await readHotConfig(MOOD_CONFIG_PATH, loadMoodConfig);
   const stickers: HotConfigRead<StickerConfig> = await readHotConfig(STICKERS_CONFIG_PATH, loadStickerConfig);
   const cron: HotConfigRead<CronConfig> = await readHotConfig(CRON_CONFIG_PATH, loadCronConfig);
-  return { assets, adDetectConfig, agent, mood, stickers, cron };
+  return { layoutRejections, assets, adDetectConfig, agent, mood, stickers, cron };
 }
 
 /** nextFileSnapshot 的入参：本轮读取结果、当前快照与拒绝诊断收集表。 */
@@ -226,12 +241,26 @@ function recordFileOutcome<T>(next: T | null | undefined, path: string, paths: F
 }
 
 /**
- * 把一轮读取结果应用到主线程 holder，返回实际替换了哪些快照。同步执行：判定与
- * 替换之间不让出事件循环，调用方可以紧接着按返回值重算可用性并分发给 Worker。
+ * 把一轮读取结果应用到主线程 holder，返回实际替换了哪些快照。目录白名单诊断非空时整轮拒绝，
+ * 所有 holder 保持不变。同步执行：判定与替换之间不让出事件循环，调用方可以紧接着按返回值重算可用性并分发给 Worker。
  * @param reads 本轮各可热重载部署文件的读取结果。
  * @returns 各配置项是否发生变更以及生效、删除与拒绝的汇总结果。
  */
 export function applyHotDeploymentConfigs(reads: HotDeploymentConfigReads): HotDeploymentConfigChanges {
+  if (reads.layoutRejections.length > 0) {
+    return {
+      assets: false,
+      adDetect: false,
+      aiAgent: false,
+      adDetectConfig: false,
+      mood: false,
+      stickers: false,
+      cron: false,
+      reloadedPaths: [],
+      removedPaths: [],
+      rejections: [...reads.layoutRejections],
+    };
+  }
   const rejections: string[] = [];
   const paths: FileOutcomePaths = { reloadedPaths: [], removedPaths: [] };
 

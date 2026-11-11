@@ -279,6 +279,30 @@ describe("config/dynamic/ 目录监听", () => {
     expect(cronConfigCache.current?.[0]?.name).toBe("daily");
   });
 
+  test("dynamic/ 出现非白名单条目时整轮拒绝且所有快照保持不变，条目移除后下一次事件正常应用", async () => {
+    startConfigReload();
+    await settle();
+    const unexpected: string = join(DYNAMIC_CONFIG_DIR, ".mood.json.swp");
+    await Bun.write(unexpected, "swap-content");
+    await Bun.write(MOOD_CONFIG_PATH, moodDocument("暂缓生效"));
+    try {
+      expect(await waitUntil((): boolean => loggerError.mock.calls.length > 0)).toBe(true);
+      expect(loggerError.mock.calls[0]![0]).toContain(
+        `Rejected a runtime deployment config change; keeping the last validated snapshot: ${unexpected}: $ must be absent`
+      );
+      expect(defaultMoodConfigCache.current).toBe(originalMood);
+      expect(syncAiChatConfig).not.toHaveBeenCalled();
+      expect(loggerLog).not.toHaveBeenCalled();
+
+      await rm(unexpected, { force: true });
+      expect(await waitUntil((): boolean => defaultMoodConfigCache.current?.moods[0]?.name === "暂缓生效")).toBe(true);
+      expect(syncAiChatConfig).toHaveBeenCalledTimes(1);
+      expect(loggerLog).toHaveBeenCalledWith(`Reloaded deployment config ${MOOD_CONFIG_PATH}.`);
+    } finally {
+      await rm(unexpected, { force: true });
+    }
+  });
+
   test("停止后不再接纳事件，watcher 与 timer 均已释放", async () => {
     startConfigReload();
     await settle();

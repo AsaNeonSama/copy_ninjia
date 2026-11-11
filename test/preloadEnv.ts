@@ -59,9 +59,10 @@ export const TEST_TMPDIR: string = mkdtempSync(join(TEST_TEMP_PARENT_DIR, "copy-
 export const TEST_CONFIG_ROOT: string = join(TEST_DATA_ROOT, "config");
 
 const CONFIG_EXAMPLE_ROOT: string = join(import.meta.dir, "..", "config_example");
-cpSync(CONFIG_EXAMPLE_ROOT, TEST_CONFIG_ROOT, { recursive: true });
 const TEST_STATIC_CONFIG_DIR: string = join(TEST_CONFIG_ROOT, STATIC_CONFIG_DIR_NAME);
 const TEST_DYNAMIC_CONFIG_DIR: string = join(TEST_CONFIG_ROOT, DYNAMIC_CONFIG_DIR_NAME);
+cpSync(join(CONFIG_EXAMPLE_ROOT, STATIC_CONFIG_DIR_NAME), TEST_STATIC_CONFIG_DIR, { recursive: true });
+cpSync(join(CONFIG_EXAMPLE_ROOT, DYNAMIC_CONFIG_DIR_NAME), TEST_DYNAMIC_CONFIG_DIR, { recursive: true });
 // 翻译凭据示例的占位私钥必然被严格解析拒绝；副本与安装器一样不带它，翻译可用性
 // 由 preload 与各用例自行设定。
 rmSync(join(TEST_STATIC_CONFIG_DIR, "g-auth.json"));

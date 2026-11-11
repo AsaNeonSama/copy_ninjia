@@ -92,8 +92,8 @@ export const PERSONA_PATH: string = join(PROJECT_ROOT, PROMPT_DIR_NAME, PERSONA_
 export const VOICE_TOOL_PROMPT_PATH: string = join(PROJECT_ROOT, PROMPT_DIR_NAME, VOICE_TOOL_PROMPT_FILE_NAME);
 
 /**
- * 部署配置目录；测试显式指向临时数据根下的 config_example/ 副本。顶层只放 static/ 与
- * dynamic/ 两个子目录，按生效方式分开存放部署文件；顶层的部署文件名一律由
+ * 部署配置目录；测试显式指向临时数据根下的 config_example/{static,dynamic} 副本。顶层只允许
+ * static/ 与 dynamic/ 两个子目录，两层子目录也只允许各自的部署文件；其余任何条目一律由
  * config/layout.ts 拒绝启动。
  */
 export const CONFIG_ROOT: string = resolve(

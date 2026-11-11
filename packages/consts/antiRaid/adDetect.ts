@@ -135,6 +135,9 @@ export const AD_DETECT_CONFIG_KEYS: readonly string[] = [
   "emoji_black_list",
 ];
 
+/** 广告检测配置手工迁移前的旧文件名；config/layout.ts 只用于拒绝 config/dynamic/ 下的未迁移入口，不读取旧内容。 */
+export const LEGACY_AD_SAMPLES_CONFIG_NAME: string = "ad_samples.json";
+
 /**
  * ad_detect.json 的 `punishment` 允许出现的字段名：`mute` 与 `kick` 互斥，必须恰好出现其一。
  * 所属模块：config/adDetectConfig.ts。

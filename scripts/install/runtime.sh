@@ -81,11 +81,11 @@ fi
 step "5/8 准备配置目录"
 # --------------------------------------------------------------------------
 
-# 旧入口与放错位置的部署文件在模板补缺之前拒绝，迁移由部署方显式执行。
+# config/ 三层目录白名单在模板补缺之前核对，旧入口、放错位置文件与多余条目均由部署方显式处理。
 bun -e '
   import { assertNoMisplacedConfigFiles } from "./scripts/install/runtime";
   await assertNoMisplacedConfigFiles("config");
-' || die "config/ 布局不是当前格式：有 telegram.json 时先安装 13.x 发行版并按其说明执行 migrate:bot-config 冷迁移；其余部署文件按上面报错的路径移入 config/static/（bot.json、g-auth.json）或 config/dynamic/（其余六份），再重新安装。"
+' || die "config/ 只允许 static/（bot.json、g-auth.json）与 dynamic/（六份）；有 telegram.json 时先安装 13.x 发行版并按其说明执行 migrate:bot-config 冷迁移；有 config/dynamic/ad_samples.json 时按本版发布说明手工迁移为 ad_detect.json（含必填 punishment）后删除旧文件；其余多余条目移出 config/ 后重新安装。"
 
 # 全局状态与 Mini App 验证器文件按启动恢复同一口径只读校验：数据根不得残留旧 state.json，
 # memory/global/state.json 与已存在的 memory/mini-app-totp/totp.json 必须是当前格式。
