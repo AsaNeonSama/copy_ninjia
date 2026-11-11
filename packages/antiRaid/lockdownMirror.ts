@@ -10,7 +10,7 @@ import {
   clearChatStateField,
   getChatStateCache,
   saveChatStateInBackground,
-} from "../infra/storage/stateStore";
+} from "../infra/chatStateStorage";
 import { telegramApi } from "../infra/telegram/client";
 import { deleteMessageWithOutcome } from "../infra/telegram/actions";
 import { restoreLockdownInvitePermission } from "../infra/telegram/lockdownPermissions";

@@ -56,11 +56,11 @@ mock.module("../../packages/infra/telegram/mainClient", () => ({
   bot: { botInfo: { id: 99 }, api: {} },
 }));
 mock.module("../../packages/infra/chatTeardown", () => ({ teardownChatRuntime }));
-// 群状态走真实 stateStore 与 LRU（getOrCreateChatState / clearChatStateField /
-// purgeChatStateExceptLockdown 的收敛语义不替身）；只替身它下面的 SQLite 落盘边界。
+// 群状态走真实 chatStateStorage 与缓存（getOrCreateChatState / clearChatStateField /
+// purgeChatStateExceptLockdown 的收敛语义不替身）；只替身它下面的 SQLite 落盘出口。
+const realChatStateStorage = await import("../../packages/infra/chatStateStorage");
 mock.module("../../packages/infra/chatStateStorage", () => ({
-  assertChatStateCapacity: (): void => {},
-  hydrateChatStateCache: (): void => {},
+  ...realChatStateStorage,
   persistChatState,
   saveChatStateInBackground: (): void => {},
 }));
@@ -81,7 +81,7 @@ const { handleFloodControlCommand } = await import("../../packages/commands/floo
 const { handleAntiRaidCommand } = await import("../../packages/commands/antiRaid");
 const { resolveSuperAdminToggleArg } = await import("../../packages/commands/superAdminToggle");
 const { applyChatFeatureSwitch } = await import("../../packages/infra/chatFeatureSwitch");
-const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState } = await import("../../packages/infra/chatStateStorage");
 
 function context(argument: string, userId: number | null = 100, chatId: number = -1001): never {
   return groupCommandContext({ match: argument, userId, chatId, messageId: 7 });

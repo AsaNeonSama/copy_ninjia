@@ -7,7 +7,7 @@ import type {
 import type { botChatPermissionsIn } from
   "../../../packages/infra/botAdmin";
 import type { getOrCreateChatState } from
-  "../../../packages/infra/storage/stateStore";
+  "../../../packages/infra/chatStateStorage";
 import type { cacheAdminIds } from
   "../../../packages/cache/workers/antiRaid/admins";
 import type {

@@ -7,7 +7,7 @@ import {
 } from "../../packages/consts/botMessage";
 import { shouldPassBotMessage } from "../../packages/infra/botMessageGate";
 import { chatStateCache } from "../../packages/cache/main/chatState";
-import { getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+import { getOrCreateChatState } from "../../packages/infra/chatStateStorage";
 import type { Message } from "grammy/types";
 
 const OWN_BOT_ID: number = 999;

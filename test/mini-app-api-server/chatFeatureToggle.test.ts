@@ -32,7 +32,7 @@ const {
   getChatStateCache,
   getOrCreateChatState,
   purgeChatStateExceptLockdown,
-} = await import("../../packages/infra/storage/stateStore");
+} = await import("../../packages/infra/chatStateStorage");
 const { setManagedChatFeature } = await import(
   "../../packages/mini-app-api-server/view/chats/toggle"
 );

@@ -21,7 +21,7 @@ const loggerError = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/logger", () => ({
   logger: loggerStub({ error: loggerError }),
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: (): ReadonlyMap<number, ChatState> => chatStates,
   clearChatStateField: (chatId: number, field: "lockdown"): boolean => {
     const state: ChatState | undefined = chatStates.get(chatId);

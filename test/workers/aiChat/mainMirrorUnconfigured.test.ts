@@ -60,12 +60,14 @@ mock.module("../../../packages/infra/diskIO", () => (diskIOStub({
 // 主线程 `global.ttsUsage` 镜像：启动与重建时灌回 Worker，ttsUsage 回执写入。
 const ttsUsageMirror: { current: TtsDailyUsage | null } = { current: null };
 mock.module("../../../packages/infra/storage/stateStore", () => ({
-  getChatState: (chatId: number) => ({ isAIChatEnabled: aiEnabledChats.has(chatId) }),
-  getChatStateCache: (): Map<number, unknown> =>
-    new Map([...aiEnabledChats].map((chatId: number): [number, unknown] => [chatId, {}])),
   activeCopyTargetIdIn: (): undefined => undefined,
   getTtsUsage: (): TtsDailyUsage | null => ttsUsageMirror.current,
   adoptTtsUsage: (usage: TtsDailyUsage): void => { ttsUsageMirror.current = usage; },
+}));
+mock.module("../../../packages/infra/chatStateStorage", () => ({
+  getChatState: (chatId: number) => ({ isAIChatEnabled: aiEnabledChats.has(chatId) }),
+  getChatStateCache: (): Map<number, unknown> =>
+    new Map([...aiEnabledChats].map((chatId: number): [number, unknown] => [chatId, {}])),
 }));
 
 const aiChat = await import("../../../packages/aiChat");

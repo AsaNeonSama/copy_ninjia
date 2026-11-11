@@ -3,7 +3,7 @@ import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import { requestAiMood } from "../aiChat";
 import { aiChatConfigReadiness } from "../config/readiness";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { logger } from "../infra/logger";
 import { replyCommandNotice } from "../infra/telegram";
 import { refuseIfConfigBroken } from "./configGate";

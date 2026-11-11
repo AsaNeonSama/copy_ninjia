@@ -19,7 +19,7 @@ import {
   readBotProcessStatus,
   readHostOtherMemoryBytes,
 } from "../../infra/processStatus";
-import { getChatStateCache } from "../../infra/storage/stateStore";
+import { getChatStateCache } from "../../infra/chatStateStorage";
 import { telegramOutboundStats } from "../../infra/telegram/outboundLifecycle";
 import { isTerminalVerificationPhase } from "../../states/verification/shared";
 import type { MoodOption } from "../../types/aiChat/mood";

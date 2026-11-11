@@ -4,7 +4,7 @@ import { SUPER_ADMIN_USER_ID } from "../../config/bot";
 import { translateConfigReadiness } from "../../config/readiness";
 import { MINI_APP_PICKER_MAX_USERS_QUANTITY } from "../../consts/miniApp";
 import { botChatPermissionsIn } from "../../infra/botAdmin";
-import { getChatState } from "../../infra/storage/stateStore";
+import { getChatState } from "../../infra/chatStateStorage";
 import { saveMiniAppPreparedKeyboardButton } from "../../infra/telegram/actions/miniApp";
 import type { MiniAppTelegramApi } from "../../infra/telegram/actions/miniApp";
 import type { ChatState } from "../../types/chatState";

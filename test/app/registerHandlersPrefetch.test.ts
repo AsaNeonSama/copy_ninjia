@@ -55,7 +55,7 @@ mock.module("../../packages/auto", () => ({
 
 const { registerHandlers } = await import("../../packages/app/registerHandlers");
 const { chatStateCache } = await import("../../packages/cache/main/chatState");
-const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 
 type TestMiddleware = (ctx: Context, next: () => Promise<void>) => unknown;
 

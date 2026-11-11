@@ -3,7 +3,7 @@ import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import {
   getChatStateCache,
   persistChatState,
-} from "../infra/storage/stateStore";
+} from "../infra/chatStateStorage";
 import { isTelegramGroupChatId } from "../libs/telegramId";
 import type { ChatState } from "../types/chatState";
 import type { TranslateState } from "../types/translate";

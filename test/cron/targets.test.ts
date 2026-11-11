@@ -18,7 +18,7 @@ const getChat = mock(async (chatId: number): Promise<unknown> => ({ id: chatId, 
 mock.module("../../packages/infra/telegram/mainClient", () => ({
   bot: { botInfo: { id: 42 }, api: { getChatMember, getChat } },
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({ getChatStateCache: () => chatStates }));
+mock.module("../../packages/infra/chatStateStorage", () => ({ getChatStateCache: () => chatStates }));
 
 const { memberCanSend, resolveCronGroupTargets, sendNeedsOf } = await import("../../packages/cron/targets");
 

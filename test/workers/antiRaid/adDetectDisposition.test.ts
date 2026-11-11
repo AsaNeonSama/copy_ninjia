@@ -141,7 +141,7 @@ mock.module("../../../packages/infra/diskIO", () => (diskIOStub({
   isDiskIOInitialized: (): boolean => diskIOInitialized,
   postDiskIODiagnostic: postDiskIO,
 })));
-mock.module("../../../packages/infra/storage/stateStore", () => ({
+mock.module("../../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: () => chatStates,
   getChatState: (chatId: number) => chatStates.get(chatId) ?? {},
 }));

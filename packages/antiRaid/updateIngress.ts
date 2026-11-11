@@ -26,7 +26,7 @@ import { isAdminStatus, isPresentMember } from "../libs/chatMember";
 import { hasUserMessageContent } from "../users/messageContent";
 import { isActiveVerificationUser } from "../cache/main/antiRaid/verificationMirror";
 import { adCandidatePostRejected } from "../cache/main/antiRaid/proxy";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { updateNow } from "../infra/updateContext";
 import { adDetectionSenderId, buildAdCandidate } from "./adCandidate";
 import { visibleSenderChat } from "../users/visibleSender";

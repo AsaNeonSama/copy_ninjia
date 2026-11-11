@@ -32,7 +32,7 @@ const { DELETE_MESSAGE_CHAT_TARGET_MAX } = await import("../../packages/consts/d
 const { CHAT_QA_MAX_PER_CHAT } = await import("../../packages/consts/qa");
 const { TRANSLATE_CHAT_USER_LIMIT } = await import("../../packages/consts/translate");
 const { getChatState, getOrCreateChatState } = await import(
-  "../../packages/infra/storage/stateStore"
+  "../../packages/infra/chatStateStorage"
 );
 const { updateCachedIdentity } = await import("../../packages/users/senderIdentity");
 const { mutateManagedChatTargets } = await import(

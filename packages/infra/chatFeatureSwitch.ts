@@ -14,7 +14,7 @@ import {
   getChatState,
   getOrCreateChatState,
   persistChatState,
-} from "./storage/stateStore";
+} from "./chatStateStorage";
 
 /** `applyChatFeatureSwitch` 的入参。 */
 export interface ApplyChatFeatureSwitchParams {

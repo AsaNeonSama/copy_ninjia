@@ -10,7 +10,7 @@ import {
   pendingBlockedRemovals,
 } from "../../cache/main/blocklist";
 import { logger } from "../logger";
-import { getChatStateCache } from "../storage/stateStore";
+import { getChatStateCache } from "../chatStateStorage";
 import {
   hasAnyBlockedIdentity,
   readIdentitySweepPage,

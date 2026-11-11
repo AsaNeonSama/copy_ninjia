@@ -4,7 +4,7 @@
  */
 
 import { formatLocalTime } from "../../libs/time";
-import { getChatStateCache } from "../storage/stateStore";
+import { getChatStateCache } from "../chatStateStorage";
 import { isManagedAdminChat } from "./sweepEligibility";
 import { logger } from "../logger";
 import { forgetUserBlocklistRemovals } from "./outbox";

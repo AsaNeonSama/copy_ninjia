@@ -71,12 +71,10 @@ import {
   hydrateIdentityStorageCounts,
   queueIdentityPolicyWrite,
 } from "../../../packages/infra/identityStorage";
-import { persistChatState } from
+import { getOrCreateChatState, persistChatState } from
   "../../../packages/infra/chatStateStorage";
 import { setChatQa } from "../../../packages/infra/qaStore";
 import { recordJoinLog } from "../../../packages/infra/joinLog";
-import { getOrCreateChatState } from
-  "../../../packages/infra/storage/stateStore";
 import { issueMiniAppAuthSession } from
   "../../../packages/mini-app-api-server/auth/session";
 import { recordEligibleTemporaryAdBypassActivity } from

@@ -58,7 +58,7 @@ const {
 const { handleInitCommand } = await import("../../packages/commands/init");
 const { disableManagedChat } = await import("../../packages/infra/botAdmin");
 const { teardownChatRuntime } = await import("../../packages/infra/chatTeardown");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const { runWithUpdateAbortSignal } = await import("../../packages/infra/updateContext");
 const { triggerManagedChatBatchKick } = await import(
   "../../packages/mini-app-api-server/view/chats/batchKick"

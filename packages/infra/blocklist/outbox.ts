@@ -27,7 +27,7 @@ import {
 } from "../diskIO";
 import { assertStorageAdmission } from "../diskIO/storageAdmission";
 import { logger } from "../logger";
-import { getChatStateCache } from "../storage/stateStore";
+import { getChatStateCache } from "../chatStateStorage";
 import { hasAnyBlockedIdentity } from "../identityStorage";
 import { storageWriteCost } from "../../libs/storageWriteBudget";
 import { isManagedAdminChat } from "./sweepEligibility";

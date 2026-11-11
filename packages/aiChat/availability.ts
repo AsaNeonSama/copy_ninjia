@@ -4,7 +4,7 @@
  */
 
 import { aiChatConfigReadiness } from "../config/readiness";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 
 /**
  * 进程侧是否已具备运行 AI 闲聊所需的全部有效部署配置。

@@ -66,7 +66,7 @@ const {
   CHAT_QA_ANSWER_MAX_CHARS,
   CHAT_QA_QUESTION_MAX_CHARS,
 } = await import("../../packages/consts/qa");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const {
   issueMiniAppAuthSession,
   stopMiniAppServer,

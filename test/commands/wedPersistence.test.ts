@@ -10,7 +10,7 @@ import { observeWedMembers } from "../../packages/commands/wed/members";
 import { flushWedMembers, getOrCreateWedMemberState, hydrateWedMembers, purgeWedMembers, removeWedMember, replayWedMembers } from "../../packages/commands/wed/persistence";
 import { drainWedRuntime, initWedRuntime } from "../../packages/commands/wed/runtime";
 import { teardownWedInChat } from "../../packages/commands/wed";
-import { getChatState, getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../packages/infra/chatStateStorage";
 import { wedChats } from "../../packages/cache/main/wed";
 import * as diskIO from "../../packages/infra/diskIO";
 import type {

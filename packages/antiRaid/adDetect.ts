@@ -23,7 +23,7 @@ import { isManagedAdminChat } from "../infra/blocklist/sweepEligibility";
 import { trackBlockedRemoval } from "../infra/blocklist/outbox";
 import { blockedMemberRemoverHolder, blocklistIdentityMutationRunner } from "../cache/main/blocklist";
 import { requestBlocklistResweep } from "../infra/blocklist/sweep";
-import { getChatStateCache, getChatState } from "../infra/storage/stateStore";
+import { getChatStateCache, getChatState } from "../infra/chatStateStorage";
 import { postDiskIODiagnostic } from "../infra/diskIO";
 import { sendTemporaryMessageOnMain } from "../infra/telegram/temporaryMessage";
 import { inFlightAdDisposals } from "../cache/main/antiRaid/adDisposal";

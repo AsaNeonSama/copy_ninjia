@@ -194,7 +194,7 @@ import { WEATHER_CODE_DESCRIPTIONS } from "../../packages/consts/weather";
 import { BOT_CHAT_PERMISSION_LABELS } from "../../packages/consts/botAdmin";
 import { BOT_STATUS_FEATURE_LABELS } from "../../packages/consts/botStatus";
 import { CHAT_FEATURE_SWITCHES } from "../../packages/consts/chatFeatureSwitch";
-import { getChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState } from "../../packages/infra/chatStateStorage";
 
 import * as Media from "../../packages/consts/aiChat/media";
 import {

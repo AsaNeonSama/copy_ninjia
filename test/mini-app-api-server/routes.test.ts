@@ -47,7 +47,7 @@ const {
 } = await import("../../packages/consts/miniAppTotp");
 const { chatAtmosphere } = await import("../../packages/infra/atmosphere");
 const { telegramApiState } = await import("../../packages/cache/perThread/telegramApi");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const {
   issueMiniAppAuthSession,
   stopMiniAppServer,

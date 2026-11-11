@@ -2,7 +2,7 @@ import type { Message } from "grammy/types";
 import { translateConfigReadiness } from "../config/readiness";
 import { TELEGRAM_MESSAGE_MAX_CHARS } from "../consts/telegram";
 import { TRANSLATE_CHAT_BACKLOG_MAX } from "../consts/translate";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { sendMessage } from "../infra/telegram";
 import { translateMessageBacklogs, translateMessageRunner, translateRuntime } from "../cache/main/translate";
 import { logger } from "../infra/logger";

@@ -10,7 +10,7 @@ import { isUserBlocked } from "../infra/blocklist/membership";
 import { requestBlocklistResweep, sweepBlockedMembers } from "../infra/blocklist/sweep";
 import { registerChatTeardown } from "../infra/chatTeardownRegistry";
 import { readJoinLog } from "../infra/diskIO";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { currentUpdateAbortSignal, throwIfUpdateAborted } from "../infra/updateContext";
 import { batchKickChats } from "../cache/main/batchKick";
 import {

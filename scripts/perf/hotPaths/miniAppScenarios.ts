@@ -13,7 +13,7 @@ import {
   MAX_SUMMARY_ROUNDS,
 } from "../../../packages/consts/aiChat/memory";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
-import { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import {
   deriveMiniAppInitDataSecretKey,
   verifyMiniAppInitData,

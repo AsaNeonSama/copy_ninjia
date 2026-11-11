@@ -11,7 +11,7 @@
  */
 
 import type { ChatFullInfo, ChatMember, ChatPermissions } from "grammy/types";
-import { getChatStateCache } from "../infra/storage/stateStore";
+import { getChatStateCache } from "../infra/chatStateStorage";
 import { runTelegramAction } from "../infra/telegram/actions/core";
 import { bot } from "../infra/telegram/mainClient";
 import { telegramSignal } from "../libs/telegramSignal";

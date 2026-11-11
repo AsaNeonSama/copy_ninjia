@@ -65,8 +65,10 @@ describe("decodeGlobalStateFile", () => {
     }
   });
 
-  test("顶层必须是对象且 copy 必填", () => {
+  test("顶层必须是对象且 copy 与 copiedUser 必填（含值为 undefined 的键）", () => {
     expect(() => decode({})).toThrow("state.json: $.copy must be present.");
+    expect(() => decode({ copy: undefined })).toThrow("state.json: $.copy must be present.");
+    expect(() => decode({ copy: { copiedUser: undefined } })).toThrow("state.json: $.copy.copiedUser must be present.");
     for (const value of [null, [], "x"]) {
       expect(() => decode(value)).toThrow("state.json: $ must be an object.");
     }

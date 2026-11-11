@@ -37,7 +37,7 @@ mock.module("../../packages/infra/logger", () => ({
 }));
 mock.module("../../packages/infra/botAdmin", () => ({ completeChatDeparture }));
 mock.module("../../packages/libs/sleep", () => ({ sleepUnlessAborted }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: () => states,
   getChatState,
   getOrCreateChatState: (chatId: number) => states.get(chatId)!,

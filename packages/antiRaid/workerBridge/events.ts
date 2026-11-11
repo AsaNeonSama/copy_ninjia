@@ -18,7 +18,7 @@ import {
   getOrCreateChatState,
   persistChatState,
   saveChatStateInBackground,
-} from "../../infra/storage/stateStore";
+} from "../../infra/chatStateStorage";
 import type { AntiRaidWorkerEvent } from "../../types/antiRaid/events";
 import type { AntiRaidWorkerMessage } from
   "../../types/antiRaid/protocol";

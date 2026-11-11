@@ -10,11 +10,9 @@ import type {
   hydrateIdentityStorageCounts,
   queueIdentityPolicyWrite,
 } from "../../../packages/infra/identityStorage";
-import type { persistChatState } from
+import type { getOrCreateChatState, persistChatState } from
   "../../../packages/infra/chatStateStorage";
 import type { setChatQa } from "../../../packages/infra/qaStore";
-import type { getOrCreateChatState } from
-  "../../../packages/infra/storage/stateStore";
 import type {
   flushDiskIO,
   flushDiskIODomain,

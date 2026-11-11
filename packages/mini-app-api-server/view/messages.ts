@@ -4,7 +4,7 @@ import {
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
   MINI_APP_MESSAGES_MAX_PAGE_SIZE,
 } from "../../consts/miniApp";
-import { getChatState } from "../../infra/storage/stateStore";
+import { getChatState } from "../../infra/chatStateStorage";
 import { parseAiMemorySnapshot } from "../../libs/persistedSnapshotCodec";
 import type {
   AiMemorySnapshot,

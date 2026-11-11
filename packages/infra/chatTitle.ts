@@ -10,7 +10,7 @@ import {
   getChatState,
   getOrCreateChatState,
   saveChatStateInBackground,
-} from "./storage/stateStore";
+} from "./chatStateStorage";
 import { chatTitleRefreshRuntime } from "../cache/main/chatTitle";
 import {
   CHAT_ABSENCE_CONFIRM_ATTEMPTS,

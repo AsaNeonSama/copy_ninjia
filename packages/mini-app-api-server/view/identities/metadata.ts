@@ -4,7 +4,7 @@ import { BIDI_CONTROL_PATTERN } from "../../../consts/text";
 import { WHITELIST_PERMISSION_KEYS } from "../../../consts/whitelist";
 import { chatAtmosphere } from "../../../infra/atmosphere";
 import { identityMetadataFromCachedUser } from "../../../infra/identityStorage";
-import { getChatStateCache } from "../../../infra/storage/stateStore";
+import { getChatStateCache } from "../../../infra/chatStateStorage";
 import { probeTelegramChatInfoSilent } from "../../../infra/telegram/actions/miniApp";
 import { bot } from "../../../infra/telegram/mainClient";
 import { stripLeadingAtSigns } from "../../../libs/text";

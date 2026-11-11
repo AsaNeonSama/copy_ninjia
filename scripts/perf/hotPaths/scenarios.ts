@@ -9,7 +9,7 @@ import {
   observeGroupMessageForAiReply,
 } from "../../../packages/auto/message/aiReplyActivity";
 import { chatStateCache } from "../../../packages/cache/main/chatState";
-import { getChatState, getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import type { ChatState } from "../../../packages/types/chatState";
 import { BoundedDeque } from "../../../packages/libs/boundedDeque";
 import { tryConsumeSlidingWindow } from "../../../packages/libs/slidingWindowRateLimit";

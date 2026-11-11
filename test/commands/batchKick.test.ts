@@ -73,7 +73,7 @@ const {
 const { DEFERRED_COMMAND_MAX_CONCURRENT } = await import("../../packages/consts/deferredCommands");
 const { deferredCommandRuntime } = await import("../../packages/cache/main/deferredCommands");
 const { batchKickChats } = await import("../../packages/cache/main/batchKick");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 
 /** 等延迟命令执行器里已接纳的任务（含排队中的）全部结算。 */
 async function settleDeferredCommands(): Promise<void> {

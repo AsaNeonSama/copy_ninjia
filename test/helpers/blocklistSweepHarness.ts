@@ -112,7 +112,7 @@ mock.module("../../packages/infra/diskIO", () => (diskIOStub({
   // /block 只等黑名单这一个领域的落盘回执（见 confirmBlocklistPersisted）。
   flushDiskIODomain: async (): Promise<{ result: FlushResult }> => ({ result: "flushed" }),
 })));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: (): ReadonlyMap<number, Record<string, unknown>> => states,
   getChatState: (chatId: number): Record<string, unknown> => states.get(chatId) ?? {},
   getOrCreateChatState: (chatId: number): Record<string, unknown> => {

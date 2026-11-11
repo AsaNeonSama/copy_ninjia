@@ -60,11 +60,13 @@ mock.module("../../packages/infra/telegram", () => ({
   logApiError: (): void => {},
 }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
-  clearChatStateField: (): boolean => false,
-  disableChatStateSwitch: (): boolean => false,
   activeCopyTargetIdIn: (): number | undefined => autoMessageCopyState.targetId,
   persistGlobalState: async (): Promise<void> => {},
   activeCopyModeIn: (): undefined => undefined,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
+  clearChatStateField: (): boolean => false,
+  disableChatStateSwitch: (): boolean => false,
   getActiveProxySendTarget: (): undefined => undefined,
   getChatState: (chatId: number): Record<string, unknown> => ({
     translate: autoMessageTranslateSessions.get(chatId),

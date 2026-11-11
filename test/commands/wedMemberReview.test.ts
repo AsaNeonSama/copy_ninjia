@@ -16,7 +16,7 @@ import { WED_MEMBER_REVIEW_INTERVAL_MS, WED_OPERATION_TIMEOUT_MS } from "../../p
 import { DAY_MS } from "../../packages/consts/time";
 import * as diskIO from "../../packages/infra/diskIO";
 import { logger } from "../../packages/infra/logger";
-import { getChatState, getOrCreateChatState } from "../../packages/infra/storage/stateStore";
+import { getChatState, getOrCreateChatState } from "../../packages/infra/chatStateStorage";
 
 installTokyoFixtureTimeZone();
 

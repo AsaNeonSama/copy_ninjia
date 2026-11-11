@@ -31,7 +31,7 @@ import { completeChatDeparture } from "../infra/botAdmin";
 import { observeWedMemberDeparture, observeWedMembers } from "../commands/wed/members";
 import { SLASH_CHAR_CODE } from "../consts/commands";
 import { logger } from "../infra/logger";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { DEFAULT_CHAT_STATE } from "../libs/chatState";
 import { handleMiniAppSharedMessage } from "../mini-app-api-server/picker/sharedMessage";
 import { isIdentityPolicyCached, prefetchIdentityPolicies } from "../infra/identityStorage";

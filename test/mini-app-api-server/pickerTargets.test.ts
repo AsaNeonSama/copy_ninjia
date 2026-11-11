@@ -27,7 +27,7 @@ const {
   MINI_APP_SESSION_HEADER,
 } = await import("../../packages/consts/miniApp");
 const { getChatState, getOrCreateChatState } = await import(
-  "../../packages/infra/storage/stateStore"
+  "../../packages/infra/chatStateStorage"
 );
 const {
   handleMiniAppSharedMessage,

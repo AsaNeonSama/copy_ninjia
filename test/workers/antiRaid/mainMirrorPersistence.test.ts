@@ -31,7 +31,7 @@ const {
 type FlushResult = "flushed" | "timedOut" | "failed";
 
 const antiRaid = await import("../../../packages/antiRaid");
-const { getChatState } = await import("../../../packages/infra/storage/stateStore");
+const { getChatState } = await import("../../../packages/infra/chatStateStorage");
 
 /** 与前置链一致：按消息所在群读一次群状态快照，再交给入群守卫 ingress。 */
 function handleAntiRaidMessageIngress(message: Message, botId: number): boolean | Promise<boolean> {

@@ -21,7 +21,7 @@ import { readJoinLog } from "../../../infra/diskIO";
 import {
   getChatState,
   getChatStateCache,
-} from "../../../infra/storage/stateStore";
+} from "../../../infra/chatStateStorage";
 import { parseAiMemorySnapshot } from "../../../libs/persistedSnapshotCodec";
 import { verificationKey } from "../../../libs/verificationKey";
 import { isTerminalVerificationPhase } from "../../../states/verification/shared";

@@ -15,7 +15,7 @@ import { projectBotActionPermissions } from "../../libs/chatMember";
 import {
   getChatState,
   getChatStateCache,
-} from "../../infra/storage/stateStore";
+} from "../../infra/chatStateStorage";
 import type {
   AdoptVerificationsMessage,
   AntiRaidWorkerMessage,

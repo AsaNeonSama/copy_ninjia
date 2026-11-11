@@ -17,7 +17,7 @@ import type { BatchKickStats } from "../../../types/batchKick";
 import { HOUR_MS } from "../../../consts/time";
 import { readJoinLog } from "../../../infra/diskIO";
 import { logger } from "../../../infra/logger";
-import { getChatState } from "../../../infra/storage/stateStore";
+import { getChatState } from "../../../infra/chatStateStorage";
 import { runTelegramAction } from "../../../infra/telegram/actions/core";
 import { telegramApi } from "../../../infra/telegram/client";
 import { telegramSignal } from "../../../libs/telegramSignal";

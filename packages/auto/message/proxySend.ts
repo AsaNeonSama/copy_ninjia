@@ -5,7 +5,7 @@ import {
   disableChatStateSwitch,
   getActiveProxySendTarget,
   persistChatState,
-} from "../../infra/storage/stateStore";
+} from "../../infra/chatStateStorage";
 import { copyMessage, sendMessage } from "../../infra/telegram";
 import { handleProxyTtsRequest, parseProxyTtsRequest } from "./proxyTts";
 import type { ProxyTtsRequest } from "../../types/proxySend";

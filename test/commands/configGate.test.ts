@@ -48,6 +48,9 @@ mock.module("../../packages/aiChat", () => ({
 mock.module("../../packages/antiRaid", () => ({ clearAdDetection }));
 mock.module("../../packages/commands/copy", () => ({ handleCopyCommand }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
+  persistGlobalState: async (): Promise<void> => {},
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getOrCreateChatState(chatId: number): Record<string, unknown> {
     let state = states.get(chatId);
     if (!state) {
@@ -65,7 +68,6 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
   getChatState: (chatId: number): Record<string, unknown> => states.get(chatId) ?? {},
   getChatStateCache: (): ReadonlyMap<number, Record<string, unknown>> => states,
   persistChatState,
-  persistGlobalState: async (): Promise<void> => {},
 }));
 
 const { refuseIfConfigBroken } = await import("../../packages/commands/configGate");

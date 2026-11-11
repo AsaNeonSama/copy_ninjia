@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
 const {
   isBotCommandText,

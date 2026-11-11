@@ -6,7 +6,7 @@ import type { TranslateState } from "../types/translate";
 import { translateConfigReadiness } from "../config/readiness";
 import { TRANSLATE_ARGUMENT_PATTERN, TRANSLATE_STOP_ARGUMENT_PATTERN, TRANSLATE_LANGUAGE_LABELS, TRANSLATE_LIST_JSON_INDENT, TRANSLATE_LIST_JSON_LANGUAGE } from "../consts/translate";
 
-import { getChatState, persistChatState } from "../infra/storage/stateStore";
+import { getChatState, persistChatState } from "../infra/chatStateStorage";
 import { replyCommandNotice, sendCommandMessage } from "../infra/telegram";
 import { explicitReplyTo } from "../libs/forumTopic";
 import { isTelegramGroupChatId } from "../libs/telegramId";

@@ -17,7 +17,7 @@ import { MAX_SUMMARY_ROUNDS, VERBATIM_CONTEXT_MAX } from "../consts/aiChat/memor
 import { aiMemoryUsages } from "../cache/main/aiChat";
 import { GAG_SESSION_MAX } from "../consts/gag";
 import { readBotProcessStatus } from "../infra/processStatus";
-import { getChatState } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { sendCommandMessage } from "../infra/telegram";
 import { telegramOutboundStats } from "../infra/telegram/outboundLifecycle";
 import type { AiMemoryUsage } from "../types/aiChat/memory";

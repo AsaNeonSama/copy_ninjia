@@ -8,8 +8,10 @@ import { observeMediaGroupImage } from "../../infra/mediaGroups";
 import {
   activeCopyModeIn,
   activeCopyTargetIdIn,
-  getChatState,
 } from "../../infra/storage/stateStore";
+import {
+  getChatState,
+} from "../../infra/chatStateStorage";
 import { forumTopicThreadId } from "../../libs/forumTopic";
 import { isQuietUntilActive } from "../../libs/chatState";
 import type { AiBotInfo } from "../../types/aiChat/protocol";

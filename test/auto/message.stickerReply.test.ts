@@ -28,7 +28,7 @@ const { clearUserReplyTriggerTimes } =
   await import("../../packages/auto/message/triggerPolicy");
 
 const { handleIncomingMessageMiddleware: handleIncomingMessageWithState } = await import("../../packages/auto/message");
-const { getChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState } = await import("../../packages/infra/chatStateStorage");
 const { DEFAULT_CHAT_STATE } = await import("../../packages/libs/chatState");
 
 /** 与前置链一致：读一次本条消息所在群的状态快照，再交给自动流水线。 */

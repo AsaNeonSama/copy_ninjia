@@ -100,7 +100,7 @@ mock.module("../../../packages/cache/main/antiRaid/verificationMirror", () => ({
   isActiveVerificationUser: (chatId: number, userId: number): boolean => activeVerificationSnapshots.has(`${chatId}:${userId}`),
 }));
 mock.module("../../../packages/infra/diskIO", () => (diskIOStub({ postDiskIODiagnostic: postDiskIO })));
-mock.module("../../../packages/infra/storage/stateStore", () => ({
+mock.module("../../../packages/infra/chatStateStorage", () => ({
   getChatStateCache: () => chatStates,
   getChatState,
 }));

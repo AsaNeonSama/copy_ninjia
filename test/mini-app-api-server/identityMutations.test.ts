@@ -24,7 +24,7 @@ const { resetIdentityStorageCache } = await import("../../packages/cache/main/id
 const { telegramApiState } = await import("../../packages/cache/perThread/telegramApi");
 const { SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { logger } = await import("../../packages/infra/logger");
-const { getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 const {
   setWhitelistEntryMembership,
   setWhitelistEntryPermission,

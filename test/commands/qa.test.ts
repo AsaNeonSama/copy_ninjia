@@ -49,7 +49,7 @@ mock.module("../../packages/infra/telegram", () => ({
   editMessageText,
   logApiError: (): void => {},
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (): object => ({}),
 }));
 mock.module("../../packages/users/userLabel", () => ({

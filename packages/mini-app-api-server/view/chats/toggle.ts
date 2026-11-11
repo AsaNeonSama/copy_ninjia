@@ -18,7 +18,7 @@ import {
   getChatState,
   getOrCreateChatState,
   persistChatState,
-} from "../../../infra/storage/stateStore";
+} from "../../../infra/chatStateStorage";
 import { stopTranslation } from "../../../translate/state";
 import type { ChatToggleFeature } from "../../../types/chatState";
 import type { ConfigReadiness } from "../../../types/config";

@@ -40,12 +40,14 @@ import { acquireSingleInstanceLock, releaseSingleInstanceLock } from "../infra/s
 import { hydrateChatQaCache } from "../infra/qaStore";
 import {
   flushStateToDisk,
-  getChatStateCache,
   getGlobalCopyState,
-  hydrateChatStateCache,
   loadState as loadGlobalState,
   setStatePersistenceFatalHandler,
 } from "../infra/storage/stateStore";
+import {
+  getChatStateCache,
+  hydrateChatStateCache,
+} from "../infra/chatStateStorage";
 import {
   drainPendingMessageDeletions,
 } from "../infra/telegram";

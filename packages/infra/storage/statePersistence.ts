@@ -215,9 +215,8 @@ export class StateStore {
     }
     let json: string;
     try {
-      json = JSON.stringify(schema, null, 2);
-      // 写出前用启动期同一严格 codec 再解码一次，磁盘只接收可被再次加载的值。
-      decodeGlobalStateFile(JSON.parse(json), this.stateFilePath);
+      // 写出前用启动期同一严格 codec 先解码校验，磁盘只接收可被再次加载的值。
+      json = JSON.stringify(decodeGlobalStateFile(schema, this.stateFilePath), null, 2);
     } catch (error: unknown) {
       const reason: Error = toError(error);
       return Promise.reject(reason);

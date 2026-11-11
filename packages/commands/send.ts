@@ -1,7 +1,7 @@
 import { telegramSignal } from "../libs/telegramSignal";
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
-import { disableChatStateSwitch, getActiveProxySendTarget, getChatState, getOrCreateChatState, persistChatState } from "../infra/storage/stateStore";
+import { disableChatStateSwitch, getActiveProxySendTarget, getChatState, getOrCreateChatState, persistChatState } from "../infra/chatStateStorage";
 import { logApiError, replyCommandNotice } from "../infra/telegram";
 import { bot } from "../infra/telegram/mainClient";
 import {

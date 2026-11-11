@@ -10,7 +10,7 @@ import {
   persistChatState,
   purgeChatStateExceptLockdown,
   saveChatStateInBackground,
-} from "./storage/stateStore";
+} from "./chatStateStorage";
 import {
   botPermissionFetches,
   botPermissionObserver,

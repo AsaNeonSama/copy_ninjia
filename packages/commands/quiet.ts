@@ -1,7 +1,7 @@
 import { chatAtmosphere } from "../infra/atmosphere";
 import type { CommandContext, Context } from "grammy";
 import type { ChatState } from "../types/chatState";
-import { clearChatStateField, getChatState, getOrCreateChatState, persistChatState } from "../infra/storage/stateStore";
+import { clearChatStateField, getChatState, getOrCreateChatState, persistChatState } from "../infra/chatStateStorage";
 import { replyCommandNotice } from "../infra/telegram";
 import { DURATION_UNIT_MS, QUIET_DEFAULT_MINUTES, QUIET_MAX_MINUTES, QUIET_MIN_MINUTES, QUIET_MINUTES_PATTERN } from "../consts/commands";
 import { isQuietUntilActive } from "../libs/chatState";

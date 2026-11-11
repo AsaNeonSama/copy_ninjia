@@ -1,4 +1,4 @@
-/** owner: main。全局与群状态权威存储内存状态（packages/infra/storage/stateStore.ts）。 */
+/** owner: main。全局复读与 TTS 用量权威存储内存状态（packages/infra/storage/stateStore.ts）。 */
 
 import type { StateStore } from "../../infra/storage/statePersistence";
 import type { TtsDailyUsage } from "../../types/aiChat/voiceMessage";

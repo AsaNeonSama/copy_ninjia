@@ -60,6 +60,9 @@ mock.module("../../packages/infra/joinLog", () => ({
   recordJoinLog: (): boolean => true,
 }));
 mock.module("../../packages/infra/storage/stateStore", () => ({
+  flushStateToDisk,
+}));
+mock.module("../../packages/infra/chatStateStorage", () => ({
   clearChatStateField: (chatId: number, field: "lockdown"): boolean => {
     const state = chatStates.get(chatId);
     if (!state || !(field in state)) return false;
@@ -75,7 +78,6 @@ mock.module("../../packages/infra/storage/stateStore", () => ({
     return current;
   },
   persistChatState: async (): Promise<void> => saveState(),
-  flushStateToDisk,
   saveChatStateInBackground: (_chatId: number, context: string): void => { saveStateInBackground(context); },
 }));
 mock.module("../../packages/infra/telegram/actions", () => ({

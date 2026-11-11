@@ -50,13 +50,15 @@ function knownKeys(value: Record<string, unknown>, allowed: readonly string[], c
 }
 
 /**
- * 校验对象必须包含指定的属性键。
+ * 校验对象必须包含指定的属性键且其值不为 undefined。
  * @param value 待校验的对象记录。
  * @param key 必须存在的属性名。
  * @param context 当前字段路径上下文。
  */
 function requiredKey(value: Record<string, unknown>, key: string, context: InputFieldContext): void {
-  if (!(key in value)) invalidInput(context.source, `${context.path}.${key}`, "present");
+  if (!(key in value) || value[key] === undefined) {
+    invalidInput(context.source, `${context.path}.${key}`, "present");
+  }
 }
 
 /**
@@ -135,7 +137,7 @@ function globalTtsUsage(value: unknown, context: InputFieldContext): TtsDailyUsa
 /**
  * 解码完整的全局状态文件；顶层只接受 copy（必填）与 ttsUsage（可缺省），任何存在但
  * 非法的字段都会拒绝整个文件（见 types/chatState.ts 的 GlobalState）。
- * @param value JSON.parse 产出的未知根值。
+ * @param value JSON.parse 产出或待写盘的内存未知根值。
  * @param source 出现在报错里的文件路径。
  * @returns 严格校验后的全局状态对象。
  */

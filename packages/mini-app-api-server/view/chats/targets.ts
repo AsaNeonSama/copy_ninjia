@@ -22,7 +22,7 @@ import {
   getChatState,
   getChatStateCache,
   persistChatState,
-} from "../../../infra/storage/stateStore";
+} from "../../../infra/chatStateStorage";
 import { setTranslateState, stopTranslation } from "../../../translate/state";
 import type { CachedUser, ChatState } from "../../../types/chatState";
 import type { TelegramIdentityMetadata } from "../../../types/identityPolicy";

@@ -26,7 +26,7 @@ import type { miniAppAuthSessions } from "../../../packages/cache/main/miniApp";
 import type { chatQaEntries } from "../../../packages/cache/main/qa";
 import type { flushDiskIODomain } from "../../../packages/infra/diskIO";
 import type { recordJoinLog } from "../../../packages/infra/joinLog";
-import type { getOrCreateChatState } from "../../../packages/infra/storage/stateStore";
+import type { getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import type { issueMiniAppAuthSession } from "../../../packages/mini-app-api-server/auth/session";
 import type { ChatState } from "../../../packages/types/chatState";
 import type { DomainFlushOutcome } from "../../../packages/types/diskIO";

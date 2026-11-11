@@ -9,7 +9,7 @@ mock.module("../../packages/infra/telegram", () => ({
   sendCommandMessage: sendMessage,
   replyCommandNotice: replyCommandNoticeVia(sendMessage),
 }));
-mock.module("../../packages/infra/storage/stateStore", () => ({
+mock.module("../../packages/infra/chatStateStorage", () => ({
   getChatState: (chatId: number): Record<string, unknown> => states.get(chatId) ?? {},
   getOrCreateChatState(chatId: number): Record<string, unknown> {
     let state = states.get(chatId);

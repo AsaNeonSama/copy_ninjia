@@ -62,7 +62,7 @@ mock.module("../../packages/antiRaid/temporaryAdBypass", () => ({
 
 const { handleAntiRaidMessageIngress } = await import("../../packages/antiRaid/updateIngress");
 const { adCandidatePostRejected } = await import("../../packages/cache/main/antiRaid/proxy");
-const { getChatState, getOrCreateChatState } = await import("../../packages/infra/storage/stateStore");
+const { getChatState, getOrCreateChatState } = await import("../../packages/infra/chatStateStorage");
 
 /** 一条开着广告检测的超级群里的普通文本消息；只有 message_id 逐条不同。 */
 function ingest(messageId: number, chatId: number = CHAT_ID): boolean | Promise<boolean> {

@@ -1,6 +1,7 @@
 import type { Context } from "grammy";
 import type { CopyableReaction } from "../types/telegram";
-import { activeCopyTargetIdIn, getChatState } from "../infra/storage/stateStore";
+import { activeCopyTargetIdIn } from "../infra/storage/stateStore";
+import { getChatState } from "../infra/chatStateStorage";
 import { setMessageReactions } from "../infra/telegram";
 import { logger } from "../infra/logger";
 import type { MessageReactionUpdated } from "grammy/types";
