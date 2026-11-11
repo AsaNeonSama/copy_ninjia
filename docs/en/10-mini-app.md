@@ -1,11 +1,11 @@
-# 11 Mini App Setup and Recommended Configuration
+# 10 Mini App Setup and Recommended Configuration
 
 <p align="center">
-  <a href="../cn/11-mini-app.md">简体中文</a> · <b>English</b> · <a href="../ja/11-mini-app.md">日本語</a>
+  <a href="../cn/10-mini-app.md">简体中文</a> · <b>English</b> · <a href="../ja/10-mini-app.md">日本語</a>
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="10-performance.md">← Prev: 10 Performance</a> · <a href="12-faq.md">Next: 12 FAQ →</a>
+  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="09-commands.md">← Prev: 09 Command Reference</a> · <a href="11-performance.md">Next: 11 Performance Benchmark →</a>
 </p>
 
 ---
@@ -150,6 +150,6 @@ After logging in with your access password, binding a single Google Authenticato
 
 <div align="center">
 
-[← Prev: 10 Performance](10-performance.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#11-mini-app-setup-and-recommended-configuration) · [Next: 12 FAQ →](12-faq.md)
+[← Prev: 09 Command Reference](09-commands.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#10-mini-app-setup-and-recommended-configuration) · [Next: 11 Performance Benchmark →](11-performance.md)
 
 </div>

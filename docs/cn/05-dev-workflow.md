@@ -30,7 +30,7 @@
 | `bun run perf:hot-path-gate` | **热路径性能门禁** | 精选热路径场景的内存/GC/JIT 硬门禁（已并入 `check`） |
 | `bun run perf:join-log` | 入群日志性能基准 | 入群日志容量/快照/追加记账的独立进程对照基准 |
 | `bun run perf:identity-database` | 身份数据库基准 | 身份数据库冷热读写、主线程 LRU 读与写透链路的独立进程基准 |
-| `bun run perf:full` | 全量性能基准套件 | 各分区按默认轮数跑独立子进程（`--write-doc` 写回三语 10 性能页及 `performance-result.json`） |
+| `bun run perf:full` | 全量性能基准套件 | 各分区按默认轮数跑独立子进程（`--write-doc` 写回三语 11 性能页及 `performance-result.json`） |
 | `bun run perf:review` | 专项性能复核 | 涵盖热路径、AI 回复/载荷/语音编码、完整命令链与 Disk I/O Worker 压力 |
 | `bun run build -- --version <tag>` | 构建二进制包 | 必须显式传入无前缀版本号，在当前平台产出 `dist/` 发行包及 SHA-256 |
 | `bun run release:check -- --version <tag>` | 发布前全量自检 | frozen lockfile + check + 覆盖率对账 + 故障注入 + 二进制构建验证 |
@@ -179,7 +179,7 @@
 5. **容器与算法分区**：评估系统核心状态容器的插入、检索与高频算法运算开销。
 6. **入群日志容量线**：在大规模入群日志堆积下的读写与处理性能。
 
-所有基准测试数据均写入仓库根目录的 `performance/` 临时目录（运行结束后自动删除整棵目录）。添加 `--write-doc` 参数可同步更新三语 `10-performance.md` 文档与 `performance-result.json`。`--rounds <n>` 参数仅用于本地快速排查，非默认轮数的测试数据严禁提交至版本控制。
+所有基准测试数据均写入仓库根目录的 `performance/` 临时目录（运行结束后自动删除整棵目录）。添加 `--write-doc` 参数可同步更新三语 `11-performance.md` 文档与 `performance-result.json`。`--rounds <n>` 参数仅用于本地快速排查，非默认轮数的测试数据严禁提交至版本控制。
 
 ---
 
@@ -218,7 +218,7 @@ bun run test:coverage 2>&1 | grep 'All files'  # 获取函数与行覆盖率
    - 在 `dev` 分支完成开发并通过 `bun run check`，必要时运行 `bun run test:fault-injection`。
 2. **更新性能基准读数**：
    - 停止本地服务进程及其他高负载任务，确保机器处于空闲状态；
-   - 运行 `bun run perf:full -- --write-doc`，将三份语言的 `10-performance.md` 与 `performance-result.json` 同步至最新实测读数，并与代码变更一同提交到 `dev`。
+   - 运行 `bun run perf:full -- --write-doc`，将三份语言的 `11-performance.md` 与 `performance-result.json` 同步至最新实测读数，并与代码变更一同提交到 `dev`。
 3. **逐平台原生构建**：
    - 目标平台涵盖 `RELEASE_PLATFORMS` 声明的平台（`linux-x64`、`linux-arm64`、`linux-x64-musl`、`linux-arm64-musl`）；
    - 在各原生操作系统环境中，检出干净的对应提交并运行 `bun run release:build -- --version <tag>`；

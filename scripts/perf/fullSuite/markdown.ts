@@ -389,7 +389,7 @@ function renderColdStartCaption(
 /**
  * 渲染一份语言的完整区块，含首尾标记。
  *
- * 区块嵌进 `docs/<lang>/10-performance.md`：页标题、语言切换和上下页导航是那一页
+ * 区块嵌进 `docs/<lang>/11-performance.md`：页标题、语言切换和上下页导航是那一页
  * 手写的部分，生成块只含标记之间的读数，重跑基准时按标记整块替换。
  * @param report 全量性能基准报告。
  * @param language 目标文档语言。

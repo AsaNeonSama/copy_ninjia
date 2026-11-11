@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 ドキュメントホーム</a> · <a href="08-images-and-cron.md">← 前のページ：08 画像ライブラリと定時タスク</a> · <a href="10-performance.md">次のページ：10 パフォーマンスベンチマーク →</a>
+  <a href="content-table.md">📚 ドキュメントホーム</a> · <a href="08-images-and-cron.md">← 前のページ：08 画像ライブラリと定時タスク</a> · <a href="10-mini-app.md">次のページ：10 Mini App の設定方法と推奨構成 →</a>
 </p>
 
 ---
@@ -326,7 +326,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 
 ## 🖥️ Mini App 管理コンソール：API と権限境界
 
-`config/static/bot.json` に任意の `mini_app` オブジェクトが設定されている場合、ローカル `Bun.serve` HTTP サーバー（サーバー実装は `packages/mini-app-api-server/`、フロントエンドは `packages/mini-app-frontend/`）が起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）が配置されます。フィールドの仕様は [デプロイ設定説明](../../config_example/README/ja.md#botjson)、完全な設定手順と Cloudflare Tunnel 推奨構成は [11 Mini App の設定方法と推奨構成](11-mini-app.md) を参照してください。
+`config/static/bot.json` に任意の `mini_app` オブジェクトが設定されている場合、ローカル `Bun.serve` HTTP サーバー（サーバー実装は `packages/mini-app-api-server/`、フロントエンドは `packages/mini-app-frontend/`）が起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）が配置されます。フィールドの仕様は [デプロイ設定説明](../../config_example/README/ja.md#botjson)、完全な設定手順と Cloudflare Tunnel 推奨構成は [10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照してください。
 
 ### 1. 認証とセキュリティ境界
 - **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはまず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証し、次に `initData` ミドルウェアで Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）、ログイン（`POST /api/auth/login`）、ログアウト（`POST /api/auth/logout`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。有効期限内のセッショントークンが発行から 5 分（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）を超えている場合、サーバーは自動的に新しいトークンを発行して有効期限を 45 分（`MINI_APP_SESSION_TTL_MS`）延長し、`X-Mini-App-Session` および `X-Mini-App-Session-Expires-At` レスポンスヘッダー（ならびに `/api/auth/precheck` のレスポンスボディ）で返却するとともに、セッション更新中は静的な `initData.auth_date` を継続許可します。更新後も旧トークンは並行中のリクエスト向けに 5 分間有効です。サーバーが保持するセッションは最大 `MINI_APP_SESSION_MAX`（8）件で、1 セッションは 1 枠のみを占め、満杯時は発行または更新が最も古いセッションを破棄します。
@@ -364,6 +364,6 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 
 <div align="center">
 
-[← 前のページ：08 画像ライブラリと定時タスク](08-images-and-cron.md) · [📚 ドキュメントホーム](content-table.md) · [⬆️ トップへ戻る](#09-コマンドと挙動リファレンス) · [次のページ：10 パフォーマンスベンチマーク →](10-performance.md)
+[← 前のページ：08 画像ライブラリと定時タスク](08-images-and-cron.md) · [📚 ドキュメントホーム](content-table.md) · [⬆️ トップへ戻る](#09-コマンドと挙動リファレンス) · [次のページ：10 Mini App の設定方法と推奨構成 →](10-mini-app.md)
 
 </div>

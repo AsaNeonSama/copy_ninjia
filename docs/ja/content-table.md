@@ -75,14 +75,14 @@
     <td align="center"><nobr><a href="09-commands.md">📖 09 コマンドリファレンス</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
-    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 パフォーマンス</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
     <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App の設定方法と推奨構成</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App の設定方法と推奨構成</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
+    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 パフォーマンス</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>返信がないとき</b></nobr></td>
@@ -149,15 +149,15 @@
    - 全コマンドの権限段階（権限キー / スーパー管理者 / グループメンバー）
    - `/gag`、`/delete_message`、`/block`、`/batch_kick`、広告検出、参加認証などの挙動の詳細
 
-10. **[10 パフォーマンスベンチマーク](10-performance.md)**
-    - `bun run perf:full` の各セクションの計測対象：コールドスタート、本番ホットパス、エンドツーエンドの永続化チェーン、SQLite とメインスレッドキャッシュ、コンテナとアルゴリズム、参加ログ容量線
-    - 各項目を既定のラウンド数で実行し、平均・最小・最大・変動係数を報告
-    - 1 ラウンドあたりの総スループット、総 I/O、モックデータルートの使用量
-
-11. **[11 Mini App の設定方法と推奨構成](11-mini-app.md)**
+10. **[10 Mini App の設定方法と推奨構成](10-mini-app.md)**
     - `config/static/bot.json` の `mini_app` セクションの設定と有効化条件
     - Cloudflare Tunnel（`cloudflared`）による公開 HTTPS エンドポイントの構成、ドメインルーティングと systemd サービス登録手順
     - 個人チャット左下の `App` ボタン、二段階認証、Google Authenticator (TOTP) のバインド手順
+
+11. **[11 パフォーマンスベンチマーク](11-performance.md)**
+    - `bun run perf:full` の各セクションの計測対象：コールドスタート、本番ホットパス、エンドツーエンドの永続化チェーン、SQLite とメインスレッドキャッシュ、コンテナとアルゴリズム、参加ログ容量線
+    - 各項目を既定のラウンド数で実行し、平均・最小・最大・変動係数を報告
+    - 1 ラウンドあたりの総スループット、総 I/O、モックデータルートの使用量
 
 12. **[12 よくある質問](12-faq.md)**
     - Bot が動いているのに返信しない場合の順次確認：初期化、プライバシーモード、AI の反応条件、個人チャット、通知の自動削除、Inline Mode、Bot-to-Bot、既定で無効な保護機能、プロセスの状態

@@ -115,7 +115,7 @@
   </picture>
 </p>
 
-ベンチマークの計測値（コールド/ホットパス · 総スループットと総 I/O · エンドツーエンドのチェーン遅延）は **[📊 10 パフォーマンスベンチマーク](10-performance.md)** にあります。
+ベンチマークの計測値（コールド/ホットパス · 総スループットと総 I/O · エンドツーエンドのチェーン遅延）は **[📊 11 パフォーマンスベンチマーク](11-performance.md)** にあります。
 
 <p align="right"><sub><a href="#copy-ninjia">⬆️ ページ上部へ</a></sub></p>
 
@@ -292,7 +292,7 @@
 - **身元権限キー（`isCanXxx`）**：グループ管理・運用コマンド。`/bot_status`、`/mute` / `/unmute`、`/gag`、`/block`、`/h_image add` および各機能スイッチ。
 - **スーパー管理者（`SUPER_ADMIN_USER_ID`）**：`/init`、`/permission` の権限変更、`/white disable` によるホワイトリスト削除、現在のグループでの `/batch_kick`、指定身分の新しい発言を削除する `/delete_message`、個別チャットでの `/send` 中継および左下の `App` メニューボタン（`MenuButtonWebApp`）から開く Mini App 管理コンソール。`isCanWhiteOther` を持つホワイトリストの身元も、`/white enable` でデフォルト権限のメンバーを追加できます。
 
-画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、Mini App の設定と Cloudflare Tunnel 推奨構成は [11 Mini App の設定方法と推奨構成](11-mini-app.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
+画像ライブラリと cron タスクの設定・使い方は [08 画像ライブラリと定時タスク](08-images-and-cron.md)、Mini App の設定と Cloudflare Tunnel 推奨構成は [10 Mini App の設定方法と推奨構成](10-mini-app.md)、コールド移行手順は [運用マニュアル](07-operations.md) を参照してください。
 
 全コマンド一覧と権限マトリクスは **[📖 09 コマンドと挙動リファレンス](09-commands.md)** にあります。
 
@@ -423,14 +423,14 @@ Copy Ninjia のアーキテクチャ概要、モジュールマップ、実行�
     <td align="center"><nobr><a href="09-commands.md">📖 09 コマンドリファレンス</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
-    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 パフォーマンス</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App コンソール</b></nobr></td>
     <td><code>mini_app</code> の設定、Cloudflare Tunnel による推奨公開構成、二段階認証と TOTP バインド</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App の設定方法と推奨構成</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App の設定方法と推奨構成</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>計測値を見る</b></nobr></td>
+    <td>コールド/ホットパス、総スループットと総 I/O、エンドツーエンドのチェーン遅延のリリースベンチマーク</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 パフォーマンス</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>返信がないとき</b></nobr></td>

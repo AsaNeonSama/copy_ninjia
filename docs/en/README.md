@@ -113,7 +113,7 @@ From commit-by-commit human/AI co-review to repeated full-repository audits and 
   </picture>
 </p>
 
-Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chain latency) live in **[📊 10 Performance Benchmark](10-performance.md)**.
+Benchmark figures (cold/hot paths · total throughput and I/O · end-to-end chain latency) live in **[📊 11 Performance Benchmark](11-performance.md)**.
 
 <p align="right"><sub><a href="#copy-ninjia">⬆️ Back to top</a></sub></p>
 
@@ -286,7 +286,7 @@ Commands are organized into three clear authorization tiers:
 - **Identity Permissions (`isCanXxx`)**: Administrative commands including `/bot_status`, `/mute` / `/unmute`, `/gag`, `/block`, `/h_image add`, and feature switches, granted individually via fine-grained permission rules.
 - **Super Administrator (`SUPER_ADMIN_USER_ID`)**: Strict hard boundaries restricted exclusively to the configured owner ID: `/init` group onboarding, `/permission` grants, `/white disable` member removal, `/batch_kick` mass removal of recent joins, `/delete_message` deletion of a target's new messages, and private `/send` relays and the Mini App Management Console opened via the bottom-left `App` menu button (`MenuButtonWebApp`). Allowlisted users with `isCanWhiteOther` may use `/white enable` to add members, but can only assign default baseline permissions.
 
-Image library and cron task configuration and usage are documented in [08 Images and Scheduled Tasks](08-images-and-cron.md); Mini App setup and the recommended Cloudflare Tunnel configuration are documented in [11 Mini App Setup and Recommended Configuration](11-mini-app.md); offline cold migration steps live in the [Operations Manual](07-operations.md).
+Image library and cron task configuration and usage are documented in [08 Images and Scheduled Tasks](08-images-and-cron.md); Mini App setup and the recommended Cloudflare Tunnel configuration are documented in [10 Mini App Setup and Recommended Configuration](10-mini-app.md); offline cold migration steps live in the [Operations Manual](07-operations.md).
 
 The full command reference and permission matrix are documented in **[📖 09 Command and Behaviour Reference](09-commands.md)**.
 
@@ -415,14 +415,14 @@ Comprehensive architecture overviews, module maps, authoritative runtime invaria
     <td align="center"><nobr><a href="09-commands.md">📖 09 Commands</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>Read the numbers</b></nobr></td>
-    <td>Release benchmark for cold/hot paths, total throughput and I/O, and end-to-end chain latency</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 Performance</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App Console</b></nobr></td>
     <td><code>mini_app</code> setup, recommended Cloudflare Tunnel configuration, two-tier auth, and TOTP binding</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App Setup</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App Setup</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>Read the numbers</b></nobr></td>
+    <td>Release benchmark for cold/hot paths, total throughput and I/O, and end-to-end chain latency</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 Performance</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>Bot not replying</b></nobr></td>

@@ -22,9 +22,9 @@ export interface DocPageTarget {
 
 /** 各语言性能基准页的固定目标；一起更新，不允许只更新其中一份。 */
 export const DOC_PAGE_TARGETS: readonly DocPageTarget[] = [
-  { path: join("docs", "cn", "10-performance.md"), language: "zh" },
-  { path: join("docs", "en", "10-performance.md"), language: "en" },
-  { path: join("docs", "ja", "10-performance.md"), language: "ja" },
+  { path: join("docs", "cn", "11-performance.md"), language: "zh" },
+  { path: join("docs", "en", "11-performance.md"), language: "en" },
+  { path: join("docs", "ja", "11-performance.md"), language: "ja" },
 ];
 
 /**

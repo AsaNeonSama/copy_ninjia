@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 开发者文档首页</a> · <a href="11-mini-app.md">← 上一页：11 Mini App 设置与推荐配置</a> · <b>下一页：无 →</b>
+  <a href="content-table.md">📚 开发者文档首页</a> · <a href="11-performance.md">← 上一页：11 性能基准</a> · <b>下一页：无 →</b>
 </p>
 
 ---
@@ -217,6 +217,6 @@
 
 <div align="center">
 
-[← 上一页：11 Mini App 设置与推荐配置](11-mini-app.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#12-常见问题) · **下一页：无 →**
+[← 上一页：11 性能基准](11-performance.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#12-常见问题) · **下一页：无 →**
 
 </div>

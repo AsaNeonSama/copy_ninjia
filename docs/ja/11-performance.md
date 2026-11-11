@@ -1,11 +1,11 @@
-# 10 パフォーマンスベンチマーク
+# 11 パフォーマンスベンチマーク
 
 <p align="center">
-  <a href="../cn/10-performance.md">简体中文</a> · <a href="../en/10-performance.md">English</a> · <b>日本語</b>
+  <a href="../cn/11-performance.md">简体中文</a> · <a href="../en/11-performance.md">English</a> · <b>日本語</b>
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 ドキュメントホーム</a> · <a href="09-commands.md">← 前のページ：09 コマンドと挙動リファレンス</a> · <a href="11-mini-app.md">次のページ：11 Mini App の設定方法と推奨構成 →</a>
+  <a href="content-table.md">📚 ドキュメントホーム</a> · <a href="10-mini-app.md">← 前のページ：10 Mini App の設定方法と推奨構成</a> · <a href="12-faq.md">次のページ：12 よくある質問 →</a>
 </p>
 
 ---
@@ -165,6 +165,6 @@
 
 <div align="center">
 
-[← 前のページ：09 コマンドと挙動リファレンス](09-commands.md) · [📚 ドキュメントホーム](content-table.md) · [⬆️ トップへ戻る](#10-パフォーマンスベンチマーク) · [次のページ：11 Mini App の設定方法と推奨構成 →](11-mini-app.md)
+[← 前のページ：10 Mini App の設定方法と推奨構成](10-mini-app.md) · [📚 ドキュメントホーム](content-table.md) · [⬆️ トップへ戻る](#11-パフォーマンスベンチマーク) · [次のページ：12 よくある質問 →](12-faq.md)
 
 </div>

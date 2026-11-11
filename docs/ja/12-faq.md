@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 ドキュメントホーム</a> · <a href="11-mini-app.md">← 前のページ：11 Mini App の設定方法と推奨構成</a> · <b>次のページ：なし →</b>
+  <a href="content-table.md">📚 ドキュメントホーム</a> · <a href="11-performance.md">← 前のページ：11 パフォーマンスベンチマーク</a> · <b>次のページ：なし →</b>
 </p>
 
 ---
@@ -214,6 +214,6 @@ Bot プロセスは稼働しているのにグループで応答がないとき�
 
 <div align="center">
 
-[← 前のページ：11 Mini App の設定方法と推奨構成](11-mini-app.md) · [📚 ドキュメントホーム](content-table.md) · [⬆️ トップへ戻る](#12-よくある質問) · **次のページ：なし →**
+[← 前のページ：11 パフォーマンスベンチマーク](11-performance.md) · [📚 ドキュメントホーム](content-table.md) · [⬆️ トップへ戻る](#12-よくある質問) · **次のページ：なし →**
 
 </div>

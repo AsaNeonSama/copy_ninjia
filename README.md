@@ -113,7 +113,7 @@
   </picture>
 </p>
 
-性能基准（冷热路径 · 总吞吐与总读写 · 端到端链路耗时）见 **[📊 10 性能基准](docs/cn/10-performance.md)**。
+性能基准（冷热路径 · 总吞吐与总读写 · 端到端链路耗时）见 **[📊 11 性能基准](docs/cn/11-performance.md)**。
 
 <p align="right"><sub><a href="#copy-ninjia">⬆️ 回到顶部</a></sub></p>
 
@@ -286,7 +286,7 @@
 - **身份策略权限（`isCanXxx`）**：群组管理与运维命令，包括 `/bot_status` 查看系统状态、`/mute` / `/unmute` 禁言控制、`/gag` 限制发言、`/block` 黑名单控制、`/h_image add` 图库入库以及各项功能的启停开关。通过细粒度权限列表单独授权。
 - **超级管理员专属（`SUPER_ADMIN_USER_ID`）**：`/init` 初始化群接管、`/permission` 权限分配、`/white disable` 移除白名单身份、`/batch_kick` 批量清理新成员、`/delete_message` 删除指定身份此后的发言，以及私聊专属的 `/send` 跨群中转与左下角 `App` 菜单按钮（`MenuButtonWebApp`）打开的 Mini App 管理控制台。拥有 `isCanWhiteOther` 权限的普通白名单用户可通过 `/white enable` 协助添加成员，但仅能赋予默认的基础权限。
 
-图库与 cron 定时任务的配置和使用请参阅 [08 图库与定时任务](docs/cn/08-images-and-cron.md)，Mini App 的设置与 Cloudflare Tunnel 推荐配置请参阅 [11 Mini App 设置与推荐配置](docs/cn/11-mini-app.md)，源码与二进制部署的离线冷迁移步骤请参阅 [运维手册](docs/cn/07-operations.md)。
+图库与 cron 定时任务的配置和使用请参阅 [08 图库与定时任务](docs/cn/08-images-and-cron.md)，Mini App 的设置与 Cloudflare Tunnel 推荐配置请参阅 [10 Mini App 设置与推荐配置](docs/cn/10-mini-app.md)，源码与二进制部署的离线冷迁移步骤请参阅 [运维手册](docs/cn/07-operations.md)。
 
 完整命令列表、权限要求与详细行为说明请参阅 **[📖 09 命令与行为参考](docs/cn/09-commands.md)**。
 
@@ -415,14 +415,14 @@ Copy Ninjia 的架构总览、模块导览、运行时权威约束、测试流�
     <td align="center"><nobr><a href="docs/cn/09-commands.md">📖 09 命令参考</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>看性能读数</b></nobr></td>
-    <td>冷热路径、总吞吐与总读写、端到端链路耗时的发布基准</td>
-    <td align="center"><nobr><a href="docs/cn/10-performance.md">📖 10 性能基准</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App 控制台</b></nobr></td>
     <td><code>mini_app</code> 配置、Cloudflare Tunnel 推荐穿透方案、双层认证与 TOTP 绑定</td>
-    <td align="center"><nobr><a href="docs/cn/11-mini-app.md">📖 11 Mini App 设置与推荐配置</a></nobr></td>
+    <td align="center"><nobr><a href="docs/cn/10-mini-app.md">📖 10 Mini App 设置与推荐配置</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>看性能读数</b></nobr></td>
+    <td>冷热路径、总吞吐与总读写、端到端链路耗时的发布基准</td>
+    <td align="center"><nobr><a href="docs/cn/11-performance.md">📖 11 性能基准</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>排查没有回复</b></nobr></td>

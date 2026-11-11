@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 开发者文档首页</a> · <a href="08-images-and-cron.md">← 上一页：08 图库与定时任务</a> · <a href="10-performance.md">下一页：10 性能基准 →</a>
+  <a href="content-table.md">📚 开发者文档首页</a> · <a href="08-images-and-cron.md">← 上一页：08 图库与定时任务</a> · <a href="10-mini-app.md">下一页：10 Mini App 设置与推荐配置 →</a>
 </p>
 
 ---
@@ -330,7 +330,7 @@
 
 ## 🖥️ Mini App 管理控制台：API 与权限边界
 
-当 `config/static/bot.json` 配置了可选的 `mini_app` 对象时，系统会启动本地 `Bun.serve` HTTP 服务（实现在 `packages/mini-app-api-server/`，前端在 `packages/mini-app-frontend/`），并在超级管理员私聊窗口左下角挂载 `MenuButtonWebApp`（`App` 按钮）。字段规范请参阅 [部署配置说明](../../config_example/README/zh.md#botjson)，完整设置方法与 Cloudflare Tunnel 推荐配置请参考 [11 Mini App 设置与推荐配置](11-mini-app.md)。
+当 `config/static/bot.json` 配置了可选的 `mini_app` 对象时，系统会启动本地 `Bun.serve` HTTP 服务（实现在 `packages/mini-app-api-server/`，前端在 `packages/mini-app-frontend/`），并在超级管理员私聊窗口左下角挂载 `MenuButtonWebApp`（`App` 按钮）。字段规范请参阅 [部署配置说明](../../config_example/README/zh.md#botjson)，完整设置方法与 Cloudflare Tunnel 推荐配置请参考 [10 Mini App 设置与推荐配置](10-mini-app.md)。
 
 ### 1. 认证与安全边界
 - **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求先经 `headerGuard` 校验同源与凭据头形态，再经 `initData` 中间件执行 Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）、登录（`POST /api/auth/login`）与登出（`POST /api/auth/logout`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。当请求携带仍在有效期内的会话令牌且距签发时刻超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发给客户端，同时在会话续期期间放行静态 `initData.auth_date`，直至用户停止访问。换发后旧令牌在 5 分钟内仍可用于并发在途请求；服务端最多保留 `MINI_APP_SESSION_MAX`（8）个会话，每个会话只占一个槽位，满额时淘汰签发或刷新最早的会话。
@@ -368,6 +368,6 @@
 
 <div align="center">
 
-[← 上一页：08 图库与定时任务](08-images-and-cron.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#09-命令与行为参考) · [下一页：10 性能基准 →](10-performance.md)
+[← 上一页：08 图库与定时任务](08-images-and-cron.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#09-命令与行为参考) · [下一页：10 Mini App 设置与推荐配置 →](10-mini-app.md)
 
 </div>

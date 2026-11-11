@@ -75,14 +75,14 @@
     <td align="center"><nobr><a href="09-commands.md">📖 09 命令参考</a></nobr></td>
   </tr>
   <tr>
-    <td><nobr>📊 <b>性能基准</b></nobr></td>
-    <td>冷启动、高频热路径、端到端耗时与吞吐量的基准测试结果</td>
-    <td align="center"><nobr><a href="10-performance.md">📖 10 性能基准</a></nobr></td>
-  </tr>
-  <tr>
     <td><nobr>🖥️ <b>Mini App 控制台</b></nobr></td>
     <td><code>mini_app</code> 配置、Cloudflare Tunnel 推荐穿透方案、双层认证与 TOTP 绑定</td>
-    <td align="center"><nobr><a href="11-mini-app.md">📖 11 Mini App 设置与推荐配置</a></nobr></td>
+    <td align="center"><nobr><a href="10-mini-app.md">📖 10 Mini App 设置与推荐配置</a></nobr></td>
+  </tr>
+  <tr>
+    <td><nobr>📊 <b>性能基准</b></nobr></td>
+    <td>冷启动、高频热路径、端到端耗时与吞吐量的基准测试结果</td>
+    <td align="center"><nobr><a href="11-performance.md">📖 11 性能基准</a></nobr></td>
   </tr>
   <tr>
     <td><nobr>❓ <b>排障指引</b></nobr></td>
@@ -149,15 +149,15 @@
    - 完整命令列表与权限矩阵（群成员 / 权限键授权 / 超级管理员专属）
    - 禁言（`/mute`）、口球管教（`/gag`）、删除目标消息（`/delete_message`）、跨群拉黑（`/block`）、群友老婆（`/wed`）、群问答（`/qa`）等功能的详细运行逻辑
 
-10. **[10 性能基准](10-performance.md)**
-    - 基准测试报告：冷启动、高频热路径函数、端到端处理耗时与持久化性能
-    - 多轮运行的均值、最小值、最大值与变异系数统计
-    - 运行期间的系统 I/O 读写与吞吐量实测数据
-
-11. **[11 Mini App 设置与推荐配置](11-mini-app.md)**
+10. **[10 Mini App 设置与推荐配置](10-mini-app.md)**
     - `config/static/bot.json` 中 `mini_app` 字段配置与启用条件
     - 使用 Cloudflare Tunnel（`cloudflared`）暴露公网 HTTPS 入口、配置域名路由与注册 systemd 服务的完整步骤
     - 私聊左下角 `App` 按钮入口、双层安全认证与绑定 Google Authenticator (TOTP) 动态码
+
+11. **[11 性能基准](11-performance.md)**
+    - 基准测试报告：冷启动、高频热路径函数、端到端处理耗时与持久化性能
+    - 多轮运行的均值、最小值、最大值与变异系数统计
+    - 运行期间的系统 I/O 读写与吞吐量实测数据
 
 12. **[12 常见问题](12-faq.md)**
     - 机器人运行中无响应的排查清单：群初始化、隐私模式、AI 触发条件、私聊限制、自删消息规则与权限缺失

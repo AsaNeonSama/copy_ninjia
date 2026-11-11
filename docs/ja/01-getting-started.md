@@ -141,7 +141,7 @@ Bot の基本設定およびグローバルスーパー管理者は `config/stat
 - **`mini_app`**（任意、オブジェクト：`{ url: string, port: number, host?: string, password: string }`）
   - スーパー管理者専用の Telegram Mini App 管理コンソールを設定します。省略時は HTTP サーバー・ルート・個人チャットメニューボタンを一切登録しません。
   - **フィールド要件**：`url` は必須の公開 `https://` URL（サブパスプレフィックスに対応）、`port` は必須のローカル待受ポート（`MINI_APP_PORT_MIN`～`MINI_APP_PORT_MAX` の整数、サンプル設定は `3000`）、`host` は任意で既定値は `MINI_APP_DEFAULT_HOST`（`"127.0.0.1"`）、`password` は必須の初回画面アクセスパスワードです（プレースホルダー以外の文字列で 6 桁以上の数字 `0-9` を含むこと。`config_example/` から手動でコピーして Mini App を使用しない場合は `mini_app` セクションを削除してください）。
-  - **動作と認証**：ローカル `Bun.serve` HTTP コンソールを起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を設定します。`initData` 署名と初回画面資格情報の二段階認証を強制し、任意の Google Authenticator TOTP バインド（`memory/mini-app-totp/totp.json` に永続化）にも対応します。完全な設定手順、Cloudflare Tunnel 推奨構成、セッション再開・ロックアウト規則、TOTP バインドは [11 Mini App の設定方法と推奨構成](11-mini-app.md) を参照してください。
+  - **動作と認証**：ローカル `Bun.serve` HTTP コンソールを起動し、スーパー管理者の個人チャット左下に `MenuButtonWebApp`（`App` ボタン）を設定します。`initData` 署名と初回画面資格情報の二段階認証を強制し、任意の Google Authenticator TOTP バインド（`memory/mini-app-totp/totp.json` に永続化）にも対応します。完全な設定手順、Cloudflare Tunnel 推奨構成、セッション再開・ロックアウト規則、TOTP バインドは [10 Mini App の設定方法と推奨構成](10-mini-app.md) を参照してください。
 
 ---
 

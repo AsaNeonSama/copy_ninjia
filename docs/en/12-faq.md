@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="11-mini-app.md">← Prev: 11 Mini App Setup</a> · <b>Next: None →</b>
+  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="11-performance.md">← Prev: 11 Performance Benchmark</a> · <b>Next: None →</b>
 </p>
 
 ---
@@ -217,6 +217,6 @@ Set `base_url` of capabilities with `provider: "anthropic"` (`text`, `summary`, 
 
 <div align="center">
 
-[← Prev: 11 Mini App Setup](11-mini-app.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#12-faq) · **Next: None →**
+[← Prev: 11 Performance Benchmark](11-performance.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#12-faq) · **Next: None →**
 
 </div>

@@ -1,11 +1,11 @@
-# 11 Mini App の設定方法と推奨構成
+# 10 Mini App の設定方法と推奨構成
 
 <p align="center">
-  <a href="../cn/11-mini-app.md">简体中文</a> · <a href="../en/11-mini-app.md">English</a> · <b>日本語</b>
+  <a href="../cn/10-mini-app.md">简体中文</a> · <a href="../en/10-mini-app.md">English</a> · <b>日本語</b>
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 開発者ドキュメント TOP</a> · <a href="10-performance.md">← 前のページ：10 パフォーマンス</a> · <a href="12-faq.md">次のページ：12 よくある質問 →</a>
+  <a href="content-table.md">📚 開発者ドキュメント TOP</a> · <a href="09-commands.md">← 前のページ：09 コマンドと挙動リファレンス</a> · <a href="11-performance.md">次のページ：11 パフォーマンスベンチマーク →</a>
 </p>
 
 ---
@@ -150,6 +150,6 @@ cloudflared tunnel delete -f <トンネル名>
 
 <div align="center">
 
-[← 前のページ：10 パフォーマンス](10-performance.md) · [📚 開発者ドキュメント TOP](content-table.md) · [⬆️ トップへ戻る](#11-mini-app-の設定方法と推奨構成) · [次のページ：12 よくある質問 →](12-faq.md)
+[← 前のページ：09 コマンドと挙動リファレンス](09-commands.md) · [📚 開発者ドキュメント TOP](content-table.md) · [⬆️ トップへ戻る](#10-mini-app-の設定方法と推奨構成) · [次のページ：11 パフォーマンスベンチマーク →](11-performance.md)
 
 </div>

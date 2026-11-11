@@ -30,7 +30,7 @@
 | `bun run perf:hot-path-gate` | **ホットパス性能ゲート** | 厳選ホットパスシナリオのメモリ / GC / JIT ハードゲート（`check` に組み込み済み） |
 | `bun run perf:join-log` | 入室ログ性能ベンチマーク | 入室ログの容量境界 / スナップショット / 追記記帳の独立プロセスベンチマーク |
 | `bun run perf:identity-database` | ID データベースベンチマーク | データベースのコールド / ホット読み書き、メインスレッド LRU キャッシュ、ライトスルー経路のベンチマーク |
-| `bun run perf:full` | 全量性能ベンチマークスイート | 全セクションを `FULL_SUITE_ROUNDS` ラウンドの独立子プロセスで実行（`--write-doc` で各言語の 10 ドキュメントと `performance-result.json` を更新） |
+| `bun run perf:full` | 全量性能ベンチマークスイート | 全セクションを `FULL_SUITE_ROUNDS` ラウンドの独立子プロセスで実行（`--write-doc` で各言語の 11 ドキュメントと `performance-result.json` を更新） |
 | `bun run perf:review` | 専門性能再検証 | ホットパス、AI 返信 / ペイロード / 音声エンコード、完全コマンドチェーン、Disk I/O 負荷を網羅 |
 | `bun run build -- --version <tag>` | バイナリパッケージ構築 | プレフィックスなしのバージョン指定が必須。現在のプラットフォーム向け `dist/` 配布物と SHA-256 を生成 |
 | `bun run release:check -- --version <tag>` | リリース前全量自検 | frozen lockfile + check + カバレッジ突合 + 障害注入 + バイナリビルド検証 |
@@ -166,7 +166,7 @@
 5. **コンテナとアルゴリズム**：コアステートコンテナの操作および計算所要時間。
 6. **入室ログ容量境界**：上限規模での入室ログ処理性能。
 
-測定データはすべてリポジトリルートの `performance/`（各ラウンド完了後に自動削除）に書き出され、`--write-doc` を付与することで `docs/{cn,en,ja}/10-performance.md` および `performance-result.json` へ同時に反映されます。なお、`--rounds <n>` はローカル検証専用であり、規定外のラウンド数で測定した数値をドキュメントへ書き込んではなりません。
+測定データはすべてリポジトリルートの `performance/`（各ラウンド完了後に自動削除）に書き出され、`--write-doc` を付与することで `docs/{cn,en,ja}/11-performance.md` および `performance-result.json` へ同時に反映されます。なお、`--rounds <n>` はローカル検証専用であり、規定外のラウンド数で測定した数値をドキュメントへ書き込んではなりません。
 
 ---
 
@@ -197,7 +197,7 @@ bun run test:coverage 2>&1 | grep 'All files'  # 関数・行カバレッジ率
 各バージョンのリリース作業は、以下の手順を厳格に順守して実行します：
 
 1. **バージョン決定と品質ゲート**：リモートのタグを同期し、`gh release list` で最新リリースを確認します。`v` プレフィックスのない未採番の `MAJOR.MINOR.PATCH` タグを決定します。`dev` ブランチで `bun run check` を通過させ、永続化・停止・Worker 関連の変更がある場合は `bun run test:fault-injection` も実行します。
-2. **ベンチマーク測定値の更新**：同一マシン上の Bot プロセスおよび高負荷タスクをすべて停止します。マシンが無負荷になった状態で、規定ラウンド数の `bun run perf:full -- --write-doc` を実行し、3 言語の 10 パフォーマンスドキュメントおよび `performance-result.json` の測定値をコードとともに `dev` へコミットします。
+2. **ベンチマーク測定値の更新**：同一マシン上の Bot プロセスおよび高負荷タスクをすべて停止します。マシンが無負荷になった状態で、規定ラウンド数の `bun run perf:full -- --write-doc` を実行し、3 言語の 11 パフォーマンスドキュメントおよび `performance-result.json` の測定値をコードとともに `dev` へコミットします。
 3. **各プラットフォームでのネイティブビルド**：ビルド対象は `RELEASE_PLATFORMS`（`linux-x64`、`linux-arm64`、`linux-x64-musl`、`linux-arm64-musl`）に定義されたプラットフォームです。今回リリースする**各プラットフォームの実機環境**において、同一の Git tree、同一の Bun バージョンで、クリーンな `dev` ブランチから `bun run release:build -- --version <tag>` を実行します。各実行で生成された配布パッケージと `.sha256` ファイルを 1 つのディレクトリに集約します。
 4. **集約資産の検証**：同一 Git tree のクリーンな作業ツリーにおいて、リリース対象プラットフォームの資産が揃っていることを検証します。宣言されたいずれかのプラットフォームの資産が不足している場合は作業を中断します。各パッケージの SHA-256、内包バージョン、プラットフォーム名、Git tree、Bun ビルド番号、必須ファイル、コールドマイグレーション CLI、`.map` や `node_modules` の非混入を厳密に照合します：
    ```bash

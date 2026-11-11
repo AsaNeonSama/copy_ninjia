@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="08-images-and-cron.md">← Prev: 08 Images and Scheduled Tasks</a> · <a href="10-performance.md">Next: 10 Performance Benchmark →</a>
+  <a href="content-table.md">📚 Developer Docs Home</a> · <a href="08-images-and-cron.md">← Prev: 08 Images and Scheduled Tasks</a> · <a href="10-mini-app.md">Next: 10 Mini App Setup →</a>
 </p>
 
 ---
@@ -329,7 +329,7 @@ Scheduled tasks are configured by administrators in `config/dynamic/cron.json` a
 
 ## 🖥️ Mini App Management Console: APIs and Permission Boundaries
 
-When the optional `mini_app` object is configured in `config/static/bot.json`, the system starts a local `Bun.serve` HTTP server (`packages/mini-app-api-server/` with frontend in `packages/mini-app-frontend/`) and attaches `MenuButtonWebApp` (`App` button) in the SuperAdmin's private chat. For field definitions, see the [Configuration Guide](../../config_example/README/en.md#botjson); for full setup and recommended Cloudflare Tunnel configuration, see [11 Mini App Setup and Recommended Configuration](11-mini-app.md).
+When the optional `mini_app` object is configured in `config/static/bot.json`, the system starts a local `Bun.serve` HTTP server (`packages/mini-app-api-server/` with frontend in `packages/mini-app-frontend/`) and attaches `MenuButtonWebApp` (`App` button) in the SuperAdmin's private chat. For field definitions, see the [Configuration Guide](../../config_example/README/en.md#botjson); for full setup and recommended Cloudflare Tunnel configuration, see [10 Mini App Setup and Recommended Configuration](10-mini-app.md).
 
 ### 1. Authentication and Security Boundaries
 - **SuperAdmin Exclusive (`SUPER_ADMIN_USER_ID`)**: Every business API is restricted exclusively to the configured SuperAdmin. Requests first pass `headerGuard` (same-origin and credential header shape checks) and `initData` (Telegram WebApp `initData` HMAC-SHA256 verification, 45-minute freshness check, and `user.id === SUPER_ADMIN_USER_ID`); all business APIs except `GET /api/auth/precheck`, `POST /api/auth/login`, and `POST /api/auth/logout` additionally require a valid 45-minute session token (`X-Mini-App-Session`). When a request carries an unexpired session token issued more than 5 minutes ago (`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`), the server automatically rotates the token and extends `expiresAt` by 45 minutes (`MINI_APP_SESSION_TTL_MS`), returning the refreshed credentials via `X-Mini-App-Session` and `X-Mini-App-Session-Expires-At` response headers (and the `/api/auth/precheck` response body) while permitting the static WebApp `initData.auth_date` across active session renewals until the user stops accessing the console. After rotation the previous token stays valid for 5 minutes for concurrent in-flight requests; the server keeps at most `MINI_APP_SESSION_MAX` (8) sessions, each occupying a single slot, and evicts the session issued or refreshed earliest when full.
@@ -367,6 +367,6 @@ When the optional `mini_app` object is configured in `config/static/bot.json`, t
 
 <div align="center">
 
-[← Prev: 08 Images and Scheduled Tasks](08-images-and-cron.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#09-command-and-behavior-reference) · [Next: 10 Performance Benchmark →](10-performance.md)
+[← Prev: 08 Images and Scheduled Tasks](08-images-and-cron.md) · [📚 Developer Docs Home](content-table.md) · [⬆️ Back to Top](#09-command-and-behavior-reference) · [Next: 10 Mini App Setup →](10-mini-app.md)
 
 </div>

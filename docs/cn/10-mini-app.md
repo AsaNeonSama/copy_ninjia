@@ -1,11 +1,11 @@
-# 11 Mini App 设置与推荐配置
+# 10 Mini App 设置与推荐配置
 
 <p align="center">
-  <b>简体中文</b> · <a href="../en/11-mini-app.md">English</a> · <a href="../ja/11-mini-app.md">日本語</a>
+  <b>简体中文</b> · <a href="../en/10-mini-app.md">English</a> · <a href="../ja/10-mini-app.md">日本語</a>
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 开发者文档首页</a> · <a href="10-performance.md">← 上一页：10 性能基准</a> · <a href="12-faq.md">下一页：12 常见问题 →</a>
+  <a href="content-table.md">📚 开发者文档首页</a> · <a href="09-commands.md">← 上一页：09 命令与行为参考</a> · <a href="11-performance.md">下一页：11 性能基准 →</a>
 </p>
 
 ---
@@ -150,6 +150,6 @@ cloudflared tunnel delete -f <隧道名>
 
 <div align="center">
 
-[← 上一页：10 性能基准](10-performance.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#11-mini-app-设置与推荐配置) · [下一页：12 常见问题 →](12-faq.md)
+[← 上一页：09 命令与行为参考](09-commands.md) · [📚 开发者文档首页](content-table.md) · [⬆️ 回到顶部](#10-mini-app-设置与推荐配置) · [下一页：11 性能基准 →](11-performance.md)
 
 </div>

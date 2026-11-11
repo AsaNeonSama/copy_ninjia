@@ -1,11 +1,11 @@
-# 10 Performance Benchmark
+# 11 Performance Benchmark
 
 <p align="center">
-  <a href="../cn/10-performance.md">简体中文</a> · <b>English</b> · <a href="../ja/10-performance.md">日本語</a>
+  <a href="../cn/11-performance.md">简体中文</a> · <b>English</b> · <a href="../ja/11-performance.md">日本語</a>
 </p>
 
 <p align="center">
-  <a href="content-table.md">📚 Documentation home</a> · <a href="09-commands.md">← Prev: 09 Command Reference</a> · <a href="11-mini-app.md">Next: 11 Mini App Setup →</a>
+  <a href="content-table.md">📚 Documentation home</a> · <a href="10-mini-app.md">← Prev: 10 Mini App Setup</a> · <a href="12-faq.md">Next: 12 FAQ →</a>
 </p>
 
 ---
@@ -165,6 +165,6 @@ For targeted benchmarks and reproduction instructions for `bun run perf:disk-tra
 
 <div align="center">
 
-[← Prev: 09 Command Reference](09-commands.md) · [📚 Documentation home](content-table.md) · [⬆️ Back to Top](#10-performance-benchmark) · [Next: 11 Mini App Setup →](11-mini-app.md)
+[← Prev: 10 Mini App Setup](10-mini-app.md) · [📚 Documentation home](content-table.md) · [⬆️ Back to Top](#11-performance-benchmark) · [Next: 12 FAQ →](12-faq.md)
 
 </div>

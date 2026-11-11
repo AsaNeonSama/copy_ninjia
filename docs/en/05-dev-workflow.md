@@ -30,7 +30,7 @@
 | `bun run perf:hot-path-gate` | **Hot-path performance gate** | Enforces hard memory/GC/JIT limits on core hot paths (included in `check`) |
 | `bun run perf:join-log` | Join-log performance benchmark | Standalone benchmark for join-log capacity limits, snapshots, and append accounting |
 | `bun run perf:identity-database` | Identity database benchmark | Standalone benchmark for cold/hot SQLite reads/writes, main-thread LRU cache, and write-through pipelines |
-| `bun run perf:full` | Full performance benchmark suite | Runs each section across independent child processes for `FULL_SUITE_ROUNDS` rounds (`--write-doc` syncs all three 10 performance docs and `performance-result.json`) |
+| `bun run perf:full` | Full performance benchmark suite | Runs each section across independent child processes for `FULL_SUITE_ROUNDS` rounds (`--write-doc` syncs all three 11 performance docs and `performance-result.json`) |
 | `bun run perf:review` | Targeted performance review | In-depth evaluation covering hot paths, AI replies, audio encoding, full command chains, and Disk I/O Worker pressure |
 | `bun run build -- --version <tag>` | Build binary package | Requires an explicit version with no prefix; produces the `dist/` archive and SHA-256 for the current platform |
 | `bun run release:check -- --version <tag>` | Pre-release full validation | frozen lockfile + check + coverage check + fault injection + binary build verification |
@@ -178,7 +178,7 @@ Gate children, along with the child processes of the full suite, `perf:review`, 
 5. **Containers and algorithms**: CPU time spent in core state containers and high-frequency algorithms.
 6. **Join-log capacity line**: Join-log processing throughput and memory stability at capacity limits.
 
-Benchmark data is written to `performance/` at the repository root and purged immediately upon completion. Running with `--write-doc` writes results to all three `10-performance.md` docs and `performance-result.json`. The `--rounds <n>` option is reserved for local testing and must never be committed to documentation.
+Benchmark data is written to `performance/` at the repository root and purged immediately upon completion. Running with `--write-doc` writes results to all three `11-performance.md` docs and `performance-result.json`. The `--rounds <n>` option is reserved for local testing and must never be committed to documentation.
 
 ---
 
@@ -217,7 +217,7 @@ Every release produces a GitHub Release containing native binary packages built 
    - Finalize development on `dev`, passing `bun run check` and running `bun run test:fault-injection` when relevant.
 2. **Update performance benchmark readings**:
    - Stop background bot services and ensure the host system is idle.
-   - Run `bun run perf:full -- --write-doc` with default rounds. Commit the updated readings in all three `10-performance.md` files and `performance-result.json` to `dev`.
+   - Run `bun run perf:full -- --write-doc` with default rounds. Commit the updated readings in all three `11-performance.md` files and `performance-result.json` to `dev`.
 3. **Native cross-platform builds**:
    - Target platforms are defined in `RELEASE_PLATFORMS` (`linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`).
    - In each platform's native environment, checkout the clean release commit and run `bun run release:build -- --version <tag>`.
