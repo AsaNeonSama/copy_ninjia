@@ -1,10 +1,11 @@
 import { NO_LOCKDOWN_EFFECTS } from "../../consts/antiRaid/lockdown";
 import {
-  announcementCleanupEffects,
+  appendAnnouncementCleanup,
   restoringOf,
   suppressRetrigger,
 } from "./shared";
 import type {
+  LockdownEffect,
   LockdownMachineEvent,
   LockdownState,
   LockdownTransition,
@@ -65,13 +66,12 @@ export function handlePersistFailed(
       return { next: state, effects: NO_LOCKDOWN_EFFECTS };
     }
     if (!state.commitStarted) {
+      const effects: LockdownEffect[] = [{ kind: "reportUnlock" }];
+      appendAnnouncementCleanup(effects, state);
+      effects.push(suppressRetrigger("persistFailed"));
       return {
         next: undefined,
-        effects: [
-          { kind: "reportUnlock" },
-          ...announcementCleanupEffects(state),
-          suppressRetrigger("persistFailed"),
-        ],
+        effects,
       };
     }
   }

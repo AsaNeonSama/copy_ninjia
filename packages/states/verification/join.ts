@@ -94,7 +94,7 @@ function joinExempt(
     return {
       next: exemptOf(event.label, event.isBot),
       effects: state.countedJoinAt === undefined
-        ? []
+        ? NO_VERIFICATION_EFFECTS
         : [{ kind: "retractJoinCount", joinedAt: state.countedJoinAt }],
     };
   }

@@ -168,6 +168,20 @@ export function announcementCleanupEffects(state: LockdownState): readonly Lockd
 }
 
 /**
+ * 若当前状态已记录封锁公告消息 ID，则向可变副作用列表追加一条删除封锁公告动作。
+ * @param effects 待追加的目标副作用数组。
+ * @param state 当前私密模式状态。
+ */
+export function appendAnnouncementCleanup(effects: LockdownEffect[], state: LockdownState): void {
+  if (state.announcementMessageId !== undefined) {
+    effects.push({
+      kind: "deleteLockdownAnnouncement",
+      messageId: state.announcementMessageId,
+    });
+  }
+}
+
+/**
  * 本轮作废时压制重触发；只在真正作废的那条转移里发出，迟到或重复的失败通知对已换代的状态不发。
  * @param reason 本轮私密模式作废的原因。
  * @returns 压制重触发的副作用对象。

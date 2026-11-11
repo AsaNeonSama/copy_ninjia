@@ -1,7 +1,14 @@
 import { NO_LOCKDOWN_EFFECTS, RESTORE_RETRY_MS } from "../../consts/antiRaid/lockdown";
-import { activeOf, announcementCleanupEffects, reconcilingOf, restoringOf } from "./shared";
+import {
+  activeOf,
+  announcementCleanupEffects,
+  appendAnnouncementCleanup,
+  reconcilingOf,
+  restoringOf,
+} from "./shared";
 import type { ChatPermissions } from "grammy/types";
 import type {
+  LockdownEffect,
   LockdownMachineEvent,
   LockdownState,
   LockdownTransition,
@@ -121,15 +128,14 @@ export function handleRestoreResult(
       };
     }
     if (state.kind === "reconciling") return { next: state, effects: NO_LOCKDOWN_EFFECTS };
+    const effects: LockdownEffect[] = [{ kind: "reportUnlock" }];
+    appendAnnouncementCleanup(effects, state);
+    if (state.announced) {
+      effects.push({ kind: "announceUnlock", reason: state.restoreReason });
+    }
     return {
       next: undefined,
-      effects: state.announced
-        ? [
-          { kind: "reportUnlock" },
-          ...announcementCleanupEffects(state),
-          { kind: "announceUnlock", reason: state.restoreReason },
-        ]
-        : [{ kind: "reportUnlock" }, ...announcementCleanupEffects(state)],
+      effects,
     };
   }
   if (state.kind === "active" || state.kind === "reconciling") {

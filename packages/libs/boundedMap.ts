@@ -27,11 +27,11 @@ export function sweepExpiredSnapshots<TSnapshot extends { readonly fetchedAt: nu
   now,
 }: SweepExpiredSnapshotsParams<TSnapshot>): number {
   let deleted: number = 0;
-  for (const [chatId, cached] of snapshots) {
+  snapshots.forEach((cached: TSnapshot, chatId: number): void => {
     if (now - cached.fetchedAt > ttlMs && !inFlight.has(chatId)) {
       snapshots.delete(chatId);
       deleted++;
     }
-  }
+  });
   return deleted;
 }
