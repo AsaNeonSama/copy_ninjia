@@ -1,18 +1,34 @@
 /**
- * Mini App 侧边栏切页帧调度与首屏合并提交测试：覆盖 `AppShell` 抽屉收起双帧解耦切页、
+ * Mini App 侧边栏切页帧调度、首屏合并提交与图库上传按钮交互复位测试：覆盖 `AppShell` 抽屉收起双帧解耦切页、
  * 图库最短骨架时长与同批次缩略图合并回执、状态看板骨架期间情绪暂存与乱序情绪响应保护、
- * 以及受管群列表与验证器状态请求的单次合并落定。`fetch` 按「方法 + 路径」路由到测试夹具。
+ * 受管群列表与验证器状态请求的单次合并落定，以及图库上传按钮 85ms 延时按压复位、悬停抑制清理与焦点样式规则。
+ * `fetch` 按「方法 + 路径」路由到测试夹具。
  */
 
-import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { createElement } from "react";
+import type React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  AppShell,
+  syncSidebarTabRenderEffect,
+} from "../../packages/mini-app-frontend/components/AppShell";
+import {
+  MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX,
   MINI_APP_MIN_LOADING_MS,
+  MINI_APP_PAGINATION_HOVER_DURATION_MS,
   MINI_APP_TAB_KEYS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
 import { clearMiniAppSessionToken } from "../../packages/mini-app-frontend/libs/credentials";
+import { blurElement } from "../../packages/mini-app-frontend/libs/formatters";
+import type { BlurCapableElement } from "../../packages/mini-app-frontend/libs/formatters";
+import {
+  buildGalleryUploadBtnClassName,
+  createGalleryUploadController,
+  GalleryPage,
+} from "../../packages/mini-app-frontend/pages/GalleryPage";
+import type { GalleryUploadController } from "../../packages/mini-app-frontend/pages/GalleryPage";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import { createGalleryStore } from "../../packages/mini-app-frontend/store/gallery";
@@ -20,20 +36,6 @@ import { createStatusStore } from "../../packages/mini-app-frontend/store/status
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
 import type { MiniAppTabKey } from "../../packages/mini-app-frontend/types/miniApp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
-
-mock.module("../../packages/mini-app-frontend/pages/StatusPage", () => ({
-  StatusPage: (): ReturnType<typeof createElement> => createElement("section", { "data-page": "status" }),
-}));
-mock.module("../../packages/mini-app-frontend/pages/ChatsPage", () => ({
-  ChatsPage: (): ReturnType<typeof createElement> => createElement("section", { "data-page": "chats" }),
-}));
-mock.module("../../packages/mini-app-frontend/pages/IdentitiesPage", () => ({
-  IdentitiesPage: (): ReturnType<typeof createElement> => createElement("section", { "data-page": "identities" }),
-}));
-
-const { AppShell, syncSidebarTabRenderEffect } = await import(
-  "../../packages/mini-app-frontend/components/AppShell"
-);
 
 /** 一条路由夹具：按请求返回响应。 */
 type RouteHandler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
@@ -50,6 +52,19 @@ function route(key: string, handler: RouteHandler): void {
 /** 构造 JSON 响应。 */
 function json(payload: unknown, status: number = 200): Response {
   return Response.json(payload, { status });
+}
+
+/** 排空当前微任务队列。 */
+async function drain(): Promise<void> {
+  for (let turn: number = 0; turn < 20; turn += 1) {
+    await Promise.resolve();
+  }
+}
+
+/** 推进假定时器并排空派生微任务。 */
+async function advance(ms: number): Promise<void> {
+  jest.advanceTimersByTime(ms);
+  await drain();
 }
 
 beforeEach((): void => {
@@ -83,17 +98,18 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
       sessionExpiresAt: Date.now() + 60_000,
       statusReady: true,
     });
+    const expectedPageMarkers: Readonly<Record<MiniAppTabKey, string>> = {
+      status: "skeleton-cpu-ring",
+      chats: zh.chats.sectionTitle(0),
+      identities: zh.identities.whitelistTab,
+      gallery: "gallery-upload-btn",
+      totp: "skeleton-totp-btn",
+    };
     for (const tabKey of MINI_APP_TAB_KEYS) {
       useMiniAppStore.setState({ activeTab: tabKey });
       const html: string = renderToStaticMarkup(createElement(AppShell));
       expect(html).toContain(`<h1 class="topbar-title">${zh.tabs[tabKey]}</h1>`);
-      expect(html).toContain(
-        tabKey === "totp"
-          ? "skeleton-totp-btn"
-          : tabKey === "gallery"
-            ? "gallery-upload-btn"
-            : `data-page="${tabKey}"`
-      );
+      expect(html).toContain(expectedPageMarkers[tabKey]);
       expect(html).toContain("SuperAdmin #10086");
       expect(html).toContain(zh.lockButton);
     }
@@ -119,9 +135,7 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
     const flushOneFrame = (now: number): void => {
       const current: Map<number, (now: number) => void> = frameQueue;
       frameQueue = new Map<number, (now: number) => void>();
-      for (const cb of current.values()) {
-        cb(now);
-      }
+      for (const cb of current.values()) cb(now);
     };
     host.requestAnimationFrame = (cb: (now: number) => void): number => {
       const id: number = nextHandle;
@@ -143,32 +157,27 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
         renderedState.tab = nextTab;
         committedTabs.push(nextTab);
       };
-
-      // 初次挂载与仅打开侧边栏：renderedTab === activeTab 时无排期。
-      expect(
+      const runSync = (
+        activeTab: MiniAppTabKey,
+        sidebarOpen: boolean
+      ): (() => void) | undefined =>
         syncSidebarTabRenderEffect({
-          activeTab: "status",
-          sidebarOpen: true,
+          activeTab,
+          sidebarOpen,
           renderedTab: renderedState.tab,
           wasSidebarOpenRef,
           prevActiveTabRef,
           deferPendingRef,
           setRenderedTab,
-        })
-      ).toBeUndefined();
+        });
+
+      // 初次挂载与仅打开侧边栏：renderedTab === activeTab 时无排期。
+      expect(runSync("status", true)).toBeUndefined();
       expect(wasSidebarOpenRef.current).toBeTrue();
       expect(committedTabs).toEqual([]);
 
       // 从展开侧边栏切到 chats：第 0 帧与第 1 帧均不挂载新页，第 2 帧才提交。
-      const cleanupChats: (() => void) | undefined = syncSidebarTabRenderEffect({
-        activeTab: "chats",
-        sidebarOpen: false,
-        renderedTab: renderedState.tab,
-        wasSidebarOpenRef,
-        prevActiveTabRef,
-        deferPendingRef,
-        setRenderedTab,
-      });
+      const cleanupChats: (() => void) | undefined = runSync("chats", false);
       expect(typeof cleanupChats).toBe("function");
       expect(deferPendingRef.current).toBeTrue();
       expect(committedTabs).toEqual([]);
@@ -180,117 +189,35 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
       expect(deferPendingRef.current).toBeFalse();
       cleanupChats?.();
 
-      // 落地后再次对齐：无额外更新。
-      expect(
-        syncSidebarTabRenderEffect({
-          activeTab: "chats",
-          sidebarOpen: false,
-          renderedTab: renderedState.tab,
-          wasSidebarOpenRef,
-          prevActiveTabRef,
-          deferPendingRef,
-          setRenderedTab,
-        })
-      ).toBeUndefined();
-
-      // 侧边栏未展开时的切页（如宽屏常驻侧边栏）：立即同步切换，不走双帧延迟。
-      expect(
-        syncSidebarTabRenderEffect({
-          activeTab: "identities",
-          sidebarOpen: false,
-          renderedTab: renderedState.tab,
-          wasSidebarOpenRef,
-          prevActiveTabRef,
-          deferPendingRef,
-          setRenderedTab,
-        })
-      ).toBeUndefined();
+      // 落地后再次对齐：无额外更新；侧边栏未展开时的切页（如宽屏常驻侧边栏）立即同步切换。
+      expect(runSync("chats", false)).toBeUndefined();
+      expect(runSync("identities", false)).toBeUndefined();
       expect(committedTabs).toEqual(["chats", "identities"]);
 
-      // 快速连点切页：展开侧栏 -> 点 gallery -> 第 1 帧后改点 totp -> 前序 gallery 被取消且不挂载，2 帧后直接挂载 totp。
-      syncSidebarTabRenderEffect({
-        activeTab: "identities",
-        sidebarOpen: true,
-        renderedTab: renderedState.tab,
-        wasSidebarOpenRef,
-        prevActiveTabRef,
-        deferPendingRef,
-        setRenderedTab,
-      });
-      const cleanupGallery: (() => void) | undefined = syncSidebarTabRenderEffect({
-        activeTab: "gallery",
-        sidebarOpen: false,
-        renderedTab: renderedState.tab,
-        wasSidebarOpenRef,
-        prevActiveTabRef,
-        deferPendingRef,
-        setRenderedTab,
-      });
+      // 快速连点切页：展开侧栏 -> 点 gallery -> 第 1 帧后改点 totp -> 前序 gallery 被取消且不挂载。
+      runSync("identities", true);
+      const cleanupGallery: (() => void) | undefined = runSync("gallery", false);
       flushOneFrame(48);
       expect(committedTabs).toEqual(["chats", "identities"]);
       cleanupGallery?.();
       expect(frameQueue.size).toBe(0);
 
-      const cleanupTotp: (() => void) | undefined = syncSidebarTabRenderEffect({
-        activeTab: "totp",
-        sidebarOpen: false,
-        renderedTab: renderedState.tab,
-        wasSidebarOpenRef,
-        prevActiveTabRef,
-        deferPendingRef,
-        setRenderedTab,
-      });
+      const cleanupTotp: (() => void) | undefined = runSync("totp", false);
       expect(deferPendingRef.current).toBeTrue();
       flushOneFrame(64);
       expect(committedTabs).toEqual(["chats", "identities"]);
       // 在落地前切回当前已挂载的 identities：取消排期且重置 deferPendingRef。
       cleanupTotp?.();
-      expect(
-        syncSidebarTabRenderEffect({
-          activeTab: "identities",
-          sidebarOpen: false,
-          renderedTab: renderedState.tab,
-          wasSidebarOpenRef,
-          prevActiveTabRef,
-          deferPendingRef,
-          setRenderedTab,
-        })
-      ).toBeUndefined();
+      expect(runSync("identities", false)).toBeUndefined();
       expect(deferPendingRef.current).toBeFalse();
       expect(committedTabs).toEqual(["chats", "identities"]);
 
       // 排期尚未落地前重新展开侧边栏：撤销待执行帧并立即同步目标标签。
-      syncSidebarTabRenderEffect({
-        activeTab: "identities",
-        sidebarOpen: true,
-        renderedTab: renderedState.tab,
-        wasSidebarOpenRef,
-        prevActiveTabRef,
-        deferPendingRef,
-        setRenderedTab,
-      });
-      const cleanupBeforeReopen: (() => void) | undefined = syncSidebarTabRenderEffect({
-        activeTab: "gallery",
-        sidebarOpen: false,
-        renderedTab: renderedState.tab,
-        wasSidebarOpenRef,
-        prevActiveTabRef,
-        deferPendingRef,
-        setRenderedTab,
-      });
+      runSync("identities", true);
+      const cleanupBeforeReopen: (() => void) | undefined = runSync("gallery", false);
       expect(deferPendingRef.current).toBeTrue();
       cleanupBeforeReopen?.();
-      expect(
-        syncSidebarTabRenderEffect({
-          activeTab: "gallery",
-          sidebarOpen: true,
-          renderedTab: renderedState.tab,
-          wasSidebarOpenRef,
-          prevActiveTabRef,
-          deferPendingRef,
-          setRenderedTab,
-        })
-      ).toBeUndefined();
+      expect(runSync("gallery", true)).toBeUndefined();
       expect(deferPendingRef.current).toBeFalse();
       expect(committedTabs).toEqual(["chats", "identities", "gallery"]);
 
@@ -298,17 +225,7 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
       host.requestAnimationFrame = undefined;
       host.cancelAnimationFrame = undefined;
       wasSidebarOpenRef.current = true;
-      expect(
-        syncSidebarTabRenderEffect({
-          activeTab: "totp",
-          sidebarOpen: false,
-          renderedTab: renderedState.tab,
-          wasSidebarOpenRef,
-          prevActiveTabRef,
-          deferPendingRef,
-          setRenderedTab,
-        })
-      ).toBeUndefined();
+      expect(runSync("totp", false)).toBeUndefined();
       expect(committedTabs).toEqual(["chats", "identities", "gallery", "totp"]);
     } finally {
       host.requestAnimationFrame = prevRequest;
@@ -318,14 +235,6 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
 
   test("图库：loadGallery 保证最短骨架时长并单次合并提交，同批次多张缩略图回执合并为单次更新且跨批次丢弃", async () => {
     jest.useFakeTimers();
-    const drain = async (): Promise<void> => {
-      for (let turn: number = 0; turn < 20; turn += 1) await Promise.resolve();
-    };
-    const advance = async (ms: number): Promise<void> => {
-      jest.advanceTimersByTime(ms);
-      await drain();
-    };
-
     const store = createGalleryStore();
     let notifications: number = 0;
     const unsubscribe: () => void = store.subscribe((): void => {
@@ -366,11 +275,7 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
     expect(store.getState().loadedImages).toEqual({});
     expect(notifications).toBe(0);
     await advance(1);
-    expect(store.getState().loadedImages).toEqual({
-      "1.png": true,
-      "2.png": true,
-      "3.png": true,
-    });
+    expect(store.getState().loadedImages).toEqual({ "1.png": true, "2.png": true, "3.png": true });
     expect(notifications).toBe(1);
 
     // 最短展示时长已过后，同一事件循环内懒加载完成的多张缩略图经微任务合并为 1 次写入且后续回执不丢项。
@@ -409,7 +314,8 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
     await reload;
     expect(store.getState().batchEpoch).toBe(3);
     expect(store.getState().loadedImages).toEqual({});
-    // 新批次刚落地（pageRenderAt = 当前时刻）先发起下一页加载、再登记当前批次缩略图：新批次先结算递增 epoch，旧批次回调唤醒后命中跨批次丢弃。
+
+    // 新批次刚落地先发起下一页加载、再登记当前批次缩略图：新批次先结算递增 epoch，旧批次回调命中跨批次丢弃。
     const nextBatchLoad: Promise<void> = store.getState().loadGallery(2, 10);
     store.getState().markThumbLoaded("discarded.png", 3);
     await advance(MINI_APP_MIN_LOADING_MS);
@@ -433,14 +339,6 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
 
   test("状态看板、受管群与验证器：骨架期间情绪暂存与覆盖竞态归零，列表与状态请求单次落定", async () => {
     jest.useFakeTimers();
-    const drain = async (): Promise<void> => {
-      for (let turn: number = 0; turn < 20; turn += 1) await Promise.resolve();
-    };
-    const advance = async (ms: number): Promise<void> => {
-      jest.advanceTimersByTime(ms);
-      await drain();
-    };
-
     const statusStore = createStatusStore();
     let statusNotifications: number = 0;
     const unsubStatus: () => void = statusStore.subscribe((): void => {
@@ -574,5 +472,370 @@ describe("侧边栏切页帧调度与首屏合并提交", () => {
     await Promise.allSettled([staleTotpErr, freshTotpErr]);
     expect(totpStore.getState().loadingStatus).toBeFalse();
     unsubTotp();
+
+    // 后台静默查询与轮询（loadMood、loadStatus(false)、pollRunningBatchKick）：普通 500 静默，401/403 立即锁定根门禁
+    useMiniAppStore.setState({ gateState: "unlocked", toastText: "" });
+    route("GET /api/mood", (): Response => json({ error: "mood transient" }, 500));
+    await statusStore.getState().loadMood();
+    expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+    expect(useMiniAppStore.getState().toastText).toBe("");
+
+    route("GET /api/mood", (): Response => json({ code: "PASSWORD_REQUIRED", error: "expired" }, 401));
+    await statusStore.getState().loadMood();
+    expect(useMiniAppStore.getState().gateState).toBe("password");
+
+    useMiniAppStore.setState({ gateState: "unlocked", toastText: "" });
+    route("GET /api/status", (): Response => json({ code: "PASSWORD_LOCKED", error: "locked" }, 403));
+    const pollLockPromise: Promise<void> = statusStore.getState().loadStatus(false);
+    await drain();
+    await advance(MINI_APP_MIN_LOADING_MS);
+    await pollLockPromise;
+    expect(useMiniAppStore.getState().gateState).toBe("checking");
+
+    useMiniAppStore.setState({ gateState: "unlocked", toastText: "" });
+    chatsStore.setState({
+      selectedChatId: -1001,
+      chatDetail: { chatId: -1001, batchKickRunning: true } as never,
+    });
+    route("GET /api/chats/-1001", (): Response => json({ error: "transient" }, 500));
+    await chatsStore.getState().pollRunningBatchKick();
+    expect(useMiniAppStore.getState().gateState).toBe("unlocked");
+
+    route("GET /api/chats/-1001", (): Response => json({ code: "PASSWORD_REQUIRED", error: "revoked" }, 401));
+    await chatsStore.getState().pollRunningBatchKick();
+    expect(useMiniAppStore.getState().gateState).toBe("password");
+  });
+});
+
+describe("图库上传按钮 85ms 按压复位与悬停抑制", () => {
+  test("点击立即置位 .is-pressing 与 .hover-suppressed 且不拦截默认行为，85ms 到期失焦并转入悬停抑制，移动/移出/再按下与禁用/卸载清理完备", () => {
+    jest.useFakeTimers();
+
+    blurElement(null);
+    blurElement(undefined);
+    blurElement({});
+
+    let statePressing: boolean = false;
+    let stateHoverSuppressed: boolean = false;
+    let blurCount: number = 0;
+    const inputEl: BlurCapableElement = {
+      blur: (): void => {
+        blurCount += 1;
+      },
+    };
+    const ctrl: GalleryUploadController = createGalleryUploadController(
+      (next: boolean): void => {
+        statePressing = next;
+      },
+      (next: boolean): void => {
+        stateHoverSuppressed = next;
+      }
+    );
+    ctrl.setInputNode(inputEl);
+    const currentClassName = (): string =>
+      buildGalleryUploadBtnClassName(ctrl.disabled, statePressing, stateHoverSuppressed);
+
+    // 1. 初始空闲态与禁用态类名精确一致，禁用态点击为无副作用空操作
+    expect(currentClassName()).toBe("btn primary icon-btn gallery-upload-btn");
+    ctrl.disabled = true;
+    expect(currentClassName()).toBe("btn primary icon-btn gallery-upload-btn is-disabled");
+    ctrl.onClick({ clientX: 120, clientY: 60 });
+    expect(statePressing).toBeFalse();
+    expect(stateHoverSuppressed).toBeFalse();
+    expect(ctrl.timer).toBeNull();
+    ctrl.disabled = false;
+
+    // 2. 点击立即进入 .is-pressing + .hover-suppressed，不调用 preventDefault，且在 85ms 前不同步调用 blur()
+    let preventDefaultCalled: boolean = false;
+    const clickX: number = 180;
+    const clickY: number = 96;
+    ctrl.onClick({
+      clientX: clickX,
+      clientY: clickY,
+      preventDefault: (): void => {
+        preventDefaultCalled = true;
+      },
+    } as { readonly clientX: number; readonly clientY: number });
+    expect(preventDefaultCalled).toBeFalse();
+    expect(blurCount).toBe(0);
+    expect(statePressing).toBeTrue();
+    expect(stateHoverSuppressed).toBeTrue();
+    expect({ x: ctrl.clickX, y: ctrl.clickY }).toEqual({ x: clickX, y: clickY });
+    expect(ctrl.timer).not.toBeNull();
+    expect(currentClassName()).toBe(
+      "btn primary icon-btn gallery-upload-btn is-pressing hover-suppressed"
+    );
+
+    // 85ms 按压窗口内，系统文件选择器抢走焦点派发的合成 mouseleave 与 mousemove 均不会提前解除 .hover-suppressed
+    ctrl.onMouseLeave();
+    ctrl.onMouseMove({
+      clientX: clickX + MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX + 20,
+      clientY: clickY + MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX + 20,
+    });
+    expect(stateHoverSuppressed).toBeTrue();
+
+    // 推进至到期前 1ms：仍保持 .is-pressing 且尚未失焦
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS - 1);
+    expect(statePressing).toBeTrue();
+    expect(blurCount).toBe(0);
+
+    // 到期满 85ms：清除 .is-pressing、调用 input.blur()，并继续保留 .hover-suppressed
+    jest.advanceTimersByTime(1);
+    expect(ctrl.timer).toBeNull();
+    expect(statePressing).toBeFalse();
+    expect(blurCount).toBe(1);
+    expect(stateHoverSuppressed).toBeTrue();
+    expect(currentClassName()).toBe("btn primary icon-btn gallery-upload-btn hover-suppressed");
+
+    // 3. 指针微颤 <= MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX 时保留 .hover-suppressed，超出阈值（X 或 Y）立即解除
+    ctrl.onMouseMove({
+      clientX: clickX + MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX,
+      clientY: clickY - MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX,
+    });
+    expect(stateHoverSuppressed).toBeTrue();
+    ctrl.onMouseMove({
+      clientX: clickX + MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX + 1,
+      clientY: clickY,
+    });
+    expect(stateHoverSuppressed).toBeFalse();
+    expect(currentClassName()).toBe("btn primary icon-btn gallery-upload-btn");
+
+    ctrl.onClick({ clientX: clickX, clientY: clickY });
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS);
+    expect(stateHoverSuppressed).toBeTrue();
+    ctrl.onMouseMove({
+      clientX: clickX,
+      clientY: clickY - (MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX + 1),
+    });
+    expect(stateHoverSuppressed).toBeFalse();
+
+    // 4. 85ms 结束后 mouseleave 解除 .hover-suppressed（禁用期间忽略 mouseleave / mousemove / pointerdown）
+    ctrl.onClick({ clientX: clickX, clientY: clickY });
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS);
+    ctrl.disabled = true;
+    ctrl.onMouseLeave();
+    ctrl.onMouseMove({
+      clientX: clickX + MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX + 10,
+      clientY: clickY,
+    });
+    ctrl.onPointerDown();
+    expect(stateHoverSuppressed).toBeTrue();
+    ctrl.disabled = false;
+    ctrl.onMouseLeave();
+    expect(stateHoverSuppressed).toBeFalse();
+
+    // 5. 原地再次点击：pointerdown 先清除 .hover-suppressed，使连续点击立即恢复原生 :active
+    ctrl.onClick({ clientX: clickX, clientY: clickY });
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS);
+    expect(stateHoverSuppressed).toBeTrue();
+    ctrl.onPointerDown();
+    expect(stateHoverSuppressed).toBeFalse();
+    expect(currentClassName()).toBe("btn primary icon-btn gallery-upload-btn");
+
+    // 6. 快速连续双击：第二次点击清理前序定时器并重新完整计时 85ms
+    blurCount = 0;
+    const halfWindowMs: number = Math.max(1, Math.floor(MINI_APP_PAGINATION_HOVER_DURATION_MS / 2));
+    ctrl.onClick({ clientX: 50, clientY: 40 });
+    jest.advanceTimersByTime(halfWindowMs);
+    expect(statePressing).toBeTrue();
+    ctrl.onPointerDown();
+    ctrl.onClick({ clientX: 52, clientY: 41 });
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS - halfWindowMs);
+    expect(statePressing).toBeTrue();
+    expect(blurCount).toBe(0);
+    jest.advanceTimersByTime(halfWindowMs);
+    expect(statePressing).toBeFalse();
+    expect(blurCount).toBe(1);
+
+    // 7. 85ms 未到期时进入 disabled = true：立即清理定时器、复位 pressing 并失焦，不遗留回调
+    expect(
+      createGalleryUploadController((): void => undefined, (): void => undefined, true).disabled
+    ).toBeTrue();
+    blurCount = 0;
+    ctrl.syncDisabled(false);
+    expect(blurCount).toBe(0);
+    ctrl.onClick({ clientX: 90, clientY: 30 });
+    expect(ctrl.timer).not.toBeNull();
+    ctrl.syncDisabled(true);
+    expect(ctrl.disabled).toBeTrue();
+    expect(ctrl.timer).toBeNull();
+    expect(statePressing).toBeFalse();
+    expect(blurCount).toBe(1);
+    expect(currentClassName()).toBe("btn primary icon-btn gallery-upload-btn is-disabled");
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS * 2);
+    expect(blurCount).toBe(1);
+
+    // 8. 组件卸载时清理在途 85ms 定时器，无泄漏回调
+    ctrl.syncDisabled(false);
+    ctrl.onClick({ clientX: 90, clientY: 30 });
+    expect(ctrl.timer).not.toBeNull();
+    ctrl.clearTimer();
+    expect(ctrl.timer).toBeNull();
+    ctrl.clearTimer();
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS * 2);
+    expect(blurCount).toBe(1);
+
+    // 9. 文件选择变更：优先失焦 inputEl，未挂载时回退失焦 currentTarget，空选择不上传，非空选择重置 value 并触发上传
+    const uploadedBatches: (readonly File[])[] = [];
+    const mockUploadFiles = async (files: readonly File[]): Promise<void> => {
+      uploadedBatches.push(files);
+    };
+    blurCount = 0;
+    ctrl.selectFiles({ currentTarget: { value: "", files: [] } }, mockUploadFiles);
+    expect(blurCount).toBe(1);
+    expect(uploadedBatches).toHaveLength(0);
+
+    let fallbackBlurred: boolean = false;
+    const pickedFile: File = new File(["img"], "picked.png", { type: "image/png" });
+    const fallbackTarget: { value: string; files: File[]; blur: () => void } = {
+      value: "C:\\fakepath\\picked.png",
+      files: [pickedFile],
+      blur: (): void => {
+        fallbackBlurred = true;
+      },
+    };
+    ctrl.setInputNode(null);
+    ctrl.selectFiles({ currentTarget: fallbackTarget }, mockUploadFiles);
+    expect(fallbackBlurred).toBeTrue();
+    expect(fallbackTarget.value).toBe("");
+    expect(uploadedBatches).toEqual([[pickedFile]]);
+  });
+
+  test("GalleryPage 组件上传按钮节点事件绑定与 gallery.css 焦点/按压/悬停抑制样式规则核验", async () => {
+    jest.useFakeTimers();
+
+    const uploadedBatches: (readonly File[])[] = [];
+    const galleryStore = createGalleryStore();
+    (galleryStore as { getInitialState: typeof galleryStore.getState }).getInitialState =
+      galleryStore.getState;
+    galleryStore.setState({
+      loading: false,
+      uploading: false,
+      galleryPage: {
+        directory: "/data/gallery",
+        exists: true,
+        total: 0,
+        page: 1,
+        pageSize: 10,
+        totalPages: 1,
+        items: [],
+      },
+      uploadFiles: async (files: readonly File[]): Promise<void> => {
+        uploadedBatches.push(files);
+      },
+    });
+
+    interface CapturedUploadElements {
+      readonly uploadBtnProps: {
+        readonly className: string;
+        readonly "aria-disabled": boolean;
+        readonly onMouseLeave: () => void;
+        readonly onMouseMove: (event: React.MouseEvent<HTMLDivElement>) => void;
+      };
+      readonly uploadInputProps: {
+        readonly ref: (el: BlurCapableElement | null) => void;
+        readonly className: string;
+        readonly disabled: boolean;
+        readonly onPointerDown: () => void;
+        readonly onClick: (event: React.MouseEvent<HTMLInputElement>) => void;
+        readonly onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+      };
+    }
+
+    let captured: CapturedUploadElements | undefined;
+    const UploadBindingProbe = (): React.JSX.Element => {
+      const tree: React.JSX.Element = GalleryPage({ storeFactory: () => galleryStore });
+      const cardNode = (tree.props as { readonly children: readonly React.JSX.Element[] }).children[0]!;
+      const titleNode = (cardNode.props as { readonly children: readonly React.JSX.Element[] }).children[0]!;
+      const actionsNode = (titleNode.props as { readonly children: readonly React.JSX.Element[] }).children[1]!;
+      const uploadBtnNode = (actionsNode.props as { readonly children: readonly React.JSX.Element[] }).children[0]!;
+      const uploadInputNode = (
+        uploadBtnNode.props as { readonly children: readonly React.JSX.Element[] }
+      ).children[2]!;
+      captured = {
+        uploadBtnProps: uploadBtnNode.props as CapturedUploadElements["uploadBtnProps"],
+        uploadInputProps: uploadInputNode.props as CapturedUploadElements["uploadInputProps"],
+      };
+      return tree;
+    };
+
+    const html: string = renderToStaticMarkup(createElement(UploadBindingProbe));
+    expect(html).toContain('class="btn primary icon-btn gallery-upload-btn"');
+    expect(captured).toBeDefined();
+    expect(captured?.uploadBtnProps.className).toBe("btn primary icon-btn gallery-upload-btn");
+    expect(captured?.uploadBtnProps["aria-disabled"]).toBeFalse();
+    expect(captured?.uploadInputProps.className).toBe("gallery-upload-input");
+    expect(captured?.uploadInputProps.disabled).toBeFalse();
+
+    let nodeBlurred: number = 0;
+    captured?.uploadInputProps.ref({
+      blur: (): void => {
+        nodeBlurred += 1;
+      },
+    });
+    captured?.uploadInputProps.onPointerDown();
+    captured?.uploadInputProps.onClick({
+      clientX: 64,
+      clientY: 32,
+    } as React.MouseEvent<HTMLInputElement>);
+    expect(nodeBlurred).toBe(0);
+    jest.advanceTimersByTime(MINI_APP_PAGINATION_HOVER_DURATION_MS);
+    expect(nodeBlurred).toBe(1);
+    captured?.uploadBtnProps.onMouseMove({
+      clientX: 80,
+      clientY: 48,
+    } as React.MouseEvent<HTMLDivElement>);
+    captured?.uploadBtnProps.onMouseLeave();
+
+    const file: File = new File(["bytes"], "demo.webp", { type: "image/webp" });
+    const changeTarget: { value: string; files: File[] } = {
+      value: "C:\\fakepath\\demo.webp",
+      files: [file],
+    };
+    captured?.uploadInputProps.onChange({
+      currentTarget: changeTarget,
+    } as unknown as React.ChangeEvent<HTMLInputElement>);
+    expect(nodeBlurred).toBe(2);
+    expect(changeTarget.value).toBe("");
+    expect(uploadedBatches).toEqual([[file]]);
+    captured?.uploadInputProps.ref(null);
+
+    // 验证 gallery.css 焦点与按压/悬停抑制规则及高特异性声明契约
+    const galleryCssPath: string = `${import.meta.dir}/../../packages/mini-app-frontend/styles/gallery.css`;
+    const galleryCss: string = await Bun.file(galleryCssPath).text();
+
+    expect(galleryCss).not.toContain(":focus-within");
+    const focusVisibleRule: RegExpExecArray | null =
+      /\.gallery-upload-btn:has\(\s*>\s*\.gallery-upload-input:focus-visible\s*\):not\(\.is-disabled\)\s*\{([^}]*)\}/u.exec(
+        galleryCss
+      );
+    expect(focusVisibleRule).not.toBeNull();
+    expect(focusVisibleRule?.[1] ?? "").toContain("outline: var(--border-w) solid var(--brutal-cyan);");
+    expect(focusVisibleRule?.[1] ?? "").toContain("outline-offset: 2px;");
+
+    const pressingRule: RegExpExecArray | null =
+      /\.btn\.primary\.icon-btn\.gallery-upload-btn\.is-pressing:not\(\.is-disabled\)\s*\{([^}]*)\}/u.exec(
+        galleryCss
+      );
+    expect(pressingRule).not.toBeNull();
+    const pressingBody: string = pressingRule?.[1] ?? "";
+    expect(pressingBody).toContain("transform: translate(2px, 2px) skewX(var(--btn-skew, 0deg));");
+    expect(pressingBody).toContain("box-shadow: 0 0 0 var(--btn-shadow-color);");
+    expect(pressingBody).toContain("background: var(--accent-light);");
+    expect(pressingBody).toContain("color: var(--btn-primary-text);");
+    expect(pressingBody).toContain("border-color: var(--btn-primary-border);");
+    expect(pressingBody).toContain("transition: none;");
+
+    const hoverSuppressedRule: RegExpExecArray | null =
+      /\.btn\.primary\.icon-btn\.gallery-upload-btn\.hover-suppressed:not\(\.is-pressing\):not\(\.is-disabled\)\s*\{([^}]*)\}/u.exec(
+        galleryCss
+      );
+    expect(hoverSuppressedRule).not.toBeNull();
+    const hoverSuppressedBody: string = hoverSuppressedRule?.[1] ?? "";
+    expect(hoverSuppressedBody).toContain("transform: skewX(var(--btn-skew, 0deg));");
+    expect(hoverSuppressedBody).toContain("box-shadow: var(--btn-primary-shadow);");
+    expect(hoverSuppressedBody).toContain("background: var(--btn-primary-bg);");
+    expect(hoverSuppressedBody).toContain("color: var(--btn-primary-text);");
+    expect(hoverSuppressedBody).toContain("border-color: var(--btn-primary-border);");
   });
 });

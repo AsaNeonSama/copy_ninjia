@@ -4,7 +4,7 @@ import {
 } from "../consts/miniApp";
 import { errorMessage } from "../libs/errorMessage";
 import type { MiniAppPickerResultEvent } from "../types/miniApp";
-import { miniAppFetchJson } from "./request";
+import { isMiniAppAuthErrorMessage, miniAppFetchJson } from "./request";
 
 /**
  * 调用 `GET ./api/picker/result` 查询原生选择器会话的共享结果回执。
@@ -46,8 +46,7 @@ export async function waitForMiniAppPickerResult(
     } catch (error: unknown) {
       const message: string = errorMessage(error);
       if (
-        message.includes("[PASSWORD_REQUIRED]") ||
-        message.includes("[PASSWORD_LOCKED]") ||
+        isMiniAppAuthErrorMessage(message) ||
         attempt === MINI_APP_PICKER_POLL_MAX_ATTEMPTS - 1
       ) {
         throw error;

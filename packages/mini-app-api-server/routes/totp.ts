@@ -20,7 +20,8 @@ export const MINI_APP_TOTP_BUN_ROUTES: MiniAppBunRouteTable = {
     ),
     DELETE: withMiniAppMiddlewareChain(
       MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
-      handleDeleteTotpRoute
+      (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+        handleDeleteTotpRoute(ctx.request)
     ),
   },
   "/api/totp/setup": {
@@ -39,7 +40,8 @@ export const MINI_APP_TOTP_BUN_ROUTES: MiniAppBunRouteTable = {
   "/api/totp/delete": {
     POST: withMiniAppMiddlewareChain(
       MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
-      handleDeleteTotpRoute
+      (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
+        handleDeleteTotpRoute(ctx.request)
     ),
   },
 };

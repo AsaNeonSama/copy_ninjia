@@ -47,10 +47,15 @@ function verifyInitDataRequest(
   const queryUrl: URL | null = allowQueryAuth ? ctx.url : null;
   if (allowQueryAuth) {
     const assetToken: string = extractAssetTokenFromQuery(request, ctx.url);
-    if (
-      assetToken.length > 0 &&
-      verifyMiniAppAssetToken(assetToken, MINI_APP_ASSET_TOKEN_DIGEST)
-    ) {
+    if (assetToken.length > 0) {
+      if (!verifyMiniAppAssetToken(assetToken, MINI_APP_ASSET_TOKEN_DIGEST)) {
+        return accessErrorResponse(request, {
+          status: 401,
+          code: "INVALID_SIGNATURE",
+          reason: "invalid_signature",
+          error: "INVALID_SIGNATURE",
+        });
+      }
       return checkSuperAdminPasswordLockout(request);
     }
   }

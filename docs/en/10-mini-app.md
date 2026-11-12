@@ -136,7 +136,7 @@ After logging in with your access password, binding a single Google Authenticato
 
 1. Open the "Authenticator" tab to generate a pending Base32 secret and QR code (valid in main-thread memory for `MINI_APP_TOTP_PENDING_TTL_MS`, i.e. 10 minutes, and invalidated after `MINI_APP_PASSWORD_MAX_ATTEMPTS` failed verification attempts).
 2. Scan the QR code with Google Authenticator or another RFC 6238 app (or enter the 32-character Base32 secret manually) and submit the 6-digit code (`MINI_APP_TOTP_DIGITS`) for the current 30-second step (`MINI_APP_TOTP_STEP_SECONDS`).
-3. Once verified, the secret is persisted atomically (`0o600` permissions) to `memory/mini-app-totp/totp.json` (schema version `MINI_APP_TOTP_RECORD_VERSION`) under the runtime data root. Subsequent logins prioritize the 6-digit TOTP code (accepting only the code for the current 30-second time step); deleting the authenticator in the console reverts login verification to `mini_app.password`.
+3. Once verified, the secret is persisted atomically (`0o600` permissions) to `memory/mini-app-totp/totp.json` (schema version `MINI_APP_TOTP_RECORD_VERSION`) under the runtime data root. Subsequent logins prioritize the 6-digit TOTP code (accepting only the code for the current 30-second time step); enabling, replacing, or deleting the authenticator automatically revokes all other active logged-in sessions besides the caller's current session, and deleting the authenticator in the console reverts login verification to `mini_app.password`.
 
 ---
 

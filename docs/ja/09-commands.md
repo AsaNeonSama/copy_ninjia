@@ -331,14 +331,14 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 ### 1. 認証とセキュリティ境界
 - **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはまず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証し、次に `initData` ミドルウェアで Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）、ログイン（`POST /api/auth/login`）、ログアウト（`POST /api/auth/logout`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。有効期限内のセッショントークンが発行から 5 分（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）を超えている場合、サーバーは自動的に新しいトークンを発行して有効期限を 45 分（`MINI_APP_SESSION_TTL_MS`）延長し、`X-Mini-App-Session` および `X-Mini-App-Session-Expires-At` レスポンスヘッダー（ならびに `/api/auth/precheck` のレスポンスボディ）で返却するとともに、セッション更新中は静的な `initData.auth_date` を継続許可します。更新後も旧トークンは並行中のリクエスト向けに 5 分間有効です。サーバーが保持するセッションは最大 `MINI_APP_SESSION_MAX`（8）件で、1 セッションは 1 枠のみを占め、満杯時は発行または更新が最も古いセッションを破棄します。
 - **初回画面の資格情報とロック保護**：認証器が未バインドの場合は `mini_app.password` を検証し、コンソールで Google Authenticator (TOTP) をバインド済みの場合（`memory/mini-app-totp/totp.json` に永続化）は現在の 30 秒タイムステップの 6 桁コードを優先検証します。3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロックし、ロック突入時に解除時刻と送信元 IP を記したアラートを個人チャットへ 1 通送信します。
-- **保護された画像庫プレビューアセット**：画像庫の画像読み取り（`GET|HEAD /api/gallery/file/:fileName`）はログインまたは有効セッション再開時のみ発行される決定論的 `assetToken` で認証され、7 日間の不変キャッシュと `ETag` 304 再検証をサポートします。
+- **保護された画像庫プレビューアセット**：画像庫の画像読み取り（`GET|HEAD /api/gallery/file/:fileName`）はログインまたは有効セッション再開時のみ発行される決定論的 `assetToken`（7 日間の不変キャッシュと `ETag` 304 再検証をサポート）、またはスーパー管理者の `initData` と有効な 45 分 `session` トークンの組み合わせで認証されます。
 
 ### 2. HTTP API ルートと機能対応表
 
 | ルート | メソッド | 権限と境界の説明 |
 | :--- | :---: | :--- |
 | `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | `initData` 署名とスーパー管理者身分を検証し、ログインモード（`password` または `totp`）の返却、有効セッションの再開・自動更新（発行後 5 分経過時）、または新規 45 分 `sessionToken`・`assetToken` の発行を行う。ログアウトでは `X-Mini-App-Session` ヘッダーのセッションを失効させる（トークンは更新せず、セッションが既に無効でも成功を返す） |
-| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Google Authenticator 認証器の照会、バインド用シークレットおよび QR コードの生成、6 桁コード検証による有効化、削除 |
+| `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | Google Authenticator 認証器の照会、バインド用シークレットおよび QR コードの生成、6 桁コード検証による有効化、削除（有効化・置換・削除時は呼び出し元の現在セッションを除く他の全アクティブセッションを失効させる） |
 | `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | リアルタイムシステム指標（稼働時間、CPU 平均負荷、メモリ PSS、管理対象グループ数、アクティブセッション、AI モデル準備状態、Telegram 出站ゲート）の照会、および AI 機嫌の照会・手動再抽選 |
 | `/api/chats`<br>`/api/chats/:chatId` | `GET` | `/init` 有効化済み管理対象グループの一覧、または単一グループ詳細（機能スイッチ、ホットメッセージ件数、静音／ロック残り時間、Bot が保持する管理者権限 `botPermissions`、1–24 時間の各遡及ウィンドウにおける重複排除済み参加人数 `joinedCountsByHour`、`/batch_kick` 実行状態）の照会 |
 | `/api/chats/:chatId/messages` | `GET` | 当該グループのメモリ内ホット 256 バッファの直近メッセージをページング・キーワード検索 |

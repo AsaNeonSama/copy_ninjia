@@ -136,7 +136,7 @@ cloudflared tunnel delete -f <隧道名>
 
 1. 在「验证器」页面点击生成待绑定密钥与二维码（待确认密钥在主线程内存中的有效期为 `MINI_APP_TOTP_PENDING_TTL_MS`，即 10 分钟，连续输错 `MINI_APP_PASSWORD_MAX_ATTEMPTS` 次立即作废）。
 2. 使用 Google Authenticator 等兼容应用扫描二维码（或手动输入 32 位 Base32 密钥），输入当前 `MINI_APP_TOTP_STEP_SECONDS`（30 秒）时间步的 `MINI_APP_TOTP_DIGITS`（6 位）动态验证码完成绑定。
-3. 验证通过后，密钥以原子写（权限 `0o600`）持久化至运行时数据根目录下的 `memory/mini-app-totp/totp.json`（Schema 版本 `MINI_APP_TOTP_RECORD_VERSION`）。启用后，控制台首屏登录将自动切换为优先校验 6 位 TOTP 动态码（且只接受当前 30 秒时间步的动态码）；在「验证器」页面删除验证器后即恢复校验 `mini_app.password`。
+3. 验证通过后，密钥以原子写（权限 `0o600`）持久化至运行时数据根目录下的 `memory/mini-app-totp/totp.json`（Schema 版本 `MINI_APP_TOTP_RECORD_VERSION`）。启用后，控制台首屏登录将自动切换为优先校验 6 位 TOTP 动态码（且只接受当前 30 秒时间步的动态码）；启用、替换或在「验证器」页面删除验证器时，服务端会自动吊销除当前请求会话以外的其余已登录活跃会话，删除验证器后即恢复校验 `mini_app.password`。
 
 ---
 

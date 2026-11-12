@@ -267,6 +267,23 @@ export function readEventTargetChecked(
   return (event.currentTarget as { readonly checked: boolean }).checked;
 }
 
+/** 支持安全移除焦点的表单控件或按钮 DOM 节点最小类型接口。 */
+export interface BlurCapableElement {
+  /** 移除当前 DOM 节点焦点的方法。 */
+  readonly blur?: () => void;
+}
+
+/**
+ * 在不含完整 DOM 类型库的编译环境下安全调用给定 DOM 节点的 `blur()`，消除残留焦点。
+ *
+ * @param element 待移除焦点的 DOM 节点引用
+ */
+export function blurElement(
+  element: BlurCapableElement | null | undefined
+): void {
+  element?.blur?.();
+}
+
 /**
  * 在不含完整 DOM 类型库的编译环境下安全调用触发按钮或控件的 `currentTarget.blur()`，消除点击后的焦点外框。
  *
@@ -275,7 +292,7 @@ export function readEventTargetChecked(
 export function blurEventCurrentTarget(
   event: DomCurrentTargetEventParams
 ): void {
-  (event.currentTarget as { readonly blur?: () => void }).blur?.();
+  blurElement(event.currentTarget as BlurCapableElement);
 }
 
 /**

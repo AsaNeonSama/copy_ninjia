@@ -328,7 +328,7 @@
   --auth-card-skew: -4deg;
   --auth-card-pt: 22px;
   --auth-card-px: 22px;
-  margin: clamp(56px, 14vh, 128px) 10px 0;
+  margin: clamp(31px, calc(14vh - 25px), 103px) 10px 0;
   padding: var(--auth-card-pt) var(--auth-card-px) 24px;
   border: var(--border-w) solid var(--border-strong);
   border-top: 5px solid var(--accent);
@@ -413,7 +413,7 @@
   .auth-gate-card {
     --auth-card-pt: 18px;
     --auth-card-px: 16px;
-    margin: clamp(44px, 11vh, 96px) 8px 0;
+    margin: clamp(19px, calc(11vh - 25px), 71px) 8px 0;
     padding: var(--auth-card-pt) var(--auth-card-px) 20px;
   }
 
@@ -424,7 +424,7 @@
 
 @media (max-height: 560px) {
   .auth-gate-card {
-    margin-top: clamp(20px, 5vh, 44px);
+    margin-top: clamp(4px, calc(5vh - 25px), 19px);
   }
 }
 

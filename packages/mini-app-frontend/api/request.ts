@@ -68,6 +68,18 @@ export function buildMiniAppAuthHeaders(includeSession: boolean, contentType?: s
 }
 
 /**
+ * 判断错误文案是否携带服务端鉴权失效或锁定前缀（`[PASSWORD_REQUIRED]` 或 `[PASSWORD_LOCKED]`）。
+ * @param message 错误消息文本
+ * @returns 命中鉴权失效或锁定前缀时返回 `true`
+ */
+export function isMiniAppAuthErrorMessage(message: string): boolean {
+  return (
+    message.includes("[PASSWORD_REQUIRED]") ||
+    message.includes("[PASSWORD_LOCKED]")
+  );
+}
+
+/**
  * 核对服务端错误响应记录中的鉴权失败状态码：命中 `PASSWORD_REQUIRED` 或 `PASSWORD_LOCKED` 时
  * 清除本地会话令牌并返回 `"[<状态码>] "` 前缀，否则返回空字符串。
  * @param record 服务端响应 JSON 解析出的字典

@@ -136,7 +136,7 @@ cloudflared tunnel delete -f <トンネル名>
 
 1. 「認証器」タブでバインド用の Base32 シークレットと QR コードを生成します（確認待ちシークレットの有効期限は `MINI_APP_TOTP_PENDING_TTL_MS` の 10 分間で、`MINI_APP_PASSWORD_MAX_ATTEMPTS` 回連続で誤入力すると即座に破棄されます）。
 2. Google Authenticator 等の RFC 6238 互換アプリで QR コードを読み取り（または 32 文字の Base32 シークレットを手入力）、現在の `MINI_APP_TOTP_STEP_SECONDS`（30 秒）ステップの `MINI_APP_TOTP_DIGITS`（6 桁）コードを入力して有効化します。
-3. 検証通過後、シークレットはデータルート配下の `memory/mini-app-totp/totp.json`（スキーマバージョン `MINI_APP_TOTP_RECORD_VERSION`）へアトミック書き込み（権限 `0o600`）で永続化されます。有効化後はログイン時に 6 桁の TOTP コードが優先検証され（現在の 30 秒タイムステップのコードのみを受け付けます）、「認証器」タブで削除すると `mini_app.password` による検証へ戻ります。
+3. 検証通過後、シークレットはデータルート配下の `memory/mini-app-totp/totp.json`（スキーマバージョン `MINI_APP_TOTP_RECORD_VERSION`）へアトミック書き込み（権限 `0o600`）で永続化されます。有効化後はログイン時に 6 桁の TOTP コードが優先検証され（現在の 30 秒タイムステップのコードのみを受け付けます）、認証器の有効化・置換・削除時には呼び出し元の現在セッションを除く他のすべてのログイン済みアクティブセッションが自動的に失効し、「認証器」タブで削除すると `mini_app.password` による検証へ戻ります。
 
 ---
 

@@ -1,4 +1,4 @@
-/* 图库上传按钮满铺原生文件命中层、网格卡片、切角悬浮操作按钮与大图预览折叠面板样式。 */
+/* 图库上传按钮满铺原生文件命中层与按压复位/悬停抑制样式、网格卡片、切角悬浮操作按钮与大图预览折叠面板样式。 */
 .gallery-upload-btn {
   position: relative;
 }
@@ -8,9 +8,26 @@
   pointer-events: none;
 }
 
-.gallery-upload-btn:focus-within:not(.is-disabled) {
+.gallery-upload-btn:has(> .gallery-upload-input:focus-visible):not(.is-disabled) {
   outline: var(--border-w) solid var(--brutal-cyan);
   outline-offset: 2px;
+}
+
+.btn.primary.icon-btn.gallery-upload-btn.is-pressing:not(.is-disabled) {
+  transform: translate(2px, 2px) skewX(var(--btn-skew, 0deg));
+  box-shadow: 0 0 0 var(--btn-shadow-color);
+  background: var(--accent-light);
+  color: var(--btn-primary-text);
+  border-color: var(--btn-primary-border);
+  transition: none;
+}
+
+.btn.primary.icon-btn.gallery-upload-btn.hover-suppressed:not(.is-pressing):not(.is-disabled) {
+  transform: skewX(var(--btn-skew, 0deg));
+  box-shadow: var(--btn-primary-shadow);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border-color: var(--btn-primary-border);
 }
 
 .gallery-upload-input {

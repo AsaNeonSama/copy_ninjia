@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type React from "react";
 import { LoadingDotsWave } from "../components/animations/LoadingDotsWave";
 import { PrefsBar } from "../components/PrefsBar";
@@ -13,7 +14,7 @@ import type { MiniAppLanguage, TelegramWebApp } from "../types/miniApp";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
 
 /**
- * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态，提交核验期间按钮展示三枚方形加载块动效）。
+ * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态，提交核验期间按钮展示三枚方形加载块动效；底部 Toast 与门禁主容器同级挂载于顶层 Fragment 下，保持视口固定定位）。
  *
  * @returns React 节点
  */
@@ -50,62 +51,64 @@ export function AuthGatePage(): React.JSX.Element {
   };
 
   return (
-    <div className="auth-gate-wrap animate-fade-in">
-      <div className="gate-top-prefs"><PrefsBar /></div>
-      <div className="card auth-gate-card">
-        <div className="card-title">
-          <span className="toolbar-hint">
-            <span className="toolbar-icon-badge">
-              <LockSvgIcon size={16} />
+    <Fragment>
+      <div className="auth-gate-wrap animate-fade-in">
+        <div className="gate-top-prefs"><PrefsBar /></div>
+        <div className="card auth-gate-card">
+          <div className="card-title">
+            <span className="toolbar-hint">
+              <span className="toolbar-icon-badge">
+                <LockSvgIcon size={16} />
+              </span>
+              <span>{isTotpGate ? t.gate.totpTitle : t.gate.passwordTitle}</span>
             </span>
-            <span>{isTotpGate ? t.gate.totpTitle : t.gate.passwordTitle}</span>
-          </span>
-          <span className="badge ok">
-            {unsafeUserId !== undefined
-              ? `SuperAdmin #${unsafeUserId}`
-              : isTotpGate
-                ? t.gate.totpBadge
-                : t.gate.passwordBadge}
-          </span>
+            <span className="badge ok">
+              {unsafeUserId !== undefined
+                ? `SuperAdmin #${unsafeUserId}`
+                : isTotpGate
+                  ? t.gate.totpBadge
+                  : t.gate.passwordBadge}
+            </span>
+          </div>
+          <p className="auth-gate-desc">
+            {isTotpGate ? t.gate.totpSubtitle : t.gate.passwordSubtitle}
+          </p>
+          <form onSubmit={handleSubmit} className="auth-gate-form">
+            <input
+              type={isTotpGate ? "text" : "password"}
+              inputMode={isTotpGate ? "numeric" : undefined}
+              maxLength={isTotpGate ? 6 : undefined}
+              className="auth-gate-input"
+              placeholder={
+                isTotpGate ? t.gate.totpPlaceholder : t.gate.passwordPlaceholder
+              }
+              autoComplete={isTotpGate ? "one-time-code" : "current-password"}
+              value={passwordInput}
+              disabled={passwordBusy}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+                const rawVal: string = readEventTargetValue(event);
+                setPasswordInput(
+                  isTotpGate ? rawVal.replace(/\D+/gu, "").slice(0, 6) : rawVal
+                );
+              }}
+            />
+            {passwordError !== null
+              ? <div className="auth-gate-error">{passwordError}</div>
+              : null}
+            <button
+              type="submit"
+              className={`btn primary auth-gate-submit ${passwordBusy ? "is-loading" : ""}`}
+              disabled={passwordBusy || passwordInput.trim().length === 0}
+              aria-busy={passwordBusy}
+            >
+              {passwordBusy
+                ? <LoadingDotsWave />
+                : <span>{isTotpGate ? t.gate.totpSubmitButton : t.gate.passwordSubmitButton}</span>}
+            </button>
+          </form>
         </div>
-        <p className="auth-gate-desc">
-          {isTotpGate ? t.gate.totpSubtitle : t.gate.passwordSubtitle}
-        </p>
-        <form onSubmit={handleSubmit} className="auth-gate-form">
-          <input
-            type={isTotpGate ? "text" : "password"}
-            inputMode={isTotpGate ? "numeric" : undefined}
-            maxLength={isTotpGate ? 6 : undefined}
-            className="auth-gate-input"
-            placeholder={
-              isTotpGate ? t.gate.totpPlaceholder : t.gate.passwordPlaceholder
-            }
-            autoComplete={isTotpGate ? "one-time-code" : "current-password"}
-            value={passwordInput}
-            disabled={passwordBusy}
-            onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-              const rawVal: string = readEventTargetValue(event);
-              setPasswordInput(
-                isTotpGate ? rawVal.replace(/\D+/gu, "").slice(0, 6) : rawVal
-              );
-            }}
-          />
-          {passwordError !== null
-            ? <div className="auth-gate-error">{passwordError}</div>
-            : null}
-          <button
-            type="submit"
-            className={`btn primary auth-gate-submit ${passwordBusy ? "is-loading" : ""}`}
-            disabled={passwordBusy || passwordInput.trim().length === 0}
-            aria-busy={passwordBusy}
-          >
-            {passwordBusy
-              ? <LoadingDotsWave />
-              : <span>{isTotpGate ? t.gate.totpSubmitButton : t.gate.passwordSubmitButton}</span>}
-          </button>
-        </form>
       </div>
       <Toast />
-    </div>
+    </Fragment>
   );
 }

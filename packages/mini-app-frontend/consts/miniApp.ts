@@ -278,10 +278,16 @@ export const MINI_APP_TOAST_DURATION_MS: number = 2_600;
 export const MINI_APP_MIN_LOADING_MS: number = 260;
 
 /**
- * 分页控制栏按钮点击后临时 `.is-hovering` 类名保留的毫秒数（85 毫秒）。
- * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/PaginationBar.tsx`。
+ * 分页控制栏按钮点击后临时 `.is-hovering` 类名与图库上传按钮点击后临时 `.is-pressing` 按压反馈保留的毫秒数（85 毫秒）。
+ * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/PaginationBar.tsx` 与 `packages/mini-app-frontend/pages/GalleryPage.tsx`。
  */
 export const MINI_APP_PAGINATION_HOVER_DURATION_MS: number = 85;
+
+/**
+ * 图库上传按钮与卡片悬浮按钮点击进入 `.hover-suppressed` 悬停抑制态后，指针距点击坐标移动超过该阈值（像素）时解除抑制并恢复悬停反馈。
+ * 不变量：正整数像素值。所属模块：`packages/mini-app-frontend/pages/GalleryPage.tsx` 与 `packages/mini-app-frontend/components/GalleryGridList.tsx`。
+ */
+export const MINI_APP_HOVER_SUPPRESS_RELEASE_DELTA_PX: number = 4;
 
 /**
  * Mini App 简体中文网页标题与顶栏主标题默认文案。

@@ -12,11 +12,12 @@ export const MINI_APP_INIT_DATA_MIDDLEWARE_CHAIN: readonly MiniAppMiddleware[] =
 ];
 
 /**
- * 受保护图库图片资源的专属鉴权中间件链（请求头快路径拦截跨站与浏览器直接导航 + 强制校验 Telegram WebApp 签名或资源令牌与超管 ID，用于 `/api/gallery/file/:fileName` 及受保护图片后缀路径）。
+ * 受保护图库图片资源的专属鉴权中间件链（请求头快路径拦截跨站与浏览器直接导航 + 强制校验 Telegram WebApp 超管签名或登录后派发的资源令牌 + 未携带资源令牌或显式携带会话令牌时强制校验 45 分钟解锁会话，用于 `/api/gallery/file/:fileName` 及受保护图片后缀路径）。
  */
 export const MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN: readonly MiniAppMiddleware[] = [
   createMiniAppHeaderGuardMiddleware(true),
   createMiniAppInitDataMiddleware(true),
+  createMiniAppSessionMiddleware(true, true),
 ];
 
 /**

@@ -116,6 +116,7 @@ function verifyMiniAppRequestHeadersFast(
   } else if (
     secFetchMode === "navigate" ||
     secFetchMode === "nested-navigate" ||
+    secFetchMode === "websocket" ||
     secFetchDest === "document" ||
     secFetchDest === "iframe" ||
     secFetchDest === "frame" ||
@@ -215,6 +216,24 @@ function verifyMiniAppRequestHeadersFast(
       reason: "missing_init_data",
       error: "MISSING_INIT_DATA",
     });
+  }
+
+  if (ctx.method === "GET" || ctx.method === "HEAD") {
+    const queryInitData: string = ctx.url.searchParams.get("initData")?.trim() ?? "";
+    if (
+      queryInitData.length > 0 &&
+      (queryInitData.length > MINI_APP_MAX_INIT_DATA_LENGTH ||
+        MINI_APP_CONTROL_CHARS_PATTERN.test(queryInitData) ||
+        !queryInitData.includes("hash=") ||
+        !queryInitData.includes("auth_date="))
+    ) {
+      return accessErrorResponse(request, {
+        status: 401,
+        code: "MALFORMED_INIT_DATA",
+        reason: "malformed_init_data",
+        error: "MALFORMED_INIT_DATA",
+      });
+    }
   }
 
   return null;

@@ -30,7 +30,7 @@ import {
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createChatsStore } from "../store/chats";
-import type { MiniAppChatsStoreState } from "../store/chats";
+import type { MiniAppChatsStore, MiniAppChatsStoreState } from "../store/chats";
 import type {
   MiniAppChatDetail,
   MiniAppChatSummary,
@@ -172,17 +172,26 @@ function ChatOverviewCardView({
 const ChatOverviewCard: React.MemoExoticComponent<typeof ChatOverviewCardView> =
   memo(ChatOverviewCardView);
 
+/** `ChatsPage` 组件属性。 */
+export interface ChatsPageProps {
+  /** 可选的状态仓库工厂（默认 `createChatsStore`）。 */
+  readonly storeFactory?: () => MiniAppChatsStore;
+}
+
 /**
- * 已启用 `/init` 的群列表、群详细状态、进群统计与批量清理及功能开关页面（含热 256 条发言记录跳转）。
+ * 已启用 `/init` 的群列表、群详细状态、进群统计与批量清理及功能开关页面（含热 256 条发言记录跳转；群内目标管理弹窗与详情主容器同级挂载于顶层 Fragment 下，保持视口固定定位）。
  *
+ * @param props 组件属性
  * @returns React 节点
  */
-export function ChatsPage(): React.JSX.Element {
+export function ChatsPage({
+  storeFactory = createChatsStore,
+}: ChatsPageProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-  const storeState: MiniAppChatsStoreState = useComponentStore(createChatsStore);
+  const storeState: MiniAppChatsStoreState = useComponentStore(storeFactory);
   const {
     chats,
     loadingList,
@@ -243,65 +252,67 @@ export function ChatsPage(): React.JSX.Element {
 
   if (selectedChatId !== null) {
     return (
-      <section className="animate-fade-in">
-        <div className="toolbar chat-detail-toolbar">
-          <button
-            type="button"
-            className="btn icon-btn"
-            onClick={closeDetail}
-          >
-            <ArrowLeftSvgIcon size={14} />
-            <span>{t.chats.closeDetailButton}</span>
-          </button>
-          <div className="chat-detail-toolbar-right">
+      <Fragment>
+        <section className="animate-fade-in">
+          <div className="toolbar chat-detail-toolbar">
             <button
               type="button"
-              className="btn primary icon-btn"
-              onClick={openMessages}
+              className="btn icon-btn"
+              onClick={closeDetail}
             >
-              <ChatsSvgIcon size={14} />
-              <span>{t.chats.viewMessagesButton}</span>
+              <ArrowLeftSvgIcon size={14} />
+              <span>{t.chats.closeDetailButton}</span>
             </button>
-            <ChatTargetsMenuButtonList
-              targetsMenuOpen={targetsMenuOpen}
-              chatDetail={chatDetail}
-              chatTargets={chatTargets}
-              t={t}
-              onToggleMenu={toggleTargetsMenu}
-              onCloseMenu={closeTargetsMenu}
-              onSelectTargetKind={openTargetsModal}
-            />
+            <div className="chat-detail-toolbar-right">
+              <button
+                type="button"
+                className="btn primary icon-btn"
+                onClick={openMessages}
+              >
+                <ChatsSvgIcon size={14} />
+                <span>{t.chats.viewMessagesButton}</span>
+              </button>
+              <ChatTargetsMenuButtonList
+                targetsMenuOpen={targetsMenuOpen}
+                chatDetail={chatDetail}
+                chatTargets={chatTargets}
+                t={t}
+                onToggleMenu={toggleTargetsMenu}
+                onCloseMenu={closeTargetsMenu}
+                onSelectTargetKind={openTargetsModal}
+              />
+            </div>
           </div>
-        </div>
 
-        {loadingDetail && chatDetail === null
-          ? <ChatDetailSkeleton />
-          : null}
+          {loadingDetail && chatDetail === null
+            ? <ChatDetailSkeleton />
+            : null}
 
-        {chatDetail !== null
-          ? (
-            <Fragment>
-              <ChatOverviewCard
-                chatDetail={chatDetail}
-                botPermsExpanded={botPermsExpanded}
-                t={t}
-                onToggleBotPerms={toggleBotPerms}
-              />
+          {chatDetail !== null
+            ? (
+              <Fragment>
+                <ChatOverviewCard
+                  chatDetail={chatDetail}
+                  botPermsExpanded={botPermsExpanded}
+                  t={t}
+                  onToggleBotPerms={toggleBotPerms}
+                />
 
-              <ChatJoinCleanCard chatDetail={chatDetail} state={storeState} />
+                <ChatJoinCleanCard chatDetail={chatDetail} state={storeState} />
 
-              <ChatFeatureListCard
-                chatDetail={chatDetail}
-                togglingFeature={togglingFeature}
-                language={language}
-                t={t}
-                onToggleFeature={toggleFeature}
-              />
-            </Fragment>
-          )
-          : null}
+                <ChatFeatureListCard
+                  chatDetail={chatDetail}
+                  togglingFeature={togglingFeature}
+                  language={language}
+                  t={t}
+                  onToggleFeature={toggleFeature}
+                />
+              </Fragment>
+            )
+            : null}
+        </section>
         <ChatTargetsModal state={storeState} />
-      </section>
+      </Fragment>
     );
   }
 

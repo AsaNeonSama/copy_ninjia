@@ -2,6 +2,7 @@ import { createStore } from "zustand";
 import type { StoreApi } from "zustand";
 import { fetchMiniAppMood } from "../api/mood";
 import { switchMiniAppMood } from "../api/moodSwitch";
+import { isMiniAppAuthErrorMessage } from "../api/request";
 import { fetchMiniAppStatus } from "../api/status";
 import {
   MINI_APP_STATUS_POLL_INTERVAL_MS,
@@ -16,7 +17,7 @@ import type {
   MiniAppMoodView,
   MiniAppStatusView,
 } from "../types/miniApp";
-import { useMiniAppStore } from "./app";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 
 /** `StatusPage` 实时状态看板的状态与动作接口。 */
 export interface MiniAppStatusStoreState {
@@ -148,8 +149,9 @@ export function createStatusStore(): MiniAppStatusStore {
               return;
             }
             set({ currentMood: nextMood });
-          } catch (_error: unknown) {
-            // 情绪查询异常不阻塞主状态看板
+          } catch (error: unknown) {
+            // 会话失效或锁定时立即通知根仓库锁定控制台，其余情绪查询异常不阻塞主状态看板。
+            notifyMiniAppIfAuthError(error);
           }
         },
 
@@ -205,7 +207,7 @@ export function createStatusStore(): MiniAppStatusStore {
               loading: false,
               refreshing: false,
             });
-            if (showErrorToast) {
+            if (showErrorToast || isMiniAppAuthErrorMessage(rawMessage)) {
               useMiniAppStore.getState().notify(rawMessage, "info", error);
             }
           }

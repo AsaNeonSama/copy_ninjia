@@ -27,7 +27,7 @@ export async function handleGetGalleryRoute(url: URL): Promise<Response> {
 }
 
 /**
- * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成 Telegram WebApp 签名或资源令牌、超管 ID 与防直接导航核验后，经文件名安全校验返回允许浏览器与 CDN 缓存的图片二进制流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
+ * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成防直接导航、Telegram WebApp 超管签名（配对 45 分钟解锁会话）或登录后派发的资源令牌核验后，经文件名安全校验返回允许浏览器与 CDN 缓存的图片二进制流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
  * @param request HTTP 请求。
  * @param rawFileName URL 中的文件名参数。
  * @returns 图片文件响应、`304` 缓存命中响应或 `404` JSON 响应。

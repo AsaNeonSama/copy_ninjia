@@ -25,7 +25,7 @@ import type {
   MiniAppIdentityAddMode,
   MiniAppTranslateLanguage,
 } from "../types/miniApp";
-import { useMiniAppStore } from "./app";
+import { notifyMiniAppIfAuthError, useMiniAppStore } from "./app";
 import type { MiniAppUiStoreState } from "./app";
 import { createChatTargetsActions } from "./chatTargetsActions";
 
@@ -608,8 +608,9 @@ export function createChatsStore(): MiniAppChatsStore {
                 "info"
               );
             }
-          } catch (_error: unknown) {
-            // 后台轮询遇瞬时异常时静默等待下一轮。
+          } catch (error: unknown) {
+            // 会话失效或锁定时立即通知根仓库锁定控制台，其余后台轮询瞬时异常静默等待下一轮。
+            notifyMiniAppIfAuthError(error);
           }
         },
 

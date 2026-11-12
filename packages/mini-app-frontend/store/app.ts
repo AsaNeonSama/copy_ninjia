@@ -3,6 +3,7 @@ import type { UseBoundStore, StoreApi } from "zustand";
 import { loginMiniAppWithPassword } from "../api/authLogin";
 import { logoutMiniAppSession } from "../api/authLogout";
 import { precheckMiniAppAccess } from "../api/authPrecheck";
+import { isMiniAppAuthErrorMessage } from "../api/request";
 import {
   MINI_APP_DARK_BG_COLOR,
   MINI_APP_DARK_HEADER_COLOR,
@@ -505,4 +506,16 @@ export function resetMiniAppStoreForTest(): void {
     passwordBusy: false,
     passwordError: null,
   });
+}
+
+/**
+ * 后台静默查询或轮询捕获异常时，若命中 `[PASSWORD_REQUIRED]` 或 `[PASSWORD_LOCKED]` 鉴权失效前缀则立即通知根仓库锁定控制台，其余瞬时异常静默忽略。
+ *
+ * @param error 捕获到的异常对象
+ */
+export function notifyMiniAppIfAuthError(error: unknown): void {
+  const rawMessage: string = errorMessage(error);
+  if (isMiniAppAuthErrorMessage(rawMessage)) {
+    useMiniAppStore.getState().notify(rawMessage, "info", error);
+  }
 }

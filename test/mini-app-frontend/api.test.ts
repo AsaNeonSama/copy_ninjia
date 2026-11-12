@@ -110,30 +110,12 @@ import {
   truncateDisplayText,
 } from "../../packages/mini-app-frontend/libs/formatters";
 import { waitMinimumLoadingDuration } from "../../packages/mini-app-frontend/libs/loading";
+import { getTelegramWebApp, readMiniAppInitData } from "../../packages/mini-app-frontend/libs/telegram";
 import {
-  getTelegramWebApp,
-  readMiniAppInitData,
-} from "../../packages/mini-app-frontend/libs/telegram";
-import {
-  ChatsSvgIcon,
-  DownloadSvgIcon,
-  GallerySvgIcon,
-  GlobeCnSvgIcon,
-  GlobeEnSvgIcon,
-  GlobeJaSvgIcon,
-  GlobeSvgIcon,
-  IdentitiesSvgIcon,
-  MenuSvgIcon,
-  SearchSvgIcon,
-  StatusSvgIcon,
-  TabSvgIcon,
-  TrashSvgIcon,
+  ChatsSvgIcon, DownloadSvgIcon, GallerySvgIcon, GlobeCnSvgIcon, GlobeEnSvgIcon, GlobeJaSvgIcon,
+  GlobeSvgIcon, IdentitiesSvgIcon, MenuSvgIcon, SearchSvgIcon, StatusSvgIcon, TabSvgIcon, TrashSvgIcon,
 } from "../../packages/mini-app-frontend/resource";
-import {
-  applyMiniAppThemeToDocument,
-  resetMiniAppStoreForTest,
-  useMiniAppStore,
-} from "../../packages/mini-app-frontend/store/app";
+import { applyMiniAppThemeToDocument, resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createIdentitiesStore } from "../../packages/mini-app-frontend/store/identities";
 import { createMessagesStore } from "../../packages/mini-app-frontend/store/messages";
 import type { MiniAppMessagesStoreState } from "../../packages/mini-app-frontend/store/messages";
@@ -148,6 +130,8 @@ interface RecordedRequest {
 const requests: RecordedRequest[] = [];
 const responses: Map<string, () => Response> = new Map<string, () => Response>();
 const originalFetch: typeof fetch = globalThis.fetch;
+const initialWindowDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "window");
 const session: string = "e".repeat(64);
 
 beforeEach((): void => {
@@ -169,8 +153,13 @@ beforeEach((): void => {
 
 afterEach((): void => {
   globalThis.fetch = originalFetch;
-  (globalThis as { Telegram?: unknown }).Telegram = undefined;
-  (globalThis as { document?: unknown }).document = undefined;
+  if (initialWindowDescriptor !== undefined) {
+    Object.defineProperty(globalThis, "window", initialWindowDescriptor);
+  } else {
+    Reflect.deleteProperty(globalThis, "window");
+  }
+  Reflect.deleteProperty(globalThis, "Telegram");
+  Reflect.deleteProperty(globalThis, "document");
   clearMiniAppSessionToken();
   clearMiniAppAssetToken();
 });
@@ -862,18 +851,13 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(statusOverviewHtml).toContain('class="stat-value-active">1</span>');
     resetMiniAppStoreForTest();
 
-    expect(MenuSvgIcon({})).toBeDefined();
-    expect(StatusSvgIcon({})).toBeDefined();
-    expect(ChatsSvgIcon({})).toBeDefined();
-    expect(IdentitiesSvgIcon({})).toBeDefined();
-    expect(GallerySvgIcon({})).toBeDefined();
-    expect(GlobeCnSvgIcon({})).toBeDefined();
-    expect(GlobeJaSvgIcon({})).toBeDefined();
-    expect(GlobeEnSvgIcon({})).toBeDefined();
-    expect(GlobeSvgIcon({})).toBeDefined();
-    expect(DownloadSvgIcon({})).toBeDefined();
-    expect(SearchSvgIcon({})).toBeDefined();
-    expect(TrashSvgIcon({})).toBeDefined();
+    for (const icon of [
+      MenuSvgIcon({}), StatusSvgIcon({}), ChatsSvgIcon({}), IdentitiesSvgIcon({}),
+      GallerySvgIcon({}), GlobeCnSvgIcon({}), GlobeJaSvgIcon({}), GlobeEnSvgIcon({}),
+      GlobeSvgIcon({}), DownloadSvgIcon({}), SearchSvgIcon({}), TrashSvgIcon({}),
+    ]) {
+      expect(icon).toBeDefined();
+    }
 
     expect(getTelegramWebApp()).toBeUndefined();
     expect(readMiniAppInitData()).toBe("");

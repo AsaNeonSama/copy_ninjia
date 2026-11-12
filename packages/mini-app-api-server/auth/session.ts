@@ -134,6 +134,31 @@ export function revokeMiniAppAuthSession(
 }
 
 /**
+ * 在超级管理员启用、更换或删除 TOTP 验证器后，吊销除发起本次变更的当前会话以外的全部其余已登录会话，
+ * 使旧认证方式或旧密钥时期签发的其他会话立即失效。
+ * @param keepSessionToken 发起本次验证器变更的请求所携带的会话令牌（支持刷新后 5 分钟宽限期内的上一轮令牌）。
+ * @param nowMs 当前毫秒时间戳。
+ */
+export function revokeOtherMiniAppAuthSessions(
+  keepSessionToken: string,
+  nowMs: number = Date.now()
+): void {
+  purgeExpiredAuthSessions(nowMs);
+  const activeCallerSession: Readonly<MiniAppAuthSession> | null =
+    MINI_APP_SHA256_HEX_PATTERN.test(keepSessionToken)
+      ? findMiniAppAuthSession(keepSessionToken, nowMs)
+      : null;
+  const keepKey: string | undefined = activeCallerSession?.token;
+  miniAppAuthSessions.forEach(
+    (_session: Readonly<MiniAppAuthSession>, token: string): void => {
+      if (token !== keepKey) {
+        miniAppAuthSessions.delete(token);
+      }
+    }
+  );
+}
+
+/**
  * 为已触发会话令牌刷新的响应原地写入最新的 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头。
  * @param response 业务响应对象。
  * @param session 刷新后的新会话记录。

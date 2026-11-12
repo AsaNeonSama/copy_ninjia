@@ -4,6 +4,7 @@ import { fetchMiniAppGallery } from "../api/gallery";
 import { deleteMiniAppGalleryImageByName } from "../api/galleryDelete";
 import { downloadMiniAppGalleryImageByName } from "../api/galleryDownload";
 import { uploadMiniAppGalleryImageBytes } from "../api/galleryUpload";
+import { isMiniAppAuthErrorMessage } from "../api/request";
 import { MINI_APP_GALLERY_DEFAULT_PAGE_SIZE } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
@@ -298,11 +299,7 @@ export function createGalleryStore(): MiniAppGalleryStore {
                   failed++;
                 }
               } catch (error: unknown) {
-                const message: string = errorMessage(error);
-                if (
-                  message.includes("[PASSWORD_REQUIRED]") ||
-                  message.includes("[PASSWORD_LOCKED]")
-                ) {
+                if (isMiniAppAuthErrorMessage(errorMessage(error))) {
                   throw error;
                 }
                 failed++;
