@@ -113,11 +113,11 @@ export const MINI_APP_FRAME_MOTION_MAX_STEP_MS: number = 20;
 export const MINI_APP_FRAME_MOTION_MAX_LAG_MS: number = 80;
 
 /**
- * 折叠面板逐帧动画、同帧视口滚动与子页签高度过渡共用的缓动曲线控制点 `[x1, y1, x2, y2]`（即 CSS `cubic-bezier(0.32, 0.08, 0.24, 1)`）。
- * 不变量：`x1`、`x2` 落在 `[0, 1]` 区间内；与 `styles/` 下各样式表的 S 型缓动曲线一致。所属模块：`packages/mini-app-frontend/components/animations/frameMotion.ts` 与 `packages/mini-app-frontend/components/animations/TabHeightSizer.tsx`。
+ * 折叠面板逐帧动画、同帧视口滚动、滑块前段推进与子页签高度过渡共用的三次贝塞尔缓动控制点 `[x1, y1, x2, y2]`（对应 CSS `cubic-bezier(0.2, 0.9, 0.25, 1)`）。
+ * 不变量：`x1`、`x2` 落在 `[0, 1]` 区间内；与 `styles/base.css` 中 `--ease-brutal` 的缓动曲线一致。所属模块：`packages/mini-app-frontend/components/animations/frameMotion.ts`、`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts` 与 `packages/mini-app-frontend/components/animations/TabHeightSizer.tsx`。
  */
 export const MINI_APP_FLIP_COLLAPSE_EASING_POINTS: readonly [number, number, number, number] =
-  [0.32, 0.08, 0.24, 1];
+  [0.2, 0.9, 0.25, 1];
 
 /**
  * 折叠面板收起后保留内容快照与 `.flip-closing` 布局的毫秒数：覆盖最长收起时长、逐帧时钟的最大落后量及首帧排期与末帧落点的帧间余量。
@@ -272,13 +272,13 @@ export const MINI_APP_DOWNLOAD_OBJECT_URL_REVOKE_DELAY_MS: number = 60_000;
 export const MINI_APP_TOAST_DURATION_MS: number = 2_600;
 
 /**
- * Mini App 页面加载、列表刷新与图库骨架屏的最短动画展示毫秒数（0.26 秒，保证闪光骨架与过渡动画完整平滑呈现）。
+ * Mini App 页面加载、列表刷新与图库骨架屏的最短展示毫秒数（260 毫秒）。
  * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/libs/loading.ts`。
  */
 export const MINI_APP_MIN_LOADING_MS: number = 260;
 
 /**
- * 分页控制栏按钮点击后 hover 视觉状态固定保留的毫秒数（85 毫秒，消除移动设备点击翻页后残留的粘滞 hover 状态）。
+ * 分页控制栏按钮点击后临时 `.is-hovering` 类名保留的毫秒数（85 毫秒）。
  * 不变量：正整数毫秒数。所属模块：`packages/mini-app-frontend/components/PaginationBar.tsx`。
  */
 export const MINI_APP_PAGINATION_HOVER_DURATION_MS: number = 85;
@@ -325,23 +325,17 @@ export const MINI_APP_THEME_MODES: readonly MiniAppThemeMode[] =
     "light",
   ]);
 
-/** Telegram 宿主未注入主题色（`button_color` / `link_color`）时回退使用的自带默认粉色主色调。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 中 `--default-accent-color` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
-export const MINI_APP_DEFAULT_ACCENT_COLOR: string = "#ca7896";
+/** Mini App 亮色主题页面背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 亮色 `--bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_LIGHT_BG_COLOR: string = "#f6f2e8";
 
-/** Telegram 宿主未注入按钮文字色（`button_text_color`）时回退使用的默认亮白文字色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 中 `--default-accent-text-color` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
-export const MINI_APP_DEFAULT_ACCENT_TEXT_COLOR: string = "#ffffff";
+/** Mini App 暗色主题页面背景色（`#07080c`）。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 暗色 `--bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_DARK_BG_COLOR: string = "#07080c";
 
-/** Mini App 亮色主题默认页面背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 亮色 `--bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
-export const MINI_APP_LIGHT_BG_COLOR: string = "#eef2f6";
-
-/** Mini App 暗色主题默认页面背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 暗色 `--bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
-export const MINI_APP_DARK_BG_COLOR: string = "#0f1722";
-
-/** Mini App 亮色主题默认顶栏与卡片背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 亮色 `--card` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+/** Mini App 亮色主题顶栏与卡片背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 亮色 `--card` 及 `--header-bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
 export const MINI_APP_LIGHT_HEADER_COLOR: string = "#ffffff";
 
-/** Mini App 暗色主题默认顶栏与卡片背景色。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 暗色 `--card` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
-export const MINI_APP_DARK_HEADER_COLOR: string = "#182433";
+/** Mini App 暗色主题顶栏与工具栏背景色（`#232940`）。不变量：合法的 `#rrggbb` 十六进制颜色字面量，与 `styles/base.css` 暗色 `--header-bg` 一致。所属模块：`packages/mini-app-frontend/store/app.ts`。 */
+export const MINI_APP_DARK_HEADER_COLOR: string = "#232940";
 
 /**
  * Mini App 名单与群内目标添加折叠菜单支持的添加模式闭集（按 ID、按联系人、按频道）。
@@ -415,10 +409,10 @@ export const MINI_APP_RANGE_SPRING_SPLIT_PROGRESS: number = 0.62;
 /** 滑块进度条弹性回弹振幅按总跨度折算的比例系数。不变量：正浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
 export const MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO: number = 0.075;
 
-/** 滑块进度条弹性回弹振幅的下限小时数（保证 1 小时单步点击也有清晰回弹）。不变量：正浮点数，小于等于 `MINI_APP_RANGE_SPRING_AMPLITUDE_MAX`。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+/** 滑块进度条弹性回弹振幅的下限小时数。不变量：正浮点数，小于等于 `MINI_APP_RANGE_SPRING_AMPLITUDE_MAX`。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
 export const MINI_APP_RANGE_SPRING_AMPLITUDE_MIN: number = 0.26;
 
-/** 滑块进度条弹性回弹振幅的上限小时数（限制大跨度跳转时的最大过冲幅度）。不变量：正浮点数，大于等于 `MINI_APP_RANGE_SPRING_AMPLITUDE_MIN`。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
+/** 滑块进度条弹性回弹振幅的上限小时数。不变量：正浮点数，大于等于 `MINI_APP_RANGE_SPRING_AMPLITUDE_MIN`。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */
 export const MINI_APP_RANGE_SPRING_AMPLITUDE_MAX: number = 0.62;
 
 /** 滑块进度条过冲超出最小/最大小时边界时向内侧折返的阻尼衰减系数。不变量：`(0, 1)` 区间内的浮点数。所属模块：`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts`。 */

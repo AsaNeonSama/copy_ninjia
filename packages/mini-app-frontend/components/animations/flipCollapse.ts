@@ -177,7 +177,7 @@ function formatOpacity(value: number): string {
 }
 
 /**
- * 按过渡方向与高度跨度计算完整过渡的时长：展开为 `MINI_APP_FLIP_COLLAPSE_DURATION_MS`；
+ * 按过渡方向与高度跨度计算完整过渡的时长：展开固定为 `MINI_APP_FLIP_COLLAPSE_DURATION_MS`；
  * 收起取「跨度 ÷ `MINI_APP_FLIP_COLLAPSE_CLOSE_SPEED_PX_PER_MS`」与展开时长的较大值，并以 `MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS` 为上限。
  *
  * @param spanPx 收起态与展开态之间的高度跨度
@@ -238,10 +238,10 @@ export interface RunFlipCollapseTransitionOptions {
 
 /**
  * 在 DOM 提交后、浏览器绘制前测量内层面板与可选配对触发器的自然高度，写入起始帧样式，
- * 再以 `runFrameMotion` 的单一时钟逐帧写入外层容器 `height`、内层面板 `translate3d`/`opacity`、
- * 配对触发器的位移/透明度与可选的视口滚动：所有值都由同一展开进度派生，同帧提交，互不错位。
- * 无配对触发器时内层面板位移等于「当前高度 − 展开高度」，面板下沿始终贴住裁剪框下沿；
- * 有配对触发器时面板只滑动 16px 并与触发按钮交叉渐变。时长按 `computeFlipCollapseDurationMs` 取完整过渡时长再乘以剩余进度。
+ * 再以 `runFrameMotion`（按 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 三次贝塞尔曲线采样）的单一时钟逐帧写入外层容器 `height`、
+ * 内层面板 `translate3d`/`opacity`、配对触发器的位移/透明度与可选的视口滚动：所有值都由同一展开进度派生，同帧提交。
+ * 无配对触发器时内层面板位移等于「当前高度 − 展开高度」，面板下沿紧贴裁剪框下沿；
+ * 有配对触发器时面板在 `MINI_APP_FLIP_PAIRED_SLIDE_MAX_PX` 行程内滑动并与触发按钮交叉渐变。时长按 `computeFlipCollapseDurationMs` 取完整过渡时长再乘以剩余进度。
  *
  * @param options 外层节点、内层节点、目标展开态、视口滚动与结束回调
  * @returns 取消本次动画的清理函数（记录打断进度并清除行内样式；无需动画时返回 `undefined`）
@@ -392,6 +392,7 @@ export function runFlipCollapseTransition({
       triggerInnerStyle.willChange = "";
       triggerInnerStyle.opacity = "";
     }
+    gridEl.classList?.remove("flip-closing");
     gridStyle.height = "";
     gridStyle.marginTop = "";
     innerStyle.transform = "";
@@ -454,7 +455,7 @@ export interface UseFlipCollapseLayoutEffectResult {
   readonly gridRef: React.RefObject<FlipAnimatableElement | null>;
   /** 绑定到内层裁剪容器节点的 `RefObject`。 */
   readonly innerRef: React.RefObject<FlipAnimatableElement | null>;
-  /** 当前是否处于收起过渡飞行期（供组件在渲染期直接拼入 `.flip-closing` 类名，避免提交阶段短暂落入 `display: none`）。 */
+  /** 当前是否处于收起过渡飞行期（供组件在渲染期拼入 `.flip-closing` 类名）。 */
   readonly isClosing: boolean;
 }
 
@@ -518,6 +519,10 @@ export function syncFlipCollapseLayoutEffect({
   }
   if (wasExpanded === expanded) {
     // 展开态未变的重跑（其余依赖变化）已由上一轮清理清除行内样式，面板落在 CSS 终态，打断进度随之作废。
+    closingActiveRef.current = false;
+    if (!expanded) {
+      gridEl?.classList?.remove("flip-closing");
+    }
     if (innerEl?.dataset !== undefined) delete innerEl.dataset.flipInterruptedProgress;
     return undefined;
   }
@@ -546,7 +551,7 @@ export function syncFlipCollapseLayoutEffect({
 }
 
 /**
- * 为折叠容器组件接入绘制前测量与单时钟逐帧展开/收起过渡的 React Hook（SSR 环境自动降级为无副作用）。
+ * 为折叠容器组件接入绘制前测量与单时钟快出急停展开/收起过渡的 React Hook（SSR 环境自动降级为无副作用）。
  *
  * @param options 展开状态、可选上下文重置键与视口滚动参数
  * @returns 外层/内层节点引用与收起飞行态标志

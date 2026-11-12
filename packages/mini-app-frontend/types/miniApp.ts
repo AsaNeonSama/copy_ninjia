@@ -550,8 +550,6 @@ export type TelegramWebAppActivityEvent = "activated" | "deactivated";
 /** Telegram WebApp 注入浏览器的宿主对象接口。 */
 export interface TelegramWebApp {
   readonly initData?: string;
-  readonly colorScheme?: "light" | "dark";
-  readonly themeParams?: Readonly<Record<string, string | undefined>>;
   readonly initDataUnsafe?: Readonly<{ readonly user?: Readonly<TelegramWebAppUser> }>;
   readonly ready?: () => void;
   readonly expand?: () => void;
@@ -614,9 +612,6 @@ export interface TelegramWindow {
     readonly body?: Readonly<{ readonly appendChild?: (node: MiniAppDownloadAnchorElement) => void }>;
     readonly documentElement?: Readonly<{
       readonly setAttribute?: (qualifiedName: string, value: string) => void;
-      readonly style?: Readonly<{
-        readonly setProperty?: (property: string, value: string) => void;
-      }>;
     }>;
     /** 页面可见性；切到后台或被遮挡时为 `"hidden"`。 */
     readonly visibilityState?: "visible" | "hidden";

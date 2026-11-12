@@ -30,7 +30,7 @@ export interface CollapseGridProps {
 }
 
 /**
- * 基于绘制前单次测量与单时钟逐帧写入外层 `height`、内层 `translate3d`/`opacity` 及可选同帧视口滚动的通用展开/收起包装组件。
+ * 基于绘制前单次测量与单时钟快出急停逐帧写入外层 `height`、内层 `translate3d`/`opacity` 及可选同帧视口滚动的通用展开/收起包装组件。
  *
  * @param props 展开状态、外层/内层类名、上下文重置键、透明度过渡标志、视口滚动解析回调与子节点
  * @returns React 节点
@@ -89,7 +89,7 @@ export interface TriggerCollapseGridProps {
 }
 
 /**
- * 在与下方编辑表单互换时由配对 `CollapseGrid` 统一协同驱动同起点重叠过渡的触发按钮折叠包装组件。
+ * 在与下方编辑表单互换时由配对 `CollapseGrid` 统一协同驱动同起点重叠快出过渡的触发按钮折叠包装组件。
  *
  * @param props 收起状态、外层/内层类名、可选上下文重置键与触发按钮子节点
  * @returns React 节点

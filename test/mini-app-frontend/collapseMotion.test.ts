@@ -1,6 +1,7 @@
 /**
- * Mini App 前端折叠动画引擎：缓动曲线与逐帧时钟（长帧截断与落后上限）、单时钟折叠过渡（高度、位移、透明度同源）、
- * 收起时长按高度跨度延长、半途打断续接、配对触发器交叉渐变，以及与展开同帧的视口跟滚、收起视口回落和共享跟滚槽位。
+ * Mini App 前端折叠与滑块动画引擎：快出急停缓动曲线与逐帧时钟（长帧截断与落后上限）、
+ * 单时钟折叠过渡（高度、位移、透明度同源）、收起时长按高度跨度延长、半途打断续接、配对触发器交叉渐变、
+ * 与展开同帧的视口跟滚、收起视口回落、共享跟滚槽位，以及回溯滑块快出推进与机械卡位插值。
  */
 
 import { describe, expect, test } from "bun:test";
@@ -39,6 +40,13 @@ import {
   runFrameMotion,
 } from "../../packages/mini-app-frontend/components/animations/frameMotion";
 import {
+  computeRangeProgressPercent,
+  interpolateSpringRangeValue,
+  resolveAnimatedRangeStartValue,
+} from "../../packages/mini-app-frontend/components/animations/useAnimatedRangeProgress";
+import {
+  MINI_APP_BATCH_KICK_MAX_HOURS,
+  MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_EXPAND_SCROLL_BOTTOM_MARGIN_PX,
   MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR,
   MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX,
@@ -51,9 +59,17 @@ import {
   MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS,
   MINI_APP_FRAME_MOTION_MAX_LAG_MS,
   MINI_APP_FRAME_MOTION_MAX_STEP_MS,
+  MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD,
+  MINI_APP_RANGE_PULLBACK_MAX_SPAN,
+  MINI_APP_RANGE_PULLBACK_MIN_SPAN,
+  MINI_APP_RANGE_SPRING_AMPLITUDE_MAX,
+  MINI_APP_RANGE_SPRING_AMPLITUDE_MIN,
+  MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO,
+  MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING,
+  MINI_APP_RANGE_SPRING_SPLIT_PROGRESS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 
-/** 测试逐帧推进的帧间隔毫秒数（整数，避免累加误差；小于逐帧时钟的单帧推进上限，时钟与经过时间一致）。 */
+/** 测试逐帧推进的帧间隔毫秒数（整数且小于逐帧时钟的单帧推进上限，时钟与经过时间一致）。 */
 const TEST_FRAME_MS: number = 16;
 
 /** 测试用手动推进的逐帧调度桩。 */
@@ -301,6 +317,16 @@ describe("折叠动画引擎与同帧跟滚", () => {
       expect(frames.pending()).toBe(0);
       frames.flush(2_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS);
       expect(cancelledLog).toEqual([0]);
+      expect(finished).toBe(1);
+
+      let cancelInsideFrame: () => void = (): void => undefined;
+      cancelInsideFrame = runFrameMotion({
+        durationMs: MINI_APP_FLIP_COLLAPSE_DURATION_MS,
+        onFrame: (): void => { cancelInsideFrame(); },
+        onFinish: (): void => { finished += 1; },
+      });
+      frames.flush(3_000);
+      expect(frames.pending()).toBe(0);
       expect(finished).toBe(1);
     } finally {
       frames.restore();
@@ -935,5 +961,56 @@ describe("折叠动画引擎与同帧跟滚", () => {
       frames.restore();
       viewport.restore();
     }
+  });
+
+  test("滑块快出推进与机械卡位插值：前段按新粗野主义曲线干脆抵达定点，后段做有界阻尼卡位回弹，连续点击与快速回撤归一化起点", () => {
+    expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MIN_HOURS)).toBe("0.00%");
+    expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MAX_HOURS)).toBe("100.00%");
+    const midHours: number = (MINI_APP_BATCH_KICK_MIN_HOURS + MINI_APP_BATCH_KICK_MAX_HOURS) / 2;
+    expect(computeRangeProgressPercent(midHours)).toBe("50.00%");
+
+    const fromHours: number = 2;
+    const toHours: number = 12;
+    expect(interpolateSpringRangeValue(fromHours, toHours, 0)).toBe(fromHours);
+    expect(interpolateSpringRangeValue(fromHours, toHours, 1)).toBe(toHours);
+
+    // 前段按 MINI_APP_FLIP_COLLAPSE_EASING_POINTS 快出急停曲线采样，在分界点精确落到目标值
+    const halfApproachProgress: number = MINI_APP_RANGE_SPRING_SPLIT_PROGRESS * 0.5;
+    expect(interpolateSpringRangeValue(fromHours, toHours, halfApproachProgress)).toBeCloseTo(
+      fromHours + (toHours - fromHours) * ease(0.5),
+      6
+    );
+    expect(interpolateSpringRangeValue(fromHours, toHours, MINI_APP_RANGE_SPRING_SPLIT_PROGRESS)).toBeCloseTo(toHours, 6);
+
+    // 后段做有界阻尼微幅过冲并收敛回目标值；两端边界过冲向内侧按 MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING 折返
+    const tailMidProgress: number = (MINI_APP_RANGE_SPRING_SPLIT_PROGRESS + 1) / 2;
+    const clampAmp = (span: number): number =>
+      Math.min(MINI_APP_RANGE_SPRING_AMPLITUDE_MAX, Math.max(MINI_APP_RANGE_SPRING_AMPLITUDE_MIN, span * MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO));
+    expect(interpolateSpringRangeValue(fromHours, toHours, tailMidProgress)).toBeCloseTo(
+      toHours + clampAmp(Math.abs(toHours - fromHours)) * 0.25,
+      6
+    );
+    const maxEdgeValue: number = interpolateSpringRangeValue(12, MINI_APP_BATCH_KICK_MAX_HOURS, tailMidProgress);
+    const maxEdgeAmp: number = clampAmp(Math.abs(MINI_APP_BATCH_KICK_MAX_HOURS - 12));
+    expect(maxEdgeValue).toBeLessThan(MINI_APP_BATCH_KICK_MAX_HOURS);
+    expect(maxEdgeValue).toBeCloseTo(
+      MINI_APP_BATCH_KICK_MAX_HOURS - maxEdgeAmp * 0.25 * MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING,
+      6
+    );
+    expect(interpolateSpringRangeValue(6, MINI_APP_BATCH_KICK_MIN_HOURS, tailMidProgress)).toBeGreaterThan(
+      MINI_APP_BATCH_KICK_MIN_HOURS
+    );
+
+    // 连续同向步进向前垫进起点；快速回撤至原目标附近时朝上一目标方向预留回拉行程
+    const currentMidway: number = 6 - (MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD + 0.45);
+    expect(resolveAnimatedRangeStartValue(currentMidway, 6, 12)).toBeCloseTo(
+      currentMidway + (6 - currentMidway) * MINI_APP_RANGE_PULLBACK_MAX_SPAN,
+      6
+    );
+    const nearPrevTarget: number = 3 + MINI_APP_RANGE_PULLBACK_MIN_SPAN * 0.2;
+    expect(resolveAnimatedRangeStartValue(nearPrevTarget, 6, 3)).toBeCloseTo(
+      3 + MINI_APP_RANGE_PULLBACK_MAX_SPAN,
+      6
+    );
   });
 });

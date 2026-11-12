@@ -145,6 +145,19 @@ export interface TabHeightSizerProps {
   readonly children: React.ReactNode;
 }
 
+/** 弹窗标签页外层容器 `height` 过渡的预拼装 CSS `transition` 声明。 */
+const TAB_HEIGHT_TRANSITION: string = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
+
+/**
+ * 返回弹窗标签页外层容器 `height` 过渡的 CSS `transition` 声明，由 `MINI_APP_TAB_HEIGHT_TRANSITION_MS`
+ * 与 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 拼接 `cubic-bezier(...)`，与 `frameMotion` 共用同一三次贝塞尔缓动控制点。
+ *
+ * @returns CSS `height` 过渡声明字符串
+ */
+export function formatTabHeightTransition(): string {
+  return TAB_HEIGHT_TRANSITION;
+}
+
 /**
  * 根据前后激活的目标管理标签类别计算面板切换滑动方向类名（向右切入或向左切入）。
  *
@@ -167,9 +180,100 @@ export function resolveTabSlideDirectionClass(
   return nextIndex > prevIndex ? "tab-slide-forward" : "tab-slide-backward";
 }
 
+/** `syncTabHeightTransitionEffect` 同步标签页高度过渡副作用的参数接口。 */
+export interface SyncTabHeightTransitionEffectOptions {
+  /** 当前激活的目标类别（关闭时为 `null`）。 */
+  readonly activeTab: MiniAppChatTargetKind | null;
+  /** 目标数据是否已加载完成。 */
+  readonly hasTargets: boolean;
+  /** 外层高度过渡容器节点引用。 */
+  readonly sizerRef: React.RefObject<MeasurableBodyElement | null>;
+  /** 内层面板节点引用。 */
+  readonly paneRef: React.RefObject<MeasurableBodyElement | null>;
+  /** 上一次记录的内容像素高度引用。 */
+  readonly lastHeightRef: React.RefObject<number>;
+  /** 上一次渲染的目标类别引用。 */
+  readonly prevTabRef: React.RefObject<MiniAppChatTargetKind | null>;
+  /** 上一次是否已加载目标数据的标记引用。 */
+  readonly prevHadTargetsRef: React.RefObject<boolean>;
+}
+
 /**
- * 在弹窗内切换不同标签页或首次注水完成时测量前后像素高度，通过 CSS `height` 过渡平滑改变弹窗内容高度，
- * 并按标签顺序附加方向切入动画，过渡结束后恢复自适应高度以保证内部列表正常滚动。
+ * 同步弹窗标签页切换或首次注水完成时的前后像素高度，写入基于 `formatTabHeightTransition()` 的行内 `height` 过渡，
+ * 并在 `MINI_APP_TAB_HEIGHT_CLEANUP_MS` 后清除行内 `height` / `overflow` / `transition` 恢复自适应高度。
+ *
+ * @param options 标签页状态与容器节点引用
+ * @returns 清理函数或 `undefined`
+ */
+export function syncTabHeightTransitionEffect({
+  activeTab,
+  hasTargets,
+  sizerRef,
+  paneRef,
+  lastHeightRef,
+  prevTabRef,
+  prevHadTargetsRef,
+}: SyncTabHeightTransitionEffectOptions): (() => void) | undefined {
+  if (activeTab === null) {
+    prevTabRef.current = null;
+    prevHadTargetsRef.current = false;
+    lastHeightRef.current = 0;
+    return undefined;
+  }
+  const prevTab: MiniAppChatTargetKind | null = prevTabRef.current;
+  const prevHadTargets: boolean = prevHadTargetsRef.current;
+  prevTabRef.current = activeTab;
+  prevHadTargetsRef.current = hasTargets;
+
+  const nextHeight: number = readElementBodyHeight(paneRef.current);
+  const prevHeight: number = lastHeightRef.current;
+  if (nextHeight > 0) {
+    lastHeightRef.current = nextHeight;
+  }
+  const tabChanged: boolean = prevTab !== null && prevTab !== activeTab;
+  const targetsHydrated: boolean = !prevHadTargets && hasTargets;
+  const sizerEl: MeasurableBodyElement | null = sizerRef.current;
+  if (
+    (tabChanged || targetsHydrated) &&
+    sizerEl?.style !== undefined &&
+    prevHeight > 0 &&
+    nextHeight > 0 &&
+    prevHeight !== nextHeight
+  ) {
+    sizerEl.style.overflow = "hidden";
+    sizerEl.style.transition = "none";
+    sizerEl.style.height = `${prevHeight}px`;
+    void sizerEl.offsetHeight;
+    sizerEl.style.transition = formatTabHeightTransition();
+    sizerEl.style.height = `${nextHeight}px`;
+    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+      if (sizerEl.style !== undefined) {
+        sizerEl.style.height = "";
+        sizerEl.style.overflow = "";
+        sizerEl.style.transition = "";
+      }
+    }, MINI_APP_TAB_HEIGHT_CLEANUP_MS);
+    return (): void => {
+      clearTimeout(timer);
+      if (sizerEl.style !== undefined) {
+        sizerEl.style.height = "";
+        sizerEl.style.overflow = "";
+        sizerEl.style.transition = "";
+      }
+    };
+  }
+  if ((tabChanged || targetsHydrated) && sizerEl?.style !== undefined) {
+    sizerEl.style.height = "";
+    sizerEl.style.overflow = "";
+    sizerEl.style.transition = "";
+  }
+  return undefined;
+}
+
+/**
+ * 在弹窗内切换不同标签页或首次注水完成时测量前后像素高度，写入绑定 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 与
+ * `MINI_APP_TAB_HEIGHT_TRANSITION_MS` 的行内 CSS `height` 过渡，按标签顺序附加方向切入类名，
+ * 并在 `MINI_APP_TAB_HEIGHT_CLEANUP_MS` 后清除行内高度样式恢复自适应高度。
  *
  * @param props 高度过渡容器属性
  * @returns React 节点
@@ -188,7 +292,14 @@ export function TabHeightSizer({
   if (activeTab === null) {
     lastDirectionRef.current = "";
   } else if (prevTabRef.current !== null && prevTabRef.current !== activeTab) {
-    const livePrevHeight: number = readElementBodyHeight(paneRef.current);
+    const inFlightSizerHeight: number =
+      (sizerRef.current?.style?.height ?? "") !== ""
+        ? readElementBodyHeight(sizerRef.current)
+        : 0;
+    const livePrevHeight: number =
+      inFlightSizerHeight > 0
+        ? inFlightSizerHeight
+        : readElementBodyHeight(paneRef.current);
     if (livePrevHeight > 0) {
       lastHeightRef.current = livePrevHeight;
     }
@@ -217,70 +328,27 @@ export function TabHeightSizer({
       [lastHeightRef, paneRef]
     );
 
-  useEffect((): (() => void) | undefined => {
-    if (activeTab === null) {
-      prevTabRef.current = null;
-      prevHadTargetsRef.current = false;
-      lastHeightRef.current = 0;
-      return undefined;
-    }
-    const prevTab: MiniAppChatTargetKind | null = prevTabRef.current;
-    const prevHadTargets: boolean = prevHadTargetsRef.current;
-    prevTabRef.current = activeTab;
-    prevHadTargetsRef.current = hasTargets;
-
-    const nextHeight: number = readElementBodyHeight(paneRef.current);
-    const prevHeight: number = lastHeightRef.current;
-    if (nextHeight > 0) {
-      lastHeightRef.current = nextHeight;
-    }
-    const tabChanged: boolean = prevTab !== null && prevTab !== activeTab;
-    const targetsHydrated: boolean = !prevHadTargets && hasTargets;
-    const sizerEl: MeasurableBodyElement | null = sizerRef.current;
-    if (
-      (tabChanged || targetsHydrated) &&
-      sizerEl?.style !== undefined &&
-      prevHeight > 0 &&
-      nextHeight > 0 &&
-      prevHeight !== nextHeight
-    ) {
-      sizerEl.style.overflow = "hidden";
-      sizerEl.style.transition = "none";
-      sizerEl.style.height = `${prevHeight}px`;
-      void sizerEl.offsetHeight;
-      sizerEl.style.transition = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
-      sizerEl.style.height = `${nextHeight}px`;
-      const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-        if (sizerEl.style !== undefined) {
-          sizerEl.style.height = "";
-          sizerEl.style.overflow = "";
-          sizerEl.style.transition = "";
-        }
-      }, MINI_APP_TAB_HEIGHT_CLEANUP_MS);
-      return (): void => {
-        clearTimeout(timer);
-        if (sizerEl.style !== undefined) {
-          sizerEl.style.height = "";
-          sizerEl.style.overflow = "";
-          sizerEl.style.transition = "";
-        }
-      };
-    }
-    if ((tabChanged || targetsHydrated) && sizerEl?.style !== undefined) {
-      sizerEl.style.height = "";
-      sizerEl.style.overflow = "";
-      sizerEl.style.transition = "";
-    }
-    return undefined;
-  }, [
-    activeTab,
-    hasTargets,
-    lastHeightRef,
-    paneRef,
-    prevHadTargetsRef,
-    prevTabRef,
-    sizerRef,
-  ]);
+  useEffect(
+    (): (() => void) | undefined =>
+      syncTabHeightTransitionEffect({
+        activeTab,
+        hasTargets,
+        sizerRef,
+        paneRef,
+        lastHeightRef,
+        prevTabRef,
+        prevHadTargetsRef,
+      }),
+    [
+      activeTab,
+      hasTargets,
+      lastHeightRef,
+      paneRef,
+      prevHadTargetsRef,
+      prevTabRef,
+      sizerRef,
+    ]
+  );
 
   return (
     <div ref={setSizerNode} className="chat-targets-body-sizer">

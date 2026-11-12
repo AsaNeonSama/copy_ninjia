@@ -254,7 +254,7 @@ export function resolveCollapseClampScrollTarget(
 }
 
 /**
- * 开始一次锚点跟滚：每次 `step` 读取锚点实时视口位置，按缓动进度把文档视口即时滚到使锚点位于
+ * 开始一次锚点跟滚：每次 `step` 读取锚点实时视口位置，按 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 三次贝塞尔缓动进度把文档视口即时滚到使锚点位于
  * `fromTop → toTop` 插值处（插值方式见 `ViewportAnchorScrollTarget.settleProgress`）；期间用户触摸或滚轮输入即停止跟滚，把视口交还给用户。
  *
  * @param target 跟滚目标
@@ -296,7 +296,7 @@ export function startViewportAnchorScroll(
 }
 
 /**
- * 以折叠面板统一时长 `MINI_APP_FLIP_COLLAPSE_DURATION_MS` 与同一缓动曲线独立执行一次锚点跟滚（不伴随折叠动画时使用）。
+ * 以折叠面板统一时长 `MINI_APP_FLIP_COLLAPSE_DURATION_MS` 与 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 三次贝塞尔缓动曲线独立执行一次锚点跟滚（不伴随折叠动画时使用）。
  *
  * @param target 跟滚目标
  * @returns 取消函数（停止逐帧滚动并移除用户输入监听）

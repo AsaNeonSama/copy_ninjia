@@ -45,7 +45,7 @@ function areChatJoinCleanCardPropsEqual(
 }
 
 /**
- * 渲染群详情页中的「进群统计与批量清理」卡片（含小时滑杆、步进器、快捷预设按钮与三圆点波浪加载动效）。
+ * 渲染群详情页中的「进群统计与批量清理」卡片（含小时滑杆、步进器、快捷预设按钮与三枚方形加载块动效）。
  *
  * @param props 组件属性
  * @returns React 节点

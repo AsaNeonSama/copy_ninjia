@@ -6,8 +6,6 @@ import { precheckMiniAppAccess } from "../api/authPrecheck";
 import {
   MINI_APP_DARK_BG_COLOR,
   MINI_APP_DARK_HEADER_COLOR,
-  MINI_APP_DEFAULT_ACCENT_COLOR,
-  MINI_APP_DEFAULT_ACCENT_TEXT_COLOR,
   MINI_APP_INITIAL_THEME,
   MINI_APP_LIGHT_BG_COLOR,
   MINI_APP_LIGHT_HEADER_COLOR,
@@ -130,42 +128,20 @@ export interface MiniAppUiStoreState {
 }
 
 /**
- * 解析当前生效的 Mini App 主题主色调：若 Telegram 宿主在 `themeParams` 中注入了主题色（优先读取
- * `button_color`，次选 `link_color`），则以 Telegram 注入色为准；未注入时回退为自带默认粉色
- * `MINI_APP_DEFAULT_ACCENT_COLOR`。
- *
- * @param webApp 可选的 Telegram WebApp 宿主实例
- * @returns 生效的主题主色调颜色串
- */
-export function resolveMiniAppAccentColor(
-  webApp?: Readonly<TelegramWebApp>
-): string {
-  const buttonColor: string = webApp?.themeParams?.button_color?.trim() ?? "";
-  if (buttonColor.length > 0) return buttonColor;
-  const linkColor: string = webApp?.themeParams?.link_color?.trim() ?? "";
-  if (linkColor.length > 0) return linkColor;
-  return MINI_APP_DEFAULT_ACCENT_COLOR;
-}
-
-/**
- * 将当前主题模式与主题色同步至根节点 `data-theme` 属性、CSS 自定义属性及 Telegram WebApp 宿主背景色：
- * 若 Telegram 注入了 `themeParams` 主题色则优先同步注入色，未注入时回退为自带默认粉色 `MINI_APP_DEFAULT_ACCENT_COLOR`。
+ * 将当前主题模式同步至根节点 `data-theme` 属性及 Telegram WebApp 宿主顶栏与页面背景色；
+ * 单项宿主色彩接口抛错时在各自调用边界吞掉异常，不影响本地主题属性与另一项宿主色彩同步。
  *
  * @param theme 目标主题模式
  */
 export function applyMiniAppThemeToDocument(theme: MiniAppThemeMode): void {
-  const normalizedTheme: MiniAppThemeMode = MINI_APP_THEME_MODES.includes(theme) ? theme : MINI_APP_INITIAL_THEME;
+  const normalizedTheme: MiniAppThemeMode = MINI_APP_THEME_MODES.includes(theme)
+    ? theme
+    : MINI_APP_INITIAL_THEME;
   const tgWindow: TelegramWindow = globalThis;
   const docEl: NonNullable<TelegramWindow["document"]>["documentElement"] =
     tgWindow.document?.documentElement;
   docEl?.setAttribute?.("data-theme", normalizedTheme);
   const webApp: Readonly<TelegramWebApp> | undefined = tgWindow.Telegram?.WebApp;
-  const accentColor: string = resolveMiniAppAccentColor(webApp);
-  const accentTextColor: string =
-    webApp?.themeParams?.button_text_color?.trim() ||
-    MINI_APP_DEFAULT_ACCENT_TEXT_COLOR;
-  docEl?.style?.setProperty?.("--default-accent-color", accentColor);
-  docEl?.style?.setProperty?.("--default-accent-text-color", accentTextColor);
   const bgHex: string =
     normalizedTheme === "light" ? MINI_APP_LIGHT_BG_COLOR : MINI_APP_DARK_BG_COLOR;
   const headerHex: string =
@@ -174,9 +150,13 @@ export function applyMiniAppThemeToDocument(theme: MiniAppThemeMode): void {
       : MINI_APP_DARK_HEADER_COLOR;
   try {
     webApp?.setHeaderColor?.(headerHex);
+  } catch (_error: unknown) {
+    // 宿主顶栏色同步失败时静默忽略。
+  }
+  try {
     webApp?.setBackgroundColor?.(bgHex);
   } catch (_error: unknown) {
-    // 忽略低版本客户端不支持颜色设置 API 的异常。
+    // 宿主背景色同步失败时静默忽略。
   }
 }
 

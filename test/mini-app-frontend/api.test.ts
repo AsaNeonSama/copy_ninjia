@@ -57,14 +57,19 @@ import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import { LoadingBox } from "../../packages/mini-app-frontend/components/skeletons/LoadingBox";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
 import {
+  MINI_APP_BATCH_KICK_MAX_HOURS,
+  MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_CONFIRM_CLOSE_ANIMATION_MS,
-  MINI_APP_DEFAULT_ACCENT_COLOR,
+  MINI_APP_DARK_BG_COLOR,
+  MINI_APP_DARK_HEADER_COLOR,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_HTML_TITLE,
   MINI_APP_INITIAL_THEME,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
   MINI_APP_LANGUAGES,
+  MINI_APP_LIGHT_BG_COLOR,
+  MINI_APP_LIGHT_HEADER_COLOR,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
@@ -127,7 +132,6 @@ import {
 import {
   applyMiniAppThemeToDocument,
   resetMiniAppStoreForTest,
-  resolveMiniAppAccentColor,
   useMiniAppStore,
 } from "../../packages/mini-app-frontend/store/app";
 import { createIdentitiesStore } from "../../packages/mini-app-frontend/store/identities";
@@ -655,10 +659,48 @@ describe("前端接口文件与纯函数辅助库", () => {
 
     expect(MINI_APP_LANGUAGES).toContain(detectBrowserDefaultLanguage());
     expect(MINI_APP_LANGUAGES).toContain(detectInitialMiniAppLanguage());
-    expect(resolveMiniAppAccentColor(undefined)).toBe(MINI_APP_DEFAULT_ACCENT_COLOR);
-    expect(resolveMiniAppAccentColor({ themeParams: { link_color: " #3b82f6 " } })).toBe("#3b82f6");
-    expect(resolveMiniAppAccentColor({ themeParams: { button_color: "#2563eb", link_color: "#3b82f6" } })).toBe("#2563eb");
+    const attrs: [string, string][] = [];
+    const styleProps: [string, string][] = [];
+    const headerColors: string[] = [];
+    const bgColors: string[] = [];
+    let themeParamsAccessed: boolean = false;
+    (globalThis as { document?: unknown }).document = {
+      getElementById: (): null => null,
+      documentElement: {
+        setAttribute: (name: string, val: string): void => { attrs.push([name, val]); },
+        style: { setProperty: (prop: string, val: string): void => { styleProps.push([prop, val]); } },
+      },
+    };
+    const mockWebApp: Record<string, unknown> = {
+      setHeaderColor: (color: string): void => { headerColors.push(color); },
+      setBackgroundColor: (color: string): void => { bgColors.push(color); },
+    };
+    Object.defineProperty(mockWebApp, "themeParams", {
+      get: (): Record<string, string> => {
+        themeParamsAccessed = true;
+        return { button_color: "#2563eb", link_color: "#3b82f6", button_text_color: "#000000" };
+      },
+    });
+    (globalThis as { Telegram?: unknown }).Telegram = { WebApp: mockWebApp };
     applyMiniAppThemeToDocument("light");
+    applyMiniAppThemeToDocument("dark");
+    applyMiniAppThemeToDocument("invalid" as never);
+    expect(attrs).toEqual([["data-theme", "light"], ["data-theme", "dark"], ["data-theme", MINI_APP_INITIAL_THEME]]);
+    expect(headerColors).toEqual([MINI_APP_LIGHT_HEADER_COLOR, MINI_APP_DARK_HEADER_COLOR, MINI_APP_LIGHT_HEADER_COLOR]);
+    expect(bgColors).toEqual([MINI_APP_LIGHT_BG_COLOR, MINI_APP_DARK_BG_COLOR, MINI_APP_LIGHT_BG_COLOR]);
+    expect(styleProps).toEqual([]);
+    expect(themeParamsAccessed).toBeFalse();
+    const isolatedBgColors: string[] = [];
+    (globalThis as { Telegram?: unknown }).Telegram = {
+      WebApp: {
+        setHeaderColor: (): void => { throw new Error("unsupported"); },
+        setBackgroundColor: (color: string): void => { isolatedBgColors.push(color); },
+      },
+    };
+    expect((): void => applyMiniAppThemeToDocument("dark")).not.toThrow();
+    expect(isolatedBgColors).toEqual([MINI_APP_DARK_BG_COLOR]);
+    (globalThis as { document?: unknown }).document = undefined;
+    (globalThis as { Telegram?: unknown }).Telegram = undefined;
 
     resetMiniAppStoreForTest();
     expect(MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS).toBe(
@@ -764,7 +806,7 @@ describe("前端接口文件与纯函数辅助库", () => {
     );
     useMiniAppStore.setState({ language: "zh", authMode: "password", passwordBusy: false });
     const idleGateHtml: string = renderToStaticMarkup(createElement(AuthGatePage));
-    expect(idleGateHtml).toContain(getMiniAppTranslations("zh").gate.passwordSubmitButton);
+    expect(idleGateHtml).toContain(`<span>${getMiniAppTranslations("zh").gate.passwordSubmitButton}</span>`);
     expect(idleGateHtml).not.toContain("join-clean-loading-dots");
     useMiniAppStore.setState({ authMode: "totp", passwordBusy: true });
     const busyGateHtml: string = renderToStaticMarkup(createElement(AuthGatePage));
@@ -786,9 +828,9 @@ describe("前端接口文件与纯函数辅助库", () => {
     const fallbackScrollEl: { scrollTop: number } = { scrollTop: 140 };
     scrollModalBodyToTop(fallbackScrollEl);
     expect(fallbackScrollEl.scrollTop).toBe(0);
-    expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
-    expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");
-    expect(computeRangeProgressPercent(12.5, 1, 24)).toBe("50.00%");
+    expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MAX_HOURS)).toBe("0.00%");
+    expect(computeRangeProgressPercent(MINI_APP_BATCH_KICK_MAX_HOURS, MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MAX_HOURS)).toBe("100.00%");
+    expect(computeRangeProgressPercent((MINI_APP_BATCH_KICK_MIN_HOURS + MINI_APP_BATCH_KICK_MAX_HOURS) / 2, MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_BATCH_KICK_MAX_HOURS)).toBe("50.00%");
     const statusOverviewHtml: string = renderToStaticMarkup(
       createElement(StatusOverviewCard, {
         t: getMiniAppTranslations("zh"),
@@ -855,15 +897,13 @@ describe("前端接口文件与纯函数辅助库", () => {
     };
     expect(extractSelectedFilesAndReset({ currentTarget: fileInputTarget })).toHaveLength(1);
     expect(fileInputTarget.value).toBe("");
-    expect(computeRangeProgressPercent(1, 1, 24)).toBe("0.00%");
-    expect(computeRangeProgressPercent(24, 1, 24)).toBe("100.00%");
-    expect(interpolateSpringRangeValue(1, 6, 0.72)).toBeGreaterThan(6);
-    expect(interpolateSpringRangeValue(1, 6, 1)).toBe(6);
-    expect(interpolateSpringRangeValue(12, 24, 0.72)).toBeLessThan(24);
-    expect(interpolateSpringRangeValue(12, 24, 1)).toBe(24);
-    expect(interpolateSpringRangeValue(6, 1, 0.72)).toBeGreaterThan(1);
-    expect(interpolateSpringRangeValue(6, 1, 1)).toBe(1);
-    // 连续点击与回撤时保证至少有足够位移区间驱动弹跳动画
+    expect(interpolateSpringRangeValue(MINI_APP_BATCH_KICK_MIN_HOURS, 6, 0.72)).toBeGreaterThan(6);
+    expect(interpolateSpringRangeValue(MINI_APP_BATCH_KICK_MIN_HOURS, 6, 1)).toBe(6);
+    expect(interpolateSpringRangeValue(12, MINI_APP_BATCH_KICK_MAX_HOURS, 0.72)).toBeLessThan(MINI_APP_BATCH_KICK_MAX_HOURS);
+    expect(interpolateSpringRangeValue(12, MINI_APP_BATCH_KICK_MAX_HOURS, 1)).toBe(MINI_APP_BATCH_KICK_MAX_HOURS);
+    expect(interpolateSpringRangeValue(6, MINI_APP_BATCH_KICK_MIN_HOURS, 0.72)).toBeGreaterThan(MINI_APP_BATCH_KICK_MIN_HOURS);
+    expect(interpolateSpringRangeValue(6, MINI_APP_BATCH_KICK_MIN_HOURS, 1)).toBe(MINI_APP_BATCH_KICK_MIN_HOURS);
+    // 连续点击与回撤时垫进起点或预留回拉行程
     expect(resolveAnimatedRangeStartValue(5.9, 5, 6)).toBeLessThanOrEqual(5.65);
     expect(resolveAnimatedRangeStartValue(5.1, 6, 5)).toBeGreaterThanOrEqual(5.45);
     expect(MINI_APP_HTML_TITLE).toBe(getMiniAppTranslations("zh").appTitle);
@@ -890,7 +930,7 @@ describe("前端接口文件与纯函数辅助库", () => {
     expect(searchCardHtml).not.toContain('type="search"');
     expect(searchCardHtml).not.toContain("debounce-status-hint");
     const loadingBoxHtml: string = renderToStaticMarkup(createElement(LoadingBox, { children: createElement("div", { className: "skeleton-line" }) }));
-    expect(loadingBoxHtml).toContain('class="loading-box"');
+    expect(loadingBoxHtml).toContain('class="loading-box" aria-hidden="true"');
     expect(loadingBoxHtml).toContain('class="skeleton-stack"');
     expect(loadingBoxHtml).not.toContain("loading-text");
     const chatListHtml: string = renderToStaticMarkup(createElement(ManagedChatList, {

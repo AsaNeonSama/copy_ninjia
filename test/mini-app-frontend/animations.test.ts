@@ -1,31 +1,58 @@
 /**
- * Mini App 前端名单弹窗 Tab 切换过渡、QA 问答对卡片结构、权限抽屉与验证器页面渲染，
- * 以及直接针对 CSS 滑动动画曲线、合成层提示、下拉看板浅色背景变量和 Windows TG / Pixel 6.3" 断点规则的核验。
+ * Mini App 前端名单弹窗 Tab 切换高度与方向过渡、平行四边形与异形多边形骨架屏、电流感刷新电弧扫描、
+ * 按钮内水平三点加载块、QA 问答对卡片结构、权限抽屉、认证门控与验证器页面渲染，以及平行四边形/异形切角按钮与门控卡片几何规则、暗色多层对比令牌、缓动曲线与响应式断点核验。
  */
 
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { LoadingDotsWave } from "../../packages/mini-app-frontend/components/animations/LoadingDotsWave";
 import {
+  formatTabHeightTransition,
   resolveTabSlideDirectionClass,
+  syncTabHeightTransitionEffect,
   TabHeightSizer,
 } from "../../packages/mini-app-frontend/components/animations/TabHeightSizer";
+import type { MeasurableBodyElement } from "../../packages/mini-app-frontend/components/animations/TabHeightSizer";
 import { CapabilityBlock } from "../../packages/mini-app-frontend/components/CapabilityBlock";
 import { ChatFeatureListCard } from "../../packages/mini-app-frontend/components/ChatFeatureListCard";
 import { ChatTargetsModal } from "../../packages/mini-app-frontend/components/ChatTargetsModal";
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
+import { ChatDetailSkeleton } from "../../packages/mini-app-frontend/components/skeletons/ChatDetailSkeleton";
+import { ChatTargetsListSkeleton } from "../../packages/mini-app-frontend/components/skeletons/ChatTargetsListSkeleton";
+import { GalleryImageSkeleton } from "../../packages/mini-app-frontend/components/skeletons/GalleryImageSkeleton";
+import { ListSkeletonRows } from "../../packages/mini-app-frontend/components/skeletons/ListSkeletonRows";
+import { LoadingBox } from "../../packages/mini-app-frontend/components/skeletons/LoadingBox";
+import { MessageSkeletonRows } from "../../packages/mini-app-frontend/components/skeletons/MessageSkeletonRows";
+import { StatusSkeleton } from "../../packages/mini-app-frontend/components/skeletons/StatusSkeleton";
+import { TotpSkeleton } from "../../packages/mini-app-frontend/components/skeletons/TotpSkeleton";
+import { VERBATIM_CONTEXT_MAX } from "../../packages/mini-app-frontend/consts/memory";
 import {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_MAX_PER_CHAT,
+  CHAT_QA_QUESTION_MAX_CHARS,
+  DELETE_MESSAGE_CHAT_TARGET_MAX,
+  MINI_APP_DARK_BG_COLOR,
+  MINI_APP_DARK_HEADER_COLOR,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
+  MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES,
+  MINI_APP_STATUS_SKELETON_MEMORY_INDICES,
+  MINI_APP_TAB_HEIGHT_CLEANUP_MS,
+  MINI_APP_TAB_HEIGHT_TRANSITION_MS,
+  MINI_APP_TARGETS_SKELETON_ROW_INDICES,
+  TRANSLATE_CHAT_USER_LIMIT,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
+import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
 import { TotpPage } from "../../packages/mini-app-frontend/pages/TotpPage";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import type { MiniAppChatsStoreState } from "../../packages/mini-app-frontend/store/chats";
 import { createPermissionDrawerStore } from "../../packages/mini-app-frontend/store/permissionDrawer";
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
+import type { MiniAppChatTargetKind } from "../../packages/mini-app-frontend/types/miniApp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
 
 describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
@@ -42,17 +69,17 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     const mockTargets = {
       chatId: -1001,
       qaItems: [{ q: "早上好", a: "杂鱼早上好♡" }],
-      qaMax: 15,
-      qaQuestionMaxChars: 256,
-      qaAnswerMaxChars: 3840,
+      qaMax: CHAT_QA_MAX_PER_CHAT,
+      qaQuestionMaxChars: CHAT_QA_QUESTION_MAX_CHARS,
+      qaAnswerMaxChars: CHAT_QA_ANSWER_MAX_CHARS,
       deleteMessageTargets: [
         { id: 7001, isChannel: false, displayName: "Alice" },
       ],
-      deleteMessageMax: 15,
+      deleteMessageMax: DELETE_MESSAGE_CHAT_TARGET_MAX,
       translateTargets: [
         { id: -10099, isChannel: true, displayName: "NewsChannel", language: "ja" },
       ],
-      translateMax: 5,
+      translateMax: TRANSLATE_CHAT_USER_LIMIT,
       isTranslationEnabled: true,
     } as const;
     const mockDetail = {
@@ -63,7 +90,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       lockdownRemainingMs: 0,
       activeSessions: { gag: 0, wed: false, verify: 0, qaSet: false },
       hotMessageCount: 0,
-      hotMessageMax: 256,
+      hotMessageMax: VERBATIM_CONTEXT_MAX,
       qaPairCount: 1,
       deleteMessageTargetCount: 1,
       translateTargetCount: 1,
@@ -208,6 +235,27 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     );
     expect(moodCapHtml).toContain('class="btn mood-switch-btn "');
     expect(moodCapHtml).not.toContain("btn primary mood-switch-btn");
+
+    const moodSwitchingHtml: string = renderToStaticMarkup(
+      createElement(CapabilityBlock, {
+        capability: {
+          key: "mood",
+          label: "AI 情绪池",
+          ready: true,
+          detail: "2 项",
+          items: [{ label: "傲娇", value: "哼" }],
+        },
+        t: zh,
+        isExpanded: true,
+        onToggleCapability: (): void => undefined,
+        currentMood: "傲娇",
+        switchingMood: true,
+        onSwitchMood: (): void => undefined,
+        followScrollSlotRef: { current: null },
+      })
+    );
+    expect(moodSwitchingHtml).toContain('class="btn mood-switch-btn is-loading"');
+    expect(moodSwitchingHtml).toContain("join-clean-loading-dots loading-dots-wave");
   });
 
   test("权限抽屉卡片：切换单项仅单个选项播放骨架，切换全部时全部 18 项播放骨架，已全开时点击全开提示已全开", () => {
@@ -352,17 +400,238 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(expandedMarkup).toContain("JBSWY3DPEHPK3PXP");
   });
 
-  test("CSS 滑动动画曲线、浅色下拉看板变量与 Windows TG / Pixel 6.3 英寸响应式断点核验", async () => {
+  test("TabHeightSizer 高度过渡曲线绑定与新粗野主义硬边骨架屏 / 方形加载块渲染核验", () => {
+    const expectedTransition: string = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
+    expect(formatTabHeightTransition()).toBe(expectedTransition);
+
+    const prevSetTimeout: typeof globalThis.setTimeout = globalThis.setTimeout;
+    const prevClearTimeout: typeof globalThis.clearTimeout = globalThis.clearTimeout;
+    const scheduledTimers: {
+      readonly id: number;
+      readonly delayMs: number;
+      readonly run: () => void;
+    }[] = [];
+    const clearedTimerIds: number[] = [];
+    let nextTimerId: number = 1;
+    (globalThis as { setTimeout: unknown }).setTimeout = (
+      callback: () => void,
+      delayMs?: number
+    ): number => {
+      const id: number = nextTimerId;
+      nextTimerId += 1;
+      scheduledTimers.push({ id, delayMs: delayMs ?? 0, run: callback });
+      return id;
+    };
+    (globalThis as { clearTimeout: unknown }).clearTimeout = (id?: number): void => {
+      if (typeof id === "number") {
+        clearedTimerIds.push(id);
+      }
+    };
+
+    try {
+      const sizerStyle: { height: string; overflow: string; transition: string } = {
+        height: "",
+        overflow: "",
+        transition: "",
+      };
+      const sizerRef: { current: MeasurableBodyElement | null } = {
+        current: { offsetHeight: 180, style: sizerStyle },
+      };
+      const paneRef: { current: MeasurableBodyElement | null } = {
+        current: { offsetHeight: 264 },
+      };
+      const lastHeightRef: { current: number } = { current: 180 };
+      const prevTabRef: { current: MiniAppChatTargetKind | null } = { current: "qa" };
+      const prevHadTargetsRef: { current: boolean } = { current: true };
+
+      const cleanupSwitch: (() => void) | undefined = syncTabHeightTransitionEffect({
+        activeTab: "translate",
+        hasTargets: true,
+        sizerRef,
+        paneRef,
+        lastHeightRef,
+        prevTabRef,
+        prevHadTargetsRef,
+      });
+      expect(typeof cleanupSwitch).toBe("function");
+      expect(sizerStyle.overflow).toBe("hidden");
+      expect(sizerStyle.transition).toBe(expectedTransition);
+      expect(sizerStyle.height).toBe("264px");
+      expect(lastHeightRef.current).toBe(264);
+      expect(prevTabRef.current).toBe("translate");
+      expect(scheduledTimers).toHaveLength(1);
+      expect(scheduledTimers[0]?.delayMs).toBe(MINI_APP_TAB_HEIGHT_CLEANUP_MS);
+
+      scheduledTimers[0]?.run();
+      expect(sizerStyle).toEqual({ height: "", overflow: "", transition: "" });
+
+      // 首次注水高度变化同样写入快出急停曲线过渡，卸载清理回调立即清除定时器与行内样式
+      prevTabRef.current = "qa";
+      prevHadTargetsRef.current = false;
+      lastHeightRef.current = 156;
+      paneRef.current = { offsetHeight: 228 };
+      const cleanupHydrate: (() => void) | undefined = syncTabHeightTransitionEffect({
+        activeTab: "qa",
+        hasTargets: true,
+        sizerRef,
+        paneRef,
+        lastHeightRef,
+        prevTabRef,
+        prevHadTargetsRef,
+      });
+      expect(sizerStyle.transition).toBe(expectedTransition);
+      expect(sizerStyle.height).toBe("228px");
+      cleanupHydrate?.();
+      expect(clearedTimerIds).toContain(scheduledTimers[1]?.id ?? -1);
+      expect(sizerStyle).toEqual({ height: "", overflow: "", transition: "" });
+
+      // 弹窗关闭后重置内部记录状态
+      expect(
+        syncTabHeightTransitionEffect({
+          activeTab: null,
+          hasTargets: false,
+          sizerRef,
+          paneRef,
+          lastHeightRef,
+          prevTabRef,
+          prevHadTargetsRef,
+        })
+      ).toBeUndefined();
+      expect(prevTabRef.current).toBeNull();
+      expect(prevHadTargetsRef.current).toBe(false);
+      expect(lastHeightRef.current).toBe(0);
+    } finally {
+      globalThis.setTimeout = prevSetTimeout;
+      globalThis.clearTimeout = prevClearTimeout;
+    }
+
+    const dotsMarkup: string = renderToStaticMarkup(createElement(LoadingDotsWave));
+    expect(dotsMarkup).toContain("join-clean-loading-dots loading-dots-wave");
+    expect(dotsMarkup.match(/loading-dot-block/g)?.length).toBe(3);
+
+    const statusSkeletonMarkup: string = renderToStaticMarkup(createElement(StatusSkeleton));
+    expect(statusSkeletonMarkup).toContain('aria-hidden="true"');
+    expect(statusSkeletonMarkup.match(/memory-metric-card/g)?.length).toBe(
+      MINI_APP_STATUS_SKELETON_MEMORY_INDICES.length
+    );
+    expect(statusSkeletonMarkup.match(/memory-legend-item/g)?.length).toBe(
+      MINI_APP_STATUS_SKELETON_MEMORY_INDICES.length
+    );
+    expect(statusSkeletonMarkup.match(/skeleton-cap-row/g)?.length).toBe(
+      MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES.length
+    );
+    expect(statusSkeletonMarkup).toContain("skeleton-stat-value");
+    expect(statusSkeletonMarkup).toContain("skeleton-chevron-box");
+    expect(statusSkeletonMarkup).toContain("skeleton-cpu-ring");
+    expect(statusSkeletonMarkup).not.toContain("width:100%");
+    expect(statusSkeletonMarkup).not.toContain("border-radius");
+
+    const chatDetailSkeletonMarkup: string = renderToStaticMarkup(
+      createElement(ChatDetailSkeleton)
+    );
+    expect(chatDetailSkeletonMarkup.match(/skeleton-switch-row/g)?.length).toBe(
+      MINI_APP_FEATURE_KEYS.length
+    );
+    expect(chatDetailSkeletonMarkup).toContain("skeleton-perm-banner-spaced");
+    expect(chatDetailSkeletonMarkup).not.toContain("border-radius");
+
+    const targetsSkeletonMarkup: string = renderToStaticMarkup(
+      createElement(ChatTargetsListSkeleton)
+    );
+    expect(targetsSkeletonMarkup.match(/chat-targets-skeleton-row"/g)?.length).toBe(
+      MINI_APP_TARGETS_SKELETON_ROW_INDICES.length
+    );
+    expect(targetsSkeletonMarkup).not.toContain("border-radius");
+
+    const listSkeletonMarkup: string = renderToStaticMarkup(
+      createElement(LoadingBox, {
+        children: createElement(ListSkeletonRows, { count: 2 }),
+      })
+    );
+    expect(listSkeletonMarkup).toContain('class="loading-box" aria-hidden="true"');
+    expect(listSkeletonMarkup).toContain("skeleton-stack");
+    expect(listSkeletonMarkup.match(/skeleton-card/g)?.length).toBe(2);
+    expect(listSkeletonMarkup).not.toContain("border-radius");
+
+    const msgSkeletonMarkup: string = renderToStaticMarkup(
+      createElement(MessageSkeletonRows, { count: 2 })
+    );
+    expect(msgSkeletonMarkup.match(/msg-skeleton-card/g)?.length).toBe(2);
+    expect(msgSkeletonMarkup).toContain("msg-skeleton-avatar");
+    expect(msgSkeletonMarkup).toContain("msg-skeleton-bubble");
+    expect(msgSkeletonMarkup).not.toContain("border-radius");
+
+    const gallerySkeletonMarkup: string = renderToStaticMarkup(
+      createElement(GalleryImageSkeleton, { iconSize: 28, preview: true })
+    );
+    expect(gallerySkeletonMarkup).toContain("gallery-img-skeleton preview-skeleton");
+    expect(gallerySkeletonMarkup).toContain("gallery-skeleton-icon-pulse");
+
+    const totpSkeletonMarkup: string = renderToStaticMarkup(createElement(TotpSkeleton));
+    expect(totpSkeletonMarkup).toContain('aria-hidden="true"');
+    expect(totpSkeletonMarkup).toContain("skeleton-totp-btn");
+    expect(totpSkeletonMarkup).not.toContain("border-radius");
+
+    try {
+      const zhTranslations: MiniAppTranslations = getMiniAppTranslations("zh");
+      useMiniAppStore.setState({
+        language: "zh",
+        authMode: "password",
+        passwordInput: "",
+        passwordBusy: false,
+        passwordError: "",
+      });
+      const passwordGateMarkup: string = renderToStaticMarkup(createElement(AuthGatePage));
+      expect(passwordGateMarkup).toContain('class="card auth-gate-card"');
+      expect(passwordGateMarkup).toContain('type="password"');
+      expect(passwordGateMarkup).toContain(
+        `aria-busy="false"><span>${zhTranslations.gate.passwordSubmitButton}</span></button>`
+      );
+      expect(passwordGateMarkup).not.toContain("join-clean-loading-dots");
+
+      useMiniAppStore.setState({
+        authMode: "totp",
+        passwordInput: "123456",
+        passwordBusy: false,
+        passwordError: "验证码无效",
+      });
+      const totpGateMarkup: string = renderToStaticMarkup(createElement(AuthGatePage));
+      expect(totpGateMarkup).toContain('class="card auth-gate-card"');
+      expect(totpGateMarkup).toContain('inputMode="numeric"');
+      expect(totpGateMarkup).toContain('maxLength="6"');
+      expect(totpGateMarkup).toContain('<div class="auth-gate-error">验证码无效</div>');
+      expect(totpGateMarkup).toContain(
+        `aria-busy="false"><span>${zhTranslations.gate.totpSubmitButton}</span></button>`
+      );
+      expect(totpGateMarkup).not.toContain("join-clean-loading-dots");
+
+      useMiniAppStore.setState({ authMode: "totp", passwordBusy: true, passwordError: "" });
+      const busyGateMarkup: string = renderToStaticMarkup(createElement(AuthGatePage));
+      expect(busyGateMarkup).toContain('class="card auth-gate-card"');
+      expect(busyGateMarkup).toContain('class="btn primary auth-gate-submit is-loading"');
+      expect(busyGateMarkup).toContain('aria-busy="true"');
+      expect(busyGateMarkup).toContain('><span class="join-clean-loading-dots loading-dots-wave"');
+      expect(busyGateMarkup).not.toContain(`<span>${zhTranslations.gate.totpSubmitButton}</span>`);
+    } finally {
+      resetMiniAppStoreForTest();
+    }
+  });
+
+  test("CSS 缓动曲线、平行四边形与异形切角按钮、认证门控卡片几何规则、暗色高对比按钮令牌及响应式断点核验", async () => {
     const stylesDir: string = `${import.meta.dir}/../../packages/mini-app-frontend/styles`;
     const baseCss: string = await Bun.file(`${stylesDir}/base.css`).text();
+    const shellCss: string = await Bun.file(`${stylesDir}/shell.css`).text();
     const primitivesCss: string = await Bun.file(`${stylesDir}/primitives.css`).text();
+    const overlaysCss: string = await Bun.file(`${stylesDir}/overlays.css`).text();
+    const paginationCss: string = await Bun.file(`${stylesDir}/pagination.css`).text();
+    const skeletonsCss: string = await Bun.file(`${stylesDir}/skeletons.css`).text();
     const statusCss: string = await Bun.file(`${stylesDir}/status.css`).text();
     const chatsCss: string = await Bun.file(`${stylesDir}/chats.css`).text();
     const identitiesCss: string = await Bun.file(`${stylesDir}/identities.css`).text();
     const authCss: string = await Bun.file(`${stylesDir}/auth.css`).text();
     const galleryCss: string = await Bun.file(`${stylesDir}/gallery.css`).text();
 
-    // 1. 下拉看板与内部卡片使用更淡的背景色变量（功能配置、Bot 权限、权限配置）
+    // 1. 下拉看板与内部卡片变量定义与引用一致
     expect(baseCss).toContain("--cap-expanded-bg:");
     expect(baseCss).toContain("--dropdown-board-bg:");
     expect(baseCss).toContain("--dropdown-board-border:");
@@ -375,16 +644,169 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(identitiesCss).toContain("var(--dropdown-board-bg)");
     expect(identitiesCss).toContain("var(--dropdown-item-bg)");
 
-    // 2. 下拉展开与关闭滑动动画统一采用平滑 S 缓动曲线与逐帧折叠样式规则
-    for (const css of [primitivesCss, statusCss, chatsCss, identitiesCss, authCss, galleryCss]) {
-      expect(css).not.toContain("cubic-bezier(0.37, 0, 0.63, 1)");
-      expect(css).toContain(`cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`);
-    }
-    expect(baseCss).toContain("overflow-anchor: none;");
-    // 逐帧跟滚以 `scrollBy({ behavior: "auto" })` 即时写入，样式表不得设置 `scroll-behavior`。
-    for (const css of [baseCss, primitivesCss, statusCss, chatsCss, identitiesCss, authCss, galleryCss]) {
+    // 2. 暗色多层高对比表面、按钮、开关令牌与共享平行四边形/切角几何令牌
+    expect(baseCss).toContain(`--bg: ${MINI_APP_DARK_BG_COLOR};`);
+    expect(baseCss).toContain(`--header-bg: ${MINI_APP_DARK_HEADER_COLOR};`);
+    expect(baseCss).toContain("--btn-bg:");
+    expect(baseCss).toContain("--btn-border:");
+    expect(baseCss).toContain("--btn-shadow-hover:");
+    expect(baseCss).toContain("--btn-primary-bg:");
+    expect(baseCss).toContain("--btn-primary-shadow:");
+    expect(baseCss).toContain("--btn-danger-bg:");
+    expect(baseCss).toContain("--switch-off-bg:");
+    expect(baseCss).toContain("--switch-on-bg:");
+    expect(baseCss).toContain("--skew-btn:");
+    expect(baseCss).toContain("--skew-chip:");
+    expect(baseCss).toContain("--clip-chamfer:");
+    expect(baseCss).toContain("--clip-dogear:");
+
+    // 3. 快出急停曲线令牌与逐帧折叠样式规则统一对齐
+    expect(baseCss).toContain(
+      `--ease-brutal: cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")});`
+    );
+    const allMotionCss: readonly string[] = [
+      baseCss,
+      shellCss,
+      primitivesCss,
+      overlaysCss,
+      paginationCss,
+      skeletonsCss,
+      statusCss,
+      chatsCss,
+      identitiesCss,
+      authCss,
+      galleryCss,
+    ];
+    for (const css of allMotionCss) {
+      expect(css).toContain("var(--ease-brutal");
+      // 逐帧跟滚以 `scrollBy({ behavior: "auto" })` 即时写入，样式表不得设置 `scroll-behavior`。
       expect(css).not.toMatch(/(?<![\w-])scroll-behavior\s*:/u);
     }
+    expect(baseCss).toContain("overflow-anchor: none;");
+
+    // 4. 平行四边形骨架条、异形多边形骨架规则、电流感刷新扫描与按钮内水平方形加载块样式规则
+    expect(skeletonsCss).toContain("border: 1.5px solid var(--border-subtle);");
+    expect(skeletonsCss).toContain("border-radius: 2px;");
+    expect(skeletonsCss).toContain("box-shadow: 2px 2px 0 var(--border-subtle);");
+    expect(skeletonsCss).toContain("transform: skewX(var(--skew-chip, -8deg));");
+    expect(skeletonsCss).toContain("max-width: calc(100% - 6px);");
+    expect(skeletonsCss).toContain(
+      "clip-path: polygon(4px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);"
+    );
+    expect(skeletonsCss).toContain("clip-path: var(--clip-chamfer);");
+    expect(skeletonsCss).toContain("clip-path: var(--clip-dogear);");
+    expect(skeletonsCss).toContain(
+      "clip-path: polygon(28% 0, 72% 0, 100% 28%, 100% 72%, 72% 100%, 28% 100%, 0 72%, 0 28%);"
+    );
+    expect(skeletonsCss).toContain("border-radius: 2px 10px 2px 10px;");
+    expect(skeletonsCss).toContain("border-radius: 10px 2px 10px 2px;");
+    expect(skeletonsCss).toContain("background: var(--surface-elevated);");
+    expect(skeletonsCss).toContain("--refresh-arc-band:");
+    expect(skeletonsCss).toContain("opacity: 0.86;");
+    expect(skeletonsCss).toContain("@keyframes miniapp-electric-flicker");
+    expect(skeletonsCss).toContain("@keyframes miniapp-electric-arc-sweep");
+    expect(skeletonsCss).toContain(
+      "animation: miniapp-electric-flicker 0.56s var(--ease-brutal) infinite;"
+    );
+    expect(skeletonsCss).toContain(".content-refreshing::after");
+    expect(skeletonsCss).toContain(
+      "animation: miniapp-electric-arc-sweep 0.56s var(--ease-brutal) infinite;"
+    );
+    expect(skeletonsCss).toContain("@keyframes miniapp-brutal-scan");
+    expect(skeletonsCss).toContain(
+      "animation: miniapp-brutal-scan 0.68s var(--ease-brutal) infinite;"
+    );
+    expect(skeletonsCss).toContain("@keyframes miniapp-brutal-dot-step");
+    expect(skeletonsCss).toContain(
+      ".join-clean-loading-dots.loading-dots-wave > .loading-dot-block"
+    );
+    expect(skeletonsCss).not.toContain("999px");
+    expect(baseCss).toContain("@keyframes miniapp-spin");
+    expect(baseCss).toMatch(
+      /\.spin-icon\s*\{[^}]*animation:\s*miniapp-spin\s+0\.[4-7]\d*s\b[^}]*infinite/u
+    );
+    expect(primitivesCss).toContain("@keyframes miniapp-btn-spin");
+    expect(primitivesCss).toMatch(
+      /svg\.spin-icon\s*\{[^}]*animation:\s*miniapp-btn-spin\s+0\.[4-7]\d*s\b[^}]*infinite/u
+    );
+
+    // 验证按钮文本 `> span { display: inline-block }` 规则排除 `.loading-dots-wave`，且所有三点加载容器强制水平 `inline-flex` + `flex-direction: row`
+    expect(primitivesCss).toContain(".subtab-btn > span:not(.loading-dots-wave)");
+    expect(primitivesCss).toContain(".btn > span:not(.loading-dots-wave)");
+    expect(primitivesCss).toContain(".icon-btn > span:not(.loading-dots-wave)");
+    expect(primitivesCss).toContain(".page-size-pill > span:not(.loading-dots-wave)");
+    expect(primitivesCss).not.toMatch(
+      /\.(?:subtab-btn|btn|icon-btn|page-size-pill)\s*>\s*span(?!:not\(\.loading-dots-wave\))/u
+    );
+    expect(statusCss).toContain(".btn.mood-switch-btn > span:not(.loading-dots-wave)");
+    expect(statusCss).not.toMatch(
+      /\.btn\.mood-switch-btn\s*>\s*span(?!:not\(\.loading-dots-wave\))/u
+    );
+
+    const horizontalDotsBlocks: readonly (readonly [string, RegExp])[] = [
+      [
+        primitivesCss,
+        /\.btn\s*>\s*\.join-clean-loading-dots,\s*\.icon-btn\s*>\s*\.join-clean-loading-dots\s*\{([^}]*)\}/u,
+      ],
+      [
+        skeletonsCss,
+        /\.loading-dots-wave,\s*\.join-clean-loading-dots\.loading-dots-wave\s*\{([^}]*)\}/u,
+      ],
+      [statusCss, /\.btn\.mood-switch-btn\s*>\s*\.join-clean-loading-dots\s*\{([^}]*)\}/u],
+      [chatsCss, /\.join-clean-stat-value\s*>\s*\.join-clean-loading-dots\s*\{([^}]*)\}/u],
+      [authCss, /\.auth-gate-submit\s*>\s*\.join-clean-loading-dots\s*\{([^}]*)\}/u],
+      [
+        authCss,
+        /\.totp-start-submit\s*>\s*\.join-clean-loading-dots,\s*\.totp-verify-submit\s*>\s*\.join-clean-loading-dots\s*\{([^}]*)\}/u,
+      ],
+    ];
+    for (const [cssSource, rulePattern] of horizontalDotsBlocks) {
+      const ruleMatch: RegExpExecArray | null = rulePattern.exec(cssSource);
+      expect(ruleMatch).not.toBeNull();
+      const declarations: string = ruleMatch?.[1] ?? "";
+      expect(declarations).toContain("display: inline-flex;");
+      expect(declarations).toContain("flex-direction: row;");
+      expect(declarations).toContain("align-items: center;");
+      expect(declarations).toContain("justify-content: center;");
+    }
+
+    // 5. 平行四边形按钮复合倾角、反向拉正子元素与异形切角多边形按钮规则
+    expect(primitivesCss).toContain("--btn-skew: 0deg;");
+    expect(primitivesCss).toContain("--btn-skew: var(--skew-btn);");
+    expect(primitivesCss).toContain("transform: skewX(var(--btn-skew, 0deg));");
+    expect(primitivesCss).toContain("transform: translate(-1px, -1px) skewX(var(--btn-skew, 0deg));");
+    expect(primitivesCss).toContain("transform: translate(2px, 2px) skewX(var(--btn-skew, 0deg));");
+    expect(primitivesCss).toContain("transform: skewX(calc(var(--btn-skew, 0deg) * -1));");
+    expect(primitivesCss).toContain("box-shadow: 0 0 0 var(--btn-shadow-color);");
+    expect(primitivesCss).toContain("clip-path: var(--clip-dogear);");
+    expect(primitivesCss).toContain(".slider:before");
+    expect(shellCss).toContain("clip-path: var(--clip-chamfer);");
+    expect(shellCss).toContain("clip-path: var(--clip-chamfer-inner);");
+    expect(shellCss).toContain("filter: drop-shadow(0 0 0 transparent);");
+    expect(overlaysCss).toContain("var(--btn-primary-bg)");
+    expect(overlaysCss).toContain("var(--btn-danger-bg)");
+    expect(paginationCss).toContain("clip-path: var(--clip-dogear);");
+    expect(paginationCss).toContain("clip-path: var(--clip-dogear-inner);");
+    expect(authCss).toContain(".auth-gate-submit.is-loading::after");
+    expect(authCss).toContain("skewX(calc(var(--btn-skew, 0deg) * -1)) translateY(1px)");
+    const authCardRule: RegExpExecArray | null = /(?:^|\n)\.auth-gate-card\s*\{([^}]*)\}/u.exec(authCss);
+    expect(authCardRule).not.toBeNull();
+    expect(authCardRule?.[1] ?? "").toContain("--auth-card-skew:");
+    expect(authCardRule?.[1] ?? "").toMatch(/margin:\s*clamp\([^;]+vh[^;]+\)/u);
+    expect(authCardRule?.[1] ?? "").toContain("transform: skewX(var(--auth-card-skew));");
+    for (const innerPattern of [
+      /\.auth-gate-card\s*>\s*\.card-title\s*>\s*\.toolbar-hint\s*\{([^}]*)\}/u,
+      /\.auth-gate-card\s+\.badge\.ok\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.auth-gate-desc\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.auth-gate-form\s*\{([^}]*)\}/u,
+    ]) {
+      const innerMatch: RegExpExecArray | null = innerPattern.exec(authCss);
+      expect(innerMatch).not.toBeNull();
+      expect(innerMatch?.[1] ?? "").toContain("skewX(calc(var(--auth-card-skew) * -1))");
+    }
+    expect(authCss).toContain("@media (max-height: 560px)");
+
+    // 6. 逐帧折叠容器、机械下压交互与触屏合成层提示
     expect(primitivesCss).not.toContain(".card.flip-card-clip");
     expect(chatsCss).not.toContain(".chat-targets-form.flip-card-clip");
     expect(chatsCss).not.toContain("miniapp-qa-collapse-overflow-reveal");
@@ -397,9 +819,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(chatsCss).toContain("animation: miniapp-tab-slide-backward");
     expect(chatsCss).toContain("animation: miniapp-popover-drop-out");
     expect(primitivesCss).toContain(".subtab-btn:hover:not(.active)");
-    expect(primitivesCss).toContain(".subtab-btn:active {\n  transform: scale(0.97);\n}");
-    expect(primitivesCss).toContain("background-color 0.18s cubic-bezier(0.22, 1, 0.36, 1)");
-    expect(primitivesCss).toContain("box-shadow 0.18s cubic-bezier(0.22, 1, 0.36, 1)");
+    expect(primitivesCss).toContain("transform var(--press-duration) var(--ease-brutal)");
     expect(identitiesCss).toContain(".perm-drawer-collapse-grid.expanded");
     expect(identitiesCss).toContain(".perm-drawer-collapse-grid.flip-closing");
     expect(authCss).toContain(".totp-start-submit.is-loading");
@@ -417,7 +837,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(galleryCss).toContain(".gallery-preview-collapse-grid ~ .card { will-change: transform; }");
     expect(galleryCss).toContain("height: clamp(220px, 42vh, 320px);");
 
-    // 3. 覆盖 Windows Telegram Mini App 默认宽度（~380px–420px）与 Pixel 6.3 英寸初始宽度（~393px–412px）的 440px 断点及紧凑/桌面断点
+    // 7. 覆盖 Windows Telegram Mini App 默认宽度（~380px–420px）与 Pixel 6.3 英寸初始宽度（~393px–412px）的 440px 断点及紧凑/桌面断点
     expect(identitiesCss).toContain("@media (max-width: 440px)");
     expect(chatsCss).toContain("@media (max-width: 440px)");
     expect(identitiesCss).toContain("@media (max-width: 350px)");

@@ -10,7 +10,7 @@ export interface DelayedUnmountState<T> {
 }
 
 /**
- * 配合退场动画延迟卸载节点：当 `activeValue` 非空时同步更新快照且不触发额外重渲染；
+ * 配合快速退场动画延迟卸载节点：当 `activeValue` 非空时同步更新快照且不触发额外重渲染；
  * 当 `activeValue` 变为 `null` 时保留上一份值并置 `isClosing = true`，等待 `durationMs` 后再清空卸载。
  *
  * @param activeValue 当前激活的值（关闭时为 `null`）
@@ -60,8 +60,7 @@ export function useDelayedUnmount<T>(
 }
 
 /**
- * 在折叠面板展开且数据有效时同步更新快照缓存，当转入收起过渡或临时清空时回退到最近一次缓存的有效快照，
- * 防止收起动画进行中内容突然切换为空态或旧分支导致面板高度跳变。
+ * 在折叠面板展开且数据有效时同步更新快照缓存，转入收起过渡或临时清空时回退到最近一次缓存的有效快照。
  *
  * @param value 当前实时数据值
  * @param shouldCapture 当前是否处于应写入快照缓存的有效展开态

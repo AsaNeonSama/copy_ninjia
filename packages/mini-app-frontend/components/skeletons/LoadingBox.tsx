@@ -9,7 +9,7 @@ export interface LoadingBoxProps {
 }
 
 /**
- * 渲染骨架堆叠的列表加载占位块。
+ * 渲染列表加载期间包裹骨架行的占位容器。
  *
  * @param props 容器类名与骨架节点
  * @returns React 节点
@@ -19,7 +19,7 @@ export function LoadingBox({
   children,
 }: LoadingBoxProps): React.JSX.Element {
   return (
-    <div className={className}>
+    <div className={className} aria-hidden="true">
       <div className="skeleton-stack">{children}</div>
     </div>
   );

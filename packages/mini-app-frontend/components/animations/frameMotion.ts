@@ -71,15 +71,16 @@ export function evaluateCubicBezierEase(
 export interface RunFrameMotionOptions {
   /** 动画时长毫秒数（非正值或宿主缺少帧调度接口时同步落到终点）。 */
   readonly durationMs: number;
-  /** 每帧以 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 缓动后的进度（`0..1`）回调，同一帧内的样式写入与视口滚动都在这里完成。 */
+  /** 每帧以 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 三次贝塞尔曲线采样后的进度（`0..1`）回调，同一帧内的样式写入与视口滚动都在此完成。 */
   readonly onFrame: (easedProgress: number) => void;
   /** 进度为 `1` 的末帧写入后调用（取消时不调用）。 */
   readonly onFinish: () => void;
 }
 
 /**
- * 以 `requestAnimationFrame` 驱动一段按时间推进的缓动动画：首帧（起始帧）时间戳为起点、进度为 `0`；
- * 之后每帧的动画时钟推进「距上一帧的间隔」，单帧推进上限取 `MINI_APP_FRAME_MOTION_MAX_STEP_MS` 与本次动画此前已观测的最短帧间隔中的较大值
+ * 以 `requestAnimationFrame` 驱动一段按时间推进的三次贝塞尔缓动动画（采样 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS`）：
+ * 首帧（起始帧）时间戳为起点、进度为 `0`；之后每帧的动画时钟推进「距上一帧的间隔」，
+ * 单帧推进上限取 `MINI_APP_FRAME_MOTION_MAX_STEP_MS` 与本次动画此前已观测的最短帧间隔中的较大值
  * （起始帧之后的第一个间隔承担起始帧的绘制，不计入最短帧间隔）；
  * 时钟落后实际经过时间超过 `MINI_APP_FRAME_MOTION_MAX_LAG_MS` 时追平到「经过时间减该值」；
  * 按时钟换算进度回调 `onFrame`，进度到 `1` 的那一帧写入后调用 `onFinish`。
@@ -97,24 +98,30 @@ export function runFrameMotion({
   let lastFrameTime: number = -1;
   let shortestIntervalMs: number = 0;
   let elapsedMs: number = 0;
-  let frameHandle: number = 0;
+  let frameHandle: number | null = null;
   let active: boolean = true;
   const cancel = (): void => {
     if (!active) return;
     active = false;
-    host.cancelAnimationFrame?.(frameHandle);
+    if (frameHandle !== null) {
+      host.cancelAnimationFrame?.(frameHandle);
+      frameHandle = null;
+    }
   };
   if (
     durationMs <= 0 ||
     typeof host.requestAnimationFrame !== "function" ||
     typeof host.cancelAnimationFrame !== "function"
   ) {
-    active = false;
     onFrame(1);
-    onFinish();
+    if (active) {
+      active = false;
+      onFinish();
+    }
     return cancel;
   }
   const step = (now: number): void => {
+    frameHandle = null;
     if (!active) return;
     if (startTime < 0) {
       startTime = now;
@@ -132,12 +139,13 @@ export function runFrameMotion({
     lastFrameTime = now;
     const linear: number = Math.min(1, elapsedMs / durationMs);
     onFrame(evaluateCubicBezierEase(MINI_APP_FLIP_COLLAPSE_EASING_POINTS, linear));
+    if (!active) return;
     if (linear >= 1) {
       active = false;
       onFinish();
       return;
     }
-    frameHandle = host.requestAnimationFrame?.(step) ?? 0;
+    frameHandle = host.requestAnimationFrame?.(step) ?? null;
   };
   frameHandle = host.requestAnimationFrame(step);
   return cancel;

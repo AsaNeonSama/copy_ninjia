@@ -1,3 +1,4 @@
+/* Mini App 样式总入口：按基础变量、应用壳层、原子控件、骨架屏、业务面板与登录门禁顺序汇总导入。 */
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/primitives.css";

@@ -33,7 +33,7 @@ export interface TotpPageProps {
 
 /**
  * Google Authenticator (TOTP) 唯一验证器的前端控制台生成二维码、添加、修改与删除管理页面
- * （点击添加或修改验证器时按钮展示三点波浪加载动效直至二维码就绪，随后平滑收起顶部触发按钮并展开绑定表单，展开时按 `resolveExpandFollowScrollTarget` 以卡片为锚点同帧跟滚，提交 6 位动态码核验时按钮展示三点波浪加载动效，取消时保留二维码快照完成收起过渡）。
+ * （点击添加或修改验证器时按钮展示三枚方形加载块动效直至二维码就绪，随后收起顶部触发按钮并展开绑定表单，展开时按 `resolveExpandFollowScrollTarget` 以卡片为锚点同帧跟滚，提交 6 位动态码核验时按钮展示三枚方形加载块动效，取消时保留二维码快照完成收起过渡）。
  *
  * @param props 组件属性
  * @returns React 节点

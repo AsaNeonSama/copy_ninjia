@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import {
   MINI_APP_ANIMATION_FRAME_STEP_MS,
   MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS,
+  MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
   MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD,
   MINI_APP_RANGE_KICKOFF_MAX_PROGRESS,
   MINI_APP_RANGE_PULLBACK_MAX_SPAN,
@@ -16,22 +17,22 @@ import {
   MINI_APP_RANGE_SPRING_SPLIT_PROGRESS,
   MINI_APP_RANGE_VALUE_EPSILON,
 } from "../../consts/miniApp";
-import { getFrameMotionHost } from "./frameMotion";
+import { evaluateCubicBezierEase, getFrameMotionHost } from "./frameMotion";
 import type { FrameMotionHost } from "./frameMotion";
 
 /** `useAnimatedRangeProgress` 返回的滑块动画状态与事件处理句柄。 */
 export interface AnimatedRangeProgressResult {
   /** 当前滑块渲染用的平滑数值（动画期间为连续浮点数，静止或手动拖拽时为目标整数）。 */
   readonly displayValue: number;
-  /** 当前是否处于按钮点击触发的平滑生长过渡动画中。 */
+  /** 当前是否处于按钮点击触发的快出卡位过渡动画中。 */
   readonly isAnimating: boolean;
-  /** 交替翻转的 CSS 关键帧相位（`"a"` / `"b"`），保证连续点击或快速回撤时每次点击都能重新触发弹性关键帧动画。 */
+  /** 交替翻转的 CSS 关键帧相位（`"a"` / `"b"`），每次启动按钮步进动画时切换相位名。 */
   readonly animationPhase: "a" | "b";
   /** 当前进度条填充百分比字符串（如 `"21.74%"`）。 */
   readonly progressPercent: string;
   /** 用户手动拖拽 `<input type="range">` 时调用：立即中止动画并同步目标小时数。 */
   readonly onManualDragChange: (rawValue: number) => void;
-  /** 用户点击预设小时按钮或步进按钮（`−` / `+`）时调用：平滑生长过渡到目标小时数。 */
+  /** 用户点击预设小时按钮或步进按钮（`−` / `+`）时调用：推进并阻尼回弹过渡到目标小时数。 */
   readonly onButtonStepChange: (targetHours: number) => void;
 }
 
@@ -54,13 +55,14 @@ export function computeRangeProgressPercent(
 }
 
 /**
- * 计算滑块从起点平滑生长到目标点并在定点后产生轻微弹性回弹的插值数值。
- * 前段（`0..MINI_APP_RANGE_SPRING_SPLIT_PROGRESS`）快速平滑抵达目标值，后段做阻尼微幅过冲与回弹；若目标位于两端边界则向内侧轻微回弹后落定。
+ * 计算滑块从起点推进到目标点并在定点后产生阻尼回弹的插值数值。
+ * 前段（`0..MINI_APP_RANGE_SPRING_SPLIT_PROGRESS`）按 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 三次贝塞尔曲线推进至目标值，
+ * 后段做有界正弦平方包络过冲并落定；若目标位于两端边界则向内侧按阻尼系数折返后落定。
  *
  * @param fromValue 动画起始小时值
  * @param toValue 动画目标小时值
  * @param progress 归一化时间进度（`0..1`）
- * @returns 当前帧的平滑显示值（已夹紧在合法范围内）
+ * @returns 当前帧的显示数值（已夹紧在合法范围内）
  */
 export function interpolateSpringRangeValue(
   fromValue: number,
@@ -76,8 +78,10 @@ export function interpolateSpringRangeValue(
   const splitAt: number = MINI_APP_RANGE_SPRING_SPLIT_PROGRESS;
   if (t <= splitAt) {
     const approachT: number = t / splitAt;
-    const inv: number = 1 - approachT;
-    const approachEased: number = 1 - inv * inv * inv;
+    const approachEased: number = evaluateCubicBezierEase(
+      MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
+      approachT
+    );
     return fromValue + delta * approachEased;
   }
 
@@ -112,9 +116,9 @@ export function interpolateSpringRangeValue(
 }
 
 /**
- * 计算按钮步进或回撤触发新一轮滑块动画时的有效起始数值。
- * 连续同向点击但上一轮尚未推进满时向前垫进起点，避免滑块原地停滞；
- * 快速回撤至原目标导致当前显示值与新目标差值过小时，朝上一目标方向预留回拉行程，保证回撤动画始终可见。
+ * 计算按钮步进或回撤触发新一轮滑块动画时的有效起始数值：
+ * 连续同向点击且上一轮剩余行程大于 `MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD` 时按比例向前垫进起点；
+ * 当前显示值与新目标差值小于 `MINI_APP_RANGE_PULLBACK_MIN_SPAN` 时朝上一目标方向预留回拉行程。
  *
  * @param currentDisplay 当前帧滑块显示值
  * @param prevTarget 上一轮目标小时数
@@ -161,7 +165,8 @@ export function resolveAnimatedRangeStartValue(
 }
 
 /**
- * 控制回溯清理窗口（1–24 小时）滑块与进度条在点击小时按钮时平滑生长、手动拉动时即时跟随的动画 Hook。
+ * 控制回溯清理窗口（`MINI_APP_BATCH_KICK_MIN_HOURS`–`MINI_APP_BATCH_KICK_MAX_HOURS` 小时）滑块与进度条在点击小时按钮时按
+ * `MINI_APP_BATCH_KICK_RANGE_ANIMATION_MS` 快出推进并机械卡位落定、手动拉动时即时跟随的动画 Hook。
  *
  * @param targetHours 当前目标小时数
  * @param setBatchKickHours 更新目标小时数的 store 动作
@@ -187,9 +192,12 @@ export function useAnimatedRangeProgress(
   const committedTargetRef: React.RefObject<number> = useRef<number>(targetHours);
   const manualChangeRef: React.RefObject<boolean> = useRef<boolean>(false);
   const rafIdRef: React.RefObject<number | null> = useRef<number | null>(null);
+  const animGenRef: React.RefObject<number> = useRef<number>(0);
 
   useEffect((): (() => void) | undefined => {
     const host: FrameMotionHost = getFrameMotionHost();
+    animGenRef.current += 1;
+    const currentGen: number = animGenRef.current;
     if (rafIdRef.current !== null && typeof host.cancelAnimationFrame === "function") {
       host.cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
@@ -216,7 +224,8 @@ export function useAnimatedRangeProgress(
       host.requestAnimationFrame;
     if (
       Math.abs(toValue - fromValue) < MINI_APP_RANGE_VALUE_EPSILON ||
-      typeof reqFrame !== "function"
+      typeof reqFrame !== "function" ||
+      typeof host.cancelAnimationFrame !== "function"
     ) {
       displayValueRef.current = toValue;
       setDisplayValue(toValue);
@@ -239,8 +248,11 @@ export function useAnimatedRangeProgress(
     setAnimationPhase((prev: "a" | "b"): "a" | "b" => (prev === "a" ? "b" : "a"));
 
     let firstFrameTime: number | null = null;
+    let cancelled: boolean = false;
 
     const stepFrame = (now: number): void => {
+      rafIdRef.current = null;
+      if (cancelled || animGenRef.current !== currentGen) return;
       const currentNow: number = Number.isFinite(now) ? now : Date.now();
       firstFrameTime ??= currentNow - MINI_APP_ANIMATION_FRAME_STEP_MS;
       const elapsed: number = Math.max(
@@ -262,7 +274,6 @@ export function useAnimatedRangeProgress(
         setDisplayValue(nextValue);
         rafIdRef.current = reqFrame(stepFrame);
       } else {
-        rafIdRef.current = null;
         displayValueRef.current = toValue;
         setDisplayValue(toValue);
         setIsAnimating(false);
@@ -272,6 +283,7 @@ export function useAnimatedRangeProgress(
     rafIdRef.current = reqFrame(stepFrame);
 
     return (): void => {
+      cancelled = true;
       if (rafIdRef.current !== null && typeof host.cancelAnimationFrame === "function") {
         host.cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
@@ -279,38 +291,45 @@ export function useAnimatedRangeProgress(
     };
   }, [targetHours]);
 
-  const onManualDragChange = (rawValue: number): void => {
-    const host: FrameMotionHost = getFrameMotionHost();
-    if (rafIdRef.current !== null && typeof host.cancelAnimationFrame === "function") {
-      host.cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-    }
-    const normalized: number = Number.isFinite(rawValue)
-      ? Math.round(rawValue)
-      : MINI_APP_BATCH_KICK_MIN_HOURS;
-    const clamped: number = Math.min(
-      MINI_APP_BATCH_KICK_MAX_HOURS,
-      Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, normalized)
-    );
-    manualChangeRef.current = true;
-    committedTargetRef.current = clamped;
-    displayValueRef.current = clamped;
-    setDisplayValue(clamped);
-    setIsAnimating(false);
-    setBatchKickHours(clamped);
-  };
+  const onManualDragChange: (rawValue: number) => void = useCallback(
+    (rawValue: number): void => {
+      const host: FrameMotionHost = getFrameMotionHost();
+      animGenRef.current += 1;
+      if (rafIdRef.current !== null && typeof host.cancelAnimationFrame === "function") {
+        host.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      const normalized: number = Number.isFinite(rawValue)
+        ? Math.round(rawValue)
+        : MINI_APP_BATCH_KICK_MIN_HOURS;
+      const clamped: number = Math.min(
+        MINI_APP_BATCH_KICK_MAX_HOURS,
+        Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, normalized)
+      );
+      manualChangeRef.current = clamped !== committedTargetRef.current;
+      committedTargetRef.current = clamped;
+      displayValueRef.current = clamped;
+      setDisplayValue(clamped);
+      setIsAnimating(false);
+      setBatchKickHours(clamped);
+    },
+    [setBatchKickHours]
+  );
 
-  const onButtonStepChange = (nextHours: number): void => {
-    const normalized: number = Number.isFinite(nextHours)
-      ? Math.round(nextHours)
-      : MINI_APP_BATCH_KICK_MIN_HOURS;
-    const clamped: number = Math.min(
-      MINI_APP_BATCH_KICK_MAX_HOURS,
-      Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, normalized)
-    );
-    manualChangeRef.current = false;
-    setBatchKickHours(clamped);
-  };
+  const onButtonStepChange: (nextHours: number) => void = useCallback(
+    (nextHours: number): void => {
+      const normalized: number = Number.isFinite(nextHours)
+        ? Math.round(nextHours)
+        : MINI_APP_BATCH_KICK_MIN_HOURS;
+      const clamped: number = Math.min(
+        MINI_APP_BATCH_KICK_MAX_HOURS,
+        Math.max(MINI_APP_BATCH_KICK_MIN_HOURS, normalized)
+      );
+      manualChangeRef.current = false;
+      setBatchKickHours(clamped);
+    },
+    [setBatchKickHours]
+  );
 
   return {
     displayValue,

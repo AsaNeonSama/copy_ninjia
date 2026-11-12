@@ -13,7 +13,7 @@ import type { MiniAppLanguage, TelegramWebApp } from "../types/miniApp";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
 
 /**
- * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态，提交核验期间按钮展示三点波浪加载动效）。
+ * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态，提交核验期间按钮展示三枚方形加载块动效）。
  *
  * @returns React 节点
  */
@@ -101,9 +101,7 @@ export function AuthGatePage(): React.JSX.Element {
           >
             {passwordBusy
               ? <LoadingDotsWave />
-              : isTotpGate
-                ? t.gate.totpSubmitButton
-                : t.gate.passwordSubmitButton}
+              : <span>{isTotpGate ? t.gate.totpSubmitButton : t.gate.passwordSubmitButton}</span>}
           </button>
         </form>
       </div>

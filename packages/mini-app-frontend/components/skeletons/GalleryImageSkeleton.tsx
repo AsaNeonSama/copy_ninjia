@@ -10,7 +10,7 @@ export interface GalleryImageSkeletonProps {
 }
 
 /**
- * 渲染图库缩略图或大图预览加载完成前的闪光骨架占位。
+ * 渲染图库缩略图或大图预览加载完成前的居中脉冲图标骨架层。
  *
  * @param props 图标尺寸与是否为大图预览
  * @returns React 节点

@@ -39,7 +39,7 @@ function resolveCapabilityFollowScroll(
 }
 
 /**
- * 子系统折叠面板容器：展开/收起按 `useFlipCollapseLayoutEffect` 单时钟逐帧过渡，展开时同帧跟滚到标题栏与内容可见。
+ * 子系统折叠面板容器：展开/收起按 `useFlipCollapseLayoutEffect` 单时钟快出急停曲线逐帧过渡，展开时同帧跟滚到标题栏与内容可见。
  *
  * @param props 展开状态、共享跟滚槽位与子节点
  * @returns React 节点
