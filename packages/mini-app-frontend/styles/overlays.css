@@ -440,7 +440,12 @@
   }
 }
 
-.confirm-actions .btn:active:not(:disabled) {
+.confirm-actions .btn:active:not(:disabled),
+.confirm-actions .btn.primary:active:not(:disabled),
+.confirm-actions .btn.danger:active:not(:disabled),
+[data-theme="dark"] .confirm-actions .btn:active:not(:disabled),
+[data-theme="dark"] .confirm-actions .btn.primary:active:not(:disabled),
+[data-theme="dark"] .confirm-actions .btn.danger:active:not(:disabled) {
   transform: translate(2px, 2px);
   box-shadow: none;
   filter: drop-shadow(0 0 0 transparent);

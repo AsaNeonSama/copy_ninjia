@@ -1,39 +1,63 @@
-/* 访问异常诊断页、平行四边形登录/动态码门禁卡片与验证器配置面板样式。 */
+/* 平行四边形访问异常拦截诊断页、登录/动态码门禁卡片与验证器配置面板样式。 */
 .cf-error-page {
   position: fixed;
   inset: 0;
   z-index: 9999;
+  overflow-x: hidden;
   overflow-y: auto;
   background-color: var(--bg);
   background-image: radial-gradient(var(--dot-grid) 1px, transparent 1px);
   background-size: 16px 16px;
   color: var(--text);
   line-height: 1.5;
-  padding: 16px 12px 32px;
+  padding: 20px 22px 36px;
 }
 
 .cf-error-container {
+  --cf-card-skew: -2deg;
+  --cf-card-pt: 24px;
+  --cf-card-px: 22px;
   max-width: 880px;
   margin: 12px auto 0;
-  padding: 24px 20px;
+  padding: var(--cf-card-pt) var(--cf-card-px) 24px;
   background: var(--card);
   border: var(--border-w) solid var(--border-strong);
   border-top: 6px solid var(--danger);
-  border-radius: var(--radius-md);
+  border-radius: 3px 12px 3px 12px;
   box-shadow: var(--shadow-lg);
+  transform: skewX(var(--cf-card-skew));
+}
+
+[data-theme="dark"] .cf-error-container {
+  background: #1b1f30;
+  border-color: var(--border-strong);
+  border-top: 6px solid var(--danger);
 }
 
 @media (max-width: 560px) {
+  .cf-error-page {
+    padding: 12px 18px 28px;
+  }
+
   .cf-error-container {
+    --cf-card-skew: -1.25deg;
+    --cf-card-pt: 18px;
+    --cf-card-px: 14px;
     margin-top: 4px;
-    padding: 18px 14px;
+    padding: var(--cf-card-pt) var(--cf-card-px) 18px;
   }
 }
 
 .cf-header {
-  margin-bottom: 20px;
-  padding-bottom: 16px;
+  margin: calc(var(--cf-card-pt) * -1) calc(var(--cf-card-px) * -1) 20px;
+  padding: 18px var(--cf-card-px) 16px;
+  background: var(--surface-elevated);
   border-bottom: var(--border-w) solid var(--border);
+  border-radius: 1px 10px 0 0;
+}
+
+[data-theme="dark"] .cf-header {
+  background: #232940;
 }
 
 .cf-title-row {
@@ -42,6 +66,7 @@
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 8px;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
 }
 
 .cf-main-title {
@@ -64,7 +89,12 @@
   padding: 4px 10px;
   border-radius: 2px 8px 2px 8px;
   box-shadow: var(--btn-shadow);
-  transform: rotate(-1.5deg);
+  transform: skewX(var(--skew-chip));
+}
+
+.cf-code-pill > span {
+  display: inline-block;
+  transform: skewX(var(--skew-chip-counter));
 }
 
 .cf-subtitle {
@@ -72,6 +102,7 @@
   font-weight: 600;
   color: var(--subtitle);
   margin-bottom: 6px;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
 }
 
 .cf-timestamp {
@@ -79,12 +110,13 @@
   font-weight: 700;
   color: var(--hint);
   font-family: var(--font-mono);
+  transform: skewX(calc(var(--cf-card-skew) * -1));
 }
 
 .cf-status-band {
   background: var(--surface-inset);
   border: var(--border-w) solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 2px 10px 2px 10px;
   box-shadow: var(--shadow-sm);
   margin: 0 0 22px;
   padding: 16px;
@@ -92,23 +124,31 @@
 
 .cf-status-inner {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: 12px;
 }
 
 .cf-node {
   display: flex;
   align-items: center;
-  gap: 12px;
   padding: 10px 12px;
   background: var(--card);
   border: var(--border-w) solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 2px 10px 2px 10px;
   box-shadow: var(--shadow-xs);
 }
 
 [data-theme="dark"] .cf-node {
   background: #232940;
+}
+
+.cf-node-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
 }
 
 .cf-node-meta {
@@ -119,7 +159,7 @@
 .cf-node-icon {
   width: 38px;
   height: 38px;
-  border-radius: var(--radius-xs);
+  border-radius: 2px 8px 2px 8px;
   border: var(--border-w) solid var(--border);
   box-shadow: var(--shadow-xs);
   display: flex;
@@ -129,6 +169,12 @@
   font-size: 17px;
   font-weight: 900;
   flex-shrink: 0;
+  transform: skewX(var(--skew-chip));
+}
+
+.cf-node-icon > span {
+  display: inline-block;
+  transform: skewX(var(--skew-chip-counter));
 }
 
 .cf-node-icon.ok {
@@ -174,7 +220,7 @@
 
 .cf-details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -183,23 +229,29 @@
   padding: 14px;
   background: var(--surface-elevated);
   border: var(--border-w) solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 2px 10px 2px 10px;
   box-shadow: var(--shadow-xs);
 }
 
-.cf-detail-col h2 {
+[data-theme="dark"] .cf-detail-col {
+  background: #232940;
+}
+
+.cf-detail-col > h2 {
   font-size: 16px;
   font-weight: 900;
   color: var(--text);
   margin-bottom: 8px;
   letter-spacing: -0.01em;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
 }
 
-.cf-detail-col p {
+.cf-detail-col > p {
   font-size: 13.5px;
   color: var(--subtitle);
   margin-bottom: 10px;
   line-height: 1.55;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
 }
 
 .cf-reason-box {
@@ -207,12 +259,17 @@
   border: var(--border-w) solid var(--danger-border);
   border-left: 5px solid var(--danger);
   padding: 10px 12px;
-  border-radius: var(--radius-xs);
+  border-radius: 2px 8px 2px 8px;
+  box-shadow: var(--shadow-xs);
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
   word-break: break-word;
+}
+
+.cf-reason-content {
+  transform: skewX(calc(var(--cf-card-skew) * -1));
 }
 
 .cf-footer {
@@ -229,13 +286,30 @@
   text-align: center;
 }
 
+.cf-footer > span {
+  max-width: 100%;
+  word-break: break-all;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
 .cf-footer strong {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: baseline;
   color: var(--text);
   font-weight: 800;
   background: var(--surface-inset);
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
+  padding: 1px 7px;
+  border: var(--border-w-sm) solid var(--border);
+  border-radius: 2px 6px 2px 6px;
+  box-shadow: 1.5px 1.5px 0 var(--shadow-ink);
+  transform: skewX(var(--skew-chip));
+}
+
+.cf-footer strong > span {
+  display: inline-block;
+  max-width: 100%;
+  transform: skewX(var(--skew-chip-counter));
 }
 
 .cf-sep {

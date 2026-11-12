@@ -400,8 +400,8 @@
 }
 
 @media (hover: hover) {
-  .btn:hover:not(:disabled),
-  .icon-btn:hover:not(:disabled) {
+  .btn:hover:not(:disabled):not(.is-disabled),
+  .icon-btn:hover:not(:disabled):not(.is-disabled) {
     transform: translate(-1px, -1px) skewX(var(--btn-skew, 0deg));
     box-shadow: var(--btn-shadow-hover);
     background: var(--btn-hover-bg);
@@ -409,7 +409,7 @@
     border-color: var(--btn-border);
   }
 
-  .btn.primary:hover:not(:disabled) {
+  .btn.primary:hover:not(:disabled):not(.is-disabled) {
     transform: translate(-1px, -1px) skewX(var(--btn-skew, 0deg));
     box-shadow: var(--btn-shadow-hover);
     background: var(--accent-light);
@@ -417,7 +417,7 @@
     border-color: var(--btn-primary-border);
   }
 
-  .btn.danger:hover:not(:disabled) {
+  .btn.danger:hover:not(:disabled):not(.is-disabled) {
     transform: translate(-1px, -1px) skewX(var(--btn-skew, 0deg));
     box-shadow: var(--btn-shadow-hover);
     background: var(--danger);
@@ -425,19 +425,23 @@
     border-color: var(--btn-primary-border);
   }
 
-  [data-theme="dark"] .btn.danger:hover:not(:disabled) {
+  [data-theme="dark"] .btn.danger:hover:not(:disabled):not(.is-disabled) {
     color: var(--btn-primary-text);
   }
 }
 
-.btn:active:not(:disabled),
-.icon-btn:active:not(:disabled) {
+.btn:active:not(:disabled):not(.is-disabled),
+.btn.primary:active:not(:disabled):not(.is-disabled),
+.btn.danger:active:not(:disabled):not(.is-disabled),
+.icon-btn:active:not(:disabled):not(.is-disabled) {
   transform: translate(2px, 2px) skewX(var(--btn-skew, 0deg));
   box-shadow: 0 0 0 var(--btn-shadow-color);
 }
 
 .btn:disabled,
-.icon-btn:disabled {
+.btn.is-disabled,
+.icon-btn:disabled,
+.icon-btn.is-disabled {
   opacity: 0.5;
   filter: grayscale(0.25);
   box-shadow: none;

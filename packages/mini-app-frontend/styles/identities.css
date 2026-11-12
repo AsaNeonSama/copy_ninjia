@@ -193,9 +193,18 @@
 }
 
 .btn.primary.add-fold-trigger:active:not(:disabled),
+.add-mode-card:active:not(:disabled):not(.active),
 .add-mode-card:active:not(:disabled),
 .id-add-inline-row .btn:active:not(:disabled),
-.identity-row-actions .btn:not(.icon-btn):active:not(:disabled) {
+.id-add-inline-row .btn.primary:active:not(:disabled),
+.identity-row-actions .btn:not(.icon-btn):active:not(:disabled),
+.identity-row-actions .btn.primary:not(.icon-btn):active:not(:disabled),
+[data-theme="dark"] .btn.primary.add-fold-trigger:active:not(:disabled),
+[data-theme="dark"] .add-mode-card:active:not(:disabled):not(.active),
+[data-theme="dark"] .id-add-inline-row .btn:active:not(:disabled),
+[data-theme="dark"] .id-add-inline-row .btn.primary:active:not(:disabled),
+[data-theme="dark"] .identity-row-actions .btn:not(.icon-btn):active:not(:disabled),
+[data-theme="dark"] .identity-row-actions .btn.primary:not(.icon-btn):active:not(:disabled) {
   transform: translate(2px, 2px);
   box-shadow: none;
   filter: drop-shadow(0 0 0 transparent);

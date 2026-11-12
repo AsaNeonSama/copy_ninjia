@@ -50,9 +50,9 @@ export interface MiniAppGalleryStoreState {
   /** 大图预览是否已完成加载动画。 */
   readonly previewLoaded: boolean;
 
-  /** 拉取指定页（缺省沿用当前页码与每页张数）；只采纳最后一次发起的请求结果，成功时开启新的缩略图批次。 */
+  /** 拉取指定页（缺省沿用当前页码与每页张数），保证加载骨架最短展示时长；只采纳最后一次发起的请求结果，成功时开启新的缩略图批次并一次性提交分页与加载完成态。 */
   readonly loadGallery: (targetPage?: number, targetPageSize?: number) => Promise<void>;
-  /** 缩略图加载完成或失败时调用：属于当前批次时在骨架屏最短展示时长后标记为已加载。 */
+  /** 缩略图加载完成或失败时调用：属于当前批次的文件名合并入队，在骨架屏最短展示时长后按批次一次性写入已加载表。 */
   readonly markThumbLoaded: (fileName: string, epoch: number) => void;
   /** 预览图加载完成或失败时调用：属于当前预览周期时在骨架屏最短展示时长后标记为已加载。 */
   readonly markPreviewLoaded: () => void;
@@ -81,16 +81,14 @@ export type MiniAppGalleryStore = StoreApi<MiniAppGalleryStoreState>;
 export function createGalleryStore(): MiniAppGalleryStore {
   return createStore<MiniAppGalleryStoreState>()(
     (
-      set: (
-        partial:
-          | Partial<MiniAppGalleryStoreState>
-          | ((state: MiniAppGalleryStoreState) => Partial<MiniAppGalleryStoreState>)
-      ) => void,
+      set: (partial: Partial<MiniAppGalleryStoreState>) => void,
       get: () => MiniAppGalleryStoreState
     ): MiniAppGalleryStoreState => {
       let requestSeq: number = 0;
       let currentBatchEpoch: number = 0;
-      const pendingThumbKeys: Set<string> = new Set<string>();
+      const seenThumbFiles: Set<string> = new Set<string>();
+      const queuedThumbFiles: Set<string> = new Set<string>();
+      let thumbFlushEpoch: number = -1;
       let previewEpoch: number = 0;
       let settledPreviewEpoch: number = -1;
       let pageRenderAt: number = Date.now();
@@ -114,58 +112,63 @@ export function createGalleryStore(): MiniAppGalleryStore {
           const reqPage: number = targetPage ?? get().page;
           const reqSize: number = targetPageSize ?? get().pageSize;
           const reqId: number = ++requestSeq;
+          const startedAt: number = Date.now();
           set({ loading: true });
           try {
             const result: MiniAppGalleryPage = await fetchMiniAppGallery(
               reqPage,
               reqSize
             );
+            await waitMinimumLoadingDuration(startedAt);
             if (reqId !== requestSeq) {
               return;
             }
             const nextEpoch: number = currentBatchEpoch + 1;
             currentBatchEpoch = nextEpoch;
-            pendingThumbKeys.clear();
+            seenThumbFiles.clear();
+            queuedThumbFiles.clear();
+            thumbFlushEpoch = -1;
             pageRenderAt = Date.now();
             set({
               batchEpoch: nextEpoch,
               loadedImages: {},
               galleryPage: result,
               page: result.page,
+              loading: false,
             });
           } catch (error: unknown) {
+            await waitMinimumLoadingDuration(startedAt);
             if (reqId !== requestSeq) {
               return;
             }
+            set({ loading: false });
             const message: string = errorMessage(error);
             useMiniAppStore.getState().notify(message, "info", error);
-          } finally {
-            if (reqId === requestSeq) {
-              set({ loading: false });
-            }
           }
         },
 
         markThumbLoaded: (fileName: string, epoch: number): void => {
-          if (currentBatchEpoch !== epoch) {
+          if (currentBatchEpoch !== epoch || seenThumbFiles.has(fileName)) {
             return;
           }
-          const pendingKey: string = `${epoch}:${fileName}`;
-          if (pendingThumbKeys.has(pendingKey)) {
+          seenThumbFiles.add(fileName);
+          queuedThumbFiles.add(fileName);
+          if (thumbFlushEpoch === epoch) {
             return;
           }
-          pendingThumbKeys.add(pendingKey);
+          thumbFlushEpoch = epoch;
           void (async (): Promise<void> => {
             await waitMinimumLoadingDuration(pageRenderAt);
             if (currentBatchEpoch !== epoch) {
               return;
             }
-            set((state: MiniAppGalleryStoreState): Partial<MiniAppGalleryStoreState> => ({
-              loadedImages:
-                state.loadedImages[fileName] === true
-                  ? state.loadedImages
-                  : { ...state.loadedImages, [fileName]: true },
-            }));
+            thumbFlushEpoch = -1;
+            const nextLoaded: Record<string, boolean> = { ...get().loadedImages };
+            for (const name of queuedThumbFiles) {
+              nextLoaded[name] = true;
+            }
+            queuedThumbFiles.clear();
+            set({ loadedImages: nextLoaded });
           })();
         },
 

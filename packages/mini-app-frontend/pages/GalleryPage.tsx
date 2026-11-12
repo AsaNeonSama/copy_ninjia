@@ -32,15 +32,24 @@ import {
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import { createGalleryStore } from "../store/gallery";
-import type { MiniAppGalleryStoreState } from "../store/gallery";
+import type { MiniAppGalleryStore, MiniAppGalleryStoreState } from "../store/gallery";
 import type { MiniAppGalleryItem, MiniAppLanguage } from "../types/miniApp";
+
+/** `GalleryPage` 组件属性。 */
+export interface GalleryPageProps {
+  /** 可选的状态仓库工厂（默认 `createGalleryStore`）。 */
+  readonly storeFactory?: () => MiniAppGalleryStore;
+}
 
 /**
  * 图库分页预览、SHA-256 协议上传、单张图片下载与删除管理页面（关闭大图预览时执行延迟卸载收起过渡动画）。
  *
+ * @param props 组件属性
  * @returns React 节点
  */
-export function GalleryPage(): React.JSX.Element {
+export function GalleryPage({
+  storeFactory = createGalleryStore,
+}: GalleryPageProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
@@ -66,7 +75,7 @@ export function GalleryPage(): React.JSX.Element {
     downloadImage,
     deleteImage,
     uploadFiles,
-  }: MiniAppGalleryStoreState = useComponentStore(createGalleryStore);
+  }: MiniAppGalleryStoreState = useComponentStore(storeFactory);
   useEffect((): void => {
     void loadGallery(1, pageSize);
   }, [loadGallery, pageSize]);
@@ -188,25 +197,22 @@ export function GalleryPage(): React.JSX.Element {
             <span>{t.gallery.sectionTitle}</span>
           </span>
           <div className="toolbar-actions">
-            <label
-              className="btn primary icon-btn"
-              style={
-                uploadDisabled
-                  ? { opacity: 0.45, cursor: "not-allowed", pointerEvents: "none" }
-                  : undefined
-              }
+            <div
+              className={`btn primary icon-btn gallery-upload-btn${uploadDisabled ? " is-disabled" : ""}`}
+              aria-disabled={uploadDisabled}
             >
               <UploadSvgIcon size={14} />
               <span>{uploading ? t.gallery.uploadingButton : t.gallery.uploadButton}</span>
               <input
                 type="file"
+                className="gallery-upload-input"
                 accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                 multiple
                 disabled={uploadDisabled}
-                style={{ display: "none" }}
+                aria-label={uploading ? t.gallery.uploadingButton : t.gallery.uploadButton}
                 onChange={handleFilesSelected}
               />
-            </label>
+            </div>
             <button
               type="button"
               className="btn icon-btn"

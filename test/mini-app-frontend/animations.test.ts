@@ -1,6 +1,7 @@
 /**
  * Mini App 前端名单弹窗 Tab 切换高度与方向过渡、平行四边形与异形多边形骨架屏、电流感刷新电弧扫描、
- * 按钮内水平三点加载块、QA 问答对卡片结构、权限抽屉、认证门控与验证器页面渲染，以及平行四边形/异形切角按钮与门控卡片几何规则、暗色多层对比令牌、缓动曲线与响应式断点核验。
+ * 按钮内水平三点加载块、QA 问答对卡片结构、权限抽屉、平行四边形拦截诊断页、认证门控与验证器页面渲染，
+ * 以及侧栏纯合成层过渡、平行四边形/异形切角按钮与门控卡片几何规则、暗色多层对比令牌、缓动曲线与响应式断点核验。
  */
 
 import { describe, expect, test } from "bun:test";
@@ -45,11 +46,14 @@ import {
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
+import { AccessDeniedPage } from "../../packages/mini-app-frontend/pages/AccessDeniedPage";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
+import { GalleryPage } from "../../packages/mini-app-frontend/pages/GalleryPage";
 import { TotpPage } from "../../packages/mini-app-frontend/pages/TotpPage";
 import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-app-frontend/store/app";
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import type { MiniAppChatsStoreState } from "../../packages/mini-app-frontend/store/chats";
+import { createGalleryStore } from "../../packages/mini-app-frontend/store/gallery";
 import { createPermissionDrawerStore } from "../../packages/mini-app-frontend/store/permissionDrawer";
 import { createTotpStore } from "../../packages/mini-app-frontend/store/totp";
 import type { MiniAppChatTargetKind } from "../../packages/mini-app-frontend/types/miniApp";
@@ -398,6 +402,39 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(expandedMarkup).toContain("totp-trigger-collapse-grid collapsed");
     expect(expandedMarkup).toContain("totp-setup-collapse-grid expanded");
     expect(expandedMarkup).toContain("JBSWY3DPEHPK3PXP");
+
+    const galleryStore = createGalleryStore();
+    (galleryStore as { getInitialState: typeof galleryStore.getState }).getInitialState =
+      galleryStore.getState;
+    const disabledUploadMarkup: string = renderToStaticMarkup(
+      createElement(GalleryPage, { storeFactory: () => galleryStore })
+    );
+    expect(disabledUploadMarkup).toContain(
+      'class="btn primary icon-btn gallery-upload-btn is-disabled"'
+    );
+    expect(disabledUploadMarkup).toContain('class="gallery-upload-input"');
+    expect(disabledUploadMarkup).toContain("disabled");
+    expect(disabledUploadMarkup).not.toContain("display:none");
+
+    galleryStore.setState({
+      loading: false,
+      galleryPage: {
+        directory: "/data/gallery",
+        exists: true,
+        total: 0,
+        page: 1,
+        pageSize: 10,
+        totalPages: 1,
+        items: [],
+      },
+    });
+    const enabledUploadMarkup: string = renderToStaticMarkup(
+      createElement(GalleryPage, { storeFactory: () => galleryStore })
+    );
+    expect(enabledUploadMarkup).toContain('class="btn primary icon-btn gallery-upload-btn"');
+    expect(enabledUploadMarkup).toContain('aria-disabled="false"');
+    expect(enabledUploadMarkup).toContain('class="gallery-upload-input"');
+    expect(enabledUploadMarkup).not.toContain("display:none");
   });
 
   test("TabHeightSizer 高度过渡曲线绑定与新粗野主义硬边骨架屏 / 方形加载块渲染核验", () => {
@@ -612,6 +649,32 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       expect(busyGateMarkup).toContain('aria-busy="true"');
       expect(busyGateMarkup).toContain('><span class="join-clean-loading-dots loading-dots-wave"');
       expect(busyGateMarkup).not.toContain(`<span>${zhTranslations.gate.totpSubmitButton}</span>`);
+
+      useMiniAppStore.setState({ deniedDiag: null });
+      const fallbackDeniedMarkup: string = renderToStaticMarkup(createElement(AccessDeniedPage));
+      expect(fallbackDeniedMarkup).toContain('class="cf-error-page"');
+      expect(fallbackDeniedMarkup).toContain('class="cf-error-container"');
+      expect(fallbackDeniedMarkup).toContain('<span class="cf-code-pill"><span>HTTP 403');
+      expect(fallbackDeniedMarkup.match(/class="cf-node-content"/g)?.length).toBe(3);
+
+      useMiniAppStore.setState({
+        deniedDiag: {
+          error: "Forbidden",
+          code: "NOT_SUPER_ADMIN",
+          status: 403,
+          requestId: "req-denied-01",
+          timestamp: "2026-11-12T12:00:00.000Z",
+          clientIp: "203.0.113.9",
+          host: "mini.example.test",
+          path: "/api/session",
+        },
+      });
+      const customDeniedMarkup: string = renderToStaticMarkup(createElement(AccessDeniedPage));
+      expect(customDeniedMarkup).toContain("HTTP 403 · NOT_SUPER_ADMIN</span></span>");
+      expect(customDeniedMarkup).toContain('<div class="cf-node-icon err"><span>✕</span></div>');
+      expect(customDeniedMarkup).toContain('class="cf-reason-content"');
+      expect(customDeniedMarkup).toContain("<strong><span>req-denied-01</span></strong>");
+      expect(customDeniedMarkup).toContain("<strong><span>/api/session</span></strong>");
     } finally {
       resetMiniAppStoreForTest();
     }
@@ -713,9 +776,15 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       "animation: miniapp-electric-arc-sweep 0.56s var(--ease-brutal) infinite;"
     );
     expect(skeletonsCss).toContain("@keyframes miniapp-brutal-scan");
-    expect(skeletonsCss).toContain(
+    const skeletonScanAfterRule: RegExpExecArray | null =
+      /\.skeleton-line::after,\s*\.gallery-img-skeleton::after\s*\{([^}]*)\}/u.exec(skeletonsCss);
+    expect(skeletonScanAfterRule).not.toBeNull();
+    const skeletonScanAfterBody: string = skeletonScanAfterRule?.[1] ?? "";
+    expect(skeletonScanAfterBody).toContain("background: var(--skeleton-scan-band);");
+    expect(skeletonScanAfterBody).toContain(
       "animation: miniapp-brutal-scan 0.68s var(--ease-brutal) infinite;"
     );
+    expect(skeletonScanAfterBody).not.toContain("will-change");
     expect(skeletonsCss).toContain("@keyframes miniapp-brutal-dot-step");
     expect(skeletonsCss).toContain(
       ".join-clean-loading-dots.loading-dots-wave > .loading-dot-block"
@@ -776,6 +845,12 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(primitivesCss).toContain("transform: skewX(var(--btn-skew, 0deg));");
     expect(primitivesCss).toContain("transform: translate(-1px, -1px) skewX(var(--btn-skew, 0deg));");
     expect(primitivesCss).toContain("transform: translate(2px, 2px) skewX(var(--btn-skew, 0deg));");
+    expect(primitivesCss).toContain(".btn.primary:active:not(:disabled):not(.is-disabled)");
+    expect(primitivesCss).toContain(".btn.danger:active:not(:disabled):not(.is-disabled)");
+    expect(primitivesCss).toContain(".btn.is-disabled");
+    expect(galleryCss).toContain(".gallery-upload-input::file-selector-button");
+    expect(overlaysCss).toContain(".confirm-actions .btn.primary:active:not(:disabled)");
+    expect(identitiesCss).toContain(".id-add-inline-row .btn.primary:active:not(:disabled)");
     expect(primitivesCss).toContain("transform: skewX(calc(var(--btn-skew, 0deg) * -1));");
     expect(primitivesCss).toContain("box-shadow: 0 0 0 var(--btn-shadow-color);");
     expect(primitivesCss).toContain("clip-path: var(--clip-dogear);");
@@ -783,6 +858,44 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(shellCss).toContain("clip-path: var(--clip-chamfer);");
     expect(shellCss).toContain("clip-path: var(--clip-chamfer-inner);");
     expect(shellCss).toContain("filter: drop-shadow(0 0 0 transparent);");
+    const appMainRule: RegExpExecArray | null = /(?:^|\n)\.app-main\s*\{([^}]*)\}/u.exec(shellCss);
+    expect(appMainRule).not.toBeNull();
+    const appMainBody: string = appMainRule?.[1] ?? "";
+    expect(appMainBody).toContain("contain: style;");
+    expect(appMainBody).not.toMatch(/contain\s*:\s*[^;]*\b(?:layout|paint|content|strict)\b/u);
+    expect(appMainBody).not.toMatch(/(?<![\w-])transform\s*:/u);
+
+    const topbarChamferBtnRule: RegExpExecArray | null =
+      /\.sidebar-toggle-btn,\s*\.lang-menu-btn,\s*\.btn\.lang-menu-btn,\s*\.theme-toggle-btn,\s*\.btn\.theme-toggle-btn\s*\{([^}]*)\}/u.exec(
+        shellCss
+      );
+    expect(topbarChamferBtnRule).not.toBeNull();
+    const topbarChamferBtnBody: string = topbarChamferBtnRule?.[1] ?? "";
+    expect(topbarChamferBtnBody).toContain("filter: drop-shadow(2px 2px 0 var(--btn-shadow-color));");
+    expect(topbarChamferBtnBody).toContain("transform var(--press-duration) var(--ease-brutal)");
+    const topbarTransitionMatch: RegExpExecArray | null = /transition\s*:\s*([^;]+);/u.exec(
+      topbarChamferBtnBody
+    );
+    expect(topbarTransitionMatch).not.toBeNull();
+    expect(topbarTransitionMatch?.[1] ?? "").not.toContain("filter");
+
+    const sidebarDrawerRule: RegExpExecArray | null =
+      /(?:^|\n)\.sidebar-drawer\s*\{([^}]*)\}/u.exec(shellCss);
+    expect(sidebarDrawerRule).not.toBeNull();
+    const sidebarDrawerBody: string = sidebarDrawerRule?.[1] ?? "";
+    expect(sidebarDrawerBody).toContain("box-shadow: var(--shadow-lg);");
+    expect(sidebarDrawerBody).toContain("will-change: transform;");
+    expect(sidebarDrawerBody).toContain("transform: translate3d(calc(-100% - 8px), 0, 0);");
+    expect(sidebarDrawerBody).toContain("transition: transform 0.19s var(--ease-brutal);");
+    expect(sidebarDrawerBody).not.toMatch(/transition\s*:[^;]*box-shadow/u);
+
+    const sidebarDrawerOpenRule: RegExpExecArray | null =
+      /(?:^|\n)\.sidebar-drawer\.open\s*\{([^}]*)\}/u.exec(shellCss);
+    expect(sidebarDrawerOpenRule).not.toBeNull();
+    const sidebarDrawerOpenBody: string = sidebarDrawerOpenRule?.[1] ?? "";
+    expect(sidebarDrawerOpenBody).toContain("transform: translate3d(0, 0, 0);");
+    expect(sidebarDrawerOpenBody).toContain("pointer-events: auto;");
+    expect(sidebarDrawerOpenBody).not.toContain("box-shadow");
     expect(overlaysCss).toContain("var(--btn-primary-bg)");
     expect(overlaysCss).toContain("var(--btn-danger-bg)");
     expect(paginationCss).toContain("clip-path: var(--clip-dogear);");
@@ -805,6 +918,37 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       expect(innerMatch?.[1] ?? "").toContain("skewX(calc(var(--auth-card-skew) * -1))");
     }
     expect(authCss).toContain("@media (max-height: 560px)");
+
+    const cfPageRule: RegExpExecArray | null = /(?:^|\n)\.cf-error-page\s*\{([^}]*)\}/u.exec(authCss);
+    expect(cfPageRule?.[1] ?? "").toContain("overflow-x: hidden;");
+    const cfCardRule: RegExpExecArray | null =
+      /(?:^|\n)\.cf-error-container\s*\{([^}]*)\}/u.exec(authCss);
+    expect(cfCardRule?.[1] ?? "").toContain("--cf-card-skew:");
+    expect(cfCardRule?.[1] ?? "").toContain("border-radius: 3px 12px 3px 12px;");
+    expect(cfCardRule?.[1] ?? "").toContain("transform: skewX(var(--cf-card-skew));");
+    for (const cfCounterPattern of [
+      /(?:^|\n)\.cf-title-row\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-subtitle\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-timestamp\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-node-content\s*\{([^}]*)\}/u,
+      /\.cf-detail-col\s*>\s*h2\s*\{([^}]*)\}/u,
+      /\.cf-detail-col\s*>\s*p\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-reason-content\s*\{([^}]*)\}/u,
+      /\.cf-footer\s*>\s*span\s*\{([^}]*)\}/u,
+    ]) {
+      expect(cfCounterPattern.exec(authCss)?.[1] ?? "").toContain(
+        "skewX(calc(var(--cf-card-skew) * -1))"
+      );
+    }
+    for (const [chipPattern, counterPattern] of [
+      [/(?:^|\n)\.cf-code-pill\s*\{([^}]*)\}/u, /\.cf-code-pill\s*>\s*span\s*\{([^}]*)\}/u],
+      [/(?:^|\n)\.cf-node-icon\s*\{([^}]*)\}/u, /\.cf-node-icon\s*>\s*span\s*\{([^}]*)\}/u],
+      [/\.cf-footer\s+strong\s*\{([^}]*)\}/u, /\.cf-footer\s+strong\s*>\s*span\s*\{([^}]*)\}/u],
+    ] as const) {
+      expect(chipPattern.exec(authCss)?.[1] ?? "").toContain("skewX(var(--skew-chip))");
+      expect(counterPattern.exec(authCss)?.[1] ?? "").toContain("skewX(var(--skew-chip-counter))");
+    }
+    expect(authCss).toContain("--cf-card-skew: -1.25deg;");
 
     // 6. 逐帧折叠容器、机械下压交互与触屏合成层提示
     expect(primitivesCss).not.toContain(".card.flip-card-clip");

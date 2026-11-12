@@ -5,8 +5,10 @@
   margin: 0 auto;
 }
 
+/* 应用主壳层：仅隔离样式重算作用域，不建立 fixed 包含块以保持页内弹窗视口定位。 */
 .app-main {
   width: 100%;
+  contain: style;
 }
 
 .gate-top-prefs {
@@ -113,7 +115,6 @@
   transform: translate(0, 0);
   transition:
     transform var(--press-duration) var(--ease-brutal),
-    filter var(--press-duration) var(--ease-brutal),
     color 0.1s linear;
 }
 
@@ -461,6 +462,7 @@
   pointer-events: auto;
 }
 
+/* 侧边抽屉：常驻硬边阴影，收起态额外左移 8px 将阴影一并移出视口，过渡仅驱动合成层 transform。 */
 .sidebar-drawer {
   position: fixed;
   top: 0;
@@ -470,7 +472,7 @@
   z-index: 100;
   background: var(--card);
   border-right: 3px solid var(--border-strong);
-  box-shadow: none;
+  box-shadow: var(--shadow-lg);
   pointer-events: none;
   display: flex;
   flex-direction: column;
@@ -478,15 +480,12 @@
   contain: layout style;
   will-change: transform;
   backface-visibility: hidden;
-  transform: translate3d(-100%, 0, 0);
-  transition:
-    transform 0.19s var(--ease-brutal),
-    box-shadow 0.19s var(--ease-brutal);
+  transform: translate3d(calc(-100% - 8px), 0, 0);
+  transition: transform 0.19s var(--ease-brutal);
 }
 
 .sidebar-drawer.open {
   transform: translate3d(0, 0, 0);
-  box-shadow: var(--shadow-lg);
   pointer-events: auto;
 }
 

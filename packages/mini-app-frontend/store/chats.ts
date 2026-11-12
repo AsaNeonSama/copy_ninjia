@@ -298,18 +298,15 @@ export function createChatsStore(): MiniAppChatsStore {
             if (reqId !== listReqSeq) {
               return;
             }
-            set({ chats: items });
+            set({ chats: items, loadingList: false });
           } catch (error: unknown) {
             await waitMinimumLoadingDuration(startedAt);
             if (reqId !== listReqSeq) {
               return;
             }
+            set({ loadingList: false });
             const message: string = errorMessage(error);
             useMiniAppStore.getState().notify(message, "info", error);
-          } finally {
-            if (reqId === listReqSeq) {
-              set({ loadingList: false });
-            }
           }
         },
 

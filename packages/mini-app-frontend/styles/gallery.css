@@ -1,4 +1,47 @@
-/* 图库网格卡片、切角悬浮操作按钮与大图预览折叠面板样式。 */
+/* 图库上传按钮满铺原生文件命中层、网格卡片、切角悬浮操作按钮与大图预览折叠面板样式。 */
+.gallery-upload-btn {
+  position: relative;
+}
+
+.gallery-upload-btn > svg,
+.gallery-upload-btn > span {
+  pointer-events: none;
+}
+
+.gallery-upload-btn:focus-within:not(.is-disabled) {
+  outline: var(--border-w) solid var(--brutal-cyan);
+  outline-offset: 2px;
+}
+
+.gallery-upload-input {
+  position: absolute;
+  inset: calc(var(--border-w) * -1);
+  width: calc(100% + var(--border-w) * 2);
+  height: calc(100% + var(--border-w) * 2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 2;
+  font-size: 0;
+}
+
+.gallery-upload-input::file-selector-button,
+.gallery-upload-input::-webkit-file-upload-button {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.gallery-upload-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));

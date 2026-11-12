@@ -95,7 +95,7 @@ All dependency installations enforce the release cooling period configured by `i
 
 ### Measurements for This Documentation Version
 
-`bun run test:coverage`: **7081 tests / 591 files / 457154 `expect()` calls**; full-source **function coverage 97.70% / line coverage 98.25%**. The Coverage badge in each project README displays line coverage.
+`bun run test:coverage`: **7084 tests / 592 files / 457315 `expect()` calls**; full-source **function coverage 97.38% / line coverage 98.05%**. The Coverage badge in each project README displays line coverage.
 
 ---
 

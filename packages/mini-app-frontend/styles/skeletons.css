@@ -238,7 +238,6 @@
   background: var(--skeleton-scan-band);
   animation: miniapp-brutal-scan 0.68s var(--ease-brutal) infinite;
   pointer-events: none;
-  will-change: transform;
 }
 
 .skeleton-line.medium {
