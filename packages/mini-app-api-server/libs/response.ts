@@ -1,8 +1,11 @@
 import {
-  MINI_APP_ASSET_CACHE_CONTROL, MINI_APP_CSP_HEADER_VALUE, MINI_APP_IPV4_HOST_PATTERN,
-  MINI_APP_NO_STORE_CACHE_CONTROL, MINI_APP_X_FRAME_OPTIONS_VALUE,
+  MINI_APP_ASSET_CACHE_CONTROL, MINI_APP_BUNDLE_CACHE_CONTROL,
+  MINI_APP_BUNDLE_VARY_HEADER_VALUE, MINI_APP_CSP_HEADER_VALUE,
+  MINI_APP_IPV4_HOST_PATTERN, MINI_APP_NO_STORE_CACHE_CONTROL,
+  MINI_APP_X_FRAME_OPTIONS_VALUE,
 } from "../../consts/miniApp";
 import type { MiniAppAccessDiagnostics } from "../../types/miniApp/auth";
+import type { BundledMiniAppAsset } from "../../types/miniApp/server";
 import { firstForwardedHost, resolveSafeClientIp } from "./request";
 
 /** `serveCachedAssetResponse` 所需的已解析资源元数据。 */
@@ -139,14 +142,108 @@ export function serveCachedAssetResponse(
   });
 }
 
-/** `accessErrorResponse` 所需的鉴权拒绝参数。 */
-export interface AccessErrorResponseParams {
+/**
+ * 生成已通过超级管理员门禁校验的前端打包产物响应头（仅允许客户端私有协商重验，严禁 CDN 缓存完整前端包）。
+ * @param contentType 资源的 `Content-Type` 响应头值。
+ * @param contentLength 资源字节长度。
+ * @param etag 资源强校验 `ETag` 响应头值。
+ * @returns 响应头键值对。
+ */
+function buildBundleAssetHeaders(
+  contentType: string,
+  contentLength: number,
+  etag: string
+): Record<string, string> {
+  return {
+    "Cache-Control": MINI_APP_BUNDLE_CACHE_CONTROL,
+    "CDN-Cache-Control": "no-store",
+    "Cloudflare-CDN-Cache-Control": "no-store",
+    "Vary": MINI_APP_BUNDLE_VARY_HEADER_VALUE,
+    "ETag": etag,
+    "Content-Type": contentType,
+    "Content-Length": String(contentLength),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": MINI_APP_X_FRAME_OPTIONS_VALUE,
+    "Content-Security-Policy": MINI_APP_CSP_HEADER_VALUE,
+    "Referrer-Policy": "no-referrer",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  };
+}
+
+/**
+ * 判断请求头 `If-None-Match` 是否命中当前打包资源的 `ETag`。
+ * @param ifNoneMatchHeader 原始 `If-None-Match` 请求头值。
+ * @param etag 当前资源的 `ETag` 值。
+ * @returns 命中时返回 `true`。
+ */
+function ifNoneMatchMatchesEtag(
+  ifNoneMatchHeader: string | null,
+  etag: string
+): boolean {
+  if (ifNoneMatchHeader === null) return false;
+  const trimmed: string = ifNoneMatchHeader.trim();
+  if (trimmed.length === 0) return false;
+  if (
+    trimmed === "*" ||
+    trimmed === etag ||
+    (trimmed.startsWith("W/") && trimmed.slice(2) === etag)
+  ) {
+    return true;
+  }
+  if (!trimmed.includes(",")) return false;
+  const len: number = trimmed.length;
+  let cursor: number = 0;
+  while (cursor < len) {
+    const commaIndex: number = trimmed.indexOf(",", cursor);
+    const end: number = commaIndex >= 0 ? commaIndex : len;
+    const candidate: string = trimmed.slice(cursor, end).trim();
+    if (
+      candidate === etag ||
+      (candidate.startsWith("W/") && candidate.slice(2) === etag)
+    ) {
+      return true;
+    }
+    cursor = end + 1;
+  }
+  return false;
+}
+
+/**
+ * 构造已通过超级管理员门禁核验的前端打包资源响应（支持 `If-None-Match` 返回 `304 Not Modified`，`HEAD` 请求不返回正文）。
+ * @param request HTTP 请求对象。
+ * @param asset 已物化的打包静态资源条目。
+ * @returns `200 OK` 或 `304 Not Modified` 的 `Response` 实例。
+ */
+export function serveBundledAssetResponse(
+  request: Request,
+  asset: Readonly<BundledMiniAppAsset>
+): Response {
+  const headers: Record<string, string> = buildBundleAssetHeaders(
+    asset.contentType,
+    asset.content.byteLength,
+    asset.etag
+  );
+  if (ifNoneMatchMatchesEtag(request.headers.get("if-none-match"), asset.etag)) {
+    return new Response(null, { status: 304, headers });
+  }
+  return new Response(
+    request.method.toUpperCase() === "HEAD"
+      ? null
+      : (asset.content as Uint8Array<ArrayBuffer>),
+    {
+      status: 200,
+      headers,
+    }
+  );
+}
+
+/** `buildMiniAppAccessDiagnostics` 构造拒绝诊断快照所需的参数。 */
+export interface BuildMiniAppAccessDiagnosticsParams {
   /** HTTP 状态码（`401` 或 `403`）。 */
   readonly status: number;
-  /** 英文错误状态码（如 `"PASSWORD_REQUIRED"`、`"INVALID_PASSWORD"`）。 */
+  /** 英文错误状态码（如 `"MISSING_INIT_DATA"`、`"FORBIDDEN_USER"`、`"PASSWORD_LOCKED"`）。 */
   readonly code: string;
-  /** 验签或鉴权失败原因分类标识。 */
-  readonly reason: string;
   /** 英文错误状态码字串（与 `code` 对应，供前端统一映射多语言提示）。 */
   readonly error: string;
   /** 凭据校验失败时剩余的可尝试次数。 */
@@ -155,16 +252,22 @@ export interface AccessErrorResponseParams {
   readonly remainingMinutes?: number;
 }
 
+/** `accessErrorResponse` 所需的鉴权拒绝参数。 */
+export interface AccessErrorResponseParams extends BuildMiniAppAccessDiagnosticsParams {
+  /** 验签或鉴权失败原因分类标识。 */
+  readonly reason: string;
+}
+
 /**
- * 构造携带真实请求 ID、时间戳、客户端出口 IP 与 Host 的 401/403 JSON 响应（严禁暴露源站服务器 IP）。
+ * 构造包含真实请求追踪 ID、UTC 时间戳、客户端出口 IP 与已脱敏源站 IP 字面量 Host 的访问拒绝诊断对象。
  * @param request HTTP 请求对象。
- * @param params 状态码、错误代号、原因标识与可选锁定参数。
- * @returns 带 `X-Request-Id` 响应头的 JSON `Response`。
+ * @param params 状态码、错误代号与可选剩余次数/锁定分钟数。
+ * @returns 只读的 `MiniAppAccessDiagnostics` 快照。
  */
-export function accessErrorResponse(
+export function buildMiniAppAccessDiagnostics(
   request: Request,
-  params: Readonly<AccessErrorResponseParams>
-): Response {
+  params: Readonly<BuildMiniAppAccessDiagnosticsParams>
+): Readonly<MiniAppAccessDiagnostics> {
   const randomBytes: Uint8Array = new Uint8Array(8);
   crypto.getRandomValues(randomBytes);
   const requestId: string = randomBytes.toHex();
@@ -192,7 +295,7 @@ export function accessErrorResponse(
     MINI_APP_IPV4_HOST_PATTERN.test(hostNoPort);
   const host: string = rawHost.length > 0 && !isIpHost ? rawHost : "localhost";
   const path: string = parsedUrl?.pathname ?? "/";
-  const diag: Readonly<MiniAppAccessDiagnostics> = {
+  return {
     requestId,
     timestamp,
     clientIp,
@@ -208,5 +311,21 @@ export function accessErrorResponse(
       ? { remainingMinutes: params.remainingMinutes }
       : {}),
   };
+}
+
+/**
+ * 构造携带真实请求 ID、时间戳、客户端出口 IP 与 Host 的 401/403 JSON 响应（严禁暴露源站服务器 IP）。
+ * @param request HTTP 请求对象。
+ * @param params 状态码、错误代号、原因标识与可选锁定参数。
+ * @returns 带 `X-Request-Id` 响应头的 JSON `Response`。
+ */
+export function accessErrorResponse(
+  request: Request,
+  params: Readonly<AccessErrorResponseParams>
+): Response {
+  const diag: Readonly<MiniAppAccessDiagnostics> = buildMiniAppAccessDiagnostics(
+    request,
+    params
+  );
   return jsonResponse({ ok: false, reason: params.reason, ...diag }, params.status, diag.requestId);
 }

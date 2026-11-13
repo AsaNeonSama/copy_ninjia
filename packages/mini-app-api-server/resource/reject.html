@@ -1,0 +1,1017 @@
+<!doctype html>
+<html lang="en-US" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Zaako Console♡</title>
+  <link rel="icon" href="./favicon.ico" type="image/x-icon" />
+  <style>
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f2e8;
+  --card: #ffffff;
+  --header-bg: #ffffff;
+  --surface-inset: #ebe5d5;
+  --surface-elevated: #fffdf7;
+  --input-bg: #fffdf9;
+  --text: #141413;
+  --subtitle: #33322e;
+  --hint: #615e57;
+  --accent: #e62e6d;
+  --accent-light: #ff5c93;
+  --accent-text: #ffffff;
+  --accent-soft: #ffe0eb;
+  --accent-border: #141413;
+  --danger: #e11d48;
+  --danger-soft: #ffe4e8;
+  --danger-border: #141413;
+  --success: #15803d;
+  --success-soft: #dcfce7;
+  --success-border: #141413;
+  --border: #141413;
+  --border-strong: #141413;
+  --border-subtle: rgba(20, 20, 19, 0.18);
+  --shadow-ink: #141413;
+  --backdrop: rgba(20, 20, 19, 0.58);
+  --brutal-yellow: #ffd84d;
+  --brutal-yellow-ink: #141413;
+  --brutal-cyan: #22d3ee;
+  --brutal-lime: #a3e635;
+  --brutal-violet: #a855f7;
+  --electric-cyan: #06b6d4;
+  --electric-yellow: #eab308;
+  --btn-bg: #fffdf7;
+  --btn-text: #141413;
+  --btn-border: #141413;
+  --btn-shadow-color: #141413;
+  --btn-shadow: 2px 2px 0 var(--btn-shadow-color);
+  --btn-shadow-hover: 3px 3px 0 var(--btn-shadow-color);
+  --btn-hover-bg: var(--brutal-yellow);
+  --btn-hover-text: #141413;
+  --btn-primary-bg: var(--accent);
+  --btn-primary-text: var(--accent-text);
+  --btn-primary-border: #141413;
+  --btn-primary-shadow: 3px 3px 0 #141413;
+  --btn-danger-bg: #ffe0e6;
+  --btn-danger-text: #be123c;
+  --btn-danger-border: #141413;
+  --btn-danger-shadow: 2px 2px 0 #141413;
+  --switch-off-bg: #dfd8c6;
+  --switch-thumb-bg: #ffffff;
+  --switch-on-bg: var(--accent);
+  --switch-on-thumb-bg: #ffffff;
+  --memory-other: #06b6d4;
+  --memory-total: #8b5cf6;
+  --cap-expanded-bg: #faf6ec;
+  --cap-active-mood-bg: #ffe0eb;
+  --dropdown-board-bg: #fffdf7;
+  --dropdown-board-border: #141413;
+  --dropdown-item-bg: #ffffff;
+  --dropdown-item-border: #141413;
+  --shimmer-flash: linear-gradient(
+    108deg,
+    transparent 0%,
+    transparent 31%,
+    rgba(6, 182, 212, 0.74) 31.5%,
+    rgba(6, 182, 212, 0.74) 36.5%,
+    transparent 37%,
+    transparent 39%,
+    rgba(255, 255, 255, 0.96) 39.5%,
+    rgba(255, 255, 255, 0.96) 46.5%,
+    rgba(234, 179, 8, 0.78) 47%,
+    rgba(234, 179, 8, 0.78) 52.5%,
+    transparent 53%,
+    transparent 55%,
+    rgba(230, 46, 109, 0.56) 55.5%,
+    rgba(230, 46, 109, 0.56) 60.5%,
+    transparent 61%,
+    transparent 100%
+  );
+  --gallery-stage-bg: #ebe5d5;
+  --gallery-skeleton-bg: repeating-linear-gradient(
+    -45deg,
+    #ebe5d5 0px,
+    #ebe5d5 10px,
+    #e2dccb 10px,
+    #e2dccb 20px
+  );
+  --channel-badge-bg: #f3e8ff;
+  --channel-badge-text: #6b21a8;
+  --channel-badge-border: #141413;
+  --qa-answer-bg: #fffdf7;
+  --qa-answer-border: #141413;
+  --qa-answer-text: #141413;
+  --dot-grid: rgba(20, 20, 19, 0.11);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #07080c;
+  --card: #1b1f30;
+  --header-bg: #232940;
+  --surface-inset: #10131f;
+  --surface-elevated: #2b324d;
+  --input-bg: #0b0d14;
+  --text: #fbf9f5;
+  --subtitle: #e6e1d6;
+  --hint: #b4afa3;
+  --accent: #ff548e;
+  --accent-light: #ff7aa8;
+  --accent-text: #07080c;
+  --accent-soft: #3a182b;
+  --accent-border: #ff7aa8;
+  --danger: #ff7a93;
+  --danger-soft: #481627;
+  --danger-border: #ff7a93;
+  --success: #4ade80;
+  --success-soft: #113524;
+  --success-border: #4ade80;
+  --border: #d8d2c4;
+  --border-strong: #fbf9f5;
+  --border-subtle: rgba(216, 210, 196, 0.26);
+  --shadow-ink: #5a6594;
+  --backdrop: rgba(4, 5, 9, 0.78);
+  --brutal-yellow: #facc15;
+  --brutal-yellow-ink: #07080c;
+  --brutal-cyan: #22d3ee;
+  --brutal-lime: #a3e635;
+  --brutal-violet: #a855f7;
+  --electric-cyan: #22d3ee;
+  --electric-yellow: #facc15;
+  --btn-bg: #353e5e;
+  --btn-text: #fbf9f5;
+  --btn-border: #f4f0e6;
+  --btn-shadow-color: #828ec2;
+  --btn-shadow: 2px 2px 0 var(--btn-shadow-color);
+  --btn-shadow-hover: 3px 3px 0 var(--brutal-yellow);
+  --btn-hover-bg: var(--brutal-yellow);
+  --btn-hover-text: #07080c;
+  --btn-primary-bg: #ff548e;
+  --btn-primary-text: #07080c;
+  --btn-primary-border: #fbf9f5;
+  --btn-primary-shadow: 3px 3px 0 var(--brutal-yellow);
+  --btn-danger-bg: #4f172a;
+  --btn-danger-text: #ff8fa3;
+  --btn-danger-border: #ff8fa3;
+  --btn-danger-shadow: 2px 2px 0 #be123c;
+  --switch-off-bg: #262d47;
+  --switch-thumb-bg: #fbf9f5;
+  --switch-on-bg: #ff548e;
+  --switch-on-thumb-bg: #07080c;
+  --memory-other: #22d3ee;
+  --memory-total: #a855f7;
+  --cap-expanded-bg: #121624;
+  --cap-active-mood-bg: #3a182b;
+  --dropdown-board-bg: #232940;
+  --dropdown-board-border: #fbf9f5;
+  --dropdown-item-bg: #2b324d;
+  --dropdown-item-border: #d8d2c4;
+  --shimmer-flash: linear-gradient(
+    108deg,
+    transparent 0%,
+    transparent 31%,
+    rgba(34, 211, 238, 0.78) 31.5%,
+    rgba(34, 211, 238, 0.78) 36.5%,
+    transparent 37%,
+    transparent 39%,
+    rgba(251, 249, 245, 0.92) 39.5%,
+    rgba(251, 249, 245, 0.92) 46.5%,
+    rgba(250, 204, 21, 0.82) 47%,
+    rgba(250, 204, 21, 0.82) 52.5%,
+    transparent 53%,
+    transparent 55%,
+    rgba(255, 84, 142, 0.7) 55.5%,
+    rgba(255, 84, 142, 0.7) 60.5%,
+    transparent 61%,
+    transparent 100%
+  );
+  --gallery-stage-bg: #0b0d14;
+  --gallery-skeleton-bg: repeating-linear-gradient(
+    -45deg,
+    #10131f 0px,
+    #10131f 10px,
+    #232940 10px,
+    #232940 20px
+  );
+  --channel-badge-bg: #311a50;
+  --channel-badge-text: #e9d5ff;
+  --channel-badge-border: #c084fc;
+  --qa-answer-bg: #121624;
+  --qa-answer-border: #d8d2c4;
+  --qa-answer-text: #fbf9f5;
+  --dot-grid: rgba(34, 211, 238, 0.14);
+}
+
+:root,
+[data-theme="light"],
+[data-theme="dark"] {
+  --border-w: 2px;
+  --border-w-sm: 1.5px;
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --shadow-xs: 2px 2px 0 var(--shadow-ink);
+  --shadow-sm: 3px 3px 0 var(--shadow-ink);
+  --shadow-md: 4px 4px 0 var(--shadow-ink);
+  --shadow-lg: 6px 6px 0 var(--shadow-ink);
+  --shadow-accent: 3px 3px 0 var(--accent);
+  --skew-btn: -9deg;
+  --skew-chip: -8deg;
+  --skew-chip-counter: 8deg;
+  --clip-chamfer: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  --clip-chamfer-inner: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  --clip-dogear: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  --clip-dogear-inner: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 5px 100%, 0 calc(100% - 5px));
+  --font-mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+  --ease-brutal: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+  --press-duration: 90ms;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  min-width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-anchor: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--dot-grid) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-position: 0 0;
+  color: var(--text);
+  padding: 10px 10px calc(36px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  line-height: 1.45;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 120ms var(--ease-brutal), color 120ms var(--ease-brutal);
+}
+
+.cf-error-page[hidden] {
+  display: none;
+}
+
+.cf-error-page {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--dot-grid) 1px, transparent 1px);
+  background-size: 16px 16px;
+  color: var(--text);
+  line-height: 1.5;
+  padding: 20px 22px 36px;
+}
+
+.cf-error-container {
+  --cf-card-skew: -2deg;
+  --cf-card-pt: 24px;
+  --cf-card-px: 22px;
+  max-width: 880px;
+  margin: 12px auto 0;
+  padding: var(--cf-card-pt) var(--cf-card-px) 24px;
+  background: var(--card);
+  border: var(--border-w) solid var(--border-strong);
+  border-top: 6px solid var(--danger);
+  border-radius: 3px 12px 3px 12px;
+  box-shadow: var(--shadow-lg);
+  transform: skewX(var(--cf-card-skew));
+}
+
+[data-theme="dark"] .cf-error-container {
+  background: #1b1f30;
+  border-color: var(--border-strong);
+  border-top: 6px solid var(--danger);
+}
+
+@media (max-width: 560px) {
+  .cf-error-page {
+    padding: 12px 18px 28px;
+  }
+
+  .cf-error-container {
+    --cf-card-skew: -1.25deg;
+    --cf-card-pt: 18px;
+    --cf-card-px: 14px;
+    margin-top: 4px;
+    padding: var(--cf-card-pt) var(--cf-card-px) 18px;
+  }
+}
+
+.cf-header {
+  margin: calc(var(--cf-card-pt) * -1) calc(var(--cf-card-px) * -1) 20px;
+  padding: 18px var(--cf-card-px) 16px;
+  background: var(--surface-elevated);
+  border-bottom: var(--border-w) solid var(--border);
+  border-radius: 1px 10px 0 0;
+}
+
+[data-theme="dark"] .cf-header {
+  background: #232940;
+}
+
+.cf-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-main-title {
+  font-size: clamp(24px, 5vw, 34px);
+  font-weight: 900;
+  color: var(--text);
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+
+.cf-code-pill {
+  display: inline-flex;
+  align-items: center;
+  background: var(--brutal-yellow);
+  border: var(--border-w) solid var(--btn-primary-border);
+  color: var(--brutal-yellow-ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 2px 8px 2px 8px;
+  box-shadow: var(--btn-shadow);
+  transform: skewX(var(--skew-chip));
+}
+
+.cf-code-pill > span {
+  display: inline-block;
+  transform: skewX(var(--skew-chip-counter));
+}
+
+.cf-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--subtitle);
+  margin-bottom: 6px;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-timestamp {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--hint);
+  font-family: var(--font-mono);
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-status-band {
+  background: var(--surface-inset);
+  border: var(--border-w) solid var(--border);
+  border-radius: 2px 10px 2px 10px;
+  box-shadow: var(--shadow-sm);
+  margin: 0 0 22px;
+  padding: 16px;
+}
+
+.cf-status-inner {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 12px;
+}
+
+.cf-node {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--card);
+  border: var(--border-w) solid var(--border);
+  border-radius: 2px 10px 2px 10px;
+  box-shadow: var(--shadow-xs);
+}
+
+[data-theme="dark"] .cf-node {
+  background: #232940;
+}
+
+.cf-node-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-node-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.cf-node-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 2px 8px 2px 8px;
+  border: var(--border-w) solid var(--border);
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 900;
+  flex-shrink: 0;
+  transform: skewX(var(--skew-chip));
+}
+
+.cf-node-icon > span {
+  display: inline-block;
+  transform: skewX(var(--skew-chip-counter));
+}
+
+.cf-node-icon.ok {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: var(--success-border);
+}
+
+.cf-node-icon.err {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.cf-node-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--hint);
+}
+
+.cf-node-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.cf-node-state {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.cf-node-state.ok {
+  color: var(--success);
+}
+
+.cf-node-state.err {
+  color: var(--danger);
+}
+
+.cf-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.cf-detail-col {
+  padding: 14px;
+  background: var(--surface-elevated);
+  border: var(--border-w) solid var(--border);
+  border-radius: 2px 10px 2px 10px;
+  box-shadow: var(--shadow-xs);
+}
+
+[data-theme="dark"] .cf-detail-col {
+  background: #232940;
+}
+
+.cf-detail-col > h2 {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--text);
+  margin-bottom: 8px;
+  letter-spacing: -0.01em;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-detail-col > p {
+  font-size: 13.5px;
+  color: var(--subtitle);
+  margin-bottom: 10px;
+  line-height: 1.55;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-reason-box {
+  background: var(--danger-soft);
+  border: var(--border-w) solid var(--danger-border);
+  border-left: 5px solid var(--danger);
+  padding: 10px 12px;
+  border-radius: 2px 8px 2px 8px;
+  box-shadow: var(--shadow-xs);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.cf-reason-content {
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-footer {
+  border-top: var(--border-w) solid var(--border);
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--hint);
+  text-align: center;
+}
+
+.cf-footer > span {
+  max-width: 100%;
+  word-break: break-all;
+  transform: skewX(calc(var(--cf-card-skew) * -1));
+}
+
+.cf-footer strong {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: baseline;
+  color: var(--text);
+  font-weight: 800;
+  background: var(--surface-inset);
+  padding: 1px 7px;
+  border: var(--border-w-sm) solid var(--border);
+  border-radius: 2px 6px 2px 6px;
+  box-shadow: 1.5px 1.5px 0 var(--shadow-ink);
+  transform: skewX(var(--skew-chip));
+}
+
+.cf-footer strong > span {
+  display: inline-block;
+  max-width: 100%;
+  transform: skewX(var(--skew-chip-counter));
+}
+
+.cf-sep {
+  color: var(--accent);
+  font-weight: 900;
+}
+  </style>
+  <script>
+    (function () {
+      const SESSION_STORAGE_KEY = "copy_ninja_mini_app_session_v1";
+      const RELOAD_GUARD_KEY = "copy_ninja_mini_app_gate_reload_ts";
+      const SUPPORTED_LANGS = ["zh", "ja", "en"];
+      const NOTICE_CODE_ALIASES = {
+        MISSING_INIT_DATA: "INIT_DATA_INVALID",
+        MALFORMED_INIT_DATA: "INIT_DATA_INVALID",
+        MISSING_HASH: "INIT_DATA_INVALID",
+        MISSING_USER: "INIT_DATA_INVALID",
+      };
+      const LOCALES = {
+        zh: {
+          htmlLang: "zh-CN",
+          appTitle: "杂鱼控制台♡",
+          deniedTitle: "禁止访问啦，杂鱼♡",
+          deniedDescription: "哼，你没有权限从外部浏览器或未经授权的客户端偷看这个控制台哦，杂鱼。",
+          deniedNodeClientSub: "访问端",
+          deniedNodeClientTitle: "杂鱼的浏览器",
+          deniedNodeClientState: "运行中",
+          deniedNodeGatewaySub: "访问网关",
+          deniedNodeGatewayTitle: "鉴权守卫",
+          deniedNodeGatewayState: (status) => `${status} 已拦截`,
+          deniedNodeOriginSub: "源站服务",
+          deniedNodeOriginState: "受保护中",
+          deniedWhatHappenedTitle: "发生什么事啦，杂鱼？",
+          deniedWhatHappenedDesc: "这个端点强制执行严格的 Telegram WebApp 签名校验与超级管理员门禁控制哦。杂鱼刚才发出的请求没能通过策略校验，已经被直接踢回去啦♡",
+          deniedPolicyDetailLabel: (code) => `策略详情 (${code})`,
+          deniedWhatCanIDoTitle: "杂鱼现在该怎么办？",
+          deniedWhatCanIDoDesc: "严禁在 Telegram 之外直接通过 HTTP 访问哦。如果你真是超级管理员本尊，就乖乖去 Telegram 打开与 Bot 的私聊，点击 App 按钮并输入访问密码吧，杂鱼。",
+          notices: {
+            INIT_DATA_INVALID: (code) => `Telegram WebApp initData 校验失败（${code}），严禁从外部浏览器直接偷看哦，杂鱼`,
+            INVALID_SIGNATURE: (code) => `Telegram WebApp 签名校验失败（${code}），伪造签名也是没用的哦，杂鱼`,
+            EXPIRED_AUTH_DATE: (code) => `Telegram WebApp 签名凭据已过期（${code}），快回 Telegram 重新点开面板刷新签名吧，杂鱼`,
+            FORBIDDEN_USER: "只有配置好的超级管理员本尊才能进入这个 Mini App 哦，杂鱼就别乱碰啦",
+            DIRECT_NAVIGATION_FORBIDDEN: "禁止从浏览器地址栏直接导航访问受保护的图片或 SVG 资源。",
+            CROSS_SITE_FORBIDDEN: (code) => `跨站请求已被直接拦截（${code}），杂鱼别想从奇怪的地方发起调用哦`,
+            PASSWORD_REQUIRED: "Mini App 访问密码尚未验证，请先输入访问密码解锁控制台。",
+            SESSION_EXPIRED: "Mini App 访问认证已满 45 分钟过期或无效，请重新输入访问密码。",
+            PASSWORD_LOCKED: (_code, remMin) =>
+              `密码连续输错已达 3 次，当前超级管理员 ID 已被锁定，30 分钟内无法访问${remMin !== undefined ? `（剩余约 ${remMin} 分钟）` : ""}。`,
+          },
+        },
+        ja: {
+          htmlLang: "ja",
+          appTitle: "雑魚コンソール♡",
+          deniedTitle: "アクセス拒否よ、雑魚♡",
+          deniedDescription: "ふん、外部ブラウザや未承認クライアントからこのコンソールを覗く権限なんてないわよ、雑魚。",
+          deniedNodeClientSub: "クライアント",
+          deniedNodeClientTitle: "雑魚のブラウザ",
+          deniedNodeClientState: "稼働中",
+          deniedNodeGatewaySub: "アクセスゲートウェイ",
+          deniedNodeGatewayTitle: "認証ガード",
+          deniedNodeGatewayState: (status) => `${status} 拒否`,
+          deniedNodeOriginSub: "オリジンサービス",
+          deniedNodeOriginState: "保護中",
+          deniedWhatHappenedTitle: "何が起きたの、雑魚？",
+          deniedWhatHappenedDesc: "このエンドポイントは厳格な Telegram WebApp 署名検証と管理者アクセス制御を強制しているわ。雑魚が送ったリクエストはポリシー検証を通らなかったから、そのまま蹴り返してあげたわよ。",
+          deniedPolicyDetailLabel: (code) => `ポリシー詳細 (${code})`,
+          deniedWhatCanIDoTitle: "雑魚はどうすればいいの？",
+          deniedWhatCanIDoDesc: "Telegram 以外からの直接 HTTP アクセスは禁止よ。もし本当にスーパー管理者なら、大人しく Telegram で Bot との個別チャットを開いて App ボタンからアクセスパスワードを入力しなさい、雑魚。",
+          notices: {
+            INIT_DATA_INVALID: (code) => `Telegram WebApp initData の検証に失敗したわ（${code}）。外部ブラウザからの直アクセスは禁止よ、雑魚。`,
+            INVALID_SIGNATURE: (code) => `Telegram WebApp 署名の検証に失敗したわ（${code}）。偽造なんて無駄よ、雑魚。`,
+            EXPIRED_AUTH_DATE: (code) => `Telegram WebApp 署名の有効期限が切れているわ（${code}）。Telegram からもう一度パネルを開き直しなさい、雑魚。`,
+            FORBIDDEN_USER: "設定されたスーパー管理者しかこの Mini App には入れないわ。雑魚は触っちゃダメよ。",
+            DIRECT_NAVIGATION_FORBIDDEN: "ブラウザのアドレスバーから保護された画像や SVG リソースへ直接アクセスするのは禁止よ。",
+            CROSS_SITE_FORBIDDEN: (code) => `クロスサイトリクエストはブロックされたわ（${code}）。変な場所から呼び出さないでよね、雑魚。`,
+            PASSWORD_REQUIRED: "Mini App アクセスパスワードが未認証よ。先にパスワードを入力してロック解除しなさい、雑魚。",
+            SESSION_EXPIRED: "45分の認証セッションが期限切れか無効よ。もう一度パスワードを入力しなさい、雑魚。",
+            PASSWORD_LOCKED: (_code, remMin) =>
+              `3回連続で間違えたから、スーパー管理者 ID は30分間ロックされたわ${remMin !== undefined ? `（残り約 ${remMin} 分）` : ""}、雑魚。`,
+          },
+        },
+        en: {
+          htmlLang: "en-US",
+          appTitle: "Zaako Console♡",
+          deniedTitle: "Access denied, Zaako♡",
+          deniedDescription: "Hmph, a Zaako like you doesn't have permission to peek at this console from an external browser or unauthorized client.",
+          deniedNodeClientSub: "Client",
+          deniedNodeClientTitle: "Zaako's Browser",
+          deniedNodeClientState: "Working",
+          deniedNodeGatewaySub: "Access Gateway",
+          deniedNodeGatewayTitle: "Auth Guard",
+          deniedNodeGatewayState: (status) => `${status} Denied`,
+          deniedNodeOriginSub: "Origin Service",
+          deniedNodeOriginState: "Protected",
+          deniedWhatHappenedTitle: "What happened, Zaako?",
+          deniedWhatHappenedDesc: "This endpoint enforces strict Telegram WebApp signature verification and administrator access control. The request a Zaako like you just sent failed policy validation and got kicked right out.",
+          deniedPolicyDetailLabel: (code) => `Policy Detail (${code})`,
+          deniedWhatCanIDoTitle: "What can a Zaako do?",
+          deniedWhatCanIDoDesc: "Direct HTTP access outside Telegram is prohibited. If you're really the SuperAdmin, behave and open the private chat with the Bot in Telegram, launch the App button, and enter your access password, Zaako.",
+          notices: {
+            INIT_DATA_INVALID: (code) => `Telegram WebApp initData verification failed (${code}). Direct peeking from an external browser is strictly denied, Zaako.`,
+            INVALID_SIGNATURE: (code) => `Telegram WebApp signature verification failed (${code}). Forging signatures won't work, Zaako.`,
+            EXPIRED_AUTH_DATE: (code) => `Telegram WebApp signature has expired (${code}). Reopen the panel from Telegram for a fresh signature, Zaako.`,
+            FORBIDDEN_USER: "Only the configured SuperAdmin user ID is allowed in this Mini App. Hands off, Zaako.",
+            DIRECT_NAVIGATION_FORBIDDEN: "Direct browser address bar navigation to protected image or SVG assets is forbidden.",
+            CROSS_SITE_FORBIDDEN: (code) => `Cross-site request to Telegram Mini App endpoint is forbidden (${code}), Zaako.`,
+            PASSWORD_REQUIRED: "Mini App access password is not verified yet. Enter your password to unlock the console, Zaako.",
+            SESSION_EXPIRED: "Your 45-minute Mini App session has expired or is invalid. Please re-enter the access password, Zaako.",
+            PASSWORD_LOCKED: (_code, remMin) =>
+              `3 consecutive wrong tries! SuperAdmin ID is locked out for 30 minutes${remMin !== undefined ? ` (~${remMin} min left)` : ""}, Zaako.`,
+          },
+        },
+      };
+
+      const nav = typeof navigator !== "undefined" ? navigator : window?.navigator;
+
+      function matchSupportedLang(tag) {
+        const normalized = String(tag || "").trim().toLowerCase();
+        return SUPPORTED_LANGS.find((lang) => normalized.startsWith(lang));
+      }
+
+      function detectBrowserDefaultLanguage() {
+        if (Array.isArray(nav?.languages)) {
+          for (const item of nav.languages) {
+            const matched = matchSupportedLang(item);
+            if (matched) return matched;
+          }
+        }
+        return matchSupportedLang(nav?.language ?? "zh") || "zh";
+      }
+
+      const locale = LOCALES[detectBrowserDefaultLanguage()];
+      if (document.documentElement) document.documentElement.lang = locale.htmlLang;
+      document.title = locale.appTitle;
+
+      function serverNotice(locale, rawCode, params) {
+        const code = String(rawCode || "").replace(/^\[[A-Z0-9_]+\]\s*/u, "").trim();
+        const noticeKey = Object.hasOwn(NOTICE_CODE_ALIASES, code) ? NOTICE_CODE_ALIASES[code] : code;
+        const entry = Object.hasOwn(locale.notices, noticeKey) ? locale.notices[noticeKey] : undefined;
+        if (typeof entry === "string") return entry;
+        if (typeof entry === "function") {
+          const remMin =
+            typeof params?.remainingMinutes === "number" && Number.isFinite(params.remainingMinutes)
+              ? params.remainingMinutes
+              : undefined;
+          return entry(code, remMin);
+        }
+        return code;
+      }
+
+      function deniedPolicyReason(locale, code, fallbackError, params) {
+        const upper = String(code || "").toUpperCase();
+        const byCode = serverNotice(locale, upper, params);
+        return byCode !== upper ? byCode : serverNotice(locale, fallbackError || code, params);
+      }
+
+      function extractTelegramInitData() {
+        const tgInitData = window?.Telegram?.WebApp?.initData;
+        if (typeof tgInitData === "string" && tgInitData.length > 0) return tgInitData;
+        const loc = typeof location !== "undefined" ? location : window?.location;
+        if (loc) {
+          const fromQuery = new URLSearchParams(loc.search || "").get("tgWebAppData");
+          if (fromQuery) return fromQuery;
+          const hashStr = loc.hash || "";
+          const fromHash = new URLSearchParams(hashStr.startsWith("#") ? hashStr.slice(1) : hashStr).get("tgWebAppData");
+          if (fromHash) return fromHash;
+        }
+        try {
+          const rawParams = window?.sessionStorage?.getItem("__telegram__initParams");
+          if (rawParams) {
+            const cached = JSON.parse(rawParams)?.tgWebAppData;
+            if (typeof cached === "string" && cached.length > 0) return cached;
+          }
+        } catch {}
+        return "";
+      }
+
+      function formatUtcTimestamp() {
+        return `${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`;
+      }
+
+      function readBodyData(camelKey, attrName) {
+        const body = document.body;
+        if (!body) return "";
+        const fromDataset = body.dataset?.[camelKey];
+        if (typeof fromDataset === "string" && fromDataset.length > 0) return fromDataset;
+        const fromAttr = body.getAttribute?.(attrName);
+        return typeof fromAttr === "string" && fromAttr.length > 0 ? fromAttr : "";
+      }
+
+      function readServerDiag(fallbackError) {
+        const loc = typeof location !== "undefined" ? location : window?.location;
+        const rawStatus = Number(readBodyData("status", "data-status"));
+        const status = Number.isInteger(rawStatus) && rawStatus > 0 ? rawStatus : 403;
+        const code = readBodyData("code", "data-code") || "ACCESS_DENIED";
+        const error = readBodyData("error", "data-error") || fallbackError;
+        const requestId = readBodyData("requestId", "data-request-id") || "0000000000000000";
+        const timestamp = readBodyData("timestamp", "data-timestamp") || formatUtcTimestamp();
+        const clientIp = readBodyData("clientIp", "data-client-ip") || "127.0.0.1";
+        const host = readBodyData("host", "data-host") || loc?.host || "localhost";
+        const path = readBodyData("path", "data-path") || loc?.pathname || "/";
+        const rawRem = readBodyData("remainingMinutes", "data-remaining-minutes");
+        const parsedRem = rawRem !== "" ? Number(rawRem) : NaN;
+        return {
+          status, code, error, requestId, timestamp, clientIp, host, path,
+          ...(Number.isFinite(parsedRem) ? { remainingMinutes: parsedRem } : {}),
+        };
+      }
+
+      function clearStoredSession() {
+        try { window?.localStorage?.removeItem(SESSION_STORAGE_KEY); } catch {}
+        try { window?.sessionStorage?.removeItem(SESSION_STORAGE_KEY); } catch {}
+      }
+
+      function readStoredSessionToken() {
+        let raw = null;
+        try {
+          raw = window?.localStorage?.getItem(SESSION_STORAGE_KEY) ?? window?.sessionStorage?.getItem(SESSION_STORAGE_KEY) ?? null;
+        } catch { raw = null; }
+        if (!raw) return "";
+        try {
+          const parsed = JSON.parse(String(raw).trim());
+          if (
+            parsed && typeof parsed === "object" && typeof parsed.token === "string" &&
+            /^[0-9a-f]{64}$/i.test(parsed.token) && typeof parsed.expiresAt === "number" &&
+            Number.isFinite(parsed.expiresAt) && parsed.expiresAt > Date.now()
+          ) {
+            return parsed.token;
+          }
+        } catch {}
+        clearStoredSession();
+        return "";
+      }
+
+      function syncRefreshedSession(res) {
+        const refreshedToken = String(res.headers?.get?.("x-mini-app-session") || "").trim();
+        if (!/^[0-9a-f]{64}$/i.test(refreshedToken)) return;
+        const nowMs = Date.now();
+        const rawExpiresAt = Number(String(res.headers?.get?.("x-mini-app-session-expires-at") || "").trim());
+        const serverDateMs = Date.parse(res.headers?.get?.("date") || "");
+        const localExpiresAt = Number.isFinite(serverDateMs) ? rawExpiresAt - (serverDateMs - nowMs) : rawExpiresAt;
+        const expiresAt = localExpiresAt > nowMs ? localExpiresAt : nowMs + 2700000;
+        const serialized = JSON.stringify({ token: refreshedToken, expiresAt });
+        try { window?.localStorage?.setItem(SESSION_STORAGE_KEY, serialized); } catch {}
+        try { window?.sessionStorage?.setItem(SESSION_STORAGE_KEY, serialized); } catch {}
+      }
+
+      function setText(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+      }
+
+      function renderDenied(diag, locale) {
+        setText("cf-denied-title", locale.deniedTitle);
+        setText("cf-code-pill-text", `HTTP ${diag.status} · ${diag.code}`);
+        setText("cf-denied-desc", locale.deniedDescription);
+        setText("cf-timestamp", diag.timestamp);
+        setText("cf-node-client-sub", locale.deniedNodeClientSub);
+        setText("cf-node-client-title", locale.deniedNodeClientTitle);
+        setText("cf-node-client-state", locale.deniedNodeClientState);
+        setText("cf-node-gateway-sub", locale.deniedNodeGatewaySub);
+        setText("cf-node-gateway-title", locale.deniedNodeGatewayTitle);
+        setText("cf-node-gateway-state", locale.deniedNodeGatewayState(diag.status));
+        setText("cf-node-origin-sub", locale.deniedNodeOriginSub);
+        setText("cf-node-origin-title", diag.host);
+        setText("cf-node-origin-state", locale.deniedNodeOriginState);
+        setText("cf-what-happened-title", locale.deniedWhatHappenedTitle);
+        setText("cf-what-happened-desc", locale.deniedWhatHappenedDesc);
+        setText("cf-policy-label", `${locale.deniedPolicyDetailLabel(diag.code)}:`);
+        setText("cf-policy-reason", deniedPolicyReason(locale, diag.code, diag.error, diag));
+        setText("cf-what-can-i-do-title", locale.deniedWhatCanIDoTitle);
+        setText("cf-what-can-i-do-desc", locale.deniedWhatCanIDoDesc);
+        setText("cf-req-id", diag.requestId);
+        setText("cf-client-ip", diag.clientIp);
+        setText("cf-host", diag.host);
+        setText("cf-path", diag.path);
+        const pageEl = document.getElementById("cf-error-page");
+        if (pageEl) {
+          pageEl.hidden = false;
+          pageEl.removeAttribute?.("hidden");
+        }
+      }
+
+      async function boot() {
+        const serverDiag = readServerDiag(locale.deniedDescription);
+        const initData = extractTelegramInitData();
+        if (!initData) {
+          clearStoredSession();
+          renderDenied(serverDiag, locale);
+          return;
+        }
+        const token = readStoredSessionToken();
+        const headers = {
+          Accept: "application/json",
+          "X-Telegram-Init-Data": initData,
+          ...(token ? { "X-Mini-App-Session": token } : {}),
+        };
+        try {
+          const res = await fetch("./api/auth/precheck", {
+            method: "GET", credentials: "same-origin", cache: "no-store", headers,
+          });
+          const loc = typeof location !== "undefined" ? location : window?.location;
+          if (res.ok) {
+            syncRefreshedSession(res);
+            const nowMs = Date.now();
+            let canReload = true;
+            try {
+              if (window?.sessionStorage) {
+                const rawTs = window.sessionStorage.getItem(RELOAD_GUARD_KEY);
+                const parsedTs = rawTs ? Number(rawTs) : NaN;
+                if (Number.isFinite(parsedTs) && parsedTs > 0 && nowMs - parsedTs >= 0 && nowMs - parsedTs < 5000) {
+                  canReload = false;
+                }
+                if (canReload) window.sessionStorage.setItem(RELOAD_GUARD_KEY, String(nowMs));
+              }
+            } catch { canReload = false; }
+            if (!canReload) {
+              renderDenied({ ...serverDiag, status: 403, code: "ACCESS_DENIED", error: locale.deniedDescription }, locale);
+              return;
+            }
+            loc?.reload?.();
+            return;
+          }
+          let payload = null;
+          try { payload = await res.json(); } catch { payload = null; }
+          const rec = payload && typeof payload === "object" ? payload : {};
+          const str = (key, fallbackVal) => (typeof rec[key] === "string" && rec[key].length > 0 ? rec[key] : fallbackVal);
+          const status = typeof rec.status === "number" ? rec.status : res.status || 403;
+          const precheckDiag = {
+            status,
+            code: str("code", `HTTP_${res.status || 403}`),
+            error: str("error", "MISSING_INIT_DATA"),
+            requestId: str("requestId", res.headers?.get?.("x-request-id") || serverDiag.requestId),
+            timestamp: str("timestamp", formatUtcTimestamp()),
+            clientIp: str("clientIp", serverDiag.clientIp),
+            host: str("host", loc?.host || serverDiag.host),
+            path: str("path", "/api/auth/precheck"),
+            ...(typeof rec.remainingMinutes === "number" && Number.isFinite(rec.remainingMinutes)
+              ? { remainingMinutes: rec.remainingMinutes }
+              : {}),
+          };
+          clearStoredSession();
+          renderDenied(precheckDiag, locale);
+        } catch {
+          renderDenied(serverDiag, locale);
+        }
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", () => { void boot(); }, { once: true });
+        return undefined;
+      }
+      return boot();
+    })();
+  </script>
+</head>
+<body>
+  <div class="cf-error-page" id="cf-error-page" hidden>
+    <div class="cf-error-container">
+      <div class="cf-header">
+        <div class="cf-title-row">
+          <span class="cf-main-title" id="cf-denied-title"></span>
+          <span class="cf-code-pill"><span id="cf-code-pill-text"></span></span>
+        </div>
+        <p class="cf-subtitle" id="cf-denied-desc"></p>
+        <div class="cf-timestamp" id="cf-timestamp"></div>
+      </div>
+
+      <div class="cf-status-band">
+        <div class="cf-status-inner">
+          <div class="cf-node">
+            <div class="cf-node-content">
+              <div class="cf-node-icon ok"><span>✓</span></div>
+              <div class="cf-node-meta">
+                <div class="cf-node-sub" id="cf-node-client-sub"></div>
+                <div class="cf-node-title" id="cf-node-client-title"></div>
+                <div class="cf-node-state ok" id="cf-node-client-state"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cf-node">
+            <div class="cf-node-content">
+              <div class="cf-node-icon err"><span>✕</span></div>
+              <div class="cf-node-meta">
+                <div class="cf-node-sub" id="cf-node-gateway-sub"></div>
+                <div class="cf-node-title" id="cf-node-gateway-title"></div>
+                <div class="cf-node-state err" id="cf-node-gateway-state"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cf-node">
+            <div class="cf-node-content">
+              <div class="cf-node-icon ok"><span>✓</span></div>
+              <div class="cf-node-meta">
+                <div class="cf-node-sub" id="cf-node-origin-sub"></div>
+                <div class="cf-node-title" id="cf-node-origin-title"></div>
+                <div class="cf-node-state ok" id="cf-node-origin-state"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cf-details-grid">
+        <div class="cf-detail-col">
+          <h2 id="cf-what-happened-title"></h2>
+          <p id="cf-what-happened-desc"></p>
+          <div class="cf-reason-box">
+            <div class="cf-reason-content">
+              <strong id="cf-policy-label"></strong> <span id="cf-policy-reason"></span>
+            </div>
+          </div>
+        </div>
+        <div class="cf-detail-col">
+          <h2 id="cf-what-can-i-do-title"></h2>
+          <p id="cf-what-can-i-do-desc"></p>
+        </div>
+      </div>
+
+      <div class="cf-footer">
+        <span>Request ID: <strong><span id="cf-req-id"></span></strong></span>
+        <span class="cf-sep">•</span>
+        <span>Client IP: <strong><span id="cf-client-ip"></span></strong></span>
+        <span class="cf-sep">•</span>
+        <span>Host: <strong><span id="cf-host"></span></strong></span>
+        <span class="cf-sep">•</span>
+        <span>Path: <strong><span id="cf-path"></span></strong></span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -49,7 +49,6 @@ export async function dispatchMiniAppTestRequest(request: Request): Promise<Resp
   const routes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
   for (const [pattern, entry] of Object.entries(routes)) {
     if (
-      pattern === "/_bundle" ||
       entry === undefined ||
       typeof entry !== "object" ||
       entry === null ||

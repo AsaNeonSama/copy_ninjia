@@ -1,9 +1,9 @@
-/** 在独立临时部署中核对编译产物：无 source map 与 node_modules、服务端 favicon 随包且与源文件一致、版本一致、内置图片编解码、各 Worker 与正常排空，并在无系统 Bun 下执行发行包携带的冷迁移与安装器（首次安装与迁移后升级）。 */
+/** 在独立临时部署中核对编译产物：无 source map 与 node_modules、服务端 favicon 与 reject.html 随包且与源文件一致、版本一致、内置图片编解码、各 Worker 与正常排空，并在无系统 Bun 下执行发行包携带的冷迁移与安装器（首次安装与迁移后升级）。 */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../packages/consts/configLayout";
-import { MINI_APP_FAVICON_PATH, PROJECT_ROOT } from "../packages/consts/paths";
+import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH, PROJECT_ROOT } from "../packages/consts/paths";
 import { PROMPT_DIR_NAME, PROMPT_EXAMPLE_DIR_NAME } from "../packages/consts/promptLayout";
 import { fileSha256 } from "./fileSha256";
 import { PRESERVED_MIGRATION_CONFIG_FILES, assertMigrationSourcesUnchanged, deployMigratedFixture, prepareMigratedDeployment } from "./fixtures/migrationDeployment";
@@ -46,11 +46,15 @@ try {
   }
   await copyFixtureTree(source, root);
   chmodSync(executable, 0o700);
-  const faviconRelativePath: string = relative(PROJECT_ROOT, MINI_APP_FAVICON_PATH);
-  const packagedFaviconPath: string = join(root, faviconRelativePath);
-  if (!(await Bun.file(packagedFaviconPath).exists())) throw new Error(`Binary package is missing ${faviconRelativePath}.`);
-  if (await fileSha256(packagedFaviconPath) !== await fileSha256(MINI_APP_FAVICON_PATH)) {
-    throw new Error(`Binary package ${faviconRelativePath} SHA-256 does not match source.`);
+  for (const resourceSourcePath of [MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH]) {
+    const resourceRelativePath: string = relative(PROJECT_ROOT, resourceSourcePath);
+    const packagedResourcePath: string = join(root, resourceRelativePath);
+    if (!(await Bun.file(packagedResourcePath).exists())) {
+      throw new Error(`Binary package is missing ${resourceRelativePath}.`);
+    }
+    if (await fileSha256(packagedResourcePath) !== await fileSha256(resourceSourcePath)) {
+      throw new Error(`Binary package ${resourceRelativePath} SHA-256 does not match source.`);
+    }
   }
   const manifest: { readonly version: string } = await Bun.file(join(root, "package.json")).json() as { readonly version: string };
   if (run(["--version"]).trim() !== manifest.version) throw new Error("Binary version must match the packaged manifest.");

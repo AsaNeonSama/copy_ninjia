@@ -66,7 +66,7 @@ export const MINI_APP_SIGNED_INTEGER_PATTERN: RegExp = /^-?\d+$/u;
 
 /**
  * IPv4 字面量主机名的匹配规则（用于拦截 `Host` 请求头回显源站 IP 字面量）。
- * 不变量：不带全局标志 `g`，供 `accessErrorResponse` 无状态复用。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ * 不变量：不带全局标志 `g`，供 `buildMiniAppAccessDiagnostics` 无状态复用。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_IPV4_HOST_PATTERN: RegExp = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
 
@@ -165,6 +165,58 @@ export const MINI_APP_ASSET_CACHE_CONTROL: string =
   "public, max-age=604800, s-maxage=604800, immutable";
 
 /**
+ * Mini App 单页入口通过超级管理员门禁校验后签发的 `HttpOnly` 门禁 Cookie 名称。
+ * 不变量：仅携带合法超级管理员 `initData` 预检或登录成功后通过 `Set-Cookie` 下发，锁定或校验失败时清除。所属模块：`packages/mini-app-api-server/auth/pageGate.ts`。
+ */
+export const MINI_APP_PAGE_GATE_COOKIE_NAME: string = "copy_ninja_mini_app_gate";
+
+/**
+ * 派生 Mini App 单页门禁令牌（`<issuedAtMs>.<hmacHex>`）HMAC-SHA256 签名密钥的域分离种子字符串。
+ * 不变量：恒为 `"CopyNinjaMiniAppPageGateV1"`，与 `WebAppData` 及 `assetToken` 派生密钥严格域分离。所属模块：`packages/libs/miniAppAuth.ts`。
+ */
+export const MINI_APP_PAGE_GATE_SECRET_SEED: string =
+  "CopyNinjaMiniAppPageGateV1";
+
+/**
+ * Mini App 单页门禁令牌（`<issuedAtMs>.<hmacHex>`）计算 HMAC-SHA256 时的消息前缀。
+ * 不变量：恒为 `"mini-app-page-gate:"`，后接 `${SUPER_ADMIN_USER_ID}:${issuedAtMs}`，以 `deriveMiniAppPageGateSecretKey(BOT_TOKEN)` 派生的密钥签名。所属模块：`packages/libs/miniAppAuth.ts`。
+ */
+export const MINI_APP_PAGE_GATE_PAYLOAD_PREFIX: string = "mini-app-page-gate:";
+
+/**
+ * Mini App 单页门禁令牌校验签发时间戳时允许的未来时钟偏移容差毫秒数（60 秒）。
+ * 不变量：非负整数毫秒数，签发时间超出当前时刻加该容差时拒绝通过。所属模块：`packages/libs/miniAppAuth.ts`。
+ */
+export const MINI_APP_PAGE_GATE_CLOCK_SKEW_MS: number = MINUTE_MS;
+
+/**
+ * Mini App 单页门禁 Cookie 的 `Max-Age` 有效期秒数（45 分钟，与 `MINI_APP_SESSION_TTL_MS` 对齐）。
+ * 不变量：正整数秒数，清除门禁 Cookie 时固定改发 `Max-Age=0`。所属模块：`packages/mini-app-api-server/auth/pageGate.ts`。
+ */
+export const MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS: number = 2_700;
+
+/**
+ * Mini App 已通过超级管理员门禁校验后返回前端打包产物（`/chunk-*.js`、`/chunk-*.css` 等）的私有协商缓存头取值。
+ * 不变量：禁止公共代理与 CDN 缓存前端完整包（配合 `CDN-Cache-Control: no-store`），浏览器每次重用前须向源站以 `If-None-Match` 复核门禁与锁定状态。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ */
+export const MINI_APP_BUNDLE_CACHE_CONTROL: string =
+  "private, no-cache, must-revalidate";
+
+/**
+ * Mini App 前端打包产物响应的 `Vary` 头取值。
+ * 不变量：按门禁 Cookie 与 `initData` 凭据请求头区分缓存，防止未授权响应与已授权响应混用。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ */
+export const MINI_APP_BUNDLE_VARY_HEADER_VALUE: string =
+  "Cookie, X-Telegram-Init-Data, Authorization";
+
+/**
+ * Mini App 前端打包产物候选根路径的匹配规则（单层文件名加打包静态资源扩展名）。
+ * 不变量：不带全局标志 `g`，用于在兜底路由中快速筛选候选打包产物路径并避免无关 404 路径触发物化。所属模块：`packages/mini-app-api-server/routes/page.ts`。
+ */
+export const MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN: RegExp =
+  /^\/[^/]+\.(?:js|css|ico|svg|png|webp|woff2?)$/iu;
+
+/**
  * 派生 Mini App 受保护静态/图库资源稳定鉴权令牌（`assetToken`）的 HMAC-SHA256 种子字符串。
  * 不变量：由 `BOT_TOKEN` 与 `SUPER_ADMIN_USER_ID` 确定性派生，仅在通过第二层认证（或恢复未过期的 45 分钟解锁会话）后下发，使解锁后重开 Mini App 的图片/SVG URL 保持稳定以命中 WebView 与 CDN 缓存。所属模块：`packages/libs/miniAppAuth.ts`。
  */
@@ -173,10 +225,10 @@ export const MINI_APP_ASSET_TOKEN_SECRET_SEED: string =
 
 /**
  * Mini App 响应的 `Content-Security-Policy` 安全策略头取值。
- * 不变量：仅允许同源脚本、`https://telegram.org` 官方脚本与 `index.html` 内置的首屏 `lang`/`title` 语言初始化脚本哈希，彻底封死外联 XSS 与页面嵌套。所属模块：`packages/mini-app-api-server/libs/response.ts`。
+ * 不变量：仅允许同源脚本、`https://telegram.org` 官方脚本以及 `index.html` 首屏语言初始化脚本与独立 `reject.html` 门禁引导/诊断脚本的静态 SHA-256 哈希，彻底封死外联 XSS 与页面嵌套。所属模块：`packages/mini-app-api-server/libs/response.ts`。
  */
 export const MINI_APP_CSP_HEADER_VALUE: string =
-  "default-src 'self'; script-src 'self' https://telegram.org 'sha256-QWTSQdDnyTbsLW0pe3w3OntSBjLiStumg3aS49sZVGo='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+  "default-src 'self'; script-src 'self' https://telegram.org 'sha256-QWTSQdDnyTbsLW0pe3w3OntSBjLiStumg3aS49sZVGo=' 'sha256-jQdGYCrapsott8wuOCCx+SLkEEwqzQ0ptWHRtERw5Tg='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 /**
  * Mini App 响应的 `X-Frame-Options` 安全头取值。
@@ -224,7 +276,7 @@ export const MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN: RegExp =
 
 /**
  * 受保护图片与矢量图路径后缀的匹配规则（让携带图片后缀的未知路径先经受保护资源鉴权中间件链再返回 404，不含公开 `/favicon.ico`）。
- * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/mini-app-api-server/server/register.ts`。
+ * 不变量：不带全局标志 `g`，大小写不敏感匹配常见图片与矢量图扩展名。所属模块：`packages/mini-app-api-server/server/register.ts` 与 `packages/mini-app-api-server/routes/page.ts`。
  */
 export const MINI_APP_PROTECTED_ASSET_EXT_PATTERN: RegExp =
   /\.(?:svg|png|jpe?g|webp|gif|avif)$/iu;

@@ -123,12 +123,13 @@ cloudflared tunnel delete -f <隧道名>
 
 ### 2. 双层安全认证与锁定保护
 
+- **单页入口与前端包门禁（`MINI_APP_REJECT_HTML_PATH` / `MINI_APP_PAGE_GATE_COOKIE_NAME`）**：单页路由（`/` 与 `/index.html` 及其子路径别名）先核验同源请求头与超级管理员门禁凭据（`X-Telegram-Init-Data` / `Authorization: tma <initData>` 请求头，或由 `BOT_TOKEN` 与 `MINI_APP_PAGE_GATE_SECRET_SEED` 派生密钥签名、绑定 `SUPER_ADMIN_USER_ID` 的 `MINI_APP_PAGE_GATE_COOKIE_NAME` `HttpOnly; SameSite=Lax` 门禁 Cookie，HTTPS 下附带 `Secure`，有效期 `MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS` 即 45 分钟）及未处于密码锁定状态。非 Telegram 外部访问、非超级管理员账号、凭据无效或处于锁定期的单页请求一律返回独立的 `packages/mini-app-api-server/resource/reject.html`（`MINI_APP_REJECT_HTML_PATH`，模板缓存在主线程 `miniAppRejectHtmlHolder` 中并通过 `HTMLRewriter` 在 `<body>` 注入当次诊断 `data-*` 属性，零外部网络请求），不返回完整前端 HTML 或打包产物；前端打包块（`/chunk-*` 等，匹配 `MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN`）按需物化于 `miniAppBundledAssetsHolder`，同样强制门禁校验并拦截跨站与地址栏直接导航，未授权返回 `401`/`403` JSON。在 Telegram WebView 冷启动打开单页时，`reject.html` 内联脚本从本地提取 `initData`（`window.Telegram.WebApp.initData`、`?tgWebAppData`、`#tgWebAppData` 或 `sessionStorage.__telegram__initParams`）向 `./api/auth/precheck` 发起预检；`GET /api/auth/precheck` 与 `POST /api/auth/login` 返回 `200` 时通过 `Set-Cookie` 签发/刷新门禁 Cookie，随后页面单次重载进入完整控制台（带 5 秒 `sessionStorage` 重载防环保护）；预检被拒或携带失效门禁 Cookie 访问时立即下发 `Max-Age=0` 清除门禁 Cookie。
 - **第一层（前置请求头守卫与 Telegram WebApp `initData` 签名核验）**：每个 API 请求先由统一前置中间件链（`headerGuard`）执行同源与凭据头形态快路径校验，再通过 `X-Telegram-Init-Data`（或 `Authorization: tma <initData>`，长度上限 `MINI_APP_MAX_INIT_DATA_LENGTH`）读取 Telegram 客户端签发的原始查询串。服务端使用 `BOT_TOKEN` 与种子 `MINI_APP_WEB_APP_DATA_SECRET_SEED`（`"WebAppData"`）校验 HMAC-SHA256 签名、`MINI_APP_AUTH_MAX_AGE_SECONDS`（45 分钟）时效，并严格校验 `user.id === SUPER_ADMIN_USER_ID`。非超级管理员账号在任何情况下均会被直接拒绝。
 - **第二层（首屏凭据与 45 分钟会话续期）**：
   - 未绑定验证器时，首屏输入 `mini_app.password` 完成解锁；
-  - 认证通过后，服务端签发有效期为 `MINI_APP_SESSION_TTL_MS`（45 分钟）的 `sessionToken`（通过 `X-Mini-App-Session` 请求头携带）及确定性图库资源令牌 `assetToken`，客户端将其持久化在 Mini App Web Storage 中并在 `GET /api/auth/precheck` 核验续接，使 45 分钟窗口内刷新或重开无需重复输入凭据，到期或主动锁定时立即清除；点击顶栏「锁定」时还会经 `POST /api/auth/logout` 通知服务端吊销该会话（不等待结果）。服务端返回的会话到期时刻由客户端按响应 `Date` 头换算为本机时刻后再用于到期判定与自动锁定；
+  - 认证通过后，服务端签发有效期为 `MINI_APP_SESSION_TTL_MS`（45 分钟）的 `sessionToken`（通过 `X-Mini-App-Session` 请求头携带）及确定性图库资源令牌 `assetToken`，同时刷新 `MINI_APP_PAGE_GATE_COOKIE_NAME` 门禁 Cookie，客户端将会话持久化在 Mini App Web Storage 中并在 `GET /api/auth/precheck` 核验续接，使 45 分钟窗口内刷新或重开无需重复输入凭据，到期或主动锁定时立即清除；点击顶栏「锁定」时还会经 `POST /api/auth/logout` 通知服务端吊销该会话（不等待结果）。服务端返回的会话到期时刻由客户端按响应 `Date` 头换算为本机时刻后再用于到期判定与自动锁定；
   - 当携带有效会话令牌访问且距签发时刻超过 `MINI_APP_SESSION_REFRESH_THRESHOLD_MS`（5 分钟）时，服务端会自动轮换签发新令牌并将有效期顺延 45 分钟（通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头及 `/api/auth/precheck` 响应体下发，同时在会话续期期间持续放行静态 `initData.auth_date`；旧令牌在 5 分钟并发宽限期内仍有效），主线程最多保留 `MINI_APP_SESSION_MAX`（8）个活跃会话。
-- **防爆破锁定**：连续输错密码或动态码达到 `MINI_APP_PASSWORD_MAX_ATTEMPTS`（3 次）时，超级管理员 ID 将被锁定 `MINI_APP_PASSWORD_LOCKOUT_MS`（30 分钟）并清空所有已认证会话；锁定生效时仍在处理中的并发登录请求不再比对凭据，一律按失败计数并将锁定从当时起顺延 30 分钟；由未锁定转入锁定时向超级管理员私聊发送一条含解锁时间与来源 IP 的告警通知，锁定顺延不重复发送。
+- **防爆破锁定**：连续输错密码或动态码达到 `MINI_APP_PASSWORD_MAX_ATTEMPTS`（3 次）时，超级管理员 ID 将被锁定 `MINI_APP_PASSWORD_LOCKOUT_MS`（30 分钟），清空所有已认证会话并通过 `Max-Age=0` 清除 `MINI_APP_PAGE_GATE_COOKIE_NAME` 门禁 Cookie（锁定期内的单页与打包资源请求同样拒绝并清除门禁 Cookie）；锁定生效时仍在处理中的并发登录请求不再比对凭据，一律按失败计数并将锁定从当时起顺延 30 分钟；由未锁定转入锁定时向超级管理员私聊发送一条含解锁时间与来源 IP 的告警通知，锁定顺延不重复发送。
 
 ### 3. 绑定 Google Authenticator (TOTP) 动态码（推荐）
 
@@ -143,7 +144,7 @@ cloudflared tunnel delete -f <隧道名>
 ## 验证与运维注意事项
 
 - **启动日志确认**：机器人启动后，检查控制台或运行日志中是否输出 `Mini App HTTP server listening on http://127.0.0.1:3000 (public URL: https://app.example.com/).`，并确认 `cloudflared` 服务处于 `active (running)` 状态。
-- **边缘缓存与安全头**：所有动态页面与业务 JSON API 响应均附带 `MINI_APP_NO_STORE_CACHE_CONTROL`（`no-store, no-cache, must-revalidate, max-age=0`），防止 Cloudflare 边缘节点缓存实时状态；已通过 `assetToken` 鉴权的图库预览图片与静态 `/favicon.ico` 图标资源返回 `MINI_APP_ASSET_CACHE_CONTROL`（7 天不可变缓存）与 `ETag` 304 协商。全部响应均附带 `MINI_APP_CSP_HEADER_VALUE` 与 `X-Frame-Options: DENY`。
+- **边缘缓存与安全头**：所有动态页面（`index.html`、`reject.html`）与业务 JSON API 响应均附带 `MINI_APP_NO_STORE_CACHE_CONTROL`（`no-store, no-cache, must-revalidate, max-age=0`）及 `CDN-Cache-Control: no-store`、`Cloudflare-CDN-Cache-Control: no-store`，防止 Cloudflare 边缘节点与浏览器缓存实时状态；已通过超级管理员门禁校验的前端打包静态资源（`/chunk-*` 等）返回 `MINI_APP_BUNDLE_CACHE_CONTROL`（`private, no-cache, must-revalidate`）、`CDN-Cache-Control: no-store`、`Cloudflare-CDN-Cache-Control: no-store`、`Vary` 为 `MINI_APP_BUNDLE_VARY_HEADER_VALUE`（`Cookie, X-Telegram-Init-Data, Authorization`）及 `ETag` `304` 协商，禁止公共代理与 CDN 缓存完整前端包并在每次重用前向源站复核门禁与锁定状态；已通过 `assetToken` 鉴权的图库预览图片与静态 `/favicon.ico` 图标资源返回 `MINI_APP_ASSET_CACHE_CONTROL`（7 天不可变缓存）与 `ETag` `304` 协商。全部响应均附带 `MINI_APP_CSP_HEADER_VALUE`（仅放行同源脚本、`https://telegram.org` 及 `index.html` 与 `reject.html` 内联脚本的静态 SHA-256 哈希）与 `X-Frame-Options: DENY`。
 - **持久化文件备份**：若已绑定 TOTP 验证器，备份数据根目录时请保留 `memory/mini-app-totp/totp.json`。服务启动与 `install.sh` 预检均会按相同严格口径校验该文件（文件不存在视作未绑定，非普通文件或内容格式非法时直接拒绝启动，详见 [07 运维手册](07-operations.md) 与 [04 运行时权威约束](04-invariants.md)）。
 
 ---

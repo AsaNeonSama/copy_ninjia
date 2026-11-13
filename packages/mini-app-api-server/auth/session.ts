@@ -7,6 +7,7 @@ import {
   MINI_APP_SESSION_TTL_MS,
   MINI_APP_SHA256_HEX_PATTERN,
 } from "../../consts/miniApp";
+import { MINUTE_MS } from "../../consts/time";
 import type { MiniAppAuthSession, MiniAppPasswordGuardState } from "../../types/miniApp/auth";
 import { accessErrorResponse } from "../libs/response";
 
@@ -177,6 +178,23 @@ export function attachRefreshedSessionHeaders(
 }
 
 /**
+ * 查询超级管理员 ID 当前处于 30 分钟密码锁定期的剩余分钟数；未锁定或锁定期已过时清理旧状态并返回 `null`。
+ * @param nowMs 当前毫秒时间戳。
+ * @returns 剩余锁定分钟数（至少为 `1`），未锁定时返回 `null`。
+ */
+export function getSuperAdminPasswordLockoutRemainingMinutes(
+  nowMs: number = Date.now()
+): number | null {
+  const guard: Readonly<MiniAppPasswordGuardState> | null = miniAppPasswordGuardHolder.current;
+  if (guard?.userId !== SUPER_ADMIN_USER_ID || guard.lockedUntil <= 0) return null;
+  if (guard.lockedUntil <= nowMs) {
+    miniAppPasswordGuardHolder.current = null;
+    return null;
+  }
+  return Math.max(1, Math.ceil((guard.lockedUntil - nowMs) / MINUTE_MS));
+}
+
+/**
  * 检查超级管理员 ID 当前是否因密码连续输错达到 3 次而处于 30 分钟禁止访问锁定期。
  * @param request HTTP 请求对象。
  * @param nowMs 当前毫秒时间戳。
@@ -186,13 +204,9 @@ export function checkSuperAdminPasswordLockout(
   request: Request,
   nowMs: number = Date.now()
 ): Response | null {
-  const guard: Readonly<MiniAppPasswordGuardState> | null = miniAppPasswordGuardHolder.current;
-  if (guard?.userId !== SUPER_ADMIN_USER_ID || guard.lockedUntil <= 0) return null;
-  if (guard.lockedUntil <= nowMs) {
-    miniAppPasswordGuardHolder.current = null;
-    return null;
-  }
-  const remainingMinutes: number = Math.max(1, Math.ceil((guard.lockedUntil - nowMs) / 60_000));
+  const remainingMinutes: number | null =
+    getSuperAdminPasswordLockoutRemainingMinutes(nowMs);
+  if (remainingMinutes === null) return null;
   return accessErrorResponse(request, {
     status: 403,
     code: "PASSWORD_LOCKED",

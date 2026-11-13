@@ -7,6 +7,7 @@ import type {
   MiniAppGalleryUploadResult,
 } from "../../packages/types/miniApp/gallery";
 import type { MiniAppPickerResultEvent } from "../../packages/types/miniApp/identities";
+import type { BundledMiniAppAssets } from "../../packages/types/miniApp/server";
 import { imageFixture } from "../helpers/image";
 import {
   buildSignedTestInitData,
@@ -19,13 +20,19 @@ installMiniAppTestDiskIOMock();
 const { resetIdentityStorageCache } = await import(
   "../../packages/cache/main/identityStorage"
 );
+const { miniAppBundledAssetsHolder } = await import(
+  "../../packages/cache/main/miniApp"
+);
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
 const { getAssetConfig } = await import("../../packages/config/assets");
 const {
   MINI_APP_ASSET_CACHE_CONTROL,
+  MINI_APP_BUNDLE_CACHE_CONTROL,
+  MINI_APP_BUNDLE_VARY_HEADER_VALUE,
   MINI_APP_BUTTON_TEXT,
   MINI_APP_CSP_HEADER_VALUE,
   MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_PAGE_GATE_COOKIE_NAME,
   MINI_APP_SESSION_HEADER,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
@@ -44,9 +51,6 @@ const {
 } = await import("../../packages/mini-app-api-server");
 const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
   "../helpers/miniAppRequest"
-);
-const { readBundledMiniAppIndex } = await import(
-  "../../packages/mini-app-api-server/handlers/page"
 );
 
 /**
@@ -583,7 +587,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     rmSync(galleryDir, { recursive: true, force: true });
   });
 
-  test("Bun.serve 原生路由服务可启动并响应 /healthz 与 /（携带严格 CSP 与 X-Frame-Options）", async () => {
+  test("Bun.serve 原生路由服务可启动并响应 /healthz 与门禁单页路由（未授权返回 reject.html，超管门禁通过后返回完整入口与打包产物）", async () => {
     const server = startMiniAppServer({
       url: "https://miniapp.example.com",
       host: "127.0.0.1",
@@ -598,7 +602,26 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(healthRes.status).toBe(200);
     expect(await healthRes.json()).toEqual({ ok: true });
 
-    const htmlRes: Response = await fetch(`http://127.0.0.1:${port}/`);
+    const unauthBundleRes: Response = await fetch(`http://127.0.0.1:${port}/_bundle`);
+    expect(unauthBundleRes.status).toBe(404);
+
+    const unauthHtmlRes: Response = await fetch(`http://127.0.0.1:${port}/`);
+    expect(unauthHtmlRes.status).toBe(200);
+    expect(unauthHtmlRes.headers.get("Content-Security-Policy")).toBe(
+      MINI_APP_CSP_HEADER_VALUE
+    );
+    expect(unauthHtmlRes.headers.get("X-Frame-Options")).toBe(
+      MINI_APP_X_FRAME_OPTIONS_VALUE
+    );
+    const unauthHtmlText: string = await unauthHtmlRes.text();
+    expect(unauthHtmlText).toContain("cf-error-page");
+    expect(unauthHtmlText).toContain('data-code="MISSING_INIT_DATA"');
+    expect(unauthHtmlText).not.toContain('id="root"');
+    expect(unauthHtmlText).not.toContain("./chunk-");
+
+    const htmlRes: Response = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: superAdminHeaders(),
+    });
     expect(htmlRes.status).toBe(200);
     expect(htmlRes.headers.get("Content-Security-Policy")).toBe(
       MINI_APP_CSP_HEADER_VALUE
@@ -606,16 +629,27 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(htmlRes.headers.get("X-Frame-Options")).toBe(
       MINI_APP_X_FRAME_OPTIONS_VALUE
     );
+    const setCookie: string | null = htmlRes.headers.get("set-cookie");
+    expect(setCookie).not.toBeNull();
+    expect(setCookie!).toContain(`${MINI_APP_PAGE_GATE_COOKIE_NAME}=`);
+    const gateCookiePair: string = setCookie!.split(";")[0]!;
     const htmlText: string = await htmlRes.text();
-    expect(htmlText).toContain("id=\"root\"");
+    expect(htmlText).toContain('id="root"');
     expect(htmlText).not.toContain("./main.tsx");
 
-    const bundledRoot = await readBundledMiniAppIndex();
+    const bundledRoot: Readonly<BundledMiniAppAssets> | null =
+      miniAppBundledAssetsHolder.current;
     expect(bundledRoot).not.toBeNull();
-    expect(bundledRoot!.assetPaths.size).toBeGreaterThanOrEqual(3);
-    for (const assetPath of bundledRoot!.assetPaths) {
-      const rootAssetRes: Response = await fetch(
+    expect(bundledRoot!.assets.size).toBeGreaterThanOrEqual(3);
+    for (const assetPath of bundledRoot!.assets.keys()) {
+      const unauthAssetRes: Response = await fetch(
         new URL(`.${assetPath}`, `http://127.0.0.1:${port}/`)
+      );
+      expect(unauthAssetRes.status).toBe(401);
+
+      const rootAssetRes: Response = await fetch(
+        new URL(`.${assetPath}`, `http://127.0.0.1:${port}/`),
+        { headers: { Cookie: gateCookiePair } }
       );
       expect(rootAssetRes.status).toBe(200);
     }
@@ -663,7 +697,7 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(prepBtnId).toBe("btn-42");
   });
 
-  test("mini_app.url 带子路径时入口 HTML 本地资源引用均改为相对路径，且子路径下打包产物支持回环读取与 If-None-Match 304，业务 API 不触发 /_bundle 回环", async () => {
+  test("mini_app.url 带子路径时入口 HTML 本地资源引用均改为相对路径，根路径与子路径打包产物均经门禁校验并支持私有协商缓存与 If-None-Match 304", async () => {
     const server = startMiniAppServer({
       url: "https://miniapp.example.com/sub",
       host: "127.0.0.1",
@@ -674,13 +708,33 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     const port: number = server!.port ?? 0;
     expect(port).toBeGreaterThan(0);
 
-    const subHtmlRes: Response = await fetch(`http://127.0.0.1:${port}/sub/`);
+    const coldSubRes: Response = await fetch(`http://127.0.0.1:${port}/sub/`);
+    expect(coldSubRes.status).toBe(200);
+    const coldSubText: string = await coldSubRes.text();
+    expect(coldSubText).toContain("cf-error-page");
+    expect(coldSubText).not.toContain('id="root"');
+    expect(coldSubText).not.toContain("./chunk-");
+
+    const precheckRes: Response = await fetch(
+      `http://127.0.0.1:${port}/sub/api/auth/precheck`,
+      { headers: superAdminHeaders() }
+    );
+    expect(precheckRes.status).toBe(200);
+    const gateCookiePair: string = precheckRes.headers
+      .get("set-cookie")!
+      .split(";")[0]!;
+
+    const subHtmlRes: Response = await fetch(`http://127.0.0.1:${port}/sub/`, {
+      headers: { Cookie: gateCookiePair },
+    });
     expect(subHtmlRes.status).toBe(200);
     const subHtmlText: string = await subHtmlRes.text();
+    expect(subHtmlText).toContain('id="root"');
 
-    const bundled = await readBundledMiniAppIndex();
+    const bundled: Readonly<BundledMiniAppAssets> | null =
+      miniAppBundledAssetsHolder.current;
     expect(bundled).not.toBeNull();
-    expect(bundled!.assetPaths.size).toBeGreaterThanOrEqual(3);
+    expect(bundled!.assets.size).toBeGreaterThanOrEqual(3);
 
     const attrRefs: string[] = Array.from(
       subHtmlText.matchAll(/(?:src|href)="([^"]+)"/gu),
@@ -689,31 +743,63 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     const localRefs: string[] = attrRefs.filter(
       (ref: string): boolean => !ref.startsWith("https://") && !ref.startsWith("http://")
     );
-    expect(localRefs.length).toBe(bundled!.assetPaths.size);
+    expect(localRefs.length).toBe(bundled!.assets.size);
     for (const ref of localRefs) {
       expect(ref.startsWith("./")).toBeTrue();
     }
 
-    for (const assetPath of bundled!.assetPaths) {
-      const rootAssetRes: Response = await fetch(`http://127.0.0.1:${port}${assetPath}`);
+    for (const assetPath of bundled!.assets.keys()) {
+      const unauthSubAssetRes: Response = await fetch(
+        `http://127.0.0.1:${port}/sub${assetPath}`
+      );
+      expect(unauthSubAssetRes.status).toBe(401);
+
+      const rootAssetRes: Response = await fetch(
+        `http://127.0.0.1:${port}${assetPath}`,
+        { headers: { Cookie: gateCookiePair } }
+      );
       expect(rootAssetRes.status).toBe(200);
       const rootBytes: Uint8Array = await rootAssetRes.bytes();
 
-      const subAssetRes: Response = await fetch(`http://127.0.0.1:${port}/sub${assetPath}`);
+      const subAssetRes: Response = await fetch(
+        `http://127.0.0.1:${port}/sub${assetPath}`,
+        { headers: { Cookie: gateCookiePair } }
+      );
       expect(subAssetRes.status).toBe(200);
+      expect(subAssetRes.headers.get("cache-control")).toBe(
+        MINI_APP_BUNDLE_CACHE_CONTROL
+      );
+      expect(subAssetRes.headers.get("cdn-cache-control")).toBe("no-store");
+      expect(subAssetRes.headers.get("vary")).toBe(
+        MINI_APP_BUNDLE_VARY_HEADER_VALUE
+      );
       const subBytes: Uint8Array = await subAssetRes.bytes();
       expect(subBytes).toEqual(rootBytes);
 
       const etag: string | null = subAssetRes.headers.get("etag");
       expect(etag !== null && etag.length > 0).toBeTrue();
-      const notModifiedRes: Response = await fetch(`http://127.0.0.1:${port}/sub${assetPath}`, {
-        headers: { "If-None-Match": etag! },
-      });
+      const notModifiedRes: Response = await fetch(
+        `http://127.0.0.1:${port}/sub${assetPath}`,
+        { headers: { Cookie: gateCookiePair, "If-None-Match": etag! } }
+      );
       expect(notModifiedRes.status).toBe(304);
+
+      const headSubAssetRes: Response = await fetch(
+        `http://127.0.0.1:${port}/sub${assetPath}`,
+        { method: "HEAD", headers: { Cookie: gateCookiePair } }
+      );
+      expect(headSubAssetRes.status).toBe(200);
+      expect(await headSubAssetRes.bytes()).toEqual(new Uint8Array(0));
     }
 
-    const unknownAssetRes: Response = await fetch(
+    const unauthUnknownAssetRes: Response = await fetch(
       `http://127.0.0.1:${port}/sub/chunk-unknown.js`
+    );
+    expect(unauthUnknownAssetRes.status).toBe(401);
+
+    const unknownAssetRes: Response = await fetch(
+      `http://127.0.0.1:${port}/sub/chunk-unknown.js`,
+      { headers: { Cookie: gateCookiePair } }
     );
     expect(unknownAssetRes.status).toBe(404);
 

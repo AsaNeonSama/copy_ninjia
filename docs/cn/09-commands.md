@@ -333,15 +333,17 @@
 当 `config/static/bot.json` 配置了可选的 `mini_app` 对象时，系统会启动本地 `Bun.serve` HTTP 服务（实现在 `packages/mini-app-api-server/`，前端在 `packages/mini-app-frontend/`），并在超级管理员私聊窗口左下角挂载 `MenuButtonWebApp`（`App` 按钮）。字段规范请参阅 [部署配置说明](../../config_example/README/zh.md#botjson)，完整设置方法与 Cloudflare Tunnel 推荐配置请参考 [10 Mini App 设置与推荐配置](10-mini-app.md)。
 
 ### 1. 认证与安全边界
+- **单页入口与前端包门禁（`MINI_APP_REJECT_HTML_PATH` / `MINI_APP_PAGE_GATE_COOKIE_NAME`）**：单页路由（`/`、`/index.html` 及其子路径别名）与前端打包静态资源（`/chunk-*` 等，匹配 `MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN`）统一由 `packages/mini-app-api-server/auth/pageGate.ts` 把守；未携带合法超级管理员 `initData` 请求头或有效 `MINI_APP_PAGE_GATE_COOKIE_NAME`（`HttpOnly; SameSite=Lax`，45 分钟 `MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS`）门禁 Cookie，或处于 30 分钟密码锁定期时，单页请求返回独立的 `packages/mini-app-api-server/resource/reject.html`（零外部网络请求，在 Telegram WebView 冷启动时从本地提取 `initData` 预检 `./api/auth/precheck` 换取门禁 Cookie 后单次重载），前端打包块请求返回 `401`/`403` JSON，不返回完整前端包（已通过门禁的打包块返回 `MINI_APP_BUNDLE_CACHE_CONTROL`、`CDN-Cache-Control: no-store` 与 `MINI_APP_BUNDLE_VARY_HEADER_VALUE`）。
 - **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求先经 `headerGuard` 校验同源与凭据头形态，再经 `initData` 中间件执行 Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）、登录（`POST /api/auth/login`）与登出（`POST /api/auth/logout`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。当请求携带仍在有效期内的会话令牌且距签发时刻超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发给客户端，同时在会话续期期间放行静态 `initData.auth_date`，直至用户停止访问。换发后旧令牌在 5 分钟内仍可用于并发在途请求；服务端最多保留 `MINI_APP_SESSION_MAX`（8）个会话，每个会话只占一个槽位，满额时淘汰签发或刷新最早的会话。
-- **首屏凭据与锁定保护**：未绑定验证器时校验 `mini_app.password`；在控制台绑定 Google Authenticator (TOTP) 后（持久化于 `memory/mini-app-totp/totp.json`），登录优先校验当前 30 秒时间步的 6 位动态码。连续输错 3 次将锁定超级管理员 ID 30 分钟，转入锁定时向超级管理员私聊发送一次含解锁时间与来源 IP 的告警。
+- **首屏凭据与锁定保护**：未绑定验证器时校验 `mini_app.password`；在控制台绑定 Google Authenticator (TOTP) 后（持久化于 `memory/mini-app-totp/totp.json`），登录优先校验当前 30 秒时间步的 6 位动态码。连续输错 3 次将锁定超级管理员 ID 30 分钟、清空会话并清除门禁 Cookie，转入锁定时向超级管理员私聊发送一次含解锁时间与来源 IP 的告警。
 - **受保护图库预览资源**：图库图片读取（`GET|HEAD /api/gallery/file/:fileName`）通过仅在登录或有效会话续接时派发的确定性 `assetToken` 鉴权（支持 7 天不可变缓存与 `ETag` 304 协商），或通过超级管理员 `initData` 配对仍在有效期内的 45 分钟 `session` 会话令牌鉴权。
 
 ### 2. HTTP API 路由与能力对照
 
 | 路由 | 方法 | 权限与边界说明 |
 | :--- | :---: | :--- |
-| `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | 校验 `initData` 签名与超级管理员身份，返回登录模式（`password` 或 `totp`）、续接或自动刷新（签发满 5 分钟）有效会话，或签发新 45 分钟 `sessionToken` 与 `assetToken`；登出时吊销请求头 `X-Mini-App-Session` 携带的会话（不刷新令牌，会话已失效时同样返回成功） |
+| `/`<br>`/index.html`<br>`/favicon.ico`<br>`/healthz` | `GET`/`HEAD` | `/` 与 `/index.html` 核验超级管理员门禁（通过时返回按需物化的完整控制台 HTML，未授权或锁定时返回独立 `reject.html`）；前端打包块 `/chunk-*` 同样经门禁核验后以私有协商缓存返回；`/favicon.ico` 返回静态图标，`/healthz` 返回公开存活探针 `{ ok: true }` |
+| `/api/auth/precheck`<br>`/api/auth/login`<br>`/api/auth/logout` | `GET`<br>`POST`<br>`POST` | 校验 `initData` 签名与超级管理员身份，返回登录模式（`password` 或 `totp`）、续接或自动刷新（签发满 5 分钟）有效会话，或签发新 45 分钟 `sessionToken` 与 `assetToken`（`precheck` 与 `login` 成功时同步签发/刷新 `MINI_APP_PAGE_GATE_COOKIE_NAME` 门禁 Cookie，预检失败或触发密码锁定时清除该 Cookie）；登出时吊销请求头 `X-Mini-App-Session` 携带的会话（不刷新令牌，会话已失效时同样返回成功） |
 | `/api/totp`<br>`/api/totp/setup`<br>`/api/totp/enable`<br>`/api/totp/delete` | `GET`/`DELETE`<br>`POST` | 查询、生成待绑定密钥二维码、校验 6 位动态码启用或删除 Google Authenticator 验证器；启用、替换或删除验证器时吊销除当前请求会话以外的其余活跃会话 |
 | `/api/status`<br>`/api/mood`<br>`/api/mood/switch` | `GET`<br>`GET`<br>`POST` | 查询实时系统指标（运行时长、CPU 平均负载、内存 PSS、托管群数、活跃会话、AI 模型就绪状态、Telegram 出站门控），查询或手动重抽全局 AI 心情 |
 | `/api/chats`<br>`/api/chats/:chatId` | `GET` | 列出已开启 `/init` 的受管群摘要，或查询单群详情（含功能开关、热消息计数、静音/锁定剩余时长、Bot 在本群持有的管理员权限 `botPermissions`、1–24 小时各回溯窗口去重入群人数 `joinedCountsByHour` 及 `/batch_kick` 执行状态） |

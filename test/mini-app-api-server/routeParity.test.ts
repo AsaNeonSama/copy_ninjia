@@ -71,7 +71,6 @@ function expandRouteCases(
   const cases: ExpandedRouteCase[] = [];
   for (const [routePattern, entry] of Object.entries(routes)) {
     if (
-      routePattern === "/_bundle" ||
       entry === undefined ||
       typeof entry !== "object" ||
       entry === null ||
@@ -135,6 +134,7 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
     });
     const rootBase: string = `http://127.0.0.1:${rootServer!.port}`;
     const rootRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
+    expect("/_bundle" in rootRoutes).toBeFalse();
     const cases: readonly Readonly<ExpandedRouteCase>[] = expandRouteCases(rootRoutes);
     expect(cases.length).toBeGreaterThanOrEqual(35);
 
@@ -171,14 +171,12 @@ describe("Mini App 原生路由表子路径一致性与兜底分发", () => {
     });
     const subBase: string = `http://127.0.0.1:${subServer!.port}`;
     const subRoutes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
+    expect("/_bundle" in subRoutes).toBeFalse();
+    expect("/sub/_bundle" in subRoutes).toBeFalse();
     for (const routeKey of Object.keys(rootRoutes)) {
       expect(routeKey in subRoutes).toBeTrue();
-      if (routeKey === "/_bundle") {
-        expect("/sub/_bundle" in subRoutes).toBeFalse();
-      } else {
-        const expectedPrefixedKey: string = routeKey === "/" ? "/sub/" : `/sub${routeKey}`;
-        expect(expectedPrefixedKey in subRoutes).toBeTrue();
-      }
+      const expectedPrefixedKey: string = routeKey === "/" ? "/sub/" : `/sub${routeKey}`;
+      expect(expectedPrefixedKey in subRoutes).toBeTrue();
     }
 
     for (const routeCase of cases) {

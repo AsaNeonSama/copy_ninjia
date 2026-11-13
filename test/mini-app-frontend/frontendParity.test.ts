@@ -1,6 +1,7 @@
 /**
- * `packages/mini-app-frontend/` 不得依赖目录外的文件，与服务端重合的常量、类型、函数和 favicon 在前端
- * 单独复制。本文件逐项核对这些副本与服务端定义（含 `index.html` 内联脚本 SHA-256 与服务端 CSP 头）一致，
+ * `packages/mini-app-frontend/` 不得依赖目录外的文件，与服务端重合的常量、类型、函数、favicon 及
+ * 未授权独立拒绝页 `reject.html` 的样式和三语文案各自维护副本。本文件逐项核对这些副本与服务端定义
+ * （含 `index.html` 与 `reject.html` 内联脚本 SHA-256 与服务端 CSP 头）一致，
  * 任何一侧改动而另一侧未同步时失败：类型在编译期按 TypeScript 恒等关系核对（含 readonly 与可选修饰），
  * 常量、函数与文件在运行期核对。
  */
@@ -9,7 +10,7 @@ import { describe, expect, test } from "bun:test";
 import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
 import * as serverDeleteMessageConsts from "../../packages/consts/deleteMessage";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
-import { MINI_APP_FAVICON_PATH } from "../../packages/consts/paths";
+import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH } from "../../packages/consts/paths";
 import * as serverQaConsts from "../../packages/consts/qa";
 import * as serverTextConsts from "../../packages/consts/text";
 import * as serverTimeConsts from "../../packages/consts/time";
@@ -20,10 +21,14 @@ import * as frontendMemoryConsts from "../../packages/mini-app-frontend/consts/m
 import * as frontendMiniAppConsts from "../../packages/mini-app-frontend/consts/miniApp";
 import * as frontendTimeConsts from "../../packages/mini-app-frontend/consts/time";
 import * as frontendWhitelistConsts from "../../packages/mini-app-frontend/consts/whitelist";
+import { getEnTranslations } from "../../packages/mini-app-frontend/i18n/languages/en";
+import { getJaTranslations } from "../../packages/mini-app-frontend/i18n/languages/ja";
+import { getZhTranslations } from "../../packages/mini-app-frontend/i18n/languages/zh";
 import { errorMessage as frontendErrorMessage } from "../../packages/mini-app-frontend/libs/errorMessage";
 import { buildMiniAppGalleryDownloadFileName as buildFrontendDownloadFileName } from "../../packages/mini-app-frontend/libs/formatters";
 import type * as FrontendIdentityPolicy from "../../packages/mini-app-frontend/types/identityPolicy";
 import type * as FrontendMiniApp from "../../packages/mini-app-frontend/types/miniApp";
+import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
 import type * as FrontendMiniAppTotp from "../../packages/mini-app-frontend/types/miniAppTotp";
 import { buildMiniAppGalleryDownloadFileName as buildServerDownloadFileName } from "../../packages/mini-app-api-server/libs/downloadFileName";
 import type * as ServerIdentityPolicy from "../../packages/types/identityPolicy";
@@ -171,6 +176,442 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(serverMiniAppConsts.MINI_APP_CSP_HEADER_VALUE).toContain(
       `'sha256-${scriptSha256Base64}'`
     );
+  });
+
+  test("未授权拒绝页 reject.html 唯一内联脚本的 SHA-256 哈希与服务端 CSP 头一致", async () => {
+    const rejectHtml: string = await Bun.file(MINI_APP_REJECT_HTML_PATH).text();
+    const allInlineScripts: RegExpMatchArray[] = Array.from(
+      rejectHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gu)
+    );
+    expect(allInlineScripts.length).toBe(1);
+    const inlineScriptMatch: RegExpMatchArray | null = rejectHtml.match(/<script>([\s\S]*?)<\/script>/u);
+    expect(inlineScriptMatch).not.toBeNull();
+    const scriptBody: string = inlineScriptMatch?.[1] ?? "";
+    const scriptSha256Base64: string = Bun.SHA256.hash(scriptBody, "base64");
+    expect(serverMiniAppConsts.MINI_APP_CSP_HEADER_VALUE).toContain(
+      `'sha256-${scriptSha256Base64}'`
+    );
+  });
+
+  test("未授权拒绝页 reject.html 不包含主包入口引用，且样式令牌、反斜切规则与三语文案同前端一致", async () => {
+    const rejectHtml: string = await Bun.file(MINI_APP_REJECT_HTML_PATH).text();
+    expect(rejectHtml).not.toContain("./chunk-");
+    expect(rejectHtml).not.toContain("./main.tsx");
+    expect(rejectHtml).not.toContain("id=\"root\"");
+    expect(rejectHtml).not.toContain("innerHTML");
+    expect(rejectHtml).toContain("href=\"./favicon.ico\"");
+    expect(rejectHtml).not.toMatch(/<script\b[^>]*\bsrc=/iu);
+    expect(rejectHtml).not.toContain("telegram-web-app.js");
+    expect(rejectHtml).toContain("<div class=\"cf-error-page\" id=\"cf-error-page\" hidden>");
+
+    const styleMatch: RegExpMatchArray | null = rejectHtml.match(/<style>([\s\S]*?)<\/style>/u);
+    expect(styleMatch).not.toBeNull();
+    const rejectStyleBody: string = styleMatch?.[1] ?? "";
+    expect(rejectStyleBody).toContain(".cf-error-page[hidden]");
+
+    const baseCss: string = await Bun.file(
+      new URL("../../packages/mini-app-frontend/styles/base.css", import.meta.url)
+    ).text();
+    const baseTokensStart: number = baseCss.indexOf(":root,");
+    const baseTokensEnd: number = baseCss.indexOf("* {");
+    expect(baseTokensStart).toBeGreaterThanOrEqual(0);
+    expect(baseTokensEnd).toBeGreaterThan(baseTokensStart);
+    const baseTokensBlock: string = baseCss.slice(baseTokensStart, baseTokensEnd).trim();
+    expect(rejectStyleBody).toContain(baseTokensBlock);
+
+    const authCss: string = await Bun.file(
+      new URL("../../packages/mini-app-frontend/styles/auth.css", import.meta.url)
+    ).text();
+    const cfStart: number = authCss.indexOf(".cf-error-page {");
+    const cfEnd: number = authCss.indexOf(".auth-gate-wrap {");
+    expect(cfStart).toBeGreaterThanOrEqual(0);
+    expect(cfEnd).toBeGreaterThan(cfStart);
+    const cfAuthBlock: string = authCss.slice(cfStart, cfEnd).trim();
+    expect(rejectStyleBody).toContain(cfAuthBlock);
+
+    for (const cfCounterPattern of [
+      /(?:^|\n)\.cf-title-row\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-subtitle\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-timestamp\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-node-content\s*\{([^}]*)\}/u,
+      /\.cf-detail-col\s*>\s*h2\s*\{([^}]*)\}/u,
+      /\.cf-detail-col\s*>\s*p\s*\{([^}]*)\}/u,
+      /(?:^|\n)\.cf-reason-content\s*\{([^}]*)\}/u,
+      /\.cf-footer\s*>\s*span\s*\{([^}]*)\}/u,
+    ]) {
+      expect(cfCounterPattern.exec(rejectStyleBody)?.[1] ?? "").toContain("skewX(calc(var(--cf-card-skew) * -1))");
+    }
+
+    const localeCases: readonly (readonly [string, string, Readonly<MiniAppTranslations>])[] = [
+      ["zh-CN", "zh-CN", getZhTranslations()],
+      ["ja-JP", "ja", getJaTranslations()],
+      ["en-US", "en-US", getEnTranslations()],
+      ["fr-FR", "zh-CN", getZhTranslations()],
+    ];
+    for (const [, , dict] of localeCases) {
+      expect(rejectHtml).toContain(dict.appTitle);
+      expect(rejectHtml).toContain(dict.gate.deniedTitle);
+      expect(rejectHtml).toContain(dict.gate.deniedDescription);
+      expect(rejectHtml).toContain(dict.gate.deniedNodeClientSub);
+      expect(rejectHtml).toContain(dict.gate.deniedNodeClientTitle);
+      expect(rejectHtml).toContain(dict.gate.deniedNodeClientState);
+      expect(rejectHtml).toContain(dict.gate.deniedNodeGatewaySub);
+      expect(rejectHtml).toContain(dict.gate.deniedNodeGatewayTitle);
+      expect(rejectHtml).toContain(dict.gate.deniedNodeOriginSub);
+      expect(rejectHtml).toContain(dict.gate.deniedNodeOriginState);
+      expect(rejectHtml).toContain(dict.gate.deniedWhatHappenedTitle);
+      expect(rejectHtml).toContain(dict.gate.deniedWhatHappenedDesc);
+      expect(rejectHtml).toContain(dict.gate.deniedWhatCanIDoTitle);
+      expect(rejectHtml).toContain(dict.gate.deniedWhatCanIDoDesc);
+      expect(rejectHtml).toContain(dict.serverNotice("FORBIDDEN_USER"));
+      expect(rejectHtml).toContain(dict.serverNotice("DIRECT_NAVIGATION_FORBIDDEN"));
+    }
+
+    const scriptBody: string = rejectHtml.match(/<script>([\s\S]*?)<\/script>/u)?.[1] ?? "";
+    const runner: (env: Record<string, unknown>) => Promise<void> | undefined = new Function(
+      "env",
+      `const { window, document, navigator, location, fetch } = env;\nreturn ${scriptBody.trim()}`
+    ) as (env: Record<string, unknown>) => Promise<void> | undefined;
+
+    const denyCodes: readonly (readonly [string, number, number | undefined])[] = [
+      ["MISSING_INIT_DATA", 401, undefined],
+      ["MALFORMED_INIT_DATA", 401, undefined],
+      ["MISSING_HASH", 401, undefined],
+      ["MISSING_USER", 401, undefined],
+      ["INVALID_SIGNATURE", 401, undefined],
+      ["EXPIRED_AUTH_DATE", 401, undefined],
+      ["FORBIDDEN_USER", 403, undefined],
+      ["CROSS_SITE_FORBIDDEN", 403, undefined],
+      ["DIRECT_NAVIGATION_FORBIDDEN", 403, undefined],
+      ["PASSWORD_REQUIRED", 401, undefined],
+      ["SESSION_EXPIRED", 401, undefined],
+      ["PASSWORD_LOCKED", 403, 29],
+      ["PASSWORD_LOCKED", 403, undefined],
+      ["ACCESS_DENIED", 403, undefined],
+      ["constructor", 403, undefined],
+    ];
+
+    interface MockDomNode {
+      textContent: string;
+      hidden: boolean;
+      removeAttribute: (attr: string) => void;
+    }
+
+    for (const [browserLocale, expectedHtmlLang, dict] of localeCases) {
+      for (const [code, status, remainingMinutes] of denyCodes) {
+        const nodes: Map<string, MockDomNode> = new Map<string, MockDomNode>();
+        const getOrCreate = (id: string): MockDomNode => {
+          const existing: MockDomNode | undefined = nodes.get(id);
+          if (existing !== undefined) return existing;
+          const created: MockDomNode = {
+            textContent: "",
+            hidden: id === "cf-error-page",
+            removeAttribute: (attr: string): void => {
+              if (attr === "hidden") created.hidden = false;
+            },
+          };
+          nodes.set(id, created);
+          return created;
+        };
+        let themeParamsAccessed: boolean = false;
+        let fetchCalls: number = 0;
+        const removedKeys: string[] = [];
+        const webAppMock: Record<string, unknown> = {
+          initData: "",
+          ready: (): void => {},
+          expand: (): void => {},
+          setHeaderColor: (): void => {},
+          setBackgroundColor: (): void => {},
+        };
+        Object.defineProperty(webAppMock, "themeParams", {
+          get: (): Record<string, string> => {
+            themeParamsAccessed = true;
+            return {};
+          },
+        });
+        const docElement: { lang: string } = { lang: "en-US" };
+        const dataset: Record<string, string> = {
+          status: String(status),
+          code,
+          error: dict.gate.deniedDescription,
+          requestId: "req-parity-01",
+          timestamp: "2026-11-13 02:30:00 UTC",
+          clientIp: "198.51.100.7",
+          host: "console.example.test",
+          path: "/",
+          ...(remainingMinutes !== undefined ? { remainingMinutes: String(remainingMinutes) } : {}),
+        };
+        const mockDoc: Record<string, unknown> = {
+          readyState: "complete",
+          title: "Zaako Console♡",
+          documentElement: docElement,
+          body: { dataset },
+          getElementById: (id: string): unknown => getOrCreate(id),
+        };
+        const mockLoc: Record<string, unknown> = {
+          search: "",
+          hash: "",
+          host: "console.example.test",
+          pathname: "/",
+          reload: (): void => {},
+        };
+        const storageMock: Record<string, unknown> = {
+          getItem: (): null => null,
+          setItem: (): void => {},
+          removeItem: (key: string): void => { removedKeys.push(key); },
+        };
+        const mockWin: Record<string, unknown> = {
+          Telegram: { WebApp: webAppMock },
+          localStorage: storageMock,
+          sessionStorage: storageMock,
+          location: mockLoc,
+        };
+        await runner({
+          window: mockWin,
+          document: mockDoc,
+          navigator: { languages: [browserLocale], language: browserLocale },
+          location: mockLoc,
+          fetch: async (): Promise<Response> => {
+            fetchCalls += 1;
+            return new Response(null, { status: 500 });
+          },
+        });
+        expect(fetchCalls).toBe(0);
+        expect(themeParamsAccessed).toBeFalse();
+        expect(removedKeys.length).toBe(2);
+        expect(docElement.lang).toBe(expectedHtmlLang);
+        expect(mockDoc.title).toBe(dict.appTitle);
+        expect(getOrCreate("cf-error-page").hidden).toBeFalse();
+        expect(getOrCreate("cf-denied-title").textContent).toBe(dict.gate.deniedTitle);
+        expect(getOrCreate("cf-code-pill-text").textContent).toBe(`HTTP ${status} · ${code}`);
+        expect(getOrCreate("cf-node-gateway-state").textContent).toBe(dict.gate.deniedNodeGatewayState(status));
+        expect(getOrCreate("cf-policy-label").textContent).toBe(`${dict.gate.deniedPolicyDetailLabel(code)}:`);
+        expect(getOrCreate("cf-policy-reason").textContent).toBe(
+          dict.gate.deniedPolicyReason(code, dict.gate.deniedDescription, {
+            ...(remainingMinutes !== undefined ? { remainingMinutes } : {}),
+          })
+        );
+      }
+    }
+
+    interface RejectInitDataRunResult {
+      readonly reloaded: boolean;
+      readonly savedGuardTs: string | null;
+      readonly storedSessionAfter: string | null;
+      readonly pageHidden: boolean;
+      readonly pillText: string;
+      readonly reasonText: string;
+    }
+
+    interface RunRejectWithInitDataOptions {
+      readonly search?: string;
+      readonly hash?: string;
+      readonly telegramInitParamsRaw?: string | null;
+      readonly reloadGuardTs: string | null;
+      readonly storedSessionRaw: string | null;
+      readonly fetchImpl: (url: string, init: RequestInit) => Promise<Response>;
+    }
+
+    const validSessionToken: string = "a".repeat(64);
+    const rotatedSessionToken: string = "b".repeat(64);
+    const runWithInitData = async (
+      options: Readonly<RunRejectWithInitDataOptions>
+    ): Promise<RejectInitDataRunResult> => {
+      const nodes: Map<string, MockDomNode> = new Map<string, MockDomNode>();
+      const getNode = (id: string): MockDomNode => {
+        const existing: MockDomNode | undefined = nodes.get(id);
+        if (existing !== undefined) return existing;
+        const created: MockDomNode = {
+          textContent: "",
+          hidden: id === "cf-error-page",
+          removeAttribute: (attr: string): void => {
+            if (attr === "hidden") created.hidden = false;
+          },
+        };
+        nodes.set(id, created);
+        return created;
+      };
+      let reloaded: boolean = false;
+      let savedGuardTs: string | null = options.reloadGuardTs;
+      const localStore: Map<string, string> = new Map<string, string>();
+      const sessionStore: Map<string, string> = new Map<string, string>();
+      if (options.reloadGuardTs !== null) {
+        sessionStore.set("copy_ninja_mini_app_gate_reload_ts", options.reloadGuardTs);
+      }
+      if (options.telegramInitParamsRaw !== undefined && options.telegramInitParamsRaw !== null) {
+        sessionStore.set("__telegram__initParams", options.telegramInitParamsRaw);
+      }
+      if (options.storedSessionRaw !== null) {
+        localStore.set(frontendMiniAppConsts.MINI_APP_SESSION_STORAGE_KEY, options.storedSessionRaw);
+        sessionStore.set(frontendMiniAppConsts.MINI_APP_SESSION_STORAGE_KEY, options.storedSessionRaw);
+      }
+      const localStorageMock: Record<string, unknown> = {
+        getItem: (key: string): string | null => localStore.get(key) ?? null,
+        setItem: (key: string, val: string): void => { localStore.set(key, val); },
+        removeItem: (key: string): void => { localStore.delete(key); },
+      };
+      const sessionStorageMock: Record<string, unknown> = {
+        getItem: (key: string): string | null => sessionStore.get(key) ?? null,
+        setItem: (key: string, val: string): void => {
+          sessionStore.set(key, val);
+          if (key === "copy_ninja_mini_app_gate_reload_ts") savedGuardTs = val;
+        },
+        removeItem: (key: string): void => { sessionStore.delete(key); },
+      };
+      const mockLoc: Record<string, unknown> = {
+        search: options.search ?? "",
+        hash: options.hash ?? "",
+        host: "console.example.test",
+        pathname: "/",
+        reload: (): void => { reloaded = true; },
+      };
+      const mockDoc: Record<string, unknown> = {
+        readyState: "complete",
+        title: "Zaako Console♡",
+        documentElement: { lang: "en-US" },
+        body: {
+          dataset: {
+            status: "401",
+            code: "MISSING_INIT_DATA",
+            error: "MISSING_INIT_DATA",
+            requestId: "req-server-init",
+            timestamp: "2026-11-13 02:30:00 UTC",
+            clientIp: "198.51.100.8",
+            host: "console.example.test",
+            path: "/",
+          },
+        },
+        getElementById: (id: string): unknown => getNode(id),
+      };
+      await runner({
+        window: {
+          Telegram: { WebApp: { initData: "" } },
+          localStorage: localStorageMock,
+          sessionStorage: sessionStorageMock,
+          location: mockLoc,
+        },
+        document: mockDoc,
+        navigator: { languages: ["zh-CN"], language: "zh-CN" },
+        location: mockLoc,
+        fetch: options.fetchImpl,
+      });
+      return {
+        reloaded,
+        savedGuardTs,
+        storedSessionAfter:
+          localStore.get(frontendMiniAppConsts.MINI_APP_SESSION_STORAGE_KEY) ?? null,
+        pageHidden: getNode("cf-error-page").hidden,
+        pillText: getNode("cf-code-pill-text").textContent,
+        reasonText: getNode("cf-policy-reason").textContent,
+      };
+    };
+
+    let capturedHeaders: Record<string, string> = {};
+    const rotatedExpiresAt: number = Date.now() + 2_600_000;
+    const okRun: RejectInitDataRunResult = await runWithInitData({
+      hash: "#tgWebAppData=user%3D1%26hash%3Dabc",
+      reloadGuardTs: null,
+      storedSessionRaw: JSON.stringify({
+        token: validSessionToken,
+        expiresAt: Date.now() + frontendTimeConsts.MINUTE_MS,
+      }),
+      fetchImpl: async (_url: string, init: RequestInit): Promise<Response> => {
+        capturedHeaders = (init.headers as Record<string, string> | undefined) ?? {};
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: {
+            [frontendMiniAppConsts.MINI_APP_SESSION_HEADER]: rotatedSessionToken,
+            [frontendMiniAppConsts.MINI_APP_SESSION_EXPIRES_AT_HEADER]: String(rotatedExpiresAt),
+          },
+        });
+      },
+    });
+    expect(okRun.reloaded).toBeTrue();
+    expect(okRun.pageHidden).toBeTrue();
+    expect(okRun.savedGuardTs).not.toBeNull();
+    expect(capturedHeaders["X-Telegram-Init-Data"]).toBe("user=1&hash=abc");
+    expect(capturedHeaders["X-Mini-App-Session"]).toBe(validSessionToken);
+    expect(JSON.parse(okRun.storedSessionAfter ?? "{}")).toEqual({
+      token: rotatedSessionToken,
+      expiresAt: rotatedExpiresAt,
+    });
+
+    let queryCapturedHeaders: Record<string, string> = {};
+    const queryOkRun: RejectInitDataRunResult = await runWithInitData({
+      search: "?tgWebAppData=user%3D7%26hash%3Dqry",
+      reloadGuardTs: null,
+      storedSessionRaw: null,
+      fetchImpl: async (_url: string, init: RequestInit): Promise<Response> => {
+        queryCapturedHeaders = (init.headers as Record<string, string> | undefined) ?? {};
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    });
+    expect(queryOkRun.reloaded).toBeTrue();
+    expect(queryCapturedHeaders["X-Telegram-Init-Data"]).toBe("user=7&hash=qry");
+    expect(queryCapturedHeaders["X-Mini-App-Session"]).toBeUndefined();
+
+    let sessionParamsHeaders: Record<string, string> = {};
+    const sessionParamsOkRun: RejectInitDataRunResult = await runWithInitData({
+      telegramInitParamsRaw: JSON.stringify({ tgWebAppData: "user=9&hash=cached" }),
+      reloadGuardTs: null,
+      storedSessionRaw: validSessionToken,
+      fetchImpl: async (_url: string, init: RequestInit): Promise<Response> => {
+        sessionParamsHeaders = (init.headers as Record<string, string> | undefined) ?? {};
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    });
+    expect(sessionParamsOkRun.reloaded).toBeTrue();
+    expect(sessionParamsHeaders["X-Telegram-Init-Data"]).toBe("user=9&hash=cached");
+    expect(sessionParamsHeaders["X-Mini-App-Session"]).toBeUndefined();
+    expect(sessionParamsOkRun.storedSessionAfter).toBeNull();
+
+    const loopGuardedRun: RejectInitDataRunResult = await runWithInitData({
+      hash: "#tgWebAppData=user%3D1%26hash%3Dabc",
+      reloadGuardTs: String(Date.now()),
+      storedSessionRaw: null,
+      fetchImpl: async (): Promise<Response> =>
+        new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    });
+    expect(loopGuardedRun.reloaded).toBeFalse();
+    expect(loopGuardedRun.pageHidden).toBeFalse();
+    expect(loopGuardedRun.pillText).toBe("HTTP 403 · ACCESS_DENIED");
+
+    const zhDict: Readonly<MiniAppTranslations> = getZhTranslations();
+    const forbiddenRun: RejectInitDataRunResult = await runWithInitData({
+      hash: "#tgWebAppData=user%3D2%26hash%3Ddef",
+      reloadGuardTs: null,
+      storedSessionRaw: JSON.stringify({ token: validSessionToken, expiresAt: Date.now() + 60_000 }),
+      fetchImpl: async (): Promise<Response> =>
+        new Response(
+          JSON.stringify({
+            status: 403,
+            code: "FORBIDDEN_USER",
+            error: "FORBIDDEN_USER",
+            requestId: "req-precheck-403",
+            timestamp: "2026-11-13 02:31:00 UTC",
+            clientIp: "198.51.100.9",
+            host: "console.example.test",
+            path: "/api/auth/precheck",
+          }),
+          { status: 403 }
+        ),
+    });
+    expect(forbiddenRun.reloaded).toBeFalse();
+    expect(forbiddenRun.pageHidden).toBeFalse();
+    expect(forbiddenRun.pillText).toBe("HTTP 403 · FORBIDDEN_USER");
+    expect(forbiddenRun.reasonText).toBe(zhDict.serverNotice("FORBIDDEN_USER"));
+
+    const netErrRun: RejectInitDataRunResult = await runWithInitData({
+      hash: "#tgWebAppData=user%3D1%26hash%3Dabc",
+      reloadGuardTs: null,
+      storedSessionRaw: null,
+      fetchImpl: async (): Promise<Response> => {
+        throw new Error("network down");
+      },
+    });
+    expect(netErrRun.reloaded).toBeFalse();
+    expect(netErrRun.pageHidden).toBeFalse();
+    expect(netErrRun.pillText).toBe("HTTP 401 · MISSING_INIT_DATA");
   });
 
   test("前后端各自的图库下载文件名构造对同一输入给出相同结果", () => {

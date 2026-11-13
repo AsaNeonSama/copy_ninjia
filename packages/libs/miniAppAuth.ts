@@ -4,7 +4,11 @@ import {
   MINI_APP_AUTH_MAX_AGE_SECONDS,
   MINI_APP_CONTROL_CHARS_PATTERN,
   MINI_APP_MAX_INIT_DATA_LENGTH,
+  MINI_APP_PAGE_GATE_CLOCK_SKEW_MS,
+  MINI_APP_PAGE_GATE_PAYLOAD_PREFIX,
+  MINI_APP_PAGE_GATE_SECRET_SEED,
   MINI_APP_POSITIVE_INTEGER_PATTERN,
+  MINI_APP_SESSION_TTL_MS,
   MINI_APP_SHA256_HEX_PATTERN,
   MINI_APP_WEB_APP_DATA_SECRET_SEED,
 } from "../consts/miniApp";
@@ -238,5 +242,128 @@ export function verifyMiniAppAssetToken(
   return (
     actualDigest.byteLength === expectedDigest.byteLength &&
     crypto.timingSafeEqual(actualDigest, expectedDigest)
+  );
+}
+
+/** `issueMiniAppPageGateToken` 签发无状态单页门禁令牌的入参。 */
+export interface IssueMiniAppPageGateTokenOptions {
+  /** 由 `deriveMiniAppPageGateSecretKey(botToken)` 预先派生的 32 字节 HMAC 密钥。 */
+  readonly secretKey: Uint8Array;
+  /** 唯一允许访问 Mini App 的超级管理员 Telegram 用户 ID。 */
+  readonly superAdminUserId: number;
+  /** 签发时刻毫秒时间戳（缺省取 `Date.now()`）。 */
+  readonly nowMs?: number;
+}
+
+/** `verifyMiniAppPageGateToken` 校验无状态单页门禁令牌的入参。 */
+export interface VerifyMiniAppPageGateTokenOptions {
+  /** 从 `Cookie` 请求头提取的候选门禁令牌。 */
+  readonly token: string | null | undefined;
+  /** 由 `deriveMiniAppPageGateSecretKey(botToken)` 预先派生的 32 字节 HMAC 密钥。 */
+  readonly secretKey: Uint8Array;
+  /** 唯一允许访问 Mini App 的超级管理员 Telegram 用户 ID。 */
+  readonly superAdminUserId: number;
+  /** 当前毫秒时间戳（缺省取 `Date.now()`）。 */
+  readonly nowMs?: number;
+  /** 令牌允许的最大存活毫秒数（缺省取 `MINI_APP_SESSION_TTL_MS`）。 */
+  readonly ttlMs?: number;
+}
+
+/**
+ * 从 `BOT_TOKEN` 派生用于单页门禁令牌签名的域分离 32 字节 HMAC-SHA256 密钥。
+ * @param botToken 当前 Bot 的 API Token。
+ * @returns 32 字节 HMAC-SHA256 门禁签名密钥。
+ */
+export function deriveMiniAppPageGateSecretKey(botToken: string): Uint8Array {
+  return new Bun.CryptoHasher("sha256", MINI_APP_PAGE_GATE_SECRET_SEED)
+    .update(botToken, "utf8")
+    .digest();
+}
+
+/**
+ * 计算单页门禁令牌载荷（`${MINI_APP_PAGE_GATE_PAYLOAD_PREFIX}${superAdminUserId}:${issuedAtMs}`）的 32 字节 HMAC-SHA256 摘要。
+ * @param secretKey 由 `deriveMiniAppPageGateSecretKey(botToken)` 预先派生的 32 字节 HMAC 密钥。
+ * @param superAdminUserId 唯一允许访问 Mini App 的超级管理员 Telegram 用户 ID。
+ * @param issuedAtMs 门禁令牌签发毫秒时间戳。
+ * @returns 32 字节 HMAC-SHA256 摘要。
+ */
+function computeMiniAppPageGateDigest(
+  secretKey: Uint8Array,
+  superAdminUserId: number,
+  issuedAtMs: number
+): Uint8Array {
+  return new Bun.CryptoHasher("sha256", secretKey)
+    .update(
+      `${MINI_APP_PAGE_GATE_PAYLOAD_PREFIX}${superAdminUserId}:${issuedAtMs}`,
+      "utf8"
+    )
+    .digest();
+}
+
+/**
+ * 签发绑定 `SUPER_ADMIN_USER_ID` 与签发毫秒时间戳的无状态单页门禁令牌（`<issuedAtMs>.<hmacHex>`）。
+ * @param options 预先派生的门禁 HMAC 密钥、超级管理员 ID 与可选签发时间戳。
+ * @returns 形如 `<issuedAtMs>.<hmacHex>` 的门禁令牌。
+ */
+export function issueMiniAppPageGateToken({
+  secretKey,
+  superAdminUserId,
+  nowMs = Date.now(),
+}: IssueMiniAppPageGateTokenOptions): string {
+  const issuedAtMs: number = Math.floor(nowMs);
+  const digest: Uint8Array = computeMiniAppPageGateDigest(
+    secretKey,
+    superAdminUserId,
+    issuedAtMs
+  );
+  return `${issuedAtMs}.${digest.toHex()}`;
+}
+
+/**
+ * 以常量时间校验单页门禁令牌（`<issuedAtMs>.<hmacHex>`）的 HMAC-SHA256 签名、60 秒未来时钟偏移下界与 `MINI_APP_SESSION_TTL_MS` 有效期。
+ * @param options 待校验令牌、预先派生的门禁 HMAC 密钥、超级管理员 ID 与可选时钟参数。
+ * @returns 签名有效且未越界过期时返回 `true`，否则返回 `false`。
+ */
+export function verifyMiniAppPageGateToken({
+  token,
+  secretKey,
+  superAdminUserId,
+  nowMs = Date.now(),
+  ttlMs = MINI_APP_SESSION_TTL_MS,
+}: VerifyMiniAppPageGateTokenOptions): boolean {
+  if (typeof token !== "string") return false;
+  const trimmed: string = token.trim();
+  const dotIndex: number = trimmed.indexOf(".");
+  if (dotIndex <= 0) {
+    return false;
+  }
+  const issuedAtRaw: string = trimmed.slice(0, dotIndex);
+  const hmacHex: string = trimmed.slice(dotIndex + 1);
+  if (
+    hmacHex.includes(".") ||
+    !MINI_APP_POSITIVE_INTEGER_PATTERN.test(issuedAtRaw) ||
+    !MINI_APP_SHA256_HEX_PATTERN.test(hmacHex)
+  ) {
+    return false;
+  }
+  const issuedAtMs: number = Number(issuedAtRaw);
+  if (!Number.isSafeInteger(issuedAtMs) || issuedAtMs <= 0) {
+    return false;
+  }
+  const expectedDigest: Uint8Array = computeMiniAppPageGateDigest(
+    secretKey,
+    superAdminUserId,
+    issuedAtMs
+  );
+  const actualDigest: Uint8Array = Uint8Array.fromHex(hmacHex);
+  if (
+    actualDigest.byteLength !== expectedDigest.byteLength ||
+    !crypto.timingSafeEqual(actualDigest, expectedDigest)
+  ) {
+    return false;
+  }
+  return (
+    issuedAtMs <= nowMs + MINI_APP_PAGE_GATE_CLOCK_SKEW_MS &&
+    nowMs - issuedAtMs <= ttlMs
   );
 }

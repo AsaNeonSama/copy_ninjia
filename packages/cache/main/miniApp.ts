@@ -1,4 +1,4 @@
-/** owner: main。Mini App HTTP 服务实例、运行时配置镜像、密码认证会话、预备选择器会话与结果回执缓存（packages/mini-app-api-server/）。 */
+/** owner: main。Mini App HTTP 服务实例、按需物化前端产物快照、独立拒绝页模板、运行时配置镜像、密码认证会话、预备选择器会话与结果回执缓存（packages/mini-app-api-server/）。 */
 
 import {
   MINI_APP_PICKER_MAX_PENDING,
@@ -15,7 +15,10 @@ import type {
   MiniAppPickerResultEvent,
   MiniAppPreparedPickerSession,
 } from "../../types/miniApp/identities";
-import type { MiniAppPublicUrlParts } from "../../types/miniApp/server";
+import type {
+  BundledMiniAppAssets,
+  MiniAppPublicUrlParts,
+} from "../../types/miniApp/server";
 import type {
   MiniAppPendingTotpSetup,
   MiniAppTotpRecord,
@@ -116,4 +119,34 @@ export const miniAppTotpRecordHolder: {
  */
 export const miniAppPendingTotpSetupHolder: {
   current: Readonly<MiniAppPendingTotpSetup> | null;
+} = { current: null };
+
+/**
+ * 主线程按需一次性物化的 Mini App 前端入口 HTML 与本地打包静态资源只读快照句柄。
+ * 填充：首次收到已通过超级管理员门禁核验的单页或打包资源请求时，由 `materializeBundledMiniAppAssets` 启动短暂本地回环实例提取 `Bun.HTMLBundle` 后写入。
+ * 清理：`stopMiniAppServer` 停止服务时置回 `null`。
+ * 容量恒为单个只读快照对象，构建产物在单次服务运行期内不可变、不淘汰；与 Worker 崩溃无关，进程重启后从 `null` 按需重新物化。
+ */
+export const miniAppBundledAssetsHolder: {
+  current: Readonly<BundledMiniAppAssets> | null;
+} = { current: null };
+
+/**
+ * 主线程正在物化 Mini App 前端打包资源的在途异步任务句柄（合并并发首次访问，避免重复拉起临时回环端口）。
+ * 填充：`materializeBundledMiniAppAssets` 在 `miniAppBundledAssetsHolder.current` 为 `null` 且无在途任务时写入。
+ * 清理：该次物化任务完成（成功或失败）的 `finally` 分支及 `stopMiniAppServer` 停止服务时置回 `null`。
+ * 容量恒为单个在途 `Promise`，不设队列淘汰；与 Worker 崩溃无关，进程重启后从 `null` 开始。
+ */
+export const miniAppBundledAssetsPromiseHolder: {
+  current: Promise<Readonly<BundledMiniAppAssets> | null> | null;
+} = { current: null };
+
+/**
+ * 主线程按需一次性加载的独立未授权拒绝页（`MINI_APP_REJECT_HTML_PATH`）原始 HTML 模板文本句柄。
+ * 填充：首次收到非 `HEAD` 的未授权单页请求时，由 `serveMiniAppRejectHtml` 从磁盘读取后写入。
+ * 清理：`stopMiniAppServer` 停止服务时置回 `null`。
+ * 容量恒为单个只读模板字符串，单次服务运行期内静态模板不变、不淘汰；与 Worker 崩溃无关，进程重启后从 `null` 按需重新读取。
+ */
+export const miniAppRejectHtmlHolder: {
+  current: string | null;
 } = { current: null };

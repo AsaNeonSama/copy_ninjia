@@ -45,6 +45,7 @@ const {
   MINI_APP_MAX_INIT_DATA_LENGTH,
   MINI_APP_MAX_JSON_BODY_BYTES,
   MINI_APP_NO_STORE_CACHE_CONTROL,
+  MINI_APP_PAGE_GATE_COOKIE_NAME,
   MINI_APP_PASSWORD_LOCKOUT_MS,
   MINI_APP_PASSWORD_MAX_ATTEMPTS,
   MINI_APP_SESSION_HEADER,
@@ -130,10 +131,9 @@ const SEEDED_WHITELIST_ID: number = 610_001;
 const SEEDED_BLOCKLIST_ID: number = 620_002;
 const NON_ADMIN_USER_ID: number = SUPER_ADMIN_USER_ID + 777;
 
-/** 公开壳层与探活路由模式集合（允许不带 `initData` 访问但绝不包含业务敏感数据）。 */
+/** 公开探活、图标与单页门控入口路由模式集合（未授权请求访问单页入口时仅返回独立 `reject.html`，绝不返回完整前端包或业务数据）。 */
 const PUBLIC_ROUTE_PATTERNS: ReadonlySet<string> = new Set<string>([
   "/healthz",
-  "/_bundle",
   "/",
   "/index.html",
   "/favicon.ico",
@@ -449,8 +449,9 @@ afterEach(async (): Promise<void> => {
 });
 
 describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
-  test("路由穷举校验：测试矩阵 1:1 覆盖 createMiniAppBunRoutes() 全部非公开路由与 HTTP 方法，公开壳层严格附带 CSP 与防嵌套头", async () => {
+  test("路由穷举校验：测试矩阵 1:1 覆盖 createMiniAppBunRoutes() 全部非公开路由与 HTTP 方法，未授权单页入口仅返回独立 reject.html 且彻底移除 /_bundle", async () => {
     const routes: Bun.Serve.Routes<undefined, string> = createMiniAppBunRoutes();
+    expect(routes["/_bundle"]).toBeUndefined();
     const actualProtectedPairs: string[] = [];
     for (const [pattern, entry] of Object.entries(routes)) {
       if (PUBLIC_ROUTE_PATTERNS.has(pattern)) continue;
@@ -471,8 +472,23 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       expect(pageRes.headers.get("x-frame-options")).toBe(MINI_APP_X_FRAME_OPTIONS_VALUE);
       expect(pageRes.headers.get("cache-control")).toBe(MINI_APP_NO_STORE_CACHE_CONTROL);
       expect(pageRes.headers.get("x-content-type-options")).toBe("nosniff");
-      expect(await pageRes.text()).not.toContain(BOT_TOKEN);
+      expect(pageRes.headers.get("x-request-id")).toMatch(/^[0-9a-f]{16}$/u);
+      const html: string = await pageRes.text();
+      expect(html).toContain("cf-error-page");
+      expect(html).toContain('data-code="MISSING_INIT_DATA"');
+      expect(html).toContain('data-status="401"');
+      expect(html).not.toContain('id="root"');
+      expect(html).not.toContain("./chunk-");
+      expect(html).not.toContain(BOT_TOKEN);
     }
+
+    const headPageRes: Response = await sendSecurityRequest({ path: "/", method: "HEAD" });
+    expect(headPageRes.status).toBe(200);
+    expect(headPageRes.headers.get("x-request-id")).toMatch(/^[0-9a-f]{16}$/u);
+    expect(await headPageRes.text()).toBe("");
+
+    const hiddenBundleRes: Response = await sendSecurityRequest({ path: "/_bundle" });
+    expect(hiddenBundleRes.status).toBe(404);
 
     const healthRes: Response = await sendSecurityRequest({ path: "/healthz" });
     expect(healthRes.status).toBe(200);
@@ -970,6 +986,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       body: JSON.stringify({ totpCode: generateMiniAppTotpCodeAt(activeSecret, Date.now()) }),
     });
     expect(unlockedLoginRes.status).toBe(200);
+    expect(unlockedLoginRes.headers.get("set-cookie")).toContain(`${MINI_APP_PAGE_GATE_COOKIE_NAME}=`);
     const loginSuccess: MiniAppLoginSuccessResponse = (await unlockedLoginRes.json()) as MiniAppLoginSuccessResponse;
     expect(loginSuccess.ok).toBeTrue();
     expect(loginSuccess.ttlMs).toBe(MINI_APP_SESSION_TTL_MS);

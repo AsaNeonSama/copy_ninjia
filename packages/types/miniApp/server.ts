@@ -42,6 +42,24 @@ export interface MiniAppPublicUrlParts {
   readonly host: string;
 }
 
+/** 单份已物化的 Mini App 前端打包静态资源（字节内容、MIME 类型与强校验 ETag）。 */
+export interface BundledMiniAppAsset {
+  /** 资源原始字节内容。 */
+  readonly content: Uint8Array;
+  /** 资源的 `Content-Type` 响应头取值。 */
+  readonly contentType: string;
+  /** 资源的强校验 `ETag` 响应头取值。 */
+  readonly etag: string;
+}
+
+/** 经短暂本地回环实例物化的 Mini App 完整前端入口 HTML 与本地打包静态资源只读快照。 */
+export interface BundledMiniAppAssets {
+  /** 已将本地根路径引用（`<script src="/...">`、`<link href="/...">`）改写为 `./...` 相对路径的入口 HTML。 */
+  readonly html: string;
+  /** 本地打包产物原始根路径（如 `"/chunk-xxx.js"`）到已物化资源元数据的只读映射。 */
+  readonly assets: ReadonlyMap<string, Readonly<BundledMiniAppAsset>>;
+}
+
 /** 单项模型子能力或已加载任务的结构化明细项（供前端竖向样式化展示）。 */
 export interface MiniAppCapabilityDetailItem {
   readonly label: string;

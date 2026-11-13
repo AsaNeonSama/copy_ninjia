@@ -160,6 +160,18 @@ export const MINI_APP_FAVICON_PATH: string = join(
   "favicon.ico"
 );
 /**
+ * Mini App 服务端在未授权访问单页路由时返回的独立拒绝页 HTML 文件路径。源码运行时以仓库为根，
+ * 二进制运行时以部署工作目录为根（由 `scripts/build.ts` 复制进发行包）。
+ * 不变量：内联脚本在运行期保持只读不变，请求诊断字段仅通过 `<body>` 的 `data-*` 属性注入。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
+ */
+export const MINI_APP_REJECT_HTML_PATH: string = join(
+  PROJECT_ROOT,
+  "packages",
+  "mini-app-api-server",
+  "resource",
+  "reject.html"
+);
+/**
  * SQLite 运行时数据库目录；与 memory/ 平级，只由 Disk I/O Worker 和显式迁移脚本访问。
  */
 export const DATABASE_DIR: string = join(RUNTIME_DATA_ROOT, DATABASE_DIR_NAME);

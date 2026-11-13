@@ -19,6 +19,10 @@ import type {
 } from "../../types/miniApp/auth";
 import type { MiniAppTotpRecord } from "../../types/miniAppTotp";
 import {
+  attachClearMiniAppPageGateCookie,
+  attachMiniAppPageGateCookie,
+} from "../auth/pageGate";
+import {
   attachRefreshedSessionHeaders,
   checkSuperAdminPasswordLockout, issueMiniAppAuthSession,
   resolveAndRefreshMiniAppAuthSession, revokeMiniAppAuthSession,
@@ -34,8 +38,8 @@ const MINI_APP_ASSET_TOKEN: string = deriveMiniAppAssetToken(
 );
 
 /**
- * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态及持久化会话是否有效（仅当 45 分钟解锁会话仍有效时一并下发受保护资源缓存令牌 `assetToken`；若距签发已超过 5 分钟则自动刷新会话令牌并顺延有效期）。
- * @param request 可选 HTTP 请求对象（用于核验客户端持久化的 45 分钟会话令牌）。
+ * 处理 `GET /api/auth/precheck`：在前置中间件链完成 SuperAdmin `initData` 签名与密码锁定核验后，返回会话 TTL、TOTP 启用状态及持久化会话是否有效（仅当 45 分钟解锁会话仍有效时一并下发受保护资源缓存令牌 `assetToken`；若距签发已超过 5 分钟则自动刷新会话令牌并顺延有效期），并签发最新单页门禁 Cookie。
+ * @param request 可选 HTTP 请求对象（用于核验客户端持久化的 45 分钟会话令牌及附加 `Set-Cookie`）。
  * @returns JSON 响应。
  */
 export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Response> {
@@ -61,6 +65,9 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
       }
       : {}),
   });
+  if (request !== undefined) {
+    attachMiniAppPageGateCookie(response, request, nowMs);
+  }
   if (activeSession !== null && activeSession.token !== sessionToken) {
     return attachRefreshedSessionHeaders(response, activeSession);
   }
@@ -68,7 +75,7 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
 }
 
 /**
- * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 3 次锁定该超级管理员 ID 30 分钟），通过后签发 45 分钟会话令牌。
+ * 处理 `POST /api/auth/login`：在前置中间件链完成 SuperAdmin `initData` 签名核验后，若已启用 Google Authenticator 则优先校验 6 位 TOTP 动态码，否则校验 `mini_app.password`（连续输错 3 次锁定该超级管理员 ID 30 分钟并清除单页门禁 Cookie），通过后签发 45 分钟会话令牌并刷新单页门禁 Cookie。
  * 读取请求体与 TOTP 记录后若锁定已生效（由并发登录在等待期间触发），不比对凭据，按失败计数并将锁定顺延至当前时刻起 30 分钟。
  * 由未锁定转入锁定时向超级管理员私聊发送一条告警（不等待发送结果，失败走统一 Telegram 错误日志）；锁定顺延不重复告警。
  * @param request HTTP 请求对象。
@@ -127,7 +134,10 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
           ),
         });
       }
-      return checkSuperAdminPasswordLockout(request, nowMs)!;
+      return attachClearMiniAppPageGateCookie(
+        checkSuperAdminPasswordLockout(request, nowMs)!,
+        request
+      );
     }
     miniAppPasswordGuardHolder.current = {
       userId: SUPER_ADMIN_USER_ID,
@@ -154,7 +164,7 @@ export async function handlePostAuthLoginRoute(request: Request): Promise<Respon
     ttlMs: MINI_APP_SESSION_TTL_MS,
     assetToken: MINI_APP_ASSET_TOKEN,
   };
-  return jsonResponse(response);
+  return attachMiniAppPageGateCookie(jsonResponse(response), request, nowMs);
 }
 
 /**

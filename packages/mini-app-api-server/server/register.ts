@@ -23,7 +23,7 @@ import indexHtml from "../../mini-app-frontend/index.html";
 
 /**
  * 合并各领域路由表片段（`routes/` 目录）为传给 `Bun.serve({ routes })` 的原生路由表；
- * 当 `mini_app.url` 配置了子路径前缀（`basePath !== "/"`）时，为除 `/_bundle` 外的每条路由同步注册 `${basePath}` 前缀别名（`/` 对应 `${basePath}/`），同时覆盖反向代理保留前缀与剥离前缀两种转发模式。
+ * 当 `mini_app.url` 配置了子路径前缀（`basePath !== "/"`）时，为每条路由同步注册 `${basePath}` 前缀别名（`/` 对应 `${basePath}/`），同时覆盖反向代理保留前缀与剥离前缀两种转发模式。
  * @returns `Bun.serve` 原生路由定义对象。
  */
 export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
@@ -41,7 +41,7 @@ export function createMiniAppBunRoutes(): Bun.Serve.Routes<undefined, string> {
 
   const routes: Bun.Serve.Routes<undefined, string> = { ...baseRoutes };
   for (const [routeKey, routeValue] of Object.entries(baseRoutes)) {
-    if (routeKey === "/_bundle" || routeValue === undefined) continue;
+    if (routeValue === undefined) continue;
     const prefixedKey: string = routeKey === "/" ? `${basePath}/` : `${basePath}${routeKey}`;
     routes[prefixedKey] = routeValue;
   }
@@ -64,8 +64,8 @@ function isProtectedMiniAppAssetPath(routePath: string): boolean {
 }
 
 /**
- * 处理未命中 `Bun.serve` 原生路由表的请求（子路径末尾斜杠重定向、携带子路径前缀的本地打包静态资源、方法不匹配或未知路径），按以下顺序兜底：
- * `${basePath}` 的 `308` 补斜杠 → 子路径打包静态资源回环读取 → 受保护图片后缀路径经受保护资源鉴权链后返回 404 → 非 `/api/` 未知路径返回 404 → `/api/` 下未知路径或方法不匹配经完整双层业务 API 鉴权链后返回 404。
+ * 处理未命中 `Bun.serve` 原生路由表的请求（子路径末尾斜杠重定向、前端本地打包静态资源、方法不匹配或未知路径），按以下顺序兜底：
+ * `${basePath}` 的 `308` 补斜杠 → 根路径及子路径前端打包静态资源门禁分发 → 受保护图片后缀路径经受保护资源鉴权链后返回 404 → 非 `/api/` 未知路径返回 404 → `/api/` 下未知路径或方法不匹配经完整双层业务 API 鉴权链后返回 404。
  * @param request 传入的 HTTP `Request`。
  * @returns 完整的 HTTP `Response`。
  */
@@ -92,7 +92,10 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     params: {},
   };
 
-  const bundleAssetResponse: Response | null = await dispatchBundleAssetRoute(ctx);
+  const bundleAssetResponse: Response | null = await dispatchBundleAssetRoute(
+    ctx,
+    indexHtml
+  );
   if (bundleAssetResponse !== null) return bundleAssetResponse;
 
   if (method !== "DELETE" && isProtectedMiniAppAssetPath(routePath)) {
