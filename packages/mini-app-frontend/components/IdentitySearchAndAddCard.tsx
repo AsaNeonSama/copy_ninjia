@@ -41,20 +41,11 @@ export type IdentitySearchAndAddCardSlice = Pick<
   | "addById"
 >;
 
-/** `IdentitySearchAndAddCard` 组件属性参数（传 `store` 时按切片自订阅，传 `state` 时用于独立展示与测试）。 */
-export type IdentitySearchAndAddCardProps =
-  | {
-    /** 黑白名单与权限矩阵状态仓库实例。 */
-    readonly store: MiniAppIdentitiesStore;
-    /** 已由上层透传状态切片时不传。 */
-    readonly state?: undefined;
-  }
-  | {
-    /** 未传状态仓库时省略。 */
-    readonly store?: undefined;
-    /** 顶部搜索与折叠添加卡片所需的状态与动作切片。 */
-    readonly state: IdentitySearchAndAddCardSlice;
-  };
+/** `IdentitySearchAndAddCard` 组件属性参数。 */
+export interface IdentitySearchAndAddCardProps {
+  /** 黑白名单与权限矩阵状态仓库实例；卡片按切片自订阅。 */
+  readonly store: MiniAppIdentitiesStore;
+}
 
 /**
  * 从黑白名单仓库提取顶部搜索与折叠添加卡片所需切片。
@@ -80,34 +71,6 @@ function selectIdentitySearchAndAddCardSlice(
     setIdInput: state.setIdInput,
     addById: state.addById,
   };
-}
-
-/**
- * 比较顶部搜索与折叠添加卡片属性是否一致，隔离输入框草稿变化之外的重渲染。
- *
- * @param prev 上一次属性
- * @param next 本次属性
- * @returns 切片与仓库引用均未变化时返回 `true`
- */
-function areIdentitySearchAndAddCardPropsEqual(
-  prev: Readonly<IdentitySearchAndAddCardProps>,
-  next: Readonly<IdentitySearchAndAddCardProps>
-): boolean {
-  if (prev.store !== undefined && next.store !== undefined) {
-    return prev.store === next.store;
-  }
-  if (prev.state === undefined || next.state === undefined) {
-    return false;
-  }
-  const a: IdentitySearchAndAddCardSlice = prev.state;
-  const b: IdentitySearchAndAddCardSlice = next.state;
-  return (
-    a.searchInput === b.searchInput &&
-    a.addMenuOpen === b.addMenuOpen &&
-    a.idFormOpen === b.idFormOpen &&
-    a.idInput === b.idInput &&
-    a.busyAction === b.busyAction
-  );
 }
 
 /** `IdentitySearchAndAddCardPanel` 视图组件的参数。 */
@@ -301,21 +264,15 @@ function IdentitySearchAndAddCardPanel({
   );
 }
 
-/** `ConnectedIdentitySearchAndAddCard` 连接包装器的参数。 */
-export interface ConnectedIdentitySearchAndAddCardProps {
-  /** 黑白名单与权限矩阵状态仓库实例。 */
-  readonly store: MiniAppIdentitiesStore;
-}
-
 /**
- * 订阅黑白名单顶部搜索与折叠添加卡片切片的轻量连接包装器。
+ * 订阅黑白名单顶部搜索与折叠添加卡片切片并渲染卡片视图。
  *
  * @param props 状态仓库引用
  * @returns React 节点
  */
 function ConnectedIdentitySearchAndAddCard({
   store,
-}: ConnectedIdentitySearchAndAddCardProps): React.JSX.Element {
+}: IdentitySearchAndAddCardProps): React.JSX.Element {
   const slice: IdentitySearchAndAddCardSlice = useStore(
     store,
     useShallow(selectIdentitySearchAndAddCardSlice)
@@ -323,22 +280,7 @@ function ConnectedIdentitySearchAndAddCard({
   return <IdentitySearchAndAddCardPanel state={slice} />;
 }
 
-/**
- * 渲染黑白名单顶部的防抖搜索栏与折叠添加卡片，按 `store` 或独立 `state` 分发到对应视图。
- *
- * @param props 仓库实例或独立状态切片
- * @returns React 节点
- */
-function IdentitySearchAndAddCardRouter(
-  props: IdentitySearchAndAddCardProps
-): React.JSX.Element {
-  if (props.store !== undefined) {
-    return <ConnectedIdentitySearchAndAddCard store={props.store} />;
-  }
-  return <IdentitySearchAndAddCardPanel state={props.state} />;
-}
-
-/** 按仓库引用或搜索与添加抽屉切片浅比较跳过重渲染的顶部搜索与添加卡片。 */
+/** 仓库引用不变时跳过父级重渲染的顶部搜索与添加卡片（卡片内部按切片自订阅）。 */
 export const IdentitySearchAndAddCard: React.MemoExoticComponent<
-  typeof IdentitySearchAndAddCardRouter
-> = memo(IdentitySearchAndAddCardRouter, areIdentitySearchAndAddCardPropsEqual);
+  typeof ConnectedIdentitySearchAndAddCard
+> = memo(ConnectedIdentitySearchAndAddCard);

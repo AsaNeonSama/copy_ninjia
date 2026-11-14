@@ -11,13 +11,24 @@ import {
 } from "./testMockReset";
 
 /**
- * 顶层 `spyOn` 恢复门禁：模块顶层与 `describe` 一级语句创建的 `spyOn` 必须在同一作用域或祖先
- * 作用域注册的 `afterAll`/`afterEach` 清理钩子（或同作用域顶层同步位置）里调用 `.mockRestore()`
- * 或 `mock.restore()` 还原，避免在 `bun test --randomize` 下污染后续测试套件。
+ * 套件级 `spyOn` 恢复门禁：模块顶层、`describe` 一级语句以及 `beforeAll`/`beforeEach` 回调里创建的
+ * `spyOn` 必须在同一作用域或祖先作用域的清理钩子里调用 `.mockRestore()` 或 `mock.restore()`（等价的 `jest.restoreAllMocks()`）还原，
+ * 避免在 `bun test --randomize` 下污染后续测试套件：
+ * - 顶层与 `beforeAll` 创建的监听只认 `afterAll`（`afterEach` 会在第一个用例后就撤掉监听）；
+ *   顶层监听另认同作用域顶层同步位置的还原。
+ * - `beforeEach` 创建的监听认 `afterEach` 或 `afterAll`。
+ * 被监听目标已是 mock 时，Bun 的 `spyOn` 返回同一个 mock，对它调用 `.mockRestore()` 会清空实现，
+ * 这类目标应改用 `mock.restore()`；门禁无法静态区分目标，诊断文案同时给出两种写法。
  */
 
-/** 用于恢复文件顶层 `spyOn` 的清理生命周期钩子。 */
-const CLEANUP_HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["afterEach", "afterAll"]);
+/** 只在套件全部用例结束后运行的清理钩子。 */
+const AFTER_ALL_HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["afterAll"]);
+
+/** 每个用例结束后或套件结束后运行的清理钩子。 */
+const AFTER_ANY_HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["afterEach", "afterAll"]);
+
+/** 会创建套件级监听的准备钩子。 */
+const SETUP_HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["beforeAll", "beforeEach"]);
 
 /** `describe` 套件节点名集合，回调内部的一级语句仍视为顶层套件作用域。 */
 const SUITE_FUNCTIONS: ReadonlySet<string> = new Set(["describe"]);
@@ -34,10 +45,15 @@ export interface TopLevelSpyRestoreParams {
   readonly testFiles: readonly string[];
 }
 
-/** 顶层 `spyOn(...)` 调用及其所属套件作用域。 */
+/** 套件级 `spyOn` 的创建位置：顶层语句、`beforeAll` 或 `beforeEach` 回调。 */
+type SpyCallOrigin = "top-level" | "beforeAll" | "beforeEach";
+
+/** 套件级 `spyOn(...)` 调用及其所属套件作用域。 */
 interface ScopedSpyCall {
   /** `spyOn(...)` 调用表达式。 */
   readonly call: ts.CallExpression;
+  /** 调用所在的创建位置。 */
+  readonly origin: SpyCallOrigin;
   /** 所属套件作用域（`SourceFile` 或外层 `describe` 调用）。 */
   readonly scope: ts.Node;
 }
@@ -84,30 +100,48 @@ function isSpyOnCall(call: ts.CallExpression): boolean {
 }
 
 /**
- * 判断调用表达式是否为 `afterEach(...)`/`afterAll(...)` 或 `<ns>.afterEach(...)`/`<ns>.afterAll(...)`。
+ * 取生命周期钩子调用（`afterAll(...)`、`<ns>.beforeEach(...)` 等）的钩子名。
  *
  * @param call 调用表达式节点
- * @returns 为清理生命周期钩子调用时返回 true
+ * @param hookNames 允许匹配的钩子名集合
+ * @returns 命中集合时返回钩子名，否则返回 undefined
  */
-function isCleanupHookCall(call: ts.CallExpression): boolean {
+function lifecycleHookName(call: ts.CallExpression, hookNames: ReadonlySet<string>): string | undefined {
   const callee: ts.Expression = unwrapExpression(call.expression);
-  if (ts.isIdentifier(callee)) return CLEANUP_HOOK_FUNCTIONS.has(callee.text);
-  return ts.isPropertyAccessExpression(callee) && CLEANUP_HOOK_FUNCTIONS.has(callee.name.text);
+  const name: string | undefined = ts.isIdentifier(callee)
+    ? callee.text
+    : ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
+  return name !== undefined && hookNames.has(name) ? name : undefined;
 }
 
 /**
- * 判断调用表达式是否为无参全局 `mock.restore()` 或 `<ns>.mock.restore()`。
+ * 判断调用表达式是否为无参全局还原：`mock.restore()`、`jest.restoreAllMocks()` 或带命名空间前缀的同名调用。
+ * 两者在 Bun 中语义相同：还原全部 `spyOn` 监听，不清空共享 mock 的实现。
  *
  * @param call 调用表达式节点
- * @returns 为全局 `mock.restore()` 调用时返回 true
+ * @returns 为全局还原调用时返回 true
  */
 function isGlobalMockRestoreCall(call: ts.CallExpression): boolean {
   if (call.arguments.length !== 0) return false;
   const callee: ts.Expression = unwrapExpression(call.expression);
-  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "restore") return false;
+  if (!ts.isPropertyAccessExpression(callee)) return false;
+  const receiverName: string = expectedGlobalRestoreReceiver(callee.name.text);
+  if (receiverName.length === 0) return false;
   const receiver: ts.Expression = unwrapExpression(callee.expression);
-  if (ts.isIdentifier(receiver)) return receiver.text === "mock";
-  return ts.isPropertyAccessExpression(receiver) && receiver.name.text === "mock";
+  if (ts.isIdentifier(receiver)) return receiver.text === receiverName;
+  return ts.isPropertyAccessExpression(receiver) && receiver.name.text === receiverName;
+}
+
+/**
+ * 全局还原方法名对应的接收者名：`restore` 属于 `mock`，`restoreAllMocks` 属于 `jest`。
+ *
+ * @param methodName 调用的方法名
+ * @returns 对应的接收者名；不是全局还原方法时返回空字符串
+ */
+function expectedGlobalRestoreReceiver(methodName: string): string {
+  if (methodName === "restore") return "mock";
+  if (methodName === "restoreAllMocks") return "jest";
+  return "";
 }
 
 /**
@@ -226,10 +260,23 @@ function boundSpySymbol(checker: ts.TypeChecker, spyCall: ts.CallExpression): ts
 }
 
 /**
- * 收集单个文件顶层与 `describe` 一级语句里的 `spyOn(...)` 调用及其作用域链。
+ * 收集 `node` 子树内全部 `spyOn(...)` 调用（含嵌套回调），记作给定创建位置的套件级监听。
+ *
+ * @param node 准备钩子回调的函数体
+ * @param push 记录一条监听调用的回调
+ */
+function collectSpyCallsWithin(node: ts.Node, push: (call: ts.CallExpression) => void): void {
+  if (ts.isCallExpression(node) && isSpyOnCall(node)) push(node);
+  ts.forEachChild(node, (child: ts.Node): void => {
+    collectSpyCallsWithin(child, push);
+  });
+}
+
+/**
+ * 收集单个文件顶层、`describe` 一级语句与 `beforeAll`/`beforeEach` 回调里的 `spyOn(...)` 调用及其作用域链。
  *
  * @param source 文件 AST
- * @returns 顶层 `spyOn` 列表及每个子套件作用域到父套件作用域的映射
+ * @returns 套件级 `spyOn` 列表及每个子套件作用域到父套件作用域的映射
  */
 function collectTopLevelSpyCalls(source: ts.SourceFile): TopLevelSpyCallsResult {
   const calls: ScopedSpyCall[] = [];
@@ -251,8 +298,21 @@ function collectTopLevelSpyCalls(source: ts.SourceFile): TopLevelSpyCallsResult 
         }
         return;
       }
+      const setupHook: string | undefined = lifecycleHookName(node, SETUP_HOOK_FUNCTIONS);
+      if (setupHook !== undefined) {
+        const origin: SpyCallOrigin = setupHook === "beforeAll" ? "beforeAll" : "beforeEach";
+        for (const argument of node.arguments) {
+          const target: ts.Expression = unwrapExpression(argument);
+          if ((ts.isArrowFunction(target) || ts.isFunctionExpression(target)) && target.body !== undefined) {
+            collectSpyCallsWithin(target.body, (call: ts.CallExpression): void => {
+              calls.push({ call, origin, scope });
+            });
+          }
+        }
+        return;
+      }
       if (isSpyOnCall(node)) {
-        calls.push({ call: node, scope });
+        calls.push({ call: node, origin: "top-level", scope });
       }
     }
     ts.forEachChild(node, (child: ts.Node): void => {
@@ -265,16 +325,20 @@ function collectTopLevelSpyCalls(source: ts.SourceFile): TopLevelSpyCallsResult 
   return { calls, parentScopeByScope };
 }
 
-/** 按作用域汇总的 `.mockRestore()` 与全局 `mock.restore()` 恢复记录。 */
-interface RestoredSpyScopeRecords {
-  /** 各作用域内经 `afterAll`/`afterEach` 恢复的绑定符号集合。 */
-  readonly hookSymbolsByScope: ReadonlyMap<ts.Node, ReadonlySet<ts.Symbol>>;
-  /** 注册了包含 `mock.restore()` 的 `afterAll`/`afterEach` 钩子的作用域集合。 */
-  readonly hookGlobalScopes: ReadonlySet<ts.Node>;
+/** 按作用域汇总的清理钩子内 `.mockRestore()` 与全局 `mock.restore()` 恢复记录。 */
+interface HookRestoreRecords {
+  /** 各作用域内经清理钩子恢复的绑定符号集合。 */
+  readonly symbolsByScope: ReadonlyMap<ts.Node, ReadonlySet<ts.Symbol>>;
+  /** 注册了包含 `mock.restore()` 的清理钩子的作用域集合。 */
+  readonly globalScopes: ReadonlySet<ts.Node>;
+}
+
+/** 按作用域汇总的顶层同步位置 `.mockRestore()` 与全局 `mock.restore()` 恢复记录。 */
+interface SyncRestoreRecords {
   /** 在对应作用域顶层同步调用 `.mockRestore()` 的符号集合。 */
-  readonly syncSymbolsByScope: ReadonlyMap<ts.Node, ReadonlySet<ts.Symbol>>;
+  readonly symbolsByScope: ReadonlyMap<ts.Node, ReadonlySet<ts.Symbol>>;
   /** 在对应作用域顶层同步调用 `mock.restore()` 的作用域集合。 */
-  readonly syncGlobalScopes: ReadonlySet<ts.Node>;
+  readonly globalScopes: ReadonlySet<ts.Node>;
 }
 
 /**
@@ -298,22 +362,45 @@ function addScopedSymbol(
 }
 
 /**
- * 收集同一个测试文件内分作用域记录的 `afterAll`/`afterEach`（可传递进入 `test/` 下辅助函数）
- * 与各作用域顶层同步位置对 `.mockRestore()` / `mock.restore()` 的调用。
+ * 判断调用是否为无参 `<expr>.mockRestore()`。
  *
- * @param checker TypeScript 类型检查器
- * @param source 测试文件 AST
- * @param testFileSet 仓库内全部测试与测试辅助文件绝对路径集合
- * @returns 分作用域的 `spyOn` 恢复记录
+ * @param call 调用表达式节点
+ * @returns 为无参 `.mockRestore()` 调用时返回 true
  */
-function collectRestoredSpyScopeRecords(
-  checker: ts.TypeChecker,
-  source: ts.SourceFile,
-  testFileSet: ReadonlySet<string>
-): RestoredSpyScopeRecords {
+function isMockRestoreCall(call: ts.CallExpression): call is ts.CallExpression & { readonly expression: ts.PropertyAccessExpression } {
+  return ts.isPropertyAccessExpression(call.expression) &&
+    call.expression.name.text === "mockRestore" &&
+    call.arguments.length === 0;
+}
+
+/** `collectHookRestoreRecords` 的参数对象。 */
+interface HookRestoreRecordParams {
+  /** TypeScript 类型检查器。 */
+  readonly checker: ts.TypeChecker;
+  /** 测试文件 AST。 */
+  readonly source: ts.SourceFile;
+  /** 仓库内全部测试与测试辅助文件绝对路径集合。 */
+  readonly testFileSet: ReadonlySet<string>;
+  /** 计入恢复的清理钩子名集合。 */
+  readonly hookNames: ReadonlySet<string>;
+}
+
+/**
+ * 收集同一个测试文件内分作用域记录、在指定清理钩子（可传递进入 `test/` 下辅助函数）里对
+ * `.mockRestore()` / `mock.restore()` 的调用。
+ *
+ * @param params 类型检查器、文件 AST、测试文件集合与清理钩子名集合
+ * @returns 分作用域的清理钩子恢复记录
+ */
+function collectHookRestoreRecords({
+  checker,
+  source,
+  testFileSet,
+  hookNames,
+}: HookRestoreRecordParams): HookRestoreRecords {
   const hookRootsByScope: Map<ts.Node, ts.FunctionLikeDeclaration[]> = new Map();
   const visitHooks = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && isCleanupHookCall(node)) {
+    if (ts.isCallExpression(node) && lifecycleHookName(node, hookNames) !== undefined) {
       const scope: ts.Node = enclosingSuiteScope(node, source);
       let roots: ts.FunctionLikeDeclaration[] | undefined = hookRootsByScope.get(scope);
       if (roots === undefined) {
@@ -329,8 +416,8 @@ function collectRestoredSpyScopeRecords(
   };
   visitHooks(source);
 
-  const hookSymbolsByScope: Map<ts.Node, Set<ts.Symbol>> = new Map();
-  const hookGlobalScopes: Set<ts.Node> = new Set();
+  const symbolsByScope: Map<ts.Node, Set<ts.Symbol>> = new Map();
+  const globalScopes: Set<ts.Node> = new Set();
   for (const [scope, roots] of hookRootsByScope) {
     const cleanupFunctions: ReadonlySet<ts.Node> = collectResetFunctions(checker, roots, testFileSet);
     const inspectedNodes: Set<ts.Node> = new Set();
@@ -340,14 +427,10 @@ function collectRestoredSpyScopeRecords(
         inspectedNodes.add(node);
         if (ts.isCallExpression(node) && isInResetFunction(node, cleanupFunctions)) {
           if (isGlobalMockRestoreCall(node)) {
-            hookGlobalScopes.add(scope);
-          } else if (
-            ts.isPropertyAccessExpression(node.expression) &&
-            node.expression.name.text === "mockRestore" &&
-            node.arguments.length === 0
-          ) {
+            globalScopes.add(scope);
+          } else if (isMockRestoreCall(node)) {
             for (const symbol of mockSymbols(checker, node.expression.expression)) {
-              addScopedSymbol(hookSymbolsByScope, scope, symbol);
+              addScopedSymbol(symbolsByScope, scope, symbol);
             }
           }
         }
@@ -356,20 +439,26 @@ function collectRestoredSpyScopeRecords(
       if (isFunctionLikeDeclaration(fn) && fn.body !== undefined) visitFn(fn.body);
     }
   }
+  return { symbolsByScope, globalScopes };
+}
 
-  const syncSymbolsByScope: Map<ts.Node, Set<ts.Symbol>> = new Map();
-  const syncGlobalScopes: Set<ts.Node> = new Set();
+/**
+ * 收集各作用域顶层同步位置（不在任何回调内）对 `.mockRestore()` / `mock.restore()` 的调用。
+ *
+ * @param checker TypeScript 类型检查器
+ * @param source 测试文件 AST
+ * @returns 分作用域的顶层同步恢复记录
+ */
+function collectSyncRestoreRecords(checker: ts.TypeChecker, source: ts.SourceFile): SyncRestoreRecords {
+  const symbolsByScope: Map<ts.Node, Set<ts.Symbol>> = new Map();
+  const globalScopes: Set<ts.Node> = new Set();
   const visitSyncRestores = (node: ts.Node, scope: ts.Node, inFunction: boolean): void => {
     if (!inFunction && ts.isCallExpression(node)) {
       if (isGlobalMockRestoreCall(node)) {
-        syncGlobalScopes.add(scope);
-      } else if (
-        ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === "mockRestore" &&
-        node.arguments.length === 0
-      ) {
+        globalScopes.add(scope);
+      } else if (isMockRestoreCall(node)) {
         for (const symbol of mockSymbols(checker, node.expression.expression)) {
-          addScopedSymbol(syncSymbolsByScope, scope, symbol);
+          addScopedSymbol(symbolsByScope, scope, symbol);
         }
       }
     }
@@ -387,8 +476,7 @@ function collectRestoredSpyScopeRecords(
     });
   };
   visitSyncRestores(source, source, false);
-
-  return { hookSymbolsByScope, hookGlobalScopes, syncSymbolsByScope, syncGlobalScopes };
+  return { symbolsByScope, globalScopes };
 }
 
 /** `isSpyRestoredInCoveringScope` 参数对象。 */
@@ -399,30 +487,33 @@ interface SpyRestoreScopeCheckParams {
   readonly symbol: ts.Symbol | undefined;
   /** 子套件作用域到父套件作用域的映射。 */
   readonly parentScopeByScope: ReadonlyMap<ts.Node, ts.Node>;
-  /** 该文件的恢复记录。 */
-  readonly records: RestoredSpyScopeRecords;
+  /** 按监听创建位置选定的清理钩子恢复记录。 */
+  readonly hooks: HookRestoreRecords;
+  /** 顶层同步恢复记录；只对顶层创建的监听生效，其余创建位置传 undefined。 */
+  readonly sync: SyncRestoreRecords | undefined;
 }
 
 /**
- * 判断某顶层 `spyOn` 调用是否在所属作用域或其祖先作用域的清理钩子中安全恢复。
+ * 判断某套件级 `spyOn` 调用是否在所属作用域或其祖先作用域的清理钩子中（顶层监听另可在同作用域顶层同步位置）恢复。
  *
- * @param params 作用域、绑定符号、父作用域映射与文件恢复记录
+ * @param params 作用域、绑定符号、父作用域映射与恢复记录
  * @returns 已在合法作用域调用恢复时返回 true
  */
 function isSpyRestoredInCoveringScope({
   scope,
   symbol,
   parentScopeByScope,
-  records,
+  hooks,
+  sync,
 }: SpyRestoreScopeCheckParams): boolean {
-  if (records.syncGlobalScopes.has(scope)) return true;
-  if (symbol !== undefined && records.syncSymbolsByScope.get(scope)?.has(symbol) === true) {
-    return true;
+  if (sync !== undefined) {
+    if (sync.globalScopes.has(scope)) return true;
+    if (symbol !== undefined && sync.symbolsByScope.get(scope)?.has(symbol) === true) return true;
   }
   let current: ts.Node | undefined = scope;
   while (current !== undefined) {
-    if (records.hookGlobalScopes.has(current)) return true;
-    if (symbol !== undefined && records.hookSymbolsByScope.get(current)?.has(symbol) === true) {
+    if (hooks.globalScopes.has(current)) return true;
+    if (symbol !== undefined && hooks.symbolsByScope.get(current)?.has(symbol) === true) {
       return true;
     }
     current = parentScopeByScope.get(current);
@@ -431,11 +522,27 @@ function isSpyRestoredInCoveringScope({
 }
 
 /**
- * 检查 `test/` 下所有测试与辅助文件顶层的 `spyOn` 是否在所属或外层作用域的
- * `afterAll`/`afterEach`（或同作用域顶层同步位置）调用 `.mockRestore()` 或 `mock.restore()`。
+ * 按创建位置给出未恢复监听的诊断文案。
+ *
+ * @param origin 监听创建位置
+ * @param label 绑定变量名或 `spyOn(...)`
+ * @returns 诊断文案（不含文件位置前缀）
+ */
+function spyRestoreProblemText(origin: SpyCallOrigin, label: string): string {
+  const where: string = origin === "top-level" ? "top-level" : `${origin}`;
+  const hooks: string = origin === "beforeEach" ? "afterEach/afterAll" : "afterAll";
+  return `${where} ${label} must be restored in ${hooks} of the same or an enclosing suite: ` +
+    "call .mockRestore() when spying on a real function, or mock.restore() when the target may already be a mock " +
+    "(spyOn then returns that mock and .mockRestore() clears its implementation)";
+}
+
+/**
+ * 检查 `test/` 下所有测试与辅助文件里的套件级 `spyOn`（顶层、`describe` 一级语句与 `beforeAll`/`beforeEach`
+ * 回调）是否在所属或外层作用域的对应清理钩子（顶层监听另可在同作用域顶层同步位置）调用
+ * `.mockRestore()` 或 `mock.restore()`。
  *
  * @param params program、类型检查器与待检查文件列表
- * @returns 未按规恢复顶层 `spyOn` 的问题列表
+ * @returns 未按规恢复套件级 `spyOn` 的问题列表
  */
 export function collectTopLevelSpyRestoreProblems({
   projectRoot,
@@ -450,17 +557,32 @@ export function collectTopLevelSpyRestoreProblems({
     if (source === undefined) continue;
     const { calls, parentScopeByScope }: TopLevelSpyCallsResult = collectTopLevelSpyCalls(source);
     if (calls.length === 0) continue;
-    const records: RestoredSpyScopeRecords = collectRestoredSpyScopeRecords(checker, source, testFileSet);
-    for (const { call, scope } of calls) {
+    const afterAllHooks: HookRestoreRecords = collectHookRestoreRecords({
+      checker, source, testFileSet, hookNames: AFTER_ALL_HOOK_FUNCTIONS,
+    });
+    let afterAnyHooks: HookRestoreRecords | undefined;
+    let sync: SyncRestoreRecords | undefined;
+    for (const { call, origin, scope } of calls) {
       const symbol: ts.Symbol | undefined = boundSpySymbol(checker, call);
-      if (isSpyRestoredInCoveringScope({ scope, symbol, parentScopeByScope, records })) continue;
+      let hooks: HookRestoreRecords = afterAllHooks;
+      if (origin === "beforeEach") {
+        afterAnyHooks ??= collectHookRestoreRecords({
+          checker, source, testFileSet, hookNames: AFTER_ANY_HOOK_FUNCTIONS,
+        });
+        hooks = afterAnyHooks;
+      }
+      if (origin === "top-level") sync ??= collectSyncRestoreRecords(checker, source);
+      if (isSpyRestoredInCoveringScope({
+        scope,
+        symbol,
+        parentScopeByScope,
+        hooks,
+        sync: origin === "top-level" ? sync : undefined,
+      })) continue;
       const { line, character }: ts.LineAndCharacter =
         source.getLineAndCharacterOfPosition(call.getStart(source));
       const label: string = symbol === undefined ? "spyOn(...)" : symbol.name;
-      problems.push(
-        `${relative(projectRoot, path)}:${line + 1}:${character + 1}: top-level ${label} ` +
-        "must call mockRestore() in afterAll/afterEach of the same file"
-      );
+      problems.push(`${relative(projectRoot, path)}:${line + 1}:${character + 1}: ${spyRestoreProblemText(origin, label)}`);
     }
   }
   return problems;

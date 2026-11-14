@@ -1,3 +1,5 @@
+import { PROMPT_EXAMPLE_DIR_NAME } from "./promptLayout";
+
 /** 发行汇总结算与校验支持的平台名；发布 CLI 逐项核对显式 --platforms，所属模块：scripts/release/assets.ts。 */
 export const RELEASE_PLATFORMS: readonly string[] = ["linux-x64", "linux-arm64", "linux-x64-musl", "linux-arm64-musl"];
 
@@ -8,7 +10,7 @@ export const RELEASE_PLATFORMS: readonly string[] = ["linux-x64", "linux-arm64",
 export const RELEASE_BUNDLED_PATHS: readonly string[] = [
   "install.sh",
   "config_example",
-  "prompt_example",
+  PROMPT_EXAMPLE_DIR_NAME,
   "LICENSES",
   "packages/database/schema/migrations",
   "packages/mini-app-api-server/resource",

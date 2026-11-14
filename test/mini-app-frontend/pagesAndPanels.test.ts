@@ -42,6 +42,12 @@ import type {
   MiniAppStatusView,
 } from "../../packages/mini-app-frontend/types/miniApp";
 import type { MiniAppTranslations } from "../../packages/mini-app-frontend/types/miniAppI18n";
+import {
+  collectNodeText,
+  findButtonByText,
+  installMiniDom,
+} from "../helpers/miniAppDom";
+import type { MiniDomEnvironment, MiniDomNode } from "../helpers/miniAppDom";
 
 type RouteHandler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
 
@@ -60,219 +66,14 @@ function jsonResponse(payload: unknown, status: number = 200): Response {
   });
 }
 
-class MiniDomNode {
-  readonly nodeType: number;
-  readonly nodeName: string;
-  readonly tagName: string;
-  parentNode: MiniDomNode | null = null;
-  childNodes: MiniDomNode[] = [];
-  readonly ownerDocument: MiniDomDocument;
-  readonly style: Record<string, string> = {};
-  readonly attributes: Map<string, string> = new Map<string, string>();
-  value: string = "";
-  textContentValue: string = "";
-  scrollTop: number = 0;
-  private readonly listeners: Map<string, Set<unknown>> = new Map<string, Set<unknown>>();
-
-  constructor(nodeType: number, nodeName: string, ownerDocument: MiniDomDocument) {
-    this.nodeType = nodeType;
-    this.nodeName = nodeName;
-    this.tagName = nodeName;
-    this.ownerDocument = ownerDocument;
-  }
-
-  get firstChild(): MiniDomNode | null { return this.childNodes[0] ?? null; }
-  get lastChild(): MiniDomNode | null { return this.childNodes[this.childNodes.length - 1] ?? null; }
-  get nextSibling(): MiniDomNode | null {
-    if (this.parentNode === null) return null;
-    const index: number = this.parentNode.childNodes.indexOf(this);
-    return index >= 0 && index + 1 < this.parentNode.childNodes.length
-      ? this.parentNode.childNodes[index + 1]!
-      : null;
-  }
-  get previousSibling(): MiniDomNode | null {
-    if (this.parentNode === null) return null;
-    const index: number = this.parentNode.childNodes.indexOf(this);
-    return index > 0 ? this.parentNode.childNodes[index - 1]! : null;
-  }
-  get previousElementSibling(): MiniDomNode | null { return this.previousSibling; }
-  get nextElementSibling(): MiniDomNode | null { return this.nextSibling; }
-  get parentElement(): MiniDomNode | null { return this.parentNode; }
-  get textContent(): string { return this.textContentValue; }
-  set textContent(value: string) { this.textContentValue = value; this.childNodes = []; }
-  get nodeValue(): string { return this.textContentValue; }
-  set nodeValue(value: string) { this.textContentValue = value; }
-  appendChild(child: MiniDomNode): MiniDomNode {
-    if (child.parentNode !== null) child.parentNode.removeChild(child);
-    child.parentNode = this;
-    this.childNodes.push(child);
-    return child;
-  }
-  insertBefore(child: MiniDomNode, ref: MiniDomNode | null): MiniDomNode {
-    if (child.parentNode !== null) child.parentNode.removeChild(child);
-    child.parentNode = this;
-    if (ref === null) {
-      this.childNodes.push(child);
-      return child;
-    }
-    const index: number = this.childNodes.indexOf(ref);
-    if (index === -1) this.childNodes.push(child);
-    else this.childNodes.splice(index, 0, child);
-    return child;
-  }
-  removeChild(child: MiniDomNode): MiniDomNode {
-    const index: number = this.childNodes.indexOf(child);
-    if (index !== -1) this.childNodes.splice(index, 1);
-    child.parentNode = null;
-    return child;
-  }
-  setAttribute(name: string, value: string): void { this.attributes.set(name, String(value)); }
-  removeAttribute(name: string): void { this.attributes.delete(name); }
-  setAttributeNS(_ns: string, name: string, value: string): void { this.attributes.set(name, String(value)); }
-  getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
-  addEventListener(type: string, listener: unknown): void {
-    let set: Set<unknown> | undefined = this.listeners.get(type);
-    if (set === undefined) {
-      set = new Set<unknown>();
-      this.listeners.set(type, set);
-    }
-    set.add(listener);
-  }
-  removeEventListener(type: string, listener: unknown): void { this.listeners.get(type)?.delete(listener); }
-  scrollTo(): void {}
-  contains(other: MiniDomNode | null): boolean {
-    let current: MiniDomNode | null = other;
-    while (current !== null) {
-      if (current === this) return true;
-      current = current.parentNode;
-    }
-    return false;
-  }
-  getClickListeners(): Set<unknown> | undefined {
-    return this.listeners.get("click");
-  }
-  triggerClick(): void {
-    dispatchClickBubble(this);
-  }
-}
-
-function dispatchClickBubble(target: MiniDomNode): void {
-  let stopped: boolean = false;
-  const event: {
-    type: string;
-    bubbles: boolean;
-    target: MiniDomNode;
-    currentTarget: MiniDomNode | MiniDomDocument;
-    preventDefault: () => void;
-    stopPropagation: () => void;
-    stopImmediatePropagation: () => void;
-  } = {
-    type: "click",
-    bubbles: true,
-    target,
-    currentTarget: target,
-    preventDefault(): void {},
-    stopPropagation(): void {
-      stopped = true;
-    },
-    stopImmediatePropagation(): void {
-      stopped = true;
-    },
-  };
-  let cursor: MiniDomNode | null = target;
-  while (cursor !== null && !stopped) {
-    event.currentTarget = cursor;
-    const listeners: Set<unknown> | undefined = cursor.getClickListeners();
-    if (listeners !== undefined) {
-      for (const listener of listeners) {
-        if (typeof listener === "function") listener(event);
-      }
-    }
-    cursor = cursor.parentNode;
-  }
-  if (!stopped) {
-    event.currentTarget = target.ownerDocument;
-    target.ownerDocument.dispatchListeners("click", event);
-  }
-}
-
-class MiniDomDocument {
-  readonly nodeType: number = 9;
-  readonly documentElement: MiniDomNode;
-  readonly body: MiniDomNode;
-  activeElement: MiniDomNode | null = null;
-  readonly defaultView: unknown;
-  private readonly listeners: Map<string, Set<unknown>> = new Map<string, Set<unknown>>();
-
-  constructor(defaultView: unknown) {
-    this.defaultView = defaultView;
-    this.documentElement = new MiniDomNode(1, "HTML", this);
-    this.body = new MiniDomNode(1, "BODY", this);
-  }
-  addEventListener(type: string, listener: unknown): void {
-    let set: Set<unknown> | undefined = this.listeners.get(type);
-    if (set === undefined) {
-      set = new Set<unknown>();
-      this.listeners.set(type, set);
-    }
-    set.add(listener);
-  }
-  removeEventListener(type: string, listener: unknown): void { this.listeners.get(type)?.delete(listener); }
-  dispatchListeners(type: string, event: unknown): void {
-    const set: Set<unknown> | undefined = this.listeners.get(type);
-    if (set === undefined) return;
-    for (const listener of set) {
-      if (typeof listener === "function") listener(event);
-    }
-  }
-  createElement(tag: string): MiniDomNode { return new MiniDomNode(1, tag.toUpperCase(), this); }
-  createElementNS(_ns: string, tag: string): MiniDomNode { return new MiniDomNode(1, tag, this); }
-  createTextNode(text: string): MiniDomNode {
-    const node: MiniDomNode = new MiniDomNode(3, "#text", this);
-    node.textContentValue = text;
-    return node;
-  }
-  createComment(text: string): MiniDomNode {
-    const node: MiniDomNode = new MiniDomNode(8, "#comment", this);
-    node.textContentValue = text;
-    return node;
-  }
-}
-
-function collectNodeText(node: MiniDomNode): string {
-  if (node.nodeType === 3 || node.childNodes.length === 0) return node.textContentValue;
-  return node.childNodes.map(collectNodeText).join("");
-}
-
-function findButtonByText(node: MiniDomNode, text: string): MiniDomNode | null {
-  if (node.tagName === "BUTTON" && collectNodeText(node).includes(text)) return node;
-  for (const child of node.childNodes) {
-    const match: MiniDomNode | null = findButtonByText(child, text);
-    if (match !== null) return match;
-  }
-  return null;
-}
-
 async function withMountedElement(
   element: React.JSX.Element,
   run: (container: MiniDomNode, flushMinLoading: () => Promise<void>) => Promise<void>
 ): Promise<void> {
-  const prevAct: boolean | undefined = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
-  const prevDoc: unknown = (globalThis as { document?: unknown }).document;
-  const prevWin: unknown = (globalThis as { window?: unknown }).window;
   jest.useFakeTimers();
+  const environment: MiniDomEnvironment = installMiniDom();
   try {
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-    const mockWin = {
-      addEventListener: (): void => {},
-      removeEventListener: (): void => {},
-      getComputedStyle: (): { display: string; marginBottom: string } => ({ display: "block", marginBottom: "0px" }),
-      HTMLIFrameElement: class MockHTMLIFrameElement {},
-    };
-    const mockDoc: MiniDomDocument = new MiniDomDocument(mockWin);
-    (globalThis as { document?: unknown }).document = mockDoc;
-    (globalThis as { window?: unknown }).window = mockWin;
-    const container: MiniDomNode = mockDoc.createElement("div");
+    const container: MiniDomNode = environment.document.createElement("div");
     const root: Root = createRoot(container as unknown as Element);
 
     const flushMinLoading = async (): Promise<void> => {
@@ -295,9 +96,7 @@ async function withMountedElement(
     }
   } finally {
     jest.useRealTimers();
-    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = prevAct;
-    (globalThis as { document?: unknown }).document = prevDoc;
-    (globalThis as { window?: unknown }).window = prevWin;
+    environment.restore();
   }
 }
 

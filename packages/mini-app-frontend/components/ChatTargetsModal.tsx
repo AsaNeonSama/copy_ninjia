@@ -21,6 +21,13 @@ import type {
   MiniAppChatTargetsView,
   MiniAppLanguage,
 } from "../types/miniApp";
+import type {
+  ChatTargetsMemberAddFormSlice,
+  ChatTargetsMemberPanelsSlice,
+  ChatTargetsModalShellSlice,
+  ChatTargetsQaEditorFormSlice,
+  ChatTargetsQaPanelSlice,
+} from "../types/chatTargets";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { CollapseGrid, TriggerCollapseGrid } from "./animations/CollapseGrid";
 import {
@@ -137,7 +144,7 @@ export function syncChatTargetsModalCloseReset({
   }
 }
 
-/** `ChatTargetsModalDialog` 跨连接态与独立展示态共用的基础属性参数。 */
+/** `ChatTargetsModalDialog` 的展示状态与节点引用属性参数。 */
 interface ChatTargetsModalDialogBaseProps {
   /** 当前展示的目标类别。 */
   readonly displayModalKind: MiniAppChatTargetKind;
@@ -171,98 +178,15 @@ interface ChatTargetsModalDialogBaseProps {
   readonly onScrollToTop: () => void;
 }
 
-/** `ChatTargetsModalDialog` 纯展示对话框视图的属性参数（传入 `store` 时由子面板按切片自订阅，未传时消费完整 `state`/`snapshotState`）。 */
-export type ChatTargetsModalDialogProps =
-  | (ChatTargetsModalDialogBaseProps & {
-    /** 当前实时弹窗外框切片。 */
-    readonly state: ChatTargetsModalShellSlice;
-    /** 关闭前捕获的弹窗外框快照切片。 */
-    readonly snapshotState: ChatTargetsModalShellSlice;
-    /** 受管群状态仓库实例。 */
-    readonly store: MiniAppChatsStore;
-  })
-  | (ChatTargetsModalDialogBaseProps & {
-    /** 当前实时 store 完整状态。 */
-    readonly state: MiniAppChatsStoreState;
-    /** 关闭前捕获的 store 完整快照状态。 */
-    readonly snapshotState: MiniAppChatsStoreState;
-    /** 未传受管群状态仓库时按完整 `state`/`snapshotState` 渲染子面板。 */
-    readonly store?: undefined;
-  });
-
-/** `ChatTargetsModal` 弹窗外框订阅的状态与动作切片（不含各类表单草稿输入框）。 */
-export type ChatTargetsModalShellSlice = Pick<
-  MiniAppChatsStoreState,
-  | "activeTargetsModal"
-  | "chatDetail"
-  | "chatTargets"
-  | "loadingTargets"
-  | "mutatingTargets"
-  | "translateLangMenuOpen"
-  | "qaEditorOpen"
-  | "targetAddMenuOpen"
-  | "openQaEditor"
-  | "openTargetAddMenu"
-  | "closeTranslateLangMenu"
-  | "switchTargetsModalTab"
-  | "closeTargetsModal"
-  | "loadChatTargets"
->;
-
-/** 问答对编辑表单订阅的状态与动作切片。 */
-export type ChatTargetsQaEditorFormSlice = Pick<
-  MiniAppChatsStoreState,
-  | "chatTargets"
-  | "mutatingTargets"
-  | "qaEditorOpen"
-  | "qaQuestionInput"
-  | "qaAnswerInput"
-  | "qaEditSourceQuestion"
-  | "closeQaEditor"
-  | "setQaQuestionInput"
-  | "setQaAnswerInput"
-  | "submitQaPair"
->;
-
-/** 成员目标添加表单订阅的状态与动作切片。 */
-export type ChatTargetsMemberAddFormSlice = Pick<
-  MiniAppChatsStoreState,
-  | "mutatingTargets"
-  | "targetAddMenuOpen"
-  | "targetIdFormOpen"
-  | "deleteTargetInput"
-  | "translateTargetInput"
-  | "translateLanguageInput"
-  | "translateLangMenuOpen"
-  | "closeTargetAddMenu"
-  | "selectTargetAddMode"
-  | "setDeleteTargetInput"
-  | "setTranslateTargetInput"
-  | "setTranslateLanguageInput"
-  | "toggleTranslateLangMenu"
-  | "submitDeleteTarget"
-  | "submitTranslateTarget"
->;
-
-/** 问答对列表面板订阅的状态与动作切片。 */
-export type ChatTargetsQaPanelSlice = Pick<
-  MiniAppChatsStoreState,
-  | "chatTargets"
-  | "loadingTargets"
-  | "mutatingTargets"
-  | "fillQaPairForEdit"
-  | "removeQaPair"
->;
-
-/** 成员目标列表面板订阅的状态与动作切片。 */
-export type ChatTargetsMemberPanelsSlice = Pick<
-  MiniAppChatsStoreState,
-  | "chatTargets"
-  | "loadingTargets"
-  | "mutatingTargets"
-  | "removeDeleteTarget"
-  | "removeTranslateTarget"
->;
+/** `ChatTargetsModalDialog` 对话框视图的属性参数：外框消费上层传入的外框切片，顶部表单与列表子面板经 `store` 按切片自订阅。 */
+interface ChatTargetsModalDialogProps extends ChatTargetsModalDialogBaseProps {
+  /** 当前实时弹窗外框切片。 */
+  readonly state: ChatTargetsModalShellSlice;
+  /** 关闭前捕获的弹窗外框快照切片。 */
+  readonly snapshotState: ChatTargetsModalShellSlice;
+  /** 受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
+}
 
 /**
  * 从受管群仓库提取弹窗外框渲染所需切片。
@@ -540,28 +464,26 @@ function ConnectedChatTargetsMemberPanels({
  * @param props 对话框展示状态与节点引用
  * @returns React 节点
  */
-export function ChatTargetsModalDialog(
-  props: ChatTargetsModalDialogProps
-): React.JSX.Element {
-  const {
-    state,
-    snapshotState,
-    displayModalKind,
-    displayChatDetail,
-    displayChatTargets,
-    displayLoadingTargets,
-    isClosing,
-    displayLangBackdropOpen,
-    langBackdropClosing,
-    t,
-    modalBodyRef,
-    sizerRef,
-    paneRef,
-    lastHeightRef,
-    prevTabRef,
-    prevHadTargetsRef,
-    onScrollToTop,
-  }: ChatTargetsModalDialogProps = props;
+function ChatTargetsModalDialog({
+  store,
+  state,
+  snapshotState,
+  displayModalKind,
+  displayChatDetail,
+  displayChatTargets,
+  displayLoadingTargets,
+  isClosing,
+  displayLangBackdropOpen,
+  langBackdropClosing,
+  t,
+  modalBodyRef,
+  sizerRef,
+  paneRef,
+  lastHeightRef,
+  prevTabRef,
+  prevHadTargetsRef,
+  onScrollToTop,
+}: ChatTargetsModalDialogProps): React.JSX.Element {
   const {
     activeTargetsModal,
     openQaEditor,
@@ -781,38 +703,15 @@ export function ChatTargetsModalDialog(
                 fadeInner
               >
                 {displayModalKind === "qa" ? (
-                  props.store !== undefined ? (
-                    <ConnectedChatTargetsQaEditorForm
-                      store={props.store}
-                      isClosing={isClosing}
-                      t={t}
-                    />
-                  ) : (
-                    <ChatTargetsQaEditorForm
-                      state={resolveChatTargetsModalPanelState(
-                        props.state,
-                        props.snapshotState,
-                        isClosing
-                      )}
-                      isClosing={isClosing}
-                      t={t}
-                    />
-                  )
-                ) : props.store !== undefined ? (
-                  <ConnectedChatTargetsMemberAddForm
-                    kind={displayModalKind}
-                    store={props.store}
+                  <ConnectedChatTargetsQaEditorForm
+                    store={store}
                     isClosing={isClosing}
                     t={t}
                   />
                 ) : (
-                  <ChatTargetsMemberAddForm
+                  <ConnectedChatTargetsMemberAddForm
                     kind={displayModalKind}
-                    state={resolveChatTargetsModalPanelState(
-                      props.state,
-                      props.snapshotState,
-                      isClosing
-                    )}
+                    store={store}
                     isClosing={isClosing}
                     t={t}
                   />
@@ -822,42 +721,17 @@ export function ChatTargetsModalDialog(
 
             <div key={displayModalKind} className="chat-targets-tab-content">
               {displayModalKind === "qa" ? (
-                props.store !== undefined ? (
-                  <ConnectedChatTargetsQaPanel
-                    store={props.store}
-                    isClosing={isClosing}
-                    t={t}
-                    onScrollToTop={onScrollToTop}
-                  />
-                ) : (
-                  <ChatTargetsQaPanel
-                    state={resolveChatTargetsModalPanelState(
-                      props.state,
-                      props.snapshotState,
-                      isClosing
-                    )}
-                    isClosing={isClosing}
-                    t={t}
-                    onScrollToTop={onScrollToTop}
-                  />
-                )
-              ) : props.store !== undefined ? (
+                <ConnectedChatTargetsQaPanel
+                  store={store}
+                  isClosing={isClosing}
+                  t={t}
+                  onScrollToTop={onScrollToTop}
+                />
+              ) : (
                 <ConnectedChatTargetsMemberPanels
                   kind={displayModalKind}
                   chatDetail={displayChatDetail}
-                  store={props.store}
-                  isClosing={isClosing}
-                  t={t}
-                />
-              ) : (
-                <ChatTargetsMemberPanels
-                  kind={displayModalKind}
-                  chatDetail={displayChatDetail}
-                  state={resolveChatTargetsModalPanelState(
-                    props.state,
-                    props.snapshotState,
-                    isClosing
-                  )}
+                  store={store}
                   isClosing={isClosing}
                   t={t}
                 />

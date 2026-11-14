@@ -408,6 +408,12 @@ export interface ConfigReadinessCache {
 /** 部署配置 URL 校验允许的协议。 */
 export type ConfigUrlProtocol = "http:" | "https:";
 
+/** `config/dynamic/*.json` 单例配置快照的可变容器（见 config/snapshotHolder.ts 的 ensureConfigSnapshot）。 */
+export interface ConfigSnapshotHolder<T> {
+  /** 当前线程持有的已校验配置快照；缺省或文件删除时为 null。 */
+  current: T | null;
+}
+
 /** 部署配置 URL 形态校验策略（见 consts/configUrl.ts 与 config/urlPolicy.ts）。 */
 export interface ConfigUrlPolicy {
   /** 允许的协议白名单。 */

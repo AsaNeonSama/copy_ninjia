@@ -16,10 +16,10 @@ import {
   PAUSE_TURN_CONTINUE,
   requestAnthropicWithPauseTurn,
 } from "./pauseTurn";
-import type { AnthropicPauseTurnStep, AnthropicRequestFailure } from "./pauseTurn";
+import type { AnthropicPauseTurnStep } from "./pauseTurn";
 import { anthropicSearchError, anthropicSearchSources, messageText } from "./response";
 import { logger } from "../../infra/logger";
-import type { AnthropicClient } from "../../types/aiChat/anthropic";
+import type { AnthropicClient, AnthropicRequestFailure } from "../../types/aiChat/anthropic";
 import type {
   AiWebSearchCapability,
   AiWebSearchRequest,
@@ -37,8 +37,18 @@ export async function searchAnthropicWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest
 ): Promise<AiWebSearchResult> {
-  const client: AnthropicClient = getAnthropicClient(capability);
-  const model: string = requireAgentCapabilityConfig(capability).model;
+  // 客户端与模型在首次请求前固定，`pause_turn` 续写沿用同一组；热重载后能力缺席或配置不可用时按请求失败收口。
+  let client: AnthropicClient;
+  let model: string;
+  try {
+    client = getAnthropicClient(capability);
+    model = requireAgentCapabilityConfig(capability).model;
+  } catch (error: unknown) {
+    if (request.signal?.aborted !== true) {
+      logger.error(`Error calling ${ANTHROPIC_WEB_SEARCH_ERROR_LABEL}:`, error);
+    }
+    return { ok: false, searchCalls: 0 };
+  }
   let text: string = "";
   const sources: AiWebSearchSource[] = [];
   const fallbackState: BetaFallbackState = new BetaFallbackState();

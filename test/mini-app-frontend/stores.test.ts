@@ -146,6 +146,38 @@ describe("根 store", () => {
     expect(useMiniAppStore.getState().deniedDiag?.code).toBe("ACCESS_DENIED");
   });
 
+  test("预检判定会话无效或失败时只清除发出请求时的那枚令牌，在途期间写入的新令牌保持不动", async () => {
+    const staleToken: string = "c".repeat(64);
+    const freshToken: string = "d".repeat(64);
+    const freshExpiresAt: number = Date.now() + 60_000;
+
+    setMiniAppSessionToken(staleToken, Date.now() + 60_000);
+    route("GET /api/auth/precheck", (): Response => json({ ok: true, sessionValid: false }));
+    await useMiniAppStore.getState().runAccessPrecheck();
+    expect(useMiniAppStore.getState().gateState).toBe("password");
+    expect(readMiniAppSessionToken()).toBe("");
+
+    setMiniAppSessionToken(staleToken, Date.now() + 60_000);
+    route("GET /api/auth/precheck", (): Response => {
+      setMiniAppSessionToken(freshToken, freshExpiresAt);
+      return json({ ok: true, sessionValid: false });
+    });
+    useMiniAppStore.setState({ gateState: "checking" });
+    await useMiniAppStore.getState().runAccessPrecheck();
+    expect(useMiniAppStore.getState().gateState).toBe("password");
+    expect(readMiniAppSessionToken()).toBe(freshToken);
+
+    setMiniAppSessionToken(staleToken, Date.now() + 60_000);
+    route("GET /api/auth/precheck", (): Response => {
+      setMiniAppSessionToken(freshToken, freshExpiresAt);
+      return json({ ok: false, code: "FORBIDDEN_USER", error: "no" }, 403);
+    });
+    useMiniAppStore.setState({ gateState: "checking" });
+    await useMiniAppStore.getState().runAccessPrecheck();
+    expect(useMiniAppStore.getState().gateState).toBe("denied");
+    expect(readMiniAppSessionToken()).toBe(freshToken);
+  });
+
   test("预检恢复的会话到期后按当前语言锁定控制台", async () => {
     const expiresAt: number = Date.now() + 1_000;
     setMiniAppSessionToken("b".repeat(64), expiresAt);

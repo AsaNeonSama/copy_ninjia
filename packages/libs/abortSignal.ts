@@ -145,9 +145,6 @@ export function runWithTimeoutSignal<T>({
     return Promise.reject<T>(abortSignalError(signal));
   }
   const requestSignal: AbortSignal = signalWithTimeout(signal, timeoutMs);
-  if (requestSignal.aborted) {
-    return Promise.reject<T>(abortSignalError(requestSignal));
-  }
   let task: Promise<T>;
   try {
     task = run(requestSignal);

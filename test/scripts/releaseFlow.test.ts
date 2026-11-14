@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { createReleaseCommand, readBuildSourceTree } from "../../scripts/release/command";
 import type { CommandResult, ReleaseCommand } from "../../scripts/release/command";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../../scripts/migrations/active";
@@ -10,7 +10,11 @@ import { verifyReleaseAssets } from "../../scripts/release/assets";
 import type { ReleaseAsset } from "../../scripts/release/assets";
 import { publishRelease } from "../../scripts/release/github";
 import { runCapturedCommand } from "../../scripts/fixtures/subprocess";
-import { PROJECT_ROOT } from "../../packages/consts/paths";
+import {
+  IDENTITY_DATABASE_MIGRATIONS_DIR,
+  MINI_APP_REJECT_HTML_PATH,
+  PROJECT_ROOT,
+} from "../../packages/consts/paths";
 import { PROMPT_EXAMPLE_DIR_NAME } from "../../packages/consts/promptLayout";
 import { RELEASE_BUNDLED_PATHS, RELEASE_INSTALL_SCRIPT_GLOB } from "../../packages/consts/release";
 import type { CapturedCommandResult } from "../../scripts/fixtures/subprocess";
@@ -25,6 +29,18 @@ const BUNDLED_TRACKED_FILES: readonly string[] = createReleaseCommand(PROJECT_RO
   .split("\n")
   .map((line: string): string => line.trim())
   .filter((line: string): boolean => line.length > 0);
+
+/** 「缺拒绝页」缺口删掉的发行文件（取自拒绝页路径常量）。 */
+const REJECT_HTML_RELATIVE_PATH: string = relative(PROJECT_ROOT, MINI_APP_REJECT_HTML_PATH);
+/** 「缺迁移 SQL」缺口删掉的发行文件：迁移目录下第一份受跟踪的 SQL。 */
+const MIGRATION_SQL_RELATIVE_PATH: string | undefined = BUNDLED_TRACKED_FILES.find(
+  (path: string): boolean =>
+    path.startsWith(`${relative(PROJECT_ROOT, IDENTITY_DATABASE_MIGRATIONS_DIR)}/`) && path.endsWith(".sql")
+);
+/** 「缺示例配置」缺口删掉的发行文件：config_example 下第一份受跟踪文件。 */
+const CONFIG_EXAMPLE_RELATIVE_PATH: string | undefined = BUNDLED_TRACKED_FILES.find(
+  (path: string): boolean => path.startsWith("config_example/")
+);
 
 const TREE: string = "a".repeat(40);
 const HEAD: string = "b".repeat(40);
@@ -61,9 +77,9 @@ async function fixture(
   for (const relPath of BUNDLED_TRACKED_FILES) {
     if (defect === "missing-installer" && relPath === "install.sh") continue;
     if (defect === "missing-prompt-example" && relPath.startsWith(`${PROMPT_EXAMPLE_DIR_NAME}/`)) continue;
-    if (defect === "missing-reject-html" && relPath === "packages/mini-app-api-server/resource/reject.html") continue;
-    if (defect === "missing-migration-sql" && relPath === "packages/database/schema/migrations/0000_identity_storage.sql") continue;
-    if (defect === "missing-config-example" && relPath === "config_example/static/bot.json") continue;
+    if (defect === "missing-reject-html" && relPath === REJECT_HTML_RELATIVE_PATH) continue;
+    if (defect === "missing-migration-sql" && relPath === MIGRATION_SQL_RELATIVE_PATH) continue;
+    if (defect === "missing-config-example" && relPath === CONFIG_EXAMPLE_RELATIVE_PATH) continue;
     await Bun.write(join(content, relPath), Bun.file(join(PROJECT_ROOT, relPath)));
   }
   if (defect !== "missing-runtime") await Bun.write(join(content, "scripts/install/runtime.js"), "export {};\n");
@@ -168,6 +184,12 @@ function github(assets: readonly ReleaseAsset[], options: {
 afterEach((): void => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("发布资产与谱系", (): void => {
+  test("结构缺口用例删掉的拒绝页、迁移 SQL 与示例配置都是受跟踪的发行文件", (): void => {
+    expect(BUNDLED_TRACKED_FILES).toContain(REJECT_HTML_RELATIVE_PATH);
+    expect(MIGRATION_SQL_RELATIVE_PATH).toBeDefined();
+    expect(CONFIG_EXAMPLE_RELATIVE_PATH).toBeDefined();
+  });
+
   test("校验压缩包内的版本、平台、Git tree、Bun build 及两份资产的内容", async (): Promise<void> => {
     const { root } = await fixture();
     const assets: readonly ReleaseAsset[] = await verifiedAssets(root);

@@ -50,9 +50,9 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
   }
   const bundledSourceFiles: readonly string[] = checked(
     command,
-    ["git", "ls-files", "--", ...RELEASE_BUNDLED_PATHS, `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`]
+    ["git", "-c", "core.quotePath=false", "ls-files", "-z", "--", ...RELEASE_BUNDLED_PATHS, `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`]
   )
-    .split("\n")
+    .split("\0")
     .filter((entry: string): boolean => entry.length > 0)
     .map((entry: string): string => `copy-ninjia/${entry}`);
   const assets: ReleaseAsset[] = [];

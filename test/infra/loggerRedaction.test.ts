@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  LOGGER_SENSITIVE_FIELD_MAX_LENGTH,
-  LOGGER_SENSITIVE_FIELD_MIN_LENGTH,
-  LOGGER_SENSITIVE_FIELD_NAMES,
-} from "../../packages/consts/logger";
+import ts from "typescript";
+import { LOGGER_SENSITIVE_FIELD_NAMES } from "../../packages/consts/logger";
 import { REDACTED_SECRET } from "../../packages/consts/redaction";
 import {
   createLogRedactionReplacer,
@@ -54,10 +51,25 @@ describe("文本内嵌凭据字段的值边界", () => {
       .toBe(`cookie: ${REDACTED_SECRET}`);
   });
 
-  test("敏感字段清单与长度边界常量保持一致，且 replacer 对全量敏感字段大小写无关脱敏", () => {
-    const lengths: number[] = LOGGER_SENSITIVE_FIELD_NAMES.map((name: string): number => name.length);
-    expect(LOGGER_SENSITIVE_FIELD_MIN_LENGTH).toBe(Math.min(...lengths));
-    expect(LOGGER_SENSITIVE_FIELD_MAX_LENGTH).toBe(Math.max(...lengths));
+  test("isSensitiveLogField 的 switch 分支与敏感字段清单双向一致", async () => {
+    const path: string = new URL("../../packages/infra/logger/redaction.ts", import.meta.url).pathname;
+    const source: ts.SourceFile = ts.createSourceFile(path, await Bun.file(path).text(), ts.ScriptTarget.Latest, true);
+    const caseLabels: string[] = [];
+    const visit = (node: ts.Node, inGuard: boolean): void => {
+      const entering: boolean = inGuard ||
+        (ts.isFunctionDeclaration(node) && node.name?.text === "isSensitiveLogField");
+      if (entering && ts.isCaseClause(node) && ts.isStringLiteral(node.expression)) {
+        caseLabels.push(node.expression.text);
+      }
+      ts.forEachChild(node, (child: ts.Node): void => visit(child, entering));
+    };
+    visit(source, false);
+    expect(caseLabels.length).toBeGreaterThan(0);
+    expect(new Set(caseLabels).size).toBe(caseLabels.length);
+    expect([...caseLabels].sort()).toEqual([...LOGGER_SENSITIVE_FIELD_NAMES].sort());
+  });
+
+  test("replacer 对全量敏感字段大小写无关脱敏", () => {
 
     const replacer: LogRedactionReplacer = createLogRedactionReplacer([]);
     for (const field of LOGGER_SENSITIVE_FIELD_NAMES) {

@@ -8,14 +8,15 @@ import type { BetaFallbackState } from "@anthropic-ai/sdk";
 import { ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS } from "../../consts/aiChat/anthropic";
 import { requestAnthropicMessage } from "./client";
 import { countAnthropicWebSearches } from "./response";
-import type { AnthropicClient, AnthropicRequestResult } from "../../types/aiChat/anthropic";
+import type {
+  AnthropicClient,
+  AnthropicRequestFailure,
+  AnthropicRequestResult,
+} from "../../types/aiChat/anthropic";
 import type { AgentCapability } from "../../types/config";
 
 /** `handleMessage` 返回该哨兵值时，表示按当前 `blocks` 作为 `paused` 前缀继续下一次 `pause_turn` 续发。 */
 export const PAUSE_TURN_CONTINUE: unique symbol = Symbol("pauseTurnContinue");
-
-/** Anthropic Messages 失败结果分支。 */
-export type AnthropicRequestFailure = Extract<AnthropicRequestResult, { ok: false }>;
 
 /** `handleMessage` 收到的单步成功消息上下文。 */
 export interface AnthropicPauseTurnStep {

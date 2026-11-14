@@ -3,7 +3,6 @@ import { extname, join } from "node:path";
 import type ts from "typescript";
 import { runBoundedSettledBatch } from "../packages/libs/boundedSettledBatch";
 import type { BoundedBatchExecution, BoundedBatchResult } from "../packages/libs/boundedSettledBatch";
-import { isErrno } from "../packages/libs/errno";
 import { createModuleGraphReader } from "./conventions/moduleGraph";
 import type { ModuleGraphReader } from "./conventions/moduleGraph";
 import { createTypeCheckProgram, parseSourceFile, sourceFilesUnder } from "./conventions/sourceAnalysis";
@@ -61,6 +60,7 @@ import {
   collectUnusedNodeAllowanceProblems,
 } from "./conventions/nodeCompatibility";
 import type { NodeImportUsage } from "./conventions/nodeCompatibility";
+import { statOptionalPath } from "./conventions/pathStat";
 import { collectTelegramMessageProblems } from "./conventions/telegramMessages";
 import {
   collectConstantValueAssertionProblems,
@@ -190,22 +190,21 @@ async function runProjectConventionCheck(): Promise<number> {
   ]);
   const tracked: string[] = [];
   const trackedStats: Map<string, Stats> = new Map<string, Stats>();
-  const statResults: readonly BoundedBatchResult<string, Stats>[] = await runBoundedSettledBatch({
+  const statResults: readonly BoundedBatchResult<string, Stats | null>[] = await runBoundedSettledBatch({
     items: projectFiles(),
     maxConcurrent: CONVENTION_IO_BATCH_SIZE,
-    execute: ({ item }: BoundedBatchExecution<string>): Promise<Stats> =>
-      Bun.file(join(PROJECT_ROOT, item)).stat(),
+    execute: ({ item }: BoundedBatchExecution<string>): Promise<Stats | null> =>
+      statOptionalPath(join(PROJECT_ROOT, item)),
   });
   for (const result of statResults) {
     if (result.status === "fulfilled") {
-      if (!result.value.isFile()) continue;
+      // null 是尚未 stage 的删除（含上级分量被替换为文件）；其它门禁会从最终工作树/索引确认变更范围。
+      if (result.value?.isFile() !== true) continue;
       tracked.push(result.item);
       trackedStats.set(join(PROJECT_ROOT, result.item), result.value);
       continue;
     }
-    // 允许尚未 stage 的正常删除；其它门禁会从最终工作树/索引确认变更范围。
-    if (isErrno(result.reason, "ENOENT")) continue;
-    throw result.reason;
+    throw new Error(`${result.item}: cannot stat tracked path.`, { cause: result.reason });
   }
   const trackedAbsolutePaths: ReadonlySet<string> = new Set<string>(trackedStats.keys());
   const fileTexts: Map<string, string> = new Map<string, string>();

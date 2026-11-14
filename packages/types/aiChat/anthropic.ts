@@ -42,3 +42,6 @@ export type AnthropicRequestResult =
     /** 仅供检索计数等预算判断；不得解析其中的正文或工具调用。 */
     message: Anthropic.Beta.BetaMessage;
   };
+
+/** Anthropic Messages 请求结果中的失败分支（见 aiChat/anthropic/pauseTurn.ts 的 `onFailure`）。 */
+export type AnthropicRequestFailure = Extract<AnthropicRequestResult, { ok: false }>;

@@ -19,7 +19,7 @@ import {
 import type {
   ChatTargetsMemberAddFormSlice,
   ChatTargetsMemberPanelsSlice,
-} from "./ChatTargetsModal";
+} from "../types/chatTargets";
 import type {
   MiniAppChatDeleteTargetItem,
   MiniAppChatDetail,

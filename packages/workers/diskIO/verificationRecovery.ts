@@ -70,16 +70,14 @@ export interface VerificationRecoveryInspection {
   readonly shouldCompact: boolean;
 }
 
-/** 待验证日文件名按 `day` 划分的分类结果。 */
+/** 待验证日文件名按 `day` 划分的分类结果；`day` 只按 `DAY_FILE_PATTERN` 取出，未核验是否为真实公历日期。 */
 type VerificationDayFileKind =
   | { readonly kind: "invalid-pattern" }
-  | { readonly kind: "invalid-date" }
-  | { readonly kind: "today" }
-  | { readonly kind: "future" }
-  | { readonly kind: "prior"; readonly day: string };
+  | { readonly kind: "today" | "future" | "prior"; readonly day: string };
 
 /**
- * 解析并分类待验证目录下的单个文件名：区分当日、未来日、早于 `day` 的旧日以及非法命名或日期。
+ * 按 `DAY_FILE_PATTERN` 解析待验证目录下的单个文件名，并以字典序与 `day` 比较，区分当日、未来日与早于 `day` 的旧日。
+ * 公历日期合法性由调用方决定是否核验：启动恢复拒绝非公历日期，运行期清理按字典序处理。
  * @param name 目录项文件名。
  * @param day 当前基准 `YYYY-MM-DD` 日期键。
  * @returns 对应文件名的分类结果。
@@ -87,9 +85,8 @@ type VerificationDayFileKind =
 function classifyVerificationDayFile(name: string, day: string): VerificationDayFileKind {
   const candidate: string | undefined = DAY_FILE_PATTERN.exec(name)?.[1];
   if (candidate === undefined) return { kind: "invalid-pattern" };
-  if (!isCanonicalDateKey(candidate)) return { kind: "invalid-date" };
-  if (candidate === day) return { kind: "today" };
-  if (candidate > day) return { kind: "future" };
+  if (candidate === day) return { kind: "today", day: candidate };
+  if (candidate > day) return { kind: "future", day: candidate };
   return { kind: "prior", day: candidate };
 }
 
@@ -114,11 +111,13 @@ function inspectVerificationDirectory(
     const path: string = join(dir, name);
     if (!entry.isFile()) return invalidInput(path, "$type", "a regular file without symbolic-link indirection");
     const classified: VerificationDayFileKind = classifyVerificationDayFile(name, day);
+    if (classified.kind === "invalid-pattern") {
+      return invalidInput(path, "$filename", "the canonical <YYYY-MM-DD>.json form");
+    }
+    if (!isCanonicalDateKey(classified.day)) {
+      return invalidInput(path, "$filename", "a canonical calendar date");
+    }
     switch (classified.kind) {
-      case "invalid-pattern":
-        return invalidInput(path, "$filename", "the canonical <YYYY-MM-DD>.json form");
-      case "invalid-date":
-        return invalidInput(path, "$filename", "a canonical calendar date");
       case "today":
         continue;
       case "future":

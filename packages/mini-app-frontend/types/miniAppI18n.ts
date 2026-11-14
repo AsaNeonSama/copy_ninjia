@@ -303,6 +303,10 @@ export interface MiniAppTranslations {
     readonly enableAllButton: string;
     readonly closeButton: string;
     readonly labels: Readonly<Record<WhitelistPermissionKey, string>>;
+    /**
+     * 各权限的说明文案。Mini App 界面固定使用雌小鬼（teasing）语气，不随 bot 的 `atmosphere` 配置切换；
+     * zh 文案与服务端 teasing 版 `WHITELIST_PERMISSION_HELP` 逐字一致（test/mini-app-frontend/frontendParity.test.ts 核对）。
+     */
     readonly descriptions: Readonly<Record<WhitelistPermissionKey, string>>;
   }>;
 

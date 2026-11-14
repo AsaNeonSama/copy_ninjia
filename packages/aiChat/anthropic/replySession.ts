@@ -17,9 +17,9 @@ import {
   PAUSE_TURN_CONTINUE,
   requestAnthropicWithPauseTurn,
 } from "./pauseTurn";
-import type { AnthropicPauseTurnStep, AnthropicRequestFailure } from "./pauseTurn";
+import type { AnthropicPauseTurnStep } from "./pauseTurn";
 import { messageText, toolUseCalls } from "./response";
-import type { AnthropicClient } from "../../types/aiChat/anthropic";
+import type { AnthropicClient, AnthropicRequestFailure } from "../../types/aiChat/anthropic";
 import type {
   AiFunctionCall,
   AiReplySession,

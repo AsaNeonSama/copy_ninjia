@@ -4,12 +4,7 @@
  */
 
 import { readJsonInput } from "../libs/inputValidation";
-
-/** 可变单值配置快照容器句柄。 */
-export interface ConfigSnapshotHolder<T> {
-  /** 当前线程持有的已校验配置快照；缺省或文件删除时为 null。 */
-  current: T | null;
-}
+import type { ConfigSnapshotHolder } from "../types/config";
 
 /**
  * 从配置文件路径读取 JSON 并用严格解析器解码。

@@ -9,7 +9,7 @@ import { CloseSvgIcon, PlusSvgIcon, TrashSvgIcon } from "../resource";
 import type {
   ChatTargetsQaEditorFormSlice,
   ChatTargetsQaPanelSlice,
-} from "./ChatTargetsModal";
+} from "../types/chatTargets";
 import type { MiniAppChatQaItem } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { InlineNoticeCollapse } from "./animations/CollapseGrid";

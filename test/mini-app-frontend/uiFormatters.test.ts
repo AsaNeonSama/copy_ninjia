@@ -2,7 +2,7 @@
  * Mini App 前端纯格式化函数、展示图标与静态组件渲染契约测试。
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { act, createElement } from "react";
 import type React from "react";
 import { createRoot } from "react-dom/client";
@@ -10,6 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AddModeButtonList } from "../../packages/mini-app-frontend/components/AddModeButtonList";
 import { ChatTargetsMenuButtonList } from "../../packages/mini-app-frontend/components/ChatTargetsMenuButtonList";
 import { ChatTargetsModal } from "../../packages/mini-app-frontend/components/ChatTargetsModal";
+import * as tabHeightSizerModule from "../../packages/mini-app-frontend/components/animations/TabHeightSizer";
 import { IdentitySearchAndAddCard } from "../../packages/mini-app-frontend/components/IdentitySearchAndAddCard";
 import { IdentitySubtabsBar } from "../../packages/mini-app-frontend/components/IdentitySubtabsBar";
 import { ManagedChatList } from "../../packages/mini-app-frontend/components/ManagedChatList";
@@ -68,7 +69,16 @@ import { resetMiniAppStoreForTest, useMiniAppStore } from "../../packages/mini-a
 import { createChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import type { MiniAppChatsStore } from "../../packages/mini-app-frontend/store/chats";
 import { createIdentitiesStore } from "../../packages/mini-app-frontend/store/identities";
+import type { MiniAppIdentitiesStore } from "../../packages/mini-app-frontend/store/identities";
 import type { MiniAppChatDetail, MiniAppChatTargetsView } from "../../packages/mini-app-frontend/types/miniApp";
+import {
+  collectNodeText,
+  findElements,
+  hasClass,
+  inputValues,
+  installMiniDom,
+} from "../helpers/miniAppDom";
+import type { MiniDomEnvironment, MiniDomNode } from "../helpers/miniAppDom";
 
 afterEach((): void => {
   resetMiniAppStoreForTest();
@@ -286,12 +296,6 @@ describe("Mini App 前端格式化与展示组件", () => {
       subTab: "whitelist", loadingList: false, t: getMiniAppTranslations("zh"), onSelectSubTab: (): void => undefined, onRefresh: (): void => undefined,
     }));
     expect(subtabsHtml).toContain("subtabs-bar");
-    const identitiesStore = createIdentitiesStore();
-    identitiesStore.getState().setSearchInput("doro");
-    const searchCardHtml: string = renderToStaticMarkup(createElement(IdentitySearchAndAddCard, { state: identitiesStore.getState() }));
-    expect(searchCardHtml).toContain('type="text" inputMode="text" lang="" class="search-input" placeholder="id/name" value="doro"');
-    expect(searchCardHtml).not.toContain('type="search"');
-    expect(searchCardHtml).not.toContain("debounce-status-hint");
     const loadingBoxHtml: string = renderToStaticMarkup(createElement(LoadingBox, { children: createElement("div", { className: "skeleton-line" }) }));
     expect(loadingBoxHtml).toContain('class="loading-box" aria-hidden="true"');
     expect(loadingBoxHtml).toContain('class="skeleton-stack"');
@@ -309,141 +313,44 @@ describe("Mini App 前端格式化与展示组件", () => {
     expect(chatListHtml).not.toContain("interactive-card");
   });
 
-  test("useComponentStoreApi 与 ChatTargetsModal 细粒度订阅保持句柄稳定、草稿输入不重渲染弹窗外框且退场快照保留最新草稿", async () => {
-    class MockDomNode {
-      nodeType: number;
-      nodeName: string;
-      tagName: string;
-      parentNode: MockDomNode | null = null;
-      childNodes: MockDomNode[] = [];
-      ownerDocument: MockDomDoc;
-      style: Record<string, string> = {};
-      attributes = new Map<string, string>();
-      value: string = "";
-      textContentValue: string = "";
-      scrollTop: number = 0;
-      private listeners = new Map<string, Set<unknown>>();
-
-      constructor(nodeType: number, nodeName: string, ownerDocument: MockDomDoc) {
-        this.nodeType = nodeType;
-        this.nodeName = nodeName;
-        this.tagName = nodeName;
-        this.ownerDocument = ownerDocument;
-      }
-
-      get firstChild(): MockDomNode | null { return this.childNodes[0] ?? null; }
-      get lastChild(): MockDomNode | null { return this.childNodes[this.childNodes.length - 1] ?? null; }
-      get nextSibling(): MockDomNode | null {
-        if (!this.parentNode) return null;
-        const idx: number = this.parentNode.childNodes.indexOf(this);
-        return idx >= 0 && idx + 1 < this.parentNode.childNodes.length ? this.parentNode.childNodes[idx + 1]! : null;
-      }
-      get previousSibling(): MockDomNode | null {
-        if (!this.parentNode) return null;
-        const idx: number = this.parentNode.childNodes.indexOf(this);
-        return idx > 0 ? this.parentNode.childNodes[idx - 1]! : null;
-      }
-      get previousElementSibling(): MockDomNode | null { return this.previousSibling; }
-      get nextElementSibling(): MockDomNode | null { return this.nextSibling; }
-      get parentElement(): MockDomNode | null { return this.parentNode; }
-      get textContent(): string { return this.textContentValue; }
-      set textContent(v: string) { this.textContentValue = v ?? ""; this.childNodes = []; }
-      set nodeValue(v: string) { this.textContentValue = v ?? ""; }
-      get nodeValue(): string { return this.textContentValue; }
-      appendChild(child: MockDomNode): MockDomNode {
-        if (child.parentNode) child.parentNode.removeChild(child);
-        child.parentNode = this;
-        this.childNodes.push(child);
-        return child;
-      }
-      insertBefore(child: MockDomNode, ref: MockDomNode | null): MockDomNode {
-        if (child.parentNode) child.parentNode.removeChild(child);
-        child.parentNode = this;
-        if (!ref) { this.childNodes.push(child); return child; }
-        const idx: number = this.childNodes.indexOf(ref);
-        if (idx === -1) this.childNodes.push(child);
-        else this.childNodes.splice(idx, 0, child);
-        return child;
-      }
-      removeChild(child: MockDomNode): MockDomNode {
-        const idx: number = this.childNodes.indexOf(child);
-        if (idx !== -1) this.childNodes.splice(idx, 1);
-        child.parentNode = null;
-        return child;
-      }
-      setAttribute(name: string, val: string): void { this.attributes.set(name, String(val)); }
-      removeAttribute(name: string): void { this.attributes.delete(name); }
-      setAttributeNS(_ns: string, name: string, val: string): void { this.attributes.set(name, String(val)); }
-      getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
-      addEventListener(type: string, fn: unknown): void {
-        let set = this.listeners.get(type);
-        if (!set) { set = new Set(); this.listeners.set(type, set); }
-        set.add(fn);
-      }
-      removeEventListener(type: string, fn: unknown): void { this.listeners.get(type)?.delete(fn); }
-      scrollTo(): void {}
-      contains(other: MockDomNode | null): boolean {
-        let cur: MockDomNode | null = other;
-        while (cur) { if (cur === this) return true; cur = cur.parentNode; }
-        return false;
-      }
-    }
-
-    class MockDomDoc {
-      nodeType: number = 9;
-      documentElement: MockDomNode;
-      body: MockDomNode;
-      activeElement: MockDomNode | null = null;
-      defaultView: unknown;
-      private listeners = new Map<string, Set<unknown>>();
-
-      constructor(defaultView: unknown) {
-        this.defaultView = defaultView;
-        this.documentElement = new MockDomNode(1, "HTML", this);
-        this.body = new MockDomNode(1, "BODY", this);
-      }
-      addEventListener(type: string, fn: unknown): void {
-        let set = this.listeners.get(type);
-        if (!set) { set = new Set(); this.listeners.set(type, set); }
-        set.add(fn);
-      }
-      removeEventListener(type: string, fn: unknown): void { this.listeners.get(type)?.delete(fn); }
-      createElement(tag: string): MockDomNode { return new MockDomNode(1, tag.toUpperCase(), this); }
-      createElementNS(_ns: string, tag: string): MockDomNode { return new MockDomNode(1, tag, this); }
-      createTextNode(text: string): MockDomNode {
-        const node = new MockDomNode(3, "#text", this);
-        node.textContentValue = text;
-        return node;
-      }
-      createComment(text: string): MockDomNode {
-        const node = new MockDomNode(8, "#comment", this);
-        node.textContentValue = text;
-        return node;
-      }
-    }
-
-    const findInputValues = (node: MockDomNode, out: string[] = []): string[] => {
-      if (node.tagName === "INPUT" && node.value.length > 0) out.push(node.value);
-      for (const child of node.childNodes) findInputValues(child, out);
-      return out;
-    };
-
-    const prevAct = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
-    const prevDoc = (globalThis as { document?: unknown }).document;
-    const prevWin = (globalThis as { window?: unknown }).window;
-
+  test("黑白名单搜索卡片按仓库切片渲染：普通文本输入框显示仓库中的搜索草稿，不带 search 类型与防抖提示", async () => {
+    const identitiesStore: MiniAppIdentitiesStore = createIdentitiesStore();
+    identitiesStore.getState().setSearchInput("doro");
+    const environment: MiniDomEnvironment = installMiniDom();
     try {
-      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-      const mockWin = {
-        addEventListener: (): void => {},
-        removeEventListener: (): void => {},
-        getComputedStyle: (): { display: string; marginBottom: string } => ({ display: "block", marginBottom: "0px" }),
-        HTMLIFrameElement: class MockHTMLIFrameElement {},
-      };
-      const mockDoc = new MockDomDoc(mockWin);
-      (globalThis as { document?: unknown }).document = mockDoc;
-      (globalThis as { window?: unknown }).window = mockWin;
+      const container: MiniDomNode = environment.document.createElement("div");
+      const root: ReturnType<typeof createRoot> = createRoot(container as unknown as Element);
+      await act(async (): Promise<void> => {
+        root.render(createElement(IdentitySearchAndAddCard, { store: identitiesStore }));
+      });
+      const searchInputs: MiniDomNode[] = findElements(
+        container,
+        (element: MiniDomNode): boolean => element.tagName === "INPUT" && hasClass(element, "search-input")
+      );
+      expect(searchInputs).toHaveLength(1);
+      expect(searchInputs[0]!.value).toBe("doro");
+      // react-dom 以 DOM 属性（而非 HTML 特性）写入 input 的 type。
+      expect((searchInputs[0] as MiniDomNode & { readonly type?: string }).type).toBe("text");
+      expect(searchInputs[0]!.getAttribute("inputMode")).toBe("text");
+      expect(searchInputs[0]!.getAttribute("lang")).toBe("");
+      expect(searchInputs[0]!.getAttribute("placeholder")).toBe("id/name");
+      expect(findElements(container, (element: MiniDomNode): boolean => hasClass(element, "debounce-status-hint"))).toHaveLength(0);
+      await act(async (): Promise<void> => {
+        identitiesStore.getState().setSearchInput("doro2");
+      });
+      expect(searchInputs[0]!.value).toBe("doro2");
+      await act(async (): Promise<void> => {
+        root.unmount();
+      });
+    } finally {
+      environment.restore();
+    }
+  });
 
+  test("useComponentStoreApi 与 ChatTargetsModal 细粒度订阅保持句柄稳定、草稿输入不重渲染弹窗外框且退场快照保留最新草稿", async () => {
+    let sizerSpy: { mockRestore: () => void } | undefined;
+    const environment: MiniDomEnvironment = installMiniDom();
+    try {
       const store: MiniAppChatsStore = createChatsStore();
       const detail: Readonly<MiniAppChatDetail> = {
         chatId: -1001, title: "Doro群", isLockdownActive: false, quietRemainingMs: 0, lockdownRemainingMs: 0,
@@ -486,32 +393,49 @@ describe("Mini App 前端格式化与展示组件", () => {
         return createElement(ChatTargetsModal, { store: api });
       };
 
-      const container = mockDoc.createElement("div");
-      const root = createRoot(container as unknown as Element);
+      // 弹窗外框每次重渲染都会重渲染其直接子节点 TabHeightSizer；以它的渲染次数观测外框是否被草稿输入牵动。
+      const originalTabHeightSizer: typeof tabHeightSizerModule.TabHeightSizer = tabHeightSizerModule.TabHeightSizer;
+      let frameRenders: number = 0;
+      sizerSpy = spyOn(tabHeightSizerModule, "TabHeightSizer").mockImplementation(
+        (props: Parameters<typeof tabHeightSizerModule.TabHeightSizer>[0]): React.JSX.Element => {
+          frameRenders += 1;
+          return originalTabHeightSizer(props);
+        }
+      );
+
+      const container: MiniDomNode = environment.document.createElement("div");
+      const root: ReturnType<typeof createRoot> = createRoot(container as unknown as Element);
       await act(async (): Promise<void> => {
         root.render(createElement(HookProbe));
       });
+      const frameRendersBeforeDraft: number = frameRenders;
+      expect(frameRendersBeforeDraft).toBeGreaterThan(0);
       await act(async (): Promise<void> => {
         store.getState().setQaQuestionInput("latest-draft-q");
       });
-      expect(findInputValues(container)).toContain("latest-draft-q");
+      expect(inputValues(container)).toContain("latest-draft-q");
+      expect(frameRenders).toBe(frameRendersBeforeDraft);
       expect(factoryCalls).toBe(1);
       expect(observedApis.every((api: MiniAppChatsStore): boolean => api === store)).toBeTrue();
 
-      // 关闭弹窗时，退场快照应保留弹窗外框未重渲染期间刚输入的最新草稿。
+      // 切群式重置在退场期间清空草稿与目标数据：退场快照仍须显示关闭前的最新草稿与问答对。
       await act(async (): Promise<void> => {
-        store.getState().closeTargetsModal();
+        store.setState({
+          activeTargetsModal: null,
+          chatTargets: null,
+          qaEditorOpen: false,
+          qaQuestionInput: "",
+          qaAnswerInput: "",
+        });
       });
-      expect(findInputValues(container)).toContain("latest-draft-q");
+      expect(inputValues(container)).toContain("latest-draft-q");
+      expect(collectNodeText(container)).toContain("杂鱼早上好♡");
       await act(async (): Promise<void> => {
         root.unmount();
       });
     } finally {
-      (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = prevAct;
-      if (prevDoc === undefined) delete (globalThis as { document?: unknown }).document;
-      else (globalThis as { document?: unknown }).document = prevDoc;
-      if (prevWin === undefined) delete (globalThis as { window?: unknown }).window;
-      else (globalThis as { window?: unknown }).window = prevWin;
+      sizerSpy?.mockRestore();
+      environment.restore();
     }
   });
 });

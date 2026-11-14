@@ -143,7 +143,21 @@ describe("排过 Once 的替身必须用 mockReset 复位", () => {
   });
 });
 
-describe("文件顶层 spyOn 必须在同文件恢复", () => {
+/**
+ * 拼出套件级 spyOn 未恢复的诊断文案（与 scripts/conventions/testSpyRestore.ts 的输出逐字一致）。
+ * @param location `文件:行:列` 位置前缀。
+ * @param origin 监听创建位置。
+ * @param label 绑定变量名或 `spyOn(...)`。
+ * @returns 完整诊断文案。
+ */
+function spyProblem(location: string, origin: "top-level" | "beforeAll" | "beforeEach", label: string): string {
+  const hooks: string = origin === "beforeEach" ? "afterEach/afterAll" : "afterAll";
+  return `${location}: ${origin} ${label} must be restored in ${hooks} of the same or an enclosing suite: ` +
+    "call .mockRestore() when spying on a real function, or mock.restore() when the target may already be a mock " +
+    "(spyOn then returns that mock and .mockRestore() clears its implementation)";
+}
+
+describe("套件级 spyOn 必须在同文件恢复", () => {
   test("顶层与 describe 顶层未恢复的 spyOn（含未绑定变量）都报出准确位置", async () => {
     const problems: readonly string[] = await problemsFor({
       "a.test.ts": [
@@ -159,9 +173,9 @@ describe("文件顶层 spyOn 必须在同文件恢复", () => {
       ].join("\n"),
     });
     expect(problems).toEqual([
-      "a.test.ts:3:11: top-level s must call mockRestore() in afterAll/afterEach of the same file",
-      "a.test.ts:4:1: top-level spyOn(...) must call mockRestore() in afterAll/afterEach of the same file",
-      "a.test.ts:6:21: top-level nestedTop must call mockRestore() in afterAll/afterEach of the same file",
+      spyProblem("a.test.ts:3:11", "top-level", "s"),
+      spyProblem("a.test.ts:4:1", "top-level", "spyOn(...)"),
+      spyProblem("a.test.ts:6:21", "top-level", "nestedTop"),
     ]);
   });
 
@@ -178,21 +192,21 @@ describe("文件顶层 spyOn 必须在同文件恢复", () => {
       ].join("\n"),
     });
     expect(problems).toEqual([
-      "a.test.ts:3:11: top-level s must call mockRestore() in afterAll/afterEach of the same file",
+      spyProblem("a.test.ts:3:11", "top-level", "s"),
     ]);
   });
 
-  test("顶层 spyOn 在同文件 afterAll/afterEach（含数组循环与传递辅助函数）恢复，与用例内局部 spyOn 均放行", async () => {
+  test("顶层 spyOn 在同文件 afterAll（含数组循环与传递辅助函数）恢复，与用例内局部 spyOn 均放行", async () => {
     const problems: readonly string[] = await problemsFor({
       "a.test.ts": [
-        'import { afterAll, afterEach, describe, spyOn, test } from "bun:test";',
+        'import { afterAll, describe, spyOn, test } from "bun:test";',
         "const target = { a: (): number => 1, b: (): number => 2, c: (): number => 3 };",
         'const spyA = spyOn(target, "a");',
         'const spyB = spyOn(target, "b");',
         "function restoreB(): void { spyB.mockRestore(); }",
         'describe("suite", () => {',
         '  const spyC = spyOn(target, "c");',
-        "  afterEach(() => { for (const entry of [spyC]) entry.mockRestore(); });",
+        "  afterAll(() => { for (const entry of [spyC]) entry.mockRestore(); });",
         "});",
         "afterAll(() => { spyA.mockRestore(); restoreB(); });",
         'test("local spy exempt", () => {',
@@ -236,8 +250,8 @@ describe("文件顶层 spyOn 必须在同文件恢复", () => {
     });
     expect(problems).toEqual([
       "a.test.ts:17:3: send is reset with mockClear() but queues *Once values (a.test.ts:13:3); reset it with mockReset() and reinstall its default implementation",
-      "a.test.ts:4:13: top-level s must call mockRestore() in afterAll/afterEach of the same file",
-      "a.test.ts:8:14: top-level s2 must call mockRestore() in afterAll/afterEach of the same file",
+      spyProblem("a.test.ts:4:13", "top-level", "s"),
+      spyProblem("a.test.ts:8:14", "top-level", "s2"),
     ]);
   });
 
@@ -250,13 +264,13 @@ describe("文件顶层 spyOn 必须在同文件恢复", () => {
         "",
       ].join("\n"),
       "a.test.ts": [
-        'import { afterAll, afterEach, describe, mock, spyOn, test } from "bun:test";',
+        'import { afterAll, describe, mock, spyOn, test } from "bun:test";',
         "const target = { top: (): number => 1, ok: (): number => 2 };",
         'const topSpy = spyOn(target, "top");',
         'describe("nested", () => {',
         "  afterAll(() => { topSpy.mockRestore(); });",
         '  const okSpy = spyOn(target, "ok");',
-        "  afterEach(() => { mock.restore(); });",
+        "  afterAll(() => { mock.restore(); });",
         '  test("use", () => { okSpy(); });',
         "});",
         'test("use top", () => { topSpy(); });',
@@ -264,8 +278,55 @@ describe("文件顶层 spyOn 必须在同文件恢复", () => {
       ].join("\n"),
     });
     expect(problems).toEqual([
-      "a.test.ts:3:16: top-level topSpy must call mockRestore() in afterAll/afterEach of the same file",
-      "sharedHelper.ts:3:26: top-level leakedSpy must call mockRestore() in afterAll/afterEach of the same file",
+      spyProblem("a.test.ts:3:16", "top-level", "topSpy"),
+      spyProblem("sharedHelper.ts:3:26", "top-level", "leakedSpy"),
+    ]);
+  });
+
+  test("顶层与 beforeAll 创建的监听只在 afterEach 还原时报出：第一个用例后监听就被撤掉", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "a.test.ts": [
+        'import { afterEach, beforeAll, spyOn, test } from "bun:test";',
+        "const target = { top: (): number => 1, setup: (): number => 2 };",
+        'const topSpy = spyOn(target, "top");',
+        "let setupSpy: ReturnType<typeof spyOn> | undefined;",
+        'beforeAll(() => { setupSpy = spyOn(target, "setup"); });',
+        "afterEach(() => { topSpy.mockRestore(); setupSpy?.mockRestore(); });",
+        'test("use", () => { topSpy(); });',
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([
+      spyProblem("a.test.ts:3:16", "top-level", "topSpy"),
+      spyProblem("a.test.ts:5:30", "beforeAll", "setupSpy"),
+    ]);
+  });
+
+  test("beforeEach 创建的监听在 afterEach 或 afterAll 还原（含 jest.restoreAllMocks）放行，未还原时报出", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "a.test.ts": [
+        'import { afterAll, afterEach, beforeAll, beforeEach, describe, jest, spyOn, test } from "bun:test";',
+        "const target = { a: (): number => 1, b: (): number => 2, c: (): number => 3, d: (): number => 4 };",
+        'describe("each", () => {',
+        '  beforeEach(() => { spyOn(target, "a").mockImplementation((): number => 0); });',
+        "  afterEach(() => { jest.restoreAllMocks(); });",
+        '  test("use", () => { target.a(); });',
+        "});",
+        'describe("all", () => {',
+        '  beforeAll(() => { spyOn(target, "b"); });',
+        '  beforeEach(() => { spyOn(target, "c"); });',
+        "  afterAll(() => { jest.restoreAllMocks(); });",
+        '  test("use", () => { target.b(); target.c(); });',
+        "});",
+        'describe("leak", () => {',
+        '  beforeEach(() => { spyOn(target, "d"); });',
+        '  test("use", () => { target.d(); });',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([
+      spyProblem("a.test.ts:15:22", "beforeEach", "spyOn(...)"),
     ]);
   });
 });

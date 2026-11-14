@@ -152,12 +152,26 @@ function createFakeDependencies(): {
 afterEach(cleanMockRoots);
 
 describe("installIsolation/serviceChecks 状态断言路径", () => {
-  test("checkServiceDataRoot、checkServiceProtection 与 checkServiceObservation 全场景断言", async () => {
+  test("checkServiceDataRoot、checkServiceProtection 与 checkServiceObservation 对符合约定的安装器各自跑完全部场景", async () => {
     const fake = createFakeDependencies();
     await checkServiceDataRoot(fake.dependencies);
+    const afterDataRoot: number = fake.getCallCount();
+    expect(afterDataRoot).toBeGreaterThan(0);
     await checkServiceProtection(fake.dependencies);
+    const afterProtection: number = fake.getCallCount();
+    expect(afterProtection).toBeGreaterThan(afterDataRoot);
     await checkServiceObservation(fake.dependencies);
-    expect(fake.getCallCount()).toBeGreaterThan(0);
+    expect(fake.getCallCount()).toBeGreaterThan(afterProtection);
+  });
+
+  test("checkServiceDataRoot 在安装器放过数据根不一致的既有 unit 时拒绝通过", async () => {
+    const fake = createFakeDependencies();
+    await expect(
+      checkServiceDataRoot({
+        ...fake.dependencies,
+        runInstaller: async (): Promise<InstallerRunResult> => ({ exitCode: 0, output: "" }),
+      })
+    ).rejects.toThrow("既有 unit 与安装环境的数据根不一致时必须失败");
   });
 
   test("checkServiceProtection 与 checkServiceObservation 在状态不变量被破坏时拒绝通过", async () => {

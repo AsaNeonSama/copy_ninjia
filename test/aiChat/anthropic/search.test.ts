@@ -3,7 +3,7 @@
  * pause_turn 续发并合并正文与来源；成功与失败分支都交回已执行的检索次数，执行器不重复上报用量。
  */
 
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import type Anthropic from "@anthropic-ai/sdk";
 import { BetaFallbackState } from "@anthropic-ai/sdk";
 import type { AnthropicRequestResult } from "../../../packages/types/aiChat/anthropic";
@@ -30,12 +30,14 @@ const requestAnthropicMessage = mock(async (...args: unknown[]): Promise<Anthrop
   fallbackStates.push(options.fallbackState);
   return results.shift() ?? { ok: false, failureKind: "request" };
 });
+const getAnthropicClient = mock((): object => ({}));
 mock.module("../../../packages/aiChat/anthropic/client", () => ({
-  getAnthropicClient: (): object => ({}),
+  getAnthropicClient,
   requestAnthropicMessage,
 }));
 
 const { searchAnthropicWeb } = await import("../../../packages/aiChat/anthropic/search");
+const { logger } = await import("../../../packages/infra/logger");
 const {
   ANTHROPIC_WEB_SEARCH_MAX_TOKENS,
   ANTHROPIC_WEB_SEARCH_TOOL_NAME,
@@ -52,6 +54,8 @@ beforeEach(() => {
   calls.length = 0;
   fallbackStates.length = 0;
   reported.length = 0;
+  getAnthropicClient.mockReset();
+  getAnthropicClient.mockImplementation((): object => ({}));
   installAiCacheUsageSink((usage: AiCacheUsage): void => { reported.push(usage); });
 });
 afterEach(() => installAiCacheUsageSink(null));
@@ -132,4 +136,39 @@ test("缺计量字段时只数成功的检索结果；未执行的调用与错�
   } as unknown as Anthropic.Beta.BetaMessage });
   expect(await searchAnthropicWeb(TEXT_CAPABILITY, { instruction: "i", query: "q" }))
     .toMatchObject({ ok: true, searchCalls: 1 });
+});
+
+test("热重载后取不到客户端或能力配置时按请求失败收口：返回 ok:false、记录错误日志、不发请求", async () => {
+  getAnthropicClient.mockImplementationOnce((): object => {
+    throw new Error("web_search capability is not configured");
+  });
+  const loggerError = spyOn(logger, "error").mockImplementation((): void => {});
+  try {
+    const result = await searchAnthropicWeb(WEB_SEARCH_CAPABILITY, { instruction: "先检索", query: "问题" });
+    expect(result).toEqual({ ok: false, searchCalls: 0 });
+    expect(calls).toHaveLength(0);
+    expect(loggerError).toHaveBeenCalledTimes(1);
+  } finally {
+    loggerError.mockRestore();
+  }
+});
+
+test("调用方已取消时取不到客户端也静默返回，不记错误日志", async () => {
+  getAnthropicClient.mockImplementationOnce((): object => {
+    throw new Error("web_search capability is not configured");
+  });
+  const loggerError = spyOn(logger, "error").mockImplementation((): void => {});
+  try {
+    const controller: AbortController = new AbortController();
+    controller.abort();
+    const result = await searchAnthropicWeb(WEB_SEARCH_CAPABILITY, {
+      instruction: "先检索",
+      query: "问题",
+      signal: controller.signal,
+    });
+    expect(result).toEqual({ ok: false, searchCalls: 0 });
+    expect(loggerError).not.toHaveBeenCalled();
+  } finally {
+    loggerError.mockRestore();
+  }
 });

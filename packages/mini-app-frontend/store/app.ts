@@ -124,7 +124,10 @@ export interface MiniAppUiStoreState {
    * 再按 `lockSession` 清除本地凭据并回到密码门禁。会话到期与服务端判定会话失效时只走 `lockSession`。
    */
   readonly logout: (reason: string) => void;
-  /** 门禁 `checking` 阶段：预检 SuperAdmin 签名与持久化会话，按结果进入 `denied`、`password` 或 `unlocked`。 */
+  /**
+   * 门禁 `checking` 阶段：预检 SuperAdmin 签名与持久化会话，按结果进入 `denied`、`password` 或 `unlocked`。
+   * 预检有响应时本地令牌的保留与清除由 `precheckMiniAppAccess` 统一负责；请求本身抛错时在此清除本地凭据。
+   */
   readonly runAccessPrecheck: () => Promise<void>;
   /** 校验并提交门禁输入的访问密码或 6 位 TOTP 动态码，成功后解锁并按会话到期时刻安排自动锁定。 */
   readonly submitCredential: () => Promise<void>;
@@ -420,8 +423,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           try {
             const result: MiniAppPrecheckResult = await precheckMiniAppAccess();
             if (!result.ok) {
-              clearMiniAppAssetToken();
-              clearMiniAppSessionToken();
               set({ deniedDiag: result.diagnostics, gateState: "denied" });
               return;
             }
@@ -439,8 +440,6 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
               set({ sessionExpiresAt: result.sessionExpiresAt, gateState: "unlocked" });
               return;
             }
-            clearMiniAppAssetToken();
-            clearMiniAppSessionToken();
             set({ gateState: "password" });
           } catch (error: unknown) {
             clearMiniAppAssetToken();

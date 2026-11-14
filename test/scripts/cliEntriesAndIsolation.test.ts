@@ -63,7 +63,8 @@ describe("scripts CLI 与隔离脚本直测", () => {
       cmd: [Bun.argv[0]!, binaryScript, "--unknown-flag"],
       cwd: versionDir,
     });
-    expect(invalidFlag.exitCode).not.toBe(0);
+    expect(invalidFlag.exitCode).toBe(1);
+    expect(invalidFlag.stderr).toContain("Usage: ./copy-ninjia [--help|--version]");
 
     const isolatedDataRoot: string = makeTempRoot("copy-ninjia-bin-data-");
     const noConfigRun: CapturedCommandResult = await runCapturedCommand({
@@ -75,7 +76,8 @@ describe("scripts CLI 与隔离脚本直测", () => {
         [CONFIG_ROOT_ENV]: join(isolatedDataRoot, "config"),
       },
     });
-    expect(noConfigRun.exitCode).not.toBe(0);
+    expect(noConfigRun.exitCode).toBe(1);
+    expect(noConfigRun.stderr).toContain(`${join(isolatedDataRoot, "config", "dynamic")}: $ must be an existing directory.`);
   });
 
   test("checkCoverageMetrics 覆盖格式化、声明缺失失败、当前一致通过与过期差异返回 1", async () => {

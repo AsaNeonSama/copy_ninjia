@@ -73,7 +73,7 @@ function typoRejection(
 
 /**
  * 解析模型提交的两枚单字并决定本条消息是否采用本轮唯一一次手滑。
- * @param params 工具参数 JSON、原始文本、本轮错字资格与剩余动作额度。
+ * @param params 已解析的工具参数对象、原始文本、本轮错字资格与剩余动作额度。
  * @returns 包含待发送文本、可选纠正字、修正模式及拒绝原因的决策结果。
  */
 export function decideMessageTypo({

@@ -58,6 +58,8 @@ function parseAccessDiagnostics(
 /**
  * 调用 `GET ./api/auth/precheck` 核验当前客户端是否持有合法的 SuperAdmin `initData` 签名，并验证持久化的 45 分钟会话凭据是否仍有效；
  * 服务端给出的会话到期时刻经 `toLocalEpochMs` 换算为本机时刻后再判定与保存。
+ * 本函数是预检路径上本地会话与资源令牌的唯一同步方：会话有效时保存令牌；预检失败或会话无效时，仅当本地令牌仍是发出请求时的那一枚
+ * （或已为空）才清除，请求在途期间另行写入的新令牌保持不动。
  * @returns 预检结果
  */
 export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {

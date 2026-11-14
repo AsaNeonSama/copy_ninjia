@@ -101,6 +101,14 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(Object.values(contractTypeParity).every((matched: boolean): boolean => matched)).toBeTrue();
   });
 
+  test("Mini App 权限说明固定雌小鬼语气：zh 与 teasing 版 WHITELIST_PERMISSION_HELP 逐字一致，en/ja 每项非空", () => {
+    expect(getZhTranslations().permissionDrawer.descriptions).toEqual(teasingWhitelistPermissionHelp);
+    for (const key of frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS) {
+      expect(getEnTranslations().permissionDrawer.descriptions[key].trim().length).toBeGreaterThan(0);
+      expect(getJaTranslations().permissionDrawer.descriptions[key].trim().length).toBeGreaterThan(0);
+    }
+  });
+
   test("前端复制的字面量常量与服务端同名常量取值一致", () => {
     expect(frontendMiniAppConsts.MINI_APP_INIT_DATA_HEADER).toBe(serverMiniAppConsts.MINI_APP_INIT_DATA_HEADER);
     expect(frontendMiniAppConsts.MINI_APP_SESSION_HEADER).toBe(serverMiniAppConsts.MINI_APP_SESSION_HEADER);
@@ -124,11 +132,6 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     const sampleTuple: readonly ("a" | "b")[] = ["a", "b"];
     expect(frontendExhaustiveList.exhaustiveList<"a" | "b">()(sampleTuple)).toBe(sampleTuple);
     expect(serverExhaustiveList.exhaustiveList<"a" | "b">()(sampleTuple)).toBe(sampleTuple);
-    expect(getZhTranslations().permissionDrawer.descriptions).toEqual(teasingWhitelistPermissionHelp);
-    for (const key of frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS) {
-      expect(getEnTranslations().permissionDrawer.descriptions[key].trim().length).toBeGreaterThan(0);
-      expect(getJaTranslations().permissionDrawer.descriptions[key].trim().length).toBeGreaterThan(0);
-    }
     expect(frontendMemoryConsts.VERBATIM_CONTEXT_MAX).toBe(serverMemoryConsts.VERBATIM_CONTEXT_MAX);
     expect(frontendTimeConsts.MINUTE_MS).toBe(serverTimeConsts.MINUTE_MS);
   });

@@ -227,9 +227,7 @@ function temporaryAdBypassRowsWithPending(
     if (pending !== undefined) {
       return pending.activity === null ? [] : [{ id, ...pending.activity }];
     }
-    const row: StoredTemporaryAdBypassActivity | undefined =
-      reader.temporaryAdBypassActivityById.get({ id });
-    return row === undefined ? [] : [row];
+    return readStoredTemporaryAdBypassActivities(reader, ids);
   }
   const rows: readonly StoredTemporaryAdBypassActivity[] =
     readStoredTemporaryAdBypassActivities(reader, ids);
@@ -309,9 +307,7 @@ function policyRowsWithPending(
     if (pending !== undefined) {
       return pending.data === null ? [] : [[id, pending.data]];
     }
-    const row: StoredIdentityPolicyRow | undefined = (
-      table === "whitelist" ? reader.whitelistPolicyById : reader.blocklistPolicyById
-    ).get({ id });
+    const row: StoredIdentityPolicyRow | undefined = readStoredIdentityPolicies(reader, table, ids)[0];
     return row === undefined ? [] : [[row.id, row.data]];
   }
   const rows: readonly StoredIdentityPolicyRow[] = readStoredIdentityPolicies(
