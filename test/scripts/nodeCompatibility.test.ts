@@ -83,7 +83,7 @@ describe("Node 兼容约定", () => {
     const problems: readonly string[] = collectNodeCompatibilityProblems(
       projectRoot,
       atomicPath,
-      source(atomicPath, 'import * as fs from "node:fs";\nimport { readFile } from "node:fs/promises";\nimport { exec } from "node:child_process";\nconst bytes: Buffer = Buffer.alloc(1);')
+      source(atomicPath, 'import * as fs from "node:fs";\nimport { readFile } from "node:fs/promises";\nimport { exec } from "node:child_process";\nvoid Buffer.byteLength("x");\nconst bytes: Buffer = Buffer.alloc(1);')
     );
     expect(problems).toEqual([
       expect.stringContaining("must not namespace-import node:fs"),
@@ -253,6 +253,14 @@ describe("Node 兼容约定", () => {
       source(jsonBytesPath, "const bytes: Uint8Array = Buffer.from('x');")
     )).toEqual([
       expect.stringContaining("unreviewed Node compatibility global Buffer.from"),
+      expect.stringContaining("stale Node compatibility global Buffer.byteLength allowance"),
+    ]);
+    expect(collectNodeCompatibilityProblems(
+      projectRoot,
+      jsonBytesPath,
+      source(jsonBytesPath, "const n: number = Buffer.byteLength('x'); const bytes: Uint8Array = Buffer.from('x');")
+    )).toEqual([
+      expect.stringContaining("unreviewed Node compatibility global Buffer.from"),
     ]);
     expect(collectNodeCompatibilityProblems(
       projectRoot,
@@ -308,7 +316,7 @@ test("globalThis.Buffer 和字面量下标复用方法白名单", (): void => {
         .toEqual([expect.stringContaining("global Buffer.byteLength")]);
     }
     const path: string = "/project/packages/libs/jsonBytes.ts";
-    expect(collectNodeCompatibilityProblems("/project", path, source(path, `${expression}.from("x");`)))
+    expect(collectNodeCompatibilityProblems("/project", path, source(path, `${expression}.byteLength("x"); ${expression}.from("x");`)))
       .toEqual([expect.stringContaining("global Buffer.from")]);
   }
   const path: string = "/project/packages/example.ts";

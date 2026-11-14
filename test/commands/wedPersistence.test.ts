@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, jest, setSystemTime, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, jest, setSystemTime, spyOn, test } from "bun:test";
 import type { Context } from "grammy";
 import type { Chat } from "grammy/types";
 import { pendingWedMemberDeletes, resetWedMemberStates, wedMemberFlushState, wedMemberStates } from "../../packages/cache/main/wedMembers";
@@ -23,6 +23,10 @@ import type { DomainFlushOutcome } from "../../packages/types/diskIO/replies";
 
 const post = spyOn(diskIO, "postDiskIO");
 const flush = spyOn(diskIO, "flushDiskIODomain");
+afterAll((): void => {
+  post.mockRestore();
+  flush.mockRestore();
+});
 
 /** 与前置链一致：先各读一次 `ctx.chat` 与群状态快照，再交给 observeWedMembers。 */
 function observeLikePreamble(ctx: Context): void {

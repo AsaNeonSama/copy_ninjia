@@ -142,3 +142,66 @@ describe("排过 Once 的替身必须用 mockReset 复位", () => {
     expect(problems[1]).toStartWith("a.test.ts:7:19: read is reset with mockClear()");
   });
 });
+
+describe("文件顶层 spyOn 必须在同文件恢复", () => {
+  test("顶层与 describe 顶层未恢复的 spyOn（含未绑定变量）都报出准确位置", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "a.test.ts": [
+        'import { describe, spyOn, test } from "bun:test";',
+        "const target = { fn: (): number => 1, other: (): number => 2 };",
+        'const s = spyOn(target, "fn");',
+        'spyOn(target, "other").mockImplementation((): number => 3);',
+        'describe("suite", () => {',
+        '  const nestedTop = spyOn(target, "fn");',
+        '  test("ok", () => { s(); nestedTop(); });',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([
+      "a.test.ts:3:11: top-level s must call mockRestore() in afterAll/afterEach of the same file",
+      "a.test.ts:4:1: top-level spyOn(...) must call mockRestore() in afterAll/afterEach of the same file",
+      "a.test.ts:6:21: top-level nestedTop must call mockRestore() in afterAll/afterEach of the same file",
+    ]);
+  });
+
+  test("只在 beforeEach 调 mockClear 或在无关辅助函数调 mockRestore 仍算未按规恢复", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "a.test.ts": [
+        'import { beforeEach, spyOn, test } from "bun:test";',
+        "const target = { fn: (): number => 1 };",
+        'const s = spyOn(target, "fn");',
+        "beforeEach(() => { s.mockClear(); });",
+        "function unusedHelper(): void { s.mockRestore(); }",
+        'test("ok", () => { s(); unusedHelper(); });',
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([
+      "a.test.ts:3:11: top-level s must call mockRestore() in afterAll/afterEach of the same file",
+    ]);
+  });
+
+  test("顶层 spyOn 在同文件 afterAll/afterEach（含数组循环与传递辅助函数）恢复，与用例内局部 spyOn 均放行", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "a.test.ts": [
+        'import { afterAll, afterEach, describe, spyOn, test } from "bun:test";',
+        "const target = { a: (): number => 1, b: (): number => 2, c: (): number => 3 };",
+        'const spyA = spyOn(target, "a");',
+        'const spyB = spyOn(target, "b");',
+        "function restoreB(): void { spyB.mockRestore(); }",
+        'describe("suite", () => {',
+        '  const spyC = spyOn(target, "c");',
+        "  afterEach(() => { for (const entry of [spyC]) entry.mockRestore(); });",
+        "});",
+        "afterAll(() => { spyA.mockRestore(); restoreB(); });",
+        'test("local spy exempt", () => {',
+        "  const local = { run: (): number => 4 };",
+        '  spyOn(local, "run");',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([]);
+  });
+});

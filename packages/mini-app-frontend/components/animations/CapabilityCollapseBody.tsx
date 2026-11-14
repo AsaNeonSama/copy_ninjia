@@ -27,7 +27,7 @@ export interface CapabilityCollapseBodyProps {
  * @param expandedHeightPx 展开完成后的内容高度
  * @returns 跟滚目标或 `null`
  */
-function resolveCapabilityFollowScroll(
+export function resolveCapabilityFollowScroll(
   gridElement: FlipAnimatableElement,
   expandedHeightPx: number
 ): ViewportAnchorScrollTarget | null {

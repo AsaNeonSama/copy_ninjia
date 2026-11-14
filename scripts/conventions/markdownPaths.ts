@@ -39,6 +39,49 @@ export function collectRepositoryPaths(
   return paths;
 }
 
+/** 基于已读取 Markdown 正文核对仓库路径存在性的参数。 */
+export interface MarkdownPathCheckOptions {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** 被检查 Markdown 文件的绝对路径。 */
+  readonly path: string;
+  /** 被检查 Markdown 文件的原始正文。 */
+  readonly source: string;
+  /** 有效仓库路径集合。 */
+  readonly repositoryPaths: ReadonlySet<string>;
+}
+
+/**
+ * 基于已读取的 Markdown 文本核对反引号包裹的仓库文件与目录路径。
+ *
+ * @param options Markdown 文本与仓库路径核对参数
+ * @returns 缺失仓库路径的违规信息列表
+ */
+export function collectMarkdownPathProblemsFromText({
+  projectRoot,
+  path,
+  source,
+  repositoryPaths,
+}: MarkdownPathCheckOptions): readonly string[] {
+  const problems: string[] = [];
+  const searchable: string = withoutMarkdownCodeFences(source);
+  for (const match of searchable.matchAll(INLINE_CODE_PATTERN)) {
+    const candidate: string | undefined = match[1];
+    if (candidate === undefined) continue;
+    if (!REPOSITORY_PATH_PATTERN.test(candidate)) continue;
+    if (candidate.includes("xxx")) continue;
+    const normalized: string = candidate.endsWith("/")
+      ? candidate.slice(0, -1)
+      : candidate;
+    if (repositoryPaths.has(normalized)) continue;
+    const line: number = searchable.slice(0, match.index).split("\n").length;
+    problems.push(
+      `${relative(projectRoot, path)}:${line} references a missing repository path: ${candidate}`
+    );
+  }
+  return problems;
+}
+
 /**
  * 核对一份 Markdown 里反引号包裹的仓库文件与目录路径是否仍在受跟踪集合中。
  *
@@ -52,21 +95,10 @@ export async function collectMarkdownPathProblems(
   path: string,
   repositoryPaths: ReadonlySet<string>
 ): Promise<readonly string[]> {
-  const problems: string[] = [];
-  const source: string = withoutMarkdownCodeFences(await Bun.file(path).text());
-  for (const match of source.matchAll(INLINE_CODE_PATTERN)) {
-    const candidate: string | undefined = match[1];
-    if (candidate === undefined) continue;
-    if (!REPOSITORY_PATH_PATTERN.test(candidate)) continue;
-    if (candidate.includes("xxx")) continue;
-    const normalized: string = candidate.endsWith("/")
-      ? candidate.slice(0, -1)
-      : candidate;
-    if (repositoryPaths.has(normalized)) continue;
-    const line: number = source.slice(0, match.index).split("\n").length;
-    problems.push(
-      `${relative(projectRoot, path)}:${line} references a missing repository path: ${candidate}`
-    );
-  }
-  return problems;
+  return collectMarkdownPathProblemsFromText({
+    projectRoot,
+    path,
+    source: await Bun.file(path).text(),
+    repositoryPaths,
+  });
 }

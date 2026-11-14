@@ -47,6 +47,9 @@ import type {
   ChildResult,
 } from "./identityDatabase/types";
 
+/** 复用单一 UTF-8 解码器解码子进程 JSON 输出。 */
+const UTF8_DECODER: TextDecoder = new TextDecoder();
+
 /** 固定执行顺序。 */
 const BENCHMARK_OPERATIONS: readonly BenchmarkOperation[] = [
   "main-lru-read",
@@ -139,7 +142,7 @@ function runIndependentChild(
       );
     }
     const result: ChildResult = JSON.parse(
-      new TextDecoder().decode(child.stdout)
+      UTF8_DECODER.decode(child.stdout)
     ) as ChildResult;
     if (temporaryRoot !== null) {
       assertMainBenchmarkDatabase(temporaryRoot);
@@ -223,7 +226,7 @@ function runSingleProcessParent(mockRoot: string): BenchmarkReport {
       );
     }
     const result: BenchmarkReport = JSON.parse(
-      new TextDecoder().decode(child.stdout)
+      UTF8_DECODER.decode(child.stdout)
     ) as BenchmarkReport;
     assertMainBenchmarkDatabase(temporaryRoot);
     return result;

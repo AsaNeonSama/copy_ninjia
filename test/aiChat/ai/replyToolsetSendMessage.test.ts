@@ -264,6 +264,72 @@ describe("send_message typo correction", () => {
       Math.random = originalRandom;
     }
   });
+
+  test("快速补字发送返回 undefined 时返回 false 且不计入已完成动作", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    const onMessageSent = mock((..._args: unknown[]): void => {});
+    sendMessageMock
+      .mockResolvedValueOnce({ messageId: 100, repliedToMessageId: undefined })
+      .mockResolvedValueOnce(undefined);
+    try {
+      const toolset = await createReplyToolset(replyToolContextFixture({
+        mediaToolsRequested: true,
+        roundHasTypo: true,
+        onMessageSent,
+      }));
+
+      const result = JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({
+        text: "天气",
+        typo_original_char: "气",
+        typo_replacement_char: "汽",
+      })));
+
+      expect(result.actions_used).toBe(2);
+      expect(toolset.actionsCompleted()).toBe(1);
+      expect(sendMessageMock).toHaveBeenCalledTimes(2);
+      expect(onMessageSent).toHaveBeenCalledTimes(1);
+      expect(onMessageSent).toHaveBeenCalledWith("天汽", 100, undefined);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("快速补字在非中止情况下抛错时记录 error 日志且不计入已完成动作", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    const sleepBoom: Error = new Error("quick typo pause failed");
+    const onMessageSent = mock((..._args: unknown[]): void => {});
+    sleepMock
+      .mockImplementationOnce(async (): Promise<void> => {})
+      .mockImplementationOnce(async (): Promise<void> => {
+        throw sleepBoom;
+      });
+    const errorLog = spyOn(logger, "error").mockImplementation((): void => {});
+    try {
+      const toolset = await createReplyToolset(replyToolContextFixture({
+        mediaToolsRequested: true,
+        roundHasTypo: true,
+        onMessageSent,
+      }));
+
+      const result = JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({
+        text: "天气",
+        typo_original_char: "气",
+        typo_replacement_char: "汽",
+      })));
+
+      expect(result.actions_used).toBe(2);
+      expect(toolset.actionsCompleted()).toBe(1);
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+      expect(onMessageSent).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledTimes(1);
+      expect(errorLog).toHaveBeenCalledWith("Error while applying quick typo correction:", sleepBoom);
+    } finally {
+      errorLog.mockRestore();
+      Math.random = originalRandom;
+    }
+  });
 });
 
 describe("send_message 重复消息去重", () => {

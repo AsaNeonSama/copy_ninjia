@@ -1,9 +1,12 @@
 import { TTS_DEFAULT_BOT_LANGUAGE, TTS_DEFAULT_STYLE } from "../../packages/consts/aiChat/voiceMessage";
-import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import type { TtsDailyUsage } from "../../packages/types/aiChat/voiceMessage";
 import { loggerStub } from "../helpers/loggerMock";
 import type { GoogleGenAI } from "@google/genai";
-import type { AgentDeploymentConfig } from "../../packages/types/config";
+import type {
+  AgentCapability,
+  AgentDeploymentConfig,
+} from "../../packages/types/config";
 import type { GeminiContextCacheRegistry } from "../../packages/types/geminiContextCache";
 import { SEND_VOICE_TOOL } from "../../packages/consts/tools";
 
@@ -14,8 +17,14 @@ mock.module("../../packages/config/agent", () => ({
     agentConfig = config;
   },
 }));
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 const postMessage = mock((..._args: unknown[]): void => {});
 Object.defineProperty(globalThis, "self", { configurable: true, value: { postMessage } });
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
+});
 const loggerError = mock((..._args: unknown[]): void => {});
 const loggerWarn = mock((..._args: unknown[]): void => {});
 mock.module("../../packages/infra/logger", () => ({
@@ -28,6 +37,10 @@ mock.module("../../packages/infra/geminiContextCache", () => ({
   probeGeminiContextCache,
 }));
 
+const {
+  AGENT_PROVIDER_LABELS,
+} = await import("../../packages/consts/agent");
+const { capabilityClient } = await import("../../packages/aiChat/capabilityClient");
 const {
   imageAiProvider,
   mediaAiProvider,
@@ -673,4 +686,36 @@ test("agent 热重载删除 tts 后摘除它独占的配额 lane", () => {
   reloadAgentDeploymentConfig({ ...agentConfig, tts: undefined });
   expect(aiProviderQuotaLanes).not.toContain(ttsLane!);
   expect(ttsAiProvider()).toBeNull();
+});
+
+test("capabilityClient 在能力未配置或不属于指定 provider 时抛出格式化错误", () => {
+  const holder: { current: Map<AgentCapability, object> | null } = {
+    current: null,
+  };
+  let created: number = 0;
+
+  // summary 在默认夹具中配置为 openai，以 anthropic 请求该能力触发 !isProviderConfig 分支。
+  expect((): object => capabilityClient({
+    provider: "anthropic",
+    capability: "summary",
+    holder,
+    create: (): object => {
+      created++;
+      return {};
+    },
+  })).toThrow(`Agent capability "summary" is not configured for the ${AGENT_PROVIDER_LABELS.anthropic} provider.`);
+
+  // 可选能力 tts 被清空后同样属于 !isProviderConfig。
+  const { tts: _tts, ...withoutTts } = agentConfig;
+  agentConfig = withoutTts;
+  expect((): object => capabilityClient({
+    provider: "google",
+    capability: "tts",
+    holder,
+    create: (): object => {
+      created++;
+      return {};
+    },
+  })).toThrow(`Agent capability "tts" is not configured for the ${AGENT_PROVIDER_LABELS.google} provider.`);
+  expect(created).toBe(0);
 });

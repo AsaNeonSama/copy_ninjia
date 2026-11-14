@@ -1,5 +1,5 @@
 import { adoptTimeZone, getTimeZone } from "../../../packages/config/time";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AntiRaidWorkerEvent } from "../../../packages/types/antiRaid/events";
 import type { AntiRaidWorkerMessage } from "../../../packages/types/antiRaid/protocol";
 import type { AdDetectAgentConfig } from "../../../packages/types/config";
@@ -25,7 +25,13 @@ const workerSelf: {
   onmessage: null,
   postMessage: (event) => { workerEvents.push(event); },
 };
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", { configurable: true, value: workerSelf });
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
+});
 
 mock.module("../../../packages/workers/antiRaid/verificationEvents", () => ({
   handleJoinEvent(): void { calls.push("join"); },

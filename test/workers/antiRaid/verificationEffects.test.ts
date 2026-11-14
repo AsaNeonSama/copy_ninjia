@@ -583,4 +583,26 @@ describe("同步副作用的逐条执行", () => {
     expect(dispatched.some(({ event }) => event.type === "kickSettled")).toBeFalse();
     expect(verificationEntries.get(KEY)?.terminalRetries).toBe(0);
   });
+
+  test("私密模式踢人被权限拒绝且成员仍在群里时记录 forbidden 错误日志并排入重试", async () => {
+    const delays: number[] = [];
+    const restoreTimeouts: () => void = recordScheduledDelays(delays);
+    try {
+      testState.kickForbidden = true;
+      testState.membershipPresent = true;
+      setState(kickPendingState());
+
+      await run([{ kind: "kickMember" }]);
+
+      expect(kickedUserIds).toEqual([USER_ID]);
+      expect(dispatched.some(({ event }) => event.type === "kickSettled")).toBeFalse();
+      expect(verificationEntries.get(KEY)?.terminalRetries).toBe(1);
+      expect(delays).toEqual([VERIFICATION_TERMINAL_RETRY_MS]);
+      expect(loggedErrors.some((line: string): boolean =>
+        line.includes("was forbidden by Telegram permissions or member status; retaining the pending action for retry.")
+      )).toBeTrue();
+    } finally {
+      restoreTimeouts();
+    }
+  });
 });

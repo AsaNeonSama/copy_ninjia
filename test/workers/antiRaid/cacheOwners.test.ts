@@ -1,6 +1,6 @@
 import { installTemporaryMessageWorkerMock } from "../../helpers/temporaryMessageWorkerMock";
 installTemporaryMessageWorkerMock();
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { ANTI_RAID_CHAT_CACHE_MAX } from
   "../../../packages/consts/antiRaid/cache";
@@ -59,9 +59,15 @@ const setChatPermissions = mock(async (
   permissionWrites.push({ ...permissions });
   currentPermissions = { ...permissions };
 });
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", {
   configurable: true,
   value: { postMessage(event: AntiRaidWorkerEvent): void { lockdownEvents.push(event); } },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 mock.module("../../../packages/infra/logger", () => ({
   logger: loggerStub({ error(...args: unknown[]): void { loggedErrors.push(args); } }),

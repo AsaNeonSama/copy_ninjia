@@ -27,6 +27,12 @@ const ONCE_METHODS: ReadonlySet<string> = new Set([
 /** bun:test 的生命周期钩子。 */
 const HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["beforeEach", "afterEach", "beforeAll", "afterAll"]);
 
+/** 用于恢复文件顶层 `spyOn` 的清理生命周期钩子。 */
+const CLEANUP_HOOK_FUNCTIONS: ReadonlySet<string> = new Set(["afterEach", "afterAll"]);
+
+/** `describe` 套件节点名集合，回调内部的一级语句仍视为文件顶层作用域。 */
+const SUITE_FUNCTIONS: ReadonlySet<string> = new Set(["describe"]);
+
 /** 门禁入参：覆盖全部测试文件的 program 与其中要检查的文件。 */
 export interface MockResetRuleParams {
   /** 仓库根目录绝对路径。 */
@@ -266,5 +272,198 @@ export function collectMockResetProblems({ projectRoot, program, testFiles }: Mo
       );
     }
   }
+  problems.push(...collectTopLevelSpyRestoreProblems({ projectRoot, program, checker, testFiles }));
   return problems.sort();
+}
+
+/** `collectTopLevelSpyRestoreProblems` 检查文件顶层 `spyOn` 恢复的参数。 */
+interface TopLevelSpyRestoreParams {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** 包含测试文件的 TypeScript Program。 */
+  readonly program: ts.Program;
+  /** TypeScript 类型检查器。 */
+  readonly checker: ts.TypeChecker;
+  /** 待检查的测试文件绝对路径列表。 */
+  readonly testFiles: readonly string[];
+}
+
+/**
+ * 判断调用表达式是否为 `describe(...)` 或 `describe.each/skip(...)` 套件容器。
+ * @param call 调用表达式节点
+ * @returns 为 `describe` 套件调用时返回 true
+ */
+function isDescribeCall(call: ts.CallExpression): boolean {
+  const target: ts.Expression = unwrapExpression(call.expression);
+  if (ts.isIdentifier(target)) return SUITE_FUNCTIONS.has(target.text);
+  if (ts.isPropertyAccessExpression(target) && ts.isIdentifier(target.expression)) {
+    return SUITE_FUNCTIONS.has(target.expression.text);
+  }
+  return false;
+}
+
+/**
+ * 解析顶层 `spyOn(...)`（含 `.mockImplementation(...)` 等链式调用）最终绑定的变量符号。
+ * @param checker TypeScript 类型检查器
+ * @param spyCall `spyOn(...)` 调用表达式
+ * @returns 绑定符号；未赋值给标识符时返回 undefined
+ */
+function boundSpySymbol(checker: ts.TypeChecker, spyCall: ts.CallExpression): ts.Symbol | undefined {
+  let current: ts.Node = spyCall;
+  while (current.parent !== undefined) {
+    const parent: ts.Node = current.parent;
+    if (
+      ts.isAsExpression(parent) ||
+      ts.isTypeAssertionExpression(parent) ||
+      ts.isSatisfiesExpression(parent) ||
+      ts.isNonNullExpression(parent) ||
+      ts.isParenthesizedExpression(parent)
+    ) {
+      current = parent;
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === current && ts.isCallExpression(parent.parent)) {
+      current = parent.parent;
+      continue;
+    }
+    if (ts.isVariableDeclaration(parent) && parent.initializer === current && ts.isIdentifier(parent.name)) {
+      const symbol: ts.Symbol | undefined = checker.getSymbolAtLocation(parent.name);
+      return symbol === undefined ? undefined : canonicalSymbol(checker, symbol);
+    }
+    if (
+      ts.isBinaryExpression(parent) &&
+      parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      parent.right === current
+    ) {
+      const symbol: ts.Symbol | undefined = referencedSymbol(checker, parent.left);
+      return symbol === undefined ? undefined : canonicalSymbol(checker, symbol);
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * 收集单个测试文件顶层与 `describe` 一级语句里的 `spyOn(...)` 调用（不含用例体和局部函数体）。
+ * @param source 测试文件 AST
+ * @returns 位于顶层作用域的 `spyOn(...)` 调用列表
+ */
+function collectTopLevelSpyCalls(source: ts.SourceFile): readonly ts.CallExpression[] {
+  const calls: ts.CallExpression[] = [];
+  const visitTopLevel = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isCallExpression(node)) {
+      if (isDescribeCall(node)) {
+        for (const argument of node.arguments) {
+          const target: ts.Expression = unwrapExpression(argument);
+          if ((ts.isArrowFunction(target) || ts.isFunctionExpression(target)) && target.body !== undefined) {
+            ts.forEachChild(target.body, visitTopLevel);
+          }
+        }
+        return;
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === "spyOn") {
+        calls.push(node);
+      }
+    }
+    ts.forEachChild(node, visitTopLevel);
+  };
+  ts.forEachChild(source, visitTopLevel);
+  return calls;
+}
+
+/**
+ * 收集同一个测试文件内 `afterAll`/`afterEach`（及其同文件辅助函数）与模块顶层语句对 `.mockRestore()` 的调用符号。
+ * @param checker TypeScript 类型检查器
+ * @param source 测试文件 AST
+ * @param filePath 测试文件绝对路径
+ * @returns 已在同一文件安全作用域调用 `.mockRestore()` 的符号集合
+ */
+function collectRestoredSpySymbols(
+  checker: ts.TypeChecker,
+  source: ts.SourceFile,
+  filePath: string
+): ReadonlySet<ts.Symbol> {
+  const cleanupRoots: ts.FunctionLikeDeclaration[] = [];
+  const topLevelRestores: ts.Symbol[] = [];
+  const visitHooks = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      CLEANUP_HOOK_FUNCTIONS.has(node.expression.text)
+    ) {
+      for (const argument of node.arguments) {
+        const hook: ts.FunctionLikeDeclaration | null = calledFunction(checker, argument);
+        if (hook !== null) cleanupRoots.push(hook);
+      }
+    }
+    ts.forEachChild(node, visitHooks);
+  };
+  visitHooks(source);
+  const cleanupFunctions: ReadonlySet<ts.Node> = collectResetFunctions(
+    checker,
+    cleanupRoots,
+    new Set([filePath])
+  );
+  const visitRestores = (node: ts.Node, inFunction: boolean): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "mockRestore" &&
+      node.arguments.length === 0 &&
+      (!inFunction || isInResetFunction(node, cleanupFunctions))
+    ) {
+      for (const symbol of mockSymbols(checker, node.expression.expression)) {
+        topLevelRestores.push(symbol);
+      }
+    }
+    if (ts.isFunctionLike(node)) {
+      const parent: ts.Node = node.parent;
+      const isDescribe: boolean =
+        ts.isCallExpression(parent) && isDescribeCall(parent);
+      ts.forEachChild(node, (child: ts.Node): void => {
+        visitRestores(child, isDescribe ? inFunction : true);
+      });
+      return;
+    }
+    ts.forEachChild(node, (child: ts.Node): void => {
+      visitRestores(child, inFunction);
+    });
+  };
+  visitRestores(source, false);
+  return new Set(topLevelRestores);
+}
+
+/**
+ * 检查测试文件顶层 `spyOn` 是否在同一文件的 `afterAll`/`afterEach`（或顶层加载后同步位置）调用 `.mockRestore()`。
+ * @param params program、类型检查器与待检查测试文件列表
+ * @returns 未按规恢复顶层 `spyOn` 的问题列表
+ */
+function collectTopLevelSpyRestoreProblems({
+  projectRoot,
+  program,
+  checker,
+  testFiles,
+}: TopLevelSpyRestoreParams): readonly string[] {
+  const problems: string[] = [];
+  for (const path of testFiles) {
+    if (!path.endsWith(".test.ts") && !path.endsWith(".test.tsx")) continue;
+    const source: ts.SourceFile | undefined = program.getSourceFile(path);
+    if (source === undefined) continue;
+    const topLevelSpies: readonly ts.CallExpression[] = collectTopLevelSpyCalls(source);
+    if (topLevelSpies.length === 0) continue;
+    const restoredSymbols: ReadonlySet<ts.Symbol> = collectRestoredSpySymbols(checker, source, path);
+    for (const spyCall of topLevelSpies) {
+      const symbol: ts.Symbol | undefined = boundSpySymbol(checker, spyCall);
+      if (symbol !== undefined && restoredSymbols.has(symbol)) continue;
+      const { line, character }: ts.LineAndCharacter =
+        source.getLineAndCharacterOfPosition(spyCall.getStart(source));
+      const label: string = symbol === undefined ? "spyOn(...)" : symbol.name;
+      problems.push(
+        `${relative(projectRoot, path)}:${line + 1}:${character + 1}: top-level ${label} ` +
+        "must call mockRestore() in afterAll/afterEach of the same file"
+      );
+    }
+  }
+  return problems;
 }

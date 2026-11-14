@@ -261,6 +261,7 @@ export function collectNodeCompatibilityProblems(
   visitRuntimeNodeLoads(source);
 
   let usesBufferGlobal: boolean = false;
+  const usedBufferMethods: Set<string> = new Set<string>();
   const bufferAllowance: BufferGlobalAllowance | undefined = isScript
     ? SCRIPT_BUFFER_GLOBALS[relativePath]
     : isTest
@@ -270,6 +271,7 @@ export function collectNodeCompatibilityProblems(
     if (isBufferGlobalUse(node)) {
       usesBufferGlobal = true;
       const method: string | undefined = bufferGlobalMethod(node);
+      if (method !== undefined) usedBufferMethods.add(method);
       if (bufferAllowance === undefined || method === undefined || !bufferAllowance.methods.includes(method)) {
         const line: number = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
         problems.push(
@@ -281,10 +283,19 @@ export function collectNodeCompatibilityProblems(
     ts.forEachChild(node, visitBufferGlobal);
   };
   visitBufferGlobal(source);
-  if (bufferAllowance !== undefined && !usesBufferGlobal) {
-    problems.push(
-      `${relativePath}:1 retains a stale Node compatibility global Buffer allowance`
-    );
+  if (bufferAllowance !== undefined) {
+    if (!usesBufferGlobal) {
+      problems.push(
+        `${relativePath}:1 retains a stale Node compatibility global Buffer allowance`
+      );
+    } else {
+      for (const allowedMethod of bufferAllowance.methods) {
+        if (usedBufferMethods.has(allowedMethod)) continue;
+        problems.push(
+          `${relativePath}:1 retains a stale Node compatibility global Buffer.${allowedMethod} allowance`
+        );
+      }
+    }
   }
 
   const visitDiscouragedProcessProperties = (node: ts.Node): void => {

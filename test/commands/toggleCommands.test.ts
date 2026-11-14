@@ -1,7 +1,7 @@
 import { replyCommandNoticeVia } from "../helpers/common";
 const postAntiRaid = mock((_message: unknown): boolean => true);
 mock.module("../../packages/antiRaid/workerBridge/controller", () => ({ postAntiRaid }));
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { groupCommandContext } from "../helpers/groupCommandContext";
 import {
   ANTI_RAID_DISABLE_TEARDOWN_FAILED_TEXT,
@@ -72,6 +72,10 @@ const invalidateBotAdminStatus = spyOn(botAdmin, "invalidateBotAdminStatus");
 const resolveBotAdminStatus = spyOn(botAdmin, "resolveBotAdminStatus").mockImplementation(
   async (_chatId: number): Promise<boolean> => false
 );
+afterAll((): void => {
+  invalidateBotAdminStatus.mockRestore();
+  resolveBotAdminStatus.mockRestore();
+});
 
 const { handleAdDetectCommand } = await import("../../packages/commands/adDetect");
 const { handleAiChatCommand } = await import("../../packages/commands/aiChat");

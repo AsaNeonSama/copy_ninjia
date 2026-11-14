@@ -108,16 +108,21 @@ export function collectMarkdownAnchors(source: string): ReadonlySet<string> {
 const markdownAnchorCache: Map<string, ReadonlySet<string> | null> = new Map();
 
 /**
- * 读取并缓存一份文档的锚点；文件读不到时返回 null（路径那一半另有报错）。
+ * 读取并缓存一份文档的锚点；优先复用预读文本，文件读不到时返回 null（路径那一半另有报错）。
  * @param path Markdown 文档绝对路径。
+ * @param fileTexts 可选的按绝对路径缓存的预读文本。
  * @returns 文档中的锚点集合；读取失败时返回 null。
  */
-async function anchorsOf(path: string): Promise<ReadonlySet<string> | null> {
+async function anchorsOf(
+  path: string,
+  fileTexts?: ReadonlyMap<string, string>
+): Promise<ReadonlySet<string> | null> {
   const cached: ReadonlySet<string> | null | undefined = markdownAnchorCache.get(path);
   if (cached !== undefined) return cached;
   let anchors: ReadonlySet<string> | null;
   try {
-    anchors = collectMarkdownAnchors(await Bun.file(path).text());
+    const text: string = fileTexts?.get(path) ?? await Bun.file(path).text();
+    anchors = collectMarkdownAnchors(text);
   } catch {
     anchors = null;
   }
@@ -125,18 +130,31 @@ async function anchorsOf(path: string): Promise<ReadonlySet<string> | null> {
   return anchors;
 }
 
+/** 基于已读取 Markdown 正文核对本地链接与标题锚点的参数。 */
+export interface MarkdownLocalLinkCheckOptions {
+  /** 仓库根目录绝对路径。 */
+  readonly projectRoot: string;
+  /** Markdown 文档绝对路径。 */
+  readonly path: string;
+  /** Markdown 文档原始正文。 */
+  readonly source: string;
+  /** 承接检查失败信息的数组。 */
+  readonly failures: string[];
+  /** 可选的按绝对路径缓存的预读文本。 */
+  readonly fileTexts?: ReadonlyMap<string, string>;
+}
+
 /**
- * 检查 Markdown inline/reference link 与 HTML href/src 的本地目标。
- * @param projectRoot 仓库根目录绝对路径。
- * @param path Markdown 文档绝对路径。
- * @param failures 承接检查失败信息的数组。
+ * 基于已读取的 Markdown 正文检查 inline/reference link 与 HTML href/src 的本地目标。
+ * @param options Markdown 正文、预读缓存与失败收集数组。
  */
-export async function checkMarkdownLocalLinks(
-  projectRoot: string,
-  path: string,
-  failures: string[]
-): Promise<void> {
-  const source: string = await Bun.file(path).text();
+export async function checkMarkdownLocalLinksFromText({
+  projectRoot,
+  path,
+  source,
+  failures,
+  fileTexts,
+}: MarkdownLocalLinkCheckOptions): Promise<void> {
   const searchable: string = withoutMarkdownCodeFences(source);
   const patterns: readonly RegExp[] = [
     /!?\[[^\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^)]*["'])?\s*\)/g,
@@ -169,7 +187,8 @@ export async function checkMarkdownLocalLinks(
           decodedTarget = targetWithoutFragment;
         }
         linkedPath = resolve(dirname(path), decodedTarget);
-        if (!(await pathExists(linkedPath))) {
+        const exists: boolean = fileTexts?.has(linkedPath) === true || await pathExists(linkedPath);
+        if (!exists) {
           failures.push(
             `${relative(projectRoot, path)}:${line} local link target does not exist: ${target}`
           );
@@ -183,7 +202,7 @@ export async function checkMarkdownLocalLinks(
       } catch {
         decodedFragment = fragment;
       }
-      const anchors: ReadonlySet<string> | null = await anchorsOf(linkedPath);
+      const anchors: ReadonlySet<string> | null = await anchorsOf(linkedPath, fileTexts);
       if (anchors === null || anchors.has(decodedFragment.toLowerCase())) continue;
       failures.push(
         `${relative(projectRoot, path)}:${line} link fragment has no matching heading in ` +
@@ -191,4 +210,23 @@ export async function checkMarkdownLocalLinks(
       );
     }
   }
+}
+
+/**
+ * 检查 Markdown inline/reference link 与 HTML href/src 的本地目标。
+ * @param projectRoot 仓库根目录绝对路径。
+ * @param path Markdown 文档绝对路径。
+ * @param failures 承接检查失败信息的数组。
+ */
+export async function checkMarkdownLocalLinks(
+  projectRoot: string,
+  path: string,
+  failures: string[]
+): Promise<void> {
+  await checkMarkdownLocalLinksFromText({
+    projectRoot,
+    path,
+    source: await Bun.file(path).text(),
+    failures,
+  });
 }

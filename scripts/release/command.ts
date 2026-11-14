@@ -7,6 +7,9 @@ export interface CommandResult {
 /** 接收参数数组并同步返回退出码与标准输出的外部命令执行函数。 */
 export type ReleaseCommand = (arguments_: readonly string[]) => CommandResult;
 
+/** 复用单一 UTF-8 解码器解码发布子命令标准输出。 */
+const UTF8_DECODER: TextDecoder = new TextDecoder();
+
 /**
  * 固定工作目录，参数按 argv 传递，不经过 shell 展开。
  * @param cwd 子进程工作目录。
@@ -17,7 +20,7 @@ export function createReleaseCommand(cwd: string): ReleaseCommand {
     const result: Bun.SyncSubprocess<"pipe", "inherit"> = Bun.spawnSync({
       cmd: [...arguments_], cwd, stdout: "pipe", stderr: "inherit",
     });
-    return { exitCode: result.exitCode, stdout: new TextDecoder().decode(result.stdout) };
+    return { exitCode: result.exitCode, stdout: UTF8_DECODER.decode(result.stdout) };
   };
 }
 

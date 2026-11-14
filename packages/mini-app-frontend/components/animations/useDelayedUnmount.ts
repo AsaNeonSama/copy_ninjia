@@ -9,6 +9,45 @@ export interface DelayedUnmountState<T> {
   readonly isClosing: boolean;
 }
 
+/** `scheduleDelayedUnmountEffect` 延迟卸载定时调度的参数。 */
+export interface ScheduleDelayedUnmountParams<T> {
+  /** 当前激活的值（关闭时为 `null`）。 */
+  readonly activeValue: T | null;
+  /** 退场期间保留快照的毫秒数。 */
+  readonly durationMs: number;
+  /** 保存最近一次非空值的引用句柄。 */
+  readonly lastNonNullRef: { current: T | null };
+  /** 延迟到期后将组件标为已卸载的回调。 */
+  readonly setUnmounted: (value: boolean) => void;
+}
+
+/**
+ * 在值转为 `null` 且仍保留上一次非空快照时启动延迟清理定时器，并返回取消函数。
+ *
+ * @param params 当前激活值、延迟时长、非空引用与卸载状态设置回调
+ * @returns 启动定时器时返回取消清理函数，无需调度时返回 `undefined`
+ */
+export function scheduleDelayedUnmountEffect<T>({
+  activeValue,
+  durationMs,
+  lastNonNullRef,
+  setUnmounted,
+}: ScheduleDelayedUnmountParams<T>): (() => void) | undefined {
+  if (activeValue !== null) {
+    return undefined;
+  }
+  if (lastNonNullRef.current === null) {
+    return undefined;
+  }
+  const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+    lastNonNullRef.current = null;
+    setUnmounted(true);
+  }, durationMs);
+  return (): void => {
+    clearTimeout(timer);
+  };
+}
+
 /**
  * 配合快速退场动画延迟卸载节点：当 `activeValue` 非空时同步更新快照且不触发额外重渲染；
  * 当 `activeValue` 变为 `null` 时保留上一份值并置 `isClosing = true`，等待 `durationMs` 后再清空卸载。
@@ -36,21 +75,16 @@ export function useDelayedUnmount<T>(
     setUnmounted(false);
   }
 
-  useEffect((): (() => void) | undefined => {
-    if (activeValue !== null) {
-      return undefined;
-    }
-    if (lastNonNullRef.current === null) {
-      return undefined;
-    }
-    const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
-      lastNonNullRef.current = null;
-      setUnmounted(true);
-    }, durationMs);
-    return (): void => {
-      clearTimeout(timer);
-    };
-  }, [activeValue, durationMs]);
+  useEffect(
+    (): (() => void) | undefined =>
+      scheduleDelayedUnmountEffect({
+        activeValue,
+        durationMs,
+        lastNonNullRef,
+        setUnmounted,
+      }),
+    [activeValue, durationMs]
+  );
 
   return {
     displayValue: activeValue ?? (unmounted ? null : lastNonNullRef.current),

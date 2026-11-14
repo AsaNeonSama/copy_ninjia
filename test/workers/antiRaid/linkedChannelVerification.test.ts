@@ -1,13 +1,19 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { AntiRaidWorkerEvent } from "../../../packages/types/antiRaid/events";
 import type { VerificationSnapshot } from "../../../packages/types/antiRaid/verification";
 
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 const chatRequests: PromiseWithResolvers<Record<string, unknown>>[] = [];
 const workerEvents: AntiRaidWorkerEvent[] = [];
 Object.defineProperty(globalThis, "self", {
   configurable: true,
   value: { postMessage(event: AntiRaidWorkerEvent): void { workerEvents.push(event); } },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 
 mock.module("../../../packages/infra/logger", () => ({

@@ -1,6 +1,6 @@
 import { installTemporaryMessageWorkerMock } from "../../helpers/temporaryMessageWorkerMock";
 installTemporaryMessageWorkerMock();
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import { waitUntil } from "../../helpers/waitUntil";
@@ -13,9 +13,15 @@ import type { VerificationSnapshot } from "../../../packages/types/antiRaid/veri
 const actions: string[] = [];
 const workerEvents: AntiRaidWorkerEvent[] = [];
 let kickSucceeds: boolean = true;
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", {
   configurable: true,
   value: { postMessage(event: AntiRaidWorkerEvent): void { workerEvents.push(event); } },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 
 /** 两个删除入口共用一份实现：终态清理走三态版，其余路径只看成败。 */

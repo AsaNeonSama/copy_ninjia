@@ -24,39 +24,57 @@ const EXEMPT_SYMBOLS: readonly string[] = ["TYPING_DELAY_"];
  *
  * @param path 当前模块文件的绝对路径
  * @param source 当前模块文件的文本内容
+ * @param fileTexts 可选的按绝对路径缓存的预读文本
  * @returns 再导出目标文件的绝对路径列表
  */
-async function reexportTargets(path: string, source: string): Promise<readonly string[]> {
+async function reexportTargets(
+  path: string,
+  source: string,
+  fileTexts?: ReadonlyMap<string, string>
+): Promise<readonly string[]> {
   const targets: string[] = [];
   for (const match of source.matchAll(/export\s+(?:type\s+)?\*\s+from\s+"(\.[^"]+)"/g)) {
     const specifier: string | undefined = match[1];
     if (specifier === undefined) continue;
     const base: string = join(path, "..", specifier);
     for (const candidate of [`${base}.ts`, join(base, "index.ts")]) {
-      if ((await statOptionalPath(candidate))?.isFile() === true) targets.push(candidate);
+      if (fileTexts?.has(candidate) === true || (await statOptionalPath(candidate))?.isFile() === true) {
+        targets.push(candidate);
+      }
     }
   }
   return targets;
 }
 
+/** `declaresSymbol` 递归核对符号声明与一层 re-export 的参数。 */
+interface DeclaresSymbolOptions {
+  /** 被检查模块文件的绝对路径。 */
+  readonly path: string;
+  /** 待核对的符号名称。 */
+  readonly symbol: string;
+  /** 允许继续展开 `export *` 的最大深度。 */
+  readonly depth?: number;
+  /** 可选的按绝对路径缓存的预读文本。 */
+  readonly fileTexts?: ReadonlyMap<string, string>;
+}
+
 /**
  * 被点名的文件（含一层兼容入口再导出）里是否还有这个符号。
  *
- * @param path 被检查模块文件的绝对路径
- * @param symbol 待核对的符号名称
- * @param depth 允许继续展开 `export *` 的最大深度
+ * @param options 路径、符号、递归深度与可选预读文本缓存
  * @returns 声明或再导出该符号时返回 true
  */
-async function declaresSymbol(
-  path: string,
-  symbol: string,
-  depth: number = 1
-): Promise<boolean> {
-  const source: string = await Bun.file(path).text();
+async function declaresSymbol({
+  path,
+  symbol,
+  depth = 1,
+  fileTexts,
+}: DeclaresSymbolOptions): Promise<boolean> {
+  const source: string = fileTexts?.get(path) ?? await Bun.file(path).text();
   if (new RegExp(`\\b${symbol}\\b`).test(source)) return true;
   if (depth <= 0) return false;
-  for (const target of await reexportTargets(path, source)) {
-    if (await declaresSymbol(target, symbol, depth - 1)) return true;
+  for (const target of await reexportTargets(path, source, fileTexts)) {
+    if (await declaresSymbol({ path: target, symbol, depth: depth - 1, fileTexts })) return true;
   }
   return false;
 }
@@ -71,6 +89,8 @@ export interface CommentReferenceParams {
   readonly source: ts.SourceFile;
   /** 全仓源文件的绝对路径，用于按 basename 解析未写全的相对引用。 */
   readonly allSourceFiles: readonly string[];
+  /** 可选的按绝对路径缓存的预读文本，命中时复用以免重复读盘。 */
+  readonly fileTexts?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -86,16 +106,16 @@ export interface CommentReferenceParams {
  * @returns 解析到的目标文件绝对路径，存在歧义或无法唯一定位时返回 undefined
  */
 async function resolveReference(
-  { projectRoot, path, allSourceFiles }: CommentReferenceParams,
+  { projectRoot, path, allSourceFiles, fileTexts }: CommentReferenceParams,
   specifier: string
 ): Promise<string | undefined> {
   if (specifier.startsWith("./") || specifier.startsWith("../")) {
     return resolve(dirname(path), specifier);
   }
   const direct: string = join(projectRoot, specifier);
-  if (await pathExists(direct)) return direct;
+  if (fileTexts?.has(direct) === true || await pathExists(direct)) return direct;
   const withPackages: string = join(projectRoot, "packages", specifier);
-  if (await pathExists(withPackages)) return withPackages;
+  if (fileTexts?.has(withPackages) === true || await pathExists(withPackages)) return withPackages;
   const suffix: string = `/${specifier}`;
   const matches: readonly string[] = allSourceFiles.filter(
     (file: string): boolean => file.endsWith(suffix)
@@ -112,7 +132,7 @@ async function resolveReference(
 export async function collectCommentReferenceProblems(
   params: CommentReferenceParams
 ): Promise<readonly string[]> {
-  const { projectRoot, path, source }: CommentReferenceParams = params;
+  const { projectRoot, path, source, fileTexts }: CommentReferenceParams = params;
   const problems: string[] = [];
   const relativePath: string = relative(projectRoot, path);
   const lines: readonly string[] = source.getFullText().split("\n");
@@ -130,14 +150,16 @@ export async function collectCommentReferenceProblems(
       const target: string | undefined = await resolveReference(params, specifier);
       // 非相对路径解析不到唯一目标就不判：注释可以引用未随仓库分发的路径。
       if (target === undefined) continue;
-      if ((await statOptionalPath(target))?.isFile() !== true) {
+      const targetExists: boolean = fileTexts?.has(target) === true ||
+        (await statOptionalPath(target))?.isFile() === true;
+      if (!targetExists) {
         problems.push(
           `${relativePath}:${index + 1} comment references ${symbol} in ${specifier}, ` +
           "but that file does not exist"
         );
         continue;
       }
-      if (await declaresSymbol(target, symbol)) continue;
+      if (await declaresSymbol({ path: target, symbol, fileTexts })) continue;
       problems.push(
         `${relativePath}:${index + 1} comment references ${symbol} in ${specifier}, ` +
         "but that module no longer declares or re-exports it"

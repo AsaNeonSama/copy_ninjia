@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { Mock } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { AntiRaidWorkerEvent } from "../../../packages/types/antiRaid/events";
@@ -11,6 +11,8 @@ import { isTerminalVerificationState } from "../../../packages/states/verificati
 const getChatAdministrators: Mock<() => Promise<{ user: { id: number }; is_anonymous: boolean }[]>> = mock(async (): Promise<{ user: { id: number }; is_anonymous: boolean }[]> => []);
 const kickChatMemberWithOutcome: Mock<() => Promise<"kicked">> = mock(async (): Promise<"kicked"> => "kicked");
 
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 const workerEvents: AntiRaidWorkerEvent[] = [];
 Object.defineProperty(globalThis, "self", {
   configurable: true,
@@ -19,6 +21,10 @@ Object.defineProperty(globalThis, "self", {
       workerEvents.push(event);
     },
   },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 
 mock.module("../../../packages/infra/logger", () => ({

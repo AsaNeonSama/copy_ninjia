@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { loggerStub } from "../../helpers/loggerMock";
 import type { AtmosphereTexts } from "../../../packages/types/atmosphere";
 import type { VerificationSnapshot } from "../../../packages/types/antiRaid";
@@ -32,9 +32,15 @@ mock.module("../../../packages/infra/telegram", () => ({
   answerCallbackQuery: answerCallbackQueryMock,
 }));
 
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", {
   configurable: true,
   value: { postMessage(): void {} },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 
 const runtime = await import(

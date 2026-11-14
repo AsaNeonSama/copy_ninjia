@@ -100,18 +100,23 @@ function assetReferences(text: string, pattern: RegExp): readonly FileReference[
  *
  * @param projectRoot 仓库根目录绝对路径
  * @param trackedPath 相对仓库根的文件路径
+ * @param preloadedText 调用方已预读的源码文本，缺省时自行读盘
  * @returns 文件引用列表
  */
-async function fileReferences(projectRoot: string, trackedPath: string): Promise<readonly FileReference[]> {
+async function fileReferences(
+  projectRoot: string,
+  trackedPath: string,
+  preloadedText?: string
+): Promise<readonly FileReference[]> {
   const path: string = join(projectRoot, trackedPath);
   switch (extname(trackedPath)) {
     case ".ts":
     case ".tsx":
-      return moduleReferences(await parseSourceFile(path));
+      return moduleReferences(await parseSourceFile(path, preloadedText));
     case ".html":
-      return assetReferences(await Bun.file(path).text(), HTML_REFERENCE_PATTERN);
+      return assetReferences(preloadedText ?? await Bun.file(path).text(), HTML_REFERENCE_PATTERN);
     case ".css":
-      return assetReferences(await Bun.file(path).text(), CSS_REFERENCE_PATTERN);
+      return assetReferences(preloadedText ?? await Bun.file(path).text(), CSS_REFERENCE_PATTERN);
     default:
       return [];
   }
@@ -136,11 +141,13 @@ function resolveFileReference(projectRoot: string, fromPath: string, specifier: 
  *
  * @param projectRoot 仓库根目录绝对路径
  * @param trackedFiles 现存受跟踪文件（相对仓库根）
+ * @param fileTexts 按绝对路径缓存的预读文本；缺省时按需读盘
  * @returns 越界引用与废弃例外登记的问题列表
  */
 export async function collectMiniAppFrontendBoundaryProblems(
   projectRoot: string,
-  trackedFiles: readonly string[]
+  trackedFiles: readonly string[],
+  fileTexts?: ReadonlyMap<string, string>
 ): Promise<readonly string[]> {
   const problems: string[] = [];
   const usedEntryImports: Set<string> = new Set<string>();
@@ -148,7 +155,8 @@ export async function collectMiniAppFrontendBoundaryProblems(
     const isFrontend: boolean = trackedPath.startsWith(MINI_APP_FRONTEND_ROOT);
     const isProduction: boolean = trackedPath === "index.ts" || trackedPath.startsWith("packages/");
     if (!isProduction) continue;
-    for (const reference of await fileReferences(projectRoot, trackedPath)) {
+    const preloadedText: string | undefined = fileTexts?.get(join(projectRoot, trackedPath));
+    for (const reference of await fileReferences(projectRoot, trackedPath, preloadedText)) {
       const target: string | undefined = resolveFileReference(projectRoot, trackedPath, reference.specifier);
       if (target === undefined) continue;
       const targetIsFrontend: boolean = `${target}/`.startsWith(MINI_APP_FRONTEND_ROOT);

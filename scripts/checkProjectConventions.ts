@@ -1,6 +1,9 @@
 import type { Stats } from "node:fs";
 import { extname, join } from "node:path";
 import type ts from "typescript";
+import { runBoundedSettledBatch } from "../packages/libs/boundedSettledBatch";
+import type { BoundedBatchExecution, BoundedBatchResult } from "../packages/libs/boundedSettledBatch";
+import { isErrno } from "../packages/libs/errno";
 import { createModuleGraphReader } from "./conventions/moduleGraph";
 import type { ModuleGraphReader } from "./conventions/moduleGraph";
 import { createTypeCheckProgram, parseSourceFile, sourceFilesUnder } from "./conventions/sourceAnalysis";
@@ -42,14 +45,14 @@ import {
 import { collectWorkerTimerProblems } from "./conventions/workerTimers";
 import { collectCommentReferenceProblems } from "./conventions/commentReferences";
 import {
-  collectMarkdownModuleListProblems,
+  collectMarkdownModuleListProblemsFromText,
   collectSourceDirectories,
 } from "./conventions/markdownModuleLists";
 import {
-  collectMarkdownPathProblems,
+  collectMarkdownPathProblemsFromText,
   collectRepositoryPaths,
 } from "./conventions/markdownPaths";
-import { checkMarkdownLocalLinks } from "./conventions/markdownAnchors";
+import { checkMarkdownLocalLinksFromText } from "./conventions/markdownAnchors";
 import { collectMiniAppFrontendBoundaryProblems } from "./conventions/miniAppFrontend";
 import {
   collectNodeCompatibilityProblems,
@@ -94,6 +97,10 @@ const COMMANDS_ROOT: string = join(SOURCE_ROOT, "commands");
 const INFRA_ROOT: string = join(SOURCE_ROOT, "infra");
 const STATES_ROOT: string = join(SOURCE_ROOT, "states");
 const WORKERS_ROOT: string = join(SOURCE_ROOT, "workers");
+/** 并行 stat 与读盘的有界批并发度；避开大仓库同时打开过多文件描述符。 */
+const CONVENTION_IO_BATCH_SIZE: number = 64;
+/** 复用单一 UTF-8 解码器解码子进程 stdout/stderr 字节缓冲。 */
+const UTF8_DECODER: TextDecoder = new TextDecoder();
 
 /**
  * 检查受跟踪与尚未加入索引的源码；Git 忽略的部署数据不进入清单。
@@ -118,14 +125,14 @@ function projectFiles(): string[] {
   if (result.exitCode !== 0) {
     const stderr: string = result.stderr === undefined
       ? ""
-      : new TextDecoder().decode(result.stderr);
+      : UTF8_DECODER.decode(result.stderr);
     throw new Error(
       `Failed to enumerate project files: ${stderr.trim()}`
     );
   }
   const stdout: string = result.stdout === undefined
     ? ""
-    : new TextDecoder().decode(result.stdout);
+    : UTF8_DECODER.decode(result.stdout);
   return stdout.split("\0").filter(
     (path: string): boolean => path.length > 0
   );
@@ -165,37 +172,89 @@ const sourceDirectories: readonly string[] = collectSourceDirectories([
   TEST_ROOT,
 ]);
 const tracked: string[] = [];
-for (const trackedPath of projectFiles()) {
+const trackedStats: Map<string, Stats> = new Map<string, Stats>();
+const statResults: readonly BoundedBatchResult<string, Stats>[] = await runBoundedSettledBatch({
+  items: projectFiles(),
+  maxConcurrent: CONVENTION_IO_BATCH_SIZE,
+  execute: ({ item }: BoundedBatchExecution<string>): Promise<Stats> =>
+    Bun.file(join(PROJECT_ROOT, item)).stat(),
+});
+for (const result of statResults) {
+  if (result.status === "fulfilled") {
+    tracked.push(result.item);
+    trackedStats.set(join(PROJECT_ROOT, result.item), result.value);
+    continue;
+  }
   // 允许尚未 stage 的正常删除；其它门禁会从最终工作树/索引确认变更范围。
-  if (await Bun.file(join(PROJECT_ROOT, trackedPath)).exists()) {
-    tracked.push(trackedPath);
+  if (isErrno(result.reason, "ENOENT")) continue;
+  throw result.reason;
+}
+const trackedAbsolutePaths: ReadonlySet<string> = new Set<string>(trackedStats.keys());
+const fileTexts: Map<string, string> = new Map<string, string>();
+const preloadPaths: string[] = [];
+for (const trackedPath of tracked) {
+  if (FILE_LENGTH_CHECKED_PATH_PATTERN.test(trackedPath) || extname(trackedPath) === ".md") {
+    preloadPaths.push(join(PROJECT_ROOT, trackedPath));
   }
 }
+const textResults: readonly BoundedBatchResult<string, string>[] = await runBoundedSettledBatch({
+  items: preloadPaths,
+  maxConcurrent: CONVENTION_IO_BATCH_SIZE,
+  execute: ({ item }: BoundedBatchExecution<string>): Promise<string> => Bun.file(item).text(),
+});
+for (const result of textResults) {
+  if (result.status === "rejected") throw result.reason;
+  fileTexts.set(result.item, result.value);
+}
+
+/**
+ * 读取并按绝对路径缓存文件文本；已批量预读的文件直接命中内存 Map。
+ * @param path 目标文件绝对路径。
+ * @returns UTF-8 文件正文。
+ */
+async function readCachedText(path: string): Promise<string> {
+  const cached: string | undefined = fileTexts.get(path);
+  if (cached !== undefined) return cached;
+  const text: string = await Bun.file(path).text();
+  fileTexts.set(path, text);
+  return text;
+}
+
 const repositoryPaths: ReadonlySet<string> = collectRepositoryPaths(tracked);
-failures.push(...await collectMiniAppFrontendBoundaryProblems(PROJECT_ROOT, tracked));
+failures.push(...await collectMiniAppFrontendBoundaryProblems(PROJECT_ROOT, tracked, fileTexts));
 for (const trackedPath of tracked) {
   const path: string = join(PROJECT_ROOT, trackedPath);
-  if (FILE_LENGTH_CHECKED_PATH_PATTERN.test(trackedPath)) {
-    failures.push(...collectFileLengthProblems(trackedPath, await Bun.file(path).text()));
-  }
-  if (extname(path) === ".md") {
-    await checkMarkdownLocalLinks(PROJECT_ROOT, path, failures);
-    failures.push(...await collectMarkdownModuleListProblems(
-      PROJECT_ROOT,
-      path,
-      sourceDirectories
-    ));
-    failures.push(...await collectMarkdownPathProblems(
-      PROJECT_ROOT,
-      path,
-      repositoryPaths
-    ));
-  }
   const extension: string = extname(path);
+  if (FILE_LENGTH_CHECKED_PATH_PATTERN.test(trackedPath)) {
+    failures.push(...collectFileLengthProblems(trackedPath, await readCachedText(path)));
+  }
+  if (extension === ".md") {
+    const markdownSource: string = await readCachedText(path);
+    await checkMarkdownLocalLinksFromText({
+      projectRoot: PROJECT_ROOT,
+      path,
+      source: markdownSource,
+      failures,
+      fileTexts,
+    });
+    failures.push(...await collectMarkdownModuleListProblemsFromText({
+      projectRoot: PROJECT_ROOT,
+      path,
+      source: markdownSource,
+      directories: sourceDirectories,
+      existingPaths: trackedAbsolutePaths,
+    }));
+    failures.push(...collectMarkdownPathProblemsFromText({
+      projectRoot: PROJECT_ROOT,
+      path,
+      source: markdownSource,
+      repositoryPaths,
+    }));
+  }
   if (![".ts", ".tsx", ".css", ".html", ".json", ".md", ".yaml", ".yml"].includes(extension)) continue;
-  const stats: Stats = await Bun.file(path).stat();
+  const stats: Stats = trackedStats.get(path) ?? await Bun.file(path).stat();
   if (!stats.isFile() || (stats.mode & 0o111) === 0) continue;
-  if ((await Bun.file(path).text()).startsWith("#!")) continue;
+  if ((await readCachedText(path)).startsWith("#!")) continue;
   failures.push(
     `${trackedPath} is a tracked non-script ${extension} file with executable permissions`
   );
@@ -206,7 +265,8 @@ const statesOpaqueModules: ReadonlySet<string> = new Set(
   STATES_CLOSURE_OPAQUE_MODULES.map((module: string): string => join(PROJECT_ROOT, module))
 );
 for (const module of STATES_CLOSURE_OPAQUE_MODULES) {
-  if (!(await Bun.file(join(PROJECT_ROOT, module)).exists())) {
+  const modulePath: string = join(PROJECT_ROOT, module);
+  if (!trackedAbsolutePaths.has(modulePath) && !(await Bun.file(modulePath).exists())) {
     failures.push(`STATES_CLOSURE_OPAQUE_MODULES lists ${module}, which no longer exists`);
   }
 }
@@ -237,7 +297,7 @@ const testFiles: readonly string[] = sourceFilesUnder(TEST_ROOT);
 
 const cacheFirstLines: Map<string, string> = new Map();
 for (const path of cacheFiles) {
-  cacheFirstLines.set(path, (await Bun.file(path).text()).split("\n", 1)[0] ?? "");
+  cacheFirstLines.set(path, (await readCachedText(path)).split("\n", 1)[0] ?? "");
 }
 failures.push(...collectCacheOwnerHeaderProblems({ projectRoot: PROJECT_ROOT, firstLines: cacheFirstLines }));
 failures.push(...collectStaleCacheExemptionProblems({
@@ -275,7 +335,7 @@ const referenceResolutionFiles: readonly string[] = [
 // collectModuleCacheProblems 判定。仓库根的 index.ts 不在 sourceFilesUnder(SOURCE_ROOT) 里，
 // 显式并进同一趟判定。
 for (const path of referenceResolutionFiles) {
-  const source: ts.SourceFile = await parseSourceFile(path);
+  const source: ts.SourceFile = await parseSourceFile(path, await readCachedText(path));
   const params: SourceFileRuleParams = { projectRoot: PROJECT_ROOT, path, source };
   if (!cacheSourceFiles.has(path) && !constsSourceFiles.has(path)) {
     failures.push(...collectConstantLocationProblems(params));
@@ -316,6 +376,7 @@ for (const path of referenceResolutionFiles) {
     path,
     source,
     allSourceFiles: referenceResolutionFiles,
+    fileTexts,
   }));
   if (path.startsWith(WORKERS_ROOT + "/")) {
     failures.push(...collectWorkerTimerProblems(PROJECT_ROOT, path, source));
@@ -326,7 +387,7 @@ for (const path of referenceResolutionFiles) {
 // 同时约束 scripts/，测试断言取值口径只约束 test/，其余判定只针对 packages/。
 const constantTextCorpusText: string = constantTextCorpus(constantTextFragments);
 for (const path of [...scriptFiles, ...testFiles]) {
-  const source: ts.SourceFile = await parseSourceFile(path);
+  const source: ts.SourceFile = await parseSourceFile(path, await readCachedText(path));
   failures.push(...collectNodeCompatibilityProblems(PROJECT_ROOT, path, source));
   nodeImportUsage.push(...collectNodeImportUsage(PROJECT_ROOT, path, source));
   failures.push(...collectUndeclaredDependencyProblems({ projectRoot: PROJECT_ROOT, path, source, declaredPackages }));
@@ -352,14 +413,20 @@ for (const path of [...scriptFiles, ...testFiles]) {
   }
 }
 failures.push(...collectUnusedConstantTextExemptionProblems(usedConstantTextExemptions));
-const constsProgram: ts.Program = createTypeCheckProgram(PROJECT_ROOT, constFiles);
-const constsChecker: ts.TypeChecker = constsProgram.getTypeChecker();
-const constDeclarations: readonly ExportedConstDeclaration[] = exportedConstDeclarations(constsProgram, constFiles);
+const typeCheckProgram: ts.Program = createTypeCheckProgram(
+  PROJECT_ROOT,
+  [...new Set<string>([...constFiles, ...testFiles])]
+);
+const constsChecker: ts.TypeChecker = typeCheckProgram.getTypeChecker();
+const constDeclarations: readonly ExportedConstDeclaration[] = exportedConstDeclarations(
+  typeCheckProgram,
+  constFiles
+);
 failures.push(...collectConstImmutabilityAssertionProblems({
   projectRoot: PROJECT_ROOT,
   checker: constsChecker,
   declarations: constDeclarations,
-  assertionSource: await Bun.file(join(PROJECT_ROOT, "test", "consts", "immutability.test.ts")).text(),
+  assertionSource: await readCachedText(join(PROJECT_ROOT, "test", "consts", "immutability.test.ts")),
 }));
 failures.push(...collectConstExhaustiveListProblems({
   projectRoot: PROJECT_ROOT,
@@ -370,7 +437,7 @@ failures.push(...collectConstExhaustiveListProblems({
 failures.push(...collectUnusedNodeAllowanceProblems(nodeImportUsage));
 failures.push(...collectMockResetProblems({
   projectRoot: PROJECT_ROOT,
-  program: createTypeCheckProgram(PROJECT_ROOT, testFiles),
+  program: typeCheckProgram,
   testFiles,
 }));
 

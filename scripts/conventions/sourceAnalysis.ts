@@ -201,8 +201,8 @@ export function runtimeModuleReferences(source: ts.SourceFile): readonly Runtime
 }
 
 /**
- * 按仓库 tsconfig 为给定入口文件建一个只做类型检查的 program。常量不可变性断言与字面量
- * 联合全集表两道门禁以 `packages/consts/` 与 `packages/mini-app-frontend/consts/` 为入口共用一个，测试替身复位门禁以 `test/` 为入口另建一个。
+ * 按仓库 tsconfig 为给定入口文件建一个只做类型检查的 program。常量不可变性断言、字面量
+ * 联合全集表与测试替身复位三道门禁共用同一份覆盖 `constFiles ∪ testFiles` 的 Program。
  *
  * @param projectRoot 仓库根目录绝对路径
  * @param rootFiles Program 根文件绝对路径列表
@@ -243,10 +243,11 @@ const parsedSourceFiles: Map<string, ts.SourceFile> = new Map<string, ts.SourceF
  * 文件内容与上次解析时相同则复用 parsedSourceFiles 里的 AST。
  *
  * @param path 源文件路径
+ * @param preloadedText 调用方已批量预读的文件文本；缺省时按路径读盘
  * @returns 解析得到的 TypeScript SourceFile AST
  */
-export async function parseSourceFile(path: string): Promise<ts.SourceFile> {
-  const text: string = await Bun.file(path).text();
+export async function parseSourceFile(path: string, preloadedText?: string): Promise<ts.SourceFile> {
+  const text: string = preloadedText ?? await Bun.file(path).text();
   const cached: ts.SourceFile | undefined = parsedSourceFiles.get(path);
   if (cached?.text === text) return cached;
   const source: ts.SourceFile = ts.createSourceFile(

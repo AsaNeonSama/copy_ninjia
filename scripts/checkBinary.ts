@@ -17,6 +17,8 @@ import type { InstallScriptSource } from "./installSources";
 const source: string = resolve(Bun.argv[2] ?? "dist/copy-ninjia-linux-x64");
 const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-binary-check-"));
 const executable: string = join(root, "copy-ninjia");
+/** 复用单一 UTF-8 解码器解码被测二进制与子进程输出缓冲。 */
+const UTF8_DECODER: TextDecoder = new TextDecoder();
 const environment: Record<string, string> = {
   PATH: "/usr/bin:/bin",
   HOME: root,
@@ -35,7 +37,7 @@ function run(arguments_: string[], extra: Readonly<Record<string, string>> = {})
     cmd: [executable, ...arguments_], cwd: root, env: { ...environment, ...extra },
     stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
   });
-  const output: string = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
+  const output: string = UTF8_DECODER.decode(result.stdout) + UTF8_DECODER.decode(result.stderr);
   if (result.exitCode !== 0) throw new Error(`Binary check failed (${result.exitCode}):\n${output}`);
   return output;
 }
@@ -151,7 +153,7 @@ try {
       BUN_OPTIONS: `--preload ${join(import.meta.dir, "../test/fixtures/binaryNetwork.ts")}` },
     stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
   });
-  const migratedOutput: string = new TextDecoder().decode(started.stdout) + new TextDecoder().decode(started.stderr);
+  const migratedOutput: string = UTF8_DECODER.decode(started.stdout) + UTF8_DECODER.decode(started.stderr);
   for (const marker of ["diskIOWorker.ts", "aiChatWorker.ts", "antiRaidWorker.ts", "Received SIGTERM; beginning graceful shutdown."]) {
     if (!migratedOutput.includes(marker)) throw new Error(`Migrated binary startup missing ${marker}:\n${migratedOutput}`);
   }

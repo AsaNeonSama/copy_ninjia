@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, jest, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, jest, mock, spyOn, test } from "bun:test";
 import type { Context } from "grammy";
 import { installTokyoFixtureTimeZone } from "../helpers/fixtureTimeZone";
 import { GrammyError } from "grammy";
@@ -26,6 +26,11 @@ const probe = mock(async (_chatId: number, userId: number, _signal?: AbortSignal
 const post = spyOn(diskIO, "postDiskIO");
 const errorLog = spyOn(logger, "error");
 const now = spyOn(performance, "now");
+afterAll((): void => {
+  post.mockRestore();
+  errorLog.mockRestore();
+  now.mockRestore();
+});
 const gates: ReturnType<typeof Promise.withResolvers<ChatMember>>[] = [];
 
 function member(userId: number, status: ChatMember["status"] = "member", present: boolean = true): ChatMember {

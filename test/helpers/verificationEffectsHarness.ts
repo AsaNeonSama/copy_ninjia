@@ -5,7 +5,7 @@ installTemporaryMessageWorkerMock();
  * 工厂与 beforeEach 复位。
  */
 
-import { beforeEach, mock, spyOn } from "bun:test";
+import { afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { loggerStub } from "./loggerMock";
 import { checkingInviterOf } from "../../packages/states/verification/shared";
 import type { InlineKeyboardMarkup } from "grammy/types";
@@ -56,6 +56,7 @@ export const testState: {
   sendRejects: boolean;
   kickSucceeds: boolean;
   kickTargetAbsent: boolean;
+  kickForbidden: boolean;
   /** 模拟机器人是否具备删除验证消息的权限，可与踢人权限独立开关。 */
   deleteSucceeds: boolean;
   membershipPresent: boolean | undefined;
@@ -66,6 +67,7 @@ export const testState: {
   sendRejects: false,
   kickSucceeds: true,
   kickTargetAbsent: false,
+  kickForbidden: false,
   deleteSucceeds: true,
   membershipPresent: true,
   fetchedChatType: "supergroup",
@@ -83,9 +85,15 @@ export const getChat = mock(async (): Promise<{ type: "group" | "supergroup" }> 
 });
 export const telegramApi = { getChat, getChatAdministrators };
 
+const originalSelfDescriptor: PropertyDescriptor | undefined =
+  Object.getOwnPropertyDescriptor(globalThis, "self");
 Object.defineProperty(globalThis, "self", {
   configurable: true,
   value: { postMessage(_event: AntiRaidWorkerEvent): void {} },
+});
+afterAll((): void => {
+  if (originalSelfDescriptor === undefined) Reflect.deleteProperty(globalThis, "self");
+  else Object.defineProperty(globalThis, "self", originalSelfDescriptor);
 });
 
 mock.module("../../packages/infra/logger", () => ({
@@ -122,10 +130,11 @@ mock.module("../../packages/infra/telegram", () => ({
   },
   kickChatMemberWithOutcome: async (
     params: { userId: number; isSupergroup?: boolean }
-  ): Promise<"kicked" | "absent" | "failed"> => {
+  ): Promise<"kicked" | "absent" | "forbidden" | "failed"> => {
     kickedUserIds.push(params.userId);
     kickChatKinds.push(params.isSupergroup);
     if (testState.kickTargetAbsent) return "absent";
+    if (testState.kickForbidden) return "forbidden";
     return testState.kickSucceeds ? "kicked" : "failed";
   },
   probeChatMembership,
@@ -319,6 +328,7 @@ export function installVerificationEffectsHooks(injected: VerificationEffectsDep
     testState.sendRejects = false;
     testState.kickSucceeds = true;
     testState.kickTargetAbsent = false;
+    testState.kickForbidden = false;
     testState.deleteSucceeds = true;
     traceDeleteOutcomes.length = 0;
     testState.membershipPresent = true;
