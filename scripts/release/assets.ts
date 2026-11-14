@@ -2,9 +2,16 @@ import { fileSha256 } from "../fileSha256";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
 import type { ColdMigrationEdge } from "../migrations/active";
 import { join } from "node:path";
-import { checked } from "./command";
+import { checked, createReleaseCommand } from "./command";
 import type { ReleaseCommand } from "./command";
-import { RELEASE_PLATFORMS, RELEASE_REQUIRED_FILES, RELEASE_VERSION_PATTERN } from "../../packages/consts/release";
+import { PROJECT_ROOT } from "../../packages/consts/paths";
+import {
+  RELEASE_BUNDLED_PATHS,
+  RELEASE_INSTALL_SCRIPT_GLOB,
+  RELEASE_PLATFORMS,
+  RELEASE_REQUIRED_FILES,
+  RELEASE_VERSION_PATTERN,
+} from "../../packages/consts/release";
 
 /** 通过校验的单个发行资产元数据（含 64 位小写十六进制 SHA-256 摘要与字节数）。 */
 export interface ReleaseAsset {
@@ -38,6 +45,13 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
   if (platforms.length === 0 || new Set(platforms).size !== platforms.length || platforms.some((value: string): boolean => !RELEASE_PLATFORMS.includes(value))) {
     throw new Error("--platforms must contain unique supported Linux platforms.");
   }
+  const bundledSourceFiles: readonly string[] = checked(
+    createReleaseCommand(PROJECT_ROOT),
+    ["git", "ls-files", "--", ...RELEASE_BUNDLED_PATHS, RELEASE_INSTALL_SCRIPT_GLOB]
+  )
+    .split("\n")
+    .filter((entry: string): boolean => entry.length > 0)
+    .map((entry: string): string => `copy-ninjia/${entry}`);
   const assets: ReleaseAsset[] = [];
   for (const platform of platforms) {
     const name: string = `copy-ninjia-${platform}.tar.gz`;
@@ -65,7 +79,7 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
     }
     const details: readonly string[] = checked(command, ["tar", "-tvzf", path]).split("\n");
     if (details.length !== entries.length) throw new Error(`${name}: tar entry and mode listings must align.`);
-    for (const required of [...RELEASE_REQUIRED_FILES, ...migrations]) {
+    for (const required of [...RELEASE_REQUIRED_FILES, ...bundledSourceFiles, ...migrations]) {
       const index: number = entries.indexOf(required);
       const detail: string | undefined = index !== -1 && index === entries.lastIndexOf(required)
         ? details[index]

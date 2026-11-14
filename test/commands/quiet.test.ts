@@ -32,7 +32,9 @@ mock.module("../../packages/infra/chatStateStorage", () => ({
 const { handleQuietCommand, handleUnquietCommand } = await import("../../packages/commands/quiet");
 const {
   DURATION_UNIT_MS,
+  QUIET_CLOCK_SKEW_TOLERANCE_MS,
   QUIET_DEFAULT_MINUTES,
+  QUIET_MAX_DURATION_MS,
   QUIET_MAX_MINUTES,
   QUIET_MIN_MINUTES,
 } = await import("../../packages/consts/commands");
@@ -105,20 +107,23 @@ describe("/quiet 与 /unquiet", () => {
 
   test("小幅回拨落在容差内时静默仍然生效，不允许叠加重设", async () => {
     // isQuietUntilActive 的判定边界：静默上限加一段容差内都算生效中。
-    states.set(-1001, { quietUntil: 1_000_000 + 16 * 60_000 });
+    const withinToleranceMs: number = QUIET_MAX_DURATION_MS + QUIET_CLOCK_SKEW_TOLERANCE_MS;
+    states.set(-1001, { quietUntil: 1_000_000 + withinToleranceMs });
 
     await handleQuietCommand(context("2"));
 
-    expect(states.get(-1001)?.quietUntil).toBe(1_000_000 + 16 * 60_000);
+    expect(states.get(-1001)?.quietUntil).toBe(1_000_000 + withinToleranceMs);
     expect(saveStateInBackground).not.toHaveBeenCalled();
   });
 
   test("回拨幅度超过容差时允许重建静默", async () => {
-    states.set(-1001, { quietUntil: 1_000_000 + 20 * 60_000 });
+    const beyondToleranceMs: number =
+      QUIET_MAX_DURATION_MS + QUIET_CLOCK_SKEW_TOLERANCE_MS + 4 * DURATION_UNIT_MS.m;
+    states.set(-1001, { quietUntil: 1_000_000 + beyondToleranceMs });
 
     await handleQuietCommand(context("2"));
 
-    expect(states.get(-1001)?.quietUntil).toBe(1_000_000 + 2 * 60_000);
+    expect(states.get(-1001)?.quietUntil).toBe(1_000_000 + 2 * DURATION_UNIT_MS.m);
     expect(saveStateInBackground).toHaveBeenCalledWith("quiet set");
   });
 });

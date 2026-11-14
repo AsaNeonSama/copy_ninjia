@@ -22,7 +22,7 @@ export interface ParseStickerPackNamesOptions {
  */
 export function parseStickerPackNames(
   { entries, sourcePath, fieldPath, maxEntries }: ParseStickerPackNamesOptions
-): string[] {
+): readonly string[] {
   if (entries.length > maxEntries) {
     return invalidInput(sourcePath, fieldPath, `an array with at most ${maxEntries} entries`);
   }

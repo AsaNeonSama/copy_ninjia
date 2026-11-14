@@ -6,7 +6,12 @@ import {
   RANDOM_ECHO_MODES,
 } from "../../packages/consts/auto";
 import { ATMOSPHERE_TEXTS } from "../../packages/consts/atmosphere";
-import { RELEASE_PLATFORMS, RELEASE_REQUIRED_FILES, RELEASE_VERSION_PATTERN } from "../../packages/consts/release";
+import {
+  RELEASE_BUNDLED_PATHS,
+  RELEASE_PLATFORMS,
+  RELEASE_REQUIRED_FILES,
+  RELEASE_VERSION_PATTERN,
+} from "../../packages/consts/release";
 import { LOGGER_HTTP_URL_PATTERN } from "../../packages/consts/logger";
 import { STORAGE_MIGRATION_LINEAGE } from "../../packages/consts/identityStorage";
 import { AI_WORKER_JOB_ABORTED, AI_WORKER_JOB_TIMED_OUT, AI_WORKER_JOB_UNAVAILABLE } from "../../packages/consts/aiChat/workerJob";
@@ -18,6 +23,8 @@ import type { PreparedReplyAction, ReplyActionChains, ReplyToolset } from "../..
 function assertReleaseAndLogConstantsReadonly(): void {
   // @ts-expect-error 发行平台表禁止调用方增删。
   RELEASE_PLATFORMS.push("mock-platform");
+  // @ts-expect-error 发行包随带源码资产路径表禁止调用方增删。
+  RELEASE_BUNDLED_PATHS.push("mock-bundled");
   // @ts-expect-error 必需入口表禁止调用方增删。
   RELEASE_REQUIRED_FILES.push("mock-entry");
   // @ts-expect-error 版本表达式的游标禁止调用方改写。

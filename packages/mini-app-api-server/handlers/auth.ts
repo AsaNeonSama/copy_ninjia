@@ -13,6 +13,7 @@ import { verifyMiniAppTotpCode } from "../../libs/miniAppTotp";
 import { formatLocalTime } from "../../libs/time";
 import type { BotMiniAppConfig } from "../../types/config";
 import type {
+  MiniAppAuthPrecheckResponse,
   MiniAppAuthSession,
   MiniAppLoginSuccessResponse,
   MiniAppPasswordGuardState,
@@ -49,7 +50,7 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
   const sessionToken: string = request !== undefined ? extractSessionToken(request) : "";
   const activeSession: Readonly<MiniAppAuthSession> | null =
     resolveAndRefreshMiniAppAuthSession(sessionToken, nowMs);
-  const response: Response = jsonResponse({
+  const payload: MiniAppAuthPrecheckResponse = {
     ok: true,
     ttlMs: MINI_APP_SESSION_TTL_MS,
     totpEnabled,
@@ -64,7 +65,8 @@ export async function handleGetAuthPrecheckRoute(request?: Request): Promise<Res
         assetToken: MINI_APP_ASSET_TOKEN,
       }
       : {}),
-  });
+  };
+  const response: Response = jsonResponse(payload);
   if (request !== undefined) {
     attachMiniAppPageGateCookie(response, request, nowMs);
   }

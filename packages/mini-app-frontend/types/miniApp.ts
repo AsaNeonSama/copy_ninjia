@@ -36,6 +36,26 @@ export interface MiniAppLoginSuccessResponse {
   readonly assetToken?: string;
 }
 
+/** `GET /api/auth/precheck` 首屏认证与会话预检响应。 */
+export interface MiniAppAuthPrecheckResponse {
+  /** 预检是否通过。 */
+  readonly ok: true;
+  /** 会话总有效时长毫秒数（45 分钟 = 2,700,000 ms）。 */
+  readonly ttlMs: number;
+  /** 当前是否已配置并启用谷歌验证器（TOTP）。 */
+  readonly totpEnabled: boolean;
+  /** 当前登录门禁优先使用的认证方式（`"totp"` 或 `"password"`）。 */
+  readonly authMode: MiniAppAuthMode;
+  /** 客户端持久化的会话令牌在服务端是否仍在有效期内。 */
+  readonly sessionValid?: boolean;
+  /** 客户端持久化会话的服务端到期毫秒时间戳。 */
+  readonly sessionExpiresAt?: number;
+  /** 触发 5 分钟滑动续期时服务端签发的新会话令牌。 */
+  readonly sessionToken?: string;
+  /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
+  readonly assetToken?: string;
+}
+
 /** `GET /api/auth/precheck` 首屏签名预检结果。 */
 export type MiniAppPrecheckResult =
   | {
@@ -536,7 +556,7 @@ export interface MiniAppGalleryDeleteResult {
 export type MiniAppIdentitySubTabKey = "whitelist" | "blocklist";
 
 /** Telegram WebApp `initDataUnsafe` 中当前用户信息。 */
-export interface TelegramWebAppUser {
+interface TelegramWebAppUser {
   readonly id: number;
   readonly first_name?: string;
   readonly last_name?: string;
@@ -545,7 +565,7 @@ export interface TelegramWebAppUser {
 }
 
 /** Mini App 由最小化恢复或被最小化时 Telegram 宿主派发的事件名（Bot API 8.0+）。 */
-export type TelegramWebAppActivityEvent = "activated" | "deactivated";
+type TelegramWebAppActivityEvent = "activated" | "deactivated";
 
 /** Telegram WebApp 注入浏览器的宿主对象接口。 */
 export interface TelegramWebApp {
@@ -582,7 +602,7 @@ export interface MiniAppDownloadAnchorElement {
 }
 
 /** 浏览器 Web Storage（`localStorage` / `sessionStorage`）最小读写接口。 */
-export interface MiniAppWebStorage {
+interface MiniAppWebStorage {
   readonly getItem: (key: string) => string | null;
   readonly setItem: (key: string, value: string) => void;
   readonly removeItem: (key: string) => void;

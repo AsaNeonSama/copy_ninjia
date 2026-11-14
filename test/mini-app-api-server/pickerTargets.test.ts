@@ -11,7 +11,7 @@ import type {
 } from "../../packages/types/miniApp/identities";
 import { botPermissions } from "../helpers/botPermissions";
 import {
-  buildSignedTestInitData,
+  buildSuperAdminHeaders,
   installMiniAppTestDiskIOMock,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -22,10 +22,6 @@ const { resetChatStateCache } = await import("../../packages/cache/main/chatStat
 const { translateConfigReadinessCache } = await import("../../packages/cache/main/configReadiness");
 const { miniAppAuthSessions } = await import("../../packages/cache/main/miniApp");
 const { BOT_TOKEN, SUPER_ADMIN_USER_ID } = await import("../../packages/config/bot");
-const {
-  MINI_APP_INIT_DATA_HEADER,
-  MINI_APP_SESSION_HEADER,
-} = await import("../../packages/consts/miniApp");
 const { getChatState, getOrCreateChatState } = await import(
   "../../packages/infra/chatStateStorage"
 );
@@ -46,16 +42,12 @@ const CHAT_ID: number = -1_009_500_001;
  * @returns 请求头。
  */
 function superAdminHeaders(): Record<string, string> {
-  const initData: string = buildSignedTestInitData({
+  return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
-    authDate: Math.floor(Date.now() / 1000),
-    user: { id: SUPER_ADMIN_USER_ID, first_name: "SuperAdmin" },
+    superAdminUserId: SUPER_ADMIN_USER_ID,
+    sessionToken: issueMiniAppAuthSession().token,
+    contentType: "application/json",
   });
-  return {
-    [MINI_APP_INIT_DATA_HEADER]: initData,
-    [MINI_APP_SESSION_HEADER]: issueMiniAppAuthSession().token,
-    "Content-Type": "application/json",
-  };
 }
 
 /**

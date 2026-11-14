@@ -108,15 +108,6 @@ export function readMiniAppPageGateCookie(request: Request): string | null {
 }
 
 /**
- * 从请求 `Cookie` 头中提取 `MINI_APP_PAGE_GATE_COOKIE_NAME` 对应的门禁令牌值。
- * @param request HTTP 请求对象。
- * @returns 提取出的门禁令牌字符串；未携带或为空时返回空字符串。
- */
-export function extractMiniAppPageGateCookie(request: Request): string {
-  return readMiniAppPageGateCookie(request) ?? "";
-}
-
-/**
  * 判断请求 `Cookie` 头是否包含 `MINI_APP_PAGE_GATE_COOKIE_NAME` 条目（含空值）。
  * @param request HTTP 请求对象。
  * @returns 携带了同名门禁 Cookie 时返回 `true`。
@@ -169,7 +160,7 @@ export function buildMiniAppPageGateSetCookieHeader(
  * @param request HTTP 请求对象（用于判定是否附加 `; Secure`）。
  * @returns 清除门禁 Cookie 的 `Set-Cookie` 响应头字符串。
  */
-export function buildClearMiniAppPageGateSetCookieHeader(request: Request): string {
+function buildClearMiniAppPageGateSetCookieHeader(request: Request): string {
   const secureFlag: string = isSecureMiniAppRequest(request) ? "; Secure" : "";
   return `${MINI_APP_PAGE_GATE_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secureFlag}`;
 }

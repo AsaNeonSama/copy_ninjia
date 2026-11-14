@@ -37,7 +37,8 @@ export const OPENAI_WEB_SEARCH_ERROR_LABEL: string = "OpenAI web search";
 export const OPENAI_PROMPT_CACHE_KEY_PREFIX: string = "hunhebi-reply";
 
 /**
- * Responses API 接受的 `prompt_cache_key` 最大字符长度（见 aiChat/openai/replySession.ts 与 libs/prefixFingerprint.ts）。
+ * OpenAI Responses API 对 `prompt_cache_key` 参数的协议最大字符长度；
+ * 供测试校验回复会话生成的缓存键长度不超限（见 test/aiChat/openai/replySession.test.ts）。
  */
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH: number = 64;
 

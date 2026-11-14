@@ -96,8 +96,12 @@ mock.module("../../packages/infra/telegram/client", () => ({
   telegramApi: { kind: "main-thread-test-api" },
 }));
 mock.module("../../packages/infra/telegram/lockdownPermissions", () => ({ restoreLockdownInvitePermission }));
-// JOIN_WINDOW_MS 原样透出：秒踢路径的入群计数去重用它当窗口宽度（见 antiRaid/blocklistGuard.ts）；整份模块被替换时需要提供。
-mock.module("../../packages/consts/antiRaid/lockdown", () => ({ RESTORE_RETRY_MS: 5, JOIN_WINDOW_MS: 60_000 }));
+// 在实际常量之上仅把恢复退避压缩为测试用短间隔，其余常量（如 JOIN_WINDOW_MS）原样透出。
+const actualLockdownConsts = await import("../../packages/consts/antiRaid/lockdown");
+mock.module("../../packages/consts/antiRaid/lockdown", () => ({
+  ...actualLockdownConsts,
+  RESTORE_RETRY_MS: 5,
+}));
 mock.module("../../packages/infra/botAdmin", () => ({
   resolveBotAdminStatus: async (): Promise<boolean> => true,
   // ingress 的同步快路径读它；未确证时返回 undefined，退回上面那次现查。

@@ -43,6 +43,7 @@ type Exact<A, B> =
 const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppAccessDiagnostics: true satisfies Exact<FrontendMiniApp.MiniAppAccessDiagnostics, ServerMiniApp.MiniAppAccessDiagnostics>,
   MiniAppLoginSuccessResponse: true satisfies Exact<FrontendMiniApp.MiniAppLoginSuccessResponse, ServerMiniApp.MiniAppLoginSuccessResponse>,
+  MiniAppAuthPrecheckResponse: true satisfies Exact<FrontendMiniApp.MiniAppAuthPrecheckResponse, ServerMiniApp.MiniAppAuthPrecheckResponse>,
   MiniAppCapabilityDetailItem: true satisfies Exact<FrontendMiniApp.MiniAppCapabilityDetailItem, ServerMiniApp.MiniAppCapabilityDetailItem>,
   MiniAppCapabilityStatus: true satisfies Exact<FrontendMiniApp.MiniAppCapabilityStatus, ServerMiniApp.MiniAppCapabilityStatus>,
   MiniAppMoodView: true satisfies Exact<FrontendMiniApp.MiniAppMoodView, ServerMiniApp.MiniAppMoodView>,

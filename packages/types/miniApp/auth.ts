@@ -1,3 +1,5 @@
+import type { MiniAppAuthMode } from "../miniAppTotp";
+
 /** Telegram WebApp `initData` 中解析出的用户身份摘要。 */
 export interface MiniAppInitDataUser {
   readonly id: number;
@@ -8,7 +10,7 @@ export interface MiniAppInitDataUser {
 }
 
 /** `initData` 验签失败的原因分类。 */
-export type MiniAppAuthFailureReason =
+type MiniAppAuthFailureReason =
   | "missing_init_data" | "malformed_init_data" | "invalid_signature"
   | "expired_auth_date" | "missing_user" | "forbidden_user";
 
@@ -63,6 +65,26 @@ export interface MiniAppLoginSuccessResponse {
   readonly expiresAt: number;
   /** 会话总有效时长毫秒数（45 分钟 = 2,700,000 ms）。 */
   readonly ttlMs: number;
+  /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
+  readonly assetToken?: string;
+}
+
+/** `GET /api/auth/precheck` 首屏认证与会话预检响应。 */
+export interface MiniAppAuthPrecheckResponse {
+  /** 预检是否通过。 */
+  readonly ok: true;
+  /** 会话总有效时长毫秒数（45 分钟 = 2,700,000 ms）。 */
+  readonly ttlMs: number;
+  /** 当前是否已配置并启用谷歌验证器（TOTP）。 */
+  readonly totpEnabled: boolean;
+  /** 当前登录门禁优先使用的认证方式（`"totp"` 或 `"password"`）。 */
+  readonly authMode: MiniAppAuthMode;
+  /** 客户端持久化的会话令牌在服务端是否仍在有效期内。 */
+  readonly sessionValid?: boolean;
+  /** 客户端持久化会话的服务端到期毫秒时间戳。 */
+  readonly sessionExpiresAt?: number;
+  /** 触发 5 分钟滑动续期时服务端签发的新会话令牌。 */
+  readonly sessionToken?: string;
   /** 供受保护图片与 SVG 资源跨会话稳定缓存复用的确定性鉴权令牌。 */
   readonly assetToken?: string;
 }

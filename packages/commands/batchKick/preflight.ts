@@ -88,7 +88,7 @@ export function beginBatchKickExecution(chatId: number): number {
  * @param seq `beginBatchKickExecution` 返回的批次序号。
  * @returns 登记序号仍匹配本批时返回 `true`，已被群 teardown 作废或移除时返回 `false`。
  */
-export function hasLiveBatchKickExecution(chatId: number, seq: number): boolean {
+function hasLiveBatchKickExecution(chatId: number, seq: number): boolean {
   return batchKickInFlightSeqByChat.get(chatId) === seq;
 }
 

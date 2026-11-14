@@ -46,7 +46,6 @@ const {
 } = await import("../../packages/libs/miniAppAuth");
 const {
   buildMiniAppPageGateSetCookieHeader,
-  extractMiniAppPageGateCookie,
   hasMiniAppPageGateCookie,
   readMiniAppPageGateCookie,
 } = await import("../../packages/mini-app-api-server/auth/pageGate");
@@ -558,13 +557,12 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
       )
     ).toBeNull();
     expect(hasMiniAppPageGateCookie(new Request("http://127.0.0.1/"))).toBeFalse();
-    expect(extractMiniAppPageGateCookie(new Request("http://127.0.0.1/"))).toBe("");
+    expect(readMiniAppPageGateCookie(new Request("http://127.0.0.1/"))).toBeNull();
     const bareCookieReq: Request = new Request("http://127.0.0.1/", {
       headers: { Cookie: `flag;  ${MINI_APP_PAGE_GATE_COOKIE_NAME} ; next=1` },
     });
     expect(readMiniAppPageGateCookie(bareCookieReq)).toBe("");
     expect(hasMiniAppPageGateCookie(bareCookieReq)).toBeTrue();
-    expect(extractMiniAppPageGateCookie(bareCookieReq)).toBe("");
     const nearMissCookieReq: Request = new Request("http://127.0.0.1/", {
       headers: {
         Cookie: `x_${MINI_APP_PAGE_GATE_COOKIE_NAME}=1; ${MINI_APP_PAGE_GATE_COOKIE_NAME}_y=2;  ${MINI_APP_PAGE_GATE_COOKIE_NAME} = trimmed_val `,

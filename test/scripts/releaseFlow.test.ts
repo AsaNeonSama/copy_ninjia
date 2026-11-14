@@ -10,8 +10,21 @@ import { verifyReleaseAssets } from "../../scripts/release/assets";
 import type { ReleaseAsset } from "../../scripts/release/assets";
 import { publishRelease } from "../../scripts/release/github";
 import { runCapturedCommand } from "../../scripts/fixtures/subprocess";
-import { PERSONA_FILE_NAME, PROMPT_EXAMPLE_DIR_NAME, VOICE_TOOL_PROMPT_FILE_NAME } from "../../packages/consts/promptLayout";
+import { PROJECT_ROOT } from "../../packages/consts/paths";
+import { PROMPT_EXAMPLE_DIR_NAME } from "../../packages/consts/promptLayout";
+import { RELEASE_BUNDLED_PATHS, RELEASE_INSTALL_SCRIPT_GLOB } from "../../packages/consts/release";
 import type { CapturedCommandResult } from "../../scripts/fixtures/subprocess";
+
+const BUNDLED_TRACKED_FILES: readonly string[] = createReleaseCommand(PROJECT_ROOT)([
+  "git",
+  "ls-files",
+  "--",
+  ...RELEASE_BUNDLED_PATHS,
+  RELEASE_INSTALL_SCRIPT_GLOB,
+]).stdout
+  .split("\n")
+  .map((line: string): string => line.trim())
+  .filter((line: string): boolean => line.length > 0);
 
 const TREE: string = "a".repeat(40);
 const HEAD: string = "b".repeat(40);
@@ -45,17 +58,20 @@ async function fixture(
   }
   if (defect === "directory-executable") mkdirSync(join(content, "copy-ninjia"));
   if (defect === "symlink-executable") symlinkSync("binary.json", join(content, "copy-ninjia"));
-  if (defect !== "missing-installer") await Bun.write(join(content, "install.sh"), "# mock installer\n");
-  if (defect !== "missing-runtime") await Bun.write(join(content, "scripts/install/runtime.js"), "export {};\n");
-  if (defect !== "missing-prompt-example") {
-    for (const fileName of [PERSONA_FILE_NAME, VOICE_TOOL_PROMPT_FILE_NAME]) {
-      await Bun.write(join(content, PROMPT_EXAMPLE_DIR_NAME, fileName), "# mock prompt example\n");
-    }
+  for (const relPath of BUNDLED_TRACKED_FILES) {
+    if (defect === "missing-installer" && relPath === "install.sh") continue;
+    if (defect === "missing-prompt-example" && relPath.startsWith(`${PROMPT_EXAMPLE_DIR_NAME}/`)) continue;
+    if (defect === "missing-reject-html" && relPath === "packages/mini-app-api-server/resource/reject.html") continue;
+    if (defect === "missing-migration-sql" && relPath === "packages/database/schema/migrations/0000_identity_storage.sql") continue;
+    if (defect === "missing-config-example" && relPath === "config_example/static/bot.json") continue;
+    await Bun.write(join(content, relPath), Bun.file(join(PROJECT_ROOT, relPath)));
   }
+  if (defect !== "missing-runtime") await Bun.write(join(content, "scripts/install/runtime.js"), "export {};\n");
   if (defect === "node-modules") await Bun.write(join(content, "node_modules/mock/index.js"), "export {};\n");
   for (const path of migrationPaths) await Bun.write(join(content, path), "export {};\n");
   const archive: string = join(root, "copy-ninjia-linux-x64.tar.gz");
   const members: readonly string[] = defect === "duplicate-executable" ? ["copy-ninjia", "copy-ninjia/copy-ninjia"]
+    : defect === "duplicate-bundled" ? ["copy-ninjia", "copy-ninjia/install.sh"]
     : defect === "mode-decoy" ? ["copy-ninjia/decoy copy-ninjia", "copy-ninjia"] : ["copy-ninjia"];
   const result: CapturedCommandResult = await runCapturedCommand({ cmd: ["tar", "-czf", archive, ...members], cwd: join(root, "content") });
   expect(result.exitCode).toBe(0);
@@ -155,7 +171,8 @@ describe("发布资产与谱系", (): void => {
   });
   test.each([
     "manifest-version", "missing-executable", "non-executable", "directory-executable", "symlink-executable",
-    "duplicate-executable", "mode-decoy", "node-modules", "missing-installer", "missing-runtime", "missing-prompt-example",
+    "duplicate-executable", "duplicate-bundled", "mode-decoy", "node-modules", "missing-installer",
+    "missing-runtime", "missing-prompt-example", "missing-reject-html", "missing-migration-sql", "missing-config-example",
   ])(
     "独立拒绝发行包结构缺口：%s", async (defect: string): Promise<void> => {
       const { root }: { root: string } = await fixture({}, undefined, defect);

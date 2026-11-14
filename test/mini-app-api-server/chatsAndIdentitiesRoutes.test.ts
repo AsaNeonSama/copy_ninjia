@@ -18,7 +18,7 @@ import type { InstalledTelegramApi, TelegramSentMessage } from "../../packages/t
 import { verificationKey } from "../../packages/libs/verificationKey";
 import { botPermissions } from "../helpers/botPermissions";
 import {
-  buildSignedTestInitData,
+  buildSuperAdminHeaders,
   installMiniAppTestDiskIOMock,
   miniAppTestJoinLogState,
   resetMiniAppTestDiskIOState,
@@ -59,9 +59,7 @@ const { AI_MEMORY_HYDRATE_BUFFER_MAX, VERBATIM_CONTEXT_MAX } = await import(
 const { BOT_CHAT_PERMISSION_LABELS } = await import("../../packages/consts/botAdmin");
 const {
   MINI_APP_CSP_HEADER_VALUE,
-  MINI_APP_INIT_DATA_HEADER,
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
-  MINI_APP_SESSION_HEADER,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
 const {
@@ -82,20 +80,12 @@ const { dispatchMiniAppTestRequest: handleMiniAppHttpRequest } = await import(
  * @returns 包含 `X-Telegram-Init-Data` 与 `X-Mini-App-Session` 的请求头。
  */
 function superAdminHeaders(): Record<string, string> {
-  const initData: string = buildSignedTestInitData({
+  return buildSuperAdminHeaders({
     botToken: BOT_TOKEN,
-    authDate: Math.floor(Date.now() / 1000),
-    user: {
-      id: SUPER_ADMIN_USER_ID,
-      first_name: "SuperAdmin",
-      username: "super_admin",
-    },
+    superAdminUserId: SUPER_ADMIN_USER_ID,
+    sessionToken: issueMiniAppAuthSession().token,
+    username: "super_admin",
   });
-  const session = issueMiniAppAuthSession();
-  return {
-    [MINI_APP_INIT_DATA_HEADER]: initData,
-    [MINI_APP_SESSION_HEADER]: session.token,
-  };
 }
 
 afterEach(async (): Promise<void> => {

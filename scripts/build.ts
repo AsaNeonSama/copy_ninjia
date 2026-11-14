@@ -6,7 +6,11 @@ import { ACTIVE_COLD_MIGRATION_EDGES } from "./migrations/active";
 import { copyFixtureTree } from "./fixtures/copyTree";
 import { createReleaseCommand, readBuildSourceTree } from "./release/command";
 import { fileSha256 } from "./fileSha256";
-import { RELEASE_VERSION_PATTERN } from "../packages/consts/release";
+import {
+  RELEASE_BUNDLED_PATHS,
+  RELEASE_INSTALL_SCRIPT_GLOB,
+  RELEASE_VERSION_PATTERN,
+} from "../packages/consts/release";
 import type { ReleaseCommand } from "./release/command";
 
 /** 构建脚本校验 `package.json` 中 `packageManager` 版本所需的最小结构。 */
@@ -83,11 +87,11 @@ try {
     });
     if (!migration.success) throw new AggregateError(migration.logs, `Migration compilation failed: ${edge.command}`);
   }
-  for (const relative of ["install.sh", "config_example", "prompt_example", "LICENSES", "packages/database/schema/migrations", "packages/mini-app-api-server/resource"]) {
+  for (const relative of RELEASE_BUNDLED_PATHS) {
     await copyFixtureTree(join(projectRoot, relative), join(packageRoot, relative));
   }
-  for await (const file of new Bun.Glob("*.sh").scan(join(projectRoot, "scripts/install"))) {
-    await Bun.write(join(packageRoot, "scripts/install", file), Bun.file(join(projectRoot, "scripts/install", file)));
+  for await (const file of new Bun.Glob(RELEASE_INSTALL_SCRIPT_GLOB).scan(projectRoot)) {
+    await Bun.write(join(packageRoot, file), Bun.file(join(projectRoot, file)));
   }
   for await (const file of new Bun.Glob("**/*.map").scan({ cwd: packageRoot, dot: true })) {
     await Bun.file(join(packageRoot, file)).delete();

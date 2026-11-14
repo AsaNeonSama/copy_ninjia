@@ -48,8 +48,10 @@ mock.module("../../../packages/workers/antiRaid/lockdownRuntime", () => ({ recor
 mock.module("../../../packages/workers/antiRaid/adDetect/queueState", () => ({
   releaseAdDetectDedupKey,
 }));
-// 退避间隔与补扫批量在测试里压缩，不改变分支。
+// 退避间隔与补扫批量在测试里压缩，其余常量从实际模块透出，不改变分支。
+const actualBlocklistConsts = await import("../../../packages/consts/antiRaid/blocklist");
 mock.module("../../../packages/consts/antiRaid/blocklist", () => ({
+  ...actualBlocklistConsts,
   BLOCKLIST_REMOVAL_MAX_ATTEMPTS: 3,
   BLOCKLIST_REMOVAL_RETRY_DELAY_MS: 1,
   BLOCKLIST_SWEEP_BATCH_SIZE: 2,

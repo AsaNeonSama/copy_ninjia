@@ -10,7 +10,11 @@ import {
   setMiniAppSessionToken,
 } from "../libs/credentials";
 import { asPayloadRecord } from "../libs/record";
-import type { MiniAppAccessDiagnostics, MiniAppPrecheckResult } from "../types/miniApp";
+import type {
+  MiniAppAccessDiagnostics,
+  MiniAppAuthPrecheckResponse,
+  MiniAppPrecheckResult,
+} from "../types/miniApp";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
 import {
   buildMiniAppAuthHeaders,
@@ -62,7 +66,7 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   });
   syncRefreshedMiniAppSession(response);
   const payload: unknown = await response.json().catch((): null => null);
-  if (!response.ok) {
+  if (!response.ok || payload === null) {
     clearMiniAppAssetToken();
     clearMiniAppSessionToken();
     return {
@@ -70,34 +74,32 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
       diagnostics: parseAccessDiagnostics(
         payload,
         response,
-        "MISSING_INIT_DATA"
+        response.ok ? "INVALID_RESPONSE" : "MISSING_INIT_DATA"
       ),
     };
   }
-  const record: Record<string, unknown> = asPayloadRecord(payload);
-  const ttlMs: number = typeof record.ttlMs === "number" ? record.ttlMs : MINI_APP_SESSION_TTL_MS;
-  const totpEnabled: boolean = record.totpEnabled === true;
+  const body: MiniAppAuthPrecheckResponse = payload as MiniAppAuthPrecheckResponse;
+  const ttlMs: number = body.ttlMs ?? MINI_APP_SESSION_TTL_MS;
+  const totpEnabled: boolean = body.totpEnabled === true;
   const authMode: MiniAppAuthMode =
-    record.authMode === "totp" || totpEnabled ? "totp" : "password";
+    body.authMode === "totp" || totpEnabled ? "totp" : "password";
+  const rawRefreshedToken: string = body.sessionToken?.trim() ?? "";
   const refreshedBodyToken: string =
-    typeof record.sessionToken === "string" &&
-    MINI_APP_SHA256_HEX_PATTERN.test(record.sessionToken.trim())
-      ? record.sessionToken.trim()
-      : "";
+    MINI_APP_SHA256_HEX_PATTERN.test(rawRefreshedToken) ? rawRefreshedToken : "";
   const existingToken: string =
     refreshedBodyToken.length > 0 ? refreshedBodyToken : readMiniAppSessionToken();
   const localSessionExpiresAt: number =
-    typeof record.sessionExpiresAt === "number"
-      ? toLocalEpochMs(record.sessionExpiresAt, response)
+    body.sessionExpiresAt !== undefined
+      ? toLocalEpochMs(body.sessionExpiresAt, response)
       : 0;
   const sessionValid: boolean =
-    record.sessionValid === true &&
+    body.sessionValid === true &&
     localSessionExpiresAt > Date.now() &&
     existingToken.length > 0;
   const sessionExpiresAt: number = sessionValid ? localSessionExpiresAt : 0;
   const assetToken: string | undefined =
-    sessionValid && typeof record.assetToken === "string" && record.assetToken.length > 0
-      ? record.assetToken
+    sessionValid && body.assetToken !== undefined && body.assetToken.length > 0
+      ? body.assetToken
       : undefined;
   if (assetToken !== undefined) {
     setMiniAppAssetToken(assetToken);

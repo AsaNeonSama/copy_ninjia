@@ -1,6 +1,10 @@
 import { mock } from "bun:test";
 import { BLOCKLIST_SWEEP_PAGE_SIZE } from "../../packages/consts/identityStorage";
-import { MINI_APP_WEB_APP_DATA_SECRET_SEED } from "../../packages/consts/miniApp";
+import {
+  MINI_APP_INIT_DATA_HEADER,
+  MINI_APP_SESSION_HEADER,
+  MINI_APP_WEB_APP_DATA_SECRET_SEED,
+} from "../../packages/consts/miniApp";
 import type {
   AiMemoryDeletedPersistedReply,
   DiskBusinessMessage,
@@ -246,4 +250,46 @@ export function buildSignedTestInitData(params: {
   }
   searchParams.set("hash", hashHex);
   return searchParams.toString();
+}
+
+/** 构造超级管理员测试请求头的参数。 */
+export interface SuperAdminHeadersOptions {
+  /** 当前生效的 Bot Token。 */
+  readonly botToken: string;
+  /** 超级管理员数字 ID。 */
+  readonly superAdminUserId: number;
+  /** 本次会话令牌。 */
+  readonly sessionToken: string;
+  /** 可选附加用户名（如 `"super_admin"`）。 */
+  readonly username?: string;
+  /** 可选 `Content-Type` 头（如 `"application/json"`）。 */
+  readonly contentType?: string;
+}
+
+/**
+ * 构造携带当前 `BOT_TOKEN`、`SUPER_ADMIN_USER_ID` 签名与 45 分钟密码会话的测试请求头。
+ * @param options 令牌、用户与可选附加头字段参数。
+ * @returns 请求头字典。
+ */
+export function buildSuperAdminHeaders({
+  botToken,
+  superAdminUserId,
+  sessionToken,
+  username,
+  contentType,
+}: SuperAdminHeadersOptions): Record<string, string> {
+  const initData: string = buildSignedTestInitData({
+    botToken,
+    authDate: Math.floor(Date.now() / 1000),
+    user: {
+      id: superAdminUserId,
+      first_name: "SuperAdmin",
+      ...(username === undefined ? {} : { username }),
+    },
+  });
+  return {
+    [MINI_APP_INIT_DATA_HEADER]: initData,
+    [MINI_APP_SESSION_HEADER]: sessionToken,
+    ...(contentType === undefined ? {} : { "Content-Type": contentType }),
+  };
 }

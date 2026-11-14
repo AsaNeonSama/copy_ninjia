@@ -34,16 +34,11 @@ mock.module("../../packages/infra/telegram/fileDownload", () => ({ downloadTeleg
 mock.module("../../packages/infra/identityPolicy/whitelist", () => ({
   hasWhitelistPermission: (id: number, key: string): boolean => id === 5 && key === "isCanAddHImage" && permitted,
 }));
+const actualHImageConsts = await import("../../packages/consts/hImage");
 mock.module("../../packages/consts/hImage", () => ({
-  MEDIA_GROUP_CACHE_MAX: 256,
-  MEDIA_GROUP_ITEMS_MAX: 10,
+  ...actualHImageConsts,
   H_IMAGE_ADD_TASK_BUDGET_MS: 200,
   H_IMAGE_ADD_DOWNLOAD_BATCH_SIZE: DOWNLOAD_BATCH_SIZE,
-  H_IMAGE_ADD_METADATA_TIMEOUT_MS: 10_000,
-  H_IMAGE_ADD_DOWNLOAD_TIMEOUT_MS: 25_000,
-  H_IMAGE_ADD_ARGUMENT: "add",
-  H_IMAGE_RATE_LIMIT_MAX_CALLS_PER_WINDOW: 5,
-  H_IMAGE_RATE_LIMIT_WINDOW_MS: 1_000,
 }));
 const { loggerStub } = await import("../helpers/loggerMock");
 mock.module("../../packages/infra/logger", () => ({ logger: loggerStub({ error: loggerError }) }));

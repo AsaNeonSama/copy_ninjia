@@ -17,8 +17,10 @@ import {
 import {
   clearMiniAppAssetToken,
   clearMiniAppSessionToken,
+  readMiniAppAssetToken,
   readMiniAppSessionExpiresAt,
   readMiniAppSessionToken,
+  setMiniAppAssetToken,
   setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
 import { buildMiniAppGalleryDownloadFileName } from "../../packages/mini-app-frontend/libs/formatters";
@@ -198,6 +200,26 @@ describe("会话与传输", () => {
     await miniAppFetchJson("/api/status");
     expect(readMiniAppSessionToken()).toBe(refreshedSession);
     expect(Math.abs(readMiniAppSessionExpiresAt() - (Date.now() + 45 * 60_000))).toBeLessThan(2_000);
+  });
+
+  test("precheck 返回 2xx 非 JSON 响应体时走失败诊断并清理本地凭据", async () => {
+    setMiniAppSessionToken("b".repeat(64), Date.now() + 30 * 60_000);
+    setMiniAppAssetToken("c".repeat(64));
+    responses.set("GET /api/auth/precheck", (): Response =>
+      new Response("<html>bad gateway</html>", {
+        status: 200,
+        headers: { "content-type": "text/html", "x-request-id": "0123456789abcdef" },
+      }));
+
+    const result = await precheckMiniAppAccess();
+    expect(result.ok).toBeFalse();
+    if (!result.ok) {
+      expect(result.diagnostics.status).toBe(200);
+      expect(result.diagnostics.code).toBe("HTTP_200");
+      expect(result.diagnostics.error).toBe("INVALID_RESPONSE");
+    }
+    expect(readMiniAppSessionToken()).toBe("");
+    expect(readMiniAppAssetToken()).toBe("");
   });
 
 });
