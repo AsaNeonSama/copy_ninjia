@@ -14,43 +14,35 @@ import type { InstallerFixture, InstallerRunResult } from "./installIsolation/fi
 import { readInstallScripts } from "./installSources";
 import type { InstallScriptSource } from "./installSources";
 
-const source: string = resolve(Bun.argv[2] ?? "dist/copy-ninjia-linux-x64");
-const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-binary-check-"));
-const executable: string = join(root, "copy-ninjia");
 /** 复用单一 UTF-8 解码器解码被测二进制与子进程输出缓冲。 */
 const UTF8_DECODER: TextDecoder = new TextDecoder();
-const environment: Record<string, string> = {
-  PATH: "/usr/bin:/bin",
-  HOME: root,
-  COPY_NINJIA_DATA_ROOT: root,
-  COPY_NINJIA_CONFIG_ROOT: join(root, "config"),
-};
 
 /**
- * 所有子进程仅使用测试数据根，环境不继承部署配置。
- * @param arguments_ 传给被测二进制文件的命令行参数列表。
- * @param extra 附加或覆盖的环境变量键值表。
- * @returns 子进程标准输出与标准错误拼接文本。
+ * 断言发行包目录树中不包含任何 `.map` 源码映射文件。
+ *
+ * @param packageRoot 待检查的发行包目录路径
  */
-function run(arguments_: string[], extra: Readonly<Record<string, string>> = {}): string {
-  const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
-    cmd: [executable, ...arguments_], cwd: root, env: { ...environment, ...extra },
-    stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
-  });
-  const output: string = UTF8_DECODER.decode(result.stdout) + UTF8_DECODER.decode(result.stderr);
-  if (result.exitCode !== 0) throw new Error(`Binary check failed (${result.exitCode}):\n${output}`);
-  return output;
-}
-
-try {
-  for await (const file of new Bun.Glob("**/*.map").scan({ cwd: source, dot: true })) {
+export async function assertNoSourceMaps(packageRoot: string): Promise<void> {
+  for await (const file of new Bun.Glob("**/*.map").scan({ cwd: packageRoot, dot: true })) {
     throw new Error(`Binary package must not contain source maps: ${file}`);
   }
-  await copyFixtureTree(source, root);
-  chmodSync(executable, 0o700);
-  for (const resourceSourcePath of [MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH]) {
-    const resourceRelativePath: string = relative(PROJECT_ROOT, resourceSourcePath);
-    const packagedResourcePath: string = join(root, resourceRelativePath);
+}
+
+/**
+ * 断言随包资源文件均存在于发行包对应相对路径下，且 SHA-256 摘要与源目录一致。
+ *
+ * @param packageRoot 已复制到临时目录的发行包根目录
+ * @param resourceSourcePaths 源文件绝对路径列表（默认包含 Mini App 图标与拒绝页面）
+ * @param sourceRoot 用于计算相对路径的仓库根目录（默认 `PROJECT_ROOT`）
+ */
+export async function assertPackagedResourcesMatch(
+  packageRoot: string,
+  resourceSourcePaths: readonly string[] = [MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH],
+  sourceRoot: string = PROJECT_ROOT
+): Promise<void> {
+  for (const resourceSourcePath of resourceSourcePaths) {
+    const resourceRelativePath: string = relative(sourceRoot, resourceSourcePath);
+    const packagedResourcePath: string = join(packageRoot, resourceRelativePath);
     if (!(await Bun.file(packagedResourcePath).exists())) {
       throw new Error(`Binary package is missing ${resourceRelativePath}.`);
     }
@@ -58,24 +50,59 @@ try {
       throw new Error(`Binary package ${resourceRelativePath} SHA-256 does not match source.`);
     }
   }
-  const manifest: { readonly version: string } = await Bun.file(join(root, "package.json")).json() as { readonly version: string };
-  if (run(["--version"]).trim() !== manifest.version) throw new Error("Binary version must match the packaged manifest.");
-  for (const dirName of [STATIC_CONFIG_DIR_NAME, DYNAMIC_CONFIG_DIR_NAME]) {
-    await copyFixtureTree(join(root, "config_example", dirName), join(root, "config", dirName));
+}
+
+/**
+ * 在独立临时目录运行发行包二进制全流程验收，并在结束后清理全部临时根目录。
+ *
+ * @param sourceArg 待检查的发行包路径或相对路径
+ */
+export async function runBinaryCheck(
+  sourceArg: string = Bun.argv[2] ?? "dist/copy-ninjia-linux-x64"
+): Promise<void> {
+  const source: string = resolve(sourceArg);
+  const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-binary-check-"));
+  const executable: string = join(root, "copy-ninjia");
+  const environment: Record<string, string> = {
+    PATH: "/usr/bin:/bin",
+    HOME: root,
+    COPY_NINJIA_DATA_ROOT: root,
+    COPY_NINJIA_CONFIG_ROOT: join(root, "config"),
+  };
+
+  function run(arguments_: string[], extra: Readonly<Record<string, string>> = {}): string {
+    const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
+      cmd: [executable, ...arguments_], cwd: root, env: { ...environment, ...extra },
+      stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
+    });
+    const output: string = UTF8_DECODER.decode(result.stdout) + UTF8_DECODER.decode(result.stderr);
+    if (result.exitCode !== 0) throw new Error(`Binary check failed (${result.exitCode}):\n${output}`);
+    return output;
   }
-  // 以发行包携带的提示词示例作为 prompt/，核对编译产物按 PROJECT_ROOT 读取并严格校验它们。
-  await copyFixtureTree(join(root, PROMPT_EXAMPLE_DIR_NAME), join(root, PROMPT_DIR_NAME));
-  // 与首次部署一样不物化只示意结构的示例（g-auth.json、cron.json）。
-  await Bun.file(join(root, "config", STATIC_CONFIG_DIR_NAME, "g-auth.json")).delete();
-  await Bun.file(join(root, "config", DYNAMIC_CONFIG_DIR_NAME, "cron.json")).delete();
-  await Bun.write(join(root, "config", STATIC_CONFIG_DIR_NAME, "bot.json"), JSON.stringify({ bot_token: "123456789:binary_test_token", super_admin_user_id: 123456789 }));
-  await Bun.write(join(root, "config", DYNAMIC_CONFIG_DIR_NAME, "agent.json"), JSON.stringify({ agent: {
-    text: { provider: "openai", api_key: "binary-test-key", model: "test" },
-    summary: { provider: "openai", api_key: "binary-test-key", model: "test" },
-    media: { provider: "openai", api_key: "binary-test-key", model: "test" },
-  } }));
-  mkdirSync(join(root, "database"), { mode: 0o770 });
-  run(["-e", `
+
+  try {
+    await assertNoSourceMaps(source);
+    await copyFixtureTree(source, root);
+    chmodSync(executable, 0o700);
+    await assertPackagedResourcesMatch(root);
+    const manifest: { readonly version: string } = await Bun.file(join(root, "package.json")).json() as { readonly version: string };
+    if (run(["--version"]).trim() !== manifest.version) throw new Error("Binary version must match the packaged manifest.");
+    for (const dirName of [STATIC_CONFIG_DIR_NAME, DYNAMIC_CONFIG_DIR_NAME]) {
+      await copyFixtureTree(join(root, "config_example", dirName), join(root, "config", dirName));
+    }
+    // 以发行包携带的提示词示例作为 prompt/，核对编译产物按 PROJECT_ROOT 读取并严格校验它们。
+    await copyFixtureTree(join(root, PROMPT_EXAMPLE_DIR_NAME), join(root, PROMPT_DIR_NAME));
+    // 与首次部署一样不物化只示意结构的示例（g-auth.json、cron.json）。
+    await Bun.file(join(root, "config", STATIC_CONFIG_DIR_NAME, "g-auth.json")).delete();
+    await Bun.file(join(root, "config", DYNAMIC_CONFIG_DIR_NAME, "cron.json")).delete();
+    await Bun.write(join(root, "config", STATIC_CONFIG_DIR_NAME, "bot.json"), JSON.stringify({ bot_token: "123456789:binary_test_token", super_admin_user_id: 123456789 }));
+    await Bun.write(join(root, "config", DYNAMIC_CONFIG_DIR_NAME, "agent.json"), JSON.stringify({ agent: {
+      text: { provider: "openai", api_key: "binary-test-key", model: "test" },
+      summary: { provider: "openai", api_key: "binary-test-key", model: "test" },
+      media: { provider: "openai", api_key: "binary-test-key", model: "test" },
+    } }));
+    mkdirSync(join(root, "database"), { mode: 0o770 });
+    run(["-e", `
     import { bootstrapStorageDatabase, IDENTITY_DATABASE_PATH, loadInstallerBotConfig,
       validateExistingDeploymentInputs } from "./scripts/install/runtime.js";
     const config = await loadInstallerBotConfig("config/static/bot.json");
@@ -88,88 +115,93 @@ try {
       if (metadata.format !== "png" || metadata.width !== 2 || metadata.height !== 2) throw new Error("Bun.Image transcoding failed");
     }
   `], { BUN_BE_BUN: "1" });
-  // 编译产物不从磁盘上的 node_modules 解析第三方包，发行包不得携带它。
-  if (existsSync(join(root, "node_modules"))) throw new Error("Binary package must not contain node_modules.");
-  const output: string = run([], {
-    BUN_OPTIONS: `--preload ${join(import.meta.dir, "../test/fixtures/binaryNetwork.ts")}`,
-  });
-  for (const marker of ["diskIOWorker.ts", "aiChatWorker.ts", "antiRaidWorker.ts", "BINARY_API getUpdates", "BINARY_WEATHER"]) {
-    if (!output.includes(marker)) throw new Error(`Binary check missing ${marker}:\n${output}`);
-  }
-  if (output.includes("BINARY_NETWORK_BLOCKED") || await Bun.file(join(root, "bot.lock")).exists()) {
-    throw new Error(`Binary check did not complete cleanly:\n${output}`);
-  }
-  // 在无系统 Bun、无配置的临时目录真实执行发行包携带的全部冷迁移。
-  const migrated: MigratedDeployment = await prepareMigratedDeployment({
-    packageRoot: root,
-    root: join(root, "cold-migration-check"),
-    binary: true,
-  });
-  const originalFixture: InstallerFixture = await createFixture();
-  const worktree: string = join(originalFixture.root, "binary deployment");
-  renameSync(originalFixture.worktree, worktree);
-  const fixture: InstallerFixture = { ...originalFixture, worktree, configRoot: join(worktree, "config") };
-  const guardedScripts: readonly InstallScriptSource[] = await readInstallScripts(fixture.worktree);
-  await copyFixtureTree(source, fixture.worktree);
-  chmodSync(join(fixture.worktree, "copy-ninjia"), 0o700);
-  await Bun.file(join(fixture.worktree, "index.ts")).delete();
-  for (const script of guardedScripts) await writeText(join(fixture.worktree, script.path), script.source);
-  // 仅捕获夹具的 unit 内容；替身不写系统路径，也不启动真实服务。
-  await writeText(join(fixture.binRoot, "tee"), [
-    "#!/usr/bin/env bash",
-    "set -Eeuo pipefail",
-    '[ "$#" -eq 1 ] && [ "$1" = "${FAKE_WORKTREE%/*}/systemd/copy-ninjia.service" ] || exit 94',
-    'cat > "$FAKE_RUNTIME_ROOT/unit-preview"',
-    "",
-  ].join("\n"), 0o700);
-  const installed: InstallerRunResult = await runInstaller(fixture, [
-    { prompt: "Telegram bot token", reply: "123456789:binary_test_token", secret: true },
-    { prompt: "超级管理员用户 ID", reply: "123456789" },
-    { prompt: "现在配置 AI 能力", reply: "n" },
-    { prompt: "覆盖它？", reply: "y" },
-  ]);
-  if (installed.exitCode !== 0 || (await Bun.file(fixture.callLog).text()).includes("bun:")) {
-    throw new Error(`Binary installer failed or invoked system Bun:\n${installed.output}`);
-  }
-  if (!(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists())) throw new Error("Binary installer did not initialize storage.");
-  const unit: string = await Bun.file(join(fixture.runtimeRoot, "unit-preview")).text();
-  if (!unit.split("\n").includes(`ExecStart=":${join(worktree, "copy-ninjia")}"`)) {
-    throw new Error("Binary installer must quote the executable path as one systemd argument.");
-  }
-  // 在同一隔离安装根模拟停服后的手工替换；旧安装没有打开的 SQLite 连接。
-  rmSync(join(fixture.runtimeRoot, "database"), { recursive: true });
-  for (const name of ["service-started", "service-observed"]) rmSync(join(fixture.runtimeRoot, name), { force: true });
-  await deployMigratedFixture(migrated, fixture.configRoot, fixture.runtimeRoot);
-  const upgraded: InstallerRunResult = await runInstaller(fixture, [
-    { prompt: "是否重新填写？", reply: "n" }, { prompt: "覆盖它？", reply: "y" },
-  ]);
-  if (upgraded.exitCode !== 0 || !upgraded.output.includes("配置校验通过") || upgraded.output.includes("/translate 翻译不可用") ||
+    // 编译产物不从磁盘上的 node_modules 解析第三方包，发行包不得携带它。
+    if (existsSync(join(root, "node_modules"))) throw new Error("Binary package must not contain node_modules.");
+    const output: string = run([], {
+      BUN_OPTIONS: `--preload ${join(import.meta.dir, "../test/fixtures/binaryNetwork.ts")}`,
+    });
+    for (const marker of ["diskIOWorker.ts", "aiChatWorker.ts", "antiRaidWorker.ts", "BINARY_API getUpdates", "BINARY_WEATHER"]) {
+      if (!output.includes(marker)) throw new Error(`Binary check missing ${marker}:\n${output}`);
+    }
+    if (output.includes("BINARY_NETWORK_BLOCKED") || await Bun.file(join(root, "bot.lock")).exists()) {
+      throw new Error(`Binary check did not complete cleanly:\n${output}`);
+    }
+    // 在无系统 Bun、无配置的临时目录真实执行发行包携带的全部冷迁移。
+    const migrated: MigratedDeployment = await prepareMigratedDeployment({
+      packageRoot: root,
+      root: join(root, "cold-migration-check"),
+      binary: true,
+    });
+    const originalFixture: InstallerFixture = await createFixture();
+    const worktree: string = join(originalFixture.root, "binary deployment");
+    renameSync(originalFixture.worktree, worktree);
+    const fixture: InstallerFixture = { ...originalFixture, worktree, configRoot: join(worktree, "config") };
+    const guardedScripts: readonly InstallScriptSource[] = await readInstallScripts(fixture.worktree);
+    await copyFixtureTree(source, fixture.worktree);
+    chmodSync(join(fixture.worktree, "copy-ninjia"), 0o700);
+    await Bun.file(join(fixture.worktree, "index.ts")).delete();
+    for (const script of guardedScripts) await writeText(join(fixture.worktree, script.path), script.source);
+    // 仅捕获夹具的 unit 内容；替身不写系统路径，也不启动真实服务。
+    await writeText(join(fixture.binRoot, "tee"), [
+      "#!/usr/bin/env bash",
+      "set -Eeuo pipefail",
+      '[ "$#" -eq 1 ] && [ "$1" = "${FAKE_WORKTREE%/*}/systemd/copy-ninjia.service" ] || exit 94',
+      'cat > "$FAKE_RUNTIME_ROOT/unit-preview"',
+      "",
+    ].join("\n"), 0o700);
+    const installed: InstallerRunResult = await runInstaller(fixture, [
+      { prompt: "Telegram bot token", reply: "123456789:binary_test_token", secret: true },
+      { prompt: "超级管理员用户 ID", reply: "123456789" },
+      { prompt: "现在配置 AI 能力", reply: "n" },
+      { prompt: "覆盖它？", reply: "y" },
+    ]);
+    if (installed.exitCode !== 0 || (await Bun.file(fixture.callLog).text()).includes("bun:")) {
+      throw new Error(`Binary installer failed or invoked system Bun:\n${installed.output}`);
+    }
+    if (!(await Bun.file(join(fixture.runtimeRoot, "database/storage.sqlite")).exists())) throw new Error("Binary installer did not initialize storage.");
+    const unit: string = await Bun.file(join(fixture.runtimeRoot, "unit-preview")).text();
+    if (!unit.split("\n").includes(`ExecStart=":${join(worktree, "copy-ninjia")}"`)) {
+      throw new Error("Binary installer must quote the executable path as one systemd argument.");
+    }
+    // 在同一隔离安装根模拟停服后的手工替换；旧安装没有打开的 SQLite 连接。
+    rmSync(join(fixture.runtimeRoot, "database"), { recursive: true });
+    for (const name of ["service-started", "service-observed"]) rmSync(join(fixture.runtimeRoot, name), { force: true });
+    await deployMigratedFixture(migrated, fixture.configRoot, fixture.runtimeRoot);
+    const upgraded: InstallerRunResult = await runInstaller(fixture, [
+      { prompt: "是否重新填写？", reply: "n" }, { prompt: "覆盖它？", reply: "y" },
+    ]);
+    if (upgraded.exitCode !== 0 || !upgraded.output.includes("配置校验通过") || upgraded.output.includes("/translate 翻译不可用") ||
     (await Bun.file(fixture.callLog).text()).includes("bun:")) {
-    throw new Error(`Binary migration installer failed or invoked system Bun:\n${upgraded.output}`);
-  }
-  const started: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
-    cmd: [join(worktree, "copy-ninjia")], cwd: worktree,
-    env: { ...environment, COPY_NINJIA_DATA_ROOT: fixture.runtimeRoot, COPY_NINJIA_CONFIG_ROOT: fixture.configRoot,
-      BUN_OPTIONS: `--preload ${join(import.meta.dir, "../test/fixtures/binaryNetwork.ts")}` },
-    stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
-  });
-  const migratedOutput: string = UTF8_DECODER.decode(started.stdout) + UTF8_DECODER.decode(started.stderr);
-  for (const marker of ["diskIOWorker.ts", "aiChatWorker.ts", "antiRaidWorker.ts", "Received SIGTERM; beginning graceful shutdown."]) {
-    if (!migratedOutput.includes(marker)) throw new Error(`Migrated binary startup missing ${marker}:\n${migratedOutput}`);
-  }
-  if (started.exitCode !== 0 || !migratedOutput.includes("Restored state for 1 chat(s), currently copying 42.") ||
+      throw new Error(`Binary migration installer failed or invoked system Bun:\n${upgraded.output}`);
+    }
+    const started: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
+      cmd: [join(worktree, "copy-ninjia")], cwd: worktree,
+      env: { ...environment, COPY_NINJIA_DATA_ROOT: fixture.runtimeRoot, COPY_NINJIA_CONFIG_ROOT: fixture.configRoot,
+        BUN_OPTIONS: `--preload ${join(import.meta.dir, "../test/fixtures/binaryNetwork.ts")}` },
+      stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
+    });
+    const migratedOutput: string = UTF8_DECODER.decode(started.stdout) + UTF8_DECODER.decode(started.stderr);
+    for (const marker of ["diskIOWorker.ts", "aiChatWorker.ts", "antiRaidWorker.ts", "Received SIGTERM; beginning graceful shutdown."]) {
+      if (!migratedOutput.includes(marker)) throw new Error(`Migrated binary startup missing ${marker}:\n${migratedOutput}`);
+    }
+    if (started.exitCode !== 0 || !migratedOutput.includes("Restored state for 1 chat(s), currently copying 42.") ||
     !migratedOutput.includes("BINARY_API getUpdates") || migratedOutput.includes("BINARY_NETWORK_BLOCKED") ||
     migratedOutput.includes("Shutdown drain/flush results:") || await Bun.file(join(fixture.runtimeRoot, "bot.lock")).exists()) {
-    throw new Error(`Migrated binary startup failed:\n${migratedOutput}`);
-  }
-  for (const name of PRESERVED_MIGRATION_CONFIG_FILES) {
-    if (await Bun.file(join(fixture.configRoot, name)).text() !== await Bun.file(join(migrated.config, name)).text()) {
-      throw new Error(`Binary installer changed a preserved configuration: ${name}`);
+      throw new Error(`Migrated binary startup failed:\n${migratedOutput}`);
     }
+    for (const name of PRESERVED_MIGRATION_CONFIG_FILES) {
+      if (await Bun.file(join(fixture.configRoot, name)).text() !== await Bun.file(join(migrated.config, name)).text()) {
+        throw new Error(`Binary installer changed a preserved configuration: ${name}`);
+      }
+    }
+    await assertMigrationSourcesUnchanged(migrated.sources);
+    console.log("Binary check passed: installer and cold migrations without system Bun, built-in image codecs, three Workers and SIGTERM drain.");
+  } finally {
+    cleanupFixtures();
+    rmSync(root, { recursive: true, force: true });
   }
-  await assertMigrationSourcesUnchanged(migrated.sources);
-  console.log("Binary check passed: installer and cold migrations without system Bun, built-in image codecs, three Workers and SIGTERM drain.");
-} finally {
-  cleanupFixtures();
-  rmSync(root, { recursive: true, force: true });
+}
+
+if (import.meta.main) {
+  await runBinaryCheck();
 }

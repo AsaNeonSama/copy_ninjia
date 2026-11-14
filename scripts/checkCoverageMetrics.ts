@@ -16,12 +16,20 @@ import { parseCoverageSummary } from "./coverageSummary";
 
 const PROJECT_ROOT: string = join(import.meta.dir, "..");
 
+/** `runCoverageMetricsCheck` 的可注入检查参数。 */
+export interface CheckCoverageMetricsOptions {
+  /** 仓库根目录绝对路径（默认当前仓库根）。 */
+  readonly projectRoot?: string;
+  /** 可选覆盖率实测回调（默认运行 `bun test --isolate --coverage`）。 */
+  readonly measure?: () => CoverageMetrics;
+}
+
 /**
  * 在仓库根目录执行 `bun test --isolate --coverage` 并解析覆盖率摘要。
  *
  * @returns 实测得到的覆盖率指标
  */
-function measuredCoverageMetrics(): CoverageMetrics {
+export function measuredCoverageMetrics(): CoverageMetrics {
   const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
     cmd: ["bun", "test", "--isolate", "--coverage", "--coverage-reporter=text"],
     cwd: PROJECT_ROOT,
@@ -45,33 +53,48 @@ function measuredCoverageMetrics(): CoverageMetrics {
  * @param metrics 覆盖率指标对象
  * @returns 格式化后的覆盖率摘要字符串
  */
-function describe(metrics: CoverageMetrics): string {
+export function formatCoverageMetrics(metrics: CoverageMetrics): string {
   return `${metrics.tests} tests / ${metrics.files} files / ` +
     `${metrics.expectCalls} expect() calls / ` +
     `${metrics.functionPercent}% function coverage / ` +
     `${metrics.linePercent}% line coverage`;
 }
 
-const problems: string[] = [];
-const declared: CoverageMetrics | null = await declaredCoverageMetrics(
-  PROJECT_ROOT,
-  problems
-);
-if (declared === null) {
-  console.error("Coverage metric check failed before measuring:");
-  for (const problem of problems) console.error(`- ${problem}`);
-  process.exit(1);
-}
+/**
+ * 核对仓库声明的覆盖率指标与实测读数是否一致，并输出差异报告。
+ *
+ * @param options 仓库根目录与覆盖率实测回调配置
+ * @returns 一致时返回 0，缺失或过期时返回 1
+ */
+export async function runCoverageMetricsCheck({
+  projectRoot = PROJECT_ROOT,
+  measure = measuredCoverageMetrics,
+}: CheckCoverageMetricsOptions = {}): Promise<number> {
+  const problems: string[] = [];
+  const declared: CoverageMetrics | null = await declaredCoverageMetrics(
+    projectRoot,
+    problems
+  );
+  if (declared === null) {
+    console.error("Coverage metric check failed before measuring:");
+    for (const problem of problems) console.error(`- ${problem}`);
+    return 1;
+  }
 
-const measured: CoverageMetrics = measuredCoverageMetrics();
-if (describe(declared) === describe(measured)) {
-  console.log(`Coverage metrics are current: ${describe(measured)}`);
-} else {
+  const measured: CoverageMetrics = measure();
+  if (formatCoverageMetrics(declared) === formatCoverageMetrics(measured)) {
+    console.log(`Coverage metrics are current: ${formatCoverageMetrics(measured)}`);
+    return 0;
+  }
   console.error("Coverage metrics are stale:");
-  console.error(`- declared: ${describe(declared)}`);
-  console.error(`- measured: ${describe(measured)}`);
+  console.error(`- declared: ${formatCoverageMetrics(declared)}`);
+  console.error(`- measured: ${formatCoverageMetrics(measured)}`);
   console.error(
     "Rewrite every location listed under 「同步 README 指标」 in docs/cn/05-dev-workflow.md."
   );
-  process.exit(1);
+  return 1;
+}
+
+if (import.meta.main) {
+  process.exitCode = await runCoverageMetricsCheck();
 }

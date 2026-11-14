@@ -3,6 +3,13 @@ import ts from "typescript";
 import { collectEnvironmentAccessProblems } from "../../scripts/conventions/moduleBoundaries";
 import type { ModuleBoundaryParams } from "../../scripts/conventions/moduleBoundaries";
 import { collectNodeCompatibilityProblems } from "../../scripts/conventions/nodeCompatibility";
+import {
+  globalPropertyName,
+  isGlobalReference,
+  isInsideTypeNode,
+  staticPropertyName,
+  unwrapExpression,
+} from "../../scripts/conventions/staticAccess";
 
 const PROJECT_ROOT: string = "/project";
 const PACKAGE_PATH: string = `${PROJECT_ROOT}/packages/libs/example.ts`;
@@ -128,5 +135,75 @@ describe("环境变量读取的静态访问", () => {
       "type Shape = { process: { env: string } }; process.cwd(); Bun.argv; process[key]; " +
       "Bun[`en${suffix}`]; const { ...rest } = Bun; const { [key]: dynamic } = process;"
     ))).toEqual([]);
+  });
+});
+
+describe("staticAccess AST 辅助函数", () => {
+  function parseTs(text: string): ts.SourceFile {
+    return ts.createSourceFile(PACKAGE_PATH, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  }
+
+  function findFirstNode(root: ts.Node, predicate: (node: ts.Node) => boolean): ts.Node | undefined {
+    let found: ts.Node | undefined;
+    const visit = (node: ts.Node): void => {
+      if (found !== undefined) return;
+      if (predicate(node)) {
+        found = node;
+        return;
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(root);
+    return found;
+  }
+
+  test("staticPropertyName 解析属性、静态下标、解构绑定与对象字面量成员", () => {
+    const sf: ts.SourceFile = parseTs(
+      "obj.alpha; obj[`beta`]; obj[idx]; " +
+      "const { a, 'b': bb, [`c`]: cc, [dyn]: dd, ...rest } = src; " +
+      "const lit = { ['k']: 1, short }; 42;"
+    );
+    const accesses: ts.Node[] = [];
+    const bindings: ts.Node[] = [];
+    const props: ts.Node[] = [];
+    const walk = (node: ts.Node): void => {
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) accesses.push(node);
+      if (ts.isBindingElement(node)) bindings.push(node);
+      if (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node)) props.push(node);
+      ts.forEachChild(node, walk);
+    };
+    walk(sf);
+
+    expect(accesses.map(staticPropertyName)).toEqual(["alpha", "beta", undefined]);
+    expect(bindings.map(staticPropertyName)).toEqual(["a", "b", "c", undefined, undefined]);
+    expect(props.map(staticPropertyName)).toEqual(["k", "short"]);
+    expect(staticPropertyName(sf)).toBeUndefined();
+  });
+
+  test("unwrapExpression、isGlobalReference、isInsideTypeNode 与 globalPropertyName 行为正确", () => {
+    const sf: ts.SourceFile = parseTs(
+      "const wrapped = ((globalThis.process as unknown) satisfies object)!; " +
+      "type Ty = typeof process.argv; const ok = globalThis[`process`].env; other.env;"
+    );
+    const paren: ts.Node | undefined = findFirstNode(sf, ts.isParenthesizedExpression);
+    expect(paren).toBeDefined();
+    const unwrapped: ts.Node = unwrapExpression(paren!);
+    expect(isGlobalReference(unwrapped, "process")).toBe(true);
+    expect(isGlobalReference(unwrapped, "Bun")).toBe(false);
+
+    const typeAccess: ts.Node | undefined = findFirstNode(
+      sf,
+      (node: ts.Node): boolean => ts.isIdentifier(node) && node.text === "argv"
+    );
+    expect(isInsideTypeNode(typeAccess!)).toBe(true);
+    expect(globalPropertyName(typeAccess!, "process")).toBeUndefined();
+
+    const runtimeEnv: ts.Node | undefined = findFirstNode(
+      sf,
+      (node: ts.Node): boolean => ts.isPropertyAccessExpression(node) && node.name.text === "env"
+    );
+    expect(isInsideTypeNode(runtimeEnv!)).toBe(false);
+    expect(globalPropertyName(runtimeEnv!, "process")).toBe("env");
+    expect(globalPropertyName(sf, "process")).toBeUndefined();
   });
 });
