@@ -34,11 +34,11 @@ import type { TelegramWorkerTemporaryMessageResult } from "../../../types/telegr
 /** `disposeAdSender` 处置命中广告发送者的参数。 */
 export interface DisposeAdSenderParams {
   /** 待处置发送者的待检消息束。 */
-  bundle: AdMessageBundle;
+  readonly bundle: AdMessageBundle;
   /** 分类器给出的广告判定结果与命中原因。 */
-  verdict: AdVerdict;
+  readonly verdict: AdVerdict;
   /** 本次送检时入选的条目快照（见 bundle.ts 的 selectAdBundleEntries）。 */
-  judged: readonly AdCandidateEntry[];
+  readonly judged: readonly AdCandidateEntry[];
 }
 
 /** `deleteReferencedAdMessages` 清理首次引用广告警告前消息的参数。 */
@@ -147,7 +147,7 @@ export function deleteReferencedAdMessages({
 }
 
 /** appendDisposalEntryIds 的入参。 */
-export interface AppendDisposalEntryIdsParams {
+interface AppendDisposalEntryIdsParams {
   /** 待收集消息 ID 的候选条目列表。 */
   readonly entries: readonly AdCandidateEntry[];
   /** 已收集的消息 ID 去重集合。 */

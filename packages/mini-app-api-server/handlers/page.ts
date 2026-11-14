@@ -3,10 +3,7 @@ import {
   miniAppBundledAssetsPromiseHolder,
   miniAppRejectHtmlHolder,
 } from "../../cache/main/miniApp";
-import {
-  MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN,
-  MINI_APP_REJECT_HTML_BODY_TAG,
-} from "../../consts/miniApp";
+import { MINI_APP_REJECT_HTML_BODY_TAG } from "../../consts/miniApp";
 import {
   MINI_APP_FAVICON_PATH,
   MINI_APP_REJECT_HTML_PATH,
@@ -160,40 +157,6 @@ export async function materializeBundledMiniAppAssets(
 }
 
 /**
- * 将单个 HTML 属性特殊字符映射为对应的标准字符实体。
- * @param match 正则匹配到的单个保留字符。
- * @returns 对应 HTML 字符实体字符串。
- */
-function escapeHtmlAttributeChar(match: string): string {
-  switch (match) {
-    case "&":
-      return "&amp;";
-    case '"':
-      return "&quot;";
-    case "<":
-      return "&lt;";
-    case ">":
-      return "&gt;";
-    case "'":
-      return "&#39;";
-    default:
-      return match;
-  }
-}
-
-/**
- * 转义写入 HTML 属性值中的特殊字符（`&`、`"`、`<`、`>`、`'`），防止属性边界闭合或字符实体误解析。
- * @param value 原始诊断属性值字符串。
- * @returns 转义后的 HTML 属性值。
- */
-function escapeHtmlAttribute(value: string): string {
-  return value.replace(
-    MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN,
-    escapeHtmlAttributeChar
-  );
-}
-
-/**
  * 按唯一 `<body>` 起始标签预切分未授权拒绝页静态 HTML 模板。
  * 模板必须且仅能出现一次 `<body>`，缺失或重复时直接抛出异常。
  * @param rawHtml 从 `MINI_APP_REJECT_HTML_PATH` 读取的原始模板 HTML 文本。
@@ -257,18 +220,18 @@ export async function serveMiniAppRejectHtml(
   }
   const remainingMinutesAttr: string =
     diag.remainingMinutes !== undefined
-      ? ` data-remaining-minutes="${escapeHtmlAttribute(String(diag.remainingMinutes))}"`
+      ? ` data-remaining-minutes="${Bun.escapeHTML(String(diag.remainingMinutes))}"`
       : "";
   const html: string =
     `${template.head}` +
-    ` data-status="${escapeHtmlAttribute(String(diag.status))}"` +
-    ` data-code="${escapeHtmlAttribute(diag.code)}"` +
-    ` data-error="${escapeHtmlAttribute(diag.error)}"` +
-    ` data-request-id="${escapeHtmlAttribute(diag.requestId)}"` +
-    ` data-timestamp="${escapeHtmlAttribute(diag.timestamp)}"` +
-    ` data-client-ip="${escapeHtmlAttribute(diag.clientIp)}"` +
-    ` data-host="${escapeHtmlAttribute(diag.host)}"` +
-    ` data-path="${escapeHtmlAttribute(diag.path)}"` +
+    ` data-status="${Bun.escapeHTML(String(diag.status))}"` +
+    ` data-code="${Bun.escapeHTML(diag.code)}"` +
+    ` data-error="${Bun.escapeHTML(diag.error)}"` +
+    ` data-request-id="${Bun.escapeHTML(diag.requestId)}"` +
+    ` data-timestamp="${Bun.escapeHTML(diag.timestamp)}"` +
+    ` data-client-ip="${Bun.escapeHTML(diag.clientIp)}"` +
+    ` data-host="${Bun.escapeHTML(diag.host)}"` +
+    ` data-path="${Bun.escapeHTML(diag.path)}"` +
     `${remainingMinutesAttr}${template.tail}`;
   return new Response(html, { status: 200, headers });
 }
@@ -322,6 +285,6 @@ export function handleGetFaviconRoute(request: Request): Response {
   return serveCachedAssetResponse(request, file, {
     mimeType: "image/x-icon",
     sizeBytes: file.size,
-    etag: `"favicon-ico-${file.size}"`,
+    etag: `"favicon-ico-${file.size}-${file.lastModified}"`,
   });
 }

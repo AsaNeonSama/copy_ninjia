@@ -16,6 +16,9 @@ import { accessErrorResponse } from "../libs/response";
  * @param nowMs 当前毫秒时间戳。
  */
 function purgeExpiredAuthSessions(nowMs: number): void {
+  if (miniAppAuthSessions.size === 0) {
+    return;
+  }
   miniAppAuthSessions.forEach(
     (session: Readonly<MiniAppAuthSession>, token: string): void => {
       if (session.expiresAt <= nowMs) {

@@ -1,16 +1,14 @@
 import {
+  MINI_APP_API_AUTH_POLICY,
   MINI_APP_GALLERY_DOWNLOAD_ROUTE_PATTERN,
   MINI_APP_GALLERY_FILE_ROUTE_PATTERN,
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
   MINI_APP_PROTECTED_ASSET_EXT_PATTERN,
 } from "../../consts/miniApp";
 import type { MiniAppRouteContext } from "../../types/miniApp/server";
 import { buildNoStoreHeaders, jsonResponse } from "../libs/response";
 import { configuredBasePathname, normalizeRoutePathname } from "../libs/routePath";
 import type { NormalizedRoutePath } from "../libs/routePath";
-import {
-  MINI_APP_API_AUTH_POLICY,
-  MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
-} from "../middleware/chains";
 import { runMiniAppAuthorized } from "../middleware/pipeline";
 import { MINI_APP_AUTH_BUN_ROUTES } from "../routes/auth";
 import { MINI_APP_CHATS_BUN_ROUTES } from "../routes/chats";
@@ -88,12 +86,12 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     request,
     url,
     method,
-    routePath,
     params: {},
   };
 
   const bundleAssetResponse: Response | null = await dispatchBundleAssetRoute(
     ctx,
+    routePath,
     indexHtml
   );
   if (bundleAssetResponse !== null) return bundleAssetResponse;

@@ -753,6 +753,19 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       401,
       "INVALID_SIGNATURE"
     );
+    const wrongSigInitData: string = validInitData.replace(
+      /hash=([0-9a-f])/u,
+      (_match: string, first: string): string =>
+        `hash=${first === "0" ? "1" : "0"}`
+    );
+    await assertBlockedDiagnostics(
+      await sendSecurityRequest({
+        path: `${galleryFileUrl}?token=${validAssetToken}`,
+        headers: { [MINI_APP_INIT_DATA_HEADER]: wrongSigInitData },
+      }),
+      401,
+      "INVALID_SIGNATURE"
+    );
     await assertBlockedDiagnostics(
       await sendSecurityRequest({ path: `${galleryFileUrl}?initData=${encodeURIComponent(validInitData)}&session=${loggedOutSession.token}` }),
       401,

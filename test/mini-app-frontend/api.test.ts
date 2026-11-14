@@ -44,7 +44,11 @@ import { PermissionDrawer } from "../../packages/mini-app-frontend/components/Pe
 import { PrefsBar } from "../../packages/mini-app-frontend/components/PrefsBar";
 import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import { AuthGatePage } from "../../packages/mini-app-frontend/pages/AuthGatePage";
+import { VERBATIM_CONTEXT_MAX } from "../../packages/mini-app-frontend/consts/memory";
 import {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_MAX_PER_CHAT,
+  CHAT_QA_QUESTION_MAX_CHARS,
   MINI_APP_CONFIRM_CLOSE_ANIMATION_MS,
   MINI_APP_DARK_BG_COLOR,
   MINI_APP_DARK_HEADER_COLOR,
@@ -76,11 +80,7 @@ import {
   setMiniAppAssetToken,
   setMiniAppSessionToken,
 } from "../../packages/mini-app-frontend/libs/credentials";
-import {
-  areCapabilityStatusEqual,
-  getFeatureDisplayMeta,
-  getPermissionDisplayLabel,
-} from "../../packages/mini-app-frontend/libs/formatters";
+import { areCapabilityStatusEqual } from "../../packages/mini-app-frontend/libs/formatters";
 import { waitMinimumLoadingDuration } from "../../packages/mini-app-frontend/libs/loading";
 import { getTelegramWebApp, readMiniAppInitData } from "../../packages/mini-app-frontend/libs/telegram";
 import {
@@ -325,12 +325,12 @@ describe("前端接口文件与纯函数辅助库", () => {
         expect(TabSvgIcon({ tabKey })).toBeDefined();
       }
       for (const featureKey of MINI_APP_FEATURE_KEYS) {
-        const meta = getFeatureDisplayMeta(featureKey, lang);
+        const meta = dict.chats.featureMeta[featureKey];
         expect(meta.label.length).toBeGreaterThan(0);
         expect(meta.command.startsWith("/")).toBeTrue();
       }
       for (const permKey of WHITELIST_PERMISSION_KEYS) {
-        expect(getPermissionDisplayLabel(permKey, lang).length).toBeGreaterThan(0);
+        expect(dict.permissionDrawer.labels[permKey].length).toBeGreaterThan(0);
       }
       expect(
         dict.gate.deniedPolicyReason("MISSING_INIT_DATA", "fallback").length
@@ -350,11 +350,17 @@ describe("前端接口文件与纯函数辅助库", () => {
       expect(dict.chats.targetsKindLabel.qa.length).toBeGreaterThan(0);
       expect(dict.chats.targetsKindLabel.deleteMessage.length).toBeGreaterThan(0);
       expect(dict.chats.targetsKindLabel.translate.length).toBeGreaterThan(0);
-      expect(dict.chats.targetsModalSubtitle("群A", 2, 15)).toContain("2/15");
+      expect(dict.chats.targetsModalSubtitle("群A", 2, CHAT_QA_MAX_PER_CHAT)).toContain(
+        `2/${CHAT_QA_MAX_PER_CHAT}`
+      );
       expect(dict.chats.qaOpenEditorButton.length).toBeGreaterThan(0);
       expect(dict.chats.qaCancelEditButton.length).toBeGreaterThan(0);
-      expect(dict.chats.qaQuestionPlaceholder(256)).toContain("256");
-      expect(dict.chats.qaAnswerPlaceholder(3840)).toContain("3840");
+      expect(dict.chats.qaQuestionPlaceholder(CHAT_QA_QUESTION_MAX_CHARS)).toContain(
+        String(CHAT_QA_QUESTION_MAX_CHARS)
+      );
+      expect(dict.chats.qaAnswerPlaceholder(CHAT_QA_ANSWER_MAX_CHARS)).toContain(
+        String(CHAT_QA_ANSWER_MAX_CHARS)
+      );
       expect(
         dict.chats.detailStatsLine({
           chatId: -1001,
@@ -369,7 +375,7 @@ describe("前端接口文件与纯函数辅助库", () => {
             qaSet: false,
           },
           hotMessageCount: 0,
-          hotMessageMax: 256,
+          hotMessageMax: VERBATIM_CONTEXT_MAX,
           qaPairCount: 1,
           deleteMessageTargetCount: 2,
           translateTargetCount: 3,

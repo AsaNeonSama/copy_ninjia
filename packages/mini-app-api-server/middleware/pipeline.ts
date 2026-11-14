@@ -7,8 +7,6 @@ import type {
 } from "../../types/miniApp/server";
 import { attachRefreshedSessionHeaders } from "../auth/session";
 import { extractSessionToken } from "../libs/request";
-import { normalizeRoutePathname } from "../libs/routePath";
-import type { NormalizedRoutePath } from "../libs/routePath";
 import { verifyMiniAppRequestHeadersFast } from "./headerGuard";
 import type { MiniAppHeaderGuardResult } from "./headerGuard";
 import { verifyMiniAppInitDataAccess } from "./initData";
@@ -17,7 +15,7 @@ import { verifyMiniAppSessionAccess } from "./sessionToken";
 import type { MiniAppSessionAccessResult } from "./sessionToken";
 
 /** Mini App 同步鉴权管道返回的统一准入结果。 */
-export type MiniAppAuthorizationResult =
+type MiniAppAuthorizationResult =
   | { readonly ok: true; readonly session: Readonly<MiniAppAuthSession> | null; readonly inputSessionToken: string }
   | { readonly ok: false; readonly response: Response };
 
@@ -30,7 +28,7 @@ export type MiniAppAuthorizationResult =
  * @param policy 路由静态声明的鉴权策略。
  * @returns 鉴权通过时返回生效会话与输入会话令牌；失败时返回拦截 `Response`。
  */
-export function authorizeMiniAppRequest(
+function authorizeMiniAppRequest(
   ctx: Readonly<MiniAppRouteContext>,
   policy: Readonly<MiniAppAuthPolicy>
 ): MiniAppAuthorizationResult {
@@ -51,6 +49,7 @@ export function authorizeMiniAppRequest(
     ctx,
     allowQueryAuth: policy.allowQueryAuth,
     headerInitData: headerResult.headerInitData,
+    queryInitData: headerResult.queryInitData,
     sessionToken,
     nowMs,
   });
@@ -119,12 +118,10 @@ export function withMiniAppAuth(
   return (request: Request): Promise<Response> => {
     const url: URL = new URL(request.url);
     const method: string = request.method.toUpperCase();
-    const normalized: NormalizedRoutePath = normalizeRoutePathname(url.pathname);
     const ctx: Readonly<MiniAppRouteContext> = {
       request,
       url,
       method,
-      routePath: normalized.routePath,
       params: (request as Bun.BunRequest<string>).params,
     };
     return runMiniAppAuthorized(ctx, policy, handler);

@@ -15,7 +15,7 @@ import {
   MINI_APP_API_AUTH_POLICY,
   MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY,
   MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
-} from "../middleware/chains";
+} from "../../consts/miniApp";
 import { withMiniAppAuth } from "../middleware/pipeline";
 
 /** 附件下载路由处理器（允许查询参数凭据）。 */

@@ -32,6 +32,7 @@ const {
   MINI_APP_BUNDLE_VARY_HEADER_VALUE,
   MINI_APP_BUTTON_TEXT,
   MINI_APP_CSP_HEADER_VALUE,
+  MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_PAGE_GATE_COOKIE_NAME,
   MINI_APP_SESSION_HEADER,
@@ -209,9 +210,12 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     rmSync(galleryDir, { recursive: true, force: true });
 
     const missingDirRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/gallery?page=1&pageSize=10", {
-        headers: superAdminHeaders(),
-      })
+      new Request(
+        `http://127.0.0.1:3000/api/gallery?page=1&pageSize=${MINI_APP_GALLERY_DEFAULT_PAGE_SIZE}`,
+        {
+          headers: superAdminHeaders(),
+        }
+      )
     );
     expect(missingDirRes.status).toBe(200);
     const missingDirBody: MiniAppGalleryPage =
@@ -304,9 +308,12 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
     expect(dupBody.fileName).toBe(expectedFileName);
 
     const listRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/gallery?page=1&pageSize=10", {
-        headers: superAdminHeaders(),
-      })
+      new Request(
+        `http://127.0.0.1:3000/api/gallery?page=1&pageSize=${MINI_APP_GALLERY_DEFAULT_PAGE_SIZE}`,
+        {
+          headers: superAdminHeaders(),
+        }
+      )
     );
     expect(listRes.status).toBe(200);
     const listBody: MiniAppGalleryPage =
@@ -406,6 +413,8 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       )
     );
     expect(cachedImageRes.status).toBe(304);
+    expect(cachedImageRes.headers.get("Content-Type")).toBeNull();
+    expect(cachedImageRes.headers.get("Content-Length")).toBeNull();
     expect(cachedImageRes.headers.get("Cache-Control")).toBe(
       MINI_APP_ASSET_CACHE_CONTROL
     );
@@ -429,6 +438,25 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       )
     );
     expect(multiEtagCachedRes.status).toBe(304);
+    expect(multiEtagCachedRes.headers.get("Content-Type")).toBeNull();
+    expect(multiEtagCachedRes.headers.get("Content-Length")).toBeNull();
+
+    const quotedCommaMatchRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
+        { headers: { "if-none-match": `"x,y", W/${imageEtag!}` } }
+      )
+    );
+    expect(quotedCommaMatchRes.status).toBe(304);
+
+    const quotedCommaMissRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
+        { headers: { "if-none-match": `"mismatch, ${imageEtag!}"` } }
+      )
+    );
+    expect(quotedCommaMissRes.status).toBe(200);
+    await quotedCommaMissRes.arrayBuffer();
 
     const galleryFilePath: string = join(
       getAssetConfig().randomHImageDirectory,

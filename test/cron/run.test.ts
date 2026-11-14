@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
 import { loggerStub } from "../helpers/loggerMock";
+import { CRON_ACTION_GAP_MS, CRON_ACTION_RETRY_DELAYS_MS } from "../../packages/consts/cron";
 import type { CronAction, CronChatTargets, CronDeliveryOutcome, CronGroupTargets, CronRoundVoices, CronTaskSchedule } from "../../packages/types/cron";
 import type { DeliverCronActionOptions } from "../../packages/cron/delivery";
 
@@ -91,7 +92,7 @@ describe("cron 一轮", () => {
     const round: Promise<void> = runCronRound(schedule(MESSAGES), new AbortController().signal);
     for (let tick: number = 0; tick < 5; tick++) await Promise.resolve();
     expect(delivered).toEqual(["one"]);
-    jest.advanceTimersByTime(999);
+    jest.advanceTimersByTime(CRON_ACTION_GAP_MS - 1);
     for (let tick: number = 0; tick < 5; tick++) await Promise.resolve();
     expect(delivered).toEqual(["one"]);
     await settle(round);
@@ -100,12 +101,13 @@ describe("cron 一轮", () => {
   });
 
   test("可重试失败按 2s/4s/8s 退避，最多重试 3 次后中止剩余动作并记一条错误", async () => {
-    for (let index: number = 0; index < 4; index++) outcomes.push({ kind: "retryable", detail: "502 Bad Gateway" });
+    const maxAttempts: number = CRON_ACTION_RETRY_DELAYS_MS.length + 1;
+    for (let index: number = 0; index < maxAttempts; index++) outcomes.push({ kind: "retryable", detail: "502 Bad Gateway" });
     await settle(runCronRound(schedule(MESSAGES), new AbortController().signal));
-    expect(delivered).toEqual(["one", "one", "one", "one"]);
+    expect(delivered).toEqual(Array.from({ length: maxAttempts }, (): string => "one"));
     expect(loggerError).toHaveBeenCalledTimes(1);
     expect(loggerError.mock.calls[0]![0]).toBe(
-      "Cron task \"daily\" action #1 (send_message) failed after 4 attempt(s); " +
+      `Cron task "daily" action #1 (send_message) failed after ${maxAttempts} attempt(s); ` +
       "skipping the remaining actions of this run: 502 Bad Gateway"
     );
   });

@@ -6,8 +6,6 @@ export interface MiniAppRouteContext {
   readonly url: URL;
   /** 大写 HTTP 方法（如 `"GET"`、`"POST"`、`"DELETE"`、`"HEAD"`）。 */
   readonly method: string;
-  /** 剥离基础路径前缀后的内部标准路由路径（如 `"/api/status"`）。 */
-  readonly routePath: string;
   /** 动态路由路径参数映射（如 `{ chatId: "-100123", fileName: "abc.png" }`）。 */
   readonly params: Readonly<Record<string, string>>;
 }

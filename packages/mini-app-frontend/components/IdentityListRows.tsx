@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useRef } from "react";
+import { Fragment, memo, useCallback, useMemo, useRef } from "react";
 import type React from "react";
 import { MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS } from "../consts/miniApp";
 import { WHITELIST_PERMISSION_KEYS } from "../consts/whitelist";
@@ -7,7 +7,6 @@ import {
   truncateDisplayText,
 } from "../libs/formatters";
 import { TrashSvgIcon } from "../resource";
-import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type {
   MiniAppBlocklistEntryView,
   MiniAppWhitelistEntryView,
@@ -123,9 +122,12 @@ function WhitelistEntryRowView({
       ),
     []
   );
-  const enabledCount: number = WHITELIST_PERMISSION_KEYS.filter(
-    (key: WhitelistPermissionKey): boolean => entry.permissions[key]
-  ).length;
+  let enabledCount: number = 0;
+  for (const key of WHITELIST_PERMISSION_KEYS) {
+    if (entry.permissions[key]) {
+      enabledCount += 1;
+    }
+  }
   const permSubText: string = `ID: ${entry.id} · ${t.identities.enabledPermCountText(
     enabledCount,
     WHITELIST_PERMISSION_KEYS.length
@@ -316,21 +318,27 @@ export function useRetainedClosingWhitelistItems(
   selectedEntryId: number | null,
   contextKey: string
 ): RetainedClosingWhitelistState {
-  let activeSnapshot: ExpandedWhitelistRowSnapshot | null = null;
-  if (selectedEntryId !== null) {
-    for (let i: number = 0; i < items.length; i += 1) {
-      const candidate: Readonly<MiniAppWhitelistEntryView> | undefined = items[i];
-      if (candidate?.id === selectedEntryId) {
-        activeSnapshot = { contextKey, index: i, entry: candidate };
-        break;
+  const activeSnapshot: ExpandedWhitelistRowSnapshot | null = useMemo(
+    (): ExpandedWhitelistRowSnapshot | null => {
+      if (selectedEntryId === null) {
+        return null;
       }
-    }
-  }
+      for (let i: number = 0; i < items.length; i += 1) {
+        const candidate: Readonly<MiniAppWhitelistEntryView> | undefined = items[i];
+        if (candidate?.id === selectedEntryId) {
+          return { contextKey, index: i, entry: candidate };
+        }
+      }
+      return null;
+    },
+    [items, selectedEntryId, contextKey]
+  );
   const {
     displayValue: retainedSnapshot,
   }: Readonly<DelayedUnmountState<ExpandedWhitelistRowSnapshot>> = useDelayedUnmount(
     activeSnapshot,
-    MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS
+    MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
+    contextKey
   );
   return resolveRetainedClosingWhitelistState(items, retainedSnapshot, contextKey);
 }

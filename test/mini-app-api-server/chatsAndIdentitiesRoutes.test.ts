@@ -58,7 +58,10 @@ const { AI_MEMORY_HYDRATE_BUFFER_MAX, VERBATIM_CONTEXT_MAX } = await import(
 );
 const { BOT_CHAT_PERMISSION_LABELS } = await import("../../packages/consts/botAdmin");
 const {
+  MINI_APP_BATCH_KICK_MAX_HOURS,
+  MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_CSP_HEADER_VALUE,
+  MINI_APP_IDENTITY_MAX_PAGE_SIZE,
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
   MINI_APP_X_FRAME_OPTIONS_VALUE,
 } = await import("../../packages/consts/miniApp");
@@ -179,7 +182,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(detailBody.detail.joinedCountsByHour[0]).toBe(1);
     expect(detailBody.detail.joinedCountsByHour[1]).toBe(1);
     expect(detailBody.detail.joinedCountsByHour[2]).toBe(2);
-    expect(detailBody.detail.joinedCountsByHour[23]).toBe(2);
+    expect(detailBody.detail.joinedCountsByHour[MINI_APP_BATCH_KICK_MAX_HOURS - 1]).toBe(2);
     expect(detailBody.detail.batchKickRunning).toBeFalse();
     expect(detailBody.detail.botPermissions?.grantedLabels).toEqual([
       BOT_CHAT_PERMISSION_LABELS.isAdministrator,
@@ -251,8 +254,8 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     for (const invalidBody of [
       "{}",
-      JSON.stringify({ hours: 0 }),
-      JSON.stringify({ hours: 25 }),
+      JSON.stringify({ hours: MINI_APP_BATCH_KICK_MIN_HOURS - 1 }),
+      JSON.stringify({ hours: MINI_APP_BATCH_KICK_MAX_HOURS + 1 }),
       JSON.stringify({ hours: 1.5 }),
       "not-json",
     ]) {
@@ -823,9 +826,12 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(dupWhiteBody.duplicate).toBeTrue();
 
     const listWhiteRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20", {
-        headers: superAdminHeaders(),
-      })
+      new Request(
+        `http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}`,
+        {
+          headers: superAdminHeaders(),
+        }
+      )
     );
     expect(listWhiteRes.status).toBe(200);
     const listWhiteBody: MiniAppWhitelistPage =
@@ -839,7 +845,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     const searchWhiteHitRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        "http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20&query=88001",
+        `http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}&query=88001`,
         { headers: superAdminHeaders() }
       )
     );
@@ -850,7 +856,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     const searchWhiteMissRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        "http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=20&query=nonexistent_zako",
+        `http://127.0.0.1:3000/api/identities/whitelist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}&query=nonexistent_zako`,
         { headers: superAdminHeaders() }
       )
     );
@@ -933,9 +939,12 @@ describe("Mini App 受管群与黑白名单路由", () => {
     expect(dupBlockBody.duplicate).toBeTrue();
 
     const listBlockRes: Response = await handleMiniAppHttpRequest(
-      new Request("http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=20", {
-        headers: superAdminHeaders(),
-      })
+      new Request(
+        `http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}`,
+        {
+          headers: superAdminHeaders(),
+        }
+      )
     );
     expect(listBlockRes.status).toBe(200);
     const listBlockBody: MiniAppBlocklistPage =
@@ -949,7 +958,7 @@ describe("Mini App 受管群与黑白名单路由", () => {
 
     const searchBlockHitRes: Response = await handleMiniAppHttpRequest(
       new Request(
-        "http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=20&query=99002",
+        `http://127.0.0.1:3000/api/identities/blocklist?page=1&pageSize=${MINI_APP_IDENTITY_MAX_PAGE_SIZE}&query=99002`,
         { headers: superAdminHeaders() }
       )
     );

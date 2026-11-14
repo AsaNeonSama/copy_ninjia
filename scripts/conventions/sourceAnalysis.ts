@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import ts from "typescript";
+import { globalPropertyName } from "./staticAccess";
 
 /**
  * import/export 是否在运行时求值目标模块；空声明仍保留副作用，纯类型引用被擦除。
@@ -30,7 +31,9 @@ export function isRuntimeModuleEdge(node: ts.ImportDeclaration | ts.ExportDeclar
  * 静态确定取用范围的形态记为 null。
  */
 export interface RuntimeModuleReference {
+  /** 模块导入或导出说明符文本。 */
   readonly specifier: string;
+  /** 静态确定取用的导出符号名列表；全量传出或无法确定时为 null。 */
   readonly names: readonly string[] | null;
   /** 引用节点在源文件中的起始位置，供报告行号。 */
   readonly start: number;
@@ -209,12 +212,24 @@ export function runtimeModuleReferences(source: ts.SourceFile): readonly Runtime
  * @returns 仅用于类型检查的 TypeScript Program
  */
 export function createTypeCheckProgram(projectRoot: string, rootFiles: readonly string[]): ts.Program {
-  const config: { config?: unknown } = ts.readConfigFile(
-    join(projectRoot, "tsconfig.json"),
+  const configPath: string = join(projectRoot, "tsconfig.json");
+  const config: { config?: unknown; error?: ts.Diagnostic } = ts.readConfigFile(
+    configPath,
     (path: string): string | undefined => ts.sys.readFile(path)
   );
-  const options: ts.CompilerOptions = ts.parseJsonConfigFileContent(config.config, ts.sys, projectRoot).options;
-  return ts.createProgram({ rootNames: [...rootFiles], options: { ...options, noEmit: true } });
+  const diagnosticHost: ts.FormatDiagnosticsHost = {
+    getCurrentDirectory: (): string => projectRoot,
+    getCanonicalFileName: (fileName: string): string => fileName,
+    getNewLine: (): string => "\n",
+  };
+  if (config.error !== undefined) {
+    throw new Error(ts.formatDiagnostics([config.error], diagnosticHost));
+  }
+  const parsed: ts.ParsedCommandLine = ts.parseJsonConfigFileContent(config.config, ts.sys, projectRoot);
+  if (parsed.errors.length > 0) {
+    throw new Error(ts.formatDiagnostics(parsed.errors, diagnosticHost));
+  }
+  return ts.createProgram({ rootNames: [...rootFiles], options: { ...parsed.options, noEmit: true } });
 }
 
 /**
@@ -250,12 +265,13 @@ export async function parseSourceFile(path: string, preloadedText?: string): Pro
   const text: string = preloadedText ?? await Bun.file(path).text();
   const cached: ts.SourceFile | undefined = parsedSourceFiles.get(path);
   if (cached?.text === text) return cached;
+  const extension: string = extname(path);
   const source: ts.SourceFile = ts.createSourceFile(
     path,
     text,
     ts.ScriptTarget.Latest,
     true,
-    extname(path) === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+    extension === ".tsx" || extension === ".jsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   );
   parsedSourceFiles.set(path, source);
   return source;
@@ -332,9 +348,7 @@ export function isLiteralConstant(expression: ts.Expression): boolean {
  */
 export function isObjectFreezeCall(expression: ts.Expression): boolean {
   return ts.isCallExpression(expression) &&
-    ts.isPropertyAccessExpression(expression.expression) &&
-    expression.expression.expression.getText() === "Object" &&
-    expression.expression.name.text === "freeze";
+    globalPropertyName(expression.expression, "Object") === "freeze";
 }
 
 /** 实例本身跨调用保存运行时状态的构造器；RegExp、Intl 格式化器等无状态句柄不在此列。 */

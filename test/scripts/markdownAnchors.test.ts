@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  checkMarkdownLocalLinks,
+  checkMarkdownLocalLinksFromText,
   collectMarkdownAnchors,
   markdownAnchors,
   markdownHtmlAnchors,
@@ -72,7 +72,7 @@ describe("HTML 锚点", () => {
   });
 });
 
-describe("checkMarkdownLocalLinks", () => {
+describe("checkMarkdownLocalLinksFromText", () => {
   test("核对行内链接、HTML href/src 与引用定义的本地目标与锚点，忽略围栏代码块", async () => {
     const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-md-links-"));
     tempRoots.push(root);
@@ -85,37 +85,34 @@ describe("checkMarkdownLocalLinks", () => {
     mkdirSync(subDirPath, { recursive: true });
     await Bun.write(targetPath, "# Existing Heading\n\n## 中文标题\n\n<a id=\"custom-id\"></a>\n");
     await Bun.write(assetPath, "<svg></svg>\n");
-    await Bun.write(
-      docPath,
-      [
-        "# Local Heading",
-        "[valid](./target.md#existing-heading)",
-        "[cjk](./target.md#%E4%B8%AD%E6%96%87%E6%A0%87%E9%A2%98)",
-        '<a href="./target.md#custom-id">html ok</a>',
-        "[self-ok](#local-heading)",
-        "[asset](./diagram.svg#icon)",
-        "[dir](./dir.md#ignored-when-unreadable)",
-        "[subdir](./subdir)",
-        "[subdir-slash](./subdir/)",
-        "[ext](https://example.com/a#b)",
-        "[abs](/absolute/path)",
-        "[proto](//example.com/path)",
-        "```md",
-        "[fenced](./missing-in-fence.md#no-anchor)",
-        "```",
-        "[missing-file](./no-such.md)",
-        "[bad-anchor](./target.md#missing-anchor)",
-        "[bad-pct-file](./%E0%A4%A.md)",
-        "[bad-pct-anchor](./target.md#%E0%A4%A)",
-        '<a href="./target.md#missing-html-anchor">html bad</a>',
-        "[self-bad](#missing-self-anchor)",
-        "[ref-missing]: ./missing-ref.md \"title\"",
-        "[ref-bad-anchor]: ./target.md#missing-ref-anchor",
-      ].join("\n") + "\n"
-    );
+    const source: string = [
+      "# Local Heading",
+      "[valid](./target.md#existing-heading)",
+      "[cjk](./target.md#%E4%B8%AD%E6%96%87%E6%A0%87%E9%A2%98)",
+      '<a href="./target.md#custom-id">html ok</a>',
+      "[self-ok](#local-heading)",
+      "[asset](./diagram.svg#icon)",
+      "[dir](./dir.md#ignored-when-unreadable)",
+      "[subdir](./subdir)",
+      "[subdir-slash](./subdir/)",
+      "[ext](https://example.com/a#b)",
+      "[abs](/absolute/path)",
+      "[proto](//example.com/path)",
+      "```md",
+      "[fenced](./missing-in-fence.md#no-anchor)",
+      "```",
+      "[missing-file](./no-such.md)",
+      "[bad-anchor](./target.md#missing-anchor)",
+      "[bad-pct-file](./%E0%A4%A.md)",
+      "[bad-pct-anchor](./target.md#%E0%A4%A)",
+      '<a href="./target.md#missing-html-anchor">html bad</a>',
+      "[self-bad](#missing-self-anchor)",
+      "[ref-missing]: ./missing-ref.md \"title\"",
+      "[ref-bad-anchor]: ./target.md#missing-ref-anchor",
+    ].join("\n") + "\n";
 
     const failures: string[] = [];
-    await checkMarkdownLocalLinks(root, docPath, failures);
+    await checkMarkdownLocalLinksFromText({ projectRoot: root, path: docPath, source, failures });
 
     expect(failures).toEqual([
       "doc.md:16 local link target does not exist: ./no-such.md",
@@ -126,6 +123,19 @@ describe("checkMarkdownLocalLinks", () => {
       "doc.md:20 link fragment has no matching heading in target.md: #missing-html-anchor",
       "doc.md:22 local link target does not exist: ./missing-ref.md",
       "doc.md:23 link fragment has no matching heading in target.md: #missing-ref-anchor",
+    ]);
+
+    // 同一路径文档正文变化时锚点缓存必须失效重算，且同文档未落盘正文可直接校验自身锚点。
+    await Bun.write(targetPath, "# Renamed Heading\n");
+    const updatedFailures: string[] = [];
+    await checkMarkdownLocalLinksFromText({
+      projectRoot: root,
+      path: docPath,
+      source: "# Unsaved Local\n[ok](#unsaved-local)\n[renamed](./target.md#renamed-heading)\n[stale](./target.md#existing-heading)\n",
+      failures: updatedFailures,
+    });
+    expect(updatedFailures).toEqual([
+      "doc.md:4 link fragment has no matching heading in target.md: #existing-heading",
     ]);
   });
 });

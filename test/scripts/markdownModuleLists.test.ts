@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  collectMarkdownModuleListProblems,
+  collectMarkdownModuleListProblemsFromText,
   collectSourceDirectories,
 } from "../../scripts/conventions/markdownModuleLists";
 
@@ -36,11 +36,15 @@ function sourceDirectories(root: string): readonly string[] {
   return collectSourceDirectories([join(root, "packages"), join(root, "scripts"), join(root, "test")]);
 }
 
-/** 写入一份文档并跑目录清单核对。 */
-async function problemsFor(root: string, markdown: string): Promise<readonly string[]> {
+/** 核对一段 Markdown 文本中的目录清单。 */
+function problemsFor(root: string, markdown: string): Promise<readonly string[]> {
   const path: string = join(root, "docs", "map.md");
-  await Bun.write(path, markdown);
-  return collectMarkdownModuleListProblems(root, path, sourceDirectories(root));
+  return collectMarkdownModuleListProblemsFromText({
+    projectRoot: root,
+    path,
+    source: markdown,
+    directories: sourceDirectories(root),
+  });
 }
 
 describe("源码目录收集", () => {

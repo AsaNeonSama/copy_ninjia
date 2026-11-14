@@ -8,7 +8,7 @@ export const AGENT_BASE_URL_POLICY: Readonly<ConfigUrlPolicy> = {
   rejectFragment: true,
 };
 
-/** 仅允许绝对 https URL 的配置字段校验策略（保持既有的 userinfo 与 fragment 口径）。所属模块：config/botInput.ts、config/assets.ts。 */
+/** 仅允许绝对 https URL 的配置字段校验策略（允许 userinfo 与 fragment）。所属模块：config/botInput.ts、config/assets.ts。 */
 export const HTTPS_CONFIG_URL_POLICY: Readonly<ConfigUrlPolicy> = {
   allowedProtocols: ["https:"],
   allowLoopbackHttp: false,
@@ -16,7 +16,7 @@ export const HTTPS_CONFIG_URL_POLICY: Readonly<ConfigUrlPolicy> = {
   rejectFragment: false,
 };
 
-/** 允许绝对 http 或 https URL 的配置字段校验策略（保持既有的 userinfo 与 fragment 口径）。所属模块：config/assets.ts、config/cronAction.ts。 */
+/** 允许绝对 http 或 https URL 的配置字段校验策略（允许 userinfo 与 fragment）。所属模块：config/assets.ts、config/cronAction.ts。 */
 export const HTTP_OR_HTTPS_CONFIG_URL_POLICY: Readonly<ConfigUrlPolicy> = {
   allowedProtocols: ["http:", "https:"],
   allowLoopbackHttp: false,

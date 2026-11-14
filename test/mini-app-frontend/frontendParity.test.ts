@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
 import * as serverDeleteMessageConsts from "../../packages/consts/deleteMessage";
+import * as serverExhaustiveList from "../../packages/consts/exhaustiveList";
 import { WHITELIST_PERMISSION_HELP as teasingWhitelistPermissionHelp } from "../../packages/consts/atmosphere/teasing/whitelist";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
 import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH } from "../../packages/consts/paths";
@@ -18,6 +19,7 @@ import * as serverTimeConsts from "../../packages/consts/time";
 import * as serverTranslateConsts from "../../packages/consts/translate";
 import * as serverWhitelistConsts from "../../packages/consts/whitelist";
 import { errorMessage as serverErrorMessage } from "../../packages/libs/errorMessage";
+import * as frontendExhaustiveList from "../../packages/mini-app-frontend/consts/exhaustiveList";
 import * as frontendMemoryConsts from "../../packages/mini-app-frontend/consts/memory";
 import * as frontendMiniAppConsts from "../../packages/mini-app-frontend/consts/miniApp";
 import * as frontendTimeConsts from "../../packages/mini-app-frontend/consts/time";
@@ -118,6 +120,10 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.DELETE_MESSAGE_CHAT_TARGET_MAX).toBe(serverDeleteMessageConsts.DELETE_MESSAGE_CHAT_TARGET_MAX);
     expect(frontendMiniAppConsts.TRANSLATE_CHAT_USER_LIMIT).toBe(serverTranslateConsts.TRANSLATE_CHAT_USER_LIMIT);
     expect(frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS).toEqual(serverWhitelistConsts.WHITELIST_PERMISSION_KEYS);
+    expect(Object.keys(frontendExhaustiveList)).toEqual(Object.keys(serverExhaustiveList));
+    const sampleTuple: readonly ("a" | "b")[] = ["a", "b"];
+    expect(frontendExhaustiveList.exhaustiveList<"a" | "b">()(sampleTuple)).toBe(sampleTuple);
+    expect(serverExhaustiveList.exhaustiveList<"a" | "b">()(sampleTuple)).toBe(sampleTuple);
     expect(getZhTranslations().permissionDrawer.descriptions).toEqual(teasingWhitelistPermissionHelp);
     for (const key of frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS) {
       expect(getEnTranslations().permissionDrawer.descriptions[key].trim().length).toBeGreaterThan(0);

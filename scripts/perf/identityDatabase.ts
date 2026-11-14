@@ -235,44 +235,64 @@ function runSingleProcessParent(mockRoot: string): BenchmarkReport {
   }
 }
 
-if (Bun.argv[2] === "--child") {
-  const operation: string | undefined = Bun.argv[3];
-  const mockRoot: string | undefined = Bun.argv[4];
-  if (!BENCHMARK_OPERATIONS.includes(operation as BenchmarkOperation)) {
-    throw new Error("Expected a supported identity benchmark operation.");
-  }
-  if (mockRoot === undefined) {
-    throw new Error("Identity benchmark child requires its temporary mock root.");
-  }
-  const result: ChildResult = await runOperation(
-    operation as BenchmarkOperation,
-    mockRoot
-  );
-  await Bun.write(Bun.stdout, `${JSON.stringify(result)}\n`);
-} else if (Bun.argv[2] === "--single-process-child") {
-  const mockRoot: string | undefined = Bun.argv[3];
-  if (mockRoot === undefined) {
-    throw new Error("Identity benchmark child requires its temporary mock root.");
-  }
-  await Bun.write(
-    Bun.stdout,
-    `${JSON.stringify(await runSingleProcess(mockRoot), null, 2)}\n`
-  );
-} else if (Bun.argv[2] === "--single-process") {
-  const mockRoot: string = createMockRoot();
-  try {
+/**
+ * 执行身份数据库读写基准脚本（支持 `--child`、`--single-process-child`、`--single-process` 与多进程对比入口）。
+ * @param argv 不包含可执行路径的命令行参数列表，默认读取 `Bun.argv.slice(2)`。
+ */
+export async function main(
+  argv: readonly string[] = Bun.argv.slice(2)
+): Promise<void> {
+  const mode: string | undefined = argv[0];
+  if (mode === "--child") {
+    const operation: string | undefined = argv[1];
+    const mockRoot: string | undefined = argv[2];
+    if (!BENCHMARK_OPERATIONS.includes(operation as BenchmarkOperation)) {
+      throw new Error("Expected a supported identity benchmark operation.");
+    }
+    if (mockRoot === undefined) {
+      throw new Error(
+        "Identity benchmark child requires its temporary mock root."
+      );
+    }
+    const result: ChildResult = await runOperation(
+      operation as BenchmarkOperation,
+      mockRoot
+    );
+    await Bun.write(Bun.stdout, `${JSON.stringify(result)}\n`);
+  } else if (mode === "--single-process-child") {
+    const mockRoot: string | undefined = argv[1];
+    if (mockRoot === undefined) {
+      throw new Error(
+        "Identity benchmark child requires its temporary mock root."
+      );
+    }
     await Bun.write(
       Bun.stdout,
-      `${JSON.stringify(runSingleProcessParent(mockRoot), null, 2)}\n`
+      `${JSON.stringify(await runSingleProcess(mockRoot), null, 2)}\n`
     );
-  } finally {
-    removeMockRoot(mockRoot);
+  } else if (mode === "--single-process") {
+    const mockRoot: string = createMockRoot();
+    try {
+      await Bun.write(
+        Bun.stdout,
+        `${JSON.stringify(runSingleProcessParent(mockRoot), null, 2)}\n`
+      );
+    } finally {
+      removeMockRoot(mockRoot);
+    }
+  } else {
+    const mockRoot: string = createMockRoot();
+    try {
+      await Bun.write(
+        Bun.stdout,
+        `${JSON.stringify(runParent(mockRoot), null, 2)}\n`
+      );
+    } finally {
+      removeMockRoot(mockRoot);
+    }
   }
-} else {
-  const mockRoot: string = createMockRoot();
-  try {
-    await Bun.write(Bun.stdout, `${JSON.stringify(runParent(mockRoot), null, 2)}\n`);
-  } finally {
-    removeMockRoot(mockRoot);
-  }
+}
+
+if (import.meta.main) {
+  await main();
 }

@@ -57,16 +57,6 @@ export function readBooleanField(
 }
 
 /**
- * 解析布尔字段；解析失败、缺失或非 true 时返回 false。
- * @param argumentsJson 模型传入的工具参数 JSON 字符串。
- * @param field 目标字段名。
- * @returns 字段值严格为 true 时返回 true，否则返回 false。
- */
-export function parseBooleanField(argumentsJson: string, field: string): boolean {
-  return readBooleanField(parseToolArguments(argumentsJson), field);
-}
-
-/**
  * 从已解析的工具参数对象读取不大于 max 的正整数编号字段；对象为空、缺失、非整数或越界时返回 null。
  * @param parsed 已解析的普通键值参数对象；解析失败时为 null。
  * @param field 目标字段名。
@@ -84,23 +74,12 @@ export function readIndexField(
 }
 
 /**
- * 解析不大于 max 的正整数编号字段；解析失败、缺失、非整数或越界时返回 null。
- * @param argumentsJson 模型传入的工具参数 JSON 字符串。
- * @param field 目标字段名。
- * @param max 允许的最大编号（含）。
- * @returns 位于 `[1, max]` 内的整数编号；非法或越界时返回 null。
- */
-export function parseIndexField(argumentsJson: string, field: string, max: number): number | null {
-  return readIndexField(parseToolArguments(argumentsJson), field, max);
-}
-
-/**
  * 从已解析的工具参数对象读取安全整数字段；对象为空、缺失或非安全整数时返回 null。
  * @param parsed 已解析的普通键值参数对象；解析失败时为 null。
  * @param field 目标字段名。
  * @returns 安全整数值；缺失或非安全整数时返回 null。
  */
-export function readSafeIntegerField(
+function readSafeIntegerField(
   parsed: Readonly<Record<string, unknown>> | null,
   field: string
 ): number | null {

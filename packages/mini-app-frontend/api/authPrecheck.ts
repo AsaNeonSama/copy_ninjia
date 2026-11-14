@@ -61,14 +61,16 @@ function parseAccessDiagnostics(
  * @returns 预检结果
  */
 export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
+  const sentSessionToken: string = readMiniAppSessionToken();
   const response: Response = await fetch("./api/auth/precheck", {
     method: "GET", headers: buildMiniAppAuthHeaders(true),
   });
   syncRefreshedMiniAppSession(response);
   const payload: unknown = await response.json().catch((): null => null);
   if (!response.ok || payload === null) {
-    clearMiniAppAssetToken();
-    clearMiniAppSessionToken();
+    if (readMiniAppSessionToken() === sentSessionToken) {
+      clearMiniAppSessionToken();
+    }
     return {
       ok: false,
       diagnostics: parseAccessDiagnostics(
@@ -87,7 +89,9 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   const refreshedBodyToken: string =
     MINI_APP_SHA256_HEX_PATTERN.test(rawRefreshedToken) ? rawRefreshedToken : "";
   const existingToken: string =
-    refreshedBodyToken.length > 0 ? refreshedBodyToken : readMiniAppSessionToken();
+    refreshedBodyToken.length > 0
+      ? refreshedBodyToken
+      : (readMiniAppSessionToken() || sentSessionToken);
   const localSessionExpiresAt: number =
     body.sessionExpiresAt !== undefined
       ? toLocalEpochMs(body.sessionExpiresAt, response)
@@ -106,10 +110,14 @@ export async function precheckMiniAppAccess(): Promise<MiniAppPrecheckResult> {
   }
   if (sessionValid) {
     setMiniAppSessionToken(existingToken, sessionExpiresAt);
-  } else {
-    clearMiniAppAssetToken();
+  } else if (
+    readMiniAppSessionToken() === sentSessionToken ||
+    readMiniAppSessionToken() === ""
+  ) {
     if (existingToken.length > 0) {
       clearMiniAppSessionToken();
+    } else {
+      clearMiniAppAssetToken();
     }
   }
   return {

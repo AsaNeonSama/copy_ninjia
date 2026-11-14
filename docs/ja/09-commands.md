@@ -30,7 +30,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 `/copy` 系とランダム復唱は共通の送信ルールを使用します：
 - **テキストとキャプション**：すべて文字列として扱い、リンクや @メンションを含むテキストも同様に変換します。純粋なテキストは再送信され、リンクや @username は Telegram 側で再認識され、元メッセージのリンクプレビュー設定が引き継がれます。
 - **書式エンティティの制限**：太字、斜体、隠しリンク、ネタバレ（スポイラー）、カスタム絵文字などの書式は保持されず、スポイラーテキストも平文で送信されます。
-- **リッチメディア処理**：画像、動画、ファイル、スタンプなどは Telegram サーバー側でそのまま複製され、キャプションが存在する場合は変換後のテキストに差し替えられます。ローカルホストには一切ファイルをダウンロードしません。有料メディアは複製できず、テキストのみを送信します。
+- **リッチメディア処理**：画像、動画、ファイル、スタンプなどは Telegram サーバー側でそのまま複製され、キャプションが存在する場合は変換後のテキストに差し替えられます。ローカルホストには一切ファイルをダウンロードしません。有料メディアは複製できず、キャプションがある場合はテキストのみを送信し、キャプションがない場合は送信しません。
 - **非テキストメッセージ**：投票、ダイス、位置情報、連絡先など、テキストもファイルも含まないメッセージはそのまま複製されます。
 - **表示可能コマンドの抑止**：変換前または変換後のテキストに表示可能なコマンドが含まれる場合、メッセージ全体を送信しません。
 - **文字数超過の抑止**：変換後の本文またはキャプションが `TELEGRAM_MESSAGE_MAX_CHARS` または `TELEGRAM_CAPTION_MAX_CHARS` を超えた場合、メッセージ全体を送信しません。
@@ -184,7 +184,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 
 #### 4. グループ Q&A：/qa ライフサイクル
 - **フォーム収集メカニズム**：
-  - `/qa set` のフォームは**フォーマットメッセージ**によってテキストを収集します。フォーム発行時に `isCanControllQaPermission` を検証し、以降はフォームを開いた身分本人のみを認識します（チャンネル身分や匿名管理者も同様にサポート）。
+  - `/qa set` のフォームは**フォーマットメッセージ**によってテキストを収集します。フォーム発行時に `isCanControllQaPermission` を検証し、トピック機能付きのスーパーグループではコマンドを実行したフォーラムトピック（`message_thread_id`）を紐付けます。以降は同一グループ・同一フォーラムトピック内でフォームを開いた身分本人が送信した投稿のみを認識し（チャンネル身分や匿名管理者も同様にサポート）、別トピックのメッセージは認領・削除しません。
   - 投稿フォーマットは行頭が `QA_QUESTION_LABELS`（`问题:` / `问题：`）または `QA_ANSWER_LABELS`（`回答:` / `回答：` / `答案:` / `答案：`）のいずれかで始まる形式とし、2 通に分けて送信するか、1 通にまとめて送信します。
   - 回答内の ```` ```json ```` コードブロックは**リテラルのフェンス**として保存され、直接応答時に元の形式に展開されて送信されます。フェンス自体も `CHAT_QA_ANSWER_MAX_CHARS` の上限にカウントされます。
   - 質問全体と、回答のコードブロック外には、クリック可能なコマンドとして表示されるスラッシュ表記（`/start`、`/etc/hosts` など）を含められません。長さ超過と同じく、その項目は記録されず、フォームは残り、書き直しを促す返信が届きます。コードブロック内のコマンド例はそのまま受け付けます。
@@ -330,7 +330,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 
 ### 1. 認証とセキュリティ境界
 - **単一ページ入口とフロントエンドバンドルゲート（`MINI_APP_REJECT_HTML_PATH` / `MINI_APP_PAGE_GATE_COOKIE_NAME`）**：単一ページルート（`/`、`/index.html`、およびサブパスエイリアス）とフロントエンドバンドルアセット（`/chunk-*` 等、`MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN`）は `packages/mini-app-api-server/auth/pageGate.ts` が保護します。有効なスーパー管理者 `initData` ヘッダーまたは `MINI_APP_PAGE_GATE_COOKIE_NAME`（`HttpOnly; SameSite=Lax`、45 分間の `MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS`）ゲート Cookie を欠く場合、あるいは 30 分間のパスワードロック中は、単一ページ要求に独立ページの `packages/mini-app-api-server/resource/reject.html`（外部通信ゼロ。Telegram 内蔵 WebView 初回起動時はローカルから `initData` を抽出して `./api/auth/precheck` でゲート Cookie を取得し 1 回リロード）を返し、バンドルチャンク要求には `401`/`403` JSON を返すため、完全なフロントエンドバンドルは返却されません（ゲート通過後のバンドルチャンクは `MINI_APP_BUNDLE_CACHE_CONTROL`、`CDN-Cache-Control: no-store`、`MINI_APP_BUNDLE_VARY_HEADER_VALUE` を付与）。
-- **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはまず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証し、次に `initData` ミドルウェアで Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）、ログイン（`POST /api/auth/login`）、ログアウト（`POST /api/auth/logout`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。有効期限内のセッショントークンが発行から 5 分（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）を超えている場合、サーバーは自動的に新しいトークンを発行して有効期限を 45 分（`MINI_APP_SESSION_TTL_MS`）延長し、`X-Mini-App-Session` および `X-Mini-App-Session-Expires-At` レスポンスヘッダー（ならびに `/api/auth/precheck` のレスポンスボディ）で返却するとともに、セッション更新中は静的な `initData.auth_date` を継続許可します。更新後も旧トークンは並行中のリクエスト向けに 5 分間有効です。サーバーが保持するセッションは最大 `MINI_APP_SESSION_MAX`（8）件で、1 セッションは 1 枠のみを占め、満杯時は発行または更新が最も古いセッションを破棄します。
+- **スーパー管理者専用（`SUPER_ADMIN_USER_ID`）**：すべての業務 API は設定された唯一のスーパー管理者にのみ公開されます。各リクエストはルートの静的認証ポリシー（`MiniAppAuthPolicy`）に基づき同期認証パイプライン（`authorizeMiniAppRequest`）を通過し、まず `headerGuard` で同一オリジンと資格情報ヘッダーの形式を検証したうえで、`initData` で Telegram WebApp `initData` の HMAC-SHA256 署名検証・45 分間の鮮度チェック・`user.id === SUPER_ADMIN_USER_ID` の一致を確認します。初回プリチェック（`GET /api/auth/precheck`）、ログイン（`POST /api/auth/login`）、ログアウト（`POST /api/auth/logout`）以外の全業務 API は、さらに有効な 45 分セッション（`X-Mini-App-Session`）を必須とします。有効期限内のセッショントークンが発行から 5 分（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）を超えている場合、サーバーは自動的に新しいトークンを発行して有効期限を 45 分（`MINI_APP_SESSION_TTL_MS`）延長し、`X-Mini-App-Session` および `X-Mini-App-Session-Expires-At` レスポンスヘッダー（ならびに `/api/auth/precheck` のレスポンスボディ）で返却するとともに、セッション更新中は静的な `initData.auth_date` を継続許可します。更新後も旧トークンは並行中のリクエスト向けに 5 分間有効です。サーバーが保持するセッションは最大 `MINI_APP_SESSION_MAX`（8）件で、1 セッションは 1 枠のみを占め、満杯時は発行または更新が最も古いセッションを破棄します。
 - **初回画面の資格情報とロック保護**：認証器が未バインドの場合は `mini_app.password` を検証し、コンソールで Google Authenticator (TOTP) をバインド済みの場合（`memory/mini-app-totp/totp.json` に永続化）は現在の 30 秒タイムステップの 6 桁コードを優先検証します。3 回連続で誤入力するとスーパー管理者 ID を 30 分間ロックして全セッションとゲート Cookie を消去し、ロック突入時に解除時刻と送信元 IP を記したアラートを個人チャットへ 1 通送信します。
 - **保護された画像庫プレビューアセット**：画像庫の画像読み取り（`GET|HEAD /api/gallery/file/:fileName`）はログインまたは有効セッション再開時のみ発行される決定論的 `assetToken`（7 日間の不変キャッシュと `ETag` 304 再検証をサポート）、またはスーパー管理者の `initData` と有効な 45 分 `session` トークンの組み合わせで認証されます。
 
@@ -348,7 +348,7 @@ Copy 対象はグローバルで唯一です。同一インスタンスは同時
 | `/api/chats/:chatId/batch-kick` | `POST` | スーパーグループであることが確認されたグループに対し、`1..24` 時間の遡及ウィンドウで `/batch_kick` 一括退会を起動（`chatIsSupergroupById` を優先参照し、未記録時は `getChat` で探査してキャッシュを更新。通常グループは `notSupergroup`、`getChat` 探査失敗は `unavailable` で拒否）。グループ内 `/batch_kick` コマンドと `batchKickChats` 単一実行ロック、`batchKickInFlightSeqByChat` ライフサイクルシーケンスガード、およびバックグラウンド実行器を共有し（事前照会・実行中に `/init disable` や再有効化を跨いだバッチは停止し旧ラウンド結果を書き込まない）、完了時に `miniAppBatchKickCompletedByChat` へ集計を書き込む（データ消去を伴う teardown で削除、`lostAuthority` では保持） |
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 当該グループのカスタム QA（`setQa`/`removeQa`）、発言削除対象（`addDeleteTarget`/`removeDeleteTarget`）、翻訳対象（`addTranslateTarget`/`removeTranslateTarget`）の照会・追加・更新・削除 |
 | `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | `readIdentityPolicyEntries` コールドリードによるホワイトリスト／ブラックリストのページング照会と検索（未 ACK のメモリ書き込みを重ね合わせ、メインスレッドのホットポリシー LRU を汚染せず、メインスレッドの `senderIdentity` キャッシュと表示メタデータを双方向同期）、メンバー追加・削除、ホワイトリスト権限の個別変更または一括全有効化（`enableAll`） |
-| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Telegram `savePreparedKeyboardButton` を呼び出してネイティブ連絡先／チャンネルピッカーセッションを準備し、`users_shared`/`chat_shared` のインポート結果をポーリング（`whitelist`、`blocklist`、`deleteMessage`、`translate` の 4 対象に対応） |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | Telegram `savePreparedKeyboardButton` を呼び出してネイティブ連絡先／チャンネルピッカーセッションを準備し、`users_shared`/`chat_shared` のインポート結果をポーリング（`whitelist`、`blocklist`、`deleteMessage`、`translate` の 4 対象に対応。グループ別の `deleteMessage` と `translate` は事前に `/init` 有効化を確認し、未初期化の場合は `CHAT_NOT_INITIALIZED` を返す） |
 | `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/delete`<br>`/api/gallery/file/:fileName`<br>`/api/gallery/download/:fileName` | `GET`<br>`POST`<br>`POST`<br>`DELETE`<br>`GET`/`HEAD` | 専用画像庫のページング閲覧、バイナリアップロード収録（`/h_image add` と同一の SHA-256 重複排除とサイズ事前検査を実行）、削除および原画ダウンロード |
 
 ### 3. リストおよびグループ対象操作の競合・境界ガード

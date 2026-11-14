@@ -148,7 +148,7 @@ export const CRON_RELOAD_WARMUP_OPERATIONS: number = 4;
  * Mini App 端到端 HTTP API 请求链路的计时次数。
  *
  * 一次 = 从 `Bun.serve` 路由处理器入口完成请求头护栏、Telegram WebApp `initData`
- * HMAC-SHA256 签名与超管身份核验、45 分钟密码会话核验与续期、受管群状态与 Disk I/O
+ * HMAC-SHA256 签名与超管身份核验、45 分钟密码会话核验、受管群状态与 Disk I/O
  * Worker 过去 24 小时入群日志 1–24 小时滑窗聚合查询、以及 HTTP JSON 响应序列化与解析。
  */
 export const CHAIN_MINI_APP_API_REQUESTS: number = 400;

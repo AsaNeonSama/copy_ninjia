@@ -90,7 +90,7 @@ export async function runReleaseCli({
   }
   const notes: string | undefined = options.get("--notes-file");
   if (notes === undefined) throw new Error("publish requires --notes-file.");
-  const url: string = await publish({ version, notesPath: resolve(notes), assets, command });
+  const url: string = await publish({ version, notesPath: resolve(projectRoot, notes), assets, command });
   log(`Release and downloaded assets confirmed: ${url}\nCheck git diff dev master --quiet before aligning dev.`);
 }
 

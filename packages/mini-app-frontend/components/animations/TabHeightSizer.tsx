@@ -151,6 +151,8 @@ export interface TabHeightSizerProps {
   readonly prevTabRef: React.RefObject<MiniAppChatTargetKind | null>;
   /** 上一次是否已加载目标数据的标记引用。 */
   readonly prevHadTargetsRef: React.RefObject<boolean>;
+  /** 弹窗是否正处于退场收起阶段（从 `true` 切回 `false` 的快速重开场景用于重置高度过渡引用）。 */
+  readonly isClosing?: boolean;
   /** 当前标签页内部渲染内容。 */
   readonly children: React.ReactNode;
 }
@@ -291,9 +293,23 @@ export function TabHeightSizer({
   lastHeightRef,
   prevTabRef,
   prevHadTargetsRef,
+  isClosing = false,
   children,
 }: TabHeightSizerProps): React.JSX.Element {
   const lastDirectionRef: React.RefObject<string> = useRef<string>("");
+  const prevClosingRef: React.RefObject<boolean> = useRef<boolean>(isClosing);
+  if (prevClosingRef.current && !isClosing) {
+    lastDirectionRef.current = "";
+    prevTabRef.current = activeTab;
+    prevHadTargetsRef.current = hasTargets;
+    lastHeightRef.current = 0;
+    if (sizerRef.current?.style !== undefined) {
+      sizerRef.current.style.height = "";
+      sizerRef.current.style.overflow = "";
+      sizerRef.current.style.transition = "";
+    }
+  }
+  prevClosingRef.current = isClosing;
   if (activeTab === null) {
     lastDirectionRef.current = "";
   } else if (prevTabRef.current !== null && prevTabRef.current !== activeTab) {

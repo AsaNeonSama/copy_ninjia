@@ -321,6 +321,13 @@ test("globalThis.Buffer 和字面量下标复用方法白名单", (): void => {
   }
   const path: string = "/project/packages/example.ts";
   expect(collectNodeCompatibilityProblems("/project", path, source(path, "const x = { Buffer: 1 }; x.Buffer; type B = typeof globalThis.Buffer;"))).toEqual([]);
+  expect(collectNodeCompatibilityProblems(
+    "/project",
+    path,
+    source(path, "const record = { Buffer: 1 }; const { Buffer: localBuf } = record; class C { get Buffer(): number { return localBuf; } }")
+  )).toEqual([]);
+  expect(collectNodeCompatibilityProblems("/project", "/project/scripts/bare.ts", source("/project/scripts/bare.ts", 'import "node:fs";')))
+    .toEqual([expect.stringContaining("must use reviewed named imports from node:fs")]);
 });
 
 describe("Node 兼容登记的陈旧条目", () => {

@@ -105,7 +105,7 @@ export const miniAppCompletedPickerResults: FifoMap<number, Readonly<MiniAppPick
 /**
  * 主线程内存中缓存的当前已启用谷歌验证器（TOTP）单实例记录镜像（`undefined` 表示尚未完成首次读盘加载，`null` 表示已确认未绑定验证器）。
  * 填充：启动组合点（或首次调用 `loadMiniAppTotpRecord`）读取 `memory/mini-app-totp/totp.json` 后写入，或在前端控制台调用 `POST /api/totp/enable` 绑定成功后立即更新。
- * 清理：在前端控制台调用 `DELETE /api/totp` 删除验证器时置为 `null`；`stopMiniAppServer` 或测试重置时置回 `undefined`。
+ * 清理：在前端控制台调用 `DELETE /api/totp` 或 `POST /api/totp/delete` 删除验证器时置为 `null`；`stopMiniAppServer` 或测试重置时置回 `undefined`。
  * 容量恒为单个只读记录对象（最多 1 个验证器）；与 Worker 崩溃无关，进程重启后从磁盘文件重新加载。
  */
 export const miniAppTotpRecordHolder: {

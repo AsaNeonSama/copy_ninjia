@@ -18,7 +18,6 @@ import {
 } from "../auth/session";
 import {
   extractAssetTokenFromQuery,
-  extractInitDataFromHeaders,
   extractSessionToken,
 } from "../libs/request";
 import { accessErrorResponse } from "../libs/response";
@@ -53,6 +52,8 @@ export interface VerifyMiniAppInitDataAccessOptions {
   readonly allowQueryAuth: boolean;
   /** 请求头快路径校验已提取的 `initData`（缺省时为 `null`）。 */
   readonly headerInitData: string | null;
+  /** 请求头快路径已提取的查询参数 `initData`（不允许查询鉴权或未携带时为空字符串）。 */
+  readonly queryInitData: string;
   /** 已提取的 64 位十六进制会话令牌或空字符串。 */
   readonly sessionToken: string;
   /** 当前毫秒时间戳。 */
@@ -86,18 +87,26 @@ function verifyInitDataSignatureAndLockout({
   sessionToken,
   nowMs,
 }: Readonly<VerifyInitDataSignatureAndLockoutOptions>): Readonly<AccessErrorResponseParams> | null {
-  const hasActiveSession: boolean = hasActiveMiniAppAuthSession(
-    sessionToken,
-    nowMs
-  );
-  const authResult: MiniAppAuthResult = verifyMiniAppInitData({
+  let authResult: MiniAppAuthResult = verifyMiniAppInitData({
     initData,
     secretKey: MINI_APP_INIT_DATA_SECRET_KEY,
     superAdminUserId: SUPER_ADMIN_USER_ID,
-    maxAgeSeconds: hasActiveSession
-      ? Number.POSITIVE_INFINITY
-      : MINI_APP_AUTH_MAX_AGE_SECONDS,
+    maxAgeSeconds: MINI_APP_AUTH_MAX_AGE_SECONDS,
+    nowMs,
   });
+  if (
+    !authResult.ok &&
+    authResult.reason === "expired_auth_date" &&
+    hasActiveMiniAppAuthSession(sessionToken, nowMs)
+  ) {
+    authResult = verifyMiniAppInitData({
+      initData,
+      secretKey: MINI_APP_INIT_DATA_SECRET_KEY,
+      superAdminUserId: SUPER_ADMIN_USER_ID,
+      maxAgeSeconds: Number.POSITIVE_INFINITY,
+      nowMs,
+    });
+  }
   if (!authResult.ok) {
     const status: number = authResult.reason === "forbidden_user" ? 403 : 401;
     const code: string = authResult.reason.toUpperCase();
@@ -154,7 +163,8 @@ export function verifyMiniAppHeaderInitDataError(
 
 /**
  * 同步校验请求携带的 Telegram WebApp `initData` 签名（或受保护静态/图库资源稳定令牌 `?token=`）、时效、超级管理员身份与 30 分钟密码锁定状态。
- * 复用 `verifyMiniAppRequestHeadersFast` 已提取的请求头 `initData` 与上层已提取的会话令牌，避免重复解析请求头。
+ * 复用 `verifyMiniAppRequestHeadersFast` 已提取的请求头与查询参数 `initData` 及上层已提取的会话令牌，避免重复解析请求头或 URL 查询串。
+ * 当请求同时携带 `?token=` 与显式 `initData` 请求头时，两者必须同时通过校验（互不绕过）。
  * @param options 网关第一层同步校验入参。
  * @returns 校验通过时标记是否已验明受保护资源令牌；失败时返回带真实请求诊断的 `401` 或 `403` `Response`。
  */
@@ -162,6 +172,7 @@ export function verifyMiniAppInitDataAccess({
   ctx,
   allowQueryAuth,
   headerInitData,
+  queryInitData,
   sessionToken,
   nowMs,
 }: Readonly<VerifyMiniAppInitDataAccessOptions>): MiniAppInitDataAccessResult {
@@ -180,6 +191,21 @@ export function verifyMiniAppInitDataAccess({
           }),
         };
       }
+      if (headerInitData !== null) {
+        const headerErrorParams: Readonly<AccessErrorResponseParams> | null =
+          verifyInitDataSignatureAndLockout({
+            initData: headerInitData,
+            sessionToken,
+            nowMs,
+          });
+        if (headerErrorParams !== null) {
+          return {
+            ok: false,
+            response: accessErrorResponse(request, headerErrorParams),
+          };
+        }
+        return { ok: true, hasVerifiedAssetToken: true };
+      }
       const lockoutResponse: Response | null = checkSuperAdminPasswordLockout(
         request,
         nowMs
@@ -192,8 +218,7 @@ export function verifyMiniAppInitDataAccess({
   }
 
   const initData: string =
-    headerInitData ??
-    (allowQueryAuth ? extractInitDataFromHeaders(request, ctx.url) : "");
+    headerInitData ?? (allowQueryAuth ? queryInitData : "");
   const errorParams: Readonly<AccessErrorResponseParams> | null =
     verifyInitDataSignatureAndLockout({
       initData,

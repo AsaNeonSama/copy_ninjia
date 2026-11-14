@@ -212,21 +212,12 @@ export function buildSendStickerToolDefinition(menu: readonly StickerPackCandida
  * @param parsedArgs 已解析的普通键值参数对象；解析失败时为 null。
  * @returns 清洗后的非空意图短句；缺失、空白或超长时返回 null。
  */
-function readStickerIntent(parsedArgs: Readonly<Record<string, unknown>> | null): string | null {
+export function readStickerIntent(parsedArgs: Readonly<Record<string, unknown>> | null): string | null {
   const value: unknown = parsedArgs?.intent;
   if (typeof value !== "string") return null;
   const intent: string = sanitizeInline(value);
   if (!intent || intent.length > STICKER_INTENT_MAX_CHARS) return null;
   return intent;
-}
-
-/**
- * 解析并清洗查看贴纸包时必填的表达意图；为空或超过 STICKER_INTENT_MAX_CHARS 时返回 null。
- * @param argumentsJson 模型传入的工具参数 JSON 字符串。
- * @returns 清洗后的非空意图短句；缺失、空白或超长时返回 null。
- */
-export function parseStickerIntent(argumentsJson: string): string | null {
-  return readStickerIntent(parseToolArguments(argumentsJson));
 }
 
 /** viewStickerPackTool 的入参。 */

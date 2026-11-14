@@ -12,6 +12,10 @@ import {
 import { MessagesView } from "../../packages/mini-app-frontend/components/MessagesView";
 import { VERBATIM_CONTEXT_MAX } from "../../packages/mini-app-frontend/consts/memory";
 import {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_MAX_PER_CHAT,
+  CHAT_QA_QUESTION_MAX_CHARS,
+  DELETE_MESSAGE_CHAT_TARGET_MAX,
   MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_BATCH_KICK_PRESET_HOURS,
@@ -19,7 +23,9 @@ import {
   MINI_APP_MESSAGES_DEFAULT_PAGE_SIZE,
   MINI_APP_MIN_LOADING_MS,
   MINI_APP_TRANSLATE_LANGUAGES,
+  TRANSLATE_CHAT_USER_LIMIT,
 } from "../../packages/mini-app-frontend/consts/miniApp";
+import { WHITELIST_PERMISSION_KEYS } from "../../packages/mini-app-frontend/consts/whitelist";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
 import { IdentitiesPage } from "../../packages/mini-app-frontend/pages/IdentitiesPage";
 import { StatusPage } from "../../packages/mini-app-frontend/pages/StatusPage";
@@ -29,6 +35,7 @@ import type {
   MiniAppChatsStore,
   MiniAppChatsStoreState,
 } from "../../packages/mini-app-frontend/store/chats";
+import type { WhitelistPermissionKey } from "../../packages/mini-app-frontend/types/identityPolicy";
 import type {
   MiniAppChatDetail,
   MiniAppChatTargetsView,
@@ -383,10 +390,12 @@ describe("Mini App 页面与面板组件", () => {
           isChannel: false,
           displayName: "Alice",
           username: "alice",
-          permissions: {
-            allowRepeat: true, allowHImage: false, allowAi: true, allowTranslate: false,
-            allowWed: false, allowGag: false, allowKickInactive: false,
-          },
+          permissions: Object.fromEntries(
+            WHITELIST_PERMISSION_KEYS.map((key: WhitelistPermissionKey): readonly [WhitelistPermissionKey, boolean] => [
+              key,
+              key === WHITELIST_PERMISSION_KEYS[0] || key === WHITELIST_PERMISSION_KEYS[2],
+            ])
+          ) as Record<WhitelistPermissionKey, boolean>,
         }],
         page: 1,
         pageSize: MINI_APP_IDENTITY_DEFAULT_PAGE_SIZE,
@@ -572,13 +581,13 @@ describe("Mini App 页面与面板组件", () => {
     const targets: MiniAppChatTargetsView = {
       chatId: -1001,
       qaItems: [],
-      qaMax: 15,
-      qaQuestionMaxChars: 256,
-      qaAnswerMaxChars: 3840,
+      qaMax: CHAT_QA_MAX_PER_CHAT,
+      qaQuestionMaxChars: CHAT_QA_QUESTION_MAX_CHARS,
+      qaAnswerMaxChars: CHAT_QA_ANSWER_MAX_CHARS,
       deleteMessageTargets: [{ id: -10099, isChannel: true, displayName: "SpamCh", username: "spam_ch" }],
-      deleteMessageMax: 15,
+      deleteMessageMax: DELETE_MESSAGE_CHAT_TARGET_MAX,
       translateTargets: [{ id: 505, isChannel: false, displayName: "Bob", language: MINI_APP_TRANSLATE_LANGUAGES[0]! }],
-      translateMax: 5,
+      translateMax: TRANSLATE_CHAT_USER_LIMIT,
       isTranslationEnabled: false,
     };
     store.setState({

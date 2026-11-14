@@ -14,9 +14,10 @@ import {
   TEST_SHARED_NODE_IMPORTS,
   TEST_SYNC_CONTENT_IO_EXEMPTIONS,
 } from "./nodeAllowances";
-import type { NodeImportAllowance, BufferGlobalAllowance } from "./nodeAllowances";
+import type { NodeImportAllowance } from "./nodeAllowances";
+import { collectNodeGlobalProblems } from "./nodeGlobals";
 import { pathExists } from "./pathStat";
-import { globalPropertyName, isGlobalReference, isInsideTypeNode, staticPropertyName } from "./staticAccess";
+import { isGlobalReference, staticPropertyName } from "./staticAccess";
 
 /**
  * 判断登记项是否允许导入指定符号。
@@ -85,74 +86,11 @@ function runtimeNodeLoad(node: ts.Node): { readonly kind: string; readonly modul
 }
 
 /**
- * 判断 AST 节点是否为运行期对全局 `Buffer` 的引用。
- *
- * @param node 待检查的 AST 节点
- * @returns 为运行期全局 `Buffer` 引用时返回 true
- */
-function isBufferGlobalUse(node: ts.Node): boolean {
-  if (isInsideTypeNode(node)) return false;
-  if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
-    isGlobalReference(node, "Buffer")) return true;
-  if (!ts.isIdentifier(node) || node.text !== "Buffer") return false;
-  const parent: ts.Node = node.parent;
-  const isImportName: boolean =
-    ts.isImportClause(parent) ||
-    ts.isImportSpecifier(parent) ||
-    ts.isNamespaceImport(parent) ||
-    ts.isImportEqualsDeclaration(parent);
-  if (isImportName) return false;
-  const isPropertyName: boolean =
-    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
-    (ts.isPropertyAssignment(parent) && parent.name === node) ||
-    (ts.isPropertyDeclaration(parent) && parent.name === node) ||
-    (ts.isPropertySignature(parent) && parent.name === node) ||
-    (ts.isMethodDeclaration(parent) && parent.name === node) ||
-    (ts.isMethodSignature(parent) && parent.name === node);
-  return !isPropertyName;
-}
-
-/**
- * 提取全局 `Buffer` 节点上被静态访问的方法或属性名。
- *
- * @param node 全局 `Buffer` 引用节点
- * @returns 被访问的静态属性名，无法静态确定时返回 undefined
- */
-function bufferGlobalMethod(node: ts.Node): string | undefined {
-  const parent: ts.Node = node.parent;
-  if (
-    (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) &&
-    parent.expression === node
-  ) {
-    return staticPropertyName(parent);
-  }
-  return undefined;
-}
-
-/**
- * 识别应改用 Bun 原生接口或先核对调度语义的 `process` 属性访问。
- *
- * @param node 待检查的 AST 节点
- * @returns 命中受限属性时返回属性名，否则返回 undefined
- */
-function discouragedProcessProperty(node: ts.Node): string | undefined {
-  const property: string | undefined = globalPropertyName(node, "process");
-  return property !== undefined && Object.hasOwn(PROCESS_REPLACEMENTS, property) ? property : undefined;
-}
-
-/** 需要原生替换或先核对调度语义的 process 入口。 */
-const PROCESS_REPLACEMENTS: Readonly<Record<string, string>> = {
-  argv: "Bun.argv",
-  execPath: "Bun.argv[0]",
-  hrtime: "Bun.nanoseconds() after checking the time origin",
-  nextTick: "queueMicrotask after checking scheduling and cancellation semantics",
-};
-
-/**
  * 核对生产模块、脚本或测试文件的 Node 兼容用法：静态 import（未登记模块、namespace/
- * default import 与未登记符号都拒绝）、动态 import/require/process.getBuiltinModule 与
- * 再导出、`Buffer` 全局方法白名单，以及 process.argv/execPath/hrtime/nextTick 的
- * 替换提示；属性访问和具名直接解构共用静态识别，类型位置不参与；第三方依赖不进入本检查。
+ * default import、仅副作用 import 与未登记符号都拒绝）、动态 import/require/
+ * process.getBuiltinModule 与再导出、`Buffer` 全局方法白名单，以及
+ * process.argv/execPath/hrtime/nextTick 的替换提示；全局 `Buffer` 与 `process`
+ * 检查由 `scripts/conventions/nodeGlobals.ts` 执行；第三方依赖不进入本检查。
  *
  * @param projectRoot 仓库根目录绝对路径
  * @param path 被检查源码文件的绝对路径
@@ -194,10 +132,12 @@ export function collectNodeCompatibilityProblems(
       problems.push(`${location} uses unreviewed Node compatibility module ${moduleName}`);
       continue;
     }
-    if (
-      clause === undefined ||
-      allowed?.symbols === "*"
-    ) continue;
+    if (clause === undefined) {
+      if (allowed?.symbols === "*" || extraAllowed?.symbols === "*") continue;
+      problems.push(`${location} must use reviewed named imports from ${moduleName}`);
+      continue;
+    }
+    if (allowed?.symbols === "*") continue;
     if (clause.name !== undefined || clause.namedBindings === undefined) {
       problems.push(`${location} must use reviewed named imports from ${moduleName}`);
       continue;
@@ -259,56 +199,7 @@ export function collectNodeCompatibilityProblems(
     ts.forEachChild(node, visitRuntimeNodeLoads);
   };
   visitRuntimeNodeLoads(source);
-
-  let usesBufferGlobal: boolean = false;
-  const usedBufferMethods: Set<string> = new Set<string>();
-  const bufferAllowance: BufferGlobalAllowance | undefined = isScript
-    ? SCRIPT_BUFFER_GLOBALS[relativePath]
-    : isTest
-      ? TEST_BUFFER_GLOBALS[relativePath]
-      : PRODUCTION_BUFFER_GLOBALS[relativePath];
-  const visitBufferGlobal = (node: ts.Node): void => {
-    if (isBufferGlobalUse(node)) {
-      usesBufferGlobal = true;
-      const method: string | undefined = bufferGlobalMethod(node);
-      if (method !== undefined) usedBufferMethods.add(method);
-      if (bufferAllowance === undefined || method === undefined || !bufferAllowance.methods.includes(method)) {
-        const line: number = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-        problems.push(
-          `${relativePath}:${line} uses unreviewed Node compatibility global Buffer` +
-          (method === undefined ? "" : `.${method}`)
-        );
-      }
-    }
-    ts.forEachChild(node, visitBufferGlobal);
-  };
-  visitBufferGlobal(source);
-  if (bufferAllowance !== undefined) {
-    if (!usesBufferGlobal) {
-      problems.push(
-        `${relativePath}:1 retains a stale Node compatibility global Buffer allowance`
-      );
-    } else {
-      for (const allowedMethod of bufferAllowance.methods) {
-        if (usedBufferMethods.has(allowedMethod)) continue;
-        problems.push(
-          `${relativePath}:1 retains a stale Node compatibility global Buffer.${allowedMethod} allowance`
-        );
-      }
-    }
-  }
-
-  const visitDiscouragedProcessProperties = (node: ts.Node): void => {
-    const property: string | undefined = discouragedProcessProperty(node);
-    if (property !== undefined) {
-      const line: number = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-      problems.push(
-        `${relativePath}:${line} uses process.${property}; use ${PROCESS_REPLACEMENTS[property]}`
-      );
-    }
-    ts.forEachChild(node, visitDiscouragedProcessProperties);
-  };
-  visitDiscouragedProcessProperties(source);
+  problems.push(...collectNodeGlobalProblems({ relativePath, source }));
   return problems;
 }
 
@@ -350,7 +241,9 @@ export async function collectStaleNodeAllowanceProblems(
 export interface NodeImportUsage {
   /** 相对仓库根的文件路径。 */
   readonly relativePath: string;
+  /** 规范化后的 `node:` 内建模块名。 */
   readonly moduleName: string;
+  /** 被导入的符号名（命名空间导入记为 `*`）。 */
   readonly imported: string;
 }
 

@@ -27,7 +27,7 @@ export async function handleGetGalleryRoute(url: URL): Promise<Response> {
 }
 
 /**
- * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：在前置受保护资源中间件链完成防直接导航、Telegram WebApp 超管签名（配对 45 分钟解锁会话）或登录后派发的资源令牌核验后，经文件名安全校验返回允许浏览器与 CDN 缓存的图片二进制流（或命中 `If-None-Match` 时返回 `304 Not Modified`）。
+ * 处理 `GET /api/gallery/file/:fileName`（及 `HEAD`）：经受保护资源鉴权策略（`MINI_APP_PROTECTED_ASSET_AUTH_POLICY`）完成防直接导航、Telegram WebApp 超管签名（配对 45 分钟解锁会话）或登录后派发的资源令牌核验后，经文件名安全校验返回允许浏览器与 CDN 缓存的图片二进制流（或命中 `If-None-Match` 时返回不含实体头的 `304 Not Modified`）。
  * @param request HTTP 请求。
  * @param rawFileName URL 中的文件名参数。
  * @returns 图片文件响应、`304` 缓存命中响应或 `404` JSON 响应。
@@ -45,7 +45,7 @@ export async function handleGetGalleryFileByName(
 }
 
 /**
- * 处理 `GET|HEAD /api/gallery/download/:fileName`：在前置下载中间件链完成完整双层鉴权（跨站拦截 + 超管 `initData` 签名或资源令牌 + 45 分钟 `session` 会话令牌）后，经文件名安全校验返回带秒级时间戳文件名 `Content-Disposition: attachment` 下载头与 `no-store` 防缓存策略的图片原始二进制流。
+ * 处理 `GET|HEAD /api/gallery/download/:fileName`：经图库下载鉴权策略（`MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY`）完成完整双层鉴权（跨站拦截 + 超管 `initData` 签名或资源令牌 + 45 分钟 `session` 会话令牌）后，经文件名安全校验返回带秒级时间戳文件名 `Content-Disposition: attachment` 下载头与 `no-store` 防缓存策略的图片原始二进制流。
  * @param request HTTP 请求对象。
  * @param rawFileName URL 中的文件名参数。
  * @returns 附件下载图片文件响应或 `404` JSON 响应。
@@ -101,7 +101,7 @@ export async function handlePostGalleryUploadRoute(
 }
 
 /**
- * 处理 `DELETE /api/gallery/file/:fileName`：在前置中间件链完成双层鉴权后从图库目录删除指定图片文件。
+ * 处理 `DELETE /api/gallery/file/:fileName`：经业务 API 鉴权策略（`MINI_APP_API_AUTH_POLICY`）完成双层鉴权后从图库目录删除指定图片文件。
  * @param rawFileName URL 中的文件名参数。
  * @returns 删除结果 JSON 响应。
  */

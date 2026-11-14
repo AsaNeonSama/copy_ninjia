@@ -4,7 +4,7 @@ import { LOOPBACK_HOSTS } from "../consts/agent";
 import type { ConfigUrlPolicy } from "../types/config";
 
 /**
- * 按指定策略解析并校验配置 URL 字符串；不额外收紧或放宽既有接受集合。
+ * 按指定策略解析并校验配置 URL 字符串。
  * @param text 已去掉首尾空白的 URL 字符串。
  * @param policy 目标字段对应的 URL 校验策略。
  * @returns 解析且满足策略时返回 `URL` 实例，否则返回 `null`。

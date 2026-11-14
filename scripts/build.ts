@@ -18,101 +18,108 @@ interface PackageManifest {
   readonly packageManager?: string;
 }
 
-const projectRoot: string = join(import.meta.dir, "..");
-const arguments_: readonly string[] = Bun.argv.slice(2).filter((value: string): boolean => value !== "--");
-if (arguments_.length !== 2 || arguments_[0] !== "--version" || !RELEASE_VERSION_PATTERN.test(arguments_[1]!)) {
-  throw new Error("Usage: bun run build -- --version MAJOR.MINOR.PATCH (required, no default).");
-}
-const version: string = arguments_[1]!;
-const sourceCommand: ReleaseCommand | null = Bun.which("git") === null ? null : createReleaseCommand(projectRoot);
-const sourceTree: string | null = sourceCommand === null ? null : readBuildSourceTree(sourceCommand);
-const manifest: PackageManifest = await Bun.file(join(projectRoot, "package.json")).json() as PackageManifest;
-if (manifest.packageManager !== `bun@${Bun.version}`) throw new Error("Build requires the packageManager Bun version.");
-const libc: string | null = familySync();
-if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch) || (libc !== GLIBC && libc !== MUSL)) {
-  throw new Error("Build requires Linux x64/arm64 with glibc or musl; build natively on each release platform.");
-}
-const platform: string = `linux-${process.arch}${libc === MUSL ? "-musl" : ""}`;
-const assetName: string = `copy-ninjia-${platform}`;
-const outputRoot: string = join(projectRoot, "dist");
-mkdirSync(outputRoot, { recursive: true });
-const stagingRoot: string = mkdtempSync(join(outputRoot, ".build-"));
-const packageRoot: string = join(stagingRoot, "copy-ninjia");
-mkdirSync(packageRoot);
+/** 构建脚本在独立函数内执行，仅当作为主模块直接运行时触发真实打包与子进程检验。 */
+async function runBuildCli(): Promise<void> {
+  const projectRoot: string = join(import.meta.dir, "..");
+  const arguments_: readonly string[] = Bun.argv.slice(2).filter((value: string): boolean => value !== "--");
+  if (arguments_.length !== 2 || arguments_[0] !== "--version" || !RELEASE_VERSION_PATTERN.test(arguments_[1]!)) {
+    throw new Error("Usage: bun run build -- --version MAJOR.MINOR.PATCH (required, no default).");
+  }
+  const version: string = arguments_[1]!;
+  const sourceCommand: ReleaseCommand | null = Bun.which("git") === null ? null : createReleaseCommand(projectRoot);
+  const sourceTree: string | null = sourceCommand === null ? null : readBuildSourceTree(sourceCommand);
+  const manifest: PackageManifest = await Bun.file(join(projectRoot, "package.json")).json() as PackageManifest;
+  if (manifest.packageManager !== `bun@${Bun.version}`) throw new Error("Build requires the packageManager Bun version.");
+  const libc: string | null = familySync();
+  if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch) || (libc !== GLIBC && libc !== MUSL)) {
+    throw new Error("Build requires Linux x64/arm64 with glibc or musl; build natively on each release platform.");
+  }
+  const platform: string = `linux-${process.arch}${libc === MUSL ? "-musl" : ""}`;
+  const assetName: string = `copy-ninjia-${platform}`;
+  const outputRoot: string = join(projectRoot, "dist");
+  mkdirSync(outputRoot, { recursive: true });
+  const stagingRoot: string = mkdtempSync(join(outputRoot, ".build-"));
+  const packageRoot: string = join(stagingRoot, "copy-ninjia");
 
-/**
- * 同步子命令只处理发行暂存目录；失败不产出可上传的包。
- *
- * @param command 待执行的命令行参数列表
- * @param cwd 子命令的工作目录
- */
-function run(command: string[], cwd: string): void {
-  const result: Bun.SyncSubprocess<"inherit", "inherit"> = Bun.spawnSync({
-    cmd: command, cwd, stdout: "inherit", stderr: "inherit",
-  });
-  if (result.exitCode !== 0) throw new Error(`Build command failed: ${command[0]}`);
-}
-
-try {
-  const executable: string = join(packageRoot, "copy-ninjia");
-  const application: Bun.BuildOutput = await Bun.build({
-    entrypoints: ["scripts/binary.ts", "packages/workers/diskIOWorker.ts", "packages/workers/aiChatWorker.ts", "packages/workers/antiRaidWorker.ts"].map(
-      (path: string): string => join(projectRoot, path)
-    ),
-    root: projectRoot,
-    compile: { outfile: executable, autoloadBunfig: false },
-    minify: true,
-    sourcemap: "none",
-  });
-  if (!application.success) throw new AggregateError(application.logs, "Application compilation failed.");
-  const installer: Bun.BuildOutput = await Bun.build({
-    entrypoints: [join(projectRoot, "scripts/install/runtime.ts")],
-    outdir: join(packageRoot, "scripts/install"),
-    target: "bun",
-    naming: "runtime.js",
-    sourcemap: "none",
-    // 安装器通过发行包内的 Bun CLI 执行，路径同样以部署工作目录为根。
-    define: { "Bun.isStandaloneExecutable": "true" },
-  });
-  if (!installer.success) throw new AggregateError(installer.logs, "Installer compilation failed.");
-  for (const edge of ACTIVE_COLD_MIGRATION_EDGES) {
-    const migration: Bun.BuildOutput = await Bun.build({
-      entrypoints: [join(projectRoot, edge.entryPath)],
-      outdir: join(packageRoot, "scripts/migrations"),
-      target: "bun",
-      naming: "[name].js",
-      sourcemap: "none",
-      // bundle 位于包根下的 scripts/migrations/，与 consts 源码目录深度一致，SQL 等资产相对包根解析。
-      define: { "Bun.isStandaloneExecutable": "false" },
+  /**
+   * 同步子命令只处理发行暂存目录；失败不产出可上传的包。
+   *
+   * @param command 待执行的命令行参数列表
+   * @param cwd 子命令的工作目录
+   */
+  function run(command: readonly string[], cwd: string): void {
+    const result: Bun.SyncSubprocess<"inherit", "inherit"> = Bun.spawnSync({
+      cmd: [...command], cwd, stdout: "inherit", stderr: "inherit",
     });
-    if (!migration.success) throw new AggregateError(migration.logs, `Migration compilation failed: ${edge.command}`);
+    if (result.exitCode !== 0) throw new Error(`Build command failed: ${command[0]}`);
   }
-  for (const relative of RELEASE_BUNDLED_PATHS) {
-    await copyFixtureTree(join(projectRoot, relative), join(packageRoot, relative));
+
+  try {
+    mkdirSync(packageRoot);
+    const executable: string = join(packageRoot, "copy-ninjia");
+    const application: Bun.BuildOutput = await Bun.build({
+      entrypoints: ["scripts/binary.ts", "packages/workers/diskIOWorker.ts", "packages/workers/aiChatWorker.ts", "packages/workers/antiRaidWorker.ts"].map(
+        (path: string): string => join(projectRoot, path)
+      ),
+      root: projectRoot,
+      compile: { outfile: executable, autoloadBunfig: false },
+      minify: true,
+      sourcemap: "none",
+    });
+    if (!application.success) throw new AggregateError(application.logs, "Application compilation failed.");
+    const installer: Bun.BuildOutput = await Bun.build({
+      entrypoints: [join(projectRoot, "scripts/install/runtime.ts")],
+      outdir: join(packageRoot, "scripts/install"),
+      target: "bun",
+      naming: "runtime.js",
+      sourcemap: "none",
+      // 安装器通过发行包内的 Bun CLI 执行，路径同样以部署工作目录为根。
+      define: { "Bun.isStandaloneExecutable": "true" },
+    });
+    if (!installer.success) throw new AggregateError(installer.logs, "Installer compilation failed.");
+    for (const edge of ACTIVE_COLD_MIGRATION_EDGES) {
+      const migration: Bun.BuildOutput = await Bun.build({
+        entrypoints: [join(projectRoot, edge.entryPath)],
+        outdir: join(packageRoot, "scripts/migrations"),
+        target: "bun",
+        naming: "[name].js",
+        sourcemap: "none",
+        // bundle 位于包根下的 scripts/migrations/，与 consts 源码目录深度一致，SQL 等资产相对包根解析。
+        define: { "Bun.isStandaloneExecutable": "false" },
+      });
+      if (!migration.success) throw new AggregateError(migration.logs, `Migration compilation failed: ${edge.command}`);
+    }
+    for (const relative of RELEASE_BUNDLED_PATHS) {
+      await copyFixtureTree(join(projectRoot, relative), join(packageRoot, relative));
+    }
+    for await (const file of new Bun.Glob(RELEASE_INSTALL_SCRIPT_GLOB).scan(projectRoot)) {
+      await Bun.write(join(packageRoot, file), Bun.file(join(projectRoot, file)));
+    }
+    for await (const file of new Bun.Glob("**/*.map").scan({ cwd: packageRoot, dot: true })) {
+      await Bun.file(join(packageRoot, file)).delete();
+    }
+    await Bun.write(join(packageRoot, "package.json"), JSON.stringify({ ...manifest, version }, null, 2) + "\n");
+    await Bun.write(join(packageRoot, "binary.json"), JSON.stringify({ version, platform, bun: Bun.version, bunRevision: Bun.revision, sourceTree }, null, 2) + "\n");
+    chmodSync(executable, 0o755);
+    run([executable, "--help"], packageRoot);
+    run([Bun.argv[0]!, join(projectRoot, "scripts/checkBinary.ts"), packageRoot], projectRoot);
+    if (sourceTree !== null && sourceCommand !== null && readBuildSourceTree(sourceCommand) !== sourceTree) {
+      throw new Error("Source tree changed during the build; discard this candidate and rebuild.");
+    }
+    const archive: string = join(stagingRoot, `${assetName}.tar.gz`);
+    run(["tar", "-czf", archive, "copy-ninjia"], stagingRoot);
+    const checksum: string = await fileSha256(archive);
+    await Bun.write(`${archive}.sha256`, `${checksum}  ${assetName}.tar.gz\n`);
+    rmSync(join(outputRoot, assetName), { recursive: true, force: true });
+    renameSync(packageRoot, join(outputRoot, assetName));
+    renameSync(archive, join(outputRoot, `${assetName}.tar.gz`));
+    renameSync(`${archive}.sha256`, join(outputRoot, `${assetName}.tar.gz.sha256`));
+    console.log(`Built ${version}: dist/${assetName}.tar.gz and .tar.gz.sha256`);
+  } finally {
+    rmSync(stagingRoot, { recursive: true, force: true });
   }
-  for await (const file of new Bun.Glob(RELEASE_INSTALL_SCRIPT_GLOB).scan(projectRoot)) {
-    await Bun.write(join(packageRoot, file), Bun.file(join(projectRoot, file)));
-  }
-  for await (const file of new Bun.Glob("**/*.map").scan({ cwd: packageRoot, dot: true })) {
-    await Bun.file(join(packageRoot, file)).delete();
-  }
-  await Bun.write(join(packageRoot, "package.json"), JSON.stringify({ ...manifest, version }, null, 2) + "\n");
-  await Bun.write(join(packageRoot, "binary.json"), JSON.stringify({ version, platform, bun: Bun.version, bunRevision: Bun.revision, sourceTree }, null, 2) + "\n");
-  chmodSync(executable, 0o755);
-  run([executable, "--help"], packageRoot);
-  run([Bun.argv[0]!, join(projectRoot, "scripts/checkBinary.ts"), packageRoot], projectRoot);
-  if (sourceTree !== null && sourceCommand !== null && readBuildSourceTree(sourceCommand) !== sourceTree) {
-    throw new Error("Source tree changed during the build; discard this candidate and rebuild.");
-  }
-  const archive: string = join(stagingRoot, `${assetName}.tar.gz`);
-  run(["tar", "-czf", archive, "copy-ninjia"], stagingRoot);
-  const checksum: string = await fileSha256(archive);
-  await Bun.write(`${archive}.sha256`, `${checksum}  ${assetName}.tar.gz\n`);
-  rmSync(join(outputRoot, assetName), { recursive: true, force: true });
-  renameSync(packageRoot, join(outputRoot, assetName));
-  renameSync(archive, join(outputRoot, `${assetName}.tar.gz`));
-  renameSync(`${archive}.sha256`, join(outputRoot, `${assetName}.tar.gz.sha256`));
-  console.log(`Built ${version}: dist/${assetName}.tar.gz and .tar.gz.sha256`);
-} finally {
-  rmSync(stagingRoot, { recursive: true, force: true });
+}
+
+if (import.meta.main) {
+  await runBuildCli();
 }

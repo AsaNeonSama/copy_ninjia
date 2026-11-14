@@ -155,18 +155,22 @@ export function extractVerifiedMiniAppHeaderInitData(
   return headerInitData;
 }
 
-/** 网关请求头与凭据形态快路径校验结果（复用提取出的请求头 `initData`）。 */
+/** 网关请求头与凭据形态快路径校验结果（复用提取出的请求头与查询参数 `initData`）。 */
 export type MiniAppHeaderGuardResult =
-  | { readonly ok: true; readonly headerInitData: string | null }
+  | {
+    readonly ok: true;
+    readonly headerInitData: string | null;
+    readonly queryInitData: string;
+  }
   | { readonly ok: false; readonly response: Response };
 
 /**
  * 在鉴权管道最开头对请求头与凭据载体形态执行 O(1) 快路径严格校验：拦截非同源 `Sec-Fetch-Site`、
  * 直接导航/非预期 `Sec-Fetch-Mode` 与 `Sec-Fetch-Dest`、跨源 `Origin`/`Referer`，
- * 以及缺失、双头不一致或畸形的 Telegram WebApp `initData` 请求头，并复用提取出的请求头 `initData` 供后续验签。
+ * 以及缺失、双头不一致或畸形的 Telegram WebApp `initData` 请求头，并复用提取出的请求头与查询参数 `initData` 供后续验签。
  * @param ctx 路由请求上下文。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
- * @returns 快路径拦截命中时返回 `401` 或 `403` 诊断响应，通过时返回已校验的请求头 `initData`（缺失时为 `null`）。
+ * @returns 快路径拦截命中时返回 `401` 或 `403` 诊断响应，通过时返回已校验的请求头 `headerInitData`（缺失时为 `null`）与查询参数 `queryInitData`。
  */
 export function verifyMiniAppRequestHeadersFast(
   ctx: Readonly<MiniAppRouteContext>,
@@ -271,7 +275,7 @@ export function verifyMiniAppRequestHeadersFast(
   const headerInitCheck: string | Readonly<AccessErrorResponseParams> | null =
     extractVerifiedMiniAppHeaderInitData(headers);
   if (typeof headerInitCheck === "string") {
-    return { ok: true, headerInitData: headerInitCheck };
+    return { ok: true, headerInitData: headerInitCheck, queryInitData: "" };
   }
   if (headerInitCheck !== null) {
     return {
@@ -311,7 +315,8 @@ export function verifyMiniAppRequestHeadersFast(
         }),
       };
     }
+    return { ok: true, headerInitData: null, queryInitData };
   }
 
-  return { ok: true, headerInitData: null };
+  return { ok: true, headerInitData: null, queryInitData: "" };
 }

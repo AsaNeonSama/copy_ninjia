@@ -1,6 +1,8 @@
 /** 发布子命令只由显式 CLI 调用；测试注入替身，不访问 GitHub 或修改分支。 */
 export interface CommandResult {
+  /** 子进程退出码，被信号终止时为 null。 */
   readonly exitCode: number | null;
+  /** 子进程标准输出解码后的 UTF-8 文本。 */
   readonly stdout: string;
 }
 

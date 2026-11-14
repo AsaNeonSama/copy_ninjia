@@ -15,7 +15,7 @@ export default defineConfig(
     extends: [eslint.configs.recommended],
   },
   {
-    files: ["index.ts", "packages/**/*.ts", "packages/**/*.tsx", "scripts/**/*.ts"],
+    files: ["index.ts", "packages/**/*.ts", "packages/**/*.tsx", "scripts/**/*.ts", "scripts/**/*.tsx"],
     extends: [
       eslint.configs.recommended,
       tseslint.configs.recommendedTypeChecked,
@@ -64,7 +64,7 @@ export default defineConfig(
     },
   },
   {
-    files: ["test/**/*.ts"],
+    files: ["test/**/*.{ts,tsx}"],
     extends: [
       eslint.configs.recommended,
       tseslint.configs.recommended,
@@ -177,7 +177,7 @@ export default defineConfig(
     },
   },
   {
-    files: ["test/**/*.ts"],
+    files: ["test/**/*.{ts,tsx}"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-empty-function": "off",

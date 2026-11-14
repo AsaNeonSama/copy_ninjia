@@ -516,6 +516,7 @@ describe("Mini App API 请求链路", () => {
       serveMiniAppRejectHtml: async (): Promise<Response> =>
         new Response('<body data-status="401" data-code="MISSING_INIT_DATA"></body>', { status: 200 }),
       evaluateMiniAppPageGateRequest: () => ({ allowed: true, issueGateCookie: false }),
+      deriveMiniAppInitDataSecretKey: (): Uint8Array => new Uint8Array(32),
       deriveMiniAppPageGateSecretKey: (): Uint8Array => new Uint8Array(32),
       issueMiniAppPageGateToken: (): string => "1700000000000.deadbeef",
       deriveMiniAppAssetToken: (): string => "asset-token-hex",

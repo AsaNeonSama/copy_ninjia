@@ -7,6 +7,7 @@ import { describeMediaForStickerCatalog } from "../imageDescription";
 import { resampleAiText } from "../utils/resample";
 import { summaryAiProvider } from "../../provider";
 import { invalidInput } from "../../../libs/inputValidation";
+import { retainOnlyKeys } from "../../../libs/record";
 import { parseStickerCatalogSnapshot } from "../../../libs/persistedSnapshotCodec";
 import { sanitizeInline, truncateAtClauseBoundary } from "../../../libs/text";
 import {
@@ -173,34 +174,19 @@ export function ensureStickerCatalogs(packs: readonly string[]): void {
 }
 
 /**
- * 判断包是否已退出白名单且无在途生成任务与待上报快照。
- * @param pack 贴纸包短名称。
- * @param active 当前生效的白名单贴纸包集合。
- * @returns 可安全回收该包缓存时返回 true，否则返回 false。
- */
-function isStalePack(pack: string, active: ReadonlySet<string>): boolean {
-  return !active.has(pack) && !generatingPacks.has(pack) && !dirtyPacks.has(pack);
-}
-
-/**
  * 按当前白名单剪除已下架且无在途任务与脏快照的包目录、简介及失败记录。
  * @param activePacks 当前生效的白名单贴纸包短名称列表。
  */
 export function pruneStickerCatalogs(activePacks: readonly string[]): void {
-  const active: ReadonlySet<string> = new Set(activePacks);
-  let dropped: boolean = false;
-  for (const pack of catalogs.keys()) {
-    if (!isStalePack(pack, active)) continue;
-    catalogs.delete(pack);
-    dropped = true;
-  }
-  for (const pack of packSummaries.keys()) {
-    if (isStalePack(pack, active)) packSummaries.delete(pack);
-  }
-  for (const pack of failedEntries.keys()) {
-    if (isStalePack(pack, active)) failedEntries.delete(pack);
-  }
-  if (dropped) invalidateStickerMenu();
+  if (catalogs.size === 0 && packSummaries.size === 0 && failedEntries.size === 0) return;
+  const keep: Set<string> = new Set(activePacks);
+  for (const pack of generatingPacks.keys()) keep.add(pack);
+  for (const pack of dirtyPacks.keys()) keep.add(pack);
+  const catalogCountBefore: number = catalogs.size;
+  retainOnlyKeys(catalogs, keep);
+  retainOnlyKeys(packSummaries, keep);
+  retainOnlyKeys(failedEntries, keep);
+  if (catalogs.size < catalogCountBefore) invalidateStickerMenu();
 }
 
 /**
@@ -264,9 +250,7 @@ export async function generatePackCatalog(pack: string, signal: AbortSignal = ai
     if (entriesChanged) invalidateStickerMenu();
     const failed: Map<string, number> | undefined = failedEntries.get(pack);
     if (failed) {
-      for (const fileUniqueId of failed.keys()) {
-        if (!liveIds.has(fileUniqueId)) failed.delete(fileUniqueId);
-      }
+      retainOnlyKeys(failed, liveIds);
       if (failed.size === 0) failedEntries.delete(pack);
     }
 

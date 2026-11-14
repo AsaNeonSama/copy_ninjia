@@ -12,7 +12,7 @@ import {
 import { getAgentDeploymentConfig } from "../../config/agent";
 import { logger } from "../../infra/logger";
 import { reportGeminiInteractionUsage } from "../../infra/aiCacheUsage";
-import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
+import { runWithTimeoutSignal } from "../../libs/abortSignal";
 import { decodeSynthesizedSpeech, speechFromDecoded, speechRequestFailed } from "../ai/utils/speechPayload";
 import { composeSpeechStyle } from "../ai/utils/speechStyle";
 import { getGeminiClient } from "./client";
@@ -67,34 +67,35 @@ export async function synthesizeGeminiSpeech({
   signal,
 }: AiSpeechRequest): Promise<SynthesizedSpeech | null> {
   let interaction: SpeechInteractionOutput;
-  const requestSignal: AbortSignal = signalWithTimeout(signal, GEMINI_SPEECH_REQUEST_TIMEOUT_MS);
   try {
-    requestSignal.throwIfAborted();
+    signal?.throwIfAborted();
     const client: GoogleGenAI = getGeminiClient("tts");
     const tts: AgentTtsCapabilityConfig | undefined = getAgentDeploymentConfig().tts;
     if (tts?.provider !== "google") throw new Error('Agent capability "tts" is not configured for the Google provider.');
-    interaction = await raceAbortOrThrow(
-      client.interactions.create(
-        {
-          model: tts.model,
-          input: [{
-            type: "user_input",
-            content: [speechTextContent(text, composeSpeechStyle(tts.style, languageStyle, tone))],
-          }],
-          response_format: { type: "audio" },
-          generation_config: speechGenerationConfig(tts.voice),
-        },
-        {
-          timeout: GEMINI_SPEECH_REQUEST_TIMEOUT_MS,
-          maxRetries: GEMINI_SPEECH_REQUEST_ATTEMPTS - 1,
-          signal: requestSignal,
-        }
-      ).then((response: SpeechInteractionOutput): SpeechInteractionOutput => {
-        reportGeminiInteractionUsage({ capability: "tts", model: tts.model, usage: response.usage });
-        return response;
-      }),
-      requestSignal
-    );
+    interaction = await runWithTimeoutSignal({
+      signal,
+      timeoutMs: GEMINI_SPEECH_REQUEST_TIMEOUT_MS,
+      run: (requestSignal: AbortSignal): Promise<SpeechInteractionOutput> =>
+        client.interactions.create(
+          {
+            model: tts.model,
+            input: [{
+              type: "user_input",
+              content: [speechTextContent(text, composeSpeechStyle(tts.style, languageStyle, tone))],
+            }],
+            response_format: { type: "audio" },
+            generation_config: speechGenerationConfig(tts.voice),
+          },
+          {
+            timeout: GEMINI_SPEECH_REQUEST_TIMEOUT_MS,
+            maxRetries: GEMINI_SPEECH_REQUEST_ATTEMPTS - 1,
+            signal: requestSignal,
+          }
+        ).then((response: SpeechInteractionOutput): SpeechInteractionOutput => {
+          reportGeminiInteractionUsage({ capability: "tts", model: tts.model, usage: response.usage });
+          return response;
+        }),
+    });
   } catch (error: unknown) {
     return speechRequestFailed(GEMINI_SPEECH_ERROR_LABEL, signal, error);
   }

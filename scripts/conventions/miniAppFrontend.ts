@@ -60,6 +60,11 @@ function moduleReferences(source: ts.SourceFile): readonly FileReference[] {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
       node.moduleSpecifier !== undefined && ts.isStringLiteral(node.moduleSpecifier)) {
       push(node, node.moduleSpecifier.text);
+    } else if (ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression !== undefined &&
+      ts.isStringLiteralLike(node.moduleReference.expression)) {
+      push(node, node.moduleReference.expression.text);
     } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) &&
       ts.isStringLiteral(node.argument.literal)) {
       push(node, node.argument.literal.text);
@@ -72,6 +77,12 @@ function moduleReferences(source: ts.SourceFile): readonly FileReference[] {
     ts.forEachChild(node, visit);
   };
   visit(source);
+  for (const reference of [...source.referencedFiles, ...source.typeReferenceDirectives]) {
+    references.push({
+      specifier: reference.fileName,
+      line: source.getLineAndCharacterOfPosition(reference.pos).line + 1,
+    });
+  }
   return references;
 }
 
@@ -112,6 +123,12 @@ async function fileReferences(
   switch (extname(trackedPath)) {
     case ".ts":
     case ".tsx":
+    case ".mts":
+    case ".cts":
+    case ".js":
+    case ".jsx":
+    case ".mjs":
+    case ".cjs":
       return moduleReferences(await parseSourceFile(path, preloadedText));
     case ".html":
       return assetReferences(preloadedText ?? await Bun.file(path).text(), HTML_REFERENCE_PATTERN);

@@ -1,19 +1,24 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RUNTIME_DATA_ROOT_ENV } from "../../packages/consts/environment";
+import { REQUIRED_BUN_VERSION } from "../../scripts/installIsolation/fixture";
 import type {
   InstallerFixture,
   InstallerRunResult,
   PromptReply,
 } from "../../scripts/installIsolation/fixture";
+import {
+  checkServiceDataRoot,
+  checkServiceObservation,
+  checkServiceProtection,
+} from "../../scripts/installIsolation/serviceChecks";
+import type { ServiceCheckDependencies } from "../../scripts/installIsolation/serviceChecks";
 
 const createdRoots: string[] = [];
-let installerCallCount: number = 0;
 
 function cleanMockRoots(): void {
-  installerCallCount = 0;
   for (const root of createdRoots) rmSync(root, { recursive: true, force: true });
   createdRoots.length = 0;
 }
@@ -23,13 +28,13 @@ async function mockWriteText(path: string, content: string, mode?: number): Prom
   if (mode !== undefined) chmodSync(path, mode);
 }
 
-mock.module("../../scripts/installIsolation/fixture", () => ({
-  REQUIRED_BUN_VERSION: "1.4.4",
-  writeText: mockWriteText,
-  systemdPrompt: (): PromptReply => ({ prompt: "systemd", reply: "y" }),
-  validTelegram: (): string => JSON.stringify({ bot_token: "1:mock", super_admin_user_id: 1 }),
-  cleanupFixtures: cleanMockRoots,
-  createFixture: async (): Promise<InstallerFixture> => {
+function createFakeDependencies(): {
+  readonly dependencies: ServiceCheckDependencies;
+  getCallCount(): number;
+} {
+  let installerCallCount: number = 0;
+
+  async function createFixture(): Promise<InstallerFixture> {
     const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-svc-mock-"));
     createdRoots.push(root);
     const worktree: string = join(root, "work");
@@ -49,22 +54,31 @@ mock.module("../../scripts/installIsolation/fixture", () => ({
     await Bun.write(callLog, "");
     await Bun.write(outboundLog, "");
     return { realRuntime: false, root, worktree, configRoot, backupRoot, runtimeRoot, binRoot, callLog, outboundLog };
-  },
-  runInstaller: async (
+  }
+
+  async function runInstaller(
     fixture: InstallerFixture,
     _replies: readonly PromptReply[] = [],
     environment: Readonly<Record<string, string | undefined>> = {}
-  ): Promise<InstallerRunResult> => {
+  ): Promise<InstallerRunResult> {
     installerCallCount += 1;
-    if ("FAKE_SERVICE_STATE" in environment || "FAKE_SYSTEMCTL_FAIL" in environment ||
-      "FAKE_SERVICE_LOAD_STATE" in environment && environment.FAKE_SERVICE_LOAD_STATE === "masked" ||
-      "FAKE_SERVICE_WORKDIR" in environment || "FAKE_SERVICE_ENTRY" in environment) {
+    if (
+      "FAKE_SERVICE_STATE" in environment ||
+      "FAKE_SYSTEMCTL_FAIL" in environment ||
+      ("FAKE_SERVICE_LOAD_STATE" in environment && environment.FAKE_SERVICE_LOAD_STATE === "masked") ||
+      "FAKE_SERVICE_WORKDIR" in environment ||
+      "FAKE_SERVICE_ENTRY" in environment
+    ) {
       await Bun.write(fixture.outboundLog, "systemctl:guarded:show\n");
       return { exitCode: 1, output: "service check rejected" };
     }
-    if ("FAKE_SERVICE_ENVIRONMENT" in environment || "FAKE_SERVICE_ENVIRONMENT_FILES" in environment ||
-      "FAKE_SERVICE_PASS_ENVIRONMENT" in environment || "FAKE_SERVICE_UNSET_ENVIRONMENT" in environment ||
-      (RUNTIME_DATA_ROOT_ENV in environment && environment[RUNTIME_DATA_ROOT_ENV] === undefined)) {
+    if (
+      "FAKE_SERVICE_ENVIRONMENT" in environment ||
+      "FAKE_SERVICE_ENVIRONMENT_FILES" in environment ||
+      "FAKE_SERVICE_PASS_ENVIRONMENT" in environment ||
+      "FAKE_SERVICE_UNSET_ENVIRONMENT" in environment ||
+      (RUNTIME_DATA_ROOT_ENV in environment && environment[RUNTIME_DATA_ROOT_ENV] === undefined)
+    ) {
       await Bun.write(fixture.outboundLog, "-p Environment\n");
       const envVal: string = environment.FAKE_SERVICE_ENVIRONMENT ?? "";
       const isRootUnset: boolean =
@@ -121,22 +135,76 @@ mock.module("../../scripts/installIsolation/fixture", () => ({
       return { exitCode: 1, output: msg };
     }
     return { exitCode: 0, output: "" };
-  },
-}));
+  }
 
-const {
-  checkServiceDataRoot,
-  checkServiceObservation,
-  checkServiceProtection,
-} = await import("../../scripts/installIsolation/serviceChecks");
+  return {
+    dependencies: {
+      createFixture,
+      runInstaller,
+      systemdPrompt: (): PromptReply => ({ prompt: `systemd ${REQUIRED_BUN_VERSION}`, reply: "y" }),
+      validTelegram: (): string => JSON.stringify({ bot_token: "1:mock", super_admin_user_id: 1 }),
+      writeText: mockWriteText,
+    },
+    getCallCount: (): number => installerCallCount,
+  };
+}
 
 afterEach(cleanMockRoots);
 
 describe("installIsolation/serviceChecks 状态断言路径", () => {
   test("checkServiceDataRoot、checkServiceProtection 与 checkServiceObservation 全场景断言", async () => {
-    await checkServiceDataRoot();
-    await checkServiceProtection();
-    await checkServiceObservation();
-    expect(installerCallCount).toBeGreaterThan(0);
+    const fake = createFakeDependencies();
+    await checkServiceDataRoot(fake.dependencies);
+    await checkServiceProtection(fake.dependencies);
+    await checkServiceObservation(fake.dependencies);
+    expect(fake.getCallCount()).toBeGreaterThan(0);
+  });
+
+  test("checkServiceProtection 与 checkServiceObservation 在状态不变量被破坏时拒绝通过", async () => {
+    const fake = createFakeDependencies();
+    await expect(
+      checkServiceProtection({
+        ...fake.dependencies,
+        runInstaller: async (): Promise<InstallerRunResult> => ({ exitCode: 0, output: "" }),
+      })
+    ).rejects.toThrow("运行中、未知状态或路径不符时必须失败");
+
+    await expect(
+      checkServiceProtection({
+        ...fake.dependencies,
+        runInstaller: async (fixture: InstallerFixture): Promise<InstallerRunResult> => {
+          await Bun.write(fixture.outboundLog, "skipped\n");
+          return { exitCode: 1, output: "rejected" };
+        },
+      })
+    ).rejects.toThrow("服务保护必须实际查询 fake systemctl");
+
+    await expect(
+      checkServiceObservation({
+        ...fake.dependencies,
+        runInstaller: async (
+          fixture: InstallerFixture,
+          replies: readonly PromptReply[] = [],
+          environment: Readonly<Record<string, string | undefined>> = {}
+        ): Promise<InstallerRunResult> => {
+          const result: InstallerRunResult = await fake.dependencies.runInstaller(fixture, replies, environment);
+          if (result.exitCode !== 0) {
+            rmSync(fixture.backupRoot, { recursive: true, force: true });
+            mkdirSync(fixture.backupRoot, { recursive: true });
+          }
+          return result;
+        },
+      })
+    ).rejects.toThrow("仅完整确认稳定后才能清理备份");
+
+    await expect(
+      checkServiceObservation({
+        ...fake.dependencies,
+        runInstaller: async (fixture: InstallerFixture): Promise<InstallerRunResult> => {
+          await Bun.write(fixture.outboundLog, "systemctl:guarded:show\nsystemctl:guarded:start \n-p NRestarts\n");
+          return { exitCode: 0, output: "" };
+        },
+      })
+    ).rejects.toThrow("观察必须覆盖两个实际重启间隔");
   });
 });

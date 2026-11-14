@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { CONFIG_ROOT_ENV, RUNTIME_DATA_ROOT_ENV } from "../../packages/consts/environment";
 import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH, PROJECT_ROOT } from "../../packages/consts/paths";
 import {
@@ -14,7 +14,7 @@ import {
 } from "../../scripts/checkCoverageMetrics";
 import { checkFixtureRoots } from "../../scripts/checkInstallIsolation";
 import { checkInstallScriptSyntax } from "../../scripts/checkInstallScriptSyntax";
-import { declaredCoverageMetrics } from "../../scripts/conventions/coverageMetrics";
+import { METRIC_SENTENCE_FILES, declaredCoverageMetrics } from "../../scripts/conventions/coverageMetrics";
 import type { CoverageMetrics } from "../../scripts/conventions/coverageMetrics";
 import { FAULT_INJECTION_TESTS } from "../../scripts/conventions/faultInjectionSuite";
 import { copyFixtureTree } from "../../scripts/fixtures/copyTree";
@@ -24,7 +24,7 @@ import { cleanupFixtures } from "../../scripts/installIsolation/fixture";
 import { runReleaseCli } from "../../scripts/release";
 import type { ReleaseAsset } from "../../scripts/release/assets";
 import type { CommandResult, ReleaseCommand } from "../../scripts/release/command";
-import { buildFaultInjectionCommand } from "../../scripts/testFaultInjection";
+import { runFaultInjectionSuite } from "../../scripts/testFaultInjection";
 
 const tempRoots: string[] = [];
 
@@ -80,16 +80,7 @@ describe("scripts CLI 与隔离脚本直测", () => {
 
   test("checkCoverageMetrics 覆盖格式化、声明缺失失败、当前一致通过与过期差异返回 1", async () => {
     const malformedRoot: string = makeTempRoot("copy-ninjia-cov-empty-");
-    for (const rel of [
-      "README.md",
-      "docs/en/README.md",
-      "docs/ja/README.md",
-      "docs/cn/05-dev-workflow.md",
-      "docs/en/05-dev-workflow.md",
-      "docs/ja/05-dev-workflow.md",
-      "public/coverage_light.svg",
-      "public/coverage_dark.svg",
-    ]) {
+    for (const rel of METRIC_SENTENCE_FILES) {
       mkdirSync(join(malformedRoot, rel, ".."), { recursive: true });
       await Bun.write(join(malformedRoot, rel), "");
     }
@@ -135,20 +126,55 @@ describe("scripts CLI 与隔离脚本直测", () => {
     expect(await checkInstallScriptSyntax(badRoot)).toBe(1);
   });
 
-  test("testFaultInjection buildFaultInjectionCommand 把 --isolate 与透传参数放在套件清单前", () => {
-    expect(buildFaultInjectionCommand()).toEqual([
-      Bun.argv[0]!,
-      "test",
-      "--isolate",
-      ...FAULT_INJECTION_TESTS,
-    ]);
-    expect(buildFaultInjectionCommand(["--bail=1"])).toEqual([
-      Bun.argv[0]!,
-      "test",
-      "--isolate",
-      "--bail=1",
-      ...FAULT_INJECTION_TESTS,
-    ]);
+  test("testFaultInjection runFaultInjectionSuite 把 --isolate 与透传参数放在套件清单前", async () => {
+    const spawnCalls: { readonly cmd: readonly string[]; readonly cwd: string | undefined }[] = [];
+    const spawnSpy = spyOn(Bun, "spawn").mockImplementation(((
+      cmdOrOptions: unknown,
+      options?: { readonly cwd?: string }
+    ): ReturnType<typeof Bun.spawn> => {
+      if (Array.isArray(cmdOrOptions)) {
+        spawnCalls.push({ cmd: cmdOrOptions as readonly string[], cwd: options?.cwd });
+      } else {
+        const opts: { readonly cmd: readonly string[]; readonly cwd?: string } =
+          cmdOrOptions as { readonly cmd: readonly string[]; readonly cwd?: string };
+        spawnCalls.push({ cmd: opts.cmd, cwd: opts.cwd });
+      }
+      return { exited: Promise.resolve(42) } as ReturnType<typeof Bun.spawn>;
+    }) as typeof Bun.spawn);
+    try {
+      const code: number = await runFaultInjectionSuite(["--bail=1"]);
+      expect(code).toBe(42);
+      expect(spawnCalls).toHaveLength(1);
+      expect(spawnCalls[0]!.cmd).toEqual([
+        Bun.argv[0]!,
+        "test",
+        "--isolate",
+        "--bail=1",
+        ...FAULT_INJECTION_TESTS,
+      ]);
+      expect(resolve(spawnCalls[0]!.cwd!)).toBe(PROJECT_ROOT);
+    } finally {
+      spawnSpy.mockRestore();
+    }
+  });
+
+  test("scripts/build 与 scripts/perf/identityDatabase 在非入口导入时无副作用", async () => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(((): never => {
+      throw new Error("unexpected process.exit on import");
+    }) as never);
+    const spawnSyncSpy = spyOn(Bun, "spawnSync");
+    const spawnSpy = spyOn(Bun, "spawn");
+    try {
+      await import("../../scripts/build");
+      await import("../../scripts/perf/identityDatabase");
+      expect(exitSpy).not.toHaveBeenCalled();
+      expect(spawnSyncSpy).not.toHaveBeenCalled();
+      expect(spawnSpy).not.toHaveBeenCalled();
+    } finally {
+      spawnSpy.mockRestore();
+      spawnSyncSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
   });
 
   test("checkBinary 的 assertNoSourceMaps、assertPackagedResourcesMatch 与 checkFixtureRoots 行为正确", async () => {
@@ -260,17 +286,22 @@ describe("scripts CLI 与隔离脚本直测", () => {
     expect(logs[0]).toContain("Verified 0 release assets for 1.2.3 (tree123).");
 
     logs.length = 0;
+    const publishedNotesPaths: string[] = [];
     await runReleaseCli({
-      args: ["publish", "--version", "1.2.3", "--platforms", "linux-x64", "--notes-file", "/tmp/notes.md"],
+      args: ["publish", "--version", "1.2.3", "--platforms", "linux-x64", "--notes-file", "notes/v1.md"],
       projectRoot: "/repo",
       createCommand: makeMockCommand("dev"),
       readSourceTree: (): string => "tree123",
       verifyAssets: async (): Promise<readonly ReleaseAsset[]> => assetFixture,
-      publish: async (): Promise<string> => "https://example.invalid/release/v1.2.3",
+      publish: async (options: { readonly notesPath: string }): Promise<string> => {
+        publishedNotesPaths.push(options.notesPath);
+        return "https://example.invalid/release/v1.2.3";
+      },
       log: (line: string): void => {
         logs.push(line);
       },
     });
+    expect(publishedNotesPaths).toEqual(["/repo/notes/v1.md"]);
     expect(logs[0]).toContain("https://example.invalid/release/v1.2.3");
   });
 });

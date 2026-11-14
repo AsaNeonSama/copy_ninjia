@@ -149,6 +149,10 @@ describe("Mini App 前端格式化与展示组件", () => {
   });
 
   test("格式化、时间多语言、字符串清洗与展示组件渲染覆盖全枚举分支", () => {
+    expect(formatUptime(0)).toBe("0m 0s");
+    expect(formatUptime(-5)).toBe("0m 0s");
+    expect(formatUptime(Number.NaN)).toBe("0m 0s");
+    expect(formatUptime(Number.POSITIVE_INFINITY)).toBe("0m 0s");
     expect(formatUptime(90_061_000)).toBe("1d 1h 1m");
     expect(formatUptime(3_661_000)).toBe("1h 1m 1s");
     expect(formatUptime(65_000)).toBe("1m 5s");
@@ -158,29 +162,48 @@ describe("Mini App 前端格式化与展示组件", () => {
     ).toBe("1792934567.png");
 
     const sampleTimestampMs: number = 1_700_000_000_000;
+    const midnightTimestampMs: number = new Date(2024, 0, 2, 0, 5, 9).getTime();
     expect(formatTime(0)).toBe("-");
     expect(formatTime(-1)).toBe("-");
     expect(formatTime(Number.NaN)).toBe("-");
     expect(formatTime(sampleTimestampMs)).toBe(
-      new Date(sampleTimestampMs).toLocaleString("zh-CN", { hour12: false })
+      new Date(sampleTimestampMs).toLocaleString("zh-CN", { hourCycle: "h23" })
     );
     expect(formatTime(sampleTimestampMs, "en")).toBe(
-      new Date(sampleTimestampMs).toLocaleString("en-US", { hour12: false })
+      new Date(sampleTimestampMs).toLocaleString("en-US", { hourCycle: "h23" })
     );
     expect(formatTime(sampleTimestampMs, "ja")).toBe(
-      new Date(sampleTimestampMs).toLocaleString("ja-JP", { hour12: false })
+      new Date(sampleTimestampMs).toLocaleString("ja-JP", { hourCycle: "h23" })
     );
     expect(formatClockTime(0)).toBe("-");
     expect(formatClockTime(-1)).toBe("-");
     expect(formatClockTime(Number.NaN)).toBe("-");
+    expect(formatClockTime(midnightTimestampMs)).toBe("00:05:09");
+    expect(formatClockTime(midnightTimestampMs, "en")).toBe("00:05:09");
+    expect(formatClockTime(midnightTimestampMs, "ja")).toBe("00:05:09");
     expect(formatClockTime(sampleTimestampMs)).toBe(
-      new Date(sampleTimestampMs).toLocaleTimeString("zh-CN", { hour12: false })
+      new Date(sampleTimestampMs).toLocaleTimeString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      })
     );
     expect(formatClockTime(sampleTimestampMs, "en")).toBe(
-      new Date(sampleTimestampMs).toLocaleTimeString("en-US", { hour12: false })
+      new Date(sampleTimestampMs).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      })
     );
     expect(formatClockTime(sampleTimestampMs, "ja")).toBe(
-      new Date(sampleTimestampMs).toLocaleTimeString("ja-JP", { hour12: false })
+      new Date(sampleTimestampMs).toLocaleTimeString("ja-JP", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      })
     );
     expect(formatClockTime(sampleTimestampMs)).toMatch(/^\d{2}:\d{2}:\d{2}$/u);
 
@@ -210,6 +233,10 @@ describe("Mini App 前端格式化与展示组件", () => {
         20
       )
     ).toBe("念云｜工单是不回的｜片是必须看的｜有问题…");
+    expect(formatGalleryFileSize(0)).toBe("0.0 KiB");
+    expect(formatGalleryFileSize(-10)).toBe("0.0 KiB");
+    expect(formatGalleryFileSize(Number.NaN)).toBe("0.0 KiB");
+    expect(formatGalleryFileSize(Number.POSITIVE_INFINITY)).toBe("0.0 KiB");
     expect(formatGalleryFileSize(2_048)).toBe("2.0 KiB");
     expect(formatGalleryFileSize(2 * 1024 * 1024)).toBe("2.00 MiB");
     expect(

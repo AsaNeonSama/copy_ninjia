@@ -32,7 +32,7 @@
 `/copy` 命令族与系统的随机复读功能共享相同的消息处理规则：
 - **文本与图注**：统一作为普通字符串处理，包含链接或 `@username` 的内容同样执行变换。纯文字消息会重新发出，链接与 `@username` 依然由 Telegram 客户端重新识别，并继承原消息的链接预览开关设置。
 - **样式实体丢弃**：粗体、下划线、隐藏链接、剧透遮罩、自定义表情等富文本样式不会保留；原消息中带有剧透遮罩的文字会以明文形式直接发出。
-- **富媒体处理**：图片、视频、文件、贴纸等媒体由 Telegram 服务端直接复制转发；若带有图注（Caption），则将图注替换为变换后的文本，机器人本地不下载任何文件。付费媒体（Paid Media）无法直接复制，仅转发文字图注。
+- **富媒体处理**：图片、视频、文件、贴纸等媒体由 Telegram 服务端直接复制转发；若带有图注（Caption），则将图注替换为变换后的文本，机器人本地不下载任何文件。付费媒体（Paid Media）无法直接复制，有图注时仅转发文字图注，无图注时忽略不发。
 - **纯非文本消息**：投票、骰子、地理位置、名片联系人等既没有文字也没有媒体文件的特殊消息，将原样转发。
 - **命令防循环拦截**：变换前或变换后的文本若命中 Telegram 可渲染的斜杠命令，整条消息不予发送。
 - **超长保护**：文本变换后若超出 Telegram 消息正文或图注的字数上限，整条消息不予发送。
@@ -188,7 +188,7 @@
 
 #### 4. 群问答：`/qa` 全生命周期
 - **表单录入交互**：
-  - 发送 `/qa set` 后，系统会为当前群开启问答录入表单会话（需具备 `isCanControllQaPermission` 权限）。表单开启后，仅接受该发起者本人发送的后续内容（支持频道身份与匿名管理员）。
+  - 发送 `/qa set` 后，系统会为当前群开启问答录入表单会话（需具备 `isCanControllQaPermission` 权限），并在开启论坛话题的超级群中绑定触发命令所在的话题（`message_thread_id`）。表单开启后，仅在同一群、同一论坛话题下接受该发起者本人发送的后续录入内容（支持频道身份与匿名管理员），其他话题中的消息不会被认领或删除。
   - 录入内容必须以行首的 `QA_QUESTION_LABELS`（`问题:` / `问题：`）或 `QA_ANSWER_LABELS`（`回答:` / `回答：` / `答案:` / `答案：`）为标识，可分两条消息发送，也可合并在一条消息中发送。
   - 回答内容中的 ```` ```json ```` 代码块会被原样字面存盘，后续触发直答时会原样发出；围栏本身计入字数限制 `CHAT_QA_ANSWER_MAX_CHARS`。
   - 问题整条、回答在代码块之外不能含有会显示成可点击命令的斜杠写法（如 `/start`、`/etc/hosts`）：与超长一样，该项不会被记录，表单保留并回执提示改写；代码块内的命令示例照常收下。
@@ -334,7 +334,7 @@
 
 ### 1. 认证与安全边界
 - **单页入口与前端包门禁（`MINI_APP_REJECT_HTML_PATH` / `MINI_APP_PAGE_GATE_COOKIE_NAME`）**：单页路由（`/`、`/index.html` 及其子路径别名）与前端打包静态资源（`/chunk-*` 等，匹配 `MINI_APP_BUNDLE_ASSET_ROUTE_PATTERN`）统一由 `packages/mini-app-api-server/auth/pageGate.ts` 把守；未携带合法超级管理员 `initData` 请求头或有效 `MINI_APP_PAGE_GATE_COOKIE_NAME`（`HttpOnly; SameSite=Lax`，45 分钟 `MINI_APP_PAGE_GATE_COOKIE_MAX_AGE_SECONDS`）门禁 Cookie，或处于 30 分钟密码锁定期时，单页请求返回独立的 `packages/mini-app-api-server/resource/reject.html`（零外部网络请求，在 Telegram WebView 冷启动时从本地提取 `initData` 预检 `./api/auth/precheck` 换取门禁 Cookie 后单次重载），前端打包块请求返回 `401`/`403` JSON，不返回完整前端包（已通过门禁的打包块返回 `MINI_APP_BUNDLE_CACHE_CONTROL`、`CDN-Cache-Control: no-store` 与 `MINI_APP_BUNDLE_VARY_HEADER_VALUE`）。
-- **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求先经 `headerGuard` 校验同源与凭据头形态，再经 `initData` 中间件执行 Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）、登录（`POST /api/auth/login`）与登出（`POST /api/auth/logout`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。当请求携带仍在有效期内的会话令牌且距签发时刻超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发给客户端，同时在会话续期期间放行静态 `initData.auth_date`，直至用户停止访问。换发后旧令牌在 5 分钟内仍可用于并发在途请求；服务端最多保留 `MINI_APP_SESSION_MAX`（8）个会话，每个会话只占一个槽位，满额时淘汰签发或刷新最早的会话。
+- **超级管理员独占（`SUPER_ADMIN_USER_ID`）**：全部业务 API 均只向配置的唯一超级管理员开放。每个请求按路由静态鉴权策略（`MiniAppAuthPolicy`）由同步鉴权管道（`authorizeMiniAppRequest`）依次执行 `headerGuard` 同源与凭据头形态快路径校验，以及 `initData` Telegram WebApp `initData` HMAC-SHA256 签名核验、45 分钟新鲜度检查与 `user.id === SUPER_ADMIN_USER_ID` 比对；除首屏预检（`GET /api/auth/precheck`）、登录（`POST /api/auth/login`）与登出（`POST /api/auth/logout`）外，其余业务 API 均额外要求有效的 45 分钟会话令牌（`X-Mini-App-Session`）。当请求携带仍在有效期内的会话令牌且距签发时刻超过 5 分钟（`MINI_APP_SESSION_REFRESH_THRESHOLD_MS`）时，服务端自动换发新令牌并将有效期顺延 45 分钟（`MINI_APP_SESSION_TTL_MS`），通过 `X-Mini-App-Session` 与 `X-Mini-App-Session-Expires-At` 响应头（及 `/api/auth/precheck` 响应体）下发给客户端，同时在会话续期期间放行静态 `initData.auth_date`，直至用户停止访问。换发后旧令牌在 5 分钟内仍可用于并发在途请求；服务端最多保留 `MINI_APP_SESSION_MAX`（8）个会话，每个会话只占一个槽位，满额时淘汰签发或刷新最早的会话。
 - **首屏凭据与锁定保护**：未绑定验证器时校验 `mini_app.password`；在控制台绑定 Google Authenticator (TOTP) 后（持久化于 `memory/mini-app-totp/totp.json`），登录优先校验当前 30 秒时间步的 6 位动态码。连续输错 3 次将锁定超级管理员 ID 30 分钟、清空会话并清除门禁 Cookie，转入锁定时向超级管理员私聊发送一次含解锁时间与来源 IP 的告警。
 - **受保护图库预览资源**：图库图片读取（`GET|HEAD /api/gallery/file/:fileName`）通过仅在登录或有效会话续接时派发的确定性 `assetToken` 鉴权（支持 7 天不可变缓存与 `ETag` 304 协商），或通过超级管理员 `initData` 配对仍在有效期内的 45 分钟 `session` 会话令牌鉴权。
 
@@ -352,7 +352,7 @@
 | `/api/chats/:chatId/batch-kick` | `POST` | 按 `1..24` 小时回溯窗口在已确证的超级群触发本群 `/batch_kick` 批量清理新成员（优先读取 `chatIsSupergroupById`，未命中时经 `getChat` 探测并回填缓存；普通群以 `notSupergroup` 拒绝，`getChat` 探测失败以 `unavailable` 拒绝）；与群内 `/batch_kick` 命令共享 `batchKickChats` 单飞锁、`batchKickInFlightSeqByChat` 生命周期序号守卫与后台执行器（预检或执行期间若本群历经 `/init disable` 含重开则中止且不写入旧轮结果），完成后写入 `miniAppBatchKickCompletedByChat` 供前端轮询展示战报（删数据类群 teardown 时清除，`lostAuthority` 保留） |
 | `/api/chats/:chatId/targets` | `GET`<br>`POST` | 查询或增删改本群的自定义问答对（`setQa`/`removeQa`）、追着删目标（`addDeleteTarget`/`removeDeleteTarget`）与追着翻目标（`addTranslateTarget`/`removeTranslateTarget`） |
 | `/api/identities/whitelist`<br>`/api/identities/permission`<br>`/api/identities/blocklist` | `GET`/`POST`<br>`POST`<br>`GET`/`POST` | 分页查询与搜索白名单/黑名单（经 `readIdentityPolicyEntries` 冷读且叠加未 ACK 内存写入，不污染主线程热策略 LRU，同时与主线程 `senderIdentity` 发送者缓存双向对齐展示元数据），添加/移出黑白名单，修改白名单条目的细粒度权限或一键全开（`enableAll`） |
-| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | 调用 Telegram `savePreparedKeyboardButton` 准备原生好友/联系人或频道选择器会话，并轮询 `users_shared`/`chat_shared` 导入回执（支持 `whitelist`、`blocklist`、`deleteMessage`、`translate` 四类目标列表） |
+| `/api/picker/prepare`<br>`/api/picker/result` | `POST`<br>`GET` | 调用 Telegram `savePreparedKeyboardButton` 准备原生好友/联系人或频道选择器会话，并轮询 `users_shared`/`chat_shared` 导入回执（支持 `whitelist`、`blocklist`、`deleteMessage`、`translate` 四类目标列表；针对群内 `deleteMessage` 与 `translate` 目标时预先核验该群已开启 `/init`，未初始化返回 `CHAT_NOT_INITIALIZED`） |
 | `/api/gallery`<br>`/api/gallery/upload`<br>`/api/gallery/delete`<br>`/api/gallery/file/:fileName`<br>`/api/gallery/download/:fileName` | `GET`<br>`POST`<br>`POST`<br>`DELETE`<br>`GET`/`HEAD` | 分页浏览专用图库、按原始二进制上传入库（执行与 `/h_image add` 相同的 SHA-256 命名去重与尺寸预检）、删除或下载原图 |
 
 ### 3. 名单与群目标操作的冲突与边界守卫

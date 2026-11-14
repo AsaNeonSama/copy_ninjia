@@ -340,7 +340,7 @@ export interface DeliverCronActionOptions {
  * `send_web_digest` 本轮首次投递时生成摘要，之后复用同一段 MarkdownV2 原文。
  *
  * @param options 定时动作投递上下文（含目标会话 `chatId`、动作 `action`、取消信号 `signal` 及本轮语音/摘要缓存）。
- * @returns 本次投递结果分类（`sent`、`aborted`、`transient` 或 `permanent`）。
+ * @returns 本次投递结果分类（`sent`、`aborted`、`retryable` 或 `permanent`）。
  */
 export async function deliverCronAction({
   chatId,

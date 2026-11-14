@@ -1,10 +1,12 @@
 /** 在独立临时部署中核对编译产物：无 source map 与 node_modules、服务端 favicon 与 reject.html 随包且与源文件一致、版本一致、内置图片编解码、各 Worker 与正常排空，并在无系统 Bun 下执行发行包携带的冷迁移与安装器（首次安装与迁移后升级）。 */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { DYNAMIC_CONFIG_DIR_NAME, STATIC_CONFIG_DIR_NAME } from "../packages/consts/configLayout";
+import { CONFIG_ROOT_ENV, RUNTIME_DATA_ROOT_ENV } from "../packages/consts/environment";
 import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH, PROJECT_ROOT } from "../packages/consts/paths";
 import { PROMPT_DIR_NAME, PROMPT_EXAMPLE_DIR_NAME } from "../packages/consts/promptLayout";
+import { pathExists } from "./conventions/pathStat";
 import { fileSha256 } from "./fileSha256";
 import { PRESERVED_MIGRATION_CONFIG_FILES, assertMigrationSourcesUnchanged, deployMigratedFixture, prepareMigratedDeployment } from "./fixtures/migrationDeployment";
 import type { MigratedDeployment } from "./fixtures/migrationDeployment";
@@ -57,20 +59,20 @@ export async function assertPackagedResourcesMatch(
  *
  * @param sourceArg 待检查的发行包路径或相对路径
  */
-export async function runBinaryCheck(
+async function runBinaryCheck(
   sourceArg: string = Bun.argv[2] ?? "dist/copy-ninjia-linux-x64"
 ): Promise<void> {
   const source: string = resolve(sourceArg);
   const root: string = mkdtempSync(join(tmpdir(), "copy-ninjia-binary-check-"));
   const executable: string = join(root, "copy-ninjia");
-  const environment: Record<string, string> = {
+  const environment: Readonly<Record<string, string>> = {
     PATH: "/usr/bin:/bin",
     HOME: root,
-    COPY_NINJIA_DATA_ROOT: root,
-    COPY_NINJIA_CONFIG_ROOT: join(root, "config"),
+    [RUNTIME_DATA_ROOT_ENV]: root,
+    [CONFIG_ROOT_ENV]: join(root, "config"),
   };
 
-  function run(arguments_: string[], extra: Readonly<Record<string, string>> = {}): string {
+  function run(arguments_: readonly string[], extra: Readonly<Record<string, string>> = {}): string {
     const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
       cmd: [executable, ...arguments_], cwd: root, env: { ...environment, ...extra },
       stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
@@ -116,7 +118,7 @@ export async function runBinaryCheck(
     }
   `], { BUN_BE_BUN: "1" });
     // 编译产物不从磁盘上的 node_modules 解析第三方包，发行包不得携带它。
-    if (existsSync(join(root, "node_modules"))) throw new Error("Binary package must not contain node_modules.");
+    if (await pathExists(join(root, "node_modules"))) throw new Error("Binary package must not contain node_modules.");
     const output: string = run([], {
       BUN_OPTIONS: `--preload ${join(import.meta.dir, "../test/fixtures/binaryNetwork.ts")}`,
     });
@@ -176,7 +178,7 @@ export async function runBinaryCheck(
     }
     const started: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
       cmd: [join(worktree, "copy-ninjia")], cwd: worktree,
-      env: { ...environment, COPY_NINJIA_DATA_ROOT: fixture.runtimeRoot, COPY_NINJIA_CONFIG_ROOT: fixture.configRoot,
+      env: { ...environment, [RUNTIME_DATA_ROOT_ENV]: fixture.runtimeRoot, [CONFIG_ROOT_ENV]: fixture.configRoot,
         BUN_OPTIONS: `--preload ${join(import.meta.dir, "../test/fixtures/binaryNetwork.ts")}` },
       stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
     });
@@ -197,8 +199,11 @@ export async function runBinaryCheck(
     await assertMigrationSourcesUnchanged(migrated.sources);
     console.log("Binary check passed: installer and cold migrations without system Bun, built-in image codecs, three Workers and SIGTERM drain.");
   } finally {
-    cleanupFixtures();
-    rmSync(root, { recursive: true, force: true });
+    try {
+      cleanupFixtures();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }
 

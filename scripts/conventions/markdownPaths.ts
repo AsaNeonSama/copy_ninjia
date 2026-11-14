@@ -81,24 +81,3 @@ export function collectMarkdownPathProblemsFromText({
   }
   return problems;
 }
-
-/**
- * 核对一份 Markdown 里反引号包裹的仓库文件与目录路径是否仍在受跟踪集合中。
- *
- * @param projectRoot 仓库根目录绝对路径
- * @param path 被检查 Markdown 文件的绝对路径
- * @param repositoryPaths 有效仓库路径集合
- * @returns 缺失仓库路径的违规信息列表
- */
-export async function collectMarkdownPathProblems(
-  projectRoot: string,
-  path: string,
-  repositoryPaths: ReadonlySet<string>
-): Promise<readonly string[]> {
-  return collectMarkdownPathProblemsFromText({
-    projectRoot,
-    path,
-    source: await Bun.file(path).text(),
-    repositoryPaths,
-  });
-}

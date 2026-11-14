@@ -46,6 +46,7 @@ import {
   MINI_APP_DARK_HEADER_COLOR,
   MINI_APP_FEATURE_KEYS,
   MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
+  MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
   MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES,
   MINI_APP_STATUS_SKELETON_MEMORY_INDICES,
   MINI_APP_TAB_HEIGHT_CLEANUP_MS,
@@ -372,7 +373,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
         exists: true,
         total: 0,
         page: 1,
-        pageSize: 10,
+        pageSize: MINI_APP_GALLERY_DEFAULT_PAGE_SIZE,
         totalPages: 1,
         items: [],
       },
@@ -918,8 +919,8 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(authCss).not.toContain("miniapp-totp-collapse-overflow-reveal");
     expect(statusCss).toContain(".cap-collapse-inner");
     expect(statusCss).toContain(".cap-collapse-wrap.flip-closing");
-    expect(chatsDetailCss).toContain("@keyframes miniapp-tab-slide-forward");
-    expect(chatsDetailCss).toContain("@keyframes miniapp-tab-slide-backward");
+    expect(chatsTargetsCss).toContain("@keyframes miniapp-tab-slide-forward");
+    expect(chatsTargetsCss).toContain("@keyframes miniapp-tab-slide-backward");
     expect(chatsTargetsCss).toContain("animation: miniapp-tab-slide-forward");
     expect(chatsTargetsCss).toContain("animation: miniapp-tab-slide-backward");
     expect(chatsDetailCss).toContain("animation: miniapp-popover-drop-out");
@@ -956,7 +957,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       [overlaysCss, "miniapp-toast-in"], [overlaysCss, "miniapp-toast-out"],
       [overlaysCss, "miniapp-modal-pop"], [overlaysCss, "miniapp-modal-pop-out"],
       [shellCss, "miniapp-popover-drop"], [shellCss, "miniapp-popover-drop-out"],
-      [chatsDetailCss, "miniapp-targets-stamp-in"], [chatsDetailCss, "miniapp-targets-snap-out"],
+      [chatsTargetsCss, "miniapp-targets-stamp-in"], [chatsTargetsCss, "miniapp-targets-snap-out"],
     ] as const) {
       const kfBody: string = new RegExp(`@keyframes\\s+${keyframeName}\\s*\\{([\\s\\S]*?\\}\\s*)\\}`, "u").exec(cssSource)?.[1] ?? "";
       expect(kfBody).toContain("translate3d(");

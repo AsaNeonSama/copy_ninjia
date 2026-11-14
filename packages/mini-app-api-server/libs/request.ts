@@ -1,7 +1,7 @@
 import {
-  MINI_APP_INIT_DATA_HEADER, MINI_APP_MAX_JSON_BODY_BYTES, MINI_APP_PORT_MAX,
+  MINI_APP_MAX_JSON_BODY_BYTES, MINI_APP_PORT_MAX,
   MINI_APP_PORT_MIN, MINI_APP_POSITIVE_INTEGER_PATTERN, MINI_APP_SESSION_HEADER,
-  MINI_APP_SIGNED_INTEGER_PATTERN, MINI_APP_TMA_AUTH_PREFIX,
+  MINI_APP_SIGNED_INTEGER_PATTERN,
 } from "../../consts/miniApp";
 import { readBoundedResponseText } from "../../libs/boundedResponse";
 import { isPlainRecord } from "../../libs/record";
@@ -90,32 +90,6 @@ export function resolveSafeClientIp(request: Request): string {
     }
   }
   return extractValidClientIp(request.headers.get("x-real-ip")) ?? "127.0.0.1";
-}
-
-/**
- * 从请求中提取 Telegram WebApp `initData`（默认仅接受请求头；仅当传入 `queryUrl` 且方法为 `GET`/`HEAD` 时允许从 `initData` 查询参数提取以供 `<img>` 标签加载受保护图库与 SVG 资源）。
- * @param request HTTP 请求对象。
- * @param queryUrl 允许在 `GET`/`HEAD` 请求中回退读取查询参数时传入的已解析 `URL`；不允许时为 `null`。
- * @returns 提取出的 `initData` 原始查询串。
- */
-export function extractInitDataFromHeaders(
-  request: Request,
-  queryUrl: URL | null = null
-): string {
-  const customHeader: string | null = request.headers.get(MINI_APP_INIT_DATA_HEADER);
-  if (customHeader !== null && customHeader.trim().length > 0) return customHeader.trim();
-  const authHeader: string | null = request.headers.get("authorization");
-  if (authHeader?.toLowerCase().startsWith(MINI_APP_TMA_AUTH_PREFIX) === true) {
-    return authHeader.slice(MINI_APP_TMA_AUTH_PREFIX.length).trim();
-  }
-  if (queryUrl !== null) {
-    const method: string = request.method.toUpperCase();
-    if (method === "GET" || method === "HEAD") {
-      const queryInitData: string | null = queryUrl.searchParams.get("initData");
-      if (queryInitData !== null && queryInitData.trim().length > 0) return queryInitData.trim();
-    }
-  }
-  return "";
 }
 
 /**

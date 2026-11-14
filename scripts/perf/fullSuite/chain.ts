@@ -92,6 +92,7 @@ import { setChatQa } from "../../../packages/infra/qaStore";
 import { recordJoinLog } from "../../../packages/infra/joinLog";
 import {
   deriveMiniAppAssetToken,
+  deriveMiniAppInitDataSecretKey,
   deriveMiniAppPageGateSecretKey,
   issueMiniAppPageGateToken,
 } from "../../../packages/libs/miniAppAuth";
@@ -261,6 +262,7 @@ const MINI_APP_CHAIN_DEPENDENCIES: MiniAppChainDependencies = {
   resetMiniAppTotpMemoryCache,
   serveMiniAppRejectHtml,
   evaluateMiniAppPageGateRequest,
+  deriveMiniAppInitDataSecretKey,
   deriveMiniAppPageGateSecretKey,
   issueMiniAppPageGateToken,
   deriveMiniAppAssetToken,

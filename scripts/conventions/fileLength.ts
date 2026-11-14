@@ -1,7 +1,7 @@
 /** 手写源码的文件长度硬上限；超过后必须按职责拆分。 */
 export const MAX_SOURCE_LINES: number = 1_024;
 
-/** Mini App 前端 `.tsx`、`.css` 与 `.html` 手写源码的文件长度硬上限；超过后必须按职责拆分。 */
+/** Mini App 前端 `.tsx`、`.css` 与全仓 `.html` 手写源码的文件长度硬上限；超过后必须按职责拆分。 */
 export const MAX_FRONTEND_SOURCE_LINES: number = 1_536;
 
 /**

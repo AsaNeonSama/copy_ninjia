@@ -1,11 +1,7 @@
 import { MINI_APP_BIDI_CONTROL_CHARS_PATTERN } from "../consts/miniApp";
-import { getMiniAppTranslations } from "../i18n";
-import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type {
   MiniAppCapabilityDetailItem,
   MiniAppCapabilityStatus,
-  MiniAppFeatureDisplayMeta,
-  MiniAppFeatureKey,
   MiniAppLanguage,
 } from "../types/miniApp";
 
@@ -65,13 +61,15 @@ export function buildMiniAppGalleryDownloadFileName(
 }
 
 /**
- * 将运行时长毫秒数格式化为易读的中文天/时/分/秒文本。
+ * 将运行时长毫秒数格式化为紧凑的 `Xd Xh Xm` / `Xh Xm Xs` / `Xm Xs` 文本；非有限或非正值按 `0m 0s` 处理。
  *
  * @param uptimeMs 运行时长毫秒数
  * @returns 格式化后的时长字符串
  */
 export function formatUptime(uptimeMs: number): string {
-  const totalSeconds: number = Math.max(0, Math.floor(uptimeMs / 1000));
+  const safeMs: number =
+    Number.isFinite(uptimeMs) && uptimeMs > 0 ? uptimeMs : 0;
+  const totalSeconds: number = Math.floor(safeMs / 1000);
   const days: number = Math.floor(totalSeconds / 86_400);
   const hours: number = Math.floor((totalSeconds % 86_400) / 3600);
   const minutes: number = Math.floor((totalSeconds % 3600) / 60);
@@ -99,10 +97,11 @@ export function formatMemoryMb(bytes: number): string {
  * @returns 格式化后的文件体积文本
  */
 export function formatGalleryFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KiB`;
+  const safeBytes: number = Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+  if (safeBytes < 1024 * 1024) {
+    return `${(safeBytes / 1024).toFixed(1)} KiB`;
   }
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+  return `${(safeBytes / (1024 * 1024)).toFixed(2)} MiB`;
 }
 
 /**
@@ -129,7 +128,7 @@ const ZH_CN_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
     hour: "numeric",
     minute: "numeric",
     second: "numeric",
-    hour12: false,
+    hourCycle: "h23",
   }
 );
 
@@ -143,7 +142,7 @@ const EN_US_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
     hour: "numeric",
     minute: "numeric",
     second: "numeric",
-    hour12: false,
+    hourCycle: "h23",
   }
 );
 
@@ -157,7 +156,7 @@ const JA_JP_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
     hour: "numeric",
     minute: "numeric",
     second: "numeric",
-    hour12: false,
+    hourCycle: "h23",
   }
 );
 
@@ -165,10 +164,10 @@ const JA_JP_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
 const ZH_CN_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
   "zh-CN",
   {
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
   }
 );
 
@@ -176,10 +175,10 @@ const ZH_CN_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
 const EN_US_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
   "en-US",
   {
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
   }
 );
 
@@ -187,10 +186,10 @@ const EN_US_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
 const JA_JP_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
   "ja-JP",
   {
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
   }
 );
 
@@ -236,34 +235,6 @@ export function formatClockTime(
     case "zh":
       return ZH_CN_CLOCK_TIME_FORMATTER.format(timestampMs);
   }
-}
-
-/**
- * 根据群功能键返回指定语言的前端展示标题、命令名与功能描述。
- *
- * @param key 群功能开关枚举键
- * @param language 界面语言（默认 `"zh"`）
- * @returns 展示元数据
- */
-export function getFeatureDisplayMeta(
-  key: MiniAppFeatureKey,
-  language: MiniAppLanguage = "zh"
-): MiniAppFeatureDisplayMeta {
-  return getMiniAppTranslations(language).chats.featureMeta[key];
-}
-
-/**
- * 根据白名单权限键返回指定语言的展示名称。
- *
- * @param key 白名单权限键
- * @param language 界面语言（默认 `"zh"`）
- * @returns 权限展示名称
- */
-export function getPermissionDisplayLabel(
-  key: WhitelistPermissionKey,
-  language: MiniAppLanguage = "zh"
-): string {
-  return getMiniAppTranslations(language).permissionDrawer.labels[key];
 }
 
 /**

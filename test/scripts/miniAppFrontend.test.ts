@@ -108,4 +108,18 @@ describe("Mini App 前端目录引用边界", () => {
       expect(problems).toContainEqual(expect.stringContaining(`MINI_APP_FRONTEND_ENTRY_IMPORTS registers ${importer}`));
     }
   });
+
+  test("import = require(...)、三斜线引用指令与 .mjs/.jsx 后缀同样受目录边界约束", async () => {
+    const { root, tracked } = await projectFixture({
+      "packages/mini-app-frontend/legacy.mjs": 'import x from "../consts/whitelist";\nexport default x;\n',
+      "packages/mini-app-frontend/widget.jsx":
+        '/// <reference path="../types/config.ts" />\nimport x = require("../consts/paths");\nexport const w = x;\n',
+    });
+    const problems: readonly string[] = await collectMiniAppFrontendBoundaryProblems(root, tracked);
+    expect(problems).toEqual([
+      expect.stringContaining("packages/mini-app-frontend/legacy.mjs:1 references packages/consts/whitelist"),
+      expect.stringContaining("packages/mini-app-frontend/widget.jsx:2 references packages/consts/paths"),
+      expect.stringContaining("packages/mini-app-frontend/widget.jsx:1 references packages/types/config.ts"),
+    ]);
+  });
 });

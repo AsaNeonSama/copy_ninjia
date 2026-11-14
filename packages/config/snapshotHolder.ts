@@ -1,6 +1,6 @@
 /**
  * `config/dynamic/*.json` 单例快照的冷路径加载与补齐模板；
- * 各配置模块仍保留单态读取函数，避免热读入口因泛型复用发生多态退化。
+ * 各配置模块按单态读取各自快照，不共用泛型读取入口，避免热读发生多态退化。
  */
 
 import { readJsonInput } from "../libs/inputValidation";

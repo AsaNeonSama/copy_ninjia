@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   isTimeoutAbort,
   raceAbort,
@@ -215,21 +215,43 @@ describe("runWithTimeoutSignal", () => {
     expect(seenSignal?.aborted).toBeFalse();
   });
 
-  test("调用方信号预先中止时立即抛出且不调用 run", (): void => {
+  test("调用方信号预先中止时以归一化 Error 拒绝且不调用 run 或分配超时信号", async (): Promise<void> => {
     const controller: AbortController = new AbortController();
     controller.abort("pre-aborted");
     let called: boolean = false;
-    expect((): Promise<string> =>
-      runWithTimeoutSignal({
+    const timeoutSpy = spyOn(AbortSignal, "timeout");
+    try {
+      const pending: Promise<string> = runWithTimeoutSignal({
         signal: controller.signal,
         timeoutMs: 60_000,
         run: async (): Promise<string> => {
           called = true;
           return "never";
         },
-      })
-    ).toThrow("pre-aborted");
+      });
+      await expect(pending).rejects.toMatchObject({
+        message: "AbortSignal was aborted with a non-Error reason.",
+        cause: "pre-aborted",
+      });
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+    expect(timeoutSpy).not.toHaveBeenCalled();
     expect(called).toBeFalse();
+  });
+
+  test("run 同步抛出非 Error 值时返回拒绝的 Promise 并归一化原因", async (): Promise<void> => {
+    await expect(
+      runWithTimeoutSignal({
+        timeoutMs: 60_000,
+        run: (): Promise<string> => {
+          throw "sync boom";
+        },
+      })
+    ).rejects.toMatchObject({
+      message: "Abortable task rejected with a non-Error value.",
+      cause: "sync boom",
+    });
   });
 
   test("调用方信号在中途取消时立即拒绝", async (): Promise<void> => {

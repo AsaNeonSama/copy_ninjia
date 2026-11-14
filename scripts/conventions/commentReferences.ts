@@ -9,9 +9,9 @@ import { pathExists, statOptionalPath } from "./pathStat";
  * 展开一层后的再导出）。不判断语义是否贴切，也不要求所有引用都写全路径。
  */
 
-/** 只认这几种写法：`<路径>.ts 的 <符号>`、`<路径>.ts 里的 <符号>` 与 `<路径>.ts 中的 <符号>`。 */
+/** 只认这几种写法：`<路径>.ts/.tsx 的 <符号>`、`<路径>.ts/.tsx 里的 <符号>` 与 `<路径>.ts/.tsx 中的 <符号>`。 */
 const REFERENCE_PATTERN: RegExp =
-  /([A-Za-z0-9_./-]+\.ts)\s*(?:里|中)?\s*的\s*`?([A-Za-z_$][A-Za-z0-9_$]*)/g;
+  /([A-Za-z0-9_./-]+\.tsx?)\s*(?:里|中)?\s*的\s*`?([A-Za-z_$][A-Za-z0-9_$]*)/g;
 
 /**
  * 不参与核对的引用：注释里写的是常量名前缀而不是完整符号（如
@@ -37,7 +37,7 @@ async function reexportTargets(
     const specifier: string | undefined = match[1];
     if (specifier === undefined) continue;
     const base: string = join(path, "..", specifier);
-    for (const candidate of [`${base}.ts`, join(base, "index.ts")]) {
+    for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")]) {
       if (fileTexts?.has(candidate) === true || (await statOptionalPath(candidate))?.isFile() === true) {
         targets.push(candidate);
       }
@@ -71,7 +71,8 @@ async function declaresSymbol({
   fileTexts,
 }: DeclaresSymbolOptions): Promise<boolean> {
   const source: string = fileTexts?.get(path) ?? await Bun.file(path).text();
-  if (new RegExp(`\\b${symbol}\\b`).test(source)) return true;
+  const escaped: string = RegExp.escape(symbol);
+  if (new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`).test(source)) return true;
   if (depth <= 0) return false;
   for (const target of await reexportTargets(path, source, fileTexts)) {
     if (await declaresSymbol({ path: target, symbol, depth: depth - 1, fileTexts })) return true;

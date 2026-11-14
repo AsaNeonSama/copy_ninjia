@@ -20,7 +20,7 @@ const BUNDLED_TRACKED_FILES: readonly string[] = createReleaseCommand(PROJECT_RO
   "ls-files",
   "--",
   ...RELEASE_BUNDLED_PATHS,
-  RELEASE_INSTALL_SCRIPT_GLOB,
+  `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`,
 ]).stdout
   .split("\n")
   .map((line: string): string => line.trim())
@@ -82,7 +82,12 @@ async function fixture(
 }
 
 function verifiedAssets(root: string, platforms: readonly string[] = ["linux-x64"]): Promise<readonly ReleaseAsset[]> {
-  return verifyReleaseAssets({ directory: root, version: VERSION, platforms, sourceTree: TREE, command: createReleaseCommand(root) });
+  const projectCommand: ReleaseCommand = createReleaseCommand(PROJECT_ROOT);
+  const rootCommand: ReleaseCommand = createReleaseCommand(root);
+  function command(arguments_: readonly string[]): CommandResult {
+    return (arguments_[0] === "git" ? projectCommand : rootCommand)(arguments_);
+  }
+  return verifyReleaseAssets({ directory: root, version: VERSION, platforms, sourceTree: TREE, command });
 }
 
 interface FakeRelease {

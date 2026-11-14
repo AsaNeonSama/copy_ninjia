@@ -14,7 +14,7 @@ export interface StoredIdentityPolicyRow {
   readonly data: string;
 }
 
-/** 只投影黑名单主键时使用的轻量数据库行。 */
+/** 只投影黑白名单主键时使用的轻量数据库行。 */
 export interface StoredIdentityIdRow {
   readonly id: number;
 }

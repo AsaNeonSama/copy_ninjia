@@ -4,7 +4,7 @@ import {
   handleGetStatusRoute,
   handlePostMoodSwitchRoute,
 } from "../handlers/status";
-import { MINI_APP_API_AUTH_POLICY } from "../middleware/chains";
+import { MINI_APP_API_AUTH_POLICY } from "../../consts/miniApp";
 import { withMiniAppAuth } from "../middleware/pipeline";
 
 /**

@@ -54,16 +54,23 @@ export function scheduleDelayedUnmountEffect<T>({
  *
  * @param activeValue 当前激活的值（关闭时为 `null`）
  * @param durationMs 退场期间保留快照的毫秒数（CSS 退场动画时长，或折叠面板的 `MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS`）
+ * @param resetKey 可选上下文重置键；变化时立即清空保留快照以避免跨上下文残留
  * @returns 当前应渲染的值与退场动画状态标志
  */
 export function useDelayedUnmount<T>(
   activeValue: T | null,
-  durationMs: number
+  durationMs: number,
+  resetKey?: string | number
 ): Readonly<DelayedUnmountState<T>> {
+  const prevResetKeyRef: React.RefObject<string | number | undefined> =
+    useRef<string | number | undefined>(resetKey);
   const lastNonNullRef: React.RefObject<T | null> = useRef<T | null>(
     activeValue
   );
-  if (activeValue !== null) {
+  if (prevResetKeyRef.current !== resetKey) {
+    prevResetKeyRef.current = resetKey;
+    lastNonNullRef.current = activeValue;
+  } else if (activeValue !== null) {
     lastNonNullRef.current = activeValue;
   }
   const [unmounted, setUnmounted]: [
@@ -73,6 +80,13 @@ export function useDelayedUnmount<T>(
 
   if (activeValue !== null && unmounted) {
     setUnmounted(false);
+  } else if (
+    resetKey !== undefined &&
+    activeValue === null &&
+    lastNonNullRef.current === null &&
+    !unmounted
+  ) {
+    setUnmounted(true);
   }
 
   useEffect(
@@ -83,7 +97,7 @@ export function useDelayedUnmount<T>(
         lastNonNullRef,
         setUnmounted,
       }),
-    [activeValue, durationMs]
+    [activeValue, durationMs, resetKey]
   );
 
   return {

@@ -130,7 +130,10 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
       permissions: DEFAULT_WHITELIST_PERMISSIONS,
       meta: { firstName: "DbName", lastName: "", username: "db_user" },
     }));
-    const page1 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    const page1 = await listWhitelistEntries({
+      page: 1,
+      pageSize: MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+    });
     expect(page1.items[0]?.displayName).toBe("DbName");
     expect(page1.items[0]?.username).toBe("db_user");
     // DB 带非空 username 的条目回填至 Bot 的 senderIdentity 缓存
@@ -148,7 +151,10 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
       first_name: "LiveBotName",
       last_name: "Chan",
     });
-    const page2 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    const page2 = await listWhitelistEntries({
+      page: 1,
+      pageSize: MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+    });
     expect(page2.items[0]?.displayName).toBe("LiveBotName Chan");
     expect(page2.items[0]?.username).toBe("live_bot_user");
 
@@ -165,7 +171,10 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
       permissions: DEFAULT_WHITELIST_PERMISSIONS,
       meta: { firstName: "StaleHolder", lastName: "", username: "reassigned_alias" },
     }));
-    const page3 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    const page3 = await listWhitelistEntries({
+      page: 1,
+      pageSize: MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+    });
     const staleItem = page3.items.find((item) => item.id === staleEntryId);
     expect(staleItem?.displayName).toBe("StaleHolder");
     expect(staleItem?.username).toBeUndefined();
@@ -181,7 +190,10 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
         meta: { firstName: "PendingMember", lastName: "", username: "pending_user" },
       });
     };
-    const page4 = await listWhitelistEntries({ page: 1, pageSize: 20 });
+    const page4 = await listWhitelistEntries({
+      page: 1,
+      pageSize: MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+    });
     expect(page4.items.some((item) => item.id === pendingId)).toBeTrue();
   });
 

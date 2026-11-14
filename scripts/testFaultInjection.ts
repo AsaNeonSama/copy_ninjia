@@ -10,7 +10,7 @@ import { FAULT_INJECTION_TESTS } from "./conventions/faultInjectionSuite";
  * @param extraArgs 透传给 `bun test` 的命令行额外参数
  * @returns 完整子进程命令行参数数组
  */
-export function buildFaultInjectionCommand(extraArgs: readonly string[] = []): string[] {
+function buildFaultInjectionCommand(extraArgs: readonly string[] = []): string[] {
   return [Bun.argv[0]!, "test", "--isolate", ...extraArgs, ...FAULT_INJECTION_TESTS];
 }
 

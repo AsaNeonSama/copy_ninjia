@@ -73,13 +73,13 @@ export const MINI_APP_IPV4_HOST_PATTERN: RegExp = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
 
 /**
  * Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。
- * 不变量：所有 `/api/*` 鉴权统一读取该请求头。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
+ * 不变量：所有 `/api/*` 鉴权统一读取该请求头。所属模块：`packages/mini-app-api-server/middleware/headerGuard.ts` 与 `packages/mini-app-api-server/middleware/initData.ts`。
  */
 export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 
 /**
  * Mini App 密码认证通过后签发的会话令牌 HTTP 请求头名（小写）。
- * 不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/auth/session.ts`。
+ * 不变量：除 `/api/auth/precheck`、`/api/auth/login` 与受路径白名单豁免的公共资源接口外，业务 `/api/*` 接口均要求携带有效会话令牌。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/auth/session.ts`。
  */
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
@@ -147,7 +147,7 @@ export const MINI_APP_CONTROL_CHARS_PATTERN: RegExp = /\p{Cc}/u;
 
 /**
  * `Authorization: tma <initData>` 请求头的认证方案前缀（小写含尾空格）。
- * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式。所属模块：`packages/mini-app-api-server/libs/request.ts` 与 `packages/mini-app-api-server/middleware/headerGuard.ts`。
+ * 不变量：与 `X-Telegram-Init-Data` 互为备选传递方式。所属模块：`packages/mini-app-api-server/middleware/headerGuard.ts`。
  */
 export const MINI_APP_TMA_AUTH_PREFIX: string = "tma ";
 
@@ -421,20 +421,13 @@ export const MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS: readonly MiniAppChatTargets
 
 /**
  * Mini App 未授权独立拒绝页（`reject.html`）中用于一次性预切分模板的唯一起始标签字面量。
- * 不变量：模板内必须且仅出现一次 `<body>`，预切分保留 `<body` 前缀与 `>` 后缀，运行时禁止使用正则或 `HTMLRewriter` 改写 `<script>`。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
+ * 不变量：模板内必须且仅出现一次 `<body>`，预切分保留 `<body` 前缀与 `>` 后缀。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
  */
 export const MINI_APP_REJECT_HTML_BODY_TAG: string = "<body>";
 
 /**
- * Mini App 独立拒绝页动态诊断属性值的 HTML 字符实体转义匹配表达式（`&`、`"`、`<`、`>`、`'`）。
- * 不变量：配合 `String.prototype.replace` 单次扫描转义全部 HTML 属性保留字符，绝不依赖可变 `lastIndex` 状态。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
- */
-export const MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN: Readonly<RegExp> =
-  /[&"<>']/gu;
-
-/**
  * 首屏预检、登录与登出路由的鉴权策略配置（仅校验请求头快路径、Telegram WebApp 签名、超管 ID 与 30 分钟密码锁定，不要求 45 分钟密码会话）。
- * 不变量：仅供只读策略声明使用，登出路径绝不因先验会话而自动续期。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ * 不变量：仅供 `packages/mini-app-api-server/routes/auth.ts` 只读策略声明使用，登出路径绝不因先验会话而自动续期。所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
  */
 export const MINI_APP_INIT_DATA_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
   allowQueryAuth: false,
@@ -444,7 +437,7 @@ export const MINI_APP_INIT_DATA_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
 
 /**
  * 受保护图库图片资源的专属鉴权策略配置（请求头快路径拦截跨站与直接导航，强制校验 Telegram WebApp 超管签名或登录后派发的资源令牌，未带资源令牌或显式携带会话令牌时强制校验 45 分钟解锁会话）。
- * 不变量：必须允许查询参数凭据与已验资源令牌免会话放行，以支持 7 天静态缓存。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ * 不变量：必须允许查询参数凭据与已验资源令牌免会话放行，以支持 7 天静态缓存；供 `packages/mini-app-api-server/routes/gallery.ts` 与 `packages/mini-app-api-server/server/register.ts` 使用。所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
  */
 export const MINI_APP_PROTECTED_ASSET_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
   allowQueryAuth: true,
@@ -454,7 +447,7 @@ export const MINI_APP_PROTECTED_ASSET_AUTH_POLICY: Readonly<MiniAppAuthPolicy> =
 
 /**
  * 业务 JSON 与写操作 API 的完整双层鉴权策略配置（请求头快路径 + Telegram WebApp 超管签名 + 45 分钟密码会话）。
- * 不变量：禁止从 URL 查询参数读取凭据，防止凭据泄露至访问日志或 Referer。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ * 不变量：禁止从 URL 查询参数读取凭据，防止凭据泄露至访问日志或 Referer；供各 API 路由表与 `packages/mini-app-api-server/server/register.ts` 使用。所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
  */
 export const MINI_APP_API_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
   allowQueryAuth: false,
@@ -464,7 +457,7 @@ export const MINI_APP_API_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
 
 /**
  * 图库原图附件下载路由的完整双层鉴权策略配置（请求头快路径 + Telegram WebApp 超管签名或资源令牌 + 45 分钟密码会话，允许 GET/HEAD 查询参数传凭据）。
- * 不变量：禁止仅凭 `?token=` 跳过 45 分钟密码解锁会话，必须携带有效会话凭据。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ * 不变量：禁止仅凭 `?token=` 跳过 45 分钟密码解锁会话，必须携带有效会话凭据；供 `packages/mini-app-api-server/routes/gallery.ts` 使用。所属模块：`packages/mini-app-api-server/middleware/pipeline.ts`。
  */
 export const MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
   allowQueryAuth: true,

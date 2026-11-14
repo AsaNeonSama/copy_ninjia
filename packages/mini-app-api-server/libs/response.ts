@@ -50,35 +50,50 @@ export function buildNoStoreHeaders(
 const JSON_NO_STORE_HEADERS: Readonly<Record<string, string>> =
   buildNoStoreHeaders("application/json; charset=utf-8");
 
-/** 公开 HTML 页面复用的防缓存响应头。 */
+/** 鉴权通过后的单页 HTML 入口响应复用的防缓存响应头。 */
 const HTML_NO_STORE_HEADERS: Readonly<Record<string, string>> =
   buildNoStoreHeaders("text/html; charset=utf-8");
 
+/** 受保护静态资源与前端打包产物共用的安全响应头集合。 */
+const ASSET_SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": MINI_APP_X_FRAME_OPTIONS_VALUE,
+  "Content-Security-Policy": MINI_APP_CSP_HEADER_VALUE,
+  "Referrer-Policy": "no-referrer",
+  "X-Robots-Tag": "noindex, nofollow, noarchive",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+};
+
 /**
- * 生成允许已鉴权 Telegram WebView 客户端与 Cloudflare CDN 边缘节点持久化缓存 7 天的图片/SVG/图标资源响应头。
- * @param contentType 资源的 `Content-Type` 响应头值。
- * @param contentLength 资源字节长度。
- * @param etag 资源强校验 `ETag` 响应头值。
+ * 生成允许已鉴权 Telegram WebView 客户端与 Cloudflare CDN 边缘节点持久化缓存 7 天的图片/SVG/图标资源响应头；
+ * 仅在传入实体元数据时写入 `Content-Type` 与 `Content-Length`（`304 Not Modified` 省略实体头）。
+ * @param etag 资源校验 `ETag` 响应头值。
+ * @param contentType 资源的 `Content-Type` 响应头值（`304` 时省略）。
+ * @param contentLength 资源字节长度（`304` 时省略）。
  * @returns 响应头键值对。
  */
 function buildAssetCacheHeaders(
-  contentType: string,
-  contentLength: number,
-  etag: string
+  etag: string,
+  contentType?: string,
+  contentLength?: number
 ): Record<string, string> {
+  if (contentType !== undefined && contentLength !== undefined) {
+    return {
+      "Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+      "CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+      "Cloudflare-CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
+      "ETag": etag,
+      ...ASSET_SECURITY_HEADERS,
+      "Content-Type": contentType,
+      "Content-Length": String(contentLength),
+    };
+  }
   return {
     "Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
     "CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
     "Cloudflare-CDN-Cache-Control": MINI_APP_ASSET_CACHE_CONTROL,
     "ETag": etag,
-    "Content-Type": contentType,
-    "Content-Length": String(contentLength),
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": MINI_APP_X_FRAME_OPTIONS_VALUE,
-    "Content-Security-Policy": MINI_APP_CSP_HEADER_VALUE,
-    "Referrer-Policy": "no-referrer",
-    "X-Robots-Tag": "noindex, nofollow, noarchive",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    ...ASSET_SECURITY_HEADERS,
   };
 }
 
@@ -117,7 +132,7 @@ export function htmlResponse(html: string, headOnly: boolean): Response {
 }
 
 /**
- * 构造带浏览器与 CDN 缓存头及 `ETag` 强校验（命中 `If-None-Match` 返回 `304 Not Modified`）的受保护资源或公开图标响应；`HEAD` 请求不带响应体。
+ * 构造带浏览器与 CDN 缓存头及 `ETag` 协商校验（按弱比较命中 `If-None-Match` 时返回 `304 Not Modified` 且不附带 `Content-Type`/`Content-Length`）的受保护资源或公开图标响应；`HEAD` 请求不带响应体。
  * @param request HTTP 请求对象。
  * @param body 响应体（`Bun.BunFile`）。
  * @param meta 已解析资源的 MIME、字节长度与 `ETag`。
@@ -128,51 +143,64 @@ export function serveCachedAssetResponse(
   body: Bun.BunFile,
   meta: Readonly<CachedAssetMeta>
 ): Response {
-  const headers: Record<string, string> = buildAssetCacheHeaders(
-    meta.mimeType,
-    meta.sizeBytes,
-    meta.etag
-  );
   if (ifNoneMatchMatchesEtag(request.headers.get("if-none-match"), meta.etag)) {
-    return new Response(null, { status: 304, headers });
+    return new Response(null, {
+      status: 304,
+      headers: buildAssetCacheHeaders(meta.etag),
+    });
   }
   return new Response(request.method.toUpperCase() === "HEAD" ? null : body, {
     status: 200,
-    headers,
+    headers: buildAssetCacheHeaders(meta.etag, meta.mimeType, meta.sizeBytes),
   });
 }
 
 /**
- * 生成已通过超级管理员门禁校验的前端打包产物响应头（仅允许客户端私有协商重验，严禁 CDN 缓存完整前端包）。
- * @param contentType 资源的 `Content-Type` 响应头值。
- * @param contentLength 资源字节长度。
- * @param etag 资源强校验 `ETag` 响应头值。
+ * 生成已通过超级管理员门禁校验的前端打包产物响应头（仅允许客户端私有协商重验，严禁 CDN 缓存完整前端包）；
+ * 仅在传入实体元数据时写入 `Content-Type` 与 `Content-Length`（`304 Not Modified` 省略实体头）。
+ * @param etag 资源校验 `ETag` 响应头值。
+ * @param contentType 资源的 `Content-Type` 响应头值（`304` 时省略）。
+ * @param contentLength 资源字节长度（`304` 时省略）。
  * @returns 响应头键值对。
  */
 function buildBundleAssetHeaders(
-  contentType: string,
-  contentLength: number,
-  etag: string
+  etag: string,
+  contentType?: string,
+  contentLength?: number
 ): Record<string, string> {
+  if (contentType !== undefined && contentLength !== undefined) {
+    return {
+      "Cache-Control": MINI_APP_BUNDLE_CACHE_CONTROL,
+      "CDN-Cache-Control": "no-store",
+      "Cloudflare-CDN-Cache-Control": "no-store",
+      "Vary": MINI_APP_BUNDLE_VARY_HEADER_VALUE,
+      "ETag": etag,
+      ...ASSET_SECURITY_HEADERS,
+      "Content-Type": contentType,
+      "Content-Length": String(contentLength),
+    };
+  }
   return {
     "Cache-Control": MINI_APP_BUNDLE_CACHE_CONTROL,
     "CDN-Cache-Control": "no-store",
     "Cloudflare-CDN-Cache-Control": "no-store",
     "Vary": MINI_APP_BUNDLE_VARY_HEADER_VALUE,
     "ETag": etag,
-    "Content-Type": contentType,
-    "Content-Length": String(contentLength),
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": MINI_APP_X_FRAME_OPTIONS_VALUE,
-    "Content-Security-Policy": MINI_APP_CSP_HEADER_VALUE,
-    "Referrer-Policy": "no-referrer",
-    "X-Robots-Tag": "noindex, nofollow, noarchive",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    ...ASSET_SECURITY_HEADERS,
   };
 }
 
 /**
- * 判断请求头 `If-None-Match` 是否命中当前打包资源的 `ETag`。
+ * 剥离弱 ETag 前缀 `W/`，用于对称执行 HTTP 弱比较。
+ * @param tag 原始 ETag 令牌（如 `"etag"` 或 `W/"etag"`）。
+ * @returns 去掉 `W/` 前缀后的实体标签字符串。
+ */
+function stripWeakEtagPrefix(tag: string): string {
+  return tag.startsWith('W/"') ? tag.slice(2) : tag;
+}
+
+/**
+ * 按 HTTP 弱比较与引号感知的逗号分隔规则，判断请求头 `If-None-Match` 是否命中当前静态资源或打包资源的 `ETag`。
  * @param ifNoneMatchHeader 原始 `If-None-Match` 请求头值。
  * @param etag 当前资源的 `ETag` 值。
  * @returns 命中时返回 `true`。
@@ -184,33 +212,48 @@ function ifNoneMatchMatchesEtag(
   if (ifNoneMatchHeader === null) return false;
   const trimmed: string = ifNoneMatchHeader.trim();
   if (trimmed.length === 0) return false;
+  const normalizedTarget: string = stripWeakEtagPrefix(etag);
   if (
-    trimmed === "*" ||
-    trimmed === etag ||
-    (trimmed.startsWith("W/") && trimmed.slice(2) === etag)
+    normalizedTarget.length < 2 ||
+    !normalizedTarget.startsWith('"') ||
+    !normalizedTarget.endsWith('"')
   ) {
-    return true;
+    return false;
   }
-  if (!trimmed.includes(",")) return false;
+  if (trimmed === "*") return true;
+  if (!trimmed.includes(",")) {
+    return stripWeakEtagPrefix(trimmed) === normalizedTarget;
+  }
   const len: number = trimmed.length;
-  let cursor: number = 0;
-  while (cursor < len) {
-    const commaIndex: number = trimmed.indexOf(",", cursor);
-    const end: number = commaIndex >= 0 ? commaIndex : len;
-    const candidate: string = trimmed.slice(cursor, end).trim();
-    if (
-      candidate === etag ||
-      (candidate.startsWith("W/") && candidate.slice(2) === etag)
-    ) {
-      return true;
+  let segmentStart: number = 0;
+  let inQuotes: boolean = false;
+  for (let i: number = 0; i < len; i += 1) {
+    const ch: string = trimmed.charAt(i);
+    if (ch === "\\") {
+      i += 1;
+      continue;
     }
-    cursor = end + 1;
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      const candidate: string = trimmed.slice(segmentStart, i).trim();
+      if (
+        candidate === "*" ||
+        stripWeakEtagPrefix(candidate) === normalizedTarget
+      ) {
+        return true;
+      }
+      segmentStart = i + 1;
+    }
   }
-  return false;
+  const tail: string = trimmed.slice(segmentStart).trim();
+  return tail === "*" || stripWeakEtagPrefix(tail) === normalizedTarget;
 }
 
 /**
- * 构造已通过超级管理员门禁核验的前端打包资源响应（支持 `If-None-Match` 返回 `304 Not Modified`，`HEAD` 请求不返回正文）。
+ * 构造已通过超级管理员门禁核验的前端打包资源响应（命中 `If-None-Match` 返回 `304 Not Modified` 且不附带 `Content-Type`/`Content-Length`，`HEAD` 请求不返回正文）。
  * @param request HTTP 请求对象。
  * @param asset 已物化的打包静态资源条目。
  * @returns `200 OK` 或 `304 Not Modified` 的 `Response` 实例。
@@ -219,13 +262,11 @@ export function serveBundledAssetResponse(
   request: Request,
   asset: Readonly<BundledMiniAppAsset>
 ): Response {
-  const headers: Record<string, string> = buildBundleAssetHeaders(
-    asset.contentType,
-    asset.content.byteLength,
-    asset.etag
-  );
   if (ifNoneMatchMatchesEtag(request.headers.get("if-none-match"), asset.etag)) {
-    return new Response(null, { status: 304, headers });
+    return new Response(null, {
+      status: 304,
+      headers: buildBundleAssetHeaders(asset.etag),
+    });
   }
   return new Response(
     request.method.toUpperCase() === "HEAD"
@@ -233,7 +274,11 @@ export function serveBundledAssetResponse(
       : (asset.content as Uint8Array<ArrayBuffer>),
     {
       status: 200,
-      headers,
+      headers: buildBundleAssetHeaders(
+        asset.etag,
+        asset.contentType,
+        asset.content.byteLength
+      ),
     }
   );
 }

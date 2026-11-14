@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type React from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand";
 
@@ -9,7 +10,8 @@ import type { StoreApi } from "zustand";
  * @returns 组件实例持有的状态仓库句柄
  */
 export function useComponentStoreApi<T>(factory: () => StoreApi<T>): StoreApi<T> {
-  const [store]: [StoreApi<T>, unknown] = useState<StoreApi<T>>(factory);
+  const [store]: [StoreApi<T>, React.Dispatch<React.SetStateAction<StoreApi<T>>>] =
+    useState<StoreApi<T>>(factory);
   return store;
 }
 

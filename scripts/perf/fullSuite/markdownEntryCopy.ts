@@ -139,7 +139,8 @@ const EN: BenchmarkEntryCopy = {
     "ai-reply-command": "ai_chat: generate and send one reply turn (no network or human-like pause)",
     "cron-send-voice": "cron send_voice: synthesize, encode and send one voice message (no network)",
     "cron-config-reload": "cron.json change to one task: hot reload and reschedule (full-size task table)",
-    "mini-app-api-request": "Mini App API request: full auth middleware, chat detail aggregation and 24h join-log query (GET /api/chats/:chatId)",
+    "mini-app-api-request":
+      "Mini App API request: full sync auth pipeline, chat detail aggregation and 24h join-log query (GET /api/chats/:chatId)",
     "mini-app-reject-page": "Mini App unauthorized reject page: access diagnostics and reject.html attribute injection (serveMiniAppRejectHtml)",
     "mini-app-page-gate-allow": "Mini App SPA page gate allow: Cookie HMAC-SHA256 verification and lockout check (evaluateMiniAppPageGateRequest)",
     "mini-app-auth-login": "Mini App login endpoint: initData HMAC, password verification, session and gate cookie issuance (POST /api/auth/login)",
@@ -212,7 +213,8 @@ const JA: BenchmarkEntryCopy = {
     "ai-reply-command": "ai_chat：返信 1 ターンを生成・送信する（通信と擬人的な間を除く）",
     "cron-send-voice": "cron send_voice：音声 1 件を合成・エンコードして送信する（通信を除く）",
     "cron-config-reload": "cron.json のタスク 1 件を途中変更：ホットリロードと再スケジュール（上限規模のタスク表）",
-    "mini-app-api-request": "Mini App API リクエスト：認証ミドルウェア・グループ詳細集計・参加ログ 24h クエリ（GET /api/chats/:chatId）",
+    "mini-app-api-request":
+      "Mini App API リクエスト：同期認証パイプライン・グループ詳細集計・参加ログ 24h クエリ（GET /api/chats/:chatId）",
     "mini-app-reject-page": "Mini App 未認可拒否ページ：診断情報構築と reject.html 属性注入（serveMiniAppRejectHtml）",
     "mini-app-page-gate-allow": "Mini App 単一ページゲート許可：Cookie HMAC-SHA256 検証とロック検査（evaluateMiniAppPageGateRequest）",
     "mini-app-auth-login": "Mini App ログイン API：initData 検証・パスワード照合・セッションとゲート Cookie 発行（POST /api/auth/login）",

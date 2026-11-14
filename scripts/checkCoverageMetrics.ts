@@ -25,14 +25,15 @@ export interface CheckCoverageMetricsOptions {
 }
 
 /**
- * 在仓库根目录执行 `bun test --isolate --coverage` 并解析覆盖率摘要。
+ * 在指定仓库根目录执行 `bun test --isolate --coverage` 并解析覆盖率摘要。
  *
+ * @param projectRoot 仓库根目录绝对路径
  * @returns 实测得到的覆盖率指标
  */
-export function measuredCoverageMetrics(): CoverageMetrics {
+function measuredCoverageMetrics(projectRoot: string = PROJECT_ROOT): CoverageMetrics {
   const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
-    cmd: ["bun", "test", "--isolate", "--coverage", "--coverage-reporter=text"],
-    cwd: PROJECT_ROOT,
+    cmd: [Bun.argv[0]!, "test", "--isolate", "--coverage", "--coverage-reporter=text"],
+    cwd: projectRoot,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -68,7 +69,7 @@ export function formatCoverageMetrics(metrics: CoverageMetrics): string {
  */
 export async function runCoverageMetricsCheck({
   projectRoot = PROJECT_ROOT,
-  measure = measuredCoverageMetrics,
+  measure = (): CoverageMetrics => measuredCoverageMetrics(projectRoot),
 }: CheckCoverageMetricsOptions = {}): Promise<number> {
   const problems: string[] = [];
   const declared: CoverageMetrics | null = await declaredCoverageMetrics(

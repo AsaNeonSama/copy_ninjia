@@ -16,7 +16,10 @@ import {
   PlusSvgIcon,
   TrashSvgIcon,
 } from "../resource";
-import type { MiniAppChatsStoreState } from "../store/chats";
+import type {
+  ChatTargetsMemberAddFormSlice,
+  ChatTargetsMemberPanelsSlice,
+} from "./ChatTargetsModal";
 import type {
   MiniAppChatDeleteTargetItem,
   MiniAppChatDetail,
@@ -39,6 +42,8 @@ interface DeleteTargetItemListProps {
   readonly items: readonly Readonly<MiniAppChatDeleteTargetItem>[];
   /** 当前是否正在提交目标变更。 */
   readonly mutatingTargets: boolean;
+  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
+  readonly isClosing?: boolean;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
   /** 移除指定删发言目标的回调。 */
@@ -54,6 +59,7 @@ interface DeleteTargetItemListProps {
 function DeleteTargetItemListView({
   items,
   mutatingTargets,
+  isClosing = false,
   t,
   onRemoveDeleteTarget,
 }: DeleteTargetItemListProps): React.JSX.Element {
@@ -90,7 +96,11 @@ function DeleteTargetItemListView({
               type="button"
               className="btn danger icon-btn"
               disabled={mutatingTargets}
+              tabIndex={isClosing ? -1 : undefined}
               onClick={(): void => {
+                if (isClosing) {
+                  return;
+                }
                 void onRemoveDeleteTarget(item.id);
               }}
             >
@@ -115,6 +125,8 @@ interface TranslateTargetItemListProps {
   readonly items: readonly Readonly<MiniAppChatTranslateTargetItem>[];
   /** 当前是否正在提交目标变更。 */
   readonly mutatingTargets: boolean;
+  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
+  readonly isClosing?: boolean;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
   /** 移除指定翻译目标的回调。 */
@@ -130,6 +142,7 @@ interface TranslateTargetItemListProps {
 function TranslateTargetItemListView({
   items,
   mutatingTargets,
+  isClosing = false,
   t,
   onRemoveTranslateTarget,
 }: TranslateTargetItemListProps): React.JSX.Element {
@@ -169,7 +182,11 @@ function TranslateTargetItemListView({
               type="button"
               className="btn danger icon-btn"
               disabled={mutatingTargets}
+              tabIndex={isClosing ? -1 : undefined}
               onClick={(): void => {
+                if (isClosing) {
+                  return;
+                }
                 void onRemoveTranslateTarget(item.id);
               }}
             >
@@ -192,8 +209,10 @@ const TranslateTargetItemList: React.MemoExoticComponent<
 export interface ChatTargetsMemberAddFormProps {
   /** 当前展示的成员目标类别（`"deleteMessage"` 或 `"translate"`）。 */
   readonly kind: "deleteMessage" | "translate";
-  /** `ChatsPage` 持有的状态与动作快照。 */
-  readonly state: MiniAppChatsStoreState;
+  /** 成员目标添加表单所需状态与动作切片。 */
+  readonly state: ChatTargetsMemberAddFormSlice;
+  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
+  readonly isClosing?: boolean;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
 }
@@ -201,12 +220,13 @@ export interface ChatTargetsMemberAddFormProps {
 /**
  * 渲染删发言目标或翻译目标折叠添加面板内部的三合一模式选择与按 ID 添加表单。
  *
- * @param props 目标类别、仓库状态与翻译字典
+ * @param props 目标类别、仓库切片、退场标志与翻译字典
  * @returns React 节点
  */
 export function ChatTargetsMemberAddForm({
   kind,
   state,
+  isClosing = false,
   t,
 }: ChatTargetsMemberAddFormProps): React.JSX.Element {
   const {
@@ -225,7 +245,7 @@ export function ChatTargetsMemberAddForm({
     toggleTranslateLangMenu,
     submitDeleteTarget,
     submitTranslateTarget,
-  }: MiniAppChatsStoreState = state;
+  }: ChatTargetsMemberAddFormSlice = state;
 
   const isDelete: boolean = kind === "deleteMessage";
   const inputPlaceholder: string = isDelete
@@ -259,7 +279,7 @@ export function ChatTargetsMemberAddForm({
     displayValue: displayLangMenuOpen,
     isClosing: langMenuClosing,
   }: Readonly<DelayedUnmountState<true>> = useDelayedUnmount(
-    !isDelete && translateLangMenuOpen ? true : null,
+    !isDelete && !isClosing && translateLangMenuOpen ? true : null,
     MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS
   );
 
@@ -281,10 +301,14 @@ export function ChatTargetsMemberAddForm({
               type="button"
               className={`chat-targets-lang-trigger ${translateLangMenuOpen ? "active" : ""}`}
               disabled={mutatingTargets}
-              tabIndex={targetAddMenuOpen ? 0 : -1}
+              tabIndex={targetAddMenuOpen && !isClosing ? 0 : -1}
               aria-haspopup="listbox"
               aria-expanded={translateLangMenuOpen}
-              onClick={toggleTranslateLangMenu}
+              onClick={(): void => {
+                if (!isClosing) {
+                  toggleTranslateLangMenu();
+                }
+              }}
             >
               <span className="chat-targets-lang-trigger-label">
                 {t.chats.translateLanguageLabels[translateLanguageInput]}
@@ -313,9 +337,12 @@ export function ChatTargetsMemberAddForm({
                         role="option"
                         aria-selected={isSelected}
                         disabled={langMenuClosing}
+                        tabIndex={isClosing ? -1 : undefined}
                         className={`chat-targets-lang-option ${isSelected ? "active" : ""}`}
                         onClick={(): void => {
-                          setTranslateLanguageInput(lang);
+                          if (!isClosing) {
+                            setTranslateLanguageInput(lang);
+                          }
                         }}
                       >
                         <span className="chat-targets-lang-option-label">
@@ -336,8 +363,12 @@ export function ChatTargetsMemberAddForm({
           type="button"
           className="btn icon-btn chat-targets-cancel-btn"
           disabled={displayMutating}
-          tabIndex={targetAddMenuOpen ? 0 : -1}
-          onClick={closeTargetAddMenu}
+          tabIndex={targetAddMenuOpen && !isClosing ? 0 : -1}
+          onClick={(): void => {
+            if (!isClosing) {
+              closeTargetAddMenu();
+            }
+          }}
         >
           <CloseSvgIcon size={14} />
           <span>{t.chats.qaCancelEditButton}</span>
@@ -347,7 +378,7 @@ export function ChatTargetsMemberAddForm({
       <AddModeButtonList
         idFormOpen={displayIdFormOpen}
         disabled={displayMutating}
-        interactive={targetAddMenuOpen}
+        interactive={targetAddMenuOpen && !isClosing}
         className="chat-targets-add-mode-grid"
         t={t}
         onSelectMode={selectTargetAddMode}
@@ -366,10 +397,15 @@ export function ChatTargetsMemberAddForm({
             placeholder={inputPlaceholder}
             value={displayInputValue}
             disabled={displayMutating}
-            tabIndex={targetAddMenuOpen && targetIdFormOpen ? 0 : -1}
+            tabIndex={
+              targetAddMenuOpen && targetIdFormOpen && !isClosing ? 0 : -1
+            }
             onChange={(
               event: React.ChangeEvent<HTMLInputElement>
             ): void => {
+              if (isClosing) {
+                return;
+              }
               onInputChange(readEventTargetValue(event));
             }}
           />
@@ -380,8 +416,13 @@ export function ChatTargetsMemberAddForm({
               displayMutating ||
               displayInputValue.trim().length === 0
             }
-            tabIndex={targetAddMenuOpen && targetIdFormOpen ? 0 : -1}
+            tabIndex={
+              targetAddMenuOpen && targetIdFormOpen && !isClosing ? 0 : -1
+            }
             onClick={(): void => {
+              if (isClosing) {
+                return;
+              }
               void onSubmit();
             }}
           >
@@ -402,8 +443,10 @@ export interface ChatTargetsMemberPanelsProps {
   readonly kind: "deleteMessage" | "translate";
   /** 当前群详情快照。 */
   readonly chatDetail: Readonly<MiniAppChatDetail>;
-  /** `ChatsPage` 持有的状态与动作快照。 */
-  readonly state: MiniAppChatsStoreState;
+  /** 成员目标列表面板所需状态与动作切片。 */
+  readonly state: ChatTargetsMemberPanelsSlice;
+  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
+  readonly isClosing?: boolean;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
 }
@@ -411,13 +454,14 @@ export interface ChatTargetsMemberPanelsProps {
 /**
  * 渲染群目标管理弹窗中的「删发言目标」或「翻译目标」列表面板（含权限/功能前置告警与成员列表）。
  *
- * @param props 目标类别、群详情、仓库状态与翻译字典
+ * @param props 目标类别、群详情、仓库切片、退场标志与翻译字典
  * @returns React 节点
  */
 export function ChatTargetsMemberPanels({
   kind,
   chatDetail,
   state,
+  isClosing = false,
   t,
 }: ChatTargetsMemberPanelsProps): React.JSX.Element {
   const {
@@ -426,7 +470,7 @@ export function ChatTargetsMemberPanels({
     mutatingTargets,
     removeDeleteTarget,
     removeTranslateTarget,
-  }: MiniAppChatsStoreState = state;
+  }: ChatTargetsMemberPanelsSlice = state;
 
   const isDelete: boolean = kind === "deleteMessage";
   const missingDeletePermission: boolean =
@@ -462,6 +506,7 @@ export function ChatTargetsMemberPanels({
           <DeleteTargetItemList
             items={chatTargets!.deleteMessageTargets}
             mutatingTargets={mutatingTargets}
+            isClosing={isClosing}
             t={t}
             onRemoveDeleteTarget={removeDeleteTarget}
           />
@@ -472,6 +517,7 @@ export function ChatTargetsMemberPanels({
         <TranslateTargetItemList
           items={chatTargets!.translateTargets}
           mutatingTargets={mutatingTargets}
+          isClosing={isClosing}
           t={t}
           onRemoveTranslateTarget={removeTranslateTarget}
         />

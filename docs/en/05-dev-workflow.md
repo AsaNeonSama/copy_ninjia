@@ -48,7 +48,7 @@
   - Workers use Bun's `preload` mechanism to install network stubs: the weather API returns a canned response, while all other outbound network calls are strictly rejected.
   - The suite asserts that stubs loaded successfully, the polling loop stayed intact, SIGTERM cleanly drained all in-flight work, and lock files were released.
 - **Source file line limit (`MAX_SOURCE_LINES` / `MAX_FRONTEND_SOURCE_LINES`)**:
-  - Handwritten TypeScript, JavaScript, CSS, and Shell files exceeding their respective limit (`MAX_FRONTEND_SOURCE_LINES` for `.tsx` and `.css` under `packages/mini-app-frontend/`, `MAX_SOURCE_LINES` for all other files; defined in `scripts/conventions/fileLength.ts`) fail the gate immediately and must be split by responsibility (see [`AGENTS.md`](../../AGENTS.md)).
+  - Handwritten TypeScript, JavaScript, CSS, HTML, and Shell files exceeding their respective limit (`MAX_FRONTEND_SOURCE_LINES` for `.tsx` and `.css` under `packages/mini-app-frontend/` and `.html` files, `MAX_SOURCE_LINES` for all other files; defined in `scripts/conventions/fileLength.ts`) fail the gate immediately and must be split by responsibility (see [`AGENTS.md`](../../AGENTS.md)).
   - The check scans all Git-tracked files and untracked non-ignored files, excluding Git-ignored deployment data. Installer syntax checks cover `install.sh` and every shell module under `scripts/install/`.
 - **Universal source code coverage**:
   - `test/productionModules.test.ts` eagerly imports `index.ts` and all runtime modules under `packages/` (except pure type declarations in `packages/types/`), so untouched modules are still included in the coverage denominator.
@@ -68,7 +68,7 @@
   - **Runtime safety and APIs**: Every timer in `packages/workers/` must explicitly call `.unref()`. `packages/` must not use `Object.freeze`, nor take the oldest entry with `.keys().next()`, `.values().next()`, or `.entries().next()`; bounded FIFO / LRU tables get their oldest entry from `FifoMap` in `libs/fifoMap.ts` (or `LruCache`, which extends it). Node compatibility modules and `Buffer` usage are restricted to an explicit whitelist; unused registrations trigger errors. CLI arguments must be read via `Bun.argv`. Runtime packages imported bare must be declared directly in the root `package.json`.
   - **Gate reconciliation**: Statically verifies JSDoc on top-level functions, class methods, and `*Params`/`*Options` parameter interface properties across `index.ts`, `packages/`, and `scripts/` (including `@param` tags and `@returns` for non-`void`/`never` return types; `collectFunctionJsDocProblems` in `scripts/conventions/sourceRules.ts`). Statically verifies Telegram prompt cleanup exemptions and topic ownership. Validates that active cold migration scripts match `migrate:*` entries in `package.json`. Verifies the fault-injection suite list. Checks that test coverage and performance metrics documented in trilingual files match `performance-result.json`. Comment cross-references of the form "`<module>.ts` 的 `<symbol>`" must point to a symbol that still exists: paths starting with `./` or `../` resolve against the directory of the commented source file, and a missing target file or symbol fails the check; other forms are checked only when they resolve to a unique file.
   - **Test assertion rules**: Test assertions must not compare imported uppercase constants against literal constants, nor pass string literals matching `packages/consts` exports (at least `STRING_CONSTANT_MIN_LENGTH` characters) or CJK prompt fragments (at least `CONSTANT_TEXT_FRAGMENT_MIN_CJK` CJK characters) directly to matchers; import the constant or render static template parts via `test/helpers/templateText.ts`. Prompt contract tests must be registered in `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` in `scripts/conventions/testAssertionFragments.ts`.
-  - **Test double resets**: once a mock queues `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` in any test, its reset hooks (the `beforeEach` / `afterEach` / `beforeAll` / `afterAll` callbacks and the test-side functions they transitively call) must call `mockReset()` and reinstall the default implementation instead of only `mockClear()`. The gate resolves mocks to their declaring symbols with the TypeScript checker (`scripts/conventions/testMockReset.ts`); a `mockClear()` used mid-test only to clear call records is out of scope.
+  - **Test double resets**: once a mock queues `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` in any test, its reset hooks (the `beforeEach` / `afterEach` / `beforeAll` / `afterAll` callbacks and the test-side functions they transitively call) must call `mockReset()` and reinstall the default implementation instead of only `mockClear()` (`scripts/conventions/testMockReset.ts`); any top-level `spyOn` under `test/` must call `mockRestore()` or `mock.restore()` in a covering scope's `afterAll` / `afterEach` hook or top-level sync path of that same file (`scripts/conventions/testSpyRestore.ts`). Both gates resolve mocks to their declaring symbols with the TypeScript checker; a `mockClear()` used mid-test only to clear call records is out of scope.
 
 ---
 
@@ -95,7 +95,7 @@ All dependency installations enforce the release cooling period configured by `i
 
 ### Measurements for This Documentation Version
 
-`bun run test:coverage`: **7109 tests / 596 files / 462907 `expect()` calls**; full-source **function coverage 97.12% / line coverage 97.93%**. The Coverage badge in each project README displays line coverage.
+`bun run test:coverage`: **7188 tests / 605 files / 463447 `expect()` calls**; full-source **function coverage 96.84% / line coverage 97.56%**. The Coverage badge in each project README displays line coverage.
 
 ---
 
@@ -227,7 +227,7 @@ Every release produces a GitHub Release containing native binary packages built 
      ```bash
      bun run release:verify -- --version <tag> --platforms <comma-separated-platforms> --directory <staging-directory>
      ```
-   - The script verifies SHA-256 checksums, version metadata, target architectures, dependency integrity, and confirms no `.map` files or `node_modules` were packaged.
+   - The script verifies SHA-256 checksums, version metadata, target architectures, required runtime files and cold-migration CLIs, dependency integrity, and confirms no `.map` files or `node_modules` were packaged.
 5. **Merge and tag creation**:
    - Merge `dev` into `master` using `git merge --squash`, ensuring the Git tree hash matches the built binaries exactly.
    - Push `master`, then create and push an annotated version tag on that commit.

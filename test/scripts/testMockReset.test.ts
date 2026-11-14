@@ -204,4 +204,68 @@ describe("文件顶层 spyOn 必须在同文件恢复", () => {
     });
     expect(problems).toEqual([]);
   });
+
+  test("识别柯里化 describe.each/skipIf、jest.spyOn 与字符串属性名解构", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "helper.ts": [
+        'import { mock } from "bun:test";',
+        "export const send = mock((): number => 1);",
+        "",
+      ].join("\n"),
+      "a.test.ts": [
+        'import { beforeEach, describe, jest, test } from "bun:test";',
+        "const target = { fn: (): number => 1 };",
+        'describe.each([[1]])("row %d", () => {',
+        '  const s = jest.spyOn(target, "fn");',
+        '  test("unrestored", () => { s(); });',
+        "});",
+        'describe.skipIf(false)("skipped", () => {',
+        '  const s2 = jest.spyOn(target, "fn");',
+        '  test("unrestored2", () => { s2(); });',
+        "});",
+        'test("literal binding", async () => {',
+        '  const { "send": aliased } = await import("./helper");',
+        "  aliased.mockReturnValueOnce(2);",
+        "});",
+        "beforeEach(async () => {",
+        '  const { "send": aliased } = await import("./helper");',
+        "  aliased.mockClear();",
+        "});",
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([
+      "a.test.ts:17:3: send is reset with mockClear() but queues *Once values (a.test.ts:13:3); reset it with mockReset() and reinstall its default implementation",
+      "a.test.ts:4:13: top-level s must call mockRestore() in afterAll/afterEach of the same file",
+      "a.test.ts:8:14: top-level s2 must call mockRestore() in afterAll/afterEach of the same file",
+    ]);
+  });
+
+  test("mock.restore() 可恢复同作用域顶层 spyOn，子 describe 钩子不能替模块顶层恢复，非 .test 辅助文件顶层 spyOn 同样受检", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "sharedHelper.ts": [
+        'import { spyOn } from "bun:test";',
+        "const target = { leaked: (): number => 1 };",
+        'export const leakedSpy = spyOn(target, "leaked");',
+        "",
+      ].join("\n"),
+      "a.test.ts": [
+        'import { afterAll, afterEach, describe, mock, spyOn, test } from "bun:test";',
+        "const target = { top: (): number => 1, ok: (): number => 2 };",
+        'const topSpy = spyOn(target, "top");',
+        'describe("nested", () => {',
+        "  afterAll(() => { topSpy.mockRestore(); });",
+        '  const okSpy = spyOn(target, "ok");',
+        "  afterEach(() => { mock.restore(); });",
+        '  test("use", () => { okSpy(); });',
+        "});",
+        'test("use top", () => { topSpy(); });',
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([
+      "a.test.ts:3:16: top-level topSpy must call mockRestore() in afterAll/afterEach of the same file",
+      "sharedHelper.ts:3:26: top-level leakedSpy must call mockRestore() in afterAll/afterEach of the same file",
+    ]);
+  });
 });

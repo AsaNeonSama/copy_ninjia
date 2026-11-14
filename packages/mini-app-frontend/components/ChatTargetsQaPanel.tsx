@@ -6,7 +6,10 @@ import {
 } from "../consts/miniApp";
 import { readEventTargetValue, truncateDisplayText } from "../libs/formatters";
 import { CloseSvgIcon, PlusSvgIcon, TrashSvgIcon } from "../resource";
-import type { MiniAppChatsStoreState } from "../store/chats";
+import type {
+  ChatTargetsQaEditorFormSlice,
+  ChatTargetsQaPanelSlice,
+} from "./ChatTargetsModal";
 import type { MiniAppChatQaItem } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { InlineNoticeCollapse } from "./animations/CollapseGrid";
@@ -19,6 +22,8 @@ interface ChatTargetsQaItemListProps {
   readonly qaItems: readonly Readonly<MiniAppChatQaItem>[];
   /** 当前是否正在提交目标变更。 */
   readonly mutatingTargets: boolean;
+  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
+  readonly isClosing?: boolean;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
   /** 将指定问答对填入顶部编辑区的回调。 */
@@ -38,6 +43,7 @@ interface ChatTargetsQaItemListProps {
 function ChatTargetsQaItemListView({
   qaItems,
   mutatingTargets,
+  isClosing = false,
   t,
   onFillForEdit,
   onRemoveQaPair,
@@ -63,7 +69,11 @@ function ChatTargetsQaItemListView({
                   type="button"
                   className="btn chat-targets-qa-action-btn"
                   disabled={mutatingTargets}
+                  tabIndex={isClosing ? -1 : undefined}
                   onClick={(): void => {
+                    if (isClosing) {
+                      return;
+                    }
                     onFillForEdit(item.q, item.a);
                     onScrollToTop?.();
                   }}
@@ -74,7 +84,11 @@ function ChatTargetsQaItemListView({
                   type="button"
                   className="btn danger icon-btn chat-targets-qa-action-btn"
                   disabled={mutatingTargets}
+                  tabIndex={isClosing ? -1 : undefined}
                   onClick={(): void => {
+                    if (isClosing) {
+                      return;
+                    }
                     void onRemoveQaPair(item.q);
                   }}
                 >
@@ -103,8 +117,10 @@ const ChatTargetsQaItemList: React.MemoExoticComponent<
 
 /** `ChatTargetsQaEditorForm` 问答对折叠编辑表单的属性参数。 */
 export interface ChatTargetsQaEditorFormProps {
-  /** `ChatsPage` 持有的状态与动作快照。 */
-  readonly state: MiniAppChatsStoreState;
+  /** 问答对编辑表单所需状态与动作切片。 */
+  readonly state: ChatTargetsQaEditorFormSlice;
+  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
+  readonly isClosing?: boolean;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
 }
@@ -112,11 +128,12 @@ export interface ChatTargetsQaEditorFormProps {
 /**
  * 渲染问答对折叠编辑区内部的触发词与回答内容表单。
  *
- * @param props 仓库状态与翻译字典
+ * @param props 仓库切片、退场标志与翻译字典
  * @returns React 节点
  */
 export function ChatTargetsQaEditorForm({
   state,
+  isClosing = false,
   t,
 }: ChatTargetsQaEditorFormProps): React.JSX.Element {
   const {
@@ -130,7 +147,7 @@ export function ChatTargetsQaEditorForm({
     setQaQuestionInput,
     setQaAnswerInput,
     submitQaPair,
-  }: MiniAppChatsStoreState = state;
+  }: ChatTargetsQaEditorFormSlice = state;
 
   const qaQuestionMaxChars: number =
     chatTargets?.qaQuestionMaxChars ?? CHAT_QA_QUESTION_MAX_CHARS;
@@ -178,8 +195,11 @@ export function ChatTargetsQaEditorForm({
             placeholder={t.chats.qaQuestionPlaceholder(qaQuestionMaxChars)}
             value={displayQuestion}
             disabled={displayMutating}
-            tabIndex={qaEditorOpen ? 0 : -1}
+            tabIndex={qaEditorOpen && !isClosing ? 0 : -1}
             onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+              if (isClosing) {
+                return;
+              }
               setQaQuestionInput(readEventTargetValue(event));
             }}
           />
@@ -206,10 +226,13 @@ export function ChatTargetsQaEditorForm({
           placeholder={t.chats.qaAnswerPlaceholder(qaAnswerMaxChars)}
           value={displayAnswer}
           disabled={displayMutating}
-          tabIndex={qaEditorOpen ? 0 : -1}
+          tabIndex={qaEditorOpen && !isClosing ? 0 : -1}
           onChange={(
             event: React.ChangeEvent<HTMLTextAreaElement>
           ): void => {
+            if (isClosing) {
+              return;
+            }
             setQaAnswerInput(readEventTargetValue(event));
           }}
         />
@@ -223,8 +246,11 @@ export function ChatTargetsQaEditorForm({
             displayQuestion.trim().length === 0 ||
             displayAnswer.trim().length === 0
           }
-          tabIndex={qaEditorOpen ? 0 : -1}
+          tabIndex={qaEditorOpen && !isClosing ? 0 : -1}
           onClick={(): void => {
+            if (isClosing) {
+              return;
+            }
             void submitQaPair();
           }}
         >
@@ -237,8 +263,12 @@ export function ChatTargetsQaEditorForm({
           type="button"
           className="btn icon-btn chat-targets-cancel-btn"
           disabled={displayMutating}
-          tabIndex={qaEditorOpen ? 0 : -1}
-          onClick={closeQaEditor}
+          tabIndex={qaEditorOpen && !isClosing ? 0 : -1}
+          onClick={(): void => {
+            if (!isClosing) {
+              closeQaEditor();
+            }
+          }}
         >
           <CloseSvgIcon size={14} />
           <span>{t.chats.qaCancelEditButton}</span>
@@ -250,8 +280,10 @@ export function ChatTargetsQaEditorForm({
 
 /** `ChatTargetsQaPanel` 问答对管理面板的属性参数。 */
 export interface ChatTargetsQaPanelProps {
-  /** `ChatsPage` 持有的状态与动作快照。 */
-  readonly state: MiniAppChatsStoreState;
+  /** 问答对列表面板所需状态与动作切片。 */
+  readonly state: ChatTargetsQaPanelSlice;
+  /** 弹窗是否正处于退场收起阶段（禁用焦点与点击穿透）。 */
+  readonly isClosing?: boolean;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
   /** 点击「填入编辑」时将弹窗内容区平滑滚动至顶部的回调。 */
@@ -261,11 +293,12 @@ export interface ChatTargetsQaPanelProps {
 /**
  * 渲染群目标管理弹窗中的「问答对」列表面板。
  *
- * @param props 仓库状态与翻译字典
+ * @param props 仓库切片、退场标志与翻译字典
  * @returns React 节点
  */
 export function ChatTargetsQaPanel({
   state,
+  isClosing = false,
   t,
   onScrollToTop,
 }: ChatTargetsQaPanelProps): React.JSX.Element {
@@ -275,7 +308,7 @@ export function ChatTargetsQaPanel({
     mutatingTargets,
     fillQaPairForEdit,
     removeQaPair,
-  }: MiniAppChatsStoreState = state;
+  }: ChatTargetsQaPanelSlice = state;
 
   if (loadingTargets) {
     return <ChatTargetsListSkeleton />;
@@ -287,6 +320,7 @@ export function ChatTargetsQaPanel({
     <ChatTargetsQaItemList
       qaItems={chatTargets!.qaItems}
       mutatingTargets={mutatingTargets}
+      isClosing={isClosing}
       t={t}
       onFillForEdit={fillQaPairForEdit}
       onRemoveQaPair={removeQaPair}

@@ -56,14 +56,16 @@ export function createPageBunRoutes(
  * 否则先拦截跨站与直接导航并强制核验超级管理员门禁 Cookie 或 `initData` 请求头（及未锁定状态），未授权一律返回 `401`/`403` JSON；
  * 鉴权通过且命中已物化的打包产物表时以私有协商缓存头返回（支持 `If-None-Match` `304` 与 `HEAD`），物化失败返回 `500`，未命中打包产物表时返回 `null` 交由后续 404 分支处理。
  * @param ctx 路由请求上下文。
+ * @param routePath 归一化后的内部路由路径。
  * @param indexHtml `server/register.ts` 以 HTML import 引入的前端入口。
  * @returns 命中打包产物路径、物化失败或触发门禁拦截时返回响应，否则返回 `null`。
  */
 export async function dispatchBundleAssetRoute(
   ctx: Readonly<MiniAppRouteContext>,
+  routePath: string,
   indexHtml: Bun.HTMLBundle
 ): Promise<Response | null> {
-  const { method, routePath, url, request }: Readonly<MiniAppRouteContext> = ctx;
+  const { method, url, request }: Readonly<MiniAppRouteContext> = ctx;
   if (
     (method !== "GET" && method !== "HEAD") ||
     routePath === "/favicon.ico" ||

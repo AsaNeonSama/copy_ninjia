@@ -134,16 +134,29 @@ export interface RunWithTimeoutSignalOptions<T> {
 /**
  * 为一次独占异步调用合成独立的超时取消信号，预检查未中止后执行任务并受 `raceAbortOrThrow` 约束。
  * @param options 调用方信号、超时预算与异步任务回调。
- * @returns 下游任务的结算结果。
+ * @returns 下游任务的结算结果；预先中止、中途取消或同步抛错时以归一化后的 Error 拒绝。
  */
 export function runWithTimeoutSignal<T>({
   signal,
   timeoutMs,
   run,
 }: RunWithTimeoutSignalOptions<T>): Promise<T> {
+  if (signal?.aborted === true) {
+    return Promise.reject<T>(abortSignalError(signal));
+  }
   const requestSignal: AbortSignal = signalWithTimeout(signal, timeoutMs);
-  requestSignal.throwIfAborted();
-  return raceAbortOrThrow(run(requestSignal), requestSignal);
+  if (requestSignal.aborted) {
+    return Promise.reject<T>(abortSignalError(requestSignal));
+  }
+  let task: Promise<T>;
+  try {
+    task = run(requestSignal);
+  } catch (error: unknown) {
+    return Promise.reject<T>(
+      requestSignal.aborted ? abortSignalError(requestSignal) : taskRejectionError(error)
+    );
+  }
+  return raceAbortOrThrow(task, requestSignal);
 }
 
 /** raceAbort 的取消源与回退值。同一份共享工作的各个等待者回退值按调用点传入。 */

@@ -71,7 +71,7 @@
 
 - **主线程通过有界 LRU 缓存进行同步鉴权**：
   - 主线程维护一张容量为 `IDENTITY_READ_CACHE_MAX_ENTRIES` 的 LRU 缓存（`packages/cache/main/identityStorage.ts` 的 `identityPolicyCache`）：每个身份一个条目，固定持有永久白名单、黑名单与临时广告免检三项，三项随条目一起淘汰。某一项为 `undefined` 表示尚未加载，为 `null` 表示明确不在名单中（负缓存）；三项都已加载才算该身份已缓存。
-  - **按需批量预热**：每条消息在进入具体业务逻辑前，前置中间件会收集本条消息涉及的所有用户和频道身份，单次向 Disk I/O Worker 批量预取策略状态（单次最多 `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` 个），同一身份的三项一次写入同一条目。后续的命令执行与权限判定直接同步读取主线程内存缓存，无需反复进行跨线程往返请求。Disk I/O 侧的白名单、黑名单、临时免检批量读取与群状态 id 读取使用连接级预编译语句（id 列表经 `json_each` 占位传入），不在每次读取时重新拼装查询。
+  - **按需批量预热**：每条消息在进入具体业务逻辑前，前置中间件会收集本条消息涉及的所有用户和频道身份，单次向 Disk I/O Worker 批量预取策略状态（单次最多 `IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES` 个），同一身份的三项一次写入同一条目。后续的命令执行与权限判定直接同步读取主线程内存缓存，无需反复进行跨线程往返请求。Disk I/O 侧的白名单、黑名单、临时免检读取与群状态 id 读取均使用连接级预编译语句（单 id 读取直接绑定 `WHERE id = ?`，多 id 批量读取经 `json_each` 占位传入），不在每次读取时重新拼装查询。
   - **冷读失败安全处理**：若跨线程预热读取失败，普通业务将安全降级（按未授权处理）；对于踢人、拉黑等破坏性批量操作，则直接取消执行，绝不把未知状态当成无保护状态。
   - **批量踢人例外（`/batch_kick`）**：批量踢人不依赖缓存是否常驻，而是在每个批次开始前直接冷读本批全部身份的永久策略并在局部持有。
   - **Mini App 名单页例外**：Mini App 的白名单、黑名单列表与搜索经 `readIdentityPolicyEntries` 按同一分块上限直接冷读当页或全部条目，游标页与条目内容均以本地未 ACK 最终值覆盖数据库结果，展示元数据与主线程 `senderIdentity` 发送者缓存双向对齐（优先采用发送者缓存中的最新资料，并在用户名未被其他身份接管时按需回填），结果只在本次请求内局部持有，不读写这张策略 LRU，因此不会刷新或挤出 Bot 处理消息所需的热条目；冷读失败时请求返回错误。增删名单与修改权限仍与 `/white`、`/block`、`/permission` 走同一预热与写入路径，并执行一致的目标互斥与边界拦截（拒绝超级管理员、机器人自身及任何已 `/init` 的受管群身份；白名单与黑名单严格互斥；原生选择器 `users_shared`/`chat_shared` 导入未新增条目时优先透传首个边界拒绝码）。
@@ -648,7 +648,7 @@
   - 执行 `kickChatMember` 前必须通过 `probeChatMembership` 现查成员状态：确认仍在群内才执行踢人；若成员已主动离群，直接结算收工且不发战报；查询失败保留终态并进入退避。
   - 确证机器人缺 `can_restrict_members`（`botCanRestrictIn === false`）时照常做成员探测，只不发踢人请求：成员已离群即结算，仍在群内则保留终态并退避；`expelling` 在清理已完成（`cleanupSettled === true`）后不再重复发删消息请求，失败提示也已发时每轮重试只发一次探测。上一轮已确认踢出（`removalConfirmed`）时同样只探测一次且不记缺权告警，成员已离群即补发成功战报。
   - **首发请求无豁免**：超级群的「踢人且不封禁」底层映射为未带 `only_if_banned` 的 `unbanChatMember`，该调用会**解封已有封禁**。因此主线程每次执行该操作前，必须先获取 `getChatMember` 确认成员当前仍在群内，若已是 `left` 或 `kicked` 则立即取消。显式解封操作携带 `only_if_banned: true`，不受此限制。
-  - **群类型精确分流**：普通群使用 `banChatMember`（普通群中只移除成员）；超级群使用 `unbanChatMember`。群类型由主线程对已受管群进行 update 监听并镜像维护，冷启动无镜像时以群为键调用 `getChat`（受 `VERIFICATION_CHAT_KIND_FETCH_MAX` 限流）。
+  - **群类型精确分流**：普通群使用 `banChatMember`（普通群中只移除成员）；超级群使用 `unbanChatMember`。群类型由主线程对已受管群进行 update 监听并镜像维护，冷启动无镜像时以群为键调用 `getChat`（受 `VERIFICATION_CHAT_KIND_FETCH_MAX` 并发限流与 `CHAT_KIND_FETCH_TIMEOUT_MS` 超时保护）。
 
 - **私密模式秒踢与不可逆令牌（`kickPending`）**：
   - 秒踢先进入 `kickPending`（状态快照 write-ahead 先落盘，重启后能继续探测踢出；对象本体与 `executionStarted` 仅保存在内存）。
@@ -863,7 +863,7 @@
   - 启动阶段调度器在 `startConfigReload` 之前启动；热重载整份生效或整份拒绝，配置非法时继续沿用上一份任务表。删除配置文件时切换为空任务表。
   - 调度器位于主线程 `packages/cron/scheduler.ts`，状态保存在 `cache/main/cron.ts`。每个任务分配一个 Bun 原生进程内 cron（指定任务时区，标记 `unref`）。
   - 执行 handler 负责捕获所有内部异常，严禁逸出未捕获的 rejection 触发崩溃。同一任务在前序动作未结算前不重叠调度。
-  - **对账规则**：深相等的任务保留原调度句柄；变更或删除的任务停止调度并撤销（在途请求执行完当前动作或重试后退出）；新增任务独立登记。
+  - **对账规则**：深相等的任务保留原调度句柄；变更或删除的任务停止调度并触发取消信号（立即中断动作间隔等待与重试退避等待，在途单次投递请求跑完后于下一个动作、重试或目标群之前退出）；新增任务独立登记。
   - `just_once` 首次触发后即刻注销，记录保存在容量上限为 `CRON_JUST_ONCE_RECORD_MAX` 的 LRU 缓存中；任务转为常规周期任务后清除记录。
   - `rand_cron` 首次触发后注销原有 cron，并在随机区间内均匀抽取下一时刻，向上取整至整分钟后重新挂载单次匹配的 UTC cron。记录与随机时刻均不持久化，停机期间错过的调度不补发。
 - **投递与执行调度**（`packages/cron/run.ts` 与 `packages/cron/delivery.ts`）：
@@ -972,7 +972,7 @@
 - **条数上限独立多重把关**：
   - 单群问答数量上限在三处独立校验：主线程 `setChatQa`、Disk I/O Worker 写入事务缓冲前、启动整表解码阶段。
 - **`/qa set` 表单鉴权与生命周期**：
-  - 命令侧核验 `isCanControllQaPermission` 并记录 `openedById`（由 `visibleSenderChat` 获取的可见身份）；后续用户投递消息仅需比对可见身份是否与之一致，不再重复查询管理员权限。
+  - 命令侧核验 `isCanControllQaPermission` 并记录 `openedById`（由 `visibleSenderChat` 获取的可见身份）与触发论坛话题 `messageThreadId`；后续用户投递消息仅在同一论坛话题（`forumTopicThreadId` 一致）且可见身份一致时才被认领，不再重复查询管理员权限。
   - 自发消息等待、字段删除及表单编辑等 await 操作后均重新核对会话有效性；已关闭或被替代的旧会话放弃认领，不再处理后续投递或回执。
   - 表单发送与清理统一经由 `qa/notices.ts` 边界执行，严格遵守 Telegram 取消与错误处理，不建立独立重试队列。
   - 字段校验：问题超过 `CHAT_QA_QUESTION_MAX_CHARS`、答案超过 `CHAT_QA_ANSWER_MAX_CHARS`，或问题整条、答案在 ``` 代码块之外含会渲染成可点击命令的斜杠写法（`containsRenderableCommand`；答案按直答出口同一个 `renderFencedText` 拆分）时，该字段不写入会话，表单保留，回执按 `QaFormIngressResult.rejection` 给出对应提示。

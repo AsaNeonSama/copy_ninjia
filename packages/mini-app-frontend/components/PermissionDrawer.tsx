@@ -5,7 +5,6 @@ import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
 import { useComponentStore } from "../libs/componentStore";
 import {
-  getPermissionDisplayLabel,
   readEventTargetChecked,
   sanitizeBidiText,
   truncateDisplayText,
@@ -198,7 +197,7 @@ export function PermissionDrawer({
         {WHITELIST_PERMISSION_KEYS.map((key: WhitelistPermissionKey): React.JSX.Element => {
           const checked: boolean = entry.permissions[key];
           const isChipLoading: boolean = busyKey === "all" || busyKey === key;
-          const permLabel: string = getPermissionDisplayLabel(key, language);
+          const permLabel: string = t.permissionDrawer.labels[key];
           return (
             <PermissionChip
               key={key}

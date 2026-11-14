@@ -2,9 +2,8 @@ import { fileSha256 } from "../fileSha256";
 import { ACTIVE_COLD_MIGRATION_EDGES } from "../migrations/active";
 import type { ColdMigrationEdge } from "../migrations/active";
 import { join } from "node:path";
-import { checked, createReleaseCommand } from "./command";
+import { checked } from "./command";
 import type { ReleaseCommand } from "./command";
-import { PROJECT_ROOT } from "../../packages/consts/paths";
 import {
   RELEASE_BUNDLED_PATHS,
   RELEASE_INSTALL_SCRIPT_GLOB,
@@ -15,9 +14,13 @@ import {
 
 /** 通过校验的单个发行资产元数据（含 64 位小写十六进制 SHA-256 摘要与字节数）。 */
 export interface ReleaseAsset {
+  /** 发行包或校验和文件名。 */
   readonly name: string;
+  /** 本地文件系统上的资产绝对路径。 */
   readonly path: string;
+  /** 小写 64 位十六进制 SHA-256 摘要。 */
   readonly sha256: string;
+  /** 资产文件字节大小。 */
   readonly size: number;
 }
 
@@ -31,7 +34,7 @@ export interface VerifyAssetsOptions {
   readonly platforms: readonly string[];
   /** 期望的 40 位十六进制 Git tree 哈希。 */
   readonly sourceTree: string;
-  /** 用于执行 tar 等外部命令的执行器。 */
+  /** 用于执行 git 与 tar 等外部命令的执行器。 */
   readonly command: ReleaseCommand;
 }
 
@@ -46,8 +49,8 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
     throw new Error("--platforms must contain unique supported Linux platforms.");
   }
   const bundledSourceFiles: readonly string[] = checked(
-    createReleaseCommand(PROJECT_ROOT),
-    ["git", "ls-files", "--", ...RELEASE_BUNDLED_PATHS, RELEASE_INSTALL_SCRIPT_GLOB]
+    command,
+    ["git", "ls-files", "--", ...RELEASE_BUNDLED_PATHS, `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`]
   )
     .split("\n")
     .filter((entry: string): boolean => entry.length > 0)

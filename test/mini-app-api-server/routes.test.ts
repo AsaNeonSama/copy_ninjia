@@ -44,6 +44,8 @@ const { formatLocalTime } = await import("../../packages/libs/time");
 const {
   MINI_APP_TOTP_FILE_MODE,
   MINI_APP_TOTP_RECORD_VERSION,
+  MINI_APP_TOTP_SECRET_BYTES,
+  MINI_APP_TOTP_SECRET_PATTERN,
   MINI_APP_TOTP_STEP_SECONDS,
 } = await import("../../packages/consts/miniAppTotp");
 const { chatAtmosphere } = await import("../../packages/infra/atmosphere");
@@ -520,7 +522,8 @@ describe("Mini App HTTP routes & Bun.serve integration", () => {
     expect(setup1Res.status).toBe(200);
     const setup1: MiniAppTotpSetupResponse = (await setup1Res.json()) as MiniAppTotpSetupResponse;
     expect(setup1.ok).toBeTrue();
-    expect(setup1.secret).toMatch(/^[A-Z2-7]{32}$/);
+    expect(setup1.secret).toMatch(MINI_APP_TOTP_SECRET_PATTERN);
+    expect(setup1.secret.length).toBe((MINI_APP_TOTP_SECRET_BYTES * 8) / 5);
     expect(setup1.otpauthUri).toContain("otpauth://totp/");
     expect(setup1.qrSvg).toContain("<svg");
 

@@ -6,7 +6,7 @@ import { withoutMarkdownCodeFences } from "./markdownSource";
  * 文档里「目录清单」写法的存在性核对。
  *
  * `docs/<lang>/03-directory-map.md` 用「`<目录>/`（`a.ts`、`b.ts`）」列一个目录的代表文件。
- * 这些名字既不是 Markdown 链接（`checkMarkdownLocalLinks` 的核对对象），也不在源码注释里
+ * 这些名字既不是 Markdown 链接（`checkMarkdownLocalLinksFromText` 的核对对象），也不在源码注释里
  * （`collectCommentReferenceProblems` 的核对对象），由本模块核对。
  *
  * 判据只做一件事：括号里点名的文件在那个目录下还在不在。歧义一律放过：
@@ -140,25 +140,4 @@ export async function collectMarkdownModuleListProblemsFromText({
     }
   }
   return problems;
-}
-
-/**
- * 核对一份 Markdown 里全部目录清单点名的文件是否仍然存在。
- *
- * @param projectRoot 仓库根目录绝对路径
- * @param path 被检查 Markdown 文件的绝对路径
- * @param directories 仓库源码目录绝对路径列表
- * @returns 目录清单中缺失文件的违规信息列表
- */
-export async function collectMarkdownModuleListProblems(
-  projectRoot: string,
-  path: string,
-  directories: readonly string[]
-): Promise<readonly string[]> {
-  return collectMarkdownModuleListProblemsFromText({
-    projectRoot,
-    path,
-    source: await Bun.file(path).text(),
-    directories,
-  });
 }

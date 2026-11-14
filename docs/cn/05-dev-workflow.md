@@ -48,8 +48,8 @@
   - 各 Worker 通过 Bun `preload` 机制注入网络替身：东京天气接口返回固定罐头数据，其余外部网络请求均被严格阻断。
   - 测试套件逐项断言替身正常加载、轮询链路畅通、收到 SIGTERM 信号后优雅排空，以及锁文件安全释放。
 - **源码文件行数限制（`MAX_SOURCE_LINES` / `MAX_FRONTEND_SOURCE_LINES`）**：
-  - 手写 TypeScript、JavaScript、CSS 与 Shell 文件若超过对应上限（`packages/mini-app-frontend/` 下的 `.tsx` 与 `.css` 为 `MAX_FRONTEND_SOURCE_LINES`，其余为 `MAX_SOURCE_LINES`，定义于 `scripts/conventions/fileLength.ts`）将被门禁直接拒绝。
-  - 后端文件超过 512 行时应评估拆分，超过 `MAX_SOURCE_LINES`（1024 行）时必须拆分；前端 `.tsx` 与 `.css` 文件上限为 `MAX_FRONTEND_SOURCE_LINES`（1536 行）。
+  - 手写 TypeScript、JavaScript、CSS、HTML 与 Shell 文件若超过对应上限（`packages/mini-app-frontend/` 下的 `.tsx`、`.css` 以及 `.html` 文件为 `MAX_FRONTEND_SOURCE_LINES`，其余为 `MAX_SOURCE_LINES`，定义于 `scripts/conventions/fileLength.ts`）将被门禁直接拒绝。
+  - 后端文件超过 512 行时应评估拆分，超过 `MAX_SOURCE_LINES`（1024 行）时必须拆分；前端 `.tsx`、`.css` 与 `.html` 文件上限为 `MAX_FRONTEND_SOURCE_LINES`（1536 行）。
   - 检查范围覆盖所有受 Git 跟踪的文件及暂存区新文件，忽略的文件不纳入扫描。安装语法检查全面覆盖 `install.sh` 及其调用的所有独立 Shell 模块。
 - **全源码覆盖率考核**：
   - `test/productionModules.test.ts` 主动加载 `index.ts` 以及 `packages/` 下除 `packages/types/` 外的全部运行时模块；未被任何测试覆盖的模块直接按 0% 计入分母。
@@ -69,7 +69,7 @@
   - **运行时安全与 API 规范**：`packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`，也禁止用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项，有界 FIFO / LRU 的最早项一律经 `libs/fifoMap.ts` 的 `FifoMap`（或继承它的 `LruCache`）取得；Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用，未使用的登记同样报错；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
   - **门禁与指标对账**：静态检查 `index.ts`、`packages/` 与 `scripts/` 中顶层函数、类方法及 `*Params`/`*Options` 参数接口属性的 JSDoc（含 `@param` 与非 `void`/`never` 返回值的 `@returns`，`scripts/conventions/sourceRules.ts` 的 `collectFunctionJsDocProblems`）；静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；核对故障注入套件清单；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标，确保记录同源。注释中「`<模块>.ts` 的 `<符号>`」式的交叉引用必须指向现存的符号：以 `./`、`../` 开头的路径按注释所在源文件的目录解析，目标文件或符号缺失都会报错；其余写法只在能唯一确定目标文件时核对。
   - **测试断言规范**：测试用例中严禁将导入的大写常量直接与字面量常量进行比对，禁止直接在断言中硬编码与 `packages/consts` 相同的长字符串或中文提示文案片段（必须引用常量或模板辅助函数 `test/helpers/templateText.ts`）。特殊断言豁免必须在 `scripts/conventions/testAssertionFragments.ts` 中显式登记。
-  - **测试替身复位**：同一个替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 的回调及其可传递调用到的测试侧函数）里就必须用 `mockReset()` 再装回默认实现，不能只 `mockClear()`：`mockClear()` 不清排队中的 Once。门禁按 TypeScript checker 把替身解析到声明符号判定（`scripts/conventions/testMockReset.ts`），用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
+  - **测试替身复位**：同一个替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 的回调及其可传递调用到的测试侧函数）里就必须用 `mockReset()` 再装回默认实现，不能只 `mockClear()`：`mockClear()` 不清排队中的 Once（`scripts/conventions/testMockReset.ts`）；`test/` 下文件顶层创建的 `spyOn` 必须在覆盖作用域（同级或外层套件/文件）的 `afterAll` / `afterEach` 钩子或同作用域顶层同步位置调用 `mockRestore()` / `mock.restore()` 还原被监听对象（`scripts/conventions/testSpyRestore.ts`）。两项门禁均按 TypeScript checker 把替身解析到声明符号判定，用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
 
 ---
 
@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**7109 tests / 596 files / 462907 次 `expect()`**；全源码**函数覆盖率 97.12% / 行覆盖率 97.93%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**7188 tests / 605 files / 463447 次 `expect()`**；全源码**函数覆盖率 96.84% / 行覆盖率 97.56%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 
@@ -228,7 +228,7 @@ bun run test:coverage 2>&1 | grep 'All files'  # 获取函数与行覆盖率
      ```bash
      bun run release:verify -- --version <tag> --platforms <逗号分隔的平台列表> --directory <汇总目录>
      ```
-   - 脚本将逐一核对各包的 SHA-256 哈希、版本、目标架构、依赖完整性以及是否存在泄露的 `.map` 或 `node_modules`。
+   - 脚本将逐一核对各包的 SHA-256 哈希、版本、目标架构、必需运行资源与冷迁移 CLI、依赖完整性以及是否存在泄露的 `.map` 或 `node_modules`。
 5. **合入主干与打标签**：
    - 检查工作树差异，通过 `git merge --squash` 将 `dev` 合入 `master` 并提交，确保 Git tree 哈希与构建时一致；
    - 推送 `master` 分支，并在该提交上创建并推送附注式版本标签（annotated version tag）。

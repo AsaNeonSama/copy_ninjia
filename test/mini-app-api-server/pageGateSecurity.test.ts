@@ -43,6 +43,9 @@ const {
   parseMiniAppRejectHtmlTemplate,
   serveMiniAppRejectHtml,
 } = await import("../../packages/mini-app-api-server/handlers/page");
+const { serveBundledAssetResponse } = await import(
+  "../../packages/mini-app-api-server/libs/response"
+);
 const {
   deriveMiniAppAssetToken,
   deriveMiniAppInitDataSecretKey,
@@ -63,7 +66,10 @@ const {
 } = await import("../../packages/mini-app-api-server");
 const { dispatchMiniAppTestRequest } = await import("../helpers/miniAppRequest");
 import type { MiniAppAccessDiagnostics } from "../../packages/types/miniApp/auth";
-import type { BundledMiniAppAssets } from "../../packages/types/miniApp/server";
+import type {
+  BundledMiniAppAsset,
+  BundledMiniAppAssets,
+} from "../../packages/types/miniApp/server";
 
 /** 发送门禁安全测试请求的入参选项。 */
 interface SendGateSecurityRequestOptions {
@@ -322,6 +328,8 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
           },
         });
         expect(singleEtagNotModRes.status).toBe(304);
+        expect(singleEtagNotModRes.headers.get("Content-Type")).toBeNull();
+        expect(singleEtagNotModRes.headers.get("Content-Length")).toBeNull();
 
         const singleWeakNotModRes: Response = await fetch(targetUrl, {
           headers: {
@@ -760,13 +768,13 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
         .replaceAll("&quot;", '"')
         .replaceAll("&lt;", "<")
         .replaceAll("&gt;", ">")
-        .replaceAll("&#39;", "'")
+        .replaceAll("&#x27;", "'")
         .replaceAll("&amp;", "&");
     expect(rawAttrCode).toContain("&amp;");
     expect(rawAttrCode).toContain("&quot;");
     expect(rawAttrCode).toContain("&lt;");
     expect(rawAttrCode).toContain("&gt;");
-    expect(rawAttrCode).toContain("&#39;");
+    expect(rawAttrCode).toContain("&#x27;");
     expect(unescapeHtmlEntities(rawAttrCode)).toBe(unsafeText);
     expect(unescapeHtmlEntities(rawAttrError)).toBe(`${unsafeText}_err`);
     expect(unescapeHtmlEntities(rawAttrHost)).toBe(unsafeHost);
@@ -833,5 +841,43 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
     expect(
       ((await initDataWithSessionRes.json()) as { readonly error?: string }).error
     ).toBe("Resource not found");
+  });
+
+  test("serveBundledAssetResponse 对弱目标 ETag 同样对称命中强弱 If-None-Match 并拒绝畸形 ETag", async () => {
+    const weakAsset: Readonly<BundledMiniAppAsset> = {
+      contentType: "application/javascript; charset=utf-8",
+      content: new TextEncoder().encode("console.log(1);"),
+      etag: 'W/"weak-bundle-1"',
+    };
+
+    const strongClientRes: Response = serveBundledAssetResponse(
+      new Request("http://127.0.0.1:3000/chunk-weak.js", {
+        headers: { "If-None-Match": '"weak-bundle-1"' },
+      }),
+      weakAsset
+    );
+    expect(strongClientRes.status).toBe(304);
+    expect(strongClientRes.headers.get("Content-Type")).toBeNull();
+    expect(strongClientRes.headers.get("Content-Length")).toBeNull();
+
+    const weakClientRes: Response = serveBundledAssetResponse(
+      new Request("http://127.0.0.1:3000/chunk-weak.js", {
+        headers: { "If-None-Match": 'W/"weak-bundle-1"' },
+      }),
+      weakAsset
+    );
+    expect(weakClientRes.status).toBe(304);
+
+    const malformedTargetRes: Response = serveBundledAssetResponse(
+      new Request("http://127.0.0.1:3000/chunk-weak.js", {
+        headers: { "If-None-Match": "*" },
+      }),
+      {
+        ...weakAsset,
+        etag: "unquoted-etag",
+      }
+    );
+    expect(malformedTargetRes.status).toBe(200);
+    expect(await malformedTargetRes.text()).toBe("console.log(1);");
   });
 });

@@ -13,6 +13,7 @@ import {
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_SESSION_EXPIRES_AT_HEADER,
   MINI_APP_SESSION_HEADER,
+  MINI_APP_SESSION_TTL_MS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import {
   clearMiniAppAssetToken,
@@ -178,7 +179,7 @@ describe("会话与传输", () => {
 
     responses.set("GET /api/auth/precheck", (): Response =>
       Response.json(
-        { ok: true, ttlMs: 2_700_000, sessionValid: true, sessionExpiresAt: serverNow + 30 * 60_000 },
+        { ok: true, ttlMs: MINI_APP_SESSION_TTL_MS, sessionValid: true, sessionExpiresAt: serverNow + 30 * 60_000 },
         { headers: { Date: new Date(serverNow).toUTCString() } }
       ));
     const result = await precheckMiniAppAccess();
@@ -194,12 +195,43 @@ describe("会话与传输", () => {
         headers: {
           Date: new Date(lateServerNow).toUTCString(),
           [MINI_APP_SESSION_HEADER]: refreshedSession,
-          [MINI_APP_SESSION_EXPIRES_AT_HEADER]: String(lateServerNow + 45 * 60_000),
+          [MINI_APP_SESSION_EXPIRES_AT_HEADER]: String(lateServerNow + MINI_APP_SESSION_TTL_MS),
         },
       }));
     await miniAppFetchJson("/api/status");
     expect(readMiniAppSessionToken()).toBe(refreshedSession);
-    expect(Math.abs(readMiniAppSessionExpiresAt() - (Date.now() + 45 * 60_000))).toBeLessThan(2_000);
+    expect(Math.abs(readMiniAppSessionExpiresAt() - (Date.now() + MINI_APP_SESSION_TTL_MS))).toBeLessThan(2_000);
+  });
+
+  test("precheck 在本机已触发过期自清但服务端仍判有效时回退保留 sentSessionToken；服务端判无效且无会话令牌时清理过期 assetToken", async () => {
+    setMiniAppSessionToken(session, Date.now() + 60_000);
+    responses.set("GET /api/auth/precheck", (): Response => {
+      // 模拟请求发出后本机因时钟跳变提前清理了本地缓存，但服务端仍返回有效会话。
+      clearMiniAppSessionToken();
+      return Response.json(
+        {
+          ok: true,
+          ttlMs: MINI_APP_SESSION_TTL_MS,
+          sessionValid: true,
+          sessionExpiresAt: Date.now() + 20 * 60_000,
+          assetToken: "d".repeat(64),
+        },
+        { headers: { Date: new Date().toUTCString() } }
+      );
+    });
+    const preserved = await precheckMiniAppAccess();
+    expect(preserved.ok && preserved.sessionValid === true).toBeTrue();
+    expect(readMiniAppSessionToken()).toBe(session);
+    expect(readMiniAppAssetToken()).toBe("d".repeat(64));
+
+    clearMiniAppSessionToken();
+    setMiniAppAssetToken("f".repeat(64));
+    responses.set("GET /api/auth/precheck", (): Response =>
+      Response.json({ ok: true, ttlMs: MINI_APP_SESSION_TTL_MS, sessionValid: false })
+    );
+    const invalidated = await precheckMiniAppAccess();
+    expect(invalidated.ok && invalidated.sessionValid !== true).toBeTrue();
+    expect(readMiniAppAssetToken()).toBe("");
   });
 
   test("precheck 返回 2xx 非 JSON 响应体时走失败诊断并清理本地凭据", async () => {

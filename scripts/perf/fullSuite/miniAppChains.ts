@@ -1,7 +1,7 @@
 /**
  * Mini App 端到端 HTTP API 请求链路：单请求从 `Bun.serve` 路由表入口进入，
  * 依次完成请求头护栏、Telegram WebApp `initData` HMAC-SHA256 签名与超管身份核验、
- * 45 分钟密码会话核验与滑窗续期、受管群详情内存聚合及 Disk I/O Worker 入群日志 1–24 小时滑窗读取、
+ * 45 分钟密码会话核验、受管群详情内存聚合及 Disk I/O Worker 入群日志 1–24 小时滑窗读取、
  * 以及 HTTP JSON 响应序列化与解析。
  *
  * 本文件不加载生产模块图（见 scripts/conventions/moduleBoundaries.ts 的全量基准 import
@@ -17,7 +17,6 @@ import {
   MINI_APP_INIT_DATA_HEADER,
   MINI_APP_PAGE_GATE_COOKIE_NAME,
   MINI_APP_SESSION_HEADER,
-  MINI_APP_WEB_APP_DATA_SECRET_SEED,
 } from "../../../packages/consts/miniApp";
 import { CHAT_QA_MAX_PER_CHAT } from "../../../packages/consts/qa";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../../packages/consts/storage";
@@ -40,6 +39,7 @@ import type { recordJoinLog } from "../../../packages/infra/joinLog";
 import type { getOrCreateChatState } from "../../../packages/infra/chatStateStorage";
 import type {
   deriveMiniAppAssetToken,
+  deriveMiniAppInitDataSecretKey,
   deriveMiniAppPageGateSecretKey,
   issueMiniAppPageGateToken,
 } from "../../../packages/libs/miniAppAuth";
@@ -98,6 +98,7 @@ export interface MiniAppChainDependencies {
   readonly resetMiniAppTotpMemoryCache: typeof resetMiniAppTotpMemoryCache;
   readonly serveMiniAppRejectHtml: typeof serveMiniAppRejectHtml;
   readonly evaluateMiniAppPageGateRequest: typeof evaluateMiniAppPageGateRequest;
+  readonly deriveMiniAppInitDataSecretKey: typeof deriveMiniAppInitDataSecretKey;
   readonly deriveMiniAppPageGateSecretKey: typeof deriveMiniAppPageGateSecretKey;
   readonly issueMiniAppPageGateToken: typeof issueMiniAppPageGateToken;
   readonly deriveMiniAppAssetToken: typeof deriveMiniAppAssetToken;
@@ -112,13 +113,13 @@ export interface MiniAppChainDependencies {
 
 /**
  * 构造已按 Telegram WebApp 规范 HMAC-SHA256 签名的超管 `initData` 查询字符串。
- * @param botToken 基准机器人 Token。
+ * @param secretKey 已派生的 `initData` HMAC-SHA256 密钥。
  * @param superAdminUserId 超管 Telegram 用户 ID。
  * @param authDate 秒级签发时间戳。
  * @returns URLSearchParams 编码后的 `initData`。
  */
 function buildSignedInitData(
-  botToken: string,
+  secretKey: Uint8Array,
   superAdminUserId: number,
   authDate: number
 ): string {
@@ -128,12 +129,6 @@ function buildSignedInitData(
     username: "super_admin",
   });
   const dataCheckString: string = `auth_date=${authDate}\nuser=${userJson}`;
-  const secretKey: Uint8Array = new Bun.CryptoHasher(
-    "sha256",
-    MINI_APP_WEB_APP_DATA_SECRET_SEED
-  )
-    .update(botToken, "utf8")
-    .digest();
   const hashHex: string = new Bun.CryptoHasher("sha256", secretKey)
     .update(dataCheckString, "utf8")
     .digest("hex");
@@ -226,7 +221,7 @@ function miniAppApiRequestChain(
         );
       }
       const initData: string = buildSignedInitData(
-        dependencies.botToken,
+        dependencies.deriveMiniAppInitDataSecretKey(dependencies.botToken),
         dependencies.superAdminUserId,
         Math.floor(nowMs / 1_000)
       );
@@ -439,7 +434,7 @@ function miniAppAuthLoginChain(
       dependencies.resetMiniAppTotpMemoryCache();
       const nowSeconds: number = Math.floor(Date.now() / 1_000);
       const initData: string = buildSignedInitData(
-        dependencies.botToken,
+        dependencies.deriveMiniAppInitDataSecretKey(dependencies.botToken),
         dependencies.superAdminUserId,
         nowSeconds
       );

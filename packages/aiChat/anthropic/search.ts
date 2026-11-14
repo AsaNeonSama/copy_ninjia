@@ -11,6 +11,7 @@ import {
   ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
 } from "../../consts/aiChat/anthropic";
 import { requireAgentCapabilityConfig } from "../../config/agent";
+import { getAnthropicClient } from "./client";
 import {
   PAUSE_TURN_CONTINUE,
   requestAnthropicWithPauseTurn,
@@ -18,6 +19,7 @@ import {
 import type { AnthropicPauseTurnStep, AnthropicRequestFailure } from "./pauseTurn";
 import { anthropicSearchError, anthropicSearchSources, messageText } from "./response";
 import { logger } from "../../infra/logger";
+import type { AnthropicClient } from "../../types/aiChat/anthropic";
 import type {
   AiWebSearchCapability,
   AiWebSearchRequest,
@@ -35,6 +37,8 @@ export async function searchAnthropicWeb(
   capability: AiWebSearchCapability,
   request: AiWebSearchRequest
 ): Promise<AiWebSearchResult> {
+  const client: AnthropicClient = getAnthropicClient(capability);
+  const model: string = requireAgentCapabilityConfig(capability).model;
   let text: string = "";
   const sources: AiWebSearchSource[] = [];
   const fallbackState: BetaFallbackState = new BetaFallbackState();
@@ -42,11 +46,11 @@ export async function searchAnthropicWeb(
     capability,
     errorLabel: ANTHROPIC_WEB_SEARCH_ERROR_LABEL,
     signal: request.signal,
+    client,
     fallbackState,
     buildBody: (
       prefix: Anthropic.Beta.BetaContentBlockParam[] | null
     ): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming => {
-      const model: string = requireAgentCapabilityConfig(capability).model;
       const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: request.query }];
       if (prefix !== null) messages.push({ role: "assistant", content: prefix });
       return {

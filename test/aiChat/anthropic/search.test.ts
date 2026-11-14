@@ -30,7 +30,10 @@ const requestAnthropicMessage = mock(async (...args: unknown[]): Promise<Anthrop
   fallbackStates.push(options.fallbackState);
   return results.shift() ?? { ok: false, failureKind: "request" };
 });
-mock.module("../../../packages/aiChat/anthropic/client", () => ({ requestAnthropicMessage }));
+mock.module("../../../packages/aiChat/anthropic/client", () => ({
+  getAnthropicClient: (): object => ({}),
+  requestAnthropicMessage,
+}));
 
 const { searchAnthropicWeb } = await import("../../../packages/aiChat/anthropic/search");
 const {

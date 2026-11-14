@@ -9,7 +9,7 @@ import {
   handlePostAuthLoginRoute,
   handlePostAuthLogoutRoute,
 } from "../handlers/auth";
-import { MINI_APP_INIT_DATA_AUTH_POLICY } from "../middleware/chains";
+import { MINI_APP_INIT_DATA_AUTH_POLICY } from "../../consts/miniApp";
 import { withMiniAppAuth } from "../middleware/pipeline";
 
 /** 经前置 `initData` 与锁定校验策略包装的首屏预检处理器。 */

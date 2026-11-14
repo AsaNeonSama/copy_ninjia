@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  collectMarkdownPathProblems,
+  collectMarkdownPathProblemsFromText,
   collectRepositoryPaths,
 } from "../../scripts/conventions/markdownPaths";
 
@@ -42,15 +42,19 @@ async function projectFixture(): Promise<{
   };
 }
 
-/** 写入一份 Markdown 文档并执行仓库路径核对。 */
-async function problemsFor(
+/** 对一段 Markdown 文本执行仓库路径核对。 */
+function problemsFor(
   root: string,
   repositoryPaths: ReadonlySet<string>,
   markdown: string
 ): Promise<readonly string[]> {
   const path: string = join(root, "docs", "en", "07-operations.md");
-  await Bun.write(path, markdown);
-  return collectMarkdownPathProblems(root, path, repositoryPaths);
+  return Promise.resolve(collectMarkdownPathProblemsFromText({
+    projectRoot: root,
+    path,
+    source: markdown,
+    repositoryPaths,
+  }));
 }
 
 describe("仓库路径集合构建", () => {

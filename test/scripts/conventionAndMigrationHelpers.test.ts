@@ -4,8 +4,10 @@ import type { Stats } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectFiles, readCachedText } from "../../scripts/checkProjectConventions";
+import { collectCommentReferenceProblems } from "../../scripts/conventions/commentReferences";
 import { withoutMarkdownCodeFences } from "../../scripts/conventions/markdownSource";
 import { pathExists, statOptionalPath } from "../../scripts/conventions/pathStat";
+import { parseSourceFile } from "../../scripts/conventions/sourceAnalysis";
 import { copyFixtureTree } from "../../scripts/fixtures/copyTree";
 import {
   assertCondition,
@@ -149,5 +151,38 @@ describe("copyFixtureTree、installIsolation assertions 与 migrations/files", (
 
     await Bun.write(target, "second-content");
     expect(await readCachedText(cache, target)).toBe("first-content");
+  });
+
+  test("commentReferences 支持 $ 标识符边界与 .tsx 目标且不误匹配前缀", async () => {
+    const root: string = makeTempRoot("copy-ninjia-comment-refs-");
+    const targetTs: string = join(root, "symbols.ts");
+    const targetTsx: string = join(root, "panel.tsx");
+    const callerPath: string = join(root, "caller.ts");
+    const tsSource: string = "export const $client: number = 1;\nexport const foo$: number = 2;\nexport const $foo: number = 3;\n";
+    const tsxSource: string = "export function PanelCard(): number { return 1; }\n";
+    const callerSource: string = [
+      "// 见 symbols.ts 的 `$client`、symbols.ts 中的 foo$、symbols.ts 里的 foo 与 panel.tsx 的 PanelCard。",
+      "export const ok: number = 1;",
+      "",
+    ].join("\n");
+    await Bun.write(targetTs, tsSource);
+    await Bun.write(targetTsx, tsxSource);
+    await Bun.write(callerPath, callerSource);
+
+    const sourceFileTexts: ReadonlyMap<string, string> = new Map<string, string>([
+      [targetTs, tsSource],
+      [targetTsx, tsxSource],
+      [callerPath, callerSource],
+    ]);
+    const problems: readonly string[] = await collectCommentReferenceProblems({
+      projectRoot: root,
+      path: callerPath,
+      source: await parseSourceFile(callerPath, callerSource),
+      allSourceFiles: [targetTs, targetTsx, callerPath],
+      fileTexts: sourceFileTexts,
+    });
+    expect(problems).toEqual([
+      "caller.ts:1 comment references foo in symbols.ts, but that module no longer declares or re-exports it",
+    ]);
   });
 });

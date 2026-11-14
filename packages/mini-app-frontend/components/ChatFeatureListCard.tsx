@@ -1,10 +1,8 @@
 import { Fragment, memo } from "react";
 import type React from "react";
 import { MINI_APP_FEATURE_KEYS } from "../consts/miniApp";
-import {
-  getFeatureDisplayMeta,
-  readEventTargetChecked,
-} from "../libs/formatters";
+import { getMiniAppTranslations } from "../i18n";
+import { readEventTargetChecked } from "../libs/formatters";
 import type {
   MiniAppChatDetail,
   MiniAppFeatureDisplayMeta,
@@ -46,10 +44,8 @@ function ChatFeatureSwitchRowView({
   language,
   onToggleFeature,
 }: ChatFeatureSwitchRowProps): React.JSX.Element {
-  const meta: MiniAppFeatureDisplayMeta = getFeatureDisplayMeta(
-    featureKey,
-    language
-  );
+  const meta: MiniAppFeatureDisplayMeta =
+    getMiniAppTranslations(language).chats.featureMeta[featureKey];
   return (
     <div
       className={`row chat-feature-row ${

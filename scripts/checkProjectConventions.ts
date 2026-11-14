@@ -107,7 +107,7 @@ const UTF8_DECODER: TextDecoder = new TextDecoder();
  * @returns 相对仓库根的项目文件路径列表。
  */
 export function projectFiles(): string[] {
-  const result: ReturnType<typeof Bun.spawnSync> = Bun.spawnSync({
+  const result: Bun.SyncSubprocess<"pipe", "pipe"> = Bun.spawnSync({
     cmd: [
       "git",
       "-c",
@@ -123,16 +123,12 @@ export function projectFiles(): string[] {
     stderr: "pipe",
   });
   if (result.exitCode !== 0) {
-    const stderr: string = result.stderr === undefined
-      ? ""
-      : UTF8_DECODER.decode(result.stderr);
+    const stderr: string = UTF8_DECODER.decode(result.stderr);
     throw new Error(
       `Failed to enumerate project files: ${stderr.trim()}`
     );
   }
-  const stdout: string = result.stdout === undefined
-    ? ""
-    : UTF8_DECODER.decode(result.stdout);
+  const stdout: string = UTF8_DECODER.decode(result.stdout);
   return stdout.split("\0").filter(
     (path: string): boolean => path.length > 0
   );
@@ -165,7 +161,7 @@ export async function readCachedText(fileTexts: Map<string, string>, path: strin
  *
  * @returns 约定检查退出码
  */
-export async function runProjectConventionCheck(): Promise<number> {
+async function runProjectConventionCheck(): Promise<number> {
   const failures: string[] = [];
   /** 逐文件遍历时顺带记下的 Node 兼容 import；整趟结束后反向核对登记表。 */
   const nodeImportUsage: NodeImportUsage[] = [];
@@ -202,6 +198,7 @@ export async function runProjectConventionCheck(): Promise<number> {
   });
   for (const result of statResults) {
     if (result.status === "fulfilled") {
+      if (!result.value.isFile()) continue;
       tracked.push(result.item);
       trackedStats.set(join(PROJECT_ROOT, result.item), result.value);
       continue;
@@ -268,7 +265,7 @@ export async function runProjectConventionCheck(): Promise<number> {
     );
   }
 
-  const moduleGraph: ModuleGraphReader = createModuleGraphReader();
+  const moduleGraph: ModuleGraphReader = createModuleGraphReader(fileTexts);
   const statesOpaqueModules: ReadonlySet<string> = new Set(
     STATES_CLOSURE_OPAQUE_MODULES.map((module: string): string => join(PROJECT_ROOT, module))
   );
