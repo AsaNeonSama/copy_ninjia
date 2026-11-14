@@ -24,12 +24,10 @@ import type {
 } from "../../../types/identityPolicy";
 import type {
   MiniAppIdentityMutationResult,
-  MiniAppPermissionDescriptor,
   MiniAppWhitelistEntryView,
   MiniAppWhitelistPage,
 } from "../../../types/miniApp/identities";
 import {
-  buildPermissionDescriptors,
   currentBotUserId,
   isInitializedManagedChatTarget,
   resolveIdentityMetadataForMiniApp,
@@ -41,7 +39,6 @@ import type {
 import { listIdentityPolicyPage } from "./page";
 import type {
   IdentityPolicyEntryBaseView,
-  IdentityPolicyPageResult,
   ListIdentityPageParams,
 } from "./page";
 
@@ -86,26 +83,22 @@ interface MutateWhitelistEntryPermissionsParams {
  * 分页列出持久化的白名单成员及其十八项细粒度权限（支持按名称、用户名或 ID 模糊搜索）。
  * 条目经 `readIdentityPolicyEntries` 直接冷读并在本次请求内局部持有，不读写 Bot 的合并身份缓存。
  * @param params 页码 `page`、每页条数 `pageSize`、游标 `afterId` 或搜索关键字 `query`。
- * @returns 白名单分页视图（含当前页、总页数、白名单总数、黑名单总数）及权限说明列表。
+ * @returns 白名单分页视图（含当前页、总页数、白名单总数、黑名单总数）。
  */
 export async function listWhitelistEntries(
   params: ListIdentityPageParams = {}
 ): Promise<Readonly<MiniAppWhitelistPage>> {
-  const permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[] =
-    buildPermissionDescriptors();
-  const page: Readonly<IdentityPolicyPageResult<MiniAppWhitelistEntryView>> =
-    await listIdentityPolicyPage({
-      table: "whitelist",
-      params,
-      toView: (
-        base: Readonly<IdentityPolicyEntryBaseView>,
-        entry: Readonly<WhitelistEntryData>
-      ): Readonly<MiniAppWhitelistEntryView> => ({
-        ...base,
-        permissions: { ...entry.permissions },
-      }),
-    });
-  return { ...page, permissionDescriptors };
+  return listIdentityPolicyPage({
+    table: "whitelist",
+    params,
+    toView: (
+      base: Readonly<IdentityPolicyEntryBaseView>,
+      entry: Readonly<WhitelistEntryData>
+    ): Readonly<MiniAppWhitelistEntryView> => ({
+      ...base,
+      permissions: { ...entry.permissions },
+    }),
+  });
 }
 
 /**

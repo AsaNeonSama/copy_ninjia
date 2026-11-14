@@ -158,7 +158,6 @@ export function IdentitiesPage(): React.JSX.Element {
             {!loadingList && whitelistPage !== null && renderedWhitelistItems.length > 0 ? (
               <WhitelistEntryRowList
                 items={renderedWhitelistItems}
-                permissionDescriptors={whitelistPage.permissionDescriptors}
                 selectedEntryId={selectedEntryId}
                 closingEntryId={closingEntryId}
                 busyAction={busyAction}

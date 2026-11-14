@@ -10,7 +10,6 @@ import { TrashSvgIcon } from "../resource";
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type {
   MiniAppBlocklistEntryView,
-  MiniAppPermissionDescriptor,
   MiniAppWhitelistEntryView,
 } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
@@ -37,8 +36,6 @@ const MemoizedPermissionDrawer: React.MemoExoticComponent<
 export interface WhitelistEntryRowListProps {
   /** 当前页的白名单条目数组。 */
   readonly items: readonly Readonly<MiniAppWhitelistEntryView>[];
-  /** 十八项白名单权限键与描述列表。 */
-  readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
   /** 当前展开权限抽屉的目标身份 ID（未展开时为 `null`）。 */
   readonly selectedEntryId: number | null;
   /** 处于抽屉收起保留期的已移出白名单条目 ID（无保留行时为 `null` 或缺省）。 */
@@ -67,8 +64,6 @@ interface WhitelistEntryRowProps {
   readonly isExpanded: boolean;
   /** 当前行是否为已移出白名单后处于抽屉收起保留期的只读快照行。 */
   readonly isClosing: boolean;
-  /** 十八项白名单权限键与描述列表。 */
-  readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
   /** 当前是否有增删操作在途。 */
   readonly busyAction: boolean;
   /** 当前语言的翻译字典。 */
@@ -96,7 +91,6 @@ function WhitelistEntryRowView({
   entry,
   isExpanded,
   isClosing,
-  permissionDescriptors,
   busyAction,
   t,
   onTogglePermissionDrawer,
@@ -222,7 +216,6 @@ function WhitelistEntryRowView({
         {mountedDrawerEntry !== null ? (
           <MemoizedPermissionDrawer
             entry={mountedDrawerEntry}
-            descriptors={permissionDescriptors}
             onUpdated={onPermissionsUpdated}
             onClose={onClosePermissionDrawer}
           />
@@ -350,7 +343,6 @@ export function useRetainedClosingWhitelistItems(
  */
 function WhitelistEntryRowListView({
   items,
-  permissionDescriptors,
   selectedEntryId,
   closingEntryId = null,
   busyAction,
@@ -369,7 +361,6 @@ function WhitelistEntryRowListView({
             entry={entry}
             isExpanded={selectedEntryId === entry.id}
             isClosing={closingEntryId === entry.id}
-            permissionDescriptors={permissionDescriptors}
             busyAction={busyAction}
             t={t}
             onTogglePermissionDrawer={onTogglePermissionDrawer}

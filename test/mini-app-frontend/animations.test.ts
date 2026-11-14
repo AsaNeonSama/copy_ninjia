@@ -109,8 +109,10 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       targetAddMenuOpen: false, targetIdFormOpen: false, deleteTargetInput: "", translateTargetInput: "",
       translateLanguageInput: "cn", translateLangMenuOpen: true,
     };
-    const renderModal = (patch: Partial<MiniAppChatsStoreState>): string =>
-      renderToStaticMarkup(createElement(ChatTargetsModal, { state: { ...baseChatState, ...patch } }));
+    const renderModal = (patch: Partial<MiniAppChatsStoreState>): string => {
+      chatsStore.setState({ ...baseChatState, ...patch });
+      return renderToStaticMarkup(createElement(ChatTargetsModal, { store: chatsStore }));
+    };
 
     const qaModalHtml: string = renderModal({ activeTargetsModal: "qa" });
     for (const token of [
@@ -256,7 +258,6 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       renderToStaticMarkup(
         createElement(PermissionDrawer, {
           entry: partialEntry,
-          descriptors: [],
           onUpdated: (): void => undefined,
           onClose: (): void => undefined,
           storeFactory: () => store,
@@ -280,7 +281,6 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     const ClickCaptureProbe = (): ReturnType<typeof createElement> => {
       const tree = PermissionDrawer({
         entry: { ...partialEntry, permissions: fullPermissions },
-        descriptors: [],
         onUpdated: (): void => undefined,
         onClose: (): void => undefined,
         storeFactory: () => store,
@@ -669,6 +669,8 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     const skeletonsCss: string = await Bun.file(`${stylesDir}/skeletons.css`).text();
     const statusCss: string = await Bun.file(`${stylesDir}/status.css`).text();
     const chatsCss: string = await Bun.file(`${stylesDir}/chats.css`).text();
+    const chatsDetailCss: string = await Bun.file(`${stylesDir}/chats-detail.css`).text();
+    const chatsTargetsCss: string = await Bun.file(`${stylesDir}/chats-targets.css`).text();
     const identitiesCss: string = await Bun.file(`${stylesDir}/identities.css`).text();
     const authCss: string = await Bun.file(`${stylesDir}/auth.css`).text();
     const galleryCss: string = await Bun.file(`${stylesDir}/gallery.css`).text();
@@ -717,6 +719,8 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       skeletonsCss,
       statusCss,
       chatsCss,
+      chatsDetailCss,
+      chatsTargetsCss,
       identitiesCss,
       authCss,
       galleryCss,
@@ -907,16 +911,19 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
 
     // 5. 逐帧折叠容器、机械下压交互、触屏合成层提示与响应式断点
     expect(primitivesCss).not.toContain(".card.flip-card-clip");
-    expect(chatsCss).not.toContain(".chat-targets-form.flip-card-clip");
-    expect(chatsCss).not.toContain("miniapp-qa-collapse-overflow-reveal");
+    for (const css of [chatsCss, chatsDetailCss, chatsTargetsCss]) {
+      expect(css).not.toContain(".chat-targets-form.flip-card-clip");
+      expect(css).not.toContain("miniapp-qa-collapse-overflow-reveal");
+    }
     expect(authCss).not.toContain("miniapp-totp-collapse-overflow-reveal");
     expect(statusCss).toContain(".cap-collapse-inner");
     expect(statusCss).toContain(".cap-collapse-wrap.flip-closing");
-    expect(chatsCss).toContain("@keyframes miniapp-tab-slide-forward");
-    expect(chatsCss).toContain("@keyframes miniapp-tab-slide-backward");
-    expect(chatsCss).toContain("animation: miniapp-tab-slide-forward");
-    expect(chatsCss).toContain("animation: miniapp-tab-slide-backward");
-    expect(chatsCss).toContain("animation: miniapp-popover-drop-out");
+    expect(chatsDetailCss).toContain("@keyframes miniapp-tab-slide-forward");
+    expect(chatsDetailCss).toContain("@keyframes miniapp-tab-slide-backward");
+    expect(chatsTargetsCss).toContain("animation: miniapp-tab-slide-forward");
+    expect(chatsTargetsCss).toContain("animation: miniapp-tab-slide-backward");
+    expect(chatsDetailCss).toContain("animation: miniapp-popover-drop-out");
+    expect(chatsTargetsCss).toContain("animation: miniapp-popover-drop-out");
     expect(identitiesCss).toContain(".perm-drawer-collapse-grid.expanded");
     expect(identitiesCss).toContain(".perm-drawer-collapse-grid.flip-closing");
     expect(authCss).toContain(".totp-start-submit.is-loading");
@@ -926,15 +933,15 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(statusCss).toContain(".cap-collapse-wrap.expanded > .cap-collapse-inner");
     expect(identitiesCss).toContain(".perm-drawer-collapse-grid.flip-closing > .perm-drawer-collapse-inner");
     expect(galleryCss).toContain(".gallery-preview-collapse-grid.expanded > .gallery-preview-collapse-inner");
-    for (const css of [statusCss, identitiesCss, chatsCss, galleryCss]) {
+    for (const css of [statusCss, identitiesCss, chatsTargetsCss, galleryCss]) {
       expect(css).toContain("@media (hover: none) and (pointer: coarse)");
     }
     expect(galleryCss).toContain(".gallery-preview-collapse-grid ~ .card { will-change: transform; }");
     expect(galleryCss).toContain("height: clamp(220px, 42vh, 320px);");
     expect(identitiesCss).toContain("@media (max-width: 440px)");
-    expect(chatsCss).toContain("@media (max-width: 440px)");
+    expect(chatsTargetsCss).toContain("@media (max-width: 440px)");
     expect(identitiesCss).toContain("@media (max-width: 350px)");
-    expect(chatsCss).toContain("@media (max-width: 350px)");
+    expect(chatsTargetsCss).toContain("@media (max-width: 350px)");
     expect(primitivesCss).toContain("@media (min-width: 720px)");
 
     // 6. 弹窗/浮层/Toast 退场缓动曲线、纯整数 translate3d 无缩放、常驻合成层、顶边锚定与一体式卡片恒定底边框核验
@@ -949,7 +956,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       [overlaysCss, "miniapp-toast-in"], [overlaysCss, "miniapp-toast-out"],
       [overlaysCss, "miniapp-modal-pop"], [overlaysCss, "miniapp-modal-pop-out"],
       [shellCss, "miniapp-popover-drop"], [shellCss, "miniapp-popover-drop-out"],
-      [chatsCss, "miniapp-targets-stamp-in"], [chatsCss, "miniapp-targets-snap-out"],
+      [chatsDetailCss, "miniapp-targets-stamp-in"], [chatsDetailCss, "miniapp-targets-snap-out"],
     ] as const) {
       const kfBody: string = new RegExp(`@keyframes\\s+${keyframeName}\\s*\\{([\\s\\S]*?\\}\\s*)\\}`, "u").exec(cssSource)?.[1] ?? "";
       expect(kfBody).toContain("translate3d(");
@@ -962,8 +969,8 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(toastBaseBody).not.toMatch(/(?<![\w-])transition\s*:/u);
     for (const [cssSource, selectorPattern] of [
       [overlaysCss, /(?:^|\n)\.toast\.show\s*\{([^}]*)\}/u], [overlaysCss, /(?:^|\n)\.confirm-dialog\s*\{([^}]*)\}/u],
-      [shellCss, /(?:^|\n)\.lang-menu-popover\s*\{([^}]*)\}/u], [chatsCss, /(?:^|\n)\.chat-targets-modal\s*\{([^}]*)\}/u],
-      [chatsCss, /(?:^|\n)\.chat-targets-menu-popover\s*\{([^}]*)\}/u], [chatsCss, /(?:^|\n)\.chat-targets-lang-popover\s*\{([^}]*)\}/u],
+      [shellCss, /(?:^|\n)\.lang-menu-popover\s*\{([^}]*)\}/u], [chatsTargetsCss, /(?:^|\n)\.chat-targets-modal\s*\{([^}]*)\}/u],
+      [chatsDetailCss, /(?:^|\n)\.chat-targets-menu-popover\s*\{([^}]*)\}/u], [chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-popover\s*\{([^}]*)\}/u],
     ] as const) {
       const layerBody: string = selectorPattern.exec(cssSource)?.[1] ?? "";
       expect(layerBody).toContain("will-change: transform, opacity;");
@@ -973,16 +980,16 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     for (const [cssSource, closingPattern] of [
       [overlaysCss, /(?:^|\n)\.toast\.closing\s*\{([^}]*)\}/u], [overlaysCss, /(?:^|\n)\.confirm-backdrop\.closing::before\s*\{([^}]*)\}/u],
       [overlaysCss, /(?:^|\n)\.confirm-dialog\.closing\s*\{([^}]*)\}/u], [shellCss, /(?:^|\n)\.lang-menu-popover\.closing\s*\{([^}]*)\}/u],
-      [chatsCss, /(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\.closing::before\s*\{([^}]*)\}/u],
-      [chatsCss, /(?:^|\n)\.chat-targets-modal\.closing\s*\{([^}]*)\}/u],
-      [chatsCss, /(?:^|\n)\.chat-targets-menu-popover\.closing\s*\{([^}]*)\}/u],
-      [chatsCss, /(?:^|\n)\.chat-targets-lang-popover\.closing\s*\{([^}]*)\}/u],
+      [chatsTargetsCss, /(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\.closing::before\s*\{([^}]*)\}/u],
+      [chatsTargetsCss, /(?:^|\n)\.chat-targets-modal\.closing\s*\{([^}]*)\}/u],
+      [chatsDetailCss, /(?:^|\n)\.chat-targets-menu-popover\.closing\s*\{([^}]*)\}/u],
+      [chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-popover\.closing\s*\{([^}]*)\}/u],
     ] as const) {
       expect(closingPattern.exec(cssSource)?.[1] ?? "").toContain("var(--ease-exit");
     }
-    expect(/(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\s*\{([^}]*)\}/u.exec(chatsCss)?.[1] ?? "").toContain("align-items: flex-start;");
-    expect(chatsCss).toContain(".chat-targets-qa-collapse-grid.flip-closing:has(.chat-targets-lang-popover)");
-    expect(chatsCss).toContain(".chat-targets-qa-collapse-grid.flip-closing > .chat-targets-qa-collapse-inner:has(.chat-targets-lang-popover)");
+    expect(/(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\s*\{([^}]*)\}/u.exec(chatsTargetsCss)?.[1] ?? "").toContain("align-items: flex-start;");
+    expect(chatsTargetsCss).toContain(".chat-targets-qa-collapse-grid.flip-closing:has(.chat-targets-lang-popover)");
+    expect(chatsTargetsCss).toContain(".chat-targets-qa-collapse-grid.flip-closing > .chat-targets-qa-collapse-inner:has(.chat-targets-lang-popover)");
     expect(identitiesCss).not.toContain("miniapp-perm-drawer-stamp");
     for (const match of statusCss.matchAll(/[^{}]*>\s*\.cap-header-btn\s*\{([^}]*)\}/gu)) {
       expect(match[1] ?? "").not.toMatch(/border-bottom\s*:\s*(?:none|var\(--border-w-sm\))/u);

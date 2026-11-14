@@ -1,5 +1,7 @@
 import { memo } from "react";
 import type React from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import {
   MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_MIN_HOURS,
@@ -11,7 +13,7 @@ import { readEventTargetValue } from "../libs/formatters";
 import { RefreshSvgIcon, TrashSvgIcon, UserSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppChatsStoreState } from "../store/chats";
+import type { MiniAppChatsStore, MiniAppChatsStoreState } from "../store/chats";
 import type {
   MiniAppBatchKickCompletion,
   MiniAppChatDetail,
@@ -22,31 +24,40 @@ import { LoadingDotsWave } from "./animations/LoadingDotsWave";
 import { useAnimatedRangeProgress } from "./animations/useAnimatedRangeProgress";
 import type { AnimatedRangeProgressResult } from "./animations/useAnimatedRangeProgress";
 
+/** `ChatJoinCleanCard` 订阅的批量清理状态与动作切片。 */
+type ChatJoinCleanCardSlice = Pick<
+  MiniAppChatsStoreState,
+  | "batchKickHours"
+  | "loadingWindowJoined"
+  | "batchKickSubmitting"
+  | "setBatchKickHours"
+  | "runBatchKick"
+>;
+
+/**
+ * 从受管群状态仓库提取 `ChatJoinCleanCard` 所需的回溯清理字段。
+ *
+ * @param state 受管群完整状态快照
+ * @returns `ChatJoinCleanCard` 订阅切片
+ */
+function selectChatJoinCleanCardState(
+  state: MiniAppChatsStoreState
+): ChatJoinCleanCardSlice {
+  return {
+    batchKickHours: state.batchKickHours,
+    loadingWindowJoined: state.loadingWindowJoined,
+    batchKickSubmitting: state.batchKickSubmitting,
+    setBatchKickHours: state.setBatchKickHours,
+    runBatchKick: state.runBatchKick,
+  };
+}
+
 /** `ChatJoinCleanCard` 组件属性参数。 */
 export interface ChatJoinCleanCardProps {
   /** 当前群详情快照。 */
   readonly chatDetail: Readonly<MiniAppChatDetail>;
-  /** 群列表与详情状态仓库快照。 */
-  readonly state: MiniAppChatsStoreState;
-}
-
-/**
- * 比较进群统计与批量清理卡片依赖的 `chatDetail`、`batchKickHours`、`loadingWindowJoined` 与 `batchKickSubmitting` 切片是否一致。
- *
- * @param prev 上一次属性
- * @param next 本次属性
- * @returns 依赖切片未变化时返回 `true`
- */
-function areChatJoinCleanCardPropsEqual(
-  prev: Readonly<ChatJoinCleanCardProps>,
-  next: Readonly<ChatJoinCleanCardProps>
-): boolean {
-  return (
-    prev.chatDetail === next.chatDetail &&
-    prev.state.batchKickHours === next.state.batchKickHours &&
-    prev.state.loadingWindowJoined === next.state.loadingWindowJoined &&
-    prev.state.batchKickSubmitting === next.state.batchKickSubmitting
-  );
+  /** `ChatsPage` 持有的受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
 }
 
 /**
@@ -57,7 +68,7 @@ function areChatJoinCleanCardPropsEqual(
  */
 function ChatJoinCleanCardView({
   chatDetail,
-  state,
+  store,
 }: ChatJoinCleanCardProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (uiState: MiniAppUiStoreState): MiniAppLanguage => uiState.language
@@ -69,7 +80,10 @@ function ChatJoinCleanCardView({
     batchKickSubmitting,
     setBatchKickHours,
     runBatchKick,
-  }: MiniAppChatsStoreState = state;
+  }: ChatJoinCleanCardSlice = useStore(
+    store,
+    useShallow(selectChatJoinCleanCardState)
+  );
   const {
     displayValue,
     isAnimating,
@@ -220,7 +234,7 @@ function ChatJoinCleanCardView({
   );
 }
 
-/** 按进群统计与批量清理相关状态切片浅比较跳过重渲染的卡片组件。 */
+/** 按 `chatDetail` 与仓库引用浅比较跳过无关重渲染的批量清理卡片组件。 */
 export const ChatJoinCleanCard: React.MemoExoticComponent<
   typeof ChatJoinCleanCardView
-> = memo(ChatJoinCleanCardView, areChatJoinCleanCardPropsEqual);
+> = memo(ChatJoinCleanCardView);

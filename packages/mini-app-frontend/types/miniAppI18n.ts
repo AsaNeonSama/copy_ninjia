@@ -303,6 +303,7 @@ export interface MiniAppTranslations {
     readonly enableAllButton: string;
     readonly closeButton: string;
     readonly labels: Readonly<Record<WhitelistPermissionKey, string>>;
+    readonly descriptions: Readonly<Record<WhitelistPermissionKey, string>>;
   }>;
 
   readonly gallery: Readonly<{

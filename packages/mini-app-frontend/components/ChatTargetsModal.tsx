@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import {
   CHAT_QA_MAX_PER_CHAT,
   DELETE_MESSAGE_CHAT_TARGET_MAX,
@@ -12,7 +14,7 @@ import { getMiniAppTranslations } from "../i18n";
 import { CloseSvgIcon, PlusSvgIcon, RefreshSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
-import type { MiniAppChatsStoreState } from "../store/chats";
+import type { MiniAppChatsStore, MiniAppChatsStoreState } from "../store/chats";
 import type {
   MiniAppChatDetail,
   MiniAppChatTargetKind,
@@ -31,10 +33,7 @@ import type {
   MeasurableBodyElement,
   ScrollableModalBodyElement,
 } from "./animations/TabHeightSizer";
-import {
-  useClosingSnapshot,
-  useDelayedUnmount,
-} from "./animations/useDelayedUnmount";
+import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import {
   ChatTargetsMemberAddForm,
@@ -47,8 +46,8 @@ import {
 
 /** `ChatTargetsModal` 组件入参。 */
 export interface ChatTargetsModalProps {
-  /** `ChatsPage` 持有的状态与动作快照。 */
-  readonly state: MiniAppChatsStoreState;
+  /** `ChatsPage` 持有的受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
 }
 
 /**
@@ -176,6 +175,320 @@ export interface ChatTargetsModalDialogProps {
   readonly prevHadTargetsRef: React.RefObject<boolean>;
   /** 平滑滚动弹窗内容至顶部的回调。 */
   readonly onScrollToTop: () => void;
+  /** 可选受管群状态仓库；传入时由四个叶子面板各自按切片粒度订阅，未传时直接消费 `state`/`snapshotState`。 */
+  readonly store?: MiniAppChatsStore;
+}
+
+/** `ChatTargetsModal` 弹窗外框订阅的状态与动作切片（不含各类表单草稿输入框）。 */
+type ChatTargetsModalShellSlice = Pick<
+  MiniAppChatsStoreState,
+  | "activeTargetsModal"
+  | "chatDetail"
+  | "chatTargets"
+  | "loadingTargets"
+  | "mutatingTargets"
+  | "translateLangMenuOpen"
+  | "qaEditorOpen"
+  | "targetAddMenuOpen"
+  | "openQaEditor"
+  | "openTargetAddMenu"
+  | "closeTranslateLangMenu"
+  | "switchTargetsModalTab"
+  | "closeTargetsModal"
+  | "loadChatTargets"
+>;
+
+/** 问答对编辑表单订阅的状态与动作切片。 */
+type ChatTargetsQaEditorFormSlice = Pick<
+  MiniAppChatsStoreState,
+  | "chatTargets"
+  | "mutatingTargets"
+  | "qaEditorOpen"
+  | "qaQuestionInput"
+  | "qaAnswerInput"
+  | "qaEditSourceQuestion"
+  | "closeQaEditor"
+  | "setQaQuestionInput"
+  | "setQaAnswerInput"
+  | "submitQaPair"
+>;
+
+/** 成员目标添加表单订阅的状态与动作切片。 */
+type ChatTargetsMemberAddFormSlice = Pick<
+  MiniAppChatsStoreState,
+  | "mutatingTargets"
+  | "targetAddMenuOpen"
+  | "targetIdFormOpen"
+  | "deleteTargetInput"
+  | "translateTargetInput"
+  | "translateLanguageInput"
+  | "translateLangMenuOpen"
+  | "closeTargetAddMenu"
+  | "selectTargetAddMode"
+  | "setDeleteTargetInput"
+  | "setTranslateTargetInput"
+  | "setTranslateLanguageInput"
+  | "toggleTranslateLangMenu"
+  | "submitDeleteTarget"
+  | "submitTranslateTarget"
+>;
+
+/** 问答对列表面板订阅的状态与动作切片。 */
+type ChatTargetsQaPanelSlice = Pick<
+  MiniAppChatsStoreState,
+  | "chatTargets"
+  | "loadingTargets"
+  | "mutatingTargets"
+  | "fillQaPairForEdit"
+  | "removeQaPair"
+>;
+
+/** 成员目标列表面板订阅的状态与动作切片。 */
+type ChatTargetsMemberPanelsSlice = Pick<
+  MiniAppChatsStoreState,
+  | "chatTargets"
+  | "loadingTargets"
+  | "mutatingTargets"
+  | "removeDeleteTarget"
+  | "removeTranslateTarget"
+>;
+
+/**
+ * 从受管群仓库提取弹窗外框渲染所需切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 弹窗外框切片
+ */
+function selectChatTargetsModalShellState(
+  state: MiniAppChatsStoreState
+): ChatTargetsModalShellSlice {
+  return {
+    activeTargetsModal: state.activeTargetsModal,
+    chatDetail: state.chatDetail,
+    chatTargets: state.chatTargets,
+    loadingTargets: state.loadingTargets,
+    mutatingTargets: state.mutatingTargets,
+    translateLangMenuOpen: state.translateLangMenuOpen,
+    qaEditorOpen: state.qaEditorOpen,
+    targetAddMenuOpen: state.targetAddMenuOpen,
+    openQaEditor: state.openQaEditor,
+    openTargetAddMenu: state.openTargetAddMenu,
+    closeTranslateLangMenu: state.closeTranslateLangMenu,
+    switchTargetsModalTab: state.switchTargetsModalTab,
+    closeTargetsModal: state.closeTargetsModal,
+    loadChatTargets: state.loadChatTargets,
+  };
+}
+
+/**
+ * 从受管群仓库提取问答对折叠编辑表单切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 问答对编辑表单切片
+ */
+function selectQaEditorFormSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsQaEditorFormSlice {
+  return {
+    chatTargets: state.chatTargets,
+    mutatingTargets: state.mutatingTargets,
+    qaEditorOpen: state.qaEditorOpen,
+    qaQuestionInput: state.qaQuestionInput,
+    qaAnswerInput: state.qaAnswerInput,
+    qaEditSourceQuestion: state.qaEditSourceQuestion,
+    closeQaEditor: state.closeQaEditor,
+    setQaQuestionInput: state.setQaQuestionInput,
+    setQaAnswerInput: state.setQaAnswerInput,
+    submitQaPair: state.submitQaPair,
+  };
+}
+
+/**
+ * 从受管群仓库提取成员目标折叠添加表单切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 成员目标添加表单切片
+ */
+function selectMemberAddFormSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsMemberAddFormSlice {
+  return {
+    mutatingTargets: state.mutatingTargets,
+    targetAddMenuOpen: state.targetAddMenuOpen,
+    targetIdFormOpen: state.targetIdFormOpen,
+    deleteTargetInput: state.deleteTargetInput,
+    translateTargetInput: state.translateTargetInput,
+    translateLanguageInput: state.translateLanguageInput,
+    translateLangMenuOpen: state.translateLangMenuOpen,
+    closeTargetAddMenu: state.closeTargetAddMenu,
+    selectTargetAddMode: state.selectTargetAddMode,
+    setDeleteTargetInput: state.setDeleteTargetInput,
+    setTranslateTargetInput: state.setTranslateTargetInput,
+    setTranslateLanguageInput: state.setTranslateLanguageInput,
+    toggleTranslateLangMenu: state.toggleTranslateLangMenu,
+    submitDeleteTarget: state.submitDeleteTarget,
+    submitTranslateTarget: state.submitTranslateTarget,
+  };
+}
+
+/**
+ * 从受管群仓库提取问答对列表面板切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 问答对列表切片
+ */
+function selectQaPanelSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsQaPanelSlice {
+  return {
+    chatTargets: state.chatTargets,
+    loadingTargets: state.loadingTargets,
+    mutatingTargets: state.mutatingTargets,
+    fillQaPairForEdit: state.fillQaPairForEdit,
+    removeQaPair: state.removeQaPair,
+  };
+}
+
+/**
+ * 从受管群仓库提取成员目标列表面板切片。
+ *
+ * @param state 受管群完整状态快照
+ * @returns 成员目标列表切片
+ */
+function selectMemberPanelsSlice(
+  state: MiniAppChatsStoreState
+): ChatTargetsMemberPanelsSlice {
+  return {
+    chatTargets: state.chatTargets,
+    loadingTargets: state.loadingTargets,
+    mutatingTargets: state.mutatingTargets,
+    removeDeleteTarget: state.removeDeleteTarget,
+    removeTranslateTarget: state.removeTranslateTarget,
+  };
+}
+
+/** 连接态子面板共用的仓库与退场快照属性。 */
+interface ConnectedTargetsPanelBaseProps {
+  /** 受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
+  /** 关闭前捕获的 store 快照状态。 */
+  readonly snapshotState: MiniAppChatsStoreState;
+  /** 弹窗是否正处于退场收起阶段。 */
+  readonly isClosing: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+}
+
+/**
+ * 仅订阅问答对编辑表单切片的轻量连接包装器。
+ *
+ * @param props 仓库与退场快照属性
+ * @returns React 节点
+ */
+function ConnectedChatTargetsQaEditorForm({
+  store,
+  snapshotState,
+  isClosing,
+  t,
+}: ConnectedTargetsPanelBaseProps): React.JSX.Element {
+  useStore(store, useShallow(selectQaEditorFormSlice));
+  const panelState: MiniAppChatsStoreState = resolveChatTargetsModalPanelState(
+    store.getState(),
+    snapshotState,
+    isClosing
+  );
+  return <ChatTargetsQaEditorForm state={panelState} t={t} />;
+}
+
+/**
+ * 仅订阅成员目标添加表单切片的轻量连接包装器。
+ *
+ * @param props 目标类别、仓库与退场快照属性
+ * @returns React 节点
+ */
+function ConnectedChatTargetsMemberAddForm({
+  kind,
+  store,
+  snapshotState,
+  isClosing,
+  t,
+}: ConnectedTargetsPanelBaseProps & {
+  /** 成员目标类别。 */
+  readonly kind: "deleteMessage" | "translate";
+}): React.JSX.Element {
+  useStore(store, useShallow(selectMemberAddFormSlice));
+  const panelState: MiniAppChatsStoreState = resolveChatTargetsModalPanelState(
+    store.getState(),
+    snapshotState,
+    isClosing
+  );
+  return <ChatTargetsMemberAddForm kind={kind} state={panelState} t={t} />;
+}
+
+/**
+ * 仅订阅问答对列表切片的轻量连接包装器。
+ *
+ * @param props 仓库、退场快照与置顶滚动回调
+ * @returns React 节点
+ */
+function ConnectedChatTargetsQaPanel({
+  store,
+  snapshotState,
+  isClosing,
+  t,
+  onScrollToTop,
+}: ConnectedTargetsPanelBaseProps & {
+  /** 点击编辑后平滑滚动弹窗内容区至顶部的回调。 */
+  readonly onScrollToTop: () => void;
+}): React.JSX.Element {
+  useStore(store, useShallow(selectQaPanelSlice));
+  const panelState: MiniAppChatsStoreState = resolveChatTargetsModalPanelState(
+    store.getState(),
+    snapshotState,
+    isClosing
+  );
+  return (
+    <ChatTargetsQaPanel
+      state={panelState}
+      t={t}
+      onScrollToTop={onScrollToTop}
+    />
+  );
+}
+
+/**
+ * 仅订阅成员目标列表切片的轻量连接包装器。
+ *
+ * @param props 目标类别、群详情、仓库与退场快照属性
+ * @returns React 节点
+ */
+function ConnectedChatTargetsMemberPanels({
+  kind,
+  chatDetail,
+  store,
+  snapshotState,
+  isClosing,
+  t,
+}: ConnectedTargetsPanelBaseProps & {
+  /** 成员目标类别。 */
+  readonly kind: "deleteMessage" | "translate";
+  /** 当前展示的群详情快照。 */
+  readonly chatDetail: Readonly<MiniAppChatDetail>;
+}): React.JSX.Element {
+  useStore(store, useShallow(selectMemberPanelsSlice));
+  const panelState: MiniAppChatsStoreState = resolveChatTargetsModalPanelState(
+    store.getState(),
+    snapshotState,
+    isClosing
+  );
+  return (
+    <ChatTargetsMemberPanels
+      kind={kind}
+      chatDetail={chatDetail}
+      state={panelState}
+      t={t}
+    />
+  );
 }
 
 /**
@@ -202,6 +515,7 @@ export function ChatTargetsModalDialog({
   prevTabRef,
   prevHadTargetsRef,
   onScrollToTop,
+  store,
 }: ChatTargetsModalDialogProps): React.JSX.Element {
   const {
     activeTargetsModal,
@@ -413,7 +727,24 @@ export function ChatTargetsModalDialog({
                 fadeInner
               >
                 {displayModalKind === "qa" ? (
-                  <ChatTargetsQaEditorForm state={panelState} t={t} />
+                  store !== undefined ? (
+                    <ConnectedChatTargetsQaEditorForm
+                      store={store}
+                      snapshotState={snapshotState}
+                      isClosing={isClosing}
+                      t={t}
+                    />
+                  ) : (
+                    <ChatTargetsQaEditorForm state={panelState} t={t} />
+                  )
+                ) : store !== undefined ? (
+                  <ConnectedChatTargetsMemberAddForm
+                    kind={displayModalKind}
+                    store={store}
+                    snapshotState={snapshotState}
+                    isClosing={isClosing}
+                    t={t}
+                  />
                 ) : (
                   <ChatTargetsMemberAddForm
                     kind={displayModalKind}
@@ -426,10 +757,29 @@ export function ChatTargetsModalDialog({
 
             <div key={displayModalKind} className="chat-targets-tab-content">
               {displayModalKind === "qa" ? (
-                <ChatTargetsQaPanel
-                  state={panelState}
+                store !== undefined ? (
+                  <ConnectedChatTargetsQaPanel
+                    store={store}
+                    snapshotState={snapshotState}
+                    isClosing={isClosing}
+                    t={t}
+                    onScrollToTop={onScrollToTop}
+                  />
+                ) : (
+                  <ChatTargetsQaPanel
+                    state={panelState}
+                    t={t}
+                    onScrollToTop={onScrollToTop}
+                  />
+                )
+              ) : store !== undefined ? (
+                <ConnectedChatTargetsMemberPanels
+                  kind={displayModalKind}
+                  chatDetail={displayChatDetail}
+                  store={store}
+                  snapshotState={snapshotState}
+                  isClosing={isClosing}
                   t={t}
-                  onScrollToTop={onScrollToTop}
                 />
               ) : (
                 <ChatTargetsMemberPanels
@@ -455,7 +805,7 @@ export function ChatTargetsModalDialog({
  * @returns React 节点或 `null`
  */
 export function ChatTargetsModal({
-  state,
+  store,
 }: ChatTargetsModalProps): React.JSX.Element | null {
   const language: MiniAppLanguage = useMiniAppStore(
     (s: MiniAppUiStoreState): MiniAppLanguage => s.language
@@ -467,7 +817,10 @@ export function ChatTargetsModal({
     chatDetail,
     chatTargets,
     translateLangMenuOpen,
-  }: MiniAppChatsStoreState = state;
+  }: ChatTargetsModalShellSlice = useStore(
+    store,
+    useShallow(selectChatTargetsModalShellState)
+  );
 
   const modalBodyRef: React.RefObject<ScrollableModalBodyElement | null> =
     useRef<ScrollableModalBodyElement | null>(null);
@@ -481,9 +834,26 @@ export function ChatTargetsModal({
   const prevHadTargetsRef: React.RefObject<boolean> = useRef<boolean>(
     chatTargets !== null
   );
+  const lastActiveStateRef: React.RefObject<MiniAppChatsStoreState> =
+    useRef<MiniAppChatsStoreState>(store.getState());
 
   const isModalActive: boolean =
     activeTargetsModal !== null && chatDetail !== null;
+  if (isModalActive) {
+    lastActiveStateRef.current = store.getState();
+  }
+  useEffect((): (() => void) => {
+    const current: MiniAppChatsStoreState = store.getState();
+    if (current.activeTargetsModal !== null && current.chatDetail !== null) {
+      lastActiveStateRef.current = current;
+    }
+    return store.subscribe((next: MiniAppChatsStoreState): void => {
+      if (next.activeTargetsModal !== null && next.chatDetail !== null) {
+        lastActiveStateRef.current = next;
+      }
+    });
+  }, [store]);
+
   const {
     displayValue: displayModalKind,
     isClosing,
@@ -491,10 +861,9 @@ export function ChatTargetsModal({
     isModalActive ? activeTargetsModal : null,
     MINI_APP_TARGETS_MODAL_CLOSE_MS
   );
-  const snapshotState: MiniAppChatsStoreState = useClosingSnapshot(
-    state,
-    isModalActive
-  );
+  const snapshotState: MiniAppChatsStoreState = isModalActive
+    ? store.getState()
+    : lastActiveStateRef.current;
   const displayChatDetail: MiniAppChatDetail | null = snapshotState.chatDetail;
   const displayChatTargets: MiniAppChatTargetsView | null =
     snapshotState.chatTargets;
@@ -533,7 +902,8 @@ export function ChatTargetsModal({
 
   return (
     <ChatTargetsModalDialog
-      state={state}
+      store={store}
+      state={store.getState()}
       snapshotState={snapshotState}
       displayModalKind={displayModalKind}
       displayChatDetail={displayChatDetail}

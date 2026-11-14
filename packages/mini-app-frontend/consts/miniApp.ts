@@ -206,7 +206,7 @@ export const MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR: number = 0.55;
 export const MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX: number = 4;
 
 /**
- * 群内目标管理弹窗关闭收起退场动画的毫秒数（与 `styles/chats.css` 的 `0.18s` 齐平）。
+ * 群内目标管理弹窗关闭收起退场动画的毫秒数（与 `styles/chats-targets.css` 的 `0.18s` 齐平）。
  * 不变量：正整数毫秒数，与对应 CSS 退场时长一致。所属模块：`packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
  */
 export const MINI_APP_TARGETS_MODAL_CLOSE_MS: number = 180;
@@ -243,7 +243,7 @@ export const MINI_APP_STATUS_SKELETON_MEMORY_INDICES: readonly number[] = [0, 1,
 
 /**
  * 热发言记录按发言人 ID 取模分配的头像与气泡色调档数。
- * 不变量：正整数，必须与 `styles/chats.css` 中 `.tone-0` 至 `.tone-5` 的色调类数量一致。所属模块：`packages/mini-app-frontend/components/MessagesView.tsx`。
+ * 不变量：正整数，必须与 `styles/chats-detail.css` 中 `.tone-0` 至 `.tone-5` 的色调类数量一致。所属模块：`packages/mini-app-frontend/components/MessagesView.tsx`。
  */
 export const MINI_APP_MESSAGE_AVATAR_TONE_COUNT: number = 6;
 

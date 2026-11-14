@@ -60,6 +60,8 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
     const paginationCss: string = await Bun.file("packages/mini-app-frontend/styles/pagination.css").text();
     const authCss: string = await Bun.file("packages/mini-app-frontend/styles/auth.css").text();
     const chatsCss: string = await Bun.file("packages/mini-app-frontend/styles/chats.css").text();
+    const chatsDetailCss: string = await Bun.file("packages/mini-app-frontend/styles/chats-detail.css").text();
+    const chatsTargetsCss: string = await Bun.file("packages/mini-app-frontend/styles/chats-targets.css").text();
     const identitiesCss: string = await Bun.file("packages/mini-app-frontend/styles/identities.css").text();
     const statusCss: string = await Bun.file("packages/mini-app-frontend/styles/status.css").text();
     const galleryCss: string = await Bun.file("packages/mini-app-frontend/styles/gallery.css").text();
@@ -80,6 +82,8 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       ["pagination.css", paginationCss],
       ["auth.css", authCss],
       ["chats.css", chatsCss],
+      ["chats-detail.css", chatsDetailCss],
+      ["chats-targets.css", chatsTargetsCss],
       ["identities.css", identitiesCss],
       ["status.css", statusCss],
       ["gallery.css", galleryCss],
@@ -145,8 +149,8 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       ["shell.css .lang-menu-item", shellCss, /(?:^|\n)\.lang-menu-item\s*\{([^}]*)\}/u],
       ["shell.css .sidebar-nav-item", shellCss, /(?:^|\n)\.sidebar-nav-item\s*\{([^}]*)\}/u],
       ["overlays.css .toast-close", overlaysCss, /(?:^|\n)\.toast-close\s*\{([^}]*)\}/u],
-      ["chats.css .chat-targets-menu-item", chatsCss, /(?:^|\n)\.chat-targets-menu-item\s*\{([^}]*)\}/u],
-      ["chats.css .chat-targets-lang-option", chatsCss, /(?:^|\n)\.chat-targets-lang-option\s*\{([^}]*)\}/u],
+      ["chats-detail.css .chat-targets-menu-item", chatsDetailCss, /(?:^|\n)\.chat-targets-menu-item\s*\{([^}]*)\}/u],
+      ["chats-targets.css .chat-targets-lang-option", chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-option\s*\{([^}]*)\}/u],
       ["identities.css .search-clear-btn", identitiesCss, /(?:^|\n)\.search-clear-btn\s*\{([^}]*)\}/u],
     ];
     for (const [label, css, pattern] of mainLayerControlRules) {
@@ -239,19 +243,19 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
     expect(confirmBackdropBeforeBody).toContain("will-change: opacity;");
     expect(confirmBackdropBeforeBody).toContain("animation: miniapp-backdrop-fade-in");
     expect(
-      extractRuleBody(chatsCss, /(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\s*\{([^}]*)\}/u)
+      extractRuleBody(chatsTargetsCss, /(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\s*\{([^}]*)\}/u)
     ).not.toContain("animation:");
 
     const popupLayerRules: readonly (readonly [string, string, RegExp])[] = [
       ["overlays.css .toast.show", overlaysCss, /(?:^|\n)\.toast\.show\s*\{([^}]*)\}/u],
       ["overlays.css .confirm-dialog", overlaysCss, /(?:^|\n)\.confirm-dialog\s*\{([^}]*)\}/u],
       ["shell.css .lang-menu-popover", shellCss, /(?:^|\n)\.lang-menu-popover\s*\{([^}]*)\}/u],
-      ["chats.css .chat-targets-menu-popover", chatsCss, /(?:^|\n)\.chat-targets-menu-popover\s*\{([^}]*)\}/u],
-      ["chats.css .chat-targets-modal", chatsCss, /(?:^|\n)\.chat-targets-modal\s*\{([^}]*)\}/u],
-      ["chats.css .chat-targets-lang-popover", chatsCss, /(?:^|\n)\.chat-targets-lang-popover\s*\{([^}]*)\}/u],
+      ["chats-detail.css .chat-targets-menu-popover", chatsDetailCss, /(?:^|\n)\.chat-targets-menu-popover\s*\{([^}]*)\}/u],
+      ["chats-targets.css .chat-targets-modal", chatsTargetsCss, /(?:^|\n)\.chat-targets-modal\s*\{([^}]*)\}/u],
+      ["chats-targets.css .chat-targets-lang-popover", chatsTargetsCss, /(?:^|\n)\.chat-targets-lang-popover\s*\{([^}]*)\}/u],
       [
-        "chats.css .chat-targets-tab-content slide",
-        chatsCss,
+        "chats-targets.css .chat-targets-tab-content slide",
+        chatsTargetsCss,
         /\.chat-targets-tab-pane\.tab-slide-forward\s*>\s*\.chat-targets-tab-content,\s*\.chat-targets-tab-pane\.tab-slide-backward\s*>\s*\.chat-targets-tab-content\s*\{([^}]*)\}/u,
       ],
     ];
@@ -290,8 +294,8 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
         /\.bot-perm-collapse-grid\.expanded\s*>\s*\.bot-perm-collapse-inner,[\s\S]*?\.bot-perm-collapse-inner\s*\{([^}]*)\}/u,
       ],
       [
-        "chats.css qa-collapse-inner",
-        chatsCss,
+        "chats-targets.css qa-collapse-inner",
+        chatsTargetsCss,
         /\.chat-targets-qa-trigger-collapse:not\(\.collapsed\)\s*>\s*\.chat-targets-qa-collapse-inner,[\s\S]*?\.chat-targets-qa-collapse-inner\s*\{([^}]*)\}/u,
       ],
       [
@@ -364,9 +368,9 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       [chatsCss, '[data-theme="dark"] .join-clean-preset-btn:active:not(:disabled):not(.active)'],
       [chatsCss, '[data-theme="dark"] .btn.primary.chat-targets-qa-open-btn:active:not(:disabled):not(.is-disabled)'],
       [chatsCss, '[data-theme="dark"] .btn.chat-targets-qa-action-btn:not(.danger):active:not(:disabled):not(.is-disabled)'],
-      [chatsCss, ".chat-targets-tab:active:not(.active)"],
+      [chatsTargetsCss, ".chat-targets-tab:active:not(.active)"],
       [identitiesCss, '[data-theme="dark"] .btn.primary.add-fold-trigger:active:not(:disabled):not(.is-disabled)'],
-      [chatsCss, ".chat-targets-lang-option:active:not(:disabled)"],
+      [chatsTargetsCss, ".chat-targets-lang-option:active:not(:disabled)"],
     ];
     for (const [css, selector] of activeParitySelectors) {
       expect(css).toContain(selector);
@@ -374,14 +378,14 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
 
     // 8. 问答编辑壳层语言下拉局部堆叠上下文与切角控件暗色/`.active`/`.open` 禁用态门禁。
     const qaEditorLangShellBody: string = extractRuleBody(
-      chatsCss,
+      chatsTargetsCss,
       /\.chat-targets-qa-editor-shell:has\(\.chat-targets-lang-popover\)\s*\{([^}]*)\}/u
     );
     expect(qaEditorLangShellBody).toContain("position: relative;");
     expect(qaEditorLangShellBody).toContain("z-index: 5;");
 
     const langOptionBody: string = extractRuleBody(
-      chatsCss,
+      chatsTargetsCss,
       /(?:^|\n)\.chat-targets-lang-option\s*\{([^}]*)\}/u
     );
     expect(langOptionBody).toContain("box-shadow var(--press-duration) var(--ease-brutal)");
@@ -397,7 +401,7 @@ describe("Mini App 按钮悬停稳定性与弹窗字体渲染一致性", () => {
       [identitiesCss, '[data-theme="dark"] .add-mode-card.active:not(:disabled)'],
       [chatsCss, ".join-clean-preset-btn.active:not(:disabled)"],
       [chatsCss, '[data-theme="dark"] .join-clean-preset-btn.active:not(:disabled)'],
-      [chatsCss, '[data-theme="dark"] .btn.primary.chat-targets-qa-open-btn:not(:disabled):not(.is-disabled)'],
+      [chatsTargetsCss, '[data-theme="dark"] .btn.primary.chat-targets-qa-open-btn:not(:disabled):not(.is-disabled)'],
       [paginationCss, '[data-theme="dark"] .page-size-pill.active:not(:disabled)'],
     ];
     for (const [css, selector] of disabledGuardedShadowSelectors) {

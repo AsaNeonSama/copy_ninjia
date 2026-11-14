@@ -5,6 +5,8 @@
 @import "./styles/skeletons.css";
 @import "./styles/status.css";
 @import "./styles/chats.css";
+@import "./styles/chats-detail.css";
+@import "./styles/chats-targets.css";
 @import "./styles/identities.css";
 @import "./styles/overlays.css";
 @import "./styles/pagination.css";

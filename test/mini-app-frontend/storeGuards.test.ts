@@ -871,7 +871,7 @@ describe("页面 store 竞态与收起", () => {
 
     const closingRowHtml: string = renderToStaticMarkup(
       createElement(WhitelistEntryRowList, {
-        items: retained.items, permissionDescriptors: [], selectedEntryId: null, closingEntryId: retained.closingEntryId,
+        items: retained.items, selectedEntryId: null, closingEntryId: retained.closingEntryId,
         busyAction: false, t: zh, onTogglePermissionDrawer: (): void => {}, onClosePermissionDrawer: (): void => {},
         onPermissionsUpdated: (): void => {}, onRemoveWhitelist: async (): Promise<void> => {},
       })

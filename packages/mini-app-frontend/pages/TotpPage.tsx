@@ -143,7 +143,7 @@ export function TotpPage({
             {enabled
               ? t.totp.statusDescEnabled(
                 totpStatus?.maskedSecret ?? "••••",
-                formatTime(totpStatus?.createdAt ?? 0)
+                formatTime(totpStatus?.createdAt ?? 0, language)
               )
               : t.totp.statusDescDisabled}
           </div>

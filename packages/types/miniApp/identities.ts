@@ -21,12 +21,6 @@ export interface MiniAppBlocklistEntryView {
   readonly blockedAt: string;
 }
 
-/** 白名单权限键元数据（键名与中文说明）。 */
-export interface MiniAppPermissionDescriptor {
-  readonly key: WhitelistPermissionKey;
-  readonly description: string;
-}
-
 /** 白名单分页响应。 */
 export interface MiniAppWhitelistPage {
   readonly items: readonly Readonly<MiniAppWhitelistEntryView>[];
@@ -38,7 +32,6 @@ export interface MiniAppWhitelistPage {
   readonly blocklistTotal: number;
   /** 下一页游标（传入下一次请求的 `afterId`）；无更多页时为 null。 */
   readonly nextAfterId: number | null;
-  readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
 }
 
 /** 黑名单分页响应。 */

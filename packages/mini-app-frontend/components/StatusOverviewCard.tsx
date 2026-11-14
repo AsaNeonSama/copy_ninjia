@@ -7,7 +7,10 @@ import {
   formatMemoryMb,
   formatUptime,
 } from "../libs/formatters";
-import type { MiniAppStatusView } from "../types/miniApp";
+import type {
+  MiniAppLanguage,
+  MiniAppStatusView,
+} from "../types/miniApp";
 
 /** `StatusOverviewCard` 顶部资源概览卡片的属性参数。 */
 export interface StatusOverviewCardProps {
@@ -15,17 +18,20 @@ export interface StatusOverviewCardProps {
   readonly status: Readonly<MiniAppStatusView>;
   /** 当前语言翻译字典。 */
   readonly t: Readonly<MiniAppTranslations>;
+  /** 当前界面语言（默认 `"zh"`）。 */
+  readonly language?: MiniAppLanguage;
 }
 
 /**
  * 渲染顶部进程资源、活跃会话、出站门控与内存占用的概览卡片。
  *
- * @param props 状态快照与翻译字典
+ * @param props 状态快照、翻译字典与语言参数
  * @returns React 节点
  */
 function StatusOverviewCardView({
   status,
   t,
+  language = "zh",
 }: StatusOverviewCardProps): React.JSX.Element {
   const cpuClampedPercent: number = Math.min(
     100,
@@ -91,7 +97,7 @@ function StatusOverviewCardView({
     string
   ] = t.status.activeSessionsSub(status.activeSessions);
   const updatedAtText: string = t.status.updatedAtSub(
-    formatClockTime(status.generatedAt)
+    formatClockTime(status.generatedAt, language)
   );
 
   return (

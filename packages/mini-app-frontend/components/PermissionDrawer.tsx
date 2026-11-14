@@ -21,7 +21,6 @@ import type {
 import type { WhitelistPermissionKey } from "../types/identityPolicy";
 import type {
   MiniAppLanguage,
-  MiniAppPermissionDescriptor,
   MiniAppWhitelistEntryView,
 } from "../types/miniApp";
 
@@ -29,8 +28,6 @@ import type {
 export interface PermissionDrawerProps {
   /** 当前正在编辑权限的白名单条目。 */
   readonly entry: MiniAppWhitelistEntryView;
-  /** 后端返回的权限键说明列表。 */
-  readonly descriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
   /** 权限变更成功后触发父组件静默重新加载白名单；抽屉创建仓库时捕获首次渲染传入的回调，之后的重渲染不再替换。 */
   readonly onUpdated: () => Promise<void> | void;
   /** 关闭权限编辑抽屉。 */
@@ -127,7 +124,6 @@ const PermissionChip: React.MemoExoticComponent<typeof PermissionChipView> =
  */
 export function PermissionDrawer({
   entry,
-  descriptors,
   onUpdated,
   onClose,
   storeFactory,
@@ -202,10 +198,6 @@ export function PermissionDrawer({
         {WHITELIST_PERMISSION_KEYS.map((key: WhitelistPermissionKey): React.JSX.Element => {
           const checked: boolean = entry.permissions[key];
           const isChipLoading: boolean = busyKey === "all" || busyKey === key;
-          const descriptor: Readonly<MiniAppPermissionDescriptor> | undefined =
-            descriptors.find(
-              (item: Readonly<MiniAppPermissionDescriptor>): boolean => item.key === key
-            );
           const permLabel: string = getPermissionDisplayLabel(key, language);
           return (
             <PermissionChip
@@ -216,7 +208,7 @@ export function PermissionDrawer({
               isChipLoading={isChipLoading}
               switchDisabled={switchDisabled}
               permLabel={permLabel}
-              titleText={descriptor?.description ?? permLabel}
+              titleText={t.permissionDrawer.descriptions[key]}
               onTogglePermission={togglePermission}
             />
           );

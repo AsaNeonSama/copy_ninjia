@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import * as serverMemoryConsts from "../../packages/consts/aiChat/memory";
 import * as serverDeleteMessageConsts from "../../packages/consts/deleteMessage";
+import { WHITELIST_PERMISSION_HELP as teasingWhitelistPermissionHelp } from "../../packages/consts/atmosphere/teasing/whitelist";
 import * as serverMiniAppConsts from "../../packages/consts/miniApp";
 import { MINI_APP_FAVICON_PATH, MINI_APP_REJECT_HTML_PATH } from "../../packages/consts/paths";
 import * as serverQaConsts from "../../packages/consts/qa";
@@ -72,7 +73,6 @@ const contractTypeParity: Readonly<Record<string, true>> = {
   MiniAppMessagePage: true satisfies Exact<FrontendMiniApp.MiniAppMessagePage, ServerMiniApp.MiniAppMessagePage>,
   MiniAppWhitelistEntryView: true satisfies Exact<FrontendMiniApp.MiniAppWhitelistEntryView, ServerMiniApp.MiniAppWhitelistEntryView>,
   MiniAppBlocklistEntryView: true satisfies Exact<FrontendMiniApp.MiniAppBlocklistEntryView, ServerMiniApp.MiniAppBlocklistEntryView>,
-  MiniAppPermissionDescriptor: true satisfies Exact<FrontendMiniApp.MiniAppPermissionDescriptor, ServerMiniApp.MiniAppPermissionDescriptor>,
   MiniAppWhitelistPage: true satisfies Exact<FrontendMiniApp.MiniAppWhitelistPage, ServerMiniApp.MiniAppWhitelistPage>,
   MiniAppBlocklistPage: true satisfies Exact<FrontendMiniApp.MiniAppBlocklistPage, ServerMiniApp.MiniAppBlocklistPage>,
   MiniAppIdentityMutationResult: true satisfies Exact<FrontendMiniApp.MiniAppIdentityMutationResult, ServerMiniApp.MiniAppIdentityMutationResult>,
@@ -118,6 +118,11 @@ describe("Mini App 前端副本与服务端定义一致", () => {
     expect(frontendMiniAppConsts.DELETE_MESSAGE_CHAT_TARGET_MAX).toBe(serverDeleteMessageConsts.DELETE_MESSAGE_CHAT_TARGET_MAX);
     expect(frontendMiniAppConsts.TRANSLATE_CHAT_USER_LIMIT).toBe(serverTranslateConsts.TRANSLATE_CHAT_USER_LIMIT);
     expect(frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS).toEqual(serverWhitelistConsts.WHITELIST_PERMISSION_KEYS);
+    expect(getZhTranslations().permissionDrawer.descriptions).toEqual(teasingWhitelistPermissionHelp);
+    for (const key of frontendWhitelistConsts.WHITELIST_PERMISSION_KEYS) {
+      expect(getEnTranslations().permissionDrawer.descriptions[key].trim().length).toBeGreaterThan(0);
+      expect(getJaTranslations().permissionDrawer.descriptions[key].trim().length).toBeGreaterThan(0);
+    }
     expect(frontendMemoryConsts.VERBATIM_CONTEXT_MAX).toBe(serverMemoryConsts.VERBATIM_CONTEXT_MAX);
     expect(frontendTimeConsts.MINUTE_MS).toBe(serverTimeConsts.MINUTE_MS);
   });

@@ -1,5 +1,7 @@
 import { Fragment, memo, useEffect } from "react";
 import type React from "react";
+import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { CollapseGrid } from "../components/animations/CollapseGrid";
 import { ChatFeatureListCard } from "../components/ChatFeatureListCard";
 import { ChatJoinCleanCard } from "../components/ChatJoinCleanCard";
@@ -18,7 +20,7 @@ import {
 } from "../consts/miniApp";
 import { getMiniAppTranslations } from "../i18n";
 import type { MiniAppTranslations } from "../i18n";
-import { useComponentStore } from "../libs/componentStore";
+import { useComponentStoreApi } from "../libs/componentStore";
 import { truncateDisplayText } from "../libs/formatters";
 import {
   ArrowLeftSvgIcon,
@@ -178,6 +180,76 @@ export interface ChatsPageProps {
   readonly storeFactory?: () => MiniAppChatsStore;
 }
 
+/** `ChatsPage` 主视图订阅的受管群列表与详情状态切片（不含目标弹窗内部草稿与批量清理滑块输入）。 */
+type ChatsPageViewSlice = Pick<
+  MiniAppChatsStoreState,
+  | "chats"
+  | "loadingList"
+  | "selectedChatId"
+  | "chatDetail"
+  | "loadingDetail"
+  | "botPermsExpanded"
+  | "togglingFeature"
+  | "targetsMenuOpen"
+  | "chatTargets"
+  | "viewingMessages"
+  | "chatPage"
+  | "chatPageSize"
+  | "loadChatList"
+  | "selectChat"
+  | "closeDetail"
+  | "openMessages"
+  | "closeMessages"
+  | "toggleBotPerms"
+  | "toggleTargetsMenu"
+  | "closeTargetsMenu"
+  | "openTargetsModal"
+  | "toggleFeature"
+  | "pollRunningBatchKick"
+  | "cancelPendingRefresh"
+  | "setChatPage"
+  | "setChatPageSize"
+>;
+
+/**
+ * 从受管群状态仓库提取 `ChatsPage` 主视图所需字段。
+ *
+ * @param state 受管群完整状态快照
+ * @returns `ChatsPage` 主视图切片
+ */
+function selectChatsPageViewState(
+  state: MiniAppChatsStoreState
+): ChatsPageViewSlice {
+  return {
+    chats: state.chats,
+    loadingList: state.loadingList,
+    selectedChatId: state.selectedChatId,
+    chatDetail: state.chatDetail,
+    loadingDetail: state.loadingDetail,
+    botPermsExpanded: state.botPermsExpanded,
+    togglingFeature: state.togglingFeature,
+    targetsMenuOpen: state.targetsMenuOpen,
+    chatTargets: state.chatTargets,
+    viewingMessages: state.viewingMessages,
+    chatPage: state.chatPage,
+    chatPageSize: state.chatPageSize,
+    loadChatList: state.loadChatList,
+    selectChat: state.selectChat,
+    closeDetail: state.closeDetail,
+    openMessages: state.openMessages,
+    closeMessages: state.closeMessages,
+    toggleBotPerms: state.toggleBotPerms,
+    toggleTargetsMenu: state.toggleTargetsMenu,
+    closeTargetsMenu: state.closeTargetsMenu,
+    openTargetsModal: state.openTargetsModal,
+    toggleFeature: state.toggleFeature,
+    pollRunningBatchKick: state.pollRunningBatchKick,
+    cancelPendingRefresh: state.cancelPendingRefresh,
+    setChatPage: state.setChatPage,
+    setChatPageSize: state.setChatPageSize,
+  };
+}
+
 /**
  * 已启用 `/init` 的群列表、群详细状态、进群统计与批量清理及功能开关页面（含热 256 条发言记录跳转；群内目标管理弹窗与页面主体同级常驻挂载于顶层 Fragment 下，直接相对视口固定定位并在离开详情时保留退场过渡）。
  *
@@ -191,7 +263,7 @@ export function ChatsPage({
     (state: MiniAppUiStoreState): MiniAppLanguage => state.language
   );
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
-  const storeState: MiniAppChatsStoreState = useComponentStore(storeFactory);
+  const store: MiniAppChatsStore = useComponentStoreApi(storeFactory);
   const {
     chats,
     loadingList,
@@ -219,7 +291,7 @@ export function ChatsPage({
     cancelPendingRefresh,
     setChatPage,
     setChatPageSize,
-  }: MiniAppChatsStoreState = storeState;
+  }: ChatsPageViewSlice = useStore(store, useShallow(selectChatsPageViewState));
 
   useEffect((): (() => void) => {
     void loadChatList();
@@ -296,7 +368,7 @@ export function ChatsPage({
                 onToggleBotPerms={toggleBotPerms}
               />
 
-              <ChatJoinCleanCard chatDetail={chatDetail} state={storeState} />
+              <ChatJoinCleanCard chatDetail={chatDetail} store={store} />
 
               <ChatFeatureListCard
                 chatDetail={chatDetail}
@@ -382,7 +454,7 @@ export function ChatsPage({
   return (
     <Fragment>
       {pageContent}
-      <ChatTargetsModal state={storeState} />
+      <ChatTargetsModal store={store} />
     </Fragment>
   );
 }

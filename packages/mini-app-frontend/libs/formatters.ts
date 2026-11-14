@@ -133,6 +133,34 @@ const ZH_CN_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
   }
 );
 
+/** 24 小时制英文完整日期时间格式化器单例（模块加载时构造一次，供列表与详情卡片复用）。 */
+const EN_US_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
+  "en-US",
+  {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  }
+);
+
+/** 24 小时制日文完整日期时间格式化器单例（模块加载时构造一次，供列表与详情卡片复用）。 */
+const JA_JP_DATE_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
+  "ja-JP",
+  {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  }
+);
+
 /** 24 小时制中文时分秒格式化器单例（模块加载时构造一次，供状态顶栏时钟复用）。 */
 const ZH_CN_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
   "zh-CN",
@@ -144,26 +172,70 @@ const ZH_CN_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
   }
 );
 
+/** 24 小时制英文时分秒格式化器单例（模块加载时构造一次，供状态顶栏时钟复用）。 */
+const EN_US_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
+  "en-US",
+  {
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  }
+);
+
+/** 24 小时制日文时分秒格式化器单例（模块加载时构造一次，供状态顶栏时钟复用）。 */
+const JA_JP_CLOCK_TIME_FORMATTER: Intl.DateTimeFormat = new Intl.DateTimeFormat(
+  "ja-JP",
+  {
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  }
+);
+
 /**
- * 将 Unix 毫秒时间戳格式化为本地日期时间字符串。
+ * 将 Unix 毫秒时间戳格式化为指定语言区域的 24 小时制本地日期时间字符串。
  *
  * @param timestampMs Unix 毫秒时间戳
+ * @param language 界面语言（默认 `"zh"`）
  * @returns 本地时间字符串
  */
-export function formatTime(timestampMs: number): string {
+export function formatTime(
+  timestampMs: number,
+  language: MiniAppLanguage = "zh"
+): string {
   if (!Number.isFinite(timestampMs) || timestampMs <= 0) return "-";
-  return ZH_CN_DATE_TIME_FORMATTER.format(timestampMs);
+  switch (language) {
+    case "en":
+      return EN_US_DATE_TIME_FORMATTER.format(timestampMs);
+    case "ja":
+      return JA_JP_DATE_TIME_FORMATTER.format(timestampMs);
+    case "zh":
+      return ZH_CN_DATE_TIME_FORMATTER.format(timestampMs);
+  }
 }
 
 /**
- * 将 Unix 毫秒时间戳格式化为不含日期的本地时分秒字符串（`HH:mm:ss`）。
+ * 将 Unix 毫秒时间戳格式化为不含日期的指定语言区域 24 小时制本地时分秒字符串。
  *
  * @param timestampMs Unix 毫秒时间戳
+ * @param language 界面语言（默认 `"zh"`）
  * @returns 本地时分秒字符串
  */
-export function formatClockTime(timestampMs: number): string {
+export function formatClockTime(
+  timestampMs: number,
+  language: MiniAppLanguage = "zh"
+): string {
   if (!Number.isFinite(timestampMs) || timestampMs <= 0) return "-";
-  return ZH_CN_CLOCK_TIME_FORMATTER.format(timestampMs);
+  switch (language) {
+    case "en":
+      return EN_US_CLOCK_TIME_FORMATTER.format(timestampMs);
+    case "ja":
+      return JA_JP_CLOCK_TIME_FORMATTER.format(timestampMs);
+    case "zh":
+      return ZH_CN_CLOCK_TIME_FORMATTER.format(timestampMs);
+  }
 }
 
 /**
