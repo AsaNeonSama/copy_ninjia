@@ -17,13 +17,17 @@ export type MiniAppRouteHandler = (
   ctx: Readonly<MiniAppRouteContext>
 ) => Response | Promise<Response>;
 
-/** Mini App HTTP 中间件函数签名（可短路返回拦截响应，或调用 `next()` 进入下一环）。 */
-export type MiniAppMiddleware = (
-  ctx: Readonly<MiniAppRouteContext>,
-  next: () => Response | Promise<Response>
-) => Response | Promise<Response>;
+/** Mini App 路由静态声明的鉴权策略配置，由鉴权管道按固定同步顺序统一执行。 */
+export interface MiniAppAuthPolicy {
+  /** 是否允许在 `GET`/`HEAD` 请求中从 `token`、`initData` 或 `session` 查询参数提取凭据。 */
+  readonly allowQueryAuth: boolean;
+  /** 已验明查询参数 `?token=` 受保护资源令牌且未显式携带会话令牌时，是否免检 45 分钟密码会话。 */
+  readonly allowVerifiedAssetTokenBypass: boolean;
+  /** 是否要求校验 45 分钟密码解锁会话并在距签发超过 5 分钟时通过响应头滑动续期。 */
+  readonly requireSession: boolean;
+}
 
-/** 经 `withMiniAppMiddlewareChain` 包装、可直接注册到 `Bun.serve` 原生路由表的 Mini App 路由处理器。 */
+/** 经 `withMiniAppAuth` 包装、可直接注册到 `Bun.serve` 原生路由表的 Mini App 路由处理器。 */
 export type MiniAppBunRouteHandler = (request: Request) => Promise<Response>;
 
 /**
@@ -122,4 +126,12 @@ export interface MiniAppStatusView {
     readonly retryQueueMax: number;
   }>;
   readonly capabilities: readonly Readonly<MiniAppCapabilityStatus>[];
+}
+
+/** 按唯一 `<body>` 标签预切分后的未授权拒绝页静态模板首尾片段。 */
+export interface MiniAppRejectHtmlTemplate {
+  /** `<body>` 起始标签中 `<body` 之前的 HTML 前缀（包含 `<body` 本身）。 */
+  readonly head: string;
+  /** `<body>` 起始标签闭合 `>` 及其之后的 HTML 后缀（从 `>` 开始）。 */
+  readonly tail: string;
 }

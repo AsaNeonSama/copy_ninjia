@@ -707,10 +707,15 @@ function assertStorageMigrationLineageReadonly(): void {
 void assertStorageMigrationLineageReadonly;
 
 import {
+  MINI_APP_API_AUTH_POLICY,
   MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS,
   MINI_APP_FEATURE_KEYS,
+  MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY,
+  MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN,
+  MINI_APP_INIT_DATA_AUTH_POLICY,
   MINI_APP_PICKER_SUBJECT_KINDS,
   MINI_APP_PICKER_TARGET_LISTS,
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
   MINI_APP_TRANSLATE_LANGUAGES,
 } from "../../packages/consts/miniApp";
 import {
@@ -749,6 +754,16 @@ import {
 function assertMiniAppConstantsReadonly(): void {
   // @ts-expect-error Mini App 功能开关键闭集禁止调用方增删。
   MINI_APP_FEATURE_KEYS.push("init");
+  // @ts-expect-error HTML 属性转义正则的游标禁止调用方改写。
+  MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN.lastIndex = 1;
+  // @ts-expect-error Mini App 仅 initData 鉴权策略禁止调用方改写。
+  MINI_APP_INIT_DATA_AUTH_POLICY.allowQueryAuth = true;
+  // @ts-expect-error Mini App 受保护资源鉴权策略禁止调用方改写。
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY.allowQueryAuth = false;
+  // @ts-expect-error Mini App 业务 API 鉴权策略禁止调用方改写。
+  MINI_APP_API_AUTH_POLICY.requireSession = false;
+  // @ts-expect-error Mini App 图库下载鉴权策略禁止调用方改写。
+  MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY.allowVerifiedAssetTokenBypass = true;
   // @ts-expect-error 前端功能开关键闭集禁止调用方增删。
   FRONTEND_MINI_APP_FEATURE_KEYS.push("init");
   // @ts-expect-error 前端白名单权限键全集禁止调用方增删。

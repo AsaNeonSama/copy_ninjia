@@ -4,6 +4,10 @@ import {
   miniAppRejectHtmlHolder,
 } from "../../cache/main/miniApp";
 import {
+  MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN,
+  MINI_APP_REJECT_HTML_BODY_TAG,
+} from "../../consts/miniApp";
+import {
   MINI_APP_FAVICON_PATH,
   MINI_APP_REJECT_HTML_PATH,
 } from "../../consts/paths";
@@ -12,6 +16,7 @@ import type { MiniAppAccessDiagnostics } from "../../types/miniApp/auth";
 import type {
   BundledMiniAppAsset,
   BundledMiniAppAssets,
+  MiniAppRejectHtmlTemplate,
 } from "../../types/miniApp/server";
 import {
   attachClearMiniAppPageGateCookie,
@@ -155,7 +160,73 @@ export async function materializeBundledMiniAppAssets(
 }
 
 /**
- * 读取进程内缓存的独立 `reject.html` 模板（首次非 `HEAD` 访问时从磁盘加载），通过 `HTMLRewriter` 在 `<body>` 上注入本次请求的真实访问拒绝诊断 `data-*` 属性（绝不改动内联 `<script>`），并以 `200 OK` 防缓存响应头返回。
+ * 将单个 HTML 属性特殊字符映射为对应的标准字符实体。
+ * @param match 正则匹配到的单个保留字符。
+ * @returns 对应 HTML 字符实体字符串。
+ */
+function escapeHtmlAttributeChar(match: string): string {
+  switch (match) {
+    case "&":
+      return "&amp;";
+    case '"':
+      return "&quot;";
+    case "<":
+      return "&lt;";
+    case ">":
+      return "&gt;";
+    case "'":
+      return "&#39;";
+    default:
+      return match;
+  }
+}
+
+/**
+ * 转义写入 HTML 属性值中的特殊字符（`&`、`"`、`<`、`>`、`'`），防止属性边界闭合或字符实体误解析。
+ * @param value 原始诊断属性值字符串。
+ * @returns 转义后的 HTML 属性值。
+ */
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(
+    MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN,
+    escapeHtmlAttributeChar
+  );
+}
+
+/**
+ * 按唯一 `<body>` 起始标签预切分未授权拒绝页静态 HTML 模板。
+ * 模板必须且仅能出现一次 `<body>`，缺失或重复时直接抛出异常。
+ * @param rawHtml 从 `MINI_APP_REJECT_HTML_PATH` 读取的原始模板 HTML 文本。
+ * @returns 拆分为 `<body` 前缀与 `>` 后缀的只读静态模板对象。
+ */
+export function parseMiniAppRejectHtmlTemplate(
+  rawHtml: string
+): Readonly<MiniAppRejectHtmlTemplate> {
+  const bodyIndex: number = rawHtml.indexOf(MINI_APP_REJECT_HTML_BODY_TAG);
+  if (bodyIndex === -1) {
+    throw new Error("Mini App reject HTML template is missing <body> tag.");
+  }
+  if (
+    rawHtml.includes(
+      MINI_APP_REJECT_HTML_BODY_TAG,
+      bodyIndex + MINI_APP_REJECT_HTML_BODY_TAG.length
+    )
+  ) {
+    throw new Error("Mini App reject HTML template contains duplicate <body> tags.");
+  }
+  // 拆到 "<body" 末尾，tail 从 ">" 开始，避免每次请求重复拼接开标签前缀。
+  const splitOffset: number = bodyIndex + MINI_APP_REJECT_HTML_BODY_TAG.length - 1;
+  return {
+    head: rawHtml.slice(0, splitOffset),
+    tail: rawHtml.slice(splitOffset),
+  };
+}
+
+/**
+ * 读取进程内缓存的独立 `reject.html` 预切分模板（首次非 `HEAD` 访问时从磁盘加载并按唯一 `<body>` 切分），
+ * 将本次请求的真实访问拒绝诊断 `data-*` 属性转义后直接拼接到 `<body ...>` 中（绝不改动内联 `<script>`），
+ * 并以 `200 OK` 防缓存响应头返回。
+ * 外部浏览器、跨站/直接导航请求及非超级管理员访问 Mini App 入口均只返回本拒绝页，不加载完整前端包，不泄露任何业务数据。
  * @param request HTTP 请求对象。
  * @param diagParams 状态码、错误代号与可选剩余锁定分钟数。
  * @param headOnly 是否为 `HEAD` 请求。
@@ -177,30 +248,28 @@ export async function serveMiniAppRejectHtml(
   if (headOnly) {
     return new Response(null, { status: 200, headers });
   }
-  let rawRejectHtml: string | null = miniAppRejectHtmlHolder.current;
-  if (rawRejectHtml === null) {
-    rawRejectHtml = await Bun.file(MINI_APP_REJECT_HTML_PATH).text();
-    miniAppRejectHtmlHolder.current = rawRejectHtml;
+  let template: Readonly<MiniAppRejectHtmlTemplate> | null =
+    miniAppRejectHtmlHolder.current;
+  if (template === null) {
+    const rawRejectHtml: string = await Bun.file(MINI_APP_REJECT_HTML_PATH).text();
+    template = parseMiniAppRejectHtmlTemplate(rawRejectHtml);
+    miniAppRejectHtmlHolder.current = template;
   }
-  const rewriter: HTMLRewriter = new HTMLRewriter().on("body", {
-    element(element: HTMLRewriterTypes.Element): void {
-      element.setAttribute("data-status", String(diag.status));
-      element.setAttribute("data-code", diag.code);
-      element.setAttribute("data-error", diag.error);
-      element.setAttribute("data-request-id", diag.requestId);
-      element.setAttribute("data-timestamp", diag.timestamp);
-      element.setAttribute("data-client-ip", diag.clientIp);
-      element.setAttribute("data-host", diag.host);
-      element.setAttribute("data-path", diag.path);
-      if (diag.remainingMinutes !== undefined) {
-        element.setAttribute(
-          "data-remaining-minutes",
-          String(diag.remainingMinutes)
-        );
-      }
-    },
-  });
-  const html: string = rewriter.transform(rawRejectHtml);
+  const remainingMinutesAttr: string =
+    diag.remainingMinutes !== undefined
+      ? ` data-remaining-minutes="${escapeHtmlAttribute(String(diag.remainingMinutes))}"`
+      : "";
+  const html: string =
+    `${template.head}` +
+    ` data-status="${escapeHtmlAttribute(String(diag.status))}"` +
+    ` data-code="${escapeHtmlAttribute(diag.code)}"` +
+    ` data-error="${escapeHtmlAttribute(diag.error)}"` +
+    ` data-request-id="${escapeHtmlAttribute(diag.requestId)}"` +
+    ` data-timestamp="${escapeHtmlAttribute(diag.timestamp)}"` +
+    ` data-client-ip="${escapeHtmlAttribute(diag.clientIp)}"` +
+    ` data-host="${escapeHtmlAttribute(diag.host)}"` +
+    ` data-path="${escapeHtmlAttribute(diag.path)}"` +
+    `${remainingMinutesAttr}${template.tail}`;
   return new Response(html, { status: 200, headers });
 }
 

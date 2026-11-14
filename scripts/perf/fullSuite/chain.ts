@@ -13,6 +13,7 @@ import {
   AD_DETECT_DRAIN_BUDGET_MS,
   AI_REPLY_SETTLE_ATTEMPTS,
   AI_REPLY_WARMUP_OPERATIONS,
+  BENCHMARK_MINI_APP_PASSWORD,
   CHAIN_AD_DETECT_COMMANDS,
   CHAIN_AI_MEMORY_SNAPSHOTS,
   CHAIN_AI_REPLY_COMMANDS,
@@ -25,6 +26,10 @@ import {
   CHAIN_JOIN_LOG_EVENTS,
   CHAIN_LOG_ENTRIES,
   CHAIN_MINI_APP_API_REQUESTS,
+  CHAIN_MINI_APP_AUTH_LOGINS,
+  CHAIN_MINI_APP_GALLERY_ASSETS,
+  CHAIN_MINI_APP_PAGE_GATES,
+  CHAIN_MINI_APP_REJECT_PAGES,
   CHAIN_TEMPORARY_AD_BYPASS_WRITES,
   CHAIN_WARMUP_OPERATIONS,
   CRON_RELOAD_WARMUP_OPERATIONS,
@@ -48,9 +53,14 @@ import { MAIN_WRITE_THROUGH_WORKING_SET } from
 import { WHITE_ENTRY } from "../identityDatabase/fixtures";
 import { aiMemoryUsages } from "../../../packages/cache/main/aiChat";
 import { identityPolicyCache } from "../../../packages/cache/main/identityStorage";
-import { miniAppAuthSessions } from "../../../packages/cache/main/miniApp";
+import {
+  miniAppAuthSessions,
+  miniAppPasswordGuardHolder,
+  miniAppRejectHtmlHolder,
+} from "../../../packages/cache/main/miniApp";
 import { chatQaEntries } from "../../../packages/cache/main/qa";
 import { unacknowledgedTemporaryAdBypassWrites } from "../../../packages/cache/main/temporaryAdBypass";
+import { getAssetConfig } from "../../../packages/config/assets";
 import { BOT_TOKEN, SUPER_ADMIN_USER_ID } from "../../../packages/config/bot";
 import { IDENTITY_WRITE_BATCH_MAX_ENTRIES } from
   "../../../packages/consts/identityStorage";
@@ -73,10 +83,26 @@ import {
 } from "../../../packages/infra/identityStorage";
 import { getOrCreateChatState, persistChatState } from
   "../../../packages/infra/chatStateStorage";
+import {
+  deleteRandomImageFile,
+  ensureRandomImageDirectory,
+  storeRandomImage,
+} from "../../../packages/infra/imageGallery";
 import { setChatQa } from "../../../packages/infra/qaStore";
 import { recordJoinLog } from "../../../packages/infra/joinLog";
+import {
+  deriveMiniAppAssetToken,
+  deriveMiniAppPageGateSecretKey,
+  issueMiniAppPageGateToken,
+} from "../../../packages/libs/miniAppAuth";
+import { evaluateMiniAppPageGateRequest } from
+  "../../../packages/mini-app-api-server/auth/pageGate";
 import { issueMiniAppAuthSession } from
   "../../../packages/mini-app-api-server/auth/session";
+import { resetMiniAppTotpMemoryCache } from
+  "../../../packages/mini-app-api-server/auth/totpStorage";
+import { serveMiniAppRejectHtml } from
+  "../../../packages/mini-app-api-server/handlers/page";
 import { recordEligibleTemporaryAdBypassActivity } from
   "../../../packages/antiRaid/temporaryAdBypass";
 import { drainAdDisposals, handleAdDetected } from
@@ -214,8 +240,13 @@ const CONFIG_CHAIN_DEPENDENCIES: ConfigChainDependencies = {
 
 const MINI_APP_CHAIN_DEPENDENCIES: MiniAppChainDependencies = {
   chainMiniAppApiRequests: CHAIN_MINI_APP_API_REQUESTS,
+  chainMiniAppRejectPages: CHAIN_MINI_APP_REJECT_PAGES,
+  chainMiniAppPageGates: CHAIN_MINI_APP_PAGE_GATES,
+  chainMiniAppAuthLogins: CHAIN_MINI_APP_AUTH_LOGINS,
+  chainMiniAppGalleryAssets: CHAIN_MINI_APP_GALLERY_ASSETS,
   botToken: BOT_TOKEN,
   superAdminUserId: SUPER_ADMIN_USER_ID,
+  miniAppPassword: BENCHMARK_MINI_APP_PASSWORD,
   benchmarkChatId,
   benchmarkUserId,
   getOrCreateChatState,
@@ -225,9 +256,27 @@ const MINI_APP_CHAIN_DEPENDENCIES: MiniAppChainDependencies = {
   flushDiskIODomain,
   issueMiniAppAuthSession,
   miniAppAuthSessions,
+  miniAppPasswordGuardHolder,
+  miniAppRejectHtmlHolder,
+  resetMiniAppTotpMemoryCache,
+  serveMiniAppRejectHtml,
+  evaluateMiniAppPageGateRequest,
+  deriveMiniAppPageGateSecretKey,
+  issueMiniAppPageGateToken,
+  deriveMiniAppAssetToken,
+  getAssetConfig,
+  ensureRandomImageDirectory,
+  storeRandomImage,
+  deleteRandomImageFile,
   loadChatsBunRoutes: async (): Promise<MiniAppBunRouteTable> =>
     (await import("../../../packages/mini-app-api-server/routes/chats"))
       .MINI_APP_CHATS_BUN_ROUTES,
+  loadAuthBunRoutes: async (): Promise<MiniAppBunRouteTable> =>
+    (await import("../../../packages/mini-app-api-server/routes/auth"))
+      .MINI_APP_AUTH_BUN_ROUTES,
+  loadGalleryBunRoutes: async (): Promise<MiniAppBunRouteTable> =>
+    (await import("../../../packages/mini-app-api-server/routes/gallery"))
+      .MINI_APP_GALLERY_BUN_ROUTES,
 };
 
 /**
@@ -288,7 +337,11 @@ function parseChainName(value: string | undefined): ChainName {
     case "ai-reply-command":
     case "cron-send-voice":
     case "cron-config-reload":
-    case "mini-app-api-request": return value;
+    case "mini-app-api-request":
+    case "mini-app-reject-page":
+    case "mini-app-page-gate-allow":
+    case "mini-app-auth-login":
+    case "mini-app-gallery-asset": return value;
     default:
       throw new Error(
         "Chain child expects one declared storage, command, config or Mini App chain name."
@@ -319,7 +372,10 @@ async function measurePreparedChain(definition: ChainDefinition): Promise<ChainR
   const warmups: number =
     definition.warmupOperations ?? CHAIN_WARMUP_OPERATIONS;
   for (let index: number = 0; index < warmups; index += 1) {
-    await definition.run(index);
+    const pending: void | Promise<void> = definition.run(index);
+    if (pending !== undefined) {
+      await pending;
+    }
   }
   const ioBefore: ProcessIoSnapshot = readProcessIo();
   const latenciesMs: number[] = new Array<number>(definition.operations);
@@ -328,7 +384,10 @@ async function measurePreparedChain(definition: ChainDefinition): Promise<ChainR
   const startedAtNs: number = Bun.nanoseconds();
   for (let index: number = 0; index < definition.operations; index += 1) {
     const operationStartedAtNs: number = Bun.nanoseconds();
-    await definition.run(warmups + index);
+    const pending: void | Promise<void> = definition.run(warmups + index);
+    if (pending !== undefined) {
+      await pending;
+    }
     const operationNs: number = Bun.nanoseconds() - operationStartedAtNs;
     const excludedNs: number = Math.min(
       Math.max(definition.excludedNanoseconds?.() ?? 0, 0),

@@ -7,6 +7,7 @@ import type {
   MiniAppPickerSubjectKind,
   MiniAppPickerTargetList,
 } from "../types/miniApp/identities";
+import type { MiniAppAuthPolicy } from "../types/miniApp/server";
 import { exhaustiveList } from "./exhaustiveList";
 import { MINUTE_MS } from "./time";
 
@@ -417,3 +418,56 @@ export const MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS: readonly MiniAppChatTargets
     "addTranslateTarget",
     "removeTranslateTarget",
   ]);
+
+/**
+ * Mini App 未授权独立拒绝页（`reject.html`）中用于一次性预切分模板的唯一起始标签字面量。
+ * 不变量：模板内必须且仅出现一次 `<body>`，预切分保留 `<body` 前缀与 `>` 后缀，运行时禁止使用正则或 `HTMLRewriter` 改写 `<script>`。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
+ */
+export const MINI_APP_REJECT_HTML_BODY_TAG: string = "<body>";
+
+/**
+ * Mini App 独立拒绝页动态诊断属性值的 HTML 字符实体转义匹配表达式（`&`、`"`、`<`、`>`、`'`）。
+ * 不变量：配合 `String.prototype.replace` 单次扫描转义全部 HTML 属性保留字符，绝不依赖可变 `lastIndex` 状态。所属模块：`packages/mini-app-api-server/handlers/page.ts`。
+ */
+export const MINI_APP_HTML_ATTRIBUTE_UNSAFE_PATTERN: Readonly<RegExp> =
+  /[&"<>']/gu;
+
+/**
+ * 首屏预检、登录与登出路由的鉴权策略配置（仅校验请求头快路径、Telegram WebApp 签名、超管 ID 与 30 分钟密码锁定，不要求 45 分钟密码会话）。
+ * 不变量：仅供只读策略声明使用，登出路径绝不因先验会话而自动续期。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ */
+export const MINI_APP_INIT_DATA_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: false,
+  allowVerifiedAssetTokenBypass: false,
+  requireSession: false,
+};
+
+/**
+ * 受保护图库图片资源的专属鉴权策略配置（请求头快路径拦截跨站与直接导航，强制校验 Telegram WebApp 超管签名或登录后派发的资源令牌，未带资源令牌或显式携带会话令牌时强制校验 45 分钟解锁会话）。
+ * 不变量：必须允许查询参数凭据与已验资源令牌免会话放行，以支持 7 天静态缓存。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ */
+export const MINI_APP_PROTECTED_ASSET_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: true,
+  allowVerifiedAssetTokenBypass: true,
+  requireSession: true,
+};
+
+/**
+ * 业务 JSON 与写操作 API 的完整双层鉴权策略配置（请求头快路径 + Telegram WebApp 超管签名 + 45 分钟密码会话）。
+ * 不变量：禁止从 URL 查询参数读取凭据，防止凭据泄露至访问日志或 Referer。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ */
+export const MINI_APP_API_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: false,
+  allowVerifiedAssetTokenBypass: false,
+  requireSession: true,
+};
+
+/**
+ * 图库原图附件下载路由的完整双层鉴权策略配置（请求头快路径 + Telegram WebApp 超管签名或资源令牌 + 45 分钟密码会话，允许 GET/HEAD 查询参数传凭据）。
+ * 不变量：禁止仅凭 `?token=` 跳过 45 分钟密码解锁会话，必须携带有效会话凭据。所属模块：`packages/mini-app-api-server/middleware/chains.ts`。
+ */
+export const MINI_APP_GALLERY_DOWNLOAD_AUTH_POLICY: Readonly<MiniAppAuthPolicy> = {
+  allowQueryAuth: true,
+  allowVerifiedAssetTokenBypass: false,
+  requireSession: true,
+};

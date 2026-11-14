@@ -1,68 +1,70 @@
 import { MINI_APP_SHA256_HEX_PATTERN } from "../../consts/miniApp";
 import type { MiniAppAuthSession } from "../../types/miniApp/auth";
-import type {
-  MiniAppMiddleware,
-  MiniAppRouteContext,
-} from "../../types/miniApp/server";
-import {
-  attachRefreshedSessionHeaders,
-  resolveAndRefreshCheckedMiniAppAuthSession,
-} from "../auth/session";
-import {
-  extractAssetTokenFromQuery,
-  extractSessionToken,
-} from "../libs/request";
+import { resolveAndRefreshCheckedMiniAppAuthSession } from "../auth/session";
 import { accessErrorResponse } from "../libs/response";
 
+/** `verifyMiniAppSessionAccess` 校验 45 分钟密码会话的入参。 */
+export interface VerifyMiniAppSessionAccessOptions {
+  /** HTTP 请求对象。 */
+  readonly request: Request;
+  /** 已提取的 64 位十六进制会话令牌或空字符串。 */
+  readonly sessionToken: string;
+  /** 前置 `initData` 校验是否已验明 `?token=` 受保护资源令牌。 */
+  readonly hasVerifiedAssetToken: boolean;
+  /** 策略是否允许在已验明 `?token=` 且未显式携带会话令牌时免检会话。 */
+  readonly allowVerifiedAssetTokenBypass: boolean;
+  /** 当前毫秒时间戳。 */
+  readonly nowMs: number;
+}
+
+/** 第二层密码会话同步校验结果。 */
+export type MiniAppSessionAccessResult =
+  | { readonly ok: true; readonly session: Readonly<MiniAppAuthSession> | null }
+  | { readonly ok: false; readonly response: Response };
+
 /**
- * 创建校验 45 分钟密码认证会话令牌（`X-Mini-App-Session`）的中间件（第二层会话校验）。
- * 当有效会话距签发时刻超过 5 分钟时自动签发新令牌、顺延有效期并通过响应头下发给客户端。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从 `session` 查询参数提取凭据（供图库预览与附件下载）。
- * @param allowVerifiedAssetTokenBypass 在前置 `initData` 中间件已验明 `?token=` 受保护资源令牌且请求未显式携带会话令牌时，是否直接放行以支持 7 天静态缓存（用于受保护图片资源链）。
- * @returns 构造好的 `MiniAppMiddleware`。
+ * 同步校验 45 分钟密码认证会话令牌（第二层会话校验）；若已通过 `?token=` 受保护资源令牌核验且策略允许免检、且请求未显式携带会话令牌，则直接放行（`session: null`）。
+ * 当有效会话距签发时刻超过 5 分钟时返回刷新后的新会话记录，由调用方在路由处理器返回响应后附加续期响应头。
+ * @param options 第二层会话同步校验入参。
+ * @returns 校验通过时返回生效会话（或受保护资源免检时的 `null`）；失败时返回 `401` 响应。
  */
-export function createMiniAppSessionMiddleware(
-  allowQueryAuth: boolean,
-  allowVerifiedAssetTokenBypass: boolean = false
-): MiniAppMiddleware {
-  return async (
-    ctx: Readonly<MiniAppRouteContext>,
-    next: () => Response | Promise<Response>
-  ): Promise<Response> => {
-    const sessionToken: string = extractSessionToken(
-      ctx.request,
-      allowQueryAuth ? ctx.url : null
-    );
-    if (
-      allowVerifiedAssetTokenBypass &&
-      sessionToken.length === 0 &&
-      extractAssetTokenFromQuery(ctx.request, ctx.url).length > 0
-    ) {
-      return next();
-    }
-    const nowMs: number = Date.now();
-    if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) {
-      return accessErrorResponse(ctx.request, {
+export function verifyMiniAppSessionAccess({
+  request,
+  sessionToken,
+  hasVerifiedAssetToken,
+  allowVerifiedAssetTokenBypass,
+  nowMs,
+}: Readonly<VerifyMiniAppSessionAccessOptions>): MiniAppSessionAccessResult {
+  if (
+    allowVerifiedAssetTokenBypass &&
+    hasVerifiedAssetToken &&
+    sessionToken.length === 0
+  ) {
+    return { ok: true, session: null };
+  }
+  if (!MINI_APP_SHA256_HEX_PATTERN.test(sessionToken)) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
         status: 401,
         code: "PASSWORD_REQUIRED",
         reason: "password_required",
         error: "PASSWORD_REQUIRED",
-      });
-    }
-    const session: Readonly<MiniAppAuthSession> | null =
-      resolveAndRefreshCheckedMiniAppAuthSession(sessionToken, nowMs);
-    if (session === null) {
-      return accessErrorResponse(ctx.request, {
+      }),
+    };
+  }
+  const session: Readonly<MiniAppAuthSession> | null =
+    resolveAndRefreshCheckedMiniAppAuthSession(sessionToken, nowMs);
+  if (session === null) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
         status: 401,
         code: "PASSWORD_REQUIRED",
         reason: "password_required",
         error: "SESSION_EXPIRED",
-      });
-    }
-    const response: Response = await next();
-    if (session.token === sessionToken) {
-      return response;
-    }
-    return attachRefreshedSessionHeaders(response, session);
-  };
+      }),
+    };
+  }
+  return { ok: true, session };
 }

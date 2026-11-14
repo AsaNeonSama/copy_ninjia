@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { AI_MEMORY_HYDRATE_BUFFER_MAX } from "../../packages/consts/aiChat/memory";
-import { MINI_APP_BATCH_KICK_MAX_HOURS } from "../../packages/consts/miniApp";
+import {
+  MINI_APP_BATCH_KICK_MAX_HOURS,
+  MINI_APP_PAGE_GATE_COOKIE_NAME,
+} from "../../packages/consts/miniApp";
 import { HOT_PATH_PROFILE_SCENARIOS } from "../../packages/consts/performance";
 import { CHAT_QA_MAX_PER_CHAT } from "../../packages/consts/qa";
 import { STATE_MANAGED_CHAT_LIMIT } from "../../packages/consts/storage";
@@ -24,7 +27,9 @@ import type { AdDetectionMessageContext } from
   "../../packages/types/antiRaid/adDetect";
 import type { ChatState } from "../../packages/types/chatState";
 import type { DiskIOMessage } from "../../packages/types/diskIO";
+import type { StoreRandomImageResult } from "../../packages/types/imageGallery";
 import type { MiniAppAuthSession } from "../../packages/types/miniApp/auth";
+import type { ChainName } from "../../scripts/perf/fullSuite/types";
 import type { MiniAppChatDetail } from "../../packages/types/miniApp/chats";
 import type { BotChatPermissions } from "../../packages/types/telegram";
 import { botPermissions } from "../helpers/botPermissions";
@@ -54,6 +59,10 @@ describe("全量性能链路编排", () => {
       .toContain("mini-app-frontend-render");
     expect(CHAIN_NAMES).toContain("temporary-whitelist-write");
     expect(CHAIN_NAMES).toContain("mini-app-api-request");
+    expect(CHAIN_NAMES).toContain("mini-app-reject-page");
+    expect(CHAIN_NAMES).toContain("mini-app-page-gate-allow");
+    expect(CHAIN_NAMES).toContain("mini-app-auth-login");
+    expect(CHAIN_NAMES).toContain("mini-app-gallery-asset");
     expect(new Set(PRODUCTION_HOT_PATH_SCENARIOS).size)
       .toBe(PRODUCTION_HOT_PATH_SCENARIOS.length);
     expect(new Set(CHAIN_NAMES).size).toBe(CHAIN_NAMES.length);
@@ -62,6 +71,10 @@ describe("全量性能链路编排", () => {
       expect(copy.labels["mini-app-status-route"]?.length).toBeGreaterThan(0);
       expect(copy.labels["mini-app-frontend-render"]?.length).toBeGreaterThan(0);
       expect(copy.labels["mini-app-api-request"]?.length).toBeGreaterThan(0);
+      expect(copy.labels["mini-app-reject-page"]?.length).toBeGreaterThan(0);
+      expect(copy.labels["mini-app-page-gate-allow"]?.length).toBeGreaterThan(0);
+      expect(copy.labels["mini-app-auth-login"]?.length).toBeGreaterThan(0);
+      expect(copy.labels["mini-app-gallery-asset"]?.length).toBeGreaterThan(0);
     }
   });
 
@@ -430,23 +443,43 @@ describe("AI 回复命令链路", () => {
 });
 
 describe("Mini App API 请求链路", () => {
-  function miniAppChain(overrides: Partial<MiniAppChainDependencies>): {
+  const samplePngBytes: Readonly<Uint8Array> = Uint8Array.fromBase64(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+  );
+
+  function miniAppChain(
+    overrides: Partial<MiniAppChainDependencies>,
+    chain: ChainName = "mini-app-api-request"
+  ): {
     definition: ChainDefinition;
     seededJoinLogs: number;
     sessions: Map<string, unknown>;
     aiMemories: Map<number, { bufferedCount: number; summaryCount: number }>;
     qaEntries: Map<number, Map<string, string>>;
+    rejectHolder: { current: unknown };
+    passwordGuardHolder: { current: unknown };
+    deletedGalleryFiles: string[];
+    totpResets: number;
   } {
     const states: Map<number, ChatState> = new Map<number, ChatState>();
     const aiMemories: Map<number, { bufferedCount: number; summaryCount: number }> =
       new Map<number, { bufferedCount: number; summaryCount: number }>();
     const qaEntries: Map<number, Map<string, string>> = new Map<number, Map<string, string>>();
     const sessions: Map<string, unknown> = new Map<string, unknown>();
+    const rejectHolder: { current: unknown } = { current: "cached-reject" };
+    const passwordGuardHolder: { current: unknown } = { current: { userId: 1, failedAttempts: 1, lockedUntil: 0 } };
+    const deletedGalleryFiles: string[] = [];
+    let totpResets: number = 0;
     let seededJoinLogs: number = 0;
     const dependencies: MiniAppChainDependencies = {
       chainMiniAppApiRequests: 2,
+      chainMiniAppRejectPages: 2,
+      chainMiniAppPageGates: 2,
+      chainMiniAppAuthLogins: 2,
+      chainMiniAppGalleryAssets: 2,
       botToken: "123456789:benchmark-token",
       superAdminUserId: 900_001,
+      miniAppPassword: "benchmark-password-123456",
       benchmarkChatId: (index: number): number => -1_000 - index,
       benchmarkUserId: (index: number): number => 10_000 + index,
       getOrCreateChatState: (chatId: number): ChatState => {
@@ -475,6 +508,29 @@ describe("Mini App API 请求链路", () => {
         return session;
       },
       miniAppAuthSessions: sessions as never,
+      miniAppPasswordGuardHolder: passwordGuardHolder as never,
+      miniAppRejectHtmlHolder: rejectHolder as never,
+      resetMiniAppTotpMemoryCache: (): void => {
+        totpResets += 1;
+      },
+      serveMiniAppRejectHtml: async (): Promise<Response> =>
+        new Response('<body data-status="401" data-code="MISSING_INIT_DATA"></body>', { status: 200 }),
+      evaluateMiniAppPageGateRequest: () => ({ allowed: true, issueGateCookie: false }),
+      deriveMiniAppPageGateSecretKey: (): Uint8Array => new Uint8Array(32),
+      issueMiniAppPageGateToken: (): string => "1700000000000.deadbeef",
+      deriveMiniAppAssetToken: (): string => "asset-token-hex",
+      getAssetConfig: () => ({
+        randomHImageDirectory: "/fixture/h_image",
+      }) as never,
+      ensureRandomImageDirectory: async (): Promise<void> => {},
+      storeRandomImage: async (): Promise<StoreRandomImageResult> => ({
+        status: "stored",
+        fileName: "a".repeat(64) + ".png",
+      }),
+      deleteRandomImageFile: async (_dir: string, fileName: string): Promise<boolean> => {
+        deletedGalleryFiles.push(fileName);
+        return true;
+      },
       loadChatsBunRoutes: async () => ({
         "/api/chats": { GET: async (): Promise<Response> => Response.json({ items: [] }) },
         "/api/chats/:chatId": {
@@ -521,16 +577,44 @@ describe("Mini App API 请求链路", () => {
           },
         },
       }) as never,
+      loadAuthBunRoutes: async () => ({
+        "/api/auth/login": {
+          POST: async (): Promise<Response> =>
+            Response.json(
+              { ok: true, sessionToken: "bench-session", assetToken: "bench-asset" },
+              {
+                headers: {
+                  "Set-Cookie": `${MINI_APP_PAGE_GATE_COOKIE_NAME}=gate-token; HttpOnly`,
+                },
+              }
+            ),
+        },
+      }) as never,
+      loadGalleryBunRoutes: async () => ({
+        "/api/gallery/file/:fileName": {
+          GET: async (): Promise<Response> =>
+            new Response(new Uint8Array(samplePngBytes), {
+              status: 200,
+              headers: { ETag: '"bench-etag"' },
+            }),
+        },
+      }) as never,
       ...overrides,
     };
     return {
-      definition: createMiniAppChain("mini-app-api-request", dependencies)!,
+      definition: createMiniAppChain(chain, dependencies)!,
       get seededJoinLogs(): number {
         return seededJoinLogs;
       },
       sessions,
       aiMemories,
       qaEntries,
+      rejectHolder,
+      passwordGuardHolder,
+      deletedGalleryFiles,
+      get totpResets(): number {
+        return totpResets;
+      },
     };
   }
 
@@ -601,5 +685,77 @@ describe("Mini App API 请求链路", () => {
     });
     await incompleteDetail.definition.prepare?.();
     await expect(incompleteDetail.definition.run(0)).rejects.toThrow("incomplete chat detail payload");
+  });
+
+  test("mini-app-reject-page、page-gate-allow、auth-login 与 gallery-asset 四条新增链路各自完成往返并在 cleanup 清理状态", async (): Promise<void> => {
+    const rejectChain = miniAppChain({}, "mini-app-reject-page");
+    await rejectChain.definition.prepare?.();
+    expect(rejectChain.rejectHolder.current).toBeNull();
+    rejectChain.rejectHolder.current = "cached";
+    await rejectChain.definition.run(0);
+    await rejectChain.definition.cleanup?.();
+    expect(rejectChain.rejectHolder.current).toBeNull();
+
+    const gateChain = miniAppChain({}, "mini-app-page-gate-allow");
+    expect((): void | Promise<void> => gateChain.definition.run(0)).toThrow("headers were not prepared");
+    await gateChain.definition.prepare?.();
+    await gateChain.definition.run(0);
+    await gateChain.definition.cleanup?.();
+
+    const loginChain = miniAppChain({}, "mini-app-auth-login");
+    await loginChain.definition.prepare?.();
+    expect(loginChain.passwordGuardHolder.current).toBeNull();
+    loginChain.sessions.set("s1", {});
+    loginChain.passwordGuardHolder.current = { failedAttempts: 1 };
+    await loginChain.definition.run(0);
+    await loginChain.definition.cleanup?.();
+    expect(loginChain.sessions.size).toBe(0);
+    expect(loginChain.passwordGuardHolder.current).toBeNull();
+    expect(loginChain.totpResets).toBeGreaterThanOrEqual(2);
+
+    const galleryChain = miniAppChain({}, "mini-app-gallery-asset");
+    await expect(galleryChain.definition.run(0)).rejects.toThrow("route was not prepared");
+    await galleryChain.definition.prepare?.();
+    await galleryChain.definition.run(0);
+    await galleryChain.definition.cleanup?.();
+    expect(galleryChain.deletedGalleryFiles).toEqual(["a".repeat(64) + ".png"]);
+  });
+
+  test("新增四条 Mini App 链路的异常响应或准备缺失均使基准失败", async (): Promise<void> => {
+    const badReject = miniAppChain({
+      serveMiniAppRejectHtml: async (): Promise<Response> => new Response("<html></html>", { status: 200 }),
+    }, "mini-app-reject-page");
+    await badReject.definition.prepare?.();
+    await expect(badReject.definition.run(0)).rejects.toThrow("lacked injected diagnostics");
+
+    const deniedGate = miniAppChain({
+      evaluateMiniAppPageGateRequest: () => ({
+        allowed: false,
+        clearGateCookie: false,
+        diagParams: { status: 401, code: "MISSING_INIT_DATA", error: "MISSING_INIT_DATA" },
+      }),
+    }, "mini-app-page-gate-allow");
+    await deniedGate.definition.prepare?.();
+    expect((): void | Promise<void> => deniedGate.definition.run(0)).toThrow("unexpectedly denied");
+
+    const badLogin = miniAppChain({
+      loadAuthBunRoutes: async () => ({
+        "/api/auth/login": {
+          POST: async (): Promise<Response> => Response.json({ ok: true }),
+        },
+      }) as never,
+    }, "mini-app-auth-login");
+    await badLogin.definition.prepare?.();
+    await expect(badLogin.definition.run(0)).rejects.toThrow("lacked page-gate Set-Cookie");
+
+    const badGallery = miniAppChain({
+      loadGalleryBunRoutes: async () => ({
+        "/api/gallery/file/:fileName": {
+          GET: async (): Promise<Response> => new Response("not found", { status: 404 }),
+        },
+      }) as never,
+    }, "mini-app-gallery-asset");
+    await badGallery.definition.prepare?.();
+    await expect(badGallery.definition.run(0)).rejects.toThrow("returned HTTP 404");
   });
 });

@@ -147,7 +147,7 @@ export async function readMiniAppGalleryFile(
     filePath: entry.filePath,
     mimeType: entry.mimeType,
     sizeBytes: entry.sizeBytes,
-    etag: `"gallery-${decodedName}-${entry.sizeBytes}"`,
+    etag: `"gallery-${decodedName}-${entry.sizeBytes}-${entry.mtimeMs}"`,
   };
 }
 

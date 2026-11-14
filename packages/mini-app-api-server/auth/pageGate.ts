@@ -25,10 +25,7 @@ import {
   hasMiniAppInitDataHeader,
   verifyMiniAppHeaderInitDataError,
 } from "../middleware/initData";
-import {
-  checkSuperAdminPasswordLockout,
-  getSuperAdminPasswordLockoutRemainingMinutes,
-} from "./session";
+import { getSuperAdminPasswordLockoutRemainingMinutes } from "./session";
 
 /** 模块加载时由 `BOT_TOKEN` 派生一次的单页门禁令牌 HMAC-SHA256 密钥（进程生命周期内恒定）。 */
 const MINI_APP_PAGE_GATE_SECRET_KEY: Uint8Array =
@@ -52,10 +49,7 @@ export type MiniAppPageGateDecision =
  * @returns 为 HTTPS 请求时返回 `true`。
  */
 function isSecureMiniAppRequest(request: Request): boolean {
-  if (
-    request.url.startsWith("https:") ||
-    request.url.slice(0, 6).toLowerCase() === "https:"
-  ) {
+  if (request.url.startsWith("https:")) {
     return true;
   }
   const forwardedProto: string | null = request.headers.get("x-forwarded-proto");
@@ -217,8 +211,82 @@ export function clearMiniAppPageGateCookieIfPresent(
   return response;
 }
 
+/** 门禁核心凭据（显式 `initData` 请求头 -> 门禁 Cookie -> 密码锁定状态）评估结果。 */
+type MiniAppPageGateCredentialResult =
+  | { readonly allowed: true; readonly issueGateCookie: boolean }
+  | {
+    readonly allowed: false;
+    readonly clearGateCookie: boolean;
+    readonly errorParams: Readonly<AccessErrorResponseParams>;
+  };
+
 /**
- * 评估单页文档路由（`/`、`/index.html`）的门禁准入状态：先拦截跨站请求，再优先核验显式 `initData` 请求头，最后核验单页门禁 Cookie 与密码锁定状态。
+ * 评估单页与前端打包静态资源共享的门禁核心凭据：优先核验显式 `initData` 请求头，
+ * 再核验无状态门禁 Cookie（`MINI_APP_PAGE_GATE_COOKIE_NAME`）与 30 分钟密码锁定状态。
+ * @param request HTTP 请求对象。
+ * @param nowMs 当前毫秒时间戳。
+ * @returns 准入结果、是否签发/清除门禁 Cookie 及结构化拒绝参数。
+ */
+function evaluateMiniAppGateCredential(
+  request: Request,
+  nowMs: number = Date.now()
+): MiniAppPageGateCredentialResult {
+  if (hasMiniAppInitDataHeader(request.headers)) {
+    const errorParams: Readonly<AccessErrorResponseParams> | null =
+      verifyMiniAppHeaderInitDataError(request, nowMs);
+    if (errorParams !== null) {
+      return {
+        allowed: false,
+        clearGateCookie: hasMiniAppPageGateCookie(request),
+        errorParams,
+      };
+    }
+    return { allowed: true, issueGateCookie: true };
+  }
+
+  const gateCookie: string | null = readMiniAppPageGateCookie(request);
+  if (
+    gateCookie !== null &&
+    gateCookie.length > 0 &&
+    verifyMiniAppPageGateToken({
+      token: gateCookie,
+      secretKey: MINI_APP_PAGE_GATE_SECRET_KEY,
+      superAdminUserId: SUPER_ADMIN_USER_ID,
+      nowMs,
+    })
+  ) {
+    const remainingMinutes: number | null =
+      getSuperAdminPasswordLockoutRemainingMinutes(nowMs);
+    if (remainingMinutes === null) {
+      return { allowed: true, issueGateCookie: false };
+    }
+    return {
+      allowed: false,
+      clearGateCookie: true,
+      errorParams: {
+        status: 403,
+        code: "PASSWORD_LOCKED",
+        reason: "password_locked",
+        error: "PASSWORD_LOCKED",
+        remainingMinutes,
+      },
+    };
+  }
+
+  return {
+    allowed: false,
+    clearGateCookie: gateCookie !== null,
+    errorParams: {
+      status: 401,
+      code: "MISSING_INIT_DATA",
+      reason: "missing_init_data",
+      error: "MISSING_INIT_DATA",
+    },
+  };
+}
+
+/**
+ * 评估单页文档路由（`/`、`/index.html`）的门禁准入状态：先拦截跨站请求，再交由核心凭据评估函数判定。
  * @param request HTTP 请求对象。
  * @returns 准入决策与拒绝诊断参数。
  */
@@ -244,56 +312,15 @@ export function evaluateMiniAppPageGateRequest(
     };
   }
 
-  if (hasMiniAppInitDataHeader(headers)) {
-    const errorParams: Readonly<AccessErrorResponseParams> | null =
-      verifyMiniAppHeaderInitDataError(request);
-    if (errorParams !== null) {
-      return {
-        allowed: false,
-        clearGateCookie: hasMiniAppPageGateCookie(request),
-        diagParams: errorParams,
-      };
-    }
-    return { allowed: true, issueGateCookie: true };
+  const credential: MiniAppPageGateCredentialResult =
+    evaluateMiniAppGateCredential(request, Date.now());
+  if (credential.allowed) {
+    return credential;
   }
-
-  const gateCookie: string | null = readMiniAppPageGateCookie(request);
-  const nowMs: number = Date.now();
-  if (
-    gateCookie !== null &&
-    gateCookie.length > 0 &&
-    verifyMiniAppPageGateToken({
-      token: gateCookie,
-      secretKey: MINI_APP_PAGE_GATE_SECRET_KEY,
-      superAdminUserId: SUPER_ADMIN_USER_ID,
-      nowMs,
-    })
-  ) {
-    const remainingMinutes: number | null =
-      getSuperAdminPasswordLockoutRemainingMinutes(nowMs);
-    if (remainingMinutes === null) {
-      return { allowed: true, issueGateCookie: false };
-    }
-    return {
-      allowed: false,
-      clearGateCookie: true,
-      diagParams: {
-        status: 403,
-        code: "PASSWORD_LOCKED",
-        error: "PASSWORD_LOCKED",
-        remainingMinutes,
-      },
-    };
-  }
-
   return {
     allowed: false,
-    clearGateCookie: gateCookie !== null,
-    diagParams: {
-      status: 401,
-      code: "MISSING_INIT_DATA",
-      error: "MISSING_INIT_DATA",
-    },
+    clearGateCookie: credential.clearGateCookie,
+    diagParams: credential.errorParams,
   };
 }
 
@@ -360,47 +387,16 @@ export function authorizeMiniAppBundleAssetRequest(
     );
   }
 
-  if (hasMiniAppInitDataHeader(headers)) {
-    const errorParams: Readonly<AccessErrorResponseParams> | null =
-      verifyMiniAppHeaderInitDataError(request);
-    if (errorParams !== null) {
-      return clearMiniAppPageGateCookieIfPresent(
-        accessErrorResponse(request, errorParams),
-        request
-      );
-    }
+  const credential: MiniAppPageGateCredentialResult =
+    evaluateMiniAppGateCredential(request, Date.now());
+  if (credential.allowed) {
     return null;
   }
-
-  const gateCookie: string | null = readMiniAppPageGateCookie(request);
-  const nowMs: number = Date.now();
-  if (
-    gateCookie !== null &&
-    gateCookie.length > 0 &&
-    verifyMiniAppPageGateToken({
-      token: gateCookie,
-      secretKey: MINI_APP_PAGE_GATE_SECRET_KEY,
-      superAdminUserId: SUPER_ADMIN_USER_ID,
-      nowMs,
-    })
-  ) {
-    const lockoutRes: Response | null = checkSuperAdminPasswordLockout(
-      request,
-      nowMs
-    );
-    if (lockoutRes !== null) {
-      return attachClearMiniAppPageGateCookie(lockoutRes, request);
-    }
-    return null;
-  }
-
-  const missingRes: Response = accessErrorResponse(request, {
-    status: 401,
-    code: "MISSING_INIT_DATA",
-    reason: "missing_init_data",
-    error: "MISSING_INIT_DATA",
-  });
-  return gateCookie !== null
-    ? attachClearMiniAppPageGateCookie(missingRes, request)
-    : missingRes;
+  const errorResponse: Response = accessErrorResponse(
+    request,
+    credential.errorParams
+  );
+  return credential.clearGateCookie
+    ? attachClearMiniAppPageGateCookie(errorResponse, request)
+    : errorResponse;
 }

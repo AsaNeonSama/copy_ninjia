@@ -33,6 +33,21 @@ test.each(["tsx", "css"])(
   }
 );
 
+test("全仓 .html 文件统一按 1536 行上限判定", (): void => {
+  for (const htmlPath of [
+    "packages/mini-app-frontend/index.html",
+    "packages/mini-app-api-server/resource/reject.html",
+    "scripts/fixture.html",
+  ]) {
+    expect(collectFileLengthProblems(htmlPath, "line\n".repeat(MAX_FRONTEND_SOURCE_LINES))).toEqual([]);
+    expect(
+      collectFileLengthProblems(htmlPath, "line\n".repeat(MAX_FRONTEND_SOURCE_LINES) + "tail")
+    ).toEqual([
+      `${htmlPath} has ${MAX_FRONTEND_SOURCE_LINES + 1} lines; split source files exceeding ${MAX_FRONTEND_SOURCE_LINES} lines`,
+    ]);
+  }
+});
+
 test("空源码与非源码文档不触发长度硬门禁", (): void => {
   expect(collectFileLengthProblems("empty.ts", "")).toEqual([]);
   expect(collectFileLengthProblems("guide.md", "line\n".repeat(MAX_FRONTEND_SOURCE_LINES + 1))).toEqual([]);

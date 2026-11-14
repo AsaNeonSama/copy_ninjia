@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync } from "node:fs";
+import { join } from "node:path";
 import type { Message } from "grammy/types";
 import type {
   MiniAppGalleryDeleteResult,
@@ -412,6 +413,39 @@ describe("Mini App Picker, Gallery & Bun.serve integration", () => {
       MINI_APP_ASSET_CACHE_CONTROL
     );
     expect(cachedImageRes.headers.get("ETag")).toBe(imageEtag);
+
+    const weakEtagCachedRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
+        { headers: { "if-none-match": `W/${imageEtag!}` } }
+      )
+    );
+    expect(weakEtagCachedRes.status).toBe(304);
+
+    const multiEtagCachedRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
+        { headers: { "if-none-match": `"stale-tag", W/${imageEtag!}` } }
+      )
+    );
+    expect(multiEtagCachedRes.status).toBe(304);
+
+    const galleryFilePath: string = join(
+      getAssetConfig().randomHImageDirectory,
+      expectedFileName
+    );
+    const nextMtimeSec: number =
+      Math.floor((await Bun.file(galleryFilePath).stat()).mtimeMs / 1_000) + 120;
+    utimesSync(galleryFilePath, nextMtimeSec, nextMtimeSec);
+    const staleAfterTouchRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/api/gallery/file/${expectedFileName}?token=${encodeURIComponent(assetToken)}`,
+        { headers: { "if-none-match": imageEtag! } }
+      )
+    );
+    expect(staleAfterTouchRes.status).toBe(200);
+    const updatedEtag: string | null = staleAfterTouchRes.headers.get("ETag");
+    expect(updatedEtag !== null && updatedEtag !== imageEtag).toBeTrue();
 
     const unauthCachedImageRes: Response = await handleMiniAppHttpRequest(
       new Request(`http://127.0.0.1:3000/api/gallery/file/${expectedFileName}`, {

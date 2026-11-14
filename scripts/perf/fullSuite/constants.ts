@@ -153,6 +153,18 @@ export const CRON_RELOAD_WARMUP_OPERATIONS: number = 4;
  */
 export const CHAIN_MINI_APP_API_REQUESTS: number = 400;
 
+/** Mini App 未授权单页拒绝页链路的计时次数；覆盖诊断构造与 `reject.html` 属性注入。 */
+export const CHAIN_MINI_APP_REJECT_PAGES: number = 1_000;
+
+/** Mini App 单页门禁 Cookie 放行链路的计时次数；覆盖跨站检查、Cookie HMAC-SHA256 验签与锁定检查。 */
+export const CHAIN_MINI_APP_PAGE_GATES: number = 4_000;
+
+/** Mini App 登录接口（`POST /api/auth/login`）链路的计时次数。 */
+export const CHAIN_MINI_APP_AUTH_LOGINS: number = 1_000;
+
+/** Mini App 受保护图库资源（`GET /api/gallery/file/:fileName?token=`）链路的计时次数。 */
+export const CHAIN_MINI_APP_GALLERY_ASSETS: number = 400;
+
 /** Mini App API 请求链路在每个受管群近 1 小时窗口预先播种的入群日志条数。 */
 export const MINI_APP_API_SEED_JOIN_EVENTS_PER_CHAT: number = 4;
 

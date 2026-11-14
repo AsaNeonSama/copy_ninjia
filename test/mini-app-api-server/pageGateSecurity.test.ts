@@ -38,7 +38,13 @@ const {
   MINI_APP_TMA_AUTH_PREFIX,
 } = await import("../../packages/consts/miniApp");
 const { MINUTE_MS } = await import("../../packages/consts/time");
+const { MINI_APP_REJECT_HTML_PATH } = await import("../../packages/consts/paths");
 const {
+  parseMiniAppRejectHtmlTemplate,
+  serveMiniAppRejectHtml,
+} = await import("../../packages/mini-app-api-server/handlers/page");
+const {
+  deriveMiniAppAssetToken,
   deriveMiniAppInitDataSecretKey,
   deriveMiniAppPageGateSecretKey,
   issueMiniAppPageGateToken,
@@ -50,6 +56,8 @@ const {
   readMiniAppPageGateCookie,
 } = await import("../../packages/mini-app-api-server/auth/pageGate");
 const {
+  handleMiniAppHttpRequest,
+  issueMiniAppAuthSession,
   startMiniAppServer,
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
@@ -649,5 +657,181 @@ describe("Mini App 单页门控握手与前端打包产物隔离安全测试", (
     expect(miniAppRejectHtmlHolder.current).not.toBeNull();
     await stopMiniAppServer();
     expect(miniAppRejectHtmlHolder.current).toBeNull();
+  });
+
+  test("reject.html 预切分拼接在安全值下与 HTMLRewriter 逐字节一致，特殊字符完整往返且拒绝缺失或重复 <body> 的模板", async () => {
+    miniAppRejectHtmlHolder.current = null;
+    const rawRejectHtml: string = await Bun.file(MINI_APP_REJECT_HTML_PATH).text();
+
+    for (const remainingMinutes of [undefined, 27]) {
+      const request: Request = new Request("https://console.example.test/sub/entry?from=bot", {
+        headers: {
+          "X-Forwarded-For": "203.0.113.42",
+          "X-Forwarded-Host": "console.example.test",
+        },
+      });
+      const response: Response = await serveMiniAppRejectHtml(
+        request,
+        {
+          status: remainingMinutes === undefined ? 401 : 403,
+          code: remainingMinutes === undefined ? "MISSING_INIT_DATA" : "PASSWORD_LOCKED",
+          error: remainingMinutes === undefined ? "MISSING_INIT_DATA" : "PASSWORD_LOCKED",
+          remainingMinutes,
+        },
+        false
+      );
+      expect(response.status).toBe(200);
+      const html: string = await response.text();
+      let extractedStatus: string = "";
+      let extractedCode: string = "";
+      let extractedError: string = "";
+      let extractedRequestId: string = "";
+      let extractedTimestamp: string = "";
+      let extractedClientIp: string = "";
+      let extractedHost: string = "";
+      let extractedPath: string = "";
+      let extractedRemainingMinutes: string | null = null;
+      new HTMLRewriter()
+        .on("body", {
+          element(element: HTMLRewriterTypes.Element): void {
+            extractedStatus = element.getAttribute("data-status") ?? "";
+            extractedCode = element.getAttribute("data-code") ?? "";
+            extractedError = element.getAttribute("data-error") ?? "";
+            extractedRequestId = element.getAttribute("data-request-id") ?? "";
+            extractedTimestamp = element.getAttribute("data-timestamp") ?? "";
+            extractedClientIp = element.getAttribute("data-client-ip") ?? "";
+            extractedHost = element.getAttribute("data-host") ?? "";
+            extractedPath = element.getAttribute("data-path") ?? "";
+            extractedRemainingMinutes = element.getAttribute("data-remaining-minutes");
+          },
+        })
+        .transform(html);
+
+      const expectedByHtmlRewriter: string = new HTMLRewriter()
+        .on("body", {
+          element(element: HTMLRewriterTypes.Element): void {
+            element.setAttribute("data-status", extractedStatus);
+            element.setAttribute("data-code", extractedCode);
+            element.setAttribute("data-error", extractedError);
+            element.setAttribute("data-request-id", extractedRequestId);
+            element.setAttribute("data-timestamp", extractedTimestamp);
+            element.setAttribute("data-client-ip", extractedClientIp);
+            element.setAttribute("data-host", extractedHost);
+            element.setAttribute("data-path", extractedPath);
+            if (extractedRemainingMinutes !== null) {
+              element.setAttribute("data-remaining-minutes", extractedRemainingMinutes);
+            }
+          },
+        })
+        .transform(rawRejectHtml);
+      expect(html).toBe(expectedByHtmlRewriter);
+    }
+
+    const unsafeText: string = 'bad&code"with<tag>\'and\\quote';
+    const unsafeHost: string = 'evil&host"<' + "sub'>" + ".example.test";
+    const unsafeRes: Response = await serveMiniAppRejectHtml(
+      new Request("https://console.example.test/a&b/path", {
+        headers: { "X-Forwarded-Host": unsafeHost },
+      }),
+      {
+        status: 403,
+        code: unsafeText,
+        error: `${unsafeText}_err`,
+      },
+      false
+    );
+    const unsafeHtml: string = await unsafeRes.text();
+    let rawAttrCode: string = "";
+    let rawAttrError: string = "";
+    let rawAttrHost: string = "";
+    let rawAttrPath: string = "";
+    new HTMLRewriter()
+      .on("body", {
+        element(element: HTMLRewriterTypes.Element): void {
+          rawAttrCode = element.getAttribute("data-code") ?? "";
+          rawAttrError = element.getAttribute("data-error") ?? "";
+          rawAttrHost = element.getAttribute("data-host") ?? "";
+          rawAttrPath = element.getAttribute("data-path") ?? "";
+        },
+      })
+      .transform(unsafeHtml);
+    const unescapeHtmlEntities = (value: string): string =>
+      value
+        .replaceAll("&quot;", '"')
+        .replaceAll("&lt;", "<")
+        .replaceAll("&gt;", ">")
+        .replaceAll("&#39;", "'")
+        .replaceAll("&amp;", "&");
+    expect(rawAttrCode).toContain("&amp;");
+    expect(rawAttrCode).toContain("&quot;");
+    expect(rawAttrCode).toContain("&lt;");
+    expect(rawAttrCode).toContain("&gt;");
+    expect(rawAttrCode).toContain("&#39;");
+    expect(unescapeHtmlEntities(rawAttrCode)).toBe(unsafeText);
+    expect(unescapeHtmlEntities(rawAttrError)).toBe(`${unsafeText}_err`);
+    expect(unescapeHtmlEntities(rawAttrHost)).toBe(unsafeHost);
+    expect(unescapeHtmlEntities(rawAttrPath)).toBe("/a&b/path");
+
+    expect((): Readonly<{ head: string; tail: string }> =>
+      parseMiniAppRejectHtmlTemplate("<html><div>no body</div></html>")
+    ).toThrow("missing <body>");
+    expect((): Readonly<{ head: string; tail: string }> =>
+      parseMiniAppRejectHtmlTemplate("<html><body>a</body><body>b</body></html>")
+    ).toThrow("duplicate <body>");
+    miniAppRejectHtmlHolder.current = null;
+  });
+
+  test("打包资源路径携带 ?token= 或 ?initData= 且无门禁 Cookie 时转交受保护资源策略鉴权后返回 404", async (): Promise<void> => {
+    const validInitData: string = buildSignedTestInitData({
+      botToken: BOT_TOKEN,
+      authDate: Math.floor(Date.now() / 1000),
+      user: {
+        id: SUPER_ADMIN_USER_ID,
+        first_name: "SuperAdmin",
+      },
+    });
+    const validAssetToken: string = deriveMiniAppAssetToken(
+      BOT_TOKEN,
+      SUPER_ADMIN_USER_ID
+    );
+    const validSessionToken: string = issueMiniAppAuthSession().token;
+
+    const badTokenRes: Response = await handleMiniAppHttpRequest(
+      new Request("http://127.0.0.1:3000/chunk-deadbeef.png?token=invalid-token")
+    );
+    expect(badTokenRes.status).toBe(401);
+    expect(((await badTokenRes.json()) as { readonly error?: string }).error).toBe(
+      "INVALID_SIGNATURE"
+    );
+
+    const validTokenNoCookieRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/chunk-deadbeef.png?token=${encodeURIComponent(validAssetToken)}`
+      )
+    );
+    expect(validTokenNoCookieRes.status).toBe(404);
+    expect(
+      ((await validTokenNoCookieRes.json()) as { readonly error?: string }).error
+    ).toBe("Resource not found");
+
+    const initDataNoSessionRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/chunk-deadbeef.png?initData=${encodeURIComponent(validInitData)}`
+      )
+    );
+    expect(initDataNoSessionRes.status).toBe(401);
+    expect(
+      ((await initDataNoSessionRes.json()) as { readonly error?: string }).error
+    ).toBe("PASSWORD_REQUIRED");
+
+    const initDataWithSessionRes: Response = await handleMiniAppHttpRequest(
+      new Request(
+        `http://127.0.0.1:3000/chunk-deadbeef.png?initData=${encodeURIComponent(validInitData)}&session=${encodeURIComponent(validSessionToken)}`
+      )
+    );
+    expect(initDataWithSessionRes.status).toBe(404);
+    expect(
+      ((await initDataWithSessionRes.json()) as { readonly error?: string }).error
+    ).toBe("Resource not found");
   });
 });

@@ -52,7 +52,8 @@ export function createPageBunRoutes(
 
 /**
  * 在兜底分发中同时处理根路径与 `${basePath}` 子路径下的前端打包静态资源请求（如 `/chunk-*.js`、`/chunk-*.css`、`/favicon-*.ico`）：
- * 先拦截跨站与直接导航并强制核验超级管理员门禁 Cookie 或 `initData` 请求头（及未锁定状态），未授权一律返回 `401`/`403` JSON；
+ * 若请求命中打包资源正则且扩展名属于受保护资源、显式携带 `?token=` 或 `?initData=` 查询参数且既未带 `initData` 请求头也未带有效门禁 Cookie，则早返回 `null` 转交受保护资源策略鉴权后返回 `404`；
+ * 否则先拦截跨站与直接导航并强制核验超级管理员门禁 Cookie 或 `initData` 请求头（及未锁定状态），未授权一律返回 `401`/`403` JSON；
  * 鉴权通过且命中已物化的打包产物表时以私有协商缓存头返回（支持 `If-None-Match` `304` 与 `HEAD`），物化失败返回 `500`，未命中打包产物表时返回 `null` 交由后续 404 分支处理。
  * @param ctx 路由请求上下文。
  * @param indexHtml `server/register.ts` 以 HTML import 引入的前端入口。

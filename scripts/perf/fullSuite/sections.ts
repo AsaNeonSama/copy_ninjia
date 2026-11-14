@@ -93,6 +93,10 @@ export const CHAIN_NAMES: readonly ChainName[] = [
   "cron-send-voice",
   "cron-config-reload",
   "mini-app-api-request",
+  "mini-app-reject-page",
+  "mini-app-page-gate-allow",
+  "mini-app-auth-login",
+  "mini-app-gallery-asset",
 ];
 
 /** 入群日志容量线的各项操作，一律跑 `current` 变体；`baseline` 变体只由 `bun run perf:join-log` 运行。 */

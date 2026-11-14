@@ -6,7 +6,7 @@ import {
   MINI_APP_MAX_INIT_DATA_LENGTH,
   MINI_APP_TMA_AUTH_PREFIX,
 } from "../../consts/miniApp";
-import type { MiniAppMiddleware, MiniAppRouteContext } from "../../types/miniApp/server";
+import type { MiniAppRouteContext } from "../../types/miniApp/server";
 import { accessErrorResponse } from "../libs/response";
 import type { AccessErrorResponseParams } from "../libs/response";
 import { firstForwardedHost } from "../libs/request";
@@ -155,28 +155,36 @@ export function extractVerifiedMiniAppHeaderInitData(
   return headerInitData;
 }
 
+/** 网关请求头与凭据形态快路径校验结果（复用提取出的请求头 `initData`）。 */
+export type MiniAppHeaderGuardResult =
+  | { readonly ok: true; readonly headerInitData: string | null }
+  | { readonly ok: false; readonly response: Response };
+
 /**
- * 在鉴权链最开头对请求头与凭据载体形态执行 O(1) 快路径严格校验：拦截非同源 `Sec-Fetch-Site`、
+ * 在鉴权管道最开头对请求头与凭据载体形态执行 O(1) 快路径严格校验：拦截非同源 `Sec-Fetch-Site`、
  * 直接导航/非预期 `Sec-Fetch-Mode` 与 `Sec-Fetch-Dest`、跨源 `Origin`/`Referer`，
- * 以及缺失、双头不一致或畸形的 Telegram WebApp `initData` 请求头。
+ * 以及缺失、双头不一致或畸形的 Telegram WebApp `initData` 请求头，并复用提取出的请求头 `initData` 供后续验签。
  * @param ctx 路由请求上下文。
  * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
- * @returns 快路径拦截命中时返回 `401` 或 `403` 诊断响应，通过时返回 `null`。
+ * @returns 快路径拦截命中时返回 `401` 或 `403` 诊断响应，通过时返回已校验的请求头 `initData`（缺失时为 `null`）。
  */
-function verifyMiniAppRequestHeadersFast(
+export function verifyMiniAppRequestHeadersFast(
   ctx: Readonly<MiniAppRouteContext>,
   allowQueryAuth: boolean
-): Response | null {
+): MiniAppHeaderGuardResult {
   const request: Request = ctx.request;
   const headers: Headers = request.headers;
 
   if (hasDisallowedSecFetchSite(headers)) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "CROSS_SITE_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "CROSS_SITE_FORBIDDEN",
-    });
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
+        status: 403,
+        code: "CROSS_SITE_FORBIDDEN",
+        reason: "forbidden_user",
+        error: "CROSS_SITE_FORBIDDEN",
+      }),
+    };
   }
 
   const secFetchMode: string | null = headers.get("sec-fetch-mode")?.trim().toLowerCase() ?? null;
@@ -188,12 +196,15 @@ function verifyMiniAppRequestHeadersFast(
       secFetchMode === "websocket" ||
       (secFetchDest !== null && secFetchDest.length > 0 && secFetchDest !== "empty")
     ) {
-      return accessErrorResponse(request, {
-        status: 403,
-        code: "DIRECT_NAVIGATION_FORBIDDEN",
-        reason: "forbidden_user",
-        error: "DIRECT_NAVIGATION_FORBIDDEN",
-      });
+      return {
+        ok: false,
+        response: accessErrorResponse(request, {
+          status: 403,
+          code: "DIRECT_NAVIGATION_FORBIDDEN",
+          reason: "forbidden_user",
+          error: "DIRECT_NAVIGATION_FORBIDDEN",
+        }),
+      };
     }
     const accept: string | null = headers.get("accept")?.toLowerCase() ?? null;
     if (
@@ -201,20 +212,26 @@ function verifyMiniAppRequestHeadersFast(
       accept.includes("text/html") &&
       !accept.includes("application/json")
     ) {
-      return accessErrorResponse(request, {
+      return {
+        ok: false,
+        response: accessErrorResponse(request, {
+          status: 403,
+          code: "DIRECT_NAVIGATION_FORBIDDEN",
+          reason: "forbidden_user",
+          error: "DIRECT_NAVIGATION_FORBIDDEN",
+        }),
+      };
+    }
+  } else if (hasDisallowedSubresourceFetchMetadata(headers)) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
         status: 403,
         code: "DIRECT_NAVIGATION_FORBIDDEN",
         reason: "forbidden_user",
         error: "DIRECT_NAVIGATION_FORBIDDEN",
-      });
-    }
-  } else if (hasDisallowedSubresourceFetchMetadata(headers)) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "DIRECT_NAVIGATION_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "DIRECT_NAVIGATION_FORBIDDEN",
-    });
+      }),
+    };
   }
 
   const originHeader: string | null = headers.get("origin");
@@ -223,12 +240,15 @@ function verifyMiniAppRequestHeadersFast(
     originHeader.trim().length > 0 &&
     !isAllowedRequestOriginUrl(originHeader, request, ctx.url)
   ) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "CROSS_SITE_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "CROSS_SITE_FORBIDDEN",
-    });
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
+        status: 403,
+        code: "CROSS_SITE_FORBIDDEN",
+        reason: "forbidden_user",
+        error: "CROSS_SITE_FORBIDDEN",
+      }),
+    };
   }
 
   const refererHeader: string | null = headers.get("referer");
@@ -237,30 +257,39 @@ function verifyMiniAppRequestHeadersFast(
     refererHeader.trim().length > 0 &&
     !isAllowedRequestOriginUrl(refererHeader, request, ctx.url)
   ) {
-    return accessErrorResponse(request, {
-      status: 403,
-      code: "CROSS_SITE_FORBIDDEN",
-      reason: "forbidden_user",
-      error: "CROSS_SITE_FORBIDDEN",
-    });
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
+        status: 403,
+        code: "CROSS_SITE_FORBIDDEN",
+        reason: "forbidden_user",
+        error: "CROSS_SITE_FORBIDDEN",
+      }),
+    };
   }
 
   const headerInitCheck: string | Readonly<AccessErrorResponseParams> | null =
     extractVerifiedMiniAppHeaderInitData(headers);
   if (typeof headerInitCheck === "string") {
-    return null;
+    return { ok: true, headerInitData: headerInitCheck };
   }
   if (headerInitCheck !== null) {
-    return accessErrorResponse(request, headerInitCheck);
+    return {
+      ok: false,
+      response: accessErrorResponse(request, headerInitCheck),
+    };
   }
 
   if (!allowQueryAuth) {
-    return accessErrorResponse(request, {
-      status: 401,
-      code: "MISSING_INIT_DATA",
-      reason: "missing_init_data",
-      error: "MISSING_INIT_DATA",
-    });
+    return {
+      ok: false,
+      response: accessErrorResponse(request, {
+        status: 401,
+        code: "MISSING_INIT_DATA",
+        reason: "missing_init_data",
+        error: "MISSING_INIT_DATA",
+      }),
+    };
   }
 
   if (ctx.method === "GET" || ctx.method === "HEAD") {
@@ -272,29 +301,17 @@ function verifyMiniAppRequestHeadersFast(
         !queryInitData.includes("hash=") ||
         !queryInitData.includes("auth_date="))
     ) {
-      return accessErrorResponse(request, {
-        status: 401,
-        code: "MALFORMED_INIT_DATA",
-        reason: "malformed_init_data",
-        error: "MALFORMED_INIT_DATA",
-      });
+      return {
+        ok: false,
+        response: accessErrorResponse(request, {
+          status: 401,
+          code: "MALFORMED_INIT_DATA",
+          reason: "malformed_init_data",
+          error: "MALFORMED_INIT_DATA",
+        }),
+      };
     }
   }
 
-  return null;
-}
-
-/**
- * 创建位于每条受保护鉴权链最开头的请求头与凭据形态快路径拦截中间件。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取凭据。
- * @returns 构造好的 `MiniAppMiddleware`。
- */
-export function createMiniAppHeaderGuardMiddleware(
-  allowQueryAuth: boolean
-): MiniAppMiddleware {
-  return (
-    ctx: Readonly<MiniAppRouteContext>,
-    next: () => Response | Promise<Response>
-  ): Response | Promise<Response> =>
-    verifyMiniAppRequestHeadersFast(ctx, allowQueryAuth) ?? next();
+  return { ok: true, headerInitData: null };
 }

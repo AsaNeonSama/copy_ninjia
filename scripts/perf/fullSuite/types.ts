@@ -78,7 +78,11 @@ export type ChainName =
   | "ai-reply-command"
   | "cron-send-voice"
   | "cron-config-reload"
-  | "mini-app-api-request";
+  | "mini-app-api-request"
+  | "mini-app-reject-page"
+  | "mini-app-page-gate-allow"
+  | "mini-app-auth-login"
+  | "mini-app-gallery-asset";
 
 /** 单条链路一轮的完整回传；延迟分位数来自逐次 durable 往返。 */
 export interface ChainRound {

@@ -133,7 +133,7 @@ export function serveCachedAssetResponse(
     meta.sizeBytes,
     meta.etag
   );
-  if (request.headers.get("if-none-match") === meta.etag) {
+  if (ifNoneMatchMatchesEtag(request.headers.get("if-none-match"), meta.etag)) {
     return new Response(null, { status: 304, headers });
   }
   return new Response(request.method.toUpperCase() === "HEAD" ? null : body, {

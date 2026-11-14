@@ -10,10 +10,7 @@ import {
   verifyMiniAppInitData,
 } from "../../libs/miniAppAuth";
 import type { MiniAppAuthResult } from "../../types/miniApp/auth";
-import type {
-  MiniAppMiddleware,
-  MiniAppRouteContext,
-} from "../../types/miniApp/server";
+import type { MiniAppRouteContext } from "../../types/miniApp/server";
 import {
   checkSuperAdminPasswordLockout,
   getSuperAdminPasswordLockoutRemainingMinutes,
@@ -38,6 +35,35 @@ const MINI_APP_ASSET_TOKEN_DIGEST: Uint8Array = deriveMiniAppAssetTokenDigest(
   SUPER_ADMIN_USER_ID
 );
 
+/** 内部统一校验 `initData` 签名、超管身份与密码锁定状态的入参。 */
+interface VerifyInitDataSignatureAndLockoutOptions {
+  /** 待校验的 Telegram WebApp `initData` 原始查询串。 */
+  readonly initData: string;
+  /** 请求携带的 64 位十六进制会话令牌或空字符串。 */
+  readonly sessionToken: string;
+  /** 当前毫秒时间戳。 */
+  readonly nowMs: number;
+}
+
+/** `verifyMiniAppInitDataAccess` 第一层网关凭据校验的入参。 */
+export interface VerifyMiniAppInitDataAccessOptions {
+  /** 路由请求上下文。 */
+  readonly ctx: Readonly<MiniAppRouteContext>;
+  /** 是否允许在 `GET`/`HEAD` 请求中从 `token` 或 `initData` 查询参数提取凭据。 */
+  readonly allowQueryAuth: boolean;
+  /** 请求头快路径校验已提取的 `initData`（缺省时为 `null`）。 */
+  readonly headerInitData: string | null;
+  /** 已提取的 64 位十六进制会话令牌或空字符串。 */
+  readonly sessionToken: string;
+  /** 当前毫秒时间戳。 */
+  readonly nowMs: number;
+}
+
+/** 第一层 `initData` / 受保护资源令牌同步校验结果。 */
+export type MiniAppInitDataAccessResult =
+  | { readonly ok: true; readonly hasVerifiedAssetToken: boolean }
+  | { readonly ok: false; readonly response: Response };
+
 /**
  * 判断请求是否显式携带了非空的 `X-Telegram-Init-Data` 或 `Authorization` 凭据请求头。
  * @param headers HTTP 请求头对象。
@@ -51,32 +77,21 @@ export function hasMiniAppInitDataHeader(headers: Headers): boolean {
 }
 
 /**
- * 对请求头中显式携带的 `X-Telegram-Init-Data` / `Authorization` 执行完整形态校验、HMAC-SHA256 签名、`auth_date` 时效、超级管理员 ID 与 30 分钟密码锁定核验。
- * @param request HTTP 请求对象。
+ * 对 `initData` 签名、`auth_date` 时效（有效会话免过期）、超管身份与 30 分钟密码锁定执行统一校验。
+ * @param options 待校验的 `initData`、会话令牌与当前时间戳。
  * @returns 校验通过且未锁定时返回 `null`；否则返回结构化拒绝参数。
  */
-export function verifyMiniAppHeaderInitDataError(
-  request: Request
-): Readonly<AccessErrorResponseParams> | null {
-  const headerInitCheck: string | Readonly<AccessErrorResponseParams> | null =
-    extractVerifiedMiniAppHeaderInitData(request.headers);
-  if (headerInitCheck === null) {
-    return {
-      status: 401,
-      code: "MISSING_INIT_DATA",
-      reason: "missing_init_data",
-      error: "MISSING_INIT_DATA",
-    };
-  }
-  if (typeof headerInitCheck !== "string") {
-    return headerInitCheck;
-  }
-
+function verifyInitDataSignatureAndLockout({
+  initData,
+  sessionToken,
+  nowMs,
+}: Readonly<VerifyInitDataSignatureAndLockoutOptions>): Readonly<AccessErrorResponseParams> | null {
   const hasActiveSession: boolean = hasActiveMiniAppAuthSession(
-    extractSessionToken(request)
+    sessionToken,
+    nowMs
   );
   const authResult: MiniAppAuthResult = verifyMiniAppInitData({
-    initData: headerInitCheck,
+    initData,
     secretKey: MINI_APP_INIT_DATA_SECRET_KEY,
     superAdminUserId: SUPER_ADMIN_USER_ID,
     maxAgeSeconds: hasActiveSession
@@ -94,7 +109,7 @@ export function verifyMiniAppHeaderInitDataError(
     };
   }
   const remainingMinutes: number | null =
-    getSuperAdminPasswordLockoutRemainingMinutes();
+    getSuperAdminPasswordLockoutRemainingMinutes(nowMs);
   if (remainingMinutes !== null) {
     return {
       status: 403,
@@ -108,70 +123,88 @@ export function verifyMiniAppHeaderInitDataError(
 }
 
 /**
- * 校验请求携带的 Telegram WebApp `initData` 签名（或受保护静态/图库资源稳定令牌 `token`）、时效、超级管理员身份与 30 分钟密码锁定状态。
- * 若请求同时携带仍在有效期内的密码认证会话令牌，则放行因持续访问续期而超过初始 45 分钟的静态 `initData.auth_date`（仍严格校验签名、超管身份与未来时钟偏移）。
- * @param ctx 路由请求上下文。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从查询参数提取 `token` 或 `initData`。
- * @returns 验证通过时返回 `null`，失败时返回带真实请求诊断的 `401` 或 `403` `Response`。
+ * 对请求头中显式携带的 `X-Telegram-Init-Data` / `Authorization` 执行完整形态校验、HMAC-SHA256 签名、`auth_date` 时效、超级管理员 ID 与 30 分钟密码锁定核验。
+ * @param request HTTP 请求对象。
+ * @param nowMs 当前毫秒时间戳。
+ * @returns 校验通过且未锁定时返回 `null`；否则返回结构化拒绝参数。
  */
-function verifyInitDataRequest(
-  ctx: Readonly<MiniAppRouteContext>,
-  allowQueryAuth: boolean
-): Response | null {
-  const request: Request = ctx.request;
-  const queryUrl: URL | null = allowQueryAuth ? ctx.url : null;
-  if (allowQueryAuth) {
-    const assetToken: string = extractAssetTokenFromQuery(request, ctx.url);
-    if (assetToken.length > 0) {
-      if (!verifyMiniAppAssetToken(assetToken, MINI_APP_ASSET_TOKEN_DIGEST)) {
-        return accessErrorResponse(request, {
-          status: 401,
-          code: "INVALID_SIGNATURE",
-          reason: "invalid_signature",
-          error: "INVALID_SIGNATURE",
-        });
-      }
-      return checkSuperAdminPasswordLockout(request);
-    }
+export function verifyMiniAppHeaderInitDataError(
+  request: Request,
+  nowMs: number = Date.now()
+): Readonly<AccessErrorResponseParams> | null {
+  const headerInitCheck: string | Readonly<AccessErrorResponseParams> | null =
+    extractVerifiedMiniAppHeaderInitData(request.headers);
+  if (headerInitCheck === null) {
+    return {
+      status: 401,
+      code: "MISSING_INIT_DATA",
+      reason: "missing_init_data",
+      error: "MISSING_INIT_DATA",
+    };
   }
-  if (!allowQueryAuth) {
-    const headerError: Readonly<AccessErrorResponseParams> | null =
-      verifyMiniAppHeaderInitDataError(request);
-    return headerError === null ? null : accessErrorResponse(request, headerError);
+  if (typeof headerInitCheck !== "string") {
+    return headerInitCheck;
   }
-  const initData: string = extractInitDataFromHeaders(request, queryUrl);
-  const sessionToken: string = extractSessionToken(request, queryUrl);
-  const hasActiveSession: boolean = hasActiveMiniAppAuthSession(sessionToken);
-  const authResult: MiniAppAuthResult = verifyMiniAppInitData({
-    initData,
-    secretKey: MINI_APP_INIT_DATA_SECRET_KEY,
-    superAdminUserId: SUPER_ADMIN_USER_ID,
-    maxAgeSeconds: hasActiveSession
-      ? Number.POSITIVE_INFINITY
-      : MINI_APP_AUTH_MAX_AGE_SECONDS,
-  });
-  if (authResult.ok) {
-    return checkSuperAdminPasswordLockout(request);
-  }
-  const status: number = authResult.reason === "forbidden_user" ? 403 : 401;
-  const code: string = authResult.reason.toUpperCase();
-  return accessErrorResponse(request, {
-    status,
-    code,
-    reason: authResult.reason,
-    error: code,
+  return verifyInitDataSignatureAndLockout({
+    initData: headerInitCheck,
+    sessionToken: extractSessionToken(request),
+    nowMs,
   });
 }
 
 /**
- * 创建校验 Telegram WebApp `initData` HMAC-SHA256 签名、时效、`SUPER_ADMIN_USER_ID` 超管身份及 30 分钟密码锁定状态的中间件（第一层网关校验）。
- * @param allowQueryAuth 是否允许在 `GET`/`HEAD` 请求中从 `token` 或 `initData` 查询参数提取凭据（供受保护图片、SVG 资源与附件下载）。
- * @returns 构造好的 `MiniAppMiddleware`。
+ * 同步校验请求携带的 Telegram WebApp `initData` 签名（或受保护静态/图库资源稳定令牌 `?token=`）、时效、超级管理员身份与 30 分钟密码锁定状态。
+ * 复用 `verifyMiniAppRequestHeadersFast` 已提取的请求头 `initData` 与上层已提取的会话令牌，避免重复解析请求头。
+ * @param options 网关第一层同步校验入参。
+ * @returns 校验通过时标记是否已验明受保护资源令牌；失败时返回带真实请求诊断的 `401` 或 `403` `Response`。
  */
-export function createMiniAppInitDataMiddleware(allowQueryAuth: boolean): MiniAppMiddleware {
-  return (
-    ctx: Readonly<MiniAppRouteContext>,
-    next: () => Response | Promise<Response>
-  ): Response | Promise<Response> =>
-    verifyInitDataRequest(ctx, allowQueryAuth) ?? next();
+export function verifyMiniAppInitDataAccess({
+  ctx,
+  allowQueryAuth,
+  headerInitData,
+  sessionToken,
+  nowMs,
+}: Readonly<VerifyMiniAppInitDataAccessOptions>): MiniAppInitDataAccessResult {
+  const request: Request = ctx.request;
+  if (allowQueryAuth) {
+    const assetToken: string = extractAssetTokenFromQuery(request, ctx.url);
+    if (assetToken.length > 0) {
+      if (!verifyMiniAppAssetToken(assetToken, MINI_APP_ASSET_TOKEN_DIGEST)) {
+        return {
+          ok: false,
+          response: accessErrorResponse(request, {
+            status: 401,
+            code: "INVALID_SIGNATURE",
+            reason: "invalid_signature",
+            error: "INVALID_SIGNATURE",
+          }),
+        };
+      }
+      const lockoutResponse: Response | null = checkSuperAdminPasswordLockout(
+        request,
+        nowMs
+      );
+      if (lockoutResponse !== null) {
+        return { ok: false, response: lockoutResponse };
+      }
+      return { ok: true, hasVerifiedAssetToken: true };
+    }
+  }
+
+  const initData: string =
+    headerInitData ??
+    (allowQueryAuth ? extractInitDataFromHeaders(request, ctx.url) : "");
+  const errorParams: Readonly<AccessErrorResponseParams> | null =
+    verifyInitDataSignatureAndLockout({
+      initData,
+      sessionToken,
+      nowMs,
+    });
+  if (errorParams !== null) {
+    return {
+      ok: false,
+      response: accessErrorResponse(request, errorParams),
+    };
+  }
+  return { ok: true, hasVerifiedAssetToken: false };
 }

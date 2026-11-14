@@ -8,56 +8,56 @@ import {
   handlePostPickerPrepareRoute,
   handlePostWhitelistRoute,
 } from "../handlers/identities";
-import { MINI_APP_API_AUTH_MIDDLEWARE_CHAIN } from "../middleware/chains";
-import { withMiniAppMiddlewareChain } from "../middleware/pipeline";
+import { MINI_APP_API_AUTH_POLICY } from "../middleware/chains";
+import { withMiniAppAuth } from "../middleware/pipeline";
 
 /**
  * 黑白名单、权限与原生选择器路由（`/api/identities/whitelist`、`/api/identities/blocklist`、
  * `/api/identities/permission`、`/api/picker/prepare`、`/api/picker/result`）的 `Bun.serve` 原生路由表片段，
- * 经完整双层鉴权中间件链。
+ * 经完整双层鉴权策略。
  */
 export const MINI_APP_IDENTITIES_BUN_ROUTES: MiniAppBunRouteTable = {
   "/api/identities/whitelist": {
-    GET: withMiniAppMiddlewareChain(
-      MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    GET: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
         handleGetWhitelistRoute(ctx.url)
     ),
-    POST: withMiniAppMiddlewareChain(
-      MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    POST: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
         handlePostWhitelistRoute(ctx.request)
     ),
   },
   "/api/identities/blocklist": {
-    GET: withMiniAppMiddlewareChain(
-      MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    GET: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
         handleGetBlocklistRoute(ctx.url)
     ),
-    POST: withMiniAppMiddlewareChain(
-      MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    POST: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
         handlePostBlocklistRoute(ctx.request)
     ),
   },
   "/api/identities/permission": {
-    POST: withMiniAppMiddlewareChain(
-      MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    POST: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
         handlePostPermissionRoute(ctx.request)
     ),
   },
   "/api/picker/prepare": {
-    POST: withMiniAppMiddlewareChain(
-      MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    POST: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Promise<Response> =>
         handlePostPickerPrepareRoute(ctx.request)
     ),
   },
   "/api/picker/result": {
-    GET: withMiniAppMiddlewareChain(
-      MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    GET: withMiniAppAuth(
+      MINI_APP_API_AUTH_POLICY,
       (ctx: Readonly<MiniAppRouteContext>): Response =>
         handleGetPickerResultRoute(ctx.url)
     ),

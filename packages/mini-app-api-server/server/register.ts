@@ -8,10 +8,10 @@ import { buildNoStoreHeaders, jsonResponse } from "../libs/response";
 import { configuredBasePathname, normalizeRoutePathname } from "../libs/routePath";
 import type { NormalizedRoutePath } from "../libs/routePath";
 import {
-  MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
-  MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN,
+  MINI_APP_API_AUTH_POLICY,
+  MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
 } from "../middleware/chains";
-import { executeMiniAppMiddlewareChain } from "../middleware/pipeline";
+import { runMiniAppAuthorized } from "../middleware/pipeline";
 import { MINI_APP_AUTH_BUN_ROUTES } from "../routes/auth";
 import { MINI_APP_CHATS_BUN_ROUTES } from "../routes/chats";
 import { MINI_APP_GALLERY_BUN_ROUTES } from "../routes/gallery";
@@ -99,9 +99,9 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
   if (bundleAssetResponse !== null) return bundleAssetResponse;
 
   if (method !== "DELETE" && isProtectedMiniAppAssetPath(routePath)) {
-    return executeMiniAppMiddlewareChain(
+    return runMiniAppAuthorized(
       ctx,
-      MINI_APP_PROTECTED_ASSET_MIDDLEWARE_CHAIN,
+      MINI_APP_PROTECTED_ASSET_AUTH_POLICY,
       (): Response => jsonResponse({ error: "Resource not found" }, 404)
     );
   }
@@ -110,9 +110,9 @@ export async function handleMiniAppHttpRequest(request: Request): Promise<Respon
     return jsonResponse({ error: "Not found" }, 404);
   }
 
-  return executeMiniAppMiddlewareChain(
+  return runMiniAppAuthorized(
     ctx,
-    MINI_APP_API_AUTH_MIDDLEWARE_CHAIN,
+    MINI_APP_API_AUTH_POLICY,
     (): Response => jsonResponse({ error: "API route not found" }, 404)
   );
 }

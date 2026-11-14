@@ -18,6 +18,7 @@ import type {
 import type {
   BundledMiniAppAssets,
   MiniAppPublicUrlParts,
+  MiniAppRejectHtmlTemplate,
 } from "../../types/miniApp/server";
 import type {
   MiniAppPendingTotpSetup,
@@ -142,11 +143,11 @@ export const miniAppBundledAssetsPromiseHolder: {
 } = { current: null };
 
 /**
- * 主线程按需一次性加载的独立未授权拒绝页（`MINI_APP_REJECT_HTML_PATH`）原始 HTML 模板文本句柄。
- * 填充：首次收到非 `HEAD` 的未授权单页请求时，由 `serveMiniAppRejectHtml` 从磁盘读取后写入。
+ * 主线程按需一次性加载并按唯一 `<body>` 标签预切分的独立未授权拒绝页（`MINI_APP_REJECT_HTML_PATH`）静态模板句柄。
+ * 填充：首次收到非 `HEAD` 的未授权单页请求时，由 `serveMiniAppRejectHtml` 从磁盘读取并预切分为 `{ head, tail }` 后写入。
  * 清理：`stopMiniAppServer` 停止服务时置回 `null`。
- * 容量恒为单个只读模板字符串，单次服务运行期内静态模板不变、不淘汰；与 Worker 崩溃无关，进程重启后从 `null` 按需重新读取。
+ * 容量恒为单个只读模板切片对象，单次服务运行期内静态模板不变、不淘汰；与 Worker 崩溃无关，进程重启后从 `null` 按需重新读取与切分。
  */
 export const miniAppRejectHtmlHolder: {
-  current: string | null;
+  current: Readonly<MiniAppRejectHtmlTemplate> | null;
 } = { current: null };
