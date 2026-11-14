@@ -10,7 +10,7 @@ import { useDelayedUnmount } from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 
 /**
- * 渲染 `requestConfirm` 发起的自定义确认弹窗（带弹出与关闭收起动画，无待确认请求且动画结束时不渲染）；
+ * 渲染 `requestConfirm` 发起的自定义确认弹窗（按递增 `requestSeq` 驱动连续请求重播进入动画，关闭时保留快照执行收起动画，无待确认请求且动画结束时不渲染）；
  * 点击遮罩、关闭或取消按钮均按取消结算。
  *
  * @returns React 节点或 `null`
@@ -39,6 +39,7 @@ export function ConfirmModal(): React.JSX.Element | null {
   const isDanger: boolean = displayModal.tone === "danger";
   return (
     <div
+      key={displayModal.requestSeq}
       className={`confirm-backdrop ${isClosing ? "closing" : ""}`}
       role="dialog"
       aria-modal="true"

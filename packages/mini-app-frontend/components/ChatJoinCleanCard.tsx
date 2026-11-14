@@ -12,7 +12,12 @@ import { RefreshSvgIcon, TrashSvgIcon, UserSvgIcon } from "../resource";
 import { useMiniAppStore } from "../store/app";
 import type { MiniAppUiStoreState } from "../store/app";
 import type { MiniAppChatsStoreState } from "../store/chats";
-import type { MiniAppChatDetail, MiniAppLanguage } from "../types/miniApp";
+import type {
+  MiniAppBatchKickCompletion,
+  MiniAppChatDetail,
+  MiniAppLanguage,
+} from "../types/miniApp";
+import { InlineNoticeCollapse } from "./animations/CollapseGrid";
 import { LoadingDotsWave } from "./animations/LoadingDotsWave";
 import { useAnimatedRangeProgress } from "./animations/useAnimatedRangeProgress";
 import type { AnimatedRangeProgressResult } from "./animations/useAnimatedRangeProgress";
@@ -26,7 +31,7 @@ export interface ChatJoinCleanCardProps {
 }
 
 /**
- * 比较进群统计与批量清理卡片依赖的切片是否一致，避免打开/收起问答抽屉或 Bot 权限面板时重渲染本卡片。
+ * 比较进群统计与批量清理卡片依赖的 `chatDetail`、`batchKickHours`、`loadingWindowJoined` 与 `batchKickSubmitting` 切片是否一致。
  *
  * @param prev 上一次属性
  * @param next 本次属性
@@ -196,15 +201,20 @@ function ChatJoinCleanCardView({
               : t.chats.batchKickTriggerButton(batchKickHours)}
           </span>
         </button>
-        {!chatDetail.batchKickRunning && chatDetail.lastBatchKickCompletion !== null
-          ? (
+        <InlineNoticeCollapse
+          activeValue={
+            !chatDetail.batchKickRunning ? chatDetail.lastBatchKickCompletion : null
+          }
+          resetKey={String(chatDetail.chatId)}
+        >
+          {(
+            completion: Readonly<MiniAppBatchKickCompletion>
+          ): React.JSX.Element => (
             <div className="join-clean-result-box">
-              {t.chats.batchKickCompletedSummary(
-                chatDetail.lastBatchKickCompletion
-              )}
+              {t.chats.batchKickCompletedSummary(completion)}
             </div>
-          )
-          : null}
+          )}
+        </InlineNoticeCollapse>
       </div>
     </div>
   );

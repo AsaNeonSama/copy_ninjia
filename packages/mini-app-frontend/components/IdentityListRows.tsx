@@ -41,6 +41,8 @@ export interface WhitelistEntryRowListProps {
   readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
   /** 当前展开权限抽屉的目标身份 ID（未展开时为 `null`）。 */
   readonly selectedEntryId: number | null;
+  /** 处于抽屉收起保留期的已移出白名单条目 ID（无保留行时为 `null` 或缺省）。 */
+  readonly closingEntryId?: number | null;
   /** 当前是否有增删操作在途。 */
   readonly busyAction: boolean;
   /** 当前语言的翻译字典。 */
@@ -63,6 +65,8 @@ interface WhitelistEntryRowProps {
   readonly entry: Readonly<MiniAppWhitelistEntryView>;
   /** 当前行的权限抽屉是否展开。 */
   readonly isExpanded: boolean;
+  /** 当前行是否为已移出白名单后处于抽屉收起保留期的只读快照行。 */
+  readonly isClosing: boolean;
   /** 十八项白名单权限键与描述列表。 */
   readonly permissionDescriptors: readonly Readonly<MiniAppPermissionDescriptor>[];
   /** 当前是否有增删操作在途。 */
@@ -91,6 +95,7 @@ interface WhitelistEntryRowProps {
 function WhitelistEntryRowView({
   entry,
   isExpanded,
+  isClosing,
   permissionDescriptors,
   busyAction,
   t,
@@ -135,6 +140,8 @@ function WhitelistEntryRowView({
     <div
       ref={setRowGroupNode}
       className="identity-row-group"
+      aria-hidden={isClosing ? true : undefined}
+      style={isClosing ? { pointerEvents: "none" } : undefined}
     >
       <div className="row identity-row">
         <div className="row-main">
@@ -178,7 +185,11 @@ function WhitelistEntryRowView({
             type="button"
             className={`btn ${isExpanded ? "primary" : ""}`}
             aria-expanded={isExpanded}
+            tabIndex={isClosing ? -1 : undefined}
             onClick={(): void => {
+              if (isClosing) {
+                return;
+              }
               onTogglePermissionDrawer(entry.id);
             }}
           >
@@ -188,7 +199,11 @@ function WhitelistEntryRowView({
             type="button"
             className="btn danger icon-btn"
             disabled={busyAction}
+            tabIndex={isClosing ? -1 : undefined}
             onClick={(): void => {
+              if (isClosing) {
+                return;
+              }
               void onRemoveWhitelist(entry);
             }}
           >
@@ -201,6 +216,7 @@ function WhitelistEntryRowView({
         expanded={isExpanded}
         gridClassName="perm-drawer-collapse-grid"
         innerClassName="perm-drawer-collapse-inner"
+        animateOnInitialExpand
         resolveFollowScroll={resolveDrawerFollowScroll}
       >
         {mountedDrawerEntry !== null ? (
@@ -221,6 +237,111 @@ const WhitelistEntryRow: React.MemoExoticComponent<
   typeof WhitelistEntryRowView
 > = memo(WhitelistEntryRowView);
 
+/** 白名单权限抽屉处于展开态时的行快照（条目从实时列表移出后的保留期按原下标回插渲染）。 */
+export interface ExpandedWhitelistRowSnapshot {
+  /** 列表分页与筛选上下文键（切换子标签、页码、每页条数或防抖关键字时不跨上下文回插）。 */
+  readonly contextKey: string;
+  /** 条目在原列表中的下标位置。 */
+  readonly index: number;
+  /** 展开权限抽屉的白名单条目快照。 */
+  readonly entry: Readonly<MiniAppWhitelistEntryView>;
+}
+
+/** `useRetainedClosingWhitelistItems` 返回的渲染列表与收起保留行标识。 */
+export interface RetainedClosingWhitelistState {
+  /** 合并收起过渡保留项后的当前页白名单条目只读数组。 */
+  readonly items: readonly Readonly<MiniAppWhitelistEntryView>[];
+  /** 处于收起保留期的已移出白名单条目 ID（无保留行时为 `null`）。 */
+  readonly closingEntryId: number | null;
+}
+
+/**
+ * 将延迟卸载保留的白名单展开行快照合并回当前页实时列表：仅当 `contextKey` 与快照一致且实时列表中不再包含该条目时，
+ * 按原下标（夹紧至当前列表长度）插回该条目；切换页码、每页条数、子标签或搜索词时直接返回实时列表，不跨上下文回插。
+ *
+ * @param items 当前页实时白名单条目数组
+ * @param retainedSnapshot 延迟卸载保留的展开行快照
+ * @param contextKey 当前分页与筛选上下文键
+ * @returns 合并收起过渡保留项后的白名单条目只读数组
+ */
+export function mergeRetainedClosingWhitelistItems(
+  items: readonly Readonly<MiniAppWhitelistEntryView>[],
+  retainedSnapshot: Readonly<ExpandedWhitelistRowSnapshot> | null,
+  contextKey: string
+): readonly Readonly<MiniAppWhitelistEntryView>[] {
+  if (
+    retainedSnapshot?.contextKey !== contextKey ||
+    items.some(
+      (item: Readonly<MiniAppWhitelistEntryView>): boolean =>
+        item.id === retainedSnapshot.entry.id
+    )
+  ) {
+    return items;
+  }
+  const insertAt: number = Math.min(Math.max(0, retainedSnapshot.index), items.length);
+  return [
+    ...items.slice(0, insertAt),
+    retainedSnapshot.entry,
+    ...items.slice(insertAt),
+  ];
+}
+
+/**
+ * 计算合并延迟卸载保留项后的白名单列表与当前收起保留行 ID：
+ * 当保留项按同 `contextKey` 回插到实时列表时，将其 ID 标记为 `closingEntryId`；其余情形 `closingEntryId` 为 `null`。
+ *
+ * @param items 当前页实时白名单条目数组
+ * @param retainedSnapshot 延迟卸载保留的展开行快照
+ * @param contextKey 当前分页与筛选上下文键
+ * @returns 合并后的白名单条目只读数组与收起保留行 ID
+ */
+export function resolveRetainedClosingWhitelistState(
+  items: readonly Readonly<MiniAppWhitelistEntryView>[],
+  retainedSnapshot: Readonly<ExpandedWhitelistRowSnapshot> | null,
+  contextKey: string
+): RetainedClosingWhitelistState {
+  const mergedItems: readonly Readonly<MiniAppWhitelistEntryView>[] =
+    mergeRetainedClosingWhitelistItems(items, retainedSnapshot, contextKey);
+  const closingEntryId: number | null =
+    mergedItems !== items && retainedSnapshot !== null
+      ? retainedSnapshot.entry.id
+      : null;
+  return { items: mergedItems, closingEntryId };
+}
+
+/**
+ * 在已展开权限抽屉的白名单条目被移出且列表静默刷新后，在 `MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS` 时段内按原下标保留该条目快照并返回其 `closingEntryId`，
+ * 到期后卸载行节点；切换分页或搜索上下文时立即放弃旧快照。
+ *
+ * @param items 当前页实时白名单条目数组
+ * @param selectedEntryId 当前展开权限抽屉的条目 ID
+ * @param contextKey 当前分页与筛选上下文键
+ * @returns 合并后的白名单条目只读数组与收起保留行 ID
+ */
+export function useRetainedClosingWhitelistItems(
+  items: readonly Readonly<MiniAppWhitelistEntryView>[],
+  selectedEntryId: number | null,
+  contextKey: string
+): RetainedClosingWhitelistState {
+  let activeSnapshot: ExpandedWhitelistRowSnapshot | null = null;
+  if (selectedEntryId !== null) {
+    for (let i: number = 0; i < items.length; i += 1) {
+      const candidate: Readonly<MiniAppWhitelistEntryView> | undefined = items[i];
+      if (candidate?.id === selectedEntryId) {
+        activeSnapshot = { contextKey, index: i, entry: candidate };
+        break;
+      }
+    }
+  }
+  const {
+    displayValue: retainedSnapshot,
+  }: Readonly<DelayedUnmountState<ExpandedWhitelistRowSnapshot>> = useDelayedUnmount(
+    activeSnapshot,
+    MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS
+  );
+  return resolveRetainedClosingWhitelistState(items, retainedSnapshot, contextKey);
+}
+
 /**
  * 渲染白名单成员列表行及每行的「配置权限」「移出」按钮组与内联展开抽屉。
  *
@@ -231,6 +352,7 @@ function WhitelistEntryRowListView({
   items,
   permissionDescriptors,
   selectedEntryId,
+  closingEntryId = null,
   busyAction,
   t,
   onTogglePermissionDrawer,
@@ -246,6 +368,7 @@ function WhitelistEntryRowListView({
             key={entry.id}
             entry={entry}
             isExpanded={selectedEntryId === entry.id}
+            isClosing={closingEntryId === entry.id}
             permissionDescriptors={permissionDescriptors}
             busyAction={busyAction}
             t={t}

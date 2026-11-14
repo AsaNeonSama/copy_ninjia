@@ -157,7 +157,7 @@ export function createChatTargetsActions({
       return;
     }
     if (get().selectedChatId === chatId) {
-      await get().loadChatTargets();
+      await get().loadChatTargets(get().chatTargets?.chatId === chatId);
       void get().loadDetail(chatId);
     }
     useMiniAppStore.getState().notify(
@@ -281,6 +281,11 @@ export function createChatTargetsActions({
     },
 
     openTargetsModal: (kind: MiniAppChatTargetKind): void => {
+      const { selectedChatId, chatTargets }: MiniAppChatsStoreState = get();
+      const hasCurrentChatTargets: boolean =
+        selectedChatId !== null &&
+        chatTargets !== null &&
+        chatTargets.chatId === selectedChatId;
       set({
         targetsMenuOpen: false,
         activeTargetsModal: kind,
@@ -289,7 +294,7 @@ export function createChatTargetsActions({
         targetIdFormOpen: false,
         translateLangMenuOpen: false,
       });
-      void get().loadChatTargets();
+      void get().loadChatTargets(hasCurrentChatTargets);
     },
 
     switchTargetsModalTab: (kind: MiniAppChatTargetKind): void => {
@@ -312,29 +317,35 @@ export function createChatTargetsActions({
       });
     },
 
-    loadChatTargets: async (): Promise<void> => {
+    loadChatTargets: async (silent: boolean = false): Promise<void> => {
       const chatId: number | null = get().selectedChatId;
       if (chatId === null) return;
       const reqId: number = nextTargetsReqSeq();
       const startedAt: number = Date.now();
-      set({ loadingTargets: true });
+      if (!silent) {
+        set({ loadingTargets: true });
+      }
       try {
         const targets: MiniAppChatTargetsView =
           await fetchMiniAppChatTargets(chatId);
-        await waitMinimumLoadingDuration(startedAt);
+        if (!silent) {
+          await waitMinimumLoadingDuration(startedAt);
+        }
         if (reqId !== currentTargetsReqSeq() || get().selectedChatId !== chatId) {
           return;
         }
         set({ chatTargets: targets });
       } catch (error: unknown) {
-        await waitMinimumLoadingDuration(startedAt);
+        if (!silent) {
+          await waitMinimumLoadingDuration(startedAt);
+        }
         if (reqId !== currentTargetsReqSeq() || get().selectedChatId !== chatId) {
           return;
         }
         const message: string = errorMessage(error);
         useMiniAppStore.getState().notify(message, "info", error);
       } finally {
-        if (reqId === currentTargetsReqSeq()) {
+        if (reqId === currentTargetsReqSeq() && get().loadingTargets) {
           set({ loadingTargets: false });
         }
       }

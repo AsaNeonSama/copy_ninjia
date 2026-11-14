@@ -1,6 +1,16 @@
 /* 图库上传按钮满铺原生文件命中层与按压复位/悬停抑制样式、网格卡片、切角悬浮操作按钮与大图预览折叠面板样式。 */
-.gallery-upload-btn {
+.gallery-upload-btn,
+.btn.primary.icon-btn.gallery-upload-btn {
   position: relative;
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    box-shadow var(--press-duration) var(--ease-brutal),
+    background-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal);
 }
 
 .gallery-upload-btn > svg,
@@ -77,7 +87,6 @@
   box-shadow: var(--shadow-sm);
   cursor: pointer;
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
     border-color 0.14s var(--ease-brutal),
     background-color 0.14s var(--ease-brutal);
@@ -91,7 +100,6 @@
 @media (hover: hover) and (pointer: fine) {
   .gallery-card:hover {
     border-color: var(--border-strong);
-    transform: translate(-1px, -1px);
     box-shadow: var(--shadow-md);
   }
 }
@@ -115,7 +123,6 @@
 @media (hover: hover) and (pointer: fine) {
   .gallery-card.selected:hover {
     border-color: var(--accent);
-    transform: translate(-1px, -1px);
     box-shadow: 4px 4px 0 var(--accent);
   }
 }
@@ -204,6 +211,11 @@
   border: none;
   background: transparent;
   box-shadow: none;
+  will-change: auto;
+  backface-visibility: visible;
+  transform: translate(0, 0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   filter: drop-shadow(2px 2px 0 #0b0c10);
   width: 30px;
   height: 30px;
@@ -211,10 +223,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition:
-    transform var(--press-duration) var(--ease-brutal),
-    filter var(--press-duration) var(--ease-brutal),
-    color 0.1s linear;
+  transition: color var(--press-duration) var(--ease-brutal);
 }
 
 .gallery-card-download-btn::before,
@@ -237,7 +246,6 @@
   background: var(--gal-cut-bg);
   z-index: -1;
   pointer-events: none;
-  transition: background-color 0.1s linear;
 }
 
 .gallery-card-download-btn {
@@ -266,7 +274,7 @@
     --gal-cut-bg: var(--btn-hover-bg);
     color: var(--btn-hover-text);
     transform: translate(-1px, -1px);
-    filter: drop-shadow(2.5px 2.5px 0 #0b0c10);
+    filter: drop-shadow(3px 3px 0 #0b0c10);
   }
 
   .gallery-card-delete-btn:hover:not(:active):not(:disabled):not(.hover-suppressed) {
@@ -274,16 +282,16 @@
     --gal-cut-bg: var(--danger);
     color: #ffffff;
     transform: translate(-1px, -1px);
-    filter: drop-shadow(2.5px 2.5px 0 #0b0c10);
+    filter: drop-shadow(3px 3px 0 #0b0c10);
   }
 
   [data-theme="dark"] .gallery-card-download-btn:hover:not(:active):not(:disabled):not(.hover-suppressed) {
-    filter: drop-shadow(2.5px 2.5px 0 var(--accent));
+    filter: drop-shadow(3px 3px 0 var(--accent));
   }
 
   [data-theme="dark"] .gallery-card-delete-btn:hover:not(:active):not(:disabled):not(.hover-suppressed) {
     color: var(--btn-primary-text);
-    filter: drop-shadow(2.5px 2.5px 0 var(--brutal-yellow));
+    filter: drop-shadow(3px 3px 0 var(--brutal-yellow));
   }
 }
 
@@ -291,7 +299,7 @@
 .gallery-card-delete-btn:active:not(:disabled),
 [data-theme="dark"] .gallery-card-download-btn:active:not(:disabled),
 [data-theme="dark"] .gallery-card-delete-btn:active:not(:disabled) {
-  transform: translate(1.5px, 1.5px);
+  transform: translate(2px, 2px);
   filter: drop-shadow(0 0 0 transparent);
 }
 
@@ -394,6 +402,8 @@
 .gallery-preview-collapse-grid.expanded > .gallery-preview-collapse-inner,
 .gallery-preview-collapse-grid.flip-closing > .gallery-preview-collapse-inner {
   will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
 }
 
 .gallery-preview-card {

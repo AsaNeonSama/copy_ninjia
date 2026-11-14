@@ -9,7 +9,7 @@ import { MINI_APP_TARGETS_SKELETON_ROW_INDICES } from "../../consts/miniApp";
 export function ChatTargetsListSkeleton(): React.JSX.Element {
   return (
     <div
-      className="chat-targets-skeleton-list animate-fade-in"
+      className="chat-targets-skeleton-list"
       aria-hidden="true"
     >
       {MINI_APP_TARGETS_SKELETON_ROW_INDICES.map(

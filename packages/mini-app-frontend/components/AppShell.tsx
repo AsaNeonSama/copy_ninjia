@@ -15,7 +15,6 @@ import type { MiniAppUiStoreState } from "../store/app";
 import type { MiniAppLanguage, MiniAppTabKey, TelegramWebApp } from "../types/miniApp";
 import { getFrameMotionHost } from "./animations/frameMotion";
 import type { FrameMotionHost } from "./animations/frameMotion";
-import { ConfirmModal } from "./ConfirmModal";
 import { PrefsBar } from "./PrefsBar";
 import { Toast } from "./Toast";
 
@@ -317,7 +316,6 @@ export function AppShell(): React.JSX.Element {
 
       <AppMainContent activeTab={renderedTab} />
 
-      <ConfirmModal />
       <Toast />
     </div>
   );

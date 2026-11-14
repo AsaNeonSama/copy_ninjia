@@ -71,7 +71,7 @@ export interface MiniAppIdentitiesStoreState {
   /** 最近一次列表响应携带的黑名单总条数。 */
   readonly blocklistTotal: number;
 
-  /** 按当前子标签、页码、每页条数与防抖关键字拉取列表（`silent` 为 `true` 时不置 `loadingList: true` 以保持已展开权限抽屉原位更新）；只采纳最后一次发起的请求结果，服务端夹紧页码时同步当前页码。 */
+  /** 按当前子标签、页码、每页条数与防抖关键字拉取列表（`silent` 为 `true` 时不置 `loadingList: true`，保留当前列表与展开抽屉原位更新）；只采纳最后一次发起的请求结果，服务端夹紧页码时同步当前页码。 */
   readonly loadCurrentList: (silent?: boolean) => Promise<void>;
   /** 切换子标签并收起权限抽屉与重复拦截横幅。 */
   readonly selectSubTab: (tab: MiniAppIdentitySubTabKey) => void;
@@ -91,11 +91,11 @@ export interface MiniAppIdentitiesStoreState {
   readonly setIdInput: (value: string) => void;
   /** 关闭重复添加拦截横幅。 */
   readonly dismissDuplicateAlert: () => void;
-  /** 按输入的 ID 加入当前子标签名单（当前页已有或服务端判重时展示拦截提示）。 */
+  /** 按输入的 ID 加入当前子标签名单（当前页已有或服务端判重时展示拦截提示；已有分页数据时静默刷新列表）。 */
   readonly addById: () => Promise<void>;
-  /** 确认后将条目移出白名单。 */
+  /** 确认后将条目移出白名单（已有分页数据时静默刷新列表并收起对应权限抽屉）。 */
   readonly removeWhitelist: (entry: Readonly<MiniAppWhitelistEntryView>) => Promise<void>;
-  /** 确认后将条目移出黑名单。 */
+  /** 确认后将条目移出黑名单（已有分页数据时静默刷新列表）。 */
   readonly removeBlocklist: (entry: Readonly<MiniAppBlocklistEntryView>) => Promise<void>;
   /** 展开或收起指定白名单条目的权限抽屉。 */
   readonly togglePermissionDrawer: (entryId: number) => void;
@@ -432,14 +432,30 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
               return;
             }
 
-            set({ duplicateAlertText: null });
-            if (subTab === "whitelist") {
-              set({ selectedEntryId: id, whitelistPage: null, loadingList: true });
+            const latestState: MiniAppIdentitiesStoreState = get();
+            const silentRefresh: boolean =
+              latestState.subTab === "whitelist"
+                ? latestState.whitelistPage !== null
+                : latestState.blocklistPage !== null;
+            if (subTab === "whitelist" && latestState.subTab === "whitelist") {
+              set({
+                duplicateAlertText: null,
+                selectedEntryId: id,
+                idInput: "",
+                idFormOpen: false,
+                addMenuOpen: false,
+                ...(silentRefresh ? {} : { loadingList: true }),
+              });
             } else {
-              set({ blocklistPage: null, loadingList: true });
+              set({
+                duplicateAlertText: null,
+                idInput: "",
+                idFormOpen: false,
+                addMenuOpen: false,
+                ...(silentRefresh ? {} : { loadingList: true }),
+              });
             }
-            set({ idInput: "", idFormOpen: false, addMenuOpen: false });
-            await get().loadCurrentList();
+            await get().loadCurrentList(silentRefresh);
             notify(result.message, undefined, result);
           } catch (error: unknown) {
             notify(errorMessage(error), "danger", error);
@@ -466,9 +482,14 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
           try {
             const result: MiniAppIdentityMutationResult =
               await setMiniAppWhitelistMembership(entry.id, false);
-            if (get().selectedEntryId === entry.id) set({ selectedEntryId: null });
-            set({ whitelistPage: null, loadingList: true });
-            await get().loadCurrentList();
+            const silentRefresh: boolean = get().whitelistPage !== null;
+            if (get().selectedEntryId === entry.id) {
+              set({ selectedEntryId: null });
+            }
+            if (!silentRefresh) {
+              set({ loadingList: true });
+            }
+            await get().loadCurrentList(silentRefresh);
             notify(result.message, result.changed ? undefined : "warning", result);
           } catch (error: unknown) {
             notify(errorMessage(error), "danger", error);
@@ -495,8 +516,11 @@ export function createIdentitiesStore(): MiniAppIdentitiesStore {
           try {
             const result: MiniAppIdentityMutationResult =
               await setMiniAppBlocklistMembership(entry.id, false);
-            set({ blocklistPage: null, loadingList: true });
-            await get().loadCurrentList();
+            const silentRefresh: boolean = get().blocklistPage !== null;
+            if (!silentRefresh) {
+              set({ loadingList: true });
+            }
+            await get().loadCurrentList(silentRefresh);
             notify(result.message, result.changed ? undefined : "warning", result);
           } catch (error: unknown) {
             notify(errorMessage(error), "danger", error);

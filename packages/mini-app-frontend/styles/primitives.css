@@ -1,4 +1,4 @@
-/* 通用原子控件：徽章、工具栏、子标签切换组、卡片、列表行、倾斜/折角按钮、开关与省略号排版。 */
+/* 通用原子控件：徽章、工具栏、子标签切换组、卡片、列表行、倾斜/折角按钮、开关、省略号排版与页内提示折叠容器。 */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -157,6 +157,7 @@
   font-weight: 800;
   line-height: 14px;
   height: 30px;
+  min-width: 0;
   padding: 0 13px;
   border-radius: var(--radius-xs);
   cursor: pointer;
@@ -165,18 +166,19 @@
   justify-content: center;
   gap: 6px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transform: skewX(var(--btn-skew, 0deg));
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
-    background-color 0.1s linear,
-    border-color 0.1s linear,
-    color 0.1s linear;
+    background-color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .subtab-btn:hover:not(.active) {
     color: var(--btn-hover-text);
     background: var(--btn-hover-bg);
@@ -184,11 +186,6 @@
     transform: translate(-1px, -1px) skewX(var(--btn-skew, 0deg));
     box-shadow: var(--btn-shadow);
   }
-}
-
-.subtab-btn:active {
-  transform: translate(2px, 2px) skewX(var(--btn-skew, 0deg));
-  box-shadow: 0 0 0 var(--btn-shadow-color);
 }
 
 .subtab-btn.active {
@@ -207,6 +204,13 @@
 
 [data-theme="dark"] .subtab-btn.active.danger-tab {
   color: var(--btn-primary-text);
+}
+
+.subtab-btn:active,
+.subtab-btn:active:not(.active),
+.subtab-btn.active.danger-tab:active {
+  transform: translate(2px, 2px) skewX(var(--btn-skew, 0deg));
+  box-shadow: 0 0 0 var(--btn-shadow-color);
 }
 
 .card {
@@ -307,14 +311,16 @@
   justify-content: center;
   gap: 5px;
   flex-shrink: 0;
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transform: skewX(var(--btn-skew, 0deg));
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
-    filter var(--press-duration) var(--ease-brutal),
-    background-color 0.1s linear,
-    color 0.1s linear,
-    border-color 0.1s linear;
+    background-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal);
 }
 
 @keyframes miniapp-btn-spin {
@@ -372,6 +378,13 @@
   transform: skewX(calc(var(--btn-skew, 0deg) * -1));
 }
 
+.subtab-btn > span:not(.loading-dots-wave) {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .btn > .join-clean-loading-dots,
 .icon-btn > .join-clean-loading-dots {
   display: inline-flex;
@@ -379,6 +392,19 @@
   align-items: center;
   justify-content: center;
   transform: skewX(calc(var(--btn-skew, 0deg) * -1));
+}
+
+.btn.primary,
+.btn.danger {
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    box-shadow var(--press-duration) var(--ease-brutal),
+    background-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal);
 }
 
 .btn.primary {
@@ -399,7 +425,7 @@
   box-shadow: var(--btn-danger-shadow);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .btn:hover:not(:disabled):not(.is-disabled),
   .icon-btn:hover:not(:disabled):not(.is-disabled) {
     transform: translate(-1px, -1px) skewX(var(--btn-skew, 0deg));
@@ -442,6 +468,7 @@
 .btn.is-disabled,
 .icon-btn:disabled,
 .icon-btn.is-disabled {
+  will-change: auto;
   opacity: 0.5;
   filter: grayscale(0.25);
   box-shadow: none;
@@ -474,7 +501,10 @@
   background: transparent;
   box-shadow: none;
   filter: drop-shadow(2px 2px 0 var(--btn-shadow-color));
+  will-change: auto;
+  backface-visibility: visible;
   transform: translate(0, 0);
+  transition: color var(--press-duration) var(--ease-brutal);
 }
 
 .subtabs-bar > .btn.icon-btn::before {
@@ -485,7 +515,6 @@
   background: var(--btn-border);
   z-index: -2;
   pointer-events: none;
-  transition: background-color 0.1s linear;
 }
 
 .subtabs-bar > .btn.icon-btn::after {
@@ -496,11 +525,10 @@
   background: var(--btn-bg);
   z-index: -1;
   pointer-events: none;
-  transition: background-color 0.1s linear;
 }
 
-@media (hover: hover) {
-  .subtabs-bar > .btn.icon-btn:hover:not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .subtabs-bar > .btn.icon-btn:hover:not(:disabled):not(.is-disabled) {
     transform: translate(-1px, -1px);
     background: transparent;
     box-shadow: none;
@@ -508,21 +536,23 @@
     filter: drop-shadow(3px 3px 0 var(--btn-shadow-color));
   }
 
-  [data-theme="dark"] .subtabs-bar > .btn.icon-btn:hover:not(:disabled) {
+  [data-theme="dark"] .subtabs-bar > .btn.icon-btn:hover:not(:disabled):not(.is-disabled) {
     filter: drop-shadow(3px 3px 0 var(--accent));
   }
 
-  .subtabs-bar > .btn.icon-btn:hover:not(:disabled)::before {
+  .subtabs-bar > .btn.icon-btn:hover:not(:disabled):not(.is-disabled)::before {
     background: var(--btn-primary-border);
   }
 
-  .subtabs-bar > .btn.icon-btn:hover:not(:disabled)::after {
+  .subtabs-bar > .btn.icon-btn:hover:not(:disabled):not(.is-disabled)::after {
     background: var(--btn-hover-bg);
   }
 }
 
-.subtabs-bar > .btn.icon-btn:active:not(:disabled) {
+.subtabs-bar > .btn.icon-btn:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .subtabs-bar > .btn.icon-btn:active:not(:disabled):not(.is-disabled) {
   transform: translate(2px, 2px);
+  background: transparent;
   box-shadow: none;
   filter: drop-shadow(0 0 0 transparent);
 }
@@ -575,15 +605,18 @@
   position: absolute;
   cursor: pointer;
   inset: 0;
+  overflow: hidden;
   background-color: var(--switch-off-bg);
   border: var(--border-w) solid var(--btn-border);
   border-radius: var(--radius-xs);
   box-shadow: var(--btn-shadow);
+  will-change: auto;
+  backface-visibility: visible;
+  transform: translate(0, 0);
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
-    background-color 0.12s linear,
-    border-color 0.12s linear,
+    background-color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal),
     opacity 0.12s linear;
 }
 
@@ -622,7 +655,7 @@ input:checked + .slider:before {
   border-color: var(--btn-primary-border);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .switch:hover input:not(:disabled) + .slider {
     transform: translate(-1px, -1px);
     box-shadow: var(--btn-shadow-hover);
@@ -690,4 +723,38 @@ input:disabled + .slider {
 
 .empty.danger-text {
   color: var(--danger);
+}
+
+.inline-notice-collapse-grid {
+  width: calc(100% + 4px);
+  margin-right: -4px;
+  min-width: 0;
+  display: none;
+  overflow: hidden;
+  overflow-anchor: none;
+  pointer-events: none;
+}
+
+.inline-notice-collapse-grid.expanded,
+.inline-notice-collapse-grid.flip-closing {
+  display: block;
+}
+
+.inline-notice-collapse-grid.expanded {
+  pointer-events: auto;
+}
+
+.inline-notice-collapse-inner {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 4px 3px 0;
+}
+
+.inline-notice-collapse-grid.expanded > .inline-notice-collapse-inner,
+.inline-notice-collapse-grid.flip-closing > .inline-notice-collapse-inner {
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
 }

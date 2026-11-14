@@ -231,6 +231,7 @@
 html,
 body,
 #root {
+  --ease-exit: cubic-bezier(0.32, 0, 0.67, 0);
   width: 100%;
   min-width: 100%;
   min-height: 100vh;
@@ -263,6 +264,8 @@ body {
   color: var(--text);
   padding: 10px 10px calc(36px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   -webkit-tap-highlight-color: transparent;
   transition: background-color 120ms var(--ease-brutal), color 120ms var(--ease-brutal);
 }

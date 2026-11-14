@@ -1,72 +1,42 @@
 /**
  * Mini App 前端折叠与滑块动画引擎：快出急停缓动曲线与逐帧时钟（长帧截断与落后上限）、
- * 单时钟折叠过渡（高度、位移、透明度同源）、收起时长按高度跨度延长、半途打断续接、配对触发器交叉渐变、
- * 与展开同帧的视口跟滚、收起视口回落、共享跟滚槽位，以及回溯滑块快出推进与机械卡位插值。
+ * 单时钟折叠过渡（物理像素对齐、面板底边 1:1 锁死、高度/位移/透明度同源）、首次展开动画、页内提示折叠与纵向 Flex 间距补偿、
+ * 收起时长按高度跨度延长、半途打断续接、配对触发器交叉渐变、视口跟滚与回落、共享跟滚槽位，以及回溯滑块插值。
  */
 
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CollapseGrid } from "../../packages/mini-app-frontend/components/animations/CollapseGrid";
+import { CollapseGrid, InlineNoticeCollapse } from "../../packages/mini-app-frontend/components/animations/CollapseGrid";
 import {
-  animateViewportToAnchor,
-  computeExpandFollowScrollDelta,
-  computePreviewCardScrollDelta,
-  resolveCollapseClampScrollTarget,
-  resolveExpandFollowScrollTarget,
-  resolvePreviewCardScrollTarget,
-  startViewportAnchorScroll,
+  animateViewportToAnchor, computeExpandFollowScrollDelta, computePreviewCardScrollDelta,
+  resolveCollapseClampScrollTarget, resolveExpandFollowScrollTarget, resolvePreviewCardScrollTarget, startViewportAnchorScroll,
 } from "../../packages/mini-app-frontend/components/animations/expandFollowScroll";
 import type {
-  ViewportAnchorScroll,
-  ViewportAnchorScrollTarget,
-  ViewportRectElement,
-  ViewportScrollByParams,
+  ViewportAnchorScroll, ViewportAnchorScrollTarget, ViewportRectElement, ViewportScrollByParams,
 } from "../../packages/mini-app-frontend/components/animations/expandFollowScroll";
 import {
-  computeFlipCollapseDurationMs,
-  findPairedTriggerElement,
-  formatTranslate3dY,
-  hasCollapsedFlipGridAncestor,
-  runFlipCollapseTransition,
-  syncFlipCollapseLayoutEffect,
+  computeFlipCollapseDurationMs, findPairedTriggerElement, formatFlipPx, formatTranslate3dY,
+  hasCollapsedFlipGridAncestor, runFlipCollapseTransition, shouldFadeInnerPanel, snapFlipPx, syncFlipCollapseLayoutEffect,
 } from "../../packages/mini-app-frontend/components/animations/flipCollapse";
-import type {
-  FlipAnimatableElement,
-  FlipClassList,
-} from "../../packages/mini-app-frontend/components/animations/flipCollapse";
+import type { FlipAnimatableElement, FlipClassList } from "../../packages/mini-app-frontend/components/animations/flipCollapse";
+import { evaluateCubicBezierEase, runFrameMotion } from "../../packages/mini-app-frontend/components/animations/frameMotion";
 import {
-  evaluateCubicBezierEase,
-  runFrameMotion,
-} from "../../packages/mini-app-frontend/components/animations/frameMotion";
-import {
-  computeRangeProgressPercent,
-  interpolateSpringRangeValue,
-  resolveAnimatedRangeStartValue,
+  computeRangeProgressPercent, interpolateSpringRangeValue, resolveAnimatedRangeStartValue,
 } from "../../packages/mini-app-frontend/components/animations/useAnimatedRangeProgress";
+import { mergeRetainedClosingWhitelistItems } from "../../packages/mini-app-frontend/components/IdentityListRows";
 import {
-  MINI_APP_BATCH_KICK_MAX_HOURS,
-  MINI_APP_BATCH_KICK_MIN_HOURS,
-  MINI_APP_EXPAND_SCROLL_BOTTOM_MARGIN_PX,
-  MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR,
-  MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX,
-  MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX,
-  MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS,
-  MINI_APP_FLIP_COLLAPSE_CLOSE_SPEED_PX_PER_MS,
-  MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS,
-  MINI_APP_FLIP_COLLAPSE_DURATION_MS,
-  MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
-  MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS,
-  MINI_APP_FRAME_MOTION_MAX_LAG_MS,
-  MINI_APP_FRAME_MOTION_MAX_STEP_MS,
-  MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD,
-  MINI_APP_RANGE_PULLBACK_MAX_SPAN,
-  MINI_APP_RANGE_PULLBACK_MIN_SPAN,
-  MINI_APP_RANGE_SPRING_AMPLITUDE_MAX,
-  MINI_APP_RANGE_SPRING_AMPLITUDE_MIN,
-  MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO,
-  MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING,
-  MINI_APP_RANGE_SPRING_SPLIT_PROGRESS,
+  MINI_APP_FLIP_PX_PRECISION_SCALE, MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME, MINI_APP_INLINE_NOTICE_INNER_CLASS_NAME,
+} from "../../packages/mini-app-frontend/consts/animation";
+import {
+  MINI_APP_BATCH_KICK_MAX_HOURS, MINI_APP_BATCH_KICK_MIN_HOURS, MINI_APP_EXPAND_SCROLL_BOTTOM_MARGIN_PX,
+  MINI_APP_EXPAND_SCROLL_COMFORT_BODY_FACTOR, MINI_APP_EXPAND_SCROLL_MIN_DELTA_PX, MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX,
+  MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS, MINI_APP_FLIP_COLLAPSE_CLOSE_SPEED_PX_PER_MS,
+  MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS, MINI_APP_FLIP_COLLAPSE_DURATION_MS, MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
+  MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS, MINI_APP_FRAME_MOTION_MAX_LAG_MS, MINI_APP_FRAME_MOTION_MAX_STEP_MS,
+  MINI_APP_RANGE_ADVANCE_REMAINING_THRESHOLD, MINI_APP_RANGE_PULLBACK_MAX_SPAN, MINI_APP_RANGE_PULLBACK_MIN_SPAN,
+  MINI_APP_RANGE_SPRING_AMPLITUDE_MAX, MINI_APP_RANGE_SPRING_AMPLITUDE_MIN, MINI_APP_RANGE_SPRING_AMPLITUDE_RATIO,
+  MINI_APP_RANGE_SPRING_BOUNDARY_DAMPING, MINI_APP_RANGE_SPRING_SPLIT_PROGRESS,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 
 /** 测试逐帧推进的帧间隔毫秒数（整数且小于逐帧时钟的单帧推进上限，时钟与经过时间一致）。 */
@@ -135,12 +105,7 @@ interface FakeViewportHost {
 
 /** 在 `globalThis` 上安装 `innerHeight`、`scrollBy` 与输入监听桩。 */
 function installFakeViewport(viewportHeight: number): FakeViewportHost {
-  const host = globalThis as {
-    innerHeight?: number;
-    scrollBy?: unknown;
-    addEventListener?: unknown;
-    removeEventListener?: unknown;
-  };
+  const host = globalThis as { innerHeight?: number; scrollBy?: unknown; addEventListener?: unknown; removeEventListener?: unknown };
   const prevInnerHeight: number | undefined = host.innerHeight;
   const prevScrollBy: unknown = host.scrollBy;
   const prevAdd: unknown = host.addEventListener;
@@ -148,12 +113,8 @@ function installFakeViewport(viewportHeight: number): FakeViewportHost {
   const scrollCalls: ViewportScrollByParams[] = [];
   const listeners: Map<string, () => void> = new Map<string, () => void>();
   host.innerHeight = viewportHeight;
-  host.scrollBy = (options: ViewportScrollByParams): void => {
-    scrollCalls.push(options);
-  };
-  host.addEventListener = (type: string, listener: () => void): void => {
-    listeners.set(type, listener);
-  };
+  host.scrollBy = (options: ViewportScrollByParams): void => { scrollCalls.push(options); };
+  host.addEventListener = (type: string, listener: () => void): void => { listeners.set(type, listener); };
   host.removeEventListener = (type: string, listener: () => void): void => {
     if (listeners.get(type) === listener) listeners.delete(type);
   };
@@ -184,34 +145,23 @@ function installFakeScrollState(state: { scrollY: number; scrollHeight: number }
 
 /** 构造顶部坐标可变的视口几何节点桩。 */
 function createRectNode(geometry: { top: number; height: number }): ViewportRectElement {
-  return {
-    getBoundingClientRect: (): { readonly top: number; readonly height: number } => ({
-      top: geometry.top,
-      height: geometry.height,
-    }),
-  };
+  return { getBoundingClientRect: (): { readonly top: number; readonly height: number } => ({ top: geometry.top, height: geometry.height }) };
 }
 
 /** 构造模拟的 `FlipClassList`。 */
-function createMockClassList(initial: readonly string[] = []): FlipClassList & {
-  readonly tokens: Set<string>;
-} {
+function createMockClassList(initial: readonly string[] = []): FlipClassList & { readonly tokens: Set<string> } {
   const tokens: Set<string> = new Set<string>(initial);
   return {
     tokens,
-    add: (...items: string[]): void => {
-      for (const item of items) tokens.add(item);
-    },
-    remove: (...items: string[]): void => {
-      for (const item of items) tokens.delete(item);
-    },
+    add: (...items: string[]): void => { for (const item of items) tokens.add(item); },
+    remove: (...items: string[]): void => { for (const item of items) tokens.delete(item); },
     contains: (token: string): boolean => tokens.has(token),
   };
 }
 
-/** 从 `height` 或 `translate3d` 行内样式里取出像素数值。 */
+/** 从 `height`、`margin` 或 `translate3d` 行内样式里取出像素数值（支持高 DPR 子像素小数）。 */
 function readPx(text: string | undefined): number {
-  const match: RegExpExecArray | null = /(-?\d+)px/u.exec(text ?? "");
+  const match: RegExpExecArray | null = /(-?\d+(?:\.\d+)?)px/u.exec(text ?? "");
   return match?.[1] === undefined ? 0 : Number(match[1]);
 }
 
@@ -438,7 +388,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       expect([...viewport.listeners.keys()].sort()).toEqual([...MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS].sort());
       scroll.step(0);
       expect(viewport.scrollCalls).toEqual([]);
-      // 同帧上方面板收起使锚点上移 30px：滚动反向补偿，锚点保持在插值位置。
+      // 同帧上方面板收起后锚点上移 30px：滚动反向补偿，锚点保持在插值位置。
       anchorGeometry.top = 470;
       scroll.step(0);
       expect(viewport.scrollCalls).toEqual([{ top: -30, behavior: "auto" }]);
@@ -452,14 +402,17 @@ describe("折叠动画引擎与同帧跟滚", () => {
       scroll.dispose();
 
       viewport.scrollCalls.length = 0;
-      const cancelScroll: () => void = animateViewportToAnchor({ anchor: previewNode, fromTop: -80, toTop: 16 });
+      const previewScrollTarget: ViewportAnchorScrollTarget = {
+        anchor: previewNode, fromTop: -80, toTop: MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX,
+      };
+      const cancelScroll: () => void = animateViewportToAnchor(previewScrollTarget);
       frames.flush(0);
       frames.advanceTo(MINI_APP_FLIP_COLLAPSE_DURATION_MS);
-      expect(viewport.scrollCalls.at(-1)).toEqual({ top: -96, behavior: "auto" });
+      expect(viewport.scrollCalls.at(-1)).toEqual({ top: -(80 + MINI_APP_EXPAND_SCROLL_TOP_MARGIN_PX), behavior: "auto" });
       expect(viewport.listeners.size).toBe(0);
       cancelScroll();
 
-      const cancelEarly: () => void = animateViewportToAnchor({ anchor: previewNode, fromTop: -80, toTop: 16 });
+      const cancelEarly: () => void = animateViewportToAnchor(previewScrollTarget);
       expect(viewport.listeners.size).toBe(MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS.length);
       cancelEarly();
       expect(viewport.listeners.size).toBe(0);
@@ -472,14 +425,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
 
   test("CollapseGrid 渲染展开态类名", () => {
     expect(
-      renderToStaticMarkup(
-        createElement(CollapseGrid, {
-          expanded: true,
-          gridClassName: "g",
-          innerClassName: "i",
-          children: null,
-        })
-      )
+      renderToStaticMarkup(createElement(CollapseGrid, { expanded: true, gridClassName: "g", innerClassName: "i", children: null }))
     ).toContain('class="g expanded"');
   });
 
@@ -490,10 +436,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
     const viewport: FakeViewportHost = installFakeViewport(800);
     try {
       const sectionEl: FlipAnimatableElement = { tagName: "SECTION" };
-      const cardEl: FlipAnimatableElement = {
-        parentElement: sectionEl,
-        classList: createMockClassList(["card"]),
-      };
+      const cardEl: FlipAnimatableElement = { parentElement: sectionEl, classList: createMockClassList(["card"]) };
       const innerEl: FlipAnimatableElement = {
         style: { transform: "", willChange: "", opacity: "", pointerEvents: "" },
         dataset: {},
@@ -502,9 +445,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       let gridHeightPx: number = 180;
       const gridClassList = createMockClassList(["chat-targets-qa-collapse-grid"]);
       const gridEl: FlipAnimatableElement = {
-        parentElement: cardEl,
-        classList: gridClassList,
-        dataset: {},
+        parentElement: cardEl, classList: gridClassList, dataset: {},
         style: { height: "", marginTop: "", transform: "", willChange: "" },
         getBoundingClientRect: () => ({ top: 100, height: gridHeightPx }),
       };
@@ -515,10 +456,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       const anchor: ViewportRectElement = createRectNode(anchorGeometry);
       const resolvedHeights: number[] = [];
       const cleanupExpand = runFlipCollapseTransition({
-        gridEl,
-        innerEl,
-        expanded: true,
-        wasOneFrInDom: false,
+        gridEl, innerEl, expanded: true, wasOneFrInDom: false,
         resolveFollowScroll: (el: FlipAnimatableElement, expandedHeightPx: number): ViewportAnchorScrollTarget => {
           expect(el).toBe(gridEl);
           resolvedHeights.push(expandedHeightPx);
@@ -553,16 +491,9 @@ describe("折叠动画引擎与同帧跟滚", () => {
       let closingClearedCount: number = 0;
       viewport.scrollCalls.length = 0;
       const cleanupCollapse = runFlipCollapseTransition({
-        gridEl,
-        innerEl,
-        expanded: false,
-        wasOneFrInDom: true,
-        onClosingCleared: (): void => {
-          closingClearedCount += 1;
-        },
-        resolveFollowScroll: (): ViewportAnchorScrollTarget => {
-          throw new Error("collapse must not follow-scroll");
-        },
+        gridEl, innerEl, expanded: false, wasOneFrInDom: true,
+        onClosingCleared: (): void => { closingClearedCount += 1; },
+        resolveFollowScroll: (): ViewportAnchorScrollTarget => { throw new Error("collapse must not follow-scroll"); },
       });
       expect(gridClassList.contains("flip-closing")).toBeTrue();
       expect(gridEl.style?.height).toBe("180px");
@@ -578,12 +509,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       cleanupCollapse?.();
 
       // 3. 半途打断：收起到一半时取消并记录进度，重新展开从该进度续接，时长按剩余进度折算。
-      const cleanupMidFlight = runFlipCollapseTransition({
-        gridEl,
-        innerEl,
-        expanded: false,
-        wasOneFrInDom: true,
-      });
+      const cleanupMidFlight = runFlipCollapseTransition({ gridEl, innerEl, expanded: false, wasOneFrInDom: true });
       frames.flush(100);
       frames.advanceTo(100 + MINI_APP_FLIP_COLLAPSE_DURATION_MS / 2);
       const interruptedProgress: number = 1 - ease(0.5);
@@ -592,12 +518,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       expect(gridEl.style?.height).toBe("");
       expect(frames.pending()).toBe(0);
 
-      const cleanupReExpand = runFlipCollapseTransition({
-        gridEl,
-        innerEl,
-        expanded: true,
-        wasOneFrInDom: true,
-      });
+      const cleanupReExpand = runFlipCollapseTransition({ gridEl, innerEl, expanded: true, wasOneFrInDom: true });
       expect(innerEl.dataset?.flipInterruptedProgress).toBeUndefined();
       const resumedHeight: number = readPx(gridEl.style?.height);
       expect(resumedHeight).toBe(Math.round(180 * interruptedProgress));
@@ -614,19 +535,12 @@ describe("折叠动画引擎与同帧跟滚", () => {
       gridHeightPx = 0;
       let emptyClearedCount: number = 0;
       const emptyInnerEl: FlipAnimatableElement = {
-        style: { transform: "", willChange: "" },
-        dataset: {},
-        getBoundingClientRect: () => ({ top: 100, height: 0 }),
+        style: { transform: "", willChange: "" }, dataset: {}, getBoundingClientRect: () => ({ top: 100, height: 0 }),
       };
       expect(
         runFlipCollapseTransition({
-          gridEl,
-          innerEl: emptyInnerEl,
-          expanded: false,
-          wasOneFrInDom: true,
-          onClosingCleared: (): void => {
-            emptyClearedCount += 1;
-          },
+          gridEl, innerEl: emptyInnerEl, expanded: false, wasOneFrInDom: true,
+          onClosingCleared: (): void => { emptyClearedCount += 1; },
         })
       ).toBeUndefined();
       expect(emptyClearedCount).toBe(1);
@@ -645,12 +559,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
         getBoundingClientRect: () => ({ top: 100, height: 60 }),
       };
       expect(hasCollapsedFlipGridAncestor(nestedGridEl)).toBeTrue();
-      const cleanupNested = runFlipCollapseTransition({
-        gridEl: nestedGridEl,
-        innerEl,
-        expanded: false,
-        wasOneFrInDom: true,
-      });
+      const cleanupNested = runFlipCollapseTransition({ gridEl: nestedGridEl, innerEl, expanded: false, wasOneFrInDom: true });
       expect(nestedGridClassList.contains("flip-closing")).toBeTrue();
       cleanupNested?.();
       expect(nestedGridClassList.contains("flip-closing")).toBeFalse();
@@ -660,31 +569,23 @@ describe("折叠动画引擎与同帧跟滚", () => {
 
       // 6. 配对 TriggerCollapseGrid + CollapseGrid：marginTop 重叠、46px ↔ 180px，按钮与表单同进度交叉渐变。
       const triggerInnerEl: FlipAnimatableElement = {
-        style: { transform: "", willChange: "", opacity: "" },
-        getBoundingClientRect: () => ({ top: 100, height: 46 }),
+        style: { transform: "", willChange: "", opacity: "" }, getBoundingClientRect: () => ({ top: 100, height: 46 }),
       };
       const triggerClassList = createMockClassList(["totp-trigger-collapse-grid"]);
       const triggerEl: FlipAnimatableElement = {
-        classList: triggerClassList,
-        dataset: { flipTrigger: "1" },
-        firstElementChild: triggerInnerEl,
+        classList: triggerClassList, dataset: { flipTrigger: "1" }, firstElementChild: triggerInnerEl,
         getBoundingClientRect: () => ({ top: 100, height: 46 }),
       };
       const pairedGridEl: FlipAnimatableElement = {
-        parentElement: cardEl,
-        previousElementSibling: triggerEl,
-        classList: createMockClassList(["totp-setup-collapse-grid"]),
-        dataset: {},
+        parentElement: cardEl, previousElementSibling: triggerEl,
+        classList: createMockClassList(["totp-setup-collapse-grid"]), dataset: {},
         style: { height: "", marginTop: "", transform: "", willChange: "" },
         getBoundingClientRect: () => ({ top: 100, height: 180 }),
       };
       expect(findPairedTriggerElement(pairedGridEl)).toBe(triggerEl);
 
       const cleanupPairedExpand = runFlipCollapseTransition({
-        gridEl: pairedGridEl,
-        innerEl,
-        expanded: true,
-        wasOneFrInDom: false,
+        gridEl: pairedGridEl, innerEl, expanded: true, wasOneFrInDom: false,
       });
       expect(triggerClassList.contains("flip-closing")).toBeTrue();
       expect(triggerEl.dataset?.flipTriggerClosing).toBe("1");
@@ -711,15 +612,8 @@ describe("折叠动画引擎与同帧跟滚", () => {
       const prevExpandedRef = { current: true };
       const prevResetKeyRef = { current: "qa" as string | null };
       const closingActiveRef = { current: true };
-      const syncCleanup = syncFlipCollapseLayoutEffect({
-        expanded: false,
-        resetKey: "qa",
-        gridRef: { current: pairedGridEl },
-        innerRef: { current: innerEl },
-        prevExpandedRef,
-        prevResetKeyRef,
-        closingActiveRef,
-      });
+      const syncRefs = { gridRef: { current: pairedGridEl }, innerRef: { current: innerEl }, prevExpandedRef, prevResetKeyRef, closingActiveRef };
+      const syncCleanup = syncFlipCollapseLayoutEffect({ expanded: false, resetKey: "qa", ...syncRefs });
       expect(closingActiveRef.current).toBeTrue();
       expect(pairedGridEl.style?.height).toBe("180px");
       frames.flush(2_000);
@@ -732,11 +626,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       const syncExpandCleanup = syncFlipCollapseLayoutEffect({
         expanded: true,
         resetKey: "qa",
-        gridRef: { current: pairedGridEl },
-        innerRef: { current: innerEl },
-        prevExpandedRef,
-        prevResetKeyRef,
-        closingActiveRef,
+        ...syncRefs,
         resolveFollowScroll: (el: FlipAnimatableElement): ViewportAnchorScrollTarget | null => {
           syncResolved.push(el);
           return null;
@@ -747,39 +637,11 @@ describe("折叠动画引擎与同帧跟滚", () => {
       syncExpandCleanup?.();
       expect(innerEl.dataset?.flipInterruptedProgress).toBe("0");
 
-      expect(
-        syncFlipCollapseLayoutEffect({
-          expanded: false,
-          resetKey: "deleteMessage",
-          gridRef: { current: pairedGridEl },
-          innerRef: { current: innerEl },
-          prevExpandedRef,
-          prevResetKeyRef,
-          closingActiveRef,
-        })
-      ).toBeUndefined();
+      expect(syncFlipCollapseLayoutEffect({ expanded: false, resetKey: "deleteMessage", ...syncRefs })).toBeUndefined();
       expect(innerEl.dataset?.flipInterruptedProgress).toBeUndefined();
+      expect(syncFlipCollapseLayoutEffect({ expanded: false, resetKey: "deleteMessage", ...syncRefs })).toBeUndefined();
       expect(
-        syncFlipCollapseLayoutEffect({
-          expanded: false,
-          resetKey: "deleteMessage",
-          gridRef: { current: pairedGridEl },
-          innerRef: { current: innerEl },
-          prevExpandedRef,
-          prevResetKeyRef,
-          closingActiveRef,
-        })
-      ).toBeUndefined();
-      expect(
-        syncFlipCollapseLayoutEffect({
-          expanded: true,
-          resetKey: "deleteMessage",
-          gridRef: { current: null },
-          innerRef: { current: innerEl },
-          prevExpandedRef,
-          prevResetKeyRef,
-          closingActiveRef,
-        })
+        syncFlipCollapseLayoutEffect({ expanded: true, resetKey: "deleteMessage", ...syncRefs, gridRef: { current: null } })
       ).toBeUndefined();
       expect(closingActiveRef.current).toBeFalse();
     } finally {
@@ -800,8 +662,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
           getBoundingClientRect: () => ({ top: 300, height: 120 }),
         },
         innerEl: {
-          style: { transform: "", willChange: "", pointerEvents: "" },
-          dataset: {},
+          style: { transform: "", willChange: "", pointerEvents: "" }, dataset: {},
           getBoundingClientRect: () => ({ top: 300, height: 120 }),
         },
       });
@@ -810,20 +671,14 @@ describe("折叠动画引擎与同帧跟滚", () => {
       const firstAnchor: ViewportRectElement = createRectNode({ top: 260, height: 40 });
       const secondAnchor: ViewportRectElement = createRectNode({ top: 500, height: 40 });
       runFlipCollapseTransition({
-        ...first,
-        expanded: true,
-        wasOneFrInDom: false,
-        followScrollSlotRef: slotRef,
+        ...first, expanded: true, wasOneFrInDom: false, followScrollSlotRef: slotRef,
         resolveFollowScroll: (): ViewportAnchorScrollTarget => ({ anchor: firstAnchor, fromTop: 260, toTop: 200 }),
       });
       const firstScroll: ViewportAnchorScroll | null = slotRef.current;
       expect(firstScroll).not.toBeNull();
       frames.flush(0);
       runFlipCollapseTransition({
-        ...second,
-        expanded: true,
-        wasOneFrInDom: false,
-        followScrollSlotRef: slotRef,
+        ...second, expanded: true, wasOneFrInDom: false, followScrollSlotRef: slotRef,
         resolveFollowScroll: (): ViewportAnchorScrollTarget => ({ anchor: secondAnchor, fromTop: 500, toTop: 300 }),
       });
       expect(slotRef.current).not.toBe(firstScroll);
@@ -869,25 +724,16 @@ describe("折叠动画引擎与同帧跟滚", () => {
       expect(resolveWith({ scrollY: 88, scrollHeight: 1_024 }, {}, 520)).toBeNull();
       // 收起后文档短于视口：回落到 0，在最大滚动距离降到 0 的进度落地。
       expect(resolveWith({ scrollY: 88, scrollHeight: 1_024 }, gridNode, 520)).toEqual({
-        anchor: gridNode,
-        fromTop: 72,
-        toTop: 72 + 88,
-        settleProgress: (1_024 - 700) / 520,
+        anchor: gridNode, fromTop: 72, toTop: 72 + 88, settleProgress: (1_024 - 700) / 520,
       });
       // 位于底部：回落量等于收掉的高度，到收起结束才落地。
       expect(resolveWith({ scrollY: 600, scrollHeight: 1_300 }, gridNode, 520)).toEqual({
-        anchor: gridNode,
-        fromTop: 72,
-        toTop: 72 + 520,
-        settleProgress: 1,
+        anchor: gridNode, fromTop: 72, toTop: 72 + 520, settleProgress: 1,
       });
 
       const fixedAnchor: ViewportRectElement = createRectNode({ top: 0, height: 0 });
       const settleScroll: ViewportAnchorScroll = startViewportAnchorScroll({
-        anchor: fixedAnchor,
-        fromTop: 0,
-        toTop: 100,
-        settleProgress: 0.5,
+        anchor: fixedAnchor, fromTop: 0, toTop: 100, settleProgress: 0.5,
       });
       settleScroll.step(0.25);
       expect(viewport.scrollCalls.at(-1)?.top).toBe(-75);
@@ -902,8 +748,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       const tallDurationMs: number = computeFlipCollapseDurationMs(tallSpanPx, false);
       expect(tallDurationMs).toBeGreaterThan(MINI_APP_FLIP_COLLAPSE_DURATION_MS);
       const innerEl: FlipAnimatableElement = {
-        style: { transform: "", willChange: "", opacity: "", pointerEvents: "" },
-        dataset: {},
+        style: { transform: "", willChange: "", opacity: "", pointerEvents: "" }, dataset: {},
         getBoundingClientRect: () => ({ top: 72, height: tallSpanPx }),
       };
       const gridEl: FlipAnimatableElement = {
@@ -913,13 +758,8 @@ describe("折叠动画引擎与同帧跟滚", () => {
       };
       const removedLog: number[] = [];
       const cleanup = runFlipCollapseTransition({
-        gridEl,
-        innerEl,
-        expanded: false,
-        wasOneFrInDom: true,
-        resolveFollowScroll: (): ViewportAnchorScrollTarget => {
-          throw new Error("collapse must not follow-scroll");
-        },
+        gridEl, innerEl, expanded: false, wasOneFrInDom: true,
+        resolveFollowScroll: (): ViewportAnchorScrollTarget => { throw new Error("collapse must not follow-scroll"); },
         resolveCollapseScroll: (el: FlipAnimatableElement, removedHeightPx: number): ViewportAnchorScrollTarget => {
           expect(el).toBe(gridEl);
           removedLog.push(removedHeightPx);
@@ -942,10 +782,7 @@ describe("折叠动画引擎与同帧跟滚", () => {
       // 半途打断后再收起：收掉的高度按剩余进度折算，时长按完整收起时长乘以剩余进度。
       if (innerEl.dataset !== undefined) innerEl.dataset.flipInterruptedProgress = "0.5";
       const resumedCleanup = runFlipCollapseTransition({
-        gridEl,
-        innerEl,
-        expanded: false,
-        wasOneFrInDom: true,
+        gridEl, innerEl, expanded: false, wasOneFrInDom: true,
         resolveCollapseScroll: (_el: FlipAnimatableElement, removedHeightPx: number): ViewportAnchorScrollTarget | null => {
           removedLog.push(removedHeightPx);
           return null;
@@ -1012,5 +849,136 @@ describe("折叠动画引擎与同帧跟滚", () => {
       3 + MINI_APP_RANGE_PULLBACK_MAX_SPAN,
       6
     );
+  });
+
+  test("高 DPR 物理像素对齐与底边 1:1 锁死、首次展开动画及 InlineNoticeCollapse 渐隐/Flex 间距补偿", () => {
+    const host = globalThis as { devicePixelRatio?: number; getComputedStyle?: unknown };
+    const prevDpr: number | undefined = host.devicePixelRatio;
+    const prevComputed: unknown = host.getComputedStyle;
+    const frames: FakeAnimationFrames = installFakeAnimationFrames();
+    try {
+      // 1. DPR=2 与 DPR=3 子像素测量：起止高度按物理像素网格对齐，逐帧裁剪高度与内层底边 1:1 锁死，负半像素舍入与位移同源。
+      host.devicePixelRatio = 2;
+      expect(snapFlipPx(210.5)).toBe(210.5);
+      expect(formatFlipPx(210.5)).toBe("210.5px");
+      expect(snapFlipPx(-0.0001)).toBe(0);
+      expect(formatTranslate3dY(-5.25)).toBe(`translate3d(0, ${snapFlipPx(-5.25)}px, 0)`);
+      let subpixelH: number = 210.5;
+      const innerEl: FlipAnimatableElement = {
+        style: { transform: "", willChange: "", opacity: "", pointerEvents: "" }, dataset: {},
+        getBoundingClientRect: () => ({ top: 40, height: subpixelH }),
+      };
+      const gridEl: FlipAnimatableElement = {
+        classList: createMockClassList(["cap-collapse-wrap"]),
+        style: { height: "", marginTop: "", marginBottom: "", transform: "", willChange: "" },
+        getBoundingClientRect: () => ({ top: 40, height: subpixelH }),
+      };
+      runFlipCollapseTransition({ gridEl, innerEl, expanded: false, wasOneFrInDom: true });
+      expect(gridEl.style?.height).toBe("210.5px");
+      expect(innerEl.style?.transform).toBe("translate3d(0, 0, 0)");
+      frames.flush(0);
+      for (let t: number = TEST_FRAME_MS; t < MINI_APP_FLIP_COLLAPSE_DURATION_MS; t += TEST_FRAME_MS) {
+        frames.flush(t);
+        expect(snapFlipPx(subpixelH + readPx(innerEl.style?.transform))).toBe(readPx(gridEl.style?.height));
+      }
+      frames.flush(MINI_APP_FLIP_COLLAPSE_DURATION_MS);
+      expect(gridEl.style?.height).toBe("");
+
+      host.devicePixelRatio = 3;
+      subpixelH = 210 + 1 / 3;
+      const snappedDpr3: number = snapFlipPx(subpixelH);
+      expect(snappedDpr3).toBe(Math.round(subpixelH * MINI_APP_FLIP_PX_PRECISION_SCALE) / MINI_APP_FLIP_PX_PRECISION_SCALE);
+      runFlipCollapseTransition({ gridEl, innerEl, expanded: true, wasOneFrInDom: false });
+      expect(gridEl.style?.height).toBe("0px");
+      expect(innerEl.style?.transform).toBe(`translate3d(0, -${snappedDpr3}px, 0)`);
+      frames.flush(1_000);
+      for (let t: number = 1_000 + TEST_FRAME_MS; t < 1_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS; t += TEST_FRAME_MS) {
+        frames.flush(t);
+        expect(snapFlipPx(snappedDpr3 + readPx(innerEl.style?.transform))).toBe(readPx(gridEl.style?.height));
+      }
+      frames.flush(1_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS);
+      expect(gridEl.style?.height).toBe("");
+
+      // 2. animateOnInitialExpand：默认初始展开不播动画；开启时首次挂载从 0px 展开，后续重跑不重复触发。
+      host.devicePixelRatio = 1;
+      subpixelH = 160;
+      const initialMountRef = { current: true };
+      const prevExpandedRef = { current: true };
+      const prevResetKeyRef = { current: null as string | null };
+      const closingActiveRef = { current: false };
+      const syncBase = { gridRef: { current: gridEl }, innerRef: { current: innerEl }, prevExpandedRef, prevResetKeyRef, closingActiveRef };
+      expect(syncFlipCollapseLayoutEffect({ expanded: true, resetKey: null, ...syncBase })).toBeUndefined();
+      const cancelInitExpand = syncFlipCollapseLayoutEffect({
+        expanded: true, resetKey: null, animateOnInitialExpand: true, initialMountRef, ...syncBase,
+      });
+      expect(initialMountRef.current).toBeFalse();
+      expect(gridEl.style?.height).toBe("0px");
+      frames.flush(2_000);
+      frames.advanceTo(2_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS);
+      expect(gridEl.style?.height).toBe("");
+      cancelInitExpand?.();
+      expect(
+        syncFlipCollapseLayoutEffect({ expanded: true, resetKey: null, animateOnInitialExpand: true, initialMountRef, ...syncBase })
+      ).toBeUndefined();
+
+      // 3. InlineNoticeCollapse SSR 渲染（支持数值 resetKey）、自动渐隐与纵向 Flex row-gap 负边距同步插值。
+      const closedHtml: string = renderToStaticMarkup(
+        createElement(InlineNoticeCollapse<string>, { activeValue: null, resetKey: 1, children: (v: string) => createElement("span", null, v) })
+      );
+      expect(closedHtml).toContain(`class="${MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME} "`);
+      expect(closedHtml).toContain('aria-hidden="true"');
+      expect(closedHtml).toContain(`class="${MINI_APP_INLINE_NOTICE_INNER_CLASS_NAME}"></div>`);
+      const openHtml: string = renderToStaticMarkup(
+        createElement(InlineNoticeCollapse<string>, { activeValue: "ok", resetKey: 2, children: (v: string) => createElement("span", null, v) })
+      );
+      expect(openHtml).toContain(`class="${MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME} expanded"`);
+      expect(openHtml).toContain("<span>ok</span>");
+
+      const flexParent: FlipAnimatableElement = { tagName: "DIV" };
+      const visibleSibling: FlipAnimatableElement = { tagName: "BUTTON" };
+      host.getComputedStyle = (el: FlipAnimatableElement) =>
+        el === flexParent ? { display: "flex", flexDirection: "column", rowGap: "10px" } : { display: "block" };
+      const noticeGridEl: FlipAnimatableElement = {
+        parentElement: flexParent, previousElementSibling: visibleSibling,
+        classList: createMockClassList([MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME]),
+        style: { height: "", marginTop: "", marginBottom: "", transform: "", willChange: "" },
+        getBoundingClientRect: () => ({ top: 80, height: 52 }),
+      };
+      expect(shouldFadeInnerPanel(noticeGridEl)).toBeTrue();
+      runFlipCollapseTransition({ gridEl: noticeGridEl, innerEl, expanded: true, wasOneFrInDom: false });
+      expect(noticeGridEl.style?.marginTop).toBe("-10px");
+      expect(innerEl.style?.opacity).toBe("0");
+      frames.flush(3_000);
+      frames.flush(3_000 + TEST_FRAME_MS);
+      const earlyLinear: number = TEST_FRAME_MS / MINI_APP_FLIP_COLLAPSE_DURATION_MS;
+      expect(readPx(noticeGridEl.style?.marginTop)).toBe(snapFlipPx(-10 * (1 - ease(earlyLinear))));
+      frames.advanceTo(3_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS);
+      expect(noticeGridEl.style?.marginTop).toBe("");
+
+      const leadingNoticeEl: FlipAnimatableElement = {
+        parentElement: flexParent, nextElementSibling: visibleSibling,
+        classList: createMockClassList([MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME]),
+        style: { height: "", marginTop: "", marginBottom: "", transform: "", willChange: "" },
+        getBoundingClientRect: () => ({ top: 20, height: 52 }),
+      };
+      runFlipCollapseTransition({ gridEl: leadingNoticeEl, innerEl, expanded: true, wasOneFrInDom: false });
+      expect(leadingNoticeEl.style?.marginBottom).toBe("-10px");
+      frames.flush(4_000);
+      frames.advanceTo(4_000 + MINI_APP_FLIP_COLLAPSE_DURATION_MS);
+      expect(leadingNoticeEl.style?.marginBottom).toBe("");
+
+      // 4. 白名单展开行移出保留快照：同 contextKey 原位回插，跨页夹紧等 contextKey 变化时不跨页回插。
+      const rowA = { id: 1, displayName: "A" } as never;
+      const rowB = { id: 2, displayName: "B" } as never;
+      const livePage2 = [rowB];
+      const page2Snapshot = { contextKey: "whitelist:2:10:", index: 0, entry: rowB };
+      expect(mergeRetainedClosingWhitelistItems([], page2Snapshot, "whitelist:2:10:")).toEqual([rowB]);
+      expect(mergeRetainedClosingWhitelistItems(livePage2, page2Snapshot, "whitelist:2:10:")).toBe(livePage2);
+      expect(mergeRetainedClosingWhitelistItems([rowA], page2Snapshot, "whitelist:1:10:")).toEqual([rowA]);
+    } finally {
+      frames.restore();
+      host.devicePixelRatio = prevDpr;
+      host.getComputedStyle = prevComputed;
+    }
   });
 });

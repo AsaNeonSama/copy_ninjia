@@ -9,6 +9,7 @@ import { CloseSvgIcon, PlusSvgIcon, TrashSvgIcon } from "../resource";
 import type { MiniAppChatsStoreState } from "../store/chats";
 import type { MiniAppChatQaItem } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
+import { InlineNoticeCollapse } from "./animations/CollapseGrid";
 import { useClosingSnapshot } from "./animations/useDelayedUnmount";
 import { ChatTargetsListSkeleton } from "./skeletons/ChatTargetsListSkeleton";
 
@@ -29,7 +30,7 @@ interface ChatTargetsQaItemListProps {
 }
 
 /**
- * 渲染问答对卡片列表；与顶部折叠编辑表单状态隔离，使展开/收起编辑表单或输入文字时不重排列表项。
+ * 渲染问答对卡片列表；与顶部折叠编辑表单状态隔离，按列表相关属性浅比较跳过重渲染。
  *
  * @param props 列表属性
  * @returns React 节点
@@ -169,21 +170,25 @@ export function ChatTargetsQaEditorForm({
             {`${displayQuestion.length}/${qaQuestionMaxChars}`}
           </span>
         </div>
-        <input
-          type="text"
-          className="chat-targets-input"
-          maxLength={qaQuestionMaxChars}
-          placeholder={t.chats.qaQuestionPlaceholder(qaQuestionMaxChars)}
-          value={displayQuestion}
-          disabled={displayMutating}
-          tabIndex={qaEditorOpen ? 0 : -1}
-          onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
-            setQaQuestionInput(readEventTargetValue(event));
-          }}
-        />
-        {renameHint !== null
-          ? <div className="chat-targets-field-note">{renameHint}</div>
-          : null}
+        <div className="chat-targets-field-control">
+          <input
+            type="text"
+            className="chat-targets-input"
+            maxLength={qaQuestionMaxChars}
+            placeholder={t.chats.qaQuestionPlaceholder(qaQuestionMaxChars)}
+            value={displayQuestion}
+            disabled={displayMutating}
+            tabIndex={qaEditorOpen ? 0 : -1}
+            onChange={(event: React.ChangeEvent<HTMLInputElement>): void => {
+              setQaQuestionInput(readEventTargetValue(event));
+            }}
+          />
+          <InlineNoticeCollapse activeValue={renameHint}>
+            {(hintText: string): React.JSX.Element => (
+              <div className="chat-targets-field-note">{hintText}</div>
+            )}
+          </InlineNoticeCollapse>
+        </div>
       </div>
       <div className="chat-targets-field">
         <div className="chat-targets-field-head">

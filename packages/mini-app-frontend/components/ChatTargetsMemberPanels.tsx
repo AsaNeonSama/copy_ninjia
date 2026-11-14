@@ -1,4 +1,4 @@
-import { Fragment, memo } from "react";
+import { memo } from "react";
 import type React from "react";
 import {
   MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
@@ -25,7 +25,7 @@ import type {
 } from "../types/miniApp";
 import type { MiniAppTranslations } from "../types/miniAppI18n";
 import { AddModeButtonList } from "./AddModeButtonList";
-import { CollapseGrid } from "./animations/CollapseGrid";
+import { CollapseGrid, InlineNoticeCollapse } from "./animations/CollapseGrid";
 import {
   useClosingSnapshot,
   useDelayedUnmount,
@@ -46,7 +46,7 @@ interface DeleteTargetItemListProps {
 }
 
 /**
- * 渲染删发言目标卡片列表；与顶部折叠添加菜单及按 ID 输入状态隔离，使展开/收起添加菜单或输入文字时不重排列表项。
+ * 渲染删发言目标卡片列表；与顶部折叠添加菜单及按 ID 输入状态隔离，按列表相关属性浅比较跳过重渲染。
  *
  * @param props 列表属性
  * @returns React 节点
@@ -122,7 +122,7 @@ interface TranslateTargetItemListProps {
 }
 
 /**
- * 渲染翻译目标卡片列表；与顶部折叠添加菜单及按 ID 输入状态隔离，使展开/收起添加菜单或输入文字时不重排列表项。
+ * 渲染翻译目标卡片列表；与顶部折叠添加菜单及按 ID 输入状态隔离，按列表相关属性浅比较跳过重渲染。
  *
  * @param props 列表属性
  * @returns React 节点
@@ -223,7 +223,6 @@ export function ChatTargetsMemberAddForm({
     setTranslateTargetInput,
     setTranslateLanguageInput,
     toggleTranslateLangMenu,
-    closeTranslateLangMenu,
     submitDeleteTarget,
     submitTranslateTarget,
   }: MiniAppChatsStoreState = state;
@@ -260,7 +259,7 @@ export function ChatTargetsMemberAddForm({
     displayValue: displayLangMenuOpen,
     isClosing: langMenuClosing,
   }: Readonly<DelayedUnmountState<true>> = useDelayedUnmount(
-    translateLangMenuOpen ? true : null,
+    !isDelete && translateLangMenuOpen ? true : null,
     MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS
   );
 
@@ -272,7 +271,12 @@ export function ChatTargetsMemberAddForm({
             {t.chats.deleteTargetAddButton}
           </span>
         ) : (
-          <div className="chat-targets-lang-dropdown">
+          <div
+            className="chat-targets-lang-dropdown"
+            onClick={(event: React.SyntheticEvent<HTMLDivElement>): void => {
+              event.stopPropagation();
+            }}
+          >
             <button
               type="button"
               className={`chat-targets-lang-trigger ${translateLangMenuOpen ? "active" : ""}`}
@@ -291,50 +295,40 @@ export function ChatTargetsMemberAddForm({
               />
             </button>
             {displayLangMenuOpen !== null ? (
-              <Fragment>
-                <div
-                  className={`chat-targets-lang-backdrop ${langMenuClosing ? "closing" : ""}`}
-                  onClick={(): void => {
-                    if (!langMenuClosing) {
-                      closeTranslateLangMenu();
-                    }
-                  }}
-                />
-                <div
-                  className={`chat-targets-lang-popover ${langMenuClosing ? "closing" : ""}`}
-                  role="listbox"
-                  aria-hidden={langMenuClosing}
-                >
-                  {MINI_APP_TRANSLATE_LANGUAGES.map(
-                    (
-                      lang: MiniAppTranslateLanguage
-                    ): React.JSX.Element => {
-                      const isSelected: boolean =
-                        translateLanguageInput === lang;
-                      return (
-                        <button
-                          key={lang}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          disabled={langMenuClosing}
-                          className={`chat-targets-lang-option ${isSelected ? "active" : ""}`}
-                          onClick={(): void => {
-                            setTranslateLanguageInput(lang);
-                          }}
-                        >
-                          <span className="chat-targets-lang-option-label">
-                            {t.chats.translateLanguageLabels[lang]}
-                          </span>
-                          <span className="chat-targets-lang-option-code">
-                            {lang.toUpperCase()}
-                          </span>
-                        </button>
-                      );
-                    }
-                  )}
-                </div>
-              </Fragment>
+              <div
+                className={`chat-targets-lang-popover ${langMenuClosing ? "closing" : ""}`}
+                role="listbox"
+                aria-hidden={langMenuClosing}
+              >
+                {MINI_APP_TRANSLATE_LANGUAGES.map(
+                  (
+                    lang: MiniAppTranslateLanguage
+                  ): React.JSX.Element => {
+                    const isSelected: boolean =
+                      translateLanguageInput === lang;
+                    return (
+                      <button
+                        key={lang}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        disabled={langMenuClosing}
+                        className={`chat-targets-lang-option ${isSelected ? "active" : ""}`}
+                        onClick={(): void => {
+                          setTranslateLanguageInput(lang);
+                        }}
+                      >
+                        <span className="chat-targets-lang-option-label">
+                          {t.chats.translateLanguageLabels[lang]}
+                        </span>
+                        <span className="chat-targets-lang-option-code">
+                          {lang.toUpperCase()}
+                        </span>
+                      </button>
+                    );
+                  }
+                )}
+              </div>
             ) : null}
           </div>
         )}
@@ -441,21 +435,23 @@ export function ChatTargetsMemberPanels({
   const translateFeatureDisabled: boolean = !(
     chatTargets?.isTranslationEnabled ?? chatDetail.features.translation
   );
+  const prereqWarnText: string | null =
+    isDelete && missingDeletePermission
+      ? t.serverNotice("DELETE_TARGET_MISSING_BOT_PERMISSION")
+      : !isDelete && translateFeatureDisabled
+        ? t.serverNotice("TRANSLATE_FEATURE_DISABLED")
+        : null;
 
   return (
-    <Fragment>
-      {isDelete && missingDeletePermission ? (
-        <div className="chat-targets-prereq-warn">
-          <AlertSvgIcon size={14} />
-          <span>{t.serverNotice("DELETE_TARGET_MISSING_BOT_PERMISSION")}</span>
-        </div>
-      ) : null}
-      {!isDelete && translateFeatureDisabled ? (
-        <div className="chat-targets-prereq-warn">
-          <AlertSvgIcon size={14} />
-          <span>{t.serverNotice("TRANSLATE_FEATURE_DISABLED")}</span>
-        </div>
-      ) : null}
+    <div className="chat-targets-member-panel">
+      <InlineNoticeCollapse activeValue={prereqWarnText} resetKey={kind}>
+        {(warnText: string): React.JSX.Element => (
+          <div className="chat-targets-prereq-warn">
+            <AlertSvgIcon size={14} />
+            <span>{warnText}</span>
+          </div>
+        )}
+      </InlineNoticeCollapse>
 
       {loadingTargets ? (
         <ChatTargetsListSkeleton />
@@ -480,6 +476,6 @@ export function ChatTargetsMemberPanels({
           onRemoveTranslateTarget={removeTranslateTarget}
         />
       )}
-    </Fragment>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
-import { CollapseGrid } from "../components/animations/CollapseGrid";
+import { CollapseGrid, InlineNoticeCollapse } from "../components/animations/CollapseGrid";
 import {
   animateViewportToAnchor,
   resolveCollapseClampScrollTarget,
@@ -436,13 +436,13 @@ export function GalleryPage({
           )
           : null}
 
-        {uploadStatusText !== null
-          ? (
+        <InlineNoticeCollapse activeValue={uploadStatusText}>
+          {(statusText: string): React.JSX.Element => (
             <div className="cap-item" style={{ marginTop: "8px" }}>
-              <div className="cap-val">{uploadStatusText}</div>
+              <div className="cap-val">{statusText}</div>
             </div>
-          )
-          : null}
+          )}
+        </InlineNoticeCollapse>
       </div>
 
       <CollapseGrid

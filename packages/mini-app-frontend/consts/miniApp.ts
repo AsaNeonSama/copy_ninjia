@@ -23,7 +23,7 @@ export const MINI_APP_BIDI_CONTROL_CHARS_PATTERN: RegExp =
 /** Mini App API 请求携带 Telegram WebApp `initData` 原始查询串的 HTTP 请求头名（小写）。不变量：所有 `/api/*` 鉴权统一读取该请求头；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
 export const MINI_APP_INIT_DATA_HEADER: string = "x-telegram-init-data";
 
-/** Mini App 密码认证通过后签发的会话令牌 HTTP 请求头名（小写）。不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
+/** Mini App 密码认证通过后签发的会话令牌 HTTP 请求头名（小写）。不变量：除 `/api/auth/precheck` 与 `/api/auth/login` 外，所有业务 `/api/*` 接口均要求携带有效会话令牌；取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts` 与 `packages/mini-app-frontend/api/authLogout.ts`。 */
 export const MINI_APP_SESSION_HEADER: string = "x-mini-app-session";
 
 /** Mini App 会话令牌自动刷新时下发新到期毫秒时间戳的 HTTP 响应头名（小写）。不变量：取值与 `packages/consts/miniApp.ts` 同名常量一致，由 `test/mini-app-frontend/frontendParity.test.ts` 核对。所属模块：`packages/mini-app-frontend/api/request.ts`。 */
@@ -114,14 +114,14 @@ export const MINI_APP_FRAME_MOTION_MAX_LAG_MS: number = 80;
 
 /**
  * 折叠面板逐帧动画、同帧视口滚动、滑块前段推进与子页签高度过渡共用的三次贝塞尔缓动控制点 `[x1, y1, x2, y2]`（对应 CSS `cubic-bezier(0.2, 0.9, 0.25, 1)`）。
- * 不变量：`x1`、`x2` 落在 `[0, 1]` 区间内；与 `styles/base.css` 中 `--ease-brutal` 的缓动曲线一致。所属模块：`packages/mini-app-frontend/components/animations/frameMotion.ts`、`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts` 与 `packages/mini-app-frontend/components/animations/TabHeightSizer.tsx`。
+ * 不变量：`x1`、`x2` 落在 `[0, 1]` 区间内；与 `styles/base.css` 中 `--ease-brutal` 的缓动曲线一致。所属模块：`packages/mini-app-frontend/components/animations/frameMotion.ts`、`packages/mini-app-frontend/components/animations/useAnimatedRangeProgress.ts` 与 `packages/mini-app-frontend/consts/animation.ts`。
  */
 export const MINI_APP_FLIP_COLLAPSE_EASING_POINTS: readonly [number, number, number, number] =
   [0.2, 0.9, 0.25, 1];
 
 /**
  * 折叠面板收起后保留内容快照与 `.flip-closing` 布局的毫秒数：覆盖最长收起时长、逐帧时钟的最大落后量及首帧排期与末帧落点的帧间余量。
- * 不变量：正整数毫秒数，大于等于 `MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS` 加 `MINI_APP_FRAME_MOTION_MAX_LAG_MS` 再加两帧（60 Hz 约 34 毫秒）。所属模块：`packages/mini-app-frontend/components/animations/flipCollapse.ts`、`packages/mini-app-frontend/components/IdentityListRows.tsx` 与 `packages/mini-app-frontend/pages/GalleryPage.tsx`。
+ * 不变量：正整数毫秒数，大于等于 `MINI_APP_FLIP_COLLAPSE_CLOSE_MAX_DURATION_MS` 加 `MINI_APP_FRAME_MOTION_MAX_LAG_MS` 再加两帧（60 Hz 约 34 毫秒）。所属模块：`packages/mini-app-frontend/components/animations/CollapseGrid.tsx`、`packages/mini-app-frontend/components/animations/flipCollapse.ts`、`packages/mini-app-frontend/components/IdentityListRows.tsx` 与 `packages/mini-app-frontend/pages/GalleryPage.tsx`。
  */
 export const MINI_APP_FLIP_COLLAPSE_CONTENT_RETAIN_MS: number = 400;
 
@@ -157,7 +157,7 @@ export const MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES: readonly string[] = [
   "gallery-preview-collapse-grid",
 ];
 
-/** 子页签切换容器（`TabHeightSizer`）平滑过渡外层高度的 CSS `transition` 持续毫秒数。不变量：正整数毫秒数，小于 `MINI_APP_TAB_HEIGHT_CLEANUP_MS`。所属模块：`packages/mini-app-frontend/components/animations/TabHeightSizer.tsx`。 */
+/** 子页签切换容器（`TabHeightSizer`）平滑过渡外层高度的 CSS `transition` 持续毫秒数。不变量：正整数毫秒数，小于 `MINI_APP_TAB_HEIGHT_CLEANUP_MS`。所属模块：`packages/mini-app-frontend/consts/animation.ts`。 */
 export const MINI_APP_TAB_HEIGHT_TRANSITION_MS: number = 220;
 
 /** 子页签切换容器（`TabHeightSizer`）在高度过渡结束后清除内联 `height` / `transition` / `overflow` 的定时器毫秒数。不变量：正整数毫秒数，大于 `MINI_APP_TAB_HEIGHT_TRANSITION_MS`。所属模块：`packages/mini-app-frontend/components/animations/TabHeightSizer.tsx`。 */
@@ -225,7 +225,7 @@ export const MINI_APP_CONFIRM_CLOSE_ANIMATION_MS: number = 180;
 
 /**
  * 顶栏语言选择下拉菜单与添加模式下拉菜单关闭收起退场动画的毫秒数（与 `styles/shell.css` 的 `0.18s` 齐平）。
- * 不变量：正整数毫秒数，与对应 CSS 退场时长一致。所属模块：`packages/mini-app-frontend/components/PrefsBar.tsx`、`packages/mini-app-frontend/components/ChatTargetsMenuButtonList.tsx` 与 `packages/mini-app-frontend/components/ChatTargetsMemberPanels.tsx`。
+ * 不变量：正整数毫秒数，与对应 CSS 退场时长一致。所属模块：`packages/mini-app-frontend/components/PrefsBar.tsx`、`packages/mini-app-frontend/components/ChatTargetsMenuButtonList.tsx`、`packages/mini-app-frontend/components/ChatTargetsMemberPanels.tsx` 与 `packages/mini-app-frontend/components/ChatTargetsModal.tsx`。
  */
 export const MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS: number = 180;
 

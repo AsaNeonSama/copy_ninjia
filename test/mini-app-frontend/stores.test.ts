@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  CHAT_QA_ANSWER_MAX_CHARS,
+  CHAT_QA_MAX_PER_CHAT,
+  CHAT_QA_QUESTION_MAX_CHARS,
+  DELETE_MESSAGE_CHAT_TARGET_MAX,
   MINI_APP_BATCH_KICK_MAX_HOURS,
   MINI_APP_BATCH_KICK_MIN_HOURS,
   MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS,
@@ -17,6 +21,7 @@ import {
   MINI_APP_STATUS_POLL_INTERVAL_MS,
   MINI_APP_STATUS_SNAPSHOT_HOLD_AFTER_TOGGLE_MS,
   MINI_APP_TOAST_DURATION_MS,
+  TRANSLATE_CHAT_USER_LIMIT,
 } from "../../packages/mini-app-frontend/consts/miniApp";
 import { ChatTargetsQaEditorForm } from "../../packages/mini-app-frontend/components/ChatTargetsQaPanel";
 import { getMiniAppTranslations } from "../../packages/mini-app-frontend/i18n";
@@ -591,17 +596,11 @@ describe("页面 store", () => {
     store.getState().setBatchKickHours(Number.NaN);
     expect(store.getState().batchKickHours).toBe(MINI_APP_BATCH_KICK_MIN_HOURS);
     route("GET /api/chats/-100", (): Response =>
-      json({
-        detail: {
-          chatId: -100, title: "x",
-          joinedCountsByHour: Array.from({ length: 24 }, (_: unknown, i: number): number => i + 10),
-          batchKickRunning: false, lastBatchKickCompletion: null,
-        },
-      }));
+      json({ detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (_: unknown, i: number): number => i + 10), batchKickRunning: false, lastBatchKickCompletion: null } }));
     store.getState().setBatchKickHours(6);
     expect(store.getState().batchKickHours).toBe(6);
     expect(store.getState().loadingWindowJoined).toBeTrue();
-    await Bun.sleep(560);
+    await Bun.sleep(MINI_APP_BATCH_KICK_WINDOW_DEBOUNCE_MS + 60);
     expect(store.getState().loadingWindowJoined).toBeFalse();
     expect(store.getState().chatDetail?.joinedCountsByHour[5]).toBe(15);
 
@@ -622,21 +621,13 @@ describe("页面 store", () => {
     expect(fetchCalls.some((call: string): boolean => call.includes("/batch-kick"))).toBeFalse();
 
     route("POST /api/chats/-100/batch-kick", (): Response =>
-      json({
-        ok: true, outcome: "accepted", hours: 6, recordCount: 5, message: "BATCH_KICK_ACCEPTED",
-        detail: {
-          chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: 24 }, (): number => 5),
-          batchKickRunning: true, lastBatchKickCompletion: null,
-        },
-      }));
+      json({ ok: true, outcome: "accepted", hours: 6, recordCount: 5, message: "BATCH_KICK_ACCEPTED", detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 5), batchKickRunning: true, lastBatchKickCompletion: null } }));
     const acceptedKick: Promise<void> = store.getState().runBatchKick();
     useMiniAppStore.getState().resolveConfirm(true);
     await acceptedKick;
     expect(store.getState().batchKickSubmitting).toBeFalse();
     expect(store.getState().chatDetail?.batchKickRunning).toBeTrue();
-    expect(useMiniAppStore.getState().toastText).toBe(
-      zh.serverNotice("BATCH_KICK_ACCEPTED", { hours: 6, recordCount: 5 })
-    );
+    expect(useMiniAppStore.getState().toastText).toBe(zh.serverNotice("BATCH_KICK_ACCEPTED", { hours: 6, recordCount: 5 }));
     expect(useMiniAppStore.getState().toastTone).toBe("info");
 
     const completion = {
@@ -644,28 +635,18 @@ describe("页面 store", () => {
       blocked: 0, forbidden: 0, failed: 0, aborted: false, unmanaged: false, completedAt: 1_700_000_000_000,
     };
     route("GET /api/chats/-100", (): Response =>
-      json({
-        detail: {
-          chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: 24 }, (): number => 1),
-          batchKickRunning: false, lastBatchKickCompletion: completion,
-        },
-      }));
+      json({ detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 1), batchKickRunning: false, lastBatchKickCompletion: completion } }));
     jest.useFakeTimers();
     await store.getState().pollRunningBatchKick();
     expect(store.getState().chatDetail?.batchKickRunning).toBeFalse();
     expect(store.getState().chatDetail?.lastBatchKickCompletion).toEqual(completion);
-    expect(useMiniAppStore.getState().toastText).toBe(
-      zh.chats.batchKickCompletedSummary(completion)
-    );
+    expect(useMiniAppStore.getState().toastText).toBe(zh.chats.batchKickCompletedSummary(completion));
     jest.advanceTimersByTime(MINI_APP_TOAST_DURATION_MS);
     expect(useMiniAppStore.getState().toastText).toBe("");
     jest.useRealTimers();
 
     route("POST /api/chats/-100/batch-kick", (): Response =>
-      json({
-        ok: true, outcome: "empty", hours: 6, recordCount: 0, message: "BATCH_KICK_EMPTY",
-        detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: 24 }, (): number => 0), batchKickRunning: false },
-      }));
+      json({ ok: true, outcome: "empty", hours: 6, recordCount: 0, message: "BATCH_KICK_EMPTY", detail: { chatId: -100, title: "x", joinedCountsByHour: Array.from({ length: MINI_APP_BATCH_KICK_MAX_HOURS }, (): number => 0), batchKickRunning: false } }));
     const emptyKick: Promise<void> = store.getState().runBatchKick();
     useMiniAppStore.getState().resolveConfirm(true);
     await emptyKick;
@@ -687,8 +668,16 @@ describe("页面 store", () => {
     expect(store.getState().loadingDetail).toBeFalse();
 
     const emptyTargets = {
-      chatId: -100, qaItems: [], qaMax: 15, qaQuestionMaxChars: 256, qaAnswerMaxChars: 3840,
-      deleteMessageTargets: [], deleteMessageMax: 15, translateTargets: [], translateMax: 5, isTranslationEnabled: true,
+      chatId: -100,
+      qaItems: [],
+      qaMax: CHAT_QA_MAX_PER_CHAT,
+      qaQuestionMaxChars: CHAT_QA_QUESTION_MAX_CHARS,
+      qaAnswerMaxChars: CHAT_QA_ANSWER_MAX_CHARS,
+      deleteMessageTargets: [],
+      deleteMessageMax: DELETE_MESSAGE_CHAT_TARGET_MAX,
+      translateTargets: [],
+      translateMax: TRANSLATE_CHAT_USER_LIMIT,
+      isTranslationEnabled: true,
     };
     route("GET /api/chats/-100/targets", (): Response => json({ targets: emptyTargets }));
     store.getState().toggleTargetsMenu();
@@ -745,13 +734,9 @@ describe("页面 store", () => {
     route("POST /api/chats/-100/targets", (_url: URL, init?: RequestInit): Response => {
       const body = JSON.parse(String(init?.body ?? "{}")) as { readonly action: string };
       return json({
-        ok: true,
-        message: body.action === "setQa" ? "QA_ADDED" : "QA_REMOVED",
+        ok: true, message: body.action === "setQa" ? "QA_ADDED" : "QA_REMOVED",
         detail: { chatId: -100, title: "x" },
-        targets: {
-          ...emptyTargets,
-          qaItems: body.action === "setQa" ? [{ q: "q1", a: "a1" }] : [],
-        },
+        targets: { ...emptyTargets, qaItems: body.action === "setQa" ? [{ q: "q1", a: "a1" }] : [] },
       });
     });
     await store.getState().submitQaPair();
@@ -761,9 +746,7 @@ describe("页面 store", () => {
     expect(store.getState().qaEditSourceQuestion).toBeNull();
     expect(store.getState().chatTargets?.qaItems).toEqual([{ q: "q1", a: "a1" }]);
     const declinedQaDelete: Promise<void> = store.getState().removeQaPair("q1");
-    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
-      zh.chats.confirmDeleteQa("q1")
-    );
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmDeleteQa("q1"));
     useMiniAppStore.getState().resolveConfirm(false);
     await declinedQaDelete;
     expect(store.getState().chatTargets?.qaItems).toEqual([{ q: "q1", a: "a1" }]);
@@ -776,15 +759,11 @@ describe("页面 store", () => {
     store.getState().setDeleteTargetInput("7001");
     await store.getState().submitDeleteTarget();
     expect(store.getState().deleteTargetInput).toBe("");
-    const declinedDeleteTarget: Promise<void> =
-      store.getState().removeDeleteTarget(7001);
-    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
-      zh.chats.confirmRemoveDeleteTarget("ID 7001", 7001)
-    );
+    const declinedDeleteTarget: Promise<void> = store.getState().removeDeleteTarget(7001);
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmRemoveDeleteTarget("ID 7001", 7001));
     useMiniAppStore.getState().resolveConfirm(false);
     await declinedDeleteTarget;
-    const acceptedDeleteTarget: Promise<void> =
-      store.getState().removeDeleteTarget(7001);
+    const acceptedDeleteTarget: Promise<void> = store.getState().removeDeleteTarget(7001);
     useMiniAppStore.getState().resolveConfirm(true);
     await acceptedDeleteTarget;
 
@@ -798,15 +777,11 @@ describe("页面 store", () => {
     expect(store.getState().translateLangMenuOpen).toBeFalse();
     await store.getState().submitTranslateTarget();
     expect(store.getState().translateTargetInput).toBe("");
-    const declinedTranslateTarget: Promise<void> =
-      store.getState().removeTranslateTarget(7002);
-    expect(useMiniAppStore.getState().confirmModal?.message).toBe(
-      zh.chats.confirmRemoveTranslateTarget("ID 7002", 7002)
-    );
+    const declinedTranslateTarget: Promise<void> = store.getState().removeTranslateTarget(7002);
+    expect(useMiniAppStore.getState().confirmModal?.message).toBe(zh.chats.confirmRemoveTranslateTarget("ID 7002", 7002));
     useMiniAppStore.getState().resolveConfirm(false);
     await declinedTranslateTarget;
-    const acceptedTranslateTarget: Promise<void> =
-      store.getState().removeTranslateTarget(7002);
+    const acceptedTranslateTarget: Promise<void> = store.getState().removeTranslateTarget(7002);
     useMiniAppStore.getState().resolveConfirm(true);
     await acceptedTranslateTarget;
 
@@ -871,23 +846,12 @@ describe("页面 store", () => {
     route("GET /api/identities/blocklist", (): Response =>
       json({ page: 1, items: [], whitelistTotal: 1, blocklistTotal: 0 }));
     route("GET /api/picker/result", (): Response =>
-      json({
-        result: {
-          requestId: 11,
-          targetList: "blocklist",
-          addedIds: [],
-          skippedIds: [77001],
-          duplicateIds: [],
-          summary: "IDENTITY_IN_WHITELIST",
-        },
-      }));
+      json({ result: { requestId: 11, targetList: "blocklist", addedIds: [], skippedIds: [77001], duplicateIds: [], summary: "IDENTITY_IN_WHITELIST" } }));
     store.getState().selectAddMode("users");
     await Bun.sleep(30);
     chatCallbacks[1]?.(true);
     await Bun.sleep(MINI_APP_PICKER_POLL_INTERVAL_MS + MINI_APP_MIN_LOADING_MS + 200);
-    expect(useMiniAppStore.getState().toastText).toBe(
-      zh.serverNotice("IDENTITY_IN_WHITELIST", { id: 77001 })
-    );
+    expect(useMiniAppStore.getState().toastText).toBe(zh.serverNotice("IDENTITY_IN_WHITELIST", { id: 77001 }));
     expect(useMiniAppStore.getState().toastTone).toBe("warning");
 
     store.getState().selectAddMode("id");
@@ -919,23 +883,13 @@ describe("页面 store", () => {
 
   test("图库：预览周期内只采纳当前预览的加载回调，下载成功回报文件名，删除失败回报服务端说明", async () => {
     const store = createGalleryStore();
-    store.getState().setPreviewItem({
-      fileName: "a.png",
-      sizeBytes: 100,
-      updatedAt: "2026-04-12 00:00:00",
-      mimeType: "image/png",
-    });
+    store.getState().setPreviewItem({ fileName: "a.png", sizeBytes: 100, updatedAt: "2026-04-12 00:00:00", mimeType: "image/png" });
     expect(store.getState().previewLoaded).toBeFalse();
     store.getState().markPreviewLoaded();
     store.getState().markPreviewLoaded();
     await settleLoading();
     expect(store.getState().previewLoaded).toBeTrue();
-    store.getState().setPreviewItem({
-      fileName: "b.png",
-      sizeBytes: 200,
-      updatedAt: "2026-04-12 00:00:01",
-      mimeType: "image/png",
-    });
+    store.getState().setPreviewItem({ fileName: "b.png", sizeBytes: 200, updatedAt: "2026-04-12 00:00:01", mimeType: "image/png" });
     expect(store.getState().previewLoaded).toBeFalse();
     store.getState().markPreviewLoaded();
     await settleLoading();
@@ -945,11 +899,7 @@ describe("页面 store", () => {
     expect(store.getState().previewLoaded).toBeTrue();
 
     (globalThis as { Telegram?: unknown }).Telegram = {
-      WebApp: {
-        downloadFile: (_params: unknown, callback: (accepted: boolean) => void): void => {
-          callback(true);
-        },
-      },
+      WebApp: { downloadFile: (_params: unknown, callback: (accepted: boolean) => void): void => callback(true) },
     };
     route("HEAD /api/gallery/download/a.png", (): Response => new Response(null, { status: 200 }));
     await store.getState().downloadImage("a.png");

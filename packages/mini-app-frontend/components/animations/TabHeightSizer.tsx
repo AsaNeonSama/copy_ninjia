@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
+import { MINI_APP_TAB_HEIGHT_TRANSITION } from "../../consts/animation";
 import {
   MINI_APP_CHAT_TARGET_KINDS,
-  MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
   MINI_APP_TAB_HEIGHT_CLEANUP_MS,
-  MINI_APP_TAB_HEIGHT_TRANSITION_MS,
 } from "../../consts/miniApp";
 import type { MiniAppChatTargetKind } from "../../types/miniApp";
 
 /** 支持读取像素高度并写入行内高度过渡样式的折叠面板或弹窗内容容器最小 DOM 接口。 */
 export interface MeasurableBodyElement {
+  /** 读取元素几何矩形信息（优先读取保留亚像素精度的真实高度）。 */
+  readonly getBoundingClientRect?: () => {
+    readonly height: number;
+  };
   /** 元素包含边框与内边距的像素高度。 */
   readonly offsetHeight?: number;
   /** 元素内容总像素高度（不受外层 `height: 0` 裁切影响）。 */
@@ -55,7 +58,8 @@ export interface ScrollableModalBodyElement {
 }
 
 /**
- * 读取折叠面板或弹窗内容容器的当前像素高度（优先取 `offsetHeight`，在非真实 DOM 测试环境下安全返回 `0`）。
+ * 读取折叠面板或弹窗内容容器的当前像素高度（优先取 `getBoundingClientRect().height` 保留亚像素精度，
+ * 回退取 `offsetHeight` 或 `scrollHeight`，在非真实 DOM 测试环境下安全返回 `0`）。
  *
  * @param element 内容容器 DOM 节点
  * @returns 像素高度
@@ -64,6 +68,12 @@ export function readElementBodyHeight(
   element: MeasurableBodyElement | null
 ): number {
   if (element === null) return 0;
+  if (typeof element.getBoundingClientRect === "function") {
+    const rectHeight: number = element.getBoundingClientRect().height;
+    if (Number.isFinite(rectHeight) && rectHeight > 0) {
+      return rectHeight;
+    }
+  }
   const offset: number = element.offsetHeight ?? 0;
   if (offset > 0) return offset;
   return element.scrollHeight ?? 0;
@@ -145,17 +155,13 @@ export interface TabHeightSizerProps {
   readonly children: React.ReactNode;
 }
 
-/** 弹窗标签页外层容器 `height` 过渡的预拼装 CSS `transition` 声明。 */
-const TAB_HEIGHT_TRANSITION: string = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
-
 /**
- * 返回弹窗标签页外层容器 `height` 过渡的 CSS `transition` 声明，由 `MINI_APP_TAB_HEIGHT_TRANSITION_MS`
- * 与 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 拼接 `cubic-bezier(...)`，与 `frameMotion` 共用同一三次贝塞尔缓动控制点。
+ * 返回弹窗标签页外层容器 `height` 过渡的 CSS `transition` 声明（对应 `MINI_APP_TAB_HEIGHT_TRANSITION`，与 `frameMotion` 共用同一三次贝塞尔缓动控制点）。
  *
  * @returns CSS `height` 过渡声明字符串
  */
 export function formatTabHeightTransition(): string {
-  return TAB_HEIGHT_TRANSITION;
+  return MINI_APP_TAB_HEIGHT_TRANSITION;
 }
 
 /**
@@ -271,8 +277,7 @@ export function syncTabHeightTransitionEffect({
 }
 
 /**
- * 在弹窗内切换不同标签页或首次注水完成时测量前后像素高度，写入绑定 `MINI_APP_FLIP_COLLAPSE_EASING_POINTS` 与
- * `MINI_APP_TAB_HEIGHT_TRANSITION_MS` 的行内 CSS `height` 过渡，按标签顺序附加方向切入类名，
+ * 在弹窗内切换不同标签页或首次注水完成时测量前后像素高度，写入基于 `MINI_APP_TAB_HEIGHT_TRANSITION` 的行内 CSS `height` 过渡，按标签顺序附加方向切入类名，
  * 并在 `MINI_APP_TAB_HEIGHT_CLEANUP_MS` 后清除行内高度样式恢复自适应高度。
  *
  * @param props 高度过渡容器属性

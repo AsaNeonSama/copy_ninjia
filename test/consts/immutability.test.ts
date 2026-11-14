@@ -690,11 +690,19 @@ import {
   MINI_APP_CHATS_PAGE_SIZE_OPTIONS,
   MINI_APP_CHAT_TARGET_KINDS as FRONTEND_MINI_APP_CHAT_TARGET_KINDS,
   MINI_APP_FEATURE_KEYS as FRONTEND_MINI_APP_FEATURE_KEYS,
+  MINI_APP_FLIP_BOUNDARY_CLASS_NAMES,
+  MINI_APP_FLIP_BOUNDARY_TAG_NAMES,
+  MINI_APP_FLIP_COLLAPSE_EASING_POINTS,
+  MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES,
+  MINI_APP_FLIP_TRIGGER_CLASS_NAMES,
+  MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS,
   MINI_APP_GALLERY_PAGE_SIZE_OPTIONS,
   MINI_APP_IDENTITY_ADD_MODES,
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS,
   MINI_APP_LANGUAGES,
   MINI_APP_MESSAGES_PAGE_SIZE_OPTIONS,
+  MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES,
+  MINI_APP_STATUS_SKELETON_MEMORY_INDICES,
   MINI_APP_TAB_KEYS,
   MINI_APP_TARGETS_SKELETON_ROW_INDICES,
   MINI_APP_THEME_MODES,
@@ -745,6 +753,22 @@ function assertMiniAppConstantsReadonly(): void {
   MINI_APP_CHAT_TARGETS_MUTATION_ACTIONS.push("setQa");
   // @ts-expect-error 群内目标弹窗数据条目骨架行序号表禁止调用方增删。
   MINI_APP_TARGETS_SKELETON_ROW_INDICES.push(3);
+  // @ts-expect-error 折叠动画缓动控制点元组禁止调用方改写。
+  MINI_APP_FLIP_COLLAPSE_EASING_POINTS[0] = 0.5;
+  // @ts-expect-error 折叠遍历边界标签集合禁止调用方增删。
+  MINI_APP_FLIP_BOUNDARY_TAG_NAMES.push("DIV");
+  // @ts-expect-error 折叠遍历边界类名集合禁止调用方增删。
+  MINI_APP_FLIP_BOUNDARY_CLASS_NAMES.push("extra");
+  // @ts-expect-error 配对触发器回退类名集合禁止调用方增删。
+  MINI_APP_FLIP_TRIGGER_CLASS_NAMES.push("extra");
+  // @ts-expect-error 默认开启内层透明度渐变的折叠类名集合禁止调用方增删。
+  MINI_APP_FLIP_FADE_INNER_GRID_CLASS_NAMES.push("extra");
+  // @ts-expect-error 程序跟滚中断事件名列表禁止调用方增删。
+  MINI_APP_FOLLOW_SCROLL_ABORT_EVENTS.push("keydown");
+  // @ts-expect-error 实时状态骨架能力行序号表禁止调用方增删。
+  MINI_APP_STATUS_SKELETON_CAPABILITY_INDICES.push(6);
+  // @ts-expect-error 实时状态骨架内存卡片序号表禁止调用方增删。
+  MINI_APP_STATUS_SKELETON_MEMORY_INDICES.push(3);
   // @ts-expect-error 名单分页档位列表禁止调用方增删。
   MINI_APP_IDENTITY_PAGE_SIZE_OPTIONS.push(50);
   // @ts-expect-error 图库分页档位列表禁止调用方增删。

@@ -109,14 +109,14 @@ export interface MiniAppChatsStoreState {
   readonly toggleTargetsMenu: () => void;
   /** 关闭「目标与问答」下拉菜单。 */
   readonly closeTargetsMenu: () => void;
-  /** 打开指定类别的目标管理弹窗并拉取最新目标清单。 */
+  /** 打开指定类别的目标管理弹窗；当前群已持有缓存清单时静默校验更新，未缓存时进入加载骨架态。 */
   readonly openTargetsModal: (kind: MiniAppChatTargetKind) => void;
   /** 在已打开的目标管理弹窗内切换类别标签并收起问答编辑器及目标添加菜单。 */
   readonly switchTargetsModalTab: (kind: MiniAppChatTargetKind) => void;
   /** 关闭目标管理弹窗。 */
   readonly closeTargetsModal: () => void;
-  /** 拉取当前群的目标管理清单。 */
-  readonly loadChatTargets: () => Promise<void>;
+  /** 拉取当前群的目标管理清单；传 `silent = true` 时保留现有列表静默刷新，不置 `loadingTargets`。 */
+  readonly loadChatTargets: (silent?: boolean) => Promise<void>;
   /** 展开问答对的触发问题与自动回答编辑面板。 */
   readonly openQaEditor: () => void;
   /** 收起问答对编辑面板并清空输入框。 */
@@ -466,6 +466,16 @@ export function createChatsStore(): MiniAppChatsStore {
                 selectedChatId: null,
                 chatDetail: null,
                 loadingDetail: false,
+                botPermsExpanded: false,
+                targetsMenuOpen: false,
+                activeTargetsModal: null,
+                chatTargets: null,
+                loadingTargets: false,
+                mutatingTargets: false,
+                qaEditorOpen: false,
+                targetAddMenuOpen: false,
+                targetIdFormOpen: false,
+                translateLangMenuOpen: false,
                 chats: [],
                 loadingList: true,
                 togglingFeature: null,
@@ -559,6 +569,16 @@ export function createChatsStore(): MiniAppChatsStore {
                 selectedChatId: null,
                 chatDetail: null,
                 loadingDetail: false,
+                botPermsExpanded: false,
+                targetsMenuOpen: false,
+                activeTargetsModal: null,
+                chatTargets: null,
+                loadingTargets: false,
+                mutatingTargets: false,
+                qaEditorOpen: false,
+                targetAddMenuOpen: false,
+                targetIdFormOpen: false,
+                translateLangMenuOpen: false,
                 chats: [],
                 loadingList: true,
               });

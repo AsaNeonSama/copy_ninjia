@@ -1,16 +1,18 @@
 /**
- * Mini App 前端名单弹窗 Tab 切换高度与方向过渡、平行四边形与异形多边形骨架屏、电流感刷新电弧扫描、
- * 按钮内水平三点加载块、QA 问答对卡片结构、权限抽屉、平行四边形拦截诊断页、认证门控（含锁定态顶层同级 Toast）、
- * 受管群详情页顶层同级名单弹窗与验证器页面渲染，以及侧栏纯合成层过渡、平行四边形/异形切角按钮与门控卡片几何规则、
- * 暗色多层对比令牌、缓动曲线与响应式断点核验。
+ * Mini App 前端名单弹窗 Tab 切换亚像素高度与方向过渡、平行四边形与异形多边形骨架屏、电流感刷新电弧扫描、
+ * 按钮内水平三点加载块、QA 问答对卡片结构、权限抽屉、平行四边形拦截诊断页、认证门控（含错误折叠与锁定态顶层同级 Toast）、
+ * 根组件常驻确认弹窗与连续序号重播、受管群页跨视图保活名单弹窗与验证器页面渲染，以及侧栏/弹窗纯合成层无缩放过渡、
+ * 退场专用缓动曲线、一体式卡片恒定底边框、平行四边形/异形切角按钮与门控卡片几何规则、暗色多层对比令牌与响应式断点核验。
  */
 
 import { describe, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { App } from "../../packages/mini-app-frontend/App";
 import { LoadingDotsWave } from "../../packages/mini-app-frontend/components/animations/LoadingDotsWave";
 import {
   formatTabHeightTransition,
+  readElementBodyHeight,
   resolveTabSlideDirectionClass,
   syncTabHeightTransitionEffect,
   TabHeightSizer,
@@ -19,7 +21,9 @@ import type { MeasurableBodyElement } from "../../packages/mini-app-frontend/com
 import { CapabilityBlock } from "../../packages/mini-app-frontend/components/CapabilityBlock";
 import { ChatFeatureListCard } from "../../packages/mini-app-frontend/components/ChatFeatureListCard";
 import { ChatTargetsModal } from "../../packages/mini-app-frontend/components/ChatTargetsModal";
+import { ConfirmModal } from "../../packages/mini-app-frontend/components/ConfirmModal";
 import { PermissionDrawer } from "../../packages/mini-app-frontend/components/PermissionDrawer";
+import { Toast } from "../../packages/mini-app-frontend/components/Toast";
 import { ChatDetailSkeleton } from "../../packages/mini-app-frontend/components/skeletons/ChatDetailSkeleton";
 import { ChatTargetsListSkeleton } from "../../packages/mini-app-frontend/components/skeletons/ChatTargetsListSkeleton";
 import { GalleryImageSkeleton } from "../../packages/mini-app-frontend/components/skeletons/GalleryImageSkeleton";
@@ -28,6 +32,10 @@ import { LoadingBox } from "../../packages/mini-app-frontend/components/skeleton
 import { MessageSkeletonRows } from "../../packages/mini-app-frontend/components/skeletons/MessageSkeletonRows";
 import { StatusSkeleton } from "../../packages/mini-app-frontend/components/skeletons/StatusSkeleton";
 import { TotpSkeleton } from "../../packages/mini-app-frontend/components/skeletons/TotpSkeleton";
+import {
+  MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME,
+  MINI_APP_TAB_HEIGHT_TRANSITION,
+} from "../../packages/mini-app-frontend/consts/animation";
 import { VERBATIM_CONTEXT_MAX } from "../../packages/mini-app-frontend/consts/memory";
 import {
   CHAT_QA_ANSWER_MAX_CHARS,
@@ -85,49 +93,21 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       isTranslationEnabled: true,
     } as const;
     const mockDetail = {
-      chatId: -1001,
-      title: "Doro群",
-      isLockdownActive: false,
-      quietRemainingMs: 0,
-      lockdownRemainingMs: 0,
+      chatId: -1001, title: "Doro群", isLockdownActive: false, quietRemainingMs: 0, lockdownRemainingMs: 0,
       activeSessions: { gag: 0, wed: false, verify: 0, qaSet: false },
-      hotMessageCount: 0,
-      hotMessageMax: VERBATIM_CONTEXT_MAX,
-      qaPairCount: 1,
-      deleteMessageTargetCount: 1,
-      translateTargetCount: 1,
-      joinedCountsByHour: [],
-      batchKickRunning: false,
-      lastBatchKickCompletion: null,
-      features: {
-        init: true,
-        aiChat: true,
-        translation: true,
-        adDetect: false,
-        floodControl: false,
-        antiRaid: false,
-        proxySend: false,
-      },
+      hotMessageCount: 0, hotMessageMax: VERBATIM_CONTEXT_MAX,
+      qaPairCount: 1, deleteMessageTargetCount: 1, translateTargetCount: 1,
+      joinedCountsByHour: [], batchKickRunning: false, lastBatchKickCompletion: null,
+      features: { init: true, aiChat: true, translation: true, adDetect: false, floodControl: false, antiRaid: false, proxySend: false },
       botPermissions: null,
     } as const;
     const chatsStore = createChatsStore();
     (chatsStore as { getInitialState: typeof chatsStore.getState }).getInitialState = chatsStore.getState;
     const baseChatState: MiniAppChatsStoreState = {
-      ...chatsStore.getState(),
-      selectedChatId: -1001,
-      chatDetail: mockDetail,
-      chatTargets: mockTargets,
-      loadingTargets: false,
-      mutatingTargets: false,
-      qaEditorOpen: false,
-      qaQuestionInput: "",
-      qaAnswerInput: "",
-      targetAddMenuOpen: false,
-      targetIdFormOpen: false,
-      deleteTargetInput: "",
-      translateTargetInput: "",
-      translateLanguageInput: "cn",
-      translateLangMenuOpen: true,
+      ...chatsStore.getState(), selectedChatId: -1001, chatDetail: mockDetail, chatTargets: mockTargets,
+      loadingTargets: false, mutatingTargets: false, qaEditorOpen: false, qaQuestionInput: "", qaAnswerInput: "",
+      targetAddMenuOpen: false, targetIdFormOpen: false, deleteTargetInput: "", translateTargetInput: "",
+      translateLanguageInput: "cn", translateLangMenuOpen: true,
     };
     const renderModal = (patch: Partial<MiniAppChatsStoreState>): string =>
       renderToStaticMarkup(createElement(ChatTargetsModal, { state: { ...baseChatState, ...patch } }));
@@ -155,7 +135,23 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(beforeModalMarkup.startsWith('<section class="animate-fade-in">')).toBeTrue();
     expect(beforeModalMarkup.endsWith("</section>")).toBeTrue();
 
-    // 验证 QA 问答对编辑提交期间（mutatingTargets: true, loadingTargets: false）保留现有列表与编辑表单，不闪现骨架屏
+    // 验证 ChatsPage 切换至热发言记录或退回群列表时顶层持续同级挂载 ChatTargetsModal
+    chatsStore.setState({ ...baseChatState, viewingMessages: true, activeTargetsModal: "qa" });
+    const messagesWithModalMarkup: string = renderToStaticMarkup(
+      createElement(ChatsPage, { storeFactory: () => chatsStore })
+    );
+    expect(messagesWithModalMarkup).toContain('<div class="confirm-backdrop chat-targets-backdrop ');
+    expect(messagesWithModalMarkup).toContain("chat-targets-modal");
+
+    chatsStore.setState({ ...baseChatState, selectedChatId: null, activeTargetsModal: "qa" });
+    const listWithModalMarkup: string = renderToStaticMarkup(
+      createElement(ChatsPage, { storeFactory: () => chatsStore })
+    );
+    expect(listWithModalMarkup).toContain('<div class="confirm-backdrop chat-targets-backdrop ');
+    expect(listWithModalMarkup).toContain("chat-targets-modal");
+    chatsStore.setState({ ...baseChatState, activeTargetsModal: null });
+
+    // 验证 QA 问答对编辑提交期间（mutatingTargets: true, loadingTargets: false）保留现有列表与编辑表单，不渲染列表骨架屏
     const qaMutatingModalHtml: string = renderModal({
       activeTargetsModal: "qa",
       qaEditorOpen: true,
@@ -390,9 +386,22 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(enabledUploadMarkup).not.toContain("display:none");
   });
 
-  test("TabHeightSizer 高度过渡曲线绑定与新粗野主义硬边骨架屏 / 方形加载块渲染核验", () => {
-    const expectedTransition: string = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
+  test("TabHeightSizer 高度过渡曲线绑定、亚像素高度测量、门禁错误折叠、全局弹窗连续序号与硬边骨架屏核验", async () => {
+    const expectedTransition: string = `height ${MINI_APP_TAB_HEIGHT_TRANSITION_MS / 1_000}s cubic-bezier(${MINI_APP_FLIP_COLLAPSE_EASING_POINTS.join(", ")})`;
+    expect(MINI_APP_TAB_HEIGHT_TRANSITION).toBe(expectedTransition);
     expect(formatTabHeightTransition()).toBe(expectedTransition);
+    expect(
+      readElementBodyHeight({
+        offsetHeight: 180,
+        getBoundingClientRect: (): { readonly height: number } => ({ height: 180.5 }),
+      })
+    ).toBe(180.5);
+    expect(
+      readElementBodyHeight({
+        offsetHeight: 180,
+        getBoundingClientRect: (): { readonly height: number } => ({ height: 0 }),
+      })
+    ).toBe(180);
 
     const prevSetTimeout: typeof globalThis.setTimeout = globalThis.setTimeout;
     const prevClearTimeout: typeof globalThis.clearTimeout = globalThis.clearTimeout;
@@ -443,14 +452,18 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       scheduledTimers[0]?.run();
       expect(sizerStyle).toEqual({ height: "", overflow: "", transition: "" });
 
-      // 首次注水高度变化同样写入快出急停曲线过渡，卸载清理回调立即清除定时器与行内样式
+      // 首次注水高度变化同样写入快出急停曲线过渡，优先采纳 getBoundingClientRect 小数高度，卸载清理回调立即清除定时器与行内样式
       prevTabRef.current = "qa";
       prevHadTargetsRef.current = false;
-      lastHeightRef.current = 156;
-      paneRef.current = { offsetHeight: 228 };
+      lastHeightRef.current = 156.25;
+      paneRef.current = {
+        offsetHeight: 228,
+        getBoundingClientRect: (): { readonly height: number } => ({ height: 228.5 }),
+      };
       const cleanupHydrate: (() => void) | undefined = runSizer("qa", true);
       expect(sizerStyle.transition).toBe(expectedTransition);
-      expect(sizerStyle.height).toBe("228px");
+      expect(sizerStyle.height).toBe("228.5px");
+      expect(lastHeightRef.current).toBe(228.5);
       cleanupHydrate?.();
       expect(clearedTimerIds).toContain(scheduledTimers[1]?.id ?? -1);
       expect(sizerStyle).toEqual({ height: "", overflow: "", transition: "" });
@@ -535,6 +548,10 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       expect(passwordGateMarkup).toContain('class="card auth-gate-card"');
       expect(passwordGateMarkup).toContain('type="password"');
       expect(passwordGateMarkup).toContain(
+        `class="${MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME} " aria-hidden="true"`
+      );
+      expect(passwordGateMarkup).not.toContain("auth-gate-error");
+      expect(passwordGateMarkup).toContain(
         `aria-busy="false"><span>${zhTranslations.gate.passwordSubmitButton}</span></button>`
       );
       expect(passwordGateMarkup).not.toContain("join-clean-loading-dots");
@@ -549,6 +566,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       expect(totpGateMarkup).toContain('class="card auth-gate-card"');
       expect(totpGateMarkup).toContain('inputMode="numeric"');
       expect(totpGateMarkup).toContain('maxLength="6"');
+      expect(totpGateMarkup).toContain(`${MINI_APP_INLINE_NOTICE_GRID_CLASS_NAME} expanded`);
       expect(totpGateMarkup).toContain('<div class="auth-gate-error">验证码无效</div>');
       expect(totpGateMarkup).toContain(
         `aria-busy="false"><span>${zhTranslations.gate.totpSubmitButton}</span></button>`
@@ -562,6 +580,40 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       expect(busyGateMarkup).toContain('aria-busy="true"');
       expect(busyGateMarkup).toContain('><span class="join-clean-loading-dots loading-dots-wave"');
       expect(busyGateMarkup).not.toContain(`<span>${zhTranslations.gate.totpSubmitButton}</span>`);
+
+      // 验证连续触发 ConfirmModal / Toast 递增序号，且 App 在非 checking 阶段顶层常驻挂载 ConfirmModal 并在 logout 时以取消结算
+      useMiniAppStore.setState({ gateState: "checking" });
+      expect(renderToStaticMarkup(createElement(App))).toBe("");
+      useMiniAppStore.setState({ gateState: "unlocked" });
+      const firstConfirm: Promise<boolean> = useMiniAppStore
+        .getState()
+        .requestConfirm("首次确认", "danger");
+      const firstConfirmSeq: number | undefined = useMiniAppStore.getState().confirmModal?.requestSeq;
+      const secondConfirm: Promise<boolean> = useMiniAppStore
+        .getState()
+        .requestConfirm("再次确认", "primary");
+      expect(await firstConfirm).toBeFalse();
+      const secondConfirmSeq: number | undefined = useMiniAppStore.getState().confirmModal?.requestSeq;
+      expect(typeof firstConfirmSeq).toBe("number");
+      expect(secondConfirmSeq).toBe((firstConfirmSeq ?? 0) + 1);
+      const unlockedWithConfirmMarkup: string = renderToStaticMarkup(createElement(App));
+      expect(unlockedWithConfirmMarkup).toContain("app-shell");
+      expect(unlockedWithConfirmMarkup).toContain("再次确认");
+      expect(renderToStaticMarkup(createElement(ConfirmModal))).toContain("再次确认");
+
+      const baseToastSeq: number = useMiniAppStore.getState().toastSeq;
+      useMiniAppStore.getState().showToast("第一条提示", "info");
+      const firstToastSeq: number = useMiniAppStore.getState().toastSeq;
+      useMiniAppStore.getState().showToast("第二条提示", "warning");
+      const secondToastSeq: number = useMiniAppStore.getState().toastSeq;
+      expect(firstToastSeq).toBe(baseToastSeq + 1);
+      expect(secondToastSeq).toBe(firstToastSeq + 1);
+      expect(renderToStaticMarkup(createElement(Toast))).toContain('class="toast show toast-warning"');
+
+      useMiniAppStore.getState().logout(zhTranslations.lockSessionToast);
+      expect(await secondConfirm).toBeFalse();
+      expect(useMiniAppStore.getState().confirmModal).toBeNull();
+      expect(useMiniAppStore.getState().toastSeq).toBe(secondToastSeq + 1);
 
       useMiniAppStore.getState().logout(zhTranslations.lockSessionToast);
       const lockedGateMarkup: string = renderToStaticMarkup(createElement(AuthGatePage));
@@ -761,7 +813,7 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
       "clip-path: var(--clip-dogear);",
       ".slider:before",
       ".subtab-btn:hover:not(.active)",
-      "transform var(--press-duration) var(--ease-brutal)",
+      "box-shadow var(--press-duration) var(--ease-brutal)",
     ]) {
       expect(primitivesCss).toContain(token);
     }
@@ -782,10 +834,11 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
         shellCss
       )?.[1] ?? "";
     expect(topbarChamferBtnBody).toContain("filter: drop-shadow(2px 2px 0 var(--btn-shadow-color));");
-    expect(topbarChamferBtnBody).toContain("transform var(--press-duration) var(--ease-brutal)");
+    expect(topbarChamferBtnBody).toContain("color var(--press-duration) var(--ease-brutal)");
     const topbarTransition: string = /transition\s*:\s*([^;]+);/u.exec(topbarChamferBtnBody)?.[1] ?? "";
     expect(topbarTransition).not.toBe("");
     expect(topbarTransition).not.toContain("filter");
+    expect(topbarTransition).not.toContain("transform");
 
     const sidebarDrawerBody: string = /(?:^|\n)\.sidebar-drawer\s*\{([^}]*)\}/u.exec(shellCss)?.[1] ?? "";
     expect(sidebarDrawerBody).toContain("box-shadow: var(--shadow-lg);");
@@ -883,5 +936,61 @@ describe("名单弹窗、抽屉与验证器渲染及样式核验", () => {
     expect(identitiesCss).toContain("@media (max-width: 350px)");
     expect(chatsCss).toContain("@media (max-width: 350px)");
     expect(primitivesCss).toContain("@media (min-width: 720px)");
+
+    // 6. 弹窗/浮层/Toast 退场缓动曲线、纯整数 translate3d 无缩放、常驻合成层、顶边锚定与一体式卡片恒定底边框核验
+    const htmlBodyRootRule: string = /html,\s*body,\s*#root\s*\{([^}]*)\}/u.exec(baseCss)?.[1] ?? "";
+    expect(htmlBodyRootRule).toContain("--ease-exit: cubic-bezier(0.32, 0, 0.67, 0);");
+    expect(baseCss.slice(0, baseCss.indexOf("* {"))).not.toContain("--ease-exit");
+    expect(authCss.slice(authCss.indexOf(".auth-gate-wrap {"))).toContain("#root > .cf-error-page");
+    expect(authCss).toContain("miniapp-backdrop-fade-in");
+    expect(authCss).not.toMatch(/\.inline-notice-collapse-grid[^{]*\{[^}]*margin-top\s*:/u);
+    expect(authCss).not.toContain(".auth-gate-form > .inline-notice-collapse-grid");
+    for (const [cssSource, keyframeName] of [
+      [overlaysCss, "miniapp-toast-in"], [overlaysCss, "miniapp-toast-out"],
+      [overlaysCss, "miniapp-modal-pop"], [overlaysCss, "miniapp-modal-pop-out"],
+      [shellCss, "miniapp-popover-drop"], [shellCss, "miniapp-popover-drop-out"],
+      [chatsCss, "miniapp-targets-stamp-in"], [chatsCss, "miniapp-targets-snap-out"],
+    ] as const) {
+      const kfBody: string = new RegExp(`@keyframes\\s+${keyframeName}\\s*\\{([\\s\\S]*?\\}\\s*)\\}`, "u").exec(cssSource)?.[1] ?? "";
+      expect(kfBody).toContain("translate3d(");
+      expect(kfBody).not.toContain("scale(");
+      expect(kfBody).not.toContain("translateX(-50%)");
+    }
+    const toastBaseBody: string = /(?:^|\n)\.toast\s*\{([^}]*)\}/u.exec(overlaysCss)?.[1] ?? "";
+    for (const token of ["left: 0;", "right: 0;", "margin-inline: auto;"]) expect(toastBaseBody).toContain(token);
+    expect(toastBaseBody).not.toContain("translateX(-50%)");
+    expect(toastBaseBody).not.toMatch(/(?<![\w-])transition\s*:/u);
+    for (const [cssSource, selectorPattern] of [
+      [overlaysCss, /(?:^|\n)\.toast\.show\s*\{([^}]*)\}/u], [overlaysCss, /(?:^|\n)\.confirm-dialog\s*\{([^}]*)\}/u],
+      [shellCss, /(?:^|\n)\.lang-menu-popover\s*\{([^}]*)\}/u], [chatsCss, /(?:^|\n)\.chat-targets-modal\s*\{([^}]*)\}/u],
+      [chatsCss, /(?:^|\n)\.chat-targets-menu-popover\s*\{([^}]*)\}/u], [chatsCss, /(?:^|\n)\.chat-targets-lang-popover\s*\{([^}]*)\}/u],
+    ] as const) {
+      const layerBody: string = selectorPattern.exec(cssSource)?.[1] ?? "";
+      expect(layerBody).toContain("will-change: transform, opacity;");
+      expect(layerBody).toContain("transform: translate3d(0, 0, 0);");
+      expect(layerBody).toContain("backface-visibility: hidden;");
+    }
+    for (const [cssSource, closingPattern] of [
+      [overlaysCss, /(?:^|\n)\.toast\.closing\s*\{([^}]*)\}/u], [overlaysCss, /(?:^|\n)\.confirm-backdrop\.closing::before\s*\{([^}]*)\}/u],
+      [overlaysCss, /(?:^|\n)\.confirm-dialog\.closing\s*\{([^}]*)\}/u], [shellCss, /(?:^|\n)\.lang-menu-popover\.closing\s*\{([^}]*)\}/u],
+      [chatsCss, /(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\.closing::before\s*\{([^}]*)\}/u],
+      [chatsCss, /(?:^|\n)\.chat-targets-modal\.closing\s*\{([^}]*)\}/u],
+      [chatsCss, /(?:^|\n)\.chat-targets-menu-popover\.closing\s*\{([^}]*)\}/u],
+      [chatsCss, /(?:^|\n)\.chat-targets-lang-popover\.closing\s*\{([^}]*)\}/u],
+    ] as const) {
+      expect(closingPattern.exec(cssSource)?.[1] ?? "").toContain("var(--ease-exit");
+    }
+    expect(/(?:^|\n)\.confirm-backdrop\.chat-targets-backdrop\s*\{([^}]*)\}/u.exec(chatsCss)?.[1] ?? "").toContain("align-items: flex-start;");
+    expect(chatsCss).toContain(".chat-targets-qa-collapse-grid.flip-closing:has(.chat-targets-lang-popover)");
+    expect(chatsCss).toContain(".chat-targets-qa-collapse-grid.flip-closing > .chat-targets-qa-collapse-inner:has(.chat-targets-lang-popover)");
+    expect(identitiesCss).not.toContain("miniapp-perm-drawer-stamp");
+    for (const match of statusCss.matchAll(/[^{}]*>\s*\.cap-header-btn\s*\{([^}]*)\}/gu)) {
+      expect(match[1] ?? "").not.toMatch(/border-bottom\s*:\s*(?:none|var\(--border-w-sm\))/u);
+    }
+    expect(statusCss).not.toMatch(/\[data-theme="dark"\]\s*\.cap-collapse-inner\s*\{[^}]*border-top\s*:/u);
+    for (const match of chatsCss.matchAll(/[^{}]*>\s*\.bot-perm-granted-toggle\s*\{([^}]*)\}/gu)) {
+      expect(match[1] ?? "").not.toMatch(/border-bottom\s*:\s*(?:none|var\(--border-w-sm\))/u);
+    }
+    expect(/\[data-theme="dark"\]\s*\.bot-perm-collapse-inner\s*\{([^}]*)\}/u.exec(chatsCss)?.[1] ?? "").not.toMatch(/border-top\s*:\s*2px/u);
   });
 });

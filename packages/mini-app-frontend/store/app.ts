@@ -51,6 +51,8 @@ export interface MiniAppConfirmModalState {
   readonly message: string;
   /** 确认按钮色调（默认 `"danger"`）。 */
   readonly tone: "danger" | "primary";
+  /** 递增的确认请求序号（驱动连续确认请求重新挂载节点播放进入动画）。 */
+  readonly requestSeq: number;
   /** 内部 Promise 结算回调。 */
   readonly resolve: (accepted: boolean) => void;
 }
@@ -74,6 +76,8 @@ export interface MiniAppUiStoreState {
   readonly statusReady: boolean;
   readonly toastText: string;
   readonly toastTone: MiniAppToastTone;
+  /** 递增的 Toast 展示序号（驱动连续提示重新挂载节点播放进入动画）。 */
+  readonly toastSeq: number;
   readonly confirmModal: Readonly<MiniAppConfirmModalState> | null;
   /** 密码 / TOTP 门禁输入框当前值。 */
   readonly passwordInput: string;
@@ -112,7 +116,7 @@ export interface MiniAppUiStoreState {
   ) => void;
   /**
    * 锁定控制台：清除会话到期计时器与本地会话令牌，以取消结算待确认弹窗，收起侧栏与语言菜单，
-   * 回到密码门禁并把原因同时写入门禁错误与警告 Toast。
+   * 回到密码门禁，把非空原因写入门禁错误与警告 Toast（`MINI_APP_TOAST_DURATION_MS` 后自动清除 Toast）。
    */
   readonly lockSession: (reason: string) => void;
   /**
@@ -178,6 +182,24 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
       store.getInitialState = get;
       let toastTimer: ReturnType<typeof setTimeout> | null = null;
       let sessionTimer: ReturnType<typeof setTimeout> | null = null;
+      let confirmRequestSeq: number = 0;
+
+      const clearToastTimer = (): void => {
+        if (toastTimer !== null) {
+          clearTimeout(toastTimer);
+          toastTimer = null;
+        }
+      };
+
+      const scheduleToastDismiss = (): void => {
+        clearToastTimer();
+        const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
+          toastTimer = null;
+          set({ toastText: "", toastTone: "info" });
+        }, MINI_APP_TOAST_DURATION_MS);
+        timer?.unref?.();
+        toastTimer = timer;
+      };
 
       const clearSessionTimer = (): void => {
         if (sessionTimer !== null) {
@@ -190,16 +212,13 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         clearSessionTimer();
         clearMiniAppAssetToken();
         clearMiniAppSessionToken();
-        const current: Readonly<MiniAppConfirmModalState> | null = get().confirmModal;
-        if (current !== null) {
-          current.resolve(false);
-        }
+        get().resolveConfirm(false);
       };
 
       const scheduleSessionExpiry = (expiresAt: number): void => {
         clearSessionTimer();
         const remainingMs: number = Math.max(1_000, expiresAt - Date.now());
-        sessionTimer = setTimeout((): void => {
+        const timer: ReturnType<typeof setTimeout> = setTimeout((): void => {
           const latestExpiresAt: number = readMiniAppSessionExpiresAt();
           if (latestExpiresAt > Date.now() && latestExpiresAt > expiresAt) {
             set({ sessionExpiresAt: latestExpiresAt });
@@ -210,6 +229,8 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             getMiniAppTranslations(get().language).sessionExpiredToast
           );
         }, remainingMs);
+        timer?.unref?.();
+        sessionTimer = timer;
       };
 
       return {
@@ -225,6 +246,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         statusReady: false,
         toastText: "",
         toastTone: "info",
+        toastSeq: 0,
         confirmModal: null,
         passwordInput: "",
         passwordBusy: false,
@@ -276,10 +298,15 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         },
 
         showToast: (text: string, tone: MiniAppToastTone = "info"): void => {
-          set({ toastText: text, toastTone: tone });
+          set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => ({
+            toastText: text,
+            toastTone: tone,
+            toastSeq: text.length > 0 ? state.toastSeq + 1 : state.toastSeq,
+          }));
         },
 
         clearToast: (): void => {
+          clearToastTimer();
           set({ toastText: "", toastTone: "info" });
         },
 
@@ -291,11 +318,14 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           if (prev !== null) {
             prev.resolve(false);
           }
+          confirmRequestSeq += 1;
+          const requestSeq: number = confirmRequestSeq;
           return new Promise<boolean>((resolve: (accepted: boolean) => void): void => {
             set({
               confirmModal: {
                 message,
                 tone,
+                requestSeq,
                 resolve,
               },
             });
@@ -327,6 +357,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             extractServerNoticeParams(metaSource)
           );
           if (message.includes("[PASSWORD_LOCKED]")) {
+            clearToastTimer();
             clearActiveSessionState();
             set({
               gateState: "checking",
@@ -344,13 +375,11 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             return;
           }
           get().showToast(localized, tone);
-          if (toastTimer !== null) {
-            clearTimeout(toastTimer);
+          if (localized.length > 0) {
+            scheduleToastDismiss();
+          } else {
+            clearToastTimer();
           }
-          toastTimer = setTimeout((): void => {
-            get().clearToast();
-            toastTimer = null;
-          }, MINI_APP_TOAST_DURATION_MS);
         },
 
         lockSession: (reason: string): void => {
@@ -358,7 +387,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
           const localizedReason: string = getMiniAppTranslations(
             get().language
           ).serverNotice(reason);
-          set({
+          set((state: MiniAppUiStoreState): Partial<MiniAppUiStoreState> => ({
             passwordInput: "",
             passwordError: localizedReason,
             sessionExpiresAt: 0,
@@ -369,7 +398,14 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
             gateState: "password",
             toastText: localizedReason,
             toastTone: "warning",
-          });
+            toastSeq:
+              localizedReason.length > 0 ? state.toastSeq + 1 : state.toastSeq,
+          }));
+          if (localizedReason.length > 0) {
+            scheduleToastDismiss();
+          } else {
+            clearToastTimer();
+          }
         },
 
         logout: (reason: string): void => {
@@ -467,10 +503,7 @@ export const useMiniAppStore: UseBoundStore<StoreApi<MiniAppUiStoreState>> =
         },
 
         clearTimers: (): void => {
-          if (toastTimer !== null) {
-            clearTimeout(toastTimer);
-            toastTimer = null;
-          }
+          clearToastTimer();
           clearSessionTimer();
         },
       };
@@ -501,6 +534,7 @@ export function resetMiniAppStoreForTest(): void {
     statusReady: false,
     toastText: "",
     toastTone: "info",
+    toastSeq: 0,
     confirmModal: null,
     passwordInput: "",
     passwordBusy: false,

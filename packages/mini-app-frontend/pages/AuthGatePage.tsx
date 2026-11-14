@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import type React from "react";
+import { InlineNoticeCollapse } from "../components/animations/CollapseGrid";
 import { LoadingDotsWave } from "../components/animations/LoadingDotsWave";
 import { PrefsBar } from "../components/PrefsBar";
 import { Toast } from "../components/Toast";
@@ -14,7 +15,7 @@ import type { MiniAppLanguage, TelegramWebApp } from "../types/miniApp";
 import type { MiniAppAuthMode } from "../types/miniAppTotp";
 
 /**
- * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态，提交核验期间按钮展示三枚方形加载块动效；底部 Toast 与门禁主容器同级挂载于顶层 Fragment 下，保持视口固定定位）。
+ * 渲染访问密码或 Google Authenticator 6 位动态码门禁页（按服务端返回的登录模式切换输入形态，表单错误提示经 `InlineNoticeCollapse` 展开与收起，提交核验期间按钮展示三枚方形加载块动效；底部 Toast 与门禁主容器同级挂载于顶层 Fragment 下，直接相对视口固定定位）。
  *
  * @returns React 节点
  */
@@ -40,6 +41,8 @@ export function AuthGatePage(): React.JSX.Element {
   const submitCredential: () => Promise<void> = useMiniAppStore(
     (state: MiniAppUiStoreState): (() => Promise<void>) => state.submitCredential
   );
+  const activePasswordError: string | null =
+    passwordError !== null && passwordError.length > 0 ? passwordError : null;
   const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
   const webApp: Readonly<TelegramWebApp> | undefined = getTelegramWebApp();
   const unsafeUserId: number | undefined = webApp?.initDataUnsafe?.user?.id;
@@ -92,9 +95,11 @@ export function AuthGatePage(): React.JSX.Element {
                 );
               }}
             />
-            {passwordError !== null
-              ? <div className="auth-gate-error">{passwordError}</div>
-              : null}
+            <InlineNoticeCollapse activeValue={activePasswordError}>
+              {(errorText: string): React.JSX.Element => (
+                <div className="auth-gate-error">{errorText}</div>
+              )}
+            </InlineNoticeCollapse>
             <button
               type="submit"
               className={`btn primary auth-gate-submit ${passwordBusy ? "is-loading" : ""}`}

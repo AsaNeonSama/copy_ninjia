@@ -1,9 +1,10 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type React from "react";
 import {
   CHAT_QA_MAX_PER_CHAT,
   DELETE_MESSAGE_CHAT_TARGET_MAX,
   MINI_APP_CHAT_TARGET_KINDS,
+  MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS,
   MINI_APP_TARGETS_MODAL_CLOSE_MS,
   TRANSLATE_CHAT_USER_LIMIT,
 } from "../consts/miniApp";
@@ -30,7 +31,10 @@ import type {
   MeasurableBodyElement,
   ScrollableModalBodyElement,
 } from "./animations/TabHeightSizer";
-import { useDelayedUnmount } from "./animations/useDelayedUnmount";
+import {
+  useClosingSnapshot,
+  useDelayedUnmount,
+} from "./animations/useDelayedUnmount";
 import type { DelayedUnmountState } from "./animations/useDelayedUnmount";
 import {
   ChatTargetsMemberAddForm,
@@ -84,71 +88,149 @@ export function resolveTargetKindCounts(
 }
 
 /**
- * 渲染受管群详情页的「目标与问答」管理弹窗（支持问答对、删发言目标、翻译目标的查看、新增与删除）。
+ * 生成目标弹窗子面板在激活态或退场过渡期的视图状态：激活态直接返回实时 `state`；
+ * 退场期间返回关闭前捕获的表单与列表快照，并将 `translateLangMenuOpen` 置为 `false`。
  *
- * @param props 组件属性
- * @returns React 节点或 `null`
+ * @param state 当前实时 store 状态
+ * @param snapshotState 关闭前最后一次有效展开态捕获的 store 快照
+ * @param isClosing 当前弹窗是否处于退场过渡期
+ * @returns 供弹窗顶部折叠区与子面板渲染使用的状态对象
  */
-export function ChatTargetsModal({
-  state,
-}: ChatTargetsModalProps): React.JSX.Element | null {
-  const language: MiniAppLanguage = useMiniAppStore(
-    (s: MiniAppUiStoreState): MiniAppLanguage => s.language
-  );
-  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+export function resolveChatTargetsModalPanelState(
+  state: MiniAppChatsStoreState,
+  snapshotState: MiniAppChatsStoreState,
+  isClosing: boolean
+): MiniAppChatsStoreState {
+  if (!isClosing) {
+    return state;
+  }
+  return {
+    ...snapshotState,
+    translateLangMenuOpen: false,
+  };
+}
 
+/** `syncChatTargetsModalCloseReset` 关闭卸载后重置高度记录引用的参数接口。 */
+export interface SyncChatTargetsModalCloseResetOptions {
+  /** 弹窗当前是否处于激活或退场挂载阶段。 */
+  readonly isModalOpen: boolean;
+  /** 上一次渲染的目标类别引用。 */
+  readonly prevTabRef: React.RefObject<MiniAppChatTargetKind | null>;
+  /** 上一次是否已加载目标数据的标记引用。 */
+  readonly prevHadTargetsRef: React.RefObject<boolean>;
+  /** 上一次记录的内容像素高度引用。 */
+  readonly lastHeightRef: React.RefObject<number>;
+}
+
+/**
+ * 在目标弹窗退场动画完成卸载后清空 `TabHeightSizer` 的上次标签、注水标志与高度记录引用。
+ *
+ * @param options 弹窗挂载标志与高度记录引用
+ */
+export function syncChatTargetsModalCloseReset({
+  isModalOpen,
+  prevTabRef,
+  prevHadTargetsRef,
+  lastHeightRef,
+}: SyncChatTargetsModalCloseResetOptions): void {
+  if (!isModalOpen) {
+    prevTabRef.current = null;
+    prevHadTargetsRef.current = false;
+    lastHeightRef.current = 0;
+  }
+}
+
+/** `ChatTargetsModalDialog` 纯展示对话框视图的属性参数。 */
+export interface ChatTargetsModalDialogProps {
+  /** 当前实时 store 状态。 */
+  readonly state: MiniAppChatsStoreState;
+  /** 关闭前捕获的 store 快照状态。 */
+  readonly snapshotState: MiniAppChatsStoreState;
+  /** 当前展示的目标类别。 */
+  readonly displayModalKind: MiniAppChatTargetKind;
+  /** 当前展示的群详情快照。 */
+  readonly displayChatDetail: Readonly<MiniAppChatDetail>;
+  /** 当前展示的群目标管理清单快照。 */
+  readonly displayChatTargets: Readonly<MiniAppChatTargetsView> | null;
+  /** 当前展示的目标清单加载标记。 */
+  readonly displayLoadingTargets: boolean;
+  /** 弹窗是否正处于退场收起阶段。 */
+  readonly isClosing: boolean;
+  /** 语言下拉外部遮罩是否挂载。 */
+  readonly displayLangBackdropOpen: true | null;
+  /** 语言下拉外部遮罩是否处于退场阶段。 */
+  readonly langBackdropClosing: boolean;
+  /** 当前语言的翻译字典。 */
+  readonly t: Readonly<MiniAppTranslations>;
+  /** 弹窗滚动体节点引用。 */
+  readonly modalBodyRef: React.RefObject<ScrollableModalBodyElement | null>;
+  /** 高度过渡外层节点引用。 */
+  readonly sizerRef: React.RefObject<MeasurableBodyElement | null>;
+  /** 高度过渡内层面板节点引用。 */
+  readonly paneRef: React.RefObject<MeasurableBodyElement | null>;
+  /** 上一次记录的内容像素高度引用。 */
+  readonly lastHeightRef: React.RefObject<number>;
+  /** 上一次渲染的目标类别引用。 */
+  readonly prevTabRef: React.RefObject<MiniAppChatTargetKind | null>;
+  /** 上一次是否已加载目标数据的标记引用。 */
+  readonly prevHadTargetsRef: React.RefObject<boolean>;
+  /** 平滑滚动弹窗内容至顶部的回调。 */
+  readonly onScrollToTop: () => void;
+}
+
+/**
+ * 渲染受管群「目标与问答」弹窗的遮罩层、头部操作栏、标签栏、顶部折叠表单与目标列表面板。
+ *
+ * @param props 对话框展示状态与节点引用
+ * @returns React 节点
+ */
+export function ChatTargetsModalDialog({
+  state,
+  snapshotState,
+  displayModalKind,
+  displayChatDetail,
+  displayChatTargets,
+  displayLoadingTargets,
+  isClosing,
+  displayLangBackdropOpen,
+  langBackdropClosing,
+  t,
+  modalBodyRef,
+  sizerRef,
+  paneRef,
+  lastHeightRef,
+  prevTabRef,
+  prevHadTargetsRef,
+  onScrollToTop,
+}: ChatTargetsModalDialogProps): React.JSX.Element {
   const {
     activeTargetsModal,
-    chatDetail,
-    chatTargets,
-    loadingTargets,
     mutatingTargets,
-    qaEditorOpen,
-    targetAddMenuOpen,
+    translateLangMenuOpen,
     openQaEditor,
     openTargetAddMenu,
+    closeTranslateLangMenu,
     switchTargetsModalTab,
     closeTargetsModal,
     loadChatTargets,
   }: MiniAppChatsStoreState = state;
 
-  const modalBodyRef: React.RefObject<ScrollableModalBodyElement | null> =
-    useRef<ScrollableModalBodyElement | null>(null);
-  const sizerRef: React.RefObject<MeasurableBodyElement | null> =
-    useRef<MeasurableBodyElement | null>(null);
-  const paneRef: React.RefObject<MeasurableBodyElement | null> =
-    useRef<MeasurableBodyElement | null>(null);
-  const lastHeightRef: React.RefObject<number> = useRef<number>(0);
-  const prevTabRef: React.RefObject<MiniAppChatTargetKind | null> =
-    useRef<MiniAppChatTargetKind | null>(activeTargetsModal);
-  const prevHadTargetsRef: React.RefObject<boolean> = useRef<boolean>(
-    chatTargets !== null
+  const panelState: MiniAppChatsStoreState = resolveChatTargetsModalPanelState(
+    state,
+    snapshotState,
+    isClosing
   );
-
-  const {
-    displayValue: displayModalKind,
-    isClosing,
-  }: Readonly<DelayedUnmountState<MiniAppChatTargetKind>> = useDelayedUnmount(
-    activeTargetsModal,
-    MINI_APP_TARGETS_MODAL_CLOSE_MS
-  );
-
-  const isModalOpen: boolean =
-    displayModalKind !== null && chatDetail !== null;
-  useModalBodyScrollLock(isModalOpen);
-
-  const handleScrollToTop: () => void = useCallback((): void => {
-    scrollModalBodyToTop(modalBodyRef.current);
-  }, []);
-
-  if (displayModalKind === null || chatDetail === null) {
-    return null;
-  }
 
   const [activeCount, activeMax]: readonly [number, number] =
-    resolveTargetKindCounts(displayModalKind, chatDetail, chatTargets);
+    resolveTargetKindCounts(
+      displayModalKind,
+      displayChatDetail,
+      displayChatTargets
+    );
   const isTopFormOpen: boolean =
-    displayModalKind === "qa" ? qaEditorOpen : targetAddMenuOpen;
+    displayModalKind === "qa"
+      ? panelState.qaEditorOpen
+      : panelState.targetAddMenuOpen;
   const openTopFormButtonLabel: string =
     displayModalKind === "qa"
       ? t.chats.qaOpenEditorButton
@@ -161,6 +243,7 @@ export function ChatTargetsModal({
       className={`confirm-backdrop chat-targets-backdrop ${isClosing ? "closing" : ""}`}
       role="dialog"
       aria-modal="true"
+      aria-hidden={isClosing}
       aria-label={t.chats.targetsKindLabel[displayModalKind]}
       onClick={(): void => {
         if (!mutatingTargets && !isClosing) {
@@ -168,10 +251,25 @@ export function ChatTargetsModal({
         }
       }}
     >
+      {displayLangBackdropOpen !== null ? (
+        <div
+          className={`chat-targets-lang-backdrop ${langBackdropClosing ? "closing" : ""}`}
+          aria-hidden="true"
+          onClick={(event: React.SyntheticEvent<HTMLDivElement>): void => {
+            event.stopPropagation();
+            if (!langBackdropClosing) {
+              closeTranslateLangMenu();
+            }
+          }}
+        />
+      ) : null}
       <div
         className={`chat-targets-modal ${isClosing ? "closing" : ""}`}
         onClick={(event: React.SyntheticEvent<HTMLDivElement>): void => {
           event.stopPropagation();
+          if (translateLangMenuOpen) {
+            closeTranslateLangMenu();
+          }
         }}
       >
         <div className="chat-targets-modal-header">
@@ -181,7 +279,7 @@ export function ChatTargetsModal({
             </div>
             <div className="chat-targets-modal-sub">
               {t.chats.targetsModalSubtitle(
-                chatDetail.title,
+                displayChatDetail.title,
                 activeCount,
                 activeMax
               )}
@@ -191,14 +289,14 @@ export function ChatTargetsModal({
             <button
               type="button"
               className="btn icon-btn"
-              disabled={loadingTargets || mutatingTargets || isClosing}
+              disabled={displayLoadingTargets || mutatingTargets || isClosing}
               onClick={(): void => {
-                void loadChatTargets();
+                void loadChatTargets(false);
               }}
             >
               <RefreshSvgIcon
                 size={14}
-                className={loadingTargets ? "spin-icon" : ""}
+                className={displayLoadingTargets ? "spin-icon" : ""}
               />
               <span>{t.chats.targetsRefreshButton}</span>
             </button>
@@ -219,7 +317,11 @@ export function ChatTargetsModal({
           {MINI_APP_CHAT_TARGET_KINDS.map(
             (kind: MiniAppChatTargetKind): React.JSX.Element => {
               const [count, max]: readonly [number, number] =
-                resolveTargetKindCounts(kind, chatDetail, chatTargets);
+                resolveTargetKindCounts(
+                  kind,
+                  displayChatDetail,
+                  displayChatTargets
+                );
               const isActive: boolean = displayModalKind === kind;
               return (
                 <button
@@ -227,9 +329,10 @@ export function ChatTargetsModal({
                   type="button"
                   role="tab"
                   aria-selected={isActive}
+                  tabIndex={isClosing ? -1 : undefined}
                   className={`chat-targets-tab ${isActive ? "active" : ""}`}
                   onClick={(): void => {
-                    if (kind === activeTargetsModal) {
+                    if (isClosing || kind === activeTargetsModal) {
                       return;
                     }
                     const currentHeight: number =
@@ -266,8 +369,8 @@ export function ChatTargetsModal({
           className="chat-targets-modal-body"
         >
           <TabHeightSizer
-            activeTab={activeTargetsModal}
-            hasTargets={chatTargets !== null && !loadingTargets}
+            activeTab={displayModalKind}
+            hasTargets={displayChatTargets !== null && !displayLoadingTargets}
             sizerRef={sizerRef}
             paneRef={paneRef}
             lastHeightRef={lastHeightRef}
@@ -285,10 +388,17 @@ export function ChatTargetsModal({
                   type="button"
                   className="btn primary icon-btn chat-targets-qa-open-btn"
                   disabled={mutatingTargets}
-                  tabIndex={isTopFormOpen ? -1 : 0}
-                  onClick={
-                    displayModalKind === "qa" ? openQaEditor : openTargetAddMenu
-                  }
+                  tabIndex={isTopFormOpen || isClosing ? -1 : 0}
+                  onClick={(): void => {
+                    if (isClosing) {
+                      return;
+                    }
+                    if (displayModalKind === "qa") {
+                      openQaEditor();
+                    } else {
+                      openTargetAddMenu();
+                    }
+                  }}
                 >
                   <PlusSvgIcon size={14} />
                   <span>{openTopFormButtonLabel}</span>
@@ -303,11 +413,11 @@ export function ChatTargetsModal({
                 fadeInner
               >
                 {displayModalKind === "qa" ? (
-                  <ChatTargetsQaEditorForm state={state} t={t} />
+                  <ChatTargetsQaEditorForm state={panelState} t={t} />
                 ) : (
                   <ChatTargetsMemberAddForm
                     kind={displayModalKind}
-                    state={state}
+                    state={panelState}
                     t={t}
                   />
                 )}
@@ -317,15 +427,15 @@ export function ChatTargetsModal({
             <div key={displayModalKind} className="chat-targets-tab-content">
               {displayModalKind === "qa" ? (
                 <ChatTargetsQaPanel
-                  state={state}
+                  state={panelState}
                   t={t}
-                  onScrollToTop={handleScrollToTop}
+                  onScrollToTop={onScrollToTop}
                 />
               ) : (
                 <ChatTargetsMemberPanels
                   kind={displayModalKind}
-                  chatDetail={chatDetail}
-                  state={state}
+                  chatDetail={displayChatDetail}
+                  state={panelState}
                   t={t}
                 />
               )}
@@ -334,5 +444,112 @@ export function ChatTargetsModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * 渲染受管群详情页的「目标与问答」管理弹窗（支持问答对、删发言目标、翻译目标的查看、新增与删除；
+ * 关闭弹窗、离开详情或切群时保留面板与顶部表单快照完成退场动画，翻译语言下拉的外部点击遮罩与弹窗面板同级挂载于遮罩层内）。
+ *
+ * @param props 组件属性
+ * @returns React 节点或 `null`
+ */
+export function ChatTargetsModal({
+  state,
+}: ChatTargetsModalProps): React.JSX.Element | null {
+  const language: MiniAppLanguage = useMiniAppStore(
+    (s: MiniAppUiStoreState): MiniAppLanguage => s.language
+  );
+  const t: Readonly<MiniAppTranslations> = getMiniAppTranslations(language);
+
+  const {
+    activeTargetsModal,
+    chatDetail,
+    chatTargets,
+    translateLangMenuOpen,
+  }: MiniAppChatsStoreState = state;
+
+  const modalBodyRef: React.RefObject<ScrollableModalBodyElement | null> =
+    useRef<ScrollableModalBodyElement | null>(null);
+  const sizerRef: React.RefObject<MeasurableBodyElement | null> =
+    useRef<MeasurableBodyElement | null>(null);
+  const paneRef: React.RefObject<MeasurableBodyElement | null> =
+    useRef<MeasurableBodyElement | null>(null);
+  const lastHeightRef: React.RefObject<number> = useRef<number>(0);
+  const prevTabRef: React.RefObject<MiniAppChatTargetKind | null> =
+    useRef<MiniAppChatTargetKind | null>(activeTargetsModal);
+  const prevHadTargetsRef: React.RefObject<boolean> = useRef<boolean>(
+    chatTargets !== null
+  );
+
+  const isModalActive: boolean =
+    activeTargetsModal !== null && chatDetail !== null;
+  const {
+    displayValue: displayModalKind,
+    isClosing,
+  }: Readonly<DelayedUnmountState<MiniAppChatTargetKind>> = useDelayedUnmount(
+    isModalActive ? activeTargetsModal : null,
+    MINI_APP_TARGETS_MODAL_CLOSE_MS
+  );
+  const snapshotState: MiniAppChatsStoreState = useClosingSnapshot(
+    state,
+    isModalActive
+  );
+  const displayChatDetail: MiniAppChatDetail | null = snapshotState.chatDetail;
+  const displayChatTargets: MiniAppChatTargetsView | null =
+    snapshotState.chatTargets;
+  const displayLoadingTargets: boolean = snapshotState.loadingTargets;
+  const isLangMenuActive: boolean =
+    isModalActive &&
+    activeTargetsModal === "translate" &&
+    translateLangMenuOpen;
+  const {
+    displayValue: displayLangBackdropOpen,
+    isClosing: langBackdropClosing,
+  }: Readonly<DelayedUnmountState<true>> = useDelayedUnmount(
+    isLangMenuActive ? true : null,
+    MINI_APP_LANG_MENU_CLOSE_ANIMATION_MS
+  );
+
+  const isModalOpen: boolean =
+    displayModalKind !== null && displayChatDetail !== null;
+  useModalBodyScrollLock(isModalOpen);
+  useEffect((): void => {
+    syncChatTargetsModalCloseReset({
+      isModalOpen,
+      prevTabRef,
+      prevHadTargetsRef,
+      lastHeightRef,
+    });
+  }, [isModalOpen]);
+
+  const handleScrollToTop: () => void = useCallback((): void => {
+    scrollModalBodyToTop(modalBodyRef.current);
+  }, []);
+
+  if (displayModalKind === null || displayChatDetail === null) {
+    return null;
+  }
+
+  return (
+    <ChatTargetsModalDialog
+      state={state}
+      snapshotState={snapshotState}
+      displayModalKind={displayModalKind}
+      displayChatDetail={displayChatDetail}
+      displayChatTargets={displayChatTargets}
+      displayLoadingTargets={displayLoadingTargets}
+      isClosing={isClosing}
+      displayLangBackdropOpen={displayLangBackdropOpen}
+      langBackdropClosing={langBackdropClosing}
+      t={t}
+      modalBodyRef={modalBodyRef}
+      sizerRef={sizerRef}
+      paneRef={paneRef}
+      lastHeightRef={lastHeightRef}
+      prevTabRef={prevTabRef}
+      prevHadTargetsRef={prevHadTargetsRef}
+      onScrollToTop={handleScrollToTop}
+    />
   );
 }

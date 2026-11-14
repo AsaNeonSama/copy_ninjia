@@ -1,9 +1,12 @@
 import { useCallback, useEffect } from "react";
 import type React from "react";
+import { InlineNoticeCollapse } from "../components/animations/CollapseGrid";
 import {
   BlocklistEntryRowList,
+  useRetainedClosingWhitelistItems,
   WhitelistEntryRowList,
 } from "../components/IdentityListRows";
+import type { RetainedClosingWhitelistState } from "../components/IdentityListRows";
 import { IdentitySearchAndAddCard } from "../components/IdentitySearchAndAddCard";
 import { IdentitySubtabsBar } from "../components/IdentitySubtabsBar";
 import { PaginationBar } from "../components/PaginationBar";
@@ -86,6 +89,16 @@ export function IdentitiesPage(): React.JSX.Element {
     [loadCurrentList]
   );
 
+  const whitelistContextKey: string = `${subTab}:${whitelistPage?.page ?? whitelistPageNumber}:${whitelistPage?.pageSize ?? whitelistPageSize}:${debouncedQuery}`;
+  const {
+    items: renderedWhitelistItems,
+    closingEntryId,
+  }: RetainedClosingWhitelistState = useRetainedClosingWhitelistItems(
+    whitelistPage?.items ?? [],
+    subTab === "whitelist" ? selectedEntryId : null,
+    whitelistContextKey
+  );
+
   return (
     <section className="animate-fade-in">
       <IdentitySubtabsBar
@@ -96,16 +109,16 @@ export function IdentitiesPage(): React.JSX.Element {
         onRefresh={reloadList}
       />
 
-      {duplicateAlertText !== null
-        ? (
-          <div className="duplicate-alert-banner animate-fade-in" role="alert">
+      <InlineNoticeCollapse activeValue={duplicateAlertText}>
+        {(alertText: string): React.JSX.Element => (
+          <div className="duplicate-alert-banner" role="alert">
             <div className="duplicate-alert-content">
               <AlertSvgIcon size={18} />
               <div>
                 <div className="duplicate-alert-title">
                   {t.identities.duplicateBannerTitle}
                 </div>
-                <div className="duplicate-alert-desc">{duplicateAlertText}</div>
+                <div className="duplicate-alert-desc">{alertText}</div>
               </div>
             </div>
             <button
@@ -116,8 +129,8 @@ export function IdentitiesPage(): React.JSX.Element {
               <CloseSvgIcon size={14} />
             </button>
           </div>
-        )
-        : null}
+        )}
+      </InlineNoticeCollapse>
 
       <IdentitySearchAndAddCard state={storeState} />
 
@@ -132,7 +145,7 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {!loadingList && whitelistPage !== null && whitelistPage.items.length === 0
+            {!loadingList && whitelistPage !== null && renderedWhitelistItems.length === 0
               ? (
                 <div className="empty">
                   {debouncedQuery.length > 0
@@ -142,11 +155,12 @@ export function IdentitiesPage(): React.JSX.Element {
               )
               : null}
 
-            {!loadingList && whitelistPage !== null && whitelistPage.items.length > 0 ? (
+            {!loadingList && whitelistPage !== null && renderedWhitelistItems.length > 0 ? (
               <WhitelistEntryRowList
-                items={whitelistPage.items}
+                items={renderedWhitelistItems}
                 permissionDescriptors={whitelistPage.permissionDescriptors}
                 selectedEntryId={selectedEntryId}
+                closingEntryId={closingEntryId}
                 busyAction={busyAction}
                 t={t}
                 onTogglePermissionDrawer={togglePermissionDrawer}

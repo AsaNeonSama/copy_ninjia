@@ -10,7 +10,6 @@
   flex-direction: column;
   justify-content: space-between;
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
     border-color 0.14s var(--ease-brutal),
     background-color 0.14s var(--ease-brutal);
@@ -55,7 +54,6 @@
   .stat-box:hover {
     border-color: var(--border-strong);
     background: var(--surface-elevated);
-    transform: translate(-1px, -1px);
     box-shadow: var(--shadow-sm);
   }
 
@@ -539,7 +537,6 @@
   gap: 8px;
   text-align: left;
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     background-color 0.14s var(--ease-brutal),
     border-color 0.14s var(--ease-brutal);
 }
@@ -547,7 +544,7 @@
 .cap-block.expanded > .cap-header-btn,
 .cap-block:has(> .cap-collapse-wrap.flip-closing) > .cap-header-btn {
   border-color: var(--dropdown-board-border);
-  border-bottom: var(--border-w-sm) solid var(--border);
+  border-bottom: var(--border-w) solid var(--border);
   background: var(--cap-expanded-bg);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
@@ -555,7 +552,7 @@
 [data-theme="dark"] .cap-block.expanded > .cap-header-btn,
 [data-theme="dark"] .cap-block:has(> .cap-collapse-wrap.flip-closing) > .cap-header-btn {
   background: var(--dropdown-board-bg);
-  border-bottom: none;
+  border-bottom-color: var(--accent-border);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -663,8 +660,7 @@
   transition:
     background-color 0.14s var(--ease-brutal),
     color 0.14s var(--ease-brutal),
-    border-color 0.14s var(--ease-brutal),
-    transform var(--press-duration) var(--ease-brutal);
+    border-color 0.14s var(--ease-brutal);
 }
 
 .cap-chevron-pill.expanded {
@@ -705,13 +701,11 @@
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 
-[data-theme="dark"] .cap-collapse-inner {
-  border-top: 2px solid var(--accent-border);
-}
-
 .cap-collapse-wrap.expanded > .cap-collapse-inner,
 .cap-collapse-wrap.flip-closing > .cap-collapse-inner {
   will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
 }
 
 .cap-body {
@@ -807,17 +801,20 @@
   background: var(--brutal-yellow);
   color: var(--brutal-yellow-ink);
   box-shadow: var(--btn-shadow);
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transform: skewX(var(--skew-chip));
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
-    background-color 0.1s linear,
-    border-color 0.1s linear,
-    color 0.1s linear;
+    background-color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal);
 }
 
 .btn.mood-switch-btn > span:not(.loading-dots-wave),
@@ -843,7 +840,7 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .btn.mood-switch-btn:hover:not(:disabled) {
+  .btn.mood-switch-btn:hover:not(:disabled):not(.is-disabled) {
     background: var(--btn-primary-bg);
     color: var(--btn-primary-text);
     border-color: var(--btn-primary-border);
@@ -852,7 +849,7 @@
   }
 }
 
-.btn.mood-switch-btn:active:not(:disabled) {
+.btn.mood-switch-btn:active:not(:disabled):not(.is-disabled) {
   transform: translate(2px, 2px) skewX(var(--skew-chip));
   box-shadow: 0 0 0 var(--shadow-ink);
 }
@@ -932,7 +929,6 @@
   box-shadow: var(--shadow-xs);
   min-width: 0;
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
     background-color 0.12s linear;
 }

@@ -2,44 +2,44 @@
 @keyframes miniapp-toast-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translate(4px, 12px) scale(0.98);
+    transform: translate3d(0, 14px, 0);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) translate(0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes miniapp-toast-out {
   from {
     opacity: 1;
-    transform: translateX(-50%) translate(0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
   to {
     opacity: 0;
-    transform: translateX(-50%) translate(3px, 10px) scale(0.98);
+    transform: translate3d(0, 14px, 0);
   }
 }
 
 @keyframes miniapp-modal-pop {
   from {
     opacity: 0;
-    transform: translate(4px, 4px) scale(0.98);
+    transform: translate3d(6px, 10px, 0);
   }
   to {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes miniapp-modal-pop-out {
   from {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
   to {
     opacity: 0;
-    transform: translate(4px, 4px) scale(0.98);
+    transform: translate3d(6px, 10px, 0);
   }
 }
 
@@ -56,8 +56,9 @@
 .toast {
   position: fixed;
   bottom: calc(20px + var(--tg-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
-  left: 50%;
-  transform: translateX(-50%) translate(0, 12px);
+  left: 0;
+  right: 0;
+  margin-inline: auto;
   width: min(92vw, 560px);
   background: var(--surface-elevated);
   color: var(--text);
@@ -75,10 +76,6 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition:
-    opacity 0.18s var(--ease-brutal),
-    visibility 0.18s var(--ease-brutal),
-    transform 0.18s var(--ease-brutal);
 }
 
 [data-theme="dark"] .toast {
@@ -91,15 +88,19 @@
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
-  transform: translateX(-50%) translate(0, 0);
-  animation: miniapp-toast-in 0.18s var(--ease-brutal);
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  animation: miniapp-toast-in 0.2s var(--ease-brutal);
 }
 
 .toast.closing {
   opacity: 1;
   visibility: visible;
   pointer-events: none;
-  animation: miniapp-toast-out 0.2s var(--ease-snap) forwards;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  animation: miniapp-toast-out 0.2s var(--ease-exit) forwards;
 }
 
 .toast-badge {
@@ -182,15 +183,19 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transform: translate(0, 0);
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
-    background-color 0.1s linear,
-    border-color 0.1s linear,
-    color 0.1s linear;
+    background-color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .toast-close:hover:not(:disabled) {
     transform: translate(-1px, -1px);
     box-shadow: var(--btn-shadow-hover);
@@ -205,21 +210,36 @@
   box-shadow: 0 0 0 var(--btn-shadow-color);
 }
 
+/* 遮罩底色独立挂载在叶子伪元素 `::before` 上执行透明度渐变，外层居中容器本身保持 `opacity: 1`。 */
 .confirm-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1200;
-  background: var(--backdrop);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  animation: miniapp-backdrop-fade-in 0.16s var(--ease-brutal);
+}
+
+.confirm-backdrop::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--backdrop);
+  pointer-events: none;
+  will-change: opacity;
+  backface-visibility: hidden;
+  animation: miniapp-backdrop-fade-in 0.18s var(--ease-brutal);
 }
 
 .confirm-backdrop.closing {
   pointer-events: none;
-  animation: miniapp-backdrop-fade-out 0.18s var(--ease-snap) forwards;
+}
+
+.confirm-backdrop.closing::before {
+  animation: miniapp-backdrop-fade-out 0.18s var(--ease-exit) forwards;
 }
 
 .confirm-dialog {
@@ -235,12 +255,15 @@
   flex-direction: column;
   gap: 12px;
   transform-origin: center center;
-  animation: miniapp-modal-pop 0.18s var(--ease-brutal);
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  animation: miniapp-modal-pop 0.2s var(--ease-brutal);
 }
 
 .confirm-dialog.closing {
   pointer-events: none;
-  animation: miniapp-modal-pop-out 0.18s var(--ease-snap) forwards;
+  animation: miniapp-modal-pop-out 0.18s var(--ease-exit) forwards;
 }
 
 .confirm-dialog.confirm-danger {
@@ -328,7 +351,12 @@
   color: var(--btn-text);
   font-size: 13px;
   filter: drop-shadow(2px 2px 0 var(--btn-shadow-color));
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transform: translate(0, 0);
+  transition: color var(--press-duration) var(--ease-brutal);
 }
 
 .confirm-actions .btn::before {
@@ -339,7 +367,6 @@
   background: var(--btn-border);
   z-index: -2;
   pointer-events: none;
-  transition: background-color 0.1s linear;
 }
 
 .confirm-actions .btn::after {
@@ -350,7 +377,6 @@
   background: var(--btn-bg);
   z-index: -1;
   pointer-events: none;
-  transition: background-color 0.1s linear;
 }
 
 .confirm-actions .btn.primary {
@@ -358,7 +384,7 @@
   filter: drop-shadow(3px 3px 0 var(--btn-shadow-color));
 }
 
-[data-theme="dark"] .confirm-actions .btn.primary {
+[data-theme="dark"] .confirm-actions .btn.primary:not(:disabled):not(.is-disabled) {
   filter: drop-shadow(3px 3px 0 var(--brutal-yellow));
 }
 
@@ -375,7 +401,7 @@
   filter: drop-shadow(2px 2px 0 var(--btn-shadow-color));
 }
 
-[data-theme="dark"] .confirm-actions .btn.danger {
+[data-theme="dark"] .confirm-actions .btn.danger:not(:disabled):not(.is-disabled) {
   filter: drop-shadow(2px 2px 0 #be123c);
 }
 
@@ -387,8 +413,8 @@
   background: var(--btn-danger-bg);
 }
 
-@media (hover: hover) {
-  .confirm-actions .btn:hover:not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .confirm-actions .btn:hover:not(:disabled):not(.is-disabled) {
     transform: translate(-1px, -1px);
     background: transparent;
     box-shadow: none;
@@ -396,61 +422,69 @@
     filter: drop-shadow(3px 3px 0 var(--btn-shadow-color));
   }
 
-  [data-theme="dark"] .confirm-actions .btn:hover:not(:disabled) {
+  [data-theme="dark"] .confirm-actions .btn:hover:not(:disabled):not(.is-disabled) {
     filter: drop-shadow(3px 3px 0 var(--accent));
   }
 
-  .confirm-actions .btn:hover:not(:disabled)::before {
+  .confirm-actions .btn:hover:not(:disabled):not(.is-disabled)::before {
     background: var(--btn-primary-border);
   }
 
-  .confirm-actions .btn:hover:not(:disabled)::after {
+  .confirm-actions .btn:hover:not(:disabled):not(.is-disabled)::after {
     background: var(--btn-hover-bg);
   }
 
-  .confirm-actions .btn.primary:hover:not(:disabled) {
+  .confirm-actions .btn.primary:hover:not(:disabled):not(.is-disabled) {
+    transform: translate(-1px, -1px);
+    background: transparent;
+    box-shadow: none;
     color: var(--btn-primary-text);
     filter: drop-shadow(3px 3px 0 var(--btn-shadow-color));
   }
 
-  [data-theme="dark"] .confirm-actions .btn.primary:hover:not(:disabled) {
+  [data-theme="dark"] .confirm-actions .btn.primary:hover:not(:disabled):not(.is-disabled) {
     filter: drop-shadow(3px 3px 0 var(--brutal-yellow));
   }
 
-  .confirm-actions .btn.primary:hover:not(:disabled)::after {
+  .confirm-actions .btn.primary:hover:not(:disabled):not(.is-disabled)::after {
     background: var(--accent-light);
   }
 
-  .confirm-actions .btn.danger:hover:not(:disabled) {
+  .confirm-actions .btn.danger:hover:not(:disabled):not(.is-disabled) {
+    transform: translate(-1px, -1px);
+    background: transparent;
+    box-shadow: none;
     color: #ffffff;
     filter: drop-shadow(3px 3px 0 var(--btn-shadow-color));
   }
 
-  [data-theme="dark"] .confirm-actions .btn.danger:hover:not(:disabled) {
+  [data-theme="dark"] .confirm-actions .btn.danger:hover:not(:disabled):not(.is-disabled) {
     color: var(--btn-primary-text);
     filter: drop-shadow(3px 3px 0 var(--brutal-yellow));
   }
 
-  .confirm-actions .btn.danger:hover:not(:disabled)::before {
+  .confirm-actions .btn.danger:hover:not(:disabled):not(.is-disabled)::before {
     background: var(--btn-primary-border);
   }
 
-  .confirm-actions .btn.danger:hover:not(:disabled)::after {
+  .confirm-actions .btn.danger:hover:not(:disabled):not(.is-disabled)::after {
     background: var(--danger);
   }
 }
 
-.confirm-actions .btn:active:not(:disabled),
-.confirm-actions .btn.primary:active:not(:disabled),
-.confirm-actions .btn.danger:active:not(:disabled),
-[data-theme="dark"] .confirm-actions .btn:active:not(:disabled),
-[data-theme="dark"] .confirm-actions .btn.primary:active:not(:disabled),
-[data-theme="dark"] .confirm-actions .btn.danger:active:not(:disabled) {
+.confirm-actions .btn:active:not(:disabled):not(.is-disabled),
+.confirm-actions .btn.primary:active:not(:disabled):not(.is-disabled),
+.confirm-actions .btn.danger:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .confirm-actions .btn:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .confirm-actions .btn.primary:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .confirm-actions .btn.danger:active:not(:disabled):not(.is-disabled) {
   transform: translate(2px, 2px);
+  background: transparent;
   box-shadow: none;
   filter: drop-shadow(0 0 0 transparent);
 }
 
-.confirm-actions .btn:disabled {
+.confirm-actions .btn:disabled,
+.confirm-actions .btn.is-disabled {
   filter: grayscale(0.25);
 }

@@ -5,7 +5,7 @@
   margin: 0 auto;
 }
 
-/* 应用主壳层：仅隔离样式重算作用域，不建立 fixed 包含块以保持页内弹窗视口定位。 */
+/* 应用主壳层：仅隔离样式重算作用域，不建立 fixed 包含块，子树 fixed 元素直接相对视口定位。 */
 .app-main {
   width: 100%;
   contain: style;
@@ -112,10 +112,12 @@
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transform: translate(0, 0);
-  transition:
-    transform var(--press-duration) var(--ease-brutal),
-    color 0.1s linear;
+  transition: color var(--press-duration) var(--ease-brutal);
 }
 
 .sidebar-toggle-btn::before,
@@ -130,7 +132,6 @@
   background: var(--btn-border);
   z-index: -2;
   pointer-events: none;
-  transition: background-color 0.1s linear;
 }
 
 .sidebar-toggle-btn::after,
@@ -145,7 +146,6 @@
   background: var(--btn-bg);
   z-index: -1;
   pointer-events: none;
-  transition: background-color 0.1s linear;
 }
 
 .sidebar-toggle-btn {
@@ -163,39 +163,45 @@
   background: var(--brutal-yellow);
 }
 
-@media (hover: hover) {
-  .sidebar-toggle-btn:hover:not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .sidebar-toggle-btn:hover:not(:disabled):not(.active) {
     transform: translate(-1px, -1px);
     filter: drop-shadow(3px 3px 0 var(--btn-shadow-color));
     color: var(--btn-primary-text);
   }
 
-  [data-theme="dark"] .sidebar-toggle-btn:hover:not(:disabled) {
+  [data-theme="dark"] .sidebar-toggle-btn:hover:not(:disabled):not(.active) {
     filter: drop-shadow(3px 3px 0 var(--brutal-yellow));
   }
 
-  .sidebar-toggle-btn:hover:not(:disabled)::before {
+  .sidebar-toggle-btn:hover:not(:disabled):not(.active)::before {
     background: var(--btn-primary-border);
   }
 
-  .sidebar-toggle-btn:hover:not(:disabled)::after {
+  .sidebar-toggle-btn:hover:not(:disabled):not(.active)::after {
     background: var(--btn-primary-bg);
   }
 }
 
 .sidebar-toggle-btn:active:not(:disabled),
-.sidebar-toggle-btn.active {
+.sidebar-toggle-btn:active:not(:disabled):not(.active),
+[data-theme="dark"] .sidebar-toggle-btn:active:not(:disabled),
+[data-theme="dark"] .sidebar-toggle-btn:active:not(:disabled):not(.active),
+.sidebar-toggle-btn.active,
+[data-theme="dark"] .sidebar-toggle-btn.active {
   transform: translate(2px, 2px);
   filter: drop-shadow(0 0 0 transparent);
   color: var(--btn-primary-text);
 }
 
 .sidebar-toggle-btn:active:not(:disabled)::before,
+.sidebar-toggle-btn:active:not(:disabled):not(.active)::before,
 .sidebar-toggle-btn.active::before {
   background: var(--btn-primary-border);
 }
 
 .sidebar-toggle-btn:active:not(:disabled)::after,
+.sidebar-toggle-btn:active:not(:disabled):not(.active)::after,
 .sidebar-toggle-btn.active::after {
   background: var(--btn-primary-bg);
 }
@@ -230,11 +236,11 @@
   gap: 5px;
 }
 
-@media (hover: hover) {
-  .lang-menu-btn:hover:not(:disabled),
-  .btn.lang-menu-btn:hover:not(:disabled),
-  .theme-toggle-btn:hover:not(:disabled),
-  .btn.theme-toggle-btn:hover:not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active),
+  .btn.lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active),
+  .theme-toggle-btn:hover:not(:disabled):not(.is-disabled),
+  .btn.theme-toggle-btn:hover:not(:disabled):not(.is-disabled) {
     transform: translate(-1px, -1px);
     background: transparent;
     box-shadow: none;
@@ -242,30 +248,31 @@
     filter: drop-shadow(3px 3px 0 var(--btn-shadow-color));
   }
 
-  [data-theme="dark"] .lang-menu-btn:hover:not(:disabled),
-  [data-theme="dark"] .btn.lang-menu-btn:hover:not(:disabled),
-  [data-theme="dark"] .theme-toggle-btn:hover:not(:disabled),
-  [data-theme="dark"] .btn.theme-toggle-btn:hover:not(:disabled) {
+  [data-theme="dark"] .lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active),
+  [data-theme="dark"] .btn.lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active),
+  [data-theme="dark"] .theme-toggle-btn:hover:not(:disabled):not(.is-disabled),
+  [data-theme="dark"] .btn.theme-toggle-btn:hover:not(:disabled):not(.is-disabled) {
     filter: drop-shadow(3px 3px 0 var(--accent));
   }
 
-  .lang-menu-btn:hover:not(:disabled)::before,
-  .btn.lang-menu-btn:hover:not(:disabled)::before,
-  .theme-toggle-btn:hover:not(:disabled)::before,
-  .btn.theme-toggle-btn:hover:not(:disabled)::before {
+  .lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active)::before,
+  .btn.lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active)::before,
+  .theme-toggle-btn:hover:not(:disabled):not(.is-disabled)::before,
+  .btn.theme-toggle-btn:hover:not(:disabled):not(.is-disabled)::before {
     background: var(--btn-primary-border);
   }
 
-  .lang-menu-btn:hover:not(:disabled)::after,
-  .btn.lang-menu-btn:hover:not(:disabled)::after,
-  .theme-toggle-btn:hover:not(:disabled)::after,
-  .btn.theme-toggle-btn:hover:not(:disabled)::after {
+  .lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active)::after,
+  .btn.lang-menu-btn:hover:not(:disabled):not(.is-disabled):not(.active)::after,
+  .theme-toggle-btn:hover:not(:disabled):not(.is-disabled)::after,
+  .btn.theme-toggle-btn:hover:not(:disabled):not(.is-disabled)::after {
     background: var(--btn-hover-bg);
   }
 }
 
 .lang-menu-btn.active,
-.btn.lang-menu-btn.active {
+.btn.lang-menu-btn.active,
+.btn.icon-btn.lang-menu-btn.active:hover:not(:disabled):not(.is-disabled) {
   color: var(--btn-primary-text);
   background: transparent;
   box-shadow: none;
@@ -274,19 +281,29 @@
 }
 
 .lang-menu-btn.active::before,
-.btn.lang-menu-btn.active::before {
+.btn.lang-menu-btn.active::before,
+.btn.icon-btn.lang-menu-btn.active:hover:not(:disabled):not(.is-disabled)::before {
   background: var(--btn-primary-border);
 }
 
 .lang-menu-btn.active::after,
-.btn.lang-menu-btn.active::after {
+.btn.lang-menu-btn.active::after,
+.btn.icon-btn.lang-menu-btn.active:hover:not(:disabled):not(.is-disabled)::after {
   background: var(--btn-primary-bg);
 }
 
-.lang-menu-btn:active:not(:disabled),
-.btn.lang-menu-btn:active:not(:disabled),
-.theme-toggle-btn:active:not(:disabled),
-.btn.theme-toggle-btn:active:not(:disabled) {
+.lang-menu-btn:active:not(:disabled):not(.is-disabled),
+.lang-menu-btn:active:not(:disabled):not(.is-disabled):not(.active),
+.btn.lang-menu-btn:active:not(:disabled):not(.is-disabled),
+.btn.lang-menu-btn:active:not(:disabled):not(.is-disabled):not(.active),
+.theme-toggle-btn:active:not(:disabled):not(.is-disabled),
+.btn.theme-toggle-btn:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .lang-menu-btn:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .lang-menu-btn:active:not(:disabled):not(.is-disabled):not(.active),
+[data-theme="dark"] .btn.lang-menu-btn:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .btn.lang-menu-btn:active:not(:disabled):not(.is-disabled):not(.active),
+[data-theme="dark"] .theme-toggle-btn:active:not(:disabled):not(.is-disabled),
+[data-theme="dark"] .btn.theme-toggle-btn:active:not(:disabled):not(.is-disabled) {
   transform: translate(2px, 2px);
   background: transparent;
   box-shadow: none;
@@ -308,22 +325,22 @@
 @keyframes miniapp-popover-drop {
   from {
     opacity: 0;
-    transform: translate(4px, 4px) scale(0.98);
+    transform: translate3d(4px, -8px, 0);
   }
   to {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes miniapp-popover-drop-out {
   from {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
   to {
     opacity: 0;
-    transform: translate(4px, 4px) scale(0.98);
+    transform: translate3d(4px, -8px, 0);
   }
 }
 
@@ -353,12 +370,15 @@
   flex-direction: column;
   gap: 6px;
   transform-origin: top left;
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
   animation: miniapp-popover-drop 0.18s var(--ease-brutal);
 }
 
 .lang-menu-popover.closing {
   pointer-events: none;
-  animation: miniapp-popover-drop-out 0.18s var(--ease-snap) forwards;
+  animation: miniapp-popover-drop-out 0.18s var(--ease-exit) forwards;
 }
 
 .gate-top-prefs .lang-menu-popover {
@@ -385,15 +405,19 @@
   justify-content: space-between;
   gap: 10px;
   text-align: left;
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transform: translate(0, 0);
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
-    background-color 0.1s linear,
-    color 0.1s linear,
-    border-color 0.1s linear;
+    background-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .lang-menu-item:hover:not(:disabled):not(.active) {
     transform: translate(-1px, -1px);
     box-shadow: var(--btn-shadow-hover);
@@ -403,7 +427,8 @@
   }
 }
 
-.lang-menu-item:active:not(:disabled) {
+.lang-menu-item:active:not(:disabled),
+.lang-menu-item:active:not(:disabled):not(.active) {
   transform: translate(2px, 2px);
   box-shadow: 0 0 0 var(--btn-shadow-color);
 }
@@ -437,7 +462,7 @@
   border-color: #141413;
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .lang-menu-item:hover:not(:disabled):not(.active) .lang-menu-item-code {
     background: #141413;
     color: var(--brutal-yellow);
@@ -462,7 +487,7 @@
   pointer-events: auto;
 }
 
-/* 侧边抽屉：常驻硬边阴影，收起态额外左移 8px 将阴影一并移出视口，过渡仅驱动合成层 transform。 */
+/* 侧边抽屉：常驻硬边阴影，收起态位移 calc(-100% - 8px) 覆盖面板宽度与右侧阴影，过渡仅驱动合成层 transform。 */
 .sidebar-drawer {
   position: fixed;
   top: 0;
@@ -554,15 +579,19 @@
   align-items: center;
   gap: 10px;
   text-align: left;
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transform: translate(0, 0);
   transition:
-    transform var(--press-duration) var(--ease-brutal),
     box-shadow var(--press-duration) var(--ease-brutal),
-    background-color 0.1s linear,
-    color 0.1s linear,
-    border-color 0.1s linear;
+    background-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal);
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .sidebar-nav-item:hover:not(:disabled):not(.active) {
     transform: translate(-1px, -1px);
     box-shadow: var(--btn-shadow-hover);
@@ -572,7 +601,8 @@
   }
 }
 
-.sidebar-nav-item:active:not(:disabled) {
+.sidebar-nav-item:active:not(:disabled),
+.sidebar-nav-item:active:not(:disabled):not(.active) {
   transform: translate(2px, 2px);
   box-shadow: 0 0 0 var(--btn-shadow-color);
 }
@@ -598,7 +628,7 @@
   flex-shrink: 0;
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (pointer: fine) {
   .sidebar-nav-item:hover:not(:disabled):not(.active) .sidebar-nav-icon {
     background: #141413;
     color: var(--brutal-yellow);

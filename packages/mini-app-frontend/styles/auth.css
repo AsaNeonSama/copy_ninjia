@@ -324,6 +324,10 @@
   padding: 0 12px 36px;
 }
 
+#root > .cf-error-page {
+  animation: miniapp-backdrop-fade-in 0.18s var(--ease-brutal);
+}
+
 .auth-gate-card {
   --auth-card-skew: -4deg;
   --auth-card-pt: 22px;
@@ -440,10 +444,14 @@
   font-size: 15px;
   font-weight: 700;
   box-shadow: var(--shadow-xs);
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transform: translate(0, 0);
   transition:
-    border-color 0.12s linear,
-    box-shadow var(--press-duration) var(--ease-brutal),
-    transform var(--press-duration) var(--ease-brutal);
+    border-color var(--press-duration) var(--ease-brutal),
+    box-shadow var(--press-duration) var(--ease-brutal);
 }
 
 .auth-gate-input[inputmode="numeric"] {
@@ -492,7 +500,6 @@
 .btn.primary.auth-gate-submit {
   --btn-skew: 0deg;
   position: relative;
-  overflow: hidden;
   width: 100%;
   height: 46px;
   padding: 0 18px;
@@ -504,6 +511,15 @@
   color: var(--btn-primary-text);
   border-color: var(--btn-primary-border);
   box-shadow: var(--btn-primary-shadow);
+  will-change: auto;
+  backface-visibility: visible;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    box-shadow var(--press-duration) var(--ease-brutal),
+    background-color var(--press-duration) var(--ease-brutal),
+    color var(--press-duration) var(--ease-brutal),
+    border-color var(--press-duration) var(--ease-brutal);
 }
 
 .auth-gate-submit:disabled:not(.is-loading) {
@@ -533,6 +549,7 @@
 .totp-start-submit.is-loading:disabled,
 .totp-verify-submit.is-loading,
 .totp-verify-submit.is-loading:disabled {
+  overflow: hidden;
   opacity: 1;
   filter: none;
   color: var(--accent);
@@ -652,9 +669,13 @@
   overflow: hidden;
 }
 
+.totp-trigger-collapse-grid:not(.collapsed) > .totp-collapse-inner,
+.totp-trigger-collapse-grid.flip-closing > .totp-collapse-inner,
 .totp-setup-collapse-grid.expanded > .totp-collapse-inner,
 .totp-setup-collapse-grid.flip-closing > .totp-collapse-inner {
   will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
 }
 
 .totp-actions-row {
@@ -674,7 +695,6 @@
 
 .totp-start-submit {
   position: relative;
-  overflow: hidden;
   min-width: 122px;
 }
 
@@ -756,7 +776,6 @@
 
 .totp-verify-submit {
   position: relative;
-  overflow: hidden;
 }
 
 .totp-start-submit > .join-clean-loading-dots,
