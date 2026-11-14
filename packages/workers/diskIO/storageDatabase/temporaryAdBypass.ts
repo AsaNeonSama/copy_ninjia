@@ -43,6 +43,9 @@ export function handleTemporaryAdBypassWrite(
       activity = null;
     }
   }
+  const current: PendingTemporaryAdBypassWrite | undefined =
+    pendingTemporaryAdBypassWrites.get(message.id);
+  if (current !== undefined && current.revision >= message.revision) return;
   if (activity !== null) {
     if (hasEffectiveBlocklistIdentity(message.id)) {
       throw new Error(
@@ -50,9 +53,6 @@ export function handleTemporaryAdBypassWrite(
       );
     }
   }
-  const current: PendingTemporaryAdBypassWrite | undefined =
-    pendingTemporaryAdBypassWrites.get(message.id);
-  if (current !== undefined && current.revision >= message.revision) return;
   storagePendingBudgets.temporaryAdBypass.reserve(current === undefined ? 1 : 0, current === undefined ? storageWriteCost(null) : 0);
   pendingTemporaryAdBypassWrites.set(message.id, {
     activity,

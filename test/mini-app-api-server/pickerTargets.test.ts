@@ -1,7 +1,7 @@
 /**
  * Mini App 原生选择器写入群目标（追着删、追着翻）的预备拒绝与导入归类，以及权限、选择器路由的参数校验。
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { Message } from "grammy/types";
 import type { MiniAppTranslateLanguage } from "../../packages/types/miniApp/chats";
 import type {
@@ -36,6 +36,7 @@ const {
   stopMiniAppServer,
 } = await import("../../packages/mini-app-api-server");
 const { dispatchMiniAppTestRequest } = await import("../helpers/miniAppRequest");
+const { bot } = await import("../../packages/infra/telegram/mainClient");
 
 /** 夹具群 ID。 */
 const CHAT_ID: number = -1_009_500_001;
@@ -226,6 +227,39 @@ describe("Mini App 选择器写入群目标", () => {
     const channelId: number = await preparePicker("blocklist", "channel");
     expect((await handleMiniAppSharedMessage(chatShared(channelId, -1_009_500_099)))?.addedIds)
       .toEqual([-1_009_500_099]);
+  });
+
+  test("未接管群预备追着删与追着翻都返回 CHAT_NOT_INITIALIZED，且不查机器人权限", async () => {
+    const getChatMemberSpy = spyOn(bot.api, "getChatMember");
+    try {
+      const uninitializedChatId: number = CHAT_ID - 1;
+      getOrCreateChatState(uninitializedChatId).isInitEnabled = false;
+      expect(await prepareMiniAppPicker({
+        targetList: "deleteMessage",
+        subjectKind: "users",
+        chatId: uninitializedChatId,
+      })).toEqual({ ok: false, message: "CHAT_NOT_INITIALIZED" });
+      expect(getChatMemberSpy).not.toHaveBeenCalled();
+
+      // 即便缓存了管理员权限与开启追着翻，只要未接管同样在进入分支前拒绝。
+      const preseeded = getOrCreateChatState(CHAT_ID);
+      preseeded.isInitEnabled = false;
+      preseeded.botPermissions = botPermissions({ canDeleteMessages: true });
+      preseeded.isTranslationEnabled = true;
+      expect(await prepareMiniAppPicker({
+        targetList: "deleteMessage",
+        subjectKind: "users",
+        chatId: CHAT_ID,
+      })).toEqual({ ok: false, message: "CHAT_NOT_INITIALIZED" });
+      expect(await prepareMiniAppPicker({
+        targetList: "translate",
+        subjectKind: "users",
+        chatId: CHAT_ID,
+      })).toEqual({ ok: false, message: "CHAT_NOT_INITIALIZED" });
+      expect(getChatMemberSpy).not.toHaveBeenCalled();
+    } finally {
+      getChatMemberSpy.mockRestore();
+    }
   });
 });
 

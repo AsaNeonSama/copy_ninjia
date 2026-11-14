@@ -404,3 +404,18 @@ export type ConfigReadiness =
 export interface ConfigReadinessCache {
   current: ConfigReadiness | null;
 }
+
+/** 部署配置 URL 校验允许的协议。 */
+export type ConfigUrlProtocol = "http:" | "https:";
+
+/** 部署配置 URL 形态校验策略（见 consts/configUrl.ts 与 config/urlPolicy.ts）。 */
+export interface ConfigUrlPolicy {
+  /** 允许的协议白名单。 */
+  readonly allowedProtocols: readonly ConfigUrlProtocol[];
+  /** 为 true 且协议未命中 allowedProtocols 时，仍放行 LOOPBACK_HOSTS 上的 `http:` 地址。 */
+  readonly allowLoopbackHttp: boolean;
+  /** 为 true 时拒绝携带用户名或密码的 URL。 */
+  readonly rejectUserInfo: boolean;
+  /** 为 true 时拒绝携带 `#fragment` 的 URL。 */
+  readonly rejectFragment: boolean;
+}

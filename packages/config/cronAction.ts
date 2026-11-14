@@ -3,11 +3,13 @@
  */
 
 import { resolve } from "node:path";
+import { HTTP_OR_HTTPS_CONFIG_URL_POLICY } from "../consts/configUrl";
 import {
   CRON_MAX_IMAGES,
   CRON_RANDOM_INTERVAL_MAX_MS,
   CRON_RANDOM_INTERVAL_MIN_MS,
 } from "../consts/cron";
+import { parseConfigUrl } from "./urlPolicy";
 import { RUNTIME_DATA_ROOT } from "../consts/paths";
 import { VOICE_OPERATOR_TEXT_MAX_CHARS, VOICE_TONE_MAX_CHARS } from "../consts/aiChat/voiceMessage";
 import {
@@ -114,8 +116,10 @@ function parseLocalPath(value: unknown, context: InputFieldContext): string {
  * @returns 归一化后的 http(s) URL 字符串。
  */
 function parseUrl(value: unknown, context: InputFieldContext): string {
-  const parsed: URL | null = typeof value === "string" ? URL.parse(value.trim()) : null;
-  if (parsed === null || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+  const parsed: URL | null = typeof value === "string"
+    ? parseConfigUrl(value.trim(), HTTP_OR_HTTPS_CONFIG_URL_POLICY)
+    : null;
+  if (parsed === null) {
     return fail(context, "an absolute http(s) URL");
   }
   return parsed.href;

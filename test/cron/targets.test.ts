@@ -27,6 +27,8 @@ const TEXT_ONLY: CronSendNeeds = { text: true, photos: false, documents: false, 
 const EVERYTHING: CronSendNeeds = { text: true, photos: true, documents: true, voiceNotes: true };
 
 function schedule(actions: readonly CronAction[], cancelled: boolean = false): CronTaskSchedule {
+  const cancellation: AbortController = new AbortController();
+  if (cancelled) cancellation.abort();
   const task: CronTask = {
     name: "all-groups",
     chatTargets: { kind: "all" },
@@ -36,7 +38,7 @@ function schedule(actions: readonly CronAction[], cancelled: boolean = false): C
     justOnce: false,
     actions,
   };
-  return { task, job: null, cancelled };
+  return { task, job: null, cancellation };
 }
 
 beforeEach(() => {
@@ -142,7 +144,7 @@ describe("chat_id: [\"all\"] 与 [\"except\", ...] 的发送权限", () => {
     const pending: CronTaskSchedule = schedule([{ type: "send_message", content: "hi" }]);
     // 第一个群查完就撤销，后面两个群不再查询。
     getChatMember.mockImplementationOnce(async (chatId: number): Promise<ChatMember> => {
-      pending.cancelled = true;
+      pending.cancellation.abort();
       return members.get(chatId)!;
     });
     expect(await resolveCronGroupTargets(pending, [], new AbortController().signal))

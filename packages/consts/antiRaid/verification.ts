@@ -112,6 +112,8 @@ export const VERIFICATION_REVISION_CAPACITY: number = VERIFICATION_RECORD_CAPACI
  * 等下一轮退避。
  */
 export const VERIFICATION_CHAT_KIND_FETCH_MAX: number = 100;
+/** Anti-Raid Worker 缺失群类型镜像时反查 `getChat` 的单次超时毫秒数；所属模块：workers/antiRaid/chatKind.ts。 */
+export const CHAT_KIND_FETCH_TIMEOUT_MS: number = 15_000;
 /**
  * kicked 结算占位与 exempt 豁免占位的运行态去重窗口；同一物理入群的
  * chat_member 更新和 new_chat_members 服务消息共用占位，重复投递不续期。

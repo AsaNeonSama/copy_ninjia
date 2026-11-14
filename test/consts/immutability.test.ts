@@ -130,6 +130,27 @@ import {
   DISK_IO_RESPAWN_PRIORITIES,
 } from "../../packages/consts/diskIO/common";
 import { HOT_PATH_GC_CPU_BUDGETS } from "../../packages/consts/performance";
+import {
+  AGENT_BASE_URL_POLICY,
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY,
+  HTTPS_CONFIG_URL_POLICY,
+} from "../../packages/consts/configUrl";
+
+function assertConfigUrlPoliciesReadonly(): void {
+  // @ts-expect-error AI base_url URL 策略容器与协议列表必须在编译期保持只读。
+  AGENT_BASE_URL_POLICY.allowLoopbackHttp = false;
+  // @ts-expect-error allowedProtocols 只读数组不允许就地追加。
+  AGENT_BASE_URL_POLICY.allowedProtocols.push("http:");
+  // @ts-expect-error 仅 https URL 策略容器与协议列表必须在编译期保持只读。
+  HTTPS_CONFIG_URL_POLICY.rejectUserInfo = true;
+  // @ts-expect-error allowedProtocols 只读数组不允许就地追加。
+  HTTPS_CONFIG_URL_POLICY.allowedProtocols.push("http:");
+  // @ts-expect-error http(s) URL 策略容器与协议列表必须在编译期保持只读。
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY.rejectFragment = true;
+  // @ts-expect-error allowedProtocols 只读数组不允许就地追加。
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY.allowedProtocols.push("https:");
+}
+void assertConfigUrlPoliciesReadonly;
 
 function assertGcCpuBudgetsReadonly(): void {
   // @ts-expect-error CPU 分档表不允许调用方增删规则。

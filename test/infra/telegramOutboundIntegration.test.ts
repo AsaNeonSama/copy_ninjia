@@ -215,7 +215,7 @@ test("cron 目标权限查询复用主线程 query 退避，成员与群默认�
       name: "cron-targets", chatTargets: { kind: "all" }, cron: "* * * * *", timeZone: "Asia/Tokyo",
       randomInterval: undefined, justOnce: false, actions: [{ type: "send_message", content: "cron" }],
     },
-    job: null, cancelled: false,
+    job: null, cancellation: new AbortController(),
   };
   let first: boolean = true;
   respond = async (call: OutboundCall): Promise<any> => {

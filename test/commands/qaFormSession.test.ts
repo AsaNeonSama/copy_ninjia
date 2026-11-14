@@ -27,6 +27,7 @@ describe("/qa set 表单会话", () => {
     const first: QaFormSession | null = openQaFormSession({
       chatId: CHAT_ID,
       openedById: OWNER_ID,
+      messageThreadId: 77,
       onDiscard: noop,
     });
     first!.q = "旧问题";
@@ -34,22 +35,25 @@ describe("/qa set 表单会话", () => {
     const second: QaFormSession | null = openQaFormSession({
       chatId: CHAT_ID,
       openedById: OWNER_ID,
+      messageThreadId: 88,
       onDiscard: noop,
     });
 
     expect(second).not.toBe(first);
     expect(second!.q).toBeUndefined();
+    expect(first!.messageThreadId).toBe(77);
+    expect(second!.messageThreadId).toBe(88);
     expect(qaFormSessions.get(CHAT_ID)).toBe(second!);
     expect(qaFormSessions.size).toBe(1);
   });
 
   test("达到全局上限后拒绝新建，而不是踢掉别人正在填的那张", () => {
     for (let index: number = 0; index < QA_FORM_SESSION_MAX; index++) {
-      expect(openQaFormSession({ chatId: -index - 1, openedById: 1, onDiscard: noop }))
+      expect(openQaFormSession({ chatId: -index - 1, openedById: 1, messageThreadId: undefined, onDiscard: noop }))
         .not.toBeNull();
     }
 
-    expect(openQaFormSession({ chatId: -99999, openedById: 1, onDiscard: noop })).toBeNull();
+    expect(openQaFormSession({ chatId: -99999, openedById: 1, messageThreadId: undefined, onDiscard: noop })).toBeNull();
     expect(qaFormSessions.size).toBe(QA_FORM_SESSION_MAX);
   });
 
@@ -57,6 +61,7 @@ describe("/qa set 表单会话", () => {
     const session: QaFormSession = openQaFormSession({
       chatId: CHAT_ID,
       openedById: OWNER_ID,
+      messageThreadId: undefined,
       onDiscard: noop,
     })!;
 
@@ -68,8 +73,8 @@ describe("/qa set 表单会话", () => {
   });
 
   test("teardown 只清本群，别的群不受影响", () => {
-    openQaFormSession({ chatId: CHAT_ID, openedById: 1, onDiscard: noop });
-    openQaFormSession({ chatId: -1002, openedById: 3, onDiscard: noop });
+    openQaFormSession({ chatId: CHAT_ID, openedById: 1, messageThreadId: undefined, onDiscard: noop });
+    openQaFormSession({ chatId: -1002, openedById: 3, messageThreadId: undefined, onDiscard: noop });
     const closed: number[] = [];
 
     closeQaFormSessionsInChat(CHAT_ID, (session: QaFormSession): void => {
@@ -82,7 +87,7 @@ describe("/qa set 表单会话", () => {
   });
 
   test("整表复位清掉全部会话", () => {
-    openQaFormSession({ chatId: CHAT_ID, openedById: OWNER_ID, onDiscard: noop });
+    openQaFormSession({ chatId: CHAT_ID, openedById: OWNER_ID, messageThreadId: undefined, onDiscard: noop });
 
     resetChatQaCache();
 
@@ -98,6 +103,7 @@ describe("/qa set 表单会话", () => {
       const session: QaFormSession = openQaFormSession({
         chatId: CHAT_ID,
         openedById: OWNER_ID,
+        messageThreadId: undefined,
         onDiscard: (closed: QaFormSession): void => { expired.push(closed); },
       })!;
       session.q = "只填了问题";
@@ -124,6 +130,7 @@ describe("/qa set 表单会话", () => {
       const session: QaFormSession = openQaFormSession({
         chatId: CHAT_ID,
         openedById: OWNER_ID,
+        messageThreadId: undefined,
         onDiscard: (closed: QaFormSession): void => { expired.push(closed); },
       })!;
 

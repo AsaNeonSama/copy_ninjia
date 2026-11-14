@@ -84,7 +84,6 @@ export async function requestGeminiResult({
       body.config?.abortSignal,
       GEMINI_REQUEST_TIMEOUTS_MS[capability]
     );
-    requestSignal.throwIfAborted();
     const model: string = String(body.model);
     data = await raceAbortOrThrow((client ?? getGeminiClient(capability)).models.generateContent({
       ...body,

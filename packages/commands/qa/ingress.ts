@@ -1,5 +1,5 @@
 /**
- * 收集当前表单发起者投递的问题与回答；字段消息进入删除流程后由本领域认领。
+ * 收集当前表单发起者在表单所在话题投递的问题与回答；字段消息进入删除流程后由本领域认领。
  * 异步等待后复核会话身份，关闭的会话不再接收字段；超长或含可点命令的字段不写进会话。
  * 跨模块约束见 docs/cn/04-invariants.md。
  */
@@ -14,6 +14,7 @@ import {
   needsBotOwnMessageWait,
   waitForBotOwnMessage,
 } from "../../infra/selfSentTracker";
+import { forumTopicThreadId } from "../../libs/forumTopic";
 import { visibleSenderId } from "../../users/visibleSender";
 import type { QaFieldInput, QaFieldRejection, QaFormIngressResult, QaFormSession } from "../../types/qa";
 import { answerRejectionOf, questionRejectionOf } from "./fieldRules";
@@ -34,6 +35,7 @@ export function claimQaFieldMessage(
   // 无表单时只查一次 Map；频道自发标记等待排在身份与格式检查之后。
   const session: QaFormSession | undefined = qaFormSessions.get(message.chat.id);
   if (session === undefined) return null;
+  if (forumTopicThreadId(message) !== session.messageThreadId) return null;
   if (message.message_id === session.formMessageId) return null;
   // 自发消息不参与字段收集。
   if (isBotOwnMessage(message)) return null;

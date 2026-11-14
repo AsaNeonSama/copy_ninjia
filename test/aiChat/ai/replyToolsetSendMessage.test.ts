@@ -392,6 +392,56 @@ describe("send_message 重复消息去重", () => {
       Math.random = originalRandom;
     }
   });
+
+  test("错字参数原字与替换字相同时只拒掉手滑并附原因，正文照常发送", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    try {
+      const toolset = await createReplyToolset(replyToolContextFixture({ mediaToolsRequested: true, roundHasTypo: true }));
+
+      const result = JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({
+        text: "天气",
+        typo_original_char: "天",
+        typo_replacement_char: "天",
+      })));
+
+      expect(result.success).toBe(true);
+      expect(result.typo).toBeUndefined();
+      expect(result.typo_rejected).toContain("differ from each other");
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+      expect(sendMessageMock).toHaveBeenCalledWith({
+        chatId: -100800,
+        text: "天气",
+        replyToMessageId: undefined,
+      });
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  test("本轮允许错字但模型省略错字参数时不报拒绝，正文照常发送", async () => {
+    const originalRandom = Math.random;
+    Math.random = () => 0;
+    try {
+      const toolset = await createReplyToolset(replyToolContextFixture({ mediaToolsRequested: true, roundHasTypo: true }));
+
+      const result = JSON.parse(await executeAndSettle(toolset, SEND_MESSAGE_TOOL, JSON.stringify({
+        text: "天气",
+      })));
+
+      expect(result.success).toBe(true);
+      expect(result.typo).toBeUndefined();
+      expect(result.typo_rejected).toBeUndefined();
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+      expect(sendMessageMock).toHaveBeenCalledWith({
+        chatId: -100800,
+        text: "天气",
+        replyToMessageId: undefined,
+      });
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
 });
 
 describe("send_message 可点击命令守卫", () => {

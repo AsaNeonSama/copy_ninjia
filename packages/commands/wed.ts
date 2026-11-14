@@ -65,7 +65,12 @@ async function sendWedNotice(
   replyToMessageId: number | undefined
 ): Promise<void> {
   if (text === undefined) return;
-  await sendCommandMessage({ chatId: session.chatId, text, replyToMessageId });
+  await sendCommandMessage({
+    chatId: session.chatId,
+    text,
+    replyToMessageId,
+    messageThreadId: session.messageThreadId,
+  });
 }
 
 /**

@@ -283,6 +283,9 @@ export function pickAnimationVisionSource(animation: Animation): TelegramVisionS
 /**
  * 随机复读前过滤没有可复制载荷的服务消息。
  *
+ * 带图注的付费媒体（`paid_media`）经 `message.caption` 命中并在 `copy/echo.ts` 按纯文本发送；
+ * 无图注的 `paid_media` 与 `live_photo`、`rich_message`、`game`、`checklist` 等不在此范围内，返回 `false`。
+ *
  * @param message Telegram 入站消息
  * @returns 是否包含可复制的消息载荷
  */

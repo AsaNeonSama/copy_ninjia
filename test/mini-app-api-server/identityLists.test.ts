@@ -15,6 +15,7 @@ import {
   miniAppTestBlocklistRows as blocklistRows,
   miniAppTestJoinLogState,
   miniAppTestWhitelistRows as whitelistRows,
+  readIdentityIdPageMock,
   readIdentityPoliciesMock as readIdentityPolicies,
   resetMiniAppTestDiskIOState,
 } from "../helpers/miniAppInitData";
@@ -221,5 +222,59 @@ describe("Mini App 名单读取与 Bot 合并身份缓存隔离", () => {
 
     const blockByUsernameOnly = await listBlocklistEntries({ query: "raid_channel" });
     expect(blockByUsernameOnly.items.map((item) => item.id)).toEqual([4001]);
+  });
+
+  test("按关键词搜索跨页补扫时，整页被未 ACK 删除清空且 done=false 仍继续扫下一页", async () => {
+    const baseId: number = 90_000;
+    const totalRows: number = BLOCKLIST_SWEEP_PAGE_SIZE * 2 + 1;
+    const survivorId: number = baseId + totalRows;
+    const pendingDeleteIds: number[] = [];
+    for (let offset: number = 1; offset <= totalRows; offset++) {
+      const id: number = baseId + offset;
+      whitelistRows.set(id, JSON.stringify({
+        permissions: DEFAULT_WHITELIST_PERMISSIONS,
+        meta: {
+          firstName: offset < totalRows ? `SweepPending${offset}` : "SweepSurvivor",
+          lastName: "",
+          username: "",
+        },
+      }));
+      if (offset < totalRows) pendingDeleteIds.push(id);
+    }
+    await prefetchIdentityPolicies(pendingDeleteIds);
+
+    let flushIndex: number = 0;
+    miniAppTestJoinLogState.onFlushDiskIODomain = (): void => {
+      const pageStart: number = flushIndex * BLOCKLIST_SWEEP_PAGE_SIZE;
+      const pageEnd: number = pageStart + BLOCKLIST_SWEEP_PAGE_SIZE;
+      flushIndex += 1;
+      for (const id of pendingDeleteIds.slice(pageStart, pageEnd)) {
+        queueIdentityPolicyWrite("whitelist", id, null);
+      }
+      if (flushIndex >= 2) {
+        miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
+      }
+    };
+    readIdentityIdPageMock.mockClear();
+
+    try {
+      const searched = await listWhitelistEntries({
+        query: "Sweep",
+        page: 1,
+        pageSize: MINI_APP_IDENTITY_MAX_PAGE_SIZE,
+      });
+      expect(searched.total).toBe(1);
+      expect(searched.items.map((item) => item.id)).toEqual([survivorId]);
+      const cursors: readonly (number | null)[] = readIdentityIdPageMock.mock.calls.map(
+        (call): number | null => call[1]
+      );
+      expect(cursors).toEqual([
+        null,
+        baseId + BLOCKLIST_SWEEP_PAGE_SIZE,
+        baseId + BLOCKLIST_SWEEP_PAGE_SIZE * 2,
+      ]);
+    } finally {
+      miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
+    }
   });
 });

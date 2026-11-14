@@ -1,6 +1,7 @@
 /** 安装器与运行时共用的 Bot 配置解码；导入时不读盘、不填充线程缓存。 */
 
 import { DEFAULT_BOT_TIME_ZONE } from "../consts/bot";
+import { HTTPS_CONFIG_URL_POLICY } from "../consts/configUrl";
 import {
   MINI_APP_DEFAULT_HOST,
   MINI_APP_PASSWORD_AT_LEAST_SIX_DIGITS_PATTERN,
@@ -14,6 +15,7 @@ import { invalidInput, readJsonInput } from "../libs/inputValidation";
 import { hasOnlyKeys, isPlainRecord } from "../libs/record";
 import type { BotConfig, BotMiniAppConfig } from "../types/config";
 import { parseTimeZone } from "./timeZoneInput";
+import { parseConfigUrl } from "./urlPolicy";
 
 /**
  * 解码可选的 `mini_app` 配置段；缺省返回 undefined，存在但字段非法或含未知键时直接拒绝。
@@ -29,11 +31,10 @@ function parseBotMiniAppConfig(
   if (!isPlainRecord(raw) || !hasOnlyKeys(raw, ["url", "port", "host", "password"])) {
     return invalidInput(sourcePath, "$.mini_app", "{ url, port, host?: string, password }");
   }
-  if (typeof raw.url !== "string" || raw.url.trim().length === 0) {
-    return invalidInput(sourcePath, "$.mini_app.url", "an absolute https URL");
-  }
-  const parsedUrl: URL | null = URL.parse(raw.url.trim());
-  if (parsedUrl?.protocol !== "https:") {
+  const parsedUrl: URL | null = typeof raw.url === "string"
+    ? parseConfigUrl(raw.url.trim(), HTTPS_CONFIG_URL_POLICY)
+    : null;
+  if (parsedUrl === null) {
     return invalidInput(sourcePath, "$.mini_app.url", "an absolute https URL");
   }
   if (

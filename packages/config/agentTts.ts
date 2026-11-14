@@ -17,19 +17,20 @@ import { XAI_SPEECH_DEFAULT_LANGUAGE } from "../consts/aiChat/openai";
 import { invalidInput, requiredString } from "../libs/inputValidation";
 import { hasOnlyKeys } from "../libs/record";
 import type {
-  AgentCapabilityConfig,
   AgentTtsCapabilityConfig,
+  GoogleAgentCapabilityConfig,
+  OpenAiAgentCapabilityConfig,
   OpenAiSpeechProtocol,
   TtsBotLanguage,
 } from "../types/config";
+import type { CapabilityCredentials } from "./agentCapability";
 import {
   capabilityKeys,
   capabilityRecord,
   capabilityShape,
-  optionalBaseUrl,
   optionalQuotaInteger,
+  parseCapabilityCredentials,
   parseCapabilityFields,
-  requiredApiKey,
   requiredMediaProvider,
 } from "./agentCapability";
 
@@ -107,6 +108,75 @@ function parseTtsDailyQuota(
   return { dailyLimit, dailyReserveQuota };
 }
 
+/** 语音合成各协议差异字段的联合约束。 */
+type TtsProtocolBranch =
+  | {
+    readonly provider: "google";
+    readonly model: string;
+    readonly speechProtocol: undefined;
+    readonly style: string;
+    readonly language: undefined;
+  }
+  | {
+    readonly provider: "openai";
+    readonly model: string;
+    readonly speechProtocol: "openai";
+    readonly style: string;
+    readonly language: undefined;
+  }
+  | {
+    readonly provider: "openai";
+    readonly model: undefined;
+    readonly speechProtocol: "xai";
+    readonly style: undefined;
+    readonly language: string;
+  };
+
+/** 组装语音合成配置末尾公共字段与返回结果的入参。 */
+interface FinalizeTtsCapabilityOptions {
+  /** 原始 tts 配置对象记录。 */
+  readonly record: Readonly<Record<string, unknown>>;
+  /** 已校验的 API Key。 */
+  readonly apiKey: string;
+  /** 可选自定义 base_url（无则为 undefined）。 */
+  readonly baseUrl: string | undefined;
+  /** 已校验的语音音色标识。 */
+  readonly voice: string;
+  /** 各供应商与协议特有的字段子集。 */
+  readonly branch: TtsProtocolBranch;
+  /** 当前配置的 JSONPath 上下文。 */
+  readonly context: string;
+  /** 配置文件路径，用于构造致命错误诊断。 */
+  readonly sourcePath: string;
+}
+
+/**
+ * 解码语音合成共用的 `bot_language` 与每日额度，并构造最终的只读配置对象。
+ * @param options 已校验的前置凭据、音色、协议差异字段与原始记录上下文。
+ * @returns 完整的语音合成能力配置。
+ */
+function finalizeTtsCapability({
+  record,
+  apiKey,
+  baseUrl,
+  voice,
+  branch,
+  context,
+  sourcePath,
+}: FinalizeTtsCapabilityOptions): AgentTtsCapabilityConfig {
+  const botLanguage: TtsBotLanguage = optionalBotLanguage(record.bot_language, `${context}.bot_language`, sourcePath);
+  const quota: TtsDailyQuota = parseTtsDailyQuota(record, context, sourcePath);
+  return {
+    ...branch,
+    apiKey,
+    baseUrl,
+    voice,
+    botLanguage,
+    dailyLimit: quota.dailyLimit,
+    dailyReserveQuota: quota.dailyReserveQuota,
+  };
+}
+
 /**
  * 解码 xai 语音协议（`POST /tts`）的配置：端点没有模型名与风格指令，model 与 style 出现即
  * 拒绝；language 是随请求发送的合成语言，缺省为 XAI_SPEECH_DEFAULT_LANGUAGE，与只决定提示词的
@@ -133,27 +203,27 @@ function parseXAiTtsCapability(
       "daily_reserve_quota? } when provider is openai and speech_protocol is xai"
     );
   }
-  const apiKey: string = requiredApiKey(record.api_key, `${context}.api_key`, sourcePath);
-  const baseUrl: string | undefined = optionalBaseUrl(record.base_url, `${context}.base_url`, sourcePath);
+  const { apiKey, baseUrl }: CapabilityCredentials =
+    parseCapabilityCredentials(record, context, sourcePath);
   const voice: string = requiredString(record.voice, `${context}.voice`, sourcePath);
   const language: string = record.language === undefined
     ? XAI_SPEECH_DEFAULT_LANGUAGE
     : requiredString(record.language, `${context}.language`, sourcePath);
-  const botLanguage: TtsBotLanguage = optionalBotLanguage(record.bot_language, `${context}.bot_language`, sourcePath);
-  const quota: TtsDailyQuota = parseTtsDailyQuota(record, context, sourcePath);
-  return {
-    provider: "openai",
+  return finalizeTtsCapability({
+    record,
     apiKey,
     baseUrl,
-    model: undefined,
-    speechProtocol: "xai",
     voice,
-    style: undefined,
-    language,
-    botLanguage,
-    dailyLimit: quota.dailyLimit,
-    dailyReserveQuota: quota.dailyReserveQuota,
-  };
+    branch: {
+      provider: "openai",
+      model: undefined,
+      speechProtocol: "xai",
+      style: undefined,
+      language,
+    },
+    context,
+    sourcePath,
+  });
 }
 
 /**
@@ -199,39 +269,33 @@ export function parseTtsCapability(
       capabilityShape(provider, ", voice, style?, bot_language?, daily_limit?, daily_reserve_quota?")
     );
   }
-  const fields: AgentCapabilityConfig = parseCapabilityFields(record, context, sourcePath);
+  const fields: GoogleAgentCapabilityConfig | OpenAiAgentCapabilityConfig =
+    parseCapabilityFields({ value: record, provider, context, sourcePath });
   const voice: string = requiredString(record.voice, `${context}.voice`, sourcePath);
   const style: string = record.style === undefined
     ? TTS_DEFAULT_STYLE
     : requiredString(record.style, `${context}.style`, sourcePath);
-  const botLanguage: TtsBotLanguage = optionalBotLanguage(record.bot_language, `${context}.bot_language`, sourcePath);
-  const quota: TtsDailyQuota = parseTtsDailyQuota(record, context, sourcePath);
-  if (fields.provider === "google") {
-    return {
-      provider: "google",
-      apiKey: fields.apiKey,
-      baseUrl: fields.baseUrl,
-      model: fields.model,
-      speechProtocol: undefined,
-      voice,
-      style,
-      language: undefined,
-      botLanguage,
-      dailyLimit: quota.dailyLimit,
-      dailyReserveQuota: quota.dailyReserveQuota,
-    };
-  }
-  return {
-    provider: "openai",
+  return finalizeTtsCapability({
+    record,
     apiKey: fields.apiKey,
     baseUrl: fields.baseUrl,
-    model: fields.model,
-    speechProtocol: "openai",
     voice,
-    style,
-    language: undefined,
-    botLanguage,
-    dailyLimit: quota.dailyLimit,
-    dailyReserveQuota: quota.dailyReserveQuota,
-  };
+    branch: fields.provider === "google"
+      ? {
+        provider: "google",
+        model: fields.model,
+        speechProtocol: undefined,
+        style,
+        language: undefined,
+      }
+      : {
+        provider: "openai",
+        model: fields.model,
+        speechProtocol: "openai",
+        style,
+        language: undefined,
+      },
+    context,
+    sourcePath,
+  });
 }

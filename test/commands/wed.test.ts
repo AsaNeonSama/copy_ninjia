@@ -711,6 +711,7 @@ describe("/wed 图片和按钮交互", () => {
     await handleWedCommand(command());
     expect(photo).not.toHaveBeenCalled();
     expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.failed);
+    expect(notice.mock.calls.at(-1)![2]?.message_thread_id).toBe(77);
     expect(wedChats.get(chat.id)!.sessions.size).toBe(0);
   });
 
@@ -787,6 +788,7 @@ describe("/wed 图片和按钮交互", () => {
     expect(avatar).toHaveBeenCalledTimes(1);
     expect(edit).not.toHaveBeenCalled();
     expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.failed);
+    expect(notice.mock.calls.at(-1)![2]?.message_thread_id).toBe(77);
     expect(wedChats.get(chat.id)!.sessions.get(1)!.targetId).toBe(2);
     expect(wedChats.get(chat.id)!.sessions.get(1)!.busy).toBeFalse();
   });
@@ -802,6 +804,7 @@ describe("/wed 图片和按钮交互", () => {
     await handleWedCallback(callback("change"));
     expect(edit).not.toHaveBeenCalled();
     expect(notice.mock.calls.at(-1)![1]).toBe(WED_TEXTS.failed);
+    expect(notice.mock.calls.at(-1)![2]?.message_thread_id).toBe(77);
     expect(wedChats.get(chat.id)!.sessions.get(1)!.targetId).toBe(2);
   });
 

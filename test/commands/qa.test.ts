@@ -15,6 +15,7 @@ interface SentMessage {
   entities?: readonly { type: string; offset: number; length: number }[];
   preserveInGroup?: boolean;
   replyToMessageId?: number;
+  messageThreadId?: number;
 }
 
 const realDiskIO = await import("../../packages/infra/diskIO");
@@ -552,10 +553,52 @@ describe("表单填齐后的结算", () => {
     expect(lastText()).toBe(QA_COMMAND_TEXTS.created);
     // 话题群里 bot 主动发的消息没有回复目标就会落进 General，而表单在话题里。
     expect(sendCommandMessage.mock.calls.at(-1)?.[0].replyToMessageId).toBe(55);
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0].messageThreadId).toBeUndefined();
     expect(chatQaEntries.get(CHAT_ID)?.get("怎么入群？")).toBe("点置顶");
     // 结算之后表单会话与表单消息都不该再留着。
     expect(qaFormSessions.get(CHAT_ID)).toBeUndefined();
     expect(deleteMessageWithOutcome).toHaveBeenCalledWith(CHAT_ID, 55);
+  });
+
+  test("话题内 /qa set 只收该话题投递，各阶段回执显式带表单话题", async () => {
+    const forum: ChatShape = { id: CHAT_ID, type: "supergroup", title: "T", is_forum: true };
+    await handleQaCommand(context(OWNER, "set", {
+      chat: forum,
+      msg: { is_topic_message: true, message_thread_id: 77 },
+    }));
+    sendCommandMessage.mockClear();
+
+    // 在 General 或其他话题投递不认领、不发回执、不删消息。
+    expect(await handleQaMessageIngress(delivered("问题:\n怎么入群？"))).toBeFalse();
+    expect(await handleQaMessageIngress({
+      ...(delivered("问题:\n怎么入群？") as object),
+      is_topic_message: true,
+      message_thread_id: 88,
+    } as never)).toBeFalse();
+    expect(sendCommandMessage).not.toHaveBeenCalled();
+
+    // 同一话题内投递被拒字段、半成字段及最终结算，回执都显式带 messageThreadId: 77。
+    await handleQaMessageIngress({
+      ...(delivered(`问题:\n${"长".repeat(CHAT_QA_QUESTION_MAX_CHARS + 1)}`) as object),
+      is_topic_message: true,
+      message_thread_id: 77,
+    } as never);
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0].messageThreadId).toBe(77);
+
+    await handleQaMessageIngress({
+      ...(delivered("问题:\n怎么入群？") as object),
+      is_topic_message: true,
+      message_thread_id: 77,
+    } as never);
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0].messageThreadId).toBe(77);
+
+    await handleQaMessageIngress({
+      ...(delivered("回答:\n点置顶") as object),
+      is_topic_message: true,
+      message_thread_id: 77,
+    } as never);
+    expect(lastText()).toBe(QA_COMMAND_TEXTS.created);
+    expect(sendCommandMessage.mock.calls.at(-1)?.[0].messageThreadId).toBe(77);
   });
 
   test("两项写在同一条消息里也能一次结算", async () => {

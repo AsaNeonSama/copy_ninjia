@@ -83,6 +83,22 @@ async function readFixtureIdentityPolicies(ids: readonly number[]): Promise<Iden
 export const readIdentityPoliciesMock = mock(readFixtureIdentityPolicies);
 
 /**
+ * 按夹具行表回答身份主键游标页读取。
+ * @param table 身份策略表名。
+ * @param afterId 上一页游标。
+ * @returns 游标分页结果。
+ */
+async function readFixtureIdentityIdPage(
+  table: IdentityPolicyTable,
+  afterId: number | null
+): Promise<IdentityIdPage> {
+  return idPage(table === "whitelist" ? miniAppTestWhitelistRows : miniAppTestBlocklistRows, afterId);
+}
+
+/** Mini App 集成测试共享的 `readIdentityIdPage` 桩函数。 */
+export const readIdentityIdPageMock = mock(readFixtureIdentityIdPage);
+
+/**
  * 幂等安装 Mini App 服务端测试共用的 `packages/infra/diskIO` 模块替身，使多文件同进程运行与 `--isolate` 具有一致的回执监听。
  */
 export function installMiniAppTestDiskIOMock(): void {
@@ -167,11 +183,7 @@ export function installMiniAppTestDiskIOMock(): void {
         );
       },
       readIdentityPolicies: readIdentityPoliciesMock,
-      readIdentityIdPage: async (
-        table: IdentityPolicyTable,
-        afterId: number | null
-      ): Promise<IdentityIdPage> =>
-        idPage(table === "whitelist" ? miniAppTestWhitelistRows : miniAppTestBlocklistRows, afterId),
+      readIdentityIdPage: readIdentityIdPageMock,
       relayLogMessage: (): boolean => true,
     })
   );
@@ -189,6 +201,8 @@ export function resetMiniAppTestDiskIOState(): void {
   miniAppTestJoinLogState.onFlushDiskIODomain = undefined;
   readIdentityPoliciesMock.mockReset();
   readIdentityPoliciesMock.mockImplementation(readFixtureIdentityPolicies);
+  readIdentityIdPageMock.mockReset();
+  readIdentityIdPageMock.mockImplementation(readFixtureIdentityIdPage);
 }
 
 /**

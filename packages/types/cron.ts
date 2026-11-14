@@ -96,8 +96,8 @@ export interface CronTaskSchedule {
    * 时刻的一次性任务。just_once 与 rand_cron 每次触发时置 null。
    */
   job: Bun.CronJob | null;
-  /** 已被对账撤销或停机关闭；在途一轮在下一个动作或下一次重试前据此停下。 */
-  cancelled: boolean;
+  /** 调度被对账撤销时触发的取消控制器；调度器检查与退避等待据此立即终止。 */
+  readonly cancellation: AbortController;
 }
 
 /** cron 调度器的主线程运行时（cache/main/cron.ts）。 */

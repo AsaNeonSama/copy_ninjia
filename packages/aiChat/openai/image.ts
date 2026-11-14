@@ -274,7 +274,6 @@ export async function generateOpenAiImage(request: AiImageRequest): Promise<Gene
     const model: string = config.model;
     const protocol: OpenAiImageProtocol = config.imageProtocol;
     const requestSignal: AbortSignal = signalWithTimeout(signal, OPENAI_IMAGE_REQUEST_TIMEOUT_MS);
-    requestSignal.throwIfAborted();
     const response: OpenAI.Images.ImagesResponse = await raceAbortOrThrow(
       requestOpenAiCompatibleImage(config, request, requestSignal)
         .then((result: OpenAI.Images.ImagesResponse): OpenAI.Images.ImagesResponse => {

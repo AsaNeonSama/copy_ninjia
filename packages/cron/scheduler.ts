@@ -27,12 +27,12 @@ import type { CronConfig, CronRuntime, CronTask, CronTaskSchedule } from "../typ
 import type { FlushResult } from "../types/lifecycle";
 
 /**
- * 停掉一个调度的 cron，并标记撤销。
+ * 停掉一个调度的 cron，并触发调度取消信号。
  *
  * @param schedule 待撤销的任务调度项
  */
 function cancelSchedule(schedule: CronTaskSchedule): void {
-  schedule.cancelled = true;
+  schedule.cancellation.abort();
   schedule.job?.stop();
   schedule.job = null;
 }
@@ -77,7 +77,7 @@ function cronExpressionAt(instantMs: number): string {
  */
 function armRandomCron(runtime: CronRuntime, schedule: CronTaskSchedule): void {
   const interval: CronTask["randomInterval"] = schedule.task.randomInterval;
-  if (interval === undefined || !runtime.accepting || schedule.cancelled) return;
+  if (interval === undefined || !runtime.accepting || schedule.cancellation.signal.aborted) return;
   const delayMs: number = interval.minMs + Math.floor(Math.random() * (interval.maxMs - interval.minMs + 1));
   schedule.job = Bun.cron(
     cronExpressionAt(Date.now() + delayMs),
@@ -93,7 +93,7 @@ function armRandomCron(runtime: CronRuntime, schedule: CronTaskSchedule): void {
  */
 async function fireCronTask(schedule: CronTaskSchedule): Promise<void> {
   const runtime: CronRuntime | null = cronRuntime.current;
-  if (runtime === null || !runtime.accepting || schedule.cancelled) return;
+  if (runtime === null || !runtime.accepting || schedule.cancellation.signal.aborted) return;
   const task: Readonly<CronTask> = schedule.task;
   if (task.justOnce || task.randomInterval !== undefined) {
     schedule.job?.stop();
@@ -111,7 +111,7 @@ async function fireCronTask(schedule: CronTaskSchedule): Promise<void> {
  * @returns 已注册的任务调度项
  */
 function registerSchedule(task: Readonly<CronTask>): CronTaskSchedule {
-  const schedule: CronTaskSchedule = { task, job: null, cancelled: false };
+  const schedule: CronTaskSchedule = { task, job: null, cancellation: new AbortController() };
   schedule.job = Bun.cron(task.cron, (): Promise<void> => fireCronTask(schedule), { tz: task.timeZone }).unref();
   return schedule;
 }

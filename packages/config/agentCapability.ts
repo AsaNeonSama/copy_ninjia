@@ -8,13 +8,13 @@
  */
 
 import {
-  LOOPBACK_HOSTS,
   EXPECTED_AGENT_FALLBACK_MODEL,
   EXPECTED_BASE_URL,
   AGENT_API_KEY_PLACEHOLDERS,
   WEB_SEARCH_DEFAULT_MAX_CALLS_PER_USE,
   isAgentProvider,
 } from "../consts/agent";
+import { AGENT_BASE_URL_POLICY } from "../consts/configUrl";
 import {
   IMAGE_GENERATION_DEFAULT_REFERENCE_IMAGES,
   IMAGE_GENERATION_MAX_REFERENCE_IMAGES,
@@ -26,8 +26,11 @@ import type {
   AgentImageCapabilityConfig,
   AgentProvider,
   AgentWebSearchCapabilityConfig,
+  GoogleAgentCapabilityConfig,
+  OpenAiAgentCapabilityConfig,
   OpenAiImageProtocol,
 } from "../types/config";
+import { parseConfigUrl } from "./urlPolicy";
 
 /**
  * 解码必填凭据；示例占位串存在时必须在启动阶段拒绝。
@@ -36,7 +39,7 @@ import type {
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
  * @returns 非空且非占位串的 API 密钥。
  */
-export function requiredApiKey(value: unknown, context: string, sourcePath: string): string {
+function requiredApiKey(value: unknown, context: string, sourcePath: string): string {
   const apiKey: string = requiredString(value, context, sourcePath);
   if (AGENT_API_KEY_PLACEHOLDERS.includes(apiKey)) {
     return invalidInput(sourcePath, context, "a configured non-placeholder string");
@@ -46,22 +49,44 @@ export function requiredApiKey(value: unknown, context: string, sourcePath: stri
 
 /**
  * 解码可选的绝对端点；缺省交给对应 SDK 的官方地址。
- * 只接受 HTTPS 或 LOOPBACK_HOSTS 内的明文 HTTP，且不得含 userinfo 或 fragment。
  * @param value 待校验的 `base_url` 字段值。
  * @param context 字段 JSONPath，用于构造致命错误诊断。
  * @param sourcePath 配置文件路径，用于构造致命错误诊断。
  * @returns 去空白后的合法 URL 字符串；字段缺省时返回 undefined。
  */
-export function optionalBaseUrl(value: unknown, context: string, sourcePath: string): string | undefined {
+function optionalBaseUrl(value: unknown, context: string, sourcePath: string): string | undefined {
   if (value === undefined) return undefined;
   const raw: string = requiredString(value, context, sourcePath);
-  const parsed: URL | null = URL.parse(raw);
-  if (parsed === null || parsed.username.length > 0 || parsed.password.length > 0 || parsed.hash.length > 0) {
+  if (parseConfigUrl(raw, AGENT_BASE_URL_POLICY) === null) {
     return invalidInput(sourcePath, context, EXPECTED_BASE_URL);
   }
-  if (parsed.protocol === "https:") return raw;
-  if (parsed.protocol === "http:" && LOOPBACK_HOSTS.includes(parsed.hostname)) return raw;
-  return invalidInput(sourcePath, context, EXPECTED_BASE_URL);
+  return raw;
+}
+
+/** 能力共用的凭据与可选自定义端点解码结果。 */
+export interface CapabilityCredentials {
+  /** 已校验的非占位 API 密钥。 */
+  readonly apiKey: string;
+  /** 去空白后满足策略的可选自定义端点 URL。 */
+  readonly baseUrl: string | undefined;
+}
+
+/**
+ * 解码能力共用的 `api_key` 与可选 `base_url`。
+ * @param value 已确认为普通对象的能力配置记录。
+ * @param context 能力字段 JSONPath，用于构造致命错误诊断。
+ * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * @returns 校验通过的 API 密钥与可选端点 URL。
+ */
+export function parseCapabilityCredentials(
+  value: Readonly<Record<string, unknown>>,
+  context: string,
+  sourcePath: string
+): CapabilityCredentials {
+  return {
+    apiKey: requiredApiKey(value.api_key, `${context}.api_key`, sourcePath),
+    baseUrl: optionalBaseUrl(value.base_url, `${context}.base_url`, sourcePath),
+  };
 }
 
 /**
@@ -155,21 +180,37 @@ function optionalFallbackModel({ value, model, context, sourcePath }: OptionalFa
   return fallbackModel;
 }
 
+/** 解码通用能力字段的入参。 */
+export interface ParseCapabilityFieldsOptions<TProvider extends AgentProvider = AgentProvider> {
+  /** 已确认为普通对象的能力配置记录。 */
+  readonly value: Readonly<Record<string, unknown>>;
+  /** 已校验并收窄的模型协议提供商。 */
+  readonly provider: TProvider;
+  /** 字段 JSONPath，用于构造致命错误诊断。 */
+  readonly context: string;
+  /** 配置文件路径，用于构造致命错误诊断。 */
+  readonly sourcePath: string;
+}
+
 /**
- * 解码通用字段；调用方须先按 capabilityKeys 核对过字段集。anthropic 分支另解 fallback_model。
- * @param value 已确认为普通对象的能力配置记录。
- * @param context 字段 JSONPath，用于构造致命错误诊断。
- * @param sourcePath 配置文件路径，用于构造致命错误诊断。
+ * 解码通用字段；调用方须先完成 provider 校验并按 capabilityKeys 核对字段集。anthropic 分支另解 fallback_model。
+ * @param options 待校验的能力记录、已校验提供商与错误诊断路径。
  * @returns 已校验的通用能力配置。
  */
 export function parseCapabilityFields(
-  value: Readonly<Record<string, unknown>>,
-  context: string,
-  sourcePath: string
-): AgentCapabilityConfig {
-  const provider: AgentProvider = requiredProvider(value.provider, `${context}.provider`, sourcePath);
-  const apiKey: string = requiredApiKey(value.api_key, `${context}.api_key`, sourcePath);
-  const baseUrl: string | undefined = optionalBaseUrl(value.base_url, `${context}.base_url`, sourcePath);
+  options: ParseCapabilityFieldsOptions<"google" | "openai">
+): GoogleAgentCapabilityConfig | OpenAiAgentCapabilityConfig;
+export function parseCapabilityFields(
+  options: ParseCapabilityFieldsOptions
+): AgentCapabilityConfig;
+export function parseCapabilityFields({
+  value,
+  provider,
+  context,
+  sourcePath,
+}: ParseCapabilityFieldsOptions): AgentCapabilityConfig {
+  const { apiKey, baseUrl }: CapabilityCredentials =
+    parseCapabilityCredentials(value, context, sourcePath);
   const model: string = requiredString(value.model, `${context}.model`, sourcePath);
   if (provider !== "anthropic") return { provider, apiKey, baseUrl, model };
   const fallbackModel: string | undefined =
@@ -210,7 +251,7 @@ export function parseCapability(
   if (!hasOnlyKeys(record, capabilityKeys(provider, []))) {
     return invalidInput(sourcePath, context, capabilityShape(provider, ""));
   }
-  return parseCapabilityFields(record, context, sourcePath);
+  return parseCapabilityFields({ value: record, provider, context, sourcePath });
 }
 
 /**
@@ -226,7 +267,7 @@ export function parseWebSearchCapability(value: unknown, sourcePath: string): Ag
   if (!hasOnlyKeys(record, capabilityKeys(provider, ["max_calls_per_use"]))) {
     return invalidInput(sourcePath, context, capabilityShape(provider, ", max_calls_per_use?"));
   }
-  const fields: AgentCapabilityConfig = parseCapabilityFields(record, context, sourcePath);
+  const fields: AgentCapabilityConfig = parseCapabilityFields({ value: record, provider, context, sourcePath });
   const maxCallsPerUse: number = optionalQuotaInteger({
     value: record.max_calls_per_use,
     context: `${context}.max_calls_per_use`,
@@ -264,11 +305,11 @@ export function parseImageCapability(
       capabilityShape(provider, provider === "openai" ? ", image_protocol, max_reference_images?" : ", max_reference_images?")
     );
   }
-  const fields: AgentCapabilityConfig = parseCapabilityFields(record, context, sourcePath);
+  const fields: GoogleAgentCapabilityConfig | OpenAiAgentCapabilityConfig =
+    parseCapabilityFields({ value: record, provider, context, sourcePath });
   if (fields.provider === "google") {
     return { ...fields, imageProtocol: undefined, maxReferenceImages: optionalMaxReferenceImages(record, context, sourcePath) };
   }
-  if (fields.provider === "anthropic") return invalidInput(sourcePath, `${context}.provider`, '"google" or "openai"');
   return {
     ...fields,
     imageProtocol: requiredImageProtocol(record.image_protocol, `${context}.image_protocol`, sourcePath),

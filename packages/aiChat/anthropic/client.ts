@@ -93,7 +93,6 @@ export async function requestAnthropicMessage({
     requestClient = sentClient;
     requestedModel = body.model;
     const requestSignal: AbortSignal = signalWithTimeout(signal, ANTHROPIC_REQUEST_TIMEOUTS_MS[capability]);
-    requestSignal.throwIfAborted();
     message = await raceAbortOrThrow(
       sentClient.sdk.beta.messages.create(body, { signal: requestSignal, fallbackState })
         .then((result: Anthropic.Beta.BetaMessage): Anthropic.Beta.BetaMessage => {

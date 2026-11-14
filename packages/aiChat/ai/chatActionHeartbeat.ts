@@ -80,7 +80,7 @@ export function pumpChatAction({
     if (dependencies.entries.get(chatId) !== entry) return;
     const phase: ChatActionPhase = entry.action;
     if (phase === "idle" || performance.now() < entry.restUntil) return;
-    const sinceLastSent: number = Date.now() - entry.lastSentAt;
+    const sinceLastSent: number = performance.now() - entry.lastSentAt;
     if (
       deduplicable &&
       entry.lastSentPhase === phase &&
@@ -102,7 +102,7 @@ export function pumpChatAction({
     if (ok) {
       if (entry.action === phase) {
         entry.lastSentPhase = phase;
-        entry.lastSentAt = Date.now();
+        entry.lastSentAt = performance.now();
       }
       entry.consecutiveFailures = 0;
       return;
@@ -192,7 +192,7 @@ export function startChatActionHeartbeat({
       pendingSend: false,
       pendingSendDeduplicate: true,
       lastSentPhase: "idle",
-      lastSentAt: 0,
+      lastSentAt: Number.NEGATIVE_INFINITY,
       restUntil: 0,
       restTimer: null,
       inflight: new Set(),

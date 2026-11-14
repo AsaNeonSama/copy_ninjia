@@ -16,7 +16,12 @@
 import type { BunFile } from "bun";
 import { isAbsolute, resolve } from "node:path";
 import { assetConfigCache } from "../cache/main/assets";
+import {
+  HTTP_OR_HTTPS_CONFIG_URL_POLICY,
+  HTTPS_CONFIG_URL_POLICY,
+} from "../consts/configUrl";
 import { ASSETS_CONFIG_PATH, RUNTIME_DATA_ROOT } from "../consts/paths";
+import { parseConfigUrl } from "./urlPolicy";
 import { DEFAULT_AVATAR_EXPECTED_FORM, DEFAULT_AVATAR_MAX_READ_BYTES } from "../consts/telegram";
 import {
   ASSET_CONFIG_GROUPS,
@@ -95,10 +100,10 @@ function trimmedField(group: AssetGroup, key: string): string | undefined {
  * @returns 归一化后的 URL href；非合法 http(s) URL 时返回 null。
  */
 function assetUrlHref(text: string, allowHttp: boolean): string | null {
-  const parsed: URL | null = URL.parse(text);
-  if (parsed === null) return null;
-  if (parsed.protocol !== "https:" && !(allowHttp && parsed.protocol === "http:")) return null;
-  return parsed.href;
+  return parseConfigUrl(
+    text,
+    allowHttp ? HTTP_OR_HTTPS_CONFIG_URL_POLICY : HTTPS_CONFIG_URL_POLICY
+  )?.href ?? null;
 }
 
 /**

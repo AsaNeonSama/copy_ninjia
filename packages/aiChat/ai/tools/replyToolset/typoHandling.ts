@@ -98,8 +98,7 @@ export function decideMessageTypo({
   const shouldUseTypo: boolean = typoToSend !== null;
   const typoAttempted: boolean = roundHasTypo &&
     !!originalChar &&
-    !!replacementChar &&
-    originalChar !== replacementChar;
+    !!replacementChar;
   const rejectedReason: string | null = typoAttempted ? rejection : null;
 
   return {

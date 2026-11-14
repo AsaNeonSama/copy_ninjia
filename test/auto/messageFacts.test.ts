@@ -501,6 +501,12 @@ describe("auto/message/facts", () => {
   test("随机复读只接收有实际载荷的消息", () => {
     expect(hasCopyableContent(message({ text: "hello" }))).toBe(true);
     expect(hasCopyableContent(message({ photo: [{ file_id: "p", file_unique_id: "u", width: 1, height: 1 }] }))).toBe(true);
+    expect(hasCopyableContent(message({ paid_media: { star_count: 5, paid_media: [] }, caption: "付费图注" }))).toBe(true);
+    expect(hasCopyableContent(message({ paid_media: { star_count: 5, paid_media: [] } }))).toBe(false);
+    expect(hasCopyableContent(message({ live_photo: {} }))).toBe(false);
+    expect(hasCopyableContent(message({ rich_message: {} }))).toBe(false);
+    expect(hasCopyableContent(message({ game: { title: "g", description: "d", photo: [] } }))).toBe(false);
+    expect(hasCopyableContent(message({ checklist: { title: "c", tasks: [] } }))).toBe(false);
     expect(hasCopyableContent(message({ new_chat_members: [alice] }))).toBe(false);
   });
 });

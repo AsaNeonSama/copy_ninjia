@@ -99,6 +99,15 @@ export async function prepareMiniAppPicker({
   const now: number = Date.now();
   pruneExpiredMiniAppPickers(now);
 
+  const chatState: Readonly<ChatState> | undefined =
+    chatId !== undefined ? getChatState(chatId) : undefined;
+  if (chatState !== undefined && !chatState.isInitEnabled) {
+    return {
+      ok: false,
+      message: "CHAT_NOT_INITIALIZED",
+    };
+  }
+
   if (targetList === "deleteMessage" && chatId !== undefined) {
     const permissions: Readonly<BotChatPermissions> | undefined =
       await botChatPermissionsIn(chatId);
@@ -108,15 +117,14 @@ export async function prepareMiniAppPicker({
         message: "DELETE_TARGET_MISSING_BOT_PERMISSION",
       };
     }
-  } else if (targetList === "translate" && chatId !== undefined) {
+  } else if (targetList === "translate" && chatState !== undefined) {
     if (!translateConfigReadiness().ok) {
       return {
         ok: false,
         message: "TRANSLATE_CAPABILITY_UNAVAILABLE",
       };
     }
-    const state: Readonly<ChatState> = getChatState(chatId);
-    if (!state.isTranslationEnabled) {
+    if (!chatState.isTranslationEnabled) {
       return {
         ok: false,
         message: "TRANSLATE_FEATURE_DISABLED",

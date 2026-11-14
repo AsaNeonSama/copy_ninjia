@@ -45,6 +45,7 @@ import {
   pendingTemporaryAdBypassWrites,
   pendingWhitelistWrites,
   resetStorageDatabaseCache,
+  storagePendingBudgets,
 } from "../../../packages/cache/workers/diskIO/storageDatabase";
 import { handleTemporaryAdBypassWrite } from
   "../../../packages/workers/diskIO/storageDatabase/temporaryAdBypass";
@@ -611,6 +612,18 @@ describe("DiskIO Worker SQLite 身份存储", () => {
     // 墓碑不算存在：同一窗口里先把累计写成墓碑，再拉黑同一身份是合法的。
     handleTemporaryAdBypassWrite({ type: "temporaryAdBypassWrite", id: 21, revision: 2, activity: null }, reply);
     expect((): void => handleIdentityPolicyWrite(blocklistWrite(21, 2), reply)).not.toThrow();
+
+    // 已被 rev2 墓碑覆盖并列入黑名单后，迟到的 rev1 非空累计按过期直接忽略：不抛错、不覆盖、不额外扣预算。
+    const budgetBefore = storagePendingBudgets.temporaryAdBypass as unknown as {
+      readonly entries: number;
+      readonly bytes: number;
+    };
+    const entriesBefore: number = budgetBefore.entries;
+    const bytesBefore: number = budgetBefore.bytes;
+    expect((): void => handleTemporaryAdBypassWrite(bypass(21, 1), reply)).not.toThrow();
+    expect(pendingTemporaryAdBypassWrites.get(21)).toEqual({ activity: null, revision: 2 });
+    expect(budgetBefore.entries).toBe(entriesBefore);
+    expect(budgetBefore.bytes).toBe(bytesBefore);
   });
 
   test("群状态达到托管群上限时自动事务提交并精确 ACK，再多一个群在 Worker owner 再次拒绝", () => {
