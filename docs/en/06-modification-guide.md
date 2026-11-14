@@ -81,7 +81,7 @@ Telegram rich text supports two mutually exclusive formatting modes (see `SendMe
 
 ## Switching Languages: No i18n Here — Fork It
 
-All user-facing copy and system prompts are authored in Simplified Chinese. The `packages/consts/atmosphere/` directory provides both teasing (`teasing`) and reserved (`plain`) tones:
+All user-facing copy and system prompts are authored in Simplified Chinese. The `packages/consts/atmosphere/` directory provides both teasing (`teasing`) and reserved (`plain`) tones. The Mini App console is the exception: its trilingual frontend copy (`packages/mini-app-frontend/i18n/`) always uses the teasing tone and does not follow `atmosphere`.
 
 - Fixed prompts and formatting helpers are maintained within dictionary tables; Telegram entity offsets are computed from rendered strings.
 - Action command triggers and reply templates (e.g., for `/咬`) are configured independently.

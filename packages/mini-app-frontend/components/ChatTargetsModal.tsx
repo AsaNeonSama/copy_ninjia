@@ -144,8 +144,14 @@ export function syncChatTargetsModalCloseReset({
   }
 }
 
-/** `ChatTargetsModalDialog` 的展示状态与节点引用属性参数。 */
-interface ChatTargetsModalDialogBaseProps {
+/** `ChatTargetsModalDialog` 对话框视图的属性参数：外框消费上层传入的外框切片，顶部表单与列表子面板经 `store` 按切片自订阅。 */
+interface ChatTargetsModalDialogProps {
+  /** 受管群状态仓库实例。 */
+  readonly store: MiniAppChatsStore;
+  /** 当前实时弹窗外框切片。 */
+  readonly state: ChatTargetsModalShellSlice;
+  /** 关闭前捕获的弹窗外框快照切片。 */
+  readonly snapshotState: ChatTargetsModalShellSlice;
   /** 当前展示的目标类别。 */
   readonly displayModalKind: MiniAppChatTargetKind;
   /** 当前展示的群详情快照。 */
@@ -176,16 +182,6 @@ interface ChatTargetsModalDialogBaseProps {
   readonly prevHadTargetsRef: React.RefObject<boolean>;
   /** 平滑滚动弹窗内容至顶部的回调。 */
   readonly onScrollToTop: () => void;
-}
-
-/** `ChatTargetsModalDialog` 对话框视图的属性参数：外框消费上层传入的外框切片，顶部表单与列表子面板经 `store` 按切片自订阅。 */
-interface ChatTargetsModalDialogProps extends ChatTargetsModalDialogBaseProps {
-  /** 当前实时弹窗外框切片。 */
-  readonly state: ChatTargetsModalShellSlice;
-  /** 关闭前捕获的弹窗外框快照切片。 */
-  readonly snapshotState: ChatTargetsModalShellSlice;
-  /** 受管群状态仓库实例。 */
-  readonly store: MiniAppChatsStore;
 }
 
 /**
@@ -302,6 +298,27 @@ function selectMemberPanelsSlice(
   };
 }
 
+/**
+ * 按切片订阅受管群仓库，并在弹窗退场期间改为返回最近一次激活态的切片快照（不在渲染期读取 `store.getState()`）。
+ *
+ * @param store 受管群状态仓库实例
+ * @param selector 模块级切片选择器
+ * @param isClosing 弹窗是否正处于退场收起阶段
+ * @returns 激活态返回实时切片，退场期间返回关闭前最后一次激活态切片
+ */
+function useRetainedPanelSlice<T>(
+  store: MiniAppChatsStore,
+  selector: (state: MiniAppChatsStoreState) => T,
+  isClosing: boolean
+): T {
+  const liveSlice: T = useStore(store, useShallow(selector));
+  const lastActiveSliceRef: React.RefObject<T> = useRef<T>(liveSlice);
+  if (!isClosing) {
+    lastActiveSliceRef.current = liveSlice;
+  }
+  return isClosing ? lastActiveSliceRef.current : liveSlice;
+}
+
 /** 连接态子面板共用的仓库与退场状态属性。 */
 interface ConnectedTargetsPanelBaseProps {
   /** 受管群状态仓库实例。 */
@@ -313,7 +330,7 @@ interface ConnectedTargetsPanelBaseProps {
 }
 
 /**
- * 仅订阅问答对编辑表单切片的轻量连接包装器（内部持有最近一次激活态切片快照，不在渲染期读取 `store.getState()`）。
+ * 仅订阅问答对编辑表单切片的轻量连接包装器（退场期间沿用最近一次激活态切片）。
  *
  * @param props 仓库与退场状态属性
  * @returns React 节点
@@ -323,25 +340,18 @@ function ConnectedChatTargetsQaEditorForm({
   isClosing,
   t,
 }: ConnectedTargetsPanelBaseProps): React.JSX.Element {
-  const liveSlice: ChatTargetsQaEditorFormSlice = useStore(
+  const panelState: ChatTargetsQaEditorFormSlice = useRetainedPanelSlice(
     store,
-    useShallow(selectQaEditorFormSlice)
+    selectQaEditorFormSlice,
+    isClosing
   );
-  const lastActiveSliceRef: React.RefObject<ChatTargetsQaEditorFormSlice> =
-    useRef<ChatTargetsQaEditorFormSlice>(liveSlice);
-  if (!isClosing) {
-    lastActiveSliceRef.current = liveSlice;
-  }
-  const panelState: ChatTargetsQaEditorFormSlice = isClosing
-    ? lastActiveSliceRef.current
-    : liveSlice;
   return (
     <ChatTargetsQaEditorForm state={panelState} isClosing={isClosing} t={t} />
   );
 }
 
 /**
- * 仅订阅成员目标添加表单切片的轻量连接包装器（内部持有最近一次激活态切片快照，退场时关闭翻译语言下拉）。
+ * 仅订阅成员目标添加表单切片的轻量连接包装器（退场期间沿用最近一次激活态切片并关闭翻译语言下拉）。
  *
  * @param props 目标类别、仓库与退场状态属性
  * @returns React 节点
@@ -355,21 +365,13 @@ function ConnectedChatTargetsMemberAddForm({
   /** 成员目标类别。 */
   readonly kind: "deleteMessage" | "translate";
 }): React.JSX.Element {
-  const liveSlice: ChatTargetsMemberAddFormSlice = useStore(
+  const retainedSlice: ChatTargetsMemberAddFormSlice = useRetainedPanelSlice(
     store,
-    useShallow(selectMemberAddFormSlice)
+    selectMemberAddFormSlice,
+    isClosing
   );
-  const lastActiveSliceRef: React.RefObject<ChatTargetsMemberAddFormSlice> =
-    useRef<ChatTargetsMemberAddFormSlice>(liveSlice);
-  if (!isClosing) {
-    lastActiveSliceRef.current = liveSlice;
-  }
   const panelState: ChatTargetsMemberAddFormSlice =
-    resolveChatTargetsModalPanelState(
-      liveSlice,
-      lastActiveSliceRef.current,
-      isClosing
-    );
+    resolveChatTargetsModalPanelState(retainedSlice, retainedSlice, isClosing);
   return (
     <ChatTargetsMemberAddForm
       kind={kind}
@@ -381,7 +383,7 @@ function ConnectedChatTargetsMemberAddForm({
 }
 
 /**
- * 仅订阅问答对列表切片的轻量连接包装器（内部持有最近一次激活态切片快照）。
+ * 仅订阅问答对列表切片的轻量连接包装器（退场期间沿用最近一次激活态切片）。
  *
  * @param props 仓库、退场状态与置顶滚动回调
  * @returns React 节点
@@ -395,18 +397,11 @@ function ConnectedChatTargetsQaPanel({
   /** 点击编辑后平滑滚动弹窗内容区至顶部的回调。 */
   readonly onScrollToTop: () => void;
 }): React.JSX.Element {
-  const liveSlice: ChatTargetsQaPanelSlice = useStore(
+  const panelState: ChatTargetsQaPanelSlice = useRetainedPanelSlice(
     store,
-    useShallow(selectQaPanelSlice)
+    selectQaPanelSlice,
+    isClosing
   );
-  const lastActiveSliceRef: React.RefObject<ChatTargetsQaPanelSlice> =
-    useRef<ChatTargetsQaPanelSlice>(liveSlice);
-  if (!isClosing) {
-    lastActiveSliceRef.current = liveSlice;
-  }
-  const panelState: ChatTargetsQaPanelSlice = isClosing
-    ? lastActiveSliceRef.current
-    : liveSlice;
   return (
     <ChatTargetsQaPanel
       state={panelState}
@@ -418,7 +413,7 @@ function ConnectedChatTargetsQaPanel({
 }
 
 /**
- * 仅订阅成员目标列表切片的轻量连接包装器（内部持有最近一次激活态切片快照）。
+ * 仅订阅成员目标列表切片的轻量连接包装器（退场期间沿用最近一次激活态切片）。
  *
  * @param props 目标类别、群详情、仓库与退场状态属性
  * @returns React 节点
@@ -435,18 +430,11 @@ function ConnectedChatTargetsMemberPanels({
   /** 当前展示的群详情快照。 */
   readonly chatDetail: Readonly<MiniAppChatDetail>;
 }): React.JSX.Element {
-  const liveSlice: ChatTargetsMemberPanelsSlice = useStore(
+  const panelState: ChatTargetsMemberPanelsSlice = useRetainedPanelSlice(
     store,
-    useShallow(selectMemberPanelsSlice)
+    selectMemberPanelsSlice,
+    isClosing
   );
-  const lastActiveSliceRef: React.RefObject<ChatTargetsMemberPanelsSlice> =
-    useRef<ChatTargetsMemberPanelsSlice>(liveSlice);
-  if (!isClosing) {
-    lastActiveSliceRef.current = liveSlice;
-  }
-  const panelState: ChatTargetsMemberPanelsSlice = isClosing
-    ? lastActiveSliceRef.current
-    : liveSlice;
   return (
     <ChatTargetsMemberPanels
       kind={kind}

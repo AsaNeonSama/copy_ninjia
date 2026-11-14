@@ -50,7 +50,7 @@ export async function verifyReleaseAssets({ directory, version, platforms, sourc
   }
   const bundledSourceFiles: readonly string[] = checked(
     command,
-    ["git", "-c", "core.quotePath=false", "ls-files", "-z", "--", ...RELEASE_BUNDLED_PATHS, `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`]
+    ["git", "ls-files", "-z", "--", ...RELEASE_BUNDLED_PATHS, `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`]
   )
     .split("\0")
     .filter((entry: string): boolean => entry.length > 0)

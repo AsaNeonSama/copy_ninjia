@@ -340,54 +340,50 @@ describe("Mini App 图库、分页与折叠动画组件", () => {
       fetchCalls.push(String(input));
       return Response.json({ ok: true });
     }) as typeof fetch;
-    const environment: MiniDomEnvironment = installMiniDom();
     try {
-      const qaContainer: MiniDomNode = environment.document.createElement("div");
-      const qaRoot: ReturnType<typeof createRoot> = createRoot(qaContainer as unknown as Element);
-      await act(async (): Promise<void> => {
-        qaRoot.render(createElement(ChatTargetsModal, { store }));
-      });
-      const openBackdrops: MiniDomNode[] = findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-backdrop"));
-      expect(openBackdrops).toHaveLength(1);
-      expect(hasClass(openBackdrops[0]!, "closing")).toBeFalse();
+      await withMountedMiniDom(async (qaContainer: MiniDomNode, qaRoot: ReturnType<typeof createRoot>): Promise<void> => {
+        await act(async (): Promise<void> => {
+          qaRoot.render(createElement(ChatTargetsModal, { store }));
+        });
+        const openBackdrops: MiniDomNode[] = findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-backdrop"));
+        expect(openBackdrops).toHaveLength(1);
+        expect(hasClass(openBackdrops[0]!, "closing")).toBeFalse();
 
-      await act(async (): Promise<void> => {
-        store.getState().closeTargetsModal();
-      });
-      const backdrop: MiniDomNode = findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-backdrop"))[0]!;
-      expect(hasClass(backdrop, "closing")).toBeTrue();
-      expect(backdrop.getAttribute("role")).toBe("dialog");
-      expect(backdrop.getAttribute("aria-hidden")).toBe("true");
-      const tabs: MiniDomNode[] = findElements(qaContainer, (element: MiniDomNode): boolean => element.getAttribute("role") === "tab");
-      expect(tabs).toHaveLength(3);
-      expect(tabs.every((tab: MiniDomNode): boolean => tab.getAttribute("tabindex") === "-1")).toBeTrue();
-      const openButtons: MiniDomNode[] = findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-qa-open-btn"));
-      expect(openButtons).toHaveLength(1);
-      expect(openButtons[0]!.getAttribute("tabindex")).toBe("-1");
-      const formButtons: MiniDomNode[] = findElements(
-        qaContainer,
-        (element: MiniDomNode): boolean => element.tagName === "BUTTON" &&
-          ["chat-targets-submit-btn", "chat-targets-cancel-btn", "chat-targets-qa-action-btn"]
-            .some((className: string): boolean => hasClass(element, className))
-      );
-      expect(formButtons).toHaveLength(4);
-      expect(formButtons.every((button: MiniDomNode): boolean => button.getAttribute("tabindex") === "-1")).toBeTrue();
-      expect(inputValues(qaContainer)).toEqual(["q-draft", "a-draft"]);
-      expect(findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-header-disabled"))).toHaveLength(0);
-      expect(findElements(qaContainer, (element: MiniDomNode): boolean => element.attributes.has("disabled"))).toHaveLength(0);
+        await act(async (): Promise<void> => {
+          store.getState().closeTargetsModal();
+        });
+        const backdrop: MiniDomNode = findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-backdrop"))[0]!;
+        expect(hasClass(backdrop, "closing")).toBeTrue();
+        expect(backdrop.getAttribute("role")).toBe("dialog");
+        expect(backdrop.getAttribute("aria-hidden")).toBe("true");
+        const tabs: MiniDomNode[] = findElements(qaContainer, (element: MiniDomNode): boolean => element.getAttribute("role") === "tab");
+        expect(tabs).toHaveLength(3);
+        expect(tabs.every((tab: MiniDomNode): boolean => tab.getAttribute("tabindex") === "-1")).toBeTrue();
+        const openButtons: MiniDomNode[] = findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-qa-open-btn"));
+        expect(openButtons).toHaveLength(1);
+        expect(openButtons[0]!.getAttribute("tabindex")).toBe("-1");
+        const formButtons: MiniDomNode[] = findElements(
+          qaContainer,
+          (element: MiniDomNode): boolean => element.tagName === "BUTTON" &&
+            ["chat-targets-submit-btn", "chat-targets-cancel-btn", "chat-targets-qa-action-btn"]
+              .some((className: string): boolean => hasClass(element, className))
+        );
+        expect(formButtons).toHaveLength(4);
+        expect(formButtons.every((button: MiniDomNode): boolean => button.getAttribute("tabindex") === "-1")).toBeTrue();
+        expect(inputValues(qaContainer)).toEqual(["q-draft", "a-draft"]);
+        expect(findElements(qaContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-header-disabled"))).toHaveLength(0);
+        expect(findElements(qaContainer, (element: MiniDomNode): boolean => element.attributes.has("disabled"))).toHaveLength(0);
 
-      await act(async (): Promise<void> => {
-        for (const element of [...tabs, ...openButtons, ...formButtons]) element.triggerClick();
-      });
-      expect(store.getState().activeTargetsModal).toBeNull();
-      expect(store.getState().qaEditorOpen).toBeFalse();
-      expect(store.getState().targetAddMenuOpen).toBeFalse();
-      expect(store.getState().qaEditSourceQuestion).toBeNull();
-      expect(store.getState().mutatingTargets).toBeFalse();
-      expect(store.getState().qaQuestionInput).toBe("q-draft");
-      expect(fetchCalls).toEqual([]);
-      await act(async (): Promise<void> => {
-        qaRoot.unmount();
+        await act(async (): Promise<void> => {
+          for (const element of [...tabs, ...openButtons, ...formButtons]) element.triggerClick();
+        });
+        expect(store.getState().activeTargetsModal).toBeNull();
+        expect(store.getState().qaEditorOpen).toBeFalse();
+        expect(store.getState().targetAddMenuOpen).toBeFalse();
+        expect(store.getState().qaEditSourceQuestion).toBeNull();
+        expect(store.getState().mutatingTargets).toBeFalse();
+        expect(store.getState().qaQuestionInput).toBe("q-draft");
+        expect(fetchCalls).toEqual([]);
       });
 
       // 翻译标签展开语言下拉时关闭弹窗：语言下拉的外部点击遮罩与弹窗同步进入退场。
@@ -397,30 +393,26 @@ describe("Mini App 图库、分页与折叠动画组件", () => {
         targetIdFormOpen: true,
         translateLangMenuOpen: true,
       });
-      const translateContainer: MiniDomNode = environment.document.createElement("div");
-      const translateRoot: ReturnType<typeof createRoot> = createRoot(translateContainer as unknown as Element);
-      await act(async (): Promise<void> => {
-        translateRoot.render(createElement(ChatTargetsModal, { store }));
-      });
-      const openLangBackdrops: MiniDomNode[] = findElements(translateContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-lang-backdrop"));
-      expect(openLangBackdrops).toHaveLength(1);
-      expect(hasClass(openLangBackdrops[0]!, "closing")).toBeFalse();
-      await act(async (): Promise<void> => {
-        store.getState().closeTargetsModal();
-      });
-      const langBackdrop: MiniDomNode = findElements(translateContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-lang-backdrop"))[0]!;
-      expect(hasClass(langBackdrop, "closing")).toBeTrue();
-      expect(langBackdrop.getAttribute("aria-hidden")).toBe("true");
-      await act(async (): Promise<void> => {
-        langBackdrop.triggerClick();
-      });
-      expect(store.getState().translateLangMenuOpen).toBeFalse();
-      expect(store.getState().activeTargetsModal).toBeNull();
-      await act(async (): Promise<void> => {
-        translateRoot.unmount();
+      await withMountedMiniDom(async (translateContainer: MiniDomNode, translateRoot: ReturnType<typeof createRoot>): Promise<void> => {
+        await act(async (): Promise<void> => {
+          translateRoot.render(createElement(ChatTargetsModal, { store }));
+        });
+        const openLangBackdrops: MiniDomNode[] = findElements(translateContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-lang-backdrop"));
+        expect(openLangBackdrops).toHaveLength(1);
+        expect(hasClass(openLangBackdrops[0]!, "closing")).toBeFalse();
+        await act(async (): Promise<void> => {
+          store.getState().closeTargetsModal();
+        });
+        const langBackdrop: MiniDomNode = findElements(translateContainer, (element: MiniDomNode): boolean => hasClass(element, "chat-targets-lang-backdrop"))[0]!;
+        expect(hasClass(langBackdrop, "closing")).toBeTrue();
+        expect(langBackdrop.getAttribute("aria-hidden")).toBe("true");
+        await act(async (): Promise<void> => {
+          langBackdrop.triggerClick();
+        });
+        expect(store.getState().translateLangMenuOpen).toBeFalse();
+        expect(store.getState().activeTargetsModal).toBeNull();
       });
     } finally {
-      environment.restore();
       globalThis.fetch = originalFetch;
     }
 

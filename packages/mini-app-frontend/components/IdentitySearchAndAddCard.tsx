@@ -24,7 +24,7 @@ import { CollapseGrid } from "./animations/CollapseGrid";
 import { useClosingSnapshot } from "./animations/useDelayedUnmount";
 
 /** `IdentitySearchAndAddCard` 顶部搜索栏与折叠添加抽屉订阅的状态与动作切片。 */
-export type IdentitySearchAndAddCardSlice = Pick<
+type IdentitySearchAndAddCardSlice = Pick<
   MiniAppIdentitiesStoreState,
   | "searchInput"
   | "addMenuOpen"
@@ -73,21 +73,15 @@ function selectIdentitySearchAndAddCardSlice(
   };
 }
 
-/** `IdentitySearchAndAddCardPanel` 视图组件的参数。 */
-export interface IdentitySearchAndAddCardPanelProps {
-  /** 顶部搜索与折叠添加卡片所需的状态与动作切片。 */
-  readonly state: IdentitySearchAndAddCardSlice;
-}
-
 /**
- * 渲染黑白名单顶部的防抖搜索栏与折叠式三合一添加抽屉卡片（含按 ID 输入内联展开区）。
+ * 按切片订阅黑白名单仓库，渲染顶部的防抖搜索栏与折叠式三合一添加抽屉卡片（含按 ID 输入内联展开区）。
  *
- * @param props 状态切片
+ * @param props 状态仓库引用
  * @returns React 节点
  */
-function IdentitySearchAndAddCardPanel({
-  state,
-}: IdentitySearchAndAddCardPanelProps): React.JSX.Element {
+function IdentitySearchAndAddCardView({
+  store,
+}: IdentitySearchAndAddCardProps): React.JSX.Element {
   const language: MiniAppLanguage = useMiniAppStore(
     (uiState: MiniAppUiStoreState): MiniAppLanguage => uiState.language
   );
@@ -106,7 +100,10 @@ function IdentitySearchAndAddCardPanel({
     closeIdForm,
     setIdInput,
     addById,
-  }: IdentitySearchAndAddCardSlice = state;
+  }: IdentitySearchAndAddCardSlice = useStore(
+    store,
+    useShallow(selectIdentitySearchAndAddCardSlice)
+  );
   const [isComposing, setIsComposing]: [
     boolean,
     React.Dispatch<React.SetStateAction<boolean>>
@@ -264,23 +261,7 @@ function IdentitySearchAndAddCardPanel({
   );
 }
 
-/**
- * 订阅黑白名单顶部搜索与折叠添加卡片切片并渲染卡片视图。
- *
- * @param props 状态仓库引用
- * @returns React 节点
- */
-function ConnectedIdentitySearchAndAddCard({
-  store,
-}: IdentitySearchAndAddCardProps): React.JSX.Element {
-  const slice: IdentitySearchAndAddCardSlice = useStore(
-    store,
-    useShallow(selectIdentitySearchAndAddCardSlice)
-  );
-  return <IdentitySearchAndAddCardPanel state={slice} />;
-}
-
 /** 仓库引用不变时跳过父级重渲染的顶部搜索与添加卡片（卡片内部按切片自订阅）。 */
 export const IdentitySearchAndAddCard: React.MemoExoticComponent<
-  typeof ConnectedIdentitySearchAndAddCard
-> = memo(ConnectedIdentitySearchAndAddCard);
+  typeof IdentitySearchAndAddCardView
+> = memo(IdentitySearchAndAddCardView);

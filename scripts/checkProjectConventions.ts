@@ -204,7 +204,7 @@ async function runProjectConventionCheck(): Promise<number> {
       trackedStats.set(join(PROJECT_ROOT, result.item), result.value);
       continue;
     }
-    throw new Error(`${result.item}: cannot stat tracked path.`, { cause: result.reason });
+    throw new Error(`${result.item}: cannot stat project file.`, { cause: result.reason });
   }
   const trackedAbsolutePaths: ReadonlySet<string> = new Set<string>(trackedStats.keys());
   const fileTexts: Map<string, string> = new Map<string, string>();

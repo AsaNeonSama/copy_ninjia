@@ -165,7 +165,7 @@
 
 #### 1. 人设与通知语气
 - 人设提示词属于全实例级的部署配置，不支持在群内通过命令按群独立切换。
-- AI 的人设内容默认读取项目根目录下的 `prompt/persona.md`；若文件不存在，则回落至内置的调侃雌小鬼人设。命令提示、权限说明、按钮文本、定时播报及 Inline 运势文案风格优先读取 `config/static/bot.json` 中的 `atmosphere` 配置（`mesugaki` 为调侃风，`normal` 为克制风）；若未显式配置，自定义人设默认采用 `normal`（克制风），内置人设采用 `DEFAULT_BOT_ATMOSPHERE`（调侃风）。
+- AI 的人设内容默认读取项目根目录下的 `prompt/persona.md`；若文件不存在，则回落至内置的调侃雌小鬼人设。命令提示、权限说明、按钮文本、定时播报及 Inline 运势文案风格优先读取 `config/static/bot.json` 中的 `atmosphere` 配置（`mesugaki` 为调侃风，`normal` 为克制风）；若未显式配置，自定义人设默认采用 `normal`（克制风），内置人设采用 `DEFAULT_BOT_ATMOSPHERE`（调侃风）。Mini App 控制台界面（含权限说明）不随此配置，固定使用雌小鬼语气。
 - 风格在服务启动时固定初始化，修改后需重启进程生效。
 - 启动时仅向 Telegram 注册群聊作用域的命令菜单，私聊窗口不显示命令菜单；私聊中仅响应超级管理员的 `/send` 中转命令，若配置了 `mini_app` 则在超级管理员私聊左下角挂载 `MenuButtonWebApp`（`App` 按钮）作为 Mini App 控制台入口。
 

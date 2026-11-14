@@ -164,7 +164,7 @@ Running `/translate list` returns the supported language dictionary (`TRANSLATE_
 
 #### 1. Persona and Notice Atmosphere
 - System personas are configured globally and cannot be toggled per group via commands.
-- The AI persona prompt defaults to `prompt/persona.md` at the project root; if absent, it falls back to the built-in teasing persona. Prompt tone for notices, buttons, menus, and inline fortunes follows the `atmosphere` setting in `config/static/bot.json` (`mesugaki` for teasing, `normal` for reserved). When omitted, custom personas default to `normal` (reserved tone), while the built-in persona defaults to `DEFAULT_BOT_ATMOSPHERE`.
+- The AI persona prompt defaults to `prompt/persona.md` at the project root; if absent, it falls back to the built-in teasing persona. Prompt tone for notices, buttons, menus, and inline fortunes follows the `atmosphere` setting in `config/static/bot.json` (`mesugaki` for teasing, `normal` for reserved). When omitted, custom personas default to `normal` (reserved tone), while the built-in persona defaults to `DEFAULT_BOT_ATMOSPHERE`. The Mini App console (including its permission descriptions) does not follow this setting and always uses the teasing tone.
 - Atmosphere settings are initialized at startup; modifications require a process restart.
 - At startup, the bot registers command menus for group chats only. No command menu is shown in private chat; private chat only responds to superadmin `/send` relay commands and (when `mini_app` is configured) attaches a `MenuButtonWebApp` (`App` button) in the superadmin's private chat as the Mini App entry point.
 

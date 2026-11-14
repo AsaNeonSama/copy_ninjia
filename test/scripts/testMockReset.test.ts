@@ -302,6 +302,49 @@ describe("套件级 spyOn 必须在同文件恢复", () => {
     ]);
   });
 
+  test("准备钩子引用的具名函数与 test/ 辅助函数里的监听同样受检，同一钩子内创建并还原的监听放行", async () => {
+    const problems: readonly string[] = await problemsFor({
+      "spyHelper.ts": [
+        'import { spyOn } from "bun:test";',
+        "export function installHelperSpy(target: { h: () => number }): void {",
+        '  spyOn(target, "h");',
+        "}",
+        "",
+      ].join("\n"),
+      "a.test.ts": [
+        'import { afterEach, beforeEach, describe, spyOn, test } from "bun:test";',
+        'import { installHelperSpy } from "./spyHelper";',
+        "const target = { a: (): number => 1, b: (): number => 2, c: (): number => 3, h: (): number => 4 };",
+        "let aSpy: ReturnType<typeof spyOn> | undefined;",
+        'function installA(): void { aSpy = spyOn(target, "a"); }',
+        'function installB(): void { spyOn(target, "b"); }',
+        'describe("restored", () => {',
+        "  beforeEach(installA);",
+        "  afterEach(() => { aSpy?.mockRestore(); });",
+        '  test("use", () => { target.a(); });',
+        "});",
+        'describe("leaked", () => {',
+        "  beforeEach(installB);",
+        "  beforeEach(() => { installHelperSpy(target); });",
+        '  test("use", () => { target.b(); });',
+        "});",
+        'describe("setup-only", () => {',
+        "  beforeEach(() => {",
+        '    const quiet = spyOn(target, "c");',
+        "    target.c();",
+        "    quiet.mockRestore();",
+        "  });",
+        '  test("use", () => { target.c(); });',
+        "});",
+        "",
+      ].join("\n"),
+    });
+    expect(problems).toEqual([
+      spyProblem("a.test.ts:6:29", "beforeEach", "spyOn(...)"),
+      spyProblem("spyHelper.ts:3:3", "beforeEach", "spyOn(...)"),
+    ]);
+  });
+
   test("beforeEach 创建的监听在 afterEach 或 afterAll 还原（含 jest.restoreAllMocks）放行，未还原时报出", async () => {
     const problems: readonly string[] = await problemsFor({
       "a.test.ts": [

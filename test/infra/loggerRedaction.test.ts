@@ -70,7 +70,6 @@ describe("文本内嵌凭据字段的值边界", () => {
   });
 
   test("replacer 对全量敏感字段大小写无关脱敏", () => {
-
     const replacer: LogRedactionReplacer = createLogRedactionReplacer([]);
     for (const field of LOGGER_SENSITIVE_FIELD_NAMES) {
       const upper: string = field.toUpperCase();

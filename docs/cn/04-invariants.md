@@ -943,7 +943,7 @@
   - 记录去重后仅保留每个用户的最新入群记录。命中白名单的跳过；命中黑名单的交回统一封禁；仍留在群内的调用 `kickChatMemberWithOutcome` 执行踢出（只踢不封）。若单批中包含被拉黑用户，批次结束后触发一次全名单补扫。
 - **人设与通知文案的启动快照**：
   - AI 人设优先加载 `prompt/persona.md`，缺省时使用内置 `DEFAULT_AI_PERSONA`；`send_voice` 工具说明优先加载 `prompt/voice_tool.md`。两者均在启动总闸阶段生成只读快照并注入 AI Worker，运行期不热重载。
-  - 通知文案风格由 `bot.json` 的 `atmosphere` 明确指定（`mesugaki` 雌小鬼或 `normal` 普通）；未配置时若存在人设文件使用普通风格，否则默认雌小鬼风格。全进程风格统一，运行期间不发起额外的 SQL 或 RPC 查询。
+  - 通知文案风格由 `bot.json` 的 `atmosphere` 明确指定（`mesugaki` 雌小鬼或 `normal` 普通）；未配置时若存在人设文件使用普通风格，否则默认雌小鬼风格。全进程风格统一，运行期间不发起额外的 SQL 或 RPC 查询。Mini App 控制台界面文案不随此配置，固定使用雌小鬼语气。
 
 ### 群状态与 `chat_states`
 

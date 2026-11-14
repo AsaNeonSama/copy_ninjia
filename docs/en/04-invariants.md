@@ -931,7 +931,7 @@ This section covers [counting and enforcement boundaries](#counting-and-enforcem
   - Deduplicates records to keep the latest join per user. Skips allowlisted members; hands blocklisted members to ban workflows; kicks remaining members via `kickChatMemberWithOutcome` (kick without ban). Triggers full-list resweep if blocklisted users were found.
 - **Startup Snapshots for Prompts and Atmospheric Copy**:
   - AI persona loads from `prompt/persona.md` (falling back to `DEFAULT_AI_PERSONA`); voice tool instructions load from `prompt/voice_tool.md`. Both form immutable read-only snapshots during startup preflight, passed into the AI Worker without runtime hot reloading.
-  - Notice atmosphere is explicitly configured via `bot.json` `atmosphere` (`mesugaki` | `normal`). Defaults to `normal` if a custom persona file exists, or `DEFAULT_BOT_ATMOSPHERE` (`mesugaki`) otherwise. Uniform process-wide style without per-message queries.
+  - Notice atmosphere is explicitly configured via `bot.json` `atmosphere` (`mesugaki` | `normal`). Defaults to `normal` if a custom persona file exists, or `DEFAULT_BOT_ATMOSPHERE` (`mesugaki`) otherwise. Uniform process-wide style without per-message queries. The Mini App console copy does not follow this setting and always uses the teasing tone.
 
 ### Chat State and `chat_states`
 

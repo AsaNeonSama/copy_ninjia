@@ -333,7 +333,7 @@ describe("Mini App 前端格式化与展示组件", () => {
       expect((searchInputs[0] as MiniDomNode & { readonly type?: string }).type).toBe("text");
       expect(searchInputs[0]!.getAttribute("inputMode")).toBe("text");
       expect(searchInputs[0]!.getAttribute("lang")).toBe("");
-      expect(searchInputs[0]!.getAttribute("placeholder")).toBe("id/name");
+      expect(searchInputs[0]!.getAttribute("placeholder")).toBe(getMiniAppTranslations("zh").identities.searchPlaceholder);
       expect(findElements(container, (element: MiniDomNode): boolean => hasClass(element, "debounce-status-hint"))).toHaveLength(0);
       await act(async (): Promise<void> => {
         identitiesStore.getState().setSearchInput("doro2");

@@ -81,7 +81,7 @@ Telegram 发送富文本支持 MarkdownV2 与 Entities 两种机制，二者在�
 
 ## 换成别的语言：不做 i18n，请自行 fork
 
-系统所有面向用户的固定文案与提示均为简体中文，`packages/consts/atmosphere/` 下提供了“调侃/雌小鬼风格（teasing）”与“常规克制风格（plain）”两套实现。
+系统所有面向用户的固定文案与提示均为简体中文，`packages/consts/atmosphere/` 下提供了“调侃/雌小鬼风格（teasing）”与“常规克制风格（plain）”两套实现。Mini App 控制台界面不在此列：前端三语文案（`packages/mini-app-frontend/i18n/`）固定使用雌小鬼语气，不随 `atmosphere` 切换。
 
 - 固定提示与格式化函数统一由文案字典维护，Telegram entities 偏移量基于最终渲染生成的文本计算。
 - 动作命令（如 `/咬`）的匹配词与回复模版独立存储。

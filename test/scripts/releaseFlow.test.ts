@@ -22,13 +22,13 @@ import type { CapturedCommandResult } from "../../scripts/fixtures/subprocess";
 const BUNDLED_TRACKED_FILES: readonly string[] = createReleaseCommand(PROJECT_ROOT)([
   "git",
   "ls-files",
+  "-z",
   "--",
   ...RELEASE_BUNDLED_PATHS,
   `:(glob)${RELEASE_INSTALL_SCRIPT_GLOB}`,
 ]).stdout
-  .split("\n")
-  .map((line: string): string => line.trim())
-  .filter((line: string): boolean => line.length > 0);
+  .split("\0")
+  .filter((path: string): boolean => path.length > 0);
 
 /** 「缺拒绝页」缺口删掉的发行文件（取自拒绝页路径常量）。 */
 const REJECT_HTML_RELATIVE_PATH: string = relative(PROJECT_ROOT, MINI_APP_REJECT_HTML_PATH);

@@ -6,7 +6,7 @@
  */
 
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "grammy/types";
 import { imageFixture } from "../helpers/image";
@@ -106,7 +106,8 @@ interface BusinessStateSnapshot {
   readonly qaEntries: readonly (readonly [string, string])[];
   readonly pendingPickerSize: number;
   readonly completedPickerSize: number;
-  readonly galleryFileExists: boolean;
+  /** 图库目录的完整文件名列表（排序后），新增或删除任一文件都会改变它。 */
+  readonly galleryFiles: readonly string[];
   readonly totpSecret: string | null | undefined;
 }
 
@@ -406,12 +407,10 @@ async function seedProtectedStateFixture(): Promise<SeededSecurityFixture> {
 
 /**
  * 采集当前内存与临时图库目录的业务状态快照，用于核验未授权请求未造成任何写入或删除。
- * @param galleryFileName 已种子化的图库图片文件名。
  * @returns 序列化可比对的只读快照。
  */
-function captureBusinessStateSnapshot(galleryFileName: string): BusinessStateSnapshot {
+function captureBusinessStateSnapshot(): BusinessStateSnapshot {
   const chatState = getOrCreateChatState(TEST_CHAT_ID);
-  const galleryPath: string = join(getAssetConfig().randomHImageDirectory, galleryFileName);
   return {
     whitelistEntries: [...miniAppTestWhitelistRows.entries()],
     blocklistEntries: [...miniAppTestBlocklistRows.entries()],
@@ -425,7 +424,7 @@ function captureBusinessStateSnapshot(galleryFileName: string): BusinessStateSna
     qaEntries: [...(chatQaEntries.get(TEST_CHAT_ID)?.entries() ?? [])],
     pendingPickerSize: miniAppPendingPickers.size,
     completedPickerSize: miniAppCompletedPickerResults.size,
-    galleryFileExists: existsSync(galleryPath),
+    galleryFiles: readdirSync(getAssetConfig().randomHImageDirectory).sort(),
     totpSecret: miniAppTotpRecordHolder.current?.secret,
   };
 }
@@ -505,9 +504,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     });
     expect(server).not.toBeNull();
     const fixture: SeededSecurityFixture = await seedProtectedStateFixture();
-    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot(
-      fixture.galleryFileName
-    );
+    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot();
 
     // 1. 外部浏览器 / curl 不带任何 Telegram 鉴权头扫描全部已注册路由与未知路径。
     for (const route of PROTECTED_ROUTE_DESCRIPTORS) {
@@ -562,14 +559,12 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       await assertBlockedDiagnostics(res, status, code);
     }
 
-    expect(captureBusinessStateSnapshot(fixture.galleryFileName)).toEqual(beforeSnapshot);
+    expect(captureBusinessStateSnapshot()).toEqual(beforeSnapshot);
   });
 
   test("initData 密码学与结构防篡改矩阵：错签、篡改 user.id、缺 hash、重复键、过期/未来偏移 auth_date、畸形 user 与群聊上下文一律拒绝", async () => {
     const fixture: SeededSecurityFixture = await seedProtectedStateFixture();
-    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot(
-      fixture.galleryFileName
-    );
+    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot();
     const activeSession: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession();
     const nowSec: number = Math.floor(Date.now() / 1_000);
 
@@ -613,7 +608,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       }
     }
 
-    expect(captureBusinessStateSnapshot(fixture.galleryFileName)).toEqual(beforeSnapshot);
+    expect(captureBusinessStateSnapshot()).toEqual(beforeSnapshot);
   });
 
   test("非 SuperAdmin 合法签名与 Picker 伪造防护：全量路由（含 precheck、login、logout、图库与 TOTP）一律 403 FORBIDDEN_USER，伪造共享消息零入库", async () => {
@@ -626,9 +621,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     expect(server).not.toBeNull();
     const fixture: SeededSecurityFixture = await seedProtectedStateFixture();
     const adminSession: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession();
-    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot(
-      fixture.galleryFileName
-    );
+    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot();
     const nonAdminHeaders: Record<string, string> = {
       [MINI_APP_INIT_DATA_HEADER]: signInitDataForUser(NON_ADMIN_USER_ID),
       [MINI_APP_SESSION_HEADER]: adminSession.token,
@@ -671,7 +664,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     expect(await handleMiniAppSharedMessage(spoofedGroupShare)).toBeNull();
     expect(getMiniAppPickerResult(fixture.pickerRequestId)).toBeNull();
 
-    expect(captureBusinessStateSnapshot(fixture.galleryFileName)).toEqual(beforeSnapshot);
+    expect(captureBusinessStateSnapshot()).toEqual(beforeSnapshot);
   });
 
   test("二次认证会话隔离：仅持 SuperAdmin initData、伪造/畸形/过期/注销/TOTP 变更前的旧会话在全部解锁后路由（含 /api/gallery/file/:fileName）一律 401", async () => {
@@ -685,9 +678,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
     });
     expect(server).not.toBeNull();
     const fixture: SeededSecurityFixture = await seedProtectedStateFixture();
-    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot(
-      fixture.galleryFileName
-    );
+    const beforeSnapshot: BusinessStateSnapshot = captureBusinessStateSnapshot();
     const postLoginRoutes: readonly Readonly<ProtectedRouteDescriptor>[] =
       PROTECTED_ROUTE_DESCRIPTORS.filter(
         (route: Readonly<ProtectedRouteDescriptor>): boolean => route.tier === "sessionRequired"
@@ -787,7 +778,7 @@ describe("Mini App 服务端未授权访问全路由安全矩阵", () => {
       401,
       "PASSWORD_REQUIRED"
     );
-    expect(captureBusinessStateSnapshot(fixture.galleryFileName)).toEqual(beforeSnapshot);
+    expect(captureBusinessStateSnapshot()).toEqual(beforeSnapshot);
 
     // 4. TOTP 绑定与删除立即吊销其余旧会话（保留执行变更操作的当前会话及宽限期内别名）。
     const staleBeforeEnable: Readonly<MiniAppAuthSession> = issueMiniAppAuthSession(baseMs);

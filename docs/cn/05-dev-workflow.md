@@ -69,7 +69,7 @@
   - **运行时安全与 API 规范**：`packages/workers/` 中的定时器必须显式调用 `unref()`；`packages/` 内禁止 `Object.freeze`，也禁止用 `.keys().next()`、`.values().next()`、`.entries().next()` 取最早项，有界 FIFO / LRU 的最早项一律经 `libs/fifoMap.ts` 的 `FifoMap`（或继承它的 `LruCache`）取得；Node 兼容模块与 `Buffer` 仅放行在白名单中登记的调用，未使用的登记同样报错；统一使用 `Bun.argv` 读取命令行参数；运行期裸导入的包必须在根 `package.json` 中直接声明。
   - **门禁与指标对账**：静态检查 `index.ts`、`packages/` 与 `scripts/` 中顶层函数、类方法及 `*Params`/`*Options` 参数接口属性的 JSDoc（含 `@param` 与非 `void`/`never` 返回值的 `@returns`，`scripts/conventions/sourceRules.ts` 的 `collectFunctionJsDocProblems`）；静态检查 Telegram 消息清理例外与话题归属；核对冷迁移脚本与 `package.json` 的 `migrate:*` 入口一一对应；核对故障注入套件清单；比对三语文档与 `performance-result.json` 中的测试覆盖率和性能指标，确保记录同源。注释中「`<模块>.ts` 的 `<符号>`」式的交叉引用必须指向现存的符号：以 `./`、`../` 开头的路径按注释所在源文件的目录解析，目标文件或符号缺失都会报错；其余写法只在能唯一确定目标文件时核对。
   - **测试断言规范**：测试用例中严禁将导入的大写常量直接与字面量常量进行比对，禁止直接在断言中硬编码与 `packages/consts` 相同的长字符串或中文提示文案片段（必须引用常量或模板辅助函数 `test/helpers/templateText.ts`）。特殊断言豁免必须在 `scripts/conventions/testAssertionFragments.ts` 中显式登记。
-  - **测试替身复位**：同一个替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 的回调及其可传递调用到的测试侧函数）里就必须用 `mockReset()` 再装回默认实现，不能只 `mockClear()`：`mockClear()` 不清排队中的 Once（`scripts/conventions/testMockReset.ts`）；`test/` 下文件顶层创建的 `spyOn` 必须在覆盖作用域（同级或外层套件/文件）的 `afterAll` / `afterEach` 钩子或同作用域顶层同步位置调用 `mockRestore()` / `mock.restore()` 还原被监听对象（`scripts/conventions/testSpyRestore.ts`）。两项门禁均按 TypeScript checker 把替身解析到声明符号判定，用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
+  - **测试替身复位**：同一个替身只要在任何用例里排过 `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce`，复位钩子（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` 的回调及其可传递调用到的测试侧函数）里就必须用 `mockReset()` 再装回默认实现，不能只 `mockClear()`：`mockClear()` 不清排队中的 Once（`scripts/conventions/testMockReset.ts`）；`test/` 下文件顶层、`describe` 一级语句与 `beforeAll` / `beforeEach` 回调（含经 `test/` 下辅助函数传递调用到的函数）里创建的 `spyOn` 必须在覆盖作用域（同级或外层套件/文件）的清理钩子里还原被监听对象：顶层与 `beforeAll` 创建的只认 `afterAll`（顶层另认同作用域顶层同步位置），`beforeEach` 创建的认 `afterEach` 或 `afterAll`，在同一准备钩子内创建并还原的同样放行；还原写法为 `mockRestore()`、`mock.restore()` 或 `jest.restoreAllMocks()`，被监听目标本身已是共享 mock 时只能用后两者（`spyOn` 返回同一个 mock，`mockRestore()` 会清空其实现）（`scripts/conventions/testSpyRestore.ts`）。两项门禁均按 TypeScript checker 把替身解析到声明符号判定，用例中途只为清调用记录的 `mockClear()` 不在判定范围内。
 
 ---
 
@@ -96,7 +96,7 @@
 
 ### 当前文档版本实测
 
-`bun run test:coverage`：**7188 tests / 605 files / 463447 次 `expect()`**；全源码**函数覆盖率 96.84% / 行覆盖率 97.56%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
+`bun run test:coverage`：**7200 tests / 605 files / 463493 次 `expect()`**；全源码**函数覆盖率 96.85% / 行覆盖率 97.56%**。三语项目 README 的 Coverage 徽章展示行覆盖率。
 
 ---
 

@@ -22,6 +22,7 @@ import {
   prepareStoredIdentityIdLookups,
   readStoredIdentityIdPage,
   readStoredIdentityPolicies,
+  readStoredIdentityPolicy,
 } from "../../../database/interact/identityPolicy";
 import { readStoredTemporaryAdBypassActivities } from
   "../../../database/interact/temporaryAdBypass";
@@ -307,7 +308,7 @@ function policyRowsWithPending(
     if (pending !== undefined) {
       return pending.data === null ? [] : [[id, pending.data]];
     }
-    const row: StoredIdentityPolicyRow | undefined = readStoredIdentityPolicies(reader, table, ids)[0];
+    const row: StoredIdentityPolicyRow | undefined = readStoredIdentityPolicy(reader, table, id);
     return row === undefined ? [] : [[row.id, row.data]];
   }
   const rows: readonly StoredIdentityPolicyRow[] = readStoredIdentityPolicies(

@@ -63,7 +63,22 @@ export function readStoredIdentityIdPage(
 }
 
 /**
- * 通过预编译语句按 ID 列表读取白名单或黑名单的已提交行；单 ID 走主键等值语句，多 ID 走批量查询（不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
+ * 通过主键等值预编译语句读取白名单或黑名单的单个已提交行。
+ * @param reader 共享存储数据库的预编译读取句柄。
+ * @param table 目标身份策略表标识（白名单或黑名单）。
+ * @param id 待读取的身份主键 ID。
+ * @returns 命中时返回主键与 JSON 文本；未命中时返回 undefined。
+ */
+export function readStoredIdentityPolicy(
+  reader: StorageDatabaseReader,
+  table: IdentityPolicyTable,
+  id: number
+): StoredIdentityPolicyRow | undefined {
+  return (table === "whitelist" ? reader.whitelistPolicyById : reader.blocklistPolicyById).get({ id });
+}
+
+/**
+ * 通过预编译语句按 ID 列表读取白名单或黑名单的已提交行；单 ID 走 `readStoredIdentityPolicy`，多 ID 走批量查询（不超过 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
  * @param reader 共享存储数据库的预编译读取句柄。
  * @param table 目标身份策略表标识（白名单或黑名单）。
  * @param ids 待读取的身份主键 ID 列表。
@@ -76,9 +91,7 @@ export function readStoredIdentityPolicies(
 ): readonly StoredIdentityPolicyRow[] {
   if (ids.length === 0) return [];
   if (ids.length === 1) {
-    const row: StoredIdentityPolicyRow | undefined = (
-      table === "whitelist" ? reader.whitelistPolicyById : reader.blocklistPolicyById
-    ).get({ id: ids[0]! });
+    const row: StoredIdentityPolicyRow | undefined = readStoredIdentityPolicy(reader, table, ids[0]!);
     return row === undefined ? [] : [row];
   }
   if (ids.length > IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES) {

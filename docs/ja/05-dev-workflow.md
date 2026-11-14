@@ -56,7 +56,7 @@
   - **安全な API 呼び出し**：`packages/workers/` 配下の全タイマーは `unref()` が必須です。`packages/` では `Object.freeze` を禁止し、`.keys().next()`、`.values().next()`、`.entries().next()` で最古の項目を取ることも禁止します。有界 FIFO / LRU の最古の項目は必ず `libs/fifoMap.ts` の `FifoMap`（またはそれを継承する `LruCache`）から取得します。Node 互換モジュールおよび `Buffer` は事前登録された用途のみ許可され、未使用の登録もエラーとなります。コマンドライン引数の取得には `Bun.argv` を強制します。ランタイムで import される外部パッケージはルート `package.json` に明示的に宣言されている必要があります。
   - **整合性突合**：`index.ts`、`packages/`、`scripts/` におけるトップレベル関数、クラスメソッド、および `*Params`/`*Options` 引数インターフェースのプロパティの JSDoc（`@param` と `void`/`never` 以外の戻り値に対する `@returns` を含む。`scripts/conventions/sourceRules.ts` の `collectFunctionJsDocProblems`）、Telegram 提示メッセージの遅延削除例外とトピック属性、コールドマイグレーションスクリプトと `package.json` の `migrate:*` 定義の一致、障害注入スイート一覧、カバレッジ測定値およびベンチマーク記録（3 言語ドキュメントと `performance-result.json` の完全一致）を静的検証します。コメント内の「`<モジュール>.ts` の `<シンボル>` を参照」という記述は、現存するシンボルを正確に指している必要があります。`./`・`../` で始まるパスはコメントのあるソースファイルのディレクトリを基準に解決し、対象ファイルまたはシンボルが存在しなければエラーになります。それ以外の書き方は対象ファイルを一意に特定できる場合にのみ検査します。
   - **テストアサーション規約**：テストコード内でインポートした大文字定数をリテラル定数と直接比較することを禁止します。matcher の引数に `packages/consts` の文字列定数（長さ `STRING_CONSTANT_MIN_LENGTH` 以上）と同一のリテラルを書くこと、および漢字・仮名を `CONSTANT_TEXT_FRAGMENT_MIN_CJK` 文字以上含む文言の断片を書き写すことも禁止されます（期待値は定数そのもの、または template 定数から描画された固定部分を使用。`test/helpers/templateText.ts` 参照）。プロンプトの文言を検証する契約テストは `scripts/conventions/testAssertionFragments.ts` の `CONSTANT_TEXT_CONTRACT_EXEMPTIONS` に登録する必要があります。
-  - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません（`scripts/conventions/testMockReset.ts`）。また、`test/` 配下のファイルのトップレベルで作成した `spyOn` は同一ファイルの包含スコープ内の `afterAll` / `afterEach` フックまたは同スコープのトップレベル同期位置で `mockRestore()` / `mock.restore()` を呼ぶ必要があります（`scripts/conventions/testSpyRestore.ts`）。両ゲートとも TypeScript checker でモックを宣言シンボルまで解決して判定し、テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
+  - **テストダブルのリセット**：あるモックがいずれかのテストで `mockReturnValueOnce` / `mockResolvedValueOnce` / `mockRejectedValueOnce` / `mockImplementationOnce` をキューに積んだ場合、そのリセットフック（`beforeEach` / `afterEach` / `beforeAll` / `afterAll` のコールバックと、そこから推移的に呼ばれるテスト側の関数）では `mockClear()` だけで済ませず、`mockReset()` してから既定の実装を付け直さなければなりません（`scripts/conventions/testMockReset.ts`）。また、`test/` 配下のファイルのトップレベル、`describe` 直下、`beforeAll` / `beforeEach` コールバック（そこから推移的に呼ばれる `test/` 配下の関数を含む）内で作成した `spyOn` は、包含スコープ（同階層または外側のスイート／ファイル）のクリーンアップフックで監視対象を元に戻す必要があります。トップレベルと `beforeAll` で作成したものは `afterAll` のみ（トップレベルは同スコープのトップレベル同期位置も可）、`beforeEach` で作成したものは `afterEach` または `afterAll` で戻し、同じ準備フック内で作成して戻したものも認めます。戻し方は `mockRestore()`・`mock.restore()`・`jest.restoreAllMocks()` のいずれかで、監視対象自体が共有モックの場合は後の 2 つに限ります（`spyOn` は同じモックを返し、`mockRestore()` はその実装を消します）（`scripts/conventions/testSpyRestore.ts`）。両ゲートとも TypeScript checker でモックを宣言シンボルまで解決して判定し、テスト途中で呼び出し記録を消すためだけの `mockClear()` は対象外です。
 
 ---
 
@@ -82,7 +82,7 @@
 
 ### このドキュメント版の実測値
 
-`bun run test:coverage`：**7188 tests / 605 files / 463447 `expect()` calls**。全ソースコードの**関数カバレッジは 96.84%、行カバレッジは 97.56%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
+`bun run test:coverage`：**7200 tests / 605 files / 463493 `expect()` calls**。全ソースコードの**関数カバレッジは 96.85%、行カバレッジは 97.56%**です。3 言語の各プロジェクト README の Coverage badge は行カバレッジを表示します。
 
 ---
 
