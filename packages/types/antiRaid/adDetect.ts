@@ -37,7 +37,7 @@ export interface AdDetectJsonRequestParams {
   readonly systemPrompt: string;
   /** 本次待处理的用户内容；一律当数据，不承担指令语义。 */
   readonly userContent: string;
-  /** 模型采样温度。 */
+  /** 模型采样温度（仅 OpenAI 兼容传输写入请求体；Anthropic 与 Google 路径省略该字段并沿用各自默认采样行为）。 */
   readonly temperature: number;
   /** 单次响应允许生成的最大输出 token 数。 */
   readonly maxOutputTokens: number;

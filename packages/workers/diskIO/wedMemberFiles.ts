@@ -20,6 +20,7 @@ import type {
   WedMembersDiskMessage,
 } from "../../types/diskIO/messages";
 import { flushDirtyEntries } from "./dirtyFlush";
+import { retainOnlyKeys } from "../../libs/record";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 
 /** `inspectWedMemberFiles` 启动只读校验返回的 `/wed` 成员快照与目录文件名集合。 */
@@ -139,9 +140,7 @@ export function flushWedMemberFiles(
     write,
     describeFailure: (chatId: number): string => `[diskIOWorker] failed to write wed members for chat ${chatId}:`,
   });
-  for (const chatId of pendingWedMembers.keys()) {
-    if (!dirtyWedChats.has(chatId)) pendingWedMembers.delete(chatId);
-  }
+  retainOnlyKeys(pendingWedMembers, dirtyWedChats);
   if (dirtyWedChats.size > 0 || deletedWedChats.size > 0) {
     armDiskIOFlushTimer(wedFileFlushTimer, FLUSH_INTERVAL_MS, flushWedMemberFiles);
   }

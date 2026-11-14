@@ -3,6 +3,7 @@ import {
   isTimeoutAbort,
   raceAbort,
   raceAbortOrThrow,
+  runWithTimeoutSignal,
   signalWithTimeout,
 } from "../../packages/libs/abortSignal";
 
@@ -196,3 +197,65 @@ for (const mode of ["immediate", "later"]) {
     expect(JSON.parse(output)).toEqual({ unhandled: 0, result: "cancelled" });
   });
 }
+
+describe("runWithTimeoutSignal", () => {
+  test("正常完成时返回结果并向 run 传入未中止的组合信号", async (): Promise<void> => {
+    const controller: AbortController = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+    const value: string = await runWithTimeoutSignal({
+      signal: controller.signal,
+      timeoutMs: 60_000,
+      run: async (requestSignal: AbortSignal): Promise<string> => {
+        seenSignal = requestSignal;
+        return "ok";
+      },
+    });
+    expect(value).toBe("ok");
+    expect(seenSignal).toBeDefined();
+    expect(seenSignal?.aborted).toBeFalse();
+  });
+
+  test("调用方信号预先中止时立即抛出且不调用 run", (): void => {
+    const controller: AbortController = new AbortController();
+    controller.abort("pre-aborted");
+    let called: boolean = false;
+    expect((): Promise<string> =>
+      runWithTimeoutSignal({
+        signal: controller.signal,
+        timeoutMs: 60_000,
+        run: async (): Promise<string> => {
+          called = true;
+          return "never";
+        },
+      })
+    ).toThrow("pre-aborted");
+    expect(called).toBeFalse();
+  });
+
+  test("调用方信号在中途取消时立即拒绝", async (): Promise<void> => {
+    const controller: AbortController = new AbortController();
+    let observedAbort: boolean = false;
+    const pending: Promise<string> = runWithTimeoutSignal({
+      signal: controller.signal,
+      timeoutMs: 60_000,
+      run: (requestSignal: AbortSignal): Promise<string> =>
+        new Promise<string>((_resolve: (value: string) => void): void => {
+          requestSignal.addEventListener("abort", (): void => {
+            observedAbort = true;
+          }, { once: true });
+        }),
+    });
+    controller.abort(new Error("mid-flight"));
+    await expect(pending).rejects.toThrow("mid-flight");
+    expect(observedAbort).toBeTrue();
+  });
+
+  test("超时预算耗尽时拒绝并抛出 TimeoutError", async (): Promise<void> => {
+    await expect(
+      runWithTimeoutSignal({
+        timeoutMs: 1,
+        run: (): Promise<string> => new Promise<string>((): void => {}),
+      })
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+});

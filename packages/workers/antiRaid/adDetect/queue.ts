@@ -277,20 +277,29 @@ export function quiesceAdDetectQueue(): void {
 }
 
 /**
+ * 按键谓词同时从待检队列、在队集合与处置抑制表中移除匹配的发送者键。
+ *
+ * @param predicate 匹配目标发送者键的谓词函数。
+ */
+function clearAdDetectKeysWhere(predicate: (key: string) => boolean): void {
+  adDetectQueue.removeWhere(predicate);
+  for (const key of queuedAdDetectKeys) {
+    if (predicate(key)) queuedAdDetectKeys.delete(key);
+  }
+  recentlyDisposedAdKeys.forEach((_disposedAt: number, key: string): void => {
+    if (predicate(key)) recentlyDisposedAdKeys.delete(key);
+  });
+}
+
+/**
  * 清理指定群的待检队列、消息束、处置抑制记录与引用警告状态。
  *
  * @param chatId 目标群 ID。
  */
 export function clearChatAdDetect(chatId: number): void {
   const prefix: string = verificationKeyPrefix(chatId);
-  adDetectQueue.removeWhere((key: string): boolean => key.startsWith(prefix));
-  for (const key of queuedAdDetectKeys) {
-    if (key.startsWith(prefix)) queuedAdDetectKeys.delete(key);
-  }
+  clearAdDetectKeysWhere((key: string): boolean => key.startsWith(prefix));
   deletePendingAdBundlesInChat(chatId);
-  recentlyDisposedAdKeys.forEach((_disposedAt: number, key: string): void => {
-    if (key.startsWith(prefix)) recentlyDisposedAdKeys.delete(key);
-  });
   clearChatReferencedAdWarnings(chatId);
 }
 
@@ -301,15 +310,8 @@ export function clearChatAdDetect(chatId: number): void {
  */
 export function clearIdentityAdDetect(identityId: number): void {
   const suffix: string = verificationKeySuffix(identityId);
-  const belongsToIdentity = (key: string): boolean => key.endsWith(suffix);
-  adDetectQueue.removeWhere(belongsToIdentity);
-  for (const key of queuedAdDetectKeys) {
-    if (belongsToIdentity(key)) queuedAdDetectKeys.delete(key);
-  }
+  clearAdDetectKeysWhere((key: string): boolean => key.endsWith(suffix));
   deletePendingAdBundlesOfSender(identityId);
-  recentlyDisposedAdKeys.forEach((_disposedAt: number, key: string): void => {
-    if (belongsToIdentity(key)) recentlyDisposedAdKeys.delete(key);
-  });
   clearIdentityReferencedAdWarnings(identityId);
 }
 

@@ -9,6 +9,7 @@ import {
   stickerFlushState,
 } from "../../cache/workers/diskIO/stickers";
 import { flushDirtyEntries } from "./dirtyFlush";
+import { retainOnlyKeys } from "../../libs/record";
 import { armDiskIOFlushTimer, cancelDiskIOFlushTimer } from "./timedFlush";
 import { writeStickerCatalogFile } from "./snapshotFiles";
 import type { StickerCatalogFileDependencies } from "../../types/diskIO/snapshotOwners";
@@ -69,12 +70,8 @@ export function flushStickerCatalogs(
     },
     describeFailure: (pack: string): string => `[diskIOWorker] failed to write sticker catalog for pack "${pack}":`,
   });
-  for (const pack of stickerCatalogCache.keys()) {
-    if (!dirtyStickerPacks.has(pack)) stickerCatalogCache.delete(pack);
-  }
-  for (const pack of stickerCatalogRevisions.keys()) {
-    if (!dirtyStickerPacks.has(pack)) stickerCatalogRevisions.delete(pack);
-  }
+  retainOnlyKeys(stickerCatalogCache, dirtyStickerPacks);
+  retainOnlyKeys(stickerCatalogRevisions, dirtyStickerPacks);
   if (dirtyStickerPacks.size > 0) scheduleStickerCatalogFlush();
   return dirtyStickerPacks.size === 0;
 }

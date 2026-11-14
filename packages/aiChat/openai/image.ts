@@ -18,7 +18,7 @@ import {
 import { getAgentDeploymentConfig } from "../../config/agent";
 import { logger } from "../../infra/logger";
 import { reportAiCacheUsage, reportXAiUsage } from "../../infra/aiCacheUsage";
-import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
+import { runWithTimeoutSignal } from "../../libs/abortSignal";
 import { decodeGeneratedImageBySignature } from "../ai/utils/imagePayload";
 import { getOpenAiClient } from "./client";
 import type { AiImageRequest } from "../../types/aiChat/provider";
@@ -273,24 +273,25 @@ export async function generateOpenAiImage(request: AiImageRequest): Promise<Gene
     const config: OpenAiAgentImageCapabilityConfig = capabilityConfig;
     const model: string = config.model;
     const protocol: OpenAiImageProtocol = config.imageProtocol;
-    const requestSignal: AbortSignal = signalWithTimeout(signal, OPENAI_IMAGE_REQUEST_TIMEOUT_MS);
-    const response: OpenAI.Images.ImagesResponse = await raceAbortOrThrow(
-      requestOpenAiCompatibleImage(config, request, requestSignal)
-        .then((result: OpenAI.Images.ImagesResponse): OpenAI.Images.ImagesResponse => {
-          if (protocol === "xai") {
-            reportXAiUsage({ capability: "image", model, usage: result.usage });
-          } else {
-            reportAiCacheUsage({
-              capability: "image", provider: "openai", model,
-              inputTokens: result.usage?.input_tokens,
-              cachedInputTokens: undefined,
-              outputTokens: result.usage?.output_tokens,
-            });
-          }
-          return result;
-        }),
-      requestSignal
-    );
+    const response: OpenAI.Images.ImagesResponse = await runWithTimeoutSignal({
+      signal,
+      timeoutMs: OPENAI_IMAGE_REQUEST_TIMEOUT_MS,
+      run: (requestSignal: AbortSignal): Promise<OpenAI.Images.ImagesResponse> =>
+        requestOpenAiCompatibleImage(config, request, requestSignal)
+          .then((result: OpenAI.Images.ImagesResponse): OpenAI.Images.ImagesResponse => {
+            if (protocol === "xai") {
+              reportXAiUsage({ capability: "image", model, usage: result.usage });
+            } else {
+              reportAiCacheUsage({
+                capability: "image", provider: "openai", model,
+                inputTokens: result.usage?.input_tokens,
+                cachedInputTokens: undefined,
+                outputTokens: result.usage?.output_tokens,
+              });
+            }
+            return result;
+          }),
+    });
     const entry: OpenAI.Images.Image | undefined = response.data?.[0];
     const encoded: string | undefined = entry?.b64_json;
     if (encoded === undefined) {

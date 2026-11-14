@@ -76,7 +76,8 @@ export const AD_DETECT_LINK_URL_MAX_CHARS: number = 256;
 export const AD_DETECT_MAX_OUTPUT_TOKENS: number = 16_384;
 
 /**
- * 广告判定请求的采样温度（供 AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 空正文重采样）。
+ * 广告检测请求的采样温度（供 AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS 空正文重采样；
+ * 仅 OpenAI 兼容传输将该字段写入请求体，Anthropic 与 Google 传输省略以沿用默认采样行为）。
  */
 export const AD_DETECT_TEMPERATURE: number = 0.5;
 

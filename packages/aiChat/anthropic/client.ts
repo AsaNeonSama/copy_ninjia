@@ -11,7 +11,7 @@ import {
   ANTHROPIC_REQUEST_MAX_RETRIES,
   ANTHROPIC_REQUEST_TIMEOUTS_MS,
 } from "../../consts/aiChat/anthropic";
-import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
+import { runWithTimeoutSignal } from "../../libs/abortSignal";
 import { classifyAiTextFailure, finalizeAiTextResult } from "../ai/utils/textResult";
 import { diagnosticWithDetails } from "../ai/utils/finishDetails";
 import {
@@ -92,20 +92,21 @@ export async function requestAnthropicMessage({
     const sentClient: AnthropicClient = client ?? getAnthropicClient(capability);
     requestClient = sentClient;
     requestedModel = body.model;
-    const requestSignal: AbortSignal = signalWithTimeout(signal, ANTHROPIC_REQUEST_TIMEOUTS_MS[capability]);
-    message = await raceAbortOrThrow(
-      sentClient.sdk.beta.messages.create(body, { signal: requestSignal, fallbackState })
-        .then((result: Anthropic.Beta.BetaMessage): Anthropic.Beta.BetaMessage => {
-          reportAnthropicUsage({
-            capability,
-            model: anthropicServedModel(sentClient, body.model, fallbackState),
-            usage: result.usage,
-            searchCalls: countAnthropicWebSearches(result),
-          });
-          return result;
-        }),
-      requestSignal
-    );
+    message = await runWithTimeoutSignal({
+      signal,
+      timeoutMs: ANTHROPIC_REQUEST_TIMEOUTS_MS[capability],
+      run: (requestSignal: AbortSignal): Promise<Anthropic.Beta.BetaMessage> =>
+        sentClient.sdk.beta.messages.create(body, { signal: requestSignal, fallbackState })
+          .then((result: Anthropic.Beta.BetaMessage): Anthropic.Beta.BetaMessage => {
+            reportAnthropicUsage({
+              capability,
+              model: anthropicServedModel(sentClient, body.model, fallbackState),
+              usage: result.usage,
+              searchCalls: countAnthropicWebSearches(result),
+            });
+            return result;
+          }),
+    });
   } catch (error: unknown) {
     if (signal?.aborted === true) return { ok: false, failureKind: "request" };
     if (requestClient !== undefined && requestedModel !== undefined) {

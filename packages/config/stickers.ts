@@ -2,7 +2,8 @@ import { defaultStickerConfigCache } from "../cache/perThread/config";
 import { MAX_CONFIGURED_STICKER_PACKS } from "../consts/aiChat/stickers";
 import { STICKERS_CONFIG_PATH } from "../consts/paths";
 import { hasExactKeys, isPlainRecord } from "../libs/record";
-import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { invalidInput } from "../libs/inputValidation";
+import { ensureConfigSnapshot, loadJsonConfig } from "./snapshotHolder";
 import { parseStickerPackNames } from "./stickerPackNames";
 import type { StickerConfig } from "../types/config";
 
@@ -34,7 +35,7 @@ export function parseStickerConfig(
  * @returns 已通过校验的贴纸包配置。
  */
 export async function loadStickerConfig(): Promise<StickerConfig> {
-  return parseStickerConfig(await readJsonInput(STICKERS_CONFIG_PATH), STICKERS_CONFIG_PATH);
+  return loadJsonConfig(STICKERS_CONFIG_PATH, parseStickerConfig);
 }
 
 /**
@@ -48,8 +49,7 @@ export function adoptStickerConfig(config: StickerConfig | null): void {
 
 /** 启动预检填充默认路径快照；重复调用只读 holder。 */
 export async function ensureStickerConfig(): Promise<void> {
-  if (defaultStickerConfigCache.current !== null) return;
-  adoptStickerConfig(await loadStickerConfig());
+  await ensureConfigSnapshot(defaultStickerConfigCache, loadStickerConfig);
 }
 
 /**

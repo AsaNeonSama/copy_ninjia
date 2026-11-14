@@ -119,6 +119,33 @@ export function raceAbortOrThrow<T>(
   });
 }
 
+/**
+ * 组合超时与调用方取消信号执行独占异步任务的参数。
+ */
+export interface RunWithTimeoutSignalOptions<T> {
+  /** 调用方的取消源；缺省表示只受超时约束。 */
+  readonly signal?: AbortSignal;
+  /** 本次调用独占的超时预算（毫秒）。 */
+  readonly timeoutMs: number;
+  /** 接收合成后取消信号的独占异步任务工厂。 */
+  readonly run: (requestSignal: AbortSignal) => Promise<T>;
+}
+
+/**
+ * 为一次独占异步调用合成独立的超时取消信号，预检查未中止后执行任务并受 `raceAbortOrThrow` 约束。
+ * @param options 调用方信号、超时预算与异步任务回调。
+ * @returns 下游任务的结算结果。
+ */
+export function runWithTimeoutSignal<T>({
+  signal,
+  timeoutMs,
+  run,
+}: RunWithTimeoutSignalOptions<T>): Promise<T> {
+  const requestSignal: AbortSignal = signalWithTimeout(signal, timeoutMs);
+  requestSignal.throwIfAborted();
+  return raceAbortOrThrow(run(requestSignal), requestSignal);
+}
+
 /** raceAbort 的取消源与回退值。同一份共享工作的各个等待者回退值按调用点传入。 */
 export interface RaceAbortOptions<T> {
   /** 本等待者自己的取消源；缺省表示一直等到 promise 结算（此时原样返回 promise）。 */

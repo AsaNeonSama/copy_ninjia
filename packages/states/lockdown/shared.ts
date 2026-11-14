@@ -157,6 +157,15 @@ export function restoringOf({
 }
 
 /**
+ * 构造删除群内私密模式封锁公告消息的副作用描述。
+ * @param messageId 已发布的封锁公告 Telegram 消息 ID。
+ * @returns 删除封锁公告的副作用对象。
+ */
+function deleteAnnouncementEffect(messageId: number): LockdownEffect {
+  return { kind: "deleteLockdownAnnouncement", messageId };
+}
+
+/**
  * 本轮结束时撤掉群里那条封锁公告；ID 未知（没发成功或还在途）就不删。
  * @param state 当前私密模式状态。
  * @returns 删除封锁公告的副作用数组；无消息 ID 时返回空数组。
@@ -164,7 +173,7 @@ export function restoringOf({
 export function announcementCleanupEffects(state: LockdownState): readonly LockdownEffect[] {
   return state.announcementMessageId === undefined
     ? NO_LOCKDOWN_EFFECTS
-    : [{ kind: "deleteLockdownAnnouncement", messageId: state.announcementMessageId }];
+    : [deleteAnnouncementEffect(state.announcementMessageId)];
 }
 
 /**
@@ -174,10 +183,7 @@ export function announcementCleanupEffects(state: LockdownState): readonly Lockd
  */
 export function appendAnnouncementCleanup(effects: LockdownEffect[], state: LockdownState): void {
   if (state.announcementMessageId !== undefined) {
-    effects.push({
-      kind: "deleteLockdownAnnouncement",
-      messageId: state.announcementMessageId,
-    });
+    effects.push(deleteAnnouncementEffect(state.announcementMessageId));
   }
 }
 

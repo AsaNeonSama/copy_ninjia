@@ -36,11 +36,11 @@ const {
   isMediaInputProbeCoolingDown,
   mediaInputProbeCache,
   mediaInputSupportCache,
-  recordMediaInputResult,
   getMediaInputState,
   resetMediaInputSupport,
   setMediaInputProbe,
 } = await import("../../../packages/cache/workers/aiChat/mediaInputSupport");
+const { recordMediaInputResult } = await import("../../../packages/aiChat/ai/mediaInputSupport");
 const {
   IMAGE_DESCRIPTION_MAX_CHARS,
   SHORT_MEDIA_DESCRIPTION_MAX_CHARS,

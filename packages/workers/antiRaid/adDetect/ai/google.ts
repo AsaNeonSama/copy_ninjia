@@ -21,9 +21,9 @@ import {
   AD_DETECT_GEMINI_CACHE_MAX_SLOTS,
   AD_DETECT_GOOGLE_REQUEST_ATTEMPTS,
   AD_DETECT_GOOGLE_REQUEST_TIMEOUT_MS,
-  AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS,
   AD_DETECT_JSON_SCHEMA,
 } from "../../../../consts/antiRaid/adDetect";
+import { requestAdDetectJsonWithRetry } from "./emptyBodyRetry";
 import { GEMINI_API_BASE_URL } from "../../../../consts/aiChat/gemini";
 import { logger } from "../../../../infra/logger";
 import { reportGeminiUsage } from "../../../../infra/aiCacheUsage";
@@ -186,12 +186,14 @@ async function attemptGoogleJson(params: AdDetectJsonRequestParams): Promise<Goo
 export async function requestGoogleAdDetectJson(
   params: AdDetectJsonRequestParams
 ): Promise<string | null> {
-  for (let attempt: number = 1; attempt <= AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS; attempt++) {
-    const result: GoogleAdDetectAttempt | undefined = await attemptGoogleJson(params);
-    if (result === undefined) return null;
-    if (result.body.length > 0) return result.body;
-    if (attempt < AD_DETECT_EMPTY_BODY_MAX_ATTEMPTS) continue;
-    logger.error(`${params.errorLabel} returned no usable body in ${attempt} attempt(s) (${result.abnormal ?? "empty body"}).`);
-  }
-  return null;
+  return requestAdDetectJsonWithRetry<GoogleAdDetectAttempt>({
+    attemptRequest: (): Promise<GoogleAdDetectAttempt | undefined> => attemptGoogleJson(params),
+    extractUsableBody: (result: GoogleAdDetectAttempt): string | null =>
+      result.body.length > 0 ? result.body : null,
+    logExhausted: (result: GoogleAdDetectAttempt, attempts: number): void => {
+      logger.error(
+        `${params.errorLabel} returned no usable body in ${attempts} attempt(s) (${result.abnormal ?? "empty body"}).`
+      );
+    },
+  });
 }

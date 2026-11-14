@@ -70,6 +70,29 @@ export interface VerificationRecoveryInspection {
   readonly shouldCompact: boolean;
 }
 
+/** 待验证日文件名按 `day` 划分的分类结果。 */
+type VerificationDayFileKind =
+  | { readonly kind: "invalid-pattern" }
+  | { readonly kind: "invalid-date" }
+  | { readonly kind: "today" }
+  | { readonly kind: "future" }
+  | { readonly kind: "prior"; readonly day: string };
+
+/**
+ * 解析并分类待验证目录下的单个文件名：区分当日、未来日、早于 `day` 的旧日以及非法命名或日期。
+ * @param name 目录项文件名。
+ * @param day 当前基准 `YYYY-MM-DD` 日期键。
+ * @returns 对应文件名的分类结果。
+ */
+function classifyVerificationDayFile(name: string, day: string): VerificationDayFileKind {
+  const candidate: string | undefined = DAY_FILE_PATTERN.exec(name)?.[1];
+  if (candidate === undefined) return { kind: "invalid-pattern" };
+  if (!isCanonicalDateKey(candidate)) return { kind: "invalid-date" };
+  if (candidate === day) return { kind: "today" };
+  if (candidate > day) return { kind: "future" };
+  return { kind: "prior", day: candidate };
+}
+
 /**
  * 校验目录内 JSON 文件名，提取最新旧日与待清理旧日列表。
  * @param day 当前配置时区的 `YYYY-MM-DD` 日期键。
@@ -90,21 +113,23 @@ function inspectVerificationDirectory(
     if (!name.endsWith(".json")) continue;
     const path: string = join(dir, name);
     if (!entry.isFile()) return invalidInput(path, "$type", "a regular file without symbolic-link indirection");
-    const candidate: string | undefined = DAY_FILE_PATTERN.exec(name)?.[1];
-    if (candidate === undefined) {
-      return invalidInput(path, "$filename", "the canonical <YYYY-MM-DD>.json form");
-    }
-    if (!isCanonicalDateKey(candidate)) {
-      return invalidInput(path, "$filename", "a canonical calendar date");
-    }
-    if (candidate === day) continue;
-    if (candidate > day) {
-      futureDayCount++;
-      continue;
-    }
-    oldDayNames.push(name);
-    if (latestPriorDay === undefined || candidate > latestPriorDay) {
-      latestPriorDay = candidate;
+    const classified: VerificationDayFileKind = classifyVerificationDayFile(name, day);
+    switch (classified.kind) {
+      case "invalid-pattern":
+        return invalidInput(path, "$filename", "the canonical <YYYY-MM-DD>.json form");
+      case "invalid-date":
+        return invalidInput(path, "$filename", "a canonical calendar date");
+      case "today":
+        continue;
+      case "future":
+        futureDayCount++;
+        continue;
+      case "prior":
+        oldDayNames.push(name);
+        if (latestPriorDay === undefined || classified.day > latestPriorDay) {
+          latestPriorDay = classified.day;
+        }
+        break;
     }
   }
   return { latestPriorDay, oldDayNames, futureDayCount };
@@ -151,14 +176,15 @@ function scanVerificationDayFiles(day: string, dir: string): VerificationDirecto
   let futureDayCount: number = 0;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
-    const candidate: string | undefined = DAY_FILE_PATTERN.exec(entry.name)?.[1];
-    if (candidate === undefined || candidate === day) continue;
-    if (candidate > day) {
+    const classified: VerificationDayFileKind = classifyVerificationDayFile(entry.name, day);
+    if (classified.kind === "future") {
       futureDayCount++;
       continue;
     }
-    oldDayNames.push(entry.name);
-    if (latestPriorDay === undefined || candidate > latestPriorDay) latestPriorDay = candidate;
+    if (classified.kind === "prior") {
+      oldDayNames.push(entry.name);
+      if (latestPriorDay === undefined || classified.day > latestPriorDay) latestPriorDay = classified.day;
+    }
   }
   return { latestPriorDay, oldDayNames, futureDayCount };
 }

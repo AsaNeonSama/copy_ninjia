@@ -18,8 +18,8 @@ import type {
 /**
  * media 模型视觉/语音输入支持度的状态机（纯函数，不读时钟、不写缓存、
  * 不记日志）。状态含义与整体设计见 types/aiChat/provider.ts 的
- * MediaInputSupport；holder、探测登记与效果执行在
- * cache/workers/aiChat/mediaInputSupport.ts。
+ * MediaInputSupport；holder 与探测登记在 cache/workers/aiChat/mediaInputSupport.ts，
+ * 效果解释与状态写回在 aiChat/ai/mediaInputSupport.ts。
  */
 
 /**

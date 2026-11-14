@@ -49,8 +49,8 @@ const { openAiClientCache } = await import("../../packages/cache/workers/aiChat/
 const {
   getMediaInputState,
   mediaInputSupportCache,
-  recordMediaInputResult,
 } = await import("../../packages/cache/workers/aiChat/mediaInputSupport");
+const { recordMediaInputResult } = await import("../../packages/aiChat/ai/mediaInputSupport");
 const { geminiProvider } = await import("../../packages/aiChat/gemini");
 const { openAiProvider } = await import("../../packages/aiChat/openai");
 const { anthropicProvider } = await import("../../packages/aiChat/anthropic");

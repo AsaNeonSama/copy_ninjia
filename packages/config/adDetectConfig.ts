@@ -16,7 +16,8 @@ import {
 } from "../consts/commands";
 import { AD_DETECT_CONFIG_PATH } from "../consts/paths";
 import { parseDurationTokenMs } from "../libs/durationToken";
-import { invalidInput, readJsonInput } from "../libs/inputValidation";
+import { invalidInput } from "../libs/inputValidation";
+import { ensureConfigSnapshot, loadJsonConfig } from "./snapshotHolder";
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../libs/record";
 import { sanitizeInline } from "../libs/text";
 import type {
@@ -212,7 +213,7 @@ export function parseAdDetectConfig(
  * @returns 已通过校验的广告检测部署配置。
  */
 export async function loadAdDetectConfig(): Promise<AdDetectConfig> {
-  return parseAdDetectConfig(await readJsonInput(AD_DETECT_CONFIG_PATH), AD_DETECT_CONFIG_PATH);
+  return loadJsonConfig(AD_DETECT_CONFIG_PATH, parseAdDetectConfig);
 }
 
 /**
@@ -226,8 +227,7 @@ export function adoptAdDetectConfig(config: AdDetectConfig | null): void {
 
 /** 启动预检填充默认路径快照；重复调用只读 holder。 */
 export async function ensureAdDetectConfig(): Promise<void> {
-  if (defaultAdDetectConfigCache.current !== null) return;
-  adoptAdDetectConfig(await loadAdDetectConfig());
+  await ensureConfigSnapshot(defaultAdDetectConfigCache, loadAdDetectConfig);
 }
 
 /**

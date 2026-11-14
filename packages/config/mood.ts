@@ -9,7 +9,8 @@ import {
 } from "../consts/aiChat/mood";
 import { MOOD_CONFIG_PATH } from "../consts/paths";
 import { cartesianProduct } from "../libs/cartesianProduct";
-import { invalidInput, readJsonInput, requiredString } from "../libs/inputValidation";
+import { invalidInput, requiredString } from "../libs/inputValidation";
+import { ensureConfigSnapshot, loadJsonConfig } from "./snapshotHolder";
 import { hasExactKeys, hasOnlyKeys, isPlainRecord } from "../libs/record";
 import type { MoodOption, TimeBucket, WeatherBucket } from "../types/aiChat/mood";
 import type { MoodConfig } from "../types/config";
@@ -168,7 +169,7 @@ export function parseMoodConfig(
  * @returns 已通过校验的心情配置。
  */
 export async function loadMoodConfig(): Promise<MoodConfig> {
-  return parseMoodConfig(await readJsonInput(MOOD_CONFIG_PATH), MOOD_CONFIG_PATH);
+  return loadJsonConfig(MOOD_CONFIG_PATH, parseMoodConfig);
 }
 
 /**
@@ -182,8 +183,7 @@ export function adoptMoodConfig(config: MoodConfig | null): void {
 
 /** 启动预检填充默认路径快照；重复调用只读 holder。 */
 export async function ensureMoodConfig(): Promise<void> {
-  if (defaultMoodConfigCache.current !== null) return;
-  adoptMoodConfig(await loadMoodConfig());
+  await ensureConfigSnapshot(defaultMoodConfigCache, loadMoodConfig);
 }
 
 /**

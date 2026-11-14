@@ -5,7 +5,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { BetaFallbackState } from "@anthropic-ai/sdk";
 import {
-  ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS,
   ANTHROPIC_REPLY_ERROR_LABEL,
   ANTHROPIC_REPLY_MAX_TOKENS,
   ANTHROPIC_WEB_SEARCH_TOOL_NAME,
@@ -13,9 +12,14 @@ import {
 } from "../../consts/aiChat/anthropic";
 import { failedReplyTurn, succeededReplyTurn } from "../ai/utils/replyTurn";
 import { getAgentDeploymentConfig } from "../../config/agent";
-import { getAnthropicClient, requestAnthropicMessage } from "./client";
-import { countAnthropicWebSearches, messageText, toolUseCalls } from "./response";
-import type { AnthropicClient, AnthropicRequestResult } from "../../types/aiChat/anthropic";
+import { getAnthropicClient } from "./client";
+import {
+  PAUSE_TURN_CONTINUE,
+  requestAnthropicWithPauseTurn,
+} from "./pauseTurn";
+import type { AnthropicPauseTurnStep, AnthropicRequestFailure } from "./pauseTurn";
+import { messageText, toolUseCalls } from "./response";
+import type { AnthropicClient } from "../../types/aiChat/anthropic";
 import type {
   AiFunctionCall,
   AiReplySession,
@@ -109,51 +113,46 @@ export function createAnthropicReplySession(
       const system: Anthropic.Beta.BetaTextBlockParam[] = [
         { type: "text", text: request.systemPrompt, cache_control: { type: "ephemeral" } },
       ];
-      let paused: Anthropic.Beta.BetaContentBlockParam[] | null = null;
-      let webSearchCalls: number = 0;
       let text: string = "";
-      for (let continuation: number = 0; ; continuation++) {
-        const prefix: Anthropic.Beta.BetaContentBlockParam[] | null = paused;
-        const result: AnthropicRequestResult = await requestAnthropicMessage({
-          capability: "text",
-          buildBody: (): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming => ({
-            model,
-            system,
-            messages: prefix === null ? messages : [...messages, { role: "assistant", content: prefix }],
-            tools,
-            max_tokens: ANTHROPIC_REPLY_MAX_TOKENS,
-            cache_control: { type: "ephemeral" },
-          }),
-          errorLabel: ANTHROPIC_REPLY_ERROR_LABEL,
-          signal,
-          client,
-          fallbackState,
-        });
-        const searches: number = result.message === undefined ? 0 : countAnthropicWebSearches(result.message);
-        webSearchCalls += searches;
-
-        if (!result.ok) {
-          return failedReplyTurn({
-            webSearchCalls,
-            finishReason: result.stopReason,
-            finishDetails: result.stopDetails,
-          });
-        }
-        text += messageText(result.message);
-        const blocks: Anthropic.Beta.BetaContentBlockParam[] = prefix === null
-          ? result.message.content
-          : [...prefix, ...result.message.content];
-        const functionCalls: readonly AiFunctionCall[] = toolUseCalls(result.message);
-        if (result.message.stop_reason === "pause_turn" && functionCalls.length === 0) {
-          if (continuation >= ANTHROPIC_PAUSE_TURN_MAX_CONTINUATIONS) {
-            return failedReplyTurn({ webSearchCalls, finishReason: "pause_turn" });
+      return requestAnthropicWithPauseTurn<AiReplyTurn>({
+        capability: "text",
+        errorLabel: ANTHROPIC_REPLY_ERROR_LABEL,
+        signal,
+        client,
+        fallbackState,
+        buildBody: (
+          prefix: Anthropic.Beta.BetaContentBlockParam[] | null
+        ): Anthropic.Beta.Messages.MessageCreateParamsNonStreaming => ({
+          model,
+          system,
+          messages: prefix === null ? messages : [...messages, { role: "assistant", content: prefix }],
+          tools,
+          max_tokens: ANTHROPIC_REPLY_MAX_TOKENS,
+          cache_control: { type: "ephemeral" },
+        }),
+        onFailure: (failure: AnthropicRequestFailure, webSearchCalls: number): AiReplyTurn => failedReplyTurn({
+          webSearchCalls,
+          finishReason: failure.stopReason,
+          finishDetails: failure.stopDetails,
+        }),
+        handleMessage: ({
+          message,
+          webSearchCalls,
+          blocks,
+        }: AnthropicPauseTurnStep): AiReplyTurn | typeof PAUSE_TURN_CONTINUE => {
+          text += messageText(message);
+          const functionCalls: readonly AiFunctionCall[] = toolUseCalls(message);
+          if (message.stop_reason === "pause_turn" && functionCalls.length === 0) {
+            return PAUSE_TURN_CONTINUE;
           }
-          paused = blocks;
-          continue;
-        }
-        pendingAssistant = blocks;
-        return succeededReplyTurn(text || null, functionCalls, webSearchCalls);
-      }
+          pendingAssistant = blocks;
+          return succeededReplyTurn(text || null, functionCalls, webSearchCalls);
+        },
+        onPauseLimitExceeded: (webSearchCalls: number): AiReplyTurn => failedReplyTurn({
+          webSearchCalls,
+          finishReason: "pause_turn",
+        }),
+      });
     },
 
     appendToolOutputs(outputs: readonly AiToolOutput[]): boolean {

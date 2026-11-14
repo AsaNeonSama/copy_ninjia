@@ -14,7 +14,7 @@ import {
   GEMINI_REQUEST_TIMEOUTS_MS,
   GEMINI_SAFETY_SETTINGS,
 } from "../../consts/aiChat/gemini";
-import { raceAbortOrThrow, signalWithTimeout } from "../../libs/abortSignal";
+import { runWithTimeoutSignal } from "../../libs/abortSignal";
 import { classifyAiTextFailure, finalizeAiTextResult } from "../ai/utils/textResult";
 import { diagnosticWithDetails } from "../ai/utils/finishDetails";
 import {
@@ -79,23 +79,24 @@ export async function requestGeminiResult({
   let data: GenerateContentResponse;
   try {
     body = buildBody();
-    body.config?.abortSignal?.throwIfAborted();
-    const requestSignal: AbortSignal = signalWithTimeout(
-      body.config?.abortSignal,
-      GEMINI_REQUEST_TIMEOUTS_MS[capability]
-    );
-    const model: string = String(body.model);
-    data = await raceAbortOrThrow((client ?? getGeminiClient(capability)).models.generateContent({
-      ...body,
-      config: {
-        ...body.config,
-        safetySettings: [...GEMINI_SAFETY_SETTINGS],
-        abortSignal: requestSignal,
-      },
-    }).then((response: GenerateContentResponse): GenerateContentResponse => {
-      reportGeminiUsage({ capability, model, usage: response.usageMetadata, searchCalls: countGoogleSearchCalls(response) });
-      return response;
-    }), requestSignal);
+    const requestBody: GenerateContentParameters = body;
+    const model: string = String(requestBody.model);
+    data = await runWithTimeoutSignal({
+      signal: requestBody.config?.abortSignal,
+      timeoutMs: GEMINI_REQUEST_TIMEOUTS_MS[capability],
+      run: (requestSignal: AbortSignal): Promise<GenerateContentResponse> =>
+        (client ?? getGeminiClient(capability)).models.generateContent({
+          ...requestBody,
+          config: {
+            ...requestBody.config,
+            safetySettings: [...GEMINI_SAFETY_SETTINGS],
+            abortSignal: requestSignal,
+          },
+        }).then((response: GenerateContentResponse): GenerateContentResponse => {
+          reportGeminiUsage({ capability, model, usage: response.usageMetadata, searchCalls: countGoogleSearchCalls(response) });
+          return response;
+        }),
+    });
   } catch (error: unknown) {
     if (body?.config?.abortSignal?.aborted === true) {
       return { ok: false, failureKind: "request" };
