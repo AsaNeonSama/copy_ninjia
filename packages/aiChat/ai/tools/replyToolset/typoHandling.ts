@@ -22,14 +22,14 @@ import {
   pickTypoCorrectionMode,
 } from "../../utils/typo";
 import { randomDelayMs } from "../../utils/timing";
-import { parseStringField } from "../../utils/toolArgs";
+import { readStringField } from "../../utils/toolArgs";
 import { sendDirectMessage } from "./messageState";
 import { pauseThenSettle } from "./pacing";
 
 /** decideMessageTypo 的入参。 */
 export interface DecideMessageTypoParams {
-  /** 模型传入的工具参数 JSON 字符串。 */
-  argumentsJson: string;
+  /** 已解析的模型工具参数对象；JSON 非法或非普通对象时为 null。 */
+  parsedArgs: Readonly<Record<string, unknown>> | null;
   /** 清洗后的原始消息文本。 */
   text: string;
   /** 本轮回复是否被抽中允许出现错别字。 */
@@ -77,14 +77,14 @@ function typoRejection(
  * @returns 包含待发送文本、可选纠正字、修正模式及拒绝原因的决策结果。
  */
 export function decideMessageTypo({
-  argumentsJson,
+  parsedArgs,
   text,
   roundHasTypo,
   typoAlreadyUsed,
   remainingActions,
 }: DecideMessageTypoParams): TypoDecision {
-  const rawOriginalChar: string | null = parseStringField(argumentsJson, "typo_original_char");
-  const rawReplacementChar: string | null = parseStringField(argumentsJson, "typo_replacement_char");
+  const rawOriginalChar: string | null = readStringField(parsedArgs, "typo_original_char");
+  const rawReplacementChar: string | null = readStringField(parsedArgs, "typo_replacement_char");
   const originalChar: string | null = rawOriginalChar ? rawOriginalChar.trim() : null;
   const replacementChar: string | null = rawReplacementChar ? rawReplacementChar.trim() : null;
   const characterTypo: CharacterTypo | null = originalChar && replacementChar

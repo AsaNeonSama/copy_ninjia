@@ -12,7 +12,12 @@ import {
   RELEASE_REQUIRED_FILES,
   RELEASE_VERSION_PATTERN,
 } from "../../packages/consts/release";
-import { LOGGER_HTTP_URL_PATTERN } from "../../packages/consts/logger";
+import { LOGGER_HTTP_URL_PATTERN, LOGGER_SENSITIVE_FIELD_NAMES } from "../../packages/consts/logger";
+import {
+  AI_CACHE_SUMMARY_ALLOWED_FIELDS,
+  AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS,
+  AI_CACHE_TOTALS_ALLOWED_FIELDS,
+} from "../../packages/consts/diskIO/aiCache";
 import { STORAGE_MIGRATION_LINEAGE } from "../../packages/consts/identityStorage";
 import { AI_WORKER_JOB_ABORTED, AI_WORKER_JOB_TIMED_OUT, AI_WORKER_JOB_UNAVAILABLE } from "../../packages/consts/aiChat/workerJob";
 import { VOICE_LANGUAGE_PROMPTS } from "../../packages/consts/aiChat/prompts/tools";
@@ -31,6 +36,14 @@ function assertReleaseAndLogConstantsReadonly(): void {
   RELEASE_VERSION_PATTERN.lastIndex = 1;
   // @ts-expect-error 日志 URL 表达式的游标禁止调用方改写。
   LOGGER_HTTP_URL_PATTERN.lastIndex = 1;
+  // @ts-expect-error 日志敏感字段名表禁止调用方增删。
+  LOGGER_SENSITIVE_FIELD_NAMES.push("mock-field");
+  // @ts-expect-error AI 用量 token 行允许字段表禁止调用方增删。
+  AI_CACHE_TOKEN_ROW_ALLOWED_FIELDS.push("mockField");
+  // @ts-expect-error AI 用量合计允许字段表禁止调用方增删。
+  AI_CACHE_TOTALS_ALLOWED_FIELDS.push("mockField");
+  // @ts-expect-error AI 用量汇总允许字段表禁止调用方增删。
+  AI_CACHE_SUMMARY_ALLOWED_FIELDS.push("mockField");
 }
 void assertReleaseAndLogConstantsReadonly;
 

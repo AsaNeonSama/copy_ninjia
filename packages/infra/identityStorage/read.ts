@@ -192,6 +192,42 @@ async function readIdentityPolicyChunk(
 }
 
 /**
+ * 判断缓存中指定身份的三项策略字段是否都已填充并刷新该条目 LRU 热度。
+ *
+ * @param id 待检查的用户或频道身份 ID。
+ * @returns 白名单、黑名单与临时免检均已加载时返回 `true`。
+ */
+function touchLoadedIdentityPolicy(id: number): boolean {
+  const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.get(id);
+  return entry?.whitelist !== undefined &&
+    entry.blocklist !== undefined &&
+    entry.temporaryAdBypass !== undefined;
+}
+
+/**
+ * 读取并回填单个分块，失败时记录统一英文错误日志并留冷返回 `false`。
+ *
+ * @param chunk 本次待从 Disk I/O 读取的去重主键分块。
+ * @param totalMissing 本次预热累计缺失的主键数量。
+ * @returns 分块读取与缓存回填成功时返回 `true`，失败返回 `false`。
+ */
+async function prefetchIdentityPolicyChunk(
+  chunk: readonly number[],
+  totalMissing: number
+): Promise<boolean> {
+  try {
+    await readIdentityPolicyChunk(chunk);
+    return true;
+  } catch (error: unknown) {
+    logger.error(
+      `Failed to prefetch ${totalMissing} identity policy row(s); leaving them cold:`,
+      error
+    );
+    return false;
+  }
+}
+
+/**
  * 批量预热合并身份缓存的冷缺失（条目不存在或任一项未加载）；本地未 ACK 最终值覆盖数据库迟到结果。
  * 已缓存的主键按一次使用刷新热度，不会被同一次预热写入的冷键挤出
  * （单块小于 LRU 容量，见 IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES）。
@@ -204,18 +240,33 @@ async function readIdentityPolicyChunk(
 export async function prefetchIdentityPolicies(
   candidateIds: readonly number[]
 ): Promise<boolean> {
+  if (candidateIds.length === 0) return true;
+  if (candidateIds.length === 1) {
+    const id: number = candidateIds[0]!;
+    assertTelegramIdentityId(id, "identity policy prefetch");
+    if (touchLoadedIdentityPolicy(id) || diskIO.isDiskIOInitialized() !== true) return true;
+    return prefetchIdentityPolicyChunk([id], 1);
+  }
+  if (candidateIds.length === 2) {
+    const firstId: number = candidateIds[0]!;
+    const secondId: number = candidateIds[1]!;
+    assertTelegramIdentityId(firstId, "identity policy prefetch");
+    assertTelegramIdentityId(secondId, "identity policy prefetch");
+    const firstMissing: boolean = !touchLoadedIdentityPolicy(firstId);
+    const secondMissing: boolean = secondId !== firstId && !touchLoadedIdentityPolicy(secondId);
+    if ((!firstMissing && !secondMissing) || diskIO.isDiskIOInitialized() !== true) return true;
+    const chunk: readonly number[] = firstMissing && secondMissing
+      ? [firstId, secondId]
+      : [firstMissing ? firstId : secondId];
+    return prefetchIdentityPolicyChunk(chunk, chunk.length);
+  }
   const missing: number[] = [];
   const seen: Set<number> = new Set();
   for (const id of candidateIds) {
     assertTelegramIdentityId(id, "identity policy prefetch");
     if (seen.has(id)) continue;
     seen.add(id);
-    const entry: IdentityPolicyCacheEntry | undefined = identityPolicyCache.get(id);
-    if (
-      entry?.whitelist === undefined ||
-      entry.blocklist === undefined ||
-      entry.temporaryAdBypass === undefined
-    ) {
+    if (!touchLoadedIdentityPolicy(id)) {
       missing.push(id);
     }
   }
@@ -228,17 +279,11 @@ export async function prefetchIdentityPolicies(
     index < missing.length;
     index += IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES
   ) {
-    try {
-      await readIdentityPolicyChunk(
-        missing.slice(index, index + IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES)
-      );
-    } catch (error: unknown) {
-      logger.error(
-        `Failed to prefetch ${missing.length} identity policy row(s); leaving them cold:`,
-        error
-      );
-      return false;
-    }
+    const chunk: readonly number[] = missing.slice(
+      index,
+      index + IDENTITY_PREFETCH_CHUNK_MAX_ENTRIES
+    );
+    if (!await prefetchIdentityPolicyChunk(chunk, missing.length)) return false;
   }
   return true;
 }

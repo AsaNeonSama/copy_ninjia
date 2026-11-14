@@ -87,10 +87,26 @@ function equationOf(operator: VerificationChallengeOperator, random: () => numbe
 }
 
 /**
+ * 用部分 Fisher–Yates 对 `items` 的前 `count` 个位置做无放回等概率抽样并原地交换就位。
+ *
+ * @param items 可变候选整数数组；前 `count` 项即为抽样结果。
+ * @param count 需要抽取的前缀长度（`0 <= count <= items.length`）。
+ * @param random 返回 `[0, 1)` 的随机数函数。
+ */
+function partialShufflePrefix(items: number[], count: number, random: () => number): void {
+  for (let index: number = 0; index < count; index++) {
+    const swapIndex: number = randomIntInclusive(index, items.length - 1, random);
+    const current: number = items[index]!;
+    items[index] = items[swapIndex]!;
+    items[swapIndex] = current;
+  }
+}
+
+/**
  * 生成一道入群验证算术题：等概率抽运算符出题，再定答案在选项里的数值名次（比它小的干扰项个数），
  * 名次在可行范围内均匀抽取。下方干扰项取自 `answer - VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD…answer - 1`
  * 中不小于 0 的整数，上方取自 `answer + 1…answer + VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD`，
- * 两侧各自均匀抽取；最后与正确答案一起打乱成 VERIFICATION_CHALLENGE_OPTION_COUNT 个按钮选项。
+ * 两侧各自用部分 Fisher–Yates 均匀抽满名次与剩余干扰位；最后与正确答案一起打乱成 VERIFICATION_CHALLENGE_OPTION_COUNT 个按钮选项。
  * 答案小于 VERIFICATION_CHALLENGE_OPTION_COUNT - 1 时下方候选不足，名次上限随之收窄（答案为 0 时只能最小）。
  * @param random 返回 [0, 1) 的随机数函数，默认 Math.random。
  * @returns 新生成的算术题。
@@ -113,9 +129,12 @@ export function createVerificationChallenge(random: () => number = Math.random):
     Math.min(lower.length, distractorCount),
     random
   );
-  shuffleInPlace(lower, random);
-  shuffleInPlace(upper, random);
-  const options: number[] = lower.slice(0, rank).concat(upper.slice(0, distractorCount - rank), answer);
+  partialShufflePrefix(lower, rank, random);
+  partialShufflePrefix(upper, distractorCount - rank, random);
+  const options: number[] = [];
+  for (let index: number = 0; index < rank; index++) options.push(lower[index]!);
+  for (let index: number = 0; index < distractorCount - rank; index++) options.push(upper[index]!);
+  options.push(answer);
   shuffleInPlace(options, random);
   return { question, answer, options };
 }

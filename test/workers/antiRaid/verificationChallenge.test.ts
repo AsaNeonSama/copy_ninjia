@@ -27,6 +27,19 @@ function seededRandom(seed: number): () => number {
   };
 }
 
+/** 高位混合的 32 位伪随机源，避免模幂相关影响偏移卡方检验。 */
+function splitMix32Random(seed: number): () => number {
+  let state: number = seed >>> 0;
+  return (): number => {
+    state = (state + 0x9e37_79b9) >>> 0;
+    let mixed: number = state ^ (state >>> 16);
+    mixed = Math.imul(mixed, 0x21f0_aaad);
+    mixed = mixed ^ (mixed >>> 15);
+    mixed = Math.imul(mixed, 0x735a_2d97);
+    return ((mixed ^ (mixed >>> 15)) >>> 0) / 4_294_967_296;
+  };
+}
+
 /** 按题面重新计算答案，并返回运算符与两个操作数。 */
 function evaluate(question: string): { operator: VerificationChallengeOperator; left: number; right: number; value: number } {
   const match: RegExpExecArray | null = QUESTION_PATTERN.exec(question);
@@ -92,14 +105,32 @@ test("大量抽样下题面、答案与选项都满足不变量，四种运算�
 
 test("答案的数值名次在可行名次里均匀抽取：下方候选不足时名次上限收窄，答案为 0 时恒为最小", () => {
   const random: () => number = seededRandom(20_261_107);
+  const offsetRandom: () => number = splitMix32Random(20_261_107);
   const ranksByAnswer = new Map<number, number[]>();
-  for (let index: number = 0; index < SAMPLE_COUNT; index++) {
-    const challenge: VerificationChallenge = createVerificationChallenge(random);
-    const rank: number = challenge.options.filter((option: number): boolean => option < challenge.answer).length;
-    const key: number = Math.min(challenge.answer, VERIFICATION_CHALLENGE_OPTION_COUNT - 1);
-    const counts: number[] = ranksByAnswer.get(key) ?? new Array<number>(VERIFICATION_CHALLENGE_OPTION_COUNT).fill(0);
-    counts[rank] = (counts[rank] ?? 0) + 1;
-    ranksByAnswer.set(key, counts);
+  const lowerOffsets = new Map<number, number>();
+  const upperOffsets = new Map<number, number>();
+  const offsetSampleRounds: number = SAMPLE_COUNT * 4;
+  for (let index: number = 0; index < offsetSampleRounds; index++) {
+    if (index < SAMPLE_COUNT) {
+      const challenge: VerificationChallenge = createVerificationChallenge(random);
+      const rank: number = challenge.options.filter((option: number): boolean => option < challenge.answer).length;
+      const key: number = Math.min(challenge.answer, VERIFICATION_CHALLENGE_OPTION_COUNT - 1);
+      const counts: number[] = ranksByAnswer.get(key) ?? new Array<number>(VERIFICATION_CHALLENGE_OPTION_COUNT).fill(0);
+      counts[rank] = (counts[rank] ?? 0) + 1;
+      ranksByAnswer.set(key, counts);
+    }
+    const offsetChallenge: VerificationChallenge = createVerificationChallenge(offsetRandom);
+    if (offsetChallenge.answer >= VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD) {
+      for (const option of offsetChallenge.options) {
+        if (option < offsetChallenge.answer) {
+          const offset: number = offsetChallenge.answer - option;
+          lowerOffsets.set(offset, (lowerOffsets.get(offset) ?? 0) + 1);
+        } else if (option > offsetChallenge.answer) {
+          const offset: number = option - offsetChallenge.answer;
+          upperOffsets.set(offset, (upperOffsets.get(offset) ?? 0) + 1);
+        }
+      }
+    }
   }
   for (const [answerKey, counts] of ranksByAnswer) {
     const total: number = counts.reduce((sum: number, count: number): number => sum + count, 0);
@@ -117,6 +148,24 @@ test("答案的数值名次在可行名次里均匀抽取：下方候选不足�
   expect([...ranksByAnswer.keys()].sort()).toEqual(
     Array.from({ length: VERIFICATION_CHALLENGE_OPTION_COUNT }, (_: unknown, rank: number): number => rank)
   );
+  const degreesOfFreedom: number = VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD - 1;
+  const chiSquareCriticalBound: number =
+    degreesOfFreedom *
+    (1 - 2 / (9 * degreesOfFreedom) + 3.29 * Math.sqrt(2 / (9 * degreesOfFreedom))) ** 3;
+  for (const offsetCounts of [lowerOffsets, upperOffsets]) {
+    let total: number = 0;
+    for (let offset: number = 1; offset <= VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD; offset++) {
+      total += offsetCounts.get(offset) ?? 0;
+    }
+    expect(total).toBeGreaterThan(SAMPLE_COUNT);
+    const expected: number = total / VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD;
+    let chiSquare: number = 0;
+    for (let offset: number = 1; offset <= VERIFICATION_CHALLENGE_DISTRACTOR_SPREAD; offset++) {
+      const diff: number = (offsetCounts.get(offset) ?? 0) - expected;
+      chiSquare += (diff * diff) / expected;
+    }
+    expect(chiSquare).toBeLessThan(chiSquareCriticalBound);
+  }
 });
 
 test("默认使用 Math.random，每次生成新的题目对象", () => {

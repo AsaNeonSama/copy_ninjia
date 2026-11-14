@@ -144,13 +144,23 @@ export interface StorageReadStatement<TRow> {
 }
 
 /**
+ * `prepare().get()` 的按主键单行读语句形态；占位值原样写成 `Record<string, unknown>`。
+ */
+export interface StorageReadByIdStatement<TRow> {
+  readonly get: (values?: Record<string, unknown>) => TRow | undefined;
+}
+
+/**
  * 预热与容量闸用的整套预编译读语句，随连接一起存活：三张身份表按 `ids` 占位
- * （JSON 数组文本，经 SQLite `json_each` 展开）批量读取，群状态表只读主键。
+ * （JSON 数组文本，经 SQLite `json_each` 展开）批量读取，并各附一条 `WHERE id = :id` 单行快路径语句；群状态表只读主键。
  */
 export interface StorageDatabaseReader {
   readonly whitelistPolicies: StorageReadStatement<StoredIdentityPolicyRow>;
+  readonly whitelistPolicyById: StorageReadByIdStatement<StoredIdentityPolicyRow>;
   readonly blocklistPolicies: StorageReadStatement<StoredIdentityPolicyRow>;
+  readonly blocklistPolicyById: StorageReadByIdStatement<StoredIdentityPolicyRow>;
   readonly temporaryAdBypassActivities: StorageReadStatement<StoredTemporaryAdBypassActivity>;
+  readonly temporaryAdBypassActivityById: StorageReadByIdStatement<StoredTemporaryAdBypassActivity>;
   readonly chatStateIds: StorageReadStatement<Pick<StoredChatStateRow, "chatId">>;
 }
 

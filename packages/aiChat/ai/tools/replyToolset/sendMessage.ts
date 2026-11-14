@@ -10,7 +10,7 @@ import type {
 import type { ChatActionControl } from "../../../../types/aiChat/chatAction";
 import { cleanReply, isEmojiOnly } from "../../utils/replyText";
 import { typingDelayMs } from "../../utils/timing";
-import { parseBooleanField, parseStringField } from "../../utils/toolArgs";
+import { parseToolArguments, readBooleanField, readStringField } from "../../utils/toolArgs";
 import { modelAuthoredTextPolicyResult } from "./modelAuthoredText";
 import { acceptRoundText, reserveCorrectionText, sendDirectMessage } from "./messageState";
 import { pauseThenSettle } from "./pacing";
@@ -21,12 +21,14 @@ import {
 import type { TypoDecision } from "../../../../types/aiChat/typo";
 
 /**
- * 解析并清洗 send_message 的 text 入参；清洗后为空返回 null。
- * @param argumentsJson 模型传入的工具参数 JSON 字符串。
+ * 从已解析的参数对象提取并清洗 send_message 的 text 入参；缺失或清洗后为空返回 null。
+ * @param parsedArgs 已解析的普通键值参数对象；解析失败时为 null。
  * @returns 清洗后的非空消息文本；缺失或清洗后为空时返回 null。
  */
-function parseCleanMessageText(argumentsJson: string): string | null {
-  const raw: string | null = parseStringField(argumentsJson, "text");
+function parseCleanMessageText(
+  parsedArgs: Readonly<Record<string, unknown>> | null
+): string | null {
+  const raw: string | null = readStringField(parsedArgs, "text");
   return raw === null ? null : cleanReply(raw);
 }
 
@@ -46,7 +48,8 @@ export function createSendMessageExecutor(
     if (!ctx.isActive()) {
       return toolError(REPLY_INVALIDATED_TOOL_ERROR);
     }
-    const text: string | null = parseCleanMessageText(argumentsJson);
+    const parsedArgs: Record<string, unknown> | null = parseToolArguments(argumentsJson);
+    const text: string | null = parseCleanMessageText(parsedArgs);
     if (!text) return toolError("Invalid or empty text");
     if (isEmojiOnly(text)) {
       return toolError(
@@ -57,7 +60,7 @@ export function createSendMessageExecutor(
     if (policyResult !== null) return policyResult;
 
     const typo: TypoDecision = decideMessageTypo({
-      argumentsJson,
+      parsedArgs,
       text,
       roundHasTypo: ctx.roundHasTypo,
       typoAlreadyUsed: state.typoUsedThisRound,
@@ -68,7 +71,7 @@ export function createSendMessageExecutor(
     if (typo.shouldUseTypo && typo.correctionText) reserveCorrectionText(state, typo.correctionText);
     const correctTypo: boolean = typo.shouldUseTypo && typo.mode === "quick" &&
       typo.correctionText !== null;
-    const replyToTrigger: boolean = parseBooleanField(argumentsJson, "reply_to_trigger");
+    const replyToTrigger: boolean = readBooleanField(parsedArgs, "reply_to_trigger");
     const replyToMessageId: number | undefined = replyToTrigger ? ctx.replyToMessageId : undefined;
     return {
       result: JSON.stringify({

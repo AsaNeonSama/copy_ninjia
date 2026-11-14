@@ -80,6 +80,20 @@ function currentSecrets(): LogRedactionSecrets {
 }
 
 /**
+ * 把已经过字面凭据替换的 JSON 文本解析为断开引用的 JS 值；文本已被替换破坏合法性时按原文保留。
+ *
+ * @param redacted 经 `redactSecretsInText` 处理后的 JSON 片段。
+ * @returns 解析出的 JSON 值或退化文本。
+ */
+function parseRedactedJson(redacted: string): unknown {
+  try {
+    return JSON.parse(redacted);
+  } catch {
+    return redacted;
+  }
+}
+
+/**
  * 把任意日志参数转成可 JSON 序列化的值。Error（含 GrammyError 等子类）
  * 由 serializeError 展开（含嵌套 Error）；其余对象尝试 JSON 序列化，
  * 失败（循环引用等）则退化为字符串。
@@ -96,6 +110,34 @@ function serializeArg(arg: unknown, budget: SerializationBudget): unknown {
   if (typeof arg === "string") {
     return redactSensitiveFieldsInText(redactSecretsInText(arg, secrets.text));
   }
+  if (
+    arg === null ||
+    arg === undefined ||
+    typeof arg === "symbol" ||
+    (typeof arg === "function" && !("toJSON" in arg))
+  ) {
+    if (secrets.json.length === 0) return null;
+    const redacted: string = redactSecretsInText("null", secrets.json);
+    return redacted === "null" ? null : parseRedactedJson(redacted);
+  }
+  if (typeof arg === "boolean") {
+    if (secrets.json.length === 0) return arg;
+    const text: string = arg ? "true" : "false";
+    const redacted: string = redactSecretsInText(text, secrets.json);
+    return redacted === text ? arg : parseRedactedJson(redacted);
+  }
+  if (typeof arg === "number") {
+    if (!Number.isFinite(arg)) {
+      if (secrets.json.length === 0) return null;
+      const redacted: string = redactSecretsInText("null", secrets.json);
+      return redacted === "null" ? null : parseRedactedJson(redacted);
+    }
+    const normalized: number = arg === 0 ? 0 : arg;
+    if (secrets.json.length === 0) return normalized;
+    const text: string = String(normalized);
+    const redacted: string = redactSecretsInText(text, secrets.json);
+    return redacted === text ? normalized : parseRedactedJson(redacted);
+  }
 
   const error: Error | null = asError(arg);
   const serializable: unknown = error !== null
@@ -104,11 +146,7 @@ function serializeArg(arg: unknown, budget: SerializationBudget): unknown {
 
   const redacted: string = redactSecretsInText(safeStringify(serializable, secrets.replacer), secrets.json);
   // 脱敏是对整份 JSON 文本做字面替换，结果可能不是合法 JSON；解析失败时返回脱敏后的文本。
-  try {
-    return JSON.parse(redacted);
-  } catch {
-    return redacted;
-  }
+  return parseRedactedJson(redacted);
 }
 
 /**
@@ -235,6 +273,14 @@ function ownErrorProperties(
     const value: unknown = descriptor.value;
     // JSON 不能表达 undefined，显式跳过。
     if (value === undefined) continue;
+    if (value === null || typeof value === "boolean" || typeof value === "string") {
+      own[key] = value;
+      continue;
+    }
+    if (typeof value === "number") {
+      own[key] = Number.isFinite(value) ? (value === 0 ? 0 : value) : null;
+      continue;
+    }
     const nested: Error | null = asError(value);
     if (nested === null && !aggregateErrors) {
       own[key] = JSON.parse(safeStringify(value, budget.secrets.replacer));

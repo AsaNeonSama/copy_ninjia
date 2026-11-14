@@ -146,6 +146,37 @@ export function deleteReferencedAdMessages({
   });
 }
 
+/** appendDisposalEntryIds 的入参。 */
+export interface AppendDisposalEntryIdsParams {
+  /** 待收集消息 ID 的候选条目列表。 */
+  readonly entries: readonly AdCandidateEntry[];
+  /** 已收集的消息 ID 去重集合。 */
+  readonly seen: Set<number>;
+  /** 按遍历顺序追加消息 ID 的目标数组。 */
+  readonly ids: number[];
+  /** 允许计入的最大消息 ID（含）。 */
+  readonly messageIdThrough: number;
+}
+
+/**
+ * 按条目顺序将不大于 `messageIdThrough` 且未见过的消息 ID 追加进 `ids`。
+ *
+ * @param params 候选条目、已见集合、输出数组与消息 ID 上界。
+ */
+function appendDisposalEntryIds({
+  entries,
+  seen,
+  ids,
+  messageIdThrough,
+}: AppendDisposalEntryIdsParams): void {
+  for (const entry of entries) {
+    if (entry.messageId > messageIdThrough) continue;
+    if (seen.has(entry.messageId)) continue;
+    seen.add(entry.messageId);
+    ids.push(entry.messageId);
+  }
+}
+
 /**
  * 汇总本次处置需删除的消息 ID 集合（送检条目 ∪ 当前束内条目 ∪ 淘汰转存的 pendingDeleteIds）。
  *
@@ -160,12 +191,8 @@ function disposalMessageIds({
 }: DisposalMessageIdsParams): number[] {
   const ids: number[] = [];
   const seen: Set<number> = new Set<number>();
-  for (const entry of [...judged, ...current]) {
-    if (entry.messageId > messageIdThrough) continue;
-    if (seen.has(entry.messageId)) continue;
-    seen.add(entry.messageId);
-    ids.push(entry.messageId);
-  }
+  appendDisposalEntryIds({ entries: judged, seen, ids, messageIdThrough });
+  appendDisposalEntryIds({ entries: current, seen, ids, messageIdThrough });
   for (const messageId of evictedIds) {
     if (messageId > messageIdThrough || seen.has(messageId)) continue;
     seen.add(messageId);

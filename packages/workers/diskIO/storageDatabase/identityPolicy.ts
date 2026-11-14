@@ -45,6 +45,7 @@ import type {
   StoredTemporaryAdBypassActivity,
 } from "../../../types/temporaryAdBypass";
 import type {
+  StorageDatabaseReader,
   StoredIdentityIdLookup,
   StoredIdentityIdLookups,
   StoredIdentityPolicyRow,
@@ -218,8 +219,20 @@ function assertOppositePolicyAbsent(message: IdentityPolicyWriteDiskMessage): vo
 function temporaryAdBypassRowsWithPending(
   ids: readonly number[]
 ): readonly StoredTemporaryAdBypassActivity[] {
+  if (ids.length === 0) return [];
+  const reader: StorageDatabaseReader = requireStorageDatabaseReader();
+  if (ids.length === 1) {
+    const id: number = ids[0]!;
+    const pending: PendingTemporaryAdBypassWrite | undefined = pendingTemporaryAdBypassWrites.get(id);
+    if (pending !== undefined) {
+      return pending.activity === null ? [] : [{ id, ...pending.activity }];
+    }
+    const row: StoredTemporaryAdBypassActivity | undefined =
+      reader.temporaryAdBypassActivityById.get({ id });
+    return row === undefined ? [] : [row];
+  }
   const rows: readonly StoredTemporaryAdBypassActivity[] =
-    readStoredTemporaryAdBypassActivities(requireStorageDatabaseReader(), ids);
+    readStoredTemporaryAdBypassActivities(reader, ids);
   const values: Map<number, StoredTemporaryAdBypassActivity> = new Map();
   for (const row of rows) values.set(row.id, row);
   for (const id of ids) {
@@ -289,8 +302,20 @@ function policyRowsWithPending(
   ids: readonly number[]
 ): readonly (readonly [number, string])[] {
   if (ids.length === 0) return [];
+  const reader: StorageDatabaseReader = requireStorageDatabaseReader();
+  if (ids.length === 1) {
+    const id: number = ids[0]!;
+    const pending: PendingIdentityPolicyWrite | undefined = pendingPolicyMap(table).get(id);
+    if (pending !== undefined) {
+      return pending.data === null ? [] : [[id, pending.data]];
+    }
+    const row: StoredIdentityPolicyRow | undefined = (
+      table === "whitelist" ? reader.whitelistPolicyById : reader.blocklistPolicyById
+    ).get({ id });
+    return row === undefined ? [] : [[row.id, row.data]];
+  }
   const rows: readonly StoredIdentityPolicyRow[] = readStoredIdentityPolicies(
-    requireStorageDatabaseReader(),
+    reader,
     table,
     ids
   );
@@ -314,7 +339,9 @@ export function readIdentityPolicies(
   message: ReadIdentityPoliciesRequest
 ): IdentityPoliciesReadReply {
   try {
-    const ids: number[] = [...new Set<number>(message.ids)];
+    const ids: readonly number[] = message.ids.length === 1
+      ? message.ids
+      : [...new Set<number>(message.ids)];
     for (const id of ids) {
       assertTelegramIdentityId(id, `${IDENTITY_DATABASE_PATH}:readIdentityPolicies`);
     }

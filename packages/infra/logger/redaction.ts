@@ -1,5 +1,10 @@
 /** 日志结构化字段脱敏与独立值的安全 JSON 编码。 */
-import { LOGGER_HTTP_URL_PATTERN, LOGGER_UNSERIALIZABLE_VALUE } from "../../consts/logger";
+import {
+  LOGGER_HTTP_URL_PATTERN,
+  LOGGER_SENSITIVE_FIELD_MAX_LENGTH,
+  LOGGER_SENSITIVE_FIELD_MIN_LENGTH,
+  LOGGER_UNSERIALIZABLE_VALUE,
+} from "../../consts/logger";
 import { REDACTED_SECRET } from "../../consts/redaction";
 import { redactSecretsInText, redactUrlForLog } from "../../libs/redaction";
 import type { LogRedactionReplacer } from "../../types/logger";
@@ -7,13 +12,18 @@ import type { LogRedactionReplacer } from "../../types/logger";
 /**
  * 判断一个 JSON 字段名是否直接承载凭据。
  *
- * 不依赖配置值级替换，按字段名精确匹配（大小写不敏感），覆盖 SDK 错误对象附带的
- * 上游响应头（如 `set-cookie`）；`output_tokens`、request id 等诊断字段不匹配。
+ * 不依赖配置值级替换，先按 `LOGGER_SENSITIVE_FIELD_MIN_LENGTH` / `LOGGER_SENSITIVE_FIELD_MAX_LENGTH`
+ * 剪枝，再按字段名精确匹配（大小写不敏感），覆盖 SDK 错误对象附带的上游响应头（如 `set-cookie`）；
+ * `output_tokens`、request id 等诊断字段不匹配。
  *
  * @param key 待判断的 JSON 属性名或 HTTP 头字段名。
  * @returns 命中敏感凭据字段名列表时返回 `true`，否则返回 `false`。
  */
 function isSensitiveLogField(key: string): boolean {
+  if (
+    key.length < LOGGER_SENSITIVE_FIELD_MIN_LENGTH ||
+    key.length > LOGGER_SENSITIVE_FIELD_MAX_LENGTH
+  ) return false;
   switch (key.toLowerCase()) {
     case "authorization":
     case "proxy-authorization":
@@ -98,8 +108,10 @@ function hasSensitiveLogFieldBefore(text: string, separator: number): boolean {
   let start: number = end;
   while (start > 0 && isLogFieldNameCharacter(text.charCodeAt(start - 1))) start--;
   const length: number = end - start;
-  // 当前敏感键最短 token、最长 proxy-authorization；先筛掉绝大多数普通字段。
-  if (length < 5 || length > 19) return false;
+  if (
+    length < LOGGER_SENSITIVE_FIELD_MIN_LENGTH ||
+    length > LOGGER_SENSITIVE_FIELD_MAX_LENGTH
+  ) return false;
   return isSensitiveLogField(text.slice(start, end));
 }
 

@@ -28,7 +28,7 @@ import { MARKDOWN_V2_PARSE_MODE } from "../consts/telegramMarkdown";
 import { pickRandomImage } from "../infra/imageGallery";
 import { getAssetConfig } from "../config/assets";
 import { runTelegramAction } from "../infra/telegram/actions/core";
-import { toTelegramSendResult } from "../infra/telegram/actions/sendResult";
+import { markSelfSent } from "../infra/selfSentTracker";
 import { telegramErrorDetails } from "../infra/telegram/errors";
 import { bot } from "../infra/telegram/mainClient";
 import { TelegramSendQueueFullError } from "../infra/telegram/sendScheduler";
@@ -72,7 +72,7 @@ function classifyFailure(error: unknown): CronDeliveryOutcome {
  * @param message Telegram 已发出的消息
  */
 function recordSentMessage(chatId: number, message: Message): void {
-  toTelegramSendResult(chatId, message);
+  markSelfSent(chatId, message.message_id);
   if (message.photo !== undefined) {
     recordBotImage({ chatId, messageId: message.message_id, caption: message.caption ?? "", edited: false });
   }

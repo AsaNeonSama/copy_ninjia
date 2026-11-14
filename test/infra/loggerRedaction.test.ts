@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import {
+  LOGGER_SENSITIVE_FIELD_MAX_LENGTH,
+  LOGGER_SENSITIVE_FIELD_MIN_LENGTH,
+  LOGGER_SENSITIVE_FIELD_NAMES,
+} from "../../packages/consts/logger";
 import { REDACTED_SECRET } from "../../packages/consts/redaction";
-import { redactSensitiveFieldsInText } from "../../packages/infra/logger/redaction";
+import {
+  createLogRedactionReplacer,
+  redactSensitiveFieldsInText,
+} from "../../packages/infra/logger/redaction";
+import type { LogRedactionReplacer } from "../../packages/types/logger";
 
 describe("文本内嵌凭据字段的值边界", () => {
   test("引号值里的转义引号不提前结束扫描，密钥尾段不会漏出", () => {
@@ -43,5 +52,28 @@ describe("文本内嵌凭据字段的值边界", () => {
       .toBe(`token=${REDACTED_SECRET}`);
     expect(redactSensitiveFieldsInText("cookie: [{\"name\":\"secret-5\"}, \"tail\""))
       .toBe(`cookie: ${REDACTED_SECRET}`);
+  });
+
+  test("敏感字段清单与长度边界常量保持一致，且 replacer 对全量敏感字段大小写无关脱敏", () => {
+    const lengths: number[] = LOGGER_SENSITIVE_FIELD_NAMES.map((name: string): number => name.length);
+    expect(LOGGER_SENSITIVE_FIELD_MIN_LENGTH).toBe(Math.min(...lengths));
+    expect(LOGGER_SENSITIVE_FIELD_MAX_LENGTH).toBe(Math.max(...lengths));
+
+    const replacer: LogRedactionReplacer = createLogRedactionReplacer([]);
+    for (const field of LOGGER_SENSITIVE_FIELD_NAMES) {
+      const upper: string = field.toUpperCase();
+      const mixed: string = field[0]!.toUpperCase() + field.slice(1);
+      const encoded: string = JSON.stringify(
+        { [field]: "v1", [upper]: "v2", [mixed]: "v3", ok: true, "x-proxy-authorization": "keep" },
+        replacer
+      );
+      expect(JSON.parse(encoded)).toEqual({
+        [field]: REDACTED_SECRET,
+        [upper]: REDACTED_SECRET,
+        [mixed]: REDACTED_SECRET,
+        ok: true,
+        "x-proxy-authorization": "keep",
+      });
+    }
   });
 });

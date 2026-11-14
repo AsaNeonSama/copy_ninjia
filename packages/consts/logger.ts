@@ -1,6 +1,40 @@
 /** logger 无法安全读取或序列化某个值时使用的静态占位符；不得调用故障对象的方法生成兜底。 */
 export const LOGGER_UNSERIALIZABLE_VALUE: string = "[unserializable value]";
 
+/**
+ * JSON 日志与嵌入文本按字段名脱敏的全部全小写敏感字段清单（包含 HTTP 常见凭据头）。
+ * 增删条目时须同步核对最短与最长字段长度常量；所属模块：infra/logger/redaction.ts。
+ */
+export const LOGGER_SENSITIVE_FIELD_NAMES: readonly string[] = [
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "api-key",
+  "apikey",
+  "api_key",
+  "token",
+  "access-token",
+  "access_token",
+  "accesstoken",
+  "refresh-token",
+  "refresh_token",
+  "refreshtoken",
+  "client-secret",
+  "client_secret",
+  "clientsecret",
+  "password",
+  "passwd",
+  "secret",
+];
+
+/** LOGGER_SENSITIVE_FIELD_NAMES 中最短敏感字段名的字符长度，用于 switch 前的零分配长度剪枝；所属模块：infra/logger/redaction.ts。 */
+export const LOGGER_SENSITIVE_FIELD_MIN_LENGTH: number = 5;
+
+/** LOGGER_SENSITIVE_FIELD_NAMES 中最长敏感字段名的字符长度，用于 switch 前的零分配长度剪枝；所属模块：infra/logger/redaction.ts。 */
+export const LOGGER_SENSITIVE_FIELD_MAX_LENGTH: number = 19;
+
 /** 日志字符串中的 HTTP(S) URL 边界；统一移除查询串、fragment 与 userinfo，所属模块：infra/logger/redaction.ts。 */
 export const LOGGER_HTTP_URL_PATTERN: Readonly<RegExp> = /https?:\/\/[^\s"<>]+/giu;
 
